@@ -208,19 +208,29 @@ def observer_board(world) -> str:
 
 
 def observer_map(world) -> str:
-    """Observer 用的整张 ASCII 地图：大写字母=该国占领，小写=无人荒野的地形。"""
+    """Observer 整张世界地图：大写字母=该国占领并**按国别着色**，小写=无人地形（不着色）。
+
+    颜色只落在"国家占领区"，好一眼看出势力版图；荒野/野人维持字母不着色。
+    纯观感（各国 agent 看不到这张图），用支持 ANSI 的终端看 mp_map.txt 即为彩色。
+    """
+    palette = ["91", "32", "94", "35", "96", "33", "92", "34", "95", "93", "36", "97"]
     ch = {}
+    col = {}
+    j = 0
     for i, n in enumerate(world.order):
         if n in world.nations:
             ch[n] = chr(65 + i) if i < 26 else str(i - 25)
-    rows = []
-    for y in range(world.size):
-        line = []
-        for x in range(world.size):
-            o = world.owned_by(x, y)
-            line.append(ch[o] if o else world.ter_char(x, y).lower())
-        rows.append("".join(line))
-    legend = " ".join(f"{ch[n]}={n}" for n in world.order if n in ch)
+            col[n] = palette[j % len(palette)]
+            j += 1
+
+    def cell(x: int, y: int) -> str:
+        o = world.owned_by(x, y)
+        if o:
+            return f"\033[{col[o]}m{ch[o]}\033[0m"  # 占领区：着色大写字母
+        return world.ter_char(x, y).lower()          # 荒野：不着色小写
+
+    rows = ["".join(cell(x, y) for x in range(world.size)) for y in range(world.size)]
+    legend = " ".join(f"\033[{col[n]}m{ch[n]}\033[0m={n}" for n in world.order if n in ch)
     return "\n".join(rows) + f"\n地图例：{legend} | 小写p/f/h/m/d=平原/森林/丘陵/山地/沙漠（无人）野人亦在其上"
 
 
