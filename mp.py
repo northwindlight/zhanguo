@@ -85,6 +85,9 @@ class World:
         self.mail_pending: list[dict] = []
         self.mailbox: dict[str, list[dict]] = {}
         self.summaries: dict[str, list[str]] = {}  # 各国近 10 回合小结纪事（私有，本国 AI 记忆）
+        self.gift_pending: list[dict] = []         # 馈赠在途（下回合到账）
+        self.map_pending: list[dict] = []          # 交换地图在途（下回合到账）
+        self.maps: dict[str, list[dict]] = {}      # 各国收到的地图情报（{from,turn,text}，留最近3张）
         self.peace_offers: list[dict] = []
         self.proposals: list[dict] = []
         self._offer_id = 1
@@ -605,6 +608,9 @@ class World:
             s.discard(name)
         self.mailbox.pop(name, None)
         self.summaries.pop(name, None)
+        self.maps.pop(name, None)
+        self.gift_pending = [g for g in self.gift_pending if g["from"] != name and g["to"] != name]
+        self.map_pending = [m for m in self.map_pending if m["from"] != name and m["to"] != name]
         self.mail_pending = [m for m in self.mail_pending if m["to"] != name and m["from"] != name]
         self.peace_offers = [p for p in self.peace_offers if p["a"] != name and p["b"] != name]
         self.proposals = [p for p in self.proposals if p["a"] != name and p["b"] != name]
@@ -801,6 +807,26 @@ class World:
         for m in due:
             if m["to"] in self.nations:
                 self.log(f"📮 {m['to']} 收到 {m['from']} 的信", phase="事件", nation=m["to"])
+        # 在途馈赠：下回合到账；收方已亡国则退回
+        due_g = [g for g in self.gift_pending if g["arrive"] <= self.turn]
+        self.gift_pending = [g for g in self.gift_pending if g["arrive"] > self.turn]
+        for g in due_g:
+            if g["to"] not in self.nations:
+                if g["from"] in self.nations:
+                    self.add_res(g["from"], g["good"], g["n"])  # 退回
+                continue
+            self.add_res(g["to"], g["good"], g["n"])
+            self.log(f"🎁 {g['from']} 赠你的 {g['good']}×{g['n']} 到账", phase="事件", nation=g["to"])
+        # 在途地图情报：下回合到账
+        due_m = [m for m in self.map_pending if m["arrive"] <= self.turn]
+        self.map_pending = [m for m in self.map_pending if m["arrive"] > self.turn]
+        for m in due_m:
+            if m["to"] not in self.nations:
+                continue
+            store = self.maps.setdefault(m["to"], [])
+            store.append({"from": m["from"], "turn": m["arrive"], "text": m["text"]})
+            del store[:-3]  # 只留最近 3 张图，控体积
+            self.log(f"🗺 {m['to']} 收到 {m['from']} 的地图", phase="事件", nation=m["to"])
         return len(due)
 
     # ------------------------------------------------------------- 市场
@@ -852,6 +878,51 @@ class World:
         self.mail_pending.append({"from": frm, "to": to, "text": text, "arrive": self.turn + 1})
         # 信件正文不单独记一条（信件=一次行动，正文已在行动行里）；送达时另有"收到信"事件+收件箱
         return True, f"信已发出，{to} 将于第 {self.turn+1} 回合收到"
+
+    # ------------------------------------------------------------- 外交馈赠
+    def gift(self, frm: str, to: str, good: str, n: int) -> tuple[bool, str]:
+        """馈赠：把本国储备赠与他国（粮木矿油装补给或黄金）。本回合垫支扣出，下回合到账。"""
+        if frm not in self.nations or to not in self.nations:
+            return False, "馈赠双方都必须是现存国家"
+        if to == frm:
+            return False, "不能赠给自己"
+        if good not in RES_KEYS:
+            return False, f"不可赠送：{good}（可赠：{'/'.join(RES_KEYS)}）"
+        if not isinstance(n, int) or n <= 0:
+            return False, "数量需为正整数"
+        have = self.res(frm, good)
+        if have < n:
+            return False, f"你{good}不够：现 {have}，赠不出 {n}"
+        self.add_res(frm, good, -n)  # 先垫支扣出（锁住）
+        self.gift_pending.append({"from": frm, "to": to, "good": good, "n": n,
+                                  "arrive": self.turn + 1})
+        return True, f"已赠 {to} {good}×{n}（你余 {self.res(frm, good)}），将于第 {self.turn+1} 回合到账"
+
+    # ------------------------------------------------------------- 交换地图
+    def _map_snapshot(self, n: str) -> str:
+        """把某国的"已知地图"做成文本：全部国土块 + 边界外可见块，全部带坐标（不截断）。"""
+        own = self.own_tiles(n)
+        fr = sorted(self.frontier_of(n))
+        L = [f"{n} 已知地图：国土 {len(own)} 块、边界外可拓地 {len(fr)} 格（全部坐标）"]
+        for p in own:
+            t = self.tiles[p]
+            L.append(f"  {t.get('name', '?')} {t['terrain']}({p[0] + 1},{p[1] + 1}) "
+                     f"城L{t['buildings']['城堡']} 位{sum(t['buildings'].values())}")
+        if fr:
+            L.append("  边界外可见（未占）:")
+            for p in fr:
+                L.append(f"  {self.tile_terrain(*p)}({p[0] + 1},{p[1] + 1})")
+        return "\n".join(L)
+
+    def share_map(self, frm: str, to: str) -> tuple[bool, str]:
+        """把你的已知地图发给别国（交换情报/展示势力），下回合到对方【地图情报】。"""
+        if frm not in self.nations or to not in self.nations:
+            return False, "交换地图双方都必须是现存国家"
+        if to == frm:
+            return False, "不能把地图发给自己"
+        self.map_pending.append({"from": frm, "to": to, "text": self._map_snapshot(frm),
+                                 "arrive": self.turn + 1})
+        return True, f"已把你的地图发给 {to}，将于第 {self.turn+1} 回合到账"
 
     # ------------------------------------------------------------- 外交
     def _next_offer_id(self) -> int:
@@ -1057,6 +1128,9 @@ class World:
             "mail_pending": self.mail_pending,
             "mailbox": self.mailbox,
             "summaries": self.summaries,
+            "gift_pending": self.gift_pending,
+            "map_pending": self.map_pending,
+            "maps": self.maps,
             "peace_offers": self.peace_offers,
             "proposals": self.proposals,
             "offer_id": self._offer_id,
@@ -1077,6 +1151,9 @@ class World:
         w.order = data.get("order") or list(w.nations)
         w.mailbox = {n: data.get("mailbox", {}).get(n, []) for n in w.nations}
         w.summaries = {n: list(v) for n, v in data.get("summaries", {}).items() if n in w.nations}
+        w.gift_pending = data.get("gift_pending", [])
+        w.map_pending = data.get("map_pending", [])
+        w.maps = {n: list(v) for n, v in data.get("maps", {}).items() if n in w.nations}
         w.armies = data.get("armies", [])
         w.next_army_id = data.get("next_army_id", 1)
         w.wars = [_pair(*p) for p in data.get("wars", [])]

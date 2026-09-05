@@ -288,6 +288,8 @@ def _help_sections() -> list[tuple[str, str]]:
             "求和(offer_peace)：pay=你赔钱、demand=你索款、white=白和；对方 accept_peace 即停战。"
             "断盟/停战后滞留在对方领土的军队会自动遣返（每回合往家走 1 格）。"
             "外交不一定要等到被打：先 countries 看清对象，主动发信、提结盟、换情报，都是合法手段。"
+            "也可用 gift 把本国资源馈赠对方（粮木矿油装补给或黄金，本回合垫支、下回合到账）——示好、资助盟国、买通都行。"
+            "还能用 share_map 把你的整张已知地图（全部坐标）发给对方，对方下回合在 query panel=intel 收到——换情报、亮家底、协调攻守都用得上。"
         )),
         ("信箱", (
             "send_letter 可给任何别国写信（内容任意：结盟邀约/和谈/威胁/闲聊），下回合送达。"
@@ -361,6 +363,27 @@ def _fmt_memory(world, name) -> str:
     return "\n".join("  " + s for s in mem[-10:])
 
 
+def _fmt_intel_hint(world, name) -> str:
+    """收到的地图情报摘要（简短提示，完整见 query panel=intel）。"""
+    ms = world.maps.get(name, [])
+    if not ms:
+        return "无（可用 share_map 与别国互发地图，下回合到账）"
+    last = ms[-1]
+    return f"收到 {len(ms)} 张，最新来自 {last['from']}（第{last['turn']}回合）；完整内容见 query panel=intel"
+
+
+def _fmt_intel(world, name) -> str:
+    """完整地图情报：最近收到的别国地图。"""
+    ms = world.maps.get(name, [])
+    if not ms:
+        return "（你尚未收到别国的地图情报）"
+    out = [f"收到 {len(ms)} 张地图情报（按到达先后）:"]
+    for m in ms[-3:]:
+        out.append(f"── 第{m['turn']}回合 {m['from']} 的地图 ──")
+        out.append(m["text"])
+    return "\n".join(out)
+
+
 def _gval(world, good: str, amt: int) -> float:
     """按当前市价把 amt 单位 good 折成金（黄金固定按 MARKET 兑换额）。"""
     if amt <= 0:
@@ -426,6 +449,7 @@ def full_state(world, name) -> str:
         f"【威胁】\n{_fmt_threats(world, name)}",
         f"【市场】\n{_fmt_market(world, name)}",
         f"【纪事(近10回合)】\n{_fmt_memory(world, name)}",
+        f"【地图情报】\n{_fmt_intel_hint(world, name)}",
         f"【信箱】\n{_fmt_mail(world, name)}",
         f"【外交】\n{_fmt_diplomacy(world, name)}",
         f"【近讯】\n{_fmt_news(world, name)}",
@@ -516,6 +540,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
             "news": _fmt_news(world, actor),
             "threats": _fmt_threats(world, actor),
             "econ": _fmt_econ(world),
+            "intel": _fmt_intel(world, actor),
         }.get(which, full_state(world, actor))
 
     # ---- 规则查询（= README 的游戏规则）
@@ -604,6 +629,25 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         ok, msg = world.send_mail(actor, to, text)
         return msg
 
+    # ---- 外交馈赠（本国储备垫支赠他国，下回合到账）
+    if tool in ("gift", "赠送", "赠予", "馈赠"):
+        to = str(args.get("to", ""))
+        g = GOOD_ALIAS.get(str(args.get("good", "")).lower())
+        if g is None:
+            g = {"黄金": "黄金", "金": "黄金", "gold": "黄金"}.get(str(args.get("good", "")).lower())
+        if g is None:
+            return "物资名无效（可赠：" + "、".join(GOODS_DISPLAY) + " 或 黄金）"
+        try:
+            n = int(args.get("qty", args.get("amount", 0)))
+        except (TypeError, ValueError):
+            return "数量需为整数"
+        return world.gift(actor, to, g, n)[1]
+
+    # ---- 交换地图（把你的整张已知地图发给对方，下回合到账对方 intel）
+    if tool in ("share_map", "交换地图", "送图", "发地图"):
+        to = str(args.get("to", ""))
+        return world.share_map(actor, to)[1]
+
     # ---- 外交
     if tool in ("propose", "提议"):
         to = str(args.get("to", ""))
@@ -690,8 +734,8 @@ def _props(schema: dict) -> dict:
 
 TOOL_SCHEMAS = [
     {"type": "function", "function": {
-        "name": "query", "description": "查询接口：随时获取你的各面板。res=国库与储备 / land=地皮(国土+可拓荒地) / army=军队 / market=世界市场(现价+持有) / econ=经济核算(各建筑造价毛利回本) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
-        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "land", "army", "market", "econ", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True}})}},
+        "name": "query", "description": "查询接口：随时获取你的各面板。res=国库与储备 / land=地皮(国土+可拓荒地) / army=军队 / market=世界市场(现价+持有) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
+        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "land", "army", "market", "econ", "intel", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True}})}},
     {"type": "function", "function": {
         "name": "countries", "description": "列出所有可选外交对象（除你之外的每个国家：关系/是否接壤/有无来信）。外交动作前先用它选一个目标，再以 to=该国家 行动；绝不能对自己用外交工具。",
         "parameters": _props({})}},
@@ -737,6 +781,14 @@ TOOL_SCHEMAS = [
         "name": "send_letter", "description": "给别国写信（内容任意）。信件下回合才送达对方信箱。to 必须用 countries 选出的别国，不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "收信国名", "required": True},
                               "content": {"type": "string", "description": "信件正文", "required": True}})}},
+    {"type": "function", "function": {
+        "name": "gift", "description": "把本国储备赠给别国（to=countries 里的别国，不能是自己）：good=粮食/木头/矿石/石油/装备/补给 或 黄金，qty=数量。本回合垫支扣出、下回合到账。示好/资助盟国/买通可用。",
+        "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
+                              "good": {"type": "string", "description": "物资名", "required": True},
+                              "qty": {"type": "integer", "description": "数量", "required": True}})}},
+    {"type": "function", "function": {
+        "name": "share_map", "description": "把你的整张已知地图（全部国土块+边界外可见块，含坐标）发给别国，对方下一回合在 query panel=intel 收到。换情报/亮家底/协同步调可用。to=countries 里的别国，不能是自己。",
+        "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
         "name": "propose", "description": "向别国提议『同盟』（互通领土、互不攻击）或『共同防御』（遭攻自动并肩，平时互不攻击）。to 必须用 countries 选出的别国，不能是自己；对方 respond_proposal 接受才生效。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
