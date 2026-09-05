@@ -131,8 +131,8 @@ BUILDINGS = {
     "黄金矿场": {"kind": "gold", "cost": 200, "wood": 10, "cap_resource": "黄金", "outputs": {"黄金": 1}},
     "木材能源厂": {"kind": "energy", "cost": 120, "wood": 15, "cap_resource": "木头", "fuel": {"木头": 1}, "energy_out": 2},
     "石油能源厂": {"kind": "energy", "cost": 300, "wood": 15, "cap_resource": "石油", "fuel": {"石油": 1}, "energy_out": 5},
-    "补给厂": {"kind": "factory", "cost": 250, "wood": 20, "cap_resource": "耕地", "inputs": {"粮食": 1, "矿石": 1}, "outputs": {"补给": 1}, "energy": 1},
-    "装备厂": {"kind": "factory", "cost": 300, "wood": 20, "cap_resource": "石油", "inputs": {"矿石": 1, "石油": 1}, "outputs": {"装备": 1}, "energy": 1},
+    "补给厂": {"kind": "factory", "cost": 200, "wood": 12, "cap_resource": "耕地", "inputs": {"粮食": 1, "矿石": 1}, "outputs": {"补给": 2}, "energy": 1},
+    "装备厂": {"kind": "factory", "cost": 240, "wood": 12, "cap_resource": "石油", "inputs": {"矿石": 1, "石油": 1}, "outputs": {"装备": 2}, "energy": 1},
     # 兵营不自动产兵：每兵营每回合可征 1 支军队（army_cost 每支耗资），军队 100HP，从本地块征集
     "兵营": {"kind": "barracks", "cost": 350, "wood": 20, "cap_resource": None, "army_cost": {"粮食": 10, "装备": 5}, "energy": 1},
 }
