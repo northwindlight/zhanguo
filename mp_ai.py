@@ -777,17 +777,20 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                 except json.JSONDecodeError:
                     args = {}
                 result = engine_call(execute, world, name, fn, args)
-                engine_call(log_tool, world, name, fn, args, result)
-                if emit:
-                    a_s = " ".join(f"{k}={v}" for k, v in (args or {}).items())
-                    emit(f"{world.turn}回合·{name} ◇ {fn} {a_s}")
-                    emit(f"      ↳ {result}")
+                is_end = fn in ("end_turn", "结束回合", "done")
+                if not is_end:
+                    # end_turn 的小结由 execute 自己记一条即可，避免在 feed 里重复
+                    engine_call(log_tool, world, name, fn, args, result)
+                    if emit:
+                        a_s = " ".join(f"{k}={v}" for k, v in (args or {}).items())
+                        emit(f"{world.turn}回合·{name} ◇ {fn} {a_s}")
+                        emit(f"      ↳ {result}")
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
                 done += 1
                 acted_this = True
                 if name not in world.nations:
                     return done
-                if fn in ("end_turn", "结束回合", "done"):
+                if is_end:
                     # 只有带上有效的小结才算真结束；没带会被 execute 拦下，继续逼它补
                     if (str(args.get("summary", "")).strip()):
                         return done
