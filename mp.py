@@ -61,6 +61,9 @@ RES_LABEL = {"黄金": "国库", "木头": "木材", "补给": "补给仓"}
 
 CROSS = [(0, 0), (0, -1), (0, 1), (-1, 0), (1, 0)]
 
+SPY_COST = 20     # 经济间谍 花 20 金
+SPY_TURNS = 2     # 2 回合后回报目标全部经济情报
+
 
 def _pair(a: str, b: str) -> frozenset:
     return frozenset((a, b))
@@ -88,6 +91,8 @@ class World:
         self.gift_pending: list[dict] = []         # 馈赠在途（下回合到账）
         self.map_pending: list[dict] = []          # 交换地图在途（下回合到账）
         self.maps: dict[str, list[dict]] = {}      # 各国收到的地图情报（{from,turn,text}，留最近3张）
+        self.spy_pending: list[dict] = []          # 经济间谍在途（2回合后回报）
+        self.econ_intel: dict[str, list[dict]] = {}  # 各国收到的经济情报（{from,turn,text}，留最近2份）
         self.peace_offers: list[dict] = []
         self.proposals: list[dict] = []
         self._offer_id = 1
@@ -611,6 +616,8 @@ class World:
         self.maps.pop(name, None)
         self.gift_pending = [g for g in self.gift_pending if g["from"] != name and g["to"] != name]
         self.map_pending = [m for m in self.map_pending if m["from"] != name and m["to"] != name]
+        self.spy_pending = [s for s in self.spy_pending if s["from"] != name and s["to"] != name]
+        self.econ_intel.pop(name, None)
         self.mail_pending = [m for m in self.mail_pending if m["to"] != name and m["from"] != name]
         self.peace_offers = [p for p in self.peace_offers if p["a"] != name and p["b"] != name]
         self.proposals = [p for p in self.proposals if p["a"] != name and p["b"] != name]
@@ -827,6 +834,21 @@ class World:
             store.append({"from": m["from"], "turn": m["arrive"], "text": m["text"]})
             del store[:-3]  # 只留最近 3 张图，控体积
             self.log(f"🗺 {m['to']} 收到 {m['from']} 的地图", phase="事件", nation=m["to"])
+        # 经济间谍回报：2回合后盗回目标当前经济情报；目标亡国则任务失败
+        due_sp = [s for s in self.spy_pending if s["arrive"] <= self.turn]
+        self.spy_pending = [s for s in self.spy_pending if s["arrive"] > self.turn]
+        for s in due_sp:
+            if s["from"] not in self.nations:
+                continue
+            if s["to"] not in self.nations:
+                self.log(f"🕵 {s['from']} 的间谍回报：目标 {s['to']} 已亡国，情报落空",
+                         phase="事件", nation=s["from"])
+                continue
+            store = self.econ_intel.setdefault(s["from"], [])
+            store.append({"from": s["to"], "turn": s["arrive"], "text": self._econ_snapshot(s["to"])})
+            del store[:-2]  # 只留最近 2 份，控体积
+            self.log(f"🕵 {s['from']} 的间谍回报了 {s['to']} 的经济情报",
+                     phase="事件", nation=s["from"])
         return len(due)
 
     # ------------------------------------------------------------- 市场
@@ -923,6 +945,42 @@ class World:
         self.map_pending.append({"from": frm, "to": to, "text": self._map_snapshot(frm),
                                  "arrive": self.turn + 1})
         return True, f"已把你的地图发给 {to}，将于第 {self.turn+1} 回合到账"
+
+    # ------------------------------------------------------------- 经济间谍
+    def _econ_snapshot(self, n: str) -> str:
+        """目标国当前完整经济底细：国库/储备 + 收入结算 + 全部地块建设(含在建)。"""
+        r = self.nations[n].res
+        res_txt = " ".join(f"{k}{r.get(k, 0)}" for k in RES_KEYS)
+        et, mt, short = self.energy_report.get(n, (0, 0, False))
+        grid = "停摆" if short else f"产{et}/需{mt}"
+        L = [f"【{n} 经济情报】国库/储备: {res_txt} | 电网: {grid}"]
+        summ = self.econ_summary.get(n)
+        if summ:
+            L.append(f"  上回合收入结算: {summ}")
+        L.append(f"  全部地块建设情况（{len(self.own_tiles(n))} 块）:")
+        for (x, y) in self.own_tiles(n):
+            t = self.tiles[(x, y)]
+            b = t["buildings"]
+            p = t.get("pending") or {}
+            built = " ".join(f"{bn}×{c}" for bn, c in b.items() if c) or "无"
+            pend = " ".join(f"{bn}×{c}(在建)" for bn, c in p.items() if c)
+            extra = ("；" + pend) if pend else ""
+            L.append(f"    {t.get('name', '?')} {t['terrain']}({x + 1},{y + 1}) "
+                     f"城L{b['城堡']} 位{sum(b.values())}/20 建筑[{built}{extra}]")
+        return "\n".join(L)
+
+    def spy(self, frm: str, to: str) -> tuple[bool, str]:
+        """派经济间谍刺探别国（花 20 金），2 回合后盗回其全部经济情报。不能对自己用。"""
+        if frm not in self.nations or to not in self.nations:
+            return False, "间谍双方都必须是现存国家"
+        if to == frm:
+            return False, "不能派间谍刺探自己"
+        if self.res(frm, "黄金") < SPY_COST:
+            return False, f"国库不足：派经济间谍需 {SPY_COST} 金，你现 {self.res(frm, '黄金')}"
+        self.add_res(frm, "黄金", -SPY_COST)
+        self.spy_pending.append({"from": frm, "to": to, "arrive": self.turn + SPY_TURNS})
+        return True, (f"已派经济间谍前往 {to}（-{SPY_COST}金），"
+                      f"将于第 {self.turn + SPY_TURNS} 回合拿回其经济情报")
 
     # ------------------------------------------------------------- 外交
     def _next_offer_id(self) -> int:
@@ -1131,6 +1189,8 @@ class World:
             "gift_pending": self.gift_pending,
             "map_pending": self.map_pending,
             "maps": self.maps,
+            "spy_pending": self.spy_pending,
+            "econ_intel": self.econ_intel,
             "peace_offers": self.peace_offers,
             "proposals": self.proposals,
             "offer_id": self._offer_id,
@@ -1154,6 +1214,8 @@ class World:
         w.gift_pending = data.get("gift_pending", [])
         w.map_pending = data.get("map_pending", [])
         w.maps = {n: list(v) for n, v in data.get("maps", {}).items() if n in w.nations}
+        w.spy_pending = data.get("spy_pending", [])
+        w.econ_intel = {n: list(v) for n, v in data.get("econ_intel", {}).items() if n in w.nations}
         w.armies = data.get("armies", [])
         w.next_army_id = data.get("next_army_id", 1)
         w.wars = [_pair(*p) for p in data.get("wars", [])]

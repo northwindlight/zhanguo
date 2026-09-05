@@ -290,6 +290,8 @@ def _help_sections() -> list[tuple[str, str]]:
             "外交不一定要等到被打：先 countries 看清对象，主动发信、提结盟、换情报，都是合法手段。"
             "也可用 gift 把本国资源馈赠对方（粮木矿油装补给或黄金，本回合垫支、下回合到账）——示好、资助盟国、买通都行。"
             "还能用 share_map 把你的整张已知地图（全部坐标）发给对方，对方下回合在 query panel=intel 收到——换情报、亮家底、协调攻守都用得上。"
+            "情报战：如果你不想开口问（懒得谈、不想欠人情）、又钱多，可用 spy(经济间谍) 花20金刺探别国，"
+            "2回合后盗回其国库/收入/全部建设底细（query panel=spy 看）——打谁、敲谁、开战时机都心中有数。"
         )),
         ("信箱", (
             "send_letter 可给任何别国写信（内容任意：结盟邀约/和谈/威胁/闲聊），下回合送达。"
@@ -384,6 +386,23 @@ def _fmt_intel(world, name) -> str:
     return "\n".join(out)
 
 
+def _fmt_spy_hint(world, name) -> str:
+    """收到的经济情报摘要（完整见 query panel=spy）。"""
+    es = world.econ_intel.get(name, [])
+    if not es:
+        return "无（可用 spy 花20金刺探别国，2回合后到手）"
+    last = es[-1]
+    return f"{len(es)} 份，最新 {last['from']}（第{last['turn']}回合）；完整见 query panel=spy"
+
+
+def _fmt_spy(world, name) -> str:
+    """完整经济情报：最近拿到的别国经济底细。"""
+    es = world.econ_intel.get(name, [])
+    if not es:
+        return "（你尚未拿到任何经济情报）"
+    return "\n".join(m["text"] for m in es[-2:])
+
+
 def _gval(world, good: str, amt: int) -> float:
     """按当前市价把 amt 单位 good 折成金（黄金固定按 MARKET 兑换额）。"""
     if amt <= 0:
@@ -450,6 +469,7 @@ def full_state(world, name) -> str:
         f"【市场】\n{_fmt_market(world, name)}",
         f"【纪事(近10回合)】\n{_fmt_memory(world, name)}",
         f"【地图情报】\n{_fmt_intel_hint(world, name)}",
+        f"【经济情报】\n{_fmt_spy_hint(world, name)}",
         f"【信箱】\n{_fmt_mail(world, name)}",
         f"【外交】\n{_fmt_diplomacy(world, name)}",
         f"【近讯】\n{_fmt_news(world, name)}",
@@ -541,6 +561,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
             "threats": _fmt_threats(world, actor),
             "econ": _fmt_econ(world),
             "intel": _fmt_intel(world, actor),
+            "spy": _fmt_spy(world, actor),
         }.get(which, full_state(world, actor))
 
     # ---- 规则查询（= README 的游戏规则）
@@ -648,6 +669,10 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         to = str(args.get("to", ""))
         return world.share_map(actor, to)[1]
 
+    # ---- 经济间谍（20金，2回合后盗回目标全部经济情报；不能对自己用）
+    if tool in ("spy", "经济间谍", "间谍", "刺探"):
+        return world.spy(actor, str(args.get("to", "")))[1]
+
     # ---- 外交
     if tool in ("propose", "提议"):
         to = str(args.get("to", ""))
@@ -734,8 +759,8 @@ def _props(schema: dict) -> dict:
 
 TOOL_SCHEMAS = [
     {"type": "function", "function": {
-        "name": "query", "description": "查询接口：随时获取你的各面板。res=国库与储备 / land=地皮(国土+可拓荒地) / army=军队 / market=世界市场(现价+持有) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
-        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "land", "army", "market", "econ", "intel", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True}})}},
+        "name": "query", "description": "查询接口：随时获取你的各面板。res=国库与储备 / land=地皮(国土+可拓荒地) / army=军队 / market=世界市场(现价+持有) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=经济间谍情报(别国经济底细) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
+        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "land", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True}})}},
     {"type": "function", "function": {
         "name": "countries", "description": "列出所有可选外交对象（除你之外的每个国家：关系/是否接壤/有无来信）。外交动作前先用它选一个目标，再以 to=该国家 行动；绝不能对自己用外交工具。",
         "parameters": _props({})}},
@@ -789,6 +814,9 @@ TOOL_SCHEMAS = [
     {"type": "function", "function": {
         "name": "share_map", "description": "把你的整张已知地图（全部国土块+边界外可见块，含坐标）发给别国，对方下一回合在 query panel=intel 收到。换情报/亮家底/协同步调可用。to=countries 里的别国，不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
+    {"type": "function", "function": {
+        "name": "spy", "description": "不想开口问（懒得谈、钱多）时派经济间谍刺探别国：花 20 金（国库不足会被拒），2 回合后在 query panel=spy 拿回该国全部经济情报——国库/储备、上回合收入、每一块地的建筑与在建。目标不能是自己。",
+        "parameters": _props({"to": {"type": "string", "description": "刺探对象国", "required": True}})}},
     {"type": "function", "function": {
         "name": "propose", "description": "向别国提议『同盟』（互通领土、互不攻击）或『共同防御』（遭攻自动并肩，平时互不攻击）。to 必须用 countries 选出的别国，不能是自己；对方 respond_proposal 接受才生效。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
