@@ -79,7 +79,8 @@ HELP = f"""\
 命令：
   a [x y] / 激活        占领地块（无坐标=视野内随机扩张）。带野人的地块打赢后自动占领
   b 建筑 [地块] / 建    建造建筑（默认最近地块；每地块每回合限建 1 座）
-  r [N] [地块] / 征兵    征 N 支军队（默认最近地块，每兵营 1 支/回合，耗 10粮+5装）
+  r [N] [地块] [步|骑] / 征兵  征 N 支军队（默认最近地块，每兵营 1 支/回合）
+                            步=步兵:10粮+5装·动1格·补1/回合；骑=骑兵:12粮+12装·动2格·补2/回合（如 r 2 北川 骑 / r 3 骑 5 6）
   mv 军队id 地块 / 移动  调遣军队（每回合 1 次，只能相邻一格含对角线，不能越界）
   atk 军队id[,id...] 地块 冲入交战（含移动）；每回合掷骰结算一轮，打赢自动占领
   retreat 军队id 目标格   撤出：当回合挨野人一击（不还手），移到目标格脱离交战
@@ -467,17 +468,23 @@ def loop(world: World, save_path: Path) -> None:
                     print(render_tile(world, x, y, world.get(x, y)))
             elif cmd in ALIAS["recruit"]:
                 n = 1
+                kind = "步"
                 toks_rest = rest
                 if rest and rest[0].isdigit():
                     n = int(rest[0])
                     toks_rest = rest[1:]
+                for tok in list(toks_rest):
+                    if tok in ("骑", "步"):
+                        kind = tok
+                        toks_rest.remove(tok)
+                        break
                 if toks_rest:
                     x, y = parse_tile_ref(world, toks_rest)
                 elif last is not None:
                     x, y = last
                 else:
-                    raise ValueError("请先占领一块地，或给出地块名字/坐标：r 3 北川 / r 2 5 6")
-                ok, msg = world.recruit(x, y, n)
+                    raise ValueError("请先占领一块地，或给出地块名字/坐标：r 3 北川 / r 骑 2 5 6")
+                ok, msg = world.recruit(x, y, n, kind)
                 print(msg)
                 if ok:
                     world.save(save_path)

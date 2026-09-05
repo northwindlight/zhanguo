@@ -137,6 +137,24 @@ BUILDINGS = {
     "兵营": {"kind": "barracks", "cost": 350, "wood": 20, "cap_resource": None, "army_cost": {"粮食": 10, "装备": 5}, "energy": 1},
 }
 
+# 兵种：征召耗粮装 / 每回合补给维持 / 每回合移动格数
+UNIT_TYPES = {
+    "步": {"label": "步兵", "speed": 1, "supply": 1, "recruit": {"粮食": 10, "装备": 5}},
+    "骑": {"label": "骑兵", "speed": 2, "supply": 2, "recruit": {"粮食": 12, "装备": 12}},
+}
+
+
+def unit_kind(a: dict) -> str:
+    return a.get("type", "步")
+
+
+def unit_speed(a: dict) -> int:
+    return UNIT_TYPES[unit_kind(a)]["speed"]
+
+
+def unit_supply(a: dict) -> int:
+    return UNIT_TYPES[unit_kind(a)]["supply"]
+
 # 军队属性
 ARMY_MAX_HP = 100
 ARMY_STARVE_DAMAGE = 10   # 补给不足时每回合扣血，HP≤0 阵亡
@@ -172,10 +190,10 @@ def cn_num(n: int) -> str:
     return str(n)
 
 
-def army_name(owner: str, seq: int) -> str:
-    """番号式军队名：秦·第一军 / 第一军（无国名时）；野人不走这里。"""
+def army_name(owner: str, seq: int, kind: str = "步") -> str:
+    """按兵种编番号：骑一军、步二军…；多国加国名：秦·骑一军。野人不走这里。"""
     prefix = f"{owner}·" if owner not in ("player", "野人") else ""
-    return f"{prefix}第{cn_num(seq)}军"
+    return f"{prefix}{kind}{cn_num(seq)}军"
 
 
 def roll_terrain(rng: random.Random) -> str:
@@ -459,8 +477,10 @@ class World:
         )
 
     # ---- 征兵（手动，每兵营每回合 1 支军队） ----
-    def recruit(self, x: int, y: int, n: int = 1) -> tuple[bool, str]:
-        """在 (x, y) 征召 n 支军队，军队从本地块（兵营地）集结，100HP。"""
+    def recruit(self, x: int, y: int, n: int = 1, kind: str = "步") -> tuple[bool, str]:
+        """在 (x, y) 征召 n 支 kind 兵种（步/骑），从本地块（兵营地）集结，100HP。"""
+        if kind not in UNIT_TYPES:
+            return False, f"未知兵种：{kind}（可选：{'、'.join(UNIT_TYPES)}）"
         tile = self.get(x, y)
         if tile is None:
             return False, "该地块尚未激活，先 a [x y]"
@@ -473,34 +493,35 @@ class World:
         if cap <= 0:
             return False, f"本回合征召产能已用完（每兵营 1 支/回合，共 {barracks} 支）"
         n = min(n, cap)
-        cost = BUILDINGS["兵营"]["army_cost"]  # 从国家储备扣（全部资源全局存储）
+        cost = UNIT_TYPES[kind]["recruit"]  # 兵种各自征召耗资
         max_by_input = min(self.stock[f] // amt for f, amt in cost.items())
         n = min(n, max_by_input)
         if n <= 0:
             cost_desc = "、".join(f"{f}x{amt}" for f, amt in cost.items())
-            return False, f"国家储备不足，无法征兵（每支军队耗 {cost_desc}）"
+            return False, f"国家储备不足，无法征{UNIT_TYPES[kind]['label']}（每支耗 {cost_desc}）"
         for f, amt in cost.items():
             self.stock[f] -= amt * n
-        seq = sum(1 for a in self.armies if a["owner"] == "player") + 1
+        seq = sum(1 for a in self.armies if a["owner"] == "player" and unit_kind(a) == kind) + 1
         for i in range(n):
             aid = self.next_army_id
             self.next_army_id += 1
             self.armies.append(
                 {
                     "id": aid,
-                    "name": army_name("player", seq + i),  # 第一军、第二军…
+                    "name": army_name("player", seq + i, kind),  # 步一军、骑一军…
+                    "type": kind,
                     "hp": ARMY_MAX_HP,
                     "x": x,
                     "y": y,
                     "owner": "player",
-                    "moved_turn": -1,  # 最近一次移动所在回合（每回合限相邻 1 格）
+                    "moved_turn": -1,  # 最近一次移动所在回合（每回合按兵种速度走）
                     "engaged": False,  # 是否正在交战（atk 进入，retreat/撤离 解除）
                 }
             )
         tile["recruited_this_turn"] += n
         cost_desc = "、".join(f"{f}-{amt * n}" for f, amt in cost.items())
         return True, (
-            f"征召 {n} 支军队（{cost_desc}），从 ({x + 1},{y + 1}) 集结，"
+            f"征召 {n} 支{UNIT_TYPES[kind]['label']}（{cost_desc}），从 ({x + 1},{y + 1}) 集结，"
             f"总兵力 {len(self.armies)}"
         )
 
@@ -510,12 +531,13 @@ class World:
         for a in self.armies:
             if a["id"] == army_id:
                 if a.get("engaged"):
-                    return False, f"{a['name']} 正在交战中，不能直接移动；先 retreat 军队id 目标格 撤出（当回合会挨一击）"
-                dx, dy = abs(a["x"] - x), abs(a["y"] - y)
-                if max(dx, dy) != 1:
-                    return False, f"只能移动到相邻一格（当前 ({a['x']+1},{a['y']+1})，目标偏移 dx={dx} dy={dy}）"
+                    return False, f"{a['name']} 正在交战中，不能直接移动；先 retreat 军队id 目标格 撤出"
+                speed = unit_speed(a)
+                if max(abs(a["x"] - x), abs(a["y"] - y)) > speed:
+                    return False, (f"{UNIT_TYPES[unit_kind(a)]['label']} 每回合只能移动 {speed} 格"
+                                   f"（当前 ({a['x']+1},{a['y']+1})，目标偏移过大）")
                 if a.get("moved_turn") == self.turn:
-                    return False, f"军队{army_id} 本回合已移动过（每回合 1 格）"
+                    return False, f"军队{army_id} 本回合已移动过（每回合 1 次移动）"
                 frm = (a["x"] + 1, a["y"] + 1)
                 a["x"], a["y"] = x, y
                 a["moved_turn"] = self.turn
@@ -585,10 +607,11 @@ class World:
         targets = [a for a in self.armies if a["owner"] == "player" and a["id"] in army_ids]
         if not targets:
             return False, f"未找到我方军队（id: {army_ids}），army 面板查看"
-        # 校验：距离 ≤1 且本回合未移动过（已在目标格则不需移动）
+        # 校验：距离 ≤ 兵种速度 且本回合未移动过（已在目标格则不需移动）
         for a in targets:
-            if max(abs(a["x"] - x), abs(a["y"] - y)) > 1:
-                return False, f"{a['name']} 距 ({x + 1},{y + 1}) 超过 1 格，冲不进去（每回合只走 1 格）"
+            if max(abs(a["x"] - x), abs(a["y"] - y)) > unit_speed(a):
+                return False, (f"{a['name']} 距 ({x + 1},{y + 1}) 超出"
+                               f"{UNIT_TYPES[unit_kind(a)]['label']} 移动范围（{unit_speed(a)} 格），冲不进去")
             if (a["x"], a["y"]) != (x, y) and a.get("moved_turn") == self.turn:
                 return False, f"{a['name']} 本回合已移动过"
         # 冲入 + 交战
@@ -604,7 +627,8 @@ class World:
         )
 
     def retreat(self, army_id: int, x: int, y: int) -> tuple[bool, str]:
-        """retreat：选一格撤出——当回合只挨敌方一击（不还手），移到该格并脱离交战。"""
+        """retreat：撤出=一次移动（与 mv/atk 同额度）。只能在交战中用，按兵种速度移动到目标格，
+        用掉本回合移动并脱离交战；下回合起可正常行动。"""
         self._check_bounds(x, y)
         a = next((m for m in self.armies if m["id"] == army_id and m["owner"] == "player"), None)
         if a is None:
@@ -612,29 +636,27 @@ class World:
         if not a.get("engaged"):
             return False, f"{a['name']} 未在交战中，无需撤退（atk 参战后才能撤）"
         if (a["x"], a["y"]) == (x, y):
-            return False, "撤出需选一个与当前不同的相邻格"
-        if max(abs(a["x"] - x), abs(a["y"] - y)) != 1:
-            return False, "只能撤到相邻一格"
+            return False, "撤出需选一个与当前不同的格"
+        speed = unit_speed(a)
+        if max(abs(a["x"] - x), abs(a["y"] - y)) > speed:
+            return False, f"{UNIT_TYPES[unit_kind(a)]['label']} 撤出范围只有 {speed} 格"
+        if a.get("moved_turn") == self.turn:
+            return False, f"{a['name']} 本回合已移动/进攻过，移动额度用尽，撤不出（下回合再撤）"
         defs = [d for d in self.armies if d["owner"] == "野人" and (d["x"], d["y"]) == (a["x"], a["y"]) and d["hp"] > 0]
-        if not defs:
-            a["engaged"] = False
-            a["x"], a["y"] = x, y
-            a["moved_turn"] = self.turn
-            return True, f"目标已无野人，{a['name']} 撤到 ({x + 1},{y + 1}) 并脱离交战"
-        die, mod = self._roll_combat_die()
-        dmg = self._round_damage(self._combat_power(len(defs), 0), mod)
-        a["hp"] -= dmg
+        hurt = ""
+        if defs:
+            die, mod = self._roll_combat_die()
+            dmg = self._round_damage(self._combat_power(len(defs), 0), mod)
+            a["hp"] -= dmg
+            hurt = f"，撤出时挨野人一击 {-dmg}HP（骰{die} 修正{mod:+d}%）"
+            if a["hp"] <= 0:
+                self.armies.remove(a)
+                return False, f"{a['name']} 撤出时被野人击杀（HP≤0）"
         a["engaged"] = False
         a["x"], a["y"] = x, y
         a["moved_turn"] = self.turn
-        if a["hp"] <= 0:
-            self.armies.remove(a)
-            return False, (
-                f"撤出途中被野人反击击杀（骰{die} 修正{mod:+d}%，挨 {dmg} 伤，HP≤0）"
-            )
         return True, (
-            f"{a['name']} 撤到 ({x + 1},{y + 1})：当回合挨野人一击 {-dmg}HP"
-            f"（骰{die} 修正{mod:+d}%），已脱离交战，余 {a['hp']}HP"
+            f"{a['name']} 撤到 ({x + 1},{y + 1}){hurt}，脱离交战；下回合可正常行动"
         )
 
     def _advance_battles(self) -> tuple[list[str], set[int]]:
@@ -662,18 +684,29 @@ class World:
             for d in defs:
                 participants.add(id(d))
             tag = f"({x + 1},{y + 1}){self.tile_terrain(x, y)}"
-            # 我方先手：伤害按野人地形防御修正、骰子缩放，分摊到野人
+            # 同时出手：双方按开战兵力全力互击，再一起结算阵亡（允许同归于尽）
             atk_dmg = self._round_damage(self._combat_power(len(atks), self.tile_defense(x, y)), mod)
+            ret = self._round_damage(self._combat_power(len(defs), 0), mod)
             self._spread_damage(atk_dmg, defs)
+            self._spread_damage(ret, atks)
             dead_def = [d for d in defs if d["hp"] <= 0]
             for d in dead_def:
                 self.armies.remove(d)
+            dead_atk = [a for a in atks if a["hp"] <= 0]
+            for a in dead_atk:
+                self.armies.remove(a)
             def_alive = [d for d in defs if d["hp"] > 0]
-            if not def_alive:
+            atk_alive = [a for a in atks if a["hp"] > 0]
+            if not def_alive and not atk_alive:
+                self.refresh_barbarians()  # 同归=占领失败：荒地守军重新把守，不白捡
+                lines.append(
+                    f"⚔ 同归于尽 @{tag}：我军 {len(dead_atk)} 支与野人 {len(dead_def)} 支同回合全灭——"
+                    f"占领失败，野人重新把守"
+                )
+            elif not def_alive:
                 self.cleared_tiles.add((x, y))
                 for a in atks:
                     a["engaged"] = False
-                alive = [a for a in atks if a["hp"] > 0]
                 # 打赢即自动占领（atk 已含占领逻辑）
                 try:
                     tile = self.activate(x, y)
@@ -681,23 +714,16 @@ class World:
                 except ValueError as e:
                     occ = f"（占领失败：{e}）"
                 lines.append(
-                    f"⚔ 胜利 @{tag}：歼灭野人 {len(dead_def)} 支，我军余 {len(alive)} 支，{occ}"
+                    f"⚔ 胜利 @{tag}：歼灭野人 {len(dead_def)} 支，我军余 {len(atk_alive)} 支，{occ}"
                 )
-                continue
-            # 野人防守反击（全额，攻方在敌方地界吃不到加成），骰子缩放，分摊到我军
-            ret = self._round_damage(self._combat_power(len(def_alive), 0), mod)
-            self._spread_damage(ret, atks)
-            dead_atk = [a for a in atks if a["hp"] <= 0]
-            for a in dead_atk:
-                self.armies.remove(a)
-            alive = [a for a in atks if a["hp"] > 0]
-            def_hp = "、".join(f"{d['name']}{d['hp']}hp" for d in def_alive)
-            if not alive:
+            elif not atk_alive:
+                def_hp = "、".join(f"{d['name']}[{d['hp']}hp]" for d in def_alive)
                 lines.append(
                     f"⚔ 失败 @{tag}：我军 {len(dead_atk)} 支全灭，野人余 {def_hp}"
                 )
             else:
-                atk_hp = "、".join(f"{a['name']}{a['hp']}hp" for a in alive)
+                atk_hp = "、".join(f"{a['name']}[{a['hp']}hp]" for a in atk_alive)
+                def_hp = "、".join(f"{d['name']}[{d['hp']}hp]" for d in def_alive)
                 lines.append(
                     f"⚔ 交火 @{tag}：我军受 {ret} 伤（灭 {len(dead_atk)} 支），"
                     f"余 {atk_hp}；野人余 {def_hp}"
@@ -805,7 +831,7 @@ class World:
         # 断供则全国军队扣血（HP≤0 阵亡），断供/交战的军队本回合不回复
         famine = None  # (缺口, 阵亡数)
         player_armies = [a for a in self.armies if a["owner"] == "player"]
-        need = len(player_armies)
+        need = sum(unit_supply(a) for a in player_armies)  # 步1/骑2 补给每回合
         paid = min(need, self.supply)
         self.supply -= paid
         shortage = need - paid

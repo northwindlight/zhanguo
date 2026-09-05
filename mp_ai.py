@@ -463,7 +463,8 @@ def execute(world, actor: str, tool: str, args: dict) -> str:
         xy = _tile_xy(world, actor, ref)
         if xy is None:
             return f"地块引用无效：{ref}"
-        ok, msg = world.recruit(actor, xy[0], xy[1], int(args.get("n", 1)))
+        ok, msg = world.recruit(actor, xy[0], xy[1], int(args.get("n", 1)),
+                                str(args.get("kind", "步") or "步"))
         return msg
 
     # ---- 军队
@@ -614,9 +615,10 @@ TOOL_SCHEMAS = [
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标如 '5 6' 或自家地块名（land 面板有）", "required": True},
                               "building": {"type": "string", "enum": BUILD_NAMES, "description": "建筑名", "required": True}})}},
     {"type": "function", "function": {
-        "name": "recruit", "description": "在自己有兵营且电网正常的地块征召军队。每兵营每回合1支，耗 10粮食+5装备/支。",
+        "name": "recruit", "description": "在自己有兵营且电网正常的地块征召军队，每兵营每回合1支。兵种 kind：步=步兵(10粮+5装，动1格/回合、耗补给1)；骑=骑兵(12粮+12装，动2格/回合、耗补给2)。",
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标 '5 6' 或名字", "required": True},
-                              "n": {"type": "integer", "description": "征召数量（默认1）"}})}},
+                              "n": {"type": "integer", "description": "征召数量（默认1）"},
+                              "kind": {"type": "string", "enum": ["步", "骑"], "description": "兵种（默认 步）"}})}},
     {"type": "function", "function": {
         "name": "move", "description": "把一支自己的军队调到相邻一格(含对角)。每回合每支限1次。中立国地盘不能进（先结盟/宣战）。交战中要先 retreat。踏入空无一兵的敌国城格会直接攻陷。",
         "parameters": _props({"army_id": {"type": "integer", "description": "军队id", "required": True},
