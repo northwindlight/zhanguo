@@ -13,7 +13,17 @@ from __future__ import annotations
 import json
 import threading
 
-from game import BUILDINGS, MARKET, MAX_SLOTS
+from game import (
+    ARMY_ATTACK_DAMAGE,
+    ARMY_HEAL_PER_TURN,
+    ARMY_MAX_HP,
+    ARMY_STARVE_DAMAGE,
+    BUILDINGS,
+    CASTLE_DEFENSE_PER_LEVEL,
+    MARKET,
+    MAX_SLOTS,
+    TERRAIN_STATS,
+)
 from mp import RES_KEYS, RES_LABEL
 
 # 引擎级锁：多国 agent 并发跑时，所有对 world 的读写在此串行化（网络调用在锁外并行）。
@@ -211,6 +221,112 @@ def observer_map(world) -> str:
     return "\n".join(rows) + f"\n地图例：{legend} | 小写p/f/h/m/d=平原/森林/丘陵/山地/沙漠（无人）野人亦在其上"
 
 
+def _help_sections() -> list[tuple[str, str]]:
+    """规则全文（=README 的游戏规则），按主题分节，供 rules 查询按需返回。"""
+    ter = "\n".join(
+        f"  {k}：防御{v['defense']:+d}% · 建设惩罚{v['build_penalty']:+d}%"
+        for k, v in TERRAIN_STATS.items()
+    )
+    bld = []
+    for nm, info in BUILDINGS.items():
+        cost = "、".join(map(str, info["cost"])) if isinstance(info["cost"], list) else info["cost"]
+        cap = ("上限=本地" + info["cap_resource"]) if info["cap_resource"] else "任地可建"
+        k = info["kind"]
+        if k == "castle":
+            note = f"城堡每级 +{CASTLE_DEFENSE_PER_LEVEL}% 防御，最多 L{info['max_level']}"
+        elif k == "extract":
+            note = "每回合产出 " + "、".join(f"{g}x{a}" for g, a in info["outputs"].items())
+        elif k == "gold":
+            note = "每回合 +" + str(info["outputs"].get("黄金", 0) * MARKET["黄金"]) + " 金入国库"
+        elif k == "energy":
+            note = "耗 " + "、".join(f"{f}x{a}" for f, a in info["fuel"].items()) + \
+                   f" → 发 {info['energy_out']} 电（电不存储）"
+        elif k == "factory":
+            note = "维持1电；投 " + "、".join(f"{f}x{a}" for f, a in info["inputs"].items()) + \
+                   " 产 " + "、".join(f"{g}x{a}" for g, a in info["outputs"].items())
+        else:  # barracks
+            note = "维持1电；每兵营每回合可征 1 支军队（耗 10粮 + 5装）"
+        bld.append(f"  {nm}：造价 {cost}金 + {info['wood']}木 · {cap} · {note}")
+    sections = [
+        ("总览", (
+            "EU4式 大地图国战：每人从 5 块地起家，拓荒/建设/生产/建军，可对他国结盟或开战。"
+            "回合制：每回合你行动（可做多件事）→ 过回合统一结算（产出/电网/战斗/补给/市场回归）。"
+            "地皮名字=ID，坐标 1-based。你能看的只有自己地盘+相邻一圈；他国国力只能推测。"
+            "想细看任何机制就带主题调 rules，例如 rules(建筑) rules(外交) rules(战斗)。"
+        )),
+        ("地形", ter + "\n  开局资源看 land 面板；拓荒只能占与自家相邻的荒地。"),
+        ("建筑与造价", "\n".join(bld) + "\n  每地块 20 建筑位；每地块每回合限建 1 座；"
+                                        "建好后下一回合才生效（在建中）。"),
+        ("经济与能源", (
+            "全国制：国库/木材/粮矿油装补给都在你账上（res 面板）。"
+            "电网全国且不存储：能源厂发电；补给厂/装备厂/兵营都要耗电维持，"
+            "发电 < 维持则这些高级建筑全部停摆（能源厂除外）。"
+            "补给厂(粮+矿→补给)；装备厂(矿+油→装备)；补给仓每军每回合耗 1，空则军队挨饿。"
+            "黄金矿场是稳定产金；也可在 world market 卖物资换金（卖得越多价压越低）。"
+        )),
+        ("军队与战斗", (
+            "每军 100HP；兵营征召（耗10粮5装），每兵营每回合 1 支；每回合只能移动相邻 1 格。"
+            f"交战 = atk 冲入；每回合掷骰结算一轮；每军基础伤害 {ARMY_ATTACK_DAMAGE}，"
+            "受守方地形+城堡防御%修正、总伤害分摊；攻方在敌地无加成。"
+            "打赢守军→该地归你（空城直接被踏入军队占领）。"
+            f"非交战且补给够时每回合回血 +{ARMY_HEAL_PER_TURN}HP；断粮则 -{ARMY_STARVE_DAMAGE}HP 可能饿毙。"
+            "野人=无人荒地守军（100HP、自给自足、不主动打）。"
+        )),
+        ("外交", (
+            "国家关系：中立=不能入境也不能攻击对方；同盟=互通领土+互不攻击；"
+            "宣战：对方必须应战，即刻生效；若被宣战方有『保障独立/共同防御』的盟国会自动参战打你。"
+            "共同防御=遭攻自动并肩；保障独立=你保它，别人打它你参战。"
+            "求和(offer_peace)：pay=你赔钱、demand=你索款、white=白和；对方 accept_peace 即停战。"
+            "断盟/停战后滞留在对方领土的军队会自动遣返（每回合往家走 1 格）。"
+            "外交不一定要等到被打：先 countries 看清对象，主动发信、提结盟、换情报，都是合法手段。"
+        )),
+        ("信箱", (
+            "send_letter 可给任何别国写信（内容任意：结盟邀约/和谈/威胁/闲聊），下回合送达。"
+            "收到信要在 diplomacy/mail 面板回应——不回信，对方可能以为你拒绝。"
+        )),
+        ("市场", (
+            "世界市场 buy/sell：黄金是货币；可交易粮/木/矿/油/装/补给。"
+            "价格受供需影响：买→推高、卖→压低，整笔按成交后价格结算；每回合向基准价回归。"
+            "基准价：" + "  ".join(f"{g}{MARKET[g]}" for g in GOODS_DISPLAY) + "。分批慢慢卖比一次砸盘划算。"
+        )),
+        ("回合与存档", (
+            "end_turn 结束你的本回合。每回合结算会：落地在建建筑→产出/电网→战争→补给/回血→"
+            "遣返→市场回归。存档每回合自动写 mp_save.json，随时可中断续局。"
+        )),
+    ]
+    return sections
+
+
+def rules_text(world, topic: str = "") -> str:
+    """rules tool：按主题返回规则段落；主题识别不了就返回全文（不设限）。"""
+    t = (topic or "").strip()
+    secs = _help_sections()
+    labels = {
+        "建筑": "建筑", "建造": "建筑", "兵营": "建筑", "农场": "建筑", "城堡": "建筑",
+        "工厂": "建筑", "能源": "建筑", "电厂": "建筑", "造价": "建筑",
+        "地形": "地形", "资源": "地形", "拓荒": "地形", "领土": "地形",
+        "经济": "经济与能源", "电": "经济与能源", "能源": "经济与能源", "补给": "经济与能源",
+        "装备": "经济与能源",
+        "军队": "军队与战斗", "战斗": "军队与战斗", "战争": "军队与战斗", "征兵": "军队与战斗",
+        "军队移动": "军队与战斗", "攻击": "军队与战斗", "野人": "军队与战斗",
+        "外交": "外交", "同盟": "外交", "保障": "外交", "宣战": "外交", "求和": "外交",
+        "共同防御": "外交",
+        "信箱": "信箱", "信": "信箱", "邮件": "信箱",
+        "市场": "市场", "买卖": "市场", "价格": "市场", "交易": "市场",
+        "回合": "回合与存档", "存档": "回合与存档", "结算": "回合与存档",
+    }
+    picks = []
+    for key, label in labels.items():
+        if key in topic:
+            if label not in picks:
+                picks.append(label)
+    if picks:
+        canon = {"建筑": "建筑与造价"}  # 关键词 → 章节真实标题
+        picks = [canon.get(p, p) for p in picks]
+        return "\n\n".join(f"【{label}】\n{text}" for label, text in secs if label in picks)
+    return "\n\n".join(f"【{label}】\n{text}" for label, text in secs)
+
+
 def _fmt_threats(world, name) -> str:
     """视野内（自家地盘+相邻一圈）的他国/野人军队。"""
     rows = []
@@ -314,6 +430,10 @@ def execute(world, actor: str, tool: str, args: dict) -> str:
             "news": _fmt_news(world, actor),
             "threats": _fmt_threats(world, actor),
         }.get(which, full_state(world, actor))
+
+    # ---- 规则查询（= README 的游戏规则）
+    if tool in ("rules", "规则", "help", "帮助"):
+        return rules_text(world, str(args.get("topic", "") or ""))
 
     # ---- 外交对象（先选一个非自己的国家）
     if tool in ("countries", "外交对象", "国家列表", "对手"):
@@ -432,9 +552,13 @@ def execute(world, actor: str, tool: str, args: dict) -> str:
     if tool in ("reject_peace", "拒绝议和"):
         return world.reject_peace(actor, int(args.get("offer_id", 0)))[1]
 
-    # ---- 结束回合
+    # ---- 结束回合（必须带一句话小结）
     if tool in ("end_turn", "结束回合", "done"):
-        return "OK 本回合结束。"
+        summary = str(args.get("summary", "")).strip()
+        if len(summary) < 4:
+            return "本回合还没收尾：end_turn 必须带 summary=一句话，总结你这回合做了什么/立场（例如 summary=拓了两块地、与楚提议结盟）。"
+        world.log(f"{actor} 回合小结：{summary}", phase="行动", nation=actor)
+        return f"✅ 本回合结束（小结已记录：{summary}）"
     return f"未知工具 {tool}"
 
 
@@ -479,6 +603,9 @@ TOOL_SCHEMAS = [
     {"type": "function", "function": {
         "name": "countries", "description": "列出所有可选外交对象（除你之外的每个国家：关系/是否接壤/有无来信）。外交动作前先用它选一个目标，再以 to=该国家 行动；绝不能对自己用外交工具。",
         "parameters": _props({})}},
+    {"type": "function", "function": {
+        "name": "rules", "description": "查询完整游戏规则（相当于 README）：建筑造价与上限、地形、电网经济、军队战斗、外交、信箱、市场、回合存档。可带 topic 只取相关段（如 '兵营'、'外交'、'宣战'）；不带则返回全文。",
+        "parameters": _props({"topic": {"type": "string", "description": "想查的主题（可选）"}})}},
     {"type": "function", "function": {
         "name": "expand", "description": "拓荒占领一块『视野内且无野人把守』的荒地（一般荒地都有野人，需先用 attack 打赢）。必须手动给出坐标 x y（1-based，从 land 面板的『可拓荒地』里挑）。",
         "parameters": _props({"x": {"type": "integer", "description": "坐标x(1-based)", "required": True}, "y": {"type": "integer", "description": "坐标y(1-based)", "required": True}})}},
@@ -553,8 +680,8 @@ TOOL_SCHEMAS = [
         "name": "reject_peace", "description": "拒绝对方求和，战争继续。",
         "parameters": _props({"offer_id": {"type": "integer", "description": "求和提议id", "required": True}})}},
     {"type": "function", "function": {
-        "name": "end_turn", "description": "结束本国本回合的行动（每回合各国轮流行动，回合末统一结算产出/战争/信件投递等）。",
-        "parameters": _props({})}},
+        "name": "end_turn", "description": "结束本国本回合的行动。⚠ 必填 summary：用一句话总结你这回合做了什么/当前立场（例如：summary=拓了两块地、和齐结盟）。没有这句小结就不算结束本回合。",
+        "parameters": _props({"summary": {"type": "string", "description": "一句话回合小结（必填，>=4字）", "required": True}})}},
 ]
 
 
@@ -577,6 +704,10 @@ def system_prompt(world, name) -> str:
         "结盟=互通+互不攻击；宣战对方必须应战；被宣战方若有『保障独立/共同防御』的盟国会自动参战打你。"
         "求和 pay=你赔钱 / demand=索对方赔款 / white=白和。\n"
         "【信息】情报有迷雾，你只看得见自己地盘与相邻一圈；他国来信可谈可骗不可全信；你看不到他国的国库/储备，只能推断。\n"
+        "【规则查询】完整玩法随时可查：调用 rules（可带主题，如 rules(外交) / rules(建筑)）会返回规则全文；拿不准就查，别凭猜。\n"
+        "【外交别搁置】别闷头种田到最后被人宣战。开局尽早 countries 看清对象，主动给邻国写信试探、"
+        "提议 结盟 或 共同防御（互通领土+互不攻击+遇袭并肩，是最便宜的护身符）；"
+        "收到来信/邀约尽量当回合回应（respond_proposal / 回信 / offer_peace），别已读不回让机会溜走。\n"
         "【行动纪律】你有和人类玩家一样的智商，别当蛮子也别当应声虫："
         "① 动手前先用 query 拿当前面板（res/land/army/market 随时可查），心里过一遍收支与目标；"
         "② 必要时可以先写一两行简短思考（作为正文输出）再动手，或边做边查；"
@@ -661,7 +792,9 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                 if name not in world.nations:
                     return done
                 if fn in ("end_turn", "结束回合", "done"):
-                    return done
+                    # 只有带上有效的小结才算真结束；没带会被 execute 拦下，继续逼它补
+                    if (str(args.get("summary", "")).strip()):
+                        return done
             if not acted_this and step % 3 == 2 and name in world.nations:
                 messages.append({"role": "user", "content": engine_call(compact_state, world, name)})
             continue
