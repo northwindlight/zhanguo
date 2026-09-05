@@ -83,7 +83,8 @@ STARTING_GOLD = 2000
 STARTING_WOOD = 50     # 初始木材储备（建任何建筑都要花木头）
 STARTING_SUPPLY = 10   # 初始补给仓（军队每支每回合耗 1 补给）
 CASTLE_DEFENSE_PER_LEVEL = 10  # 每级城堡 +10% 防御
-TOWN_HALL_GOLD = 5     # 每座市政厅每回合固定产金（很贵的稳定收益；电网不足停摆）
+TOWN_HALL_GOLD = 5     # 每座市政厅每回合基础产金；另按该地块已占建筑位每座 +1 金（电网不足停摆）
+TOWN_HALL_PER_SLOT = 1  # 市政厅：每座额外 +该地块建筑数×此值 金/回合
 
 # 物资（地块可储存；能源不可存储，不在其中）
 # 全局战略储备：木头=建建筑；补给=军队口粮（补给厂产出入全局补给仓 world.supply）
@@ -137,7 +138,7 @@ BUILDINGS = {
     # 兵营不自动产兵：每兵营每回合可征 1 支军队（army_cost 每支耗资），军队 100HP，从本地块征集
     "兵营": {"kind": "barracks", "cost": 350, "wood": 20, "cap_resource": None, "army_cost": {"粮食": 10, "装备": 5}, "energy": 1},
     # 市政厅：很贵、每地块限 1 座、需该地块已用建筑位≥6 才可建；维持 1 电（电网不足即停摆）；
-    # 每座每回合固定 +TOWN_HALL_GOLD 金 入国库
+    # 每座每回合 = TOWN_HALL_GOLD(基础) + 该地块已占建筑位(不含自身)×TOWN_HALL_PER_SLOT 金 入国库
     "市政厅": {"kind": "townhall", "cost": 500, "wood": 40, "cap_resource": None,
                "energy": 1, "limit": 1, "min_slots": 6},
 }
@@ -759,7 +760,7 @@ class World:
         """
         produced = {g: 0 for g in GOODS}
         income = 0          # 黄金矿收入
-        hall_gold = 0       # 市政厅收入（每座固定产金，电网不足则停摆）
+        hall_gold = 0       # 市政厅收入（每座基础+按本地建筑数，电网不足则停摆）
         wood_in = 0
         wood_fuel = 0
         oil_fuel = 0
@@ -839,11 +840,12 @@ class World:
                     else:
                         self.stock[g] += amt * batches
                         produced[g] += amt * batches
-            # 市政厅：每座固定 +TOWN_HALL_GOLD 金 入国库；电网不足即停摆
+            # 市政厅：每座 = 基础 TOWN_HALL_GOLD + 该地块已占建筑位(不含自身)×PER_SLOT 金；电网不足即停摆
             for tile in self.tiles.values():
                 h = tile["buildings"].get("市政厅", 0)
                 if h:
-                    hall_gold += TOWN_HALL_GOLD * h
+                    others = sum(tile["buildings"].values()) - h
+                    hall_gold += (TOWN_HALL_GOLD + others * TOWN_HALL_PER_SLOT) * h
 
         # 战争推进：每处交战地块结算一个战斗回合（本回合共用一颗骰子）
         wars, participants = self._advance_battles()

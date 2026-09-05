@@ -258,8 +258,8 @@ def _help_sections() -> list[tuple[str, str]]:
             note = "维持1电；投 " + "、".join(f"{f}x{a}" for f, a in info["inputs"].items()) + \
                    " 产 " + "、".join(f"{g}x{a}" for g, a in info["outputs"].items())
         elif k == "townhall":
-            note = ("维持1电；每座每回合 +5 金 入国库；"
-                    "需本地已用建筑位≥6、每地块限1座")
+            note = ("维持1电；每座每回合 = 5金基础 + 该地块每座建筑×1金（不含自身，地越盖越值）"
+                    "入国库；需本地已用建筑位≥6、每地块限1座")
         else:  # barracks
             note = "维持1电；每兵营每回合可征 1 支军队（耗 10粮 + 5装）"
         bld.append(f"  {nm}：造价 {cost}金 + {info['wood']}木 · {cap} · {note}")
@@ -279,7 +279,8 @@ def _help_sections() -> list[tuple[str, str]]:
             "电网全国且不存储：能源厂发电；补给厂/装备厂/兵营/市政厅都要耗电维持，"
             "发电 < 维持则这些高级建筑全部停摆（能源厂除外）。"
             "补给厂(粮1+矿1→补给2)；装备厂(矿1+油1→装备2)；补给仓每军每回合耗 1，空则军队挨饿。"
-            "黄金矿场是稳定产金；市政厅(需本地已用位≥6·限1座·耗1电)每座每回合 +5 金入国库；"
+            "黄金矿场是稳定产金；市政厅(需本地已用位≥6·限1座·耗1电)每座每回合 = 5金基础"
+            " + 该地块每座建筑×1金（不含自身，城越满越值）；"
             "也可在 world market 卖物资换金（卖得越多价压越低）。"
         )),
         ("军队与战斗", (
@@ -454,15 +455,16 @@ def _econ_building(world, building: str) -> str:
         return (f"{building}: 造价折{capex:.0f}金 · 不自动产金，每兵营每回合可征1军"
                 f"（步10粮5装 / 骑12粮12装，耗兵料另计）")
     if k == "townhall":
-        net = TOWN_HALL_GOLD
-        return (f"{building}: 造价折{capex:.0f}金 · 每回合+{net}金固定 · 回本≈{capex / net:.0f}回合"
+        return (f"{building}: 造价折{capex:.0f}金 · 每回合 = {TOWN_HALL_GOLD}金基础"
+                f" + 该地块每座建筑×{TOWN_HALL_PER_SLOT}金（不含自身；10建筑城≈"
+                f"{TOWN_HALL_GOLD + 10 * TOWN_HALL_PER_SLOT}金/回合）"
                 f" · 需本地已用位≥6、每地块限1座、耗1电")
     return f"{building}: 无核算"
 
 
 def _fmt_econ(world) -> str:
     """当前市价经济表：各建筑造价(折金)/毛利/回本，供建设决策。"""
-    L = ["【经济核算 · 当前市价】单位建筑投入产出（木头按现价折金入造价，黄金矿场/市政厅为固定金）："]
+    L = ["【经济核算 · 当前市价】单位建筑投入产出（木头按现价折金入造价，市政厅=5金基础+本地建筑×1金/回合）："]
     L.append("现价: " + "  ".join(f"{g}={world.prices.get(g):.1f}" for g in GOODS_DISPLAY))
     for b in BUILDINGS:
         L.append("  " + _econ_building(world, b))

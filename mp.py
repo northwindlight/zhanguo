@@ -40,6 +40,7 @@ from game import (
     TERRAIN_CHARS,
     TERRAIN_STATS,
     TOWN_HALL_GOLD,
+    TOWN_HALL_PER_SLOT,
     TRADEABLE,
     UNIT_TYPES,
     army_name,
@@ -692,13 +693,14 @@ class World:
                     for g, amt in info["outputs"].items():
                         self.add_res(n, g, amt * batches)
                         prod[n][g] += amt * batches
-                # 市政厅：每座固定 +TOWN_HALL_GOLD 金；电网不足即停摆
+                # 市政厅：每座 = 基础 TOWN_HALL_GOLD + 该地块已占建筑位(不含自身)×PER_SLOT 金；电网不足即停摆
                 for (hx, hy), ht in self.tiles.items():
                     if ht["owner"] != n:
                         continue
                     h = ht["buildings"].get("市政厅", 0)
                     if h:
-                        hall_gain = TOWN_HALL_GOLD * h
+                        others = sum(ht["buildings"].values()) - h
+                        hall_gain = (TOWN_HALL_GOLD + others * TOWN_HALL_PER_SLOT) * h
                         self.add_res(n, "黄金", hall_gain)
                         gold_in[n] += hall_gain
 
