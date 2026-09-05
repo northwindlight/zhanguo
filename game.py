@@ -134,7 +134,7 @@ BUILDINGS = {
     "补给厂": {"kind": "factory", "cost": 250, "wood": 20, "cap_resource": "耕地", "inputs": {"粮食": 1, "矿石": 1}, "outputs": {"补给": 1}, "energy": 1},
     "装备厂": {"kind": "factory", "cost": 300, "wood": 20, "cap_resource": "石油", "inputs": {"矿石": 1, "石油": 1}, "outputs": {"装备": 1}, "energy": 1},
     # 兵营不自动产兵：每兵营每回合可征 1 支军队（army_cost 每支耗资），军队 100HP，从本地块征集
-    "兵营": {"kind": "barracks", "cost": 350, "wood": 20, "cap_resource": "耕地", "army_cost": {"粮食": 10, "装备": 5}, "energy": 1},
+    "兵营": {"kind": "barracks", "cost": 350, "wood": 20, "cap_resource": None, "army_cost": {"粮食": 10, "装备": 5}, "energy": 1},
 }
 
 # 军队属性

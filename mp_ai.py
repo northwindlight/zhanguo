@@ -731,10 +731,19 @@ def dummy_turn(world, name, rng, max_actions: int = 12) -> int:
                     for t in world.tiles.values() if t["owner"] == name)
 
     def _cand(bn: str) -> list:
-        return [(x, y) for (x, y) in own
-                if not world.tiles[(x, y)]["built_this_turn"]
-                and world.tiles[(x, y)]["resources"].get(BUILDINGS[bn]["cap_resource"], 0)
-                > world.tiles[(x, y)]["buildings"][bn]]
+        out = []
+        for (x, y) in own:
+            t = world.tiles[(x, y)]
+            if t["built_this_turn"]:
+                continue
+            cr = BUILDINGS[bn]["cap_resource"]
+            cnt = t["buildings"][bn]
+            if cr is None:
+                if cnt < 3:  # 不限资源的地（如兵营）：任地可建，留点节制
+                    out.append((x, y))
+            elif t["resources"].get(cr, 0) > cnt:
+                out.append((x, y))
+        return out
 
     # 1) 木头是自用命脉：先保证至少 1 座林场，再谈烧木头发电
     if (lumber == 0 or r["木头"] < 45) and _cand("林场"):
