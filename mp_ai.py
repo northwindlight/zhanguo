@@ -270,7 +270,7 @@ def _help_sections() -> list[tuple[str, str]]:
             "每军 100HP；兵营征召（耗10粮5装），每兵营每回合 1 支；每回合只能移动相邻 1 格。"
             f"交战 = atk 冲入；每回合掷骰结算一轮；每军基础伤害 {ARMY_ATTACK_DAMAGE}，"
             "受守方地形+城堡防御%修正、总伤害分摊；攻方在敌地无加成。"
-            "打赢守军→该地归你（空城直接被踏入军队占领）。"
+            "打赢守军→该地归你；无守军的空地/敌空城用 atk 直接进驻占领（mv 不占地）。"
             f"非交战且补给够时每回合回血 +{ARMY_HEAL_PER_TURN}HP；断粮则 -{ARMY_STARVE_DAMAGE}HP 可能饿毙。"
             "野人=无人荒地守军（100HP、自给自足、不主动打）。"
         )),
@@ -443,7 +443,7 @@ def execute(world, actor: str, tool: str, args: dict) -> str:
 
     # ---- 领土（无"凭空占"：只有军队 mv 移入"敌人=0"的地格才占地）
     if tool in ("expand", "拓荒", "activate"):
-        return "没有单独占地命令：派军队 mv 到目标格即可——若那格没有守军/敌军（敌人=0），军队进驻就地占领；有野人/敌军则先 attack 打赢。"
+        return "没有单独占地命令：占地一律走 atk——派军队 attack 目标格，若那格没有守军/敌军（敌人=0）军队直接进驻占领；有野人/敌军则打赢后自动占地。mv 只挪位置、不占地。"
 
     # ---- 建设 / 征兵
     if tool in ("build", "建", "建造"):
@@ -612,7 +612,7 @@ TOOL_SCHEMAS = [
                               "n": {"type": "integer", "description": "征召数量（默认1）"},
                               "kind": {"type": "string", "enum": ["步", "骑"], "description": "兵种（默认 步）"}})}},
     {"type": "function", "function": {
-        "name": "move", "description": "把一支自己的军队调到相邻一格(含对角)。每回合每支限1次。中立国地盘不能进（先结盟/宣战）。交战中要先 retreat。踏入空无一兵的敌国城格会直接攻陷。",
+        "name": "move", "description": "把一支自己的军队调到相邻一格(含对角)，纯移动不占地。每回合每支限1次。中立国地盘不能进（先结盟/宣战）；交战中不能移动，须先 retreat 撤出。要占无守军的空地/敌空城，请用 attack（atk 会直接进驻占领）。",
         "parameters": _props({"army_id": {"type": "integer", "description": "军队id", "required": True},
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},

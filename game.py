@@ -607,8 +607,11 @@ class World:
         targets = [a for a in self.armies if a["owner"] == "player" and a["id"] in army_ids]
         if not targets:
             return False, f"未找到我方军队（id: {army_ids}），army 面板查看"
-        # 校验：距离 ≤ 兵种速度 且本回合未移动过（已在目标格则不需移动）
+        # 校验：距离 ≤ 兵种速度 且本回合未移动过（已在目标格则不需移动）；交战中不可改攻他处
         for a in targets:
+            if a.get("engaged") and (a["x"], a["y"]) != (x, y):
+                return False, (f"{a['name']} 正在交战中，不能离开战场改攻他处；"
+                               f"想脱战先 retreat 军队id 目标格（会挨一击）")
             if max(abs(a["x"] - x), abs(a["y"] - y)) > unit_speed(a):
                 return False, (f"{a['name']} 距 ({x + 1},{y + 1}) 超出"
                                f"{UNIT_TYPES[unit_kind(a)]['label']} 移动范围（{unit_speed(a)} 格），冲不进去")

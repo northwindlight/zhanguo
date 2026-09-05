@@ -408,6 +408,9 @@ class World:
         if not targets:
             return False, f"未找到我方军队 {aids}"
         for a in targets:
+            if a.get("engaged") and (a["x"], a["y"]) != (x, y):
+                return False, (f"{a['name']} 正在交战中，不能离开战场改攻他处；"
+                               f"想脱战先 retreat 军队id 目标格（会挨守军一击）")
             if max(abs(a["x"] - x), abs(a["y"] - y)) > unit_speed(a):
                 return False, (f"{a['name']} 距 ({x+1},{y+1}) 超出 "
                                f"{UNIT_TYPES[unit_kind(a)]['label']} 移动范围（{unit_speed(a)} 格），冲不进去")
@@ -1013,9 +1016,9 @@ class World:
             if self.war_between(me, n):
                 tags.append("交战")
             if n in self.guarantee_of(me):
-                tags.append("被我保障")
-            if self.guarantees.get(n) and me in self.guarantees[n]:
-                tags.append("保障我")
+                tags.append("保障我")      # n 保障我
+            if self.guarantees.get(me) and n in self.guarantees[me]:
+                tags.append("我保障")      # 我保障 n
             out.append(f"{n}=" + ("、".join(tags) if tags else "中立"))
         return "  ".join(out) if out else "（只有你一个国了）"
 
