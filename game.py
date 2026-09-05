@@ -153,6 +153,31 @@ SITE_BUILDING = {
 }
 
 
+_CN_DIGIT = "零一二三四五六七八九"
+
+
+def cn_num(n: int) -> str:
+    """把 1..99 转中文数字（≥100 退回阿拉伯数字）。"""
+    if n < 0:
+        return str(n)
+    if n < 10:
+        return _CN_DIGIT[n]
+    if n == 10:
+        return "十"
+    if n < 20:
+        return "十" + _CN_DIGIT[n - 10] if n % 10 else "十"
+    if n < 100:
+        t, r = divmod(n, 10)
+        return _CN_DIGIT[t] + "十" + (_CN_DIGIT[r] if r else "")
+    return str(n)
+
+
+def army_name(owner: str, seq: int) -> str:
+    """番号式军队名：秦·第一军 / 第一军（无国名时）；野人不走这里。"""
+    prefix = f"{owner}·" if owner not in ("player", "野人") else ""
+    return f"{prefix}第{cn_num(seq)}军"
+
+
 def roll_terrain(rng: random.Random) -> str:
     names = list(TERRAIN_WEIGHTS)
     return rng.choices(names, weights=[TERRAIN_WEIGHTS[n] for n in names])[0]
@@ -456,13 +481,14 @@ class World:
             return False, f"国家储备不足，无法征兵（每支军队耗 {cost_desc}）"
         for f, amt in cost.items():
             self.stock[f] -= amt * n
-        for _ in range(n):
+        seq = sum(1 for a in self.armies if a["owner"] == "player") + 1
+        for i in range(n):
             aid = self.next_army_id
             self.next_army_id += 1
             self.armies.append(
                 {
                     "id": aid,
-                    "name": f"军{aid}",
+                    "name": army_name("player", seq + i),  # 第一军、第二军…
                     "hp": ARMY_MAX_HP,
                     "x": x,
                     "y": y,

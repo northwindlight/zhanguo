@@ -40,6 +40,7 @@ from game import (
     TERRAIN_CHARS,
     TERRAIN_STATS,
     TRADEABLE,
+    army_name,
     roll_resources,
     roll_tile_name,
 )
@@ -315,11 +316,13 @@ class World:
             return False, "战略储备不足（每支耗 " + "、".join(f"{f}x{a}" for f, a in cost.items()) + "）"
         for f, amt in cost.items():
             self.add_res(name, f, -amt * n)
-        for _ in range(n):
+        seq = sum(1 for a in self.armies if a["owner"] == name) + 1
+        for i in range(n):
             aid = self.next_army_id
             self.next_army_id += 1
-            self.armies.append({"id": aid, "name": f"军{aid}", "hp": ARMY_MAX_HP,
-                                "x": x, "y": y, "owner": name, "moved_turn": -1, "engaged": False})
+            self.armies.append({"id": aid, "name": army_name(name, seq + i),
+                                "hp": ARMY_MAX_HP, "x": x, "y": y,
+                                "owner": name, "moved_turn": -1, "engaged": False})
         t["recruited_this_turn"] += n
         return True, f"征召 {n} 支军队 @{t['name']}"
 
@@ -517,11 +520,11 @@ class World:
                 if a in self.armies:
                     self.armies.remove(a)
             alive_a = [a for a in atks if a["hp"] > 0]
-            desc_d = "、".join(f"{a['name']}{a['hp']}hp" for a in alive_def)
+            desc_d = "、".join(f"{a['name']}[{a['hp']}hp]" for a in alive_def)
             if not alive_a:
                 lines.append(f"⚔ 攻方全灭 @{tag}（骰{d}）守军余 {desc_d}")
             else:
-                desc_a = "、".join(f"{a['name']}{a['hp']}hp" for a in alive_a)
+                desc_a = "、".join(f"{a['name']}[{a['hp']}hp]" for a in alive_a)
                 lines.append(f"⚔ 交火 @{tag}（骰{d} 修正{mod:+d}%）：攻方余 {desc_a}；守军余 {desc_d}")
         return lines
 

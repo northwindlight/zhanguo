@@ -67,7 +67,7 @@ def _fmt_armies(world, name) -> str:
         t = world.tiles.get((a["x"], a["y"]))
         where = t["name"] if t else "野外"
         st = "交战中" if a.get("engaged") else ("已移动" if a.get("moved_turn") == world.turn else "可行动")
-        lines.append(f"军{a['id']} | {a['hp']}HP | ({a['x']+1},{a['y']+1}) {where} | {st}")
+        lines.append(f"{a['name']}(#{a['id']}) | {a['hp']}HP | ({a['x']+1},{a['y']+1}) {where} | {st}")
     return "\n".join(lines)
 
 
