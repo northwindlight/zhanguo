@@ -135,6 +135,10 @@ BUILDINGS = {
     "装备厂": {"kind": "factory", "cost": 240, "wood": 12, "cap_resource": "石油", "inputs": {"矿石": 1, "石油": 1}, "outputs": {"装备": 2}, "energy": 1},
     # 兵营不自动产兵：每兵营每回合可征 1 支军队（army_cost 每支耗资），军队 100HP，从本地块征集
     "兵营": {"kind": "barracks", "cost": 350, "wood": 20, "cap_resource": None, "army_cost": {"粮食": 10, "装备": 5}, "energy": 1},
+    # 市政厅：很贵、每地块限 1 座、需该地块已用建筑位≥6 才可建；维持 1 电（电网不足即停摆）；
+    # 每回合按该地块已占建筑位（城堡级数也占位，不含市政厅自身）×1 金 入国库——地盖得越满越收钱
+    "市政厅": {"kind": "townhall", "cost": 500, "wood": 40, "cap_resource": None,
+               "energy": 1, "limit": 1, "min_slots": 6},
 }
 
 # 兵种：征召耗粮装 / 每回合补给维持 / 每回合移动格数
@@ -386,6 +390,12 @@ class World:
         # 城堡 5 级上限
         if info["kind"] == "castle" and b[building] >= info["max_level"]:
             return False, f"{building} 已达 {info['max_level']} 级上限"
+        # 特殊约束（市政厅等）：需本地块已用建筑位达标 / 每地块限座
+        used = sum(b.values())
+        if info.get("min_slots") and used < info["min_slots"]:
+            return False, f"{building} 需该地块已用建筑位 ≥{info['min_slots']}（现 {used}），先在本地建满再盖"
+        if info.get("limit") and b[building] >= info["limit"]:
+            return False, f"{building} 已达上限（每地块 {info['limit']} 座）"
         # 造价（城堡逐级递增）+ 木材
         level = b[building]
         if info["kind"] == "castle":
@@ -747,7 +757,8 @@ class World:
         军队：从全局补给仓按 1 补给/支扣维持（不分地块）；断供则全国军队扣血。
         """
         produced = {g: 0 for g in GOODS}
-        income = 0
+        income = 0          # 黄金矿收入
+        hall_gold = 0       # 市政厅收入（按本地已占建筑位，电网不足则停摆）
         wood_in = 0
         wood_fuel = 0
         oil_fuel = 0
@@ -795,7 +806,7 @@ class World:
                 if batches:
                     energy_total += batches * info["energy_out"]
 
-        # 收集高级建筑需求：工厂产线入列，兵营只计维持（征兵走 r 命令）
+        # 收集高级建筑需求：工厂入列投料；兵营/市政厅只计维持电（征兵走 r 命令、市政厅产金见下）
         for tile in self.tiles.values():
             for name, count in tile["buildings"].items():
                 if count == 0:
@@ -804,7 +815,7 @@ class World:
                 if kind == "factory":
                     factories.append((tile, name, count))
                     maintenance_total += count
-                elif kind == "barracks":
+                elif kind in ("barracks", "townhall"):
                     maintenance_total += count
 
         # 3) 电网校核（电力不存储、全局）：不足则高级建筑全部停摆
@@ -827,6 +838,11 @@ class World:
                     else:
                         self.stock[g] += amt * batches
                         produced[g] += amt * batches
+            # 市政厅：按该地块已占建筑位(城堡级数占位、不含市政厅自身)×1 金 入国库；电网不足即停摆
+            for tile in self.tiles.values():
+                h = tile["buildings"].get("市政厅", 0)
+                if h:
+                    hall_gold += (sum(tile["buildings"].values()) - h) * h
 
         # 战争推进：每处交战地块结算一个战斗回合（本回合共用一颗骰子）
         wars, participants = self._advance_battles()
@@ -865,10 +881,11 @@ class World:
             self.prices[g] = round(self._clamp_price(g, base + (p - base) * PRICE_REVERT), 2)
 
         self.turn += 1
-        self.gold += income
+        self.gold += income + hall_gold
         return {
             "turn": self.turn,
             "income": income,
+            "hall_gold": hall_gold,   # 市政厅收入（电网不足停摆时为 0）
             "produced": produced,
             "supply_in": supply_in,
             "supply": self.supply,
@@ -956,7 +973,9 @@ class World:
             world.rng.setstate((ver, tuple(internal), gauss_next))
         for k, tile in data["tiles"].items():
             x, y = map(int, k.split(","))
-            tile.setdefault("buildings", {name: 0 for name in BUILDINGS})  # 旧档迁移
+            tile.setdefault("buildings", {})
+            for name in BUILDINGS:  # 旧档迁移：补全新增建筑（如市政厅）的键
+                tile["buildings"].setdefault(name, 0)
             tile.setdefault("name", None)
             tile.setdefault("recruited_this_turn", 0)
             tile.setdefault("built_this_turn", 0)

@@ -53,7 +53,7 @@ def _res_line(world, name) -> str:
     summ = world.econ_summary.get(name, "")
     return (
         f"{'  '.join(parts)}\n"
-        f"电网: 产{et}/需{mt} {grid}（不足则补给厂/装备厂/兵营全部瘫痪）"
+        f"电网: 产{et}/需{mt} {grid}（不足则补给厂/装备厂/兵营/市政厅全部停摆）"
         + (f"\n上一回合结算: {summ}" if summ else "")
     )
 
@@ -245,6 +245,9 @@ def _help_sections() -> list[tuple[str, str]]:
         elif k == "factory":
             note = "维持1电；投 " + "、".join(f"{f}x{a}" for f, a in info["inputs"].items()) + \
                    " 产 " + "、".join(f"{g}x{a}" for g, a in info["outputs"].items())
+        elif k == "townhall":
+            note = ("维持1电；每回合按该地块已占建筑位(不含市政厅)×1 金 入国库；"
+                    "需本地已用建筑位≥6、每地块限1座")
         else:  # barracks
             note = "维持1电；每兵营每回合可征 1 支军队（耗 10粮 + 5装）"
         bld.append(f"  {nm}：造价 {cost}金 + {info['wood']}木 · {cap} · {note}")
@@ -261,10 +264,11 @@ def _help_sections() -> list[tuple[str, str]]:
                                         "建好后下一回合才生效（在建中）。"),
         ("经济与能源", (
             "全国制：国库/木材/粮矿油装补给都在你账上（res 面板）。"
-            "电网全国且不存储：能源厂发电；补给厂/装备厂/兵营都要耗电维持，"
+            "电网全国且不存储：能源厂发电；补给厂/装备厂/兵营/市政厅都要耗电维持，"
             "发电 < 维持则这些高级建筑全部停摆（能源厂除外）。"
             "补给厂(粮1+矿1→补给2)；装备厂(矿1+油1→装备2)；补给仓每军每回合耗 1，空则军队挨饿。"
-            "黄金矿场是稳定产金；也可在 world market 卖物资换金（卖得越多价压越低）。"
+            "黄金矿场是稳定产金；市政厅(需本地已用位≥6·限1座·耗1电)让高密度城按已占建筑位每座 +1 金收税；"
+            "也可在 world market 卖物资换金（卖得越多价压越低）。"
         )),
         ("军队与战斗", (
             "每军 100HP；兵营征召（耗10粮5装），每兵营每回合 1 支；每回合只能移动相邻 1 格。"
@@ -615,7 +619,7 @@ TOOL_SCHEMAS = [
         "name": "rules", "description": "查询完整游戏规则（相当于 README）：建筑造价与上限、地形、电网经济、军队战斗、外交、信箱、市场、回合存档。可带 topic 只取相关段（如 '兵营'、'外交'、'宣战'）；不带则返回全文。",
         "parameters": _props({"topic": {"type": "string", "description": "想查的主题（可选）"}})}},
     {"type": "function", "function": {
-        "name": "build", "description": "在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营。建造上限受该地资源量限制。",
+        "name": "build", "description": "在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅。建造上限受该地资源量限制(市政厅另需本地已用位≥6且每地块限1)。",
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标如 '5 6' 或自家地块名（land 面板有）", "required": True},
                               "building": {"type": "string", "enum": BUILD_NAMES, "description": "建筑名", "required": True}})}},
     {"type": "function", "function": {
@@ -701,7 +705,7 @@ def system_prompt(world, name) -> str:
         "【资源用途（事实）】木头=建一切建筑+木材电厂燃料；粮=征兵(10/军)+补给厂原料；矿=装备厂+补给厂原料；"
         "油=装备厂原料+油电厂燃料；装=征兵(5/军)；补给=每军每回合耗1，仓空军队挨饿。\n"
         "【生产链（事实）】林场/农场/矿场/石油厂/黄金矿场=采集；木材厂(耗1木→2电)/油电厂(耗1油→5电)=发电，"
-        "电不存储，电网不足则补给厂/装备厂/兵营全停摆；补给厂(粮1+矿1→补给2)；装备厂(矿1+油1→装备2)；"
+        "电不存储，电网不足则补给厂/装备厂/兵营/市政厅全停摆；补给厂(粮1+矿1→补给2)；装备厂(矿1+油1→装备2)；"
         "兵营(耗1电)每回合可征1军(10粮5装)；黄金矿场+10金/回合；也可世界市场 buy/sell 换黄金。\n"
         "【扩张与战争（事实）】占地一律走 atk：派军进目标格，有守军(野人/敌军)就打赢再占、"
         "敌人=0 就直接进驻占领；mv 只是挪位置，不占地。荒地/敌空城都这样占。"
@@ -852,7 +856,7 @@ def dummy_turn(world, name, rng, max_actions: int = 12) -> int:
 
     # 决定用：需要多少电（补给厂+装备厂+兵营数）
     need_energy = sum(
-        (1 if BUILDINGS[bn]["kind"] in ("factory", "barracks") else 0) * cnt
+        (1 if BUILDINGS[bn]["kind"] in ("factory", "barracks", "townhall") else 0) * cnt
         for t in world.tiles.values() if t["owner"] == name
         for bn, cnt in t["buildings"].items()
     )

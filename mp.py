@@ -287,6 +287,12 @@ class World:
             return False, f"{building} 已达上限：本地 {cr}={t['resources'][cr]}"
         if info["kind"] == "castle" and eff[building] >= info["max_level"]:
             return False, f"{building} 已达上限 L{info['max_level']}"
+        # 特殊约束（市政厅等）：需该地块已用建筑位达标（含在建）/ 每地块限座
+        used_eff = sum(eff.values())
+        if info.get("min_slots") and used_eff < info["min_slots"]:
+            return False, f"{building} 需该地块已用建筑位 ≥{info['min_slots']}（现 {used_eff}），先建满再盖"
+        if info.get("limit") and eff[building] >= info["limit"]:
+            return False, f"{building} 已达上限（每地块 {info['limit']} 座）"
         lv = eff[building]
         cost = info["cost"][lv] if info["kind"] == "castle" else info["cost"]
         label = f"城堡L{lv+1}" if info["kind"] == "castle" else building
@@ -641,7 +647,7 @@ class World:
                 elif kind == "factory":
                     factories[owner].append((bname, info, cnt))
                     maint[owner] += cnt
-                elif kind == "barracks":
+                elif kind in ("barracks", "townhall"):
                     maint[owner] += cnt
 
         # 2) 电网 + 工厂
@@ -670,6 +676,15 @@ class World:
                     for g, amt in info["outputs"].items():
                         self.add_res(n, g, amt * batches)
                         prod[n][g] += amt * batches
+                # 市政厅：按该地块已占建筑位(城堡级数占位、不含市政厅自身)×1 金；电网不足即停摆
+                for (hx, hy), ht in self.tiles.items():
+                    if ht["owner"] != n:
+                        continue
+                    h = ht["buildings"].get("市政厅", 0)
+                    if h:
+                        hall_gain = (sum(ht["buildings"].values()) - h) * h
+                        self.add_res(n, "黄金", hall_gain)
+                        gold_in[n] += hall_gain
 
         # 3) 战争结算
         war_lines = self._resolve_battles()
@@ -1074,7 +1089,11 @@ class World:
             x, y = map(int, k.split(","))
             t.setdefault("recruited_this_turn", 0)
             t.setdefault("built_this_turn", 0)
-            t.setdefault("pending", {b: 0 for b in BUILDINGS})  # 旧档迁移
+            t.setdefault("buildings", {})
+            t.setdefault("pending", {})
+            for name in BUILDINGS:  # 旧档迁移：补全新增建筑(如市政厅)的键
+                t["buildings"].setdefault(name, 0)
+                t["pending"].setdefault(name, 0)
             w.tiles[(x, y)] = t
         w.guard_once = {tuple(k) for k in data.get("guard_once", [])}
         w._ensure_guardians()
