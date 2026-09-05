@@ -194,9 +194,10 @@ def observer_board(world) -> str:
                  f"油{r['石油']} 装{r['装备']} 补给仓{r['补给']} | {world.econ_summary.get(n,'')}")
         L.append(f"   国土 {len(world.own_tiles(n))} 块 | 军队 {len(world.nation_armies(n))} 支 | {world.rel_desc(n)}")
         msgs = []
-        for m in (world.mailbox.get(n) or [])[-1:]:
+        # 只提示"本回合新到"的信（避免旧信内容在全景头每回合重打）
+        for m in [m for m in (world.mailbox.get(n) or []) if m.get("turn") == world.turn][-1:]:
             msgs.append(f"收[{m['from']}]「{m['text'][:50]}」")
-        for m in [m for m in world.mail_pending if m["from"] == n][-1:]:
+        for m in [m for m in world.mail_pending if m["from"] == n and m["arrive"] == world.turn + 1][-1:]:
             msgs.append(f"寄[{m['to']}]「{m['text'][:50]}」")
         if msgs:
             L.append("   " + " ⏐ ".join(msgs))

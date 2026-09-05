@@ -37,6 +37,8 @@ def observer(world, out, header: str):
     for h in lines:
         who = h.get("nation") or ""
         tag = {"信件": "✉", "外交": "🕊", "灭国": "☠", "领土": "🏳"}.get(h["phase"], "")
+        if tag and h["text"].startswith(tag):
+            tag = ""  # 文本自带图标，避免 ✉✉/🕊🕊 之类双打
         out.append(f"  [{h['turn']}·{h['phase']}]{who} {tag} {h['text']}")
 
 

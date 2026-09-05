@@ -850,7 +850,7 @@ class World:
         if to == frm:
             return False, "不能给自己写信"
         self.mail_pending.append({"from": frm, "to": to, "text": text, "arrive": self.turn + 1})
-        self.log(f"✉ {frm} → {to}：{text}", phase="信件", nation=frm)
+        # 信件正文不单独记一条（信件=一次行动，正文已在行动行里）；送达时另有"收到信"事件+收件箱
         return True, f"信已发出，{to} 将于第 {self.turn+1} 回合收到"
 
     # ------------------------------------------------------------- 外交
