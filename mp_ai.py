@@ -413,10 +413,22 @@ PACT_MAP = {"同盟": "同盟", "alliance": "同盟", "结盟": "同盟",
 # ---------------------------------------------------------------------------
 
 def execute(world, actor: str, tool: str, args: dict) -> str:
-    """执行一个工具调用并返回结果文本（喂回给 LLM）。所有机制校验都在引擎内完成。"""
+    """执行一个工具调用并返回结果文本（喂回给 LLM）。所有机制校验都在引擎内完成。
+
+    顶层兜底：单次工具调用参数非法或内部异常只记为一次失败返回给模型，
+    绝不让异常穿出回合循环炸掉整个看海进程（结算前的行动会全部丢失）。
+    """
     if actor not in world.nations:
         return "（你已亡国/不存在）"
+    try:
+        return _exec(world, actor, tool, args)
+    except Exception as e:
+        return (f"⚠ 工具 {tool} 执行出错，本次调用未生效（参数可能非法）；"
+                f"请检查后用合法参数重试）：{type(e).__name__}: {e}")
 
+
+def _exec(world, actor: str, tool: str, args: dict) -> str:
+    """execute 的实质分发（兜底由 execute 负责）。"""
     # ---- 面板（查询接口）
     if tool in ("query", "view", "panel", "查", "查询", "看", "面板"):
         which = str(args.get("panel", "all")).lower()
