@@ -84,6 +84,7 @@ class World:
         self.guarantees: dict[str, set[str]] = {}
         self.mail_pending: list[dict] = []
         self.mailbox: dict[str, list[dict]] = {}
+        self.summaries: dict[str, list[str]] = {}  # 各国近 10 回合小结纪事（私有，本国 AI 记忆）
         self.peace_offers: list[dict] = []
         self.proposals: list[dict] = []
         self._offer_id = 1
@@ -603,6 +604,7 @@ class World:
         for s in self.guarantees.values():
             s.discard(name)
         self.mailbox.pop(name, None)
+        self.summaries.pop(name, None)
         self.mail_pending = [m for m in self.mail_pending if m["to"] != name and m["from"] != name]
         self.peace_offers = [p for p in self.peace_offers if p["a"] != name and p["b"] != name]
         self.proposals = [p for p in self.proposals if p["a"] != name and p["b"] != name]
@@ -1054,6 +1056,7 @@ class World:
             "guarantees": {k: sorted(v) for k, v in self.guarantees.items()},
             "mail_pending": self.mail_pending,
             "mailbox": self.mailbox,
+            "summaries": self.summaries,
             "peace_offers": self.peace_offers,
             "proposals": self.proposals,
             "offer_id": self._offer_id,
@@ -1073,6 +1076,7 @@ class World:
         w.nations = {n: Nation(n, res) for n, res in data.get("nations", {}).items()}
         w.order = data.get("order") or list(w.nations)
         w.mailbox = {n: data.get("mailbox", {}).get(n, []) for n in w.nations}
+        w.summaries = {n: list(v) for n, v in data.get("summaries", {}).items() if n in w.nations}
         w.armies = data.get("armies", [])
         w.next_army_id = data.get("next_army_id", 1)
         w.wars = [_pair(*p) for p in data.get("wars", [])]

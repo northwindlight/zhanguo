@@ -23,6 +23,7 @@ from game import (
     MARKET,
     MAX_SLOTS,
     TERRAIN_STATS,
+    TOWN_HALL_GOLD,
 )
 from mp import RES_KEYS, RES_LABEL
 
@@ -351,6 +352,70 @@ def _fmt_news(world, name) -> str:
     return ("近讯:\n  " + "\n  ".join(ev)) if ev else "近讯: 暂无"
 
 
+def _fmt_memory(world, name) -> str:
+    """本国近 10 回合小结纪事（私有记忆，别国不可见）。"""
+    mem = world.summaries.get(name, [])
+    if not mem:
+        return "（尚无往回合小结）"
+    return "\n".join("  " + s for s in mem[-10:])
+
+
+def _gval(world, good: str, amt: int) -> float:
+    """按当前市价把 amt 单位 good 折成金（黄金固定按 MARKET 兑换额）。"""
+    if amt <= 0:
+        return 0.0
+    if good == "黄金":
+        return amt * MARKET["黄金"]
+    p = world.prices.get(good)
+    return amt * (p if p is not None else float(MARKET.get(good, 0)))
+
+
+def _econ_building(world, building: str) -> str:
+    """单个建筑的经济核算：按当前市价给 造价(折金)/每回合毛利/回本时间。"""
+    info = BUILDINGS[building]
+    wp = world.prices.get("木头", float(MARKET["木头"]))
+    cost = info["cost"] if isinstance(info["cost"], int) else info["cost"][0]
+    capex = cost + info["wood"] * wp
+    k = info["kind"]
+    if k == "castle":
+        return (f"{building}: L1造价 {cost}金+{info['wood']}木(折{capex:.0f}金) · "
+                f"每级+{CASTLE_DEFENSE_PER_LEVEL}%防御，不产金")
+    if k in ("extract", "gold"):
+        net = sum(_gval(world, g, a) for g, a in info["outputs"].items())
+        pb = f"{capex / net:.0f}回合" if net > 0 else "—"
+        tag = "固定+金" if k == "gold" else "折金"
+        return f"{building}: 造价折{capex:.0f}金 · 每回合产出{tag}≈{net:.0f}金 · 回本≈{pb}"
+    if k == "energy":
+        fuel = sum(_gval(world, f, a) for f, a in info["fuel"].items())
+        return (f"{building}: 造价折{capex:.0f}金 · 每回合烧燃料现值≈{fuel:.0f}金 "
+                f"→ 产{info['energy_out']}电（电不交易，供高级建筑维持）")
+    if k == "factory":
+        inv = sum(_gval(world, f, a) for f, a in info["inputs"].items())
+        outv = sum(_gval(world, g, a) for g, a in info["outputs"].items())
+        net = outv - inv
+        ec = info.get("energy", 0) * wp / 2  # 电按"1木发2电"的燃料成本估
+        pb = f"{capex / net:.0f}回合" if net > 0 else "—"
+        return (f"{building}: 造价折{capex:.0f}金 · 每回合投{inv:.0f}金现价料→产{outv:.0f}金现价货"
+                f"（毛利{net:+.0f}金；另耗{info.get('energy', 0)}电≈{ec:.0f}金） · 回本≈{pb}")
+    if k == "barracks":
+        return (f"{building}: 造价折{capex:.0f}金 · 不自动产金，每兵营每回合可征1军"
+                f"（步10粮5装 / 骑12粮12装，耗兵料另计）")
+    if k == "townhall":
+        net = TOWN_HALL_GOLD
+        return (f"{building}: 造价折{capex:.0f}金 · 每回合+{net}金固定 · 回本≈{capex / net:.0f}回合"
+                f" · 需本地已用位≥6、每地块限1座、耗1电")
+    return f"{building}: 无核算"
+
+
+def _fmt_econ(world) -> str:
+    """当前市价经济表：各建筑造价(折金)/毛利/回本，供建设决策。"""
+    L = ["【经济核算 · 当前市价】单位建筑投入产出（木头按现价折金入造价，黄金矿场/市政厅为固定金）："]
+    L.append("现价: " + "  ".join(f"{g}={world.prices.get(g):.1f}" for g in GOODS_DISPLAY))
+    for b in BUILDINGS:
+        L.append("  " + _econ_building(world, b))
+    return "\n".join(L)
+
+
 def full_state(world, name) -> str:
     return "\n".join([
         f"你（{name}）现在进行第 {world.turn} 回合的行动。",
@@ -359,6 +424,7 @@ def full_state(world, name) -> str:
         f"【军队】\n{_fmt_armies(world, name)}",
         f"【威胁】\n{_fmt_threats(world, name)}",
         f"【市场】\n{_fmt_market(world, name)}",
+        f"【纪事(近10回合)】\n{_fmt_memory(world, name)}",
         f"【信箱】\n{_fmt_mail(world, name)}",
         f"【外交】\n{_fmt_diplomacy(world, name)}",
         f"【近讯】\n{_fmt_news(world, name)}",
@@ -448,6 +514,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
             "countries": _fmt_countries(world, actor),
             "news": _fmt_news(world, actor),
             "threats": _fmt_threats(world, actor),
+            "econ": _fmt_econ(world),
         }.get(which, full_state(world, actor))
 
     # ---- 规则查询（= README 的游戏规则）
@@ -457,6 +524,13 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
     # ---- 外交对象（先选一个非自己的国家）
     if tool in ("countries", "外交对象", "国家列表", "对手"):
         return _fmt_countries(world, actor)
+
+    # ---- 经济核算（建设回报，按当前市价）
+    if tool in ("econ", "核算", "经济核算", "预算", "回本"):
+        b = str(args.get("building", "") or "")
+        if b in BUILDINGS:
+            return _econ_building(world, b)
+        return _fmt_econ(world)
 
     # ---- 领土（无"凭空占"：只有军队 mv 移入"敌人=0"的地格才占地）
     if tool in ("expand", "拓荒", "activate"):
@@ -571,6 +645,10 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         if len(summary) < 4:
             return "本回合还没收尾：end_turn 必须带 summary=一句话，总结你这回合做了什么/立场（例如 summary=这回合建了两座农场并继续拓荒）。"
         world.log(f"{actor} 回合小结：{summary}", phase="行动", nation=actor)
+        mem = world.summaries.setdefault(actor, [])
+        mem.append(f"第{world.turn}回合：{summary}")
+        if len(mem) > 10:
+            del mem[:-10]  # 只留最近 10 回合
         return f"✅ 本回合结束（小结已记录：{summary}）"
     return f"未知工具 {tool}"
 
@@ -611,14 +689,17 @@ def _props(schema: dict) -> dict:
 
 TOOL_SCHEMAS = [
     {"type": "function", "function": {
-        "name": "query", "description": "查询接口：随时获取你的各面板。res=国库与储备 / land=地皮(国土+可拓荒地) / army=军队 / market=世界市场(现价+持有) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
-        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "land", "army", "market", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True}})}},
+        "name": "query", "description": "查询接口：随时获取你的各面板。res=国库与储备 / land=地皮(国土+可拓荒地) / army=军队 / market=世界市场(现价+持有) / econ=经济核算(各建筑造价毛利回本) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
+        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "land", "army", "market", "econ", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True}})}},
     {"type": "function", "function": {
         "name": "countries", "description": "列出所有可选外交对象（除你之外的每个国家：关系/是否接壤/有无来信）。外交动作前先用它选一个目标，再以 to=该国家 行动；绝不能对自己用外交工具。",
         "parameters": _props({})}},
     {"type": "function", "function": {
         "name": "rules", "description": "查询完整游戏规则（相当于 README）：建筑造价与上限、地形、电网经济、军队战斗、外交、信箱、市场、回合存档。可带 topic 只取相关段（如 '兵营'、'外交'、'宣战'）；不带则返回全文。",
         "parameters": _props({"topic": {"type": "string", "description": "想查的主题（可选）"}})}},
+    {"type": "function", "function": {
+        "name": "econ", "description": "按当前市价核算建设回报：某建筑的 造价(折金)/每回合毛利/回本时间；不带 building 则输出全部建筑经济表。做建设/买卖决策前先算再定。",
+        "parameters": _props({"building": {"type": "string", "enum": BUILD_NAMES, "description": "要核算的建筑名（可选；省则输出全部）"}})}},
     {"type": "function", "function": {
         "name": "build", "description": "在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅。建造上限受该地资源量限制(市政厅另需本地已用位≥6且每地块限1)。",
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标如 '5 6' 或自家地块名（land 面板有）", "required": True},
