@@ -24,6 +24,7 @@ from game import (
     MAX_SLOTS,
     TERRAIN_STATS,
     TOWN_HALL_GOLD,
+    TOWN_HALL_PER_SLOT,
 )
 from mp import RES_KEYS, RES_LABEL
 
