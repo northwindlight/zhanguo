@@ -89,6 +89,7 @@ class World:
         self.prices: dict[str, float] = {g: float(MARKET[g]) for g in TRADEABLE}
         self.armies: list[dict] = []
         self.next_army_id = 1
+        self.guard_once: set[tuple[int, int]] = set()  # 每格至多出生一支野人：死了就没了，不重生
         self.grid_short: dict[str, bool] = {}
         self.energy_report: dict[str, tuple[int, int, bool]] = {}
         self.econ_summary: dict[str, str] = {}   # 上一回合结算摘要（各国 agent 看）
@@ -233,7 +234,7 @@ class World:
     def _ensure_guardians(self):
         for nm in self.alive():
             for x, y in self.frontier_of(nm):
-                if (x, y) in self.tiles:
+                if (x, y) in self.tiles or (x, y) in self.guard_once:
                     continue
                 if any(a["owner"] == "野人" and (a["x"], a["y"]) == (x, y) for a in self.armies):
                     continue
@@ -244,6 +245,7 @@ class World:
         self.next_army_id += 1
         self.armies.append({"id": aid, "name": f"野人{aid}", "hp": ARMY_MAX_HP,
                             "x": x, "y": y, "owner": "野人", "moved_turn": -1, "engaged": False})
+        self.guard_once.add((x, y))  # 出生过就算数：这格野人死了不再有
 
     def _drop_guardians(self, x: int, y: int):
         self.armies = [a for a in self.armies
@@ -383,30 +385,25 @@ class World:
         ok, why = self.can_enter(name, x, y)
         if not ok:
             return False, why
+        # mv 只挪位置，不占地——占地走 atk
         a["x"], a["y"] = x, y
         a["moved_turn"] = self.turn
-        owner = self.owned_by(x, y)
-        msg = f"军队{a['id']} 移防 ({x+1},{y+1})"
-        if owner is not None and owner != name and self.war_between(name, owner) \
-                and not self._defs_at(name, x, y):
-            # 空城即陷
-            self._conquer(x, y, name, "不战而下", log_it=False)
-            self.log(f"{name} {msg}：{owner} 城空无防，直接攻陷！", phase="领土", nation=name, x=x, y=y)
-            return True, f"{msg}：敌城空虚无守军，直接攻陷「{self.tiles[(x,y)]['name']}」"
-        return True, msg
+        return True, f"军队{a['id']} 移防 ({x+1},{y+1})"
 
     def attack(self, name: str, aids: list[int], x: int, y: int) -> tuple[bool, str]:
+        """atk = 一次『进军占地』：派军队进目标格——
+        有守军(野人/敌国军)就交战（打赢自动占地）；敌人=0 就直接进驻占领（空城/无主空地）。
+        mv 只挪位置不占地；占地一律走 atk，没有特例。"""
         try:
             self._check(x, y)
         except IndexError as e:
             return False, str(e)
+        owner = self.owned_by(x, y)
+        if owner is not None and (owner == name or self.allied_between(name, owner)):
+            return False, "目标是自己或盟国的领土，不能进攻"
+        if owner is not None and owner != name and not self.war_between(name, owner):
+            return False, "中立不可攻击他国领土"
         defs = self._defs_at(name, x, y)
-        if not defs:
-            o = self.owned_by(x, y)
-            if o is not None and o != name:
-                return False, ("中立不可攻击他国领土" if not self.war_between(name, o)
-                               else "该地无守军，直接移动占领即可")
-            return False, "该地没有可攻击的敌人（野人守军或交战国军队）"
         targets = [a for a in self.armies if a["owner"] == name and a["id"] in aids]
         if not targets:
             return False, f"未找到我方军队 {aids}"
@@ -420,10 +417,17 @@ class World:
             if (a["x"], a["y"]) != (x, y):
                 a["x"], a["y"] = x, y
                 a["moved_turn"] = self.turn
-            a["engaged"] = True
-        who = "野人" if defs[0]["owner"] == "野人" else f"{defs[0]['owner']}军"
-        ids = "、".join(f"军{a['id']}" for a in targets)
-        return True, f"{ids} 冲入 ({x+1},{y+1}) 与{who}交战，之后每回合结算一轮；可 retreat 撤出"
+        ids = "、".join(f"{a['name']}" for a in targets)
+        if defs:
+            for a in targets:
+                a["engaged"] = True
+            who = "野人" if defs[0]["owner"] == "野人" else f"{defs[0]['owner']}军"
+            return True, f"{ids} 冲入 ({x+1},{y+1}) 与{who}交战，之后每回合结算一轮；可 retreat 撤出"
+        # 敌人=0：atk 进驻即占
+        self._conquer(x, y, name, "进驻占领", log_it=False)
+        nm2 = self.tiles[(x, y)]["name"]
+        self.log(f"{name} {ids} 进驻 ({x+1},{y+1})，占领「{nm2}」", phase="领土", nation=name, x=x, y=y)
+        return True, f"{ids} 进驻 ({x+1},{y+1})，敌人为 0，占领「{nm2}」"
 
     def retreat(self, name: str, aid: int, x: int, y: int) -> tuple[bool, str]:
         """撤出：与 mv/atk 同一个『每回合一次移动』机制。
@@ -531,13 +535,10 @@ class World:
             alive_def = [a for a in defs if a["hp"] > 0]
             alive_a = [a for a in atks if a["hp"] > 0]
             if not alive_def and not alive_a:
-                # 同归=占领失败：荒地野人重新把守（不白捡）；敌城仍归原主
-                respawn = owner is None
-                if respawn:
-                    self._spawn_guardian(x, y)
+                # 同归于尽：谁也不占。野人死了就是无主空地（该格已出生过守军、不再重生），谁都能来占
                 lines.append(
                     f"⚔ 同归于尽 @{tag}（骰{d}）：守军 {len(died)} 支与我军 {len(died_a)} 支同回合全灭"
-                    + ("——占领失败，野人重新把守" if respawn else "——占领失败，城仍在敌手")
+                    + ("——此地成无主空地，可直接占领" if owner is None else "——城仍在敌手")
                 )
             elif not alive_def:
                 winner = atk_ns[0]
@@ -558,6 +559,7 @@ class World:
     def _conquer(self, x: int, y: int, by: str, how: str, *, log_it: bool = True) -> tuple[bool, str]:
         self._check(x, y)
         old = self.owned_by(x, y)
+        self.guard_once.discard((x, y))
         self._drop_guardians(x, y)
         if old is None:
             t = self._new_tile(x, y, by)
@@ -1026,6 +1028,7 @@ class World:
             "order": self.order,
             "tiles": {f"{x},{y}": t for (x, y), t in sorted(self.tiles.items())},
             "armies": self.armies, "next_army_id": self.next_army_id,
+            "guard_once": [list(k) for k in sorted(self.guard_once)],
             "wars": [list(p) for p in self.wars],
             "alliances": [list(p) for p in self.alliances],
             "defense_pacts": [list(p) for p in self.defense_pacts],
@@ -1070,6 +1073,7 @@ class World:
             t.setdefault("built_this_turn", 0)
             t.setdefault("pending", {b: 0 for b in BUILDINGS})  # 旧档迁移
             w.tiles[(x, y)] = t
+        w.guard_once = {tuple(k) for k in data.get("guard_once", [])}
         w._ensure_guardians()
         return w
 

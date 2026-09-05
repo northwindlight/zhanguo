@@ -94,10 +94,11 @@ def _fmt_land(world, name, cap=40) -> str:
         )
         shown += 1
     fr = sorted(world.frontier_of(name))
-    lines.append(f"可拓荒地 {len(fr)} 块（须打赢[野人]或空置）:")
+    lines.append(f"可拓荒地 {len(fr)} 块（[野人]=有守军需 atk 打赢；[空地]=无守军，atk 进驻即占）:")
     frs = []
     for (x, y) in fr:
-        tag = "[野人]" if any(a["owner"] == "野人" and (a["x"], a["y"]) == (x, y) for a in world.armies) else ""
+        guard = any(a["owner"] == "野人" and (a["x"], a["y"]) == (x, y) for a in world.armies)
+        tag = "[野人]" if guard else "[空地]"
         frs.append(f"({x+1},{y+1}){world.ter_char(x, y)}{tag}")
     if frs:
         for i in range(0, len(frs), 10):
@@ -254,7 +255,8 @@ def _help_sections() -> list[tuple[str, str]]:
             "地皮名字=ID，坐标 1-based。你能看的只有自己地盘+相邻一圈；他国国力只能推测。"
             "想细看任何机制就带主题调 rules，例如 rules(建筑) rules(外交) rules(战斗)。"
         )),
-        ("地形", ter + "\n  开局资源看 land 面板；拓荒只能占与自家相邻的荒地。"),
+        ("地形", ter + "\n  占地一律走 atk：派军队进格——有守军打赢即占，敌人=0 进驻即占；"
+                        "mv 只挪位不占地；没有『凭空拓荒』命令。"),
         ("建筑与造价", "\n".join(bld) + "\n  每地块 20 建筑位；每地块每回合限建 1 座；"
                                         "建好后下一回合才生效（在建中）。"),
         ("经济与能源", (
@@ -439,16 +441,9 @@ def execute(world, actor: str, tool: str, args: dict) -> str:
     if tool in ("countries", "外交对象", "国家列表", "对手"):
         return _fmt_countries(world, actor)
 
-    # ---- 领土（必须手动给坐标，不能自动选）
+    # ---- 领土（无"凭空占"：只有军队 mv 移入"敌人=0"的地格才占地）
     if tool in ("expand", "拓荒", "activate"):
-        if args.get("x") is None or args.get("y") is None:
-            return "拓荒必须手动指定坐标：expand x y（1-based，从 land 面板『可拓荒地』里挑一块无野人的）"
-        try:
-            x, y = int(args["x"]) - 1, int(args["y"]) - 1
-        except (TypeError, ValueError):
-            return "坐标需为整数"
-        ok, msg = world.activate(actor, x, y)
-        return msg
+        return "没有单独占地命令：派军队 mv 到目标格即可——若那格没有守军/敌军（敌人=0），军队进驻就地占领；有野人/敌军则先 attack 打赢。"
 
     # ---- 建设 / 征兵
     if tool in ("build", "建", "建造"):
@@ -608,9 +603,6 @@ TOOL_SCHEMAS = [
         "name": "rules", "description": "查询完整游戏规则（相当于 README）：建筑造价与上限、地形、电网经济、军队战斗、外交、信箱、市场、回合存档。可带 topic 只取相关段（如 '兵营'、'外交'、'宣战'）；不带则返回全文。",
         "parameters": _props({"topic": {"type": "string", "description": "想查的主题（可选）"}})}},
     {"type": "function", "function": {
-        "name": "expand", "description": "拓荒占领一块『视野内且无野人把守』的荒地（一般荒地都有野人，需先用 attack 打赢）。必须手动给出坐标 x y（1-based，从 land 面板的『可拓荒地』里挑）。",
-        "parameters": _props({"x": {"type": "integer", "description": "坐标x(1-based)", "required": True}, "y": {"type": "integer", "description": "坐标y(1-based)", "required": True}})}},
-    {"type": "function", "function": {
         "name": "build", "description": "在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营。建造上限受该地资源量限制。",
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标如 '5 6' 或自家地块名（land 面板有）", "required": True},
                               "building": {"type": "string", "enum": BUILD_NAMES, "description": "建筑名", "required": True}})}},
@@ -699,7 +691,8 @@ def system_prompt(world, name) -> str:
         "【生产链（事实）】林场/农场/矿场/石油厂/黄金矿场=采集；木材厂(耗1木→2电)/油电厂(耗1油→5电)=发电，"
         "电不存储，电网不足则补给厂/装备厂/兵营全停摆；补给厂(粮+矿→补给)；装备厂(矿+油→装备)；"
         "兵营(耗1电)每回合可征1军(10粮5装)；黄金矿场+10金/回合；也可世界市场 buy/sell 换黄金。\n"
-        "【扩张与战争（事实）】相邻荒地常有野人(100HP守军)，打赢即拓疆；别国城市空城踏入即陷、打赢守军即夺地。"
+        "【扩张与战争（事实）】占地一律走 atk：派军进目标格，有守军(野人/敌军)就打赢再占、"
+        "敌人=0 就直接进驻占领；mv 只是挪位置，不占地。荒地/敌空城都这样占。"
         "军队非交战且补给够时每回合回25HP。中立(不结盟不交战)时你的军队进不了别国、也打不了别国；"
         "结盟=互通+互不攻击；宣战对方必须应战；被宣战方若有『保障独立/共同防御』的盟国会自动参战打你。"
         "求和 pay=你赔钱 / demand=索对方赔款 / white=白和。\n"
@@ -796,7 +789,7 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                     # 只有带上有效的小结才算真结束；没带会被 execute 拦下，继续逼它补
                     if (str(args.get("summary", "")).strip()):
                         return done
-            if not acted_this and step % 3 == 2 and name in world.nations:
+            if name in world.nations:  # 每次行动后都回填一次最新状态（默认塞查询）
                 messages.append({"role": "user", "content": engine_call(compact_state, world, name)})
             continue
         # 没有工具调用：

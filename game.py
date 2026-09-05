@@ -698,10 +698,11 @@ class World:
             def_alive = [d for d in defs if d["hp"] > 0]
             atk_alive = [a for a in atks if a["hp"] > 0]
             if not def_alive and not atk_alive:
-                self.refresh_barbarians()  # 同归=占领失败：荒地守军重新把守，不白捡
+                # 野人死了就是无主空地，谁派军队来占就归谁，没有重生一说
+                self.cleared_tiles.add((x, y))
                 lines.append(
                     f"⚔ 同归于尽 @{tag}：我军 {len(dead_atk)} 支与野人 {len(dead_def)} 支同回合全灭——"
-                    f"占领失败，野人重新把守"
+                    f"此地成无主空地，派军队来占即归你"
                 )
             elif not def_alive:
                 self.cleared_tiles.add((x, y))
