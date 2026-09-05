@@ -1,0 +1,42 @@
+{
+  "map_size": 60,
+  "seed": 20260905,
+  "max_turns": 200,
+  "save": "mp_save.json",
+  "journal": "mp_journal.md",
+  "nations": [
+    {
+      "name": "秦",
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key": "粘贴你的 api key（此文件是模板，真配置存 mp_config.json 且不入库）",
+      "model": "deepseek-v4-flash",
+      "thinking": "enabled",
+      "reasoning_effort": "low",
+      "temperature": 0.3,
+      "max_tokens": 4000,
+      "max_steps": 28
+    },
+    {
+      "name": "楚",
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key": "",
+      "model": "deepseek-v4-flash",
+      "thinking": "enabled",
+      "reasoning_effort": "low",
+      "temperature": 0.3,
+      "max_tokens": 4000,
+      "max_steps": 28
+    },
+    {
+      "name": "齐",
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key": "",
+      "model": "deepseek-v4-flash",
+      "thinking": "enabled",
+      "reasoning_effort": "low",
+      "temperature": 0.3,
+      "max_tokens": 4000,
+      "max_steps": 28
+    }
+  ]
+}
