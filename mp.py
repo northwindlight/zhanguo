@@ -734,12 +734,12 @@ class World:
                         self.armies.remove(a)
                 famine[n] = (short, len(dead))
                 ps = self.nation_armies(n)
-            engaged_ids = {id(a) for a in self.armies if a.get("engaged")}
+            battle_tiles = {(a["x"], a["y"]) for a in self.armies if a.get("engaged")}
             for a in list(self.armies):
                 if a["owner"] != n:
                     continue
-                if short or id(a) in engaged_ids:
-                    continue
+                if short or (a["x"], a["y"]) in battle_tiles:
+                    continue  # 断粮或所在格正在交战（含防御方守军）→ 不回血
                 a["hp"] = min(ARMY_MAX_HP, a["hp"] + ARMY_HEAL_PER_TURN)
         for n, (short, dead) in famine.items():
             self.log(f"⚠ {n} 补给断粮（缺 {short}）：{dead} 支军队饿毙", phase="内政", nation=n)

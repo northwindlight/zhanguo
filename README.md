@@ -132,6 +132,7 @@ q                  退出（自动存档）
   demand 索款/white 白和)；信箱下回合到信；灭国清场；**建设施工 1 回合：下单即在建，回合末
   落地，下回合起才发电/收获/征兵**。**防御方优惠**：被攻的军队不会被标为交战，可随时 `mv`
   直接撤离（无惩罚）；只有进攻方（被标交战的军队）才需 `retreat` 挨一击才能脱身。
+  但**交战中的军队（含守军）一律不回血**。
 - `mp_ai.py` 把全部功能注册成 tools（`query` 随时取回国库/地皮/军队/市场面板、build/recruit/
   move/attack/retreat/buy/sell/expand/写信/外交全套）；每国只见自己该知道的；支持
   deepseek-v4-flash 之类**推理模型**（reasoning_content 多轮思考、思考不截断）；另有 `dummy_turn`
