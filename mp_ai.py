@@ -983,7 +983,16 @@ def _huns_prompt(world, name) -> str:
 
 def system_prompt(world, name) -> str:
     if world.polity.get(name) == "huns":
-        return _huns_prompt(world, name)
+        p = _huns_prompt(world, name)
+    else:
+        p = _default_system_prompt(world, name)
+    ep = world.extra_prompt.get(name)
+    if ep and world.turn < ep.get("until", world.turn):
+        p += "\n\n【临时情报/密谕（10回合后自动消失，届时只留你自记的总结）】\n" + ep["text"]
+    return p
+
+
+def _default_system_prompt(world, name) -> str:
     others = "、".join(n for n in world.alive() if n != name)
     return (
         "你是国家元首【" + name + "】，在一个 EU4 式大地图战略游戏里治国。其余国家：" + (others or "（只剩你）") + "。\n\n"

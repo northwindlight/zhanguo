@@ -93,6 +93,26 @@ def start_stdin_thread() -> queue.Queue:
     return q
 
 
+def _nation_extra(n: dict) -> str | None:
+    """待加入国的临时注入上下文：取 extra_prompt 字段，或从 extra_prompt_file 读。"""
+    e = n.get("extra_prompt")
+    if not e and n.get("extra_prompt_file"):
+        try:
+            e = Path(n["extra_prompt_file"]).read_text(encoding="utf-8")
+        except Exception:
+            e = None
+    return e or None
+
+
+def _nation_start(n: dict) -> dict | None:
+    """待加入国定制开局：start_cavalry / start_gold / start_supply。"""
+    s = {}
+    for k, f in (("骑", "start_cavalry"), ("黄金", "start_gold"), ("补给", "start_supply")):
+        if n.get(f) is not None:
+            s[k] = int(n[f])
+    return s or None
+
+
 def make_world(cfg, force_new: bool, save_path: Path) -> tuple[World, bool]:
     if not force_new and save_path.exists():
         try:
@@ -175,7 +195,9 @@ def run() -> None:
                         "huns" if nm in ("匈奴", "huns", "hun")
                         else cfg_by_name.get(nm, {}).get("polity", ""))
                     try:
-                        ok, msg = world.add_nation(nm, polity)
+                        ok, msg = world.add_nation(nm, polity,
+                                                   extra=_nation_extra(cfg_by_name.get(nm, {})),
+                                                   start=_nation_start(cfg_by_name.get(nm, {})))
                         if ok:
                             # 中途加的国也走 LLM：复用配置模板（可被 config 里预写的同名项覆盖）
                             cfg_by_name.setdefault(nm, dict(_template))
@@ -198,8 +220,29 @@ def run() -> None:
                         emit(msg if ok else f"⚠ {msg}")
                     except Exception as e:
                         emit(f"⚠ 神秘来信失败：{type(e).__name__}: {e}")
+            elif parts[0] in ("cheat", "作弊", "补助"):
+                if len(parts) < 3:
+                    emit("用法：cheat 国家 骑N 粮N 金N …（骑=骑兵；金/粮/木/矿/油/装/补=资源）")
+                else:
+                    nm = parts[1]
+                    kw = {}
+                    keymap = {"金": "黄金", "粮": "粮食", "木": "木头", "矿": "矿石",
+                              "油": "石油", "装": "装备", "补": "补给"}
+                    for tok in parts[2].split():
+                        if tok.startswith("骑") and tok[1:].isdigit():
+                            kw["骑"] = int(tok[1:])
+                            continue
+                        for k, v in keymap.items():
+                            if tok.startswith(k) and tok[len(k):].isdigit():
+                                kw[v] = int(tok[len(k):])
+                                break
+                    try:
+                        ok, msg = world.cheat(nm, **kw)
+                        emit(msg if ok else f"⚠ {msg}")
+                    except Exception as e:
+                        emit(f"⚠ cheat 失败：{type(e).__name__}: {e}")
             else:
-                emit(f"未知命令：{cmd}（支持 add 国名 [匈奴] / send 国家 神秘人内容）")
+                emit(f"未知命令：{cmd}（支持 add 国名 [匈奴] / send 国家 内容 / cheat 国家 骑N 粮N 金N）")
         if cmds:
             flush(out, journal_path)
             continue
@@ -220,7 +263,8 @@ def run() -> None:
                 if _nm in world.nations or world.turn < _at:
                     continue
                 _st = cfg_by_name.get(_nm, {})
-                _ok, _msg = world.add_nation(_nm, _st.get("polity", ""))
+                _ok, _msg = world.add_nation(_nm, _st.get("polity", ""),
+                                             extra=_nation_extra(_st), start=_nation_start(_st))
                 emit(_msg if _ok else f"⚠ 自动登场失败：{_msg}")
                 _added = True
             if _added:

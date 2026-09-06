@@ -12,3 +12,6 @@ mp_config.json
 # 通用
 .DS_Store
 *.swp
+
+# 楼烦临时注入上下文（含林胡日志，勿入库）
+楼烦上下文.txt

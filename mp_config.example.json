@@ -51,6 +51,22 @@
       "max_steps": 28,
       "enable_turn": 120,
       "enable_turn_max": 150
+    },
+    {
+      "name": "楼烦",
+      "polity": "huns",
+      "extra_prompt_file": "楼烦上下文.txt",
+      "start_cavalry": 8,
+      "start_gold": 2000,
+      "start_supply": 300,
+      "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
+      "api_key": "粘贴你的 key（临时注入上下文来自 extra_prompt_file，10回合后自动消失）",
+      "model": "kimi-k3",
+      "thinking": "enabled",
+      "reasoning_effort": "high",
+      "temperature": 0.3,
+      "max_tokens": 8000,
+      "max_steps": 28
     }
   ]
 }

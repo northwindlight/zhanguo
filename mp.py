@@ -100,6 +100,7 @@ class World:
         self.econ_intel: dict[str, list[dict]] = {}  # 各国收到的经济情报（{from,turn,text}，留最近2份）
         self.plans: dict[str, dict] = {}           # 各国国策规划 {text, turn}——常驻上下文，每10回合须修订
         self.polity: dict[str, str] = {}           # 政体标记（"huns"=匈奴）→ 造价/征召/外交限制
+        self.extra_prompt: dict[str, dict] = {}    # 临时注入的额外上下文 {text, until}——塞入正常 system_prompt，until 后自动消失
         self.peace_offers: list[dict] = []
         self.proposals: list[dict] = []
         self._offer_id = 1
@@ -269,8 +270,11 @@ class World:
                        if not (a["owner"] == "野人" and (a["x"], a["y"]) == (x, y))]
 
     # ------------------------------------------------------------- 看海中途加国
-    def add_nation(self, name: str, polity: str = "") -> tuple[bool, str]:
-        """看海中途加国：随机到距所有现有领地足够远的位置登场。polity='huns'=匈奴。"""
+    def add_nation(self, name: str, polity: str = "", extra=None,
+                   start: dict | None = None) -> tuple[bool, str]:
+        """看海中途加国：随机到距所有现有领地足够远的位置登场。polity='huns'=匈奴。
+        extra=临时注入上下文(塞入正常 system_prompt，10回合后自动消失，只留总结)；
+        start=定制开局（如 {"骑":8,"黄金":2000,"补给":300}）。"""
         name = (name or "").strip()
         if not name:
             return False, "需要国名，如 add 匈奴 / add 秦"
@@ -296,29 +300,65 @@ class World:
         self.grid_short[name] = False
         self._place_crosses({name: pos})
         if is_huns:
-            self.apply_polity(name, "huns", home=pos)
+            self.apply_polity(name, "huns", home=pos, start=start)
+        if extra:
+            self.extra_prompt[name] = {"text": str(extra), "until": self.turn + 10}
         self._ensure_guardians()
         desc = ("匈奴" if is_huns else "国家") + f" {name} 登场（距各国至少 {margin} 格）"
         if is_huns:
-            desc += "：开局 6 骑兵·金1000·补给200·建筑+30%惩罚·骑兵征召8粮8装·不能外交（只可勒索/宣战/逼降/求和）"
+            s = start or {}
+            cav = int(s.get("骑", 6)); gold = int(s.get("黄金", 1000)); sup = int(s.get("补给", 200))
+            desc += (f"：开局 {cav} 骑兵·金{gold}·补给{sup}·建筑+30%惩罚·骑兵征召8粮8装"
+                     "·不能外交（只可勒索/宣战/逼降/求和）")
         self.log(desc, phase="事件", nation=name)
         return True, desc
 
-    def apply_polity(self, name: str, polity: str, home: tuple[int, int] | None = None) -> None:
-        """给一个已存在的国家套政体（目前仅 huns=匈奴）：覆写开局资源 + 6 骑兵 + 标记。"""
+    def cheat(self, name: str, **kw) -> tuple[bool, str]:
+        """观海作弊补助：直接给某国加资源/骑兵（kw: 黄金/粮食/木头/矿石/石油/装备/补给/骑）。"""
+        if name not in self.nations:
+            return False, f"国家 {name} 不存在"
+        r = self.nations[name].res
+        parts = []
+        home = self.own_tiles(name)[0] if self.own_tiles(name) else None
+        for k, v in kw.items():
+            v = int(v)
+            if k == "骑" and v > 0 and home:
+                for _ in range(v):
+                    aid = self.next_army_id
+                    self.next_army_id += 1
+                    self.armies.append({"id": aid, "name": army_name(name, 0, "骑"), "type": "骑",
+                                        "hp": ARMY_MAX_HP, "x": home[0], "y": home[1],
+                                        "owner": name, "moved_turn": -1, "engaged": False})
+                parts.append(f"骑+{v}")
+            elif k in r:
+                r[k] += v
+                parts.append(f"{k}+{v}")
+        if not parts:
+            return False, "没补任何东西（可用 金/粮/木/矿/油/装/补/骑）"
+        self.log(f"⚙ 观海补助 {name}：{'、'.join(parts)}", phase="事件")  # 观察者可见
+        return True, f"已给 {name} 补助：{'、'.join(parts)}"
+
+    def apply_polity(self, name: str, polity: str, home: tuple[int, int] | None = None,
+                     start: dict | None = None) -> None:
+        """给一个已存在的国家套政体（目前仅 huns=匈奴）：覆写开局资源 + 骑兵 + 标记。
+        start 可定制（如 {"骑":8,"黄金":2000,"补给":300}），缺省 6骑/1000金/200补。"""
         polity = (polity or "").strip()
         if polity not in ("huns", "匈奴", "hun") or name not in self.nations:
             return
         self.polity[name] = "huns"
-        self.nations[name].res.update({"黄金": 1000, "粮食": 0, "木头": 0,
-                                       "矿石": 0, "石油": 0, "装备": 0, "补给": 200})
+        start = start or {}
+        gold = int(start.get("黄金", 1000))
+        supply = int(start.get("补给", 200))
+        cav = int(start.get("骑", 6))
+        self.nations[name].res.update({"黄金": gold, "粮食": 0, "木头": 0,
+                                       "矿石": 0, "石油": 0, "装备": 0, "补给": supply})
         if home is None:
             own = self.own_tiles(name)
             home = max(own, key=lambda p: sum(1 for n in self.neighbors(*p)
                                               if self.owned_by(*n) == name)) if own else None
         if home:
             cx, cy = home
-            for i in range(6):
+            for i in range(cav):
                 aid = self.next_army_id
                 self.next_army_id += 1
                 self.armies.append({"id": aid, "name": army_name(name, i + 1, "骑"),
@@ -720,6 +760,7 @@ class World:
         self.econ_intel.pop(name, None)
         self.plans.pop(name, None)
         self.polity.pop(name, None)
+        self.extra_prompt.pop(name, None)
         self.mail_pending = [m for m in self.mail_pending if m["to"] != name and m["from"] != name]
         self.peace_offers = [p for p in self.peace_offers if p["a"] != name and p["b"] != name]
         self.proposals = [p for p in self.proposals if p["a"] != name and p["b"] != name]
@@ -1360,6 +1401,7 @@ class World:
             "econ_intel": self.econ_intel,
             "plans": self.plans,
             "polity": self.polity,
+            "extra_prompt": self.extra_prompt,
             "peace_offers": self.peace_offers,
             "proposals": self.proposals,
             "offer_id": self._offer_id,
@@ -1390,6 +1432,7 @@ class World:
         w.econ_intel = {n: list(v) for n, v in data.get("econ_intel", {}).items() if n in w.nations}
         w.plans = {n: dict(v) for n, v in data.get("plans", {}).items() if n in w.nations}
         w.polity = {n: v for n, v in data.get("polity", {}).items() if n in w.nations}
+        w.extra_prompt = {n: dict(v) for n, v in data.get("extra_prompt", {}).items() if n in w.nations}
         w.armies = data.get("armies", [])
         w.next_army_id = data.get("next_army_id", 1)
         # wars 迁移：新格式=冲突对象{id,atk,def,followers}；旧档=[a,b] 边对 → 视为无跟随方的双边战争
