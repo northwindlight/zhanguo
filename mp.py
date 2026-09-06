@@ -96,6 +96,7 @@ class World:
         self.spy_pending: list[dict] = []          # 经济间谍在途（2回合后回报）
         self.econ_intel: dict[str, list[dict]] = {}  # 各国收到的经济情报（{from,turn,text}，留最近2份）
         self.plans: dict[str, dict] = {}           # 各国国策规划 {text, turn}——常驻上下文，每10回合须修订
+        self.polity: dict[str, str] = {}           # 政体标记（"huns"=匈奴）→ 造价/征召/外交限制
         self.peace_offers: list[dict] = []
         self.proposals: list[dict] = []
         self._offer_id = 1
@@ -264,6 +265,54 @@ class World:
         self.armies = [a for a in self.armies
                        if not (a["owner"] == "野人" and (a["x"], a["y"]) == (x, y))]
 
+    # ------------------------------------------------------------- 看海中途加国
+    def add_nation(self, name: str, polity: str = "") -> tuple[bool, str]:
+        """看海中途加国：随机到距所有现有领地足够远的位置登场。polity='huns'=匈奴。"""
+        name = (name or "").strip()
+        if not name:
+            return False, "需要国名，如 add 匈奴 / add 秦"
+        if name in self.nations:
+            return False, f"国家 {name} 已存在"
+        polity = (polity or "").strip()
+        is_huns = polity in ("匈奴", "huns", "hun")
+        margin = max(8, self.size // 6)
+        pos = None
+        if self.tiles:
+            for _ in range(400):
+                x, y = self.rng.randrange(self.size), self.rng.randrange(self.size)
+                if all(max(abs(x - px), abs(y - py)) >= margin for (px, py) in self.tiles):
+                    pos = (x, y)
+                    break
+        else:
+            pos = (self.size // 2, self.size // 2)
+        if pos is None:
+            pos = (self.rng.randrange(self.size), self.rng.randrange(self.size))
+        if is_huns:
+            self.nations[name] = Nation(name, {"黄金": 1000, "粮食": 0, "木头": 0,
+                                               "矿石": 0, "石油": 0, "装备": 0, "补给": 200})
+            self.polity[name] = "huns"
+        else:
+            self.nations[name] = Nation(name, None)
+        self.order.append(name)
+        self.mailbox[name] = []
+        self.grid_short[name] = False
+        self._place_crosses({name: pos})
+        if is_huns:
+            cx, cy = pos
+            for i in range(6):
+                aid = self.next_army_id
+                self.next_army_id += 1
+                self.armies.append({"id": aid, "name": army_name(name, i + 1, "骑"),
+                                    "type": "骑", "hp": ARMY_MAX_HP,
+                                    "x": cx, "y": cy, "owner": name,
+                                    "moved_turn": -1, "engaged": False})
+        self._ensure_guardians()
+        desc = ("匈奴" if is_huns else "国家") + f" {name} 登场（距各国至少 {margin} 格）"
+        if is_huns:
+            desc += "：开局 6 骑兵·金1000·补给200·建筑+30%惩罚·骑兵征召8粮8装·不能外交（只可勒索/宣战/逼降/求和）"
+        self.log(desc, phase="事件", nation=name)
+        return True, desc
+
     # ------------------------------------------------------------- 资源
     def res(self, name: str, key: str) -> int:
         return self.nations[name].res.get(key, 0)
@@ -309,6 +358,8 @@ class World:
         lv = eff[building]
         cost = info["cost"][lv] if info["kind"] == "castle" else info["cost"]
         label = f"城堡L{lv+1}" if info["kind"] == "castle" else building
+        if self.polity.get(name) == "huns":
+            cost = (cost * 13 + 9) // 10   # 匈奴 +30% 建筑惩罚（不擅建设，靠抢）
         wood = info["wood"]
         if self.res(name, "黄金") < cost:
             return False, f"黄金不足：{label} 需 {cost}，国库 {self.res(name,'黄金')}"
@@ -338,6 +389,8 @@ class World:
             return False, "本回合征召产能已用完（每兵营 1 支/回合）"
         n = min(n, cap)
         cost = UNIT_TYPES[kind]["recruit"]
+        if kind == "骑" and self.polity.get(name) == "huns":
+            cost = {"粮食": 8, "装备": 8}   # 匈奴骑兵征召只需 8 粮 8 装
         n = min(n, min(self.res(name, f) // amt for f, amt in cost.items()))
         if n <= 0:
             return False, "战略储备不足（每支耗 " + "、".join(f"{f}x{a}" for f, a in cost.items()) + "）"
@@ -625,6 +678,7 @@ class World:
         self.spy_pending = [s for s in self.spy_pending if s["from"] != name and s["to"] != name]
         self.econ_intel.pop(name, None)
         self.plans.pop(name, None)
+        self.polity.pop(name, None)
         self.mail_pending = [m for m in self.mail_pending if m["to"] != name and m["from"] != name]
         self.peace_offers = [p for p in self.peace_offers if p["a"] != name and p["b"] != name]
         self.proposals = [p for p in self.proposals if p["a"] != name and p["b"] != name]
@@ -1200,6 +1254,7 @@ class World:
             "spy_pending": self.spy_pending,
             "econ_intel": self.econ_intel,
             "plans": self.plans,
+            "polity": self.polity,
             "peace_offers": self.peace_offers,
             "proposals": self.proposals,
             "offer_id": self._offer_id,
@@ -1229,6 +1284,7 @@ class World:
         w.spy_pending = data.get("spy_pending", [])
         w.econ_intel = {n: list(v) for n, v in data.get("econ_intel", {}).items() if n in w.nations}
         w.plans = {n: dict(v) for n, v in data.get("plans", {}).items() if n in w.nations}
+        w.polity = {n: v for n, v in data.get("polity", {}).items() if n in w.nations}
         w.armies = data.get("armies", [])
         w.next_army_id = data.get("next_army_id", 1)
         w.wars = [_pair(*p) for p in data.get("wars", [])]

@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import select
 import signal
 import sys
 import time
@@ -50,6 +51,18 @@ def flush(out, path: Path | None = None, echo: bool = True):
         with open(path, "a", encoding="utf-8") as f:
             f.write(text + "\n")
     out.clear()
+
+
+def read_stdin_cmd() -> str | None:
+    """非阻塞读一行终端输入（看海中途加国用）；无输入返回 None。"""
+    try:
+        if select.select([sys.stdin], [], [], 0)[0]:
+            line = sys.stdin.readline()
+            s = line.strip()
+            return s if s else None
+    except Exception:
+        return None
+    return None
 
 
 def make_world(cfg, force_new: bool, save_path: Path) -> tuple[World, bool]:
@@ -101,8 +114,25 @@ def run() -> None:
 
     signal.signal(signal.SIGINT, _sig)
 
-    print(f"开始看海。存档 {save_path}，日志 {journal_path}。Ctrl-C 中断存档。")
+    print(f"开始看海。存档 {save_path}，日志 {journal_path}。Ctrl-C 中断存档。输入 `add 国名 [匈奴]` 可中途加国。")
     while not stop["flag"]:
+        cmd = read_stdin_cmd()
+        if cmd:
+            parts = cmd.split()
+            if parts[0] in ("add", "加", "加入"):
+                if len(parts) < 2:
+                    emit("用法：add 国名 [匈奴]，如 `add 匈奴` / `add 秦`")
+                else:
+                    nm = parts[1]
+                    polity = parts[2] if len(parts) > 2 else (
+                        "huns" if nm in ("匈奴", "huns", "hun") else "")
+                    ok, msg = world.add_nation(nm, polity)
+                    emit(msg if ok else f"⚠ {msg}")
+                flush(out, journal_path)
+            else:
+                emit(f"未知命令：{cmd}（支持 add 国名 [匈奴]）")
+                flush(out, journal_path)
+            continue
         if len(world.alive()) < 2:
             emit("只剩一个国家——终局。")
             flush(out, journal_path)

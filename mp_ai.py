@@ -42,6 +42,27 @@ def engine_call(fn, *a, **k):
 
 GOODS_DISPLAY = ["粮食", "木头", "矿石", "石油", "装备", "补给"]
 
+# 匈奴被禁的外交工具（只可 勒索通信/宣战/逼降求和）
+HUNS_BLOCKED = {
+    "propose", "提议", "respond_proposal", "回应邀约",
+    "break_alliance", "断盟", "break_defense", "解除共同防御",
+    "guarantee", "保障独立", "cancel_guarantee", "撤回保障",
+    "gift", "赠送", "赠予", "馈赠",
+    "share_map", "交换地图", "送图", "发地图",
+}
+
+# 匈奴教义（喂给匈奴 AI，令其贯彻）
+HUNS_DOCTRINE = (
+    "· 靠勒索与抢地为生：盯别国国库/资源，先写信威吓勒索——**优先要补给**（你缺补给，6 骑每回合耗 12，"
+    "200 开局撑不久），其次要金；不给就宣战抢地。\n"
+    "· 虚张声势：你明明只有 6 骑兵，也要写信说成 10 骑甚至更多，夸大兵威逼人交钱。\n"
+    "· 核心是运动战：骑兵动 2 格、集中决战、打完就撤（守方还能免费 mv 撤），不恋战。\n"
+    "· 骑兵集中决战可以轻易战胜敌方总量多很多的军队——你总可以以少打多：\n"
+    "   集中骑兵挑软柿子（敌方分散/兵力少/补给差），避免硬拼满员要塞。\n"
+    "· 见缝插针，多抢无驻军之地；少打有损失之战。\n"
+    "· 力求百战百胜；有胜果之后马上写信要求对方投降/赔款，别拖泥带水。"
+)
+
 
 def _res_line(world, name) -> str:
     r = world.nations[name].res
@@ -579,6 +600,10 @@ def execute(world, actor: str, tool: str, args: dict) -> str:
 
 def _exec(world, actor: str, tool: str, args: dict) -> str:
     """execute 的实质分发（兜底由 execute 负责）。"""
+    if world.polity.get(actor) == "huns" and tool in HUNS_BLOCKED:
+        return ("匈奴不搞这套外交：你只能用 通信勒索贡品(send_letter) / 宣战(declare_war) / "
+                "要求投降或赔款求和(offer_peace / accept_peace / reject_peace)。「"
+                + tool + "」被禁。")
     # ---- 面板（查询接口）
     if tool in ("query", "view", "panel", "查", "查询", "看", "面板"):
         which = str(args.get("panel", "all")).lower()
@@ -601,7 +626,10 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
 
     # ---- 规则查询（= README 的游戏规则）
     if tool in ("rules", "规则", "help", "帮助"):
-        return rules_text(world, str(args.get("topic", "") or ""))
+        text = rules_text(world, str(args.get("topic", "") or ""))
+        if world.polity.get(actor) == "huns":
+            text = "【匈奴教义（必须贯彻）】\n" + HUNS_DOCTRINE + "\n\n" + text
+        return text
 
     # ---- 外交对象（先选一个非自己的国家）
     if tool in ("countries", "外交对象", "国家列表", "对手"):
@@ -916,7 +944,27 @@ TOOL_SCHEMAS = [
 ]
 
 
+def _huns_prompt(world, name) -> str:
+    others = "、".join(n for n in world.alive() if n != name)
+    return (
+        "你是草原游牧帝国【" + name + "】（匈奴）的可汗，以劫掠、勒索、虚张声势维生。其余国家：" + (others or "（只剩你）") + "。\n\n"
+        "【政体约束（硬性）】你不搞结盟/共同防御/保障/馈赠/交换地图那套外交。你能用的只有："
+        "send_letter（写信威吓勒索贡品）、declare_war（宣战）、offer_peace（要求投降/赔款求和）、"
+        "accept_peace / reject_peace（议和/拒绝）。\n"
+        "【开局（事实）】你只有 6 骑兵、金 1000、补给 200（每骑每回合耗 2 补给，别饿空，否则 -10HP/回合）。"
+        "你建建筑有 +30% 惩罚（别走种田流），但你的骑兵征召只要 8 粮+8 装（比别人便宜）。\n"
+        "【生存（事实）】你不靠种田建厂活：靠勒索别国贡金与**补给**（你缺补给，6 骑每回合耗 12、"
+        "200 开局撑不久，勒索要优先点名要补给）、抢无驻军之地、打完胜仗索要赔款，缺什么就从市场买卖补。"
+        "补给仓空了会 -10HP/回合饿死。\n"
+        "【教义（必须贯彻）】\n" + HUNS_DOCTRINE + "\n"
+        "【信息】情报有迷雾，你只看得见自己地盘与相邻一圈；写信对象随时可用 countries 选。"
+        "想细看机制就 rules 查。"
+    )
+
+
 def system_prompt(world, name) -> str:
+    if world.polity.get(name) == "huns":
+        return _huns_prompt(world, name)
     others = "、".join(n for n in world.alive() if n != name)
     return (
         "你是国家元首【" + name + "】，在一个 EU4 式大地图战略游戏里治国。其余国家：" + (others or "（只剩你）") + "。\n\n"
