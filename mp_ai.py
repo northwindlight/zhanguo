@@ -169,12 +169,16 @@ def _fmt_diplomacy(world, name) -> str:
         for p in offers:
             k = {"pay": f"{p['a']}愿赔{p['gold']}金", "demand": f"{p['a']}要你赔{p['gold']}金",
                  "white": "白和"}[p["kind"]]
+            if p.get("truce"):
+                k += f"（休战{p['truce']}回合）"
             lines.append(f"  🕊 求和#{p['id']}（{p['a']}→你）: {k} —— {p.get('note','')}（accept_peace/reject_peace {p['id']}）")
     if world.guarantees.get(name):
         lines.append(f"  你保障: {'、'.join(sorted(world.guarantees[name]))}")
     own_offers = [p for p in world.peace_offers if p["a"] == name]
     for p in own_offers:
         k = {"pay": f"你愿赔{p['gold']}金", "demand": f"你索{p['gold']}金", "white": "白和"}[p["kind"]]
+        if p.get("truce"):
+            k += f"（休战{p['truce']}回合）"
         lines.append(f"  你提的求和#{p['id']}（给{p['b']}）: {k}")
     return "\n".join(lines)
 
@@ -332,6 +336,8 @@ def _help_sections() -> list[tuple[str, str]]:
             "战争分主导者：宣战方=进攻主导、被宣战方=防御主导，因保障/共同防御自动参战的是防御方跟随方；"
             "议和只能由主导者提出/接受，主导者议和则整条战线（含跟随方）停战。"
             "求和(offer_peace)：pay=你赔钱、demand=你索款、white=白和；接受即整条战线停战。"
+            "休战时长由求和双方自行约定（offer_peace 的 truce 参数，0=不休战）；接受后 N 回合内"
+            "双方（含跟随方）不得再互相宣战。一方灭亡后强制全天下休战 10 回合（防连环征服）。"
             "断盟/停战后滞留在对方领土的军队会自动遣返（每回合往家走 1 格）。"
             "外交不一定要等到被打：先 countries 看清对象，主动发信、提结盟、换情报，都是合法手段。"
             "也可用 gift 把本国资源馈赠对方（粮木矿油装补给或黄金，本回合垫支、下回合到账）——示好、资助盟国、买通都行。"
@@ -777,7 +783,8 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         kind = KIND_MAP.get(str(args.get("kind", "")).lower(), args.get("kind"))
         gold = int(args.get("gold", 0) or 0)
         note = str(args.get("note", "") or "")
-        return world.offer_peace(actor, to, kind, gold, note)[1]
+        truce = int(args.get("truce", 0) or 0)
+        return world.offer_peace(actor, to, kind, gold, note, truce)[1]
     if tool in ("accept_peace", "接受议和"):
         return world.accept_peace(actor, int(args.get("offer_id", 0)))[1]
     if tool in ("reject_peace", "拒绝议和"):
@@ -938,10 +945,11 @@ TOOL_SCHEMAS = [
         "name": "declare_war", "description": "对别国宣战（对方必须应战，即刻生效）。先 countries 选目标，to=别国（不能自己）。若对方有保障独立/共同防御者会自动参战打你；与同盟/共同防御对象开战会先破裂关系。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "offer_peace", "description": "向交战国主导者求和（战争分主导者，议和只能由主导者提出/接受；to=对方主导者，跟随方请劝其主导者谈）：pay=我方向对方赔X金；demand=要求对方赔X金；white=白和。接受后整条战线（含互保跟随方）停战，索款不能超过对方国库。",
+        "name": "offer_peace", "description": "向交战国主导者求和（战争分主导者，议和只能由主导者提出/接受；to=对方主导者，跟随方请劝其主导者谈）：pay=我方向对方赔X金；demand=要求对方赔X金；white=白和。接受后整条战线（含互保跟随方）停战，索款不能超过对方国库。truce=你想约定的休战回合数（接受后双方含跟随方 N 回合内不得再互相宣战；0=不休战，自行谈判）。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
                               "kind": {"type": "string", "enum": ["pay", "demand", "white"], "description": "pay=我方赔款 / demand=要求对方赔款 / white=白和", "required": True},
                               "gold": {"type": "integer", "description": "赔款量（pay/demand 必填>0）"},
+                              "truce": {"type": "integer", "description": "休战回合数（自行约定，0=不休战）"},
                               "note": {"type": "string", "description": "附加条件/说明（可选）"}})}},
     {"type": "function", "function": {
         "name": "accept_peace", "description": "接受对方求和（diplomacy 面板可看提议编号）。",

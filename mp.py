@@ -86,6 +86,7 @@ class World:
         self.order: list[str] = []
         self.wars: list[dict] = []  # 战争冲突：{id, atk(进攻主导), def(防御主导), followers(跟随方), turn}
         self._war_id = 1
+        self.truce: dict[frozenset, int] = {}  # 休战期：边→ 生效至第 N 回合（含），期内不得再宣战
         self.alliances: list[frozenset] = []
         self.defense_pacts: list[frozenset] = []
         self.guarantees: dict[str, set[str]] = {}
@@ -698,6 +699,13 @@ class World:
             w["followers"] = [c for c in w["followers"] if c != name]  # 跟随方亡 → 仅剔出
             new_wars.append(w)
         self.wars = new_wars
+        self.truce = {p: u for p, u in self.truce.items() if name not in p}
+        # 一方灭亡 → 强制全天下休战 10 回合（防连环征服滚雪球；已有更长休战则保留）
+        alive = self.alive()
+        for i in range(len(alive)):
+            for j in range(i + 1, len(alive)):
+                p = _pair(alive[i], alive[j])
+                self.truce[p] = max(self.truce.get(p, 0), self.turn + 10)
         for lst in (self.alliances, self.defense_pacts):
             self._remove_pair(lst, name)
         self.guarantees.pop(name, None)
@@ -1164,6 +1172,11 @@ class World:
             return False, "双方必须是两个现存国家"
         if self.war_between(a, b):
             return False, "你们已经在交战"
+        t = self.truce.get(_pair(a, b))
+        if t is not None:
+            if self.turn < t:
+                return False, f"休战中：你与 {b} 约定休战至第 {t} 回合（还剩 {t - self.turn} 回合），不得再宣战"
+            self.truce.pop(_pair(a, b), None)  # 到期清除
         notes = []
         # 与盟国/共同防御对象开战 → 先解除该约束
         if self.allied_between(a, b):
@@ -1194,9 +1207,12 @@ class World:
         jtxt = f"；参战：{'、'.join(followers)}" if followers else ""
         return True, f"{a} 对 {b} 宣战（{b} 必须接受）{''.join(notes)}{jtxt}"
 
-    def offer_peace(self, a: str, b: str, kind: str, gold: int = 0, note: str = "") -> tuple[bool, str]:
+    def offer_peace(self, a: str, b: str, kind: str, gold: int = 0, note: str = "",
+                    truce: int = 0) -> tuple[bool, str]:
         if kind not in ("pay", "demand", "white"):
             return False, "kind 须为 pay(我方赔款) / demand(要求对方赔款) / white(白和)"
+        if not isinstance(truce, int) or truce < 0:
+            return False, "休战回合数须为非负整数（0=不休战，自行约定）"
         if a == b or a not in self.nations or b not in self.nations:
             return False, "双方必须是两个现存国家"
         w = self._war_of(a, b)
@@ -1214,9 +1230,11 @@ class World:
                 return False, "赔款量需为正整数（white 则不带赔款）"
         self.peace_offers.append({"id": self._next_offer_id(), "a": a, "b": b,
                                   "kind": kind, "gold": gold, "note": note, "turn": self.turn,
-                                  "war_id": w["id"]})
+                                  "war_id": w["id"], "truce": truce})
         k = {"pay": f"{a} 愿赔 {gold} 金求和", "demand": f"{a} 要求 {b} 赔 {gold} 金",
              "white": "白和（不赔不索）"}[kind]
+        if truce > 0:
+            k += f"，约定休战 {truce} 回合"
         self.log(f"🕊 求和提议：{k}" + (f"——{note}" if note else ""), phase="外交", nation=a)
         return True, f"已向 {b} 提出：{k}，等 {b} 在下一回合回应（accept/reject 议和 id）"
 
@@ -1243,13 +1261,21 @@ class World:
         self.peace_offers = [x for x in self.peace_offers if x.get("war_id") != w["id"]]
         members = [w["atk"], w["def"]] + list(w["followers"])
         self.wars.remove(w)
+        # 自行约定休战期：主导者议和时定的 truce 覆盖整条战线（含跟随方）
+        truce_n = int(p.get("truce") or 0)
+        if truce_n > 0:
+            until = self.turn + truce_n
+            for x in [w["atk"]]:
+                for y in [w["def"]] + list(w["followers"]):
+                    self.truce[_pair(x, y)] = until
         for m in self.armies:
             if m["owner"] in members and m.get("engaged"):
                 m["engaged"] = False  # 整条战线（含跟随方）一并解除交战
         extra = {"pay": f"{a} 付 {b} {gold} 金", "demand": f"{b} 赔 {a} {gold} 金", "white": "白和"}[kind]
         who = ("（含跟随方 " + "、".join(w["followers"]) + "）") if w["followers"] else ""
-        self.log(f"🕊 {a} 与 {b} 议和停战{who}（{extra}）", phase="外交", nation=me)
-        return True, (f"停战议成：{extra}。整条战线已停{who}，各方军队解除交战；"
+        truce_txt = f"，休战 {truce_n} 回合（至第 {until} 回合）" if truce_n > 0 else ""
+        self.log(f"🕊 {a} 与 {b} 议和停战{who}{truce_txt}（{extra}）", phase="外交", nation=me)
+        return True, (f"停战议成：{extra}{truce_txt}。整条战线已停{who}，各方军队解除交战；"
                       f"滞留在对方领土的军队将于回合末遣返")
 
     def reject_peace(self, me: str, offer_id: int) -> tuple[bool, str]:
@@ -1320,6 +1346,7 @@ class World:
             "guard_once": [list(k) for k in sorted(self.guard_once)],
             "wars": self.wars,
             "war_id": self._war_id,
+            "truce": [[a, b, until] for (a, b), until in self.truce.items()],
             "alliances": [list(p) for p in self.alliances],
             "defense_pacts": [list(p) for p in self.defense_pacts],
             "guarantees": {k: sorted(v) for k, v in self.guarantees.items()},
@@ -1368,6 +1395,7 @@ class World:
         # wars 迁移：新格式=冲突对象{id,atk,def,followers}；旧档=[a,b] 边对 → 视为无跟随方的双边战争
         w.wars = []
         w._war_id = int(data.get("war_id", 1))
+        w.truce = {_pair(ab[0], ab[1]): int(ab[2]) for ab in data.get("truce", [])}
         for item in data.get("wars", []):
             if isinstance(item, dict) and "atk" in item:
                 w.wars.append({"id": int(item.get("id", w._war_id)), "atk": item["atk"],
