@@ -152,6 +152,14 @@ def _fmt_mail(world, name) -> str:
 
 def _fmt_diplomacy(world, name) -> str:
     lines = [f"国家关系: {world.rel_desc(name)}"]
+    # 本人在内的交战战线（议和需找主导者）
+    wars_in = []
+    for w in world.wars:
+        if name in w["atk"] or name in w["def"] or name in w["followers"]:
+            ft = "、".join(w["followers"]) or "无"
+            wars_in.append(f"{w['atk']}↔{w['def']}" + (f"(跟随 {ft})" if w["followers"] else ""))
+    if wars_in:
+        lines.append("  交战战线: " + "；".join(wars_in) + "（议和只能由主导者提出/接受）")
     incoming = [p for p in world.proposals if p["b"] == name]
     if incoming:
         for p in incoming:
@@ -320,7 +328,9 @@ def _help_sections() -> list[tuple[str, str]]:
             "国家关系：中立=不能入境也不能攻击对方；同盟=互通领土+互不攻击；"
             "宣战：对方必须应战，即刻生效；若被宣战方有『保障独立/共同防御』的盟国会自动参战打你。"
             "共同防御=遭攻自动并肩；保障独立=你保它，别人打它你参战。"
-            "求和(offer_peace)：pay=你赔钱、demand=你索款、white=白和；对方 accept_peace 即停战。"
+            "战争分主导者：宣战方=进攻主导、被宣战方=防御主导，因保障/共同防御自动参战的是防御方跟随方；"
+            "议和只能由主导者提出/接受，主导者议和则整条战线（含跟随方）停战。"
+            "求和(offer_peace)：pay=你赔钱、demand=你索款、white=白和；接受即整条战线停战。"
             "断盟/停战后滞留在对方领土的军队会自动遣返（每回合往家走 1 格）。"
             "外交不一定要等到被打：先 countries 看清对象，主动发信、提结盟、换情报，都是合法手段。"
             "也可用 gift 把本国资源馈赠对方（粮木矿油装补给或黄金，本回合垫支、下回合到账）——示好、资助盟国、买通都行。"
@@ -927,7 +937,7 @@ TOOL_SCHEMAS = [
         "name": "declare_war", "description": "对别国宣战（对方必须应战，即刻生效）。先 countries 选目标，to=别国（不能自己）。若对方有保障独立/共同防御者会自动参战打你；与同盟/共同防御对象开战会先破裂关系。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "offer_peace", "description": "向交战国求和（to=你的敌国）：pay=我方向对方赔X金；demand=要求对方赔X金；white=白和。对方 accept_peace 即停战，索款不能超过对方国库。",
+        "name": "offer_peace", "description": "向交战国主导者求和（战争分主导者，议和只能由主导者提出/接受；to=对方主导者，跟随方请劝其主导者谈）：pay=我方向对方赔X金；demand=要求对方赔X金；white=白和。接受后整条战线（含互保跟随方）停战，索款不能超过对方国库。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
                               "kind": {"type": "string", "enum": ["pay", "demand", "white"], "description": "pay=我方赔款 / demand=要求对方赔款 / white=白和", "required": True},
                               "gold": {"type": "integer", "description": "赔款量（pay/demand 必填>0）"},
@@ -984,6 +994,7 @@ def system_prompt(world, name) -> str:
         "交战中双方（含守军）一律不回血。"
         "军队非交战且补给够时每回合回25HP。中立(不结盟不交战)时你的军队进不了别国、也打不了别国；"
         "结盟=互通+互不攻击；宣战对方必须应战；被宣战方若有『保障独立/共同防御』的盟国会自动参战打你。"
+        "战争分主导者（宣战方/被宣战方），议和只由主导者谈、主导者停则整条战线（含互保跟随方）停；"
         "求和 pay=你赔钱 / demand=索对方赔款 / white=白和。\n"
         "【外交（事实）】你与每个别国的关系独立：可保持中立、可提结盟/共同防御（对方可能接受或拒绝）、可单方保障它或撤回、"
         "可宣战、战中可求和。来信可回应也可不回；邀约可接受可拒绝可冷处理；承诺可以兑现也可以背弃。这些都由你权衡。\n"
