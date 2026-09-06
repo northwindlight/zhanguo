@@ -973,6 +973,23 @@ class World:
         # 信件正文不单独记一条（信件=一次行动，正文已在行动行里）；送达时另有"收到信"事件+收件箱
         return True, f"信已发出，{to} 将于第 {self.turn+1} 回合收到"
 
+    # ------------------------------------------------------------- 神秘人来信（Observer 用）
+    def mystery_letter(self, to: str, text: str) -> tuple[bool, str]:
+        """Observer 从看海终端给任意国家寄一封『神秘人』来信（下回合到其信箱）。
+
+        发件人恒为「神秘人」，各国 AI 无从判断是谁；只记一条观察者可见的
+        日志（nations 收不到），收件人下回合在信箱看到。
+        """
+        if to not in self.nations:
+            return False, f"国家 {to} 不存在"
+        text = (text or "").strip()
+        if not text:
+            return False, "神秘来信内容不能为空"
+        self.mail_pending.append({"from": "神秘人", "to": to, "text": text,
+                                  "arrive": self.turn + 1})
+        self.log(f"🕵️ 神秘人来信 → {to}：{text}", phase="事件")  # 观察者可见，各国近讯收不到
+        return True, f"神秘人来信已寄给 {to}，将于第 {self.turn+1} 回合送达其信箱"
+
     # ------------------------------------------------------------- 外交馈赠
     def gift(self, frm: str, to: str, good: str, n: int) -> tuple[bool, str]:
         """馈赠：把本国储备赠与他国（粮木矿油装补给或黄金）。本回合垫支扣出，下回合到账。"""

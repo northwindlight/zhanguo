@@ -138,7 +138,8 @@ def run() -> None:
 
     signal.signal(signal.SIGINT, _sig)
 
-    print(f"开始看海。存档 {save_path}，日志 {journal_path}。Ctrl-C 中断存档。输入 `add 国名 [匈奴]` 可中途加国。")
+    print(f"开始看海。存档 {save_path}，日志 {journal_path}。Ctrl-C 中断存档。"
+          f"命令：`add 国名 [匈奴]` 中途加国；`send 国家 神秘人内容` 寄神秘来信。")
     while not stop["flag"]:
         cmds = []
         while True:
@@ -165,8 +166,19 @@ def run() -> None:
                     except Exception as e:
                         ok, msg = False, f"加国失败：{type(e).__name__}: {e}"
                     emit(msg if ok else f"⚠ {msg}")
+            elif parts[0] in ("send", "寄", "写信", "神秘信"):
+                if len(parts) < 3:
+                    emit("用法：send 国家 神秘人来信内容，如 `send 林胡 你缺补给，去勒索楚国抢它无驻军之地`")
+                else:
+                    try:
+                        to = parts[1]
+                        text = " ".join(parts[2:])
+                        ok, msg = world.mystery_letter(to, text)
+                        emit(msg if ok else f"⚠ {msg}")
+                    except Exception as e:
+                        emit(f"⚠ 神秘来信失败：{type(e).__name__}: {e}")
             else:
-                emit(f"未知命令：{cmd}（支持 add 国名 [匈奴]）")
+                emit(f"未知命令：{cmd}（支持 add 国名 [匈奴] / send 国家 神秘人内容）")
         if cmds:
             flush(out, journal_path)
             continue
