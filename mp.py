@@ -64,6 +64,7 @@ CROSS = [(0, 0), (0, -1), (0, 1), (-1, 0), (1, 0)]
 
 SPY_COST = 20     # 经济间谍 花 20 金
 SPY_TURNS = 2     # 2 回合后回报目标全部经济情报
+RETREAT_DMG_RATIO = 0.5  # 撤退挨一击 = 敌方半回合战损（改 0.25 更轻、1.0=全额）
 PLAN_MAX_TURNS = 10  # 国策每 10 回合必须修订一次（否则 end_turn 被拦）
 
 
@@ -456,6 +457,11 @@ class World:
             return False, f"军队 {aid} 不存在"
         if a.get("engaged"):
             return False, f"{a['name']} 交战中，先 retreat 撤出"
+        # 交战地中的军队（含防守方）不能直接 mv 撤离——撤出走 retreat（会挨一击）
+        if any(d["owner"] != a["owner"] and d["owner"] != "野人" and d.get("engaged")
+               and (d["x"], d["y"]) == (a["x"], a["y"]) and self.war_between(a["owner"], d["owner"])
+               for d in self.armies):
+            return False, f"{a['name']} 所在格正在交战，不能直接 mv 撤离；撤出请用 retreat（会挨一击）"
         try:
             self._check(x, y)
         except IndexError as e:
@@ -517,13 +523,17 @@ class World:
 
     def retreat(self, name: str, aid: int, x: int, y: int) -> tuple[bool, str]:
         """撤出：与 mv/atk 同一个『每回合一次移动』机制。
-        只能在交战中用；目标限 己方/同盟/无人荒地（中立与敌国格都不行）；
-        用掉本回合的移动并脱离交战；下回合起可正常行动。"""
+        交战中的军队（含防守方守军）都能用——挨敌方一击（约半回合战损）+ 耗移动；
+        目标限 己方/同盟/无人荒地（中立与敌国格都不行）；用掉移动并脱离交战。"""
         a = self._army(name, aid)
         if a is None:
             return False, f"军队 {aid} 不存在"
-        if not a.get("engaged"):
-            return False, f"{a['name']} 未在交战中"
+        in_battle = bool(a.get("engaged")) or any(
+            d["owner"] != a["owner"] and d["owner"] != "野人" and d.get("engaged")
+            and (d["x"], d["y"]) == (a["x"], a["y"]) and self.war_between(a["owner"], d["owner"])
+            for d in self.armies)
+        if not in_battle:
+            return False, f"{a['name']} 未在交战中，无需撤退"
         try:
             self._check(x, y)
         except IndexError as e:
@@ -542,9 +552,10 @@ class World:
         hurt = ""
         if defs:
             _d, mod = self._die()
-            dmg = self._round_damage(self._combat_power(len(defs), 0), mod)
+            full = self._round_damage(self._combat_power(len(defs), 0), mod)
+            dmg = int(full * RETREAT_DMG_RATIO)
             a["hp"] -= dmg
-            hurt = f"，撤出时挨守军一击 -{dmg}HP"
+            hurt = f"，撤出时挨敌一击 -{dmg}HP"
             if a["hp"] <= 0:
                 self.armies.remove(a)
                 return False, f"{a['name']} 撤出时被守军击杀{hurt}"
@@ -601,12 +612,16 @@ class World:
                         defs.append(a)
                 elif any(self.war_between(an, a["owner"]) for an in atk_ns):
                     defs.append(a)
+            tag = f"({x+1},{y+1}){self.ter_char(x, y)}"
             if not defs:
+                # 守军已撤走/全灭 → 交战地失去抵抗，进攻方自动占领（守军弃城即陷）
+                winner = atk_ns[0]
                 for a in atks:
                     a["engaged"] = False
+                _ok, cmsg = self._conquer(x, y, winner, "进驻")
+                lines.append(f"⚔ 守军弃城 @{tag}，{cmsg}")
                 continue
             def_owner = next((a["owner"] for a in defs if a["owner"] != "野人"), None)
-            tag = f"({x+1},{y+1}){self.ter_char(x, y)}"
             d, mod = self._die()
             # 同时出手：双方按开战兵力全力互击，再一起结算阵亡（允许同归于尽）
             atk_dmg = self._round_damage(self._combat_power(len(atks), self._defense_pct(x, y, def_owner)), mod)
