@@ -509,10 +509,13 @@ class World:
             u["hp"] -= per + (1 if i < rem else 0)
 
     def _defense_pct(self, x: int, y: int, def_owner: str | None) -> int:
+        """地块总防御% = 地形与城堡**相乘**叠加（同单机 tile_defense）。"""
         t = self.tiles.get((x, y))
         terrain = t["terrain"] if t else self.tile_terrain(x, y)
         castle = t["buildings"]["城堡"] if (t and t["owner"] == def_owner) else 0
-        return TERRAIN_STATS[terrain]["defense"] + castle * CASTLE_DEFENSE_PER_LEVEL
+        td = TERRAIN_STATS[terrain]["defense"]
+        cd = castle * CASTLE_DEFENSE_PER_LEVEL
+        return 100 - ((100 - td) * (100 - cd)) // 100
 
     def _resolve_battles(self) -> list[str]:
         lines: list[str] = []

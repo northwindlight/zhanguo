@@ -124,7 +124,7 @@ HELP = f"""\
   非战斗且未断供每回合回 25HP；交战中不回血
 战争按回合推进：atk 冲入交战 → 每过一回合（n）掷战斗骰 1d6（修正双方 ±25%）结算一轮，
   战争打几回合很正常；打赢自动占领（atk 含占领逻辑），遇险可 retreat 选格撤出（只挨打不还手）。
-战斗：每军 50 基础伤害，按野人地块地形+城堡总防御%修正，总伤害分摊到各野人；
+战斗：每军 50 基础伤害，按野人地块地形×城堡防御%（相乘叠加，不相加到100%）修正，总伤害分摊到各野人；
   野人防守反击全额（攻方站敌方地界吃不到加成）分摊到我军；我方先手
 每地块共 {MAX_SLOTS} 个建筑位（城堡级数也占位）"""
 
@@ -219,6 +219,11 @@ def _signed(v: int) -> str:
     return f"{v:+d}%"
 
 
+def _def_mult(terrain_def: int, castle_def: int) -> int:
+    """防御相乘叠加：综合减伤% = 100 − (100−地形)×(100−城堡)/100（避免相加到 100% 无敌）。"""
+    return 100 - ((100 - terrain_def) * (100 - castle_def)) // 100
+
+
 def armies_at(world: World, x: int, y: int) -> list[dict]:
     return [a for a in world.armies if a["x"] == x and a["y"] == y]
 
@@ -236,7 +241,7 @@ def render_tile(world: World, x: int, y: int, tile: dict) -> str:
     lines.append(f"  地形防御 {_signed(stats['defense'])}   建设惩罚 {_signed(stats['build_penalty'])}")
     can_build = "可建" if tile.get("built_this_turn", 0) == 0 else "本回合已建"
     lines.append(
-        f"  城堡 L{castle}（+{castle_def}%，合计 {_signed(stats['defense'] + castle_def)}）"
+        f"  城堡 L{castle}（+{castle_def}%，合计 {_signed(_def_mult(stats['defense'], castle_def))}）"
         f"   建筑位 {sum(b.values())}/{MAX_SLOTS}   本回合：{can_build}"
     )
     built = [f"{name}×{n}" for name, n in b.items() if n]
@@ -319,7 +324,7 @@ def render_land(world: World) -> str:
         stats = TERRAIN_STATS[tile["terrain"]]
         name = tile.get("name") or "无名"
         castle = b["城堡"]
-        def_total = stats["defense"] + castle * CASTLE_DEFENSE_PER_LEVEL
+        def_total = _def_mult(stats["defense"], castle * CASTLE_DEFENSE_PER_LEVEL)
         built = " ".join(f"{k}x{v}" for k, v in b.items() if v) or "无"
         res = " ".join(f"{r}x{tile['resources'][r]}" for r in RESOURCES)
         local = armies_at(world, x, y)

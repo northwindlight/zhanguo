@@ -578,7 +578,10 @@ class World:
     # （n）掷骰结算一个战斗回合（战争打几回合很正常）；retreat 选一格撤出，代价是
     # 当回合挨敌方一击、不还手。野人无 AI：不主动攻击、不追击，平时可路过野人地块。
     def tile_defense(self, x: int, y: int) -> int:
-        """地块总防御% = 地形防御 + 城堡每级 +10%。"""
+        """地块总防御% = 地形与城堡**相乘**叠加（避免相加到 100% 无敌）。
+
+        综合减伤 = 1 - (1-地形防御%) × (1-城堡防御%)。山地+城堡L5 为 75%。
+        """
         tile = self.tiles.get((x, y))
         if tile is None:
             terrain = self.tile_terrain(x, y)
@@ -586,7 +589,9 @@ class World:
         else:
             terrain = tile["terrain"]
             castle = tile["buildings"]["城堡"]
-        return TERRAIN_STATS[terrain]["defense"] + castle * CASTLE_DEFENSE_PER_LEVEL
+        t = TERRAIN_STATS[terrain]["defense"]
+        c = castle * CASTLE_DEFENSE_PER_LEVEL
+        return 100 - ((100 - t) * (100 - c)) // 100
 
     @staticmethod
     def _combat_power(n_units: int, def_pct: int) -> int:
