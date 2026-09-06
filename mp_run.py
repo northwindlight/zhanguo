@@ -63,13 +63,29 @@ def start_stdin_thread() -> queue.Queue:
 
     def _run():
         try:
+            buf = None  # 多行 send 的累积缓冲
             while True:
                 line = sys.stdin.readline()
                 if not line:
-                    break  # EOF（管道关闭）
-                s = line.strip()
-                if s:
-                    q.put(s)
+                    if buf is not None:
+                        q.put("\n".join(buf))  # EOF 前没收 END 也发出
+                    break
+                s = line.rstrip("\n")
+                st = s.strip()
+                if buf is not None:
+                    if st.upper() == "END":
+                        q.put("\n".join(buf))
+                        buf = None
+                    else:
+                        buf.append(s)  # 保留正文原始换行
+                    continue
+                if st.startswith("send ") or st in ("寄", "写信", "神秘信"):
+                    toks = st.split()
+                    if len(toks) == 2:  # 恰为 `send 国家` → 进入多行模式
+                        buf = [st]
+                        continue
+                if st:
+                    q.put(st)
         except Exception:
             pass
 
@@ -139,7 +155,8 @@ def run() -> None:
     signal.signal(signal.SIGINT, _sig)
 
     print(f"开始看海。存档 {save_path}，日志 {journal_path}。Ctrl-C 中断存档。"
-          f"命令：`add 国名 [匈奴]` 中途加国；`send 国家 神秘人内容` 寄神秘来信。")
+          f"命令：`add 国名 [匈奴]` 中途加国；`send 国家 内容` 寄神秘来信"
+          f"（多行先 `send 国家` 粘贴正文以 END 收尾；或 `send 国家 @文件路径` 从文件读）。")
     while not stop["flag"]:
         cmds = []
         while True:
@@ -148,7 +165,7 @@ def run() -> None:
             except queue.Empty:
                 break
         for cmd in cmds:
-            parts = cmd.split()
+            parts = cmd.split(maxsplit=2)  # send 正文可含换行，只拆前两段
             if parts[0] in ("add", "加", "加入"):
                 if len(parts) < 2:
                     emit("用法：add 国名 [匈奴]，如 `add 匈奴` / `add 秦`")
@@ -168,11 +185,15 @@ def run() -> None:
                     emit(msg if ok else f"⚠ {msg}")
             elif parts[0] in ("send", "寄", "写信", "神秘信"):
                 if len(parts) < 3:
-                    emit("用法：send 国家 神秘人来信内容，如 `send 林胡 你缺补给，去勒索楚国抢它无驻军之地`")
+                    emit("用法：send 国家 内容（同行）；或多行先 `send 国家` 粘贴正文以 END 收尾；"
+                         "或 `send 国家 @文件路径` 从文件读全文")
                 else:
                     try:
                         to = parts[1]
-                        text = " ".join(parts[2:])
+                        text = parts[2]  # 多行正文原样保留换行
+                        if text.startswith("@"):
+                            p = Path(text[1:].strip())
+                            text = p.read_text(encoding="utf-8")
                         ok, msg = world.mystery_letter(to, text)
                         emit(msg if ok else f"⚠ {msg}")
                     except Exception as e:
