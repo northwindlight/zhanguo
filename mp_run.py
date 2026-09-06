@@ -17,10 +17,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import queue
 import random
-import select
 import signal
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -53,16 +54,27 @@ def flush(out, path: Path | None = None, echo: bool = True):
     out.clear()
 
 
-def read_stdin_cmd() -> str | None:
-    """非阻塞读一行终端输入（看海中途加国用）；无输入返回 None。"""
-    try:
-        if select.select([sys.stdin], [], [], 0)[0]:
-            line = sys.stdin.readline()
-            s = line.strip()
-            return s if s else None
-    except Exception:
-        return None
-    return None
+def start_stdin_thread() -> queue.Queue:
+    """后台线程立刻捕获终端输入（按 Enter 即入队），回合边界统一处理。
+
+    避免"回合正在跑 LLM（几十秒~几分钟）时输入的命令等不到反应"。
+    """
+    q: queue.Queue = queue.Queue()
+
+    def _run():
+        try:
+            while True:
+                line = sys.stdin.readline()
+                if not line:
+                    break  # EOF（管道关闭）
+                s = line.strip()
+                if s:
+                    q.put(s)
+        except Exception:
+            pass
+
+    threading.Thread(target=_run, daemon=True).start()
+    return q
 
 
 def make_world(cfg, force_new: bool, save_path: Path) -> tuple[World, bool]:
@@ -71,8 +83,9 @@ def make_world(cfg, force_new: bool, save_path: Path) -> tuple[World, bool]:
             return World.load(save_path), False
         except Exception as e:
             print(f"读档失败({e})，重开新局")
-    w = World(size=cfg.get("map_size", 60), seed=cfg.get("seed"),
-              nations=[n["name"] for n in cfg["nations"]])
+    # 带 polity 的条目=待加入国（如匈奴），不作为开局国家；用 `add` 中途加入
+    start_names = [n["name"] for n in cfg["nations"] if not n.get("polity")]
+    w = World(size=cfg.get("map_size", 60), seed=cfg.get("seed"), nations=start_names)
     w.save(save_path)
     return w, True
 
@@ -92,7 +105,18 @@ def run() -> None:
     world, is_new = make_world(cfg, args.new, save_path)
 
     cfg_by_name = {n["name"]: n for n in cfg["nations"]}
+    # 中途加国的 AI 模板：复用第一个配置了 base_url/api_key 的国家（如 arkcoding+glm-5.3）
+    _template = next((n for n in cfg["nations"] if n.get("base_url") and n.get("api_key")), {})
+    cmd_queue = start_stdin_thread()
     rng = random.Random(2026)
+    # 待加入国（带 polity）自动登场：只在开新局生效；在 enable_turn..enable_turn_max 区间随机挑一回合
+    standby_at: dict[str, int] = {}
+    if is_new:
+        for n in cfg["nations"]:
+            if n.get("polity"):
+                lo = int(n.get("enable_turn") or 0)
+                hi = int(n.get("enable_turn_max") or lo)
+                standby_at[n["name"]] = rng.randint(lo, hi) if hi >= lo else lo
     out: list[str] = []
 
     def emit(s=""):
@@ -116,8 +140,13 @@ def run() -> None:
 
     print(f"开始看海。存档 {save_path}，日志 {journal_path}。Ctrl-C 中断存档。输入 `add 国名 [匈奴]` 可中途加国。")
     while not stop["flag"]:
-        cmd = read_stdin_cmd()
-        if cmd:
+        cmds = []
+        while True:
+            try:
+                cmds.append(cmd_queue.get_nowait())
+            except queue.Empty:
+                break
+        for cmd in cmds:
             parts = cmd.split()
             if parts[0] in ("add", "加", "加入"):
                 if len(parts) < 2:
@@ -125,13 +154,21 @@ def run() -> None:
                 else:
                     nm = parts[1]
                     polity = parts[2] if len(parts) > 2 else (
-                        "huns" if nm in ("匈奴", "huns", "hun") else "")
-                    ok, msg = world.add_nation(nm, polity)
+                        "huns" if nm in ("匈奴", "huns", "hun")
+                        else cfg_by_name.get(nm, {}).get("polity", ""))
+                    try:
+                        ok, msg = world.add_nation(nm, polity)
+                        if ok:
+                            # 中途加的国也走 LLM：复用配置模板（可被 config 里预写的同名项覆盖）
+                            cfg_by_name.setdefault(nm, dict(_template))
+                            cfg_by_name[nm]["name"] = nm
+                    except Exception as e:
+                        ok, msg = False, f"加国失败：{type(e).__name__}: {e}"
                     emit(msg if ok else f"⚠ {msg}")
-                flush(out, journal_path)
             else:
                 emit(f"未知命令：{cmd}（支持 add 国名 [匈奴]）")
-                flush(out, journal_path)
+        if cmds:
+            flush(out, journal_path)
             continue
         if len(world.alive()) < 2:
             emit("只剩一个国家——终局。")
@@ -143,6 +180,18 @@ def run() -> None:
             break
 
         delivered = world.begin_turn()
+        # 待加入国到点自动登场（仅新局；旧存档不自动，只走手动 `add`）
+        if is_new and standby_at:
+            _added = False
+            for _nm, _at in standby_at.items():
+                if _nm in world.nations or world.turn < _at:
+                    continue
+                _st = cfg_by_name.get(_nm, {})
+                _ok, _msg = world.add_nation(_nm, _st.get("polity", ""))
+                emit(_msg if _ok else f"⚠ 自动登场失败：{_msg}")
+                _added = True
+            if _added:
+                flush(out, journal_path)
         if delivered:
             observer(world, out, f"——— 第 {world.turn} 回合 · 投信 {delivered} 封 ———")
         else:

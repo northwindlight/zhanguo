@@ -37,6 +37,20 @@
       "temperature": 0.3,
       "max_tokens": 4000,
       "max_steps": 28
+    },
+    {
+      "name": "林胡",
+      "polity": "huns",
+      "base_url": "https://ark.cn-beijing.volces.com/api/coding/v3",
+      "api_key": "粘贴你的 arkcoding key（带 polity 的条目=待加入国，看海时 `add 林胡` 中途加入）",
+      "model": "glm-5.3",
+      "thinking": "enabled",
+      "reasoning_effort": "max",
+      "temperature": 0.3,
+      "max_tokens": 6000,
+      "max_steps": 28,
+      "enable_turn": 120,
+      "enable_turn_max": 150
     }
   ]
 }

@@ -287,18 +287,34 @@ class World:
             pos = (self.size // 2, self.size // 2)
         if pos is None:
             pos = (self.rng.randrange(self.size), self.rng.randrange(self.size))
-        if is_huns:
-            self.nations[name] = Nation(name, {"黄金": 1000, "粮食": 0, "木头": 0,
-                                               "矿石": 0, "石油": 0, "装备": 0, "补给": 200})
-            self.polity[name] = "huns"
-        else:
-            self.nations[name] = Nation(name, None)
+        self.nations[name] = Nation(name, None)
         self.order.append(name)
         self.mailbox[name] = []
         self.grid_short[name] = False
         self._place_crosses({name: pos})
         if is_huns:
-            cx, cy = pos
+            self.apply_polity(name, "huns", home=pos)
+        self._ensure_guardians()
+        desc = ("匈奴" if is_huns else "国家") + f" {name} 登场（距各国至少 {margin} 格）"
+        if is_huns:
+            desc += "：开局 6 骑兵·金1000·补给200·建筑+30%惩罚·骑兵征召8粮8装·不能外交（只可勒索/宣战/逼降/求和）"
+        self.log(desc, phase="事件", nation=name)
+        return True, desc
+
+    def apply_polity(self, name: str, polity: str, home: tuple[int, int] | None = None) -> None:
+        """给一个已存在的国家套政体（目前仅 huns=匈奴）：覆写开局资源 + 6 骑兵 + 标记。"""
+        polity = (polity or "").strip()
+        if polity not in ("huns", "匈奴", "hun") or name not in self.nations:
+            return
+        self.polity[name] = "huns"
+        self.nations[name].res.update({"黄金": 1000, "粮食": 0, "木头": 0,
+                                       "矿石": 0, "石油": 0, "装备": 0, "补给": 200})
+        if home is None:
+            own = self.own_tiles(name)
+            home = max(own, key=lambda p: sum(1 for n in self.neighbors(*p)
+                                              if self.owned_by(*n) == name)) if own else None
+        if home:
+            cx, cy = home
             for i in range(6):
                 aid = self.next_army_id
                 self.next_army_id += 1
@@ -306,12 +322,6 @@ class World:
                                     "type": "骑", "hp": ARMY_MAX_HP,
                                     "x": cx, "y": cy, "owner": name,
                                     "moved_turn": -1, "engaged": False})
-        self._ensure_guardians()
-        desc = ("匈奴" if is_huns else "国家") + f" {name} 登场（距各国至少 {margin} 格）"
-        if is_huns:
-            desc += "：开局 6 骑兵·金1000·补给200·建筑+30%惩罚·骑兵征召8粮8装·不能外交（只可勒索/宣战/逼降/求和）"
-        self.log(desc, phase="事件", nation=name)
-        return True, desc
 
     # ------------------------------------------------------------- 资源
     def res(self, name: str, key: str) -> int:
