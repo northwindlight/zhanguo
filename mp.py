@@ -1197,6 +1197,9 @@ class World:
             "proposals": self.proposals,
             "offer_id": self._offer_id,
             "prices": self.prices,
+            "grid_short": self.grid_short,
+            "energy_report": self.energy_report,
+            "econ_summary": self.econ_summary,
             "history": self.history,
             "history_seen": self.history_seen,
         }
@@ -1231,6 +1234,10 @@ class World:
         w.prices = {g: float(data.get("prices", {}).get(g, MARKET[g])) for g in TRADEABLE}
         w.history = data.get("history", [])
         w.history_seen = data.get("history_seen", 0)
+        # 电网/结算摘要也持久化：否则续档后第一回合 all 面板电力 0、上回合结算丢失
+        w.grid_short = {n: bool(v) for n, v in data.get("grid_short", {}).items() if n in w.nations}
+        w.energy_report = {n: tuple(v) for n, v in data.get("energy_report", {}).items() if n in w.nations}
+        w.econ_summary = {n: s for n, s in data.get("econ_summary", {}).items() if n in w.nations}
         for k, t in data["tiles"].items():
             x, y = map(int, k.split(","))
             t.setdefault("recruited_this_turn", 0)
