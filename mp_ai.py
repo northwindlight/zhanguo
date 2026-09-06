@@ -26,7 +26,7 @@ from game import (
     TOWN_HALL_GOLD,
     TOWN_HALL_PER_SLOT,
 )
-from mp import RES_KEYS, RES_LABEL
+from mp import PLAN_MAX_TURNS, RES_KEYS, RES_LABEL
 
 # 引擎级锁：多国 agent 并发跑时，所有对 world 的读写在此串行化（网络调用在锁外并行）。
 _engine_lock = threading.RLock()
@@ -317,6 +317,8 @@ def _help_sections() -> list[tuple[str, str]]:
         ("回合与存档", (
             "end_turn 结束你的本回合。每回合结算会：落地在建建筑→产出/电网→战争→补给/回血→"
             "遣返→市场回归。存档每回合自动写 mp_save.json，随时可中断续局。"
+            "国策规划：用 plan 制定/修订（常驻上下文【国策规划】）；没有国策、或每 10 回合"
+            f"未修订（超过 {PLAN_MAX_TURNS} 回合）时，end_turn 会被拦下，先 plan 再结束。"
         )),
     ]
     return sections
@@ -375,6 +377,20 @@ def _fmt_memory(world, name) -> str:
     if not mem:
         return "（尚无往回合小结）"
     return "\n".join("  " + s for s in mem[-10:])
+
+
+def _fmt_plan(world, name) -> str:
+    """国策规划（常驻上下文）：无 plan 不能结束回合；每 PLAN_MAX_TURNS 回合须修订。"""
+    pl = world.plans.get(name)
+    if not pl or not str(pl.get("text", "")).strip():
+        return "（尚未制定）——结束回合(end_turn)前必须先 plan(content=…) 制定国策"
+    since = world.turn - pl.get("turn", world.turn)
+    flag = ""
+    if since >= PLAN_MAX_TURNS:
+        flag = f" ⚠ 已 {since} 回合未修订（每 {PLAN_MAX_TURNS} 回合必须修订一次才能结束）"
+    elif PLAN_MAX_TURNS - since == 1:
+        flag = f" ⚠ 本回合必须修订（下回合即满 {PLAN_MAX_TURNS} 回合）"
+    return f"[第{pl.get('turn')}回合制定/修订]{flag}\n  {pl['text']}"
 
 
 def _fmt_intel_hint(world, name) -> str:
@@ -476,6 +492,7 @@ def full_state(world, name) -> str:
     return "\n".join([
         f"你（{name}）现在进行第 {world.turn} 回合的行动。",
         f"【国力】\n{_res_line(world, name)}",
+        f"【国策规划】\n{_fmt_plan(world, name)}",
         f"【国土/视野】\n{_fmt_land(world, name)}",
         f"【军队】\n{_fmt_armies(world, name)}",
         f"【威胁】\n{_fmt_threats(world, name)}",
@@ -575,6 +592,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
             "econ": _fmt_econ(world),
             "intel": _fmt_intel(world, actor),
             "spy": _fmt_spy(world, actor),
+            "plan": _fmt_plan(world, actor),
         }.get(which, full_state(world, actor))
 
     # ---- 规则查询（= README 的游戏规则）
@@ -722,8 +740,26 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
     if tool in ("reject_peace", "拒绝议和"):
         return world.reject_peace(actor, int(args.get("offer_id", 0)))[1]
 
-    # ---- 结束回合（必须带一句话小结）
+    # ---- 国策规划（常驻上下文；无 plan 或每 PLAN_MAX_TURNS 回合未修订都不能结束）
+    if tool in ("plan", "国策", "国策规划"):
+        text = str(args.get("content", args.get("text", ""))).strip()
+        if not text:
+            return "plan 需要 content=你的国策一句话（常驻上下文作为长期目标，可随时修订）"
+        is_new = actor not in world.plans
+        world.plans[actor] = {"text": text, "turn": world.turn}
+        act = "制定" if is_new else "修订"
+        return (f"✅ 国策已{act}（第{world.turn}回合），常驻你的上下文。"
+                f"每 {PLAN_MAX_TURNS} 回合须再修订一次，否则无法结束回合。")
+
+    # ---- 结束回合（必须带一句话小结 + 有效国策）
     if tool in ("end_turn", "结束回合", "done"):
+        pl = world.plans.get(actor)
+        if not pl or not str(pl.get("text", "")).strip():
+            return "本回合还不能结束：还没有国策规划。请先 plan(content=…) 制定国策（常驻上下文作为长期目标）。"
+        since = world.turn - pl.get("turn", world.turn)
+        if since >= PLAN_MAX_TURNS:
+            return (f"本回合还不能结束：国策已 {since} 回合未修订（每 {PLAN_MAX_TURNS} 回合必须修订一次），"
+                    f"请先用 plan(content=…) 更新国策。")
         summary = str(args.get("summary", "")).strip()
         if len(summary) < 4:
             return "本回合还没收尾：end_turn 必须带 summary=一句话，总结你这回合做了什么/立场（例如 summary=这回合建了两座农场并继续拓荒）。"
@@ -772,8 +808,8 @@ def _props(schema: dict) -> dict:
 
 TOOL_SCHEMAS = [
     {"type": "function", "function": {
-        "name": "query", "description": "查询接口：随时获取你的各面板。res=国库与储备 / land=地皮(国土+可拓荒地) / army=军队 / market=世界市场(现价+持有) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=经济间谍情报(别国经济底细) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
-        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "land", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True}})}},
+        "name": "query", "description": "查询接口：随时获取你的各面板。res=国库与储备 / plan=国策规划 / land=地皮(国土+可拓荒地) / army=军队 / market=世界市场(现价+持有) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=经济间谍情报(别国经济底细) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
+        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "plan", "land", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True}})}},
     {"type": "function", "function": {
         "name": "countries", "description": "列出所有可选外交对象（除你之外的每个国家：关系/是否接壤/有无来信）。外交动作前先用它选一个目标，再以 to=该国家 行动；绝不能对自己用外交工具。",
         "parameters": _props({})}},
@@ -831,6 +867,9 @@ TOOL_SCHEMAS = [
         "name": "spy", "description": "不想开口问（懒得谈、钱多）时派经济间谍刺探别国：花 20 金（国库不足会被拒），2 回合后在 query panel=spy 拿回该国全部经济情报——国库/储备、上回合收入、每一块地的建筑与在建。目标不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "刺探对象国", "required": True}})}},
     {"type": "function", "function": {
+        "name": "plan", "description": "制定或修订你的国策（长期战略目标），会永久常驻你的上下文（【国策规划】标记），直到你再次修订。⚠ 结束回合(end_turn)前必须已有国策；且每 10 回合必须修订一次，否则 end_turn 会被拦。content 写清当前阶段的战略目标与打法。",
+        "parameters": _props({"content": {"type": "string", "description": "国策内容", "required": True}})}},
+    {"type": "function", "function": {
         "name": "propose", "description": "向别国提议『同盟』（互通领土、互不攻击）或『共同防御』（遭攻自动并肩，平时互不攻击）。to 必须用 countries 选出的别国，不能是自己；对方 respond_proposal 接受才生效。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
                               "kind": {"type": "string", "enum": ["同盟", "共同防御"], "description": "类型", "required": True}})}},
@@ -876,7 +915,8 @@ def system_prompt(world, name) -> str:
     return (
         "你是国家元首【" + name + "】，在一个 EU4 式大地图战略游戏里治国。其余国家：" + (others or "（只剩你）") + "。\n\n"
         "这局没有预设目标：富国、拓荒、称霸、报复、苟和都行，由你自己判断；每种选择都有后果，后果也由你承担。\n"
-        "【回合】每回合你可用工具做很多事：建设/拓荒/征兵/调兵/打仗/买卖/外交/写信。做完用 end_turn 结束本回合，"
+        "【回合】每回合你可用工具做很多事：建设/拓荒/征兵/调兵/打仗/买卖/外交/写信。你有一个常驻的【国策规划】"
+        "：结束回合前必须先 plan 制定，且每 10 回合必须修订一次。做完用 end_turn 结束本回合，"
         "并在 summary 用一句话小结你这回合的作为。地理：每块地=1格，军队每回合只能移动相邻1格。\n"
         "【资源用途（事实）】木头=建一切建筑+木材电厂燃料；粮=征兵(10/军)+补给厂原料；矿=装备厂+补给厂原料；"
         "油=装备厂原料+油电厂燃料；装=征兵(5/军)；补给=每军每回合耗1，仓空军队挨饿。\n"

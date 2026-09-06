@@ -64,6 +64,7 @@ CROSS = [(0, 0), (0, -1), (0, 1), (-1, 0), (1, 0)]
 
 SPY_COST = 20     # 经济间谍 花 20 金
 SPY_TURNS = 2     # 2 回合后回报目标全部经济情报
+PLAN_MAX_TURNS = 10  # 国策每 10 回合必须修订一次（否则 end_turn 被拦）
 
 
 def _pair(a: str, b: str) -> frozenset:
@@ -94,6 +95,7 @@ class World:
         self.maps: dict[str, list[dict]] = {}      # 各国收到的地图情报（{from,turn,text}，留最近3张）
         self.spy_pending: list[dict] = []          # 经济间谍在途（2回合后回报）
         self.econ_intel: dict[str, list[dict]] = {}  # 各国收到的经济情报（{from,turn,text}，留最近2份）
+        self.plans: dict[str, dict] = {}           # 各国国策规划 {text, turn}——常驻上下文，每10回合须修订
         self.peace_offers: list[dict] = []
         self.proposals: list[dict] = []
         self._offer_id = 1
@@ -619,6 +621,7 @@ class World:
         self.map_pending = [m for m in self.map_pending if m["from"] != name and m["to"] != name]
         self.spy_pending = [s for s in self.spy_pending if s["from"] != name and s["to"] != name]
         self.econ_intel.pop(name, None)
+        self.plans.pop(name, None)
         self.mail_pending = [m for m in self.mail_pending if m["to"] != name and m["from"] != name]
         self.peace_offers = [p for p in self.peace_offers if p["a"] != name and p["b"] != name]
         self.proposals = [p for p in self.proposals if p["a"] != name and p["b"] != name]
@@ -1193,6 +1196,7 @@ class World:
             "maps": self.maps,
             "spy_pending": self.spy_pending,
             "econ_intel": self.econ_intel,
+            "plans": self.plans,
             "peace_offers": self.peace_offers,
             "proposals": self.proposals,
             "offer_id": self._offer_id,
@@ -1221,6 +1225,7 @@ class World:
         w.maps = {n: list(v) for n, v in data.get("maps", {}).items() if n in w.nations}
         w.spy_pending = data.get("spy_pending", [])
         w.econ_intel = {n: list(v) for n, v in data.get("econ_intel", {}).items() if n in w.nations}
+        w.plans = {n: dict(v) for n, v in data.get("plans", {}).items() if n in w.nations}
         w.armies = data.get("armies", [])
         w.next_army_id = data.get("next_army_id", 1)
         w.wars = [_pair(*p) for p in data.get("wars", [])]
