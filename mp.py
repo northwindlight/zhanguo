@@ -798,6 +798,7 @@ class World:
             if name in (w["atk"], w["def"]):
                 continue  # 主导者亡 → 整场战争结束
             w["followers"] = [c for c in w["followers"] if c != name]  # 跟随方亡 → 仅剔出
+            w["atk_followers"] = [c for c in w.get("atk_followers", []) if c != name]
             new_wars.append(w)
         self.wars = new_wars
         self.truce = {p: u for p, u in self.truce.items() if name not in p}
@@ -1239,8 +1240,12 @@ class World:
         if a == b or a not in self.nations or b not in self.nations:
             return False, "双方必须是两个现存国家"
         target = self.alliances if kind == "同盟" else self.defense_pacts
+        other = self.defense_pacts if kind == "同盟" else self.alliances
         if _pair(a, b) in target:
             return False, f"你们已是{kind}"
+        if _pair(a, b) in other or a in self.guarantee_of(b) or b in self.guarantee_of(a):
+            have = "共同防御" if _pair(a, b) in other else "独立保障"
+            return False, f"你们已有{have}——同盟/共同防御/保障两两互斥，先解除现有的一档再提"
         if self.war_between(a, b):
             return False, "交战中不能提议" + kind
         if any(p["kind"] == kind and set((p["a"], p["b"])) == {a, b} for p in self.proposals):
@@ -1256,6 +1261,10 @@ class World:
         if self.war_between(a, b):
             self.proposals.remove(p)
             return False, "你们已交战，不能结盟"
+        other = self.defense_pacts if kind == "同盟" else self.alliances
+        if _pair(a, b) in other or a in self.guarantee_of(b) or b in self.guarantee_of(a):
+            self.proposals.remove(p)
+            return False, "同盟/共同防御/保障两两互斥，你们之间已有其一——提议作废"
         self.proposals.remove(p)
         target = self.alliances if kind == "同盟" else self.defense_pacts
         target.append(_pair(a, b))
@@ -1282,6 +1291,11 @@ class World:
             return False, "双方必须是两个现存国家"
         if self.war_between(a, b):
             return False, "不能保障正在交战的国家的独立"
+        if b in self.guarantee_of(a):
+            return False, "你已保障该国独立，无须重复"
+        if self.allied_between(a, b) or self.dp_between(a, b):
+            have = "同盟" if self.allied_between(a, b) else "共同防御"
+            return False, f"你们已有{have}——同盟/共同防御/保障两两互斥，先解除现有的一档再保障"
         self.guarantees.setdefault(a, set()).add(b)
         self.log(f"🛡 {a} 宣布保障 {b} 独立：任何国家攻击 {b}，{a} 将自动参战", phase="外交", nation=a)
         return True, f"{a} 保障 {b} 独立"
@@ -1304,6 +1318,29 @@ class World:
             if self.turn < t:
                 return False, f"休战中：你与 {b} 约定休战至第 {t} 回合（还剩 {t - self.turn} 回合），不得再宣战"
             self.truce.pop(_pair(a, b), None)  # 到期清除
+        # 盟友/共同防御对象已与 b 交战 → 并入其战线当跟随方，不开平行战争
+        for w in self.wars:
+            atk, dfs = self._war_sides(w)
+            if b in atk and any(self.allied_between(a, d) or self.dp_between(a, d) for d in dfs):
+                if self.allied_between(a, b):
+                    self.alliances.remove(_pair(a, b))
+                if self.defense_pacts and _pair(a, b) in self.defense_pacts:
+                    self.defense_pacts.remove(_pair(a, b))
+                w["followers"].append(a)
+                self.log(f"⚔ {a} 对 {b} 宣战：盟友 {w['def']} 正被 {b} 攻打，{a} 并入该战线当防守方跟随方",
+                         phase="外交", nation=a)
+                return True, (f"{a} 对 {b} 宣战：你的盟友 {w['def']} 已在与 {b} 交战——你已并入该战线"
+                              f"作为防守方跟随方（不开第二场战争；跟随方不能单独议和，主导者议和则整条战线停战）")
+            if b in dfs and (self.allied_between(a, w["atk"]) or self.dp_between(a, w["atk"])):
+                if self.allied_between(a, b):
+                    self.alliances.remove(_pair(a, b))
+                if self.defense_pacts and _pair(a, b) in self.defense_pacts:
+                    self.defense_pacts.remove(_pair(a, b))
+                w.setdefault("atk_followers", []).append(a)
+                self.log(f"⚔ {a} 对 {b} 宣战：盟友 {w['atk']} 正在攻打 {b}，{a} 并入该战线随攻",
+                         phase="外交", nation=a)
+                return True, (f"{a} 对 {b} 宣战：你的盟友 {w['atk']} 已在攻打 {b}——你已并入该战线"
+                              f"作为进攻方随攻（不开第二场战争；跟随方不能单独议和）")
         notes = []
         # 与盟国/共同防御对象开战 → 先解除该约束
         if self.allied_between(a, b):
@@ -1386,20 +1423,21 @@ class World:
             self.add_res(a, "黄金", gold)
         self.peace_offers.remove(p)
         self.peace_offers = [x for x in self.peace_offers if x.get("war_id") != w["id"]]
-        members = [w["atk"], w["def"]] + list(w["followers"])
+        members = [w["atk"], w["def"]] + list(w["followers"]) + list(w.get("atk_followers", []))
         self.wars.remove(w)
         # 自行约定休战期：主导者议和时定的 truce 覆盖整条战线（含跟随方）
         truce_n = int(p.get("truce") or 0)
         if truce_n > 0:
             until = self.turn + truce_n
-            for x in [w["atk"]]:
+            for x in [w["atk"]] + list(w.get("atk_followers", [])):
                 for y in [w["def"]] + list(w["followers"]):
                     self.truce[_pair(x, y)] = until
         for m in self.armies:
             if m["owner"] in members and m.get("engaged"):
                 m["engaged"] = False  # 整条战线（含跟随方）一并解除交战
         extra = {"pay": f"{a} 付 {b} {gold} 金", "demand": f"{b} 赔 {a} {gold} 金", "white": "白和"}[kind]
-        who = ("（含跟随方 " + "、".join(w["followers"]) + "）") if w["followers"] else ""
+        fls = list(w["followers"]) + list(w.get("atk_followers", []))
+        who = ("（含跟随方 " + "、".join(fls) + "）") if fls else ""
         truce_txt = f"，休战 {truce_n} 回合（至第 {until} 回合）" if truce_n > 0 else ""
         self.log(f"🕊 {a} 与 {b} 议和停战{who}{truce_txt}（{extra}）", phase="外交", nation=me)
         return True, (f"停战议成：{extra}{truce_txt}。整条战线已停{who}，各方军队解除交战；"
@@ -1417,8 +1455,9 @@ class World:
         return _pair(a, b) in self.alliances
 
     def _war_sides(self, w: dict) -> tuple[list[str], list[str]]:
-        """进攻方名单 / 防御方名单（含跟随方）。"""
-        return [w["atk"]], [w["def"]] + list(w["followers"])
+        """进攻方名单 / 防御方名单（含跟随方；atk_followers=随攻的进攻侧跟随方）。"""
+        return ([w["atk"]] + list(w.get("atk_followers", [])),
+                [w["def"]] + list(w["followers"]))
 
     def _war_of(self, a: str, b: str) -> dict | None:
         """a 与 b 处于对立双方的战争冲突；不在交战返回 None。"""
@@ -1572,11 +1611,13 @@ class World:
             if isinstance(item, dict) and "atk" in item:
                 w.wars.append({"id": int(item.get("id", w._war_id)), "atk": item["atk"],
                                "def": item["def"], "followers": list(item.get("followers", [])),
+                               "atk_followers": list(item.get("atk_followers", [])),
                                "turn": int(item.get("turn", w.turn))})
                 w._war_id = max(w._war_id, int(item.get("id", 0)) + 1)
             else:
                 a, b = item[0], item[1]
-                w.wars.append({"id": w._war_id, "atk": a, "def": b, "followers": [], "turn": w.turn})
+                w.wars.append({"id": w._war_id, "atk": a, "def": b, "followers": [],
+                               "atk_followers": [], "turn": w.turn})
                 w._war_id += 1
         w.alliances = [_pair(*p) for p in data.get("alliances", [])]
         w.defense_pacts = [_pair(*p) for p in data.get("defense_pacts", [])]

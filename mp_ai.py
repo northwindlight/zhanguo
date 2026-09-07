@@ -960,7 +960,7 @@ TOOL_SCHEMAS = [
         "name": "plan", "description": "制定或修订你的国策（长期战略目标），会永久常驻你的上下文（【国策规划】标记），直到你再次修订。⚠ 结束回合(end_turn)前必须已有国策；且每 10 回合必须修订一次，否则 end_turn 会被拦。建议按四方面写：经济发展（粮木矿油/建设/卖买）、军事规划（扩军/攻防/结盟）、情报管理（间谍/换图/来信研判）、外交方向（结盟/宣战/求和/馈赠立场）。",
         "parameters": _props({"content": {"type": "string", "description": "国策内容", "required": True}})}},
     {"type": "function", "function": {
-        "name": "propose", "description": "向别国提议『同盟』（互通领土、互不攻击）或『共同防御』（遭攻自动并肩，平时互不攻击）。to 必须用 countries 选出的别国，不能是自己；对方 respond_proposal 接受才生效。外交基础费 10 金，成功才扣。",
+        "name": "propose", "description": "向别国提议『同盟』（互通领土、互不攻击）或『共同防御』（遭攻自动并肩，平时互不攻击）。⚠ 同盟/共同防御/保障独立**两两互斥**：每对国家只能持有其中一种，已有其一须先解除再提。to 必须用 countries 选出的别国，不能是自己；对方 respond_proposal 接受才生效。外交基础费 10 金，成功才扣。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
                               "kind": {"type": "string", "enum": ["同盟", "共同防御"], "description": "类型", "required": True}})}},
     {"type": "function", "function": {
@@ -974,13 +974,13 @@ TOOL_SCHEMAS = [
         "name": "break_defense", "description": "单方面解除共同防御（成功扣 10 金）。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "guarantee", "description": "宣布保障别国独立：任何国家攻击它，你将自动参战。to=别国（不能自己）。成功扣 10 金。",
+        "name": "guarantee", "description": "宣布保障别国独立：任何国家攻击它，你将自动参战。⚠ 同盟/共同防御/保障独立**两两互斥**（与它已有同盟或共同防御则不能保障）。to=别国（不能自己）。成功扣 10 金。",
         "parameters": _props({"to": {"type": "string", "description": "被保障国", "required": True}})}},
     {"type": "function", "function": {
         "name": "cancel_guarantee", "description": "撤回独立保障（成功扣 10 金）。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "declare_war", "description": "对别国宣战（对方必须应战，即刻生效；成功扣 10 金外交费）。先 countries 选目标，to=别国（不能自己）。若对方有保障独立/共同防御者会自动参战打你；与同盟/共同防御对象开战会先破裂关系。",
+        "name": "declare_war", "description": "对别国宣战（对方必须应战，即刻生效；成功扣 10 金外交费）。先 countries 选目标，to=别国（不能自己）。若对方有保障独立/共同防御者会自动参战打你；与同盟/共同防御对象开战会先破裂关系。⚠ 若你的盟友/共同防御对象已与对方交战，你的宣战会**并入其现有战线**当跟随方（不开第二场战争；跟随方不能单独议和，主导者议和即整条战线停战）。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
         "name": "offer_peace", "description": "向交战国主导者求和（战争分主导者，议和只能由主导者提出/接受；to=对方主导者，跟随方请劝其主导者谈；成功扣 10 金外交费）：pay=我方向对方赔X金；demand=要求对方赔X金；white=白和。接受后整条战线（含互保跟随方）停战，索款不能超过对方国库。truce=你想约定的休战回合数（接受后双方含跟随方 N 回合内不得再互相宣战；0=不休战，自行谈判）。",
