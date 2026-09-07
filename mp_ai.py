@@ -988,8 +988,11 @@ def system_prompt(world, name) -> str:
     else:
         p = _default_system_prompt(world, name)
     ep = world.extra_prompt.get(name)
-    if ep and world.turn < ep.get("until", world.turn):
-        p += "\n\n【临时情报/密谕（10回合后自动消失，届时只留你自记的总结）】\n" + ep["text"]
+    if ep:
+        if world.turn < ep.get("until", world.turn):
+            p += "\n\n【临时情报/密谕（20回合后仅剩总结）】\n" + ep.get("text", "")
+        elif ep.get("summary"):
+            p += "\n\n【遗留总结（前情之鉴，常驻）】\n" + ep["summary"]
     return p
 
 
@@ -1053,6 +1056,7 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
     ]
     done = 0
     stall = 0  # 连续"只思考/空转"轮数
+    window = int(cfg.get("ctx_window", 30))  # 消息滚动窗口：超出则裁掉最早的（思考也只保留最近 N 轮）
     agg: dict = {"calls": 0, "wall": 0.0, "stream": 0.0, "first": 0.0,
                  "maxgap": 0.0, "out_tokens": 0, "reason_tokens": 0}
 

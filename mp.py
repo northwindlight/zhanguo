@@ -271,10 +271,10 @@ class World:
 
     # ------------------------------------------------------------- 看海中途加国
     def add_nation(self, name: str, polity: str = "", extra=None,
-                   start: dict | None = None) -> tuple[bool, str]:
+                   start: dict | None = None, summary=None) -> tuple[bool, str]:
         """看海中途加国：随机到距所有现有领地足够远的位置登场。polity='huns'=匈奴。
-        extra=临时注入上下文(塞入正常 system_prompt，10回合后自动消失，只留总结)；
-        start=定制开局（如 {"骑":8,"黄金":2000,"补给":300}）。"""
+        extra=临时注入上下文(塞入正常 system_prompt，20回合后仅剩 summary 小结)；
+        summary=20回合后常驻的小结(存进存档)；start=定制开局（如 {"骑":8,"黄金":2000,"补给":300}）。"""
         name = (name or "").strip()
         if not name:
             return False, "需要国名，如 add 匈奴 / add 秦"
@@ -302,7 +302,8 @@ class World:
         if is_huns:
             self.apply_polity(name, "huns", home=pos, start=start)
         if extra:
-            self.extra_prompt[name] = {"text": str(extra), "until": self.turn + 10}
+            self.extra_prompt[name] = {"text": str(extra), "until": self.turn + 20,
+                                       "summary": str(summary or "")}
         self._ensure_guardians()
         desc = ("匈奴" if is_huns else "国家") + f" {name} 登场（距各国至少 {margin} 格）"
         if is_huns:

@@ -113,6 +113,17 @@ def _nation_start(n: dict) -> dict | None:
     return s or None
 
 
+def _nation_summary(n: dict) -> str | None:
+    """20 回合后常驻的小结：取 extra_summary 字段或 extra_summary_file。"""
+    s = n.get("extra_summary")
+    if not s and n.get("extra_summary_file"):
+        try:
+            s = Path(n["extra_summary_file"]).read_text(encoding="utf-8")
+        except Exception:
+            s = None
+    return s or None
+
+
 def make_world(cfg, force_new: bool, save_path: Path) -> tuple[World, bool]:
     if not force_new and save_path.exists():
         try:
@@ -197,7 +208,8 @@ def run() -> None:
                     try:
                         ok, msg = world.add_nation(nm, polity,
                                                    extra=_nation_extra(cfg_by_name.get(nm, {})),
-                                                   start=_nation_start(cfg_by_name.get(nm, {})))
+                                                   start=_nation_start(cfg_by_name.get(nm, {})),
+                                                   summary=_nation_summary(cfg_by_name.get(nm, {})))
                         if ok:
                             # 中途加的国也走 LLM：复用配置模板（可被 config 里预写的同名项覆盖）
                             cfg_by_name.setdefault(nm, dict(_template))
@@ -264,7 +276,8 @@ def run() -> None:
                     continue
                 _st = cfg_by_name.get(_nm, {})
                 _ok, _msg = world.add_nation(_nm, _st.get("polity", ""),
-                                             extra=_nation_extra(_st), start=_nation_start(_st))
+                                             extra=_nation_extra(_st), start=_nation_start(_st),
+                                             summary=_nation_summary(_st))
                 emit(_msg if _ok else f"⚠ 自动登场失败：{_msg}")
                 _added = True
             if _added:
