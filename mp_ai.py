@@ -960,7 +960,7 @@ TOOL_SCHEMAS = [
         "name": "plan", "description": "制定或修订你的国策（长期战略目标），会永久常驻你的上下文（【国策规划】标记），直到你再次修订。⚠ 结束回合(end_turn)前必须已有国策；且每 10 回合必须修订一次，否则 end_turn 会被拦。建议按四方面写：经济发展（粮木矿油/建设/卖买）、军事规划（扩军/攻防/结盟）、情报管理（间谍/换图/来信研判）、外交方向（结盟/宣战/求和/馈赠立场）。",
         "parameters": _props({"content": {"type": "string", "description": "国策内容", "required": True}})}},
     {"type": "function", "function": {
-        "name": "propose", "description": "向别国提议『同盟』（**全面军事同盟**：互通领土、互不攻击；同盟关系连成一张网，网内任何战争**双向自动传导、无限跳**——网内任一成员被打全体自动守、任一成员宣战全体自动随攻；**同一张网内的国家不能互相宣战**，想打网内某国必须先断盟拆链）或『共同防御』（仅守：盟友被打才自动并肩，你主动开战它不上；你参战时你的同盟网随之参战）。⚠ 同盟/共同防御/保障独立**两两互斥**：每对国家只能持有其中一种，已有其一须先解除再提。与敌方另有盟约的潜在参战者会保持中立（没人被强迫与盟友为敌）。to 必须用 countries 选出的别国，不能是自己；对方 respond_proposal 接受才生效。外交基础费 10 金，成功才扣。",
+        "name": "propose", "description": "向别国提议『同盟』（互通领土、互不攻击）或『共同防御』（遭攻自动并肩，平时互不攻击）。⚠ 同盟/共同防御/保障独立**两两互斥**：每对国家只能持有其中一种，已有其一须先解除再提。to 必须用 countries 选出的别国，不能是自己；对方 respond_proposal 接受才生效。外交基础费 10 金，成功才扣。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
                               "kind": {"type": "string", "enum": ["同盟", "共同防御"], "description": "类型", "required": True}})}},
     {"type": "function", "function": {
