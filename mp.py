@@ -38,6 +38,7 @@ from game import (
     PRICE_REVERT,
     PRICE_TICK_RATIO,
     RESOURCES,
+    RETREAT_RANGE,
     TERRAIN_CHARS,
     TERRAIN_STATS,
     TOWN_HALL_GOLD,
@@ -520,6 +521,11 @@ class World:
         ok, why = self.can_enter(name, x, y)
         if not ok:
             return False, why
+        # 禁 mv 停到有敌军(交战方)的地格——要打用 atk（否则两军脸贴脸却不打）
+        if any(d["owner"] != name and d["owner"] != "野人"
+               and (d["x"], d["y"]) == (x, y) and self.war_between(name, d["owner"])
+               for d in self.armies):
+            return False, f"({x+1},{y+1}) 有敌军驻守，不能 mv 过去；进攻请用 atk（会交战）"
         # mv 只挪位置，不占地——占地走 atk
         a["x"], a["y"] = x, y
         a["moved_turn"] = self.turn
@@ -567,10 +573,16 @@ class World:
         self.log(f"{name} {ids} 进驻 ({x+1},{y+1})，占领「{nm2}」", phase="领土", nation=name, x=x, y=y)
         return True, f"{ids} 进驻 ({x+1},{y+1})，敌人为 0，占领「{nm2}」"
 
+    def _retreat_legal(self, name: str, x: int, y: int) -> bool:
+        """撤退合法点：无人荒地 / 己方领土 / 同盟领土（中立与敌国格都不行）。"""
+        o = self.owned_by(x, y)
+        return o is None or o == name or self.allied_between(name, o)
+
     def retreat(self, name: str, aid: int, x: int, y: int) -> tuple[bool, str]:
-        """撤出：与 mv/atk 同一个『每回合一次移动』机制。
+        """撤出：与 mv/atk 同一个『每回合一次移动』额度。
         交战中的军队（含防守方守军）都能用——挨敌方一击（约半回合战损）+ 耗移动；
-        目标限 己方/同盟/无人荒地（中立与敌国格都不行）；用掉移动并脱离交战。"""
+        撤退固定只能退相邻 1 格（3×3，所有人，不按兵种速度）；
+        目标限 己方/同盟/无人荒地（中立与敌国格都不行）；四周没有合法撤退点则不能撤退。"""
         a = self._army(name, aid)
         if a is None:
             return False, f"军队 {aid} 不存在"
@@ -584,15 +596,17 @@ class World:
             self._check(x, y)
         except IndexError as e:
             return False, str(e)
-        speed = unit_speed(a)
         if (a["x"], a["y"]) == (x, y):
             return False, "撤出需选一个不同的格"
-        if max(abs(a["x"] - x), abs(a["y"] - y)) > speed:
-            return False, f"撤出范围超出 {UNIT_TYPES[unit_kind(a)]['label']} 移动距离（{speed} 格）"
+        if max(abs(a["x"] - x), abs(a["y"] - y)) > RETREAT_RANGE:
+            return False, "撤退固定只能退相邻 1 格（3×3），超出范围"
+        # 没有合法撤退点则不能撤退（目标限 己方/同盟/无人荒地）
+        if not any(self._retreat_legal(name, nx, ny)
+                   for nx, ny in self.neighbors(a["x"], a["y"])):
+            return False, "四周没有合法撤退点（己方/同盟/无人荒地），无法撤退"
         if a.get("moved_turn") == self.turn:
             return False, f"{a['name']} 本回合已移动/进攻过，移动额度用尽，撤不出（下回合再撤）"
-        o = self.owned_by(x, y)
-        if o is not None and o != name and not self.allied_between(name, o):
+        if not self._retreat_legal(name, x, y):
             return False, "不能撤到敌国或中立国的格子；只能撤向 己方/同盟/无人荒地"
         defs = self._defs_at(name, a["x"], a["y"])
         hurt = ""
@@ -920,7 +934,8 @@ class World:
         return {"war_lines": war_lines, "famine": famine}
 
     def _withdraw_illegal(self):
-        """断盟/停战后身处他国中立领土的军队，每回合朝最近的合法地(本国/盟国)撤 1 格。"""
+        """断盟/停战后身处他国中立领土的军队，每回合按兵种速度朝最近的合法地(本国/盟国)撤
+        （步兵 1 格=3×3、骑兵 2 格=5×5，一步步走）。"""
         for n in list(self.alive()):
             legal_tiles = self.own_tiles(n)
             for m in self.alive():
@@ -934,18 +949,23 @@ class World:
                 owner = self.owned_by(a["x"], a["y"])
                 if owner is None or owner == n or self.allied_between(n, owner) or self.war_between(n, owner):
                     continue  # 合法
-                # 非法：向最近的合法地块走 1 步
+                # 非法：按兵种速度（骑兵 2 格/步兵 1 格）朝最近的合法地一步步走
                 tx, ty = min(legal_tiles, key=lambda p: max(abs(p[0] - a["x"]), abs(p[1] - a["y"])))
-                best, bd = None, 10 ** 9
-                for nx, ny in self.neighbors(a["x"], a["y"]):
-                    if not self._enterable_step(n, nx, ny):
-                        continue
-                    dd = max(abs(nx - tx), abs(ny - ty))
-                    if dd < bd or (dd == bd and (nx, ny) < (best or (9 ** 9, 0))):
-                        best, bd = (nx, ny), dd
-                if best is not None:
+                moved = False
+                for _ in range(unit_speed(a)):
+                    best, bd = None, 10 ** 9
+                    for nx, ny in self.neighbors(a["x"], a["y"]):
+                        if not self._enterable_step(n, nx, ny):
+                            continue
+                        dd = max(abs(nx - tx), abs(ny - ty))
+                        if dd < bd or (dd == bd and (nx, ny) < (best or (9 ** 9, 0))):
+                            best, bd = (nx, ny), dd
+                    if best is None:
+                        break
                     a["x"], a["y"] = best
-                    self.log(f"🚶 {n} 军队{a['id']} 自敌境「遣返」撤向合法地（{best[0]+1},{best[1]+1}）", phase="事件", nation=n, x=best[0], y=best[1])
+                    moved = True
+                if moved:
+                    self.log(f"🚶 {n} 军队{a['id']} 自敌境「遣返」撤向合法地（{a['x']+1},{a['y']+1}）", phase="事件", nation=n, x=a["x"], y=a["y"])
 
     def _enterable_step(self, n: str, x: int, y: int) -> bool:
         o = self.owned_by(x, y)

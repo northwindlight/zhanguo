@@ -167,6 +167,7 @@ ARMY_MAX_HP = 100
 ARMY_STARVE_DAMAGE = 10   # 补给不足时每回合扣血，HP≤0 阵亡
 ARMY_HEAL_PER_TURN = 25   # 非战斗（且非断供）军队每回合回复，占满血 25%
 ARMY_ATTACK_DAMAGE = 50   # 每支军队每战斗回合的基础伤害（受防守方地形+城堡防御修正）
+RETREAT_RANGE = 1         # 撤退固定只能退相邻 1 格（3×3，所有人）；正常移动按兵种速度（步1/骑2）
 # 战斗骰：每回合掷 1d6 → 本回合双方伤害修正%（战争打几回合很正常）
 COMBAT_DIE_MOD = {1: -25, 2: -15, 3: -5, 4: 5, 5: 15, 6: 25}
 
@@ -648,8 +649,8 @@ class World:
         )
 
     def retreat(self, army_id: int, x: int, y: int) -> tuple[bool, str]:
-        """retreat：撤出=一次移动（与 mv/atk 同额度）。只能在交战中用，按兵种速度移动到目标格，
-        用掉本回合移动并脱离交战；下回合起可正常行动。"""
+        """retreat：撤出=一次移动（与 mv/atk 同额度）。只能在交战中用，**固定只能退相邻 1 格**
+        （所有人，不按兵种速度），用掉本回合移动并脱离交战；下回合起可正常行动。"""
         self._check_bounds(x, y)
         a = next((m for m in self.armies if m["id"] == army_id and m["owner"] == "player"), None)
         if a is None:
@@ -658,9 +659,8 @@ class World:
             return False, f"{a['name']} 未在交战中，无需撤退（atk 参战后才能撤）"
         if (a["x"], a["y"]) == (x, y):
             return False, "撤出需选一个与当前不同的格"
-        speed = unit_speed(a)
-        if max(abs(a["x"] - x), abs(a["y"] - y)) > speed:
-            return False, f"{UNIT_TYPES[unit_kind(a)]['label']} 撤出范围只有 {speed} 格"
+        if max(abs(a["x"] - x), abs(a["y"] - y)) > RETREAT_RANGE:
+            return False, "撤退固定只能退相邻 1 格（3×3），超出范围"
         if a.get("moved_turn") == self.turn:
             return False, f"{a['name']} 本回合已移动/进攻过，移动额度用尽，撤不出（下回合再撤）"
         defs = [d for d in self.armies if d["owner"] == "野人" and (d["x"], d["y"]) == (a["x"], a["y"]) and d["hp"] > 0]
