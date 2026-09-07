@@ -1210,7 +1210,8 @@ class World:
         return "\n".join(L)
 
     def spy(self, frm: str, to: str) -> tuple[bool, str]:
-        """派间谍刺探别国（花 SPY_COST 金），2 回合后盗回其全部经济情报 + 地图。不能对自己用。"""
+        """派间谍刺探别国（花 SPY_COST 金），2 回合后盗回其全部经济情报 + 地图。
+        刻意**不含军队信息**（数量/兵种/位置不外泄）。不能对自己用。"""
         if frm not in self.nations or to not in self.nations:
             return False, "间谍双方都必须是现存国家"
         if to == frm:

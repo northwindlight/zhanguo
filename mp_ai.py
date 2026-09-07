@@ -359,7 +359,8 @@ def _help_sections() -> list[tuple[str, str]]:
             "外交是有成本的：每成功一次外交动作（提议/回应/断盟/保障/宣战/求和/换图/馈赠）扣基础 10 金，"
             "写信(send_letter)单独 20 金。"
             "情报战：如果你不想开口问（懒得谈、不想欠人情）、又钱多，可用 spy(间谍) 花100金刺探别国，"
-            "2回合后盗回其国库/收入/全部建设底细（query panel=spy 看）**和它的整张已知地图（query panel=intel 看）**——"
+            "2回合后盗回其国库/收入/全部建设底细（query panel=spy 看）**和它的整张已知地图（query panel=intel 看）**；"
+            "⚠ 间谍**不含军队信息**——敌军的数量/兵种/位置侦察不到，只能靠换图、边地观察或正面交战得知——"
             "打谁、敲谁、开战时机都心中有数。"
         )),
         ("信箱", (
@@ -482,7 +483,7 @@ def _fmt_spy_hint(world, name) -> str:
     """收到的经济情报摘要（完整见 query panel=spy）。"""
     es = world.econ_intel.get(name, [])
     if not es:
-        return "无（可用 spy 花100金刺探别国，2回合后到手经济+地图）"
+        return "无（可用 spy 花100金刺探别国，2回合后到手经济+地图；不含军队信息）"
     last = es[-1]
     return f"{len(es)} 份，最新 {last['from']}（第{last['turn']}回合）；完整见 query panel=spy"
 
@@ -953,7 +954,7 @@ TOOL_SCHEMAS = [
         "name": "share_map", "description": "把你的整张已知地图（全部国土块+边界外可见块，含坐标）发给别国，对方下一回合在 query panel=intel 收到（外交基础费 10 金，成功才扣）。换情报/亮家底/协同步调可用。to=countries 里的别国，不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "spy", "description": "不想开口问（懒得谈、钱多）时派间谍刺探别国：花 100 金（国库不足会被拒），2 回合后拿回该国全部经济情报（query panel=spy 看——国库/储备、上回合收入、每一块地的建筑与在建）**以及它的整张已知地图（进 query panel=intel）**。目标不能是自己。",
+        "name": "spy", "description": "不想开口问（懒得谈、钱多）时派间谍刺探别国：花 100 金（国库不足会被拒），2 回合后拿回该国全部经济情报（query panel=spy 看——国库/储备、上回合收入、每一块地的建筑与在建）**以及它的整张已知地图（进 query panel=intel）**。⚠ 间谍**拿不到军队信息**：对方军队的数量/兵种/位置不在情报里，别指望间谍替你侦察敌军动向。目标不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "刺探对象国", "required": True}})}},
     {"type": "function", "function": {
         "name": "plan", "description": "制定或修订你的国策（长期战略目标），会永久常驻你的上下文（【国策规划】标记），直到你再次修订。⚠ 结束回合(end_turn)前必须已有国策；且每 10 回合必须修订一次，否则 end_turn 会被拦。建议按四方面写：经济发展（粮木矿油/建设/卖买）、军事规划（扩军/攻防/结盟）、情报管理（间谍/换图/来信研判）、外交方向（结盟/宣战/求和/馈赠立场）。",
