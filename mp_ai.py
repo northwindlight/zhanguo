@@ -1053,9 +1053,23 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
     ]
     done = 0
     stall = 0  # 连续"只思考/空转"轮数
+    agg: dict = {"calls": 0, "wall": 0.0, "stream": 0.0, "first": 0.0,
+                 "maxgap": 0.0, "out_tokens": 0, "reason_tokens": 0}
+
+    def _finish(d: int) -> int:
+        if agg.get("calls"):
+            speed = (agg["out_tokens"] / agg["stream"]) if agg["stream"] > 0 else 0.0
+            world.log(
+                f"📊 {name} 本回合: {agg['calls']}次调用 {agg['wall']:.0f}s｜"
+                f"输出{agg['out_tokens']}tok(思考{agg['reason_tokens']})｜"
+                f"首token均{agg['first'] / agg['calls']:.0f}s｜最长无输出{agg['maxgap']:.0f}s｜"
+                f"真正输出{agg['stream']:.0f}s｜速度{speed:.1f}tok/s",
+                phase="事件")
+        return d
+
     for step in range(max_steps):
         if name not in world.nations:
-            return done
+            return _finish(done)
         try:
             extra = {}
             # deepseek-v4：thinking 开关 + reasoning_effort（low/medium/high）
@@ -1066,21 +1080,66 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
             api_timeout = int(cfg.get("api_timeout", 180))
             retries = int(cfg.get("api_retries", 3))
             backoff = float(cfg.get("api_retry_wait", 2.0))
+            stream_stats = {}
             for attempt in range(1, retries + 1):
                 try:
+                    wall0 = time.time()
                     signal.setitimer(signal.ITIMER_REAL, api_timeout)
                     try:
-                        resp = client.chat.completions.create(
+                        stream = client.chat.completions.create(
                             model=cfg["model"], messages=messages,
                             tools=TOOL_SCHEMAS, tool_choice="auto",
                             temperature=cfg.get("temperature", 0.3),
                             max_tokens=cfg.get("max_tokens", 4000),
                             extra_body=extra or None,
-                        )
+                            stream=True, stream_options={"include_usage": True})
+                        c_s, r_s, tool_acc = "", "", {}
+                        first_t = None
+                        last_t = time.time()
+                        for chunk in stream:
+                            now = time.time()
+                            if first_t is None and chunk.choices:
+                                d0 = chunk.choices[0].delta
+                                if (getattr(d0, "content", None) or getattr(d0, "reasoning_content", None)
+                                        or getattr(d0, "tool_calls", None)):
+                                    first_t = now
+                            stream_stats["maxgap"] = max(stream_stats.get("maxgap", 0.0), now - last_t)
+                            last_t = now
+                            if getattr(chunk, "usage", None):
+                                u = chunk.usage
+                                stream_stats["out_tokens"] = getattr(u, "completion_tokens", 0) or 0
+                                det = getattr(u, "completion_tokens_details", None)
+                                stream_stats["reason_tokens"] = getattr(det, "reasoning_tokens", 0) if det else 0
+                            if not chunk.choices:
+                                continue
+                            d = chunk.choices[0].delta
+                            rd = getattr(d, "reasoning_content", None)
+                            if rd:
+                                r_s += rd
+                            cd = getattr(d, "content", None)
+                            if cd:
+                                c_s += cd
+                            for tc in (getattr(d, "tool_calls", None) or []):
+                                slot = tool_acc.setdefault(tc.index, {"id": None, "type": "function",
+                                                                     "function": {"name": "", "arguments": ""}})
+                                if tc.id:
+                                    slot["id"] = tc.id
+                                if tc.type:
+                                    slot["type"] = tc.type
+                                if tc.function:
+                                    if tc.function.name:
+                                        slot["function"]["name"] += tc.function.name
+                                    if tc.function.arguments:
+                                        slot["function"]["arguments"] += tc.function.arguments
                     finally:
                         signal.setitimer(signal.ITIMER_REAL, 0)
-                    if getattr(resp, "error", None):  # 有些网关欠费/限流返回 200+error，不抛也拦下
-                        raise RuntimeError(f"响应带错误：{resp.error}")
+                    stream_stats["wall"] = time.time() - wall0
+                    if first_t:
+                        stream_stats["first"] = first_t - wall0
+                        stream_stats["stream"] = max(0.0, last_t - first_t)
+                    msg = {"content": c_s, "reasoning_content": r_s}
+                    if tool_acc:
+                        msg["tool_calls"] = [tool_acc[i] for i in sorted(tool_acc)]
                     break
                 except Exception as e:
                     from openai import (APIStatusError, APIConnectionError,
@@ -1101,28 +1160,30 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                 tag = "超时" if isinstance(e, TimeoutError) else type(e).__name__
                 emit(f"⚠ {name} API错误({tag}): {str(e)[:120]}")
             continue
-        msg = resp.choices[0].message
-        reasoning = (getattr(msg, "reasoning_content", None) or "").strip()
-        content = (getattr(msg, "content", None) or "").strip()
-        tool_calls = getattr(msg, "tool_calls", None) or []
+        reasoning = (msg.get("reasoning_content") or "").strip()
+        content = (msg.get("content") or "").strip()
+        tool_calls = msg.get("tool_calls") or []
+        for _k in ("wall", "stream", "first", "maxgap", "out_tokens", "reason_tokens"):
+            agg[_k] = agg.get(_k, 0.0) + (stream_stats.get(_k) or 0.0)
+        agg["calls"] = agg.get("calls", 0) + 1
         if emit and reasoning:
             emit(f"💭 {name} 思考：{reasoning[:160].replace(chr(10),' ')}")
         if tool_calls:
             stall = 0
-            asst: dict = {"role": "assistant", "content": getattr(msg, "content", None)}
+            asst: dict = {"role": "assistant", "content": msg.get("content")}
             if reasoning:
                 asst["reasoning_content"] = reasoning
             asst["tool_calls"] = [
-                {"id": tc.id, "type": tc.type,
-                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                {"id": tc["id"], "type": tc["type"],
+                 "function": {"name": tc["function"]["name"], "arguments": tc["function"]["arguments"]}}
                 for tc in tool_calls
             ]
             messages.append(asst)
             acted_this = False
             for tc in tool_calls:
-                fn = tc.function.name
+                fn = tc["function"]["name"]
                 try:
-                    args = json.loads(tc.function.arguments or "{}")
+                    args = json.loads(tc["function"]["arguments"] or "{}")
                 except json.JSONDecodeError:
                     args = {}
                 result = engine_call(execute, world, name, fn, args)
@@ -1134,15 +1195,15 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                         a_s = " ".join(f"{k}={v}" for k, v in (args or {}).items())
                         emit(f"{world.turn}回合·{name} ◇ {fn} {a_s}")
                         emit(f"      ↳ {result}")
-                messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
                 done += 1
                 acted_this = True
                 if name not in world.nations:
-                    return done
+                    return _finish(done)
                 if is_end:
                     # 只有带上有效的小结才算真结束；没带会被 execute 拦下，继续逼它补
                     if (str(args.get("summary", "")).strip()):
-                        return done
+                        return _finish(done)
             if name in world.nations:  # 每次行动后都回填一次最新状态（默认塞查询）
                 messages.append({"role": "user", "content": engine_call(compact_state, world, name)})
             continue
@@ -1152,7 +1213,7 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
             engine_call(world.log, f"{name} 宣告:「{content}」", phase="行动", nation=name)
             if emit:
                 emit(f"🗣 {name} 宣告：「{content}」")
-            return done
+            return _finish(done)
         if reasoning:
             # 纯思考轮（无正文无工具）：预算已很大仍被思考吃光时，不追加 reasoning（API 不收），
             # 用中性话让它把回合续完；不打断它的思考风格。
@@ -1166,8 +1227,8 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
         messages.append({"role": "user", "content": "请决策并调用工具；若本回合无事可做，请 end_turn。"})
         stall += 1
         if stall >= 3:
-            return done
-    return done
+            return _finish(done)
+    return _finish(done)
 
 
 # ---------------------------------------------------------------------------
