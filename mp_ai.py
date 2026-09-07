@@ -364,8 +364,10 @@ def _help_sections() -> list[tuple[str, str]]:
         )),
         ("信箱", (
             "send_letter 可给任何别国写信（结盟邀约/和谈/威胁/情报交换），**每次 20 金、成功即扣、下回合送达**"
-            "——这是最贵的外交动作（是普通外交 10 金的两倍）。写信前先 query panel=res 看国库："
-            "**国库 <100 金别写信**；能并进一次正式外交提议（10 金）的话就别单独写信，更别拿写信闲聊。"
+            "——这是最贵的外交动作（是普通外交 10 金的两倍）。**每封信寄出前先算账：这 20 金值不值？**"
+            "预期收益（勒索要到的贡品/结盟带来的安全/关键情报/逼降止损）明显 > 20 金才写；说不出收益的信不要写。"
+            "写信前再 query panel=res 看国库：**国库 <100 金别写信**；"
+            "能并进一次正式外交提议（10 金）的话就别单独写信，更别拿写信闲聊。"
             "收到信要在 diplomacy/mail 面板回应——不回信，对方可能以为你拒绝。"
         )),
         ("市场", (
@@ -939,7 +941,7 @@ TOOL_SCHEMAS = [
         "parameters": _props({"good": {"type": "string", "description": "物资", "required": True},
                               "qty": {"type": "integer", "description": "数量", "required": True}})}},
     {"type": "function", "function": {
-        "name": "send_letter", "description": "给别国写信。**每次单独花 20 金（最贵的外交动作，普通外交只要 10 金）、成功即扣**；信件下回合才送达对方信箱。省钱纪律：国库 <100 金不要写信；诉求能并进一次正式外交提议（10 金）就别单独写信。to 必须用 countries 选出的别国，不能是自己。",
+        "name": "send_letter", "description": "给别国写信。**每次单独花 20 金（最贵的外交动作，普通外交只要 10 金）、成功即扣**；信件下回合才送达对方信箱。写信前先算账：这 20 金值不值？预期收益（贡品/结盟/情报/逼降）明显大于 20 金才写，说不出收益就别写；国库 <100 金不要写信；诉求能并进一次正式外交提议（10 金）就别单独写信。to 必须用 countries 选出的别国，不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "收信国名", "required": True},
                               "content": {"type": "string", "description": "信件正文", "required": True}})}},
     {"type": "function", "function": {
