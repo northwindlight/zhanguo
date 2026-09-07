@@ -1388,12 +1388,19 @@ class World:
                       or self.allied_between(c, b))
             if not backer:
                 continue
-            if self.allied_between(c, a) or (self.defense_pacts and _pair(c, a) in self.defense_pacts):
-                if self.allied_between(c, a):
-                    self.alliances.remove(_pair(c, a))
-                if self.defense_pacts and _pair(c, a) in self.defense_pacts:
-                    self.defense_pacts.remove(_pair(c, a))
-                notes.append(f"（{c} 为履行防守义务，背弃与你的盟约；不想打也可自行断盟 {b} 退战）")
+            # 防守义务优先：与进攻方的所有盟约（同盟/共同防御/保障）自动解除
+            if self.allied_between(c, a):
+                self.alliances.remove(_pair(c, a))
+                notes.append(f"（{c} 与你解除同盟参战；不想打也可断盟 {b} 退战）")
+            if self.defense_pacts and _pair(c, a) in self.defense_pacts:
+                self.defense_pacts.remove(_pair(c, a))
+                notes.append(f"（{c} 与你解除共同防御参战；不想打也可断盟 {b} 退战）")
+            if c in self.guarantee_of(a):
+                self.guarantees[c].discard(a)
+                notes.append(f"（{c} 撤回对你的保障参战）")
+            if a in self.guarantee_of(c):
+                self.guarantees[a].discard(c)
+                notes.append(f"（你撤回对 {c} 的保障）")
             followers.append(c)
         # a 的同盟自动随攻（进攻侧跟随方）；与 b 另有盟约者不强拖，想参战可自行宣战（会并入本战线）
         atk_followers = []
