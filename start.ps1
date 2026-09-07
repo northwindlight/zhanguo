@@ -1,4 +1,4 @@
-# EU4-like 多国 AI 对战 · 一键启动（Windows PowerShell）
+# 战国·多国 AI 对战 · 一键启动（Windows PowerShell）
 # 需要机器上已有 Python 3.10+（py 启动器或 python 都行）；依赖装进程序目录 .venv，不污染系统。
 # 用法：
 #   .\start.ps1                    # 读档续局（无档则新开）
@@ -43,5 +43,5 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 
-Write-Host "[启动] EU4-like 多国 AI 对战（看海模式：终端实时流 + mp_journal.md）…" -ForegroundColor Green
+Write-Host "[启动] 战国·多国 AI 对战（看海模式：终端实时流 + mp_journal.md）…" -ForegroundColor Green
 & $venvPy mp_run.py @args

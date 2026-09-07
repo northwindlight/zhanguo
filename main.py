@@ -1,4 +1,4 @@
-"""EU4-like 小游戏终端入口。
+"""战国（zhanguo）小游戏终端入口。原名 eu4-like。。
 
 用法：
     python3 main.py            从 save.json 读档，无档则开新局
@@ -653,7 +653,7 @@ def loop(world: World, save_path: Path) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="EU4-like 地块小游戏")
+    ap = argparse.ArgumentParser(description="战国（zhanguo）地块小游戏（单机）")
     ap.add_argument("--new", action="store_true", help="强制开新局（覆盖旧档）")
     ap.add_argument("--seed", type=int, default=None, help="指定随机种子")
     ap.add_argument("--size", type=int, default=100, help="网格大小（默认 100）")

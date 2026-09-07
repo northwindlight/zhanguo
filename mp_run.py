@@ -138,7 +138,7 @@ def make_world(cfg, force_new: bool, save_path: Path) -> tuple[World, bool]:
 
 
 def run() -> None:
-    ap = argparse.ArgumentParser(description="EU4-like 多国自动一局")
+    ap = argparse.ArgumentParser(description="战国（zhanguo）多国 AI 自动一局")
     ap.add_argument("--config", default="mp_config.json")
     ap.add_argument("--new", action="store_true", help="强制开新局")
     ap.add_argument("--turns", type=int, default=None, help="最多跑多少回合")

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# EU4-like 多国 AI 对战 · 一键启动（Linux / macOS）
+# 战国·多国 AI 对战 · 一键启动（Linux / macOS）
 # 首次运行会在程序目录自动创建 .venv 虚拟环境并安装依赖，不污染系统 Python。
 # 用法：
 #   ./start.sh               # 读档续局（无档则新开）
@@ -36,5 +36,5 @@ if ! "$PY" -c "import openai" >/dev/null 2>&1; then
     fi
 fi
 
-echo "[启动] EU4-like 多国 AI 对战（看海模式：终端实时流 + mp_journal.md）…"
+echo "[启动] 战国·多国 AI 对战（看海模式：终端实时流 + mp_journal.md）…"
 exec "$PY" mp_run.py "$@"
