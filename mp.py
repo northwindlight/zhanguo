@@ -111,7 +111,9 @@ class World:
         self._offer_id = 1
         self.prices: dict[str, float] = {g: float(MARKET[g]) for g in TRADEABLE}
         self.armies: list[dict] = []
-        self.next_army_id = 1
+        self.next_army_seq: dict[str, int] = {}  # 各国独立军队序列：从1递增、阵亡不回收
+        self.nation_code: dict[str, int] = {}    # 国家码：军队全局唯一id = 码×1e8+序列（野人=0，秦=1→100000001）
+        self._next_code = 1
         self.guard_once: set[tuple[int, int]] = set()  # 每格至多出生一支野人：死了就没了，不重生
         self.grid_short: dict[str, bool] = {}
         self.energy_report: dict[str, tuple[int, int, bool]] = {}
@@ -124,6 +126,7 @@ class World:
             self.order.append(nm)
             self.mailbox[nm] = []
             self.grid_short[nm] = False
+            self._assign_code(nm)
         if starts:
             self._place_crosses(starts)
         else:
@@ -264,9 +267,8 @@ class World:
                 self._spawn_guardian(x, y)
 
     def _spawn_guardian(self, x: int, y: int):
-        aid = self.next_army_id
-        self.next_army_id += 1
-        self.armies.append({"id": aid, "name": f"野人{aid}", "hp": ARMY_MAX_HP,
+        gid, seq = self._new_army("野人")
+        self.armies.append({"id": seq, "gid": gid, "name": f"野人{seq}", "hp": ARMY_MAX_HP,
                             "x": x, "y": y, "owner": "野人", "moved_turn": -1, "engaged": False})
         self.guard_once.add((x, y))  # 出生过就算数：这格野人死了不再有
 
@@ -303,6 +305,7 @@ class World:
         self.order.append(name)
         self.mailbox[name] = []
         self.grid_short[name] = False
+        self._assign_code(name)
         self._place_crosses({name: pos})
         if is_huns:
             self.apply_polity(name, "huns", home=pos, start=start)
@@ -330,9 +333,8 @@ class World:
             v = int(v)
             if k == "骑" and v > 0 and home:
                 for _ in range(v):
-                    aid = self.next_army_id
-                    self.next_army_id += 1
-                    self.armies.append({"id": aid, "name": army_name(name, 0, "骑"), "type": "骑",
+                    gid, seq = self._new_army(name)
+                    self.armies.append({"id": seq, "gid": gid, "name": army_name(name, seq, "骑"), "type": "骑",
                                         "hp": ARMY_MAX_HP, "x": home[0], "y": home[1],
                                         "owner": name, "moved_turn": -1, "engaged": False})
                 parts.append(f"骑+{v}")
@@ -365,9 +367,8 @@ class World:
         if home:
             cx, cy = home
             for i in range(cav):
-                aid = self.next_army_id
-                self.next_army_id += 1
-                self.armies.append({"id": aid, "name": army_name(name, i + 1, "骑"),
+                gid, seq = self._new_army(name)
+                self.armies.append({"id": seq, "gid": gid, "name": army_name(name, seq, "骑"),
                                     "type": "骑", "hp": ARMY_MAX_HP,
                                     "x": cx, "y": cy, "owner": name,
                                     "moved_turn": -1, "engaged": False})
@@ -455,17 +456,30 @@ class World:
             return False, "战略储备不足（每支耗 " + "、".join(f"{f}x{a}" for f, a in cost.items()) + "）"
         for f, amt in cost.items():
             self.add_res(name, f, -amt * n)
-        seq = sum(1 for a in self.armies if a["owner"] == name and unit_kind(a) == kind) + 1
         for i in range(n):
-            aid = self.next_army_id
-            self.next_army_id += 1
-            self.armies.append({"id": aid, "name": army_name(name, seq + i, kind),
+            gid, seq = self._new_army(name)
+            self.armies.append({"id": seq, "gid": gid, "name": army_name(name, seq, kind),
                                 "type": kind, "hp": ARMY_MAX_HP, "x": x, "y": y,
                                 "owner": name, "moved_turn": -1, "engaged": False})
         t["recruited_this_turn"] += n
         return True, f"征召 {n} 支{UNIT_TYPES[kind]['label']} @{t['name']}"
 
     # ------------------------------------------------------------- 军队
+    def _assign_code(self, name: str) -> None:
+        """分配国家码（军队全局唯一 gid 的前缀；野人固定 0）。"""
+        if name == "野人":
+            self.nation_code.setdefault("野人", 0)
+        elif name not in self.nation_code:
+            self.nation_code[name] = self._next_code
+            self._next_code += 1
+
+    def _new_army(self, owner: str) -> tuple[int, int]:
+        """新军队编号 → (gid, seq)。seq=本国序列，从 1 递增、阵亡不回收（AI 所见与引用即 seq）；
+        gid=国家码×1e8+seq，全局唯一但**对 AI 不可见**（仅存档/内部用；野人码 0 → gid==seq）。"""
+        seq = self.next_army_seq.get(owner, 0) + 1
+        self.next_army_seq[owner] = seq
+        return self.nation_code.get(owner, 0) * 100_000_000 + seq, seq
+
     def _army(self, name: str, aid: int) -> dict | None:
         return next((a for a in self.armies if a["owner"] == name and a["id"] == aid), None)
 
@@ -1447,7 +1461,8 @@ class World:
             "nations": {n: nat.res for n, nat in self.nations.items()},
             "order": self.order,
             "tiles": {f"{x},{y}": t for (x, y), t in sorted(self.tiles.items())},
-            "armies": self.armies, "next_army_id": self.next_army_id,
+            "armies": self.armies, "next_army_seq": self.next_army_seq,
+            "nation_code": self.nation_code,
             "guard_once": [list(k) for k in sorted(self.guard_once)],
             "wars": self.wars,
             "war_id": self._war_id,
@@ -1515,7 +1530,29 @@ class World:
         w.polity = {n: v for n, v in data.get("polity", {}).items() if n in w.nations}
         w.extra_prompt = {n: dict(v) for n, v in data.get("extra_prompt", {}).items() if n in w.nations}
         w.armies = data.get("armies", [])
-        w.next_army_id = data.get("next_army_id", 1)
+        # 军队编号：各国独立番号(AI 所见) + 国家码×1e8 全局唯一 gid(内部)。旧档按旧全局 id 顺序迁移重编。
+        if "nation_code" in data:
+            w.nation_code = {k: int(v) for k, v in data["nation_code"].items()}
+            w._next_code = max(w.nation_code.values(), default=0) + 1
+        else:
+            w.nation_code = {}
+            w._next_code = 1
+            w._assign_code("野人")
+            for nm in w.nations:
+                w._assign_code(nm)
+        if "next_army_seq" in data:
+            w.next_army_seq = {k: int(v) for k, v in data["next_army_seq"].items()}
+            for a in w.armies:
+                a.setdefault("gid", w.nation_code.get(a["owner"], 0) * 100_000_000 + a["id"])
+        else:
+            w.next_army_seq = {}
+            for a in sorted(w.armies, key=lambda x: x["id"]):
+                s = w.next_army_seq.get(a["owner"], 0) + 1
+                w.next_army_seq[a["owner"]] = s
+                a["id"] = s
+                a["gid"] = w.nation_code.get(a["owner"], 0) * 100_000_000 + s
+                if a["owner"] != "野人":
+                    a["name"] = army_name(a["owner"], s, a.get("type", "步"))
         # wars 迁移：新格式=冲突对象{id,atk,def,followers}；旧档=[a,b] 边对 → 视为无跟随方的双边战争
         w.wars = []
         w._war_id = int(data.get("war_id", 1))

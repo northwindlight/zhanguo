@@ -329,6 +329,8 @@ def _help_sections() -> list[tuple[str, str]]:
         ("军队与战斗", (
             "每军 100HP；兵营征召，每兵营每回合 1 支。兵种：步兵(耗10粮+5装，动1格/回合，耗补给1/回合)、"
             "骑兵(耗12粮+12装，动2格/回合，耗补给2/回合)。"
+            "军队 id **各国独立编号、从 1 递增且阵亡不回收**：历史上的 #n 永远指同一支军队，"
+            "引用一律以最近一次 query army 面板为准。"
             f"交战 = atk 冲入；每回合掷骰结算一轮；每军基础伤害 {ARMY_ATTACK_DAMAGE}，"
             "受守方地形+城堡防御%修正（地形与城堡为**相乘**叠加，山地+城堡L5≈75%而非100%）、总伤害分摊；攻方在敌地无加成。"
             "**多势力交战（进攻方不纯联合）**：同格多方各打各的敌人（互相宣战才互打）、每方掷自己的骰、"
@@ -913,17 +915,17 @@ TOOL_SCHEMAS = [
                               "kind": {"type": "string", "enum": ["步", "骑"], "description": "兵种（默认 步）"}})}},
     {"type": "function", "function": {
         "name": "move", "description": "把一支自己的军队以自身为中心按兵种速度移动（步兵 1 格=3×3、骑兵 2 格=5×5），纯移动不占地。每回合每支限1次。**野地（无人荒地）是合法移动目标**：mv 可任意在野地移动，不会被守军/野人攻击（野人不主动攻击、路过不打）。中立国地盘不能进（先结盟/宣战）；交战中不能移动，须先 retreat 撤出。要占无守军的空地/敌空城，请用 attack（atk 会直接进驻占领）。",
-        "parameters": _props({"army_id": {"type": "integer", "description": "军队id", "required": True},
+        "parameters": _props({"army_id": {"type": "integer", "description": "本国军队id（各国独立从1编号，以 query army 面板为准）", "required": True},
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
     {"type": "function", "function": {
         "name": "attack", "description": "军队(按兵种速度可及：步1格/骑2格)冲入目标地块并交战——打赢该地守军自动占地；格上**无任何军队**则直接进驻占领；有他国军队但非你敌人（中立/第三方）不能进驻。同格多方同时开战则各打各的敌人（互相宣战才互打）。与别国开打需已宣战。",
-        "parameters": _props({"army_ids": {"type": "array", "items": {"type": "integer"}, "description": "参战军队id数组", "required": True},
+        "parameters": _props({"army_ids": {"type": "array", "items": {"type": "integer"}, "description": "参战本国军队id数组（各国独立从1编号）", "required": True},
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
     {"type": "function", "function": {
         "name": "retreat", "description": "交战中的军队（含防守方守军）撤出——**固定只能退相邻 1 格**（所有人，不按兵种速度），当回合挨敌方一击（约半回合战损）。目标限 己方/同盟/无人荒地；四周无合法撤退点则无法撤退。mv 不能从交战地撤离；想脱离战场一律用 retreat。",
-        "parameters": _props({"army_id": {"type": "integer", "description": "军队id", "required": True},
+        "parameters": _props({"army_id": {"type": "integer", "description": "本国军队id（各国独立从1编号，以 query army 面板为准）", "required": True},
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
     {"type": "function", "function": {
