@@ -1243,9 +1243,9 @@ class World:
         other = self.defense_pacts if kind == "同盟" else self.alliances
         if _pair(a, b) in target:
             return False, f"你们已是{kind}"
-        if _pair(a, b) in other or a in self.guarantee_of(b) or b in self.guarantee_of(a):
-            have = "共同防御" if _pair(a, b) in other else "独立保障"
-            return False, f"你们已有{have}——同盟/共同防御/保障两两互斥，先解除现有的一档再提"
+        if kind == "共同防御" and (_pair(a, b) in self.alliances):
+            return False, "你们已是同盟（更高一档），无须共同防御"
+        # 同盟/共同防御与保障两两互斥 → 缔结高档时自动升级（解除低档）
         if self.war_between(a, b):
             return False, "交战中不能提议" + kind
         if any(p["kind"] == kind and set((p["a"], p["b"])) == {a, b} for p in self.proposals):
@@ -1261,15 +1261,24 @@ class World:
         if self.war_between(a, b):
             self.proposals.remove(p)
             return False, "你们已交战，不能结盟"
-        other = self.defense_pacts if kind == "同盟" else self.alliances
-        if _pair(a, b) in other or a in self.guarantee_of(b) or b in self.guarantee_of(a):
+        if kind == "共同防御" and _pair(a, b) in self.alliances:
             self.proposals.remove(p)
-            return False, "同盟/共同防御/保障两两互斥，你们之间已有其一——提议作废"
+            return False, "你们已是同盟（更高一档），共同防御提议作废"
         self.proposals.remove(p)
+        # 自动升级：缔结高档（同盟>共同防御>保障）自动解除同对之间的低档
+        low = []
+        if kind == "同盟" and _pair(a, b) in self.defense_pacts:
+            self.defense_pacts.remove(_pair(a, b))
+            low.append("共同防御")
+        for x, y in ((a, b), (b, a)):
+            if x in self.guarantee_of(y):
+                self.guarantees[x].discard(y)
+                low.append(f"{x}对{y}的保障")
         target = self.alliances if kind == "同盟" else self.defense_pacts
         target.append(_pair(a, b))
-        self.log(f"🕊 {a} 与 {b} 结为{kind}", phase="外交", nation=b)
-        return True, f"你接受 {a} 的{kind}：现在你们互通/互卫（{kind}期间不可互相攻击）"
+        up = f"（自动升级：解除{'、'.join(low)}）" if low else ""
+        self.log(f"🕊 {a} 与 {b} 结为{kind}{up}", phase="外交", nation=b)
+        return True, f"你接受 {a} 的{kind}：现在你们互通/互卫（{kind}期间不可互相攻击）{up}"
 
     def reject_pact(self, me: str, offer_id: int) -> tuple[bool, str]:
         p = next((x for x in self.proposals if x["id"] == offer_id), None)
@@ -1283,8 +1292,28 @@ class World:
         if _pair(a, b) not in target:
             return False, f"你们不是{kind}"
         target.remove(_pair(a, b))
-        self.log(f"💔 {a} 单方面解除与 {b} 的{kind}（{b}境内 {a} 的军队将全部撤出）", phase="外交", nation=a)
-        return True, f"{a} 已与 {b} 解除{kind}。如你在他国境内，会于回合末自动遣返回国"
+        # 断盟退战：跟随方不想打的退出通道——昔日盟友参与的战线，其跟随方身份随之解除
+        exited = []
+        for w in self.wars:
+            atk, dfs = self._war_sides(w)
+            if b not in atk + dfs:
+                continue
+            if a in w["followers"]:
+                w["followers"].remove(a)
+                exited.append(w)
+            if a in w.get("atk_followers", []):
+                w.get("atk_followers", []).remove(a)
+                exited.append(w)
+        still_in = any(a in (lambda w: [w["atk"]] + list(w.get("atk_followers", []))
+                              + [w["def"]] + list(w["followers"]))(w) for w in self.wars)
+        if exited and not still_in:
+            for m in self.armies:
+                if m["owner"] == a and m.get("engaged"):
+                    m["engaged"] = False  # 已无任何战线 → 解除交战，回合末自动遣返
+        extxt = f"，并退出 {b} 所在的 {len(exited)} 条战线" if exited else ""
+        self.log(f"💔 {a} 单方面解除与 {b} 的{kind}{extxt}（{b}境内 {a} 的军队将全部撤出）",
+                 phase="外交", nation=a)
+        return True, f"{a} 已与 {b} 解除{kind}{extxt}。如你在他国境内，会于回合末自动遣返回国"
 
     def declare_guarantee(self, a: str, b: str) -> tuple[bool, str]:
         if a == b or a not in self.nations or b not in self.nations:
@@ -1349,12 +1378,14 @@ class World:
         if self.defense_pacts and _pair(a, b) in self.defense_pacts:
             self.defense_pacts.remove(_pair(a, b))
             notes.append("（背弃共同防御）")
-        # 保障独立 / 共同防御 → b 的支持者作为防御方「跟随方」参战
+        # 战争传导（一跳，不级联）：b 侧 = 保障/共同防御/同盟（守）；a 侧 = 同盟随攻
         followers = []
         for c in self.alive():
             if c in (a, b) or self.war_between(c, a):
                 continue
-            backer = c in self.guarantee_of(b) or (self.defense_pacts and _pair(b, c) in self.defense_pacts)
+            backer = (c in self.guarantee_of(b)
+                      or (self.defense_pacts and _pair(b, c) in self.defense_pacts)
+                      or self.allied_between(c, b))
             if not backer:
                 continue
             if self.allied_between(c, a) or (self.defense_pacts and _pair(c, a) in self.defense_pacts):
@@ -1362,10 +1393,21 @@ class World:
                     self.alliances.remove(_pair(c, a))
                 if self.defense_pacts and _pair(c, a) in self.defense_pacts:
                     self.defense_pacts.remove(_pair(c, a))
-                notes.append(f"（{c} 为履行保障/共同防御，背弃与你的盟约）")
+                notes.append(f"（{c} 为履行防守义务，背弃与你的盟约；不想打也可自行断盟 {b} 退战）")
             followers.append(c)
-        self.wars.append({"id": self._next_war_id(), "atk": a, "def": b,
-                          "followers": followers, "turn": self.turn})
+        # a 的同盟自动随攻（进攻侧跟随方）；与 b 另有盟约者不强拖，想参战可自行宣战（会并入本战线）
+        atk_followers = []
+        for c in self.alive():
+            if c in (a, b) or c in followers or self.war_between(c, b):
+                continue
+            if not self.allied_between(a, c):
+                continue
+            if (self.allied_between(c, b) or self.dp_between(c, b)
+                    or c in self.guarantee_of(b) or b in self.guarantee_of(c)):
+                continue
+            atk_followers.append(c)
+        self.wars.append({"id": self._next_war_id(), "atk": a, "def": b, "followers": followers,
+                          "atk_followers": atk_followers, "turn": self.turn})
         self.log(f"⚔ {a} 对 {b} 宣战！{b} 必须应战{('；' + '、'.join(followers) + ' 依约参战') if followers else ''}",
                  phase="外交", nation=a)
         jtxt = f"；参战：{'、'.join(followers)}" if followers else ""
