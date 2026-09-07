@@ -1036,7 +1036,16 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
     直到它真正用工具或宣告结束。
     """
     from openai import OpenAI
-    client = OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"], timeout=240)
+    client = OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"],
+                    timeout=float(cfg.get("api_timeout", 180)))
+    # SIGALRM 硬超时兜底：即使 SDK 因网络黑洞/服务端不回应而不抛，超时也会强制抛
+    # （TimeoutError 会被下方 except 接住，整局看海不会因此挂死）
+    import signal
+
+    def _timeout_handler(signum, frame):
+        raise TimeoutError("API 调用超时（> %ds）" % int(cfg.get("api_timeout", 180)))
+
+    signal.signal(signal.SIGALRM, _timeout_handler)
     messages = [
         {"role": "system", "content": engine_call(system_prompt, world, name)},
         {"role": "user", "content": engine_call(full_state, world, name)},
@@ -1053,17 +1062,23 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                 extra["thinking"] = {"type": cfg["thinking"]}  # "enabled"/"disabled"
             if cfg.get("reasoning_effort"):
                 extra["reasoning_effort"] = cfg["reasoning_effort"]
-            resp = client.chat.completions.create(
-                model=cfg["model"], messages=messages,
-                tools=TOOL_SCHEMAS, tool_choice="auto",
-                temperature=cfg.get("temperature", 0.3),
-                max_tokens=cfg.get("max_tokens", 4000),
-                extra_body=extra or None,
-            )
+            api_timeout = int(cfg.get("api_timeout", 180))
+            signal.setitimer(signal.ITIMER_REAL, api_timeout)
+            try:
+                resp = client.chat.completions.create(
+                    model=cfg["model"], messages=messages,
+                    tools=TOOL_SCHEMAS, tool_choice="auto",
+                    temperature=cfg.get("temperature", 0.3),
+                    max_tokens=cfg.get("max_tokens", 4000),
+                    extra_body=extra or None,
+                )
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, 0)
         except Exception as e:
             messages.append({"role": "user", "content": f"（API 错误，若可继续请继续，否则 end_turn）: {e}"})
             if emit:
-                emit(f"⚠ {name} API错误: {type(e).__name__}: {e}")
+                tag = "超时" if isinstance(e, TimeoutError) else type(e).__name__
+                emit(f"⚠ {name} API错误({tag}): {str(e)[:120]}")
             continue
         msg = resp.choices[0].message
         reasoning = (getattr(msg, "reasoning_content", None) or "").strip()
