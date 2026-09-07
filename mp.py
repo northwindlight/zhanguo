@@ -65,7 +65,7 @@ RES_LABEL = {"黄金": "国库", "木头": "木材", "补给": "补给仓"}
 CROSS = [(0, 0), (0, -1), (0, 1), (-1, 0), (1, 0)]
 
 SPY_COST = 100    # 经济间谍 花 100 金
-SPY_TURNS = 2     # 2 回合后回报目标全部经济情报 + 地图（进 intel）
+SPY_TURNS = 3     # 3 回合后回报目标全部经济情报 + 地图（进 intel）；军情只给粗略数量（各兵种几支），位置/血量不外泄
 DIPLO_COST = 10   # 外交基础费用：提议/回应/断盟/保障/宣战/求和/换图/馈赠手续费（成功才扣）
 LETTER_COST = 20  # 信件单独费用
 RETREAT_DMG_RATIO = 0.5  # 撤退挨一击 = 敌方半回合战损（改 0.25 更轻、1.0=全额）
@@ -101,7 +101,7 @@ class World:
         self.gift_pending: list[dict] = []         # 馈赠在途（下回合到账）
         self.map_pending: list[dict] = []          # 交换地图在途（下回合到账）
         self.maps: dict[str, list[dict]] = {}      # 各国收到的地图情报（{from,turn,text}，留最近3张）
-        self.spy_pending: list[dict] = []          # 经济间谍在途（2回合后回报）
+        self.spy_pending: list[dict] = []          # 经济间谍在途（3回合后回报）
         self.econ_intel: dict[str, list[dict]] = {}  # 各国收到的经济情报（{from,turn,text}，留最近2份）
         self.plans: dict[str, dict] = {}           # 各国国策规划 {text, turn}——常驻上下文，每10回合须修订
         self.polity: dict[str, str] = {}           # 政体标记（"huns"=匈奴）→ 造价/征召/外交限制
@@ -1046,7 +1046,7 @@ class World:
             store.append({"from": m["from"], "turn": m["arrive"], "text": m["text"]})
             del store[:-3]  # 只留最近 3 张图，控体积
             self.log(f"🗺 {m['to']} 收到 {m['from']} 的地图", phase="事件", nation=m["to"])
-        # 间谍回报：2回合后盗回目标当前经济情报 + 地图；目标亡国则任务失败
+        # 间谍回报：3回合后盗回目标当前经济情报（含粗略军情数量）+ 地图；目标亡国则任务失败
         due_sp = [s for s in self.spy_pending if s["arrive"] <= self.turn]
         self.spy_pending = [s for s in self.spy_pending if s["arrive"] > self.turn]
         for s in due_sp:
@@ -1207,6 +1207,12 @@ class World:
             extra = ("；" + pend) if pend else ""
             L.append(f"    {t.get('name', '?')} {t['terrain']}({x + 1},{y + 1}) "
                      f"城L{b['城堡']} 位{sum(b.values())}/20 建筑[{built}{extra}]")
+        # 粗略军情：只有各兵种数量——位置/血量/番号不外泄（间谍能探到敌国在扩军，但别想精准侦察）
+        kinds: dict[str, int] = {}
+        for a in self.nation_armies(n):
+            k = unit_kind(a)
+            kinds[k] = kinds.get(k, 0) + 1
+        L.append("  军情（仅数量，位置未知）: " + ("、".join(f"{k}×{c}" for k, c in kinds.items()) or "无军队"))
         return "\n".join(L)
 
     def spy(self, frm: str, to: str) -> tuple[bool, str]:
