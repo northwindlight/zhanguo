@@ -63,8 +63,10 @@ RES_LABEL = {"黄金": "国库", "木头": "木材", "补给": "补给仓"}
 
 CROSS = [(0, 0), (0, -1), (0, 1), (-1, 0), (1, 0)]
 
-SPY_COST = 20     # 经济间谍 花 20 金
-SPY_TURNS = 2     # 2 回合后回报目标全部经济情报
+SPY_COST = 100    # 经济间谍 花 100 金
+SPY_TURNS = 2     # 2 回合后回报目标全部经济情报 + 地图（进 intel）
+DIPLO_COST = 10   # 外交基础费用：提议/回应/断盟/保障/宣战/求和/换图/馈赠手续费（成功才扣）
+LETTER_COST = 20  # 信件单独费用
 RETREAT_DMG_RATIO = 0.5  # 撤退挨一击 = 敌方半回合战损（改 0.25 更轻、1.0=全额）
 PLAN_MAX_TURNS = 10  # 国策每 10 回合必须修订一次（否则 end_turn 被拦）
 
@@ -982,7 +984,7 @@ class World:
             store.append({"from": m["from"], "turn": m["arrive"], "text": m["text"]})
             del store[:-3]  # 只留最近 3 张图，控体积
             self.log(f"🗺 {m['to']} 收到 {m['from']} 的地图", phase="事件", nation=m["to"])
-        # 经济间谍回报：2回合后盗回目标当前经济情报；目标亡国则任务失败
+        # 间谍回报：2回合后盗回目标当前经济情报 + 地图；目标亡国则任务失败
         due_sp = [s for s in self.spy_pending if s["arrive"] <= self.turn]
         self.spy_pending = [s for s in self.spy_pending if s["arrive"] > self.turn]
         for s in due_sp:
@@ -995,13 +997,22 @@ class World:
             store = self.econ_intel.setdefault(s["from"], [])
             store.append({"from": s["to"], "turn": s["arrive"], "text": self._econ_snapshot(s["to"])})
             del store[:-2]  # 只留最近 2 份，控体积
-            self.log(f"🕵 {s['from']} 的间谍回报了 {s['to']} 的经济情报",
+            # 间谍偷来的地图也进 intel（world.maps，与 share_map 同池，留最近 3 张）
+            mstore = self.maps.setdefault(s["from"], [])
+            mstore.append({"from": f"{s['to']}(间谍)", "turn": s["arrive"],
+                           "text": self._map_snapshot(s["to"])})
+            del mstore[:-3]
+            self.log(f"🕵 {s['from']} 的间谍回报了 {s['to']} 的经济情报与地图",
                      phase="事件", nation=s["from"])
         return len(due)
 
     # ------------------------------------------------------------- 市场
     def market_price(self, good: str) -> float:
         return round(self.prices[good], 1)
+
+    def market_depth(self) -> int:
+        """市场深度随玩家数量缩放：现存国家越多，单笔买卖对市价的冲击越小。"""
+        return max(1, len(self.alive()))
 
     def _clamp_price(self, good: str, p: float) -> float:
         base = MARKET[good]
@@ -1014,7 +1025,8 @@ class World:
             return False, "数量需为正整数"
         base = MARKET[good]
         p0 = self.prices[good]
-        p1 = self._clamp_price(good, p0 + base * PRICE_TICK_RATIO * n)
+        tick = base * PRICE_TICK_RATIO / self.market_depth()
+        p1 = self._clamp_price(good, p0 + tick * n)
         cost = int(round(p1 * n))
         if self.res(name, "黄金") < cost:
             return False, f"黄金不足：买 {good}×{n}（市价推到 {p1:.1f}）需 {cost}，国库 {self.res(name,'黄金')}"
@@ -1032,7 +1044,8 @@ class World:
             return False, f"储备不足：{good} 现有 {self.res(name,good)}"
         base = MARKET[good]
         p0 = self.prices[good]
-        p1 = self._clamp_price(good, p0 - base * PRICE_TICK_RATIO * n)
+        tick = base * PRICE_TICK_RATIO / self.market_depth()
+        p1 = self._clamp_price(good, p0 - tick * n)
         gold = int(round(p1 * n))
         self.add_res(name, good, -n)
         self.add_res(name, "黄金", gold)
@@ -1135,7 +1148,7 @@ class World:
         return "\n".join(L)
 
     def spy(self, frm: str, to: str) -> tuple[bool, str]:
-        """派经济间谍刺探别国（花 20 金），2 回合后盗回其全部经济情报。不能对自己用。"""
+        """派间谍刺探别国（花 SPY_COST 金），2 回合后盗回其全部经济情报 + 地图。不能对自己用。"""
         if frm not in self.nations or to not in self.nations:
             return False, "间谍双方都必须是现存国家"
         if to == frm:
