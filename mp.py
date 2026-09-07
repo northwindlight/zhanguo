@@ -6,8 +6,10 @@
   - 无人地带的视野内地块由「野人」把守，打赢即拓疆；国家间打赢即夺地，
     空城被敌军队踏入即陷（无防即失）；
   - 移动/攻击受国家关系约束：中立（非同盟非交战）不能入境、不能攻击；
-  - 外交：结盟(互通不可攻)/断盟(军队全部撤出)/保障独立/共同防御/宣战(对方必须接受，
-    被保障方与共同防御方自动参战)/求和(可赔款/索款/白和)；
+  - 外交：结盟(全面军事同盟：整张同盟网任何战争双向自动传导、无限跳；网内成员不能互相宣战，
+    想打先断盟拆链)/断盟(军队全部撤出)/保障独立(单向守)/共同防御(仅守)/宣战(对方必须接受，
+    对方同盟网全体+保障/共同防御者自动参战，己方同盟网全体随攻)/求和(可赔款/索款/白和)；
+    同盟/共同防御/保障两两互斥；与进攻方另有盟约的潜在参战者保持中立（不强迫打盟友）；
   - 信箱：任何内容，下回合到信。
   - 看海：world.history 记下每个行动/每封信/每场战/每桩外交，Observer 全可见；
     各国 agent 只见「自己该知道」的（自己的面板/信箱/视野内事件）。
@@ -1349,26 +1351,37 @@ class World:
         if self.defense_pacts and _pair(a, b) in self.defense_pacts:
             self.defense_pacts.remove(_pair(a, b))
             notes.append("（背弃共同防御）")
-        # 保障独立 / 共同防御 → b 的支持者作为防御方「跟随方」参战
-        followers = []
+        # 同盟网络（传导无限跳）：同一张网内不能互殴——想打先断盟拆链
+        comp_a = self._ally_component(a)
+        if b in comp_a:
+            return False, (f"你与 {b} 同处一张同盟网（经由盟友链相连）——网络成员不能互相开战，"
+                           f"想打 {b} 先断盟拆掉你们之间的同盟链")
+        # b 侧参战者 = b 的同盟网络全体（守）+ b 的保障/共同防御者及其同盟网络（传导沿同盟边无限跳）
+        def_side = set(self._ally_component(b))
+        neutral = []
         for c in self.alive():
-            if c in (a, b) or self.war_between(c, a):
+            if c in (a, b) or c in def_side:
                 continue
-            backer = c in self.guarantee_of(b) or (self.defense_pacts and _pair(b, c) in self.defense_pacts)
-            if not backer:
-                continue
-            if self.allied_between(c, a) or (self.defense_pacts and _pair(c, a) in self.defense_pacts):
-                if self.allied_between(c, a):
-                    self.alliances.remove(_pair(c, a))
-                if self.defense_pacts and _pair(c, a) in self.defense_pacts:
-                    self.defense_pacts.remove(_pair(c, a))
-                notes.append(f"（{c} 为履行保障/共同防御，背弃与你的盟约）")
-            followers.append(c)
+            if c in self.guarantee_of(b) or self.dp_between(b, c):
+                if c in comp_a:
+                    neutral.append(c)  # 与进攻方同网：不能被迫与盟友为敌，保持中立
+                    continue
+                def_side |= self._ally_component(c)
+        # 防守侧里与 a 另有共同防御/保障者不强拖（不能被迫打盟约对象）
+        followers = [c for c in sorted(def_side - {b})
+                     if not (self.dp_between(c, a) or c in self.guarantee_of(a) or a in self.guarantee_of(c))]
+        neutral += sorted((def_side - {b}) - set(followers))
+        # a 侧 = 同盟网络全体随攻（进攻侧）；与 b 另有共同防御/保障者不强拖
+        atk_followers = [c for c in sorted(comp_a - {a})
+                         if not (self.dp_between(c, b) or c in self.guarantee_of(b) or b in self.guarantee_of(c))]
+        all_in = followers + atk_followers
+        if neutral:
+            notes.append("（" + "、".join(neutral) + " 因与你/你的盟友另有盟约而保持中立）")
         self.wars.append({"id": self._next_war_id(), "atk": a, "def": b,
-                          "followers": followers, "turn": self.turn})
-        self.log(f"⚔ {a} 对 {b} 宣战！{b} 必须应战{('；' + '、'.join(followers) + ' 依约参战') if followers else ''}",
+                          "followers": followers, "atk_followers": atk_followers, "turn": self.turn})
+        self.log(f"⚔ {a} 对 {b} 宣战！{b} 必须应战{('；' + '、'.join(all_in) + ' 依约参战') if all_in else ''}",
                  phase="外交", nation=a)
-        jtxt = f"；参战：{'、'.join(followers)}" if followers else ""
+        jtxt = f"；参战：{'、'.join(all_in)}" if all_in else ""
         return True, f"{a} 对 {b} 宣战（{b} 必须接受）{''.join(notes)}{jtxt}"
 
     def offer_peace(self, a: str, b: str, kind: str, gold: int = 0, note: str = "",
@@ -1453,6 +1466,18 @@ class World:
     # ------------------------------------------------------------- 关系查询
     def allied_between(self, a: str, b: str) -> bool:
         return _pair(a, b) in self.alliances
+
+    def _ally_component(self, start: str) -> set[str]:
+        """同盟网络连通分量：经由同盟边（无限跳）相连的全部现存国家（含 start 自身）。"""
+        seen = {start}
+        stack = [start]
+        while stack:
+            cur = stack.pop()
+            for other in self.alive():
+                if other not in seen and self.allied_between(cur, other):
+                    seen.add(other)
+                    stack.append(other)
+        return seen
 
     def _war_sides(self, w: dict) -> tuple[list[str], list[str]]:
         """进攻方名单 / 防御方名单（含跟随方；atk_followers=随攻的进攻侧跟随方）。"""
