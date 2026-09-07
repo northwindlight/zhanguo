@@ -167,7 +167,13 @@ q                  退出（自动存档）
   登场：新局在配置的 `enable_turn` 回合自动加入（如 120–150 窗口）；旧存档不自动，看海终端 `add 匈奴`/`add 林胡` 手动中途加入。
 
 ```bash
-# 配置文件 mp_config.json：map_size/seed + 每国 base_url/api_key/model（直连 deepseek 等）
-~/.venv/bin/python mp_run.py --turns 10     # 跑 10 回合；--new 重开；Ctrl-C 存档退出
+# 一键启动（推荐）：首次运行自动创建 .venv + 按 requirements.txt 装依赖（清华镜像），
+# 无 mp_config.json 时自动从模板生成并提示填写 key
+./start.sh --turns 10        # 跑 10 回合；--new 重开；Ctrl-C 存档退出
+./start.bat --turns 10       # Windows 双击或命令行（转发 start.ps1）
+
+# 手动方式：依赖仅 openai（requirements.txt）；配置文件 mp_config.json：
+# map_size/seed + 每国 base_url/api_key/model（直连 deepseek 等）
+python3 mp_run.py --turns 10
 ```
 看海产物：终端实时流 + `mp_journal.md`（每封信/每个行动/战报/外交全记录）。

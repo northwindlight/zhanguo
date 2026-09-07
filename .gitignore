@@ -17,3 +17,6 @@ mp_config.json
 楼烦上下文.txt
 
 楼烦反思.txt
+
+# 一键启动的本地虚拟环境
+.venv/
