@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 
 from game import (
     ARMY_ATTACK_DAMAGE,
@@ -1063,17 +1064,37 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
             if cfg.get("reasoning_effort"):
                 extra["reasoning_effort"] = cfg["reasoning_effort"]
             api_timeout = int(cfg.get("api_timeout", 180))
-            signal.setitimer(signal.ITIMER_REAL, api_timeout)
-            try:
-                resp = client.chat.completions.create(
-                    model=cfg["model"], messages=messages,
-                    tools=TOOL_SCHEMAS, tool_choice="auto",
-                    temperature=cfg.get("temperature", 0.3),
-                    max_tokens=cfg.get("max_tokens", 4000),
-                    extra_body=extra or None,
-                )
-            finally:
-                signal.setitimer(signal.ITIMER_REAL, 0)
+            retries = int(cfg.get("api_retries", 3))
+            backoff = float(cfg.get("api_retry_wait", 2.0))
+            for attempt in range(1, retries + 1):
+                try:
+                    signal.setitimer(signal.ITIMER_REAL, api_timeout)
+                    try:
+                        resp = client.chat.completions.create(
+                            model=cfg["model"], messages=messages,
+                            tools=TOOL_SCHEMAS, tool_choice="auto",
+                            temperature=cfg.get("temperature", 0.3),
+                            max_tokens=cfg.get("max_tokens", 4000),
+                            extra_body=extra or None,
+                        )
+                    finally:
+                        signal.setitimer(signal.ITIMER_REAL, 0)
+                    if getattr(resp, "error", None):  # 有些网关欠费/限流返回 200+error，不抛也拦下
+                        raise RuntimeError(f"响应带错误：{resp.error}")
+                    break
+                except Exception as e:
+                    from openai import (APIStatusError, APIConnectionError,
+                                        APITimeoutError, RateLimitError)
+                    transient = (isinstance(e, (APIConnectionError, APITimeoutError, RateLimitError))
+                                 or isinstance(e, TimeoutError)
+                                 or (isinstance(e, APIStatusError) and 500 <= e.status_code < 600))
+                    if attempt < retries and transient:
+                        if emit:
+                            emit(f"⚠ {name} 第{attempt}次调用失败({type(e).__name__})，"
+                                 f"{backoff * attempt:.0f}s 后重试（共 {retries} 次）")
+                        time.sleep(backoff * attempt)
+                        continue
+                    raise
         except Exception as e:
             messages.append({"role": "user", "content": f"（API 错误，若可继续请继续，否则 end_turn）: {e}"})
             if emit:
