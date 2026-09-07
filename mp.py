@@ -533,7 +533,8 @@ class World:
 
     def attack(self, name: str, aids: list[int], x: int, y: int) -> tuple[bool, str]:
         """atk = 一次『进军占地』：派军队进目标格——
-        有守军(野人/敌国军)就交战（打赢自动占地）；敌人=0 就直接进驻占领（空城/无主空地）。
+        有守军(野人/敌国军)就交战（打赢自动占地）；格上**无任何军队**才直接进驻占领（空城/无主空地），
+        有其他军队但非你敌人（中立/第三方）则不能进驻。多势力同时开战各打各的敌人。
         mv 只挪位置不占地；占地一律走 atk，没有特例。"""
         try:
             self._check(x, y)
@@ -567,7 +568,11 @@ class World:
                 a["engaged"] = True
             who = "野人" if defs[0]["owner"] == "野人" else f"{defs[0]['owner']}军"
             return True, f"{ids} 冲入 ({x+1},{y+1}) 与{who}交战，之后每回合结算一轮；可 retreat 撤出"
-        # 敌人=0：atk 进驻即占
+        # 格上还有其他军队但不是你的敌人（中立/第三方）→ 不能进驻占地
+        if any(a["owner"] != name and a["hp"] > 0 and (a["x"], a["y"]) == (x, y) for a in self.armies):
+            return False, (f"({x+1},{y+1}) 有他国军队但并非你的敌人（中立/第三方），"
+                           f"不能直接进驻；只能攻击敌人或占领无任何守军的空地")
+        # 格上无任何军队 → atk 进驻即占
         self._conquer(x, y, name, "进驻占领", log_it=False)
         nm2 = self.tiles[(x, y)]["name"]
         self.log(f"{name} {ids} 进驻 ({x+1},{y+1})，占领「{nm2}」", phase="领土", nation=name, x=x, y=y)
@@ -652,71 +657,93 @@ class World:
         cd = castle * CASTLE_DEFENSE_PER_LEVEL
         return 100 - ((100 - td) * (100 - cd)) // 100
 
+    @staticmethod
+    def _modtxt(mods: dict[str, int]) -> str:
+        """每方骰修正的简短文本：如「甲+5% 乙-15%」。"""
+        return " ".join(f"{F}{m:+d}%" for F, m in sorted(mods.items())) or "—"
+
     def _resolve_battles(self) -> list[str]:
+        """每格每回合的多势力交战结算：**进攻方不纯联合**——每方独立只打自己的敌人（互相宣战才互打），
+        每方掷自己的骰；野人只守无主格、只打"进攻方"（不打扰和平停驻者）；地形/城堡减伤只给格主/野人；
+        同格多方同时出手再统一结算阵亡；占地 = 唯一幸存且野人已清的势力。"""
         lines: list[str] = []
         engaged = [a for a in self.armies if a.get("engaged") and a["owner"] != "野人"]
         for (x, y) in sorted({(a["x"], a["y"]) for a in engaged}):
-            # 逐格从当前军队表重算（中途可能有国被灭/军队阵亡，避免引用幽灵）
-            atks = [a for a in self.armies if a.get("engaged") and a["owner"] != "野人"
-                    and a["x"] == x and a["y"] == y and a["hp"] > 0]
-            if not atks:
-                continue
+            tag = f"({x+1},{y+1}){self.ter_char(x, y)}"
             owner = self.owned_by(x, y)
-            atk_ns = sorted({a["owner"] for a in atks})
-            defs = []
+            # 格上活军按势力分组（进攻方 + 守军 + 停驻者 + 无主格野人）
+            forces: dict[str, list[dict]] = {}
             for a in self.armies:
                 if (a["x"], a["y"]) != (x, y) or a["hp"] <= 0:
                     continue
-                if a["owner"] == "野人":
-                    if owner is None:
-                        defs.append(a)
-                elif any(self.war_between(an, a["owner"]) for an in atk_ns):
-                    defs.append(a)
-            tag = f"({x+1},{y+1}){self.ter_char(x, y)}"
-            if not defs:
-                # 守军已撤走/全灭 → 交战地失去抵抗，进攻方自动占领（守军弃城即陷）
-                winner = atk_ns[0]
-                for a in atks:
-                    a["engaged"] = False
-                _ok, cmsg = self._conquer(x, y, winner, "进驻")
-                lines.append(f"⚔ 守军弃城 @{tag}，{cmsg}")
+                if a["owner"] == "野人" and owner is not None:
+                    continue  # 野人只守无主格
+                forces.setdefault(a["owner"], []).append(a)
+            attacker = {F for F in forces if F != "野人"
+                        and any(a.get("engaged") for a in forces[F])}
+            if not forces or not attacker:
                 continue
-            def_owner = next((a["owner"] for a in defs if a["owner"] != "野人"), None)
-            d, mod = self._die()
-            # 同时出手：双方按开战兵力全力互击，再一起结算阵亡（允许同归于尽）
-            atk_dmg = self._round_damage(self._combat_power(len(atks), self._defense_pct(x, y, def_owner)), mod)
-            ret = self._round_damage(self._combat_power(len(defs), 0), mod)
-            self._spread(atk_dmg, defs)
-            self._spread(ret, atks)
-            died = [a for a in defs if a["hp"] <= 0]
-            for a in died:
-                if a in self.armies:
+            # 敌人关系：非野人势力 = 格上其他交战方 + (自己是进攻方时)无主格野人；野人 = 只打进攻方
+            def _enemies(F: str) -> list[str]:
+                if F == "野人":
+                    return [G for G in attacker if G != "野人"]
+                en = [G for G in forces if G != F and G != "野人" and self.war_between(F, G)]
+                if F in attacker and "野人" in forces:
+                    en.append("野人")
+                return en
+            holder = owner if (owner in forces) else ("野人" if "野人" in forces else None)
+            soak = {F: (self._defense_pct(x, y, F) if F == holder else 0) for F in forces}
+            # 每方掷自己的骰，同时出手（先算全部伤害再统一施加，允许同归于尽）
+            dmg: dict[str, int] = {F: 0 for F in forces}
+            mods: dict[str, int] = {}
+            for F in forces:
+                en = _enemies(F)
+                if not en:
+                    continue
+                _d, mod = self._die()
+                mods[F] = mod
+                power = self._round_damage(self._combat_power(len(forces[F]), 0), mod)
+                share = power / len(en)  # 均分给各敌人（腹背受敌则兵力分散）
+                for G in en:
+                    dmg[G] += max(1, round(share * (100 - soak[G]) / 100))
+            for F in forces:
+                if dmg[F]:
+                    self._spread(dmg[F], forces[F])
+            for a in list(self.armies):
+                if (a["x"], a["y"]) == (x, y) and a["hp"] <= 0:
                     self.armies.remove(a)
-            died_a = [a for a in atks if a["hp"] <= 0]
-            for a in died_a:
-                if a in self.armies:
-                    self.armies.remove(a)
-            alive_def = [a for a in defs if a["hp"] > 0]
-            alive_a = [a for a in atks if a["hp"] > 0]
-            if not alive_def and not alive_a:
-                # 同归于尽：谁也不占。野人死了就是无主空地（该格已出生过守军、不再重生），谁都能来占
-                lines.append(
-                    f"⚔ 同归于尽 @{tag}（骰{d}）：守军 {len(died)} 支与我军 {len(died_a)} 支同回合全灭"
-                    + ("——此地成无主空地，可直接占领" if owner is None else "——城仍在敌手")
-                )
-            elif not alive_def:
-                winner = atk_ns[0]
-                for a in atks:
-                    a["engaged"] = False
-                ok, msg = self._conquer(x, y, winner, "攻陷")
-                lines.append(f"⚔ 全歼守军 @{tag}，{msg}")
-            elif not alive_a:
-                desc_d = "、".join(f"{a['name']}[{a['hp']}hp]" for a in alive_def)
-                lines.append(f"⚔ 攻方全灭 @{tag}（骰{d}）守军余 {desc_d}")
+            alive = {}
+            for F, fs in forces.items():
+                fs2 = [a for a in fs if a["hp"] > 0]
+                if fs2:
+                    alive[F] = fs2
+            survivors = [F for F in alive if F != "野人"]
+            # 清 engaged：该方在格上已无活敌人 → 脱离战斗
+            for F in alive:
+                if F == "野人":
+                    continue
+                if not _enemies(F) or not any(G in alive for G in _enemies(F)):
+                    for a in alive[F]:
+                        a["engaged"] = False
+            # 占地 / 战报
+            if len(survivors) == 1 and "野人" not in alive:
+                winner = survivors[0]
+                if owner == winner:
+                    lines.append(f"⚔ 守军坚守 @{tag}，{winner} 击退入侵（骰 {self._modtxt(mods)}）")
+                else:
+                    ok, msg = self._conquer(x, y, winner, "攻陷" if owner else "进驻")
+                    lines.append(f"⚔ 全歼守军 @{tag}，{msg}")
+            elif len(survivors) == 1 and "野人" in alive:
+                lines.append(f"⚔ {survivors[0]} 仍与野人交战 @{tag}（守军未清，占不得）")
+            elif not survivors:
+                if "野人" in alive:
+                    lines.append(f"⚔ 攻方全灭 @{tag}，野人仍在（无主地守军未清）")
+                else:
+                    lines.append(f"⚔ 同归于尽 @{tag}——" + ("此地成无主空地，可直接占领" if owner is None else "城仍在敌手"))
             else:
-                desc_a = "、".join(f"{a['name']}[{a['hp']}hp]" for a in alive_a)
-                desc_d = "、".join(f"{a['name']}[{a['hp']}hp]" for a in alive_def)
-                lines.append(f"⚔ 交火 @{tag}（骰{d} 修正{mod:+d}%）：攻方余 {desc_a}；守军余 {desc_d}")
+                desc = "；".join(f"{F} 余{len(alive[F])}支[{alive[F][0]['hp']}hp]" for F in survivors)
+                lines.append(f"⚔ 多方混战 @{tag}（骰 {self._modtxt(mods)}）：{desc}（战局未定）")
+        return lines
         return lines
 
     # ------------------------------------------------------------- 占领/灭国

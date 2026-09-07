@@ -331,6 +331,8 @@ def _help_sections() -> list[tuple[str, str]]:
             "骑兵(耗12粮+12装，动2格/回合，耗补给2/回合)。"
             f"交战 = atk 冲入；每回合掷骰结算一轮；每军基础伤害 {ARMY_ATTACK_DAMAGE}，"
             "受守方地形+城堡防御%修正（地形与城堡为**相乘**叠加，山地+城堡L5≈75%而非100%）、总伤害分摊；攻方在敌地无加成。"
+            "**多势力交战（进攻方不纯联合）**：同格多方各打各的敌人（互相宣战才互打）、每方掷自己的骰、"
+            "伤害均分给各敌人；地形减伤只给格主/野人；野人只守无主格、只打进攻方；唯一幸存且野人已清的一方占地，多方都活则混战继续。"
             "撤出攻守对等：交战中的军队（含防守方守军）要离开战场一律用 retreat——挨敌方一击（约半回合战损）+ 耗移动；"
             "撤退固定只能退相邻 1 格，四周无合法撤退点（己方/同盟/无人荒地）则无法撤退；"
             "mv 不能从交战地撤离（会被拦）。守军全撤走/全灭时，进攻方自动占领该地（守军弃城即陷）。"
@@ -915,7 +917,7 @@ TOOL_SCHEMAS = [
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
     {"type": "function", "function": {
-        "name": "attack", "description": "军队(1格内)冲入目标地块并交战（打赢该地守军→自动夺地；荒地守军=野人）。与别国开打需已宣战。",
+        "name": "attack", "description": "军队(按兵种速度可及：步1格/骑2格)冲入目标地块并交战——打赢该地守军自动占地；格上**无任何军队**则直接进驻占领；有他国军队但非你敌人（中立/第三方）不能进驻。同格多方同时开战则各打各的敌人（互相宣战才互打）。与别国开打需已宣战。",
         "parameters": _props({"army_ids": {"type": "array", "items": {"type": "integer"}, "description": "参战军队id数组", "required": True},
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
