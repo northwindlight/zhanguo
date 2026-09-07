@@ -1215,8 +1215,9 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                 emit(f"🗣 {name} 宣告：「{content}」")
             return _finish(done)
         if reasoning:
-            # 纯思考轮（无正文无工具）：预算已很大仍被思考吃光时，不追加 reasoning（API 不收），
-            # 用中性话让它把回合续完；不打断它的思考风格。
+            # 纯思考轮（无正文无工具）：把思考原文回喂，让模型接着想而不是每次从零大思考
+            # （否则每轮重想一遍，又慢又贵——百万上下文模型输出 token 价高且不缓存）。
+            messages.append({"role": "assistant", "content": None, "reasoning_content": reasoning})
             stall += 1
             if stall >= 8:
                 messages.append({"role": "user",
