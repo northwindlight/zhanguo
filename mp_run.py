@@ -156,14 +156,14 @@ def run() -> None:
     _template = next((n for n in cfg["nations"] if n.get("base_url") and n.get("api_key")), {})
     cmd_queue = start_stdin_thread()
     rng = random.Random(2026)
-    # 待加入国（带 polity）自动登场：只在开新局生效；在 enable_turn..enable_turn_max 区间随机挑一回合
-    standby_at: dict[str, int] = {}
-    if is_new:
+    # 待加入国（带 polity）自动登场：登场时刻存进 world.standby 随档持久化——
+    # 新局随机排点；续局用存档里的（旧档没有则现补），到点就登场，不再依赖"本次是否新开"。
+    if not world.standby:
         for n in cfg["nations"]:
-            if n.get("polity"):
+            if n.get("polity") and n["name"] not in world.nations:
                 lo = int(n.get("enable_turn") or 0)
                 hi = int(n.get("enable_turn_max") or lo)
-                standby_at[n["name"]] = rng.randint(lo, hi) if hi >= lo else lo
+                world.standby[n["name"]] = rng.randint(lo, hi) if hi >= lo else lo
     out: list[str] = []
 
     def emit(s=""):
@@ -268,17 +268,21 @@ def run() -> None:
             break
 
         delivered = world.begin_turn()
-        # 待加入国到点自动登场（仅新局；旧存档不自动，只走手动 `add`）
-        if is_new and standby_at:
+        # 待加入国到点自动登场（登场计划随档持久化，续局/迟到都照补）
+        if world.standby:
             _added = False
-            for _nm, _at in standby_at.items():
-                if _nm in world.nations or world.turn < _at:
+            for _nm, _at in list(world.standby.items()):
+                if _nm in world.nations:
+                    world.standby.pop(_nm)  # 已在局（可能手动 add 过），清掉计划
+                    continue
+                if world.turn < _at:
                     continue
                 _st = cfg_by_name.get(_nm, {})
                 _ok, _msg = world.add_nation(_nm, _st.get("polity", ""),
                                              extra=_nation_extra(_st), start=_nation_start(_st),
                                              summary=_nation_summary(_st))
                 emit(_msg if _ok else f"⚠ 自动登场失败：{_msg}")
+                world.standby.pop(_nm)
                 _added = True
             if _added:
                 flush(out, journal_path)
