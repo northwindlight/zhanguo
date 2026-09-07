@@ -14,7 +14,8 @@
       "reasoning_effort": "low",
       "temperature": 0.3,
       "max_tokens": 4000,
-      "max_steps": 28
+      "max_steps": 28,
+      "ctx_full_turns": 20
     },
     {
       "name": "楚",

@@ -418,7 +418,7 @@ def _fmt_memory(world, name) -> str:
     mem = world.summaries.get(name, [])
     if not mem:
         return "（尚无往回合小结）"
-    return "\n".join("  " + s for s in mem[-10:])
+    return "\n".join(f"  [第{m['turn']}回合] {m['text']}" for m in mem[-10:])
 
 
 def _fmt_plan(world, name) -> str:
@@ -818,9 +818,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
             return "本回合还没收尾：end_turn 必须带 summary=一句话，总结你这回合做了什么/立场（例如 summary=这回合建了两座农场并继续拓荒）。"
         world.log(f"{actor} 回合小结：{summary}", phase="行动", nation=actor)
         mem = world.summaries.setdefault(actor, [])
-        mem.append(f"第{world.turn}回合：{summary}")
-        if len(mem) > 10:
-            del mem[:-10]  # 只留最近 10 回合
+        mem.append({"turn": world.turn, "text": summary})  # 全留（每行很短），供旧回合前情回顾汇总
         return f"✅ 本回合结束（小结已记录：{summary}）"
     return f"未知工具 {tool}"
 
@@ -993,6 +991,7 @@ def system_prompt(world, name) -> str:
             p += "\n\n【临时情报/密谕（20回合后仅剩总结）】\n" + ep.get("text", "")
         elif ep.get("summary"):
             p += "\n\n【遗留总结（前情之鉴，常驻）】\n" + ep["summary"]
+    p += "\n\n【过往回合记录（含你的思考过程）仅作参考背景】勿重放旧命令/旧工具调用，一切以最新当前回合状态为准，按本回合行动。"
     return p
 
 
@@ -1028,6 +1027,74 @@ def _default_system_prompt(world, name) -> str:
     )
 
 
+def _merge_same_role(msgs: list[dict]) -> list[dict]:
+    """合并相邻同角色消息（不同 OpenAI 兼容端点对严格角色交替要求不一）。
+
+    - user×user 合并（join content）；
+    - 无 tool_calls 的 assistant×assistant 合并（content 与 reasoning_content 各自 join）；
+    - 绝不合并 tool 消息（每条绑定唯一 tool_call_id）；
+    - 绝不合并带 tool_calls 的 assistant（其 tool 响应必须紧随其后）。
+    """
+    out: list[dict] = []
+    for m in msgs:
+        role = m.get("role")
+        if out and out[-1].get("role") == role:
+            last = out[-1]
+
+            def _join(x, y):
+                a = str(x or "").strip()
+                b = str(y or "").strip()
+                return (a + "\n\n" + b) if a and b else (a or b)
+
+            if role == "user":
+                last["content"] = _join(last.get("content"), m.get("content"))
+                continue
+            if role == "assistant" and not last.get("tool_calls") and not m.get("tool_calls"):
+                last["content"] = _join(last.get("content"), m.get("content"))
+                if last.get("reasoning_content") or m.get("reasoning_content"):
+                    last["reasoning_content"] = _join(last.get("reasoning_content"),
+                                                      m.get("reasoning_content"))
+                continue
+        out.append(dict(m))
+    return out
+
+
+def _store_turn_memory(world, name, messages, base: int, window: int) -> None:
+    """把本回合新增的消息（messages[base:]）存入该国 turn_memory，只留最近 window 回合。
+
+    只存本回合 append 的部分（base 之前是历史 replay），避免把整个历史嵌进每条记录、
+    记录间二次方膨胀。首条加 user 回合标记，回放时分隔回合边界。
+    """
+    if name not in world.nations:
+        return
+    body = messages[base:]
+    rec = [{"role": "user", "content": f"【第{world.turn}回合 行动记录】"}] + [dict(m) for m in body]
+    mem = world.turn_memory.setdefault(name, [])
+    mem.append({"turn": world.turn, "messages": rec})
+    if len(mem) > window:
+        del mem[:-window]
+
+
+def build_context(world, name, window: int) -> list[dict]:
+    """构造一国本回合的完整 LLM 上下文：
+    [system] + [前情回顾: 窗口外回合的 end_turn 小结，至多 window 条] +
+    [窗口内各回合完整记录 replay（含思考 reasoning_content）] + [本回合 fresh full_state]。
+    """
+    msgs: list[dict] = [{"role": "system", "content": engine_call(system_prompt, world, name)}]
+    mem = world.summaries.get(name, [])
+    old = [m for m in mem if m["turn"] < world.turn - window]
+    if old:
+        head = f"【前情回顾（第1~{old[-1]['turn']}回合 总结）】"
+        lines = "\n".join(f"  第{m['turn']}回合：{m['text']}" for m in old[-window:])
+        msgs.append({"role": "user", "content": head + "\n" + lines})
+    for rec in world.turn_memory.get(name, []):  # 窗口内完整 replay（含思考/工具/结果）
+        msgs.extend(rec["messages"])
+    msgs.append({"role": "user", "content":
+                 f"以上为过往回合记录，现在开始第 {world.turn} 回合行动。\n"
+                 + engine_call(full_state, world, name)})
+    return _merge_same_role(msgs)
+
+
 # ---------------------------------------------------------------------------
 # OpenAI 回合循环
 # ---------------------------------------------------------------------------
@@ -1050,13 +1117,11 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
         raise TimeoutError("API 调用超时（> %ds）" % int(cfg.get("api_timeout", 180)))
 
     signal.signal(signal.SIGALRM, _timeout_handler)
-    messages = [
-        {"role": "system", "content": engine_call(system_prompt, world, name)},
-        {"role": "user", "content": engine_call(full_state, world, name)},
-    ]
+    window = int(cfg.get("ctx_full_turns", 20))  # 跨回合持久上下文窗口：最近 N 回合完整保留（含思考），更早用回合小结
+    messages = build_context(world, name, window)
+    base = len(messages)  # 本回合新增消息的起点（base 之前是历史 replay，存储时不再重复）
     done = 0
     stall = 0  # 连续"只思考/空转"轮数
-    window = int(cfg.get("ctx_window", 30))  # 消息滚动窗口：超出则裁掉最早的（思考也只保留最近 N 轮）
     agg: dict = {"calls": 0, "wall": 0.0, "stream": 0.0, "first": 0.0,
                  "maxgap": 0.0, "out_tokens": 0, "reason_tokens": 0}
 
@@ -1069,6 +1134,7 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                 f"首token均{agg['first'] / agg['calls']:.0f}s｜最长无输出{agg['maxgap']:.0f}s｜"
                 f"真正输出{agg['stream']:.0f}s｜速度{speed:.1f}tok/s",
                 phase="事件")
+        _store_turn_memory(world, name, messages, base, window)
         return d
 
     for step in range(max_steps):
@@ -1213,7 +1279,11 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
             continue
         # 没有工具调用：
         if content:
-            # 有正文——当作宣告/收尾
+            # 有正文——当作宣告/收尾（把宣告也写进记录，跨回合记忆能回放这次收尾）
+            asst = {"role": "assistant", "content": msg.get("content")}
+            if reasoning:
+                asst["reasoning_content"] = reasoning
+            messages.append(asst)
             engine_call(world.log, f"{name} 宣告:「{content}」", phase="行动", nation=name)
             if emit:
                 emit(f"🗣 {name} 宣告：「{content}」")

@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import re
 from pathlib import Path
 
 from game import (
@@ -92,7 +93,8 @@ class World:
         self.guarantees: dict[str, set[str]] = {}
         self.mail_pending: list[dict] = []
         self.mailbox: dict[str, list[dict]] = {}
-        self.summaries: dict[str, list[str]] = {}  # 各国近 10 回合小结纪事（私有，本国 AI 记忆）
+        self.summaries: dict[str, list[dict]] = {}  # 各国回合小结纪事 [{turn,text}]（私有，本国 AI 记忆；全留，供旧回合汇总）
+        self.turn_memory: dict[str, list[dict]] = {}  # 各国完整回合记录（含思考 reasoning_content），只留最近 ctx_full_turns 回合
         self.gift_pending: list[dict] = []         # 馈赠在途（下回合到账）
         self.map_pending: list[dict] = []          # 交换地图在途（下回合到账）
         self.maps: dict[str, list[dict]] = {}      # 各国收到的地图情报（{from,turn,text}，留最近3张）
@@ -754,6 +756,7 @@ class World:
             s.discard(name)
         self.mailbox.pop(name, None)
         self.summaries.pop(name, None)
+        self.turn_memory.pop(name, None)
         self.maps.pop(name, None)
         self.gift_pending = [g for g in self.gift_pending if g["from"] != name and g["to"] != name]
         self.map_pending = [m for m in self.map_pending if m["from"] != name and m["to"] != name]
@@ -1395,6 +1398,7 @@ class World:
             "mail_pending": self.mail_pending,
             "mailbox": self.mailbox,
             "summaries": self.summaries,
+            "turn_memory": self.turn_memory,
             "gift_pending": self.gift_pending,
             "map_pending": self.map_pending,
             "maps": self.maps,
@@ -1413,7 +1417,10 @@ class World:
             "history": self.history,
             "history_seen": self.history_seen,
         }
-        Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        # 原子写（tmp+rename）：turn_memory 使存档变大近一倍，避免写一半中断损坏档
+        tmp = Path(str(path) + ".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
 
     @classmethod
     def load(cls, path: str | Path) -> "World":
@@ -1425,7 +1432,20 @@ class World:
         w.nations = {n: Nation(n, res) for n, res in data.get("nations", {}).items()}
         w.order = data.get("order") or list(w.nations)
         w.mailbox = {n: data.get("mailbox", {}).get(n, []) for n in w.nations}
-        w.summaries = {n: list(v) for n, v in data.get("summaries", {}).items() if n in w.nations}
+        w.summaries = {}
+        for n, lst in data.get("summaries", {}).items():
+            if n not in w.nations:
+                continue
+            rows = []
+            for item in lst:
+                if isinstance(item, dict):  # 新格式 {turn,text}
+                    rows.append({"turn": int(item.get("turn", 0)), "text": str(item.get("text", ""))})
+                else:  # 旧格式字符串 "第X回合：..." → 迁移
+                    m = re.match(r"^第(\d+)回合[:：]\s*(.*)$", str(item))
+                    rows.append({"turn": int(m.group(1)) if m else 0,
+                                 "text": (m.group(2) if m else str(item)).strip()})
+            w.summaries[n] = rows
+        w.turn_memory = {n: list(v) for n, v in data.get("turn_memory", {}).items() if n in w.nations}
         w.gift_pending = data.get("gift_pending", [])
         w.map_pending = data.get("map_pending", [])
         w.maps = {n: list(v) for n, v in data.get("maps", {}).items() if n in w.nations}
