@@ -1216,24 +1216,16 @@ def _merge_same_role(msgs: list[dict]) -> list[dict]:
     return out
 
 
-def _store_turn_memory(world, name, messages, base: int, window: int,
-                       cap: int = 0) -> None:
+def _store_turn_memory(world, name, messages, base: int, window: int) -> None:
     """把本回合新增的消息（messages[base:]）存入该国 turn_memory，只留最近 window 回合。
 
     只存本回合 append 的部分（base 之前是历史 replay），避免把整个历史嵌进每条记录、
-    记录间二次方膨胀。首条加 user 回合标记，回放时分隔回合边界。
-    cap>0 时单条消息 content 截断（小上下文模式用；只截 content，
-    reasoning_content 不动——带 tools 时文档要求完整回传）。
+    记录间二次方膨胀。首条加 user 回合标记，回放时分隔回合边界。完整存，不截断。
     """
     if name not in world.nations:
         return
     body = messages[base:]
-    rec = [{"role": "user", "content": f"【第{world.turn}回合 行动记录】"}]
-    for m in body:
-        m = dict(m)
-        if m.get("content"):
-            m["content"] = _cap_text(str(m["content"]), cap)
-        rec.append(m)
+    rec = [{"role": "user", "content": f"【第{world.turn}回合 行动记录】"}] + [dict(m) for m in body]
     mem = world.turn_memory.setdefault(name, [])
     mem.append({"turn": world.turn, "messages": rec})
     # 按块滑动：多攒 SLIDE_CHUNK 回合再一次性砍回 window——从 replay 中段删记录会让
@@ -1275,18 +1267,10 @@ def build_context(world, name, window: int) -> list[dict]:
 MEMORY_SLIDE_CHUNK = 10  # replay 窗口按块滑动的块长（见 _store_turn_memory）
 
 # 小上下文模式（cfg: small_ctx=true 或 CLI --small-ctx）：按 256k 上下文标定。
-# 架构本身可扩展（窗口外回合只剩一行小结），体积全在窗口内 replay。
-# 标定（298 回合真实档实测，思考保持开、cap 后）：窗口 12 + 单条 content 截断
-# 4000 字符 → 稳态输入 9~14 万 tok（占 256k 的 35~55%），留 32k 输出与战时尖峰余量；
-# 300 回合小结区仅 ≈2 万字。可配 ctx_full_turns 覆盖窗口；256k 紧张时可显式
-# "thinking": "disabled" 再把窗口调大（关思考后 20 回合也只 ≈3~4 万 tok）。
+# 架构本身可扩展（窗口外回合只剩一行小结），体积全在窗口内 replay——完整不截断
+# （298 回合档实测窗口 12：稳态输入 9~14 万 tok，占 256k 的 36~53%，含 32k 输出
+# 后 ≤66%；300 回合小结区仅 ≈2 万字）。可配 ctx_full_turns 覆盖窗口。
 SMALL_CTX_WINDOW = 12
-SMALL_CTX_MSG_CAP = 4000
-
-
-def _cap_text(s: str, cap: int) -> str:
-    s = s or ""
-    return s[:cap] if 0 < cap < len(s) else s
 
 
 def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
@@ -1307,10 +1291,9 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
         raise TimeoutError("API 调用超时（> %ds）" % int(cfg.get("api_timeout", 180)))
 
     signal.signal(signal.SIGALRM, _timeout_handler)
-    # 小上下文模式：窗口缩到 12、存档记忆单条 content 截断 4000 字符（思考照常，装得下）
+    # 小上下文模式：仅窗口缩到 12（replay 完整不截断，思考照常——256k 装得下）
     small = bool(cfg.get("small_ctx"))
     window = int(cfg.get("ctx_full_turns", SMALL_CTX_WINDOW if small else 20))
-    msg_cap = SMALL_CTX_MSG_CAP if small else 0
     messages = build_context(world, name, window)
     base = len(messages)  # 本回合新增消息的起点（base 之前是历史 replay，存储时不再重复）
     done = 0
@@ -1331,7 +1314,7 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                 f"首token均{agg['first'] / agg['calls']:.0f}s｜最长无输出{agg['maxgap']:.0f}s｜"
                 f"真正输出{agg['stream']:.0f}s｜速度{speed:.1f}tok/s",
                 phase="事件")
-        _store_turn_memory(world, name, messages, base, window, cap=msg_cap)
+        _store_turn_memory(world, name, messages, base, window)
         return d
 
     for step in range(max_steps):

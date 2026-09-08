@@ -145,8 +145,8 @@ def run() -> None:
     ap.add_argument("--turns", type=int, default=None, help="最多跑多少回合")
     ap.add_argument("--save", default=None)
     ap.add_argument("--small-ctx", action="store_true",
-                    help="小上下文模式：全部国家启用（窗口缩到6/存档记忆单条截断1200字符/"
-                         "默认关思考），供 256k 级上下文模型跑几百回合；也可在配置里"
+                    help="小上下文模式：全部国家启用（窗口缩到12，replay 完整不截断、"
+                         "思考照常），按 256k 上下文标定，可跑几百回合；也可在配置里"
                          "按国家写 \"small_ctx\": true")
     args = ap.parse_args()
 
