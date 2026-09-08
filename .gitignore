@@ -22,3 +22,5 @@ mp_config *.json
 
 # 一键启动的本地虚拟环境
 .venv/
+mp_save*.bak*
+mp_save*.bak-*
