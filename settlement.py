@@ -50,6 +50,7 @@ import json
 import os
 import sys
 import time
+import unicodedata
 from pathlib import Path
 
 # ───────────────────────── 常量（与 game.py 基准价保持一致） ─────────────────────────
@@ -204,19 +205,38 @@ def settle(save: dict) -> dict:
     return out
 
 
+def _dw(s: str) -> int:
+    """终端显示宽度：CJK/全角字符按 2 计（Python len 只数字符，中文一掺就对不齐）。"""
+    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in s)
+
+
+def _pad(s, width: int, align: str = "left") -> str:
+    s = str(s)
+    gap = max(0, width - _dw(s))
+    return " " * gap + s if align == "right" else s + " " * gap
+
+
 def scoreboard_text(save: dict, result: dict, remarks: dict[str, str] | None = None) -> str:
     turn = save.get("turn", "?")
     rank = sorted(result, key=lambda n: -result[n]["total"])
-    lines = [f"《战国》第 {turn} 回合 · 终局结算（GDP 30% · 军队 25% · 领土 30% · 固定资产 15%）", ""]
-    lines.append(f"{'排名':<4}{'国家':<6}{'总分':>6} | {'GDP':>6}/{W_GDP:.0%} | {'军力':>6}/{W_ARMY:.0%} | {'领土':>4}/{W_LAND:.0%} | {'资产':>6}/{W_ASSET:.0%}")
+    header = ["排名", "国家", "总分", "GDP/30%", "军力/25%", "领土/30%", "资产/15%"]
+    aligns = ["right", "left", "right", "right", "right", "right", "right"]
+    rows: list[list[str]] = [header]
     for i, n in enumerate(rank, 1):
         r = result[n]
-        lines.append(
-            f"{i:<4}{n:<6}{r['total']:>6.1f} | "
-            f"{r['s_gdp']:>5.1f}({r['gdp']:>5.0f}) | "
-            f"{r['s_army']:>5.1f}({r['army']:>5.1f}) | "
-            f"{r['s_land']:>4.1f}({r['land']:>3d}) | "
-            f"{r['s_asset']:>5.1f}({r['asset']:>5.0f})")
+        rows.append([
+            str(i), n, f"{r['total']:.1f}",
+            f"{r['s_gdp']:.1f}({r['gdp']:.0f})",
+            f"{r['s_army']:.1f}({r['army']:.1f})",
+            f"{r['s_land']:.1f}({r['land']})",
+            f"{r['s_asset']:.1f}({r['asset']:.0f})",
+        ])
+    widths = [max(_dw(row[c]) for row in rows) for c in range(len(header))]
+    body = ["  ".join(_pad(row[c], widths[c], aligns[c]) for c in range(len(header)))
+            for row in rows]
+    body.insert(1, "-" * _dw(body[0]))
+    lines = [f"《战国》第 {turn} 回合 · 终局结算（GDP 30% · 军队 25% · 领土 30% · 固定资产 15%）",
+             ""] + body
     lines.append("")
     lines.append("口径：GDP=生产法每回合推算(基准价)；军力=ΣHP%×兵种权重(步1.0/骑1.5)；"
                  "领土=地块数；资产=建筑重置成本(基准价)。括号内为原始值。")
@@ -237,12 +257,58 @@ SYSTEM_PROMPT = """你在一局大战略游戏《战国》中扮演「{name}」�
 主持者是「看海人」——本游戏的作者，全程旁观了你们的一切。他在成绩单下方给每位君主
 留了开场寄语（公开、全体可见，每轮都挂在计分板下）。第一轮发言时请先回应他的寄语。
 
+随消息附有你的私人记忆（你自己每回合的小结史官笔录与最终国策）——只有你看得到，
+别国看不到。你带的就是这份记忆进厅：复盘时引以为据，别凭空编造没发生过的事。
+
 发言要求：
-1. 以你的角色总结这一局：哪些决策英明、哪些是败笔（要诚实，给观海者一个交代）；
+1. 以你的角色总结这一局：哪些决策英明、哪些是败笔（凭你的记忆诚实复盘，给观海者一个交代）；
 2. 对最终排名表态：服或不服，说清理由；
 3. 与其他君主交换意见：可以致意、可以反驳、可以互认得失——这是全剧终前的最后对话；
 4. 中文，200~500 字，不要客套空话，不要跳出角色。
 """
+
+
+def _fmt_mem_msg(m: dict) -> str:
+    """把存档里的一条消息渲染成记忆文本（思考/工具调用/结果全保留）。"""
+    role = m.get("role")
+    out: list[str] = []
+    rc = (m.get("reasoning_content") or "").strip()
+    if rc:
+        out.append(f"[思考] {rc}")
+    c = (m.get("content") or "").strip()
+    if role == "tool":
+        out.append(f"[工具结果] {c}")
+    elif c:
+        out.append(c)
+    for tc in m.get("tool_calls") or []:
+        f = tc.get("function", {})
+        out.append(f"[调用工具] {f.get('name', '')}({f.get('arguments', '')})")
+    return "\n".join(x for x in out if x)
+
+
+def nation_memory(save: dict, name: str) -> str:
+    """君主私人记忆：全程回合小结 + 近期完整逐字记录 + 最终国策，来自存档、仅本人可见。
+
+    百万上下文模型装得下：turn_memory（最近窗口 20 回合逐字实录，含思考/工具）
+    单国 23~35 万字符一并喂入——存档里存在的，全部进记忆。
+    """
+    parts: list[str] = []
+    sums = (save.get("summaries") or {}).get(name) or []
+    if sums:
+        lines = "\n".join(f"第{m['turn']}回合：{m['text']}"
+                          for m in sorted(sums, key=lambda x: x.get("turn", 0)))
+        parts.append(f"【你这局的一生 · 仅你可见（你自己每回合的小结，共{len(sums)}条）】\n{lines}")
+    recs = (save.get("turn_memory") or {}).get(name) or []
+    if recs:
+        spans = f"第{recs[0]['turn']}~{recs[-1]['turn']}回合"
+        blocks = [t for rec in recs for m in rec["messages"]
+                  for t in (_fmt_mem_msg(m),) if t]
+        parts.append(f"【近期完整记录（{spans} 逐字实录，含你的思考与每次调用）】\n"
+                     + "\n\n".join(blocks))
+    plan = (save.get("plans") or {}).get(name) or {}
+    if plan.get("text"):
+        parts.append(f"【最终国策（第{plan.get('turn', '?')}回合定稿）】\n{plan['text']}")
+    return "\n\n".join(parts)
 
 
 def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log,
@@ -278,8 +344,9 @@ def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log,
                 continue
             client, model, temp, max_tok, extra = clients[name]
             history = "\n\n".join(transcript) if transcript else "（你是第一位发言者）"
-            # 计分板（含看海人寄语）每轮随消息展示，全体始终可见
-            user = (f"【成绩单 · 始终展示】\n{board}\n\n【此前发言】\n{history}\n\n"
+            # 计分板（含看海人寄语）每轮随消息展示，全体始终可见；私人记忆仅本人注入
+            user = (f"【成绩单 · 始终展示】\n{board}\n\n{nation_memory(save, name)}\n\n"
+                    f"【此前发言】\n{history}\n\n"
                     f"【第 {r}/{rounds} 轮】轮到你（{name} 的君主）发言。")
             msgs = [{"role": "system", "content": SYSTEM_PROMPT.format(
                         name=name, turn=save.get("turn", "?"), rounds=rounds)},
