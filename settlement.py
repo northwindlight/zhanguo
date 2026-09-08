@@ -52,6 +52,7 @@ import sys
 import time
 import unicodedata
 from pathlib import Path
+from types import SimpleNamespace
 
 # ───────────────────────── 常量（与 game.py 基准价保持一致） ─────────────────────────
 BASE_PRICE = {"粮食": 2, "木头": 2, "矿石": 4, "石油": 6, "装备": 8, "补给": 5}
@@ -250,65 +251,71 @@ def scoreboard_text(save: dict, result: dict, remarks: dict[str, str] | None = N
 
 
 # ───────────────────────── 结算厅（无工具自由聊天，5 轮） ─────────────────────────
-SYSTEM_PROMPT = """你在一局大战略游戏《战国》中扮演「{name}」的君主。游戏已在第 {turn} 回合终局，
-下面给出最终结算成绩单。现在你被请进「结算厅」：所有君主围坐一堂，**没有工具、不能行动**，
-只能用文字发言，共 {rounds} 轮、每轮发言一次。
+# 君主不是被塞一份记忆摘要，而是「从游戏里直接走过来」：
+# system 与逐字 replay 与游戏内 build_context 完全一致（含思考 reasoning_content），
+# 结算厅规则作为附则挂在 system 尾部，终局宣告开新话头——对话流从未断过。
 
-主持者是「看海人」——本游戏的作者，全程旁观了你们的一切。他在成绩单下方给每位君主
-留了开场寄语（公开、全体可见，每轮都挂在计分板下）。第一轮发言时请先回应他的寄语。
+SETTLE_APPENDIX = """
 
-随消息附有你的私人记忆（你自己每回合的小结史官笔录与最终国策）——只有你看得到，
-别国看不到。你带的就是这份记忆进厅：复盘时引以为据，别凭空编造没发生过的事。
-
-发言要求：
-1. 以你的角色总结这一局：哪些决策英明、哪些是败笔（凭你的记忆诚实复盘，给观海者一个交代）；
-2. 对最终排名表态：服或不服，说清理由；
-3. 与其他君主交换意见：可以致意、可以反驳、可以互认得失——这是全剧终前的最后对话；
-4. 中文，200~500 字，不要客套空话，不要跳出角色。
+【终局附则 · 结算厅】
+游戏到此为止：你已离开王座，被请进「结算厅」。这里没有工具、不能行动，
+只能以文字发言，共 {rounds} 轮、每轮一次。主持者是「看海人」——本游戏的作者，
+全程旁观了你们的一切，他将宣读终局成绩单，并给每位君主留一句开场寄语（公开、全体可见）。
+1. 第一轮发言先回应看海人的寄语；
+2. 凭你自己的记忆总结这一局：哪些决策英明、哪些是败笔（诚实，给观海者一个交代）；
+3. 对最终排名表态：服或不服，说清理由；
+4. 与其他君主交换意见：可以致意、可以反驳、可以互认得失——这是全剧终前的最后对话；
+5. 中文，200~500 字，不要客套空话，不要跳出角色。
 """
 
 
-def _fmt_mem_msg(m: dict) -> str:
-    """把存档里的一条消息渲染成记忆文本（思考/工具调用/结果全保留）。"""
-    role = m.get("role")
-    out: list[str] = []
-    rc = (m.get("reasoning_content") or "").strip()
-    if rc:
-        out.append(f"[思考] {rc}")
-    c = (m.get("content") or "").strip()
-    if role == "tool":
-        out.append(f"[工具结果] {c}")
-    elif c:
-        out.append(c)
-    for tc in m.get("tool_calls") or []:
-        f = tc.get("function", {})
-        out.append(f"[调用工具] {f.get('name', '')}({f.get('arguments', '')})")
-    return "\n".join(x for x in out if x)
+def _replay_msg(m: dict) -> dict:
+    """replay 一条游戏消息，剥掉 reasoning_content（用户拍板：结算厅不需要思考内容）。
 
-
-def nation_memory(save: dict, name: str) -> str:
-    """君主私人记忆：全程回合小结 + 近期完整逐字记录 + 最终国策，来自存档、仅本人可见。
-
-    百万上下文模型装得下：turn_memory（最近窗口 20 回合逐字实录，含思考/工具）
-    单国 23~35 万字符一并喂入——存档里存在的，全部进记忆。
+    结算厅请求不带 tools——按思考模式文档，输入中的 reasoning_content 本就会被
+    API 忽略、不拼进上下文，显式剥掉省得白传。
     """
-    parts: list[str] = []
-    sums = (save.get("summaries") or {}).get(name) or []
-    if sums:
-        lines = "\n".join(f"第{m['turn']}回合：{m['text']}"
-                          for m in sorted(sums, key=lambda x: x.get("turn", 0)))
-        parts.append(f"【你这局的一生 · 仅你可见（你自己每回合的小结，共{len(sums)}条）】\n{lines}")
+    m = dict(m)
+    m.pop("reasoning_content", None)
+    return m
+
+
+def _game_context(save: dict, name: str, rounds: int) -> list[dict]:
+    """重建君主进场时的对话流：[system+附则] + 窗口内逐字 replay + 前情回顾。
+
+    与 mp_ai.build_context 同构（system → replay → recap），只是「本回合行动」
+    换成了终局宣告——君主带着原样的记忆与上下文跳转过来，而非收到一份转述。
+    """
+    import mp_ai
+    shim = SimpleNamespace(
+        turn=save.get("turn", 0),
+        polity=save.get("polity") or {},
+        extra_prompt=save.get("extra_prompt") or {},
+        alive=lambda: list(save["nations"].keys()),
+    )
+    msgs: list[dict] = [{"role": "system",
+                         "content": mp_ai.system_prompt(shim, name)
+                         + SETTLE_APPENDIX.format(rounds=rounds)}]
     recs = (save.get("turn_memory") or {}).get(name) or []
-    if recs:
-        spans = f"第{recs[0]['turn']}~{recs[-1]['turn']}回合"
-        blocks = [t for rec in recs for m in rec["messages"]
-                  for t in (_fmt_mem_msg(m),) if t]
-        parts.append(f"【近期完整记录（{spans} 逐字实录，含你的思考与每次调用）】\n"
-                     + "\n\n".join(blocks))
-    plan = (save.get("plans") or {}).get(name) or {}
-    if plan.get("text"):
-        parts.append(f"【最终国策（第{plan.get('turn', '?')}回合定稿）】\n{plan['text']}")
-    return "\n\n".join(parts)
+    kept = {r["turn"] for r in recs}
+    for rec in recs:  # 窗口内完整 replay（含思考/工具/结果）
+        msgs.extend(_replay_msg(m) for m in rec["messages"])
+    sums = (save.get("summaries") or {}).get(name) or []
+    old = [m for m in sums if m["turn"] not in kept]
+    if old:
+        window = len(recs) or 20  # 与游戏内窗口同宽
+        head = f"【前情回顾（至第{old[-1]['turn']}回合 总结）】"
+        lines = "\n".join(f"  第{m['turn']}回合：{m['text']}"
+                          for m in sorted(old, key=lambda x: x["turn"])[-window:])
+        msgs.append({"role": "user", "content": head + "\n" + lines})
+    return mp_ai._merge_same_role(msgs)
+
+
+def _finale_text(save: dict, board: str) -> str:
+    return (f"【终局】看海人宣布：游戏在第 {save.get('turn', '?')} 回合结束，天下大局已定。\n\n"
+            f"{board}\n\n"
+            "你摘下王冠，走进结算厅——system 尾部的【终局附则】即刻生效："
+            "没有工具、不能行动，只能发言。落座吧，等看海人点名。")
 
 
 def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log,
@@ -335,26 +342,34 @@ def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log,
         for n, txt in remarks.items():
             if txt:
                 log(f"🕊 看海人 致{n}：{txt}")
+
+    # 每位君主一条从游戏延续下来的对话流，发言以 assistant 消息追加，不断重建
+    states: dict[str, dict] = {}
+    for name in nations:
+        if name not in clients:
+            continue
+        msgs = _game_context(save, name, rounds)
+        msgs.append({"role": "user", "content": _finale_text(save, board)})
+        states[name] = {"msgs": msgs, "client": clients[name]}
     transcript: list[str] = []  # [f"【第r轮·{name}】..."]
+    seen: dict[str, int] = {n: 0 for n in states}  # 各君主已读到的 transcript 位置
     for r in range(1, rounds + 1):
         order = nations[(r - 1) % len(nations):] + nations[:(r - 1) % len(nations)]
         log(f"─── 结算厅 第 {r}/{rounds} 轮 ───")
         for name in order:
-            if name not in clients:
+            if name not in states:
                 continue
-            client, model, temp, max_tok, extra = clients[name]
-            history = "\n\n".join(transcript) if transcript else "（你是第一位发言者）"
-            # 计分板（含看海人寄语）每轮随消息展示，全体始终可见；私人记忆仅本人注入
-            user = (f"【成绩单 · 始终展示】\n{board}\n\n{nation_memory(save, name)}\n\n"
-                    f"【此前发言】\n{history}\n\n"
-                    f"【第 {r}/{rounds} 轮】轮到你（{name} 的君主）发言。")
-            msgs = [{"role": "system", "content": SYSTEM_PROMPT.format(
-                        name=name, turn=save.get("turn", "?"), rounds=rounds)},
-                    {"role": "user", "content": user}]
+            st = states[name]
+            new = transcript[seen[name]:]  # 上次发言之后厅里新说的话，由看海人转达
+            hist = "\n\n".join(new) if new else "（还无人发言，你是第一位落座的）"
+            st["msgs"].append({"role": "user", "content":
+                               f"【第 {r}/{rounds} 轮】看海人环视一圈。\n\n"
+                               f"【你上离席后厅里的发言】\n{hist}\n\n轮到你（{name} 的君主）发言。"})
+            client, model, temp, max_tok, extra = st["client"]
             for attempt in (1, 2, 3):
                 try:
                     resp = client.chat.completions.create(
-                        model=model, messages=msgs, temperature=temp,
+                        model=model, messages=st["msgs"], temperature=temp,
                         max_tokens=max_tok, extra_body=extra or None)
                     text = (resp.choices[0].message.content or "").strip()
                     break
@@ -364,8 +379,11 @@ def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log,
                     time.sleep(3 * attempt)
             if not text:
                 transcript.append(f"【第{r}轮·{name}】（发言失败，缺席）")
+                seen[name] = len(transcript)
                 continue
+            st["msgs"].append({"role": "assistant", "content": text})
             transcript.append(f"【第{r}轮·{name}】{text}")
+            seen[name] = len(transcript)
             log(f"◆ {name}：{text}")
     return transcript
 
