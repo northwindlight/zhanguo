@@ -28,7 +28,13 @@ from game import (
     TOWN_HALL_GOLD,
     TOWN_HALL_PER_SLOT,
 )
+import ctx as ctxlib
+from ctx import est_tokens, merge_same_role as _merge_same_role
 from mp import DIPLO_COST, LETTER_COST, PLAN_MAX_TURNS, RES_KEYS, RES_LABEL
+
+MAIL_BRIEF_FULL = 3      # 状态面板里完整展示的新信数（更旧的只列摘要行）
+MAIL_BRIEF_ROWS = 20     # 状态面板里最多列多少条旧信摘要
+
 
 # README 原文（匈奴 rules 附加用；读不到则留空）
 _README_TEXT = ""
@@ -152,13 +158,26 @@ def _fmt_market(world, name) -> str:
     return "\n".join(lines)
 
 
-def _fmt_mail(world, name) -> str:
+def _fmt_mail(world, name, brief: bool = False) -> str:
+    """信箱。brief=True（每回合状态面板用）：只完整展示最新几封，旧信压成摘要行
+    （全文仍可用 query panel=mail 取回——那条走 brief=False）。"""
     box = world.mailbox.get(name, [])
     if not box:
         return "（收件箱为空）"
-    lines = [f"收件箱 {len(box)} 封（寄出后下回合到）:"]
-    for m in reversed(box[-8:]):
+    if not brief or len(box) <= MAIL_BRIEF_FULL:
+        lines = [f"收件箱 {len(box)} 封（寄出后下回合到）:"]
+        for m in reversed(box[-8:]):
+            lines.append(f"  [第{m['turn']}回合] {m['from']} → 你：{m['text']}")
+        return "\n".join(lines)
+    lines = [f"收件箱 {len(box)} 封（寄出后下回合到；旧信只列摘要，全文用 query panel=mail）:"]
+    for m in reversed(box[-MAIL_BRIEF_FULL:]):
         lines.append(f"  [第{m['turn']}回合] {m['from']} → 你：{m['text']}")
+    old = box[:-MAIL_BRIEF_FULL]
+    for m in reversed(old[-MAIL_BRIEF_ROWS:]):
+        t = " ".join(str(m["text"]).split())
+        lines.append(f"  [第{m['turn']}回合] {m['from']} → 你：{t[:28]}{'…' if len(t) > 28 else ''}")
+    if len(old) > MAIL_BRIEF_ROWS:
+        lines.append(f"  （更早 {len(old) - MAIL_BRIEF_ROWS} 封见 query panel=mail）")
     return "\n".join(lines)
 
 
@@ -504,16 +523,21 @@ def _fmt_threats(world, name) -> str:
     return ("视野内的敌军/守军:\n  " + "\n  ".join(rows)) if rows else "视野内没有他国军队"
 
 
-def _fmt_news(world, name) -> str:
-    ev = world.events_for(name, limit=10)
-    return ("近讯:\n  " + "\n  ".join(ev)) if ev else "近讯: 暂无"
+def _fmt_news(world, name, since: int | None = None) -> str:
+    ev = world.events_for(name, limit=10, since_turn=since)
+    return ("近讯:\n  " + "\n  ".join(ev)) if ev else "近讯: 无新增（近况见上文完整记录）"
 
 
-def _fmt_memory(world, name) -> str:
-    """本国近 10 回合小结纪事（私有记忆，别国不可见）。"""
+def _fmt_memory(world, name, since: int | None = None) -> str:
+    """本国回合小结纪事（私有记忆，别国不可见）。
+
+    since=已进 replay 的最早回合 → 只保留 replay 覆盖不到的更早小结，避免和完整记录重复。
+    """
     mem = world.summaries.get(name, [])
+    if since is not None:
+        mem = [m for m in mem if int(m["turn"]) < since]
     if not mem:
-        return "（尚无往回合小结）"
+        return "（无——近况见上文完整记录）" if since is not None else "（尚无往回合小结）"
     return "\n".join(f"  [第{m['turn']}回合] {m['text']}" for m in mem[-10:])
 
 
@@ -627,21 +651,23 @@ def _fmt_econ(world) -> str:
     return "\n".join(L)
 
 
-def full_state(world, name) -> str:
+def full_state(world, name, replay_since: int | None = None) -> str:
+    """本回合的新鲜状态（上下文尾部）。replay_since 见 turn_state。"""
+    others = "、".join(n for n in world.alive() if n != name) or "（只剩你）"
     return "\n".join([
-        f"你（{name}）现在进行第 {world.turn} 回合的行动。",
+        f"你（{name}）现在进行第 {world.turn} 回合的行动。其余国家：{others}。",
         f"【国力】\n{_res_line(world, name)}",
         f"【国策规划】\n{_fmt_plan(world, name)}",
         f"【国土/视野】\n{_fmt_land(world, name)}",
         f"【军队】\n{_fmt_armies(world, name)}",
         f"【威胁】\n{_fmt_threats(world, name)}",
         f"【市场】\n{_fmt_market(world, name)}",
-        f"【纪事(近10回合)】\n{_fmt_memory(world, name)}",
+        f"【纪事(近10回合)】\n{_fmt_memory(world, name, replay_since)}",
         f"【地图情报】\n{_fmt_intel_hint(world, name)}",
         f"【经济情报】\n{_fmt_spy_hint(world, name)}",
-        f"【信箱】\n{_fmt_mail(world, name)}",
+        f"【信箱】\n{_fmt_mail(world, name, brief=True)}",
         f"【外交】\n{_fmt_diplomacy(world, name)}",
-        f"【近讯】\n{_fmt_news(world, name)}",
+        f"【近讯】\n{_fmt_news(world, name, replay_since)}",
     ])
 
 
@@ -1114,11 +1140,13 @@ TOOL_SCHEMAS = [
         "parameters": _props({"summary": {"type": "string", "description": "一句话回合小结（必填，>=4字）", "required": True}})}},
 ]
 
+# 工具 schema 的固定 token 开销（每次请求都随 tools 发送，计入上下文预算）
+TOOL_SCHEMAS_TOKENS = est_tokens(json.dumps(TOOL_SCHEMAS, ensure_ascii=False))
+
 
 def _huns_prompt(world, name) -> str:
-    others = "、".join(n for n in world.alive() if n != name)
     return (
-        "你是草原游牧帝国【" + name + "】（匈奴）的可汗，以劫掠、勒索、虚张声势维生。其余国家：" + (others or "（只剩你）") + "。\n\n"
+        "你是草原游牧帝国【" + name + "】（匈奴）的可汗，以劫掠、勒索、虚张声势维生。\n\n"
         "【政体约束（硬性）】你不搞结盟/共同防御/保障/馈赠/交换地图那套外交。你能用的只有："
         "send_letter（写信威吓勒索贡品）、declare_war（宣战）、offer_peace（要求投降/赔款求和）、"
         "accept_peace / reject_peace（议和/拒绝）。\n"
@@ -1149,9 +1177,8 @@ def system_prompt(world, name) -> str:
 
 
 def _default_system_prompt(world, name) -> str:
-    others = "、".join(n for n in world.alive() if n != name)
     return (
-        "你是国家元首【" + name + "】，在一个 EU4 式大地图战略游戏里治国。其余国家：" + (others or "（只剩你）") + "。\n\n"
+        "你是国家元首【" + name + "】，在一个 EU4 式大地图战略游戏里治国。\n\n"
         "这局没有预设目标：富国、拓荒、称霸、报复、苟和都行，由你自己判断；每种选择都有后果，后果也由你承担。\n"
         "【回合】每回合你可用工具做很多事：建设/拓荒/征兵/调兵/打仗/买卖/外交/写信。你有一个常驻的【国策规划】"
         "：结束回合前必须先 plan 制定，且每 10 回合必须修订一次（建议涵盖 经济发展/军事规划/情报管理/外交方向）。"
@@ -1184,94 +1211,138 @@ def _default_system_prompt(world, name) -> str:
     )
 
 
-def _merge_same_role(msgs: list[dict]) -> list[dict]:
-    """合并相邻同角色消息（不同 OpenAI 兼容端点对严格角色交替要求不一）。
+def normalize_cfg(cfg: dict) -> dict:
+    """补全上下文配置（就地）。small_ctx 是旧键：等价于按 256k 窗口标定。"""
+    if cfg.get("small_ctx") and not cfg.get("ctx_window"):
+        cfg["ctx_window"] = 262144
+    return cfg
 
-    - user×user 合并（join content）；
-    - 无 tool_calls 的 assistant×assistant 合并（content 与 reasoning_content 各自 join）；
-    - 绝不合并 tool 消息（每条绑定唯一 tool_call_id）；
-    - 绝不合并带 tool_calls 的 assistant（其 tool 响应必须紧随其后）。
+
+def _ctx_parts(world, name) -> tuple[list, list, list]:
+    return (world.turn_memory.get(name) or [],
+            world.summaries.get(name) or [],
+            world.summary_blocks.get(name) or [])
+
+
+def turn_state(world, name, replay_since: int | None = None) -> str:
+    """本回合的新鲜状态（消息尾部）。replay_since=已进 replay 的最早回合，
+    用于把状态面板里重复的内容去掉（见 _fmt_memory/_fmt_news/_fmt_mail）。"""
+    return (f"以上为过往回合记录，现在开始第 {world.turn} 回合行动。\n"
+            + engine_call(full_state, world, name, replay_since))
+
+
+def build_context(world, name, cfg) -> tuple[list[dict], "ctxlib.Plan"]:
+    """构造一国本回合的完整 LLM 上下文（预算分配与缓存布局见 ctx.py）。
+
+    顺序：system → 历史归档（已滑出回合的总结）→ replay（窗口内完整回合，含思考）
+    → 本回合状态。返回 (messages, plan)，plan 供日志与下滑裁剪使用。
+
+    状态面板的去重边界依赖 replay 起点，而 replay 深度又依赖状态大小——先按不去重
+    （更保守）估一遍拿到起点，再用真实边界重建一次。
     """
-    out: list[dict] = []
-    for m in msgs:
-        role = m.get("role")
-        if out and out[-1].get("role") == role:
-            last = out[-1]
+    normalize_cfg(cfg)
+    system_text = engine_call(system_prompt, world, name)
+    mem, sums, blocks = _ctx_parts(world, name)
 
-            def _join(x, y):
-                a = str(x or "").strip()
-                b = str(y or "").strip()
-                return (a + "\n\n" + b) if a and b else (a or b)
+    def _build(tail: str):
+        return ctxlib.build(cfg=cfg, mem=mem, sums=sums, blocks=blocks,
+                            system_text=system_text, tail_text=tail,
+                            tool_tokens=TOOL_SCHEMAS_TOKENS)
 
-            if role == "user":
-                last["content"] = _join(last.get("content"), m.get("content"))
-                continue
-            if role == "assistant" and not last.get("tool_calls") and not m.get("tool_calls"):
-                last["content"] = _join(last.get("content"), m.get("content"))
-                if last.get("reasoning_content") or m.get("reasoning_content"):
-                    last["reasoning_content"] = _join(last.get("reasoning_content"),
-                                                      m.get("reasoning_content"))
-                continue
-        out.append(dict(m))
-    return out
+    tail1 = turn_state(world, name, None)
+    msgs, plan = _build(tail1)
+    tail2 = turn_state(world, name, plan.before_turn)
+    if tail2 != tail1:
+        msgs, plan = _build(tail2)
+    return msgs, plan
 
 
-def _store_turn_memory(world, name, messages, base: int, window: int) -> None:
-    """把本回合新增的消息（messages[base:]）存入该国 turn_memory，只留最近 window 回合。
+def _store_turn_memory(world, name, messages, base: int, plan) -> list[dict]:
+    """把本回合新增的消息（messages[base:]）存入该国 turn_memory，并按预算下滑。
 
     只存本回合 append 的部分（base 之前是历史 replay），避免把整个历史嵌进每条记录、
     记录间二次方膨胀。首条加 user 回合标记，回放时分隔回合边界。完整存，不截断。
+    返回被裁掉的旧回合记录（调用方可据此生成阶段块总结）。
     """
     if name not in world.nations:
-        return
+        return []
     body = messages[base:]
     rec = [{"role": "user", "content": f"【第{world.turn}回合 行动记录】"}] + [dict(m) for m in body]
     mem = world.turn_memory.setdefault(name, [])
     mem.append({"turn": world.turn, "messages": rec})
-    # 按块滑动：多攒 SLIDE_CHUNK 回合再一次性砍回 window——从 replay 中段删记录会让
-    # 其后整段前缀缓存失效，摊薄到每 CHUNK 回合断一次，其余回合 replay 全段照常命中。
-    if len(mem) > window + MEMORY_SLIDE_CHUNK:
-        del mem[:-window]
+    return ctxlib.slide(world, name, plan)
 
 
-def build_context(world, name, window: int) -> list[dict]:
-    """构造一国本回合的完整 LLM 上下文（按前缀缓存命中排序）：
-    [system] + [窗口内各回合完整记录 replay（含思考 reasoning_content）] +
-    [前情回顾: 已滑出 replay 回合的 end_turn 小结] + [本回合 fresh full_state]。
+# ---------------------------------------------------------------------------
+# 阶段块总结：滑出 replay 的回合用一次 LLM 调用压成一段，进历史归档
+# ---------------------------------------------------------------------------
+COMPACT_SYSTEM = (
+    "你是战略游戏 AI 的记忆压缩器。用户给你它自己某几个回合的行动记录"
+    "（发言、工具调用与结果）以及逐回合小结。请压成一段中文总结（300~600 字），只保留："
+    "做过什么、结果如何、当前战略处境、未了结的事务/承诺/敌人/威胁。"
+    "不要评价、不要虚构、不要写建议。直接输出总结正文。"
+)
+COMPACT_INPUT_CHARS = 120_000   # 压缩调用的输入上限（约 6 万 token），超了从最旧略细节
 
-    上下文缓存按「完整前缀单元」匹配：system + replay 跨回合字节一致，
-    必须放最前；逐回合会变的前情回顾与 fresh state 一律压到尾部，
-    别让它们失效前面的稳定大段。
-    """
-    msgs: list[dict] = [{"role": "system", "content": engine_call(system_prompt, world, name)}]
-    mem_records = world.turn_memory.get(name, [])
-    kept = {rec["turn"] for rec in mem_records}
-    for rec in mem_records:  # 窗口内完整 replay（含思考/工具/结果）
-        msgs.extend(rec["messages"])
-    mem = world.summaries.get(name, [])
-    old = [m for m in mem if m["turn"] not in kept]  # 只要已不在 replay 里就进总结，与滑动策略解耦
-    if old:
-        head = f"【前情回顾（至第{old[-1]['turn']}回合 总结）】"
-        lines = "\n".join(f"  第{m['turn']}回合：{m['text']}" for m in old[-window:])
-        msgs.append({"role": "user", "content": head + "\n" + lines})
-    msgs.append({"role": "user", "content":
-                 f"以上为过往回合记录，现在开始第 {world.turn} 回合行动。\n"
-                 + engine_call(full_state, world, name)})
-    return _merge_same_role(msgs)
+
+def _compact_input(dropped: list[dict], sums: list[dict], from_turn: int) -> str:
+    """拼压缩调用的输入：逐回合小结 + 行动记录（剥思考——不带 tools 时该字段被 API 忽略）。"""
+    lines: list[str] = []
+    by_turn = {int(s["turn"]): str(s.get("text", "")) for s in sums}
+    for rec in dropped:
+        t = int(rec["turn"])
+        lines.append(f"—— 第{t}回合 ——")
+        if by_turn.get(t):
+            lines.append("小结：" + by_turn[t])
+        for m in rec.get("messages") or []:
+            role = m.get("role")
+            if role == "assistant":
+                if m.get("content"):
+                    lines.append("发言：" + str(m["content"]))
+                for tc in (m.get("tool_calls") or []):
+                    fn = tc.get("function") or {}
+                    lines.append(f"行动：{fn.get('name')}({fn.get('arguments')})")
+            elif role == "tool":
+                txt = str(m.get("content") or "")
+                lines.append("结果：" + (txt if len(txt) <= 800 else txt[:800] + "…"))
+    text = "\n".join(lines)
+    if len(text) > COMPACT_INPUT_CHARS:
+        # 超长时保尾部（较新的回合信息更重要），头部留个说明
+        head = f"（第{from_turn}回合起的更早细节因长度已省略）\n"
+        text = head + text[-COMPACT_INPUT_CHARS:]
+    return text
+
+
+def _compact_block(client, cfg, world, name, dropped: list[dict], emit=None) -> dict | None:
+    """把滑出 replay 的回合压成一段块总结并写入 world.summary_blocks。失败返回 None。"""
+    sums = world.summaries.get(name) or []
+    # 只压这次真正滑出的那段（更早的回合已只剩一行小结，再压一次只会丢信息）
+    from_turn = int(dropped[0]["turn"])
+    to_turn = int(dropped[-1]["turn"])
+    user = (f"请总结我第 {from_turn}~{to_turn} 回合的经历。\n\n"
+            + _compact_input(dropped, sums, from_turn))
+    if emit:
+        emit(f"🧠 {name} 压缩记忆：第{from_turn}~{to_turn}回合 → 一次总结调用")
+    resp = client.chat.completions.create(
+        model=cfg["model"],
+        messages=[{"role": "system", "content": COMPACT_SYSTEM},
+                  {"role": "user", "content": user}],
+        max_tokens=int(cfg.get("ctx_compact_tokens", 1500)),
+        temperature=0.3,
+        extra_body={"thinking": {"type": "disabled"}},   # 压缩不需要思考
+    )
+    text = (resp.choices[0].message.content or "").strip()
+    if len(text) < 20:
+        return None
+    block = {"from": from_turn, "to": to_turn, "text": text, "turn": world.turn}
+    with _engine_lock:
+        world.summary_blocks.setdefault(name, []).append(block)
+    return block
 
 
 # ---------------------------------------------------------------------------
 # OpenAI 回合循环
 # ---------------------------------------------------------------------------
-
-MEMORY_SLIDE_CHUNK = 10  # replay 窗口按块滑动的块长（见 _store_turn_memory）
-
-# 小上下文模式（cfg: small_ctx=true 或 CLI --small-ctx）：按 256k 上下文标定。
-# 架构本身可扩展（窗口外回合只剩一行小结），体积全在窗口内 replay——完整不截断
-# （298 回合档实测窗口 12：稳态输入 9~14 万 tok，占 256k 的 36~53%，含 32k 输出
-# 后 ≤66%；300 回合小结区仅 ≈2 万字）。可配 ctx_full_turns 覆盖窗口。
-SMALL_CTX_WINDOW = 12
-
 
 def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
     """跑一国一回合：反复调 LLM 用工具，直到 end_turn/无工具/步数上限。返回执行次数。
@@ -1291,10 +1362,10 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
         raise TimeoutError("API 调用超时（> %ds）" % int(cfg.get("api_timeout", 180)))
 
     signal.signal(signal.SIGALRM, _timeout_handler)
-    # 小上下文模式：仅窗口缩到 12（replay 完整不截断，思考照常——256k 装得下）
-    small = bool(cfg.get("small_ctx"))
-    window = int(cfg.get("ctx_full_turns", SMALL_CTX_WINDOW if small else 20))
-    messages = build_context(world, name, window)
+    # 上下文：窗口大小由配置 ctx_window 定义，深度/归档/下滑水位由 ctx.py 按预算动态分配
+    messages, plan = build_context(world, name, cfg)
+    if emit:
+        emit(f"🧠 {name} 上下文: {plan.describe()}")
     base = len(messages)  # 本回合新增消息的起点（base 之前是历史 replay，存储时不再重复）
     done = 0
     stall = 0  # 连续"只思考/空转"轮数
@@ -1314,7 +1385,17 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                 f"首token均{agg['first'] / agg['calls']:.0f}s｜最长无输出{agg['maxgap']:.0f}s｜"
                 f"真正输出{agg['stream']:.0f}s｜速度{speed:.1f}tok/s",
                 phase="事件")
-        _store_turn_memory(world, name, messages, base, window)
+        dropped = _store_turn_memory(world, name, messages, base, plan)
+        if dropped:
+            if emit:
+                emit(f"🧠 {name} 下滑：裁掉第{dropped[0]['turn']}~{dropped[-1]['turn']}回合"
+                     f"（{len(dropped)} 回合）——本回合前缀缓存全段重建")
+            if plan.compact and name in world.nations:
+                try:
+                    _compact_block(client, cfg, world, name, dropped, emit=emit)
+                except Exception as e:   # 压缩失败不影响主流程：归档退回一行小结
+                    if emit:
+                        emit(f"⚠ {name} 记忆压缩失败({type(e).__name__})，归档仍用逐回合小结")
         return d
 
     for step in range(max_steps):

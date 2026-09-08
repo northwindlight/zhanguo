@@ -26,6 +26,7 @@ import threading
 import time
 from pathlib import Path
 
+import ctx as ctxlib
 from mp import World
 from mp_ai import dummy_turn, observer_board, observer_map, run_openai_turn
 
@@ -145,15 +146,20 @@ def run() -> None:
     ap.add_argument("--turns", type=int, default=None, help="最多跑多少回合")
     ap.add_argument("--save", default=None)
     ap.add_argument("--small-ctx", action="store_true",
-                    help="小上下文模式：全部国家启用（窗口缩到12，replay 完整不截断、"
-                         "思考照常），按 256k 上下文标定，可跑几百回合；也可在配置里"
-                         "按国家写 \"small_ctx\": true")
+                    help="小上下文模式：全部国家按 256k 窗口标定（等价于配置里写 "
+                         "ctx_window=262144）；窗口深度仍由预算动态分配")
+    ap.add_argument("--ctx-window", type=int, default=None,
+                    help="覆盖所有国家的模型上下文窗口（token），如 1000000 / 262144")
     args = ap.parse_args()
 
     cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
+    ctxlib.apply_defaults(cfg)          # 顶层 ctx_* 下沉到各国（国家条目优先）
     if args.small_ctx:
         for n in cfg["nations"]:
-            n["small_ctx"] = True
+            n["ctx_window"] = 262144
+    if args.ctx_window:
+        for n in cfg["nations"]:
+            n["ctx_window"] = int(args.ctx_window)
     save_path = Path(args.save or cfg.get("save", "mp_save.json"))
     journal_path = Path(cfg.get("journal", "mp_journal.md"))
     max_turns = args.turns if args.turns is not None else cfg.get("max_turns", 200)

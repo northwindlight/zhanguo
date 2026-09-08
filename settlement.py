@@ -280,12 +280,14 @@ def _replay_msg(m: dict) -> dict:
     return m
 
 
-def _game_context(save: dict, name: str, rounds: int) -> list[dict]:
-    """重建君主进场时的对话流：[system+附则] + 窗口内逐字 replay + 前情回顾。
+def _game_context(save: dict, name: str, rounds: int, ncfg: dict | None = None) -> list[dict]:
+    """重建君主进场时的对话流：system+附则 → 历史归档 → 窗口内逐字 replay。
 
-    与 mp_ai.build_context 同构（system → replay → recap），只是「本回合行动」
-    换成了终局宣告——君主带着原样的记忆与上下文跳转过来，而非收到一份转述。
+    与游戏内 ctx.build 同一套预算/归档/缓存布局（窗口按该国配置的 ctx_window 分配），
+    只是不带本回合状态面板，「本回合行动」由终局宣告代替——君主带着原样的记忆与
+    上下文跳转过来，而非收到一份转述。
     """
+    import ctx as ctxlib
     import mp_ai
     shim = SimpleNamespace(
         turn=save.get("turn", 0),
@@ -293,22 +295,17 @@ def _game_context(save: dict, name: str, rounds: int) -> list[dict]:
         extra_prompt=save.get("extra_prompt") or {},
         alive=lambda: list(save["nations"].keys()),
     )
-    msgs: list[dict] = [{"role": "system",
-                         "content": mp_ai.system_prompt(shim, name)
-                         + SETTLE_APPENDIX.format(rounds=rounds)}]
+    system_text = (mp_ai.system_prompt(shim, name) + SETTLE_APPENDIX.format(rounds=rounds))
     recs = (save.get("turn_memory") or {}).get(name) or []
-    kept = {r["turn"] for r in recs}
-    for rec in recs:  # 窗口内完整 replay（含思考/工具/结果）
-        msgs.extend(_replay_msg(m) for m in rec["messages"])
-    sums = (save.get("summaries") or {}).get(name) or []
-    old = [m for m in sums if m["turn"] not in kept]
-    if old:
-        window = len(recs) or 20  # 与游戏内窗口同宽
-        head = f"【前情回顾（至第{old[-1]['turn']}回合 总结）】"
-        lines = "\n".join(f"  第{m['turn']}回合：{m['text']}"
-                          for m in sorted(old, key=lambda x: x["turn"])[-window:])
-        msgs.append({"role": "user", "content": head + "\n" + lines})
-    return mp_ai._merge_same_role(msgs)
+    # 结算厅不带 tools → 按思考模式文档 reasoning_content 会被忽略，直接剥掉省 token
+    mem = [{"turn": r["turn"], "messages": [_replay_msg(m) for m in r.get("messages") or []]}
+           for r in recs]
+    msgs, _plan = ctxlib.build(
+        cfg=ncfg or {}, mem=mem,
+        sums=(save.get("summaries") or {}).get(name) or [],
+        blocks=(save.get("summary_blocks") or {}).get(name) or [],
+        system_text=system_text, tail_text="")
+    return msgs
 
 
 def _finale_text(save: dict, board: str) -> str:
@@ -345,10 +342,11 @@ def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log,
 
     # 每位君主一条从游戏延续下来的对话流，发言以 assistant 消息追加，不断重建
     states: dict[str, dict] = {}
+    ctx_cfg = {n["name"]: n for n in cfg.get("nations", []) if isinstance(n, dict)}
     for name in nations:
         if name not in clients:
             continue
-        msgs = _game_context(save, name, rounds)
+        msgs = _game_context(save, name, rounds, ctx_cfg.get(name))
         msgs.append({"role": "user", "content": _finale_text(save, board)})
         states[name] = {"msgs": msgs, "client": clients[name]}
     transcript: list[str] = []  # [f"【第r轮·{name}】..."]
@@ -435,6 +433,8 @@ def main() -> None:
         cfg = {}
         if Path(args.config).exists():
             cfg = json.load(open(args.config, encoding="utf-8"))
+            import ctx as ctxlib
+            ctxlib.apply_defaults(cfg)   # 顶层 ctx_* 下沉到各国，与游戏内一致
         else:
             log(f"（找不到 {args.config}，跳过结算厅）")
         if cfg:

@@ -104,7 +104,8 @@ class World:
         self.mail_pending: list[dict] = []
         self.mailbox: dict[str, list[dict]] = {}
         self.summaries: dict[str, list[dict]] = {}  # 各国回合小结纪事 [{turn,text}]（私有，本国 AI 记忆；全留，供旧回合汇总）
-        self.turn_memory: dict[str, list[dict]] = {}  # 各国完整回合记录（含思考 reasoning_content），只留最近 ctx_full_turns 回合
+        self.summary_blocks: dict[str, list[dict]] = {}  # 各国阶段块总结 [{from,to,text,turn}]（滑出 replay 的回合经 LLM 压成一段，覆盖其小结）
+        self.turn_memory: dict[str, list[dict]] = {}  # 各国完整回合记录（含思考 reasoning_content），按 ctx_window 预算动态保留最近若干回合
         self.gift_pending: list[dict] = []         # 馈赠在途（下回合到账）
         self.map_pending: list[dict] = []          # 交换地图在途（下回合到账）
         self.maps: dict[str, list[dict]] = {}      # 各国收到的地图情报（{from,turn,text}，留最近3张）
@@ -245,12 +246,17 @@ class World:
             "text": f"{nation} ◇ {tool} {args} → {result}",
         })
 
-    def events_for(self, name: str, limit: int = 14) -> list[str]:
-        """该国能看到的近期事件（自己相关，或发生在视野内）。信件走信箱，此处不重复。"""
+    def events_for(self, name: str, limit: int = 14, since_turn: int | None = None) -> list[str]:
+        """该国能看到的近期事件（自己相关，或发生在视野内）。信件走信箱，此处不重复。
+
+        since_turn：只要第 >= 该回合的事件（供"已进 replay 的事件不再重复投喂"用）。
+        """
         out = []
         for h in reversed(self.history):
             if h["phase"] == "信件":
                 continue
+            if since_turn is not None and h["turn"] < since_turn:
+                break
             if h["nation"] == name:
                 out.append(f"[第{h['turn']}回合] {h['text']}")
             elif h.get("x") is not None and self.visible_to(name, h["x"], h["y"]):
@@ -891,6 +897,7 @@ class World:
             s.discard(name)
         self.mailbox.pop(name, None)
         self.summaries.pop(name, None)
+        self.summary_blocks.pop(name, None)
         self.turn_memory.pop(name, None)
         self.maps.pop(name, None)
         self.gift_pending = [g for g in self.gift_pending if g["from"] != name and g["to"] != name]
@@ -2028,6 +2035,7 @@ class World:
             "mail_pending": self.mail_pending,
             "mailbox": self.mailbox,
             "summaries": self.summaries,
+            "summary_blocks": self.summary_blocks,
             "turn_memory": self.turn_memory,
             "gift_pending": self.gift_pending,
             "map_pending": self.map_pending,
@@ -2075,6 +2083,8 @@ class World:
                     rows.append({"turn": int(m.group(1)) if m else 0,
                                  "text": (m.group(2) if m else str(item)).strip()})
             w.summaries[n] = rows
+        w.summary_blocks = {n: list(v) for n, v in data.get("summary_blocks", {}).items()
+                            if n in w.nations}
         w.turn_memory = {n: list(v) for n, v in data.get("turn_memory", {}).items() if n in w.nations}
         w.gift_pending = data.get("gift_pending", [])
         w.map_pending = data.get("map_pending", [])

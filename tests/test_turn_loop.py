@@ -1,0 +1,174 @@
+# -*- coding: utf-8 -*-
+"""回合循环的端到端冒烟测试：用假 OpenAI client 跑真实 run_openai_turn。
+
+覆盖：build_context → 流式解析 → 工具执行 → end_turn → 存档 → 下滑 → 阶段块总结。
+不联网、不读写真实存档（World 用临时目录里的合成档）。
+跑法：python3 -m unittest discover -s tests -v
+"""
+
+from __future__ import annotations
+
+import sys
+import tempfile
+import types
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import mp  # noqa: E402
+import mp_ai  # noqa: E402
+
+
+class _Delta:
+    def __init__(self, content=None, reasoning_content=None, tool_calls=None):
+        self.content = content
+        self.reasoning_content = reasoning_content
+        self.tool_calls = tool_calls
+
+
+class _Choice:
+    def __init__(self, delta):
+        self.delta = delta
+
+
+class _Chunk:
+    def __init__(self, choices=None, usage=None):
+        self.choices = choices or []
+        self.usage = usage
+
+
+class _Usage:
+    def __init__(self):
+        self.completion_tokens = 100
+        self.completion_tokens_details = types.SimpleNamespace(reasoning_tokens=60)
+        self.prompt_cache_hit_tokens = 900
+        self.prompt_cache_miss_tokens = 100
+
+
+class _Fn:
+    def __init__(self, name, arguments):
+        self.name = name
+        self.arguments = arguments
+
+
+class _TC:
+    def __init__(self, index, id, name, arguments):
+        self.index = index
+        self.id = id
+        self.type = "function"
+        self.function = _Fn(name, arguments)
+
+
+class _FakeCompletions:
+    def __init__(self, outer):
+        self.outer = outer
+
+    def create(self, **kw):
+        self.outer.calls.append(dict(kw, messages=list(kw["messages"])))  # 快照，别记引用
+        if "tools" not in kw:      # 压缩调用（无 tools）→ 非流式
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(
+                    message=types.SimpleNamespace(
+                        content="阶段总结：这几回合在扩地屯田，与邻国保持中立，北方有敌军集结。"))])
+        # 本回合第 1 次调用先制定国策，第 2 次才 end_turn（引擎要求先有国策）
+        nth = sum(1 for c in self.outer.calls if "tools" in c)
+        if nth == 1:
+            tc = _TC(0, "p1", "plan", '{"content": "经济发展优先，稳守边境，先探明北面。"}')
+        else:
+            tc = _TC(0, "e1", "end_turn", '{"summary": "本回合修了两座农场，继续拓荒。"}')
+        return iter([
+            _Chunk([_Choice(_Delta(reasoning_content="先看看国力，再决定建设。" * 200))]),
+            _Chunk([_Choice(_Delta(tool_calls=[tc]))]),
+            _Chunk([], _Usage()),
+        ])
+
+
+class _FakeOpenAI:
+    """冒充 openai.OpenAI：流式返回一个 end_turn 工具调用。"""
+
+    instances: list = []
+
+    def __init__(self, **kw):
+        self.calls: list[dict] = []
+        self.turn = 0
+        self.chat = types.SimpleNamespace(completions=_FakeCompletions(self))
+        _FakeOpenAI.instances.append(self)
+
+
+class TestTurnLoop(unittest.TestCase):
+    def setUp(self):
+        _FakeOpenAI.instances.clear()
+        import openai
+        self._orig = openai.OpenAI
+        openai.OpenAI = _FakeOpenAI
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(lambda: setattr(openai, "OpenAI", self._orig))
+
+    def _world(self, size=16):
+        return mp.World(size=size, seed=7, nations=["秦", "楚"])
+
+    def _cfg(self, **kw):
+        cfg = {"base_url": "http://stub", "api_key": "k", "model": "m",
+               "max_tokens": 4000, "max_steps": 4}
+        cfg.update(kw)
+        return cfg
+
+    def test_one_turn_builds_context_calls_tool_and_stores(self):
+        w = self._world()
+        w.turn = 1
+        n = mp_ai.run_openai_turn(w, "秦", self._cfg(ctx_window=200000))
+        self.assertEqual(n, 2)                      # plan + end_turn
+        mem = w.turn_memory["秦"]
+        self.assertEqual([r["turn"] for r in mem], [1])
+        self.assertEqual(w.summaries["秦"][-1]["turn"], 1)
+        # 上下文里 system 在最前，末尾是本回合状态
+        sent = _FakeOpenAI.instances[0].calls[0]["messages"]
+        self.assertEqual(sent[0]["role"], "system")
+        self.assertIn("第 1 回合行动", sent[-1]["content"])
+
+    def test_small_window_slides_and_compacts(self):
+        w = self._world()
+        cfg = self._cfg(ctx_window=20000, ctx_fill=0.6, ctx_slide_keep=0.5,
+                        ctx_min_turns=1, max_tokens=1000)
+        for t in range(1, 7):
+            w.turn = t
+            _FakeOpenAI.instances.clear()
+            mp_ai.run_openai_turn(w, "秦", cfg)
+        self.assertLess(len(w.turn_memory["秦"]), 6, "窗口应已下滑")
+        blocks = w.summary_blocks["秦"]
+        self.assertTrue(blocks, "下滑后应生成阶段块总结")
+        self.assertLessEqual(blocks[0]["from"], blocks[0]["to"])
+
+    def test_fixed_window_mode_still_works(self):
+        w = self._world()
+        for t in range(1, 4):
+            w.turn = t
+            mp_ai.run_openai_turn(w, "秦", self._cfg(ctx_full_turns=2))
+        self.assertLessEqual(len(w.turn_memory["秦"]), 3)
+
+    def test_save_roundtrip_keeps_summary_blocks(self):
+        w = self._world()
+        w.turn = 5
+        w.summary_blocks["秦"] = [{"from": 1, "to": 3, "text": "早期扩张。", "turn": 4}]
+        p = Path(self.tmp.name) / "s.json"
+        w.save(p)
+        w2 = mp.World.load(p)
+        self.assertEqual(w2.summary_blocks["秦"][0]["text"], "早期扩张。")
+
+    def test_events_for_since_turn_filters_old(self):
+        w = self._world()
+        w.turn = 3
+        w.log("第1回合的旧事", nation="秦")
+        w.turn = 9
+        w.log("第9回合的新事", nation="秦")
+        all_ev = w.events_for("秦", limit=10)
+        new_ev = w.events_for("秦", limit=10, since_turn=5)
+        self.assertTrue(any("第1回合的旧事" in e for e in all_ev))
+        self.assertFalse(any("第1回合的旧事" in e for e in new_ev))
+        self.assertTrue(any("第9回合的新事" in e for e in new_ev))
+
+
+if __name__ == "__main__":
+    unittest.main()

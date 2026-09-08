@@ -8,6 +8,8 @@ __pycache__/
 
 # 敏感：真配置含明文 API key，绝不提交（用 mp_config.example.json 模板）
 mp_config.json
+mp_config copy.json
+mp_config *.json
 
 # 通用
 .DS_Store

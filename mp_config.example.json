@@ -4,6 +4,14 @@
   "max_turns": 200,
   "save": "mp_save.json",
   "journal": "mp_journal.md",
+
+  "ctx_window": 1000000,
+  "ctx_fill": 0.8,
+  "ctx_slide_keep": 0.6,
+  "ctx_archive_fill": 0.06,
+  "ctx_min_turns": 4,
+  "ctx_compact": "llm",
+
   "nations": [
     {
       "name": "秦",
@@ -14,8 +22,7 @@
       "reasoning_effort": "low",
       "temperature": 0.3,
       "max_tokens": 4000,
-      "max_steps": 28,
-      "ctx_full_turns": 20
+      "max_steps": 28
     },
     {
       "name": "楚",
