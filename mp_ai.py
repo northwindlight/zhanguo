@@ -1228,24 +1228,32 @@ def _store_turn_memory(world, name, messages, base: int, window: int) -> None:
     rec = [{"role": "user", "content": f"【第{world.turn}回合 行动记录】"}] + [dict(m) for m in body]
     mem = world.turn_memory.setdefault(name, [])
     mem.append({"turn": world.turn, "messages": rec})
-    if len(mem) > window:
+    # 按块滑动：多攒 SLIDE_CHUNK 回合再一次性砍回 window——从 replay 中段删记录会让
+    # 其后整段前缀缓存失效，摊薄到每 CHUNK 回合断一次，其余回合 replay 全段照常命中。
+    if len(mem) > window + MEMORY_SLIDE_CHUNK:
         del mem[:-window]
 
 
 def build_context(world, name, window: int) -> list[dict]:
-    """构造一国本回合的完整 LLM 上下文：
-    [system] + [前情回顾: 窗口外回合的 end_turn 小结，至多 window 条] +
-    [窗口内各回合完整记录 replay（含思考 reasoning_content）] + [本回合 fresh full_state]。
+    """构造一国本回合的完整 LLM 上下文（按前缀缓存命中排序）：
+    [system] + [窗口内各回合完整记录 replay（含思考 reasoning_content）] +
+    [前情回顾: 已滑出 replay 回合的 end_turn 小结] + [本回合 fresh full_state]。
+
+    上下文缓存按「完整前缀单元」匹配：system + replay 跨回合字节一致，
+    必须放最前；逐回合会变的前情回顾与 fresh state 一律压到尾部，
+    别让它们失效前面的稳定大段。
     """
     msgs: list[dict] = [{"role": "system", "content": engine_call(system_prompt, world, name)}]
+    mem_records = world.turn_memory.get(name, [])
+    kept = {rec["turn"] for rec in mem_records}
+    for rec in mem_records:  # 窗口内完整 replay（含思考/工具/结果）
+        msgs.extend(rec["messages"])
     mem = world.summaries.get(name, [])
-    old = [m for m in mem if m["turn"] < world.turn - window]
+    old = [m for m in mem if m["turn"] not in kept]  # 只要已不在 replay 里就进总结，与滑动策略解耦
     if old:
-        head = f"【前情回顾（第1~{old[-1]['turn']}回合 总结）】"
+        head = f"【前情回顾（至第{old[-1]['turn']}回合 总结）】"
         lines = "\n".join(f"  第{m['turn']}回合：{m['text']}" for m in old[-window:])
         msgs.append({"role": "user", "content": head + "\n" + lines})
-    for rec in world.turn_memory.get(name, []):  # 窗口内完整 replay（含思考/工具/结果）
-        msgs.extend(rec["messages"])
     msgs.append({"role": "user", "content":
                  f"以上为过往回合记录，现在开始第 {world.turn} 回合行动。\n"
                  + engine_call(full_state, world, name)})
@@ -1255,6 +1263,9 @@ def build_context(world, name, window: int) -> list[dict]:
 # ---------------------------------------------------------------------------
 # OpenAI 回合循环
 # ---------------------------------------------------------------------------
+
+MEMORY_SLIDE_CHUNK = 10  # replay 窗口按块滑动的块长（见 _store_turn_memory）
+
 
 def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
     """跑一国一回合：反复调 LLM 用工具，直到 end_turn/无工具/步数上限。返回执行次数。
@@ -1280,14 +1291,18 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
     done = 0
     stall = 0  # 连续"只思考/空转"轮数
     agg: dict = {"calls": 0, "wall": 0.0, "stream": 0.0, "first": 0.0,
-                 "maxgap": 0.0, "out_tokens": 0, "reason_tokens": 0}
+                 "maxgap": 0.0, "out_tokens": 0, "reason_tokens": 0,
+                 "hit": 0, "miss": 0}
 
     def _finish(d: int) -> int:
         if agg.get("calls"):
             speed = (agg["out_tokens"] / agg["stream"]) if agg["stream"] > 0 else 0.0
+            inp = agg["hit"] + agg["miss"]  # 缓存按输入前缀算：hit+miss=prompt tokens
+            cache = (f"｜缓存命中{agg['hit'] / inp * 100:.0f}%({agg['hit']}/{inp}tok)"
+                     if inp else "")
             world.log(
                 f"📊 {name} 本回合: {agg['calls']}次调用 {agg['wall']:.0f}s｜"
-                f"输出{agg['out_tokens']}tok(思考{agg['reason_tokens']})｜"
+                f"输出{agg['out_tokens']}tok(思考{agg['reason_tokens']}){cache}｜"
                 f"首token均{agg['first'] / agg['calls']:.0f}s｜最长无输出{agg['maxgap']:.0f}s｜"
                 f"真正输出{agg['stream']:.0f}s｜速度{speed:.1f}tok/s",
                 phase="事件")
@@ -1337,6 +1352,8 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                                 stream_stats["out_tokens"] = getattr(u, "completion_tokens", 0) or 0
                                 det = getattr(u, "completion_tokens_details", None)
                                 stream_stats["reason_tokens"] = getattr(det, "reasoning_tokens", 0) if det else 0
+                                stream_stats["hit"] = getattr(u, "prompt_cache_hit_tokens", 0) or 0
+                                stream_stats["miss"] = getattr(u, "prompt_cache_miss_tokens", 0) or 0
                             if not chunk.choices:
                                 continue
                             d = chunk.choices[0].delta
@@ -1390,7 +1407,8 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
         reasoning = (msg.get("reasoning_content") or "").strip()
         content = (msg.get("content") or "").strip()
         tool_calls = msg.get("tool_calls") or []
-        for _k in ("wall", "stream", "first", "maxgap", "out_tokens", "reason_tokens"):
+        for _k in ("wall", "stream", "first", "maxgap", "out_tokens", "reason_tokens",
+                   "hit", "miss"):
             agg[_k] = agg.get(_k, 0.0) + (stream_stats.get(_k) or 0.0)
         agg["calls"] = agg.get("calls", 0) + 1
         if emit and reasoning:
