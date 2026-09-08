@@ -10,7 +10,7 @@ cd "$(dirname "$0")"
 
 command -v python3 >/dev/null || { echo "[错误] 未找到 python3"; exit 1; }
 
-[ -f "mp_save.json" ] || { echo "[错误] 当前目录没有 mp_save.json（先用 start.sh 玩完一局）"; exit 1; }
+[ -f "mp_save.json" ] || { echo "[错误] 当前目录没有 mp_save.json（先用 start.sh 跑一局）"; exit 1; }
 
 # ---- 虚拟环境：复用 start.sh 建的 .venv，没有就用系统 python3 ----
 if [ -x ".venv/bin/python" ]; then

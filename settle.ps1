@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
 if (-not (Test-Path "mp_save.json")) {
-    Write-Host "[错误] 当前目录没有 mp_save.json（先用 start.ps1 玩完一局）" -ForegroundColor Red
+    Write-Host "[错误] 当前目录没有 mp_save.json（先用 start.ps1 跑一局）" -ForegroundColor Red
     Read-Host "回车退出"; exit 1
 }
 

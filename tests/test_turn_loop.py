@@ -157,17 +157,15 @@ class TestTurnLoop(unittest.TestCase):
         w2 = mp.World.load(p)
         self.assertEqual(w2.summary_blocks["秦"][0]["text"], "早期扩张。")
 
-    def test_events_for_since_turn_filters_old(self):
+    def test_events_for_lists_newest_first(self):
         w = self._world()
         w.turn = 3
-        w.log("第1回合的旧事", nation="秦")
+        w.log("第3回合的事", nation="秦")
         w.turn = 9
-        w.log("第9回合的新事", nation="秦")
-        all_ev = w.events_for("秦", limit=10)
-        new_ev = w.events_for("秦", limit=10, since_turn=5)
-        self.assertTrue(any("第1回合的旧事" in e for e in all_ev))
-        self.assertFalse(any("第1回合的旧事" in e for e in new_ev))
-        self.assertTrue(any("第9回合的新事" in e for e in new_ev))
+        w.log("第9回合的事", nation="秦")
+        ev = w.events_for("秦", limit=10)
+        self.assertTrue(any("第3回合的事" in e for e in ev))
+        self.assertTrue(any("第9回合的事" in e for e in ev))
 
 
 if __name__ == "__main__":

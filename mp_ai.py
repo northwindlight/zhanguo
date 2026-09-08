@@ -2,7 +2,7 @@
 """多国 agent 层：把全部玩家功能注册成 OpenAI function tools，按国家隔离执行。
 
 - 每个 agent 只拿到「自己该知道」的状态（自己的面板/信箱/视野内事件），
-  只能调用自己的合法工具（机制与单机玩家一致，无作弊入口）。
+  只能调用自己的合法工具（规则与引擎完全一致，无作弊入口）。
 - execute(world, actor, tool, args)：执行一个工具调用并返回结果文本。
 - run_openai_turn(...)：一个国家的「回合」——反复调 LLM 直到它 end_turn / 无工具。
 - dummy_turn(...)：无 key 时的简单规则 AI，用于机制验证/看海 demo。
@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import threading
 import time
@@ -29,7 +30,7 @@ from game import (
     TOWN_HALL_PER_SLOT,
 )
 import ctx as ctxlib
-from ctx import est_tokens, merge_same_role as _merge_same_role
+from ctx import est_tokens
 from mp import DIPLO_COST, LETTER_COST, PLAN_MAX_TURNS, RES_KEYS, RES_LABEL
 
 MAIL_BRIEF_FULL = 3      # 状态面板里完整展示的新信数（更旧的只列摘要行）
@@ -70,14 +71,23 @@ HUNS_BLOCKED = {
 
 # 匈奴教义（喂给匈奴 AI，令其贯彻）
 HUNS_DOCTRINE = (
-    "· 靠勒索与抢地为生：盯别国国库/资源，先写信威吓勒索——**优先要补给**（你缺补给，6 骑每回合耗 12，"
-    "200 开局撑不久），其次要金；不给就宣战抢地。\n"
-    "· 虚张声势：你明明只有 6 骑兵，也要写信说成 10 骑甚至更多，夸大兵威逼人交钱。\n"
-    "· 核心是运动战：骑兵动 2 格、集中决战、打完就撤（守方还能免费 mv 撤），不恋战。\n"
+    "· 靠勒索与抢地为生：盯别国国库/资源，先写信威吓勒索——**优先要补给**（你缺补给：每骑每回合耗 2，"
+    "开局那点补给撑不了十几回合），其次要金；不给就宣战抢地。\n"
+    "· 虚张声势：你兵力其实不多，也要写信把骑兵数说得多多的，夸大兵威逼人交钱。\n"
+    "· 核心是运动战：骑兵动 2 格、集中决战、打完就撤（撤出用 retreat：固定只退相邻 1 格、耗移动，"
+    "回合末随战斗结算后脱离；防御方撤退减伤 50%），不恋战。\n"
     "· 骑兵集中决战可以轻易战胜敌方总量多很多的军队——你总可以以少打多：\n"
     "   集中骑兵挑软柿子（敌方分散/兵力少/补给差），避免硬拼满员要塞。\n"
     "· 见缝插针，多抢无驻军之地；少打有损失之战。\n"
-    "· 力求百战百胜；有胜果之后马上写信要求对方投降/赔款，别拖泥带水。"
+    "· 力求百战百胜；有胜果之后马上写信要求对方投降/赔款，别拖泥带水。\n"
+    "· **议和先算账，绝不亏本议和**——匈奴最常见的死法就是：打赢收了一笔小钱就停战，"
+    "然后整个停战期把全军饿死。停战期内对方一分钱不会给你，但你的骑兵照吃补给："
+    "6 骑 × 2 补/回合 × 市价约 5 金 ≈ 60 金/回合（大批买入还会把价推高，实际更贵），"
+    "停战 10 回合就是 600+ 金。\n"
+    "   所以索款(demand) 必须 ≥ 这一仗的总军费（已打的回合 + truce 停战回合）× 每回合开销，"
+    "再留出补给缺口；算不过账就别谈——把 truce 压到 0~2 回合，或者干脆不议和、继续抢。\n"
+    "   赔款只能拿到黄金，所以拿到钱第一件事：立刻 buy 补给（一次买够未来 10 回合的量），别攒黄金。"
+    "补给仓空 = 全军 -10HP/回合，几回合就死光了。"
 )
 
 
@@ -86,9 +96,7 @@ def _res_line(world, name) -> str:
     et, mt, short = world.energy_report.get(name, (0, 0, False))
     parts = []
     for k in RES_KEYS:
-        label = RES_LABEL.get(k, k)
-        v = r.get(k, 0)
-        parts.append(f"{label}{v}" if k == "黄金" else f"{k}{v}")
+        parts.append(f"{RES_LABEL.get(k, k)}{r.get(k, 0)}")
     grid = "正常" if not short else "⚠停摆"
     summ = world.econ_summary.get(name, "")
     return (
@@ -101,7 +109,7 @@ def _res_line(world, name) -> str:
 def _fmt_armies(world, name) -> str:
     mine = [a for a in world.armies if a["owner"] == name]
     if not mine:
-        return "（无军队——先建兵营再征兵 r）"
+        return "（无军队——先建兵营，再用 recruit 征兵）"
     lines = []
     for a in sorted(mine, key=lambda x: x["id"]):
         t = world.tiles.get((a["x"], a["y"]))
@@ -159,14 +167,20 @@ def _fmt_market(world, name) -> str:
 
 
 def _fmt_mail(world, name, brief: bool = False) -> str:
-    """信箱。brief=True（每回合状态面板用）：只完整展示最新几封，旧信压成摘要行
-    （全文仍可用 query panel=mail 取回——那条走 brief=False）。"""
+    """信箱。brief=True（每回合状态面板用）：只完整展示最新几封，旧信压成摘要行；
+    brief=False（query panel=mail 按需查询用）：列出全部信件全文——面板里"旧信见
+    query"的提示必须真能取回，否则老信件对 AI 永久丢失。"""
     box = world.mailbox.get(name, [])
     if not box:
         return "（收件箱为空）"
-    if not brief or len(box) <= MAIL_BRIEF_FULL:
+    if not brief:
         lines = [f"收件箱 {len(box)} 封（寄出后下回合到）:"]
-        for m in reversed(box[-8:]):
+        for m in reversed(box):
+            lines.append(f"  [第{m['turn']}回合] {m['from']} → 你：{m['text']}")
+        return "\n".join(lines)
+    if len(box) <= MAIL_BRIEF_FULL:
+        lines = [f"收件箱 {len(box)} 封（寄出后下回合到）:"]
+        for m in reversed(box):
             lines.append(f"  [第{m['turn']}回合] {m['from']} → 你：{m['text']}")
         return "\n".join(lines)
     lines = [f"收件箱 {len(box)} 封（寄出后下回合到；旧信只列摘要，全文用 query panel=mail）:"]
@@ -390,7 +404,7 @@ def _help_sections() -> list[tuple[str, str]]:
             "全国制：国库/木材/粮矿油装补给都在你账上（res 面板）。"
             "电网全国且不存储：能源厂发电；补给厂/装备厂/兵营/市政厅都要耗电维持，"
             "发电 < 维持则这些高级建筑全部停摆（能源厂除外）。"
-            "补给厂(粮1+矿1→补给2)；装备厂(矿1+油1→装备2)；补给仓每军每回合耗 1，空则军队挨饿。"
+            "补给厂(粮1+矿1→补给2)；装备厂(矿1+油1→装备2)；补给仓每军每回合耗 1（骑兵 2），空则军队挨饿。"
             "黄金矿场是稳定产金；市政厅(需本地已用位≥6·限1座·耗1电)每座每回合 = 5金基础"
             " + 该地块每座建筑×1金（不含自身，城越满越值）；"
             "也可在 world market 卖物资换金（卖得越多价压越低）。"
@@ -470,8 +484,8 @@ def _help_sections() -> list[tuple[str, str]]:
         ("回合与存档", (
             "end_turn 结束你的本回合。每回合结算会：落地在建建筑→产出/电网→战争→补给/回血→"
             "遣返→市场回归。存档每回合自动写 mp_save.json，随时可中断续局。"
-            "国策规划：用 plan 制定/修订（常驻上下文【国策规划】）；没有国策、或每 10 回合"
-            f"未修订（超过 {PLAN_MAX_TURNS} 回合）时，end_turn 会被拦下，先 plan 再结束。"
+            f"国策规划：用 plan 制定/修订（常驻上下文【国策规划】）；没有国策、或距上次修订"
+            f"已满 {PLAN_MAX_TURNS} 回合时，end_turn 会被拦下，先 plan 再结束。"
             "计划建议涵盖 经济发展/军事规划/情报管理/外交方向 四方面。"
         )),
     ]
@@ -523,9 +537,9 @@ def _fmt_threats(world, name) -> str:
     return ("视野内的敌军/守军:\n  " + "\n  ".join(rows)) if rows else "视野内没有他国军队"
 
 
-def _fmt_news(world, name, since: int | None = None) -> str:
-    ev = world.events_for(name, limit=10, since_turn=since)
-    return ("近讯:\n  " + "\n  ".join(ev)) if ev else "近讯: 无新增（近况见上文完整记录）"
+def _fmt_news(world, name) -> str:
+    ev = world.events_for(name, limit=10)
+    return ("近讯:\n  " + "\n  ".join(ev)) if ev else "近讯: 暂无"
 
 
 def _fmt_memory(world, name, since: int | None = None) -> str:
@@ -560,7 +574,7 @@ def _fmt_intel_hint(world, name) -> str:
     """收到的地图情报摘要（简短提示，完整见 query panel=intel）。"""
     ms = world.maps.get(name, [])
     if not ms:
-        return "无（可用 share_map 与别国互发地图，或 spy 间谍偷地图，下回合到账）"
+        return "无（可用 share_map 与别国互发地图：对方下回合到；或 spy 间谍偷地图：3 回合后到）"
     last = ms[-1]
     return f"收到 {len(ms)} 张，最新来自 {last['from']}（第{last['turn']}回合）；完整内容见 query panel=intel"
 
@@ -667,7 +681,7 @@ def full_state(world, name, replay_since: int | None = None) -> str:
         f"【经济情报】\n{_fmt_spy_hint(world, name)}",
         f"【信箱】\n{_fmt_mail(world, name, brief=True)}",
         f"【外交】\n{_fmt_diplomacy(world, name)}",
-        f"【近讯】\n{_fmt_news(world, name, replay_since)}",
+        f"【近讯】\n{_fmt_news(world, name)}",
     ])
 
 
@@ -901,7 +915,8 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
     if tool in ("propose", "提议"):
         to = str(args.get("to", ""))
         kind = PACT_MAP.get(str(args.get("kind", "")).lower(), args.get("kind"))
-        return _charge(world, actor, DIPLO_COST, world.propose_pact, kind, actor, to)
+        return _charge(world, actor, _diplo_cost(world, actor, to),
+                       world.propose_pact, kind, actor, to)
     if tool in ("respond_proposal", "回应邀约"):
         pid = int(args.get("proposal_id", args.get("id", 0)))
         accept = str(args.get("accept", "")).lower() in ("true", "yes", "1", "接受", "是")
@@ -1071,16 +1086,16 @@ TOOL_SCHEMAS = [
         "parameters": _props({"good": {"type": "string", "description": "物资", "required": True},
                               "qty": {"type": "integer", "description": "数量", "required": True}})}},
     {"type": "function", "function": {
-        "name": "send_letter", "description": "给别国写信。**每次单独花 20 金（最贵的外交动作，普通外交只要 10 金）、成功即扣**；信件下回合才送达对方信箱。写信前先算账：这 20 金值不值？预期收益（贡品/结盟/情报/逼降）明显大于 20 金才写，说不出收益就别写；国库 <100 金不要写信；诉求能并进一次正式外交提议（10 金）就别单独写信。to 必须用 countries 选出的别国，不能是自己。",
+        "name": "send_letter", "description": "给别国写信。**每次单独花 20 金（最贵的外交动作，普通外交只要 10 金）、成功即扣；收件人是联盟成员则免费**；信件下回合才送达对方信箱。写信前先算账：这 20 金值不值？预期收益（贡品/结盟/情报/逼降）明显大于 20 金才写，说不出收益就别写；国库 <100 金不要写信；诉求能并进一次正式外交提议（10 金）就别单独写信。to 必须用 countries 选出的别国，不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "收信国名", "required": True},
                               "content": {"type": "string", "description": "信件正文", "required": True}})}},
     {"type": "function", "function": {
-        "name": "gift", "description": "把本国储备赠给别国（to=countries 里的别国，不能是自己）：good=粮食/木头/矿石/石油/装备/补给 或 黄金，qty=数量。本回合垫支扣出、下回合到账；另扣 10 金外交手续费。示好/资助盟国/买通可用。",
+        "name": "gift", "description": "把本国储备赠给别国（to=countries 里的别国，不能是自己）：good=粮食/木头/矿石/石油/装备/补给 或 黄金，qty=数量。本回合垫支扣出、下回合到账；另扣 10 金外交手续费（收件人是联盟成员则免费）。示好/资助盟国/买通可用。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
                               "good": {"type": "string", "description": "物资名", "required": True},
                               "qty": {"type": "integer", "description": "数量", "required": True}})}},
     {"type": "function", "function": {
-        "name": "share_map", "description": "把你的整张已知地图（全部国土块+边界外可见块，含坐标）发给别国，对方下一回合在 query panel=intel 收到（外交基础费 10 金，成功才扣）。换情报/亮家底/协同步调可用。to=countries 里的别国，不能是自己。",
+        "name": "share_map", "description": "把你的整张已知地图（全部国土块+边界外可见块，含坐标）发给别国，对方下一回合在 query panel=intel 收到（外交基础费 10 金，成功才扣；对象是联盟成员则免费）。换情报/亮家底/协同步调可用。to=countries 里的别国，不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
         "name": "spy", "description": "不想开口问（懒得谈、钱多）时派间谍刺探别国：花 100 金（国库不足会被拒），3 回合后拿回该国全部经济情报（query panel=spy 看——国库/储备、上回合收入、每一块地的建筑与在建）**、粗略军情（仅各兵种数量，军队位置/血量/番号不外泄）**，以及它的整张已知地图（进 query panel=intel）。目标不能是自己。",
@@ -1114,7 +1129,7 @@ TOOL_SCHEMAS = [
         "name": "break_defense", "description": "单方面解除共同防御（成功扣 10 金）。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "guarantee", "description": "宣布保障别国独立：任何国家攻击它，你将自动参战（仅此单向、一跳）。它若与别国结成同盟/共同防御，你的保障会被自动升级解除；已有更高档时无须保障。不想履行参战义务时可解除保障（或断盟）退出。to=别国（不能自己）。成功扣 10 金。",
+        "name": "guarantee", "description": "宣布保障别国独立：任何国家攻击它，你将自动参战（仅此单向、一跳）。你与它之间后来结成共同防御/联盟时，这条保障会自动解除（保障是三档里最低的）；已有更高档时无须保障。不想履行参战义务时可解除保障（或断盟）退出。to=别国（不能自己）。成功扣 10 金。",
         "parameters": _props({"to": {"type": "string", "description": "被保障国", "required": True}})}},
     {"type": "function", "function": {
         "name": "cancel_guarantee", "description": "撤回独立保障（成功扣 10 金）。",
@@ -1143,6 +1158,26 @@ TOOL_SCHEMAS = [
 # 工具 schema 的固定 token 开销（每次请求都随 tools 发送，计入上下文预算）
 TOOL_SCHEMAS_TOKENS = est_tokens(json.dumps(TOOL_SCHEMAS, ensure_ascii=False))
 
+_TOOL_SCHEMAS_HUNS: list[dict] | None = None
+
+
+def tool_schemas(world, name) -> list[dict]:
+    """该国本轮的工具 schema。匈奴政体骑兵征召价不同（8粮8装），需按政体替换描述——
+    否则匈奴 AI 在 schema 里看到 12粮12装、在自己的 system prompt 里看到 8粮8装，两边打架。
+    schema 对同一国跨回合稳定，不影响前缀缓存。"""
+    if world.polity.get(name) != "huns":
+        return TOOL_SCHEMAS
+    global _TOOL_SCHEMAS_HUNS
+    if _TOOL_SCHEMAS_HUNS is None:
+        schemas = copy.deepcopy(TOOL_SCHEMAS)
+        for t in schemas:
+            fn = t["function"]
+            if fn["name"] == "recruit":
+                fn["description"] = fn["description"].replace("骑=骑兵(12粮+12装",
+                                                              "骑=骑兵(8粮+8装")
+        _TOOL_SCHEMAS_HUNS = schemas
+    return _TOOL_SCHEMAS_HUNS
+
 
 def _huns_prompt(world, name) -> str:
     return (
@@ -1150,10 +1185,10 @@ def _huns_prompt(world, name) -> str:
         "【政体约束（硬性）】你不搞结盟/共同防御/保障/馈赠/交换地图那套外交。你能用的只有："
         "send_letter（写信威吓勒索贡品）、declare_war（宣战）、offer_peace（要求投降/赔款求和）、"
         "accept_peace / reject_peace（议和/拒绝）。\n"
-        "【开局（事实）】你只有 6 骑兵、金 1000、补给 200（每骑每回合耗 2 补给，别饿空，否则 -10HP/回合）。"
+        "【开局（事实）】你是骑兵开局：每骑每回合耗 2 补给，别饿空，否则 -10HP/回合。"
         "你建建筑有 +30% 惩罚（别走种田流），但你的骑兵征召只要 8 粮+8 装（比别人便宜）。\n"
-        "【生存（事实）】你不靠种田建厂活：靠勒索别国贡金与**补给**（你缺补给，6 骑每回合耗 12、"
-        "200 开局撑不久，勒索要优先点名要补给）、抢无驻军之地、打完胜仗索要赔款，缺什么就从市场买卖补。"
+        "【生存（事实）】你不靠种田建厂活：靠勒索别国贡金与**补给**（你缺补给，开局那点补给撑不了"
+        "十几回合，勒索要优先点名要补给）、抢无驻军之地、打完胜仗索要赔款，缺什么就从市场买卖补。"
         "补给仓空了会 -10HP/回合饿死。\n"
         "【教义（必须贯彻）】\n" + HUNS_DOCTRINE + "\n"
         "【信息】情报有迷雾，你只看得见自己地盘与相邻一圈；写信对象随时可用 countries 选。"
@@ -1419,7 +1454,7 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                     try:
                         stream = client.chat.completions.create(
                             model=cfg["model"], messages=messages,
-                            tools=TOOL_SCHEMAS, tool_choice="auto",
+                            tools=tool_schemas(world, name), tool_choice="auto",
                             temperature=cfg.get("temperature", 0.3),
                             max_tokens=cfg.get("max_tokens", 4000),
                             extra_body=extra or None,

@@ -74,6 +74,27 @@ class TestNormalizeCfg(unittest.TestCase):
         self.assertEqual(cfg["ctx_window"], 1000000)
 
 
+class TestToolSchemas(unittest.TestCase):
+    def _world(self, huns=False):
+        import mp
+        w = mp.World(size=16, seed=3, nations=["秦", "林胡"])
+        if huns:
+            w.apply_polity("林胡", "huns")
+        return w
+
+    def test_normal_nation_gets_base_schema(self):
+        self.assertIs(mp_ai.tool_schemas(self._world(), "秦"), mp_ai.TOOL_SCHEMAS)
+
+    def test_huns_schema_shows_cheap_cavalry(self):
+        s = mp_ai.tool_schemas(self._world(True), "林胡")
+        rec = next(t["function"] for t in s if t["function"]["name"] == "recruit")
+        self.assertIn("骑=骑兵(8粮+8装", rec["description"])
+        # 基础 schema 不能被改坏（其它国家仍看常规价）
+        base = next(t["function"] for t in mp_ai.TOOL_SCHEMAS
+                    if t["function"]["name"] == "recruit")
+        self.assertIn("骑=骑兵(12粮+12装", base["description"])
+
+
 class TestCompactBlock(unittest.TestCase):
     def test_block_covers_dropped_range_and_strips_reasoning(self):
         w = _World()

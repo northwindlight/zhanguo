@@ -68,7 +68,7 @@
       "start_gold": 2000,
       "start_supply": 300,
       "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
-      "api_key": "粘贴你的 key（临时注入上下文来自 extra_prompt_file，10回合后自动消失）",
+      "api_key": "粘贴你的 key（临时注入上下文来自 extra_prompt_file，20回合后只留 extra_summary）",
       "model": "kimi-k3",
       "thinking": "enabled",
       "reasoning_effort": "high",

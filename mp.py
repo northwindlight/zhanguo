@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """多国引擎（MP）。
 
-多个国家共存于同一张地图，各自经营（机制与单机玩家一致，无作弊入口）：
+多个国家共存于同一张地图，各自经营（规则对所有国家一致，无作弊入口）：
   - 每国独立 国库(黄金)/战略储备/电网(不存储)/军队/国土/信箱；
   - 无人地带的视野内地块由「野人」把守，打赢即拓疆；国家间打赢即夺地，
     空城被敌军队踏入即陷（无防即失）；
@@ -38,7 +38,6 @@ from game import (
     PRICE_MIN,
     PRICE_REVERT,
     PRICE_TICK_RATIO,
-    RESOURCES,
     RETREAT_RANGE,
     TERRAIN_CHARS,
     TERRAIN_STATS,
@@ -90,7 +89,7 @@ class World:
         self.nations: dict[str, "Nation"] = {}
         self.order: list[str] = []
         self.wars: list[dict] = []  # 战争冲突：{id, atk(进攻主导), def(防御主导), followers(跟随方), turn}
-        self._war_id = 1
+        self._war_id = 0   # 计数器先自增再取值 → 首个 id 为 1
         self.truce: dict[frozenset, int] = {}  # 休战期：边→ 生效至第 N 回合（含），期内不得再宣战
         # 旧双边「同盟」已由多边联盟取代（alliances 仅作旧档迁移暂存，恒空）：
         # 联盟 = {name 联盟名, members 成员(加入序，members[0]=盟主), turn 创立回合}
@@ -98,7 +97,7 @@ class World:
         self.blocs: list[dict] = []
         # 联盟投票：{id, kind: 宣战|议和|入盟, bloc, proposer, payload, votes{国:bool}, turn}
         self.votes: list[dict] = []
-        self._vote_id = 1
+        self._vote_id = 0  # 同上：首个投票 id 为 1
         self.defense_pacts: list[frozenset] = []
         self.guarantees: dict[str, set[str]] = {}
         self.mail_pending: list[dict] = []
@@ -116,7 +115,7 @@ class World:
         self.extra_prompt: dict[str, dict] = {}    # 临时注入的额外上下文 {text, until}——塞入正常 system_prompt，until 后自动消失
         self.peace_offers: list[dict] = []
         self.proposals: list[dict] = []
-        self._offer_id = 1
+        self._offer_id = 0  # 同上：首个邀约 id 为 1
         self.prices: dict[str, float] = {g: float(MARKET[g]) for g in TRADEABLE}
         self.armies: list[dict] = []
         self.next_army_seq: dict[str, int] = {}  # 各国独立军队序列：从1递增、阵亡不回收
@@ -187,12 +186,6 @@ class World:
                     fr.add((nx, ny))
         return fr
 
-    def tile_by_name(self, name: str) -> tuple[int, int] | None:
-        for (x, y), t in self.tiles.items():
-            if t.get("name") == name:
-                return (x, y)
-        return None
-
     def visible_to(self, name: str, x: int, y: int) -> bool:
         """name 是否看得见 (x,y)：它本身或相邻格（含对角）有自家的地。
         联盟共享视野：盟友的地块视同己方（自己+盟友地盘各带相邻一圈）。"""
@@ -246,17 +239,12 @@ class World:
             "text": f"{nation} ◇ {tool} {args} → {result}",
         })
 
-    def events_for(self, name: str, limit: int = 14, since_turn: int | None = None) -> list[str]:
-        """该国能看到的近期事件（自己相关，或发生在视野内）。信件走信箱，此处不重复。
-
-        since_turn：只要第 >= 该回合的事件（供"已进 replay 的事件不再重复投喂"用）。
-        """
+    def events_for(self, name: str, limit: int = 14) -> list[str]:
+        """该国能看到的近期事件（自己相关，或发生在视野内）。信件走信箱，此处不重复。"""
         out = []
         for h in reversed(self.history):
             if h["phase"] == "信件":
                 continue
-            if since_turn is not None and h["turn"] < since_turn:
-                break
             if h["nation"] == name:
                 out.append(f"[第{h['turn']}回合] {h['text']}")
             elif h.get("x") is not None and self.visible_to(name, h["x"], h["y"]):
@@ -297,7 +285,7 @@ class World:
         """各国环状开局（3 国=三角）。"""
         n = len(names)
         c = self.size / 2
-        r = min(self.size * 0.34, self.size * 0.31)
+        r = self.size * 0.31   # 环半径（占地图边长比例）
         pts = {}
         for i, nm in enumerate(names):
             ang = -math.pi / 2 + i * 2 * math.pi / n
@@ -712,7 +700,7 @@ class World:
             u["hp"] -= per + (1 if i < rem else 0)
 
     def _defense_pct(self, x: int, y: int, def_owner: str | None) -> int:
-        """地块总防御% = 地形与城堡**相乘**叠加（同单机 tile_defense）。"""
+        """地块总防御% = 地形与城堡**相乘**叠加。"""
         t = self.tiles.get((x, y))
         terrain = t["terrain"] if t else self.tile_terrain(x, y)
         castle = t["buildings"]["城堡"] if (t and t["owner"] == def_owner) else 0
@@ -772,18 +760,18 @@ class World:
             for F in forces:
                 if not dmg[F]:
                     continue
-                ws = [a.get("retreat_cover", 100) for a in forces[F]]
+                units = forces[F]
+                ws = [a.get("retreat_cover", 100) for a in units]
                 if all(w == 100 for w in ws):
-                    self._spread(dmg[F], forces[F])
+                    self._spread(dmg[F], units)
                 else:
-                    # 有撤退军队在场：按权重分摊（防御方撤退 cover=50 即半份，进攻方 100 全额）
-                    sw = sum(ws)
-                    takes = [dmg[F] * w // sw for w in ws]
-                    rem = int(dmg[F] - sum(takes))
-                    for i in range(rem):
-                        takes[i % len(takes)] += 1
-                    for a, tk in zip(forces[F], takes):
-                        a["hp"] -= tk
+                    # 有人带撤退减伤：先按常规全场分摊算出每人该吃多少，再按 cover% 打折——
+                    # 防御方撤退 cover=50 就只吃一半（单支守军撤退也真的减半），
+                    # 少掉的那部分不再转嫁给同格友军。
+                    per, rem = divmod(dmg[F], len(units))
+                    for i, (a, w) in enumerate(zip(units, ws)):
+                        share = per + (1 if i < rem else 0)
+                        a["hp"] -= share * w // 100
             for a in list(self.armies):
                 if (a["x"], a["y"]) == (x, y) and a["hp"] <= 0:
                     self.armies.remove(a)
@@ -818,7 +806,6 @@ class World:
             else:
                 desc = "；".join(f"{F} 余{len(alive[F])}支[{alive[F][0]['hp']}hp]" for F in survivors)
                 lines.append(f"⚔ 多方混战 @{tag}（骰 {self._modtxt(mods)}）：{desc}（战局未定）")
-        return lines
         return lines
 
     # ------------------------------------------------------------- 占领/灭国
@@ -1105,7 +1092,7 @@ class World:
                 for _ in range(unit_speed(a)):
                     best, bd = None, 10 ** 9
                     for nx, ny in self.neighbors(a["x"], a["y"]):
-                        if not self._enterable_step(n, nx, ny):
+                        if not self._enterable_step(n, nx, ny, forced=True):
                             continue
                         dd = max(abs(nx - tx), abs(ny - ty))
                         if dd < bd or (dd == bd and (nx, ny) < (best or (9 ** 9, 0))):
@@ -1117,7 +1104,11 @@ class World:
                 if moved:
                     self.log(f"🚶 {n} 军队{a['id']} 自敌境「遣返」撤向合法地（{a['x']+1},{a['y']+1}）", phase="事件", nation=n, x=a["x"], y=a["y"])
 
-    def _enterable_step(self, n: str, x: int, y: int) -> bool:
+    def _enterable_step(self, n: str, x: int, y: int, forced: bool = False) -> bool:
+        """军队能否落步到 (x,y)。forced=True 供强制遣返用：军队已非法滞留他国（断盟/停战后），
+        只允许落在合法地会把它永远困死，故遣返途中允许踩过中立地，一路走回本国/盟国。"""
+        if forced:
+            return True
         o = self.owned_by(x, y)
         return o is None or o == n or self.allied_between(n, o) or self.war_between(n, o)
 
@@ -1324,8 +1315,8 @@ class World:
         return "\n".join(L)
 
     def spy(self, frm: str, to: str) -> tuple[bool, str]:
-        """派间谍刺探别国（花 SPY_COST 金），2 回合后盗回其全部经济情报 + 地图。
-        刻意**不含军队信息**（数量/兵种/位置不外泄）。不能对自己用。"""
+        """派间谍刺探别国（花 SPY_COST 金），SPY_TURNS 回合后盗回其全部经济情报 +
+        粗略军情（仅各兵种数量，位置/血量/番号不外泄）+ 整张已知地图。不能对自己用。"""
         if frm not in self.nations or to not in self.nations:
             return False, "间谍双方都必须是现存国家"
         if to == frm:
@@ -1350,6 +1341,8 @@ class World:
             return False, "双方必须是两个现存国家"
         if kind != "共同防御":
             return False, f"未知盟约类型：{kind}（可选：共同防御；联盟请用 bloc_found）"
+        if self.polity.get(b) == "huns":
+            return False, f"{b} 是游牧政体，不接受盟约（别在它身上花外交费）"
         target = self.alliances if kind == "同盟" else self.defense_pacts
         other = self.defense_pacts if kind == "同盟" else self.alliances
         if _pair(a, b) in target:
@@ -1465,6 +1458,8 @@ class World:
                 return False, f"创始成员 {x} 不是现存国家"
             if self.bloc_of(x) is not None:
                 return False, f"{x} 已在联盟「{self.bloc_of(x)['name']}」中"
+            if self.polity.get(x) == "huns":
+                return False, f"{x} 是游牧政体，不参与结盟（邀它只会让提议悬空）"
             inv.append(x)
         if not inv:
             return False, "至少邀请一个创始成员（tos=[国名,…]）；单国无需结盟"
