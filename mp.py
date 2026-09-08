@@ -816,13 +816,19 @@ class World:
             # 占地 / 战报
             if len(survivors) == 1 and "野人" not in alive:
                 winner = survivors[0]
+                fs = alive[winner]
+                info = f"{winner} 余{len(fs)}支[{fs[0]['hp']}hp]"
                 if owner == winner:
-                    lines.append(f"⚔ 守军坚守 @{tag}，{winner} 击退入侵（骰 {self._modtxt(mods)}）")
+                    dead = sum(len(v) for F, v in forces.items() if F != winner)
+                    lines.append(f"⚔ 守军坚守 @{tag}：攻方{dead}支全灭，{info}"
+                                 f"（骰 {self._modtxt(mods)}）")
                 else:
                     ok, msg = self._conquer(x, y, winner, "攻陷" if owner else "进驻")
-                    lines.append(f"⚔ 全歼守军 @{tag}，{msg}")
+                    lines.append(f"⚔ 全歼守军 @{tag}，{msg}（{info}）")
             elif len(survivors) == 1 and "野人" in alive:
-                lines.append(f"⚔ {survivors[0]} 仍与野人交战 @{tag}（守军未清，占不得）")
+                fs = alive[survivors[0]]
+                lines.append(f"⚔ {survivors[0]} 仍与野人交战 @{tag}"
+                             f"（余{len(fs)}支[{fs[0]['hp']}hp]，守军未清，占不得）")
             elif not survivors:
                 if "野人" in alive:
                     lines.append(f"⚔ 攻方全灭 @{tag}，野人仍在（无主地守军未清）")

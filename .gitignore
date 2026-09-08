@@ -24,3 +24,5 @@ mp_config *.json
 .venv/
 mp_save*.bak*
 mp_save*.bak-*
+experiments/__pycache__/
+experiments/out/

@@ -5,6 +5,7 @@
 用法（在含 mp_save.json / mp_config.json 的目录运行，或用 --save/--config 指定）：
     python3 settlement.py                     # 打分 + 结算厅 5 轮
     python3 settlement.py --no-chat           # 只打分，不进聊天室
+    python3 settlement.py --table             # 只看表：打印成绩单即退出
     python3 settlement.py --save ../zhanguo/mp_save.json
 
 产物：结算报告.md（分数明细 + 结算厅完整对话录）。
@@ -22,12 +23,13 @@
     2. 黄金矿场：+10 金/座（直接计货币产出）
     3. 市政厅：5 金基础 + 本地块其他建筑 ×1 金（复现游戏内公式）
     4. 能源厂：增加值 = 发电量 × 影子电价(1金) − 燃料 × 基准价
-       电不存储、无市价 → 按边际生产成本定价：木材厂 1木(2金)→2电 = **1金/电**（最便宜
-       可复制生产方式，油价折算 1.2金/电）。选 1 而非更高值的硬理由：
+       电不存储、无市价 → 按边际生产成本定价：木材厂 1木(2金)→2电 = **1金/电**，
+       油电厂 1油(6金)→8电 = 0.75金/电。选 1 而非更高值的硬理由：
        ①电厂+工厂的总 VA 中电价 p 严格抵消（电厂: Ep−燃料；工厂: 产−料−Ep），p 只在
        「富余电」（不可存储，多发即弃）和「兵营/市政厅用电」两处漏出——p=1 使每度计入
-       的电都有 1金 真实燃料背书，浪费的电贡献恰为 0（浪费不计入 GDP）；
-       ②油厂 1油(6金)→5电 按成本只值 5金，它省的是建筑位不是钱，p=1 如实显示 −1，
+       的电都有 ≥0.75金 真实燃料背书（木材厂恰 1金），浪费的电贡献趋近 0（浪费不计入
+       GDP）；p 取整 1 从高不从低，属保守口径；
+       ②p=1 下油电厂如实计 +2、木材厂 0——发电划不划算由燃料市价体现，
        不给浪费性转换发虚假增加值。
     5. 装备厂：增加值 = 装备×8 − 矿×4 − 油×6（中间投入按基准价扣除）
     6. 军费（政府最终消费，即「军队消费纳入消费」）：Σ军队补给耗(步1骑2)×补给价5
@@ -122,7 +124,7 @@ def score_gdp(save: dict, nation: str) -> tuple[float, list[str]]:
             elif name == "木材能源厂":
                 _add("木材能源厂", cnt, cnt * (2 * ENERGY_PRICE - BASE_PRICE["木头"]))
             elif name == "石油能源厂":
-                _add("石油能源厂", cnt, cnt * (5 * ENERGY_PRICE - BASE_PRICE["石油"]))
+                _add("石油能源厂", cnt, cnt * (8 * ENERGY_PRICE - BASE_PRICE["石油"]))
             elif name == "装备厂":
                 _add("装备厂", cnt,
                      cnt * (2 * BASE_PRICE["装备"] - BASE_PRICE["矿石"] - BASE_PRICE["石油"]))
@@ -409,6 +411,8 @@ def main() -> None:
     ap.add_argument("--config", default="mp_config.json")
     ap.add_argument("--rounds", type=int, default=CHAT_ROUNDS)
     ap.add_argument("--no-chat", action="store_true", help="只打分，不进结算厅")
+    ap.add_argument("--table", action="store_true",
+                    help="只看表：打印成绩单即退出，不进结算厅、不写报告、不要寄语")
     ap.add_argument("--out", default="结算报告.md")
     ap.add_argument("--remarks", default=None,
                     help="看海人寄语 JSON 文件（键=国名 值=一句话）；缺省且终端可交互时现场输入")
@@ -424,6 +428,8 @@ def main() -> None:
 
     board = scoreboard_text(save, result)
     log(board)
+    if args.table:
+        return
 
     transcript: list[str] = []
     if not args.no_chat:

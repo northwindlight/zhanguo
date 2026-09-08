@@ -4,6 +4,7 @@
 # 用法：
 #   ./settle.sh                  # 打分 + 结算厅（寄语：终端逐国输入，或 --remarks 指定）
 #   ./settle.sh --no-chat        # 只打分，不进聊天室
+#   ./settle.sh --table          # 只看表：打印成绩单即退出，不进聊天室/不写报告
 #   ./settle.sh --remarks 结算寄语.json --rounds 5   # 其余参数原样透传给 settlement.py
 set -e
 cd "$(dirname "$0")"

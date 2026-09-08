@@ -131,7 +131,7 @@ BUILDINGS = {
     "石油厂": {"kind": "extract", "cost": 150, "wood": 8, "cap_resource": "石油", "outputs": {"石油": 1}},
     "黄金矿场": {"kind": "gold", "cost": 200, "wood": 10, "cap_resource": "黄金", "outputs": {"黄金": 1}},
     "木材能源厂": {"kind": "energy", "cost": 120, "wood": 15, "cap_resource": None, "fuel": {"木头": 1}, "energy_out": 2},
-    "石油能源厂": {"kind": "energy", "cost": 300, "wood": 15, "cap_resource": None, "fuel": {"石油": 1}, "energy_out": 5},
+    "石油能源厂": {"kind": "energy", "cost": 240, "wood": 15, "cap_resource": None, "fuel": {"石油": 1}, "energy_out": 8},
     "补给厂": {"kind": "factory", "cost": 200, "wood": 12, "cap_resource": None, "inputs": {"粮食": 1, "矿石": 1}, "outputs": {"补给": 2}, "energy": 1},
     "装备厂": {"kind": "factory", "cost": 240, "wood": 12, "cap_resource": None, "inputs": {"矿石": 1, "石油": 1}, "outputs": {"装备": 2}, "energy": 1},
     # 兵营不自动产兵：每兵营每回合可征 1 支军队（army_cost 每支耗资），军队 100HP，从本地块征集；需本地已用建筑位≥3（防裸地兵营）
