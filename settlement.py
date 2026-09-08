@@ -9,6 +9,10 @@
 
 产物：结算报告.md（分数明细 + 结算厅完整对话录）。
 
+看海人寄语：聊天室开场，你（游戏作者/看海人）以一句评语致辞每位君主——公开挂载在
+计分板下方、全程可见（计分板每轮展示）。来源：--remarks 结算寄语.json（{"国":"话"}），
+缺省且终端可交互时逐国现场输入，回车跳过该国。
+
 ────────────────────────────────────────────────────────────────────────
 评分口径（全部按基准价结算，不用市价——市价随回合波动，基准价才是恒定标尺）
 基准价：粮食2 木头2 矿石4 石油6 装备8 补给5；黄金矿场每座每回合 +10 金。
@@ -200,7 +204,7 @@ def settle(save: dict) -> dict:
     return out
 
 
-def scoreboard_text(save: dict, result: dict) -> str:
+def scoreboard_text(save: dict, result: dict, remarks: dict[str, str] | None = None) -> str:
     turn = save.get("turn", "?")
     rank = sorted(result, key=lambda n: -result[n]["total"])
     lines = [f"《战国》第 {turn} 回合 · 终局结算（GDP 30% · 军队 25% · 领土 30% · 固定资产 15%）", ""]
@@ -216,6 +220,12 @@ def scoreboard_text(save: dict, result: dict) -> str:
     lines.append("")
     lines.append("口径：GDP=生产法每回合推算(基准价)；军力=ΣHP%×兵种权重(步1.0/骑1.5)；"
                  "领土=地块数；资产=建筑重置成本(基准价)。括号内为原始值。")
+    if remarks:
+        lines.append("")
+        lines.append("【看海人寄语】（游戏作者致辞，公开）")
+        for n in result:
+            if remarks.get(n):
+                lines.append(f"· 致{n}：{remarks[n]}")
     return "\n".join(lines)
 
 
@@ -223,6 +233,9 @@ def scoreboard_text(save: dict, result: dict) -> str:
 SYSTEM_PROMPT = """你在一局大战略游戏《战国》中扮演「{name}」的君主。游戏已在第 {turn} 回合终局，
 下面给出最终结算成绩单。现在你被请进「结算厅」：所有君主围坐一堂，**没有工具、不能行动**，
 只能用文字发言，共 {rounds} 轮、每轮发言一次。
+
+主持者是「看海人」——本游戏的作者，全程旁观了你们的一切。他在成绩单下方给每位君主
+留了开场寄语（公开、全体可见，每轮都挂在计分板下）。第一轮发言时请先回应他的寄语。
 
 发言要求：
 1. 以你的角色总结这一局：哪些决策英明、哪些是败笔（要诚实，给观海者一个交代）；
@@ -232,7 +245,8 @@ SYSTEM_PROMPT = """你在一局大战略游戏《战国》中扮演「{name}」�
 """
 
 
-def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log) -> list[str]:
+def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log,
+             remarks: dict[str, str] | None = None) -> list[str]:
     from openai import OpenAI
     nations = list(save["nations"].keys())
     clients = {}
@@ -250,7 +264,11 @@ def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log) -> list[str]
     if missing:
         log(f"（缺 API 配置，{ '、'.join(missing) } 不参加结算厅）")
 
-    board = scoreboard_text(save, result)
+    board = scoreboard_text(save, result, remarks)
+    if remarks:
+        for n, txt in remarks.items():
+            if txt:
+                log(f"🕊 看海人 致{n}：{txt}")
     transcript: list[str] = []  # [f"【第r轮·{name}】..."]
     for r in range(1, rounds + 1):
         order = nations[(r - 1) % len(nations):] + nations[:(r - 1) % len(nations)]
@@ -260,7 +278,8 @@ def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log) -> list[str]
                 continue
             client, model, temp, max_tok, extra = clients[name]
             history = "\n\n".join(transcript) if transcript else "（你是第一位发言者）"
-            user = (f"【最终成绩单】\n{board}\n\n【此前发言】\n{history}\n\n"
+            # 计分板（含看海人寄语）每轮随消息展示，全体始终可见
+            user = (f"【成绩单 · 始终展示】\n{board}\n\n【此前发言】\n{history}\n\n"
                     f"【第 {r}/{rounds} 轮】轮到你（{name} 的君主）发言。")
             msgs = [{"role": "system", "content": SYSTEM_PROMPT.format(
                         name=name, turn=save.get("turn", "?"), rounds=rounds)},
@@ -284,6 +303,25 @@ def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log) -> list[str]
     return transcript
 
 
+def load_remarks(path: str | None, save: dict, log) -> dict[str, str]:
+    """看海人寄语：JSON 文件或终端逐国输入。"""
+    if path:
+        data = json.load(open(path, encoding="utf-8"))
+        return {str(k): str(v) for k, v in data.items() if str(v).strip()}
+    if not sys.stdin.isatty():
+        return {}
+    remarks: dict[str, str] = {}
+    log("—— 看海人寄语（公开挂载计分板下，直接回车跳过该国）——")
+    for n in save["nations"]:
+        try:
+            txt = input(f"  致{n}：").strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if txt:
+            remarks[n] = txt
+    return remarks
+
+
 # ───────────────────────── 主流程 ─────────────────────────
 def main() -> None:
     ap = argparse.ArgumentParser(description="战国终局结算：打分 + 结算厅")
@@ -292,6 +330,8 @@ def main() -> None:
     ap.add_argument("--rounds", type=int, default=CHAT_ROUNDS)
     ap.add_argument("--no-chat", action="store_true", help="只打分，不进结算厅")
     ap.add_argument("--out", default="结算报告.md")
+    ap.add_argument("--remarks", default=None,
+                    help="看海人寄语 JSON 文件（键=国名 值=一句话）；缺省且终端可交互时现场输入")
     args = ap.parse_args()
 
     if not Path(args.save).exists():
@@ -313,8 +353,10 @@ def main() -> None:
         else:
             log(f"（找不到 {args.config}，跳过结算厅）")
         if cfg:
+            remarks = load_remarks(args.remarks, save, log)
+            board = scoreboard_text(save, result, remarks)  # 报告版含寄语
             log("")
-            transcript = run_chat(save, result, cfg, args.rounds, log)
+            transcript = run_chat(save, result, cfg, args.rounds, log, remarks)
 
     report = [f"# 《战国》终局结算报告\n", f"生成于第 {save.get('turn','?')} 回合存档。\n",
               "## 成绩单\n", f"```\n{board}\n```\n"]
