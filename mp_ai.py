@@ -1274,19 +1274,19 @@ def build_context(world, name, window: int) -> list[dict]:
 
 MEMORY_SLIDE_CHUNK = 10  # replay 窗口按块滑动的块长（见 _store_turn_memory）
 
-# 小上下文模式（cfg: small_ctx=true 或 CLI --small-ctx）：让 256k 级模型吃下几百回合。
-# 架构本身可扩展（窗口外回合只剩一行小结），体积全在窗口内 replay——三板斧：
-# ①窗口缩到 6 ②存档记忆单条消息截断 ③默认关思考（思考模式文档要求带 tools 时
-# 历史 reasoning_content 必须完整回传，是最大体积来源；显式配置 thinking 可覆盖）。
-SMALL_CTX_WINDOW = 6
-SMALL_CTX_MSG_CAP = 1200
+# 小上下文模式（cfg: small_ctx=true 或 CLI --small-ctx）：按 256k 上下文标定。
+# 架构本身可扩展（窗口外回合只剩一行小结），体积全在窗口内 replay。
+# 标定（298 回合真实档实测，思考保持开、cap 后）：窗口 12 + 单条 content 截断
+# 4000 字符 → 稳态输入 9~14 万 tok（占 256k 的 35~55%），留 32k 输出与战时尖峰余量；
+# 300 回合小结区仅 ≈2 万字。可配 ctx_full_turns 覆盖窗口；256k 紧张时可显式
+# "thinking": "disabled" 再把窗口调大（关思考后 20 回合也只 ≈3~4 万 tok）。
+SMALL_CTX_WINDOW = 12
+SMALL_CTX_MSG_CAP = 4000
 
 
 def _cap_text(s: str, cap: int) -> str:
     s = s or ""
-    if cap <= 0 or len(s) <= cap:
-        return s
-    return s[:cap] + f"…（已截断，原文{len(s)}字符）"
+    return s[:cap] if 0 < cap < len(s) else s
 
 
 def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
@@ -1307,8 +1307,7 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
         raise TimeoutError("API 调用超时（> %ds）" % int(cfg.get("api_timeout", 180)))
 
     signal.signal(signal.SIGALRM, _timeout_handler)
-    # 小上下文模式：窗口缩到 6、存档记忆单条截断；thinking 未显式配置时默认关闭
-    # （带 tools 的思考模式要求历史 reasoning_content 完整回传，是最大体积来源）
+    # 小上下文模式：窗口缩到 12、存档记忆单条 content 截断 4000 字符（思考照常，装得下）
     small = bool(cfg.get("small_ctx"))
     window = int(cfg.get("ctx_full_turns", SMALL_CTX_WINDOW if small else 20))
     msg_cap = SMALL_CTX_MSG_CAP if small else 0
@@ -1342,9 +1341,7 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
             extra = {}
             # deepseek-v4：thinking 开关 + reasoning_effort（low/medium/high）
             if "thinking" in cfg:
-                extra["thinking"] = {"type": cfg["thinking"]}
-            elif small:
-                extra["thinking"] = {"type": "disabled"}  # 小上下文默认关思考  # "enabled"/"disabled"
+                extra["thinking"] = {"type": cfg["thinking"]}  # "enabled"/"disabled"
             if cfg.get("reasoning_effort"):
                 extra["reasoning_effort"] = cfg["reasoning_effort"]
             api_timeout = int(cfg.get("api_timeout", 180))
