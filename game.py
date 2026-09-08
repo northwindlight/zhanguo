@@ -117,7 +117,7 @@ PRICE_MIN = 1.0           # 市价下限 = 1 金/单位（不会跌到分文不�
 #     castle    城堡：max_level 级，每级 +10% 防御
 #     extract   基础采集：outputs 每回合产出物资；林场产出木头入全局储备
 #     gold      黄金矿场（产出黄金=货币，直接入国库）
-#     energy    能源厂：木材厂耗全局木头 / 石油厂耗本地石油 → 产出 energy_out 能源；不耗能源维持
+#     energy    能源厂：耗全国木头/石油 → 产出 energy_out 能源；不耗能源维持
 #     factory   高级工厂：每座每回合维持 energy 能源，投 inputs 产 outputs；能源不足全部瘫痪
 BUILDINGS = {
     "城堡": {
@@ -132,12 +132,12 @@ BUILDINGS = {
     "矿场": {"kind": "extract", "cost": 80, "wood": 5, "cap_resource": "矿石", "outputs": {"矿石": 1}},
     "石油厂": {"kind": "extract", "cost": 150, "wood": 8, "cap_resource": "石油", "outputs": {"石油": 1}},
     "黄金矿场": {"kind": "gold", "cost": 200, "wood": 10, "cap_resource": "黄金", "outputs": {"黄金": 1}},
-    "木材能源厂": {"kind": "energy", "cost": 120, "wood": 15, "cap_resource": "木头", "fuel": {"木头": 1}, "energy_out": 2},
-    "石油能源厂": {"kind": "energy", "cost": 300, "wood": 15, "cap_resource": "石油", "fuel": {"石油": 1}, "energy_out": 5},
-    "补给厂": {"kind": "factory", "cost": 200, "wood": 12, "cap_resource": "耕地", "inputs": {"粮食": 1, "矿石": 1}, "outputs": {"补给": 2}, "energy": 1},
-    "装备厂": {"kind": "factory", "cost": 240, "wood": 12, "cap_resource": "石油", "inputs": {"矿石": 1, "石油": 1}, "outputs": {"装备": 2}, "energy": 1},
-    # 兵营不自动产兵：每兵营每回合可征 1 支军队（army_cost 每支耗资），军队 100HP，从本地块征集
-    "兵营": {"kind": "barracks", "cost": 350, "wood": 20, "cap_resource": None, "army_cost": {"粮食": 10, "装备": 5}, "energy": 1},
+    "木材能源厂": {"kind": "energy", "cost": 120, "wood": 15, "cap_resource": None, "fuel": {"木头": 1}, "energy_out": 2},
+    "石油能源厂": {"kind": "energy", "cost": 300, "wood": 15, "cap_resource": None, "fuel": {"石油": 1}, "energy_out": 5},
+    "补给厂": {"kind": "factory", "cost": 200, "wood": 12, "cap_resource": None, "inputs": {"粮食": 1, "矿石": 1}, "outputs": {"补给": 2}, "energy": 1},
+    "装备厂": {"kind": "factory", "cost": 240, "wood": 12, "cap_resource": None, "inputs": {"矿石": 1, "石油": 1}, "outputs": {"装备": 2}, "energy": 1},
+    # 兵营不自动产兵：每兵营每回合可征 1 支军队（army_cost 每支耗资），军队 100HP，从本地块征集；需本地已用建筑位≥3（防裸地兵营）
+    "兵营": {"kind": "barracks", "cost": 350, "wood": 20, "cap_resource": None, "min_slots": 3, "army_cost": {"粮食": 10, "装备": 5}, "energy": 1},
     # 市政厅：很贵、每地块限 1 座、需该地块已用建筑位≥6 才可建；维持 1 电（电网不足即停摆）；
     # 每座每回合 = TOWN_HALL_GOLD(基础) + 该地块已占建筑位(不含自身)×TOWN_HALL_PER_SLOT 金 入国库
     "市政厅": {"kind": "townhall", "cost": 500, "wood": 40, "cap_resource": None,

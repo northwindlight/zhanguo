@@ -352,7 +352,7 @@ def _help_sections() -> list[tuple[str, str]]:
             note = ("维持1电；每座每回合 = 5金基础 + 该地块每座建筑×1金（不含自身，地越盖越值）"
                     "入国库；需本地已用建筑位≥6、每地块限1座")
         else:  # barracks
-            note = "维持1电；每兵营每回合可征 1 支军队（耗 10粮 + 5装）"
+            note = "维持1电；每兵营每回合可征 1 支军队（耗 10粮 + 5装）；需本地已用建筑位≥3（含在建）"
         bld.append(f"  {nm}：造价 {cost}金 + {info['wood']}木 · {cap} · {note}")
     sections = [
         ("总览", (
@@ -1013,7 +1013,7 @@ TOOL_SCHEMAS = [
         "name": "econ", "description": "按当前市价核算建设回报：某建筑的 造价(折金)/每回合毛利/回本时间；不带 building 则输出全部建筑经济表。做建设/买卖决策前先算再定。",
         "parameters": _props({"building": {"type": "string", "enum": BUILD_NAMES, "description": "要核算的建筑名（可选；省则输出全部）"}})}},
     {"type": "function", "function": {
-        "name": "build", "description": "在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅。建造上限受该地资源量限制(市政厅另需本地已用位≥6且每地块限1)。",
+        "name": "build", "description": "在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥3；市政厅需本地已用位≥6且每地块限1。",
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标如 '5 6' 或自家地块名（land 面板有）", "required": True},
                               "building": {"type": "string", "enum": BUILD_NAMES, "description": "建筑名", "required": True}})}},
     {"type": "function", "function": {
@@ -1163,7 +1163,7 @@ def _default_system_prompt(world, name) -> str:
         "油=装备厂原料+油电厂燃料；装=征兵(5/军)；补给=每军每回合耗1，仓空军队挨饿。\n"
         "【生产链（事实）】林场/农场/矿场/石油厂/黄金矿场=采集；木材厂(耗1木→2电)/油电厂(耗1油→5电)=发电，"
         "电不存储，电网不足则补给厂/装备厂/兵营/市政厅全停摆；补给厂(粮1+矿1→补给2)；装备厂(矿1+油1→装备2)；"
-        "兵营(耗1电)每回合可征1军(10粮5装)；黄金矿场+10金/回合；也可世界市场 buy/sell 换黄金。\n"
+        "兵营(耗1电，需本地建筑位≥3)每回合可征1军(10粮5装)；黄金矿场+10金/回合；也可世界市场 buy/sell 换黄金。\n"
         "【扩张与战争（事实）】占地一律走 atk：派军进目标格，有守军(野人/敌军)就打赢再占、"
         "敌人=0 就直接进驻占领；mv 只是挪位置，不占地。荒地/敌空城都这样占。"
         "撤出攻守对等：交战中的军队（含防守方）离开战场一律用 retreat（挨敌方一击约半回合战损、固定只能退相邻1格）；mv 不能从交战地撤离；"
@@ -1513,7 +1513,10 @@ def dummy_turn(world, name, rng, max_actions: int = 12) -> int:
             cr = BUILDINGS[bn]["cap_resource"]
             cnt = t["buildings"][bn]
             if cr is None:
-                if cnt < 3:  # 不限资源的地（如兵营）：任地可建，留点节制
+                ms = BUILDINGS[bn].get("min_slots", 0)
+                if ms and sum(t["buildings"].values()) < ms:
+                    continue  # 兵营/市政厅等：需本地建筑位达标
+                if cnt < 3:  # 不限资源的地（如能源厂/工厂）：任地可建，留点节制
                     out.append((x, y))
             elif t["resources"].get(cr, 0) > cnt:
                 out.append((x, y))
