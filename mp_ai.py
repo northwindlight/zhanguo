@@ -1216,16 +1216,24 @@ def _merge_same_role(msgs: list[dict]) -> list[dict]:
     return out
 
 
-def _store_turn_memory(world, name, messages, base: int, window: int) -> None:
+def _store_turn_memory(world, name, messages, base: int, window: int,
+                       cap: int = 0) -> None:
     """把本回合新增的消息（messages[base:]）存入该国 turn_memory，只留最近 window 回合。
 
     只存本回合 append 的部分（base 之前是历史 replay），避免把整个历史嵌进每条记录、
     记录间二次方膨胀。首条加 user 回合标记，回放时分隔回合边界。
+    cap>0 时单条消息 content 截断（小上下文模式用；只截 content，
+    reasoning_content 不动——带 tools 时文档要求完整回传）。
     """
     if name not in world.nations:
         return
     body = messages[base:]
-    rec = [{"role": "user", "content": f"【第{world.turn}回合 行动记录】"}] + [dict(m) for m in body]
+    rec = [{"role": "user", "content": f"【第{world.turn}回合 行动记录】"}]
+    for m in body:
+        m = dict(m)
+        if m.get("content"):
+            m["content"] = _cap_text(str(m["content"]), cap)
+        rec.append(m)
     mem = world.turn_memory.setdefault(name, [])
     mem.append({"turn": world.turn, "messages": rec})
     # 按块滑动：多攒 SLIDE_CHUNK 回合再一次性砍回 window——从 replay 中段删记录会让
@@ -1266,6 +1274,20 @@ def build_context(world, name, window: int) -> list[dict]:
 
 MEMORY_SLIDE_CHUNK = 10  # replay 窗口按块滑动的块长（见 _store_turn_memory）
 
+# 小上下文模式（cfg: small_ctx=true 或 CLI --small-ctx）：让 256k 级模型吃下几百回合。
+# 架构本身可扩展（窗口外回合只剩一行小结），体积全在窗口内 replay——三板斧：
+# ①窗口缩到 6 ②存档记忆单条消息截断 ③默认关思考（思考模式文档要求带 tools 时
+# 历史 reasoning_content 必须完整回传，是最大体积来源；显式配置 thinking 可覆盖）。
+SMALL_CTX_WINDOW = 6
+SMALL_CTX_MSG_CAP = 1200
+
+
+def _cap_text(s: str, cap: int) -> str:
+    s = s or ""
+    if cap <= 0 or len(s) <= cap:
+        return s
+    return s[:cap] + f"…（已截断，原文{len(s)}字符）"
+
 
 def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
     """跑一国一回合：反复调 LLM 用工具，直到 end_turn/无工具/步数上限。返回执行次数。
@@ -1285,7 +1307,11 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
         raise TimeoutError("API 调用超时（> %ds）" % int(cfg.get("api_timeout", 180)))
 
     signal.signal(signal.SIGALRM, _timeout_handler)
-    window = int(cfg.get("ctx_full_turns", 20))  # 跨回合持久上下文窗口：最近 N 回合完整保留（含思考），更早用回合小结
+    # 小上下文模式：窗口缩到 6、存档记忆单条截断；thinking 未显式配置时默认关闭
+    # （带 tools 的思考模式要求历史 reasoning_content 完整回传，是最大体积来源）
+    small = bool(cfg.get("small_ctx"))
+    window = int(cfg.get("ctx_full_turns", SMALL_CTX_WINDOW if small else 20))
+    msg_cap = SMALL_CTX_MSG_CAP if small else 0
     messages = build_context(world, name, window)
     base = len(messages)  # 本回合新增消息的起点（base 之前是历史 replay，存储时不再重复）
     done = 0
@@ -1306,7 +1332,7 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                 f"首token均{agg['first'] / agg['calls']:.0f}s｜最长无输出{agg['maxgap']:.0f}s｜"
                 f"真正输出{agg['stream']:.0f}s｜速度{speed:.1f}tok/s",
                 phase="事件")
-        _store_turn_memory(world, name, messages, base, window)
+        _store_turn_memory(world, name, messages, base, window, cap=msg_cap)
         return d
 
     for step in range(max_steps):
@@ -1316,7 +1342,9 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
             extra = {}
             # deepseek-v4：thinking 开关 + reasoning_effort（low/medium/high）
             if "thinking" in cfg:
-                extra["thinking"] = {"type": cfg["thinking"]}  # "enabled"/"disabled"
+                extra["thinking"] = {"type": cfg["thinking"]}
+            elif small:
+                extra["thinking"] = {"type": "disabled"}  # 小上下文默认关思考  # "enabled"/"disabled"
             if cfg.get("reasoning_effort"):
                 extra["reasoning_effort"] = cfg["reasoning_effort"]
             api_timeout = int(cfg.get("api_timeout", 180))

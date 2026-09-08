@@ -11,6 +11,7 @@ Observer（你）能看到：每个国家的每个行动、每封信、每场战
     python3 mp_run.py --new               # 强制重开（覆盖存档）
     python3 mp_run.py --turns 5           # 只跑 5 回合
     python3 mp_run.py --save x.json       # 覆盖存档路径（默认 mp_save.json）
+    python3 mp_run.py --small-ctx         # 小上下文模式（256k 级模型跑几百回合）
 """
 
 from __future__ import annotations
@@ -143,9 +144,16 @@ def run() -> None:
     ap.add_argument("--new", action="store_true", help="强制开新局")
     ap.add_argument("--turns", type=int, default=None, help="最多跑多少回合")
     ap.add_argument("--save", default=None)
+    ap.add_argument("--small-ctx", action="store_true",
+                    help="小上下文模式：全部国家启用（窗口缩到6/存档记忆单条截断1200字符/"
+                         "默认关思考），供 256k 级上下文模型跑几百回合；也可在配置里"
+                         "按国家写 \"small_ctx\": true")
     args = ap.parse_args()
 
     cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
+    if args.small_ctx:
+        for n in cfg["nations"]:
+            n["small_ctx"] = True
     save_path = Path(args.save or cfg.get("save", "mp_save.json"))
     journal_path = Path(cfg.get("journal", "mp_journal.md"))
     max_turns = args.turns if args.turns is not None else cfg.get("max_turns", 200)
