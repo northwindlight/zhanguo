@@ -635,7 +635,7 @@ class World:
         for a in targets:
             if a.get("engaged") and (a["x"], a["y"]) != (x, y):
                 return False, (f"{a['name']} 正在交战中，不能离开战场改攻他处；"
-                               f"想脱战先 retreat 军队id 目标格（会挨一击）")
+                               f"想脱战先 retreat 军队id 目标格（回合末随战斗结算后脱离）")
             if max(abs(a["x"] - x), abs(a["y"] - y)) > unit_speed(a):
                 return False, (f"{a['name']} 距 ({x + 1},{y + 1}) 超出"
                                f"{UNIT_TYPES[unit_kind(a)]['label']} 移动范围（{unit_speed(a)} 格），冲不进去")
@@ -650,7 +650,7 @@ class World:
         names = "、".join(f"{a['name']}({a['hp']}hp)" for a in targets)
         return True, (
             f"{names} 冲入 ({x + 1},{y + 1}) 与野人交战。"
-            f"之后每过一回合（n）掷骰结算一轮；想走先 retreat 军队id 目标格（会挨一击）。"
+            f"之后每过一回合（n）掷骰结算一轮；想走先 retreat 军队id 目标格（回合末随战斗结算后脱离）。"
         )
 
     def retreat(self, army_id: int, x: int, y: int) -> tuple[bool, str]:
@@ -668,21 +668,13 @@ class World:
             return False, "撤退固定只能退相邻 1 格（3×3），超出范围"
         if a.get("moved_turn") == self.turn:
             return False, f"{a['name']} 本回合已移动/进攻过，移动额度用尽，撤不出（下回合再撤）"
-        defs = [d for d in self.armies if d["owner"] == "野人" and (d["x"], d["y"]) == (a["x"], a["y"]) and d["hp"] > 0]
-        hurt = ""
-        if defs:
-            die, mod = self._roll_combat_die()
-            dmg = self._round_damage(self._combat_power(len(defs), 0), mod)
-            a["hp"] -= dmg
-            hurt = f"，撤出时挨野人一击 {-dmg}HP（骰{die} 修正{mod:+d}%）"
-            if a["hp"] <= 0:
-                self.armies.remove(a)
-                return False, f"{a['name']} 撤出时被野人击杀（HP≤0）"
-        a["engaged"] = False
-        a["x"], a["y"] = x, y
+        # 撤退不立刻结算：标记 retreat_to 留在原地，本回合结束时随战斗结算走正常战斗机制
+        # （野人伤害全场分摊，撤退者在场照常吃自己那份），结算后自动脱离到目标格。
+        a["retreat_to"] = [x, y]
         a["moved_turn"] = self.turn
         return True, (
-            f"{a['name']} 撤到 ({x + 1},{y + 1}){hurt}，脱离交战；下回合可正常行动"
+            f"{a['name']} 准备撤到 ({x + 1},{y + 1})：本回合结束时随战斗结算（全场分摊）后"
+            f"自动脱离；结算期间仍在战场"
         )
 
     def _advance_battles(self) -> tuple[list[str], set[int]]:
@@ -860,6 +852,16 @@ class World:
 
         # 战争推进：每处交战地块结算一个战斗回合（本回合共用一颗骰子）
         wars, participants = self._advance_battles()
+
+        # 撤退落地：撤退军队已随本轮战斗结算（全场分摊），此刻脱离到目标格
+        for a in [a for a in self.armies if a.get("retreat_to")]:
+            tx, ty = a["retreat_to"]
+            a.pop("retreat_to", None)
+            participants.add(id(a))  # 结算期间仍在战场：本回合不回血
+            if a["hp"] <= 0:
+                continue  # 结算中阵亡，撤不成了（战报已记）
+            a["x"], a["y"] = tx, ty
+            a["engaged"] = False
 
         # 军队全局补给维持 + 回复：补给仓全局扣（不分地块），每支军队 1 补给/回合；
         # 断供则全国军队扣血（HP≤0 阵亡），断供/交战的军队本回合不回复

@@ -69,7 +69,7 @@ SPY_COST = 100    # 经济间谍 花 100 金
 SPY_TURNS = 3     # 3 回合后回报目标全部经济情报 + 地图（进 intel）；军情只给粗略数量（各兵种几支），位置/血量不外泄
 DIPLO_COST = 10   # 外交基础费用：提议/回应/断盟/保障/宣战/求和/换图/馈赠手续费（成功才扣）
 LETTER_COST = 20  # 信件单独费用
-RETREAT_DMG_RATIO = 0.5  # 撤退挨一击 = 敌方半回合战损（改 0.25 更轻、1.0=全额）
+RETREAT_DEF_COVER = 50   # 防御方撤退：回合末战斗结算中只受 50% 伤害（进攻方撤退全额；0=不减伤、100=免伤）
 PLAN_MAX_TURNS = 10  # 国策每 10 回合必须修订一次（否则 end_turn 被拦）
 
 
@@ -563,11 +563,11 @@ class World:
             return False, f"军队 {aid} 不存在"
         if a.get("engaged"):
             return False, f"{a['name']} 交战中，先 retreat 撤出"
-        # 交战地中的军队（含防守方）不能直接 mv 撤离——撤出走 retreat（会挨一击）
+        # 交战地中的军队（含防守方）不能直接 mv 撤离——撤出走 retreat（回合末随战斗结算后脱离）
         if any(d["owner"] != a["owner"] and d["owner"] != "野人" and d.get("engaged")
                and (d["x"], d["y"]) == (a["x"], a["y"]) and self.war_between(a["owner"], d["owner"])
                for d in self.armies):
-            return False, f"{a['name']} 所在格正在交战，不能直接 mv 撤离；撤出请用 retreat（会挨一击）"
+            return False, f"{a['name']} 所在格正在交战，不能直接 mv 撤离；撤出请用 retreat（回合末随战斗结算后脱离）"
         try:
             self._check(x, y)
         except IndexError as e:
@@ -644,9 +644,10 @@ class World:
 
     def retreat(self, name: str, aid: int, x: int, y: int) -> tuple[bool, str]:
         """撤出：与 mv/atk 同一个『每回合一次移动』额度。
-        交战中的军队（含防守方守军）都能用——挨敌方一击（约半回合战损）+ 耗移动；
-        撤退固定只能退相邻 1 格（3×3，所有人，不按兵种速度）；
-        目标限 己方/同盟/无人荒地（中立与敌国格都不行）；四周没有合法撤退点则不能撤退。"""
+        交战中的军队（含防守方守军）都能用；撤退固定只能退相邻 1 格（3×3，所有人，不按兵种速度）；
+        目标限 己方/同盟/无人荒地（中立与敌国格都不行）；四周没有合法撤退点则不能撤退。
+        撤退不立刻结算：军队留在战场参与本回合末的战斗结算（伤害全场分摊；防御方撤退减伤
+        RETREAT_DEF_COVER%），结算后自动脱离到目标格——避免『每撤一支各吃一次全额』的灾难。"""
         a = self._army(name, aid)
         if a is None:
             return False, f"军队 {aid} 不存在"
@@ -672,21 +673,18 @@ class World:
             return False, f"{a['name']} 本回合已移动/进攻过，移动额度用尽，撤不出（下回合再撤）"
         if not self._retreat_legal(name, x, y):
             return False, "不能撤到敌国或中立国的格子；只能撤向 己方/同盟/无人荒地"
-        defs = self._defs_at(name, a["x"], a["y"])
-        hurt = ""
-        if defs:
-            _d, mod = self._die()
-            full = self._round_damage(self._combat_power(len(defs), 0), mod)
-            dmg = int(full * RETREAT_DMG_RATIO)
-            a["hp"] -= dmg
-            hurt = f"，撤出时挨敌一击 -{dmg}HP"
-            if a["hp"] <= 0:
-                self.armies.remove(a)
-                return False, f"{a['name']} 撤出时被守军击杀{hurt}"
-        a["engaged"] = False
-        a["x"], a["y"] = x, y
+        # 撤退不立刻结算：标记 retreat_to 留在原地，本回合结束时随战斗结算走正常战斗机制
+        # （敌方伤害全场分摊，撤退者在场照常吃自己那份；防御方撤退减伤 RETREAT_DEF_COVER%），
+        # 结算后自动脱离到目标格（见 resolve_turn 撤退落地）。
+        holder = self.owned_by(a["x"], a["y"])
+        cover = RETREAT_DEF_COVER if (holder == name or
+                 (holder is not None and self.allied_between(name, holder))) else 100
+        a["retreat_to"] = [x, y]
+        a["retreat_cover"] = cover
         a["moved_turn"] = self.turn
-        return True, f"{a['name']} 撤到 ({x+1},{y+1}){hurt}，脱离交战；下回合可正常行动"
+        note = f"（防御方撤退，结算减伤 {100 - cover}%）" if cover < 100 else ""
+        return True, (f"{a['name']} 准备撤到 ({x+1},{y+1}){note}：本回合结束时随战斗结算"
+                      f"（全场分摊）后自动脱离；结算期间仍在战场")
 
     # ------------------------------------------------------------- 战斗
     def _die(self):
@@ -766,8 +764,20 @@ class World:
                 for G in en:
                     dmg[G] += max(1, round(share * (100 - soak[G]) / 100))
             for F in forces:
-                if dmg[F]:
+                if not dmg[F]:
+                    continue
+                ws = [a.get("retreat_cover", 100) for a in forces[F]]
+                if all(w == 100 for w in ws):
                     self._spread(dmg[F], forces[F])
+                else:
+                    # 有撤退军队在场：按权重分摊（防御方撤退 cover=50 即半份，进攻方 100 全额）
+                    sw = sum(ws)
+                    takes = [dmg[F] * w // sw for w in ws]
+                    rem = int(dmg[F] - sum(takes))
+                    for i in range(rem):
+                        takes[i % len(takes)] += 1
+                    for a, tk in zip(forces[F], takes):
+                        a["hp"] -= tk
             for a in list(self.armies):
                 if (a["x"], a["y"]) == (x, y) and a["hp"] <= 0:
                     self.armies.remove(a)
@@ -979,6 +989,27 @@ class World:
         war_lines = self._resolve_battles()
         for ln in war_lines:
             self.log(ln, phase="战报")
+
+        # 3.5) 撤退落地：撤退军队已随本轮战斗结算（全场分摊），此刻脱离到目标格
+        for a in [a for a in self.armies if a.get("retreat_to")]:
+            tx, ty = a["retreat_to"]
+            a.pop("retreat_to", None)
+            a.pop("retreat_cover", None)
+            if a["hp"] <= 0:
+                continue  # 结算中阵亡，撤不成了（战报已记）
+            if self._retreat_legal(a["owner"], tx, ty):
+                a["x"], a["y"] = tx, ty
+                a["engaged"] = False
+                self.log(f"{a['name']} 撤到 ({tx+1},{ty+1})，脱离交战", phase="战报")
+            else:
+                alts = [(nx, ny) for nx, ny in self.neighbors(a["x"], a["y"])
+                        if (nx, ny) != (a["x"], a["y"]) and self._retreat_legal(a["owner"], nx, ny)]
+                if alts:
+                    a["x"], a["y"] = alts[0]
+                    a["engaged"] = False
+                    self.log(f"{a['name']} 撤退目标格战局生变，改撤 ({alts[0][0]+1},{alts[0][1]+1})", phase="战报")
+                else:
+                    self.log(f"{a['name']} 撤退目标格已不合法且四周无可退点，原地留守", phase="战报")
 
         # 4) 军队补给 + 回复（每国吃自己的补给仓）
         famine = {}
