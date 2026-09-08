@@ -400,7 +400,7 @@ class World:
             return False, f"{building} 需该地块已用建筑位 ≥{info['min_slots']}（现 {used}），先在本地建满再盖"
         if info.get("limit") and b[building] >= info["limit"]:
             return False, f"{building} 已达上限（每地块 {info['limit']} 座）"
-        # 造价（城堡逐级递增）+ 木材
+        # 造价（城堡逐级递增）+ 木材；地形施工惩罚只上浮金价，木材不变
         level = b[building]
         if info["kind"] == "castle":
             cost = info["cost"][level]
@@ -408,6 +408,9 @@ class World:
         else:
             cost = info["cost"]
             label = building
+        bp = TERRAIN_STATS[tile["terrain"]]["build_penalty"]
+        if bp:
+            cost = cost * (100 + bp) // 100
         wood = info["wood"]
         if self.gold < cost:
             return False, f"黄金不足：{label} 需 {cost} 金，国库 {self.gold}"
@@ -417,7 +420,9 @@ class World:
         self.wood -= wood
         b[building] += 1
         tile["built_this_turn"] = 1
-        return True, f"建成 {label}（-{cost} 金 -{wood} 木），国库 {self.gold}，木材 {self.wood}"
+        note = f"{tile['terrain']}施工+{bp}%" if bp else ""
+        sep = f"（{note}，" if note else "（"
+        return True, f"建成 {label}{sep}-{cost} 金 -{wood} 木），国库 {self.gold}，木材 {self.wood}"
 
     # ---- 世界市场 ----
     # 玩家与外部世界买卖物资换黄金（黄金是货币、不可交易）。价格受简单供需影响：

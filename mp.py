@@ -419,8 +419,11 @@ class World:
         lv = eff[building]
         cost = info["cost"][lv] if info["kind"] == "castle" else info["cost"]
         label = f"城堡L{lv+1}" if info["kind"] == "castle" else building
+        bp = TERRAIN_STATS[t["terrain"]]["build_penalty"]   # 地形施工惩罚（只上浮金价，木材不变）
+        if bp:
+            cost = cost * (100 + bp) // 100
         if self.polity.get(name) == "huns":
-            cost = (cost * 13 + 9) // 10   # 匈奴 +30% 建筑惩罚（不擅建设，靠抢）
+            cost = cost * 13 // 10   # 匈奴 +30% 建筑惩罚，乘算（不擅建设，靠抢）
         wood = info["wood"]
         if self.res(name, "黄金") < cost:
             return False, f"黄金不足：{label} 需 {cost}，国库 {self.res(name,'黄金')}"
@@ -431,7 +434,8 @@ class World:
         t["pending"][building] += 1  # 在建，回合末才落地
         t["built_this_turn"] = 1
         tile_name = t["name"]
-        return True, f"动工 {label}（@{tile_name}，本回合在建、下回合生效），-{cost}金 -{wood}木"
+        note = f"，{t['terrain']}施工+{bp}%" if bp else ""
+        return True, f"动工 {label}（@{tile_name}{note}，本回合在建、下回合生效），-{cost}金 -{wood}木"
 
     def recruit(self, name: str, x: int, y: int, n: int = 1, kind: str = "步") -> tuple[bool, str]:
         t = self.tiles.get((x, y))
