@@ -609,7 +609,7 @@ def _fmt_spy(world, name) -> str:
 
 
 def _gval(world, good: str, amt: int) -> float:
-    """按当前市价把 amt 单位 good 折成金（黄金固定按 MARKET 兑换额）。"""
+    """按当前市价把 amt 单位 good 折成金（黄金=矿场产出，按 MARKET['黄金'] 折算）。"""
     if amt <= 0:
         return 0.0
     if good == "黄金":
