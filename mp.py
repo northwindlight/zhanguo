@@ -1587,6 +1587,29 @@ class World:
         self.log(f"👑 {a} 把联盟「{bloc['name']}」盟主之位移交给 {to}", phase="外交", nation=a)
         return True, f"已把「{bloc['name']}」盟主之位移交给 {to}"
 
+    def bloc_rename(self, a: str, new_name: str) -> tuple[bool, str]:
+        """盟主给联盟改名（只有盟主能改）。命名规则与立盟一致：1~12 字、不含空格、全局唯一。"""
+        bloc = self.bloc_of(a)
+        if bloc is None:
+            return False, "你不在任何联盟中"
+        chief = self.bloc_chief(bloc)
+        if chief != a:
+            return False, f"只有盟主能给联盟改名（现任盟主是 {chief}）"
+        name = (new_name or "").strip()
+        if not name or " " in name or len(name) > 12:
+            return False, "联盟名需为 1~12 字、不含空格（name 参数）"
+        if name == bloc["name"]:
+            return False, f"你的联盟已经叫「{name}」了"
+        if self.bloc_by_name(name) is not None:
+            return False, f"联盟名「{name}」已被占用"
+        old = bloc["name"]
+        bloc["name"] = name
+        for v in self.votes:        # 进行中的投票按联盟名索引，一并改掉，免得面板/日志对不上
+            if v["bloc"] == old:
+                v["bloc"] = name
+        self.log(f"🏷 盟主 {a} 把联盟「{old}」改名为「{name}」", phase="外交", nation=a)
+        return True, f"联盟已改名：「{old}」→「{name}」"
+
     def bloc_dissolve(self, a: str) -> tuple[bool, str]:
         """盟主解散联盟（只有盟主能调）。战争期间不得解散——防止盟主用解散脱战坑盟友。"""
         bloc = self.bloc_of(a)

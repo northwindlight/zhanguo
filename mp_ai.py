@@ -68,6 +68,7 @@ HUNS_BLOCKED = {
     "bloc_found", "结盟", "发起结盟", "bloc_join", "入盟", "申请入盟",
     "bloc_leave", "退盟", "退出联盟", "vote", "投票",
     "bloc_transfer", "移交盟主", "bloc_dissolve", "解散联盟",
+    "bloc_rename", "改盟名", "联盟改名",
 }
 
 # 匈奴教义（喂给匈奴 AI，令其贯彻）
@@ -201,8 +202,8 @@ def _fmt_diplomacy(world, name) -> str:
     bloc = world.bloc_of(name)
     if bloc is not None:
         chief = world.bloc_chief(bloc)
-        me_chief = "（你是盟主：可否决议案、可移交盟主、可解散联盟；盟主不能退盟）" \
-            if chief == name else f"（盟主 {chief} 可否决议案；盟主不能退盟）"
+        me_chief = ("（你是盟主：可否决议案、可改盟名、可移交盟主、可解散联盟；盟主不能退盟）"
+                    if chief == name else f"（盟主 {chief} 可否决议案；盟主不能退盟）")
         lines.append(
             f"  🤝 你的联盟「{bloc['name']}」（盟主 {chief}）成员：{'、'.join(bloc['members'])}"
             " —— 盟内互通领土/互不攻击/共享视野/外交免费；进攻战争须联盟投票；"
@@ -433,14 +434,16 @@ def _help_sections() -> list[tuple[str, str]]:
             "野人=无人荒地守军（100HP、自给自足、不主动打）。"
         )),
         ("联盟与核心领土", (
-            "联盟（多边实体）：bloc_found(name=联盟名, tos=[创始成员…]) 发起，全体创始成员 "
-            "respond_proposal 接受后才成立（任一拒绝即流产）；**发起方自动成为盟主**（盟主身份随立盟确定，"
-            "与谁先开战无关）。一国同时只属一个联盟。"
+            "联盟（多边实体）：bloc_found(name=联盟名, tos=[创始成员…]) 发起——**联盟名必填**"
+            "（1~12 字、不含空格、全局唯一），全体创始成员 respond_proposal 接受后才成立"
+            "（任一拒绝即流产）；**发起方自动成为盟主**（盟主身份随立盟确定，与谁先开战无关）。"
+            "一国同时只属一个联盟。"
             "入盟：bloc_join(name=联盟名) 申请，现成员投票——**赞成 > 反对即通过**（弃权不计入分母）。"
             "退盟：普通成员 bloc_leave 单方面立即退出、无须任何人同意（已参战的战线不因此退出；滞留在前盟友"
             "领土的军队回合末自动遣返）。**盟主不能退盟**：只能 bloc_transfer(to=成员) 移交，或 bloc_dissolve "
             "解散；盟主亡国时由加入最早的剩余成员继承。"
-            "盟主特权：对任何联盟投票**一票否决**（投 no 即作废）、可移交盟主、可解散联盟。"
+            "盟主特权：对任何联盟投票**一票否决**（投 no 即作废）、可 bloc_rename 改盟名、"
+            "可 bloc_transfer 移交盟主、可 bloc_dissolve 解散联盟。"
             "盟内效果：互通领土（自由通行、合法撤退地）、互不攻击、共享视野（盟友地盘及其相邻一圈你都看得见）、"
             "成员之间的外交动作（写信/馈赠/换图/投票/回应邀约）全部免费。"
             "战争：联盟成员不能擅自开战——declare_war 自动转为宣战投票，**赞成 > 反对**即全盟对目标宣战"
@@ -954,6 +957,9 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
                        str(args.get("name", args.get("bloc", ""))))
     if tool in ("bloc_leave", "退盟", "退出联盟"):
         return _charge(world, actor, DIPLO_COST, world.bloc_leave, actor)
+    if tool in ("bloc_rename", "改盟名", "联盟改名"):
+        return _charge(world, actor, 0, world.bloc_rename, actor,
+                       str(args.get("name", "")))      # 盟内操作免费
     if tool in ("bloc_transfer", "移交盟主"):
         return _charge(world, actor, 0, world.bloc_transfer, actor,
                        str(args.get("to", "")))      # 盟内操作免费
@@ -1131,7 +1137,7 @@ TOOL_SCHEMAS = [
         "name": "plan", "description": "制定或修订你的国策（长期战略目标），会永久常驻你的上下文（【国策规划】标记），直到你再次修订。⚠ 结束回合(end_turn)前必须已有国策；且每 10 回合必须修订一次，否则 end_turn 会被拦。建议按四方面写：经济发展（粮木矿油/建设/卖买）、军事规划（扩军/攻防/结盟）、情报管理（间谍/换图/来信研判）、外交方向（结盟/宣战/求和/馈赠立场）。",
         "parameters": _props({"content": {"type": "string", "description": "国策内容", "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_found", "description": "发起结盟（多边联盟）：给联盟起名并邀请创始成员。全体创始成员 respond_proposal 接受后联盟成立（任一拒绝即流产），**发起方自动成为盟主**。盟内效果：互通领土/互不攻击/共享视野/成员间外交免费；进攻战争须联盟投票；议和由盟主出面并经投票；同战线自动归还核心领土。**战争期间不能缔结同盟**。发起扣 10 金。",
+        "name": "bloc_found", "description": "发起结盟（多边联盟）：**必须给联盟起名**（1~12 字、不含空格、全局唯一）并邀请创始成员。全体创始成员 respond_proposal 接受后联盟成立（任一拒绝即流产），**发起方自动成为盟主**。盟内效果：互通领土/互不攻击/共享视野/成员间外交免费；进攻战争须联盟投票；议和由盟主出面并经投票；同战线自动归还核心领土。**战争期间不能缔结同盟**。发起扣 10 金。",
         "parameters": _props({"name": {"type": "string", "description": "联盟名（1~12字，全局唯一）", "required": True},
                               "tos": {"type": "array", "items": {"type": "string"}, "description": "创始成员国名数组（至少1个，须为 countries 里的别国）", "required": True}})}},
     {"type": "function", "function": {
@@ -1140,6 +1146,9 @@ TOOL_SCHEMAS = [
     {"type": "function", "function": {
         "name": "bloc_leave", "description": "退出所在联盟：普通成员单方面退出、立即生效、无须任何人同意（已参战的战线不因此退出；滞留在前盟友领土的军队回合末自动遣返）。**盟主不能退盟**——请先 bloc_transfer 移交，或 bloc_dissolve 解散。扣 10 金。",
         "parameters": _props({})}},
+    {"type": "function", "function": {
+        "name": "bloc_rename", "description": "【盟主专属】给联盟改名（1~12 字、不含空格、全局唯一）。免费。",
+        "parameters": _props({"name": {"type": "string", "description": "新联盟名", "required": True}})}},
     {"type": "function", "function": {
         "name": "bloc_transfer", "description": "【盟主专属】把盟主之位移交给本联盟另一成员（移交后你变成普通成员，从此可自由退盟）。盟主身份由发起方自动获得，只有现任盟主能移交。免费。",
         "parameters": _props({"to": {"type": "string", "description": "接任盟主的成员国名（须在本盟成员里）", "required": True}})}},

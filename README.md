@@ -175,12 +175,12 @@ python3 mp_run.py --turns 10           # 读档续局；无档则新开
 
 ### 联盟与核心领土
 
-- **立盟**：`bloc_found` 起名并邀请创始成员，**全体创始成员接受**才成立（任一拒绝即流产），
-  **发起方自动成为盟主**。一国同时只属一个联盟。
+- **立盟**：`bloc_found` **必须起名**（1~12 字、不含空格、全局唯一）并邀请创始成员，
+  **全体创始成员接受**才成立（任一拒绝即流产），**发起方自动成为盟主**。一国同时只属一个联盟。
 - **入盟**：`bloc_join` 申请，现成员投票——**赞成 > 反对即通过**（弃权不计入分母；不投 = 到期算弃权）。
-- **盟主**：对任何联盟投票有**一票否决**（投 no 即作废）、可 `bloc_transfer` 移交盟主之位、
-  可 `bloc_dissolve` 解散联盟；**盟主不能退盟**（想脱身只能移交或解散）；盟主亡国由最早加入的
-  剩余成员继承。
+- **盟主**：对任何联盟投票有**一票否决**（投 no 即作废）、可 `bloc_rename` 改盟名、
+  可 `bloc_transfer` 移交盟主之位、可 `bloc_dissolve` 解散联盟；**盟主不能退盟**
+  （想脱身只能移交或解散）；盟主亡国由最早加入的剩余成员继承。
 - **退盟**：普通成员 `bloc_leave` 单方面退出、无须任何人同意；只剩盟主一人时联盟自动解散。
 - 盟内效果：**互通领土、互不攻击、共享视野、成员间外交免费**。
 - **进攻战争必须联盟投票**（赞成>反对通过后全盟参战，盟主为进攻主导）；防守自动参战、无须投票。
@@ -208,7 +208,7 @@ python3 mp_run.py --turns 10           # 读档续局；无档则新开
 ## AI 玩家层
 
 每国一个 LLM agent，能用的工具与人类玩家完全一致（无作弊入口），且**只见自己该知道的**：
-自己的面板/信箱/视野内事件。工具面（32 个）：
+自己的面板/信箱/视野内事件。工具面（33 个）：
 
 | 类别 | 工具 |
 |------|------|
@@ -216,7 +216,7 @@ python3 mp_run.py --turns 10           # 读档续局；无档则新开
 | 内政 | `build`、`recruit`、`buy`、`sell`、`plan` |
 | 军事 | `move`、`attack`、`retreat` |
 | 外交 | `send_letter`、`gift`、`share_map`、`spy`、`propose`、`respond_proposal`、`guarantee`、`cancel_guarantee`、`break_defense`、`declare_war`、`offer_peace`、`accept_peace`、`reject_peace` |
-| 联盟 | `bloc_found`、`bloc_join`、`bloc_leave`、`bloc_transfer`、`bloc_dissolve`、`vote` |
+| 联盟 | `bloc_found`、`bloc_join`、`bloc_leave`、`bloc_rename`、`bloc_transfer`、`bloc_dissolve`、`vote` |
 | 收尾 | `end_turn` |
 
 ### 跨回合上下文（预算驱动 + 缓存友好，实现见 `ctx.py`）
@@ -304,7 +304,7 @@ python3 settlement.py --no-chat    # 只打分
 |------|------|
 | `game.py` | 共享规则层：地形/资源/建筑/兵种/市场全部数值表 + 地块生成函数 |
 | `mp.py` | 多国引擎 `World`：回合结算、战斗、外交、联盟、信箱、视野、存档 |
-| `mp_ai.py` | AI 层：32 个工具（schema + 执行）、system prompt、各面板文本 |
+| `mp_ai.py` | AI 层：33 个工具（schema + 执行）、system prompt、各面板文本 |
 | `ctx.py` | 上下文窗口管理：token 估算、预算分配、缓存友好组装、下滑与归档 |
 | `mp_run.py` | 编排器：无人值守自动一局 + 看海终端 + 中途加国 |
 | `settlement.py` | 终局结算：四维打分 + 结算厅 |

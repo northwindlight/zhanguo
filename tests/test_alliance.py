@@ -75,6 +75,31 @@ class TestChief(unittest.TestCase):
         self.assertTrue(w._eliminate_if_dead("秦"))
         self.assertEqual(w.bloc_chief(b), "楚")                 # 最早加入的剩余成员
 
+    def test_rename_only_by_chief_and_keeps_votes(self):
+        w = make_world()
+        b = make_bloc(w)
+        w.bloc_join("燕", "北盟")
+        vid = w.votes[-1]["id"]
+        self.assertFalse(w.bloc_rename("楚", "南盟")[0])          # 非盟主
+        self.assertFalse(w.bloc_rename("秦", "")[0])              # 必须起名
+        self.assertFalse(w.bloc_rename("秦", "太" * 13)[0])       # 超长
+        self.assertFalse(w.bloc_rename("秦", "北 盟")[0])         # 含空格
+        self.assertFalse(w.bloc_rename("秦", "北盟")[0])          # 与现名相同
+        self.assertTrue(w.bloc_rename("秦", "合纵")[0])
+        self.assertEqual(b["name"], "合纵")
+        self.assertEqual(w.bloc_by_name("合纵"), b)
+        self.assertIsNone(w.bloc_by_name("北盟"))
+        self.assertEqual(w.votes[-1]["bloc"], "合纵")             # 进行中的投票跟着改名
+        self.assertEqual(w.votes[-1]["id"], vid)
+
+    def test_rename_rejects_duplicate_name(self):
+        w = make_world()
+        make_bloc(w)
+        w.add_nation("林胡")
+        w.propose_bloc("林胡", "南盟", ["燕"])          # 第二个联盟占名
+        w.accept_pact("燕", w.proposals[-1]["id"])
+        self.assertFalse(w.bloc_rename("秦", "南盟")[0])
+
     def test_dissolve_only_by_chief(self):
         w = make_world()
         make_bloc(w)
