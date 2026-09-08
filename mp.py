@@ -1042,15 +1042,17 @@ class World:
             self.add_res(n, "补给", -paid)
             short = need - paid
             if short:
+                # 缺口按比例分摊：每军扣 35×缺口/需求（交战中也照扣），至少 1
+                per = max(1, ARMY_STARVE_DAMAGE * short // need)
                 dead = []
                 for a in ps:
-                    a["hp"] -= ARMY_STARVE_DAMAGE
+                    a["hp"] -= per
                     if a["hp"] <= 0:
                         dead.append(a)
                 for a in dead:
                     if a in self.armies:
                         self.armies.remove(a)
-                famine[n] = (short, len(dead))
+                famine[n] = (short, per, len(dead))
                 ps = self.nation_armies(n)
             battle_tiles = {(a["x"], a["y"]) for a in self.armies if a.get("engaged")}
             for a in list(self.armies):
@@ -1059,8 +1061,8 @@ class World:
                 if short or (a["x"], a["y"]) in battle_tiles:
                     continue  # 断粮或所在格正在交战（含防御方守军）→ 不回血
                 a["hp"] = min(ARMY_MAX_HP, a["hp"] + ARMY_HEAL_PER_TURN)
-        for n, (short, dead) in famine.items():
-            self.log(f"⚠ {n} 补给断粮（缺 {short}）：{dead} 支军队饿毙", phase="内政", nation=n)
+        for n, (short, per, dead) in famine.items():
+            self.log(f"⚠ {n} 补给断粮（缺 {short}，每军 -{per}HP）：{dead} 支军队饿毙", phase="内政", nation=n)
 
         # 5) 非法滞留 → 自动遣返（断盟/退盟/停战后必须撤出）
         self._withdraw_illegal()

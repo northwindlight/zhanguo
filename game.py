@@ -162,7 +162,7 @@ def unit_supply(a: dict) -> int:
 
 # 军队属性
 ARMY_MAX_HP = 100
-ARMY_STARVE_DAMAGE = 10   # 补给不足时每回合扣血，HP≤0 阵亡
+ARMY_STARVE_DAMAGE = 35   # 补给不足时按缺口比例扣血（完全断供=35），交战中也照扣，HP≤0 阵亡
 ARMY_HEAL_PER_TURN = 25   # 非战斗（且非断供）军队每回合回复，占满血 25%
 ARMY_ATTACK_DAMAGE = 50   # 每支军队每战斗回合的基础伤害（受防守方地形+城堡防御修正）
 RETREAT_RANGE = 1         # 撤退固定只能退相邻 1 格（3×3，所有人）；正常移动按兵种速度（步1/骑2）

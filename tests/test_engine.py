@@ -113,5 +113,39 @@ class TestHunsDiplomacy(unittest.TestCase):
         self.assertIn("游牧", msg)
 
 
+class TestStarvation(unittest.TestCase):
+    """断粮扣血：35×缺口/需求 按比例分摊（交战中也照扣），HP≤0 饿毙。"""
+
+    @staticmethod
+    def _army(w, i, hp=100):
+        p = next(p for p, t in w.tiles.items() if t["owner"] == "秦")
+        return {"id": i, "gid": 900 + i, "name": f"秦·步{i}军", "type": "步", "hp": hp,
+                "x": p[0], "y": p[1], "owner": "秦", "moved_turn": -1, "engaged": False}
+
+    def _run(self, supply, hps):
+        w = mp.World(size=16, seed=3, nations=["秦", "楚"])
+        w.armies = [self._army(w, i, hp) for i, hp in enumerate(hps, 1)]
+        w.add_res("秦", "补给", -w.res("秦", "补给") + supply)  # 新国无补给建筑，产出恒 0
+        w.resolve_turn()
+        return w, [a["hp"] for a in w.armies]
+
+    def test_partial_shortage_proportional(self):
+        # 3 军 2 补给：缺口 1/3 → 每军 100 - 35*1//3 = 89
+        w, hps = self._run(2, [100, 100, 100])
+        self.assertEqual(hps, [89, 89, 89])
+
+    def test_full_starvation_kills(self):
+        # 完全断供：每军 -35；hp≤0 者饿毙（剩 2 支，各 65）
+        w, hps = self._run(0, [100, 100, 30])
+        self.assertEqual(len(w.armies), 2)
+        self.assertEqual(sorted(hps), [65, 65])
+
+    def test_no_shortage_no_damage(self):
+        w, hps = self._run(50, [80, 80, 80])
+        self.assertEqual(hps, [100, 100, 100])
+        self.assertFalse(any("断粮" in h["text"] for h in w.history))  # 无断粮日志
+        self.assertTrue(any("断粮" in h["text"] for h in self._run(0, [100])[0].history))
+
+
 if __name__ == "__main__":
     unittest.main()
