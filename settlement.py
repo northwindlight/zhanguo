@@ -53,22 +53,20 @@ import unicodedata
 from pathlib import Path
 from types import SimpleNamespace
 
-# ───────────────────────── 常量（与 game.py 基准价保持一致） ─────────────────────────
-BASE_PRICE = {"粮食": 2, "木头": 2, "矿石": 4, "石油": 6, "装备": 8, "补给": 5}
-GOLD_MINE_PER_TURN = 10          # 黄金矿场 +10 金/回合
-TOWN_HALL_BASE = 5               # 市政厅基础金
-TOWN_HALL_PER_SLOT = 1           # 市政厅每建筑位 +1 金
-ENERGY_PRICE = 1                 # 影子电价 = 边际生产成本（木材厂 1木2金→2电 = 1金/电）
-UNIT_SUPPLY = {"步": 1, "骑": 2}  # 每支军队每回合补给耗量
-UNIT_WEIGHT = {"步": 1.0, "骑": 1.5}
-CASTLE_COST = [100, 200, 400, 800, 1600]  # 城堡逐级造价（累计投入求和用）
+from game import (BUILDINGS, MARKET, TOWN_HALL_GOLD, TOWN_HALL_PER_SLOT,
+                  TRADEABLE, UNIT_TYPES)
 
-# 建筑造价/耗木（重置成本用；与 game.py BUILDINGS 表一致）
-BUILD_COST = {
-    "林场": (50, 5), "农场": (60, 5), "矿场": (80, 5), "石油厂": (150, 8),
-    "黄金矿场": (200, 10), "木材能源厂": (120, 15), "石油能源厂": (300, 15),
-    "补给厂": (200, 12), "装备厂": (240, 12), "兵营": (350, 20), "市政厅": (500, 40),
-}
+# ───────────────────────── 常量（一律取自 game.py，避免两处漂移） ─────────────────────────
+BASE_PRICE = {g: MARKET[g] for g in TRADEABLE}   # 基准价（黄金是货币，不在市场内）
+GOLD_MINE_PER_TURN = BUILDINGS["黄金矿场"]["outputs"]["黄金"] * MARKET["黄金"]
+TOWN_HALL_BASE = TOWN_HALL_GOLD                  # 市政厅基础金
+ENERGY_PRICE = 1                 # 影子电价 = 边际生产成本（结算口径，非游戏规则）
+UNIT_SUPPLY = {k: v["supply"] for k, v in UNIT_TYPES.items()}   # 每军每回合补给耗量
+UNIT_WEIGHT = {"步": 1.0, "骑": 1.5}   # 结算口径：军力权重（非游戏规则）
+CASTLE_COST = BUILDINGS["城堡"]["cost"]          # 城堡逐级造价（累计投入求和用）
+# 建筑造价/耗木（重置成本用）；城堡造价是逐级列表，单独按级累计
+BUILD_COST = {name: (info["cost"], info["wood"]) for name, info in BUILDINGS.items()
+              if isinstance(info["cost"], int)}
 
 W_GDP, W_ARMY, W_LAND, W_ASSET = 0.30, 0.25, 0.30, 0.15
 CHAT_ROUNDS = 5

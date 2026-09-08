@@ -1408,6 +1408,15 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                  "maxgap": 0.0, "out_tokens": 0, "reason_tokens": 0,
                  "hit": 0, "miss": 0}
 
+    def _auto_summary(text) -> None:
+        """收尾没带 summary 时，从正文里取一句补进回合小结——否则这一回合在归档里凭空消失。"""
+        line = next((ln.strip() for ln in str(text or "").splitlines() if ln.strip()), "")
+        line = line or "（本回合无小结）"
+        line = (line[:80] + "…") if len(line) > 80 else line
+        engine_call(world.summaries.setdefault(name, []).append,
+                    {"turn": world.turn, "text": line})
+        engine_call(world.log, f"{name} 回合小结（自动归纳）：{line}", phase="行动", nation=name)
+
     def _finish(d: int) -> int:
         if agg.get("calls"):
             speed = (agg["out_tokens"] / agg["stream"]) if agg["stream"] > 0 else 0.0
@@ -1578,12 +1587,29 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
             continue
         # 没有工具调用：
         if content:
-            # 有正文——当作宣告/收尾（把宣告也写进记录，跨回合记忆能回放这次收尾）
+            # 有正文——当作宣告/收尾（把宣告也写进记录，跨回合记忆能回放这次收尾）。
+            # 但不能靠"只说话"绕过 end_turn 的门槛：没有有效国策就先催它 plan，不许收尾。
+            pl = world.plans.get(name)
+            if (not pl or not str(pl.get("text", "")).strip()
+                    or world.turn - pl.get("turn", world.turn) >= PLAN_MAX_TURNS):
+                asst = {"role": "assistant", "content": msg.get("content")}
+                if reasoning:
+                    asst["reasoning_content"] = reasoning
+                messages.append(asst)
+                messages.append({"role": "user", "content":
+                                 "本回合还不能结束：还没有有效国策。请先 plan(content=…) "
+                                 "制定/修订国策，再用 end_turn(summary=…) 收尾。"})
+                stall += 1
+                if stall >= 3:
+                    _auto_summary(msg.get("content"))
+                    return _finish(done)
+                continue
             asst = {"role": "assistant", "content": msg.get("content")}
             if reasoning:
                 asst["reasoning_content"] = reasoning
             messages.append(asst)
             engine_call(world.log, f"{name} 宣告:「{content}」", phase="行动", nation=name)
+            _auto_summary(content)
             if emit:
                 emit(f"🗣 {name} 宣告：「{content}」")
             return _finish(done)

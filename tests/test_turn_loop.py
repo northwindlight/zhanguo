@@ -96,6 +96,61 @@ class _FakeOpenAI:
         _FakeOpenAI.instances.append(self)
 
 
+class _ContentOnlyOpenAI:
+    """冒充 openai.OpenAI：只回一段正文、不调任何工具。"""
+
+    instances: list = []
+
+    def __init__(self, **kw):
+        self.calls: list[dict] = []
+        self.chat = types.SimpleNamespace(completions=self)
+        _ContentOnlyOpenAI.instances.append(self)
+
+    def create(self, **kw):
+        self.calls.append(dict(kw, messages=list(kw["messages"])))
+        return iter([
+            _Chunk([_Choice(_Delta(content="我决定按兵不动，先看看局势再说。"))]),
+            _Chunk([], _Usage()),
+        ])
+
+
+class TestContentOnlyExit(unittest.TestCase):
+    """"只说话不调工具"不能绕过 end_turn 的门槛。"""
+
+    def setUp(self):
+        _ContentOnlyOpenAI.instances.clear()
+        import openai
+        self._orig = openai.OpenAI
+        openai.OpenAI = _ContentOnlyOpenAI
+        self.addCleanup(lambda: setattr(openai, "OpenAI", self._orig))
+
+    def _cfg(self, **kw):
+        cfg = {"base_url": "http://stub", "api_key": "k", "model": "m",
+               "max_tokens": 4000, "max_steps": 4, "ctx_window": 200000}
+        cfg.update(kw)
+        return cfg
+
+    def test_no_plan_gets_nudged_not_finished(self):
+        w = mp.World(size=16, seed=7, nations=["秦", "楚"])
+        w.turn = 1
+        mp_ai.run_openai_turn(w, "秦", self._cfg())
+        msgs = _ContentOnlyOpenAI.instances[0].calls[-1]["messages"]
+        self.assertTrue(any("还没有有效国策" in str(m.get("content")) for m in msgs),
+                        "缺国策时应催它 plan，而不是直接收尾")
+        # 即使它一直不 plan，回合也会被兜底收尾并补一条小结（归档不留空）
+        self.assertEqual(w.summaries["秦"][-1]["turn"], 1)
+
+    def test_plan_present_content_ends_turn_with_auto_summary(self):
+        w = mp.World(size=16, seed=7, nations=["秦", "楚"])
+        w.turn = 3
+        w.plans["秦"] = {"text": "先屯田后扩军。", "turn": 3}
+        n = mp_ai.run_openai_turn(w, "秦", self._cfg())
+        self.assertEqual(n, 0)                       # 没有工具调用
+        self.assertEqual(len(_ContentOnlyOpenAI.instances[0].calls), 1,
+                         "有国策时应一次宣告就收尾")
+        self.assertIn("按兵不动", w.summaries["秦"][-1]["text"])
+
+
 class TestTurnLoop(unittest.TestCase):
     def setUp(self):
         _FakeOpenAI.instances.clear()
