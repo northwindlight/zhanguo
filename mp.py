@@ -92,7 +92,7 @@ class World:
         self._war_id = 0   # 计数器先自增再取值 → 首个 id 为 1
         self.truce: dict[frozenset, int] = {}  # 休战期：边→ 生效至第 N 回合（含），期内不得再宣战
         # 旧双边「同盟」已由多边联盟取代（alliances 仅作旧档迁移暂存，恒空）：
-        # 联盟 = {name 联盟名, members 成员(加入序，members[0]=盟主), turn 创立回合}
+        # 联盟 = {name 联盟名, chief 盟主(发起方，可移交), members 成员(加入序), turn 创立回合}
         self.alliances: list[frozenset] = []
         self.blocs: list[dict] = []
         # 联盟投票：{id, kind: 宣战|议和|入盟, bloc, proposer, payload, votes{国:bool}, turn}
@@ -213,13 +213,38 @@ class World:
                 return b
         return None
 
+    def bloc_chief(self, bloc: dict | None) -> str | None:
+        """联盟盟主。以 chief 字段为准；字段缺失/失效（旧档、盟主已不在）时退回最早加入者。"""
+        if not bloc or not bloc.get("members"):
+            return None
+        c = bloc.get("chief")
+        return c if c in bloc["members"] else bloc["members"][0]
+
+    def at_war(self, name: str) -> bool:
+        """该国是否正卷入任何战争（进攻/防御主导者或跟随方）。"""
+        for w in self.wars:
+            atk, dfs = self._war_sides(w)
+            if name in atk or name in dfs:
+                return True
+        return False
+
+    def _war_brief(self, name: str) -> str:
+        """给"战争期禁止外交"类错误提示用的战线简述。"""
+        for w in self.wars:
+            atk, dfs = self._war_sides(w)
+            if name in atk:
+                return f"{name} 正与 {'、'.join(dfs)} 交战"
+            if name in dfs:
+                return f"{name} 正与 {'、'.join(atk)} 交战"
+        return ""
+
     def bloc_desc(self) -> str:
         """看海/面板用：全部联盟一览。"""
         if not self.blocs:
             return "无联盟"
         parts = []
         for b in self.blocs:
-            chief = b["members"][0] if b["members"] else "?"
+            chief = self.bloc_chief(b) or "?"
             parts.append(f"「{b['name']}」（盟主 {chief}；成员：{'、'.join(b['members'])}）")
         return "  ".join(parts)
 
@@ -859,13 +884,16 @@ class World:
         for w in ended_wars:
             self._snapshot_cores([w["atk"], w["def"]] + list(w["followers"])
                                  + list(w.get("atk_followers", [])))
-        # 联盟清场：盟主/成员亡 → 顺位继承（members[0]）；不足 2 人 → 解散
+        # 联盟清场：盟主亡 → 顺位继承（最早加入的剩余成员）；成员全亡 → 解散
         for bloc in list(self.blocs):
             if name in bloc["members"]:
+                was_chief = self.bloc_chief(bloc) == name
                 bloc["members"].remove(name)
                 if bloc["members"]:
-                    self.log(f"👑 {name} 亡国，盟主之位由 {bloc['members'][0]} 继承（联盟「{bloc['name']}」）",
-                             phase="外交")
+                    if was_chief:
+                        bloc["chief"] = bloc["members"][0]
+                        self.log(f"👑 {name} 亡国，盟主之位由 {bloc['chief']} 继承（联盟「{bloc['name']}」）",
+                                 phase="外交")
                 else:
                     self.blocs.remove(bloc)
                     self.log(f"💔 联盟「{bloc['name']}」因成员凋零而解散", phase="外交")
@@ -1352,6 +1380,10 @@ class World:
         # 同盟/共同防御与保障两两互斥 → 缔结高档时自动升级（解除低档）
         if self.war_between(a, b):
             return False, "交战中不能提议" + kind
+        if self.at_war(a):
+            return False, f"战争期间不能缔结{kind}：{self._war_brief(a)}（先议和）"
+        if self.at_war(b):
+            return False, f"{b} 正在交战，战争期间不能与它缔结{kind}（先议和）"
         if any(p["kind"] == kind and set((p["a"], p["b"])) == {a, b} for p in self.proposals):
             return False, "该提议已在桌上"
         self.proposals.append({"id": self._next_offer_id(), "kind": kind, "a": a, "b": b, "turn": self.turn})
@@ -1371,6 +1403,9 @@ class World:
         if self.war_between(a, b):
             self.proposals.remove(p)
             return False, "你们已交战，不能结盟"
+        if self.at_war(a) or self.at_war(b):
+            self.proposals.remove(p)
+            return False, "战争期间不能缔结盟约（提议作废，先议和）"
         if kind == "共同防御" and _pair(a, b) in self.alliances:
             self.proposals.remove(p)
             return False, "你们已是同盟（更高一档），共同防御提议作废"
@@ -1440,9 +1475,12 @@ class World:
 
     # ------------------------------------------------------------- 联盟
     def propose_bloc(self, a: str, name: str, invitees: list[str]) -> tuple[bool, str]:
-        """发起结盟：起名 + 邀全体创始成员，所有人接受才成立（全体成员同意）。"""
+        """发起结盟：起名 + 邀全体创始成员，所有人接受才成立（全体成员同意）。
+        发起方即盟主；战争期间不得缔结同盟（避免战时抱团脱战）。"""
         if a not in self.nations:
             return False, "发起方必须是现存国家"
+        if self.at_war(a):
+            return False, f"战争期间不能缔结同盟：{self._war_brief(a)}（先议和再谈结盟）"
         if self.bloc_of(a) is not None:
             return False, f"你已在联盟「{self.bloc_of(a)['name']}」中（一国同时只属一个联盟）"
         name = (name or "").strip()
@@ -1460,6 +1498,8 @@ class World:
                 return False, f"{x} 已在联盟「{self.bloc_of(x)['name']}」中"
             if self.polity.get(x) == "huns":
                 return False, f"{x} 是游牧政体，不参与结盟（邀它只会让提议悬空）"
+            if self.at_war(x):
+                return False, f"创始成员 {x} 正在交战，战争期间不能缔结同盟（先议和）"
             inv.append(x)
         if not inv:
             return False, "至少邀请一个创始成员（tos=[国名,…]）；单国无需结盟"
@@ -1497,7 +1537,8 @@ class World:
             for j in range(i + 1, len(members)):
                 if self.war_between(members[i], members[j]):
                     return False, f"立盟失败：{members[i]} 与 {members[j]} 已交战（提议作废）"
-        self.blocs.append({"name": p["name"], "members": members, "turn": self.turn})
+        self.blocs.append({"name": p["name"], "chief": p["a"], "members": members,
+                           "turn": self.turn})
         # 盟内保障/共同防御被联盟覆盖，自动解除（避免双重记账）
         absorbed = []
         for lst, label in ((self.defense_pacts, "共同防御"),):
@@ -1512,27 +1553,67 @@ class World:
         return True, f"联盟「{p['name']}」成立！成员：{'、'.join(members)}，盟主 {p['a']}（你为创始成员）"
 
     def bloc_leave(self, a: str) -> tuple[bool, str]:
-        """单方面退盟：立即生效，无须任何人同意。退盟不退出已参战的战线。"""
+        """普通成员单方面退盟，立即生效。盟主不能退盟（先移交或解散）。退盟不退出已参战的战线。"""
         bloc = self.bloc_of(a)
         if bloc is None:
             return False, "你不在任何联盟中"
-        was_chief = bloc["members"][0] == a
+        if self.bloc_chief(bloc) == a:
+            return False, ("你是盟主，不能退盟——请用 bloc_transfer(to=成员) 移交盟主之位，"
+                           "或 bloc_dissolve 解散联盟")
         bloc["members"].remove(a)
         self.log(f"💔 {a} 单方面退出联盟「{bloc['name']}」", phase="外交", nation=a)
-        if not bloc["members"]:
+        if len(bloc["members"]) < 2:   # 只剩盟主一人 → 联盟自动解散
+            chief = self.bloc_chief(bloc)
             self.blocs.remove(bloc)
             self.votes = [v for v in self.votes if v["bloc"] != bloc["name"]]
-            self.log(f"💔 联盟「{bloc['name']}」成员凋零，解散", phase="外交")
-            return True, f"你已退出「{bloc['name']}」——联盟随之解散"
-        if was_chief:
-            self.log(f"👑 盟主之位由 {bloc['members'][0]} 继承（联盟「{bloc['name']}」）", phase="外交")
+            self.log(f"💔 联盟「{bloc['name']}」仅剩盟主 {chief}，自动解散", phase="外交")
+            return True, f"你已退出「{bloc['name']}」——联盟只剩盟主，随之解散"
         return True, (f"你已单方面退出「{bloc['name']}」。"
                       f"滞留在前盟友领土的军队将自回合末起自动遣返；已参战的战线不因此退出")
 
+    def bloc_transfer(self, a: str, to: str) -> tuple[bool, str]:
+        """盟主移交：把盟主之位让给本联盟另一成员（只有现任盟主能调）。"""
+        bloc = self.bloc_of(a)
+        if bloc is None:
+            return False, "你不在任何联盟中"
+        chief = self.bloc_chief(bloc)
+        if chief != a:
+            return False, f"只有盟主能移交（现任盟主是 {chief}）"
+        if to == a:
+            return False, "不能把盟主之位移交给自己"
+        if to not in bloc["members"]:
+            return False, f"{to} 不是本联盟成员（成员：{'、'.join(bloc['members'])}）"
+        bloc["chief"] = to
+        self.log(f"👑 {a} 把联盟「{bloc['name']}」盟主之位移交给 {to}", phase="外交", nation=a)
+        return True, f"已把「{bloc['name']}」盟主之位移交给 {to}"
+
+    def bloc_dissolve(self, a: str) -> tuple[bool, str]:
+        """盟主解散联盟（只有盟主能调）。战争期间不得解散——防止盟主用解散脱战坑盟友。"""
+        bloc = self.bloc_of(a)
+        if bloc is None:
+            return False, "你不在任何联盟中"
+        chief = self.bloc_chief(bloc)
+        if chief != a:
+            return False, f"只有盟主能解散联盟（现任盟主是 {chief}）"
+        fighting = [m for m in bloc["members"] if self.at_war(m)]
+        if fighting:
+            return False, (f"战争期间不能解散联盟：{'、'.join(fighting)} 正在交战"
+                           "（先议和停战，再解散）")
+        members = list(bloc["members"])
+        self.blocs.remove(bloc)
+        self.votes = [v for v in self.votes if v["bloc"] != bloc["name"]]
+        self.log(f"💔 盟主 {a} 解散联盟「{bloc['name']}」（原成员：{'、'.join(members)}）",
+                 phase="外交", nation=a)
+        return True, (f"已解散联盟「{bloc['name']}」：原成员 {'、'.join(members)} 恢复各自独立"
+                      "（滞留他国领土的军队将自回合末起自动遣返）")
+
     def bloc_join(self, a: str, bloc_name: str) -> tuple[bool, str]:
-        """申请入盟：联盟现成员多数决投票，通过即入盟。"""
+        """申请入盟：联盟现成员投票（赞成 > 反对，盟主可否决），通过即入盟。
+        战争期间不能入盟（先议和）。"""
         if a not in self.nations:
             return False, "申请方必须是现存国家"
+        if self.at_war(a):
+            return False, f"战争期间不能缔结同盟：{self._war_brief(a)}（先议和再谈入盟）"
         bloc = self.bloc_by_name(bloc_name)
         if bloc is None:
             return False, f"联盟「{bloc_name}」不存在（可用面板查联盟列表）"
@@ -1541,10 +1622,10 @@ class World:
         if any(self.war_between(a, m) for m in bloc["members"]):
             return False, "你与该联盟成员正在交战，不能入盟（先议和）"
         v = self._new_vote("入盟", bloc["name"], a, {"candidate": a})
-        self.log(f"🗳 {a} 申请加入联盟「{bloc_name}」（投票#{v['id']}，成员多数决）",
+        self.log(f"🗳 {a} 申请加入联盟「{bloc_name}」（投票#{v['id']}，赞成>反对通过，盟主可否决）",
                  phase="外交", nation=a)
-        return True, (f"已向「{bloc_name}」申请入盟（投票#{v['id']}）：成员多数同意后你即入盟；"
-                      f"成员用 vote {v['id']} true/false 表态")
+        return True, (f"已向「{bloc_name}」申请入盟（投票#{v['id']}）：成员用 "
+                      f"vote {v['id']} yes/no/abstain 表态；赞成多于反对即通过（盟主投 no 可否决）")
 
     # ------------------------------------------------------------- 联盟投票
     def _new_vote(self, kind: str, bloc: str, proposer: str, payload: dict) -> dict:
@@ -1557,8 +1638,9 @@ class World:
         self.votes.append(v)
         return v
 
-    def cast_vote(self, me: str, vote_id: int, approve: bool) -> tuple[bool, str]:
-        """联盟成员对投票表态（每成员一票，可改票）。多数决：赞成 > 半数即通过。"""
+    def cast_vote(self, me: str, vote_id: int, choice) -> tuple[bool, str]:
+        """联盟成员表态：choice = True 赞成 / False 反对 / None 弃权（可改票）。
+        盟主投反对 = 一票否决，议案立即作废。"""
         v = next((x for x in self.votes if x["id"] == vote_id), None)
         if v is None:
             return False, "没有这个投票（diplomacy 面板查看进行中的投票）"
@@ -1567,42 +1649,68 @@ class World:
             return False, "该投票不属于你所在的联盟"
         if v["kind"] == "入盟" and v["payload"].get("candidate") == me:
             return False, "入盟投票由现成员表决，申请人不投票"
-        v["votes"][me] = bool(approve)
-        self.log(f"🗳 {me} 在「{v['bloc']}」投票#{v['id']}（{v['kind']}）：{'赞成' if approve else '反对'}",
+        if choice is False and self.bloc_chief(bloc) == me:
+            self.votes.remove(v)
+            self.log(f"🚫 盟主 {me} 否决了「{v['bloc']}」投票#{v['id']}（{v['kind']}）",
+                     phase="外交", nation=me)
+            return False, f"你以盟主身份否决了投票#{v['id']}（{v['kind']}）——议案立即作废"
+        v["votes"][me] = choice
+        label = "赞成" if choice is True else ("反对" if choice is False else "弃权")
+        self.log(f"🗳 {me} 在「{v['bloc']}」投票#{v['id']}（{v['kind']}）：{label}",
                  phase="外交", nation=me)
         return self._tally(v)
 
+    @staticmethod
+    def _vote_counts(v: dict, members: list[str]) -> tuple[int, int, int, int]:
+        """(赞成, 反对, 弃权, 未投)。未投 = 到期即弃权。"""
+        yes = sum(1 for m in members if v["votes"].get(m) is True)
+        no = sum(1 for m in members if v["votes"].get(m) is False)
+        abst = sum(1 for m in members if m in v["votes"] and v["votes"][m] is None)
+        return yes, no, abst, len(members) - yes - no - abst
+
+    def _pass_vote(self, v: dict, members: list[str], yes: int, no: int, abst: int) -> tuple[bool, str]:
+        """投票通过：移出投票列表、记账、执行。"""
+        self.votes.remove(v)
+        self.log(f"🗳 「{v['bloc']}」投票#{v['id']}（{v['kind']}）通过：赞成 {yes}/反对 {no}/弃权 {abst}",
+                 phase="外交", nation=v["proposer"])
+        ok, msg = self._execute_vote(v)
+        return ok, f"投票通过（赞成 {yes}/反对 {no}）——{msg}"
+
     def _tally(self, v: dict) -> tuple[bool, str]:
-        """多数决判定：赞成 > 半数 → 通过并立即执行；赞成+未投 已不可能过半 → 否决。"""
+        """计票：赞成 > 反对 → 通过并立即执行（弃权不计入分母）；结果已无悬念时提前定论。"""
         bloc = self.bloc_by_name(v["bloc"])
         if bloc is None:
             self.votes.remove(v)
             return False, "联盟已不存在，投票作废"
         members = [m for m in bloc["members"] if m in self.nations]
-        yes = sum(1 for m in members if v["votes"].get(m) is True)
-        no = sum(1 for m in members if v["votes"].get(m) is False)
-        need = len(members) // 2 + 1
-        if yes >= need:
+        yes, no, abst, pending = self._vote_counts(v, members)
+        if yes > no + pending:          # 未投的全投反对也追不上 → 通过
+            return self._pass_vote(v, members, yes, no, abst)
+        if yes + pending <= no:         # 未投的全赞成也超不过 → 未通过
             self.votes.remove(v)
-            self.log(f"🗳 「{v['bloc']}」投票#{v['id']}（{v['kind']}）通过：赞成 {yes}/{len(members)}",
+            self.log(f"🗳 「{v['bloc']}」投票#{v['id']}（{v['kind']}）未通过：赞成 {yes}/反对 {no}",
                      phase="外交", nation=v["proposer"])
-            ok, msg = self._execute_vote(v)
-            return ok, f"投票通过（赞成 {yes}/{len(members)}）——{msg}"
-        if len(members) - no < need:
-            self.votes.remove(v)
-            self.log(f"🗳 「{v['bloc']}」投票#{v['id']}（{v['kind']}）被否决：反对 {no}/{len(members)}",
-                     phase="外交", nation=v["proposer"])
-            return False, f"投票被否决（反对 {no}/{len(members)}）"
-        return True, (f"已记票（赞成 {yes}/反对 {no}/未投 {len(members) - yes - no}，"
-                      f"过半需 {need}）：等其余成员表态")
+            return False, f"投票未通过（赞成 {yes}/反对 {no}，反对已不可能被超过）"
+        return True, (f"已记票（赞成 {yes}/反对 {no}/弃权 {abst}/未投 {pending}，需赞成 > 反对）："
+                      f"等其余成员表态")
 
     def _expire_votes(self) -> None:
-        """结算时清理逾期未决的投票（发起回合的下一回合结束前未决即作废）。"""
+        """结算时处理逾期投票：未投 = 弃权，按 赞成 > 反对 定论（不再直接作废）。"""
         for v in list(self.votes):
-            if self.turn > v["turn"]:
+            if self.turn <= v["turn"]:
+                continue
+            bloc = self.bloc_by_name(v["bloc"])
+            if bloc is None:
                 self.votes.remove(v)
-                self.log(f"🗳 「{v['bloc']}」投票#{v['id']}（{v['kind']}）逾期未决，作废",
-                         phase="外交", nation=v["proposer"])
+                continue
+            members = [m for m in bloc["members"] if m in self.nations]
+            yes, no, abst, pending = self._vote_counts(v, members)
+            if yes > no:
+                self._pass_vote(v, members, yes, no, abst + pending)
+            else:
+                self.votes.remove(v)
+                self.log(f"🗳 「{v['bloc']}」投票#{v['id']}（{v['kind']}）逾期未通过："
+                         f"赞成 {yes}/反对 {no}/弃权 {abst + pending}", phase="外交", nation=v["proposer"])
 
     def _execute_vote(self, v: dict) -> tuple[bool, str]:
         """投票通过后的实际执行。"""
@@ -1613,7 +1721,7 @@ class World:
             target = pl.get("target")
             if not members or target not in self.nations:
                 return False, f"目标 {target} 已不在，宣战落空"
-            chief = members[0]
+            chief = self.bloc_chief(bloc) or members[0]
             return self._declare_war_internal(chief, members, target, v["proposer"])
         if v["kind"] == "入盟":
             bloc = self.bloc_by_name(v["bloc"])
@@ -1684,6 +1792,10 @@ class World:
             return False, "双方必须是两个现存国家"
         if self.war_between(a, b):
             return False, "不能保障正在交战的国家的独立"
+        if self.at_war(a):
+            return False, f"战争期间不能提供保障独立：{self._war_brief(a)}（先议和）"
+        if self.at_war(b):
+            return False, f"战争期间不能保障交战国 {b} 的独立（先议和）"
         if b in self.guarantee_of(a):
             return False, "你已保障该国独立，无须重复"
         if self.allied_between(a, b) or self.dp_between(a, b):
@@ -1836,7 +1948,7 @@ class World:
         if leader in self.nations:
             bloc = self.bloc_of(leader)
             if bloc is not None:
-                chief = bloc["members"][0]
+                chief = self.bloc_chief(bloc)
                 if chief in self.nations and chief != leader:
                     return chief
         return leader
@@ -2134,11 +2246,18 @@ class World:
         w.alliances = [_pair(*p) for p in data.get("alliances", [])]
         # 联盟：新档读 blocs；旧档（无此字段）把双边同盟逐对迁成二人联盟（名=两国名相连+同盟）
         if "blocs" in data:
-            w.blocs = [{"name": str(b.get("name", "?")), "members": [m for m in b.get("members", []) if m in w.nations],
-                        "turn": int(b.get("turn", 0))}
-                       for b in data.get("blocs", []) if b.get("members")]
+            w.blocs = []
+            for b in data.get("blocs", []):
+                members = [m for m in b.get("members", []) if m in w.nations]
+                if not members:
+                    continue
+                chief = b.get("chief")   # 旧档无 chief 字段 → 退回最早加入者
+                w.blocs.append({"name": str(b.get("name", "?")), "members": members,
+                                "chief": chief if chief in members else members[0],
+                                "turn": int(b.get("turn", 0))})
         else:
-            w.blocs = [{"name": "".join(sorted(p)) + "同盟", "members": list(p), "turn": 0}
+            w.blocs = [{"name": "".join(sorted(p)) + "同盟", "members": list(p),
+                        "chief": sorted(p)[0], "turn": 0}
                        for p in data.get("alliances", [])]
             w.alliances = []
         w.votes = [v for v in data.get("votes", []) if isinstance(v, dict) and "id" in v]
