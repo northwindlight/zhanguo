@@ -44,7 +44,11 @@
 四、固定资产（15%）：重置成本 = Σ(造价金 + 耗木 × 木基准价)；
     城堡按已升到的级数计累计投入（Σ 第1..L级造价）。
 
-归一化：每维度 ÷ 存活国最大值 × 100（榜首=100），加权求和 → 总分（满分 100）。
+总分：**取消归一化**——各维度直接用原始值加权求和
+    total = GDP×0.30 + 军力×0.25 + 领土×0.30 + 资产×0.15
+    好处：分数是绝对量，别人涨你不掉分、跨回合跨局可比，榜首不再恒为 100。
+    代价（用户拍板接受）：四个维度量纲不同，资产（数千金的建筑重置成本）在加权总分里
+    占 ~90%，总分排名基本等于资产排名——看明细列，别只看总分。
 ────────────────────────────────────────────────────────────────────────
 """
 import argparse
@@ -193,15 +197,11 @@ def score_asset(save: dict, nation: str) -> tuple[float, list[str]]:
     return total, rows
 
 
-def normalize(vals: dict[str, float]) -> dict[str, float]:
-    top = max(vals.values()) if vals else 0
-    if top <= 0:
-        return {k: 0.0 for k in vals}
-    return {k: v / top * 100 for k, v in vals.items()}
-
-
 def settle(save: dict) -> dict:
-    """返回 {nation: {gdp, army, land, asset, scores{...}, total}}。"""
+    """返回 {nation: {gdp, army, land, asset, *_rows, total}}。
+
+    total = 各维**原始值**加权求和（不归一化）——绝对分数，别人涨你不掉分。
+    """
     alive = list(save["nations"].keys())
     out: dict[str, dict] = {}
     for n in alive:
@@ -211,17 +211,8 @@ def settle(save: dict) -> dict:
         asset, asset_rows = score_asset(save, n)
         out[n] = {"gdp": gdp, "gdp_rows": gdp_rows, "army": army, "n_army": n_army,
                   "land": land, "asset": asset, "asset_rows": asset_rows}
-    s_gdp = normalize({n: out[n]["gdp"] for n in alive})
-    s_army = normalize({n: out[n]["army"] for n in alive})
-    s_land = normalize({n: out[n]["land"] for n in alive})
-    s_asset = normalize({n: out[n]["asset"] for n in alive})
-    for n in alive:
-        out[n]["s_gdp"] = s_gdp[n]
-        out[n]["s_army"] = s_army[n]
-        out[n]["s_land"] = s_land[n]
-        out[n]["s_asset"] = s_asset[n]
-        out[n]["total"] = (s_gdp[n] * W_GDP + s_army[n] * W_ARMY +
-                           s_land[n] * W_LAND + s_asset[n] * W_ASSET)
+        out[n]["total"] = (gdp * W_GDP + army * W_ARMY +
+                           land * W_LAND + asset * W_ASSET)
     return out
 
 
@@ -239,27 +230,27 @@ def _pad(s, width: int, align: str = "left") -> str:
 def scoreboard_text(save: dict, result: dict, remarks: dict[str, str] | None = None) -> str:
     turn = save.get("turn", "?")
     rank = sorted(result, key=lambda n: -result[n]["total"])
-    header = ["排名", "国家", "总分", "GDP/30%", "军力/25%", "领土/30%", "资产/15%"]
+    header = ["排名", "国家", "总分", "GDP", "军力", "领土", "资产"]
     aligns = ["right", "left", "right", "right", "right", "right", "right"]
     rows: list[list[str]] = [header]
     for i, n in enumerate(rank, 1):
         r = result[n]
         rows.append([
             str(i), n, f"{r['total']:.1f}",
-            f"{r['s_gdp']:.1f}({r['gdp']:.0f})",
-            f"{r['s_army']:.1f}({r['army']:.1f})",
-            f"{r['s_land']:.1f}({r['land']})",
-            f"{r['s_asset']:.1f}({r['asset']:.0f})",
+            f"{r['gdp']:.0f}", f"{r['army']:.1f}", f"{r['land']}", f"{r['asset']:.0f}",
         ])
     widths = [max(_dw(row[c]) for row in rows) for c in range(len(header))]
     body = ["  ".join(_pad(row[c], widths[c], aligns[c]) for c in range(len(header)))
             for row in rows]
     body.insert(1, "-" * _dw(body[0]))
-    lines = [f"《战国》第 {turn} 回合 · 终局结算（GDP 30% · 军队 25% · 领土 30% · 固定资产 15%）",
+    lines = [f"《战国》第 {turn} 回合 · 终局结算"
+             "（总分 = GDP×0.30 + 军力×0.25 + 领土×0.30 + 资产×0.15 · 原始值不归一化）",
              ""] + body
     lines.append("")
-    lines.append("口径：GDP=生产法每回合推算(基准价)；军力=ΣHP%×兵种权重(步1.0/骑1.5/民0.6)；"
-                 "领土=地块数；资产=建筑重置成本(基准价)。括号内为原始值。")
+    lines.append("口径：GDP=生产法每回合推算(基准价，金/回合)；军力=ΣHP%×兵种权重(步1.0/骑1.5/民0.4)；"
+                 "领土=地块数；资产=建筑重置成本(基准价，金)。")
+    lines.append("总分用各维原始值直接加权（已取消按榜首归一化）：绝对分数、别人涨你不掉分，"
+                 "但量纲混合——资产(数千金)占大头，排名≈资产排名，看明细别只看总分。")
     if remarks:
         lines.append("")
         lines.append("【看海人寄语】（游戏作者致辞，公开）")
