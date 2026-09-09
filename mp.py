@@ -46,7 +46,6 @@ from game import (
     TOWN_HALL_PER_SLOT,
     TRADEABLE,
     UNIT_TYPES,
-    WATCHTOWER_RADIUS,
     army_name,
     roll_resources,
     roll_tile_name,
@@ -73,12 +72,6 @@ DIPLO_COST = 10   # 外交基础费用：提议/回应/断盟/保障/宣战/求�
 LETTER_COST = 20  # 信件单独费用
 RETREAT_DEF_COVER = 50   # 防御方撤退：回合末战斗结算中只受 50% 伤害（进攻方撤退全额；0=不减伤、100=免伤）
 PLAN_MAX_TURNS = 10  # 国策每 10 回合必须修订一次（否则 end_turn 被拦）
-
-
-def _res_str(res: dict[str, int]) -> str:
-    """资源五项的紧凑文本（矿 金 耕 油 木），侦察情报与地图快照共用。"""
-    return (f"矿{res['矿石']} 金{res['黄金']} 耕{res['耕地']} "
-            f"油{res['石油']} 木{res['木头']}")
 
 
 def _pair(a: str, b: str) -> frozenset:
@@ -130,6 +123,7 @@ class World:
         self.next_army_seq: dict[str, int] = {}  # 各国独立军队序列：从1递增、阵亡不回收
         self.standby: dict[str, int] = {}        # 待登场国 {国名: 登场回合}（带 polity 的配置国），随存档持久化
         self.diplo_built: dict[str, int] = {}    # 各国「自建」外交中心座数（夺地抢来的不计，不影响自建限额）
+        self.militia_recruited: dict[str, int] = {}  # 本回合各国已征民兵数（回合初清零；上限=全国军屯数）
         self.nation_code: dict[str, int] = {}    # 国家码：军队全局唯一id = 码×1e8+序列（野人=0，秦=1→100000001）
         self._next_code = 1
         self.guard_once: set[tuple[int, int]] = set()  # 每格至多出生一支野人：死了就没了，不重生
@@ -196,56 +190,6 @@ class World:
                     fr.add((nx, ny))
         return fr
 
-    def tile_resources(self, x: int, y: int) -> dict[str, int]:
-        """(x,y) 的资源分布——种子纯函数（同 tile_terrain 思路：未占格也能探明，不掷共享 rng）。
-        已占格直接读地块存的值（旧档占用时刻的抽签结果保持不变）。"""
-        t = self.tiles.get((x, y))
-        if t is not None:
-            return t["resources"]
-        ter = self.tile_terrain(x, y)
-        return roll_resources(random.Random(f"{self.seed}:{x}:{y}:r"), ter)
-
-    def _tower_coords(self, name: str) -> set[tuple[int, int]]:
-        """己方/盟方所有瞭望塔半径 WATCHTOWER_RADIUS 圆内的坐标（含己/盟地，调用方自筛）。"""
-        bloc = self.bloc_of(name)
-        out: set[tuple[int, int]] = set()
-        for (tx, ty), t in self.tiles.items():
-            if not t["buildings"].get("瞭望塔"):
-                continue
-            o = t["owner"]
-            if o != name and not (bloc is not None and o in bloc["members"]):
-                continue
-            r = WATCHTOWER_RADIUS
-            for dx in range(-r, r + 1):
-                for dy in range(-r, r + 1):
-                    if dx * dx + dy * dy > r * r:
-                        continue
-                    px, py = tx + dx, ty + dy
-                    if 0 <= px < self.size and 0 <= py < self.size:
-                        out.add((px, py))
-        return out
-
-    def scout_unclaimed(self, name: str) -> set[tuple[int, int]]:
-        """视野内无主格 = 自带视野（国土相邻一圈）∪ 瞭望塔圈内的未占地。"""
-        out = set(self.frontier_of(name))
-        for p in self._tower_coords(name):
-            if self.owned_by(*p) is None:
-                out.add(p)
-        return out
-
-    def scout_foreign(self, name: str) -> set[tuple[int, int]]:
-        """视野内他国地块 = 自带视野相邻一圈 ∪ 瞭望塔圈内的他国占之地（盟友地不算，共享视野已覆盖）。"""
-        cand = set(self._tower_coords(name))
-        for (x, y) in self.own_tiles(name):
-            cand.update(self.neighbors(x, y))
-        bloc = self.bloc_of(name)
-        out: set[tuple[int, int]] = set()
-        for p in cand:
-            o = self.owned_by(*p)
-            if o is not None and o != name and not (bloc is not None and o in bloc["members"]):
-                out.add(p)
-        return out
-
     def nation_building_count(self, name: str, building: str, *, include_pending: bool = False) -> int:
         """name 全部地块上某建筑的已落成座数（include_pending=True 含在建）。"""
         n = 0
@@ -259,8 +203,7 @@ class World:
 
     def visible_to(self, name: str, x: int, y: int) -> bool:
         """name 是否看得见 (x,y)：它本身或相邻格（含对角）有自家的地。
-        联盟共享视野：盟友的地块视同己方（自己+盟友地盘各带相邻一圈）。
-        瞭望塔：己方/盟方任一瞭望塔半径 WATCHTOWER_RADIUS 圆（欧氏）内也可见（事件视野）。"""
+        联盟共享视野：盟友的地块视同己方（自己+盟友地盘各带相邻一圈）。"""
         cand = [(x, y)] + self.neighbors(x, y)
         bloc = self.bloc_of(name)
         for cx, cy in cand:
@@ -268,14 +211,6 @@ class World:
             if o == name:
                 return True
             if bloc is not None and o in bloc["members"]:
-                return True
-        for (tx, ty), t in self.tiles.items():
-            if not t["buildings"].get("瞭望塔"):
-                continue
-            o = t["owner"]
-            if o != name and not (bloc is not None and o in bloc["members"]):
-                continue
-            if (tx - x) ** 2 + (ty - y) ** 2 <= WATCHTOWER_RADIUS ** 2:
                 return True
         return False
 
@@ -370,7 +305,7 @@ class World:
         return {
             "owner": owner,
             "terrain": terrain,
-            "resources": self.tile_resources(x, y),
+            "resources": roll_resources(self.rng, terrain),
             "buildings": {b: 0 for b in BUILDINGS},
             "pending": {b: 0 for b in BUILDINGS},  # 在建（下回合才生效）
             "name": roll_tile_name(self.rng, used),
@@ -588,19 +523,30 @@ class World:
         t = self.tiles.get((x, y))
         if kind not in UNIT_TYPES:
             return False, f"未知兵种：{kind}（可选：{'、'.join(UNIT_TYPES)}）"
-        if kind == "民":
-            return False, "民兵不能征召：由军屯建成后自动提供"
         if name not in self.nations:
             return False, f"国家 {name} 不存在"
         if t is None or t["owner"] != name:
-            return False, "只能在自己有兵营的地块征兵"
-        if self.grid_short.get(name):
-            return False, "全国电网不足，高级建筑（含兵营）停摆，无法征兵"
-        if t["buildings"]["兵营"] <= 0:
-            return False, "该地块没有兵营"
-        cap = t["buildings"]["兵营"] - t["recruited_this_turn"]
-        if cap <= 0:
-            return False, "本回合征召产能已用完（每兵营 1 支/回合）"
+            return False, "只能在自己有兵营/军屯的地块征兵"
+        if kind == "民":
+            # 民兵走军屯征召：军屯不耗电，不受全国电网停摆影响
+            # 双限额：每座军屯 1 支/回合，且全国每回合总上限 = 军屯总数
+            if t["buildings"]["军屯"] <= 0:
+                return False, "该地块没有军屯（民兵只能在军屯征召：50金/支，每军屯每回合1支）"
+            tile_cap = t["buildings"]["军屯"] - t.get("militia_recruited_this_turn", 0)
+            if tile_cap <= 0:
+                return False, "本回合该地块民兵征召产能已用完（每军屯 1 支/回合）"
+            quota = self.nation_building_count(name, "军屯")
+            cap = min(tile_cap, quota - self.militia_recruited.get(name, 0))
+            if cap <= 0:
+                return False, f"本回合民兵征召已达上限（全国军屯 {quota} 座 = {quota} 支/回合）"
+        else:
+            if self.grid_short.get(name):
+                return False, "全国电网不足，高级建筑（含兵营）停摆，无法征兵"
+            if t["buildings"]["兵营"] <= 0:
+                return False, "该地块没有兵营"
+            cap = t["buildings"]["兵营"] - t["recruited_this_turn"]
+            if cap <= 0:
+                return False, "本回合征召产能已用完（每兵营 1 支/回合）"
         n = min(n, cap)
         cost = UNIT_TYPES[kind]["recruit"]
         if kind == "骑" and self.polity.get(name) == "huns":
@@ -615,7 +561,11 @@ class World:
             self.armies.append({"id": seq, "gid": gid, "name": army_name(name, seq, kind),
                                 "type": kind, "hp": ARMY_MAX_HP, "x": x, "y": y,
                                 "owner": name, "moved_turn": -1, "engaged": False})
-        t["recruited_this_turn"] += n
+        if kind == "民":
+            self.militia_recruited[name] = self.militia_recruited.get(name, 0) + n
+            t["militia_recruited_this_turn"] = t.get("militia_recruited_this_turn", 0) + n
+        else:
+            t["recruited_this_turn"] += n
         return True, f"征召 {n} 支{UNIT_TYPES[kind]['label']} @{t['name']}"
 
     # ------------------------------------------------------------- 军队
@@ -1034,6 +984,8 @@ class World:
         for t in self.tiles.values():
             t["recruited_this_turn"] = 0
             t["built_this_turn"] = 0
+            t["militia_recruited_this_turn"] = 0
+        self.militia_recruited = {}  # 民兵全国配额（上限=军屯数），回合初清零
 
         # 1) 采集
         prod = {n: {k: 0 for k in ("粮食", "木头", "矿石", "石油", "装备", "补给")} for n in self.alive()}
@@ -1175,21 +1127,11 @@ class World:
                                        base * PRICE_MAX_RATIO), 3)
 
         # 6.5) 在建建筑落地（施工 1 回合）：本回合结算不产出，落地后从下回合开始生效
-        for (tx, ty), t in self.tiles.items():
+        for t in self.tiles.values():
             p = t.get("pending") or {}
             for k, c in p.items():
-                if not c:
-                    continue
-                t["buildings"][k] += c
-                if k == "军屯" and t["owner"] in self.nations:
-                    # 军屯建成 → 自动征得民兵（驻本格不耗补给；阵亡不补，只能再建新军屯）
-                    owner = t["owner"]
-                    gid, seq = self._new_army(owner)
-                    self.armies.append({"id": seq, "gid": gid, "name": army_name(owner, seq, "民"),
-                                        "type": "民", "hp": ARMY_MAX_HP, "x": tx, "y": ty,
-                                        "owner": owner, "moved_turn": -1, "engaged": False})
-                    self.log(f"🪖 军屯建成 @{t['name']}：{army_name(owner, seq, '民')} 入驻"
-                             f"（驻军屯格不耗补给）", phase="内政", nation=owner, x=tx, y=ty)
+                if c:
+                    t["buildings"][k] += c
             t["pending"] = {k: 0 for k in BUILDINGS}
 
         # 7) 各国结算摘要（供 agent 看）
@@ -1415,28 +1357,18 @@ class World:
 
     # ------------------------------------------------------------- 交换地图
     def _map_snapshot(self, n: str) -> str:
-        """把某国的"已知地图"做成文本：全部国土块 + 视野内无主地（含资源）+ 他国地块（含建筑情报）。"""
+        """把某国的"已知地图"做成文本：全部国土块 + 边界外可见块，全部带坐标（不截断）。"""
         own = self.own_tiles(n)
-        fr = sorted(self.scout_unclaimed(n))
-        fo = sorted(self.scout_foreign(n))
-        L = [f"{n} 已知地图：国土 {len(own)} 块、视野内无主地 {len(fr)} 格、他国地 {len(fo)} 块（全部坐标）"]
+        fr = sorted(self.frontier_of(n))
+        L = [f"{n} 已知地图：国土 {len(own)} 块、边界外可拓地 {len(fr)} 格（全部坐标）"]
         for p in own:
             t = self.tiles[p]
             L.append(f"  {t.get('name', '?')} {t['terrain']}({p[0] + 1},{p[1] + 1}) "
-                     f"城L{t['buildings']['城堡']} 位{sum(t['buildings'].values())} "
-                     f"[{_res_str(t['resources'])}]")
+                     f"城L{t['buildings']['城堡']} 位{sum(t['buildings'].values())}")
         if fr:
-            L.append("  视野内无主地（资源已探明，便于规划拓荒/选金矿）:")
+            L.append("  边界外可见（未占）:")
             for p in fr:
-                L.append(f"  {self.tile_terrain(*p)}({p[0] + 1},{p[1] + 1}) {_res_str(self.tile_resources(*p))}")
-        if fo:
-            L.append("  视野内他国地块（建筑情报）:")
-            for p in fo:
-                t = self.tiles[p]
-                built = " ".join(f"{bn}×{cnt}" for bn, cnt in t["buildings"].items() if cnt) or "无"
-                L.append(f"  {t.get('name', '?')}({p[0] + 1},{p[1] + 1}){t['terrain']} {t['owner']} "
-                         f"城L{t['buildings']['城堡']} 位{sum(t['buildings'].values())}/{MAX_SLOTS} "
-                         f"建筑[{built}] [{_res_str(t['resources'])}]")
+                L.append(f"  {self.tile_terrain(*p)}({p[0] + 1},{p[1] + 1})")
         return "\n".join(L)
 
     def share_map(self, frm: str, to: str) -> tuple[bool, str]:

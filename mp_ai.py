@@ -32,11 +32,10 @@ from game import (
     TOWN_HALL_GOLD,
     TOWN_HALL_PER_SLOT,
     UNIT_TYPES,
-    WATCHTOWER_RADIUS,
 )
 import ctx as ctxlib
 from ctx import est_tokens
-from mp import DIPLO_COST, LETTER_COST, PLAN_MAX_TURNS, RES_KEYS, RES_LABEL, _res_str
+from mp import DIPLO_COST, LETTER_COST, PLAN_MAX_TURNS, RES_KEYS, RES_LABEL
 
 MAIL_BRIEF_FULL = 3      # 状态面板里完整展示的新信数（更旧的只列摘要行）
 MAIL_BRIEF_ROWS = 20     # 状态面板里最多列多少条旧信摘要
@@ -150,33 +149,15 @@ def _fmt_land(world, name, cap=40) -> str:
         )
         shown += 1
     fr = sorted(world.frontier_of(name))
-    lines.append(f"可拓荒地 {len(fr)} 块（[野人]=有守军需 atk 打赢；[空地]=无守军，atk 进驻即占；资源已探明）:")
+    lines.append(f"可拓荒地 {len(fr)} 块（[野人]=有守军需 atk 打赢；[空地]=无守军，atk 进驻即占）:")
     frs = []
     for (x, y) in fr:
         guard = any(a["owner"] == "野人" and (a["x"], a["y"]) == (x, y) for a in world.armies)
         tag = "[野人]" if guard else "[空地]"
-        frs.append(f"({x+1},{y+1}){world.ter_char(x, y)}{tag} {_res_str(world.tile_resources(x, y))}")
+        frs.append(f"({x+1},{y+1}){world.ter_char(x, y)}{tag}")
     if frs:
-        for i in range(0, len(frs), 5):
-            lines.append("  " + " ".join(frs[i:i + 5]))
-    # 瞭望塔探明：塔圈内的更远无主地（相邻一圈之外的部分）
-    tv = sorted(world.scout_unclaimed(name) - set(fr))
-    if tv:
-        lines.append(f"瞭望塔探明 {len(tv)} 块（塔圈内的更远无主地；要占领还得先拓到它边上）:")
-        rows = [f"({x+1},{y+1}){world.ter_char(x, y)} {_res_str(world.tile_resources(x, y))}"
-                for (x, y) in tv]
-        for i in range(0, len(rows), 5):
-            lines.append("  " + " ".join(rows[i:i + 5]))
-    # 视野内他国地块：建筑情报（自带视野相邻一圈 + 瞭望塔圈）
-    fo = sorted(world.scout_foreign(name))
-    if fo:
-        lines.append(f"视野内他国地块 {len(fo)} 块（建筑情报）:")
-        for (x, y) in fo:
-            t = world.tiles[(x, y)]
-            built = " ".join(f"{bn}×{cnt}" for bn, cnt in t["buildings"].items() if cnt) or "无"
-            lines.append(f"  {t.get('name', '?')} ({x+1},{y+1}){t['terrain']} {t['owner']} "
-                         f"城L{t['buildings']['城堡']} 位{sum(t['buildings'].values())}/{MAX_SLOTS} "
-                         f"建筑[{built}] [{_res_str(t['resources'])}]")
+        for i in range(0, len(frs), 10):
+            lines.append("  " + " ".join(frs[i:i + 10]))
     return "\n".join(lines)
 
 
@@ -414,9 +395,6 @@ def _help_sections() -> list[tuple[str, str]]:
         elif k == "townhall":
             note = ("维持1电；每座每回合 = 5金基础 + 该地块每座建筑×1金（不含自身，地越盖越值）"
                     "入国库；需本地已用建筑位≥6、每地块限1座")
-        elif k == "tower":
-            note = (f"无产出不耗电；己方/盟方任一瞭望塔半径 {WATCHTOWER_RADIUS} 圆内：事件你都收得到，"
-                    "无主地资源与他国建筑情报也一并探明（视野=国土+相邻一圈+所有瞭望塔圈；只扩视野，不增加可拓地）")
         elif k == "diplomat":
             note = ("无产出不耗电；每座（含抢来的）让你的外交费再减半（10→5→2→1，下限1金）、"
                     "写信费 -5 金（下限5金），他国向你提议结盟/联盟/议和永远免费；"
@@ -425,9 +403,9 @@ def _help_sections() -> list[tuple[str, str]]:
             note = (f"无产出不耗电；本地块一切建造金价 -{ENGINEER_DISCOUNT}%（含城堡升级，与地形惩罚乘算，"
                     "只认已落成的）；需本地已用建筑位≥6、每地块限1座")
         elif k == "militia_camp":
-            note = ("无产出不耗电；上限=本地耕地数。建成落地时自动征得 1 支民兵（100HP/攻30/动1格）；"
-                    "民兵驻**本格**不耗补给（每座军屯覆盖本格1支，离格/超额照常吃）；不可征召、阵亡不补，"
-                    "另建新军屯才有新民兵")
+            note = ("无产出不耗电；上限=本地耕地数。民兵兵营：可在此征召民兵（50金/支；每军屯每回合1支，"
+                    "全国每回合上限=军屯总数；不耗电、电网停摆也不影响）；民兵=优质驻守军队（100HP/攻30/动1格），"
+                    "驻**本格**不耗补给（每座军屯覆盖本格1支，离格/超额照常吃）")
         else:  # barracks
             note = "维持1电；每兵营每回合可征 1 支军队（耗 10粮 + 5装）；需本地已用建筑位≥3（含在建）"
         bld.append(f"  {nm}：造价 {cost}金 + {info['wood']}木 · {cap} · {note}")
@@ -435,14 +413,12 @@ def _help_sections() -> list[tuple[str, str]]:
         ("总览", (
             "EU4式 大地图国战：每人从 5 块地起家，拓荒/建设/生产/建军，可对他国结盟或开战。"
             "回合制：每回合你行动（可做多件事）→ 过回合统一结算（产出/电网/战斗/补给/市场回归）。"
-            "地皮名字=ID，坐标 1-based。你能看的是自己地盘+相邻一圈（有联盟则连盟友的地盘也看得到；"
-            "建瞭望塔可把事件视野与侦察再往外推）；他国国力只能推测。"
-            "视野内情报：无主地的资源（相邻一圈+塔圈）与他国地块的建筑（城L/占位/建筑清单）都看得见"
-            "——land 面板和 query panel=map 都有，选金矿/盯邻居发展全靠它。"
+            "地皮名字=ID，坐标 1-based。你能看的是自己地盘+相邻一圈（有联盟则连盟友的地盘也看得到）；他国国力只能推测。"
             "想细看任何机制就带主题调 rules，例如 rules(建筑) rules(联盟) rules(战斗)。"
         )),
         ("地形", ter + "\n  占地一律走 atk：派军队进格——有守军打赢即占，敌人=0 进驻即占；"
-                        "mv 只挪位不占地；没有『凭空拓荒』命令。"),
+                        "mv 只挪位不占地；没有『凭空拓荒』命令。"
+                        "行军不打野人：mv 可直接往野地（含野人驻守格）移动/穿行，野人从不主动攻击、路过不打，只在被 atk 时才接战。"),
         ("建筑与造价", "\n".join(bld) + "\n  每地块 20 建筑位；每地块每回合限建 1 座；"
                                         "建好后下一回合才生效（在建中）。"
                                         "\n  表中造价为平原基准价；实际金价按地块地形建设惩罚上浮"
@@ -461,7 +437,9 @@ def _help_sections() -> list[tuple[str, str]]:
         ("军队与战斗", (
             "每军 100HP；兵营征召，每兵营每回合 1 支。兵种：步兵(耗10粮+5装，动1格/回合，耗补给1/回合)、"
             "骑兵(耗12粮+12装，动2格/回合，耗补给2/回合)、"
-            "民兵(军屯自动提供，攻30，动1格/回合，驻军屯格不耗补给)。"
+            "民兵(军屯征召50金/支，攻30，动1格/回合，驻军屯格不耗补给——优质驻守军队，每军屯每回合1支、全国每回合上限=军屯总数)。"
+
+
             "军队 id **各国独立编号、从 1 递增且阵亡不回收**：历史上的 #n 永远指同一支军队，"
             "引用一律以最近一次 query army 面板为准。"
             f"交战 = atk 冲入；每回合掷骰结算一轮；每军基础伤害 步/骑 {UNIT_TYPES['步']['atk']}、"
@@ -558,7 +536,7 @@ def rules_text(world, topic: str = "") -> str:
     secs = _help_sections()
     labels = {
         "建筑": "建筑", "建造": "建筑", "兵营": "建筑", "农场": "建筑", "城堡": "建筑",
-        "瞭望塔": "建筑", "外交中心": "建筑", "工程院": "建筑", "军屯": "建筑", "民兵": "建筑",
+        "外交中心": "建筑", "工程院": "建筑", "军屯": "建筑", "民兵": "建筑",
         "工厂": "建筑", "能源": "建筑", "电厂": "建筑", "造价": "建筑",
         "地形": "地形", "资源": "地形", "拓荒": "地形", "领土": "地形",
         "经济": "经济与能源", "电": "经济与能源", "能源": "经济与能源", "补给": "经济与能源",
@@ -714,8 +692,6 @@ def _econ_building(world, building: str) -> str:
                 f" + 该地块每座建筑×{TOWN_HALL_PER_SLOT}金（不含自身；10建筑城≈"
                 f"{TOWN_HALL_GOLD + 10 * TOWN_HALL_PER_SLOT}金/回合）"
                 f" · 需本地已用位≥6、每地块限1座、耗1电")
-    if k == "tower":
-        return f"{building}: 造价折{capex:.0f}金 · 不产金：事件视野 +{WATCHTOWER_RADIUS} 圈（情报投入）"
     if k == "diplomat":
         return (f"{building}: 造价折{capex:.0f}金 · 不产金：外交费每座再减半（10→5→2→1）+ 写信 -5金；"
                 "自建全国限1座，第2座只能抢")
@@ -723,7 +699,7 @@ def _econ_building(world, building: str) -> str:
         return (f"{building}: 造价折{capex:.0f}金 · 不产金：本地块一切建造金价 -{ENGINEER_DISCOUNT}%"
                 "（需本地已用位≥6，后续建筑越贵回得越多）")
     if k == "militia_camp":
-        return (f"{building}: 造价折{capex:.0f}金 · 不产金：建成自动得 1 支民兵（攻30），"
+        return (f"{building}: 造价折{capex:.0f}金 · 不产金：可征民兵（50金/支，每座1支/回合，上限=全国军屯数），"
                 "其驻本格不耗补给（上限=本地耕地数）")
     return f"{building}: 无核算"
 
@@ -1155,16 +1131,16 @@ TOOL_SCHEMAS = [
         "name": "econ", "description": "按当前市价核算建设回报：某建筑的 造价(折金)/每回合毛利/回本时间；不带 building 则输出全部建筑经济表。做建设/买卖决策前先算再定。",
         "parameters": _props({"building": {"type": "string", "enum": BUILD_NAMES, "description": "要核算的建筑名（可选；省则输出全部）"}})}},
     {"type": "function", "function": {
-        "name": "build", "description": "在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅/瞭望塔/外交中心/工程院/军屯。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥3；市政厅需本地已用位≥6且每地块限1；瞭望塔=事件视野+4圈；外交中心=外交费减半可叠加但自建全国限1（第2座只能抢）；工程院=本地建造费-20%需本地位≥6；军屯=自动得1支民兵且其驻本格不耗补给（上限=本地耕地）。",
+        "name": "build", "description": "在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅/外交中心/工程院/军屯。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥3；市政厅需本地已用位≥6且每地块限1；外交中心=外交费减半可叠加但自建全国限1（第2座只能抢）；工程院=本地建造费-20%需本地位≥6；军屯=可征民兵(50金/支)且其驻本格不耗补给（上限=本地耕地）。",
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标如 '5 6' 或自家地块名（land 面板有）", "required": True},
                               "building": {"type": "string", "enum": BUILD_NAMES, "description": "建筑名", "required": True}})}},
     {"type": "function", "function": {
-        "name": "recruit", "description": "在自己有兵营且电网正常的地块征召军队，每兵营每回合1支。兵种 kind：步=步兵(10粮+5装，动1格/回合、耗补给1)；骑=骑兵(12粮+12装，动2格/回合、耗补给2)；民兵不能征召——由军屯建成后自动提供。注意补给仓必须跟上：补给不足时全军按缺口比例扣血（满缺 -35HP/军/回合，交战中也照扣），饿毙不复活。",
+        "name": "recruit", "description": "在自己有兵营且电网正常的地块征召军队，每兵营每回合1支。兵种 kind：步=步兵(10粮+5装，动1格/回合、耗补给1)；骑=骑兵(12粮+12装，动2格/回合、耗补给2)；民=民兵(军屯征召：50金/支，动1格/回合、耗补给1；驻军屯格不耗补给)——优质驻守军队，每军屯每回合1支、全国每回合上限=军屯总数。注意补给仓必须跟上：补给不足时全军按缺口比例扣血（满缺 -35HP/军/回合，交战中也照扣），饿毙不复活。",
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标 '5 6' 或名字", "required": True},
                               "n": {"type": "integer", "description": "征召数量（默认1）"},
                               "kind": {"type": "string", "enum": ["步", "骑"], "description": "兵种（默认 步）"}})}},
     {"type": "function", "function": {
-        "name": "move", "description": "把一支自己的军队以自身为中心按兵种速度移动（步兵 1 格=3×3、骑兵 2 格=5×5），纯移动不占地。每回合每支限1次。**野地（无人荒地）是合法移动目标**：mv 可任意在野地移动，不会被守军/野人攻击（野人不主动攻击、路过不打）。中立国地盘不能进（先结盟/宣战）；交战中不能移动，须先 retreat 撤出。要占无守军的空地/敌空城，请用 attack（atk 会直接进驻占领）。",
+        "name": "move", "description": "把一支自己的军队以自身为中心按兵种速度移动（步兵 1 格=3×3、骑兵 2 格=5×5），纯移动不占地。每回合每支限1次。**行军不打野人**：野地（无人荒地）是合法移动目标，mv 可以直接往野地走、穿过有野人驻守的格子，全程不会被野人攻击——野人只守格不追击、只在被 atk 时才接战。中立国地盘不能进（先结盟/宣战）；交战中不能移动，须先 retreat 撤出。要占无守军的空地/敌空城，请用 attack（atk 会直接进驻占领）。",
         "parameters": _props({"army_id": {"type": "integer", "description": "本国军队id（各国独立从1编号，以 query army 面板为准）", "required": True},
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},

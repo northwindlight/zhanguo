@@ -141,8 +141,6 @@ BUILDINGS = {
     "市政厅": {"kind": "townhall", "cost": 500, "wood": 40, "cap_resource": None,
                "energy": 1, "limit": 1, "min_slots": 6},
     # ---- 特殊建筑（不产出、不耗电，改规则）----
-    # 瞭望塔：己方/盟方任一瞭望塔半径 WATCHTOWER_RADIUS 圆内的事件都可见（事件视野，不改可拓地）
-    "瞭望塔": {"kind": "tower", "cost": 120, "wood": 15, "cap_resource": None},
     # 外交中心：**自建限 1 座**（limit_nation），叠加的只能靠夺地抢别国的——
     # 每座（含抢来的）让自己的外交费再减半（10→5→2→1，下限1）、写信费每座 -5 金（下限 5）；
     # 他国向你提议结盟/联盟/议和免费
@@ -151,7 +149,8 @@ BUILDINGS = {
     # 工程院：本地块一切建造金价 -20%（与地形惩罚乘算，只认已落成的），需本地已用建筑位≥6
     "工程院": {"kind": "academy", "cost": 400, "wood": 40, "cap_resource": None,
                "limit": 1, "min_slots": 6},
-    # 军屯：建成落地时自动征 1 支民兵；民兵驻本格不耗补给（每座军屯覆盖本格 1 支），离格照常吃
+    # 军屯：民兵兵营——民兵征召上限 = 全国军屯数（支/回合），征召耗 50 金/支（不耗电、不受电网停摆影响）；
+    # 民兵驻本格不耗补给（每座军屯覆盖本格 1 支），离格照常吃
     "军屯": {"kind": "militia_camp", "cost": 150, "wood": 10, "cap_resource": "耕地"},
 }
 
@@ -159,8 +158,8 @@ BUILDINGS = {
 UNIT_TYPES = {
     "步": {"label": "步兵", "speed": 1, "supply": 1, "atk": 50, "recruit": {"粮食": 10, "装备": 5}},
     "骑": {"label": "骑兵", "speed": 2, "supply": 2, "atk": 50, "recruit": {"粮食": 12, "装备": 12}},
-    # 民兵不可征召：由军屯建成后自动提供；驻军屯格不耗补给（见 mp 的补给结算）
-    "民": {"label": "民兵", "speed": 1, "supply": 1, "atk": 30},
+    # 民兵=优质驻守军队：只能在军屯征召（50金/支，每回合上限=全国军屯数）；驻军屯格不耗补给
+    "民": {"label": "民兵", "speed": 1, "supply": 1, "atk": 30, "recruit": {"黄金": 50}},
 }
 
 
@@ -190,7 +189,6 @@ RETREAT_RANGE = 1         # 撤退固定只能退相邻 1 格（3×3，所有人
 COMBAT_DIE_MOD = {1: -25, 2: -15, 3: -5, 4: 5, 5: 15, 6: 25}
 
 # 特殊建筑参数
-WATCHTOWER_RADIUS = 4    # 瞭望塔事件视野半径（欧氏圆：dx²+dy²≤r²）
 ENGINEER_DISCOUNT = 20   # 工程院：本地块建造金价减免 %
 DIPLO_CENTER_MIN_COST = 1  # 外交中心叠加减半后的外交费下限
 LETTER_CENTER_DISCOUNT = 5  # 外交中心对写信的减免：每座固定 -5 金

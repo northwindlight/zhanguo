@@ -148,7 +148,7 @@ class TestStarvation(unittest.TestCase):
 
 
 class TestNewBuildings(unittest.TestCase):
-    """特殊建筑：瞭望塔视野 / 军屯民兵与补给 / 外交中心费用 / 工程院折扣（全合成数据）。"""
+    """特殊建筑：军屯民兵与补给 / 外交中心费用 / 工程院折扣（全合成数据）。"""
 
     def _world(self):
         w = mp.World(size=16, seed=3, nations=["秦", "楚"])
@@ -157,36 +157,40 @@ class TestNewBuildings(unittest.TestCase):
     def _own_tile(self, w, name="秦"):
         return next(p for p, t in w.tiles.items() if t["owner"] == name)
 
-    # ---- 瞭望塔 ----
-    def test_watchtower_extends_vision(self):
-        w = self._world()
-        w.tiles = {}
-        t = w._new_tile(0, 0, "秦")
-        t["owner"] = "秦"
-        w.tiles[(0, 0)] = t
-        # 无塔：距离 4 看不见
-        self.assertFalse(w.visible_to("秦", 4, 0))
-        t["buildings"]["瞭望塔"] = 1
-        self.assertTrue(w.visible_to("秦", 4, 0))    # dx²+dy²=16 ≤ r²
-        self.assertFalse(w.visible_to("秦", 5, 0))   # 25 > 16，圆外
-        self.assertTrue(w.visible_to("秦", 0, 4))
-        self.assertTrue(w.visible_to("秦", 2, 3))    # 4+9=13 ≤ 16（圆形而非方形）
-
-    # ---- 军屯：建成征民兵 ----
-    def test_militia_camp_spawns_militia(self):
+    # ---- 军屯：民兵兵营 ----
+    def test_militia_recruit_at_camp(self):
         w = self._world()
         x, y = self._own_tile(w)
-        t = w.tiles[(x, y)]
-        t["resources"]["耕地"] = 1
-        w.add_res("秦", "黄金", 2000)
-        w.add_res("秦", "木头", 100)
-        ok, msg = w.build("秦", x, y, "军屯")
+        w.tiles[(x, y)]["buildings"]["军屯"] = 1
+        g0 = w.res("秦", "黄金")
+        ok, msg = w.recruit("秦", x, y, 1, "民")
         self.assertTrue(ok, msg)
-        w.resolve_turn()
         mil = [a for a in w.nation_armies("秦") if a.get("type") == "民"]
         self.assertEqual(len(mil), 1)
         self.assertEqual((mil[0]["x"], mil[0]["y"]), (x, y))
-        self.assertIn("军屯", " ".join(h["text"] for h in w.history))
+        self.assertEqual(g0 - w.res("秦", "黄金"), 50)  # 50金/支
+        # 每军屯每回合 1 支
+        ok2, msg2 = w.recruit("秦", x, y, 1, "民")
+        self.assertFalse(ok2)
+        self.assertIn("产能", msg2)
+
+    def test_militia_quota_is_total_camps(self):
+        w = self._world()
+        (x1, y1), (x2, y2) = [p for p, t in w.tiles.items() if t["owner"] == "秦"][:2]
+        w.tiles[(x1, y1)]["buildings"]["军屯"] = 1
+        w.tiles[(x2, y2)]["buildings"]["军屯"] = 1
+        w.add_res("秦", "黄金", 500)
+        # 全国 2 座军屯 → 本回合共可征 2 支（两格各吃各的配额）
+        ok1, m1 = w.recruit("秦", x1, y1, 1, "民")
+        ok2, m2 = w.recruit("秦", x2, y2, 1, "民")
+        self.assertTrue(ok1 and ok2, m1 + m2)
+        # 同格第 3 支：每军屯 1 支/回合 卡住；全国配额也满了
+        ok3, m3 = w.recruit("秦", x1, y1, 1, "民")
+        self.assertFalse(ok3)
+        # 回合结算后配额刷新
+        w.resolve_turn()
+        ok4, m4 = w.recruit("秦", x2, y2, 1, "民")
+        self.assertTrue(ok4, m4)
 
     def test_militia_camp_capped_by_farmland(self):
         w = self._world()
@@ -200,9 +204,10 @@ class TestNewBuildings(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("上限", msg)
 
-    def test_militia_not_recruitable(self):
+    def test_militia_needs_camp(self):
         w = self._world()
         x, y = self._own_tile(w)
+        w.tiles[(x, y)]["buildings"]["兵营"] = 1  # 只有兵营也不行
         ok, msg = w.recruit("秦", x, y, 1, "民")
         self.assertFalse(ok)
         self.assertIn("军屯", msg)
@@ -285,37 +290,6 @@ class TestNewBuildings(unittest.TestCase):
         self.assertEqual(unit_atk(step), 50)
         self.assertEqual(unit_atk(mil), 30)
         self.assertEqual(unit_atk(legacy), 50)
-
-    # ---- 侦察：资源探明 / 他国建筑情报 ----
-    def test_tile_resources_is_seed_pure(self):
-        w1 = self._world()
-        w2 = self._world()
-        # 未占格：种子纯函数，同种子一致；占用后与地块存的值同源
-        self.assertEqual(w1.tile_resources(5, 5), w2.tile_resources(5, 5))
-        nt = w1._new_tile(5, 5, "秦")
-        self.assertEqual(nt["resources"], w1.tile_resources(5, 5))
-
-    def test_scout_reveals_unclaimed_and_foreign(self):
-        w = self._world()
-        w.tiles = {}
-        t = w._new_tile(0, 0, "秦")
-        t["owner"] = "秦"
-        w.tiles[(0, 0)] = t
-        foe = w._new_tile(0, 1, "楚")
-        foe["owner"] = "楚"
-        foe["buildings"]["农场"] = 2
-        w.tiles[(0, 1)] = foe
-        # 自带视野：相邻一圈无主地 + 他国地
-        self.assertIn((1, 0), w.scout_unclaimed("秦"))
-        self.assertEqual(w.scout_foreign("秦"), {(0, 1)})
-        # 塔圈：半径 4 内的无主地也探明（(4,0) 恰在圆上，(5,0) 圆外）
-        t["buildings"]["瞭望塔"] = 1
-        self.assertIn((4, 0), w.scout_unclaimed("秦"))
-        self.assertNotIn((5, 0), w.scout_unclaimed("秦"))
-        snap = w._map_snapshot("秦")
-        self.assertIn("农场×2", snap)           # 他国建筑情报
-        self.assertIn("楚", snap)
-        self.assertIn("资源已探明", snap)
 
     # ---- 工程院 ----
     def test_academy_discounts_local_build(self):
