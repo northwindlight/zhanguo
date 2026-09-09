@@ -17,17 +17,22 @@ import time
 from pathlib import Path
 
 from game import (
-    ARMY_ATTACK_DAMAGE,
     ARMY_HEAL_PER_TURN,
     ARMY_MAX_HP,
     ARMY_STARVE_DAMAGE,
     BUILDINGS,
     CASTLE_DEFENSE_PER_LEVEL,
+    DIPLO_CENTER_MIN_COST,
+    ENGINEER_DISCOUNT,
+    LETTER_CENTER_DISCOUNT,
+    LETTER_COST_MIN,
     MARKET,
     MAX_SLOTS,
     TERRAIN_STATS,
     TOWN_HALL_GOLD,
     TOWN_HALL_PER_SLOT,
+    UNIT_TYPES,
+    WATCHTOWER_RADIUS,
 )
 import ctx as ctxlib
 from ctx import est_tokens
@@ -391,6 +396,20 @@ def _help_sections() -> list[tuple[str, str]]:
         elif k == "townhall":
             note = ("维持1电；每座每回合 = 5金基础 + 该地块每座建筑×1金（不含自身，地越盖越值）"
                     "入国库；需本地已用建筑位≥6、每地块限1座")
+        elif k == "tower":
+            note = (f"无产出不耗电；己方/盟方任一瞭望塔半径 {WATCHTOWER_RADIUS} 圆内的事件你都收得到"
+                    "（视野=国土+相邻一圈+所有瞭望塔圈；只扩视野，不增加可拓地）")
+        elif k == "diplomat":
+            note = ("无产出不耗电；每座（含抢来的）让你的外交费再减半（10→5→2→1，下限1金）、"
+                    "写信费 -5 金（下限5金），他国向你提议结盟/联盟/议和永远免费；"
+                    "**自建全国限1座，第2座只能抢**；需本地已用位≥5")
+        elif k == "academy":
+            note = (f"无产出不耗电；本地块一切建造金价 -{ENGINEER_DISCOUNT}%（含城堡升级，与地形惩罚乘算，"
+                    "只认已落成的）；需本地已用建筑位≥6、每地块限1座")
+        elif k == "militia_camp":
+            note = ("无产出不耗电；上限=本地耕地数。建成落地时自动征得 1 支民兵（100HP/攻30/动1格）；"
+                    "民兵驻**本格**不耗补给（每座军屯覆盖本格1支，离格/超额照常吃）；不可征召、阵亡不补，"
+                    "另建新军屯才有新民兵")
         else:  # barracks
             note = "维持1电；每兵营每回合可征 1 支军队（耗 10粮 + 5装）；需本地已用建筑位≥3（含在建）"
         bld.append(f"  {nm}：造价 {cost}金 + {info['wood']}木 · {cap} · {note}")
@@ -398,7 +417,8 @@ def _help_sections() -> list[tuple[str, str]]:
         ("总览", (
             "EU4式 大地图国战：每人从 5 块地起家，拓荒/建设/生产/建军，可对他国结盟或开战。"
             "回合制：每回合你行动（可做多件事）→ 过回合统一结算（产出/电网/战斗/补给/市场回归）。"
-            "地皮名字=ID，坐标 1-based。你能看的是自己地盘+相邻一圈（有联盟则连盟友的地盘也看得到）；他国国力只能推测。"
+            "地皮名字=ID，坐标 1-based。你能看的是自己地盘+相邻一圈（有联盟则连盟友的地盘也看得到；"
+            "建瞭望塔可把事件视野再往外推）；他国国力只能推测。"
             "想细看任何机制就带主题调 rules，例如 rules(建筑) rules(联盟) rules(战斗)。"
         )),
         ("地形", ter + "\n  占地一律走 atk：派军队进格——有守军打赢即占，敌人=0 进驻即占；"
@@ -413,16 +433,19 @@ def _help_sections() -> list[tuple[str, str]]:
             "发电 < 维持则这些高级建筑全部停摆（能源厂除外）。"
             "补给厂(粮1+矿1→补给2)；装备厂(矿1+油1→装备2)；补给仓每军每回合耗 1（骑兵 2），"
             "空则每军按缺口比例扣血（满缺 -35HP/回合，交战中也照扣），可能饿毙。"
+            "例外：民兵驻在自家军屯格不耗补给（每座军屯覆盖本格 1 支），离格照常吃。"
             "黄金矿场是稳定产金；市政厅(需本地已用位≥6·限1座·耗1电)每座每回合 = 5金基础"
             " + 该地块每座建筑×1金（不含自身，城越满越值）；"
             "也可在 world market 卖物资换金（卖得越多价压越低）。"
         )),
         ("军队与战斗", (
             "每军 100HP；兵营征召，每兵营每回合 1 支。兵种：步兵(耗10粮+5装，动1格/回合，耗补给1/回合)、"
-            "骑兵(耗12粮+12装，动2格/回合，耗补给2/回合)。"
+            "骑兵(耗12粮+12装，动2格/回合，耗补给2/回合)、"
+            "民兵(军屯自动提供，攻30，动1格/回合，驻军屯格不耗补给)。"
             "军队 id **各国独立编号、从 1 递增且阵亡不回收**：历史上的 #n 永远指同一支军队，"
             "引用一律以最近一次 query army 面板为准。"
-            f"交战 = atk 冲入；每回合掷骰结算一轮；每军基础伤害 {ARMY_ATTACK_DAMAGE}，"
+            f"交战 = atk 冲入；每回合掷骰结算一轮；每军基础伤害 步/骑 {UNIT_TYPES['步']['atk']}、"
+            f"民兵 {UNIT_TYPES['民']['atk']}，"
             "受守方地形+城堡防御%修正（地形与城堡为**相乘**叠加，山地+城堡L5≈75%而非100%）、总伤害分摊；攻方在敌地无加成。"
             "**多势力交战（进攻方不纯联合）**：同格多方各打各的敌人（互相宣战才互打）、每方掷自己的骰、"
             "伤害均分给各敌人；地形减伤只给格主/野人；野人只守无主格、只打进攻方；唯一幸存且野人已清的一方占地，多方都活则混战继续。"
@@ -477,18 +500,19 @@ def _help_sections() -> list[tuple[str, str]]:
             "也可用 gift 把本国资源馈赠对方（粮木矿油装补给或黄金，本回合垫支、下回合到账）——示好、资助盟国、买通都行。"
             "还能用 share_map 把你的整张已知地图（全部坐标）发给对方，对方下回合在 query panel=intel 收到——换情报、亮家底、协调攻守都用得上。"
             "外交是有成本的：每成功一次外交动作（提议/回应/断盟/保障/宣战/求和/换图/馈赠）扣基础 10 金，"
-            "写信(send_letter)单独 20 金。"
+            "写信(send_letter)单独 20 金。外交中心（特殊建筑）可压价：每座（含抢来的）让自己的外交费再减半"
+            "（10→5→2→1，下限 1 金）、写信费每座 -5 金（下限 5 金）；他国向你提议结盟/联盟/议和永远免费——外交强国有外交中心的加持。"
             "情报战：如果你不想开口问（懒得谈、不想欠人情）、又钱多，可用 spy(间谍) 花100金刺探别国，"
             "3回合后盗回其国库/收入/全部建设底细、粗略军情（仅各兵种数量，位置未知）、整张已知地图（地图进 query panel=intel 看）；"
             "⚠ 间谍**不含军队信息**——敌军的数量/兵种/位置侦察不到，只能靠换图、边地观察或正面交战得知——"
             "打谁、敲谁、开战时机都心中有数。"
         )),
         ("信箱", (
-            "send_letter 可给任何别国写信（结盟邀约/和谈/威胁/情报交换），**每次 20 金、成功即扣、下回合送达**"
-            "——这是最贵的外交动作（是普通外交 10 金的两倍）。**每封信寄出前先算账：这 20 金值不值？**"
+            "send_letter 可给任何别国写信（结盟邀约/和谈/威胁/情报交换），**每次 20 金起、成功即扣、下回合送达**"
+            "——这是最贵的外交动作；外交中心每座 -5 金（20→15→10…，下限 5 金）。**每封信寄出前先算账：值不值？**"
             "预期收益（勒索要到的贡品/结盟带来的安全/关键情报/逼降止损）明显 > 20 金才写；说不出收益的信不要写。"
             "写信前再 query panel=res 看国库：**国库 <100 金别写信**；"
-            "能并进一次正式外交提议（10 金）的话就别单独写信，更别拿写信闲聊。"
+            "能并进一次正式外交提议（外交费）的话就别单独写信，更别拿写信闲聊。"
             "收到信要在 diplomacy/mail 面板回应——不回信，对方可能以为你拒绝。"
         )),
         ("市场", (
@@ -514,6 +538,7 @@ def rules_text(world, topic: str = "") -> str:
     secs = _help_sections()
     labels = {
         "建筑": "建筑", "建造": "建筑", "兵营": "建筑", "农场": "建筑", "城堡": "建筑",
+        "瞭望塔": "建筑", "外交中心": "建筑", "工程院": "建筑", "军屯": "建筑", "民兵": "建筑",
         "工厂": "建筑", "能源": "建筑", "电厂": "建筑", "造价": "建筑",
         "地形": "地形", "资源": "地形", "拓荒": "地形", "领土": "地形",
         "经济": "经济与能源", "电": "经济与能源", "能源": "经济与能源", "补给": "经济与能源",
@@ -669,6 +694,17 @@ def _econ_building(world, building: str) -> str:
                 f" + 该地块每座建筑×{TOWN_HALL_PER_SLOT}金（不含自身；10建筑城≈"
                 f"{TOWN_HALL_GOLD + 10 * TOWN_HALL_PER_SLOT}金/回合）"
                 f" · 需本地已用位≥6、每地块限1座、耗1电")
+    if k == "tower":
+        return f"{building}: 造价折{capex:.0f}金 · 不产金：事件视野 +{WATCHTOWER_RADIUS} 圈（情报投入）"
+    if k == "diplomat":
+        return (f"{building}: 造价折{capex:.0f}金 · 不产金：外交费每座再减半（10→5→2→1）+ 写信 -5金；"
+                "自建全国限1座，第2座只能抢")
+    if k == "academy":
+        return (f"{building}: 造价折{capex:.0f}金 · 不产金：本地块一切建造金价 -{ENGINEER_DISCOUNT}%"
+                "（需本地已用位≥6，后续建筑越贵回得越多）")
+    if k == "militia_camp":
+        return (f"{building}: 造价折{capex:.0f}金 · 不产金：建成自动得 1 支民兵（攻30），"
+                "其驻本格不耗补给（上限=本地耕地数）")
     return f"{building}: 无核算"
 
 
@@ -748,11 +784,17 @@ KIND_MAP = {"pay": "pay", "赔款": "pay", "我方赔款": "pay",
 PACT_MAP = {"共同防御": "共同防御", "defense": "共同防御", "defensive": "共同防御"}
 
 
-def _diplo_cost(world, actor: str, to: str | None) -> int:
-    """外交基础费：对象是联盟成员 → 免费（盟内外交免费）；否则 10 金。"""
+def _diplo_cost(world, actor: str, to: str | None = None, *, incoming: bool = False) -> int:
+    """外交基础费：盟内免费；向他国提议 结盟/联盟/议和 且对方有外交中心 → 免费（incoming）；
+    否则每座本国（含抢来的）外交中心使费用再减半（10→5→2→1，下限 1 金）。"""
     if to and world.allied_between(actor, to):
         return 0
-    return DIPLO_COST
+    if incoming and to and world.nation_building_count(to, "外交中心") > 0:
+        return 0
+    c = DIPLO_COST
+    for _ in range(world.nation_building_count(actor, "外交中心")):
+        c = max(DIPLO_CENTER_MIN_COST, c // 2)
+    return c
 
 
 # ---------------------------------------------------------------------------
@@ -897,11 +939,13 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         ok, msg = world.sell(actor, g, int(args.get("qty", args.get("amount", 0))))
         return msg
 
-    # ---- 信箱（信件单独 20 金，成功才扣；收信人为联盟成员 → 免费）
+    # ---- 信箱（信件单独收费，成功才扣；收信人为联盟成员 → 免费；外交中心每座 -5 金，下限 5）
     if tool in ("send_letter", "写信", "letter"):
         to = str(args.get("to", ""))
         text = str(args.get("content", ""))
-        return _charge(world, actor, 0 if world.allied_between(actor, to) else LETTER_COST,
+        lc = max(LETTER_COST_MIN,
+                 LETTER_COST - LETTER_CENTER_DISCOUNT * world.nation_building_count(actor, "外交中心"))
+        return _charge(world, actor, 0 if world.allied_between(actor, to) else lc,
                        world.send_mail, actor, to, text)
 
     # ---- 外交馈赠（本国储备垫支赠他国，下回合到账；另扣 10 金手续费）
@@ -931,7 +975,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
     if tool in ("propose", "提议"):
         to = str(args.get("to", ""))
         kind = PACT_MAP.get(str(args.get("kind", "")).lower(), args.get("kind"))
-        return _charge(world, actor, _diplo_cost(world, actor, to),
+        return _charge(world, actor, _diplo_cost(world, actor, to, incoming=True),
                        world.propose_pact, kind, actor, to)
     if tool in ("respond_proposal", "回应邀约"):
         pid = int(args.get("proposal_id", args.get("id", 0)))
@@ -944,7 +988,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         return _charge(world, actor, cost, world.reject_pact, actor, pid)
     if tool in ("break_alliance", "断盟"):
         to = str(args.get("to", ""))
-        return _charge(world, actor, DIPLO_COST, world.break_pact, "同盟", actor, to)
+        return _charge(world, actor, _diplo_cost(world, actor), world.break_pact, "同盟", actor, to)
 
     # ---- 联盟（多边实体：起名结盟 / 申请入盟 / 单方面退盟 / 联盟投票）
     if tool in ("bloc_found", "结盟", "发起结盟"):
@@ -952,13 +996,14 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         if isinstance(tos, str):
             tos = [tos]
         tos = [str(t).strip() for t in (tos or []) if str(t).strip()]
-        return _charge(world, actor, DIPLO_COST, world.propose_bloc, actor,
-                       str(args.get("name", "")), tos)
+        hub = next((t for t in tos if world.nation_building_count(t, "外交中心") > 0), None)
+        return _charge(world, actor, _diplo_cost(world, actor, hub, incoming=True),
+                       world.propose_bloc, actor, str(args.get("name", "")), tos)
     if tool in ("bloc_join", "入盟", "申请入盟"):
-        return _charge(world, actor, DIPLO_COST, world.bloc_join, actor,
+        return _charge(world, actor, _diplo_cost(world, actor), world.bloc_join, actor,
                        str(args.get("name", args.get("bloc", ""))))
     if tool in ("bloc_leave", "退盟", "退出联盟"):
-        return _charge(world, actor, DIPLO_COST, world.bloc_leave, actor)
+        return _charge(world, actor, _diplo_cost(world, actor), world.bloc_leave, actor)
     if tool in ("bloc_rename", "改盟名", "联盟改名"):
         return _charge(world, actor, 0, world.bloc_rename, actor,
                        str(args.get("name", "")))      # 盟内操作免费
@@ -985,28 +1030,29 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         return _charge(world, actor, 0, world.cast_vote, actor, vid, choice)  # 盟内投票免费
     if tool in ("break_defense", "解除共同防御"):
         to = str(args.get("to", ""))
-        return _charge(world, actor, DIPLO_COST, world.break_pact, "共同防御", actor, to)
+        return _charge(world, actor, _diplo_cost(world, actor), world.break_pact, "共同防御", actor, to)
     if tool in ("guarantee", "保障独立"):
         to = str(args.get("to", ""))
-        return _charge(world, actor, DIPLO_COST, world.declare_guarantee, actor, to)
+        return _charge(world, actor, _diplo_cost(world, actor), world.declare_guarantee, actor, to)
     if tool in ("cancel_guarantee", "撤回保障"):
         to = str(args.get("to", ""))
-        return _charge(world, actor, DIPLO_COST, world.cancel_guarantee, actor, to)
+        return _charge(world, actor, _diplo_cost(world, actor), world.cancel_guarantee, actor, to)
     if tool in ("declare_war", "宣战"):
         to = str(args.get("to", ""))
-        return _charge(world, actor, DIPLO_COST, world.declare_war, actor, to)
+        return _charge(world, actor, _diplo_cost(world, actor), world.declare_war, actor, to)
     if tool in ("offer_peace", "求和"):
         to = str(args.get("to", ""))
         kind = KIND_MAP.get(str(args.get("kind", "")).lower(), args.get("kind"))
         gold = int(args.get("gold", 0) or 0)
         note = str(args.get("note", "") or "")
         truce = int(args.get("truce", 0) or 0)
-        return _charge(world, actor, DIPLO_COST, world.offer_peace, actor, to, kind, gold, note, truce)
+        return _charge(world, actor, _diplo_cost(world, actor, to, incoming=True),
+                       world.offer_peace, actor, to, kind, gold, note, truce)
     if tool in ("accept_peace", "接受议和"):
-        return _charge(world, actor, DIPLO_COST, world.accept_peace, actor,
+        return _charge(world, actor, _diplo_cost(world, actor), world.accept_peace, actor,
                        int(args.get("offer_id", 0)))
     if tool in ("reject_peace", "拒绝议和"):
-        return _charge(world, actor, DIPLO_COST, world.reject_peace, actor,
+        return _charge(world, actor, _diplo_cost(world, actor), world.reject_peace, actor,
                        int(args.get("offer_id", 0)))
 
     # ---- 国策规划（常驻上下文；无 plan 或每 PLAN_MAX_TURNS 回合未修订都不能结束）
@@ -1089,11 +1135,11 @@ TOOL_SCHEMAS = [
         "name": "econ", "description": "按当前市价核算建设回报：某建筑的 造价(折金)/每回合毛利/回本时间；不带 building 则输出全部建筑经济表。做建设/买卖决策前先算再定。",
         "parameters": _props({"building": {"type": "string", "enum": BUILD_NAMES, "description": "要核算的建筑名（可选；省则输出全部）"}})}},
     {"type": "function", "function": {
-        "name": "build", "description": "在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥3；市政厅需本地已用位≥6且每地块限1。",
+        "name": "build", "description": "在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅/瞭望塔/外交中心/工程院/军屯。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥3；市政厅需本地已用位≥6且每地块限1；瞭望塔=事件视野+4圈；外交中心=外交费减半可叠加但自建全国限1（第2座只能抢）；工程院=本地建造费-20%需本地位≥6；军屯=自动得1支民兵且其驻本格不耗补给（上限=本地耕地）。",
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标如 '5 6' 或自家地块名（land 面板有）", "required": True},
                               "building": {"type": "string", "enum": BUILD_NAMES, "description": "建筑名", "required": True}})}},
     {"type": "function", "function": {
-        "name": "recruit", "description": "在自己有兵营且电网正常的地块征召军队，每兵营每回合1支。兵种 kind：步=步兵(10粮+5装，动1格/回合、耗补给1)；骑=骑兵(12粮+12装，动2格/回合、耗补给2)。注意补给仓必须跟上：补给不足时全军按缺口比例扣血（满缺 -35HP/军/回合，交战中也照扣），饿毙不复活。",
+        "name": "recruit", "description": "在自己有兵营且电网正常的地块征召军队，每兵营每回合1支。兵种 kind：步=步兵(10粮+5装，动1格/回合、耗补给1)；骑=骑兵(12粮+12装，动2格/回合、耗补给2)；民兵不能征召——由军屯建成后自动提供。注意补给仓必须跟上：补给不足时全军按缺口比例扣血（满缺 -35HP/军/回合，交战中也照扣），饿毙不复活。",
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标 '5 6' 或名字", "required": True},
                               "n": {"type": "integer", "description": "征召数量（默认1）"},
                               "kind": {"type": "string", "enum": ["步", "骑"], "description": "兵种（默认 步）"}})}},
@@ -1121,16 +1167,16 @@ TOOL_SCHEMAS = [
         "parameters": _props({"good": {"type": "string", "description": "物资", "required": True},
                               "qty": {"type": "integer", "description": "数量", "required": True}})}},
     {"type": "function", "function": {
-        "name": "send_letter", "description": "给别国写信。**每次单独花 20 金（最贵的外交动作，普通外交只要 10 金）、成功即扣；收件人是联盟成员则免费**；信件下回合才送达对方信箱。写信前先算账：这 20 金值不值？预期收益（贡品/结盟/情报/逼降）明显大于 20 金才写，说不出收益就别写；国库 <100 金不要写信；诉求能并进一次正式外交提议（10 金）就别单独写信。to 必须用 countries 选出的别国，不能是自己。",
+        "name": "send_letter", "description": "给别国写信。**每次 20 金起（最贵的外交动作；外交中心每座 -5 金，下限 5 金）、成功即扣；收件人是联盟成员则免费**；信件下回合才送达对方信箱。写信前先算账：值不值？预期收益（贡品/结盟/情报/逼降）明显大于费用才写，说不出收益就别写；国库 <100 金不要写信；诉求能并进一次正式外交提议（外交费）就别单独写信。to 必须用 countries 选出的别国，不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "收信国名", "required": True},
                               "content": {"type": "string", "description": "信件正文", "required": True}})}},
     {"type": "function", "function": {
-        "name": "gift", "description": "把本国储备赠给别国（to=countries 里的别国，不能是自己）：good=粮食/木头/矿石/石油/装备/补给 或 黄金，qty=数量。本回合垫支扣出、下回合到账；另扣 10 金外交手续费（收件人是联盟成员则免费）。示好/资助盟国/买通可用。",
+        "name": "gift", "description": "把本国储备赠给别国（to=countries 里的别国，不能是自己）：good=粮食/木头/矿石/石油/装备/补给 或 黄金，qty=数量。本回合垫支扣出、下回合到账；另扣外交手续费（基准 10 金；有外交中心则减半；收件人是联盟成员则免费）。示好/资助盟国/买通可用。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
                               "good": {"type": "string", "description": "物资名", "required": True},
                               "qty": {"type": "integer", "description": "数量", "required": True}})}},
     {"type": "function", "function": {
-        "name": "share_map", "description": "把你的整张已知地图（全部国土块+边界外可见块，含坐标）发给别国，对方下一回合在 query panel=intel 收到（外交基础费 10 金，成功才扣；对象是联盟成员则免费）。换情报/亮家底/协同步调可用。to=countries 里的别国，不能是自己。",
+        "name": "share_map", "description": "把你的整张已知地图（全部国土块+边界外可见块，含坐标）发给别国，对方下一回合在 query panel=intel 收到（外交费，基准 10 金，成功才扣；对象是联盟成员则免费）。换情报/亮家底/协同步调可用。to=countries 里的别国，不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
         "name": "spy", "description": "不想开口问（懒得谈、钱多）时派间谍刺探别国：花 100 金（国库不足会被拒），3 回合后拿回该国全部经济情报（query panel=spy 看——国库/储备、上回合收入、每一块地的建筑与在建）**、粗略军情（仅各兵种数量，军队位置/血量/番号不外泄）**，以及它的整张已知地图（进 query panel=intel）。目标不能是自己。",
@@ -1139,14 +1185,14 @@ TOOL_SCHEMAS = [
         "name": "plan", "description": "制定或修订你的国策（长期战略目标），会永久常驻你的上下文（【国策规划】标记），直到你再次修订。⚠ 结束回合(end_turn)前必须已有国策；且每 10 回合必须修订一次，否则 end_turn 会被拦。建议按四方面写：经济发展（粮木矿油/建设/卖买）、军事规划（扩军/攻防/结盟）、情报管理（间谍/换图/来信研判）、外交方向（结盟/宣战/求和/馈赠立场）。",
         "parameters": _props({"content": {"type": "string", "description": "国策内容", "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_found", "description": "发起结盟（多边联盟）：**必须给联盟起名**（1~12 字、不含空格、全局唯一）并邀请创始成员。全体创始成员 respond_proposal 接受后联盟成立（任一拒绝即流产），**发起方自动成为盟主**。盟内效果：互通领土/互不攻击/共享视野/成员间外交免费；进攻战争须联盟投票；议和由盟主出面并经投票；同战线自动归还核心领土。**战争期间不能缔结同盟**。发起扣 10 金。",
+        "name": "bloc_found", "description": "发起结盟（多边联盟）：**必须给联盟起名**（1~12 字、不含空格、全局唯一）并邀请创始成员。全体创始成员 respond_proposal 接受后联盟成立（任一拒绝即流产），**发起方自动成为盟主**。盟内效果：互通领土/互不攻击/共享视野/成员间外交免费；进攻战争须联盟投票；议和由盟主出面并经投票；同战线自动归还核心领土。**战争期间不能缔结同盟**。发起扣外交费（基准 10 金；受邀方有外交中心则免费）。",
         "parameters": _props({"name": {"type": "string", "description": "联盟名（1~12字，全局唯一）", "required": True},
                               "tos": {"type": "array", "items": {"type": "string"}, "description": "创始成员国名数组（至少1个，须为 countries 里的别国）", "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_join", "description": "申请加入指定联盟：现成员投票，**赞成 > 反对**即通过（盟主投 no 可否决）；一国同时只属一个联盟；与该联盟成员交战、或自己正在交战 → 不能申请。扣 10 金。",
+        "name": "bloc_join", "description": "申请加入指定联盟：现成员投票，**赞成 > 反对**即通过（盟主投 no 可否决）；一国同时只属一个联盟；与该联盟成员交战、或自己正在交战 → 不能申请。扣外交费（基准 10 金）。",
         "parameters": _props({"name": {"type": "string", "description": "联盟名", "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_leave", "description": "退出所在联盟：普通成员单方面退出、立即生效、无须任何人同意（已参战的战线不因此退出；滞留在前盟友领土的军队回合末自动遣返）。**盟主不能退盟**——请先 bloc_transfer 移交，或 bloc_dissolve 解散。扣 10 金。",
+        "name": "bloc_leave", "description": "退出所在联盟：普通成员单方面退出、立即生效、无须任何人同意（已参战的战线不因此退出；滞留在前盟友领土的军队回合末自动遣返）。**盟主不能退盟**——请先 bloc_transfer 移交，或 bloc_dissolve 解散。扣外交费（基准 10 金）。",
         "parameters": _props({})}},
     {"type": "function", "function": {
         "name": "bloc_rename", "description": "【盟主专属】给联盟改名（1~12 字、不含空格、全局唯一）。免费。",
@@ -1162,7 +1208,7 @@ TOOL_SCHEMAS = [
         "parameters": _props({"vote_id": {"type": "integer", "description": "投票id（diplomacy 面板有）", "required": True},
                               "choice": {"type": "string", "enum": ["yes", "no", "abstain"], "description": "你的表态", "required": True}})}},
     {"type": "function", "function": {
-        "name": "propose", "description": "向别国提议『共同防御』（仅守：它被打才自动并肩参战，你主动开战它不上）。全面结盟请用 bloc_found（起名的多边联盟）。to 必须用 countries 选出的别国，不能是自己；对方 respond_proposal 接受才生效。**双方都必须在和平状态**（任一方正在交战 → 不能缔结，先议和）。外交基础费 10 金（对象为盟友则免费），成功才扣。",
+        "name": "propose", "description": "向别国提议『共同防御』（仅守：它被打才自动并肩参战，你主动开战它不上）。全面结盟请用 bloc_found（起名的多边联盟）。to 必须用 countries 选出的别国，不能是自己；对方 respond_proposal 接受才生效。**双方都必须在和平状态**（任一方正在交战 → 不能缔结，先议和）。外交费（基准 10 金；对象为盟友免费；对方有外交中心则免费），成功才扣。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
                               "kind": {"type": "string", "enum": ["共同防御"], "description": "类型", "required": True}})}},
     {"type": "function", "function": {
@@ -1170,29 +1216,29 @@ TOOL_SCHEMAS = [
         "parameters": _props({"proposal_id": {"type": "integer", "description": "邀约id（diplomacy面板有）", "required": True},
                               "accept": {"type": "boolean", "description": "接受? true/false", "required": True}})}},
     {"type": "function", "function": {
-        "name": "break_defense", "description": "单方面解除共同防御（成功扣 10 金）。",
+        "name": "break_defense", "description": "单方面解除共同防御（成功扣外交费）。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "guarantee", "description": "宣布保障别国独立：任何国家攻击它，你将自动参战（仅此单向、一跳）。你与它之间后来结成共同防御/联盟时，这条保障会自动解除（保障是三档里最低的）；已有更高档时无须保障。**双方都必须在和平状态**（任一方正在交战 → 不能保障，先议和）。不想履行参战义务时可解除保障（或断盟）退出。to=别国（不能自己）。成功扣 10 金。",
+        "name": "guarantee", "description": "宣布保障别国独立：任何国家攻击它，你将自动参战（仅此单向、一跳）。你与它之间后来结成共同防御/联盟时，这条保障会自动解除（保障是三档里最低的）；已有更高档时无须保障。**双方都必须在和平状态**（任一方正在交战 → 不能保障，先议和）。不想履行参战义务时可解除保障（或断盟）退出。to=别国（不能自己）。成功扣外交费（基准 10 金）。",
         "parameters": _props({"to": {"type": "string", "description": "被保障国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "cancel_guarantee", "description": "撤回独立保障（成功扣 10 金）。",
+        "name": "cancel_guarantee", "description": "撤回独立保障（成功扣外交费）。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "declare_war", "description": "对别国宣战（对方必须应战，即刻生效；成功扣 10 金外交费）。先 countries 选目标，to=别国（不能自己）。⚠ 联盟成员不能擅自开战：调用即自动转为**联盟宣战投票**（多数决通过后全盟参战、盟主为进攻主导）。战争传导（无限跳）：对方的保障/共同防御/联盟全体按传递闭包自动参战打你（A 保 B、B 盟 C → 打 B 则 C 也上）。若目标正与你方成员/共同防御对象交战，宣战会**并入其现有战线**当跟随方（跟随方不能单独议和，主导者议和整条战线停战）。",
+        "name": "declare_war", "description": "对别国宣战（对方必须应战，即刻生效；成功扣外交费）。先 countries 选目标，to=别国（不能自己）。⚠ 联盟成员不能擅自开战：调用即自动转为**联盟宣战投票**（多数决通过后全盟参战、盟主为进攻主导）。战争传导（无限跳）：对方的保障/共同防御/联盟全体按传递闭包自动参战打你（A 保 B、B 盟 C → 打 B 则 C 也上）。若目标正与你方成员/共同防御对象交战，宣战会**并入其现有战线**当跟随方（跟随方不能单独议和，主导者议和整条战线停战）。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "offer_peace", "description": "向对方谈判代表求和（每侧代表=主导者；主导者有联盟时=其盟主；普通成员/跟随方不能谈，to=diplomacy 面板所示对方代表；成功扣 10 金外交费）。⚠ 盟主求和会先发起联盟投票，多数同意才正式提出。pay=我方向对方赔X金；demand=要求对方赔X金；white=白和。接受后整条战线（含跟随方）停战，且各方实际持有地块重算为核心领土。truce=休战回合数（0=不休战）。",
+        "name": "offer_peace", "description": "向对方谈判代表求和（每侧代表=主导者；主导者有联盟时=其盟主；普通成员/跟随方不能谈，to=diplomacy 面板所示对方代表；成功扣外交费）。⚠ 盟主求和会先发起联盟投票，多数同意才正式提出。pay=我方向对方赔X金；demand=要求对方赔X金；white=白和。接受后整条战线（含跟随方）停战，且各方实际持有地块重算为核心领土。truce=休战回合数（0=不休战）。",
         "parameters": _props({"to": {"type": "string", "description": "对方谈判代表国", "required": True},
                               "kind": {"type": "string", "enum": ["pay", "demand", "white"], "description": "pay=我方赔款 / demand=要求对方赔款 / white=白和", "required": True},
                               "gold": {"type": "integer", "description": "赔款量（pay/demand 必填>0）"},
                               "truce": {"type": "integer", "description": "休战回合数（自行约定，0=不休战）"},
                               "note": {"type": "string", "description": "附加条件/说明（可选）"}})}},
     {"type": "function", "function": {
-        "name": "accept_peace", "description": "接受对方求和（diplomacy 面板可看提议编号；只有被点名的一方=谈判代表能接受；成功扣 10 金外交费）。⚠ 若你是盟主，接受会先发起联盟投票，多数同意才正式生效。",
+        "name": "accept_peace", "description": "接受对方求和（diplomacy 面板可看提议编号；只有被点名的一方=谈判代表能接受；成功扣外交费）。⚠ 若你是盟主，接受会先发起联盟投票，多数同意才正式生效。",
         "parameters": _props({"offer_id": {"type": "integer", "description": "求和提议id", "required": True}})}},
     {"type": "function", "function": {
-        "name": "reject_peace", "description": "拒绝对方求和，战争继续（成功扣 10 金外交费）。",
+        "name": "reject_peace", "description": "拒绝对方求和，战争继续（成功扣外交费）。",
         "parameters": _props({"offer_id": {"type": "integer", "description": "求和提议id", "required": True}})}},
     {"type": "function", "function": {
         "name": "end_turn", "description": "结束本国本回合的行动。⚠ 必填 summary：用一句话总结你这回合做了什么/当前立场（例如：summary=这回合建了两座农场并继续拓荒）。没有这句小结就不算结束本回合。",

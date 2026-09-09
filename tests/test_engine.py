@@ -147,5 +147,159 @@ class TestStarvation(unittest.TestCase):
         self.assertTrue(any("断粮" in h["text"] for h in self._run(0, [100])[0].history))
 
 
+class TestNewBuildings(unittest.TestCase):
+    """特殊建筑：瞭望塔视野 / 军屯民兵与补给 / 外交中心费用 / 工程院折扣（全合成数据）。"""
+
+    def _world(self):
+        w = mp.World(size=16, seed=3, nations=["秦", "楚"])
+        return w
+
+    def _own_tile(self, w, name="秦"):
+        return next(p for p, t in w.tiles.items() if t["owner"] == name)
+
+    # ---- 瞭望塔 ----
+    def test_watchtower_extends_vision(self):
+        w = self._world()
+        w.tiles = {}
+        t = w._new_tile(0, 0, "秦")
+        t["owner"] = "秦"
+        w.tiles[(0, 0)] = t
+        # 无塔：距离 4 看不见
+        self.assertFalse(w.visible_to("秦", 4, 0))
+        t["buildings"]["瞭望塔"] = 1
+        self.assertTrue(w.visible_to("秦", 4, 0))    # dx²+dy²=16 ≤ r²
+        self.assertFalse(w.visible_to("秦", 5, 0))   # 25 > 16，圆外
+        self.assertTrue(w.visible_to("秦", 0, 4))
+        self.assertTrue(w.visible_to("秦", 2, 3))    # 4+9=13 ≤ 16（圆形而非方形）
+
+    # ---- 军屯：建成征民兵 ----
+    def test_militia_camp_spawns_militia(self):
+        w = self._world()
+        x, y = self._own_tile(w)
+        t = w.tiles[(x, y)]
+        t["resources"]["耕地"] = 1
+        w.add_res("秦", "黄金", 2000)
+        w.add_res("秦", "木头", 100)
+        ok, msg = w.build("秦", x, y, "军屯")
+        self.assertTrue(ok, msg)
+        w.resolve_turn()
+        mil = [a for a in w.nation_armies("秦") if a.get("type") == "民"]
+        self.assertEqual(len(mil), 1)
+        self.assertEqual((mil[0]["x"], mil[0]["y"]), (x, y))
+        self.assertIn("军屯", " ".join(h["text"] for h in w.history))
+
+    def test_militia_camp_capped_by_farmland(self):
+        w = self._world()
+        x, y = self._own_tile(w)
+        t = w.tiles[(x, y)]
+        t["resources"]["耕地"] = 1
+        t["buildings"]["军屯"] = 1
+        w.add_res("秦", "黄金", 2000)
+        w.add_res("秦", "木头", 100)
+        ok, msg = w.build("秦", x, y, "军屯")
+        self.assertFalse(ok)
+        self.assertIn("上限", msg)
+
+    def test_militia_not_recruitable(self):
+        w = self._world()
+        x, y = self._own_tile(w)
+        ok, msg = w.recruit("秦", x, y, 1, "民")
+        self.assertFalse(ok)
+        self.assertIn("军屯", msg)
+
+    # ---- 军屯：民兵驻格免补给 ----
+    def test_militia_on_camp_eats_no_supply(self):
+        w = self._world()
+        x, y = self._own_tile(w)
+        w.tiles[(x, y)]["buildings"]["军屯"] = 1
+        w.armies = [{"id": 1, "gid": 901, "name": "秦·民一军", "type": "民", "hp": 100,
+                     "x": x, "y": y, "owner": "秦", "moved_turn": -1, "engaged": False}]
+        w.add_res("秦", "补给", -w.res("秦", "补给"))  # 补给仓清零
+        w.resolve_turn()
+        self.assertEqual(w.armies[0]["hp"], 100)  # 驻屯免补给 → 无断粮
+
+    def test_second_militia_on_camp_eats_supply(self):
+        w = self._world()
+        x, y = self._own_tile(w)
+        w.tiles[(x, y)]["buildings"]["军屯"] = 1
+        w.armies = [{"id": i, "gid": 900 + i, "name": f"秦·民{i}军", "type": "民", "hp": 100,
+                     "x": x, "y": y, "owner": "秦", "moved_turn": -1, "engaged": False}
+                    for i in (1, 2)]
+        w.add_res("秦", "补给", -w.res("秦", "补给"))  # 0 补给：1 免费 1 断供
+        w.resolve_turn()
+        self.assertEqual(sorted(a["hp"] for a in w.armies), [65, 65])  # 全军按缺口 -35
+
+    def test_militia_off_camp_eats_supply(self):
+        w = self._world()
+        x, y = self._own_tile(w)
+        w.tiles[(x, y)]["buildings"]["军屯"] = 1
+        w.armies = [{"id": 1, "gid": 901, "name": "秦·民一军", "type": "民", "hp": 100,
+                     "x": x + 1, "y": y, "owner": "秦", "moved_turn": -1, "engaged": False}]
+        w.add_res("秦", "补给", -w.res("秦", "补给"))
+        w.resolve_turn()
+        self.assertEqual(w.armies[0]["hp"], 65)  # 离格照常吃 → 断供 -35
+
+    def test_militia_on_enemy_camp_eats_supply(self):
+        w = self._world()
+        x, y = self._own_tile(w)
+        ex, ey = self._own_tile(w, "楚")
+        w.tiles[(ex, ey)]["buildings"]["军屯"] = 1  # 别国的军屯，秦的民兵蹭不到
+        w.armies = [{"id": 1, "gid": 901, "name": "秦·民一军", "type": "民", "hp": 100,
+                     "x": ex, "y": ey, "owner": "秦", "moved_turn": -1, "engaged": False}]
+        w.add_res("秦", "补给", -w.res("秦", "补给"))
+        w.resolve_turn()
+        self.assertEqual(w.armies[0]["hp"], 65)
+
+    # ---- 外交中心 ----
+    def _tile_with_slots(self, w, n_slots):
+        x, y = self._own_tile(w)
+        t = w.tiles[(x, y)]
+        t["buildings"]["农场"] = n_slots
+        w.add_res("秦", "黄金", 5000)
+        w.add_res("秦", "木头", 500)
+        return x, y
+
+    def test_diplomatic_center_halves_fee_and_is_unique(self):
+        import mp_ai
+        w = self._world()
+        x, y = self._tile_with_slots(w, 5)
+        ok, msg = w.build("秦", x, y, "外交中心")
+        self.assertTrue(ok, msg)
+        self.assertEqual(w.diplo_built["秦"], 1)  # 自建名额已用
+        # 第二座：自建全国限 1（换一块秦地、凑足建筑位再建）
+        ox, oy = next(p for p, t in w.tiles.items() if t["owner"] == "秦" and p != (x, y))
+        w.tiles[(ox, oy)]["buildings"]["农场"] = 5
+        ok2, msg2 = w.build("秦", ox, oy, "外交中心")
+        self.assertFalse(ok2)
+        self.assertIn("自建全国限", msg2)
+        w.resolve_turn()  # 落地
+        self.assertEqual(mp_ai._diplo_cost(w, "秦", "楚"), 5)       # 10 减半
+        self.assertEqual(mp_ai._diplo_cost(w, "楚", "秦", incoming=True), 0)  # 向它提议免费
+        self.assertEqual(mp_ai._diplo_cost(w, "楚", "秦"), 10)       # 楚没有中心，自己付全价
+
+    def test_militia_attack_is_weak(self):
+        from game import unit_atk
+        step = {"type": "步", "owner": "秦"}
+        mil = {"type": "民", "owner": "秦"}
+        legacy = {"owner": "野人"}  # 旧档无 type → 按步兵算
+        self.assertEqual(unit_atk(step), 50)
+        self.assertEqual(unit_atk(mil), 30)
+        self.assertEqual(unit_atk(legacy), 50)
+
+    # ---- 工程院 ----
+    def test_academy_discounts_local_build(self):
+        w = self._world()
+        x, y = self._tile_with_slots(w, 6)
+        w.tiles[(x, y)]["resources"]["矿石"] = 1
+        ok, msg = w.build("秦", x, y, "工程院")
+        self.assertTrue(ok, msg)
+        w.resolve_turn()  # 落成
+        # 同格再建矿场（80 金）：工程院 -20% → 64 金
+        ok2, msg2 = w.build("秦", x, y, "矿场")
+        self.assertTrue(ok2, msg2)
+        self.assertIn("-64金", msg2)
+        self.assertIn("工程院-20%", msg2)
+
+
 if __name__ == "__main__":
     unittest.main()

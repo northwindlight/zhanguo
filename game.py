@@ -140,12 +140,27 @@ BUILDINGS = {
     # 每座每回合 = TOWN_HALL_GOLD(基础) + 该地块已占建筑位(不含自身)×TOWN_HALL_PER_SLOT 金 入国库
     "市政厅": {"kind": "townhall", "cost": 500, "wood": 40, "cap_resource": None,
                "energy": 1, "limit": 1, "min_slots": 6},
+    # ---- 特殊建筑（不产出、不耗电，改规则）----
+    # 瞭望塔：己方/盟方任一瞭望塔半径 WATCHTOWER_RADIUS 圆内的事件都可见（事件视野，不改可拓地）
+    "瞭望塔": {"kind": "tower", "cost": 120, "wood": 15, "cap_resource": None},
+    # 外交中心：**自建限 1 座**（limit_nation），叠加的只能靠夺地抢别国的——
+    # 每座（含抢来的）让自己的外交费再减半（10→5→2→1，下限1）、写信费每座 -5 金（下限 5）；
+    # 他国向你提议结盟/联盟/议和免费
+    "外交中心": {"kind": "diplomat", "cost": 400, "wood": 30, "cap_resource": None,
+                 "limit": 1, "limit_nation": 1, "min_slots": 5},
+    # 工程院：本地块一切建造金价 -20%（与地形惩罚乘算，只认已落成的），需本地已用建筑位≥6
+    "工程院": {"kind": "academy", "cost": 400, "wood": 40, "cap_resource": None,
+               "limit": 1, "min_slots": 6},
+    # 军屯：建成落地时自动征 1 支民兵；民兵驻本格不耗补给（每座军屯覆盖本格 1 支），离格照常吃
+    "军屯": {"kind": "militia_camp", "cost": 150, "wood": 10, "cap_resource": "耕地"},
 }
 
-# 兵种：征召耗粮装 / 每回合补给维持 / 每回合移动格数
+# 兵种：征召耗粮装 / 每回合补给维持 / 每回合移动格数 / 基础攻击（每军每战斗回合）
 UNIT_TYPES = {
-    "步": {"label": "步兵", "speed": 1, "supply": 1, "recruit": {"粮食": 10, "装备": 5}},
-    "骑": {"label": "骑兵", "speed": 2, "supply": 2, "recruit": {"粮食": 12, "装备": 12}},
+    "步": {"label": "步兵", "speed": 1, "supply": 1, "atk": 50, "recruit": {"粮食": 10, "装备": 5}},
+    "骑": {"label": "骑兵", "speed": 2, "supply": 2, "atk": 50, "recruit": {"粮食": 12, "装备": 12}},
+    # 民兵不可征召：由军屯建成后自动提供；驻军屯格不耗补给（见 mp 的补给结算）
+    "民": {"label": "民兵", "speed": 1, "supply": 1, "atk": 30},
 }
 
 
@@ -157,6 +172,11 @@ def unit_speed(a: dict) -> int:
     return UNIT_TYPES[unit_kind(a)]["speed"]
 
 
+def unit_atk(a: dict) -> int:
+    """该军的每战斗回合基础伤害（野人等无 type 的旧军队按步兵 ARMY_ATTACK_DAMAGE 算）。"""
+    return UNIT_TYPES[unit_kind(a)].get("atk", ARMY_ATTACK_DAMAGE)
+
+
 def unit_supply(a: dict) -> int:
     return UNIT_TYPES[unit_kind(a)]["supply"]
 
@@ -164,10 +184,17 @@ def unit_supply(a: dict) -> int:
 ARMY_MAX_HP = 100
 ARMY_STARVE_DAMAGE = 35   # 补给不足时按缺口比例扣血（完全断供=35），交战中也照扣，HP≤0 阵亡
 ARMY_HEAL_PER_TURN = 25   # 非战斗（且非断供）军队每回合回复，占满血 25%
-ARMY_ATTACK_DAMAGE = 50   # 每支军队每战斗回合的基础伤害（受防守方地形+城堡防御修正）
+ARMY_ATTACK_DAMAGE = 50   # 默认基础伤害（步/骑；民兵 30 —— 兵种攻击表见 UNIT_TYPES["atk"]）
 RETREAT_RANGE = 1         # 撤退固定只能退相邻 1 格（3×3，所有人）；正常移动按兵种速度（步1/骑2）
 # 战斗骰：每回合掷 1d6 → 本回合双方伤害修正%（战争打几回合很正常）
 COMBAT_DIE_MOD = {1: -25, 2: -15, 3: -5, 4: 5, 5: 15, 6: 25}
+
+# 特殊建筑参数
+WATCHTOWER_RADIUS = 4    # 瞭望塔事件视野半径（欧氏圆：dx²+dy²≤r²）
+ENGINEER_DISCOUNT = 20   # 工程院：本地块建造金价减免 %
+DIPLO_CENTER_MIN_COST = 1  # 外交中心叠加减半后的外交费下限
+LETTER_CENTER_DISCOUNT = 5  # 外交中心对写信的减免：每座固定 -5 金
+LETTER_COST_MIN = 5         # 写信费用下限（防零费刷信）
 
 # 基地资源（随机生成的 5 项）→ 对应采集建筑
 SITE_BUILDING = {
