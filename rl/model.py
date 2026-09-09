@@ -23,9 +23,10 @@ class PolicyNet(nn.Module):
         self.n_tiles = int(n_tiles)          # 地块数；null 下标 = n_tiles
         self.n_amounts = len(AMOUNTS)
 
+        # 1×1 瓶颈先把通道压下来，再 3×3 提特征：Pi 上省一半算力，表达力基本不变
         self.conv = nn.Sequential(
-            nn.Conv2d(n_grid_ch, 32, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(32, d_conv, 3, padding=1), nn.ReLU(),
+            nn.Conv2d(n_grid_ch, 24, 1), nn.ReLU(),
+            nn.Conv2d(24, d_conv, 3, padding=1), nn.ReLU(),
         )
         self.glob_mlp = nn.Sequential(nn.Linear(n_glob, d_global), nn.ReLU(),
                                       nn.Linear(d_global, d_global), nn.ReLU())

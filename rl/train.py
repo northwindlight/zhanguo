@@ -26,10 +26,8 @@ from rl.ppo import PPO, Rollout, act
 
 
 def build_env(args) -> ZhanguoEnv:
-    return ZhanguoEnv(map_size=args.map_size, seed=args.seed,
-                      agent=args.agent, rivals=tuple(args.rivals.split(",")),
+    return ZhanguoEnv(map_size=args.map_size, seed=args.seed, agent=args.agent,
                       max_turns=args.turns, max_actions_per_turn=args.max_actions,
-                      scripted_actions=args.scripted_actions,
                       reward_scale=args.reward_scale)
 
 
@@ -66,9 +64,7 @@ def main() -> None:
     ap.add_argument("--map-size", type=int, default=16)
     ap.add_argument("--turns", type=int, default=30, help="每局回合上限")
     ap.add_argument("--agent", default="秦")
-    ap.add_argument("--rivals", default="楚", help="逗号分隔的脚本对手")
     ap.add_argument("--max-actions", type=int, default=24, help="我方每回合动作上限")
-    ap.add_argument("--scripted-actions", type=int, default=12, help="脚本对手每回合动作数")
     ap.add_argument("--reward-scale", type=float, default=0.01)
     ap.add_argument("--iterations", type=int, default=50)
     ap.add_argument("--episodes", type=int, default=1, help="每轮采样几局")
@@ -133,7 +129,6 @@ def main() -> None:
             "spend_recruit": float(np.mean([s["spend_recruit"] for s in eps])),
             "spend_supply": float(np.mean([s["spend_supply"] for s in eps])),
             "tiles": float(np.mean([s["tiles"] for s in eps])),
-            "rival_spend": float(np.mean([s["rival_spend"] for s in eps])),
             "armies": float(np.mean([s["armies"] for s in eps])),
             "alive": float(np.mean([1.0 if s["alive"] else 0.0 for s in eps])),
             **{k: round(v, 4) for k, v in stats.items()},
