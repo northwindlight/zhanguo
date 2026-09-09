@@ -25,6 +25,7 @@ def _save(spend: dict | None = None) -> dict:
     }
     return {
         "turn": 12,
+        "order": ["甲", "乙"],
         "nations": {"甲": {}, "乙": {}},
         "tiles": tiles,
         "armies": [
@@ -60,6 +61,30 @@ class TestSpendTotal(unittest.TestCase):
         self.assertEqual(rank[0], "甲")
         board = settlement.scoreboard_text(save, res)
         self.assertLess(board.index("甲"), board.index("乙"))
+
+
+class TestDeadNations(unittest.TestCase):
+    """已亡国照样上榜：按累计消费排名，四维现状记 0。"""
+
+    def _save_with_dead(self) -> dict:
+        save = _save({"甲": {"build": 100, "recruit": 0, "supply": 0},
+                      "丙": {"build": 9000, "recruit": 500, "supply": 500}})
+        save["order"] = ["甲", "乙", "丙"]
+        save["nations"] = {"甲": {}, "乙": {}}          # 丙 已亡（不在 nations 里）
+        return save
+
+    def test_dead_nation_ranked_by_spend(self):
+        save = self._save_with_dead()
+        res = settlement.settle(save)
+        self.assertFalse(res["丙"]["alive"])
+        self.assertTrue(res["甲"]["alive"])
+        self.assertEqual(res["丙"]["spend_total"], 10000)
+        self.assertEqual(res["丙"]["land"], 0)          # 亡国四维归零
+        self.assertEqual(res["丙"]["asset"], 0)
+        board = settlement.scoreboard_text(save, res)
+        self.assertLess(board.index("丙"), board.index("甲"))   # 消费最高 → 榜首
+        self.assertIn("（亡）", board)
+        self.assertIn("参与到底也算数", board)
 
 
 class TestScoreboardText(unittest.TestCase):

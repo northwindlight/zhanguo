@@ -49,6 +49,7 @@
     只计「被消耗掉的资源」：市场买卖与馈赠不计（买来的物资在真正被消耗时才入账），
     避免重复计数。它测的是「你动用了多少国力」，而不是「你现在有多少国力」——
     囤而不用的国家在榜上垫底。上面四维只列示现状，不参与排名。
+    **已亡国同样上榜**（按累计消费排名，四维现状记 0）——活着不是及格线，参与到底也算数。
 ────────────────────────────────────────────────────────────────────────
 """
 import argparse
@@ -84,6 +85,15 @@ CHAT_ROUNDS = 5
 def load_save(path: str) -> dict:
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def _roster(save: dict) -> list[str]:
+    """全部国家（**含已亡国**）：save["order"] 记着出现过的所有国名，nations 只剩存活者。"""
+    names = [n for n in (save.get("order") or []) if isinstance(n, str)]
+    for n in save.get("nations", {}):
+        if n not in names:
+            names.append(n)
+    return names
 
 
 def army_type(a: dict) -> str:
@@ -199,14 +209,15 @@ def score_asset(save: dict, nation: str) -> tuple[float, list[str]]:
 
 
 def settle(save: dict) -> dict:
-    """返回 {nation: {gdp, army, land, asset, spend, spend_total, *_rows}}。
+    """返回 {nation: {gdp, army, land, asset, spend, spend_total, alive, *_rows}}。
 
-    排名依据 = **总消费**（累计建造+征兵+军费，按当时市价折金）；不再做加权总分。
+    **含已亡国**：亡国照样按总消费上榜（四维现状记 0）——活着不是及格线，
+    参与到底也算数。排名依据 = 总消费（累计建造+征兵+军费，按当时市价折金）。
     """
-    alive = list(save["nations"].keys())
+    alive_map = save.get("nations", {}) or {}
     spend_all = save.get("spend", {}) or {}
     out: dict[str, dict] = {}
-    for n in alive:
+    for n in _roster(save):
         gdp, gdp_rows = score_gdp(save, n)
         army, n_army = score_army(save, n)
         land, _ = score_land(save, n)
@@ -214,7 +225,8 @@ def settle(save: dict) -> dict:
         sp = {k: float((spend_all.get(n) or {}).get(k, 0) or 0) for k in SPEND_LABELS}
         out[n] = {"gdp": gdp, "gdp_rows": gdp_rows, "army": army, "n_army": n_army,
                   "land": land, "asset": asset, "asset_rows": asset_rows,
-                  "spend": sp, "spend_total": sum(sp.values())}
+                  "spend": sp, "spend_total": sum(sp.values()),
+                  "alive": n in alive_map}
     return out
 
 
@@ -238,7 +250,7 @@ def scoreboard_text(save: dict, result: dict, remarks: dict[str, str] | None = N
     for i, n in enumerate(rank, 1):
         r = result[n]
         rows.append([
-            str(i), n, f"{r['spend_total']:.0f}",
+            str(i), n if r["alive"] else f"{n}（亡）", f"{r['spend_total']:.0f}",
             f"{r['spend']['build']:.0f}", f"{r['spend']['recruit']:.0f}",
             f"{r['spend']['supply']:.0f}",
             f"{r['gdp']:.0f}", f"{r['army']:.1f}", f"{r['land']}", f"{r['asset']:.0f}",
@@ -255,6 +267,8 @@ def scoreboard_text(save: dict, result: dict, remarks: dict[str, str] | None = N
                  "存货也不计（囤积不是消费）——所以囤而不用的国家在这张榜上垫底。")
     lines.append("　　　GDP=生产法每回合推算(基准价)；军力=ΣHP%×兵种权重(步1.0/骑1.5/民0.4)；"
                  "领土=地块数；资产=建筑重置成本(基准价)——后四列只列示现状，不参与排名。")
+    if any(not result[n]["alive"] for n in rank):
+        lines.append("　　　已亡国同样上榜（按累计消费排名，四维现状记 0）——活着不是及格线，参与到底也算数。")
     if not any(result[n]["spend_total"] for n in rank):
         lines.append("⚠ 本档没有消费记录（总消费从记账启用后开始累计）——请用新档结算。")
     if remarks:
@@ -466,7 +480,8 @@ def main() -> None:
     report = [f"# 《战国》终局结算报告\n", f"生成于第 {save.get('turn','?')} 回合存档。\n",
               "## 成绩单\n", f"```\n{board}\n```\n"]
     for n, r in sorted(result.items(), key=lambda kv: -kv[1]["spend_total"]):
-        report.append(f"### {n}（总消费 {r['spend_total']:.0f}）\n")
+        tag = "" if r["alive"] else " · 已亡国"
+        report.append(f"### {n}{tag}（总消费 {r['spend_total']:.0f}）\n")
         report.append("- 总消费明细：" + "；".join(
             f"{SPEND_LABELS[k]} {r['spend'][k]:.0f}" for k in SPEND_LABELS))
         report.append(f"- GDP 原始值 {r['gdp']:.0f}：{'；'.join(r['gdp_rows']) or '无经济产出'}")
