@@ -58,6 +58,29 @@ class TestRetreatCover(unittest.TestCase):
         b = self._battle([100])
         self.assertEqual(a, b)
 
+    def test_retreat_cuts_attack_output(self):
+        """撤退军输出 -80%：守军宣布撤退后，进攻方该回合吃的伤害降到约 1/5。"""
+        def run(retreat: bool) -> int:
+            w = mp.World(size=16, seed=99, nations=["秦", "楚"])
+            w.tiles[(5, 5)] = w._new_tile(5, 5, "楚")
+            w.tiles[(5, 5)]["owner"] = "楚"
+            atk = {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+                   "x": 5, "y": 5, "owner": "秦", "moved_turn": -1, "engaged": True}
+            dfd = {"id": 2, "gid": 2, "name": "楚·步一军", "type": "步", "hp": 100,
+                   "x": 5, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": True}
+            if retreat:
+                dfd["retreat_to"] = (5, 4)  # 宣布撤退（cover 不影响输出）
+            w.armies = [atk, dfd]
+            w.wars = [{"id": 1, "atk": "秦", "def": "楚", "followers": [], "turn": 1}]
+            w.rng = random.Random(7)  # 同种子同骰 → 输出差异只来自撤退惩罚
+            w._resolve_battles()
+            return 100 - atk["hp"]
+
+        full = run(False)
+        part = run(True)
+        self.assertGreater(full, 0)
+        self.assertLessEqual(part, max(1, full // 4))
+
 
 class TestForcedWithdrawal(unittest.TestCase):
     """断盟/停战后滞留他国腹地的军队必须能走回家（否则永远困死）。"""

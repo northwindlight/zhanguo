@@ -39,6 +39,7 @@ from game import (
     PRICE_MIN,
     PRICE_REVERT,
     PRICE_TICK_RATIO,
+    RETREAT_ATK_PENALTY,
     RETREAT_RANGE,
     TERRAIN_CHARS,
     TERRAIN_STATS,
@@ -829,7 +830,11 @@ class World:
                     continue
                 _d, mod = self._die()
                 mods[F] = mod
-                power = self._round_damage(self._combat_power(sum(unit_atk(a) for a in forces[F]), 0), mod)
+                # 撤退中的军队输出 -80%（撤离途中无心恋战），按军计入攻击总和
+                atk = sum(unit_atk(a) if not a.get("retreat_to")
+                          else max(1, unit_atk(a) * (100 - RETREAT_ATK_PENALTY) // 100)
+                          for a in forces[F])
+                power = self._round_damage(self._combat_power(atk, 0), mod)
                 share = power / len(en)  # 均分给各敌人（腹背受敌则兵力分散）
                 for G in en:
                     dmg[G] += max(1, round(share * (100 - soak[G]) / 100))
