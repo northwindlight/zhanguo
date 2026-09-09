@@ -824,5 +824,40 @@ class TestMarket(unittest.TestCase):
         self.assertEqual(w2.flow_out, {g: 0 for g in mp.TRADEABLE})
 
 
+class TestLoadNoGhostTiles(unittest.TestCase):
+    """读档必须整体还原：不能留下存档里没有的地块。
+
+    曾经的 bug：load() 内部 cls(size, seed) 不带 nations → 先按默认「秦楚齐」建了一遍地图与
+    野人守卫，再逐格覆盖存档；默认三国里没被覆盖的格子就成了**幽灵地**（属于不存在的国家）。
+    国家数恰好为 3 时位置重合，问题被掩盖。
+    """
+
+    def test_roundtrip_matches_tiles_exactly(self):
+        import tempfile
+        from pathlib import Path as _P
+        for names in (["秦", "楚"], ["甲", "乙", "丙", "丁"], ["秦", "楚", "齐"]):
+            w = mp.World(size=20, seed=3, nations=names)
+            with tempfile.TemporaryDirectory() as d:
+                p = _P(d) / "s.json"
+                w.save(p)
+                w2 = mp.World.load(p)
+            self.assertEqual(set(w2.tiles), set(w.tiles), f"{names}: 地块集合应完全一致")
+            self.assertEqual(w2.order, names)
+            owners = {t["owner"] for t in w2.tiles.values()}
+            self.assertEqual(owners - set(names), set(), f"{names}: 不应有幽灵地块")
+
+    def test_load_does_not_build_default_nations(self):
+        import tempfile
+        from pathlib import Path as _P
+        w = mp.World(size=20, seed=3, nations=["甲", "乙"])
+        with tempfile.TemporaryDirectory() as d:
+            p = _P(d) / "s.json"
+            w.save(p)
+            w2 = mp.World.load(p)
+        for ghost in ("秦", "楚", "齐"):
+            self.assertNotIn(ghost, w2.nations)
+            self.assertNotIn(ghost, w2.order)
+
+
 if __name__ == "__main__":
     unittest.main()

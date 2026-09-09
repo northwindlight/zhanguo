@@ -101,7 +101,8 @@ class World:
     def __init__(self, size: int = 80, seed: int | None = None, *,
                  nations: list[str] | None = None,
                  starts: dict[str, tuple[int, int]] | None = None,
-                 res: dict[str, dict[str, int]] | None = None):
+                 res: dict[str, dict[str, int]] | None = None,
+                 gen: bool = True):
         self.size = size
         self.seed = seed if seed is not None else random.randrange(1 << 31)
         self.rng = random.Random(self.seed)
@@ -157,18 +158,22 @@ class World:
         self.ledger: dict[str, dict] = {}               # 本期累计账本（结完报表清零）
         self.history: list[dict] = []
         self.history_seen = 0
-        names = list(nations or ["秦", "楚", "齐"])
-        for nm in names:
-            self.nations[nm] = Nation(nm, (res or {}).get(nm))
-            self.order.append(nm)
-            self.mailbox[nm] = []
-            self.grid_short[nm] = False
-            self._assign_code(nm)
-        if starts:
-            self._place_crosses(starts)
-        else:
-            self._place_ring(names)
-        self._ensure_guardians()
+        # gen=False：只为读档准备一个空壳（世界由存档整体还原）。默认 gen=True 才铺地图/野人——
+        # 否则 load() 会先按默认「秦楚齐」建一遍，再逐格覆盖存档，留下存档里没有的**幽灵地块**
+        # （国家数 ≠3 时必然发生：默认三国里没被覆盖的那些格子会留在图上）。
+        if gen:
+            names = list(nations or ["秦", "楚", "齐"])
+            for nm in names:
+                self.nations[nm] = Nation(nm, (res or {}).get(nm))
+                self.order.append(nm)
+                self.mailbox[nm] = []
+                self.grid_short[nm] = False
+                self._assign_code(nm)
+            if starts:
+                self._place_crosses(starts)
+            else:
+                self._place_ring(names)
+            self._ensure_guardians()
 
     # ------------------------------------------------------------- 基建
     def alive(self) -> list[str]:
@@ -2606,7 +2611,7 @@ class World:
     @classmethod
     def load(cls, path: str | Path) -> "World":
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-        w = cls(size=data["size"], seed=data["seed"])
+        w = cls(size=data["size"], seed=data["seed"], gen=False)   # 空壳：世界由存档整体还原
         w.turn = data.get("turn", 0)
         ver, internal, gauss = data["rng_state"]
         w.rng.setstate((ver, tuple(internal), gauss))
