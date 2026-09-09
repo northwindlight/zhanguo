@@ -32,12 +32,12 @@
        ②p=1 下油电厂如实计 +2、木材厂 0——发电划不划算由燃料市价体现，
        不给浪费性转换发虚假增加值。
     5. 装备厂：增加值 = 装备×8 − 矿×4 − 油×6（中间投入按基准价扣除）
-    6. 军费（政府最终消费，即「军队消费纳入消费」）：Σ军队补给耗(步1骑2)×补给价5
+    6. 军费（政府最终消费，即「军队消费纳入消费」）：Σ军队补给耗(步1骑2民1)×补给价5，民兵驻自家军屯格的免补给部分不计（与引擎同口径）
        ——补给厂产出**不计**增加值，其价值在军费项体现，避免双算
     选生产法而弃消费法：存档是存量快照，生产法可从建筑表确定性推算一回合流量；
     消费法需要建造成本/征兵/市场买卖的每回合流水，快照里没有，解析 history 不可靠。
 
-二、军队（25%）：军力 = Σ(当前HP/100) × 兵种权重（步 1.0 / 骑 1.5）。
+二、军队（25%）：军力 = Σ(当前HP/100) × 兵种权重（步 1.0 / 骑 1.5 / 民 0.6，按攻击 50/50/30 定）。
 
 三、领土（30%）：地块数（plain count，最透明可解释）。
 
@@ -64,7 +64,7 @@ GOLD_MINE_PER_TURN = BUILDINGS["黄金矿场"]["outputs"]["黄金"] * MARKET["�
 TOWN_HALL_BASE = TOWN_HALL_GOLD                  # 市政厅基础金
 ENERGY_PRICE = 1                 # 影子电价 = 边际生产成本（结算口径，非游戏规则）
 UNIT_SUPPLY = {k: v["supply"] for k, v in UNIT_TYPES.items()}   # 每军每回合补给耗量
-UNIT_WEIGHT = {"步": 1.0, "骑": 1.5}   # 结算口径：军力权重（非游戏规则）
+UNIT_WEIGHT = {"步": 1.0, "骑": 1.5, "民": 0.6}   # 结算口径：军力权重（按攻击 50/50/30 定，非游戏规则）
 CASTLE_COST = BUILDINGS["城堡"]["cost"]          # 城堡逐级造价（累计投入求和用）
 # 建筑造价/耗木（重置成本用）；城堡造价是逐级列表，单独按级累计
 BUILD_COST = {name: (info["cost"], info["wood"]) for name, info in BUILDINGS.items()
@@ -131,7 +131,25 @@ def score_gdp(save: dict, nation: str) -> tuple[float, list[str]]:
             # 补给厂不计增加值：补给价值在军费（政府最终消费）中体现，防双算
     armies = [a for a in save["armies"] if a.get("owner") == nation]
     if armies:
-        mcost = sum(UNIT_SUPPLY[army_type(a)] for a in armies) * BASE_PRICE["补给"]
+        # 军屯驻屯免补给（与引擎 _supply_need 同口径：民兵驻自家军屯格，每座覆盖本格 1 支）
+        camps: dict[tuple[int, int], int] = {}
+        for k, t in save["tiles"].items():
+            if t.get("owner") != nation:
+                continue
+            c = t.get("buildings", {}).get("军屯", 0)
+            if c:
+                xs, ys = k.split(",")
+                camps[(int(xs), int(ys))] = c
+        need = 0
+        used: dict[tuple[int, int], int] = {}
+        for a in armies:
+            if army_type(a) == "民":
+                p = (a.get("x", -1), a.get("y", -1))
+                if p in camps and used.get(p, 0) < camps[p]:
+                    used[p] = used.get(p, 0) + 1
+                    continue  # 驻屯民兵不吃补给
+            need += UNIT_SUPPLY[army_type(a)]
+        mcost = need * BASE_PRICE["补给"]
         _add(f"军费({len(armies)}支)", len(armies), mcost)
     rows = [f"{k}×{c} {v:+.0f}" for k, (c, v) in agg.items()]
     return gdp, rows
@@ -238,7 +256,7 @@ def scoreboard_text(save: dict, result: dict, remarks: dict[str, str] | None = N
     lines = [f"《战国》第 {turn} 回合 · 终局结算（GDP 30% · 军队 25% · 领土 30% · 固定资产 15%）",
              ""] + body
     lines.append("")
-    lines.append("口径：GDP=生产法每回合推算(基准价)；军力=ΣHP%×兵种权重(步1.0/骑1.5)；"
+    lines.append("口径：GDP=生产法每回合推算(基准价)；军力=ΣHP%×兵种权重(步1.0/骑1.5/民0.6)；"
                  "领土=地块数；资产=建筑重置成本(基准价)。括号内为原始值。")
     if remarks:
         lines.append("")
