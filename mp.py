@@ -75,6 +75,12 @@ RETREAT_DEF_COVER = 50   # 防御方撤退：回合末战斗结算中只受 50% 
 PLAN_MAX_TURNS = 10  # 国策每 10 回合必须修订一次（否则 end_turn 被拦）
 
 
+def _res_str(res: dict[str, int]) -> str:
+    """资源五项的紧凑文本（矿 金 耕 油 木），侦察情报与地图快照共用。"""
+    return (f"矿{res['矿石']} 金{res['黄金']} 耕{res['耕地']} "
+            f"油{res['石油']} 木{res['木头']}")
+
+
 def _pair(a: str, b: str) -> frozenset:
     return frozenset((a, b))
 
@@ -189,6 +195,56 @@ class World:
                 if (nx, ny) not in self.tiles:
                     fr.add((nx, ny))
         return fr
+
+    def tile_resources(self, x: int, y: int) -> dict[str, int]:
+        """(x,y) 的资源分布——种子纯函数（同 tile_terrain 思路：未占格也能探明，不掷共享 rng）。
+        已占格直接读地块存的值（旧档占用时刻的抽签结果保持不变）。"""
+        t = self.tiles.get((x, y))
+        if t is not None:
+            return t["resources"]
+        ter = self.tile_terrain(x, y)
+        return roll_resources(random.Random(f"{self.seed}:{x}:{y}:r"), ter)
+
+    def _tower_coords(self, name: str) -> set[tuple[int, int]]:
+        """己方/盟方所有瞭望塔半径 WATCHTOWER_RADIUS 圆内的坐标（含己/盟地，调用方自筛）。"""
+        bloc = self.bloc_of(name)
+        out: set[tuple[int, int]] = set()
+        for (tx, ty), t in self.tiles.items():
+            if not t["buildings"].get("瞭望塔"):
+                continue
+            o = t["owner"]
+            if o != name and not (bloc is not None and o in bloc["members"]):
+                continue
+            r = WATCHTOWER_RADIUS
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    if dx * dx + dy * dy > r * r:
+                        continue
+                    px, py = tx + dx, ty + dy
+                    if 0 <= px < self.size and 0 <= py < self.size:
+                        out.add((px, py))
+        return out
+
+    def scout_unclaimed(self, name: str) -> set[tuple[int, int]]:
+        """视野内无主格 = 自带视野（国土相邻一圈）∪ 瞭望塔圈内的未占地。"""
+        out = set(self.frontier_of(name))
+        for p in self._tower_coords(name):
+            if self.owned_by(*p) is None:
+                out.add(p)
+        return out
+
+    def scout_foreign(self, name: str) -> set[tuple[int, int]]:
+        """视野内他国地块 = 自带视野相邻一圈 ∪ 瞭望塔圈内的他国占之地（盟友地不算，共享视野已覆盖）。"""
+        cand = set(self._tower_coords(name))
+        for (x, y) in self.own_tiles(name):
+            cand.update(self.neighbors(x, y))
+        bloc = self.bloc_of(name)
+        out: set[tuple[int, int]] = set()
+        for p in cand:
+            o = self.owned_by(*p)
+            if o is not None and o != name and not (bloc is not None and o in bloc["members"]):
+                out.add(p)
+        return out
 
     def nation_building_count(self, name: str, building: str, *, include_pending: bool = False) -> int:
         """name 全部地块上某建筑的已落成座数（include_pending=True 含在建）。"""
@@ -314,7 +370,7 @@ class World:
         return {
             "owner": owner,
             "terrain": terrain,
-            "resources": roll_resources(self.rng, terrain),
+            "resources": self.tile_resources(x, y),
             "buildings": {b: 0 for b in BUILDINGS},
             "pending": {b: 0 for b in BUILDINGS},  # 在建（下回合才生效）
             "name": roll_tile_name(self.rng, used),
@@ -1359,18 +1415,28 @@ class World:
 
     # ------------------------------------------------------------- 交换地图
     def _map_snapshot(self, n: str) -> str:
-        """把某国的"已知地图"做成文本：全部国土块 + 边界外可见块，全部带坐标（不截断）。"""
+        """把某国的"已知地图"做成文本：全部国土块 + 视野内无主地（含资源）+ 他国地块（含建筑情报）。"""
         own = self.own_tiles(n)
-        fr = sorted(self.frontier_of(n))
-        L = [f"{n} 已知地图：国土 {len(own)} 块、边界外可拓地 {len(fr)} 格（全部坐标）"]
+        fr = sorted(self.scout_unclaimed(n))
+        fo = sorted(self.scout_foreign(n))
+        L = [f"{n} 已知地图：国土 {len(own)} 块、视野内无主地 {len(fr)} 格、他国地 {len(fo)} 块（全部坐标）"]
         for p in own:
             t = self.tiles[p]
             L.append(f"  {t.get('name', '?')} {t['terrain']}({p[0] + 1},{p[1] + 1}) "
-                     f"城L{t['buildings']['城堡']} 位{sum(t['buildings'].values())}")
+                     f"城L{t['buildings']['城堡']} 位{sum(t['buildings'].values())} "
+                     f"[{_res_str(t['resources'])}]")
         if fr:
-            L.append("  边界外可见（未占）:")
+            L.append("  视野内无主地（资源已探明，便于规划拓荒/选金矿）:")
             for p in fr:
-                L.append(f"  {self.tile_terrain(*p)}({p[0] + 1},{p[1] + 1})")
+                L.append(f"  {self.tile_terrain(*p)}({p[0] + 1},{p[1] + 1}) {_res_str(self.tile_resources(*p))}")
+        if fo:
+            L.append("  视野内他国地块（建筑情报）:")
+            for p in fo:
+                t = self.tiles[p]
+                built = " ".join(f"{bn}×{cnt}" for bn, cnt in t["buildings"].items() if cnt) or "无"
+                L.append(f"  {t.get('name', '?')}({p[0] + 1},{p[1] + 1}){t['terrain']} {t['owner']} "
+                         f"城L{t['buildings']['城堡']} 位{sum(t['buildings'].values())}/{MAX_SLOTS} "
+                         f"建筑[{built}] [{_res_str(t['resources'])}]")
         return "\n".join(L)
 
     def share_map(self, frm: str, to: str) -> tuple[bool, str]:

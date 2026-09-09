@@ -286,6 +286,37 @@ class TestNewBuildings(unittest.TestCase):
         self.assertEqual(unit_atk(mil), 30)
         self.assertEqual(unit_atk(legacy), 50)
 
+    # ---- 侦察：资源探明 / 他国建筑情报 ----
+    def test_tile_resources_is_seed_pure(self):
+        w1 = self._world()
+        w2 = self._world()
+        # 未占格：种子纯函数，同种子一致；占用后与地块存的值同源
+        self.assertEqual(w1.tile_resources(5, 5), w2.tile_resources(5, 5))
+        nt = w1._new_tile(5, 5, "秦")
+        self.assertEqual(nt["resources"], w1.tile_resources(5, 5))
+
+    def test_scout_reveals_unclaimed_and_foreign(self):
+        w = self._world()
+        w.tiles = {}
+        t = w._new_tile(0, 0, "秦")
+        t["owner"] = "秦"
+        w.tiles[(0, 0)] = t
+        foe = w._new_tile(0, 1, "楚")
+        foe["owner"] = "楚"
+        foe["buildings"]["农场"] = 2
+        w.tiles[(0, 1)] = foe
+        # 自带视野：相邻一圈无主地 + 他国地
+        self.assertIn((1, 0), w.scout_unclaimed("秦"))
+        self.assertEqual(w.scout_foreign("秦"), {(0, 1)})
+        # 塔圈：半径 4 内的无主地也探明（(4,0) 恰在圆上，(5,0) 圆外）
+        t["buildings"]["瞭望塔"] = 1
+        self.assertIn((4, 0), w.scout_unclaimed("秦"))
+        self.assertNotIn((5, 0), w.scout_unclaimed("秦"))
+        snap = w._map_snapshot("秦")
+        self.assertIn("农场×2", snap)           # 他国建筑情报
+        self.assertIn("楚", snap)
+        self.assertIn("资源已探明", snap)
+
     # ---- 工程院 ----
     def test_academy_discounts_local_build(self):
         w = self._world()

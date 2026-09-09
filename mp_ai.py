@@ -36,7 +36,7 @@ from game import (
 )
 import ctx as ctxlib
 from ctx import est_tokens
-from mp import DIPLO_COST, LETTER_COST, PLAN_MAX_TURNS, RES_KEYS, RES_LABEL
+from mp import DIPLO_COST, LETTER_COST, PLAN_MAX_TURNS, RES_KEYS, RES_LABEL, _res_str
 
 MAIL_BRIEF_FULL = 3      # 状态面板里完整展示的新信数（更旧的只列摘要行）
 MAIL_BRIEF_ROWS = 20     # 状态面板里最多列多少条旧信摘要
@@ -150,15 +150,33 @@ def _fmt_land(world, name, cap=40) -> str:
         )
         shown += 1
     fr = sorted(world.frontier_of(name))
-    lines.append(f"可拓荒地 {len(fr)} 块（[野人]=有守军需 atk 打赢；[空地]=无守军，atk 进驻即占）:")
+    lines.append(f"可拓荒地 {len(fr)} 块（[野人]=有守军需 atk 打赢；[空地]=无守军，atk 进驻即占；资源已探明）:")
     frs = []
     for (x, y) in fr:
         guard = any(a["owner"] == "野人" and (a["x"], a["y"]) == (x, y) for a in world.armies)
         tag = "[野人]" if guard else "[空地]"
-        frs.append(f"({x+1},{y+1}){world.ter_char(x, y)}{tag}")
+        frs.append(f"({x+1},{y+1}){world.ter_char(x, y)}{tag} {_res_str(world.tile_resources(x, y))}")
     if frs:
-        for i in range(0, len(frs), 10):
-            lines.append("  " + " ".join(frs[i:i + 10]))
+        for i in range(0, len(frs), 5):
+            lines.append("  " + " ".join(frs[i:i + 5]))
+    # 瞭望塔探明：塔圈内的更远无主地（相邻一圈之外的部分）
+    tv = sorted(world.scout_unclaimed(name) - set(fr))
+    if tv:
+        lines.append(f"瞭望塔探明 {len(tv)} 块（塔圈内的更远无主地；要占领还得先拓到它边上）:")
+        rows = [f"({x+1},{y+1}){world.ter_char(x, y)} {_res_str(world.tile_resources(x, y))}"
+                for (x, y) in tv]
+        for i in range(0, len(rows), 5):
+            lines.append("  " + " ".join(rows[i:i + 5]))
+    # 视野内他国地块：建筑情报（自带视野相邻一圈 + 瞭望塔圈）
+    fo = sorted(world.scout_foreign(name))
+    if fo:
+        lines.append(f"视野内他国地块 {len(fo)} 块（建筑情报）:")
+        for (x, y) in fo:
+            t = world.tiles[(x, y)]
+            built = " ".join(f"{bn}×{cnt}" for bn, cnt in t["buildings"].items() if cnt) or "无"
+            lines.append(f"  {t.get('name', '?')} ({x+1},{y+1}){t['terrain']} {t['owner']} "
+                         f"城L{t['buildings']['城堡']} 位{sum(t['buildings'].values())}/{MAX_SLOTS} "
+                         f"建筑[{built}] [{_res_str(t['resources'])}]")
     return "\n".join(lines)
 
 
@@ -397,8 +415,8 @@ def _help_sections() -> list[tuple[str, str]]:
             note = ("维持1电；每座每回合 = 5金基础 + 该地块每座建筑×1金（不含自身，地越盖越值）"
                     "入国库；需本地已用建筑位≥6、每地块限1座")
         elif k == "tower":
-            note = (f"无产出不耗电；己方/盟方任一瞭望塔半径 {WATCHTOWER_RADIUS} 圆内的事件你都收得到"
-                    "（视野=国土+相邻一圈+所有瞭望塔圈；只扩视野，不增加可拓地）")
+            note = (f"无产出不耗电；己方/盟方任一瞭望塔半径 {WATCHTOWER_RADIUS} 圆内：事件你都收得到，"
+                    "无主地资源与他国建筑情报也一并探明（视野=国土+相邻一圈+所有瞭望塔圈；只扩视野，不增加可拓地）")
         elif k == "diplomat":
             note = ("无产出不耗电；每座（含抢来的）让你的外交费再减半（10→5→2→1，下限1金）、"
                     "写信费 -5 金（下限5金），他国向你提议结盟/联盟/议和永远免费；"
@@ -418,7 +436,9 @@ def _help_sections() -> list[tuple[str, str]]:
             "EU4式 大地图国战：每人从 5 块地起家，拓荒/建设/生产/建军，可对他国结盟或开战。"
             "回合制：每回合你行动（可做多件事）→ 过回合统一结算（产出/电网/战斗/补给/市场回归）。"
             "地皮名字=ID，坐标 1-based。你能看的是自己地盘+相邻一圈（有联盟则连盟友的地盘也看得到；"
-            "建瞭望塔可把事件视野再往外推）；他国国力只能推测。"
+            "建瞭望塔可把事件视野与侦察再往外推）；他国国力只能推测。"
+            "视野内情报：无主地的资源（相邻一圈+塔圈）与他国地块的建筑（城L/占位/建筑清单）都看得见"
+            "——land 面板和 query panel=map 都有，选金矿/盯邻居发展全靠它。"
             "想细看任何机制就带主题调 rules，例如 rules(建筑) rules(联盟) rules(战斗)。"
         )),
         ("地形", ter + "\n  占地一律走 atk：派军队进格——有守军打赢即占，敌人=0 进驻即占；"
