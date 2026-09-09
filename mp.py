@@ -650,10 +650,16 @@ class World:
         ok, why = self.can_enter(name, x, y)
         if not ok:
             return False, why
-        # 禁 mv 停到有敌军(交战方)的地格——要打用 atk（否则两军脸贴脸却不打）
-        if any(d["owner"] != name and d["owner"] != "野人"
-               and (d["x"], d["y"]) == (x, y) and self.war_between(name, d["owner"])
-               for d in self.armies):
+        # mv 合法地块 = 野地 / 自家 / 盟国。敌国格一律禁 mv——**空格也必须 atk 才能进占**
+        # （无「无阻穿行」，每一步前进都是交战或占领）。
+        # 自家/盟国格被混战敌军占着可进（增援）：入格随 _resolve_battles 的格上 forces 自动参战。
+        owner = self.owned_by(x, y)
+        if owner is not None and owner != name and not self.allied_between(name, owner):
+            return False, f"({x+1},{y+1}) 是敌国领土，mv 不得进入；进占请用 atk（会交战/占领）"
+        if owner is None and any(d["owner"] != name and d["owner"] != "野人"
+                                 and (d["x"], d["y"]) == (x, y)
+                                 and self.war_between(name, d["owner"])
+                                 for d in self.armies):
             return False, f"({x+1},{y+1}) 有敌军驻守，不能 mv 过去；进攻请用 atk（会交战）"
         # mv 只挪位置，不占地——占地走 atk
         a["x"], a["y"] = x, y

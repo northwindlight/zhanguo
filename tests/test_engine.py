@@ -58,6 +58,61 @@ class TestRetreatCover(unittest.TestCase):
         b = self._battle([100])
         self.assertEqual(a, b)
 
+    def test_mv_reinforces_own_contested_tile(self):
+        """自家格被混战敌军占着：mv 可进（不置 engaged），结算随 forces 自动参战；敌国格照旧拦。"""
+        w = mp.World(size=16, seed=5, nations=["秦", "楚"])
+        w.tiles[(5, 5)] = w._new_tile(5, 5, "秦")
+        w.tiles[(5, 5)]["owner"] = "秦"
+        w.tiles[(6, 5)] = w._new_tile(6, 5, "楚")
+        w.tiles[(6, 5)]["owner"] = "楚"
+        foe = {"id": 1, "gid": 1, "name": "楚·步一军", "type": "步", "hp": 100,
+               "x": 5, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": True}
+        newr = {"id": 3, "gid": 3, "name": "秦·步二军", "type": "步", "hp": 100,
+                "x": 5, "y": 6, "owner": "秦", "moved_turn": -1, "engaged": False}
+        w.armies = [foe, newr]
+        w.wars = [{"id": 1, "atk": "楚", "def": "秦", "followers": [], "turn": 1}]
+        ok, msg = w.move("秦", 3, 5, 5)
+        self.assertTrue(ok, msg)
+        self.assertFalse(newr["engaged"])          # 无特殊实现：不置交战标记
+        w.rng = random.Random(7)
+        w.resolve_turn()
+
+        # 同种子对照组：无增援时楚军吃的伤害必然更少 → 增援那份输出实打实算进去了
+        w2 = mp.World(size=16, seed=5, nations=["秦", "楚"])
+        w2.tiles[(5, 5)] = w2._new_tile(5, 5, "秦")
+        w2.tiles[(5, 5)]["owner"] = "秦"
+        foe2 = dict(foe, hp=100)
+        w2.armies = [foe2]
+        w2.wars = list(w.wars)
+        w2.rng = random.Random(7)
+        w2.resolve_turn()
+        self.assertLess(foe["hp"], foe2["hp"])     # 有增援 → 楚掉血更多（参战了）
+        self.assertLess(newr["hp"], 100)           # 增援也进了伤害分摊
+        # 敌国格仍拦
+        w3 = mp.World(size=16, seed=5, nations=["秦", "楚"])
+        w3.tiles[(5, 5)] = w3._new_tile(5, 5, "秦")
+        w3.tiles[(5, 5)]["owner"] = "秦"
+        w3.tiles[(6, 5)] = w3._new_tile(6, 5, "楚")
+        w3.tiles[(6, 5)]["owner"] = "楚"
+        f3 = {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+              "x": 5, "y": 6, "owner": "秦", "moved_turn": -1, "engaged": False}
+        w3.armies = [f3]  # (6,5) 空敌国格
+        w3.wars = [{"id": 1, "atk": "秦", "def": "楚", "followers": [], "turn": 1}]
+        ok2, msg2 = w3.move("秦", 1, 6, 5)
+        self.assertFalse(ok2)
+        self.assertIn("敌国领土", msg2)
+        # 野地格被敌军驻守 → 仍拦（脸贴脸必须 atk）
+        w4 = mp.World(size=16, seed=5, nations=["秦", "楚"])
+        f4 = {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+              "x": 5, "y": 6, "owner": "秦", "moved_turn": -1, "engaged": False}
+        g4 = {"id": 2, "gid": 2, "name": "楚·步一军", "type": "步", "hp": 100,
+              "x": 6, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": False}
+        w4.armies = [f4, g4]
+        w4.wars = [{"id": 1, "atk": "秦", "def": "楚", "followers": [], "turn": 1}]
+        ok3, msg3 = w4.move("秦", 1, 6, 5)
+        self.assertFalse(ok3)
+        self.assertIn("敌军驻守", msg3)
+
     def test_stranded_engaged_army_is_freed(self):
         """敌军撤退落地离开后，原格留守者不该再背「交战中」——清扫立即解锁。"""
         w = mp.World(size=16, seed=5, nations=["秦", "楚"])
