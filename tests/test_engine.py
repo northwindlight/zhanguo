@@ -172,6 +172,29 @@ class TestNewBuildings(unittest.TestCase):
         self.assertTrue(w.visible_to("秦", 0, 4))
         self.assertTrue(w.visible_to("秦", 2, 3))    # 4+9=13 ≤ 16（圆形而非方形）
 
+    def test_watchtower_sees_battle_reports(self):
+        """战报带坐标 → 瞭望塔圈内的战斗事件能收到（修「战报无人可见」的不一致）。"""
+        w = mp.World(size=16, seed=9, nations=["秦", "楚"])
+        w.tiles = {}
+        t = w._new_tile(1, 1, "秦")
+        t["owner"] = "秦"
+        t["buildings"]["瞭望塔"] = 1
+        w.tiles[(1, 1)] = t
+        bt = w._new_tile(1, 5, "楚")
+        bt["owner"] = "楚"
+        w.tiles[(1, 5)] = bt
+        w.armies = [
+            {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+             "x": 1, "y": 5, "owner": "秦", "moved_turn": -1, "engaged": True},
+            {"id": 2, "gid": 2, "name": "楚·步一军", "type": "步", "hp": 100,
+             "x": 1, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": True},
+        ]
+        w.wars = [{"id": 1, "atk": "秦", "def": "楚", "followers": [], "turn": 1}]
+        w.rng = random.Random(7)
+        w.resolve_turn()
+        # 战场距塔 4 格（非相邻）：没有塔根本看不见；有塔必须看到战报
+        self.assertTrue(any("⚔" in l for l in w.events_for("秦")))
+
     # ---- 军屯：民兵兵营 ----
     def test_militia_recruit_at_camp(self):
         w = self._world()

@@ -793,7 +793,7 @@ class World:
         """每格每回合的多势力交战结算：**进攻方不纯联合**——每方独立只打自己的敌人（互相宣战才互打），
         每方掷自己的骰；野人只守无主格、只打"进攻方"（不打扰和平停驻者）；地形/城堡减伤只给格主/野人；
         同格多方同时出手再统一结算阵亡；占地 = 唯一幸存且野人已清的势力。"""
-        lines: list[str] = []
+        lines: list[tuple[int, int, str]] = []  # (x, y, 战报行)——带坐标才进得了事件视野
         engaged = [a for a in self.armies if a.get("engaged") and a["owner"] != "野人"]
         for (x, y) in sorted({(a["x"], a["y"]) for a in engaged}):
             tag = f"({x+1},{y+1}){self.ter_char(x, y)}"
@@ -871,23 +871,23 @@ class World:
                 info = f"{winner} 余{len(fs)}支[{fs[0]['hp']}hp]"
                 if owner == winner:
                     dead = sum(len(v) for F, v in forces.items() if F != winner)
-                    lines.append(f"⚔ 守军坚守 @{tag}：攻方{dead}支全灭，{info}"
-                                 f"（骰 {self._modtxt(mods)}）")
+                    lines.append((x, y, f"⚔ 守军坚守 @{tag}：攻方{dead}支全灭，{info}"
+                                 f"（骰 {self._modtxt(mods)}）"))
                 else:
                     ok, msg = self._conquer(x, y, winner, "攻陷" if owner else "进驻")
-                    lines.append(f"⚔ 全歼守军 @{tag}，{msg}（{info}）")
+                    lines.append((x, y, f"⚔ 全歼守军 @{tag}，{msg}（{info}）"))
             elif len(survivors) == 1 and "野人" in alive:
                 fs = alive[survivors[0]]
-                lines.append(f"⚔ {survivors[0]} 仍与野人交战 @{tag}"
-                             f"（余{len(fs)}支[{fs[0]['hp']}hp]，守军未清，占不得）")
+                lines.append((x, y, f"⚔ {survivors[0]} 仍与野人交战 @{tag}"
+                             f"（余{len(fs)}支[{fs[0]['hp']}hp]，守军未清，占不得）"))
             elif not survivors:
                 if "野人" in alive:
-                    lines.append(f"⚔ 攻方全灭 @{tag}，野人仍在（无主地守军未清）")
+                    lines.append((x, y, f"⚔ 攻方全灭 @{tag}，野人仍在（无主地守军未清）"))
                 else:
-                    lines.append(f"⚔ 同归于尽 @{tag}——" + ("此地成无主空地，可直接占领" if owner is None else "城仍在敌手"))
+                    lines.append((x, y, f"⚔ 同归于尽 @{tag}——" + ("此地成无主空地，可直接占领" if owner is None else "城仍在敌手")))
             else:
                 desc = "；".join(f"{F} 余{len(alive[F])}支[{alive[F][0]['hp']}hp]" for F in survivors)
-                lines.append(f"⚔ 多方混战 @{tag}（骰 {self._modtxt(mods)}）：{desc}（战局未定）")
+                lines.append((x, y, f"⚔ 多方混战 @{tag}（骰 {self._modtxt(mods)}）：{desc}（战局未定）"))
         return lines
 
     # ------------------------------------------------------------- 占领/灭国
@@ -1068,8 +1068,9 @@ class World:
 
         # 3) 战争结算
         war_lines = self._resolve_battles()
-        for ln in war_lines:
-            self.log(ln, phase="战报")
+        for wx, wy, ln in war_lines:
+            self.log(ln, phase="战报", x=wx, y=wy)  # 带坐标 → 视野内（含瞭望塔圈）才可见
+        flat_lines = [ln for _, _, ln in war_lines]
 
         # 3.5) 撤退落地：撤退军队已随本轮战斗结算（全场分摊），此刻脱离到目标格
         for a in [a for a in self.armies if a.get("retreat_to")]:
@@ -1081,16 +1082,19 @@ class World:
             if self._retreat_legal(a["owner"], tx, ty):
                 a["x"], a["y"] = tx, ty
                 a["engaged"] = False
-                self.log(f"{a['name']} 撤到 ({tx+1},{ty+1})，脱离交战", phase="战报")
+                self.log(f"{a['name']} 撤到 ({tx+1},{ty+1})，脱离交战", phase="战报",
+                         nation=a["owner"], x=tx, y=ty)
             else:
                 alts = [(nx, ny) for nx, ny in self.neighbors(a["x"], a["y"])
                         if (nx, ny) != (a["x"], a["y"]) and self._retreat_legal(a["owner"], nx, ny)]
                 if alts:
                     a["x"], a["y"] = alts[0]
                     a["engaged"] = False
-                    self.log(f"{a['name']} 撤退目标格战局生变，改撤 ({alts[0][0]+1},{alts[0][1]+1})", phase="战报")
+                    self.log(f"{a['name']} 撤退目标格战局生变，改撤 ({alts[0][0]+1},{alts[0][1]+1})",
+                             phase="战报", nation=a["owner"], x=alts[0][0], y=alts[0][1])
                 else:
-                    self.log(f"{a['name']} 撤退目标格已不合法且四周无可退点，原地留守", phase="战报")
+                    self.log(f"{a['name']} 撤退目标格已不合法且四周无可退点，原地留守", phase="战报",
+                             nation=a["owner"], x=a["x"], y=a["y"])
 
         # 4) 军队补给 + 回复（每国吃自己的补给仓）
         famine = {}
@@ -1157,7 +1161,7 @@ class World:
                 f"产出 {' '.join(parts) if parts else '无'} | 电网 {grid} | 军队 {armies} 支{fam} | "
                 f"国库{self.res(n,'黄金')} 木{self.res(n,'木头')} 补给仓{self.res(n,'补给')}"
             )
-        return {"war_lines": war_lines, "famine": famine}
+        return {"war_lines": flat_lines, "famine": famine}
 
     def _supply_need(self, n: str, ps: list[dict]) -> int:
         """全军每回合补给需求：步1/骑2；民兵驻在**自家**军屯格免费——每座军屯覆盖本格 1 支

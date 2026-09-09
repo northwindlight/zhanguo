@@ -2,7 +2,8 @@
 """多国自动一局编排器（看海模式）。
 
 读配置 → 开新局或续局 → 无人值守：
-  每回合轮流唤醒各国 agent（各国用工具行动）→ 统一结算 → 投信 → 存 journal/存档。
+  每回合轮流唤醒各国 agent（各国用工具行动）→ 统一结算 → 投信 → 存 journal；
+  每回合结算后自动存档，手动退出（Ctrl-C）不保存——存档永远是回合边界，载入不跳回合。
 Observer（你）能看到：每个国家的每个行动、每封信、每场战、每桩外交。
 
 用法：
@@ -192,14 +193,14 @@ def run() -> None:
 
     def _sig(sig, frm):
         stop["flag"] = True
-        world.save(save_path)
-        emit("（Ctrl-C：已存档，随后退出）")
+        # 手动退出不保存：磁盘存档保持「上一回合结算完」的干净档，载入永不跳回合
+        emit(f"（Ctrl-C：手动退出不保存，进度保留到第 {world.turn} 回合结算；本回合未结算的行动作废）")
         flush(out, journal_path, echo=True)
         sys.exit(0)
 
     signal.signal(signal.SIGINT, _sig)
 
-    print(f"开始看海。存档 {save_path}，日志 {journal_path}。Ctrl-C 中断存档。"
+    print(f"开始看海。存档 {save_path}（每回合结算后自动保存；Ctrl-C 退出不保存），日志 {journal_path}。"
           f"命令：`add 国名 [匈奴]` 中途加国；`send 国家 内容` 寄神秘来信"
           f"（多行先 `send 国家` 粘贴正文以 END 收尾；或 `send 国家 @文件路径` 从文件读）。")
     while not stop["flag"]:
