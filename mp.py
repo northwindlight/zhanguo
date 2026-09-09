@@ -1137,6 +1137,23 @@ class World:
         if cleared:
             self.log(f" {cleared} 支军队解除交战（敌军已撤离/覆灭）", phase="战报")
 
+        # 4.95) 弃城即陷：本回合发生过战斗的格子，守军全撤走/覆灭后格上只剩唯一一方
+        # （且与格主交战）→ 直接改旗。兑现 rules 既定的「守军弃城即陷」，无需再补一刀 atk。
+        for bx, by in {(x, y) for x, y, _ in war_lines}:
+            owner = self.owned_by(bx, by)
+            if owner is None or owner not in self.nations:
+                continue
+            holders = {a["owner"] for a in self.armies if (a["x"], a["y"]) == (bx, by)}
+            if len(holders) != 1:
+                continue  # 格主还在（守军未清）或多方混战未定 → 不动
+            (g,) = tuple(holders)
+            if g == "野人" or not self.war_between(g, owner):
+                continue
+            ok, msg = self._conquer(bx, by, g, "守军尽撤")
+            if ok:
+                self.log(f"⚔ 守军尽撤 @({bx + 1},{by + 1}){self.ter_char(bx, by)}，{msg}",
+                         phase="战报", x=bx, y=by)
+
         # 5) 非法滞留 → 自动遣返（断盟/退盟/停战后必须撤出）
         self._withdraw_illegal()
 

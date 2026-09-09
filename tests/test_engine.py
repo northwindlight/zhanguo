@@ -79,6 +79,33 @@ class TestRetreatCover(unittest.TestCase):
         self.assertEqual(w._clear_disengaged(), 0)
         self.assertTrue(stay["engaged"])
 
+    def test_abandoned_tile_flips_to_besieger(self):
+        """守军弃城即陷：守军撤退离开后，攻方无需再补一刀即接管该地。"""
+        w = mp.World(size=16, seed=5, nations=["秦", "楚"])
+        w.tiles = {}
+        t = w._new_tile(5, 5, "楚")
+        t["owner"] = "楚"
+        w.tiles[(5, 5)] = t
+        t0 = w._new_tile(0, 0, "楚")  # 楚的老家：弃城后不至于亡国
+        t0["owner"] = "楚"
+        w.tiles[(0, 0)] = t0
+        w.armies = [
+            {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+             "x": 5, "y": 5, "owner": "秦", "moved_turn": -1, "engaged": True},
+            {"id": 2, "gid": 2, "name": "楚·步一军", "type": "步", "hp": 100,
+             "x": 5, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": True,
+             "retreat_to": (5, 4)},  # 撤往无主地（合法撤退点）
+        ]
+        w.wars = [{"id": 1, "atk": "秦", "def": "楚", "followers": [], "turn": 1}]
+        w.rng = random.Random(7)
+        w.resolve_turn()
+        self.assertEqual(w.owned_by(5, 5), "秦")          # 弃城即陷
+        dfd = next(a for a in w.armies if a["owner"] == "楚")
+        self.assertEqual((dfd["x"], dfd["y"]), (5, 4))
+        self.assertFalse(dfd["engaged"])
+        atk = next(a for a in w.armies if a["owner"] == "秦")
+        self.assertFalse(atk["engaged"])                  # 留守者也被清扫解锁
+
     def test_retreat_cuts_attack_output(self):
         """撤退军输出 -80%：守军宣布撤退后，进攻方该回合吃的伤害降到约 1/5。"""
         def run(retreat: bool) -> int:
