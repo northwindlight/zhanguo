@@ -1186,6 +1186,13 @@ class World:
                 "trade_ratio": round(trade, 4),
             }
             self.econ_reports.setdefault(n, []).append(snap)
+            # 公告一条（看海终端可见；该国在【近讯】里也能看到 → 提醒它去 report 查）
+            mr = snap["military_ratio"]
+            self.log(f"📊 第 {snap['report_turn']} 回合经济报表已生成："
+                     f"GDP {snap['gdp']:.1f}/回合、军费占 GDP "
+                     f"{f'{mr * 100:.0f}%' if mr is not None else '—'}、"
+                     f"总资产 {snap['assets']:.0f}（report 看明细 / report all=true 看趋势）",
+                     phase="内政", nation=n)
         self.ledger = {}
 
     @staticmethod

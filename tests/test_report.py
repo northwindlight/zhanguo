@@ -159,6 +159,19 @@ class TestCaliber(unittest.TestCase):
         self.assertGreater(second["gdp_growth"], 0)
 
 
+class TestAnnouncement(unittest.TestCase):
+    def test_generation_is_announced_to_owner_only(self):
+        """报表生成要写一条纪事：看海终端看得到，该国【近讯】也看得到（别国看不到）。"""
+        w, *_ = _mk()
+        _run(w, 10)
+        lines = [h["text"] for h in w.history if "经济报表已生成" in h.get("text", "")]
+        self.assertEqual(len(lines), 2)                      # 秦、楚 各一条
+        self.assertIn("第 11 回合经济报表已生成", " ".join(lines))
+        self.assertIn("report", lines[0])
+        self.assertTrue(any("经济报表已生成" in e for e in w.events_for("秦")))
+        self.assertFalse(any("经济报表已生成" in e for e in w.events_for("野人")))
+
+
 class TestPartialPeriod(unittest.TestCase):
     """不完整首期：续档/中途登场时账本从零开始，结账要按实际覆盖回合数平均，不能一律 ÷10。"""
 
