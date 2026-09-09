@@ -25,13 +25,14 @@ import re
 from pathlib import Path
 
 from game import (
-    ARMY_ATTACK_DAMAGE,
     ARMY_HEAL_PER_TURN,
     ARMY_MAX_HP,
     ARMY_STARVE_DAMAGE,
     BUILDINGS,
     CASTLE_DEFENSE_PER_LEVEL,
     COMBAT_DIE_MOD,
+    DIPLO_CENTER_MIN_COST,
+    ENGINEER_DISCOUNT,
     MARKET,
     MAX_SLOTS,
     PRICE_MAX_RATIO,
@@ -45,9 +46,11 @@ from game import (
     TOWN_HALL_PER_SLOT,
     TRADEABLE,
     UNIT_TYPES,
+    WATCHTOWER_RADIUS,
     army_name,
     roll_resources,
     roll_tile_name,
+    unit_atk,
     unit_kind,
     unit_speed,
     unit_supply,
@@ -120,6 +123,7 @@ class World:
         self.armies: list[dict] = []
         self.next_army_seq: dict[str, int] = {}  # 各国独立军队序列：从1递增、阵亡不回收
         self.standby: dict[str, int] = {}        # 待登场国 {国名: 登场回合}（带 polity 的配置国），随存档持久化
+        self.diplo_built: dict[str, int] = {}    # 各国「自建」外交中心座数（夺地抢来的不计，不影响自建限额）
         self.nation_code: dict[str, int] = {}    # 国家码：军队全局唯一id = 码×1e8+序列（野人=0，秦=1→100000001）
         self._next_code = 1
         self.guard_once: set[tuple[int, int]] = set()  # 每格至多出生一支野人：死了就没了，不重生
@@ -186,9 +190,21 @@ class World:
                     fr.add((nx, ny))
         return fr
 
+    def nation_building_count(self, name: str, building: str, *, include_pending: bool = False) -> int:
+        """name 全部地块上某建筑的已落成座数（include_pending=True 含在建）。"""
+        n = 0
+        for t in self.tiles.values():
+            if t["owner"] != name:
+                continue
+            n += t["buildings"].get(building, 0)
+            if include_pending:
+                n += (t.get("pending") or {}).get(building, 0) or 0
+        return n
+
     def visible_to(self, name: str, x: int, y: int) -> bool:
         """name 是否看得见 (x,y)：它本身或相邻格（含对角）有自家的地。
-        联盟共享视野：盟友的地块视同己方（自己+盟友地盘各带相邻一圈）。"""
+        联盟共享视野：盟友的地块视同己方（自己+盟友地盘各带相邻一圈）。
+        瞭望塔：己方/盟方任一瞭望塔半径 WATCHTOWER_RADIUS 圆（欧氏）内也可见（事件视野）。"""
         cand = [(x, y)] + self.neighbors(x, y)
         bloc = self.bloc_of(name)
         for cx, cy in cand:
@@ -196,6 +212,14 @@ class World:
             if o == name:
                 return True
             if bloc is not None and o in bloc["members"]:
+                return True
+        for (tx, ty), t in self.tiles.items():
+            if not t["buildings"].get("瞭望塔"):
+                continue
+            o = t["owner"]
+            if o != name and not (bloc is not None and o in bloc["members"]):
+                continue
+            if (tx - x) ** 2 + (ty - y) ** 2 <= WATCHTOWER_RADIUS ** 2:
                 return True
         return False
 
@@ -475,12 +499,18 @@ class World:
             return False, f"{building} 需该地块已用建筑位 ≥{info['min_slots']}（现 {used_eff}），先建满再盖"
         if info.get("limit") and eff[building] >= info["limit"]:
             return False, f"{building} 已达上限（每地块 {info['limit']} 座）"
+        if info.get("limit_nation") and self.diplo_built.get(name, 0) >= info["limit_nation"]:
+            return False, f"{building} 自建全国限 {info['limit_nation']} 座（已自建过；再要只能从别国手里抢）"
         lv = eff[building]
         cost = info["cost"][lv] if info["kind"] == "castle" else info["cost"]
         label = f"城堡L{lv+1}" if info["kind"] == "castle" else building
         bp = TERRAIN_STATS[t["terrain"]]["build_penalty"]   # 地形施工惩罚（只上浮金价，木材不变）
         if bp:
             cost = cost * (100 + bp) // 100
+        disc = ""
+        if t["buildings"].get("工程院") and building != "工程院":
+            cost = cost * (100 - ENGINEER_DISCOUNT) // 100   # 工程院：本地建造金价 -20%（只认已落成的）
+            disc = f"，工程院-{ENGINEER_DISCOUNT}%"
         if self.polity.get(name) == "huns":
             cost = cost * 13 // 10   # 匈奴 +30% 建筑惩罚，乘算（不擅建设，靠抢）
         wood = info["wood"]
@@ -492,14 +522,18 @@ class World:
         self.add_res(name, "木头", -wood)
         t["pending"][building] += 1  # 在建，回合末才落地
         t["built_this_turn"] = 1
+        if building == "外交中心":
+            self.diplo_built[name] = self.diplo_built.get(name, 0) + 1  # 自建名额记账（抢来的不占）
         tile_name = t["name"]
         note = f"，{t['terrain']}施工+{bp}%" if bp else ""
-        return True, f"动工 {label}（@{tile_name}{note}，本回合在建、下回合生效），-{cost}金 -{wood}木"
+        return True, f"动工 {label}（@{tile_name}{note}{disc}，本回合在建、下回合生效），-{cost}金 -{wood}木"
 
     def recruit(self, name: str, x: int, y: int, n: int = 1, kind: str = "步") -> tuple[bool, str]:
         t = self.tiles.get((x, y))
         if kind not in UNIT_TYPES:
             return False, f"未知兵种：{kind}（可选：{'、'.join(UNIT_TYPES)}）"
+        if kind == "民":
+            return False, "民兵不能征召：由军屯建成后自动提供"
         if name not in self.nations:
             return False, f"国家 {name} 不存在"
         if t is None or t["owner"] != name:
@@ -711,8 +745,9 @@ class World:
         return d, COMBAT_DIE_MOD[d]
 
     @staticmethod
-    def _combat_power(n: int, def_pct: int) -> int:
-        return max(1, n * ARMY_ATTACK_DAMAGE * (100 - def_pct) // 100)
+    def _combat_power(atk_total: int, def_pct: int) -> int:
+        """atk_total = 该方各军兵种攻击之和（步/骑 50、民兵 30，见 unit_atk）。"""
+        return max(1, atk_total * (100 - def_pct) // 100)
 
     @staticmethod
     def _round_damage(power: int, mod: int) -> int:
@@ -778,7 +813,7 @@ class World:
                     continue
                 _d, mod = self._die()
                 mods[F] = mod
-                power = self._round_damage(self._combat_power(len(forces[F]), 0), mod)
+                power = self._round_damage(self._combat_power(sum(unit_atk(a) for a in forces[F]), 0), mod)
                 share = power / len(en)  # 均分给各敌人（腹背受敌则兵力分散）
                 for G in en:
                     dmg[G] += max(1, round(share * (100 - soak[G]) / 100))
@@ -1043,7 +1078,7 @@ class World:
         famine = {}
         for n in self.alive():
             ps = self.nation_armies(n)
-            need = sum(unit_supply(a) for a in ps)  # 步1/骑2 补给每回合
+            need = self._supply_need(n, ps)  # 步1/骑2；民兵驻自家军屯格免费
             paid = min(need, self.res(n, "补给"))
             self.add_res(n, "补给", -paid)
             short = need - paid
@@ -1084,11 +1119,21 @@ class World:
                                        base * PRICE_MAX_RATIO), 3)
 
         # 6.5) 在建建筑落地（施工 1 回合）：本回合结算不产出，落地后从下回合开始生效
-        for t in self.tiles.values():
+        for (tx, ty), t in self.tiles.items():
             p = t.get("pending") or {}
             for k, c in p.items():
-                if c:
-                    t["buildings"][k] += c
+                if not c:
+                    continue
+                t["buildings"][k] += c
+                if k == "军屯" and t["owner"] in self.nations:
+                    # 军屯建成 → 自动征得民兵（驻本格不耗补给；阵亡不补，只能再建新军屯）
+                    owner = t["owner"]
+                    gid, seq = self._new_army(owner)
+                    self.armies.append({"id": seq, "gid": gid, "name": army_name(owner, seq, "民"),
+                                        "type": "民", "hp": ARMY_MAX_HP, "x": tx, "y": ty,
+                                        "owner": owner, "moved_turn": -1, "engaged": False})
+                    self.log(f"🪖 军屯建成 @{t['name']}：{army_name(owner, seq, '民')} 入驻"
+                             f"（驻军屯格不耗补给）", phase="内政", nation=owner, x=tx, y=ty)
             t["pending"] = {k: 0 for k in BUILDINGS}
 
         # 7) 各国结算摘要（供 agent 看）
@@ -1105,6 +1150,23 @@ class World:
                 f"国库{self.res(n,'黄金')} 木{self.res(n,'木头')} 补给仓{self.res(n,'补给')}"
             )
         return {"war_lines": war_lines, "famine": famine}
+
+    def _supply_need(self, n: str, ps: list[dict]) -> int:
+        """全军每回合补给需求：步1/骑2；民兵驻在**自家**军屯格免费——每座军屯覆盖本格 1 支
+        （同格第 2 支起、以及离格/军屯格被夺后的民兵，照常吃补给）。"""
+        free: dict[tuple[int, int], int] = {}
+        need = 0
+        for a in ps:
+            if unit_kind(a) == "民":
+                t = self.tiles.get((a["x"], a["y"]))
+                if t is not None and t["owner"] == n:
+                    cap = t["buildings"].get("军屯", 0)
+                    used = free.get((a["x"], a["y"]), 0)
+                    if used < cap:
+                        free[(a["x"], a["y"])] = used + 1
+                        continue
+            need += unit_supply(a)
+        return need
 
     def _withdraw_illegal(self):
         """断盟/停战后身处他国中立领土的军队，每回合按兵种速度朝最近的合法地(本国/盟国)撤
@@ -2159,6 +2221,7 @@ class World:
             "tiles": {f"{x},{y}": t for (x, y), t in sorted(self.tiles.items())},
             "armies": self.armies, "next_army_seq": self.next_army_seq,
             "standby": self.standby,
+            "diplo_built": self.diplo_built,
             "nation_code": self.nation_code,
             "guard_once": [list(k) for k in sorted(self.guard_once)],
             "wars": self.wars,
@@ -2258,6 +2321,7 @@ class World:
                     a["name"] = army_name(a["owner"], s, a.get("type", "步"))
         # 待登场国随档持久化；旧档没有此字段则留空（mp_run 会按配置现补）
         w.standby = {k: int(v) for k, v in data.get("standby", {}).items()}
+        w.diplo_built = {k: int(v) for k, v in data.get("diplo_built", {}).items() if k in w.nations}
         # wars 迁移：新格式=冲突对象{id,atk,def,followers}；旧档=[a,b] 边对 → 视为无跟随方的双边战争
         w.wars = []
         w._war_id = int(data.get("war_id", 1))
