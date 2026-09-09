@@ -58,6 +58,27 @@ class TestRetreatCover(unittest.TestCase):
         b = self._battle([100])
         self.assertEqual(a, b)
 
+    def test_stranded_engaged_army_is_freed(self):
+        """敌军撤退落地离开后，原格留守者不该再背「交战中」——清扫立即解锁。"""
+        w = mp.World(size=16, seed=5, nations=["秦", "楚"])
+        w.tiles[(5, 5)] = w._new_tile(5, 5, "秦")
+        w.tiles[(5, 5)]["owner"] = "秦"
+        stay = {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+                "x": 5, "y": 5, "owner": "秦", "moved_turn": -1, "engaged": True}
+        fled = {"id": 2, "gid": 2, "name": "楚·步一军", "type": "步", "hp": 100,
+                "x": 6, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": False}
+        w.armies = [stay, fled]  # 敌军已落地他格、脱离交战；格上只剩我军
+        w.wars = [{"id": 1, "atk": "楚", "def": "秦", "followers": [], "turn": 1}]
+        n = w._clear_disengaged()
+        self.assertEqual(n, 1)
+        self.assertFalse(stay["engaged"])
+        # 有活敌时绝不误清
+        stay["engaged"] = True
+        w.armies.append({"id": 3, "gid": 3, "name": "楚·步二军", "type": "步", "hp": 100,
+                         "x": 5, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": True})
+        self.assertEqual(w._clear_disengaged(), 0)
+        self.assertTrue(stay["engaged"])
+
     def test_retreat_cuts_attack_output(self):
         """撤退军输出 -80%：守军宣布撤退后，进攻方该回合吃的伤害降到约 1/5。"""
         def run(retreat: bool) -> int:

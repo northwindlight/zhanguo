@@ -1132,6 +1132,11 @@ class World:
         for n, (short, per, dead) in famine.items():
             self.log(f"⚠ {n} 补给断粮（缺 {short}，每军 -{per}HP）：{dead} 支军队饿毙", phase="内政", nation=n)
 
+        # 4.9) 脱离清扫：撤退军已落地离开原格，格上留守者不该再背「交战中」
+        cleared = self._clear_disengaged()
+        if cleared:
+            self.log(f" {cleared} 支军队解除交战（敌军已撤离/覆灭）", phase="战报")
+
         # 5) 非法滞留 → 自动遣返（断盟/退盟/停战后必须撤出）
         self._withdraw_illegal()
 
@@ -1184,6 +1189,34 @@ class World:
                         continue
             need += unit_supply(a)
         return need
+
+    def _clear_disengaged(self) -> int:
+        """脱离战斗清扫：格上已无活敌军的 engaged 军队就地解除交战。
+        覆盖两处死角——敌军撤退落地离开原格（留守者傻等下回合结算才解锁）、
+        以及任何路径留下的空交战标记。返回解除数。"""
+        cleared = 0
+        for a in self.armies:
+            if not a.get("engaged"):
+                continue
+            foes = []
+            for d in self.armies:
+                if d is a or (d["x"], d["y"]) != (a["x"], a["y"]):
+                    continue
+                if d["owner"] == "野人":
+                    if a["owner"] != "野人":
+                        foes.append(d)  # 我方与野人交战（野人只接战进攻方）
+                    continue
+                if d["owner"] != a["owner"] and self.war_between(a["owner"], d["owner"]):
+                    foes.append(d)
+            if a["owner"] == "野人":
+                # 野人只与「交战中的进攻方」为敌，和平停驻者不算
+                foes = [d for d in self.armies
+                        if d is not a and (d["x"], d["y"]) == (a["x"], a["y"])
+                        and d["owner"] != "野人" and d.get("engaged")]
+            if not foes:
+                a["engaged"] = False
+                cleared += 1
+        return cleared
 
     def _withdraw_illegal(self):
         """断盟/停战后身处他国中立领土的军队，每回合按兵种速度朝最近的合法地(本国/盟国)撤
