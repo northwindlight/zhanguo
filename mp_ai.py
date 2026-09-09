@@ -25,7 +25,11 @@ from game import (
     DIPLO_CENTER_MIN_COST,
     ENGINEER_DISCOUNT,
     LETTER_CENTER_DISCOUNT,
+    LETTER_CHARS_PER_GOLD,
+    LETTER_COST,
+    LETTER_COST_ALLY,
     LETTER_COST_MIN,
+    LETTER_FREE_CHARS,
     MARKET,
     MARKET_SPREAD,
     MAX_SLOTS,
@@ -34,13 +38,13 @@ from game import (
     TOWN_HALL_PER_SLOT,
     UNIT_TYPES,
     WATCHTOWER_RADIUS,
+    letter_cost,
     unit_supply,
 )
 import ctx as ctxlib
 from console import dw as _dw, pad as _pad
 from ctx import est_tokens
-from mp import (DIPLO_COST, LETTER_COST, PLAN_MAX_TURNS, REPORT_EVERY, RES_KEYS,
-                RES_LABEL)
+from mp import DIPLO_COST, PLAN_MAX_TURNS, REPORT_EVERY, RES_KEYS, RES_LABEL
 
 MAIL_BRIEF_FULL = 3      # 状态面板里完整展示的新信数（更旧的只列摘要行）
 MAIL_BRIEF_ROWS = 20     # 状态面板里最多列多少条旧信摘要
@@ -422,7 +426,7 @@ def _help_sections() -> list[tuple[str, str]]:
                     "（含战报；视野=国土+相邻一圈+所有瞭望塔圈；只扩事件视野，不增加可拓地）")
         elif k == "diplomat":
             note = ("无产出不耗电；每座（含抢来的）让你的外交费再减半（10→5→2→1，下限1金）、"
-                    "写信费 -5 金（下限5金），他国向你提议结盟/联盟/议和永远免费；"
+                    "他国向你提议结盟/联盟/议和永远免费；**写信起步价吃这个减免，超字费不吃**；"
                     "**自建全国限1座，第2座只能抢**；需本地已用位≥5")
         elif k == "academy":
             note = (f"无产出不耗电；本地块一切建造金价 -{ENGINEER_DISCOUNT}%（含城堡升级，与地形惩罚乘算，"
@@ -501,7 +505,7 @@ def _help_sections() -> list[tuple[str, str]]:
             "盟主特权：对任何联盟投票**一票否决**（投 no 即作废）、可 bloc_rename 改盟名、"
             "可 bloc_transfer 移交盟主、可 bloc_dissolve 解散联盟。"
             "盟内效果：互通领土（自由通行、合法撤退地）、互不攻击、共享视野（盟友地盘及其相邻一圈你都看得见）、"
-            "成员之间的外交动作（写信/馈赠/换图/投票/回应邀约）全部免费。"
+            "成员之间的外交动作（馈赠/换图/投票/回应邀约）全部免费；**写信例外——联盟内起步价 10 金（非联盟 20），前 20 字免费，超出每 10 字 1 金**。"
             "战争：联盟成员不能擅自开战——declare_war 自动转为宣战投票，**赞成 > 反对**即全盟对目标宣战"
             "（盟主为进攻主导、全体成员为进攻跟随方）；防守不需要投票：任一成员被打，全盟自动参战。"
             "传导无限跳：宣战时守侧按 保障/共同防御/联盟 的传递闭包自动参战（A 保 B、B 盟 C → 打 B 时 C 也上）；"
@@ -531,17 +535,20 @@ def _help_sections() -> list[tuple[str, str]]:
             "也可用 gift 把本国资源馈赠对方（粮木矿油装补给或黄金，本回合垫支、下回合到账）——示好、资助盟国、买通都行。"
             "还能用 share_map 把你的整张已知地图（全部坐标）发给对方，对方下回合在 query panel=intel 收到——换情报、亮家底、协调攻守都用得上。"
             "外交是有成本的：每成功一次外交动作（提议/回应/断盟/保障/宣战/求和/换图/馈赠）扣基础 10 金，"
-            "写信(send_letter)单独 20 金。外交中心（特殊建筑）可压价：每座（含抢来的）让自己的外交费再减半"
-            "（10→5→2→1，下限 1 金）、写信费每座 -5 金（下限 5 金）；他国向你提议结盟/联盟/议和永远免费——外交强国有外交中心的加持。"
+            "写信(send_letter)按字数单独计价：**起步价联盟内 10 金 / 非联盟 20 金**（含前 20 字，吃外交中心减免：每座 -5、下限 5），"
+            "**超出部分每 10 字 1 金（不足 10 字按 10 字算）且不吃任何减免**——联盟成员不再免费，长信照样花钱；"
+            "他国向你提议结盟/联盟/议和永远免费——外交强国有外交中心的加持。"
             "情报战：如果你不想开口问（懒得谈、不想欠人情）、又钱多，可用 spy(间谍) 花100金刺探别国，"
             "3回合后盗回其国库/收入/全部建设底细、粗略军情（仅各兵种数量，位置未知）、整张已知地图（地图进 query panel=intel 看）；"
             "⚠ 间谍**只给各兵种数量**——敌军的位置/血量/番号侦察不到，布防与调动只能靠换图、边地观察或正面交战得知——"
             "打谁、敲谁、开战时机都心中有数。"
         )),
         ("信箱", (
-            "send_letter 可给任何别国写信（结盟邀约/和谈/威胁/情报交换），**每次 20 金起、成功即扣、下回合送达**"
-            "——这是最贵的外交动作；外交中心每座 -5 金（20→15→10…，下限 5 金）。**每封信寄出前先算账：值不值？**"
-            "预期收益（勒索要到的贡品/结盟带来的安全/关键情报/逼降止损）明显 > 20 金才写；说不出收益的信不要写。"
+            "send_letter 可给任何别国写信（结盟邀约/和谈/威胁/情报交换），**按字数计价：起步价联盟内 10 金 / "
+            "非联盟 20 金（含前 20 字，吃外交中心减免），超出部分每 10 字 1 金、不吃任何减免；"
+            "成功即扣、下回合送达**——联盟成员不再免费，长信照样花钱。"
+            "**每封信寄出前先算账：值不值？** 预期收益（勒索要到的贡品/结盟带来的安全/关键情报/逼降止损）"
+            "明显 > 信价才写；说不说出收益就别写——**写长了就是花钱**。"
             "写信前再 query panel=res 看国库：**国库 <100 金别写信**；"
             "能并进一次正式外交提议（外交费）的话就别单独写信，更别拿写信闲聊。"
             "收到信要在 diplomacy/mail 面板回应——不回信，对方可能以为你拒绝。"
@@ -851,7 +858,8 @@ def _econ_building(world, building: str) -> str:
     if k == "tower":
         return f"{building}: 造价折{capex:.0f}金 · 不产金：事件视野 +{WATCHTOWER_RADIUS} 圆（情报投入）"
     if k == "diplomat":
-        return (f"{building}: 造价折{capex:.0f}金 · 不产金：外交费每座再减半（10→5→2→1）+ 写信 -5金；"
+        return (f"{building}: 造价折{capex:.0f}金 · 不产金：外交费每座再减半（10→5→2→1）；"
+                "写信起步价吃减免、超字费不吃；"
                 "自建全国限1座，第2座只能抢")
     if k == "academy":
         return (f"{building}: 造价折{capex:.0f}金 · 不产金：本地块一切建造金价 -{ENGINEER_DISCOUNT}%"
@@ -1119,14 +1127,26 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         ok, msg = world.sell(actor, g, int(args.get("qty", args.get("amount", 0))))
         return msg
 
-    # ---- 信箱（信件单独收费，成功才扣；收信人为联盟成员 → 免费；外交中心每座 -5 金，下限 5）
+    # ---- 信箱（起步价联盟 10 / 非联盟 20，吃外交中心减免；超字费不吃减免）
     if tool in ("send_letter", "写信", "letter"):
         to = str(args.get("to", ""))
         text = str(args.get("content", ""))
-        lc = max(LETTER_COST_MIN,
-                 LETTER_COST - LETTER_CENTER_DISCOUNT * world.nation_building_count(actor, "外交中心"))
-        return _charge(world, actor, 0 if world.allied_between(actor, to) else lc,
-                       world.send_mail, actor, to, text)
+        allied = world.allied_between(actor, to)
+        lc = letter_cost(text, allied=allied,
+                         diplo_centers=world.nation_building_count(actor, "外交中心"))
+        if world.res(actor, "黄金") < lc:
+            base = LETTER_COST_ALLY if allied else LETTER_COST
+            over = max(0, len(text) - LETTER_FREE_CHARS)
+            return (f"国库不足：写这封 {len(text)} 字的信需 {lc} 金"
+                    f"（起步价 {base} 金{'（联盟内）' if allied else ''}含前 {LETTER_FREE_CHARS} 字、"
+                    f"外交中心每座 -{LETTER_CENTER_DISCOUNT} 金，下限 {LETTER_COST_MIN}；"
+                    f"超出 {over} 字 × 每 {LETTER_CHARS_PER_GOLD} 字 1 金**不打折**），"
+                    f"你现 {world.res(actor, '黄金')} 金")
+        ok, msg = world.send_mail(actor, to, text)
+        if ok:
+            world.add_res(actor, "黄金", -lc)
+            msg += f"（{len(text)} 字，-{lc} 金）"
+        return msg
 
     # ---- 外交馈赠（本国储备垫支赠他国，下回合到账；另扣 10 金手续费）
     if tool in ("gift", "赠送", "赠予", "馈赠"):
@@ -1351,7 +1371,7 @@ TOOL_SCHEMAS = [
         "parameters": _props({"good": {"type": "string", "description": "物资", "required": True},
                               "qty": {"type": "integer", "description": "数量", "required": True}})}},
     {"type": "function", "function": {
-        "name": "send_letter", "description": "给别国写信。**每次 20 金起（最贵的外交动作；外交中心每座 -5 金，下限 5 金）、成功即扣；收件人是联盟成员则免费**；信件下回合才送达对方信箱。写信前先算账：值不值？预期收益（贡品/结盟/情报/逼降）明显大于费用才写，说不出收益就别写；国库 <100 金不要写信；诉求能并进一次正式外交提议（外交费）就别单独写信。to 必须用 countries 选出的别国，不能是自己。",
+        "name": "send_letter", "description": "给别国写信。**按字数计价：起步价联盟内 10 金 / 非联盟 20 金（含前 20 字，吃外交中心减免：每座 -5、下限 5）；超出 20 字的部分每 10 字 1 金、不吃任何减免**。成功即扣、下回合送达；联盟成员不再免费。写长信就是花钱——写信前先算账：值不值？预期收益（贡品/结盟/情报/逼降）明显大于信价才写，说不出收益就别写，更别拿写信闲聊；国库紧张时短写或不写。诉求能并进一次正式外交提议（外交费）就别单独写信。to 必须用 countries 选出的别国，不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "收信国名", "required": True},
                               "content": {"type": "string", "description": "信件正文", "required": True}})}},
     {"type": "function", "function": {
@@ -1515,7 +1535,7 @@ def _default_system_prompt(world, name) -> str:
         "联盟成员开战必须先经联盟投票（多数决）；议和由各方谈判代表（主导者或其盟主）出面，盟主议和还须联盟投票；"
         "主导者议和则整条战线（含跟随方）停。同联盟且同战线的盟友夺回你的核心领土（land 面板 ♥ 标记）会自动归还给你。\n"
         "【外交（事实）】你与每个别国的关系独立：可保持中立、可提议共同防御或发起/申请加入联盟（对方可能接受或拒绝）、"
-        "可单方保障它或撤回、可退盟（单方面、无须同意）、可宣战、战中可求和。联盟成员间外交（写信/馈赠/换图/投票）免费。"
+        "可单方保障它或撤回、可退盟（单方面、无须同意）、可宣战、战中可求和。联盟成员间外交（馈赠/换图/投票）免费，**写信除外（联盟内起步价 10、非联盟 20，超字另计）**。"
         "来信可回应也可不回；邀约可接受可拒绝可冷处理；承诺可以兑现也可以背弃。这些都由你权衡。\n"
         "【信息】情报有迷雾：你只看得见自己地盘与相邻一圈（有联盟则连盟友的地盘也看得到）；"
         "他国国库/储备/全部军队你看不到，只能从来信、边界动静与其言行推断；"

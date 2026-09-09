@@ -221,8 +221,25 @@ COMBAT_DIE_MOD = {1: -25, 2: -15, 3: -5, 4: 5, 5: 15, 6: 25}
 WATCHTOWER_RADIUS = 4    # 瞭望塔事件视野半径（欧氏圆：dx²+dy²≤r²）
 ENGINEER_DISCOUNT = 25   # 工程院：本地块建造金价减免 %
 DIPLO_CENTER_MIN_COST = 1  # 外交中心叠加减半后的外交费下限
-LETTER_CENTER_DISCOUNT = 5  # 外交中心对写信的减免：每座固定 -5 金
-LETTER_COST_MIN = 5         # 写信费用下限（防零费刷信）
+# 写信计费（2026-09-10 用户拍板）：
+#   起步价：联盟内 10 金 / 非联盟 20 金 —— **吃减免**（外交中心每座 -5，下限 5）
+#   超字费：起步价内含前 20 字，之后每 10 字 1 金（不足 10 字按 10 字算）—— **不吃任何减免**
+# 联盟成员不再免费（起步价减半），长信照样要花钱。
+LETTER_COST = 20            # 非联盟起步价
+LETTER_COST_ALLY = 10       # 联盟内起步价
+LETTER_CENTER_DISCOUNT = 5  # 外交中心对**起步价**的减免：每座固定 -5 金
+LETTER_COST_MIN = 5         # 起步价下限（防零费刷信）
+LETTER_FREE_CHARS = 20      # 起步价内含的免费字数
+LETTER_CHARS_PER_GOLD = 10  # 超出部分每 10 字 1 金（不吃减免）
+
+
+def letter_cost(text: str, allied: bool = False, diplo_centers: int = 0) -> int:
+    """一封信的价钱 = 起步价（联盟 10 / 非联盟 20，吃外交中心减免、下限 5）
+    + ceil(超出免费额的字数 ÷ 每金字数)（不吃任何减免）。"""
+    base = LETTER_COST_ALLY if allied else LETTER_COST
+    base = max(LETTER_COST_MIN, base - LETTER_CENTER_DISCOUNT * diplo_centers)
+    over = max(0, len(text or "") - LETTER_FREE_CHARS)
+    return base + -(-over // LETTER_CHARS_PER_GOLD)
 
 # 基地资源（随机生成的 5 项）→ 对应采集建筑
 SITE_BUILDING = {
