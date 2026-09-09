@@ -69,7 +69,7 @@ RES_LABEL = {"黄金": "国库", "木头": "木材", "补给": "补给仓"}
 
 CROSS = [(0, 0), (0, -1), (0, 1), (-1, 0), (1, 0)]
 
-SPY_COST = 100    # 经济间谍 花 100 金
+SPY_COST = 100    # 间谍 花 100 金
 SPY_TURNS = 3     # 3 回合后回报目标全部经济情报 + 地图（进 intel）；军情只给粗略数量（各兵种几支），位置/血量不外泄
 DIPLO_COST = 10   # 外交基础费用：提议/回应/断盟/保障/宣战/求和/换图/馈赠手续费（成功才扣）
 LETTER_COST = 20  # 信件单独费用
@@ -113,8 +113,8 @@ class World:
         self.gift_pending: list[dict] = []         # 馈赠在途（下回合到账）
         self.map_pending: list[dict] = []          # 交换地图在途（下回合到账）
         self.maps: dict[str, list[dict]] = {}      # 各国收到的地图情报（{from,turn,text}，留最近3张）
-        self.spy_pending: list[dict] = []          # 经济间谍在途（3回合后回报）
-        self.econ_intel: dict[str, list[dict]] = {}  # 各国收到的经济情报（{from,turn,text}，留最近2份）
+        self.spy_pending: list[dict] = []          # 间谍在途（3回合后回报）
+        self.econ_intel: dict[str, list[dict]] = {}  # 各国收到的间谍情报（{from,turn,text}，留最近2份）
         self.plans: dict[str, dict] = {}           # 各国国策规划 {text, turn}——常驻上下文，每10回合须修订
         self.polity: dict[str, str] = {}           # 政体标记（"huns"=匈奴）→ 造价/征召/外交限制
         self.extra_prompt: dict[str, dict] = {}    # 临时注入的额外上下文 {text, until}——塞入正常 system_prompt，until 后自动消失
@@ -1420,7 +1420,7 @@ class World:
             mstore.append({"from": f"{s['to']}(间谍)", "turn": s["arrive"],
                            "text": self._map_snapshot(s["to"])})
             del mstore[:-3]
-            self.log(f"🕵 {s['from']} 的间谍回报了 {s['to']} 的经济情报与地图",
+            self.log(f"🕵 {s['from']} 的间谍回报了 {s['to']} 的情报与地图",
                      phase="事件", nation=s["from"])
         return len(due)
 
@@ -1542,14 +1542,14 @@ class World:
                                  "arrive": self.turn + 1})
         return True, f"已把你的地图发给 {to}，将于第 {self.turn+1} 回合到账"
 
-    # ------------------------------------------------------------- 经济间谍
+    # ------------------------------------------------------------- 间谍
     def _econ_snapshot(self, n: str) -> str:
-        """目标国当前完整经济底细：国库/储备 + 收入结算 + 全部地块建设(含在建)。"""
+        """目标国当前完整底细：国库/储备 + 收入结算 + 全部地块建设(含在建) + 粗略军情。"""
         r = self.nations[n].res
         res_txt = " ".join(f"{k}{r.get(k, 0)}" for k in RES_KEYS)
         et, mt, short = self.energy_report.get(n, (0, 0, False))
         grid = "停摆" if short else f"产{et}/需{mt}"
-        L = [f"【{n} 经济情报】国库/储备: {res_txt} | 电网: {grid}"]
+        L = [f"【{n} 情报】国库/储备: {res_txt} | 电网: {grid}"]
         summ = self.econ_summary.get(n)
         if summ:
             L.append(f"  上回合收入结算: {summ}")
@@ -1572,18 +1572,18 @@ class World:
         return "\n".join(L)
 
     def spy(self, frm: str, to: str) -> tuple[bool, str]:
-        """派间谍刺探别国（花 SPY_COST 金），SPY_TURNS 回合后盗回其全部经济情报 +
+        """派间谍刺探别国（花 SPY_COST 金），SPY_TURNS 回合后盗回其经济底细 +
         粗略军情（仅各兵种数量，位置/血量/番号不外泄）+ 整张已知地图。不能对自己用。"""
         if frm not in self.nations or to not in self.nations:
             return False, "间谍双方都必须是现存国家"
         if to == frm:
             return False, "不能派间谍刺探自己"
         if self.res(frm, "黄金") < SPY_COST:
-            return False, f"国库不足：派经济间谍需 {SPY_COST} 金，你现 {self.res(frm, '黄金')}"
+            return False, f"国库不足：派间谍需 {SPY_COST} 金，你现 {self.res(frm, '黄金')}"
         self.add_res(frm, "黄金", -SPY_COST)
         self.spy_pending.append({"from": frm, "to": to, "arrive": self.turn + SPY_TURNS})
-        return True, (f"已派经济间谍前往 {to}（-{SPY_COST}金），"
-                      f"将于第 {self.turn + SPY_TURNS} 回合拿回其经济情报")
+        return True, (f"已派间谍前往 {to}（-{SPY_COST}金），"
+                      f"将于第 {self.turn + SPY_TURNS} 回合拿回其情报（经济底细+粗略军情+地图）")
 
     # ------------------------------------------------------------- 外交
     def _next_offer_id(self) -> int:
