@@ -44,11 +44,13 @@
 四、固定资产（15%）：重置成本 = Σ(造价金 + 耗木 × 木基准价)；
     城堡按已升到的级数计累计投入（Σ 第1..L级造价）。
 
-总分：**取消归一化**——各维度直接用原始值加权求和
-    total = GDP×0.30 + 军力×0.25 + 领土×0.30 + 资产×0.15
-    好处：分数是绝对量，别人涨你不掉分、跨回合跨局可比，榜首不再恒为 100。
-    代价（用户拍板接受）：四个维度量纲不同，资产（数千金的建筑重置成本）在加权总分里
-    占 ~90%，总分排名基本等于资产排名——看明细列，别只看总分。
+总分：**取消归一化**——各维度直接用原始值加权求和：total = Σ 原始值 × 权重。
+    分数是绝对量：别人涨你不掉分、跨回合跨局可比，榜首不再恒为 100。
+    权重 = 该维目标分 ÷ 基准值，标定到一个「基准国」= 100 分
+    （GDP 200 金/回合、军力 10、领土 150 格、资产 6000 金）：
+        GDP×0.15 + 军力×2.5 + 领土×0.20 + 资产×0.0025
+    即：基准量级下四维贡献回到 30/25/30/15（旧占比意图），不再由资产一家压倒
+    （不做这步标定，资产按原始值会吃掉总分的 ~90%）。基准值可调，改 REF_NATION 即可。
 ────────────────────────────────────────────────────────────────────────
 """
 import argparse
@@ -69,13 +71,17 @@ TOWN_HALL_BASE = TOWN_HALL_GOLD                  # 市政厅基础金
 ENERGY_PRICE = 1                 # 影子电价 = 边际生产成本（结算口径，非游戏规则）
 UNIT_SUPPLY = {k: v["supply"] for k, v in UNIT_TYPES.items()}   # 每军每回合补给耗量
 UNIT_WEIGHT = {"步": 1.0, "骑": 1.5, "民": 0.4}   # 结算口径：军力权重（按攻击 50/50/20 定，非游戏规则）
-UNIT_MAX_HP = {k: v.get("hp", 100) for k, v in UNIT_TYPES.items()}   # 各兵种满血（民 40）
+UNIT_MAX_HP = {k: v.get("hp", 100) for k, v in UNIT_TYPES.items()}   # 各兵种满血（民 80）
 CASTLE_COST = BUILDINGS["城堡"]["cost"]          # 城堡逐级造价（累计投入求和用）
 # 建筑造价/耗木（重置成本用）；城堡造价是逐级列表，单独按级累计
 BUILD_COST = {name: (info["cost"], info["wood"]) for name, info in BUILDINGS.items()
               if isinstance(info["cost"], int)}
 
-W_GDP, W_ARMY, W_LAND, W_ASSET = 0.30, 0.25, 0.30, 0.15
+# 权重标定：基准国 = 100 分。REF_NATION 取「一局打下来算打得不错」的量级
+# （大图上 150 回合左右的样子），TARGET_PTS 是四维各自的目标分（合计 100）。
+REF_NATION = {"gdp": 200.0, "army": 10.0, "land": 150.0, "asset": 6000.0}
+TARGET_PTS = {"gdp": 30.0, "army": 25.0, "land": 30.0, "asset": 15.0}
+W = {k: TARGET_PTS[k] / REF_NATION[k] for k in REF_NATION}   # 0.15 / 2.5 / 0.20 / 0.0025
 CHAT_ROUNDS = 5
 
 
@@ -211,8 +217,7 @@ def settle(save: dict) -> dict:
         asset, asset_rows = score_asset(save, n)
         out[n] = {"gdp": gdp, "gdp_rows": gdp_rows, "army": army, "n_army": n_army,
                   "land": land, "asset": asset, "asset_rows": asset_rows}
-        out[n]["total"] = (gdp * W_GDP + army * W_ARMY +
-                           land * W_LAND + asset * W_ASSET)
+        out[n]["total"] = sum(out[n][k] * W[k] for k in W)
     return out
 
 
@@ -230,7 +235,9 @@ def _pad(s, width: int, align: str = "left") -> str:
 def scoreboard_text(save: dict, result: dict, remarks: dict[str, str] | None = None) -> str:
     turn = save.get("turn", "?")
     rank = sorted(result, key=lambda n: -result[n]["total"])
-    header = ["排名", "国家", "总分", "GDP", "军力", "领土", "资产"]
+    header = ["排名", "国家", "总分"] + [f"{lab}×{W[key]:g}" for lab, key in
+                                        (("GDP", "gdp"), ("军力", "army"),
+                                         ("领土", "land"), ("资产", "asset"))]
     aligns = ["right", "left", "right", "right", "right", "right", "right"]
     rows: list[list[str]] = [header]
     for i, n in enumerate(rank, 1):
@@ -243,14 +250,16 @@ def scoreboard_text(save: dict, result: dict, remarks: dict[str, str] | None = N
     body = ["  ".join(_pad(row[c], widths[c], aligns[c]) for c in range(len(header)))
             for row in rows]
     body.insert(1, "-" * _dw(body[0]))
-    lines = [f"《战国》第 {turn} 回合 · 终局结算"
-             "（总分 = GDP×0.30 + 军力×0.25 + 领土×0.30 + 资产×0.15 · 原始值不归一化）",
+    lines = [f"《战国》第 {turn} 回合 · 终局结算（总分 = 各维原始值 × 权重，不归一化；"
+             f"基准国 GDP{REF_NATION['gdp']:g}/军力{REF_NATION['army']:g}/"
+             f"领土{REF_NATION['land']:g}/资产{REF_NATION['asset']:g} = 100 分，无上限）",
              ""] + body
     lines.append("")
     lines.append("口径：GDP=生产法每回合推算(基准价，金/回合)；军力=ΣHP%×兵种权重(步1.0/骑1.5/民0.4)；"
                  "领土=地块数；资产=建筑重置成本(基准价，金)。")
-    lines.append("总分用各维原始值直接加权（已取消按榜首归一化）：绝对分数、别人涨你不掉分，"
-                 "但量纲混合——资产(数千金)占大头，排名≈资产排名，看明细别只看总分。")
+    lines.append(f"权重：GDP×{W['gdp']:g} + 军力×{W['army']:g} + 领土×{W['land']:g} + "
+                 f"资产×{W['asset']:g}（= 目标分 30/25/30/15 ÷ 基准国量级）——"
+                 "分数是绝对量、别人涨你不掉分，权重把四维拉回同一量级。")
     if remarks:
         lines.append("")
         lines.append("【看海人寄语】（游戏作者致辞，公开）")

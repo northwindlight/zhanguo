@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""结算打分测试：总分 = 四维原始值直接加权（已取消按榜首归一化）。
+"""结算打分测试：总分 = 四维原始值 × 权重（已取消按榜首归一化，权重按基准国标定）。
 全合成存档，不碰真实 mp_save.json。
 
 跑法：python3 -m unittest discover -s tests -v
@@ -16,10 +16,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import settlement  # noqa: E402
 
 
-def _save(extra_tiles: int = 0) -> dict:
+def _save(extra_tiles: int = 0, gold_mines: int = 6) -> dict:
     """两国合成存档：甲有农场+金矿，乙有矿场；extra_tiles 给乙加空地（模拟对手发育）。"""
     tiles = {
-        "0,0": {"owner": "甲", "buildings": {"农场": 2, "黄金矿场": 6}},
+        "0,0": {"owner": "甲", "buildings": {"农场": 2, "黄金矿场": gold_mines}},
         "1,0": {"owner": "甲", "buildings": {}},
         "0,1": {"owner": "乙", "buildings": {"矿场": 1}},
     }
@@ -40,10 +40,8 @@ class TestRawWeightedTotal(unittest.TestCase):
     def test_total_is_raw_weighted_sum(self):
         """总分 = 各维原始值 × 权重，不再除以存活国最大值。"""
         r = settlement.settle(_save())["甲"]
-        self.assertAlmostEqual(
-            r["total"],
-            r["gdp"] * 0.30 + r["army"] * 0.25 + r["land"] * 0.30 + r["asset"] * 0.15,
-            places=6)
+        self.assertAlmostEqual(r["total"], sum(r[k] * settlement.W[k] for k in settlement.W),
+                               places=6)
         self.assertGreater(r["gdp"], 0)
         self.assertGreater(r["asset"], 0)
 
@@ -56,8 +54,14 @@ class TestRawWeightedTotal(unittest.TestCase):
 
     def test_total_not_capped_at_100(self):
         """取消归一化后总分可以远超 100（榜首不再恒为 100）。"""
-        result = settlement.settle(_save())
-        self.assertGreater(result["甲"]["total"], 100)
+        self.assertGreater(settlement.settle(_save(gold_mines=60))["甲"]["total"], 100)
+
+    def test_weights_calibrated_to_reference_nation(self):
+        """权重 = 目标分 ÷ 基准值 → 基准国恰好 100 分，四维贡献 30/25/30/15。"""
+        parts = {k: settlement.REF_NATION[k] * settlement.W[k] for k in settlement.W}
+        self.assertAlmostEqual(sum(parts.values()), 100.0, places=6)
+        for k, want in settlement.TARGET_PTS.items():
+            self.assertAlmostEqual(parts[k], want, places=6)
 
 
 class TestScoreboardText(unittest.TestCase):
@@ -65,17 +69,23 @@ class TestScoreboardText(unittest.TestCase):
         save = _save()
         result = settlement.settle(save)
         board = settlement.scoreboard_text(save, result)
-        self.assertIn(f"{result['甲']['total']:.1f}", board)     # 总分是原始加权值
+        self.assertIn(f"{result['甲']['total']:.1f}", board)     # 总分是加权后的原始值
         self.assertIn(f"{result['甲']['asset']:.0f}", board)     # 资产列是原始值
         self.assertNotIn(f"({result['甲']['gdp']:.0f})", board)  # 不再有「归一化(原始值)」双列
         self.assertNotIn("满分", board)
-        self.assertIn("原始值", board)                            # 口径行注明不归一化
+
+    def test_board_documents_weights(self):
+        save = _save()
+        board = settlement.scoreboard_text(save, settlement.settle(save))
+        self.assertIn(f"GDP×{settlement.W['gdp']:g}", board)
+        self.assertIn(f"资产×{settlement.W['asset']:g}", board)
+        self.assertIn("基准国", board)
 
     def test_board_ranks_by_total(self):
         save = _save()
         result = settlement.settle(save)
         board = settlement.scoreboard_text(save, result)
-        self.assertLess(board.index("甲"), board.index("乙"))    # 甲资产多 → 排前面
+        self.assertLess(board.index("甲"), board.index("乙"))    # 甲综合更强 → 排前面
 
 
 if __name__ == "__main__":
