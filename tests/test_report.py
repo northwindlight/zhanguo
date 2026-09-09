@@ -159,6 +159,44 @@ class TestCaliber(unittest.TestCase):
         self.assertGreater(second["gdp_growth"], 0)
 
 
+class TestSpendAccounting(unittest.TestCase):
+    """总消费（全期累计，不清零）：建造 + 征兵 + 军费，按当时市价折金。"""
+
+    def test_build_supply_counted(self):
+        w, *_ = _mk()                             # _mk 已建农场+金矿
+        self.assertGreater(w.spend["秦"]["build"], 0)
+        self.assertEqual(w.spend["秦"]["supply"], 0)
+        _run(w, 10)                               # 军队吃补给 → 军费有账
+        self.assertGreater(w.spend["秦"]["supply"], 0)
+
+    def test_recruit_counted(self):
+        w, farm_t, _ = _mk()
+        w.tiles[farm_t]["buildings"]["兵营"] = 2      # 每兵营每回合可征 1 支
+        w.cheat("秦", 粮食=500, 装备=500)
+        ok, msg = w.recruit("秦", *farm_t, 2, "步")
+        self.assertTrue(ok, msg)
+        expect = 20 * w.prices["粮食"] + 10 * w.prices["装备"]   # 2 支步兵 = 20粮+10装
+        self.assertAlmostEqual(w.spend["秦"]["recruit"], expect, places=6)
+
+    def test_spend_is_cumulative_not_reset_by_report(self):
+        w, *_ = _mk()
+        _run(w, 10)
+        after_first = w.spend["秦"]["supply"]
+        _run(w, 10)
+        self.assertGreater(w.spend["秦"]["supply"], after_first)   # 第二期继续累加
+
+    def test_spend_survives_save_load(self):
+        w, *_ = _mk()
+        _run(w, 5)
+        path = tempfile.mktemp(suffix=".json")
+        try:
+            w.save(path)
+            w2 = mp.World.load(path)
+            self.assertEqual(w2.spend, w.spend)
+        finally:
+            os.unlink(path)
+
+
 class TestContextInjection(unittest.TestCase):
     """只在出表那一回合把全文塞进状态面板；其余回合只给一行摘要。"""
 

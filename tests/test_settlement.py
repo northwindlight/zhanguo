@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""结算打分测试：总分 = 四维原始值 × 权重（已取消按榜首归一化，权重按基准国标定）。
+"""结算测试：按「总消费」（累计建造+征兵+军费，市价折金）排名，不再做加权总分。
 全合成存档，不碰真实 mp_save.json。
 
 跑法：python3 -m unittest discover -s tests -v
@@ -16,15 +16,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import settlement  # noqa: E402
 
 
-def _save(extra_tiles: int = 0, gold_mines: int = 6) -> dict:
-    """两国合成存档：甲有农场+金矿，乙有矿场；extra_tiles 给乙加空地（模拟对手发育）。"""
+def _save(spend: dict | None = None) -> dict:
+    """两国合成存档：甲有农场+金矿，乙有矿场。spend 缺省=空（模拟旧档）。"""
     tiles = {
-        "0,0": {"owner": "甲", "buildings": {"农场": 2, "黄金矿场": gold_mines}},
+        "0,0": {"owner": "甲", "buildings": {"农场": 2, "黄金矿场": 6}},
         "1,0": {"owner": "甲", "buildings": {}},
         "0,1": {"owner": "乙", "buildings": {"矿场": 1}},
     }
-    for i in range(extra_tiles):
-        tiles[f"{i + 5},0"] = {"owner": "乙", "buildings": {}}
     return {
         "turn": 12,
         "nations": {"甲": {}, "乙": {}},
@@ -33,59 +31,49 @@ def _save(extra_tiles: int = 0, gold_mines: int = 6) -> dict:
             {"owner": "甲", "type": "步", "hp": 100, "x": 0, "y": 0},
             {"owner": "乙", "type": "骑", "hp": 50, "x": 0, "y": 1},
         ],
+        "spend": spend if spend is not None else {},
     }
 
 
-class TestRawWeightedTotal(unittest.TestCase):
-    def test_total_is_raw_weighted_sum(self):
-        """总分 = 各维原始值 × 权重，不再除以存活国最大值。"""
+class TestSpendTotal(unittest.TestCase):
+    def test_total_is_sum_of_three(self):
+        save = _save({"甲": {"build": 1000, "recruit": 200, "supply": 300},
+                      "乙": {"build": 10, "recruit": 0, "supply": 5}})
+        r = settlement.settle(save)["甲"]
+        self.assertEqual(r["spend_total"], 1500)
+        self.assertEqual(r["spend"], {"build": 1000.0, "recruit": 200.0, "supply": 300.0})
+
+    def test_missing_spend_field_is_zero(self):
+        """旧档没有 spend 字段 → 总消费 0，不崩。"""
         r = settlement.settle(_save())["甲"]
-        self.assertAlmostEqual(r["total"], sum(r[k] * settlement.W[k] for k in settlement.W),
-                               places=6)
-        self.assertGreater(r["gdp"], 0)
-        self.assertGreater(r["asset"], 0)
+        self.assertEqual(r["spend_total"], 0.0)
+        board = settlement.scoreboard_text(_save(), settlement.settle(_save()))
+        self.assertIn("本档没有消费记录", board)
 
-    def test_score_is_absolute_not_relative_to_others(self):
-        """对手发育（加地）不改变自己的分数——归一化时代会掉分，现在不会。"""
-        base = settlement.settle(_save())
-        grown = settlement.settle(_save(extra_tiles=5))
-        self.assertAlmostEqual(base["甲"]["total"], grown["甲"]["total"], places=9)
-        self.assertGreater(grown["乙"]["total"], base["乙"]["total"])
-
-    def test_total_not_capped_at_100(self):
-        """取消归一化后总分可以远超 100（榜首不再恒为 100）。"""
-        self.assertGreater(settlement.settle(_save(gold_mines=60))["甲"]["total"], 100)
-
-    def test_weights_calibrated_to_reference_nation(self):
-        """权重 = 目标分 ÷ 基准值 → 基准国恰好 100 分，四维贡献 30/25/30/15。"""
-        parts = {k: settlement.REF_NATION[k] * settlement.W[k] for k in settlement.W}
-        self.assertAlmostEqual(sum(parts.values()), 100.0, places=6)
-        for k, want in settlement.TARGET_PTS.items():
-            self.assertAlmostEqual(parts[k], want, places=6)
+    def test_rank_by_spend_not_by_dimensions(self):
+        """军力/领土更小的国家，只要花得多就排前面。"""
+        save = _save({"甲": {"build": 5000, "recruit": 0, "supply": 0},
+                      "乙": {"build": 1, "recruit": 0, "supply": 0}})
+        res = settlement.settle(save)
+        self.assertGreater(res["甲"]["land"], res["乙"]["land"])   # 甲本来就大
+        rank = sorted(res, key=lambda n: -res[n]["spend_total"])
+        self.assertEqual(rank[0], "甲")
+        board = settlement.scoreboard_text(save, res)
+        self.assertLess(board.index("甲"), board.index("乙"))
 
 
 class TestScoreboardText(unittest.TestCase):
-    def test_board_shows_raw_values(self):
-        save = _save()
-        result = settlement.settle(save)
-        board = settlement.scoreboard_text(save, result)
-        self.assertIn(f"{result['甲']['total']:.1f}", board)     # 总分是加权后的原始值
-        self.assertIn(f"{result['甲']['asset']:.0f}", board)     # 资产列是原始值
-        self.assertNotIn(f"({result['甲']['gdp']:.0f})", board)  # 不再有「归一化(原始值)」双列
-        self.assertNotIn("满分", board)
-
-    def test_board_documents_weights(self):
-        save = _save()
-        board = settlement.scoreboard_text(save, settlement.settle(save))
-        self.assertIn(f"GDP×{settlement.W['gdp']:g}", board)
-        self.assertIn(f"资产×{settlement.W['asset']:g}", board)
-        self.assertIn("基准国", board)
-
-    def test_board_ranks_by_total(self):
-        save = _save()
-        result = settlement.settle(save)
-        board = settlement.scoreboard_text(save, result)
-        self.assertLess(board.index("甲"), board.index("乙"))    # 甲综合更强 → 排前面
+    def test_board_columns_and_order(self):
+        save = _save({"甲": {"build": 300, "recruit": 50, "supply": 70},
+                      "乙": {"build": 900, "recruit": 0, "supply": 0}})
+        res = settlement.settle(save)
+        board = settlement.scoreboard_text(save, res)
+        for col in ("总消费", "建造", "征兵", "军费", "GDP", "军力", "领土", "资产"):
+            self.assertIn(col, board)
+        self.assertIn("按总消费排名", board)
+        self.assertIn("支出法 GDP", board)                 # 口径说明
+        self.assertNotIn("总分", board)                    # 加权总分已取消
+        self.assertLess(board.index("乙"), board.index("甲"))   # 乙花得多 → 排前面
 
 
 if __name__ == "__main__":
