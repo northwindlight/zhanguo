@@ -129,6 +129,7 @@ class World:
         self.nation_code: dict[str, int] = {}    # 国家码：军队全局唯一id = 码×1e8+序列（野人=0，秦=1→100000001）
         self._next_code = 1
         self.guard_once: set[tuple[int, int]] = set()  # 每格至多出生一支野人：死了就没了，不重生
+        self._engage_seq = 0                     # 入场序号：军队每次 atk 参战取一个递增号（野地索取顺序）
         self.grid_short: dict[str, bool] = {}
         self.energy_report: dict[str, tuple[int, int, bool]] = {}
         self.econ_summary: dict[str, str] = {}   # 上一回合结算摘要（各国 agent 看）
@@ -595,6 +596,30 @@ class World:
         self.next_army_seq[owner] = seq
         return self.nation_code.get(owner, 0) * 100_000_000 + seq, seq
 
+    def _next_engage_seq(self) -> int:
+        """递增的「入场序号」：军队每次 atk 参战领一个新号，用于野地索取顺序。"""
+        self._engage_seq += 1
+        return self._engage_seq
+
+    def _claim_winner(self, alive: dict[str, list[dict]], *, attackers: set[str] | None = None) -> str | None:
+        """该格（野地或敌国）的归属候选：进攻方中「无活敌」者，按入场序号取最早 atk 的
+        ——**索取者优先**；索取者已阵亡则顺位给最早入场的同盟者。无候选返回 None。
+        attackers=本场战斗的进攻方集合（战斗结算用；此时 engaged 标记可能已被清扫）。
+        attackers=None 时不再筛进攻方，只看「在场且与格上他人无交战」——供「守军尽撤」用。"""
+        claim = []
+        for F, fs in alive.items():
+            if F == "野人":
+                continue
+            if attackers is not None and F not in attackers:
+                continue
+            if any(G in alive and G != F and self.war_between(F, G) for G in alive):
+                continue
+            claim.append(F)
+        if not claim:
+            return None
+        return min(claim, key=lambda F: min((a.get("engage_seq", 10 ** 9) for a in alive[F]),
+                                            default=10 ** 9))
+
     def _army(self, name: str, aid: int) -> dict | None:
         return next((a for a in self.armies if a["owner"] == name and a["id"] == aid), None)
 
@@ -668,9 +693,10 @@ class World:
 
     def attack(self, name: str, aids: list[int], x: int, y: int) -> tuple[bool, str]:
         """atk = 一次『进军占地』：派军队进目标格——
-        有守军(野人/敌国军)就交战（打赢自动占地）；格上**无任何军队**才直接进驻占领（空城/无主空地），
-        有其他军队但非你敌人（中立/第三方）则不能进驻。多势力同时开战各打各的敌人。
-        mv 只挪位置不占地；占地一律走 atk，没有特例。"""
+        有守军(野人/敌国军)就交战（打赢后按索取顺序占地）；格上**无任何军队**才直接进驻占领（空城/无主空地），
+        他国领土上有非敌军队（中立/第三方）则不能进驻；**野地例外**——和平驻守的第三方不参战、不占地，
+        清场后直接进驻（驻守者回合末被遣返）。野地上有「非敌非盟」的一方正在打野时不能插足。
+        多势力同时开战各打各的敌人。mv 只挪位置不占地；占地一律走 atk，没有特例。"""
         try:
             self._check(x, y)
         except IndexError as e:
@@ -680,6 +706,18 @@ class World:
             return False, "目标是自己或盟国的领土，不能进攻"
         if owner is not None and owner != name and not self.war_between(name, owner):
             return False, "中立不可攻击他国领土"
+        # 野地上别人正在打野（交战方与你既非敌也非盟）→ 不能插足抢地：
+        # 这是「不抢别人的战斗」——中立打野时你不能 atk；盟友/敌人在打野则可以参战
+        # （都按索取顺序占地）。想旁观仍可 mv 过去（不参战）。
+        if owner is None:
+            busy = [a for a in self.armies
+                    if (a["x"], a["y"]) == (x, y) and a.get("engaged") and a["owner"] not in ("野人", name)]
+            if busy and not any(self.war_between(name, a["owner"]) or self.allied_between(name, a["owner"])
+                                for a in busy):
+                other = busy[0]["owner"]
+                return False, (f"({x+1},{y+1}) 有 {other}军正在打野（与你非交战也非盟友），"
+                               f"不能插足抢地——等这场战斗打完再 atk（想插手就先向 {other} 宣战）；"
+                               f"旁观可以 mv 过去（不参战）")
         defs = self._defs_at(name, x, y)
         targets = [a for a in self.armies if a["owner"] == name and a["id"] in aids]
         if not targets:
@@ -701,17 +739,24 @@ class World:
         if defs:
             for a in targets:
                 a["engaged"] = True
+                a["engage_seq"] = self._next_engage_seq()  # 野地索取顺序：谁先 atk 谁号小
             who = "野人" if defs[0]["owner"] == "野人" else f"{defs[0]['owner']}军"
             return True, f"{ids} 冲入 ({x+1},{y+1}) 与{who}交战，之后每回合结算一轮；可 retreat 撤出"
-        # 格上还有其他军队但不是你的敌人（中立/第三方）→ 不能进驻占地
-        if any(a["owner"] != name and a["hp"] > 0 and (a["x"], a["y"]) == (x, y) for a in self.armies):
+        # 格上还有其他军队但不是你的敌人（中立/盟友，和平驻守）：
+        #  · 他国领土 → 不能进驻（旧规：中立地不进门）；
+        #  · 野地（无主）→ 和平驻守不产生任何权利、也不构成障碍：atk 只打野人/敌人，
+        #    清场后直接进驻占地，驻守的第三方被挤走（回合末自动遣返）。
+        squatters = sorted({a["owner"] for a in self.armies
+                            if a["owner"] != name and a["hp"] > 0 and (a["x"], a["y"]) == (x, y)})
+        if squatters and owner is not None:
             return False, (f"({x+1},{y+1}) 有他国军队但并非你的敌人（中立/第三方），"
                            f"不能直接进驻；只能攻击敌人或占领无任何守军的空地")
-        # 格上无任何军队 → atk 进驻即占
+        # 格上无守军/敌人 → atk 进驻即占
         _ok, cmsg = self._conquer(x, y, name, "进驻占领", log_it=False)
         nm2 = self.tiles[(x, y)]["name"]
         self.log(f"{name} {ids} 进驻 ({x+1},{y+1})，{cmsg}", phase="领土", nation=name, x=x, y=y)
-        return True, f"{ids} 进驻 ({x+1},{y+1})，敌人为 0，{cmsg}"
+        note = (f"（{'、'.join(squatters)}军未参战，回合末自动遣返）" if squatters else "")
+        return True, f"{ids} 进驻 ({x+1},{y+1})，敌人为 0，{cmsg}{note}"
 
     def _retreat_legal(self, name: str, x: int, y: int) -> bool:
         """撤退合法点：无人荒地 / 己方领土 / 同盟领土（中立与敌国格都不行）。"""
@@ -752,9 +797,12 @@ class World:
         # 撤退不立刻结算：标记 retreat_to 留在原地，本回合结束时随战斗结算走正常战斗机制
         # （敌方伤害全场分摊，撤退者在场照常吃自己那份；防御方撤退减伤 RETREAT_DEF_COVER%），
         # 结算后自动脱离到目标格（见 resolve_turn 撤退落地）。
+        # 防御方减伤：我方在该格「未参战」（不是进攻方）、或本身就是格主 → 守方，撤退减伤
+        # RETREAT_DEF_COVER%（谁挨打谁是守方，野地和平驻军同理）；主动进攻方撤退是全额。
         holder = self.owned_by(a["x"], a["y"])
-        cover = RETREAT_DEF_COVER if (holder == name or
-                 (holder is not None and self.allied_between(name, holder))) else 100
+        attacking = any(m["owner"] == name and m.get("engaged") and (m["x"], m["y"]) == (a["x"], a["y"])
+                        for m in self.armies)
+        cover = RETREAT_DEF_COVER if (not attacking or holder == name) else 100
         a["retreat_to"] = [x, y]
         a["retreat_cover"] = cover
         a["moved_turn"] = self.turn
@@ -825,8 +873,10 @@ class World:
                 if F in attacker and "野人" in forces:
                     en.append("野人")
                 return en
-            holder = owner if (owner in forces) else ("野人" if "野人" in forces else None)
-            soak = {F: (self._defense_pct(x, y, F) if F == holder else 0) for F in forces}
+            # 地形/城堡减伤给「守方」：未参战的驻军（含野人）挨打时吃本地地形，格主永远算守方；
+            # 交战中的进攻方不吃加成（谁挨打谁是守方）。
+            soak = {F: (self._defense_pct(x, y, F) if (F not in attacker or F == owner) else 0)
+                    for F in forces}
             # 每方掷自己的骰，同时出手（先算全部伤害再统一施加，允许同归于尽）
             dmg: dict[str, int] = {F: 0 for F in forces}
             mods: dict[str, int] = {}
@@ -875,30 +925,56 @@ class World:
                 if not _enemies(F) or not any(G in alive for G in _enemies(F)):
                     for a in alive[F]:
                         a["engaged"] = False
-            # 占地 / 战报
-            if len(survivors) == 1 and "野人" not in alive:
-                winner = survivors[0]
-                fs = alive[winner]
-                info = f"{winner} 余{len(fs)}支[{fs[0]['hp']}hp]"
-                if owner == winner:
-                    dead = sum(len(v) for F, v in forces.items() if F != winner)
-                    lines.append((x, y, f"⚔ 守军坚守 @{tag}：攻方{dead}支全灭，{info}"
-                                 f"（骰 {self._modtxt(mods)}）"))
-                else:
-                    ok, msg = self._conquer(x, y, winner, "攻陷" if owner else "进驻")
-                    lines.append((x, y, f"⚔ 全歼守军 @{tag}，{msg}（{info}）"))
-            elif len(survivors) == 1 and "野人" in alive:
-                fs = alive[survivors[0]]
-                lines.append((x, y, f"⚔ {survivors[0]} 仍与野人交战 @{tag}"
-                             f"（余{len(fs)}支[{fs[0]['hp']}hp]，守军未清，占不得）"))
-            elif not survivors:
+            # 占地 / 战报：归属候选 = 进攻方中「无活敌」者，按索取顺序取最早 atk 的（索取者优先；
+            # 索取者阵亡则顺位最早入场的同盟者）。野地与敌国同规。
+            win = self._claim_winner(alive, attackers=attacker)
+            desc_alive = "；".join(f"{F} 余{len(alive[F])}支[{alive[F][0]['hp']}hp]" for F in survivors)
+            if owner is None:
+                # ---- 野地（无主）----
+                # 野人清空 + 有归属候选 → 占地；和平驻守的第三方不占地也不参战（回合末被遣返）。
                 if "野人" in alive:
-                    lines.append((x, y, f"⚔ 攻方全灭 @{tag}，野人仍在（无主地守军未清）"))
+                    if win is not None:
+                        fs = alive[win]
+                        lines.append((x, y, f"⚔ {win} 仍与野人交战 @{tag}"
+                                     f"（余{len(fs)}支[{fs[0]['hp']}hp]，守军未清，占不得）"))
+                    else:
+                        lines.append((x, y, f"⚔ 攻方全灭 @{tag}，野人仍在（无主地守军未清）"))
+                elif win is not None:
+                    fs = alive[win]
+                    info = f"{win} 余{len(fs)}支[{fs[0]['hp']}hp]"
+                    _ok, msg = self._conquer(x, y, win, "进驻")
+                    others = [F for F in survivors if F != win and F in attacker]
+                    joint = (f"（共占，按索取顺序归 {win}；同场 {'、'.join(others)}）" if others else "")
+                    sq = sorted(F for F in survivors if F not in attacker)
+                    squeeze = (f"（{'、'.join(sq)}军未参战，回合末自动遣返）" if sq else "")
+                    lines.append((x, y, f"⚔ 全歼守军 @{tag}，{msg}（{info}）{joint}{squeeze}"))
+                elif any(F in attacker for F in survivors):
+                    lines.append((x, y, f"⚔ 多方混战 @{tag}（骰 {self._modtxt(mods)}）：{desc_alive}（战局未定）"))
+                elif survivors:
+                    lines.append((x, y, f"⚔ 野人已清 @{tag}，但场上只剩未参战的驻军，野地维持无主"))
                 else:
-                    lines.append((x, y, f"⚔ 同归于尽 @{tag}——" + ("此地成无主空地，可直接占领" if owner is None else "城仍在敌手")))
+                    lines.append((x, y, f"⚔ 同归于尽 @{tag}——此地成无主空地，可直接占领"))
             else:
-                desc = "；".join(f"{F} 余{len(alive[F])}支[{alive[F][0]['hp']}hp]" for F in survivors)
-                lines.append((x, y, f"⚔ 多方混战 @{tag}（骰 {self._modtxt(mods)}）：{desc}（战局未定）"))
+                # ---- 他国领土：同一套索取顺序（多国共同围攻时，第一个 atk 者优先接管）----
+                if win is not None and win != owner:
+                    fs = alive[win]
+                    info = f"{win} 余{len(fs)}支[{fs[0]['hp']}hp]"
+                    ok, msg = self._conquer(x, y, win, "攻陷")
+                    lines.append((x, y, f"⚔ 全歼守军 @{tag}，{msg}（{info}）"))
+                elif owner in alive:
+                    fs = alive[owner]
+                    info = f"{owner} 余{len(fs)}支[{fs[0]['hp']}hp]"
+                    if any(F in attacker for F in survivors):
+                        lines.append((x, y, f"⚔ 守军坚守 @{tag}：{info}，攻方未退"
+                                     f"（骰 {self._modtxt(mods)}）"))
+                    else:
+                        dead = sum(len(v) for F, v in forces.items() if F != owner)
+                        lines.append((x, y, f"⚔ 守军坚守 @{tag}：攻方{dead}支全灭，{info}"
+                                     f"（骰 {self._modtxt(mods)}）"))
+                elif survivors:
+                    lines.append((x, y, f"⚔ 多方混战 @{tag}（骰 {self._modtxt(mods)}）：{desc_alive}（战局未定）"))
+                else:
+                    lines.append((x, y, f"⚔ 同归于尽 @{tag}——城仍在敌手"))
         return lines
 
     # ------------------------------------------------------------- 占领/灭国
@@ -1149,11 +1225,16 @@ class World:
             owner = self.owned_by(bx, by)
             if owner is None or owner not in self.nations:
                 continue
-            holders = {a["owner"] for a in self.armies if (a["x"], a["y"]) == (bx, by)}
-            if len(holders) != 1:
-                continue  # 格主还在（守军未清）或多方混战未定 → 不动
-            (g,) = tuple(holders)
-            if g == "野人" or not self.war_between(g, owner):
+            holders: dict[str, list[dict]] = {}
+            for a in self.armies:
+                if (a["x"], a["y"]) == (bx, by):
+                    holders.setdefault(a["owner"], []).append(a)
+            if owner in holders:
+                continue  # 格主守军还在 → 不动
+            # 守军尽撤 → 围攻方按索取顺序接管（第一个 atk 者优先；多个互相交战者仍算混战）
+            foes = {g: fs for g, fs in holders.items() if g != "野人" and self.war_between(g, owner)}
+            g = self._claim_winner(foes)
+            if g is None:
                 continue
             ok, msg = self._conquer(bx, by, g, "守军尽撤")
             if ok:
@@ -2369,6 +2450,8 @@ class World:
         w.polity = {n: v for n, v in data.get("polity", {}).items() if n in w.nations}
         w.extra_prompt = {n: dict(v) for n, v in data.get("extra_prompt", {}).items() if n in w.nations}
         w.armies = data.get("armies", [])
+        # 野地索取顺序计数器：从档内现有最大入场序号续起（旧档无此字段 → 0，缺失序号当最大）
+        w._engage_seq = max((int(a.get("engage_seq", 0) or 0) for a in w.armies), default=0)
         # 军队编号：各国独立番号(AI 所见) + 国家码×1e8 全局唯一 gid(内部)。旧档按旧全局 id 顺序迁移重编。
         if "nation_code" in data:
             w.nation_code = {k: int(v) for k, v in data["nation_code"].items()}

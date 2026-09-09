@@ -470,5 +470,211 @@ class TestNewBuildings(unittest.TestCase):
         self.assertIn("工程院-20%", msg2)
 
 
+class TestWildernessClaims(unittest.TestCase):
+    """野地（无主地）的 mv/atk 与归属：第三方驻守、打野、索取顺序、地形防御归属。"""
+
+    WILD = (7, 7)
+
+    def _army(self, aid, owner, x, y, engaged=False, hp=100, seq=0):
+        a = {"id": aid, "gid": aid, "name": f"{owner}·步{aid}军", "type": "步", "hp": hp,
+             "x": x, "y": y, "owner": owner, "moved_turn": -1, "engaged": engaged}
+        if seq:
+            a["engage_seq"] = seq
+        return a
+
+    def _world(self, nations=("秦", "楚", "齐", "燕", "赵"), blocs=()):
+        w = mp.World(size=16, seed=5, nations=list(nations))
+        for name, members in blocs:
+            w.blocs.append({"name": name, "members": list(members), "chief": members[0], "turn": 1})
+        return w
+
+    def _wild(self, w, guard_hp=100, armies=(), guard=True):
+        x, y = self.WILD
+        self.assertIsNone(w.owned_by(x, y), "测试用格必须是野地")
+        w.armies = list(armies)
+        if guard:
+            w.armies.insert(0, self._army(900, "野人", x, y, hp=guard_hp))
+        w.guard_once.add((x, y))
+        return x, y
+
+    def _squat(self, owner, aid, engaged=False, hp=100):
+        """在测试用野地上放一支军队。"""
+        return self._army(aid, owner, *self.WILD, engaged=engaged, hp=hp)
+
+    def _war(self, w, a, b):
+        w.wars.append({"id": 1, "atk": a, "def": b, "followers": [], "turn": 1})
+
+    # ---- 敌国驻守 / 打野 ----
+    def test_enemy_squatter_blocks_mv_but_atk_engages(self):
+        """敌方（交战）驻守野地 → mv 拦、必须 atk；打野中的敌军同理。"""
+        for enemy_engaged in (False, True):
+            w = self._world()
+            self._war(w, "秦", "楚")
+            x, y = self._wild(w, armies=[self._army(1, "秦", 6, 7),
+                                         self._squat("楚", 2, engaged=enemy_engaged)])
+            ok, msg = w.move("秦", 1, x, y)
+            self.assertFalse(ok, msg)
+            self.assertIn("敌军驻守", msg)
+            ok2, msg2 = w.attack("秦", [1], x, y)
+            self.assertTrue(ok2, msg2)
+            self.assertTrue(w._army("秦", 1)["engaged"])
+
+    def test_neutral_squatter_mv_free_no_effect(self):
+        """中立驻守野地：mv 可进（旁观），结算互不伤害。"""
+        w = self._world()
+        x, y = self._wild(w, armies=[self._army(1, "秦", 6, 7), self._squat("齐", 2)])
+        ok, msg = w.move("秦", 1, x, y)
+        self.assertTrue(ok, msg)
+        self.assertFalse(w._army("秦", 1)["engaged"])
+        w.rng = random.Random(7)
+        w._resolve_battles()
+        self.assertEqual(w._army("秦", 1)["hp"], 100)
+        self.assertEqual(w._army("齐", 2)["hp"], 100)
+        self.assertIsNone(w.owned_by(x, y))          # 和平驻守不占地
+
+    def test_neutral_squatter_atk_only_guards_then_claims(self):
+        """中立驻守野地：我 atk 只打野人；野人清空后我拿地，驻守者回合末被遣返。"""
+        w = self._world()
+        x, y = self._wild(w, guard_hp=1, armies=[self._army(1, "秦", 6, 7), self._squat("齐", 2)])
+        ok, msg = w.attack("秦", [1], x, y)
+        self.assertTrue(ok, msg)
+        w.rng = random.Random(7)
+        lines = w._resolve_battles()
+        self.assertEqual(w.owned_by(x, y), "秦")
+        self.assertEqual(w._army("齐", 2)["hp"], 100)     # 中立未挨打（只打野人）
+        self.assertIn("遣返", lines[0][2])
+        w.resolve_turn()
+        self.assertNotEqual((w._army("齐", 2)["x"], w._army("齐", 2)["y"]), (x, y))
+
+    def test_empty_wild_with_neutral_squatter_atk_claims(self):
+        """野人已清的空野地：中立驻守不构成障碍，atk 直接进驻占领。"""
+        w = self._world()
+        x, y = self._wild(w, guard=False, armies=[self._army(1, "秦", 6, 7), self._squat("齐", 2)])
+        ok, msg = w.attack("秦", [1], x, y)
+        self.assertTrue(ok, msg)
+        self.assertEqual(w.owned_by(x, y), "秦")
+
+    def test_neutral_attacking_guards_blocks_my_atk(self):
+        """中立正在打野：不能 atk 插足（不抢别人的战斗），但可 mv 旁观。"""
+        w = self._world()
+        x, y = self._wild(w, armies=[self._army(1, "秦", 6, 7),
+                                     self._squat("齐", 2, engaged=True)])
+        ok, msg = w.attack("秦", [1], x, y)
+        self.assertFalse(ok, msg)
+        self.assertIn("插足", msg)
+        ok2, msg2 = w.move("秦", 1, x, y)
+        self.assertTrue(ok2, msg2)
+
+    def test_last_winner_takes_wild(self):
+        """敌打野 + 我参战：野人死、敌仍在 → 混战不占地；敌也死 → 我拿下。"""
+        for foe_hp, expect_owner in ((100, None), (1, "秦")):
+            w = self._world()
+            self._war(w, "秦", "楚")
+            x, y = self._wild(w, guard_hp=1, armies=[self._army(1, "秦", 6, 7),
+                                                     self._squat("楚", 2, engaged=True, hp=foe_hp)])
+            self.assertTrue(w.attack("秦", [1], x, y)[0])
+            w.rng = random.Random(7)
+            w._resolve_battles()
+            self.assertEqual(w.owned_by(x, y), expect_owner)
+
+    # ---- 联盟共同打野：索取顺序 ----
+    def test_alliance_joint_claim_first_attacker_wins(self):
+        """盟友一起打野：地归第一个 atk 的索取者，不看兵力多少。"""
+        w = self._world(blocs=[("合纵", ["秦", "燕"])])
+        x, y = self._wild(w, guard_hp=1, armies=[self._army(2, "燕", 6, 7),
+                                                 self._army(1, "秦", 8, 7), self._army(3, "秦", 8, 8)])
+        self.assertTrue(w.attack("燕", [2], x, y)[0])   # 燕先手
+        self.assertTrue(w.attack("秦", [1, 3], x, y)[0])
+        w.rng = random.Random(7)
+        w._resolve_battles()
+        self.assertEqual(w.owned_by(x, y), "燕")         # 索取者优先（秦兵多也不算）
+
+    def test_alliance_joint_claim_falls_to_earliest_ally(self):
+        """索取者阵亡 → 顺位给最早入场的同盟者（不是最晚/兵多者）。"""
+        w = self._world(blocs=[("合纵", ["秦", "燕", "赵"])])
+        x, y = self._wild(w, guard_hp=1, armies=[self._army(2, "燕", 6, 7, hp=1),
+                                                 self._army(1, "秦", 7, 8), self._army(3, "赵", 8, 7)])
+        self.assertTrue(w.attack("燕", [2], x, y)[0])    # 燕先手（会阵亡）
+        self.assertTrue(w.attack("秦", [1], x, y)[0])    # 秦第二
+        self.assertTrue(w.attack("赵", [3], x, y)[0])    # 赵第三
+        w.rng = random.Random(7)
+        w._resolve_battles()
+        self.assertIsNone(next((a for a in w.armies if a["owner"] == "燕"), None))
+        self.assertEqual(w.owned_by(x, y), "秦")          # 顺位给第二入场的秦
+
+    # ---- 敌国领土：同一套索取顺序 ----
+    def _enemy_city(self, w, owner="楚", garrison_hp=1):
+        """造一座 (5,5) 敌城（owner 另留 (0,0) 老家免灭国），返回守军 hp。"""
+        w.tiles = {}
+        for (x, y) in ((5, 5), (0, 0)):
+            t = w._new_tile(x, y, owner)
+            t["owner"] = owner
+            w.tiles[(x, y)] = t
+        w.armies = [self._army(9, owner, 5, 5, hp=garrison_hp)]
+        return 5, 5
+
+    def test_enemy_tile_claim_first_attacker_wins(self):
+        """多国围攻同一敌城：守军清空后归第一个 atk 的索取者，不是混战僵持。"""
+        w = self._world(nations=("秦", "楚", "齐"))
+        self._war(w, "秦", "楚")
+        self._war(w, "齐", "楚")
+        x, y = self._enemy_city(w, garrison_hp=1)
+        w.armies += [self._army(1, "秦", x, y), self._army(2, "齐", x, y)]
+        self.assertTrue(w.attack("秦", [1], x, y)[0])    # 秦先手
+        self.assertTrue(w.attack("齐", [2], x, y)[0])
+        w.rng = random.Random(7)
+        w._resolve_battles()
+        self.assertEqual(w.owned_by(x, y), "秦")          # 索取者优先
+
+    def test_enemy_tile_claim_falls_to_second_attacker(self):
+        """索取者阵亡 → 敌城归接着入场的围攻方。"""
+        w = self._world(nations=("秦", "楚", "齐"))
+        self._war(w, "秦", "楚")
+        self._war(w, "齐", "楚")
+        x, y = self._enemy_city(w, garrison_hp=1)
+        w.armies += [self._army(1, "秦", x, y, hp=1), self._army(2, "齐", x, y)]
+        self.assertTrue(w.attack("秦", [1], x, y)[0])    # 秦先手（会阵亡）
+        self.assertTrue(w.attack("齐", [2], x, y)[0])
+        w.rng = random.Random(7)
+        w._resolve_battles()
+        self.assertIsNone(next((a for a in w.armies if a["owner"] == "秦"), None))
+        self.assertEqual(w.owned_by(x, y), "齐")
+
+    def test_abandoned_enemy_tile_flips_to_first_attacker(self):
+        """守军尽撤：多国围攻时也按索取顺序接管（不是「必须只剩一方」）。"""
+        w = self._world(nations=("秦", "楚", "齐"))
+        self._war(w, "秦", "楚")
+        self._war(w, "齐", "楚")
+        x, y = self._enemy_city(w, garrison_hp=100)
+        garrison = w.armies[0]
+        garrison["engaged"] = True
+        garrison["retreat_to"] = [x, y - 1]              # 守军撤往无主地（弃城）
+        w.armies += [self._army(1, "秦", x, y, engaged=True, seq=1),
+                     self._army(2, "齐", x, y, engaged=True, seq=2)]
+        w.rng = random.Random(7)
+        w.resolve_turn()
+        self.assertEqual(w.owned_by(x, y), "秦")          # 先手索取者接管
+
+    # ---- 地形防御归属 ----
+    def test_peaceful_squatter_gets_terrain_defense(self):
+        """谁挨打谁是守方：山地野地上和平驻军减伤，同时交战的进攻方全额挨打。"""
+        def dmg_taken(engaged: bool) -> int:
+            w = self._world()
+            self._war(w, "秦", "齐")
+            mountain = next(((x, y) for x in range(1, 16) for y in range(1, 16)
+                             if w.tile_terrain(x, y) == "山地" and w.owned_by(x, y) is None), None)
+            self.assertIsNotNone(mountain)
+            x, y = mountain
+            w.armies = [self._army(1, "秦", x, y, engaged=True),
+                        self._army(2, "齐", x, y, engaged=engaged)]
+            w.rng = random.Random(11)
+            w._resolve_battles()
+            return 100 - w._army("齐", 2)["hp"]
+        full = dmg_taken(engaged=True)      # 进攻方 → 不吃地形
+        soaked = dmg_taken(engaged=False)   # 守方 → 吃山地 +50%
+        self.assertGreater(full, 0)
+        self.assertLess(soaked, full)
+
+
 if __name__ == "__main__":
     unittest.main()
