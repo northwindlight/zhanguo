@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """RL 环境测试：合法动作清单必须**真的合法**，奖励必须等于总消费增量，外交必须不存在。
 
-全部用合成小局（map_size=12、turns=6），不碰任何真实存档。
+全部用合成小局（map_size=12、turns=6、单国独局），不碰任何真实存档。
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ class TestLegalActions(unittest.TestCase):
 
     def test_every_legal_action_is_accepted(self):
         for seed in (0, 1, 2):
-            env = ZhanguoEnv(map_size=12, seed=seed, rivals=("楚",), max_turns=6)
+            env = ZhanguoEnv(map_size=12, seed=seed, max_turns=6)
             obs = env.reset()
             rng = random.Random(seed)
             for _ in range(60):
@@ -32,7 +32,7 @@ class TestLegalActions(unittest.TestCase):
                     break
 
     def test_candidates_match_observation(self):
-        env = ZhanguoEnv(map_size=12, seed=3, rivals=("楚",), max_turns=6)
+        env = ZhanguoEnv(map_size=12, seed=3, max_turns=6)
         obs = env.reset()
         k = len(obs.cand["actions"])
         self.assertEqual(obs.grid.shape, (len(env.obs_channels()), 12, 12))
@@ -47,7 +47,7 @@ class TestLegalActions(unittest.TestCase):
 class TestReward(unittest.TestCase):
     def test_reward_sums_to_final_spend(self):
         """Σ 每步奖励 ≡ 终局总消费 —— 密集奖励与目标函数逐分相等。"""
-        env = ZhanguoEnv(map_size=12, seed=7, rivals=("楚",), max_turns=6,
+        env = ZhanguoEnv(map_size=12, seed=7, max_turns=6,
                          reward_scale=1.0)
         obs = env.reset()
         rng = random.Random(7)
@@ -63,7 +63,7 @@ class TestReward(unittest.TestCase):
         self.assertAlmostEqual(total_r, info["spend_total"], places=4)
 
     def test_spend_is_monotonic(self):
-        env = ZhanguoEnv(map_size=12, seed=9, rivals=("楚",), max_turns=5)
+        env = ZhanguoEnv(map_size=12, seed=9, max_turns=5)
         obs = env.reset()
         rng = random.Random(9)
         last = 0.0

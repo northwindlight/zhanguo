@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """战国 RL 训练环境（单智能体）。
 
-我方 = `agent` 国，其余国家由脚本 AI（`mp_ai.dummy_turn`）代打。
-本分支已移除国家间外交：各国永久中立，扩张只能打野人。
+**单国独局**：地图上只有 `agent` 一国（可选加对手，默认没有），扩张只能打野人。
+不依赖 LLM 层（无 tool schema / 无文本面板 / 无国策 plan），只调游戏层 `game.py` + `mp.py`。
+本分支已移除国家间外交：各国永久中立。
 
 设计
 ----
@@ -28,7 +29,6 @@ import numpy as np
 from game import (BUILDINGS, ENGINEER_DISCOUNT, MARKET, MAX_SLOTS, TERRAIN_STATS,
                   TERRAINS, TRADEABLE, UNIT_TYPES, unit_kind, unit_max_hp, unit_speed)
 from mp import World
-from mp_ai import dummy_turn
 
 # 动作种类（固定顺序，模型的下标语义依赖它）
 KINDS = ("build", "recruit", "move", "attack", "retreat", "buy", "sell", "end_turn")
@@ -76,16 +76,15 @@ class Obs:
 
 class ZhanguoEnv:
     def __init__(self, *, map_size: int = 20, seed: int = 0, agent: str = "秦",
-                 rivals: tuple[str, ...] = ("楚",), max_turns: int = 40,
-                 max_actions_per_turn: int = 24, scripted_actions: int = 12,
+                 rivals: tuple[str, ...] = (), max_turns: int = 40,
+                 max_actions_per_turn: int = 24,
                  max_candidates: int = 1024, reward_scale: float = 0.01):
         self.map_size = int(map_size)
         self.seed = int(seed)
         self.agent = agent
-        self.rivals = tuple(rivals)
+        self.rivals = tuple(rivals)          # 默认无对手（单国独局）
         self.max_turns = int(max_turns)
         self.max_actions_per_turn = int(max_actions_per_turn)
-        self.scripted_actions = int(scripted_actions)
         self.max_candidates = int(max_candidates)
         self.reward_scale = float(reward_scale)
 
@@ -139,15 +138,8 @@ class ZhanguoEnv:
         return (None if self._done else self._obs()), reward, self._done, info
 
     def _run_round_end(self) -> dict:
-        """对手行动 → 回合结算 → 开新回合（或终局）。"""
+        """回合结算 → 开新回合（或终局）。单国独局：没有别的国家要行动。"""
         w = self.world
-        for nm in w.alive():
-            if nm == self.agent:
-                continue
-            try:
-                dummy_turn(w, nm, self.rng, max_actions=self.scripted_actions)
-            except Exception as e:      # 脚本 AI 出错不该拖垮训练
-                w.log(f"⚠ 脚本AI异常：{type(e).__name__}: {e}", phase="事件", nation=nm)
         events = w.resolve_turn()
         self.turn_actions = 0
         if (self.agent not in w.nations) or w.turn >= self.max_turns:
@@ -500,9 +492,6 @@ class ZhanguoEnv:
                "spend_total": w.spend_total(me) if me in w.nations else 0.0}
         sp = w.spend.get(me) or {}
         out.update({f"spend_{k}": float(sp.get(k, 0.0)) for k in ("build", "recruit", "supply")})
-        # 脚本对手的总消费（基线对照）
-        rs = [w.spend_total(r) for r in self.rivals if r in w.nations]
-        out["rival_spend"] = float(sum(rs) / len(rs)) if rs else 0.0
         return out
 
 
