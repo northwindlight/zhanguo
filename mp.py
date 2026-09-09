@@ -46,6 +46,7 @@ from game import (
     TOWN_HALL_PER_SLOT,
     TRADEABLE,
     UNIT_TYPES,
+    WATCHTOWER_RADIUS,
     army_name,
     roll_resources,
     roll_tile_name,
@@ -211,6 +212,15 @@ class World:
             if o == name:
                 return True
             if bloc is not None and o in bloc["members"]:
+                return True
+        # 瞭望塔：己方/盟方任一瞭望塔半径 WATCHTOWER_RADIUS 圆（欧氏）内也可见（事件视野）
+        for (tx, ty), t in self.tiles.items():
+            if not t["buildings"].get("瞭望塔"):
+                continue
+            o = t["owner"]
+            if o != name and not (bloc is not None and o in bloc["members"]):
+                continue
+            if (tx - x) ** 2 + (ty - y) ** 2 <= WATCHTOWER_RADIUS ** 2:
                 return True
         return False
 

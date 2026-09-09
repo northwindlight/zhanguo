@@ -141,6 +141,8 @@ BUILDINGS = {
     "市政厅": {"kind": "townhall", "cost": 500, "wood": 40, "cap_resource": None,
                "energy": 1, "limit": 1, "min_slots": 6},
     # ---- 特殊建筑（不产出、不耗电，改规则）----
+    # 瞭望塔：己方/盟方任一瞭望塔半径 WATCHTOWER_RADIUS 圆内的事件都可见（事件视野，不改可拓地）
+    "瞭望塔": {"kind": "tower", "cost": 120, "wood": 15, "cap_resource": None},
     # 外交中心：**自建限 1 座**（limit_nation），叠加的只能靠夺地抢别国的——
     # 每座（含抢来的）让自己的外交费再减半（10→5→2→1，下限1）、写信费每座 -5 金（下限 5）；
     # 他国向你提议结盟/联盟/议和免费
@@ -189,6 +191,7 @@ RETREAT_RANGE = 1         # 撤退固定只能退相邻 1 格（3×3，所有人
 COMBAT_DIE_MOD = {1: -25, 2: -15, 3: -5, 4: 5, 5: 15, 6: 25}
 
 # 特殊建筑参数
+WATCHTOWER_RADIUS = 4    # 瞭望塔事件视野半径（欧氏圆：dx²+dy²≤r²）
 ENGINEER_DISCOUNT = 20   # 工程院：本地块建造金价减免 %
 DIPLO_CENTER_MIN_COST = 1  # 外交中心叠加减半后的外交费下限
 LETTER_CENTER_DISCOUNT = 5  # 外交中心对写信的减免：每座固定 -5 金

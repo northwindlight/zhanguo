@@ -148,7 +148,7 @@ class TestStarvation(unittest.TestCase):
 
 
 class TestNewBuildings(unittest.TestCase):
-    """特殊建筑：军屯民兵与补给 / 外交中心费用 / 工程院折扣（全合成数据）。"""
+    """特殊建筑：瞭望塔视野 / 军屯民兵与补给 / 外交中心费用 / 工程院折扣（全合成数据）。"""
 
     def _world(self):
         w = mp.World(size=16, seed=3, nations=["秦", "楚"])
@@ -156,6 +156,21 @@ class TestNewBuildings(unittest.TestCase):
 
     def _own_tile(self, w, name="秦"):
         return next(p for p, t in w.tiles.items() if t["owner"] == name)
+
+    # ---- 瞭望塔 ----
+    def test_watchtower_extends_vision(self):
+        w = self._world()
+        w.tiles = {}
+        t = w._new_tile(0, 0, "秦")
+        t["owner"] = "秦"
+        w.tiles[(0, 0)] = t
+        # 无塔：距离 4 看不见
+        self.assertFalse(w.visible_to("秦", 4, 0))
+        t["buildings"]["瞭望塔"] = 1
+        self.assertTrue(w.visible_to("秦", 4, 0))    # dx²+dy²=16 ≤ r²
+        self.assertFalse(w.visible_to("秦", 5, 0))   # 25 > 16，圆外
+        self.assertTrue(w.visible_to("秦", 0, 4))
+        self.assertTrue(w.visible_to("秦", 2, 3))    # 4+9=13 ≤ 16（圆形而非方形）
 
     # ---- 军屯：民兵兵营 ----
     def test_militia_recruit_at_camp(self):
