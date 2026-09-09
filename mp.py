@@ -53,6 +53,7 @@ from game import (
     roll_tile_name,
     unit_atk,
     unit_kind,
+    unit_max_hp,
     unit_speed,
     unit_supply,
 )
@@ -125,7 +126,6 @@ class World:
         self.next_army_seq: dict[str, int] = {}  # 各国独立军队序列：从1递增、阵亡不回收
         self.standby: dict[str, int] = {}        # 待登场国 {国名: 登场回合}（带 polity 的配置国），随存档持久化
         self.diplo_built: dict[str, int] = {}    # 各国「自建」外交中心座数（夺地抢来的不计，不影响自建限额）
-        self.militia_recruited: dict[str, int] = {}  # 本回合各国已征民兵数（回合初清零；上限=全国军屯数）
         self.nation_code: dict[str, int] = {}    # 国家码：军队全局唯一id = 码×1e8+序列（野人=0，秦=1→100000001）
         self._next_code = 1
         self.guard_once: set[tuple[int, int]] = set()  # 每格至多出生一支野人：死了就没了，不重生
@@ -492,8 +492,12 @@ class World:
         if sum(eff.values()) >= MAX_SLOTS:
             return False, f"建筑位已满（{MAX_SLOTS} 格，含在建）"
         cr = info["cap_resource"]
-        if cr is not None and eff[building] >= t["resources"][cr]:
-            return False, f"{building} 已达上限：本地 {cr}={t['resources'][cr]}"
+        if cr is not None:
+            have = t["resources"][cr]
+            if have <= 0:
+                return False, f"本地无{cr}，无法建{building}"
+            if eff[building] >= have:
+                return False, f"{building} 已达上限：本地 {cr}={have}"
         if info["kind"] == "castle" and eff[building] >= info["max_level"]:
             return False, f"{building} 已达上限 L{info['max_level']}"
         # 特殊约束（市政厅等）：需该地块已用建筑位达标（含在建）/ 每地块限座
@@ -512,7 +516,7 @@ class World:
             cost = cost * (100 + bp) // 100
         disc = ""
         if t["buildings"].get("工程院") and building != "工程院":
-            cost = cost * (100 - ENGINEER_DISCOUNT) // 100   # 工程院：本地建造金价 -20%（只认已落成的）
+            cost = cost * (100 - ENGINEER_DISCOUNT) // 100   # 工程院：本地建造金价 -25%（只认已落成的）
             disc = f"，工程院-{ENGINEER_DISCOUNT}%"
         if self.polity.get(name) == "huns":
             cost = cost * 13 // 10   # 匈奴 +30% 建筑惩罚，乘算（不擅建设，靠抢）
@@ -540,17 +544,19 @@ class World:
         if t is None or t["owner"] != name:
             return False, "只能在自己有兵营/军屯的地块征兵"
         if kind == "民":
-            # 民兵走军屯征召：军屯不耗电，不受全国电网停摆影响
-            # 双限额：每座军屯 1 支/回合，且全国每回合总上限 = 军屯总数
+            # 民兵走军屯征召：军屯不耗电，不受全国电网停摆影响。
+            # 双限额：每座军屯每回合 1 支；且**全国民兵总数 ≤ 全国军屯总数**（军屯=民兵编制上限）
             if t["buildings"]["军屯"] <= 0:
-                return False, "该地块没有军屯（民兵只能在军屯征召：50金/支，每军屯每回合1支）"
+                return False, "该地块没有军屯（民兵只能在军屯征召：50金+5粮/支，每军屯每回合1支）"
             tile_cap = t["buildings"]["军屯"] - t.get("militia_recruited_this_turn", 0)
             if tile_cap <= 0:
                 return False, "本回合该地块民兵征召产能已用完（每军屯 1 支/回合）"
             quota = self.nation_building_count(name, "军屯")
-            cap = min(tile_cap, quota - self.militia_recruited.get(name, 0))
+            alive = sum(1 for a in self.armies if a["owner"] == name and unit_kind(a) == "民")
+            cap = min(tile_cap, quota - alive)
             if cap <= 0:
-                return False, f"本回合民兵征召已达上限（全国军屯 {quota} 座 = {quota} 支/回合）"
+                return False, (f"民兵总数已达军屯编制上限（{alive}/{quota} 座）："
+                               f"军屯即民兵编制——想扩编先建军屯，阵亡后方可补员")
         else:
             if self.grid_short.get(name):
                 return False, "全国电网不足，高级建筑（含兵营）停摆，无法征兵"
@@ -571,10 +577,9 @@ class World:
         for i in range(n):
             gid, seq = self._new_army(name)
             self.armies.append({"id": seq, "gid": gid, "name": army_name(name, seq, kind),
-                                "type": kind, "hp": ARMY_MAX_HP, "x": x, "y": y,
+                                "type": kind, "hp": unit_max_hp({"type": kind}), "x": x, "y": y,
                                 "owner": name, "moved_turn": -1, "engaged": False})
         if kind == "民":
-            self.militia_recruited[name] = self.militia_recruited.get(name, 0) + n
             t["militia_recruited_this_turn"] = t.get("militia_recruited_this_turn", 0) + n
         else:
             t["recruited_this_turn"] += n
@@ -1082,7 +1087,6 @@ class World:
             t["recruited_this_turn"] = 0
             t["built_this_turn"] = 0
             t["militia_recruited_this_turn"] = 0
-        self.militia_recruited = {}  # 民兵全国配额（上限=军屯数），回合初清零
 
         # 1) 采集
         prod = {n: {k: 0 for k in ("粮食", "木头", "矿石", "石油", "装备", "补给")} for n in self.alive()}
@@ -1100,7 +1104,8 @@ class World:
                     continue
                 info = BUILDINGS[bname]
                 kind = info["kind"]
-                if kind == "extract":
+                if kind in ("extract", "militia_camp"):
+                    # 军屯=屯田：同样按 outputs 产粮（不耗电、不占电网维持）
                     for g, amt in info["outputs"].items():
                         self.add_res(owner, g, amt * cnt)
                         prod[owner][g] += amt * cnt
@@ -1210,7 +1215,7 @@ class World:
                     continue
                 if short or (a["x"], a["y"]) in battle_tiles:
                     continue  # 断粮或所在格正在交战（含防御方守军）→ 不回血
-                a["hp"] = min(ARMY_MAX_HP, a["hp"] + ARMY_HEAL_PER_TURN)
+                a["hp"] = min(unit_max_hp(a), a["hp"] + ARMY_HEAL_PER_TURN)
         for n, (short, per, dead) in famine.items():
             self.log(f"⚠ {n} 补给断粮（缺 {short}，每军 -{per}HP）：{dead} 支军队饿毙", phase="内政", nation=n)
 

@@ -326,47 +326,69 @@ class TestNewBuildings(unittest.TestCase):
         w = self._world()
         x, y = self._own_tile(w)
         w.tiles[(x, y)]["buildings"]["军屯"] = 1
-        g0 = w.res("秦", "黄金")
+        g0, f0 = w.res("秦", "黄金"), w.res("秦", "粮食")
         ok, msg = w.recruit("秦", x, y, 1, "民")
         self.assertTrue(ok, msg)
         mil = [a for a in w.nation_armies("秦") if a.get("type") == "民"]
         self.assertEqual(len(mil), 1)
         self.assertEqual((mil[0]["x"], mil[0]["y"]), (x, y))
         self.assertEqual(g0 - w.res("秦", "黄金"), 50)  # 50金/支
+        self.assertEqual(f0 - w.res("秦", "粮食"), 5)   # +5粮/支
         # 每军屯每回合 1 支
         ok2, msg2 = w.recruit("秦", x, y, 1, "民")
         self.assertFalse(ok2)
         self.assertIn("产能", msg2)
 
-    def test_militia_quota_is_total_camps(self):
+    def test_militia_total_capped_by_camps(self):
+        """民兵总数 ≤ 全国军屯总数：满编后换回合也征不出，阵亡后才能补员。"""
         w = self._world()
         (x1, y1), (x2, y2) = [p for p, t in w.tiles.items() if t["owner"] == "秦"][:2]
         w.tiles[(x1, y1)]["buildings"]["军屯"] = 1
         w.tiles[(x2, y2)]["buildings"]["军屯"] = 1
         w.add_res("秦", "黄金", 500)
-        # 全国 2 座军屯 → 本回合共可征 2 支（两格各吃各的配额）
+        w.add_res("秦", "粮食", 100)
+        # 全国 2 座军屯 → 满编 2 支
         ok1, m1 = w.recruit("秦", x1, y1, 1, "民")
         ok2, m2 = w.recruit("秦", x2, y2, 1, "民")
         self.assertTrue(ok1 and ok2, m1 + m2)
-        # 同格第 3 支：每军屯 1 支/回合 卡住；全国配额也满了
         ok3, m3 = w.recruit("秦", x1, y1, 1, "民")
         self.assertFalse(ok3)
-        # 回合结算后配额刷新
         w.resolve_turn()
         ok4, m4 = w.recruit("秦", x2, y2, 1, "民")
-        self.assertTrue(ok4, m4)
+        self.assertFalse(ok4)                        # 编制满：换回合也不行
+        self.assertIn("编制", m4)
+        # 阵亡一支 → 空出编制可补员
+        w.armies.remove(next(a for a in w.armies if a["owner"] == "秦" and a.get("type") == "民"))
+        ok5, m5 = w.recruit("秦", x2, y2, 1, "民")
+        self.assertTrue(ok5, m5)
 
-    def test_militia_camp_capped_by_farmland(self):
+    def test_militia_camp_one_per_tile_and_needs_farmland(self):
+        """军屯每地块限 1 座；本地无耕地则建不了。"""
         w = self._world()
         x, y = self._own_tile(w)
-        t = w.tiles[(x, y)]
-        t["resources"]["耕地"] = 1
-        t["buildings"]["军屯"] = 1
+        w.tiles[(x, y)]["resources"]["耕地"] = 2
         w.add_res("秦", "黄金", 2000)
         w.add_res("秦", "木头", 100)
         ok, msg = w.build("秦", x, y, "军屯")
-        self.assertFalse(ok)
-        self.assertIn("上限", msg)
+        self.assertTrue(ok, msg)
+        w.resolve_turn()                                # 落地
+        ok2, msg2 = w.build("秦", x, y, "军屯")
+        self.assertFalse(ok2)
+        self.assertIn("上限", msg2)
+        ox, oy = next(p for p, t in w.tiles.items() if t["owner"] == "秦" and p != (x, y))
+        w.tiles[(ox, oy)]["resources"]["耕地"] = 0
+        ok3, msg3 = w.build("秦", ox, oy, "军屯")
+        self.assertFalse(ok3)
+
+    def test_militia_camp_grows_food(self):
+        """军屯屯田：每座每回合 +1 粮（不耗电）。"""
+        w = self._world()
+        x, y = self._own_tile(w)
+        w.tiles[(x, y)]["buildings"]["军屯"] = 1
+        w.tiles[(x, y)]["buildings"]["农场"] = 0
+        f0 = w.res("秦", "粮食")
+        w.resolve_turn()
+        self.assertEqual(w.res("秦", "粮食") - f0, 1)
 
     def test_militia_needs_camp(self):
         w = self._world()
@@ -381,11 +403,11 @@ class TestNewBuildings(unittest.TestCase):
         w = self._world()
         x, y = self._own_tile(w)
         w.tiles[(x, y)]["buildings"]["军屯"] = 1
-        w.armies = [{"id": 1, "gid": 901, "name": "秦·民一军", "type": "民", "hp": 100,
+        w.armies = [{"id": 1, "gid": 901, "name": "秦·民一军", "type": "民", "hp": 80,
                      "x": x, "y": y, "owner": "秦", "moved_turn": -1, "engaged": False}]
         w.add_res("秦", "补给", -w.res("秦", "补给"))  # 补给仓清零
         w.resolve_turn()
-        self.assertEqual(w.armies[0]["hp"], 100)  # 驻屯免补给 → 无断粮
+        self.assertEqual(w.armies[0]["hp"], 80)  # 驻屯免补给 → 无断粮（满血 80）
 
     def test_second_militia_on_camp_eats_supply(self):
         w = self._world()
@@ -452,22 +474,34 @@ class TestNewBuildings(unittest.TestCase):
         mil = {"type": "民", "owner": "秦"}
         legacy = {"owner": "野人"}  # 旧档无 type → 按步兵算
         self.assertEqual(unit_atk(step), 50)
-        self.assertEqual(unit_atk(mil), 30)
+        self.assertEqual(unit_atk(mil), 20)
         self.assertEqual(unit_atk(legacy), 50)
+        self.assertEqual(mp.unit_max_hp(mil), 80)      # 民兵 80HP（步/骑 100）
+        self.assertEqual(mp.unit_max_hp(step), 100)
+        self.assertEqual(mp.unit_max_hp(legacy), 100)  # 旧档无 type → 按步兵
 
     # ---- 工程院 ----
     def test_academy_discounts_local_build(self):
         w = self._world()
-        x, y = self._tile_with_slots(w, 6)
+        x, y = self._tile_with_slots(w, 4)
         w.tiles[(x, y)]["resources"]["矿石"] = 1
         ok, msg = w.build("秦", x, y, "工程院")
         self.assertTrue(ok, msg)
         w.resolve_turn()  # 落成
-        # 同格再建矿场（80 金）：工程院 -20% → 64 金
+        # 同格再建矿场（80 金）：工程院 -25% → 60 金
         ok2, msg2 = w.build("秦", x, y, "矿场")
         self.assertTrue(ok2, msg2)
-        self.assertIn("-64金", msg2)
-        self.assertIn("工程院-20%", msg2)
+        self.assertIn("-60金", msg2)
+        self.assertIn("工程院-25%", msg2)
+        # 别的地块不享受（只惠及本地块）
+        ox, oy = next(p for p, t in w.tiles.items() if t["owner"] == "秦" and p != (x, y))
+        w.add_res("秦", "黄金", 5000)
+        w.add_res("秦", "木头", 500)
+        w.tiles[(ox, oy)]["resources"]["矿石"] = 1
+        w.tiles[(ox, oy)]["terrain"] = "平原"
+        ok3, msg3 = w.build("秦", ox, oy, "矿场")
+        self.assertTrue(ok3, msg3)
+        self.assertIn("-80金", msg3)
 
 
 class TestWildernessClaims(unittest.TestCase):

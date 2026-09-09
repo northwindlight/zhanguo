@@ -148,25 +148,34 @@ BUILDINGS = {
     # 他国向你提议结盟/联盟/议和免费
     "外交中心": {"kind": "diplomat", "cost": 400, "wood": 30, "cap_resource": None,
                  "limit": 1, "limit_nation": 1, "min_slots": 5},
-    # 工程院：本地块一切建造金价 -20%（与地形惩罚乘算，只认已落成的），需本地已用建筑位≥6
-    "工程院": {"kind": "academy", "cost": 400, "wood": 40, "cap_resource": None,
-               "limit": 1, "min_slots": 6},
-    # 军屯：民兵兵营——民兵征召上限 = 全国军屯数（支/回合），征召耗 50 金/支（不耗电、不受电网停摆影响）；
+    # 工程院：本地块一切建造金价 -25%（与地形惩罚乘算，只认已落成的），需本地已用建筑位≥4
+    "工程院": {"kind": "academy", "cost": 300, "wood": 30, "cap_resource": None,
+               "limit": 1, "min_slots": 4},
+    # 军屯：屯田 + 民兵编制——每回合 +1 粮；可征民兵（50金+5粮/支，不耗电、不受电网停摆影响）；
+    # **每地块限 1 座**，且**全国民兵总数 ≤ 全国军屯总数**（军屯即民兵编制上限，阵亡可补员）；
     # 民兵驻本格不耗补给（每座军屯覆盖本格 1 支），离格照常吃
-    "军屯": {"kind": "militia_camp", "cost": 150, "wood": 10, "cap_resource": "耕地"},
+    "军屯": {"kind": "militia_camp", "cost": 220, "wood": 15, "cap_resource": "耕地",
+             "limit": 1, "outputs": {"粮食": 1}},
 }
 
-# 兵种：征召耗粮装 / 每回合补给维持 / 每回合移动格数 / 基础攻击（每军每战斗回合）
+# 兵种：征召耗粮装 / 每回合补给维持 / 每回合移动格数 / 基础攻击 / 满血上限（每军每战斗回合）
 UNIT_TYPES = {
-    "步": {"label": "步兵", "speed": 1, "supply": 1, "atk": 50, "recruit": {"粮食": 10, "装备": 5}},
-    "骑": {"label": "骑兵", "speed": 2, "supply": 2, "atk": 50, "recruit": {"粮食": 12, "装备": 12}},
-    # 民兵=优质驻守军队：只能在军屯征召（50金/支，每回合上限=全国军屯数）；驻军屯格不耗补给
-    "民": {"label": "民兵", "speed": 1, "supply": 1, "atk": 30, "recruit": {"黄金": 50}},
+    "步": {"label": "步兵", "hp": 100, "speed": 1, "supply": 1, "atk": 50, "recruit": {"粮食": 10, "装备": 5}},
+    "骑": {"label": "骑兵", "hp": 100, "speed": 2, "supply": 2, "atk": 50, "recruit": {"粮食": 12, "装备": 12}},
+    # 民兵=廉价驻守军队（80HP/攻20，攻击只有步骑的四成）：只能在军屯征召（50金+5粮/支；
+    # 全国民兵总数 ≤ 全国军屯总数，每军屯每回合 1 支）；驻本格（自家军屯格）不耗补给
+    "民": {"label": "民兵", "hp": 80, "speed": 1, "supply": 1, "atk": 20,
+           "recruit": {"黄金": 50, "粮食": 5}},
 }
 
 
 def unit_kind(a: dict) -> str:
     return a.get("type", "步")
+
+
+def unit_max_hp(a: dict) -> int:
+    """该军满血上限（兵种自带；旧档无 type 的军队按步兵）。"""
+    return UNIT_TYPES[unit_kind(a)].get("hp", ARMY_MAX_HP)
 
 
 def unit_speed(a: dict) -> int:
@@ -193,7 +202,7 @@ COMBAT_DIE_MOD = {1: -25, 2: -15, 3: -5, 4: 5, 5: 15, 6: 25}
 
 # 特殊建筑参数
 WATCHTOWER_RADIUS = 4    # 瞭望塔事件视野半径（欧氏圆：dx²+dy²≤r²）
-ENGINEER_DISCOUNT = 20   # 工程院：本地块建造金价减免 %
+ENGINEER_DISCOUNT = 25   # 工程院：本地块建造金价减免 %
 DIPLO_CENTER_MIN_COST = 1  # 外交中心叠加减半后的外交费下限
 LETTER_CENTER_DISCOUNT = 5  # 外交中心对写信的减免：每座固定 -5 金
 LETTER_COST_MIN = 5         # 写信费用下限（防零费刷信）

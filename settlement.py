@@ -37,7 +37,7 @@
     选生产法而弃消费法：存档是存量快照，生产法可从建筑表确定性推算一回合流量；
     消费法需要建造成本/征兵/市场买卖的每回合流水，快照里没有，解析 history 不可靠。
 
-二、军队（25%）：军力 = Σ(当前HP/100) × 兵种权重（步 1.0 / 骑 1.5 / 民 0.6，按攻击 50/50/30 定）。
+二、军队（25%）：军力 = Σ(当前HP/该兵种满血) × 兵种权重（步 1.0 / 骑 1.5 / 民 0.4，按攻击 50/50/20 定）。
 
 三、领土（30%）：地块数（plain count，最透明可解释）。
 
@@ -64,7 +64,8 @@ GOLD_MINE_PER_TURN = BUILDINGS["黄金矿场"]["outputs"]["黄金"] * MARKET["�
 TOWN_HALL_BASE = TOWN_HALL_GOLD                  # 市政厅基础金
 ENERGY_PRICE = 1                 # 影子电价 = 边际生产成本（结算口径，非游戏规则）
 UNIT_SUPPLY = {k: v["supply"] for k, v in UNIT_TYPES.items()}   # 每军每回合补给耗量
-UNIT_WEIGHT = {"步": 1.0, "骑": 1.5, "民": 0.6}   # 结算口径：军力权重（按攻击 50/50/30 定，非游戏规则）
+UNIT_WEIGHT = {"步": 1.0, "骑": 1.5, "民": 0.4}   # 结算口径：军力权重（按攻击 50/50/20 定，非游戏规则）
+UNIT_MAX_HP = {k: v.get("hp", 100) for k, v in UNIT_TYPES.items()}   # 各兵种满血（民 40）
 CASTLE_COST = BUILDINGS["城堡"]["cost"]          # 城堡逐级造价（累计投入求和用）
 # 建筑造价/耗木（重置成本用）；城堡造价是逐级列表，单独按级累计
 BUILD_COST = {name: (info["cost"], info["wood"]) for name, info in BUILDINGS.items()
@@ -157,7 +158,8 @@ def score_gdp(save: dict, nation: str) -> tuple[float, list[str]]:
 
 def score_army(save: dict, nation: str) -> tuple[float, int]:
     armies = [a for a in save["armies"] if a.get("owner") == nation]
-    power = sum(a.get("hp", 0) / 100.0 * UNIT_WEIGHT[army_type(a)] for a in armies)
+    power = sum(a.get("hp", 0) / UNIT_MAX_HP[army_type(a)] * UNIT_WEIGHT[army_type(a)]
+                for a in armies)
     return power, len(armies)
 
 
