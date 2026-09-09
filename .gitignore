@@ -15,6 +15,9 @@ mp_config *.json
 .DS_Store
 *.swp
 
+# RL 训练产物（模型/日志/曲线，不入库）
+rl/runs/
+
 # 楼烦临时注入上下文（含林胡日志，勿入库）
 楼烦上下文.txt
 

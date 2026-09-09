@@ -1,0 +1,122 @@
+# -*- coding: utf-8 -*-
+"""RL 环境测试：合法动作清单必须**真的合法**，奖励必须等于总消费增量，外交必须不存在。
+
+全部用合成小局（map_size=12、turns=6），不碰任何真实存档。
+"""
+from __future__ import annotations
+
+import random
+import unittest
+
+from mp import World
+from rl.env import ZhanguoEnv
+
+
+class TestLegalActions(unittest.TestCase):
+    """核心不变式：env 枚举出来的每个动作，引擎都得接受。"""
+
+    def test_every_legal_action_is_accepted(self):
+        for seed in (0, 1, 2):
+            env = ZhanguoEnv(map_size=12, seed=seed, rivals=("楚",), max_turns=6)
+            obs = env.reset()
+            rng = random.Random(seed)
+            for _ in range(60):
+                acts = obs.cand["actions"]
+                self.assertTrue(acts, "候选清单不能为空")
+                self.assertEqual(acts[-1].kind, "end_turn", "end_turn 必须在清单里")
+                a = acts[rng.randrange(len(acts))]
+                ok, msg = env._apply(a)
+                self.assertTrue(ok, f"引擎拒绝了 env 给出的合法动作 {a.label()}：{msg}")
+                obs, _r, done, _info = env.step(a)
+                if done:
+                    break
+
+    def test_candidates_match_observation(self):
+        env = ZhanguoEnv(map_size=12, seed=3, rivals=("楚",), max_turns=6)
+        obs = env.reset()
+        k = len(obs.cand["actions"])
+        self.assertEqual(obs.grid.shape, (len(env.obs_channels()), 12, 12))
+        self.assertEqual(obs.glob.shape, (env.glob_size(),))
+        for key in ("type_idx", "sub_idx", "tile_idx", "army_idx", "amount_idx"):
+            self.assertEqual(obs.cand[key].shape, (k,), key)
+        self.assertTrue(obs.cand["mask"].all())
+        # 地块下标要么落在图上，要么是 null（= 地块数）
+        self.assertTrue(((obs.cand["tile_idx"] >= 0) & (obs.cand["tile_idx"] <= 144)).all())
+
+
+class TestReward(unittest.TestCase):
+    def test_reward_sums_to_final_spend(self):
+        """Σ 每步奖励 ≡ 终局总消费 —— 密集奖励与目标函数逐分相等。"""
+        env = ZhanguoEnv(map_size=12, seed=7, rivals=("楚",), max_turns=6,
+                         reward_scale=1.0)
+        obs = env.reset()
+        rng = random.Random(7)
+        total_r = 0.0
+        info = {}
+        for _ in range(4000):
+            a = obs.cand["actions"][rng.randrange(len(obs.cand["actions"]))]
+            obs, r, done, info = env.step(a)
+            total_r += r
+            if done:
+                break
+        self.assertTrue(done, "回合上限内必须结束")
+        self.assertAlmostEqual(total_r, info["spend_total"], places=4)
+
+    def test_spend_is_monotonic(self):
+        env = ZhanguoEnv(map_size=12, seed=9, rivals=("楚",), max_turns=5)
+        obs = env.reset()
+        rng = random.Random(9)
+        last = 0.0
+        for _ in range(4000):
+            a = obs.cand["actions"][rng.randrange(len(obs.cand["actions"]))]
+            obs, _r, done, info = env.step(a)
+            self.assertGreaterEqual(info["spend_total"] + 1e-9, last, "总消费不得回退")
+            last = info["spend_total"]
+            if done:
+                break
+
+
+class TestNoDiplomacy(unittest.TestCase):
+    """外交功能必须从引擎里彻底消失。"""
+
+    GONE = ("send_mail", "mystery_letter", "gift", "share_map", "spy", "propose_pact",
+            "accept_pact", "reject_pact", "break_pact", "declare_guarantee",
+            "cancel_guarantee", "declare_war", "offer_peace", "accept_peace",
+            "reject_peace", "propose_bloc", "bloc_join", "bloc_leave", "bloc_rename",
+            "bloc_transfer", "bloc_dissolve", "cast_vote", "bloc_of", "allied_between",
+            "war_between", "at_war")
+
+    def test_engine_has_no_diplomacy(self):
+        for name in self.GONE:
+            self.assertFalse(hasattr(World, name), f"World.{name} 应当已删除")
+
+    def test_diplomacy_building_gone(self):
+        from game import BUILDINGS
+        self.assertNotIn("外交中心", BUILDINGS)
+
+    def test_nations_cannot_attack_each_other(self):
+        """永久中立：对他国领土的进攻必须被拒。"""
+        w = World(size=12, seed=11, nations=["秦", "楚"])
+        me = "秦"
+        foe = [t for t, d in w.tiles.items() if d["owner"] == "楚"]
+        self.assertTrue(foe)
+        x, y = foe[0]
+        # 直接在邻格造一支我方军队，再尝试进攻
+        for (ax, ay) in w.neighbors(x, y):
+            if w.owned_by(ax, ay) in (None, me):
+                w.add_res(me, "黄金", 10000)
+                w.add_res(me, "粮食", 10000)
+                w.add_res(me, "装备", 10000)
+                w.tiles[(ax, ay)] = w._new_tile(ax, ay, me)
+                w.tiles[(ax, ay)]["buildings"]["兵营"] = 1
+                ok, _ = w.recruit(me, ax, ay, 1, "步")
+                self.assertTrue(ok)
+                aid = w.nation_armies(me)[0]["id"]
+                ok, _msg = w.attack(me, [aid], x, y)
+                self.assertFalse(ok, "中立国领土不该能进攻")
+                return
+        self.skipTest("找不到合适的邻格")
+
+
+if __name__ == "__main__":
+    unittest.main()
