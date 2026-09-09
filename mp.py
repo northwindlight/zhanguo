@@ -144,7 +144,6 @@ class World:
         self.flow_out: dict[str, int] = {g: 0 for g in TRADEABLE}  # 本回合世界出库流量（消耗）
         self.armies: list[dict] = []
         self.next_army_seq: dict[str, int] = {}  # 各国独立军队序列：从1递增、阵亡不回收
-        self.standby: dict[str, int] = {}        # 待登场国 {国名: 登场回合}（带 polity 的配置国），随存档持久化
         self.diplo_built: dict[str, int] = {}    # 各国「自建」外交中心座数（夺地抢来的不计，不影响自建限额）
         self.nation_code: dict[str, int] = {}    # 国家码：军队全局唯一id = 码×1e8+序列（野人=0，秦=1→100000001）
         self._next_code = 1
@@ -2564,7 +2563,6 @@ class World:
             "order": self.order,
             "tiles": {f"{x},{y}": t for (x, y), t in sorted(self.tiles.items())},
             "armies": self.armies, "next_army_seq": self.next_army_seq,
-            "standby": self.standby,
             "diplo_built": self.diplo_built,
             "nation_code": self.nation_code,
             "guard_once": [list(k) for k in sorted(self.guard_once)],
@@ -2670,8 +2668,6 @@ class World:
                 a["gid"] = w.nation_code.get(a["owner"], 0) * 100_000_000 + s
                 if a["owner"] != "野人":
                     a["name"] = army_name(a["owner"], s, a.get("type", "步"))
-        # 待登场国随档持久化；旧档没有此字段则留空（mp_run 会按配置现补）
-        w.standby = {k: int(v) for k, v in data.get("standby", {}).items()}
         w.diplo_built = {k: int(v) for k, v in data.get("diplo_built", {}).items() if k in w.nations}
         # wars 迁移：新格式=冲突对象{id,atk,def,followers}；旧档=[a,b] 边对 → 视为无跟随方的双边战争
         w.wars = []

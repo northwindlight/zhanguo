@@ -82,6 +82,25 @@ def _nation_start(n: dict) -> dict | None:
     return s or None
 
 
+def standby_schedule(cfg: dict, world: World) -> dict[str, int]:
+    """待登场国（配置里带 polity 的，如匈奴）的登场回合——**每次读配置现算，不存进存档**。
+
+    登场回合 = 由 (seed, 国名) 决定的纯函数：同一 seed + 同一配置永远同一回合，重启续局不变；
+    改配置（改窗口 / 新增待登场国）**立刻生效**，不再被存档里的旧计划挡住。
+    已在局中的国自动排除。
+    """
+    out: dict[str, int] = {}
+    for n in cfg.get("nations", []):
+        nm = n.get("name")
+        if not nm or not n.get("polity") or nm in world.nations:
+            continue
+        lo = int(n.get("enable_turn") or 0)
+        hi = int(n.get("enable_turn_max") or lo)
+        r = random.Random(f"{world.seed}:{nm}")
+        out[nm] = r.randint(lo, hi) if hi >= lo else lo
+    return out
+
+
 def _nation_summary(n: dict) -> str | None:
     """20 回合后常驻的小结：取 extra_summary 字段或 extra_summary_file。"""
     s = n.get("extra_summary")
@@ -136,14 +155,6 @@ def run() -> None:
     # 中途加国的 AI 模板：复用第一个配置了 base_url/api_key 的国家（如 arkcoding+glm-5.3）
     _template = next((n for n in cfg["nations"] if n.get("base_url") and n.get("api_key")), {})
     rng = random.Random(2026)
-    # 待加入国（带 polity）自动登场：登场时刻存进 world.standby 随档持久化——
-    # 新局随机排点；续局用存档里的（旧档没有则现补），到点就登场，不再依赖"本次是否新开"。
-    if not world.standby:
-        for n in cfg["nations"]:
-            if n.get("polity") and n["name"] not in world.nations:
-                lo = int(n.get("enable_turn") or 0)
-                hi = int(n.get("enable_turn_max") or lo)
-                world.standby[n["name"]] = rng.randint(lo, hi) if hi >= lo else lo
     out: list[str] = []
 
     def emit(s=""):
@@ -259,24 +270,20 @@ def run() -> None:
             break
 
         delivered = world.begin_turn()
-        # 待加入国到点自动登场（登场计划随档持久化，续局/迟到都照补）
-        if world.standby:
-            _added = False
-            for _nm, _at in list(world.standby.items()):
-                if _nm in world.nations:
-                    world.standby.pop(_nm)  # 已在局（可能手动 add 过），清掉计划
-                    continue
-                if world.turn < _at:
-                    continue
-                _st = cfg_by_name.get(_nm, {})
-                _ok, _msg = world.add_nation(_nm, _st.get("polity", ""),
-                                             extra=_nation_extra(_st), start=_nation_start(_st),
-                                             summary=_nation_summary(_st))
-                emit(_msg if _ok else f"⚠ 自动登场失败：{_msg}")
-                world.standby.pop(_nm)
-                _added = True
-            if _added:
-                flush(out, journal_path)
+        # 待加入国到点自动登场：登场回合**每次按配置现算**（不存档）——改配置立刻生效，
+        # 新增待登场国也立刻纳入；已在局中的国自动排除，不会重复登场。
+        _added = False
+        for _nm, _at in standby_schedule(cfg, world).items():
+            if world.turn < _at:
+                continue
+            _st = cfg_by_name.get(_nm, {})
+            _ok, _msg = world.add_nation(_nm, _st.get("polity", ""),
+                                         extra=_nation_extra(_st), start=_nation_start(_st),
+                                         summary=_nation_summary(_st))
+            emit(_msg if _ok else f"⚠ 自动登场失败：{_msg}")
+            _added = True
+        if _added:
+            flush(out, journal_path)
         if delivered:
             observer(world, out, f"——— 第 {world.turn} 回合 · 投信 {delivered} 封 ———")
         else:

@@ -64,7 +64,7 @@ python3 mp_run.py --turns 10           # 读档续局；无档则新开
 | `max_tokens` / `max_steps` | 单次回复上限 / 每回合最多工具调用轮数 |
 | `api_timeout` / `api_retries` / `api_retry_wait` | 单次调用超时秒数 / 重试次数 / 重试间隔 |
 | `polity` | 政体标记，如 `huns`（匈奴，特殊政体，见下） |
-| `enable_turn` / `enable_turn_max` | 带 `polity` 的条目=待加入国，在第该回合区间内随机一回合自动登场 |
+| `enable_turn` / `enable_turn_max` | 带 `polity` 的条目=待加入国，在该回合区间内自动登场。**登场回合每次读配置现算**（由 seed+国名决定，重启不变）；改窗口/新增待登场国**立刻生效**，不依赖存档里的旧计划 |
 | `extra_prompt` / `extra_prompt_file` | 开局注入的临时上下文（默认 20 回合后只留 `extra_summary`） |
 | `extra_summary` / `extra_summary_file` | 上述临时上下文过期后的常驻小结 |
 | `start_cavalry` / `start_gold` / `start_supply` | 定制开局（骑/金/补给） |

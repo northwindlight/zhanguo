@@ -909,3 +909,38 @@ class TestGuardians(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestStandbySchedule(unittest.TestCase):
+    """待登场国（匈奴）登场回合：每次读配置现算，不存存档。"""
+
+    def _cfg(self, **over):
+        hun = {"name": "林胡", "polity": "huns", "enable_turn": 120, "enable_turn_max": 150}
+        hun.update(over)
+        return {"nations": [{"name": "秦"}, {"name": "楚"}, hun]}
+
+    def test_deterministic_per_seed_and_name(self):
+        import mp_run
+        w = mp.World(size=20, seed=20260910, nations=["秦", "楚"])
+        a = mp_run.standby_schedule(self._cfg(), w)
+        b = mp_run.standby_schedule(self._cfg(), w)
+        self.assertEqual(a, b)                       # 同 seed 同配置 → 同回合
+        self.assertIn(a["林胡"], range(120, 151))
+        w2 = mp.World(size=20, seed=999, nations=["秦", "楚"])
+        self.assertNotEqual(a, mp_run.standby_schedule(self._cfg(), w2))  # 换 seed 会变
+
+    def test_config_change_takes_effect(self):
+        import mp_run
+        w = mp.World(size=20, seed=7, nations=["秦", "楚"])
+        self.assertIn(mp_run.standby_schedule(self._cfg(), w)["林胡"], range(120, 151))
+        early = mp_run.standby_schedule(self._cfg(enable_turn=60, enable_turn_max=60), w)
+        self.assertEqual(early["林胡"], 60)          # 改窗口立刻生效（不再被旧计划挡住）
+
+    def test_spawned_nation_excluded_and_new_entries_picked_up(self):
+        import mp_run
+        w = mp.World(size=20, seed=7, nations=["秦", "楚"])
+        w.add_nation("林胡", "huns")
+        self.assertNotIn("林胡", mp_run.standby_schedule(self._cfg(), w))
+        cfg = self._cfg()
+        cfg["nations"].append({"name": "楼烦", "polity": "huns", "enable_turn": 130})
+        self.assertIn("楼烦", mp_run.standby_schedule(cfg, w))
