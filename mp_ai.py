@@ -14,6 +14,7 @@ import copy
 import json
 import threading
 import time
+import unicodedata
 from pathlib import Path
 
 from game import (
@@ -38,7 +39,8 @@ from game import (
 )
 import ctx as ctxlib
 from ctx import est_tokens
-from mp import DIPLO_COST, LETTER_COST, PLAN_MAX_TURNS, RES_KEYS, RES_LABEL
+from mp import (DIPLO_COST, LETTER_COST, PLAN_MAX_TURNS, REPORT_EVERY, RES_KEYS,
+                RES_LABEL)
 
 MAIL_BRIEF_FULL = 3      # 状态面板里完整展示的新信数（更旧的只列摘要行）
 MAIL_BRIEF_ROWS = 20     # 状态面板里最多列多少条旧信摘要
@@ -553,6 +555,20 @@ def _help_sections() -> list[tuple[str, str]]:
             "基准价：" + "  ".join(f"{g}{MARKET[g]}" for g in GOODS_DISPLAY) + "。分批慢慢卖比一次砸盘划算；"
             "粮/木是内需品（价低量大），矿/油/装备才是外贸主力。"
         )),
+        ("经济报表", (
+            f"每 {REPORT_EVERY} 回合**自动**给每国结一期经济报表（第 11/21/31… 回合开局可查），"
+            "用 report 工具查（免费、只读）——**无法手动运行**，也不能补做历史期。"
+            "一期覆盖最近 10 回合，全部按当时市价折算："
+            "①GDP（每回合）= 本期生产增加值 ÷10，**不含军费**（采集/工厂产出 + 金矿/市政厅金 − 中间投入 − 能源燃料）；"
+            "②GDP 增长率 = 环比上期；"
+            "③财政收入 = GDP − 军费；"
+            "④军费（每回合）= 本期军队**实际消耗的补给** ÷10 × 现价（不看来源，自产/外购一视同仁）；"
+            "⑤军费占 GDP 比；⑥国家总资产 = 全部建筑重置成本（造价金+木×现价，含夺来的地）；"
+            "⑦资产增长率；⑧本期投资 = 本期建造实付（金 + 木×当时市价，含城堡升级）；"
+            "⑨投资增长率；⑩外贸/内循环占比 = (买卖总额)/(自产+进口) 与自产自用部分。"
+            "report all=true 看跨期趋势表；report turn=21 看指定期。"
+            "军费是双刃剑：过高挤压投资、长期竞争落后；过低则成待宰羔羊、发展空间受限。"
+        )),
         ("回合与存档", (
             "end_turn 结束你的本回合。每回合结算会：落地在建建筑→产出/电网→战争→补给/回血→"
             "遣返→市场回归。存档每回合自动写 mp_save.json，随时可中断续局。"
@@ -585,6 +601,7 @@ def rules_text(world, topic: str = "") -> str:
         "信箱": "信箱", "信": "信箱", "邮件": "信箱",
         "市场": "市场", "买卖": "市场", "价格": "市场", "交易": "市场",
         "回合": "回合与存档", "存档": "回合与存档", "结算": "回合与存档",
+        "报表": "经济报表", "GDP": "经济报表", "投资": "经济报表", "军费": "经济报表",
     }
     picks = []
     for key, label in labels.items():
@@ -679,6 +696,102 @@ def _fmt_spy(world, name) -> str:
     if not es:
         return "（你尚未拿到任何间谍情报）"
     return "\n".join(m["text"] for m in es[-2:])
+
+
+MIL_WARNING = ("⚠ 军费是双刃剑：开支过大会挤压投资，长期竞争落后；开支过低则成待宰羔羊，"
+               "发展空间受限、短期竞争失利——自己权衡。")
+
+
+def _dw(s: str) -> int:
+    """终端显示宽度：CJK/全角字符按 2 计（Python len 只数字符，中文一掺就对不齐）。"""
+    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in str(s))
+
+
+def _pad(s: str, width: int) -> str:
+    s = str(s)
+    return s + " " * max(0, width - _dw(s))
+
+
+def _pct(v: float | None, sign: bool = True) -> str:
+    """增长率/占比显示：None（无上期）→「—」。"""
+    if v is None:
+        return "—"
+    return f"{v * 100:+.1f}%" if sign else f"{v * 100:.1f}%"
+
+
+def _fmt_report_one(rep: dict) -> str:
+    """单期经济报表。口径：GDP=生产增加值(市价,不含军费)/回合；军费=补给消耗×现价/回合。"""
+    span = f"第 {rep['period_end'] - REPORT_EVERY + 1}–{rep['period_end']} 回合"
+    gdp, mil = rep["gdp"], rep["military"]
+    fiscal = gdp - mil
+    L = [f"【经济报表 · 报表回合 {rep['report_turn']} · 覆盖{span}】"]
+    L.append(f"  GDP（每回合，市价）      {gdp:>8.1f} 金   {_pct(rep['gdp_growth'])}"
+             f"   （本期合计 {gdp * REPORT_EVERY:.0f} 金）")
+    L.append(f"  财政收入（GDP−军费）     {fiscal:>8.1f} 金/回合"
+             + ("   ⚠ 本期军费已超过 GDP，靠卖库存/吃老本维持" if fiscal < 0 else ""))
+    L.append(f"  军费（每回合补给消耗）   {mil:>8.1f} 金   "
+             f"占 GDP {_pct(rep['military_ratio'], sign=False)}")
+    L.append(f"  国家总资产               {rep['assets']:>8.0f} 金   {_pct(rep['assets_growth'])}"
+             "   （含夺地所得）")
+    L.append(f"  本期投资                 {rep['invest']:>8.0f} 金   {_pct(rep['invest_growth'])}")
+    L.append(f"  外贸 / 内循环            外贸 {_pct(rep['trade_ratio'], sign=False)} · "
+             f"内循环 {_pct(1 - rep['trade_ratio'], sign=False)}"
+             "   （外贸=买卖总额/(自产+进口)）")
+    L.append(f"  （本期军队共消耗补给 {rep['supply_eaten']} 单位，按现价折 {mil:.1f} 金/回合"
+             "——不看来源，自产/外购一视同仁；市场买入 "
+             f"{rep['import_gold']:.0f} 金、卖出 {rep['export_gold']:.0f} 金）")
+    L.append("")
+    L.append(MIL_WARNING)
+    return "\n".join(L)
+
+
+def _fmt_report_trend(world, name) -> str:
+    """跨期趋势表：一行一期，便于比较不同时期。"""
+    reps = world.econ_reports.get(name, [])
+    header = ["期", "报表回合", "GDP/回合", "GDP增长", "军费/回合", "军费占GDP",
+              "投资", "投资增长", "总资产", "资产增长", "外贸占比"]
+    rows = [header]
+    for i, r in enumerate(reps, 1):
+        rows.append([str(i), str(r["report_turn"]), f"{r['gdp']:.1f}", _pct(r["gdp_growth"]),
+                     f"{r['military']:.1f}", _pct(r["military_ratio"], sign=False),
+                     f"{r['invest']:.0f}", _pct(r["invest_growth"]), f"{r['assets']:.0f}",
+                     _pct(r["assets_growth"]), _pct(r["trade_ratio"], sign=False)])
+    widths = [max(_dw(row[c]) for row in rows) for c in range(len(header))]
+    lines = [f"【经济报表 · 跨期趋势】共 {len(reps)} 期"
+             f"（报表回合 {'、'.join(str(r['report_turn']) for r in reps)}）"]
+    lines += ["  " + "  ".join(_pad(row[c], widths[c]) for c in range(len(header)))
+              for row in rows]
+    lines += ["", MIL_WARNING]
+    return "\n".join(lines)
+
+
+def _fmt_report(world, name, turn: int | None = None, all_: bool = False) -> str:
+    """本国经济报表（只读）：不传参数=最新一期；all_=跨期趋势表；turn=指定报表回合。"""
+    reps = world.econ_reports.get(name, [])
+    if not reps:
+        return ("（尚无经济报表：第 11 回合起每 10 回合自动出一期——第 11/21/31… 回合开局可查。"
+                "这是自动生成的，不能手动运行。）")
+    if all_:
+        return _fmt_report_trend(world, name)
+    if turn is None:
+        return _fmt_report_one(reps[-1])
+    for r in reps:
+        if r["report_turn"] == turn:
+            return _fmt_report_one(r)
+    return (f"没有第 {turn} 回合的报表。已出："
+            + "、".join(f"第{r['report_turn']}回合" for r in reps)
+            + "（每 10 回合自动出一期，不能手动运行；趋势看 report all=true）")
+
+
+def _fmt_report_hint(world, name) -> str:
+    """状态面板里的一行提示（完整内容用 report 工具查）。"""
+    reps = world.econ_reports.get(name, [])
+    if not reps:
+        return "尚无（第 11 回合起每 10 回合自动出一期，不能手动运行）"
+    r = reps[-1]
+    return (f"最新第 {r['report_turn']} 回合：GDP {r['gdp']:.1f}/回合（{_pct(r['gdp_growth'])}）、"
+            f"军费占 GDP {_pct(r['military_ratio'], sign=False)}、总资产 {r['assets']:.0f}；"
+            "明细 report / 趋势 report all=true")
 
 
 def _gval(world, good: str, amt: int, side: str = "mid") -> float:
@@ -780,6 +893,7 @@ def full_state(world, name, replay_since: int | None = None) -> str:
         f"【军队】\n{_fmt_armies(world, name)}",
         f"【威胁】\n{_fmt_threats(world, name)}",
         f"【市场】\n{_fmt_market(world, name)}",
+        f"【经济报表】\n{_fmt_report_hint(world, name)}",
         f"【纪事(近10回合)】\n{_fmt_memory(world, name, replay_since)}",
         f"【地图情报】\n{_fmt_intel_hint(world, name)}",
         f"【间谍情报】\n{_fmt_spy_hint(world, name)}",
@@ -926,6 +1040,16 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         if b in BUILDINGS:
             return _econ_building(world, b)
         return _fmt_econ(world, actor)
+
+    # ---- 经济报表（只读：每 10 回合自动结一期，没有任何手动生成入口）
+    if tool in ("report", "报表", "经济报表"):
+        raw_turn = args.get("turn")
+        try:
+            turn = int(raw_turn) if raw_turn not in (None, "", 0, "0") else None
+        except (TypeError, ValueError):
+            turn = None
+        all_ = str(args.get("all", "")).strip().lower() in ("1", "true", "yes", "y", "是", "全部")
+        return _fmt_report(world, actor, turn, all_)
 
     # ---- 领土（无"凭空占"：只有军队 mv 移入"敌人=0"的地格才占地）
     if tool in ("expand", "拓荒", "activate"):
@@ -1181,6 +1305,10 @@ TOOL_SCHEMAS = [
     {"type": "function", "function": {
         "name": "query", "description": "查询接口：随时获取你的各面板。res=国库与储备 / plan=国策规划 / land=地皮(国土+可拓荒地) / army=军队 / market=世界市场(现价/买价/卖价/均衡价+大单试算) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=间谍情报(别国经济底细+粗略军情) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
         "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "plan", "land", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True}})}},
+    {"type": "function", "function": {
+        "name": "report", "description": "查本国经济报表（免费、只读）。每 10 回合**自动**结一期，第 11/21/31… 回合开局可查，**不能手动运行**。内容：市场计价 GDP 及增长率、扣除军费的财政收入、军费占 GDP 比、国家总资产及增长率、本期投资总量及增长率、外贸/内循环占比。不传参数=最新一期；turn=指定报表回合（如 21）；all=true=跨期趋势对比表。",
+        "parameters": _props({"turn": {"type": "integer", "description": "报表回合（11/21/31…）；省略=最新一期"},
+                              "all": {"type": "boolean", "description": "true=返回全部期的趋势对比表"}})}},
     {"type": "function", "function": {
         "name": "countries", "description": "列出所有可选外交对象（除你之外的每个国家：关系/是否接壤/有无来信）。外交动作前先用它选一个目标，再以 to=该国家 行动；绝不能对自己用外交工具。",
         "parameters": _props({})}},

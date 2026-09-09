@@ -81,6 +81,17 @@ DIPLO_COST = 10   # 外交基础费用：提议/回应/断盟/保障/宣战/求�
 LETTER_COST = 20  # 信件单独费用
 RETREAT_DEF_COVER = 50   # 防御方撤退：回合末战斗结算中只受 50% 伤害（进攻方撤退全额；0=不减伤、100=免伤）
 PLAN_MAX_TURNS = 10  # 国策每 10 回合必须修订一次（否则 end_turn 被拦）
+REPORT_EVERY = 10    # 经济报表每 10 回合自动结一期：第 11/21/31… 回合开局可查（不能手动运行）
+# 本期经济账本字段（按国累计，结完报表清零；全部按当时市价折金）
+LEDGER_FIELDS = ("prod_value",      # 采集/工厂/军屯 产出 × 市价
+                 "mid_value",       # 工厂中间投入 × 市价
+                 "fuel_value",      # 能源厂燃料 × 市价
+                 "gold_in",         # 金矿 + 市政厅 入国库的金
+                 "supply_eaten",    # 军队实际吃掉的补给（单位）——军费口径，不看来源
+                 "import_gold",     # 市场买入总额
+                 "export_gold",     # 市场卖出总额
+                 "invest_gold",     # 建造实付金
+                 "invest_wood_value")  # 建造耗木 × 当时市价
 
 
 def _pair(a: str, b: str) -> frozenset:
@@ -142,6 +153,9 @@ class World:
         self.grid_short: dict[str, bool] = {}
         self.energy_report: dict[str, tuple[int, int, bool]] = {}
         self.econ_summary: dict[str, str] = {}   # 上一回合结算摘要（各国 agent 看）
+        # 经济报表：每 REPORT_EVERY 回合自动结一期（第 11/21/31… 回合开局可查），AI 只读、不能手动跑
+        self.econ_reports: dict[str, list[dict]] = {}   # {国: [期快照…]}
+        self.ledger: dict[str, dict] = {}               # 本期累计账本（结完报表清零）
         self.history: list[dict] = []
         self.history_seen = 0
         names = list(nations or ["秦", "楚", "齐"])
@@ -537,6 +551,9 @@ class World:
         self.add_res(name, "黄金", -cost)
         self.add_res(name, "木头", -wood)
         self.flow_out["木头"] += wood   # 世界流量：大兴土木推高木价
+        led = self._ledger(name)        # 经济报表：投资=实付金 + 木×当时市价（含地形/工程院/匈奴修正后的真价）
+        led["invest_gold"] += cost
+        led["invest_wood_value"] += self._mval("木头", wood)
         t["pending"][building] += 1  # 在建，回合末才落地
         t["built_this_turn"] = 1
         if building == "外交中心":
@@ -1080,6 +1097,7 @@ class World:
         self.map_pending = [m for m in self.map_pending if m["from"] != name and m["to"] != name]
         self.spy_pending = [s for s in self.spy_pending if s["from"] != name and s["to"] != name]
         self.econ_intel.pop(name, None)
+        self.ledger.pop(name, None)          # 账本是本期暂态；已出的 econ_reports 留作历史
         self.plans.pop(name, None)
         self.polity.pop(name, None)
         self.extra_prompt.pop(name, None)
@@ -1087,6 +1105,80 @@ class World:
         self.peace_offers = [p for p in self.peace_offers if p["a"] != name and p["b"] != name]
         self.proposals = [p for p in self.proposals if p["a"] != name and p["b"] != name]
         return True
+
+    # ------------------------------------------------------------- 经济报表
+    def _ledger(self, n: str) -> dict:
+        """取（或新建）该国本期经济账本。"""
+        led = self.ledger.get(n)
+        if led is None:
+            led = self.ledger[n] = {k: 0.0 for k in LEDGER_FIELDS}
+        return led
+
+    def _mval(self, good: str, amt: int) -> float:
+        """按当前市价把 amt 单位 good 折成金（黄金按 MARKET['黄金']）。"""
+        if amt <= 0:
+            return 0.0
+        if good == "黄金":
+            return amt * MARKET["黄金"]
+        return amt * self.prices.get(good, float(MARKET.get(good, 0)))
+
+    def nation_assets(self, n: str) -> float:
+        """该国全部建筑的重置成本（造价金 + 木×现价；城堡按已升到的级数累计投入）。
+        与 settlement.py 同口径，只是木头用现价——夺来的地同样计入（报表里会注明）。"""
+        wp = self.prices.get("木头", float(MARKET["木头"]))
+        total = 0.0
+        for t in self.tiles.values():
+            if t.get("owner") != n:
+                continue
+            for bname, cnt in t["buildings"].items():
+                if not cnt:
+                    continue
+                info = BUILDINGS[bname]
+                if info["kind"] == "castle":
+                    total += sum(info["cost"][:cnt])          # 逐级累计，不是 cnt×单价
+                else:
+                    total += cnt * (info["cost"] + info["wood"] * wp)
+        return total
+
+    @staticmethod
+    def _growth(cur: float, base: float | None) -> float | None:
+        """环比增长率；无上期或上期非正 → None（报表里显示「—」）。"""
+        if base is None or base <= 0:
+            return None
+        return (cur - base) / base
+
+    def _close_report_period(self) -> None:
+        """把本期账本结成一期快照（覆盖最近 REPORT_EVERY 回合），并清零账本。
+        只在回合结算末尾调用——AI 没有任何手动触发入口。"""
+        days = REPORT_EVERY
+        for n in self.alive():
+            led = self._ledger(n)
+            gdp = (led["prod_value"] - led["mid_value"] - led["fuel_value"]
+                   + led["gold_in"]) / days                      # 每回合平均（市价，不含军费）
+            # 军费 = 本期军队实际消耗的补给 ÷10 × 现价（不看来源：自产/外购一视同仁）
+            military = led["supply_eaten"] / days * self.prices.get("补给", float(MARKET["补给"]))
+            invest = led["invest_gold"] + led["invest_wood_value"]
+            assets = self.nation_assets(n)
+            supply_total = led["prod_value"] + led["import_gold"]
+            trade = ((led["export_gold"] + led["import_gold"]) / supply_total
+                     if supply_total > 0 else 0.0)
+            prev = (self.econ_reports.get(n) or [None])[-1]
+            snap = {
+                "period_end": self.turn, "report_turn": self.turn + 1,
+                "gdp": round(gdp, 1), "gdp_growth": self._growth(gdp, prev and prev["gdp"]),
+                "military": round(military, 1),
+                "military_ratio": round(military / gdp, 4) if gdp > 0 else None,
+                "invest": round(invest, 1),
+                "invest_growth": self._growth(invest, prev and prev["invest"]),
+                "assets": round(assets, 1),
+                "assets_growth": self._growth(assets, prev and prev["assets"]),
+                "export_gold": round(led["export_gold"], 1),
+                "import_gold": round(led["import_gold"], 1),
+                "supply_eaten": int(led["supply_eaten"]),
+                "trade_ratio": round(trade, 4),
+            }
+            self.econ_reports.setdefault(n, []).append(snap)
+        self.ledger = {}
 
     @staticmethod
     def _remove_pair(lst: list, name: str):
@@ -1122,10 +1214,12 @@ class World:
                         self.add_res(owner, g, amt * cnt)
                         prod[owner][g] += amt * cnt
                         self.flow_in[g] += amt * cnt   # 世界流量：产出
+                        self._ledger(owner)["prod_value"] += self._mval(g, amt * cnt)
                 elif kind == "gold":
                     gain = info["outputs"].get("黄金", 0) * cnt * MARKET["黄金"]
                     self.add_res(owner, "黄金", gain)
                     gold_in[owner] += gain
+                    self._ledger(owner)["gold_in"] += gain
                 elif kind == "energy":
                     plants[owner].append((bname, info, cnt))
                 elif kind == "factory":
@@ -1145,6 +1239,7 @@ class World:
                 for f, need in fuel.items():
                     self.add_res(n, f, -need * batches)
                     self.flow_out[f] += need * batches   # 世界流量：能源厂烧燃料
+                    self._ledger(n)["fuel_value"] += self._mval(f, need * batches)
                 et += batches * info["energy_out"]
             short = et < maint[n]
             self.grid_short[n] = short
@@ -1159,10 +1254,12 @@ class World:
                     for f, need in info["inputs"].items():
                         self.add_res(n, f, -need * batches)
                         self.flow_out[f] += need * batches   # 世界流量：工厂投料
+                        self._ledger(n)["mid_value"] += self._mval(f, need * batches)
                     for g, amt in info["outputs"].items():
                         self.add_res(n, g, amt * batches)
                         prod[n][g] += amt * batches
                         self.flow_in[g] += amt * batches    # 世界流量：工厂产出
+                        self._ledger(n)["prod_value"] += self._mval(g, amt * batches)
                 # 市政厅：每座 = 基础 TOWN_HALL_GOLD + 该地块已占建筑位(不含自身)×PER_SLOT 金；电网不足即停摆
                 for (hx, hy), ht in self.tiles.items():
                     if ht["owner"] != n:
@@ -1173,6 +1270,7 @@ class World:
                         hall_gain = (TOWN_HALL_GOLD + others * TOWN_HALL_PER_SLOT) * h
                         self.add_res(n, "黄金", hall_gain)
                         gold_in[n] += hall_gain
+                        self._ledger(n)["gold_in"] += hall_gain
 
         # 3) 战争结算
         war_lines = self._resolve_battles()
@@ -1212,6 +1310,7 @@ class World:
             paid = min(need, self.res(n, "补给"))
             self.add_res(n, "补给", -paid)
             self.flow_out["补给"] += paid   # 世界流量：军队吃补给
+            self._ledger(n)["supply_eaten"] += paid
             short = need - paid
             if short:
                 # 缺口按比例分摊：每军扣 35×缺口/需求（交战中也照扣），至少 1
@@ -1293,6 +1392,10 @@ class World:
                 f"产出 {' '.join(parts) if parts else '无'} | 电网 {grid} | 军队 {armies} 支{fam} | "
                 f"国库{self.res(n,'黄金')} 木{self.res(n,'木头')} 补给仓{self.res(n,'补给')}"
             )
+
+        # 7.5) 经济报表：每 REPORT_EVERY 回合自动结一期（第 11/21/31… 回合开局可查）
+        if self.turn and self.turn % REPORT_EVERY == 0:
+            self._close_report_period()
         return {"war_lines": flat_lines, "famine": famine}
 
     def _supply_need(self, n: str, ps: list[dict]) -> int:
@@ -1484,6 +1587,7 @@ class World:
         self.add_res(name, "黄金", -cost)
         self.add_res(name, good, n)
         self.prices[good] = p1
+        self._ledger(name)["import_gold"] += cost   # 经济报表：进口额（外贸占比用）
         return True, (f"购入 {good}×{n}（中间价 {p0:.2f}→{p1:.2f}，含价差均价 {unit:.2f}，"
                       f"实付 {cost}），余{self.res(name,good)}")
 
@@ -1500,6 +1604,7 @@ class World:
         self.add_res(name, good, -n)
         self.add_res(name, "黄金", gold)
         self.prices[good] = p1
+        self._ledger(name)["export_gold"] += gold   # 经济报表：出口额
         return True, (f"售出 {good}×{n}（中间价 {p0:.2f}→{p1:.2f}，含价差均价 {unit:.2f}，"
                       f"实收 {gold}），余{self.res(name,good)}")
 
@@ -2469,6 +2574,8 @@ class World:
             "grid_short": self.grid_short,
             "energy_report": self.energy_report,
             "econ_summary": self.econ_summary,
+            "econ_reports": self.econ_reports,
+            "ledger": self.ledger,
             "history": self.history,
             "history_seen": self.history_seen,
         }
@@ -2594,6 +2701,11 @@ class World:
         w.grid_short = {n: bool(v) for n, v in data.get("grid_short", {}).items() if n in w.nations}
         w.energy_report = {n: tuple(v) for n, v in data.get("energy_report", {}).items() if n in w.nations}
         w.econ_summary = {n: s for n, s in data.get("econ_summary", {}).items() if n in w.nations}
+        # 经济报表：已出的期数 + 本期未结账本（旧档没有 → 空，从下个报表回合开始积累）
+        w.econ_reports = {n: list(v) for n, v in data.get("econ_reports", {}).items()
+                          if n in w.nations}
+        w.ledger = {n: {k: float(v.get(k, 0) or 0) for k in LEDGER_FIELDS}
+                    for n, v in data.get("ledger", {}).items() if n in w.nations}
         for k, t in data["tiles"].items():
             x, y = map(int, k.split(","))
             t.setdefault("recruited_this_turn", 0)
