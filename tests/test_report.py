@@ -129,6 +129,26 @@ class TestCaliber(unittest.TestCase):
         self.assertGreater(rep["trade_ratio"], 0)
         self.assertAlmostEqual(rep["trade_ratio"] + (1 - rep["trade_ratio"]), 1.0, places=9)
 
+    def test_first_period_growth_all_none_and_rendered_as_dash(self):
+        """首期没有上期可比 → 三个增长率都是 None，报表里显示「—」（不是 0%）。"""
+        w, *_ = _mk()
+        _run(w, 10)
+        rep = w.econ_reports["秦"][0]
+        for k in ("gdp_growth", "invest_growth", "assets_growth"):
+            self.assertIsNone(rep[k])
+        for text in (mp_ai._fmt_report(w, "秦"), mp_ai._fmt_report(w, "秦", all_=True)):
+            self.assertIn("—", text)
+            self.assertNotIn("+0.0%", text)
+
+    def test_corrupt_previous_snapshot_does_not_crash(self):
+        """上期快照缺字段（旧档/损坏）→ 增长率退回「—」，绝不让异常抛进回合结算。"""
+        w, *_ = _mk()
+        _run(w, 10)
+        w.econ_reports["秦"] = [{}]
+        _run(w, 10)                                      # 结第二期，不应抛异常
+        self.assertIsNone(w.econ_reports["秦"][-1]["gdp_growth"])
+        self.assertIn("—", mp_ai._fmt_report(w, "秦"))
+
     def test_growth_rates_second_period(self):
         w, *_ = _mk()
         _run(w, 20)

@@ -1165,17 +1165,21 @@ class World:
             supply_total = led["prod_value"] + led["import_gold"]
             trade = ((led["export_gold"] + led["import_gold"]) / supply_total
                      if supply_total > 0 else 0.0)
-            prev = (self.econ_reports.get(n) or [None])[-1]
+            # 上期快照：首期没有（prev={}）→ 各增长率取 None，报表显示「—」；
+            # 用 .get 兜底，避免旧档/损坏数据里缺字段时把异常抛进回合结算
+            prev = (self.econ_reports.get(n) or [{}])[-1]
+            if not isinstance(prev, dict):
+                prev = {}
             snap = {
                 "period_end": self.turn, "report_turn": self.turn + 1,
                 "period_start": start, "span": days,
-                "gdp": round(gdp, 1), "gdp_growth": self._growth(gdp, prev and prev["gdp"]),
+                "gdp": round(gdp, 1), "gdp_growth": self._growth(gdp, prev.get("gdp")),
                 "military": round(military, 1),
                 "military_ratio": round(military / gdp, 4) if gdp > 0 else None,
                 "invest": round(invest, 1),
-                "invest_growth": self._growth(invest, prev and prev["invest"]),
+                "invest_growth": self._growth(invest, prev.get("invest")),
                 "assets": round(assets, 1),
-                "assets_growth": self._growth(assets, prev and prev["assets"]),
+                "assets_growth": self._growth(assets, prev.get("assets")),
                 "export_gold": round(led["export_gold"], 1),
                 "import_gold": round(led["import_gold"], 1),
                 "supply_eaten": int(led["supply_eaten"]),
