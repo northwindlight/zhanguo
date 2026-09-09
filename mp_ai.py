@@ -14,7 +14,6 @@ import copy
 import json
 import threading
 import time
-import unicodedata
 from pathlib import Path
 
 from game import (
@@ -38,6 +37,7 @@ from game import (
     unit_supply,
 )
 import ctx as ctxlib
+from console import dw as _dw, pad as _pad
 from ctx import est_tokens
 from mp import (DIPLO_COST, LETTER_COST, PLAN_MAX_TURNS, REPORT_EVERY, RES_KEYS,
                 RES_LABEL)
@@ -702,16 +702,6 @@ def _fmt_spy(world, name) -> str:
 
 MIL_WARNING = ("⚠ 军费是双刃剑：开支过大会挤压投资，长期竞争落后；开支过低则成待宰羔羊，"
                "发展空间受限、短期竞争失利——自己权衡。")
-
-
-def _dw(s: str) -> int:
-    """终端显示宽度：CJK/全角字符按 2 计（Python len 只数字符，中文一掺就对不齐）。"""
-    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in str(s))
-
-
-def _pad(s: str, width: int) -> str:
-    s = str(s)
-    return s + " " * max(0, width - _dw(s))
 
 
 def _pct(v: float | None, sign: bool = True) -> str:

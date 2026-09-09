@@ -19,17 +19,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import queue
 import random
 import signal
-import sys
-import threading
 import time
 from pathlib import Path
 
 import ctx as ctxlib
+from console import Console
 from mp import World
 from mp_ai import dummy_turn, observer_board, observer_map, run_openai_turn
+
+CONSOLE: Console | None = None      # 命令台（run() 里创建；flush 用它回显）
 
 
 def observer(world, out, header: str):
@@ -49,51 +51,15 @@ def observer(world, out, header: str):
 
 def flush(out, path: Path | None = None, echo: bool = True):
     text = "\n".join(out)
-    if echo and text:
-        print(text, flush=True)
     if path is not None and text:
         with open(path, "a", encoding="utf-8") as f:
-            f.write(text + "\n")
+            f.write(text + "\n")      # 日志存原始 markdown（它是个 .md 文件）
+    if echo and text:
+        if CONSOLE is not None:
+            CONSOLE.write(text)       # 终端渲染 markdown（粗体/标题/列表）
+        else:
+            print(text, flush=True)
     out.clear()
-
-
-def start_stdin_thread() -> queue.Queue:
-    """后台线程立刻捕获终端输入（按 Enter 即入队），回合边界统一处理。
-
-    避免"回合正在跑 LLM（几十秒~几分钟）时输入的命令等不到反应"。
-    """
-    q: queue.Queue = queue.Queue()
-
-    def _run():
-        try:
-            buf = None  # 多行 send 的累积缓冲
-            while True:
-                line = sys.stdin.readline()
-                if not line:
-                    if buf is not None:
-                        q.put("\n".join(buf))  # EOF 前没收 END 也发出
-                    break
-                s = line.rstrip("\n")
-                st = s.strip()
-                if buf is not None:
-                    if st.upper() == "END":
-                        q.put("\n".join(buf))
-                        buf = None
-                    else:
-                        buf.append(s)  # 保留正文原始换行
-                    continue
-                if st.startswith("send ") or st in ("寄", "写信", "神秘信"):
-                    toks = st.split()
-                    if len(toks) == 2:  # 恰为 `send 国家` → 进入多行模式
-                        buf = [st]
-                        continue
-                if st:
-                    q.put(st)
-        except Exception:
-            pass
-
-    threading.Thread(target=_run, daemon=True).start()
-    return q
 
 
 def _nation_extra(n: dict) -> str | None:
@@ -169,7 +135,6 @@ def run() -> None:
     cfg_by_name = {n["name"]: n for n in cfg["nations"]}
     # 中途加国的 AI 模板：复用第一个配置了 base_url/api_key 的国家（如 arkcoding+glm-5.3）
     _template = next((n for n in cfg["nations"] if n.get("base_url") and n.get("api_key")), {})
-    cmd_queue = start_stdin_thread()
     rng = random.Random(2026)
     # 待加入国（带 polity）自动登场：登场时刻存进 world.standby 随档持久化——
     # 新局随机排点；续局用存档里的（旧档没有则现补），到点就登场，不再依赖"本次是否新开"。
@@ -191,18 +156,29 @@ def run() -> None:
 
     stop = {"flag": False}
 
-    def _sig(sig, frm):
+    def _sig(sig=None, frm=None):
         stop["flag"] = True
         # 手动退出不保存：磁盘存档保持「上一回合结算完」的干净档，载入永不跳回合
         emit(f"（Ctrl-C：手动退出不保存，进度保留到第 {world.turn} 回合结算；本回合未结算的行动作废）")
         flush(out, journal_path, echo=True)
-        sys.exit(0)
+        if CONSOLE is not None:
+            CONSOLE.close()          # 恢复终端（cbreak 模式）
+        os._exit(0)                  # 从输入线程调用也能真正退出
 
     signal.signal(signal.SIGINT, _sig)
 
-    print(f"开始看海。存档 {save_path}（每回合结算后自动保存；Ctrl-C 退出不保存），日志 {journal_path}。"
-          f"命令：`add 国名 [匈奴]` 中途加国；`send 国家 内容` 寄神秘来信"
-          f"（多行先 `send 国家` 粘贴正文以 END 收尾；或 `send 国家 @文件路径` 从文件读）。")
+    # 命令台：带提示符的输入行（汉字退格删整字），日志输出自动让开、不打架
+    global CONSOLE
+    CONSOLE = Console(on_interrupt=_sig,
+                      is_multiline_start=lambda s: (s.startswith("send ") or s in ("寄", "写信", "神秘信"))
+                      and len(s.split()) == 2).start()
+    cmd_queue = CONSOLE.queue
+
+    CONSOLE.write(f"开始看海。存档 {save_path}（每回合结算后自动保存；Ctrl-C 退出不保存），"
+                  f"日志 {journal_path}。")
+    CONSOLE.write("命令：`add 国名 [匈奴]` 中途加国；`send 国家 内容` 寄神秘来信"
+                  "（多行先 `send 国家` 粘贴正文以 END 收尾；或 `send 国家 @文件路径` 从文件读）。"
+                  "↑↓ 翻历史，Ctrl-C 退出。")
     while not stop["flag"]:
         cmds = []
         while True:

@@ -330,6 +330,17 @@ python3 mp_run.py --turns 10           # 读档续局；无档则新开
 | `send 国家 内容` | 以"神秘人"身份寄一封信（多行先 `send 国家` 再粘正文，以 `END` 收尾；或 `send 国家 @文件路径`） |
 | `cheat 国家 骑N 粮N 金N …` | 调试：给某国发资源 |
 
+### 终端体验（`console.py`）
+
+- **命令台**：底部常驻提示符 `❯ `，日志刷屏时先让开输入行、打完再画回来，不会互相打断；
+  支持 ←→ / Home / End / Delete / Ctrl-A / Ctrl-E / Ctrl-U / ↑↓ 翻历史。
+  **汉字按 2 格算**——退格删整个字，不会留半格；光标位置也按显示宽度算。
+  POSIX 用 termios cbreak（Ctrl-C 照常退出），Windows 用 msvcrt；不是 tty（管道/重定向）
+  时自动降级为普通逐行读取，不画提示符。
+- **Markdown 渲染**：AI 爱写 `**粗体**`、`# 标题`、`- 列表`，终端会转成 ANSI 显示；
+  **写进 `mp_journal.md` 的仍是原始 markdown**（那是个 .md 文件，本来就该是原文）。
+  非 tty 输出不渲染，避免管道里混进转义码。
+
 ## 终局结算
 
 对局结束后（或中途想看看）：
@@ -362,6 +373,7 @@ python3 settlement.py --no-chat    # 只打分
 | `mp_ai.py` | AI 层：34 个工具（schema + 执行）、system prompt、各面板文本 |
 | `ctx.py` | 上下文窗口管理：token 估算、预算分配、缓存友好组装、下滑与归档 |
 | `mp_run.py` | 编排器：无人值守自动一局 + 看海终端 + 中途加国 |
+| `console.py` | 终端体验层：Markdown→ANSI 渲染 + 汉字宽度感知的命令台（无第三方依赖） |
 | `settlement.py` | 终局结算：四维打分 + 结算厅 |
 | `mp_config.example.json` | 配置模板（复制为 `mp_config.json` 填 key） |
 | `匈奴教义.md` | 匈奴政体的保密策略说明（人类侧） |
