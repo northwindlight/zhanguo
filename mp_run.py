@@ -4,7 +4,7 @@
 读配置 → 开新局或续局 → 无人值守：
   每回合轮流唤醒各国 agent（各国用工具行动）→ 统一结算 → 投信 → 存 journal；
   每回合结算后自动存档，手动退出（Ctrl-C）不保存——存档永远是回合边界，载入不跳回合。
-Observer（你）能看到：每个国家的每个行动、每封信、每场战、每桩外交。
+Observer（你）能看到：每个国家的每个行动、每场战。
 
 用法：
     python3 mp_run.py                     # 用 mp_config.json，无档则开新局
@@ -35,7 +35,7 @@ CONSOLE: Console | None = None      # 命令台（run() 里创建；flush 用它
 
 
 def observer(world, out, header: str):
-    """把 world 新增的历史事件刷给看海端（含每封信/每个行动/战报/外交）。"""
+    """把 world 新增的历史事件刷给看海端（含每个行动/战报）。"""
     lines = world.fresh_history()
     if not lines:
         return
@@ -43,7 +43,7 @@ def observer(world, out, header: str):
     out.append(header)
     for h in lines:
         who = h.get("nation") or ""
-        tag = {"信件": "✉", "外交": "🕊", "灭国": "☠", "领土": "🏳"}.get(h["phase"], "")
+        tag = {"灭国": "☠", "领土": "🏳"}.get(h["phase"], "")
         if tag and h["text"].startswith(tag):
             tag = ""  # 文本自带图标，避免 ✉✉/🕊🕊 之类双打
         out.append(f"  [{h['turn']}·{h['phase']}]{who} {tag} {h['text']}")
@@ -180,15 +180,12 @@ def run() -> None:
 
     # 命令台：带提示符的输入行（汉字退格删整字），日志输出自动让开、不打架
     global CONSOLE
-    CONSOLE = Console(on_interrupt=_sig,
-                      is_multiline_start=lambda s: (s.startswith("send ") or s in ("寄", "写信", "神秘信"))
-                      and len(s.split()) == 2).start()
+    CONSOLE = Console(on_interrupt=_sig).start()
     cmd_queue = CONSOLE.queue
 
     CONSOLE.write(f"开始看海。存档 {save_path}（每回合结算后自动保存；Ctrl-C 退出不保存），"
                   f"日志 {journal_path}。")
-    CONSOLE.write("命令：`add 国名 [匈奴]` 中途加国；`send 国家 内容` 寄神秘来信"
-                  "（多行先 `send 国家` 粘贴正文以 END 收尾；或 `send 国家 @文件路径` 从文件读）。"
+    CONSOLE.write("命令：`add 国名 [匈奴]` 中途加国；`cheat 国家 骑N 粮N 金N` 发资源。"
                   "↑↓ 翻历史，Ctrl-C 退出。")
     while not stop["flag"]:
         cmds = []
@@ -198,7 +195,7 @@ def run() -> None:
             except queue.Empty:
                 break
         for cmd in cmds:
-            parts = cmd.split(maxsplit=2)  # send 正文可含换行，只拆前两段
+            parts = cmd.split(maxsplit=2)
             if parts[0] in ("add", "加", "加入"):
                 if len(parts) < 2:
                     emit("用法：add 国名 [匈奴]，如 `add 匈奴` / `add 秦`")
@@ -219,21 +216,6 @@ def run() -> None:
                     except Exception as e:
                         ok, msg = False, f"加国失败：{type(e).__name__}: {e}"
                     emit(msg if ok else f"⚠ {msg}")
-            elif parts[0] in ("send", "寄", "写信", "神秘信"):
-                if len(parts) < 3:
-                    emit("用法：send 国家 内容（同行）；或多行先 `send 国家` 粘贴正文以 END 收尾；"
-                         "或 `send 国家 @文件路径` 从文件读全文")
-                else:
-                    try:
-                        to = parts[1]
-                        text = parts[2]  # 多行正文原样保留换行
-                        if text.startswith("@"):
-                            p = Path(text[1:].strip())
-                            text = p.read_text(encoding="utf-8")
-                        ok, msg = world.mystery_letter(to, text)
-                        emit(msg if ok else f"⚠ {msg}")
-                    except Exception as e:
-                        emit(f"⚠ 神秘来信失败：{type(e).__name__}: {e}")
             elif parts[0] in ("cheat", "作弊", "补助"):
                 if len(parts) < 3:
                     emit("用法：cheat 国家 骑N 粮N 金N …（骑=骑兵；金/粮/木/矿/油/装/补=资源）")
@@ -256,7 +238,7 @@ def run() -> None:
                     except Exception as e:
                         emit(f"⚠ cheat 失败：{type(e).__name__}: {e}")
             else:
-                emit(f"未知命令：{cmd}（支持 add 国名 [匈奴] / send 国家 内容 / cheat 国家 骑N 粮N 金N）")
+                emit(f"未知命令：{cmd}（支持 add 国名 [匈奴] / cheat 国家 骑N 粮N 金N）")
         if cmds:
             flush(out, journal_path)
             continue
@@ -269,7 +251,7 @@ def run() -> None:
             flush(out, journal_path)
             break
 
-        delivered = world.begin_turn()
+        world.begin_turn()
         # 待加入国到点自动登场：登场回合**每次按配置现算**（不存档）——改配置立刻生效，
         # 新增待登场国也立刻纳入；已在局中的国自动排除，不会重复登场。
         _added = False
@@ -284,10 +266,7 @@ def run() -> None:
             _added = True
         if _added:
             flush(out, journal_path)
-        if delivered:
-            observer(world, out, f"——— 第 {world.turn} 回合 · 投信 {delivered} 封 ———")
-        else:
-            emit(f"——— 第 {world.turn} 回合 ———")
+        emit(f"——— 第 {world.turn} 回合 ———")
         flush(out, journal_path)
         # Observer 大面板：一屏看各国
         emit(observer_board(world))
