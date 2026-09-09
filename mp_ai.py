@@ -721,12 +721,14 @@ def _pct(v: float | None, sign: bool = True) -> str:
 
 def _fmt_report_one(rep: dict) -> str:
     """单期经济报表。口径：GDP=生产增加值(市价,不含军费)/回合；军费=补给消耗×现价/回合。"""
-    span = f"第 {rep['period_end'] - REPORT_EVERY + 1}–{rep['period_end']} 回合"
+    days = rep.get("span", REPORT_EVERY)
+    start = rep.get("period_start", rep["period_end"] - days + 1)
+    span = f"第 {start}–{rep['period_end']} 回合" + ("" if days == REPORT_EVERY else f"（{days} 回合）")
     gdp, mil = rep["gdp"], rep["military"]
     fiscal = gdp - mil
     L = [f"【经济报表 · 报表回合 {rep['report_turn']} · 覆盖{span}】"]
     L.append(f"  GDP（每回合，市价）      {gdp:>8.1f} 金   {_pct(rep['gdp_growth'])}"
-             f"   （本期合计 {gdp * REPORT_EVERY:.0f} 金）")
+             f"   （本期合计 {gdp * days:.0f} 金）")
     L.append(f"  财政收入（GDP−军费）     {fiscal:>8.1f} 金/回合"
              + ("   ⚠ 本期军费已超过 GDP，靠卖库存/吃老本维持" if fiscal < 0 else ""))
     L.append(f"  军费（每回合补给消耗）   {mil:>8.1f} 金   "

@@ -1108,10 +1108,12 @@ class World:
 
     # ------------------------------------------------------------- 经济报表
     def _ledger(self, n: str) -> dict:
-        """取（或新建）该国本期经济账本。"""
+        """取（或新建）该国本期经济账本。新建时记下起始回合——续档/中途登场会得到
+        一个不完整的第一期，结账时按**实际覆盖回合数**平均，不能一律 ÷10。"""
         led = self.ledger.get(n)
         if led is None:
-            led = self.ledger[n] = {k: 0.0 for k in LEDGER_FIELDS}
+            led = self.ledger[n] = {**{k: 0.0 for k in LEDGER_FIELDS},
+                                    "_since": max(1, self.turn)}
         return led
 
     def _mval(self, good: str, amt: int) -> float:
@@ -1150,9 +1152,10 @@ class World:
     def _close_report_period(self) -> None:
         """把本期账本结成一期快照（覆盖最近 REPORT_EVERY 回合），并清零账本。
         只在回合结算末尾调用——AI 没有任何手动触发入口。"""
-        days = REPORT_EVERY
         for n in self.alive():
             led = self._ledger(n)
+            start = int(led.get("_since", self.turn - REPORT_EVERY + 1))
+            days = max(1, min(REPORT_EVERY, self.turn - start + 1))   # 不完整首期按实际天数
             gdp = (led["prod_value"] - led["mid_value"] - led["fuel_value"]
                    + led["gold_in"]) / days                      # 每回合平均（市价，不含军费）
             # 军费 = 本期军队实际消耗的补给 ÷10 × 现价（不看来源：自产/外购一视同仁）
@@ -1165,6 +1168,7 @@ class World:
             prev = (self.econ_reports.get(n) or [None])[-1]
             snap = {
                 "period_end": self.turn, "report_turn": self.turn + 1,
+                "period_start": start, "span": days,
                 "gdp": round(gdp, 1), "gdp_growth": self._growth(gdp, prev and prev["gdp"]),
                 "military": round(military, 1),
                 "military_ratio": round(military / gdp, 4) if gdp > 0 else None,
@@ -2704,7 +2708,8 @@ class World:
         # 经济报表：已出的期数 + 本期未结账本（旧档没有 → 空，从下个报表回合开始积累）
         w.econ_reports = {n: list(v) for n, v in data.get("econ_reports", {}).items()
                           if n in w.nations}
-        w.ledger = {n: {k: float(v.get(k, 0) or 0) for k in LEDGER_FIELDS}
+        w.ledger = {n: {**{k: float(v.get(k, 0) or 0) for k in LEDGER_FIELDS},
+                        "_since": max(1, int(v.get("_since", w.turn)))}
                     for n, v in data.get("ledger", {}).items() if n in w.nations}
         for k, t in data["tiles"].items():
             x, y = map(int, k.split(","))

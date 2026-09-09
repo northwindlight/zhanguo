@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -136,6 +137,43 @@ class TestCaliber(unittest.TestCase):
         self.assertIsNotNone(second["gdp_growth"])
         self.assertGreater(second["gdp"], first["gdp"])
         self.assertGreater(second["gdp_growth"], 0)
+
+
+class TestPartialPeriod(unittest.TestCase):
+    """不完整首期：续档/中途登场时账本从零开始，结账要按实际覆盖回合数平均，不能一律 ÷10。"""
+
+    def test_old_save_without_ledger_gets_partial_first_period(self):
+        w, *_ = _mk()
+        _run(w, 5)
+        path = tempfile.mktemp(suffix=".json")
+        try:
+            w.save(path)
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+            data.pop("ledger")                       # 模拟旧档：没有账本字段
+            Path(path).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            w2 = mp.World.load(path)
+            self.assertEqual(w2.ledger, {})
+            _run(w2, 5)                              # 第 6–10 回合才被记账
+            rep = w2.econ_reports["秦"][0]
+            self.assertEqual(rep["report_turn"], 11)
+            self.assertEqual((rep["period_start"], rep["span"]), (6, 5))
+            self.assertGreater(rep["gdp"], 9.5)      # 按 5 回合平均 → 接近满产；÷10 会腰斩到 ~5
+        finally:
+            os.unlink(path)
+
+    def test_ledger_since_survives_save_load(self):
+        """正常续档（账本在档里）：覆盖回合数不丢，下一期仍是完整 10 回合。"""
+        w, *_ = _mk()
+        _run(w, 5)
+        path = tempfile.mktemp(suffix=".json")
+        try:
+            w.save(path)
+            w2 = mp.World.load(path)
+            _run(w2, 5)
+            rep = w2.econ_reports["秦"][0]
+            self.assertEqual((rep["period_start"], rep["span"]), (1, 10))
+        finally:
+            os.unlink(path)
 
 
 class TestReadOnly(unittest.TestCase):
