@@ -944,3 +944,12 @@ class TestStandbySchedule(unittest.TestCase):
         cfg = self._cfg()
         cfg["nations"].append({"name": "楼烦", "polity": "huns", "enable_turn": 130})
         self.assertIn("楼烦", mp_run.standby_schedule(cfg, w))
+
+    def test_removed_from_config_never_spawns(self):
+        """从配置里删掉未登场的势力 → 永远不登场（旧机制下计划已写进存档，删了也没用）。"""
+        import mp_run
+        w = mp.World(size=20, seed=7, nations=["秦", "楚"])
+        self.assertEqual(mp_run.standby_schedule({"nations": [{"name": "秦"}, {"name": "楚"}]}, w), {})
+        # 条目在但没 polity 标记 → 也不算待登场国
+        cfg = {"nations": [{"name": "林胡", "enable_turn": 5}]}
+        self.assertEqual(mp_run.standby_schedule(cfg, w), {})
