@@ -211,7 +211,7 @@ def unit_supply(a: dict) -> int:
 ARMY_MAX_HP = 100
 ARMY_STARVE_DAMAGE = 35   # 补给不足时按缺口比例扣血（完全断供=35），交战中也照扣，HP≤0 阵亡
 ARMY_HEAL_PER_TURN = 25   # 非战斗（且非断供）军队每回合回复，占满血 25%
-ARMY_ATTACK_DAMAGE = 50   # 默认基础伤害（步/骑；民兵 30 —— 兵种攻击表见 UNIT_TYPES["atk"]）
+ARMY_ATTACK_DAMAGE = 50   # 默认基础伤害（步/骑；民兵 20 —— 兵种攻击表见 UNIT_TYPES["atk"]）
 RETREAT_RANGE = 1         # 撤退固定只能退相邻 1 格（3×3，所有人）；正常移动按兵种速度（步1/骑2）
 RETREAT_ATK_PENALTY = 80  # 撤退军本回合战斗输出 -80%（撤离途中无心恋战；防撤退白嫖输出）
 # 战斗骰：每回合掷 1d6 → 本回合双方伤害修正%（战争打几回合很正常）

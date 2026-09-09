@@ -834,7 +834,7 @@ class World:
 
     @staticmethod
     def _combat_power(atk_total: int, def_pct: int) -> int:
-        """atk_total = 该方各军兵种攻击之和（步/骑 50、民兵 30，见 unit_atk）。"""
+        """atk_total = 该方各军兵种攻击之和（步/骑 50、民兵 20，见 unit_atk）。"""
         return max(1, atk_total * (100 - def_pct) // 100)
 
     @staticmethod
