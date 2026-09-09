@@ -34,11 +34,17 @@ from game import (
     DIPLO_CENTER_MIN_COST,
     ENGINEER_DISCOUNT,
     MARKET,
+    MARKET_DEPTH,
+    MARKET_EQ_MAX_RATIO,
+    MARKET_EQ_MIN_RATIO,
+    MARKET_GAP_ONE_SIDE,
+    MARKET_SENS,
+    MARKET_SPREAD,
     MAX_SLOTS,
+    PRICE_IMPACT,
     PRICE_MAX_RATIO,
-    PRICE_MIN,
+    PRICE_MIN_RATIO,
     PRICE_REVERT,
-    PRICE_TICK_RATIO,
     RETREAT_ATK_PENALTY,
     RETREAT_RANGE,
     TERRAIN_CHARS,
@@ -121,7 +127,10 @@ class World:
         self.peace_offers: list[dict] = []
         self.proposals: list[dict] = []
         self._offer_id = 0  # 同上：首个邀约 id 为 1
-        self.prices: dict[str, float] = {g: float(MARKET[g]) for g in TRADEABLE}
+        self.prices: dict[str, float] = {g: float(MARKET[g]) for g in TRADEABLE}   # 中间价 mid
+        self.equilibrium: dict[str, float] = {g: float(MARKET[g]) for g in TRADEABLE}  # 供需均衡价（每回合末重算）
+        self.flow_in: dict[str, int] = {g: 0 for g in TRADEABLE}   # 本回合世界入库流量（产出），算完均衡价清零
+        self.flow_out: dict[str, int] = {g: 0 for g in TRADEABLE}  # 本回合世界出库流量（消耗）
         self.armies: list[dict] = []
         self.next_army_seq: dict[str, int] = {}  # 各国独立军队序列：从1递增、阵亡不回收
         self.standby: dict[str, int] = {}        # 待登场国 {国名: 登场回合}（带 polity 的配置国），随存档持久化
@@ -527,6 +536,7 @@ class World:
             return False, f"木材不足：{label} 需 {wood}，储备 {self.res(name,'木头')}"
         self.add_res(name, "黄金", -cost)
         self.add_res(name, "木头", -wood)
+        self.flow_out["木头"] += wood   # 世界流量：大兴土木推高木价
         t["pending"][building] += 1  # 在建，回合末才落地
         t["built_this_turn"] = 1
         if building == "外交中心":
@@ -574,6 +584,8 @@ class World:
             return False, "战略储备不足（每支耗 " + "、".join(f"{f}x{a}" for f, a in cost.items()) + "）"
         for f, amt in cost.items():
             self.add_res(name, f, -amt * n)
+            if f in self.flow_out:
+                self.flow_out[f] += amt * n   # 世界流量：征兵吃粮吃装备（黄金是货币，不计）
         for i in range(n):
             gid, seq = self._new_army(name)
             self.armies.append({"id": seq, "gid": gid, "name": army_name(name, seq, kind),
@@ -1109,6 +1121,7 @@ class World:
                     for g, amt in info["outputs"].items():
                         self.add_res(owner, g, amt * cnt)
                         prod[owner][g] += amt * cnt
+                        self.flow_in[g] += amt * cnt   # 世界流量：产出
                 elif kind == "gold":
                     gain = info["outputs"].get("黄金", 0) * cnt * MARKET["黄金"]
                     self.add_res(owner, "黄金", gain)
@@ -1131,6 +1144,7 @@ class World:
                     batches = min(batches, self.res(n, f) // need)
                 for f, need in fuel.items():
                     self.add_res(n, f, -need * batches)
+                    self.flow_out[f] += need * batches   # 世界流量：能源厂烧燃料
                 et += batches * info["energy_out"]
             short = et < maint[n]
             self.grid_short[n] = short
@@ -1144,9 +1158,11 @@ class World:
                         continue
                     for f, need in info["inputs"].items():
                         self.add_res(n, f, -need * batches)
+                        self.flow_out[f] += need * batches   # 世界流量：工厂投料
                     for g, amt in info["outputs"].items():
                         self.add_res(n, g, amt * batches)
                         prod[n][g] += amt * batches
+                        self.flow_in[g] += amt * batches    # 世界流量：工厂产出
                 # 市政厅：每座 = 基础 TOWN_HALL_GOLD + 该地块已占建筑位(不含自身)×PER_SLOT 金；电网不足即停摆
                 for (hx, hy), ht in self.tiles.items():
                     if ht["owner"] != n:
@@ -1195,6 +1211,7 @@ class World:
             need = self._supply_need(n, ps)  # 步1/骑2；民兵驻自家军屯格免费
             paid = min(need, self.res(n, "补给"))
             self.add_res(n, "补给", -paid)
+            self.flow_out["补给"] += paid   # 世界流量：军队吃补给
             short = need - paid
             if short:
                 # 缺口按比例分摊：每军扣 35×缺口/需求（交战中也照扣），至少 1
@@ -1252,12 +1269,8 @@ class World:
         # 5.5) 联盟投票逾期未决 → 作废（发起回合的下一回合结束前须决出）
         self._expire_votes()
 
-        # 6) 市场向基准回归
-        for g in TRADEABLE:
-            base = MARKET[g]
-            p = self.prices[g]
-            self.prices[g] = round(min(max(base + (p - base) * PRICE_REVERT, PRICE_MIN),
-                                       base * PRICE_MAX_RATIO), 3)
+        # 6) 市场：按本回合世界供需算均衡价，市价向均衡价回归
+        self._update_market()
 
         # 6.5) 在建建筑落地（施工 1 回合）：本回合结算不产出，落地后从下回合开始生效
         for t in self.tiles.values():
@@ -1428,30 +1441,51 @@ class World:
     def market_price(self, good: str) -> float:
         return round(self.prices[good], 1)
 
-    def market_depth(self) -> int:
-        """市场深度随玩家数量缩放：现存国家越多，单笔买卖对市价的冲击越小。"""
-        return max(1, len(self.alive()))
+    def market_depth(self, good: str) -> int:
+        """该商品的市场深度（单位数）：每卖光这么多单位，市价大约被压掉「基准价×PRICE_IMPACT」。
+        深度 = MARKET_DEPTH[g] × max(1, 现存国家数) ÷ 4——国家越多市场越深（4 国为基准档）。"""
+        return max(1, round(MARKET_DEPTH[good] * max(1, len(self.alive())) / 4))
+
+    def market_tick(self, good: str) -> float:
+        """每单位推动（金/单位）：基准价 × PRICE_IMPACT ÷ 深度。"""
+        return MARKET[good] * PRICE_IMPACT / self.market_depth(good)
 
     def _clamp_price(self, good: str, p: float) -> float:
         base = MARKET[good]
-        return min(max(p, PRICE_MIN), base * PRICE_MAX_RATIO)
+        return min(max(p, base * PRICE_MIN_RATIO), base * PRICE_MAX_RATIO)
+
+    def market_walk(self, good: str, n: int, side: str) -> tuple[float, float, float]:
+        """沿价格曲线走 n 单位。返回 (成交单价含价差, 成交后中间价 p1, 总额)。
+        成交单价 = 沿曲线均价 (p0+p1)/2 再加/减半个价差——不再整笔按 p1 结算。"""
+        p0 = self.prices[good]
+        tick = self.market_tick(good)
+        d = tick * n * (1 if side == "buy" else -1)
+        p1 = self._clamp_price(good, p0 + d)
+        avg = (p0 + p1) / 2
+        unit = avg * (1 + MARKET_SPREAD / 2) if side == "buy" else avg * (1 - MARKET_SPREAD / 2)
+        return unit, p1, unit * n
+
+    def market_quote(self, good: str, n: int, side: str) -> tuple[float, int]:
+        """试算：不实际成交，返回 (成交单价, 总额)。供面板显示「卖 N 实收多少」。"""
+        unit, _p1, total = self.market_walk(good, n, side)
+        return unit, int(round(total))
 
     def buy(self, name: str, good: str, n: int) -> tuple[bool, str]:
         if good not in TRADEABLE:
             return False, f"「{good}」不可交易（可交易：{'、'.join(TRADEABLE)}）"
         if n <= 0:
             return False, "数量需为正整数"
-        base = MARKET[good]
         p0 = self.prices[good]
-        tick = base * PRICE_TICK_RATIO / self.market_depth()
-        p1 = self._clamp_price(good, p0 + tick * n)
-        cost = int(round(p1 * n))
+        unit, p1, total = self.market_walk(good, n, "buy")
+        cost = int(round(total))
         if self.res(name, "黄金") < cost:
-            return False, f"黄金不足：买 {good}×{n}（市价推到 {p1:.1f}）需 {cost}，国库 {self.res(name,'黄金')}"
+            return False, (f"黄金不足：买 {good}×{n}（均价 {unit:.2f}）需 {cost}，"
+                           f"国库 {self.res(name,'黄金')}")
         self.add_res(name, "黄金", -cost)
         self.add_res(name, good, n)
         self.prices[good] = p1
-        return True, f"购入 {good}×{n}（市价 {p0:.1f}→{p1:.1f} 实付 {cost}），余{self.res(name,good)}"
+        return True, (f"购入 {good}×{n}（中间价 {p0:.2f}→{p1:.2f}，含价差均价 {unit:.2f}，"
+                      f"实付 {cost}），余{self.res(name,good)}")
 
     def sell(self, name: str, good: str, n: int) -> tuple[bool, str]:
         if good not in TRADEABLE:
@@ -1460,15 +1494,35 @@ class World:
             return False, "数量需为正整数"
         if self.res(name, good) < n:
             return False, f"储备不足：{good} 现有 {self.res(name,good)}"
-        base = MARKET[good]
         p0 = self.prices[good]
-        tick = base * PRICE_TICK_RATIO / self.market_depth()
-        p1 = self._clamp_price(good, p0 - tick * n)
-        gold = int(round(p1 * n))
+        unit, p1, total = self.market_walk(good, n, "sell")
+        gold = int(round(total))
         self.add_res(name, good, -n)
         self.add_res(name, "黄金", gold)
         self.prices[good] = p1
-        return True, f"售出 {good}×{n}（市价 {p0:.1f}→{p1:.1f} 实收 {gold}），余{self.res(name,good)}"
+        return True, (f"售出 {good}×{n}（中间价 {p0:.2f}→{p1:.2f}，含价差均价 {unit:.2f}，"
+                      f"实收 {gold}），余{self.res(name,good)}")
+
+    def _update_market(self) -> None:
+        """每回合末：按全世界本回合流量算供需均衡价，市价向均衡价回归（而非死盯基准价）。
+        产多耗少 → 均衡价低（全世界都在产，自然便宜）；战时军需耗大 → 均衡价高。"""
+        for g in TRADEABLE:
+            base = MARKET[g]
+            prod, use = self.flow_in.get(g, 0), self.flow_out.get(g, 0)
+            if prod and use:
+                gap = (use - prod) / (use + prod)
+            elif prod or use:
+                gap = -MARKET_GAP_ONE_SIDE if prod else MARKET_GAP_ONE_SIDE
+            else:
+                gap = 0.0
+            eq = base * (1 + MARKET_SENS * gap)
+            eq = min(max(eq, base * MARKET_EQ_MIN_RATIO), base * MARKET_EQ_MAX_RATIO)
+            self.equilibrium[g] = round(eq, 3)
+            p = self.prices[g]
+            self.prices[g] = round(min(max(eq + (p - eq) * PRICE_REVERT, base * PRICE_MIN_RATIO),
+                                       base * PRICE_MAX_RATIO), 3)
+        self.flow_in = {g: 0 for g in TRADEABLE}
+        self.flow_out = {g: 0 for g in TRADEABLE}
 
     # ------------------------------------------------------------- 信箱
     def send_mail(self, frm: str, to: str, text: str) -> tuple[bool, str]:
@@ -2409,6 +2463,9 @@ class World:
             "proposals": self.proposals,
             "offer_id": self._offer_id,
             "prices": self.prices,
+            "equilibrium": self.equilibrium,
+            "flow_in": self.flow_in,
+            "flow_out": self.flow_out,
             "grid_short": self.grid_short,
             "energy_report": self.energy_report,
             "econ_summary": self.econ_summary,
@@ -2528,6 +2585,9 @@ class World:
         w.proposals = data.get("proposals", [])
         w._offer_id = data.get("offer_id", 1)
         w.prices = {g: float(data.get("prices", {}).get(g, MARKET[g])) for g in TRADEABLE}
+        w.equilibrium = {g: float(data.get("equilibrium", {}).get(g, MARKET[g])) for g in TRADEABLE}
+        w.flow_in = {g: int(data.get("flow_in", {}).get(g, 0)) for g in TRADEABLE}
+        w.flow_out = {g: int(data.get("flow_out", {}).get(g, 0)) for g in TRADEABLE}
         w.history = data.get("history", [])
         w.history_seen = data.get("history_seen", 0)
         # 电网/结算摘要也持久化：否则续档后第一回合 all 面板电力 0、上回合结算丢失

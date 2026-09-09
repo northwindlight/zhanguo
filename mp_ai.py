@@ -27,12 +27,14 @@ from game import (
     LETTER_CENTER_DISCOUNT,
     LETTER_COST_MIN,
     MARKET,
+    MARKET_SPREAD,
     MAX_SLOTS,
     TERRAIN_STATS,
     TOWN_HALL_GOLD,
     TOWN_HALL_PER_SLOT,
     UNIT_TYPES,
     WATCHTOWER_RADIUS,
+    unit_supply,
 )
 import ctx as ctxlib
 from ctx import est_tokens
@@ -164,12 +166,19 @@ def _fmt_land(world, name, cap=40) -> str:
 
 def _fmt_market(world, name) -> str:
     r = world.nations[name].res
-    lines = ["世界市场（黄金是货币；可交易：粮食 木头 矿石 石油 装备 补给）:"]
+    lines = [f"世界市场（黄金是货币；可交易：{' '.join(GOODS_DISPLAY)}）",
+             f"  成交=沿曲线均价结算，含 {MARKET_SPREAD:.0%} 买卖价差；每回合向供需均衡价回归。"]
     for g in GOODS_DISPLAY:
         p = world.prices[g]
         base = MARKET[g]
+        eq = world.equilibrium.get(g, base)
         tag = "≈基准" if abs(p - base) <= 0.02 * base else ("贵" if p > base else "贱")
-        lines.append(f"  {g} 现价{p:.1f}(基准{base}) {tag}  你持有 {r.get(g, 0)}")
+        bp, _ = world.market_quote(g, 1, "buy")
+        sp, _ = world.market_quote(g, 1, "sell")
+        _, s50 = world.market_quote(g, 50, "sell")
+        _, b50 = world.market_quote(g, 50, "buy")
+        lines.append(f"  {g} 现价{p:.2f}(基准{base} 均衡{eq:.2f} {tag}) 买{bp:.2f}/卖{sp:.2f} "
+                     f"持有{r.get(g, 0)} ｜ 卖50≈{s50}金 买50≈{b50}金")
     return "\n".join(lines)
 
 
@@ -527,9 +536,12 @@ def _help_sections() -> list[tuple[str, str]]:
         )),
         ("市场", (
             "世界市场 buy/sell：黄金是货币；可交易粮/木/矿/油/装/补给。"
-            "价格受供需影响：买→推高、卖→压低，整笔按成交后价格结算；每回合向基准价回归。"
-            "市场深度随现存国家数缩放：国家越多，单笔买卖对市价的冲击越小。"
-            "基准价：" + "  ".join(f"{g}{MARKET[g]}" for g in GOODS_DISPLAY) + "。分批慢慢卖比一次砸盘划算。"
+            f"价格受供需影响：买→推高、卖→压低；成交按「沿曲线均价」结算（不是整笔按最差价），"
+            f"另有 {MARKET_SPREAD:.0%} 买卖价差（买 +{MARKET_SPREAD/2:.0%} / 卖 −{MARKET_SPREAD/2:.0%}）。"
+            "每回合市价向「供需均衡价」回归——全世界产得多就便宜、战时耗得多就贵（面板显示均衡价）。"
+            "深度按商品分档（粮木深、装备浅），随现存国家数放大：国家越多，单笔买卖对市价的冲击越小。"
+            "基准价：" + "  ".join(f"{g}{MARKET[g]}" for g in GOODS_DISPLAY) + "。分批慢慢卖比一次砸盘划算；"
+            "粮/木是内需品（价低量大），矿/油/装备才是外贸主力。"
         )),
         ("回合与存档", (
             "end_turn 结束你的本回合。每回合结算会：落地在建建筑→产出/电网→战争→补给/回血→"
@@ -659,12 +671,15 @@ def _fmt_spy(world, name) -> str:
     return "\n".join(m["text"] for m in es[-2:])
 
 
-def _gval(world, good: str, amt: int) -> float:
-    """按当前市价把 amt 单位 good 折成金（黄金=矿场产出，按 MARKET['黄金'] 折算）。"""
+def _gval(world, good: str, amt: int, side: str = "mid") -> float:
+    """把 amt 单位 good 折成金（黄金=矿场产出，按 MARKET['黄金'] 折算）。
+    side='mid' 用中间价；'buy'/'sell' 用含价差的实际成交单价（自用替代 / 外销口径）。"""
     if amt <= 0:
         return 0.0
     if good == "黄金":
         return amt * MARKET["黄金"]
+    if side in ("buy", "sell"):
+        return amt * world.market_quote(good, 1, side)[0]
     p = world.prices.get(good)
     return amt * (p if p is not None else float(MARKET.get(good, 0)))
 
@@ -680,21 +695,27 @@ def _econ_building(world, building: str) -> str:
         return (f"{building}: L1造价 {cost}金+{info['wood']}木(折{capex:.0f}金) · "
                 f"每级+{CASTLE_DEFENSE_PER_LEVEL}%防御，不产金")
     if k in ("extract", "gold"):
-        net = sum(_gval(world, g, a) for g, a in info["outputs"].items())
+        if k == "gold":
+            net = sum(_gval(world, g, a) for g, a in info["outputs"].items())
+            tag = "固定+金"
+        else:
+            net = sum(_gval(world, g, a, "sell") for g, a in info["outputs"].items())
+            tag = "外销(卖价)"
         pb = f"{capex / net:.0f}回合" if net > 0 else "—"
-        tag = "固定+金" if k == "gold" else "折金"
         return f"{building}: 造价折{capex:.0f}金 · 每回合产出{tag}≈{net:.0f}金 · 回本≈{pb}"
     if k == "energy":
-        fuel = sum(_gval(world, f, a) for f, a in info["fuel"].items())
+        fuel = sum(_gval(world, f, a, "buy") for f, a in info["fuel"].items())
         return (f"{building}: 造价折{capex:.0f}金 · 每回合烧燃料现值≈{fuel:.0f}金 "
                 f"→ 产{info['energy_out']}电（电不交易，供高级建筑维持）")
     if k == "factory":
-        inv = sum(_gval(world, f, a) for f, a in info["inputs"].items())
-        outv = sum(_gval(world, g, a) for g, a in info["outputs"].items())
-        net = outv - inv
-        ec = info.get("energy", 0) * wp / 2  # 电按"1木发2电"的燃料成本估
+        inv = sum(_gval(world, f, a, "buy") for f, a in info["inputs"].items())
+        out_self = sum(_gval(world, g, a, "buy") for g, a in info["outputs"].items())
+        out_sell = sum(_gval(world, g, a, "sell") for g, a in info["outputs"].items())
+        net = out_self - inv
+        ec = info.get("energy", 0) * _gval(world, "木头", 1, "buy") / 2  # 电按"1木发2电"的燃料成本估
         pb = f"{capex / net:.0f}回合" if net > 0 else "—"
-        return (f"{building}: 造价折{capex:.0f}金 · 每回合投{inv:.0f}金现价料→产{outv:.0f}金现价货"
+        return (f"{building}: 造价折{capex:.0f}金 · 每回合投{inv:.0f}金(买价)料→产{out_self:.0f}金"
+                f"(买价=自用替代；纯外销只值{out_sell:.0f}金)"
                 f"（毛利{net:+.0f}金；另耗{info.get('energy', 0)}电≈{ec:.0f}金） · 回本≈{pb}")
     if k == "barracks":
         return (f"{building}: 造价折{capex:.0f}金 · 不自动产金，每兵营每回合可征1军"
@@ -718,12 +739,23 @@ def _econ_building(world, building: str) -> str:
     return f"{building}: 无核算"
 
 
-def _fmt_econ(world) -> str:
-    """当前市价经济表：各建筑造价(折金)/毛利/回本，供建设决策。"""
+def _fmt_econ(world, name: str | None = None) -> str:
+    """当前市价经济表：各建筑造价(折金)/毛利/回本，供建设决策。
+    采集/金矿按「卖价」折算产出（外销口径）；加工厂按「买价」折算（自用替代口径）。"""
     L = ["【经济核算 · 当前市价】单位建筑投入产出（木头按现价折金入造价，市政厅=5金基础+本地建筑×1金/回合）："]
-    L.append("现价: " + "  ".join(f"{g}={world.prices.get(g):.1f}" for g in GOODS_DISPLAY))
+    L.append("现价: " + "  ".join(f"{g}={world.prices.get(g):.1f}" for g in GOODS_DISPLAY)
+             + f"（买卖另有 {MARKET_SPREAD:.0%} 价差）")
     for b in BUILDINGS:
         L.append("  " + _econ_building(world, b))
+    if name:
+        ps = world.nation_armies(name)
+        need = sum(unit_supply(a) for a in ps)
+        if need:
+            buy_p = world.market_quote("补给", 1, "buy")[0]
+            L.append(f"  【你的口径】{len(ps)} 支军队每回合吃 {need} 补给；全按现买价 {buy_p:.2f} 买 ≈ "
+                     f"{need * buy_p:.0f} 金/回合——补给厂/装备厂的价值随军队规模摊薄，别只盯外销价。")
+    L.append("  注：粮/木是内需品（便宜、回本慢）；靠外贸赚钱卖 矿/油/装备。加工厂产出按「买价」折算，"
+             "因为它的产出是替你去市场上买。")
     return "\n".join(L)
 
 
@@ -860,7 +892,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
             "countries": _fmt_countries(world, actor),
             "news": _fmt_news(world, actor),
             "threats": _fmt_threats(world, actor),
-            "econ": _fmt_econ(world),
+            "econ": _fmt_econ(world, actor),
             "intel": _fmt_intel(world, actor),
             "spy": _fmt_spy(world, actor),
             "plan": _fmt_plan(world, actor),
@@ -883,7 +915,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         b = str(args.get("building", "") or "")
         if b in BUILDINGS:
             return _econ_building(world, b)
-        return _fmt_econ(world)
+        return _fmt_econ(world, actor)
 
     # ---- 领土（无"凭空占"：只有军队 mv 移入"敌人=0"的地格才占地）
     if tool in ("expand", "拓荒", "activate"):
@@ -1137,7 +1169,7 @@ def _props(schema: dict) -> dict:
 
 TOOL_SCHEMAS = [
     {"type": "function", "function": {
-        "name": "query", "description": "查询接口：随时获取你的各面板。res=国库与储备 / plan=国策规划 / land=地皮(国土+可拓荒地) / army=军队 / market=世界市场(现价+持有) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=间谍情报(别国经济底细+粗略军情) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
+        "name": "query", "description": "查询接口：随时获取你的各面板。res=国库与储备 / plan=国策规划 / land=地皮(国土+可拓荒地) / army=军队 / market=世界市场(现价/买价/卖价/均衡价+大单试算) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=间谍情报(别国经济底细+粗略军情) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
         "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "plan", "land", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True}})}},
     {"type": "function", "function": {
         "name": "countries", "description": "列出所有可选外交对象（除你之外的每个国家：关系/是否接壤/有无来信）。外交动作前先用它选一个目标，再以 to=该国家 行动；绝不能对自己用外交工具。",
@@ -1173,11 +1205,11 @@ TOOL_SCHEMAS = [
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
     {"type": "function", "function": {
-        "name": "buy", "description": "从世界市场买物资花黄金。买=推高市价，整笔按推高后清仓价结算，越急买越贵。",
+        "name": "buy", "description": "从世界市场买物资花黄金。买=推高市价；成交按「沿曲线均价」结算并含 5% 买价差，越急买越贵（试算见 query panel=market）。",
         "parameters": _props({"good": {"type": "string", "description": "物资：粮食/木头/矿石/石油/装备/补给", "required": True},
                               "qty": {"type": "integer", "description": "数量", "required": True}})}},
     {"type": "function", "function": {
-        "name": "sell", "description": "向世界市场卖物资赚黄金。卖=压低市价，整笔按压低后清仓价结算；分批慢慢卖更划算。",
+        "name": "sell", "description": "向世界市场卖物资赚黄金。卖=压低市价；成交按「沿曲线均价」结算并扣 5% 卖价差，大单自己砸盘（试算见 query panel=market），分批慢慢卖更划算。",
         "parameters": _props({"good": {"type": "string", "description": "物资", "required": True},
                               "qty": {"type": "integer", "description": "数量", "required": True}})}},
     {"type": "function", "function": {

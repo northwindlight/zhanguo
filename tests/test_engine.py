@@ -488,10 +488,10 @@ class TestNewBuildings(unittest.TestCase):
         ok, msg = w.build("秦", x, y, "工程院")
         self.assertTrue(ok, msg)
         w.resolve_turn()  # 落成
-        # 同格再建矿场（80 金）：工程院 -25% → 60 金
+        # 同格再建矿场（70 金）：工程院 -25% → 52 金
         ok2, msg2 = w.build("秦", x, y, "矿场")
         self.assertTrue(ok2, msg2)
-        self.assertIn("-60金", msg2)
+        self.assertIn("-52金", msg2)
         self.assertIn("工程院-25%", msg2)
         # 别的地块不享受（只惠及本地块）
         ox, oy = next(p for p, t in w.tiles.items() if t["owner"] == "秦" and p != (x, y))
@@ -501,7 +501,7 @@ class TestNewBuildings(unittest.TestCase):
         w.tiles[(ox, oy)]["terrain"] = "平原"
         ok3, msg3 = w.build("秦", ox, oy, "矿场")
         self.assertTrue(ok3, msg3)
-        self.assertIn("-80金", msg3)
+        self.assertIn("-70金", msg3)
 
 
 class TestWildernessClaims(unittest.TestCase):
@@ -708,6 +708,120 @@ class TestWildernessClaims(unittest.TestCase):
         soaked = dmg_taken(engaged=False)   # 守方 → 吃山地 +50%
         self.assertGreater(full, 0)
         self.assertLess(soaked, full)
+
+
+class TestMarket(unittest.TestCase):
+    """市场定价（2026-09-09 改革）：沿曲线均价结算、买卖价差、分商品深度、供需均衡价。"""
+
+    def _world(self, nations=("秦", "楚", "齐", "燕")):
+        return mp.World(size=16, seed=13, nations=list(nations))
+
+    def test_settlement_uses_walk_average_not_clearing_price(self):
+        """整笔按「沿曲线均价」结算：实收 = (p0+p1)/2 × n × (1−卖价差/2)，而非旧的 p1×n。"""
+        w = self._world()
+        w.nations["秦"].res["粮食"] = 500
+        p0 = w.prices["粮食"]
+        n = 100
+        p1 = p0 - w.market_tick("粮食") * n
+        gold0 = w.nations["秦"].res["黄金"]
+        ok, msg = w.sell("秦", "粮食", n)
+        self.assertTrue(ok, msg)
+        expect = int(round((p0 + p1) / 2 * n * (1 - mp.MARKET_SPREAD / 2)))
+        self.assertEqual(w.nations["秦"].res["黄金"] - gold0, expect)
+        self.assertAlmostEqual(w.prices["粮食"], p1, places=3)
+        # 同一价差下，均价结算必须优于旧「整笔按清仓价 p1」结算
+        self.assertGreater(expect, int(round(p1 * n * (1 - mp.MARKET_SPREAD / 2))))
+
+    def test_spread_makes_round_trip_lose(self):
+        """买卖价差 10%：同价买回再卖出必亏，翻转套利不成立。"""
+        w = self._world()
+        gold0 = w.nations["秦"].res["黄金"]
+        self.assertTrue(w.buy("秦", "矿石", 20)[0])
+        self.assertTrue(w.sell("秦", "矿石", 20)[0])
+        self.assertLess(w.nations["秦"].res["黄金"], gold0)
+
+    def test_depth_grows_with_nations(self):
+        """国家越多市场越深：同样 4 国档为基准，5 国冲击更小。"""
+        few = self._world(("秦", "楚"))
+        many = self._world(("秦", "楚", "齐", "燕", "赵"))
+        self.assertGreater(few.market_tick("矿石"), many.market_tick("矿石"), "国家少 → 市场浅 → 冲击大")
+        self.assertEqual(many.market_depth("矿石"), mp.MARKET_DEPTH["矿石"] * 5 // 4)
+
+    def test_per_good_depth(self):
+        """分商品深度：军工（装备）比大路货（粮食）浅，同样的量冲击更大。"""
+        w = self._world()
+        self.assertGreater(w.market_tick("装备"), w.market_tick("粮食"))
+
+    def test_split_order_across_turns_beats_one_big_dump(self):
+        """跨回合分批卖比一次砸盘划算（同回合拆单无差别：均价结算下线性路径可加）。"""
+        one, split = self._world(), self._world()
+        for w in (one, split):
+            w.nations["秦"].res["矿石"] = 500
+        one.sell("秦", "矿石", 100)
+        split.sell("秦", "矿石", 50)
+        split.resolve_turn()      # 市价向均衡价回血后再卖剩下 50
+        split.sell("秦", "矿石", 50)
+        self.assertGreater(split.nations["秦"].res["黄金"], one.nations["秦"].res["黄金"])
+
+    def test_equilibrium_from_world_flows(self):
+        """产大于耗 → 均衡价低于基准，市价向均衡价回归。"""
+        w = self._world()
+        w.flow_in["粮食"] = 20
+        w.flow_out["粮食"] = 5
+        w.resolve_turn()
+        self.assertLess(w.equilibrium["粮食"], mp.MARKET["粮食"])
+        self.assertLess(w.prices["粮食"], mp.MARKET["粮食"])
+
+    def test_equilibrium_scarcity_raises_price(self):
+        """只有消耗没有产出（战时军需）→ 均衡价高于基准。"""
+        w = self._world()
+        w.flow_out["装备"] = 10
+        w.resolve_turn()
+        self.assertGreater(w.equilibrium["装备"], mp.MARKET["装备"])
+
+    def test_equilibrium_clamped(self):
+        """均衡价夹在 [基准×0.5, 基准×1.8] 内。"""
+        w = self._world()
+        w.flow_in["装备"], w.flow_out["装备"] = 1, 10 ** 6
+        w.flow_in["粮食"], w.flow_out["粮食"] = 10 ** 6, 1
+        w.resolve_turn()
+        self.assertAlmostEqual(w.equilibrium["装备"], mp.MARKET["装备"] * mp.MARKET_EQ_MAX_RATIO, places=2)
+        self.assertAlmostEqual(w.equilibrium["粮食"], mp.MARKET["粮食"] * mp.MARKET_EQ_MIN_RATIO, places=2)
+
+    def test_price_floor_and_ceiling(self):
+        """极端买卖被夹在 [基准×0.2, 基准×3]。"""
+        w = self._world()
+        w.nations["秦"].res["粮食"] = 10 ** 6
+        w.nations["秦"].res["黄金"] = 10 ** 7
+        w.sell("秦", "粮食", 10 ** 6)
+        self.assertAlmostEqual(w.prices["粮食"], mp.MARKET["粮食"] * mp.PRICE_MIN_RATIO, places=2)
+        w.buy("秦", "粮食", 10 ** 6)
+        self.assertAlmostEqual(w.prices["粮食"], mp.MARKET["粮食"] * mp.PRICE_MAX_RATIO, places=2)
+
+    def test_quote_matches_actual_sale(self):
+        """面板试算与真实成交一致（AI 据试算决策，不能骗它）。"""
+        w = self._world()
+        w.nations["秦"].res["矿石"] = 200
+        _unit, total = w.market_quote("矿石", 80, "sell")
+        gold0 = w.nations["秦"].res["黄金"]
+        w.sell("秦", "矿石", 80)
+        self.assertEqual(w.nations["秦"].res["黄金"] - gold0, total)
+
+    def test_flow_persists_across_save_load(self):
+        """流量与均衡价随存档持久化（续档后市场状态不丢）。"""
+        import tempfile
+        from pathlib import Path as _P
+        w = self._world()
+        w.flow_out["补给"] = 7
+        w.resolve_turn()
+        eq = dict(w.equilibrium)
+        with tempfile.TemporaryDirectory() as d:
+            p = _P(d) / "s.json"
+            w.save(p)
+            w2 = mp.World.load(p)
+        self.assertEqual(w2.equilibrium, eq)
+        self.assertEqual(w2.flow_in, {g: 0 for g in mp.TRADEABLE})
+        self.assertEqual(w2.flow_out, {g: 0 for g in mp.TRADEABLE})
 
 
 if __name__ == "__main__":
