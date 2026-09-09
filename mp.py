@@ -358,6 +358,7 @@ class World:
             for dx, dy in CROSS:
                 x, y = cx + dx, cy + dy
                 if 0 <= x < self.size and 0 <= y < self.size and (x, y) not in self.tiles:
+                    self._drop_guardians(x, y)   # 全图野人已预置：新占的格子上的守卫撤走
                     self.tiles[(x, y)] = self._new_tile(x, y, nm)
 
     def _place_ring(self, names: list[str]):
@@ -372,11 +373,14 @@ class World:
         self._place_crosses(pts)
 
     def _ensure_guardians(self):
-        for nm in self.alive():
-            for x, y in self.frontier_of(nm):
+        """把**全图**无主地块都放上野人守卫（开局一次；读档时对旧档做同样的一次性补齐）。
+
+        野人是地图的静态属性，不是"谁看见了才存在"——同一 seed 的野人布局永远相同，
+        也不会因为你占了一块地就让边界外凭空冒出野人来。已死过守卫的格子（guard_once）
+        不再补：杀了就是永久清空。"""
+        for x in range(self.size):
+            for y in range(self.size):
                 if (x, y) in self.tiles or (x, y) in self.guard_once:
-                    continue
-                if any(a["owner"] == "野人" and (a["x"], a["y"]) == (x, y) for a in self.armies):
                     continue
                 self._spawn_guardian(x, y)
 
@@ -426,7 +430,6 @@ class World:
         if extra:
             self.extra_prompt[name] = {"text": str(extra), "until": self.turn + 20,
                                        "summary": str(summary or "")}
-        self._ensure_guardians()
         desc = ("匈奴" if is_huns else "国家") + f" {name} 登场（距各国至少 {margin} 格）"
         if is_huns:
             s = start or {}
@@ -1037,7 +1040,6 @@ class World:
             return False, "已是自己领土"
         if log_it:
             self.log(msg, phase="领土", nation=by, x=x, y=y)
-        self._ensure_guardians()
         if old and old != by:
             self._eliminate_if_dead(old)
         return True, msg

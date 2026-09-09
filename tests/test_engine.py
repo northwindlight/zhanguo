@@ -859,5 +859,53 @@ class TestLoadNoGhostTiles(unittest.TestCase):
             self.assertNotIn(ghost, w2.order)
 
 
+class TestGuardians(unittest.TestCase):
+    """野人是地图的静态属性：开局全图无主地都有守卫，不随视野/扩张出现，杀了不重生。"""
+
+    def _w(self):
+        return mp.World(size=20, seed=5, nations=["秦", "楚"])
+
+    @staticmethod
+    def _guards(w) -> set:
+        return {(a["x"], a["y"]) for a in w.armies if a["owner"] == "野人"}
+
+    def test_every_wilderness_tile_guarded_at_start(self):
+        w = self._w()
+        wild = {(x, y) for x in range(20) for y in range(20) if (x, y) not in w.tiles}
+        self.assertEqual(self._guards(w), wild)
+        self.assertFalse(self._guards(w) & set(w.tiles), "国家格上不该有野人")
+
+    def test_conquest_does_not_spawn_new_guardians(self):
+        """占一格只清掉该格守卫，不会在边界外凭空冒出新的（旧的 lazy 行为）。"""
+        w = self._w()
+        tgt = next(iter(w.frontier_of("秦")))
+        before = len(self._guards(w))
+        ok, _msg = w._conquer(tgt[0], tgt[1], "秦", "测试")
+        self.assertTrue(ok)
+        after = self._guards(w)
+        self.assertNotIn(tgt, after)
+        self.assertEqual(len(after), before - 1)
+
+    def test_add_nation_tiles_are_guardian_free(self):
+        w = self._w()
+        ok, _ = w.add_nation("齐")
+        self.assertTrue(ok)
+        self.assertFalse(self._guards(w) & set(w.tiles), "新加国的地块上不该有野人")
+
+    def test_load_refills_guardians_for_old_save(self):
+        """旧档（lazy 时代的野人）读档时一次性补齐全图。"""
+        import tempfile
+        from pathlib import Path as _P
+        w = self._w()
+        w.armies = [a for a in w.armies if a["owner"] != "野人"]
+        w.guard_once.clear()
+        with tempfile.TemporaryDirectory() as d:
+            p = _P(d) / "s.json"
+            w.save(p)
+            w2 = mp.World.load(p)
+        wild = {(x, y) for x in range(20) for y in range(20) if (x, y) not in w2.tiles}
+        self.assertEqual(self._guards(w2), wild)
+
+
 if __name__ == "__main__":
     unittest.main()
