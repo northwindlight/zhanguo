@@ -159,6 +159,46 @@ class TestCaliber(unittest.TestCase):
         self.assertGreater(second["gdp_growth"], 0)
 
 
+class TestContextInjection(unittest.TestCase):
+    """只在出表那一回合把全文塞进状态面板；其余回合只给一行摘要。"""
+
+    def _seg(self, state: str) -> str:
+        return state[state.index("【经济报表】"):state.index("【纪事")]
+
+    def test_full_report_on_reporting_turn(self):
+        w, *_ = _mk()
+        _run(w, 10)
+        w.begin_turn()                                   # 第 11 回合 = 出表回合
+        seg = self._seg(mp_ai.full_state(w, "秦"))
+        self.assertIn("报表回合 11", seg)
+        self.assertIn("军费（每回合补给消耗）", seg)
+        self.assertIn("挤压投资", seg)                   # 固定警示随全文一起进上下文
+
+    def test_only_summary_on_other_turns(self):
+        w, *_ = _mk()
+        _run(w, 10)
+        w.begin_turn()
+        _run(w, 4)                                       # 第 12–15 回合：不是出表回合
+        seg = self._seg(mp_ai.full_state(w, "秦"))
+        self.assertIn("最新第 11 回合", seg)
+        self.assertNotIn("军费（每回合补给消耗）", seg)   # 不重复整张表
+        self.assertIn("report", seg)
+
+    def test_panel_before_first_report(self):
+        w, *_ = _mk()
+        _run(w, 5)
+        self.assertIn("尚无", self._seg(mp_ai.full_state(w, "秦")))
+
+    def test_panel_shows_latest_period_only(self):
+        w, *_ = _mk()
+        _run(w, 20)
+        w.begin_turn()                                   # 第 21 回合
+        seg = self._seg(mp_ai.full_state(w, "秦"))
+        self.assertIn("报表回合 21", seg)
+        self.assertNotIn("报表回合 11", seg)             # 只放最新一期
+        self.assertIn("共 2 期", seg)                     # 提示历史期怎么取
+
+
 class TestAnnouncement(unittest.TestCase):
     def test_generation_is_announced_to_owner_only(self):
         """报表生成要写一条纪事：看海终端看得到，该国【近讯】也看得到（别国看不到）。"""

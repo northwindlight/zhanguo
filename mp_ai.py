@@ -556,8 +556,10 @@ def _help_sections() -> list[tuple[str, str]]:
             "粮/木是内需品（价低量大），矿/油/装备才是外贸主力。"
         )),
         ("经济报表", (
-            f"每 {REPORT_EVERY} 回合**自动**给每国结一期经济报表（第 11/21/31… 回合开局可查），"
-            "用 report 工具查（免费、只读）——**无法手动运行**，也不能补做历史期。"
+            f"每 {REPORT_EVERY} 回合**自动**给每国结一期经济报表（第 11/21/31… 回合起），"
+            "**出表那一回合（第 11/21/31…）全文自动进你的状态面板【经济报表】**，"
+            "其余回合只留一行摘要；历史期与跨期趋势用 report 工具查（免费、只读）——"
+            "**无法手动运行**，也不能补做历史期。"
             "一期覆盖最近 10 回合，全部按当时市价折算："
             "①GDP（每回合）= 本期生产增加值 ÷10，**不含军费**（采集/工厂产出 + 金矿/市政厅金 − 中间投入 − 能源燃料）；"
             "②GDP 增长率 = 环比上期；"
@@ -785,15 +787,21 @@ def _fmt_report(world, name, turn: int | None = None, all_: bool = False) -> str
             + "（每 10 回合自动出一期，不能手动运行；趋势看 report all=true）")
 
 
-def _fmt_report_hint(world, name) -> str:
-    """状态面板里的一行提示（完整内容用 report 工具查）。"""
+def _fmt_report_panel(world, name) -> str:
+    """状态面板里的经济报表：**只在出表那一回合（第 11/21/31…）显示全文**，
+    其余回合只给一行摘要——省上下文，需要时用 report 取全文/历史/趋势。"""
     reps = world.econ_reports.get(name, [])
     if not reps:
-        return "尚无（第 11 回合起每 10 回合自动出一期，不能手动运行）"
+        return "尚无（第 11 回合起每 10 回合自动出一期，出表那回合自动进本面板，不能手动运行）"
     r = reps[-1]
-    return (f"最新第 {r['report_turn']} 回合：GDP {r['gdp']:.1f}/回合（{_pct(r['gdp_growth'])}）、"
-            f"军费占 GDP {_pct(r['military_ratio'], sign=False)}、总资产 {r['assets']:.0f}；"
-            "明细 report / 趋势 report all=true")
+    if world.turn == r["report_turn"]:                   # 本期刚出 → 全文
+        text = _fmt_report_one(r)
+        if len(reps) > 1:
+            text += f"\n（共 {len(reps)} 期；历史期 report turn=N，跨期趋势 report all=true）"
+        return text
+    return (f"最新第 {r['report_turn']} 回合（GDP {r['gdp']:.1f}/回合"
+            f"（{_pct(r['gdp_growth'])}）、军费占 GDP {_pct(r['military_ratio'], sign=False)}、"
+            f"总资产 {r['assets']:.0f}）——全文 report、跨期趋势 report all=true")
 
 
 def _gval(world, good: str, amt: int, side: str = "mid") -> float:
@@ -895,7 +903,7 @@ def full_state(world, name, replay_since: int | None = None) -> str:
         f"【军队】\n{_fmt_armies(world, name)}",
         f"【威胁】\n{_fmt_threats(world, name)}",
         f"【市场】\n{_fmt_market(world, name)}",
-        f"【经济报表】\n{_fmt_report_hint(world, name)}",
+        f"【经济报表】\n{_fmt_report_panel(world, name)}",
         f"【纪事(近10回合)】\n{_fmt_memory(world, name, replay_since)}",
         f"【地图情报】\n{_fmt_intel_hint(world, name)}",
         f"【间谍情报】\n{_fmt_spy_hint(world, name)}",
