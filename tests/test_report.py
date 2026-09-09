@@ -213,6 +213,18 @@ class TestReadOnly(unittest.TestCase):
             self.assertIn("挤压投资", text)
             self.assertIn("待宰羔羊", text)
 
+    def test_report_failure_does_not_break_turn(self):
+        """报表是派生数据：生成炸了只跳过本期并记进纪事，绝不能拖垮回合结算。"""
+        w, *_ = _mk()
+
+        def boom(_n):
+            raise RuntimeError("boom")
+
+        w.nation_assets = boom
+        _run(w, 10)                                      # 第 10 回合结账时炸 → 不该抛异常
+        self.assertFalse(w.econ_reports.get("秦"))
+        self.assertTrue(any("经济报表生成失败" in h.get("text", "") for h in w.history))
+
     def test_save_load_roundtrip(self):
         w, *_ = _mk()
         _run(w, 10)

@@ -1402,8 +1402,13 @@ class World:
             )
 
         # 7.5) 经济报表：每 REPORT_EVERY 回合自动结一期（第 11/21/31… 回合开局可查）
+        # 报表是派生数据（坏了不影响世界状态），所以这里兜底：出岔子只跳过本期并记进纪事，
+        # 绝不把异常抛进 resolve_turn 拖垮整局（与「不静默」原则一致——日志里看得见）。
         if self.turn and self.turn % REPORT_EVERY == 0:
-            self._close_report_period()
+            try:
+                self._close_report_period()
+            except Exception as e:
+                self.log(f"⚠ 经济报表生成失败，本期跳过：{type(e).__name__}: {e}", phase="内政")
         return {"war_lines": flat_lines, "famine": famine}
 
     def _supply_need(self, n: str, ps: list[dict]) -> int:
