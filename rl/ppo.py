@@ -95,17 +95,33 @@ class Rollout:
 
 
 # ---------------------------------------------------------------- 拼批
-def collate(steps: list[dict], n_tiles: int):
-    """把若干 step 拼成一个 batch（候选补齐到 K_max、军队补齐到 A_max）。"""
+def collate(steps: list[dict], n_tiles: int = 0):
+    """把若干 step 拼成一个 batch（网格补到批内最大；候选补 K_max、军队补 A_max）。
+
+    ★**网格尺寸逐帧可变**（观测 = 可见区外接框，随帝国增长；地图尺寸也逐局可变），
+    所以这里必须补齐到批内最大，并且**用补齐后的行宽重算落点下标** ——
+    环境给的是外接框内的相对坐标 `(tile_dx, tile_dy)`，不是扁平下标，
+    正是因为不同帧的行宽不同，扁平下标拼批后必然错位。
+    参数 `n_tiles` 已废弃（空位下标 = 补齐后的 H*W，由本函数算出来），保留只为兼容调用点。
+    """
     b = len(steps)
     k = max(len(s["cand"]["actions"]) for s in steps)
     a = max(s["cand"]["n_armies"] for s in steps)
+    ch = steps[0]["grid"].shape[0]
+    hmax = max(s["grid"].shape[1] for s in steps)
+    wmax = max(s["grid"].shape[2] for s in steps)
+    null_tile = hmax * wmax
 
-    grid = torch.as_tensor(np.stack([s["grid"] for s in steps]).astype(np.float32))
+    # 网格补齐：右下补 0（= 「框外」，与本帧的雾一致）
+    gpad = np.zeros((b, ch, hmax, wmax), np.float32)
+    for i, s in enumerate(steps):
+        g = s["grid"]
+        gpad[i, :, :g.shape[1], :g.shape[2]] = g
+    grid = torch.as_tensor(gpad)
     glob = torch.as_tensor(np.stack([s["glob"] for s in steps]), dtype=torch.float32)
     type_idx = torch.zeros(b, k, dtype=torch.long)
     sub_idx = torch.zeros(b, k, dtype=torch.long)
-    tile_idx = torch.full((b, k), n_tiles, dtype=torch.long)
+    tile_idx = torch.full((b, k), null_tile, dtype=torch.long)
     army_idx = torch.full((b, k), a, dtype=torch.long)
     amount_idx = torch.zeros(b, k, dtype=torch.long)
     mask = torch.zeros(b, k, dtype=torch.bool)
@@ -115,7 +131,11 @@ def collate(steps: list[dict], n_tiles: int):
         m = len(c["actions"])
         type_idx[i, :m] = torch.as_tensor(c["type_idx"][:m])
         sub_idx[i, :m] = torch.as_tensor(c["sub_idx"][:m])
-        tile_idx[i, :m] = torch.as_tensor(c["tile_idx"][:m])
+        # 落点：相对坐标 → 补齐后的扁平下标（`fmap.flatten(2)` 是 `x*W + y`）
+        dx = torch.as_tensor(c["tile_dx"][:m])
+        dy = torch.as_tensor(c["tile_dy"][:m])
+        ti = torch.where(dx >= 0, dx * wmax + dy, torch.full_like(dx, null_tile))
+        tile_idx[i, :m] = ti
         amt_idx = torch.as_tensor(c["army_idx"][:m])
         amt_idx = torch.where(amt_idx >= c["n_armies"], torch.full_like(amt_idx, a), amt_idx)
         army_idx[i, :m] = amt_idx
@@ -124,7 +144,8 @@ def collate(steps: list[dict], n_tiles: int):
         if c["n_armies"]:
             afeats[i, :c["n_armies"]] = torch.as_tensor(c["army_feats"])
     cand = {"type_idx": type_idx, "sub_idx": sub_idx, "tile_idx": tile_idx,
-            "army_idx": army_idx, "amount_idx": amount_idx, "army_feats": afeats}
+            "army_idx": army_idx, "amount_idx": amount_idx, "army_feats": afeats,
+            "null_tile": null_tile}
     return grid, glob, cand, mask
 
 

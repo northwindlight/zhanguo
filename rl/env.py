@@ -59,6 +59,12 @@ CATS = ("build", "recruit", "move", "attack", "retreat", "buy", "sell")
 # 实测老师每回合最多 15 个动作（中位 8），64 足够覆盖。
 ACT_REF = 64
 
+# 位置特征的**绝对尺度**（单位：格）。军队位置按「相对家的偏移 / POS_SCALE」编码。
+# ★不能用地图边长归一化 —— 那既泄漏地图尺寸，又把「我在地图哪个位置」喂了进去，
+#   而这两件事智能体都不可能知道（地图多大不可知、边界从未探索过）。
+# 选 32：移动速度 1~2 格/回合，32 格≈十几回合的路程，覆盖有意义的战术距离。
+POS_SCALE = 32.0
+
 # 每回合动作数的**安全上界**（不是游戏规则，是防死循环）。
 # 实测老师最多 15 个/回合，所以它从来卡不到；但学会之后想「一次建 100 块地、
 # 调动全部军队」的 agent 会被这里挡住，所以给得宽。回合该结束由 agent 自己
@@ -98,10 +104,18 @@ class Obs:
 
 
 class ZhanguoEnv:
-    def __init__(self, *, map_size: int = 20, seed: int = 0, agent: str = "秦",
+    def __init__(self, *, map_size: int = 20, map_sizes: tuple[int, ...] | None = None,
+                 seed: int = 0, agent: str = "秦",
                  rivals: tuple[str, ...] = (), max_turns: int = 40,
                  max_actions_per_turn: int = ACT_SAFETY, reward_scale: float = 0.01):
-        self.map_size = int(map_size)
+        # ★RL 是**通用**的：真实游戏的地图由玩家选（16×16 / 50×50 / 100×100 都可能），
+        #   所以**地图尺寸必须每局可变**（用户 2026-09-11 口径）。
+        #   传 `map_sizes` 就每局按种子重采样一个；不传 = 固定 `map_size`（旧行为）。
+        #   注意智能体**观察不到**地图尺寸（迷雾挡着、从未探索过边界），
+        #   所以任何按 `n*n` 归一化的特征都是泄漏 —— 见 `_obs` 里领地数那条注释。
+        self.map_sizes = (tuple(int(s) for s in map_sizes) if map_sizes
+                          else (int(map_size),))
+        self.map_size = self.map_sizes[0]
         self.seed = int(seed)
         self.agent = agent
         self.rivals = tuple(rivals)          # 默认无对手（单国独局）
@@ -131,9 +145,19 @@ class ZhanguoEnv:
     def reset(self, seed: int | None = None) -> Obs:
         if seed is not None:
             self.seed = int(seed)
+        # ★每局重采样地图尺寸（同一 seed 必得同一尺寸 —— 可复现）。
+        if len(self.map_sizes) > 1:
+            self.map_size = self.map_sizes[
+                random.Random(self.seed ^ 0x9E3779B9).randrange(len(self.map_sizes))]
         n = self.map_size
         names = [self.agent] + [r for r in self.rivals if r != self.agent]
         self.world = World(size=n, seed=self.seed, nations=names)
+        # ★「家」= 开局那格（与引擎 mp.py 里 `home = own_tiles(name)[0]` 同口径），
+        #   **本局内固定**，作为模型坐标系的唯一原点。智能体永远以家为 (0,0) 看世界 ——
+        #   于是策略天然平移无关，也看不出自己在地图的哪个位置（它本就不该知道：
+        #   地图多大不可知、边界从未探索过，用户 2026-09-11 口径）。
+        _own0 = self.world.own_tiles(self.agent)
+        self.anchor = _own0[0] if _own0 else (n // 2, n // 2)
         self.rng = random.Random(self.seed ^ 0x5F5F5F5F)
         self._terrain = [[self.world.tile_terrain(x, y) for y in range(n)] for x in range(n)]
         self.turn_actions = 0
@@ -352,7 +376,7 @@ class ZhanguoEnv:
         ch += ["owner:me"] + [f"owner:{r}" for r in self.rivals] + ["owner:neutral"]
         ch += [f"bld:{b}" for b in self.bnames]
         ch += ["mine", "frontier", "my_army_hp", "foe_army_hp", "barb_army_hp",
-               "pending", "built_this_turn", "visible"]
+               "pending", "built_this_turn", "visible", "home"]
         return ch
 
     def glob_size(self) -> int:
@@ -383,6 +407,40 @@ class ZhanguoEnv:
                             if 0 <= xx < n and 0 <= yy < n:
                                 vis[xx, yy] = 1.0
         return vis
+
+    def _visible_bbox(self, acts: list) -> tuple[int, int, int, int]:
+        """观测网格的外接框（绝对坐标，闭区间）。
+
+        ★这是「可见区裁剪」的关键一步：模型看到的**不是整幅地图**，而是
+        「看得见的东西 + 候选动作指向的格」的外接框 —— 成本 O(可见区)，
+        **与地图尺寸无关**（用户 2026-09-11 定的方案）。
+
+        · 只裁可见区，所以数组形状反映的是**帝国的铺开程度**，不是地图大小 ——
+          不泄漏地图尺寸，也不会像整幅地图那样在边缘 padding 处暴露「我在图角上」。
+        · 候选格必须全在框内（否则卷积特征表查不到），所以要并上 `acts` 的落点；
+          野地里的军队周围不在视野掩码内，但它自己那格一定要在。
+        """
+        w, n = self.world, self.map_size
+        vis = self._vision_mask()
+        xs, ys = [], []
+        idx = np.argwhere(vis > 0)
+        if len(idx):
+            xs += [int(idx[:, 0].min()), int(idx[:, 0].max())]
+            ys += [int(idx[:, 1].min()), int(idx[:, 1].max())]
+        for a in acts:
+            if a.tile is not None:
+                xs.append(int(a.tile[0]))
+                ys.append(int(a.tile[1]))
+        for a in w.armies:                       # 自家军队始终可见
+            if a["owner"] == self.agent and a["hp"] > 0:
+                xs.append(int(a["x"]))
+                ys.append(int(a["y"]))
+        ax, ay = self.anchor
+        xs.append(ax)
+        ys.append(ay)
+        x0, x1 = max(0, min(xs)), min(n - 1, max(xs))
+        y0, y1 = max(0, min(ys)), min(n - 1, max(ys))
+        return x0, y0, x1, y1
 
     def _obs(self) -> Obs:
         w, me, n = self.world, self.agent, self.map_size
@@ -462,7 +520,21 @@ class ZhanguoEnv:
             if t["owner"] == me:
                 pend[x, y] = sum(t.get("pending", {}).values()) / 5.0
                 bflag[x, y] = 1.0 if t["built_this_turn"] else 0.0
-        chans += [mine, frontier, myhp, foehp, barhp, pend, bflag, vis]
+        # ★家的位置单开一个通道。模型看到的是**可见区外接框**而不是整幅地图，
+        #   所以得明确告诉它家在哪；有了它，一切相对位置都能自己推出来，
+        #   而它在整幅地图上的绝对位置仍然不可知（那本来就不该知道）。
+        home_ch = np.zeros((n, n), np.float32)
+        home_ch[self.anchor[0], self.anchor[1]] = 1.0
+        chans += [mine, frontier, myhp, foehp, barhp, pend, bflag, vis, home_ch]
+
+        # ---- ★裁到「可见区外接框」（用户 2026-09-11 定的方案）：
+        #   成本 O(可见区)，**与地图尺寸无关**（100×100 不再等于 39× 的算力）。
+        #   数组形状反映的是帝国的铺开程度，不是地图大小，所以既不泄漏尺寸，
+        #   也不会像整幅地图那样在边缘 padding 处暴露「我在图角上」。
+        acts = self.legal_actions()
+        x0, y0, x1, y1 = self._visible_bbox(acts)
+        self._bbox = (x0, y0, x1, y1)
+        chans = [c[x0:x1 + 1, y0:y1 + 1] for c in chans]
 
         # 军队特征表（候选动作按 army_index 引用）
         armies = self._refresh_armies()
@@ -472,8 +544,12 @@ class ZhanguoEnv:
             for j, uk in enumerate(self.unames):
                 afeat[i, j] = 1.0 if k == uk else 0.0
             afeat[i, len(self.unames)] = a["hp"] / max(1, unit_max_hp(a))
-            afeat[i, len(self.unames) + 1] = (a["x"] + 0.5) / n
-            afeat[i, len(self.unames) + 2] = (a["y"] + 0.5) / n
+            # ★军队位置 = **相对家的偏移**，除以**绝对尺度** POS_SCALE（不是地图边长）。
+            #   原来写的是 `(x+0.5)/n` —— 既泄漏地图尺寸，又泄漏「我在地图哪个位置」
+            #   （智能体不可能知道：地图多大不可知、边界从未探索过）。
+            ax, ay = self.anchor
+            afeat[i, len(self.unames) + 1] = (a["x"] - ax) / POS_SCALE
+            afeat[i, len(self.unames) + 2] = (a["y"] - ay) / POS_SCALE
             afeat[i, len(self.unames) + 3] = 1.0 if a.get("engaged") else 0.0
             afeat[i, len(self.unames) + 4] = 1.0 if a.get("moved_turn") == w.turn else 0.0
 
@@ -510,25 +586,40 @@ class ZhanguoEnv:
             g.append(sum(1 for a in my_armies if unit_kind(a) == uk) / 10.0)
         for r in self.rivals:
             if r in w.nations:
-                g += [len(w.own_tiles(r)) / (n * n), len(w.nation_armies(r)) / 10.0,
+                g += [math.log1p(len(w.own_tiles(r))) / 3.0,
+                      len(w.nation_armies(r)) / 10.0,
                       sum(a["hp"] for a in w.nation_armies(r)) / 1000.0]
             else:
                 g += [0.0, 0.0, 0.0]
-        g.append(len(w.own_tiles(me)) / (n * n))
+        # ★★ 领地数用**绝对量**，不再除以 `n*n`（2026-09-11 用户口径：
+        #   「对于模型而言，地图大小其实是不可知的 —— 他们并不知道每次玩的地图多大，
+        #     也从未探索过边界」）。
+        #   `n*n` 是**真实地图面积**，智能体不可能知道；而且它把「占全图 5%」这种
+        #   尺度相关量喂了进去 —— 占 5% 在 16×16 和 100×100 上是完全不同的事。
+        #   改成 `log1p(领地数)/3`：与同文件里建筑数的口径一致（`log1p(tot[b])/3.0`），
+        #   单调、无上界、**与地图尺寸无关**。
+        g.append(math.log1p(len(w.own_tiles(me))) / 3.0)
 
         assert len(g) == self.glob_size(), f"全局向量维度不符：{len(g)} != {self.glob_size()}"
         return Obs(grid=grid, glob=np.asarray(g, dtype=np.float32),
-                   cand=self._cand_pack(afeat))
+                   cand=self._cand_pack(afeat, acts))
 
-    def _cand_pack(self, army_feats: np.ndarray) -> dict:
-        acts = self.legal_actions()
+    def _cand_pack(self, army_feats: np.ndarray, acts: list) -> dict:
         k = len(acts)
-        n = self.map_size
-        null_tile = n * n
+        # ★下标按**可见区外接框**算，不是整幅地图 —— 网格已经裁过了（见 `_obs`），
+        #   再拿 `self.map_size` 当行宽会全部错位。行优先：`下标 = x_rel*Wv + y_rel`
+        #   （网格是 `[C, x, y]`，`fmap.flatten(2)` 展平后也是 `x*W + y`）。
+        x0, y0, x1, y1 = self._bbox
+        hv, wv = x1 - x0 + 1, y1 - y0 + 1
+        null_tile = hv * wv
         null_army = army_feats.shape[0]
         t_idx = np.empty(k, np.int64)
         s_idx = np.empty(k, np.int64)
-        tile_idx = np.full(k, null_tile, np.int64)
+        # ★存**外接框内的相对坐标**，不存扁平下标 —— 拼批时要按补齐后的行宽重算
+        #   （不同局的地图/可见区大小不同，`collate` 会把网格补到批内最大）。
+        #   -1 = 这个候选没有落点（buy/sell/end_turn）。
+        tile_dx = np.full(k, -1, np.int64)
+        tile_dy = np.full(k, -1, np.int64)
         army_idx = np.full(k, null_army, np.int64)
         amt_idx = np.zeros(k, np.int64)
         for i, a in enumerate(acts):
@@ -536,12 +627,15 @@ class ZhanguoEnv:
             table = self.sub_tables[a.kind]
             s_idx[i] = table.index(a.sub) if a.sub in table else 0
             if a.tile is not None:
-                tile_idx[i] = a.tile[1] * n + a.tile[0]
+                tile_dx[i] = a.tile[0] - x0
+                tile_dy[i] = a.tile[1] - y0
             if a.kind in ("move", "attack", "retreat"):
                 army_idx[i] = self.army_index.get(a.army, null_army)
             if a.amount in AMOUNTS:
                 amt_idx[i] = AMOUNTS.index(a.amount)
-        return {"actions": acts, "type_idx": t_idx, "sub_idx": s_idx, "tile_idx": tile_idx,
+        return {"actions": acts, "type_idx": t_idx, "sub_idx": s_idx,
+                "tile_dx": tile_dx, "tile_dy": tile_dy,
+                "tile_hw": (hv, wv),          # 本帧外接框尺寸（collate 补齐时要看）
                 "army_idx": army_idx, "amount_idx": amt_idx,
                 "mask": np.ones(k, bool), "army_feats": army_feats,
                 "n_armies": army_feats.shape[0]}
