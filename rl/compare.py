@@ -33,14 +33,23 @@ def run_model(env, model, seed: int, deterministic: bool) -> tuple[float, int]:
 
 
 def run_rule(env, seed: int, turns: int, max_actions: int = 10 ** 9,
-             which: str = "v6") -> tuple[float, int]:
+             which: str = "v8") -> tuple[float, int]:
     """规则 AI 自己驱动世界（它直接调引擎，不走 RL 动作集）。
 
-    which: "v3"=expand_rule_ai.py（扩张流·第一版）/ "v6"=expand_rule_v6.py
-           （扩张流·第二版，最强基线）。旧的 rule_ai 已退休，不再当基线。
+    which: "v8"=expand_rule_v8.py（**当前基线**，一张账+串行判定+条件ROI）
+           "v6"=expand_rule_v6.py（旧基线）/ "v3"=expand_rule_ai.py（第一版）。
+    旧的 rule_ai 已退休，不再当基线。
+
+    ★v8 的 `HORIZON` 是 **ROI 回收期窗口**（`left = HORIZON - turn`，回本超 `left`
+    的楼不入选），按其口径设成 **每局回合 + 20**。不设的话短局里它会挑一堆局末
+    才回本的楼，评估出来的就不是它真实的水平。
     """
     if which == "v3":
         from expand_rule_ai import expand_rule_turn as fn
+    elif which == "v8":
+        import expand_rule_v8 as m
+        m.HORIZON = turns + 20
+        fn = m.expand_rule_turn_v8
     else:
         from expand_rule_v6 import expand_rule_turn_v6 as fn
     env.reset(seed)
@@ -84,18 +93,20 @@ def main() -> None:
     model.eval()
     print(f"模型：{args.ckpt}（iter {ck.get('iter')}）  图 {args.episodes} 张  回合 {args.turns}")
 
-    g, s, r_, e_, et, ee = [], [], [], [], [], []
-    print(f"{'seed':>10}{'模型·贪心':>13}{'模型·采样':>13}{'v3':>13}{'v6(新基线)':>13}"
-          f"{'v3地':>6}")
+    g, s, r_, e_, h_, et, ee, eh = [], [], [], [], [], [], [], []
+    print(f"{'seed':>10}{'模型·贪心':>13}{'模型·采样':>13}{'v3':>13}{'v6':>13}"
+          f"{'v8(基线)':>13}{'v8地':>7}")
     for i in range(args.episodes):
         seed = args.seed_base + i
         a = run_model(env, model, seed, deterministic=True)
         b = run_model(env, model, seed, deterministic=False)
         c = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v3")
         d = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v6")
-        g.append(a[0]); s.append(b[0]); r_.append(c[0]); e_.append(d[0])
-        et.append(a[1]); ee.append(d[1])
-        print(f"{seed:>10}{a[0]:>13,.0f}{b[0]:>13,.0f}{c[0]:>13,.0f}{d[0]:>13,.0f}{d[1]:>6}")
+        h = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v8")
+        g.append(a[0]); s.append(b[0]); r_.append(c[0]); e_.append(d[0]); h_.append(h[0])
+        et.append(a[1]); ee.append(d[1]); eh.append(h[1])
+        print(f"{seed:>10}{a[0]:>13,.0f}{b[0]:>13,.0f}{c[0]:>13,.0f}{d[0]:>13,.0f}"
+              f"{h[0]:>13,.0f}{h[1]:>7}")
 
     def line(name, xs):
         print(f"{name:<12}均值 {st.mean(xs):>10,.0f}   中位 {st.median(xs):>10,.0f}   "
@@ -104,10 +115,14 @@ def main() -> None:
     line("模型·贪心", g)
     line("模型·采样", s)
     line("v3(第一版)", r_)
-    line("v6(第二版)", e_)
-    print(f"\n模型贪心地数均值 {st.mean(et):.1f}   v6 地数均值 {st.mean(ee):.1f}")
-    print(f"相对 v6：贪心 ×{st.mean(g)/max(1,st.mean(e_)):.2f}   "
-          f"采样 ×{st.mean(s)/max(1,st.mean(e_)):.2f}")
+    line("v6(旧基线)", e_)
+    line("v8(当前基线)", h_)
+    print(f"\n地数均值：模型贪心 {st.mean(et):.1f}   v6 {st.mean(ee):.1f}   "
+          f"v8 {st.mean(eh):.1f}")
+    # ★主打分口径 = **相对当前基线 v8**（模型是照它克隆的，就该跟它比）
+    print(f"相对 v8：贪心 ×{st.mean(g)/max(1,st.mean(h_)):.2f}   "
+          f"采样 ×{st.mean(s)/max(1,st.mean(h_)):.2f}   "
+          f"（地数 ×{st.mean(et)/max(1,st.mean(eh)):.2f}）")
 
 
 if __name__ == "__main__":

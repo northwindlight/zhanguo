@@ -278,6 +278,10 @@ def main() -> None:
     ap.add_argument("--ckpt-every", type=int, default=4,
                     help="每几局存一个 ep<N>.pt（0=不存）——跑几小时的东西，"
                          "得能中途量分，不然只能干等")
+    ap.add_argument("--init", default="",
+                    help="★从已有权重起步（**纠正模式**）：不从头 BC，直接拿它当学生。"
+                         "配 --dagger-from 0 就是**纯纠正**（老师不变、只把学生拉回老师）；"
+                         "配 --dagger-from 0 --episodes N 跑 N 局。")
     ap.add_argument("--out", default="rl/runs/bc/last.pt")
     args = ap.parse_args()
 
@@ -292,6 +296,14 @@ def main() -> None:
                       sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
                       n_tiles=args.map_size ** 2)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+    # ★纠正模式：**权重留下**，不从零学（用户 2026-09-11：「权重留下，只是纠正」）。
+    # 换老师（比如 v8 修了几处之后）时，旧权重是有价值的起点 —— 从零重跑一遍 BC
+    # 要几十局、且会把已经学会的部分再学一次；直接拿来当学生做 DAgger 纠正更省。
+    if args.init:
+        _ck = torch.load(args.init, map_location="cpu", weights_only=False)
+        model.load_state_dict(_ck["model"])
+        print(f"★纠正模式：从 {args.init} 起步（iter {_ck.get('iter')}）——"
+              f"不从头 BC，只做纠正", flush=True)
 
     teacher_fn = get_teacher(args.teacher, args.turns, args.horizon)
     out = Path(args.out)
