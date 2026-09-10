@@ -382,7 +382,13 @@ def main() -> None:
             a_t = torch.as_tensor(acts)
             _lp = logp.gather(1, a_t.unsqueeze(1)).squeeze(1)
             if w_kind is not None:
-                _lp = _lp * w_kind[a_t]
+                # ⚠️ `acts` 是**候选下标**（`logp.gather` 用的就是它），不是类别下标 ——
+                # 要先经 `obs.cand["actions"][i].kind` 映射回类别，不能直接 w_kind[acts]
+                # （踩过：直接索引报 "index 65 is out of bounds for dimension 0 with size 8"）。
+                w_s = torch.as_tensor(
+                    [w_kind[KIND_INDEX[_o.cand["actions"][_i].kind]] for _o, _i, _g in chunk],
+                    dtype=torch.float32)
+                _lp = _lp * w_s
             loss_pi = -_lp.mean()
             # **value 头也要练**：只练策略的话 BC 出来 V 是随机的，PPO 接手时
             # critic 从零开始，而 γ=1/λ=1 下优势完全依赖 V——偏置会直接毁掉
