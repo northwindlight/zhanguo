@@ -18,7 +18,7 @@
 评分口径（全部按基准价结算，不用市价——市价随回合波动，基准价才是恒定标尺）
 基准价：粮食2 木头2 矿石4 石油6 装备8 补给5；黄金矿场每座每回合 +10 金。
 
-一、GDP（30%）——生产法（增加值法），按存档快照推算「每回合」流量：
+一、GDP——生产法（增加值法），按存档快照推算「每回合」流量：
     1. 采集建筑：产出 × 基准价（林场/农场/矿场/石油厂）
     2. 黄金矿场：+10 金/座（直接计货币产出）
     3. 市政厅：5 金基础 + 本地块其他建筑 ×1 金（复现游戏内公式）
@@ -37,20 +37,19 @@
     选生产法而弃消费法：存档是存量快照，生产法可从建筑表确定性推算一回合流量；
     消费法需要建造成本/征兵/市场买卖的每回合流水，快照里没有，解析 history 不可靠。
 
-二、军队（25%）：军力 = Σ(当前HP/该兵种满血) × 兵种权重（步 1.0 / 骑 1.5 / 民 0.4，按攻击 50/50/20 定）。
+二、军队：军力 = Σ(当前HP/该兵种满血) × 兵种权重（步 1.0 / 骑 1.5 / 民 0.4，按攻击 50/50/20 定）。
 
-三、领土（30%）：地块数（plain count，最透明可解释）。
+三、领土：地块数（plain count，最透明可解释）。
 
-四、固定资产（15%）：重置成本 = Σ(造价金 + 耗木 × 木基准价)；
+四、固定资产：重置成本 = Σ(造价金 + 耗木 × 木基准价)；
     城堡按已升到的级数计累计投入（Σ 第1..L级造价）。
 
-总分：**取消归一化**——各维度直接用原始值加权求和：total = Σ 原始值 × 权重。
-    分数是绝对量：别人涨你不掉分、跨回合跨局可比，榜首不再恒为 100。
-    权重 = 该维目标分 ÷ 基准值，标定到一个「基准国」= 100 分
-    （GDP 200 金/回合、军力 10、领土 150 格、资产 6000 金）：
-        GDP×0.15 + 军力×2.5 + 领土×0.20 + 资产×0.0025
-    即：基准量级下四维贡献回到 30/25/30/15（旧占比意图），不再由资产一家压倒
-    （不做这步标定，资产按原始值会吃掉总分的 ~90%）。基准值可调，改 REF_NATION 即可。
+排名：**按「总消费」排名**（用户 2026-09-10 拍板）——不看加权总分。
+    总消费 = 累计建造 + 征兵 + 军费（军队吃掉的补给），全部按**当时市价**折金。
+    只计「被消耗掉的资源」：市场买卖与馈赠不计（买来的物资在真正被消耗时才入账），
+    避免重复计数。它测的是「你动用了多少国力」，而不是「你现在有多少国力」——
+    囤而不用的国家在榜上垫底。上面四维只列示现状，不参与排名。
+    **已亡国同样上榜**（按累计消费排名，四维现状记 0）——活着不是及格线，参与到底也算数。
 ────────────────────────────────────────────────────────────────────────
 """
 import argparse
@@ -77,11 +76,8 @@ CASTLE_COST = BUILDINGS["城堡"]["cost"]          # 城堡逐级造价（累计
 BUILD_COST = {name: (info["cost"], info["wood"]) for name, info in BUILDINGS.items()
               if isinstance(info["cost"], int)}
 
-# 权重标定：基准国 = 100 分。REF_NATION 取「一局打下来算打得不错」的量级
-# （大图上 150 回合左右的样子），TARGET_PTS 是四维各自的目标分（合计 100）。
-REF_NATION = {"gdp": 200.0, "army": 10.0, "land": 150.0, "asset": 6000.0}
-TARGET_PTS = {"gdp": 30.0, "army": 25.0, "land": 30.0, "asset": 15.0}
-W = {k: TARGET_PTS[k] / REF_NATION[k] for k in REF_NATION}   # 0.15 / 2.5 / 0.20 / 0.0025
+# 总消费的三条去向（键须与 mp.py 的 SPEND_FIELDS 一致）；排名只看它们的合计
+SPEND_LABELS = {"build": "建造", "recruit": "征兵", "supply": "军费"}
 CHAT_ROUNDS = 5
 
 
@@ -89,6 +85,15 @@ CHAT_ROUNDS = 5
 def load_save(path: str) -> dict:
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def _roster(save: dict) -> list[str]:
+    """全部国家（**含已亡国**）：save["order"] 记着出现过的所有国名，nations 只剩存活者。"""
+    names = [n for n in (save.get("order") or []) if isinstance(n, str)]
+    for n in save.get("nations", {}):
+        if n not in names:
+            names.append(n)
+    return names
 
 
 def army_type(a: dict) -> str:
@@ -204,20 +209,24 @@ def score_asset(save: dict, nation: str) -> tuple[float, list[str]]:
 
 
 def settle(save: dict) -> dict:
-    """返回 {nation: {gdp, army, land, asset, *_rows, total}}。
+    """返回 {nation: {gdp, army, land, asset, spend, spend_total, alive, *_rows}}。
 
-    total = 各维**原始值**加权求和（不归一化）——绝对分数，别人涨你不掉分。
+    **含已亡国**：亡国照样按总消费上榜（四维现状记 0）——活着不是及格线，
+    参与到底也算数。排名依据 = 总消费（累计建造+征兵+军费，按当时市价折金）。
     """
-    alive = list(save["nations"].keys())
+    alive_map = save.get("nations", {}) or {}
+    spend_all = save.get("spend", {}) or {}
     out: dict[str, dict] = {}
-    for n in alive:
+    for n in _roster(save):
         gdp, gdp_rows = score_gdp(save, n)
         army, n_army = score_army(save, n)
         land, _ = score_land(save, n)
         asset, asset_rows = score_asset(save, n)
+        sp = {k: float((spend_all.get(n) or {}).get(k, 0) or 0) for k in SPEND_LABELS}
         out[n] = {"gdp": gdp, "gdp_rows": gdp_rows, "army": army, "n_army": n_army,
-                  "land": land, "asset": asset, "asset_rows": asset_rows}
-        out[n]["total"] = sum(out[n][k] * W[k] for k in W)
+                  "land": land, "asset": asset, "asset_rows": asset_rows,
+                  "spend": sp, "spend_total": sum(sp.values()),
+                  "alive": n in alive_map}
     return out
 
 
@@ -234,32 +243,34 @@ def _pad(s, width: int, align: str = "left") -> str:
 
 def scoreboard_text(save: dict, result: dict, remarks: dict[str, str] | None = None) -> str:
     turn = save.get("turn", "?")
-    rank = sorted(result, key=lambda n: -result[n]["total"])
-    header = ["排名", "国家", "总分"] + [f"{lab}×{W[key]:g}" for lab, key in
-                                        (("GDP", "gdp"), ("军力", "army"),
-                                         ("领土", "land"), ("资产", "asset"))]
-    aligns = ["right", "left", "right", "right", "right", "right", "right"]
+    rank = sorted(result, key=lambda n: -result[n]["spend_total"])
+    header = ["排名", "国家", "总消费", "建造", "征兵", "军费", "GDP", "军力", "领土", "资产"]
+    aligns = ["right", "left"] + ["right"] * 8
     rows: list[list[str]] = [header]
     for i, n in enumerate(rank, 1):
         r = result[n]
         rows.append([
-            str(i), n, f"{r['total']:.1f}",
+            str(i), n if r["alive"] else f"{n}（亡）", f"{r['spend_total']:.0f}",
+            f"{r['spend']['build']:.0f}", f"{r['spend']['recruit']:.0f}",
+            f"{r['spend']['supply']:.0f}",
             f"{r['gdp']:.0f}", f"{r['army']:.1f}", f"{r['land']}", f"{r['asset']:.0f}",
         ])
     widths = [max(_dw(row[c]) for row in rows) for c in range(len(header))]
     body = ["  ".join(_pad(row[c], widths[c], aligns[c]) for c in range(len(header)))
             for row in rows]
     body.insert(1, "-" * _dw(body[0]))
-    lines = [f"《战国》第 {turn} 回合 · 终局结算（总分 = 各维原始值 × 权重，不归一化；"
-             f"基准国 GDP{REF_NATION['gdp']:g}/军力{REF_NATION['army']:g}/"
-             f"领土{REF_NATION['land']:g}/资产{REF_NATION['asset']:g} = 100 分，无上限）",
-             ""] + body
+    lines = [f"《战国》第 {turn} 回合 · 终局结算（按总消费排名）", ""] + body
     lines.append("")
-    lines.append("口径：GDP=生产法每回合推算(基准价，金/回合)；军力=ΣHP%×兵种权重(步1.0/骑1.5/民0.4)；"
-                 "领土=地块数；资产=建筑重置成本(基准价，金)。")
-    lines.append(f"权重：GDP×{W['gdp']:g} + 军力×{W['army']:g} + 领土×{W['land']:g} + "
-                 f"资产×{W['asset']:g}（= 目标分 30/25/30/15 ÷ 基准国量级）——"
-                 "分数是绝对量、别人涨你不掉分，权重把四维拉回同一量级。")
+    lines.append("口径：总消费 = 累计建造 + 征兵 + 军费（军队吃掉的补给），全部按当时市价折金——"
+                 "本质是支出法 GDP 的骨架（投资 + 政府消费，本游戏无居民部门故无 C）。")
+    lines.append("　　　只算「真正花掉的」：市场买卖与馈赠不计（买来的物资在被消耗时才入账），"
+                 "存货也不计（囤积不是消费）——所以囤而不用的国家在这张榜上垫底。")
+    lines.append("　　　GDP=生产法每回合推算(基准价)；军力=ΣHP%×兵种权重(步1.0/骑1.5/民0.4)；"
+                 "领土=地块数；资产=建筑重置成本(基准价)——后四列只列示现状，不参与排名。")
+    if any(not result[n]["alive"] for n in rank):
+        lines.append("　　　已亡国同样上榜（按累计消费排名，四维现状记 0）——活着不是及格线，参与到底也算数。")
+    if not any(result[n]["spend_total"] for n in rank):
+        lines.append("⚠ 本档没有消费记录（总消费从记账启用后开始累计）——请用新档结算。")
     if remarks:
         lines.append("")
         lines.append("【看海人寄语】（游戏作者致辞，公开）")
@@ -468,8 +479,11 @@ def main() -> None:
 
     report = [f"# 《战国》终局结算报告\n", f"生成于第 {save.get('turn','?')} 回合存档。\n",
               "## 成绩单\n", f"```\n{board}\n```\n"]
-    for n, r in sorted(result.items(), key=lambda kv: -kv[1]["total"]):
-        report.append(f"### {n}（总分 {r['total']:.1f}）\n")
+    for n, r in sorted(result.items(), key=lambda kv: -kv[1]["spend_total"]):
+        tag = "" if r["alive"] else " · 已亡国"
+        report.append(f"### {n}{tag}（总消费 {r['spend_total']:.0f}）\n")
+        report.append("- 总消费明细：" + "；".join(
+            f"{SPEND_LABELS[k]} {r['spend'][k]:.0f}" for k in SPEND_LABELS))
         report.append(f"- GDP 原始值 {r['gdp']:.0f}：{'；'.join(r['gdp_rows']) or '无经济产出'}")
         report.append(f"- 固定资产 {r['asset']:.0f}：{'；'.join(r['asset_rows']) or '无建筑'}\n")
     if transcript:

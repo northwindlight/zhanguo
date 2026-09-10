@@ -81,6 +81,11 @@ DIPLO_COST = 10   # 外交基础费用：提议/回应/断盟/保障/宣战/求�
 RETREAT_DEF_COVER = 50   # 防御方撤退：回合末战斗结算中只受 50% 伤害（进攻方撤退全额；0=不减伤、100=免伤）
 PLAN_MAX_TURNS = 10  # 国策每 10 回合必须修订一次（否则 end_turn 被拦）
 REPORT_EVERY = 10    # 经济报表每 10 回合自动结一期：第 11/21/31… 回合开局可查（不能手动运行）
+# 总消费（累计，按当时市价折金）——终局结算按它排名。只计「被消耗掉的资源」，
+# 市场买卖/馈赠不计（买来的物资在真正被消耗时才入账），避免重复计数。
+SPEND_FIELDS = ("build",    # 建造实付金 + 木×市价（含城堡升级）
+                "recruit",  # 征兵消耗（粮/装备/金）× 市价
+                "supply")   # 军费：军队吃掉的补给 × 市价
 # 本期经济账本字段（按国累计，结完报表清零；全部按当时市价折金）
 LEDGER_FIELDS = ("prod_value",      # 采集/工厂/军屯 产出 × 市价
                  "mid_value",       # 工厂中间投入 × 市价
@@ -155,6 +160,7 @@ class World:
         # 经济报表：每 REPORT_EVERY 回合自动结一期（第 11/21/31… 回合开局可查），AI 只读、不能手动跑
         self.econ_reports: dict[str, list[dict]] = {}   # {国: [期快照…]}
         self.ledger: dict[str, dict] = {}               # 本期累计账本（结完报表清零）
+        self.spend: dict[str, dict] = {}                # 总消费（全期累计，不清零）：终局排名用
         self.history: list[dict] = []
         self.history_seen = 0
         # gen=False：只为读档准备一个空壳（世界由存档整体还原）。默认 gen=True 才铺地图/野人——
@@ -560,6 +566,7 @@ class World:
         led = self._ledger(name)        # 经济报表：投资=实付金 + 木×当时市价（含地形/工程院/匈奴修正后的真价）
         led["invest_gold"] += cost
         led["invest_wood_value"] += self._mval("木头", wood)
+        self._spend(name)["build"] += cost + self._mval("木头", wood)   # 总消费：建造
         t["pending"][building] += 1  # 在建，回合末才落地
         t["built_this_turn"] = 1
         if building == "外交中心":
@@ -605,10 +612,13 @@ class World:
         n = min(n, min(self.res(name, f) // amt for f, amt in cost.items()))
         if n <= 0:
             return False, "战略储备不足（每支耗 " + "、".join(f"{f}x{a}" for f, a in cost.items()) + "）"
+        spent = 0.0
         for f, amt in cost.items():
             self.add_res(name, f, -amt * n)
+            spent += self._mval(f, amt * n)   # 总消费：征兵（粮/装备/金 折市价）
             if f in self.flow_out:
                 self.flow_out[f] += amt * n   # 世界流量：征兵吃粮吃装备（黄金是货币，不计）
+        self._spend(name)["recruit"] += spent
         for i in range(n):
             gid, seq = self._new_army(name)
             self.armies.append({"id": seq, "gid": gid, "name": army_name(name, seq, kind),
@@ -1121,6 +1131,13 @@ class World:
                                     "_since": max(1, self.turn)}
         return led
 
+    def _spend(self, n: str) -> dict:
+        """取（或新建）该国总消费账（全期累计，不随报表清零）。"""
+        d = self.spend.get(n)
+        if d is None:
+            d = self.spend[n] = {k: 0.0 for k in SPEND_FIELDS}
+        return d
+
     def _mval(self, good: str, amt: int) -> float:
         """按当前市价把 amt 单位 good 折成金（黄金按 MARKET['黄金']）。"""
         if amt <= 0:
@@ -1331,6 +1348,7 @@ class World:
             self.add_res(n, "补给", -paid)
             self.flow_out["补给"] += paid   # 世界流量：军队吃补给
             self._ledger(n)["supply_eaten"] += paid
+            self._spend(n)["supply"] += self._mval("补给", paid)   # 总消费：军费
             short = need - paid
             if short:
                 # 缺口按比例分摊：每军扣 35×缺口/需求（交战中也照扣），至少 1
@@ -2600,6 +2618,7 @@ class World:
             "econ_summary": self.econ_summary,
             "econ_reports": self.econ_reports,
             "ledger": self.ledger,
+            "spend": self.spend,
             "history": self.history,
             "history_seen": self.history_seen,
         }
@@ -2729,6 +2748,9 @@ class World:
         w.ledger = {n: {**{k: float(v.get(k, 0) or 0) for k in LEDGER_FIELDS},
                         "_since": max(1, int(v.get("_since", w.turn)))}
                     for n, v in data.get("ledger", {}).items() if n in w.nations}
+        # 总消费：旧档没有此字段 → 空（排名显示「本档无消费记录」）
+        w.spend = {n: {k: float(v.get(k, 0) or 0) for k in SPEND_FIELDS}
+                   for n, v in data.get("spend", {}).items() if n in w.nations}
         for k, t in data["tiles"].items():
             x, y = map(int, k.split(","))
             t.setdefault("recruited_this_turn", 0)
