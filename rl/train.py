@@ -82,6 +82,13 @@ def main() -> None:
     args = ap.parse_args()
 
     torch.set_num_threads(max(1, args.threads))
+    # 采样是 batch=1 的逐步前向：多线程的同步开销远大于收益（实测 4 线程 34.8ms/步
+    # vs 单线程 7.7ms/步）。所以采样期间切单线程，PPO 更新（大 batch）再切回来。
+    def set_collect_threads():
+        torch.set_num_threads(1)
+
+    def set_train_threads():
+        torch.set_num_threads(max(1, args.threads))
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
@@ -119,6 +126,7 @@ def main() -> None:
 
     for it in range(1, args.iterations + 1):
         # ---- 采样：填满一块（可能跨局）
+        set_collect_threads()
         while len(rollout) < args.rollout_steps:
             if ep_done:                     # 上一局结束，开新局
                 s = env.summary()
@@ -137,6 +145,7 @@ def main() -> None:
             ep_done = done
 
         # ---- 更新（块边界自举；局末则 0）
+        set_train_threads()
         last_v = 0.0 if ep_done else value_of(model, obs)
         stats = ppo.update(rollout, last_value=last_v)
         rollout.clear()
