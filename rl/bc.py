@@ -26,7 +26,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rl.env import ACT_SAFETY, KINDS, ZhanguoEnv
+from rl.env import ACT_SAFETY, KIND_INDEX, KINDS, ZhanguoEnv
 from rl.model import PolicyNet
 from rl.ppo import collate
 
@@ -278,6 +278,12 @@ def main() -> None:
     ap.add_argument("--ckpt-every", type=int, default=4,
                     help="每几局存一个 ep<N>.pt（0=不存）——跑几小时的东西，"
                          "得能中途量分，不然只能干等")
+    ap.add_argument("--kind-power", type=float, default=0.0,
+                    help="★类别重加权指数：0=关（原行为）。0.5=按 1/sqrt(频率) 加权，"
+                         "使期望权重=1（loss 量纲不变）。针对实测病：sell 占 75%% 的标签把"
+                         "**类型排序焊死**（探针：sell 最好候选 +5.59 / attack −0.41，而每类"
+                         "跨局面 σ 只有 1.0~1.6 → attack 要翻盘得等 ≈6σ，永远不发生；"
+                         "argmax 95.7%% 落在 sell、attack 0%%）。加训练量只会把 sell 焊得更死。")
     ap.add_argument("--init", default="",
                     help="★从已有权重起步（**纠正模式**）：不从头 BC，直接拿它当学生。"
                          "配 --dagger-from 0 就是**纯纠正**（老师不变、只把学生拉回老师）；"
@@ -354,12 +360,30 @@ def main() -> None:
 
         losses = []
         vlosses = []
+        # ★类别重加权（--kind-power）：BC 的模仿损失在「永远 sell」这个解上是很舒服的
+        #   局部最优 —— 实测 3 局快照的类型偏好：sell 最好候选 +5.59、attack −0.41，
+        #   而每类跨局面的 σ 只有 1.0~1.6 → attack 要翻盘得等一次 ≈6σ，永远不发生
+        #   （argmax 95.7% 落在 sell、attack 0%）。**加训练量只会把 sell 焊得更死。**
+        #   按 1/频率^p 给每类样本加权，把稀有但关键的 attack/move/recruit 顶上来。
+        #   每局算一次（O(缓冲)，不在梯度步里算）；权重按「期望=1」归一，loss 量纲不变。
+        w_kind = None
+        if args.kind_power > 0 and buffer:
+            kc = np.zeros(len(KINDS), dtype=np.float64)
+            for _o, _i, _g in buffer:
+                kc[KIND_INDEX[_o.cand["actions"][_i].kind]] += 1
+            freq = kc / max(1.0, kc.sum())
+            raw = (freq + 1e-9) ** (-args.kind_power)
+            w_kind = torch.as_tensor(raw / float((raw * freq).sum()), dtype=torch.float32)
         for _ in range(args.steps):
             chunk = [buffer[rng.randrange(len(buffer))] for _ in range(args.minibatch)]
             (grid, glob, cand, mask), acts, rets = pack(chunk, model.n_tiles)
             logits, v = model(grid, glob, cand, mask)
             logp = F.log_softmax(logits, dim=-1)
-            loss_pi = -logp.gather(1, torch.as_tensor(acts).unsqueeze(1)).mean()
+            a_t = torch.as_tensor(acts)
+            _lp = logp.gather(1, a_t.unsqueeze(1)).squeeze(1)
+            if w_kind is not None:
+                _lp = _lp * w_kind[a_t]
+            loss_pi = -_lp.mean()
             # **value 头也要练**：只练策略的话 BC 出来 V 是随机的，PPO 接手时
             # critic 从零开始，而 γ=1/λ=1 下优势完全依赖 V——偏置会直接毁掉
             # 训练信号。数据现成：G_t =（局末消费 − 此刻消费）× reward_scale。
