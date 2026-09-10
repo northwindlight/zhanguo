@@ -217,10 +217,11 @@ def expand_rule_turn_v8(world, name: str, rng: random.Random | None = None,
         _slots_rec = sum(max(0, world.tiles[p]["buildings"].get("兵营", 0)
                              - world.tiles[p].get("recruited_this_turn", 0)) for p in own)
         n_recruit = min(army_cap - army_n, _slots_rec)
-    n_roi = max(0, room - n_barr - n_plant)
+    # ROI 项的**格子数**上限。真正"要落的哪几座"在第 4 节按**预算**挑（见那里的长注释）。
+    n_roi_slots = max(0, room - n_barr - n_plant)
 
     # ================================================================ 4. 记账（**唯一口径**）
-    # `need(物资)` = 本回合刚需 + 榜上**本回合真能落地的那几座**的料。
+    # `need(物资)` = 本回合刚需 + 本回合**真能落地**的那几座的料。
     # 清仓卖到它、市场买到它 —— 同一个数，所以不可能"同回合先卖后买"。
     need: dict[str, int] = {g: 0 for g in GOODS}
 
@@ -241,8 +242,43 @@ def expand_rule_turn_v8(world, name: str, rng: random.Random | None = None,
         want("木头", BUILDINGS["木材能源厂"]["wood"])
     for _ in range(n_barr):
         want("木头", BUILDINGS["兵营"]["wood"])
-    for _pb, bn, _p in roi[:n_roi]:
-        want("木头", BUILDINGS[bn].get("wood", 0))
+    # ★★ 计划料：**只留"金和木当下都付得起"的那些楼**（用户 2026-09-11 指出的木锁死）。
+    #   这里原来写的是 `roi[:n_roi]`（n_roi = 空格子数）—— **全量判定**：
+    #   快速扩张时空格子有几十个，于是 need["木头"] 被顶到几百，第 5 节清仓"卖到 need"
+    #   就**一格木头都卖不出去**。钱全锁在木头里，而挡着建造的是**金**不是木 →
+    #   `afford` 过不了 → 一座也建不起来 → 下回合空格子照旧 → 原样重来。
+    #   实测 seed 57314 T396：金 6 / 木 433 / need["木头"]≈480（27 座"想建"的补给厂）。
+    #   **不对称性**：木头留多了是致命的（锁死黄金）；留少了只是这回合少建一座，
+    #   下回合有金了再建。所以口径必须往"少留"偏。
+    #   预算两条腿：
+    #     · 金 = 手头金 + **除木头外**余量变现的钱（第 5 节清仓在第 7 节建造之前跑，
+    #       这笔钱本回合真的到手）。木头本身**不计入**金预算 —— 它是被预留的那个量，
+    #       拿它当资金来源会自相矛盾。
+    #     · 木 = 手上木头 − 刚需（燃料）之后再无别的保留，也就是"能拿来盖的都算"。
+    #   预算**只用一种货币（金）**，木按市价折进去 —— 这是"一处口径"：
+    #   一条腿按金、一条腿按木会出反方向死锁：木花光后 `planned` 恒空 →
+    #   need["木头"]=0 → 第 6 节"买到 need"永远不买木 → 永远建不起来
+    #   （实测 seed 0：T1 把 60 木花光，T2 起木恒为 0、40 回合一座没建）。
+    #   `need` 同时是"卖到它"和"买到它"两个口径，所以计划**必须允许买木**。
+    _budget = int(R()["黄金"])
+    for _g in GOODS:
+        if _g == "木头":
+            continue
+        _sur = int(R().get(_g, 0)) - need.get(_g, 0)
+        if _sur > 0:
+            _budget += int(_sur * 0.9 * max(1, int(world.prices.get(_g, 2))))
+    _wx = max(1, int(world.prices.get("木头", 2)))
+    planned: list[tuple[float, str, tuple]] = []
+    for _pb, _bn, _p in roi:
+        if len(planned) >= n_roi_slots:
+            break
+        _need_gold = int(cost_of(_bn)) + int(BUILDINGS[_bn].get("wood", 0)) * _wx
+        if _need_gold > _budget:
+            continue                     # 付不起就跳过（不中断：后面可能有更便宜的）
+        _budget -= _need_gold
+        planned.append((_pb, _bn, _p))
+    for _pb, _bn, _p in planned:
+        want("木头", BUILDINGS[_bn].get("wood", 0))
     for _ in range(n_recruit):                                    # 计划征兵料
         for g, per in BUILDINGS["兵营"]["army_cost"].items():
             want(g, per)
@@ -389,9 +425,18 @@ def expand_rule_turn_v8(world, name: str, rng: random.Random | None = None,
                       and not a.get("engaged") and a["hp"] >= ARMY_MAX_HP
                       and a.get("moved_turn") != world.turn]
             for a in movers[:need_n - len(near)]:
-                # 绕山地：邻格是山地就不选它（山地行军亏、战斗也亏：守方 +50% 减伤）
+                # ★落点 = **野地 或 自家地**（引擎 mp.py:742 明说「mv 合法地块 =
+                #   野地 / 自家地，他国领土一律禁 mv」；can_enter 也是
+                #   `owner is None or owner == name`）。
+                #   ★★ 这里原来写的是 `owned_by(*q) is None` —— **只许走野地**，
+                #   比引擎紧一格。后果是**腹地的兵出不来**：它四周全是自家地时
+                #   一个合法落点都没有，只能干等旁边刷出荒地，看起来就是"绕远路"
+                #   （实测 seed 0 / 150 回合：39/148 个回合有兵被这样卡住，
+                #   最惨时 6 支里 2 支一步都动不了）。
+                # 绕山地那条保留：山地行军亏、且在山地上挨打守方 +50% 减伤。
                 cands = [q for q in world.neighbors(a["x"], a["y"])
-                         if world.owned_by(*q) is None and world.tile_terrain(*q) != "山地"]
+                         if world.owned_by(*q) in (None, name)
+                         and world.tile_terrain(*q) != "山地"]
                 if not cands:
                     continue
                 cur = max(abs(a["x"] - tx), abs(a["y"] - ty))
