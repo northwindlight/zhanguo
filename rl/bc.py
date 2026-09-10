@@ -26,7 +26,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rl.env import KINDS, ZhanguoEnv
+from rl.env import ACT_SAFETY, KINDS, ZhanguoEnv
 from rl.model import PolicyNet
 from rl.ppo import collate
 from rule_ai import rule_turn
@@ -197,9 +197,9 @@ def main() -> None:
     ap.add_argument("--episodes", type=int, default=30, help="跑多少局老师 AI 采样本")
     ap.add_argument("--turns", type=int, default=500)
     ap.add_argument("--map-size", type=int, default=16)
-    # 必须与 train.py 一致：这个值会进观测（turn_actions / max_actions_per_turn 那一维），
-    # 采集用 16、训练/评估用 64 的话，模型见过最大 1.0，评估却喂到 4.0——纯分布漂移。
-    ap.add_argument("--max-actions", type=int, default=64)
+    # 每回合动作数的安全上界（不是游戏规则）。观测里那一维按固定 ACT_REF=64
+    # 归一化，所以这个值改大改小**不再影响观测**，三个脚本之间也不用对齐。
+    ap.add_argument("--max-actions", type=int, default=ACT_SAFETY)
     # 关键：训的是**整个回放缓冲**，不是本局。只训本局有两个死穴——
     # ① 灾难性遗忘：每局换了地图就把上一局学的冲掉；② 梯度步数被样本数绑死，
     # 24 局 × 4 epoch × 7 批 = 672 步，克隆一个规则 AI 差了两个数量级。
@@ -212,6 +212,9 @@ def main() -> None:
     ap.add_argument("--minibatch", type=int, default=256)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--threads", type=int, default=4)
+    ap.add_argument("--ckpt-every", type=int, default=4,
+                    help="每几局存一个 ep<N>.pt（0=不存）——跑几小时的东西，"
+                         "得能中途量分，不然只能干等")
     ap.add_argument("--out", default="rl/runs/bc/last.pt")
     args = ap.parse_args()
 
@@ -230,6 +233,13 @@ def main() -> None:
     teacher_fn = get_teacher(args.teacher)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
+
+    def save(path: Path) -> None:
+        torch.save({"model": model.state_dict(), "iter": 0,
+                    "args": {"source": "behavior_clone", "episodes": args.episodes,
+                             "turns": args.turns, "map_size": args.map_size,
+                             "max_actions": args.max_actions, "steps": args.steps,
+                             "grad_steps": grad_steps}}, path)
     print(f"老师 = {args.teacher}（{teacher_fn.__module__}）"
           f"  每局 {args.steps} 梯度步  缓冲 {args.buffer}")
     rng = random.Random(args.seed ^ 0xBEEF)
@@ -277,11 +287,11 @@ def main() -> None:
               f"规则AI消费 {spend:,.0f}  未匹配 {miss}  loss {np.mean(losses):.3f}  "
               f"验证命中 {hit:.1%}  梯度步 {grad_steps}  累计 {time.time() - t0:.0f}s",
               flush=True)
+        # 中途存点：只在跑完才存的话，想提前量一次分就得干等几小时。
+        if args.ckpt_every and (ep + 1) % args.ckpt_every == 0:
+            save(out.parent / f"ep{ep + 1}.pt")
 
-    torch.save({"model": model.state_dict(), "iter": 0,
-                "args": {"source": "behavior_clone", "episodes": args.episodes,
-                         "turns": args.turns, "map_size": args.map_size,
-                         "max_actions": args.max_actions, "steps": args.steps}}, out)
+    save(out)
     print(f"\nBC 完成：{total_steps} 个样本 · {grad_steps} 梯度步 → {out}")
 
 
