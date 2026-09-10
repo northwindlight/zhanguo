@@ -94,18 +94,36 @@ def main() -> None:
 
     env = build_env(args)
     model = build_model(env)
+    ppo = PPO(model, lr=args.lr, epochs=args.epochs, minibatch=args.minibatch,
+              ent_coef=args.ent_coef)
+    start_iter = 0
+    ck = None
     if args.resume:
         ck = torch.load(args.resume, map_location="cpu", weights_only=False)
         model.load_state_dict(ck["model"])
-        print(f"续训自 {args.resume}（第 {ck.get('iter', '?')} 块）")
+        start_iter = int(ck.get("iter", 0))
+        # 优化器状态必须一起恢复：否则每次重启都是全新 Adam，
+        # 第一步更新幅度异常大，会把策略踹坏（服务管理器自动重启时尤其致命）。
+        if ck.get("opt"):
+            try:
+                ppo.opt.load_state_dict(ck["opt"])
+                print("（含优化器状态）")
+            except Exception as e:
+                print(f"（优化器状态载入失败，忽略：{type(e).__name__}: {e}）")
+        print(f"续训自 {args.resume}（第 {start_iter} 块）")
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "config.json").write_text(json.dumps(vars(args), ensure_ascii=False, indent=2),
                                      encoding="utf-8")
 
+    # 评估必须用**独立 env**：play_episode 会把环境跑到 done，
+    # 借用训练 env 的话下一步采样就会撞 "env 未 reset 或已结束"。
+    eval_env = build_env(args)
+
     def evaluate(n: int) -> dict:
-        sp = [play_episode(env, model, seed=900_000 + i, deterministic=True) for i in range(n)]
+        sp = [play_episode(eval_env, model, seed=900_000 + i, deterministic=True)
+              for i in range(n)]
         return {"eval_spend": float(np.mean([s["spend_total"] for s in sp])),
                 "eval_tiles": float(np.mean([s["tiles"] for s in sp])),
                 "eval_armies": float(np.mean([s["armies"] for s in sp]))}
@@ -114,8 +132,6 @@ def main() -> None:
         print("评估：", evaluate(args.eval_episodes))
         return
 
-    ppo = PPO(model, lr=args.lr, epochs=args.epochs, minibatch=args.minibatch,
-              ent_coef=args.ent_coef)
     writer = None
     csv_fh = None
     t0 = time.time()
@@ -125,7 +141,7 @@ def main() -> None:
     ep_ret, ep_steps, ep_done = 0.0, 0, False
     eps: list[dict] = []          # 已完成的局
 
-    for it in range(1, args.iterations + 1):
+    for it in range(start_iter + 1, start_iter + args.iterations + 1):
         # ---- 采样：填满一块（可能跨局）
         set_collect_threads()
         while len(rollout) < args.rollout_steps:
@@ -152,7 +168,12 @@ def main() -> None:
         rollout.clear()
 
         recent = eps[-3:]
+        # 注意：row 的键必须在**每一块**都齐全——csv.DictWriter 的列头取自第一块，
+        # 评估列若只在评估块才出现，writerow 会抛 "dict contains fields not in fieldnames"
+        # （曾因此每 50 块崩一次、被服务管理器反复重启）。
         row = {
+            "eval_spend": float("nan"), "eval_tiles": float("nan"),
+            "eval_armies": float("nan"),
             "iter": it, "env_steps": (it * args.rollout_steps), "secs": round(time.time() - t0, 1),
             "episodes": len(eps),
             "last_spend": float(recent[-1]["spend_total"]) if recent else float("nan"),
@@ -178,10 +199,12 @@ def main() -> None:
             f"mean_spend={row['mean_spend']:.0f} tiles={row['last_tiles']:.0f} "
             f"armies={row['last_armies']:.0f} ent={row['ent']:.3f} "
             + (f"eval_spend={row['eval_spend']:.0f} eval_tiles={row['eval_tiles']:.0f}"
-               if "eval_spend" in row else "eval_spend=-"),
+               if row["eval_spend"] == row["eval_spend"] else "eval_spend=-"),
             encoding="utf-8")
-        torch.save({"model": model.state_dict(), "iter": it, "args": vars(args)}, out / "last.pt")
-        torch.save({"model": model.state_dict(), "iter": it, "args": vars(args)}, out / "model.pt")
+        blob = {"model": model.state_dict(), "opt": ppo.opt.state_dict(),
+                "iter": it, "args": vars(args)}
+        torch.save(blob, out / "last.pt")
+        torch.save(blob, out / "model.pt")
     print(f"训练结束，用时 {time.time() - t0:.0f}s，产物在 {out}/")
 
 
