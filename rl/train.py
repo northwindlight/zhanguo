@@ -71,8 +71,11 @@ def main() -> None:
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--minibatch", type=int, default=512)
     ap.add_argument("--ent-coef", type=float, default=0.01)
-    ap.add_argument("--lam", type=float, default=0.99,
-                    help="GAE λ：长局信用传播要拉长（目标本身不折扣，λ 只影响方差/偏差）")
+    ap.add_argument("--lam", type=float, default=1.0,
+                    help="GAE λ。γ=1、λ=1 时 GAE 退化为蒙特卡洛优势："
+                         "A_t = 整局剩余消费 − V(s_t)，与目标函数完全同构。"
+                         "λ<1 时 TD 残差只往回传 1/(1-λ) 步（0.99 → 100 步 ≈ 7 回合），"
+                         "够不着生产链几十回合的回本周期，会纵容近视解。")
     ap.add_argument("--threads", type=int, default=4, help="torch CPU 线程数")
     ap.add_argument("--out", default="rl/runs/single16")
     ap.add_argument("--resume", default="", help="从 checkpoint 续训")
