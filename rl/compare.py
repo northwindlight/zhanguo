@@ -37,9 +37,12 @@ def run_rule(env, seed: int, turns: int, max_actions: int = 24,
              which: str = "old") -> tuple[float, int]:
     """规则 AI 自己驱动世界（它直接调引擎，不走 RL 动作集）。
 
-    which="old" → rule_ai.py（稳经济、不扩张）；"expand" → expand_rule_ai.py（扩张流 v3）。
+    which: "old"=rule_ai.py（稳经济不扩张）/ "v3"=expand_rule_ai.py（扩张流·用户第一版）
+           / "v6"=expand_rule_v6.py（扩张流·用户第二版，最强基线）。
     """
-    if which == "expand":
+    if which == "v6":
+        from expand_rule_v6 import expand_rule_turn_v6 as fn
+    elif which == "v3":
         from expand_rule_ai import expand_rule_turn as fn
     else:
         fn = rule_turn
@@ -77,14 +80,14 @@ def main() -> None:
     print(f"模型：{args.ckpt}（iter {ck.get('iter')}）  图 {args.episodes} 张  回合 {args.turns}")
 
     g, s, r_, e_, et, ee = [], [], [], [], [], []
-    print(f"{'seed':>10}{'模型·贪心':>13}{'模型·采样':>13}{'旧rule_ai':>13}{'expand_v3':>13}"
+    print(f"{'seed':>10}{'模型·贪心':>13}{'模型·采样':>13}{'v3':>13}{'v6(新基线)':>13}"
           f"{'v3地':>6}")
     for i in range(args.episodes):
         seed = args.seed_base + i
         a = run_model(env, model, seed, deterministic=True)
         b = run_model(env, model, seed, deterministic=False)
-        c = run_rule(env, seed, args.turns, which="old")
-        d = run_rule(env, seed, args.turns, which="expand")
+        c = run_rule(env, seed, args.turns, which="v3")
+        d = run_rule(env, seed, args.turns, which="v6")
         g.append(a[0]); s.append(b[0]); r_.append(c[0]); e_.append(d[0])
         et.append(a[1]); ee.append(d[1])
         print(f"{seed:>10}{a[0]:>13,.0f}{b[0]:>13,.0f}{c[0]:>13,.0f}{d[0]:>13,.0f}{d[1]:>6}")
@@ -95,10 +98,10 @@ def main() -> None:
     print("\n" + "=" * 62)
     line("模型·贪心", g)
     line("模型·采样", s)
-    line("旧 rule_ai", r_)
-    line("expand_v3", e_)
-    print(f"\n模型贪心地数均值 {st.mean(et):.1f}   expand_v3 地数均值 {st.mean(ee):.1f}")
-    print(f"相对 expand_v3：贪心 ×{st.mean(g)/max(1,st.mean(e_)):.2f}   "
+    line("v3(第一版)", r_)
+    line("v6(第二版)", e_)
+    print(f"\n模型贪心地数均值 {st.mean(et):.1f}   v6 地数均值 {st.mean(ee):.1f}")
+    print(f"相对 v6：贪心 ×{st.mean(g)/max(1,st.mean(e_)):.2f}   "
           f"采样 ×{st.mean(s)/max(1,st.mean(e_)):.2f}")
 
 
