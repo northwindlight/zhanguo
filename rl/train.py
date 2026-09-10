@@ -62,10 +62,17 @@ def main() -> None:
     ap.add_argument("--map-size", type=int, default=16)
     ap.add_argument("--turns", type=int, default=500, help="每局回合上限（经济滚复利，短局没意义）")
     ap.add_argument("--agent", default="秦")
-    ap.add_argument("--max-actions", type=int, default=24, help="每回合动作上限")
+    ap.add_argument("--max-actions", type=int, default=64,
+                    help="每回合动作上限。游戏给 LLM 玩家的是 24，但单国 RL 在后期"
+                         "（几十块地）24 手明显不够用")
     ap.add_argument("--reward-scale", type=float, default=0.01)
     ap.add_argument("--iterations", type=int, default=100, help="PPO 更新块数（每块 rollout-steps 步）")
-    ap.add_argument("--rollout-steps", type=int, default=2048, help="每次更新前采多少步")
+    ap.add_argument("--rollout-steps", type=int, default=2048,
+                    help="仅当 --rollout-episodes 0 时生效：每次更新采多少步")
+    ap.add_argument("--rollout-episodes", type=int, default=1,
+                    help="每次更新采满几局（默认 1 = 整局一更新；0 = 退回固定步数）")
+    ap.add_argument("--rollout-cap", type=int, default=40000,
+                    help="按局收集时的步数硬上限（防止某局无限长）")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--epochs", type=int, default=3)
@@ -155,19 +162,32 @@ def main() -> None:
     rollout = Rollout(lam=args.lam)
     ep_ret, ep_steps, ep_done = 0.0, 0, False
     eps: list[dict] = []          # 已完成的局
+    total_steps = 0
 
     for it in range(start_iter + 1, start_iter + args.iterations + 1):
-        # ---- 采样：填满一块（可能跨局）
+        # ---- 采样
+        # 默认「采满 --rollout-episodes 局」：一局约 1.2 万步，而固定 2048 步的话
+        # **每次更新只看得到 1/6 局**——λ=1 的信用传播被卡在窗口里，而「这局打得好不好」
+        # 要等一万多步后才揭晓。采满整局，优势才等于真正的整局蒙特卡洛优势。
         set_collect_threads()
-        while len(rollout) < args.rollout_steps:
-            if ep_done:                     # 上一局结束，开新局
+        done_this = 0
+        while True:
+            if ep_done:                     # 刚结束一局：记账后**先把下一局开好**
                 s = env.summary()
                 s["ep_return"] = ep_ret
                 s["ep_steps"] = ep_steps
                 eps.append(s)
+                done_this += 1
                 seed += 1
-                obs = env.reset(seed)
-                ep_ret, ep_steps, ep_done = 0.0, 0, False
+                obs = env.reset(seed)       # 必须在 break 之前 reset：
+                ep_ret, ep_steps, ep_done = 0.0, 0, False   # 否则下一轮迭代会空转
+                if (args.rollout_episodes and done_this >= args.rollout_episodes) \
+                        or len(rollout) >= args.rollout_cap:
+                    break
+            elif not args.rollout_episodes and len(rollout) >= args.rollout_steps:
+                break                   # 旧的固定步数模式
+            elif len(rollout) >= args.rollout_cap:
+                break
             idx, logp, val = act(model, obs)
             keep = obs
             obs, r, done, info = env.step(obs.cand["actions"][idx])
@@ -175,6 +195,7 @@ def main() -> None:
             ep_ret += r
             ep_steps += 1
             ep_done = done
+        total_steps += len(rollout)
 
         # ---- 更新（块边界自举；局末则 0）
         set_train_threads()
@@ -190,7 +211,7 @@ def main() -> None:
             "eval_spend": float("nan"), "eval_tiles": float("nan"),
             "eval_armies": float("nan"),
             "eval_s_spend": float("nan"), "eval_s_tiles": float("nan"),
-            "iter": it, "env_steps": (it * args.rollout_steps), "secs": round(time.time() - t0, 1),
+            "iter": it, "env_steps": total_steps, "secs": round(time.time() - t0, 1),
             "episodes": len(eps),
             "last_spend": float(recent[-1]["spend_total"]) if recent else float("nan"),
             "mean_spend": float(np.mean([s["spend_total"] for s in recent])) if recent else float("nan"),
