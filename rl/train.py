@@ -85,6 +85,12 @@ def main() -> None:
     ap.add_argument("--adv-norm", choices=("minibatch", "global"), default="minibatch",
                     help="优势归一化范围。minibatch=CleanRL 默认；global=整块一次，"
                          "保留「整局好/坏」的信息（策略双峰骑墙时用这个）")
+    # 奖励归一化默认**关**：奖励本身就是「消费 × reward_scale」，是有真实含义的量，
+    # V 在真实单位下才可解释、可体检（rl/critic.py 直接拿 V 和"剩余消费"比）。
+    # 而且 BC 热身时 V 学的就是真实回报，PPO 再叠一层缩放会让两边尺度对不上。
+    # 尺度问题交给优势归一化（--adv-norm global）就够了。
+    ap.add_argument("--norm-reward", action="store_true",
+                    help="打开运行 RMS 奖励归一化（默认关，见上）")
     ap.add_argument("--lam", type=float, default=1.0,
                     help="GAE λ。γ=1、λ=1 时 GAE 退化为蒙特卡洛优势："
                          "A_t = 整局剩余消费 − V(s_t)，与目标函数完全同构。"
@@ -189,7 +195,7 @@ def main() -> None:
     if ck and ck.get("seed") is not None:
         print(f"（训练图种子接着数：{seed}）")
     obs = env.reset(seed)
-    rollout = Rollout(lam=args.lam)
+    rollout = Rollout(lam=args.lam, normalize=args.norm_reward)
     if ck and ck.get("norm"):
         rollout.load_state(ck["norm"])
         print("（含回报归一化状态）")

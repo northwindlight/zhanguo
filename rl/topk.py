@@ -17,6 +17,7 @@ import random
 from collections import Counter, defaultdict
 
 import torch
+import torch.nn as nn
 
 from rl.bc import get_teacher, match, pack, to_action
 from rl.env import KINDS, ZhanguoEnv
@@ -59,6 +60,9 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--map-size", type=int, default=16)
     ap.add_argument("--threads", type=int, default=4)
+    ap.add_argument("--legacy-scoring", action="store_true",
+                    help="把打分前的 LayerNorm 换成直通，用来装**加 LayerNorm 之前**"
+                         "的旧检查点——查老失败的根因是不是同一个（模长捷径）")
     args = ap.parse_args()
 
     torch.set_num_threads(max(1, args.threads))
@@ -67,6 +71,8 @@ def main() -> None:
     model = PolicyNet(n_grid_ch=len(env.obs_channels()), n_glob=env.glob_size(),
                       sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
                       n_tiles=args.map_size ** 2)
+    if args.legacy_scoring:
+        model.cand_ln, model.q_ln = nn.Identity(), nn.Identity()
     ck = torch.load(args.ckpt, map_location="cpu", weights_only=False)
     model.load_state_dict(ck["model"])
     model.eval()
