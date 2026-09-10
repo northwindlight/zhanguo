@@ -197,16 +197,19 @@ def expand_rule_turn_v8(world, name: str, rng: random.Random | None = None,
     #   明确跳过 payback=None，所以它只能靠条件入选。
     n_barr = min(max(0, want_barr - cnt("兵营")),
                  sum(1 for p in free_tiles if slots(p) >= 3)) if cnt("兵营") < want_barr else 0
-    # 条件项②：电厂 —— **缺电才做**，做几座由缺口算（不缺 → 0 → 不做，
-    #   这就是"缺才建、够就停"，不是手写常量）。要把它后面要上的用电建筑也算进去。
-    n_roi = max(0, room - n_barr)
-    n_pw_new = sum(BUILDINGS[bn].get("energy", 0)
-                   for _pb, bn, _p in roi[:n_roi])
+    # 条件项②：电厂 —— **缺电才做**，做几座由**真实缺口**算（不缺 → 0 → 不做，
+    #   这就是"缺才建、够就停"，不是手写常量）。
+    #   ★★ 缺口只认**已成事实**的耗电（`need_pw`），**绝不把 `roi` 的耗电算进来** ——
+    #   那是**愿望单**：`roi[:n_roi]` 是本回合"想建"的楼，不是"建得起"的楼。拿它当缺口
+    #   会 27 座补给厂一座也建不成、却每回合判"缺电 27"→ 每回合建一座电厂
+    #   （实测 seed 57314：真实缺口 0 却建出 16 座电厂，每座每回合还烧 1 木，
+    #   木头被烧光 → 什么都建不起 → 计划原样重来，冻结 400 回合）。
+    #   本回合**新落**的用电建筑由 `place()` 在**落地那一刻**配套电厂，不靠这里预判。
     e_out = BUILDINGS["木材能源厂"]["energy_out"]
     n_plant = 0
-    if power + n_pw_new > need_pw:
+    if power < need_pw:
         n_plant = min(max(0, room - n_barr),
-                      -(-(need_pw + n_pw_new - power) // e_out))
+                      -(-(need_pw - power) // e_out))
     # 条件项③：征兵 —— 军费占比 < 15%（用户：出兵、涨兵**同一个条件**）。
     #   在榜上、不按回本选，和兵营一个逻辑；吞吐 = 每座兵营每回合 1 支。
     n_recruit = 0
@@ -331,8 +334,11 @@ def expand_rule_turn_v8(world, name: str, rng: random.Random | None = None,
             if place(p, "兵营"):
                 continue
 
-        # ---- ③ 电厂（条件项）：**缺电才做**（不缺就永远不成立 → "够就停"）----
-        if (power + gen_add) < need_pw + _dem_add + n_pw_new and afford(p, "木材能源厂") \
+        # ---- ③ 电厂（条件项）：**补已成事实的缺口**（不缺就永远不成立 → "够就停"）----
+        # ★ 分工：本回合**新落**的用电建筑（②/④）由 `place()` 在落地那一刻配套电厂；
+        #   这里只处理账面**已经欠着**的电（含 `_dem_add` = 本回合已下单的用电建筑）。
+        #   **不再把 `n_pw_new` 算进来** —— 见第 3 节条件项②的注释（愿望单当缺口 = 电厂失控）。
+        if (power + gen_add) < need_pw + _dem_add and afford(p, "木材能源厂") \
                 and spend_ok("木材能源厂"):
             if build(p, "木材能源厂"):
                 gen_add += BUILDINGS["木材能源厂"]["energy_out"]
