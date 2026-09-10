@@ -46,7 +46,13 @@ TROOPS_FOR = {"沙漠": 2, "平原": 2, "森林": 3, "丘陵": 3, "山地": 4}
 
 
 def expand_rule_turn_v6(world, name: str, rng: random.Random | None = None,
-                     max_actions: int = 40) -> list:
+                     max_actions: int = 40, on_action=None, on_result=None) -> list:
+    """行为克隆采样钩子（与 rule_ai.rule_turn 同签名）：
+
+    - on_action(tool, args)：**执行之前**回调（此刻的世界状态就是该动作的输入）
+    - on_result(tool, args, ok)：**执行之后**回调，调用方应只在 ok=True 时入库
+      （规则 AI 会尝试注定失败的动作，那些没有对应的合法候选）
+    """
     if rng is None:
         rng = random.Random(0)
     acts: list[tuple[str, dict, bool, str]] = []
@@ -54,10 +60,14 @@ def expand_rule_turn_v6(world, name: str, rng: random.Random | None = None,
     def do(tool, args, fn, *a, **k) -> bool:
         if len(acts) >= max_actions:
             return False
+        if on_action is not None:
+            on_action(tool, args)
         try:
             ok, msg = fn(*a, **k)
         except Exception as e:
             ok, msg = False, f"{type(e).__name__}: {e}"
+        if on_result is not None:
+            on_result(tool, args, bool(ok))
         acts.append((tool, args, bool(ok), str(msg)))
         return bool(ok)
 

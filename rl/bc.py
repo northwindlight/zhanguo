@@ -40,7 +40,8 @@ def to_action(tool: str, args: dict):
             return ("build", str(args["building"]), (x - 1, y - 1), 0, 1)
         if tool == "recruit":
             x, y = map(int, str(args["tile"]).split())
-            return ("recruit", str(args.get("kind", "步")), (x - 1, y - 1), 0, int(args.get("n", 1)))
+            kind = args.get("kind") or args.get("unit") or "步"   # v6 用 unit，旧版用 kind
+            return ("recruit", str(kind), (x - 1, y - 1), 0, int(args.get("n", 1)))
         if tool == "move":
             return ("move", "", (int(args["x"]) - 1, int(args["y"]) - 1),
                     int(args["army_id"]), 1)
@@ -76,9 +77,59 @@ def match(actions, spec):
     return fallback
 
 
-def collect_episode(env: ZhanguoEnv, turns: int, seed: int):
-    """跑一局 rule_ai，逐步抓 (观测, 候选下标)。返回 (样本, 该局消费, 未匹配数)。"""
+def get_teacher(which: str):
+    """老师：v6=用户第二版扩张流（最强，推荐）/ v3=第一版 / old=稳经济不扩张。"""
+    if which == "v6":
+        from expand_rule_v6 import expand_rule_turn_v6 as fn
+    elif which == "v3":
+        from expand_rule_ai import expand_rule_turn as fn
+    else:
+        from rule_ai import rule_turn as fn
+    return fn
+
+
+def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
+                    student=None):
+    """跑一局，采 (观测, 候选下标)。返回 (样本, 该局消费, 未匹配数)。
+
+    `student=None`：**老师自己走**（纯 BC，只覆盖老师的轨迹）。
+    `student=模型`：**学生走、老师打标签**（DAgger，覆盖学生实际会走到的状态）。
+    """
+    teacher_fn = teacher_fn or get_teacher("v6")
     env.reset(seed)
+
+    # ---------------- DAgger：学生走、老师打标签 ----------------
+    # 只在**每回合开头**问一次老师（在世界的副本上问，不污染真实局面）。
+    # 每步都问的话要 6000 次 deepcopy + 6000 次老师规划，太贵；而回合边界
+    # 恰好是学生偏航最明显的地方（比如它整局没建东西，回合 100 的局面
+    # 和老师见过的完全不同），把那些状态补上标签就治住了主要漂移。
+    if student is not None:
+        import copy
+        from rl.ppo import act as _act
+        demos_d: list[tuple] = []
+        miss_d = 0
+        obs = env.reset(seed)
+        rng = random.Random(seed)
+        last_turn = -1
+        while True:
+            if env.world.turn != last_turn:
+                last_turn = env.world.turn
+                w2 = copy.deepcopy(env.world)
+                got: list[tuple] = []
+                teacher_fn(w2, env.agent, rng, max_actions=1,
+                           on_action=lambda tool, args: got.append((tool, args)))
+                if got:
+                    i = match(obs.cand["actions"], to_action(*got[0]))
+                    if i is None:
+                        miss_d += 1
+                    else:
+                        demos_d.append((obs, i))
+            idx, _lp, _v = _act(student, obs)
+            obs, _r, done, _info = env.step(obs.cand["actions"][idx])
+            if done:
+                break
+        return demos_d, env.world.spend_total(env.agent), miss_d
+
     demos: list[tuple] = []
     miss = 0
     pending: dict = {}
@@ -101,8 +152,8 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int):
 
     rng = random.Random(seed)
     for t in range(turns):
-        rule_turn(env.world, env.agent, rng, max_actions=64,
-                  on_action=on_action, on_result=on_result)
+        teacher_fn(env.world, env.agent, rng, max_actions=64,
+                   on_action=on_action, on_result=on_result)
         env.world.resolve_turn()
         if t + 1 < turns:
             env.world.begin_turn()
@@ -119,7 +170,10 @@ def bc_step_batches(demos, minibatch, n_tiles):
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="行为克隆冷启动（学 rule_ai 的模式）")
-    ap.add_argument("--episodes", type=int, default=30, help="跑多少局规则 AI 采样本")
+    ap.add_argument("--teacher", default="v6", choices=("v6", "v3", "old"),
+                    help="老师：v6=用户第二版扩张流（五图均 141k，推荐）/ v3=第一版（82k）"
+                         "/ old=稳经济不扩张（7k）")
+    ap.add_argument("--episodes", type=int, default=30, help="跑多少局老师 AI 采样本")
     ap.add_argument("--turns", type=int, default=500)
     ap.add_argument("--map-size", type=int, default=16)
     ap.add_argument("--max-actions", type=int, default=16)
@@ -143,12 +197,19 @@ def main() -> None:
                       n_tiles=args.map_size ** 2)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 
+    teacher_fn = get_teacher(args.teacher)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
+    print(f"老师 = {args.teacher}（{teacher_fn.__module__}）")
     t0 = time.time()
     total_steps = 0
     for ep in range(args.episodes):
-        demos, spend, miss = collect_episode(env, args.turns, seed=args.seed + ep)
+        # 第 2 轮起用 **DAgger**：让学生自己跑，再让老师在**学生走到的状态**上打标签。
+        # 这是治「分布漂移」的标准药——只学老师的轨迹，学生一旦偏离就没标签了。
+        use_student = (ep >= args.episodes // 2) and total_steps > 0
+        demos, spend, miss = collect_episode(
+            env, args.turns, seed=args.seed + ep, teacher_fn=teacher_fn,
+            student=model if use_student else None)
         if not demos:
             print(f"第 {ep} 局没采到样本，跳过")
             continue
