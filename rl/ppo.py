@@ -144,8 +144,9 @@ def act(model, obs, deterministic: bool = False):
 class PPO:
     def __init__(self, model, *, lr: float = 3e-4, clip: float = 0.2, epochs: int = 4,
                  minibatch: int = 256, vf_coef: float = 0.5, ent_coef: float = 0.01,
-                 max_grad_norm: float = 0.5):
+                 max_grad_norm: float = 0.5, adv_norm: str = "minibatch"):
         self.model = model
+        self.adv_norm = adv_norm          # "minibatch"（CleanRL 默认）/"global"（整块一次）
         self.opt = torch.optim.Adam(model.parameters(), lr=lr)
         self.clip = clip
         self.epochs = epochs
@@ -157,6 +158,14 @@ class PPO:
     def update(self, rollout: Rollout, last_value: float = 0.0) -> dict:
         adv_mean, adv_std = rollout.gae(last_value=last_value)
         steps = rollout.steps
+        if self.adv_norm == "global":
+            # 整块一次性归一化：**保留「这一局整体是好是坏」的信息**。
+            # 每 minibatch 各归各的，会把「全是陷阱局的批」和「全是好局的批」都拉成
+            # 零均值同方差——两局差 40 倍的信息就被抹掉了，策略于是骑墙。
+            a = np.array([s["adv"] for s in steps], np.float32)
+            a = (a - a.mean()) / (a.std() + 1e-8)
+            for s, v in zip(steps, a):
+                s["adv"] = float(v)
         n = len(steps)
         idxs = np.arange(n)
         stats = {"pg": 0.0, "vf": 0.0, "ent": 0.0, "kl": 0.0, "clipfrac": 0.0, "n": 0}
@@ -171,7 +180,8 @@ class PPO:
                 logp = logp_all.gather(1, act_t.unsqueeze(1)).squeeze(1)
                 old_logp = torch.as_tensor([s["logp"] for s in mb], dtype=torch.float32)
                 adv = torch.as_tensor([s["adv"] for s in mb], dtype=torch.float32)
-                adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+                if self.adv_norm == "minibatch":
+                    adv = (adv - adv.mean()) / (adv.std() + 1e-8)
                 ret = torch.as_tensor([s["ret"] for s in mb], dtype=torch.float32)
 
                 ratio = (logp - old_logp).exp()
