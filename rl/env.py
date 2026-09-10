@@ -27,7 +27,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from game import (BUILDINGS, ENGINEER_DISCOUNT, MARKET, MAX_SLOTS, TERRAIN_STATS,
-                  TERRAINS, TRADEABLE, UNIT_TYPES, unit_kind, unit_max_hp, unit_speed)
+                  TERRAINS, TRADEABLE, UNIT_TYPES, WATCHTOWER_RADIUS,
+                  unit_kind, unit_max_hp, unit_speed)
 from mp import World
 
 # 动作种类（固定顺序，模型的下标语义依赖它）
@@ -325,12 +326,37 @@ class ZhanguoEnv:
         ch += ["owner:me"] + [f"owner:{r}" for r in self.rivals] + ["owner:neutral"]
         ch += [f"bld:{b}" for b in self.bnames]
         ch += ["mine", "frontier", "my_army_hp", "foe_army_hp", "barb_army_hp",
-               "pending", "built_this_turn"]
+               "pending", "built_this_turn", "visible"]
         return ch
 
     def glob_size(self) -> int:
         return (len(RES_KEYS) + 2 * len(TRADEABLE) + 3 + 2 + 2
                 + len(self.bnames) + 3 + len(self.unames) + 3 * len(self.rivals) + 1)
+
+    def _vision_mask(self) -> np.ndarray:
+        """引擎视野（`World.visible_to` 的等价物）：自家格 + 八邻 + 瞭望塔半径 4 圆。
+
+        视野之外的地形/资源/归属/建筑/敌军一律不可见——**和 LLM 玩家看到的一样多**
+        （`mp_ai` 也是用 `visible_to` 过滤军队的）。自己的军队与自己的地块始终可见。
+        """
+        w, me, n = self.world, self.agent, self.map_size
+        vis = np.zeros((n, n), np.float32)
+        for (x, y) in w.own_tiles(me):
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    xx, yy = x + dx, y + dy
+                    if 0 <= xx < n and 0 <= yy < n:
+                        vis[xx, yy] = 1.0
+        r2 = WATCHTOWER_RADIUS ** 2
+        for (tx, ty), t in w.tiles.items():
+            if t["owner"] == me and t["buildings"].get("瞭望塔"):
+                for dx in range(-WATCHTOWER_RADIUS, WATCHTOWER_RADIUS + 1):
+                    for dy in range(-WATCHTOWER_RADIUS, WATCHTOWER_RADIUS + 1):
+                        if dx * dx + dy * dy <= r2:
+                            xx, yy = tx + dx, ty + dy
+                            if 0 <= xx < n and 0 <= yy < n:
+                                vis[xx, yy] = 1.0
+        return vis
 
     def _obs(self) -> Obs:
         w, me, n = self.world, self.agent, self.map_size
@@ -371,6 +397,11 @@ class ZhanguoEnv:
                     arr[x, y] = math.log1p(c) / 3.0
             chans.append(arr)
 
+        # ---- 视野门控：上面这些「世界知识」通道（地形/资源/归属/建筑），视野外一律置 0
+        vis = self._vision_mask()
+        for i in range(len(chans)):
+            chans[i] *= vis
+
         # 附加通道
         mine = np.zeros((n, n), np.float32)
         frontier = np.zeros((n, n), np.float32)
@@ -397,13 +428,15 @@ class ZhanguoEnv:
                 barhp[x, y] += hp
             else:
                 foehp[x, y] += hp
+        foehp *= vis      # 敌军只在视野内可见（自家军队始终可见）
+        barhp *= vis      # 野人同理
         pend = np.zeros((n, n), np.float32)
         bflag = np.zeros((n, n), np.float32)
         for (x, y), t in w.tiles.items():
             if t["owner"] == me:
                 pend[x, y] = sum(t.get("pending", {}).values()) / 5.0
                 bflag[x, y] = 1.0 if t["built_this_turn"] else 0.0
-        chans += [mine, frontier, myhp, foehp, barhp, pend, bflag]
+        chans += [mine, frontier, myhp, foehp, barhp, pend, bflag, vis]
 
         # 军队特征表（候选动作按 army_index 引用）
         armies = self._refresh_armies()
