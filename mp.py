@@ -519,7 +519,11 @@ class World:
         spent = 0.0
         for f, amt in cost.items():
             self.add_res(name, f, -amt * n)
-            spent += self._mval(f, amt * n)   # 总消费：征兵（粮/装备/金 折市价）
+            # ⚠ 国库的「黄金」**就是钱本身**，按面值 1:1 计；不能走 _mval ——
+            # _mval 里「黄金」是**地块资源单位**的折算率（1 单位 = 10 金，见 MARKET["黄金"]，
+            # 那是给黄金矿场产出用的）。曾经这里一律走 _mval，于是民兵（50 金 + 5 粮）
+            # 被记成 ~510 分消费、虚高 10 倍——RL 的「爆民兵」正是吃这个 10 倍系数。
+            spent += (amt * n) if f == "黄金" else self._mval(f, amt * n)
             if f in self.flow_out:
                 self.flow_out[f] += amt * n   # 世界流量：征兵吃粮吃装备（黄金是货币，不计）
         self._spend(name)["recruit"] += spent
