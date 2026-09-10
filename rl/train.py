@@ -98,6 +98,8 @@ def main() -> None:
                          "策略的「好时段」可能转瞬即逝（高熵期能打 5~8 万、一旦变尖锐就塌），"
                          "只留 last.pt 会把好权重覆盖掉——这个坑我踩过一次")
     ap.add_argument("--eval-only", action="store_true")
+    ap.add_argument("--eval-dir", default="",
+                    help="批量回评目录下所有 *.pt 并按消费排序（挑最好的 checkpoint 用）")
     ap.add_argument("--eval-every", type=int, default=10)
     ap.add_argument("--eval-episodes", type=int, default=2)
     args = ap.parse_args()
@@ -157,6 +159,22 @@ def main() -> None:
                 "eval_armies": float(np.mean([x["armies"] for x in g])),
                 "eval_s_spend": float(np.mean([x["spend_total"] for x in s])),
                 "eval_s_tiles": float(np.mean([x["tiles"] for x in s]))}
+
+    if args.eval_dir:
+        # 批量回评：策略的「好时段」可能很短，事后挑权重比只看末态靠谱
+        rows = []
+        for p in sorted(Path(args.eval_dir).glob("*.pt")):
+            ck = torch.load(p, map_location="cpu", weights_only=False)
+            model.load_state_dict(ck["model"])
+            r = evaluate(max(1, args.eval_episodes))
+            rows.append((p.name, int(ck.get("iter", -1)), r))
+            print(f"{p.name:<18} iter={ck.get('iter'):>5}  "
+                  f"贪心 {r['eval_spend']:>9,.0f}  采样 {r['eval_s_spend']:>9,.0f}  "
+                  f"地 {r['eval_s_tiles']:.1f}", flush=True)
+        if rows:
+            best = max(rows, key=lambda x: x[2]["eval_s_spend"])
+            print(f"\n按采样消费最优：{best[0]}（iter {best[1]}，{best[2]['eval_s_spend']:,.0f}）")
+        return
 
     if args.eval_only:
         print("评估：", evaluate(args.eval_episodes))
