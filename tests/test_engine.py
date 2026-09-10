@@ -953,3 +953,40 @@ class TestStandbySchedule(unittest.TestCase):
         # 条目在但没 polity 标记 → 也不算待登场国
         cfg = {"nations": [{"name": "林胡", "enable_turn": 5}]}
         self.assertEqual(mp_run.standby_schedule(cfg, w), {})
+
+
+class TestMapStaticResources(unittest.TestCase):
+    """矿藏/耕地布局必须是**种子的静态属性**——和野人一样，是地图本身，不是"开图产物"。
+
+    旧写法 `_new_tile` 里 `roll_resources(self.rng, terrain)` 用的是世界共享 RNG，
+    于是同一格摇出什么，取决于轮到它时 RNG 已经走了多远（战斗掷骰、地块命名都在
+    这条流上）。同一 seed 两局对不上，「种子可复现」形同虚设。
+    """
+
+    def test_same_tile_same_resources_regardless_of_rng_state(self):
+        a = mp.World(size=16, seed=11, nations=["秦"])
+        b = mp.World(size=16, seed=11, nations=["秦"])
+        b.rng.random()                     # 模拟 b 那边先打过一仗 / 先拓过一格
+        b.rng.randint(1, 6)
+        for (x, y) in [(5, 5), (0, 0), (15, 3)]:
+            self.assertEqual(a.tile_resources(x, y), b.tile_resources(x, y),
+                             f"同 seed 的 ({x},{y}) 资源不该随 RNG 状态变")
+
+    def test_same_tile_same_resources_regardless_of_expand_order(self):
+        """真的按不同顺序建格，同格资源仍要一致（不只是 RNG 状态对齐）。"""
+        a = mp.World(size=16, seed=23, nations=["秦"])
+        b = mp.World(size=16, seed=23, nations=["秦"])
+        ta = a._new_tile(9, 9, "秦")
+        for _ in range(5):
+            b._new_tile(0, 0, "秦")        # b 先建别的格子
+        tb = b._new_tile(9, 9, "秦")
+        self.assertEqual(ta["resources"], tb["resources"])
+        self.assertEqual(ta["terrain"], tb["terrain"])
+
+    def test_different_seed_different_layout(self):
+        """别修过头变成"全图资源都一样"。"""
+        a = mp.World(size=16, seed=11, nations=["秦"])
+        b = mp.World(size=16, seed=12, nations=["秦"])
+        spots = [(x, y) for x in range(6) for y in range(6)]
+        self.assertNotEqual([a.tile_resources(*p) for p in spots],
+                            [b.tile_resources(*p) for p in spots])
