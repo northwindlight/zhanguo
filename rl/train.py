@@ -117,6 +117,7 @@ def main() -> None:
     ppo = PPO(model, lr=args.lr, epochs=args.epochs, minibatch=args.minibatch,
               ent_coef=args.ent_coef)
     writer = None
+    csv_fh = None
     t0 = time.time()
     seed = args.seed
     obs = env.reset(seed)
@@ -165,10 +166,20 @@ def main() -> None:
         print(" | ".join(f"{k}={v:.3f}" if isinstance(v, float) else f"{k}={v}"
                          for k, v in row.items()), flush=True)
         if writer is None:
-            writer = csv.DictWriter(open(out / "log.csv", "w", newline="", encoding="utf-8"),
-                                    fieldnames=list(row))
+            csv_fh = open(out / "log.csv", "w", newline="", encoding="utf-8")
+            writer = csv.DictWriter(csv_fh, fieldnames=list(row))
             writer.writeheader()
         writer.writerow(row)
+        csv_fh.flush()                      # 每块落盘：别让监控去猜缓冲区
+        # 状态文件：不依赖 stdout（服务/nssm 下 stdout 未必接到文件）
+        (out / "status.txt").write_text(
+            f"iter={it} steps={it * args.rollout_steps} secs={row['secs']} "
+            f"episodes={len(eps)} last_spend={row['last_spend']:.0f} "
+            f"mean_spend={row['mean_spend']:.0f} tiles={row['last_tiles']:.0f} "
+            f"armies={row['last_armies']:.0f} ent={row['ent']:.3f} "
+            + (f"eval_spend={row['eval_spend']:.0f} eval_tiles={row['eval_tiles']:.0f}"
+               if "eval_spend" in row else "eval_spend=-"),
+            encoding="utf-8")
         torch.save({"model": model.state_dict(), "iter": it, "args": vars(args)}, out / "last.pt")
         torch.save({"model": model.state_dict(), "iter": it, "args": vars(args)}, out / "model.pt")
     print(f"训练结束，用时 {time.time() - t0:.0f}s，产物在 {out}/")
