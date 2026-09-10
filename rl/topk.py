@@ -85,7 +85,9 @@ def main() -> None:
     pred_kind: Counter = Counter()
     for s in range(0, len(samples), 256):
         chunk = samples[s:s + 256]
-        (grid, glob, cand, mask), acts = pack([(o, i) for o, i, _ in chunk], model.n_tiles)
+        # pack 要三元 (观测, 下标, 剩余回报)；这里只关心打分，回报塞 0 占位。
+        (grid, glob, cand, mask), acts, _rets = pack(
+            [(o, i, 0.0) for o, i, _ in chunk], model.n_tiles)
         with torch.no_grad():
             order = model(grid, glob, cand, mask)[0].argsort(dim=-1, descending=True)
         at = torch.as_tensor(acts).unsqueeze(1)
