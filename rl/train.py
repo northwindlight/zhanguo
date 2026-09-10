@@ -62,7 +62,7 @@ def main() -> None:
     ap.add_argument("--map-size", type=int, default=16)
     ap.add_argument("--turns", type=int, default=500, help="每局回合上限（经济滚复利，短局没意义）")
     ap.add_argument("--agent", default="秦")
-    ap.add_argument("--max-actions", type=int, default=64,
+    ap.add_argument("--max-actions", type=int, default=ACT_SAFETY,
                     help="每回合动作上限。游戏给 LLM 玩家的是 24，但单国 RL 在后期"
                          "（几十块地）24 手明显不够用")
     ap.add_argument("--reward-scale", type=float, default=0.01)
