@@ -252,6 +252,10 @@ def main() -> None:
     ap.add_argument("--episodes", type=int, default=30, help="跑多少局老师 AI 采样本")
     ap.add_argument("--turns", type=int, default=500)
     ap.add_argument("--map-size", type=int, default=16)
+    ap.add_argument("--map-sizes", default="",
+                    help="★逗号分隔的地图边长候选（如 '16,24,32'）：给了就**每局重采样一个**。"
+                         "RL 是通用的、地图由玩家选，而智能体**不知道地图多大**（迷雾挡着、"
+                         "从未探索过边界）—— 只练单一尺寸，换尺寸必然 OOD。")
     # 每回合动作数的安全上界（不是游戏规则）。观测里那一维按固定 ACT_REF=64
     # 归一化，所以这个值改大改小**不再影响观测**，三个脚本之间也不用对齐。
     ap.add_argument("--max-actions", type=int, default=ACT_SAFETY)
@@ -294,13 +298,14 @@ def main() -> None:
     torch.set_num_threads(max(1, args.threads))
     torch.manual_seed(args.seed)
 
-    env = ZhanguoEnv(map_size=args.map_size, max_turns=args.turns,
+    _ms = tuple(int(x) for x in args.map_sizes.split(",") if x.strip()) if args.map_sizes else None
+    env = ZhanguoEnv(map_size=args.map_size, map_sizes=_ms, max_turns=args.turns,
                      max_actions_per_turn=args.max_actions)
     # 先 reset 一次拿到 obs 维度
     env.reset(0)
     model = PolicyNet(n_grid_ch=len(env.obs_channels()), n_glob=env.glob_size(),
                       sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
-                      n_tiles=args.map_size ** 2)
+                      n_tiles=(max(_ms) ** 2 if _ms else args.map_size ** 2))
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     # ★纠正模式：**权重留下**，不从零学（用户 2026-09-11：「权重留下，只是纠正」）。
     # 换老师（比如 v8 修了几处之后）时，旧权重是有价值的起点 —— 从零重跑一遍 BC

@@ -67,7 +67,10 @@ class PolicyNet(nn.Module):
         tile_feat = fmap.flatten(2).transpose(1, 2)             # [B,HW,d]
         null_t = self.null_tile.view(1, 1, -1).expand(b, -1, -1)
         tile_feat = torch.cat([tile_feat, null_t], dim=1)       # [B,HW+1,d]
-        ti = cand["tile_idx"].clamp(0, self.n_tiles)
+        # ★空位下标**按张量实时算**，不用固定的 `self.n_tiles`：观测网格是「可见区
+        #   外接框」，尺寸逐帧可变（地图尺寸也逐局可变），写死会在换尺寸时静默取错格。
+        #   `tile_feat` 的最后一格就是空位（上面 concat 进去的 `null_tile` 参数）。
+        ti = cand["tile_idx"].clamp(0, tile_feat.size(1) - 1)
         tf = tile_feat.gather(1, ti.unsqueeze(-1).expand(-1, -1, tile_feat.size(-1)))
 
         af = self.army_mlp(cand["army_feats"])                  # [B,A,da]
