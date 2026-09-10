@@ -110,7 +110,7 @@ def good_value(world: "World", good: str, amt: int, side: str = "mid") -> float:
     return amt * (p if p is not None else float(MARKET.get(good, 0)))
 
 
-def build_econ(world: "World", building: str) -> dict:
+def build_econ(world: "World", building: str, tile=None) -> dict:
     """单个建筑的**数字版**经济核算（数值口径与 mp_ai 的经济面板同源）。
 
     返回：
@@ -130,6 +130,18 @@ def build_econ(world: "World", building: str) -> dict:
     info = BUILDINGS[building]
     wp = world.prices.get("木头", float(MARKET["木头"]))
     cost = info["cost"] if isinstance(info["cost"], int) else info["cost"][0]
+    # ★ 传了地块就按**该格的实际造价**算（用户 2026-09-11：ROI 必须含地形成本）。
+    #   公式与引擎 `World.build` 逐字对齐：地形施工惩罚只上浮**金价**（木材不变），
+    #   工程院再减 25%（只认已落成的、且自己不享受自己的减免）。
+    #   不传就按基础造价 —— 那在山地上会低估 50%，回本算出来是假的。
+    if tile is not None:
+        t = world.tiles.get(tile)
+        if t is not None:
+            bp = TERRAIN_STATS[t["terrain"]]["build_penalty"]
+            if bp:
+                cost = cost * (100 + bp) // 100
+            if t["buildings"].get("工程院") and building != "工程院":
+                cost = cost * (100 - ENGINEER_DISCOUNT) // 100
     capex = cost + info.get("wood", 0) * wp
     kind = info["kind"]
     detail: dict = {}
@@ -162,18 +174,31 @@ def build_econ(world: "World", building: str) -> dict:
             "detail": detail}
 
 
-def best_build(world: "World", candidates) -> tuple[str | None, float | None]:
+def best_build(world: "World", candidates,
+               max_payback: float | None = None) -> tuple[str | None, float | None]:
     """在候选建筑里挑**回本最快**的一个（回本 ≤ 0 或算不出的排除）。
 
-    返回 (建筑名, 回本回合)；没有可建的就 (None, None)。
+    `max_payback`：**只接受回本能落在这么多回合内的**（用户 2026-09-11 口径：
+    一局才 50 回合，超过剩余回合数的复利不算数 —— 回本 40 回合的农场在
+    第 30 回合建就是纯亏）。None = 不限。
+
+    全部按**当前市价**算（`build_econ` 走 world.prices），所以每回合重评才准。
+
+    候选可以是建筑名，也可以是 `(建筑名, 地块)` —— **后者按该格的实际造价算**
+    （含地形施工惩罚），山地和平原的同一座建筑回本可以差一倍，必须按格评。
+
+    返回 (候选, 回本回合)——候选就是你传进来的那个元素；没有可建的就 (None, None)。
     """
     best, bp = None, None
-    for b in candidates:
-        e = build_econ(world, b)
+    for item in candidates:
+        bn, tile = item if isinstance(item, tuple) else (item, None)
+        e = build_econ(world, bn, tile)
         if e["payback"] is None:
             continue
+        if max_payback is not None and e["payback"] > max_payback:
+            continue
         if bp is None or e["payback"] < bp:
-            best, bp = b, e["payback"]
+            best, bp = item, e["payback"]
     return best, bp
 
 

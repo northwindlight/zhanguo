@@ -125,7 +125,29 @@ def rigid_expenditure(w, name: str, *, recruit: int = 0) -> dict:
         for good, per in BUILDINGS["兵营"]["army_cost"].items():
             add(good, per * recruit - _made(w, name, good) - int(w.res(name, good)))
 
-    return {"items": items, "total": sum(g for _n, g in items.values())}
+    # 「该留多少」= 本回合需要 − 自产（**不是固定缓冲**）：
+    #   清仓时留这么多，多出来的全卖成现金 —— 用户口径"不买多，也不买少"。
+    keep: dict[str, int] = {}
+
+    def want(good: str, units: int) -> None:
+        if units > 0:
+            keep[good] = keep.get(good, 0) + units
+
+    want("补给", army_upkeep_units(w, name) - _made(w, name, "补给"))
+    for factory in ("补给厂", "装备厂"):
+        n_f = _cnt(w, name, factory)
+        if not n_f:
+            continue
+        for good, per in (BUILDINGS[factory].get("inputs") or {}).items():
+            want(good, n_f * per - _made(w, name, good))
+    n_plant = _cnt(w, name, "木材能源厂")
+    if n_plant:
+        want("木头", n_plant - _made(w, name, "木头"))
+    if recruit > 0:
+        for good, per in BUILDINGS["兵营"]["army_cost"].items():
+            want(good, per * recruit - _made(w, name, good))
+
+    return {"items": items, "total": sum(g for _n, g in items.values()), "keep": keep}
 
 
 def rigid_gold(w, name: str, *, recruit: int = 0) -> float:
