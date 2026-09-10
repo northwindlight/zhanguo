@@ -40,17 +40,21 @@ def main() -> None:
         return
 
     # ---- 是否还在跑 / 崩没崩
+    # 日志是**追加**的（多次重启/续训都写同一个文件），所以只看**末尾**：
+    # 文件结尾还停留在 traceback 才算崩，中途出现过的旧 traceback 不算。
     log = d / "train.log"
     if log.exists():
         age = time.time() - log.stat().st_mtime
-        text = log.read_text(encoding="utf-8", errors="replace")
-        crashed = "Traceback" in text
+        tail_lines = [ln for ln in log.read_text(encoding="utf-8", errors="replace")
+                      .splitlines() if ln.strip()][-12:]
+        crashed = any("Traceback" in ln for ln in tail_lines)
+        fresh = age < 180
         print(f"日志：{log}  最后写入 {age:.0f}s 前  "
-              f"{'⚠ 有 Traceback（崩了）' if crashed else '（无异常）'}")
+              f"{'⚠ 末尾是 Traceback（崩了）' if crashed else '（无异常）'}"
+              f"  {'· 正在跑' if fresh and not crashed else '· 可能已停'}")
         if crashed:
-            lines = [ln for ln in text.strip().splitlines() if ln.strip()]
             print("  崩溃尾部：")
-            for ln in lines[-6:]:
+            for ln in tail_lines[-6:]:
                 print("   ", ln[:150])
 
     # ---- 一行状态（训练侧每块刷新，不依赖 stdout）
