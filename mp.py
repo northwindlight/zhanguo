@@ -1138,6 +1138,10 @@ class World:
             d = self.spend[n] = {k: 0.0 for k in SPEND_FIELDS}
         return d
 
+    def spend_total(self, n: str) -> float:
+        """该国累计总消费（建造+征兵+军费）——RL 的回报就是这个数的终局值。"""
+        return float(sum(self._spend(n).values()))
+
     def _mval(self, good: str, amt: int) -> float:
         """按当前市价把 amt 单位 good 折成金（黄金按 MARKET['黄金']）。"""
         if amt <= 0:

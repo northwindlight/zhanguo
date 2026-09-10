@@ -5,7 +5,7 @@
   只能调用自己的合法工具（规则与引擎完全一致，无作弊入口）。
 - execute(world, actor, tool, args)：执行一个工具调用并返回结果文本。
 - run_openai_turn(...)：一个国家的「回合」——反复调 LLM 直到它 end_turn / 无工具。
-- dummy_turn(...)：无 key 时的简单规则 AI，用于机制验证/看海 demo。
+- dummy_turn(...)：无 key 时的规则 AI（扩张流 v6，游戏层），用于机制验证/看海 demo。
 """
 
 from __future__ import annotations
@@ -1935,142 +1935,15 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
 # ---------------------------------------------------------------------------
 
 def dummy_turn(world, name, rng, max_actions: int = 12) -> int:
-    """无 key 的规则 AI（走 execute + log_tool，因此每个行动都会进看海日志）。
+    """无 key 的规则 AI：委托给**游戏层**的 `expand_rule_v6.expand_rule_turn_v6`，
+    并把每个动作写进看海日志（Observer 因此能看到它的每个行动）。
 
-    策略：补能源→屯田→兵营→征兵→集火最近野人拓疆；缺钱卖木头/矿石，缺装备买一点。
-    不搞国家间外交/战争（看海 demo 与机制验证用）。
+    策略本身在 `expand_rule_v6.py`——那是游戏层，不依赖本 LLM 层的工具 schema /
+    文本面板 / 国策。用**最强的扩张流**（实测五图均 ~141k 终局消费），
+    而不是原先内联的旧版：代打的国家若不会扩张，看海 demo 与机制验证都会被带偏。
     """
-    import random
-    rng = random.Random(rng.randrange(1 << 30))
-    acted = 0
-
-    def do(tool: str, args: dict):
-        nonlocal acted
-        if acted >= max_actions:
-            return
-        res = execute(world, name, tool, args)
-        log_tool(world, name, tool, args, res)
-        acted += 1
-
-    # 决定用：需要多少电（补给厂+装备厂+兵营数）
-    need_energy = sum(
-        (1 if BUILDINGS[bn]["kind"] in ("factory", "barracks", "townhall") else 0) * cnt
-        for t in world.tiles.values() if t["owner"] == name
-        for bn, cnt in t["buildings"].items()
-    )
-    have_energy_plants = any(
-        cnt and BUILDINGS[bn]["kind"] == "energy"
-        for t in world.tiles.values() if t["owner"] == name
-        for bn, cnt in t["buildings"].items()
-    )
-    r = world.nations[name].res
-    own = world.own_tiles(name)
-
-    lumber = sum(t["buildings"]["林场"] for t in world.tiles.values() if t["owner"] == name)
-    r = world.nations[name].res
-    plant_cnt = sum(t["buildings"]["木材能源厂"] + t["buildings"]["石油能源厂"]
-                    for t in world.tiles.values() if t["owner"] == name)
-
-    def _cand(bn: str) -> list:
-        out = []
-        for (x, y) in own:
-            t = world.tiles[(x, y)]
-            if t["built_this_turn"]:
-                continue
-            cr = BUILDINGS[bn]["cap_resource"]
-            cnt = t["buildings"][bn]
-            if cr is None:
-                ms = BUILDINGS[bn].get("min_slots", 0)
-                if ms and sum(t["buildings"].values()) < ms:
-                    continue  # 兵营/市政厅等：需本地建筑位达标
-                if cnt < 3:  # 不限资源的地（如能源厂/工厂）：任地可建，留点节制
-                    out.append((x, y))
-            elif t["resources"].get(cr, 0) > cnt:
-                out.append((x, y))
-        return out
-
-    # 1) 木头是自用命脉：先保证至少 1 座林场，再谈烧木头发电
-    if (lumber == 0 or r["木头"] < 45) and _cand("林场"):
-        do("build", {"tile": f"{_cand('林场')[0][0]+1} {_cand('林场')[0][1]+1}", "building": "林场"})
-        r = world.nations[name].res
-
-    # 2) 电网：需要电且没电/停摆时，优先造木头电厂（有林场管线），油电厂其次
-    if need_energy > 0 and (plant_cnt == 0 or world.grid_short.get(name)):
-        for bn, cond in (("木材能源厂", lumber >= plant_cnt + 1 or r["木头"] >= 20),
-                         ("石油能源厂", True)):
-            sites = _cand(bn)
-            if sites and cond:
-                do("build", {"tile": f"{sites[0][0]+1} {sites[0][1]+1}", "building": bn})
-                break
-
-    # 3) 采集屯田：按需补 农场/矿场/黄金矿场（林场已在上面照顾）
-    r = world.nations[name].res
-    order = []
-    if r["粮食"] < 25:
-        order += ["农场"] * 3
-    if r["矿石"] < 20:
-        order += ["矿场"] * 2
-    if r["黄金"] < 350:
-        order += ["黄金矿场"] * 2
-    for bn in order:
-        if acted >= max_actions:
-            break
-        sites = _cand(bn)
-        if sites:
-            do("build", {"tile": f"{sites[0][0]+1} {sites[0][1]+1}", "building": bn})
-            r = world.nations[name].res
-    # 兵营：等粮食和木头都稳了再造（每兵营每回合可征 1 军）
-    if r["粮食"] >= 15 and r["黄金"] >= 500:
-        sites = _cand("兵营")
-        if sites:
-            do("build", {"tile": f"{sites[0][0]+1} {sites[0][1]+1}", "building": "兵营"})
-
-    # 3) 征兵（兵营空位 + 粮装够 + 电网正常）
-    for (x, y) in own:
-        t = world.tiles[(x, y)]
-        if t["buildings"]["兵营"] > t["recruited_this_turn"] \
-                and r["粮食"] >= 12 and r["装备"] >= 6 and not world.grid_short.get(name):
-            do("recruit", {"tile": f"{x+1} {y+1}", "n": 1})
-            r = world.nations[name].res
-            if acted >= max_actions:
-                break
-
-    # 4) 军事：若某军旁 1 格有野人守军且够兵，就打；否则朝最近的野人荒地挪一步
-    my_armies = [a for a in world.armies if a["owner"] == name]
-    if my_armies:
-        guardians = [a for a in world.armies if a["owner"] == "野人"]
-        # 够近就打
-        for g in list(guardians)[:6]:
-            nearby = [a for a in my_armies if not a.get("engaged")
-                      and max(abs(a["x"] - g["x"]), abs(a["y"] - g["y"])) <= 1]
-            if len(nearby) >= 3:
-                do("attack", {"army_ids": [a["id"] for a in nearby[:4]],
-                              "x": g["x"] + 1, "y": g["y"] + 1})
-                break
-        else:
-            # 朝最近的野人荒地挪动（只走荒地/自家）
-            for a in my_armies:
-                if a.get("engaged") or a.get("moved_turn") == world.turn:
-                    continue
-                if not guardians:
-                    break
-                gx, gy = min(((g["x"], g["y"]) for g in guardians),
-                             key=lambda p: max(abs(p[0] - a["x"]), abs(p[1] - a["y"])))
-                cands = [p for p in world.neighbors(a["x"], a["y"])
-                         if world.owned_by(*p) is None]
-                if not cands:
-                    continue
-                step = min(cands, key=lambda p: max(abs(p[0] - gx), abs(p[1] - gy)))
-                if max(abs(step[0] - gx), abs(step[1] - gy)) < max(abs(a["x"] - gx), abs(a["y"] - gy)):
-                    do("move", {"army_id": a["id"], "x": step[0] + 1, "y": step[1] + 1})
-                    break
-
-    # 5) 市场调剂（此 AI 不卖木头——木头要用来建设和发电，留着自用）
-    if acted < max_actions and r["黄金"] < 350:
-        if r["矿石"] >= 15:
-            do("sell", {"good": "矿石", "qty": 10})
-        elif r["粮食"] >= 25:
-            do("sell", {"good": "粮食", "qty": 10})
-    if acted < max_actions and r["装备"] < 6 and r["黄金"] >= 300:
-        do("buy", {"good": "装备", "qty": 2})
-    return acted
+    from expand_rule_v6 import expand_rule_turn_v6
+    acts = expand_rule_turn_v6(world, name, rng, max_actions=max_actions)
+    for tool, args, ok, msg in acts:
+        log_tool(world, name, tool, args, msg)
+    return len(acts)
