@@ -80,6 +80,31 @@ class TestCastleLevels(unittest.TestCase):
                           if a.kind == "build" and a.sub == "城堡" and a.tile == (x, y)])
 
 
+class TestMarketCandidates(unittest.TestCase):
+    """市场候选**不得被类别限额截断**。
+
+    回归：候选按「商品 × 数量档」成网格生成（同一商品的动作连在一起），
+    cap=24 时只装得下 2.4 个商品，排在后头的「粮食/补给」在某一步**根本不存在**
+    ——策略连"买粮食"都表达不出来（BC 时表现为 36% 的老师动作对不上候选）。
+    """
+
+    def test_every_good_is_representable(self):
+        from game import TRADEABLE
+        env = ZhanguoEnv(map_size=12, seed=21, max_turns=6)
+        env.reset()
+        w, me = env.world, env.agent
+        w.add_res(me, "黄金", 500000)
+        for g in TRADEABLE:
+            w.add_res(me, g, 200)
+        acts = env.legal_actions()
+        sell = {a.sub for a in acts if a.kind == "sell"}
+        buy = {a.sub for a in acts if a.kind == "buy"}
+        self.assertEqual(sell, set(TRADEABLE),
+                         f"这些商品卖不出去（候选被截断）：{set(TRADEABLE) - sell}")
+        self.assertEqual(buy, set(TRADEABLE),
+                         f"这些商品买不进来（候选被截断）：{set(TRADEABLE) - buy}")
+
+
 class TestVision(unittest.TestCase):
     """观测必须走引擎视野（fog of war），不能是全图。"""
 

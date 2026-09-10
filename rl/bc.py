@@ -176,7 +176,9 @@ def main() -> None:
     ap.add_argument("--episodes", type=int, default=30, help="跑多少局老师 AI 采样本")
     ap.add_argument("--turns", type=int, default=500)
     ap.add_argument("--map-size", type=int, default=16)
-    ap.add_argument("--max-actions", type=int, default=16)
+    # 必须与 train.py 一致：这个值会进观测（turn_actions / max_actions_per_turn 那一维），
+    # 采集用 16、训练/评估用 64 的话，模型见过最大 1.0，评估却喂到 4.0——纯分布漂移。
+    ap.add_argument("--max-actions", type=int, default=64)
     ap.add_argument("--epochs", type=int, default=4, help="每局样本训几遍")
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--minibatch", type=int, default=512)
