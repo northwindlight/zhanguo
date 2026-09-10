@@ -89,7 +89,7 @@ def get_teacher(which: str):
 
 
 def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
-                    student=None):
+                    student=None, dagger_every: int = 2):
     """跑一局，采 (观测, 候选下标)。返回 (样本, 该局消费, 未匹配数)。
 
     `student=None`：**老师自己走**（纯 BC，只覆盖老师的轨迹）。
@@ -99,10 +99,14 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
     env.reset(seed)
 
     # ---------------- DAgger：学生走、老师打标签 ----------------
-    # 只在**每回合开头**问一次老师（在世界的副本上问，不污染真实局面）。
-    # 每步都问的话要 6000 次 deepcopy + 6000 次老师规划，太贵；而回合边界
-    # 恰好是学生偏航最明显的地方（比如它整局没建东西，回合 100 的局面
-    # 和老师见过的完全不同），把那些状态补上标签就治住了主要漂移。
+    # 只在**回合开头**问一次老师（在世界的副本上问，不污染真实局面）。
+    # 每步都问的话要几千次 deepcopy + 老师规划，太贵；而回合边界恰好是学生
+    # 偏航最明显的地方（比如它整局没建东西，回合 100 的局面和老师见过的完全
+    # 不同），把那些状态补上标签就治住了主要漂移。
+    #
+    # dagger_every：**不是每回合都问**。Pi5 上一次 deepcopy+老师规划约 1.9s，
+    # 500 回合全问 = 每局 15 分钟，12 局跑三小时。隔几回合问一次，
+    # 标签少一些但覆盖的偏航状态足够，时间可控。
     if student is not None:
         import copy
         from rl.ppo import act as _act
@@ -112,8 +116,9 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
         rng = random.Random(seed)
         last_turn = -1
         while True:
-            if env.world.turn != last_turn:
-                last_turn = env.world.turn
+            t = env.world.turn
+            if t != last_turn and t % max(1, dagger_every) == 0:
+                last_turn = t
                 w2 = copy.deepcopy(env.world)
                 got: list[tuple] = []
                 teacher_fn(w2, env.agent, rng, max_actions=1,
@@ -160,12 +165,26 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
     return demos, env.world.spend_total(env.agent), miss
 
 
-def bc_step_batches(demos, minibatch, n_tiles):
-    for s in range(0, len(demos), minibatch):
-        chunk = demos[s:s + minibatch]
-        steps = [{"grid": o.grid, "glob": o.glob, "cand": o.cand, "act": i,
-                  "logp": 0.0, "val": 0.0, "rew": 0.0, "done": False} for o, i in chunk]
-        yield collate(steps, n_tiles), np.array([i for _o, i in chunk])
+def pack(chunk, n_tiles):
+    """(obs, 下标) 列表 → (模型输入, 标签)。"""
+    steps = [{"grid": o.grid, "glob": o.glob, "cand": o.cand, "act": i,
+              "logp": 0.0, "val": 0.0, "rew": 0.0, "done": False} for o, i in chunk]
+    return collate(steps, n_tiles), np.array([i for _o, i in chunk])
+
+
+def hit_rate(model, samples, n_tiles) -> float:
+    """在给定样本上量命中率（老师动作是否被选中）。分批，别一次塞爆内存。"""
+    if not samples:
+        return float("nan")
+    hit = tot = 0
+    with torch.no_grad():
+        for s in range(0, len(samples), 256):
+            chunk = samples[s:s + 256]
+            (grid, glob, cand, mask), acts = pack(chunk, n_tiles)
+            pred = model(grid, glob, cand, mask)[0].argmax(-1).numpy()
+            hit += int((pred == acts).sum())
+            tot += len(acts)
+    return hit / max(1, tot)
 
 
 def main() -> None:
@@ -179,9 +198,16 @@ def main() -> None:
     # 必须与 train.py 一致：这个值会进观测（turn_actions / max_actions_per_turn 那一维），
     # 采集用 16、训练/评估用 64 的话，模型见过最大 1.0，评估却喂到 4.0——纯分布漂移。
     ap.add_argument("--max-actions", type=int, default=64)
-    ap.add_argument("--epochs", type=int, default=4, help="每局样本训几遍")
+    # 关键：训的是**整个回放缓冲**，不是本局。只训本局有两个死穴——
+    # ① 灾难性遗忘：每局换了地图就把上一局学的冲掉；② 梯度步数被样本数绑死，
+    # 24 局 × 4 epoch × 7 批 = 672 步，克隆一个规则 AI 差了两个数量级。
+    ap.add_argument("--steps", type=int, default=250, help="每局采完后做多少梯度步")
+    ap.add_argument("--dagger-every", type=int, default=1,
+                    help="DAgger 每隔几回合问一次老师（1=每回合，不节流；"
+                         "慢机器上可调大，代价是标签变稀）")
+    ap.add_argument("--buffer", type=int, default=40000, help="回放缓冲上限（滚动窗口）")
     ap.add_argument("--lr", type=float, default=3e-4)
-    ap.add_argument("--minibatch", type=int, default=512)
+    ap.add_argument("--minibatch", type=int, default=256)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--out", default="rl/runs/bc/last.pt")
@@ -202,46 +228,59 @@ def main() -> None:
     teacher_fn = get_teacher(args.teacher)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    print(f"老师 = {args.teacher}（{teacher_fn.__module__}）")
+    print(f"老师 = {args.teacher}（{teacher_fn.__module__}）"
+          f"  每局 {args.steps} 梯度步  缓冲 {args.buffer}")
+    rng = random.Random(args.seed ^ 0xBEEF)
+    buffer: list = []
+    val: list = []                 # 验证集：只用来量命中率，**永不参与训练**
     t0 = time.time()
     total_steps = 0
+    grad_steps = 0
     for ep in range(args.episodes):
-        # 第 2 轮起用 **DAgger**：让学生自己跑，再让老师在**学生走到的状态**上打标签。
+        # 后半程用 **DAgger**：让学生自己跑，再让老师在**学生走到的状态**上打标签。
         # 这是治「分布漂移」的标准药——只学老师的轨迹，学生一旦偏离就没标签了。
-        use_student = (ep >= args.episodes // 2) and total_steps > 0
+        use_student = (ep >= args.episodes // 2) and len(buffer) > 0
         demos, spend, miss = collect_episode(
             env, args.turns, seed=args.seed + ep, teacher_fn=teacher_fn,
-            student=model if use_student else None)
+            student=model if use_student else None, dagger_every=args.dagger_every)
         if not demos:
             print(f"第 {ep} 局没采到样本，跳过")
             continue
         total_steps += len(demos)
+        # 每局留 10% 作验证集（滚动），训练碰不到
+        cut = max(1, len(demos) // 10)
+        val.extend(demos[:cut])
+        buffer.extend(demos[cut:])
+        if len(buffer) > args.buffer:
+            buffer = buffer[-args.buffer:]
+        if len(val) > 2000:
+            val = val[-2000:]
+
         losses = []
-        for _ in range(args.epochs):
-            for (grid, glob, cand, mask), acts in bc_step_batches(demos, args.minibatch,
-                                                                  model.n_tiles):
-                logits, _v = model(grid, glob, cand, mask)
-                logp = F.log_softmax(logits, dim=-1)
-                loss = -logp.gather(1, torch.as_tensor(acts).unsqueeze(1)).mean()
-                opt.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
-                opt.step()
-                losses.append(float(loss))
-        # 训练集上的命中率（前 200 个样本）
-        with torch.no_grad():
-            (grid, glob, cand, mask), acts = next(bc_step_batches(demos[:200], 200,
-                                                                  model.n_tiles))
-            hit = (model(grid, glob, cand, mask)[0].argmax(-1).numpy() == acts).mean()
-        print(f"局 {ep + 1}/{args.episodes}  样本 {len(demos)}  规则AI消费 {spend:,.0f}  "
-              f"未匹配 {miss}  loss {np.mean(losses):.3f}  命中率 {hit:.1%}  "
-              f"累计 {time.time() - t0:.0f}s", flush=True)
+        for _ in range(args.steps):
+            chunk = [buffer[rng.randrange(len(buffer))] for _ in range(args.minibatch)]
+            (grid, glob, cand, mask), acts = pack(chunk, model.n_tiles)
+            logits, _v = model(grid, glob, cand, mask)
+            logp = F.log_softmax(logits, dim=-1)
+            loss = -logp.gather(1, torch.as_tensor(acts).unsqueeze(1)).mean()
+            opt.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+            opt.step()
+            losses.append(float(loss.detach()))
+            grad_steps += 1
+
+        hit = hit_rate(model, val, model.n_tiles)
+        print(f"局 {ep + 1}/{args.episodes}  样本 {len(demos)}(缓冲 {len(buffer)})  "
+              f"规则AI消费 {spend:,.0f}  未匹配 {miss}  loss {np.mean(losses):.3f}  "
+              f"验证命中 {hit:.1%}  梯度步 {grad_steps}  累计 {time.time() - t0:.0f}s",
+              flush=True)
 
     torch.save({"model": model.state_dict(), "iter": 0,
                 "args": {"source": "behavior_clone", "episodes": args.episodes,
                          "turns": args.turns, "map_size": args.map_size,
-                         "max_actions": args.max_actions}}, out)
-    print(f"\nBC 完成：{total_steps} 个样本 → {out}")
+                         "max_actions": args.max_actions, "steps": args.steps}}, out)
+    print(f"\nBC 完成：{total_steps} 个样本 · {grad_steps} 梯度步 → {out}")
 
 
 if __name__ == "__main__":
