@@ -17,14 +17,25 @@ import random
 from game import BUILDINGS
 
 
-def rule_turn(world, name: str, rng: random.Random, max_actions: int = 12) -> list:
+def rule_turn(world, name: str, rng: random.Random, max_actions: int = 12,
+              on_action=None, on_result=None) -> list:
+    """行为克隆采样用的两个钩子：
+
+    - `on_action(tool, args)`：**执行之前**回调（此刻的世界状态就是该动作的输入状态）
+    - `on_result(tool, args, ok)`：**执行之后**回调。规则 AI 会尝试注定失败的动作
+      （资源不够的建造），调用方应当只在 `ok=True` 时把样本入库。
+    """
     rng = random.Random(rng.randrange(1 << 30))
     acts: list[tuple[str, dict, bool, str]] = []
 
     def do(tool: str, args: dict, fn, *a, **k) -> None:
         if len(acts) >= max_actions:
             return
+        if on_action is not None:
+            on_action(tool, args)
         ok, msg = fn(*a, **k)
+        if on_result is not None:
+            on_result(tool, args, ok)
         acts.append((tool, args, ok, msg))
 
     # 决定用：需要多少电（工厂/兵营/市政厅都耗电）
