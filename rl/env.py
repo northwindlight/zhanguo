@@ -220,7 +220,13 @@ class ZhanguoEnv:
             for b in self.bnames:
                 info = BUILDINGS[b]
                 lv = eff[b]
-                cost = info["cost"][lv] if info["kind"] == "castle" else info["cost"]
+                if info["kind"] == "castle":
+                    # 城堡造价是**逐级表**，必须先判满级再取价——lv 等于满级时 cost[lv] 会越界
+                    if lv >= info["max_level"]:
+                        continue
+                    cost = info["cost"][lv]
+                else:
+                    cost = info["cost"]
                 bp = TERRAIN_STATS[t["terrain"]]["build_penalty"]
                 if bp:
                     cost = cost * (100 + bp) // 100
@@ -235,8 +241,6 @@ class ZhanguoEnv:
                     have = t["resources"].get(cr, 0)
                     if have <= 0 or eff[b] >= have:
                         continue
-                if info["kind"] == "castle" and eff[b] >= info["max_level"]:
-                    continue
                 if info.get("min_slots") and used < info["min_slots"]:
                     continue
                 if info.get("limit") and eff[b] >= info["limit"]:
