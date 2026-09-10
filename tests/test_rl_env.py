@@ -46,6 +46,40 @@ class TestLegalActions(unittest.TestCase):
         self.assertTrue(((obs.cand["tile_idx"] >= 0) & (obs.cand["tile_idx"] <= 144)).all())
 
 
+class TestCastleLevels(unittest.TestCase):
+    """城堡造价是逐级表，满级后不得再出现在候选里。
+
+    回归：曾经「先取价、后判满级」，城堡升满 L5 后再枚举就会 `cost[5]` 越界，
+    训练跑了半小时才崩——这类边界必须有测试。
+    """
+
+    def test_castle_max_level_does_not_crash(self):
+        env = ZhanguoEnv(map_size=12, seed=11, max_turns=6)
+        env.reset()
+        w, me = env.world, env.agent
+        w.add_res(me, "黄金", 200000)
+        w.add_res(me, "木头", 20000)
+        (x, y) = w.own_tiles(me)[0]
+        w.tiles[(x, y)]["buildings"]["城堡"] = 5          # 顶到满级
+        acts = env.legal_actions()                        # 不该抛 IndexError
+        self.assertFalse([a for a in acts
+                          if a.kind == "build" and a.sub == "城堡" and a.tile == (x, y)],
+                         "满级城堡不该还能下单选它")
+
+    def test_castle_pending_counts_toward_max(self):
+        env = ZhanguoEnv(map_size=12, seed=12, max_turns=6)
+        env.reset()
+        w, me = env.world, env.agent
+        w.add_res(me, "黄金", 200000)
+        w.add_res(me, "木头", 20000)
+        (x, y) = w.own_tiles(me)[0]
+        w.tiles[(x, y)]["buildings"]["城堡"] = 4
+        w.tiles[(x, y)]["pending"]["城堡"] = 1            # 在建也算：eff=5=满级
+        acts = env.legal_actions()
+        self.assertFalse([a for a in acts
+                          if a.kind == "build" and a.sub == "城堡" and a.tile == (x, y)])
+
+
 class TestVision(unittest.TestCase):
     """观测必须走引擎视野（fog of war），不能是全图。"""
 
