@@ -55,7 +55,7 @@ def collect_labels(env: ZhanguoEnv, turns: int, seed: int, which: str = "v6"):
 def main() -> None:
     ap = argparse.ArgumentParser(description="BC 权重的 top-k 命中诊断")
     ap.add_argument("--ckpt", default="rl/runs/bc_probe/last.pt")
-    ap.add_argument("--teacher", default="v6", choices=("v6", "v3", "old"))
+    ap.add_argument("--teacher", default="v6", choices=("v6", "v3"))
     ap.add_argument("--turns", type=int, default=120)
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--map-size", type=int, default=16)
