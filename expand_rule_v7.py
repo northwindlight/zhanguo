@@ -40,9 +40,19 @@ from __future__ import annotations
 import random
 
 from game import BUILDINGS, TERRAIN_STATS, ARMY_MAX_HP
+from mp import best_build
 
 # 各地形一轮击杀所需兵力（含 1 支余量，防骰子修正）
-TROOPS_FOR = {"沙漠": 2, "平原": 2, "森林": 3, "丘陵": 3, "山地": 3}
+# 建筑 → 它要的本地资源（按 ROI 挑采集建筑时用）
+_RES_OF = {"农场": "耕地", "矿场": "矿石", "林场": "木头",
+           "石油厂": "石油", "黄金矿场": "黄金"}
+
+TROOPS_FOR = {"沙漠": 2, "平原": 2, "森林": 2, "丘陵": 2, "山地": 3}
+# ↑ **除山地外一律 2 支**（用户 2026-09-11：v6 的森林 3 / 丘陵 3 太保守）。
+#   算一下就明白：野人 100 血，2 支各 50 攻 = 100 伤害；森林减伤 10% → 90，
+#   差 10 血没打死 —— **能打，只是慢一回合**（下回合补一刀就死）。
+#   v6 把门槛抬到 3 支，于是兵不到 3 支时一步不动，实测在"四周全是森林丘陵"
+#   的开局图上直接卡死：138 次 move、**0 次 attack**、永远 5 块地。
 # ↑ 山地从 v6 的 4 改成 3：**用户 2026-09-11 的口径是「两两成组、山地三三成组」**。
 #   （v6 的文档按伤害数学推的是 4 支一轮击杀；3 支可能打不死、要挨一轮反击。
 #     若实测发现山地战损明显变大，把这里改回 4 即可。）
@@ -89,36 +99,12 @@ def expand_rule_turn_v7(world, name: str, rng: random.Random | None = None,
         acts.append((tool, args, bool(ok), str(msg)))
         return bool(ok)
 
-    # ---- ① 出兵前：交给开局老师 ----
-    # v6 在这里会死等 `supply_cap()`（补给产能跟上才肯征），实测前 40~60 回合一支兵
-    # 都不出，整局复利被拖慢一个数量级。v7 直接换成已验证的开局：30/30 达成
-    # 「2 支步 + 补给不断」，首支兵中位第 7 回合、最迟 15 回合以内（看地图）。
-    # 交棒条件 = **满 2 支兵 且 军费 ≤ 总收入的 60%**。
-    # 判据是**比例**，不是"补给仓还有多少"：总收入要能覆盖住买补给的支出，
-    # 覆盖不住就说明这军队还养不起，继续留在开局阶段复利。
-    # （只数兵数会在"刚征完兵、国库见底"那一刻交棒，v6 拿到个穷摊子 ——
-    #   实测第 9 回合交棒、补给 11→0、**第 18 回合两支部队活活饿死**。）
-    _own_armies = [a for a in world.armies if a["owner"] == name and a["hp"] > 0]
-    _share = 9.9
-    try:
-        from expand_rule_open import income_of, upkeep_of
-        _inc = income_of(world, name)
-        if _inc > 0.5:
-            _share = upkeep_of(world, name) / _inc
-    except Exception:                               # noqa: BLE001
-        pass
-    # ★ 还差一条、而且是实测最要命的一条：**补给厂必须已落地**。
-    # 只判"比例达标"会漏掉这个局面——账面军费/收入 = 12/40 = 30%（很宽裕），
-    # 但那一座补给厂压根没建起来，军队是**靠买**活着的，钱一花光就断粮。
-    # 实测：第 11 回合交棒，然后 40 个回合补给厂恒为 0、部队饿死两轮。
-    # 补给厂正是"直接硬砍军费"的那座建筑（用户原话），它没落地就还谈不上养得起。
-    _sup_fac = sum(t["buildings"]["补给厂"] for t in world.tiles.values()
-                   if t["owner"] == name)
-    if len(_own_armies) < ARMY_MIN or _sup_fac == 0 or _share > MIL_SHARE_MAX:
-        from expand_rule_open import opening_turn
-        return opening_turn(world, name, rng, max_actions=max_actions,
-                            on_action=on_action, on_result=on_result)
-
+    # ---- ① 出兵提前：**不交棒、不换模块**，只把 v6 的征兵闸门换掉 ----
+    # 用户 2026-09-11 拍板：「不交棒，直接 v7 扩展」。
+    # 先前那版是「前期调 expand_rule_open、达标后交给 v6」，结果两套经济逻辑在接缝上
+    # 打架（补给厂专款 / 清仓清单 / 买粮次序各一套），补给厂 40 回合建不起来、部队饿死。
+    # v6 本身该有的机器（清仓、按格建、兵营专款）一样不少，出兵晚**只因一个闸门**
+    # `supply_cap()`；把闸门换成下面的 20%~60% 带子，它自己就会早出兵。
     def R():
         return world.nations[name].res
 
@@ -209,6 +195,24 @@ def expand_rule_turn_v7(world, name: str, rng: random.Random | None = None,
         if surplus > 0:
             sell(g_, min(int(surplus), SELL_CAP))
 
+    # ---------------------------------------------------------------- 0.6 刚性支出（**必须先付**）
+    # 三条判据见 `spend_rules.py`（用户 2026-09-11 定死，**口径写在那边**）：
+    #   ③ supply_ok          —— 回合前判断：军队必须满补给，缺就立刻补（不问价、不设余额门槛）
+    #   ① rigid_expenditure  —— 算出**本回合**的账单；buy_exact **缺一个买一个**
+    #   ② gate_ok            —— 刚性支出/收入 ≤ 60%（第 5 节征兵闸门用它）
+    # **先付清，剩下的钱才轮到建造。**
+    from spend_rules import supply_ok, rigid_expenditure, buy_exact
+
+    _ok_sup, _gap_sup = supply_ok(world, name)
+    if not _ok_sup and _gap_sup:
+        buy("补给", _gap_sup, reserve=0)             # ③ 必须支出
+
+    _plan_rec = 0
+    if army_n < max(cnt("兵营"), 2):                 # 本回合打算补到的兵力
+        _plan_rec = max(0, min(2, 2 - army_n))
+    buy_exact(rigid_expenditure(world, name, recruit=_plan_rec),
+              lambda g, q: buy(g, q, reserve=0))     # ① 缺一个买一个，不买多不买少
+
     # ---------------------------------------------------------------- 1. 木材（建造硬门槛，2金/个）
     if R()["木头"] < 70 and R()["黄金"] >= 300:
         buy("木头", 70 - int(R()["木头"]), reserve=200)
@@ -295,17 +299,15 @@ def expand_rule_turn_v7(world, name: str, rng: random.Random | None = None,
         if army_room > 0 and cnt("兵营") < want_barr and sum(bb.values()) >= 3 \
                 and afford("兵营", RESERVE):
             build(p, "兵营"); continue
-        # 采集铺满（产能 = 消费的上游）—— 需为兵营保留专款
-        if res.get("耕地", 0) > eff("农场") and afford("农场", RESERVE):
-            build(p, "农场"); continue
-        if res.get("矿石", 0) > eff("矿场") and afford("矿场", RESERVE):
-            build(p, "矿场"); continue
-        if res.get("木头", 0) > eff("林场") and afford("林场", RESERVE):
-            build(p, "林场"); continue
-        if res.get("石油", 0) > eff("石油厂") and afford("石油厂", RESERVE):
-            build(p, "石油厂"); continue
-        if res.get("黄金", 0) > eff("黄金矿场") and afford("黄金矿场", RESERVE):
-            build(p, "黄金矿场"); continue          # 10 金/回合/座，通胀免疫
+        # 采集类：**按游戏层的 ROI 挑**，不再手写顺序。
+        # v6 原来的顺序是 农场→矿场→林场→石油厂→**黄金矿场**，而 ROI 算出来
+        # 金矿 21 回合最快、矿场 27、林场 38、农场 40 —— 等于"最赚的最后建"，
+        # 这正是用户说的「金矿权重最大」一直没落实的地方。
+        _cand = [bn for bn in ("黄金矿场", "矿场", "林场", "农场", "石油厂")
+                 if res.get(_RES_OF[bn], 0) > eff(bn) and afford(bn, RESERVE)]
+        _pick, _pb = best_build(world, _cand)
+        if _pick:
+            build(p, _pick); continue
         # 电力：留足缓冲。电网一停摆，补给厂停产 → 军队断粮 → 3 回合全灭
         if power < need_pw + 2 and afford("木材能源厂", RESERVE):
             build(p, "木材能源厂"); continue
@@ -341,20 +343,16 @@ def expand_rule_turn_v7(world, name: str, rng: random.Random | None = None,
 
     # ---------------------------------------------------------------- 5. 征兵（规模按军费带子）
     cap = supply_cap()
-    # **② 军费占比带子 20%~60%**（用户 2026-09-11 定）。口径 (a)：只算军费（军队吃的补给），
-    # 不算一次性的征兵费。低于 20% 说明军队太小 —— 扩张和收入都会被拖住，补征；
-    # 高于 60% 说明养不起了，停止扩军、把金全部投向产能复利。
-    # 收入口径含**自产货物按市价折金**（不含的话占比会被高估，闸门等于失效）。
+    # **② 闸门**（`spend_rules.gate_ok`）：刚性支出 / 总收入 ≤ 60% 才允许扩军。
+    # 按"**再多征一支**"算账单 —— 这样闸门管的是**边际**那一支养不养得起，
+    # 而不是拿现在的占比去卡（现在的军队已经付过账了）。
     try:
-        from expand_rule_open import income_of, upkeep_of
-        _inc = income_of(world, name)
-        _mil = upkeep_of(world, name)
-        if _inc > 0.5:
-            _share = _mil / _inc
-            if _share < MIL_SHARE_MIN:
-                cap = max(cap, army_n + 2)          # 太小 → 补 2 支
-            elif _share > MIL_SHARE_MAX:
-                cap = army_n                        # 太重 → 一支不加
+        from spend_rules import gate_ok
+        _ok_gate, _share = gate_ok(world, name, recruit=1)
+        if _ok_gate:
+            cap = max(cap, army_n + 2)              # 养得起 → 补到至少 2 支
+        else:
+            cap = army_n                            # 超 60% → 一支不加
     except Exception:                               # noqa: BLE001
         pass
 
