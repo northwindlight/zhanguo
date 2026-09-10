@@ -78,6 +78,10 @@ def main() -> None:
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--minibatch", type=int, default=512)
     ap.add_argument("--ent-coef", type=float, default=0.01)
+    ap.add_argument("--ent-final", type=float, default=None,
+                    help="熵系数退火终点：从 --ent-coef 线性降到它（不设=不退火）。"
+                         "熵高时 argmax 无意义（分布太平），收尾退火才能收出一个"
+                         "好的确定性策略")
     ap.add_argument("--adv-norm", choices=("minibatch", "global"), default="minibatch",
                     help="优势归一化范围。minibatch=CleanRL 默认；global=整块一次，"
                          "保留「整局好/坏」的信息（策略双峰骑墙时用这个）")
@@ -196,6 +200,11 @@ def main() -> None:
             ep_steps += 1
             ep_done = done
         total_steps += len(rollout)
+
+        # ---- 熵系数退火（可选）：让分布逐步收拢成可交付的确定性策略
+        if args.ent_final is not None:
+            prog = (it - start_iter) / max(1, args.iterations)
+            ppo.ent_coef = args.ent_coef + (args.ent_final - args.ent_coef) * prog
 
         # ---- 更新（块边界自举；局末则 0）
         set_train_threads()
