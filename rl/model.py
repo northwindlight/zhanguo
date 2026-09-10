@@ -50,7 +50,12 @@ class PolicyNet(nn.Module):
         self.cand_ln = nn.LayerNorm(d_cand)
         self.q_ln = nn.LayerNorm(d_cand)
         self.query = nn.Linear(d_global, d_cand)
-        self.value = nn.Sequential(nn.Linear(d_global, 128), nn.ReLU(), nn.Linear(128, 1))
+        # 价值头**不接共用的 g**：`g` 是策略唯一的「现在该干什么」输入（query 只从它来），
+        # 让它兼差预测「还能赚多少」会把表征整个带偏——实测 BC 里 0.5·loss_v ≈ 500
+        # 而 loss_pi ≈ 3，主干梯度几乎全归价值，argmax 于是长期锁死在同一类上
+        # （实测 move 56% 而老师只有 15%；sell 老师占 66% 却只有 1.9%），策略不再看局面。
+        # 价值头从**原始 glob** 自己走一条路，两边各练各的。
+        self.value = nn.Sequential(nn.Linear(n_glob, 128), nn.ReLU(), nn.Linear(128, 1))
         self.null_tile = nn.Parameter(torch.zeros(d_conv))
         self.null_army = nn.Parameter(torch.zeros(d_army))
 
@@ -83,4 +88,4 @@ class PolicyNet(nn.Module):
         logits = (self.q_ln(q).unsqueeze(1) * self.cand_ln(c)).sum(-1) / (c.size(-1) ** 0.5)
         if mask is not None:
             logits = logits.masked_fill(~mask, -1e9)
-        return logits, self.value(g).squeeze(-1)
+        return logits, self.value(glob).squeeze(-1)
