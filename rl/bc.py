@@ -128,12 +128,14 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
                     if i is None:
                         miss_d += 1
                     else:
-                        demos_d.append((obs, i))
+                        demos_d.append((obs, i, env.world.spend_total(env.agent)))
             idx, _lp, _v = _act(student, obs)
             obs, _r, done, _info = env.step(obs.cand["actions"][idx])
             if done:
                 break
-        return demos_d, env.world.spend_total(env.agent), miss_d
+        end = env.world.spend_total(env.agent)
+        return ([(o, i, (end - sp) * env.reward_scale) for o, i, sp in demos_d],
+                end, miss_d)
 
     demos: list[tuple] = []
     miss = 0
@@ -153,7 +155,7 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
         if i is None:
             miss += 1
         else:
-            demos.append((pending["obs"], i))
+            demos.append((pending["obs"], i, env.world.spend_total(env.agent)))
 
     rng = random.Random(seed)
     for t in range(turns):
@@ -170,18 +172,24 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
         j = next((k for k, a in enumerate(o_end.cand["actions"])
                   if a.kind == "end_turn"), None)
         if j is not None:
-            demos.append((o_end, j))
+            demos.append((o_end, j, env.world.spend_total(env.agent)))
         env.world.resolve_turn()
         if t + 1 < turns:
             env.world.begin_turn()
-    return demos, env.world.spend_total(env.agent), miss
+    # 剩余回报 G_t =（局末累计消费 − 此刻累计消费）× reward_scale。
+    # γ=1 时它就是 PPO 里 V(s) 该逼近的目标——BC 顺手把 critic 也热身了。
+    end = env.world.spend_total(env.agent)
+    return ([(o, i, (end - sp) * env.reward_scale) for o, i, sp in demos],
+            end, miss)
 
 
 def pack(chunk, n_tiles):
-    """(obs, 下标) 列表 → (模型输入, 标签)。"""
+    """(obs, 候选下标, 剩余回报) 列表 → (模型输入, 下标, 回报)。"""
     steps = [{"grid": o.grid, "glob": o.glob, "cand": o.cand, "act": i,
-              "logp": 0.0, "val": 0.0, "rew": 0.0, "done": False} for o, i in chunk]
-    return collate(steps, n_tiles), np.array([i for _o, i in chunk])
+              "logp": 0.0, "val": g, "rew": 0.0, "done": False} for o, i, g in chunk]
+    return (collate(steps, n_tiles),
+            np.array([i for _o, i, _g in chunk], dtype=np.int64),
+            np.array([g for _o, _i, g in chunk], dtype=np.float32))
 
 
 def hit_rate(model, samples, n_tiles) -> float:
@@ -192,7 +200,7 @@ def hit_rate(model, samples, n_tiles) -> float:
     with torch.no_grad():
         for s in range(0, len(samples), 256):
             chunk = samples[s:s + 256]
-            (grid, glob, cand, mask), acts = pack(chunk, n_tiles)
+            (grid, glob, cand, mask), acts, _g = pack(chunk, n_tiles)
             pred = model(grid, glob, cand, mask)[0].argmax(-1).numpy()
             hit += int((pred == acts).sum())
             tot += len(acts)
@@ -218,6 +226,8 @@ def main() -> None:
                     help="DAgger 每隔几回合问一次老师（1=每回合，不节流；"
                          "慢机器上可调大，代价是标签变稀）")
     ap.add_argument("--buffer", type=int, default=40000, help="回放缓冲上限（滚动窗口）")
+    ap.add_argument("--vf-coef", type=float, default=0.5,
+                    help="value 损失的权重——BC 顺手把 critic 也热身，PPO 接手时 V 不是随机数")
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--minibatch", type=int, default=256)
     ap.add_argument("--seed", type=int, default=0)
@@ -279,17 +289,24 @@ def main() -> None:
             val = val[-2000:]
 
         losses = []
+        vlosses = []
         for _ in range(args.steps):
             chunk = [buffer[rng.randrange(len(buffer))] for _ in range(args.minibatch)]
-            (grid, glob, cand, mask), acts = pack(chunk, model.n_tiles)
-            logits, _v = model(grid, glob, cand, mask)
+            (grid, glob, cand, mask), acts, rets = pack(chunk, model.n_tiles)
+            logits, v = model(grid, glob, cand, mask)
             logp = F.log_softmax(logits, dim=-1)
-            loss = -logp.gather(1, torch.as_tensor(acts).unsqueeze(1)).mean()
+            loss_pi = -logp.gather(1, torch.as_tensor(acts).unsqueeze(1)).mean()
+            # **value 头也要练**：只练策略的话 BC 出来 V 是随机的，PPO 接手时
+            # critic 从零开始，而 γ=1/λ=1 下优势完全依赖 V——偏置会直接毁掉
+            # 训练信号。数据现成：G_t =（局末消费 − 此刻消费）× reward_scale。
+            loss_v = F.mse_loss(v, torch.as_tensor(rets))
+            loss = loss_pi + args.vf_coef * loss_v
             opt.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             opt.step()
-            losses.append(float(loss.detach()))
+            losses.append(float(loss_pi.detach()))
+            vlosses.append(float(loss_v.detach()))
             grad_steps += 1
 
         hit = hit_rate(model, val, model.n_tiles)
@@ -298,6 +315,7 @@ def main() -> None:
         who = "学生" if use_student else "老师"
         print(f"局 {ep + 1}/{args.episodes}  样本 {len(demos)}(缓冲 {len(buffer)})  "
               f"{who}消费 {spend:,.0f}  未匹配 {miss}  loss {np.mean(losses):.3f}  "
+              f"vf {np.mean(vlosses):.3f}  "
               f"验证命中 {hit:.1%}  梯度步 {grad_steps}  累计 {time.time() - t0:.0f}s",
               flush=True)
         # 中途存点：只在跑完才存的话，想提前量一次分就得干等几小时。
