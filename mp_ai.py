@@ -57,7 +57,6 @@ try:
 except Exception:
     pass
 
-# 引擎级锁：多国 agent 并发跑时，所有对 world 的读写在此串行化（网络调用在锁外并行）。
 _engine_lock = threading.RLock()
 
 
