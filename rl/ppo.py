@@ -14,10 +14,36 @@ import torch.nn.functional as F
 
 # ---------------------------------------------------------------- 轨迹缓冲
 class Rollout:
-    def __init__(self, gamma: float = 1.0, lam: float = 0.95):
+    """轨迹缓冲 + **回报归一化**（running RMS）。
+
+    为什么需要：奖励是每步消费增量，量级横跨好几个数量级（早期几十、后期几万），
+    critic 直接在这种尺度上回归会不稳（我们实测 vf 到过 10³）。
+    做法是 CleanRL 那套：维护折扣回报的均值/方差，用 1/std 缩放奖励，
+    于是 critic 永远在 O(1) 尺度上学习，目标函数不变（正数缩放不影响最优策略）。
+    """
+
+    def __init__(self, gamma: float = 1.0, lam: float = 0.95, normalize: bool = True):
         self.gamma = float(gamma)
         self.lam = float(lam)
+        self.normalize = bool(normalize)
         self.steps: list[dict] = []
+        self._ret = 0.0            # 当前折扣回报（局末清零）
+        self._mean = 0.0
+        self._var = 1.0
+        self._count = 1e-4
+
+    def _scale(self, reward: float, done: bool) -> float:
+        self._ret = self._ret * self.gamma + reward
+        self._count += 1
+        delta = self._ret - self._mean
+        self._mean += delta / self._count
+        self._var += delta * (self._ret - self._mean)
+        if done:
+            self._ret = 0.0
+        if not self.normalize:
+            return reward
+        sd = max(self._var / self._count, 1e-8) ** 0.5
+        return reward / sd
 
     def add(self, obs, action_idx: int, logprob: float, value: float,
             reward: float, done: bool):
@@ -26,7 +52,7 @@ class Rollout:
             "glob": obs.glob,
             "cand": obs.cand,
             "act": int(action_idx), "logp": float(logprob), "val": float(value),
-            "rew": float(reward), "done": bool(done),
+            "rew": float(self._scale(reward, done)), "done": bool(done),
         })
 
     def __len__(self) -> int:
