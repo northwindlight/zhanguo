@@ -283,8 +283,11 @@ def main() -> None:
             grad_steps += 1
 
         hit = hit_rate(model, val, model.n_tiles)
+        # 这个消费数**两种模式含义不同**：纯 BC 局是老师的水平（~15 万），
+        # DAgger 局是**学生自己走**打出来的（可能接近 0）——标错会误判成"老师崩了"。
+        who = "学生" if use_student else "老师"
         print(f"局 {ep + 1}/{args.episodes}  样本 {len(demos)}(缓冲 {len(buffer)})  "
-              f"规则AI消费 {spend:,.0f}  未匹配 {miss}  loss {np.mean(losses):.3f}  "
+              f"{who}消费 {spend:,.0f}  未匹配 {miss}  loss {np.mean(losses):.3f}  "
               f"验证命中 {hit:.1%}  梯度步 {grad_steps}  累计 {time.time() - t0:.0f}s",
               flush=True)
         # 中途存点：只在跑完才存的话，想提前量一次分就得干等几小时。
