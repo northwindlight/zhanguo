@@ -41,17 +41,29 @@ AMOUNTS = (1, 2, 3, 4, 5, 6, 8, 10, 12, 16)
 # 军队特征维度：兵种 one-hot(3) + 血量 + 坐标 x/y + 交战 + 本回合已动
 ARMY_FEAT = len(UNIT_TYPES) + 1 + 2 + 1 + 1
 
-MAX_ARMIES = 32          # 候选里最多引用多少支军队（超出部分本回合不可选）
-# 候选动作按类别限额：帝国越大候选越多（地块×建筑、军队×目标格），不设上界会让
-# PPO 每步的候选打分开销随国力线性膨胀。限额 + **轮流起点**（按回合轮转）保证
-# 被裁掉的选项在后续回合仍会被看到，长期无死角。
-CAPS = {"build": 64, "recruit": 32, "move": 64, "attack": 64,
-        "retreat": 16,
-        # 市场**不设限**：候选按「商品 × 数量档」成网格生成（同商品的动作连在一起），
-        # 一旦被 cap 截断，排在后头的商品（粮食、补给…）就在这一步**根本不存在**，
-        # 策略连"买粮食"都表达不出来——BC 时表现为 36% 的老师动作对不上候选。
-        # 网格本身有界（TRADEABLE × AMOUNTS），全放进来即可。
-        "buy": len(TRADEABLE) * len(AMOUNTS), "sell": len(TRADEABLE) * len(AMOUNTS)}
+# 候选**一律不限额**：合法动作全部进候选。
+#
+# 早先按类别限额（build/move 各 64…）+ 按回合轮转起点，理由是"帝国越大候选越多，
+# 不设上界会让 PPO 每步打分开销随国力线性膨胀"。但那个"长期无死角"只在跨回合
+# 看时成立，代价是**每一步都有一批动作根本不在清单里**：
+#   · 后期 15 支军队只有 2~3 支能下令；BC 时 12% 的老师标签对不上候选
+#     （move 29.4%、build 33.2%），而那正是这支 AI 唯一会扩张的部分。
+#   · 市场更惨：候选按「商品×数量档」成网格生成、同商品连着排，截断后
+#     排在后头的粮食/补给在某一步**根本不存在**，策略连"买粮食"都表达不出来。
+# 表达力比那点算力值钱，所以全放开。候选数量级见 rl/README.md。
+CATS = ("build", "recruit", "move", "attack", "retreat", "buy", "sell")
+
+# 回合内动作数的**观测归一化基准**。固定 64，与 max_actions_per_turn 解耦：
+# 后者只是个防死循环的安全上界（且各脚本配置不同），拿它做分母会让同一维
+# 观测随配置漂移——训练 64、评估 512 就是 8 倍差。
+# 实测老师每回合最多 15 个动作（中位 8），64 足够覆盖。
+ACT_REF = 64
+
+# 每回合动作数的**安全上界**（不是游戏规则，是防死循环）。
+# 实测老师最多 15 个/回合，所以它从来卡不到；但学会之后想「一次建 100 块地、
+# 调动全部军队」的 agent 会被这里挡住，所以给得宽。回合该结束由 agent 自己
+# 用 end_turn 决定，不该由这个数替它决定。
+ACT_SAFETY = 512
 RES_KEYS = ("黄金", "粮食", "木头", "矿石", "石油", "装备", "补给")
 RES_MAX = {"矿石": 5, "黄金": 2, "耕地": 5, "石油": 4, "木头": 5}
 
@@ -88,7 +100,7 @@ class Obs:
 class ZhanguoEnv:
     def __init__(self, *, map_size: int = 20, seed: int = 0, agent: str = "秦",
                  rivals: tuple[str, ...] = (), max_turns: int = 40,
-                 max_actions_per_turn: int = 24, reward_scale: float = 0.01):
+                 max_actions_per_turn: int = ACT_SAFETY, reward_scale: float = 0.01):
         self.map_size = int(map_size)
         self.seed = int(seed)
         self.agent = agent
@@ -196,8 +208,13 @@ class ZhanguoEnv:
         return o is None or o == self.agent
 
     def _refresh_armies(self) -> list[dict]:
-        """我方军队列表（按番号排序，上限 MAX_ARMIES）——候选动作与观测共用同一套下标。"""
-        armies = sorted(self.world.nation_armies(self.agent), key=lambda a: a["id"])[:MAX_ARMIES]
+        """我方军队列表（按番号排序）——候选动作与观测共用同一套下标。
+
+        **不设上限**：早先截到前 MAX_ARMIES 支，结果军队一多就有队伍
+        「本回合无法下令」——策略在大地图上根本指挥不动自己的兵。
+        collate 按 batch 内最大军队数补零，变长本来就支持。
+        """
+        armies = sorted(self.world.nation_armies(self.agent), key=lambda a: a["id"])
         self.army_ids = [a["id"] for a in armies]
         self.army_index = {aid: i for i, aid in enumerate(self.army_ids)}
         return armies
@@ -207,7 +224,7 @@ class ZhanguoEnv:
         if me not in w.nations:
             return [Action("end_turn")]
         self._refresh_armies()
-        cats: dict[str, list[Action]] = {k: [] for k in CAPS}
+        cats: dict[str, list[Action]] = {k: [] for k in CATS}
         res = w.nations[me].res
         gold, wood = res.get("黄金", 0), res.get("木头", 0)
         huns = w.polity.get(me) == "huns"
@@ -277,7 +294,7 @@ class ZhanguoEnv:
                     if amt <= maxn:
                         cats["recruit"].append(Action("recruit", kind, (x, y), 0, amt))
 
-        # ---- move / attack / retreat（只认前 MAX_ARMIES 支军队，保持候选集有界）
+        # ---- move / attack / retreat（不限额：所有我方军队都进候选）
         for a in w.nation_armies(me):
             if a["id"] not in self.army_index:
                 continue
@@ -317,13 +334,13 @@ class ZhanguoEnv:
                 if total <= gold:
                     cats["buy"].append(Action("buy", g, None, 0, amt))
 
-        # ---- 按类别限额（轮流起点：被裁掉的选项下个回合会轮到，长期无死角）
+        # ---- 不限额：**合法动作全部进候选**
+        # 早先按类别限额 + 按回合轮转起点，为的是把候选集大小压住。但那个
+        # 「长期无死角」只在 RL 跨回合看时成立，代价是**每一步都有一批动作
+        # 根本不在清单里**：后期 15 支军队只能动 2~3 支，BC 更是直接丢掉
+        # 12% 的老师标签（move 29%、build 33%）。表达力比那点算力值钱。
         out: list[Action] = []
-        for k, lst in cats.items():
-            cap = CAPS.get(k, len(lst))
-            if len(lst) > cap:
-                off = (w.turn * 7 + KIND_INDEX[k]) % len(lst)
-                lst = (lst[off:] + lst[:off])[:cap]
+        for lst in cats.values():
             out.extend(lst)
         out.append(Action("end_turn"))
         return out
@@ -474,7 +491,7 @@ class ZhanguoEnv:
         for k in ("build", "recruit", "supply"):
             g.append(float(sp.get(k, 0.0)) / 2000.0)
         g.append(w.turn / max(1, self.max_turns))
-        g.append(self.turn_actions / max(1, self.max_actions_per_turn))
+        g.append(min(1.0, self.turn_actions / ACT_REF))
         g.append(1.0 if w.grid_short.get(me) else 0.0)
         eh, en = (w.energy_report.get(me) or (0, 0, False))[:2]
         g.append(eh / 20.0)

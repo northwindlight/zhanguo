@@ -15,7 +15,7 @@ from pathlib import Path
 
 import torch
 
-from rl.env import KINDS, ZhanguoEnv
+from rl.env import ACT_SAFETY, KINDS, ZhanguoEnv
 from rl.model import PolicyNet
 from rl.ppo import act
 from rule_ai import rule_turn
@@ -33,7 +33,7 @@ def run_model(env, model, seed: int, deterministic: bool) -> tuple[float, int]:
     return s["spend_total"], s["tiles"]
 
 
-def run_rule(env, seed: int, turns: int, max_actions: int = 24,
+def run_rule(env, seed: int, turns: int, max_actions: int = 10 ** 9,
              which: str = "old") -> tuple[float, int]:
     """规则 AI 自己驱动世界（它直接调引擎，不走 RL 动作集）。
 
@@ -64,12 +64,13 @@ def main() -> None:
     ap.add_argument("--map-size", type=int, default=16)
     ap.add_argument("--seed-base", type=int, default=500_000)
     ap.add_argument("--threads", type=int, default=4)
-    # 回合内动作上限**必须和训练时一致**——它进观测（turn_actions 归一化那一维），
-    # 训练 64 而这里写死 16 会让同一维的取值放大 4 倍，等于拿漂移的输入评估。
-    ap.add_argument("--max-actions", type=int, default=64,
+    # 模型这一侧的上限只是安全网（回合该不该结束由 end_turn 决定），
+    # 规则 AI 那一侧**不限额**——老师该按满血评估，不该被我们定的人为上限削。
+    # 观测里那一维按固定 ACT_REF=64 归一化，所以这两个值不再互相牵制。
+    ap.add_argument("--max-actions", type=int, default=ACT_SAFETY,
                     help="模型每回合动作上限（对齐 train.py）")
-    ap.add_argument("--rule-actions", type=int, default=64,
-                    help="规则 AI 每回合动作上限（老师也该按满血评估）")
+    ap.add_argument("--rule-actions", type=int, default=10 ** 9,
+                    help="规则 AI 每回合动作上限（默认不限额）")
     args = ap.parse_args()
 
     import torch as _t

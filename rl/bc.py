@@ -157,7 +157,9 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
 
     rng = random.Random(seed)
     for t in range(turns):
-        teacher_fn(env.world, env.agent, rng, max_actions=64,
+        # 老师**不限额**：实测它每回合最多 15 个动作（中位 8），所以 64 从来没卡住过，
+        # 但那是"碰巧没卡住"。规则 AI 想动多少动多少，限额不该由我们来定。
+        teacher_fn(env.world, env.agent, rng, max_actions=10 ** 9,
                    on_action=on_action, on_result=on_result)
         env.world.resolve_turn()
         if t + 1 < turns:
