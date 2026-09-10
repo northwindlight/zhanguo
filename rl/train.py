@@ -93,6 +93,10 @@ def main() -> None:
     ap.add_argument("--threads", type=int, default=4, help="torch CPU 线程数")
     ap.add_argument("--out", default="rl/runs/single16")
     ap.add_argument("--resume", default="", help="从 checkpoint 续训")
+    ap.add_argument("--ckpt-every", type=int, default=50,
+                    help="每多少块另存一份带编号的 checkpoint（ckpt_<iter>.pt）。"
+                         "策略的「好时段」可能转瞬即逝（高熵期能打 5~8 万、一旦变尖锐就塌），"
+                         "只留 last.pt 会把好权重覆盖掉——这个坑我踩过一次")
     ap.add_argument("--eval-only", action="store_true")
     ap.add_argument("--eval-every", type=int, default=10)
     ap.add_argument("--eval-episodes", type=int, default=2)
@@ -251,6 +255,8 @@ def main() -> None:
                 "iter": it, "args": vars(args)}
         torch.save(blob, out / "last.pt")
         torch.save(blob, out / "model.pt")
+        if args.ckpt_every and it % args.ckpt_every == 0:
+            torch.save(blob, out / f"ckpt_{it}.pt")
     print(f"训练结束，用时 {time.time() - t0:.0f}s，产物在 {out}/")
 
 
