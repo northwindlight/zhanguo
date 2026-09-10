@@ -279,10 +279,13 @@ def main() -> None:
             print(f"第 {ep} 局没采到样本，跳过")
             continue
         total_steps += len(demos)
-        # 每局留 10% 作验证集（滚动），训练碰不到
-        cut = max(1, len(demos) // 10)
-        val.extend(demos[:cut])
-        buffer.extend(demos[cut:])
+        # 验证集 = **整局留出**（每 6 局抽 1 局）。先前是从每局里切 10%，
+        # 那些样本和训练集**共用同一张地图**——只能测出"对见过的地图过拟合"，
+        # 而真正要测的是**换一张新地图还灵不灵**。整局留出才测得到跨地图泛化。
+        if ep % 6 == 5:
+            val.extend(demos)
+        else:
+            buffer.extend(demos)
         if len(buffer) > args.buffer:
             buffer = buffer[-args.buffer:]
         if len(val) > 2000:
@@ -309,6 +312,9 @@ def main() -> None:
             vlosses.append(float(loss_v.detach()))
             grad_steps += 1
 
+        # 训练集命中率也量：**只看验证集看不出过拟合**。两个一起看才有意义——
+        # 训练一路涨、验证不涨或掉 = 过拟合，这时该早停挑检查点而不是继续跑。
+        tr_hit = hit_rate(model, buffer[-600:], model.n_tiles)
         hit = hit_rate(model, val, model.n_tiles)
         # 这个消费数**两种模式含义不同**：纯 BC 局是老师的水平（~15 万），
         # DAgger 局是**学生自己走**打出来的（可能接近 0）——标错会误判成"老师崩了"。
@@ -316,7 +322,8 @@ def main() -> None:
         print(f"局 {ep + 1}/{args.episodes}  样本 {len(demos)}(缓冲 {len(buffer)})  "
               f"{who}消费 {spend:,.0f}  未匹配 {miss}  loss {np.mean(losses):.3f}  "
               f"vf {np.mean(vlosses):.3f}  "
-              f"验证命中 {hit:.1%}  梯度步 {grad_steps}  累计 {time.time() - t0:.0f}s",
+              f"命中 训练{tr_hit:.1%}/验证{hit:.1%}  梯度步 {grad_steps}  "
+              f"累计 {time.time() - t0:.0f}s",
               flush=True)
         # 中途存点：只在跑完才存的话，想提前量一次分就得干等几小时。
         if args.ckpt_every and (ep + 1) % args.ckpt_every == 0:
