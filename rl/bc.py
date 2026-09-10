@@ -99,7 +99,7 @@ def get_teacher(which: str, turns: int = 500, horizon: int = -1):
 
 
 def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
-                    student=None, dagger_every: int = 2):
+                    student=None, endturn_cap: int = 1):
     """跑一局，采 (观测, 候选下标)。返回 (样本, 该局消费, 未匹配数)。
 
     `student=None`：**老师自己走**（纯 BC，只覆盖老师的轨迹）。
@@ -109,13 +109,10 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
     env.reset(seed)
 
     # ---------------- DAgger：学生走、老师打标签 ----------------
-    # 只在**回合开头**问一次老师（在世界的副本上问，不污染真实局面）。
-    # 每步都问的话要几千次 deepcopy + 老师规划，太贵；而回合边界恰好是学生
-    # 偏航最明显的地方（比如它整局没建东西，回合 100 的局面和老师见过的完全
-    # 不同），把那些状态补上标签就治住了主要漂移。
-    #
     # 每个回合**开头**问一次老师，拿到它这一回合的**整个动作序列**（在世界的副本上问，
-    # 不污染真实局面；实测一次 deepcopy + 老师整回合只要 ~3ms，不贵）。
+    # 不污染真实局面）。回合边界恰好是学生偏航最明显的地方（比如它整局没建东西，
+    # 回合 100 的局面和老师见过的完全不同），把那些状态补上标签就治住了主要漂移。
+    # （不是逐步问：逐步问要把老师拆成"每步重规划"，而规则 AI 的语义是整回合一次规划。）
     #
     # ★ 标签不能固定取序列第 1 个：实测 v6 每回合的第一步 **100% 是 sell**（先卖余量换
     #   现金），固定取它等于每回合都教学生"卖"——而学生本来就在过度卖，DAgger 于是
@@ -132,28 +129,44 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
         rng = random.Random(seed)
         last_turn = -1
         seq: list[tuple] = []
+        n_end = 0                # 本回合已发过几条 end_turn 标签
         while True:
             t = env.world.turn
             if t != last_turn:
                 last_turn = t
+                n_end = 0
+                # ★**每回合都问老师，不节流**（2026-09-11 去掉 `dagger_every`）。
+                #   实测一次 deepcopy + v8 整回合只要 **7.4 ms**，而一次梯度步约 1100 ms
+                #   —— 一局 70 回合全问 = 0.52 秒，占整局（≈289 s）的 **0.18%**。
+                #   那个节流省不到千分之二，却制造了两个 bug：
+                #     ① 早年：被跳过的回合 `seq` 停在 `[]`，`k < len(seq)` 即 `k < 0`
+                #        恒假 → **整回合每一步都贴 end_turn**（投毒）；
+                #     ② 改成"跳过就不发标签"后：那一回合**完全没监督** → 学生把它
+                #        磨到 512 步的安全上限，**空转反而被放任**（用户当场指出）。
+                #   省这点时间不值得留一个能出两种错的开关。
+                w2 = copy.deepcopy(env.world)
                 seq = []
-                if t % max(1, dagger_every) == 0:      # dagger_every：每几回合问一次
-                    w2 = copy.deepcopy(env.world)
-                    teacher_fn(w2, env.agent, rng, max_actions=10 ** 9,
-                               on_action=lambda tool, args: seq.append((tool, args)))
+                teacher_fn(w2, env.agent, rng, max_actions=10 ** 9,
+                           on_action=lambda tool, args: seq.append((tool, args)))
             # 标签 = 老师回合序列的第 k 个动作；**k 超出老师的回合长度 → end_turn**。
-            # 「停手」这条恰恰是对治空转的关键：学生漂移时一回合走几十步，
-            # 老师只走 n 步，所以从第 n 步起每一步都在告诉它"该停了"。
-            # （k 本身在观测里（turn_actions/ACT_REF），模型有条件区分，
-            #   所以 end_turn 样本多不会污染 k=0 —— 那里的标签是老师的第一个动作。）
             k = env.turn_actions
             if k < len(seq):
                 i = match(obs.cand["actions"], to_action(*seq[k]))
-            else:
+            elif n_end < endturn_cap:
+                # ★ end_turn 标签**每回合封顶**（默认 1 条）。学生（未训练时）一回合
+                #   走 67~71 步、老师只走 5~6 步，于是 **~90% 的 DAgger 标签是 end_turn**
+                #   （实测 62 vs 5）—— 第 2 条之后全是同一教训的重复，边际信息近乎零，
+                #   却把梯度预算吃光（旧 bc_full 日志「训练命中 92.5% / 真命中 16.7%」
+                #   就是它撑的）。老师**真正的停手状态只有一个**：走完自己那 n 步的
+                #   那一刻（k == len(seq)），留那一条就够。实测占比 92.3% → 18.6%。
                 i = next((j for j, a in enumerate(obs.cand["actions"])
                           if a.kind == "end_turn"), None)
+                n_end += 1
+            else:
+                i = None         # 停手标签已发过 → 这步不入库（**不算 miss**，是刻意跳过）
             if i is None:
-                miss_d += 1
+                if k < len(seq):         # 只有"老师动作对不上候选"才算 miss
+                    miss_d += 1
             else:
                 demos_d.append((obs, i, env.world.spend_total(env.agent)))
             idx, _lp, _v = _act(student, obs)
@@ -263,9 +276,10 @@ def main() -> None:
     # ① 灾难性遗忘：每局换了地图就把上一局学的冲掉；② 梯度步数被样本数绑死，
     # 24 局 × 4 epoch × 7 批 = 672 步，克隆一个规则 AI 差了两个数量级。
     ap.add_argument("--steps", type=int, default=250, help="每局采完后做多少梯度步")
-    ap.add_argument("--dagger-every", type=int, default=1,
-                    help="DAgger 每隔几回合问一次老师（1=每回合，不节流；"
-                         "慢机器上可调大，代价是标签变稀）")
+    ap.add_argument("--endturn-cap", type=int, default=1,
+                    help="DAgger 里每回合最多发几条 end_turn 标签（默认 1 = 只留老师"
+                         "真正的停手状态）。学生未训练时一回合走 67~71 步、老师只走 5~6 步，"
+                         "不封顶的话 ~90%% 的标签是 end_turn，梯度预算全被同一个教训吃掉。")
     ap.add_argument("--dagger-from", type=int, default=-1,
                     help="从第几局（0 起）开始 DAgger；默认 episodes//2。"
                          "给个很大的数=全程纯 BC（短程验证用，信号干净不被 DAgger 搅）")
@@ -346,7 +360,7 @@ def main() -> None:
         use_student = (ep >= dagger_from) and len(buffer) > 0
         demos, spend, miss = collect_episode(
             env, args.turns, seed=args.seed + ep, teacher_fn=teacher_fn,
-            student=model if use_student else None, dagger_every=args.dagger_every)
+            student=model if use_student else None, endturn_cap=args.endturn_cap)
         if not demos:
             print(f"第 {ep} 局没采到样本，跳过")
             continue

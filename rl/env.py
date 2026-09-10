@@ -53,10 +53,12 @@ ARMY_FEAT = len(UNIT_TYPES) + 1 + 2 + 1 + 1
 # 表达力比那点算力值钱，所以全放开。候选数量级见 rl/README.md。
 CATS = ("build", "recruit", "move", "attack", "retreat", "buy", "sell")
 
-# 回合内动作数的**观测归一化基准**。固定 64，与 max_actions_per_turn 解耦：
-# 后者只是个防死循环的安全上界（且各脚本配置不同），拿它做分母会让同一维
-# 观测随配置漂移——训练 64、评估 512 就是 8 倍差。
-# 实测老师每回合最多 15 个动作（中位 8），64 足够覆盖。
+# 回合内动作数的观测**不再用固定分母归一化**（2026-09-11 改）。
+# 原来按 `min(1.0, turn_actions / ACT_REF)`、ACT_REF=64 —— 学生实测走 67~71 步/回合，
+# **从第 64 步起恒为 1.0**，而「走了多少步」正是判断「该不该停手」最需要的那一维
+# （DAgger 里 end_turn 标签占 ~90%，这一维饱和等于把判据抹掉了）。
+# 现在用 `log1p(turn_actions)/3`：单调、无上界、与领地数/建筑数同口径。
+# 保留这个名字只为兼容旧引用与说明；它已不参与观测计算。
 ACT_REF = 64
 
 # 位置特征的**绝对尺度**（单位：格）。军队位置按「相对家的偏移 / POS_SCALE」编码。
@@ -567,7 +569,13 @@ class ZhanguoEnv:
         for k in ("build", "recruit", "supply"):
             g.append(float(sp.get(k, 0.0)) / 2000.0)
         g.append(w.turn / max(1, self.max_turns))
-        g.append(min(1.0, self.turn_actions / ACT_REF))
+        # ★本回合已走步数：**绝对对数尺度，不设上限、不饱和**。
+        #   原来写的是 `min(1.0, turn_actions / ACT_REF)`（ACT_REF=64）——
+        #   学生实际会走 67~71 步/回合，**从第 64 步起就恒为 1.0**，
+        #   模型分不清「走了 70 步」和「走了 500 步」，而这恰恰是判断
+        #   「该不该停手」最需要的那一维。改成 log1p/3（与领地数、建筑数同口径）：
+        #   0→0、8→0.73、64→1.39、512→2.08，单调且永不饱和。
+        g.append(math.log1p(self.turn_actions) / 3.0)
         g.append(1.0 if w.grid_short.get(me) else 0.0)
         eh, en = (w.energy_report.get(me) or (0, 0, False))[:2]
         g.append(eh / 20.0)
