@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from rl.env import KINDS, ZhanguoEnv
+from rl.env import ACT_SAFETY, KINDS, ZhanguoEnv
 from rl.model import PolicyNet
 from rl.ppo import PPO, Rollout, act, value_of
 
