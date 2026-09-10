@@ -33,12 +33,20 @@ def run_model(env, model, seed: int, deterministic: bool) -> tuple[float, int]:
     return s["spend_total"], s["tiles"]
 
 
-def run_rule(env, seed: int, turns: int, max_actions: int = 24) -> tuple[float, int]:
-    """规则 AI 自己驱动世界（它直接调引擎，不走 RL 动作集）。"""
+def run_rule(env, seed: int, turns: int, max_actions: int = 24,
+             which: str = "old") -> tuple[float, int]:
+    """规则 AI 自己驱动世界（它直接调引擎，不走 RL 动作集）。
+
+    which="old" → rule_ai.py（稳经济、不扩张）；"expand" → expand_rule_ai.py（扩张流 v3）。
+    """
+    if which == "expand":
+        from expand_rule_ai import expand_rule_turn as fn
+    else:
+        fn = rule_turn
     env.reset(seed)
     rng = random.Random(seed)
     for t in range(turns):
-        rule_turn(env.world, env.agent, rng, max_actions=max_actions)
+        fn(env.world, env.agent, rng, max_actions=max_actions)
         env.world.resolve_turn()
         if t + 1 < turns:
             env.world.begin_turn()
@@ -68,25 +76,30 @@ def main() -> None:
     model.eval()
     print(f"模型：{args.ckpt}（iter {ck.get('iter')}）  图 {args.episodes} 张  回合 {args.turns}")
 
-    g, s, r_ = [], [], []
-    print(f"{'seed':>10}{'模型·贪心':>14}{'模型·采样':>14}{'规则AI':>14}")
+    g, s, r_, e_, et, ee = [], [], [], [], [], []
+    print(f"{'seed':>10}{'模型·贪心':>13}{'模型·采样':>13}{'旧rule_ai':>13}{'expand_v3':>13}"
+          f"{'v3地':>6}")
     for i in range(args.episodes):
         seed = args.seed_base + i
         a = run_model(env, model, seed, deterministic=True)
         b = run_model(env, model, seed, deterministic=False)
-        c = run_rule(env, seed, args.turns)
-        g.append(a[0]); s.append(b[0]); r_.append(c[0])
-        print(f"{seed:>10}{a[0]:>14,.0f}{b[0]:>14,.0f}{c[0]:>14,.0f}")
+        c = run_rule(env, seed, args.turns, which="old")
+        d = run_rule(env, seed, args.turns, which="expand")
+        g.append(a[0]); s.append(b[0]); r_.append(c[0]); e_.append(d[0])
+        et.append(a[1]); ee.append(d[1])
+        print(f"{seed:>10}{a[0]:>13,.0f}{b[0]:>13,.0f}{c[0]:>13,.0f}{d[0]:>13,.0f}{d[1]:>6}")
 
     def line(name, xs):
         print(f"{name:<12}均值 {st.mean(xs):>10,.0f}   中位 {st.median(xs):>10,.0f}   "
               f"最好 {max(xs):>10,.0f}  最差 {min(xs):>10,.0f}")
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 62)
     line("模型·贪心", g)
     line("模型·采样", s)
-    line("规则 AI", r_)
-    print(f"\n相对规则 AI：贪心 ×{st.mean(g)/max(1,st.mean(r_)):.2f}   "
-          f"采样 ×{st.mean(s)/max(1,st.mean(r_)):.2f}")
+    line("旧 rule_ai", r_)
+    line("expand_v3", e_)
+    print(f"\n模型贪心地数均值 {st.mean(et):.1f}   expand_v3 地数均值 {st.mean(ee):.1f}")
+    print(f"相对 expand_v3：贪心 ×{st.mean(g)/max(1,st.mean(e_)):.2f}   "
+          f"采样 ×{st.mean(s)/max(1,st.mean(e_)):.2f}")
 
 
 if __name__ == "__main__":
