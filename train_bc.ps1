@@ -65,22 +65,59 @@ if (-not (Select-String -Path $v8 -Pattern "愿望单" -SimpleMatch -Quiet)) {
 Write-Host ("[检查] bc.py 支持 v8 老师：" + `
     $(if (Select-String -Path (Join-Path $Root "rl\bc.py") -Pattern '"v8"' -SimpleMatch -Quiet) { "是" } else { "否 —— 需要重新同步" }))
 
-# 已经有训练在跑就别叠（会抢同一份检查点）
-$running = @(Get-Process python -ErrorAction SilentlyContinue |
-             Where-Object { try { $_.Path -eq $Py } catch { $false } })
-if ($running) {
-    Write-Host "[警告] 已有 zhanguo-rl 的 python 在跑（PID $($running.Id -join ',')）" -ForegroundColor Yellow
-    Write-Host "       同时跑两个训练会互相抢 rl\runs\bc\ 下的检查点，建议先停掉。" -ForegroundColor Yellow
-    Read-Host "回车继续（或 Ctrl-C 退出）"
-}
+# ---------------------------------------------------------------- 关掉原来的训练
+# 用户 2026-09-11 授权：「关掉原来的训练，不同时训练两个，原来是什么不用管」。
+# 两个训练同时跑会抢 rl\runs\ 下的检查点，而且白烧 CPU。
+Write-Host ""
+Write-Host "[清理] 关掉原来的训练…" -ForegroundColor Yellow
 
-# nssm 服务在的话提一句（非管理员会话看不到它，提权后应该看得到）
+# ① nssm 服务（提权后才看得到；非管理员会话会报 "Cannot find any service"）
 try {
     $s = Get-Service -Name $Svc -ErrorAction Stop
-    Write-Host "[服务] $Svc 当前状态：$($s.Status)" -ForegroundColor Gray
+    if ($s.Status -ne "Stopped") {
+        Write-Host "       停止服务 $Svc（当前 $($s.Status)）…" -ForegroundColor Yellow
+        Stop-Service -Name $Svc -Force -ErrorAction Stop
+        try { (Get-Service -Name $Svc).WaitForStatus("Stopped", "00:00:30") } catch { }
+        Write-Host "       服务 $Svc 已停止" -ForegroundColor Green
+    } else {
+        Write-Host "       服务 $Svc 本来就是 Stopped" -ForegroundColor Gray
+    }
+    # 顺手禁掉自启：nssm 默认退出即重启，不禁掉它会自己回来抢。
+    # 想恢复：Set-Service -Name zhanguo-rl -StartupType Automatic; Start-Service zhanguo-rl
+    Set-Service -Name $Svc -StartupType Disabled -ErrorAction SilentlyContinue
+    Write-Host "       已置为 Disabled（想恢复见脚本注释）" -ForegroundColor Gray
 } catch {
-    Write-Host "[服务] 没读到 $Svc 服务（没装、或名字不同），不影响本次训练" -ForegroundColor Gray
+    Write-Host "       没有 $Svc 这个服务（或读不到），跳过" -ForegroundColor Gray
 }
+
+# ② 残留的 python 进程：先按解释器路径（conda 环境 zhanguo-rl），再按命令行兜底
+$killed = 0
+foreach ($p in @(Get-Process python -ErrorAction SilentlyContinue |
+                 Where-Object { try { $_.Path -eq $Py } catch { $false } })) {
+    Write-Host "       杀 conda python PID $($p.Id)" -ForegroundColor Yellow
+    Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+    $killed++
+}
+# 命令行兜底：跑着 rl.train / rl.bc 的不管哪个解释器都算（提权后 CIM 可读）
+try {
+    foreach ($p in @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+                     Where-Object { $_.CommandLine -match 'rl[\\/]?(train|bc)' })) {
+        Write-Host "       杀训练进程 PID $($p.ProcessId)：$($p.CommandLine)" -ForegroundColor Yellow
+        Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+        $killed++
+    }
+} catch {
+    Write-Host "       （命令行兜底查不了，跳过）" -ForegroundColor Gray
+}
+
+Start-Sleep -Seconds 2
+$left = @(Get-Process python -ErrorAction SilentlyContinue |
+          Where-Object { try { $_.Path -eq $Py } catch { $false } })
+if ($left) {
+    Write-Host "[错误] 还有 python 没杀掉（PID $($left.Id -join ',')）—— 先手动处理再跑，免得两个训练抢检查点" -ForegroundColor Red
+    Read-Host "回车退出"; exit 1
+}
+Write-Host "[清理] 完成：没有残留的训练进程（共处理 $killed 个）" -ForegroundColor Green
 
 # ---------------------------------------------------------------- 开跑
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
