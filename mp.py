@@ -200,6 +200,11 @@ class World:
         （战斗掷骰 `self.rng.randint(1,6)`、地块命名都在这条流上）。于是同一 seed
         两局对不上——地图不是种子的静态属性，「种子可复现」形同虚设。地形早在
         `tile_terrain` 里定死了，资源补上同一套：**开局就排布好，不由开图决定**。
+
+        2026-09-11 补完剩下那一半：**地块命名也搬出了共享流**（见 `_new_tile`）。
+        当时只修了资源、漏了命名，而命名是**每建一格都消耗**、且撞名重试导致
+        **消耗个数不定**的 —— 战斗掷骰仍会被建地顺序带偏。现在 `self.rng`
+        只剩战斗在用（外加开局布点），「同 seed 同战场」才真的成立。
         """
         from game import roll_resources
         return roll_resources(random.Random(f"{self.seed}:{x}:{y}:res"),
@@ -365,7 +370,15 @@ class World:
             "resources": self.tile_resources(x, y),
             "buildings": {b: 0 for b in BUILDINGS},
             "pending": {b: 0 for b in BUILDINGS},  # 在建（下回合才生效）
-            "name": roll_tile_name(self.rng, used),
+            # ★地块命名**不能用世界共享 RNG**（2026-09-11 修）。
+            #   `roll_tile_name` 撞名会重试，所以每建一格消耗的随机数**个数不定**；
+            #   而 `self.rng` 同时是战斗掷骰（`_die` → `self.rng.randint(1,6)`）的流 ——
+            #   于是**战斗结果取决于建地的顺序和数量**，同一 seed 两局对不上。
+            #   这和 `tile_resources` 那段注释里已经修过的病是同一个（当时只修了资源，
+            #   命名漏了）。改成与地形/资源同一套做法：**纯函数 of (seed, x, y)**。
+            #   名字本身仍可能因撞名而不同（`used` 依赖建地顺序），但那是纯装饰；
+            #   关键是**战斗的随机流从此与命名无关**，A/B 对比才干净。
+            "name": roll_tile_name(random.Random(f"{self.seed}:{x}:{y}:name"), used),
             "core": owner,  # 核心领土：首任 owner；每次战争结束按参与者实占重算
             "recruited_this_turn": 0,
             "built_this_turn": 0,
