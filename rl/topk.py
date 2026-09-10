@@ -76,6 +76,7 @@ def main() -> None:
 
     tot: Counter = Counter()
     hits: dict = defaultdict(Counter)
+    pred_kind: Counter = Counter()
     for s in range(0, len(samples), 256):
         chunk = samples[s:s + 256]
         (grid, glob, cand, mask), acts = pack([(o, i) for o, i, _ in chunk], model.n_tiles)
@@ -83,9 +84,10 @@ def main() -> None:
             order = model(grid, glob, cand, mask)[0].argsort(dim=-1, descending=True)
         at = torch.as_tensor(acts).unsqueeze(1)
         ok = {k: (order[:, :k] == at).any(1).numpy() for k in KS}
-        for b, (_o, _i, tool) in enumerate(chunk):     # 计数只在**这一层**，
+        for b, (o, _i, tool) in enumerate(chunk):      # 计数只在**这一层**，
             tot[tool] += 1                             # 别放进 k 循环里（会重复计数）
             tot["全体"] += 1
+            pred_kind[o.cand["actions"][int(order[b, 0])].kind] += 1
             for k in KS:
                 if ok[k][b]:
                     hits[tool][k] += 1
@@ -97,6 +99,16 @@ def main() -> None:
         if not n:
             continue
         print(f"{tool:<10}{n:>7}" + "".join(f"{hits[tool][k] / n:>9.1%}" for k in KS))
+
+    # ---- argmax 落在哪一类：和老师的边际分布对照 ----
+    # 这一栏才是「策略能不能干活」的直接证据。曾经模型 top10 里 82% 有 build，
+    # 但 argmax 里 build 一次都没有——第一名叫一个与局面无关的常数偏置霸占，
+    # 于是它从不建产能、从不移动。只看 top-k 看不出来，必须看 argmax 分布。
+    print(f"\n{'类别':<10}{'老师占比':>10}{'模型argmax':>12}")
+    for kind in KINDS:
+        if tot.get(kind):
+            print(f"{kind:<10}{tot[kind] / tot['全体']:>10.1%}"
+                  f"{pred_kind[kind] / max(1, sum(pred_kind.values())):>12.1%}")
 
 
 if __name__ == "__main__":

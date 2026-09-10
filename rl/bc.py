@@ -161,6 +161,16 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
         # 但那是"碰巧没卡住"。规则 AI 想动多少动多少，限额不该由我们来定。
         teacher_fn(env.world, env.agent, rng, max_actions=10 ** 9,
                    on_action=on_action, on_result=on_result)
+        # **「何时停手」也要教**：规则 AI 从不发 end_turn 动作（它在 v6/rule_ai 里
+        # 一次都没出现），干完活就直接返回。所以只采它做过的动作的话，数据集里
+        # 根本没有 end_turn 这个示范——模型永远学不会停手，每回合一路磨到
+        # MAX_ACTIONS 安全上限（实测 512 步/回合），评估和训练都被拖死。
+        # 老师停手处的局面，正确答案就是 end_turn，补一条标签。
+        o_end = env._obs()
+        j = next((k for k, a in enumerate(o_end.cand["actions"])
+                  if a.kind == "end_turn"), None)
+        if j is not None:
+            demos.append((o_end, j))
         env.world.resolve_turn()
         if t + 1 < turns:
             env.world.begin_turn()
