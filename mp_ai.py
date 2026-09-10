@@ -504,68 +504,73 @@ def _fmt_report_panel(world, name) -> str:
 
 
 def _gval(world, good: str, amt: int, side: str = "mid") -> float:
-    """把 amt 单位 good 折成金（黄金=矿场产出，按 MARKET['黄金'] 折算）。
-    side='mid' 用中间价；'buy'/'sell' 用含价差的实际成交单价（自用替代 / 外销口径）。"""
-    if amt <= 0:
-        return 0.0
-    if good == "黄金":
-        return amt * MARKET["黄金"]
-    if side in ("buy", "sell"):
-        return amt * world.market_quote(good, 1, side)[0]
-    p = world.prices.get(good)
-    return amt * (p if p is not None else float(MARKET.get(good, 0)))
+    """把 amt 单位 good 折成金。**实现已提到游戏层 `mp.good_value`**，这里只做转发。"""
+    from mp import good_value
+    return good_value(world, good, amt, side)
 
 
 def _econ_building(world, building: str) -> str:
-    """单个建筑的经济核算：按当前市价给 造价(折金)/每回合毛利/回本时间。"""
+    """单个建筑的经济核算：按当前市价给 造价(折金)/每回合毛利/回本时间。
+
+    **数值一律取自游戏层 `mp.build_econ`**（一份账两处用）；本函数只负责**拼文案**。
+    """
     info = BUILDINGS[building]
-    wp = world.prices.get("木头", float(MARKET["木头"]))
-    cost = info["cost"] if isinstance(info["cost"], int) else info["cost"][0]
-    capex = cost + info["wood"] * wp
     k = info["kind"]
     if k == "castle":
-        return (f"{building}: L1造价 {cost}金+{info['wood']}木(折{capex:.0f}金) · "
+        from mp import build_econ
+        e = build_econ(world, building)
+        return (f"{building}: L1造价 {e['cost']}金+{e['wood']}木(折{e['capex']:.0f}金) · "
                 f"每级+{CASTLE_DEFENSE_PER_LEVEL}%防御，不产金")
     if k in ("extract", "gold"):
-        if k == "gold":
-            net = sum(_gval(world, g, a) for g, a in info["outputs"].items())
-            tag = "固定+金"
-        else:
-            net = sum(_gval(world, g, a, "sell") for g, a in info["outputs"].items())
-            tag = "外销(卖价)"
-        pb = f"{capex / net:.0f}回合" if net > 0 else "—"
-        return f"{building}: 造价折{capex:.0f}金 · 每回合产出{tag}≈{net:.0f}金 · 回本≈{pb}"
+        from mp import build_econ
+        e = build_econ(world, building)
+        net, tag = e["per_turn"], ("固定+金" if k == "gold" else "外销(卖价)")
+        pb = f"{e['capex'] / net:.0f}回合" if net > 0 else "—"
+        return (f"{building}: 造价折{e['capex']:.0f}金 · 每回合产出{tag}≈{net:.0f}金 · 回本≈{pb}")
     if k == "energy":
-        fuel = sum(_gval(world, f, a, "buy") for f, a in info["fuel"].items())
-        return (f"{building}: 造价折{capex:.0f}金 · 每回合烧燃料现值≈{fuel:.0f}金 "
+        from mp import build_econ
+        e = build_econ(world, building)
+        return (f"{building}: 造价折{e['capex']:.0f}金 · 每回合烧燃料现值≈{e['detail']['fuel']:.0f}金 "
                 f"→ 产{info['energy_out']}电（电不交易，供高级建筑维持）")
     if k == "factory":
-        inv = sum(_gval(world, f, a, "buy") for f, a in info["inputs"].items())
-        out_self = sum(_gval(world, g, a, "buy") for g, a in info["outputs"].items())
-        out_sell = sum(_gval(world, g, a, "sell") for g, a in info["outputs"].items())
-        net = out_self - inv
-        ec = info.get("energy", 0) * _gval(world, "木头", 1, "buy") / 2  # 电按"1木发2电"的燃料成本估
-        pb = f"{capex / net:.0f}回合" if net > 0 else "—"
-        return (f"{building}: 造价折{capex:.0f}金 · 每回合投{inv:.0f}金(买价)料→产{out_self:.0f}金"
+        from mp import build_econ
+        e = build_econ(world, building)
+        d = e["detail"]
+        inv, out_self, out_sell, net, ec = (d["inputs_value"], d["outputs_buy"],
+                                            d["outputs_sell"], d["net"], d["energy_cost"])
+        pb = f"{e['capex'] / net:.0f}回合" if net > 0 else "—"
+        return (f"{building}: 造价折{e['capex']:.0f}金 · 每回合投{inv:.0f}金(买价)料→产{out_self:.0f}金"
                 f"(买价=自用替代；纯外销只值{out_sell:.0f}金)"
                 f"（毛利{net:+.0f}金；另耗{info.get('energy', 0)}电≈{ec:.0f}金） · 回本≈{pb}")
     if k == "barracks":
-        return (f"{building}: 造价折{capex:.0f}金 · 不自动产金，每兵营每回合可征1军"
+        from mp import build_econ
+        e = build_econ(world, building)
+        return (f"{building}: 造价折{e['capex']:.0f}金 · 不自动产金，每兵营每回合可征1军"
                 f"（步10粮5装 / 骑12粮12装，耗兵料另计）")
     if k == "townhall":
-        return (f"{building}: 造价折{capex:.0f}金 · 每回合 = {TOWN_HALL_GOLD}金基础"
+        c = _capex_of(world, building)
+        return (f"{building}: 造价折{c:.0f}金 · 每回合 = {TOWN_HALL_GOLD}金基础"
                 f" + 该地块每座建筑×{TOWN_HALL_PER_SLOT}金（不含自身；10建筑城≈"
                 f"{TOWN_HALL_GOLD + 10 * TOWN_HALL_PER_SLOT}金/回合）"
                 f" · 需本地已用位≥6、每地块限1座、耗1电")
     if k == "tower":
-        return f"{building}: 造价折{capex:.0f}金 · 不产金：事件视野 +{WATCHTOWER_RADIUS} 圆（情报投入）"
+        c = _capex_of(world, building)
+        return f"{building}: 造价折{c:.0f}金 · 不产金：事件视野 +{WATCHTOWER_RADIUS} 圆（情报投入）"
     if k == "academy":
-        return (f"{building}: 造价折{capex:.0f}金 · 不产金：本地块一切建造金价 -{ENGINEER_DISCOUNT}%"
+        c = _capex_of(world, building)
+        return (f"{building}: 造价折{c:.0f}金 · 不产金：本地块一切建造金价 -{ENGINEER_DISCOUNT}%"
                 "（需本地已用位≥4，后续建筑越贵回得越多）")
     if k == "militia_camp":
-        return (f"{building}: 造价折{capex:.0f}金 · 屯田 +1粮/回合；可征民兵（50金+5粮/支，每座1支/回合，"
+        c = _capex_of(world, building)
+        return (f"{building}: 造价折{c:.0f}金 · 屯田 +1粮/回合；可征民兵（50金+5粮/支，每座1支/回合，"
                 "全国民兵总数≤全国军屯数），民兵驻本格不耗补给（需本地耕地≥1、每地块限1座）")
     return f"{building}: 无核算"
+
+
+def _capex_of(world, building: str) -> float:
+    """造价折金（金 + 木×现价）——走游戏层，别在这儿重算。"""
+    from mp import build_econ
+    return build_econ(world, building)["capex"]
 
 
 def _fmt_econ(world, name: str | None = None) -> str:

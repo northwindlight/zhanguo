@@ -90,6 +90,93 @@ LEDGER_FIELDS = ("prod_value",      # 采集/工厂/军屯 产出 × 市价
                  "invest_wood_value")  # 建造耗木 × 当时市价
 
 
+# ---------------------------------------------------------------------------
+# 建设的经济核算（**游戏层**，一份账两处用：LLM 的经济面板 + 规则 AI 的建造决策）
+# ---------------------------------------------------------------------------
+
+def good_value(world: "World", good: str, amt: int, side: str = "mid") -> float:
+    """把 amt 单位 good 折成金（黄金按 MARKET['黄金'] 折算）。
+
+    side='mid' 用中间价；'buy'/'sell' 用含价差的实际成交单价（自用替代 / 外销口径）。
+    （原在 mp_ai._gval；提到游戏层，免得规则 AI 反向依赖 LLM 层。）
+    """
+    if amt <= 0:
+        return 0.0
+    if good == "黄金":
+        return amt * MARKET["黄金"]
+    if side in ("buy", "sell"):
+        return amt * world.market_quote(good, 1, side)[0]
+    p = world.prices.get(good)
+    return amt * (p if p is not None else float(MARKET.get(good, 0)))
+
+
+def build_econ(world: "World", building: str) -> dict:
+    """单个建筑的**数字版**经济核算（数值口径与 mp_ai 的经济面板同源）。
+
+    返回：
+        {
+          "building": 建筑名,
+          "capex":    造价折金（金 + 木×现价；城堡取 L1）,
+          "per_turn": 每回合净收益（金）—— 负 = 净支出,
+          "payback":  capex / per_turn（per_turn ≤ 0 → None，永远回不了本）,
+          "detail":   分项明细（给面板拼文案用）,
+        }
+
+    ⚠️ **注意口径**：加工厂（补给厂/装备厂）的产出按"**自用替代**"（买价）计 ——
+    即"这些产出替你去市场上买"。这个口径对**流量品**（补给：军队每回合都吃）成立，
+    对**存量品**（装备：只在征兵时一次性消耗）会**高估** —— 你并不是每回合都去买装备。
+    要不要按真实消耗率折算，见 spend_rules / 建造决策那边。
+    """
+    info = BUILDINGS[building]
+    wp = world.prices.get("木头", float(MARKET["木头"]))
+    cost = info["cost"] if isinstance(info["cost"], int) else info["cost"][0]
+    capex = cost + info.get("wood", 0) * wp
+    kind = info["kind"]
+    detail: dict = {}
+
+    if kind == "gold":
+        per = sum(good_value(world, g, a) for g, a in info["outputs"].items())
+        detail["net"] = per
+    elif kind == "extract" or kind == "militia_camp":
+        per = sum(good_value(world, g, a, "sell") for g, a in info["outputs"].items())
+        detail["net"] = per
+    elif kind == "energy":
+        fuel = sum(good_value(world, f, a, "buy") for f, a in info.get("fuel", {}).items())
+        per = -fuel
+        detail.update(fuel=fuel, energy_out=info["energy_out"])
+    elif kind == "factory":
+        inv = sum(good_value(world, f, a, "buy") for f, a in info.get("inputs", {}).items())
+        out_buy = sum(good_value(world, g, a, "buy") for g, a in info.get("outputs", {}).items())
+        out_sell = sum(good_value(world, g, a, "sell") for g, a in info.get("outputs", {}).items())
+        # 电按"1 木发 2 电"的燃料成本估
+        ec = info.get("energy", 0) * good_value(world, "木头", 1, "buy") / 2
+        per = out_buy - inv - ec
+        detail.update(inputs_value=inv, outputs_buy=out_buy, outputs_sell=out_sell,
+                      energy_cost=ec, net=out_buy - inv)
+    else:                                   # castle / barracks / townhall / tower
+        per = 0.0
+
+    return {"building": building, "capex": capex, "per_turn": per,
+            "payback": (capex / per) if per > 0 else None,
+            "cost": cost, "wood": info.get("wood", 0), "wood_price": wp,
+            "detail": detail}
+
+
+def best_build(world: "World", candidates) -> tuple[str | None, float | None]:
+    """在候选建筑里挑**回本最快**的一个（回本 ≤ 0 或算不出的排除）。
+
+    返回 (建筑名, 回本回合)；没有可建的就 (None, None)。
+    """
+    best, bp = None, None
+    for b in candidates:
+        e = build_econ(world, b)
+        if e["payback"] is None:
+            continue
+        if bp is None or e["payback"] < bp:
+            best, bp = b, e["payback"]
+    return best, bp
+
+
 class World:
     def __init__(self, size: int = 80, seed: int | None = None, *,
                  nations: list[str] | None = None,
