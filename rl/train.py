@@ -71,6 +71,9 @@ def main() -> None:
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--minibatch", type=int, default=512)
     ap.add_argument("--ent-coef", type=float, default=0.01)
+    ap.add_argument("--adv-norm", choices=("minibatch", "global"), default="minibatch",
+                    help="优势归一化范围。minibatch=CleanRL 默认；global=整块一次，"
+                         "保留「整局好/坏」的信息（策略双峰骑墙时用这个）")
     ap.add_argument("--lam", type=float, default=1.0,
                     help="GAE λ。γ=1、λ=1 时 GAE 退化为蒙特卡洛优势："
                          "A_t = 整局剩余消费 − V(s_t)，与目标函数完全同构。"
@@ -98,7 +101,7 @@ def main() -> None:
     env = build_env(args)
     model = build_model(env)
     ppo = PPO(model, lr=args.lr, epochs=args.epochs, minibatch=args.minibatch,
-              ent_coef=args.ent_coef)
+              ent_coef=args.ent_coef, adv_norm=args.adv_norm)
     start_iter = 0
     ck = None
     if args.resume:
