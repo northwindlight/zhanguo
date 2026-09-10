@@ -192,8 +192,16 @@ def pack(chunk, n_tiles):
             np.array([g for _o, _i, g in chunk], dtype=np.float32))
 
 
-def hit_rate(model, samples, n_tiles) -> float:
-    """在给定样本上量命中率（老师动作是否被选中）。分批，别一次塞爆内存。"""
+def hit_rate(model, samples, n_tiles, *, skip_end_turn: bool = False) -> float:
+    """在给定样本上量命中率（老师动作是否被选中）。分批，别一次塞爆内存。
+
+    `skip_end_turn=True`：只算老师的**真实动作**，把每回合补的那条 end_turn 示范剔掉。
+    必须分开看——end_turn 每回合一条、又最容易学，混在一起会把命中率抬得虚高
+    （实测「训练 20%」里约四分之三来自 end_turn，真实动作只有 ~5%）。
+    """
+    if skip_end_turn:
+        samples = [s for s in samples
+                   if s[0].cand["actions"][s[1]].kind != "end_turn"]
     if not samples:
         return float("nan")
     hit = tot = 0
@@ -225,9 +233,15 @@ def main() -> None:
     ap.add_argument("--dagger-every", type=int, default=1,
                     help="DAgger 每隔几回合问一次老师（1=每回合，不节流；"
                          "慢机器上可调大，代价是标签变稀）")
+    ap.add_argument("--dagger-from", type=int, default=-1,
+                    help="从第几局（0 起）开始 DAgger；默认 episodes//2。"
+                         "给个很大的数=全程纯 BC（短程验证用，信号干净不被 DAgger 搅）")
+    ap.add_argument("--val-every", type=int, default=6,
+                    help="每几局抽 1 局整局留出当验证集；短程跑要调小，否则一直是 nan")
     ap.add_argument("--buffer", type=int, default=40000, help="回放缓冲上限（滚动窗口）")
     ap.add_argument("--vf-coef", type=float, default=0.5,
-                    help="value 损失的权重——BC 顺手把 critic 也热身，PPO 接手时 V 不是随机数")
+                    help="value 损失的权重——BC 顺手把 critic 也热身，PPO 接手时 V 不是随机数。"
+                         "注意 loss_v 已按回报方差归一化，别拿它跟旧日志的 vf 直接比")
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--minibatch", type=int, default=256)
     ap.add_argument("--seed", type=int, default=0)
@@ -268,10 +282,11 @@ def main() -> None:
     t0 = time.time()
     total_steps = 0
     grad_steps = 0
+    dagger_from = args.dagger_from if args.dagger_from >= 0 else args.episodes // 2
     for ep in range(args.episodes):
         # 后半程用 **DAgger**：让学生自己跑，再让老师在**学生走到的状态**上打标签。
         # 这是治「分布漂移」的标准药——只学老师的轨迹，学生一旦偏离就没标签了。
-        use_student = (ep >= args.episodes // 2) and len(buffer) > 0
+        use_student = (ep >= dagger_from) and len(buffer) > 0
         demos, spend, miss = collect_episode(
             env, args.turns, seed=args.seed + ep, teacher_fn=teacher_fn,
             student=model if use_student else None, dagger_every=args.dagger_every)
@@ -279,10 +294,10 @@ def main() -> None:
             print(f"第 {ep} 局没采到样本，跳过")
             continue
         total_steps += len(demos)
-        # 验证集 = **整局留出**（每 6 局抽 1 局）。先前是从每局里切 10%，
+        # 验证集 = **整局留出**（每 --val-every 局抽 1 局）。先前是从每局里切 10%，
         # 那些样本和训练集**共用同一张地图**——只能测出"对见过的地图过拟合"，
         # 而真正要测的是**换一张新地图还灵不灵**。整局留出才测得到跨地图泛化。
-        if ep % 6 == 5:
+        if ep % args.val_every == args.val_every - 1:
             val.extend(demos)
         else:
             buffer.extend(demos)
@@ -302,7 +317,13 @@ def main() -> None:
             # **value 头也要练**：只练策略的话 BC 出来 V 是随机的，PPO 接手时
             # critic 从零开始，而 γ=1/λ=1 下优势完全依赖 V——偏置会直接毁掉
             # 训练信号。数据现成：G_t =（局末消费 − 此刻消费）× reward_scale。
-            loss_v = F.mse_loss(v, torch.as_tensor(rets))
+            # **值要归一化**：回报的量纲是「金 × reward_scale」≈ 0~1500，MSE 天然是
+            # 10^5 量级。不归一化有两个坑：① 0.5·loss_v ≈ 500 而 loss_pi ≈ 3，梯度
+            # 配比 170:1；② 下面那句全局 clip_grad_norm_(0.5) 被价值撑满，策略那点
+            # 梯度会被**一起缩掉**。除以回报方差拉回 O(1)：critic 没标定时使劲学，
+            # 标定好了自动让位（这就是"顺手热身"该有的样子）。
+            rt = torch.as_tensor(rets)
+            loss_v = F.mse_loss(v, rt) / max(1.0, float(rt.var()))
             loss = loss_pi + args.vf_coef * loss_v
             opt.zero_grad()
             loss.backward()
@@ -315,14 +336,18 @@ def main() -> None:
         # 训练集命中率也量：**只看验证集看不出过拟合**。两个一起看才有意义——
         # 训练一路涨、验证不涨或掉 = 过拟合，这时该早停挑检查点而不是继续跑。
         tr_hit = hit_rate(model, buffer[-600:], model.n_tiles)
+        tr_true = hit_rate(model, buffer[-600:], model.n_tiles, skip_end_turn=True)
         hit = hit_rate(model, val, model.n_tiles)
+        hit_true = hit_rate(model, val, model.n_tiles, skip_end_turn=True)
         # 这个消费数**两种模式含义不同**：纯 BC 局是老师的水平（~15 万），
         # DAgger 局是**学生自己走**打出来的（可能接近 0）——标错会误判成"老师崩了"。
         who = "学生" if use_student else "老师"
         print(f"局 {ep + 1}/{args.episodes}  样本 {len(demos)}(缓冲 {len(buffer)})  "
               f"{who}消费 {spend:,.0f}  未匹配 {miss}  loss {np.mean(losses):.3f}  "
               f"vf {np.mean(vlosses):.3f}  "
-              f"命中 训练{tr_hit:.1%}/验证{hit:.1%}  梯度步 {grad_steps}  "
+              f"命中 训练{tr_hit:.1%}/验证{hit:.1%}  "
+              f"真命中(扣end_turn) 训练{tr_true:.1%}/验证{hit_true:.1%}  "
+              f"梯度步 {grad_steps}  "
               f"累计 {time.time() - t0:.0f}s",
               flush=True)
         # 中途存点：只在跑完才存的话，想提前量一次分就得干等几小时。
