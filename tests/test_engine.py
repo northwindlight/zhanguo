@@ -736,3 +736,41 @@ class TestMapStaticResources(unittest.TestCase):
         spots = [(x, y) for x in range(6) for y in range(6)]
         self.assertNotEqual([a.tile_resources(*p) for p in spots],
                             [b.tile_resources(*p) for p in spots])
+
+
+class TestSeedReproducibility(unittest.TestCase):
+    """同 seed 必须同战场：战斗掷骰**不得**被建地顺序/数量带偏。
+
+    回归（2026-09-11）：地块命名曾经用**世界共享 RNG**（`roll_tile_name(self.rng, used)`），
+    而它撞名会重试，所以每建一格消耗的随机数**个数不定**；`self.rng` 同时是战斗掷骰
+    （`_die` → `self.rng.randint(1,6)`）的流 —— 于是战斗结果取决于建地顺序和数量，
+    同一 seed 两局对不上。这与 `tile_resources` 注释里已修过的病同源，当时只修了资源、
+    **命名漏了**。现在命名改成纯函数 of (seed, x, y)。
+    """
+
+    def test_combat_dice_independent_of_tile_creation(self):
+        w1 = mp.World(size=12, seed=99, nations=["秦"])
+        w2 = mp.World(size=12, seed=99, nations=["秦"])
+        # 在 w2 里多开 6 格地 —— 「建地」正是会消耗随机数的那个动作
+        made = 0
+        for x in range(12):
+            for y in range(12):
+                if made >= 6:
+                    break
+                if (x, y) not in w2.tiles:
+                    w2.tiles[(x, y)] = w2._new_tile(x, y, "秦")
+                    made += 1
+            if made >= 6:
+                break
+        self.assertEqual(made, 6)
+        d1 = [w1._die()[0] for _ in range(30)]
+        d2 = [w2._die()[0] for _ in range(30)]
+        self.assertEqual(d1, d2, "建地顺序/数量不该影响战斗掷骰")
+
+    def test_tile_name_is_pure_function_of_seed_and_pos(self):
+        """名字本身也该是 (seed, x, y) 的纯函数（撞名兜底除外）。"""
+        a = mp.World(size=12, seed=7, nations=["秦"])
+        b = mp.World(size=12, seed=7, nations=["秦"])
+        spots = [(x, y) for x in range(6) for y in range(6)]
+        self.assertEqual([a._new_tile(*p, "秦")["name"] for p in spots],
+                         [b._new_tile(*p, "秦")["name"] for p in spots])
