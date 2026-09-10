@@ -42,6 +42,13 @@ class PolicyNet(nn.Module):
         # 候选编码只做一层：打分用「全局 query · 候选 key」点积（O(d) 而非 O(d²)/候选）。
         # 实测（rl/bench.py）：每步 K≈300 个候选时，打分头是唯一瓶颈，卷积规模几乎不影响耗时。
         self.cand_mlp = nn.Sequential(nn.Linear(d_in, d_cand), nn.ReLU())
+        # 打分前归一化 query 与候选：点积 q·c 对向量**模长**敏感，而模长与局面无关——
+        # 模型于是走了捷径：把某几类候选（实测 recruit 模长 4.26 vs sell 3.08）的模长
+        # 顶上去，不看局面也能让它们的地一名。实测模型能把 build 排进前 10（82%）
+        # 却从不把它排第一，而 argmax 长期只落在 recruit/sell 两类上。
+        # LayerNorm 后每向量零均值单位方差，模长信息被抹掉，只能靠**方向**（内容）打分。
+        self.cand_ln = nn.LayerNorm(d_cand)
+        self.q_ln = nn.LayerNorm(d_cand)
         self.query = nn.Linear(d_global, d_cand)
         self.value = nn.Sequential(nn.Linear(d_global, 128), nn.ReLU(), nn.Linear(128, 1))
         self.null_tile = nn.Parameter(torch.zeros(d_conv))
@@ -73,7 +80,7 @@ class PolicyNet(nn.Module):
         c = self.cand_mlp(torch.cat([tf, ag, te, se, ae], dim=-1))   # [B,K,dc]
         g = self.glob_mlp(glob)                                       # [B,dg]
         q = self.query(g)                                             # [B,dc]
-        logits = (q.unsqueeze(1) * c).sum(-1) / (c.size(-1) ** 0.5)
+        logits = (self.q_ln(q).unsqueeze(1) * self.cand_ln(c)).sum(-1) / (c.size(-1) ** 0.5)
         if mask is not None:
             logits = logits.masked_fill(~mask, -1e9)
         return logits, self.value(g).squeeze(-1)
