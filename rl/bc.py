@@ -105,9 +105,15 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
     # 偏航最明显的地方（比如它整局没建东西，回合 100 的局面和老师见过的完全
     # 不同），把那些状态补上标签就治住了主要漂移。
     #
-    # dagger_every：**不是每回合都问**。Pi5 上一次 deepcopy+老师规划约 1.9s，
-    # 500 回合全问 = 每局 15 分钟，12 局跑三小时。隔几回合问一次，
-    # 标签少一些但覆盖的偏航状态足够，时间可控。
+    # 每个回合**开头**问一次老师，拿到它这一回合的**整个动作序列**（在世界的副本上问，
+    # 不污染真实局面；实测一次 deepcopy + 老师整回合只要 ~3ms，不贵）。
+    #
+    # ★ 标签不能固定取序列第 1 个：实测 v6 每回合的第一步 **100% 是 sell**（先卖余量换
+    #   现金），固定取它等于每回合都教学生"卖"——而学生本来就在过度卖，DAgger 于是
+    #   不但治不了漂移，还会加重它。
+    #   正确做法是**按相位对齐**：学生这一回合走到第 k 步，就取老师序列的第 k 个动作；
+    #   **k 超出老师的回合长度 → 老师早该停手了，正确答案是 `end_turn`**。
+    #   最后这条直接对治空转：老师的回合长度就是"这回合该干多少活"的天然标尺。
     if student is not None:
         import copy
         from rl.ppo import act as _act
@@ -116,20 +122,31 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
         obs = env.reset(seed)
         rng = random.Random(seed)
         last_turn = -1
+        seq: list[tuple] = []
         while True:
             t = env.world.turn
-            if t != last_turn and t % max(1, dagger_every) == 0:
+            if t != last_turn:
                 last_turn = t
-                w2 = copy.deepcopy(env.world)
-                got: list[tuple] = []
-                teacher_fn(w2, env.agent, rng, max_actions=1,
-                           on_action=lambda tool, args: got.append((tool, args)))
-                if got:
-                    i = match(obs.cand["actions"], to_action(*got[0]))
-                    if i is None:
-                        miss_d += 1
-                    else:
-                        demos_d.append((obs, i, env.world.spend_total(env.agent)))
+                seq = []
+                if t % max(1, dagger_every) == 0:      # dagger_every：每几回合问一次
+                    w2 = copy.deepcopy(env.world)
+                    teacher_fn(w2, env.agent, rng, max_actions=10 ** 9,
+                               on_action=lambda tool, args: seq.append((tool, args)))
+            # 标签 = 老师回合序列的第 k 个动作；**k 超出老师的回合长度 → end_turn**。
+            # 「停手」这条恰恰是对治空转的关键：学生漂移时一回合走几十步，
+            # 老师只走 n 步，所以从第 n 步起每一步都在告诉它"该停了"。
+            # （k 本身在观测里（turn_actions/ACT_REF），模型有条件区分，
+            #   所以 end_turn 样本多不会污染 k=0 —— 那里的标签是老师的第一个动作。）
+            k = env.turn_actions
+            if k < len(seq):
+                i = match(obs.cand["actions"], to_action(*seq[k]))
+            else:
+                i = next((j for j, a in enumerate(obs.cand["actions"])
+                          if a.kind == "end_turn"), None)
+            if i is None:
+                miss_d += 1
+            else:
+                demos_d.append((obs, i, env.world.spend_total(env.agent)))
             idx, _lp, _v = _act(student, obs)
             obs, _r, done, _info = env.step(obs.cand["actions"][idx])
             if done:

@@ -207,3 +207,51 @@ def buy_exact(bill: dict, buy) -> None:
     for good, (gap, _gold) in bill["items"].items():
         if gap > 0:
             buy(good, gap)
+
+
+# --------------------------------------------------------------------------
+# 自由现金流（用户 2026-09-11 的口径：**别按必须支出算，按每回合积累的自由现金流算**）
+# --------------------------------------------------------------------------
+
+def free_cash_flow(w, name: str, *, recruit: int = 0) -> dict:
+    """每回合的**自由现金流** = 可动用收入 − 刚性支出。
+
+    用户的账：**刚性 ≤ 30% → 自由 ≥ 70%**，那 70% 就是能拿去复利（建造）的钱。
+    所以"钱去哪了"要看**这个数**，不是看刚性支出占多少。
+
+    "可动用收入"只算**能变成现金的**：金矿/市政厅产的现金 + 产出按**卖价**折金
+    （产出得卖掉才是钱；库存不算 —— 囤着不是自由现金流）。
+
+    返回 {可动用收入, 刚性支出, 自由现金流, 自由占比}。
+    """
+    cash_income = 0.0
+    for p in w.own_tiles(name):
+        t = w.tiles[p]
+        for bn, cnt in t["buildings"].items():
+            if not cnt:
+                continue
+            info = BUILDINGS.get(bn)
+            if info is None:
+                continue
+            kind = info.get("kind")
+            if kind == "townhall":
+                cash_income += (TOWN_HALL_GOLD
+                                + TOWN_HALL_PER_SLOT * sum(t["buildings"].values())) * cnt
+            for good, amt in (info.get("outputs") or {}).items():
+                if good == "黄金":
+                    cash_income += amt * cnt * MARKET["黄金"]      # 金矿出的就是现金
+                else:
+                    cash_income += good_value_sell(w, good, amt * cnt)
+    rigid = rigid_gold(w, name, recruit=recruit)
+    free = cash_income - rigid
+    return {"可动用收入": cash_income, "刚性支出": rigid, "自由现金流": free,
+            "自由占比": (free / cash_income) if cash_income > 0.5 else float("nan")}
+
+
+def good_value_sell(w, good: str, amt: int) -> float:
+    """按**卖价**折金（自由现金流口径：产出要卖掉才是钱）。"""
+    if amt <= 0:
+        return 0.0
+    if good == "黄金":
+        return amt * MARKET["黄金"]
+    return amt * w.market_quote(good, 1, "sell")[0]
