@@ -51,7 +51,6 @@ from game import (
     UNIT_TYPES,
     WATCHTOWER_RADIUS,
     army_name,
-    roll_resources,
     roll_tile_name,
     unit_atk,
     unit_kind,
@@ -157,6 +156,20 @@ class World:
         from game import roll_terrain
         return roll_terrain(random.Random(f"{self.seed}:{x}:{y}"))
 
+    def tile_resources(self, x: int, y: int) -> dict[str, int]:
+        """该地块的矿藏/耕地布局（建采集建筑要看的就是它）——与地形同一套做法：
+        **纯函数 of (seed, x, y)**，跟谁先占、占之前打过几仗毫无关系。
+
+        以前这里在 `_new_tile` 里写的是 `roll_resources(self.rng, terrain)`，用的是
+        **世界共享 RNG**：同一格摇出什么资源，取决于轮到它的时候 RNG 已经走了多远
+        （战斗掷骰 `self.rng.randint(1,6)`、地块命名都在这条流上）。于是同一 seed
+        两局对不上——地图不是种子的静态属性，「种子可复现」形同虚设。地形早在
+        `tile_terrain` 里定死了，资源补上同一套：**开局就排布好，不由开图决定**。
+        """
+        from game import roll_resources
+        return roll_resources(random.Random(f"{self.seed}:{x}:{y}:res"),
+                              self.tile_terrain(x, y))
+
     def ter_char(self, x: int, y: int) -> str:
         t = self.tiles.get((x, y))
         ter = t["terrain"] if t else self.tile_terrain(x, y)
@@ -259,7 +272,7 @@ class World:
         return {
             "owner": owner,
             "terrain": terrain,
-            "resources": roll_resources(self.rng, terrain),
+            "resources": self.tile_resources(x, y),
             "buildings": {b: 0 for b in BUILDINGS},
             "pending": {b: 0 for b in BUILDINGS},  # 在建（下回合才生效）
             "name": roll_tile_name(self.rng, used),
