@@ -151,7 +151,11 @@ class PPO:
                 pg1 = -adv * ratio
                 pg2 = -adv * ratio.clamp(1 - self.clip, 1 + self.clip)
                 pg = torch.max(pg1, pg2).mean()
-                vf = F.mse_loss(value, ret)
+                # 价值裁剪：单块训练里回报可能突然很大（比如一局收尾把消费打上去），
+                # 不裁剪的话价值网会被一个离群目标拽飞、连带把策略也带崩。
+                old_v = torch.as_tensor([s["val"] for s in mb], dtype=torch.float32)
+                v_clip = old_v + (value - old_v).clamp(-self.clip, self.clip)
+                vf = torch.max((value - ret) ** 2, (v_clip - ret) ** 2).mean()
                 p = logp_all.exp()
                 ent = -(p * logp_all.masked_fill(~mask, 0.0)).sum(-1).mean()
                 loss = pg + self.vf_coef * vf - self.ent_coef * ent
