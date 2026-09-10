@@ -80,9 +80,6 @@ TERRAIN_CHARS = {"平原": "P", "森林": "F", "丘陵": "H", "山地": "M", "�
 # ---- 建设系统 ----
 # 每地块建筑位总数；城堡级数也占位
 MAX_SLOTS = 20
-STARTING_GOLD = 2000
-STARTING_WOOD = 50     # 初始木材储备（建任何建筑都要花木头）
-STARTING_SUPPLY = 10   # 初始补给仓（军队每支每回合耗 1 补给）
 CASTLE_DEFENSE_PER_LEVEL = 10  # 每级城堡 +10% 防御
 TOWN_HALL_GOLD = 5     # 每座市政厅每回合基础产金；另按该地块已占建筑位每座 +1 金（电网不足停摆）
 TOWN_HALL_PER_SLOT = 1  # 市政厅：每座额外 +该地块建筑数×此值 金/回合

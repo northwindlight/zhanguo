@@ -5,7 +5,7 @@
   只能调用自己的合法工具（规则与引擎完全一致，无作弊入口）。
 - execute(world, actor, tool, args)：执行一个工具调用并返回结果文本。
 - run_openai_turn(...)：一个国家的「回合」——反复调 LLM 直到它 end_turn / 无工具。
-- dummy_turn(...)：无 key 时的简单规则 AI，用于机制验证/看海 demo。
+- dummy_turn(...)：无 key 时的规则 AI（扩张流 v6，游戏层），用于机制验证/看海 demo。
 """
 
 from __future__ import annotations
@@ -46,7 +46,6 @@ try:
 except Exception:
     pass
 
-# 引擎级锁：多国 agent 并发跑时，所有对 world 的读写在此串行化（网络调用在锁外并行）。
 _engine_lock = threading.RLock()
 
 
@@ -1377,12 +1376,15 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
 # ---------------------------------------------------------------------------
 
 def dummy_turn(world, name, rng, max_actions: int = 12) -> int:
-    """无 key 的规则 AI：委托给**游戏层**的 `rule_ai.rule_turn`，并把每个动作写进看海日志。
+    """无 key 的规则 AI：委托给**游戏层**的 `expand_rule_v6.expand_rule_turn_v6`，
+    并把每个动作写进看海日志。
 
-    策略本身在 `rule_ai.py`——那是游戏层，不依赖本 LLM 层的工具 schema / 文本面板 / 国策。
+    策略本身在 `expand_rule_v6.py`——那是游戏层，不依赖本 LLM 层的工具 schema /
+    文本面板 / 国策。用最强的扩张流（实测五图均 ~141k 终局消费）而不是旧稳经济版：
+    代打的国家若不会扩张，看海 demo 与机制验证都会被带偏。
     """
-    from rule_ai import rule_turn
-    acts = rule_turn(world, name, rng, max_actions=max_actions)
+    from expand_rule_v6 import expand_rule_turn_v6
+    acts = expand_rule_turn_v6(world, name, rng, max_actions=max_actions)
     for tool, args, ok, msg in acts:
         log_tool(world, name, tool, args, msg)
     return len(acts)
