@@ -56,6 +56,20 @@ class Rollout:
             "rew": float(self._scale(reward, done)), "done": bool(done),
         })
 
+    def state(self) -> dict:
+        """归一化器状态——**必须存进 checkpoint**。
+
+        否则重启续训时 _mean/_var/_count 从零开始，奖励缩放尺度突变，
+        critic 学到的价值全部错配到新尺度上，每次重启都要经历一段破坏期。
+        """
+        return {"mean": self._mean, "var": self._var, "count": self._count, "ret": self._ret}
+
+    def load_state(self, d: dict) -> None:
+        self._mean = float(d.get("mean", 0.0))
+        self._var = float(d.get("var", 1.0))
+        self._count = float(d.get("count", 1e-4))
+        self._ret = float(d.get("ret", 0.0))
+
     def __len__(self) -> int:
         return len(self.steps)
 

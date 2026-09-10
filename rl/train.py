@@ -186,6 +186,9 @@ def main() -> None:
     seed = args.seed
     obs = env.reset(seed)
     rollout = Rollout(lam=args.lam)
+    if ck and ck.get("norm"):
+        rollout.load_state(ck["norm"])
+        print("（含回报归一化状态）")
     ep_ret, ep_steps, ep_done = 0.0, 0, False
     eps: list[dict] = []          # 已完成的局
     total_steps = 0
@@ -270,7 +273,7 @@ def main() -> None:
                if row["eval_spend"] == row["eval_spend"] else "eval_spend=-"),
             encoding="utf-8")
         blob = {"model": model.state_dict(), "opt": ppo.opt.state_dict(),
-                "iter": it, "args": vars(args)}
+                "norm": rollout.state(), "iter": it, "args": vars(args)}
         torch.save(blob, out / "last.pt")
         torch.save(blob, out / "model.pt")
         if args.ckpt_every and it % args.ckpt_every == 0:
