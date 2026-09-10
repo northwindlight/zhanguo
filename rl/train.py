@@ -183,7 +183,11 @@ def main() -> None:
     writer = None
     csv_fh = None
     t0 = time.time()
-    seed = args.seed
+    # 训练用的地图种子逐局递增；**必须跟着 checkpoint 走**，否则每次重启都从头数，
+    # 会重复练前面那批地图（评估种子是固定的 900000+/800000+，与训练图不重叠）。
+    seed = int(ck["seed"]) if (ck and ck.get("seed") is not None) else args.seed
+    if ck and ck.get("seed") is not None:
+        print(f"（训练图种子接着数：{seed}）")
     obs = env.reset(seed)
     rollout = Rollout(lam=args.lam)
     if ck and ck.get("norm"):
@@ -273,7 +277,7 @@ def main() -> None:
                if row["eval_spend"] == row["eval_spend"] else "eval_spend=-"),
             encoding="utf-8")
         blob = {"model": model.state_dict(), "opt": ppo.opt.state_dict(),
-                "norm": rollout.state(), "iter": it, "args": vars(args)}
+                "norm": rollout.state(), "seed": seed, "iter": it, "args": vars(args)}
         torch.save(blob, out / "last.pt")
         torch.save(blob, out / "model.pt")
         if args.ckpt_every and it % args.ckpt_every == 0:
