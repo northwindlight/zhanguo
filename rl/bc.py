@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
-"""行为克隆冷启动：先跟 rule_ai 学会「模式」，再交给 PPO 微调。
+"""行为克隆冷启动：先跟规则 AI（扩张流 v6）学会「模式」，再交给 PPO 微调。
 
 为什么需要它：从零 RL 时，所有配置都卡在同一处——**探索不出「复利链」**
 （建产能 → 出兵 → 占地 → 再建产能）。这条链要几十回合才回本，而策略在学会它
 之前就已经塌进「少做事」的局部最优（ent → 0.1，局末消费掉到 1 千）。
 
-BC 把最难的那一步用现成的规则 AI 直接灌进去：rule_ai 虽然不会扩张（固定 5 块地），
-但它会建产能、会卖余量换现金、会征兵——**正是策略缺的那个"会做事"的先验**。
+BC 把最难的那一步用现成的规则 AI 直接灌进去：`expand_rule_v6` 会建产能、会卖余量
+换现金、会征兵、会扩张——**正是策略缺的那个"会做事"的先验**。
 
-做法：拿 rule_ai 跑局，在它**每次动手前**抓一帧观测（那一刻的状态就是该动作的输入），
+做法：拿规则 AI 跑局，在它**每次动手前**抓一帧观测（那一刻的状态就是该动作的输入），
 把它的动作映射成 RL 候选清单里的下标，监督训练（交叉熵）。
 
     python3 -m rl.bc --episodes 30 --out rl/runs/bc/last.pt
@@ -29,11 +29,10 @@ import torch.nn.functional as F
 from rl.env import ACT_SAFETY, KINDS, ZhanguoEnv
 from rl.model import PolicyNet
 from rl.ppo import collate
-from rule_ai import rule_turn
 
 
 def to_action(tool: str, args: dict):
-    """rule_ai 的 (tool, args) → (kind, sub, tile, army, amount)。坐标转 0-based。"""
+    """规则 AI 的 (tool, args) → (kind, sub, tile, army, amount)。坐标转 0-based。"""
     try:
         if tool == "build":
             x, y = map(int, str(args["tile"]).split())
@@ -78,13 +77,15 @@ def match(actions, spec):
 
 
 def get_teacher(which: str):
-    """老师：v6=用户第二版扩张流（最强，推荐）/ v3=第一版 / old=稳经济不扩张。"""
-    if which == "v6":
-        from expand_rule_v6 import expand_rule_turn_v6 as fn
-    elif which == "v3":
+    """老师：v6=第二版扩张流（最强，推荐）/ v3=第一版扩张流。
+
+    旧的 rule_ai（稳经济不扩张，终局 ~7k）已退休——它既不会扩张，也早就不当
+    无 key 代打了（那个角色给了 v6），留着当基线只会误导。
+    """
+    if which == "v3":
         from expand_rule_ai import expand_rule_turn as fn
     else:
-        from rule_ai import rule_turn as fn
+        from expand_rule_v6 import expand_rule_turn_v6 as fn
     return fn
 
 
@@ -163,8 +164,8 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
         # 但那是"碰巧没卡住"。规则 AI 想动多少动多少，限额不该由我们来定。
         teacher_fn(env.world, env.agent, rng, max_actions=10 ** 9,
                    on_action=on_action, on_result=on_result)
-        # **「何时停手」也要教**：规则 AI 从不发 end_turn 动作（它在 v6/rule_ai 里
-        # 一次都没出现），干完活就直接返回。所以只采它做过的动作的话，数据集里
+        # **「何时停手」也要教**：规则 AI 从不发 end_turn 动作（各版 expand_rule_*
+        # 里一次都没出现），干完活就直接返回。所以只采它做过的动作的话，数据集里
         # 根本没有 end_turn 这个示范——模型永远学不会停手，每回合一路磨到
         # MAX_ACTIONS 安全上限（实测 512 步/回合），评估和训练都被拖死。
         # 老师停手处的局面，正确答案就是 end_turn，补一条标签。
@@ -216,10 +217,9 @@ def hit_rate(model, samples, n_tiles, *, skip_end_turn: bool = False) -> float:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="行为克隆冷启动（学 rule_ai 的模式）")
-    ap.add_argument("--teacher", default="v6", choices=("v6", "v3", "old"),
-                    help="老师：v6=用户第二版扩张流（五图均 141k，推荐）/ v3=第一版（82k）"
-                         "/ old=稳经济不扩张（7k）")
+    ap = argparse.ArgumentParser(description="行为克隆冷启动（学规则 AI 的模式）")
+    ap.add_argument("--teacher", default="v6", choices=("v6", "v3"),
+                    help="老师：v6=第二版扩张流（五图均 141k，推荐）/ v3=第一版扩张流（82k）")
     ap.add_argument("--episodes", type=int, default=30, help="跑多少局老师 AI 采样本")
     ap.add_argument("--turns", type=int, default=500)
     ap.add_argument("--map-size", type=int, default=16)

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""正式对比：同一批地图上，跑 [训练好的模型·贪心] / [模型·采样] / [rule_ai]，给可信数字。
+"""正式对比：同一批地图上，跑 [训练好的模型·贪心] / [模型·采样] / [规则 AI]，给可信数字。
 
 为什么需要：训练时的评估只用固定 3 张图（900000+ / 800000+），可比但样本太小；
 规则 AI 的 13,856 更是单张图（seed 0）量的。这里统一到同一批随机图上，三方同图对比。
@@ -18,7 +18,6 @@ import torch
 from rl.env import ACT_SAFETY, KINDS, ZhanguoEnv
 from rl.model import PolicyNet
 from rl.ppo import act
-from rule_ai import rule_turn
 
 
 def run_model(env, model, seed: int, deterministic: bool) -> tuple[float, int]:
@@ -34,18 +33,16 @@ def run_model(env, model, seed: int, deterministic: bool) -> tuple[float, int]:
 
 
 def run_rule(env, seed: int, turns: int, max_actions: int = 10 ** 9,
-             which: str = "old") -> tuple[float, int]:
+             which: str = "v6") -> tuple[float, int]:
     """规则 AI 自己驱动世界（它直接调引擎，不走 RL 动作集）。
 
-    which: "old"=rule_ai.py（稳经济不扩张）/ "v3"=expand_rule_ai.py（扩张流·用户第一版）
-           / "v6"=expand_rule_v6.py（扩张流·用户第二版，最强基线）。
+    which: "v3"=expand_rule_ai.py（扩张流·第一版）/ "v6"=expand_rule_v6.py
+           （扩张流·第二版，最强基线）。旧的 rule_ai 已退休，不再当基线。
     """
-    if which == "v6":
-        from expand_rule_v6 import expand_rule_turn_v6 as fn
-    elif which == "v3":
+    if which == "v3":
         from expand_rule_ai import expand_rule_turn as fn
     else:
-        fn = rule_turn
+        from expand_rule_v6 import expand_rule_turn_v6 as fn
     env.reset(seed)
     rng = random.Random(seed)
     for t in range(turns):

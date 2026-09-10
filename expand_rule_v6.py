@@ -47,7 +47,7 @@ TROOPS_FOR = {"沙漠": 2, "平原": 2, "森林": 3, "丘陵": 3, "山地": 4}
 
 def expand_rule_turn_v6(world, name: str, rng: random.Random | None = None,
                      max_actions: int = 40, on_action=None, on_result=None) -> list:
-    """行为克隆采样钩子（与 rule_ai.rule_turn 同签名）：
+    """行为克隆采样钩子（与 v3/v4/v5 各版规则 AI 同签名）：
 
     - on_action(tool, args)：**执行之前**回调（此刻的世界状态就是该动作的输入）
     - on_result(tool, args, ok)：**执行之后**回调，调用方应只在 ok=True 时入库
