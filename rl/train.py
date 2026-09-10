@@ -122,11 +122,20 @@ def main() -> None:
     eval_env = build_env(args)
 
     def evaluate(n: int) -> dict:
-        sp = [play_episode(eval_env, model, seed=900_000 + i, deterministic=True)
-              for i in range(n)]
-        return {"eval_spend": float(np.mean([s["spend_total"] for s in sp])),
-                "eval_tiles": float(np.mean([s["tiles"] for s in sp])),
-                "eval_armies": float(np.mean([s["armies"] for s in sp]))}
+        """贪心 + 采样两套评估。
+
+        必须都看：策略熵高时「argmax」未必代表策略的真实本领——实测出现过
+        贪心掉进「建最贵的建筑→资源耗光→躺平」的近视陷阱，而采样仍有 4~6 万消费。
+        """
+        g = [play_episode(eval_env, model, seed=900_000 + i, deterministic=True)
+             for i in range(n)]
+        s = [play_episode(eval_env, model, seed=800_000 + i, deterministic=False)
+             for i in range(n)]
+        return {"eval_spend": float(np.mean([x["spend_total"] for x in g])),
+                "eval_tiles": float(np.mean([x["tiles"] for x in g])),
+                "eval_armies": float(np.mean([x["armies"] for x in g])),
+                "eval_s_spend": float(np.mean([x["spend_total"] for x in s])),
+                "eval_s_tiles": float(np.mean([x["tiles"] for x in s]))}
 
     if args.eval_only:
         print("评估：", evaluate(args.eval_episodes))
@@ -174,6 +183,7 @@ def main() -> None:
         row = {
             "eval_spend": float("nan"), "eval_tiles": float("nan"),
             "eval_armies": float("nan"),
+            "eval_s_spend": float("nan"), "eval_s_tiles": float("nan"),
             "iter": it, "env_steps": (it * args.rollout_steps), "secs": round(time.time() - t0, 1),
             "episodes": len(eps),
             "last_spend": float(recent[-1]["spend_total"]) if recent else float("nan"),
