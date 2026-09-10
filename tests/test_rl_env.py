@@ -8,6 +8,8 @@ from __future__ import annotations
 import random
 import unittest
 
+import numpy as np
+
 from mp import World
 from rl.env import ZhanguoEnv
 
@@ -42,6 +44,29 @@ class TestLegalActions(unittest.TestCase):
         self.assertTrue(obs.cand["mask"].all())
         # 地块下标要么落在图上，要么是 null（= 地块数）
         self.assertTrue(((obs.cand["tile_idx"] >= 0) & (obs.cand["tile_idx"] <= 144)).all())
+
+
+class TestVision(unittest.TestCase):
+    """观测必须走引擎视野（fog of war），不能是全图。"""
+
+    def test_obs_is_fog_gated(self):
+        env = ZhanguoEnv(map_size=12, seed=5, max_turns=6)
+        obs = env.reset()
+        vis = env._vision_mask()
+        terrain = obs.grid[:5].sum(0)              # 地形 one-hot 求和
+        self.assertTrue(((terrain > 0) & (vis < 0.5)).sum() == 0, "视野外不该有地形")
+        self.assertTrue(np.allclose(obs.grid[-1], vis), "visible 通道应等于视野掩码")
+        self.assertGreater(int(vis.sum()), 0)
+        self.assertLess(int(vis.sum()), 12 * 12, "有雾：不可能全图可见")
+        # 走几步后仍然成立
+        for _ in range(40):
+            a = obs.cand["actions"][0]
+            obs, _r, done, _info = env.step(a)
+            if done:
+                break
+        vis2 = env._vision_mask()
+        terrain2 = obs.grid[:5].sum(0)
+        self.assertTrue(((terrain2 > 0) & (vis2 < 0.5)).sum() == 0, "行进中也不该看到视野外")
 
 
 class TestReward(unittest.TestCase):
