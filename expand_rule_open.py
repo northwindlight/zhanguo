@@ -200,6 +200,18 @@ def opening_turn(world, name: str, rng: random.Random | None = None,
             else:
                 do("sell", {"good": good, "qty": excess}, w.sell, name, good, excess)
 
+    # ---- 2.5 **先养兵，再建设**（长期支出优先于一次性支出）----
+    # 用户的判据"只评估长期支出"落到**次序**上就是这个：补给是每回合重复的长期支出，
+    # 建造是一次性的。实测把建造排在前面时，现金全被建造吃掉 → 补给见底却
+    # "账面上养得起"（收入含自产折价、实际口袋里没钱）→ **两支部队活活饿死**。
+    _arm = len(w.nation_armies(name))
+    if _arm:
+        _need = _arm * 12                              # 留 12 回合口粮
+        if w.res(name, "补给") < _need:
+            buy("补给", _need, budget_frac=0.9)        # 买口粮可以动用九成的钱
+        if w.res(name, "补给") < _arm * 3:             # 还是不够 → 保住口粮不卖
+            pass
+
     # ---- 3. 建设 ----
     # 3a. 链子（能源 → 凑位 → 兵营 → 补给厂），全在 main 格上
     t_main = w.tiles[main]
@@ -213,11 +225,19 @@ def opening_turn(world, name: str, rng: random.Random | None = None,
             _try(w, name, main, _cheapest_filler(w, name, main), do, buy)
         elif slots >= 3 and not barracks_n and can_army:
             _try(w, name, main, "兵营", do, buy)
-        elif barracks_n and not _cnt(w, name, "补给厂") and _worth_supply_factory(w, name, ratio):
+        elif barracks_n and not _cnt(w, name, "补给厂") and _worth_supply_factory(w, name):
             _try(w, name, main, "补给厂", do, buy)
 
     # 3b. 其余格并行铺采集（金矿权重最大）；让开兵营专款
-    barr_fund = 350 if not barracks_n else 0
+    # 专款：**先兵营，再补给厂** —— 两者的优先级都高于采集建筑。
+    # 补给厂砍的是**每回合重复的**军费（长期），采集建筑只是一次性收益；
+    # 实测不给它留专款时，采集会把金花光，30 个 seed 里只有 9 个建得出补给厂。
+    if not barracks_n:
+        barr_fund = 350
+    elif not _cnt(w, name, "补给厂") and _worth_supply_factory(w, name):
+        barr_fund = 175
+    else:
+        barr_fund = 0
     for p in sorted(w.own_tiles(name)):
         if w.tiles[p]["built_this_turn"] or p == main:
             continue
@@ -246,15 +266,11 @@ def opening_turn(world, name: str, rng: random.Random | None = None,
                        if w.tiles[p]["buildings"]["兵营"]):
                 break
 
-    # ---- 5. 养兵：没补给厂才买补给；有厂了就补原料 ----
-    if w.nation_armies(name):
-        if not _cnt(w, name, "补给厂"):
-            n_arm = len(w.nation_armies(name))
-            if w.res(name, "补给") < n_arm * 10:
-                buy("补给", n_arm * 25)
-        elif w.res(name, "补给") < len(w.nation_armies(name)) * 3:
-            buy("粮食", 30)
-            buy("矿石", 12)
+    # ---- 5. 补给厂落地后：只补**原料**（口粮已在 2.5 节买过）----
+    if _cnt(w, name, "补给厂") and w.nation_armies(name) \
+            and w.res(name, "补给") < len(w.nation_armies(name)) * 3:
+        buy("粮食", 30)
+        buy("矿石", 12)
 
     return acts
 
@@ -271,17 +287,28 @@ def _cheapest_filler(w, name, main) -> str:
     return _FILLERS[0]
 
 
-def _worth_supply_factory(w, name, ratio) -> bool:
-    """补给厂评估：**省下的口粮维护**够不够回本（含 1 木电力）。
+HORIZON = 50          # 训练时限（回合）——回本判据用它的一半做阈值
 
-    只在"口粮要花钱买"（ratio 高）时才值得建；本来就不缺口粮就别花这 175 金。
+
+def _worth_supply_factory(w, name) -> bool:
+    """补给厂评估：**它直接砍军费**（用户 2026-09-11 的原话）。
+
+    账这么算：
+        一次性成本 = 175 金 + 12 木（折价）
+        长期支出   = 每回合 1 木电耗（这是它唯一的重复开销）
+        长期收益   = 省下"每回合买补给"的军费
+        回本回合   = 一次性成本 / (长期收益 − 长期支出)   → ≤ HORIZON/2 就建
+
+    ★ 收益按**目标兵力**（里程碑 2 支）算，不是当前兵力：用当前兵力的话，
+    还没出兵时收益是 0、永远不建 —— 而它恰恰是**出兵前就该建**的东西
+    （建好后军队一出来就直接砍掉那笔长期支出）。
     """
-    if ratio <= 0.15:
-        return False                               # 口粮几乎不花钱，别建
-    need = sum({"步": 1, "骑": 2}.get(a.get("kind", "步"), 1) for a in w.nation_armies(name))
+    need = max(len(w.nation_armies(name)), MILESTONE_ARMIES)
     saved = max(0, need - _cnt(w, name, "补给厂") * 2) * _price("补给")
-    cost = 175 + 12 * _price("木头") + _price("木头")     # 建造 + 每回合 1 木电耗
-    return saved > cost / 20                       # 20 回合内回本才建
+    cost = 175 + 12 * _price("木头")               # 一次性
+    running = _price("木头")                        # 每回合 1 木电耗（长期）
+    net = saved - running
+    return net > 0 and cost / net <= HORIZON / 2
 
 
 def _try(w, name, p, bn, do, buy) -> bool:
