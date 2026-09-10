@@ -41,6 +41,11 @@ AMOUNTS = (1, 2, 3, 4, 5, 6, 8, 10, 12, 16)
 ARMY_FEAT = len(UNIT_TYPES) + 1 + 2 + 1 + 1
 
 MAX_ARMIES = 32          # 候选里最多引用多少支军队（超出部分本回合不可选）
+# 候选动作按类别限额：帝国越大候选越多（地块×建筑、军队×目标格），不设上界会让
+# PPO 每步的候选打分开销随国力线性膨胀。限额 + **轮流起点**（按回合轮转）保证
+# 被裁掉的选项在后续回合仍会被看到，长期无死角。
+CAPS = {"build": 64, "recruit": 32, "move": 64, "attack": 64,
+        "retreat": 16, "buy": 24, "sell": 24}
 RES_KEYS = ("黄金", "粮食", "木头", "矿石", "石油", "装备", "补给")
 RES_MAX = {"矿石": 5, "黄金": 2, "耕地": 5, "石油": 4, "木头": 5}
 
@@ -77,15 +82,13 @@ class Obs:
 class ZhanguoEnv:
     def __init__(self, *, map_size: int = 20, seed: int = 0, agent: str = "秦",
                  rivals: tuple[str, ...] = (), max_turns: int = 40,
-                 max_actions_per_turn: int = 24,
-                 max_candidates: int = 1024, reward_scale: float = 0.01):
+                 max_actions_per_turn: int = 24, reward_scale: float = 0.01):
         self.map_size = int(map_size)
         self.seed = int(seed)
         self.agent = agent
         self.rivals = tuple(rivals)          # 默认无对手（单国独局）
         self.max_turns = int(max_turns)
         self.max_actions_per_turn = int(max_actions_per_turn)
-        self.max_candidates = int(max_candidates)
         self.reward_scale = float(reward_scale)
 
         self.bnames = tuple(BUILDINGS)          # 建筑子表（顺序即子下标）
@@ -198,7 +201,7 @@ class ZhanguoEnv:
         if me not in w.nations:
             return [Action("end_turn")]
         self._refresh_armies()
-        out: list[Action] = []
+        cats: dict[str, list[Action]] = {k: [] for k in CAPS}
         res = w.nations[me].res
         gold, wood = res.get("黄金", 0), res.get("木头", 0)
         huns = w.polity.get(me) == "huns"
@@ -237,7 +240,7 @@ class ZhanguoEnv:
                     continue
                 if info.get("limit") and eff[b] >= info["limit"]:
                     continue
-                out.append(Action("build", b, (x, y)))
+                cats["build"].append(Action("build", b, (x, y)))
 
         # ---- recruit
         militia_quota = w.nation_building_count(me, "军屯")
@@ -262,7 +265,7 @@ class ZhanguoEnv:
                 maxn = min(cap, min(res.get(f, 0) // amt for f, amt in cost.items()))
                 for amt in AMOUNTS:
                     if amt <= maxn:
-                        out.append(Action("recruit", kind, (x, y), 0, amt))
+                        cats["recruit"].append(Action("recruit", kind, (x, y), 0, amt))
 
         # ---- move / attack / retreat（只认前 MAX_ARMIES 支军队，保持候选集有界）
         for a in w.nation_armies(me):
@@ -281,34 +284,38 @@ class ZhanguoEnv:
                         o = w.owned_by(x, y)
                         if o is not None and o != me:
                             continue          # 他国领土：外交已移除，永久中立，不得进入
-                        out.append(Action("move", "", (x, y), a["id"]))
+                        cats["move"].append(Action("move", "", (x, y), a["id"]))
                         if o is None:         # 无主野地：可 atk（不抢别人的战斗）
                             busy = any(d["owner"] not in ("野人", me) and d.get("engaged")
                                        and (d["x"], d["y"]) == (x, y) for d in w.armies)
                             if not busy:
-                                out.append(Action("attack", "", (x, y), a["id"]))
+                                cats["attack"].append(Action("attack", "", (x, y), a["id"]))
             if not moved and self._in_battle(a):
                 nb = [(a["x"] + dx, a["y"] + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)
                       if (dx or dy)]
                 nb = [(x, y) for x, y in nb
                       if 0 <= x < n and 0 <= y < n and self._retreat_legal(x, y)]
                 for (x, y) in nb:
-                    out.append(Action("retreat", "", (x, y), a["id"]))
+                    cats["retreat"].append(Action("retreat", "", (x, y), a["id"]))
 
         # ---- 市场
         for g in self.goods:
             for amt in AMOUNTS:
                 if amt <= res.get(g, 0):
-                    out.append(Action("sell", g, None, 0, amt))
+                    cats["sell"].append(Action("sell", g, None, 0, amt))
                 _unit, total = w.market_quote(g, amt, "buy")
                 if total <= gold:
-                    out.append(Action("buy", g, None, 0, amt))
+                    cats["buy"].append(Action("buy", g, None, 0, amt))
 
+        # ---- 按类别限额（轮流起点：被裁掉的选项下个回合会轮到，长期无死角）
+        out: list[Action] = []
+        for k, lst in cats.items():
+            cap = CAPS.get(k, len(lst))
+            if len(lst) > cap:
+                off = (w.turn * 7 + KIND_INDEX[k]) % len(lst)
+                lst = (lst[off:] + lst[:off])[:cap]
+            out.extend(lst)
         out.append(Action("end_turn"))
-        if len(out) > self.max_candidates:      # 安全阀：理论上不该触发
-            w.log(f"⚠ 合法动作 {len(out)} 超过上限 {self.max_candidates}，已截断",
-                  phase="事件", nation=me)
-            out = out[:self.max_candidates - 1] + [Action("end_turn")]
         return out
 
     # ------------------------------------------------------------------ 观测

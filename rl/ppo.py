@@ -89,6 +89,15 @@ def collate(steps: list[dict], n_tiles: int):
 
 # ---------------------------------------------------------------- 采样
 @torch.no_grad()
+def value_of(model, obs) -> float:
+    """只算价值（长局分块更新时，块边界用它自举）。"""
+    grid, glob, cand, mask = collate([{"grid": obs.grid, "glob": obs.glob, "cand": obs.cand,
+                                       "act": 0, "logp": 0.0, "val": 0.0,
+                                       "rew": 0.0, "done": False}], model.n_tiles)
+    return float(model(grid, glob, cand, mask)[1][0].item())
+
+
+@torch.no_grad()
 def act(model, obs, deterministic: bool = False):
     """按当前策略选一个候选动作。返回 (下标, logprob, value)。"""
     grid, glob, cand, mask = collate([{"grid": obs.grid, "glob": obs.glob,
@@ -118,8 +127,8 @@ class PPO:
         self.ent_coef = ent_coef
         self.max_grad_norm = max_grad_norm
 
-    def update(self, rollout: Rollout) -> dict:
-        adv_mean, adv_std = rollout.gae()
+    def update(self, rollout: Rollout, last_value: float = 0.0) -> dict:
+        adv_mean, adv_std = rollout.gae(last_value=last_value)
         steps = rollout.steps
         n = len(steps)
         idxs = np.arange(n)

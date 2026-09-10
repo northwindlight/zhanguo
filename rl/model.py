@@ -17,17 +17,20 @@ from rl.env import AMOUNTS, ARMY_FEAT, KINDS
 
 class PolicyNet(nn.Module):
     def __init__(self, n_grid_ch: int, n_glob: int, sub_sizes: list[int], n_tiles: int, *,
-                 d_conv: int = 48, d_global: int = 128, d_cand: int = 128, d_army: int = 32):
+                 d_conv: int = 64, d_bottle: int = 32, n_conv3: int = 2,
+                 d_global: int = 128, d_cand: int = 128, d_army: int = 32):
         super().__init__()
         self.n_kinds = len(KINDS)
         self.n_tiles = int(n_tiles)          # 地块数；null 下标 = n_tiles
         self.n_amounts = len(AMOUNTS)
 
-        # 1×1 瓶颈先把通道压下来，再 3×3 提特征：Pi 上省一半算力，表达力基本不变
-        self.conv = nn.Sequential(
-            nn.Conv2d(n_grid_ch, 24, 1), nn.ReLU(),
-            nn.Conv2d(24, d_conv, 3, padding=1), nn.ReLU(),
-        )
+        # 1×1 瓶颈先把通道压下来，再堆 n_conv3 层 3×3 提特征（规模由 rl/bench.py 实测后定）
+        layers: list[nn.Module] = [nn.Conv2d(n_grid_ch, d_bottle, 1), nn.ReLU()]
+        prev = d_bottle
+        for _ in range(n_conv3):
+            layers += [nn.Conv2d(prev, d_conv, 3, padding=1), nn.ReLU()]
+            prev = d_conv
+        self.conv = nn.Sequential(*layers)
         self.glob_mlp = nn.Sequential(nn.Linear(n_glob, d_global), nn.ReLU(),
                                       nn.Linear(d_global, d_global), nn.ReLU())
         self.army_mlp = nn.Sequential(nn.Linear(ARMY_FEAT, d_army), nn.ReLU(),
@@ -36,10 +39,10 @@ class PolicyNet(nn.Module):
         self.sub_embs = nn.ModuleList([nn.Embedding(max(1, s), 16) for s in sub_sizes])
         self.amt_emb = nn.Embedding(self.n_amounts, 8)
         d_in = d_conv + d_army + 16 + 16 + 8
-        self.cand_mlp = nn.Sequential(nn.Linear(d_in, d_cand), nn.ReLU(),
-                                      nn.Linear(d_cand, d_cand), nn.ReLU())
-        self.score = nn.Sequential(nn.Linear(d_global + d_cand, 128), nn.ReLU(),
-                                   nn.Linear(128, 1))
+        # 候选编码只做一层：打分用「全局 query · 候选 key」点积（O(d) 而非 O(d²)/候选）。
+        # 实测（rl/bench.py）：每步 K≈300 个候选时，打分头是唯一瓶颈，卷积规模几乎不影响耗时。
+        self.cand_mlp = nn.Sequential(nn.Linear(d_in, d_cand), nn.ReLU())
+        self.query = nn.Linear(d_global, d_cand)
         self.value = nn.Sequential(nn.Linear(d_global, 128), nn.ReLU(), nn.Linear(128, 1))
         self.null_tile = nn.Parameter(torch.zeros(d_conv))
         self.null_army = nn.Parameter(torch.zeros(d_army))
@@ -69,7 +72,8 @@ class PolicyNet(nn.Module):
 
         c = self.cand_mlp(torch.cat([tf, ag, te, se, ae], dim=-1))   # [B,K,dc]
         g = self.glob_mlp(glob)                                       # [B,dg]
-        logits = self.score(torch.cat([g.unsqueeze(1).expand(-1, k, -1), c], dim=-1)).squeeze(-1)
+        q = self.query(g)                                             # [B,dc]
+        logits = (q.unsqueeze(1) * c).sum(-1) / (c.size(-1) ** 0.5)
         if mask is not None:
             logits = logits.masked_fill(~mask, -1e9)
         return logits, self.value(g).squeeze(-1)
