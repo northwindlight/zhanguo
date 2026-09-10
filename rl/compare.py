@@ -64,12 +64,19 @@ def main() -> None:
     ap.add_argument("--map-size", type=int, default=16)
     ap.add_argument("--seed-base", type=int, default=500_000)
     ap.add_argument("--threads", type=int, default=4)
+    # 回合内动作上限**必须和训练时一致**——它进观测（turn_actions 归一化那一维），
+    # 训练 64 而这里写死 16 会让同一维的取值放大 4 倍，等于拿漂移的输入评估。
+    ap.add_argument("--max-actions", type=int, default=64,
+                    help="模型每回合动作上限（对齐 train.py）")
+    ap.add_argument("--rule-actions", type=int, default=64,
+                    help="规则 AI 每回合动作上限（老师也该按满血评估）")
     args = ap.parse_args()
 
     import torch as _t
     _t.set_num_threads(max(1, args.threads))
 
-    env = ZhanguoEnv(map_size=args.map_size, max_turns=args.turns, max_actions_per_turn=16)
+    env = ZhanguoEnv(map_size=args.map_size, max_turns=args.turns,
+                     max_actions_per_turn=args.max_actions)
     env.reset(0)
     model = PolicyNet(n_grid_ch=len(env.obs_channels()), n_glob=env.glob_size(),
                       sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
@@ -86,8 +93,8 @@ def main() -> None:
         seed = args.seed_base + i
         a = run_model(env, model, seed, deterministic=True)
         b = run_model(env, model, seed, deterministic=False)
-        c = run_rule(env, seed, args.turns, which="v3")
-        d = run_rule(env, seed, args.turns, which="v6")
+        c = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v3")
+        d = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v6")
         g.append(a[0]); s.append(b[0]); r_.append(c[0]); e_.append(d[0])
         et.append(a[1]); ee.append(d[1])
         print(f"{seed:>10}{a[0]:>13,.0f}{b[0]:>13,.0f}{c[0]:>13,.0f}{d[0]:>13,.0f}{d[1]:>6}")
