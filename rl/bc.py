@@ -28,7 +28,8 @@ import torch.nn.functional as F
 
 from rl.env import ACT_SAFETY, KIND_INDEX, KINDS, ZhanguoEnv
 from rl.model import PolicyNet
-from rl.ppo import collate, collate_window
+from rl.transformer import WindowTransformer
+from rl.ppo import collate, collate_cand, collate_window
 from rl.tokenize import GROUPS, tokenize
 
 
@@ -205,6 +206,12 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
         # 只抓状态，先不入库——规则 AI 会尝试注定失败的动作（资源不够的建造），
         # 那些动作没有对应的合法候选，混进数据集只会教坏策略。
         pending["obs"] = env._obs()           # 动作执行**之前**的状态
+        # ★窗口必须**在这里**一起抓，不能等到 `on_result` 里再调 `tokenize`。
+        #   `on_result` 跑在动作**执行之后**（这是它的定义），那时 `world` 已经变了：
+        #   实测一次 recruit 就会让 `nation_armies` 从 0 变 1，而 `pending["obs"]` 里
+        #   还是 0 —— A 组和候选于是指的是**两个世界**，`army_idx` 直接指错 token。
+        #   不是理论上可能，是第一次跑 20 回合就撞上的真 bug。
+        pending["win"] = _mkwin(env, pending["obs"], with_window)
         pending["spec"] = to_action(tool, args)
 
     def on_result(tool, args, ok):
@@ -216,7 +223,7 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
             miss += 1
         else:
             demos.append((pending["obs"], i, env.world.spend_total(env.agent),
-                          _mkwin(env, pending["obs"], with_window)))
+                          pending["win"]))
 
     rng = random.Random(seed)
     for t in range(turns):
@@ -268,8 +275,22 @@ def pack_win(chunk, n_tiles):
             np.array([s[2] for s in chunk], dtype=np.float32))
 
 
-def hit_rate(model, samples, n_tiles, *, skip_end_turn: bool = False,
-             use_window: bool = False) -> float:
+def pack_tf(chunk):
+    """P4 主干：**不拼网格**（CNN 退场）→ `(候选, 候选掩码, 窗口批, 下标, 回报)`。
+
+    **不收 `n_tiles`**：那是给 CNN 的扁平地块下标用的，P4 里没有"地块特征表"这东西，
+    收了也只能传个没用的数 —— 别为了"三个 pack 签名一致"留一个假参数。
+    """
+    steps = [{"grid": s[0].grid, "glob": s[0].glob, "cand": s[0].cand, "act": s[1],
+              "logp": 0.0, "val": s[2], "rew": 0.0, "done": False} for s in chunk]
+    cand, cmask = collate_cand(steps)
+    return (cand, cmask, collate_window([_win_of(s) for s in chunk]),
+            np.array([s[1] for s in chunk], dtype=np.int64),
+            np.array([s[2] for s in chunk], dtype=np.float32))
+
+
+def hit_rate(model, samples, n_tiles: int = 0, *, skip_end_turn: bool = False,
+             net: str = "mlp") -> float:
     """在给定样本上量命中率（老师动作是否被选中）。分批，别一次塞爆内存。
 
     `skip_end_turn=True`：只算老师的**真实动作**，把每回合补的那条 end_turn 示范剔掉。
@@ -285,7 +306,10 @@ def hit_rate(model, samples, n_tiles, *, skip_end_turn: bool = False,
     with torch.no_grad():
         for s in range(0, len(samples), 256):
             chunk = samples[s:s + 256]
-            if use_window:
+            if net == "tf":
+                cand, cmask, wb, acts, _g = pack_tf(chunk)
+                pred = model(wb, cand, cmask)[0].argmax(-1).numpy()
+            elif net == "pool":
                 (grid, glob, cand, mask), wb, acts, _g = pack_win(chunk, n_tiles)
                 pred = model(grid, glob, cand, mask, win=wb)[0].argmax(-1).numpy()
             else:
@@ -347,10 +371,14 @@ def main() -> None:
                     help="★从已有权重起步（**纠正模式**）：不从头 BC，直接拿它当学生。"
                          "配 --dagger-from 0 就是**纯纠正**（老师不变、只把学生拉回老师）；"
                          "配 --dagger-from 0 --episodes N 跑 N 局。")
-    ap.add_argument("--window", action="store_true",
-                    help="★P3：策略 query 改用 **token 窗口**（rl/tokenize.py + "
-                         "`WindowEncoder`）而不是 glob_mlp。候选侧/CNN/价值头一律不动 —— "
-                         "P3 的目的是把「tokenize 错了」和「主干没训好」分开")
+    ap.add_argument("--net", default="mlp", choices=("mlp", "pool", "tf"),
+                    help="主干：mlp=现有点积头（默认，无窗口）/ "
+                         "pool=P3（窗口掩码池化接现有点积头；只换策略 query 的来源）/ "
+                         "tf=P4（WindowTransformer：窗口 self-attn + 候选 cross-attn，"
+                         "CNN 退场）。三条路同 seed 同起点跑，差异才归因得清")
+    ap.add_argument("--d-model", type=int, default=192, help="P4 主干宽度")
+    ap.add_argument("--n-layer", type=int, default=4)
+    ap.add_argument("--n-head", type=int, default=4)
     ap.add_argument("--out", default="rl/runs/bc/last.pt")
     args = ap.parse_args()
 
@@ -376,27 +404,36 @@ def main() -> None:
     # 开了 --window 就先造一帧窗口，拿它的**实际宽度**建编码器 ——
     # 宽度是 tokenize 的模块常量，但 G 组的宽度含 `len(rivals)`（外交预留），
     # 与其在这边重算一遍（迟早会不一致），不如问窗口自己要。
-    _w = tokenize(env, env._obs()) if args.window else None
+    use_win = args.net in ("pool", "tf")
+    _w = tokenize(env, env._obs()) if use_win else None
     _ww = ({g: _w.feats[g].shape[1] for g in GROUPS} if _w else None)
-    model = PolicyNet(n_grid_ch=len(env.obs_channels()), n_glob=env.glob_size(),
-                      sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
-                      n_tiles=(max(_ms) ** 2 if _ms else args.map_size ** 2),
-                      win_widths=_ww)
-    if _ww:
-        print(f"★窗口模式（P3）：策略 query 来自 token 窗口 "
-              f"共 {_w.total} token / 亮 {_w.live}；"
-              f"候选侧与价值头照旧", flush=True)
+    if args.net == "tf":
+        model = WindowTransformer(_ww, d_model=args.d_model, n_layer=args.n_layer,
+                                  n_head=args.n_head)
+        model.set_sub_sizes([len(env.sub_tables[k]) for k in KINDS])
+        print(f"★P4 主干（WindowTransformer）：d_model={args.d_model} "
+              f"{args.n_layer} 层 {args.n_head} 头，{model.n_params():,} 参数；"
+              f"窗口 {_w.total} token / 亮 {_w.live}；**无 CNN**（候选只带相对落点去 attend）",
+              flush=True)
+    else:
+        model = PolicyNet(n_grid_ch=len(env.obs_channels()), n_glob=env.glob_size(),
+                          sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
+                          n_tiles=(max(_ms) ** 2 if _ms else args.map_size ** 2),
+                          win_widths=_ww)
+        if _ww:
+            print(f"★窗口模式（P3）：策略 query 来自 token 窗口 "
+                  f"共 {_w.total} token / 亮 {_w.live}；候选侧与价值头照旧", flush=True)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     # ★纠正模式：**权重留下**，不从零学（用户 2026-09-11：「权重留下，只是纠正」）。
     # 换老师（比如 v9 加了视野门控之后）时，旧权重是有价值的起点 —— 从零重跑一遍 BC
     # 要几十局、且会把已经学会的部分再学一次；直接拿来当学生做 DAgger 纠正更省。
     if args.init:
         _ck = torch.load(args.init, map_location="cpu", weights_only=False)
-        _was = bool((_ck.get("args") or {}).get("window"))
-        if _was != bool(args.window):
+        _was = (_ck.get("args") or {}).get("net", "mlp")
+        if _was != args.net:
             # 不是错，但**必须说出来**：窗口版多一组 win_enc.*，strict 加载会整个失败；
             # 放宽成 strict=False 又会静默把编码器留成随机初始化。
-            print(f"⚠ 起步权重的路线与本次不同（权重 window={_was}，本次={bool(args.window)}）"
+            print(f"⚠ 起步权重的路线与本次不同（权重 net={_was}，本次={args.net}）"
                   f"—— 用 strict=False 加载，win_enc 会是随机初始化。"
                   f"要「纠正」就保持同一条路；要「换路」就当它是从零训编码器。", flush=True)
         _miss = model.load_state_dict(_ck["model"], strict=False)
@@ -413,10 +450,11 @@ def main() -> None:
     def save(path: Path) -> None:
         torch.save({"model": model.state_dict(), "iter": 0,
                     "args": {"source": "behavior_clone", "episodes": args.episodes,
-                             # ★记下这份权重是**哪条路**训出来的。窗口版与旧版
-                             #   state_dict 的键不同（多一组 win_enc.*），不记的话
-                             #   `--init` 到一个不匹配的模型上会静默少加载一层。
-                             "window": bool(args.window),
+                             # ★记下这份权重是**哪条路**训出来的。三条路的 state_dict
+                             #   键不同（pool 多一组 win_enc.*，tf 整个换掉），不记的话
+                             #   `--init` 到不匹配的模型上会静默少加载/全不加载。
+                             "net": args.net, "d_model": args.d_model,
+                             "n_layer": args.n_layer, "n_head": args.n_head,
                              "turns": args.turns, "map_size": args.map_size,
                              "max_actions": args.max_actions, "steps": args.steps,
                              "grad_steps": grad_steps}}, path)
@@ -443,7 +481,7 @@ def main() -> None:
         demos, spend, miss = collect_episode(
             env, args.turns, seed=args.seed + ep, teacher_fn=teacher_fn,
             student=model if use_student else None, endturn_cap=args.endturn_cap,
-            with_window=args.window)
+            with_window=use_win)
         set_train_threads()            # 梯度步是大 batch → 切回来
         if not demos:
             print(f"第 {ep} 局没采到样本，跳过")
@@ -480,7 +518,10 @@ def main() -> None:
             w_kind = torch.as_tensor(raw / float((raw * freq).sum()), dtype=torch.float32)
         for _ in range(args.steps):
             chunk = [buffer[rng.randrange(len(buffer))] for _ in range(args.minibatch)]
-            if args.window:
+            if args.net == "tf":
+                cand, cmask, wb, acts, rets = pack_tf(chunk)
+                logits, v = model(wb, cand, cmask)
+            elif args.net == "pool":
                 (grid, glob, cand, mask), wb, acts, rets = pack_win(chunk, model.n_tiles)
                 logits, v = model(grid, glob, cand, mask, win=wb)
             else:
@@ -520,11 +561,13 @@ def main() -> None:
 
         # 训练集命中率也量：**只看验证集看不出过拟合**。两个一起看才有意义——
         # 训练一路涨、验证不涨或掉 = 过拟合，这时该早停挑检查点而不是继续跑。
-        _kw = {"use_window": args.window}
-        tr_hit = hit_rate(model, buffer[-600:], model.n_tiles, **_kw)
-        tr_true = hit_rate(model, buffer[-600:], model.n_tiles, skip_end_turn=True, **_kw)
-        hit = hit_rate(model, val, model.n_tiles, **_kw)
-        hit_true = hit_rate(model, val, model.n_tiles, skip_end_turn=True, **_kw)
+        _kw = {"net": args.net}
+        # 不传 `model.n_tiles`：那是给 CNN 的扁平地块下标，P4 的主干根本没有 ——
+        # `collate` 里这个参数早就废弃了（空位下标按张量实时算）。
+        tr_hit = hit_rate(model, buffer[-600:], **_kw)
+        tr_true = hit_rate(model, buffer[-600:], skip_end_turn=True, **_kw)
+        hit = hit_rate(model, val, **_kw)
+        hit_true = hit_rate(model, val, skip_end_turn=True, **_kw)
         # 这个消费数**两种模式含义不同**：纯 BC 局是老师的水平（~15 万），
         # DAgger 局是**学生自己走**打出来的（可能接近 0）——标错会误判成"老师崩了"。
         who = "学生" if use_student else "老师"
