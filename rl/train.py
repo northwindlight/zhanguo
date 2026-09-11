@@ -29,8 +29,21 @@ from rl.model import PolicyNet
 from rl.ppo import PPO, Rollout, act, value_of
 
 
+def map_sizes_of(args):
+    """`--map-sizes` 的解析（逗号分隔）。给了就**每局按种子重采样一个尺寸**。
+
+    ★为什么评估必须多图（用户口径 + `~/消费总量评测指标论证.md` §7.7）：
+    跨图 σ ≈ 均值 **45%** —— 单张图的数字里，"能力"和"开局抽签"分不开。
+    固定 seed 的配对比较能压住跨图噪声（对所有被测模型相同），
+    但**得多图取中位**，不能只报一张图。
+    """
+    return (tuple(int(x) for x in args.map_sizes.split(",") if x.strip())
+            if getattr(args, "map_sizes", "") else None)
+
+
 def build_env(args) -> ZhanguoEnv:
-    return ZhanguoEnv(map_size=args.map_size, seed=args.seed, agent=args.agent,
+    return ZhanguoEnv(map_size=args.map_size, map_sizes=map_sizes_of(args),
+                      seed=args.seed, agent=args.agent,
                       max_turns=args.turns, max_actions_per_turn=args.max_actions,
                       reward_scale=args.reward_scale)
 
@@ -59,7 +72,8 @@ def build_model(env: ZhanguoEnv, args):
                          win_widths={g: w.feats[g].shape[1] for g in GROUPS})
     return PolicyNet(n_grid_ch=len(env.obs_channels()), n_glob=env.glob_size(),
                      sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
-                     n_tiles=env.map_size ** 2)
+                     n_tiles=(max(map_sizes_of(args)) if map_sizes_of(args)
+                              else env.map_size) ** 2)
 
 
 def _win(env, obs, on: bool):
@@ -97,6 +111,10 @@ def main() -> None:
     ap.add_argument("--n-layer", type=int, default=4)
     ap.add_argument("--n-head", type=int, default=4)
     ap.add_argument("--map-size", type=int, default=16)
+    ap.add_argument("--map-sizes", default="",
+                    help="★逗号分隔的地图边长候选（如 '16,24,32'）：给了就每局重采样一个。"
+                         "RL 是通用的、地图由玩家选，而智能体**不知道地图多大**；"
+                         "只练单一尺寸必然 OOD。评估也多图取中位（跨图 σ≈45%）")
     ap.add_argument("--turns", type=int, default=500, help="每局回合上限（经济滚复利，短局没意义）")
     ap.add_argument("--agent", default="秦")
     ap.add_argument("--max-actions", type=int, default=ACT_SAFETY,
