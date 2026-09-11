@@ -28,7 +28,26 @@ import torch.nn.functional as F
 
 from rl.env import ACT_SAFETY, KIND_INDEX, KINDS, ZhanguoEnv
 from rl.model import PolicyNet
-from rl.ppo import collate
+from rl.ppo import collate, collate_window
+from rl.tokenize import GROUPS, tokenize
+
+
+def _parts(s):
+    """样本 → `(obs, 下标, 回报)`。**窗口版样本是 4 元组，窗口在末位** ——
+    统一从这里取前三项，别在各个循环里直接解包（加了窗口之后解包会当场炸，
+    但如果哪天窗口挪了位置，只有这里会漏改）。"""
+    return s[0], s[1], s[2]
+
+
+def _win_of(s):
+    """样本里的窗口；没有窗口（没开 `--window`）就是 None。"""
+    return s[3] if len(s) > 3 else None
+
+
+def _mkwin(env: ZhanguoEnv, obs, on: bool):
+    """按需造窗口。`on=False` 直接返回 None —— **别无条件调用**：
+    `tokenize` 是每步一次的，关掉窗口的跑法不该为它付钱。"""
+    return tokenize(env, obs) if on else None
 
 
 def to_action(tool: str, args: dict):
@@ -99,7 +118,7 @@ def get_teacher(which: str, turns: int = 500, horizon: int = -1):
 
 
 def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
-                    student=None, endturn_cap: int = 1):
+                    student=None, endturn_cap: int = 1, with_window: bool = False):
     """跑一局，采 (观测, 候选下标)。返回 (样本, 该局消费, 未匹配数)。
 
     `student=None`：**老师自己走**（纯 BC，只覆盖老师的轨迹）。
@@ -168,13 +187,14 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
                 if k < len(seq):         # 只有"老师动作对不上候选"才算 miss
                     miss_d += 1
             else:
-                demos_d.append((obs, i, env.world.spend_total(env.agent)))
-            idx, _lp, _v = _act(student, obs)
+                demos_d.append((obs, i, env.world.spend_total(env.agent),
+                                _mkwin(env, obs, with_window)))
+            idx, _lp, _v = _act(student, obs, win=_mkwin(env, obs, with_window))
             obs, _r, done, _info = env.step(obs.cand["actions"][idx])
             if done:
                 break
         end = env.world.spend_total(env.agent)
-        return ([(o, i, (end - sp) * env.reward_scale) for o, i, sp in demos_d],
+        return ([(o, i, (end - sp) * env.reward_scale, w) for o, i, sp, w in demos_d],
                 end, miss_d)
 
     demos: list[tuple] = []
@@ -195,7 +215,8 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
         if i is None:
             miss += 1
         else:
-            demos.append((pending["obs"], i, env.world.spend_total(env.agent)))
+            demos.append((pending["obs"], i, env.world.spend_total(env.agent),
+                          _mkwin(env, pending["obs"], with_window)))
 
     rng = random.Random(seed)
     for t in range(turns):
@@ -212,27 +233,43 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
         j = next((k for k, a in enumerate(o_end.cand["actions"])
                   if a.kind == "end_turn"), None)
         if j is not None:
-            demos.append((o_end, j, env.world.spend_total(env.agent)))
+            demos.append((o_end, j, env.world.spend_total(env.agent),
+                          _mkwin(env, o_end, with_window)))
         env.world.resolve_turn()
         if t + 1 < turns:
             env.world.begin_turn()
     # 剩余回报 G_t =（局末累计消费 − 此刻累计消费）× reward_scale。
     # γ=1 时它就是 PPO 里 V(s) 该逼近的目标——BC 顺手把 critic 也热身了。
     end = env.world.spend_total(env.agent)
-    return ([(o, i, (end - sp) * env.reward_scale) for o, i, sp in demos],
+    return ([(o, i, (end - sp) * env.reward_scale, w) for o, i, sp, w in demos],
             end, miss)
 
 
 def pack(chunk, n_tiles):
-    """(obs, 候选下标, 剩余回报) 列表 → (模型输入, 下标, 回报)。"""
-    steps = [{"grid": o.grid, "glob": o.glob, "cand": o.cand, "act": i,
-              "logp": 0.0, "val": g, "rew": 0.0, "done": False} for o, i, g in chunk]
+    """(obs, 候选下标, 剩余回报[, 窗口]) 列表 → (模型输入, 下标, 回报)。
+
+    开了 `--window` 用 `pack_win`：那个多返回一份窗口批。分开两个函数而不是
+    加个开关返回变长元组 —— 变长返回值的调用点迟早会解错。
+    """
+    steps = [{"grid": s[0].grid, "glob": s[0].glob, "cand": s[0].cand, "act": s[1],
+              "logp": 0.0, "val": s[2], "rew": 0.0, "done": False} for s in chunk]
     return (collate(steps, n_tiles),
-            np.array([i for _o, i, _g in chunk], dtype=np.int64),
-            np.array([g for _o, _i, g in chunk], dtype=np.float32))
+            np.array([s[1] for s in chunk], dtype=np.int64),
+            np.array([s[2] for s in chunk], dtype=np.float32))
 
 
-def hit_rate(model, samples, n_tiles, *, skip_end_turn: bool = False) -> float:
+def pack_win(chunk, n_tiles):
+    """同 `pack`，另外拼出窗口批 → `(模型输入, 窗口批, 下标, 回报)`。"""
+    steps = [{"grid": s[0].grid, "glob": s[0].glob, "cand": s[0].cand, "act": s[1],
+              "logp": 0.0, "val": s[2], "rew": 0.0, "done": False} for s in chunk]
+    return (collate(steps, n_tiles),
+            collate_window([_win_of(s) for s in chunk]),
+            np.array([s[1] for s in chunk], dtype=np.int64),
+            np.array([s[2] for s in chunk], dtype=np.float32))
+
+
+def hit_rate(model, samples, n_tiles, *, skip_end_turn: bool = False,
+             use_window: bool = False) -> float:
     """在给定样本上量命中率（老师动作是否被选中）。分批，别一次塞爆内存。
 
     `skip_end_turn=True`：只算老师的**真实动作**，把每回合补的那条 end_turn 示范剔掉。
@@ -248,8 +285,12 @@ def hit_rate(model, samples, n_tiles, *, skip_end_turn: bool = False) -> float:
     with torch.no_grad():
         for s in range(0, len(samples), 256):
             chunk = samples[s:s + 256]
-            (grid, glob, cand, mask), acts, _g = pack(chunk, n_tiles)
-            pred = model(grid, glob, cand, mask)[0].argmax(-1).numpy()
+            if use_window:
+                (grid, glob, cand, mask), wb, acts, _g = pack_win(chunk, n_tiles)
+                pred = model(grid, glob, cand, mask, win=wb)[0].argmax(-1).numpy()
+            else:
+                (grid, glob, cand, mask), acts, _g = pack(chunk, n_tiles)
+                pred = model(grid, glob, cand, mask)[0].argmax(-1).numpy()
             hit += int((pred == acts).sum())
             tot += len(acts)
     return hit / max(1, tot)
@@ -306,6 +347,10 @@ def main() -> None:
                     help="★从已有权重起步（**纠正模式**）：不从头 BC，直接拿它当学生。"
                          "配 --dagger-from 0 就是**纯纠正**（老师不变、只把学生拉回老师）；"
                          "配 --dagger-from 0 --episodes N 跑 N 局。")
+    ap.add_argument("--window", action="store_true",
+                    help="★P3：策略 query 改用 **token 窗口**（rl/tokenize.py + "
+                         "`WindowEncoder`）而不是 glob_mlp。候选侧/CNN/价值头一律不动 —— "
+                         "P3 的目的是把「tokenize 错了」和「主干没训好」分开")
     ap.add_argument("--out", default="rl/runs/bc/last.pt")
     args = ap.parse_args()
 
@@ -328,16 +373,36 @@ def main() -> None:
                      max_actions_per_turn=args.max_actions)
     # 先 reset 一次拿到 obs 维度
     env.reset(0)
+    # 开了 --window 就先造一帧窗口，拿它的**实际宽度**建编码器 ——
+    # 宽度是 tokenize 的模块常量，但 G 组的宽度含 `len(rivals)`（外交预留），
+    # 与其在这边重算一遍（迟早会不一致），不如问窗口自己要。
+    _w = tokenize(env, env._obs()) if args.window else None
+    _ww = ({g: _w.feats[g].shape[1] for g in GROUPS} if _w else None)
     model = PolicyNet(n_grid_ch=len(env.obs_channels()), n_glob=env.glob_size(),
                       sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
-                      n_tiles=(max(_ms) ** 2 if _ms else args.map_size ** 2))
+                      n_tiles=(max(_ms) ** 2 if _ms else args.map_size ** 2),
+                      win_widths=_ww)
+    if _ww:
+        print(f"★窗口模式（P3）：策略 query 来自 token 窗口 "
+              f"共 {_w.total} token / 亮 {_w.live}；"
+              f"候选侧与价值头照旧", flush=True)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     # ★纠正模式：**权重留下**，不从零学（用户 2026-09-11：「权重留下，只是纠正」）。
     # 换老师（比如 v9 加了视野门控之后）时，旧权重是有价值的起点 —— 从零重跑一遍 BC
     # 要几十局、且会把已经学会的部分再学一次；直接拿来当学生做 DAgger 纠正更省。
     if args.init:
         _ck = torch.load(args.init, map_location="cpu", weights_only=False)
-        model.load_state_dict(_ck["model"])
+        _was = bool((_ck.get("args") or {}).get("window"))
+        if _was != bool(args.window):
+            # 不是错，但**必须说出来**：窗口版多一组 win_enc.*，strict 加载会整个失败；
+            # 放宽成 strict=False 又会静默把编码器留成随机初始化。
+            print(f"⚠ 起步权重的路线与本次不同（权重 window={_was}，本次={bool(args.window)}）"
+                  f"—— 用 strict=False 加载，win_enc 会是随机初始化。"
+                  f"要「纠正」就保持同一条路；要「换路」就当它是从零训编码器。", flush=True)
+        _miss = model.load_state_dict(_ck["model"], strict=False)
+        if _miss.unexpected_keys or _miss.missing_keys:
+            print(f"  未加载 {len(_miss.unexpected_keys)} 项 / 缺 {len(_miss.missing_keys)} 项："
+                  f"{list(_miss.missing_keys)[:4]}…", flush=True)
         print(f"★纠正模式：从 {args.init} 起步（iter {_ck.get('iter')}）——"
               f"不从头 BC，只做纠正", flush=True)
 
@@ -348,6 +413,10 @@ def main() -> None:
     def save(path: Path) -> None:
         torch.save({"model": model.state_dict(), "iter": 0,
                     "args": {"source": "behavior_clone", "episodes": args.episodes,
+                             # ★记下这份权重是**哪条路**训出来的。窗口版与旧版
+                             #   state_dict 的键不同（多一组 win_enc.*），不记的话
+                             #   `--init` 到一个不匹配的模型上会静默少加载一层。
+                             "window": bool(args.window),
                              "turns": args.turns, "map_size": args.map_size,
                              "max_actions": args.max_actions, "steps": args.steps,
                              "grad_steps": grad_steps}}, path)
@@ -373,7 +442,8 @@ def main() -> None:
             set_collect_threads()      # batch=1 逐步前向 → 单线程
         demos, spend, miss = collect_episode(
             env, args.turns, seed=args.seed + ep, teacher_fn=teacher_fn,
-            student=model if use_student else None, endturn_cap=args.endturn_cap)
+            student=model if use_student else None, endturn_cap=args.endturn_cap,
+            with_window=args.window)
         set_train_threads()            # 梯度步是大 batch → 切回来
         if not demos:
             print(f"第 {ep} 局没采到样本，跳过")
@@ -402,15 +472,20 @@ def main() -> None:
         w_kind = None
         if args.kind_power > 0 and buffer:
             kc = np.zeros(len(KINDS), dtype=np.float64)
-            for _o, _i, _g in buffer:
+            for _s in buffer:
+                _o, _i, _g = _parts(_s)
                 kc[KIND_INDEX[_o.cand["actions"][_i].kind]] += 1
             freq = kc / max(1.0, kc.sum())
             raw = (freq + 1e-9) ** (-args.kind_power)
             w_kind = torch.as_tensor(raw / float((raw * freq).sum()), dtype=torch.float32)
         for _ in range(args.steps):
             chunk = [buffer[rng.randrange(len(buffer))] for _ in range(args.minibatch)]
-            (grid, glob, cand, mask), acts, rets = pack(chunk, model.n_tiles)
-            logits, v = model(grid, glob, cand, mask)
+            if args.window:
+                (grid, glob, cand, mask), wb, acts, rets = pack_win(chunk, model.n_tiles)
+                logits, v = model(grid, glob, cand, mask, win=wb)
+            else:
+                (grid, glob, cand, mask), acts, rets = pack(chunk, model.n_tiles)
+                logits, v = model(grid, glob, cand, mask)
             logp = F.log_softmax(logits, dim=-1)
             a_t = torch.as_tensor(acts)
             _lp = logp.gather(1, a_t.unsqueeze(1)).squeeze(1)
@@ -419,7 +494,8 @@ def main() -> None:
                 # 要先经 `obs.cand["actions"][i].kind` 映射回类别，不能直接 w_kind[acts]
                 # （踩过：直接索引报 "index 65 is out of bounds for dimension 0 with size 8"）。
                 w_s = torch.as_tensor(
-                    [w_kind[KIND_INDEX[_o.cand["actions"][_i].kind]] for _o, _i, _g in chunk],
+                    [w_kind[KIND_INDEX[_parts(_s)[0].cand["actions"][_parts(_s)[1]].kind]]
+                     for _s in chunk],
                     dtype=torch.float32)
                 _lp = _lp * w_s
             loss_pi = -_lp.mean()
@@ -444,10 +520,11 @@ def main() -> None:
 
         # 训练集命中率也量：**只看验证集看不出过拟合**。两个一起看才有意义——
         # 训练一路涨、验证不涨或掉 = 过拟合，这时该早停挑检查点而不是继续跑。
-        tr_hit = hit_rate(model, buffer[-600:], model.n_tiles)
-        tr_true = hit_rate(model, buffer[-600:], model.n_tiles, skip_end_turn=True)
-        hit = hit_rate(model, val, model.n_tiles)
-        hit_true = hit_rate(model, val, model.n_tiles, skip_end_turn=True)
+        _kw = {"use_window": args.window}
+        tr_hit = hit_rate(model, buffer[-600:], model.n_tiles, **_kw)
+        tr_true = hit_rate(model, buffer[-600:], model.n_tiles, skip_end_turn=True, **_kw)
+        hit = hit_rate(model, val, model.n_tiles, **_kw)
+        hit_true = hit_rate(model, val, model.n_tiles, skip_end_turn=True, **_kw)
         # 这个消费数**两种模式含义不同**：纯 BC 局是老师的水平（~15 万），
         # DAgger 局是**学生自己走**打出来的（可能接近 0）——标错会误判成"老师崩了"。
         who = "学生" if use_student else "老师"
