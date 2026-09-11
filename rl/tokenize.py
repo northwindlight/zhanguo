@@ -12,7 +12,8 @@
 窗口布局（预算 512，实际用 321）：见 `GROUPS` 与 `CAP`。
 
     组   上限   现在
-    g     1     1       全局：库存/价格/消费/回合/电力/领地/建筑/军队 + 外交预留 8
+    g     1     1       全局：库存/价格/回合/电力/领地/建筑/军队 + 外交预留 8
+                        ★累计消费那三栏**停供**（置零，宽度保留）——见 tokenize() 里的注释
     m    64     9~64    地图 patch（8×8 网格，逐通道块内均值）
     a   192     0~n     军队（自家在前，视野内的他国/野人在后）
     n     8     0       势力（**外交预留**，现在永远 mask 掉）
@@ -244,7 +245,19 @@ def tokenize(env: ZhanguoEnv, obs: Obs, *, mem: np.ndarray | None = None
     m_feat, m_msk, m_meta = _patch_group(obs.grid, vis_ch, x0, y0, anchor)
     a_feat, a_msk, a_meta = _army_group(world, me, anchor, world.turn, own)
 
-    g = np.concatenate([obs.glob, np.zeros(F_DIPLO_RESERVED, np.float32)])
+    # ★G 组**停供累计消费**（2026-09-12 用户口径）。理由两条：
+    #   ① 它是 reward（`spend_total`）的原函数，喂进观测等于把成绩单放进状态；
+    #   ② LLM 玩家在 **main 的面板上看不到它**（`main:mp_ai.py` 的 Observer 面板是
+    #      「国库/储备/国土/军队/关系/通信」），而契约第 2 条要求"每个 token 组都必须
+    #      能在 main 的面板里找到对应项" —— 这三栏是唯一找不到的。
+    #   **形状保留**（宽度照旧），只是不再提供信号：那几维的权重自然变成死权重，
+    #   旧 ckpt 不废、将来要加回来也不用改形状。
+    #   取维**按名字不按下标**：写死 19/20/21 正是本仓库反复出事的那个模式。
+    g_raw = np.asarray(obs.glob, np.float32).copy()
+    for _i, _nm in enumerate(env.glob_channels()):
+        if _nm.startswith("spend:"):
+            g_raw[_i] = 0.0
+    g = np.concatenate([g_raw, np.zeros(F_DIPLO_RESERVED, np.float32)])
     feats = {
         "g": g[None, :].astype(np.float32),
         "m": m_feat,

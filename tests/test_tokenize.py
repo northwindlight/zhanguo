@@ -211,6 +211,38 @@ class TestFlat(unittest.TestCase):
         self.assertFalse(tokenize(env, obs).mask["r"].any())
 
 
+class TestNoScoreInObservation(unittest.TestCase):
+    """★G 组不许出现**累计消费**（2026-09-12 用户口径）。
+
+    它是 reward（`spend_total`）的原函数，而且 LLM 玩家在 main 的面板上看不到它
+    （`main:mp_ai.py` 的 Observer 面板没有这一行），而契约第 2 条要求"每个 token 组
+    都必须能在 main 的面板里找到对应项"。
+
+    **形状保留、只置零** —— 所以这条测试同时要证明"宽度没变"。
+    """
+
+    def test_G组里那三栏是零(self):
+        env, obs = _mature(turns=40, seed=0)
+        spend = env.world.spend.get(env.agent) or {}
+        self.assertGreater(sum(spend.values()), 0.0, "这局该有消费，否则测试是空的")
+        names = env.glob_channels()
+        idx = [i for i, nm in enumerate(names) if nm.startswith("spend:")]
+        self.assertEqual(len(idx), 3, f"该有三栏累计消费，实际 {len(idx)}")
+        win = tokenize(env, obs)
+        g = win.feats["g"][0]
+        for i in idx:
+            self.assertEqual(float(g[i]), 0.0,
+                             f"G 组第 {i} 维（{names[i]}）在喂累计消费：{g[i]}")
+            self.assertNotEqual(float(obs.glob[i]), 0.0,
+                                f"观测里 {names[i]} 本该非零，测试没测到东西")
+
+    def test_宽度没变_只是停供(self):
+        """**形状保留**是这条口径的前提：宽度一变，旧 ckpt 全废。"""
+        env, obs = _fresh()
+        win = tokenize(env, obs)
+        self.assertEqual(win.feats["g"].shape[1], env.glob_size() + 8)
+
+
 class TestDiploReserved(unittest.TestCase):
     def test_势力与事件组现在永远不亮(self):
         """`feat/rl` 没有外交。这两组是**给外交留的位**（TOKEN_DESIGN §4）——

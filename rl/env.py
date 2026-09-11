@@ -381,6 +381,30 @@ class ZhanguoEnv:
                "pending", "built_this_turn", "visible", "home"]
         return ch
 
+    def glob_channels(self) -> list[str]:
+        """全局向量**逐位通道名**，顺序与 `_obs()` 里 `g` 的构建顺序**逐个对应**。
+
+        为什么要有它：`glob` 是个裸向量，谁想按语义取某一维（比如"把累计消费那三栏
+        摘掉"）就只能写死下标 —— 而写死下标在本仓库反复出事（`vocab.py` 的 docstring
+        整篇都在讲这个）。给名字之后，取维靠 `index("spend:build")`，**插了新通道也
+        不会静默错位**（找不到就抛 ValueError，比取错维强）。
+
+        `_obs()` 里有断言盯着 `len(glob_channels()) == len(g)`：改了构建顺序却忘了
+        改这里，会当场炸。
+        """
+        ch = [f"res:{k}" for k in RES_KEYS]
+        ch += [f"price:{g}" for g in TRADEABLE]
+        ch += [f"eq:{g}" for g in TRADEABLE]
+        ch += [f"spend:{k}" for k in ("build", "recruit", "supply")]
+        ch += ["turn", "turn_actions", "grid_short", "energy_have", "energy_need"]
+        ch += [f"bld:{b}" for b in self.bnames]
+        ch += ["armies", "army_hp"]
+        ch += [f"army_kind:{u}" for u in self.unames]
+        for _r in self.rivals:
+            ch += ["rival_tiles", "rival_armies", "rival_hp"]
+        ch += ["own_tiles"]
+        return ch
+
     def glob_size(self) -> int:
         return (len(RES_KEYS) + 2 * len(TRADEABLE) + 3 + 2 + 2
                 + len(self.bnames) + 3 + len(self.unames) + 3 * len(self.rivals) + 1)
@@ -609,6 +633,11 @@ class ZhanguoEnv:
         g.append(math.log1p(len(w.own_tiles(me))) / 3.0)
 
         assert len(g) == self.glob_size(), f"全局向量维度不符：{len(g)} != {self.glob_size()}"
+        # ★名字表与构建顺序必须逐位对齐 —— 改了 `g.append` 的顺序却忘了改
+        #   `glob_channels()`，这里会当场炸，而不是让某个 `index("spend:build")` 悄悄取错维。
+        assert len(self.glob_channels()) == len(g), (
+            f"glob_channels() 有 {len(self.glob_channels())} 项，实际 {len(g)} 项 —— "
+            f"加/删通道时两处要一起改")
         return Obs(grid=grid, glob=np.asarray(g, dtype=np.float32),
                    cand=self._cand_pack(afeat, acts))
 
