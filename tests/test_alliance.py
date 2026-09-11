@@ -212,6 +212,25 @@ class TestSaveLoad(unittest.TestCase):
             w2 = mp.World.load(p)
         self.assertEqual(w2.bloc_of("齐")["chief"], "齐")
 
+    def test_peace_authority_follows_chief_transfer(self):
+        """#7 回归：盟主移交后，"联盟主体"必须跟着换人——
+        旧创始盟主（members[0]）不得再出面议和，新盟主出面须走联盟投票，
+        绝不允许不经表决直接落下 peace_offer（那等于绕开全盟私签和平）。"""
+        w = make_world()
+        make_bloc(w, chief="秦", others=("楚",))
+        ok, msg = w.declare_war("燕", "秦")                    # 燕（非成员）直接宣战
+        self.assertTrue(ok, msg)
+        self.assertTrue(w.bloc_transfer("秦", "楚")[0])        # 盟主移交给楚
+        # 旧创始盟主秦：已非盟主 → 无出面资格
+        ok1, m1 = w.offer_peace("秦", "燕", "white")
+        self.assertFalse(ok1, m1)
+        self.assertIn("楚", m1)                                # 提示真正的代表
+        # 新盟主楚：有资格，但必须发起投票而不是直接落 offer
+        ok2, m2 = w.offer_peace("楚", "燕", "white")
+        self.assertTrue(ok2, m2)
+        self.assertIn("投票", m2)
+        self.assertEqual([p for p in w.peace_offers if p["a"] == "楚"], [])
+
     def test_save_without_version_rejected(self):
         """去旧存档兼容：无 version（旧档）一律拒载，不再逐字段猜测迁移。"""
         w = make_world()

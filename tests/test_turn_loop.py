@@ -223,5 +223,84 @@ class TestTurnLoop(unittest.TestCase):
         self.assertTrue(any("第9回合的事" in e for e in ev))
 
 
+class _ScriptedOpenAI:
+    """可编程假 client：每次回合调用按预置脚本吐 tool_calls / content。"""
+
+    instances: list = []
+
+    def __init__(self, **kw):
+        self.calls: list[dict] = []
+        self.chat = types.SimpleNamespace(completions=_ScriptedCompletions(self))
+        _ScriptedOpenAI.instances.append(self)
+
+
+class _ScriptedCompletions:
+    def __init__(self, outer):
+        self.outer = outer
+        self.n = 0
+
+    def create(self, **kw):
+        self.outer.calls.append(dict(kw, messages=list(kw["messages"])))
+        self.n += 1
+        script = self.outer.script
+        item = script[min(self.n - 1, len(script) - 1)]      # 超出脚本 → 重复最后一项
+        tcs = item.get("tool_calls")
+        if tcs:
+            return iter([_Chunk([_Choice(_Delta(
+                reasoning_content=item.get("reasoning"),
+                tool_calls=[_TC(i, tc["id"], tc["name"], tc["args"])
+                            for i, tc in enumerate(tcs)]))]), _Chunk([], _Usage())])
+        return iter([_Chunk([_Choice(_Delta(content=item["content"]))]), _Chunk([], _Usage())])
+
+
+class TestTurnLoopHardening(unittest.TestCase):
+    """bug #2（end_turn 只认引擎回执）与 #5（残批配对）的回归。"""
+
+    def setUp(self):
+        _ScriptedOpenAI.instances.clear()
+        import openai
+        self._orig = openai.OpenAI
+        openai.OpenAI = _ScriptedOpenAI
+        self.addCleanup(lambda: setattr(openai, "OpenAI", self._orig))
+
+    def _cfg(self, **kw):
+        cfg = {"base_url": "http://stub", "api_key": "k", "model": "m",
+               "max_tokens": 4000, "max_steps": 4, "ctx_window": 200000}
+        cfg.update(kw)
+        return cfg
+
+    def test_end_turn_without_plan_not_honored(self):
+        """#2：没有国策时 end_turn(summary='好') 会被 execute 拒绝（无 ✅ 回执）——
+        旧代码只看 args.summary 非空就收尾（伪造小结、绕过门槛）；新代码继续逼补，
+        直到 max_steps 兜底。断言：那句假小结绝不能成为回合收尾。"""
+        w = mp.World(size=16, seed=7, nations=["秦"])
+        w.turn = 1
+        _ScriptedOpenAI.script = [
+            {"tool_calls": [{"id": "e1", "name": "end_turn", "args": '{"summary":"好"}'}]}]
+        mp_ai.run_openai_turn(w, "秦", self._cfg(), max_steps=3)
+        last = w.summaries["秦"][-1]["text"]
+        self.assertNotEqual(last.strip(), "好")            # 假小结没被当成收尾
+        self.assertIn("上限", last)                        # 走的是 max_steps 兜底小结
+
+    def test_dangling_tool_calls_paired_before_store(self):
+        """#5：一批里 end_turn(✅) 在前、build 在后 → end_turn 即刻 return，
+        build 的 tool_call 从没收到 tool 响应。_finish 的配对闸必须补齐，
+        否则残缺对话进 turn_memory，下回合 replay 直接 400。"""
+        w = mp.World(size=16, seed=7, nations=["秦"])
+        w.turn = 1
+        w.plans["秦"] = {"text": "屯田扩军。", "turn": 1}   # 有国策 → end_turn 会真通过
+        _ScriptedOpenAI.script = [
+            {"tool_calls": [{"id": "e1", "name": "end_turn", "args": '{"summary":"本回合结束"}'},
+                            {"id": "b1", "name": "build", "args": '{"tile":"5 5","building":"农场"}'}]}]
+        mp_ai.run_openai_turn(w, "秦", self._cfg(), max_steps=3)
+        rec = w.turn_memory["秦"][-1]
+        called_ids = {tc["id"] for m in rec["messages"] if m.get("role") == "assistant"
+                      for tc in (m.get("tool_calls") or [])}
+        resp_ids = {m["tool_call_id"] for m in rec["messages"] if m.get("role") == "tool"}
+        self.assertTrue(called_ids, "这批应有工具调用")
+        self.assertEqual(called_ids - resp_ids, set(),   # 每个调用都有响应，无悬空
+                         f"悬空 tool_call: {called_ids - resp_ids}")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -83,8 +83,15 @@ CHAT_ROUNDS = 5
 
 # ───────────────────────── 存档解析与打分 ─────────────────────────
 def load_save(path: str) -> dict:
+    from mp import SAVE_VERSION
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    # 与 mp.World.load 同一契约：版本不符直接拒算——旧档字段形状不同，
+    # 硬打分只会得出一本正经的错误账（结算器自己 load 原始 dict，不走 World.load）。
+    if data.get("version") != SAVE_VERSION:
+        sys.exit(f"存档版本不符（档内 {data.get('version', '无版本号＝旧档')} ≠ 当前 "
+                 f"{SAVE_VERSION}）：结算拒绝在旧档上打分，请用当前代码重跑一局。")
+    return data
 
 
 def _roster(save: dict) -> list[str]:
@@ -347,8 +354,12 @@ def _finale_text(save: dict, board: str) -> str:
 
 def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log,
              remarks: dict[str, str] | None = None) -> list[str]:
-    from openai import OpenAI
     nations = list(save["nations"].keys())
+    if not nations:
+        # 全员同归于尽的档：结算厅无人可坐（轮转取模会除零）——只出成绩单，聊天跳过。
+        log("（诸国俱亡，结算厅无人到场——只出成绩单。）")
+        return []
+    from openai import OpenAI
     clients = {}
     for nc in cfg.get("nations", []):
         if nc.get("base_url") and nc.get("api_key") and nc["name"] in nations:

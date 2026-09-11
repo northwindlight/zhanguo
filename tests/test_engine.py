@@ -939,6 +939,87 @@ class TestGuardians(unittest.TestCase):
         self.assertEqual(self._guards(w2), wild)
 
 
+class TestFogScouting(unittest.TestCase):
+    """迷雾重做（限眼不限手）：对看不见的格下 mv/atk，撞上规则墙时
+    报错如实（=斥候情报，侦察有意义），但该军本回合移动额度烧掉（不白给）；
+    视野内撞墙不罚。"""
+
+    def _w(self):
+        # 秦起点 (2,2)：视野≈(1..3,1..3)。(14,14) 远在迷雾中。
+        w = mp.World(size=30, seed=3, nations=["秦", "楚"], starts={"秦": (2, 2), "楚": (20, 20)})
+        return w
+
+    def _army(self, owner, aid, x, y):
+        return {"id": aid, "gid": aid, "name": f"{owner}·步{aid}军", "type": "步", "hp": 100,
+                "x": x, "y": y, "owner": owner, "moved_turn": -1, "engaged": False}
+
+    def test_blind_mv_wall_burns_move_but_reports_truth(self):
+        w = self._w()
+        self.assertTrue(w.declare_war("秦", "楚")[0])         # 先交战，野地驻守的楚军才成"敌军"
+        w.armies = [self._army("秦", 1, 13, 13), self._army("楚", 2, 14, 14)]
+        self.assertFalse(w.visible_to("秦", 14, 14))
+        ok, msg = w.move("秦", 1, 14, 14)
+        self.assertFalse(ok)
+        self.assertIn("敌军驻守", msg)                       # 报错如实：这就是侦察所得
+        self.assertEqual(w._army("秦", 1)["moved_turn"], w.turn)   # 但盲令烧额度
+
+    def test_visible_wall_does_not_burn_move(self):
+        w = self._w()
+        w.tiles[(4, 2)] = w._new_tile(4, 2, "楚")           # 楚境一格：与秦都隔 (3,2)，
+        #   但 (4,2) 紧邻秦地 (3,2) → 在秦视野内（不踩秦自家十字地）
+        w.armies = [self._army("秦", 1, 3, 2), self._army("楚", 2, 4, 2)]
+        self.assertTrue(w.declare_war("秦", "楚")[0])
+        self.assertTrue(w.visible_to("秦", 4, 2))
+        ok, msg = w.move("秦", 1, 4, 2)
+        self.assertFalse(ok)
+        self.assertIn("敌国领土", msg)
+        self.assertEqual(w._army("秦", 1)["moved_turn"], -1)  # 看得见 → 试错免费
+
+
+class TestRetreatAndClaim(unittest.TestCase):
+    def test_retreat_into_hostile_squat_is_illegal(self):
+        """无人荒地上有敌军（交战）驻守 → 不能"撤退"过去（与 mv 同口径，防空投进敌脚）。"""
+        w = mp.World(size=30, seed=3, nations=["秦", "楚"], starts={"秦": (2, 2), "楚": (20, 20)})
+        self.assertTrue(w.declare_war("秦", "楚")[0])
+        self.assertIsNone(w.owned_by(14, 14))                 # 确认是野地
+        w.armies = [{"id": 2, "gid": 2, "name": "楚·步二军", "type": "步", "hp": 100,
+                     "x": 14, "y": 14, "owner": "楚", "moved_turn": -1, "engaged": False}]
+        self.assertFalse(w._retreat_legal("秦", 14, 14))      # 野地 + 敌驻 → 非法
+        w.armies = []                                         # 清空 → 纯荒地合法
+        self.assertTrue(w._retreat_legal("秦", 14, 14))
+        w.armies = [{"id": 3, "gid": 3, "name": "齐·步三军", "type": "步", "hp": 100,
+                     "x": 14, "y": 14, "owner": "齐", "moved_turn": -1, "engaged": False}]
+        # （齐不存在于世界但中立驻守本就不拦——撤退只看敌）
+        self.assertTrue(w._retreat_legal("秦", 14, 14))
+
+    def test_claim_excludes_retreating_attacker(self):
+        """_claim_winner：唯一存活进攻方已下令撤退 → 不索取地块（人都要走不配拿地）。"""
+        w = mp.World(size=16, seed=3, nations=["秦", "楚"])
+        w.declare_war("秦", "楚")
+        stay = {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 50,
+                "x": 5, "y": 5, "owner": "秦", "moved_turn": 0, "engaged": True, "engage_seq": 1}
+        alive = {"秦": [dict(stay)]}
+        self.assertEqual(w._claim_winner(alive, attackers={"秦"}), "秦")   # 未撤 → 照常索取
+        alive["秦"][0]["retreat_to"] = [4, 4]
+        self.assertIsNone(w._claim_winner(alive, attackers={"秦"}))         # 撤退中 → 不占地
+
+
+class TestEventVisibilitySnapshot(unittest.TestCase):
+    """纪事按**落盘时刻**的视野过滤，不按查询时刻——夺下失地后，当初看不见的旧战报
+    不得事后凭空显形（那是回溯补发情报）。"""
+
+    def test_no_backfill_after_gaining_vision(self):
+        w = mp.World(size=30, seed=3, nations=["秦", "楚"], starts={"秦": (2, 2), "楚": (20, 20)})
+        w.log("楚军在小黄山与野人交战", phase="战报", nation="楚", x=14, y=14)   # 秦看不见
+        self.assertFalse(any("小黄山" in e for e in w.events_for("秦")))
+        w.tiles[(14, 14)] = w._new_tile(14, 14, "秦")        # 秦后来占下此地 → 现在看得见
+        self.assertTrue(w.visible_to("秦", 14, 14))
+        self.assertFalse(any("小黄山" in e for e in w.events_for("秦")),   # 但不回溯显形
+                         "视野快照失效：夺地后旧战报被事后补发了")
+        w.log("秦军在此地新战胜", phase="战报", nation="秦", x=14, y=14)      # 现在看得见
+        self.assertTrue(any("新战胜" in e for e in w.events_for("秦")))
+
+
 if __name__ == "__main__":
     unittest.main()
 
