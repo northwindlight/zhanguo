@@ -409,7 +409,7 @@ class ZhanguoEnv:
     def obs_channels(self) -> list[str]:
         ch = [f"terrain:{t}" for t in V.TERRAIN]
         ch += [f"res:{r}" for r in ("矿石", "黄金", "耕地", "石油", "木头")]
-        ch += ["owner:me"] + [f"owner:{r}" for r in self.rivals] + ["owner:neutral"]
+        ch += [f"owner:{n}" for n in V.OWNER_CHANNELS]   # 11 槽（自己/8 国槽/中立/野人）
         ch += [f"bld:{b}" for b in self.bnames]
         ch += ["build_cost"]        # 该格实际建造金价倍率 − 1（地形惩罚 × 工程院减免）
         ch += ["mine", "frontier", "my_army_hp", "foe_army_hp", "barb_army_hp",
@@ -528,16 +528,23 @@ class ZhanguoEnv:
             chans.append(arr)
 
         # 归属 one-hot：我 / 各对手 / 无主
-        n_own = 1 + len(self.rivals)
-        own = np.zeros((n_own + 1, n, n), np.float32)
-        own[n_own] = 1.0
+        # ★归属段是**固定槽位**（自己 1 + 8 个国槽 + 中立 + 野人 = 11），
+        #   2026-09-12 钉死：以前是 `1 + len(rivals) + 1` 动态出通道 ——
+        #   那样"加对手"就会改观测宽度、废掉 ckpt。8 国槽是设计文档 §1 的计划
+        #   （`vocab.OWNER_CHANNELS`），实现现在跟上了。
+        #   槽位按 `rivals` 的**下标**绑定（本局内固定）；对手死了槽也不回收 ——
+        #   槽位是身份，不是"当前还活着几个"。
+        n_slots = len(V.OWNER_CHANNELS)
+        own = np.zeros((n_slots, n, n), np.float32)
+        i_neutral = V.OWNER_CHANNELS.index("neutral")
+        own[i_neutral] = 1.0                       # 没主的地（含未探明）算中立
         for (x, y), t in w.tiles.items():
             o = t["owner"]
             i = 0 if o == me else (1 + self.rivals.index(o) if o in self.rivals else -1)
             if i >= 0:
                 own[i, x, y] = 1.0
-                own[n_own, x, y] = 0.0
-        for i in range(n_own + 1):
+                own[i_neutral, x, y] = 0.0
+        for i in range(n_slots):
             chans.append(own[i])
 
         # 建筑数量

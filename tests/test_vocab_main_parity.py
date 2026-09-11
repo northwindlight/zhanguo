@@ -208,16 +208,28 @@ class TestFrozenInternalConsistency(unittest.TestCase):
         from rl.env import ZhanguoEnv
         env = ZhanguoEnv(map_size=12, max_turns=6)
         ch = env.obs_channels()
-        self.assertEqual(len(ch), 45,
+        self.assertEqual(len(ch), 54,
                          "网格宽度变了 —— 这是 ckpt 的硬契约，改了就要重炼")
-        # 分段自洽：地形 len(OBS_TERRAIN) + 地块资源 5 + 归属(1+对手+1)
+        # 分段自洽：地形 len(OBS_TERRAIN) + 地块资源 5 + 归属 len(OWNER_CHANNELS)
         #          + 建筑 len(OBS_BUILDING) + 建造成本 1 + 标量 9 + 记忆预留 2
-        n_owner = 1 + len(env.rivals) + 1
-        self.assertEqual(len(ch), len(vocab.OBS_TERRAIN) + 5 + n_owner
+        self.assertEqual(len(ch), len(vocab.OBS_TERRAIN) + 5 + len(vocab.OWNER_CHANNELS)
                          + len(vocab.OBS_BUILDING) + 1 + 9 + 2)
         self.assertTrue(set(ch) >= {"visible", "home", "remembered", "probe"})
-        # 国槽上限口径（实现是动态的，计划是固定 8 —— 这条偏差记在 §10.3）
+        # 归属段是固定槽位（自己 1 + 8 国槽 + 中立 + 野人）
         self.assertEqual(len(vocab.OWNER_CHANNELS), 1 + vocab.NATION_SLOTS + 2)
+
+    def test_grid_width_invariant_to_rivals(self):
+        """★归属段**固定 8 国槽**（2026-09-12 钉死）：加对手**不许**改观测宽度。
+
+        以前是 `1 + len(rivals) + 1` 动态出通道 —— 那样"加对手"就会废掉所有 ckpt。
+        这条测试是那次改动的守门人：以后谁把动态逻辑写回去，这里就红。
+        """
+        from rl.env import ZhanguoEnv
+        widths = set()
+        for rivals in ((), ("楚",), ("楚", "齐"), ("楚", "齐", "燕", "赵", "韩", "魏", "秦", "卫")):
+            env = ZhanguoEnv(map_size=12, max_turns=6, rivals=rivals)
+            widths.add(len(env.obs_channels()))
+        self.assertEqual(widths, {54}, f"网格宽度随对手数变了：{widths}")
 
 
 if __name__ == "__main__":

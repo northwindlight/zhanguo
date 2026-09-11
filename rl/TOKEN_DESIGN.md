@@ -763,7 +763,7 @@ settlement.py）全部改读表；新增 `game.building_effect(name, key, defaul
 （军队行自带 speed/atk）、网格 +1 条 `build_cost`（地形惩罚×工程院减免，模型不必自己乘）。
 词表再添地形留位 2 个（`V.TERRAIN` 5→7）。
 
-**新的口径**：网格 **45**、glob **58**、token **352**、`F_A`=**16**、`ARMY_FEAT`=**12**、
+**新的口径**：网格 **54**（归属段从 2 槽钉成固定的 11 槽）、glob **58**、token **352**、`F_A`=**16**、`ARMY_FEAT`=**12**、
 `F_B`=**62**（kind one-hot 14 项 = 11 真实 + **3 留位**，地形改版计划的「港口」这类新 kind
 直接填空位，`F_B` 不变）、`F_T`=**4**。`jitter` 现在也抖 effects 与 TERRAIN_STATS（cap 类守下限 ≥1，
 地形 defense 可为负）。
