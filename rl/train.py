@@ -35,18 +35,49 @@ def build_env(args) -> ZhanguoEnv:
                       reward_scale=args.reward_scale)
 
 
-def build_model(env: ZhanguoEnv) -> PolicyNet:
+def build_model(env: ZhanguoEnv, args):
+    """`--net` 选主干。P4 的 `WindowTransformer` 需要窗口，所以调用方要先造一帧看宽度。"""
+    from rl.tokenize import GROUPS, tokenize
+    # `tokenize` 要用 `env._obs()` 的外接框与锚点，而那两个只有 reset 之后才有 ——
+    # 换主干前先开一局。无副作用（后面采样时会用自己的 seed 重新 reset）。
+    if getattr(env, "world", None) is None:
+        env.reset(args.seed)
+    if args.net == "tf":
+        from rl.transformer import WindowTransformer
+        w = tokenize(env, env._obs())
+        m = WindowTransformer({g: w.feats[g].shape[1] for g in GROUPS},
+                              d_model=args.d_model, n_layer=args.n_layer,
+                              n_head=args.n_head)
+        m.set_sub_sizes([len(env.sub_tables[k]) for k in KINDS])
+        return m
+    if args.net == "pool":
+        from rl.tokenize import tokenize as _t
+        w = _t(env, env._obs())
+        return PolicyNet(n_grid_ch=len(env.obs_channels()), n_glob=env.glob_size(),
+                         sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
+                         n_tiles=env.map_size ** 2,
+                         win_widths={g: w.feats[g].shape[1] for g in GROUPS})
     return PolicyNet(n_grid_ch=len(env.obs_channels()), n_glob=env.glob_size(),
                      sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
                      n_tiles=env.map_size ** 2)
 
 
-def play_episode(env: ZhanguoEnv, model: PolicyNet, seed: int, deterministic: bool = False) -> dict:
+def _win(env, obs, on: bool):
+    """按需造窗口（P4/P3 要，点积头不要）。"""
+    if not on:
+        return None
+    from rl.tokenize import tokenize
+    return tokenize(env, obs)
+
+
+def play_episode(env: ZhanguoEnv, model, seed: int, deterministic: bool = False,
+                 use_win: bool = False) -> dict:
     """跑完整一局（不训练），用于评估。"""
     obs = env.reset(seed)
     total = 0.0
     while True:
-        idx, _lp, _v = act(model, obs, deterministic=deterministic)
+        idx, _lp, _v = act(model, obs, deterministic=deterministic,
+                           win=_win(env, obs, use_win))
         obs, r, done, _info = env.step(obs.cand["actions"][idx])
         total += r
         if done:
@@ -59,6 +90,12 @@ def play_episode(env: ZhanguoEnv, model: PolicyNet, seed: int, deterministic: bo
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="战国 RL 训练（PPO，目标=总消费）")
+    ap.add_argument("--net", default="mlp", choices=("mlp", "pool", "tf"),
+                    help="主干：mlp=现有点积头（默认）/ pool=P3（窗口池化接点积头）/ "
+                         "tf=P4（WindowTransformer，需窗口）")
+    ap.add_argument("--d-model", type=int, default=192)
+    ap.add_argument("--n-layer", type=int, default=4)
+    ap.add_argument("--n-head", type=int, default=4)
     ap.add_argument("--map-size", type=int, default=16)
     ap.add_argument("--turns", type=int, default=500, help="每局回合上限（经济滚复利，短局没意义）")
     ap.add_argument("--agent", default="秦")
@@ -76,7 +113,10 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--epochs", type=int, default=3)
-    ap.add_argument("--minibatch", type=int, default=512)
+    ap.add_argument("--minibatch", type=int, default=0,
+                    help="0 = 自动：mlp/pool 512，tf 32。★它同时是**激活内存**的系数"
+                         "（∝ batch × token × d_model）—— tf 在 512 上会把 ECS 压进 swap，"
+                         "而换页的表现是「慢」不是「崩」，极易误判成算力不够")
     ap.add_argument("--ent-coef", type=float, default=0.01)
     ap.add_argument("--ent-final", type=float, default=None,
                     help="熵系数退火终点：从 --ent-coef 线性降到它（不设=不退火）。"
@@ -112,6 +152,9 @@ def main() -> None:
 
     from rl.hw import set_threads
     _n_threads = set_threads(args.threads)    # 0 = 自动 = 物理核（ECS 1 / Pi 5 4）
+    _use_win = args.net in ("pool", "tf")
+    if args.minibatch <= 0:
+        args.minibatch = 32 if args.net == "tf" else 512
     # 采样是 batch=1 的逐步前向：多线程的同步开销远大于收益（实测 4 线程 34.8ms/步
     # vs 单线程 7.7ms/步）。所以采样期间切单线程，PPO 更新（大 batch）再切回来。
     def set_collect_threads():
@@ -123,7 +166,7 @@ def main() -> None:
     np.random.seed(args.seed)
 
     env = build_env(args)
-    model = build_model(env)
+    model = build_model(env, args)
     ppo = PPO(model, lr=args.lr, epochs=args.epochs, minibatch=args.minibatch,
               ent_coef=args.ent_coef, adv_norm=args.adv_norm)
     start_iter = 0
@@ -157,9 +200,11 @@ def main() -> None:
         必须都看：策略熵高时「argmax」未必代表策略的真实本领——实测出现过
         贪心掉进「建最贵的建筑→资源耗光→躺平」的近视陷阱，而采样仍有 4~6 万消费。
         """
-        g = [play_episode(eval_env, model, seed=900_000 + i, deterministic=True)
+        g = [play_episode(eval_env, model, seed=900_000 + i, deterministic=True,
+                          use_win=_use_win)
              for i in range(n)]
-        s = [play_episode(eval_env, model, seed=800_000 + i, deterministic=False)
+        s = [play_episode(eval_env, model, seed=800_000 + i, deterministic=False,
+                          use_win=_use_win)
              for i in range(n)]
         return {"eval_spend": float(np.mean([x["spend_total"] for x in g])),
                 "eval_tiles": float(np.mean([x["tiles"] for x in g])),
@@ -228,10 +273,14 @@ def main() -> None:
                 break                   # 旧的固定步数模式
             elif len(rollout) >= args.rollout_cap:
                 break
-            idx, logp, val = act(model, obs)
+            _w = _win(env, obs, _use_win)
+            idx, logp, val = act(model, obs, win=_w)
             keep = obs
             obs, r, done, info = env.step(obs.cand["actions"][idx])
-            rollout.add(keep, idx, logp, val, r, done)
+            # ★窗口与 obs 必须**同一瞬间**取，一起入缓冲。分开取会让更新侧重算的 logp
+            #   对应的其实是另一个状态（`bc.py` 上踩过：一次 recruit 就让 A 组与候选
+            #   指向两个世界），而这里表现成 ratio 恒偏、策略学歪且不报错。
+            rollout.add(keep, idx, logp, val, r, done, win=_w)
             ep_ret += r
             ep_steps += 1
             ep_done = done
@@ -244,7 +293,7 @@ def main() -> None:
 
         # ---- 更新（块边界自举；局末则 0）
         set_train_threads()
-        last_v = 0.0 if ep_done else value_of(model, obs)
+        last_v = 0.0 if ep_done else value_of(model, obs, win=_win(env, obs, _use_win))
         stats = ppo.update(rollout, last_value=last_v)
         rollout.clear()
 

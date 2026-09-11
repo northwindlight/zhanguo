@@ -47,11 +47,19 @@ class Rollout:
         return reward / sd
 
     def add(self, obs, action_idx: int, logprob: float, value: float,
-            reward: float, done: bool):
+            reward: float, done: bool, win=None):
+        """`win`：token 窗口（P4 主干要）。**必须存**，不能更新时重算 ——
+        PPO 的重要性比 `exp(logp_new − logp_old)` 要求两次前向看到**同一个输入**；
+        重算（哪怕只在浮点上差一点）会直接污染 ratio。
+
+        ★存 **fp32**，不学 `grid` 那样压 fp16：`grid` 通道大多是 0/1，压了无所谓；
+        窗口里有连续量（块均值、相对坐标），而 ratio 对 logp 的**差值**敏感 ——
+        两次前向输入不一致的代价远大于那点内存。"""
         self.steps.append({
             "grid": obs.grid.astype(np.float16),     # 存半精度省内存
             "glob": obs.glob,
             "cand": obs.cand,
+            "win": win,
             "act": int(action_idx), "logp": float(logprob), "val": float(value),
             "rew": float(self._scale(reward, done)), "done": bool(done),
         })
@@ -216,17 +224,23 @@ def _one_step(obs):
 
 
 def forward_batch(model, steps, wins=None):
-    """统一入口：`(logits, value)`。`wins` 只在需要窗口的模型上用。
+    """统一入口：`(logits, value, cand_mask)`。`wins` 只在需要窗口的模型上用。
+
+    **第三个返回值是候选掩码**，不是摆设：PPO 算熵时要 `masked_fill(~mask, 0)`
+    把补齐出来的候选排除掉，少了它整块会 `NameError`（改这个签名时就踩了）。
+    点积头那边掩码在 `collate` 内部生成、不随 `grid/glob` 一起返回，所以这里统一补上。
 
     `n_tiles` 从模型上取（点积头有、P4 主干没有）—— 别让调用方去猜自己是哪种模型，
     那正是 `is_transformer` 要消掉的东西。
     """
     if is_transformer(model):
         cand, cmask = collate_cand(steps)
-        return model(collate_window(wins), cand, cmask)
+        logits, value = model(collate_window(wins), cand, cmask)
+        return logits, value, cmask
     grid, glob, cand, mask = collate(steps, getattr(model, "n_tiles", 0))
     wb = collate_window(wins) if wins is not None else None
-    return model(grid, glob, cand, mask, win=wb)
+    logits, value = model(grid, glob, cand, mask, win=wb)
+    return logits, value, mask
 
 
 @torch.no_grad()
@@ -244,7 +258,7 @@ def act(model, obs, deterministic: bool = False, win=None):
     所以 `collate_window` 的补 token 维是空操作。
     """
     wins = None if (win is None and not is_transformer(model)) else [win]
-    logits, value = forward_batch(model, [_one_step(obs)], wins)
+    logits, value, _m = forward_batch(model, [_one_step(obs)], wins)
     logp = F.log_softmax(logits, dim=-1)
     if deterministic:
         idx = int(logp.argmax(-1).item())
@@ -286,8 +300,10 @@ class PPO:
             np.random.shuffle(idxs)
             for start in range(0, n, self.minibatch):
                 mb = [steps[i] for i in idxs[start:start + self.minibatch]]
-                grid, glob, cand, mask = collate(mb, self.model.n_tiles)
-                logits, value = self.model(grid, glob, cand, mask)
+                # 统一入口：点积头与 P4 主干签名不同，`forward_batch` 自己分派。
+                # 窗口只对 P4 主干有意义，别给点积头传（它的 forward 不收 win）。
+                wins = ([s["win"] for s in mb] if is_transformer(self.model) else None)
+                logits, value, mask = forward_batch(self.model, mb, wins)
                 logp_all = F.log_softmax(logits, dim=-1)
                 act_t = torch.as_tensor([s["act"] for s in mb], dtype=torch.long)
                 logp = logp_all.gather(1, act_t.unsqueeze(1)).squeeze(1)
