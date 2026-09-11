@@ -202,3 +202,40 @@ class TestDegenerateEpisodeGuard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTeacherHorizon(unittest.TestCase):
+    """★老师口径：`HORIZON` 必须按「每局回合 + 20」设（用户 2026-09-11 口径）。
+
+    漏过这一行：v10 分支在 `bc.py`/`compare.py` 里只注册了函数、没设 HORIZON，
+    于是它用默认的 200 —— 70 回合的局按 200 回合规划，扩张明显变少
+    （实测 20 图：领地 28→19、进攻 24→17，消费 4,019→4,260）。
+    这条测试盯着"两个入口都给 v10 设了同样的窗口"。
+    """
+
+    def tearDown(self):
+        jitter.restore()
+        import importlib
+        import expand_rule_v10
+        importlib.reload(expand_rule_v10)      # 还原模块级 HORIZON
+
+    def test_bc_get_teacher_sets_horizon(self):
+        import expand_rule_v10
+        from rl.bc import get_teacher
+        get_teacher("v10", 70)
+        self.assertEqual(expand_rule_v10.HORIZON, 90,
+                         "bc.get_teacher('v10', 70) 该把 HORIZON 设成 90")
+
+    def test_bc_get_teacher_honours_explicit_horizon(self):
+        import expand_rule_v10
+        from rl.bc import get_teacher
+        get_teacher("v10", 70, horizon=150)
+        self.assertEqual(expand_rule_v10.HORIZON, 150)
+
+    def test_compare_run_rule_sets_horizon(self):
+        import expand_rule_v10
+        from rl.compare import run_rule
+        from rl.env import ZhanguoEnv
+        env = ZhanguoEnv(map_size=8, max_turns=10)
+        run_rule(env, seed=0, turns=10, which="v10")
+        self.assertEqual(expand_rule_v10.HORIZON, 30)

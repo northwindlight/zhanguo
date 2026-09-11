@@ -112,7 +112,11 @@ def get_teacher(which: str, turns: int = 500, horizon: int = -1):
     elif which == "v10":
         # ★ v10 = v9 + 抗抖（引擎数值现读，不再写死）+ 去掉"绕山地"（改看打不打得赢）。
         #   训练期开 `--rules-jitter` 时**必须用 v10 当老师**：v9 会把抖过的表当成真值。
+        #   ★ HORIZON 必须与 v9 同口径设（`turns + 20`）—— 漏过这一行：v10 用默认 200，
+        #     于是 70 回合的局里它按 200 回合规划，扩张明显变少（实测领地 28→19、
+        #     进攻 24→17）。见 `tests/test_rule_v10.py::TestTeacherHorizon`。
         import expand_rule_v10 as m
+        m.HORIZON = horizon if horizon > 0 else turns + 20
         fn = m.expand_rule_turn_v10
     elif which == "v9":
         import expand_rule_v9 as m

@@ -51,6 +51,7 @@ def run_rule(env, seed: int, turns: int, max_actions: int = 10 ** 9,
         from expand_rule_ai import expand_rule_turn as fn
     elif which == "v10":
         import expand_rule_v10 as m
+        m.HORIZON = turns + 20      # ★与 v9 同口径（漏这一行 = 短局里按 200 回合规划）
         fn = m.expand_rule_turn_v10
     elif which == "v9":
         import expand_rule_v9 as m
@@ -125,9 +126,9 @@ def main() -> None:
     model.eval()
     print(f"模型：{args.ckpt}（iter {ck.get('iter')}）  图 {args.episodes} 张  回合 {args.turns}")
 
-    g, s, r_, e_, h_, et, ee, eh = [], [], [], [], [], [], [], []
+    g, s, r_, e_, h_, k_, et, ee, eh, ek = [], [], [], [], [], [], [], [], [], []
     print(f"{'seed':>10}{'模型·贪心':>13}{'模型·采样':>13}{'v3':>13}{'v6':>13}"
-          f"{'v9(基线)':>13}{'v9地':>7}")
+          f"{'v9(旧基线)':>13}{'v10(老师)':>13}{'v10地':>7}")
     for i in range(args.episodes):
         seed = args.seed_base + i
         a = run_model(env, model, seed, deterministic=True, use_win=use_win)
@@ -135,10 +136,14 @@ def main() -> None:
         c = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v3")
         d = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v6")
         h = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v9")
+        # ★ v10 = 当前老师（v9 + 抗抖 + 不绕山地）。学生是照**它**克隆的，
+        #   所以"主打分口径"要跟它比 —— 拿 v9 当基线只作历史参照。
+        k = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v10")
         g.append(a[0]); s.append(b[0]); r_.append(c[0]); e_.append(d[0]); h_.append(h[0])
-        et.append(a[1]); ee.append(d[1]); eh.append(h[1])
+        k_.append(k[0])
+        et.append(a[1]); ee.append(d[1]); eh.append(h[1]); ek.append(k[1])
         print(f"{seed:>10}{a[0]:>13,.0f}{b[0]:>13,.0f}{c[0]:>13,.0f}{d[0]:>13,.0f}"
-              f"{h[0]:>13,.0f}{h[1]:>7}")
+              f"{h[0]:>13,.0f}{k[0]:>13,.0f}{k[1]:>7}")
 
     def line(name, xs):
         print(f"{name:<12}均值 {st.mean(xs):>10,.0f}   中位 {st.median(xs):>10,.0f}   "
@@ -148,13 +153,14 @@ def main() -> None:
     line("模型·采样", s)
     line("v3(第一版)", r_)
     line("v6(旧基线)", e_)
-    line("v9(当前基线)", h_)
+    line("v9(旧基线)", h_)
+    line("v10(老师)", k_)
     print(f"\n地数均值：模型贪心 {st.mean(et):.1f}   v6 {st.mean(ee):.1f}   "
-          f"v9 {st.mean(eh):.1f}")
-    # ★主打分口径 = **相对当前基线 v9**（模型是照它克隆的，就该跟它比）
-    print(f"相对 v9：贪心 ×{st.mean(g)/max(1,st.mean(h_)):.2f}   "
-          f"采样 ×{st.mean(s)/max(1,st.mean(h_)):.2f}   "
-          f"（地数 ×{st.mean(et)/max(1,st.mean(eh)):.2f}）")
+          f"v9 {st.mean(eh):.1f}   v10 {st.mean(ek):.1f}")
+    # ★主打分口径 = **相对当前老师 v10**（模型是照它克隆的，就该跟它比）
+    print(f"相对 v10：贪心 ×{st.mean(g)/max(1,st.mean(k_)):.2f}   "
+          f"采样 ×{st.mean(s)/max(1,st.mean(k_)):.2f}   "
+          f"（地数 ×{st.mean(et)/max(1,st.mean(ek)):.2f}）")
 
 
 if __name__ == "__main__":
