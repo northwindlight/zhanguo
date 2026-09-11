@@ -14,6 +14,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import mp_ai  # noqa: E402
+import llm_provider  # noqa: E402
+
+
+def _backend(client):
+    """真 OpenAICompat，但把 client 换成 fake——让 _compact_block 走真实的
+    complete_text 胶水（含 extra_body / 不带 tools 等口径），而非测试里重造。"""
+    b = llm_provider.OpenAICompat.__new__(llm_provider.OpenAICompat)
+    b.client = client
+    return b
 
 
 class _Msg:
@@ -100,7 +109,7 @@ class TestCompactBlock(unittest.TestCase):
         w = _World()
         c = _Client()
         dropped = [_rec(21), _rec(22), _rec(23)]
-        block = mp_ai._compact_block(c, {"model": "m"}, w, "秦", dropped)
+        block = mp_ai._compact_block(_backend(c), {"model": "m"}, w, "秦", dropped)
         self.assertIsNotNone(block)
         self.assertEqual((block["from"], block["to"]), (21, 23))
         self.assertEqual(w.summary_blocks["秦"], [block])
@@ -113,7 +122,7 @@ class TestCompactBlock(unittest.TestCase):
     def test_too_short_reply_is_discarded(self):
         w = _World()
         c = _Client(reply="嗯")
-        self.assertIsNone(mp_ai._compact_block(c, {"model": "m"}, w, "秦", [_rec(21)]))
+        self.assertIsNone(mp_ai._compact_block(_backend(c), {"model": "m"}, w, "秦", [_rec(21)]))
         self.assertEqual(w.summary_blocks["秦"], [])
 
     def test_oversized_input_keeps_tail(self):

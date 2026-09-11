@@ -309,6 +309,10 @@ def run() -> None:
             ncfg = cfg_by_name.get(name, {})
             t0 = time.time()
             if ncfg.get("base_url") and ncfg.get("api_key"):
+                # 不包 try、不代打：LLM 回合的未愈异常一律向上抛。
+                # 「每国由一个 LLM agent 治理」是前提，规则 AI 冒充会污染基准数据；
+                # 且 run_openai_turn 内部已重试/兜 API 错误，能冒到这里的都是真故障，
+                # 该让它炸出来（配合 mp_run 顶层的存档），而不是悄悄换个 bot 接着打。
                 done = run_openai_turn(world, name, ncfg,
                                        max_steps=ncfg.get("max_steps", 24))
             else:

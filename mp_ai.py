@@ -13,7 +13,6 @@ from __future__ import annotations
 import copy
 import json
 import threading
-import time
 from pathlib import Path
 
 from game import (
@@ -43,6 +42,7 @@ from game import (
 )
 import ctx as ctxlib
 from console import dw as _dw, pad as _pad
+from llm_provider import make_backend
 from ctx import est_tokens
 from mp import (DIPLO_COST, PLAN_MAX_TURNS, REPORT_EVERY, RES_KEYS, RES_LABEL,
                 build_econ, good_value)
@@ -1336,7 +1336,7 @@ TOOL_SCHEMAS = [
         "name": "recruit", "description": "在自己有兵营且电网正常的地块征召军队，每兵营每回合1支。兵种 kind：步=步兵(10粮+5装，动1格/回合、耗补给1)；骑=骑兵(12粮+12装，动2格/回合、耗补给2)；民=民兵(军屯征召：50金+5粮/支，80HP/攻20，动1格/回合、耗补给1；驻本格军屯不耗补给)——廉价驻守军队，每军屯每回合1支、全国民兵总数≤全国军屯总数（阵亡后才能补员）。注意补给仓必须跟上：补给不足时全军按缺口比例扣血（满缺 -35HP/军/回合，交战中也照扣），饿毙不复活。",
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标 '5 6' 或名字", "required": True},
                               "n": {"type": "integer", "description": "征召数量（默认1）"},
-                              "kind": {"type": "string", "enum": ["步", "骑"], "description": "兵种（默认 步）"}})}},
+                              "kind": {"type": "string", "enum": ["步", "骑", "民"], "description": "兵种（默认 步；民=民兵，只能在自家军屯格征召）"}})}},
     {"type": "function", "function": {
         "name": "move", "description": "把一支自己的军队以自身为中心按兵种速度移动（步兵 1 格=3×3、骑兵 2 格=5×5），纯移动不占地。每回合每支限1次。**行军不打野人**：合法移动目标只有三种：**野地（无人荒地）、自家格、盟国格**——野地可直接走进/穿过（行军不打野人，野人只在被 atk 时接战）；自家/盟国格被混战敌军占着也可以 mv 进去（增援，入格即随军参战）。**敌国领土 mv 一律不得进入（空格也是）**：每一步进敌境都是 atk——会交战或直接进占。**野地上有与你交战的敌军驻守（含正在打野的）也不得 mv**——必须 atk 交战；中立/盟友驻守的野地可以 mv 进去（旁观待命，互不干扰）。交战中不能移动，须先 retreat 撤出。",
         "parameters": _props({"army_id": {"type": "integer", "description": "本国军队id（各国独立从1编号，以 query army 面板为准）", "required": True},
@@ -1638,7 +1638,7 @@ def _compact_input(dropped: list[dict], sums: list[dict], from_turn: int) -> str
     return text
 
 
-def _compact_block(client, cfg, world, name, dropped: list[dict], emit=None) -> dict | None:
+def _compact_block(backend, cfg, world, name, dropped: list[dict], emit=None) -> dict | None:
     """把滑出 replay 的回合压成一段块总结并写入 world.summary_blocks。失败返回 None。"""
     sums = world.summaries.get(name) or []
     # 只压这次真正滑出的那段（更早的回合已只剩一行小结，再压一次只会丢信息）
@@ -1648,15 +1648,9 @@ def _compact_block(client, cfg, world, name, dropped: list[dict], emit=None) -> 
             + _compact_input(dropped, sums, from_turn))
     if emit:
         emit(f"🧠 {name} 压缩记忆：第{from_turn}~{to_turn}回合 → 一次总结调用")
-    resp = client.chat.completions.create(
-        model=cfg["model"],
-        messages=[{"role": "system", "content": COMPACT_SYSTEM},
-                  {"role": "user", "content": user}],
-        max_tokens=int(cfg.get("ctx_compact_tokens", 1500)),
-        temperature=0.3,
-        extra_body={"thinking": {"type": "disabled"}},   # 压缩不需要思考
-    )
-    text = (resp.choices[0].message.content or "").strip()
+    text = backend.complete_text(
+        [{"role": "system", "content": COMPACT_SYSTEM},
+         {"role": "user", "content": user}], cfg)
     if len(text) < 20:
         return None
     block = {"from": from_turn, "to": to_turn, "text": text, "turn": world.turn}
@@ -1669,24 +1663,42 @@ def _compact_block(client, cfg, world, name, dropped: list[dict], emit=None) -> 
 # OpenAI 回合循环
 # ---------------------------------------------------------------------------
 
+def _pair_tool_calls(msgs: list[dict]) -> int:
+    """给悬空的 tool_calls 补桩 tool 响应，返回补的数量（原地修复）。
+    半途而废的批次（批中亡国 / 日志层抛错）会留下"assistant 声明了 N 个调用、
+    只回了 k 个"的残缺对话——进 replay 后多数 OpenAI 兼容端点此后每回合 400，
+    该国永久卡死在烧 max_steps 的空转里。入库/续跑前先修平。"""
+    have = {m.get("tool_call_id") for m in msgs if m.get("role") == "tool"}
+    out, n = [], 0
+    for m in msgs:
+        out.append(m)
+        if m.get("role") == "assistant":
+            for tc in (m.get("tool_calls") or []):
+                tid = tc.get("id")
+                if tid and tid not in have:
+                    out.append({"role": "tool", "tool_call_id": tid,
+                                "content": "（该行动未执行：本回合提前结束，此令作废）"})
+                    have.add(tid)
+                    n += 1
+    if n:
+        msgs[:] = out
+    return n
+
+
 def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
-    """跑一国一回合：反复调 LLM 用工具，直到 end_turn/无工具/步数上限。返回执行次数。
+    """跑一国一回合：反复调 LLM 用工具，直到 end_turn **被引擎回执认可** / 正文宣告 / 步数上限。
+    返回执行次数。
+
+    提供方差异（OpenAI 兼容 / Anthropic 预留）收口在 llm_provider，循环只见
+    OpenAI 形态消息。两条纪律：
+    ① 结束只认 execute 的回执（✅）——模型递个非空 summary 不算收尾（拒绝文案
+       会作为 tool 响应回喂，继续逼它补）；
+    ② 任何 return / 异常续跑前都过 _pair_tool_calls——没配对的命令不许进记忆。
 
     deepseek-v4-flash 这类推理模型把思考放在 reasoning_content（独立于 content），
-    且可能连续多轮纯思考后才调用工具：这里把每轮思考回显给下一轮、并给足 token 预算，
-    直到它真正用工具或宣告结束。
+    且可能连续多轮纯思考后才调用工具：每轮思考回显给下一轮，直到它真正行动。
     """
-    from openai import OpenAI
-    client = OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"],
-                    timeout=float(cfg.get("api_timeout", 180)))
-    # SIGALRM 硬超时兜底：即使 SDK 因网络黑洞/服务端不回应而不抛，超时也会强制抛
-    # （TimeoutError 会被下方 except 接住，整局看海不会因此挂死）
-    import signal
-
-    def _timeout_handler(signum, frame):
-        raise TimeoutError("API 调用超时（> %ds）" % int(cfg.get("api_timeout", 180)))
-
-    signal.signal(signal.SIGALRM, _timeout_handler)
+    backend = make_backend(cfg)
     # 上下文：窗口大小由配置 ctx_window 定义，深度/归档/下滑水位由 ctx.py 按预算动态分配
     messages, plan = build_context(world, name, cfg)
     if emit:
@@ -1708,6 +1720,7 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
         engine_call(world.log, f"{name} 回合小结（自动归纳）：{line}", phase="行动", nation=name)
 
     def _finish(d: int) -> int:
+        _pair_tool_calls(messages)      # 终闸：任何提前 return 的残批都在此处修平后才入库
         if agg.get("calls"):
             speed = (agg["out_tokens"] / agg["stream"]) if agg["stream"] > 0 else 0.0
             inp = agg["hit"] + agg["miss"]  # 缓存按输入前缀算：hit+miss=prompt tokens
@@ -1726,7 +1739,7 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                      f"（{len(dropped)} 回合）——本回合前缀缓存全段重建")
             if plan.compact and name in world.nations:
                 try:
-                    _compact_block(client, cfg, world, name, dropped, emit=emit)
+                    _compact_block(backend, cfg, world, name, dropped, emit=emit)
                 except Exception as e:   # 压缩失败不影响主流程：归档退回一行小结
                     if emit:
                         emit(f"⚠ {name} 记忆压缩失败({type(e).__name__})，归档仍用逐回合小结")
@@ -1736,92 +1749,14 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
         if name not in world.nations:
             return _finish(done)
         try:
-            extra = {}
-            # deepseek-v4：thinking 开关 + reasoning_effort（low/medium/high）
-            if "thinking" in cfg:
-                extra["thinking"] = {"type": cfg["thinking"]}  # "enabled"/"disabled"
-            if cfg.get("reasoning_effort"):
-                extra["reasoning_effort"] = cfg["reasoning_effort"]
-            api_timeout = int(cfg.get("api_timeout", 180))
-            retries = int(cfg.get("api_retries", 3))
-            backoff = float(cfg.get("api_retry_wait", 2.0))
-            stream_stats = {}
-            for attempt in range(1, retries + 1):
-                try:
-                    wall0 = time.time()
-                    signal.setitimer(signal.ITIMER_REAL, api_timeout)
-                    try:
-                        stream = client.chat.completions.create(
-                            model=cfg["model"], messages=messages,
-                            tools=tool_schemas(world, name), tool_choice="auto",
-                            temperature=cfg.get("temperature", 0.3),
-                            max_tokens=cfg.get("max_tokens", 4000),
-                            extra_body=extra or None,
-                            stream=True, stream_options={"include_usage": True})
-                        c_s, r_s, tool_acc = "", "", {}
-                        first_t = None
-                        last_t = time.time()
-                        for chunk in stream:
-                            now = time.time()
-                            if first_t is None and chunk.choices:
-                                d0 = chunk.choices[0].delta
-                                if (getattr(d0, "content", None) or getattr(d0, "reasoning_content", None)
-                                        or getattr(d0, "tool_calls", None)):
-                                    first_t = now
-                            stream_stats["maxgap"] = max(stream_stats.get("maxgap", 0.0), now - last_t)
-                            last_t = now
-                            if getattr(chunk, "usage", None):
-                                u = chunk.usage
-                                stream_stats["out_tokens"] = getattr(u, "completion_tokens", 0) or 0
-                                det = getattr(u, "completion_tokens_details", None)
-                                stream_stats["reason_tokens"] = getattr(det, "reasoning_tokens", 0) if det else 0
-                                stream_stats["hit"] = getattr(u, "prompt_cache_hit_tokens", 0) or 0
-                                stream_stats["miss"] = getattr(u, "prompt_cache_miss_tokens", 0) or 0
-                            if not chunk.choices:
-                                continue
-                            d = chunk.choices[0].delta
-                            rd = getattr(d, "reasoning_content", None)
-                            if rd:
-                                r_s += rd
-                            cd = getattr(d, "content", None)
-                            if cd:
-                                c_s += cd
-                            for tc in (getattr(d, "tool_calls", None) or []):
-                                slot = tool_acc.setdefault(tc.index, {"id": None, "type": "function",
-                                                                     "function": {"name": "", "arguments": ""}})
-                                if tc.id:
-                                    slot["id"] = tc.id
-                                if tc.type:
-                                    slot["type"] = tc.type
-                                if tc.function:
-                                    if tc.function.name:
-                                        slot["function"]["name"] += tc.function.name
-                                    if tc.function.arguments:
-                                        slot["function"]["arguments"] += tc.function.arguments
-                    finally:
-                        signal.setitimer(signal.ITIMER_REAL, 0)
-                    stream_stats["wall"] = time.time() - wall0
-                    if first_t:
-                        stream_stats["first"] = first_t - wall0
-                        stream_stats["stream"] = max(0.0, last_t - first_t)
-                    msg = {"content": c_s, "reasoning_content": r_s}
-                    if tool_acc:
-                        msg["tool_calls"] = [tool_acc[i] for i in sorted(tool_acc)]
-                    break
-                except Exception as e:
-                    from openai import (APIStatusError, APIConnectionError,
-                                        APITimeoutError, RateLimitError)
-                    transient = (isinstance(e, (APIConnectionError, APITimeoutError, RateLimitError))
-                                 or isinstance(e, TimeoutError)
-                                 or (isinstance(e, APIStatusError) and 500 <= e.status_code < 600))
-                    if attempt < retries and transient:
-                        if emit:
-                            emit(f"⚠ {name} 第{attempt}次调用失败({type(e).__name__})，"
-                                 f"{backoff * attempt:.0f}s 后重试（共 {retries} 次）")
-                        time.sleep(backoff * attempt)
-                        continue
-                    raise
+            # 调用+流式聚合+重试分类全在 llm_provider（POSIX 硬超时/Windows 降级也在彼处），
+            # 循环只见 (msg, stats)。on_retry 把重试进度回显给看海终端。
+            msg, stream_stats = backend.chat_turn(
+                messages, tool_schemas(world, name), cfg,
+                on_retry=lambda a, tag, wait, total: emit and emit(
+                    f"⚠ {name} 第{a}次调用失败({tag})，{wait:.0f}s 后重试（共 {total} 次）"))
         except Exception as e:
+            _pair_tool_calls(messages)   # 防御：异常路径若留下未配对残批，续跑前先修平
             messages.append({"role": "user", "content": f"（API 错误，若可继续请继续，否则 end_turn）: {e}"})
             if emit:
                 tag = "超时" if isinstance(e, TimeoutError) else type(e).__name__
@@ -1847,7 +1782,6 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                 for tc in tool_calls
             ]
             messages.append(asst)
-            acted_this = False
             for tc in tool_calls:
                 fn = tc["function"]["name"]
                 try:
@@ -1865,12 +1799,12 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                         emit(f"      ↳ {result}")
                 messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
                 done += 1
-                acted_this = True
                 if name not in world.nations:
-                    return _finish(done)
+                    return _finish(done)      # 批中亡国：剩余调用由 _finish 的配对闸补桩后入库
                 if is_end:
-                    # 只有带上有效的小结才算真结束；没带会被 execute 拦下，继续逼它补
-                    if (str(args.get("summary", "")).strip()):
+                    # ★ 只认 execute 的回执：✅ 才算真结束。递了非空 summary 但没国策/国策过期/
+                    #   小结太短，都被 execute 拒绝（拒绝文案已回喂），继续逼它补。
+                    if str(result).startswith("✅"):
                         return _finish(done)
             if name in world.nations:  # 每次行动后都回填一次最新状态（默认塞查询）
                 messages.append({"role": "user", "content": engine_call(compact_state, world, name)})
@@ -1913,11 +1847,13 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                                  "content": "（请继续完成本回合：想好了就调用工具；若确实无事可做就 end_turn。）"})
                 stall = 0
             continue
-        # 空回复：催一次，若再空就结束
+        # 空回复：催一次，若再空就结束——补兜底小结，别让这一回合在归档里凭空蒸发
         messages.append({"role": "user", "content": "请决策并调用工具；若本回合无事可做，请 end_turn。"})
         stall += 1
         if stall >= 3:
+            _auto_summary("（模型连续沉默，本回合未获得有效行动）")
             return _finish(done)
+    _auto_summary("（达到本回合行动轮数上限，提前收尾）")
     return _finish(done)
 
 
