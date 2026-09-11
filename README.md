@@ -60,6 +60,7 @@ python3 mp_run.py --turns 10           # 读档续局；无档则新开
 |------|------|
 | `name` | 国名（必填，游戏内唯一） |
 | `base_url` / `api_key` / `model` | OpenAI 兼容端点；**三者缺一即降级为内置规则 AI**（`dummy_turn`，无需 key 也能跑通流程） |
+| `provider` | 缺省 `openai`（任意 OpenAI 兼容端点）；`anthropic` 为**预留位**——`llm_provider.AnthropicCompat` 已占位，接线配方在其 docstring，回合循环与上下文层无需改动 |
 | `thinking` / `reasoning_effort` | `enabled`/`disabled` 与 `low`/`high`/`max`（推理模型用；思考模式下 `temperature` 被端点忽略） |
 | `max_tokens` / `max_steps` | 单次回复上限 / 每回合最多工具调用轮数 |
 | `api_timeout` / `api_retries` / `api_retry_wait` | 单次调用超时秒数 / 重试次数 / 重试间隔 |
@@ -386,7 +387,8 @@ python3 settlement.py --no-chat    # 只打分
 |------|------|
 | `game.py` | 共享规则层：地形/资源/建筑/兵种/市场全部数值表 + 地块生成函数 |
 | `mp.py` | 多国引擎 `World`：回合结算、战斗、外交、联盟、信箱、视野、存档 |
-| `mp_ai.py` | AI 层：34 个工具（schema + 执行）、system prompt、各面板文本 |
+| `mp_ai.py` | AI 层：34 个工具（schema + 执行）、system prompt、各面板文本、回合循环（提供方无关） |
+| `llm_provider.py` | LLM 提供方兼容层：OpenAI 兼容端点实现 + Anthropic 预留桩；重试/流式聚合/平台超时全收口于此 |
 | `ctx.py` | 上下文窗口管理：token 估算、预算分配、缓存友好组装、下滑与归档 |
 | `mp_run.py` | 编排器：无人值守自动一局 + 看海终端 + 中途加国 |
 | `console.py` | 终端体验层：Markdown→ANSI 渲染 + 汉字宽度感知的命令台（无第三方依赖） |
