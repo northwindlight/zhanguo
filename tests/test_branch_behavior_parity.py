@@ -88,6 +88,27 @@ def digest(w):
             "n_tiles": len(w.own_tiles(ME))}
 
 
+# ---------------- militia：直接对拍「民兵记账」 ----------------
+# 为什么单开一个模式：回放测试**抓不到**这个轴（见 TestMilitiaAccounting 的 docstring）。
+if mode == "militia":
+    import game
+    w = mp.World(size=SIZE, seed=seed, nations=[ME])
+    w.begin_turn()
+    home = w.own_tiles(ME)[0]
+    w.cheat(ME, 黄金=5000, 粮食=2000, 木头=2000)
+    # ★直接把军屯摆上，不走 build —— 本测试要测的是**记账**，不是建造规则。
+    #   走 build 会被「军屯要耕地/要建筑位」这类前提挡住（实测会被挡），
+    #   那样测试就变成在测别的东西了。两棵树对 tiles 的结构一致，可移植。
+    w.tiles[home]["buildings"]["军屯"] = 1
+    ok, msg = w.recruit(ME, home[0], home[1], 1, "民")
+    print(mark + json.dumps({
+        "ok": bool(ok), "msg": str(msg)[:90],
+        "cost": {k: int(v) for k, v in (game.UNIT_TYPES["民"].get("recruit") or {}).items()},
+        "recruit_spend": round(float((w.spend.get(ME) or {}).get("recruit", 0.0)), 6),
+        "total": round(float(w.spend_total(ME)), 6),
+    }, ensure_ascii=False))
+    raise SystemExit(0)
+
 if mode == "gen":
     from expand_rule_v9 import expand_rule_turn_v9
     import expand_rule_v9 as V9
@@ -227,6 +248,9 @@ def coverage(traj: list) -> dict:
 
 # 场景必须至少打到这些，否则测试是空跑（数字取得很宽松，只为挡住"退化成空转"）
 MIN_COVERAGE = {"peak_own_armies": 1, "attack": 1, "tiles_gained": 1, "build": 5}
+# ⚠ **覆盖面到此为止，剩下的轴得靠专门测试**。已暴露的洞：这里没有一条要求征民兵，
+#   而民兵要军屯才征得了、v9 的扩张流不建军屯 —— 于是 2026-09-12 那个「民兵记账
+#   虚高 10 倍」的 bug，回放测试从头到尾是绿的。见 `TestMilitiaAccounting`。
 
 
 def shortfalls(cov: dict) -> dict:
@@ -273,6 +297,47 @@ class TestCoverage(unittest.TestCase):
         short = shortfalls(cov)
         self.assertFalse(short, f"场景退化成空跑（{short}，实测 {cov}）——"
                                 f"换驱动或调 TURNS，别让它绿着但什么都没测")
+
+
+class TestMilitiaAccounting(unittest.TestCase):
+    """★民兵记账：曾在 main 上虚高 10 倍（国库黄金被按**地块资源**折算率 ×10 计）。
+
+    **为什么回放测试抓不到**：`MIN_COVERAGE` 不要求征民兵，而民兵要军屯才征得了，
+    v9 的扩张流不建军屯 —— 那条动作流里**一次民兵都没征过**，这个轴是空的。
+    「跑一遍看结果一样」这种契约，**覆盖面就是它的全部强度**。
+
+    所以这里不靠回放：直接在两棵树上各摆一座军屯、各征一支民兵，比记账。
+    """
+
+    def _run(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            tree_main = _materialise_main(tmp)
+            driver = _driver(tmp)
+            a = json.loads(_spawn(driver, ["militia", str(ROOT), str(SEED),
+                                           str(TURNS), "-", MARK]))
+            b = json.loads(_spawn(driver, ["militia", str(tree_main), str(SEED),
+                                           str(TURNS), "-", MARK]))
+            return a, b
+
+    def test_两棵树记账一致(self):
+        a, b = self._run()
+        self.assertTrue(a["ok"], f"本分支上民兵没征成：{a['msg']}")
+        self.assertTrue(b["ok"], f"main 上民兵没征成：{b['msg']}")
+        self.assertEqual(a["recruit_spend"], b["recruit_spend"],
+                         f"民兵记账两边不一致：本分支 {a['recruit_spend']} "
+                         f"vs main {b['recruit_spend']}（成本 {a['cost']}）")
+
+    def test_记账是面值不是十倍(self):
+        """★这条才有牙齿：光比「两边一样」是面镜子 —— **两边一起错也照样过**。
+        民兵 50 金 + 5 粮；国库黄金**就是钱**，按面值 1:1，所以记账该落在 50~100。
+        走 `_mval("黄金", 50)` 会得到 ~500+，正是当年那个 10 倍系数。"""
+        a, b = self._run()
+        for name, r in (("本分支", a), ("main", b)):
+            self.assertGreaterEqual(r["recruit_spend"], 50, f"{name}：{r}")
+            self.assertLess(r["recruit_spend"], 100,
+                            f"{name} 的民兵记账 {r['recruit_spend']} 偏大 —— "
+                            f"国库黄金被当成地块资源折算了（1 单位 = 10 金）")
 
 
 class TestBranchBehaviorParity(unittest.TestCase):
