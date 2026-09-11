@@ -440,14 +440,18 @@ class ZhanguoEnv:
         ch += [f"bld:{b}" for b in self.bnames]       # 19（含 4 留位，留位恒 0）
         ch += ["armies", "army_hp"]
         ch += [f"army_kind:{u}" for u in self.unames]  # 5（含 2 留位）
-        for _r in self.rivals:
-            ch += ["rival_tiles", "rival_armies", "rival_hp"]
+        # ★ 这里曾有「每个对手 3 维（领地/军队/兵力）」—— 2026-09-12 用户拍板**删掉**：
+        #   它让 glob 宽度随对手数变（58→61→67），加对手就要废 ckpt；而 per-国信息
+        #   本来就该由 **N 组 token**（8 槽 × 16 维，现成、恒 mask）承载 ——
+        #   按 §9.6，加对手那一炉本来就要跟地图/外交记忆同时落地，那时 N 组才填值。
+        #   删掉之后 glob 宽度**与对手数无关**。
         ch += ["own_tiles"]
         return ch
 
     def glob_size(self) -> int:
+        # ★**与对手数无关**（对手段已删，见 `glob_channels` 的注释）
         return (len(RES_KEYS) + 2 * len(self.goods) + 3 + 2 + 2
-                + len(self.bnames) + 3 + len(self.unames) + 3 * len(self.rivals) + 1)
+                + len(self.bnames) + 3 + len(self.unames) + 1)
 
     def _vision_mask(self) -> np.ndarray:
         """引擎视野（`World.visible_to` 的等价物）：自家格 + 八邻 + 瞭望塔半径 4 圆。
@@ -683,13 +687,8 @@ class ZhanguoEnv:
         g.append(sum(a["hp"] for a in my_armies) / 1000.0)
         for uk in self.unames:
             g.append(sum(1 for a in my_armies if unit_kind(a) == uk) / 10.0)
-        for r in self.rivals:
-            if r in w.nations:
-                g += [math.log1p(len(w.own_tiles(r))) / 3.0,
-                      len(w.nation_armies(r)) / 10.0,
-                      sum(a["hp"] for a in w.nation_armies(r)) / 1000.0]
-            else:
-                g += [0.0, 0.0, 0.0]
+        # （这里曾有「每个对手 3 维」—— 2026-09-12 删，见 `glob_channels` 的注释：
+        #   per-国信息归 N 组 token，glob 因此与对手数无关。）
         # ★★ 领地数用**绝对量**，不再除以 `n*n`（2026-09-11 用户口径：
         #   「对于模型而言，地图大小其实是不可知的 —— 他们并不知道每次玩的地图多大，
         #     也从未探索过边界」）。

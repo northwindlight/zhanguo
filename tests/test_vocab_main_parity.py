@@ -8,9 +8,9 @@
 1. **引擎枚举 = main 逐字逐序**。本分支的引擎文件（mp.py/game.py/mp_ai.py/mp_run.py）
    与 main 一字不差，所以 `game.*` 的枚举表当然也相同——但这条测试仍然拿
    `git show main:...` 当基准，因为**要防的是有人在本分支上单方面改表**。
-2. **RL 侧的词表是冻结的**（`rl/vocab.py`，下标只许追加）。其中 `MAIN_ONLY`
-   现在指「**不进 RL 观测/动作空间**的项」（外交中心）：它一旦进观测，网格与全局
-   宽度就从 36/48 变 37/49，**已训好的 ckpt 全部加载不了**。
+2. **RL 侧的词表是冻结的**（`rl/vocab.py`，下标只许追加）。三张表都是
+   「活跃段 + 表尾留位」，`MAIN_ONLY` 指「引擎有、RL 不进观测/动作空间」的项。
+   加实体 = 填留位槽 ⇒ **下标与宽度都不动**（哪类改动会改宽度：见 §10.11）。
 
 一句话：引擎跟着 main 走，观测跟着冻结表走，两者之间那道缝就是 MAIN_ONLY。
 """
@@ -218,18 +218,23 @@ class TestFrozenInternalConsistency(unittest.TestCase):
         # 归属段是固定槽位（自己 1 + 8 国槽 + 中立 + 野人）
         self.assertEqual(len(vocab.OWNER_CHANNELS), 1 + vocab.NATION_SLOTS + 2)
 
-    def test_grid_width_invariant_to_rivals(self):
-        """★归属段**固定 8 国槽**（2026-09-12 钉死）：加对手**不许**改观测宽度。
+    def test_observation_width_invariant_to_rivals(self):
+        """★**加对手不许改观测宽度**（2026-09-12 钉死）：网格与 glob 都不许随对手数变。
 
-        以前是 `1 + len(rivals) + 1` 动态出通道 —— 那样"加对手"就会废掉所有 ckpt。
-        这条测试是那次改动的守门人：以后谁把动态逻辑写回去，这里就红。
+        两处曾经都是动态的：
+        · 网格归属段 `1 + len(rivals) + 1` → 钉成固定 11 槽（8 国槽）；
+        · glob 的「每个对手 3 维」→ **删掉**（per-国信息归 N 组 token，8 槽 × 16 维现成）。
+        这条测试是守门人：以后谁把动态逻辑写回去，这里就红。
         """
         from rl.env import ZhanguoEnv
-        widths = set()
-        for rivals in ((), ("楚",), ("楚", "齐"), ("楚", "齐", "燕", "赵", "韩", "魏", "秦", "卫")):
+        grid, glob = set(), set()
+        for rivals in ((), ("楚",), ("楚", "齐"),
+                       ("楚", "齐", "燕", "赵", "韩", "魏", "秦", "卫")):
             env = ZhanguoEnv(map_size=12, max_turns=6, rivals=rivals)
-            widths.add(len(env.obs_channels()))
-        self.assertEqual(widths, {54}, f"网格宽度随对手数变了：{widths}")
+            grid.add(len(env.obs_channels()))
+            glob.add(env.glob_size())
+        self.assertEqual(grid, {54}, f"网格宽度随对手数变了：{grid}")
+        self.assertEqual(glob, {58}, f"glob 宽度随对手数变了：{glob}")
 
 
 if __name__ == "__main__":
