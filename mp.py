@@ -429,20 +429,32 @@ class World:
         return "  ".join(parts)
 
     # ------------------------------------------------------------- 看海日志
+    def _stamp_seen(self, entry: dict) -> None:
+        """纪事落盘时刻抓一份"谁看得见这里"的快照。events_for 按快照过滤，
+        而不是按查询时刻的视野——否则你后来夺下的地上发生的**旧** Retreat/战报
+        会事后凭空显形（回溯补发情报）。"""
+        x, y = entry.get("x"), entry.get("y")
+        if x is not None and self.nations:
+            entry["seen"] = [n for n in self.nations if self.visible_to(n, x, y)]
+
     def log(self, text: str, phase: str = "事件", nation: str | None = None,
             x: int | None = None, y: int | None = None) -> str:
-        self.history.append({
+        entry = {
             "turn": self.turn, "phase": phase, "nation": nation,
             "x": x, "y": y, "text": text,
-        })
+        }
+        self._stamp_seen(entry)
+        self.history.append(entry)
         return text
 
     def action(self, nation: str, tool: str, args: str, result: str, x=None, y=None):
-        self.history.append({
+        entry = {
             "turn": self.turn, "phase": "行动", "nation": nation,
             "x": x, "y": y,
             "text": f"{nation} ◇ {tool} {args} → {result}",
-        })
+        }
+        self._stamp_seen(entry)
+        self.history.append(entry)
 
     def events_for(self, name: str, limit: int = 14) -> list[str]:
         """该国能看到的近期事件（自己相关，或发生在视野内）。信件走信箱，此处不重复。"""
@@ -452,7 +464,9 @@ class World:
                 continue
             if h["nation"] == name:
                 out.append(f"[第{h['turn']}回合] {h['text']}")
-            elif h.get("x") is not None and self.visible_to(name, h["x"], h["y"]):
+            elif h.get("x") is not None and \
+                    (name in h["seen"] if "seen" in h else self.visible_to(name, h["x"], h["y"])):
+                # ★ 按落盘时刻的视野快照过滤（_stamp_seen）；无快照的极少数条目退回现视野
                 out.append(f"[第{h['turn']}回合] {h['text']}")
             if len(out) >= limit:
                 break
@@ -797,12 +811,18 @@ class World:
                 continue
             if attackers is not None and F not in attackers:
                 continue
+            # ★ 已下令撤退的军队**不索取地块**：人都要走了，把地判给一支正在脱离的军队
+            #   （甚至全 faction 皆撤 → 格归一个驻军为零的国家）不合理；留下的人才配拿。
+            stay = [a for a in fs if not a.get("retreat_to")]
+            if not stay:
+                continue
             if any(G in alive and G != F and self.war_between(F, G) for G in alive):
                 continue
             claim.append(F)
         if not claim:
             return None
-        return min(claim, key=lambda F: min((a.get("engage_seq", 10 ** 9) for a in alive[F]),
+        return min(claim, key=lambda F: min((a.get("engage_seq", 10 ** 9) for a in alive[F]
+                                             if not a.get("retreat_to")),
                                             default=10 ** 9))
 
     def _army(self, name: str, aid: int) -> dict | None:
@@ -944,9 +964,18 @@ class World:
         return True, f"{ids} 进驻 ({x+1},{y+1})，敌人为 0，{cmsg}{note}"
 
     def _retreat_legal(self, name: str, x: int, y: int) -> bool:
-        """撤退合法点：无人荒地 / 己方领土 / 同盟领土（中立与敌国格都不行）。"""
+        """撤退合法点：无人荒地 / 己方领土 / 同盟领土（中立与敌国格都不行）。
+        ★ 无人荒地上有敌（交战中）军队驻守 → 也不行——与 mv 的"野地有敌军→只能 atk"同口径，
+        否则能以"撤退"名义免费将军队空投进敌脚（同格不交战，下回合被围歼）。
+        己方/同盟格上有混战敌军仍放行（那是增援，mv 同样允许）。"""
         o = self.owned_by(x, y)
-        return o is None or o == name or self.allied_between(name, o)
+        if o == name:
+            return True
+        if o is not None:
+            return self.allied_between(name, o)
+        return not any(a["owner"] != name and a["owner"] != "野人"
+                       and (a["x"], a["y"]) == (x, y) and self.war_between(name, a["owner"])
+                       for a in self.armies)
 
     def retreat(self, name: str, aid: int, x: int, y: int) -> tuple[bool, str]:
         """撤出：与 mv/atk 同一个『每回合一次移动』额度。
@@ -1535,7 +1564,9 @@ class World:
 
         # 4.95) 弃城即陷：本回合发生过战斗的格子，守军全撤走/覆灭后格上只剩唯一一方
         # （且与格主交战）→ 直接改旗。兑现 rules 既定的「守军弃城即陷」，无需再补一刀 atk。
-        for bx, by in {(x, y) for x, y, _ in war_lines}:
+        # ★ sorted：_conquer 会改归属、可触发亡国（改 wars/truce/blocs），
+        #   裸 set 迭代序受 hash 随机化 → 同 seed 换进程改旗顺序不同 → 战局分叉。
+        for bx, by in sorted({(x, y) for x, y, _ in war_lines}):
             owner = self.owned_by(bx, by)
             if owner is None or owner not in self.nations:
                 continue
@@ -2368,7 +2399,7 @@ class World:
     # ------------------------------------------------------------- 核心领土
     def _snapshot_cores(self, participants: list[str]) -> None:
         """战争结束：参战各国（含跟随方）实际持有的地块重算为其核心领土（议和即对现状追认）。"""
-        for p in set(participants):
+        for p in set(participants):   # 序无关：每格只有一个 owner，写入键互斥（区别于战争闭包/弃城那两处需 sorted 的 set 迭代）
             if p not in self.nations:
                 continue
             for (x, y) in self.own_tiles(p):
@@ -2498,7 +2529,10 @@ class World:
             bx = self.bloc_of(x)
             if bx is not None:
                 cands |= set(bx["members"])
-            for c in cands:
+            # ★ 必须 sorted：循环体读**增长中的 def_side**（下面的 war_between 剪枝），
+            #   集合迭代序受 PYTHONHASHSEED 影响 → 同 seed 换进程可能收编不同的跟随方，
+            #   整条历史分叉——"同种子同结果"就毁在这一行裸迭代上。
+            for c in sorted(cands):
                 if c in def_side or c in members or c not in self.nations:
                     continue
                 if self.bloc_of(c) is not None and self.bloc_of(c) is self.bloc_of(leader):
@@ -2588,7 +2622,9 @@ class World:
             else:
                 return False, "赔款量需为正整数（white 则不带赔款）"
         bloc = self.bloc_of(a)
-        if bloc is not None and bloc["members"][0] == a:
+        # 判断"是否联盟主体出面"必须用权威 bloc_chief，不能用 members[0]——
+        # bloc_transfer 后盟主已换人，members[0] 仍是创始旧盟主，会让新盟主绕过投票私签和平。
+        if bloc is not None and self.bloc_chief(bloc) == a:
             # 联盟主体议和须先过联盟投票（多数决）
             v = self._new_vote("议和", bloc["name"], a,
                                {"type": "offer", "war_id": w["id"], "to": rep_b,
@@ -2617,7 +2653,8 @@ class World:
         if p is None:
             return False, "没有这个给你的求和提议"
         bloc = self.bloc_of(me)
-        if bloc is not None and bloc["members"][0] == me:
+        # 同 offer_peace：认盟主用 bloc_chief，防 bloc_transfer 后新盟主绕过投票直接接受
+        if bloc is not None and self.bloc_chief(bloc) == me:
             # 联盟主体接受议和须先过联盟投票（多数决）
             v = self._new_vote("议和", bloc["name"], me, {"type": "accept", "offer_id": offer_id})
             self.log(f"🗳 {me} 发起联盟议和投票（「{bloc['name']}」）：接受 {p['a']} 的求和（投票#{v['id']}）",
