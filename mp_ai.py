@@ -568,10 +568,10 @@ def _help_sections() -> list[tuple[str, str]]:
             "其余回合只留一行摘要；历史期与跨期趋势用 report 工具查（免费、只读）——"
             "**无法手动运行**，也不能补做历史期。"
             "一期覆盖最近 10 回合，全部按当时市价折算："
-            "①GDP（每回合）= 本期生产增加值 ÷10，**不含军费**（采集/工厂产出 + 金矿/市政厅金 − 中间投入 − 能源燃料）；"
-            "②GDP 增长率 = 环比上期；"
+            "①GDP（本回合）= **期末那一回合**的生产增加值（市价，**不含军费**：采集/工厂产出 + 金矿/市政厅金 − 中间投入 − 能源燃料）——不除天数、不攒期累计，就是当前的产出速率；"
+            "②GDP 增长率 = 环比上期的期末值（两个 run-rate 直接比，不受首期覆盖长短影响）；"
             "③财政收入 = GDP − 军费；"
-            "④军费（每回合）= 本期军队**实际消耗的补给** ÷10 × 现价（不看来源，自产/外购一视同仁）；"
+            "④军费（本回合）= 期末那一回合军队**实际吃掉的补给** × 现价（不看来源，自产/外购一视同仁）；"
             "⑤军费占 GDP 比；⑥国家总资产 = 全部建筑重置成本（造价金+木×现价，含夺来的地）；"
             "⑦资产增长率；⑧本期投资 = 本期建造实付（金 + 木×当时市价，含城堡升级）；"
             "⑨投资增长率；⑩外贸/内循环占比 = (买卖总额)/(自产+进口) 与自产自用部分。"
@@ -719,18 +719,18 @@ def _pct(v: float | None, sign: bool = True) -> str:
 
 
 def _fmt_report_one(rep: dict) -> str:
-    """单期经济报表。口径：GDP=生产增加值(市价,不含军费)/回合；军费=补给消耗×现价/回合。"""
+    """单期经济报表。口径：GDP 与军费都是**结报那一回合**的实际值（run-rate，不平均、
+    不攒期累计）；投资/资产/贸易仍是整期值。覆盖回合数只在表头交代时间跨度。"""
     days = rep.get("span", REPORT_EVERY)
     start = rep.get("period_start", rep["period_end"] - days + 1)
     span = f"第 {start}–{rep['period_end']} 回合" + ("" if days == REPORT_EVERY else f"（{days} 回合）")
     gdp, mil = rep["gdp"], rep["military"]
     fiscal = gdp - mil
     L = [f"【经济报表 · 报表回合 {rep['report_turn']} · 覆盖{span}】"]
-    L.append(f"  GDP（每回合，市价）      {gdp:>8.1f} 金   {_pct(rep['gdp_growth'])}"
-             f"   （本期合计 {gdp * days:.0f} 金）")
-    L.append(f"  财政收入（GDP−军费）     {fiscal:>8.1f} 金/回合"
-             + ("   ⚠ 本期军费已超过 GDP，靠卖库存/吃老本维持" if fiscal < 0 else ""))
-    L.append(f"  军费（每回合补给消耗）   {mil:>8.1f} 金   "
+    L.append(f"  GDP（本回合，市价）      {gdp:>8.1f} 金   {_pct(rep['gdp_growth'])}")
+    L.append(f"  财政收入（GDP−军费）     {fiscal:>8.1f} 金"
+             + ("   ⚠ 本回合军费已超过 GDP，靠卖库存/吃老本维持" if fiscal < 0 else ""))
+    L.append(f"  军费（本回合补给消耗）   {mil:>8.1f} 金   "
              f"占 GDP {_pct(rep['military_ratio'], sign=False)}")
     L.append(f"  国家总资产               {rep['assets']:>8.0f} 金   {_pct(rep['assets_growth'])}"
              "   （含夺地所得）")
@@ -738,8 +738,8 @@ def _fmt_report_one(rep: dict) -> str:
     L.append(f"  外贸 / 内循环            外贸 {_pct(rep['trade_ratio'], sign=False)} · "
              f"内循环 {_pct(1 - rep['trade_ratio'], sign=False)}"
              "   （外贸=买卖总额/(自产+进口)）")
-    L.append(f"  （本期军队共消耗补给 {rep['supply_eaten']} 单位，按现价折 {mil:.1f} 金/回合"
-             "——不看来源，自产/外购一视同仁；市场买入 "
+    L.append(f"  （本回合军队吃掉补给 {rep.get('supply_eaten_turn', 0)} 单位、折 {mil:.1f} 金；"
+             f"整期累计吃掉 {rep['supply_eaten']} 单位；市场买入 "
              f"{rep['import_gold']:.0f} 金、卖出 {rep['export_gold']:.0f} 金）")
     L.append("")
     L.append(MIL_WARNING)
@@ -750,7 +750,7 @@ def _fmt_report_trend(world, name) -> str:
     """跨期趋势表：一行一期，便于比较不同时期。"""
     reps = world.econ_reports.get(name, [])
     header = ["期", "报表回合", "GDP/回合", "GDP增长", "军费/回合", "军费占GDP",
-              "投资", "投资增长", "总资产", "资产增长", "外贸占比"]
+              "投资(期)", "投资增长", "总资产", "资产增长", "外贸占比"]
     rows = [header]
     for i, r in enumerate(reps, 1):
         rows.append([str(i), str(r["report_turn"]), f"{r['gdp']:.1f}", _pct(r["gdp_growth"]),

@@ -83,16 +83,17 @@ class TestCaliber(unittest.TestCase):
         w, *_ = _mk()
         _run(w, 10)
         rep = w.econ_reports["秦"][0]
-        # 金矿第 2 回合落地 → 本期 9 回合 ×10 金 = 90/10 = 9 金/回合（再加农场的粮）
-        self.assertGreater(rep["gdp"], 9.0)
+        # run-rate：GDP = 结报回合（第 10 回合）的实际产出 = 金矿 10 金 + 农场粮×粮价
+        self.assertGreater(rep["gdp"], 10.0)             # ≥ 金矿产金（农场粮是零头）
         self.assertLess(rep["gdp"], 30.0)
 
     def test_military_is_consumption_times_market_price(self):
         w, *_ = _mk()
         _run(w, 10)
         rep = w.econ_reports["秦"][0]
-        self.assertEqual(rep["supply_eaten"], 10)       # 1 支步兵 × 10 回合
-        self.assertAlmostEqual(rep["military"], round(10 / 10 * w.prices["补给"], 1), places=1)
+        self.assertEqual(rep["supply_eaten"], 10)        # 整期：1 支步兵 × 10 回合
+        self.assertEqual(rep["supply_eaten_turn"], 1)    # 本回合：1 支步兵吃 1 补给
+        self.assertAlmostEqual(rep["military"], rep["supply_eaten_turn"] * w.prices["补给"], places=1)
         self.assertAlmostEqual(rep["military_ratio"], rep["military"] / rep["gdp"], delta=0.01)
 
     def test_military_ignores_source(self):
@@ -149,14 +150,25 @@ class TestCaliber(unittest.TestCase):
         self.assertIsNone(w.econ_reports["秦"][-1]["gdp_growth"])
         self.assertIn("—", mp_ai._fmt_report(w, "秦"))
 
-    def test_growth_rates_second_period(self):
+    def test_gdp_growth_needs_real_capacity_gain(self):
+        """run-rate 口径：只有第 10→20 回合之间真扩了产能，第二期 GDP 才涨。"""
+        w, *_ = _mk()
+        _run(w, 10)                                       # 首期：1 农场 + 1 金矿
+        farm2 = _find_tiles(w, "耕地")                    # _find_tiles 跳过已有格 → 第二块耕地
+        w.build("秦", *farm2, "农场")                     # 第二期初建，第 20 回合已在产
+        _run(w, 10)
+        first, second = w.econ_reports["秦"]
+        self.assertIsNone(first["gdp_growth"])            # 首期无上期
+        self.assertGreater(second["gdp"], first["gdp"])   # 2 农场 > 1 农场（真实产差）
+        self.assertGreater(second["gdp_growth"], 0)
+
+    def test_gdp_growth_flat_when_capacity_steady(self):
+        """稳态经济（两期同一套建筑）→ 环比 ≈ 0，不再像旧平均口径那样
+        因'首期只算了 9/10 天'虚报一个正增长。"""
         w, *_ = _mk()
         _run(w, 20)
         first, second = w.econ_reports["秦"]
-        self.assertIsNone(first["gdp_growth"])           # 首期无上期
-        self.assertIsNotNone(second["gdp_growth"])
-        self.assertGreater(second["gdp"], first["gdp"])
-        self.assertGreater(second["gdp_growth"], 0)
+        self.assertLess(abs(second["gdp_growth"]), 0.1)   # 稳态 → run-rate 基本持平
 
 
 class TestSpendAccounting(unittest.TestCase):
@@ -209,7 +221,7 @@ class TestContextInjection(unittest.TestCase):
         w.begin_turn()                                   # 第 11 回合 = 出表回合
         seg = self._seg(mp_ai.full_state(w, "秦"))
         self.assertIn("报表回合 11", seg)
-        self.assertIn("军费（每回合补给消耗）", seg)
+        self.assertIn("军费（本回合补给消耗）", seg)
         self.assertIn("挤压投资", seg)                   # 固定警示随全文一起进上下文
 
     def test_only_summary_on_other_turns(self):
@@ -219,7 +231,7 @@ class TestContextInjection(unittest.TestCase):
         _run(w, 4)                                       # 第 12–15 回合：不是出表回合
         seg = self._seg(mp_ai.full_state(w, "秦"))
         self.assertIn("最新第 11 回合", seg)
-        self.assertNotIn("军费（每回合补给消耗）", seg)   # 不重复整张表
+        self.assertNotIn("军费（本回合补给消耗）", seg)   # 不重复整张表
         self.assertIn("report", seg)
 
     def test_panel_before_first_report(self):
@@ -251,10 +263,12 @@ class TestAnnouncement(unittest.TestCase):
 
 
 class TestPartialPeriod(unittest.TestCase):
-    """不完整首期：续档/中途登场时账本从零开始，结账要按实际覆盖回合数平均，不能一律 ÷10。"""
+    """不完整首期：续档/中途登场时账本覆盖不足 10 回合。run-rate 口径下 GDP/军费
+    只取**结报那一回合**的实际产出，与覆盖了几个回合无关——旧平均口径'首期 ÷10 腰斩'
+    的问题从根上不存在，这里锁死它不再复现。"""
 
     def test_partial_first_period_from_empty_ledger(self):
-        """账本从第 6 回合才起算 → 首期 span=5 按实际回合平均（不 ÷10）。
+        """覆盖不足 10 回合的首期：run-rate 下 GDP 仍是期末回合真值，不腰斩。
 
         旧写法靠"从档里删 ledger 键"模拟旧档——去兼容后删键直接触发 SAVE_KEYS 缺字段
         拒载；故改走版本化等价构造：ledger 键保留（满足契约），只把内容清零、_since 推到 6。"""

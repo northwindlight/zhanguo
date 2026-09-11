@@ -1258,8 +1258,9 @@ class World:
 
     # ------------------------------------------------------------- 经济报表
     def _ledger(self, n: str) -> dict:
-        """取（或新建）该国本期经济账本。新建时记下起始回合——续档/中途登场会得到
-        一个不完整的第一期，结账时按**实际覆盖回合数**平均，不能一律 ÷10。"""
+        """取（或新建）该国本期经济账本。投资/贸易/资产从这里按整期出数；
+        GDP/军费不读整期值——由 _close_report_period 取**结报回合的增量**
+        （run-rate，见 _ledger_runrate_mark），账本怎么攒、首期缺几回合都不影响它们。"""
         led = self.ledger.get(n)
         if led is None:
             led = self.ledger[n] = {**{k: 0.0 for k in LEDGER_FIELDS},
@@ -1310,18 +1311,30 @@ class World:
             return None
         return (cur - base) / base
 
-    def _close_report_period(self) -> None:
-        """把本期账本结成一期快照（覆盖最近 REPORT_EVERY 回合），并清零账本。
-        只在回合结算末尾调用——AI 没有任何手动触发入口。"""
+    # 报表口径（2026-09-12 用户定）：GDP / 军费**不平均、不按整期累计**——
+    # 只取"结报这一回合"的实际产出增量（run-rate）。投资/贸易/资产仍是整期值。
+    _RUNRATE_FIELDS = ("prod_value", "mid_value", "fuel_value", "gold_in", "supply_eaten")
+
+    def _ledger_runrate_mark(self) -> dict:
+        """结算开头为每国抓一份 GDP/军费相关字段的快照，供 _close_report_period 求本回合增量。"""
+        return {n: {k: self._ledger(n).get(k, 0.0) for k in self._RUNRATE_FIELDS}
+                for n in self.alive()}
+
+    def _close_report_period(self, runrate_from: dict) -> None:
+        """把本期账本结成一期快照并清零账本。只在回合结算末尾调用——AI 无手动入口。
+        runrate_from：本回合结算开头（生产/军耗发生之前）的账本快照；
+        GDP 与军费只反映**本回合**（报表所结算的那一回合）的实际增量。"""
         for n in self.alive():
             led = self._ledger(n)
             start = int(led.get("_since", self.turn - REPORT_EVERY + 1))
-            days = max(1, min(REPORT_EVERY, self.turn - start + 1))   # 不完整首期按实际天数
-            gdp = (led["prod_value"] - led["mid_value"] - led["fuel_value"]
-                   + led["gold_in"]) / days                      # 每回合平均（市价，不含军费）
-            # 军费 = 本期军队实际消耗的补给 ÷10 × 现价（不看来源：自产/外购一视同仁）
-            military = led["supply_eaten"] / days * self.prices.get("补给", float(MARKET["补给"]))
-            invest = led["invest_gold"] + led["invest_wood_value"]
+            days = max(1, min(REPORT_EVERY, self.turn - start + 1))   # 覆盖回合数（仅供展示）
+            snap0 = runrate_from.get(n, {k: 0.0 for k in self._RUNRATE_FIELDS})
+            d = lambda k: led.get(k, 0.0) - snap0.get(k, 0.0)          # 本回合增量
+            # GDP = 本回合生产增加值（市价，不含军费）——不除天数、不攒期累计
+            gdp = d("prod_value") - d("mid_value") - d("fuel_value") + d("gold_in")
+            # 军费 = 本回合军队实际吃掉的补给 × 现价（不看来源：自产/外购一视同仁）
+            military = d("supply_eaten") * self.prices.get("补给", float(MARKET["补给"]))
+            invest = led["invest_gold"] + led["invest_wood_value"]      # 整期累计（不 run-rate）
             assets = self.nation_assets(n)
             supply_total = led["prod_value"] + led["import_gold"]
             trade = ((led["export_gold"] + led["import_gold"]) / supply_total
@@ -1343,14 +1356,15 @@ class World:
                 "assets_growth": self._growth(assets, prev.get("assets")),
                 "export_gold": round(led["export_gold"], 1),
                 "import_gold": round(led["import_gold"], 1),
-                "supply_eaten": int(led["supply_eaten"]),
+                "supply_eaten": int(led["supply_eaten"]),           # 整期累计（供展示）
+                "supply_eaten_turn": int(d("supply_eaten")),        # 本回合吃掉（军费口径）
                 "trade_ratio": round(trade, 4),
             }
             self.econ_reports.setdefault(n, []).append(snap)
             # 公告一条（看海终端可见；该国在【近讯】里也能看到 → 提醒它去 report 查）
             mr = snap["military_ratio"]
             self.log(f"📊 第 {snap['report_turn']} 回合经济报表已生成："
-                     f"GDP {snap['gdp']:.1f}/回合、军费占 GDP "
+                     f"本回合 GDP {snap['gdp']:.0f} 金、军费占 GDP "
                      f"{f'{mr * 100:.0f}%' if mr is not None else '—'}、"
                      f"总资产 {snap['assets']:.0f}（report 看明细 / report all=true 看趋势）",
                      phase="内政", nation=n)
@@ -1362,6 +1376,8 @@ class World:
 
     # ------------------------------------------------------------- 回合结算
     def resolve_turn(self) -> dict:
+        # 快照本回合起点的账本增量字段：GDP/军费只报"本回合"的实际产出（见 _close_report_period）
+        runrate_from = self._ledger_runrate_mark()
         # 0) 刷新每地块每回合配额
         for t in self.tiles.values():
             t["recruited_this_turn"] = 0
@@ -1575,7 +1591,7 @@ class World:
         # 绝不把异常抛进 resolve_turn 拖垮整局（与「不静默」原则一致——日志里看得见）。
         if self.turn and self.turn % REPORT_EVERY == 0:
             try:
-                self._close_report_period()
+                self._close_report_period(runrate_from)
             except Exception as e:
                 self.log(f"⚠ 经济报表生成失败，本期跳过：{type(e).__name__}: {e}", phase="内政")
         return {"war_lines": flat_lines, "famine": famine}
