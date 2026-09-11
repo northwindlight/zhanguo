@@ -290,7 +290,7 @@ def pack_tf(chunk):
 
 
 def hit_rate(model, samples, n_tiles: int = 0, *, skip_end_turn: bool = False,
-             net: str = "mlp") -> float:
+             net: str = "mlp", mb: int = 256) -> float:
     """在给定样本上量命中率（老师动作是否被选中）。分批，别一次塞爆内存。
 
     `skip_end_turn=True`：只算老师的**真实动作**，把每回合补的那条 end_turn 示范剔掉。
@@ -304,8 +304,11 @@ def hit_rate(model, samples, n_tiles: int = 0, *, skip_end_turn: bool = False,
         return float("nan")
     hit = tot = 0
     with torch.no_grad():
-        for s in range(0, len(samples), 256):
-            chunk = samples[s:s + 256]
+        # ★批大小跟着训练批走，别再写死 256：`tf` 主干下 256 是**内存尖峰**
+        #   （窗口激活 ∝ batch，见 `--minibatch` 的说明），而这个函数只是量命中率，
+        #   不值得为它冒换页的险。实测 v9+tf 一局里它独占 18 s，接到 32 之后只剩几秒。
+        for s in range(0, len(samples), mb):
+            chunk = samples[s:s + mb]
             if net == "tf":
                 cand, cmask, wb, acts, _g = pack_tf(chunk)
                 pred = model(wb, cand, cmask)[0].argmax(-1).numpy()
@@ -322,8 +325,12 @@ def hit_rate(model, samples, n_tiles: int = 0, *, skip_end_turn: bool = False,
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="行为克隆冷启动（学规则 AI 的模式）")
-    ap.add_argument("--teacher", default="v6", choices=("v6", "v3", "v9"),
-                    help="老师：v9=当前基线（= v8 + 视野门控，推荐）/ "
+    # ★默认曾是 v6，而帮助里写着"推荐 v9" —— 两者打架的代价：重写命令行时漏了这个
+    #   参数，跑出来的样本数（299 = v6）和 v9 的 437 对不上，我花了一整轮去追一个
+    #   **根本不存在的"不确定性"**（三次直跑 437/消费 5001 一模一样，世界生成是确定的）。
+    #   默认值就该是当前基线，别让默认值和文档互相矛盾。
+    ap.add_argument("--teacher", default="v9", choices=("v9", "v6", "v3"),
+                    help="老师：v9=**当前基线**（= v8 + 视野门控，默认）/ "
                          "v6=旧基线（T500 2384k 但 T300 只有 485k）/ v3=第一版（82k）")
     ap.add_argument("--horizon", type=int, default=-1,
                     help="v9 老师的 ROI 回收期窗口（视野）；默认 = 每局回合 + 20")
@@ -355,7 +362,12 @@ def main() -> None:
                     help="value 损失的权重——BC 顺手把 critic 也热身，PPO 接手时 V 不是随机数。"
                          "注意 loss_v 已按回报方差归一化，别拿它跟旧日志的 vf 直接比")
     ap.add_argument("--lr", type=float, default=3e-4)
-    ap.add_argument("--minibatch", type=int, default=256)
+    ap.add_argument("--minibatch", type=int, default=0,
+                    help="0 = 自动：mlp/pool 用 256，tf 用 32。"
+                         "★批大小**同时决定激活内存**（∝ batch × token × d_model）："
+                         "tf 在 batch=256 时每个中间张量 63 MB、4 层合计 ~3.8 GB，"
+                         "实测把 ECS（3.7 GB）直接压进 swap，一步要几分钟 —— 看着像算力不够，"
+                         "其实是换页。改这个之前先看 `free -m` 的 Swap 行。")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--threads", type=int, default=0, help="torch CPU 线程数；**0 = 自动 = 物理核数**（ECS 1 / Pi 5 4）。SMT 的第二个逻辑核对向量计算收益为零，写死 4 在 ECS 上等于打开超订（实测慢 3.4×）")
     ap.add_argument("--ckpt-every", type=int, default=4,
@@ -396,6 +408,13 @@ def main() -> None:
     def set_train_threads():
         torch.set_num_threads(n_threads)
 
+    # ★批大小按主干定：它**同时是激活内存的系数**（∝ batch × token × d_model）。
+    #   tf 的窗口是 321 token × d192，batch=256 时光窗口那一路的中间张量就有 ~3.8 GB，
+    #   把 ECS（3.7 GB）压进 swap —— 表现是"一步几分钟"，很容易误判成算力不够。
+    if args.minibatch <= 0:
+        args.minibatch = 32 if args.net == "tf" else 256
+        print(f"批次自动 = {args.minibatch}（net={args.net}）", flush=True)
+
     _ms = tuple(int(x) for x in args.map_sizes.split(",") if x.strip()) if args.map_sizes else None
     env = ZhanguoEnv(map_size=args.map_size, map_sizes=_ms, max_turns=args.turns,
                      max_actions_per_turn=args.max_actions)
@@ -411,10 +430,21 @@ def main() -> None:
         model = WindowTransformer(_ww, d_model=args.d_model, n_layer=args.n_layer,
                                   n_head=args.n_head)
         model.set_sub_sizes([len(env.sub_tables[k]) for k in KINDS])
+        # 激活内存的粗估（∝ batch × token × d_model），跑之前先亮出来：
+        # ECS 只有 3.7 GB，这个数一旦接近它就会换页，而**换页的表现是"慢"，不是"崩"** ——
+        # 实测 batch=256 时一步几分钟，看着像算力不够。
+        # 三项：主干激活 ∝ b·T·d·层数；**自注意力掩码** ∝ b·H·T²；
+        # **候选侧掩码** ∝ b·H·K·T（K 取 512 作上界估）。第二三项是大头 ——
+        # 带 `key_padding_mask` 时 torch 会物化整个 (B,H,T,T)，batch=256 时单个就是 422 MB。
+        _b, _T, _H = args.minibatch, _w.total, args.n_head
+        _act_mb = (_b * _T * args.d_model * 4 * args.n_layer * 4
+                   + _b * _H * _T * _T * 4 * args.n_layer
+                   + _b * _H * 512 * _T * 4) / 2 ** 20
         print(f"★P4 主干（WindowTransformer）：d_model={args.d_model} "
               f"{args.n_layer} 层 {args.n_head} 头，{model.n_params():,} 参数；"
-              f"窗口 {_w.total} token / 亮 {_w.live}；**无 CNN**（候选只带相对落点去 attend）",
-              flush=True)
+              f"窗口 {_w.total} token / 亮 {_w.live}；**无 CNN**（候选只带相对落点去 attend）；"
+              f"batch={args.minibatch} 激活粗估 ≈{_act_mb:,.0f} MB"
+              f"（ECS 可用 3.3 GB，超了就换页——换页看着像慢，不像崩）", flush=True)
     else:
         model = PolicyNet(n_grid_ch=len(env.obs_channels()), n_glob=env.glob_size(),
                           sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
@@ -561,7 +591,7 @@ def main() -> None:
 
         # 训练集命中率也量：**只看验证集看不出过拟合**。两个一起看才有意义——
         # 训练一路涨、验证不涨或掉 = 过拟合，这时该早停挑检查点而不是继续跑。
-        _kw = {"net": args.net}
+        _kw = {"net": args.net, "mb": args.minibatch}
         # 不传 `model.n_tiles`：那是给 CNN 的扁平地块下标，P4 的主干根本没有 ——
         # `collate` 里这个参数早就废弃了（空位下标按张量实时算）。
         tr_hit = hit_rate(model, buffer[-600:], **_kw)
