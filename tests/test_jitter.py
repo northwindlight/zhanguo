@@ -64,6 +64,22 @@ class TestDeterminism(JitterCase):
 
 
 class TestScope(JitterCase):
+    def test_restore_works_without_ever_jittering(self):
+        """★没开过抖动时 `restore()` 也必须能还原 —— 它兜底的是"任何直接改表的代码"。
+
+        踩过：原实现 `_TRUE is None` 就 return，于是"改了 game 的表、指望 restore()
+        复原"的调用方**静默失效**（ECS 上先跑 v10 的用例就把后面的用例带崩了）。
+        """
+        jitter.restore()                      # 从没 apply 过
+        orig = game.UNIT_TYPES["步"]["atk"]
+        try:
+            game.UNIT_TYPES["步"]["atk"] = 25
+            jitter.restore()
+            self.assertEqual(game.UNIT_TYPES["步"]["atk"], orig,
+                             "restore() 在未抖动过的进程里没还原")
+        finally:
+            game.UNIT_TYPES["步"]["atk"] = orig
+
     def test_zero_means_off_and_restores(self):
         jitter.apply(7, 0.2)
         self.assertNotEqual(game.BUILDINGS["石油能源厂"]["cost"], self._true_cost)

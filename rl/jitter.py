@@ -184,11 +184,16 @@ def apply(seed: int, amount: float) -> dict:
 
 
 def restore() -> None:
-    """把规则表还原成真值（就地写回；评估/看海/对拍前必须调）。"""
+    """把规则表还原成真值（就地写回；评估/看海/对拍前必须调）。
+
+    ★**即使从来没抖动过也能还原**（`_ensure_snapshot()` 兜底）：这条曾经写的是
+    「`_TRUE is None` 就 return」——于是任何"改了 game 的表、指望 restore() 复原"的代码
+    在没开过抖动的进程里会**静默失效**（实测：v10 的测试直接改 `UNIT_TYPES["步"]["atk"]`，
+    本地因为测试顺序侥幸没暴露，ECS 上先跑它就把后面的用例带崩了）。
+    快照成本是一次 deepcopy，换掉这类静默失效是划算的。
+    """
     global _REC
-    if _TRUE is None:
-        _REC = None
-        return
+    _ensure_snapshot()
     for name, true_b in _TRUE["buildings"].items():
         game.BUILDINGS[name].clear()
         game.BUILDINGS[name].update(copy.deepcopy(true_b))
