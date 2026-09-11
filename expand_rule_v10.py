@@ -155,7 +155,12 @@ def _fight_cost(world, x: int, y: int, terrain, def_owner: str, defenders: list,
     d_pct = _terrain_defense(world, terrain, x, y, def_owner)
     per_unit = max(1, atk * (100 - d_pct) // 100)          # 期望伤害，不扣骰子
     e_hp = sum(max(0, a["hp"]) for a in defenders) if defenders else _guardian_hp(world)
-    e_atk = sum(unit_atk(a) for a in defenders) if defenders else _guardian_hp(world) // 2
+    # ★守方攻击力也必须**现读**：野人没有 type → 引擎按步兵兜底（`game.unit_atk`），
+    #   所以"看不见守军时"该估的是 `UNIT_TYPES["步"]["atk"]`，**不是** `hp // 2`。
+    #   曾经写的就是 `hp // 2`（真值下 100/2=50 恰好等于 atk，看着对）—— 一抖动
+    #   hp 与 atk 各走各的，这个估值就偏了，而这正是"打不打得赢"的一半输入。
+    e_atk = (sum(unit_atk(a) for a in defenders) if defenders
+             else UNIT_TYPES.get("步", {}).get("atk", ARMY_MAX_HP // 2))
     # 最少几支能"一轮打死"（这是排序用的便宜度指标）
     need = max(1, -(-e_hp // per_unit))
     # 能不能赢：我方要几轮打死它、它要几轮打死我（我方 hp 随人数线性涨）

@@ -154,5 +154,51 @@ class TestJitterRegression(RuleCase):
                     w.begin_turn()
 
 
+class TestDegenerateEpisodeGuard(unittest.TestCase):
+    """★退化局守卫（`rl/bc.py` 的 `episode_is_degenerate`）。
+
+    抖动过大时老师可能整局"启动不起来"（领地停在开局 5 格、0 次进攻），
+    那种局的样本几乎全是 end_turn —— 收进缓冲等于**教学生"别动"**。
+    实测（20 图 × 80 回合）：±20% 健康局最少 12 格；±35% 起出现 ≤7 格的退化局。
+    """
+
+    def test_open_cross_is_always_degenerate(self):
+        from rl.bc import episode_is_degenerate
+        for seen in ([], [30], [12, 40, 33, 28]):
+            self.assertTrue(episode_is_degenerate(5, seen), "开局 5 格 = 一格没打下来")
+
+    def test_measured_gap(self):
+        """实测间隔：退化 ≤7、健康 ≥12 —— 阈值要落在这中间，且不许误伤健康局。"""
+        from rl.bc import episode_is_degenerate
+        seen = [12, 22, 28, 33, 40, 50]          # ±20% 实测的一批
+        for bad in (5, 6, 7):
+            self.assertTrue(episode_is_degenerate(bad, seen), f"{bad} 格该判退化")
+        for ok in (12, 22, 30, 40, 50):
+            self.assertFalse(episode_is_degenerate(ok, seen), f"{ok} 格不该判退化")
+
+    def test_relative_threshold_not_absolute(self):
+        """阈值相对化：同一格数在"大盘面"里是退化、在"小盘面"里正常。
+
+        （绝对阈值会随回合数/地图尺寸漂 —— 而"比别的局差一大截"是稳定信号。）
+        """
+        from rl.bc import episode_is_degenerate
+        self.assertTrue(episode_is_degenerate(10, [40, 45, 50, 42]))
+        self.assertFalse(episode_is_degenerate(10, [12, 11, 13, 12]))
+
+    def test_few_samples_uses_floor(self):
+        from rl.bc import episode_is_degenerate
+        self.assertTrue(episode_is_degenerate(7, [50]))     # 样本少 → 只看 floor
+        self.assertFalse(episode_is_degenerate(12, [50]))
+
+    def test_short_episodes_are_never_degenerate(self):
+        """★回合数不够时判据不成立：扩张本来就晚（首攻中位第 21 回合），
+        短回合的冒烟/调试跑法本来就只有开局那 5 格 —— 别把它的样本丢掉。"""
+        from rl.bc import episode_is_degenerate
+        for turns in (8, 12, 30, 39):
+            self.assertFalse(episode_is_degenerate(5, [], turns=turns),
+                             f"{turns} 回合不该按退化处理")
+        self.assertTrue(episode_is_degenerate(5, [], turns=70))
+
+
 if __name__ == "__main__":
     unittest.main()

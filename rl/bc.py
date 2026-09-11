@@ -123,6 +123,37 @@ def get_teacher(which: str, turns: int = 500, horizon: int = -1):
     return fn
 
 
+def episode_is_degenerate(tiles: int, seen: list[int], *, turns: int | None = None,
+                          ratio: float = 0.3, floor: int = 8,
+                          min_turns: int = 40) -> bool:
+    """这一局是不是「老师根本没启动起来」？（抖动过大的地图会这样）
+
+    实测（20 张图 × 80 回合，`expand_rule_v10`）：抖动 ±20% 时健康局最少 12 格，
+    ±35% 起出现退化局（领地停在开局的 5 格、0~1 次进攻），±50% 时 4/20 张图退化。
+    ⇒ **退化局 ≤7 格，健康局 ≥12 格**，中间是干净的间隔。
+
+    为什么不用"老师这一局的消费"当判据：**分不开** —— 退化局照样烧 3k~4k
+    （消费记账是建造+征兵+军费，卡住的帝国也在建东西、养兵，只是不扩张）。
+
+    阈值**相对化**（见过的中位数的 `ratio`，且不低于 `floor`）：绝对阈值会随回合数、
+    地图尺寸、老师版本漂，而"这一局比别的局差一大截"是稳定的信号。
+
+    `turns`：**回合数不够时这个判据不成立** —— 扩张本来就晚（老师首次进攻中位第 21 回合），
+    短回合的跑法（冒烟/调试）本来就不扩张。所以 `turns < min_turns` 一律不判退化。
+    （踩过：拿 `--turns 12` 冒烟，5 格被当成退化局，那一局样本全丢。）
+    `ratio=0.3` 而不是 0.4：±20% 实测里有两局只有 12 格、但有 8~10 次进攻 —— 那是
+    **健康但慢**的地图，不该误杀（中位 31 时 0.3×31≈9.3，12 格过关；退化局 ≤7 格照样被抓）。
+    """
+    if turns is not None and turns < min_turns:
+        return False
+    if tiles <= 5:                      # 开局就是 5 格（十字）→ 一格没打下来
+        return True
+    if len(seen) < 3:                   # 样本太少时只用绝对下限
+        return tiles < floor
+    med = sorted(seen)[len(seen) // 2]
+    return tiles < max(floor, ratio * med)
+
+
 def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
                     student=None, endturn_cap: int = 1, with_window: bool = False):
     """跑一局，采 (观测, 候选下标)。返回 (样本, 该局消费, 未匹配数)。
@@ -516,6 +547,8 @@ def main() -> None:
     total_steps = 0
     grad_steps = 0
     dagger_from = args.dagger_from if args.dagger_from >= 0 else args.episodes // 2
+    degenerate = 0                 # 被判为退化局的局数（丢弃样本，不参与训练）
+    _seen_tiles: list[int] = []    # 见过的健康局领地数（判据的相对基准）
     for ep in range(args.episodes):
         # 后半程用 **DAgger**：让学生自己跑，再让老师在**学生走到的状态**上打标签。
         # 这是治「分布漂移」的标准药——只学老师的轨迹，学生一旦偏离就没标签了。
@@ -530,6 +563,18 @@ def main() -> None:
         if not demos:
             print(f"第 {ep} 局没采到样本，跳过")
             continue
+        # ★退化局守卫（2026-09-12）：抖动过大的地图上老师可能**整局启动不起来**
+        #   （领地停在开局 5 格、0 次进攻）—— 那种局的样本几乎全是 end_turn，
+        #   收进缓冲等于**教学生"别动"**。判据见 `episode_is_degenerate`。
+        _tiles = len(env.world.own_tiles(env.agent)) if env.world is not None else 0
+        if episode_is_degenerate(_tiles, _seen_tiles, turns=args.turns):
+            print(f"⚠ 第 {ep} 局老师没启动起来（领地 {_tiles}，见过的中位 "
+                  f"{sorted(_seen_tiles)[len(_seen_tiles)//2] if _seen_tiles else '-'}）"
+                  f"—— 判为退化局，**丢弃这一局的样本**（抖动过大的地图会这样）")
+            degenerate += 1
+            set_train_threads()
+            continue
+        _seen_tiles.append(_tiles)
         total_steps += len(demos)
         # 验证集 = **整局留出**（每 --val-every 局抽 1 局）。先前是从每局里切 10%，
         # 那些样本和训练集**共用同一张地图**——只能测出"对见过的地图过拟合"，
