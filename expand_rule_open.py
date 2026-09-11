@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import random
 
-from game import BUILDINGS, MARKET, TOWN_HALL_GOLD, TOWN_HALL_PER_SLOT
+from game import BUILDINGS, MARKET, building_effect
 
 MILESTONE_ARMIES = 2                  # 里程碑：2 支步兵
 ARMY_GATE = 0.60                      # 军费占收入的上限（>60% 就不建军）
@@ -98,7 +98,8 @@ def income_of(w, name: str) -> float:
             for good, amt in (info.get("outputs") or {}).items():
                 total += _price(good) * amt * cnt
             if info["kind"] == "townhall":
-                total += (TOWN_HALL_GOLD + TOWN_HALL_PER_SLOT * sum(
+                total += (building_effect("市政厅", "gold_base")
+                          + building_effect("市政厅", "gold_per_slot") * sum(
                     w.tiles[p]["buildings"].values())) * cnt
     return total
 

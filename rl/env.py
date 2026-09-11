@@ -29,8 +29,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from game import (BUILDINGS, ENGINEER_DISCOUNT, MARKET, MAX_SLOTS, TERRAIN_STATS,
-                  TERRAINS, TRADEABLE, UNIT_TYPES, WATCHTOWER_RADIUS,
+from game import (BUILDINGS, MARKET, MAX_SLOTS, TERRAIN_STATS,
+                  TERRAINS, TRADEABLE, UNIT_TYPES, building_effect,
                   unit_kind, unit_max_hp, unit_speed)
 from mp import World
 from rl import vocab as V
@@ -310,7 +310,7 @@ class ZhanguoEnv:
                 if bp:
                     cost = cost * (100 + bp) // 100
                 if t["buildings"].get("工程院") and b != "工程院":
-                    cost = cost * (100 - ENGINEER_DISCOUNT) // 100
+                    cost = cost * (100 - building_effect("工程院", "build_discount")) // 100
                 if huns:
                     cost = cost * 13 // 10
                 if gold < cost or wood < info["wood"]:
@@ -459,11 +459,12 @@ class ZhanguoEnv:
                     xx, yy = x + dx, y + dy
                     if 0 <= xx < n and 0 <= yy < n:
                         vis[xx, yy] = 1.0
-        r2 = WATCHTOWER_RADIUS ** 2
+        _tw = building_effect("瞭望塔", "vision_radius")
+        r2 = _tw * _tw
         for (tx, ty), t in w.tiles.items():
             if t["owner"] == me and t["buildings"].get("瞭望塔"):
-                for dx in range(-WATCHTOWER_RADIUS, WATCHTOWER_RADIUS + 1):
-                    for dy in range(-WATCHTOWER_RADIUS, WATCHTOWER_RADIUS + 1):
+                for dx in range(-_tw, _tw + 1):
+                    for dy in range(-_tw, _tw + 1):
                         if dx * dx + dy * dy <= r2:
                             xx, yy = tx + dx, ty + dy
                             if 0 <= xx < n and 0 <= yy < n:
