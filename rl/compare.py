@@ -69,7 +69,7 @@ def main() -> None:
     ap.add_argument("--turns", type=int, default=500)
     ap.add_argument("--map-size", type=int, default=16)
     ap.add_argument("--seed-base", type=int, default=500_000)
-    ap.add_argument("--threads", type=int, default=4)
+    ap.add_argument("--threads", type=int, default=0, help="torch CPU 线程数；**0 = 自动 = 物理核数**（ECS 1 / Pi 5 4）。SMT 的第二个逻辑核对向量计算收益为零，写死 4 在 ECS 上等于打开超订（实测慢 3.4×）")
     # 模型这一侧的上限只是安全网（回合该不该结束由 end_turn 决定），
     # 规则 AI 那一侧**不限额**——老师该按满血评估，不该被我们定的人为上限削。
     # 观测里那一维按固定 ACT_REF=64 归一化，所以这两个值不再互相牵制。
@@ -80,7 +80,8 @@ def main() -> None:
     args = ap.parse_args()
 
     import torch as _t
-    _t.set_num_threads(max(1, args.threads))
+    from rl.hw import set_threads
+    set_threads(args.threads)
 
     env = ZhanguoEnv(map_size=args.map_size, max_turns=args.turns,
                      max_actions_per_turn=args.max_actions)
