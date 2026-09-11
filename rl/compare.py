@@ -20,11 +20,14 @@ from rl.model import PolicyNet
 from rl.ppo import act
 
 
-def run_model(env, model, seed: int, deterministic: bool) -> tuple[float, int]:
+def run_model(env, model, seed: int, deterministic: bool,
+              use_win: bool = False) -> tuple[float, int]:
+    from rl.tokenize import tokenize
     torch.manual_seed(0)
     obs = env.reset(seed)
     while True:
-        i, _lp, _v = act(model, obs, deterministic=deterministic)
+        w = tokenize(env, obs) if use_win else None
+        i, _lp, _v = act(model, obs, deterministic=deterministic, win=w)
         obs, _r, done, _info = env.step(obs.cand["actions"][i])
         if done:
             break
@@ -69,6 +72,14 @@ def main() -> None:
     ap.add_argument("--turns", type=int, default=500)
     ap.add_argument("--map-size", type=int, default=16)
     ap.add_argument("--seed-base", type=int, default=500_000)
+    ap.add_argument("--net", default="mlp", choices=("mlp", "pool", "tf"),
+                    help="被评模型的主干，必须与训练时一致（权重键不同）")
+    ap.add_argument("--d-model", type=int, default=192)
+    ap.add_argument("--n-layer", type=int, default=4)
+    ap.add_argument("--n-head", type=int, default=4)
+    ap.add_argument("--map-sizes", default="",
+                    help="逗号分隔的地图边长候选（如 '16,24,32'）；给了就每局重采样一个。"
+                         "★跨图 σ≈45%，单图数字不能当能力读，比较要多图取中位")
     ap.add_argument("--threads", type=int, default=0, help="torch CPU 线程数；**0 = 自动 = 物理核数**（ECS 1 / Pi 5 4）。SMT 的第二个逻辑核对向量计算收益为零，写死 4 在 ECS 上等于打开超订（实测慢 3.4×）")
     # 模型这一侧的上限只是安全网（回合该不该结束由 end_turn 决定），
     # 规则 AI 那一侧**不限额**——老师该按满血评估，不该被我们定的人为上限削。
@@ -83,12 +94,29 @@ def main() -> None:
     from rl.hw import set_threads
     set_threads(args.threads)
 
-    env = ZhanguoEnv(map_size=args.map_size, max_turns=args.turns,
+    _ms = (tuple(int(x) for x in args.map_sizes.split(",") if x.strip())
+           if args.map_sizes else None)
+    env = ZhanguoEnv(map_size=args.map_size, map_sizes=_ms, max_turns=args.turns,
                      max_actions_per_turn=args.max_actions)
     env.reset(0)
-    model = PolicyNet(n_grid_ch=len(env.obs_channels()), n_glob=env.glob_size(),
-                      sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
-                      n_tiles=args.map_size ** 2)
+    # ★评估工具必须能评**任意主干** —— 它就是 P5 挑 checkpoint 的那把尺子，
+    #   只会建 PolicyNet 的话，tf 训出来的权重根本没地方量。
+    use_win = args.net in ("pool", "tf")
+    if args.net == "tf":
+        from rl.tokenize import GROUPS, tokenize
+        from rl.transformer import WindowTransformer
+        _w = tokenize(env, env._obs())
+        model = WindowTransformer({g: _w.feats[g].shape[1] for g in GROUPS},
+                                  d_model=args.d_model, n_layer=args.n_layer,
+                                  n_head=args.n_head)
+        model.set_sub_sizes([len(env.sub_tables[k]) for k in KINDS])
+    else:
+        from rl.tokenize import GROUPS, tokenize
+        model = PolicyNet(n_grid_ch=len(env.obs_channels()), n_glob=env.glob_size(),
+                          sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
+                          n_tiles=(max(_ms) if _ms else args.map_size) ** 2,
+                          win_widths=({g: tokenize(env, env._obs()).feats[g].shape[1]
+                                       for g in GROUPS} if use_win else None))
     ck = _t.load(args.ckpt, map_location="cpu", weights_only=False)
     model.load_state_dict(ck["model"])
     model.eval()
@@ -99,8 +127,8 @@ def main() -> None:
           f"{'v9(基线)':>13}{'v9地':>7}")
     for i in range(args.episodes):
         seed = args.seed_base + i
-        a = run_model(env, model, seed, deterministic=True)
-        b = run_model(env, model, seed, deterministic=False)
+        a = run_model(env, model, seed, deterministic=True, use_win=use_win)
+        b = run_model(env, model, seed, deterministic=False, use_win=use_win)
         c = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v3")
         d = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v6")
         h = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v9")
