@@ -253,17 +253,22 @@ class TestAnnouncement(unittest.TestCase):
 class TestPartialPeriod(unittest.TestCase):
     """不完整首期：续档/中途登场时账本从零开始，结账要按实际覆盖回合数平均，不能一律 ÷10。"""
 
-    def test_old_save_without_ledger_gets_partial_first_period(self):
+    def test_partial_first_period_from_empty_ledger(self):
+        """账本从第 6 回合才起算 → 首期 span=5 按实际回合平均（不 ÷10）。
+
+        旧写法靠"从档里删 ledger 键"模拟旧档——去兼容后删键直接触发 SAVE_KEYS 缺字段
+        拒载；故改走版本化等价构造：ledger 键保留（满足契约），只把内容清零、_since 推到 6。"""
         w, *_ = _mk()
         _run(w, 5)
         path = tempfile.mktemp(suffix=".json")
         try:
             w.save(path)
             data = json.loads(Path(path).read_text(encoding="utf-8"))
-            data.pop("ledger")                       # 模拟旧档：没有账本字段
+            for n in data["ledger"]:
+                data["ledger"][n] = {k: 0.0 for k in data["ledger"][n]}
+                data["ledger"][n]["_since"] = 6      # 视作"第 6 回合起才有账"（= 中途登场）
             Path(path).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
             w2 = mp.World.load(path)
-            self.assertEqual(w2.ledger, {})
             _run(w2, 5)                              # 第 6–10 回合才被记账
             rep = w2.econ_reports["秦"][0]
             self.assertEqual(rep["report_turn"], 11)

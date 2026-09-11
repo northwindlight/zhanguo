@@ -21,7 +21,6 @@ from __future__ import annotations
 import json
 import math
 import random
-import re
 from pathlib import Path
 
 from game import (
@@ -95,6 +94,29 @@ LEDGER_FIELDS = ("prod_value",      # 采集/工厂/军屯 产出 × 市价
                  "export_gold",     # 市场卖出总额
                  "invest_gold",     # 建造实付金
                  "invest_wood_value")  # 建造耗木 × 当时市价
+
+# ---- 存档契约：版本锁死，零旧格式兼容 ----
+# SAVE_VERSION + SAVE_KEYS 是唯一来源：
+#   save() 写前断言键集合与 SAVE_KEYS 一致——新增状态字段忘了登记，第一次存档就炸，
+#   而不是静默丢字段（历史上"幽灵地块"就是 save/load 人肉对齐 50 键漏出来的病）；
+#   load() 先验版本再验键，任何不符直接抛 SaveFormatError——旧档不迁移、不猜，
+#   "同 seed 同档同状态"是复现性的口径，跨版本迁移就是腐烂。
+# 新增字段三步：__init__ 给默认 → SAVE_KEYS 登记 → save/load 各一行搬运。
+SAVE_VERSION = 1
+SAVE_KEYS = ("version", "size", "seed", "turn", "rng_state", "nations", "order",
+             "tiles", "armies", "next_army_seq", "diplo_built", "nation_code",
+             "guard_once", "wars", "war_id", "truce", "alliances", "blocs",
+             "votes", "vote_id", "defense_pacts", "guarantees", "mail_pending",
+             "mailbox", "summaries", "summary_blocks", "turn_memory", "gift_pending",
+             "map_pending", "maps", "spy_pending", "econ_intel", "plans", "polity",
+             "extra_prompt", "peace_offers", "proposals", "offer_id", "prices",
+             "equilibrium", "flow_in", "flow_out", "grid_short", "energy_report",
+             "econ_summary", "econ_reports", "ledger", "spend", "history",
+             "history_seen")
+
+
+class SaveFormatError(Exception):
+    """存档版本/键集合不符：拒载，提示重开（不做任何回溯迁移）。"""
 
 
 def _pair(a: str, b: str) -> frozenset:
@@ -2692,6 +2714,7 @@ class World:
     # ------------------------------------------------------------- 存档
     def save(self, path: str | Path) -> None:
         data = {
+            "version": SAVE_VERSION,
             "size": self.size, "seed": self.seed, "turn": self.turn,
             "rng_state": list(self.rng.getstate()),
             "nations": {n: nat.res for n, nat in self.nations.items()},
@@ -2739,6 +2762,13 @@ class World:
             "history": self.history,
             "history_seen": self.history_seen,
         }
+        # 契约断言：save 的键集合必须与 SAVE_KEYS 严丝合缝——忘了登记的新字段
+        # 在第一次存档就炸（开发期），而不是变成静默丢档（运行时才发现=惨案）
+        keys, want = set(data), set(SAVE_KEYS)
+        if keys != want:
+            raise RuntimeError(
+                f"存档契约漂移：save 多出 {sorted(keys - want)}、少写 {sorted(want - keys)}"
+                f"——新增状态字段请同步 SAVE_KEYS 清单与 load 搬运")
         # 原子写（tmp+rename）：turn_memory 使存档变大近一倍，避免写一半中断损坏档
         tmp = Path(str(path) + ".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -2747,139 +2777,93 @@ class World:
     @classmethod
     def load(cls, path: str | Path) -> "World":
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-        w = cls(size=data["size"], seed=data["seed"], gen=False)   # 空壳：世界由存档整体还原
-        w.turn = data.get("turn", 0)
+        if data.get("version") != SAVE_VERSION:
+            raise SaveFormatError(
+                f"存档版本不符（档内 {data.get('version', '无版本号＝旧档')} ≠ 当前 {SAVE_VERSION}）："
+                f"本项目不做旧档兼容，请用 --new 重开，或删掉 {path}")
+        missing = [k for k in SAVE_KEYS if k not in data]
+        if missing:
+            raise SaveFormatError(f"存档缺字段：{missing}（文件被截断或改坏），请重开一局")
+        w = cls(size=data["size"], seed=data["seed"], gen=False)   # 空壳：世界由存档整体还原（不预建默认三国，否则残出幽灵地块）
+        w.turn = data["turn"]
         ver, internal, gauss = data["rng_state"]
         w.rng.setstate((ver, tuple(internal), gauss))
-        w.nations = {n: Nation(n, res) for n, res in data.get("nations", {}).items()}
-        w.order = data.get("order") or list(w.nations)
-        w.mailbox = {n: data.get("mailbox", {}).get(n, []) for n in w.nations}
-        w.summaries = {}
-        for n, lst in data.get("summaries", {}).items():
-            if n not in w.nations:
-                continue
-            rows = []
-            for item in lst:
-                if isinstance(item, dict):  # 新格式 {turn,text}
-                    rows.append({"turn": int(item.get("turn", 0)), "text": str(item.get("text", ""))})
-                else:  # 旧格式字符串 "第X回合：..." → 迁移
-                    m = re.match(r"^第(\d+)回合[:：]\s*(.*)$", str(item))
-                    rows.append({"turn": int(m.group(1)) if m else 0,
-                                 "text": (m.group(2) if m else str(item)).strip()})
-            w.summaries[n] = rows
-        w.summary_blocks = {n: list(v) for n, v in data.get("summary_blocks", {}).items()
+        # 以下全部按"版本已核对、键已核对齐"直读：只重建序列化丢掉的容器类型
+        # （tuple/frozenset/set），不再有任何旧格式迁移分支。
+        w.nations = {n: Nation(n, res) for n, res in data["nations"].items()}
+        w.order = data["order"]
+        w.mailbox = {n: data["mailbox"].get(n, []) for n in w.nations}
+        # summaries 条目恒为 {turn,text}（旧字符串格式随版本锁死一并退休）
+        w.summaries = {n: [{"turn": int(it["turn"]), "text": str(it["text"])}
+                           for it in lst] for n, lst in data["summaries"].items()
+                       if n in w.nations}
+        w.summary_blocks = {n: list(v) for n, v in data["summary_blocks"].items()
                             if n in w.nations}
-        w.turn_memory = {n: list(v) for n, v in data.get("turn_memory", {}).items() if n in w.nations}
-        w.gift_pending = data.get("gift_pending", [])
-        w.map_pending = data.get("map_pending", [])
-        w.maps = {n: list(v) for n, v in data.get("maps", {}).items() if n in w.nations}
-        w.spy_pending = data.get("spy_pending", [])
-        w.econ_intel = {n: list(v) for n, v in data.get("econ_intel", {}).items() if n in w.nations}
-        w.plans = {n: dict(v) for n, v in data.get("plans", {}).items() if n in w.nations}
-        w.polity = {n: v for n, v in data.get("polity", {}).items() if n in w.nations}
-        w.extra_prompt = {n: dict(v) for n, v in data.get("extra_prompt", {}).items() if n in w.nations}
-        w.armies = data.get("armies", [])
-        # 野地索取顺序计数器：从档内现有最大入场序号续起（旧档无此字段 → 0，缺失序号当最大）
+        w.turn_memory = {n: list(v) for n, v in data["turn_memory"].items() if n in w.nations}
+        w.gift_pending = data["gift_pending"]
+        w.map_pending = data["map_pending"]
+        w.maps = {n: list(v) for n, v in data["maps"].items() if n in w.nations}
+        w.spy_pending = data["spy_pending"]
+        w.econ_intel = {n: list(v) for n, v in data["econ_intel"].items() if n in w.nations}
+        w.plans = {n: dict(v) for n, v in data["plans"].items() if n in w.nations}
+        w.polity = {n: v for n, v in data["polity"].items() if n in w.nations}
+        w.extra_prompt = {n: dict(v) for n, v in data["extra_prompt"].items() if n in w.nations}
+        w.armies = data["armies"]
+        # 野地索取顺序计数器：从档内现有最大入场序号续起（未参战军队无此键，按 0 计）
         w._engage_seq = max((int(a.get("engage_seq", 0) or 0) for a in w.armies), default=0)
-        # 军队编号：各国独立番号(AI 所见) + 国家码×1e8 全局唯一 gid(内部)。旧档按旧全局 id 顺序迁移重编。
-        if "nation_code" in data:
-            w.nation_code = {k: int(v) for k, v in data["nation_code"].items()}
-            w._next_code = max(w.nation_code.values(), default=0) + 1
-        else:
-            w.nation_code = {}
-            w._next_code = 1
-            w._assign_code("野人")
-            for nm in w.nations:
-                w._assign_code(nm)
-        if "next_army_seq" in data:
-            w.next_army_seq = {k: int(v) for k, v in data["next_army_seq"].items()}
-            for a in w.armies:
-                a.setdefault("gid", w.nation_code.get(a["owner"], 0) * 100_000_000 + a["id"])
-        else:
-            w.next_army_seq = {}
-            for a in sorted(w.armies, key=lambda x: x["id"]):
-                s = w.next_army_seq.get(a["owner"], 0) + 1
-                w.next_army_seq[a["owner"]] = s
-                a["id"] = s
-                a["gid"] = w.nation_code.get(a["owner"], 0) * 100_000_000 + s
-                if a["owner"] != "野人":
-                    a["name"] = army_name(a["owner"], s, a.get("type", "步"))
-        w.diplo_built = {k: int(v) for k, v in data.get("diplo_built", {}).items() if k in w.nations}
-        # wars 迁移：新格式=冲突对象{id,atk,def,followers}；旧档=[a,b] 边对 → 视为无跟随方的双边战争
+        # 军队编号：各国独立番号(AI 所见) + 国家码×1e8 全局唯一 gid(内部)
+        w.nation_code = {k: int(v) for k, v in data["nation_code"].items()}
+        w._next_code = max(w.nation_code.values(), default=0) + 1
+        w.next_army_seq = {k: int(v) for k, v in data["next_army_seq"].items()}
+        w.diplo_built = {k: int(v) for k, v in data["diplo_built"].items() if k in w.nations}
+        # 战争恒为冲突对象 {id,atk,def,followers,atk_followers,turn}（旧 [a,b] 边对已随版本退休）
         w.wars = []
-        w._war_id = int(data.get("war_id", 1))
-        w.truce = {_pair(ab[0], ab[1]): int(ab[2]) for ab in data.get("truce", [])}
-        for item in data.get("wars", []):
-            if isinstance(item, dict) and "atk" in item:
-                w.wars.append({"id": int(item.get("id", w._war_id)), "atk": item["atk"],
-                               "def": item["def"], "followers": list(item.get("followers", [])),
-                               "atk_followers": list(item.get("atk_followers", [])),
-                               "turn": int(item.get("turn", w.turn))})
-                w._war_id = max(w._war_id, int(item.get("id", 0)) + 1)
-            else:
-                a, b = item[0], item[1]
-                w.wars.append({"id": w._war_id, "atk": a, "def": b, "followers": [],
-                               "atk_followers": [], "turn": w.turn})
-                w._war_id += 1
-        w.alliances = [_pair(*p) for p in data.get("alliances", [])]
-        # 联盟：新档读 blocs；旧档（无此字段）把双边同盟逐对迁成二人联盟（名=两国名相连+同盟）
-        if "blocs" in data:
-            w.blocs = []
-            for b in data.get("blocs", []):
-                members = [m for m in b.get("members", []) if m in w.nations]
-                if not members:
-                    continue
-                chief = b.get("chief")   # 旧档无 chief 字段 → 退回最早加入者
-                w.blocs.append({"name": str(b.get("name", "?")), "members": members,
-                                "chief": chief if chief in members else members[0],
-                                "turn": int(b.get("turn", 0))})
-        else:
-            w.blocs = [{"name": "".join(sorted(p)) + "同盟", "members": list(p),
-                        "chief": sorted(p)[0], "turn": 0}
-                       for p in data.get("alliances", [])]
-            w.alliances = []
-        w.votes = [v for v in data.get("votes", []) if isinstance(v, dict) and "id" in v]
-        w._vote_id = int(data.get("vote_id", 1))
-        for v in w.votes:
-            v.setdefault("votes", {})
-            v.setdefault("payload", {})
-        w.defense_pacts = [_pair(*p) for p in data.get("defense_pacts", [])]
-        w.guarantees = {k: set(v) for k, v in data.get("guarantees", {}).items()}
-        w.mail_pending = data.get("mail_pending", [])
-        w.peace_offers = data.get("peace_offers", [])
-        w.proposals = data.get("proposals", [])
-        w._offer_id = data.get("offer_id", 1)
-        w.prices = {g: float(data.get("prices", {}).get(g, MARKET[g])) for g in TRADEABLE}
-        w.equilibrium = {g: float(data.get("equilibrium", {}).get(g, MARKET[g])) for g in TRADEABLE}
-        w.flow_in = {g: int(data.get("flow_in", {}).get(g, 0)) for g in TRADEABLE}
-        w.flow_out = {g: int(data.get("flow_out", {}).get(g, 0)) for g in TRADEABLE}
-        w.history = data.get("history", [])
-        w.history_seen = data.get("history_seen", 0)
+        w._war_id = int(data["war_id"])
+        for item in data["wars"]:
+            w.wars.append({"id": int(item["id"]), "atk": item["atk"], "def": item["def"],
+                           "followers": list(item.get("followers", [])),
+                           "atk_followers": list(item.get("atk_followers", [])),
+                           "turn": int(item["turn"])})
+            w._war_id = max(w._war_id, int(item["id"]) + 1)
+        w.truce = {_pair(ab[0], ab[1]): int(ab[2]) for ab in data["truce"]}
+        w.alliances = [_pair(*p) for p in data["alliances"]]
+        # 联盟：blocs 恒在（旧 alliances 逐对迁移已随版本退休）；members 已过滤亡国，chief 权威
+        w.blocs = []
+        for b in data["blocs"]:
+            members = [m for m in b["members"] if m in w.nations]
+            if members:
+                w.blocs.append({"name": str(b["name"]), "members": members,
+                                "chief": b["chief"], "turn": int(b["turn"])})
+        w.votes = [dict(v) for v in data["votes"]]
+        w._vote_id = int(data["vote_id"])
+        w.defense_pacts = [_pair(*p) for p in data["defense_pacts"]]
+        w.guarantees = {k: set(v) for k, v in data["guarantees"].items()}
+        w.mail_pending = data["mail_pending"]
+        w.peace_offers = data["peace_offers"]
+        w.proposals = data["proposals"]
+        w._offer_id = data["offer_id"]
+        w.prices = {g: float(data["prices"][g]) for g in TRADEABLE}
+        w.equilibrium = {g: float(data["equilibrium"][g]) for g in TRADEABLE}
+        w.flow_in = {g: int(data["flow_in"][g]) for g in TRADEABLE}
+        w.flow_out = {g: int(data["flow_out"][g]) for g in TRADEABLE}
+        w.history = data["history"]
+        w.history_seen = data["history_seen"]
         # 电网/结算摘要也持久化：否则续档后第一回合 all 面板电力 0、上回合结算丢失
-        w.grid_short = {n: bool(v) for n, v in data.get("grid_short", {}).items() if n in w.nations}
-        w.energy_report = {n: tuple(v) for n, v in data.get("energy_report", {}).items() if n in w.nations}
-        w.econ_summary = {n: s for n, s in data.get("econ_summary", {}).items() if n in w.nations}
-        # 经济报表：已出的期数 + 本期未结账本（旧档没有 → 空，从下个报表回合开始积累）
-        w.econ_reports = {n: list(v) for n, v in data.get("econ_reports", {}).items()
-                          if n in w.nations}
-        w.ledger = {n: {**{k: float(v.get(k, 0) or 0) for k in LEDGER_FIELDS},
-                        "_since": max(1, int(v.get("_since", w.turn)))}
-                    for n, v in data.get("ledger", {}).items() if n in w.nations}
-        # 总消费：旧档没有此字段 → 空（排名显示「本档无消费记录」）
-        w.spend = {n: {k: float(v.get(k, 0) or 0) for k in SPEND_FIELDS}
-                   for n, v in data.get("spend", {}).items() if n in w.nations}
+        w.grid_short = {n: bool(v) for n, v in data["grid_short"].items() if n in w.nations}
+        w.energy_report = {n: tuple(v) for n, v in data["energy_report"].items() if n in w.nations}
+        w.econ_summary = {n: s for n, s in data["econ_summary"].items() if n in w.nations}
+        w.econ_reports = {n: list(v) for n, v in data["econ_reports"].items() if n in w.nations}
+        w.ledger = {n: {**{k: float(v[k]) for k in LEDGER_FIELDS},
+                        "_since": max(1, int(v["_since"]))}
+                    for n, v in data["ledger"].items() if n in w.nations}
+        w.spend = {n: {k: float(v[k]) for k in SPEND_FIELDS}
+                   for n, v in data["spend"].items() if n in w.nations}
+        # 地块：存档即完整（recruited/built/buildings/pending/core 与全部建筑键都在），
+        # 只做 "x,y" 字符串键 → (x,y) 元组键的还原，不再补字段
         for k, t in data["tiles"].items():
             x, y = map(int, k.split(","))
-            t.setdefault("recruited_this_turn", 0)
-            t.setdefault("built_this_turn", 0)
-            t.setdefault("buildings", {})
-            t.setdefault("pending", {})
-            t.setdefault("core", t.get("owner"))  # 旧档迁移：现有持有追认为核心领土
-            for name in BUILDINGS:  # 旧档迁移：补全新增建筑(如市政厅)的键
-                t["buildings"].setdefault(name, 0)
-                t["pending"].setdefault(name, 0)
             w.tiles[(x, y)] = t
-        w.guard_once = {tuple(k) for k in data.get("guard_once", [])}
+        w.guard_once = {tuple(k) for k in data["guard_once"]}
         w._ensure_guardians()
         return w
 
@@ -2887,7 +2871,8 @@ class World:
 class Nation:
     def __init__(self, name: str, res: dict[str, int] | None = None):
         self.name = name
-        self.res = dict(START_RES if res is None else res)
+        # 构造即全键：传部分字典也补齐 START_RES（缺键国家首次结算 add_res 会 KeyError）
+        self.res = {**START_RES, **(res or {})}
 
     def __repr__(self):
         return f"<Nation {self.name}>"

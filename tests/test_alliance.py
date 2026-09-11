@@ -212,18 +212,18 @@ class TestSaveLoad(unittest.TestCase):
             w2 = mp.World.load(p)
         self.assertEqual(w2.bloc_of("齐")["chief"], "齐")
 
-    def test_old_save_without_chief_migrates(self):
+    def test_save_without_version_rejected(self):
+        """去旧存档兼容：无 version（旧档）一律拒载，不再逐字段猜测迁移。"""
         w = make_world()
         make_bloc(w)
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "s.json"
             w.save(p)
             data = json.loads(p.read_text(encoding="utf-8"))
-            for b in data["blocs"]:
-                b.pop("chief", None)                            # 模拟旧档
+            data.pop("version", None)                           # 模拟旧档（无版本号）
             p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-            w2 = mp.World.load(p)
-        self.assertEqual(w2.bloc_chief(w2.blocs[0]), "秦")      # 退回最早加入者
+            with self.assertRaises(mp.SaveFormatError):
+                mp.World.load(p)
 
 
 if __name__ == "__main__":

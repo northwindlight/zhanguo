@@ -28,7 +28,7 @@ from pathlib import Path
 
 import ctx as ctxlib
 from console import Console
-from mp import World
+from mp import SaveFormatError, World
 from mp_ai import dummy_turn, observer_board, observer_map, run_openai_turn
 
 CONSOLE: Console | None = None      # 命令台（run() 里创建；flush 用它回显）
@@ -116,6 +116,12 @@ def make_world(cfg, force_new: bool, save_path: Path) -> tuple[World, bool]:
     if not force_new and save_path.exists():
         try:
             return World.load(save_path), False
+        except SaveFormatError as e:
+            # 版本不符＝代码升级后的旧档：不迁移、更**不静默覆盖**——
+            # 直接重开会把老局连档一起冲掉（取证都没了），所以停下来让人决定。
+            print(f"⚠ {e}")
+            print("  （旧存档原样保留：确认可弃后自行删除，或加 --new 强制新开）")
+            raise SystemExit(2)
         except Exception as e:
             print(f"读档失败({e})，重开新局")
     # 带 polity 的条目=待加入国（如匈奴），不作为开局国家；用 `add` 中途加入
