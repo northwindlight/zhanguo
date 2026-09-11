@@ -96,7 +96,7 @@ def main() -> None:
                          "A_t = 整局剩余消费 − V(s_t)，与目标函数完全同构。"
                          "λ<1 时 TD 残差只往回传 1/(1-λ) 步（0.99 → 100 步 ≈ 7 回合），"
                          "够不着生产链几十回合的回本周期，会纵容近视解。")
-    ap.add_argument("--threads", type=int, default=4, help="torch CPU 线程数")
+    ap.add_argument("--threads", type=int, default=0, help="torch CPU 线程数；**0 = 自动 = 物理核数**（ECS 1 / Pi 5 4）。SMT 的第二个逻辑核对向量计算收益为零，写死 4 在 ECS 上等于打开超订（实测慢 3.4×）")
     ap.add_argument("--out", default="rl/runs/single16")
     ap.add_argument("--resume", default="", help="从 checkpoint 续训")
     ap.add_argument("--ckpt-every", type=int, default=50,
@@ -110,14 +110,15 @@ def main() -> None:
     ap.add_argument("--eval-episodes", type=int, default=2)
     args = ap.parse_args()
 
-    torch.set_num_threads(max(1, args.threads))
+    from rl.hw import set_threads
+    _n_threads = set_threads(args.threads)    # 0 = 自动 = 物理核（ECS 1 / Pi 5 4）
     # 采样是 batch=1 的逐步前向：多线程的同步开销远大于收益（实测 4 线程 34.8ms/步
     # vs 单线程 7.7ms/步）。所以采样期间切单线程，PPO 更新（大 batch）再切回来。
     def set_collect_threads():
         torch.set_num_threads(1)
 
     def set_train_threads():
-        torch.set_num_threads(max(1, args.threads))
+        torch.set_num_threads(_n_threads)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 

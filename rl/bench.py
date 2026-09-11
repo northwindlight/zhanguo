@@ -70,9 +70,10 @@ def main() -> None:
     ap.add_argument("--epochs", type=int, default=4)
     ap.add_argument("--steps", type=int, default=600, help="一轮采样的总步数")
     ap.add_argument("--iters", type=int, default=5)
-    ap.add_argument("--threads", type=int, default=4)
+    ap.add_argument("--threads", type=int, default=0, help="torch CPU 线程数；**0 = 自动 = 物理核数**（ECS 1 / Pi 5 4）。SMT 的第二个逻辑核对向量计算收益为零，写死 4 在 ECS 上等于打开超订（实测慢 3.4×）")
     args = ap.parse_args()
-    torch.set_num_threads(max(1, args.threads))
+    from rl.hw import set_threads
+    set_threads(args.threads)
 
     env = ZhanguoEnv(map_size=args.map_size)
     passes = args.epochs * max(1, -(-args.steps // args.batch))   # 每轮 PPO 的前后向次数

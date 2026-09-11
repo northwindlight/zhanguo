@@ -63,13 +63,14 @@ def main() -> None:
     ap.add_argument("--turns", type=int, default=120)
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--map-size", type=int, default=16)
-    ap.add_argument("--threads", type=int, default=4)
+    ap.add_argument("--threads", type=int, default=0, help="torch CPU 线程数；**0 = 自动 = 物理核数**（ECS 1 / Pi 5 4）。SMT 的第二个逻辑核对向量计算收益为零，写死 4 在 ECS 上等于打开超订（实测慢 3.4×）")
     ap.add_argument("--legacy-scoring", action="store_true",
                     help="把打分前的 LayerNorm 换成直通，用来装**加 LayerNorm 之前**"
                          "的旧检查点——查老失败的根因是不是同一个（模长捷径）")
     args = ap.parse_args()
 
-    torch.set_num_threads(max(1, args.threads))
+    from rl.hw import set_threads
+    set_threads(args.threads)
     env = ZhanguoEnv(map_size=args.map_size, max_turns=args.turns)
     env.reset(args.seed)
     model = PolicyNet(n_grid_ch=len(env.obs_channels()), n_glob=env.glob_size(),

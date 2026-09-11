@@ -292,7 +292,7 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--minibatch", type=int, default=256)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--threads", type=int, default=4)
+    ap.add_argument("--threads", type=int, default=0, help="torch CPU 线程数；**0 = 自动 = 物理核数**（ECS 1 / Pi 5 4）。SMT 的第二个逻辑核对向量计算收益为零，写死 4 在 ECS 上等于打开超订（实测慢 3.4×）")
     ap.add_argument("--ckpt-every", type=int, default=4,
                     help="每几局存一个 ep<N>.pt（0=不存）——跑几小时的东西，"
                          "得能中途量分，不然只能干等")
@@ -309,8 +309,19 @@ def main() -> None:
     ap.add_argument("--out", default="rl/runs/bc/last.pt")
     args = ap.parse_args()
 
-    torch.set_num_threads(max(1, args.threads))
+    from rl.hw import set_threads
+    n_threads = set_threads(args.threads)     # 0 = 自动 = 物理核（ECS 1 / Pi 5 4）
     torch.manual_seed(args.seed)
+
+    # ★DAgger 半程的学生前向是 **batch=1 的逐步前向**，与 `rl/train.py` 的采样同病：
+    #   多线程的同步开销远大于收益（train.py 实测 4 线程 34.8ms/步 vs 单线程 7.7ms/步）。
+    #   所以采样期间切单线程，梯度步（大 batch）再切回来 —— 照抄 train.py 的既有做法。
+    #   在 ECS 上 n_threads 本来就是 1，这层是白给；在 Pi 上是 2~4×。
+    def set_collect_threads():
+        torch.set_num_threads(1)
+
+    def set_train_threads():
+        torch.set_num_threads(n_threads)
 
     _ms = tuple(int(x) for x in args.map_sizes.split(",") if x.strip()) if args.map_sizes else None
     env = ZhanguoEnv(map_size=args.map_size, map_sizes=_ms, max_turns=args.turns,
@@ -358,9 +369,12 @@ def main() -> None:
         # 后半程用 **DAgger**：让学生自己跑，再让老师在**学生走到的状态**上打标签。
         # 这是治「分布漂移」的标准药——只学老师的轨迹，学生一旦偏离就没标签了。
         use_student = (ep >= dagger_from) and len(buffer) > 0
+        if use_student:
+            set_collect_threads()      # batch=1 逐步前向 → 单线程
         demos, spend, miss = collect_episode(
             env, args.turns, seed=args.seed + ep, teacher_fn=teacher_fn,
             student=model if use_student else None, endturn_cap=args.endturn_cap)
+        set_train_threads()            # 梯度步是大 batch → 切回来
         if not demos:
             print(f"第 {ep} 局没采到样本，跳过")
             continue

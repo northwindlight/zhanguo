@@ -22,6 +22,7 @@
 | ECS 3.3 GiB | rollout 缓冲**必须存帧、不能存 token**（2.4 GB 装不下） |
 | ECS 只有 1 可用核（SMT 对向量零收益） | "64 并行环境"在这台上不成立 |
 | 简报推荐 bf16，但它自己的表里 bf16 比 fp32 慢 | **bf16 / 线程数都要在真实模型上量过再定** |
+| 线程数：ECS 超订**慢 3.4×**，Pi 4 线程**快 1.61×** | 默认 `--threads 0` = 自动 = **物理核数**（`rl/hw.py`）；ECS 上一切任务走 `rl/run_ecs.sh` |
 
 ## 阶段
 
@@ -44,6 +45,29 @@ ECS 是**全新的训练机，一次都没训过**。先用**现有**管线跑�
 
 这两样不管架构怎么换都要用。反过来：**如果 ECS 跑不动，架构设计得再漂亮也没用。**
 
+### P1 已量到的（2026-09-11，`experiments/speed_probe.py`）
+
+同种子（0）、同老师（v9）、同 turns=70 → **两边都是 437 个样本**，可以对拍。
+
+| | 采样（整局） | 梯度 / 步 | 外推 250 步 = 一局 |
+|---|---|---|---|
+| **ECS @1 线程**（实跑日志） | 0.7 s | **0.347 s** | **88 s** |
+| Pi 5 @4 线程 | 1.0 s | 0.780 s | 197 s |
+| Pi 5 @1 线程 | 1.0 s | 1.257 s | 316 s |
+
+**三条结论：**
+
+1. **采样只占 1~2%，梯度步占 97~98%。** 所以"本地开多线程"救不了 —— 能并行的
+   那部分本来就不是瓶颈。瓶颈是 torch 小矩阵，由 **SIMD 宽度**决定
+   （ECS AVX512 16 fp32/周期 vs Pi NEON 4/周期）：Pi 单线程就慢 3.6×，
+   4 线程只买到 1.61×，补不回来。→ **训练放 ECS。**
+2. **服务器一律单线程。** 实测 ECS 开 2 线程比 1 线程**慢 3.4×**（SMT 逻辑核
+   对向量零收益，纯粹多了同步开销）。`--threads` 默认从写死的 4 改成
+   **0=自动=物理核数**（`rl/hw.py`），ECS 自动得 1、Pi 自动得 4，两边都不用记着传参。
+3. **bf16 在 ECS 上快 1.36×**（0.507→0.373 s/步，同负载背靠背量的**比值**可信；
+   绝对值被训练进程抬高过）。**暂不开**：122k 参数的模型上省这点不值得拿
+   梯度质量冒险，等 P4 的 3M 主干上再量一次（那时矩阵大、还能省一半激活内存）。
+
 ### P1 验收
 
 - ECS 上 40 局跑完（20 纯 BC + 20 DAgger，`--turns 70`，`--teacher v9`）。
@@ -55,16 +79,22 @@ ECS 是**全新的训练机，一次都没训过**。先用**现有**管线跑�
 
 ```bash
 # 从 Pi 推代码（ECS 上 GitHub 不通，只能这么走）
-rsync -a --no-perms --no-owner --no-group \
-  --exclude '.venv/' --exclude 'rl/runs/' --exclude '__pycache__/' \
-  --exclude 'mp_config*.json' --exclude 'mp_save*' --exclude 'mp_journal.md' \
-  --exclude 'mp_map.txt' --exclude '结算报告.md' --exclude '.git/' \
-  ~/projects/python/zhanguo/ northwind@ecs.northwind.site:~/zhanguo/
+~/bin/deploy-zhanguo-ecs          # = rsync，明确排除明文凭据/rl/runs/；连不上会报错
 
-# 跑：**必须 tmux**（Windows 机上 ssh 会话一断进程就被带走，丢过一次）
-ssh northwind@ecs.northwind.site \
-  'cd ~/zhanguo && tmux new-session -d -s bc "~/.venv/bin/python -m rl.bc ... 2>&1 | tee rl/runs/bc/train.log"'
+# 在 ECS 上跑：**一律走 rl/run_ecs.sh**（它把线程钉死为 1 + 起 tmux + 落日志）
+ssh northwind@ecs.northwind.site
+cd ~/zhanguo
+./rl/run_ecs.sh bc --teacher v9 --episodes 40 --dagger-from 20 --turns 70 \
+    --ckpt-every 4 --out rl/runs/bc/v9_70.pt
+./rl/run_ecs.sh status        # 看任务
+./rl/run_ecs.sh logs          # attach
+./rl/run_ecs.sh kill          # 停
 ```
+
+`run_ecs.sh` 管的三件事，都是踩过的坑：**① 线程全钉 1**（`OMP_NUM_THREADS` 等
+必须在 import torch **之前**设，所以只能写在启动脚本里；ECS 开 2 线程慢 3.4×）；
+**② 必须 tmux**（Windows 机上 ssh 会话一断进程就被带走，丢过一次）；
+**③ 拒绝重复启动**（`status` 里发现同名 tmux 会话直接报错退出，不允许同时跑两个训练）。
 
 ## 待定 / 未决
 
