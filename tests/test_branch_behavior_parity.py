@@ -174,8 +174,17 @@ print(mark + json.dumps(out, ensure_ascii=False))
 
 
 def _show(path: str) -> str:
-    return subprocess.run(["git", "show", f"main:{path}"], cwd=ROOT,
-                          capture_output=True, text=True, check=True).stdout
+    """读 main 上的某个文件。**取不到就 skip**（没 git / 不是仓库 / 没有 main 分支）。
+
+    ★ ECS 上训练代码是 rsync 部署的、`~/zhanguo` 根本不是 git 仓库 —— 那时这些
+    "与 main 对拍"的用例应当**跳过**，而不是报 ERROR 让"有没有真问题"看不出来。
+    """
+    try:
+        r = subprocess.run(["git", "show", f"main:{path}"], cwd=ROOT,
+                           capture_output=True, text=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        raise unittest.SkipTest(f"取不到 main:{path}（{e}）") from e
+    return r.stdout
 
 
 def _driver(tmp: Path) -> Path:

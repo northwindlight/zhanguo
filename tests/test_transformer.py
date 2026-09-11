@@ -18,6 +18,13 @@ import unittest
 import numpy as np
 import torch
 
+# ★浮点容差：这几条比对的是**同一份计算**在不同张量形状/批组成下的结果，
+#   而归约顺序由 BLAS 决定 —— 换机器/换线程数会出现 **1 ULP（~6e-8）** 的差。
+#   实测：ECS（单线程）上 `拼批不改单条结果` 逐位相等过不了，Pi 上过得了。
+#   容差取 1e-6：远小于任何真实泄漏（那是 O(0.1~1)），又不跟 ULP 较劲。
+ATOL = 1e-6
+
+
 from rl.env import KINDS, ZhanguoEnv
 from rl.ppo import collate, collate_window
 from rl.tokenize import GROUPS, tokenize
@@ -101,9 +108,9 @@ class TestPaddingLeak(unittest.TestCase):
                 if (~m).any():
                     wb["feats"][g][0, ~m] = 1e3
             b = net(wb, self.cand, self.cmask)
-        torch.testing.assert_close(a[0], b[0], rtol=0, atol=0,
+        torch.testing.assert_close(a[0], b[0], rtol=0, atol=ATOL,
                                    msg="窗口 padding 泄漏进了注意力")
-        torch.testing.assert_close(a[1], b[1], rtol=0, atol=0,
+        torch.testing.assert_close(a[1], b[1], rtol=0, atol=ATOL,
                                    msg="窗口 padding 泄漏进了价值头")
 
     def test_整行全灭不产生NaN(self):
@@ -131,7 +138,7 @@ class TestCandidateSide(unittest.TestCase):
             a = self.net(self.wb, self.cand, self.cmask)
             self.cand["tile_idx"] = torch.randint(0, 9999, self.cand["tile_idx"].shape)
             b = self.net(self.wb, self.cand, self.cmask)
-        torch.testing.assert_close(a[0], b[0], rtol=0, atol=0)
+        torch.testing.assert_close(a[0], b[0], rtol=0, atol=ATOL)
 
     def test_无落点的候选与有落点的可区分(self):
         """`tile_dx = -1` 是 buy/sell/end_turn。补出来的位置也是 -1，
@@ -176,7 +183,7 @@ class TestCandidateSide(unittest.TestCase):
             # 第二条样本的候选数不同，所以只比第一条自己的 K 列
             k = self.cand["type_idx"].shape[1]
             pair = net(wb2, cand2, cmask2)[0][0, :k]
-        torch.testing.assert_close(solo[0, :k], pair, rtol=0, atol=0)
+        torch.testing.assert_close(solo[0, :k], pair, rtol=0, atol=ATOL)
 
 
 if __name__ == "__main__":

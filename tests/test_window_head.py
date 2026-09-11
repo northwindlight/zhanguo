@@ -12,6 +12,13 @@ import unittest
 import numpy as np
 import torch
 
+# ★浮点容差：这几条比对的是**同一份计算**在不同张量形状/批组成下的结果，
+#   而归约顺序由 BLAS 决定 —— 换机器/换线程数会出现 **1 ULP（~6e-8）** 的差。
+#   实测：ECS（单线程）上 `拼批不改单条结果` 逐位相等过不了，Pi 上过得了。
+#   容差取 1e-6：远小于任何真实泄漏（那是 O(0.1~1)），又不跟 ULP 较劲。
+ATOL = 1e-6
+
+
 from rl.env import KINDS, ZhanguoEnv
 from rl.model import PolicyNet, WindowEncoder
 from rl.ppo import collate, collate_window
@@ -47,7 +54,7 @@ class TestMaskedPooling(unittest.TestCase):
                 if (~m).any():
                     wb["feats"][g][~m] = 7.5
             b = self.enc(wb)
-        torch.testing.assert_close(a, b, rtol=0, atol=0,
+        torch.testing.assert_close(a, b, rtol=0, atol=ATOL,
                                    msg="被 mask 的 token 泄漏进了池化")
 
     def test_全灭的组不影响输出(self):
