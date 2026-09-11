@@ -13,7 +13,7 @@
 #   （`Get-Process python` 数到 0）。nssm 服务 / 这个提权窗口才是能跨会话活下来的。
 #
 # 跑的是：
-#   --init rl\runs\bc\v8_70.pt  --teacher v8
+#   --init rl\runs\bc\v9_70.pt  --teacher v9
 #   --episodes 20  --dagger-from 0  --turns 70  --ckpt-every 1
 #   --out rl\runs\bc\v8_70_fix.pt
 
@@ -22,7 +22,7 @@ $ErrorActionPreference = "Stop"
 $Root = "C:\Users\northwind\zhanguo-rl"
 $Py   = "C:\Users\northwind\anaconda3\envs\zhanguo-rl\python.exe"
 $Svc  = "zhanguo-rl"
-$Init = "rl\runs\bc\v8_70.pt"
+$Init = "rl\runs\bc\v9_70.pt"
 
 # ---------------------------------------------------------------- 自提权
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
@@ -39,7 +39,7 @@ if (-not $isAdmin) {
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 
 Write-Host "==============================================================" -ForegroundColor Cyan
-Write-Host " 战国 · BC 纠正跑（v8 老师 / 20 局纯 DAgger / 权重留下）" -ForegroundColor Cyan
+Write-Host " 战国 · BC 纠正跑（v9 老师 / 20 局纯 DAgger / 权重留下）" -ForegroundColor Cyan
 Write-Host "==============================================================" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------- 旧服务是什么？
@@ -120,12 +120,12 @@ $env:PYTHONUTF8 = "1"
 $bcArgs = @(
     "-m", "rl.bc",
     "--init", $Init,
-    "--teacher", "v8",
+    "--teacher", "v9",
     "--episodes", "20",
     "--dagger-from", "0",
     "--turns", "70",
     "--ckpt-every", "1",
-    "--out", "rl\runs\bc\v8_70_fix.pt"
+    "--out", "rl\runs\bc\v9_70_fix.pt"
 )
 
 Write-Host ""
@@ -143,11 +143,11 @@ Write-Host ""
 Write-Host "==============================================================" -ForegroundColor Cyan
 if ($code -eq 0) {
     Write-Host " 纠正完成 · 用时 $mins 分钟" -ForegroundColor Green
-    Write-Host " 权重：$Root\rl\runs\bc\v8_70_fix.pt" -ForegroundColor Green
+    Write-Host " 权重：$Root\rl\runs\bc\v9_70_fix.pt" -ForegroundColor Green
     Write-Host ""
     Write-Host " 下一步（重新打分，同一把尺子）：" -ForegroundColor Cyan
-    Write-Host "   & `"$Py`" -m rl.compare --ckpt rl\runs\bc\v8_70_fix.pt --episodes 20 --turns 70"
-    Write-Host "   & `"$Py`" -m rl.topk    --ckpt rl\runs\bc\v8_70_fix.pt --teacher v8 --turns 70"
+    Write-Host "   & `"$Py`" -m rl.compare --ckpt rl\runs\bc\v9_70_fix.pt --episodes 20 --turns 70"
+    Write-Host "   & `"$Py`" -m rl.topk    --ckpt rl\runs\bc\v9_70_fix.pt --teacher v9 --turns 70"
 } else {
     Write-Host " 纠正退出，exit code = $code · 用时 $mins 分钟" -ForegroundColor Red
     Write-Host " 看日志：$Log" -ForegroundColor Yellow

@@ -4,7 +4,7 @@
 #       也可以不提权直接跑，见下面 $SkipElevate）
 #
 # 训练口径（用户 2026-09-11 定）：
-#   老师 = v8        —— **新基线**（20 图 T500 2381k / T300 843k；修掉了电厂失控）
+#   老师 = v9        —— **新基线**（= v8 + 视野门控）（20 图 T500 2381k / T300 843k；修掉了电厂失控）
 #   视野 = 90        —— = 每局 70 回合 + 20（v8 的 ROI 回收期窗口 HORIZON）
 #   每局 = 70 回合
 #   局数 = 20 局纯 BC + 20 局 DAgger（共 40 局）
@@ -39,7 +39,7 @@ if (-not $SkipElevate) {
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 
 Write-Host "==============================================================" -ForegroundColor Cyan
-Write-Host " 战国 · RL 训练（BC 20 + DAgger 20）  by v8 老师 / 视野 90" -ForegroundColor Cyan
+Write-Host " 战国 · RL 训练（BC 20 + DAgger 20）  by v9 老师 / 视野 90" -ForegroundColor Cyan
 Write-Host "==============================================================" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------- 前置检查
@@ -53,17 +53,17 @@ if (-not (Test-Path $Py)) {
 }
 
 # 代码是否已同步？拿 v8 那处修复当探针（同步到位才有「愿望单」这三个字）
-$v8 = Join-Path $Root "expand_rule_v8.py"
-if (-not (Test-Path $v8)) { Write-Host "[错误] 没有 expand_rule_v8.py，先跑 ~/bin/deploy-zhanguo 同步" -ForegroundColor Red; Read-Host "回车退出"; exit 1 }
-if (-not (Select-String -Path $v8 -Pattern "愿望单" -SimpleMatch -Quiet)) {
-    Write-Host "[警告] expand_rule_v8.py 里没有这次的电厂修复 —— 代码可能是旧的。" -ForegroundColor Yellow
+$v9 = Join-Path $Root "expand_rule_v9.py"
+if (-not (Test-Path $v9)) { Write-Host "[错误] 没有 expand_rule_v9.py，先跑 ~/bin/deploy-zhanguo 同步" -ForegroundColor Red; Read-Host "回车退出"; exit 1 }
+if (-not (Select-String -Path $v9 -Pattern "愿望单" -SimpleMatch -Quiet)) {
+    Write-Host "[警告] expand_rule_v9.py 里没有这次的电厂修复 —— 代码可能是旧的。" -ForegroundColor Yellow
     Write-Host "       先在 Pi 上跑：~/bin/deploy-zhanguo" -ForegroundColor Yellow
     Read-Host "回车继续（或 Ctrl-C 退出）"
 } else {
-    Write-Host "[检查] v8 代码是最新的（含电厂修复）" -ForegroundColor Green
+    Write-Host "[检查] v9 代码是最新的（含电厂修复）" -ForegroundColor Green
 }
-Write-Host ("[检查] bc.py 支持 v8 老师：" + `
-    $(if (Select-String -Path (Join-Path $Root "rl\bc.py") -Pattern '"v8"' -SimpleMatch -Quiet) { "是" } else { "否 —— 需要重新同步" }))
+Write-Host ("[检查] bc.py 支持 v9 老师：" + `
+    $(if (Select-String -Path (Join-Path $Root "rl\bc.py") -Pattern '"v9"' -SimpleMatch -Quiet) { "是" } else { "否 —— 需要重新同步" }))
 
 # ---------------------------------------------------------------- 关掉原来的训练
 # 用户 2026-09-11 授权：「关掉原来的训练，不同时训练两个，原来是什么不用管」。
@@ -131,12 +131,12 @@ $env:PYTHONUTF8 = "1"
 # 注意：别叫 $args —— 那是 PowerShell 的保留自动变量，赋值会出怪事。
 $bcArgs = @(
     "-m", "rl.bc",
-    "--teacher", "v8",
+    "--teacher", "v9",
     "--episodes", "40",
     "--dagger-from", "20",
     "--turns", "70",
     "--ckpt-every", "4",
-    "--out", "rl\runs\bc\v8_70.pt"
+    "--out", "rl\runs\bc\v9_70.pt"
 )
 
 Write-Host ""
@@ -154,7 +154,7 @@ Write-Host ""
 Write-Host "==============================================================" -ForegroundColor Cyan
 if ($code -eq 0) {
     Write-Host " 训练结束（成功）· 用时 $mins 分钟" -ForegroundColor Green
-    Write-Host " 权重：$Root\rl\runs\bc\v8_70.pt" -ForegroundColor Green
+    Write-Host " 权重：$Root\rl\runs\bc\v9_70.pt" -ForegroundColor Green
 } else {
     Write-Host " 训练退出，exit code = $code · 用时 $mins 分钟" -ForegroundColor Red
     Write-Host " 看日志最后几行找原因：$Log" -ForegroundColor Yellow

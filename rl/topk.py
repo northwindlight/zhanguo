@@ -26,10 +26,10 @@ from rl.model import PolicyNet
 KS = (1, 5, 10, 25, 50)
 
 
-def collect_labels(env: ZhanguoEnv, turns: int, seed: int, which: str = "v8"):
+def collect_labels(env: ZhanguoEnv, turns: int, seed: int, which: str = "v9"):
     """跑一局，采 (观测, 老师动作在候选里的下标, 类别)。
 
-    `turns` 要传给 `get_teacher`：v8 的视野（HORIZON）按其口径 = 每局回合 + 20，
+    `turns` 要传给 `get_teacher`：v9 的视野（HORIZON）按其口径 = 每局回合 + 20，
     不传的话会按默认 500+20 规划，短局里挑的楼就不对了。
     """
     teacher = get_teacher(which, turns)
@@ -59,7 +59,7 @@ def collect_labels(env: ZhanguoEnv, turns: int, seed: int, which: str = "v8"):
 def main() -> None:
     ap = argparse.ArgumentParser(description="BC 权重的 top-k 命中诊断")
     ap.add_argument("--ckpt", default="rl/runs/bc_probe/last.pt")
-    ap.add_argument("--teacher", default="v8", choices=("v8", "v6", "v3"))
+    ap.add_argument("--teacher", default="v9", choices=("v9", "v6", "v3"))
     ap.add_argument("--turns", type=int, default=120)
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--map-size", type=int, default=16)

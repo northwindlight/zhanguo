@@ -77,22 +77,22 @@ def match(actions, spec):
 
 
 def get_teacher(which: str, turns: int = 500, horizon: int = -1):
-    """老师：v8=**当前基线**（20 图 T500 2381k / T300 843k）/ v6=旧基线 / v3=第一版扩张流。
+    """老师：v9=**当前基线**（= v8 + 视野门控）/ v6=旧基线 / v3=第一版扩张流。
 
     旧的 rule_ai（稳经济不扩张，终局 ~7k）已退休——它既不会扩张，也早就不当
     无 key 代打了（那个角色给了 v6），留着当基线只会误导。
 
-    ★v8 的 `HORIZON` 是 **ROI 回收期窗口**（`left = HORIZON - turn`，回本超过 `left`
+    ★v9 的 `HORIZON` 是 **ROI 回收期窗口**（`left = HORIZON - turn`，回本超过 `left`
     的楼不入选），口径是 **视野 = 每局实际回合 + 20**（用户 2026-09-11：
     「视野按交接视野+20」）。BC/DAgger 的局只有几十回合，不该按 500 回合规划 ——
     那样老师会选一堆局末才回本的楼，学生跟着学一堆没用的。
     """
     if which == "v3":
         from expand_rule_ai import expand_rule_turn as fn
-    elif which == "v8":
-        import expand_rule_v8 as m
+    elif which == "v9":
+        import expand_rule_v9 as m
         m.HORIZON = horizon if horizon > 0 else turns + 20
-        fn = m.expand_rule_turn_v8
+        fn = m.expand_rule_turn_v9
     else:
         from expand_rule_v6 import expand_rule_turn_v6 as fn
     return fn
@@ -257,11 +257,11 @@ def hit_rate(model, samples, n_tiles, *, skip_end_turn: bool = False) -> float:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="行为克隆冷启动（学规则 AI 的模式）")
-    ap.add_argument("--teacher", default="v6", choices=("v6", "v3", "v8"),
-                    help="老师：v8=当前基线（20 图 T500 2381k，推荐）/ "
+    ap.add_argument("--teacher", default="v6", choices=("v6", "v3", "v9"),
+                    help="老师：v9=当前基线（= v8 + 视野门控，推荐）/ "
                          "v6=旧基线（T500 2384k 但 T300 只有 485k）/ v3=第一版（82k）")
     ap.add_argument("--horizon", type=int, default=-1,
-                    help="v8 老师的 ROI 回收期窗口（视野）；默认 = 每局回合 + 20")
+                    help="v9 老师的 ROI 回收期窗口（视野）；默认 = 每局回合 + 20")
     ap.add_argument("--episodes", type=int, default=30, help="跑多少局老师 AI 采样本")
     ap.add_argument("--turns", type=int, default=500)
     ap.add_argument("--map-size", type=int, default=16)
@@ -322,7 +322,7 @@ def main() -> None:
                       n_tiles=(max(_ms) ** 2 if _ms else args.map_size ** 2))
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     # ★纠正模式：**权重留下**，不从零学（用户 2026-09-11：「权重留下，只是纠正」）。
-    # 换老师（比如 v8 修了几处之后）时，旧权重是有价值的起点 —— 从零重跑一遍 BC
+    # 换老师（比如 v9 加了视野门控之后）时，旧权重是有价值的起点 —— 从零重跑一遍 BC
     # 要几十局、且会把已经学会的部分再学一次；直接拿来当学生做 DAgger 纠正更省。
     if args.init:
         _ck = torch.load(args.init, map_location="cpu", weights_only=False)
@@ -341,9 +341,9 @@ def main() -> None:
                              "max_actions": args.max_actions, "steps": args.steps,
                              "grad_steps": grad_steps}}, path)
     _hz = ""
-    if args.teacher == "v8":
-        import expand_rule_v8 as _v8
-        _hz = f"  视野(HORIZON)={_v8.HORIZON}（= 每局 {args.turns} + 20）"
+    if args.teacher == "v9":
+        import expand_rule_v9 as _v9
+        _hz = f"  视野(HORIZON)={_v9.HORIZON}（= 每局 {args.turns} + 20）"
     print(f"老师 = {args.teacher}（{teacher_fn.__module__}）{_hz}"
           f"  每局 {args.turns} 回合 × {args.episodes} 局"
           f"  每局 {args.steps} 梯度步  缓冲 {args.buffer}")

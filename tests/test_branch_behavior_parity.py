@@ -13,7 +13,7 @@
 
 做法（三段式，动作流由规则 AI 生成，不手搓）
 --------------------------------------------
-1. **录**：在本分支上让 `expand_rule_v8` 打 TURNS 回合。包裹 `world.build/recruit/
+1. **录**：在本分支上让 `expand_rule_v9` 打 TURNS 回合。包裹 `world.build/recruit/
    move/attack/retreat/buy/sell`，把**引擎调用本身**（方法名 + 参数 + 成败）录下来。
    录调用而不是录 `(tool, args)` —— 零翻译，回放必然忠实。
 2. **放**：把同一段调用流原样回放到两个引擎上（main 的 `game.py`+`mp.py` 从 git
@@ -23,8 +23,8 @@
 这么做的理由：两边跑同一段动作流，所以**只要引擎一致，状态就必然一致**；一旦
 不一致，就是引擎漂了，而不是"策略走出了不同的路"。
 
-★ 驱动用 v8 而不是手搓配方：手搓配方第一版就是空跑（军队恒 0、一次仗没打，
-  测试却绿着）。v8 会建产能、征兵、扩张、打野人，场景天然是满的。见 `TestCoverage`。
+★ 驱动用 v9 而不是手搓配方：手搓配方第一版就是空跑（军队恒 0、一次仗没打，
+  测试却绿着）。v9 会建产能、征兵、扩张、打野人，场景天然是满的。见 `TestCoverage`。
 ★ 不比对 RNG 状态：地形/资源/命名已改为 `(seed,x,y)` 的纯函数（两分支都改了），
   但历史让两边的 `self.rng` 流不必同源。**最终状态一致**才是要守的东西。
 """
@@ -49,7 +49,7 @@ WRAPPED = ("build", "recruit", "move", "attack", "retreat", "buy", "sell")
 
 # ---------------------------------------------------------------------------
 # 驱动脚本：**一份代码，两种模式**
-#   gen    —— 在本分支上用 v8 打一局，录引擎调用流
+#   gen    —— 在本分支上用 v9 打一局，录引擎调用流
 #   replay —— 在任意代码树上把调用流原样回放，逐回合出摘要
 # ---------------------------------------------------------------------------
 DRIVER_SRC = r'''
@@ -89,9 +89,9 @@ def digest(w):
 
 
 if mode == "gen":
-    from expand_rule_v8 import expand_rule_turn_v8
-    import expand_rule_v8 as V8
-    V8.HORIZON = turns + 20          # 视野口径 = 每局回合 + 20（与 bc.py/compare.py 一致）
+    from expand_rule_v9 import expand_rule_turn_v9
+    import expand_rule_v9 as V9
+    V9.HORIZON = turns + 20          # 视野口径 = 每局回合 + 20（与 bc.py/compare.py 一致）
 
     w = mp.World(size=SIZE, seed=seed, nations=[ME])
     rec = []                          # 每回合一个调用列表
@@ -119,7 +119,7 @@ if mode == "gen":
     for t in range(turns):
         cur = []
         rec.append(cur)
-        expand_rule_turn_v8(w, ME, rng, max_actions=10 ** 9)
+        expand_rule_turn_v9(w, ME, rng, max_actions=10 ** 9)
         w.resolve_turn()
         if t + 1 < turns:
             w.begin_turn()
@@ -280,7 +280,7 @@ class TestBranchBehaviorParity(unittest.TestCase):
         t, why, cov, _d = compare()
         if why:
             self.fail(
-                f"第 {t} 回合起与 main 分歧（seed={SEED}, {TURNS} 回合，动作流由 v8 生成、"
+                f"第 {t} 回合起与 main 分歧（seed={SEED}, {TURNS} 回合，动作流由 v9 生成、"
                 f"全程不含外交）：\n    {why}\n"
                 f"  本分支对 main 的改动**应当只有删外交**。这处分歧要么是意外的漂移，\n"
                 f"  要么是有意改动但没记档——两种情况都该先弄清楚再往前走。\n"
@@ -291,7 +291,7 @@ class TestBranchBehaviorParity(unittest.TestCase):
 
 def main() -> None:
     print(f"分支行为对等检查：feat/rl vs main    seed={SEED}  {TURNS} 回合  "
-          f"地图 {MAP_SIZE}×{MAP_SIZE}  单国「秦」  动作流 = v8（不含外交）\n")
+          f"地图 {MAP_SIZE}×{MAP_SIZE}  单国「秦」  动作流 = v9（不含外交）\n")
     t, why, cov, _d = compare()
     a = cov["accepted"]
     print(f"覆盖率：领地 +{cov['tiles_gained']}（终局 {cov['final_tiles']} 格）  "

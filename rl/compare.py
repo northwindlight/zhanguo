@@ -33,23 +33,23 @@ def run_model(env, model, seed: int, deterministic: bool) -> tuple[float, int]:
 
 
 def run_rule(env, seed: int, turns: int, max_actions: int = 10 ** 9,
-             which: str = "v8") -> tuple[float, int]:
+             which: str = "v9") -> tuple[float, int]:
     """规则 AI 自己驱动世界（它直接调引擎，不走 RL 动作集）。
 
-    which: "v8"=expand_rule_v8.py（**当前基线**，一张账+串行判定+条件ROI）
+    which: "v9"=expand_rule_v9.py（**当前基线** = v8 + 视野门控）
            "v6"=expand_rule_v6.py（旧基线）/ "v3"=expand_rule_ai.py（第一版）。
     旧的 rule_ai 已退休，不再当基线。
 
-    ★v8 的 `HORIZON` 是 **ROI 回收期窗口**（`left = HORIZON - turn`，回本超 `left`
+    ★v9 的 `HORIZON` 是 **ROI 回收期窗口**（`left = HORIZON - turn`，回本超 `left`
     的楼不入选），按其口径设成 **每局回合 + 20**。不设的话短局里它会挑一堆局末
     才回本的楼，评估出来的就不是它真实的水平。
     """
     if which == "v3":
         from expand_rule_ai import expand_rule_turn as fn
-    elif which == "v8":
-        import expand_rule_v8 as m
+    elif which == "v9":
+        import expand_rule_v9 as m
         m.HORIZON = turns + 20
-        fn = m.expand_rule_turn_v8
+        fn = m.expand_rule_turn_v9
     else:
         from expand_rule_v6 import expand_rule_turn_v6 as fn
     env.reset(seed)
@@ -95,14 +95,14 @@ def main() -> None:
 
     g, s, r_, e_, h_, et, ee, eh = [], [], [], [], [], [], [], []
     print(f"{'seed':>10}{'模型·贪心':>13}{'模型·采样':>13}{'v3':>13}{'v6':>13}"
-          f"{'v8(基线)':>13}{'v8地':>7}")
+          f"{'v9(基线)':>13}{'v9地':>7}")
     for i in range(args.episodes):
         seed = args.seed_base + i
         a = run_model(env, model, seed, deterministic=True)
         b = run_model(env, model, seed, deterministic=False)
         c = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v3")
         d = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v6")
-        h = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v8")
+        h = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v9")
         g.append(a[0]); s.append(b[0]); r_.append(c[0]); e_.append(d[0]); h_.append(h[0])
         et.append(a[1]); ee.append(d[1]); eh.append(h[1])
         print(f"{seed:>10}{a[0]:>13,.0f}{b[0]:>13,.0f}{c[0]:>13,.0f}{d[0]:>13,.0f}"
@@ -116,11 +116,11 @@ def main() -> None:
     line("模型·采样", s)
     line("v3(第一版)", r_)
     line("v6(旧基线)", e_)
-    line("v8(当前基线)", h_)
+    line("v9(当前基线)", h_)
     print(f"\n地数均值：模型贪心 {st.mean(et):.1f}   v6 {st.mean(ee):.1f}   "
-          f"v8 {st.mean(eh):.1f}")
-    # ★主打分口径 = **相对当前基线 v8**（模型是照它克隆的，就该跟它比）
-    print(f"相对 v8：贪心 ×{st.mean(g)/max(1,st.mean(h_)):.2f}   "
+          f"v9 {st.mean(eh):.1f}")
+    # ★主打分口径 = **相对当前基线 v9**（模型是照它克隆的，就该跟它比）
+    print(f"相对 v9：贪心 ×{st.mean(g)/max(1,st.mean(h_)):.2f}   "
           f"采样 ×{st.mean(s)/max(1,st.mean(h_)):.2f}   "
           f"（地数 ×{st.mean(et)/max(1,st.mean(eh)):.2f}）")
 

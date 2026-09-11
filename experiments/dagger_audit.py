@@ -31,7 +31,7 @@ obs = env.reset(SEED)
 model = PolicyNet(n_grid_ch=len(env.obs_channels()), n_glob=env.glob_size(),
                   sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
                   n_tiles=16 ** 2)
-teacher_fn = get_teacher("v8", TURNS)
+teacher_fn = get_teacher("v9", TURNS)
 
 rng = random.Random(SEED)
 last_turn = -1
