@@ -1,14 +1,18 @@
 # -*- coding: utf-8 -*-
-"""冻结词表必须 = main 的词表（外交项允许「表里有、本分支无」）。
+"""冻结词表必须 = main 的词表；RL 的观测子表则冻结在「减去 MAIN_ONLY」。
 
 跑法：python3 -m unittest tests.test_vocab_main_parity -v
 
-为什么拿 `git show main:...` 而不是本分支的 `game.py` 来比：
-**本分支的 game.py 正是要防的那个东西**。本分支删掉了「外交中心」，
-如果拿它当基准，测试就永远发现不了「除了外交还删/改了别的」。
+理由分两层，2026-09-12 变基到 main 时定死：
 
-这条测试守的是一句话：**feat/rl 与 main 的枚举差异，只有外交。**
-多一项、少一项、错一位，都要红。
+1. **引擎枚举 = main 逐字逐序**。本分支的引擎文件（mp.py/game.py/mp_ai.py/mp_run.py）
+   与 main 一字不差，所以 `game.*` 的枚举表当然也相同——但这条测试仍然拿
+   `git show main:...` 当基准，因为**要防的是有人在本分支上单方面改表**。
+2. **RL 侧的词表是冻结的**（`rl/vocab.py`，下标只许追加）。其中 `MAIN_ONLY`
+   现在指「**不进 RL 观测/动作空间**的项」（外交中心）：它一旦进观测，网格与全局
+   宽度就从 36/48 变 37/49，**已训好的 ckpt 全部加载不了**。
+
+一句话：引擎跟着 main 走，观测跟着冻结表走，两者之间那道缝就是 MAIN_ONLY。
 """
 from __future__ import annotations
 
@@ -102,15 +106,20 @@ class TestEnumTablesMatchMain(unittest.TestCase):
             self.assertIn(k, main_tools, f"{k} 不是 main 的动作")
 
 
-class TestLocalBranchDiffersOnlyByDiplomacy(unittest.TestCase):
-    """本分支的 game.py 与冻结表的差异，**必须恰好是 MAIN_ONLY**。"""
+class TestLocalBranchMatchesMain(unittest.TestCase):
+    """本分支的引擎枚举 = 冻结表 = **main**（2026-09-12 变基起不再砍外交）。
 
-    def test_local_buildings_are_frozen_minus_diplomacy(self):
+    口径变过一次，这里记清楚，免得下次接手的人按旧文档改回去：
+    · 旧口径：本分支删掉「外交中心」，所以 `game.BUILDINGS` = 冻结表 − MAIN_ONLY；
+    · 新口径：**引擎（mp.py/game.py/mp_ai.py/mp_run.py）与 main 逐字相同**，
+      枚举当然也逐字相同；`MAIN_ONLY` 的含义随之改成「**不进 RL 观测/动作空间**的项」
+      （外交中心独局下造不出来，进观测只会白白改变宽度、废掉 ckpt）。
+    """
+
+    def test_local_buildings_equal_frozen(self):
         import game
-        local = list(game.BUILDINGS)
-        expect = [b for b in vocab.BUILDING if b not in vocab.MAIN_ONLY]
-        self.assertEqual(local, expect,
-                         "本分支的建筑表 ≠ 「冻结表减去外交项」——除了外交还动了别的")
+        self.assertEqual(list(game.BUILDINGS), list(vocab.BUILDING),
+                         "本分支的建筑表 ≠ 冻结表 —— 引擎枚举漂了")
 
     def test_local_terrain_unit_tradeable_untouched(self):
         import game
@@ -124,6 +133,13 @@ class TestLocalBranchDiffersOnlyByDiplomacy(unittest.TestCase):
         那是已经训过的 type_emb 下标；动一下 = 旧 ckpt 的语义被改掉。
         """
         self.assertEqual(vocab.ACTIVE_KINDS, tuple(ENV_KINDS))
+
+    def test_observation_table_is_frozen_minus_main_only(self):
+        """RL 观测/动作的建筑子表 = 冻结表 − MAIN_ONLY（15 项，宽度与旧 ckpt 一致）。"""
+        from rl.env import ZhanguoEnv
+        env = ZhanguoEnv(map_size=12, max_turns=6)
+        self.assertEqual(list(env.bnames),
+                         [b for b in vocab.BUILDING if b not in vocab.MAIN_ONLY])
 
 
 class TestFrozenInternalConsistency(unittest.TestCase):

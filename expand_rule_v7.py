@@ -67,7 +67,7 @@ from __future__ import annotations
 import random
 
 from game import BUILDINGS, TERRAIN_STATS, ARMY_MAX_HP, MAX_SLOTS
-from mp import best_build
+from mp import build_econ
 
 # 各地形一轮击杀所需兵力（含 1 支余量，防骰子修正）
 # 建筑 → 它要的本地资源（按 ROI 挑采集建筑时用）
@@ -91,6 +91,39 @@ ARMY_MIN = 2          # 出兵里程碑：满 2 支才交给 v6 的扩张逻辑
 MIL_SHARE_MIN = 0.15  # ★ 军费闸门（用户 2026-09-11）：**出兵、涨兵的条件都是 15%**
                       #   —— 军费占收入低于它 = 军队太小还养得起 → 补征；到它就停。
 MIL_SHARE_MAX = 0.60  # 保留：上限（高于它 → 停止扩军，专心复利）
+
+
+def best_build(world, candidates,
+               max_payback: float | None = None) -> tuple[str | None, float | None]:
+    """在候选建筑里挑**回本最快**的一个（回本 ≤ 0 或算不出的排除）。
+
+    ★ 这个函数原先住在引擎 `mp.py` 里。2026-09-12 变基到 main 时改了规矩：
+    **引擎文件（mp.py/game.py/mp_ai.py/mp_run.py）与 main 逐字相同**，rl 独有的
+    东西一律留在本分支自己的文件里 —— 于是它搬到这里（`expand_rule_v7` 是它
+    唯一的消费者）。引擎侧只保留 `build_econ`/`good_value`，那两个 main 也有。
+
+    `max_payback`：**只接受回本能落在这么多回合内的**（用户 2026-09-11 口径：
+    一局才 50 回合，超过剩余回合数的复利不算数 —— 回本 40 回合的农场在
+    第 30 回合建就是纯亏）。None = 不限。
+
+    全部按**当前市价**算（`build_econ` 走 world.prices），所以每回合重评才准。
+
+    候选可以是建筑名，也可以是 `(建筑名, 地块)` —— **后者按该格的实际造价算**
+    （含地形施工惩罚），山地和平原的同一座建筑回本可以差一倍，必须按格评。
+
+    返回 (候选, 回本回合)——候选就是你传进来的那个元素；没有可建的就 (None, None)。
+    """
+    best, bp = None, None
+    for item in candidates:
+        bn, tile = item if isinstance(item, tuple) else (item, None)
+        e = build_econ(world, bn, tile)
+        if e["payback"] is None:
+            continue
+        if max_payback is not None and e["payback"] > max_payback:
+            continue
+        if bp is None or e["payback"] < bp:
+            best, bp = item, e["payback"]
+    return best, bp
 
 
 def expand_rule_turn_v7(world, name: str, rng: random.Random | None = None,

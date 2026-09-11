@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""RL 环境测试：合法动作清单必须**真的合法**，奖励必须等于总消费增量，外交必须不存在。
+"""RL 环境测试：合法动作清单必须**真的合法**，奖励必须等于总消费增量，外交不在这条线上。
 
 全部用合成小局（map_size=12、turns=6、单国独局），不碰任何真实存档。
 """
@@ -10,9 +10,9 @@ import unittest
 
 import numpy as np
 
-from game import BUILDINGS
 from mp import World
-from rl.env import ZhanguoEnv
+from rl.env import KINDS, ZhanguoEnv
+from rl.vocab import BUILDING as VOCAB_BUILDING, MAIN_ONLY
 
 
 class TestLegalActions(unittest.TestCase):
@@ -189,28 +189,36 @@ class TestReward(unittest.TestCase):
                 break
 
 
-class TestNoDiplomacy(unittest.TestCase):
-    """外交功能必须从引擎里彻底消失——**只在 feat/rl（去外交的 RL 线）上成立**。
+class TestDiplomacyOutOfScope(unittest.TestCase):
+    """**外交留在引擎里，但不进 RL 这条线**（2026-09-12 变基口径，取代原来的「引擎里删干净」）。
 
-    main 线保留外交，所以下面两条「必须已删」的用例在那边自动跳过；
-    其余用例两条线都跑（中立不能进攻这条在 main 上靠「宣战才能打」同样成立）。
+    为什么改口径：砍外交对 RL 没有收益——训练是单国独局，外交代码路径一次都不触发，
+    却要每次跟着 main 变基重做一遍外科手术。现在引擎（mp.py/game.py/mp_ai.py/mp_run.py）
+    与 main 逐字相同，代价是**外交中心这项建筑回到了 game.BUILDINGS**（16 项）。
+
+    于是防线从「引擎里没有外交」换成两条**真正会咬人**的不变式：
+    ① RL 的动作种类里不许有外交动作；
+    ② RL 的观测/动作子表不许把「外交中心」算进去 —— 它一旦进观测，网格与全局
+       宽度就从 36/48 变 37/49，**已训好的 ckpt 全部加载不了**（rl/PLAN.md 的重炼铁律）。
     """
 
-    GONE = ("send_mail", "mystery_letter", "gift", "share_map", "spy", "propose_pact",
-            "accept_pact", "reject_pact", "break_pact", "declare_guarantee",
-            "cancel_guarantee", "declare_war", "offer_peace", "accept_peace",
-            "reject_peace", "propose_bloc", "bloc_join", "bloc_leave", "bloc_rename",
-            "bloc_transfer", "bloc_dissolve", "cast_vote", "bloc_of", "allied_between",
-            "war_between", "at_war")
+    DIPLOMACY_KINDS = ("send_letter", "gift", "share_map", "spy", "bloc_found",
+                       "bloc_join", "bloc_leave", "vote", "propose",
+                       "declare_war", "offer_peace", "accept_peace")
 
-    @unittest.skipIf(hasattr(World, "send_mail"), "本分支保留外交（main 线）")
-    def test_engine_has_no_diplomacy(self):
-        for name in self.GONE:
-            self.assertFalse(hasattr(World, name), f"World.{name} 应当已删除")
+    def test_no_diplomacy_action_kinds(self):
+        for k in self.DIPLOMACY_KINDS:
+            self.assertNotIn(k, KINDS, f"RL 动作空间里不该有外交动作 {k}")
 
-    @unittest.skipIf("外交中心" in BUILDINGS, "本分支保留外交（main 线）")
-    def test_diplomacy_building_gone(self):
-        self.assertNotIn("外交中心", BUILDINGS)
+    def test_diplomacy_building_not_in_observation(self):
+        env = ZhanguoEnv(map_size=12, max_turns=6)
+        self.assertEqual(list(env.bnames),
+                         [b for b in VOCAB_BUILDING if b not in MAIN_ONLY])
+        self.assertNotIn("外交中心", env.bnames,
+                         "外交中心进了观测子表 —— 观测宽度会跟着引擎变，ckpt 会废")
+        # 宽度是 ckpt 的硬契约：36 网格通道 / 48 全局
+        self.assertEqual(len(env.obs_channels()), 36)
+        self.assertEqual(env.glob_size(), 48)
 
     def test_nations_cannot_attack_each_other(self):
         """永久中立：对他国领土的进攻必须被拒。"""

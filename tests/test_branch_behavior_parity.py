@@ -1,15 +1,19 @@
 # -*- coding: utf-8 -*-
-"""分支行为对等：`feat/rl` 与 `main` 在**不打外交**时，引擎行为必须逐字段相同。
+"""分支行为对等：`feat/rl` 的引擎必须与 `main` **逐字段、逐调用相同**。
 
 跑法：
     python3 -m unittest tests.test_branch_behavior_parity -v
     python3 tests/test_branch_behavior_parity.py          # 独立报告模式（打印分歧细节）
 
-为什么需要它
-------------
-本分支对 main 做的**全部**改动应当只有「删外交」。但 `git diff main feat/rl -- mp.py`
-是 1538 行，里面除了删外交，还搬了 `good_value/build_econ`。**"应该只有外交"
-和"确实只有外交"是两件事**——这条测试把后者变成可执行的。
+为什么需要它（2026-09-12 变基后改了口径，这条测试的**含义变了**）
+------------------------------------------------------------------
+· 旧口径：本分支 = main **减去外交**。那时 `git diff main feat/rl -- mp.py` 是 1538 行，
+  「应该只有删外交」和「确实只有删外交」是两件事 —— 这条测试把后者变成可执行的。
+· 新口径：**引擎文件（mp.py/game.py/mp_ai.py/mp_run.py）与 main 逐字相同**，
+  外交不再砍（砍了对 RL 没收益：单国独局下外交路径一次都不触发）。
+  于是对拍**应当零分歧**，它从「验证手术做得对」变成两条防线：
+  ① `TestEngineIsMainByteForByte` —— 字节级同一性，说了算的那条；
+  ② 下面这套回放 —— 万一有人在本分支上动了引擎，它会把**第一处分歧的字段路径**指出来。
 
 做法（三段式，动作流由规则 AI 生成，不手搓）
 --------------------------------------------
@@ -25,8 +29,8 @@
 
 ★ 驱动用 v9 而不是手搓配方：手搓配方第一版就是空跑（军队恒 0、一次仗没打，
   测试却绿着）。v9 会建产能、征兵、扩张、打野人，场景天然是满的。见 `TestCoverage`。
-★ 不比对 RNG 状态：地形/资源/命名已改为 `(seed,x,y)` 的纯函数（两分支都改了），
-  但历史让两边的 `self.rng` 流不必同源。**最终状态一致**才是要守的东西。
+★ 不比对 RNG 状态：地形/资源/命名是 `(seed,x,y)` 的纯函数，但历史让两边的
+  `self.rng` 流不必同源。**最终状态一致**才是要守的东西。
 """
 from __future__ import annotations
 
@@ -340,15 +344,44 @@ class TestMilitiaAccounting(unittest.TestCase):
                             f"国库黄金被当成地块资源折算了（1 单位 = 10 金）")
 
 
+class TestEngineIsMainByteForByte(unittest.TestCase):
+    """★ 说了算的那条：本分支的引擎文件**必须与 main 逐字节相同**。
+
+    2026-09-12 变基时定的规矩：`feat/rl` = main（引擎一字不改）+ RL 训练线。
+    砍外交那套已废弃（单国独局下外交路径一次都不触发，白挨每次变基的手术）。
+    这条测试是那句话的可执行版本；下面那套回放是它的**行为侧备份**——万一哪天
+    有人在本分支上动了引擎，字节检查会说"哪几个文件不同"，回放会说"哪一步开始
+    不一样"，两条一起才够定位。
+    """
+
+    ENGINE_FILES = ("mp.py", "game.py", "mp_ai.py", "mp_run.py")
+
+    def test_engine_files_identical_to_main(self):
+        differ = []
+        for f in self.ENGINE_FILES:
+            try:
+                theirs = _show(f)
+            except unittest.SkipTest:
+                raise
+            ours = (ROOT / f).read_text(encoding="utf-8")
+            if theirs != ours:
+                differ.append(f)
+        self.assertFalse(
+            differ,
+            f"引擎文件与 main 不同：{differ}。本分支的规矩是引擎一字不改——"
+            f"要改就改在 main 上，或者把 rl 独有的东西留在 rl/ 里（`best_build` 就是这么搬走的）")
+
+
 class TestBranchBehaviorParity(unittest.TestCase):
-    def test_engine_matches_main_without_diplomacy(self):
+    def test_engine_matches_main(self):
         t, why, cov, _d = compare()
         if why:
             self.fail(
-                f"第 {t} 回合起与 main 分歧（seed={SEED}, {TURNS} 回合，动作流由 v9 生成、"
-                f"全程不含外交）：\n    {why}\n"
-                f"  本分支对 main 的改动**应当只有删外交**。这处分歧要么是意外的漂移，\n"
-                f"  要么是有意改动但没记档——两种情况都该先弄清楚再往前走。\n"
+                f"第 {t} 回合起与 main 分歧（seed={SEED}, {TURNS} 回合，动作流由 v9 生成）：\n"
+                f"    {why}\n"
+                f"  引擎文件本该与 main 逐字节相同（见 TestEngineIsMainByteForByte）。"
+                f"这处分歧要么是有人动了引擎，要么是两条线的引擎真的漂了——"
+                f"两种情况都该先弄清楚再往前走。\n"
                 f"  覆盖率：{cov}\n"
                 f"  细节：python3 tests/test_branch_behavior_parity.py"
             )
@@ -356,7 +389,7 @@ class TestBranchBehaviorParity(unittest.TestCase):
 
 def main() -> None:
     print(f"分支行为对等检查：feat/rl vs main    seed={SEED}  {TURNS} 回合  "
-          f"地图 {MAP_SIZE}×{MAP_SIZE}  单国「秦」  动作流 = v9（不含外交）\n")
+          f"地图 {MAP_SIZE}×{MAP_SIZE}  单国「秦」  动作流 = v9\n")
     t, why, cov, _d = compare()
     a = cov["accepted"]
     print(f"覆盖率：领地 +{cov['tiles_gained']}（终局 {cov['final_tiles']} 格）  "

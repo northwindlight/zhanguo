@@ -3,7 +3,10 @@
 
 **单国独局**：地图上只有 `agent` 一国（可选加对手，默认没有），扩张只能打野人。
 不依赖 LLM 层（无 tool schema / 无文本面板 / 无国策 plan），只调游戏层 `game.py` + `mp.py`。
-本分支已移除国家间外交：各国永久中立。
+
+**引擎与 main 逐字相同**（2026-09-12 起不再砍外交）：本环境不含外交动作、观测里也没有
+外交建筑（见 `bnames`），但引擎那侧的战争/联盟代码都在——单国独局下它们不会触发。
+要加对手时（`rivals=(...)`）它们就会生效，那时再谈外交是否进观测。
 
 设计
 ----
@@ -30,6 +33,7 @@ from game import (BUILDINGS, ENGINEER_DISCOUNT, MARKET, MAX_SLOTS, TERRAIN_STATS
                   TERRAINS, TRADEABLE, UNIT_TYPES, WATCHTOWER_RADIUS,
                   unit_kind, unit_max_hp, unit_speed)
 from mp import World
+from rl.vocab import BUILDING as VOCAB_BUILDING, MAIN_ONLY
 
 # 动作种类（固定顺序，模型的下标语义依赖它）
 KINDS = ("build", "recruit", "move", "attack", "retreat", "buy", "sell", "end_turn")
@@ -125,7 +129,16 @@ class ZhanguoEnv:
         self.max_actions_per_turn = int(max_actions_per_turn)
         self.reward_scale = float(reward_scale)
 
-        self.bnames = tuple(BUILDINGS)          # 建筑子表（顺序即子下标）
+        # ★ 建筑子表**取冻结词表，不取 game.BUILDINGS**（顺序即子下标）。
+        #   2026-09-12 变基到 main 时定死：引擎不再砍外交（mp.py/game.py 与 main 逐字相同），
+        #   但**观测词表继续冻结在 15 项**——MAIN_ONLY 的「外交中心」不进观测、也不进动作空间。
+        #   理由有两条，都不是审美：
+        #   ① 它在外交里才有用，而训练是**单国独局**（`rivals=()`），造出来是纯亏；
+        #      引擎侧对它有 `limit_nation` 约束，而 env 的候选校验并不查那一条（会给出必被拒的候选）。
+        #   ② `len(game.BUILDINGS)` 一旦从 15 变 16，网格/全局/token 三处宽度全跟着变
+        #      （36→37、48→49），**训练出来的 ckpt 全部加载不了**（见 rl/PLAN.md 的重炼铁律）。
+        #   `test_vocab_main_parity` 与 `test_rl_env` 各有一条盯住这件事。
+        self.bnames = tuple(b for b in VOCAB_BUILDING if b not in MAIN_ONLY)
         self.unames = tuple(UNIT_TYPES)         # 兵种子表
         self.goods = tuple(TRADEABLE)           # 物资子表
         # 每个 kind 的子表：不在表里的 kind 只有空子项
