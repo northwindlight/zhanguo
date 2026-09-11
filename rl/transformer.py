@@ -13,8 +13,24 @@
 **候选作 Q、窗口作 K/V 的 cross-attention** 之后，"在上下文里找最近的那个"变成
 可表达的运算——这是换主干真正买到的东西，不是"参数更多"。
 
-代价：`4·C·K·d`（候选数 × 窗口 512 × d），不是 `O(C²)`——候选之间**仍然互不可见**，
-这是明知的不做（单挑型策略不需要）。
+代价：`4·C·K·d`（候选数 × 窗口 512 × d），不是 `O(C²)`——候选之间**仍然互不可见**。
+
+★**"候选互不可见够不够"这条，原来的理由（"单挑型策略不需要"）是没验证过的断言。
+真正的理由是这个（2026-09-12 审阅指出）：**
+
+1. v9 里那三类"集合运算"，**成组/配额是候选内部的**——
+   `near = [a for a in armies if 距离≤1]; movers[:need_n - len(near)]`
+   一个 attack 候选本身就含多支军队，不是多个候选之间的事。排序/取最近则是
+   **候选 ↔ 窗口**的交互，cross-attention 正好覆盖。所以"共享窗口 + 候选独立打分"
+   在表达力上确实够。
+2. 决策是**串行**的：每步只选一个候选，env 立刻更新状态、重新枚举。
+   所以"两个候选都要 100 金"根本不构成交互——不会同时成立。
+
+**要观察的两处**（如果 P4 验证时发现学不动，先查这里）：
+- **同一格只能建一座**：如果两个候选指向同一格，模型要知道。目前靠 env 只枚举
+  合法候选挡住（选完一个就重枚举），所以理论上不需要模型知道 —— 但要确认 env
+  真的这么做，而不是靠"反正只选一个"。
+- **资源有限**：靠候选 attend 窗口里的库存（G 组）解决，已覆盖。
 
 三条与 `POLICY_NET` 的分工，别忘了：
 - **CNN 退场**：地图信息全在 M 组 token 里，候选只带自己的落点 `(dx,dy)` 去 attend。
@@ -32,6 +48,7 @@ import torch.nn.functional as F
 
 from rl.env import AMOUNTS, ARMY_FEAT, KINDS
 from rl.tokenize import GROUPS
+from rl.vocab import POS_SCALE
 
 
 class Block(nn.Module):
@@ -115,6 +132,24 @@ class WindowTransformer(nn.Module):
         """
         self.sub_embs = nn.ModuleList([nn.Embedding(max(1, s), 16) for s in sub_sizes])
 
+    def cand_pos_block(self, cand: dict) -> torch.Tensor:
+        """候选落点的归一化特征 `[B,K,3]` = `(dx, dy, 有无落点)`。
+
+        ★**必须与 `rl/tokenize.py` 的 M/A 组同尺度**。这里原来写死 `64.0`，而
+        `vocab.POS_SCALE = 32.0` —— 同一段物理距离在同一个模型里被表达成两个尺度
+        （A 组按 32、候选按 64），能学，但是个**静默**的坑：以后谁改了 POS_SCALE，
+        只有这一处不跟着动。抽成函数 + 用同一个常量，测试才钉得住。
+
+        `tile_dx/tile_dy` 是**外接框内的相对坐标**，`-1` = 这个候选没有落点
+        （buy/sell/end_turn）。因为 `-1` 是个合法相对坐标的反面，所以"有没有落点"
+        必须**显式**进特征，不能靠 `-1` 隐式表达。
+        """
+        dx = cand["tile_dx"].float()
+        dy = cand["tile_dy"].float()
+        has = (dx >= 0).float().unsqueeze(-1)
+        return torch.cat([dx.unsqueeze(-1) / POS_SCALE,
+                          dy.unsqueeze(-1) / POS_SCALE, has], dim=-1)
+
     def encode_window(self, win: dict) -> tuple[torch.Tensor, torch.Tensor]:
         """窗口 → `(tokens [B,T,d], mask [B,T])`。T = 各组 token 数之和。"""
         toks, msks = [], []
@@ -149,10 +184,7 @@ class WindowTransformer(nn.Module):
         ae = self.amt_emb(cand["amount_idx"].clamp(0, self.n_amounts - 1))
         # 落点：**相对家的偏移**（外接框内坐标），不是扁平下标 —— 扁平下标绑死网格形状，
         # 而 P4 已经没有网格了。`-1` = 这个候选没有落点（buy/sell/end_turn）。
-        dx = cand["tile_dx"].float()
-        dy = cand["tile_dy"].float()
-        has = (dx >= 0).float().unsqueeze(-1)
-        pos = torch.cat([dx.unsqueeze(-1) / 64.0, dy.unsqueeze(-1) / 64.0, has], dim=-1)
+        pos = self.cand_pos_block(cand)
         # 被引用的军队（`army_idx == null` 时取 army_feats 的末尾空位）
         af = torch.cat([self.army_mlp(cand["army_feats"]),
                         torch.zeros(b, 1, 32, device=x.device)], dim=1)
@@ -171,6 +203,10 @@ class WindowTransformer(nn.Module):
             logits = logits.masked_fill(~cand_mask, -1e9)
 
         # ---- 价值：窗口的**掩码均值池化**（P4 起窗口是全局状态的唯一来源）
+        # 已知代价（2026-09-12 审阅）：均值池化把每条 token 等权，丢掉了"哪些重要"
+        # （全局 G、关键军队可能比某个 patch 重要得多）。先跑通再说，但如果价值学不好，
+        # **最便宜的替代是取 G 组那条 token**（`GROUPS` 的顺序里 g 是第 0 条，
+        # 而它本来就是全局状态的摘要），一行就能换；再不够再上 max 池化或注意力池化。
         m = wmask.unsqueeze(-1).to(x.dtype)
         pooled = (x * m).sum(1) / m.sum(1).clamp(min=1.0)
         return logits, self.value(pooled).squeeze(-1)

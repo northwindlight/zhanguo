@@ -146,6 +146,25 @@ class TestCandidateSide(unittest.TestCase):
             v2 = self.net(self.wb, cand, self.cmask)[0][0, 0]
         self.assertNotAlmostEqual(float(v1), float(v2), places=6)
 
+    def test_落点归一化用的是vocab的POS_SCALE(self):
+        """★这条本该拦住一个真 bug：`cand_pos_block` 原来写死 `/ 64.0`，
+        而 `vocab.POS_SCALE = 32.0` —— 同一段物理距离在**同一个模型**里被表达成
+        两个尺度（A 组按 32、候选按 64）。能学，但静默；以后谁改 POS_SCALE，
+        只有这一处不跟着动。"""
+        from rl.transformer import POS_SCALE as TF_SCALE
+        from rl.vocab import POS_SCALE as VOCAB_SCALE
+        from rl.tokenize import POS_SCALE as TOK_SCALE
+        self.assertEqual(TF_SCALE, VOCAB_SCALE)
+        self.assertEqual(TOK_SCALE, VOCAB_SCALE)
+        cand = {k: (v.clone() if torch.is_tensor(v) else v)
+                for k, v in self.cand.items()}
+        cand["tile_dx"][0, 0] = int(VOCAB_SCALE)
+        cand["tile_dy"][0, 0] = 0
+        pos = self.net.cand_pos_block(cand)
+        self.assertAlmostEqual(float(pos[0, 0, 0]), 1.0, places=6,
+                               msg="相对家偏移 POS_SCALE 格，归一化后该是 1.0")
+        self.assertAlmostEqual(float(pos[0, 0, 2]), 1.0, places=6, msg="有落点该是 1")
+
     def test_拼批不改单条结果(self):
         """一条候选序列单独跑 vs 跟别的拼批跑，logits 必须逐位一致
         （窗口的 padding 挡住之后，批内别的样本不该影响它）。"""

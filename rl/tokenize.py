@@ -26,8 +26,13 @@
    原因：`C×p×p` 拍平后**宽度随 p 变**，同一次训练里不同帧的 token 宽度就不一样，
    没法拼批（和现在网格要 padding 到批内最大是同一个病），而且 P4 得为每个 p 备一个
    `Linear`。改成「块内逐通道取均值」后宽度恒为 `C+3`，与地图/帝国大小无关，
-   分辨率等价（都是"最多 64 格铺满外接框"）。代价：块内**布局**丢了，
-   靠 patch 之间的相对位置和候选 cross-attention 补。
+   分辨率等价（都是"最多 64 格铺满外接框"）。
+   ★**代价：块内布局丢了**（2026-09-12 审阅指出）。块边长随外接框自适应 ——
+   小帝国时块是 1×1（无损），**帝国越大丢得越多**（外接框 40×40 时一块 5×5＝25 格取均值，
+   哪一格有资源、哪一格有敌人全平掉了）。而候选只带自己的落点，没有"往块里看"的能力。
+   若 BC 匹配率不够，两个便宜的补法（都不用改形状）：
+   ① 每通道再带一个 **max**（`[mean, max]`，宽度 C→2C，token 数不变）；
+   ② 加大 `M_SIDE`（更多更小的块，但 M 组上限 64 是硬预算）。
 2. **A 组特征宽度 12（见 `F_A`），不用 `TOKEN_DESIGN` 里那条 13 维的写法** ——
    "情报年龄"那一维现在恒为 0：`World` **没有"这块地什么时候探明的"记录**
    （`mp.py` 里只有事件日志 `history`，没有逐格探明时间戳）。
@@ -225,6 +230,15 @@ def tokenize(env: ZhanguoEnv, obs: Obs, *, mem: np.ndarray | None = None
     assert len(own) == obs.cand["army_feats"].shape[0], (
         f"A 组军队数与候选的 army_feats 对不上：{len(own)} vs "
         f"{obs.cand['army_feats'].shape[0]} —— 候选的 army_idx 会指错 token")
+    # ★只查数量不够，**顺序**才是 `army_idx` 指的准不准的关键。两边都按 `a["id"]`
+    #   排序，所以逐位相等的检查在这里是免费的：`env.army_ids` 由 `_obs()` 里的
+    #   `_refresh_armies()` 写下（读它不写它，纯函数性不受影响）。
+    #   数量对、顺序错，是最难查的一种 —— 候选会稳定地指向**另一支**军队。
+    _eids = getattr(env, "army_ids", None)
+    if _eids is not None:
+        assert list(_eids) == [a["id"] for a in own], (
+            f"A 组军队顺序与 env.army_ids 不一致：{_eids} vs {[a['id'] for a in own]}")
+    del _eids
     assert len(UNIT_KINDS3) == 3, f"UNIT_TYPES 不是 3 个：{UNIT_KINDS3}"
 
     m_feat, m_msk, m_meta = _patch_group(obs.grid, vis_ch, x0, y0, anchor)
