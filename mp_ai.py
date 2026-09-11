@@ -44,7 +44,8 @@ from game import (
 import ctx as ctxlib
 from console import dw as _dw, pad as _pad
 from ctx import est_tokens
-from mp import DIPLO_COST, PLAN_MAX_TURNS, REPORT_EVERY, RES_KEYS, RES_LABEL
+from mp import (DIPLO_COST, PLAN_MAX_TURNS, REPORT_EVERY, RES_KEYS, RES_LABEL,
+                build_econ, good_value)
 
 MAIL_BRIEF_FULL = 3      # 状态面板里完整展示的新信数（更旧的只列摘要行）
 MAIL_BRIEF_ROWS = 20     # 状态面板里最多列多少条旧信摘要
@@ -800,49 +801,38 @@ def _fmt_report_panel(world, name) -> str:
             f"总资产 {r['assets']:.0f}）——全文 report、跨期趋势 report all=true")
 
 
-def _gval(world, good: str, amt: int, side: str = "mid") -> float:
-    """把 amt 单位 good 折成金（黄金=矿场产出，按 MARKET['黄金'] 折算）。
-    side='mid' 用中间价；'buy'/'sell' 用含价差的实际成交单价（自用替代 / 外销口径）。"""
-    if amt <= 0:
-        return 0.0
-    if good == "黄金":
-        return amt * MARKET["黄金"]
-    if side in ("buy", "sell"):
-        return amt * world.market_quote(good, 1, side)[0]
-    p = world.prices.get(good)
-    return amt * (p if p is not None else float(MARKET.get(good, 0)))
-
-
 def _econ_building(world, building: str) -> str:
-    """单个建筑的经济核算：按当前市价给 造价(折金)/每回合毛利/回本时间。"""
+    """单个建筑的经济核算文案。**数字全部来自 mp.build_econ**——与规则 AI v9 同一份
+    计算，LLM 看到的回本和 bot 排序用的回本不会有第二套口径。
+    （文案与旧版逐字一致；仅加工厂「回本」从"毛利不含电"改为按含电的 per_turn 计，
+      与 build_econ/`payback` 对齐——旧版这里本来自相矛盾：毛利行标了电耗、回本行不含。）"""
     info = BUILDINGS[building]
-    wp = world.prices.get("木头", float(MARKET["木头"]))
-    cost = info["cost"] if isinstance(info["cost"], int) else info["cost"][0]
-    capex = cost + info["wood"] * wp
-    k = info["kind"]
+    e = build_econ(world, building)
+    cost, capex, k = e["cost"], e["capex"], info["kind"]
     if k == "castle":
         return (f"{building}: L1造价 {cost}金+{info['wood']}木(折{capex:.0f}金) · "
                 f"每级+{CASTLE_DEFENSE_PER_LEVEL}%防御，不产金")
-    if k in ("extract", "gold"):
+    if k in ("extract", "gold", "militia_camp"):
+        net = e["detail"]["net"]
         if k == "gold":
-            net = sum(_gval(world, g, a) for g, a in info["outputs"].items())
             tag = "固定+金"
+        elif k == "militia_camp":
+            return (f"{building}: 造价折{capex:.0f}金 · 屯田 +1粮/回合；可征民兵（50金+5粮/支，每座1支/回合，"
+                    "全国民兵总数≤全国军屯数），民兵驻本格不耗补给（需本地耕地≥1、每地块限1座）")
         else:
-            net = sum(_gval(world, g, a, "sell") for g, a in info["outputs"].items())
             tag = "外销(卖价)"
-        pb = f"{capex / net:.0f}回合" if net > 0 else "—"
+        pb = f"{e['payback']:.0f}回合" if e["payback"] else "—"
         return f"{building}: 造价折{capex:.0f}金 · 每回合产出{tag}≈{net:.0f}金 · 回本≈{pb}"
     if k == "energy":
-        fuel = sum(_gval(world, f, a, "buy") for f, a in info["fuel"].items())
+        fuel = e["detail"]["fuel"]
         return (f"{building}: 造价折{capex:.0f}金 · 每回合烧燃料现值≈{fuel:.0f}金 "
                 f"→ 产{info['energy_out']}电（电不交易，供高级建筑维持）")
     if k == "factory":
-        inv = sum(_gval(world, f, a, "buy") for f, a in info["inputs"].items())
-        out_self = sum(_gval(world, g, a, "buy") for g, a in info["outputs"].items())
-        out_sell = sum(_gval(world, g, a, "sell") for g, a in info["outputs"].items())
-        net = out_self - inv
-        ec = info.get("energy", 0) * _gval(world, "木头", 1, "buy") / 2  # 电按"1木发2电"的燃料成本估
-        pb = f"{capex / net:.0f}回合" if net > 0 else "—"
+        d = e["detail"]
+        inv, out_self, out_sell, ec = (d["inputs_value"], d["outputs_buy"],
+                                       d["outputs_sell"], d["energy_cost"])
+        net = d["net"]
+        pb = f"{e['payback']:.0f}回合" if e["payback"] else "—"
         return (f"{building}: 造价折{capex:.0f}金 · 每回合投{inv:.0f}金(买价)料→产{out_self:.0f}金"
                 f"(买价=自用替代；纯外销只值{out_sell:.0f}金)"
                 f"（毛利{net:+.0f}金；另耗{info.get('energy', 0)}电≈{ec:.0f}金） · 回本≈{pb}")
@@ -863,9 +853,6 @@ def _econ_building(world, building: str) -> str:
     if k == "academy":
         return (f"{building}: 造价折{capex:.0f}金 · 不产金：本地块一切建造金价 -{ENGINEER_DISCOUNT}%"
                 "（需本地已用位≥4，后续建筑越贵回得越多）")
-    if k == "militia_camp":
-        return (f"{building}: 造价折{capex:.0f}金 · 屯田 +1粮/回合；可征民兵（50金+5粮/支，每座1支/回合，"
-                "全国民兵总数≤全国军屯数），民兵驻本格不耗补给（需本地耕地≥1、每地块限1座）")
     return f"{building}: 无核算"
 
 
@@ -1935,15 +1922,16 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
 # ---------------------------------------------------------------------------
 
 def dummy_turn(world, name, rng, max_actions: int = 12) -> int:
-    """无 key 的规则 AI：委托给**游戏层**的 `expand_rule_v6.expand_rule_turn_v6`，
+    """无 key 的规则 AI：委托给**游戏层**的 `expand_rule_v9.expand_rule_turn_v9`，
     并把每个动作写进看海日志（Observer 因此能看到它的每个行动）。
 
-    策略本身在 `expand_rule_v6.py`——那是游戏层，不依赖本 LLM 层的工具 schema /
-    文本面板 / 国策。用**最强的扩张流**（实测五图均 ~141k 终局消费），
-    而不是原先内联的旧版：代打的国家若不会扩张，看海 demo 与机制验证都会被带偏。
+    策略本身在 `expand_rule_v9.py`——那是游戏层，不依赖本 LLM 层的工具 schema /
+    文本面板 / 国策。v9 = v8（一张账 + 串行判定的最强扩张流）+ **视野门控**：
+    信息集严格等于引擎给玩家的（`World.visible_to`），不开图偷看未探明格资源——
+    代打的国家与 LLM 玩家在同一层信息下竞争。v6 保留作 experiments 探针的论文基线。
     """
-    from expand_rule_v6 import expand_rule_turn_v6
-    acts = expand_rule_turn_v6(world, name, rng, max_actions=max_actions)
+    from expand_rule_v9 import expand_rule_turn_v9
+    acts = expand_rule_turn_v9(world, name, rng, max_actions=max_actions)
     for tool, args, ok, msg in acts:
         log_tool(world, name, tool, args, msg)
     return len(acts)

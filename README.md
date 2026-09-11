@@ -313,21 +313,17 @@ python3 mp_run.py --turns 10           # 读档续局；无档则新开
 
 ### 无 key 也能跑
 
-条目缺少 `base_url`/`api_key`/`model` 时，该国由内置规则 AI（`dummy_turn`）代打：
-补能源 → 屯田 → 兵营 → 征兵 → 集火最近野人。用于机制验证与无 key 演示。
+条目缺少 `base_url`/`api_key`/`model` 时，该国由内置规则 AI（`dummy_turn` → `expand_rule_v9`）代打：
+一张账 ROI 驱动的扩张流（复利建设 → 能源/编制闸门 → 串行判定打地）。
+v9 带**视野门控**——信息集严格等于引擎给玩家的 `visible_to`，不开图偷看未探明格资源，
+与 LLM 玩家在同一层信息下竞争。用于机制验证与无 key 演示。
 
-## RL 训练层
+## RL 训练层（在 `feat/rl` 分支）
 
-`rl/` 用 PyTorch 训一个**以「总消费」为目标函数**的君主。环境每回合把合法动作**全部**枚举成候选
-清单（不限额、不截断），策略网络给每个候选打分再 softmax；观测按**引擎视野**做迷雾遮蔽，不给全图。
-回报 = 总消费的每步增量 × 固定系数，所以 Σ 回报 **恒等于**终局总消费——信号是稠密的，但和目标
-完全一致，不是 shaping（市场买卖不计入，故刷交易量无用）。
-
-先行为克隆（老师是 `expand_rule_v6`）再 PPO 微调。训练跑在另一台机器上，本仓库只放代码；
-结构、实测数字与踩过的坑见 [`rl/README.md`](rl/README.md)。
-
-与评测的关系：训练好的 checkpoint 可当**强度可控、不受提示词影响的恒定对手**，
-解决多智能体评测里「A 得 90 分，不知道是 A 强还是 B 弱」的困境（论证见 `docs/`）。
+RL 训练线与看海主线**分叉维护**：PyTorch 环境、BC/PPO、transformer 主干等全部代码在
+**`feat/rl` 分支**（本分支不再携带 `rl/`）。以「总消费」为目标函数、观测按引擎视野遮蔽、
+回报 = 消费增量的设计说明见该分支的 `rl/README.md` 与 `rl/PLAN.md`。
+引擎层的游戏规则改动仍会 cherry-pick 过去；训练机的实测数字与踩坑记录也在那条线上。
 
 ## 看海
 
@@ -393,8 +389,8 @@ python3 settlement.py --no-chat    # 只打分
 | `mp_run.py` | 编排器：无人值守自动一局 + 看海终端 + 中途加国 |
 | `console.py` | 终端体验层：Markdown→ANSI 渲染 + 汉字宽度感知的命令台（无第三方依赖） |
 | `settlement.py` | 终局结算：按**总消费**排名（支出法 GDP 骨架）+ 结算厅 |
-| `expand_rule_ai.py` / `expand_rule_v4/v5/v6.py` | 扩张流规则 AI 的历代版本（`v6` 最强，五图均 ~141k）。无 key 的国家由 `v6` 代打 |
-| `rl/` | **RL 训练层**：环境 + 策略网络 + PPO/BC（目标 = 总消费），见 [`rl/README.md`](rl/README.md) |
+| `expand_rule_v9.py` | 现役规则 AI（v8 + 视野门控；无 key 的国家由它代打）；`v4/v5/v6` 与 `expand_rule_ai.py` 保留为历代基线（`v6` 仍是 `experiments/` 探针的论文基线） |
+| `mp.py` 顶部 `good_value` / `build_econ` | 游戏层 ROI 原语：LLM 经济面板与规则 AI **共用**的一份回本计算——不存在第二套口径 |
 | `experiments/spend_metric_probes.py` | 消费总量指标的对照实验（E1 攻击性 / E2 归属 / E3 朝贡），配 [`docs/`](docs/) 的论证 |
 | `docs/消费总量评测指标论证.md` | 指标的第一性论证 + 对抗性实验 + 局限 |
 | `mp_config.example.json` | 配置模板（复制为 `mp_config.json` 填 key） |
