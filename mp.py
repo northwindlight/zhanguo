@@ -845,17 +845,16 @@ class World:
                 out.append(a)
         return out
 
-    def can_enter(self, name: str, x: int, y: int) -> tuple[bool, str]:
-        owner = self.owned_by(x, y)
-        if owner is None:
-            return True, ""
-        if owner == name:
-            return True, ""
-        if self.allied_between(name, owner):
-            return True, "（盟国领土，通行无碍）"
-        if self.war_between(name, owner):
-            return True, "（敌国领土，交战可入）"
-        return False, f"中立不可入境：({x+1},{y+1}) 是「{owner}」的领土（结盟或宣战后才能进出）"
+    def _blind_cost(self, name: str, armies: list[dict], x: int, y: int) -> None:
+        """向**视野外**的目标格下令、撞上目标格上的规则墙（中立领土/敌境空格/
+        敌军驻守/第三方打野）→ 参令军队本回合移动额度**照样烧掉**。
+        报错本身如实返回——那就是斥候带回的情报，侦察付了钱就要拿得到货；
+        要付的是钱：对看不见的地方滥发命令，每一发都值一支军队一回合的腿。
+        视野内撞墙不额外罚（你看得见，试错是正常决策，报错免费）。"""
+        if self.visible_to(name, x, y):
+            return
+        for a in armies:
+            a["moved_turn"] = self.turn
 
     def move(self, name: str, aid: int, x: int, y: int) -> tuple[bool, str]:
         a = self._army(name, aid)
@@ -877,20 +876,24 @@ class World:
             return False, f"{UNIT_TYPES[unit_kind(a)]['label']} 每回合只能移动 {speed} 格"
         if a.get("moved_turn") == self.turn:
             return False, "本回合已移动过"
-        ok, why = self.can_enter(name, x, y)
-        if not ok:
-            return False, why
         # mv 合法地块 = 野地 / 自家 / 盟国。敌国格一律禁 mv——**空格也必须 atk 才能进占**
         # （无「无阻穿行」，每一步前进都是交战或占领）。
         # 自家/盟国格被混战敌军占着可进（增援）：入格随 _resolve_battles 的格上 forces 自动参战。
+        # ★ 视野外的格撞上这些墙 → 报错照实（斥候情报），但本回合移动额度照烧（侦察要付钱）。
         owner = self.owned_by(x, y)
+        why = None
         if owner is not None and owner != name and not self.allied_between(name, owner):
-            return False, f"({x+1},{y+1}) 是敌国领土，mv 不得进入；进占请用 atk（会交战/占领）"
-        if owner is None and any(d["owner"] != name and d["owner"] != "野人"
-                                 and (d["x"], d["y"]) == (x, y)
-                                 and self.war_between(name, d["owner"])
-                                 for d in self.armies):
-            return False, f"({x+1},{y+1}) 有敌军驻守，不能 mv 过去；进攻请用 atk（会交战）"
+            why = (f"({x + 1},{y + 1}) 是敌国领土，mv 不得进入；进占请用 atk（会交战/占领）"
+                   if self.war_between(name, owner)
+                   else f"中立不可入境：({x + 1},{y + 1}) 是「{owner}」的领土（结盟或宣战后才能进出）")
+        elif owner is None and any(d["owner"] != name and d["owner"] != "野人"
+                                   and (d["x"], d["y"]) == (x, y)
+                                   and self.war_between(name, d["owner"])
+                                   for d in self.armies):
+            why = f"({x + 1},{y + 1}) 有敌军驻守，不能 mv 过去；进攻请用 atk（会交战）"
+        if why:
+            self._blind_cost(name, [a], x, y)   # 视野外撞墙：报错照给，移动额度照烧
+            return False, why
         # mv 只挪位置，不占地——占地走 atk
         a["x"], a["y"] = x, y
         a["moved_turn"] = self.turn
@@ -906,27 +909,32 @@ class World:
             self._check(x, y)
         except IndexError as e:
             return False, str(e)
-        owner = self.owned_by(x, y)
-        if owner is not None and (owner == name or self.allied_between(name, owner)):
-            return False, "目标是自己或盟国的领土，不能进攻"
-        if owner is not None and owner != name and not self.war_between(name, owner):
-            return False, "中立不可攻击他国领土"
-        # 野地上别人正在打野（交战方与你既非敌也非盟）→ 不能插足抢地：
-        # 这是「不抢别人的战斗」——中立打野时你不能 atk；盟友/敌人在打野则可以参战
-        # （都按索取顺序占地）。想旁观仍可 mv 过去（不参战）。
-        if owner is None:
-            busy = [a for a in self.armies
-                    if (a["x"], a["y"]) == (x, y) and a.get("engaged") and a["owner"] not in ("野人", name)]
-            if busy and not any(self.war_between(name, a["owner"]) or self.allied_between(name, a["owner"])
-                                for a in busy):
-                other = busy[0]["owner"]
-                return False, (f"({x+1},{y+1}) 有 {other}军正在打野（与你非交战也非盟友），"
-                               f"不能插足抢地——等这场战斗打完再 atk（想插手就先向 {other} 宣战）；"
-                               f"旁观可以 mv 过去（不参战）")
-        defs = self._defs_at(name, x, y)
         targets = [a for a in self.armies if a["owner"] == name and a["id"] in aids]
         if not targets:
             return False, f"未找到我方军队 {aids}"
+        # ★ 目标格上的"墙"与 mv 同规：视野外撞墙 → 报错如实，但突入军队本回合额度照烧。
+        owner = self.owned_by(x, y)
+        why = None
+        if owner is not None and (owner == name or self.allied_between(name, owner)):
+            why = "目标是自己或盟国的领土，不能进攻"
+        elif owner is not None and not self.war_between(name, owner):
+            why = "中立不可攻击他国领土"
+        else:
+            # 野地上别人正在打野（交战方与你既非敌也非盟）→ 不能插足抢地：
+            # 这是「不抢别人的战斗」——中立打野时你不能 atk；盟友/敌人在打野则可以参战
+            # （都按索取顺序占地）。想旁观仍可 mv 过去（不参战）。
+            busy = [a for a in self.armies
+                    if (a["x"], a["y"]) == (x, y) and a.get("engaged") and a["owner"] not in ("野人", name)]
+            if owner is None and busy and not any(self.war_between(name, a["owner"]) or self.allied_between(name, a["owner"])
+                                                  for a in busy):
+                other = busy[0]["owner"]
+                why = (f"({x+1},{y+1}) 有 {other}军正在打野（与你非交战也非盟友），"
+                       f"不能插足抢地——等这场战斗打完再 atk（想插手就先向 {other} 宣战）；"
+                       f"旁观可以 mv 过去（不参战）")
+        if why:
+            self._blind_cost(name, targets, x, y)   # 视野外撞墙：报错照给，突入军队的移动额度照烧
+            return False, why
+        defs = self._defs_at(name, x, y)
         for a in targets:
             if a.get("engaged") and (a["x"], a["y"]) != (x, y):
                 return False, (f"{a['name']} 正在交战中，不能离开战场改攻他处；"

@@ -535,23 +535,52 @@ class TestWildernessClaims(unittest.TestCase):
         """在测试用野地上放一支军队。"""
         return self._army(aid, owner, *self.WILD, engaged=engaged, hp=hp)
 
+    def _make_visible(self, w, name="秦"):
+        """把 WILD 的一块无主邻格判给 name，使其进入视野——
+        区分"视野内撞墙（免费细粒度报错）"与"盲令撞墙（报错如实但烧移动额度）"。"""
+        x, y = self.WILD
+        assert not w.visible_to(name, x, y)
+        for nx, ny in w.neighbors(x, y):
+            if w.owned_by(nx, ny) is None:
+                w.tiles[(nx, ny)] = w._new_tile(nx, ny, name)
+                break
+        assert w.visible_to(name, x, y)
+
     def _war(self, w, a, b):
         w.wars.append({"id": 1, "atk": a, "def": b, "followers": [], "turn": 1})
 
     # ---- 敌国驻守 / 打野 ----
     def test_enemy_squatter_blocks_mv_but_atk_engages(self):
-        """敌方（交战）驻守野地 → mv 拦、必须 atk；打野中的敌军同理。"""
+        """视野内：敌方（交战）驻守野地 → mv 拦（免费细粒度报错）、必须 atk；
+        打野中的敌军同理。撞墙不烧额度，所以 mv 被拒后同回合仍能 atk。"""
         for enemy_engaged in (False, True):
             w = self._world()
             self._war(w, "秦", "楚")
+            self._make_visible(w)
             x, y = self._wild(w, armies=[self._army(1, "秦", 6, 7),
                                          self._squat("楚", 2, engaged=enemy_engaged)])
             ok, msg = w.move("秦", 1, x, y)
             self.assertFalse(ok, msg)
             self.assertIn("敌军驻守", msg)
+            self.assertEqual(w._army("秦", 1)["moved_turn"], -1)   # 看得见 → 额度没烧
             ok2, msg2 = w.attack("秦", [1], x, y)
             self.assertTrue(ok2, msg2)
             self.assertTrue(w._army("秦", 1)["engaged"])
+
+    def test_blind_wall_hit_reports_truth_but_burns_move(self):
+        """视野外撞墙：报错如实给（那就是斥候带回的情报），但军队本回合移动额度烧掉
+        ——对看不见的地方滥发命令，每一发都值一回合的腿。"""
+        w = self._world()
+        self._war(w, "秦", "楚")
+        x, y = self._wild(w, armies=[self._army(1, "秦", 6, 7), self._squat("楚", 2)])
+        self.assertFalse(w.visible_to("秦", x, y))                 # 前提：目标在迷雾里
+        ok, msg = w.move("秦", 1, x, y)
+        self.assertFalse(ok)
+        self.assertIn("敌军驻守", msg)                              # 报错如实（侦察所得）
+        self.assertEqual(w._army("秦", 1)["moved_turn"], w.turn)    # 额度照烧
+        ok2, msg2 = w.attack("秦", [1], x, y)
+        self.assertFalse(ok2)
+        self.assertIn("本回合已移动", msg2)                          # 烧了就这回合动不了
 
     def test_neutral_squatter_mv_free_no_effect(self):
         """中立驻守野地：mv 可进（旁观），结算互不伤害。"""
@@ -589,13 +618,16 @@ class TestWildernessClaims(unittest.TestCase):
         self.assertEqual(w.owned_by(x, y), "秦")
 
     def test_neutral_attacking_guards_blocks_my_atk(self):
-        """中立正在打野：不能 atk 插足（不抢别人的战斗），但可 mv 旁观。"""
+        """视野内：中立正在打野 → 不能 atk 插足（不抢别人的战斗），但可 mv 旁观。
+        （撞墙免费，所以 atk 被拒后同回合 mv 仍发得出；盲令烧额度的情形见上一直线测试。）"""
         w = self._world()
+        self._make_visible(w)
         x, y = self._wild(w, armies=[self._army(1, "秦", 6, 7),
                                      self._squat("齐", 2, engaged=True)])
         ok, msg = w.attack("秦", [1], x, y)
         self.assertFalse(ok, msg)
         self.assertIn("插足", msg)
+        self.assertEqual(w._army("秦", 1)["moved_turn"], -1)
         ok2, msg2 = w.move("秦", 1, x, y)
         self.assertTrue(ok2, msg2)
 
