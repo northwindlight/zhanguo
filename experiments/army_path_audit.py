@@ -1,4 +1,9 @@
-"""v8 军队移动审计：到底有没有"绕远路"。
+"""v9（= v8 + 视野门控）军队移动审计：到底有没有"绕远路"。
+
+⚠️ 2026-09-11：v9 已加**视野门控**（v8 没有）（只走/只打 `visible_to` 之内的格）。
+   本脚本下面那两处判据（"八邻全不能走"、落点合法性）复刻的是**加门控之前**的
+   逻辑，所以"走不了"那一栏现在偏悲观——它算的是旧假设下会卡住多少，不是 v9
+   现在的实际行为。要量当前行为，先给这两处也加上 `w.visible_to(...)`。
 
 盯两处代码事实（都是读代码读出来的嫌疑，这里量它的实际规模）：
 
@@ -17,11 +22,11 @@ import sys
 
 from mp import World
 
-import expand_rule_v8 as V8
+import expand_rule_v9 as V9
 
 SEED = int(sys.argv[1]) if len(sys.argv) > 1 else 0
 TURNS = int(sys.argv[2]) if len(sys.argv) > 2 else 150
-V8.HORIZON = TURNS
+V9.HORIZON = TURNS
 N = 16
 
 w = World(size=N, seed=SEED, nations=["秦"])
@@ -63,7 +68,7 @@ def logged_move(name, aid, x, y):
     for q in w.armies:
         if q["owner"] != name or q["hp"] <= 0:
             continue
-        # 判据必须跟着 v8 走：落点 = 野地 或 **自家地**（引擎允许），只是绕山地
+        # 判据必须跟着 v9 走：落点 = 野地 或 **自家地**（引擎允许），只是绕山地
         ok = [p for p in w.neighbors(q["x"], q["y"])
               if w.owned_by(*p) in (None, name) and w.tile_terrain(*p) != "山地"]
         if not ok:
@@ -82,7 +87,7 @@ def logged_move(name, aid, x, y):
 w.move = logged_move
 
 for t in range(TURNS):
-    V8.expand_rule_turn_v8(w, "秦", rng, max_actions=10**9)
+    V9.expand_rule_turn_v9(w, "秦", rng, max_actions=10**9)
     w.resolve_turn()
     if t + 1 < TURNS:
         w.begin_turn()

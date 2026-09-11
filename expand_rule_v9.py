@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
-"""扩张流规则 AI · **v8 —— 推倒重写**（用户 2026-09-11：「是的，重写，另起 v8」）
+"""扩张流规则 AI · **v9 = v8 + 视野门控**（用户 2026-09-11：「改名叫 v9」）
+
+■ v9 相对 v8 **只改了一处：视野**（见下面「视野」一节）。
+  结构（一榜/一账/一次性判定）原样沿用，一个数都没调。
+  ★ v8 的成绩（20 图 T500 2381k / T300 843k）是**带偷看**量出来的，
+    两者不可混用 —— 换老师/基线就要重量。
+  实测（20 图 T300、同种子新旧对跑）：消费 48,686 → **49,764（+2.2%，14/20 更好）**、
+  进攻 249.7 → **293.8（+18%）**、行军 1338.8 → 1115.2（−17%）、地 219.9 → 227.8。
+  也就是说：**堵掉偷看基本是中性的、略偏正** —— 按"资源越多越先打"的偷看排序
+  本来就在把它引去打那些贵格子。
 
 ■ v7 为什么不能靠调参救（这是**逻辑**问题，不是数值问题）
 
@@ -15,13 +24,30 @@
   而且"征兵数"在三处各算一遍（`cap_now` / `_army_cap` / 第 5 节的 `cap`），三个数在
   数值上互不相关 → 装备必然"这节卖光、那节买回"。**改一处就顶塌另一处。**
 
-■ v8 的结构：一榜、一账、一次决策
+■ v8 的结构（v9 原样沿用）：一榜、一账、一次决策
 
     一榜：所有事情排成**一张榜** —— 采集/工厂按**回本**，兵营/电厂/征兵按**条件**
           （用户口径「走条件 ROI」：都在 ROI 里，但各自的条件不同）
     一账：`need(物资)` = 本回合刚需 + 榜上**本回合真能落地的那几座**的料
           **清仓卖到它、市场买到它 —— 同一个数**，所以"同回合先卖后买"结构上不可能
     一次：照榜花。钱不够就跳过，让后面的上 —— 没有 `reserve` 常量。
+
+■ 视野：只看玩家看得见的（用户 2026-09-11 口径）
+
+  规则 AI 的信息集**必须等于引擎给玩家的信息集** —— `World.visible_to`：
+  自家的地本身 + 八邻 + 瞭望塔半径 4 圆。LLM 玩家的 `threats` 面板用的就是它，
+  `land` 面板只额外给野地的**地形字符**，**不给资源**（资源占了才知道）。
+
+  这条以前是不成立的，四处越权（现已全部堵掉）：
+    · `tile_info()` 直接 `world._new_tile(*p, name)` —— **未探明格开图偷看资源**，
+      还拿它给扩张目标排序。这是**玩家永远拿不到**的信息。
+    · 目标/落点用 `owned_by`、`tile_terrain` 判断 —— 对迷雾里的格也算得出来。
+    · 兜底目标取 `world.armies` 的**全图**野人列表。
+
+  为什么必须堵：**BC 的老师是它**。老师用了学生看不到的信息，那批标签学生
+  **原理上**学不到 —— 喂多少数据、换什么架构都拟合不上，只会把命中率按住。
+  注意这不减能力：扩张本来就是"吃掉疆域外那一圈"，而那一圈**天生可见**；
+  堵掉的只是"隔着迷雾看着全图挑目标"。
 
 ■ 复用的两条 v7 逻辑（用户点名要保留）
 
@@ -38,7 +64,7 @@
     w = World(size=16, seed=0, nations=["秦"])
     w.begin_turn()
     while ...:
-        expand_rule_turn_v8(w, "秦")
+        expand_rule_turn_v9(w, "秦")
         w.resolve_turn()
         w.begin_turn()
 """
@@ -53,7 +79,7 @@ from mp import build_econ, good_value
 HORIZON = 200          # 评估基准回合数（用户：以后都按 200 回合算，不做长期 ROI）
 MIL_SHARE = 0.30       # 军费占收入的上限：出兵、涨兵**同一个条件**（用户 2026-09-11）
 # ★ 2026-09-11 晚从 0.15 提到 0.30，**理由不是"老师打得更好"，是"BC 数据里军事样本更多"**：
-#   BC 的老师是 v8，学生学不到打仗的根子是**训练数据里几乎没有打仗** ——
+#   BC 的老师是它，学生学不到打仗的根子是**训练数据里几乎没有打仗** ——
 #   70 回合里 v8 只造 1 座兵营、打 13 次。提到 0.30 后（5 seed / 70 回合实测）：
 #     军事动作占比 14.1% → **22.0%**    move 155 → **343**    征兵 14 → **25**
 #     终局兵力 2.8 → **4.4**            首次进攻 中位 28 → **21 回合**
@@ -66,6 +92,9 @@ GOODS = ("粮食", "木头", "矿石", "石油", "装备", "补给")
 TROOPS_FOR = {"沙漠": 2, "平原": 2, "森林": 2, "丘陵": 2, "山地": 3}
 # ↑ 用户口径「两两成组、山地三三成组」。除山地外一律 2 支。
 
+# 看不见的格按**最保守**的兵力算（= 3，与山地同档）：不知道就别冒进。
+UNKNOWN_TROOPS = TROOPS_FOR["山地"]
+
 _RES_OF = {"农场": "耕地", "矿场": "矿石", "林场": "木头",
            "石油厂": "石油", "黄金矿场": "黄金"}
 _EXTRACTORS = ("黄金矿场", "矿场", "林场", "农场", "石油厂")
@@ -73,7 +102,7 @@ _EXTRACTORS = ("黄金矿场", "矿场", "林场", "农场", "石油厂")
 _FACTORIES = ("补给厂",)
 
 
-def expand_rule_turn_v8(world, name: str, rng: random.Random | None = None,
+def expand_rule_turn_v9(world, name: str, rng: random.Random | None = None,
                         max_actions: int = 40, on_action=None, on_result=None) -> list:
     if rng is None:
         rng = random.Random(0)
@@ -108,9 +137,16 @@ def expand_rule_turn_v8(world, name: str, rng: random.Random | None = None,
         t = world.tiles[p]
         return sum(t["buildings"].values()) + sum((t.get("pending") or {}).values())
 
-    def terr(p):
-        t = world.tiles.get(p)
-        return t["terrain"] if t else world.tile_terrain(*p)
+    def vis(p):
+        """引擎视野（`World.visible_to`）：自家的地本身 + 八邻 + 瞭望塔半径 4 圆。
+
+        ★ 规则 AI 的信息集 = **引擎给玩家的信息集**（用户 2026-09-11 口径）。
+          LLM 玩家的 `query panel=threats` 用的就是这个函数；`land` 面板只额外给
+          野地的**地形字符**（`ter_char`），**不给资源**（资源占了才知道）。
+          所以这里一格都不许多看 —— 多看的那部分，学生**原理上**学不到，
+          喂多少数据都拟合不上（BC 的命中率会被这批标签按住）。
+        """
+        return world.visible_to(name, p[0], p[1])
 
     def cost_of(bn):
         c = BUILDINGS[bn]["cost"]
@@ -402,11 +438,23 @@ def expand_rule_turn_v8(world, name: str, rng: random.Random | None = None,
         return acts
 
     def tile_info(p):
-        try:
-            t = world._new_tile(*p, name)
+        """这一格：要多少兵打、值不值得打 —— **只认看得见的信息**。
+
+          · 看不见的格       → 地形 None（排序时按 `UNKNOWN_TROOPS` 最保守算）、资源 0
+          · 看得见、未探明   → **地形可见**（land 面板的 `ter_char` 就是给玩家看的），
+                               **资源未知**（引擎在占地时才掷；面板只在国土上列资源）
+          · 已探明的格       → 地形 + 资源都已知
+
+        ★★ 原来这里写的是 `world._new_tile(*p, name)` —— **未探明格直接开图偷看资源**，
+        拿来给扩张目标排序（"资源越多越先打"）。那是玩家**永远**拿不到的信息
+        （资源只有占了才知道），学生原理上学不到 —— 加记忆也补不上，只能改老师。
+        """
+        if not vis(p):
+            return None, 0
+        t = world.tiles.get(p)
+        if t is not None:
             return t["terrain"], sum(t["resources"].values())
-        except Exception:                            # noqa: BLE001
-            return "平原", 0
+        return world.tile_terrain(*p), 0
 
     def dist_to(p):
         return min(max(abs(a["x"] - p[0]), abs(a["y"] - p[1])) for a in armies)
@@ -414,18 +462,25 @@ def expand_rule_turn_v8(world, name: str, rng: random.Random | None = None,
     targets = []
     for a in armies:
         for nb in world.neighbors(a["x"], a["y"]):
-            if world.owned_by(*nb) is None and nb not in targets:
+            # ★ 只打看得见的格。看不见就不打 —— 行军/进攻也走这条：
+            #   扩张本来就是"吃掉疆域外那一圈"，而那一圈**天生可见**，所以这不减能力，
+            #   只是把"隔着迷雾看着全图挑目标"堵掉。
+            if nb not in targets and vis(nb) and world.owned_by(*nb) is None:
                 targets.append(nb)
     if not targets:
-        gs = [(g["x"], g["y"]) for g in world.armies if g["owner"] == "野人" and g["hp"] > 0]
+        gs = [(g["x"], g["y"]) for g in world.armies
+              if g["owner"] == "野人" and g["hp"] > 0 and vis((g["x"], g["y"]))]
         targets = sorted(gs, key=dist_to)[:12]
-    # 越便宜（每格所需兵力少、资源多）越先打
-    targets.sort(key=lambda p: (TROOPS_FOR.get(tile_info(p)[0], 3) / max(tile_info(p)[1], 1),
-                                -tile_info(p)[1], dist_to(p)))
+    # 越便宜（每格所需兵力少、资源多）越先打。
+    # `info` 先算一遍再排：`tile_info` 里含 `visible_to`，写在 sort 的 key 里会被调用三次。
+    info = {p: tile_info(p) for p in targets}
+    targets.sort(key=lambda p: (TROOPS_FOR.get(info[p][0], UNKNOWN_TROOPS)
+                                / max(info[p][1], 1),
+                                -info[p][1], dist_to(p)))
 
     used_ids: set = set()
     for (tx, ty) in targets[:8]:
-        need_n = TROOPS_FOR.get(tile_info((tx, ty))[0], 3)
+        need_n = TROOPS_FOR.get(info[(tx, ty)][0], UNKNOWN_TROOPS)
         near = [a for a in armies if a["id"] not in used_ids
                 and not a.get("engaged") and a["hp"] >= ARMY_MAX_HP
                 and max(abs(a["x"] - tx), abs(a["y"] - ty)) <= 1]
@@ -443,8 +498,10 @@ def expand_rule_turn_v8(world, name: str, rng: random.Random | None = None,
                 #   （实测 seed 0 / 150 回合：39/148 个回合有兵被这样卡住，
                 #   最惨时 6 支里 2 支一步都动不了）。
                 # 绕山地那条保留：山地行军亏、且在山地上挨打守方 +50% 减伤。
+                # ★ 落点也要**看得见**：看不见的格不知道是不是山地，也无从判断该不该走。
+                #   部队随后勤线（自家地/可拓荒圈）推进，这一圈天生可见，所以不挡路。
                 cands = [q for q in world.neighbors(a["x"], a["y"])
-                         if world.owned_by(*q) in (None, name)
+                         if vis(q) and world.owned_by(*q) in (None, name)
                          and world.tile_terrain(*q) != "山地"]
                 if not cands:
                     continue

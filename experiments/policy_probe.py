@@ -43,7 +43,7 @@ model.load_state_dict(ck["model"])
 model.eval()
 print(f"权重 {CKPT}（iter {ck.get('iter')}）  老师驱动采状态，{EPS} 局 × {TURNS} 回合")
 
-teacher = get_teacher("v8", TURNS)
+teacher = get_teacher("v9", TURNS)
 qs, type_pref, kinds = [], [], []
 
 
