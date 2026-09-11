@@ -31,7 +31,8 @@
 `2985e3a`（民兵记账修复，main `d0f9782` 已有）、`7461f4e`（清理残留，main `ca1d396` 已有；
 `dummy 改用 v6` 被 main 的 **v9** 取代）、`a0186c8`（ROI 提游戏层，main `4f49ff2` 已有）、
 `5bb59f2`/`8e6a734`（资源排布 / 命名搬出 RNG，main `17cad1f`/`199473b` 已有）、
-外加 `git cherry` 判定为等价补丁的一条。
+`afc3551`（复利优先规则 AI v5，main `6eefe98` 把规则 AI 全家搬进 main 时已含）。
+前 6 条是解冲突时**手工丢**的，后 2 条是 git 按「补丁已在上游」**自动丢**的。
 
 **rl 原本住在引擎里的 `mp.best_build` 搬进了 `expand_rule_v7.py`**（它唯一的消费者）——
 引擎侧只剩 main 也有的 `build_econ`/`good_value`。
