@@ -537,10 +537,14 @@ def main() -> None:
                              #   0 = 真值；>0 = 每局按 seed 换表（`rl/jitter.py`）。
                              "rules_jitter": getattr(args, "rules_jitter", 0.0),
                              "grad_steps": grad_steps}}, path)
+    # ★把老师的 ROI 窗口打进日志：**口径要能自证** —— 漏设 HORIZON 那次
+    #   （v10 用默认 200 跑了 6 局）就是因为日志里没有这一项，事后才发现。
     _hz = ""
-    if args.teacher == "v9":
-        import expand_rule_v9 as _v9
-        _hz = f"  视野(HORIZON)={_v9.HORIZON}（= 每局 {args.turns} + 20）"
+    if args.teacher in ("v9", "v10"):
+        _m = __import__(f"expand_rule_{args.teacher}")
+        _hz = f"  视野(HORIZON)={_m.HORIZON}（口径 = 每局 {args.turns} + 20）"
+        if _m.HORIZON != args.turns + 20 and (args.horizon or 0) <= 0:
+            _hz += "  ★与口径不符！"
     print(f"老师 = {args.teacher}（{teacher_fn.__module__}）{_hz}"
           f"  每局 {args.turns} 回合 × {args.episodes} 局"
           f"  每局 {args.steps} 梯度步  缓冲 {args.buffer}")
