@@ -36,6 +36,10 @@ import game
 # 抖动幅度的**符号学**：`amount=0.2` = 每个量按对数均匀在 [×0.8, ×1.2] 内取。
 # 为什么对数均匀：价格/造价的**相对**变化才有意义（240→288 与 1→1.2 同类），
 # 线性均匀会让小量的绝对变化被放大、大量的被压缩。
+# 效果的**下限**（缺省 0）：cap 类抖成 0 = 这座建筑完全失效 —— 那不是"换一族数值"，
+# 是换了个游戏，会让策略学出"兵营可能没用"这种没意义的先验。视野半径同理（≥1）。
+_EFFECT_FLOOR = {"recruit_cap": 1, "militia_cap": 1, "vision_radius": 1, "gold_base": 1}
+
 _SALT = 0x5A17E1  # seed 派生用的盐，别改（改了 = 所有跑过的随机化不可复现）
 
 # 逐字段策略（与 §10.4 的表一一对应）
@@ -59,6 +63,7 @@ def _ensure_snapshot() -> None:
             "buildings": copy.deepcopy(game.BUILDINGS),
             "units": copy.deepcopy(game.UNIT_TYPES),
             "market": dict(game.MARKET),
+            "terrain": copy.deepcopy(game.TERRAIN_STATS),
         }
 
 
@@ -78,20 +83,26 @@ def _jitter_scalar(v, rng: random.Random, amount: float):
     return int(max(1, round(out))) if isinstance(v, int) else float(out)
 
 
-def _jitter_small_int(v, rng: random.Random, amount: float):
-    """小整数（产出/投料多是 1~2）→ **必须保持整数**，所以不能照抄乘法。
+def _jitter_small_int(v, rng: random.Random, amount: float, floor: int | None = None):
+    """小整数（产出/投料/效果/地形 多是 1~2 或 ±几十）→ **必须保持整数**。
 
     先按对数均匀乘再取整；若取整后没变化（1×1.2→1 这种），再按 `amount` 的概率
-    **走一格**（±1，下限 0）—— 否则 `1` 永远是 `1`，这类字段等于没随机化。
-    为什么不干脆允许小数产出：那会让 `res` 里的库存变成浮点，而引擎里到处都是
-    `//`、`<= 0`、`int()` 的整数口味假设 —— 那是另一件事，不在本版。
+    **走一格**（±1）—— 否则 `1` 永远是 `1`，这类字段等于没随机化。
+
+    `floor`：下限（`None` = 只保号，可为负 —— 地形 `defense` 有 −10 这种值）。
+    为什么保住整数：小数会渗进 `res` 库存与 `//`、`<= 0` 那些整数口味假设里。
     """
     if not isinstance(v, int) or isinstance(v, bool):
         return v
-    new = max(0, int(round(v * _factor(rng, amount))))
-    if new == v and rng.random() < amount:
-        step = 1 if (v == 0 or rng.random() < 0.5) else -1
-        new = max(0, v + step)
+    sign = -1 if v < 0 else 1
+    mag = abs(v)
+    lo = 0 if floor is None else max(0, floor)
+    new_mag = int(round(mag * _factor(rng, amount)))
+    if new_mag == mag and rng.random() < amount:
+        new_mag = mag + (1 if rng.random() < 0.5 else -1)
+    new = max(lo, new_mag) * sign
+    if floor is not None:
+        new = max(floor, new)
     return new
 
 
@@ -140,9 +151,31 @@ def apply(seed: int, amount: float) -> dict:
         game.MARKET[good] = new
         m_rec[good] = new
 
+    # ---- 复合建筑的效果（2026-09-12 起是**数据**，所以能整体抖）----
+    # 这就是"改数值不必重炼"覆盖面的关键一步：工程院减免、市政厅产金、瞭望塔视野、
+    # 城堡逐级防御、征兵/民兵上限，以前是常量（值拷贝，抖不动），现在是表里的数。
+    e_rec: dict[str, dict] = {}
+    for name, true_b in _TRUE["buildings"].items():
+        eff = true_b.get("effects")
+        if not eff:
+            continue
+        cur = {}
+        for k, v in eff.items():
+            cur[k] = _jitter_small_int(v, rng, amount, _EFFECT_FLOOR.get(k))
+        game.BUILDINGS[name]["effects"].update(cur)     # 就地改（同一个 dict）
+        e_rec[name] = cur
+
+    # ---- 地形（减伤 / 造价惩罚；`defense` 可以是负的）----
+    t_rec: dict[str, dict] = {}
+    for name, true_t in _TRUE["terrain"].items():
+        cur = {k: _jitter_small_int(v, rng, amount) for k, v in true_t.items()}
+        game.TERRAIN_STATS[name].update(cur)
+        t_rec[name] = cur
+
     global _REC
     _REC = {"seed": int(seed), "amount": float(amount),
-            "buildings": b_rec, "units": u_rec, "market": m_rec}
+            "buildings": b_rec, "units": u_rec, "market": m_rec,
+            "effects": e_rec, "terrain": t_rec}
     return _REC
 
 
@@ -160,6 +193,9 @@ def restore() -> None:
         game.UNIT_TYPES[name].update(copy.deepcopy(true_u))
     game.MARKET.clear()
     game.MARKET.update(_TRUE["market"])
+    for name, true_t in _TRUE["terrain"].items():
+        game.TERRAIN_STATS[name].clear()
+        game.TERRAIN_STATS[name].update(copy.deepcopy(true_t))
     _REC = None
 
 

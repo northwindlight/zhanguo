@@ -36,8 +36,10 @@ from __future__ import annotations
 # 1. 实体枚举（下标即身份）
 # ===========================================================================
 
-# 地形 5——顺序取自 main 的 game.TERRAINS
-TERRAIN = ("平原", "森林", "丘陵", "山地", "沙漠")
+# 地形 5 → 7（+2 留位）——前 5 项顺序取自 main 的 game.TERRAINS。
+# 留位给地形改版计划里的「海洋/河流/渡口」（见 rl/PLAN 与记忆里的地形改版方案）。
+TERRAIN = ("平原", "森林", "丘陵", "山地", "沙漠",
+           "_reserved_g1", "_reserved_g2")
 
 # 建筑 **16**——逐字逐序取自 main 的 game.BUILDINGS（含「外交中心」）。
 # ⚠ 引擎侧现在与 main 逐字相同（`game.BUILDINGS` 也是 16 项），但**维度不许取
@@ -67,6 +69,30 @@ TRADEABLE = ("粮食", "木头", "矿石", "石油", "装备", "补给",
 # 地块资源 5（建采集建筑看的就是它）
 TILE_RES = ("矿石", "黄金", "耕地", "石油", "木头")
 
+# ---- B1. `env.army_feats` 各列（**与下面 A 组不是同一套**，别混）----
+# env 的军队特征表没有「归属」列（调用方自己知道这支是自家的还是敌方的），
+# 也没有"情报年龄"（那是 token 侧的记忆槽），顺序也不同：兵种 one-hot 在最前。
+AF_UNIT0 = 0
+AF_HP = len(UNIT)
+AF_SPEED, AF_ATK = AF_HP + 1, AF_HP + 2          # 移动距离 / 攻击力（2026-09-12 补）
+AF_DX, AF_DY = AF_ATK + 1, AF_ATK + 2
+AF_ENGAGED, AF_MOVED = AF_DY + 1, AF_DY + 2
+AF_WIDTH = AF_MOVED + 1                          # = 12
+
+# ---- B2. A 组（军队 token）各列的**唯一定义** ----
+# `tokenize.py` 的 `_army_row` 按它写；为什么要有这一层：本仓库反复栽在
+# "写死列下标"上 —— 兵种 one-hot 从 3 加宽到 `len(UNIT)` 时，任何写死 `[i, 7]`
+# 的地方都会**静默取到别的列**（测试里就有一处）。
+A_OWNER0, A_UNIT0 = 0, 3
+A_HP = A_UNIT0 + len(UNIT)
+A_SPEED, A_ATK = A_HP + 1, A_HP + 2
+A_DX, A_DY = A_ATK + 1, A_ATK + 2
+A_ENGAGED, A_MOVED, A_AGE = A_DY + 1, A_DY + 2, A_DY + 3
+A_WIDTH = A_AGE + 1                                  # = 16
+# A 行 = 归属 3 列 + env 的性格段（兵种 one-hot+hp/speed/atk/dx/dy/交战/已动）+ 情报年龄 1 列。
+# 这条断言是防"两套布局各自漂"的：谁改了 AF_* 却忘了 A_*，导入就炸。
+assert A_WIDTH == 3 + AF_WIDTH + 1, f"A_WIDTH={A_WIDTH} 与 AF_WIDTH={AF_WIDTH} 对不上"
+
 # 国家库存 7（= TILE_RES 去掉「耕地」+ 黄金…按 main 的 res 键序）
 STOCK = ("黄金", "粮食", "木头", "矿石", "石油", "装备", "补给")
 
@@ -87,9 +113,12 @@ MAIN_ONLY = ("外交中心",)
 RESERVED_BUILDING = ("_reserved_b1", "_reserved_b2", "_reserved_b3", "_reserved_b4")
 RESERVED_UNIT = ("_reserved_u1", "_reserved_u2")
 RESERVED_TRADEABLE = ("_reserved_t1", "_reserved_t2")
-RESERVED = frozenset(RESERVED_BUILDING + RESERVED_UNIT + RESERVED_TRADEABLE)
+RESERVED_TERRAIN = ("_reserved_g1", "_reserved_g2")
+RESERVED = frozenset(RESERVED_BUILDING + RESERVED_UNIT + RESERVED_TRADEABLE
+                     + RESERVED_TERRAIN)
 
 OBS_BUILDING = tuple(b for b in BUILDING if b not in MAIN_ONLY)        # 19（观测子表）
+OBS_TERRAIN = TERRAIN                                                  # 7（含 2 留位）
 BUILDABLE = tuple(b for b in OBS_BUILDING if b not in RESERVED)        # 15（能建）
 RECRUITABLE = tuple(u for u in UNIT if u not in RESERVED)              # 3（能征）
 TRADEABLE_REAL = tuple(g for g in TRADEABLE if g not in RESERVED)      # 6（能买卖）

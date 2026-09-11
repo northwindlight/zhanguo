@@ -215,11 +215,12 @@ class TestDiplomacyOutOfScope(unittest.TestCase):
         self.assertEqual(list(env.bnames), list(V.OBS_BUILDING))
         self.assertNotIn("外交中心", env.bnames,
                          "外交中心进了观测子表 —— 观测宽度会跟着引擎变，ckpt 会废")
-        # 宽度是 ckpt 的硬契约（§10.6 第 5 行）：**42 网格通道 / 58 全局**
-        #   42 = 36 + 4（建筑留位）+ 2（§9 记忆预留）
+        # 宽度是 ckpt 的硬契约（§10.6）：**45 网格通道 / 58 全局**
+        #   45 = 36 + 4（建筑留位）+ 2（§9 记忆预留）+ 2（地形留位）+ 1（建造成本通道）
         #   58 = 48 + 4（建筑留位）+ 2+2（物资留位：price/eq）+ 2（兵种留位：army_kind）
-        self.assertEqual(len(env.obs_channels()), 42)
+        self.assertEqual(len(env.obs_channels()), 45)
         self.assertEqual(env.glob_size(), 58)
+        self.assertIn("build_cost", env.obs_channels())
 
     def test_nations_cannot_attack_each_other(self):
         """永久中立：对他国领土的进攻必须被拒。"""

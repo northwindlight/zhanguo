@@ -25,14 +25,20 @@ from rl.env import ZhanguoEnv
 
 class TestWidths(unittest.TestCase):
     def test_width_frozen(self):
-        self.assertEqual(F.F_B, 45)
+        """宽度是模型输入契约（§10.6）：F_B 45→59（+城堡逐级 5 + 效果 9）、
+        F_T 4（新）、F_U 11、F_G 2。改这里 = 改模型输入 = 旧 ckpt 全废。"""
+        self.assertEqual(F.F_B, 59)
         self.assertEqual(F.F_U, 11)
         self.assertEqual(F.F_G, 2)
+        self.assertEqual(F.F_T, 4)
+        self.assertEqual(len(F.EFFECT_KEYS), 9)
+        self.assertEqual(len(F.BUILD_KINDS), 11)
 
     def test_table_shapes(self):
         self.assertEqual(F.building_table().shape, (len(V.OBS_BUILDING), F.F_B))
         self.assertEqual(F.unit_table().shape, (len(V.UNIT), F.F_U))
         self.assertEqual(F.good_table().shape, (len(V.TRADEABLE), F.F_G))
+        self.assertEqual(F.terrain_table().shape, (len(V.TERRAIN), F.F_T))
 
     def test_content_dim_of_kind(self):
         self.assertEqual(F.CONTENT_DIM_OF_KIND["build"], F.F_B)
@@ -90,6 +96,40 @@ class TestScales(unittest.TestCase):
         self.assertAlmostEqual(float(v[3]), 50 / 100, places=6)    # atk
         self.assertAlmostEqual(float(v[4 + V.STOCK.index("粮食")]), 1.0, places=6)
         self.assertAlmostEqual(float(v[4 + V.STOCK.index("装备")]), 0.5, places=6)
+
+    def test_effect_fields(self):
+        """★效果是**数据**（`BUILDINGS[*].effects`），所以这里读的就是引擎那份。"""
+        v = F.building_vector("工程院")
+        e0 = F.F_B - len(F.EFFECT_KEYS)
+        self.assertAlmostEqual(float(v[e0 + F.EFFECT_KEYS.index("build_discount")]),
+                               25 / 50, places=6)
+        v = F.building_vector("瞭望塔")
+        self.assertAlmostEqual(float(v[e0 + F.EFFECT_KEYS.index("vision_radius")]),
+                               4 / 8, places=6)
+        # 没有效果的建筑：整块为 0
+        self.assertFalse(F.building_vector("农场")[e0:].any())
+
+    def test_castle_level_costs(self):
+        """城堡的逐级造价（5 级）要表达出来 —— 它 5 个等级造价差了 16 倍。"""
+        v = F.building_vector("城堡")
+        c0 = F.F_B - len(F.EFFECT_KEYS) - F.MAX_LEVELS
+        for j, c in enumerate([100, 200, 400, 800, 1600]):
+            self.assertAlmostEqual(float(v[c0 + j]), c / 2000, places=6)
+        # 非逐级建筑：那 5 维为 0
+        self.assertFalse(F.building_vector("农场")[c0:c0 + F.MAX_LEVELS].any())
+
+    def test_terrain_fields(self):
+        v = F.terrain_vector("山地")
+        self.assertAlmostEqual(float(v[0]), 50 / 100, places=6)   # 减伤
+        self.assertAlmostEqual(float(v[1]), 50 / 100, places=6)   # 造价惩罚
+        self.assertAlmostEqual(float(F.terrain_vector("沙漠")[0]), -10 / 100, places=6)
+        self.assertFalse(F.terrain_vector("_reserved_g1").any())
+
+    def test_build_cost_factor_matches_engine_formula(self):
+        """建造成本倍率 = 地形惩罚 × 工程院减免（与 mp.py 的 build() 同式）。"""
+        self.assertAlmostEqual(F.build_cost_factor("平原", False), 1.0, places=6)
+        self.assertAlmostEqual(F.build_cost_factor("山地", False), 1.5, places=6)
+        self.assertAlmostEqual(F.build_cost_factor("山地", True), 1.125, places=6)
 
     def test_good_fields(self):
         v = F.good_vector("粮食")

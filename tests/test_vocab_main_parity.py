@@ -94,7 +94,10 @@ class TestEnumTablesMatchMain(unittest.TestCase):
                       "外交中心必须留在表里占位——外交回来时它要原地复活")
 
     def test_terrain_unit_tradeable_active_prefix_is_main(self):
-        self.assertEqual(list(vocab.TERRAIN), _main_keys("game.py", "TERRAINS"))
+        main_g = _main_keys("game.py", "TERRAINS")
+        self.assertEqual(list(vocab.TERRAIN)[:len(main_g)], main_g,
+                         "main 的地形键序必须是本表的前缀（表尾是留位）")
+        self.assertEqual(list(vocab.TERRAIN)[len(main_g):], list(vocab.RESERVED_TERRAIN))
         main_u = _main_keys("game.py", "UNIT_TYPES")
         main_t = _main_list("game.py", "TRADEABLE")
         self.assertEqual(list(vocab.UNIT)[:len(main_u)], main_u,
@@ -147,7 +150,7 @@ class TestLocalBranchMatchesMain(unittest.TestCase):
     def test_local_terrain_unit_tradeable_untouched(self):
         """地形逐项相同；兵种/物资与建筑同理 —— 引擎的是**活跃前缀**。"""
         import game
-        self.assertEqual(list(game.TERRAINS), list(vocab.TERRAIN))
+        self.assertEqual(list(game.TERRAINS), list(vocab.TERRAIN)[:len(game.TERRAINS)])
         self.assertEqual(list(game.UNIT_TYPES), list(vocab.UNIT)[:len(game.UNIT_TYPES)])
         self.assertEqual(list(game.TRADEABLE), list(vocab.TRADEABLE)[:len(game.TRADEABLE)])
 
@@ -205,12 +208,13 @@ class TestFrozenInternalConsistency(unittest.TestCase):
         from rl.env import ZhanguoEnv
         env = ZhanguoEnv(map_size=12, max_turns=6)
         ch = env.obs_channels()
-        self.assertEqual(len(ch), 42,
+        self.assertEqual(len(ch), 45,
                          "网格宽度变了 —— 这是 ckpt 的硬契约，改了就要重炼")
-        # 分段自洽：地形 5 + 地块资源 5 + 归属(1+对手+1) + 建筑 len(OBS_BUILDING)
-        #          + 标量 9 + 记忆预留 2
+        # 分段自洽：地形 len(OBS_TERRAIN) + 地块资源 5 + 归属(1+对手+1)
+        #          + 建筑 len(OBS_BUILDING) + 建造成本 1 + 标量 9 + 记忆预留 2
         n_owner = 1 + len(env.rivals) + 1
-        self.assertEqual(len(ch), 5 + 5 + n_owner + len(vocab.OBS_BUILDING) + 9 + 2)
+        self.assertEqual(len(ch), len(vocab.OBS_TERRAIN) + 5 + n_owner
+                         + len(vocab.OBS_BUILDING) + 1 + 9 + 2)
         self.assertTrue(set(ch) >= {"visible", "home", "remembered", "probe"})
         # 国槽上限口径（实现是动态的，计划是固定 8 —— 这条偏差记在 §10.3）
         self.assertEqual(len(vocab.OWNER_CHANNELS), 1 + vocab.NATION_SLOTS + 2)

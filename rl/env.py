@@ -36,6 +36,7 @@ from mp import World
 from rl import vocab as V
 from rl import features as F
 from rl import jitter
+from rl.vocab import (AF_ATK, AF_DX, AF_DY, AF_ENGAGED, AF_HP, AF_MOVED, AF_SPEED)
 
 # 动作种类（固定顺序，模型的下标语义依赖它）
 KINDS = ("build", "recruit", "move", "attack", "retreat", "buy", "sell", "end_turn")
@@ -44,11 +45,13 @@ KIND_INDEX = {k: i for i, k in enumerate(KINDS)}
 # 数量档位（征兵/买卖）。离散化：不做连续回归，降低动作空间难度。
 AMOUNTS = (1, 2, 3, 4, 5, 6, 8, 10, 12, 16)
 
-# 军队特征维度：兵种 one-hot(len(V.UNIT)=5，含 2 个留位) + 血量 + 坐标 x/y + 交战 + 本回合已动
+# 军队特征维度：兵种 one-hot(len(V.UNIT)=5，含 2 个留位) + 血量 + 速度 + 攻击力
+#                + 坐标 x/y + 交战 + 本回合已动
 # ⚠ 取 `V.UNIT`（含留位）而不是 `game.UNIT_TYPES`（3）—— 兵种一留位，宽度就与引擎表脱钩。
 #   这是**模型输入宽度**：改了它，`model.py`/`transformer.py` 的 `nn.Linear` 也跟着变
 #   （显式报错，安全），但它同时是 §10.6 里的口径项。
-ARMY_FEAT = len(V.UNIT) + 1 + 2 + 1 + 1        # = 10
+ARMY_FEAT = V.AF_WIDTH       # = 12（归属3 + 兵种one-hot len(UNIT) + hp/speed/atk/dx/dy/交战/已动）
+assert ARMY_FEAT == V.AF_WIDTH, f"ARMY_FEAT={ARMY_FEAT} vs AF_WIDTH={V.AF_WIDTH}"
 
 # 候选**一律不限额**：合法动作全部进候选。
 #
@@ -404,10 +407,11 @@ class ZhanguoEnv:
 
     # ------------------------------------------------------------------ 观测
     def obs_channels(self) -> list[str]:
-        ch = [f"terrain:{t}" for t in TERRAINS]
+        ch = [f"terrain:{t}" for t in V.TERRAIN]
         ch += [f"res:{r}" for r in ("矿石", "黄金", "耕地", "石油", "木头")]
         ch += ["owner:me"] + [f"owner:{r}" for r in self.rivals] + ["owner:neutral"]
         ch += [f"bld:{b}" for b in self.bnames]
+        ch += ["build_cost"]        # 该格实际建造金价倍率 − 1（地形惩罚 × 工程院减免）
         ch += ["mine", "frontier", "my_army_hp", "foe_army_hp", "barb_army_hp",
                "pending", "built_this_turn", "visible", "home",
                # ↓ 2026-09-12 并入本版（TOKEN_DESIGN §10.5 / §9.3）：记忆落地前**恒零**，
@@ -509,8 +513,9 @@ class ZhanguoEnv:
         w, me, n = self.world, self.agent, self.map_size
         chans: list[np.ndarray] = []
 
-        # 地形 one-hot（静态，reset 时缓存）
-        for ter in TERRAINS:
+        # 地形 one-hot（静态，reset 时缓存）。★按 `V.TERRAIN`（7，含 2 留位）出通道：
+        #   留位地形没有任何格子会是它 → 恒零。将来加「海洋/河流」时宽度不变。
+        for ter in V.TERRAIN:
             chans.append(np.array([[1.0 if self._terrain[x][y] == ter else 0.0
                                     for y in range(n)] for x in range(n)], dtype=np.float32))
 
@@ -544,7 +549,14 @@ class ZhanguoEnv:
                     arr[x, y] = math.log1p(c) / 3.0
             chans.append(arr)
 
-        # ---- 视野门控：上面这些「世界知识」通道（地形/资源/归属/建筑），视野外一律置 0
+        # 建造金价倍率（地形惩罚 × 工程院减免）：模型不必自己把两者乘起来 ——
+        # ★它俩量级差 3 倍，混算是最容易学错的地方（见 rl/features.py:build_cost_factor）
+        bcost = np.zeros((n, n), np.float32)
+        for (x, y), t in w.tiles.items():
+            bcost[x, y] = F.build_cost_factor(t["terrain"], bool(t["buildings"].get("工程院"))) - 1.0
+        chans.append(bcost)
+
+        # ---- 视野门控：上面这些「世界知识」通道（地形/资源/归属/建筑/造价），视野外一律置 0
         vis = self._vision_mask()
         for i in range(len(chans)):
             chans[i] *= vis
@@ -609,15 +621,19 @@ class ZhanguoEnv:
             k = unit_kind(a)
             for j, uk in enumerate(self.unames):
                 afeat[i, j] = 1.0 if k == uk else 0.0
-            afeat[i, len(self.unames)] = a["hp"] / max(1, unit_max_hp(a))
+            afeat[i, AF_HP] = a["hp"] / max(1, unit_max_hp(a))
+            # ★速度与攻击力直接写进**军队行**（用户 2026-09-12）：它们在 u 组里按兵种有，
+            #   但要模型自己学"这支是哪种兵"的链接；直接给出来就不必学。
+            afeat[i, AF_SPEED] = unit_speed(a) / 2.0
+            afeat[i, AF_ATK] = float(UNIT_TYPES[k].get("atk", 0)) / 100.0
             # ★军队位置 = **相对家的偏移**，除以**绝对尺度** POS_SCALE（不是地图边长）。
             #   原来写的是 `(x+0.5)/n` —— 既泄漏地图尺寸，又泄漏「我在地图哪个位置」
             #   （智能体不可能知道：地图多大不可知、边界从未探索过）。
             ax, ay = self.anchor
-            afeat[i, len(self.unames) + 1] = (a["x"] - ax) / POS_SCALE
-            afeat[i, len(self.unames) + 2] = (a["y"] - ay) / POS_SCALE
-            afeat[i, len(self.unames) + 3] = 1.0 if a.get("engaged") else 0.0
-            afeat[i, len(self.unames) + 4] = 1.0 if a.get("moved_turn") == w.turn else 0.0
+            afeat[i, AF_DX] = (a["x"] - ax) / POS_SCALE
+            afeat[i, AF_DY] = (a["y"] - ay) / POS_SCALE
+            afeat[i, AF_ENGAGED] = 1.0 if a.get("engaged") else 0.0
+            afeat[i, AF_MOVED] = 1.0 if a.get("moved_turn") == w.turn else 0.0
 
         grid = np.stack(chans, axis=0)
 
