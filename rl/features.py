@@ -30,13 +30,17 @@ from rl import vocab as V
 # ===========================================================================
 # 1. 冻结的枚举与宽度（改这些 = 改模型输入宽度 = 旧 ckpt 全废，见 §10.6）
 # ===========================================================================
-# 建筑的 `kind` one-hot。**11 项，与 `game.BUILDINGS` 现值一一对应**：
+# 建筑的 `kind` one-hot。前 **11 项**与 `game.BUILDINGS` 现值一一对应：
 #   academy/barracks/castle/diplomat/energy/extract/factory/gold/militia_camp/tower/townhall
-# ⚠ 加一种新 kind（比如地形改版计划里的"港口"）会**加宽这个 one-hot** ——
-#   那是又一次"宽度变更 + 重炼"。要么现在预留几个 kind 槽，要么认下这一条。
-#   （待定项，记在 §10.9 之后；本文件先按 11 项实现。）
+# 后 **3 项是留位**（2026-09-12 用户拍板）—— 地形改版计划里的「港口」这类新 kind
+# 直接填进来：**下标不动、F_B 不变、旧 ckpt 不作废**。没有建筑会是留位 kind，
+# 那几维恒零（与格子上的其他留位纪律一致）。
 BUILD_KINDS = ("academy", "barracks", "castle", "diplomat", "energy", "extract",
-               "factory", "gold", "militia_camp", "tower", "townhall")
+               "factory", "gold", "militia_camp", "tower", "townhall",
+               "_reserved_k1", "_reserved_k2", "_reserved_k3")
+REAL_KINDS = BUILD_KINDS[:11]      # 引擎里存在的那些（候选/测试按它对账）
+assert set(REAL_KINDS) >= {b.get("kind") for b in __import__("game").BUILDINGS.values()}, \
+    "引擎里出现了 BUILD_KINDS 没覆盖的 kind —— 要么加进真实段，要么它该走留位"
 
 # `cap_resource` 的 one-hot：5 种地块资源 + "无" = 6
 CAP_RES_SLOTS = V.TILE_RES + ("",)
@@ -65,7 +69,9 @@ F_T = len(TERRAIN_FIELDS) + 2                                                # =
 
 # 宽度（这几行是模型的输入契约，别在别处再算一遍）
 F_B = (len(BUILD_KINDS) + 1 + 1 + len(CAP_RES_SLOTS) + 3 * len(V.STOCK) + 5
-       + MAX_LEVELS + len(EFFECT_KEYS))                                      # = 45+5+9 = 59
+       + MAX_LEVELS + len(EFFECT_KEYS))           # = 47+5+9+... 见下面那句
+# 14(kind，含 3 留位) + 1 造价 + 1 木耗 + 6 所需资源 + 7×3 产出/投料/燃料 + 5 标量
+# + 5 逐级造价 + 9 效果 = 62
 F_U = 1 + 1 + 1 + 1 + len(V.STOCK)                                           # = 11
 F_G = 2                                                                      # 基准价 + 深度
 

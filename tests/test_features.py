@@ -25,14 +25,15 @@ from rl.env import ZhanguoEnv
 
 class TestWidths(unittest.TestCase):
     def test_width_frozen(self):
-        """宽度是模型输入契约（§10.6）：F_B 45→59（+城堡逐级 5 + 效果 9）、
+        """宽度是模型输入契约（§10.6）：F_B 45→62（+kind 留位 3 + 城堡逐级 5 + 效果 9）、
         F_T 4（新）、F_U 11、F_G 2。改这里 = 改模型输入 = 旧 ckpt 全废。"""
-        self.assertEqual(F.F_B, 59)
+        self.assertEqual(F.F_B, 62)
         self.assertEqual(F.F_U, 11)
         self.assertEqual(F.F_G, 2)
         self.assertEqual(F.F_T, 4)
         self.assertEqual(len(F.EFFECT_KEYS), 9)
-        self.assertEqual(len(F.BUILD_KINDS), 11)
+        self.assertEqual(len(F.REAL_KINDS), 11)
+        self.assertEqual(len(F.BUILD_KINDS), 14, "kind one-hot 含 3 个留位槽")
 
     def test_table_shapes(self):
         self.assertEqual(F.building_table().shape, (len(V.OBS_BUILDING), F.F_B))
@@ -96,6 +97,15 @@ class TestScales(unittest.TestCase):
         self.assertAlmostEqual(float(v[3]), 50 / 100, places=6)    # atk
         self.assertAlmostEqual(float(v[4 + V.STOCK.index("粮食")]), 1.0, places=6)
         self.assertAlmostEqual(float(v[4 + V.STOCK.index("装备")]), 0.5, places=6)
+
+    def test_reserved_kinds_stay_zero(self):
+        """kind 留位槽恒零 —— 引擎里没有任何建筑会是那几种 kind；新 kind 填进来即生效。"""
+        import game as _g
+        k0 = len(F.REAL_KINDS)
+        for b in _g.BUILDINGS:
+            self.assertFalse(F.building_vector(b)[k0:k0 + 3].any(), f"{b} 碰了留位 kind 槽")
+        for k in F.BUILD_KINDS[k0:]:
+            self.assertNotIn(k, {v.get("kind") for v in _g.BUILDINGS.values()})
 
     def test_effect_fields(self):
         """★效果是**数据**（`BUILDINGS[*].effects`），所以这里读的就是引擎那份。"""
