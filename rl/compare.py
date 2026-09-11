@@ -49,6 +49,9 @@ def run_rule(env, seed: int, turns: int, max_actions: int = 10 ** 9,
     """
     if which == "v3":
         from expand_rule_ai import expand_rule_turn as fn
+    elif which == "v10":
+        import expand_rule_v10 as m
+        fn = m.expand_rule_turn_v10
     elif which == "v9":
         import expand_rule_v9 as m
         m.HORIZON = turns + 20

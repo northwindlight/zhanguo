@@ -109,6 +109,11 @@ def get_teacher(which: str, turns: int = 500, horizon: int = -1):
     """
     if which == "v3":
         from expand_rule_ai import expand_rule_turn as fn
+    elif which == "v10":
+        # ★ v10 = v9 + 抗抖（引擎数值现读，不再写死）+ 去掉"绕山地"（改看打不打得赢）。
+        #   训练期开 `--rules-jitter` 时**必须用 v10 当老师**：v9 会把抖过的表当成真值。
+        import expand_rule_v10 as m
+        fn = m.expand_rule_turn_v10
     elif which == "v9":
         import expand_rule_v9 as m
         m.HORIZON = horizon if horizon > 0 else turns + 20
@@ -329,8 +334,9 @@ def main() -> None:
     #   参数，跑出来的样本数（299 = v6）和 v9 的 437 对不上，我花了一整轮去追一个
     #   **根本不存在的"不确定性"**（三次直跑 437/消费 5001 一模一样，世界生成是确定的）。
     #   默认值就该是当前基线，别让默认值和文档互相矛盾。
-    ap.add_argument("--teacher", default="v9", choices=("v9", "v6", "v3"),
-                    help="老师：v9=**当前基线**（= v8 + 视野门控，默认）/ "
+    ap.add_argument("--teacher", default="v9", choices=("v10", "v9", "v6", "v3"),
+                    help="老师：v10=抗抖版（引擎数值现读 + 不绕山地；**配 --rules-jitter 时用它**）/ "
+                         "v9=**旧基线**（= v8 + 视野门控，默认）/ "
                          "v6=旧基线（T500 2384k 但 T300 只有 485k）/ v3=第一版（82k）")
     ap.add_argument("--horizon", type=int, default=-1,
                     help="v9 老师的 ROI 回收期窗口（视野）；默认 = 每局回合 + 20")

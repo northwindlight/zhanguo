@@ -126,7 +126,11 @@ def apply(seed: int, amount: float) -> dict:
                 cur[f] = _jitter_scalar(v, rng, amount)
                 rec[f] = cur[f]
             elif f in _BUILDING_SMALL_INT and isinstance(v, dict):
-                cur[f] = {k: _jitter_small_int(x, rng, amount) for k, x in v.items()}
+                # ★产出/投料/燃料**下限 1**：抖成 0 不是"换一族数值"，是**坏掉的建筑**
+                #   —— 而且会当场把引擎搞崩：投料为 0 时 `mp.py` 的 `res // need` 除零
+                #   （实测 40% 幅度下 seed 7 复现）。这些字典里的键本来就都是非零项
+                #   （{粮食:1, 矿石:1}），所以下限 1 不改变语义。
+                cur[f] = {k: _jitter_small_int(x, rng, amount, 1) for k, x in v.items()}
                 rec[f] = cur[f]
             else:
                 cur[f] = copy.deepcopy(v)      # 可行性拓扑类字段：原样（见模块 docstring）
