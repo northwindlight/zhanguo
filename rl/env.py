@@ -35,6 +35,7 @@ from game import (BUILDINGS, ENGINEER_DISCOUNT, MARKET, MAX_SLOTS, TERRAIN_STATS
 from mp import World
 from rl import vocab as V
 from rl import features as F
+from rl import jitter
 
 # 动作种类（固定顺序，模型的下标语义依赖它）
 KINDS = ("build", "recruit", "move", "attack", "retreat", "buy", "sell", "end_turn")
@@ -117,7 +118,8 @@ class ZhanguoEnv:
     def __init__(self, *, map_size: int = 20, map_sizes: tuple[int, ...] | None = None,
                  seed: int = 0, agent: str = "秦",
                  rivals: tuple[str, ...] = (), max_turns: int = 40,
-                 max_actions_per_turn: int = ACT_SAFETY, reward_scale: float = 0.01):
+                 max_actions_per_turn: int = ACT_SAFETY, reward_scale: float = 0.01,
+                 rules_jitter: float = 0.0):
         # ★RL 是**通用**的：真实游戏的地图由玩家选（16×16 / 50×50 / 100×100 都可能），
         #   所以**地图尺寸必须每局可变**（用户 2026-09-11 口径）。
         #   传 `map_sizes` 就每局按种子重采样一个；不传 = 固定 `map_size`（旧行为）。
@@ -132,6 +134,9 @@ class ZhanguoEnv:
         self.max_turns = int(max_turns)
         self.max_actions_per_turn = int(max_actions_per_turn)
         self.reward_scale = float(reward_scale)
+        # ★训练期域随机化的幅度（0 = 关，见 `rl/jitter.py` 与 §10.4）。
+        #   默认关：评估/看海/对拍一律真值 —— 只有训练采样期才该抖。
+        self.rules_jitter = float(rules_jitter)
 
         # ★ 三张子表**全部取自冻结词表**（`rl/vocab.py` 的 `SUB_TABLE_OF`），不取 `game.*`
         #   —— 引擎加一项、或 main 变动，都不该动观测/动作空间的**形状**。
@@ -167,6 +172,12 @@ class ZhanguoEnv:
     def reset(self, seed: int | None = None) -> Obs:
         if seed is not None:
             self.seed = int(seed)
+        # ★每局重采样**规则表**（域随机化，§10.4）：`rules_jitter=0`（默认）时
+        #   走 `restore()` —— 评估/看海/对拍一律真值。开了就 `seed → 一套表`，
+        #   同一 seed 必得同一套（可复现；记录见 `jitter.current()`）。
+        #   它改的是 `game.*` 的**活表**：候选枚举、引擎结算、观测内容、老师
+        #   （`build_econ`/`good_value`）读的都是同一份 —— 不同源就会学出假动力学。
+        jitter.apply(self.seed, self.rules_jitter)
         # ★每局重采样地图尺寸（同一 seed 必得同一尺寸 —— 可复现）。
         if len(self.map_sizes) > 1:
             self.map_size = self.map_sizes[

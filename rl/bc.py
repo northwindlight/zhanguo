@@ -391,6 +391,9 @@ def main() -> None:
     ap.add_argument("--d-model", type=int, default=192, help="P4 主干宽度")
     ap.add_argument("--n-layer", type=int, default=4)
     ap.add_argument("--n-head", type=int, default=4)
+    ap.add_argument("--rules-jitter", type=float, default=0.0,
+                    help="训练期域随机化的幅度（0=关，见 rl/jitter.py 与 TOKEN_DESIGN §10.4）。"
+                         "开了就每局按 seed 换一套规则表 —— 学「给定数值怎么打」而不是背下标")
     ap.add_argument("--out", default="rl/runs/bc/last.pt")
     args = ap.parse_args()
 
@@ -417,7 +420,8 @@ def main() -> None:
 
     _ms = tuple(int(x) for x in args.map_sizes.split(",") if x.strip()) if args.map_sizes else None
     env = ZhanguoEnv(map_size=args.map_size, map_sizes=_ms, max_turns=args.turns,
-                     max_actions_per_turn=args.max_actions)
+                     max_actions_per_turn=args.max_actions,
+                     rules_jitter=getattr(args, "rules_jitter", 0.0))
     # 先 reset 一次拿到 obs 维度
     env.reset(0)
     # 开了 --window 就先造一帧窗口，拿它的**实际宽度**建编码器 ——
@@ -487,6 +491,10 @@ def main() -> None:
                              "n_layer": args.n_layer, "n_head": args.n_head,
                              "turns": args.turns, "map_size": args.map_size,
                              "max_actions": args.max_actions, "steps": args.steps,
+                             # ★训练期的**规则表抖动幅度**：不记的话，拿这份权重
+                             #   评估时没人知道它是在"哪一族数值"上练的（§10.4 纪律 2）。
+                             #   0 = 真值；>0 = 每局按 seed 换表（`rl/jitter.py`）。
+                             "rules_jitter": getattr(args, "rules_jitter", 0.0),
                              "grad_steps": grad_steps}}, path)
     _hz = ""
     if args.teacher == "v9":

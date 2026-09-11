@@ -41,11 +41,16 @@ def map_sizes_of(args):
             if getattr(args, "map_sizes", "") else None)
 
 
-def build_env(args) -> ZhanguoEnv:
+def build_env(args, *, jitter: float | None = None) -> ZhanguoEnv:
+    """`jitter=None` → 用 `args.rules_jitter`（训练采样期）；显式传 0.0 → 评估用真值。
+
+    ★评估**必须**真值：评估期抖的话，"这局为什么输了"里永远藏着一个看不见的随机规则表。
+    """
     return ZhanguoEnv(map_size=args.map_size, map_sizes=map_sizes_of(args),
                       seed=args.seed, agent=args.agent,
                       max_turns=args.turns, max_actions_per_turn=args.max_actions,
-                      reward_scale=args.reward_scale)
+                      reward_scale=args.reward_scale,
+                      rules_jitter=(args.rules_jitter if jitter is None else jitter))
 
 
 def build_model(env: ZhanguoEnv, args):
@@ -166,6 +171,8 @@ def main() -> None:
                     help="批量回评目录下所有 *.pt 并按消费排序（挑最好的 checkpoint 用）")
     ap.add_argument("--eval-every", type=int, default=10)
     ap.add_argument("--eval-episodes", type=int, default=2)
+    ap.add_argument("--rules-jitter", type=float, default=0.0,
+                    help="训练采样期的规则表抖动幅度（0=关；评估恒用真值）")
     args = ap.parse_args()
 
     from rl.hw import set_threads
@@ -210,7 +217,7 @@ def main() -> None:
 
     # 评估必须用**独立 env**：play_episode 会把环境跑到 done，
     # 借用训练 env 的话下一步采样就会撞 "env 未 reset 或已结束"。
-    eval_env = build_env(args)
+    eval_env = build_env(args, jitter=0.0)   # ★评估一律真值
 
     def evaluate(n: int) -> dict:
         """贪心 + 采样两套评估。
