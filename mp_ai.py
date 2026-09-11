@@ -20,9 +20,8 @@ from game import (
     ARMY_MAX_HP,
     ARMY_STARVE_DAMAGE,
     BUILDINGS,
-    CASTLE_DEFENSE_PER_LEVEL,
+    building_effect,
     DIPLO_CENTER_MIN_COST,
-    ENGINEER_DISCOUNT,
     LETTER_CENTER_DISCOUNT,
     LETTER_CHARS_PER_GOLD,
     LETTER_COST,
@@ -33,10 +32,7 @@ from game import (
     MARKET_SPREAD,
     MAX_SLOTS,
     TERRAIN_STATS,
-    TOWN_HALL_GOLD,
-    TOWN_HALL_PER_SLOT,
     UNIT_TYPES,
-    WATCHTOWER_RADIUS,
     letter_cost,
     unit_supply,
 )
@@ -407,7 +403,8 @@ def _help_sections() -> list[tuple[str, str]]:
         cap = ("上限=本地" + info["cap_resource"]) if info["cap_resource"] else "任地可建"
         k = info["kind"]
         if k == "castle":
-            note = f"城堡每级 +{CASTLE_DEFENSE_PER_LEVEL}% 防御，最多 L{info['max_level']}"
+            note = (f"城堡每级 +{building_effect('城堡', 'defense_per_level')}% 防御，"
+                    f"最多 L{info['max_level']}")
         elif k == "extract":
             note = "每回合产出 " + "、".join(f"{g}x{a}" for g, a in info["outputs"].items())
         elif k == "gold":
@@ -422,14 +419,16 @@ def _help_sections() -> list[tuple[str, str]]:
             note = ("维持1电；每座每回合 = 5金基础 + 该地块每座建筑×1金（不含自身，地越盖越值）"
                     "入国库；需本地已用建筑位≥6、每地块限1座")
         elif k == "tower":
-            note = (f"无产出不耗电；己方/盟方任一瞭望塔半径 {WATCHTOWER_RADIUS} 圆内的事件你都收得到"
+            note = (f"无产出不耗电；己方/盟方任一瞭望塔半径 "
+                f"{building_effect('瞭望塔', 'vision_radius')} 圆内的事件你都收得到"
                     "（含战报；视野=国土+相邻一圈+所有瞭望塔圈；只扩事件视野，不增加可拓地）")
         elif k == "diplomat":
             note = ("无产出不耗电；每座（含抢来的）让你的外交费再减半（10→5→2→1，下限1金）、"
                     "他国向你提议结盟/联盟/议和永远免费；**写信起步价吃这个减免，超字费不吃**；"
                     "**自建全国限1座，第2座只能抢**；需本地已用位≥5")
         elif k == "academy":
-            note = (f"无产出不耗电；本地块一切建造金价 -{ENGINEER_DISCOUNT}%（含城堡升级，与地形惩罚乘算，"
+            note = (f"无产出不耗电；本地块一切建造金价 -{building_effect('工程院', 'build_discount')}%"
+                f"（含城堡升级，与地形惩罚乘算，"
                     "只认已落成的）；需本地已用建筑位≥4、每地块限1座")
         elif k == "militia_camp":
             note = ("屯田+民兵编制：每回合 +1 粮（不耗电）。可在此征召民兵（50金+5粮/支；每座每回合1支，"
@@ -815,7 +814,7 @@ def _econ_building(world, building: str) -> str:
     cost, capex, k = e["cost"], e["capex"], info["kind"]
     if k == "castle":
         return (f"{building}: L1造价 {cost}金+{info['wood']}木(折{capex:.0f}金) · "
-                f"每级+{CASTLE_DEFENSE_PER_LEVEL}%防御，不产金")
+                f"每级+{building_effect('城堡', 'defense_per_level')}%防御，不产金")
     if k in ("extract", "gold", "militia_camp"):
         net = e["detail"]["net"]
         if k == "gold":
@@ -844,18 +843,21 @@ def _econ_building(world, building: str) -> str:
         return (f"{building}: 造价折{capex:.0f}金 · 不自动产金，每兵营每回合可征1军"
                 f"（步10粮5装 / 骑12粮12装，耗兵料另计）")
     if k == "townhall":
-        return (f"{building}: 造价折{capex:.0f}金 · 每回合 = {TOWN_HALL_GOLD}金基础"
-                f" + 该地块每座建筑×{TOWN_HALL_PER_SLOT}金（不含自身；10建筑城≈"
-                f"{TOWN_HALL_GOLD + 10 * TOWN_HALL_PER_SLOT}金/回合）"
+        return (f"{building}: 造价折{capex:.0f}金 · 每回合 = "
+                f"{building_effect('市政厅', 'gold_base')}金基础"
+                f" + 该地块每座建筑×{building_effect('市政厅', 'gold_per_slot')}金（不含自身；10建筑城≈"
+                f"{building_effect('市政厅', 'gold_base') + 10 * building_effect('市政厅', 'gold_per_slot')}金/回合）"
                 f" · 需本地已用位≥6、每地块限1座、耗1电")
     if k == "tower":
-        return f"{building}: 造价折{capex:.0f}金 · 不产金：事件视野 +{WATCHTOWER_RADIUS} 圆（情报投入）"
+        return (f"{building}: 造价折{capex:.0f}金 · 不产金：事件视野 "
+                f"+{building_effect('瞭望塔', 'vision_radius')} 圆（情报投入）")
     if k == "diplomat":
         return (f"{building}: 造价折{capex:.0f}金 · 不产金：外交费每座再减半（10→5→2→1）；"
                 "写信起步价吃减免、超字费不吃；"
                 "自建全国限1座，第2座只能抢")
     if k == "academy":
-        return (f"{building}: 造价折{capex:.0f}金 · 不产金：本地块一切建造金价 -{ENGINEER_DISCOUNT}%"
+        return (f"{building}: 造价折{capex:.0f}金 · 不产金：本地块一切建造金价 "
+                f"-{building_effect('工程院', 'build_discount')}%"
                 "（需本地已用位≥4，后续建筑越贵回得越多）")
     return f"{building}: 无核算"
 

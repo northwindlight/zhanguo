@@ -21,7 +21,7 @@
 """
 from __future__ import annotations
 
-from game import BUILDINGS, MARKET, TOWN_HALL_GOLD, TOWN_HALL_PER_SLOT
+from game import BUILDINGS, MARKET, building_effect
 
 SUPPLY_PER_ARMY = {"步": 1, "骑": 2}      # 每支军队每回合吃掉的补给
 GATE = 0.60                               # 第二条：刚性支出占收入的上限
@@ -194,8 +194,9 @@ def income_of(w, name: str) -> float:
             for good, amt in (info.get("outputs") or {}).items():
                 total += _price(good) * amt * cnt
             if kind == "townhall":
-                total += (TOWN_HALL_GOLD
-                          + TOWN_HALL_PER_SLOT * sum(t["buildings"].values())) * cnt
+                total += (building_effect("市政厅", "gold_base")
+                          + building_effect("市政厅", "gold_per_slot")
+                          * sum(t["buildings"].values())) * cnt
     return total
 
 
@@ -257,8 +258,9 @@ def free_cash_flow(w, name: str, *, recruit: int = 0) -> dict:
                 continue
             kind = info.get("kind")
             if kind == "townhall":
-                cash_income += (TOWN_HALL_GOLD
-                                + TOWN_HALL_PER_SLOT * sum(t["buildings"].values())) * cnt
+                cash_income += (building_effect("市政厅", "gold_base")
+                                + building_effect("市政厅", "gold_per_slot")
+                                * sum(t["buildings"].values())) * cnt
             for good, amt in (info.get("outputs") or {}).items():
                 if good == "黄金":
                     cash_income += amt * cnt * MARKET["黄金"]      # 金矿出的就是现金

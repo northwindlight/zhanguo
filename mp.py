@@ -28,10 +28,9 @@ from game import (
     ARMY_MAX_HP,
     ARMY_STARVE_DAMAGE,
     BUILDINGS,
-    CASTLE_DEFENSE_PER_LEVEL,
+    building_effect,
     COMBAT_DIE_MOD,
     DIPLO_CENTER_MIN_COST,
-    ENGINEER_DISCOUNT,
     MARKET,
     MARKET_DEPTH,
     MARKET_EQ_MAX_RATIO,
@@ -48,11 +47,8 @@ from game import (
     RETREAT_RANGE,
     TERRAIN_CHARS,
     TERRAIN_STATS,
-    TOWN_HALL_GOLD,
-    TOWN_HALL_PER_SLOT,
     TRADEABLE,
     UNIT_TYPES,
-    WATCHTOWER_RADIUS,
     army_name,
     roll_tile_name,
     unit_atk,
@@ -171,7 +167,7 @@ def build_econ(world: "World", building: str, tile=None) -> dict:
             if bp:
                 cost = cost * (100 + bp) // 100
             if t["buildings"].get("工程院") and building != "工程院":
-                cost = cost * (100 - ENGINEER_DISCOUNT) // 100
+                cost = cost * (100 - building_effect("工程院", "build_discount")) // 100
     capex = cost + info.get("wood", 0) * wp
     kind = info["kind"]
     detail: dict = {}
@@ -368,14 +364,18 @@ class World:
                 return True
             if bloc is not None and o in bloc["members"]:
                 return True
-        # 瞭望塔：己方/盟方任一瞭望塔半径 WATCHTOWER_RADIUS 圆（欧氏）内也可见（事件视野）
+        # 瞭望塔：己方/盟方任一瞭望塔半径（`effects.vision_radius`）圆（欧氏）内也可见（事件视野）
+        # 半径**每次调用取一次**（效果是数据，可能被整体抖动）；这条路径调用极频繁，
+        # 别把它塞进内层循环。
+        _tower_r = building_effect("瞭望塔", "vision_radius")
+        _tower_r2 = _tower_r * _tower_r
         for (tx, ty), t in self.tiles.items():
             if not t["buildings"].get("瞭望塔"):
                 continue
             o = t["owner"]
             if o != name and not (bloc is not None and o in bloc["members"]):
                 continue
-            if (tx - x) ** 2 + (ty - y) ** 2 <= WATCHTOWER_RADIUS ** 2:
+            if (tx - x) ** 2 + (ty - y) ** 2 <= _tower_r2:
                 return True
         return False
 
@@ -694,8 +694,9 @@ class World:
             cost = cost * (100 + bp) // 100
         disc = ""
         if t["buildings"].get("工程院") and building != "工程院":
-            cost = cost * (100 - ENGINEER_DISCOUNT) // 100   # 工程院：本地建造金价 -25%（只认已落成的）
-            disc = f"，工程院-{ENGINEER_DISCOUNT}%"
+            _disc = building_effect("工程院", "build_discount")   # 只认**已落成**的（本格有它）
+            cost = cost * (100 - _disc) // 100
+            disc = f"，工程院-{_disc}%"
         if self.polity.get(name) == "huns":
             cost = cost * 13 // 10   # 匈奴 +30% 建筑惩罚，乘算（不擅建设，靠抢）
         wood = info["wood"]
@@ -731,7 +732,8 @@ class World:
             # 双限额：每座军屯每回合 1 支；且**全国民兵总数 ≤ 全国军屯总数**（军屯=民兵编制上限）
             if t["buildings"]["军屯"] <= 0:
                 return False, "该地块没有军屯（民兵只能在军屯征召：50金+5粮/支，每军屯每回合1支）"
-            tile_cap = t["buildings"]["军屯"] - t.get("militia_recruited_this_turn", 0)
+            _mcap = building_effect("军屯", "militia_cap")
+            tile_cap = t["buildings"]["军屯"] * _mcap - t.get("militia_recruited_this_turn", 0)
             if tile_cap <= 0:
                 return False, "本回合该地块民兵征召产能已用完（每军屯 1 支/回合）"
             quota = self.nation_building_count(name, "军屯")
@@ -745,7 +747,7 @@ class World:
                 return False, "全国电网不足，高级建筑（含兵营）停摆，无法征兵"
             if t["buildings"]["兵营"] <= 0:
                 return False, "该地块没有兵营"
-            cap = t["buildings"]["兵营"] - t["recruited_this_turn"]
+            cap = t["buildings"]["兵营"] * building_effect("兵营", "recruit_cap") - t["recruited_this_turn"]
             if cap <= 0:
                 return False, "本回合征召产能已用完（每兵营 1 支/回合）"
         n = min(n, cap)
@@ -1058,7 +1060,7 @@ class World:
         terrain = t["terrain"] if t else self.tile_terrain(x, y)
         castle = t["buildings"]["城堡"] if (t and t["owner"] == def_owner) else 0
         td = TERRAIN_STATS[terrain]["defense"]
-        cd = castle * CASTLE_DEFENSE_PER_LEVEL
+        cd = castle * building_effect("城堡", "defense_per_level")
         return 100 - ((100 - td) * (100 - cd)) // 100
 
     @staticmethod
@@ -1489,14 +1491,15 @@ class World:
                         prod[n][g] += amt * batches
                         self.flow_in[g] += amt * batches    # 世界流量：工厂产出
                         self._ledger(n)["prod_value"] += self._mval(g, amt * batches)
-                # 市政厅：每座 = 基础 TOWN_HALL_GOLD + 该地块已占建筑位(不含自身)×PER_SLOT 金；电网不足即停摆
+                # 市政厅：每座 = effects.gold_base + 该地块已占建筑位(不含自身)×effects.gold_per_slot 金；电网不足即停摆
                 for (hx, hy), ht in self.tiles.items():
                     if ht["owner"] != n:
                         continue
                     h = ht["buildings"].get("市政厅", 0)
                     if h:
                         others = sum(ht["buildings"].values()) - h
-                        hall_gain = (TOWN_HALL_GOLD + others * TOWN_HALL_PER_SLOT) * h
+                        hall_gain = (building_effect("市政厅", "gold_base")
+                                     + others * building_effect("市政厅", "gold_per_slot")) * h
                         self.add_res(n, "黄金", hall_gain)
                         gold_in[n] += hall_gain
                         self._ledger(n)["gold_in"] += hall_gain

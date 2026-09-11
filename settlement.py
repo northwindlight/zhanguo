@@ -60,13 +60,13 @@ import unicodedata
 from pathlib import Path
 from types import SimpleNamespace
 
-from game import (BUILDINGS, MARKET, TOWN_HALL_GOLD, TOWN_HALL_PER_SLOT,
+from game import (BUILDINGS, MARKET, building_effect,
                   TRADEABLE, UNIT_TYPES)
 
 # ───────────────────────── 常量（一律取自 game.py，避免两处漂移） ─────────────────────────
 BASE_PRICE = {g: MARKET[g] for g in TRADEABLE}   # 基准价（黄金是货币，不在市场内）
 GOLD_MINE_PER_TURN = BUILDINGS["黄金矿场"]["outputs"]["黄金"] * MARKET["黄金"]
-TOWN_HALL_BASE = TOWN_HALL_GOLD                  # 市政厅基础金
+TOWN_HALL_BASE = building_effect("市政厅", "gold_base")   # 市政厅基础金
 ENERGY_PRICE = 1                 # 影子电价 = 边际生产成本（结算口径，非游戏规则）
 UNIT_SUPPLY = {k: v["supply"] for k, v in UNIT_TYPES.items()}   # 每军每回合补给耗量
 UNIT_WEIGHT = {"步": 1.0, "骑": 1.5, "民": 0.4}   # 结算口径：军力权重（按攻击 50/50/20 定，非游戏规则）
@@ -143,7 +143,8 @@ def score_gdp(save: dict, nation: str) -> tuple[float, list[str]]:
             elif name == "市政厅":
                 others = sum(b.values()) - cnt  # 与游戏内公式一致：不含市政厅自身
                 _add(f"市政厅(每座+{others}位)", cnt,
-                     cnt * (TOWN_HALL_BASE + others * TOWN_HALL_PER_SLOT))
+                     cnt * (TOWN_HALL_BASE
+                            + others * building_effect("市政厅", "gold_per_slot")))
             elif name == "木材能源厂":
                 _add("木材能源厂", cnt, cnt * (2 * ENERGY_PRICE - BASE_PRICE["木头"]))
             elif name == "石油能源厂":

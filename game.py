@@ -80,9 +80,6 @@ TERRAIN_CHARS = {"平原": "P", "森林": "F", "丘陵": "H", "山地": "M", "�
 # ---- 建设系统 ----
 # 每地块建筑位总数；城堡级数也占位
 MAX_SLOTS = 20
-CASTLE_DEFENSE_PER_LEVEL = 10  # 每级城堡 +10% 防御
-TOWN_HALL_GOLD = 5     # 每座市政厅每回合基础产金；另按该地块已占建筑位每座 +1 金（电网不足停摆）
-TOWN_HALL_PER_SLOT = 1  # 市政厅：每座额外 +该地块建筑数×此值 金/回合
 
 # 物资（地块可储存；能源不可存储，不在其中）
 # 全局战略储备：木头=建建筑；补给=军队口粮（补给厂产出入全局补给仓 world.supply）
@@ -138,6 +135,7 @@ BUILDINGS = {
         "wood": 10,
         "max_level": 5,
         "cap_resource": None,
+        "effects": {"defense_per_level": 10},
     },
     "林场": {"kind": "extract", "cost": 45, "wood": 5, "cap_resource": "木头", "outputs": {"木头": 1}},
     "农场": {"kind": "extract", "cost": 50, "wood": 5, "cap_resource": "耕地", "outputs": {"粮食": 1}},
@@ -148,15 +146,19 @@ BUILDINGS = {
     "石油能源厂": {"kind": "energy", "cost": 240, "wood": 15, "cap_resource": None, "fuel": {"石油": 1}, "energy_out": 8},
     "补给厂": {"kind": "factory", "cost": 175, "wood": 12, "cap_resource": None, "inputs": {"粮食": 1, "矿石": 1}, "outputs": {"补给": 2}, "energy": 1},
     "装备厂": {"kind": "factory", "cost": 210, "wood": 12, "cap_resource": None, "inputs": {"矿石": 1, "石油": 1}, "outputs": {"装备": 2}, "energy": 1},
-    # 兵营不自动产兵：每兵营每回合可征 1 支军队（army_cost 每支耗资），军队 100HP，从本地块征集；需本地已用建筑位≥3（防裸地兵营）
-    "兵营": {"kind": "barracks", "cost": 350, "wood": 20, "cap_resource": None, "min_slots": 3, "army_cost": {"粮食": 10, "装备": 5}, "energy": 1},
+    # 兵营不自动产兵：每兵营每回合可征 effects.recruit_cap 支军队（army_cost 每支耗资），军队 100HP，从本地块征集；需本地已用建筑位≥3（防裸地兵营）
+    "兵营": {"kind": "barracks", "cost": 350, "wood": 20, "cap_resource": None, "min_slots": 3,
+             "army_cost": {"粮食": 10, "装备": 5}, "energy": 1,
+             "effects": {"recruit_cap": 1}},
     # 市政厅：很贵、每地块限 1 座、需该地块已用建筑位≥6 才可建；维持 1 电（电网不足即停摆）；
-    # 每座每回合 = TOWN_HALL_GOLD(基础) + 该地块已占建筑位(不含自身)×TOWN_HALL_PER_SLOT 金 入国库
+    # 每座每回合 = effects.gold_base(基础) + 该地块已占建筑位(不含自身)×effects.gold_per_slot 金 入国库
     "市政厅": {"kind": "townhall", "cost": 500, "wood": 40, "cap_resource": None,
-               "energy": 1, "limit": 1, "min_slots": 6},
+               "energy": 1, "limit": 1, "min_slots": 6,
+               "effects": {"gold_base": 5, "gold_per_slot": 1}},
     # ---- 特殊建筑（不产出、不耗电，改规则）----
-    # 瞭望塔：己方/盟方任一瞭望塔半径 WATCHTOWER_RADIUS 圆内的事件都可见（事件视野，不改可拓地）
-    "瞭望塔": {"kind": "tower", "cost": 120, "wood": 15, "cap_resource": None},
+    # 瞭望塔：己方/盟方任一瞭望塔半径（effects.vision_radius）圆内的事件都可见（事件视野，不改可拓地）
+    "瞭望塔": {"kind": "tower", "cost": 120, "wood": 15, "cap_resource": None,
+               "effects": {"vision_radius": 4}},
     # 外交中心：**自建限 1 座**（limit_nation），叠加的只能靠夺地抢别国的——
     # 每座（含抢来的）让自己的外交费再减半（10→5→2→1，下限1）、写信费每座 -5 金（下限 5）；
     # 他国向你提议结盟/联盟/议和免费
@@ -164,13 +166,25 @@ BUILDINGS = {
                  "limit": 1, "limit_nation": 1, "min_slots": 5},
     # 工程院：本地块一切建造金价 -25%（与地形惩罚乘算，只认已落成的），需本地已用建筑位≥4
     "工程院": {"kind": "academy", "cost": 300, "wood": 30, "cap_resource": None,
-               "limit": 1, "min_slots": 4},
+               "limit": 1, "min_slots": 4, "effects": {"build_discount": 25}},
     # 军屯：屯田 + 民兵编制——每回合 +1 粮；可征民兵（50金+5粮/支，不耗电、不受电网停摆影响）；
-    # **每地块限 1 座**，且**全国民兵总数 ≤ 全国军屯总数**（军屯即民兵编制上限，阵亡可补员）；
+    # **每地块限 1 座**，且**全国民兵总数 ≤ 全国军屯总数×effects.militia_cap**（军屯即民兵编制上限，阵亡可补员）；
     # 民兵驻本格不耗补给（每座军屯覆盖本格 1 支），离格照常吃
     "军屯": {"kind": "militia_camp", "cost": 220, "wood": 15, "cap_resource": "耕地",
-             "limit": 1, "outputs": {"粮食": 1}},
+             "limit": 1, "outputs": {"粮食": 1}, "effects": {"militia_cap": 1}},
 }
+
+# ---- 建筑的「效果」= **数据**，不是散落的模块级常量（2026-09-12 改）----
+# 为什么：效果写在常量里，就只有**读那份代码的人/规则 AI** 知道；模型（RL 与任何学习者）
+# 看不见它，只能从"建了之后发生了什么"反推。搬进 `BUILDINGS[*]["effects"]` 之后，
+# 「工程院 -25%」是一条可读、可对比、可整体抖动的**数据**。
+# 约定：**键名是语义**（见下面 `building_effect` 的取值表），缺省 = 0（没这项效果）。
+# ⚠ 只搬了六座复合建筑的效果；**外交线**的 LETTER_*/DIPLO_CENTER_* 仍是常量
+#   （RL 不观测外交，见 rl/TOKEN_DESIGN.md §10.10）。
+def building_effect(name: str, key: str, default: float = 0):
+    """取某建筑的效果值。`effects` 里没有的键 → `default`（默认 0 = 无此效果）。"""
+    return BUILDINGS.get(name, {}).get("effects", {}).get(key, default)
+
 
 # 兵种：征召耗粮装 / 每回合补给维持 / 每回合移动格数 / 基础攻击 / 满血上限（每军每战斗回合）
 UNIT_TYPES = {
@@ -215,8 +229,6 @@ RETREAT_ATK_PENALTY = 80  # 撤退军本回合战斗输出 -80%（撤离途中�
 COMBAT_DIE_MOD = {1: -25, 2: -15, 3: -5, 4: 5, 5: 15, 6: 25}
 
 # 特殊建筑参数
-WATCHTOWER_RADIUS = 4    # 瞭望塔事件视野半径（欧氏圆：dx²+dy²≤r²）
-ENGINEER_DISCOUNT = 25   # 工程院：本地块建造金价减免 %
 DIPLO_CENTER_MIN_COST = 1  # 外交中心叠加减半后的外交费下限
 # 写信计费（2026-09-10 用户拍板）：
 #   起步价：联盟内 10 金 / 非联盟 20 金 —— **吃减免**（外交中心每座 -5，下限 5）
