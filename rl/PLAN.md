@@ -89,7 +89,7 @@
 | **P1** | **ECS 上跑通现有 BC（v9 老师）** | ← 现在 |
 | P2 | `rl/tokenize.py`：只出 token 张量 + mask，配纯函数测试 | ✅ |
 | P3 | tokenizer 接**现有的点积头**（不换网络） | ✅ |
-| P4 | 换 Transformer 主干 + 候选 cross-attention + 记忆 | ← 骨架已落，待接进 BC/PPO |
+| P4 | 换 Transformer 主干 + 候选 cross-attention + 记忆 | ← **已接进 BC 跑通**（`--net tf`） |
 | P5 | PPO | |
 
 ### 为什么 P1 排在换架构之前

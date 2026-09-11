@@ -95,7 +95,7 @@ class Rollout:
 
 
 # ---------------------------------------------------------------- 拼批
-def collate(steps: list[dict], n_tiles: int = 0):
+def collate(steps: list[dict], n_tiles: int = 0, *, need_grid: bool = True):
     """把若干 step 拼成一个 batch（网格补到批内最大；候选补 K_max、军队补 A_max）。
 
     ★**网格尺寸逐帧可变**（观测 = 可见区外接框，随帝国增长；地图尺寸也逐局可变），
@@ -112,12 +112,18 @@ def collate(steps: list[dict], n_tiles: int = 0):
     wmax = max(s["grid"].shape[2] for s in steps)
     null_tile = hmax * wmax
 
-    # 网格补齐：右下补 0（= 「框外」，与本帧的雾一致）
-    gpad = np.zeros((b, ch, hmax, wmax), np.float32)
-    for i, s in enumerate(steps):
-        g = s["grid"]
-        gpad[i, :, :g.shape[1], :g.shape[2]] = g
-    grid = torch.as_tensor(gpad)
+    # 网格补齐：右下补 0（= 「框外」，与本帧的雾一致）。
+    # ★`need_grid=False`：P4 的主干**没有 CNN**，地图信息全在窗口的 M 组里，
+    #   拼这个网格纯属白干 —— 而它是这里最贵的一段（b×C×hmax×wmax 的 numpy 拷贝）。
+    #   `hmax/wmax` 仍然要算（`tile_idx` 的扁平下标按它重算），但那只是读 shape。
+    if need_grid:
+        gpad = np.zeros((b, ch, hmax, wmax), np.float32)
+        for i, s in enumerate(steps):
+            g = s["grid"]
+            gpad[i, :, :g.shape[1], :g.shape[2]] = g
+        grid = torch.as_tensor(gpad)
+    else:
+        grid = None
     glob = torch.as_tensor(np.stack([s["glob"] for s in steps]), dtype=torch.float32)
     type_idx = torch.zeros(b, k, dtype=torch.long)
     sub_idx = torch.zeros(b, k, dtype=torch.long)
@@ -159,6 +165,12 @@ def collate(steps: list[dict], n_tiles: int = 0):
     return grid, glob, cand, mask
 
 
+def collate_cand(steps: list[dict], n_tiles: int = 0):
+    """只拼候选与掩码（不建网格）—— P4 的主干入口。"""
+    _grid, _glob, cand, mask = collate(steps, n_tiles, need_grid=False)
+    return cand, mask
+
+
 def collate_window(wins: list) -> dict:
     """token 窗口列表 → 批。`{"feats": {组: [B,n,F]}, "mask": {组: [B,n]}}`。
 
@@ -192,14 +204,36 @@ def collate_window(wins: list) -> dict:
 
 
 # ---------------------------------------------------------------- 采样
+def is_transformer(model) -> bool:
+    """P4 主干与点积头**签名不同**（前者吃窗口+候选，后者吃网格+全局+候选）。
+    用一个能力探测分派，比到处传 `--net` 字符串稳（模型自己知道自己是哪种）。"""
+    return hasattr(model, "encode_window")
+
+
+def _one_step(obs):
+    return {"grid": obs.grid, "glob": obs.glob, "cand": obs.cand,
+            "act": 0, "logp": 0.0, "val": 0.0, "rew": 0.0, "done": False}
+
+
+def forward_batch(model, steps, wins=None):
+    """统一入口：`(logits, value)`。`wins` 只在需要窗口的模型上用。
+
+    `n_tiles` 从模型上取（点积头有、P4 主干没有）—— 别让调用方去猜自己是哪种模型，
+    那正是 `is_transformer` 要消掉的东西。
+    """
+    if is_transformer(model):
+        cand, cmask = collate_cand(steps)
+        return model(collate_window(wins), cand, cmask)
+    grid, glob, cand, mask = collate(steps, getattr(model, "n_tiles", 0))
+    wb = collate_window(wins) if wins is not None else None
+    return model(grid, glob, cand, mask, win=wb)
+
+
 @torch.no_grad()
 def value_of(model, obs, win=None) -> float:
     """只算价值（长局分块更新时，块边界用它自举）。"""
-    grid, glob, cand, mask = collate([{"grid": obs.grid, "glob": obs.glob, "cand": obs.cand,
-                                       "act": 0, "logp": 0.0, "val": 0.0,
-                                       "rew": 0.0, "done": False}], model.n_tiles)
-    wb = collate_window([win]) if win is not None else None
-    return float(model(grid, glob, cand, mask, win=wb)[1][0].item())
+    wins = None if (win is None and not is_transformer(model)) else [win]
+    return float(forward_batch(model, [_one_step(obs)], wins)[1][0].item())
 
 
 @torch.no_grad()
@@ -209,12 +243,8 @@ def act(model, obs, deterministic: bool = False, win=None):
     `win`：token 窗口（P3 起）。给了就走窗口编码的 query。**采样期间 batch=1**，
     所以 `collate_window` 的补 token 维是空操作。
     """
-    grid, glob, cand, mask = collate([{"grid": obs.grid, "glob": obs.glob,
-                                       "cand": obs.cand, "act": 0, "logp": 0.0,
-                                       "val": 0.0, "rew": 0.0, "done": False}],
-                                     model.n_tiles)
-    wb = collate_window([win]) if win is not None else None
-    logits, value = model(grid, glob, cand, mask, win=wb)
+    wins = None if (win is None and not is_transformer(model)) else [win]
+    logits, value = forward_batch(model, [_one_step(obs)], wins)
     logp = F.log_softmax(logits, dim=-1)
     if deterministic:
         idx = int(logp.argmax(-1).item())
