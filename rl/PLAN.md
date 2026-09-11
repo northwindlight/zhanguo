@@ -77,7 +77,7 @@
 |---|---|---|
 | P0 | 冻结词表 + 一致性测试 + v9 老师 | ✅ |
 | **P1** | **ECS 上跑通现有 BC（v9 老师）** | ← 现在 |
-| P2 | `rl/tokenize.py`：只出 token 张量 + mask，配纯函数测试 | |
+| P2 | `rl/tokenize.py`：只出 token 张量 + mask，配纯函数测试 | ✅ |
 | P3 | tokenizer 接**现有的点积头**（不换网络），验证 BC 命中不掉 | |
 | P4 | 换 Transformer 主干 + 候选 cross-attention + 记忆 | |
 | P5 | PPO | |
