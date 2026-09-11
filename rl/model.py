@@ -13,13 +13,55 @@ import torch
 import torch.nn as nn
 
 from rl.env import AMOUNTS, ARMY_FEAT, KINDS
+from rl.tokenize import GROUPS
+
+
+class WindowEncoder(nn.Module):
+    """token 窗口 → 定长向量（P3：**只喂策略的 query**）。
+
+    P3 刻意用最笨的形态：**每组各一层 Linear 投到同一宽度 → 掩码均值池化 → 拼 → MLP**。
+
+    为什么不像 P4 那样做 self-attention：P3 的任务是**把 tokenize 和主干分开验证**
+    （`TOKEN_DESIGN` §7）。这里一旦上了注意力，下次分数掉了就分不清是 tokenize 编错了
+    还是注意力没训上来。所以 P3 的编码器**故意不含任何集合级运算**——
+    它只证明「这条管子通了、窗口里的信息够驱动 query」。
+
+    各组宽度不同（g 56 / m 39 / a 12 / n 16 / e 12 / r 16 / k 8），所以**每组一层投影**，
+    不补零到同一宽度当同质 token 用——那样等于凭空给窄组塞一堆常数维度。
+    """
+
+    def __init__(self, widths: dict[str, int], d_enc: int = 64, d_out: int = 128,
+                 groups: tuple[str, ...] = GROUPS):
+        super().__init__()
+        self.groups = tuple(groups)
+        self.proj = nn.ModuleDict({g: nn.Linear(int(widths[g]), d_enc)
+                                   for g in self.groups})
+        self.mlp = nn.Sequential(nn.Linear(len(self.groups) * d_enc, d_out), nn.ReLU(),
+                                 nn.Linear(d_out, d_out), nn.ReLU())
+
+    def forward(self, win: dict) -> torch.Tensor:
+        """`win = {"feats": {组: [B,n,F]}, "mask": {组: [B,n] bool}}` → `[B,d_out]`。"""
+        outs = []
+        for g in self.groups:
+            h = self.proj[g](win["feats"][g])                        # [B,n,d]
+            m = win["mask"][g].unsqueeze(-1).to(h.dtype)             # [B,n,1]
+            # 全灭的组（外交/事件/记忆各预留组）分母夹到 1 → 输出恒 0。
+            # 这就是"预留位现在不亮"在数学上的样子：**不参与、也不污染**。
+            outs.append((h * m).sum(1) / m.sum(1).clamp(min=1.0))
+        return self.mlp(torch.cat(outs, dim=-1))
 
 
 class PolicyNet(nn.Module):
     def __init__(self, n_grid_ch: int, n_glob: int, sub_sizes: list[int], n_tiles: int, *,
                  d_conv: int = 64, d_bottle: int = 32, n_conv3: int = 2,
-                 d_global: int = 128, d_cand: int = 128, d_army: int = 32):
+                 d_global: int = 128, d_cand: int = 128, d_army: int = 32,
+                 win_widths: dict[str, int] | None = None, d_enc: int = 64):
         super().__init__()
+        # P3：传 `win_widths` 就把策略 query 的来源从 `glob_mlp(glob)` 换成
+        # `WindowEncoder(窗口)`。**别的一律不动** —— CNN（候选的地块特征）、
+        # 候选嵌入、点积打分、价值头全部保持原样。见 rl/PLAN.md 的 P3。
+        self.win_enc = (WindowEncoder(win_widths, d_enc=d_enc, d_out=d_global)
+                        if win_widths else None)
         self.n_kinds = len(KINDS)
         self.n_tiles = int(n_tiles)          # 地块数；null 下标 = n_tiles
         self.n_amounts = len(AMOUNTS)
@@ -60,8 +102,12 @@ class PolicyNet(nn.Module):
         self.null_army = nn.Parameter(torch.zeros(d_army))
 
     def forward(self, grid: torch.Tensor, glob: torch.Tensor, cand: dict,
-                mask: torch.Tensor | None = None):
-        """grid [B,C,H,W]、glob [B,G]、cand 各张量 [B,K]/[B,A,F] → logits [B,K]、value [B]。"""
+                mask: torch.Tensor | None = None, win: dict | None = None):
+        """grid [B,C,H,W]、glob [B,G]、cand 各张量 [B,K]/[B,A,F] → logits [B,K]、value [B]。
+
+        `win`：token 窗口的批（见 `rl/ppo.collate_window`）。给了就用它算 query，
+        没给就走原来的 `glob_mlp`。两条路**输出同一个 d_global**，所以下游都不用改。
+        """
         b, k = cand["type_idx"].shape
         fmap = self.conv(grid)                                  # [B,d,H,W]
         tile_feat = fmap.flatten(2).transpose(1, 2)             # [B,HW,d]
@@ -86,7 +132,11 @@ class PolicyNet(nn.Module):
         ae = self.amt_emb(cand["amount_idx"])                   # [B,K,8]
 
         c = self.cand_mlp(torch.cat([tf, ag, te, se, ae], dim=-1))   # [B,K,dc]
-        g = self.glob_mlp(glob)                                       # [B,dg]
+        # ★query 的来源：给了窗口就用窗口，否则仍是 glob。
+        #   价值头**照旧吃原始 glob**（下面那行）—— 它有自己的理由不共用 g，
+        #   见 __init__ 里那段注释；P3 不动它，好让"换了编码"是唯一的变量。
+        g = self.win_enc(win) if (self.win_enc is not None and win is not None) \
+            else self.glob_mlp(glob)                                  # [B,dg]
         q = self.query(g)                                             # [B,dc]
         logits = (self.q_ln(q).unsqueeze(1) * self.cand_ln(c)).sum(-1) / (c.size(-1) ** 0.5)
         if mask is not None:

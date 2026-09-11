@@ -149,24 +149,62 @@ def collate(steps: list[dict], n_tiles: int = 0):
     return grid, glob, cand, mask
 
 
+def collate_window(wins: list) -> dict:
+    """token 窗口列表 → 批。`{"feats": {组: [B,n,F]}, "mask": {组: [B,n]}}`。
+
+    比 `collate` 简单得多，因为 **`tokenize` 已经保证每组的特征宽度 F 是常量**
+    （模块级常量，不随局面变；`tests/test_tokenize.py::test_各组宽度是常量` 盯着）。
+    所以这里只补 **token 数**那一维，不补特征维——补特征维正是 `collate` 里
+    候选要补到批内最大 K 的原因，那笔 padding 账在候选那边付，别在窗口这边再付一次。
+    """
+    from rl.tokenize import GROUPS
+
+    if not wins:
+        raise ValueError("空窗口列表")
+    out_f: dict[str, torch.Tensor] = {}
+    out_m: dict[str, torch.Tensor] = {}
+    for g in GROUPS:
+        f0 = wins[0].feats[g]
+        for w in wins:                      # F 必须逐帧一致，不一致就是 tokenize 违约
+            assert w.feats[g].shape[1] == f0.shape[1], (
+                f"{g} 组特征宽度不一致：{w.feats[g].shape[1]} != {f0.shape[1]}"
+                " —— 宽度随局面变会让整批错位，见 rl/tokenize.py 的偏离说明 1")
+        nmax = max(w.feats[g].shape[0] for w in wins)
+        f = np.zeros((len(wins), nmax, f0.shape[1]), np.float32)
+        m = np.zeros((len(wins), nmax), bool)
+        for i, w in enumerate(wins):
+            n = w.feats[g].shape[0]
+            f[i, :n] = w.feats[g]
+            m[i, :n] = w.mask[g]
+        out_f[g] = torch.as_tensor(f)
+        out_m[g] = torch.as_tensor(m)
+    return {"feats": out_f, "mask": out_m}
+
+
 # ---------------------------------------------------------------- 采样
 @torch.no_grad()
-def value_of(model, obs) -> float:
+def value_of(model, obs, win=None) -> float:
     """只算价值（长局分块更新时，块边界用它自举）。"""
     grid, glob, cand, mask = collate([{"grid": obs.grid, "glob": obs.glob, "cand": obs.cand,
                                        "act": 0, "logp": 0.0, "val": 0.0,
                                        "rew": 0.0, "done": False}], model.n_tiles)
-    return float(model(grid, glob, cand, mask)[1][0].item())
+    wb = collate_window([win]) if win is not None else None
+    return float(model(grid, glob, cand, mask, win=wb)[1][0].item())
 
 
 @torch.no_grad()
-def act(model, obs, deterministic: bool = False):
-    """按当前策略选一个候选动作。返回 (下标, logprob, value)。"""
+def act(model, obs, deterministic: bool = False, win=None):
+    """按当前策略选一个候选动作。返回 (下标, logprob, value)。
+
+    `win`：token 窗口（P3 起）。给了就走窗口编码的 query。**采样期间 batch=1**，
+    所以 `collate_window` 的补 token 维是空操作。
+    """
     grid, glob, cand, mask = collate([{"grid": obs.grid, "glob": obs.glob,
                                        "cand": obs.cand, "act": 0, "logp": 0.0,
                                        "val": 0.0, "rew": 0.0, "done": False}],
                                      model.n_tiles)
-    logits, value = model(grid, glob, cand, mask)
+    wb = collate_window([win]) if win is not None else None
+    logits, value = model(grid, glob, cand, mask, win=wb)
     logp = F.log_softmax(logits, dim=-1)
     if deterministic:
         idx = int(logp.argmax(-1).item())

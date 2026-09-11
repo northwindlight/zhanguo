@@ -68,7 +68,8 @@ def main() -> None:
 
     _env, model, pool = build_pool(args.episodes, args.turns, args.map_size, args.teacher)
     n = len(pool)
-    n_cand = np.array([len(o.cand["actions"]) for o, _i, _g in pool])
+    # 样本是 4 元组（obs, 下标, 回报, 窗口）—— 见 rl/bc.py 的 `_parts`
+    n_cand = np.array([len(s[0].cand["actions"]) for s in pool])
     rng = random.Random(args.seed)
 
     # ---- 两种组批方式各自的「批内最大候选数」分布 ----
