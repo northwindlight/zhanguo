@@ -15,7 +15,8 @@ import unittest
 import numpy as np
 
 from rl.env import ZhanguoEnv
-from rl.tokenize import CAP, GROUPS, Window, assert_budget, tokenize
+from rl.tokenize import (A_DX, A_DY, CAP, GROUPS, Window, assert_budget,
+                         tokenize)
 from rl.vocab import TOKEN_BUDGET
 
 
@@ -160,8 +161,10 @@ class TestVisionGate(unittest.TestCase):
         ax, ay = env.anchor
         from rl.vocab import POS_SCALE
         for i in range(n_own, int(win.mask["a"].sum())):
-            x = int(round(win.feats["a"][i, 7] * POS_SCALE)) + ax
-            y = int(round(win.feats["a"][i, 8] * POS_SCALE)) + ay
+            # ★列下标**从 tokenize 取**，不写死：兵种 one-hot 一加宽，写死的 7/8 就会
+            #   静默取到别的列（2026-09-12 留位时正是这么炸的）。
+            x = int(round(win.feats["a"][i, A_DX] * POS_SCALE)) + ax
+            y = int(round(win.feats["a"][i, A_DY] * POS_SCALE)) + ay
             self.assertTrue(w.visible_to(me, x, y),
                             f"A 组第 {i} 行的敌军在 {(x, y)} 不可见，却进了窗口")
         self.assertTrue(own_ids, "这局该有自家军队")

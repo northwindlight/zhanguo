@@ -51,13 +51,18 @@ BUILDING = (
     "市政厅", "瞭望塔",
     "外交中心",          # ← MAIN_ONLY：引擎有、**观测/动作空间里没有**；位置留着
     "工程院", "军屯",
+    # ---- 留位（2026-09-12 用户拍板：三类都留、都从紧，见 §10.3）----
+    # 引擎里**没有**这几项，它们只是把下标先占住：将来加建筑时填进来，
+    # **下标不动、宽度不变、ckpt 不废**。约定见文件末尾 §9。
+    "_reserved_b1", "_reserved_b2", "_reserved_b3", "_reserved_b4",
 )
 
-# 兵种 3
-UNIT = ("步", "骑", "民")
+# 兵种 3 → 5（+2 留位）
+UNIT = ("步", "骑", "民", "_reserved_u1", "_reserved_u2")
 
-# 可交易物资 6（不含黄金）
-TRADEABLE = ("粮食", "木头", "矿石", "石油", "装备", "补给")
+# 可交易物资 6（不含黄金）→ 8（+2 留位）
+TRADEABLE = ("粮食", "木头", "矿石", "石油", "装备", "补给",
+             "_reserved_t1", "_reserved_t2")
 
 # 地块资源 5（建采集建筑看的就是它）
 TILE_RES = ("矿石", "黄金", "耕地", "石油", "木头")
@@ -68,6 +73,26 @@ STOCK = ("黄金", "粮食", "木头", "矿石", "石油", "装备", "补给")
 # 国家槽：固定 8。归属通道、外交目标、势力 token 都用它，
 # **加国家不改任何维度**（槽位由 `World.nation_code` 绑定）。
 NATION_SLOTS = 8
+
+
+# ---------------------------------------------------------------------------
+# 1b. 「观测子表」= 上表减去引擎有但 RL 不看的项；再减去留位 = 真正能产生的项
+# ---------------------------------------------------------------------------
+# 判据（三层，全都写在这里，别在别处再各写一份）：
+#   MAIN_ONLY  ：**引擎里有**，但独局下造不出来/用不上 → 不进观测、不进动作空间。
+#   RESERVED_* ：**引擎里没有**，只是把下标占住 → 不进候选，但**占宽度**（网格通道 /
+#                glob / token 组都给它留了一格）。将来加实体时把它填成真项即可。
+#   *_REAL     ：引擎里真有、且能被产生（候选枚举只走这些）。
+MAIN_ONLY = ("外交中心",)
+RESERVED_BUILDING = ("_reserved_b1", "_reserved_b2", "_reserved_b3", "_reserved_b4")
+RESERVED_UNIT = ("_reserved_u1", "_reserved_u2")
+RESERVED_TRADEABLE = ("_reserved_t1", "_reserved_t2")
+RESERVED = frozenset(RESERVED_BUILDING + RESERVED_UNIT + RESERVED_TRADEABLE)
+
+OBS_BUILDING = tuple(b for b in BUILDING if b not in MAIN_ONLY)        # 19（观测子表）
+BUILDABLE = tuple(b for b in OBS_BUILDING if b not in RESERVED)        # 15（能建）
+RECRUITABLE = tuple(u for u in UNIT if u not in RESERVED)              # 3（能征）
+TRADEABLE_REAL = tuple(g for g in TRADEABLE if g not in RESERVED)      # 6（能买卖）
 
 
 # ===========================================================================
@@ -102,9 +127,9 @@ assert len(KIND) == 32 and len(KIND_INDEX) == 32
 NATION_SUB = tuple(f"n{i}" for i in range(NATION_SLOTS))
 
 SUB_TABLE_OF = {
-    "build": BUILDING,
-    "recruit": UNIT,
-    "buy": TRADEABLE,
+    "build": OBS_BUILDING,          # 19 = 15 真建筑 + 4 留位（**不含**外交中心）
+    "recruit": UNIT,                # 5 = 3 + 2 留位
+    "buy": TRADEABLE,               # 8 = 6 + 2 留位
     "sell": TRADEABLE,
     "move": ("",), "attack": ("",), "retreat": ("",), "end_turn": ("",),
 }
@@ -120,17 +145,19 @@ SUB_SIZES = tuple(len(SUB_TABLE_OF[k]) for k in KIND)
 # ===========================================================================
 # 4. 观测网格的通道布局（拼在图上的顺序，也是冻结的）
 # ===========================================================================
+# ⚠ 归属段的**计划**是「固定 8 国槽」（加国家不改维度），但**实现是动态的**：
+#   `rl/env.py` 用 `1 + len(rivals) + 1`（`rivals=()` 时 2 条）。两者不一致这事
+#   记在 `rl/TOKEN_DESIGN.md` §10.3（"加对手"那一步必须先把它钉成 8 槽，
+#   否则加对手就会改宽度 → 又一次重炼）。这里保留 8 槽作为**上限定义**，
+#   并由 `rl/env.py` 断言 `len(rivals) <= NATION_SLOTS`。
 OWNER_CHANNELS = ("self",) + tuple(f"rival{i}" for i in range(NATION_SLOTS)) + \
-                 ("neutral", "barbarian")           # = 11
+                 ("neutral", "barbarian")           # = 11（上限口径）
+OWNER_CHANNELS_DYNAMIC = 1 + 1                         # 实测：self + neutral
 PATCH_SCALARS = ("slots", "pending", "built_this_turn", "my_hp", "foe_hp",
                  "barb_hp", "frontier", "explored_ever")   # = 8
-
-GRID_CHANNELS = (len(TERRAIN)        # 5
-                 + len(TILE_RES)     # 5
-                 + len(OWNER_CHANNELS)   # 11（固定 8 国槽，加国家不改维度）
-                 + len(BUILDING)     # 16（含外交中心）
-                 + len(PATCH_SCALARS))   # 8
-assert GRID_CHANNELS == 45
+# ⚠ 删除 `GRID_CHANNELS = 45` / `GROUP_CAP` / `PATCH_CHOICES`：它们是从没接线的
+#   **计划值**，且 45 与实测 36 口径不同（§10.3 坑 6）。网格宽度的唯一来源是
+#   `len(env.obs_channels())`；token 上限的唯一来源是 `rl/tokenize.py` 的 `CAP`。
 
 
 # ===========================================================================
@@ -159,16 +186,9 @@ RELATION = ("neutral", "defense_pact", "alliance", "guarantee", "war", "truce")
 # 6. 窗口预算（token 数上限，见 rl/TOKEN_DESIGN.md）
 # ===========================================================================
 TOKEN_BUDGET = 512
-GROUP_CAP = {
-    "global": 1,
-    "map": 64,        # 自适应 patch 尺寸，钉在这个带内
-    "army": 192,      # 实测峰值 166 支
-    "nation": NATION_SLOTS,
-    "event": 32,
-    "memory": 8,      # 每回合池化 2 个 × 近 4 回合
-    "keysite": 16,
-}
-PATCH_CHOICES = (2, 4, 8, 16)     # 自适应 patch 边长（取能塞进 map 上限的最小值）
+# ⚠ 这里曾有 `GROUP_CAP` / `PATCH_CHOICES` 两份"计划表"，从没接线（真正的上限在
+#   `rl/tokenize.py` 的 `CAP`，M 组也已改成固定 8×8 槽位）—— 2026-09-12 删掉，
+#   避免两套口径各自漂。窗口预算的唯一来源 = `rl/tokenize.py` 的 `CAP` 合计。
 POS_SCALE = 32.0                  # 与 rl/env.py 一致：相对家的绝对尺度，不按地图归一
 
 
@@ -181,10 +201,13 @@ QUERY_TOOLS = ("query", "report", "rules", "econ", "countries")
 
 
 # ===========================================================================
-# 8. 引擎有、但**不进 RL 观测/动作空间**的项
+# 8. 留位纪律（2026-09-12 起）
 # ===========================================================================
-# 只有外交那一项。它留在 `BUILDING` 里占位（下标不许动），但 `rl/env.py` 的
-# `bnames` 会把它剔掉 —— 观测宽度因此与旧 ckpt 一致。
-# 判据：**独局下造不出来 / 用不上的建筑**。多塞一项进这里 = 观测里少一维，
-# 那是静默的语义变化，`test_vocab_main_parity` 与 `test_rl_env` 各有一条盯着。
-MAIN_ONLY = ("外交中心",)
+# `MAIN_ONLY` / `RESERVED_*` / `OBS_*` / `*_REAL` 全部定义在 §1b —— **只此一份**。
+# 三条纪律：
+#   1. 留位项**只许追加在表尾**，永远不许插队、不许删、不许改名（改名 = 换身份）。
+#   2. 留位项**不产生候选**、也不参与"引擎里有没有这一项"的判断；
+#      候选枚举只走 `BUILDABLE` / `RECRUITABLE` / `TRADEABLE_REAL`。
+#   3. 新实体上线时：**填一个留位槽**（改名字、把引擎的表也加上），
+#      宽度不动、下标不动、旧 ckpt 不作废 —— 这正是留位的目的。
+# 逐项宽度对照与决策记在 `rl/TOKEN_DESIGN.md` §10.3。

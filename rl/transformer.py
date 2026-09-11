@@ -47,6 +47,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from rl.env import AMOUNTS, ARMY_FEAT, KINDS
+from rl.model import SubEmbedder          # 候选子项嵌入（查表 + 规则表内容，§10.2 载体 B）
 from rl.tokenize import GROUPS
 from rl.vocab import POS_SCALE
 
@@ -108,8 +109,7 @@ class WindowTransformer(nn.Module):
         self.n_kinds = len(KINDS)
         self.n_amounts = len(AMOUNTS)
         self.type_emb = nn.Embedding(self.n_kinds, 16)
-        self.sub_embs = nn.ModuleList([nn.Embedding(max(1, s), 16) for s in
-                                       [1] * len(KINDS)])   # 尺寸由 `set_sub_sizes` 覆盖
+        self.sub_emb = SubEmbedder([1] * len(KINDS))  # 尺寸由 `set_sub_sizes` 覆盖
         self.amt_emb = nn.Embedding(self.n_amounts, 8)
         self.army_mlp = nn.Sequential(nn.Linear(ARMY_FEAT, 32), nn.ReLU())
         # 落点 (dx,dy) + 有无落点 + 被引用军队的 (dx,dy,hp,kind)
@@ -130,7 +130,7 @@ class WindowTransformer(nn.Module):
 
         与 `rl/env.sub_tables` 一一对应；**顺序即 kind 顺序**，别重排。
         """
-        self.sub_embs = nn.ModuleList([nn.Embedding(max(1, s), 16) for s in sub_sizes])
+        self.sub_emb = SubEmbedder(sub_sizes)
 
     def cand_pos_block(self, cand: dict) -> torch.Tensor:
         """候选落点的归一化特征 `[B,K,3]` = `(dx, dy, 有无落点)`。
@@ -178,9 +178,8 @@ class WindowTransformer(nn.Module):
         # ---- 候选 → query ----
         b, k = cand["type_idx"].shape
         te = self.type_emb(cand["type_idx"])
-        subs = torch.stack([emb(cand["sub_idx"].clamp(0, emb.num_embeddings - 1))
-                            for emb in self.sub_embs], dim=2)
-        se = subs.gather(2, cand["type_idx"].view(b, k, 1, 1).expand(-1, -1, 1, 16)).squeeze(2)
+        # 子项嵌入 = 学到的查表 + **规则表内容**（§10.2 载体 B，与 P3 共用 SubEmbedder）
+        se = self.sub_emb(cand["type_idx"], cand["sub_idx"], cand.get("content"))
         ae = self.amt_emb(cand["amount_idx"].clamp(0, self.n_amounts - 1))
         # 落点：**相对家的偏移**（外接框内坐标），不是扁平下标 —— 扁平下标绑死网格形状，
         # 而 P4 已经没有网格了。`-1` = 这个候选没有落点（buy/sell/end_turn）。

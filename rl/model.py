@@ -13,7 +13,55 @@ import torch
 import torch.nn as nn
 
 from rl.env import AMOUNTS, ARMY_FEAT, KINDS
+from rl.features import CONTENT_DIM_OF_KIND
 from rl.tokenize import GROUPS
+
+
+class SubEmbedder(nn.Module):
+    """`(type_idx, sub_idx)` → `d_out` 维。**两路相加**（`TOKEN_DESIGN.md` §10.2 载体 B）：
+
+        学到的查表（`nn.Embedding(sub_idx)`，语义是训练时拟合的）
+      + 规则表**内容**的投影（`content[kind][sub_idx]`，数值每帧现算）
+
+    为什么非要第二路：只有查表时，`sub_idx` 是个纯下标 —— 引擎把石油能源厂从 240
+    降到 180，模型在**同一个盘面**上给出的决策一模一样（它看不见那个数），而最优
+    决策已经变了。这是**表达能力**问题，不是拟合精度问题（`rl/PLAN.md` 〇.5）。
+
+    `content` 缺省（或某个 kind 没有内容）时退化成纯查表 —— 那条路留给不便构造
+    内容表的调用点，但**训练/评估都该带上它**。
+    """
+
+    def __init__(self, sub_sizes: list[int], *, d_out: int = 16, kinds=KINDS):
+        super().__init__()
+        self.kinds = tuple(kinds)
+        self.d_out = int(d_out)
+        self.embs = nn.ModuleList([nn.Embedding(max(1, s), d_out) for s in sub_sizes])
+        self.proj = nn.ModuleList([
+            nn.Linear(d, d_out) if d else None
+            for d in (CONTENT_DIM_OF_KIND.get(k, 0) for k in self.kinds)])
+
+    def forward(self, type_idx: torch.Tensor, sub_idx: torch.Tensor,
+                content: dict | None = None) -> torch.Tensor:
+        b, k = type_idx.shape
+        si = sub_idx.clamp(min=0)
+        parts = []
+        for i, emb in enumerate(self.embs):
+            v = emb(si.clamp(max=emb.num_embeddings - 1))
+            proj = self.proj[i]
+            ctab = None if content is None else content.get(self.kinds[i])
+            if proj is not None and ctab is not None:
+                # ctab [B, n_sub, F] → 按 sub_idx 取到每个候选那一行。
+                # ★`sub_idx` 是**跨 kind 共享**的一个张量（build 的能到 18，recruit 的只到 4），
+                #   所以往小表 gather 前必须**按这张表的大小再 clamp 一次** —— 越界的那些
+                #   候选不是这个 kind 的，最终会被下面的 `type_idx` gather 丢掉。
+                f = ctab.size(-1)
+                si_k = si.clamp(max=ctab.size(1) - 1)
+                v = v + proj(ctab.gather(1, si_k.unsqueeze(-1).expand(b, k, f)))
+            parts.append(v)
+        stacked = torch.stack(parts, dim=2)                 # [B,K,n_kinds,d_out]
+        picked = stacked.gather(2, type_idx.view(b, k, 1, 1)
+                                .expand(-1, -1, 1, self.d_out))
+        return picked.squeeze(2)
 
 
 class WindowEncoder(nn.Module):
@@ -78,7 +126,8 @@ class PolicyNet(nn.Module):
         self.army_mlp = nn.Sequential(nn.Linear(ARMY_FEAT, d_army), nn.ReLU(),
                                       nn.Linear(d_army, d_army), nn.ReLU())
         self.type_emb = nn.Embedding(self.n_kinds, 16)
-        self.sub_embs = nn.ModuleList([nn.Embedding(max(1, s), 16) for s in sub_sizes])
+        # 候选的子项嵌入：学到的查表 + **规则表内容**（§10.2 载体 B，见 SubEmbedder）
+        self.sub_emb = SubEmbedder(sub_sizes)
         self.amt_emb = nn.Embedding(self.n_amounts, 8)
         d_in = d_conv + d_army + 16 + 16 + 8
         # 候选编码只做一层：打分用「全局 query · 候选 key」点积（O(d) 而非 O(d²)/候选）。
@@ -126,9 +175,7 @@ class PolicyNet(nn.Module):
         ag = af.gather(1, ai.unsqueeze(-1).expand(-1, -1, af.size(-1)))
 
         te = self.type_emb(cand["type_idx"])                    # [B,K,16]
-        subs = torch.stack([emb(cand["sub_idx"].clamp(0, emb.num_embeddings - 1))
-                            for emb in self.sub_embs], dim=2)   # [B,K,n_kinds,16]
-        se = subs.gather(2, cand["type_idx"].view(b, k, 1, 1).expand(-1, -1, 1, 16)).squeeze(2)
+        se = self.sub_emb(cand["type_idx"], cand["sub_idx"], cand.get("content"))
         ae = self.amt_emb(cand["amount_idx"])                   # [B,K,8]
 
         c = self.cand_mlp(torch.cat([tf, ag, te, se, ae], dim=-1))   # [B,K,dc]

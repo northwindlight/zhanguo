@@ -75,18 +75,34 @@ def _main_tools() -> set[str]:
 class TestEnumTablesMatchMain(unittest.TestCase):
     """枚举表逐字逐序等于 main。"""
 
-    def test_building_is_main_16(self):
-        self.assertEqual(list(vocab.BUILDING), _main_keys("game.py", "BUILDINGS"),
-                         "建筑表与 main 不一致（顺序也算）")
+    def test_building_active_prefix_is_main(self):
+        """★ 2026-09-12 留位后口径变了：**不再要求相等，要求「main 是活跃前缀」**。
+
+        `vocab.BUILDING` 现在是「main 的 16 项 + 4 个留位」。留位项只在表尾，
+        所以 main 的键序必须逐位等于本表的前 16 项 —— 这样"加建筑"就是填留位槽，
+        下标不动、宽度不变（§10.3）。
+        """
+        main_keys = _main_keys("game.py", "BUILDINGS")
+        self.assertEqual(list(vocab.BUILDING)[:len(main_keys)], main_keys,
+                         "main 的建筑键序必须是本表的前缀（留位只许加在表尾）")
+        self.assertEqual(list(vocab.BUILDING)[len(main_keys):],
+                         list(vocab.RESERVED_BUILDING),
+                         "表尾只该是留位项")
 
     def test_building_includes_diplomacy_one(self):
         self.assertIn("外交中心", vocab.BUILDING,
                       "外交中心必须留在表里占位——外交回来时它要原地复活")
 
-    def test_terrain_unit_tradeable_match_main(self):
+    def test_terrain_unit_tradeable_active_prefix_is_main(self):
         self.assertEqual(list(vocab.TERRAIN), _main_keys("game.py", "TERRAINS"))
-        self.assertEqual(list(vocab.UNIT), _main_keys("game.py", "UNIT_TYPES"))
-        self.assertEqual(list(vocab.TRADEABLE), _main_list("game.py", "TRADEABLE"))
+        main_u = _main_keys("game.py", "UNIT_TYPES")
+        main_t = _main_list("game.py", "TRADEABLE")
+        self.assertEqual(list(vocab.UNIT)[:len(main_u)], main_u,
+                         "main 的兵种键序必须是本表的前缀")
+        self.assertEqual(list(vocab.TRADEABLE)[:len(main_t)], main_t,
+                         "main 的物资键序必须是本表的前缀")
+        self.assertEqual(list(vocab.UNIT)[len(main_u):], list(vocab.RESERVED_UNIT))
+        self.assertEqual(list(vocab.TRADEABLE)[len(main_t):], list(vocab.RESERVED_TRADEABLE))
 
     def test_kind_covers_all_main_tools(self):
         """main 的工具集必须被 KIND + 只读/LLM 专属 恰好覆盖（不多不少）。"""
@@ -116,16 +132,24 @@ class TestLocalBranchMatchesMain(unittest.TestCase):
       （外交中心独局下造不出来，进观测只会白白改变宽度、废掉 ckpt）。
     """
 
-    def test_local_buildings_equal_frozen(self):
+    def test_local_buildings_are_frozen_active_prefix(self):
+        """引擎的表 = 冻结表的**活跃段**（留位段引擎里没有，自然也枚举不出来）。
+
+        这就是留位的定义：`BUILDING` 多出来的那 4 项在 `game.BUILDINGS` 里**不存在**，
+        而观测/动作空间靠 `OBS_BUILDING` / `BUILDABLE` 把它们的语义说清楚。
+        """
         import game
-        self.assertEqual(list(game.BUILDINGS), list(vocab.BUILDING),
-                         "本分支的建筑表 ≠ 冻结表 —— 引擎枚举漂了")
+        self.assertEqual(list(game.BUILDINGS), list(vocab.BUILDING)[:len(game.BUILDINGS)],
+                         "引擎的建筑表 ≠ 冻结表的活跃前缀 —— 枚举漂了")
+        for r in vocab.RESERVED_BUILDING:
+            self.assertNotIn(r, game.BUILDINGS, f"留位项 {r} 不该出现在引擎表里")
 
     def test_local_terrain_unit_tradeable_untouched(self):
+        """地形逐项相同；兵种/物资与建筑同理 —— 引擎的是**活跃前缀**。"""
         import game
         self.assertEqual(list(game.TERRAINS), list(vocab.TERRAIN))
-        self.assertEqual(list(game.UNIT_TYPES), list(vocab.UNIT))
-        self.assertEqual(list(game.TRADEABLE), list(vocab.TRADEABLE))
+        self.assertEqual(list(game.UNIT_TYPES), list(vocab.UNIT)[:len(game.UNIT_TYPES)])
+        self.assertEqual(list(game.TRADEABLE), list(vocab.TRADEABLE)[:len(game.TRADEABLE)])
 
     def test_active_kinds_match_env_exactly(self):
         """前 8 项必须与 rl/env.py 的 KINDS 逐字逐序相同。
@@ -135,11 +159,22 @@ class TestLocalBranchMatchesMain(unittest.TestCase):
         self.assertEqual(vocab.ACTIVE_KINDS, tuple(ENV_KINDS))
 
     def test_observation_table_is_frozen_minus_main_only(self):
-        """RL 观测/动作的建筑子表 = 冻结表 − MAIN_ONLY（15 项，宽度与旧 ckpt 一致）。"""
+        """RL 观测/动作的建筑子表 = 冻结表 − MAIN_ONLY（19 = 15 真建筑 + 4 留位）。"""
         from rl.env import ZhanguoEnv
         env = ZhanguoEnv(map_size=12, max_turns=6)
-        self.assertEqual(list(env.bnames),
-                         [b for b in vocab.BUILDING if b not in vocab.MAIN_ONLY])
+        self.assertEqual(list(env.bnames), list(vocab.OBS_BUILDING))
+        self.assertEqual(list(env.unames), list(vocab.UNIT))
+        self.assertEqual(list(env.goods), list(vocab.TRADEABLE))
+
+    def test_only_real_entities_become_candidates(self):
+        """留位槽**不产生候选** —— 候选枚举走的是 `*_REAL` 那三张表。"""
+        from rl.env import ZhanguoEnv
+        env = ZhanguoEnv(map_size=12, max_turns=6)
+        self.assertEqual(list(env.buildable), list(vocab.BUILDABLE))
+        self.assertEqual(list(env.recruitable), list(vocab.RECRUITABLE))
+        self.assertEqual(list(env.tradeable), list(vocab.TRADEABLE_REAL))
+        for r in vocab.RESERVED:
+            self.assertNotIn(r, env.buildable + env.recruitable + env.tradeable)
 
 
 class TestFrozenInternalConsistency(unittest.TestCase):
@@ -160,8 +195,24 @@ class TestFrozenInternalConsistency(unittest.TestCase):
         self.assertEqual(len(vocab.SUB_SIZES), len(vocab.KIND))
 
     def test_grid_channels_frozen(self):
-        """通道数是冻结的：加国家、加外交都**不许**改它。"""
-        self.assertEqual(vocab.GRID_CHANNELS, 45)
+        """网格通道数是**冻结的**：改成 42 是一次口径变更（§10.6 第 5 行），
+        此后加建筑/兵种/物资都不许再动它（留位就是为此付的钱）。
+
+        为什么这条断言的是**实测值**而不是某个常量：这里曾有一个 `GRID_CHANNELS = 45`
+        的"计划值"，从没接线，而且与实测的 36 口径不同 —— 两套口径各自漂了一年。
+        现在唯一来源 = `env.obs_channels()`（§10.3 坑 6）。
+        """
+        from rl.env import ZhanguoEnv
+        env = ZhanguoEnv(map_size=12, max_turns=6)
+        ch = env.obs_channels()
+        self.assertEqual(len(ch), 42,
+                         "网格宽度变了 —— 这是 ckpt 的硬契约，改了就要重炼")
+        # 分段自洽：地形 5 + 地块资源 5 + 归属(1+对手+1) + 建筑 len(OBS_BUILDING)
+        #          + 标量 9 + 记忆预留 2
+        n_owner = 1 + len(env.rivals) + 1
+        self.assertEqual(len(ch), 5 + 5 + n_owner + len(vocab.OBS_BUILDING) + 9 + 2)
+        self.assertTrue(set(ch) >= {"visible", "home", "remembered", "probe"})
+        # 国槽上限口径（实现是动态的，计划是固定 8 —— 这条偏差记在 §10.3）
         self.assertEqual(len(vocab.OWNER_CHANNELS), 1 + vocab.NATION_SLOTS + 2)
 
 

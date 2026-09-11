@@ -11,8 +11,8 @@ import unittest
 import numpy as np
 
 from mp import World
+from rl import vocab as V
 from rl.env import KINDS, ZhanguoEnv
-from rl.vocab import BUILDING as VOCAB_BUILDING, MAIN_ONLY
 
 
 class TestLegalActions(unittest.TestCase):
@@ -212,13 +212,14 @@ class TestDiplomacyOutOfScope(unittest.TestCase):
 
     def test_diplomacy_building_not_in_observation(self):
         env = ZhanguoEnv(map_size=12, max_turns=6)
-        self.assertEqual(list(env.bnames),
-                         [b for b in VOCAB_BUILDING if b not in MAIN_ONLY])
+        self.assertEqual(list(env.bnames), list(V.OBS_BUILDING))
         self.assertNotIn("外交中心", env.bnames,
                          "外交中心进了观测子表 —— 观测宽度会跟着引擎变，ckpt 会废")
-        # 宽度是 ckpt 的硬契约：36 网格通道 / 48 全局
-        self.assertEqual(len(env.obs_channels()), 36)
-        self.assertEqual(env.glob_size(), 48)
+        # 宽度是 ckpt 的硬契约（§10.6 第 5 行）：**42 网格通道 / 58 全局**
+        #   42 = 36 + 4（建筑留位）+ 2（§9 记忆预留）
+        #   58 = 48 + 4（建筑留位）+ 2+2（物资留位：price/eq）+ 2（兵种留位：army_kind）
+        self.assertEqual(len(env.obs_channels()), 42)
+        self.assertEqual(env.glob_size(), 58)
 
     def test_nations_cannot_attack_each_other(self):
         """永久中立：对他国领土的进攻必须被拒。"""

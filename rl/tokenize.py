@@ -50,18 +50,20 @@ from game import unit_kind, unit_max_hp
 
 from rl.env import Obs, ZhanguoEnv
 from rl.vocab import NATION_SLOTS, POS_SCALE, TOKEN_BUDGET
-
-# 兵种 one-hot 的顺序：取**引擎的** UNIT_TYPES，不自己写死 —— 写死的那份
-# 一旦引擎加了兵种就会静默错位（`rl/vocab.py` 的 `UNIT` 是给候选子项用的冻结表，
-# 两者含义不同，别混）。
-from game import UNIT_TYPES as UNIT_KINDS3
+from rl import features as F
+from rl import vocab as V
 
 # --------------------------------------------------------------------------
 # 窗口布局
 # --------------------------------------------------------------------------
-GROUPS = ("g", "m", "a", "n", "e", "r", "k")
+# `b`/`u` 是 2026-09-12 加的「**规则表内容**」两组（§10.2 载体 A）：
+#   一条 token 一个实体，内容是 `rl/features.py` 现算的数值向量 —— 价值头与注意力
+#   因此能看见「造价/产出/耗电/门槛」，而不再只看见"有几个"。留位槽也在组里占位，
+#   但 `mask=0`（不参加注意力）。
+GROUPS = ("g", "m", "a", "n", "e", "r", "k", "b", "u")
 
-CAP = {"g": 1, "m": 64, "a": 192, "n": NATION_SLOTS, "e": 32, "r": 8, "k": 16}
+CAP = {"g": 1, "m": 64, "a": 192, "n": NATION_SLOTS, "e": 32, "r": 8, "k": 16,
+       "b": len(V.OBS_BUILDING), "u": len(V.UNIT)}     # 19 / 5
 
 M_SIDE = 8                      # M 组固定 8×8 = 64 格
 E_MAX, R_MAX, K_MAX = CAP["e"], CAP["r"], CAP["k"]
@@ -69,13 +71,24 @@ E_MAX, R_MAX, K_MAX = CAP["e"], CAP["r"], CAP["k"]
 # 每组的**原始**特征宽度（投影到 d_model 是 P4 的事）。都是模块级常量，
 # 不许在运行时按局面算——宽度一变，ckpt 全废。
 F_DIPLO_RESERVED = 8            # G 组里给外交留的位（关系/盟/待议…）
-F_A = 3 + 3 + 1 + 2 + 1 + 1 + 1     # 归属3 兵种3 hp 坐标2 交战 已动 情报年龄
+F_A = 3 + len(V.UNIT) + 1 + 2 + 1 + 1 + 1   # 归属3 兵种len(V.UNIT) hp 坐标2 交战 已动 情报年龄
 F_N = 16                        # 势力（外交预留）
 F_E = 12                        # 事件（外交预留）
 F_R = 16                        # 记忆
 F_K = 8                         # 关键节点
+F_B = F.F_B + 1                 # 建筑 token = 内容向量 + 我的持有数（log1p/3）
+F_U = F.F_U                     # 兵种 token = 内容向量
 
 OWNER_SELF, OWNER_FOE, OWNER_BARB = 0, 1, 2
+
+# A 组各列的**唯一定义**（`F_A` 展开式与 `_army_row` 的写入顺序必须与它逐项一致）。
+# 为什么要有：本仓库反复栽在"写死列下标"上 —— 兵种 one-hot 从 3 加宽到 len(V.UNIT)
+# 时，任何写死 `[i, 7]` 的地方都会**静默取到别的列**（测试里就有一处）。
+A_OWNER0, A_UNIT0 = 0, 3
+A_HP = A_UNIT0 + len(V.UNIT)
+A_DX, A_DY = A_HP + 1, A_HP + 2
+A_ENGAGED, A_MOVED, A_AGE = A_HP + 3, A_HP + 4, A_HP + 5
+assert A_AGE + 1 == F_A, f"A 组列定义与 F_A={F_A} 不一致"
 
 
 # --------------------------------------------------------------------------
@@ -195,17 +208,63 @@ def _army_row(a: dict, owner: int, ax: int, ay: int, turn: int) -> np.ndarray:
     r = np.zeros(F_A, np.float32)
     r[owner] = 1.0                                   # 归属 3
     k = unit_kind(a)
-    for j, uk in enumerate(UNIT_KINDS3):
-        r[3 + j] = 1.0 if k == uk else 0.0            # 兵种 3
-    r[6] = a["hp"] / max(1, unit_max_hp(a))           # 血量
-    r[7] = (a["x"] - ax) / POS_SCALE                  # 相对家的偏移
-    r[8] = (a["y"] - ay) / POS_SCALE
-    r[9] = 1.0 if a.get("engaged") else 0.0
-    r[10] = 1.0 if a.get("moved_turn") == turn else 0.0
-    # r[11] 情报年龄 —— 恒 0。`World` 没有「这块地何时探明」的记录，
+    # ★ 兵种 one-hot 的**宽度与顺序取 `V.UNIT`**（5，含 2 留位），不取 `game.UNIT_TYPES`(3)。
+    #   取引擎表的话，加一种兵种就会静默改变 one-hot 宽度（与留位的用意正好相反）。
+    #   `V.UNIT` 的前 3 项逐字等于引擎表的键序，所以现有兵种的下标不变。
+    for j, uk in enumerate(V.UNIT):
+        r[A_UNIT0 + j] = 1.0 if k == uk else 0.0
+    r[A_HP] = a["hp"] / max(1, unit_max_hp(a))        # 血量
+    r[A_DX] = (a["x"] - ax) / POS_SCALE               # 相对家的偏移
+    r[A_DY] = (a["y"] - ay) / POS_SCALE
+    r[A_ENGAGED] = 1.0 if a.get("engaged") else 0.0
+    r[A_MOVED] = 1.0 if a.get("moved_turn") == turn else 0.0
+    # r[hp_i + 5] 情报年龄 —— 恒 0。`World` 没有「这块地何时探明」的记录，
     # 所以只有**当前可见**的军队才进得来，"几回合前见过"表达不了。
-    # 详见模块 docstring 的偏离说明 2。
+    # 详见模块 docstring 的偏离说明 2；§9 落地时开始填它（宽度已占）。
     return r
+
+
+def _building_group(world, me: str) -> tuple[np.ndarray, np.ndarray]:
+    """B 组：**一条 token 一个建筑**（含留位槽），内容是规则表的数值。
+
+    每条 = `[我的持有数 log1p/3, 内容向量 45]`（`F_B = 46`）。
+
+    为什么要有（§10.2）：在这之前模型只能看见"这格有几座、全国共几座"，
+    看不见"它值多少钱、产什么、吃多少电" —— 于是引擎把石油能源厂降价，
+    它**无从适应**（同一个盘面给出同一个决策，而最优已经变了）。内容是
+    `rl/features.py` **每次现算**的，所以域随机化改表它立刻跟着变。
+
+    ★ 信息集上是干净的：这些数值是**公开规则**（LLM 玩家读的 `rules`/帮助面板里
+    就有造价与产出），不是引擎的隐藏状态 —— 所以不违反契约 §2「信息集对齐」。
+    留位槽 `mask=0`（内容全零，不参加注意力）。
+    """
+    tbl = F.building_table()                  # (19, F_B=45)，现算
+    out = np.zeros((CAP["b"], F_B), np.float32)
+    msk = np.zeros(CAP["b"], bool)
+    tot = {b: 0 for b in V.OBS_BUILDING}
+    for t in world.tiles.values():
+        if t["owner"] == me:
+            for b in V.OBS_BUILDING:
+                tot[b] += t["buildings"].get(b, 0)
+    for i, b in enumerate(V.OBS_BUILDING):
+        out[i, 0] = math.log1p(tot[b]) / 3.0
+        out[i, 1:] = tbl[i]
+        msk[i] = b not in V.RESERVED          # 留位槽不亮
+    return out, msk
+
+
+def _unit_group() -> tuple[np.ndarray, np.ndarray]:
+    """U 组：**一条 token 一个兵种**（含留位槽），内容是规则表的数值（`F_U = 11`）。
+
+    同 B 组：hp/speed/supply/atk/征兵成本都是公开规则，现算，留位槽 `mask=0`。
+    """
+    tbl = F.unit_table()                      # (5, F_U=11)，现算
+    out = np.zeros((CAP["u"], F_U), np.float32)
+    msk = np.zeros(CAP["u"], bool)
+    for i, u in enumerate(V.UNIT):
+        out[i] = tbl[i]
+        msk[i] = u not in V.RESERVED
+    return out, msk
 
 
 def tokenize(env: ZhanguoEnv, obs: Obs, *, mem: np.ndarray | None = None
@@ -240,10 +299,13 @@ def tokenize(env: ZhanguoEnv, obs: Obs, *, mem: np.ndarray | None = None
         assert list(_eids) == [a["id"] for a in own], (
             f"A 组军队顺序与 env.army_ids 不一致：{_eids} vs {[a['id'] for a in own]}")
     del _eids
-    assert len(UNIT_KINDS3) == 3, f"UNIT_TYPES 不是 3 个：{UNIT_KINDS3}"
+    # 宽度自洽：归属 3 + 兵种 len(V.UNIT) + hp/坐标2/交战/已动/年龄 6
+    assert F_A == 3 + len(V.UNIT) + 6, f"F_A={F_A} 与 V.UNIT({len(V.UNIT)}) 对不上"
 
     m_feat, m_msk, m_meta = _patch_group(obs.grid, vis_ch, x0, y0, anchor)
     a_feat, a_msk, a_meta = _army_group(world, me, anchor, world.turn, own)
+    b_feat, b_msk = _building_group(world, me)
+    u_feat, u_msk = _unit_group()
 
     # ★G 组**停供累计消费**（2026-09-12 用户口径）。理由两条：
     #   ① 它是 reward（`spend_total`）的原函数，喂进观测等于把成绩单放进状态；
@@ -267,6 +329,8 @@ def tokenize(env: ZhanguoEnv, obs: Obs, *, mem: np.ndarray | None = None
         "r": (np.asarray(mem, np.float32) if mem is not None
               else _zeros(CAP["r"], F_R)),
         "k": _zeros(CAP["k"], F_K),
+        "b": b_feat,                      # 建筑：内容向量 + 我的持有数
+        "u": u_feat,                      # 兵种：内容向量
     }
     mask = {
         "g": np.ones(1, bool),
@@ -276,6 +340,7 @@ def tokenize(env: ZhanguoEnv, obs: Obs, *, mem: np.ndarray | None = None
         "r": (np.ones(CAP["r"], bool) if mem is not None
               else np.zeros(CAP["r"], bool)),
         "k": np.zeros(CAP["k"], bool),
+        "b": b_msk, "u": u_msk,
     }
     meta = {"bbox": (x0, y0), "anchor": anchor, "agent": me,
             "turn": world.turn, **m_meta, **a_meta}

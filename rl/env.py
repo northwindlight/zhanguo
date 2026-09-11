@@ -33,7 +33,8 @@ from game import (BUILDINGS, ENGINEER_DISCOUNT, MARKET, MAX_SLOTS, TERRAIN_STATS
                   TERRAINS, TRADEABLE, UNIT_TYPES, WATCHTOWER_RADIUS,
                   unit_kind, unit_max_hp, unit_speed)
 from mp import World
-from rl.vocab import BUILDING as VOCAB_BUILDING, MAIN_ONLY
+from rl import vocab as V
+from rl import features as F
 
 # 动作种类（固定顺序，模型的下标语义依赖它）
 KINDS = ("build", "recruit", "move", "attack", "retreat", "buy", "sell", "end_turn")
@@ -42,8 +43,11 @@ KIND_INDEX = {k: i for i, k in enumerate(KINDS)}
 # 数量档位（征兵/买卖）。离散化：不做连续回归，降低动作空间难度。
 AMOUNTS = (1, 2, 3, 4, 5, 6, 8, 10, 12, 16)
 
-# 军队特征维度：兵种 one-hot(3) + 血量 + 坐标 x/y + 交战 + 本回合已动
-ARMY_FEAT = len(UNIT_TYPES) + 1 + 2 + 1 + 1
+# 军队特征维度：兵种 one-hot(len(V.UNIT)=5，含 2 个留位) + 血量 + 坐标 x/y + 交战 + 本回合已动
+# ⚠ 取 `V.UNIT`（含留位）而不是 `game.UNIT_TYPES`（3）—— 兵种一留位，宽度就与引擎表脱钩。
+#   这是**模型输入宽度**：改了它，`model.py`/`transformer.py` 的 `nn.Linear` 也跟着变
+#   （显式报错，安全），但它同时是 §10.6 里的口径项。
+ARMY_FEAT = len(V.UNIT) + 1 + 2 + 1 + 1        # = 10
 
 # 候选**一律不限额**：合法动作全部进候选。
 #
@@ -129,18 +133,21 @@ class ZhanguoEnv:
         self.max_actions_per_turn = int(max_actions_per_turn)
         self.reward_scale = float(reward_scale)
 
-        # ★ 建筑子表**取冻结词表，不取 game.BUILDINGS**（顺序即子下标）。
-        #   2026-09-12 变基到 main 时定死：引擎不再砍外交（mp.py/game.py 与 main 逐字相同），
-        #   但**观测词表继续冻结在 15 项**——MAIN_ONLY 的「外交中心」不进观测、也不进动作空间。
-        #   理由有两条，都不是审美：
-        #   ① 它在外交里才有用，而训练是**单国独局**（`rivals=()`），造出来是纯亏；
-        #      引擎侧对它有 `limit_nation` 约束，而 env 的候选校验并不查那一条（会给出必被拒的候选）。
-        #   ② `len(game.BUILDINGS)` 一旦从 15 变 16，网格/全局/token 三处宽度全跟着变
-        #      （36→37、48→49），**训练出来的 ckpt 全部加载不了**（见 rl/PLAN.md 的重炼铁律）。
-        #   `test_vocab_main_parity` 与 `test_rl_env` 各有一条盯住这件事。
-        self.bnames = tuple(b for b in VOCAB_BUILDING if b not in MAIN_ONLY)
-        self.unames = tuple(UNIT_TYPES)         # 兵种子表
-        self.goods = tuple(TRADEABLE)           # 物资子表
+        # ★ 三张子表**全部取自冻结词表**（`rl/vocab.py` 的 `SUB_TABLE_OF`），不取 `game.*`
+        #   —— 引擎加一项、或 main 变动，都不该动观测/动作空间的**形状**。
+        #   2026-09-12 留位（§10.3）后每张表都是「活跃项 + 留位项」：
+        #     `bnames` 19 = 15 真建筑 + 4 留位（**不含** MAIN_ONLY 的「外交中心」）
+        #     `unames` 5 = 3 + 2 留位；`goods` 8 = 6 + 2 留位
+        #   留位项**只占下标与宽度**：不生成候选（候选走 `buildable`/`recruitable`/
+        #   `tradeable`），内容向量全零，token 组里 `mask=0`。将来加实体 = 填一个留位槽
+        #   → 下标不动、宽度不变、旧 ckpt 不作废。
+        self.bnames = V.SUB_TABLE_OF["build"]    # 19 = 15 真建筑 + 4 留位（不含外交中心）
+        self.unames = V.SUB_TABLE_OF["recruit"]  # 5 = 3 + 2 留位
+        self.goods = V.SUB_TABLE_OF["buy"]       # 8 = 6 + 2 留位
+        self.buildable = V.BUILDABLE             # 15：真正能建（候选枚举用这个）
+        self.recruitable = V.RECRUITABLE         # 3
+        self.tradeable = V.TRADEABLE_REAL        # 6
+        assert len(self.rivals) <= V.NATION_SLOTS, "对手数超过国槽上限"
         # 每个 kind 的子表：不在表里的 kind 只有空子项
         self.sub_tables = {
             "build": self.bnames, "recruit": self.unames,
@@ -278,7 +285,7 @@ class ZhanguoEnv:
             used = sum(eff.values())
             if used >= MAX_SLOTS:
                 continue
-            for b in self.bnames:
+            for b in self.buildable:      # ★ 只枚举**真建筑**：留位槽不产生候选
                 info = BUILDINGS[b]
                 lv = eff[b]
                 if info["kind"] == "castle":
@@ -313,7 +320,7 @@ class ZhanguoEnv:
         militia_alive = sum(1 for a in w.armies if a["owner"] == me and unit_kind(a) == "民")
         for (x, y) in own:
             t = w.tiles[(x, y)]
-            for kind in self.unames:
+            for kind in self.recruitable:   # ★ 只枚举**真兵种**（留位槽不产生候选）
                 if kind == "民":
                     if t["buildings"]["军屯"] <= 0:
                         continue
@@ -365,7 +372,7 @@ class ZhanguoEnv:
                     cats["retreat"].append(Action("retreat", "", (x, y), a["id"]))
 
         # ---- 市场
-        for g in self.goods:
+        for g in self.tradeable:      # ★ 只枚举**真物资**（留位槽不产生候选）
             for amt in AMOUNTS:
                 if amt <= res.get(g, 0):
                     cats["sell"].append(Action("sell", g, None, 0, amt))
@@ -391,7 +398,12 @@ class ZhanguoEnv:
         ch += ["owner:me"] + [f"owner:{r}" for r in self.rivals] + ["owner:neutral"]
         ch += [f"bld:{b}" for b in self.bnames]
         ch += ["mine", "frontier", "my_army_hp", "foe_army_hp", "barb_army_hp",
-               "pending", "built_this_turn", "visible", "home"]
+               "pending", "built_this_turn", "visible", "home",
+               # ↓ 2026-09-12 并入本版（TOKEN_DESIGN §10.5 / §9.3）：记忆落地前**恒零**，
+               #   但**宽度先占住** —— 将来做记忆时不再变形状、不再废 ckpt。
+               "remembered",     # 曾经探明过（地图记忆）
+               "probe",          # 盲行军撞墙/遭遇的回报（探测记忆）
+               ]
         return ch
 
     def glob_channels(self) -> list[str]:
@@ -406,20 +418,20 @@ class ZhanguoEnv:
         改这里，会当场炸。
         """
         ch = [f"res:{k}" for k in RES_KEYS]
-        ch += [f"price:{g}" for g in TRADEABLE]
-        ch += [f"eq:{g}" for g in TRADEABLE]
+        ch += [f"price:{g}" for g in self.goods]      # 8（含 2 留位，留位恒 0）
+        ch += [f"eq:{g}" for g in self.goods]
         ch += [f"spend:{k}" for k in ("build", "recruit", "supply")]
         ch += ["turn", "turn_actions", "grid_short", "energy_have", "energy_need"]
-        ch += [f"bld:{b}" for b in self.bnames]
+        ch += [f"bld:{b}" for b in self.bnames]       # 19（含 4 留位，留位恒 0）
         ch += ["armies", "army_hp"]
-        ch += [f"army_kind:{u}" for u in self.unames]
+        ch += [f"army_kind:{u}" for u in self.unames]  # 5（含 2 留位）
         for _r in self.rivals:
             ch += ["rival_tiles", "rival_armies", "rival_hp"]
         ch += ["own_tiles"]
         return ch
 
     def glob_size(self) -> int:
-        return (len(RES_KEYS) + 2 * len(TRADEABLE) + 3 + 2 + 2
+        return (len(RES_KEYS) + 2 * len(self.goods) + 3 + 2 + 2
                 + len(self.bnames) + 3 + len(self.unames) + 3 * len(self.rivals) + 1)
 
     def _vision_mask(self) -> np.ndarray:
@@ -565,6 +577,9 @@ class ZhanguoEnv:
         home_ch = np.zeros((n, n), np.float32)
         home_ch[self.anchor[0], self.anchor[1]] = 1.0
         chans += [mine, frontier, myhp, foehp, barhp, pend, bflag, vis, home_ch]
+        # ---- 记忆两通道（§9.3）：**本版恒零**，只占宽度。见 `obs_channels()` 的注释。
+        #   为什么现在就占：观测形状一变就要重炼，而"加记忆"迟早要来 —— 宽度先钉住。
+        chans += [np.zeros((n, n), np.float32), np.zeros((n, n), np.float32)]
 
         # ---- ★裁到「可见区外接框」（用户 2026-09-11 定的方案）：
         #   成本 O(可见区)，**与地图尺寸无关**（100×100 不再等于 39× 的算力）。
@@ -598,10 +613,14 @@ class ZhanguoEnv:
         g: list[float] = []
         for k in RES_KEYS:
             g.append(res_get(w, me, k) / 1000.0)
-        for gd in TRADEABLE:
-            g.append(w.prices.get(gd, MARKET[gd]) / MARKET[gd])
-        for gd in TRADEABLE:
-            g.append(w.equilibrium.get(gd, MARKET[gd]) / MARKET[gd])
+        # ★ 走 `self.goods`（8，含 2 留位）而不是 `game.TRADEABLE`（6）：留位项在引擎里
+        #   没有价格，一律 0 —— 它们只是把宽度占住（将来加物资时填进这个槽）。
+        for gd in self.goods:
+            base = MARKET.get(gd, 0)
+            g.append(w.prices.get(gd, base) / base if base else 0.0)
+        for gd in self.goods:
+            base = MARKET.get(gd, 0)
+            g.append(w.equilibrium.get(gd, base) / base if base else 0.0)
         sp = (w.spend.get(me) or {})
         for k in ("build", "recruit", "supply"):
             g.append(float(sp.get(k, 0.0)) / 2000.0)
@@ -683,12 +702,20 @@ class ZhanguoEnv:
                 army_idx[i] = self.army_index.get(a.army, null_army)
             if a.amount in AMOUNTS:
                 amt_idx[i] = AMOUNTS.index(a.amount)
+        # ★ 规则表内容（§10.2 载体 B）：每个 kind 一张 `(n_sub, F_kind)` 的**现算**表。
+        #   模型用它把"这座建筑现在划不划算"算出来；只有 sub_idx 查表的话，
+        #   引擎一改数值（石油能源厂降价）模型就无从适应。
+        #   必须**在这里现算**（而不是模型侧缓存）：域随机化每局就地改 game 的表，
+        #   缓存会把上一局的数值烤进这一局（`rl/features.py` 的纪律 1）。
+        content = {k: F.content_table_for(k) for k in KINDS
+                   if F.CONTENT_DIM_OF_KIND[k] > 0}
         return {"actions": acts, "type_idx": t_idx, "sub_idx": s_idx,
                 "tile_dx": tile_dx, "tile_dy": tile_dy,
                 "tile_hw": (hv, wv),          # 本帧外接框尺寸（collate 补齐时要看）
                 "army_idx": army_idx, "amount_idx": amt_idx,
                 "mask": np.ones(k, bool), "army_feats": army_feats,
-                "n_armies": army_feats.shape[0]}
+                "n_armies": army_feats.shape[0],
+                "content": content}
 
     # ------------------------------------------------------------------ 统计
     def summary(self) -> dict:

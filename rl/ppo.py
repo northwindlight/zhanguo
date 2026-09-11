@@ -165,6 +165,11 @@ def collate(steps: list[dict], n_tiles: int = 0, *, need_grid: bool = True):
     cand = {"type_idx": type_idx, "sub_idx": sub_idx, "tile_idx": tile_idx,
             "army_idx": army_idx, "amount_idx": amount_idx, "army_feats": afeats,
             "null_tile": null_tile,
+            # ★规则表内容（§10.2 载体 B）：每个 kind 一张 `[B, n_sub, F_kind]`。
+            #   逐帧现算（域随机化会每局换表），所以拼批时按帧 stack，不做去重。
+            "content": {k: torch.as_tensor(np.stack([s["cand"]["content"][k]
+                                                     for s in steps]))
+                        for k in steps[0]["cand"].get("content", {})},
             # ★`tile_dx/tile_dy` 原样带出去（-1 = 无落点）。P4 的主干**没有网格**，
             #   候选只带自己的相对落点去 attend 窗口，所以它要的是这两个，
             #   不是 `tile_idx`（那是给 CNN 用的扁平下标，绑死网格形状）。
