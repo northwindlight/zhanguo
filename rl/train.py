@@ -16,18 +16,41 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import json
+import random
+import threading
 import time
 from pathlib import Path
 
 import numpy as np
 import torch
 
+from rl.bc import get_teacher, set_horizon
 from rl.device import pick_device
 from rl.env import ACT_SAFETY, KINDS, ZhanguoEnv
 from rl.model import PolicyNet
 from rl.ppo import PPO, Rollout, act, value_of
+
+
+def teacher_baseline(world, agent, turns, teacher_fn):
+    """在**世界副本**上跑老师 `turns` 回合，返回它的 `spend_total`（该图的"标准答案"）。
+
+    ★**只取前 100 回合**（用户 2026-09-13）：图难度是**开局条件**的差异，而复利是
+    **指数增长** —— 好图/差图跑到 200 回合，绝对差在拉大但**相对差在缩小**
+    （8000/3000 = 2.67 → 25000/10000 = 2.5）⇒ **越往后基准越区分不出图难度**。
+    前 100 回合才是难度信号最纯的窗口。
+
+    固定 rng（同一张图必得同一个基准，可复现）。跑在**副本**上，不碰 env.world。
+    """
+    rng = random.Random(0xB4BE)
+    for t in range(turns):
+        teacher_fn(world, agent, rng, max_actions=10 ** 9, on_action=lambda *a: None)
+        world.resolve_turn()
+        if t + 1 < turns:
+            world.begin_turn()
+    return world.spend_total(agent)
 
 
 def map_sizes_of(args):
@@ -139,6 +162,18 @@ def main() -> None:
                          "不是老师标签、不入库），**PPO 上来这个约束就没了** ⇒ 这个开关"
                          "是给 PPO 准备的。标定别拍 100：学生一局消费 4747/100 回合 ≈ 47/回合、"
                          "撞墙 2.4 次/回合，10 ⇒ -24/回合（约占一半），100 ⇒ -240/回合（净变负）。")
+    ap.add_argument("--teacher-baseline", action="store_true",
+                    help="★用**老师在该图上的基准**当 advantage 的基线（用户 2026-09-13）。"
+                         "动机：图间 σ ≈ 均值的 45%%，同一套打法在好图 20000、差图 3000 —— "
+                         "PPO 只看绝对回报，会把「这局抽到差图」读成「我这个打法错了」，"
+                         "于是去修正一个本来正确的行为。改成相对该图标准的**差值**之后，"
+                         "图难度被减掉了。**目标函数一个字节都没动**（排名/结算比的还是"
+                         "总消费），改的是 baseline。")
+    ap.add_argument("--baseline-turns", type=int, default=100,
+                    help="老师基准取前几回合（默认 100）。★别取满 200：图难度是**开局"
+                         "条件**的差异，而复利是指数增长 —— 好图/差图跑到 200 回合，"
+                         "绝对差在拉大但**相对差在缩小**（8000/3000=2.67 → 25000/10000=2.5）"
+                         "⇒ 越往后基准越区分不出图难度。前 100 回合是难度信号最纯的窗口。")
     ap.add_argument("--device", default="auto",
                     help="auto = 有 CUDA 用 cuda，否则 cpu；也可显式 cuda/cuda:1/cpu。"
                          "显式写了 cuda 而没卡时**报错而不是静默退回 CPU**（静默退回的"
@@ -295,8 +330,55 @@ def main() -> None:
     seed = int(ck["seed"]) if (ck and ck.get("seed") is not None) else args.seed
     if ck and ck.get("seed") is not None:
         print(f"（训练图种子接着数：{seed}）")
+    # ★老师基准（`--teacher-baseline`）：每局在**世界副本**上并行跑一次老师，
+    #   拿到"这张图的标准答案"，再把学生前 `--baseline-turns` 回合的 reward
+    #   逐笔减去 `基准×scale/回合数` ⇒ Σ 前段 reward = 学生前段 − 老师前段。
+    #   跑在**独立线程**里：老师一局约 8 s、学生约 48 s，本来就能藏进去；
+    #   ⚠ 但两者都会抢 GIL（老师是纯 Python，学生大头也在 CPU 侧的 tokenize/env.step），
+    #   实际能藏多少**要实测**。
+    _teacher_fn = None
+    if args.teacher_baseline:
+        _teacher_fn = get_teacher("v10", turns=args.baseline_turns)
+        set_horizon(_teacher_fn, args.baseline_turns)
+
     obs = env.reset(seed)
     rollout = Rollout(lam=args.lam, normalize=args.norm_reward)
+
+    # ---- 老师基准的两个动作（定义在 rollout 之后才能闭包到它）
+    _bl = {"th": None, "base": {}, "pend": []}
+
+    def _spawn_baseline():
+        """起老师基准线程（跑在 env.world 的**副本**上，不碰学生的世界）。"""
+        if _teacher_fn is None:
+            return
+        w0 = copy.deepcopy(env.world)      # 主线程拷，避免跟学生抢 world
+        _bl["base"], _bl["pend"] = {}, []
+        _bl["th"] = threading.Thread(
+            target=lambda: _bl["base"].__setitem__(
+                "v", teacher_baseline(w0, env.agent, args.baseline_turns, _teacher_fn)),
+            daemon=True)
+        _bl["th"].start()
+
+    def _settle_baseline():
+        """局末收账：把本局**前 baseline_turns 回合**的每笔 reward 减去 基准/回合数。
+
+        ⇒ Σ 前段 reward = (学生前段消费 − 老师前段消费) × scale —— 正是"相对该图标准
+        的表现"。**必须在开下一局之前调**（下一局会重置 `_bl["pend"]`）。
+
+        ★`rollout.steps[i]["rew"]` 可以直接改：`Rollout._scale()` 在 `normalize=False`
+        （默认，我们没开 `--norm-reward`）时**原样返回 reward**，所以存的就是原值。
+        """
+        th = _bl["th"]
+        if th is None:
+            return
+        th.join()
+        shift = (_bl["base"].get("v", 0.0) * args.reward_scale
+                 / max(1, args.baseline_turns))
+        for i in _bl["pend"]:
+            rollout.steps[i]["rew"] -= shift
+        _bl["th"], _bl["pend"] = None, []
+
+    _spawn_baseline()
     if ck and ck.get("norm"):
         rollout.load_state(ck["norm"])
         print("（含回报归一化状态）")
@@ -312,7 +394,8 @@ def main() -> None:
         set_collect_threads()
         done_this = 0
         while True:
-            if ep_done:                     # 刚结束一局：记账后**先把下一局开好**
+            if ep_done:                     # 刚结束一局：先收基准的账，再记账、开下一局
+                _settle_baseline()
                 s = env.summary()
                 s["ep_return"] = ep_ret
                 s["ep_steps"] = ep_steps
@@ -321,6 +404,7 @@ def main() -> None:
                 seed += 1
                 obs = env.reset(seed)       # 必须在 break 之前 reset：
                 ep_ret, ep_steps, ep_done = 0.0, 0, False   # 否则下一轮迭代会空转
+                _spawn_baseline()           # 起本局的老师基准线程（跟本局并行）
                 if (args.rollout_episodes and done_this >= args.rollout_episodes) \
                         or len(rollout) >= args.rollout_cap:
                     break
@@ -336,6 +420,8 @@ def main() -> None:
             #   对应的其实是另一个状态（`bc.py` 上踩过：一次 recruit 就让 A 组与候选
             #   指向两个世界），而这里表现成 ratio 恒偏、策略学歪且不报错。
             rollout.add(keep, idx, logp, val, r, done, win=_w)
+            if _bl["th"] is not None and info["turn"] < args.baseline_turns:
+                _bl["pend"].append(len(rollout.steps) - 1)   # 这笔属于基准覆盖的前段
             ep_ret += r
             ep_steps += 1
             ep_done = done
