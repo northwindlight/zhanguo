@@ -239,3 +239,34 @@ class TestTeacherHorizon(unittest.TestCase):
         env = ZhanguoEnv(map_size=8, max_turns=10)
         run_rule(env, seed=0, turns=10, which="v10")
         self.assertEqual(expand_rule_v10.HORIZON, 30)
+
+
+class TestBcLabelMatching(unittest.TestCase):
+    """`rl/bc.py:match()` 的兜底语义（标签质量）。
+
+    踩过：老师一次卖 20~49 个，而 `AMOUNTS` 上限 16 ⇒ 旧的"取同类别第一个候选"
+    兜底给出 **amount 1** —— 标签变成「有 35 个余量 → 只卖 1 个」（实测占样本 2.3%）。
+    """
+
+    def _acts(self, kind, sub, amounts):
+        from rl.env import Action
+        return [Action(kind, sub, None, 0, n) for n in amounts]
+
+    def test_exact_wins(self):
+        from rl.bc import match
+        acts = self._acts("sell", "木头", (1, 2, 8, 16))
+        self.assertEqual(match(acts, ("sell", "木头", None, 0, 8)), 2)
+
+    def test_fallback_picks_nearest_amount_not_first(self):
+        from rl.bc import match
+        acts = self._acts("sell", "木头", (1, 2, 8, 16))
+        # 老师想卖 20（超出档位上限）→ 该给 16，而不是第一个（1）
+        i = match(acts, ("sell", "木头", None, 0, 20))
+        self.assertEqual(acts[i].amount, 16, "兜底该取最接近的档位")
+        i = match(acts, ("sell", "木头", None, 0, 7))
+        self.assertEqual(acts[i].amount, 8)
+
+    def test_cross_kind_is_not_matched(self):
+        from rl.bc import match
+        acts = self._acts("buy", "木头", (1, 16))
+        self.assertIsNone(match(acts, ("sell", "木头", None, 0, 20)))

@@ -18,7 +18,18 @@ from rl.env import KINDS, ZhanguoEnv
 class TestLegalActions(unittest.TestCase):
     """核心不变式：env 枚举出来的每个动作，引擎都得接受。"""
 
-    def test_every_legal_action_is_accepted(self):
+    # 引擎在"资源不够"时的拒绝文案前缀 —— **这些允许出现在候选里**
+    SHORTAGE = ("黄金不足", "木材不足", "储备不足", "战略储备不足")
+
+    def test_candidates_are_engine_action_space(self):
+        """候选 = **引擎的合法动作空间**（2026-09-12 新契约）。
+
+        旧契约是"每个候选都必须被引擎接受"——它逼着 env 按钱/货预过滤，
+        代价是 ①买不起的建筑连选项都不出现（模型没有"攒钱的目标"）；
+        ②"候选存在"泄露一比特「我此刻买得起+合规」，违反信息集契约。
+        现在只保留**结构约束**（位次/上限/所需资源/每地块每回合一次），
+        资源类一律交给引擎如实拒绝 ⇒ 新契约是「接受，或以资源不足为由拒绝」。
+        """
         for seed in (0, 1, 2):
             env = ZhanguoEnv(map_size=12, seed=seed, max_turns=6)
             obs = env.reset()
@@ -29,10 +40,40 @@ class TestLegalActions(unittest.TestCase):
                 self.assertEqual(acts[-1].kind, "end_turn", "end_turn 必须在清单里")
                 a = acts[rng.randrange(len(acts))]
                 ok, msg = env._apply(a)
-                self.assertTrue(ok, f"引擎拒绝了 env 给出的合法动作 {a.label()}：{msg}")
+                if not ok:
+                    self.assertTrue(str(msg).startswith(self.SHORTAGE),
+                                    f"{a.label()} 被以**非资源**理由拒绝：{msg}")
                 obs, _r, done, _info = env.step(a)
                 if done:
                     break
+
+    def test_unaffordable_buildings_are_still_candidates(self):
+        """★穷得叮当响时，建筑候选**仍然要在**（用户口径：模型得有攒钱的目标）。"""
+        env = ZhanguoEnv(map_size=12, max_turns=6)
+        env.reset(0)
+        # ★ 直接清零国库：`world.cheat` 是**加**资源的（传 0 = 没动），别拿它当"设为 0"
+        res = env.world.nations[env.agent].res
+        res["黄金"] = 0
+        res["木头"] = 0
+        acts = env.legal_actions()
+        builds = [a for a in acts if a.kind == "build"]
+        self.assertTrue(builds, "没钱就一个建筑候选都没有 —— 又按钱过滤了")
+        b = builds[0]
+        ok, msg = env.world.build(env.agent, b.tile[0], b.tile[1], b.sub)
+        self.assertFalse(ok)
+        self.assertTrue(str(msg).startswith(("黄金不足", "木材不足")), msg)
+
+    def test_market_candidates_ignore_affordability(self):
+        """买卖同理：卖超过存量、买超过现金，都该在候选里（由引擎拒）。"""
+        env = ZhanguoEnv(map_size=12, max_turns=6)
+        env.reset(0)
+        res = env.world.nations[env.agent].res      # 同上：直接清零，别用 cheat(0)
+        res["黄金"] = 0
+        res["粮食"] = 0
+        acts = env.legal_actions()
+        self.assertTrue(any(a.kind == "buy" for a in acts), "没钱就没有买入候选了")
+        self.assertTrue(any(a.kind == "sell" and a.sub == "粮食" for a in acts),
+                        "没货就没有卖出候选了")
 
     def test_candidates_match_observation(self):
         env = ZhanguoEnv(map_size=12, seed=3, max_turns=6)

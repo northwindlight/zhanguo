@@ -75,11 +75,17 @@ def to_action(tool: str, args: dict):
 
 
 def match(actions, spec):
-    """把规则 AI 的动作对到候选清单的下标；数量档对不上就退而求其次（同类别）。"""
+    """把规则 AI 的动作对到候选清单的下标；数量档对不上时取**最接近**的那一档。
+
+    为什么不是"取同类别第一个"：老师常一次卖 20~49 个，而 `AMOUNTS` 的上限是 **16**
+    ⇒ 兜底取第一个 = **amount 1**，标签变成「有 35 个余量 → 只卖 1 个」。
+    实测这类失配占样本的 **2.3%**（sell/buy 上；move/attack/build/recruit 全部精确）。
+    改成按 |amount 差| 取最近档，最坏也落在 16 而不是 1。
+    """
     if spec is None:
         return None
     kind, sub, tile, army, amount = spec
-    fallback = None
+    best, best_gap = None, None
     for i, a in enumerate(actions):
         if a.kind != kind:
             continue
@@ -91,9 +97,10 @@ def match(actions, spec):
             continue
         if a.amount == amount:
             return i
-        if fallback is None:
-            fallback = i
-    return fallback
+        gap = abs(a.amount - amount)
+        if best_gap is None or gap < best_gap:
+            best, best_gap = i, gap
+    return best
 
 
 def get_teacher(which: str, turns: int = 500, horizon: int = -1):

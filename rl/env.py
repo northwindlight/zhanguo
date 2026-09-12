@@ -302,22 +302,16 @@ class ZhanguoEnv:
             for b in self.buildable:      # ★ 只枚举**真建筑**：留位槽不产生候选
                 info = BUILDINGS[b]
                 lv = eff[b]
-                if info["kind"] == "castle":
-                    # 城堡造价是**逐级表**，必须先判满级再取价——lv 等于满级时 cost[lv] 会越界
-                    if lv >= info["max_level"]:
-                        continue
-                    cost = info["cost"][lv]
-                else:
-                    cost = info["cost"]
-                bp = TERRAIN_STATS[t["terrain"]]["build_penalty"]
-                if bp:
-                    cost = cost * (100 + bp) // 100
-                if t["buildings"].get("工程院") and b != "工程院":
-                    cost = cost * (100 - building_effect("工程院", "build_discount")) // 100
-                if huns:
-                    cost = cost * 13 // 10
-                if gold < cost or wood < info["wood"]:
-                    continue
+                if info["kind"] == "castle" and lv >= info["max_level"]:
+                    continue          # 满级（结构约束，不是「买得起」）
+                # ★★ 不按「买不起」过滤（2026-09-12 用户口径）：以前这里有一整套造价计算
+                #   （地形惩罚/工程院减免/匈奴加成）+ gold < cost 判断，买不起的建筑
+                #   连候选都不生成。后果两个都是坏的：
+                #     ① 模型看不见目标 —— 没 350 金时「建兵营」这个选项根本不存在，
+                #        它连「攒钱的目标」都没有（用户原话）；
+                #     ② 候选存在本身泄露一比特「我此刻买得起+合规」，而契约要求
+                #        信息集 = 玩家看得见的那一份。
+                #   现在候选 = 引擎的合法动作空间（引擎会拒买不起的、如实报错）。
                 cr = info.get("cap_resource")
                 if cr is not None:
                     have = t["resources"].get(cr, 0)
@@ -346,12 +340,10 @@ class ZhanguoEnv:
                     cap = t["buildings"]["兵营"] - t["recruited_this_turn"]
                 if cap <= 0:
                     continue
-                cost = UNIT_TYPES[kind]["recruit"]
-                if kind == "骑" and huns:
-                    cost = {"粮食": 8, "装备": 8}
-                maxn = min(cap, min(res.get(f, 0) // amt for f, amt in cost.items()))
+                # ★ 不再按「原料够几支」截断（同 build：买不起也进候选，让引擎如实拒）。
+                #   cap（每兵营/军屯每回合的编制上限）是规则，保留。
                 for amt in AMOUNTS:
-                    if amt <= maxn:
+                    if amt <= cap:
                         cats["recruit"].append(Action("recruit", kind, (x, y), 0, amt))
 
         # ---- move / attack / retreat（不限额：所有我方军队都进候选）
@@ -388,11 +380,10 @@ class ZhanguoEnv:
         # ---- 市场
         for g in self.tradeable:      # ★ 只枚举**真物资**（留位槽不产生候选）
             for amt in AMOUNTS:
-                if amt <= res.get(g, 0):
-                    cats["sell"].append(Action("sell", g, None, 0, amt))
-                _unit, total = w.market_quote(g, amt, "buy")
-                if total <= gold:
-                    cats["buy"].append(Action("buy", g, None, 0, amt))
+                # ★ 买卖同样不按钱/货过滤：卖超过存量、买超过现金都进候选，
+                #   由引擎如实拒绝。挂单是合法动作，只是会失败。
+                cats["sell"].append(Action("sell", g, None, 0, amt))
+                cats["buy"].append(Action("buy", g, None, 0, amt))
 
         # ---- 不限额：**合法动作全部进候选**
         # 早先按类别限额 + 按回合轮转起点，为的是把候选集大小压住。但那个
