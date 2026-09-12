@@ -78,12 +78,25 @@ F_G = 2                                                                      # �
 # ===========================================================================
 # 2. 归一化尺度（唯一来源）
 # ===========================================================================
-# 建筑：cost÷2000（城堡满级 1600 是量级上限）、wood÷100（市政厅 40）、
-#       outputs/inputs/fuel 各按 STOCK 7 维、量级 ÷4（典型 1~2）、
-#       energy_out÷8（石油能源厂 8）、energy÷4、limit÷8、min_slots÷20（MAX_SLOTS）、
-#       max_level÷5（城堡 5 级）
-_COST_DIV, _WOOD_DIV, _GOODS_DIV = 2000.0, 100.0, 4.0
-_ENERGY_OUT_DIV, _ENERGY_DIV = 8.0, 4.0
+# ★★ 归一化的**唯一纪律**（2026-09-12 晚，实测后立的规矩）：
+#
+#   同一个物理量在**窗口侧**和**候选侧**必须用**同一个除数**。
+#
+#   为什么（实测）：老师整局 **95% 的回合黄金 < 350**（中位 54）—— 它一直在
+#   资本边界上跑，"这笔我付得起吗"是每一步唯一承重的比较。而原先两侧的除数是
+#   两套：窗口 `黄金/1000`、候选 `cost/2000`；窗口 `木头/1000`、候选 `wood/100`；
+#   窗口 `资源/1000`、候选 `兵种征兵成本/10`。⇒ 模型不能靠一次差/阈值判断，
+#   **得先为每个特征学出各自的缩放系数**。代价实测：在**老师自己的状态上**
+#   也有 **24% 的选择会被引擎拒**，其中 **86% 是"卖我没有的货"**。
+#
+#   规矩：资源量（黄金/木头/粮食/矿石/石油/装备/补给）一律 `RES_DIV`；
+#   电量一律 `ENERGY_DIV`。**窗口侧也读这两个常量**（`env.py`），
+#   有测试盯着它们不许再分家（`tests/test_features.py`）。
+RES_DIV = 1000.0      # 资源量。窗口 `env._obs` 与候选内容向量**共用**
+ENERGY_DIV = 20.0     # 电量。同上
+# 建筑：cost / wood / outputs / inputs / fuel 都是**资源量** ⇒ 一律 RES_DIV。
+_COST_DIV, _WOOD_DIV, _GOODS_DIV = RES_DIV, RES_DIV, RES_DIV
+_ENERGY_OUT_DIV, _ENERGY_DIV = ENERGY_DIV, ENERGY_DIV
 _LIMIT_DIV, _SLOTS_DIV, _LEVEL_DIV = 8.0, 20.0, 5.0
 # 城堡逐级造价：与 cost 同尺度（÷2000），逐级各占一维
 # 效果（每个键一个尺度；量级上限都按现值留了余量，抖动时不会顶到 1）
@@ -93,7 +106,10 @@ _EFFECT_DIV = {"defense_per_level": 50.0, "gold_base": 20.0, "gold_per_slot": 10
 # 地形：defense ÷100（±50 是现值极值）、build_penalty ÷100（50 是上限）
 _TERRAIN_DIV = {"defense": 100.0, "build_penalty": 100.0}
 # 兵种：hp÷200、speed÷2、supply÷2、atk÷100、recruit 7 维 ÷10
-_HP_DIV, _SPEED_DIV, _SUPPLY_DIV, _ATK_DIV, _RECRUIT_DIV = 200.0, 2.0, 2.0, 100.0, 10.0
+# 兵种：hp/speed/supply/atk 是**比值或自身属性**（A 组的 hp 就是 `hp/unit_max_hp`
+# 的比值，没有绝对尺度可比）；但**征兵成本是资源量** ⇒ 与资源同尺度。
+_HP_DIV, _SPEED_DIV, _SUPPLY_DIV, _ATK_DIV = 200.0, 2.0, 2.0, 100.0
+_RECRUIT_DIV = RES_DIV
 # 物资：基准价÷10（黄金 10 是量级上限）、深度÷24（粮食/木头 24 是上限）
 _PRICE_DIV, _DEPTH_DIV = 10.0, 24.0
 

@@ -679,7 +679,9 @@ class ZhanguoEnv:
         # ---- 全局向量
         g: list[float] = []
         for k in RES_KEYS:
-            g.append(res_get(w, me, k) / 1000.0)
+            # ★除数取自 `features.RES_DIV` —— 候选侧的资源量用的是同一个常量。
+            #   两侧各写一个字面量 1000 就是这次踩的坑（见 features.py 顶部的纪律）。
+            g.append(res_get(w, me, k) / F.RES_DIV)
         # ★ 走 `self.goods`（8，含 2 留位）而不是 `game.TRADEABLE`（6）：留位项在引擎里
         #   没有价格，一律 0 —— 它们只是把宽度占住（将来加物资时填进这个槽）。
         for gd in self.goods:
@@ -701,8 +703,8 @@ class ZhanguoEnv:
         g.append(math.log1p(self.turn_actions) / 3.0)
         g.append(1.0 if w.grid_short.get(me) else 0.0)
         eh, en = (w.energy_report.get(me) or (0, 0, False))[:2]
-        g.append(eh / 20.0)
-        g.append(en / 20.0)
+        g.append(eh / F.ENERGY_DIV)
+        g.append(en / F.ENERGY_DIV)
         tot = {b: 0 for b in self.bnames}
         for t in w.tiles.values():
             if t["owner"] == me:

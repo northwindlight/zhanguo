@@ -316,7 +316,7 @@ def _goods_group(world, me: str) -> tuple[np.ndarray, np.ndarray]:
     msk = np.zeros(n, bool)
     for i, gd in enumerate(V.SUB_TABLE_OF["buy"]):
         base = MARKET.get(gd, 0)
-        out[i, 0] = res_get(world, me, gd) / 1000.0
+        out[i, 0] = res_get(world, me, gd) / F.RES_DIV
         out[i, 1] = world.prices.get(gd, base) / base if base else 0.0
         out[i, 2] = world.equilibrium.get(gd, base) / base if base else 0.0
         msk[i] = gd in V.TRADEABLE_REAL      # 留位槽不亮
