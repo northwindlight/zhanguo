@@ -450,6 +450,11 @@ def main() -> None:
                     help="块调度下每几**块**留出 1 整块当验证集。**必须按块留**：块内各局"
                          "共用同一张地图，按局留出会让验证局和训练局同图，"
                          "「跨地图泛化」这个口径当场失效")
+    ap.add_argument("--eval-every", type=int, default=5,
+                    help="每几局量一次命中率（0/1 = 每局都量）。★这一项**很贵**：实测每局"
+                         "4 次 hit_rate（训练 600×2 + 验证 ×2）在 ECS 上要 **153 s**，"
+                         "而真正的采集只要 **1.1 s** —— 即「非梯度开销」里 92% 是它。"
+                         "命中率只是用来看趋势的，每 5 局一次足够，省 ~17% 墙钟")
     ap.add_argument("--val-max", type=int, default=3000,
                     help="验证集样本上限，超了**等距抽样**截断（不是取尾巴 —— 取尾巴会把"
                          "整块里最前面那几局全丢掉，验证集就偏向块尾的 DAgger 局）")
@@ -758,13 +763,19 @@ def main() -> None:
 
         # 训练集命中率也量：**只看验证集看不出过拟合**。两个一起看才有意义——
         # 训练一路涨、验证不涨或掉 = 过拟合，这时该早停挑检查点而不是继续跑。
-        _kw = {"net": args.net, "mb": args.minibatch}
-        # 不传 `model.n_tiles`：那是给 CNN 的扁平地块下标，P4 的主干根本没有 ——
-        # `collate` 里这个参数早就废弃了（空位下标按张量实时算）。
-        tr_hit = hit_rate(model, buffer[-600:], **_kw)
-        tr_true = hit_rate(model, buffer[-600:], skip_end_turn=True, **_kw)
-        hit = hit_rate(model, val, **_kw)
-        hit_true = hit_rate(model, val, skip_end_turn=True, **_kw)
+        #
+        # ★**按 --eval-every 节流**（2026-09-12 实测后加的）：这 4 次前向在 ECS 上要
+        #   **153 s**，而整局采集（老师+env+tokenize）只要 **1.1 s** —— 它占了"非梯度
+        #   开销"的 92%、整局墙钟的 21%。命中率只是拿来看趋势的，不必每局都看。
+        _do_eval = (args.eval_every <= 1) or (ep % args.eval_every == args.eval_every - 1)
+        if _do_eval:
+            _kw = {"net": args.net, "mb": args.minibatch}
+            # 不传 `model.n_tiles`：那是给 CNN 的扁平地块下标，P4 的主干根本没有 ——
+            # `collate` 里这个参数早就废弃了（空位下标按张量实时算）。
+            tr_hit = hit_rate(model, buffer[-600:], **_kw)
+            tr_true = hit_rate(model, buffer[-600:], skip_end_turn=True, **_kw)
+            hit = hit_rate(model, val, **_kw)
+            hit_true = hit_rate(model, val, skip_end_turn=True, **_kw)
         # 这个消费数**两种模式含义不同**：纯 BC 局是老师的水平（~15 万），
         # DAgger 局是**学生自己走**打出来的（可能接近 0）——标错会误判成"老师崩了"。
         who = "学生" if use_student else "老师"
@@ -772,11 +783,14 @@ def main() -> None:
         if args.block > 0:
             _tag = (f"[图{ep // args.block + 1}.{(ep % args.block) + 1}"
                     f"{'·DAgger' if _in_dagger else '·BC'}] ")
+        _hit = (f"命中 训练{tr_hit:.1%}/验证{hit:.1%}  "
+                f"真命中(扣end_turn) 训练{tr_true:.1%}/验证{hit_true:.1%}"
+                if _do_eval else
+                f"命中(每 {args.eval_every} 局量一次，本局跳过)")
         print(f"{_tag}局 {ep + 1}/{args.episodes}  样本 {len(demos)}(缓冲 {len(buffer)})  "
               f"{who}消费 {spend:,.0f}  未匹配 {miss}  loss {np.mean(losses):.3f}  "
               f"vf {np.mean(vlosses):.3f}  "
-              f"命中 训练{tr_hit:.1%}/验证{hit:.1%}  "
-              f"真命中(扣end_turn) 训练{tr_true:.1%}/验证{hit_true:.1%}  "
+              f"{_hit}  "
               f"梯度步 {grad_steps}  "
               f"累计 {time.time() - t0:.0f}s",
               flush=True)
