@@ -43,7 +43,10 @@ def label_of(a):
 res = {}
 for ft in (False, True):
     demos, spend, miss = bc.collect_episode(
-        env, TURNS, seed=0, teacher_fn=t, student=m, failure_trigger=ft, fb_cap=2)
+        env, TURNS, seed=0, teacher_fn=t, student=m, failure_trigger=ft, fb_cap=2,
+        # ★必须开：`act()` 对 transformer 会走 `collate_window([None])` 而崩
+        #   （PLAN.md 记过的坑）。窗口训练的 ckpt 只能用窗口推理。
+        with_window=True)
     c = collections.Counter(label_of(o.cand["actions"][i]) for o, i, _sp, _w in demos)
     res[ft] = (len(demos), spend, miss)
     print(f"failure_trigger={ft}:  样本 {len(demos):>5}   消费 {spend:>6}   miss {miss}")
