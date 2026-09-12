@@ -48,6 +48,10 @@ for ep in range(EPS):
         #   别把它读成"动得不少"。所以这里只量 attack 的战果：**打了有没有占下地**。
         _own_before = len(env.world.own_tiles(env.agent)) if a.kind == "attack" else None
         obs, _r, done, info = env.step(a)
+        # ★撞墙次数 = `--failure-trigger` **直接作用的量**。没有它就没法判断那味药
+        #   有没有效（领地/attack 是间接后果，会被别的东西盖住）。
+        if not info["ok"]:
+            c["撞墙"] += 1
         if info["ok"]:
             c[a.kind] += 1
             if _own_before is not None and len(env.world.own_tiles(env.agent)) > _own_before:
@@ -60,10 +64,10 @@ for ep in range(EPS):
             break
     tiles = len(env.world.own_tiles(env.agent))
     rows.append((ep, c["建兵营"], first_barracks, c["recruit"], c["attack"],
-                 c["attack:占地"], c["move"], tiles))
+                 c["attack:占地"], c["move"], tiles, c["撞墙"]))
     print(f"  局{ep}:  兵营×{c['建兵营']}  首建 T{first_barracks}  "
           f"征兵{c['recruit']}  attack{c['attack']}(占{c['attack:占地']})  "
-          f"move{c['move']}(野地行军)  领地{tiles}")
+          f"move{c['move']}(野地行军)  撞墙{c['撞墙']}  领地{tiles}")
 
 n = len(rows)
 fb = sorted(r[2] for r in rows if r[2] is not None)
@@ -81,3 +85,6 @@ print(f"  move        {sum(r[6] for r in rows) / n:.1f} 次/局"
       f"   ← 野地行军，**不是扩张指标**（用户不打算教这个）")
 print(f"  终局领地    均值 {sum(r[7] for r in rows) / n:.1f}   逐局 {[r[7] for r in rows]}"
       f"   （开局 5 格 ⇒ 净增 {sum(r[7] for r in rows) / n - 5:.1f}）")
+print(f"  ★撞墙       {sum(r[8] for r in rows) / n:.1f} 次/局"
+      f"（{sum(r[8] for r in rows) / n / TURNS:.1f}/回合）"
+      f"   ← **失败触发直接作用的量**，看它降不降")
