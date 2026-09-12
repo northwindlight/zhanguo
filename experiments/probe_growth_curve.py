@@ -47,7 +47,14 @@ while True:
     env.world.begin_turn()
 
 print(f"老师 v10   {MAP}×{MAP} 图   {TURNS} 回合   seed {SEED}")
-print(f"终局：消费 {curve[-1][1]:.0f}   领地 {curve[-1][2]}\n")
+print(f"终局：消费 {curve[-1][1]:.0f}   领地 {curve[-1][2]}")
+# ★总消费的**分解**（`mp.py:80 SPEND_FIELDS` = build/recruit/supply）—— 钱去哪了。
+#   对照学生：同样一笔消费，老师这份是多少花在养兵（扩张的燃料）上。
+_sp = env.world.spend.get(env.agent) or {}
+_tot = max(1e-9, sum(_sp.values()))
+print(f"消费结构：建造 {_sp.get('build', 0.0) / _tot:.0%} / "
+      f"征兵 {_sp.get('recruit', 0.0) / _tot:.0%} / "
+      f"**军费 {_sp.get('supply', 0.0) / _tot:.0%}**\n")
 
 step = max(1, TURNS // 20)
 print("  回合     累计消费    本回合增量    领地     军费   军费/收入")

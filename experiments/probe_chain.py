@@ -81,12 +81,22 @@ for ep in range(EPS):
     tiles = len(env.world.own_tiles(env.agent))
     spend = env.world.spend_total(env.agent)          # ★目标函数本身（不是代理指标）
     mil_sh = (_mil_sum / _mil_n) if _mil_n else 0.0
+    # ★总消费的**分解**（`mp.py:80 SPEND_FIELDS` = build/recruit/supply）：
+    #   总消费 = 建造 + 征兵 + 军费。**钱去哪了**比钱多少更能说明问题 ——
+    #   同样 60% 的消费，老师那份是养兵（扩张的燃料），学生如果是建楼堆的，
+    #   那就是"原地建造"的直接证据。
+    _sp = env.world.spend.get(env.agent) or {}
+    _tot = max(1e-9, sum(_sp.values()))
+    _b, _r, _su = (_sp.get("build", 0.0) / _tot, _sp.get("recruit", 0.0) / _tot,
+                   _sp.get("supply", 0.0) / _tot)
     rows.append((ep, c["建兵营"], first_barracks, c["recruit"], c["attack"],
-                 c["attack:占地"], c["move"], tiles, c["撞墙"], spend, mil_sh))
+                 c["attack:占地"], c["move"], tiles, c["撞墙"], spend, mil_sh,
+                 (_b, _r, _su)))
     print(f"  局{ep}:  兵营×{c['建兵营']}  首建 T{first_barracks}  "
           f"征兵{c['recruit']}  attack{c['attack']}(占{c['attack:占地']})  "
           f"move{c['move']}(野地行军)  撞墙{c['撞墙']}  领地{tiles}  "
-          f"消费{spend:.0f}  军费比{mil_sh:.0%}")
+          f"消费{spend:.0f}  军费比{mil_sh:.0%}  "
+          f"结构[建{_b:.0%}/征{_r:.0%}/军{_su:.0%}]")
 
 n = len(rows)
 fb = sorted(r[2] for r in rows if r[2] is not None)
@@ -123,3 +133,10 @@ print(f"      中位 {sorted(r[9] for r in rows)[n // 2]:.0f}"
 print(f"  ★★军费比   均值 {sum(r[10] for r in rows) / n:.1%}"
       f"   逐局 {[f'{r[10]:.0%}' for r in rows]}")
 print(f"      （v10 的闸门 = 30%；远低于它 ⇒ 军队规模不够 ⇒ 没在扩张）")
+# ★★总消费的**分解**（build/recruit/supply 三项和 = 总消费，`mp.py:80`）
+_mb = sum(r[11][0] for r in rows) / n
+_mr = sum(r[11][1] for r in rows) / n
+_ms = sum(r[11][2] for r in rows) / n
+print(f"  ★★消费结构 建造 {_mb:.0%} / 征兵 {_mr:.0%} / **军费 {_ms:.0%}**"
+      f"   ← 钱去哪了：军费那一块就是「扩张的燃料」")
+print(f"      （对照：老师在 100 回合时军费占收入 30%、且军费吃掉后期消费增量的绝大部分）")
