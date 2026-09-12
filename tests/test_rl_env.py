@@ -356,3 +356,93 @@ class TestActionFeedback(unittest.TestCase):
         self.assertGreater(total, 20, "没抽到文案 —— 抽取逻辑该修了")
         self.assertFalse(unclassified,
                          f"这些引擎拒绝文案没归类（会全落进「其他」）：{unclassified}")
+
+
+class TestMapSeedSplit(unittest.TestCase):
+    """`reset(seed, map_seed=...)`：**地图**跟 map_seed、**规则表与 RNG** 跟 seed。
+
+    为什么要有这条（2026-09-12 用户口径「同一张图 3 局 BC + 2 局 DAgger 再换图」）：
+    一根种子时"同图多局"是逐条相同的副本 —— 实测同 seed 两遍纯 BC 的标签指纹与
+    老师消费一模一样（`experiments/verify_seed_determinism.py`），零新信息。拆开之后
+    块内是"同一片地形 + 不同数值表 + 不同老师轨迹"。
+    """
+
+    @staticmethod
+    def _map_digest(env):
+        """地形与开局的指纹 —— **不含**规则表、不含 RNG 状态。"""
+        w = env.world
+        return (tuple(tuple(w.tile_terrain(x, y) for y in range(w.size))
+                      for x in range(w.size)),
+                tuple(sorted(w.own_tiles(env.agent))))
+
+    def test_rules_follow_map_seed_not_episode_seed(self):
+        """★块内**地图与规则表都固定**（用户 2026-09-12 口径：「别抖动，就副本」）。
+
+        对局种子只管 RNG；块内三局因此是**逐条相同的副本** —— 这是有意的（重复就是
+        让注意力在同一份局面上多过几遍）。换块时 `map_seed` 变了 ⇒ 地图与表一起换。
+        """
+        from rl import jitter
+        e1 = ZhanguoEnv(map_size=16, max_turns=20, rules_jitter=0.2)
+        e1.reset(seed=11, map_seed=900)
+        d1, anchor1 = self._map_digest(e1), e1.anchor
+        rules1 = dict(jitter.current() or {})
+        self.assertTrue(rules1, "开了抖动就该有一套表")
+
+        e2 = ZhanguoEnv(map_size=16, max_turns=20, rules_jitter=0.2)
+        e2.reset(seed=12, map_seed=900)          # 同块：换对局种子
+        self.assertEqual(self._map_digest(e2), d1, "同 map_seed 必须是同一片地形与开局")
+        self.assertEqual(e2.anchor, anchor1, "家必须在同一格（坐标系原点不能漂）")
+        self.assertEqual(dict(jitter.current() or {}), rules1, "同块内规则表必须固定")
+
+        e3 = ZhanguoEnv(map_size=16, max_turns=20, rules_jitter=0.2)
+        e3.reset(seed=13, map_seed=901)          # 换块：换地图种子
+        self.assertNotEqual(self._map_digest(e3), d1, "换块必须换地图")
+        self.assertNotEqual(dict(jitter.current() or {}), rules1, "换块必须换一套规则表")
+
+    def test_default_keeps_old_behavior(self):
+        """不传 map_seed 时，种子仍是**一根**（旧行为逐字保留）。"""
+        a = ZhanguoEnv(map_size=16, max_turns=20, rules_jitter=0.2)
+        a.reset(seed=7)
+        b = ZhanguoEnv(map_size=16, max_turns=20, rules_jitter=0.2)
+        b.reset(seed=7)
+        self.assertEqual(self._map_digest(b), self._map_digest(a))
+
+    def test_different_map_seed_gives_different_map(self):
+        a = ZhanguoEnv(map_size=16, max_turns=20)
+        a.reset(seed=5, map_seed=1)
+        b = ZhanguoEnv(map_size=16, max_turns=20)
+        b.reset(seed=5, map_seed=2)
+        self.assertNotEqual(self._map_digest(b), self._map_digest(a))
+
+    @staticmethod
+    def _traj(env, teacher, seed, map_seed):
+        import rl.bc as bc
+        demos, _sp, _m = bc.collect_episode(env, 20, seed=seed, teacher_fn=teacher,
+                                            map_seed=map_seed, with_window=False)
+        return "|".join(
+            f"{o.cand['actions'][i].kind}:{o.cand['actions'][i].sub}:{o.cand['actions'][i].tile}"
+            for o, i, _g, _w in demos)
+
+    def test_rules_fixed_means_same_map_is_identical(self):
+        """★**规则表不抖时，同一张图就是同一局** —— 老师对给定世界是确定性的。
+
+        这是块调度必须配 `--rules-jitter` 的原因（2026-09-12 写测试时当场撞上）：
+        只拆种子、不开抖动的话，"3 局 BC 同图"仍是**逐条相同的副本**，零新信息。
+        把这条钉住，免得哪天有人以为拆了种子就万事大吉。
+        """
+        import rl.bc as bc
+        env = ZhanguoEnv(map_size=16, max_turns=20)          # rules_jitter 默认 0
+        teacher = bc.get_teacher("v10", turns=20)
+        a = self._traj(env, teacher, 101, 900)
+        b = self._traj(env, teacher, 102, 900)
+        self.assertEqual(a, b, "规则表固定时老师是确定性的，两局应当一模一样")
+
+    def test_block_bc_episodes_are_intentional_copies(self):
+        """块内三局 BC 是**同一份数据**（用户口径：就副本）；但**换块必须换内容**。"""
+        import rl.bc as bc
+        env = ZhanguoEnv(map_size=16, max_turns=20, rules_jitter=0.1)
+        teacher = bc.get_teacher("v10", turns=20)
+        same_block = [self._traj(env, teacher, s, 900) for s in (101, 102, 103)]
+        self.assertEqual(len(set(same_block)), 1, "同块内应当是副本（用户口径，别当 bug 改）")
+        next_block = self._traj(env, teacher, 104, 901)
+        self.assertNotEqual(next_block, same_block[0], "换块必须换出不同的局面")

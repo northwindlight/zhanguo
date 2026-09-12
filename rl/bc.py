@@ -134,6 +134,24 @@ def get_teacher(which: str, turns: int = 500, horizon: int = -1):
     return fn
 
 
+def set_horizon(teacher_fn, turns: int) -> None:
+    """把老师的 ROI 回收期窗口设成 `本局回合 + 20`（口径见 `get_teacher` 的注释）。
+
+    ★**每局都要调**，不能只在 `get_teacher` 里设一次（2026-09-12）：块调度里
+    BC 局 70 回合、DAgger 局 100 回合，只设一次的话 70 回合那几局会按 100 回合
+    规划 —— 这个错**实测过**：老师按 200 回合规划时领地 28→19、进攻 24→17
+    （见 `tests/test_rule_v10.py::TestTeacherHorizon`）。
+
+    `teacher_fn` 是模块级函数，`HORIZON` 是它所在模块的全局量 —— 所以按
+    `__module__` 找模块去改，而不是把函数包一层（那样 `on_action` 之类的
+    关键字参数会漏）。
+    """
+    import sys
+    mod = sys.modules.get(getattr(teacher_fn, "__module__", "") or "")
+    if mod is not None and hasattr(mod, "HORIZON"):
+        mod.HORIZON = int(turns) + 20
+
+
 def episode_is_degenerate(tiles: int, seen: list[int], *, turns: int | None = None,
                           student_driven: bool = False,
                           ratio: float = 0.3, floor: int = 8,
@@ -174,14 +192,18 @@ def episode_is_degenerate(tiles: int, seen: list[int], *, turns: int | None = No
 
 
 def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
-                    student=None, endturn_cap: int = 1, with_window: bool = False):
+                    student=None, endturn_cap: int = 1, with_window: bool = False,
+                    map_seed: int | None = None):
     """跑一局，采 (观测, 候选下标)。返回 (样本, 该局消费, 未匹配数)。
+
+    `map_seed`：**地图种子**。给了就"地形跟它、规则表与 RNG 跟 `seed`"（见
+    `ZhanguoEnv.reset`）—— 块调度靠它做"同一张图、多局"。不给 = 一根种子（旧行为）。
 
     `student=None`：**老师自己走**（纯 BC，只覆盖老师的轨迹）。
     `student=模型`：**学生走、老师打标签**（DAgger，覆盖学生实际会走到的状态）。
     """
     teacher_fn = teacher_fn or get_teacher("v6")
-    env.reset(seed)
+    env.reset(seed, map_seed=map_seed)
 
     # ---------------- DAgger：学生走、老师打标签 ----------------
     # 每个回合**开头**问一次老师，拿到它这一回合的**整个动作序列**（在世界的副本上问，
@@ -200,7 +222,7 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
         from rl.ppo import act as _act
         demos_d: list[tuple] = []
         miss_d = 0
-        obs = env.reset(seed)
+        obs = env.reset(seed, map_seed=map_seed)
         rng = random.Random(seed)
         last_turn = -1
         seq: list[tuple] = []
@@ -412,7 +434,25 @@ def main() -> None:
                     help="从第几局（0 起）开始 DAgger；默认 episodes//2。"
                          "给个很大的数=全程纯 BC（短程验证用，信号干净不被 DAgger 搅）")
     ap.add_argument("--val-every", type=int, default=6,
-                    help="每几局抽 1 局整局留出当验证集；短程跑要调小，否则一直是 nan")
+                    help="每几局抽 1 局整局留出当验证集；短程跑要调小，否则一直是 nan。"
+                         "**块调度下失效**，改用 --val-blocks")
+    # ---- ★块调度（用户 2026-09-12 口径）----
+    ap.add_argument("--block", type=int, default=0,
+                    help="★每 N 局**换一张地图**：块内前 --bc-per-map 局纯 BC、其余 DAgger。"
+                         "0 = 关（每局换图的旧行为）。推荐 5 = 3 BC + 2 DAgger。"
+                         "地图由 map_seed 固定、规则表与 RNG 每局变（见 ZhanguoEnv.reset）")
+    ap.add_argument("--bc-per-map", type=int, default=3,
+                    help="块内前几局走纯 BC（其余走 DAgger）。只在 --block > 0 时有效")
+    ap.add_argument("--dagger-turns", type=int, default=100,
+                    help="DAgger 局的回合数（BC 局仍用 --turns）。★拉长是为了让**后 30 回合**"
+                         "成为「复制模式」的自证窗口 —— 同一张图它已经熟了，能不能自己延续")
+    ap.add_argument("--val-blocks", type=int, default=6,
+                    help="块调度下每几**块**留出 1 整块当验证集。**必须按块留**：块内各局"
+                         "共用同一张地图，按局留出会让验证局和训练局同图，"
+                         "「跨地图泛化」这个口径当场失效")
+    ap.add_argument("--val-max", type=int, default=3000,
+                    help="验证集样本上限，超了**等距抽样**截断（不是取尾巴 —— 取尾巴会把"
+                         "整块里最前面那几局全丢掉，验证集就偏向块尾的 DAgger 局）")
     ap.add_argument("--buffer", type=int, default=40000, help="回放缓冲上限（滚动窗口）")
     ap.add_argument("--vf-coef", type=float, default=0.5,
                     help="value 损失的权重——BC 顺手把 critic 也热身，PPO 接手时 V 不是随机数。"
@@ -563,6 +603,15 @@ def main() -> None:
     print(f"老师 = {args.teacher}（{teacher_fn.__module__}）{_hz}"
           f"  每局 {args.turns} 回合 × {args.episodes} 局"
           f"  每局 {args.steps} 梯度步  缓冲 {args.buffer}")
+    if args.block > 0:
+        _nb = args.episodes / args.block
+        print(f"★块调度：每 {args.block} 局换一张图（共约 {_nb:.0f} 张）—— 块内前 "
+              f"{args.bc_per_map} 局纯 BC（{args.turns} 回合）、其余 "
+              f"{args.block - args.bc_per_map} 局 DAgger（{args.dagger_turns} 回合）；"
+              f"每 {args.val_blocks} **块**留出 1 整块当验证集")
+        if args.episodes % args.block:
+            print(f"  ⚠ --episodes {args.episodes} 不是 --block {args.block} 的整数倍，"
+                  f"最后一块只有 {args.episodes % args.block} 局")
     rng = random.Random(args.seed ^ 0xBEEF)
     buffer: list = []
     val: list = []                 # 验证集：只用来量命中率，**永不参与训练**
@@ -571,17 +620,33 @@ def main() -> None:
     grad_steps = 0
     dagger_from = args.dagger_from if args.dagger_from >= 0 else args.episodes // 2
     degenerate = 0                 # 被判为退化局的局数（丢弃样本，不参与训练）
+    _warned_buffer = False         # 缓冲溢出只报一次（报多了刷屏）
     _seen_tiles: list[int] = []    # 见过的健康局领地数（判据的相对基准）
     for ep in range(args.episodes):
         # 后半程用 **DAgger**：让学生自己跑，再让老师在**学生走到的状态**上打标签。
         # 这是治「分布漂移」的标准药——只学老师的轨迹，学生一旦偏离就没标签了。
-        use_student = (ep >= dagger_from) and len(buffer) > 0
+        if args.block > 0:
+            # ★块调度：同一张图连做 args.block 局，前 --bc-per-map 局纯 BC、其余 DAgger。
+            #   地图种子**按块**推进（乘一个大质数错开，免得相邻块的地图有相关性），
+            #   对局种子仍每局变 —— 这是"同一片地形上换一套规则表与老师轨迹"，
+            #   而不是把同一份数据抄 N 遍（同 seed 是逐条相同的副本，实测过）。
+            _map_seed = args.seed + (ep // args.block) * 7919
+            _in_dagger = (ep % args.block) >= args.bc_per_map
+            _turns = args.dagger_turns if _in_dagger else args.turns
+        else:
+            _map_seed = None
+            _in_dagger = ep >= dagger_from
+            _turns = args.turns
+        use_student = _in_dagger and len(buffer) > 0
+        # ★老师的 ROI 窗口按**本局**回合数设：块调度里 BC 70 / DAgger 100 混着跑，
+        #   只在建老师时设一次会让短的那几局按长的规划。
+        set_horizon(teacher_fn, _turns)
         if use_student:
             set_collect_threads()      # batch=1 逐步前向 → 单线程
         demos, spend, miss = collect_episode(
-            env, args.turns, seed=args.seed + ep, teacher_fn=teacher_fn,
+            env, _turns, seed=args.seed + ep, teacher_fn=teacher_fn,
             student=model if use_student else None, endturn_cap=args.endturn_cap,
-            with_window=use_win)
+            with_window=use_win, map_seed=_map_seed)
         set_train_threads()            # 梯度步是大 batch → 切回来
         if not demos:
             print(f"第 {ep} 局没采到样本，跳过")
@@ -590,7 +655,7 @@ def main() -> None:
         #   （领地停在开局 5 格、0 次进攻）—— 那种局的样本几乎全是 end_turn，
         #   收进缓冲等于**教学生"别动"**。判据见 `episode_is_degenerate`。
         _tiles = len(env.world.own_tiles(env.agent)) if env.world is not None else 0
-        if episode_is_degenerate(_tiles, _seen_tiles, turns=args.turns,
+        if episode_is_degenerate(_tiles, _seen_tiles, turns=_turns,
                                  student_driven=use_student):
             # ★报**从 1 开始**的局号：与进度行「局 N/42」同一口径。
             #   写 0 基的 `ep` 会让日志读起来像"第 10 局被丢"而实际是第 11 局（踩过）。
@@ -605,14 +670,31 @@ def main() -> None:
         # 验证集 = **整局留出**（每 --val-every 局抽 1 局）。先前是从每局里切 10%，
         # 那些样本和训练集**共用同一张地图**——只能测出"对见过的地图过拟合"，
         # 而真正要测的是**换一张新地图还灵不灵**。整局留出才测得到跨地图泛化。
-        if ep % args.val_every == args.val_every - 1:
+        if args.block > 0:
+            # ★按**块**留出：块内各局共用一张地图，按局留出等于让验证和训练同图。
+            _to_val = (ep // args.block) % args.val_blocks == args.val_blocks - 1
+        else:
+            _to_val = ep % args.val_every == args.val_every - 1
+        if _to_val:
             val.extend(demos)
         else:
             buffer.extend(demos)
         if len(buffer) > args.buffer:
             buffer = buffer[-args.buffer:]
-        if len(val) > 2000:
-            val = val[-2000:]
+            if not _warned_buffer:
+                # ★这一条以前是**静默**的：缓冲一满，最老的局就被丢掉，梯度只看得到
+                #   最近 `--buffer / 每局样本数` 局。1000 局的跑法配默认 40000 的话，
+                #   实际只有最近 ~90 局在训练 —— 跑 1000 局和跑 90 局对模型是同一件事。
+                _warned_buffer = True
+                print(f"⚠ 缓冲已满（--buffer {args.buffer}）：从此**每局都会丢掉最老的样本**，"
+                      f"模型只看得到最近约 {args.buffer // max(1, len(demos))} 局。"
+                      f"要真用上全部局数就调大 --buffer（每条约 56 KB：45 万条 ≈ 24 GB）",
+                      flush=True)
+        if len(val) > args.val_max:
+            # ★等距抽样，不是 `[-N:]`：取尾巴会把整块里**最前面那几局**（纯 BC 阶段）
+            #   全丢掉，验证集就偏向块尾的 DAgger 局 —— 那个口径量不了"BC 学到了什么"。
+            _ix = np.linspace(0, len(val) - 1, args.val_max).astype(np.int64)
+            val = [val[i] for i in _ix]
 
         losses = []
         vlosses = []
@@ -686,7 +768,11 @@ def main() -> None:
         # 这个消费数**两种模式含义不同**：纯 BC 局是老师的水平（~15 万），
         # DAgger 局是**学生自己走**打出来的（可能接近 0）——标错会误判成"老师崩了"。
         who = "学生" if use_student else "老师"
-        print(f"局 {ep + 1}/{args.episodes}  样本 {len(demos)}(缓冲 {len(buffer)})  "
+        _tag = ""
+        if args.block > 0:
+            _tag = (f"[图{ep // args.block + 1}.{(ep % args.block) + 1}"
+                    f"{'·DAgger' if _in_dagger else '·BC'}] ")
+        print(f"{_tag}局 {ep + 1}/{args.episodes}  样本 {len(demos)}(缓冲 {len(buffer)})  "
               f"{who}消费 {spend:,.0f}  未匹配 {miss}  loss {np.mean(losses):.3f}  "
               f"vf {np.mean(vlosses):.3f}  "
               f"命中 训练{tr_hit:.1%}/验证{hit:.1%}  "

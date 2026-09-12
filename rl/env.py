@@ -174,22 +174,45 @@ class ZhanguoEnv:
         self.army_index: dict[int, int] = {}
 
     # ------------------------------------------------------------------ 生命周期
-    def reset(self, seed: int | None = None) -> Obs:
+    def reset(self, seed: int | None = None, *, map_seed: int | None = None) -> Obs:
+        """开一局。`map_seed` = **地图种子**（驱动地形/开局位置**和规则抖动**），
+        `seed` = **对局种子**（驱动地图尺寸与 `self.rng`）。不传 `map_seed` 时两根合一根
+        （旧行为逐字保留）。
+
+        ★**两根种子的分工**（用户 2026-09-12 口径：「同一张图 3 局 BC + 2 局 DAgger
+        再换图」「别抖动，就副本；换地图再抖动」）：
+
+        | 跟着谁 | 什么 |
+        |---|---|
+        | `map_seed`（**按块**，块内不变） | 地形、开局位置、**规则表**（抖动） |
+        | `seed`（每局变） | 地图尺寸抽样、`self.rng` |
+
+        ⇒ **块内 BC 局是逐条相同的副本**（地形、数值表、老师都一样 —— 这是有意的：
+        重复就是让注意力在同一份局面上多过几遍）。**换块时地图与规则表一起换。**
+
+        ⚠ 一条实测教训（`tests/test_rl_env.py::TestMapSeedSplit`）：老师对给定世界是
+        **确定性**的 —— 只拆种子、不开 `--rules-jitter` 的话，块内三局仍是逐条相同的
+        副本，那正是"就副本"想要的效果；但如果你哪天想"同图不同局"，**唯一**能变出
+        差异的旋钮就是 jitter（把 `jitter.apply` 的第一个参数换成 `self.seed`）——
+        光换对局种子变不出第二条轨迹。同 seed 两遍纯 BC 的标签指纹与老师消费实测
+        完全一致：`experiments/verify_seed_determinism.py`。
+        """
         if seed is not None:
             self.seed = int(seed)
+        ms = int(map_seed) if map_seed is not None else self.seed
         # ★每局重采样**规则表**（域随机化，§10.4）：`rules_jitter=0`（默认）时
         #   走 `restore()` —— 评估/看海/对拍一律真值。开了就 `seed → 一套表`，
         #   同一 seed 必得同一套（可复现；记录见 `jitter.current()`）。
         #   它改的是 `game.*` 的**活表**：候选枚举、引擎结算、观测内容、老师
         #   （`build_econ`/`good_value`）读的都是同一份 —— 不同源就会学出假动力学。
-        jitter.apply(self.seed, self.rules_jitter)
-        # ★每局重采样地图尺寸（同一 seed 必得同一尺寸 —— 可复现）。
+        jitter.apply(ms, self.rules_jitter)
+        # ★每局重采样地图尺寸（同一 map_seed 必得同一尺寸 —— 可复现）。
         if len(self.map_sizes) > 1:
             self.map_size = self.map_sizes[
-                random.Random(self.seed ^ 0x9E3779B9).randrange(len(self.map_sizes))]
+                random.Random(ms ^ 0x9E3779B9).randrange(len(self.map_sizes))]
         n = self.map_size
         names = [self.agent] + [r for r in self.rivals if r != self.agent]
-        self.world = World(size=n, seed=self.seed, nations=names)
+        self.world = World(size=n, seed=ms, nations=names)
         # ★「家」= 开局那格（与引擎 mp.py 里 `home = own_tiles(name)[0]` 同口径），
         #   **本局内固定**，作为模型坐标系的唯一原点。智能体永远以家为 (0,0) 看世界 ——
         #   于是策略天然平移无关，也看不出自己在地图的哪个位置（它本就不该知道：
