@@ -194,7 +194,8 @@ def episode_is_degenerate(tiles: int, seen: list[int], *, turns: int | None = No
 
 def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
                     student=None, endturn_cap: int = 1, with_window: bool = False,
-                    map_seed: int | None = None):
+                    map_seed: int | None = None,
+                    failure_trigger: bool = False, fb_cap: int = 2):
     """跑一局，采 (观测, 候选下标)。返回 (样本, 该局消费, 未匹配数)。
 
     `map_seed`：**地图种子**。给了就"地形跟它、规则表与 RNG 跟 `seed`"（见
@@ -225,6 +226,11 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
         miss_d = 0
         obs = env.reset(seed, map_seed=map_seed)
         rng = random.Random(seed)
+        # ★失败触发专用 rng：**必须是独立的一条流** —— 老师的回合计划用 `rng`，
+        #   重规划用它。共用会让"多问一次"改变后续所有老师计划，整条轨迹没法对比。
+        rng_fb = random.Random(seed ^ 0xFA11)
+        fb_seen: set = set()     # 本回合已入过库的失败触发答案 (kind, sub)
+        n_fb = 0                 # 本回合已发过几条失败触发标签
         last_turn = -1
         seq: list[tuple] = []
         n_end = 0                # 本回合已发过几条 end_turn 标签
@@ -233,6 +239,8 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
             if t != last_turn:
                 last_turn = t
                 n_end = 0
+                n_fb = 0
+                fb_seen.clear()
                 # ★**每回合都问老师，不节流**（2026-09-11 去掉 `dagger_every`）。
                 #   实测一次 deepcopy + v8 整回合只要 **7.4 ms**，而一次梯度步约 1100 ms
                 #   —— 一局 70 回合全问 = 0.52 秒，占整局（≈289 s）的 **0.18%**。
@@ -270,6 +278,47 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
                                 _mkwin(env, obs, with_window)))
             idx, _lp, _v = _act(student, obs, win=_mkwin(env, obs, with_window))
             obs, _r, done, _info = env.step(obs.cand["actions"][idx])
+            # ---------------- 失败触发（failure-triggered query，2026-09-12）----------------
+            # 学生**被引擎拒**的那一刻，额外问一次老师 —— 但问法与上面的相位对齐不同：
+            # 这是把老师当**策略** π*(s) 用（在学生的当前局面上重规划），而不是当
+            # **轨迹** τ*[k] 用（取它自己第 k 步做了什么）。
+            #
+            # 为什么相位对齐在这里必然失效：撞墙时世界没变（`_apply` 返回 False ⇒ 动作
+            # 没生效），所以学生局面**停在了老师轨迹对不上的地方**。实测（ep400、
+            # `experiments/probe_failure_trigger.py`）：撞墙点上有 DAgger 标签的 72 个
+            # 里 **38% 学生做的正是老师那条标签**——标签本身在这局面上执行不了。
+            #
+            # 实测的量：一局撞墙 **100 次**、占回合预算 **35%**（有效步 181 / 撞墙 100）；
+            # 老师在这些状态上重规划，**86% 的计划里含 build/recruit/move/attack**、
+            # **首步是 end_turn 的为 0**（⇒ 不会教出"撞了就停手"）；撞墙后学生
+            # **25% 直接 end_turn**、29% 还选同类（头铁）。
+            #
+            # ★标签取老师重规划的**第 1 个**动作，宁可它是 `sell` 也不跳过：
+            #   老师开局固定"先卖余量再买木头"，那个 sell 正是"先搞钱"的答案 ——
+            #   学生撞墙的原因就是"没钱还想造楼"（用户 2026-09-12：「核心影响是没有钱，
+            #   不会攒钱」）。若改取"老师序列里第一个动手的动作"，等于跳过筹钱直接教
+            #   造楼，会教出"没钱硬造"。
+            #
+            # ★用 step **之后**的 obs：它带着 `last_ok/last_reject`，正是推理时学生
+            #   实际看到的那一帧。
+            if failure_trigger and not _info["ok"] and n_fb < fb_cap:
+                seq_fb: list[tuple] = []
+                teacher_fn(copy.deepcopy(env.world), env.agent, rng_fb,
+                           max_actions=10 ** 9,
+                           on_action=lambda tool, args: seq_fb.append((tool, args)))
+                if seq_fb:
+                    a_fb = to_action(*seq_fb[0])
+                    # ★去重：同一回合同一个答案只入一条。学生一回合平均撞 2.6 次，
+                    #   不去重就是复刻当年 `endturn_cap` 的坑 —— 同一条教训重复灌进
+                    #   buffer，边际信息为零却吃光梯度预算（旧 bc_full 日志"训练命中
+                    #   92.5% / 真命中 16.7%"就是那么撑出来的）。
+                    if a_fb[:2] not in fb_seen:
+                        fb_seen.add(a_fb[:2])
+                        j = match(obs.cand["actions"], a_fb)
+                        if j is not None:
+                            demos_d.append((obs, j, env.world.spend_total(env.agent),
+                                            _mkwin(env, obs, with_window)))
+                            n_fb += 1
             if done:
                 break
         end = env.world.spend_total(env.agent)
@@ -436,6 +485,16 @@ def main() -> None:
                     help="DAgger 里每回合最多发几条 end_turn 标签（默认 1 = 只留老师"
                          "真正的停手状态）。学生未训练时一回合走 67~71 步、老师只走 5~6 步，"
                          "不封顶的话 ~90%% 的标签是 end_turn，梯度预算全被同一个教训吃掉。")
+    ap.add_argument("--failure-trigger", action="store_true",
+                    help="DAgger 里学生**被引擎拒**时，在它的当前状态上额外问一次老师"
+                         "（重规划，取第 1 个动作）。实测一局撞墙 100 次、占回合预算 35%%，"
+                         "而撞墙点上 38%% 的相位对齐标签本身就是执行不了的 —— 这是"
+                         "把老师当策略 π*(s) 而不是轨迹 τ*[k] 用的唯一可行入口"
+                         "（每步重规划会每步都被教「先卖」，见 `experiments/"
+                         "probe_failure_trigger.py`）。")
+    ap.add_argument("--fb-cap", type=int, default=2,
+                    help="失败触发每回合最多发几条标签（默认 2；同回合同一答案会去重）。"
+                         "学生一回合平均撞 2.6 次，不封顶会把梯度预算喂给重复教训。")
     ap.add_argument("--dagger-from", type=int, default=-1,
                     help="从第几局（0 起）开始 DAgger；默认 episodes//2。"
                          "给个很大的数=全程纯 BC（短程验证用，信号干净不被 DAgger 搅）")
@@ -668,7 +727,8 @@ def main() -> None:
         demos, spend, miss = collect_episode(
             env, _turns, seed=args.seed + ep, teacher_fn=teacher_fn,
             student=model if use_student else None, endturn_cap=args.endturn_cap,
-            with_window=use_win, map_seed=_map_seed)
+            with_window=use_win, map_seed=_map_seed,
+            failure_trigger=args.failure_trigger, fb_cap=args.fb_cap)
         set_train_threads()            # 梯度步是大 batch → 切回来
         if not demos:
             print(f"第 {ep} 局没采到样本，跳过")
