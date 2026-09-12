@@ -190,6 +190,16 @@ class TestDegenerateEpisodeGuard(unittest.TestCase):
         self.assertTrue(episode_is_degenerate(7, [50]))     # 样本少 → 只看 floor
         self.assertFalse(episode_is_degenerate(12, [50]))
 
+    def test_dagger_episodes_are_never_degenerate(self):
+        """★DAgger 局一律不判退化：那时领地反映的是**学生**，而学生不会扩张
+        正是要打标签的东西（踩过：`--dagger-from 21` 一开，后半程 21 局全被丢弃，
+        那半炉一个样本没进缓冲；且丢弃局不做梯度步 ⇒ 整炉只跑了 3.6 小时就"完成"）。"""
+        from rl.bc import episode_is_degenerate
+        for tiles in (5, 7, 12, 30):
+            self.assertFalse(episode_is_degenerate(tiles, [30, 28, 33], turns=70,
+                                                   student_driven=True))
+        self.assertTrue(episode_is_degenerate(5, [30, 28, 33], turns=70))
+
     def test_short_episodes_are_never_degenerate(self):
         """★回合数不够时判据不成立：扩张本来就晚（首攻中位第 21 回合），
         短回合的冒烟/调试跑法本来就只有开局那 5 格 —— 别把它的样本丢掉。"""

@@ -135,6 +135,7 @@ def get_teacher(which: str, turns: int = 500, horizon: int = -1):
 
 
 def episode_is_degenerate(tiles: int, seen: list[int], *, turns: int | None = None,
+                          student_driven: bool = False,
                           ratio: float = 0.3, floor: int = 8,
                           min_turns: int = 40) -> bool:
     """这一局是不是「老师根本没启动起来」？（抖动过大的地图会这样）
@@ -149,12 +150,19 @@ def episode_is_degenerate(tiles: int, seen: list[int], *, turns: int | None = No
     阈值**相对化**（见过的中位数的 `ratio`，且不低于 `floor`）：绝对阈值会随回合数、
     地图尺寸、老师版本漂，而"这一局比别的局差一大截"是稳定的信号。
 
+    ★`student_driven=True`（DAgger 局）**一律不判**：那时领地反映的是**学生**的表现，
+    而学生不会扩张正是我们要打标签的东西 —— 丢掉它等于把**纠正信号**一起丢掉。
+    （踩过：`--dagger-from 21` 一开，后半程 21 局全被判退化丢弃，那半炉一个样本没进缓冲；
+    而且丢弃局不做梯度步，整炉只跑了 3.6 小时就"完成"。）
+
     `turns`：**回合数不够时这个判据不成立** —— 扩张本来就晚（老师首次进攻中位第 21 回合），
     短回合的跑法（冒烟/调试）本来就不扩张。所以 `turns < min_turns` 一律不判退化。
     （踩过：拿 `--turns 12` 冒烟，5 格被当成退化局，那一局样本全丢。）
     `ratio=0.3` 而不是 0.4：±20% 实测里有两局只有 12 格、但有 8~10 次进攻 —— 那是
     **健康但慢**的地图，不该误杀（中位 31 时 0.3×31≈9.3，12 格过关；退化局 ≤7 格照样被抓）。
     """
+    if student_driven:                  # ★DAgger 局：领地是学生的成绩，不是判据
+        return False
     if turns is not None and turns < min_turns:
         return False
     if tiles <= 5:                      # 开局就是 5 格（十字）→ 一格没打下来
@@ -582,7 +590,8 @@ def main() -> None:
         #   （领地停在开局 5 格、0 次进攻）—— 那种局的样本几乎全是 end_turn，
         #   收进缓冲等于**教学生"别动"**。判据见 `episode_is_degenerate`。
         _tiles = len(env.world.own_tiles(env.agent)) if env.world is not None else 0
-        if episode_is_degenerate(_tiles, _seen_tiles, turns=args.turns):
+        if episode_is_degenerate(_tiles, _seen_tiles, turns=args.turns,
+                                 student_driven=use_student):
             # ★报**从 1 开始**的局号：与进度行「局 N/42」同一口径。
             #   写 0 基的 `ep` 会让日志读起来像"第 10 局被丢"而实际是第 11 局（踩过）。
             print(f"⚠ 第 {ep + 1} 局老师没启动起来（领地 {_tiles}，见过的中位 "
