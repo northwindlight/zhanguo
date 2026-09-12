@@ -13,6 +13,7 @@
 import sys
 import random
 from rl.env import ZhanguoEnv
+from spend_rules import army_upkeep_units, income_of
 import rl.bc as bc
 
 TURNS = int(sys.argv[1]) if len(sys.argv) > 1 else 300
@@ -31,8 +32,15 @@ curve = []
 while True:
     t = env.world.turn
     teacher(env.world, env.agent, rng, max_actions=10 ** 9, on_action=lambda *a: None)
-    curve.append((t, env.world.spend_total(env.agent),
-                  len(env.world.own_tiles(env.agent))))
+    # ★军费比 = v10 **可验证**的一面：它的闸门是 `MIL_SHARE = 0.30`
+    #   （`expand_rule_v10.py:99`：`mil_ok = inc <= 0.5 or (upkeep / inc) < MIL_SHARE`）
+    #   —— 军费占收入超 30% 就不征兵/不涨兵。所以曲线里这一列**应当压在 30% 以下**，
+    #   压不住就说明军费口径或曲线算错了。这是给曲线做的**交叉校验**。
+    w = env.world
+    mil = army_upkeep_units(w, env.agent) * w.prices.get("补给", 5)
+    inc = income_of(w, env.agent)
+    curve.append((t, w.spend_total(env.agent), len(w.own_tiles(env.agent)),
+                  mil, (mil / inc if inc > 0 else 0.0)))
     env.world.resolve_turn()
     if t + 1 >= TURNS:
         break
@@ -42,11 +50,12 @@ print(f"老师 v10   {MAP}×{MAP} 图   {TURNS} 回合   seed {SEED}")
 print(f"终局：消费 {curve[-1][1]:.0f}   领地 {curve[-1][2]}\n")
 
 step = max(1, TURNS // 20)
-print("  回合     累计消费    本回合增量    领地")
+print("  回合     累计消费    本回合增量    领地     军费   军费/收入")
 prev = 0.0
-for t, sp, tl in curve:
+for t, sp, tl, mil, shr in curve:
     if t % step == 0 or t == TURNS - 1:
-        print(f"  {t + 1:>4}   {sp:>10.0f}   {sp - prev:>10.0f}   {tl:>5}")
+        print(f"  {t + 1:>4}   {sp:>10.0f}   {sp - prev:>10.0f}   {tl:>5}"
+              f"   {mil:>6.0f}   {shr:>8.1%}")
     prev = sp
 
 # ---------------------------------------------------------------- ASCII 曲线
@@ -68,3 +77,28 @@ for r in range(H, -1, -1):
     print(head + "".join("█" if cols[i] / mx * H >= r else " " for i in range(W)))
 print(" " * 8 + " +" + "-" * W)
 print(" " * 9 + f"1{' ' * (W - 12)}{TURNS} 回合")
+
+# ------------------------------------------------ 军费占收入（v10 的 30% 闸门）
+shares = [c[4] for c in curve]
+smax = max(max(shares), 0.34)
+cols2 = []
+for i in range(W):
+    a = int(i * len(shares) / W)
+    b = max(a + 1, int((i + 1) * len(shares) / W))
+    cols2.append(max(shares[a:b]))
+
+print("\n军费占收入（v10 的闸门 MIL_SHARE = 30%：超了就不征兵、不涨兵）")
+H2 = 10
+for r in range(H2, -1, -1):
+    thr = smax * r / H2
+    if thr <= 0.30 < smax * (r + 1) / H2:
+        head = "  30% ┤"
+    elif r % 2 == 0:
+        head = f"{thr * 100:>5.0f}% │"
+    else:
+        head = "       │"
+    print(head + "".join("█" if cols2[i] >= thr else " " for i in range(W)))
+print("       └" + "-" * W)
+over = sum(1 for s in shares if s > 0.30)
+print(f"  超 30% 闸门的回合：{over}/{len(shares)}（{over / len(shares):.0%}）"
+      f"   峰值 {max(shares):.1%}   中位 {sorted(shares)[len(shares) // 2]:.1%}")
