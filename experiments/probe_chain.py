@@ -63,11 +63,12 @@ for ep in range(EPS):
         if done:
             break
     tiles = len(env.world.own_tiles(env.agent))
+    spend = env.world.spend_total(env.agent)          # ★目标函数本身（不是代理指标）
     rows.append((ep, c["建兵营"], first_barracks, c["recruit"], c["attack"],
-                 c["attack:占地"], c["move"], tiles, c["撞墙"]))
+                 c["attack:占地"], c["move"], tiles, c["撞墙"], spend))
     print(f"  局{ep}:  兵营×{c['建兵营']}  首建 T{first_barracks}  "
           f"征兵{c['recruit']}  attack{c['attack']}(占{c['attack:占地']})  "
-          f"move{c['move']}(野地行军)  撞墙{c['撞墙']}  领地{tiles}")
+          f"move{c['move']}(野地行军)  撞墙{c['撞墙']}  领地{tiles}  消费{spend:.0f}")
 
 n = len(rows)
 fb = sorted(r[2] for r in rows if r[2] is not None)
@@ -91,3 +92,10 @@ print(f"  终局领地    均值 {sum(r[7] for r in rows) / n:.1f}   逐局 {[r[
 print(f"  ★撞墙       {sum(r[8] for r in rows) / n:.1f} 次/局"
       f"（{sum(r[8] for r in rows) / n / TURNS:.1f}/回合）"
       f"   ← **失败触发直接作用的量**，看它降不降")
+# ★消费 = **目标函数本身**（支出法 GDP：建造+征兵+军费）。领地/attack 都是
+#   **代理指标**（§一「判据口径：前期看领地」——前期而已）。终局消费才是终局结算
+#   排名真正比的那个量。
+print(f"  ★★消费     均值 {sum(r[9] for r in rows) / n:.0f}"
+      f"   逐局 {[round(r[9]) for r in rows]}")
+print(f"      中位 {sorted(r[9] for r in rows)[n // 2]:.0f}"
+      f"   最低 {min(r[9] for r in rows):.0f}   最高 {max(r[9] for r in rows):.0f}")
