@@ -251,7 +251,7 @@ def forward_batch(model, steps, wins=None):
     dev = model_device(model)
     if is_transformer(model):
         cand, cmask = collate_cand(steps)
-        logits, value = model(move_to(collate_window(wins), dev), move_to(cand, dev), cmask)
+        logits, value = model(*move_to((collate_window(wins), cand, cmask), dev))
         return logits, value, cmask
     grid, glob, cand, mask = collate(steps, getattr(model, "n_tiles", 0))
     wb = collate_window(wins) if wins is not None else None

@@ -390,7 +390,7 @@ def hit_rate(model, samples, n_tiles: int = 0, *, skip_end_turn: bool = False,
             chunk = samples[s:s + mb]
             if net == "tf":
                 cand, cmask, wb, acts, _g = pack_tf(chunk)
-                _lg = model(move_to(wb, _dev), move_to(cand, _dev), cmask)[0]
+                _lg = model(*move_to((wb, cand, cmask), _dev))[0]
             elif net == "pool":
                 (grid, glob, cand, mask), wb, acts, _g = pack_win(chunk, n_tiles)
                 _lg = model(*move_to((grid, glob, cand, mask), _dev),
@@ -737,15 +737,20 @@ def main() -> None:
             w_kind = torch.as_tensor(raw / float((raw * freq).sum()), dtype=torch.float32)
         for _ in range(args.steps):
             chunk = [buffer[rng.randrange(len(buffer))] for _ in range(args.minibatch)]
+            # ★**搬运点之二**（见 `rl/device.py`）：这一支绕过 `forward_batch`
+            #   直接调 `model(...)`，所以得自己把整批搬过去 —— 只搬 `acts` 不够，
+            #   `cand`/`wb`/`mask` 一个都不能漏（漏哪个就报 "Expected all tensors to
+            #   be on the same device"，而且只在 GPU 上炸、CPU 上完全看不出来）。
             if args.net == "tf":
                 cand, cmask, wb, acts, rets = pack_tf(chunk)
-                logits, v = model(wb, cand, cmask)
+                logits, v = model(*move_to((wb, cand, cmask), _dev))
             elif args.net == "pool":
                 (grid, glob, cand, mask), wb, acts, rets = pack_win(chunk, model.n_tiles)
-                logits, v = model(grid, glob, cand, mask, win=wb)
+                logits, v = model(*move_to((grid, glob, cand, mask), _dev),
+                                  win=move_to(wb, _dev))
             else:
                 (grid, glob, cand, mask), acts, rets = pack(chunk, model.n_tiles)
-                logits, v = model(grid, glob, cand, mask)
+                logits, v = model(*move_to((grid, glob, cand, mask), _dev))
             logp = F.log_softmax(logits, dim=-1)
             # ★搬运点之二（见 `rl/device.py`）：这一支直接调 `model(...)`、没走
             #   `forward_batch`，所以得自己搬。**必须在 `log_softmax` 之后拿 device**
@@ -759,7 +764,7 @@ def main() -> None:
                 w_s = torch.as_tensor(
                     [w_kind[KIND_INDEX[_parts(_s)[0].cand["actions"][_parts(_s)[1]].kind]]
                      for _s in chunk],
-                    dtype=torch.float32)
+                    dtype=torch.float32, device=_lp.device)
                 _lp = _lp * w_s
             loss_pi = -_lp.mean()
             # **value 头也要练**：只练策略的话 BC 出来 V 是随机的，PPO 接手时
@@ -770,8 +775,9 @@ def main() -> None:
             # 配比 170:1；② 下面那句全局 clip_grad_norm_(0.5) 被价值撑满，策略那点
             # 梯度会被**一起缩掉**。除以回报方差拉回 O(1)：critic 没标定时使劲学，
             # 标定好了自动让位（这就是"顺手热身"该有的样子）。
-            rt = torch.as_tensor(rets)
-            loss_v = F.mse_loss(v, rt) / max(1.0, float(rt.var()))
+            # ★同样要带设备：`v` 是模型输出（GPU），`rt` 若留在 CPU，`mse_loss` 直接炸
+            rt = torch.as_tensor(rets, device=v.device)
+            loss_v = F.mse_loss(v, rt) / max(1.0, float(rt.var().item()))
             loss = loss_pi + args.vf_coef * loss_v
             opt.zero_grad()
             loss.backward()

@@ -203,7 +203,13 @@ class WindowTransformer(nn.Module):
         h = self.ln_c(att + qq)          # 残差：注意力输出 + 候选自己
         logits = self.score(torch.cat([h, q0], dim=-1)).squeeze(-1)
         if cand_mask is not None:
-            logits = logits.masked_fill(~cand_mask, -1e9)
+            # ★`.to(logits.device)` 是**防御**，不是多余：`cand_mask` 由 collate 产生，
+            #   在 CPU 上；模型搬到 GPU 之后忘了搬它就会报
+            #   "expected self and mask to be on the same device"。
+            #   已经同设备时 `.to()` 是 no-op，所以这行的代价是零。
+            #   （两个搬运点已经搬了它，这里是第二道保险 —— 这类漏搬只在 GPU 上炸，
+            #   在 CPU 上完全看不出来，所以值得防。）
+            logits = logits.masked_fill(~cand_mask.to(logits.device), -1e9)
 
         # ---- 价值：窗口的**掩码均值池化**（P4 起窗口是全局状态的唯一来源）
         # 已知代价（2026-09-12 审阅）：均值池化把每条 token 等权，丢掉了"哪些重要"
