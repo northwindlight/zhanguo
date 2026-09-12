@@ -42,19 +42,16 @@ for ep in range(EPS):
         idx, _lp, _v = act(m, obs, win=tokenize(env, obs))
         a = obs.cand["actions"][idx]
         sub = getattr(a, "sub", None)
-        # ★move 必须分口径：**内部调动**（目标格本来就是自己的）vs **扩张性 move**
-        #   （目标是中立/敌方）。2026-09-13 发现读数冲突：J.1 记的「ep400 move 0.4
-        #   次/局」跟同期实测的 9.0 差 22 倍，最可能就是它只算了扩张性 move ——
-        #   **在核实前两套数不能混用**。用 step **之前**的所有权判（move 成功后
-        #   目标格归属会变，那时再判就全成"内部"了）。
-        _internal = None
-        if a.kind == "move":
-            _internal = a.tile in set(env.world.own_tiles(env.agent))
+        # ★口径（用户 2026-09-13 澄清，别再搞错）：
+        #   **扩张 = attack，且是唯一手段**（attack 自带移动）。`move` 只能走**野地**、
+        #   作用是长途奔袭，而**用户不打算教它** ⇒ move 的次数**不是**扩张指标，
+        #   别把它读成"动得不少"。所以这里只量 attack 的战果：**打了有没有占下地**。
+        _own_before = len(env.world.own_tiles(env.agent)) if a.kind == "attack" else None
         obs, _r, done, info = env.step(a)
         if info["ok"]:
             c[a.kind] += 1
-            if _internal is not None:
-                c["move:内部" if _internal else "move:扩张"] += 1
+            if _own_before is not None and len(env.world.own_tiles(env.agent)) > _own_before:
+                c["attack:占地"] += 1
             if a.kind == "build" and sub == "兵营":
                 c["建兵营"] += 1
                 if first_barracks is None:
@@ -62,22 +59,25 @@ for ep in range(EPS):
         if done:
             break
     tiles = len(env.world.own_tiles(env.agent))
-    rows.append((ep, c["建兵营"], first_barracks, c["recruit"], c["move"],
-                 c["move:扩张"], c["attack"], tiles))
+    rows.append((ep, c["建兵营"], first_barracks, c["recruit"], c["attack"],
+                 c["attack:占地"], c["move"], tiles))
     print(f"  局{ep}:  兵营×{c['建兵营']}  首建 T{first_barracks}  "
-          f"征兵{c['recruit']}  move{c['move']}(扩张{c['move:扩张']})  "
-          f"attack{c['attack']}  领地{tiles}")
+          f"征兵{c['recruit']}  attack{c['attack']}(占{c['attack:占地']})  "
+          f"move{c['move']}(野地行军)  领地{tiles}")
 
 n = len(rows)
 fb = sorted(r[2] for r in rows if r[2] is not None)
+atk = sum(r[4] for r in rows)
+got = sum(r[5] for r in rows)
 print(f"\n=== {CKPT}    {n} 局 × {TURNS} 回合（采样） ===")
-print(f"  经济开局（有买卖/建造活动）：{'✓' if all(sum(r[1:6]) > 0 for r in rows) else '✗'}")
+print(f"  经济开局（有买卖/建造活动）：{'✓' if all(sum(r[1:7]) > 0 for r in rows) else '✗'}")
 print(f"  建成兵营的图：{sum(1 for r in rows if r[1] > 0)}/{n}"
       f"     首次兵营中位：{fb[len(fb) // 2] if fb else '—'}"
       f"   逐图 {[r[2] for r in rows]}")
 print(f"  征兵        {sum(r[3] for r in rows) / n:.1f} 次/局")
-print(f"  move        {sum(r[4] for r in rows) / n:.1f} 次/局"
-      f"   ← 其中**扩张性** {sum(r[5] for r in rows) / n:.1f}"
-      f"（内部调动 {sum(r[4] - r[5] for r in rows) / n:.1f}）")
-print(f"  attack      {sum(r[6] for r in rows) / n:.1f} 次/局")
-print(f"  终局领地    均值 {sum(r[7] for r in rows) / n:.1f}   逐局 {[r[7] for r in rows]}")
+print(f"  ★attack     {atk / n:.1f} 次/局   ← **扩张的唯一手段**"
+      f"；其中**占下地** {got / n:.1f}（成功率 {got / atk:.0%}）" if atk else "  attack 0")
+print(f"  move        {sum(r[6] for r in rows) / n:.1f} 次/局"
+      f"   ← 野地行军，**不是扩张指标**（用户不打算教这个）")
+print(f"  终局领地    均值 {sum(r[7] for r in rows) / n:.1f}   逐局 {[r[7] for r in rows]}"
+      f"   （开局 5 格 ⇒ 净增 {sum(r[7] for r in rows) / n - 5:.1f}）")
