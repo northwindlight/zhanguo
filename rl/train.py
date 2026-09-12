@@ -162,6 +162,11 @@ def main() -> None:
                          "不是老师标签、不入库），**PPO 上来这个约束就没了** ⇒ 这个开关"
                          "是给 PPO 准备的。标定别拍 100：学生一局消费 4747/100 回合 ≈ 47/回合、"
                          "撞墙 2.4 次/回合，10 ⇒ -24/回合（约占一半），100 ⇒ -240/回合（净变负）。")
+    ap.add_argument("--map-pool", default="",
+                    help="★从**筛过的地图池**里取训练图（`experiments/screen_maps.py` 产出的 "
+                         "JSON）。动机（用户 2026-09-13）：全池图难度极端比 **5.4×**"
+                         "（老师 2612 ~ 14068），PPO 会把「抽到差图」读成「打法错」。"
+                         "筛出中间 50%% 之后难度区间窄到 **1.6×**。")
     ap.add_argument("--teacher-baseline", action="store_true",
                     help="★用**老师在该图上的基准**当 advantage 的基线（用户 2026-09-13）。"
                          "动机：图间 σ ≈ 均值的 45%%，同一套打法在好图 20000、差图 3000 —— "
@@ -341,6 +346,23 @@ def main() -> None:
         _teacher_fn = get_teacher("v10", turns=args.baseline_turns)
         set_horizon(_teacher_fn, args.baseline_turns)
 
+    # ★地图池：从筛过的 seed 列表里顺序取，而不是 seed += 1 一路数下去。
+    #   池子里的图难度已被压到 1.6×（全池是 5.4×）⇒ PPO 不会再把图难度当打法问题。
+    _pool, _pool_i = None, 0
+    if args.map_pool:
+        _pool = json.loads(Path(args.map_pool).read_text(encoding="utf-8"))["pool"]
+        _pool_i = int(ck["pool_i"]) if (ck and ck.get("pool_i") is not None) else 0
+        print(f"★地图池：{len(_pool)} 张（难度已筛）  从第 {_pool_i} 张接着数")
+
+    def _take_seed():
+        """取下一张训练图的 seed（有池子用池子，否则沿用 seed += 1）。"""
+        nonlocal _pool_i
+        if _pool is None:
+            return None
+        s = _pool[_pool_i % len(_pool)]
+        _pool_i += 1
+        return s
+
     obs = env.reset(seed)
     rollout = Rollout(lam=args.lam, normalize=args.norm_reward)
 
@@ -401,8 +423,11 @@ def main() -> None:
                 s["ep_steps"] = ep_steps
                 eps.append(s)
                 done_this += 1
-                seed += 1
-                obs = env.reset(seed)       # 必须在 break 之前 reset：
+                _s = _take_seed()           # ★有地图池就从池里取（难度已筛）
+                if _s is None:
+                    seed += 1
+                    _s = seed
+                obs = env.reset(_s)         # 必须在 break 之前 reset：
                 ep_ret, ep_steps, ep_done = 0.0, 0, False   # 否则下一轮迭代会空转
                 _spawn_baseline()           # 起本局的老师基准线程（跟本局并行）
                 if (args.rollout_episodes and done_this >= args.rollout_episodes) \
@@ -474,7 +499,8 @@ def main() -> None:
                if row["eval_spend"] == row["eval_spend"] else "eval_spend=-"),
             encoding="utf-8")
         blob = {"model": model.state_dict(), "opt": ppo.opt.state_dict(),
-                "norm": rollout.state(), "seed": seed, "iter": it, "args": vars(args)}
+                "norm": rollout.state(), "seed": seed, "iter": it, "args": vars(args),
+                "pool_i": _pool_i}       # ★地图池进度：续训时要接着数，否则重复练前几张图
         torch.save(blob, out / "last.pt")
         torch.save(blob, out / "model.pt")
         if args.ckpt_every and it % args.ckpt_every == 0:
