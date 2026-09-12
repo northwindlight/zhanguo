@@ -261,7 +261,8 @@ class TestDiplomacyOutOfScope(unittest.TestCase):
         #        + 9（归属段从 2 槽钉成固定的 11 槽）
         #   58 = 48 + 4（建筑留位）+ 2+2（物资留位：price/eq）+ 2（兵种留位：army_kind）
         self.assertEqual(len(env.obs_channels()), 54)
-        self.assertEqual(env.glob_size(), 58)
+        # 58 → 67：候选集放开后补的「上一步反馈」（last_ok + 被拒原因 one-hot 8 类）
+        self.assertEqual(env.glob_size(), 67)
         self.assertIn("build_cost", env.obs_channels())
 
     def test_nations_cannot_attack_each_other(self):
@@ -290,3 +291,68 @@ class TestDiplomacyOutOfScope(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestActionFeedback(unittest.TestCase):
+    """★上一步的反馈（成败 + 被拒原因）必须进观测（2026-09-12）。
+
+    为什么：候选集放开之后（不再按钱/货预过滤）**~49% 的候选是点不动的**。
+    没有这份反馈，策略分不清「点了个无效选项」和「做了个中性动作」—— 对它俩都是
+    "什么都没发生"，学不出甄别（PPO 的 advantage 也分不开）。
+    而玩家**本来就收得到**这份信息（LLM 的工具返回值就是这个文案）。
+    """
+
+    ACTIONS = ("build", "recruit", "move", "attack", "retreat", "buy", "sell")
+
+    def test_feedback_channels_move_with_success_and_failure(self):
+        from rl.features import REJECT_REASONS
+        env = ZhanguoEnv(map_size=12, max_turns=6)
+        obs = env.reset(0)
+        gc = env.glob_channels()
+        self.assertEqual(len(gc), env.glob_size())
+        self.assertIn("last_ok", gc)
+        self.assertEqual(env.glob_size(), 58 + 1 + len(REJECT_REASONS))
+        # 穷光蛋 → 打一个建不起的
+        res = env.world.nations[env.agent].res
+        res["黄金"] = 0
+        res["木头"] = 0
+        b = [a for a in env.legal_actions() if a.kind == "build"][0]
+        obs, _r, _d, info = env.step(b)
+        self.assertFalse(info["ok"])
+        self.assertEqual(obs.glob[gc.index("last_ok")], 0.0)
+        lit = [c for c in gc if c.startswith("last_reject:") and obs.glob[gc.index(c)] > 0]
+        self.assertEqual(lit, ["last_reject:黄金不足"], f"被拒原因没对上：{lit}")
+        # 成功一步 → 归零
+        obs, _r, _d, info = env.step([a for a in obs.cand["actions"]
+                                      if a.kind == "end_turn"][0])
+        if obs is not None:                     # 可能恰好终局
+            self.assertEqual(obs.glob[gc.index("last_ok")], 1.0)
+            self.assertTrue(all(obs.glob[gc.index(c)] == 0
+                                for c in gc if c.startswith("last_reject:")))
+
+    def test_reject_reason_covers_every_engine_message(self):
+        """★防漂：把 `mp.py` 里七个动作内的**全部**拒绝文案抽出来逐条归类，
+        断言**没有一条落进「其他」**。（引擎改了文案而 `_REJECT_RULES` 没跟上 → 这里红。）
+        """
+        import pathlib
+        import re
+        from rl.features import reject_reason
+        lines = pathlib.Path("mp.py").read_text(encoding="utf-8").splitlines()
+        heads = [(i, m.group(1)) for i, l in enumerate(lines)
+                 if (m := re.match(r"    def (\w+)\(", l))]
+        unclassified = []
+        total = 0
+        for k, (i, name) in enumerate(heads):
+            if name not in self.ACTIONS:
+                continue
+            end = heads[k + 1][0] if k + 1 < len(heads) else len(lines)
+            for l in lines[i:end]:
+                m = re.search(r'return False, f?"([^"]{2,60})', l)
+                if not m:
+                    continue
+                total += 1
+                if reject_reason(m.group(1)) == "其他":
+                    unclassified.append((name, m.group(1)))
+        self.assertGreater(total, 20, "没抽到文案 —— 抽取逻辑该修了")
+        self.assertFalse(unclassified,
+                         f"这些引擎拒绝文案没归类（会全落进「其他」）：{unclassified}")

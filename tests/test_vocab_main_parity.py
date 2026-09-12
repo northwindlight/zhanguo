@@ -234,7 +234,7 @@ class TestFrozenInternalConsistency(unittest.TestCase):
             grid.add(len(env.obs_channels()))
             glob.add(env.glob_size())
         self.assertEqual(grid, {54}, f"网格宽度随对手数变了：{grid}")
-        self.assertEqual(glob, {58}, f"glob 宽度随对手数变了：{glob}")
+        self.assertEqual(glob, {67}, f"glob 宽度随对手数变了：{glob}")   # 58 + 上一步反馈 9 维
 
 
 if __name__ == "__main__":

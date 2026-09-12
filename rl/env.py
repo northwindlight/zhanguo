@@ -168,6 +168,8 @@ class ZhanguoEnv:
         self.prev_spend = 0.0
         self._done = False
         self._terrain: list[list[str]] = []
+        self._last_ok = True                    # 上一步的成败（见 step）
+        self._last_reject = None                # 上一步被拒的原因类（None = 成功）
         self.army_ids: list[int] = []           # 当前军队列表（下标 → 番号 id）
         self.army_index: dict[int, int] = {}
 
@@ -198,6 +200,8 @@ class ZhanguoEnv:
         self._terrain = [[self.world.tile_terrain(x, y) for y in range(n)] for x in range(n)]
         self.turn_actions = 0
         self._done = False
+        self._last_ok = True                    # 开局没有"上一步"
+        self._last_reject = None
         self.world.begin_turn()
         self.prev_spend = self.world.spend_total(self.agent)
         return self._obs()
@@ -206,6 +210,13 @@ class ZhanguoEnv:
         """执行一个动作。返回 (obs, reward, done, info)。done 时 obs 为 None。"""
         assert self.world is not None and not self._done, "env 未 reset 或已结束"
         ok, msg = self._apply(action)
+        # ★记下**上一步的反馈**（成败 + 被拒原因）—— 候选集放开之后（不再按钱/货预过滤）
+        #   ~49% 的候选是"点不动"的；没有这份反馈，策略分不清「点了无效选项」和
+        #   「做了中性动作」（两者对它都是"什么都没发生"），学不出甄别。
+        #   而玩家**本来就收得到**这份信息（LLM 的工具返回值就是这个文案）——
+        #   编码它不是"帮模型计算"，是补齐信息集。
+        self._last_ok = bool(ok)
+        self._last_reject = None if ok else F.reject_reason(msg)
         self.turn_actions += 1
         ended = action.kind == "end_turn" or self.turn_actions >= self.max_actions_per_turn
         events = {}
@@ -437,12 +448,15 @@ class ZhanguoEnv:
         #   按 §9.6，加对手那一炉本来就要跟地图/外交记忆同时落地，那时 N 组才填值。
         #   删掉之后 glob 宽度**与对手数无关**。
         ch += ["own_tiles"]
+        # ★上一步的反馈（成败 + 被拒原因 one-hot）。玩家从工具返回值拿到的就是它。
+        ch += ["last_ok"] + [f"last_reject:{r}" for r in F.REJECT_REASONS]
         return ch
 
     def glob_size(self) -> int:
         # ★**与对手数无关**（对手段已删，见 `glob_channels` 的注释）
         return (len(RES_KEYS) + 2 * len(self.goods) + 3 + 2 + 2
-                + len(self.bnames) + 3 + len(self.unames) + 1)
+                + len(self.bnames) + 3 + len(self.unames) + 1
+                + 1 + len(F.REJECT_REASONS))          # last_ok + 被拒原因 one-hot
 
     def _vision_mask(self) -> np.ndarray:
         """引擎视野（`World.visible_to` 的等价物）：自家格 + 八邻 + 瞭望塔半径 4 圆。
@@ -688,6 +702,10 @@ class ZhanguoEnv:
         #   改成 `log1p(领地数)/3`：与同文件里建筑数的口径一致（`log1p(tot[b])/3.0`），
         #   单调、无上界、**与地图尺寸无关**。
         g.append(math.log1p(len(w.own_tiles(me))) / 3.0)
+        # 上一步的反馈：成败 1 维 + 原因 one-hot（成功时全 0）
+        g.append(1.0 if self._last_ok else 0.0)
+        for r in F.REJECT_REASONS:
+            g.append(1.0 if self._last_reject == r else 0.0)
 
         assert len(g) == self.glob_size(), f"全局向量维度不符：{len(g)} != {self.glob_size()}"
         # ★名字表与构建顺序必须逐位对齐 —— 改了 `g.append` 的顺序却忘了改
