@@ -24,6 +24,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from rl.device import pick_device
 from rl.env import ACT_SAFETY, KINDS, ZhanguoEnv
 from rl.model import PolicyNet
 from rl.ppo import PPO, Rollout, act, value_of
@@ -138,6 +139,12 @@ def main() -> None:
                          "不是老师标签、不入库），**PPO 上来这个约束就没了** ⇒ 这个开关"
                          "是给 PPO 准备的。标定别拍 100：学生一局消费 4747/100 回合 ≈ 47/回合、"
                          "撞墙 2.4 次/回合，10 ⇒ -24/回合（约占一半），100 ⇒ -240/回合（净变负）。")
+    ap.add_argument("--device", default="auto",
+                    help="auto = 有 CUDA 用 cuda，否则 cpu；也可显式 cuda/cuda:1/cpu。"
+                         "显式写了 cuda 而没卡时**报错而不是静默退回 CPU**（静默退回的"
+                         "代价是「这炉怎么这么慢」，8 小时的跑法里发现得太晚）。"
+                         "★搬运点只有两处，且**都已写在 `ppo.py` 里**（`forward_batch` "
+                         "与 `PPO.update` 的 `model_device`）⇒ 这里只管把模型 `.to(dev)`。")
     ap.add_argument("--iterations", type=int, default=100, help="PPO 更新块数（每块 rollout-steps 步）")
     ap.add_argument("--rollout-steps", type=int, default=2048,
                     help="仅当 --rollout-episodes 0 时生效：每次更新采多少步")
@@ -204,6 +211,17 @@ def main() -> None:
 
     env = build_env(args)
     model = build_model(env, args)
+    # ★搬到设备**必须在建优化器之前**（`PPO(...)` 里建 Adam）—— 动量张量跟着参数走，
+    #   先建后搬会留下一份 CPU 动量（不报错，只是白算）。同 `bc.py:638` 的注释。
+    #   ★PPO 这条路径原来从没在 GPU 上跑过（train.py 里一处设备处理都没有），但两个
+    #   搬运点其实**都已经在 `ppo.py` 里写好了**：`forward_batch`（rollout 的 act
+    #   与 eval 都走它）与 `PPO.update` 里的 `model_device(model)` ⇒ **只要把模型
+    #   搬上去**，采样/评估/更新全自动跟随。
+    #   ⚠ 别用 `device.move_to(model, dev)`：那个函数只认 tensor/dict/list/tuple，
+    #   `nn.Module` 会走最后的 `return x` **原样返回**（静默不搬）。
+    _dev = pick_device(args.device)
+    model = model.to(_dev)
+    print(f"设备：{_dev}", flush=True)
     ppo = PPO(model, lr=args.lr, epochs=args.epochs, minibatch=args.minibatch,
               ent_coef=args.ent_coef, adv_norm=args.adv_norm)
     start_iter = 0
