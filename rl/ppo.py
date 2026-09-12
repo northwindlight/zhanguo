@@ -249,14 +249,20 @@ def forward_batch(model, steps, wins=None):
     # ★搬运点之一（见 `rl/device.py`）：collate 出来的一律是 CPU 张量，模型可能在 GPU 上。
     #   放在这里而不是各调用点 —— 训练、评估、DAgger 采样**全部**走这个入口。
     dev = model_device(model)
+    # ★返回的掩码**也要搬**：调用方会拿它跟 logits 一起算（`logp_all.masked_fill
+    #   (~mask, …)`），留在 CPU 就炸「expected self and mask to be on the same
+    #   device」。搬过的张量已经在上面的 `move_to(...)` 里造出来了，这里只是
+    #   把**同一个**搬后版本返回 —— 别再 `collate` 一次，那会白算一遍。
     if is_transformer(model):
         cand, cmask = collate_cand(steps)
-        logits, value = model(*move_to((collate_window(wins), cand, cmask), dev))
-        return logits, value, cmask
+        _mv = move_to((collate_window(wins), cand, cmask), dev)
+        logits, value = model(*_mv)
+        return logits, value, _mv[2]
     grid, glob, cand, mask = collate(steps, getattr(model, "n_tiles", 0))
     wb = collate_window(wins) if wins is not None else None
-    logits, value = model(*move_to((grid, glob, cand, mask), dev), win=move_to(wb, dev))
-    return logits, value, mask
+    _mv = move_to((grid, glob, cand, mask), dev)
+    logits, value = model(*_mv, win=move_to(wb, dev))
+    return logits, value, _mv[3]
 
 
 @torch.no_grad()
