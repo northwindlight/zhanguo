@@ -576,7 +576,9 @@ def main() -> None:
         #   收进缓冲等于**教学生"别动"**。判据见 `episode_is_degenerate`。
         _tiles = len(env.world.own_tiles(env.agent)) if env.world is not None else 0
         if episode_is_degenerate(_tiles, _seen_tiles, turns=args.turns):
-            print(f"⚠ 第 {ep} 局老师没启动起来（领地 {_tiles}，见过的中位 "
+            # ★报**从 1 开始**的局号：与进度行「局 N/42」同一口径。
+            #   写 0 基的 `ep` 会让日志读起来像"第 10 局被丢"而实际是第 11 局（踩过）。
+            print(f"⚠ 第 {ep + 1} 局老师没启动起来（领地 {_tiles}，见过的中位 "
                   f"{sorted(_seen_tiles)[len(_seen_tiles)//2] if _seen_tiles else '-'}）"
                   f"—— 判为退化局，**丢弃这一局的样本**（抖动过大的地图会这样）")
             degenerate += 1
