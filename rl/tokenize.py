@@ -46,9 +46,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from game import unit_kind, unit_max_hp
+from game import MARKET, unit_kind, unit_max_hp
 
-from rl.env import Obs, ZhanguoEnv
+from rl.env import Obs, ZhanguoEnv, res_get
 from rl.vocab import (A_AGE, A_ATK, A_DX, A_DY, A_ENGAGED, A_HP, A_MOVED,
                       A_OWNER0, A_SPEED, A_UNIT0, NATION_SLOTS, POS_SCALE,
                       TOKEN_BUDGET)
@@ -62,11 +62,20 @@ from rl import vocab as V
 #   一条 token 一个实体，内容是 `rl/features.py` 现算的数值向量 —— 价值头与注意力
 #   因此能看见「造价/产出/耗电/门槛」，而不再只看见"有几个"。留位槽也在组里占位，
 #   但 `mask=0`（不参加注意力）。
-GROUPS = ("g", "m", "a", "n", "e", "r", "k", "b", "u", "t")
+#
+# `c` 是 2026-09-12 加的「**一条 token 一种物资**」组（商品/commodity）。加它的理由
+# 是结构性的，不是"多给点信息"：`sell`/`buy` 占标签 68%，而这两种候选要做的判断是
+# **"我这种货有多少 / 现在什么价"** —— 那些数**只住在 G 组那唯一一条 token 里**。
+# cross-attention 对**单条** token 只能给一个标量权重（softmax 只有一项 ⇒ 恒为 1），
+# 也就是**候选的 query 影响不了它从 G 里读到什么**；候选只能靠 score MLP 硬学
+# "按 sub 选对应那一维"。拆成一组 per-good token 之后，"我这种货"变成一个**可被
+# 注意到的对象**，query 里带着货物身份就能选到它 —— 这是原来表达不出来的运算。
+GROUPS = ("g", "m", "a", "n", "e", "r", "k", "b", "u", "t", "c")
 
 CAP = {"g": 1, "m": 64, "a": 192, "n": NATION_SLOTS, "e": 32, "r": 8, "k": 16,
        "b": len(V.OBS_BUILDING), "u": len(V.UNIT),
-       "t": len(V.OBS_TERRAIN)}                        # 19 / 5 / 7（含 2 留位）
+       "t": len(V.OBS_TERRAIN),                        # 19 / 5 / 7（含 2 留位）
+       "c": len(V.SUB_TABLE_OF["buy"])}                # 8（6 真货物 + 2 留位）
 
 M_SIDE = 8                      # M 组固定 8×8 = 64 格
 E_MAX, R_MAX, K_MAX = CAP["e"], CAP["r"], CAP["k"]
@@ -82,6 +91,14 @@ F_K = 8                         # 关键节点
 F_B = F.F_B + 1                 # 建筑 token = 内容向量 + 我的持有数（log1p/3）
 F_U = F.F_U                     # 兵种 token = 内容向量
 F_T = F.F_T                     # 地形 token = 内容向量（defense/build_penalty + 2 留位）
+# C 组：`[我的库存/1000, 现价/基础价, 均衡价/基础价]`。
+# ★**只放 glob 里已经有的那三样**，一格不多。理由两条：
+#   ① 契约 §2「信息集对齐」：每个 token 组都要能在 main 的面板里找到对应项。
+#      `flow_in`/`flow_out`（世界产耗）**刻意没进 glob**、每回合末清零 —— 那是引擎
+#      内部状态，放进来就是泄漏，所以**不放**；
+#   ② 缩放与 G 组**逐位一致**（同样 /1000、同样 /基础价），这样"同一段数"在
+#      两个地方是同一个尺度，模型不用学两套。
+F_C = 3
 
 OWNER_SELF, OWNER_FOE, OWNER_BARB = 0, 1, 2
 
@@ -282,6 +299,30 @@ def _terrain_group() -> tuple[np.ndarray, np.ndarray]:
     return out, msk
 
 
+def _goods_group(world, me: str) -> tuple[np.ndarray, np.ndarray]:
+    """C 组：**一条 token 一种物资**（含留位槽），载该货物的**当前状态**。
+
+    每条 = `[我的库存/1000, 现价/基础价, 均衡价/基础价]`（`F_C = 3`）。
+
+    与 B/U/T 三组的区别：那三组装的是**规则表里不随时间变的数**（造价/产出/减伤），
+    这一组装的是**每回合都在变的局面数**（我剩多少、市场什么价）。它们此前只住在
+    G 组那唯一一条 75 维 token 里 —— 而 `sell`/`buy` 占标签 68%，候选要做的正是
+    "拿我这种货的库存和价格"这个**按货物取维**的动作，单条 token 表达不了。
+
+    ★缩放与 G 组**逐位一致**（`/1000`、`/基础价`），留位槽 `mask=0`。
+    """
+    n = CAP["c"]
+    out = np.zeros((n, F_C), np.float32)
+    msk = np.zeros(n, bool)
+    for i, gd in enumerate(V.SUB_TABLE_OF["buy"]):
+        base = MARKET.get(gd, 0)
+        out[i, 0] = res_get(world, me, gd) / 1000.0
+        out[i, 1] = world.prices.get(gd, base) / base if base else 0.0
+        out[i, 2] = world.equilibrium.get(gd, base) / base if base else 0.0
+        msk[i] = gd in V.TRADEABLE_REAL      # 留位槽不亮
+    return out, msk
+
+
 def tokenize(env: ZhanguoEnv, obs: Obs, *, mem: np.ndarray | None = None
              ) -> Window:
     """`(env, obs)` → `Window`。**纯函数**：不改 env/world，同输入同输出。
@@ -322,6 +363,7 @@ def tokenize(env: ZhanguoEnv, obs: Obs, *, mem: np.ndarray | None = None
     b_feat, b_msk = _building_group(world, me)
     u_feat, u_msk = _unit_group()
     t_feat, t_msk = _terrain_group()
+    c_feat, c_msk = _goods_group(world, me)
 
     # ★G 组**停供累计消费**（2026-09-12 用户口径）。理由两条：
     #   ① 它是 reward（`spend_total`）的原函数，喂进观测等于把成绩单放进状态；
@@ -348,6 +390,7 @@ def tokenize(env: ZhanguoEnv, obs: Obs, *, mem: np.ndarray | None = None
         "b": b_feat,                      # 建筑：内容向量 + 我的持有数
         "u": u_feat,                      # 兵种：内容向量
         "t": t_feat,                      # 地形：内容向量（减伤 / 造价惩罚）
+        "c": c_feat,                      # 物资：库存 / 现价 / 均衡价（每回合变的那部分）
     }
     mask = {
         "g": np.ones(1, bool),
@@ -357,7 +400,7 @@ def tokenize(env: ZhanguoEnv, obs: Obs, *, mem: np.ndarray | None = None
         "r": (np.ones(CAP["r"], bool) if mem is not None
               else np.zeros(CAP["r"], bool)),
         "k": np.zeros(CAP["k"], bool),
-        "b": b_msk, "u": u_msk, "t": t_msk,
+        "b": b_msk, "u": u_msk, "t": t_msk, "c": c_msk,
     }
     meta = {"bbox": (x0, y0), "anchor": anchor, "agent": me,
             "turn": world.turn, **m_meta, **a_meta}
