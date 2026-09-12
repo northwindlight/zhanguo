@@ -42,8 +42,15 @@ def label_of(a):
 
 res = {}
 for ft in (False, True):
+    # ★两遍必须从**同一个 torch RNG 状态**出发：`act()` 走 `torch.multinomial`
+    #   采样，消耗的是 torch 全局 RNG。不重设的话第二遍接着第一遍的状态走，
+    #   轨迹自然不同 —— 那是**脚本的 bug**，会被误读成"失败触发污染了轨迹"
+    #   （2026-09-12 踩过：spend 2056→2038 差 0.9%，就是采样岔开，不是污染）。
+    torch.manual_seed(0)
+    # 每遍用全新的 env：把"env 复用残留"这个变量也排掉。
+    e = ZhanguoEnv(map_size=16, max_turns=TURNS)
     demos, spend, miss = bc.collect_episode(
-        env, TURNS, seed=0, teacher_fn=t, student=m, failure_trigger=ft, fb_cap=2,
+        e, TURNS, seed=0, teacher_fn=t, student=m, failure_trigger=ft, fb_cap=2,
         # ★必须开：`act()` 对 transformer 会走 `collate_window([None])` 而崩
         #   （PLAN.md 记过的坑）。窗口训练的 ckpt 只能用窗口推理。
         with_window=True)
