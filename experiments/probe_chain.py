@@ -74,7 +74,10 @@ fb = sorted(r[2] for r in rows if r[2] is not None)
 atk = sum(r[4] for r in rows)
 got = sum(r[5] for r in rows)
 print(f"\n=== {CKPT}    {n} 局 × {TURNS} 回合（采样） ===")
-print(f"  经济开局（有买卖/建造活动）：{'✓' if all(sum(r[1:7]) > 0 for r in rows) else '✗'}")
+# ★r[2] 是「首建兵营的回合」，**可能为 None**（整局没建）—— 直接 sum 会 TypeError
+#   （2026-09-13 踩过：ep500 的汇总行就这么崩了，只剩逐局数据）。
+print(f"  经济开局（有买卖/建造活动）："
+      f"{'✓' if all(sum(v for v in r[1:7] if v is not None) > 0 for r in rows) else '✗'}")
 print(f"  建成兵营的图：{sum(1 for r in rows if r[1] > 0)}/{n}"
       f"     首次兵营中位：{fb[len(fb) // 2] if fb else '—'}"
       f"   逐图 {[r[2] for r in rows]}")
