@@ -140,12 +140,16 @@ class WindowTransformer(nn.Module):
         （A 组按 32、候选按 64），能学，但是个**静默**的坑：以后谁改了 POS_SCALE，
         只有这一处不跟着动。抽成函数 + 用同一个常量，测试才钉得住。
 
-        `tile_dx/tile_dy` 是**外接框内的相对坐标**，`-1` = 这个候选没有落点
-        （buy/sell/end_turn）。因为 `-1` 是个合法相对坐标的反面，所以"有没有落点"
-        必须**显式**进特征，不能靠 `-1` 隐式表达。
+        ★**同原点**（2026-09-12 对齐）：用 `tile_hx/tile_hy`（**相对家**），与 M/A 组的
+        token 位置同原点。以前这里取 `tile_dx/tile_dy`（相对**可见区外接框**）——
+        尺度一样但**原点差一个每帧变化的偏移量**（家 − 框原点），模型得自己把它学出来
+        才能把"候选在哪"和"patch 在哪"对上。
+
+        `-1` = 这个候选没有落点（buy/sell/end_turn）。因为 `-1` 是个合法相对坐标的反面，
+        所以"有没有落点"必须**显式**进特征，不能靠 `-1` 隐式表达。
         """
-        dx = cand["tile_dx"].float()
-        dy = cand["tile_dy"].float()
+        dx = cand["tile_hx"].float()
+        dy = cand["tile_hy"].float()
         has = (dx >= 0).float().unsqueeze(-1)
         return torch.cat([dx.unsqueeze(-1) / POS_SCALE,
                           dy.unsqueeze(-1) / POS_SCALE, has], dim=-1)

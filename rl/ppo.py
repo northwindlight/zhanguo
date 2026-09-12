@@ -141,6 +141,8 @@ def collate(steps: list[dict], n_tiles: int = 0, *, need_grid: bool = True):
     # 相对落点（-1 = 无落点）。补出来的位置**保持 -1**，别补 0 —— 0 是合法的相对坐标。
     tile_dx = torch.full((b, k), -1, dtype=torch.long)
     tile_dy = torch.full((b, k), -1, dtype=torch.long)
+    tile_hx = torch.full((b, k), -1, dtype=torch.long)   # ★相对家（模型特征用）
+    tile_hy = torch.full((b, k), -1, dtype=torch.long)
     mask = torch.zeros(b, k, dtype=torch.bool)
     afeats = torch.zeros(b, a, steps[0]["cand"]["army_feats"].shape[1], dtype=torch.float32)
     for i, s in enumerate(steps):
@@ -155,6 +157,8 @@ def collate(steps: list[dict], n_tiles: int = 0, *, need_grid: bool = True):
         tile_idx[i, :m] = ti
         tile_dx[i, :m] = dx
         tile_dy[i, :m] = dy
+        tile_hx[i, :m] = torch.as_tensor(c["tile_hx"][:m])
+        tile_hy[i, :m] = torch.as_tensor(c["tile_hy"][:m])
         amt_idx = torch.as_tensor(c["army_idx"][:m])
         amt_idx = torch.where(amt_idx >= c["n_armies"], torch.full_like(amt_idx, a), amt_idx)
         army_idx[i, :m] = amt_idx
@@ -174,7 +178,9 @@ def collate(steps: list[dict], n_tiles: int = 0, *, need_grid: bool = True):
             #   候选只带自己的相对落点去 attend 窗口，所以它要的是这两个，
             #   不是 `tile_idx`（那是给 CNN 用的扁平下标，绑死网格形状）。
             #   补出来的位置保持 -1，别补 0 —— 0 是个合法的相对坐标。
-            "tile_dx": tile_dx, "tile_dy": tile_dy}
+            "tile_dx": tile_dx, "tile_dy": tile_dy,
+            # ★相对家的那一对（与 token 组同原点）
+            "tile_hx": tile_hx, "tile_hy": tile_hy}
     return grid, glob, cand, mask
 
 

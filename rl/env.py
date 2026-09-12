@@ -732,6 +732,14 @@ class ZhanguoEnv:
         #   -1 = 这个候选没有落点（buy/sell/end_turn）。
         tile_dx = np.full(k, -1, np.int64)
         tile_dy = np.full(k, -1, np.int64)
+        # ★**相对家**的那一对（模型的落点特征用它，见 `transformer.cand_pos_block`）。
+        #   为什么要两对：候选落点的**位置特征**必须与 token 组（M 组 patch 中心、
+        #   A 组军队）**同原点**，而 token 用的是"相对家"（`tokenize.py`）；
+        #   而 `tile_dx/tile_dy` 是"相对可见区外接框原点"，拼批时算扁平下标要用它。
+        #   以前只有后者 ⇒ 模型得自己学一个每帧变化的偏移量（家 − 框原点）才能把
+        #   "候选在哪"和"patch 在哪"对上 —— 白费劲。两套并存，各司其职。
+        tile_hx = np.full(k, -1, np.int64)
+        tile_hy = np.full(k, -1, np.int64)
         army_idx = np.full(k, null_army, np.int64)
         amt_idx = np.zeros(k, np.int64)
         for i, a in enumerate(acts):
@@ -739,8 +747,10 @@ class ZhanguoEnv:
             table = self.sub_tables[a.kind]
             s_idx[i] = table.index(a.sub) if a.sub in table else 0
             if a.tile is not None:
-                tile_dx[i] = a.tile[0] - x0
+                tile_dx[i] = a.tile[0] - x0               # 框内相对（索引用）
                 tile_dy[i] = a.tile[1] - y0
+                tile_hx[i] = a.tile[0] - self.anchor[0]   # ★相对家（特征用）
+                tile_hy[i] = a.tile[1] - self.anchor[1]
             if a.kind in ("move", "attack", "retreat"):
                 army_idx[i] = self.army_index.get(a.army, null_army)
             if a.amount in AMOUNTS:
@@ -754,6 +764,7 @@ class ZhanguoEnv:
                    if F.CONTENT_DIM_OF_KIND[k] > 0}
         return {"actions": acts, "type_idx": t_idx, "sub_idx": s_idx,
                 "tile_dx": tile_dx, "tile_dy": tile_dy,
+                "tile_hx": tile_hx, "tile_hy": tile_hy,
                 "tile_hw": (hv, wv),          # 本帧外接框尺寸（collate 补齐时要看）
                 "army_idx": army_idx, "amount_idx": amt_idx,
                 "mask": np.ones(k, bool), "army_feats": army_feats,

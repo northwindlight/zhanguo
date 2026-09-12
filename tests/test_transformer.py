@@ -141,17 +141,39 @@ class TestCandidateSide(unittest.TestCase):
         torch.testing.assert_close(a[0], b[0], rtol=0, atol=ATOL)
 
     def test_无落点的候选与有落点的可区分(self):
-        """`tile_dx = -1` 是 buy/sell/end_turn。补出来的位置也是 -1，
+        """`tile_hx = -1` 是 buy/sell/end_turn。补出来的位置也是 -1，
         所以"没有落点"这一位必须显式进特征，不能靠 -1 隐式表达。"""
         cand = {k: (v.clone() if torch.is_tensor(v) else v) for k, v in self.cand.items()}
-        cand["tile_dx"][0, 0] = -1
-        cand["tile_dy"][0, 0] = -1
+        cand["tile_hx"][0, 0] = -1
+        cand["tile_hy"][0, 0] = -1
         with torch.no_grad():
             v1 = self.net(self.wb, cand, self.cmask)[0][0, 0]
-            cand["tile_dx"][0, 0] = 3
-            cand["tile_dy"][0, 0] = 5
+            cand["tile_hx"][0, 0] = 3
+            cand["tile_hy"][0, 0] = 5
             v2 = self.net(self.wb, cand, self.cmask)[0][0, 0]
         self.assertNotAlmostEqual(float(v1), float(v2), places=6)
+
+    def test_候选落点与token同原点(self):
+        """★候选的位置特征用 `tile_hx/tile_hy`（**相对家**），与 M/A 组 token 同原点。
+
+        以前它取的是 `tile_dx/tile_dy`（相对**可见区外接框**）—— 尺度一样、**原点差
+        一个每帧变化的偏移量**（家 − 框原点），模型得自己把它学出来才能把"候选在哪"
+        和"patch 在哪"对上。这条测试钉住两件事：数值确实相对家，且与 A 组口径一致。
+        """
+        from rl.env import ZhanguoEnv
+        env = ZhanguoEnv(map_size=12, max_turns=6)
+        obs = env.reset(0)
+        ax, ay = env.anchor
+        c = obs.cand
+        seen = 0
+        for i, a in enumerate(c["actions"]):
+            if a.tile is None:
+                self.assertEqual((int(c["tile_hx"][i]), int(c["tile_hy"][i])), (-1, -1))
+                continue
+            self.assertEqual(int(c["tile_hx"][i]), a.tile[0] - ax, f"候选 {a.label()} 不是相对家")
+            self.assertEqual(int(c["tile_hy"][i]), a.tile[1] - ay)
+            seen += 1
+        self.assertGreater(seen, 0, "没有一个带落点的候选 —— 测试是空的")
 
     def test_落点归一化用的是vocab的POS_SCALE(self):
         """★这条本该拦住一个真 bug：`cand_pos_block` 原来写死 `/ 64.0`，
@@ -165,8 +187,8 @@ class TestCandidateSide(unittest.TestCase):
         self.assertEqual(TOK_SCALE, VOCAB_SCALE)
         cand = {k: (v.clone() if torch.is_tensor(v) else v)
                 for k, v in self.cand.items()}
-        cand["tile_dx"][0, 0] = int(VOCAB_SCALE)
-        cand["tile_dy"][0, 0] = 0
+        cand["tile_hx"][0, 0] = int(VOCAB_SCALE)     # 相对家的偏移
+        cand["tile_hy"][0, 0] = 0
         pos = self.net.cand_pos_block(cand)
         self.assertAlmostEqual(float(pos[0, 0, 0]), 1.0, places=6,
                                msg="相对家偏移 POS_SCALE 格，归一化后该是 1.0")
