@@ -49,6 +49,8 @@ teacher = bc.get_teacher("v10", turns=TURNS)
 GOOD_BUY = {"装备"}
 GOOD_BUILD = {"装备厂", "兵营"}
 GOOD_KIND = {"recruit", "move", "attack"}
+# "动手" = 真正在版图上做事的动作（区别于纯市场操作 sell/buy）。
+DOING = {"build", "recruit", "move", "attack"}
 
 
 def is_constructive(kind, sub):
@@ -113,12 +115,21 @@ while True:
         # ---- P1：老师在这个状态上重规划 ----
         # 每个撞墙点**重置**探针 rng：答案的差异纯由局面决定，不掺老师的随机性。
         rng_probe.seed(SEED ^ 0xFA11 ^ stat["P1:撞墙总数"])
-        head = teacher_seq(copy.deepcopy(env.world), rng_probe)[:3]
-        stat["P1:老师无动作"] += (len(head) == 0)
+        full = teacher_seq(copy.deepcopy(env.world), rng_probe)
+        head = full[:3]
+        stat["P1:老师无动作"] += (len(full) == 0)
+        stat["P1:老师步数合计"] += len(full)
         if head:
             stat["P1:首步是end_turn"] += (head[0][0] == "end_turn")
             if any(h[0] != "end_turn" and is_constructive(h[0], h[1]) for h in head):
-                stat["P1:有效修正"] += 1
+                stat["P1:有效修正_窄_前3步"] += 1
+        # ★判据改宽：老师开局固定"先卖余量、再买木头"，前 3 步全是市场操作，
+        #   窄定义必然全灭（第一版 R=0% 就是这么来的，别误读成"机制无用"）。
+        #   真正的判据是**整条回合计划里有没有"动手"的动作**。
+        if any(h[0] in DOING for h in full):
+            stat["P1:全序列含动手"] += 1
+        for h in full:
+            stat["P1:直方图:" + h[0]] += 1
         if label is not None:
             stat["P1:该状态有标签"] += 1
             if (label[0], label[1]) == (ak, asub):
@@ -156,10 +167,19 @@ print(f"撞墙 {n} 次；回合有效步数 {stat['P3:有效步数']}、老师�
 
 print("\n--- P1 老师在撞墙状态上重规划 ---")
 if n:
-    print(f"  有有效修正（前3步含合法·非end_turn·建设性）："
-          f"{stat['P1:有效修正']}/{n} = {stat['P1:有效修正'] / n:.0%}   ← 判据 R")
-    print(f"  首步就是 end_turn（反向风险）：{stat['P1:首步是end_turn']}/{n} = "
+    print(f"  ★全序列含「动手」（build/recruit/move/attack）："
+          f"{stat['P1:全序列含动手']}/{n} = {stat['P1:全序列含动手'] / n:.0%}"
+          f"   ← 判据 R（宽）")
+    print(f"  窄判据（前3步含 买装备/造装备厂·兵营/征兵/出兵）："
+          f"{stat['P1:有效修正_窄_前3步']}/{n} = "
+          f"{stat['P1:有效修正_窄_前3步'] / n:.0%}"
+          f"   ← 老师开局先卖余量，前3步全是市场操作，此栏必然低")
+    print(f"  老师计划平均 {stat['P1:老师步数合计'] / n:.1f} 步；"
+          f"首步就是 end_turn（反向风险）：{stat['P1:首步是end_turn']}/{n} = "
           f"{stat['P1:首步是end_turn'] / n:.0%}")
+    hist = {k.split(":")[-1]: v for k, v in stat.items()
+            if k.startswith("P1:直方图:")}
+    print(f"  老师整条计划的动作直方图：{hist}")
     d = stat["P1:该状态有标签"]
     if d:
         print(f"  ★被拒动作 == 该状态的 DAgger 标签：{stat['P1:标签==被拒动作']}/{d} = "
