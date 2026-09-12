@@ -26,6 +26,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from rl.device import model_device, move_to, pick_device
 from rl.env import ACT_SAFETY, KIND_INDEX, KINDS, ZhanguoEnv
 from rl.model import PolicyNet
 from rl.transformer import WindowTransformer
@@ -384,17 +385,22 @@ def hit_rate(model, samples, n_tiles: int = 0, *, skip_end_turn: bool = False,
         # ★批大小跟着训练批走，别再写死 256：`tf` 主干下 256 是**内存尖峰**
         #   （窗口激活 ∝ batch，见 `--minibatch` 的说明），而这个函数只是量命中率，
         #   不值得为它冒换页的险。实测 v9+tf 一局里它独占 18 s，接到 32 之后只剩几秒。
+        _dev = model_device(model)
         for s in range(0, len(samples), mb):
             chunk = samples[s:s + mb]
             if net == "tf":
                 cand, cmask, wb, acts, _g = pack_tf(chunk)
-                pred = model(wb, cand, cmask)[0].argmax(-1).numpy()
+                _lg = model(move_to(wb, _dev), move_to(cand, _dev), cmask)[0]
             elif net == "pool":
                 (grid, glob, cand, mask), wb, acts, _g = pack_win(chunk, n_tiles)
-                pred = model(grid, glob, cand, mask, win=wb)[0].argmax(-1).numpy()
+                _lg = model(*move_to((grid, glob, cand, mask), _dev),
+                            win=move_to(wb, _dev))[0]
             else:
                 (grid, glob, cand, mask), acts, _g = pack(chunk, n_tiles)
-                pred = model(grid, glob, cand, mask)[0].argmax(-1).numpy()
+                _lg = model(*move_to((grid, glob, cand, mask), _dev))[0]
+            # ★`.cpu()` 不能漏：GPU 上的张量不给 `.numpy()`（报 "can't convert cuda
+            #   tensor to numpy"）。而这里只是量命中率，搬回 CPU 是最省的写法。
+            pred = _lg.argmax(-1).cpu().numpy()
             hit += int((pred == acts).sum())
             tot += len(acts)
     return hit / max(1, tot)
@@ -450,6 +456,9 @@ def main() -> None:
                     help="块调度下每几**块**留出 1 整块当验证集。**必须按块留**：块内各局"
                          "共用同一张地图，按局留出会让验证局和训练局同图，"
                          "「跨地图泛化」这个口径当场失效")
+    ap.add_argument("--device", default="auto",
+                    help="auto = 有 CUDA 用 cuda，否则 cpu。⚠**搬运点只有两处**"
+                         "（`ppo.forward_batch` 与下面的训练步），见 `rl/device.py`")
     ap.add_argument("--eval-every", type=int, default=5,
                     help="每几局量一次命中率（0/1 = 每局都量）。★这一项**很贵**：实测每局"
                          "4 次 hit_rate（训练 600×2 + 验证 ×2）在 ECS 上要 **153 s**，"
@@ -558,6 +567,14 @@ def main() -> None:
         if _ww:
             print(f"★窗口模式（P3）：策略 query 来自 token 窗口 "
                   f"共 {_w.total} token / 亮 {_w.live}；候选侧与价值头照旧", flush=True)
+    # ★搬到设备**必须在建优化器之前**：Adam 的动量张量跟着参数走，先建后搬
+    #   会留下一份 CPU 动量（不报错，只是白算）。
+    _dev = pick_device(args.device)
+    model = model.to(_dev)
+    print(f"设备：{_dev}"
+          + (f"（{torch.cuda.get_device_name(_dev)}，"
+             f"{torch.cuda.get_device_properties(_dev).total_memory/2**30:.1f} GiB）"
+             if _dev.type == "cuda" else ""), flush=True)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     # ★纠正模式：**权重留下**，不从零学（用户 2026-09-11：「权重留下，只是纠正」）。
     # 换老师（比如 v9 加了视野门控之后）时，旧权重是有价值的起点 —— 从零重跑一遍 BC
@@ -730,7 +747,10 @@ def main() -> None:
                 (grid, glob, cand, mask), acts, rets = pack(chunk, model.n_tiles)
                 logits, v = model(grid, glob, cand, mask)
             logp = F.log_softmax(logits, dim=-1)
-            a_t = torch.as_tensor(acts)
+            # ★搬运点之二（见 `rl/device.py`）：这一支直接调 `model(...)`、没走
+            #   `forward_batch`，所以得自己搬。**必须在 `log_softmax` 之后拿 device**
+            #   —— 用 `logits.device` 而不是猜，模型在 cpu 时这就是个 no-op。
+            a_t = torch.as_tensor(acts, device=logits.device)
             _lp = logp.gather(1, a_t.unsqueeze(1)).squeeze(1)
             if w_kind is not None:
                 # ⚠️ `acts` 是**候选下标**（`logp.gather` 用的就是它），不是类别下标 ——

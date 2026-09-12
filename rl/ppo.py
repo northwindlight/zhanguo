@@ -12,6 +12,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from rl.device import model_device, move_to
+
 
 # ---------------------------------------------------------------- 轨迹缓冲
 class Rollout:
@@ -244,13 +246,16 @@ def forward_batch(model, steps, wins=None):
     `n_tiles` 从模型上取（点积头有、P4 主干没有）—— 别让调用方去猜自己是哪种模型，
     那正是 `is_transformer` 要消掉的东西。
     """
+    # ★搬运点之一（见 `rl/device.py`）：collate 出来的一律是 CPU 张量，模型可能在 GPU 上。
+    #   放在这里而不是各调用点 —— 训练、评估、DAgger 采样**全部**走这个入口。
+    dev = model_device(model)
     if is_transformer(model):
         cand, cmask = collate_cand(steps)
-        logits, value = model(collate_window(wins), cand, cmask)
+        logits, value = model(move_to(collate_window(wins), dev), move_to(cand, dev), cmask)
         return logits, value, cmask
     grid, glob, cand, mask = collate(steps, getattr(model, "n_tiles", 0))
     wb = collate_window(wins) if wins is not None else None
-    logits, value = model(grid, glob, cand, mask, win=wb)
+    logits, value = model(*move_to((grid, glob, cand, mask), dev), win=move_to(wb, dev))
     return logits, value, mask
 
 
