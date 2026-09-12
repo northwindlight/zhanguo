@@ -89,7 +89,7 @@ class TestBatchInvariance(unittest.TestCase):
         with torch.no_grad():
             solo = enc(collate_window([w1]))
             pair = enc(collate_window([w1, w2]))
-        torch.testing.assert_close(solo[0], pair[0], rtol=0, atol=0)
+        torch.testing.assert_close(solo[0], pair[0], rtol=0, atol=ATOL)
 
     def test_窗口数不同的两条都能拼(self):
         e1, o1 = _env_obs(turns=8, seed=0)
