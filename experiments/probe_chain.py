@@ -42,9 +42,19 @@ for ep in range(EPS):
         idx, _lp, _v = act(m, obs, win=tokenize(env, obs))
         a = obs.cand["actions"][idx]
         sub = getattr(a, "sub", None)
+        # ★move 必须分口径：**内部调动**（目标格本来就是自己的）vs **扩张性 move**
+        #   （目标是中立/敌方）。2026-09-13 发现读数冲突：J.1 记的「ep400 move 0.4
+        #   次/局」跟同期实测的 9.0 差 22 倍，最可能就是它只算了扩张性 move ——
+        #   **在核实前两套数不能混用**。用 step **之前**的所有权判（move 成功后
+        #   目标格归属会变，那时再判就全成"内部"了）。
+        _internal = None
+        if a.kind == "move":
+            _internal = a.tile in set(env.world.own_tiles(env.agent))
         obs, _r, done, info = env.step(a)
         if info["ok"]:
             c[a.kind] += 1
+            if _internal is not None:
+                c["move:内部" if _internal else "move:扩张"] += 1
             if a.kind == "build" and sub == "兵营":
                 c["建兵营"] += 1
                 if first_barracks is None:
@@ -53,9 +63,10 @@ for ep in range(EPS):
             break
     tiles = len(env.world.own_tiles(env.agent))
     rows.append((ep, c["建兵营"], first_barracks, c["recruit"], c["move"],
-                 c["attack"], tiles))
+                 c["move:扩张"], c["attack"], tiles))
     print(f"  局{ep}:  兵营×{c['建兵营']}  首建 T{first_barracks}  "
-          f"征兵{c['recruit']}  move{c['move']}  attack{c['attack']}  领地{tiles}")
+          f"征兵{c['recruit']}  move{c['move']}(扩张{c['move:扩张']})  "
+          f"attack{c['attack']}  领地{tiles}")
 
 n = len(rows)
 fb = sorted(r[2] for r in rows if r[2] is not None)
@@ -64,7 +75,9 @@ print(f"  经济开局（有买卖/建造活动）：{'✓' if all(sum(r[1:6]) >
 print(f"  建成兵营的图：{sum(1 for r in rows if r[1] > 0)}/{n}"
       f"     首次兵营中位：{fb[len(fb) // 2] if fb else '—'}"
       f"   逐图 {[r[2] for r in rows]}")
-print(f"  征兵   {sum(r[3] for r in rows) / n:.1f} 次/局")
-print(f"  move   {sum(r[4] for r in rows) / n:.1f} 次/局")
-print(f"  attack {sum(r[5] for r in rows) / n:.1f} 次/局")
-print(f"  终局领地  均值 {sum(r[6] for r in rows) / n:.1f}   逐局 {[r[6] for r in rows]}")
+print(f"  征兵        {sum(r[3] for r in rows) / n:.1f} 次/局")
+print(f"  move        {sum(r[4] for r in rows) / n:.1f} 次/局"
+      f"   ← 其中**扩张性** {sum(r[5] for r in rows) / n:.1f}"
+      f"（内部调动 {sum(r[4] - r[5] for r in rows) / n:.1f}）")
+print(f"  attack      {sum(r[6] for r in rows) / n:.1f} 次/局")
+print(f"  终局领地    均值 {sum(r[7] for r in rows) / n:.1f}   逐局 {[r[7] for r in rows]}")
