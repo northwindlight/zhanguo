@@ -6,9 +6,14 @@
 返回的是嵌套 dict + tensor，逐个字段 `.to()` 会写漏（写漏的表现是
 `Expected all tensors to be on the same device`，而且只在某些分支上炸）。
 
-★**搬运点只有两处**，别在各处零散地 `cuda()`：
+★**搬运点是三处**，别在各处零散地 `cuda()`：
 1. `ppo.forward_batch` —— 所有前向（训练、评估、DAgger 采样）的唯一入口；
-2. `bc.py` 的训练步 —— 它直接调 `model(...)`，没走 `forward_batch`。
+2. `bc.py` 的训练步 —— 它直接调 `model(...)`，没走 `forward_batch`；
+3. **`ppo.PPO.update` 的标签张量** —— `as_tensor` 不给 `device=` 就落 CPU，
+   而 forward_batch 已把 logits 搬到设备 ⇒ `gather` 炸「same device」。
+   ★**这一处是 2026-09-13 才发现的**：原先只记了两处，因为 `bc.py` 不走
+   `PPO.update`（它有自己的训练步），**只有在 PPO 这条路上才会炸**。
+   ⇒ 判据：**新增一条不走 bc 的前向/回传路径时，先想它的标签张量在哪**。
 """
 from __future__ import annotations
 

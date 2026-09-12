@@ -320,14 +320,24 @@ class PPO:
                 # 窗口只对 P4 主干有意义，别给点积头传（它的 forward 不收 win）。
                 wins = ([s["win"] for s in mb] if is_transformer(self.model) else None)
                 logits, value, mask = forward_batch(self.model, mb, wins)
+                # ★`as_tensor` 不给 `device=` 就落在 **CPU**，而 `forward_batch` 已经把
+                #   logits/value 搬到了模型所在设备 ⇒ `gather` 会炸
+                #   「Expected all tensors to be on the same device」。
+                #   **这是第三处搬运点** —— `rl/device.py` 开头只点了两处（forward_batch
+                #   与 bc 的训练步），漏了这个；`bc.py` **不走 `PPO.update`**（它有自己的
+                #   训练步）所以从没暴露，只在 PPO 这条路上炸。
+                _d = logits.device
                 logp_all = F.log_softmax(logits, dim=-1)
-                act_t = torch.as_tensor([s["act"] for s in mb], dtype=torch.long)
+                act_t = torch.as_tensor([s["act"] for s in mb], dtype=torch.long, device=_d)
                 logp = logp_all.gather(1, act_t.unsqueeze(1)).squeeze(1)
-                old_logp = torch.as_tensor([s["logp"] for s in mb], dtype=torch.float32)
-                adv = torch.as_tensor([s["adv"] for s in mb], dtype=torch.float32)
+                old_logp = torch.as_tensor([s["logp"] for s in mb], dtype=torch.float32,
+                                           device=_d)
+                adv = torch.as_tensor([s["adv"] for s in mb], dtype=torch.float32,
+                                      device=_d)
                 if self.adv_norm == "minibatch":
                     adv = (adv - adv.mean()) / (adv.std() + 1e-8)
-                ret = torch.as_tensor([s["ret"] for s in mb], dtype=torch.float32)
+                ret = torch.as_tensor([s["ret"] for s in mb], dtype=torch.float32,
+                                      device=_d)
 
                 ratio = (logp - old_logp).exp()
                 pg1 = -adv * ratio
@@ -335,7 +345,8 @@ class PPO:
                 pg = torch.max(pg1, pg2).mean()
                 # 价值裁剪：单块训练里回报可能突然很大（比如一局收尾把消费打上去），
                 # 不裁剪的话价值网会被一个离群目标拽飞、连带把策略也带崩。
-                old_v = torch.as_tensor([s["val"] for s in mb], dtype=torch.float32)
+                old_v = torch.as_tensor([s["val"] for s in mb], dtype=torch.float32,
+                                        device=_d)
                 v_clip = old_v + (value - old_v).clamp(-self.clip, self.clip)
                 vf = torch.max((value - ret) ** 2, (v_clip - ret) ** 2).mean()
                 p = logp_all.exp()
