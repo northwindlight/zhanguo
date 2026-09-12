@@ -50,7 +50,8 @@ def build_env(args, *, jitter: float | None = None) -> ZhanguoEnv:
                       seed=args.seed, agent=args.agent,
                       max_turns=args.turns, max_actions_per_turn=args.max_actions,
                       reward_scale=args.reward_scale,
-                      rules_jitter=(args.rules_jitter if jitter is None else jitter))
+                      rules_jitter=(args.rules_jitter if jitter is None else jitter),
+                      invalid_penalty=getattr(args, "invalid_penalty", 0.0))
 
 
 def build_model(env: ZhanguoEnv, args):
@@ -126,6 +127,17 @@ def main() -> None:
                     help="每回合动作上限。游戏给 LLM 玩家的是 24，但单国 RL 在后期"
                          "（几十块地）24 手明显不够用")
     ap.add_argument("--reward-scale", type=float, default=0.01)
+    ap.add_argument("--invalid-penalty", type=float, default=0.0,
+                    help="无效动作（被引擎拒）的**虚空**惩罚，单位与消费同口径："
+                         "10 = 每次被拒扣掉「10 消费」的等价 reward。**不动游戏内逻辑**"
+                         "（spend_total / 计分板一个字节都不变，只改 reward）。默认 0。"
+                         "为什么需要：撞墙的唯一代价是烧一格回合预算，而预算是 512、"
+                         "学生每回合只用 7.2 步（利用率 1.4%）⇒ 实际零代价 ⇒ 对策略是"
+                         "一张「零成本的试错期权」（不产生消费、也不结束回合，"
+                         "「再试一次」不要钱）。BC/DAgger 阶段靠交叉熵压着（撞墙动作"
+                         "不是老师标签、不入库），**PPO 上来这个约束就没了** ⇒ 这个开关"
+                         "是给 PPO 准备的。标定别拍 100：学生一局消费 4747/100 回合 ≈ 47/回合、"
+                         "撞墙 2.4 次/回合，10 ⇒ -24/回合（约占一半），100 ⇒ -240/回合（净变负）。")
     ap.add_argument("--iterations", type=int, default=100, help="PPO 更新块数（每块 rollout-steps 步）")
     ap.add_argument("--rollout-steps", type=int, default=2048,
                     help="仅当 --rollout-episodes 0 时生效：每次更新采多少步")
