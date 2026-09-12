@@ -230,6 +230,76 @@ class TestReward(unittest.TestCase):
                 break
 
 
+class TestInvalidPenalty(unittest.TestCase):
+    """无效动作的**虚空**惩罚（用户 2026-09-13）。
+
+    要点全在"虚空"二字：`spend_total`（计分板真值 + 下回合 delta 的基准）
+    **一个字节都不能动**，扣的只是 reward。所以下面专门断言计分板不变。
+
+    背景：撞墙的唯一代价是烧一格回合预算，而预算是 512、学生每回合只用 7.2 步
+    ⇒ 实际零代价 ⇒ 对策略是一张「零成本的试错期权」。BC/DAgger 阶段靠交叉熵
+    压着（撞墙动作不是老师标签、不入库），**PPO 上来这个约束就没了**。
+    """
+
+    @staticmethod
+    def _one_rejecting(env):
+        """从候选里挑一个引擎会拒的动作（在**副本**上试，不动真实世界）。"""
+        import copy
+        obs = env._obs()
+        w = env.world
+        for a in obs.cand["actions"]:
+            env.world = copy.deepcopy(w)
+            try:
+                ok, _msg = env._apply(a)
+            finally:
+                env.world = w
+            if not ok:
+                return a
+        return None
+
+    def test_off_by_default_is_identity(self):
+        """默认 0 ⇒ reward 就是消费增量（与开关存在前逐位相同）。"""
+        env = ZhanguoEnv(map_size=12, seed=7, max_turns=4, reward_scale=1.0)
+        obs = env.reset()
+        rng = random.Random(7)
+        prev = 0.0
+        for _ in range(2000):
+            a = obs.cand["actions"][rng.randrange(len(obs.cand["actions"]))]
+            obs, r, done, info = env.step(a)
+            self.assertAlmostEqual(r, info["spend_total"] - prev, places=9)
+            prev = info["spend_total"]
+            if done:
+                break
+
+    def test_penalty_hits_rejections_only_and_spares_the_scoreboard(self):
+        e0 = ZhanguoEnv(map_size=12, seed=11, max_turns=4, reward_scale=1.0)
+        e1 = ZhanguoEnv(map_size=12, seed=11, max_turns=4, reward_scale=1.0,
+                        invalid_penalty=20.0)
+        e0.reset()
+        e1.reset()
+        a = self._one_rejecting(e0)
+        self.assertIsNotNone(a, "这局候选里应当存在会被引擎拒的动作")
+        _, r0, _, i0 = e0.step(a)
+        _, r1, _, i1 = e1.step(a)
+        self.assertFalse(i0["ok"], "挑出来的动作必须是真被拒的")
+        # ★虚空：计分板一个字节都没变
+        self.assertAlmostEqual(i0["spend_total"], i1["spend_total"], places=9)
+        # 惩罚只落在 reward 上，且单位与消费同口径（scale=1.0 ⇒ 正好差 20）
+        self.assertAlmostEqual(r0 - r1, 20.0, places=9)
+
+    def test_successful_action_is_untouched(self):
+        """成功的动作不罚 —— `end_turn` 一定成功，两边 reward 必须相同。"""
+        e0 = ZhanguoEnv(map_size=12, seed=13, max_turns=4, reward_scale=1.0)
+        e1 = ZhanguoEnv(map_size=12, seed=13, max_turns=4, reward_scale=1.0,
+                        invalid_penalty=20.0)
+        o0 = e0.reset()
+        o1 = e1.reset()
+        j = next(i for i, a in enumerate(o0.cand["actions"]) if a.kind == "end_turn")
+        _, r0, _, _ = e0.step(o0.cand["actions"][j])
+        _, r1, _, _ = e1.step(o1.cand["actions"][j])
+        self.assertAlmostEqual(r0, r1, places=9)
+
+
 class TestDiplomacyOutOfScope(unittest.TestCase):
     """**外交留在引擎里，但不进 RL 这条线**（2026-09-12 变基口径，取代原来的「引擎里删干净」）。
 

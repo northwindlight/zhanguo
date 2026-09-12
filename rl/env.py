@@ -122,7 +122,7 @@ class ZhanguoEnv:
                  seed: int = 0, agent: str = "秦",
                  rivals: tuple[str, ...] = (), max_turns: int = 40,
                  max_actions_per_turn: int = ACT_SAFETY, reward_scale: float = 0.01,
-                 rules_jitter: float = 0.0):
+                 rules_jitter: float = 0.0, invalid_penalty: float = 0.0):
         # ★RL 是**通用**的：真实游戏的地图由玩家选（16×16 / 50×50 / 100×100 都可能），
         #   所以**地图尺寸必须每局可变**（用户 2026-09-11 口径）。
         #   传 `map_sizes` 就每局按种子重采样一个；不传 = 固定 `map_size`（旧行为）。
@@ -137,6 +137,25 @@ class ZhanguoEnv:
         self.max_turns = int(max_turns)
         self.max_actions_per_turn = int(max_actions_per_turn)
         self.reward_scale = float(reward_scale)
+        # ★无效动作的**虚空**惩罚（用户 2026-09-13 拍板）。单位跟消费同口径：
+        #   `invalid_penalty=20` = 每次被引擎拒，reward 上扣掉"20 消费"的等价物。
+        #
+        #   为什么需要它：撞墙的**唯一**代价是烧一格回合预算，而预算是 512、
+        #   学生每回合只用 7.2 步（利用率 1.4%）⇒ **实际零代价**。于是它对策略
+        #   来说是一张「零成本的试错期权」——不产生消费，但也不结束回合，
+        #   所以"再试一次"不要钱（PPO 视角下 advantage ≈ 0，而不是负）。
+        #   前科：`glob` 注释（§`turn_actions` 那行）记着学生**曾经**走 67~71 步/回合。
+        #   BC/DAgger 阶段靠交叉熵压着（撞墙动作不是老师标签，不入库），
+        #   **PPO 一上来这个约束就没了** ⇒ 这是给 PPO 铺路。
+        #
+        #   ★标定：学生一局消费 5047/70 回合 ≈ 72/回合，撞墙 2.6 次/回合。
+        #   每次扣 100 ⇒ -260/回合 > +72 ⇒ reward 净变负、惩罚压过收益 3.6 倍，
+        #   那是"让撞墙成为主要矛盾"，不是"让它不值得"。**从 20 起**，
+        #   判据是**撞墙次数/回合**降不降；降不动说明期权价值比估计的大。
+        #   ★只罚「引擎拒绝」，**不罚「执行了但失败」**（attack 打输是战争损耗，
+        #   属游戏的一部分）—— 扣在 `ok` 上天然只覆盖前者。
+        #   ★默认 0 ⇒ 行为与开关存在前逐位相同。
+        self.invalid_penalty = float(invalid_penalty)
         # ★训练期域随机化的幅度（0 = 关，见 `rl/jitter.py` 与 §10.4）。
         #   默认关：评估/看海/对拍一律真值 —— 只有训练采样期才该抖。
         self.rules_jitter = float(rules_jitter)
@@ -247,6 +266,11 @@ class ZhanguoEnv:
             events = self._run_round_end()
         total = self.world.spend_total(self.agent) if self.agent in self.world.nations else self.prev_spend
         reward = (total - self.prev_spend) * self.reward_scale
+        # ★虚空惩罚：**只动 reward，绝不动 `total`/`spend_total`** —— 后者是计分板
+        #   的真值（排名按它）、也是下一回合 delta 的基准，动了它会同时污染游戏内
+        #   计分和后续所有 reward。"虚空"就是指它不进任何游戏内账。
+        if not ok and self.invalid_penalty:
+            reward -= self.invalid_penalty * self.reward_scale
         self.prev_spend = total
         info = {"ok": ok, "msg": msg, "events": events, "turn": self.world.turn,
                 "spend_total": total, "ended": ended}

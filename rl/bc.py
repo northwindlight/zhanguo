@@ -563,6 +563,14 @@ def main() -> None:
     ap.add_argument("--rules-jitter", type=float, default=0.0,
                     help="训练期域随机化的幅度（0=关，见 rl/jitter.py 与 TOKEN_DESIGN §10.4）。"
                          "开了就每局按 seed 换一套规则表 —— 学「给定数值怎么打」而不是背下标")
+    ap.add_argument("--invalid-penalty", type=float, default=0.0,
+                    help="无效动作（被引擎拒）的**虚空**惩罚，单位与消费同口径："
+                         "20 = 每次被拒扣掉「20 消费」的等价 reward。**不动游戏内逻辑**"
+                         "（spend_total / 计分板一个字节都不变，只改 reward）。"
+                         "默认 0 = 行为与开关存在前逐位相同。"
+                         "★标定别拍 100：学生一局消费 5047/70 回合 ≈ 72/回合、"
+                         "撞墙 2.6 次/回合，每次扣 100 ⇒ -260/回合 > +72 ⇒ reward 净变负。"
+                         "从 20 起，判据是撞墙次数/回合降不降。")
     ap.add_argument("--out", default="rl/runs/bc/last.pt")
     args = ap.parse_args()
 
@@ -590,7 +598,8 @@ def main() -> None:
     _ms = tuple(int(x) for x in args.map_sizes.split(",") if x.strip()) if args.map_sizes else None
     env = ZhanguoEnv(map_size=args.map_size, map_sizes=_ms, max_turns=args.turns,
                      max_actions_per_turn=args.max_actions,
-                     rules_jitter=getattr(args, "rules_jitter", 0.0))
+                     rules_jitter=getattr(args, "rules_jitter", 0.0),
+                     invalid_penalty=getattr(args, "invalid_penalty", 0.0))
     # 先 reset 一次拿到 obs 维度
     env.reset(0)
     # 开了 --window 就先造一帧窗口，拿它的**实际宽度**建编码器 ——
