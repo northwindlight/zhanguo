@@ -126,7 +126,7 @@ def main() -> None:
     model.eval()
     print(f"模型：{args.ckpt}（iter {ck.get('iter')}）  图 {args.episodes} 张  回合 {args.turns}")
 
-    g, s, r_, e_, h_, k_, et, ee, eh, ek = [], [], [], [], [], [], [], [], [], []
+    g, s, r_, e_, h_, k_, et, es, ee, eh, ek = [], [], [], [], [], [], [], [], [], [], []
     print(f"{'seed':>10}{'模型·贪心':>13}{'模型·采样':>13}{'v3':>13}{'v6':>13}"
           f"{'v9(旧基线)':>13}{'v10(老师)':>13}{'v10地':>7}")
     for i in range(args.episodes):
@@ -141,7 +141,8 @@ def main() -> None:
         k = run_rule(env, seed, args.turns, max_actions=args.rule_actions, which="v10")
         g.append(a[0]); s.append(b[0]); r_.append(c[0]); e_.append(d[0]); h_.append(h[0])
         k_.append(k[0])
-        et.append(a[1]); ee.append(d[1]); eh.append(h[1]); ek.append(k[1])
+        et.append(a[1]); es.append(b[1])          # ★采样那一档的地数也要（前期判据）
+        ee.append(d[1]); eh.append(h[1]); ek.append(k[1])
         print(f"{seed:>10}{a[0]:>13,.0f}{b[0]:>13,.0f}{c[0]:>13,.0f}{d[0]:>13,.0f}"
               f"{h[0]:>13,.0f}{k[0]:>13,.0f}{k[1]:>7}")
 
@@ -155,8 +156,11 @@ def main() -> None:
     line("v6(旧基线)", e_)
     line("v9(旧基线)", h_)
     line("v10(老师)", k_)
-    print(f"\n地数均值：模型贪心 {st.mean(et):.1f}   v6 {st.mean(ee):.1f}   "
-          f"v9 {st.mean(eh):.1f}   v10 {st.mean(ek):.1f}")
+    # ★**前期判据看领地**（用户 2026-09-12）：消费可以被"纯资本开支"刷出来 ——
+    #   实测起点权重 5 格 / 0 次征兵 / 30 次建造，消费照样到老师的 ×0.95。
+    #   所以模型**两档都打地数**，只看消费会把"空转刷分"误读成"学会了开荒"。
+    print(f"\n地数均值：模型贪心 {st.mean(et):.1f}   模型采样 {st.mean(es):.1f}   "
+          f"v6 {st.mean(ee):.1f}   v9 {st.mean(eh):.1f}   v10 {st.mean(ek):.1f}")
     # ★主打分口径 = **相对当前老师 v10**（模型是照它克隆的，就该跟它比）
     print(f"相对 v10：贪心 ×{st.mean(g)/max(1,st.mean(k_)):.2f}   "
           f"采样 ×{st.mean(s)/max(1,st.mean(k_)):.2f}   "
