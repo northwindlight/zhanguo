@@ -18,6 +18,7 @@ from rl.env import KINDS, ZhanguoEnv
 from rl.tokenize import GROUPS, tokenize
 from rl.transformer import WindowTransformer
 from rl.ppo import act
+from spend_rules import army_upkeep_units, income_of
 
 CKPT = sys.argv[1]
 EPS = int(sys.argv[2]) if len(sys.argv) > 2 else 5
@@ -38,6 +39,13 @@ for ep in range(EPS):
     obs = env.reset(ep, map_seed=100 + ep)   # 每局一张不同的图
     c = collections.Counter()
     first_barracks = None
+    # ★军费占收入 —— **在不在认真养兵扩张**的直接读数（v10 的闸门是 30%：
+    #   低了补征、高了停）。领地/attack 都是**后果**，这个是**意图**的物理形态。
+    #   逐回合累加取均值（军费比随回合变），局末的瞬时值另存。
+    _last_turn = -1
+    _mil_sum = 0.0
+    _mil_n = 0
+    _mil_last = 0.0
     while True:
         idx, _lp, _v = act(m, obs, win=tokenize(env, obs))
         a = obs.cand["actions"][idx]
@@ -52,6 +60,14 @@ for ep in range(EPS):
         #   有没有效（领地/attack 是间接后果，会被别的东西盖住）。
         if not info["ok"]:
             c["撞墙"] += 1
+        if info["turn"] != _last_turn:          # 回合切换 → 记一次军费比
+            _last_turn = info["turn"]
+            _mil = army_upkeep_units(env.world, env.agent) * env.world.prices.get("补给", 5)
+            _inc = income_of(env.world, env.agent)
+            if _inc > 0:
+                _mil_sum += _mil / _inc
+                _mil_n += 1
+                _mil_last = _mil / _inc
         if info["ok"]:
             c[a.kind] += 1
             if _own_before is not None and len(env.world.own_tiles(env.agent)) > _own_before:
@@ -64,11 +80,13 @@ for ep in range(EPS):
             break
     tiles = len(env.world.own_tiles(env.agent))
     spend = env.world.spend_total(env.agent)          # ★目标函数本身（不是代理指标）
+    mil_sh = (_mil_sum / _mil_n) if _mil_n else 0.0
     rows.append((ep, c["建兵营"], first_barracks, c["recruit"], c["attack"],
-                 c["attack:占地"], c["move"], tiles, c["撞墙"], spend))
+                 c["attack:占地"], c["move"], tiles, c["撞墙"], spend, mil_sh))
     print(f"  局{ep}:  兵营×{c['建兵营']}  首建 T{first_barracks}  "
           f"征兵{c['recruit']}  attack{c['attack']}(占{c['attack:占地']})  "
-          f"move{c['move']}(野地行军)  撞墙{c['撞墙']}  领地{tiles}  消费{spend:.0f}")
+          f"move{c['move']}(野地行军)  撞墙{c['撞墙']}  领地{tiles}  "
+          f"消费{spend:.0f}  军费比{mil_sh:.0%}")
 
 n = len(rows)
 fb = sorted(r[2] for r in rows if r[2] is not None)
@@ -99,3 +117,9 @@ print(f"  ★★消费     均值 {sum(r[9] for r in rows) / n:.0f}"
       f"   逐局 {[round(r[9]) for r in rows]}")
 print(f"      中位 {sorted(r[9] for r in rows)[n // 2]:.0f}"
       f"   最低 {min(r[9] for r in rows):.0f}   最高 {max(r[9] for r in rows):.0f}")
+# ★军费占收入 = **在不在认真养兵扩张**的直接读数。v10（规则 AI）主动把它顶在
+#   **30%**（低了补征、高了停，`expand_rule_v10.py:99`）—— 所以这个数就是
+#   那把尺子：**远低于 30% ⇒ 军队规模不够 ⇒ 根本没在扩张**，跟领地多少无关。
+print(f"  ★★军费比   均值 {sum(r[10] for r in rows) / n:.1%}"
+      f"   逐局 {[f'{r[10]:.0%}' for r in rows]}")
+print(f"      （v10 的闸门 = 30%；远低于它 ⇒ 军队规模不够 ⇒ 没在扩张）")
