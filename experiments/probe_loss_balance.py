@@ -70,7 +70,15 @@ for ep in range(EPS):
             break
 roll.gae(last_value=0.0)
 steps = roll.steps
-print(f"收满 {len(steps)} 步\n")
+# ★**步数上限**：整批过一次 4 层 transformer、还要 backward 三次（retain_graph），
+#   1800 步就把 23GB 打爆（实测 OOM 两次）。梯度**比值**是个**尺度量**，
+#   均匀抽稀到 500 步完全够用 —— 抽稀不破坏每个 step 自带的 adv/ret/val/logp。
+MAXSTEPS = 500
+if len(steps) > MAXSTEPS:
+    k = len(steps) // MAXSTEPS
+    steps = steps[::k]
+    print(f"（原 {len(roll.steps)} 步 → 抽稀 ×{k} → {len(steps)} 步，防 OOM）")
+print(f"用于求梯度的步数 {len(steps)}\n")
 
 # ---- 拼一整批（这里只关心量级，不做 minibatch 切分）
 grid, glob, cand, mask = collate(steps)
