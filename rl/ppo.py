@@ -465,14 +465,18 @@ class PPO:
                 if self.bc_model is not None and self.bc_coef:
                     _sel = [i for i, s in enumerate(mb) if s.get("turn", 0) <= self.bc_turns]
                     if _sel:
-                        _mb = [mb[i] for i in _sel]
-                        _w = ([s["win"] for s in _mb]
+                        # ★BC 前向必须跑**整个 minibatch**、再按 `_i` 索引 ——
+                        #   不能对子集 `_mb` 单独 collate：候选维 K 是**批内最大值**，
+                        #   子集的 K 通常更小 ⇒ `_p`(K=378) 与 `_q`(K=196) 形状不等
+                        #   （2026-09-14 实测崩在这里）。同一批输入 ⇒ K 一致、`mask` 也一致。
+                        _w = ([s["win"] for s in mb]
                               if is_transformer(self.model) else None)
                         with torch.no_grad():
-                            _bl, _bv, _bm = forward_batch(self.bc_model, _mb, _w)
+                            _bl, _bv, _bm = forward_batch(self.bc_model, mb, _w)
                             _q = F.log_softmax(_bl, dim=-1)
                         _i = torch.as_tensor(_sel, dtype=torch.long, device=_d)
                         _p = logp_all[_i]
+                        _q = _q[_i]
                         _mk = mask[_i]
                         bc_kl = (_p.exp() * (_p - _q)).masked_fill(~_mk, 0.0).sum(-1).mean()
 

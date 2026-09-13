@@ -42,22 +42,49 @@ class _TinyModel(torch.nn.Module):
 
 
 def _fake_forward_batch(model, steps, wins=None, *, return_exec: bool = False):
+    """忠实模拟真 `collate`：**候选维 K = 批内最大候选数**，逐 step 用 mask 标有效位。
+
+    ★为什么不能图省事用常数 K：真环境里每个状态的候选数是变的（160~400），
+      `collate` 按**批内最大**补齐；对**子集**单独 collate 会得到更小的 K。
+      用常数 K 的假前向会把「BC 前向跑了子集」这个 bug 放过去
+      —— 2026-09-14 实测：测试全绿、真跑崩（`378 vs 196`）。
+    """
     n = len(steps)
+    k = max(s["kk"] for s in steps)          # ← 批内最大，与真 collate 同口径
     x = torch.ones(n, D)
-    logits = model.lin(x)
+    logits = model.lin(x)                     # [n, model.k]
+    logits = logits[:, :k] if k <= model.k else logits.repeat(1, (k // model.k) + 1)[:, :k]
     value = model.vl(x).squeeze(-1)
-    mask = torch.ones(n, model.k, dtype=torch.bool)
+    mask = torch.zeros(n, k, dtype=torch.bool)
+    for i, s in enumerate(steps):
+        mask[i, :s["kk"]] = True              # 补出来的位置不算有效位
     if return_exec:
-        return logits, value, mask, model.lin(x)
+        return logits, value, mask, logits
     return logits, value, mask
 
 
 def _steps(n: int, turn: int, k: int = K):
-    return [{
-        "grid": None, "glob": None, "cand": None, "win": None,
-        "act": i % k, "logp": -1.5, "val": 0.5,
-        "rew": float(i + 1), "done": False, "ok": True, "turn": turn,
-    } for i in range(n)]
+    """★让**"该锚的步"恰好都是候选数少的那批** —— 这是复现形状 bug 的关键。
+
+    真环境里候选数逐状态变（160~400），`collate` 按**批内最大**补齐。
+    所以「该锚的子集」与「整个 minibatch」的 K 通常不同；而对子集单独 collate
+    会拿子集的最大值 ⇒ `_p` 与 `_q` 形状不等（实测 `378 vs 196`）。
+
+    这里：偶数步 kk=k（turn=999，**不锚**）、奇数步 kk=k//2（turn=turn，**该锚**）。
+    ⇒ 整批 K=k，该锚子集 K=k//2 ⇒ 形状不同，bug 必现。
+    """
+    out = []
+    for i in range(n):
+        anchored = (i % 2 == 1)
+        kk = max(1, k // 2) if anchored else k
+        out.append({
+            "grid": None, "glob": None, "cand": None, "win": None,
+            "act": i % kk, "logp": -1.5, "val": 0.5,
+            "rew": float(i + 1), "done": False, "ok": True,
+            "turn": turn if anchored else 999,
+            "kk": kk,
+        })
+    return out
 
 
 class TestBCAnchor(unittest.TestCase):
