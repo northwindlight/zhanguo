@@ -163,6 +163,10 @@ def main() -> None:
                          "不是老师标签、不入库），**PPO 上来这个约束就没了** ⇒ 这个开关"
                          "是给 PPO 准备的。标定别拍 100：学生一局消费 4747/100 回合 ≈ 47/回合、"
                          "撞墙 2.4 次/回合，10 ⇒ -24/回合（约占一半），100 ⇒ -240/回合（净变负）。")
+    ap.add_argument("--clip", type=float, default=0.2,
+                    help="PPO 的 ratio 裁剪半径（默认 0.2）。专家 2026-09-13 建议在"
+                         "熵漂的炉里收到 **0.1**：优势信噪比 ≈1 时，它能截断「噪声方向」"
+                         "造成的位移，而 lr 只影响速度、不改变方向。")
     ap.add_argument("--exec-head", type=float, default=0.0,
                     help="★**可执行性辅助头**的 loss 权重（0 = 关，行为与开关存在前"
                          "逐位相同）。专家 2026-09-13 定：实测 corr(H_all, 撞墙率)=+0.68 "
@@ -273,7 +277,7 @@ def main() -> None:
     print(f"设备：{_dev}", flush=True)
     ppo = PPO(model, lr=args.lr, epochs=args.epochs, minibatch=args.minibatch,
               ent_coef=args.ent_coef, adv_norm=args.adv_norm,
-              exec_coef=args.exec_head)
+              clip=args.clip, exec_coef=args.exec_head)
     start_iter = 0
     ck = None
     if args.resume:
