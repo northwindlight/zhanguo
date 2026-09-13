@@ -35,6 +35,20 @@ from rl.model import PolicyNet
 from rl.ppo import PPO, Rollout, act, value_of
 
 
+# ★★采样/推理**一律不加权**（2026-09-14 修 bug，用户拍板）：
+#   `act()` 存的 `old_logp` 来自**加权**分布（`log_softmax(logit + w)`），
+#   而 `PPO.update` 里 `logp_all = log_softmax(logits)` 是**未加权**的
+#   ⇒ 参数一动没动时 `ratio = π_raw(a)/π_w(a) ≠ 1`。后果：
+#     ① 日志的 `kl` 含一个与学习无关的常数偏移；
+#     ② clip 作用在**错位**的比值上 ⇒ 对 `w_a` 很负的动作变成"只罚不奖"的非对称更新。
+#   实测幅度（单状态）：随机 exec 头 0.0% 候选出信任域、训过的头 **1.9%**
+#   —— 不大，但是**系统性偏差**，且随 exec 头变自信而放大。
+#   ★为什么删采样侧而不在更新侧补加权：§V.3d 实测**软加权对行为是空操作**
+#   （12 局配对：撞墙 33.2% vs 33.8%）⇒ 删掉它**零行为损失**，还顺手消掉这个 bug。
+#   `--exec-head` **保留**：辅助头仍经 `[h, q0]` 把梯度回流主干（那才是它有用的部分）。
+SAMPLING_USE_EXEC = False
+
+
 def teacher_baseline(world, agent, turns, teacher_fn):
     """在**世界副本**上跑老师 `turns` 回合，返回它的 `spend_total`（该图的"标准答案"）。
 
@@ -336,10 +350,10 @@ def main() -> None:
         贪心掉进「建最贵的建筑→资源耗光→躺平」的近视陷阱，而采样仍有 4~6 万消费。
         """
         g = [play_episode(eval_env, model, seed=900_000 + i, deterministic=True,
-                          use_win=_use_win, use_exec=args.exec_head > 0)
+                          use_win=_use_win, use_exec=SAMPLING_USE_EXEC)
              for i in range(n)]
         s = [play_episode(eval_env, model, seed=800_000 + i, deterministic=False,
-                          use_win=_use_win, use_exec=args.exec_head > 0)
+                          use_win=_use_win, use_exec=SAMPLING_USE_EXEC)
              for i in range(n)]
         return {"eval_spend": float(np.mean([x["spend_total"] for x in g])),
                 "eval_tiles": float(np.mean([x["tiles"] for x in g])),
@@ -520,7 +534,7 @@ def main() -> None:
                     break
                 _w = _win(env, obs, _use_win)
                 idx, logp, val = act(model, obs, win=_w,
-                                     use_exec=args.exec_head > 0)
+                                     use_exec=SAMPLING_USE_EXEC)
                 keep = obs
                 obs, r, done, info = env.step(obs.cand["actions"][idx])
                 # ★窗口与 obs 必须**同一瞬间**取，一起入缓冲。分开取会让更新侧重算的 logp

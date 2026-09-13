@@ -63,7 +63,7 @@ def _collect_episode(env, model, args, seed: int):
     steps, ep_ret = [], 0.0
     while True:
         w = _win(env, obs, use_win)
-        idx, logp, val = act(model, obs, win=w, use_exec=(args.exec_head > 0))
+        idx, logp, val = act(model, obs, win=w, use_exec=False)  # ★采样不加权，见 train.py 的 SAMPLING_USE_EXEC)
         keep = obs
         obs, r, done, info = env.step(keep.cand["actions"][idx])
         c = dict(keep.cand)
