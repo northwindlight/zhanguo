@@ -251,6 +251,19 @@ def main() -> None:
     ap.add_argument("--eval-episodes", type=int, default=2)
     ap.add_argument("--rules-jitter", type=float, default=0.0,
                     help="训练采样期的规则表抖动幅度（0=关；评估恒用真值）")
+    ap.add_argument("--workers", type=int, default=1,
+                    help="★rollout 收集的 worker 进程数（`rl/workers.py`，规格见 "
+                         "`rl/REFACTOR_WORKERS_SPEC.md`）。**默认 1 = 走原来那段串行代码**，"
+                         "逐字未改（规格 §3.1）；>1 才启用并行：每个 worker 一份 env + 一份"
+                         "模型副本，各自整局收集（env.step / tokenize / batch=1 前向全在本地，"
+                         "torch RNG 也各自一条流），父进程每块更新后**广播新权重**再按 "
+                         "(worker_id, 局序) 合并 Rollout。"
+                         "⚠ 并行与串行**轨迹不可比**（N 条 RNG 流交错 ⇒ 这是规格 §3.2 的"
+                         "预期，不是 bug），并行 ckpt **不与任何历史 ckpt 比数值**。"
+                         "⚠ 只支持整局收集（`--rollout-episodes 0` 的定步数切块会直接报错）；"
+                         "与 `--teacher-baseline` 不兼容（直接报错，要基准回串行）；"
+                         "`--rollout-cap` 在并行下是软上限（最多超一局）。"
+                         "⚠ 量具不动：评估 / 探针仍走单 env 顺序路径（规格 §3.4）。")
     args = ap.parse_args()
 
     from rl.hw import set_threads
@@ -393,6 +406,30 @@ def main() -> None:
         _pool_i += 1
         return s
 
+    # ---- ★并行收集（`--workers N`，规格 `rl/REFACTOR_WORKERS_SPEC.md`）
+    # N=1（默认）完全不碰下面任何东西 —— 串行 while 是"原来那段代码，一个字不改"（§3.1）。
+    _workers = None
+    if args.workers > 1:
+        if args.teacher_baseline:
+            raise SystemExit("--workers > 1 与 --teacher-baseline 不兼容（用户 2026-09-13 拍板）："
+                             "基准不是「采样」，规格没给它位置。要老师基准请回串行（--workers 1）。")
+        if not args.rollout_episodes:
+            raise SystemExit("--workers > 1 只支持整局收集（--rollout-episodes 不能为 0）："
+                             "worker 以「局」为单位交活，定步数切块没有整局可合并。")
+        from rl.workers import WorkerPool
+
+        def _par_new_seed():
+            nonlocal seed
+            s = _take_seed()
+            if s is None:
+                seed += 1
+                s = seed
+            return int(s)
+
+        _workers = WorkerPool(args, args.workers, _par_new_seed)
+        print(f"★并行收集：{args.workers} 个 worker（各自 env+模型副本；权重每块广播；"
+              f"合并序 (worker_id, 局序)；轨迹与串行不可比）", flush=True)
+
     obs = env.reset(seed)
     rollout = Rollout(lam=args.lam, normalize=args.norm_reward)
 
@@ -445,43 +482,52 @@ def main() -> None:
         # 要等一万多步后才揭晓。采满整局，优势才等于真正的整局蒙特卡洛优势。
         set_collect_threads()
         done_this = 0
-        while True:
-            if ep_done:                     # 刚结束一局：先收基准的账，再记账、开下一局
-                _settle_baseline()
-                s = env.summary()
-                s["ep_return"] = ep_ret
-                s["ep_steps"] = ep_steps
-                eps.append(s)
-                done_this += 1
-                _s = _take_seed()           # ★有地图池就从池里取（难度已筛）
-                if _s is None:
-                    seed += 1
-                    _s = seed
-                obs = env.reset(_s)         # 必须在 break 之前 reset：
-                ep_ret, ep_steps, ep_done = 0.0, 0, False   # 否则下一轮迭代会空转
-                _spawn_baseline()           # 起本局的老师基准线程（跟本局并行）
-                if (args.rollout_episodes and done_this >= args.rollout_episodes) \
-                        or len(rollout) >= args.rollout_cap:
+        if _workers is not None:
+            # ★并行收集：整局为单位，末尾步必然 done=True ⇒ 块边界不需要自举。
+            #   下面那段串行 while 在 N>1 时**根本不进**（N=1 时也不受它影响）。
+            _blk = _workers.run_block(model, rollout, eps)
+            ep_done, done_this = True, _blk["episodes"]
+            total_steps += len(rollout)
+            if _blk.get("cap_warn"):
+                print(f"  {_blk['cap_warn']}", flush=True)
+        else:
+            while True:
+                if ep_done:                     # 刚结束一局：先收基准的账，再记账、开下一局
+                    _settle_baseline()
+                    s = env.summary()
+                    s["ep_return"] = ep_ret
+                    s["ep_steps"] = ep_steps
+                    eps.append(s)
+                    done_this += 1
+                    _s = _take_seed()           # ★有地图池就从池里取（难度已筛）
+                    if _s is None:
+                        seed += 1
+                        _s = seed
+                    obs = env.reset(_s)         # 必须在 break 之前 reset：
+                    ep_ret, ep_steps, ep_done = 0.0, 0, False   # 否则下一轮迭代会空转
+                    _spawn_baseline()           # 起本局的老师基准线程（跟本局并行）
+                    if (args.rollout_episodes and done_this >= args.rollout_episodes) \
+                            or len(rollout) >= args.rollout_cap:
+                        break
+                elif not args.rollout_episodes and len(rollout) >= args.rollout_steps:
+                    break                   # 旧的固定步数模式
+                elif len(rollout) >= args.rollout_cap:
                     break
-            elif not args.rollout_episodes and len(rollout) >= args.rollout_steps:
-                break                   # 旧的固定步数模式
-            elif len(rollout) >= args.rollout_cap:
-                break
-            _w = _win(env, obs, _use_win)
-            idx, logp, val = act(model, obs, win=_w,
-                                 use_exec=args.exec_head > 0)
-            keep = obs
-            obs, r, done, info = env.step(obs.cand["actions"][idx])
-            # ★窗口与 obs 必须**同一瞬间**取，一起入缓冲。分开取会让更新侧重算的 logp
-            #   对应的其实是另一个状态（`bc.py` 上踩过：一次 recruit 就让 A 组与候选
-            #   指向两个世界），而这里表现成 ratio 恒偏、策略学歪且不报错。
-            rollout.add(keep, idx, logp, val, r, done, win=_w, ok=info["ok"])
-            if _bl["th"] is not None and info["turn"] < args.baseline_turns:
-                _bl["pend"].append(len(rollout.steps) - 1)   # 这笔属于基准覆盖的前段
-            ep_ret += r
-            ep_steps += 1
-            ep_done = done
-        total_steps += len(rollout)
+                _w = _win(env, obs, _use_win)
+                idx, logp, val = act(model, obs, win=_w,
+                                     use_exec=args.exec_head > 0)
+                keep = obs
+                obs, r, done, info = env.step(obs.cand["actions"][idx])
+                # ★窗口与 obs 必须**同一瞬间**取，一起入缓冲。分开取会让更新侧重算的 logp
+                #   对应的其实是另一个状态（`bc.py` 上踩过：一次 recruit 就让 A 组与候选
+                #   指向两个世界），而这里表现成 ratio 恒偏、策略学歪且不报错。
+                rollout.add(keep, idx, logp, val, r, done, win=_w, ok=info["ok"])
+                if _bl["th"] is not None and info["turn"] < args.baseline_turns:
+                    _bl["pend"].append(len(rollout.steps) - 1)  # 这笔属于基准覆盖的前段
+                ep_ret += r
+                ep_steps += 1
+                ep_done = done
+            total_steps += len(rollout)
 
         # ---- 熵系数退火（可选）：让分布逐步收拢成可交付的确定性策略
         if args.ent_final is not None:
@@ -515,6 +561,8 @@ def main() -> None:
             "last_armies": float(recent[-1]["armies"]) if recent else float("nan"),
             **{k: round(v, 4) for k, v in stats.items()},
         }
+        if _workers is not None:
+            row["steps_per_s"] = _blk["steps_per_s"]     # 规格 §2.5 的吞吐判据
         if args.eval_every and it % args.eval_every == 0:
             row.update(evaluate(args.eval_episodes))
         # nan 一律印成 `-`（与下面 status.txt 同口径）。
@@ -549,6 +597,8 @@ def main() -> None:
         torch.save(blob, out / "model.pt")
         if args.ckpt_every and it % args.ckpt_every == 0:
             torch.save(blob, out / f"ckpt_{it}.pt")
+    if _workers is not None:
+        _workers.close()                # 收干净：daemon 是兜底，不是礼仪
     print(f"训练结束，用时 {time.time() - t0:.0f}s，产物在 {out}/")
 
 
