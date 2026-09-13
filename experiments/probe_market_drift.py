@@ -58,6 +58,18 @@ env.reset(0)
 w0 = tokenize(env, env._obs())
 MARK = [70, TURNS]
 
+
+def _turn(env):
+    return int(env.world.turn)
+
+
+def _res(env):
+    return env.world.nations[env.agent].res
+
+
+def _price(env, g):
+    return float(env.world.prices.get(g, 0.0))
+
 print(f"{EPS} 局 × {TURNS} 回合；同种子配对（逐局重设 torch 种子）\n")
 print(f"{'ckpt':<18}{'市场成功/回合':>14}{'build成功/回合':>15}{'撞墙率':>9}"
       f"{'T70消费':>10}{'T200消费':>10}")
@@ -77,6 +89,7 @@ for ck_path in CKPTS:
         torch.manual_seed(2000 + ep)          # 与 probe_validity 同款，保证配对
         obs = env.reset(900_000 + ep)         # 与评估同一批图
         turns_seen = 0
+        cur_turn, turn_buy, turn_sell = None, {}, {}
         while True:
             obs_ = obs
             win_ = tokenize(env, obs_)
@@ -90,6 +103,13 @@ for ck_path in CKPTS:
                 valid = int(cm[0].sum())
                 pmkt.append(float(p[mkt_idx].sum()))
                 pbase.append(len(mkt_idx) / max(1, valid))   # 均匀基线
+            # ★W1：换回合时结算上一回合的**同物资往返量**（老师结构上恒为 0）
+            t_now = _turn(env)
+            if t_now != cur_turn:
+                if cur_turn is not None:
+                    agg["rt"] += sum(min(b, turn_sell.get(g, 0))
+                                     for g, b in turn_buy.items())
+                cur_turn, turn_buy, turn_sell = t_now, {}, {}
             idx, _lp, _v2 = act(m, obs_, win=win_)
             a = obs_.cand["actions"][idx]
             kind = a.kind
@@ -99,6 +119,12 @@ for ck_path in CKPTS:
                 agg["rej"] += 1
             elif kind in ("buy", "sell"):
                 agg["mkt"] += 1                # ★成功的市场动作（买或卖）
+                if kind == "buy":
+                    turn_buy[a.sub] = turn_buy.get(a.sub, 0) + a.amount
+                    if a.sub == "补给":
+                        agg["sup_buy"] += a.amount      # ★W2：买补给（用户点名的那条）
+                else:
+                    turn_sell[a.sub] = turn_sell.get(a.sub, 0) + a.amount
             elif kind == "build":
                 agg["build"] += 1
             turns_seen = info["turn"]
@@ -106,6 +132,13 @@ for ck_path in CKPTS:
                 agg["t70"] = info["spend_total"]
             if done:
                 t_end.append(info["spend_total"])
+                # ★W2/W3：局末补给存量 + 库存折金 + 剩余金
+                me = env.agent
+                res = _res(env)
+                agg["sup_end"] += res.get("补给", 0)
+                agg["gold_end"] += res.get("黄金", 0)
+                agg["inv_val"] += sum(res.get(g, 0) * _price(env, g)
+                                      for g in ("粮", "木", "铁", "马", "装备", "补给"))
                 break
         t70.append(agg.get("t70", float("nan")))
         agg.pop("t70", None)
@@ -120,3 +153,8 @@ for ck_path in CKPTS:
           f"{per('mkt') / (agg['n'] / EPS):.1%}")
     print(f"  ★P_mkt（概率质量落在市场）= {Pm:.3f}　均匀基线 {Pb:.3f}"
           f"　→ 偏好度 {Pm / max(1e-9, Pb):.2f}×")
+    print(f"  ★W1 同回合往返量/局 = {per('rt'):.1f}（**老师结构上恒为 0**，任何 >0 都是相对老师的纯浪费）")
+    print(f"  ★W2 买补给/局 = {per('sup_buy'):.0f}　局末补给存量 = {per('sup_end'):.0f}"
+          f"　⇒ 买入 ≫ 吃掉+缓冲 就是囤积")
+    print(f"  ★W3 局末库存折金 = {per('inv_val'):,.0f}　局末剩余金 = {per('gold_end'):,.0f}"
+          f"（老师贴 0 金跑）")
