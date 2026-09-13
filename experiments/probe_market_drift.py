@@ -37,7 +37,7 @@ import torch
 from rl.env import KINDS, ZhanguoEnv
 from rl.tokenize import GROUPS, tokenize
 from rl.transformer import WindowTransformer
-from rl.ppo import act
+from rl.ppo import act, policy_logits
 
 EPS, TURNS, CKPTS = 8, 200, []
 i = 1
@@ -72,15 +72,27 @@ for ck_path in CKPTS:
 
     agg = collections.Counter()
     t70, t_end = [], []
+    pmkt, pbase = [], []                       # ★概率质量口径（ECS 2026-09-14 建议）
     for ep in range(EPS):
         torch.manual_seed(2000 + ep)          # 与 probe_validity 同款，保证配对
         obs = env.reset(900_000 + ep)         # 与评估同一批图
         turns_seen = 0
         while True:
             obs_ = obs
-            idx, _lp, _v = act(m, obs_, win=tokenize(env, obs_))
+            win_ = tokenize(env, obs_)
+            # ★最直接的量：**概率质量落在市场候选上的比例**（不是行为结果）。
+            #   行为结果会被"买不起/卖不出"过滤掉一层；概率质量才是策略的偏好本身。
+            with torch.no_grad():
+                lg, _v, cm = policy_logits(m, obs_, win=win_, use_exec=False)
+                p = torch.softmax(lg[0].masked_fill(~cm[0], float("-inf")), dim=-1)
+                kinds = [c.kind for c in obs_.cand["actions"]]
+                mkt_idx = [i for i, k in enumerate(kinds) if k in ("buy", "sell")]
+                valid = int(cm[0].sum())
+                pmkt.append(float(p[mkt_idx].sum()))
+                pbase.append(len(mkt_idx) / max(1, valid))   # 均匀基线
+            idx, _lp, _v2 = act(m, obs_, win=win_)
             a = obs_.cand["actions"][idx]
-            kind, ok_known = a.kind, True
+            kind = a.kind
             obs, _r, done, info = env.step(a)
             agg["n"] += 1
             if not info["ok"]:
@@ -100,7 +112,11 @@ for ck_path in CKPTS:
 
     n = max(1, agg["n"])
     per = lambda k: agg[k] / EPS                   # 每局
+    Pm = sum(pmkt) / len(pmkt)
+    Pb = sum(pbase) / len(pbase)
     print(f"{ck_path.split('/')[-1]:<18}{per('mkt'):>14.0f}{per('build'):>15.0f}"
           f"{agg['rej'] / n:>8.1%}{sum(t70) / EPS:>10,.0f}{sum(t_end) / EPS:>10,.0f}")
-    print(f"  步数/局 {agg['n'] / EPS:.0f}　（市场 {per('mkt'):.0f} = 步数的 "
-          f"{per('mkt') / (agg['n'] / EPS):.1%}）")
+    print(f"  步数/局 {agg['n'] / EPS:.0f}　市场 {per('mkt'):.0f} = 步数的 "
+          f"{per('mkt') / (agg['n'] / EPS):.1%}")
+    print(f"  ★P_mkt（概率质量落在市场）= {Pm:.3f}　均匀基线 {Pb:.3f}"
+          f"　→ 偏好度 {Pm / max(1e-9, Pb):.2f}×")
