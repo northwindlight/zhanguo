@@ -87,10 +87,19 @@ for ck_path in CKPTS:
         if use_exec and untrained:
             print(f"  {tag}: 跳过（头随机，加权无意义）")
             continue
-        g = [play_episode(env, m, seed=900_000 + i, deterministic=True,
-                          use_win=True, use_exec=use_exec) for i in range(EPS)]
-        s = [play_episode(env, m, seed=800_000 + i, deterministic=False,
-                          use_win=True, use_exec=use_exec) for i in range(EPS)]
+        # ★两档**各自逐局重设 torch RNG**（ECS 2026-09-14 指出）：
+        #   不重设的话，"先跑不加权、再跑加权"会让后跑那档用被前一档消耗过的流
+        #   ⇒ 采样档不再是同种子配对（贪心档不受影响，argmax 不吃 RNG）。
+        #   种子取法与 `probe_validity.py` 一致（2000+局号）。
+        g, s = [], []
+        for i in range(EPS):
+            torch.manual_seed(2000 + i)
+            g.append(play_episode(env, m, seed=900_000 + i, deterministic=True,
+                                  use_win=True, use_exec=use_exec))
+        for i in range(EPS):
+            torch.manual_seed(2000 + i)
+            s.append(play_episode(env, m, seed=800_000 + i, deterministic=False,
+                                  use_win=True, use_exec=use_exec))
         gm = sum(x["spend_total"] for x in g) / EPS
         sm = sum(x["spend_total"] for x in s) / EPS
         out[use_exec] = (gm, sm)
