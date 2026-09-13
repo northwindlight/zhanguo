@@ -82,7 +82,7 @@ for ck_path in CKPTS:
     print(f"===== {name}（第 {ck.get('iter','?')} 块）"
           f"{'  ★exec 头随机（未训过）' if untrained else ''} =====")
 
-    out = {}
+    out, PER = {}, {}
     for use_exec, tag in ((False, "不加权"), (True, "加权  ")):
         if use_exec and untrained:
             print(f"  {tag}: 跳过（头随机，加权无意义）")
@@ -103,6 +103,8 @@ for ck_path in CKPTS:
         gm = sum(x["spend_total"] for x in g) / EPS
         sm = sum(x["spend_total"] for x in s) / EPS
         out[use_exec] = (gm, sm)
+        PER[use_exec] = [x["spend_total"] for x in g]      # ★逐局（配对符号检验用）
+        print(f"      逐局贪心：" + " ".join(f"{x['spend_total']:,.0f}" for x in g))
         print(f"  {tag}: 贪心 {gm:>9,.0f}（地 {sum(x['tiles'] for x in g)/EPS:5.1f}）"
               f"   采样 {sm:>9,.0f}（地 {sum(x['tiles'] for x in s)/EPS:5.1f}）")
 
@@ -111,5 +113,12 @@ for ck_path in CKPTS:
         ds = out[True][1] - out[False][1]
         print(f"  ── 加权 − 不加权：**贪心 {dg:+,.0f}（{dg/max(1,out[False][0]):+.1%}）**"
               f"   采样 {ds:+,.0f}（{ds/max(1,out[False][1]):+.1%}）")
+        if len(PER) == 2:
+            a, b = PER[False], PER[True]
+            n = min(len(a), len(b))
+            up = sum(1 for i in range(n) if b[i] > a[i])
+            dn = sum(1 for i in range(n) if b[i] < a[i])
+            print(f"     ★配对符号检验（逐局、同图）：加权更高 {up}/{n}　更低 {dn}/{n}"
+                  f"　⇒ 8/8 或 7/8 才算稳")
         print("     判据：两档无差 ⇒ 线索作废；加权稳定更好 ⇒ 改用 (a)")
     print()
