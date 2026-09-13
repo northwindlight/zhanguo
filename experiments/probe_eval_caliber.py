@@ -82,7 +82,7 @@ for ck_path in CKPTS:
     print(f"===== {name}（第 {ck.get('iter','?')} 块）"
           f"{'  ★exec 头随机（未训过）' if untrained else ''} =====")
 
-    out, PER = {}, {}
+    out, PER, PER_S = {}, {}, {}
     for use_exec, tag in ((False, "不加权"), (True, "加权  ")):
         if use_exec and untrained:
             print(f"  {tag}: 跳过（头随机，加权无意义）")
@@ -104,7 +104,9 @@ for ck_path in CKPTS:
         sm = sum(x["spend_total"] for x in s) / EPS
         out[use_exec] = (gm, sm)
         PER[use_exec] = [x["spend_total"] for x in g]      # ★逐局（配对符号检验用）
+        PER_S[use_exec] = [x["spend_total"] for x in s]
         print(f"      逐局贪心：" + " ".join(f"{x['spend_total']:,.0f}" for x in g))
+        print(f"      逐局采样：" + " ".join(f"{x['spend_total']:,.0f}" for x in s))
         print(f"  {tag}: 贪心 {gm:>9,.0f}（地 {sum(x['tiles'] for x in g)/EPS:5.1f}）"
               f"   采样 {sm:>9,.0f}（地 {sum(x['tiles'] for x in s)/EPS:5.1f}）")
 
