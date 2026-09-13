@@ -175,6 +175,12 @@ def main() -> None:
                          "「这个候选此刻能不能执行」，推理时**软加权不硬 mask**"
                          "（`logit' = logit + 0.5·log(σ(p_exec)+1e-3)`），"
                          "**保住「让模型自己学会哪些点不动」的口径**。建议起点 0.1。")
+    ap.add_argument("--exec-warmup", type=int, default=0,
+                    help="★前几块**只训辅助头**（策略与价值参数冻结）。"
+                         "从旧 ckpt 续训时 `exec_head` 是随机初始化的（`strict=False`），"
+                         "而软加权每一步都在用它改 logits —— 不做 warmup 直接开"
+                         "`--exec-head`，等于让随机线性层乱压 logits：实测两块就把策略"
+                         "打回开局（tiles 5、消费 2374，BC 是 4747）。建议 1。")
     ap.add_argument("--map-pool", default="",
                     help="★从**筛过的地图池**里取训练图（`experiments/screen_maps.py` 产出的 "
                          "JSON）。动机（用户 2026-09-13）：全池图难度极端比 **5.4×**"
@@ -481,7 +487,12 @@ def main() -> None:
         # ---- 更新（块边界自举；局末则 0）
         set_train_threads()
         last_v = 0.0 if ep_done else value_of(model, obs, win=_win(env, obs, _use_win))
-        stats = ppo.update(rollout, last_value=last_v)
+        # ★辅助头 warmup：前几块只训头，策略/价值冻结（见 `--exec-warmup` 的说明）。
+        _warm = args.exec_warmup > 0 and (it - start_iter) <= args.exec_warmup
+        if _warm:
+            print(f"  ★辅助头 warmup（第 {it - start_iter}/{args.exec_warmup} 块，"
+                  f"策略冻结）", flush=True)
+        stats = ppo.update(rollout, last_value=last_v, warmup=_warm)
         rollout.clear()
 
         recent = eps[-3:]

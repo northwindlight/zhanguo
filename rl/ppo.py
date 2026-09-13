@@ -326,7 +326,19 @@ class PPO:
         self.exec_coef = exec_coef
         self.max_grad_norm = max_grad_norm
 
-    def update(self, rollout: Rollout, last_value: float = 0.0) -> dict:
+    def update(self, rollout: Rollout, last_value: float = 0.0,
+               warmup: bool = False) -> dict:
+        """`warmup=True`：**只训辅助头**，策略/价值参数全部冻结。
+
+        ★为什么需要（2026-09-13 实测教训）：从旧 ckpt 续训时 `exec_head` 是
+        **随机初始化**的（`strict=False` 加载），而软加权**每一步都在用它**去改
+        logits。不做 warmup 直接开 `--exec-head 0.1`，等于让一个随机线性层在头
+        1200 步里乱压 logits —— 实测两块就把策略打回开局（tiles 5、
+        消费 2374，而 BC 是 4747）。
+
+        `requires_grad=False` 的参数在 Adam 里没有梯度 ⇒ `step()` 不动它们，
+        所以不需要单独的优化器。
+        """
         adv_mean, adv_std = rollout.gae(last_value=last_value)
         steps = rollout.steps
         if self.adv_norm == "global":
@@ -339,6 +351,22 @@ class PPO:
                 s["adv"] = float(v)
         n = len(steps)
         idxs = np.arange(n)
+        # ★warmup：**冻结除辅助头之外的一切**。`requires_grad=False` 的参数在
+        #   Adam 里拿不到梯度 ⇒ `step()` 不动它们，所以不需要第二个优化器。
+        _frozen = []
+        if warmup:
+            for _n, _p in self.model.named_parameters():
+                if _p.requires_grad and not _n.startswith("exec_head."):
+                    _p.requires_grad = False
+                    _frozen.append(_p)
+        try:
+            return self._update_iters(rollout, steps, n, idxs, warmup,
+                                      adv_mean, adv_std)
+        finally:
+            for _p in _frozen:                      # 无论如何都要解冻
+                _p.requires_grad = True
+
+    def _update_iters(self, rollout, steps, n, idxs, warmup, adv_mean, adv_std) -> dict:
         stats = {"pg": 0.0, "vf": 0.0, "ent": 0.0, "kl": 0.0, "clipfrac": 0.0, "n": 0}
         for _ in range(self.epochs):
             np.random.shuffle(idxs)
@@ -383,16 +411,23 @@ class PPO:
                 vf = torch.max((value - ret) ** 2, (v_clip - ret) ** 2).mean()
                 p = logp_all.exp()
                 ent = -(p * logp_all.masked_fill(~mask, 0.0)).sum(-1).mean()
-                loss = pg + self.vf_coef * vf - self.ent_coef * ent
                 # ★可执行性辅助 loss（专家 2026-09-13）：标签**只有"当步选中的那个
                 #   候选"有**（`env.step` 的 ok），其余候选无标签 —— 所以是
                 #   部分标签下的 BCE，只算选中位置。软加权在 `act` 里做。
+                exec_loss = None
                 if self.exec_coef:
                     ok_t = torch.as_tensor([s["ok"] for s in mb], dtype=torch.float32,
                                            device=_d)
                     pe = pexec.gather(1, act_t.unsqueeze(1)).squeeze(1)
-                    loss = loss + self.exec_coef * F.binary_cross_entropy_with_logits(
-                        pe, ok_t)
+                    exec_loss = F.binary_cross_entropy_with_logits(pe, ok_t)
+                if warmup:
+                    # ★warmup 期间**只训头**：`pg/vf/ent` 的图照建但不出现在 loss 里，
+                    #   而且策略参数已被冻结（`requires_grad=False`）⇒ Adam 不动它们。
+                    loss = self.exec_coef * exec_loss if exec_loss is not None else pg * 0.0
+                else:
+                    loss = pg + self.vf_coef * vf - self.ent_coef * ent
+                    if exec_loss is not None:
+                        loss = loss + self.exec_coef * exec_loss
 
                 self.opt.zero_grad()
                 loss.backward()
