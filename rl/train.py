@@ -20,6 +20,7 @@ import copy
 import csv
 import json
 import random
+import sys
 import threading
 import time
 from pathlib import Path
@@ -410,12 +411,16 @@ def main() -> None:
     # N=1（默认）完全不碰下面任何东西 —— 串行 while 是"原来那段代码，一个字不改"（§3.1）。
     _workers = None
     if args.workers > 1:
+        # ★规格 §5b 钉死的报错形态（stderr + exit 2，**不静默忽略**）：
         if args.teacher_baseline:
-            raise SystemExit("--workers > 1 与 --teacher-baseline 不兼容（用户 2026-09-13 拍板）："
-                             "基准不是「采样」，规格没给它位置。要老师基准请回串行（--workers 1）。")
+            print("[错误] --teacher-baseline 不支持并行模式：它是被 --map-pool 淘汰的旧方案"
+                  "（PLAN §R），且 +8~16 s/局与并行目标直接冲突。要基准请用 --workers 1。",
+                  file=sys.stderr)
+            sys.exit(2)
         if not args.rollout_episodes:
-            raise SystemExit("--workers > 1 只支持整局收集（--rollout-episodes 不能为 0）："
-                             "worker 以「局」为单位交活，定步数切块没有整局可合并。")
+            print("[错误] --workers > 1 只支持整局收集：--rollout-episodes 不能为 0"
+                  "（worker 以「局」为单位交活，定步数切块没有整局可合并）。", file=sys.stderr)
+            sys.exit(2)
         from rl.workers import WorkerPool
 
         def _par_new_seed():
