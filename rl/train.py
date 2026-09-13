@@ -338,7 +338,11 @@ def main() -> None:
         rows = []
         for p in sorted(Path(args.eval_dir).glob("*.pt")):
             ck = torch.load(p, map_location="cpu", weights_only=False)
-            model.load_state_dict(ck["model"])
+            # ★`strict=False`，同 `--resume`：加了辅助头之后 state_dict 多出
+            #   `exec_head.*`，旧 ckpt 没有它 —— 用 strict=True 会让**整批回评
+            #   一个都跑不了**（2026-09-13 踩过：拿旧 BC 起点和 PPO 新权重一起
+            #   回评，第一个文件就 RuntimeError，白等一轮）。
+            model.load_state_dict(ck["model"], strict=False)
             r = evaluate(max(1, args.eval_episodes))
             rows.append((p.name, int(ck.get("iter", -1)), r))
             print(f"{p.name:<18} iter={ck.get('iter'):>5}  "
