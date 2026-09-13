@@ -513,8 +513,16 @@ def main() -> None:
         }
         if args.eval_every and it % args.eval_every == 0:
             row.update(evaluate(args.eval_episodes))
-        print(" | ".join(f"{k}={v:.3f}" if isinstance(v, float) else f"{k}={v}"
-                         for k, v in row.items()), flush=True)
+        # nan 一律印成 `-`（与下面 status.txt 同口径）。
+        # ★`eval_*` 是 nan **不是坏了**：只有 `--eval-every > 0` 才会调 `evaluate()`，
+        #   我们日常传 `--eval-every 0` 关掉它省时间 ⇒ 那几列本来就是空的。
+        #   （印成 `nan` 会让人以为是 bug —— 我自己就去追过一次。）
+        def _fmt(k, v):
+            if isinstance(v, float):
+                return f"{k}={v:.3f}" if v == v else f"{k}=-"
+            return f"{k}={v}"
+
+        print(" | ".join(_fmt(k, v) for k, v in row.items()), flush=True)
         if writer is None:
             csv_fh = open(out / "log.csv", "w", newline="", encoding="utf-8")
             writer = csv.DictWriter(csv_fh, fieldnames=list(row))
