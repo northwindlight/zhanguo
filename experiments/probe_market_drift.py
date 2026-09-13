@@ -70,8 +70,9 @@ def _res(env):
 def _price(env, g):
     return float(env.world.prices.get(g, 0.0))
 
+ALLPER = {}
 print(f"{EPS} 局 × {TURNS} 回合；同种子配对（逐局重设 torch 种子）\n")
-print(f"{'ckpt':<18}{'市场成功/回合':>14}{'build成功/回合':>15}{'撞墙率':>9}"
+print(f"{'ckpt':<18}{'市场成功/局':>13}{'build成功/局':>14}{'撞墙率':>9}"
       f"{'T70消费':>10}{'T200消费':>10}")
 
 for ck_path in CKPTS:
@@ -85,11 +86,15 @@ for ck_path in CKPTS:
     agg = collections.Counter()
     t70, t_end = [], []
     pmkt, pbase = [], []                       # ★概率质量口径（ECS 2026-09-14 建议）
+    # ★逐局留存：ECS 要的配对符号检验 + 分栏（切法 A）都要它
+    PER = collections.defaultdict(list)
     for ep in range(EPS):
         torch.manual_seed(2000 + ep)          # 与 probe_validity 同款，保证配对
         obs = env.reset(900_000 + ep)         # 与评估同一批图
         turns_seen = 0
         cur_turn, turn_buy, turn_sell = None, {}, {}
+        ep_build = ep_mkt = ep_rt = 0          # 本局计数（切法 A 用）
+        ep_curve = {}                          # 第 20/40/70 回合的累计消费
         while True:
             obs_ = obs
             win_ = tokenize(env, obs_)
@@ -107,8 +112,10 @@ for ck_path in CKPTS:
             t_now = _turn(env)
             if t_now != cur_turn:
                 if cur_turn is not None:
-                    agg["rt"] += sum(min(b, turn_sell.get(g, 0))
-                                     for g, b in turn_buy.items())
+                    _rt = sum(min(b, turn_sell.get(g, 0))
+                              for g, b in turn_buy.items())
+                    agg["rt"] += _rt
+                    ep_rt += _rt
                 cur_turn, turn_buy, turn_sell = t_now, {}, {}
             idx, _lp, _v2 = act(m, obs_, win=win_)
             a = obs_.cand["actions"][idx]
@@ -119,6 +126,7 @@ for ck_path in CKPTS:
                 agg["rej"] += 1
             elif kind in ("buy", "sell"):
                 agg["mkt"] += 1                # ★成功的市场动作（买或卖）
+                ep_mkt += 1
                 if kind == "buy":
                     turn_buy[a.sub] = turn_buy.get(a.sub, 0) + a.amount
                     if a.sub == "补给":
@@ -127,7 +135,10 @@ for ck_path in CKPTS:
                     turn_sell[a.sub] = turn_sell.get(a.sub, 0) + a.amount
             elif kind == "build":
                 agg["build"] += 1
+                ep_build += 1
             turns_seen = info["turn"]
+            if turns_seen in (20, 40, 70) and turns_seen not in ep_curve:
+                ep_curve[turns_seen] = info["spend_total"]
             if turns_seen == MARK[0] and "t70" not in agg:
                 agg["t70"] = info["spend_total"]
             if done:
@@ -142,6 +153,12 @@ for ck_path in CKPTS:
                 break
         t70.append(agg.get("t70", float("nan")))
         agg.pop("t70", None)
+        PER["build"].append(ep_build)
+        PER["mkt"].append(ep_mkt)
+        PER["rt"].append(ep_rt)
+        for t in (20, 40, 70):
+            if t in ep_curve:
+                PER[f"T{t}"].append(ep_curve[t])
 
     n = max(1, agg["n"])
     per = lambda k: agg[k] / EPS                   # 每局
@@ -158,3 +175,21 @@ for ck_path in CKPTS:
           f"　⇒ 买入 ≫ 吃掉+缓冲 就是囤积")
     print(f"  ★W3 局末库存折金 = {per('inv_val'):,.0f}　局末剩余金 = {per('gold_end'):,.0f}"
           f"（老师贴 0 金跑）")
+    ALLPER[ck_path.split("/")[-1]] = {k: list(v) for k, v in PER.items()}
+
+# ★配对符号检验（ECS 2026-09-14 要的显著性）：逐局比，数同向的局数
+if len(ALLPER) >= 2:
+    keys = list(ALLPER)
+    print("\n===== 配对符号检验（逐局同向计数；8/8 ⇒ p≈0.008，6/8 只算倾向）=====")
+    for a, b in zip(keys, keys[1:]):
+        A, B = ALLPER[a], ALLPER[b]
+        for m in ("build", "mkt", "rt", "T20", "T40", "T70"):
+            if m not in A or m not in B:
+                continue
+            n = min(len(A[m]), len(B[m]))
+            up = sum(1 for i in range(n) if B[m][i] > A[m][i])
+            dn = sum(1 for i in range(n) if B[m][i] < A[m][i])
+            print(f"  {a} → {b}　{m:>6}: 升 {up}/{n}　降 {dn}/{n}"
+                  f"　（均值 {sum(A[m][:n]) / n:,.0f} → {sum(B[m][:n]) / n:,.0f}）")
+    print("  ★切法 A（开局前 20 回合构成天然相同）：看 T20 那一行 ——"
+          "\n    若 T20 已显著下降 ⇒ 策略本身变了（原因侧）；持平 ⇒ 帝国小 ⇒ 构成变（结果侧）")
