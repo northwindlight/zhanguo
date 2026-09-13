@@ -1235,6 +1235,67 @@ tiles 27），而 **kl 都在 2.0~2.5** —— **跟惩罚值无关**。
 ```
 **λ=1 的 MC 方差至多是放大器，不是首发根因。**（我原先的判断，实测否掉了。）
 
+### V. ★★2026-09-13：可执行性辅助头 + 验证协议（**接手先读这一节**）
+
+#### V.1 已实现（代码全部就位、测试过、已 push）
+
+| 开关 | 作用 | 默认 |
+|---|---|---|
+| `--exec-head <w>` | 可执行性辅助头的 loss 权重 | **0（关）** |
+| `--exec-warmup <n>` | 前 n 块**只训头**，策略/价值冻结 | 0 |
+| `--clip <c>` | PPO ratio 裁剪半径（之前只存在于 `PPO.__init__`，**没接到命令行**） | 0.2 |
+
+**软加权（不是 mask，守住用户口径）**：
+```
+logit' = logit + 0.5 · log(σ(p_exec) + 1e-3)      # 在 `ppo.act` 里
+```
+**每个候选都还在**，只是"点得动的"上抬、"点不动的"下压。有一条测试专门断言
+「加权后不得出现新的 `-inf`」——**软加权一旦变成硬 mask，那条测试会红**。
+
+**兼容旧 ckpt**：加头使 `state_dict` 多出 `exec_head.*`，`train.py` 改用
+`load_state_dict(strict=False)` ⇒ 新头随机初始化、其余权重照旧。
+
+**测试**：`tests/test_exec_head.py` 六条，全过。
+
+#### V.2 ★两个实测教训（都是我今天踩的，别再踩）
+
+1. **一次只改一个变量。** 第一次验证我同时改了 `--exec-head` / `--clip` /
+   `--invalid-penalty` 三个，崩了（`tiles=5`、消费 2374、两块）却**无法归因** ——
+   三个里任一个都能单独造成它。**重跑时只动了 `--exec-head`，其余保持 v6 原样。**
+2. **随机头必须先 warmup。** 从旧 ckpt 续训时 `exec_head` 是随机的，而软加权
+   **每一步都在用它改 logits** ⇒ 等于让随机线性层乱压 logits。专家建议"新头
+   1e-4 单独 warmup 一块"，已实现为 `--exec-warmup`。
+
+#### V.3 验证协议（**13~30 分钟判生死，不用租机器**）
+
+ECS（免费、单核 CPU）上跑：
+```
+--turns 30 --iterations 3 --rollout-episodes 4        # 3 块 × 4 局 × 30 回合
+--exec-head 0.1 --exec-warmup 1
+--clip 0.2 --invalid-penalty 0.5 --lr 3e-5 --epochs 1   # 全部保持 v6 原样
+--resume rl/runs/bc/ckpt_30.pt --map-pool rl/maps/medium_pool.json
+```
+再用 `experiments/probe_validity.py <ckpt> 8 30` 复测，与基线并排：
+
+| 指标 | 基线（ckpt_30 / ckpt_45） | **通过线** | **一票否决** |
+|---|---|---|---|
+| 撞墙率 | 33.6% / 40.1% | **≤30%** 或降 ≥8 点 | 第 1 块 >38% 或比 ckpt_30 升 >5 点 |
+| `corr(H_all, 撞墙率)` | +0.68 / +0.50 | **≤ +0.3** | > +0.7 |
+| 非 build 成功/步 | 0.577 / 0.513 | **≥ 0.56** | < 0.52 |
+| build 成功/步 | 0.087 / 0.086 | ≥ 0.08 | — |
+| 其他 | — | — | 出 nan / 异常终止涨 >20% |
+
+⚠ **短局验证的局限**：30 回合的总步数只有 ~1200（长局是 ~5000），
+`minibatch` 数 `n` 只有 29~39（长局 700~1500）⇒ **统计量和长局不是一回事**。
+它只能当"一票否决"的筛子用，**通过不等于长局一定好**。
+
+#### V.4 ⚠ 当前状态（2026-09-13，压缩上下文时）
+
+- **机房已退**（欠费停机 14.6h/15 元，权重已全部拉回 `rl/runs/ppo_v6_local/`）
+- **ECS 上正在跑**：`--exec-head 0.1 --exec-warmup 1` 的 3 块验证
+  （日志 `/tmp/exec_run2.log`，产出 `/tmp/exec_run2/`）
+- **验证通过后**才值得租机器跑长炉；**不通过就回来改诊断，别急着重开机器**
+
 ### 复现脚本
 
 | 脚本 | 量什么 |
@@ -1252,6 +1313,9 @@ tiles 27），而 **kl 都在 2.0~2.5** —— **跟惩罚值无关**。
 | `experiments/verify_failure_trigger.py <ckpt> [turns]` | ★护栏：同 seed 跑 off/on，断言 spend 与 miss 逐位相同（证明失败触发只加标签、不改轨迹） |
 | `experiments/probe_chain.py <ckpt> [episodes] [turns]` | ★子环节：经济开局 / 兵营 / 征兵 / attack（扩张唯一手段）/ **总消费** / 撞墙。**必须 10 局 × 100 回合**（5 局会被图集运气翻转） |
 | `experiments/probe_growth_curve.py [turns] [map] [seed]` | ★老师 v10 的消费增长曲线（默认 300 回合）—— 扩张 vs 原地建造的量级差 |
+| `experiments/probe_validity.py <ckpt> [episodes] [turns]` | ★**熵涨诊断**：`H_all` + 撞墙率 + `corr(H_all, 撞墙率)`。>+0.6 ⇒ 死选项泄漏。`p_inv` 用实际轨迹估计（撞墙率就是它的无偏估计），零额外成本 |
+| `experiments/screen_maps.py [n] [turns] [lo] [hi]` | ★筛地图池：老师跑 n 张图，按难度剔两端留中间（5.4× → 1.6×） |
+| `tests/test_exec_head.py` | ★辅助头护栏：默认关返回 3 元组、**软加权不得产生新 -inf**、旧 ckpt 能 strict=False 加载 |
 
 ---
 
