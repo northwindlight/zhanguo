@@ -118,7 +118,10 @@ class WindowTransformer(nn.Module):
         #   推理时**软加权、不硬 mask** —— 保住「让模型自己学会哪些点不动」的口径：
         #       logit' = logit + 0.5 · log(σ(p_exec) + 1e-3)
         #   输入与 `score` 同一份 [h, q0]（候选表示 + 候选嵌入），只是多一层线性。
-        self.exec_head = nn.Linear(2 * d_model, 1)
+        # 输入与 `score` **同一份** `[h, q0]`，即 `d_model + d_cand` —— **不是** `2*d_model`：
+        # 踩过，写 2*d_model 会在 forward 时报「mat1 and mat2 shapes cannot be
+        # multiplied」（`q0` 走的是 `d_cand`，默认 128 ≠ d_model 192）。
+        self.exec_head = nn.Linear(d_model + d_cand, 1)
         # 落点 (dx,dy) + 有无落点 + 被引用军队的 (dx,dy,hp,kind)
         d_q = 16 + 16 + 8 + 3 + (32 + 1)
         self.cand_mlp = nn.Sequential(nn.Linear(d_q, d_cand), nn.ReLU())
