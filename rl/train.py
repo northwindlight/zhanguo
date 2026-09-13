@@ -182,6 +182,15 @@ def main() -> None:
                     help="PPO 的 ratio 裁剪半径（默认 0.2）。专家 2026-09-13 建议在"
                          "熵漂的炉里收到 **0.1**：优势信噪比 ≈1 时，它能截断「噪声方向」"
                          "造成的位移，而 lr 只影响速度、不改变方向。")
+    ap.add_argument("--bc-anchor", type=float, default=0.0,
+                    help="★**BC 锚**（用户 2026-09-14 拍板）：冻一份 BC 策略，PPO 更新时对"
+                         "**回合 ≤ `--bc-anchor-turns`** 的状态加 `w · KL(π_θ ‖ π_BC)`。"
+                         "理由：实测「学了忘」发生在**开局**（`mkt` 切法 A：开局前 20 回合"
+                         "7/8 局已在掉，而那里所有策略构成相同），而 BC 教的正是开局那 70 回合"
+                         "⇒ 灾难性遗忘。**只锚 ≤N**：后期（战争/外交）没有老师示范，不锚，"
+                         "留给 PPO 自己学。默认 0 = 关，行为与开关存在前逐位相同。")
+    ap.add_argument("--bc-anchor-turns", type=int, default=70)
+    ap.add_argument("--bc-anchor-ckpt", default="rl/runs/bc_cont/ep100.pt")
     ap.add_argument("--exec-head", type=float, default=0.0,
                     help="★**可执行性辅助头**的 loss 权重（0 = 关，行为与开关存在前"
                          "逐位相同）。专家 2026-09-13 定：实测 corr(H_all, 撞墙率)=+0.68 "
@@ -309,9 +318,24 @@ def main() -> None:
     _dev = pick_device(args.device)
     model = model.to(_dev)
     print(f"设备：{_dev}", flush=True)
+    # ★BC 锚用的**冻结** BC 策略（不反传、不优化）
+    _bc_model = None
+    if args.bc_anchor:
+        import copy as _copy
+        _bc_model = _copy.deepcopy(model)
+        _bck = torch.load(args.bc_anchor_ckpt, map_location="cpu", weights_only=False)
+        _bm, _ = _bc_model.load_state_dict(_bck["model"], strict=False)
+        _bc_model.eval()
+        for _p in _bc_model.parameters():
+            _p.requires_grad = False
+        print(f"★BC 锚开启：w={args.bc_anchor}  只锚 turn ≤ {args.bc_anchor_turns}"
+              f"  权重来自 {args.bc_anchor_ckpt}（缺失 {len(_bm)} 项）", flush=True)
+
     ppo = PPO(model, lr=args.lr, epochs=args.epochs, minibatch=args.minibatch,
               ent_coef=args.ent_coef, adv_norm=args.adv_norm,
-              clip=args.clip, exec_coef=args.exec_head)
+              clip=args.clip, exec_coef=args.exec_head,
+              bc_model=_bc_model, bc_coef=args.bc_anchor,
+              bc_turns=args.bc_anchor_turns)
     start_iter = 0
     ck = None
     if args.resume:
@@ -540,7 +564,8 @@ def main() -> None:
                 # ★窗口与 obs 必须**同一瞬间**取，一起入缓冲。分开取会让更新侧重算的 logp
                 #   对应的其实是另一个状态（`bc.py` 上踩过：一次 recruit 就让 A 组与候选
                 #   指向两个世界），而这里表现成 ratio 恒偏、策略学歪且不报错。
-                rollout.add(keep, idx, logp, val, r, done, win=_w, ok=info["ok"])
+                rollout.add(keep, idx, logp, val, r, done, win=_w, ok=info["ok"],
+                            turn=info["turn"])
                 if _bl["th"] is not None and info["turn"] < args.baseline_turns:
                     _bl["pend"].append(len(rollout.steps) - 1)  # 这笔属于基准覆盖的前段
                 ep_ret += r

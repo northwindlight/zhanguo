@@ -49,7 +49,7 @@ class Rollout:
         return reward / sd
 
     def add(self, obs, action_idx: int, logprob: float, value: float,
-            reward: float, done: bool, win=None, ok: bool = True):
+            reward: float, done: bool, win=None, ok: bool = True, turn: int = 0):
         """`win`：token 窗口（P4 主干要）。**必须存**，不能更新时重算 ——
         PPO 的重要性比 `exp(logp_new − logp_old)` 要求两次前向看到**同一个输入**；
         重算（哪怕只在浮点上差一点）会直接污染 ratio。
@@ -67,6 +67,8 @@ class Rollout:
             # ★可执行性辅助头的**标签**（专家 2026-09-13）：引擎这一步接受了没有。
             #   默认 True ⇒ 不传时行为与开关存在前相同。
             "ok": bool(ok),
+            # ★这一步在第几回合（BC 锚只锚前 N 回合用）。默认 0 ⇒ 不传时行为不变。
+            "turn": int(turn),
         })
 
     def state(self) -> dict:
@@ -325,6 +327,7 @@ class PPO:
     def __init__(self, model, *, lr: float = 3e-4, clip: float = 0.2, epochs: int = 4,
                  minibatch: int = 256, vf_coef: float = 0.5, ent_coef: float = 0.01,
                  exec_coef: float = 0.0,
+                 bc_model=None, bc_coef: float = 0.0, bc_turns: int = 70,
                  max_grad_norm: float = 0.5, adv_norm: str = "minibatch"):
         self.model = model
         self.adv_norm = adv_norm          # "minibatch"（CleanRL 默认）/"global"（整块一次）
@@ -337,6 +340,14 @@ class PPO:
         # ★可执行性辅助头的权重（0 = 关，行为与开关存在前逐位相同）。
         #   专家给的起点是 0.1；标签只有"当步选中的候选"有（部分标签）。
         self.exec_coef = exec_coef
+        # ★BC 锚（用户 2026-09-14 拍板）：冻一份 BC 策略，对**回合 ≤ bc_turns** 的状态
+        #   加 `bc_coef · KL(π_θ ‖ π_BC)`。理由：实测「学了忘」发生在**开局**
+        #   （`mkt` 切法 A：开局前 20 回合 7/8 局已在掉，而那里所有策略构成相同），
+        #   而 BC 教的正是开局那 70 回合 ⇒ 灾难性遗忘。
+        #   **只锚 ≤bc_turns**：后期（战争/外交）没有老师示范，不锚，留给 PPO 自己学。
+        self.bc_model = bc_model
+        self.bc_coef = bc_coef
+        self.bc_turns = bc_turns
         self.max_grad_norm = max_grad_norm
 
     def update(self, rollout: Rollout, last_value: float = 0.0,
@@ -380,7 +391,8 @@ class PPO:
                 _p.requires_grad = True
 
     def _update_iters(self, rollout, steps, n, idxs, warmup, adv_mean, adv_std) -> dict:
-        stats = {"pg": 0.0, "vf": 0.0, "ent": 0.0, "kl": 0.0, "clipfrac": 0.0, "n": 0}
+        stats = {"pg": 0.0, "vf": 0.0, "ent": 0.0, "kl": 0.0, "clipfrac": 0.0, "n": 0,
+                 "bc_kl": 0.0}
         for _ in range(self.epochs):
             np.random.shuffle(idxs)
             for start in range(0, n, self.minibatch):
@@ -448,6 +460,22 @@ class PPO:
                                            device=_d)
                     pe = pexec.gather(1, act_t.unsqueeze(1)).squeeze(1)
                     exec_loss = F.binary_cross_entropy_with_logits(pe, ok_t)
+                # ★BC 锚：只对 turn ≤ bc_turns 的步，KL(π_θ ‖ π_BC)，π_BC 冻住不反传
+                bc_kl = None
+                if self.bc_model is not None and self.bc_coef:
+                    _sel = [i for i, s in enumerate(mb) if s.get("turn", 0) <= self.bc_turns]
+                    if _sel:
+                        _mb = [mb[i] for i in _sel]
+                        _w = ([s["win"] for s in _mb]
+                              if is_transformer(self.model) else None)
+                        with torch.no_grad():
+                            _bl, _bv, _bm = forward_batch(self.bc_model, _mb, _w)
+                            _q = F.log_softmax(_bl, dim=-1)
+                        _i = torch.as_tensor(_sel, dtype=torch.long, device=_d)
+                        _p = logp_all[_i]
+                        _mk = mask[_i]
+                        bc_kl = (_p.exp() * (_p - _q)).masked_fill(~_mk, 0.0).sum(-1).mean()
+
                 if warmup:
                     # ★warmup 期间**只训头**：`pg/vf/ent` 的图照建但不出现在 loss 里，
                     #   而且策略参数已被冻结（`requires_grad=False`）⇒ Adam 不动它们。
@@ -456,6 +484,8 @@ class PPO:
                     loss = pg + self.vf_coef * vf - self.ent_coef * ent
                     if exec_loss is not None:
                         loss = loss + self.exec_coef * exec_loss
+                    if bc_kl is not None:
+                        loss = loss + self.bc_coef * bc_kl
 
                 self.opt.zero_grad()
                 loss.backward()
@@ -468,6 +498,8 @@ class PPO:
                     stats["ent"] += float(ent)
                     stats["kl"] += float((old_logp - logp).mean())
                     stats["clipfrac"] += float(((ratio - 1).abs() > self.clip).float().mean())
+                    if bc_kl is not None:
+                        stats["bc_kl"] += float(bc_kl)
                     stats["n"] += 1
         for k in ("pg", "vf", "ent", "kl", "clipfrac"):
             stats[k] /= max(1, stats["n"])

@@ -71,7 +71,8 @@ def _collect_episode(env, model, args, seed: int):
         steps.append({"grid": keep.grid.astype(np.float16), "glob": keep.glob,
                       "cand": c, "win": w, "act": int(idx),
                       "logp": float(logp), "val": float(val), "rew": float(r),
-                      "done": bool(done), "ok": bool(info["ok"])})
+                      "done": bool(done), "ok": bool(info["ok"]),
+                      "turn": int(info["turn"])})
         ep_ret += float(r)
         if done:
             return steps, ep_ret, env.summary()
@@ -176,7 +177,8 @@ class WorkerPool:
                     cand["actions"] = [None] * cand.pop("n")
                     obs = SimpleNamespace(grid=e["grid"], glob=e["glob"], cand=cand)
                     rollout.add(obs, e["act"], e["logp"], e["val"], e["rew"],
-                                e["done"], win=e["win"], ok=e["ok"])
+                                e["done"], win=e["win"], ok=e["ok"],
+                                turn=e.get("turn", 0))
                 summary = dict(summary)
                 summary["ep_return"] = ep_ret
                 summary["ep_steps"] = len(_steps)
