@@ -408,7 +408,22 @@ class PPO:
                 adv = torch.as_tensor([s["adv"] for s in mb], dtype=torch.float32,
                                       device=_d)
                 if self.adv_norm == "minibatch":
-                    adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+                    # ★★退化批守卫（2026-09-13 实测，杀过一整炉）——
+                    #   `torch.std()` 默认**无偏**（ddof=1），**n==1 时是 nan**。
+                    #   而切批是 `range(0, n, minibatch)`：只要 `n % minibatch == 1`，
+                    #   最后一个 minibatch 就只有 1 个样本 ⇒ `adv` 全 nan ⇒ loss nan
+                    #   ⇒ **权重 nan** ⇒ 下一块 `act()` 采样时崩：
+                    #   `probability tensor contains either inf, nan or element < 0`。
+                    #   每块约 1/32 概率踩中，125 块期望踩 ~4 次 —— 表现就是
+                    #   **"随机时刻崩"**，且崩前一块的 `pg` 印成 nan（`vf` 仍是有限值，
+                    #   因为 vf 不含 adv，这正是判据）。
+                    #   实测现场：块 16，8161 = 255×32 + 1。
+                    #   修法：退化批**只中心化、不缩放**（n==1 时中心化后恒为 0）。
+                    adv = adv - adv.mean()
+                    if adv.numel() > 1:
+                        _sd = adv.std()
+                        if torch.isfinite(_sd) and _sd > 1e-8:
+                            adv = adv / _sd
                 ret = torch.as_tensor([s["ret"] for s in mb], dtype=torch.float32,
                                       device=_d)
 
