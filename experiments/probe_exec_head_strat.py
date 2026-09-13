@@ -10,13 +10,17 @@
   · 评估图 900000+e，整局 TURNS 回合，每 EVERY 步取一个状态（每局最多 MAXS 个）
   · 每个状态暴力 deepcopy 枚举全部候选的真实可执行性（与原探针同法）
   · 基线 prior_cell = (kind, sub, amount) 在**其他局**里的成功率（按局交叉拟合，无泄漏）
-  · 报：全局 AUC / 状态内 AUC / **状态内且同种类** AUC（按正负对数加权），并按回合 <70 / ≥70 拆开
+  · 报：全局 AUC / 状态内 AUC / **状态内且同种类** AUC / **同候选跨状态** AUC（按正负对数加权），
+    并按回合 <70 / ≥70 拆开。「同候选跨状态」= (kind, sub, amount) 完全相同的候选在不同状态间排序，
+    构成信息在格内被拿掉，只有读懂**局面**的分数才能 >0.5。先验按局交叉拟合、同格跨局取值不同，
+    这一列对先验没有意义，打印为「—」
 
-判据（事先写死）：
-  · 头的「状态内同种类」AUC ≤ 0.55，或不高于 prior_cell ⇒ 头只学到了构成，没有局面层面的可执行性
-  · 策略的「状态内同种类」AUC 显著 < 0.5 ⇒「偏好点不动的候选」在种类内部也成立；≈0.5 ⇒ 原结论是构成效应
+判据（事先写死；v2 起替换旧判据②——「低于查表」不能推出「没有局面信号」）：
+  · 策略的「状态内同种类」AUC 显著 < 0.5 ⇒「偏好点不动的候选」在种类内部也成立；≈/>0.5 ⇒ 原结论是构成效应
+  · 头的「同候选跨状态」AUC ≤ 0.55 ⇒ 头没有局面层面的可执行性信号
+  · 头 − 策略（同候选跨状态）≥ +0.05 ⇒ 头提供了策略没有的增量；否则两者学到的差不多
 
-用法：python experiments/probe_exec_head_strat.py <ckpt> [局=4] [回合=200] [每几步=97] [每局最多状态=20]
+用法：python experiments/probe_exec_head_strat.py <ckpt> [局=4] [回合=200] [每几步=97] [每局最多状态=20] [npz 输出路径]
 """
 import collections
 import copy
@@ -36,6 +40,7 @@ EPS = int(sys.argv[2]) if len(sys.argv) > 2 else 4
 TURNS = int(sys.argv[3]) if len(sys.argv) > 3 else 200
 EVERY = int(sys.argv[4]) if len(sys.argv) > 4 else 97
 MAXS = int(sys.argv[5]) if len(sys.argv) > 5 else 20
+OUT = sys.argv[6] if len(sys.argv) > 6 else ""
 SPLIT_TURN = 70
 
 t0 = time.time()
@@ -122,6 +127,11 @@ def prior_scores():
 
 
 prior = prior_scores()
+if OUT:
+    np.savez(OUT, state=st, ep=ep, turn=turn, kind=kind,
+             sub=np.array([r[4] for r in rows]), amount=np.array([r[5] for r in rows]),
+             pexec=pexec, logit=logit, prior=prior, y=y)
+    print(f"逐候选原始数据已存：{OUT}")
 
 
 def auc(scores, labels):
@@ -166,14 +176,16 @@ def report(tag, mask):
     print(f"\n=== {tag}：{int(mask.sum())} 个候选 / {len(set(st[mask]))} 个状态，基准可执行率 {y[mask].mean():.1%} ===")
     by_state = list(st)
     by_state_kind = [(st[j], kind[j]) for j in range(N)]
-    print(f"  {'':<22}{'全局':>8}{'状态内':>10}{'状态内同种类':>14}")
+    print(f"  {'':<22}{'全局':>8}{'状态内':>10}{'状态内同种类':>14}{'同候选跨状态':>14}")
     for name, sc in (("exec_head p_exec", pexec), ("策略 logits", logit), ("先验 kind×sub×amount", prior)):
         if name.startswith("exec") and not HEAD:
             continue
         g = auc(sc[mask], y[mask])[0]
         ws = weighted_group_auc(sc, mask, by_state)
         wk = weighted_group_auc(sc, mask, by_state_kind)
-        print(f"  {name:<22}{g:>8.3f}{ws:>10.3f}{wk:>14.3f}")
+        wc = weighted_group_auc(sc, mask, cell)
+        wc_s = "—" if name.startswith("先验") else f"{wc:.3f}"
+        print(f"  {name:<22}{g:>8.3f}{ws:>10.3f}{wk:>14.3f}{wc_s:>14}")
     print("  各种类：候选占比 / 可执行率")
     for k in KINDS:
         km = mask & (kind == k)
@@ -185,5 +197,6 @@ ALL = np.ones(N, bool)
 report("全部", ALL)
 report(f"回合 < {SPLIT_TURN}", turn < SPLIT_TURN)
 report(f"回合 ≥ {SPLIT_TURN}", turn >= SPLIT_TURN)
-print("\n判据：头「状态内同种类」≤0.55 或 ≤ 先验 ⇒ 头只学到构成；策略「状态内同种类」显著 <0.5 ⇒ 偏好点不动的候选在种类内也成立")
+print("\n判据：策略「状态内同种类」显著 <0.5 ⇒ 偏好点不动的候选在种类内也成立；"
+      "头「同候选跨状态」≤0.55 ⇒ 无局面信号；头−策略（同候选跨状态）≥+0.05 ⇒ 头有增量")
 print(f"（总耗时 {time.time() - t0:.0f}s）")
