@@ -49,7 +49,7 @@ class Rollout:
         return reward / sd
 
     def add(self, obs, action_idx: int, logprob: float, value: float,
-            reward: float, done: bool, win=None):
+            reward: float, done: bool, win=None, ok: bool = True):
         """`win`：token 窗口（P4 主干要）。**必须存**，不能更新时重算 ——
         PPO 的重要性比 `exp(logp_new − logp_old)` 要求两次前向看到**同一个输入**；
         重算（哪怕只在浮点上差一点）会直接污染 ratio。
@@ -64,6 +64,9 @@ class Rollout:
             "win": win,
             "act": int(action_idx), "logp": float(logprob), "val": float(value),
             "rew": float(self._scale(reward, done)), "done": bool(done),
+            # ★可执行性辅助头的**标签**（专家 2026-09-13）：引擎这一步接受了没有。
+            #   默认 True ⇒ 不传时行为与开关存在前相同。
+            "ok": bool(ok),
         })
 
     def state(self) -> dict:
@@ -236,7 +239,7 @@ def _one_step(obs):
             "act": 0, "logp": 0.0, "val": 0.0, "rew": 0.0, "done": False}
 
 
-def forward_batch(model, steps, wins=None):
+def forward_batch(model, steps, wins=None, *, return_exec: bool = False):
     """统一入口：`(logits, value, cand_mask)`。`wins` 只在需要窗口的模型上用。
 
     **第三个返回值是候选掩码**，不是摆设：PPO 算熵时要 `masked_fill(~mask, 0)`
@@ -256,6 +259,9 @@ def forward_batch(model, steps, wins=None):
     if is_transformer(model):
         cand, cmask = collate_cand(steps)
         _mv = move_to((collate_window(wins), cand, cmask), dev)
+        if return_exec:
+            logits, value, pexec = model(*_mv, return_exec=True)
+            return logits, value, _mv[2], pexec
         logits, value = model(*_mv)
         return logits, value, _mv[2]
     grid, glob, cand, mask = collate(steps, getattr(model, "n_tiles", 0))
@@ -273,14 +279,26 @@ def value_of(model, obs, win=None) -> float:
 
 
 @torch.no_grad()
-def act(model, obs, deterministic: bool = False, win=None):
+def act(model, obs, deterministic: bool = False, win=None, use_exec: bool = False):
     """按当前策略选一个候选动作。返回 (下标, logprob, value)。
 
     `win`：token 窗口（P3 起）。给了就走窗口编码的 query。**采样期间 batch=1**，
     所以 `collate_window` 的补 token 维是空操作。
+
+    `use_exec`：走**可执行性软加权**（专家 2026-09-13）——
+        `logit' = logit + 0.5 · log(σ(p_exec) + 1e-3)`
+    **软加权、不硬 mask**，保住「让模型自己学会哪些点不动」的口径。
+    ⚠ **默认关**：`bc.py` 也调这个函数，而它的 ckpt 里 `exec_head` 是随机初始化的
+    （旧 ckpt 用 `strict=False` 加载），打开等于拿噪声去加权。
     """
     wins = None if (win is None and not is_transformer(model)) else [win]
-    logits, value, _m = forward_batch(model, [_one_step(obs)], wins)
+    if use_exec:
+        logits, value, _m, pexec = forward_batch(model, [_one_step(obs)], wins,
+                                                 return_exec=True)
+        # 软加权：概率高的候选 logit 上去，低的下来，但**谁都没被删掉**。
+        logits = logits + 0.5 * torch.log(torch.sigmoid(pexec) + 1e-3)
+    else:
+        logits, value, _m = forward_batch(model, [_one_step(obs)], wins)
     logp = F.log_softmax(logits, dim=-1)
     if deterministic:
         idx = int(logp.argmax(-1).item())
@@ -293,6 +311,7 @@ def act(model, obs, deterministic: bool = False, win=None):
 class PPO:
     def __init__(self, model, *, lr: float = 3e-4, clip: float = 0.2, epochs: int = 4,
                  minibatch: int = 256, vf_coef: float = 0.5, ent_coef: float = 0.01,
+                 exec_coef: float = 0.0,
                  max_grad_norm: float = 0.5, adv_norm: str = "minibatch"):
         self.model = model
         self.adv_norm = adv_norm          # "minibatch"（CleanRL 默认）/"global"（整块一次）
@@ -302,6 +321,9 @@ class PPO:
         self.minibatch = minibatch
         self.vf_coef = vf_coef
         self.ent_coef = ent_coef
+        # ★可执行性辅助头的权重（0 = 关，行为与开关存在前逐位相同）。
+        #   专家给的起点是 0.1；标签只有"当步选中的候选"有（部分标签）。
+        self.exec_coef = exec_coef
         self.max_grad_norm = max_grad_norm
 
     def update(self, rollout: Rollout, last_value: float = 0.0) -> dict:
@@ -325,7 +347,11 @@ class PPO:
                 # 统一入口：点积头与 P4 主干签名不同，`forward_batch` 自己分派。
                 # 窗口只对 P4 主干有意义，别给点积头传（它的 forward 不收 win）。
                 wins = ([s["win"] for s in mb] if is_transformer(self.model) else None)
-                logits, value, mask = forward_batch(self.model, mb, wins)
+                if self.exec_coef:
+                    logits, value, mask, pexec = forward_batch(
+                        self.model, mb, wins, return_exec=True)
+                else:
+                    logits, value, mask = forward_batch(self.model, mb, wins)
                 # ★`as_tensor` 不给 `device=` 就落在 **CPU**，而 `forward_batch` 已经把
                 #   logits/value 搬到了模型所在设备 ⇒ `gather` 会炸
                 #   「Expected all tensors to be on the same device」。
@@ -358,6 +384,15 @@ class PPO:
                 p = logp_all.exp()
                 ent = -(p * logp_all.masked_fill(~mask, 0.0)).sum(-1).mean()
                 loss = pg + self.vf_coef * vf - self.ent_coef * ent
+                # ★可执行性辅助 loss（专家 2026-09-13）：标签**只有"当步选中的那个
+                #   候选"有**（`env.step` 的 ok），其余候选无标签 —— 所以是
+                #   部分标签下的 BCE，只算选中位置。软加权在 `act` 里做。
+                if self.exec_coef:
+                    ok_t = torch.as_tensor([s["ok"] for s in mb], dtype=torch.float32,
+                                           device=_d)
+                    pe = pexec.gather(1, act_t.unsqueeze(1)).squeeze(1)
+                    loss = loss + self.exec_coef * F.binary_cross_entropy_with_logits(
+                        pe, ok_t)
 
                 self.opt.zero_grad()
                 loss.backward()

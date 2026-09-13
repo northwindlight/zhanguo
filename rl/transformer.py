@@ -112,6 +112,13 @@ class WindowTransformer(nn.Module):
         self.sub_emb = SubEmbedder([1] * len(KINDS))  # 尺寸由 `set_sub_sizes` 覆盖
         self.amt_emb = nn.Embedding(self.n_amounts, 8)
         self.army_mlp = nn.Sequential(nn.Linear(ARMY_FEAT, 32), nn.ReLU())
+        # ★可执行性辅助头（专家 2026-09-13 定）：预测"这个候选**此刻能不能执行**"。
+        #   动机是实测出来的：`corr(H_all, 撞墙率) = +0.68` ⇒ 熵涨的主因是
+        #   **概率质量摊在点不动的候选上**（候选集故意不预过滤，实测 ~49% 点不动）。
+        #   推理时**软加权、不硬 mask** —— 保住「让模型自己学会哪些点不动」的口径：
+        #       logit' = logit + 0.5 · log(σ(p_exec) + 1e-3)
+        #   输入与 `score` 同一份 [h, q0]（候选表示 + 候选嵌入），只是多一层线性。
+        self.exec_head = nn.Linear(2 * d_model, 1)
         # 落点 (dx,dy) + 有无落点 + 被引用军队的 (dx,dy,hp,kind)
         d_q = 16 + 16 + 8 + 3 + (32 + 1)
         self.cand_mlp = nn.Sequential(nn.Linear(d_q, d_cand), nn.ReLU())
@@ -164,7 +171,13 @@ class WindowTransformer(nn.Module):
             msks.append(win["mask"][g])
         return torch.cat(toks, dim=1), torch.cat(msks, dim=1)
 
-    def forward(self, win: dict, cand: dict, cand_mask: torch.Tensor | None = None):
+    def forward(self, win: dict, cand: dict, cand_mask: torch.Tensor | None = None,
+                return_exec: bool = False):
+        """`return_exec=True` 时多返回一个 `p_exec`（可执行性 logit，[B,K]）。
+
+        **默认 False**：现有所有调用点（`forward_batch`、`bc.py`、`train.py`）
+        都按两元组解包，加返回值会静默炸在解包上 —— 所以用显式开关。
+        """
         x, wmask = self.encode_window(win)
         # ★`key_padding_mask` 的 True = **不看**。padding 位置必须挡住，
         #   否则补出来的零向量会以"内容"的身份参与 softmax（不报错、只是学歪）。
@@ -218,7 +231,11 @@ class WindowTransformer(nn.Module):
         # 而它本来就是全局状态的摘要），一行就能换；再不够再上 max 池化或注意力池化。
         m = wmask.unsqueeze(-1).to(x.dtype)
         pooled = (x * m).sum(1) / m.sum(1).clamp(min=1.0)
-        return logits, self.value(pooled).squeeze(-1)
+        v = self.value(pooled).squeeze(-1)
+        if return_exec:
+            # 可执行性 logit —— 与 `score` 吃同一份 [h, q0]，只多一层线性。
+            return logits, v, self.exec_head(torch.cat([h, q0], dim=-1)).squeeze(-1)
+        return logits, v
 
     def n_params(self) -> int:
         return sum(p.numel() for p in self.parameters())

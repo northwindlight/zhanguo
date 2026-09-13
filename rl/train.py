@@ -115,13 +115,14 @@ def _win(env, obs, on: bool):
 
 
 def play_episode(env: ZhanguoEnv, model, seed: int, deterministic: bool = False,
+                 use_exec: bool = False,
                  use_win: bool = False) -> dict:
     """跑完整一局（不训练），用于评估。"""
     obs = env.reset(seed)
     total = 0.0
     while True:
         idx, _lp, _v = act(model, obs, deterministic=deterministic,
-                           win=_win(env, obs, use_win))
+                           win=_win(env, obs, use_win), use_exec=use_exec)
         obs, r, done, _info = env.step(obs.cand["actions"][idx])
         total += r
         if done:
@@ -162,6 +163,14 @@ def main() -> None:
                          "不是老师标签、不入库），**PPO 上来这个约束就没了** ⇒ 这个开关"
                          "是给 PPO 准备的。标定别拍 100：学生一局消费 4747/100 回合 ≈ 47/回合、"
                          "撞墙 2.4 次/回合，10 ⇒ -24/回合（约占一半），100 ⇒ -240/回合（净变负）。")
+    ap.add_argument("--exec-head", type=float, default=0.0,
+                    help="★**可执行性辅助头**的 loss 权重（0 = 关，行为与开关存在前"
+                         "逐位相同）。专家 2026-09-13 定：实测 corr(H_all, 撞墙率)=+0.68 "
+                         "⇒ 熵涨的主因是**概率质量摊在点不动的候选上**（候选集故意不预"
+                         "过滤，~49%% 点不动）。辅助头用 `env.step` 的 ok 当标签预测"
+                         "「这个候选此刻能不能执行」，推理时**软加权不硬 mask**"
+                         "（`logit' = logit + 0.5·log(σ(p_exec)+1e-3)`），"
+                         "**保住「让模型自己学会哪些点不动」的口径**。建议起点 0.1。")
     ap.add_argument("--map-pool", default="",
                     help="★从**筛过的地图池**里取训练图（`experiments/screen_maps.py` 产出的 "
                          "JSON）。动机（用户 2026-09-13）：全池图难度极端比 **5.4×**"
@@ -263,12 +272,19 @@ def main() -> None:
     model = model.to(_dev)
     print(f"设备：{_dev}", flush=True)
     ppo = PPO(model, lr=args.lr, epochs=args.epochs, minibatch=args.minibatch,
-              ent_coef=args.ent_coef, adv_norm=args.adv_norm)
+              ent_coef=args.ent_coef, adv_norm=args.adv_norm,
+              exec_coef=args.exec_head)
     start_iter = 0
     ck = None
     if args.resume:
         ck = torch.load(args.resume, map_location="cpu", weights_only=False)
-        model.load_state_dict(ck["model"])
+        # ★`strict=False`：加了可执行性辅助头之后 state_dict 多出 `exec_head.*`，
+        #   而旧 ckpt 没有它。strict=True 会直接抛异常；False 则**新头随机初始化、
+        #   其余权重照旧** —— 正是我们要的（新头按专家建议 warmup 一块）。
+        _miss = model.load_state_dict(ck["model"], strict=False)
+        if getattr(_miss, "missing_keys", None):
+            print(f"（新头随机初始化：{len(_miss.missing_keys)} 项缺失 · "
+                  f"{_miss.missing_keys[:2]}）")
         start_iter = int(ck.get("iter", 0))
         # 优化器状态必须一起恢复：否则每次重启都是全新 Adam，
         # 第一步更新幅度异常大，会把策略踹坏（服务管理器自动重启时尤其致命）。
@@ -296,10 +312,10 @@ def main() -> None:
         贪心掉进「建最贵的建筑→资源耗光→躺平」的近视陷阱，而采样仍有 4~6 万消费。
         """
         g = [play_episode(eval_env, model, seed=900_000 + i, deterministic=True,
-                          use_win=_use_win)
+                          use_win=_use_win, use_exec=args.exec_head > 0)
              for i in range(n)]
         s = [play_episode(eval_env, model, seed=800_000 + i, deterministic=False,
-                          use_win=_use_win)
+                          use_win=_use_win, use_exec=args.exec_head > 0)
              for i in range(n)]
         return {"eval_spend": float(np.mean([x["spend_total"] for x in g])),
                 "eval_tiles": float(np.mean([x["tiles"] for x in g])),
@@ -438,13 +454,14 @@ def main() -> None:
             elif len(rollout) >= args.rollout_cap:
                 break
             _w = _win(env, obs, _use_win)
-            idx, logp, val = act(model, obs, win=_w)
+            idx, logp, val = act(model, obs, win=_w,
+                                 use_exec=args.exec_head > 0)
             keep = obs
             obs, r, done, info = env.step(obs.cand["actions"][idx])
             # ★窗口与 obs 必须**同一瞬间**取，一起入缓冲。分开取会让更新侧重算的 logp
             #   对应的其实是另一个状态（`bc.py` 上踩过：一次 recruit 就让 A 组与候选
             #   指向两个世界），而这里表现成 ratio 恒偏、策略学歪且不报错。
-            rollout.add(keep, idx, logp, val, r, done, win=_w)
+            rollout.add(keep, idx, logp, val, r, done, win=_w, ok=info["ok"])
             if _bl["th"] is not None and info["turn"] < args.baseline_turns:
                 _bl["pend"].append(len(rollout.steps) - 1)   # 这笔属于基准覆盖的前段
             ep_ret += r
