@@ -279,26 +279,39 @@ def value_of(model, obs, win=None) -> float:
 
 
 @torch.no_grad()
+def policy_logits(model, obs, win=None, use_exec: bool = False):
+    """候选 logits，**`act()` 与诊断探针共用这一处**。返回 `(logits, value, mask)`。
+
+    `use_exec=True` 时套上可执行性软加权（专家 2026-09-13）：
+        `logit' = logit + 0.5 · log(σ(p_exec) + 1e-3)`
+    **软加权、不硬 mask**，保住「让模型自己学会哪些点不动」的口径。
+
+    ★**公式只此一份**：探针要判断「主干自己学会了没有」还是「靠推理时加权兜住」，
+      必须跑同一策略的开关两档。公式要是抄成第二份，改一处忘一处，
+      ——「测的」和「跑的」就不是同一个策略了，而那正是这个探针要防的事。
+    """
+    wins = None if (win is None and not is_transformer(model)) else [win]
+    if use_exec:
+        logits, value, mask, pexec = forward_batch(model, [_one_step(obs)], wins,
+                                                   return_exec=True)
+        # 软加权：概率高的候选 logit 上去，低的下来，但**谁都没被删掉**。
+        logits = logits + 0.5 * torch.log(torch.sigmoid(pexec) + 1e-3)
+        return logits, value, mask
+    logits, value, mask = forward_batch(model, [_one_step(obs)], wins)
+    return logits, value, mask
+
+
 def act(model, obs, deterministic: bool = False, win=None, use_exec: bool = False):
     """按当前策略选一个候选动作。返回 (下标, logprob, value)。
 
     `win`：token 窗口（P3 起）。给了就走窗口编码的 query。**采样期间 batch=1**，
     所以 `collate_window` 的补 token 维是空操作。
 
-    `use_exec`：走**可执行性软加权**（专家 2026-09-13）——
-        `logit' = logit + 0.5 · log(σ(p_exec) + 1e-3)`
-    **软加权、不硬 mask**，保住「让模型自己学会哪些点不动」的口径。
+    `use_exec`：见 `policy_logits`。
     ⚠ **默认关**：`bc.py` 也调这个函数，而它的 ckpt 里 `exec_head` 是随机初始化的
     （旧 ckpt 用 `strict=False` 加载），打开等于拿噪声去加权。
     """
-    wins = None if (win is None and not is_transformer(model)) else [win]
-    if use_exec:
-        logits, value, _m, pexec = forward_batch(model, [_one_step(obs)], wins,
-                                                 return_exec=True)
-        # 软加权：概率高的候选 logit 上去，低的下来，但**谁都没被删掉**。
-        logits = logits + 0.5 * torch.log(torch.sigmoid(pexec) + 1e-3)
-    else:
-        logits, value, _m = forward_batch(model, [_one_step(obs)], wins)
+    logits, value, _m = policy_logits(model, obs, win=win, use_exec=use_exec)
     logp = F.log_softmax(logits, dim=-1)
     if deterministic:
         idx = int(logp.argmax(-1).item())
