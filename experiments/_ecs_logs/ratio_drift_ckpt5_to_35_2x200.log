@@ -1,0 +1,42 @@
+# cmd: /home/northwind/.venv/bin/python -u experiments/probe_ratio_drift.py rl/runs/ppo_v10/ckpt_5.pt rl/runs/ppo_v10/ckpt_35.pt 2 200 960 32
+ckpt_a rl/runs/ppo_v10/ckpt_5.pt（第 5 块）  ckpt_b rl/runs/ppo_v10/ckpt_35.pt
+2 局 × 200 回合  步上限 960  minibatch 32
+exec_head=0.1 use_exec=True ent_coef=0.01 clip=0.2 lam=1.0 norm_reward=True invalid_penalty=2.0 jitter=0.1
+model.training=True  dropout(p>0)=无
+
+采样 3915 步 → 用 960 步 / 30 个 minibatch  （107s）
+
+=== S0 零更新时的 ratio ===
+[训练口径：更新用未加权 logp]  N=960
+  mean(old−new)（= 日志 kl 在零更新时的读数） +0.00011
+  |log ratio| 中位/90%/99%  0.0111 / 0.0356 / 0.0748
+  ratio ∉ [1−clip, 1+clip] 的比例  0.00%
+  梯度被 clip 清零  0.00%   A<0 且 ratio>1+clip（放大惩罚）0.00%   A>0 且 ratio<1−clip（削弱奖励）0.00%
+  mean log ratio：被接受动作 -0.0023   被拒动作 +0.0034
+[对照：更新也加权（只剩浮点残差）]  N=960
+  mean(old−new)（= 日志 kl 在零更新时的读数） -0.00000
+  |log ratio| 中位/90%/99%  0.0000 / 0.0000 / 0.0000
+  ratio ∉ [1−clip, 1+clip] 的比例  0.00%
+  梯度被 clip 清零  0.00%   A<0 且 ratio>1+clip（放大惩罚）0.00%   A>0 且 ratio<1−clip（削弱奖励）0.00%
+  mean log ratio：被接受动作 -0.0000   被拒动作 +0.0000
+  corr(log ratio, log σ(p_exec[a]))  -0.358   σ 中位/90%/99% 0.5990 / 0.6835 / 0.7282
+（132s）
+
+=== S1 漂移方向 ===
+同一批状态上的熵：θ_a 2.309 → θ_b 3.169
+合力比 ‖Σg‖/Σ‖g‖（随机基线 1/√K = 0.183）：pg 0.158  vf 0.969  ent 0.606  exec 0.493  total 0.968
+Adam 预条件：有
+
+组               ‖Δθ‖  cos(Δθ, −Σg)                        pg              vf             ent            exec           total
+主干             4.154  未预条件                       0.0102          0.0617          0.0370          0.0390          0.0617
+                      Adam 预条件                    0.0078          0.1979          0.0716          0.1021          0.1980
+score          0.751  未预条件                       0.0386             nan          0.1549             nan          0.0484
+                      Adam 预条件                    0.0508             nan          0.3358             nan          0.0630
+value          1.046  未预条件                          nan          0.2362             nan             nan          0.2362
+                      Adam 预条件                       nan          0.0054             nan             nan          0.0054
+exec_head      0.651  未预条件                          nan             nan             nan          0.6422          0.6422
+                      Adam 预条件                       nan             nan             nan          0.7529          0.7529
+全部             4.397  未预条件                       0.0104          0.0685          0.0417          0.1015          0.0685
+                      Adam 预条件                    0.0090          0.0027          0.0816          0.1238          0.0027
+
+（总耗时 365s）
