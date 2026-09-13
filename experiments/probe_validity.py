@@ -42,7 +42,14 @@ m = WindowTransformer({g: w0.feats[g].shape[1] for g in GROUPS},
                       d_model=192, n_layer=4, n_head=4)
 m.set_sub_sizes([len(env.sub_tables[k]) for k in KINDS])
 ck = torch.load(CKPT, map_location="cpu", weights_only=False)
-m.load_state_dict(ck["model"])
+# ★**必须 strict=False**：`exec_head` 是后加的，加头之前的 ckpt 没有这两个键。
+#   用默认 strict=True 会让**所有旧权重都加载不了**、连基线都测不成
+#   （2026-09-13 踩过：基线 ckpt_30 直接 RuntimeError，白跑一轮）。
+_miss, _unexp = m.load_state_dict(ck["model"], strict=False)
+if _miss:
+    print(f"（缺失 {len(_miss)} 项，随机初始化：{sorted(_miss)}）")
+if _unexp:
+    print(f"（多余 {len(_unexp)} 项，已忽略：{sorted(_unexp)}）")
 m.eval()
 print(f"权重 {CKPT}   （训练到第 {ck.get('iter', '?')} 块）")
 print(f"{EPS} 局 × {TURNS} 回合   采样档\n")
@@ -57,7 +64,7 @@ for ep in range(EPS):
         lg, _v, cm = forward_batch(m, [_one_step(obs)], [tokenize(env, obs)])
         p = torch.softmax(lg[0].masked_fill(~cm[0], float("-inf")), dim=-1)
         p = p[p > 0]
-        h_all = float(-(p * p.log()).sum())
+        h_all = float(-(p * p.log()).detach().sum())
         idx, _lp, _val = act(m, obs, win=tokenize(env, obs))
         a = obs.cand["actions"][idx]
         kind = a.kind
