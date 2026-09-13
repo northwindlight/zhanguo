@@ -116,7 +116,8 @@ class TestCompactBlock(unittest.TestCase):
         sent = c.calls[0]["messages"]
         self.assertNotIn("内部思考内容不该进压缩输入", sent[1]["content"])
         self.assertIn("第21回合", sent[1]["content"])
-        self.assertEqual(c.calls[0]["extra_body"], {"thinking": {"type": "disabled"}})
+        # F1（2026-09-13）：cfg 未声明推理模型 → 不向请求体塞 DeepSeek 专属 thinking 参数
+        self.assertIsNone(c.calls[0]["extra_body"])
         self.assertNotIn("tools", c.calls[0])
 
     def test_too_short_reply_is_discarded(self):

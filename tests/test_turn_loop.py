@@ -125,7 +125,7 @@ class TestContentOnlyExit(unittest.TestCase):
         self.addCleanup(lambda: setattr(openai, "OpenAI", self._orig))
 
     def _cfg(self, **kw):
-        cfg = {"base_url": "http://stub", "api_key": "k", "model": "m",
+        cfg = {"base_url": "http://stub", "api_key": "k", "provider": "openai", "model": "m",
                "max_tokens": 4000, "max_steps": 4, "ctx_window": 200000}
         cfg.update(kw)
         return cfg
@@ -165,7 +165,7 @@ class TestTurnLoop(unittest.TestCase):
         return mp.World(size=size, seed=7, nations=["秦", "楚"])
 
     def _cfg(self, **kw):
-        cfg = {"base_url": "http://stub", "api_key": "k", "model": "m",
+        cfg = {"base_url": "http://stub", "api_key": "k", "provider": "openai", "model": "m",
                "max_tokens": 4000, "max_steps": 4}
         cfg.update(kw)
         return cfg
@@ -264,7 +264,7 @@ class TestTurnLoopHardening(unittest.TestCase):
         self.addCleanup(lambda: setattr(openai, "OpenAI", self._orig))
 
     def _cfg(self, **kw):
-        cfg = {"base_url": "http://stub", "api_key": "k", "model": "m",
+        cfg = {"base_url": "http://stub", "api_key": "k", "provider": "openai", "model": "m",
                "max_tokens": 4000, "max_steps": 4, "ctx_window": 200000}
         cfg.update(kw)
         return cfg
