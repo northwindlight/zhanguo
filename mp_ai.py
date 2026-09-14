@@ -31,6 +31,8 @@ from game import (
     MARKET,
     MARKET_SPREAD,
     MAX_SLOTS,
+    MOVE_COST,
+    RETREAT_RANGE,
     TERRAIN_STATS,
     UNIT_TYPES,
     letter_cost,
@@ -81,6 +83,76 @@ HUNS_BLOCKED = {
 }
 
 # 匈奴教义（喂给匈奴 AI，令其贯彻；人类侧全文见 匈奴教义.md）
+def _move_brief(kind: str) -> str:
+    """某兵种"能走几格"的说法——**从 `MOVE_COST` / `UNIT_TYPES` 现算**，不写死数字。
+
+    规则：移动力 = `UNIT_TYPES[kind]["speed"]`；一步的代价 = max(出发格, 目标格)，
+    所以"开阔地形能走几格 = 移动力 ÷ 开阔代价"、"崎岖能走几格 = 移动力 ÷ 崎代价"。
+    """
+    budget = UNIT_TYPES[kind]["speed"]
+    costs = MOVE_COST.get(kind, {}) or {t: 1 for t in TERRAIN_STATS}
+    open_cost = min(costs.values())
+    open_cells = budget // max(1, open_cost)
+    slow = [t for t in TERRAIN_STATS if costs.get(t, 1) > open_cost]
+    if not slow:
+        return f"动{open_cells}格/回合（任何地形）"
+    slow_cells = budget // max(costs.values())
+    return f"动{open_cells}格/回合（{'/'.join(slow)}只 {slow_cells} 格）"
+
+
+def _move_cost_text() -> str:
+    """地形代价那一句——**由 `MOVE_COST` 现算**（改表 ⇒ 文案跟着变）。
+
+    捷径/崎岖两类地形名、以及"崎岖能走几格"都从表里推，不写死。
+    """
+    costs = MOVE_COST["骑"]
+    open_t = [t for t in TERRAIN_STATS if costs.get(t, 1) == min(costs.values())]
+    slow_t = [t for t in TERRAIN_STATS if t not in open_t]
+    budget = UNIT_TYPES["骑"]["speed"]
+    return (f"每走一格按地形扣（出发格与目标格取更贵的那个）："
+            f"骑兵在{'/'.join(open_t)}便宜、在{'/'.join(slow_t)}贵一倍"
+            f"（⇒ 只能走 {budget // max(costs.values())} 格，且**穿不过去**）；"
+            f"步兵/民兵任何地形每格 1")
+
+
+def _move_rule_text() -> str:
+    """移动规则的完整说法——**全部由 `MOVE_COST` / `UNIT_TYPES` 现算**。
+
+    2026-09-15 起：速度=移动力，逐格按地形扣（出发格与目标格取更贵的那个），
+    多格移动逐格判定 ⇒ 崎岖地形"减速 + 穿不过去"。
+    """
+    rows = [f"{UNIT_TYPES[k]['label']}{_move_brief(k)}" for k in UNIT_TYPES]
+    return (f"**移动**：{'、'.join(rows)}；{_move_cost_text()}。"
+            f"多格移动**逐格判定**：隔着一道山地/森林、或借道别人的地界，都冲不过去。")
+
+
+def _cost_text(cost: dict[str, int]) -> str:
+    """把一份料单写成"10粮+5装"这样的短说法（面板/工具描述共用，不写死数字）。"""
+    short = {"粮食": "粮", "装备": "装", "黄金": "金", "木头": "木", "矿石": "矿",
+             "石油": "油", "补给": "补给"}
+    return "+".join(f"{amt}{short.get(k, k)}" for k, amt in cost.items())
+
+
+def _recruit_desc(costs: dict[str, dict]) -> str:
+    """征召工具的说明：费用/补给/移动**全部现算**（`UNIT_TYPES` + 政体表）。
+
+    `costs` = {兵种: 料单}，由「该国实际征召价」（`World.recruit_cost`）或
+    `UNIT_TYPES[*]['recruit']`（无政体）给出 ⇒ 匈奴的骑兵特价自动体现在文案里。
+    """
+    rows = []
+    for k, info in UNIT_TYPES.items():
+        extra = "；驻本格军屯不耗补给" if k == "民" else ""
+        rows.append(f"{k}={info['label']}({_cost_text(costs.get(k, info['recruit']))}、"
+                    f"耗补给{info['supply']}/回合、{_move_brief(k)}{extra})")
+    return ("在自己有兵营且电网正常的地块征召军队，每兵营每回合1支。兵种 kind："
+            + "；".join(rows)
+            + "——民兵是廉价驻守军队，每军屯每回合1支、全国民兵总数≤全国军屯总数（阵亡后才能补员）。"
+            + "注意补给仓必须跟上：补给不足时全军按缺口比例扣血"
+            + f"（满缺 -{ARMY_STARVE_DAMAGE}HP/军/回合，交战中也照扣），饿毙不复活。")
+
+
+
+
 HUNS_DOCTRINE = (
     "· **抢产为生，不是勒索为生**：你真正的口粮是**夺来的金矿与补给厂**，勒索只是零钱。\n"
     "   每座金矿 = 10 金/回合 ≈ 1 骑的口粮（骑耗 2 补给，买价 ≈5.3 金/单位，含价差滑点 ≈11~12 金/骑）；"
@@ -92,12 +164,17 @@ HUNS_DOCTRINE = (
     "· 勒索要小而真：**一次 50~100 金 + 5~20 补给为宜**——张口几百金对方宁可开战，"
     "小数目他懒得打、反而真能到手。**别过度夸大兵威**：对手能 spy 数你的军（各兵种真实数量），"
     "把 6 骑吹成 20 骑只会让报价不可信、直接被拒；要不报具体数字，别报假数。\n"
-    "· **骑兵战力与步兵相同**（都是 50 攻/100 血），你的优势**只有速度**：一次 atk 可达 2 格外"
-    "（步兵只有 1 格），且 atk 是跳到目标格——**可跳过一格直取纵深城市**。你登场时（120~150 回合）"
-    "对方早已发育成型，**打不过任何中等国家的主力，永远避开**（与步兵主力保持 ≥2 格、与骑兵主力 ≥3 格；"
-    "被咬住用 retreat 撤：只退相邻 1 格、回合末结算后脱离）。\n"
-    "· **分兵掠地**（对**大而旷**的国家最有效）：骑兵分 2~3 路，各扑不同方向的无驻军城市——"
-    "你跳 2 格、它走 1 格，永远追不上你。**机动聚集**：它被迫分兵守城/回夺时，把相邻几路临时聚起来，"
+    f"· **骑兵战力与步兵相同**（都是 {UNIT_TYPES['骑']['atk']} 攻/{UNIT_TYPES['骑']['hp']} 血），"
+    f"你的优势**只有速度**：平地上你{_move_brief('骑')}、它{_move_brief('步')}——"
+    f"但**森林/山地只能走 1 格、而且穿不过去**（多格移动逐格判定，"
+    f"「跳过一格直取纵深」那条已经没有了）；绕山绕林是常态，别把越格突袭当想当然。"
+    f"你登场时（120~150 回合）对方早已发育成型，"
+    f"**打不过任何中等国家的主力，永远避开**（与敌方主力保持 ≥2 格；"
+    f"被咬住用 retreat 撤：只退相邻 {RETREAT_RANGE} 格、回合末结算后脱离）。\n"
+    f"· **分兵掠地**（对**大而旷**的国家最有效）：骑兵分 2~3 路，各扑不同方向的无驻军城市——"
+    f"平地上你比它快（{UNIT_TYPES['骑']['speed']} 对 {UNIT_TYPES['步']['speed']}），"
+    f"但崎岖地形会把这点优势抹平（两边都只能 1 格）⇒ **走平地、挑旷野**。**机动聚集**："
+    f"它被迫分兵守城/回夺时，把相邻几路临时聚起来，"
     "以 2 打 1、3 打 1 吃掉它的**落单部队/小股守军**，打完立刻散开继续掠地。"
     "纵深抢来的城**不必守**（守不住；价值是打击经济+逼它分兵）；**靠边、成片、产金/产补给的地才值得留兵**。"
     "别挑小国要塞化的硬骨头。\n"
@@ -136,7 +213,11 @@ def _fmt_armies(world, name) -> str:
         t = world.tiles.get((a["x"], a["y"]))
         where = t["name"] if t else "野外"
         st = "交战中" if a.get("engaged") else ("已移动" if a.get("moved_turn") == world.turn else "可行动")
-        lines.append(f"{a['name']}(#{a['id']}) | {a['hp']}HP | ({a['x']+1},{a['y']+1}) {where} | {st}")
+        # 移动力与"本回合能挪到几格"现算（地形代价表见 balance.MOVE_COST）
+        mv = _move_brief(a.get("type", "步"))
+        reach = len(world._reachable(name, a)) - 1 if st == "可行动" else 0
+        lines.append(f"{a['name']}(#{a['id']}) | {a['hp']}HP | ({a['x']+1},{a['y']+1}) {where} | "
+                     f"{st} | {mv}" + (f"｜本回合可及 {reach} 格" if st == "可行动" else ""))
     return "\n".join(lines)
 
 
@@ -164,15 +245,24 @@ def _fmt_land(world, name, cap=40) -> str:
         )
         shown += 1
     fr = sorted(world.frontier_of(name))
-    lines.append(f"可拓荒地 {len(fr)} 块（[野人]=有守军需 atk 打赢；[空地]=无守军，atk 进驻即占）:")
+    # 本回合**够得着**的格子：至少一支军队能从现位置走/打到（逐格代价，见 balance.MOVE_COST）
+    reach: set = set()
+    for a in world.armies:
+        if a["owner"] == name and a["hp"] > 0 and not a.get("engaged") \
+                and a.get("moved_turn") != world.turn:
+            reach |= set(world._reachable(name, a, for_attack=True))
+    lines.append(f"可拓荒地 {len(fr)} 块（[野人]=有守军需 atk 打赢；[空地]=无守军，atk 进驻即占；"
+                 f"可及=本回合有军队够得着）:")
     frs = []
     for (x, y) in fr:
         guard = any(a["owner"] == "野人" and (a["x"], a["y"]) == (x, y) for a in world.armies)
         tag = "[野人]" if guard else "[空地]"
-        frs.append(f"({x+1},{y+1}){world.ter_char(x, y)}{tag}")
+        ok = "可及" if (x, y) in reach and world.visible_to(name, x, y) else ""
+        frs.append(f"({x+1},{y+1}){world.ter_char(x, y)}{tag}{ok}")
     if frs:
-        for i in range(0, len(frs), 10):
-            lines.append("  " + " ".join(frs[i:i + 10]))
+        for i in range(0, len(frs), 8):
+            lines.append("  " + " ".join(frs[i:i + 8]))
+    lines.append(f"  地形挡路：{_move_cost_text()}。")
     return "\n".join(lines)
 
 
@@ -433,7 +523,7 @@ def _help_sections() -> list[tuple[str, str]]:
         elif k == "militia_camp":
             note = ("屯田+民兵编制：每回合 +1 粮（不耗电）。可在此征召民兵（50金+5粮/支；每座每回合1支，"
                     "**全国民兵总数 ≤ 全国军屯总数**；不耗电、电网停摆也不影响）；民兵=廉价驻守军队"
-                    f"（{UNIT_TYPES['民']['hp']}HP/攻{UNIT_TYPES['民']['atk']}/动1格），驻**本格**不耗补给"
+                    f"（{UNIT_TYPES['民']['hp']}HP/攻{UNIT_TYPES['民']['atk']}/{_move_brief('民')}），驻**本格**不耗补给"
                     "（每座军屯覆盖本格1支，离格/超额照常吃）；需本地耕地≥1、每地块限1座")
         else:  # barracks
             note = "维持1电；每兵营每回合可征 1 支军队（耗 10粮 + 5装）；需本地已用建筑位≥3（含在建）"
@@ -469,10 +559,11 @@ def _help_sections() -> list[tuple[str, str]]:
             "也可在 world market 卖物资换金（卖得越多价压越低）。"
         )),
         ("军队与战斗", (
-            "每军 100HP；兵营征召，每兵营每回合 1 支。兵种：步兵(耗10粮+5装，动1格/回合，耗补给1/回合)、"
-            "骑兵(耗12粮+12装，动2格/回合，耗补给2/回合)、"
-            "民兵(军屯征召 50金+5粮/支，80HP、攻20，动1格/回合，驻本格军屯不耗补给——廉价驻守军队，"
+            "每军 100HP；兵营征召，每兵营每回合 1 支。兵种：步兵(耗10粮+5装，耗补给1/回合)、"
+            "骑兵(耗12粮+12装，耗补给2/回合)、"
+            "民兵(军屯征召 50金+5粮/支，80HP、攻20，驻本格军屯不耗补给——廉价驻守军队，"
             "每军屯每回合1支、全国民兵总数≤全国军屯总数)。"
+            + _move_rule_text() + " "
 
 
             "军队 id **各国独立编号、从 1 递增且阵亡不回收**：历史上的 #n 永远指同一支军队，"
@@ -488,7 +579,7 @@ def _help_sections() -> list[tuple[str, str]]:
             "**占地看索取顺序**：野人清空且无活敌后，进攻方里第一个 atk 的（索取者）占地，它若阵亡则顺位给最早入场的同盟者；"
             "和平驻守的第三方不占地也不参战（占地后回合末自动遣返）。敌国领土同理：多国围攻同一城时，守军清空后归第一个 atk 者。"
             "撤出攻守对等：交战中的军队（含防守方守军）要离开战场一律用 retreat——耗移动，本回合末随战斗结算（伤害全场分摊；防御方撤退减伤50%；撤退军本回合输出-80%），结算后自动脱离；"
-            "撤退固定只能退相邻 1 格，四周无合法撤退点（己方/同盟/无人荒地）则无法撤退；"
+            f"撤退固定只能退相邻 {RETREAT_RANGE} 格，四周无合法撤退点（己方/同盟/无人荒地）则无法撤退；"
             "mv 不能从交战地撤离（会被拦）。守军全撤走/全灭时，进攻方自动占领该地（守军弃城即陷）。"
             "交战中双方（含守军）一律不回血。"
             "打赢守军→该地归你；无守军的空地/敌空城用 atk 直接进驻占领（mv 不占地）。"
@@ -533,7 +624,8 @@ def _help_sections() -> list[tuple[str, str]]:
             "求和(offer_peace)：pay=你赔钱、demand=你索款、white=白和；接受即整条战线停战。"
             "休战时长由求和双方自行约定（offer_peace 的 truce 参数，0=不休战）；接受后 N 回合内"
             "双方（含跟随方）不得再互相宣战。一方灭亡后强制全天下休战 10 回合（防连环征服）。"
-            "断盟/停战后滞留在对方领土的军队会自动遣返（每回合按兵种速度往家走：步 1 格/骑 2 格）。"
+            f"断盟/停战后滞留在对方领土的军队会自动遣返（每回合按兵种速度往家走："
+            f"步 {UNIT_TYPES['步']['speed']} 格/骑 {UNIT_TYPES['骑']['speed']} 格，不看地形代价）。"
             "外交不一定要等到被打：先 countries 看清对象，主动发信、提结盟、换情报，都是合法手段。"
             "也可用 gift 把本国资源馈赠对方（粮木矿油装补给或黄金，本回合垫支、下回合到账）——示好、资助盟国、买通都行。"
             "还能用 share_map 把你的整张已知地图（全部坐标）发给对方，对方下回合在 query panel=intel 收到——换情报、亮家底、协调攻守都用得上。"
@@ -605,6 +697,9 @@ def rules_text(world, topic: str = "") -> str:
         "装备": "经济与能源",
         "军队": "军队与战斗", "战斗": "军队与战斗", "战争": "军队与战斗", "征兵": "军队与战斗",
         "军队移动": "军队与战斗", "攻击": "军队与战斗", "野人": "军队与战斗",
+        "移动": "军队与战斗", "速度": "军队与战斗", "移动力": "军队与战斗",
+        "射程": "军队与战斗", "距离": "军队与战斗", "路": "军队与战斗",
+        "地形挡路": "军队与战斗",
         "外交": "外交", "保障": "外交", "宣战": "外交", "求和": "外交",
         "共同防御": "外交", "休战": "外交",
         "联盟": "联盟与核心领土", "同盟": "联盟与核心领土", "入盟": "联盟与核心领土",
@@ -1332,12 +1427,13 @@ TOOL_SCHEMAS = [
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标如 '5 6' 或自家地块名（land 面板有）", "required": True},
                               "building": {"type": "string", "enum": BUILD_NAMES, "description": "建筑名", "required": True}})}},
     {"type": "function", "function": {
-        "name": "recruit", "description": "在自己有兵营且电网正常的地块征召军队，每兵营每回合1支。兵种 kind：步=步兵(10粮+5装，动1格/回合、耗补给1)；骑=骑兵(12粮+12装，动2格/回合、耗补给2)；民=民兵(军屯征召：50金+5粮/支，80HP/攻20，动1格/回合、耗补给1；驻本格军屯不耗补给)——廉价驻守军队，每军屯每回合1支、全国民兵总数≤全国军屯总数（阵亡后才能补员）。注意补给仓必须跟上：补给不足时全军按缺口比例扣血（满缺 -35HP/军/回合，交战中也照扣），饿毙不复活。",
+        "name": "recruit", "description": _recruit_desc(
+            {k: v["recruit"] for k, v in UNIT_TYPES.items()}),
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标 '5 6' 或名字", "required": True},
                               "n": {"type": "integer", "description": "征召数量（默认1）"},
                               "kind": {"type": "string", "enum": ["步", "骑", "民"], "description": "兵种（默认 步；民=民兵，只能在自家军屯格征召）"}})}},
     {"type": "function", "function": {
-        "name": "move", "description": "把一支自己的军队以自身为中心按兵种速度移动（步兵 1 格=3×3、骑兵 2 格=5×5），纯移动不占地。每回合每支限1次。**行军不打野人**：合法移动目标只有三种：**野地（无人荒地）、自家格、盟国格**——野地可直接走进/穿过（行军不打野人，野人只在被 atk 时接战）；自家/盟国格被混战敌军占着也可以 mv 进去（增援，入格即随军参战）。**敌国领土 mv 一律不得进入（空格也是）**：每一步进敌境都是 atk——会交战或直接进占。**野地上有与你交战的敌军驻守（含正在打野的）也不得 mv**——必须 atk 交战；中立/盟友驻守的野地可以 mv 进去（旁观待命，互不干扰）。交战中不能移动，须先 retreat 撤出。",
+        "name": "move", "description": "把一支自己的军队挪位置，纯移动不占地。每回合每支限1次。" + _move_rule_text() + " **行军不打野人**：合法移动目标只有三种：**野地（无人荒地）、自家格、盟国格**——野地可直接走进/穿过（行军不打野人，野人只在被 atk 时接战）；自家/盟国格被混战敌军占着也可以 mv 进去（增援，入格即随军参战）。**敌国领土 mv 一律不得进入（空格也是）**：每一步进敌境都是 atk——会交战或直接进占。**野地上有与你交战的敌军驻守（含正在打野的）也不得 mv**——必须 atk 交战；中立/盟友驻守的野地可以 mv 进去（旁观待命，互不干扰）。交战中不能移动，须先 retreat 撤出。",
         "parameters": _props({"army_id": {"type": "integer", "description": "本国军队id（各国独立从1编号，以 query army 面板为准）", "required": True},
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
@@ -1347,7 +1443,7 @@ TOOL_SCHEMAS = [
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
     {"type": "function", "function": {
-        "name": "retreat", "description": "交战中的军队（含防守方守军）撤出——**固定只能退相邻 1 格**（所有人，不按兵种速度）。撤退不立刻结算：军队留在战场参与本回合末战斗结算（伤害全场分摊；防御方撤退减伤50%；撤退军本回合输出-80%），结算后自动脱离到目标格。目标限 己方/同盟/无人荒地；四周无合法撤退点则无法撤退。mv 不能从交战地撤离；想脱离战场一律用 retreat。",
+        "name": "retreat", "description": f"交战中的军队（含防守方守军）撤出——**固定只能退相邻 {RETREAT_RANGE} 格**（所有人，不按兵种速度、也不看地形代价）。撤退不立刻结算：军队留在战场参与本回合末战斗结算（伤害全场分摊；防御方撤退减伤50%；撤退军本回合输出-80%），结算后自动脱离到目标格。目标限 己方/同盟/无人荒地；四周无合法撤退点则无法撤退。mv 不能从交战地撤离；想脱离战场一律用 retreat。",
         "parameters": _props({"army_id": {"type": "integer", "description": "本国军队id（各国独立从1编号，以 query army 面板为准）", "required": True},
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
@@ -1441,25 +1537,28 @@ TOOL_SCHEMAS = [
 # 工具 schema 的固定 token 开销（每次请求都随 tools 发送，计入上下文预算）
 TOOL_SCHEMAS_TOKENS = est_tokens(json.dumps(TOOL_SCHEMAS, ensure_ascii=False))
 
-_TOOL_SCHEMAS_HUNS: list[dict] | None = None
+_SCHEMA_CACHE: dict[str, list[dict]] = {}
 
 
 def tool_schemas(world, name) -> list[dict]:
-    """该国本轮的工具 schema。匈奴政体骑兵征召价不同（8粮8装），需按政体替换描述——
-    否则匈奴 AI 在 schema 里看到 12粮12装、在自己的 system prompt 里看到 8粮8装，两边打架。
-    schema 对同一国跨回合稳定，不影响前缀缓存。"""
-    if world.polity.get(name) != "huns":
+    """该国的工具 schema。**政体差异（如匈奴骑兵征召特价）由引擎现算**，
+    再据此重建征召描述——不再对描述文本做字符串替换（那种补丁改一处漂一处）。
+
+    口径唯一来源：`World.recruit_cost()`（读 `balance.POLITY`）。
+    schema 对同一政体跨回合稳定 ⇒ 不影响前缀缓存（按政体缓存一份）。
+    """
+    key = world.polity.get(name) or ""
+    if not key:
         return TOOL_SCHEMAS
-    global _TOOL_SCHEMAS_HUNS
-    if _TOOL_SCHEMAS_HUNS is None:
+    if key not in _SCHEMA_CACHE:
         schemas = copy.deepcopy(TOOL_SCHEMAS)
+        costs = {k: world.recruit_cost(name, k) for k in UNIT_TYPES}
         for t in schemas:
             fn = t["function"]
             if fn["name"] == "recruit":
-                fn["description"] = fn["description"].replace("骑=骑兵(12粮+12装",
-                                                              "骑=骑兵(8粮+8装")
-        _TOOL_SCHEMAS_HUNS = schemas
-    return _TOOL_SCHEMAS_HUNS
+                fn["description"] = _recruit_desc(costs)
+        _SCHEMA_CACHE[key] = schemas
+    return _SCHEMA_CACHE[key]
 
 
 def _huns_prompt(world, name) -> str:
@@ -1469,7 +1568,9 @@ def _huns_prompt(world, name) -> str:
         "send_letter（写信威吓勒索贡品）、spy（100 金刺探对方国库/建设/兵力数量）、"
         "declare_war（宣战）、offer_peace（要求投降/赔款求和）、accept_peace / reject_peace（议和/拒绝）。\n"
         "【开局（事实）】你是骑兵开局：每骑每回合耗 2 补给，别饿空，否则全军按缺口比例扣血（满缺 -35HP/回合）。"
-        "你建建筑有 +30% 惩罚（别走种田流），但你的骑兵征召只要 8 粮+8 装（比别人便宜）。\n"
+        f"你建建筑要贵 {world.polity_rule(name, 'build_cost_pct', 100) - 100}%（别走种田流），"
+        f"但你的骑兵征召只要 {_cost_text(world.polity_rule(name, 'recruit', {}).get('骑', {}))}"
+        f"（寻常国家 {_cost_text(UNIT_TYPES['骑']['recruit'])}）。\n"
         "【生存（事实）】你不靠种田建厂活，靠**抢产**：夺别国的**金矿**（每座 10 金/回合 ≈ 养 1 骑）与"
         "**补给厂**（每座 2 补给/回合 ≈ 养 1 骑，需粮矿电配套）。勒索只是零钱（一次 50~100 金 + 5~20 补给），"
         "抢无驻军之地、打完胜仗索赔款、缺什么就从市场买。你开局**粮木矿全为 0**（连一座建筑都盖不起），"
@@ -1504,9 +1605,9 @@ def _default_system_prompt(world, name) -> str:
         "【回合】每回合你可用工具做很多事：建设/拓荒/征兵/调兵/打仗/买卖/外交/写信。你有一个常驻的【国策规划】"
         "：结束回合前必须先 plan 制定，且每 10 回合必须修订一次（建议涵盖 经济发展/军事规划/情报管理/外交方向）。"
         "做完用 end_turn 结束本回合，"
-        "并在 summary 用一句话小结你这回合的作为。地理：每块地=1格，军队每回合限移动一次、"
-        "按兵种速度以自身为中心移动（步兵 1 格=3×3、骑兵 2 格=5×5）；撤退( retreat )是例外——"
-        "固定只能退相邻 1 格（不按兵种速度），撤退军队参与回合末战斗结算（伤害全场分摊；防御方撤退减伤50%；撤退军本回合输出-80%）后自动脱离，无合法撤退点（己方/同盟/荒地）则不能退。\n"
+        "并在 summary 用一句话小结你这回合的作为。地理：每块地=1格，军队每回合限移动一次；"
+        + _move_rule_text() + " 撤退( retreat )是例外——"
+        f"固定只能退相邻 {RETREAT_RANGE} 格（不按兵种速度），撤退军队参与回合末战斗结算（伤害全场分摊；防御方撤退减伤50%；撤退军本回合输出-80%）后自动脱离，无合法撤退点（己方/同盟/荒地）则不能退。\n"
         "【资源用途（事实）】木头=建一切建筑+木材电厂燃料；粮=征兵(10/军)+补给厂原料；矿=装备厂+补给厂原料；"
         "油=装备厂原料+油电厂燃料；装=征兵(5/军)；补给=每军每回合耗1，仓空每军按缺口比例扣血（满缺 -35/回合）。\n"
         "【生产链（事实）】林场/农场/矿场/石油厂/黄金矿场=采集；木材厂(耗1木→2电)/油电厂(耗1油→8电)=发电，"
@@ -1517,7 +1618,7 @@ def _default_system_prompt(world, name) -> str:
         "野地有敌军驻守（含正在打野的）时不能 mv、只能 atk；中立/盟友和平驻守的野地可 mv 旁观，也可 atk 占地（它们不参战、回合末被遣返）。"
         "野地上有与你非敌非盟的一方正在打野时不能 atk 插足；敌人/盟友在打野则可以参战。"
         "占地按索取顺序：野人或守军清空且无活敌后，进攻方里第一个 atk 者占地，它阵亡则顺位最早入场的同盟者（野地与他国领土同规）。"
-        "撤出攻守对等：交战中的军队（含防守方）离开战场一律用 retreat（固定只能退相邻1格，回合末随战斗结算后脱离、守方撤退减伤50%——守方=该格未参战一方/格主；撤退军本回合输出-80%）；mv 不能从交战地撤离；"
+        f"撤出攻守对等：交战中的军队（含防守方）离开战场一律用 retreat（固定只能退相邻{RETREAT_RANGE}格，回合末随战斗结算后脱离、守方撤退减伤50%——守方=该格未参战一方/格主；撤退军本回合输出-80%）；mv 不能从交战地撤离；"
         "守军撤光时围攻方自动接管（弃城即陷，多国围攻按索取顺序）；交战中双方（含守军）一律不回血。"
         "军队非交战且补给够时每回合回25HP。中立(不结盟不交战)时你的军队进不了别国、也打不了别国；"
         "联盟=互通+互不攻击+共享视野；宣战对方必须应战；被宣战方的『保障独立/共同防御/联盟』关系按传递闭包自动参战打你（无限传导）。"

@@ -54,6 +54,7 @@ from game import (  # noqa: E402
     MARKET_EQ_MIN_RATIO,
     MARKET_SPREAD,
     MAX_SLOTS,
+    MOVE_COST,
     PRICE_IMPACT,
     PRICE_MAX_RATIO,
     PRICE_MIN_RATIO,
@@ -279,17 +280,34 @@ class TestReadmeNoGodView(unittest.TestCase):
 
 class TestUnits(unittest.TestCase):
     def test_unit_strings(self):
+        """兵种行：费用/补给/移动都是从 `UNIT_TYPES` + `MOVE_COST` 现构的串（改表就红）。
+
+        ★ `speed` 现在是**移动力**（不是格数）：README 按地形分开写"平地 N 格 / 崎岖 M 格"，
+        这里同样现算，别把口径写回死数。
+        """
         b, q, m = UNIT_TYPES["步"], UNIT_TYPES["骑"], UNIT_TYPES["民"]
+        cav_open = q["speed"] // min(MOVE_COST["骑"].values())
+        cav_slow = q["speed"] // max(MOVE_COST["骑"].values())
         for s in (
             f"每支 **{ARMY_MAX_HP} HP**",
             f"**步兵**（{b['recruit']['粮食']}粮+{b['recruit']['装备']}装，"
-            f"每回合动 {b['speed']} 格，耗补给 {b['supply']}）",
+            f"动 {b['speed']} 格/回合，耗补给 {b['supply']}）",
             f"**骑兵**（{q['recruit']['粮食']}粮+{q['recruit']['装备']}装，"
-            f"每回合动 {q['speed']} 格，耗补给 {q['supply']}）",
+            f"平地动 {cav_open} 格、崎岖 {cav_slow} 格，耗补给 {q['supply']}）",
             f"{m['recruit']['黄金']}金+{m['recruit']['粮食']}粮/支",
-            f"**{m['hp']}HP**、攻 {m['atk']}，每回合动 {m['speed']} 格",
+            f"**{m['hp']}HP**、攻 {m['atk']}，动 {m['speed']} 格/回合",
         ):
             self.assertIn(s, README, f"README 缺：{s}")
+
+    def test_move_cost_table_in_readme(self):
+        """移动代价：README 的路面分类与对称口径必须与 `MOVE_COST` 一致（改表就红）。"""
+        costs = MOVE_COST["骑"]
+        open_t = [t for t in TERRAIN_STATS if costs.get(t, 1) == min(costs.values())]
+        slow_t = [t for t in TERRAIN_STATS if t not in open_t]
+        self.assertIn(f"**{'/'.join(open_t)}每格 1、{'/'.join(slow_t)}每格 2**", README,
+                      "README 的移动代价分类与 balance.MOVE_COST 不一致")
+        self.assertIn("出发格与目标格取更贵的那个", README, "README 没写对称口径")
+        self.assertIn("穿不过去", README, "README 没写'崎不可穿越'")
 
     def test_combat_numbers(self):
         dice = "/".join(f"{COMBAT_DIE_MOD[d]:+d}%".replace("-", MINUS) for d in sorted(COMBAT_DIE_MOD))
@@ -368,13 +386,22 @@ class TestStartAndPolity(unittest.TestCase):
         self.assertIn(s, README)
 
     def test_huns(self):
-        # 引擎内联字面量（无模块级常量）↔ README 说法，双向钉
-        for lit in ('cost * 13 // 10', '"粮食": 8, "装备": 8',
-                    'start.get("骑", 6)', 'start.get("黄金", 1000)', 'start.get("补给", 200)'):
-            self.assertIn(lit, MP_SRC, f"mp.py 的匈奴字面量变了：{lit}")
+        """匈奴三处数值**只在 `balance.POLITY` 一处**（2026-09-15 从内核字面量搬过去），
+        README 的说法跟着它走；引擎与 AI 文案都不许再写死这几个数。"""
+        from balance import POLITY
+        h = POLITY["huns"]
+        self.assertEqual(h["build_cost_pct"] - 100, 30, "建造惩罚变了：README 说 ×1.3")
+        self.assertEqual(UNIT_TYPES["骑"]["recruit"], {"粮食": 12, "装备": 12})
+        self.assertEqual(h["recruit"]["骑"], {"粮食": 8, "装备": 8},
+                         "匈奴骑兵特价变了：README 说 8 粮 8 装")
+        self.assertEqual(h["start"], {"黄金": 1000, "补给": 200, "骑": 6},
+                         "匈奴开局变了：README 说 6 骑 / 1000 金 / 200 补给")
         for s in ("建筑造价 ×1.3", "8 粮 8 装", "6 骑 / 1000 金 / 200 补给"):
             self.assertIn(s, README, f"README 缺：{s}")
-
+        for name, src in (("mp.py", MP_SRC), ("mp_ai.py", MP_AI_SRC)):
+            for lit in ("13 // 10", '"粮食": 8, "装备": 8', 'start.get("骑", 6)'):
+                self.assertNotIn(lit, src,
+                                 f"{name} 又写死了政体数值「{lit}」——该走 balance.POLITY")
 
 class TestAiLayer(unittest.TestCase):
     def test_tool_count(self):

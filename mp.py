@@ -63,6 +63,7 @@ from game import (
 from balance import (
     DIPLO_COST,
     PLAN_MAX_TURNS,
+    POLITY,
     REPORT_EVERY,
     RES_KEYS,
     RES_LABEL,
@@ -361,6 +362,19 @@ class World:
                 best[(nx, ny)] = ncost
                 heapq.heappush(heap, (ncost, nx, ny))
         return best
+
+    def polity_rule(self, name: str, key: str, default):
+        """取该国的政体修正项（数值全在 `balance.POLITY`；没有政体/没这一项 → `default`）。"""
+        return POLITY.get(self.polity.get(name) or "", {}).get(key, default)
+
+    def recruit_cost(self, name: str, kind: str) -> dict[str, int]:
+        """该国征召一支 `kind` 实际要花的原料（**含政体特价**）。
+
+        引擎（`recruit`）与 AI 文案（`mp_ai` 的征召工具描述）都走这一份口径 ——
+        曾经两边各写一遍数字，改一处就漂一处。
+        """
+        return dict(self.polity_rule(name, "recruit", {}).get(kind)
+                    or UNIT_TYPES[kind]["recruit"])
 
     def _atk_target_ok(self, name: str, x: int, y: int) -> bool:
         """这一格能不能当 atk 的**终点**（敌国领土 / 野地驻军）= "有东西可打/可占"。
@@ -724,9 +738,10 @@ class World:
             return
         self.polity[name] = "huns"
         start = start or {}
-        gold = int(start.get("黄金", 1000))
-        supply = int(start.get("补给", 200))
-        cav = int(start.get("骑", 6))
+        _def = POLITY.get(polity if polity in POLITY else "huns", {}).get("start", {})
+        gold = int(start.get("黄金", _def.get("黄金", 1000)))
+        supply = int(start.get("补给", _def.get("补给", 200)))
+        cav = int(start.get("骑", _def.get("骑", 6)))
         self.nations[name].res.update({"黄金": gold, "粮食": 0, "木头": 0,
                                        "矿石": 0, "石油": 0, "装备": 0, "补给": supply})
         if home is None:
@@ -802,7 +817,8 @@ class World:
             cost = cost * (100 - _disc) // 100
             disc = f"，工程院-{_disc}%"
         if self.polity.get(name) == "huns":
-            cost = cost * 13 // 10   # 匈奴 +30% 建筑惩罚，乘算（不擅建设，靠抢）
+            # 政体建造惩罚（数值在 balance.POLITY，乘算：不擅建设，靠抢）
+            cost = cost * self.polity_rule(name, "build_cost_pct", 100) // 100
         wood = info["wood"]
         if self.res(name, "黄金") < cost:
             return False, f"黄金不足：{label} 需 {cost}，国库 {self.res(name,'黄金')}"
@@ -855,9 +871,7 @@ class World:
             if cap <= 0:
                 return False, "本回合征召产能已用完（每兵营 1 支/回合）"
         n = min(n, cap)
-        cost = UNIT_TYPES[kind]["recruit"]
-        if kind == "骑" and self.polity.get(name) == "huns":
-            cost = {"粮食": 8, "装备": 8}   # 匈奴骑兵征召只需 8 粮 8 装
+        cost = self.recruit_cost(name, kind)
         n = min(n, min(self.res(name, f) // amt for f, amt in cost.items()))
         if n <= 0:
             return False, "战略储备不足（每支耗 " + "、".join(f"{f}x{a}" for f, a in cost.items()) + "）"
