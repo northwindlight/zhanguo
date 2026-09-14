@@ -28,6 +28,10 @@
   expenditure-side GDP), backed by **adversarial experiments** proving the metric cannot be gamed.
 - 🚀 **A worldview that can evolve** — the `feat/rl` branch hosts a complete RL training pipeline
   (BC / PPO), with the rule AI doubling as the BC teacher.
+- 🛰 **Long games don't burn context budget** — the context is laid out as
+  «long-term memory → archive → recent full replay», and prefix-cache hits are tuned
+  (recursive long-term memory + non-sliding periodic compaction + measured hit-rate logging);
+  a 300-turn game only rebuilds the prefix once per compaction period.
 
 ## Quick start
 
@@ -77,13 +81,40 @@ python3 mp_run.py --turns 10    # resume from save; start fresh if none exists
 
 Each nation is an LLM agent interacting via function calling:
 
-- **34 tools** cover query / domestic / military / diplomacy / alliance / end-of-turn, and accept
-  aliases in Chinese and English (`build`/`建造`…).
+- **35 tools** cover query / domestic / military / diplomacy / alliance / memory / end-of-turn,
+  and accept aliases in Chinese and English (`build`/`建造`…).
+- 📇 **Memory search** — `memory_search` (alias 检索记忆 / 翻旧账) finds past snippets by keyword
+  across your own history's **body text (no thinking)**, returning the **turn number and adjacent
+  context**; together with the ever-present **plan** and the recursive long-term memory, a long
+  game can actually remember promises and grudges.
 - Events are filtered by the **vision snapshot at write time** — old battle reports from land you
   capture later never retroactively appear.
 - Nations without keys are played by the built-in rule AI (`dummy_turn`), version-configurable
   (default `v10`), obeying the same vision discipline and never peeking at the map — competing on
   the same information as LLM players.
+
+## Context & memory (cost & continuity of long games)
+
+Context is assembled by **decreasing stability**, so prefix caching hits as much as possible:
+
+```
+[system] → [recursive long-term memory] → [history archive] → [recent full-round replay] → [current state]
+```
+
+- **Recursive long-term memory** — rounds sliding out of the replay are folded into a memory by one
+  LLM call that **expands on the previous memory** (never drops old facts). It lives as a byte-stable
+  head block and carries long-range plans / alliances / lessons — it only changes on compaction.
+- **Non-sliding periodic compaction** (`ctx_roll="period"`) — between compactions the replay is
+  **append-only, the prefix does not change one byte**; compaction happens once per fixed
+  `ctx_period` turns. Cold turns drop from "every few rounds" to "once per period".
+- **Measured, not guessed** — the `🧠` watch line shows the real rolling prefix-cache hit rate from
+  the provider (last 20 requests); slide/compact turns are flagged "prefix cache rebuilt".
+- **Memory trio** — ever-present **plan** + **recursive long-term memory** (`long_memory`) +
+  **`memory_search`** (keyword search, returns turn + adjacent context).
+- Related config (`mp_config.json`): `ctx_window` / `ctx_fill` / `ctx_slide_keep` /
+  `ctx_roll` (`"period"`) / `ctx_period` / `ctx_slice_keep` / `ctx_old_reasoning`
+  (default `"full"`; **stripping old thinking makes the model short-sighted — not recommended**) /
+  `ctx_trim_tool_chars` / `ctx_compact`. Implementation: `ctx.py` + `mp_ai.py` docstrings.
 
 ## RL training line (`feat/rl` branch)
 
@@ -99,9 +130,9 @@ byte-identical to main, so rule changes never need cherry-picking. Design docs a
 | `balance.py` | **Numeric tables · single tuning entry**: buildings / terrain / units / market / diplomacy costs |
 | `game.py` · `mp.py` | Shared rules layer · Multi-nation engine `World` (settlement / combat / diplomacy / alliances / vision / save) |
 | `mapgen.py` | Map generation: `(seed, size)` → full terrain & resource map (blue noise + density modulation) |
-| `mp_ai.py` | AI layer: 34 tools, system prompt, panels, provider-agnostic turn loop |
+| `mp_ai.py` | AI layer: 35 tools (incl. memory_search), system prompt, panels, provider-agnostic turn loop |
 | `llm_provider.py` | LLM provider adaptation (OpenAI-compatible endpoints + reserved Anthropic slot) |
-| `ctx.py` | Context-window management: token estimation, budget allocation, cache-friendly assembly, slide & archive |
+| `ctx.py` | Context-window management: token estimation, budget allocation, cache-friendly assembly (shrink / non-sliding periodic compaction / recursive long-term memory) |
 | `mp_run.py` · `console.py` | Orchestrator · watch-terminal (Markdown rendering, CJK-width aware) |
 | `settlement.py` | End-game settlement: total-consumption ranking + settlement chamber |
 | `rule_ai.py` · `expand_rule_*.py` | Rule-AI registry · expansion heuristics across generations |
