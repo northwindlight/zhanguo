@@ -121,7 +121,7 @@ SAVE_KEYS = ("version", "size", "seed", "turn", "rng_state", "nations", "order",
              "tiles", "armies", "next_army_seq", "diplo_built", "nation_code",
              "guard_once", "wars", "war_id", "truce", "alliances", "blocs",
              "votes", "vote_id", "defense_pacts", "guarantees", "mail_pending",
-             "mailbox", "summaries", "summary_blocks", "turn_memory", "gift_pending",
+             "mailbox", "summaries", "summary_blocks", "long_memory", "turn_memory", "gift_pending",
              "map_pending", "maps", "spy_pending", "econ_intel", "plans", "polity",
              "extra_prompt", "peace_offers", "proposals", "offer_id", "prices",
              "equilibrium", "flow_in", "flow_out", "grid_short", "energy_report",
@@ -248,6 +248,7 @@ class World:
         self.mailbox: dict[str, list[dict]] = {}
         self.summaries: dict[str, list[dict]] = {}  # 各国回合小结纪事 [{turn,text}]（私有，本国 AI 记忆；全留，供旧回合汇总）
         self.summary_blocks: dict[str, list[dict]] = {}  # 各国阶段块总结 [{from,to,text,turn}]（滑出 replay 的回合经 LLM 压成一段，覆盖其小结）
+        self.long_memory: dict[str, str] = {}     # 各国递归累积的长期记忆（酒馆式：压缩时以旧记忆为基础扩写，承载长程规划/盟约/教训）
         self.turn_memory: dict[str, list[dict]] = {}  # 各国完整回合记录（含思考 reasoning_content），按 ctx_window 预算动态保留最近若干回合
         self.gift_pending: list[dict] = []         # 馈赠在途（下回合到账）
         self.map_pending: list[dict] = []          # 交换地图在途（下回合到账）
@@ -1407,6 +1408,7 @@ class World:
         self.mailbox.pop(name, None)
         self.summaries.pop(name, None)
         self.summary_blocks.pop(name, None)
+        self.long_memory.pop(name, None)
         self.turn_memory.pop(name, None)
         self.maps.pop(name, None)
         self.gift_pending = [g for g in self.gift_pending if g["from"] != name and g["to"] != name]
@@ -2933,6 +2935,7 @@ class World:
             "mailbox": self.mailbox,
             "summaries": self.summaries,
             "summary_blocks": self.summary_blocks,
+            "long_memory": self.long_memory,
             "turn_memory": self.turn_memory,
             "gift_pending": self.gift_pending,
             "map_pending": self.map_pending,
@@ -2995,6 +2998,7 @@ class World:
                        if n in w.nations}
         w.summary_blocks = {n: list(v) for n, v in data["summary_blocks"].items()
                             if n in w.nations}
+        w.long_memory = {n: str(v) for n, v in data["long_memory"].items() if n in w.nations}
         w.turn_memory = {n: list(v) for n, v in data["turn_memory"].items() if n in w.nations}
         w.gift_pending = data["gift_pending"]
         w.map_pending = data["map_pending"]

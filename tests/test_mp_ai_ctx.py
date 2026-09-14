@@ -60,6 +60,7 @@ class _World:
         self.summaries = {"秦": [{"turn": t, "text": f"第{t}回合扩地"}
                                  for t in range(1, turn + 1)]}
         self.summary_blocks = {"秦": []}
+        self.long_memory = {}
 
 
 def _rec(turn):
@@ -109,22 +110,37 @@ class TestCompactBlock(unittest.TestCase):
         w = _World()
         c = _Client()
         dropped = [_rec(21), _rec(22), _rec(23)]
-        block = mp_ai._compact_block(_backend(c), {"model": "m"}, w, "秦", dropped)
-        self.assertIsNotNone(block)
+        text = mp_ai._compact_block(_backend(c), {"model": "m"}, w, "秦", dropped)
+        self.assertEqual(text, c.reply)
+        # 递归累积：首次无旧记忆 → 提示词带"（暂无）"地基，结果写回 long_memory
+        self.assertEqual(w.long_memory["秦"], text)
+        (block,) = w.summary_blocks["秦"]
         self.assertEqual((block["from"], block["to"]), (21, 23))
-        self.assertEqual(w.summary_blocks["秦"], [block])
+        self.assertEqual(block["text"], text)
         sent = c.calls[0]["messages"]
+        self.assertIn("已有的长期记忆", sent[1]["content"])
+        self.assertIn("暂无", sent[1]["content"])
         self.assertNotIn("内部思考内容不该进压缩输入", sent[1]["content"])
         self.assertIn("第21回合", sent[1]["content"])
         # F1（2026-09-13）：cfg 未声明推理模型 → 不向请求体塞 DeepSeek 专属 thinking 参数
         self.assertIsNone(c.calls[0]["extra_body"])
         self.assertNotIn("tools", c.calls[0])
 
+    def test_recursive_with_previous_memory(self):
+        w = _World()
+        c = _Client()
+        w.long_memory["秦"] = "旧记忆：与齐结盟十年，约定共抗林胡。"
+        mp_ai._compact_block(_backend(c), {"model": "m"}, w, "秦", [_rec(31)])
+        sent = c.calls[0]["messages"][1]["content"]
+        self.assertIn("与齐结盟十年，约定共抗林胡", sent)   # 旧记忆进提示词作扩写基数
+        self.assertEqual(w.long_memory["秦"], c.reply)      # 结果整体替换为扩写后的记忆
+
     def test_too_short_reply_is_discarded(self):
         w = _World()
         c = _Client(reply="嗯")
         self.assertIsNone(mp_ai._compact_block(_backend(c), {"model": "m"}, w, "秦", [_rec(21)]))
         self.assertEqual(w.summary_blocks["秦"], [])
+        self.assertNotIn("秦", w.long_memory)   # 太短的回复不视为记忆，不回写
 
     def test_oversized_input_keeps_tail(self):
         w = _World()

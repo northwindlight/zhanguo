@@ -62,6 +62,17 @@ class TestVersionGate(unittest.TestCase):
             data = json.loads(p.read_text(encoding="utf-8"))
             self.assertEqual(set(data), set(mp.SAVE_KEYS))
 
+    def test_long_memory_survives_roundtrip(self):
+        """递归累积的长期记忆要随存档持久化（酒馆式记忆组件的一环）。"""
+        with tempfile.TemporaryDirectory() as d:
+            pth = Path(d) / "m.json"
+            w = _mk()
+            w.long_memory.setdefault("秦", "与齐结盟十年，共抗林胡；粮食紧，正议和。")
+            w.save(pth)
+            w2 = mp.World.load(pth)
+            self.assertEqual(w2.long_memory.get("秦"),
+                             w.long_memory["秦"])
+
 
 class TestRoundTrip(unittest.TestCase):
     def test_save_load_save_is_byte_identical(self):

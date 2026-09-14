@@ -1667,7 +1667,8 @@ def build_context(world, name, cfg) -> tuple[list[dict], "ctxlib.Plan"]:
     def _build(tail: str):
         return ctxlib.build(cfg=cfg, mem=mem, sums=sums, blocks=blocks,
                             system_text=system_text, tail_text=tail,
-                            tool_tokens=TOOL_SCHEMAS_TOKENS)
+                            tool_tokens=TOOL_SCHEMAS_TOKENS,
+                            long_memory=world.long_memory.get(name, ""))
 
     tail1 = turn_state(world, name, None)
     msgs, plan = _build(tail1)
@@ -1697,10 +1698,12 @@ def _store_turn_memory(world, name, messages, base: int, plan) -> list[dict]:
 # 阶段块总结：滑出 replay 的回合用一次 LLM 调用压成一段，进历史归档
 # ---------------------------------------------------------------------------
 COMPACT_SYSTEM = (
-    "你是战略游戏 AI 的记忆压缩器。用户给你它自己某几个回合的行动记录"
-    "（发言、工具调用与结果）以及逐回合小结。请压成一段中文总结（300~600 字），只保留："
-    "做过什么、结果如何、当前战略处境、未了结的事务/承诺/敌人/威胁。"
-    "不要评价、不要虚构、不要写建议。直接输出总结正文。"
+    "你是战略游戏 AI 的【长期记忆维护者】。我每隔一段时间把我的新经历发给你，"
+    "并附上我上一次的长期记忆。"
+    "请以【已有的长期记忆】为基础，把【新经历】合并扩写进去：保留所有仍然成立的"
+    "旧事实（战略处境、盟约、承诺、威胁、未了结事务、目标、教训），补充新进展，"
+    "删除已过期的条目。不要重写、不要丢旧事实、不要评价、不要虚构、不要写建议。"
+    "输出为更新后的完整长期记忆（300~600 字，可略超以容纳关键细节）。"
 )
 COMPACT_INPUT_CHARS = 120_000   # 压缩调用的输入上限（约 6 万 token），超了从最旧略细节
 
@@ -1734,24 +1737,33 @@ def _compact_input(dropped: list[dict], sums: list[dict], from_turn: int) -> str
 
 
 def _compact_block(backend, cfg, world, name, dropped: list[dict], emit=None) -> dict | None:
-    """把滑出 replay 的回合压成一段块总结并写入 world.summary_blocks。失败返回 None。"""
+    """把滑出 replay 的回合并入"递归累积的长期记忆"（酒馆式）。
+
+    - 旧记忆已存在 → 以它为基础扩写（长程规划/盟约/教训不断层）；
+    - 结果写回 world.long_memory（稳定头块，只在压缩回合变字节 → 缓存友好），
+      同时也记一段 summary_blocks 保留块史。失败返回 None。
+    """
     sums = world.summaries.get(name) or []
-    # 只压这次真正滑出的那段（更早的回合已只剩一行小结，再压一次只会丢信息）
     from_turn = int(dropped[0]["turn"])
     to_turn = int(dropped[-1]["turn"])
-    user = (f"请总结我第 {from_turn}~{to_turn} 回合的经历。\n\n"
+    prev = (world.long_memory.get(name) or "").strip()
+    user = (f"【已有的长期记忆】\n{(prev if prev else '（暂无）')}"
+            f"\n\n【新经历：第 {from_turn}~{to_turn} 回合】\n"
             + _compact_input(dropped, sums, from_turn))
     if emit:
-        emit(f"🧠 {name} 压缩记忆：第{from_turn}~{to_turn}回合 → 一次总结调用")
+        emit(f"🧠 {name} 压缩记忆：第{from_turn}~{to_turn}回合 → 递归扩写长期记忆"
+             + ("（有旧记忆为基础）" if prev else "（首次建立）"))
     text = backend.complete_text(
         [{"role": "system", "content": COMPACT_SYSTEM},
          {"role": "user", "content": user}], cfg)
+    text = str(text or "").strip()
     if len(text) < 20:
         return None
-    block = {"from": from_turn, "to": to_turn, "text": text, "turn": world.turn}
     with _engine_lock:
-        world.summary_blocks.setdefault(name, []).append(block)
-    return block
+        world.long_memory[name] = text
+        world.summary_blocks.setdefault(name, []).append(
+            {"from": from_turn, "to": to_turn, "text": text, "turn": world.turn})
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -1797,7 +1809,9 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
     # 上下文：窗口大小由配置 ctx_window 定义，深度/归档/下滑水位由 ctx.py 按预算动态分配
     messages, plan = build_context(world, name, cfg)
     if emit:
-        emit(f"🧠 {name} 上下文: {plan.describe()}")
+        _rl = ctxlib.rolling_hit(name)
+        emit(f"🧠 {name} 上下文: {plan.describe()}"
+             + (f"｜实测命中≈{_rl * 100:.0f}%（近20次滚动）" if _rl is not None else ""))
     base = len(messages)  # 本回合新增消息的起点（base 之前是历史 replay，存储时不再重复）
     done = 0
     stall = 0  # 连续"只思考/空转"轮数
@@ -1821,6 +1835,8 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
             inp = agg["hit"] + agg["miss"]  # 缓存按输入前缀算：hit+miss=prompt tokens
             cache = (f"｜缓存命中{agg['hit'] / inp * 100:.0f}%({agg['hit']}/{inp}tok)"
                      if inp else "")
+            if inp:
+                ctxlib.record_hit(name, agg["hit"], agg["miss"])
             world.log(
                 f"📊 {name} 本回合: {agg['calls']}次调用 {agg['wall']:.0f}s｜"
                 f"输出{agg['out_tokens']}tok(思考{agg['reason_tokens']}){cache}｜"

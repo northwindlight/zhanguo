@@ -21,6 +21,44 @@
   的 token，与窗口大小无关）。
 - 本回合状态永远是新内容，天然 miss，放最后。
 
+怎样把命中率从 ~85% 推到 95%+（2026-09-15 实测结论）
+---------------------------------------------------
+前缀缓存的唯一杠杆是：请求字节与上次请求尽量共用同一个前缀。实测命中≈85% 的
+根因通常是**逐回合 replay 记录体积大**（完整 thinking + 大工具返回）⇒ 滑动频繁
+（每 5~10 回合一次）⇒ 每次滑动都把整段后缀（replay+状态）打进 cache miss。
+
+1. **别剥旧回合的 thinking——那是短视的元凶（教训，2026-09-15 重写）**。
+   `ctx_old_reasoning="strip"` 会把旧回合的推理换占位，而推理里往往装着模型的
+   长程计划；剥掉后模型会变得只看得到最近几步。**酒馆（SillyTavern）从不这么干**：
+   它要么让旧消息完整退出上下文换成一条**递归累积的摘要**（"If a summary already
+   exists, use that as a base and expand"），要么用向量库检索精确事实。
+   正解对齐这里：**旧回合整体退出 replay + 递归长期记忆承接长程**——
+   `ctx_roll="period"`（非滑动定点压缩）+ `world.long_memory`（压缩时以旧记忆
+   为基础扩写，注入为归档最前的【长期记忆】稳定块）。`ctx_old_reasoning` 仅作
+   极端瘦档备用，默认 `"full"` 不再推荐。
+2. **诚实地看数**：`🧠` 行带 provider 实测滚动命中率（`record_hit`/`rolling_hit`），
+   别被 `describe()` 的"可命中前缀"误导——那是不含滑动摊销的理论上限。
+3. **滑动降频降本**：水位判定用瘦身后的体积（见 `slide`），`ctx_slide_keep` 可调
+   到 0.4~0.5（更低=滑动更稀、代价更小，但近期上下文变薄）。
+4. （可选）模型支持就把 `ctx_window` 开大：同样回合数容纳更多，滑动天然更稀。
+
+可选的「非滑动 + 定点压缩」模式（`ctx_roll="period"`，2026-09-15 加入）
+------------------------------------------------------------------
+滑动是命中率的最大敌人：每次滑动都要重建整段后缀。`ctx_roll="period"` 提供一条
+更激进的路线——**两次压缩之间 replay 纯追加，前缀一个字节不动**：
+
+- `ctx_period`：固定压缩周期（回合数，默认 30）。只在 `world.turn % period == 0`
+  那一回合做一次压缩（LLM 阶段总结收编旧回合），其余回合 `slide()` 直接放行、
+  绝不动 mem → 请求对上一次请求是纯 append，命中≈97%。
+- `ctx_slice_keep`：replay 片上限占预算比例（默认 0.55）。周期内 mem 必须一直
+  低于这个 cap 才保证纯追加（不触顶裁切）——所以 **period 要满足
+  period×平均回合 ≤ budget×(slice_keep−(slice_keep×slide_keep))**；不够就调小
+  period，或在启用 `ctx_old_reasoning="strip"` 后减小平均回合。
+- 压缩那一回合的前缀重建，等价于把冷回合成本摊到"每 period 回合一次"，
+  比滑动模式的"每 8~15 回合一次"低一个数量级。
+- 升级版（②记忆组件）：把压缩周期间隔拉长、并让该国 AI 用自己的口吻写
+  【长期记忆】（教训/盟约/目标），即"到点让国家自己压缩"——这里留给上层接线。
+
 DeepSeek 文档依据（未写的一律不假设）
 ------------------------------------
 · guides/multi_round_chat：服务端不存上下文，需客户端拼接全部历史；
@@ -73,6 +111,64 @@ def record_tokens(rec: dict) -> int:
     return messages_tokens(rec.get("messages") or [])
 
 
+def _shrink_messages(msgs: list[dict], *, keep_reasoning: bool, tool_trim: int) -> list[dict]:
+    """读路径瘦身单条记录的消息列表：只替换 reasoning 占位 / 截 tool 超长内容。"""
+    out = []
+    for m in msgs:
+        nm = dict(m)
+        if not keep_reasoning and nm.get("role") == "assistant" and nm.get("reasoning_content"):
+            nm["reasoning_content"] = "（思考过程已并入历史归档，细节以 rules/面板为准）"
+        if tool_trim and nm.get("role") == "tool":
+            c = nm.get("content") or ""
+            if len(c) > tool_trim:
+                nm["content"] = c[:tool_trim] + f"…[已截断{len(c)}字]"
+        out.append(nm)
+    return out
+
+
+def shrink_records(records: list[dict], *, newest_turn: int,
+                   old_reasoning: str = "full", tool_trim: int = 0) -> list[dict]:
+    """组装请求前的读路径瘦身：只保留最近 1 回合完整 thinking，更旧换占位；
+    tool 超长内容截断。**只看不改存档**，切回 "full" 即恢复全量。"""
+    if old_reasoning == "full" and not tool_trim:
+        return list(records)
+    if not records:
+        return []
+    out = []
+    for rec in records:
+        keep = (old_reasoning == "full" or int(rec.get("turn") or 0) >= newest_turn)
+        ms = _shrink_messages(rec.get("messages") or [], keep_reasoning=keep,
+                              tool_trim=tool_trim)
+        out.append({**rec, "messages": ms})
+    return out
+
+
+def send_tokens(rec: dict, *, newest_turn: int,
+                old_reasoning: str = "full", tool_trim: int = 0) -> int:
+    """瘦身后的单条记录体积（slide 判水位、build 计量都用它）。"""
+    sr = shrink_records([rec], newest_turn=newest_turn,
+                        old_reasoning=old_reasoning, tool_trim=tool_trim)
+    return record_tokens(sr[0]) if sr else 0
+
+
+# provider 实测命中率的滚动平均（近 20 次请求），供 🧠 日志诚实展示
+_HIT_HIST: dict[str, list[tuple[int, int]]] = {}
+
+
+def record_hit(name: str, hit: int, miss: int) -> None:
+    lst = _HIT_HIST.setdefault(name, [])
+    lst.append((int(hit or 0), int(miss or 0)))
+    del lst[:-20]
+
+
+def rolling_hit(name: str) -> float | None:
+    h = m = 0
+    for a, b in _HIT_HIST.get(name, []):
+        h += a
+        m += b
+    return (h / (h + m)) if (h + m) else None
+
+
 # ---------------------------------------------------------------------------
 # 配置解析
 # ---------------------------------------------------------------------------
@@ -92,7 +188,9 @@ def _fnum(v, default: float, lo: float, hi: float) -> float:
 
 CTX_KEYS = ("ctx_window", "ctx_fill", "ctx_slide_keep", "ctx_archive_fill",
             "ctx_archive_max", "ctx_min_turns", "ctx_compact", "ctx_compact_tokens",
-            "ctx_full_turns", "ctx_reserve_out", "small_ctx")
+            "ctx_full_turns", "ctx_reserve_out", "small_ctx",
+            "ctx_old_reasoning", "ctx_trim_tool_chars",
+            "ctx_roll", "ctx_period", "ctx_slice_keep")
 
 
 def apply_defaults(cfg: dict) -> dict:
@@ -111,7 +209,8 @@ class Plan:
     __slots__ = ("mode", "window", "budget", "replay_budget", "archive_cap",
                  "slide_keep", "min_turns", "fixed_turns", "compact",
                  "sys_tokens", "tail_tokens", "archive_tokens", "replay_tokens",
-                 "replay_turns", "before_turn", "stable_tokens")
+                 "replay_turns", "before_turn", "stable_tokens",
+                 "old_reasoning", "tool_trim", "roll", "period", "slice_keep")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -129,6 +228,8 @@ class Plan:
         else:
             head = (f"窗口{_k(self.window)}·预算{_k(self.budget)}"
                     f"（{self.window and self.budget / self.window * 100:.0f}%）")
+        if self.roll == "period":
+            head += f"·period每{self.period}回合压缩"
         total = self.total_tokens or 1
         hit = f"｜可命中前缀≈{self.stable_tokens / total * 100:.0f}%" if self.stable_tokens else ""
         return (f"{head}｜replay {self.replay_turns}回合{_k(self.replay_tokens)}"
@@ -148,6 +249,11 @@ def make_plan(cfg: dict, *, fallback_turns: int | None = None) -> Plan:
     则退回固定回合窗口（旧行为），但仍享受"归档前置 + 分块下滑"的缓存布局。
     """
     compact = str(cfg.get("ctx_compact", "llm")).lower() != "off"
+    old_reasoning = "strip" if str(cfg.get("ctx_old_reasoning", "full")).lower() != "full" else "full"
+    tool_trim = max(0, int(cfg.get("ctx_trim_tool_chars") or 0))
+    roll = "period" if str(cfg.get("ctx_roll", "slide")).lower() in ("period", "periodic", "none") else "slide"
+    period = max(1, int(cfg.get("ctx_period") or 30))
+    slice_keep = _fnum(cfg.get("ctx_slice_keep"), 0.55, 0.2, 0.9)
     fixed = cfg.get("ctx_full_turns")
     window = cfg.get("ctx_window")
     if fixed:
@@ -155,13 +261,15 @@ def make_plan(cfg: dict, *, fallback_turns: int | None = None) -> Plan:
         return Plan(mode="fixed", window=None, budget=0, replay_budget=0,
                     archive_cap=int(cfg.get("ctx_archive_max") or 60000),
                     slide_keep=DEFAULT_SLIDE_KEEP, min_turns=1, fixed_turns=n,
-                    compact=compact)
+                    compact=compact, old_reasoning=old_reasoning, tool_trim=tool_trim,
+                    roll=roll, period=period, slice_keep=slice_keep)
     if not window:
         n = max(1, int(fallback_turns or DEFAULT_FIXED_TURNS))
         return Plan(mode="fixed", window=None, budget=0, replay_budget=0,
                     archive_cap=int(cfg.get("ctx_archive_max") or 60000),
                     slide_keep=DEFAULT_SLIDE_KEEP, min_turns=1, fixed_turns=n,
-                    compact=compact)
+                    compact=compact, old_reasoning=old_reasoning, tool_trim=tool_trim,
+                    roll=roll, period=period, slice_keep=slice_keep)
 
     window = max(8192, int(window))
     fill = _fnum(cfg.get("ctx_fill"), DEFAULT_FILL, 0.05, 0.95)
@@ -174,18 +282,25 @@ def make_plan(cfg: dict, *, fallback_turns: int | None = None) -> Plan:
                 archive_cap=archive_cap,
                 slide_keep=_fnum(cfg.get("ctx_slide_keep"), DEFAULT_SLIDE_KEEP, 0.1, 0.95),
                 min_turns=max(1, int(cfg.get("ctx_min_turns", DEFAULT_MIN_TURNS))),
-                fixed_turns=None, compact=compact)
+                fixed_turns=None, compact=compact,
+                old_reasoning=old_reasoning, tool_trim=tool_trim,
+                roll=roll, period=period, slice_keep=slice_keep)
 
 
 # ---------------------------------------------------------------------------
 # 选择 replay 深度 / 裁剪存储
 # ---------------------------------------------------------------------------
-def select_replay(mem: list[dict], budget: int, min_turns: int) -> tuple[list[dict], int]:
-    """从最新往回取整回合，直到再加一回合就超预算。返回 (保留的记录, 其 token 数)。"""
+def select_replay(mem: list[dict], budget: int, min_turns: int,
+                   size_fn=record_tokens) -> tuple[list[dict], int]:
+    """从最新往回取整回合，直到再加一回合就超预算。返回 (保留的记录, 其 token 数)。
+
+    size_fn：按`瘦身后体积`挑选（启用 ctx_old_reasoning/tool_trim 时把省出的预算
+    再买更多回合 ⇒ replay 保持大而稳定、滑动更稀，是命中上 95% 的关键一步）。
+    """
     kept: list[dict] = []
     used = 0
     for rec in reversed(mem):
-        t = record_tokens(rec)
+        t = size_fn(rec)
         if kept and used + t > budget:
             break
         kept.append(rec)
@@ -193,7 +308,7 @@ def select_replay(mem: list[dict], budget: int, min_turns: int) -> tuple[list[di
     kept.reverse()
     if len(kept) < min_turns and len(mem) > len(kept):
         kept = list(mem[-min_turns:])   # 预算再紧也保底，宁可超一点
-        used = sum(record_tokens(r) for r in kept)
+        used = sum(size_fn(r) for r in kept)
     return kept, used
 
 
@@ -206,6 +321,9 @@ def slide(world, name: str, plan: Plan) -> list[dict]:
     mem = world.turn_memory.get(name)
     if not mem:
         return []
+    # 非滑动周期模式：非周期回合绝不触碰前缀（纯追加，命中≈97%）
+    if plan.roll == "period" and plan.mode != "fixed" and (world.turn % plan.period) != 0:
+        return []
     if plan.mode == "fixed":
         limit = plan.fixed_turns
         chunk = max(4, limit // 2)
@@ -213,13 +331,20 @@ def slide(world, name: str, plan: Plan) -> list[dict]:
             return []
         drop = len(mem) - limit
     else:
-        total = sum(record_tokens(r) for r in mem)
+        newest = mem[-1]["turn"] if mem else 0
+        if plan.old_reasoning == "full" and not plan.tool_trim:
+            sizes = [record_tokens(r) for r in mem]
+        else:
+            sizes = [send_tokens(r, newest_turn=newest,
+                                 old_reasoning=plan.old_reasoning,
+                                 tool_trim=plan.tool_trim) for r in mem]
+        total = sum(sizes)
         if total <= plan.replay_budget:
             return []
         low = int(plan.replay_budget * plan.slide_keep)
         drop, acc = 0, 0
         while drop < len(mem) - plan.min_turns and total - acc > low:
-            acc += record_tokens(mem[drop])
+            acc += sizes[drop]
             drop += 1
         if drop <= 0:
             return []
@@ -236,17 +361,19 @@ ARCHIVE_HEAD = ("【历史归档 · 已滑出完整记录的旧回合（一行=�
 
 
 def render_archive(sums: list[dict], blocks: list[dict], before_turn: int,
-                   cap: int) -> str:
+                   cap: int, long_memory: str = "") -> str:
     """渲染第 <before_turn 回合的总结归档；超配额从最旧截断并标注。
 
-    只依赖 (sums, blocks, before_turn, cap) 四者，两次下滑之间输入不变 → 输出字节
-    不变 → 整段可命中前缀缓存。
+    long_memory：各国**递归累积的长期记忆**（酒馆式：压缩回合以旧记忆为基础
+    扩写），永远置于归档**最前**——只在压缩回合变字节，两次之间整段命中缓存，
+    并承接长程计划/盟约/教训（解决"丢旧回合后变短视"）。
+    两次收缩之间 (sums,blocks,before_turn,cap,long_memory) 输入不变 → 输出字节不变。
     """
-    if before_turn <= 1:
+    if before_turn <= 1 and not long_memory:
         return ""
     blocks = [b for b in (blocks or []) if int(b.get("to", 0)) < before_turn]
     sums = [s for s in (sums or []) if int(s.get("turn", 0)) < before_turn]
-    if not blocks and not sums:
+    if not blocks and not sums and not long_memory:
         return ""
     covered: set[int] = set()
     for b in blocks:
@@ -272,12 +399,16 @@ def render_archive(sums: list[dict], blocks: list[dict], before_turn: int,
     kept.reverse()
     # 抬头写死、回合区间与省略说明压到尾部：归档只在下滑时"追加"，这样旧归档的字节
     # 是新归档的前缀 → 下滑那一回合归档本身仍可命中（区间行是唯一失效的几行）。
-    lines = [ARCHIVE_HEAD]
-    lines.extend(t for _, t in kept)
-    tail = f"（归档截至第 {before_turn - 1} 回合"
-    if omitted:
-        tail += f"；更早的 {omitted} 条总结因配额已省略"
-    lines.append(tail + "）")
+    lines = []
+    if long_memory:
+        lines.append("【长期记忆 · 递归累积（压缩时以旧扩写：长程计划/盟约/教训）】\n" + long_memory)
+    if blocks or sums:
+        lines.append(ARCHIVE_HEAD)
+        lines.extend(t for _, t in kept)
+        tail = f"（归档截至第 {before_turn - 1} 回合"
+        if omitted:
+            tail += f"；更早的 {omitted} 条总结因配额已省略"
+        lines.append(tail + "）")
     return "\n".join(lines)
 
 
@@ -334,7 +465,7 @@ def assemble(system_text: str, archive_text: str, records: list[dict],
 
 def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
           system_text: str, tail_text: str, tool_tokens: int = 0,
-          fallback_turns: int | None = None) -> tuple[list[dict], Plan]:
+          fallback_turns: int | None = None, long_memory: str = "") -> tuple[list[dict], Plan]:
     """组装一国本回合的完整上下文，并回填预算/用量统计到 Plan。
 
     两遍选深度：先按归档占满配额估 replay，再按归档实际大小回补——归档通常远小于
@@ -352,17 +483,43 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
         records = list(mem[-plan.fixed_turns:]) if mem else []
         plan.replay_tokens = sum(record_tokens(r) for r in records)
         before = int(records[0]["turn"]) if records else last_turn + 1
-        archive_text = render_archive(sums, blocks, before, plan.archive_cap)
+        archive_text = render_archive(sums, blocks, before, plan.archive_cap, long_memory)
+        plan.archive_tokens = est_tokens(archive_text)
+    elif plan.roll == "period":
+        # 非滑动：replay 固定在预算的 slice_keep 片内，周期间纯追加不触顶
+        plan.replay_budget = max(8192, int(plan.budget * plan.slice_keep))
+        if plan.old_reasoning != "full" or plan.tool_trim:
+            size_fn = (lambda r: send_tokens(r, newest_turn=last_turn,
+                                             old_reasoning=plan.old_reasoning,
+                                             tool_trim=plan.tool_trim))
+        else:
+            size_fn = record_tokens
+        records, plan.replay_tokens = select_replay(mem, plan.replay_budget,
+                                                    plan.min_turns, size_fn=size_fn)
+        before = int(records[0]["turn"]) if records else last_turn + 1
+        archive_text = render_archive(sums, blocks, before, plan.archive_cap, long_memory)
         plan.archive_tokens = est_tokens(archive_text)
     else:
         avail = max(2048, plan.budget - overhead)
+        if plan.old_reasoning != "full" or plan.tool_trim:
+            size_fn = (lambda r: send_tokens(r, newest_turn=last_turn,
+                                             old_reasoning=plan.old_reasoning,
+                                             tool_trim=plan.tool_trim))
+        else:
+            size_fn = record_tokens
         for _ in range(2):   # 两遍收敛：先按归档占满配额估，再按归档实际大小回补
             arch = plan.archive_cap if plan.archive_tokens is None else plan.archive_tokens
             plan.replay_budget = max(2048, avail - arch)
-            records, plan.replay_tokens = select_replay(mem, plan.replay_budget, plan.min_turns)
+            records, plan.replay_tokens = select_replay(mem, plan.replay_budget,
+                                                        plan.min_turns, size_fn=size_fn)
             before = int(records[0]["turn"]) if records else last_turn + 1
-            archive_text = render_archive(sums, blocks, before, plan.archive_cap)
+            archive_text = render_archive(sums, blocks, before, plan.archive_cap, long_memory)
             plan.archive_tokens = est_tokens(archive_text)
+
+    if plan.old_reasoning != "full" or plan.tool_trim:
+        records = shrink_records(records, newest_turn=max(0, last_turn),
+                                 old_reasoning=plan.old_reasoning, tool_trim=plan.tool_trim)
+        plan.replay_tokens = sum(record_tokens(r) for r in records)
 
     plan.replay_turns = len(records)
     plan.before_turn = before
