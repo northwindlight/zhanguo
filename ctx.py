@@ -47,14 +47,13 @@
 滑动是命中率的最大敌人：每次滑动都要重建整段后缀。`ctx_roll="period"` 提供一条
 更激进的路线——**两次压缩之间 replay 纯追加，前缀一个字节不动**：
 
-- `ctx_period`：压缩周期。**不配 = 自动**：按窗口几何（高位-低位）÷ 实测每回合
-  体积倒推，即"把切片从低位回填到高位所需回合数"；配数字 = 手动固定。只在"到点且
-  切片将满"（或切片已满的兜底）那一回合做一次压缩（LLM 阶段总结收编旧回合），
-  其余回合 `slide()` 直接放行、绝不动 mem → 请求对上一次请求是纯 append，命中≈97%。
-- `ctx_slice_keep`：replay 片上限占预算比例（默认 0.55）。周期内 mem 必须一直
-  低于这个 cap 才保证纯追加（不触顶裁切）——所以 **period 要满足
-  period×平均回合 ≤ budget×(slice_keep−(slice_keep×slide_keep))**；不够就调小
-  period，或在启用 `ctx_old_reasoning="strip"` 后减小平均回合。
+- `ctx_period`：压缩周期，**不配 = 自动**（余量 ÷ 实测每回合体积倒推）；配数字 =
+  手动固定。触发的唯一条件是「到点」或「超水位兜底」，其余回合 `slide()` 直接放行、
+  绝不动 mem → 请求对上一次请求是纯 append，命中≈97%。
+- `ctx_slice_keep`：**已弃用**（period 现与 slide 共用同一份预算分配，不再把 replay
+  压缩成半片——半片会白白浪费稳定前缀）。自动周期 = 余量（预算−低位）÷ 实测每回合
+  体积；手动 `ctx_period` 若过大导致周期内超水位，`slide` 会兜底压缩而非逐回合
+  从请求头裁切。
 - 压缩那一回合的前缀重建，等价于把冷回合成本摊到"每 period 回合一次"，
   比滑动模式的"每 8~15 回合一次"低一个数量级。
 - 升级版（②记忆组件）：把压缩周期间隔拉长、并让该国 AI 用自己的口吻写
@@ -358,14 +357,15 @@ def slide(world, name: str, plan: Plan) -> list[dict]:
                                  tool_trim=plan.tool_trim) for r in mem]
         total = sum(sizes)
         if plan.roll == "period":
-            # 非滑动周期模式：非周期回合绝不触碰前缀（纯追加，命中≈97%）
-            if plan.period:                          # 手动固定周期
-                if world.turn % plan.period != 0:
-                    return []
-            else:                                    # 自动（窗口几何+实测回合体积）
-                eff = plan.effective_period or 6
-                if total <= plan.replay_budget and world.turn - _last_compact_turn(world, name) < eff:
-                    return []
+            # 非滑动周期模式：只在「到期」或「已超水位兜底」那个回合裁剪，
+            # 其余回合绝不动前缀（纯追加，命中≈97%）
+            eff = plan.effective_period or 6
+            if plan.period:
+                due = (world.turn % plan.period == 0)
+            else:
+                due = (world.turn - _last_compact_turn(world, name) >= eff)
+            if not due and total <= plan.replay_budget:
+                return []
         if total <= plan.replay_budget:
             return []
         low = int(plan.replay_budget * plan.slide_keep)
@@ -512,25 +512,9 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
         before = int(records[0]["turn"]) if records else last_turn + 1
         archive_text = render_archive(sums, blocks, before, plan.archive_cap, long_memory)
         plan.archive_tokens = est_tokens(archive_text)
-    elif plan.roll == "period":
-        # 非滑动：replay 固定在预算的 slice_keep 片内，周期间纯追加不触顶
-        plan.replay_budget = max(8192, int(plan.budget * plan.slice_keep))
-        if plan.old_reasoning != "full" or plan.tool_trim:
-            size_fn = (lambda r: send_tokens(r, newest_turn=last_turn,
-                                             old_reasoning=plan.old_reasoning,
-                                             tool_trim=plan.tool_trim))
-        else:
-            size_fn = record_tokens
-        records, plan.replay_tokens = select_replay(mem, plan.replay_budget,
-                                                    plan.min_turns, size_fn=size_fn)
-        before = int(records[0]["turn"]) if records else last_turn + 1
-        archive_text = render_archive(sums, blocks, before, plan.archive_cap, long_memory)
-        plan.archive_tokens = est_tokens(archive_text)
-        if not plan.period:                          # 自动周期：由窗口几何+最近回合体积推导
-            k = min(4, len(mem))
-            avg = (sum(size_fn(r) for r in mem[-k:]) / k) if k else 0.0
-            plan.effective_period = _effective_period(plan.replay_budget, plan.slide_keep, avg)
     else:
+        # 预算模式：slide 与 period **共用同一份预算分配**（replay 顶满请求，别让
+        # 稳定前缀变小）。period 只在「何时修剪」上有别（固定周期/自动 vs 超水位）。
         avail = max(2048, plan.budget - overhead)
         if plan.old_reasoning != "full" or plan.tool_trim:
             size_fn = (lambda r: send_tokens(r, newest_turn=last_turn,
@@ -546,6 +530,10 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
             before = int(records[0]["turn"]) if records else last_turn + 1
             archive_text = render_archive(sums, blocks, before, plan.archive_cap, long_memory)
             plan.archive_tokens = est_tokens(archive_text)
+        if plan.roll == "period" and not plan.period:   # 自动周期 = 余量 ÷ 实测回合体积
+            k = min(4, len(mem))
+            avg = (sum(size_fn(r) for r in mem[-k:]) / k) if k else 0.0
+            plan.effective_period = _effective_period(plan.replay_budget, plan.slide_keep, avg)
 
     if plan.old_reasoning != "full" or plan.tool_trim:
         records = shrink_records(records, newest_turn=max(0, last_turn),

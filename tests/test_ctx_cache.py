@@ -110,29 +110,40 @@ class TestPeriodic(unittest.TestCase):
         p2 = ctx.make_plan({"ctx_window": 100_000})
         self.assertEqual(p2.roll, "slide")
 
-    def test_period_slide_only_on_boundary(self):
+    def test_period_slide_only_trims_when_due_or_over_cap(self):
         w = _W()
         p = ctx.make_plan({"ctx_window": 100_000, "ctx_roll": "period",
-                           "ctx_period": 10, "ctx_slice_keep": 0.5, "ctx_slide_keep": 0.5})
-        # 大 mem：总量远超周期片上限(40k)，测"非边界绝不碰 + 边界超了才压"
-        w.turn_memory["秦"] = [rec(t, reason_chars=1200, tool_chars=900) for t in range(1, 41)]
-        for turn, expect in ((5, 0), (10, 1), (11, 0), (21, 0)):
+                           "ctx_period": 10, "ctx_slide_keep": 0.5})
+        # ① 未超水位：到没到点都不动前缀（纯追加）
+        w.turn_memory["秦"] = [rec(t, reason_chars=100, tool_chars=50) for t in range(1, 21)]
+        for turn in (5, 10, 11, 21):
             w.turn = turn
-            dropped = ctx.slide(w, "秦", p)
-            if expect:
-                self.assertGreater(len(dropped), 0, f"周期回合{turn}应压缩")
-            else:
-                self.assertEqual(dropped, [], f"回合{turn}绝不能动前缀")
+            self.assertEqual(ctx.slide(w, "秦", p), [], f"未超水位回合{turn}绝不能动前缀")
+        # ② 已超水位：到期(10)与非到期(7)都兜底压缩（避免逐回合从请求头裁切）
+        #   （每次用全新 world，避免上次修剪的残留影响判断）
+        for turn in (7, 10):
+            w2 = _W()
+            p2 = ctx.make_plan({"ctx_window": 100_000, "ctx_roll": "period",
+                                "ctx_period": 10, "ctx_slide_keep": 0.5})
+            w2.turn = turn
+            w2.turn_memory["秦"] = [rec(t, reason_chars=6000, tool_chars=4000)
+                                    for t in range(1, 41)]
+            self.assertGreater(len(ctx.slide(w2, "秦", p2)), 0, f"超水位回合{turn}应兜底压缩")
 
-    def test_period_build_uses_slice_cap(self):
-        cfg = {"ctx_window": 200_000, "ctx_roll": "period", "ctx_period": 8,
-               "ctx_slice_keep": 0.5, "ctx_min_turns": 2, "max_tokens": 4000}
+    def test_period_shares_budget_and_auto_period(self):
+        cfg = {"ctx_window": 200_000, "ctx_roll": "period",
+               "ctx_min_turns": 2, "max_tokens": 4000}
         mem = [rec(t, reason_chars=1000, tool_chars=500) for t in range(1, 41)]
         out, plan = ctx.build(cfg=cfg, mem=mem, sums=[], blocks=[],
                               system_text=SYSTEM, tail_text="状态" * 200, tool_tokens=2000)
         self.assertEqual(plan.roll, "period")
-        self.assertEqual(plan.replay_budget, 80_000)   # 160k预算 × 0.5
-        self.assertLessEqual(plan.replay_tokens, 80_000)
+        # B：与 slide 共用预算分配——replay 顶满请求，不再被缩成半片
+        self.assertGreater(plan.replay_budget, 150_000)      # 200k窗口预算160k，扣开销后仍接近顶格
+        self.assertLessEqual(plan.replay_tokens, plan.replay_budget)
+        # 未配 ctx_period → 自动推导有效周期，落在合法区间
+        self.assertIsNotNone(plan.effective_period)
+        self.assertGreaterEqual(plan.effective_period, 6)
+        self.assertLessEqual(plan.effective_period, 120)
 
 class TestAutoPeriod(unittest.TestCase):
     """ctx_period 不配 → 自动：窗口几何 × 实测回合体积推导有效周期。"""
