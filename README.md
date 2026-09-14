@@ -433,7 +433,8 @@ python3 settlement.py --table      # 只看成绩单
 
 | 文件 | 作用 |
 |------|------|
-| `game.py` | 共享规则层：地形/资源/建筑/兵种/市场全部数值表 + 地块生成函数（无状态；复合建筑的效果是数据：`BUILDINGS[*].effects`） |
+| `balance.py` | **数值表 · 唯一调参入口**：建筑/地形/兵种/军队/市场价与价格曲线/外交费。**调平衡只改这个文件**——引擎、报表、规则 AI 读的都是这里的**同一份对象**（`game.py`/`mp.py` 原样转口，不是副本；守卫 `tests/test_balance.py`） |
+| `game.py` | 共享规则层：转口 `balance.py` 的数值表 + 规则函数（兵种属性查询、写信计费、地形/资源/地名生成）（无状态；复合建筑的效果是数据：`BUILDINGS[*].effects`） |
 | `mp.py` | 多国引擎 `World`：回合结算、战斗、外交、联盟、信箱、视野、存档 |
 | `mp_ai.py` | AI 层：34 个工具（schema + 执行）、system prompt、各面板文本、回合循环（提供方无关） |
 | `llm_provider.py` | LLM 提供方兼容层：OpenAI 兼容端点实现 + Anthropic 预留桩；重试/流式聚合/平台超时全收口于此 |

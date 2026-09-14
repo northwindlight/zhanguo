@@ -1,5 +1,8 @@
-"""战国（zhanguo）共享规则层：数值表 + 地块生成。
+"""战国（zhanguo）共享规则层：**规则函数** + 地块生成。
 
+数值表（建筑/地形/军队/价格）全部住在 `balance.py`——**要调平衡只改那个文件**；
+本模块把它们原样转口（`from game import BUILDINGS` 拿到的就是 `balance.BUILDINGS`
+同一个对象，不是副本），并提供规则函数（`unit_*`/`letter_cost`/`roll_*`/`building_effect`…）。
 多国引擎 `mp.py` 与 AI 层 `mp_ai.py` 都从这里取常量与生成函数；
 这里不含任何世界状态（状态在 mp.World 里）。
 
@@ -12,167 +15,49 @@ from __future__ import annotations
 
 import random
 
-# 资源项与上限
-RESOURCES = ["矿石", "黄金", "耕地", "石油", "木头"]
-RESOURCE_MAX = {"矿石": 5, "黄金": 2, "耕地": 5, "石油": 3, "木头": 5}
+# 数值表全部住在 balance.py（**唯一调参入口**）；这里原样转口，不是副本：
+# `from game import BUILDINGS` 拿到的与 `balance.BUILDINGS` 是**同一个对象**，
+# 就地改（如 `rl/jitter.py` 的域随机化）两边同时可见。
+from balance import (
+    ARMY_ATTACK_DAMAGE,
+    ARMY_HEAL_PER_TURN,
+    ARMY_MAX_HP,
+    ARMY_STARVE_DAMAGE,
+    BUILDINGS,
+    COMBAT_DIE_MOD,
+    DIPLO_CENTER_MIN_COST,
+    GOODS,
+    LETTER_CENTER_DISCOUNT,
+    LETTER_CHARS_PER_GOLD,
+    LETTER_COST,
+    LETTER_COST_ALLY,
+    LETTER_COST_MIN,
+    LETTER_FREE_CHARS,
+    MARKET,
+    MARKET_DEPTH,
+    MARKET_EQ_MAX_RATIO,
+    MARKET_EQ_MIN_RATIO,
+    MARKET_GAP_ONE_SIDE,
+    MARKET_SENS,
+    MARKET_SPREAD,
+    MAX_SLOTS,
+    PRICE_IMPACT,
+    PRICE_MAX_RATIO,
+    PRICE_MIN_RATIO,
+    PRICE_REVERT,
+    RESOURCES,
+    RESOURCE_MAX,
+    RETREAT_ATK_PENALTY,
+    RETREAT_RANGE,
+    SITE_BUILDING,
+    TERRAINS,
+    TERRAIN_CHARS,
+    TERRAIN_STATS,
+    TERRAIN_WEIGHTS,
+    TRADEABLE,
+    UNIT_TYPES,
+)
 
-# 五种地形。每种地形给全部五项资源一张权重表：
-#   列表下标 = 资源数值（x0, x1, ...），元素 = 抽中该数值的权重。
-# 下标越界即该项资源不可能出现的更高值（权重为 0）。
-# 2026-09-09 重平衡：黄金富矿（x2）概率明显调低（期望 0.147→0.105 座/格，−29%），
-# 石油略增（0.27→0.34，沙漠仍是唯一宝地且多出一档 x4），矿/耕/木总量基本不变、
-# 地形专精更陡（山地矿石 2.53、森林木头 2.55、平原耕地 2.17）。
-TERRAINS = {
-    "平原": {  # 沃土：耕地/木头为主，几乎无矿无油
-        "矿石": [80, 16, 3, 1, 0, 0],
-        "黄金": [96, 4, 0],
-        "耕地": [6, 26, 32, 21, 11, 4],
-        "石油": [92, 7, 1, 0],
-        "木头": [37, 30, 21, 9, 3, 0],
-    },
-    "森林": {  # 木头宝地，兼有耕地
-        "矿石": [74, 19, 6, 1, 0, 0],
-        "黄金": [95, 5, 0],
-        "耕地": [28, 30, 26, 11, 4, 1],
-        "石油": [95, 4, 1, 0],
-        "木头": [5, 15, 29, 28, 17, 6],
-    },
-    "丘陵": {  # 全能有，样样不拔尖，略出黄金
-        "矿石": [18, 28, 25, 17, 8, 4],
-        "黄金": [88, 11, 1],
-        "耕地": [32, 30, 24, 10, 3, 1],
-        "石油": [80, 15, 4, 1],
-        "木头": [24, 29, 25, 14, 6, 2],
-    },
-    "山地": {  # 矿石/黄金富集，粮木贫
-        "矿石": [4, 18, 29, 26, 16, 7],
-        "黄金": [76, 20, 4],
-        "耕地": [72, 20, 6, 2, 0, 0],
-        "石油": [74, 20, 5, 1],
-        "木头": [60, 26, 11, 3, 0, 0],
-    },
-    "沙漠": {  # 石油宝地，其余皆贫
-        "矿石": [68, 21, 8, 3, 0, 0],
-        "黄金": [89, 10, 1],
-        "耕地": [90, 7, 2, 1, 0, 0],
-        "石油": [12, 26, 28, 26, 8],
-        "木头": [95, 4, 1, 0, 0, 0],
-    },
-}
-
-# 地形固定属性（与地块类型绑定，不随机）：
-#   defense        防御加成 %（防守方优势，负值=无险可守）
-#   build_penalty  建设惩罚 %（建筑费用/工时加成，越高越难建设）
-TERRAIN_STATS = {
-    "平原": {"defense": 0, "build_penalty": 0},       # 开阔易建，无防御加成
-    "森林": {"defense": 10, "build_penalty": 15},     # 林荫遮蔽，稍难施工
-    "丘陵": {"defense": 25, "build_penalty": 25},     # 攻守皆费劲
-    "山地": {"defense": 50, "build_penalty": 50},     # 易守难攻，也难建设
-    "沙漠": {"defense": -10, "build_penalty": 40},    # 无险可守，环境恶劣难施工
-}
-
-# 地形出现的先验权重
-TERRAIN_WEIGHTS = {"平原": 30, "森林": 25, "丘陵": 20, "山地": 15, "沙漠": 10}
-
-# 地图上每格显示的单字符
-TERRAIN_CHARS = {"平原": "P", "森林": "F", "丘陵": "H", "山地": "M", "沙漠": "D"}
-
-# ---- 建设系统 ----
-# 每地块建筑位总数；城堡级数也占位
-MAX_SLOTS = 20
-
-# 物资（地块可储存；能源不可存储，不在其中）
-# 全局战略储备：木头=建建筑；补给=军队口粮（补给厂产出入全局补给仓 world.supply）
-GOODS = ["粮食", "矿石", "石油", "装备"]
-
-# 世界市场基准价（金/单位）。黄金是货币（国库），不可交易；MARKET["黄金"] 不是价格，
-# 而是黄金矿场每座每回合的产金量（矿场 outputs 记作 1 单位"黄金"，按此折算成金）。
-# 可交易 = 全部可存储物资：粮食/木头/矿石/石油/装备 + 补给（军队口粮，买卖直接走全局补给仓）。
-# 能源不可存储、不在市场内。
-MARKET = {
-    "粮食": 2, "木头": 2, "矿石": 4, "石油": 6, "装备": 8, "补给": 5,
-    "黄金": 10,
-}
-TRADEABLE = ["粮食", "木头", "矿石", "石油", "装备", "补给"]
-# ---- 价格机制（2026-09-09 改革）----
-# prices[g] 是「中间价」(mid)。一笔 n 单位的单子沿价格曲线走：
-#   每单位推动 tick = 基准价 × PRICE_IMPACT ÷ 该商品深度
-#   深度 = MARKET_DEPTH[g] × max(1, 现存国家数) ÷ 4（国家越多市场越深）
-# 成交按「沿曲线均价」(p0+p1)/2 结算——不再整笔按成交后的清仓价 p1 结算
-# （后者等于把最后一单位的价格摊给整笔，惩罚是应然的 2 倍）。
-# 买卖另有价差 MARKET_SPREAD：买 +5% / 卖 −5%，翻转套利必亏。
-# 每回合末市价向「供需均衡价」回归：保留 PRICE_REVERT，即回归 1-PRICE_REVERT。
-PRICE_IMPACT = 0.02       # 每单位推动 = 基准价 × 该值 ÷ 深度
-MARKET_DEPTH = {"粮食": 24, "木头": 24, "矿石": 16, "石油": 12, "装备": 8, "补给": 12}
-MARKET_SPREAD = 0.10      # 买卖价差（买 +一半 / 卖 −一半）；0 = 无摩擦
-PRICE_REVERT = 0.75       # 每回合保留的偏离比例（向均衡价回归 25%）
-PRICE_MIN_RATIO = 0.2     # 市价下限 = 基准价 × 该值
-PRICE_MAX_RATIO = 3.0     # 市价上限 = 基准价 × 该值
-
-# 供需均衡价：每回合末按全世界本回合流量算
-#   净缺口比 gap = (耗 − 产) ÷ (耗 + 产) ∈[-1,1]（耗大于产 → 贵）；单边为 0 时取 ±MARKET_GAP_ONE_SIDE
-#   均衡价 = 基准价 × (1 + MARKET_SENS × gap)，再夹到 [EQ_MIN, EQ_MAX]
-# 流量含：采集产出、工厂投料与产出、征兵耗料、建造耗木、能源厂燃料、军队补给消耗。
-MARKET_SENS = 0.5         # 供需敏感度（缺口比 ±1 时均衡价 = 基准 ×0.5 / ×1.5）
-MARKET_EQ_MIN_RATIO = 0.5  # 均衡价下限 = 基准价 × 该值
-MARKET_EQ_MAX_RATIO = 1.5  # 均衡价上限 = 基准价 × 该值
-MARKET_GAP_ONE_SIDE = 0.4  # 只有产或只有耗时，缺口比取 ±该值（软化：无人消耗≠无限过剩）
-
-# 建筑定义（kind 决定回合行为）：
-#   cost           造价（金）；城堡为列表，第 i 级造价 = cost[i]，逐级递增
-#   wood           建造另需木材数（从全局木材储备扣除）
-#   cap_resource   建造上限来源（该地块此项资源量即上限）；None=仅受建筑位/城堡级数限制
-#   kind:
-#     castle    城堡：max_level 级，每级 +10% 防御
-#     extract   基础采集：outputs 每回合产出物资；林场产出木头入全局储备
-#     gold      黄金矿场（产出黄金=货币，直接入国库）
-#     energy    能源厂：耗全国木头/石油 → 产出 energy_out 能源；不耗能源维持
-#     factory   高级工厂：每座每回合维持 energy 能源，投 inputs 产 outputs；能源不足全部瘫痪
-BUILDINGS = {
-    "城堡": {
-        "kind": "castle",
-        "cost": [100, 200, 400, 800, 1600],
-        "wood": 10,
-        "max_level": 5,
-        "cap_resource": None,
-        "effects": {"defense_per_level": 10},
-    },
-    "林场": {"kind": "extract", "cost": 45, "wood": 5, "cap_resource": "木头", "outputs": {"木头": 1}},
-    "农场": {"kind": "extract", "cost": 50, "wood": 5, "cap_resource": "耕地", "outputs": {"粮食": 1}},
-    "矿场": {"kind": "extract", "cost": 70, "wood": 5, "cap_resource": "矿石", "outputs": {"矿石": 1}},
-    "石油厂": {"kind": "extract", "cost": 135, "wood": 8, "cap_resource": "石油", "outputs": {"石油": 1}},
-    "黄金矿场": {"kind": "gold", "cost": 200, "wood": 10, "cap_resource": "黄金", "outputs": {"黄金": 1}},
-    "木材能源厂": {"kind": "energy", "cost": 120, "wood": 15, "cap_resource": None, "fuel": {"木头": 1}, "energy_out": 2},
-    "石油能源厂": {"kind": "energy", "cost": 240, "wood": 15, "cap_resource": None, "fuel": {"石油": 1}, "energy_out": 8},
-    "补给厂": {"kind": "factory", "cost": 175, "wood": 12, "cap_resource": None, "inputs": {"粮食": 1, "矿石": 1}, "outputs": {"补给": 2}, "energy": 1},
-    "装备厂": {"kind": "factory", "cost": 210, "wood": 12, "cap_resource": None, "inputs": {"矿石": 1, "石油": 1}, "outputs": {"装备": 2}, "energy": 1},
-    # 兵营不自动产兵：每兵营每回合可征 effects.recruit_cap 支军队（army_cost 每支耗资），军队 100HP，从本地块征集；需本地已用建筑位≥3（防裸地兵营）
-    "兵营": {"kind": "barracks", "cost": 350, "wood": 20, "cap_resource": None, "min_slots": 3,
-             "army_cost": {"粮食": 10, "装备": 5}, "energy": 1,
-             "effects": {"recruit_cap": 1}},
-    # 市政厅：很贵、每地块限 1 座、需该地块已用建筑位≥6 才可建；维持 1 电（电网不足即停摆）；
-    # 每座每回合 = effects.gold_base(基础) + 该地块已占建筑位(不含自身)×effects.gold_per_slot 金 入国库
-    "市政厅": {"kind": "townhall", "cost": 500, "wood": 40, "cap_resource": None,
-               "energy": 1, "limit": 1, "min_slots": 6,
-               "effects": {"gold_base": 5, "gold_per_slot": 1}},
-    # ---- 特殊建筑（不产出、不耗电，改规则）----
-    # 瞭望塔：己方/盟方任一瞭望塔半径（effects.vision_radius）圆内的事件都可见（事件视野，不改可拓地）
-    "瞭望塔": {"kind": "tower", "cost": 120, "wood": 15, "cap_resource": None,
-               "effects": {"vision_radius": 4}},
-    # 外交中心：**自建限 1 座**（limit_nation），叠加的只能靠夺地抢别国的——
-    # 每座（含抢来的）让自己的外交费再减半（10→5→2→1，下限1）、写信费每座 -5 金（下限 5）；
-    # 他国向你提议结盟/联盟/议和免费
-    "外交中心": {"kind": "diplomat", "cost": 400, "wood": 30, "cap_resource": None,
-                 "limit": 1, "limit_nation": 1, "min_slots": 5},
-    # 工程院：本地块一切建造金价 -25%（与地形惩罚乘算，只认已落成的），需本地已用建筑位≥4
-    "工程院": {"kind": "academy", "cost": 300, "wood": 30, "cap_resource": None,
-               "limit": 1, "min_slots": 4, "effects": {"build_discount": 25}},
-    # 军屯：屯田 + 民兵编制——每回合 +1 粮；可征民兵（50金+5粮/支，不耗电、不受电网停摆影响）；
-    # **每地块限 1 座**，且**全国民兵总数 ≤ 全国军屯总数×effects.militia_cap**（军屯即民兵编制上限，阵亡可补员）；
-    # 民兵驻本格不耗补给（每座军屯覆盖本格 1 支），离格照常吃
-    "军屯": {"kind": "militia_camp", "cost": 220, "wood": 15, "cap_resource": "耕地",
-             "limit": 1, "outputs": {"粮食": 1}, "effects": {"militia_cap": 1}},
-}
 
 # ---- 建筑的「效果」= **数据**，不是散落的模块级常量（2026-09-12 改）----
 # 为什么：效果写在常量里，就只有**读那份代码的人/规则 AI** 知道；模型（RL 与任何学习者）
@@ -184,17 +69,6 @@ BUILDINGS = {
 def building_effect(name: str, key: str, default: float = 0):
     """取某建筑的效果值。`effects` 里没有的键 → `default`（默认 0 = 无此效果）。"""
     return BUILDINGS.get(name, {}).get("effects", {}).get(key, default)
-
-
-# 兵种：征召耗粮装 / 每回合补给维持 / 每回合移动格数 / 基础攻击 / 满血上限（每军每战斗回合）
-UNIT_TYPES = {
-    "步": {"label": "步兵", "hp": 100, "speed": 1, "supply": 1, "atk": 50, "recruit": {"粮食": 10, "装备": 5}},
-    "骑": {"label": "骑兵", "hp": 100, "speed": 2, "supply": 2, "atk": 50, "recruit": {"粮食": 12, "装备": 12}},
-    # 民兵=廉价驻守军队（80HP/攻20，攻击只有步骑的四成）：只能在军屯征召（50金+5粮/支；
-    # 全国民兵总数 ≤ 全国军屯总数，每军屯每回合 1 支）；驻本格（自家军屯格）不耗补给
-    "民": {"label": "民兵", "hp": 80, "speed": 1, "supply": 1, "atk": 20,
-           "recruit": {"黄金": 50, "粮食": 5}},
-}
 
 
 def unit_kind(a: dict) -> str:
@@ -218,29 +92,6 @@ def unit_atk(a: dict) -> int:
 def unit_supply(a: dict) -> int:
     return UNIT_TYPES[unit_kind(a)]["supply"]
 
-# 军队属性
-ARMY_MAX_HP = 100
-ARMY_STARVE_DAMAGE = 35   # 补给不足时按缺口比例扣血（完全断供=35），交战中也照扣，HP≤0 阵亡
-ARMY_HEAL_PER_TURN = 25   # 非战斗（且非断供）军队每回合回复，占满血 25%
-ARMY_ATTACK_DAMAGE = 50   # 默认基础伤害（步/骑；民兵 20 —— 兵种攻击表见 UNIT_TYPES["atk"]）
-RETREAT_RANGE = 1         # 撤退固定只能退相邻 1 格（3×3，所有人）；正常移动按兵种速度（步1/骑2）
-RETREAT_ATK_PENALTY = 80  # 撤退军本回合战斗输出 -80%（撤离途中无心恋战；防撤退白嫖输出）
-# 战斗骰：每回合掷 1d6 → 本回合双方伤害修正%（战争打几回合很正常）
-COMBAT_DIE_MOD = {1: -25, 2: -15, 3: -5, 4: 5, 5: 15, 6: 25}
-
-# 特殊建筑参数
-DIPLO_CENTER_MIN_COST = 1  # 外交中心叠加减半后的外交费下限
-# 写信计费（2026-09-10 用户拍板）：
-#   起步价：联盟内 10 金 / 非联盟 20 金 —— **吃减免**（外交中心每座 -5，下限 5）
-#   超字费：起步价内含前 20 字，之后每 10 字 1 金（不足 10 字按 10 字算）—— **不吃任何减免**
-# 联盟成员不再免费（起步价减半），长信照样要花钱。
-LETTER_COST = 20            # 非联盟起步价
-LETTER_COST_ALLY = 10       # 联盟内起步价
-LETTER_CENTER_DISCOUNT = 5  # 外交中心对**起步价**的减免：每座固定 -5 金
-LETTER_COST_MIN = 5         # 起步价下限（防零费刷信）
-LETTER_FREE_CHARS = 20      # 起步价内含的免费字数
-LETTER_CHARS_PER_GOLD = 10  # 超出部分每 10 字 1 金（不吃减免）
-
 
 def letter_cost(text: str, allied: bool = False, diplo_centers: int = 0) -> int:
     """一封信的价钱 = 起步价（联盟 10 / 非联盟 20，吃外交中心减免、下限 5）
@@ -249,13 +100,6 @@ def letter_cost(text: str, allied: bool = False, diplo_centers: int = 0) -> int:
     base = max(LETTER_COST_MIN, base - LETTER_CENTER_DISCOUNT * diplo_centers)
     over = max(0, len(text or "") - LETTER_FREE_CHARS)
     return base + -(-over // LETTER_CHARS_PER_GOLD)
-
-# 基地资源（随机生成的 5 项）→ 对应采集建筑
-SITE_BUILDING = {
-    info["cap_resource"]: name
-    for name, info in BUILDINGS.items()
-    if info["kind"] in ("extract", "gold")
-}
 
 
 _CN_DIGIT = "零一二三四五六七八九"
