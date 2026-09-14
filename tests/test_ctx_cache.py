@@ -134,5 +134,52 @@ class TestPeriodic(unittest.TestCase):
         self.assertEqual(plan.replay_budget, 80_000)   # 160k预算 × 0.5
         self.assertLessEqual(plan.replay_tokens, 80_000)
 
+class TestAutoPeriod(unittest.TestCase):
+    """ctx_period 不配 → 自动：窗口几何 × 实测回合体积推导有效周期。"""
+
+    def _cfg(self, window):
+        return {"ctx_window": window, "ctx_roll": "period", "ctx_slice_keep": 0.5,
+                "ctx_slide_keep": 0.5, "ctx_min_turns": 2, "max_tokens": 4000}
+
+    def test_default_is_auto_and_in_range(self):
+        p = ctx.make_plan({"ctx_window": 200_000, "ctx_roll": "period"})
+        self.assertEqual(p.period, 0)                    # 0 = 自动
+        w = _W()
+        w.turn_memory["秦"] = [rec(t, reason_chars=2000, tool_chars=1000) for t in range(1, 41)]
+        out, plan = ctx.build(cfg=self._cfg(200_000), mem=w.turn_memory["秦"], sums=[], blocks=[],
+                              system_text=SYSTEM, tail_text="状态" * 200, tool_tokens=2000)
+        self.assertIsNotNone(plan.effective_period)
+        self.assertGreaterEqual(plan.effective_period, 6)
+        self.assertLessEqual(plan.effective_period, 120)
+
+    def test_bigger_window_gives_longer_period(self):
+        w = _W()
+        mem = [rec(t, reason_chars=2000, tool_chars=1000) for t in range(1, 41)]
+        _, p_small = ctx.build(cfg=self._cfg(200_000), mem=mem, sums=[], blocks=[],
+                               system_text=SYSTEM, tail_text="s" * 100, tool_tokens=800)
+        _, p_big = ctx.build(cfg=self._cfg(800_000), mem=mem, sums=[], blocks=[],
+                             system_text=SYSTEM, tail_text="s" * 100, tool_tokens=800)
+        # 同体积回合，窗口越大 → 高位-低位余量越大 → 周期越长
+        self.assertGreater(p_big.effective_period, p_small.effective_period)
+
+    def test_auto_slide_waits_until_due_or_over_cap(self):
+        w = _W()
+        p = ctx.make_plan(self._cfg(100_000))
+        p.effective_period = 40
+        w.summary_blocks["秦"] = [{"from": 1, "to": 5, "text": "s", "turn": 5}]
+        # ① 未到点、切片未满 → 绝不动前缀
+        w.turn = 8
+        w.turn_memory["秦"] = [rec(t, reason_chars=300, tool_chars=200) for t in range(1, 8)]
+        self.assertEqual(ctx.slide(w, "秦", p), [])
+        # ② 切片已满 → 兜底压缩（不必等周期）
+        w.turn_memory["秦"] = [rec(t, reason_chars=6000, tool_chars=4000) for t in range(1, 40)]
+        w.turn = 9
+        self.assertGreater(len(ctx.slide(w, "秦", p)), 0)
+
+    def test_manual_period_still_fixed(self):
+        p = ctx.make_plan({"ctx_window": 100_000, "ctx_roll": "period", "ctx_period": 10})
+        self.assertEqual(p.period, 10)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

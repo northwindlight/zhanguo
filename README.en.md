@@ -105,8 +105,9 @@ Context is assembled by **decreasing stability**, so prefix caching hits as much
   LLM call that **expands on the previous memory** (never drops old facts). It lives as a byte-stable
   head block and carries long-range plans / alliances / lessons — it only changes on compaction.
 - **Non-sliding periodic compaction** (`ctx_roll="period"`) — between compactions the replay is
-  **append-only, the prefix does not change one byte**; compaction happens once per fixed
-  `ctx_period` turns. Cold turns drop from "every few rounds" to "once per period".
+  **append-only, the prefix does not change one byte**; when `ctx_period` is unset the period is
+  **auto-derived from the window geometry × measured per-turn size** (set a number to fix it).
+  Cold turns drop from "every few rounds" to "once per period".
 - **Measured, not guessed** — the `🧠` watch line shows the real rolling prefix-cache hit rate from
   the provider (last 20 requests); slide/compact turns are flagged "prefix cache rebuilt".
 - **Memory trio** — ever-present **plan** + **recursive long-term memory** (`long_memory`) +

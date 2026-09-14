@@ -47,9 +47,10 @@
 滑动是命中率的最大敌人：每次滑动都要重建整段后缀。`ctx_roll="period"` 提供一条
 更激进的路线——**两次压缩之间 replay 纯追加，前缀一个字节不动**：
 
-- `ctx_period`：固定压缩周期（回合数，默认 30）。只在 `world.turn % period == 0`
-  那一回合做一次压缩（LLM 阶段总结收编旧回合），其余回合 `slide()` 直接放行、
-  绝不动 mem → 请求对上一次请求是纯 append，命中≈97%。
+- `ctx_period`：压缩周期。**不配 = 自动**：按窗口几何（高位-低位）÷ 实测每回合
+  体积倒推，即"把切片从低位回填到高位所需回合数"；配数字 = 手动固定。只在"到点且
+  切片将满"（或切片已满的兜底）那一回合做一次压缩（LLM 阶段总结收编旧回合），
+  其余回合 `slide()` 直接放行、绝不动 mem → 请求对上一次请求是纯 append，命中≈97%。
 - `ctx_slice_keep`：replay 片上限占预算比例（默认 0.55）。周期内 mem 必须一直
   低于这个 cap 才保证纯追加（不触顶裁切）——所以 **period 要满足
   period×平均回合 ≤ budget×(slice_keep−(slice_keep×slide_keep))**；不够就调小
@@ -169,6 +170,23 @@ def rolling_hit(name: str) -> float | None:
     return (h / (h + m)) if (h + m) else None
 
 
+def _last_compact_turn(world, name: str) -> int:
+    """该国上一次压缩库的回合（读 summary_blocks 里最后一个块的记录时刻）。"""
+    bl = world.summary_blocks.get(name) or []
+    return int(bl[-1]["turn"]) if bl and bl[-1].get("turn") else 0
+
+
+def _effective_period(replay_budget: int, slide_keep: float, avg_turn: float) -> int:
+    """自动压缩周期 = 把切片从"低位"回填到"高位"所需的回合数。
+
+    高位=budget×slice_keep（period 模式的 replay_budget），低位=高位×slide_keep；
+    avg_turn=实测的每回合记录体积（瘦身后）。由配置的窗口长度与实测回合密度共同决定。
+    """
+    low = int(replay_budget * slide_keep)
+    head = max(1, replay_budget - low)
+    return max(6, min(120, int(head / max(1.0, avg_turn))))
+
+
 # ---------------------------------------------------------------------------
 # 配置解析
 # ---------------------------------------------------------------------------
@@ -210,7 +228,8 @@ class Plan:
                  "slide_keep", "min_turns", "fixed_turns", "compact",
                  "sys_tokens", "tail_tokens", "archive_tokens", "replay_tokens",
                  "replay_turns", "before_turn", "stable_tokens",
-                 "old_reasoning", "tool_trim", "roll", "period", "slice_keep")
+                 "old_reasoning", "tool_trim", "roll", "period", "slice_keep",
+                 "effective_period")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -229,7 +248,9 @@ class Plan:
             head = (f"窗口{_k(self.window)}·预算{_k(self.budget)}"
                     f"（{self.window and self.budget / self.window * 100:.0f}%）")
         if self.roll == "period":
-            head += f"·period每{self.period}回合压缩"
+            head += (f"·period每{self.period}回合压缩"
+                     if self.period else
+                     f"·period自动≈每{self.effective_period or '?'}回合")
         total = self.total_tokens or 1
         hit = f"｜可命中前缀≈{self.stable_tokens / total * 100:.0f}%" if self.stable_tokens else ""
         return (f"{head}｜replay {self.replay_turns}回合{_k(self.replay_tokens)}"
@@ -252,7 +273,7 @@ def make_plan(cfg: dict, *, fallback_turns: int | None = None) -> Plan:
     old_reasoning = "strip" if str(cfg.get("ctx_old_reasoning", "full")).lower() != "full" else "full"
     tool_trim = max(0, int(cfg.get("ctx_trim_tool_chars") or 0))
     roll = "period" if str(cfg.get("ctx_roll", "slide")).lower() in ("period", "periodic", "none") else "slide"
-    period = max(1, int(cfg.get("ctx_period") or 30))
+    period = max(0, int(cfg.get("ctx_period") or 0))   # 0=自动（窗口几何+实测回合体积推导）；>0=手动固定周期
     slice_keep = _fnum(cfg.get("ctx_slice_keep"), 0.55, 0.2, 0.9)
     fixed = cfg.get("ctx_full_turns")
     window = cfg.get("ctx_window")
@@ -321,9 +342,6 @@ def slide(world, name: str, plan: Plan) -> list[dict]:
     mem = world.turn_memory.get(name)
     if not mem:
         return []
-    # 非滑动周期模式：非周期回合绝不触碰前缀（纯追加，命中≈97%）
-    if plan.roll == "period" and plan.mode != "fixed" and (world.turn % plan.period) != 0:
-        return []
     if plan.mode == "fixed":
         limit = plan.fixed_turns
         chunk = max(4, limit // 2)
@@ -339,6 +357,15 @@ def slide(world, name: str, plan: Plan) -> list[dict]:
                                  old_reasoning=plan.old_reasoning,
                                  tool_trim=plan.tool_trim) for r in mem]
         total = sum(sizes)
+        if plan.roll == "period":
+            # 非滑动周期模式：非周期回合绝不触碰前缀（纯追加，命中≈97%）
+            if plan.period:                          # 手动固定周期
+                if world.turn % plan.period != 0:
+                    return []
+            else:                                    # 自动（窗口几何+实测回合体积）
+                eff = plan.effective_period or 6
+                if total <= plan.replay_budget and world.turn - _last_compact_turn(world, name) < eff:
+                    return []
         if total <= plan.replay_budget:
             return []
         low = int(plan.replay_budget * plan.slide_keep)
@@ -499,6 +526,10 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
         before = int(records[0]["turn"]) if records else last_turn + 1
         archive_text = render_archive(sums, blocks, before, plan.archive_cap, long_memory)
         plan.archive_tokens = est_tokens(archive_text)
+        if not plan.period:                          # 自动周期：由窗口几何+最近回合体积推导
+            k = min(4, len(mem))
+            avg = (sum(size_fn(r) for r in mem[-k:]) / k) if k else 0.0
+            plan.effective_period = _effective_period(plan.replay_budget, plan.slide_keep, avg)
     else:
         avail = max(2048, plan.budget - overhead)
         if plan.old_reasoning != "full" or plan.tool_trim:
