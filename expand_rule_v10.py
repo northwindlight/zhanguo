@@ -1,5 +1,23 @@
 # -*- coding: utf-8 -*-
-"""扩张流规则 AI · **v9 = v8 + 视野门控**（用户 2026-09-11：「改名叫 v9」）
+"""扩张流规则 AI · **v10 = v9 + 抗抖 + 不绕山地**（用户 2026-09-12）
+
+■ v10 相对 v9 **只改两处**（结构、口径、其他一条没动）：
+
+  ① **抗抖**：v9 把引擎事实**写死**在常量里 —— 每地形要几支兵（`TROOPS_FOR`）、
+     满血阈值（`ARMY_MAX_HP`）、征兵原料（10 粮 5 装）、哪种资源建哪种厂（`_RES_OF`）。
+     训练期一开 `--rules-jitter`（引擎数值按 seed 抖动），或者做一次平衡调整，
+     v9 就按**错的值**做决策 —— 教出来的标签是错的。v10 全部**现读/现算**。
+  ② **山地逻辑重写**：v9 是「山地三三成组」+ 行军**绕开山地**（硬规则，写死两个特例）。
+     v10 去掉特例，改成**只看打不打得赢**：按当下的攻击力/减伤/血量现算
+     「我几轮打死它 vs 它几轮打死我」，山地只是减伤高的地形之一。
+     ⇒ 山地不再被绕开、也不再要求额外兵力（打过算得赢就上）。
+
+  **视野门控（v9 的看家本领）一行没动**：打不打得赢仍然只用看得见的信息算。
+  `MIN_SQUAD=2`（"从不单兵作战"）是**教条**，不是算出来的，保留。
+
+■ 下面是 v9 的说明（v10 沿用其全部结论）
+----------------------------------------
+扩张流规则 AI · **v9 = v8 + 视野门控**（用户 2026-09-11：「改名叫 v9」）
 
 ■ v9 相对 v8 **只改了一处：视野**（见下面「视野」一节）。
   结构（一榜/一账/一次性判定）原样沿用，一个数都没调。
@@ -72,7 +90,8 @@ from __future__ import annotations
 
 import random
 
-from game import BUILDINGS, TERRAIN_STATS, ARMY_MAX_HP, MAX_SLOTS, TRADEABLE
+from game import (BUILDINGS, TERRAIN_STATS, ARMY_MAX_HP, MAX_SLOTS,
+                  TRADEABLE, UNIT_TYPES, unit_atk, unit_max_hp)
 from mp import build_econ, good_value
 
 # ---------------------------------------------------------------- 口径常量
@@ -88,20 +107,95 @@ MIL_SHARE = 0.30       # 军费占收入的上限：出兵、涨兵**同一个�
 #   所以这处改动的价值全在**给学生喂更多军事样本**，不在老师本身。
 #   v8 作为**基线**的成绩会因此下降 —— 这是明知的取舍（用户口径：先会玩）。
 
-TROOPS_FOR = {"沙漠": 2, "平原": 2, "森林": 2, "丘陵": 2, "山地": 3}
-# ↑ 用户口径「两两成组、山地三三成组」。除山地外一律 2 支。
+# ★★ v10 与 v9 的两处差别（用户 2026-09-12）：
+#   ① **抗抖**：v9 把引擎事实**写死在常量里**（每地形要几支兵、满血阈值、征兵成本、
+#      哪种资源建哪种厂）。一旦引擎的数值被改（平衡调整）或训练期被**域随机化**抖动，
+#      它就按错的值做决策 —— "教的会有问题"。v10 一律**现算/现读**（见下面几个函数）。
+#   ② **山地逻辑重写**：v9 是「山地三三成组」+ 行军**绕开山地**（硬规则）。
+#      v10 去掉这两条特例，改成**只看打不打得赢**：按当下的攻击力/减伤/血量算
+#      "几轮打死 vs 几轮被打死"，山地只是 defense 高的地形之一，不再享特例。
+#
+#   注意：**视野门控（v9 的看家本领）一行没动** —— 打不打得赢仍然只用看得见的信息算。
+MIN_SQUAD = 2          # 用户口径「从不单兵作战」：这一条是教条，不是算出来的
 
-# 看不见的格按**最保守**的兵力算（= 3，与山地同档）：不知道就别冒进。
-UNKNOWN_TROOPS = TROOPS_FOR["山地"]
 
-_RES_OF = {"农场": "耕地", "矿场": "矿石", "林场": "木头",
-           "石油厂": "石油", "黄金矿场": "黄金"}
-_EXTRACTORS = ("黄金矿场", "矿场", "林场", "农场", "石油厂")
-# ROI 项的候选（兵营/电厂**不在这里** —— 它们走条件，见第 2 节）
+def _terrain_defense(world, terrain: str, x: int, y: int, def_owner: str) -> int:
+    """这一格的**总减伤%** = 地形与城堡相乘 —— 与引擎 `mp.py:_defense_pct` 同式。
+
+    地形未知（看不见的格）→ 取**当下最保守**的那个地形（defense 最高）。
+    """
+    if terrain is None:
+        td = max(st.get("defense", 0) for st in TERRAIN_STATS.values())
+    else:
+        td = TERRAIN_STATS.get(terrain, {}).get("defense", 0)
+    t = world.tiles.get((x, y))
+    castle = t["buildings"]["城堡"] if (t is not None and t["owner"] == def_owner) else 0
+    cd = castle * (BUILDINGS.get("城堡", {}).get("effects", {}).get("defense_per_level", 0))
+    return 100 - ((100 - td) * (100 - cd)) // 100
+
+
+def _guardian_hp(world) -> int:
+    """守军的满血值（野人没有兵种 → 引擎按步兵的 hp 兜底，见 `game.unit_max_hp`）。"""
+    g = next((a for a in world.armies if a["owner"] == "野人"), None)
+    return unit_max_hp(g) if g is not None else ARMY_MAX_HP
+
+
+def _fight_cost(world, x: int, y: int, terrain, def_owner: str, defenders: list,
+                atk: int, hp: int) -> tuple[int, int]:
+    """打这一格：**几轮打死 vs 几轮被打死**。返回 `(need, rounds_to_kill)`。
+
+    模型就是引擎的伤害公式（`mp.py:_round_damage/_combat_power`，期望值即骰子修正 0）：
+        我方每轮伤害 = Σ攻击 × (100 − 守方减伤)%
+        守方每轮伤害 = Σ守方攻击 × (100 − 我方减伤)%，**进攻方不吃地形**（我在格子上，
+        守方不在）→ 我方减伤取 0。
+    多轮是按线性估的（实际每轮有战损，会越打越弱）—— 规则 AI 够用，v9 连多轮都不算。
+    """
+    d_pct = _terrain_defense(world, terrain, x, y, def_owner)
+    per_unit = max(1, atk * (100 - d_pct) // 100)          # 期望伤害，不扣骰子
+    e_hp = sum(max(0, a["hp"]) for a in defenders) if defenders else _guardian_hp(world)
+    # ★守方攻击力也必须**现读**：野人没有 type → 引擎按步兵兜底（`game.unit_atk`），
+    #   所以"看不见守军时"该估的是 `UNIT_TYPES["步"]["atk"]`，**不是** `hp // 2`。
+    #   曾经写的就是 `hp // 2`（真值下 100/2=50 恰好等于 atk，看着对）—— 一抖动
+    #   hp 与 atk 各走各的，这个估值就偏了，而这正是"打不打得赢"的一半输入。
+    e_atk = (sum(unit_atk(a) for a in defenders) if defenders
+             else UNIT_TYPES.get("步", {}).get("atk", ARMY_MAX_HP // 2))
+    # 最少几支能"一轮打死"（这是排序用的便宜度指标）
+    need = max(1, -(-e_hp // per_unit))
+    # 能不能赢：我方要几轮打死它、它要几轮打死我（我方 hp 随人数线性涨）
+    n = MIN_SQUAD
+    for _ in range(8):
+        r_kill = max(1, -(-e_hp // max(1, per_unit * n)))
+        r_die = max(1, -(-(hp * n) // max(1, e_atk)))
+        if r_kill < r_die:
+            break
+        n += 1
+    return need, n
+
+
+_RES_OF = {}           # 运行时按 `cap_resource` 现填，见 `_res_of()`
+
+
+def _can_afford(res: dict, unit: str) -> bool:
+    """征一支 `unit` 的原料够不够 —— 现读 `UNIT_TYPES[unit]["recruit"]`。"""
+    return all(res.get(g, 0) >= amt
+               for g, amt in (UNIT_TYPES.get(unit, {}).get("recruit") or {}).items())
+
+
+def _res_of(building: str) -> str | None:
+    """某采集建筑要的本地资源 —— 直接读 `cap_resource`（不再手抄一份）。"""
+    return BUILDINGS.get(building, {}).get("cap_resource")
+
+
+def _extractors() -> tuple[str, ...]:
+    """当下所有「采集类」建筑（按 kind 现算，引擎加一种就自动带上）。"""
+    return tuple(b for b, v in BUILDINGS.items()
+                 if v.get("kind") in ("extract", "gold") and v.get("outputs"))
+
+
 _FACTORIES = ("补给厂",)
 
 
-def expand_rule_turn_v9(world, name: str, rng: random.Random | None = None,
+def expand_rule_turn_v10(world, name: str, rng: random.Random | None = None,
                         max_actions: int = 40, on_action=None, on_result=None) -> list:
     if rng is None:
         rng = random.Random(0)
@@ -224,8 +318,11 @@ def expand_rule_turn_v9(world, name: str, rng: random.Random | None = None,
     for p in free_tiles:
         t = world.tiles[p]
         res, built = t["resources"], t["buildings"]
-        for bn in _EXTRACTORS:
-            if res.get(_RES_OF[bn], 0) <= built.get(bn, 0) + (t.get("pending") or {}).get(bn, 0):
+        for bn in _extractors():               # ★现算：引擎加一种采集建筑就自动带上
+            _need = _res_of(bn)                # ★现读 cap_resource（不再手抄一份）
+            if _need is None:
+                continue
+            if res.get(_need, 0) <= built.get(bn, 0) + (t.get("pending") or {}).get(bn, 0):
                 continue
             e = build_econ(world, bn, p)           # 传地块：按该格实际造价算回本
             if e["payback"] and e["payback"] <= left:
@@ -349,7 +446,7 @@ def expand_rule_turn_v9(world, name: str, rng: random.Random | None = None,
     # 这样"本回合做几座"不需要预算表：做完了条件自然不成立，就停了。
     def cash_crop(bn: str) -> bool:
         """它的产出能不能卖成钱？只有能变现的才被允许在攒钱期动那笔钱。"""
-        if bn in _EXTRACTORS:
+        if bn in _extractors():            # ★现算（v9 是一份写死的名单）
             return True
         return any(g in TRADEABLE for g in (BUILDINGS[bn].get("outputs") or {}))
 
@@ -402,7 +499,8 @@ def expand_rule_turn_v9(world, name: str, rng: random.Random | None = None,
         if (army_n < army_cap
                 and t["buildings"].get("兵营", 0) > t.get("recruited_this_turn", 0)
                 and not world.grid_short.get(name)
-                and R()["粮食"] >= 10 and R()["装备"] >= 5):
+                # ★成本**现读**引擎表（v9 把「10 粮 5 装」写死在这一行）
+                and _can_afford(R(), "步")):
             if do("recruit", {"tile": f"{p[0]+1} {p[1]+1}", "n": 1, "unit": "步"},
                   world.recruit, name, p[0], p[1], 1, "步"):
                 army_n += 1
@@ -431,22 +529,22 @@ def expand_rule_turn_v9(world, name: str, rng: random.Random | None = None,
             place(p, bn)
 
     # ================================================================ 8. 扩张
-    # 教条（用户口径）：**从不单兵作战**、**只满血推进**、**绕山地**。
+    # 教条（用户口径）：**从不单兵作战**（`MIN_SQUAD`）、**只满血推进**（阈值现读）。
+    # ★ v10：**没有"绕山地"这一条了** —— 打不打得赢由现算的战斗数学决定，见下面 `plan()`。
     armies = [a for a in world.armies if a["owner"] == name and a["hp"] > 0]
     if not armies:
         return acts
 
     def tile_info(p):
-        """这一格：要多少兵打、值不值得打 —— **只认看得见的信息**。
+        """这一格：地形、资源 —— **只认看得见的信息**。
 
-          · 看不见的格       → 地形 None（排序时按 `UNKNOWN_TROOPS` 最保守算）、资源 0
+          · 看不见的格       → 地形 None（算减伤时按**当下最保守**的地形）、资源 0
           · 看得见、未探明   → **地形可见**（land 面板的 `ter_char` 就是给玩家看的），
                                **资源未知**（引擎在占地时才掷；面板只在国土上列资源）
           · 已探明的格       → 地形 + 资源都已知
 
-        ★★ 原来这里写的是 `world._new_tile(*p, name)` —— **未探明格直接开图偷看资源**，
-        拿来给扩张目标排序（"资源越多越先打"）。那是玩家**永远**拿不到的信息
-        （资源只有占了才知道），学生原理上学不到 —— 加记忆也补不上，只能改老师。
+        ★ v9 的这条注释保留：原来这里写的是 `world._new_tile(*p, name)` —— 未探明格
+        直接开图偷看资源。那是玩家**永远**拿不到的信息，学生原理上学不到 ⇒ 只能改老师。
         """
         if not vis(p):
             return None, 0
@@ -458,11 +556,17 @@ def expand_rule_turn_v9(world, name: str, rng: random.Random | None = None,
     def dist_to(p):
         return min(max(abs(a["x"] - p[0]), abs(a["y"] - p[1])) for a in armies)
 
+    def seen_defenders(p):
+        """这一格上**看得见**的守军（看不见就返回空 → 按一支满血野人估）。"""
+        return [a for a in world.armies
+                if a["hp"] > 0 and (a["x"], a["y"]) == p
+                and a["owner"] != name and vis(p)]
+
     targets = []
     for a in armies:
         for nb in world.neighbors(a["x"], a["y"]):
-            # ★ 只打看得见的格。看不见就不打 —— 行军/进攻也走这条：
-            #   扩张本来就是"吃掉疆域外那一圈"，而那一圈**天生可见**，所以这不减能力，
+            # ★ 只打看得见的格（v9 的视野门控，一行没动）：
+            #   扩张本来就是"吃掉疆域外那一圈"，而那一圈**天生可见**，所以不减能力，
             #   只是把"隔着迷雾看着全图挑目标"堵掉。
             if nb not in targets and vis(nb) and world.owned_by(*nb) is None:
                 targets.append(nb)
@@ -470,38 +574,46 @@ def expand_rule_turn_v9(world, name: str, rng: random.Random | None = None,
         gs = [(g["x"], g["y"]) for g in world.armies
               if g["owner"] == "野人" and g["hp"] > 0 and vis((g["x"], g["y"]))]
         targets = sorted(gs, key=dist_to)[:12]
-    # 越便宜（每格所需兵力少、资源多）越先打。
-    # `info` 先算一遍再排：`tile_info` 里含 `visible_to`，写在 sort 的 key 里会被调用三次。
+
+    # ★★ v10 的核心：**不再有"每地形要几支"的表，也不再绕山地**。
+    #   每格现算两个数（读的是**当下的**攻击力/减伤/血量，所以抖动/平衡调整都跟得上）：
+    #     · `need`  = 一轮打死它要几支 —— 只用来**排序**（越便宜越先打）
+    #     · `squad` = **打不打得赢**所需兵力（多轮估算：我几轮打死它 vs 它几轮打死我）
+    #   `tile_info` 里含 `visible_to`，先算一遍再排（写在 sort 的 key 里会被调多次）。
     info = {p: tile_info(p) for p in targets}
-    targets.sort(key=lambda p: (TROOPS_FOR.get(info[p][0], UNKNOWN_TROOPS)
-                                / max(info[p][1], 1),
-                                -info[p][1], dist_to(p)))
+
+    def plan(p):
+        terrain, res = info[p]
+        atk = max((unit_atk(a) for a in armies), default=50)     # 我方主力攻击力（现读）
+        hp = max((unit_max_hp(a) for a in armies), default=ARMY_MAX_HP)
+        owners = {world.owned_by(*p)}
+        def_owner = next((o for o in owners if o), None)
+        return _fight_cost(world, p[0], p[1], terrain,
+                           def_owner or "野人", seen_defenders(p), atk, hp) + (res,)
+
+    plans = {p: plan(p) for p in targets}
+    targets.sort(key=lambda p: (plans[p][0] / max(plans[p][2], 1),
+                                -plans[p][2], dist_to(p)))
 
     used_ids: set = set()
     for (tx, ty) in targets[:8]:
-        need_n = TROOPS_FOR.get(info[(tx, ty)][0], UNKNOWN_TROOPS)
-        near = [a for a in armies if a["id"] not in used_ids
-                and not a.get("engaged") and a["hp"] >= ARMY_MAX_HP
+        need_n = max(MIN_SQUAD, plans[(tx, ty)][1])              # ★打不打得赢的兵力
+        ready = lambda a: (a["id"] not in used_ids and not a.get("engaged")
+                           and a["hp"] >= unit_max_hp(a))        # ★满血阈值现读（v9 写死 ARMY_MAX_HP）
+        near = [a for a in armies if ready(a)
                 and max(abs(a["x"] - tx), abs(a["y"] - ty)) <= 1]
         if len(near) < need_n:
-            movers = [a for a in armies if a["id"] not in used_ids
-                      and not a.get("engaged") and a["hp"] >= ARMY_MAX_HP
+            movers = [a for a in armies if ready(a)
                       and a.get("moved_turn") != world.turn]
             for a in movers[:need_n - len(near)]:
-                # ★落点 = **野地 或 自家地**（引擎 mp.py:742 明说「mv 合法地块 =
-                #   野地 / 自家地，他国领土一律禁 mv」；can_enter 也是
-                #   `owner is None or owner == name`）。
-                #   ★★ 这里原来写的是 `owned_by(*q) is None` —— **只许走野地**，
-                #   比引擎紧一格。后果是**腹地的兵出不来**：它四周全是自家地时
-                #   一个合法落点都没有，只能干等旁边刷出荒地，看起来就是"绕远路"
-                #   （实测 seed 0 / 150 回合：39/148 个回合有兵被这样卡住，
-                #   最惨时 6 支里 2 支一步都动不了）。
-                # 绕山地那条保留：山地行军亏、且在山地上挨打守方 +50% 减伤。
-                # ★ 落点也要**看得见**：看不见的格不知道是不是山地，也无从判断该不该走。
-                #   部队随后勤线（自家地/可拓荒圈）推进，这一圈天生可见，所以不挡路。
+                # ★落点 = **野地 或 自家地**（引擎：mv 合法地块 = 野地/自家地，
+                #   他国领土一律禁 mv）。★v9 曾在这里"绕山地"（`terrain != 山地`）——
+                #   v10 去掉：**山地只是减伤高的地形之一**，该不该走由"打不打得赢"
+                #   决定，不由地形名决定。行军路上挨不挨打，那是另一件事（守方吃地形，
+                #   行军方不吃）。
+                # ★ 落点仍要**看得见**（看不见的格无从判断，而部队本就随后勤线推进）。
                 cands = [q for q in world.neighbors(a["x"], a["y"])
-                         if vis(q) and world.owned_by(*q) in (None, name)
-                         and world.tile_terrain(*q) != "山地"]
+                         if vis(q) and world.owned_by(*q) in (None, name)]
                 if not cands:
                     continue
                 cur = max(abs(a["x"] - tx), abs(a["y"] - ty))
@@ -510,8 +622,7 @@ def expand_rule_turn_v9(world, name: str, rng: random.Random | None = None,
                     do("move", {"army_id": a["id"], "x": step[0] + 1, "y": step[1] + 1},
                        world.move, name, a["id"], step[0], step[1])
                     used_ids.add(a["id"])
-            near = [a for a in armies if a["id"] not in used_ids
-                    and not a.get("engaged") and a["hp"] >= ARMY_MAX_HP
+            near = [a for a in armies if ready(a)
                     and max(abs(a["x"] - tx), abs(a["y"] - ty)) <= 1]
         if len(near) >= need_n:
             near.sort(key=lambda a: -a["hp"])

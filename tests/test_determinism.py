@@ -28,7 +28,7 @@ ROOT = str(Path(__file__).resolve().parent.parent)
 SCRIPT = r"""
 import hashlib, random, sys
 sys.path.insert(0, {root!r})
-import mp, expand_rule_v9
+import mp, expand_rule_v10
 w = mp.World(size=20, seed=42, nations=["秦", "燕", "齐", "赵", "楚"])
 for g in ("齐", "赵", "楚"):
     assert w.declare_guarantee(g, "燕")[0]
@@ -42,7 +42,7 @@ rng = random.Random(5)
 for _ in range(8):
     w.begin_turn()
     for n in w.alive():
-        expand_rule_v9.expand_rule_turn_v9(w, n, rng, max_actions=12)
+        expand_rule_v10.expand_rule_turn_v10(w, n, rng, max_actions=12)
     w.resolve_turn()
 w.save({path!r})
 print(hashlib.sha256(open({path!r}, "rb").read()).hexdigest())

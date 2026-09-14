@@ -61,19 +61,19 @@ from game import (
 # 数值表在 balance.py（**唯一调参入口**）；这里原样转口，`mp.X` 的老引用照旧。
 from balance import (
     DIPLO_COST,
+    PLAN_MAX_TURNS,
+    REPORT_EVERY,
     RES_KEYS,
     RES_LABEL,
     RETREAT_DEF_COVER,
     SPY_COST,
+    SPY_TURNS,
     START_RES,
 )
 
 
 CROSS = [(0, 0), (0, -1), (0, 1), (-1, 0), (1, 0)]
 
-SPY_TURNS = 3     # 3 回合后回报目标全部经济情报 + 地图（进 intel）；军情只给粗略数量（各兵种几支），位置/血量不外泄
-PLAN_MAX_TURNS = 10  # 国策每 10 回合必须修订一次（否则 end_turn 被拦）
-REPORT_EVERY = 10    # 经济报表每 10 回合自动结一期：第 11/21/31… 回合开局可查（不能手动运行）
 # 总消费（累计，按当时市价折金）——终局结算按它排名。只计「被消耗掉的资源」，
 # 市场买卖/馈赠不计（买来的物资在真正被消耗时才入账），避免重复计数。
 SPEND_FIELDS = ("build",    # 建造实付金 + 木×市价（含城堡升级）

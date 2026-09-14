@@ -42,12 +42,13 @@ VIA_GAME = (
     "DIPLO_CENTER_MIN_COST", "LETTER_COST", "LETTER_COST_ALLY", "LETTER_CENTER_DISCOUNT",
     "LETTER_COST_MIN", "LETTER_FREE_CHARS", "LETTER_CHARS_PER_GOLD", "SITE_BUILDING",
 )
-# 从 mp.py 转口的名字（开局/展示口径 + 两条钱）
-VIA_MP = ("START_RES", "RES_KEYS", "RES_LABEL", "SPY_COST", "DIPLO_COST", "RETREAT_DEF_COVER")
+# 从 mp.py 转口的名字（开局/展示口径 + 钱 + 规则节奏）
+VIA_MP = ("START_RES", "RES_KEYS", "RES_LABEL", "SPY_COST", "DIPLO_COST", "RETREAT_DEF_COVER",
+          "SPY_TURNS", "PLAN_MAX_TURNS", "REPORT_EVERY")
 
 # 刻意**留在原地**的（搬了要连守卫一起改，见 balance.py 头部的「没搬进来的」）
 STAYS = {"game": ("NAME_PREFIX", "NAME_SUFFIX", "_CN_DIGIT"),
-         "mp": ("SPY_TURNS", "PLAN_MAX_TURNS", "REPORT_EVERY", "SAVE_VERSION")}
+         "mp": ("SAVE_VERSION", "SAVE_KEYS", "CROSS", "SPEND_FIELDS", "LEDGER_FIELDS")}
 
 # 引擎模块：balance.py 不许 import 它们（只要模块名，路径无所谓）
 ENGINE_MODULES = {"game", "mp", "mp_ai", "mp_run", "ctx", "console", "settlement",
@@ -82,19 +83,14 @@ class TestSingleObject(unittest.TestCase):
 
 
 class TestNoSecondDefinition(unittest.TestCase):
-    """**引擎文件**里没有第二份数值表定义：只能从 balance 转口，不许重新赋值。
+    """**全仓**没有第二份数值表定义：只能从 balance 转口，不许重新赋值。**无例外**。
 
-    射程只覆盖引擎（规则的唯一权威）。`expand_rule_*.py` 是**玩家**（规则 AI），
-    它们可以有自己的本地表——但引擎表必须 import 自 `game`（下面 test_rule_ai_imports
-    盯着）。⚠ 已知同名不同物：`expand_rule_v9.py` 的 `GOODS`（6 项，含木头/补给）
-    ≠ `balance.GOODS`（4 项物资）；那是纯同名，折叠进 `TRADEABLE` 要动老师的基线，
-    得跟 feat/rl 那条线一起改，本测试不拦。
+    为什么连规则 AI 一起管：`balance.GOODS`（4 项物资）与规则 AI 里那个同名的
+    `GOODS`（6 项交易品）曾经各说各话 —— 名字一样、内容不同、谁也不知道该改哪个。
+    现在两边一律写成 `GOODS = tuple(TRADEABLE)`：值取自引擎那份，语义也只剩一份。
     """
 
-    # 引擎文件：实现这场游戏的那几个
-    ENGINE_FILES = ("game.py", "mp.py", "mp_ai.py", "mp_run.py", "ctx.py", "console.py",
-                    "settlement.py", "spend_rules.py", "llm_provider.py")
-    # 断言「唯一赋值处」的名字（其余如 SITE_BUILDING 是派生式，也一并在 balance 里）
+    # 断言「唯一赋值处」的名字（SITE_BUILDING 是派生式，也一并在 balance 里）
     CANONICAL = VIA_GAME + VIA_MP
 
     def _assigned_names(self, path: Path) -> set[str]:
@@ -109,11 +105,12 @@ class TestNoSecondDefinition(unittest.TestCase):
         return names
 
     def test_only_balance_defines_them(self):
-        for fname in self.ENGINE_FILES:
-            p = ROOT / fname
+        for p in sorted(ROOT.glob("*.py")):
+            if p.name == "balance.py":
+                continue
             dup = self._assigned_names(p) & set(self.CANONICAL)
             self.assertEqual(dup, set(),
-                             f"{fname} 又定义了一份数值表：{sorted(dup)}——"
+                             f"{p.name} 又定义了一份数值表：{sorted(dup)}——"
                              f"数值只许住在 balance.py（转口请用 import）")
 
     def test_rule_ai_imports_tables(self):

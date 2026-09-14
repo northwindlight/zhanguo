@@ -5,7 +5,8 @@
   只能调用自己的合法工具（规则与引擎完全一致，无作弊入口）。
 - execute(world, actor, tool, args)：执行一个工具调用并返回结果文本。
 - run_openai_turn(...)：一个国家的「回合」——反复调 LLM 直到它 end_turn / 无工具。
-- dummy_turn(...)：无 key 时的规则 AI（扩张流 v6，游戏层），用于机制验证/看海 demo。
+- dummy_turn(...)：无 key 时的规则 AI（扩张流，**版本由配置选**，见 `rule_ai.py`），
+  用于机制验证/看海 demo。
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ import ctx as ctxlib
 from console import dw as _dw, pad as _pad
 from llm_provider import make_backend
 from ctx import est_tokens
+import rule_ai as rule_ai_registry
 from mp import (DIPLO_COST, PLAN_MAX_TURNS, REPORT_EVERY, RES_KEYS, RES_LABEL,
                 build_econ, good_value)
 
@@ -1863,17 +1865,19 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
 # 无 key 的规则 AI（验证机制 + 看海 demo）
 # ---------------------------------------------------------------------------
 
-def dummy_turn(world, name, rng, max_actions: int = 12) -> int:
-    """无 key 的规则 AI：委托给**游戏层**的 `expand_rule_v9.expand_rule_turn_v9`，
+def dummy_turn(world, name, rng, max_actions: int = 12, rule_ai: str | None = None) -> int:
+    """无 key 的规则 AI：**按版本名**从注册表取一版扩张流（`rule_ai.py`），
     并把每个动作写进看海日志（Observer 因此能看到它的每个行动）。
 
-    策略本身在 `expand_rule_v9.py`——那是游戏层，不依赖本 LLM 层的工具 schema /
-    文本面板 / 国策。v9 = v8（一张账 + 串行判定的最强扩张流）+ **视野门控**：
-    信息集严格等于引擎给玩家的（`World.visible_to`），不开图偷看未探明格资源——
-    代打的国家与 LLM 玩家在同一层信息下竞争。v6 保留作 experiments 探针的论文基线。
+    `rule_ai` = 版本名，如 `"v10"`（配置顶层或逐国可覆盖，见 README 配置表）；
+    不传则用 `rule_ai.DEFAULT_RULE_AI`。**本函数不认识任何具体版本** ——
+    换基线只改配置，不动这里（`tests/test_rule_ai.py` 盯着这条）。
+
+    策略本身在 `expand_rule_v*.py`——那是游戏层，不依赖本 LLM 层的工具 schema /
+    文本面板 / 国策。各版差异与历代表见 `rule_ai.py` 的模块 docstring。
     """
-    from expand_rule_v9 import expand_rule_turn_v9
-    acts = expand_rule_turn_v9(world, name, rng, max_actions=max_actions)
+    _, fn = rule_ai_registry.resolve(rule_ai)
+    acts = fn(world, name, rng, max_actions=max_actions)
     for tool, args, ok, msg in acts:
         log_tool(world, name, tool, args, msg)
     return len(acts)

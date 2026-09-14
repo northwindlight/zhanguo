@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 import ctx as ctxlib
+import rule_ai as rule_ai_registry
 from console import Console
 from mp import SaveFormatError, World
 from mp_ai import dummy_turn, observer_board, observer_map, run_openai_turn
@@ -155,6 +156,14 @@ def run() -> None:
     save_path = Path(args.save or cfg.get("save", "mp_save.json"))
     journal_path = Path(cfg.get("journal", "mp_journal.md"))
     max_turns = args.turns if args.turns is not None else cfg.get("max_turns", 200)
+    # 无 key 国家的代打规则 AI 版本：顶层给全局，`nations[]` 里可逐国覆盖。
+    # 版本名在这里**不落死**；**开局前就把配置验一遍**（写错了别等下到第一个
+    # 无 key 国家、甚至第 N 回合才发现），认不出来即报错并列出可用版本。
+    rule_ai = cfg.get("rule_ai", rule_ai_registry.DEFAULT_RULE_AI)
+    rule_ai_registry.resolve(rule_ai)
+    for _n in cfg["nations"]:
+        if _n.get("rule_ai"):
+            rule_ai_registry.resolve(_n["rule_ai"])
     world, is_new = make_world(cfg, args.new, save_path)
 
     cfg_by_name = {n["name"]: n for n in cfg["nations"]}
@@ -317,7 +326,8 @@ def run() -> None:
                                        max_steps=ncfg.get("max_steps", 24))
             else:
                 done = dummy_turn(world, name, rng,
-                                  max_actions=ncfg.get("max_actions", 12))
+                                  max_actions=ncfg.get("max_actions", 12),
+                                  rule_ai=ncfg.get("rule_ai", rule_ai))
             secs = time.time() - t0
             observer(world, out, f"◈ {name} 行动完毕（{done} 次工具调用，{secs:.0f}s）")
             flush(out, journal_path)

@@ -55,6 +55,7 @@ python3 mp_run.py --turns 10           # 读档续局；无档则新开
 | `map_size` | 60 | 地图边长（60 → 60×60 格） |
 | `seed` | 随机 | 随机种子；固定它即可复现同一张地图 |
 | `max_turns` | 200 | 最多跑多少回合 |
+| `rule_ai` | `v10` | **无 key 国家的代打规则 AI 版本**（`v10`/`v9`/`v6`/`v5`/`v4`/`ai`，见 `rule_ai.py` 的历代表）；`nations[]` 里可**逐国覆盖**。未知版本当场报错，不静默退回 |
 | `save` / `journal` | `mp_save.json` / `mp_journal.md` | 存档 / 战史日志 |
 | `ctx_*` | 见【跨回合上下文】 | 上下文窗口与预算分配 |
 
@@ -360,10 +361,14 @@ token 估算系数（CJK 1.05/字、其余 0.32/字）用 298 回合真实存档
 
 ### 无 key 也能跑
 
-条目缺少 `base_url`/`api_key`/`model` 时，该国由内置规则 AI（`dummy_turn` → `expand_rule_v9`）代打：
+条目缺少 `base_url`/`api_key`/`model` 时，该国由内置规则 AI（`dummy_turn`）代打：
 一张账 ROI 驱动的扩张流（复利建设 → 能源/编制闸门 → 串行判定打地）。
-v9 带**视野门控**——信息集严格等于引擎给玩家的 `visible_to`，不开图偷看未探明格资源，
-与 LLM 玩家在同一层信息下竞争。用于机制验证与无 key 演示。
+**用哪一版由配置决定**（`rule_ai`，顶层或逐国，见上表）——代码里不写死版本，
+历代表与各版差异见 `rule_ai.py`。缺省 `v10` 带**视野门控**——信息集严格等于引擎给玩家的
+`visible_to`，不开图偷看未探明格资源，与 LLM 玩家在同一层信息下竞争；且**引擎数值一律
+现读/现算**（不写死造价与兵种属性），所以平衡表（`balance.py`）一改，代打的水准跟着变、
+不会按旧值决策。`v10` 同时是 RL 线的 BC 老师基线（`feat/rl` 的 `--teacher v10`）。
+★ 换版本要**重量基线**：各版成绩不可混用（v8 之前有偷看，v10 改了山地与征召口径）。
 
 ## RL 训练层（在 `feat/rl` 分支）
 
@@ -443,7 +448,8 @@ python3 settlement.py --table      # 只看成绩单
 | `console.py` | 终端体验层：Markdown→ANSI 渲染 + 汉字宽度感知的命令台（无第三方依赖） |
 | `settlement.py` | 终局结算：按**总消费**排名（支出法 GDP 骨架）+ 结算厅 |
 | `spend_rules.py` | 规则 AI 的账房：刚性支出 / 60% 闸门 / 满补给三条判据 |
-| `expand_rule_v9.py` | 现役规则 AI（v8 + 视野门控；无 key 的国家由它代打）；`v4/v5/v6` 与 `expand_rule_ai.py` 保留为历代基线（`v6` 仍是 `experiments/` 探针的论文基线） |
+| `rule_ai.py` | **规则 AI 注册表**：版本名 → 入口函数（懒加载）。「哪一版当代打」是**配置项**（`rule_ai`），不写在代码里；历代表与加新版本的步骤都在它的 docstring |
+| `expand_rule_v10.py` / `v9` / `v6` / `v5` / `v4` / `expand_rule_ai.py` | 各代扩张流规则 AI（无 key 的国家按配置选一版代打）：`v10`=v9+抗抖+不绕山地（缺省，也是 RL 的 BC 老师基线）、`v9`=v8+视野门控、`v6`=`experiments/` 探针的论文基线 |
 | `mp.py` 顶部 `good_value` / `build_econ` | 游戏层 ROI 原语：LLM 经济面板与规则 AI **共用**的一份回本计算——不存在第二套口径 |
 | `experiments/spend_metric_probes.py` | 消费总量指标的对照实验（E1 攻击性 / E2 归属 / E3 朝贡），配 [`docs/`](docs/) 的论证 |
 | `docs/消费总量评测指标论证.md` | 指标的第一性论证 + 对抗性实验 + 局限 |
