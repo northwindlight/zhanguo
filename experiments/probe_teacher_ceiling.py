@@ -33,14 +33,20 @@ from rl.train import teacher_baseline
 
 EPS = int(sys.argv[1]) if len(sys.argv) > 1 else 8
 TURNS = int(sys.argv[2]) if len(sys.argv) > 2 else 200
+# ★新增第 3 个参数（2026-09-14）：图集基点。**默认 900_000 = 老路，逐字不变。**
+#   为什么需要它：学生的**贪心**档跑 900000+、**采样**档跑 800000+（`train.py:376/379`），
+#   而本探针原来只跑 900000+ ⇒ 拿老师的数去比学生的**采样**数是**跨图集**，
+#   正是「验收线 67%」那处错配的根源。给两个基点各跑一次，两边才配得平。
+SEED0 = int(sys.argv[3]) if len(sys.argv) > 3 else 900_000
 
 teacher = get_teacher("v10", turns=TURNS)
 env = ZhanguoEnv(map_size=16, max_turns=TURNS)
-print(f"规则 AI 老师 v10，在**贪心评估同一批图**（种子 900000+）上跑 {EPS} 局 × {TURNS} 回合\n")
+print(f"规则 AI 老师 v10，图集基点 {SEED0}（900000=贪心档同图 / 800000=采样档同图），"
+      f"跑 {EPS} 局 × {TURNS} 回合\n")
 
 vals = []
 for i in range(EPS):
-    seed = 900_000 + i
+    seed = SEED0 + i
     env.reset(seed)
     # 与 `teacher_baseline` 同款：跑在**世界副本**上，不碰 env.world
     v = teacher_baseline(copy.deepcopy(env.world), env.agent, TURNS, teacher)
