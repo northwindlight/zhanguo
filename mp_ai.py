@@ -14,7 +14,6 @@ from __future__ import annotations
 import copy
 import json
 import threading
-from pathlib import Path
 
 from game import (
     ARMY_HEAL_PER_TURN,
@@ -48,14 +47,13 @@ from mp import (DIPLO_COST, PLAN_MAX_TURNS, REPORT_EVERY, RES_KEYS, RES_LABEL,
 MAIL_BRIEF_FULL = 3      # 状态面板里完整展示的新信数（更旧的只列摘要行）
 MAIL_BRIEF_ROWS = 20     # 状态面板里最多列多少条旧信摘要
 
-
-# README 原文（匈奴 rules 附加用；读不到则留空）
-_README_TEXT = ""
-try:
-    _README_TEXT = Path(__file__).resolve().parent.joinpath("README.md").read_text(encoding="utf-8")
-except Exception:
-    pass
-
+# ★ 局内上下文**不注入 README**（2026-09-15）：`rules` 一律返回 `_help_sections()`
+#   现算的规则文本，**所有政体同一份**。曾经匈奴的 rules 额外附一份 README 原文全文
+#   （`mp_ai._README_TEXT`）——那份文本是给人类看的（配置项/项目结构/RL 线/结算说明），
+#   对局内玩家大半是噪声，而且把"README 里能写什么"绑成了**规则约束**（分布类数字
+#   一度因此不许进 README）。现由 `tests/test_readme_sync.py` 的
+#   `test_no_readme_injection` 盯着不回潮；匈奴的专属机制由 system prompt 里的
+#   【教义】承担（`_huns_prompt`），`rules` 不再重复。
 _engine_lock = threading.RLock()
 
 
@@ -1024,13 +1022,10 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
             "plan": _fmt_plan(world, actor),
         }.get(which, full_state(world, actor))
 
-    # ---- 规则查询（= README 的游戏规则；匈奴另附 README 原文全文）
+    # ---- 规则查询：**所有政体同一份**（`_help_sections()` 按代码数值现算）
+    #   政体专属的机制写在各自的 system prompt 里（如匈奴的【教义】），rules 不重复。
     if tool in ("rules", "规则", "help", "帮助"):
-        text = rules_text(world, str(args.get("topic", "") or ""))
-        if world.polity.get(actor) == "huns":
-            text = ("【匈奴教义（必须贯彻）】\n" + HUNS_DOCTRINE + "\n\n" + text
-                    + "\n\n【README 原文（完整游戏文档，供检索细节）】\n" + _README_TEXT)
-        return text
+        return rules_text(world, str(args.get("topic", "") or ""))
 
     # ---- 外交对象（先选一个非自己的国家）
     if tool in ("countries", "外交对象", "国家列表", "对手"):
@@ -1327,7 +1322,7 @@ TOOL_SCHEMAS = [
         "name": "countries", "description": "列出所有可选外交对象（除你之外的每个国家：关系/是否接壤/有无来信）。外交动作前先用它选一个目标，再以 to=该国家 行动；绝不能对自己用外交工具。",
         "parameters": _props({})}},
     {"type": "function", "function": {
-        "name": "rules", "description": "查询完整游戏规则（相当于 README）：建筑造价与上限、地形、电网经济、军队战斗、外交、信箱、市场、回合存档。可带 topic 只取相关段（如 '兵营'、'外交'、'宣战'）；不带则返回全文。",
+        "name": "rules", "description": "查询完整游戏规则：建筑造价与上限、地形、电网经济、军队战斗、外交、信箱、市场、回合存档。可带 topic 只取相关段（如 '兵营'、'外交'、'宣战'）；不带则返回全文。",
         "parameters": _props({"topic": {"type": "string", "description": "想查的主题（可选）"}})}},
     {"type": "function", "function": {
         "name": "econ", "description": "按当前市价核算建设回报：某建筑的 造价(折金)/每回合毛利/回本时间；不带 building 则输出全部建筑经济表。做建设/买卖决策前先算再定。",

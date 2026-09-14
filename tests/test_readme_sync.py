@@ -2,9 +2,13 @@
 """README / docs ↔ 代码同步守卫：改引擎不改文档，这里会红。
 
 病根（用户原话）：「经常改引擎忘记改文档」。游戏内 `rules` 文本由代码数值表现场生成，
-不会漂移；漂移的只会是 README 与 docs（人类入口）。**README 还会被原文注入匈奴政体的
-rules 返回**（`mp_ai._README_TEXT`），所以地图生成分布这类上帝视角数字被拆到
-`docs/地图生成与资源分布.md`——本测试同时盯两边：数字与代码对账，且 README 不得回流。
+不会漂移；漂移的只会是 README 与 docs（人类入口）。
+
+★ 2026-09-15 起**局内上下文不注入 README**（匈奴的 rules 曾额外附 README 原文全文，
+现已与普通国家一致）——`test_no_readme_injection` 盯着不回潮。地图生成分布这类上帝视角
+数字仍只住在 `docs/地图生成与资源分布.md`：它不是"README 会被喂给 AI"的缘故了，
+而是**README 是给人看的总览**，分布明细属于另一份文档（守卫 `TestReadmeNoGodView`
+两边都盯：分布数字不得回流 README）。
 
 三种手段：
   1. 表格解析：README 建筑表/地形表、docs 权重表/期望表逐行与代码对账（行数也要对上）；
@@ -232,8 +236,35 @@ class TestMapgenDoc(unittest.TestCase):
 
 
 class TestReadmeNoGodView(unittest.TestCase):
-    """防泄漏守卫：README 会被原文注入匈奴的游戏内 rules 返回（`mp_ai._README_TEXT`），
-    地图生成分布（档位/倾向/期望/专精）是上帝视角，搬回 README 就是给局内玩家开图。"""
+    """两道守卫：
+
+    ① **局内不注入 README**（`test_no_readme_injection`）——曾几何时匈奴的 `rules`
+       额外附 README 原文全文，于是"README 里能写什么"变成了**规则约束**；
+       现在 `rules` 一律返回代码现算的规则文本，所有政体同一份。
+    ② **分布数字不回流 README**（`test_no_distribution_leaks`）——地图生成分布
+       （档位/倾向/期望/专精）只住在 `docs/地图生成与资源分布.md`：README 是给人看的
+       总览，明细属另一份文档。① 若被后人改回去，② 就从"文档整洁"升级成"防开图"。
+    """
+
+    # 查**真的读文件**（字符串字面量 / 赋值），不查"注释里提到这个词"——
+    # 那条历史教训本身值得留在代码注释里。
+    README_READ = re.compile(r"""["']README\.md["']|_README_TEXT\s*=""")
+
+    def test_no_readme_injection(self):
+        """`rules` 不许再读 README：所有政体的规则文本必须**同源**（`_help_sections()`）。"""
+        hit = self.README_READ.search(MP_AI_SRC)
+        self.assertIsNone(hit, f"mp_ai 又把 README 读进局内上下文了（{hit.group() if hit else ''}）"
+                               f"——规则文本该由代码现算")
+
+    def test_huns_rules_same_as_others(self):
+        """匈奴与普通国家查 `rules` 得到**同一份**文本（政体专属机制在 system prompt 里）。"""
+        w = mp.World(size=12, seed=7, nations=["秦", "林胡"])
+        w.apply_polity("林胡", "huns")
+        for topic in ("", "建筑", "外交"):
+            with self.subTest(topic=topic):
+                self.assertEqual(mp_ai.execute(w, "林胡", "rules", {"topic": topic}),
+                                 mp_ai.execute(w, "秦", "rules", {"topic": topic}),
+                                 f"匈奴的 rules({topic!r}) 与普通国家不一致")
 
     def test_no_distribution_leaks(self):
         for s in ("平均每格资源期望", "资源倾向", "地块资源量", "实际最大档",
