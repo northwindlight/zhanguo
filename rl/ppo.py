@@ -505,7 +505,13 @@ class PPO:
                     if bc_kl is not None:
                         stats["bc_kl"] += float(bc_kl)
                     stats["n"] += 1
-        for k in ("pg", "vf", "ent", "kl", "clipfrac"):
+        # ★`bc_kl` 必须一起归一（2026-09-14 修）：它上面是 `+=` 累加的，
+        #   漏在这里就会报成"**所有 minibatch 的和**"——而 minibatch 数随
+        #   `--rollout-episodes`（4 局 ~215 / 16 局 ~850）和**每局长度**（5~200 回合）变
+        #   ⇒ 同一个逐批 KL，日志上能差 4~5 倍，**跨 run、跨块都不可比**。
+        #   踩过：A16（16 局）块101 报 bc_kl=60.9，看着像锚项爆炸，实际逐批 0.071
+        #   与 bc1 的 0.066 一致。**只改日志口径，训练数学与 ckpt 一字未动 ⇒ 不必重炼。**
+        for k in ("pg", "vf", "ent", "kl", "clipfrac", "bc_kl"):
             stats[k] /= max(1, stats["n"])
         stats["adv_mean"] = float(adv_mean)
         stats["adv_std"] = float(adv_std)
