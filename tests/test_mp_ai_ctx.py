@@ -152,5 +152,63 @@ class TestCompactBlock(unittest.TestCase):
         self.assertLessEqual(len(text), mp_ai.COMPACT_INPUT_CHARS + 200)
 
 
+class TestMemorySearch(unittest.TestCase):
+    """memory_search / 检索记忆：翻旧账（只搜正文、不含思考；只搜本国）。"""
+
+    def _w(self):
+        import mp
+        w = mp.World(size=12, seed=7, nations=["秦"])
+        w.turn_memory["秦"] = [
+            {"turn": 12, "messages": [
+                {"role": "user", "content": "【第12回合 行动记录】"},
+                {"role": "assistant", "content": "与楚缔结盟约，五年互不侵犯",
+                 "reasoning_content": "思考：为保卫西部粮区必须稳住南线……"},
+                {"role": "tool", "tool_call_id": "t1", "content": "楚 接受了盟约"}]},
+            {"turn": 13, "messages": [
+                {"role": "user", "content": "【第13回合 行动记录】"},
+                {"role": "assistant", "content": "北境遭林胡袭扰",
+                 "reasoning_content": "思考：骑兵布防……"}]},
+        ]
+        w.plans["秦"] = {"text": "北方拒林胡，南联楚", "turn": 8}
+        w.long_memory["秦"] = "与楚盟约五年；林胡为心腹之患。"
+        return w
+
+    def test_schema_registered(self):
+        names = {t["function"]["name"] for t in mp_ai.TOOL_SCHEMAS}
+        self.assertIn("memory_search", names)
+
+    def test_finds_body_not_reasoning(self):
+        w = self._w()
+        out = mp_ai.execute(w, "秦", "检索记忆", {"query": "盟约"})
+        self.assertIn("第12回合", out)
+        self.assertIn("与楚缔结盟约", out)
+        self.assertNotIn("为保卫西部粮区", out)   # reasoning 不索引
+        self.assertNotIn("骑兵布防", out)         # 无关回合的 thinking 更不该进
+
+    def test_gives_turn_and_adjacent(self):
+        w = self._w()
+        out = mp_ai.execute(w, "秦", "检索记忆", {"query": "楚 接受"})
+        self.assertIn("第12回合", out)
+        self.assertIn("相邻", out)
+        self.assertIn("与楚缔结盟约", out)
+
+    def test_no_hit_graceful(self):
+        w = self._w()
+        out = mp_ai.execute(w, "秦", "memory_search", {"query": "海战"})
+        self.assertIn("没有命中", out)
+
+    def test_empty_query_usage(self):
+        w = self._w()
+        out = mp_ai.execute(w, "秦", "记忆检索", {})
+        self.assertIn("用法", out)
+
+    def test_huns_not_blocked(self):
+        import mp
+        w = mp.World(size=12, seed=7, nations=["林胡"])
+        w.apply_polity("林胡", "huns")
+        out = mp_ai.execute(w, "林胡", "检索记忆", {"query": "补给"})
+        self.assertNotIn("被禁", out)            # 内部记忆，不属被禁外交工具
+
+
 if __name__ == "__main__":
     unittest.main()

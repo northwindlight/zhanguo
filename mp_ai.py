@@ -1082,6 +1082,91 @@ def _diplo_cost(world, actor: str, to: str | None = None, *, incoming: bool = Fa
     return c
 
 
+
+# ---------------------------------------------------------------------------
+# 记忆检索（翻旧账：只搜本国历史记忆的正文，不含思考；免费只读）
+# ---------------------------------------------------------------------------
+_MEM_CUT = 160      # 命中正文预览长度
+_MEM_NEIGH = 60     # 相邻上下文单侧预览长度
+
+
+def _mem_cut(text: str, n: int) -> str:
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= n else text[:n] + "…"
+
+
+def _memory_search(world, name: str, args: dict) -> str:
+    """按关键词搜本国历史记忆的正文，返回命中回合号 + 相邻上下文。
+
+    只搜 `turn_memory`/`summaries`/`summary_blocks`/`long_memory`/`plans` 的
+    **content**（assistant 的 reasoning_content 刻意不索引——那是思考不是事实）；
+    只搜得到该国自己的记忆，符合迷雾纪律。免费、只读。
+    """
+    query = str(args.get("query", "") or "").strip()
+    try:
+        limit = max(1, min(8, int(args.get("limit") or 3)))
+    except (TypeError, ValueError):
+        limit = 3
+    if not query:
+        return "用法：memory_search(query=关键词 用空格分隔多个词, limit=条数)，例：memory_search(query=盟约 楚)"
+    _sep = {",", "，", "、", ";", "；", "	"}
+    kws = [k for k in "".join(c if c not in _sep else " " for c in query).split() if k]
+    if not kws:
+        return f"记忆检索「{query}」：空关键词。"
+
+    # 收集候选单元：(回合标签, 正文, 前文, 后文)
+    units: list[tuple[str, str, str, str]] = []
+    for rec in (world.turn_memory.get(name) or []):
+        msgs = rec.get("messages") or []
+        for i, m in enumerate(msgs):
+            parts = []
+            if m.get("role") == "tool":
+                parts.append(str(m.get("content") or ""))
+            else:
+                if m.get("content"):
+                    parts.append(str(m["content"]))
+                for tc in (m.get("tool_calls") or []):
+                    fn = tc.get("function") or {}
+                    parts.append(f"{fn.get('name')}({fn.get('arguments')})")
+            text = " ".join(p for p in parts if p)   # 不含 reasoning_content
+            if not text:
+                continue
+            prev = _mem_cut(msgs[i - 1].get("content"), _MEM_NEIGH) if i > 0 else ""
+            nxt = _mem_cut(msgs[i + 1].get("content"), _MEM_NEIGH) if i + 1 < len(msgs) else ""
+            units.append((str(rec.get("turn", "?")), text, prev, nxt))
+    for it in (world.summaries.get(name) or []):
+        units.append((str(it["turn"]), "小结：" + str(it.get("text") or ""), "", ""))
+    for b in (world.summary_blocks.get(name) or []):
+        units.append((f"{b['from']}-{b['to']}", "阶段总结：" + str(b.get("text") or ""), "", ""))
+    lm = (world.long_memory.get(name) or "").strip()
+    if lm:
+        units.append(("长期记忆", lm, "", ""))
+    pl = (world.plans.get(name) or {}).get("text", "")
+    if pl:
+        units.append((str((world.plans.get(name) or {}).get("turn", "") or 0),
+                      "国策：" + str(pl), "", ""))
+
+    scored = [(sum(1 for k in kws if k in u[1]), u) for u in units
+              if any(k in u[1] for k in kws)]
+    if not scored:
+        return f"记忆检索「{query}」：没有命中（正文检索，不含思考过程）。"
+    # 排序：分数降序 → 回合新→旧；非数字回合（长期记忆/阶段）放最后
+    def _tkey(x):
+        try:
+            return -int(x[1][0])
+        except (TypeError, ValueError):
+            return 1
+    scored.sort(key=lambda x: (-x[0], _tkey(x)))
+    L = [f"📇 记忆检索「{query}」命中 {len(scored)} 处（正文，不含思考），列出前 {limit}："]
+    for i, (_, u) in enumerate(scored[:limit], 1):
+        tag, text, prev, nxt = u
+        head = f"第{tag}回合" if tag.isdigit() else f"【{tag}】"
+        L.append(f"{i}. {head} ▸ {_mem_cut(text, _MEM_CUT)}")
+        if prev or nxt:
+            L.append(f"    └ 相邻：{prev}{' … ' if prev and nxt else ''}{nxt}")
+    return "\n".join(L)
+
+
 # ---------------------------------------------------------------------------
 # 工具执行（隔离：所有动作都以 actor=本国身份执行，引擎自会校验合法）
 # ---------------------------------------------------------------------------
@@ -1145,6 +1230,10 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
     #   政体专属的机制写在各自的 system prompt 里（如匈奴的【教义】），rules 不重复。
     if tool in ("rules", "规则", "help", "帮助"):
         return rules_text(world, str(args.get("topic", "") or ""))
+
+    # ---- 记忆检索（翻旧账：只搜本体正文，不含思考；免费只读）
+    if tool in ("memory_search", "search_memory", "检索记忆", "记忆检索", "回想", "回忆", "history", "翻旧账"):
+        return _memory_search(world, actor, args)
 
     # ---- 外交对象（先选一个非自己的国家）
     if tool in ("countries", "外交对象", "国家列表", "对手"):
@@ -1553,6 +1642,10 @@ TOOL_SCHEMAS = [
     {"type": "function", "function": {
         "name": "reject_peace", "description": "拒绝对方求和，战争继续（成功扣外交费）。",
         "parameters": _props({"offer_id": {"type": "integer", "description": "求和提议id", "required": True}})}},
+    {"type": "function", "function": {
+        "name": "memory_search", "description": "检索你自己的历史记忆（只看行动/发言/结果的**正文**，不看思考过程）：按关键词找出相关回合，返回**回合号与相邻上下文**。适合翻旧账——「我之前答应过楚国什么」「哪几场仗烧补给最凶」「谁对我宣过战」。关键词用空格分隔（如 盟约 楚），全部命中优先、部分命中次之；limit 控制返回条数。只搜得到你自己的记忆，不影响他人。免费、只读。",
+        "parameters": _props({"query": {"type": "string", "description": "检索关键词（用空格分隔多个词）", "required": True},
+                              "limit": {"type": "integer", "description": "最多返回几条（默认3，最大8）"}})}},
     {"type": "function", "function": {
         "name": "end_turn", "description": "结束本国本回合的行动。⚠ 必填 summary：用一句话总结你这回合做了什么/当前立场（例如：summary=这回合建了两座农场并继续拓荒）。没有这句小结就不算结束本回合。",
         "parameters": _props({"summary": {"type": "string", "description": f"一句话回合小结（必填，>={SUMMARY_MIN_CHARS}字）", "required": True}})}},
