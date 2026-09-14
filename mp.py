@@ -97,7 +97,10 @@ LEDGER_FIELDS = ("prod_value",      # 采集/工厂/军屯 产出 × 市价
 #   load() 先验版本再验键，任何不符直接抛 SaveFormatError——旧档不迁移、不猜，
 #   "同 seed 同档同状态"是复现性的口径，跨版本迁移就是腐烂。
 # 新增字段三步：__init__ 给默认 → SAVE_KEYS 登记 → save/load 各一行搬运。
-SAVE_VERSION = 1
+# v2（2026-09-15）：地图生成换成蓝噪声 + 密度图调制（`mapgen.py`）。**必须**bump：
+#   已物化格子的 terrain/resources 是**字面量存在档里**的，不拒载就会出现
+#   "已占格=旧算法、新占格=新算法"的混图（比整档作废更糟——它不报错）。
+SAVE_VERSION = 2
 SAVE_KEYS = ("version", "size", "seed", "turn", "rng_state", "nations", "order",
              "tiles", "armies", "next_army_seq", "diplo_built", "nation_code",
              "guard_once", "wars", "war_id", "truce", "alliances", "blocs",
@@ -209,6 +212,7 @@ class World:
         self.seed = seed if seed is not None else random.randrange(1 << 31)
         self.rng = random.Random(self.seed)
         self.turn = 0
+        self._mapgen = None          # 整张图的生成器（惰性，见 mapgen 属性）
         self.tiles: dict[tuple[int, int], dict] = {}
         self.nations: dict[str, "Nation"] = {}
         self.order: list[str] = []
@@ -286,27 +290,35 @@ class World:
             raise IndexError(f"坐标越界：({x+1},{y+1}) 超出地图（1..{self.size}）")
 
     def tile_terrain(self, x: int, y: int) -> str:
-        from game import roll_terrain
-        return roll_terrain(random.Random(f"{self.seed}:{x}:{y}"))
+        return self.mapgen.terrain(x, y)
+
+    @property
+    def mapgen(self):
+        """整张图的生成器（`mapgen.MapGen`，**惰性**：第一次问地形/资源才建）。
+
+        2026-09-15 起地图不再是逐格纯函数，而是**由 `(seed, size)` 决定的一整张图**
+        （蓝噪声 + 密度图调制，见 `mapgen.py`）：逐格独立抽是泊松随机场，局部既结块
+        又有孔洞，且"起步 5 格开什么牌"会被复利放大。对外接口没变
+        （`tile_terrain` / `tile_resources` 签名与返回值照旧），调用点不用改。
+
+        ★ **惰性**是有意的：读档（`gen=False`）连图都不用生成——存档里已物化的地块
+        自带 `terrain`/`resources` 字面量，只有新占的格子才会问到这里。
+        """
+        if self._mapgen is None:
+            from mapgen import MapGen
+            self._mapgen = MapGen(self.seed, self.size)
+        return self._mapgen
 
     def tile_resources(self, x: int, y: int) -> dict[str, int]:
-        """该地块的矿藏/耕地布局（建采集建筑要看的就是它）——与地形同一套做法：
-        **纯函数 of (seed, x, y)**，跟谁先占、占之前打过几仗毫无关系。
+        """该地块的矿藏/耕地布局（建采集建筑要看的就是它）——**静态属性**，
+        跟谁先占、占之前打过几仗毫无关系（见 `mapgen`）。
 
-        以前这里在 `_new_tile` 里写的是 `roll_resources(self.rng, terrain)`，用的是
-        **世界共享 RNG**：同一格摇出什么资源，取决于轮到它的时候 RNG 已经走了多远
-        （战斗掷骰 `self.rng.randint(1,6)`、地块命名都在这条流上）。于是同一 seed
-        两局对不上——地图不是种子的静态属性，「种子可复现」形同虚设。地形早在
-        `tile_terrain` 里定死了，资源补上同一套：**开局就排布好，不由开图决定**。
-
-        2026-09-11 补完剩下那一半：**地块命名也搬出了共享流**（见 `_new_tile`）。
-        当时只修了资源、漏了命名，而命名是**每建一格都消耗**、且撞名重试导致
-        **消耗个数不定**的 —— 战斗掷骰仍会被建地顺序带偏。现在 `self.rng`
-        只剩战斗在用（外加开局布点），「同 seed 同战场」才真的成立。
+        历史两坑（都已修，别再踩）：曾用**世界共享 RNG** `roll_resources(self.rng, …)`
+        ⇒ 同一格摇出什么取决于轮到它时 RNG 走了多远（战斗掷骰也在那条流上），
+        「种子可复现」形同虚设；命名同理（每建一格都消耗、撞名重试使消耗个数不定）。
+        现在 `self.rng` 只剩战斗与开局布点在用。
         """
-        from game import roll_resources
-        return roll_resources(random.Random(f"{self.seed}:{x}:{y}:res"),
-                              self.tile_terrain(x, y))
+        return self.mapgen.resources(x, y)
 
     def ter_char(self, x: int, y: int) -> str:
         t = self.tiles.get((x, y))
@@ -2782,7 +2794,11 @@ class World:
             "rng_state": list(self.rng.getstate()),
             "nations": {n: nat.res for n, nat in self.nations.items()},
             "order": self.order,
-            "tiles": {f"{x},{y}": t for (x, y), t in sorted(self.tiles.items())},
+            # ★ 按**插入序**（物化序）写，**不 sorted**：读回来之后 `self.tiles` 的遍历顺序
+            #   才与"从没存过档"的进程一致。sorted 会让续跑进程按坐标序遍历，而
+            #   `prod_value` 这类钱账是**逐格浮点累加**的 ⇒ 累加顺序一变就差 1 ULP
+            #   （`test_resume_mid_game_equals_straight_run` 抓的就是这种病）。
+            "tiles": {f"{x},{y}": t for (x, y), t in self.tiles.items()},
             "armies": self.armies, "next_army_seq": self.next_army_seq,
             "diplo_built": self.diplo_built,
             "nation_code": self.nation_code,
