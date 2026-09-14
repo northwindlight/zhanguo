@@ -41,6 +41,7 @@ from balance import (
     MARKET_SENS,
     MARKET_SPREAD,
     MAX_SLOTS,
+    MOVE_COST,
     PRICE_IMPACT,
     PRICE_MAX_RATIO,
     PRICE_MIN_RATIO,
@@ -81,7 +82,13 @@ def unit_max_hp(a: dict) -> int:
 
 
 def unit_speed(a: dict) -> int:
+    """每回合**移动力**（不再是"格数"）：每走一步按目标地形扣 `unit_move_cost`。"""
     return UNIT_TYPES[unit_kind(a)]["speed"]
+
+
+def unit_move_cost(a: dict, terrain: str) -> int:
+    """走进 `terrain` 这一格要花几点移动力（表里没写的地形按 1 = 不受阻）。"""
+    return MOVE_COST.get(unit_kind(a), {}).get(terrain, 1)
 
 
 def unit_atk(a: dict) -> int:

@@ -54,6 +54,7 @@ from game import (
     unit_atk,
     unit_kind,
     unit_max_hp,
+    unit_move_cost,
     unit_speed,
     unit_supply,
 )
@@ -290,7 +291,101 @@ class World:
             raise IndexError(f"坐标越界：({x+1},{y+1}) 超出地图（1..{self.size}）")
 
     def tile_terrain(self, x: int, y: int) -> str:
-        return self.mapgen.terrain(x, y)
+        """这一格的地形：**已物化的地块以它自己的 `terrain` 为准**（那是权威值——
+        占地后写进地块、也写进存档），未物化的才现问 `mapgen`。
+
+        （移动代价按地形算之后，这条从"纯函数"变成"以地块为准"很关键：
+        测试里就地改地形、以及将来任何地形改造，都必须让可达性看得见。）
+        """
+        t = self.tiles.get((x, y))
+        return t["terrain"] if t is not None else self.mapgen.terrain(x, y)
+
+    # ---- 移动可达性（2026-09-15：多格移动**逐格**判定，不再是一次跳跃）----
+    def _mv_wall(self, name: str, x: int, y: int) -> str | None:
+        """mv 走一步进这格的"墙"：`None` = 可通行。
+
+        口径与旧版**目标格**判定逐条对齐（只是现在每步都要过这一关）：
+        野地 / 自家 / 盟国可走；敌国与中立领土一律不可（要进占只能 atk）；
+        野地上有与你交战的敌军驻守也不可（得先 atk）。
+        """
+        owner = self.owned_by(x, y)
+        if owner is not None and owner != name and not self.allied_between(name, owner):
+            return (f"({x + 1},{y + 1}) 是敌国领土，mv 不得进入；进占请用 atk（会交战/占领）"
+                    if self.war_between(name, owner)
+                    else f"中立不可入境：({x + 1},{y + 1}) 是「{owner}」的领土（结盟或宣战后才能进出）")
+        if owner is None and any(d["owner"] != name and d["owner"] != "野人"
+                                 and (d["x"], d["y"]) == (x, y)
+                                 and self.war_between(name, d["owner"])
+                                 for d in self.armies):
+            return f"({x + 1},{y + 1}) 有敌军驻守，不能 mv 过去；进攻请用 atk（会交战）"
+        return None
+
+    def _reachable(self, name: str, a: dict, *, for_attack: bool = False
+                   ) -> dict[tuple[int, int], int]:
+        """该军本回合**走得到**的格子 → 累计代价（一致代价搜索，代价是 1/2 的小整数）。
+
+        规则（除了"逐格走"本身，其余与旧口径一致）：
+
+        - 每步消耗 = `max(出发格代价, 目标格代价)`（用户 2026-09-15：**对称**——
+          进森林/山地减速，**待在森林/山地里的那一回合也一样慢**，不存在
+          "从山上冲出来跑更快"），总预算 `unit_speed(a)`
+          ⇒ 骑兵平地 2 格；涉森林/山地一步就吃满 ⇒ **只能 1 格、且不可能穿过山地**；
+        - **中间格**必须可通行（`_mv_wall` 为 None）：野地/自家/盟国；
+        - `for_attack=True` 时**终点**额外允许敌国领土与驻军格（那是要打的），
+          但中途仍必须可通行 —— 所以"隔着一座山打到纵深"不再可能；
+        - 起点以代价 0 计入（原地 atk 用得上；mv 到自己格照旧是"挪了个寂寞"）。
+
+        返回 `{格子: 代价}`（不含预算之外的格子）。
+        """
+        start = (a["x"], a["y"])
+        budget = unit_speed(a)
+        best = {start: 0}
+        heap = [(0, start[0], start[1])]
+        import heapq
+        while heap:
+            cost, x, y = heapq.heappop(heap)
+            if cost > best.get((x, y), 1 << 30):
+                continue
+            here = unit_move_cost(a, self.tile_terrain(x, y))
+            for nx, ny in self.neighbors(x, y):
+                ncost = cost + max(here, unit_move_cost(a, self.tile_terrain(nx, ny)))
+                if ncost > budget:
+                    continue
+                if ncost >= best.get((nx, ny), 1 << 30):
+                    continue
+                blocked = self._mv_wall(name, nx, ny)
+                if blocked:
+                    if for_attack and self._atk_target_ok(name, nx, ny):
+                        best[(nx, ny)] = ncost     # 可攻：算**终点**，但不从它继续扩
+                    continue                            # 走不进去 ⇒ 更不能穿过
+                best[(nx, ny)] = ncost
+                heapq.heappush(heap, (ncost, nx, ny))
+        return best
+
+    def _atk_target_ok(self, name: str, x: int, y: int) -> bool:
+        """这一格能不能当 atk 的**终点**（敌国领土 / 野地驻军）= "有东西可打/可占"。
+        与 `attack` 里那套墙判定的"可攻"侧一致（不含"不抢别人的战斗"那条，那条在 attack 里）。"""
+        owner = self.owned_by(x, y)
+        if owner is not None:
+            return owner != name and not self.allied_between(name, owner) \
+                and self.war_between(name, owner)
+        return any(d["owner"] != name and (d["x"], d["y"]) == (x, y) for d in self.armies)
+
+    def _unreachable_msg(self, a: dict, x: int, y: int, *, for_attack: bool) -> str:
+        """走不到目标格时的说法：能教人（平地几格、崎岖几格），但**不替玩家开图**
+        ——地形只在视野内才点名（迷雾限眼不限手：盲推撞墙如实报"墙在视野外"）。"""
+        label = UNIT_TYPES[unit_kind(a)]["label"]
+        budget = unit_speed(a)
+        ter = self.tile_terrain(x, y)
+        cost = unit_move_cost(a, ter)
+        acted = "冲不进去" if for_attack else "走不到"
+        seen = self.visible_to(a["owner"], x, y)
+        if seen:
+            tip = (f"（{label}移动力 {budget}；进{ter}要 {cost}"
+                   f"{'，一步就吃满 ⇒ 只能走 1 格' if cost >= budget else ''}）")
+        else:
+            tip = f"（{label}移动力 {budget}；沿路地形/敌情不明——盲推撞墙如实报告，但额度照烧）"
+        return f"{a['name']} {acted} ({x + 1},{y + 1}){tip}"
 
     @property
     def mapgen(self):
@@ -321,9 +416,7 @@ class World:
         return self.mapgen.resources(x, y)
 
     def ter_char(self, x: int, y: int) -> str:
-        t = self.tiles.get((x, y))
-        ter = t["terrain"] if t else self.tile_terrain(x, y)
-        return TERRAIN_CHARS[ter]
+        return TERRAIN_CHARS[self.tile_terrain(x, y)]
 
     def owned_by(self, x: int, y: int) -> str | None:
         t = self.tiles.get((x, y))
@@ -884,29 +977,16 @@ class World:
             self._check(x, y)
         except IndexError as e:
             return False, str(e)
-        speed = unit_speed(a)
-        if max(abs(a["x"] - x), abs(a["y"] - y)) > speed:
-            return False, f"{UNIT_TYPES[unit_kind(a)]['label']} 每回合只能移动 {speed} 格"
         if a.get("moved_turn") == self.turn:
             return False, "本回合已移动过"
-        # mv 合法地块 = 野地 / 自家 / 盟国。敌国格一律禁 mv——**空格也必须 atk 才能进占**
-        # （无「无阻穿行」，每一步前进都是交战或占领）。
-        # 自家/盟国格被混战敌军占着可进（增援）：入格随 _resolve_battles 的格上 forces 自动参战。
-        # ★ 视野外的格撞上这些墙 → 报错照实（斥候情报），但本回合移动额度照烧（侦察要付钱）。
-        owner = self.owned_by(x, y)
-        why = None
-        if owner is not None and owner != name and not self.allied_between(name, owner):
-            why = (f"({x + 1},{y + 1}) 是敌国领土，mv 不得进入；进占请用 atk（会交战/占领）"
-                   if self.war_between(name, owner)
-                   else f"中立不可入境：({x + 1},{y + 1}) 是「{owner}」的领土（结盟或宣战后才能进出）")
-        elif owner is None and any(d["owner"] != name and d["owner"] != "野人"
-                                   and (d["x"], d["y"]) == (x, y)
-                                   and self.war_between(name, d["owner"])
-                                   for d in self.armies):
-            why = f"({x + 1},{y + 1}) 有敌军驻守，不能 mv 过去；进攻请用 atk（会交战）"
+        # ★ 目标格本身的墙先判（与旧口径一致：视野外撞墙 → 报错照给、**额度照烧**，侦察要付钱）。
+        #   然后才是"走不到"（地形代价/中途被挡）——那一条**不烧额度**（旧版的射程不够也不罚）。
+        why = self._mv_wall(name, x, y)
         if why:
-            self._blind_cost(name, [a], x, y)   # 视野外撞墙：报错照给，移动额度照烧
+            self._blind_cost(name, [a], x, y)
             return False, why
+        if (x, y) not in self._reachable(name, a):
+            return False, self._unreachable_msg(a, x, y, for_attack=False)
         # mv 只挪位置，不占地——占地走 atk
         a["x"], a["y"] = x, y
         a["moved_turn"] = self.turn
@@ -952,9 +1032,9 @@ class World:
             if a.get("engaged") and (a["x"], a["y"]) != (x, y):
                 return False, (f"{a['name']} 正在交战中，不能离开战场改攻他处；"
                                f"想脱战先 retreat 军队id 目标格（会挨守军一击）")
-            if max(abs(a["x"] - x), abs(a["y"] - y)) > unit_speed(a):
-                return False, (f"{a['name']} 距 ({x+1},{y+1}) 超出 "
-                               f"{UNIT_TYPES[unit_kind(a)]['label']} 移动范围（{unit_speed(a)} 格），冲不进去")
+            # ★ atk 也**逐格**走：隔着山/隔着别人的地界就冲不进去（旧版是 5×5 直取）
+            if (a["x"], a["y"]) != (x, y) and (x, y) not in self._reachable(name, a, for_attack=True):
+                return False, self._unreachable_msg(a, x, y, for_attack=True)
             if (a["x"], a["y"]) != (x, y) and a.get("moved_turn") == self.turn:
                 return False, f"{a['name']} 本回合已移动过"
         for a in targets:
