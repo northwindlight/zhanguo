@@ -61,7 +61,15 @@ from game import (
 
 # 数值表在 balance.py（**唯一调参入口**）；这里原样转口，`mp.X` 的老引用照旧。
 from balance import (
+    ARRIVE_ATTEMPTS,
+    ARRIVE_MARGIN_DIV,
+    ARRIVE_MARGIN_MIN,
+    BLOC_NAME_MAX,
     DIPLO_COST,
+    EXTRA_PROMPT_TURNS,
+    FALL_TRUCE_TURNS,
+    HUNS_RING_RATIO,
+    MARKET_DEPTH_NATIONS_DIV,
     PLAN_MAX_TURNS,
     POLITY,
     REPORT_EVERY,
@@ -71,10 +79,16 @@ from balance import (
     SPY_COST,
     SPY_TURNS,
     START_RES,
+    SUMMARY_MIN_CHARS,
 )
 
 
 CROSS = [(0, 0), (0, -1), (0, 1), (-1, 0), (1, 0)]
+
+# 引擎机制常量（非数值表，就近放在引擎里，杜绝魔法数）
+ARMY_GID_BASE = 100_000_000   # 军队全局唯一 gid = 国家码 × 该值 + 序列（对 AI 不可见）
+KEEP_MAPS = 3                 # 各国地图快照只留最近 N 份（控体积）
+KEEP_SAVES = 2                # 间谍经济情报快照只留最近 N 份（控体积）
 
 # 总消费（累计，按当时市价折金）——终局结算按它排名。只计「被消耗掉的资源」，
 # 市场买卖/馈赠不计（买来的物资在真正被消耗时才入账），避免重复计数。
@@ -631,7 +645,7 @@ class World:
         """各国环状开局（3 国=三角）。"""
         n = len(names)
         c = self.size / 2
-        r = self.size * 0.31   # 环半径（占地图边长比例）
+        r = self.size * HUNS_RING_RATIO   # 环半径（占地图边长比例，见 balance）
         pts = {}
         for i, nm in enumerate(names):
             ang = -math.pi / 2 + i * 2 * math.pi / n
@@ -673,10 +687,10 @@ class World:
             return False, f"国家 {name} 已存在"
         polity = (polity or "").strip()
         is_huns = polity in ("匈奴", "huns", "hun")
-        margin = max(8, self.size // 6)
+        margin = max(ARRIVE_MARGIN_MIN, self.size // ARRIVE_MARGIN_DIV)
         pos = None
         if self.tiles:
-            for _ in range(400):
+            for _ in range(ARRIVE_ATTEMPTS):
                 x, y = self.rng.randrange(self.size), self.rng.randrange(self.size)
                 if all(max(abs(x - px), abs(y - py)) >= margin for (px, py) in self.tiles):
                     pos = (x, y)
@@ -694,13 +708,21 @@ class World:
         if is_huns:
             self.apply_polity(name, "huns", home=pos, start=start)
         if extra:
-            self.extra_prompt[name] = {"text": str(extra), "until": self.turn + 20,
+            self.extra_prompt[name] = {"text": str(extra), "until": self.turn + EXTRA_PROMPT_TURNS,
                                        "summary": str(summary or "")}
         desc = ("匈奴" if is_huns else "国家") + f" {name} 登场（距各国至少 {margin} 格）"
         if is_huns:
+            pd = POLITY["huns"]
+            d0 = pd.get("start", {})
             s = start or {}
-            cav = int(s.get("骑", 6)); gold = int(s.get("黄金", 1000)); sup = int(s.get("补给", 200))
-            desc += (f"：开局 {cav} 骑兵·金{gold}·补给{sup}·建筑+30%惩罚·骑兵征召8粮8装"
+            cav = int(s.get("骑", d0.get("骑", 0)))
+            gold = int(s.get("黄金", d0.get("黄金", 0)))
+            sup = int(s.get("补给", d0.get("补给", 0)))
+            r = pd.get("recruit", {}).get("骑", {}) or {}
+            short = {"粮食": "粮", "装备": "装", "黄金": "金"}
+            rc = "+".join(f"{a}{short.get(k, k)}" for k, a in r.items()) or "—"
+            desc += (f"：开局 {cav} 骑兵·金{gold}·补给{sup}"
+                     f"·建筑+{pd.get('build_cost_pct', 100) - 100}%惩罚·骑兵征召{rc}"
                      "·不能外交（只可勒索/宣战/逼降/求和）")
         self.log(desc, phase="事件", nation=name)
         return True, desc
@@ -913,7 +935,7 @@ class World:
         gid=国家码×1e8+seq，全局唯一但**对 AI 不可见**（仅存档/内部用；野人码 0 → gid==seq）。"""
         seq = self.next_army_seq.get(owner, 0) + 1
         self.next_army_seq[owner] = seq
-        return self.nation_code.get(owner, 0) * 100_000_000 + seq, seq
+        return self.nation_code.get(owner, 0) * ARMY_GID_BASE + seq, seq
 
     def _next_engage_seq(self) -> int:
         """递增的「入场序号」：军队每次 atk 参战领一个新号，用于野地索取顺序。"""
@@ -1141,7 +1163,7 @@ class World:
 
     # ------------------------------------------------------------- 战斗
     def _die(self):
-        d = self.rng.randint(1, 6)
+        d = self.rng.randint(min(COMBAT_DIE_MOD), max(COMBAT_DIE_MOD))
         return d, COMBAT_DIE_MOD[d]
 
     @staticmethod
@@ -1376,7 +1398,7 @@ class World:
         for i in range(len(alive)):
             for j in range(i + 1, len(alive)):
                 p = _pair(alive[i], alive[j])
-                self.truce[p] = max(self.truce.get(p, 0), self.turn + 10)
+                self.truce[p] = max(self.truce.get(p, 0), self.turn + FALL_TRUCE_TURNS)
         for lst in (self.alliances, self.defense_pacts):
             self._remove_pair(lst, name)
         self.guarantees.pop(name, None)
@@ -1861,7 +1883,7 @@ class World:
                 continue
             store = self.maps.setdefault(m["to"], [])
             store.append({"from": m["from"], "turn": m["arrive"], "text": m["text"]})
-            del store[:-3]  # 只留最近 3 张图，控体积
+            del store[:-KEEP_MAPS]  # 只留最近 N 张图，控体积
             self.log(f"🗺 {m['to']} 收到 {m['from']} 的地图", phase="事件", nation=m["to"])
         # 间谍回报：3回合后盗回目标当前经济情报（含粗略军情数量）+ 地图；目标亡国则任务失败
         due_sp = [s for s in self.spy_pending if s["arrive"] <= self.turn]
@@ -1875,12 +1897,12 @@ class World:
                 continue
             store = self.econ_intel.setdefault(s["from"], [])
             store.append({"from": s["to"], "turn": s["arrive"], "text": self._econ_snapshot(s["to"])})
-            del store[:-2]  # 只留最近 2 份，控体积
-            # 间谍偷来的地图也进 intel（world.maps，与 share_map 同池，留最近 3 张）
+            del store[:-KEEP_SAVES]  # 只留最近 N 份，控体积
+            # 间谍偷来的地图也进 intel（world.maps，与 share_map 同池，留最近 N 张）
             mstore = self.maps.setdefault(s["from"], [])
             mstore.append({"from": f"{s['to']}(间谍)", "turn": s["arrive"],
                            "text": self._map_snapshot(s["to"])})
-            del mstore[:-3]
+            del mstore[:-KEEP_MAPS]
             self.log(f"🕵 {s['from']} 的间谍回报了 {s['to']} 的情报与地图",
                      phase="事件", nation=s["from"])
         return len(due)
@@ -1891,8 +1913,9 @@ class World:
 
     def market_depth(self, good: str) -> int:
         """该商品的市场深度（单位数）：每卖光这么多单位，市价大约被压掉「基准价×PRICE_IMPACT」。
-        深度 = MARKET_DEPTH[g] × max(1, 现存国家数) ÷ 4——国家越多市场越深（4 国为基准档）。"""
-        return max(1, round(MARKET_DEPTH[good] * max(1, len(self.alive())) / 4))
+        深度 = MARKET_DEPTH[g] × max(1, 现存国家数) ÷ MARKET_DEPTH_NATIONS_DIV
+        ——国家越多市场越深（N 国为基准档）。"""
+        return max(1, round(MARKET_DEPTH[good] * max(1, len(self.alive())) / MARKET_DEPTH_NATIONS_DIV))
 
     def market_tick(self, good: str) -> float:
         """每单位推动（金/单位）：基准价 × PRICE_IMPACT ÷ 深度。"""
@@ -2217,8 +2240,8 @@ class World:
         if self.bloc_of(a) is not None:
             return False, f"你已在联盟「{self.bloc_of(a)['name']}」中（一国同时只属一个联盟）"
         name = (name or "").strip()
-        if not name or " " in name or len(name) > 12:
-            return False, "联盟名需为 1~12 字、不含空格（name 参数）"
+        if not name or " " in name or len(name) > BLOC_NAME_MAX:
+            return False, f"联盟名需为 1~{BLOC_NAME_MAX} 字、不含空格（name 参数）"
         if self.bloc_by_name(name) is not None:
             return False, f"联盟名「{name}」已被占用"
         inv = []
@@ -2329,8 +2352,8 @@ class World:
         if chief != a:
             return False, f"只有盟主能给联盟改名（现任盟主是 {chief}）"
         name = (new_name or "").strip()
-        if not name or " " in name or len(name) > 12:
-            return False, "联盟名需为 1~12 字、不含空格（name 参数）"
+        if not name or " " in name or len(name) > BLOC_NAME_MAX:
+            return False, f"联盟名需为 1~{BLOC_NAME_MAX} 字、不含空格（name 参数）"
         if name == bloc["name"]:
             return False, f"你的联盟已经叫「{name}」了"
         if self.bloc_by_name(name) is not None:
