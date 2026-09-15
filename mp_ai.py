@@ -2079,13 +2079,19 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
 # 无 key 的规则 AI（验证机制 + 看海 demo）
 # ---------------------------------------------------------------------------
 
-def dummy_turn(world, name, rng, max_actions: int = 12, rule_ai: str | None = None) -> int:
+def dummy_turn(world, name, rng,
+               max_actions: int = rule_ai_registry.UNLIMITED_ACTIONS,
+               rule_ai: str | None = None) -> int:
     """无 key 的规则 AI：**按版本名**从注册表取一版扩张流（`rule_ai.py`），
     并把每个动作写进看海日志（Observer 因此能看到它的每个行动）。
 
     `rule_ai` = 版本名，如 `"v10"`（配置顶层或逐国可覆盖，见 README 配置表）；
     不传则用 `rule_ai.DEFAULT_RULE_AI`。**本函数不认识任何具体版本** ——
     换基线只改配置，不动这里（`tests/test_rule_ai.py` 盯着这条）。
+
+    ★`max_actions` 缺省**无上限**（用户 2026-09-15：「看海口径的动作上限……全删了」）——
+    原缺省是 12，看海时超了直接截断（实测 v10 有 8.6% 的回合被截顶）。
+    口径与理由见 `rule_ai.UNLIMITED_ACTIONS`；配置里仍可显式写 `max_actions` 卡住。
 
     策略本身在 `ruleai/v*.py`——那是游戏层，不依赖本 LLM 层的工具 schema /
     文本面板 / 国策。各版差异与历代表见 `rule_ai.py` 的模块 docstring。
