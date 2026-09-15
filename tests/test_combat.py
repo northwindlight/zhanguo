@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import combat  # noqa: E402
+from ruleai import combat  # noqa: E402
 import mp  # noqa: E402
 from balance import TERRAIN_STATS, UNIT_TYPES  # noqa: E402
 from game import building_effect  # noqa: E402

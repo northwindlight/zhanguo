@@ -27,7 +27,7 @@
 """
 from __future__ import annotations
 
-from pathfind import chebyshev
+from .pathfind import chebyshev
 
 
 def candidates(world, name: str, mask, *, radius: int, limit: int) -> list[tuple]:

@@ -44,7 +44,7 @@ DEFAULT_RULE_AI = "v10"
 # 版本名 → (模块, 入口函数)。**懒加载**：只 import 真正用到的那一版
 # （各版差异是策略差异，互相不依赖）。
 _SOURCES: dict[str, tuple[str, str]] = {
-    "v11": ("expand_rule_v11", "expand_rule_turn_v11"),
+    "v11": ("ruleai.v11", "expand_rule_turn_v11"),   # 分层实现，见 ruleai/
     "v10": ("expand_rule_v10", "expand_rule_turn_v10"),
     "v9": ("expand_rule_v9", "expand_rule_turn_v9"),
     "v6": ("expand_rule_v6", "expand_rule_turn_v6"),

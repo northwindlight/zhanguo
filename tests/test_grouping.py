@@ -22,9 +22,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import grouping  # noqa: E402
+from ruleai import grouping  # noqa: E402
 import mp  # noqa: E402
-import pathfind  # noqa: E402
+from ruleai import pathfind  # noqa: E402
 
 # 一块"无主野地"目标：在自家块（2..11）之外、(11,·) 的邻格之内 ⇒ 看得见、又可攻
 WILD = (12, 6)

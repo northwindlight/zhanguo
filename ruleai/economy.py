@@ -1,69 +1,33 @@
 # -*- coding: utf-8 -*-
-"""扩张流规则 AI · **v11 = v10 的经济段（原样复用）+ 重写的军事四件套**（用户 2026-09-15）
+"""v11 的**经济层**：一榜、一账、一次决策（口径照抄 `expand_rule_v10.py` 的经济段）。
 
-■ v11 是什么
+★ **它不该知道军事层的存在**（用户 2026-09-15：「v11 是个经济层和军事层分离的 ruleai」）：
+  两层只共享**一本动作账**（`ruleai.Ledger`）与 `world`。经济层管钱、料、建造、征兵；
+  军事层管编组与出手。谁也别 import 谁。
 
-  用户口径：**"维护 v10，准备迭代 v11；我需要更好的自动编队逻辑和寻路逻辑，
-  以及目标选择，最好和 v10 解耦合。"** 于是：
-
-    · **经济段（第 0~7 节）逐行照抄 v10** —— 它是对的（一榜/一账/一次决策、
-      预留、电厂替换，都是踩过坑才定下来的），抄过来就不动；
-    · **军事段（第 8 节）整段重写**，四个子系统搬进四个**独立模块**：
-
-    | 模块 | 管什么 | v10 对应物 |
-    |---|---|---|
-    | `pathfind.py` | 视野掩码、多回合代价场、本回合落点 | 单步切比雪夫贪心（不懂地形代价） |
-    | `targeting.py` | 候选枚举、估值、排序 | 只从"军队旁边一圈"里挑、资源按 0 算 |
-    | `combat.py` | 难度评估（几支能赢、几回合、掉多少血） | `_fight_cost` 线性估、用全军最大值 |
-    | `formation.py` | 兵力分配（先目标→评难度→自动分兵） | 按列表顺序拽人、多目标抢同一支军 |
-
-  **v10 一个字节没动**（它仍是缺省基线，也是 RL 线的 BC 老师——改它=作废全部历史标签）。
-  `DEFAULT_RULE_AI` 也没动：要用 v11 得在配置里写 `"rule_ai": "v11"`。
-
-■ 与 v10 的三处**有意分歧**（都是"修 bug / 补能力"，不是偷偷调参）
+★ 与 v10 的三处**有意分歧**（都是"修 bug / 补能力"，不是偷偷调参）：
 
   1. **补给按真实兵种算**：v10 走 `spend_rules.army_upkeep_units`，而那里读的是
      `a.get("kind", "步")` —— 军队字典存的键是 **`type`**，于是**每支骑兵都被按 1 算**
-     （真值 2）。v10 的军费闸门、补给备料、断粮判断因此全线偏低。
-     用户 2026-09-15 定：**v10 不动，v11 算对** ⇒ 本文件用 `game.unit_supply`
+     （真值 2）。用户 2026-09-15 定：**v10 不动，v11 算对** ⇒ 本层用 `game.unit_supply`
      并镜像引擎 `_supply_need` 的"军屯覆盖本格民兵"豁免（`_supply_units`）。
-  2. **看得见的空目标只要 1 支**（`balance.V11_MIN_SQUAD_EMPTY=1`）：野人开局铺满全图、
-     死过不再补（`guard_once`）、占地时连守卫一起清 ⇒ **看得见又没有守军 = 真空**，
-     走进去就占地。v10 一律要求 `MIN_SQUAD=2`，在那儿白白多派一支。
-     有守军的目标仍是 `V11_MIN_SQUAD=2`（"从不单兵作战"的教条照旧）。
-  3. **征召料按引擎同一口径现读**（`world.recruit_cost(name, "步")`，含政体特价）：
+  2. **征召料按引擎同一口径现读**（`world.recruit_cost(name, "步")`，含政体特价）：
      v10 读的是 `UNIT_TYPES["步"]["recruit"]` 与 `BUILDINGS["兵营"]["army_cost"]`
      两份手抄表——今天数值恰好相同，一改平衡就漂。
+  3. **给军事段留额度**（`V11_MIL_RESERVE`）：清仓/备料也要卡这个闸。v10 只在建造循环里卡，
+     于是买卖能把 `max_actions` 吃干、军事段一个动作都发不出（看海配置默认只有 12 个）。
 
-■ 只进攻、不驻防（用户口径）：不产生"回防"目标、不调 `retreat`。老家被偷袭是 v12 的事。
-
-■ RL 线提醒：v11 若要当 BC 老师，`rl/bc.py` 的 teacher 分派是**硬编码 if/elif**，
-  得单独加一支；`HORIZON` 已按惯例暴露在模块级（`set_horizon` 改的就是它）。
-
-用法：
-    w = World(size=16, seed=0, nations=["秦"])
-    w.begin_turn()
-    expand_rule_turn_v11(w, "秦")
-    w.resolve_turn()
+★ **产兵权在这里**（用户 2026-09-15：「产兵由经济引擎决定」）：产几支、何时产、
+  出生在哪个兵营格，都由本层决定；军事层只负责**用**已经存在的兵，不碰产兵。
 """
 from __future__ import annotations
 
-import random
-
-import grouping
-import pathfind
-from balance import (V11_FIELD_MAX_COST, V11_MAX_ATTACKS, V11_NEED_CAP,
-                     V11_ROUNDS_CAP, V11_SCAN_RADIUS)
-from combat import assess
-from game import (BUILDINGS, MAX_SLOTS, TRADEABLE, unit_kind, unit_max_hp,
-                  unit_supply)
+from balance import V11_MIL_RESERVE
+from game import BUILDINGS, MAX_SLOTS, TRADEABLE, unit_kind, unit_supply
 from mp import build_econ
 
-# ---------------------------------------------------------------- 口径常量
 HORIZON = 200          # 评估基准回合数（用户：以后都按 200 回合算，不做长期 ROI）
 MIL_SHARE = 0.30       # 军费占收入的上限：出兵、涨兵**同一个条件**（用户 2026-09-11）
-MIL_RESERVE = 6        # 军事段预留的动作数（经济段拿到 max_actions - 这个数）
-# ★ 军事段的下限/上限等**策略旋钮**全在 `balance.py` 第十节（`V11_*`）——那里是唯一调参入口。
 
 
 def _supply_units(world, name: str) -> int:
@@ -113,28 +77,14 @@ def _extractors() -> tuple[str, ...]:
 _FACTORIES = ("补给厂",)
 
 
-def expand_rule_turn_v11(world, name: str, rng: random.Random | None = None,
-                         max_actions: int = 40, on_action=None, on_result=None) -> list:
-    if rng is None:
-        rng = random.Random(0)
-    acts: list[tuple[str, dict, bool, str]] = []
+def run(ledger, world, name: str) -> None:
+    """把一个回合的经济动作追加进 `ledger`（额度与回调都由它统一管）。"""
+    acts = ledger.acts
+    do = ledger.do
+    max_actions = ledger.max_actions
 
     # ================================================================ 0. 工具
-    # （第 0~7 节 = `expand_rule_v10.py` 的经济段，照抄不动，只在上面那三处按 v11 口径改）
-    def do(tool, args, fn, *a, **k) -> bool:
-        if len(acts) >= max_actions:
-            return False
-        if on_action is not None:
-            on_action(tool, args)
-        try:
-            ok, msg = fn(*a, **k)
-        except Exception as e:                       # noqa: BLE001
-            ok, msg = False, f"{type(e).__name__}: {e}"
-        if on_result is not None:
-            on_result(tool, args, bool(ok))
-        acts.append((tool, args, bool(ok), str(msg)))
-        return bool(ok)
-
+    # （第 0~7 节 = `expand_rule_v10.py` 的经济段，照抄不动，只在上面那几处按 v11 口径改）
     def R():
         return world.nations[name].res
 
@@ -167,7 +117,7 @@ def expand_rule_turn_v11(world, name: str, rng: random.Random | None = None,
                   world.build, name, p[0], p[1], bn)
 
     def econ_full() -> bool:
-        """经济段的额度用完了吗（给军事段留出 `MIL_RESERVE` 个动作）。
+        """经济段的额度用完了吗（给军事段留出 `V11_MIL_RESERVE` 个动作）。
 
         ★ 这条闸**必须卡在买卖上**：清仓（第 5 节）与备料（第 6 节）在建造之前跑，
           一次可以花掉十几个动作（最多 6 项物资各一笔）。不拦它，经济段就会把
@@ -175,7 +125,7 @@ def expand_rule_turn_v11(world, name: str, rng: random.Random | None = None,
           实测（40×40 seed 0）就是"200 回合 0 扩张、领土一直停在 5 格"。
           v10 也有这个结构，只是它的数字是那么量出来的；v11 要扩张，就得真留出额度。
         """
-        return len(acts) >= max_actions - MIL_RESERVE
+        return ledger.full(V11_MIL_RESERVE)
 
     def buy(good, qty):
         """**市场调剂**：买多少由 `need` 定，不由余额定（不设 `reserve` 门槛）。"""
@@ -346,7 +296,7 @@ def expand_rule_turn_v11(world, name: str, rng: random.Random | None = None,
         return False
 
     for p in free_tiles:
-        if len(acts) >= max_actions - MIL_RESERVE:
+        if ledger.full(V11_MIL_RESERVE):
             break
         if not free_at(p):
             continue
@@ -380,90 +330,3 @@ def expand_rule_turn_v11(world, name: str, rng: random.Random | None = None,
         if cand:
             _pb, bn = cand[0]
             place(p, bn)
-
-    # ================================================================ 8. 扩张（★ v11：全局编组）
-    # 模型见 `docs/v11编组模型.md`。三条口径（用户 2026-09-15）：
-    #   · 编组是**全局**的：三个指标（组内距离最小 / 全体到目标最近 / 目标定人数）；
-    #   · **只在目标消失时重编**，且只重编"无目标的那些军"（状态在 `grouping` 模块内存里）；
-    #   · **任何军队一定有目标** ⇒ 没有"待命"这个状态。
-    # 执行仍然守引擎的两条硬规矩：
-    #   · 落点一律从 `world._reachable`（引擎合法集）里选 ⇒ 结构上不可能撞墙烧额度；
-    #   · 引擎的 `attack` 是**原子**的（任一支到不了就整通全废）⇒ 出手前逐支复核。
-    armies = [a for a in world.armies if a["owner"] == name and a["hp"] > 0]
-    pool = sorted((a for a in armies
-                   if not a.get("engaged") and a.get("moved_turn") != world.turn),
-                  key=lambda a: a["id"])
-    mask = pathfind.vision_mask(world, name)
-
-    # ---- 8a. 状态机：目标消失 ⇒ 那一组解散；然后**只给无目标的军**做一次全局编组 ----
-    grouping.refresh(world, name, mask, armies)
-    field_cache: dict = {}
-    if pool:
-        grouping.regroup(world, name, mask, armies,
-                         radius=V11_SCAN_RADIUS, need_cap=V11_NEED_CAP,
-                         rounds_cap=V11_ROUNDS_CAP, cache=field_cache)
-    state = grouping.targets_of(name)
-    by_id = {a["id"]: a for a in pool}
-    # 组 = target 的等价类（状态就是那张表，这里只是把它摊开成"按目标分组"）
-    groups: dict = {}
-    for aid, cell in sorted(state.items()):
-        if aid in by_id:
-            groups.setdefault(cell, []).append(aid)
-
-    reach: dict = {}                                      # 每军每回合只问引擎一次（它无缓存）
-    engaged_or_used: set = set()
-    n_attacks = 0                                         # 本回合已开打的场数（上限见 V11_MAX_ATTACKS）
-
-    def taken(cell) -> bool:
-        """出手前再查一次：这一格现在**已经不是能打的**了（变成自己的/中立/盟国的）。
-
-        ★ 必须查：编组是回合开头定的，而打仗/结盟在回合内会改变归属；
-          对中立地 `atk` 撞墙会**烧掉整队的移动额度**（`_blind_cost`），白亏一回合。
-        """
-        owner = world.owned_by(*cell)
-        return owner is not None and (owner == name or world.allied_between(name, owner)
-                                      or not world.war_between(name, owner))
-
-    def reach_of(a, *, for_attack: bool):
-        key = (a["id"], for_attack)
-        if key not in reach:
-            reach[key] = world._reachable(name, a, for_attack=for_attack)
-        return reach[key]
-
-    # ---- 8b. 出手：够得着就打（满血才上），够不着就按地形代价寻路推进 ----
-    for cell in sorted(groups):
-        ids = groups[cell]
-        if len(acts) >= max_actions:
-            break
-        members = [by_id[i] for i in ids if i in by_id and i not in engaged_or_used]
-        able = [a for a in members
-                if a["hp"] >= unit_max_hp(a)                 # 满血才冲阵（带伤的跟着走、养好再上）
-                and pathfind.marchable(world, name, a, cell,
-                                       reach=reach_of(a, for_attack=True))]
-        # ★ 打不打**不问常数、只问判定式**：把"够得着的满血那几支"喂给 `combat.assess`，
-        #   它说赢得下来就打 —— 这就是"最小编组由军队需要算出来"，没有 `MIN_SQUAD`。
-        fit = (able and len(acts) < max_actions - 2 and not taken(cell)
-               and n_attacks < V11_MAX_ATTACKS
-               and assess(world, name, cell, able, visible=cell in mask,
-                          need_cap=V11_NEED_CAP, rounds_cap=V11_ROUNDS_CAP).winnable)
-        if fit:
-            if do("attack", {"army_ids": [a["id"] for a in able],
-                             "x": cell[0] + 1, "y": cell[1] + 1},
-                  world.attack, name, [a["id"] for a in able], cell[0], cell[1]):
-                engaged_or_used.update(a["id"] for a in able)
-                n_attacks += 1
-                continue
-        if taken(cell):
-            continue
-        for a in members:                                    # 打不了 ⇒ 朝目标推进（每人一格）
-            if len(acts) >= max_actions:
-                break
-            fld = pathfind.cost_field(world, name, {cell}, unit_kind(a), mask,
-                                      max_cost=V11_FIELD_MAX_COST, cache=field_cache)
-            nxt = pathfind.best_step(world, name, a, fld,
-                                     reach=reach_of(a, for_attack=False), goal=cell)
-            if nxt is None:
-                continue                                     # 没有严格更近的一步 ⇒ 本回合不动
-            do("move", {"army_id": a["id"], "x": nxt[0] + 1, "y": nxt[1] + 1},
-               world.move, name, a["id"], nxt[0], nxt[1])
-    return acts

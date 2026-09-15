@@ -30,8 +30,10 @@ from typing import NamedTuple
 
 from balance import (V11_FIELD_MAX_COST, V11_MAX_CANDIDATES, V11_MAX_GROUP,
                      V11_NEAR_TARGETS, V11_SHORTFALL_PENALTY, V11_SOLVER_NODE_CAP)
-from combat import assess
-from pathfind import chebyshev, cost_field
+from game import unit_kind
+
+from .combat import assess
+from .pathfind import chebyshev, cost_field
 
 # ---------------------------------------------------------------- 模块状态
 _STATE: dict[str, dict[int, tuple[int, int]]] = {}      # 国名 → {军 id: 目标格}
@@ -73,7 +75,7 @@ def _army_cost(world, name: str, army: dict, cell: tuple, mask, cache) -> int:
     就退回**切比雪夫距离** —— 与 `pathfind.best_step` 的兜底同口径：先按直线走，
     走进场的半径之后再交给地形代价。
     """
-    fld = cost_field(world, name, {cell}, army.get("type", "步"), mask,
+    fld = cost_field(world, name, {cell}, unit_kind(army), mask,
                      max_cost=V11_FIELD_MAX_COST, cache=cache)
     got = fld.get((army["x"], army["y"]))
     return got if got is not None else chebyshev((army["x"], army["y"]), cell)
@@ -119,7 +121,7 @@ def candidates(world, name: str, mask, armies: list[dict], *, radius: int,
       "认领互斥"只体现为**一格里已有的兵力**（见 `_solve` 的 `committed`），
       不是"这格不许别人来"。
     """
-    import targeting
+    from . import targeting
     out = []
     for cell in targeting.candidates(world, name, mask, radius=radius,
                                     limit=V11_MAX_CANDIDATES):

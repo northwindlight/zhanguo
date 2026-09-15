@@ -105,7 +105,9 @@ class TestNoSecondDefinition(unittest.TestCase):
         return names
 
     def test_only_balance_defines_them(self):
-        for p in sorted(ROOT.glob("*.py")):
+        # ★ 也要扫 `ruleai/` 这个包：v11 的军事四件套与两层实现都住在里面，
+        #   只扫根目录会让它们**悄悄脱离守卫**（挪进包就没人管了）。
+        for p in sorted(list(ROOT.glob("*.py")) + list((ROOT / "ruleai").glob("*.py"))):
             if p.name == "balance.py":
                 continue
             dup = self._assigned_names(p) & set(self.CANONICAL)
@@ -114,11 +116,25 @@ class TestNoSecondDefinition(unittest.TestCase):
                              f"数值只许住在 balance.py（转口请用 import）")
 
     def test_rule_ai_imports_tables(self):
-        """规则 AI（玩家）的引擎表一律 import 自 game，不自己抄数。"""
-        for p in sorted(ROOT.glob("expand_rule_*.py")):
+        """规则 AI（玩家）的引擎表一律 import 自 game，不自己抄数。
+
+        ★ 两处都要管：根目录的各代 `expand_rule_*.py`，以及 `ruleai/` 包里的分层实现
+        —— 挪进包就脱离守卫，那是最容易发生的事。
+        ★ `ruleai/__init__.py` 例外：它只放**动作账本**（一层薄壳，不碰任何数值表），
+        所以本来就不需要 import game。
+        """
+        # ★ 三个**薄壳**刻意列出：`ruleai/__init__.py` 只放动作账本、
+        #   `ruleai/v11.py` 只是"经济层 + 军事层"的入口、`ruleai/targeting.py` 只铺候选格
+        #   —— 它们一条数值都不用（清单写出来，是为了"想往里塞手抄表"时看得见这道闸）。
+        exempt = {"__init__.py", "v11.py", "targeting.py"}
+        files = [p for p in sorted(list(ROOT.glob("expand_rule_*.py"))
+                                   + list((ROOT / "ruleai").glob("*.py")))
+                 if p.name not in exempt]
+        self.assertGreaterEqual(len(files), 7, "文件都没找到？守卫会变成空转")
+        for p in files:
             src = p.read_text(encoding="utf-8")
-            self.assertIn("from game import", src,
-                          f"{p.name} 没有从 game 取数值表（抄了一份自己的？）")
+            self.assertTrue("from game import" in src or "from balance import" in src,
+                            f"{p.name} 没有从 game/balance 取数值表（抄了一份自己的？）")
 
     def test_stays_put(self):
         """刻意没搬的名字仍在原处（免得以后有人"顺手"搬走，守卫却对不上）。"""
