@@ -165,6 +165,10 @@ def run() -> None:
         if _n.get("rule_ai"):
             rule_ai_registry.resolve(_n["rule_ai"])
     world, is_new = make_world(cfg, args.new, save_path)
+    # ★把**本局总回合数**交给世界：规则 AI 的规划窗口 = 它 + 20（用户 2026-09-15：
+    #   「v10 起，不设默认视野，恒等于回合数加 20」）。`make_world` 建 World 时还不知道
+    #   `--turns`（上面几行才算出来），所以在这里补上；读档续局同样会被纠正到**本局**的长度。
+    world.max_turns = int(max_turns)
 
     cfg_by_name = {n["name"]: n for n in cfg["nations"]}
     # 中途加国的 AI 模板：复用第一个配置了 base_url/api_key 的国家（如 arkcoding+glm-5.3）
