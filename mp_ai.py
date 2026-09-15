@@ -2087,7 +2087,7 @@ def dummy_turn(world, name, rng, max_actions: int = 12, rule_ai: str | None = No
     不传则用 `rule_ai.DEFAULT_RULE_AI`。**本函数不认识任何具体版本** ——
     换基线只改配置，不动这里（`tests/test_rule_ai.py` 盯着这条）。
 
-    策略本身在 `expand_rule_v*.py`——那是游戏层，不依赖本 LLM 层的工具 schema /
+    策略本身在 `ruleai/v*.py`——那是游戏层，不依赖本 LLM 层的工具 schema /
     文本面板 / 国策。各版差异与历代表见 `rule_ai.py` 的模块 docstring。
     """
     _, fn = rule_ai_registry.resolve(rule_ai)

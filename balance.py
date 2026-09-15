@@ -22,7 +22,7 @@
 | 读法 | 处 |
 |---|---|
 | `from balance import ...` | `game.py`、`mp.py`（转口，见各文件里的 import 块） |
-| `from game import BUILDINGS, ...` | 老引用照旧（game 转口同一对象）—— `mp.py`/`mp_ai.py`/`settlement.py`/`spend_rules.py`/`expand_rule_*.py`/`experiments/*` |
+| `from game import BUILDINGS, ...` | 老引用照旧（game 转口同一对象）—— `mp.py`/`mp_ai.py`/`settlement.py`/`spend_rules.py`/`ruleai/*.py`/`experiments/*` |
 | `from mp import SPY_COST, START_RES, ...` | 亦照旧（mp 转口） |
 
 **没搬进来的**（刻意的，别顺手搬）：`NAME_PREFIX`/`NAME_SUFFIX`（地名词库，非数值）、
@@ -369,7 +369,7 @@ MAPGEN_SHIFT_MIX = 7    # 资源掩码 = 地形掩码的环形位移（按资源
 # ==========================================================================
 # 实现见 `grouping.py`（编组状态机 + 全局求解器）/ `combat.py`（难度判定式）/
 # `pathfind.py`（视野掩码与代价场）/ `targeting.py`（候选池），
-# `expand_rule_v11.py` 只负责照着计划出手。**这里只放策略旋钮**——
+# `ruleai/v11/` 只负责照着计划出手。**这里只放策略旋钮**——
 # 引擎数值（兵种、地形、造价、价格）一律由那几个模块**现读** `balance`/`game`，
 # 不在这里抄第二份（v9 抄死在常量里，一抖动/一调平衡就按错的值决策）。
 #
@@ -380,7 +380,7 @@ MAPGEN_SHIFT_MIX = 7    # 资源掩码 = 地形掩码的环形位移（按资源
 # ★ **目标排序只看扩张效率**（用户 2026-09-15：「不对地形估值了，只优化最大扩张效率」）：
 #   没有价值权重、没有资源折算、没有敌国加价。
 #
-# ★ v10 不动：它的策略常量（HORIZON/MIL_SHARE/MIN_SQUAD）仍留在 `expand_rule_v10.py` 里。
+# ★ v10 不动：它的策略常量（HORIZON/MIL_SHARE/MIN_SQUAD）仍留在 `ruleai/v10.py` 里。
 #   本段只服务 v11，改这些值**只影响 v11**。
 
 V11_MIL_RESERVE = 6        # 经济层最多花到「max_actions − 这个数」，把剩下的留给军事层。

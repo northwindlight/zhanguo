@@ -25,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import mp  # noqa: E402
-from ruleai import pathfind  # noqa: E402
+from ruleai.v11 import pathfind  # noqa: E402
 from game import building_effect  # noqa: E402
 
 

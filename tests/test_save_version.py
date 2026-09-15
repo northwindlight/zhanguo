@@ -91,7 +91,7 @@ class TestRoundTrip(unittest.TestCase):
         """复现性底线：跑 4 回合 → 存 → 读 → 续 2 回合，与一口气跑 6 回合完全一致
         （引擎 rng 随档恢复；动作流 rng 由循环自己持有、天然连续）。"""
         import random
-        import expand_rule_v10
+        from ruleai import v10 as expand_rule_v10
 
         def turn(w, rng):
             w.begin_turn()

@@ -25,8 +25,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-PKG = ROOT / "ruleai"
+PKG = ROOT / "ruleai" / "v11"
 MILITARY = {"military", "grouping", "combat", "pathfind", "targeting"}
+ENTRY = "entry.py"
 
 
 def _imports_of(name: str) -> set[str]:
@@ -68,16 +69,16 @@ class TestLayersSeparated(unittest.TestCase):
         判据：它 import 的必须是包内模块、balance、game 这几种，且**不 import
         军事层的部件**（要点部件说明它在自己做事，那就不叫胶水了）。
         """
-        got = _imports_of("v11.py")
+        got = _imports_of(ENTRY)
         self.assertIn("economy", got)
         self.assertIn("military", got)
         self.assertEqual(got & {"grouping", "combat", "pathfind", "targeting"}, set(),
                          "入口自己去拿军事层部件了 —— 那说明它在做军事层的活")
 
-    def test_world_is_still_shared_on_purpose(self):
-        """两层共享的只有 `world` 与账本 —— 这是**故意**的（见 `ruleai/__init__.py`）。"""
+    def test_ledger_is_the_only_shared_thing(self):
+        """两层共享的只有 `world` 与**动作账本** —— 这是**故意**的。"""
+        self.assertTrue((PKG / "ledger.py").exists(), "账本该是独立的一小块")
         src = (PKG / "__init__.py").read_text(encoding="utf-8")
-        self.assertIn("Ledger", src)
         self.assertIn("不许互相 import", src, "这条纪律得写在包说明里，别只活在测试里")
 
 

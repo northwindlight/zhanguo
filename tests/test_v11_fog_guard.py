@@ -33,10 +33,10 @@ sys.path.insert(0, str(ROOT))
 import mp  # noqa: E402
 import rule_ai  # noqa: E402
 
-DECISION_MODULES = ("ruleai/pathfind.py", "ruleai/targeting.py",
-                    "ruleai/combat.py", "ruleai/grouping.py")
-V11_MODULES = DECISION_MODULES + ("ruleai/military.py", "ruleai/economy.py",
-                                  "ruleai/v11.py")
+DECISION_MODULES = ("ruleai/v11/pathfind.py", "ruleai/v11/targeting.py",
+                    "ruleai/v11/combat.py", "ruleai/v11/grouping.py")
+V11_MODULES = DECISION_MODULES + ("ruleai/v11/military.py", "ruleai/v11/economy.py",
+                                  "ruleai/v11/entry.py")
 
 
 class _ReservePoison:
@@ -130,7 +130,7 @@ class TestSourceGuard(unittest.TestCase):
         经济段读 `t["resources"]` 是合法的（那是**自家**地块，永远看得见，
         建采集建筑本来就要看它）；军事段读它就是隔着迷雾挑目标了。
         """
-        src = (ROOT / "ruleai" / "military.py").read_text(encoding="utf-8")
+        src = (ROOT / "ruleai" / "v11" / "military.py").read_text(encoding="utf-8")
         marker = src.index("8. 扩张")
         tail = src[marker:]
         self.assertNotIn('["resources"]', tail, "军事段读了地块资源")

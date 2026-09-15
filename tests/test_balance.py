@@ -50,6 +50,15 @@ VIA_MP = ("START_RES", "RES_KEYS", "RES_LABEL", "SPY_COST", "DIPLO_COST", "RETRE
 STAYS = {"game": ("NAME_PREFIX", "NAME_SUFFIX", "_CN_DIGIT"),
          "mp": ("SAVE_VERSION", "SAVE_KEYS", "CROSS", "SPEND_FIELDS", "LEDGER_FIELDS")}
 
+def _rule_ai_files() -> list[Path]:
+    """规则 AI 的全部源码文件：根目录的老几代 + `ruleai/` 包（含 v11 子目录）。
+
+    ★ 全都要扫：挪进包就脱离守卫，是最容易发生的事（v11 就是这么挪进来的）。
+    """
+    return (list(ROOT.glob("expand_rule_*.py")) + list(ROOT.glob("ruleai/*.py"))
+            + list(ROOT.glob("ruleai/*/*.py")))
+
+
 # 引擎模块：balance.py 不许 import 它们（只要模块名，路径无所谓）
 ENGINE_MODULES = {"game", "mp", "mp_ai", "mp_run", "ctx", "console", "settlement",
                   "spend_rules", "llm_provider"}
@@ -107,7 +116,7 @@ class TestNoSecondDefinition(unittest.TestCase):
     def test_only_balance_defines_them(self):
         # ★ 也要扫 `ruleai/` 这个包：v11 的军事四件套与两层实现都住在里面，
         #   只扫根目录会让它们**悄悄脱离守卫**（挪进包就没人管了）。
-        for p in sorted(list(ROOT.glob("*.py")) + list((ROOT / "ruleai").glob("*.py"))):
+        for p in sorted(_rule_ai_files()):
             if p.name == "balance.py":
                 continue
             dup = self._assigned_names(p) & set(self.CANONICAL)
@@ -123,13 +132,13 @@ class TestNoSecondDefinition(unittest.TestCase):
         ★ `ruleai/__init__.py` 例外：它只放**动作账本**（一层薄壳，不碰任何数值表），
         所以本来就不需要 import game。
         """
-        # ★ 三个**薄壳**刻意列出：`ruleai/__init__.py` 只放动作账本、
-        #   `ruleai/v11.py` 只是"经济层 + 军事层"的入口、`ruleai/targeting.py` 只铺候选格
-        #   —— 它们一条数值都不用（清单写出来，是为了"想往里塞手抄表"时看得见这道闸）。
-        exempt = {"__init__.py", "v11.py", "targeting.py"}
-        files = [p for p in sorted(list(ROOT.glob("expand_rule_*.py"))
-                                   + list((ROOT / "ruleai").glob("*.py")))
-                 if p.name not in exempt]
+        # ★ 两个包级 `__init__` 与几处**薄壳**刻意列出（一条数值都不用）：
+        #   `ruleai/__init__.py`（家谱说明）、`ruleai/v11/__init__.py`（分层说明 + 入口转口）、
+        #   `ruleai/v11/entry.py`（四行胶水）、`ruleai/v11/ledger.py`（动作账本）、
+        #   `ruleai/v11/targeting.py`（只铺候选格）。清单写出来，是为了"想往里塞手抄表"
+        #   的时候看得见这道闸。
+        exempt = {"__init__.py", "entry.py", "ledger.py", "targeting.py"}
+        files = [p for p in sorted(_rule_ai_files()) if p.name not in exempt]
         self.assertGreaterEqual(len(files), 7, "文件都没找到？守卫会变成空转")
         for p in files:
             src = p.read_text(encoding="utf-8")

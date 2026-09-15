@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import random
 
-from . import Ledger, economy, military
+from . import economy, military
+from .ledger import Ledger
 from .economy import HORIZON                          # noqa: F401  转口（RL 的 set_horizon 认它）
 
 

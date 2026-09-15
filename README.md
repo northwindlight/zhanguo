@@ -114,7 +114,7 @@ RL 训练与看海主线**分支维护**：PyTorch 环境、BC / PPO、transform
 | `ctx.py` | 上下文窗口管理：token 估算、预算分配、缓存友好组装（瘦身 / 非滑动周期压缩 / 递归长期记忆） |
 | `mp_run.py` · `console.py` | 编排器 · 看海终端（Markdown 渲染、汉字宽度感知） |
 | `settlement.py` | 终局结算：按总消费排名 + 结算厅 |
-| `rule_ai.py` · `expand_rule_*.py` | 规则 AI 注册表 · 各代扩张流 |
+| `rule_ai.py` · `ruleai/` | 规则 AI 注册表 · **各代扩张流（一代一个文件，v11 单独目录）** |
 | `ruleai/` | **v11 规则 AI（经济层与军事层分离）**：`economy.py` 管钱料建造征兵 · `military.py` 管编组与出手 · 部件 `grouping`/`combat`/`pathfind`/`targeting` |
 | `experiments/` · `docs/` | 指标对照实验 · 人类侧资料 |
 | `tests/` | 单元测试 + 跨进程确定性看门狗 |

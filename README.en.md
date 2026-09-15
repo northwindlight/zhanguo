@@ -136,7 +136,7 @@ byte-identical to main, so rule changes never need cherry-picking. Design docs a
 | `ctx.py` | Context-window management: token estimation, budget allocation, cache-friendly assembly (shrink / non-sliding periodic compaction / recursive long-term memory) |
 | `mp_run.py` · `console.py` | Orchestrator · watch-terminal (Markdown rendering, CJK-width aware) |
 | `settlement.py` | End-game settlement: total-consumption ranking + settlement chamber |
-| `rule_ai.py` · `expand_rule_*.py` | Rule-AI registry · expansion heuristics across generations |
+| `rule_ai.py` · `ruleai/` | Rule-AI registry · **one file per generation, v11 in its own dir** |
 | `ruleai/` | **v11 rule AI (economy and military layers separated)**: `economy.py` money/materials/build/recruit · `military.py` grouping & execution · parts `grouping`/`combat`/`pathfind`/`targeting` |
 | `experiments/` · `docs/` | Metric probe experiments · human-side docs |
 | `tests/` | Unit tests + cross-process determinism watchdog |
