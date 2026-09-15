@@ -262,8 +262,8 @@ def expand_rule_turn_v10(world, name: str, rng: random.Random | None = None,
 
     def buy(good, qty):
         """**市场调剂**：买多少由 `need` 定，不由余额定（不设 `reserve` 门槛）。"""
-        px = max(1, int(world.prices.get(good, 2)))
-        q = min(int(qty), max(0, int(R()["黄金"]) // px))
+        px = max(1.0, float(world.prices.get(good, 2)))
+        q = min(int(qty), max(0, int(int(R()["黄金"]) // px)))
         return q > 0 and do("buy", {"good": good, "qty": q}, world.buy, name, good, q)
 
     def sell(good, qty):
@@ -409,13 +409,13 @@ def expand_rule_turn_v10(world, name: str, rng: random.Random | None = None,
             continue
         _sur = int(R().get(_g, 0)) - need.get(_g, 0)
         if _sur > 0:
-            _budget += int(_sur * 0.9 * max(1, int(world.prices.get(_g, 2))))
-    _wx = max(1, int(world.prices.get("木头", 2)))
+            _budget += _sur * 0.9 * max(1.0, float(world.prices.get(_g, 2)))
+    _wx = max(1.0, float(world.prices.get("木头", 2)))
     planned: list[tuple[float, str, tuple]] = []
     for _pb, _bn, _p in roi:
         if len(planned) >= n_roi_slots:
             break
-        _need_gold = int(cost_of(_bn)) + int(BUILDINGS[_bn].get("wood", 0)) * _wx
+        _need_gold = cost_of(_bn) + BUILDINGS[_bn].get("wood", 0) * _wx
         if _need_gold > _budget:
             continue                     # 付不起就跳过（不中断：后面可能有更便宜的）
         _budget -= _need_gold
