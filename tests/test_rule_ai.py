@@ -121,3 +121,56 @@ class TestNoHardcodedVersion(unittest.TestCase):
         self.assertIn('ncfg.get("rule_ai"', src, "mp_run 没读逐国覆盖的 rule_ai")
         self.assertIn("rule_ai_registry.resolve(rule_ai)", src,
                       "mp_run 没在开局前验配置——版本写错要等跑到无 key 国家才炸")
+
+
+class TestActionBudgetUnlimited(unittest.TestCase):
+    """★看海口径的**动作上限已删**（用户 2026-09-15：「给我全删了」）。
+
+    原来引擎一路把缺省给到 **12**（`mp_ai.dummy_turn` 的形参缺省 + `mp_run` 的
+    `ncfg.get("max_actions", 12)`），规则 AI 每回合发到 12 个就被截断。
+    实测（`experiments/probe_teacher_actions.py`，4 图 × 200 回合）：
+    **v10 有 8.6% 的回合被截顶**，v11 0.9%、v12 0.6%。
+
+    ★本组测的是**机制**而不是"某次跑出来的观测"：观测会因地图/种子而变，
+      机制不会。判据 = **引擎往下传的那个数**（在截断发生的那一层量）。
+    """
+
+    def test_signature_default_is_unlimited(self):
+        import inspect
+        import mp_ai
+        d = inspect.signature(mp_ai.dummy_turn).parameters["max_actions"].default
+        self.assertEqual(d, rule_ai.UNLIMITED_ACTIONS,
+                         "dummy_turn 的动作额度缺省又被卡住了——看海会重新截断在 12")
+
+    def test_dummy_turn_hands_unlimited_down(self):
+        """★决定性：`dummy_turn` 往规则 AI 传下去的那个数必须是"无上限"。
+
+        截断发生在**规则 AI 内部**（各代入口的 `if len(acts) >= max_actions: break`），
+        所以只能在这一层量 —— 拿一个探针函数替掉真的规则 AI，看它收到什么。
+        """
+        import random
+        import mp_ai
+        got = {}
+
+        def spy(world, name, rng=None, max_actions=None, **_kw):
+            got["max_actions"] = max_actions
+            return []
+
+        orig = rule_ai.resolve
+        rule_ai.resolve = lambda *a, **k: ("v10", spy)
+        try:
+            w = mp.World(size=8, seed=1, nations=["秦"])
+            mp_ai.dummy_turn(w, "秦", random.Random(0))
+        finally:
+            rule_ai.resolve = orig
+        self.assertEqual(
+            got.get("max_actions"), rule_ai.UNLIMITED_ACTIONS,
+            f"dummy_turn 把 {got.get('max_actions')} 传给了规则 AI（应当无上限）")
+
+    def test_run_fallback_is_unlimited(self):
+        """`mp_run` 的兜底也不许再写死 12（配置里显式写 `max_actions` 仍然有效）。"""
+        src = (ROOT / "mp_run.py").read_text(encoding="utf-8")
+        m = re.search(r'max_actions=ncfg\.get\(\s*"max_actions"\s*,\s*([^)]+?)\s*\)', src)
+        self.assertIsNotNone(m, "mp_run 里找不到 max_actions 的兜底写法（改结构了？）")
+        self.assertIn("UNLIMITED_ACTIONS", m.group(1),
+                      f"mp_run 的 max_actions 兜底是 {m.group(1)} —— 又卡上限了")

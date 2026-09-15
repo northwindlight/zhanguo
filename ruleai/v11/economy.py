@@ -16,6 +16,9 @@
      两份手抄表——今天数值恰好相同，一改平衡就漂。
   3. **给军事段留额度**（`V11_MIL_RESERVE`）：清仓/备料也要卡这个闸。v10 只在建造循环里卡，
      于是买卖能把 `max_actions` 吃干、军事段一个动作都发不出（看海配置默认只有 12 个）。
+     ⚠**2026-09-15：那个"看海默认 12 个"的上限已删**（用户：「给我全删了」）——
+     见 `rule_ai.UNLIMITED_ACTIONS`。本条留作**当年的设计动机**（它也解释了
+     `V11_MIL_RESERVE` 为什么存在），别当成现状读。
 
 ★ **产兵权在这里**（用户 2026-09-15：「产兵由经济引擎决定」）：产几支、何时产、
   出生在哪个兵营格，都由本层决定；军事层只负责**用**已经存在的兵，不碰产兵。
@@ -26,7 +29,12 @@ from balance import V11_MIL_RESERVE
 from game import BUILDINGS, MAX_SLOTS, TRADEABLE, unit_kind, unit_supply
 from mp import build_econ
 
-HORIZON = 200          # 评估基准回合数（用户：以后都按 200 回合算，不做长期 ROI）
+# ★**没有"默认视野"这个常量了**（用户 2026-09-15：「v10 起，不设默认视野，恒等于回合数加 20」）。
+#   原来这里是 `HORIZON = 200`，而它住在**本模块**里 —— 外面 `mod.HORIZON = n` 那种写法
+#   改的是包的入口模块，本层读不到（2026-09-15 实测：v11/v12 全程按 200 规划，
+#   而 v10 因为单文件真的被设上了 ⇒ 500 回合那一轮两边口径差 2.6 倍）。
+#   ⇒ 现在**只有一个口径**：`视野 = world.max_turns + 20`，跑局的人把本局长度放进 world。
+PLAN_EXTRA = 20        # 视野 = 本局总回合数 + 这个数（用户 2026-09-11「视野按交接视野+20」）
 MIL_SHARE = 0.30       # 军费占收入的上限：出兵、涨兵**同一个条件**（用户 2026-09-11）
 
 
@@ -123,6 +131,8 @@ def run(ledger, world, name: str) -> None:
           一次可以花掉十几个动作（最多 6 项物资各一笔）。不拦它，经济段就会把
           `max_actions` 吃干，军事段一个动作都发不出去 —— 看海配置里默认只有 12 个动作，
           实测（40×40 seed 0）就是"200 回合 0 扩张、领土一直停在 5 格"。
+          ⚠**2026-09-15：那个上限已删**（`rule_ai.UNLIMITED_ACTIONS`）—— 但这条闸**留着**：
+          额度没有上限不等于不用记账，两层仍共用一本账（见 `ledger.py`）。
           v10 也有这个结构，只是它的数字是那么量出来的；v11 要扩张，就得真留出额度。
         """
         return ledger.full(V11_MIL_RESERVE)
@@ -167,7 +177,7 @@ def run(ledger, world, name: str) -> None:
     army_cap = max(army_n + 1, supply_cap) if mil_ok else army_n
 
     # ================================================================ 3. 本回合的计划
-    left = max(1, HORIZON - world.turn)
+    left = max(1, world.max_turns + PLAN_EXTRA - world.turn)   # 视野 = 本局回合数 + 20
     free_tiles = [p for p in own if free_at(p)]
     room = len(free_tiles)
 

@@ -223,11 +223,21 @@ class World:
                  nations: list[str] | None = None,
                  starts: dict[str, tuple[int, int]] | None = None,
                  res: dict[str, dict[str, int]] | None = None,
-                 gen: bool = True):
+                 gen: bool = True,
+                 max_turns: int = 200):
         self.size = size
         self.seed = seed if seed is not None else random.randrange(1 << 31)
         self.rng = random.Random(self.seed)
         self.turn = 0
+        # ★**本局总回合数**（用户 2026-09-15：「v10 起，不设默认视野，恒等于回合数加 20」）。
+        #   规则 AI 的规划窗口（`left = 视野 − world.turn`）从这里推，**不再有自己的
+        #   `HORIZON` 常量** —— 那个常量必须由外部 `set_horizon()` 覆盖才对准，而
+        #   "设了但没设上"是这个项目反复栽的坑（2026-09-15 一次：v11/v12 全程按 200 规划）。
+        #   ⇒ 口径唯一：**视野 = `max_turns + 20`**。跑局的人只需把本局长度放进来
+        #   （`mp_run` 按 `--turns`/配置设，`rl/env.py` 按 `max_turns` 设）。
+        #   缺省 200 是**这场游戏的缺省长度**（与 `mp_config` 的 `max_turns` 同值），
+        #   不是"缺省视野"。
+        self.max_turns = int(max_turns)
         self._mapgen = None          # 整张图的生成器（惰性，见 mapgen 属性）
         self.tiles: dict[tuple[int, int], dict] = {}
         self.nations: dict[str, "Nation"] = {}

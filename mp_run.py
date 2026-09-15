@@ -165,6 +165,10 @@ def run() -> None:
         if _n.get("rule_ai"):
             rule_ai_registry.resolve(_n["rule_ai"])
     world, is_new = make_world(cfg, args.new, save_path)
+    # ★把**本局总回合数**交给世界：规则 AI 的规划窗口 = 它 + 20（用户 2026-09-15：
+    #   「v10 起，不设默认视野，恒等于回合数加 20」）。`make_world` 建 World 时还不知道
+    #   `--turns`（上面几行才算出来），所以在这里补上；读档续局同样会被纠正到**本局**的长度。
+    world.max_turns = int(max_turns)
 
     cfg_by_name = {n["name"]: n for n in cfg["nations"]}
     # 中途加国的 AI 模板：复用第一个配置了 base_url/api_key 的国家（如 arkcoding+glm-5.3）
@@ -326,7 +330,13 @@ def run() -> None:
                                        max_steps=ncfg.get("max_steps", 24))
             else:
                 done = dummy_turn(world, name, rng,
-                                  max_actions=ncfg.get("max_actions", 12),
+                                  # ★缺省**无上限**（用户 2026-09-15：「看海口径的动作
+                                  #   上限是谁设的，给我全删了」）——原缺省 12，看海时
+                                  #   超了直接截断（实测 v10 有 8.6% 的回合被截顶）。
+                                  #   口径见 `rule_ai.UNLIMITED_ACTIONS`；配置里仍可
+                                  #   显式写 `max_actions` 卡住。
+                                  max_actions=ncfg.get("max_actions",
+                                                       rule_ai_registry.UNLIMITED_ACTIONS),
                                   rule_ai=ncfg.get("rule_ai", rule_ai))
             secs = time.time() - t0
             observer(world, out, f"◈ {name} 行动完毕（{done} 次工具调用，{secs:.0f}s）")
