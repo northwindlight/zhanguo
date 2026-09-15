@@ -82,7 +82,7 @@ class TestEnumTablesMatchMain(unittest.TestCase):
         所以 main 的键序必须逐位等于本表的前 16 项 —— 这样"加建筑"就是填留位槽，
         下标不动、宽度不变（§10.3）。
         """
-        main_keys = _main_keys("game.py", "BUILDINGS")
+        main_keys = _main_keys("balance.py", "BUILDINGS")   # 定义已搬进 balance.py（game.py 再导出）
         self.assertEqual(list(vocab.BUILDING)[:len(main_keys)], main_keys,
                          "main 的建筑键序必须是本表的前缀（留位只许加在表尾）")
         self.assertEqual(list(vocab.BUILDING)[len(main_keys):],
@@ -94,12 +94,12 @@ class TestEnumTablesMatchMain(unittest.TestCase):
                       "外交中心必须留在表里占位——外交回来时它要原地复活")
 
     def test_terrain_unit_tradeable_active_prefix_is_main(self):
-        main_g = _main_keys("game.py", "TERRAINS")
+        main_g = _main_keys("balance.py", "TERRAINS")      # 同上
         self.assertEqual(list(vocab.TERRAIN)[:len(main_g)], main_g,
                          "main 的地形键序必须是本表的前缀（表尾是留位）")
         self.assertEqual(list(vocab.TERRAIN)[len(main_g):], list(vocab.RESERVED_TERRAIN))
-        main_u = _main_keys("game.py", "UNIT_TYPES")
-        main_t = _main_list("game.py", "TRADEABLE")
+        main_u = _main_keys("balance.py", "UNIT_TYPES")
+        main_t = _main_list("balance.py", "TRADEABLE")
         self.assertEqual(list(vocab.UNIT)[:len(main_u)], main_u,
                          "main 的兵种键序必须是本表的前缀")
         self.assertEqual(list(vocab.TRADEABLE)[:len(main_t)], main_t,

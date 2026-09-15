@@ -227,7 +227,8 @@ POS_SCALE = 32.0                  # 与 rl/env.py 一致：相对家的绝对尺
 # ===========================================================================
 # 它们不是动作：RL 的观测等价于「随时可查的面板」，所以不进 KIND。
 LLM_ONLY_TOOLS = ("plan",)                                   # 国策：文本层，RL 没有
-QUERY_TOOLS = ("query", "report", "rules", "econ", "countries")
+QUERY_TOOLS = ("query", "report", "rules", "econ", "countries",
+                "memory_search")   # main 新增（2026-09-14 收进 ruleai 那批）：检索自己的历史记忆，免费只读
 
 
 # ===========================================================================
