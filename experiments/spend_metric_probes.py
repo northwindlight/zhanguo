@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from game import BUILDINGS, TRADEABLE  # noqa: E402
 from mp import World  # noqa: E402
-from expand_rule_v6 import expand_rule_turn_v6  # noqa: E402
+from ruleai.v6 import expand_rule_turn_v6  # noqa: E402
 
 # 单回合内最多尝试多少个动作（防死循环，不是游戏规则）
 MAX_ACT = 60

@@ -155,12 +155,20 @@ class OpenAICompat:
         return msg, stream_stats
 
     def complete_text(self, messages, cfg, max_tokens=None):
+        # 压缩不需要思考；但 thinking 是 DeepSeek 系推理模型的**专属扩展**参数——
+        #   配置显式声明了推理模型（thinking / reasoning_effort）→ 发 thinking:disabled，
+        #   和 chat_turn 同源（cfg 声明才带），压缩时不白烧推理 token；
+        #   未声明的 OpenAI 兼容端点（vLLM / 方舟 / 纯 OpenAI）一律**不发**——
+        #   未知字段对严格端点直接 400（F1，2026-09-13 修）。
+        extra = {}
+        if "thinking" in cfg or cfg.get("reasoning_effort"):
+            extra["thinking"] = {"type": "disabled"}
         resp = self.client.chat.completions.create(
             model=cfg["model"], messages=messages,
             max_tokens=int(max_tokens if max_tokens is not None
                            else cfg.get("ctx_compact_tokens", 1500)),
             temperature=0.3,
-            extra_body={"thinking": {"type": "disabled"}})   # 压缩不需要思考
+            extra_body=extra or None)
         return (resp.choices[0].message.content or "").strip()
 
 
@@ -196,13 +204,20 @@ class AnthropicCompat:
 
 
 def make_backend(cfg: dict):
-    """按配置选提供方：provider 键显式指定；缺省时看 base_url（含 anthropic.com 即它），
-    其余一律 OpenAI 兼容。"""
-    prov = str(cfg.get("provider") or "").lower()
+    """按配置里的**显式 provider 字段**选提供方，**不按 base_url 猜**（2026-09-13：
+    猜 URL 会踩代理/网关地址，也说不清该不该发 DeepSeek 系的扩展字段——所以走 LLM
+    的条目必须自己声明）。
+      openai / openai-compat / deepseek / ark -> OpenAICompat（任意 OpenAI 兼容端点）
+      anthropic / claude                      -> AnthropicCompat（**预留未实现**，会抛）
+    缺失或未知 -> ValueError（提示先补 provider，见 README 配置表与 mp_config.example.json）。"""
+    prov = str(cfg.get("provider") or "").strip().lower()
     if not prov:
-        prov = "anthropic" if "anthropic" in str(cfg.get("base_url", "")).lower() else "openai"
+        raise ValueError("配置缺少 provider 字段：走 LLM 的条目必须显式声明提供方"
+                         "（openai / openai-compat / deepseek / ark / anthropic；"
+                         "详见 README 配置表与 mp_config.example.json）")
     if prov in ("openai", "openai-compat", "deepseek", "ark"):
         return OpenAICompat(cfg)
     if prov in ("anthropic", "claude"):
         return AnthropicCompat(cfg)
-    raise ValueError(f"未知 provider：{prov!r}（可用：openai / anthropic）")
+    raise ValueError(f"未知 provider：{prov!r}"
+                     f"（可用：openai / openai-compat / deepseek / ark / anthropic）")

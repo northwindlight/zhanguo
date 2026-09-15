@@ -16,7 +16,7 @@ PIP_MIRROR="https://pypi.tuna.tsinghua.edu.cn/simple"
 # ---- 配置：没有 mp_config.json 就从模板生成并提示填写 ----
 if [ ! -f "mp_config.json" ]; then
     cp mp_config.example.json mp_config.json
-    echo "[初始化] 已从模板生成 mp_config.json —— 请先填好每国的 base_url / api_key / model 再运行。"
+    echo "[初始化] 已从模板生成 mp_config.json —— 请先填好每国的 base_url / api_key / model / provider（必填）再运行。"
     exit 1
 fi
 

@@ -62,6 +62,17 @@ class TestVersionGate(unittest.TestCase):
             data = json.loads(p.read_text(encoding="utf-8"))
             self.assertEqual(set(data), set(mp.SAVE_KEYS))
 
+    def test_long_memory_survives_roundtrip(self):
+        """递归累积的长期记忆要随存档持久化（酒馆式记忆组件的一环）。"""
+        with tempfile.TemporaryDirectory() as d:
+            pth = Path(d) / "m.json"
+            w = _mk()
+            w.long_memory.setdefault("秦", "与齐结盟十年，共抗林胡；粮食紧，正议和。")
+            w.save(pth)
+            w2 = mp.World.load(pth)
+            self.assertEqual(w2.long_memory.get("秦"),
+                             w.long_memory["秦"])
+
 
 class TestRoundTrip(unittest.TestCase):
     def test_save_load_save_is_byte_identical(self):
@@ -80,12 +91,12 @@ class TestRoundTrip(unittest.TestCase):
         """复现性底线：跑 4 回合 → 存 → 读 → 续 2 回合，与一口气跑 6 回合完全一致
         （引擎 rng 随档恢复；动作流 rng 由循环自己持有、天然连续）。"""
         import random
-        import expand_rule_v9
+        from ruleai import v10 as expand_rule_v10
 
         def turn(w, rng):
             w.begin_turn()
             for n in w.alive():
-                expand_rule_v9.expand_rule_turn_v9(w, n, rng, max_actions=12)
+                expand_rule_v10.expand_rule_turn_v10(w, n, rng, max_actions=12)
             w.resolve_turn()
 
         rng_a = random.Random(7)

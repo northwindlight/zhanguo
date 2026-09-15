@@ -54,27 +54,42 @@ from game import (
     unit_atk,
     unit_kind,
     unit_max_hp,
+    unit_move_cost,
     unit_speed,
     unit_supply,
 )
 
-# 每国开局资源
-START_RES = {
-    "黄金": 1500, "粮食": 20, "木头": 60,
-    "矿石": 10, "石油": 0, "装备": 5, "补给": 10,
-}
-RES_KEYS = ["黄金", "粮食", "木头", "矿石", "石油", "装备", "补给"]
-# 资源在 res 面板里的展示别名（黄金就是国库）
-RES_LABEL = {"黄金": "国库", "木头": "木材", "补给": "补给仓"}
+# 数值表在 balance.py（**唯一调参入口**）；这里原样转口，`mp.X` 的老引用照旧。
+from balance import (
+    ARRIVE_ATTEMPTS,
+    ARRIVE_MARGIN_DIV,
+    ARRIVE_MARGIN_MIN,
+    BLOC_NAME_MAX,
+    DIPLO_COST,
+    EXTRA_PROMPT_TURNS,
+    FALL_TRUCE_TURNS,
+    HUNS_RING_RATIO,
+    MARKET_DEPTH_NATIONS_DIV,
+    PLAN_MAX_TURNS,
+    POLITY,
+    REPORT_EVERY,
+    RES_KEYS,
+    RES_LABEL,
+    RETREAT_DEF_COVER,
+    SPY_COST,
+    SPY_TURNS,
+    START_RES,
+    SUMMARY_MIN_CHARS,
+)
+
 
 CROSS = [(0, 0), (0, -1), (0, 1), (-1, 0), (1, 0)]
 
-SPY_COST = 100    # 间谍 花 100 金
-SPY_TURNS = 3     # 3 回合后回报目标全部经济情报 + 地图（进 intel）；军情只给粗略数量（各兵种几支），位置/血量不外泄
-DIPLO_COST = 10   # 外交基础费用：提议/回应/断盟/保障/宣战/求和/换图/馈赠手续费（成功才扣）
-RETREAT_DEF_COVER = 50   # 防御方撤退：回合末战斗结算中只受 50% 伤害（进攻方撤退全额；0=不减伤、100=免伤）
-PLAN_MAX_TURNS = 10  # 国策每 10 回合必须修订一次（否则 end_turn 被拦）
-REPORT_EVERY = 10    # 经济报表每 10 回合自动结一期：第 11/21/31… 回合开局可查（不能手动运行）
+# 引擎机制常量（非数值表，就近放在引擎里，杜绝魔法数）
+ARMY_GID_BASE = 100_000_000   # 军队全局唯一 gid = 国家码 × 该值 + 序列（对 AI 不可见）
+KEEP_MAPS = 3                 # 各国地图快照只留最近 N 份（控体积）
+KEEP_SAVES = 2                # 间谍经济情报快照只留最近 N 份（控体积）
+
 # 总消费（累计，按当时市价折金）——终局结算按它排名。只计「被消耗掉的资源」，
 # 市场买卖/馈赠不计（买来的物资在真正被消耗时才入账），避免重复计数。
 SPEND_FIELDS = ("build",    # 建造实付金 + 木×市价（含城堡升级）
@@ -98,12 +113,15 @@ LEDGER_FIELDS = ("prod_value",      # 采集/工厂/军屯 产出 × 市价
 #   load() 先验版本再验键，任何不符直接抛 SaveFormatError——旧档不迁移、不猜，
 #   "同 seed 同档同状态"是复现性的口径，跨版本迁移就是腐烂。
 # 新增字段三步：__init__ 给默认 → SAVE_KEYS 登记 → save/load 各一行搬运。
-SAVE_VERSION = 1
+# v2（2026-09-15）：地图生成换成蓝噪声 + 密度图调制（`mapgen.py`）。**必须**bump：
+#   已物化格子的 terrain/resources 是**字面量存在档里**的，不拒载就会出现
+#   "已占格=旧算法、新占格=新算法"的混图（比整档作废更糟——它不报错）。
+SAVE_VERSION = 2
 SAVE_KEYS = ("version", "size", "seed", "turn", "rng_state", "nations", "order",
              "tiles", "armies", "next_army_seq", "diplo_built", "nation_code",
              "guard_once", "wars", "war_id", "truce", "alliances", "blocs",
              "votes", "vote_id", "defense_pacts", "guarantees", "mail_pending",
-             "mailbox", "summaries", "summary_blocks", "turn_memory", "gift_pending",
+             "mailbox", "summaries", "summary_blocks", "long_memory", "turn_memory", "gift_pending",
              "map_pending", "maps", "spy_pending", "econ_intel", "plans", "polity",
              "extra_prompt", "peace_offers", "proposals", "offer_id", "prices",
              "equilibrium", "flow_in", "flow_out", "grid_short", "energy_report",
@@ -210,6 +228,7 @@ class World:
         self.seed = seed if seed is not None else random.randrange(1 << 31)
         self.rng = random.Random(self.seed)
         self.turn = 0
+        self._mapgen = None          # 整张图的生成器（惰性，见 mapgen 属性）
         self.tiles: dict[tuple[int, int], dict] = {}
         self.nations: dict[str, "Nation"] = {}
         self.order: list[str] = []
@@ -229,6 +248,7 @@ class World:
         self.mailbox: dict[str, list[dict]] = {}
         self.summaries: dict[str, list[dict]] = {}  # 各国回合小结纪事 [{turn,text}]（私有，本国 AI 记忆；全留，供旧回合汇总）
         self.summary_blocks: dict[str, list[dict]] = {}  # 各国阶段块总结 [{from,to,text,turn}]（滑出 replay 的回合经 LLM 压成一段，覆盖其小结）
+        self.long_memory: dict[str, str] = {}     # 各国递归累积的长期记忆（酒馆式：压缩时以旧记忆为基础扩写，承载长程规划/盟约/教训）
         self.turn_memory: dict[str, list[dict]] = {}  # 各国完整回合记录（含思考 reasoning_content），按 ctx_window 预算动态保留最近若干回合
         self.gift_pending: list[dict] = []         # 馈赠在途（下回合到账）
         self.map_pending: list[dict] = []          # 交换地图在途（下回合到账）
@@ -287,32 +307,145 @@ class World:
             raise IndexError(f"坐标越界：({x+1},{y+1}) 超出地图（1..{self.size}）")
 
     def tile_terrain(self, x: int, y: int) -> str:
-        from game import roll_terrain
-        return roll_terrain(random.Random(f"{self.seed}:{x}:{y}"))
+        """这一格的地形：**已物化的地块以它自己的 `terrain` 为准**（那是权威值——
+        占地后写进地块、也写进存档），未物化的才现问 `mapgen`。
+
+        （移动代价按地形算之后，这条从"纯函数"变成"以地块为准"很关键：
+        测试里就地改地形、以及将来任何地形改造，都必须让可达性看得见。）
+        """
+        t = self.tiles.get((x, y))
+        return t["terrain"] if t is not None else self.mapgen.terrain(x, y)
+
+    # ---- 移动可达性（2026-09-15：多格移动**逐格**判定，不再是一次跳跃）----
+    def _mv_wall(self, name: str, x: int, y: int) -> str | None:
+        """mv 走一步进这格的"墙"：`None` = 可通行。
+
+        口径与旧版**目标格**判定逐条对齐（只是现在每步都要过这一关）：
+        野地 / 自家 / 盟国可走；敌国与中立领土一律不可（要进占只能 atk）；
+        野地上有与你交战的敌军驻守也不可（得先 atk）。
+        """
+        owner = self.owned_by(x, y)
+        if owner is not None and owner != name and not self.allied_between(name, owner):
+            return (f"({x + 1},{y + 1}) 是敌国领土，mv 不得进入；进占请用 atk（会交战/占领）"
+                    if self.war_between(name, owner)
+                    else f"中立不可入境：({x + 1},{y + 1}) 是「{owner}」的领土（结盟或宣战后才能进出）")
+        if owner is None and any(d["owner"] != name and d["owner"] != "野人"
+                                 and (d["x"], d["y"]) == (x, y)
+                                 and self.war_between(name, d["owner"])
+                                 for d in self.armies):
+            return f"({x + 1},{y + 1}) 有敌军驻守，不能 mv 过去；进攻请用 atk（会交战）"
+        return None
+
+    def _reachable(self, name: str, a: dict, *, for_attack: bool = False
+                   ) -> dict[tuple[int, int], int]:
+        """该军本回合**走得到**的格子 → 累计代价（一致代价搜索，代价是 1/2 的小整数）。
+
+        规则（除了"逐格走"本身，其余与旧口径一致）：
+
+        - 每步消耗 = `max(出发格代价, 目标格代价)`（用户 2026-09-15：**对称**——
+          进森林/山地减速，**待在森林/山地里的那一回合也一样慢**，不存在
+          "从山上冲出来跑更快"），总预算 `unit_speed(a)`
+          ⇒ 骑兵平地 2 格；涉森林/山地一步就吃满 ⇒ **只能 1 格、且不可能穿过山地**；
+        - **中间格**必须可通行（`_mv_wall` 为 None）：野地/自家/盟国；
+        - `for_attack=True` 时**终点**额外允许敌国领土与驻军格（那是要打的），
+          但中途仍必须可通行 —— 所以"隔着一座山打到纵深"不再可能；
+        - 起点以代价 0 计入（原地 atk 用得上；mv 到自己格照旧是"挪了个寂寞"）。
+
+        返回 `{格子: 代价}`（不含预算之外的格子）。
+        """
+        start = (a["x"], a["y"])
+        budget = unit_speed(a)
+        best = {start: 0}
+        heap = [(0, start[0], start[1])]
+        import heapq
+        while heap:
+            cost, x, y = heapq.heappop(heap)
+            if cost > best.get((x, y), 1 << 30):
+                continue
+            here = unit_move_cost(a, self.tile_terrain(x, y))
+            for nx, ny in self.neighbors(x, y):
+                ncost = cost + max(here, unit_move_cost(a, self.tile_terrain(nx, ny)))
+                if ncost > budget:
+                    continue
+                if ncost >= best.get((nx, ny), 1 << 30):
+                    continue
+                blocked = self._mv_wall(name, nx, ny)
+                if blocked:
+                    if for_attack and self._atk_target_ok(name, nx, ny):
+                        best[(nx, ny)] = ncost     # 可攻：算**终点**，但不从它继续扩
+                    continue                            # 走不进去 ⇒ 更不能穿过
+                best[(nx, ny)] = ncost
+                heapq.heappush(heap, (ncost, nx, ny))
+        return best
+
+    def polity_rule(self, name: str, key: str, default):
+        """取该国的政体修正项（数值全在 `balance.POLITY`；没有政体/没这一项 → `default`）。"""
+        return POLITY.get(self.polity.get(name) or "", {}).get(key, default)
+
+    def recruit_cost(self, name: str, kind: str) -> dict[str, int]:
+        """该国征召一支 `kind` 实际要花的原料（**含政体特价**）。
+
+        引擎（`recruit`）与 AI 文案（`mp_ai` 的征召工具描述）都走这一份口径 ——
+        曾经两边各写一遍数字，改一处就漂一处。
+        """
+        return dict(self.polity_rule(name, "recruit", {}).get(kind)
+                    or UNIT_TYPES[kind]["recruit"])
+
+    def _atk_target_ok(self, name: str, x: int, y: int) -> bool:
+        """这一格能不能当 atk 的**终点**（敌国领土 / 野地驻军）= "有东西可打/可占"。
+        与 `attack` 里那套墙判定的"可攻"侧一致（不含"不抢别人的战斗"那条，那条在 attack 里）。"""
+        owner = self.owned_by(x, y)
+        if owner is not None:
+            return owner != name and not self.allied_between(name, owner) \
+                and self.war_between(name, owner)
+        return any(d["owner"] != name and (d["x"], d["y"]) == (x, y) for d in self.armies)
+
+    def _unreachable_msg(self, a: dict, x: int, y: int, *, for_attack: bool) -> str:
+        """走不到目标格时的说法：能教人（平地几格、崎岖几格），但**不替玩家开图**
+        ——地形只在视野内才点名（迷雾限眼不限手：盲推撞墙如实报"墙在视野外"）。"""
+        label = UNIT_TYPES[unit_kind(a)]["label"]
+        budget = unit_speed(a)
+        ter = self.tile_terrain(x, y)
+        cost = unit_move_cost(a, ter)
+        acted = "冲不进去" if for_attack else "走不到"
+        seen = self.visible_to(a["owner"], x, y)
+        if seen:
+            tip = (f"（{label}移动力 {budget}；进{ter}要 {cost}"
+                   f"{'，一步就吃满 ⇒ 只能走 1 格' if cost >= budget else ''}）")
+        else:
+            tip = f"（{label}移动力 {budget}；沿路地形/敌情不明——盲推撞墙如实报告，但额度照烧）"
+        return f"{a['name']} {acted} ({x + 1},{y + 1}){tip}"
+
+    @property
+    def mapgen(self):
+        """整张图的生成器（`mapgen.MapGen`，**惰性**：第一次问地形/资源才建）。
+
+        2026-09-15 起地图不再是逐格纯函数，而是**由 `(seed, size)` 决定的一整张图**
+        （蓝噪声 + 密度图调制，见 `mapgen.py`）：逐格独立抽是泊松随机场，局部既结块
+        又有孔洞，且"起步 5 格开什么牌"会被复利放大。对外接口没变
+        （`tile_terrain` / `tile_resources` 签名与返回值照旧），调用点不用改。
+
+        ★ **惰性**是有意的：读档（`gen=False`）连图都不用生成——存档里已物化的地块
+        自带 `terrain`/`resources` 字面量，只有新占的格子才会问到这里。
+        """
+        if self._mapgen is None:
+            from mapgen import MapGen
+            self._mapgen = MapGen(self.seed, self.size)
+        return self._mapgen
 
     def tile_resources(self, x: int, y: int) -> dict[str, int]:
-        """该地块的矿藏/耕地布局（建采集建筑要看的就是它）——与地形同一套做法：
-        **纯函数 of (seed, x, y)**，跟谁先占、占之前打过几仗毫无关系。
+        """该地块的矿藏/耕地布局（建采集建筑要看的就是它）——**静态属性**，
+        跟谁先占、占之前打过几仗毫无关系（见 `mapgen`）。
 
-        以前这里在 `_new_tile` 里写的是 `roll_resources(self.rng, terrain)`，用的是
-        **世界共享 RNG**：同一格摇出什么资源，取决于轮到它的时候 RNG 已经走了多远
-        （战斗掷骰 `self.rng.randint(1,6)`、地块命名都在这条流上）。于是同一 seed
-        两局对不上——地图不是种子的静态属性，「种子可复现」形同虚设。地形早在
-        `tile_terrain` 里定死了，资源补上同一套：**开局就排布好，不由开图决定**。
-
-        2026-09-11 补完剩下那一半：**地块命名也搬出了共享流**（见 `_new_tile`）。
-        当时只修了资源、漏了命名，而命名是**每建一格都消耗**、且撞名重试导致
-        **消耗个数不定**的 —— 战斗掷骰仍会被建地顺序带偏。现在 `self.rng`
-        只剩战斗在用（外加开局布点），「同 seed 同战场」才真的成立。
+        历史两坑（都已修，别再踩）：曾用**世界共享 RNG** `roll_resources(self.rng, …)`
+        ⇒ 同一格摇出什么取决于轮到它时 RNG 走了多远（战斗掷骰也在那条流上），
+        「种子可复现」形同虚设；命名同理（每建一格都消耗、撞名重试使消耗个数不定）。
+        现在 `self.rng` 只剩战斗与开局布点在用。
         """
-        from game import roll_resources
-        return roll_resources(random.Random(f"{self.seed}:{x}:{y}:res"),
-                              self.tile_terrain(x, y))
+        return self.mapgen.resources(x, y)
 
     def ter_char(self, x: int, y: int) -> str:
-        t = self.tiles.get((x, y))
-        ter = t["terrain"] if t else self.tile_terrain(x, y)
-        return TERRAIN_CHARS[ter]
+        return TERRAIN_CHARS[self.tile_terrain(x, y)]
 
     def owned_by(self, x: int, y: int) -> str | None:
         t = self.tiles.get((x, y))
@@ -513,7 +646,7 @@ class World:
         """各国环状开局（3 国=三角）。"""
         n = len(names)
         c = self.size / 2
-        r = self.size * 0.31   # 环半径（占地图边长比例）
+        r = self.size * HUNS_RING_RATIO   # 环半径（占地图边长比例，见 balance）
         pts = {}
         for i, nm in enumerate(names):
             ang = -math.pi / 2 + i * 2 * math.pi / n
@@ -555,10 +688,10 @@ class World:
             return False, f"国家 {name} 已存在"
         polity = (polity or "").strip()
         is_huns = polity in ("匈奴", "huns", "hun")
-        margin = max(8, self.size // 6)
+        margin = max(ARRIVE_MARGIN_MIN, self.size // ARRIVE_MARGIN_DIV)
         pos = None
         if self.tiles:
-            for _ in range(400):
+            for _ in range(ARRIVE_ATTEMPTS):
                 x, y = self.rng.randrange(self.size), self.rng.randrange(self.size)
                 if all(max(abs(x - px), abs(y - py)) >= margin for (px, py) in self.tiles):
                     pos = (x, y)
@@ -576,13 +709,21 @@ class World:
         if is_huns:
             self.apply_polity(name, "huns", home=pos, start=start)
         if extra:
-            self.extra_prompt[name] = {"text": str(extra), "until": self.turn + 20,
+            self.extra_prompt[name] = {"text": str(extra), "until": self.turn + EXTRA_PROMPT_TURNS,
                                        "summary": str(summary or "")}
         desc = ("匈奴" if is_huns else "国家") + f" {name} 登场（距各国至少 {margin} 格）"
         if is_huns:
+            pd = POLITY["huns"]
+            d0 = pd.get("start", {})
             s = start or {}
-            cav = int(s.get("骑", 6)); gold = int(s.get("黄金", 1000)); sup = int(s.get("补给", 200))
-            desc += (f"：开局 {cav} 骑兵·金{gold}·补给{sup}·建筑+30%惩罚·骑兵征召8粮8装"
+            cav = int(s.get("骑", d0.get("骑", 0)))
+            gold = int(s.get("黄金", d0.get("黄金", 0)))
+            sup = int(s.get("补给", d0.get("补给", 0)))
+            r = pd.get("recruit", {}).get("骑", {}) or {}
+            short = {"粮食": "粮", "装备": "装", "黄金": "金"}
+            rc = "+".join(f"{a}{short.get(k, k)}" for k, a in r.items()) or "—"
+            desc += (f"：开局 {cav} 骑兵·金{gold}·补给{sup}"
+                     f"·建筑+{pd.get('build_cost_pct', 100) - 100}%惩罚·骑兵征召{rc}"
                      "·不能外交（只可勒索/宣战/逼降/求和）")
         self.log(desc, phase="事件", nation=name)
         return True, desc
@@ -620,9 +761,10 @@ class World:
             return
         self.polity[name] = "huns"
         start = start or {}
-        gold = int(start.get("黄金", 1000))
-        supply = int(start.get("补给", 200))
-        cav = int(start.get("骑", 6))
+        _def = POLITY.get(polity if polity in POLITY else "huns", {}).get("start", {})
+        gold = int(start.get("黄金", _def.get("黄金", 1000)))
+        supply = int(start.get("补给", _def.get("补给", 200)))
+        cav = int(start.get("骑", _def.get("骑", 6)))
         self.nations[name].res.update({"黄金": gold, "粮食": 0, "木头": 0,
                                        "矿石": 0, "石油": 0, "装备": 0, "补给": supply})
         if home is None:
@@ -698,7 +840,8 @@ class World:
             cost = cost * (100 - _disc) // 100
             disc = f"，工程院-{_disc}%"
         if self.polity.get(name) == "huns":
-            cost = cost * 13 // 10   # 匈奴 +30% 建筑惩罚，乘算（不擅建设，靠抢）
+            # 政体建造惩罚（数值在 balance.POLITY，乘算：不擅建设，靠抢）
+            cost = cost * self.polity_rule(name, "build_cost_pct", 100) // 100
         wood = info["wood"]
         if self.res(name, "黄金") < cost:
             return False, f"黄金不足：{label} 需 {cost}，国库 {self.res(name,'黄金')}"
@@ -751,9 +894,7 @@ class World:
             if cap <= 0:
                 return False, "本回合征召产能已用完（每兵营 1 支/回合）"
         n = min(n, cap)
-        cost = UNIT_TYPES[kind]["recruit"]
-        if kind == "骑" and self.polity.get(name) == "huns":
-            cost = {"粮食": 8, "装备": 8}   # 匈奴骑兵征召只需 8 粮 8 装
+        cost = self.recruit_cost(name, kind)
         n = min(n, min(self.res(name, f) // amt for f, amt in cost.items()))
         if n <= 0:
             return False, "战略储备不足（每支耗 " + "、".join(f"{f}x{a}" for f, a in cost.items()) + "）"
@@ -795,7 +936,7 @@ class World:
         gid=国家码×1e8+seq，全局唯一但**对 AI 不可见**（仅存档/内部用；野人码 0 → gid==seq）。"""
         seq = self.next_army_seq.get(owner, 0) + 1
         self.next_army_seq[owner] = seq
-        return self.nation_code.get(owner, 0) * 100_000_000 + seq, seq
+        return self.nation_code.get(owner, 0) * ARMY_GID_BASE + seq, seq
 
     def _next_engage_seq(self) -> int:
         """递增的「入场序号」：军队每次 atk 参战领一个新号，用于野地索取顺序。"""
@@ -873,29 +1014,16 @@ class World:
             self._check(x, y)
         except IndexError as e:
             return False, str(e)
-        speed = unit_speed(a)
-        if max(abs(a["x"] - x), abs(a["y"] - y)) > speed:
-            return False, f"{UNIT_TYPES[unit_kind(a)]['label']} 每回合只能移动 {speed} 格"
         if a.get("moved_turn") == self.turn:
             return False, "本回合已移动过"
-        # mv 合法地块 = 野地 / 自家 / 盟国。敌国格一律禁 mv——**空格也必须 atk 才能进占**
-        # （无「无阻穿行」，每一步前进都是交战或占领）。
-        # 自家/盟国格被混战敌军占着可进（增援）：入格随 _resolve_battles 的格上 forces 自动参战。
-        # ★ 视野外的格撞上这些墙 → 报错照实（斥候情报），但本回合移动额度照烧（侦察要付钱）。
-        owner = self.owned_by(x, y)
-        why = None
-        if owner is not None and owner != name and not self.allied_between(name, owner):
-            why = (f"({x + 1},{y + 1}) 是敌国领土，mv 不得进入；进占请用 atk（会交战/占领）"
-                   if self.war_between(name, owner)
-                   else f"中立不可入境：({x + 1},{y + 1}) 是「{owner}」的领土（结盟或宣战后才能进出）")
-        elif owner is None and any(d["owner"] != name and d["owner"] != "野人"
-                                   and (d["x"], d["y"]) == (x, y)
-                                   and self.war_between(name, d["owner"])
-                                   for d in self.armies):
-            why = f"({x + 1},{y + 1}) 有敌军驻守，不能 mv 过去；进攻请用 atk（会交战）"
+        # ★ 目标格本身的墙先判（与旧口径一致：视野外撞墙 → 报错照给、**额度照烧**，侦察要付钱）。
+        #   然后才是"走不到"（地形代价/中途被挡）——那一条**不烧额度**（旧版的射程不够也不罚）。
+        why = self._mv_wall(name, x, y)
         if why:
-            self._blind_cost(name, [a], x, y)   # 视野外撞墙：报错照给，移动额度照烧
+            self._blind_cost(name, [a], x, y)
             return False, why
+        if (x, y) not in self._reachable(name, a):
+            return False, self._unreachable_msg(a, x, y, for_attack=False)
         # mv 只挪位置，不占地——占地走 atk
         a["x"], a["y"] = x, y
         a["moved_turn"] = self.turn
@@ -941,9 +1069,9 @@ class World:
             if a.get("engaged") and (a["x"], a["y"]) != (x, y):
                 return False, (f"{a['name']} 正在交战中，不能离开战场改攻他处；"
                                f"想脱战先 retreat 军队id 目标格（会挨守军一击）")
-            if max(abs(a["x"] - x), abs(a["y"] - y)) > unit_speed(a):
-                return False, (f"{a['name']} 距 ({x+1},{y+1}) 超出 "
-                               f"{UNIT_TYPES[unit_kind(a)]['label']} 移动范围（{unit_speed(a)} 格），冲不进去")
+            # ★ atk 也**逐格**走：隔着山/隔着别人的地界就冲不进去（旧版是 5×5 直取）
+            if (a["x"], a["y"]) != (x, y) and (x, y) not in self._reachable(name, a, for_attack=True):
+                return False, self._unreachable_msg(a, x, y, for_attack=True)
             if (a["x"], a["y"]) != (x, y) and a.get("moved_turn") == self.turn:
                 return False, f"{a['name']} 本回合已移动过"
         for a in targets:
@@ -1036,7 +1164,7 @@ class World:
 
     # ------------------------------------------------------------- 战斗
     def _die(self):
-        d = self.rng.randint(1, 6)
+        d = self.rng.randint(min(COMBAT_DIE_MOD), max(COMBAT_DIE_MOD))
         return d, COMBAT_DIE_MOD[d]
 
     @staticmethod
@@ -1271,7 +1399,7 @@ class World:
         for i in range(len(alive)):
             for j in range(i + 1, len(alive)):
                 p = _pair(alive[i], alive[j])
-                self.truce[p] = max(self.truce.get(p, 0), self.turn + 10)
+                self.truce[p] = max(self.truce.get(p, 0), self.turn + FALL_TRUCE_TURNS)
         for lst in (self.alliances, self.defense_pacts):
             self._remove_pair(lst, name)
         self.guarantees.pop(name, None)
@@ -1280,6 +1408,7 @@ class World:
         self.mailbox.pop(name, None)
         self.summaries.pop(name, None)
         self.summary_blocks.pop(name, None)
+        self.long_memory.pop(name, None)
         self.turn_memory.pop(name, None)
         self.maps.pop(name, None)
         self.gift_pending = [g for g in self.gift_pending if g["from"] != name and g["to"] != name]
@@ -1756,7 +1885,7 @@ class World:
                 continue
             store = self.maps.setdefault(m["to"], [])
             store.append({"from": m["from"], "turn": m["arrive"], "text": m["text"]})
-            del store[:-3]  # 只留最近 3 张图，控体积
+            del store[:-KEEP_MAPS]  # 只留最近 N 张图，控体积
             self.log(f"🗺 {m['to']} 收到 {m['from']} 的地图", phase="事件", nation=m["to"])
         # 间谍回报：3回合后盗回目标当前经济情报（含粗略军情数量）+ 地图；目标亡国则任务失败
         due_sp = [s for s in self.spy_pending if s["arrive"] <= self.turn]
@@ -1770,12 +1899,12 @@ class World:
                 continue
             store = self.econ_intel.setdefault(s["from"], [])
             store.append({"from": s["to"], "turn": s["arrive"], "text": self._econ_snapshot(s["to"])})
-            del store[:-2]  # 只留最近 2 份，控体积
-            # 间谍偷来的地图也进 intel（world.maps，与 share_map 同池，留最近 3 张）
+            del store[:-KEEP_SAVES]  # 只留最近 N 份，控体积
+            # 间谍偷来的地图也进 intel（world.maps，与 share_map 同池，留最近 N 张）
             mstore = self.maps.setdefault(s["from"], [])
             mstore.append({"from": f"{s['to']}(间谍)", "turn": s["arrive"],
                            "text": self._map_snapshot(s["to"])})
-            del mstore[:-3]
+            del mstore[:-KEEP_MAPS]
             self.log(f"🕵 {s['from']} 的间谍回报了 {s['to']} 的情报与地图",
                      phase="事件", nation=s["from"])
         return len(due)
@@ -1786,8 +1915,9 @@ class World:
 
     def market_depth(self, good: str) -> int:
         """该商品的市场深度（单位数）：每卖光这么多单位，市价大约被压掉「基准价×PRICE_IMPACT」。
-        深度 = MARKET_DEPTH[g] × max(1, 现存国家数) ÷ 4——国家越多市场越深（4 国为基准档）。"""
-        return max(1, round(MARKET_DEPTH[good] * max(1, len(self.alive())) / 4))
+        深度 = MARKET_DEPTH[g] × max(1, 现存国家数) ÷ MARKET_DEPTH_NATIONS_DIV
+        ——国家越多市场越深（N 国为基准档）。"""
+        return max(1, round(MARKET_DEPTH[good] * max(1, len(self.alive())) / MARKET_DEPTH_NATIONS_DIV))
 
     def market_tick(self, good: str) -> float:
         """每单位推动（金/单位）：基准价 × PRICE_IMPACT ÷ 深度。"""
@@ -2112,8 +2242,8 @@ class World:
         if self.bloc_of(a) is not None:
             return False, f"你已在联盟「{self.bloc_of(a)['name']}」中（一国同时只属一个联盟）"
         name = (name or "").strip()
-        if not name or " " in name or len(name) > 12:
-            return False, "联盟名需为 1~12 字、不含空格（name 参数）"
+        if not name or " " in name or len(name) > BLOC_NAME_MAX:
+            return False, f"联盟名需为 1~{BLOC_NAME_MAX} 字、不含空格（name 参数）"
         if self.bloc_by_name(name) is not None:
             return False, f"联盟名「{name}」已被占用"
         inv = []
@@ -2224,8 +2354,8 @@ class World:
         if chief != a:
             return False, f"只有盟主能给联盟改名（现任盟主是 {chief}）"
         name = (new_name or "").strip()
-        if not name or " " in name or len(name) > 12:
-            return False, "联盟名需为 1~12 字、不含空格（name 参数）"
+        if not name or " " in name or len(name) > BLOC_NAME_MAX:
+            return False, f"联盟名需为 1~{BLOC_NAME_MAX} 字、不含空格（name 参数）"
         if name == bloc["name"]:
             return False, f"你的联盟已经叫「{name}」了"
         if self.bloc_by_name(name) is not None:
@@ -2783,7 +2913,11 @@ class World:
             "rng_state": list(self.rng.getstate()),
             "nations": {n: nat.res for n, nat in self.nations.items()},
             "order": self.order,
-            "tiles": {f"{x},{y}": t for (x, y), t in sorted(self.tiles.items())},
+            # ★ 按**插入序**（物化序）写，**不 sorted**：读回来之后 `self.tiles` 的遍历顺序
+            #   才与"从没存过档"的进程一致。sorted 会让续跑进程按坐标序遍历，而
+            #   `prod_value` 这类钱账是**逐格浮点累加**的 ⇒ 累加顺序一变就差 1 ULP
+            #   （`test_resume_mid_game_equals_straight_run` 抓的就是这种病）。
+            "tiles": {f"{x},{y}": t for (x, y), t in self.tiles.items()},
             "armies": self.armies, "next_army_seq": self.next_army_seq,
             "diplo_built": self.diplo_built,
             "nation_code": self.nation_code,
@@ -2801,6 +2935,7 @@ class World:
             "mailbox": self.mailbox,
             "summaries": self.summaries,
             "summary_blocks": self.summary_blocks,
+            "long_memory": self.long_memory,
             "turn_memory": self.turn_memory,
             "gift_pending": self.gift_pending,
             "map_pending": self.map_pending,
@@ -2863,6 +2998,7 @@ class World:
                        if n in w.nations}
         w.summary_blocks = {n: list(v) for n, v in data["summary_blocks"].items()
                             if n in w.nations}
+        w.long_memory = {n: str(v) for n, v in data["long_memory"].items() if n in w.nations}
         w.turn_memory = {n: list(v) for n, v in data["turn_memory"].items() if n in w.nations}
         w.gift_pending = data["gift_pending"]
         w.map_pending = data["map_pending"]

@@ -5,7 +5,8 @@
   只能调用自己的合法工具（规则与引擎完全一致，无作弊入口）。
 - execute(world, actor, tool, args)：执行一个工具调用并返回结果文本。
 - run_openai_turn(...)：一个国家的「回合」——反复调 LLM 直到它 end_turn / 无工具。
-- dummy_turn(...)：无 key 时的规则 AI（扩张流 v6，游戏层），用于机制验证/看海 demo。
+- dummy_turn(...)：无 key 时的规则 AI（扩张流，**版本由配置选**，见 `rule_ai.py`），
+  用于机制验证/看海 demo。
 """
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ from __future__ import annotations
 import copy
 import json
 import threading
-from pathlib import Path
 
 from game import (
     ARMY_HEAL_PER_TURN,
@@ -31,6 +31,9 @@ from game import (
     MARKET,
     MARKET_SPREAD,
     MAX_SLOTS,
+    MOVE_COST,
+    RETREAT_ATK_PENALTY,
+    RETREAT_RANGE,
     TERRAIN_STATS,
     UNIT_TYPES,
     letter_cost,
@@ -40,20 +43,21 @@ import ctx as ctxlib
 from console import dw as _dw, pad as _pad
 from llm_provider import make_backend
 from ctx import est_tokens
-from mp import (DIPLO_COST, PLAN_MAX_TURNS, REPORT_EVERY, RES_KEYS, RES_LABEL,
+import rule_ai as rule_ai_registry
+from mp import (BLOC_NAME_MAX, CROSS, DIPLO_COST, EXTRA_PROMPT_TURNS, FALL_TRUCE_TURNS,
+                PLAN_MAX_TURNS, POLITY, REPORT_EVERY, RES_KEYS, RES_LABEL,
+                RETREAT_DEF_COVER, SPY_COST, SPY_TURNS, SUMMARY_MIN_CHARS,
                 build_econ, good_value)
 
 MAIL_BRIEF_FULL = 3      # 状态面板里完整展示的新信数（更旧的只列摘要行）
 MAIL_BRIEF_ROWS = 20     # 状态面板里最多列多少条旧信摘要
 
-
-# README 原文（匈奴 rules 附加用；读不到则留空）
-_README_TEXT = ""
-try:
-    _README_TEXT = Path(__file__).resolve().parent.joinpath("README.md").read_text(encoding="utf-8")
-except Exception:
-    pass
-
+# ★ 局内上下文**不注入 README**（2026-09-15）：`rules` 一律返回 `_help_sections()`
+#   现算的规则文本，**所有政体同一份**。曾经匈奴的 rules 额外附一份 README 原文全文
+#   （`mp_ai._README_TEXT`）——那份文本是给人类看的（配置项/项目结构/RL 线/结算说明），
+#   对局内玩家大半是噪声，而且把"README 里能写什么"绑成了**规则约束**（分布类数字
+#   一度因此不许进 README）。匈奴的专属机制由 system prompt 里的【教义】承担
+#   （`_huns_prompt`），`rules` 不再重复。
 _engine_lock = threading.RLock()
 
 
@@ -81,34 +85,128 @@ HUNS_BLOCKED = {
 }
 
 # 匈奴教义（喂给匈奴 AI，令其贯彻；人类侧全文见 匈奴教义.md）
+def _move_brief(kind: str) -> str:
+    """某兵种"能走几格"的说法——**从 `MOVE_COST` / `UNIT_TYPES` 现算**，不写死数字。
+
+    规则：移动力 = `UNIT_TYPES[kind]["speed"]`；一步的代价 = max(出发格, 目标格)，
+    所以"开阔地形能走几格 = 移动力 ÷ 开阔代价"、"崎岖能走几格 = 移动力 ÷ 崎代价"。
+    """
+    budget = UNIT_TYPES[kind]["speed"]
+    costs = MOVE_COST.get(kind, {}) or {t: 1 for t in TERRAIN_STATS}
+    open_cost = min(costs.values())
+    open_cells = budget // max(1, open_cost)
+    slow = [t for t in TERRAIN_STATS if costs.get(t, 1) > open_cost]
+    if not slow:
+        return f"动{open_cells}格/回合（任何地形）"
+    slow_cells = budget // max(costs.values())
+    return f"动{open_cells}格/回合（{'/'.join(slow)}只 {slow_cells} 格）"
+
+
+def _move_cost_text() -> str:
+    """地形代价那一句——**由 `MOVE_COST` 现算**（改表 ⇒ 文案跟着变）。
+
+    捷径/崎岖两类地形名、以及"崎岖能走几格"都从表里推，不写死。
+    """
+    costs = MOVE_COST["骑"]
+    open_t = [t for t in TERRAIN_STATS if costs.get(t, 1) == min(costs.values())]
+    slow_t = [t for t in TERRAIN_STATS if t not in open_t]
+    budget = UNIT_TYPES["骑"]["speed"]
+    return (f"每走一格按地形扣（出发格与目标格取更贵的那个）："
+            f"骑兵在{'/'.join(open_t)}便宜、在{'/'.join(slow_t)}贵一倍"
+            f"（⇒ 只能走 {budget // max(costs.values())} 格，且**穿不过去**）；"
+            f"步兵/民兵任何地形每格 1")
+
+
+def _move_rule_text() -> str:
+    """移动规则的完整说法——**全部由 `MOVE_COST` / `UNIT_TYPES` 现算**。
+
+    2026-09-15 起：速度=移动力，逐格按地形扣（出发格与目标格取更贵的那个），
+    多格移动逐格判定 ⇒ 崎岖地形"减速 + 穿不过去"。
+    """
+    rows = [f"{UNIT_TYPES[k]['label']}{_move_brief(k)}" for k in UNIT_TYPES]
+    return (f"**移动**：{'、'.join(rows)}；{_move_cost_text()}。"
+            f"多格移动**逐格判定**：隔着一道山地/森林、或借道别人的地界，都冲不过去。")
+
+
+def _reach_brief() -> str:
+    """`atk` 够得着多远的短说法——**由 `MOVE_COST` / `UNIT_TYPES` 现算**。
+
+    （这里原来手写着"步1格/骑2格"：移动代价表一改就成假话，而工具描述是 LLM 玩家
+    做决策时唯一的规则来源。改表 ⇒ 这句跟着变。）
+    """
+    return "、".join(f"{UNIT_TYPES[k]['label']}{_move_brief(k)}" for k in UNIT_TYPES)
+
+
+def _cost_text(cost: dict[str, int]) -> str:
+    """把一份料单写成"10粮+5装"这样的短说法（面板/工具描述共用，不写死数字）。"""
+    short = {"粮食": "粮", "装备": "装", "黄金": "金", "木头": "木", "矿石": "矿",
+             "石油": "油", "补给": "补给"}
+    return "+".join(f"{amt}{short.get(k, k)}" for k, amt in cost.items())
+
+
+def _diplo_chain() -> list[str]:
+    """外交中心叠加减半后的外交费序列（10→5→2→1…，下限 DIPLO_CENTER_MIN_COST）。"""
+    c = DIPLO_COST
+    out = []
+    while True:
+        out.append(str(c))
+        if c <= DIPLO_CENTER_MIN_COST:
+            break
+        c = max(DIPLO_CENTER_MIN_COST, c // 2)
+    return out
+
+
+def _recruit_desc(costs: dict[str, dict]) -> str:
+    """征召工具的说明：费用/补给/移动**全部现算**（`UNIT_TYPES` + 政体表）。
+
+    `costs` = {兵种: 料单}，由「该国实际征召价」（`World.recruit_cost`）或
+    `UNIT_TYPES[*]['recruit']`（无政体）给出 ⇒ 匈奴的骑兵特价自动体现在文案里。
+    """
+    rows = []
+    for k, info in UNIT_TYPES.items():
+        extra = "；驻本格军屯不耗补给" if k == "民" else ""
+        rows.append(f"{k}={info['label']}({_cost_text(costs.get(k, info['recruit']))}、"
+                    f"耗补给{info['supply']}/回合、{_move_brief(k)}{extra})")
+    return ("在自己有兵营且电网正常的地块征召军队，每兵营每回合1支。兵种 kind："
+            + "；".join(rows)
+            + "——民兵是廉价驻守军队，每军屯每回合1支、全国民兵总数≤全国军屯总数（阵亡后才能补员）。"
+            + "注意补给仓必须跟上：补给不足时全军按缺口比例扣血"
+            + f"（满缺 -{ARMY_STARVE_DAMAGE}HP/军/回合，交战中也照扣），饿毙不复活。")
+
+
+
+
 HUNS_DOCTRINE = (
-    "· **抢产为生，不是勒索为生**：你真正的口粮是**夺来的金矿与补给厂**，勒索只是零钱。\n"
-    "   每座金矿 = 10 金/回合 ≈ 1 骑的口粮（骑耗 2 补给，买价 ≈5.3 金/单位，含价差滑点 ≈11~12 金/骑）；"
-    "每座补给厂 = 2 补给/回合 = 1 骑的口粮（要 1粮+1矿+1电，抢它得连农场/矿场一起抢，否则空转）。"
+    "· **抢产为生，不是勒索为生**：你真正的口粮是**夺来的金矿与补给厂**，勒索只是零钱。"
     "→ **金矿优先、补给厂并列**。\n"
-    "· **时间是敌人：越拖越容易死**。开局 200 补给 = 16 回合的命，之后每回合都在流血、对方在种田。"
-    "必须在见底前把「存量」变成「流量」：抢到能持续产金/产补给的地才活得下去。"
+    "· **时间是敌人：越拖越容易死**：开局补给有限，每回合都在流血、对方在种田。"
+    "必须在见底前把「存量」变成「流量」——抢到能持续产金/产补给的地才活得下去。"
     "抢地优先级：金矿地 > 补给厂地 > 粮木矿产地 > 无驻军空城 > 有驻军要塞（最后，能不碰就不碰）。\n"
-    "· 勒索要小而真：**一次 50~100 金 + 5~20 补给为宜**——张口几百金对方宁可开战，"
-    "小数目他懒得打、反而真能到手。**别过度夸大兵威**：对手能 spy 数你的军（各兵种真实数量），"
-    "把 6 骑吹成 20 骑只会让报价不可信、直接被拒；要不报具体数字，别报假数。\n"
-    "· **骑兵战力与步兵相同**（都是 50 攻/100 血），你的优势**只有速度**：一次 atk 可达 2 格外"
-    "（步兵只有 1 格），且 atk 是跳到目标格——**可跳过一格直取纵深城市**。你登场时（120~150 回合）"
-    "对方早已发育成型，**打不过任何中等国家的主力，永远避开**（与步兵主力保持 ≥2 格、与骑兵主力 ≥3 格；"
-    "被咬住用 retreat 撤：只退相邻 1 格、回合末结算后脱离）。\n"
-    "· **分兵掠地**（对**大而旷**的国家最有效）：骑兵分 2~3 路，各扑不同方向的无驻军城市——"
-    "你跳 2 格、它走 1 格，永远追不上你。**机动聚集**：它被迫分兵守城/回夺时，把相邻几路临时聚起来，"
-    "以 2 打 1、3 打 1 吃掉它的**落单部队/小股守军**，打完立刻散开继续掠地。"
+    "· 勒索要小而真：**别张口太大**——开口过高对方宁可开战，小数目他懒得打、反而真能到手。"
+    "**别过度夸大兵威**：对手能 spy 数你的军（各兵种真实数量），虚报兵数只会让报价不可信、直接被拒；"
+    "要不报具体数字，别报假数。\n"
+    f"· **骑兵战力与步兵相同**（都是 {UNIT_TYPES['骑']['atk']} 攻/{UNIT_TYPES['骑']['hp']} 血），"
+    f"你的优势**只有速度**：平地上你{_move_brief('骑')}、它{_move_brief('步')}——"
+    f"但**森林/山地是慢速地形、而且穿不过去**（多格移动逐格判定，"
+    f"「跳过一格直取纵深」那条已经没有了）；绕山绕林是常态，别把越格突袭当想当然。"
+    f"你登场时对方早已发育成型，"
+    f"**打不过任何中等国家的主力，永远避开**（与敌方主力保持距离；"
+    f"被咬住用 retreat 撤：只退相邻 {RETREAT_RANGE} 格、回合末结算后脱离）。\n"
+    f"· **分兵掠地**（对**大而旷**的国家最有效）：骑兵分几路，各扑不同方向的无驻军城市——"
+    f"平地上你比它快（{UNIT_TYPES['骑']['speed']} 对 {UNIT_TYPES['步']['speed']}），"
+    f"但崎岖地形会把这点优势抹平（两边都只能少走）⇒ **走平地、挑旷野**。**机动聚集**："
+    f"它被迫分兵守城/回夺时，把相邻几路临时聚起来，"
+    "以多打少吃掉它的**落单部队/小股守军**，打完立刻散开继续掠地。"
     "纵深抢来的城**不必守**（守不住；价值是打击经济+逼它分兵）；**靠边、成片、产金/产补给的地才值得留兵**。"
     "别挑小国要塞化的硬骨头。\n"
     "· **议和只跟能谈的谈，且绝不亏本**：拒绝谈判/只肯白和/不回信的国家，**别再发第二次——"
     "打疼了再说**（分兵抢它的城与产金地、吃它的落单部队，疼了它自己来求）。停战期对方一分不给，你的骑兵照吃补给"
-    "（6 骑 ≈ 65~70 金/回合），所以索款(demand) 必须 ≥（已打回合 + truce 停战回合）× 每回合开销；"
-    "算不过账就把 truce 压到 0~2 回合，或干脆不议和、继续抢。\n"
+    "，所以索款(demand) 必须 ≥（已打回合 + truce 停战回合）× 每回合开销；"
+    "算不过账就把 truce 压低，或干脆不议和、继续抢。\n"
     "· **坚壁清野型**（不议和、不给钱、油盐不进）：别在它身上费回合，**全力摧毁**——"
     "不打要塞，专拆它无驻军的产金/产补给地块，一块一块吃干净，直到它亡国或服软。\n"
-    "· 拿到金/赔款第一件事：立刻 buy 补给（一次买够未来 10 回合的量），别囤黄金。"
-    "补给仓空 = 每军按缺口比例扣血（满缺 -35HP/回合，交战中也照扣），几回合就死光。"
+    "· 拿到金/赔款第一件事：立刻 buy 补给备几回合的口粮，别囤黄金。"
+    "补给仓的消耗与挨饿规则以 rules 为准（每军按缺口比例扣血，别饿死）。"
 )
 
 
@@ -136,7 +234,11 @@ def _fmt_armies(world, name) -> str:
         t = world.tiles.get((a["x"], a["y"]))
         where = t["name"] if t else "野外"
         st = "交战中" if a.get("engaged") else ("已移动" if a.get("moved_turn") == world.turn else "可行动")
-        lines.append(f"{a['name']}(#{a['id']}) | {a['hp']}HP | ({a['x']+1},{a['y']+1}) {where} | {st}")
+        # 移动力与"本回合能挪到几格"现算（地形代价表见 balance.MOVE_COST）
+        mv = _move_brief(a.get("type", "步"))
+        reach = len(world._reachable(name, a)) - 1 if st == "可行动" else 0
+        lines.append(f"{a['name']}(#{a['id']}) | {a['hp']}HP | ({a['x']+1},{a['y']+1}) {where} | "
+                     f"{st} | {mv}" + (f"｜本回合可及 {reach} 格" if st == "可行动" else ""))
     return "\n".join(lines)
 
 
@@ -164,15 +266,24 @@ def _fmt_land(world, name, cap=40) -> str:
         )
         shown += 1
     fr = sorted(world.frontier_of(name))
-    lines.append(f"可拓荒地 {len(fr)} 块（[野人]=有守军需 atk 打赢；[空地]=无守军，atk 进驻即占）:")
+    # 本回合**够得着**的格子：至少一支军队能从现位置走/打到（逐格代价，见 balance.MOVE_COST）
+    reach: set = set()
+    for a in world.armies:
+        if a["owner"] == name and a["hp"] > 0 and not a.get("engaged") \
+                and a.get("moved_turn") != world.turn:
+            reach |= set(world._reachable(name, a, for_attack=True))
+    lines.append(f"可拓荒地 {len(fr)} 块（[野人]=有守军需 atk 打赢；[空地]=无守军，atk 进驻即占；"
+                 f"可及=本回合有军队够得着）:")
     frs = []
     for (x, y) in fr:
         guard = any(a["owner"] == "野人" and (a["x"], a["y"]) == (x, y) for a in world.armies)
         tag = "[野人]" if guard else "[空地]"
-        frs.append(f"({x+1},{y+1}){world.ter_char(x, y)}{tag}")
+        ok = "可及" if (x, y) in reach and world.visible_to(name, x, y) else ""
+        frs.append(f"({x+1},{y+1}){world.ter_char(x, y)}{tag}{ok}")
     if frs:
-        for i in range(0, len(frs), 10):
-            lines.append("  " + " ".join(frs[i:i + 10]))
+        for i in range(0, len(frs), 8):
+            lines.append("  " + " ".join(frs[i:i + 8]))
+    lines.append(f"  地形挡路：{_move_cost_text()}。")
     return "\n".join(lines)
 
 
@@ -413,34 +524,44 @@ def _help_sections() -> list[tuple[str, str]]:
             note = "耗 " + "、".join(f"{f}x{a}" for f, a in info["fuel"].items()) + \
                    f" → 发 {info['energy_out']} 电（电不存储）"
         elif k == "factory":
-            note = "维持1电；投 " + "、".join(f"{f}x{a}" for f, a in info["inputs"].items()) + \
+            note = f"维持{info['energy']}电；投 " + "、".join(f"{f}x{a}" for f, a in info["inputs"].items()) + \
                    " 产 " + "、".join(f"{g}x{a}" for g, a in info["outputs"].items())
         elif k == "townhall":
-            note = ("维持1电；每座每回合 = 5金基础 + 该地块每座建筑×1金（不含自身，地越盖越值）"
-                    "入国库；需本地已用建筑位≥6、每地块限1座")
+            note = (f"维持{info['energy']}电；每座每回合 = "
+                    f"{building_effect('市政厅', 'gold_base')}金基础 + "
+                    f"该地块每座建筑×{building_effect('市政厅', 'gold_per_slot')}金（不含自身，地越盖越值）"
+                    f"入国库；需本地已用建筑位≥{info['min_slots']}、每地块限{info.get('limit', 1)}座")
         elif k == "tower":
             note = (f"无产出不耗电；己方/盟方任一瞭望塔半径 "
                 f"{building_effect('瞭望塔', 'vision_radius')} 圆内的事件你都收得到"
                     "（含战报；视野=国土+相邻一圈+所有瞭望塔圈；只扩事件视野，不增加可拓地）")
         elif k == "diplomat":
-            note = ("无产出不耗电；每座（含抢来的）让你的外交费再减半（10→5→2→1，下限1金）、"
+            c_ = DIPLO_COST; chain = []
+            while True:
+                chain.append(str(c_))
+                if c_ <= DIPLO_CENTER_MIN_COST: break
+                c_ = max(DIPLO_CENTER_MIN_COST, c_ // 2)
+            note = (f"无产出不耗电；每座（含抢来的）让你的外交费再减半"
+                    f"（{'→'.join(chain)}，下限{DIPLO_CENTER_MIN_COST}金）、"
                     "他国向你提议结盟/联盟/议和永远免费；**写信起步价吃这个减免，超字费不吃**；"
-                    "**自建全国限1座，第2座只能抢**；需本地已用位≥5")
+                    f"**自建全国限{info['limit_nation']}座，第2座只能抢**；需本地已用位≥{info['min_slots']}")
         elif k == "academy":
             note = (f"无产出不耗电；本地块一切建造金价 -{building_effect('工程院', 'build_discount')}%"
                 f"（含城堡升级，与地形惩罚乘算，"
-                    "只认已落成的）；需本地已用建筑位≥4、每地块限1座")
+                    "只认已落成的）；需本地已用建筑位≥" + str(info["min_slots"]) + "、每地块限1座")
         elif k == "militia_camp":
-            note = ("屯田+民兵编制：每回合 +1 粮（不耗电）。可在此征召民兵（50金+5粮/支；每座每回合1支，"
+            note = (f"屯田+民兵编制：每回合 +{info['outputs']['粮食']} 粮（不耗电）。可在此征召民兵"
+                    f"（{_cost_text(UNIT_TYPES['民']['recruit'])}/支；每座每回合{info['effects'].get('militia_cap', 1)}支，"
                     "**全国民兵总数 ≤ 全国军屯总数**；不耗电、电网停摆也不影响）；民兵=廉价驻守军队"
-                    f"（{UNIT_TYPES['民']['hp']}HP/攻{UNIT_TYPES['民']['atk']}/动1格），驻**本格**不耗补给"
+                    f"（{UNIT_TYPES['民']['hp']}HP/攻{UNIT_TYPES['民']['atk']}/{_move_brief('民')}），驻**本格**不耗补给"
                     "（每座军屯覆盖本格1支，离格/超额照常吃）；需本地耕地≥1、每地块限1座")
         else:  # barracks
-            note = "维持1电；每兵营每回合可征 1 支军队（耗 10粮 + 5装）；需本地已用建筑位≥3（含在建）"
+            note = (f"维持{info['energy']}电；每兵营每回合可征 {info['effects'].get('recruit_cap', 1)} 支军队"
+                    f"（耗 {_cost_text(info['army_cost'])}）；需本地已用建筑位≥{info['min_slots']}（含在建）")
         bld.append(f"  {nm}：造价 {cost}金 + {info['wood']}木 · {cap} · {note}")
     sections = [
         ("总览", (
-            "EU4式 大地图国战：每人从 5 块地起家，拓荒/建设/生产/建军，可对他国结盟或开战。"
+            f"EU4式 大地图国战：每人从 {len(CROSS)} 块地起家，拓荒/建设/生产/建军，可对他国结盟或开战。"
             "回合制：每回合你行动（可做多件事）→ 过回合统一结算（产出/电网/战斗/补给/市场回归）。"
             "地皮名字=ID，坐标 1-based。你能看的是自己地盘+相邻一圈（有联盟则连盟友的地盘也看得到；建瞭望塔可把事件视野再往外推）；他国国力只能推测。"
             "迷雾限制你**看见**的，不限制你**下令**的：可对视野外的格下 mv/atk——撞上不透明的"
@@ -453,33 +574,39 @@ def _help_sections() -> list[tuple[str, str]]:
                         "mv 只挪位不占地；没有『凭空拓荒』命令。"
                         "行军不打野人：mv 可直接往野地（含野人驻守格）移动/穿行，野人从不主动攻击、路过不打，只在被 atk 时才接战；"
                         "但野地上有敌军驻守（含正在打野的敌军）时不得 mv——必须 atk 交战。"),
-        ("建筑与造价", "\n".join(bld) + "\n  每地块 20 建筑位；每地块每回合限建 1 座；"
+        ("建筑与造价", "\n".join(bld) + f"\n  每地块 {MAX_SLOTS} 建筑位；每地块每回合限建 1 座；"
                                         "建好后下一回合才生效（在建中）。"
                                         "\n  表中造价为平原基准价；实际金价按地块地形建设惩罚上浮"
-                                        "（如山地 ×1.5，只加金不加木），匈奴再乘 1.3。"),
+                                        f"（如山地 ×{1 + TERRAIN_STATS['山地']['build_penalty'] / 100:g}，只加金不加木），"
+                                        f"匈奴再乘 {POLITY['huns']['build_cost_pct'] / 100:.2g}。"),
         ("经济与能源", (
             "全国制：国库/木材/粮矿油装补给都在你账上（res 面板）。"
             "电网全国且不存储：能源厂发电；补给厂/装备厂/兵营/市政厅都要耗电维持，"
             "发电 < 维持则这些高级建筑全部停摆（能源厂除外）。"
-            "补给厂(粮1+矿1→补给2)；装备厂(矿1+油1→装备2)；补给仓每军每回合耗 1（骑兵 2），"
-            "空则每军按缺口比例扣血（满缺 -35HP/回合，交战中也照扣），可能饿毙。"
+            f"补给厂({_cost_text(BUILDINGS['补给厂']['inputs'])}→{_cost_text(BUILDINGS['补给厂']['outputs'])})；"
+            f"装备厂({_cost_text(BUILDINGS['装备厂']['inputs'])}→{_cost_text(BUILDINGS['装备厂']['outputs'])})；"
+            f"补给仓每军每回合耗 {UNIT_TYPES['步']['supply']}（骑兵 {UNIT_TYPES['骑']['supply']}），"
+            f"空则每军按缺口比例扣血（满缺 -{ARMY_STARVE_DAMAGE}HP/回合，交战中也照扣），可能饿毙。"
             "例外：民兵驻在自家军屯格不耗补给（每座军屯覆盖本格 1 支），离格照常吃。"
-            "黄金矿场是稳定产金；市政厅(需本地已用位≥6·限1座·耗1电)每座每回合 = 5金基础"
-            " + 该地块每座建筑×1金（不含自身，城越满越值）；"
+            f"黄金矿场是稳定产金；市政厅(需本地已用位≥{BUILDINGS['市政厅']['min_slots']}"
+            f"·限{BUILDINGS['市政厅']['limit']}座·耗{BUILDINGS['市政厅']['energy']}电)"
+            f"每座每回合 = {building_effect('市政厅', 'gold_base')}金基础"
+            f" + 该地块每座建筑×{building_effect('市政厅', 'gold_per_slot')}金（不含自身，城越满越值）；"
             "也可在 world market 卖物资换金（卖得越多价压越低）。"
         )),
         ("军队与战斗", (
-            "每军 100HP；兵营征召，每兵营每回合 1 支。兵种：步兵(耗10粮+5装，动1格/回合，耗补给1/回合)、"
-            "骑兵(耗12粮+12装，动2格/回合，耗补给2/回合)、"
-            "民兵(军屯征召 50金+5粮/支，80HP、攻20，动1格/回合，驻本格军屯不耗补给——廉价驻守军队，"
-            "每军屯每回合1支、全国民兵总数≤全国军屯总数)。"
+            f"每军 {ARMY_MAX_HP}HP；兵营征召，每兵营每回合 1 支。兵种：步兵(耗{_cost_text(UNIT_TYPES['步']['recruit'])}，耗补给{UNIT_TYPES['步']['supply']}/回合)、"
+            f"骑兵(耗{_cost_text(UNIT_TYPES['骑']['recruit'])}，耗补给{UNIT_TYPES['骑']['supply']}/回合)、"
+            f"民兵(军屯征召 {_cost_text(UNIT_TYPES['民']['recruit'])}/支，{UNIT_TYPES['民']['hp']}HP、攻{UNIT_TYPES['民']['atk']}，驻本格军屯不耗补给——廉价驻守军队，"
+            f"每军屯每回合{BUILDINGS['军屯']['effects']['militia_cap']}支、全国民兵总数≤全国军屯总数)。"
+            + _move_rule_text() + " "
 
 
             "军队 id **各国独立编号、从 1 递增且阵亡不回收**：历史上的 #n 永远指同一支军队，"
             "引用一律以最近一次 query army 面板为准。"
             f"交战 = atk 冲入；每回合掷骰结算一轮；每军基础伤害 步/骑 {UNIT_TYPES['步']['atk']}、"
             f"民兵 {UNIT_TYPES['民']['atk']}，"
-            "受守方地形+城堡防御%修正（地形与城堡为**相乘**叠加，山地+城堡L5≈75%而非100%）、总伤害分摊；攻方在敌地无加成。"
+            f"受守方地形+城堡防御%修正（地形与城堡为**相乘**叠加，山地+城堡L{BUILDINGS['城堡']['max_level']}≈{100 - ((100 - TERRAIN_STATS['山地']['defense']) * (100 - BUILDINGS['城堡']['max_level'] * building_effect('城堡', 'defense_per_level'))) // 100}%而非100%）、总伤害分摊；攻方在敌地无加成。"
             "**多势力交战（进攻方不纯联合）**：同格多方各打各的敌人（互相宣战才互打）、每方掷自己的骰、"
             "伤害均分给各敌人；**地形减伤给守方**（未参战的和平驻军/格主/野人——谁挨打谁是守方），"
             "交战中的进攻方一律不吃；野人只守无主格、只打进攻方。"
@@ -487,18 +614,18 @@ def _help_sections() -> list[tuple[str, str]]:
             "敌人/盟友在打野 → 可以 atk 参战（三方混战，各打各的敌人）。"
             "**占地看索取顺序**：野人清空且无活敌后，进攻方里第一个 atk 的（索取者）占地，它若阵亡则顺位给最早入场的同盟者；"
             "和平驻守的第三方不占地也不参战（占地后回合末自动遣返）。敌国领土同理：多国围攻同一城时，守军清空后归第一个 atk 者。"
-            "撤出攻守对等：交战中的军队（含防守方守军）要离开战场一律用 retreat——耗移动，本回合末随战斗结算（伤害全场分摊；防御方撤退减伤50%；撤退军本回合输出-80%），结算后自动脱离；"
-            "撤退固定只能退相邻 1 格，四周无合法撤退点（己方/同盟/无人荒地）则无法撤退；"
+            f"撤出攻守对等：交战中的军队（含防守方守军）要离开战场一律用 retreat——耗移动，本回合末随战斗结算（伤害全场分摊；防御方撤退减伤{RETREAT_DEF_COVER}%；撤退军本回合输出-{RETREAT_ATK_PENALTY}%），结算后自动脱离；"
+            f"撤退固定只能退相邻 {RETREAT_RANGE} 格，四周无合法撤退点（己方/同盟/无人荒地）则无法撤退；"
             "mv 不能从交战地撤离（会被拦）。守军全撤走/全灭时，进攻方自动占领该地（守军弃城即陷）。"
             "交战中双方（含守军）一律不回血。"
             "打赢守军→该地归你；无守军的空地/敌空城用 atk 直接进驻占领（mv 不占地）。"
             f"非交战且补给够时每回合回血 +{ARMY_HEAL_PER_TURN}HP；断粮则每军按缺口比例扣血"
             f"（-{ARMY_STARVE_DAMAGE}×缺口/需求，交战中也照扣），可能饿毙。"
-            "野人=无人荒地守军（100HP、自给自足、不主动打）：**开局全图每块无主地都有**，不随视野出现；杀了不再生。"
+            f"野人=无人荒地守军（{ARMY_MAX_HP}HP、自给自足、不主动打）：**开局全图每块无主地都有**，不随视野出现；杀了不再生。"
         )),
         ("联盟与核心领土", (
             "联盟（多边实体）：bloc_found(name=联盟名, tos=[创始成员…]) 发起——**联盟名必填**"
-            "（1~12 字、不含空格、全局唯一），全体创始成员 respond_proposal 接受后才成立"
+            f"（1~{BLOC_NAME_MAX} 字、不含空格、全局唯一），全体创始成员 respond_proposal 接受后才成立"
             "（任一拒绝即流产）；**发起方自动成为盟主**（盟主身份随立盟确定，与谁先开战无关）。"
             "一国同时只属一个联盟。"
             "入盟：bloc_join(name=联盟名) 申请，现成员投票——**赞成 > 反对即通过**（弃权不计入分母）。"
@@ -508,7 +635,7 @@ def _help_sections() -> list[tuple[str, str]]:
             "盟主特权：对任何联盟投票**一票否决**（投 no 即作废）、可 bloc_rename 改盟名、"
             "可 bloc_transfer 移交盟主、可 bloc_dissolve 解散联盟。"
             "盟内效果：互通领土（自由通行、合法撤退地）、互不攻击、共享视野（盟友地盘及其相邻一圈你都看得见）、"
-            "成员之间的外交动作（馈赠/换图/投票/回应邀约）全部免费；**写信例外——联盟内起步价 10 金（非联盟 20），前 20 字免费，超出每 10 字 1 金**。"
+            f"成员之间的外交动作（馈赠/换图/投票/回应邀约）全部免费；**写信例外——联盟内起步价 {LETTER_COST_ALLY} 金（非联盟 {LETTER_COST}），前 {LETTER_FREE_CHARS} 字免费，超出每 {LETTER_CHARS_PER_GOLD} 字 1 金**。"
             "战争：联盟成员不能擅自开战——declare_war 自动转为宣战投票，**赞成 > 反对**即全盟对目标宣战"
             "（盟主为进攻主导、全体成员为进攻跟随方）；防守不需要投票：任一成员被打，全盟自动参战。"
             "传导无限跳：宣战时守侧按 保障/共同防御/联盟 的传递闭包自动参战（A 保 B、B 盟 C → 打 B 时 C 也上）；"
@@ -532,27 +659,28 @@ def _help_sections() -> list[tuple[str, str]]:
             "议和只能由双方谈判代表提出/接受（主导者，或主导者的盟主），主导者议和则整条战线（含跟随方）停战。"
             "求和(offer_peace)：pay=你赔钱、demand=你索款、white=白和；接受即整条战线停战。"
             "休战时长由求和双方自行约定（offer_peace 的 truce 参数，0=不休战）；接受后 N 回合内"
-            "双方（含跟随方）不得再互相宣战。一方灭亡后强制全天下休战 10 回合（防连环征服）。"
-            "断盟/停战后滞留在对方领土的军队会自动遣返（每回合按兵种速度往家走：步 1 格/骑 2 格）。"
+            f"双方（含跟随方）不得再互相宣战。一方灭亡后强制全天下休战 {FALL_TRUCE_TURNS} 回合（防连环征服）。"
+            f"断盟/停战后滞留在对方领土的军队会自动遣返（每回合按兵种速度往家走："
+            f"步 {UNIT_TYPES['步']['speed']} 格/骑 {UNIT_TYPES['骑']['speed']} 格，不看地形代价）。"
             "外交不一定要等到被打：先 countries 看清对象，主动发信、提结盟、换情报，都是合法手段。"
             "也可用 gift 把本国资源馈赠对方（粮木矿油装补给或黄金，本回合垫支、下回合到账）——示好、资助盟国、买通都行。"
             "还能用 share_map 把你的整张已知地图（全部坐标）发给对方，对方下回合在 query panel=intel 收到——换情报、亮家底、协调攻守都用得上。"
-            "外交是有成本的：每成功一次外交动作（提议/回应/断盟/保障/宣战/求和/换图/馈赠）扣基础 10 金，"
-            "写信(send_letter)按字数单独计价：**起步价联盟内 10 金 / 非联盟 20 金**（含前 20 字，吃外交中心减免：每座 -5、下限 5），"
-            "**超出部分每 10 字 1 金（不足 10 字按 10 字算）且不吃任何减免**——联盟成员不再免费，长信照样花钱；"
+            f"外交是有成本的：每成功一次外交动作（提议/回应/断盟/保障/宣战/求和/换图/馈赠）扣基础 {DIPLO_COST} 金，"
+            f"写信(send_letter)按字数单独计价：**起步价联盟内 {LETTER_COST_ALLY} 金 / 非联盟 {LETTER_COST} 金**（含前 {LETTER_FREE_CHARS} 字，吃外交中心减免：每座 {LETTER_CENTER_DISCOUNT}、下限 {LETTER_COST_MIN}），"
+            f"**超出部分每 {LETTER_CHARS_PER_GOLD} 字 1 金（不足 {LETTER_CHARS_PER_GOLD} 字按 {LETTER_CHARS_PER_GOLD} 字算）且不吃任何减免**——联盟成员不再免费，长信照样花钱；"
             "他国向你提议结盟/联盟/议和永远免费——外交强国有外交中心的加持。"
-            "情报战：如果你不想开口问（懒得谈、不想欠人情）、又钱多，可用 spy(间谍) 花100金刺探别国，"
-            "3回合后盗回其国库/收入/全部建设底细、粗略军情（仅各兵种数量，位置未知）、整张已知地图（地图进 query panel=intel 看）；"
+            f"情报战：如果你不想开口问（懒得谈、不想欠人情）、又钱多，可用 spy(间谍) 花{SPY_COST}金刺探别国，"
+            f"{SPY_TURNS}回合后盗回其国库/收入/全部建设底细、粗略军情（仅各兵种数量，位置未知）、整张已知地图（地图进 query panel=intel 看）；"
             "⚠ 间谍**只给各兵种数量**——敌军的位置/血量/番号侦察不到，布防与调动只能靠换图、边地观察或正面交战得知——"
             "打谁、敲谁、开战时机都心中有数。"
         )),
         ("信箱", (
-            "send_letter 可给任何别国写信（结盟邀约/和谈/威胁/情报交换），**按字数计价：起步价联盟内 10 金 / "
-            "非联盟 20 金（含前 20 字，吃外交中心减免），超出部分每 10 字 1 金、不吃任何减免；"
+            f"send_letter 可给任何别国写信（结盟邀约/和谈/威胁/情报交换），**按字数计价：起步价联盟内 {LETTER_COST_ALLY} 金 / "
+            f"非联盟 {LETTER_COST} 金（含前 {LETTER_FREE_CHARS} 字，吃外交中心减免），超出部分每 {LETTER_CHARS_PER_GOLD} 字 1 金、不吃任何减免；"
             "成功即扣、下回合送达**——联盟成员不再免费，长信照样花钱。"
             "**每封信寄出前先算账：值不值？** 预期收益（勒索要到的贡品/结盟带来的安全/关键情报/逼降止损）"
             "明显 > 信价才写；说不说出收益就别写——**写长了就是花钱**。"
-            "写信前再 query panel=res 看国库：**国库 <100 金别写信**；"
+            "写信前再 query panel=res 看国库：**国库紧张时别写信**；"
             "能并进一次正式外交提议（外交费）的话就别单独写信，更别拿写信闲聊。"
             "收到信要在 diplomacy/mail 面板回应——不回信，对方可能以为你拒绝。"
         )),
@@ -566,11 +694,11 @@ def _help_sections() -> list[tuple[str, str]]:
             "粮/木是内需品（价低量大），矿/油/装备才是外贸主力。"
         )),
         ("经济报表", (
-            f"每 {REPORT_EVERY} 回合**自动**给每国结一期经济报表（第 11/21/31… 回合起），"
-            "**出表那一回合（第 11/21/31…）全文自动进你的状态面板【经济报表】**，"
+            f"每 {REPORT_EVERY} 回合**自动**给每国结一期经济报表（第 {REPORT_EVERY+1}/{2*REPORT_EVERY+1}/{3*REPORT_EVERY+1}… 回合起），"
+            f"**出表那一回合（第 {REPORT_EVERY+1}/{2*REPORT_EVERY+1}/{3*REPORT_EVERY+1}…）全文自动进你的状态面板【经济报表】**，"
             "其余回合只留一行摘要；历史期与跨期趋势用 report 工具查（免费、只读）——"
             "**无法手动运行**，也不能补做历史期。"
-            "一期覆盖最近 10 回合，全部按当时市价折算："
+            f"一期覆盖最近 {REPORT_EVERY} 回合，全部按当时市价折算："
             "①GDP（本回合）= **期末那一回合**的生产增加值（市价，**不含军费**：采集/工厂产出 + 金矿/市政厅金 − 中间投入 − 能源燃料）——不除天数、不攒期累计，就是当前的产出速率；"
             "②GDP 增长率 = 环比上期的期末值（两个 run-rate 直接比，不受首期覆盖长短影响）；"
             "③财政收入 = GDP − 军费；"
@@ -578,7 +706,7 @@ def _help_sections() -> list[tuple[str, str]]:
             "⑤军费占 GDP 比；⑥国家总资产 = 全部建筑重置成本（造价金+木×现价，含夺来的地）；"
             "⑦资产增长率；⑧本期投资 = 本期建造实付（金 + 木×当时市价，含城堡升级）；"
             "⑨投资增长率；⑩外贸/内循环占比 = (买卖总额)/(自产+进口) 与自产自用部分。"
-            "report all=true 看跨期趋势表；report turn=21 看指定期。"
+            f"report all=true 看跨期趋势表；report turn={REPORT_EVERY+1} 看指定期。"
             "军费是双刃剑：过高挤压投资、长期竞争落后；过低则成待宰羔羊、发展空间受限。"
         )),
         ("回合与存档", (
@@ -605,6 +733,9 @@ def rules_text(world, topic: str = "") -> str:
         "装备": "经济与能源",
         "军队": "军队与战斗", "战斗": "军队与战斗", "战争": "军队与战斗", "征兵": "军队与战斗",
         "军队移动": "军队与战斗", "攻击": "军队与战斗", "野人": "军队与战斗",
+        "移动": "军队与战斗", "速度": "军队与战斗", "移动力": "军队与战斗",
+        "射程": "军队与战斗", "距离": "军队与战斗", "路": "军队与战斗",
+        "地形挡路": "军队与战斗",
         "外交": "外交", "保障": "外交", "宣战": "外交", "求和": "外交",
         "共同防御": "外交", "休战": "外交",
         "联盟": "联盟与核心领土", "同盟": "联盟与核心领土", "入盟": "联盟与核心领土",
@@ -676,7 +807,7 @@ def _fmt_intel_hint(world, name) -> str:
     """收到的地图情报摘要（简短提示，完整见 query panel=intel）。"""
     ms = world.maps.get(name, [])
     if not ms:
-        return "无（可用 share_map 与别国互发地图：对方下回合到；或 spy 间谍偷地图：3 回合后到）"
+        return f"无（可用 share_map 与别国互发地图：对方下回合到；或 spy 间谍偷地图：{SPY_TURNS} 回合后到）"
     last = ms[-1]
     return f"收到 {len(ms)} 张，最新来自 {last['from']}（第{last['turn']}回合）；完整内容见 query panel=intel"
 
@@ -697,7 +828,7 @@ def _fmt_spy_hint(world, name) -> str:
     """收到的间谍情报摘要（完整见 query panel=spy）。"""
     es = world.econ_intel.get(name, [])
     if not es:
-        return "无（可用 spy 花100金刺探别国，3回合后到手经济底细+粗略军情数量+地图）"
+        return f"无（可用 spy 花{SPY_COST}金刺探别国，{SPY_TURNS}回合后到手经济底细+粗略军情数量+地图）"
     last = es[-1]
     return f"{len(es)} 份，最新 {last['from']}（第{last['turn']}回合）；完整见 query panel=spy"
 
@@ -773,7 +904,7 @@ def _fmt_report(world, name, turn: int | None = None, all_: bool = False) -> str
     """本国经济报表（只读）：不传参数=最新一期；all_=跨期趋势表；turn=指定报表回合。"""
     reps = world.econ_reports.get(name, [])
     if not reps:
-        return ("（尚无经济报表：第 11 回合起每 10 回合自动出一期——第 11/21/31… 回合开局可查。"
+        return (f"（尚无经济报表：第 {REPORT_EVERY+1} 回合起每 {REPORT_EVERY} 回合自动出一期——第 {REPORT_EVERY+1}/{2*REPORT_EVERY+1}/{3*REPORT_EVERY+1}… 回合开局可查。"
                 "这是自动生成的，不能手动运行。）")
     if all_:
         return _fmt_report_trend(world, name)
@@ -784,7 +915,7 @@ def _fmt_report(world, name, turn: int | None = None, all_: bool = False) -> str
             return _fmt_report_one(r)
     return (f"没有第 {turn} 回合的报表。已出："
             + "、".join(f"第{r['report_turn']}回合" for r in reps)
-            + "（每 10 回合自动出一期，不能手动运行；趋势看 report all=true）")
+            + f"（每 {REPORT_EVERY} 回合自动出一期，不能手动运行；趋势看 report all=true）")
 
 
 def _fmt_report_panel(world, name) -> str:
@@ -792,7 +923,7 @@ def _fmt_report_panel(world, name) -> str:
     其余回合只给一行摘要——省上下文，需要时用 report 取全文/历史/趋势。"""
     reps = world.econ_reports.get(name, [])
     if not reps:
-        return "尚无（第 11 回合起每 10 回合自动出一期，出表那回合自动进本面板，不能手动运行）"
+        return f"尚无（第 {REPORT_EVERY+1} 回合起每 {REPORT_EVERY} 回合自动出一期，出表那回合自动进本面板，不能手动运行）"
     r = reps[-1]
     if world.turn == r["report_turn"]:                   # 本期刚出 → 全文
         text = _fmt_report_one(r)
@@ -820,8 +951,10 @@ def _econ_building(world, building: str) -> str:
         if k == "gold":
             tag = "固定+金"
         elif k == "militia_camp":
-            return (f"{building}: 造价折{capex:.0f}金 · 屯田 +1粮/回合；可征民兵（50金+5粮/支，每座1支/回合，"
-                    "全国民兵总数≤全国军屯数），民兵驻本格不耗补给（需本地耕地≥1、每地块限1座）")
+            return (f"{building}: 造价折{capex:.0f}金 · 屯田 +{info['outputs']['粮食']}粮/回合；"
+                    f"可征民兵（{_cost_text(UNIT_TYPES['民']['recruit'])}/支，每座{info['effects'].get('militia_cap', 1)}支/回合，"
+                    "全国民兵总数≤全国军屯数），民兵驻本格不耗补给"
+                    f"（需本地{info['cap_resource']}≥1、每地块限{info.get('limit', 1)}座）")
         else:
             tag = "外销(卖价)"
         pb = f"{e['payback']:.0f}回合" if e["payback"] else "—"
@@ -841,24 +974,24 @@ def _econ_building(world, building: str) -> str:
                 f"（毛利{net:+.0f}金；另耗{info.get('energy', 0)}电≈{ec:.0f}金） · 回本≈{pb}")
     if k == "barracks":
         return (f"{building}: 造价折{capex:.0f}金 · 不自动产金，每兵营每回合可征1军"
-                f"（步10粮5装 / 骑12粮12装，耗兵料另计）")
+                f"（步{_cost_text(UNIT_TYPES['步']['recruit'])} / 骑{_cost_text(UNIT_TYPES['骑']['recruit'])}，耗兵料另计）")
     if k == "townhall":
         return (f"{building}: 造价折{capex:.0f}金 · 每回合 = "
                 f"{building_effect('市政厅', 'gold_base')}金基础"
-                f" + 该地块每座建筑×{building_effect('市政厅', 'gold_per_slot')}金（不含自身；10建筑城≈"
-                f"{building_effect('市政厅', 'gold_base') + 10 * building_effect('市政厅', 'gold_per_slot')}金/回合）"
-                f" · 需本地已用位≥6、每地块限1座、耗1电")
+                f" + 该地块每座建筑×{building_effect('市政厅', 'gold_per_slot')}金（不含自身；{MAX_SLOTS}格满城≈"
+                f"{building_effect('市政厅', 'gold_base') + MAX_SLOTS * building_effect('市政厅', 'gold_per_slot')}金/回合）"
+                f" · 需本地已用位≥{info['min_slots']}、每地块限{info.get('limit', 1)}座、耗{info.get('energy', 0)}电")
     if k == "tower":
         return (f"{building}: 造价折{capex:.0f}金 · 不产金：事件视野 "
                 f"+{building_effect('瞭望塔', 'vision_radius')} 圆（情报投入）")
     if k == "diplomat":
-        return (f"{building}: 造价折{capex:.0f}金 · 不产金：外交费每座再减半（10→5→2→1）；"
+        return (f"{building}: 造价折{capex:.0f}金 · 不产金：外交费每座再减半（{'→'.join(_diplo_chain())}）；"
                 "写信起步价吃减免、超字费不吃；"
-                "自建全国限1座，第2座只能抢")
+                f"自建全国限{info['limit_nation']}座，第2座只能抢")
     if k == "academy":
         return (f"{building}: 造价折{capex:.0f}金 · 不产金：本地块一切建造金价 "
                 f"-{building_effect('工程院', 'build_discount')}%"
-                "（需本地已用位≥4，后续建筑越贵回得越多）")
+                f"（需本地已用位≥{info['min_slots']}，后续建筑越贵回得越多）")
     return f"{building}: 无核算"
 
 
@@ -963,6 +1096,91 @@ def _diplo_cost(world, actor: str, to: str | None = None, *, incoming: bool = Fa
     return c
 
 
+
+# ---------------------------------------------------------------------------
+# 记忆检索（翻旧账：只搜本国历史记忆的正文，不含思考；免费只读）
+# ---------------------------------------------------------------------------
+_MEM_CUT = 160      # 命中正文预览长度
+_MEM_NEIGH = 60     # 相邻上下文单侧预览长度
+
+
+def _mem_cut(text: str, n: int) -> str:
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= n else text[:n] + "…"
+
+
+def _memory_search(world, name: str, args: dict) -> str:
+    """按关键词搜本国历史记忆的正文，返回命中回合号 + 相邻上下文。
+
+    只搜 `turn_memory`/`summaries`/`summary_blocks`/`long_memory`/`plans` 的
+    **content**（assistant 的 reasoning_content 刻意不索引——那是思考不是事实）；
+    只搜得到该国自己的记忆，符合迷雾纪律。免费、只读。
+    """
+    query = str(args.get("query", "") or "").strip()
+    try:
+        limit = max(1, min(8, int(args.get("limit") or 3)))
+    except (TypeError, ValueError):
+        limit = 3
+    if not query:
+        return "用法：memory_search(query=关键词 用空格分隔多个词, limit=条数)，例：memory_search(query=盟约 楚)"
+    _sep = {",", "，", "、", ";", "；", "	"}
+    kws = [k for k in "".join(c if c not in _sep else " " for c in query).split() if k]
+    if not kws:
+        return f"记忆检索「{query}」：空关键词。"
+
+    # 收集候选单元：(回合标签, 正文, 前文, 后文)
+    units: list[tuple[str, str, str, str]] = []
+    for rec in (world.turn_memory.get(name) or []):
+        msgs = rec.get("messages") or []
+        for i, m in enumerate(msgs):
+            parts = []
+            if m.get("role") == "tool":
+                parts.append(str(m.get("content") or ""))
+            else:
+                if m.get("content"):
+                    parts.append(str(m["content"]))
+                for tc in (m.get("tool_calls") or []):
+                    fn = tc.get("function") or {}
+                    parts.append(f"{fn.get('name')}({fn.get('arguments')})")
+            text = " ".join(p for p in parts if p)   # 不含 reasoning_content
+            if not text:
+                continue
+            prev = _mem_cut(msgs[i - 1].get("content"), _MEM_NEIGH) if i > 0 else ""
+            nxt = _mem_cut(msgs[i + 1].get("content"), _MEM_NEIGH) if i + 1 < len(msgs) else ""
+            units.append((str(rec.get("turn", "?")), text, prev, nxt))
+    for it in (world.summaries.get(name) or []):
+        units.append((str(it["turn"]), "小结：" + str(it.get("text") or ""), "", ""))
+    for b in (world.summary_blocks.get(name) or []):
+        units.append((f"{b['from']}-{b['to']}", "阶段总结：" + str(b.get("text") or ""), "", ""))
+    lm = (world.long_memory.get(name) or "").strip()
+    if lm:
+        units.append(("长期记忆", lm, "", ""))
+    pl = (world.plans.get(name) or {}).get("text", "")
+    if pl:
+        units.append((str((world.plans.get(name) or {}).get("turn", "") or 0),
+                      "国策：" + str(pl), "", ""))
+
+    scored = [(sum(1 for k in kws if k in u[1]), u) for u in units
+              if any(k in u[1] for k in kws)]
+    if not scored:
+        return f"记忆检索「{query}」：没有命中（正文检索，不含思考过程）。"
+    # 排序：分数降序 → 回合新→旧；非数字回合（长期记忆/阶段）放最后
+    def _tkey(x):
+        try:
+            return -int(x[1][0])
+        except (TypeError, ValueError):
+            return 1
+    scored.sort(key=lambda x: (-x[0], _tkey(x)))
+    L = [f"📇 记忆检索「{query}」命中 {len(scored)} 处（正文，不含思考），列出前 {limit}："]
+    for i, (_, u) in enumerate(scored[:limit], 1):
+        tag, text, prev, nxt = u
+        head = f"第{tag}回合" if tag.isdigit() else f"【{tag}】"
+        L.append(f"{i}. {head} ▸ {_mem_cut(text, _MEM_CUT)}")
+        if prev or nxt:
+            L.append(f"    └ 相邻：{prev}{' … ' if prev and nxt else ''}{nxt}")
+    return "\n".join(L)
+
+
 # ---------------------------------------------------------------------------
 # 工具执行（隔离：所有动作都以 actor=本国身份执行，引擎自会校验合法）
 # ---------------------------------------------------------------------------
@@ -1022,13 +1240,14 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
             "plan": _fmt_plan(world, actor),
         }.get(which, full_state(world, actor))
 
-    # ---- 规则查询（= README 的游戏规则；匈奴另附 README 原文全文）
+    # ---- 规则查询：**所有政体同一份**（`_help_sections()` 按代码数值现算）
+    #   政体专属的机制写在各自的 system prompt 里（如匈奴的【教义】），rules 不重复。
     if tool in ("rules", "规则", "help", "帮助"):
-        text = rules_text(world, str(args.get("topic", "") or ""))
-        if world.polity.get(actor) == "huns":
-            text = ("【匈奴教义（必须贯彻）】\n" + HUNS_DOCTRINE + "\n\n" + text
-                    + "\n\n【README 原文（完整游戏文档，供检索细节）】\n" + _README_TEXT)
-        return text
+        return rules_text(world, str(args.get("topic", "") or ""))
+
+    # ---- 记忆检索（翻旧账：只搜本体正文，不含思考；免费只读）
+    if tool in ("memory_search", "search_memory", "检索记忆", "记忆检索", "回想", "回忆", "history", "翻旧账"):
+        return _memory_search(world, actor, args)
 
     # ---- 外交对象（先选一个非自己的国家）
     if tool in ("countries", "外交对象", "国家列表", "对手"):
@@ -1270,7 +1489,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
             return (f"本回合还不能结束：国策已 {since} 回合未修订（每 {PLAN_MAX_TURNS} 回合必须修订一次），"
                     f"请先用 plan(content=…) 更新国策。")
         summary = str(args.get("summary", "")).strip()
-        if len(summary) < 4:
+        if len(summary) < SUMMARY_MIN_CHARS:
             return "本回合还没收尾：end_turn 必须带 summary=一句话，总结你这回合做了什么/立场（例如 summary=这回合建了两座农场并继续拓荒）。"
         world.log(f"{actor} 回合小结：{summary}", phase="行动", nation=actor)
         mem = world.summaries.setdefault(actor, [])
@@ -1318,80 +1537,81 @@ TOOL_SCHEMAS = [
         "name": "query", "description": "查询接口：随时获取你的各面板。res=国库与储备 / plan=国策规划 / land=地皮(国土+可拓荒地) / army=军队 / market=世界市场(现价/买价/卖价/均衡价+大单试算) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=间谍情报(别国经济底细+粗略军情) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
         "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "plan", "land", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True}})}},
     {"type": "function", "function": {
-        "name": "report", "description": "查本国经济报表（免费、只读）。每 10 回合**自动**结一期，第 11/21/31… 回合开局可查，**不能手动运行**。内容：市场计价 GDP 及增长率、扣除军费的财政收入、军费占 GDP 比、国家总资产及增长率、本期投资总量及增长率、外贸/内循环占比。不传参数=最新一期；turn=指定报表回合（如 21）；all=true=跨期趋势对比表。",
-        "parameters": _props({"turn": {"type": "integer", "description": "报表回合（11/21/31…）；省略=最新一期"},
+        "name": "report", "description": f"查本国经济报表（免费、只读）。每 {REPORT_EVERY} 回合**自动**结一期，第 {REPORT_EVERY+1}/{2*REPORT_EVERY+1}/{3*REPORT_EVERY+1}… 回合开局可查，**不能手动运行**。内容：市场计价 GDP 及增长率、扣除军费的财政收入、军费占 GDP 比、国家总资产及增长率、本期投资总量及增长率、外贸/内循环占比。不传参数=最新一期；turn=指定报表回合（如 {REPORT_EVERY+1}）；all=true=跨期趋势对比表。",
+        "parameters": _props({"turn": {"type": "integer", "description": f"报表回合（{REPORT_EVERY+1}/{2*REPORT_EVERY+1}/{3*REPORT_EVERY+1}…）；省略=最新一期"},
                               "all": {"type": "boolean", "description": "true=返回全部期的趋势对比表"}})}},
     {"type": "function", "function": {
         "name": "countries", "description": "列出所有可选外交对象（除你之外的每个国家：关系/是否接壤/有无来信）。外交动作前先用它选一个目标，再以 to=该国家 行动；绝不能对自己用外交工具。",
         "parameters": _props({})}},
     {"type": "function", "function": {
-        "name": "rules", "description": "查询完整游戏规则（相当于 README）：建筑造价与上限、地形、电网经济、军队战斗、外交、信箱、市场、回合存档。可带 topic 只取相关段（如 '兵营'、'外交'、'宣战'）；不带则返回全文。",
+        "name": "rules", "description": "查询完整游戏规则：建筑造价与上限、地形、电网经济、军队战斗、外交、信箱、市场、回合存档。可带 topic 只取相关段（如 '兵营'、'外交'、'宣战'）；不带则返回全文。",
         "parameters": _props({"topic": {"type": "string", "description": "想查的主题（可选）"}})}},
     {"type": "function", "function": {
         "name": "econ", "description": "按当前市价核算建设回报：某建筑的 造价(折金)/每回合毛利/回本时间；不带 building 则输出全部建筑经济表。做建设/买卖决策前先算再定。",
         "parameters": _props({"building": {"type": "string", "enum": BUILD_NAMES, "description": "要核算的建筑名（可选；省则输出全部）"}})}},
     {"type": "function", "function": {
-        "name": "build", "description": "在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅/瞭望塔/外交中心/工程院/军屯。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥3；瞭望塔=事件视野+4圆；市政厅需本地已用位≥6且每地块限1；外交中心=外交费减半可叠加但自建全国限1（第2座只能抢）；工程院=本地建造费-25%需本地位≥4；军屯=屯田+1粮、可征民兵(50金+5粮/支、全国民兵总数≤军屯数)且民兵驻本格不耗补给（需本地耕地≥1、每地块限1座）。",
+        "name": "build", "description": f"在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅/瞭望塔/外交中心/工程院/军屯。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥{BUILDINGS['兵营']['min_slots']}；瞭望塔=事件视野+{building_effect('瞭望塔', 'vision_radius')}圆；市政厅需本地已用位≥{BUILDINGS['市政厅']['min_slots']}且每地块限{BUILDINGS['市政厅']['limit']}；外交中心=外交费减半可叠加但自建全国限{BUILDINGS['外交中心']['limit_nation']}（第2座只能抢）；工程院=本地建造费-{building_effect('工程院', 'build_discount')}%需本地位≥{BUILDINGS['工程院']['min_slots']}；军屯=屯田+{BUILDINGS['军屯']['outputs']['粮食']}粮、可征民兵({_cost_text(UNIT_TYPES['民']['recruit'])}/支、全国民兵总数≤军屯数)且民兵驻本格不耗补给（需本地{BUILDINGS['军屯']['cap_resource']}≥1、每地块限{BUILDINGS['军屯']['limit']}座）。",
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标如 '5 6' 或自家地块名（land 面板有）", "required": True},
                               "building": {"type": "string", "enum": BUILD_NAMES, "description": "建筑名", "required": True}})}},
     {"type": "function", "function": {
-        "name": "recruit", "description": "在自己有兵营且电网正常的地块征召军队，每兵营每回合1支。兵种 kind：步=步兵(10粮+5装，动1格/回合、耗补给1)；骑=骑兵(12粮+12装，动2格/回合、耗补给2)；民=民兵(军屯征召：50金+5粮/支，80HP/攻20，动1格/回合、耗补给1；驻本格军屯不耗补给)——廉价驻守军队，每军屯每回合1支、全国民兵总数≤全国军屯总数（阵亡后才能补员）。注意补给仓必须跟上：补给不足时全军按缺口比例扣血（满缺 -35HP/军/回合，交战中也照扣），饿毙不复活。",
+        "name": "recruit", "description": _recruit_desc(
+            {k: v["recruit"] for k, v in UNIT_TYPES.items()}),
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标 '5 6' 或名字", "required": True},
                               "n": {"type": "integer", "description": "征召数量（默认1）"},
                               "kind": {"type": "string", "enum": ["步", "骑", "民"], "description": "兵种（默认 步；民=民兵，只能在自家军屯格征召）"}})}},
     {"type": "function", "function": {
-        "name": "move", "description": "把一支自己的军队以自身为中心按兵种速度移动（步兵 1 格=3×3、骑兵 2 格=5×5），纯移动不占地。每回合每支限1次。**行军不打野人**：合法移动目标只有三种：**野地（无人荒地）、自家格、盟国格**——野地可直接走进/穿过（行军不打野人，野人只在被 atk 时接战）；自家/盟国格被混战敌军占着也可以 mv 进去（增援，入格即随军参战）。**敌国领土 mv 一律不得进入（空格也是）**：每一步进敌境都是 atk——会交战或直接进占。**野地上有与你交战的敌军驻守（含正在打野的）也不得 mv**——必须 atk 交战；中立/盟友驻守的野地可以 mv 进去（旁观待命，互不干扰）。交战中不能移动，须先 retreat 撤出。",
+        "name": "move", "description": "把一支自己的军队挪位置，纯移动不占地。每回合每支限1次。" + _move_rule_text() + " **行军不打野人**：合法移动目标只有三种：**野地（无人荒地）、自家格、盟国格**——野地可直接走进/穿过（行军不打野人，野人只在被 atk 时接战）；自家/盟国格被混战敌军占着也可以 mv 进去（增援，入格即随军参战）。**敌国领土 mv 一律不得进入（空格也是）**：每一步进敌境都是 atk——会交战或直接进占。**野地上有与你交战的敌军驻守（含正在打野的）也不得 mv**——必须 atk 交战；中立/盟友驻守的野地可以 mv 进去（旁观待命，互不干扰）。交战中不能移动，须先 retreat 撤出。",
         "parameters": _props({"army_id": {"type": "integer", "description": "本国军队id（各国独立从1编号，以 query army 面板为准）", "required": True},
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
     {"type": "function", "function": {
-        "name": "attack", "description": "军队(按兵种速度可及：步1格/骑2格)冲入目标地块并交战——打赢该地守军自动占地；格上**无任何军队**则直接进驻占领；野地上只有中立/盟友和平驻守时也直接进驻占领（它们不参战，回合末自动遣返）；他国领土上有非敌军队则不能进驻。**不抢别人的战斗**：野地上有与你非敌非盟的一方正在打野 → 不能 atk 插足（可 mv 旁观）；敌人/盟友在打野 → 可以参战（同格多方各打各的敌人，互相宣战才互打）。占地按索取顺序：第一个 atk 者优先，它阵亡则顺位最早入场的同盟者。与别国开打需已宣战。",
+        "name": "attack", "description": "军队(" + f"按兵种移动力可及：{_reach_brief()}" + ")冲入目标地块并交战——打赢该地守军自动占地；格上**无任何军队**则直接进驻占领；野地上只有中立/盟友和平驻守时也直接进驻占领（它们不参战，回合末自动遣返）；他国领土上有非敌军队则不能进驻。**不抢别人的战斗**：野地上有与你非敌非盟的一方正在打野 → 不能 atk 插足（可 mv 旁观）；敌人/盟友在打野 → 可以参战（同格多方各打各的敌人，互相宣战才互打）。占地按索取顺序：第一个 atk 者优先，它阵亡则顺位最早入场的同盟者。与别国开打需已宣战。",
         "parameters": _props({"army_ids": {"type": "array", "items": {"type": "integer"}, "description": "参战本国军队id数组（各国独立从1编号）", "required": True},
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
     {"type": "function", "function": {
-        "name": "retreat", "description": "交战中的军队（含防守方守军）撤出——**固定只能退相邻 1 格**（所有人，不按兵种速度）。撤退不立刻结算：军队留在战场参与本回合末战斗结算（伤害全场分摊；防御方撤退减伤50%；撤退军本回合输出-80%），结算后自动脱离到目标格。目标限 己方/同盟/无人荒地；四周无合法撤退点则无法撤退。mv 不能从交战地撤离；想脱离战场一律用 retreat。",
+        "name": "retreat", "description": f"交战中的军队（含防守方守军）撤出——**固定只能退相邻 {RETREAT_RANGE} 格**（所有人，不按兵种速度、也不看地形代价）。撤退不立刻结算：军队留在战场参与本回合末战斗结算（伤害全场分摊；防御方撤退减伤{RETREAT_DEF_COVER}%；撤退军本回合输出-{RETREAT_ATK_PENALTY}%），结算后自动脱离到目标格。目标限 己方/同盟/无人荒地；四周无合法撤退点则无法撤退。mv 不能从交战地撤离；想脱离战场一律用 retreat。",
         "parameters": _props({"army_id": {"type": "integer", "description": "本国军队id（各国独立从1编号，以 query army 面板为准）", "required": True},
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
     {"type": "function", "function": {
-        "name": "buy", "description": "从世界市场买物资花黄金。买=推高市价；成交按「沿曲线均价」结算并含 5% 买价差，越急买越贵（试算见 query panel=market）。",
+        "name": "buy", "description": f"从世界市场买物资花黄金。买=推高市价；成交按「沿曲线均价」结算并含 {MARKET_SPREAD/2:.0%} 买价差，越急买越贵（试算见 query panel=market）。",
         "parameters": _props({"good": {"type": "string", "description": "物资：粮食/木头/矿石/石油/装备/补给", "required": True},
                               "qty": {"type": "integer", "description": "数量", "required": True}})}},
     {"type": "function", "function": {
-        "name": "sell", "description": "向世界市场卖物资赚黄金。卖=压低市价；成交按「沿曲线均价」结算并扣 5% 卖价差，大单自己砸盘（试算见 query panel=market），分批慢慢卖更划算。",
+        "name": "sell", "description": f"向世界市场卖物资赚黄金。卖=压低市价；成交按「沿曲线均价」结算并扣 {MARKET_SPREAD/2:.0%} 卖价差，大单自己砸盘（试算见 query panel=market），分批慢慢卖更划算。",
         "parameters": _props({"good": {"type": "string", "description": "物资", "required": True},
                               "qty": {"type": "integer", "description": "数量", "required": True}})}},
     {"type": "function", "function": {
-        "name": "send_letter", "description": "给别国写信。**按字数计价：起步价联盟内 10 金 / 非联盟 20 金（含前 20 字，吃外交中心减免：每座 -5、下限 5）；超出 20 字的部分每 10 字 1 金、不吃任何减免**。成功即扣、下回合送达；联盟成员不再免费。写长信就是花钱——写信前先算账：值不值？预期收益（贡品/结盟/情报/逼降）明显大于信价才写，说不出收益就别写，更别拿写信闲聊；国库紧张时短写或不写。诉求能并进一次正式外交提议（外交费）就别单独写信。to 必须用 countries 选出的别国，不能是自己。",
+        "name": "send_letter", "description": f"给别国写信。**按字数计价：起步价联盟内 {LETTER_COST_ALLY} 金 / 非联盟 {LETTER_COST} 金（含前 {LETTER_FREE_CHARS} 字，吃外交中心减免：每座 {LETTER_CENTER_DISCOUNT}、下限 {LETTER_COST_MIN}）；超出 {LETTER_FREE_CHARS} 字的部分每 {LETTER_CHARS_PER_GOLD} 字 1 金、不吃任何减免**。成功即扣、下回合送达；联盟成员不再免费。写长信就是花钱——写信前先算账：值不值？预期收益（贡品/结盟/情报/逼降）明显大于信价才写，说不出收益就别写，更别拿写信闲聊；国库紧张时短写或不写。诉求能并进一次正式外交提议（外交费）就别单独写信。to 必须用 countries 选出的别国，不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "收信国名", "required": True},
                               "content": {"type": "string", "description": "信件正文", "required": True}})}},
     {"type": "function", "function": {
-        "name": "gift", "description": "把本国储备赠给别国（to=countries 里的别国，不能是自己）：good=粮食/木头/矿石/石油/装备/补给 或 黄金，qty=数量。本回合垫支扣出、下回合到账；另扣外交手续费（基准 10 金；有外交中心则减半；收件人是联盟成员则免费）。示好/资助盟国/买通可用。",
+        "name": "gift", "description": f"把本国储备赠给别国（to=countries 里的别国，不能是自己）：good=粮食/木头/矿石/石油/装备/补给 或 黄金，qty=数量。本回合垫支扣出、下回合到账；另扣外交手续费（基准 {DIPLO_COST} 金；有外交中心则减半；收件人是联盟成员则免费）。示好/资助盟国/买通可用。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
                               "good": {"type": "string", "description": "物资名", "required": True},
                               "qty": {"type": "integer", "description": "数量", "required": True}})}},
     {"type": "function", "function": {
-        "name": "share_map", "description": "把你的整张已知地图（全部国土块+边界外可见块，含坐标）发给别国，对方下一回合在 query panel=intel 收到（外交费，基准 10 金，成功才扣；对象是联盟成员则免费）。换情报/亮家底/协同步调可用。to=countries 里的别国，不能是自己。",
+        "name": "share_map", "description": f"把你的整张已知地图（全部国土块+边界外可见块，含坐标）发给别国，对方下一回合在 query panel=intel 收到（外交费，基准 {DIPLO_COST} 金，成功才扣；对象是联盟成员则免费）。换情报/亮家底/协同步调可用。to=countries 里的别国，不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "spy", "description": "不想开口问（懒得谈、钱多）时派间谍刺探别国：花 100 金（国库不足会被拒），3 回合后拿回该国全部经济情报（query panel=spy 看——国库/储备、上回合收入、每一块地的建筑与在建）**、粗略军情（仅各兵种数量，军队位置/血量/番号不外泄）**，以及它的整张已知地图（进 query panel=intel）。目标不能是自己。",
+        "name": "spy", "description": f"不想开口问（懒得谈、钱多）时派间谍刺探别国：花 {SPY_COST} 金（国库不足会被拒），{SPY_TURNS} 回合后拿回该国全部经济情报（query panel=spy 看——国库/储备、上回合收入、每一块地的建筑与在建）**、粗略军情（仅各兵种数量，军队位置/血量/番号不外泄）**，以及它的整张已知地图（进 query panel=intel）。目标不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "刺探对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "plan", "description": "制定或修订你的国策（长期战略目标），会永久常驻你的上下文（【国策规划】标记），直到你再次修订。⚠ 结束回合(end_turn)前必须已有国策；且每 10 回合必须修订一次，否则 end_turn 会被拦。建议按四方面写：经济发展（粮木矿油/建设/卖买）、军事规划（扩军/攻防/结盟）、情报管理（间谍/换图/来信研判）、外交方向（结盟/宣战/求和/馈赠立场）。",
+        "name": "plan", "description": f"制定或修订你的国策（长期战略目标），会永久常驻你的上下文（【国策规划】标记），直到你再次修订。⚠ 结束回合(end_turn)前必须已有国策；且每 {PLAN_MAX_TURNS} 回合必须修订一次，否则 end_turn 会被拦。建议按四方面写：经济发展（粮木矿油/建设/卖买）、军事规划（扩军/攻防/结盟）、情报管理（间谍/换图/来信研判）、外交方向（结盟/宣战/求和/馈赠立场）。",
         "parameters": _props({"content": {"type": "string", "description": "国策内容", "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_found", "description": "发起结盟（多边联盟）：**必须给联盟起名**（1~12 字、不含空格、全局唯一）并邀请创始成员。全体创始成员 respond_proposal 接受后联盟成立（任一拒绝即流产），**发起方自动成为盟主**。盟内效果：互通领土/互不攻击/共享视野/成员间外交免费；进攻战争须联盟投票；议和由盟主出面并经投票；同战线自动归还核心领土。**战争期间不能缔结同盟**。发起扣外交费（基准 10 金；受邀方有外交中心则免费）。",
-        "parameters": _props({"name": {"type": "string", "description": "联盟名（1~12字，全局唯一）", "required": True},
+        "name": "bloc_found", "description": f"发起结盟（多边联盟）：**必须给联盟起名**（1~{BLOC_NAME_MAX} 字、不含空格、全局唯一）并邀请创始成员。全体创始成员 respond_proposal 接受后联盟成立（任一拒绝即流产），**发起方自动成为盟主**。盟内效果：互通领土/互不攻击/共享视野/成员间外交免费；进攻战争须联盟投票；议和由盟主出面并经投票；同战线自动归还核心领土。**战争期间不能缔结同盟**。发起扣外交费（基准 {DIPLO_COST} 金；受邀方有外交中心则免费）。",
+        "parameters": _props({"name": {"type": "string", "description": "联盟名（1~{BLOC_NAME_MAX}字，全局唯一）", "required": True},
                               "tos": {"type": "array", "items": {"type": "string"}, "description": "创始成员国名数组（至少1个，须为 countries 里的别国）", "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_join", "description": "申请加入指定联盟：现成员投票，**赞成 > 反对**即通过（盟主投 no 可否决）；一国同时只属一个联盟；与该联盟成员交战、或自己正在交战 → 不能申请。扣外交费（基准 10 金）。",
+        "name": "bloc_join", "description": f"申请加入指定联盟：现成员投票，**赞成 > 反对**即通过（盟主投 no 可否决）；一国同时只属一个联盟；与该联盟成员交战、或自己正在交战 → 不能申请。扣外交费（基准 {DIPLO_COST} 金）。",
         "parameters": _props({"name": {"type": "string", "description": "联盟名", "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_leave", "description": "退出所在联盟：普通成员单方面退出、立即生效、无须任何人同意（已参战的战线不因此退出；滞留在前盟友领土的军队回合末自动遣返）。**盟主不能退盟**——请先 bloc_transfer 移交，或 bloc_dissolve 解散。扣外交费（基准 10 金）。",
+        "name": "bloc_leave", "description": f"退出所在联盟：普通成员单方面退出、立即生效、无须任何人同意（已参战的战线不因此退出；滞留在前盟友领土的军队回合末自动遣返）。**盟主不能退盟**——请先 bloc_transfer 移交，或 bloc_dissolve 解散。扣外交费（基准 {DIPLO_COST} 金）。",
         "parameters": _props({})}},
     {"type": "function", "function": {
-        "name": "bloc_rename", "description": "【盟主专属】给联盟改名（1~12 字、不含空格、全局唯一）。免费。",
+        "name": "bloc_rename", "description": f"【盟主专属】给联盟改名（1~{BLOC_NAME_MAX} 字、不含空格、全局唯一）。免费。",
         "parameters": _props({"name": {"type": "string", "description": "新联盟名", "required": True}})}},
     {"type": "function", "function": {
         "name": "bloc_transfer", "description": "【盟主专属】把盟主之位移交给本联盟另一成员（移交后你变成普通成员，从此可自由退盟）。盟主身份由发起方自动获得，只有现任盟主能移交。免费。",
@@ -1404,7 +1624,7 @@ TOOL_SCHEMAS = [
         "parameters": _props({"vote_id": {"type": "integer", "description": "投票id（diplomacy 面板有）", "required": True},
                               "choice": {"type": "string", "enum": ["yes", "no", "abstain"], "description": "你的表态", "required": True}})}},
     {"type": "function", "function": {
-        "name": "propose", "description": "向别国提议『共同防御』（仅守：它被打才自动并肩参战，你主动开战它不上）。全面结盟请用 bloc_found（起名的多边联盟）。to 必须用 countries 选出的别国，不能是自己；对方 respond_proposal 接受才生效。**双方都必须在和平状态**（任一方正在交战 → 不能缔结，先议和）。外交费（基准 10 金；对象为盟友免费；对方有外交中心则免费），成功才扣。",
+        "name": "propose", "description": f"向别国提议『共同防御』（仅守：它被打才自动并肩参战，你主动开战它不上）。全面结盟请用 bloc_found（起名的多边联盟）。to 必须用 countries 选出的别国，不能是自己；对方 respond_proposal 接受才生效。**双方都必须在和平状态**（任一方正在交战 → 不能缔结，先议和）。外交费（基准 {DIPLO_COST} 金；对象为盟友免费；对方有外交中心则免费），成功才扣。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
                               "kind": {"type": "string", "enum": ["共同防御"], "description": "类型", "required": True}})}},
     {"type": "function", "function": {
@@ -1415,7 +1635,7 @@ TOOL_SCHEMAS = [
         "name": "break_defense", "description": "单方面解除共同防御（成功扣外交费）。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "guarantee", "description": "宣布保障别国独立：任何国家攻击它，你将自动参战（仅此单向、一跳）。你与它之间后来结成共同防御/联盟时，这条保障会自动解除（保障是三档里最低的）；已有更高档时无须保障。**双方都必须在和平状态**（任一方正在交战 → 不能保障，先议和）。不想履行参战义务时可解除保障（或断盟）退出。to=别国（不能自己）。成功扣外交费（基准 10 金）。",
+        "name": "guarantee", "description": f"宣布保障别国独立：任何国家攻击它，你将自动参战（仅此单向、一跳）。你与它之间后来结成共同防御/联盟时，这条保障会自动解除（保障是三档里最低的）；已有更高档时无须保障。**双方都必须在和平状态**（任一方正在交战 → 不能保障，先议和）。不想履行参战义务时可解除保障（或断盟）退出。to=别国（不能自己）。成功扣外交费（基准 {DIPLO_COST} 金）。",
         "parameters": _props({"to": {"type": "string", "description": "被保障国", "required": True}})}},
     {"type": "function", "function": {
         "name": "cancel_guarantee", "description": "撤回独立保障（成功扣外交费）。",
@@ -1437,51 +1657,55 @@ TOOL_SCHEMAS = [
         "name": "reject_peace", "description": "拒绝对方求和，战争继续（成功扣外交费）。",
         "parameters": _props({"offer_id": {"type": "integer", "description": "求和提议id", "required": True}})}},
     {"type": "function", "function": {
+        "name": "memory_search", "description": "检索你自己的历史记忆（只看行动/发言/结果的**正文**，不看思考过程）：按关键词找出相关回合，返回**回合号与相邻上下文**。适合翻旧账——「我之前答应过楚国什么」「哪几场仗烧补给最凶」「谁对我宣过战」。关键词用空格分隔（如 盟约 楚），全部命中优先、部分命中次之；limit 控制返回条数。只搜得到你自己的记忆，不影响他人。免费、只读。",
+        "parameters": _props({"query": {"type": "string", "description": "检索关键词（用空格分隔多个词）", "required": True},
+                              "limit": {"type": "integer", "description": "最多返回几条（默认3，最大8）"}})}},
+    {"type": "function", "function": {
         "name": "end_turn", "description": "结束本国本回合的行动。⚠ 必填 summary：用一句话总结你这回合做了什么/当前立场（例如：summary=这回合建了两座农场并继续拓荒）。没有这句小结就不算结束本回合。",
-        "parameters": _props({"summary": {"type": "string", "description": "一句话回合小结（必填，>=4字）", "required": True}})}},
+        "parameters": _props({"summary": {"type": "string", "description": f"一句话回合小结（必填，>={SUMMARY_MIN_CHARS}字）", "required": True}})}},
 ]
 
 # 工具 schema 的固定 token 开销（每次请求都随 tools 发送，计入上下文预算）
 TOOL_SCHEMAS_TOKENS = est_tokens(json.dumps(TOOL_SCHEMAS, ensure_ascii=False))
 
-_TOOL_SCHEMAS_HUNS: list[dict] | None = None
+_SCHEMA_CACHE: dict[str, list[dict]] = {}
 
 
 def tool_schemas(world, name) -> list[dict]:
-    """该国本轮的工具 schema。匈奴政体骑兵征召价不同（8粮8装），需按政体替换描述——
-    否则匈奴 AI 在 schema 里看到 12粮12装、在自己的 system prompt 里看到 8粮8装，两边打架。
-    schema 对同一国跨回合稳定，不影响前缀缓存。"""
-    if world.polity.get(name) != "huns":
+    """该国的工具 schema。**政体差异（如匈奴骑兵征召特价）由引擎现算**，
+    再据此重建征召描述——不再对描述文本做字符串替换（那种补丁改一处漂一处）。
+
+    口径唯一来源：`World.recruit_cost()`（读 `balance.POLITY`）。
+    schema 对同一政体跨回合稳定 ⇒ 不影响前缀缓存（按政体缓存一份）。
+    """
+    key = world.polity.get(name) or ""
+    if not key:
         return TOOL_SCHEMAS
-    global _TOOL_SCHEMAS_HUNS
-    if _TOOL_SCHEMAS_HUNS is None:
+    if key not in _SCHEMA_CACHE:
         schemas = copy.deepcopy(TOOL_SCHEMAS)
+        costs = {k: world.recruit_cost(name, k) for k in UNIT_TYPES}
         for t in schemas:
             fn = t["function"]
             if fn["name"] == "recruit":
-                fn["description"] = fn["description"].replace("骑=骑兵(12粮+12装",
-                                                              "骑=骑兵(8粮+8装")
-        _TOOL_SCHEMAS_HUNS = schemas
-    return _TOOL_SCHEMAS_HUNS
+                fn["description"] = _recruit_desc(costs)
+        _SCHEMA_CACHE[key] = schemas
+    return _SCHEMA_CACHE[key]
 
 
 def _huns_prompt(world, name) -> str:
     return (
-        "你是草原游牧帝国【" + name + "】（匈奴）的可汗，以劫掠、夺产、勒索维生。\n\n"
+        "你是草原游牧帝国【" + name + "】（匈奴）的单于，以劫掠、夺产、勒索维生。\n\n"
         "【政体约束（硬性）】你不搞结盟/共同防御/保障/馈赠/交换地图那套外交。你能用的只有："
-        "send_letter（写信威吓勒索贡品）、spy（100 金刺探对方国库/建设/兵力数量）、"
-        "declare_war（宣战）、offer_peace（要求投降/赔款求和）、accept_peace / reject_peace（议和/拒绝）。\n"
-        "【开局（事实）】你是骑兵开局：每骑每回合耗 2 补给，别饿空，否则全军按缺口比例扣血（满缺 -35HP/回合）。"
-        "你建建筑有 +30% 惩罚（别走种田流），但你的骑兵征召只要 8 粮+8 装（比别人便宜）。\n"
-        "【生存（事实）】你不靠种田建厂活，靠**抢产**：夺别国的**金矿**（每座 10 金/回合 ≈ 养 1 骑）与"
-        "**补给厂**（每座 2 补给/回合 ≈ 养 1 骑，需粮矿电配套）。勒索只是零钱（一次 50~100 金 + 5~20 补给），"
-        "抢无驻军之地、打完胜仗索赔款、缺什么就从市场买。你开局**粮木矿全为 0**（连一座建筑都盖不起），"
-        "**补给只够十几回合，越拖越容易死**。**骑兵战力与步兵相同、只有速度快，你打不过任何中等国家的主力**——"
-        "分兵掠地、避开主力才是活路。"
-        "补给仓空了每军按缺口比例扣血（满缺 -35HP/回合，交战中也照扣），会饿死。\n"
+        "send_letter（写信威吓勒索贡品）、spy（刺探对方国情）、declare_war（宣战）、"
+        "offer_peace（要求投降/赔款求和）、accept_peace / reject_peace（议和/拒绝）。\n"
+        "【开局（事实）】你是骑兵开局，别饿空补给（消耗与补给情况随 query 面板现算）；"
+        f"你建建筑要贵 {world.polity_rule(name, 'build_cost_pct', 100) - 100}%（别走种田流），"
+        f"但你的骑兵征召只要 {_cost_text(world.polity_rule(name, 'recruit', {}).get('骑', {}))}"
+        f"（寻常国家 {_cost_text(UNIT_TYPES['骑']['recruit'])}）。开局农耕资源近乎为零，连一座建筑都盖不起；"
+        "**补给撑不了太久，越拖越容易死**。\n"
         "【教义（必须贯彻）】\n" + HUNS_DOCTRINE + "\n"
-        "【信息】情报有迷雾，你只看得见自己地盘与相邻一圈；写信对象随时可用 countries 选。"
-        "想细看机制就 rules 查。"
+        "【信息】情报有迷雾：你只看得见自己地盘与相邻一圈；写信对象随时可用 countries 选。"
+        "所有规则的细节（消耗/造价/战斗/市场）一律以 rules 返回值与 query 面板为准，别凭记忆猜。"
     )
 
 
@@ -1493,7 +1717,7 @@ def system_prompt(world, name) -> str:
     ep = world.extra_prompt.get(name)
     if ep:
         if world.turn < ep.get("until", world.turn):
-            p += "\n\n【临时情报/密谕（20回合后仅剩总结）】\n" + ep.get("text", "")
+            p += f"\n\n【临时情报/密谕（{EXTRA_PROMPT_TURNS}回合后仅剩总结）】\n" + ep.get("text", "")
         elif ep.get("summary"):
             p += "\n\n【遗留总结（前情之鉴，常驻）】\n" + ep["summary"]
     p += "\n\n【过往回合记录（含你的思考过程）仅作参考背景】勿重放旧命令/旧工具调用，一切以最新当前回合状态为准，按本回合行动。"
@@ -1504,37 +1728,13 @@ def _default_system_prompt(world, name) -> str:
     return (
         "你是国家元首【" + name + "】，在一个 EU4 式大地图战略游戏里治国。\n\n"
         "这局没有预设目标：富国、拓荒、称霸、报复、苟和都行，由你自己判断；每种选择都有后果，后果也由你承担。\n"
-        "【回合】每回合你可用工具做很多事：建设/拓荒/征兵/调兵/打仗/买卖/外交/写信。你有一个常驻的【国策规划】"
-        "：结束回合前必须先 plan 制定，且每 10 回合必须修订一次（建议涵盖 经济发展/军事规划/情报管理/外交方向）。"
-        "做完用 end_turn 结束本回合，"
-        "并在 summary 用一句话小结你这回合的作为。地理：每块地=1格，军队每回合限移动一次、"
-        "按兵种速度以自身为中心移动（步兵 1 格=3×3、骑兵 2 格=5×5）；撤退( retreat )是例外——"
-        "固定只能退相邻 1 格（不按兵种速度），撤退军队参与回合末战斗结算（伤害全场分摊；防御方撤退减伤50%；撤退军本回合输出-80%）后自动脱离，无合法撤退点（己方/同盟/荒地）则不能退。\n"
-        "【资源用途（事实）】木头=建一切建筑+木材电厂燃料；粮=征兵(10/军)+补给厂原料；矿=装备厂+补给厂原料；"
-        "油=装备厂原料+油电厂燃料；装=征兵(5/军)；补给=每军每回合耗1，仓空每军按缺口比例扣血（满缺 -35/回合）。\n"
-        "【生产链（事实）】林场/农场/矿场/石油厂/黄金矿场=采集；木材厂(耗1木→2电)/油电厂(耗1油→8电)=发电，"
-        "电不存储，电网不足则补给厂/装备厂/兵营/市政厅全停摆；补给厂(粮1+矿1→补给2)；装备厂(矿1+油1→装备2)；"
-        "兵营(耗1电，需本地建筑位≥3)每回合可征1军(10粮5装)；黄金矿场+10金/回合；也可世界市场 buy/sell 换黄金。\n"
-        "【扩张与战争（事实）】占地一律走 atk：派军进目标格，有守军(野人/敌军)就打赢再占、"
-        "敌人=0 就直接进驻占领；mv 只是挪位置，不占地。荒地/敌空城都这样占。"
-        "野地有敌军驻守（含正在打野的）时不能 mv、只能 atk；中立/盟友和平驻守的野地可 mv 旁观，也可 atk 占地（它们不参战、回合末被遣返）。"
-        "野地上有与你非敌非盟的一方正在打野时不能 atk 插足；敌人/盟友在打野则可以参战。"
-        "占地按索取顺序：野人或守军清空且无活敌后，进攻方里第一个 atk 者占地，它阵亡则顺位最早入场的同盟者（野地与他国领土同规）。"
-        "撤出攻守对等：交战中的军队（含防守方）离开战场一律用 retreat（固定只能退相邻1格，回合末随战斗结算后脱离、守方撤退减伤50%——守方=该格未参战一方/格主；撤退军本回合输出-80%）；mv 不能从交战地撤离；"
-        "守军撤光时围攻方自动接管（弃城即陷，多国围攻按索取顺序）；交战中双方（含守军）一律不回血。"
-        "军队非交战且补给够时每回合回25HP。中立(不结盟不交战)时你的军队进不了别国、也打不了别国；"
-        "联盟=互通+互不攻击+共享视野；宣战对方必须应战；被宣战方的『保障独立/共同防御/联盟』关系按传递闭包自动参战打你（无限传导）。"
-        "联盟成员开战必须先经联盟投票（多数决）；议和由各方谈判代表（主导者或其盟主）出面，盟主议和还须联盟投票；"
-        "主导者议和则整条战线（含跟随方）停。同联盟且同战线的盟友夺回你的核心领土（land 面板 ♥ 标记）会自动归还给你。\n"
-        "【外交（事实）】你与每个别国的关系独立：可保持中立、可提议共同防御或发起/申请加入联盟（对方可能接受或拒绝）、"
-        "可单方保障它或撤回、可退盟（单方面、无须同意）、可宣战、战中可求和。联盟成员间外交（馈赠/换图/投票）免费，**写信除外（联盟内起步价 10、非联盟 20，超字另计）**。"
-        "来信可回应也可不回；邀约可接受可拒绝可冷处理；承诺可以兑现也可以背弃。这些都由你权衡。\n"
+        "【怎么玩】每回合你可用工具行动：建设/拓荒/征兵/调兵/打仗/买卖/外交/写信/结盟。"
+        "开始前定一份【国策规划】（plan），行动完用 end_turn 结束本回合并附一句回合小结（国策需定期修订）。\n"
+        "【规则去哪查】所有玩法细节（资源/造价/战斗/市场/外交/联盟）都不必记住：调用 rules 随时可查权威说明"
+        "（可带主题，如 rules(建筑)、rules(战争)）；本国现状用 query 看面板（res/land/army/market/countries…）。\n"
         "【信息】情报有迷雾：你只看得见自己地盘与相邻一圈（有联盟则连盟友的地盘也看得到）；"
-        "他国国库/储备/全部军队你看不到，只能从来信、边界动静与其言行推断；"
-        "他国来信未必可信，你也可说谎。\n"
-        "【规则查询】完整玩法（造价/地形/战斗/外交/市场细则）随时可查：调用 rules，可带主题如 rules(外交)、rules(建筑)。\n"
-        "【行动建议（自由）】动手前可用 query 看面板（res/land/army/market/countries 随时可查）；"
-        "想清楚再调用工具。你可以边想边做，也可以只做一两件事。没有『应该』怎么做，只有你想要什么后果。"
+        "他国国情你看不到，只能从来信、边界动静与其言行推断；他国来信未必可信，你也可说谎。\n"
+        "【建议】动手前先 query 看面板、rules 查规则，想清楚再做。没有『应该』怎么做，只有你想要什么后果。"
     )
 
 
@@ -1574,7 +1774,8 @@ def build_context(world, name, cfg) -> tuple[list[dict], "ctxlib.Plan"]:
     def _build(tail: str):
         return ctxlib.build(cfg=cfg, mem=mem, sums=sums, blocks=blocks,
                             system_text=system_text, tail_text=tail,
-                            tool_tokens=TOOL_SCHEMAS_TOKENS)
+                            tool_tokens=TOOL_SCHEMAS_TOKENS,
+                            long_memory=world.long_memory.get(name, ""))
 
     tail1 = turn_state(world, name, None)
     msgs, plan = _build(tail1)
@@ -1604,10 +1805,12 @@ def _store_turn_memory(world, name, messages, base: int, plan) -> list[dict]:
 # 阶段块总结：滑出 replay 的回合用一次 LLM 调用压成一段，进历史归档
 # ---------------------------------------------------------------------------
 COMPACT_SYSTEM = (
-    "你是战略游戏 AI 的记忆压缩器。用户给你它自己某几个回合的行动记录"
-    "（发言、工具调用与结果）以及逐回合小结。请压成一段中文总结（300~600 字），只保留："
-    "做过什么、结果如何、当前战略处境、未了结的事务/承诺/敌人/威胁。"
-    "不要评价、不要虚构、不要写建议。直接输出总结正文。"
+    "你是战略游戏 AI 的【长期记忆维护者】。我每隔一段时间把我的新经历发给你，"
+    "并附上我上一次的长期记忆。"
+    "请以【已有的长期记忆】为基础，把【新经历】合并扩写进去：保留所有仍然成立的"
+    "旧事实（战略处境、盟约、承诺、威胁、未了结事务、目标、教训），补充新进展，"
+    "删除已过期的条目。不要重写、不要丢旧事实、不要评价、不要虚构、不要写建议。"
+    "输出为更新后的完整长期记忆（300~600 字，可略超以容纳关键细节）。"
 )
 COMPACT_INPUT_CHARS = 120_000   # 压缩调用的输入上限（约 6 万 token），超了从最旧略细节
 
@@ -1641,24 +1844,33 @@ def _compact_input(dropped: list[dict], sums: list[dict], from_turn: int) -> str
 
 
 def _compact_block(backend, cfg, world, name, dropped: list[dict], emit=None) -> dict | None:
-    """把滑出 replay 的回合压成一段块总结并写入 world.summary_blocks。失败返回 None。"""
+    """把滑出 replay 的回合并入"递归累积的长期记忆"（酒馆式）。
+
+    - 旧记忆已存在 → 以它为基础扩写（长程规划/盟约/教训不断层）；
+    - 结果写回 world.long_memory（稳定头块，只在压缩回合变字节 → 缓存友好），
+      同时也记一段 summary_blocks 保留块史。失败返回 None。
+    """
     sums = world.summaries.get(name) or []
-    # 只压这次真正滑出的那段（更早的回合已只剩一行小结，再压一次只会丢信息）
     from_turn = int(dropped[0]["turn"])
     to_turn = int(dropped[-1]["turn"])
-    user = (f"请总结我第 {from_turn}~{to_turn} 回合的经历。\n\n"
+    prev = (world.long_memory.get(name) or "").strip()
+    user = (f"【已有的长期记忆】\n{(prev if prev else '（暂无）')}"
+            f"\n\n【新经历：第 {from_turn}~{to_turn} 回合】\n"
             + _compact_input(dropped, sums, from_turn))
     if emit:
-        emit(f"🧠 {name} 压缩记忆：第{from_turn}~{to_turn}回合 → 一次总结调用")
+        emit(f"🧠 {name} 压缩记忆：第{from_turn}~{to_turn}回合 → 递归扩写长期记忆"
+             + ("（有旧记忆为基础）" if prev else "（首次建立）"))
     text = backend.complete_text(
         [{"role": "system", "content": COMPACT_SYSTEM},
          {"role": "user", "content": user}], cfg)
+    text = str(text or "").strip()
     if len(text) < 20:
         return None
-    block = {"from": from_turn, "to": to_turn, "text": text, "turn": world.turn}
     with _engine_lock:
-        world.summary_blocks.setdefault(name, []).append(block)
-    return block
+        world.long_memory[name] = text
+        world.summary_blocks.setdefault(name, []).append(
+            {"from": from_turn, "to": to_turn, "text": text, "turn": world.turn})
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -1704,7 +1916,9 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
     # 上下文：窗口大小由配置 ctx_window 定义，深度/归档/下滑水位由 ctx.py 按预算动态分配
     messages, plan = build_context(world, name, cfg)
     if emit:
-        emit(f"🧠 {name} 上下文: {plan.describe()}")
+        _rl = ctxlib.rolling_hit(name)
+        emit(f"🧠 {name} 上下文: {plan.describe()}"
+             + (f"｜实测命中≈{_rl * 100:.0f}%（近20次滚动）" if _rl is not None else ""))
     base = len(messages)  # 本回合新增消息的起点（base 之前是历史 replay，存储时不再重复）
     done = 0
     stall = 0  # 连续"只思考/空转"轮数
@@ -1728,6 +1942,8 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
             inp = agg["hit"] + agg["miss"]  # 缓存按输入前缀算：hit+miss=prompt tokens
             cache = (f"｜缓存命中{agg['hit'] / inp * 100:.0f}%({agg['hit']}/{inp}tok)"
                      if inp else "")
+            if inp:
+                ctxlib.record_hit(name, agg["hit"], agg["miss"])
             world.log(
                 f"📊 {name} 本回合: {agg['calls']}次调用 {agg['wall']:.0f}s｜"
                 f"输出{agg['out_tokens']}tok(思考{agg['reason_tokens']}){cache}｜"
@@ -1863,17 +2079,19 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
 # 无 key 的规则 AI（验证机制 + 看海 demo）
 # ---------------------------------------------------------------------------
 
-def dummy_turn(world, name, rng, max_actions: int = 12) -> int:
-    """无 key 的规则 AI：委托给**游戏层**的 `expand_rule_v9.expand_rule_turn_v9`，
+def dummy_turn(world, name, rng, max_actions: int = 12, rule_ai: str | None = None) -> int:
+    """无 key 的规则 AI：**按版本名**从注册表取一版扩张流（`rule_ai.py`），
     并把每个动作写进看海日志（Observer 因此能看到它的每个行动）。
 
-    策略本身在 `expand_rule_v9.py`——那是游戏层，不依赖本 LLM 层的工具 schema /
-    文本面板 / 国策。v9 = v8（一张账 + 串行判定的最强扩张流）+ **视野门控**：
-    信息集严格等于引擎给玩家的（`World.visible_to`），不开图偷看未探明格资源——
-    代打的国家与 LLM 玩家在同一层信息下竞争。v6 保留作 experiments 探针的论文基线。
+    `rule_ai` = 版本名，如 `"v10"`（配置顶层或逐国可覆盖，见 README 配置表）；
+    不传则用 `rule_ai.DEFAULT_RULE_AI`。**本函数不认识任何具体版本** ——
+    换基线只改配置，不动这里（`tests/test_rule_ai.py` 盯着这条）。
+
+    策略本身在 `ruleai/v*.py`——那是游戏层，不依赖本 LLM 层的工具 schema /
+    文本面板 / 国策。各版差异与历代表见 `rule_ai.py` 的模块 docstring。
     """
-    from expand_rule_v9 import expand_rule_turn_v9
-    acts = expand_rule_turn_v9(world, name, rng, max_actions=max_actions)
+    _, fn = rule_ai_registry.resolve(rule_ai)
+    acts = fn(world, name, rng, max_actions=max_actions)
     for tool, args, ok, msg in acts:
         log_tool(world, name, tool, args, msg)
     return len(acts)
