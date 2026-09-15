@@ -59,6 +59,8 @@ for v in VERSIONS:
     mod = sys.modules[fn.__module__]
     mod.HORIZON = TURNS + 20          # ★ 与 get_teacher 同口径
     vals = []
+    marks = [m for m in (50, 100, 150, 200) if m <= TURNS]
+    tile_at = {m: [] for m in marks}
     for k in range(MAPS):
         env.reset(SEED0 + k)
         rng = random.Random(0xB4BE)
@@ -68,11 +70,15 @@ for v in VERSIONS:
             w.resolve_turn()
             if t + 1 < TURNS:
                 w.begin_turn()
+            if (t + 1) in tile_at:
+                tile_at[t + 1].append(len(w.own_tiles(env.agent)))
         vals.append(w.spend_total(env.agent))
     per[v] = vals
     print(f"  {v:>4}: 均值 {st.mean(vals):>9,.0f}  中位 {st.median(vals):>9,.0f}  "
           f"最低 {min(vals):>9,.0f}  最高 {max(vals):>9,.0f}")
     print(f"        逐图 " + " ".join(f"{x:,.0f}" for x in vals))
+    print("        ★占地速度（逐期领土均值）："
+          + "  ".join(f"T{m}={st.mean(v):.1f}" for m, v in sorted(tile_at.items())))
 
 if len(per) > 1:
     base = VERSIONS[0]
