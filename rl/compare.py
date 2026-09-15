@@ -47,19 +47,15 @@ def run_rule(env, seed: int, turns: int, max_actions: int = 10 ** 9,
     的楼不入选），按其口径设成 **每局回合 + 20**。不设的话短局里它会挑一堆局末
     才回本的楼，评估出来的就不是它真实的水平。
     """
-    if which == "v3":
-        from ruleai.ai_legacy import expand_rule_turn as fn
-    elif which == "v10":
-        from ruleai import v10 as m
-        m.HORIZON = turns + 20      # ★与 v9 同口径（漏这一行 = 短局里按 200 回合规划）
-        fn = m.expand_rule_turn_v10
-    elif which == "v9":
-        from ruleai import v9 as m
-        m.HORIZON = turns + 20
-        fn = m.expand_rule_turn_v9
-    else:
-        from ruleai.v6 import expand_rule_turn_v6 as fn
+    # ★走 `rule_ai` 注册表，**不在 RL 侧写死版本号**（main 的纪律：映射只在 rule_ai.py 那一处）。
+    import rule_ai as _rule_ai
+    from rl.ruleai_bridge import clear_state, set_horizon
+    _name, fn = _rule_ai.resolve(which)
+    # ★与 v9 同口径（漏这行 = 短局按 200 规划）。**必须走桥**：
+    #   `sys.modules[fn.__module__].HORIZON = ...` 对包版本（v11/v12）是空操作。
+    set_horizon(fn, turns + 20)
     env.reset(seed)
+    clear_state(fn)          # ★每局开始清规则 AI 的模块内存（v11+ 的编组）
     rng = random.Random(seed)
     for t in range(turns):
         fn(env.world, env.agent, rng, max_actions=max_actions)

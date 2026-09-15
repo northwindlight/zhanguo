@@ -31,6 +31,8 @@ from rl.env import ACT_SAFETY, KIND_INDEX, KINDS, ZhanguoEnv
 from rl.model import PolicyNet
 from rl.transformer import WindowTransformer
 from rl.ppo import collate, collate_cand, collate_window
+from rl.ruleai_bridge import clear_state as clear_rule_state
+from rl.ruleai_bridge import horizon_of
 from rl.tokenize import GROUPS, tokenize
 
 
@@ -120,10 +122,14 @@ def get_teacher(which: str, turns: int = 500, horizon: int = -1):
     #   ⇒ 这样加新代（v11 / v12 …）RL 侧一行都不用改。
     #   HORIZON 仍在**这里**按 `turns + 20` 设（老师的 ROI 回收期窗口口径，见下），
     #   且 `set_horizon` 每局还会再设一次（块调度里 BC 局 70、DAgger 局 100 回合，只设一次会错）。
-    import sys as _sys
     import rule_ai as _rule_ai
+    from rl.ruleai_bridge import set_horizon as _set_horizon
     _name, fn = _rule_ai.resolve(which)
-    _sys.modules[fn.__module__].HORIZON = horizon if horizon > 0 else turns + 20
+    # ★2026-09-15 修：原来这里是 `sys.modules[fn.__module__].HORIZON = ...`，
+    #   对 v10（单文件）管用，对 v11/v12（包，`fn.__module__` 是 `<代>.entry`）
+    #   **是空操作** —— 经济层读的是 `<代>.economy.HORIZON`，从没被改到。
+    #   桥会设完回读自证，设不上就当场 raise（详见 `rl/ruleai_bridge.py`）。
+    _set_horizon(fn, horizon if horizon > 0 else turns + 20)
     return fn
 
 
@@ -138,11 +144,10 @@ def set_horizon(teacher_fn, turns: int) -> None:
     `teacher_fn` 是模块级函数，`HORIZON` 是它所在模块的全局量 —— 所以按
     `__module__` 找模块去改，而不是把函数包一层（那样 `on_action` 之类的
     关键字参数会漏）。
-    """
-    import sys
-    mod = sys.modules.get(getattr(teacher_fn, "__module__", "") or "")
-    if mod is not None and hasattr(mod, "HORIZON"):
-        mod.HORIZON = int(turns) + 20
+    ★2026-09-15：改走 `rl.ruleai_bridge`（包版本的权威副本在更深的模块里，
+    直接给 `__module__` 赋值是空操作）。"""
+    from rl.ruleai_bridge import set_horizon as _set_horizon
+    _set_horizon(teacher_fn, int(turns) + 20)
 
 
 def episode_is_degenerate(tiles: int, seen: list[int], *, turns: int | None = None,
@@ -197,6 +202,11 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
     `student=模型`：**学生走、老师打标签**（DAgger，覆盖学生实际会走到的状态）。
     """
     teacher_fn = teacher_fn or get_teacher("v6")
+    # ★**每局开始清规则 AI 的模块内存**（`ruleai/v11/grouping.py` 模块说明：
+    #   「RL 每局开始必须 `clear()`，否则上一局的编组会漏进新局」）。
+    #   2026-09-15 前 RL 侧**一次都没调过** ⇒ v11/v12 的历史数带"跨局编组泄漏"
+    #   这个共犯（v10 没有这个模块，不受影响）。没有状态的版本返回 False，正常。
+    clear_rule_state(teacher_fn)
     env.reset(seed, map_seed=map_seed)
 
     # ---------------- DAgger：学生走、老师打标签 ----------------
@@ -676,12 +686,19 @@ def main() -> None:
                              "grad_steps": grad_steps}}, path)
     # ★把老师的 ROI 窗口打进日志：**口径要能自证** —— 漏设 HORIZON 那次
     #   （v10 用默认 200 跑了 6 局）就是因为日志里没有这一项，事后才发现。
+    #   ★2026-09-15 重写：旧版 `if args.teacher in ("v9","v10")` + `__import__("expand_rule_%s")`
+    #   是**死代码**（版本收进 `ruleai/` 包后 `expand_rule_v11` 这个名字不存在了）：
+    #   对 v11/v12 它一声不吭，对 v10 它会 ImportError。**自检被版本名硬编码挡在门外**
+    #   —— 这正是"v11/v12 视野全程是缺省 200"没人发现的原因。
+    #   现在：不限版本名，且读的是**权威副本**（`rl/ruleai_bridge.horizon_of`）。
     _hz = ""
-    if args.teacher in ("v9", "v10"):
-        _m = __import__(f"expand_rule_{args.teacher}")
-        _hz = f"  视野(HORIZON)={_m.HORIZON}（口径 = 每局 {args.turns} + 20）"
-        if _m.HORIZON != args.turns + 20 and (args.horizon or 0) <= 0:
+    try:
+        _h = horizon_of(teacher_fn)
+        _hz = f"  视野(HORIZON)={_h}（口径 = 每局 {args.turns} + 20）"
+        if _h != args.turns + 20 and (args.horizon or 0) <= 0:
             _hz += "  ★与口径不符！"
+    except Exception as _e:                                   # pragma: no cover
+        _hz = f"  视野(HORIZON)=★读不到（{_e!r}）"
     print(f"老师 = {args.teacher}（{teacher_fn.__module__}）{_hz}"
           f"  每局 {args.turns} 回合 × {args.episodes} 局"
           f"  每局 {args.steps} 梯度步  缓冲 {args.buffer}")
