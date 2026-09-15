@@ -115,23 +115,15 @@ def get_teacher(which: str, turns: int = 500, horizon: int = -1):
     「视野按交接视野+20」）。BC/DAgger 的局只有几十回合，不该按 500 回合规划 ——
     那样老师会选一堆局末才回本的楼，学生跟着学一堆没用的。
     """
-    if which == "v3":
-        from ruleai.ai_legacy import expand_rule_turn as fn
-    elif which == "v10":
-        # ★ v10 = v9 + 抗抖（引擎数值现读，不再写死）+ 去掉"绕山地"（改看打不打得赢）。
-        #   训练期开 `--rules-jitter` 时**必须用 v10 当老师**：v9 会把抖过的表当成真值。
-        #   ★ HORIZON 必须与 v9 同口径设（`turns + 20`）—— 漏过这一行：v10 用默认 200，
-        #     于是 70 回合的局里它按 200 回合规划，扩张明显变少（实测领地 28→19、
-        #     进攻 24→17）。见 `tests/test_rule_v10.py::TestTeacherHorizon`。
-        from ruleai import v10 as m
-        m.HORIZON = horizon if horizon > 0 else turns + 20
-        fn = m.expand_rule_turn_v10
-    elif which == "v9":
-        from ruleai import v9 as m
-        m.HORIZON = horizon if horizon > 0 else turns + 20
-        fn = m.expand_rule_turn_v9
-    else:
-        from ruleai.v6 import expand_rule_turn_v6 as fn
+    # ★走 `rule_ai` 注册表，**不在 RL 侧写死版本号**（main 的纪律：
+    #   「版本名 → 模块路径的映射在 `rule_ai.py` 那一处，引擎侧不许出现版本号」）。
+    #   ⇒ 这样加新代（v11 / v12 …）RL 侧一行都不用改。
+    #   HORIZON 仍在**这里**按 `turns + 20` 设（老师的 ROI 回收期窗口口径，见下），
+    #   且 `set_horizon` 每局还会再设一次（块调度里 BC 局 70、DAgger 局 100 回合，只设一次会错）。
+    import sys as _sys
+    import rule_ai as _rule_ai
+    _name, fn = _rule_ai.resolve(which)
+    _sys.modules[fn.__module__].HORIZON = horizon if horizon > 0 else turns + 20
     return fn
 
 
@@ -461,7 +453,7 @@ def main() -> None:
     #   参数，跑出来的样本数（299 = v6）和 v9 的 437 对不上，我花了一整轮去追一个
     #   **根本不存在的"不确定性"**（三次直跑 437/消费 5001 一模一样，世界生成是确定的）。
     #   默认值就该是当前基线，别让默认值和文档互相矛盾。
-    ap.add_argument("--teacher", default="v9", choices=("v10", "v9", "v6", "v3"),
+    ap.add_argument("--teacher", default=__import__("rule_ai").DEFAULT_RULE_AI, choices=__import__("rule_ai").versions(),
                     help="老师：v10=抗抖版（引擎数值现读 + 不绕山地；**配 --rules-jitter 时用它**）/ "
                          "v9=**旧基线**（= v8 + 视野门控，默认）/ "
                          "v6=旧基线（T500 2384k 但 T300 只有 485k）/ v3=第一版（82k）")
