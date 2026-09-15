@@ -32,8 +32,8 @@ HI = float(sys.argv[4]) if len(sys.argv) > 4 else 0.75
 OUT = Path("rl/maps/medium_pool.json")
 OUT.parent.mkdir(parents=True, exist_ok=True)
 
-teacher = bc.get_teacher("v10", turns=TURNS)
-bc.set_horizon(teacher, TURNS)      # ★ROI 窗口必须按本局回合数设（漏过这行会少扩张）
+teacher = bc.get_teacher("v10")
+# ★视野 = `world.max_turns + 20`（用户 2026-09-15），下面的 ZhanguoEnv(max_turns=TURNS) 会带上。
 
 env = ZhanguoEnv(map_size=16, max_turns=TURNS)
 rng = random.Random(0xB4BE)         # 老师自己的 RNG：固定，保证同图必得同难度

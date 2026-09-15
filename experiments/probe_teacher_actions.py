@@ -28,7 +28,7 @@ import sys
 
 import rule_ai
 from rl.env import ACT_SAFETY, ZhanguoEnv
-from rl.ruleai_bridge import clear_state, horizon_of, set_horizon
+from rl.ruleai_bridge import clear_state
 
 VERSIONS: list[str] = []
 MAPS, TURNS, SEED0, MAXA = 4, 200, 900_000, ACT_SAFETY
@@ -55,7 +55,7 @@ print(f"{len(VERSIONS)} 代 × {MAPS} 图 × {TURNS} 回合；max_actions={MAXA}
 
 for v in VERSIONS:
     _name, fn = rule_ai.resolve(v)
-    set_horizon(fn, TURNS + 20)      # ★走桥：`mod.HORIZON=n` 对 v11/v12 是空操作
+    # ★视野 = 本局回合数 + 20，由 `ZhanguoEnv(max_turns=TURNS)` 交给 world。
     per_turn = []          # 每回合发出去的动作数
     for k in range(MAPS):
         clear_state(fn)              # ★每局开始清（v11+ 的编组）

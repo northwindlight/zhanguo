@@ -36,7 +36,7 @@ def _pair(turns: int = 30, seed: int = 0):
     （锚点/外接框/军队表都在 env 上），拿错 env 会得到一份静默错误的窗口。"""
     from rl.bc import collect_episode, get_teacher
     env = ZhanguoEnv(map_size=16, max_turns=turns)
-    collect_episode(env, turns, seed=seed, teacher_fn=get_teacher("v9", turns))
+    collect_episode(env, turns, seed=seed, teacher_fn=get_teacher("v10"))
     return env, env._obs()
 
 

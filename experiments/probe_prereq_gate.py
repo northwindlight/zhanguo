@@ -15,7 +15,7 @@ SEED = int(sys.argv[1]) if len(sys.argv) > 1 else 500000
 env = ZhanguoEnv(map_size=16, max_turns=70)
 env.reset(SEED)
 w, me = env.world, env.agent
-base = bc.get_teacher("v10", turns=70)
+base = bc.get_teacher("v10")
 
 def plan_of(tag):
     rng = random.Random(SEED)

@@ -39,7 +39,7 @@ while i < len(sys.argv):
 if not SEEDS:
     print(__doc__); sys.exit(2)
 
-teacher = get_teacher("v10", turns=TURNS)
+teacher = get_teacher("v10")
 base = ZhanguoEnv(map_size=16, max_turns=TURNS)
 
 for sd in SEEDS:

@@ -21,8 +21,8 @@
 
 ## 口径
 
-- 三代同款：`HORIZON = TURNS + 20`（走 `rl.ruleai_bridge`，**别直接给模块赋值** ——
-  v11/v12 是包，赋在 `entry` 上经济层读不到；2026-09-15 踩过）
+- 三代同款：视野 = `world.max_turns + 20`（用户 2026-09-15：不设默认视野；
+  规则 AI 从 world 推，**没有可设错的旋钮** —— 那套 `HORIZON` 已删）
 - 每局开始 `clear_state`（v11+ 的编组是模块内存，不清会跨局漏，同日踩过）
 - `jitter=0`（评估一律真值）、老师固定 rng `0xB4BE`、跑在 `deepcopy(world)` 上
 - **逐图配对 + 对地图做 bootstrap**（用户口径：别只看均值，也别只报逐图）
@@ -42,7 +42,7 @@ import sys
 
 import rule_ai
 from rl.env import ZhanguoEnv
-from rl.ruleai_bridge import clear_state, horizon_of, set_horizon, set_knob
+from rl.ruleai_bridge import clear_state, set_knob
 
 VERSIONS: list[str] = []
 SHARES = [0.15, 0.20, 0.25, 0.30, 0.35, 0.45, 0.60]
@@ -82,7 +82,6 @@ print(f"军费占比 MIL_SHARE 扫描：{len(VERSIONS)} 代 × {len(SHARES)} 档
 
 for v in VERSIONS:
     _name, fn = rule_ai.resolve(v)
-    set_horizon(fn, TURNS + 20)
     base_share = None
     cur = [x for x in SHARES if abs(x - 0.30) < 1e-9]
     base_share = cur[0] if cur else SHARES[len(SHARES) // 2]
@@ -126,4 +125,4 @@ for v in VERSIONS:
         sig = "★" if (lo > 1 or hi < 1) else " "
         print(f"     {s:.2f}: 均值比 {st.mean(r):5.3f}  CI[{lo:5.3f},{hi:5.3f}]{sig} "
               f" 逐图 {up}/{len(r)} 张更高")
-    print(f"  （视野 HORIZON={horizon_of(fn)}，口径 = 每局 {TURNS} + 20）\n")
+    print(f"  （视野 = 每局 {TURNS} + 20 = {TURNS + 20}，规则 AI 从 world.max_turns 推）\n")

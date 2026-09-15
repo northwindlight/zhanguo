@@ -42,7 +42,7 @@ def build_pool(episodes: int, turns: int, map_size: int, teacher: str):
     model = PolicyNet(n_grid_ch=len(env.obs_channels()), n_glob=env.glob_size(),
                       sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
                       n_tiles=map_size ** 2)
-    tfn = get_teacher(teacher, turns)
+    tfn = get_teacher(teacher)
     pool: list = []
     for ep in range(episodes):
         d, _sp, _m = collect_episode(env, turns, seed=ep, teacher_fn=tfn)

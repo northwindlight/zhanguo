@@ -39,7 +39,7 @@ TURNS = int(sys.argv[2]) if len(sys.argv) > 2 else 200
 #   正是「验收线 67%」那处错配的根源。给两个基点各跑一次，两边才配得平。
 SEED0 = int(sys.argv[3]) if len(sys.argv) > 3 else 900_000
 
-teacher = get_teacher("v10", turns=TURNS)
+teacher = get_teacher("v10")
 env = ZhanguoEnv(map_size=16, max_turns=TURNS)
 print(f"规则 AI 老师 v10，图集基点 {SEED0}（900000=贪心档同图 / 800000=采样档同图），"
       f"跑 {EPS} 局 × {TURNS} 回合\n")

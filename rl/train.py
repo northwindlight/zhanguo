@@ -28,7 +28,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from rl.bc import get_teacher, set_horizon
+from rl.bc import get_teacher, set_episode_horizon
 from rl.device import pick_device
 from rl.env import ACT_SAFETY, KINDS, ZhanguoEnv
 from rl.model import PolicyNet
@@ -425,8 +425,9 @@ def main() -> None:
     #   实际能藏多少**要实测**。
     _teacher_fn = None
     if args.teacher_baseline:
-        _teacher_fn = get_teacher("v10", turns=args.baseline_turns)
-        set_horizon(_teacher_fn, args.baseline_turns)
+        _teacher_fn = get_teacher("v10")
+        # ★视野 = 本局回合数 + 20（用户 2026-09-15）——把长度交给世界即可。
+        set_episode_horizon(env.world, args.baseline_turns)
 
     # ★地图池：从筛过的 seed 列表里顺序取，而不是 seed += 1 一路数下去。
     #   池子里的图难度已被压到 1.6×（全池是 5.4×）⇒ PPO 不会再把图难度当打法问题。

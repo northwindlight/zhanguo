@@ -32,7 +32,6 @@ from rl.model import PolicyNet
 from rl.transformer import WindowTransformer
 from rl.ppo import collate, collate_cand, collate_window
 from rl.ruleai_bridge import clear_state as clear_rule_state
-from rl.ruleai_bridge import horizon_of
 from rl.tokenize import GROUPS, tokenize
 
 
@@ -106,48 +105,38 @@ def match(actions, spec):
     return best
 
 
-def get_teacher(which: str, turns: int = 500, horizon: int = -1):
-    """老师：v9=**当前基线**（= v8 + 视野门控）/ v6=旧基线 / v3=第一版扩张流。
+def get_teacher(which: str):
+    """老师：按版本名从 `rule_ai` 注册表取一代规则 AI（缺省 v10）。
 
-    旧的 rule_ai（稳经济不扩张，终局 ~7k）已退休——它既不会扩张，也早就不当
-    无 key 代打了（那个角色给了 v6），留着当基线只会误导。
+    ★**规划窗口不用在这里设了**（用户 2026-09-15：「v10 起，不设默认视野，
+      恒等于回合数加 20」）。规则 AI 读 `world.max_turns + 20` —— 跑局的人
+      （`rl/env.py` / `collect_episode`）把**本局**长度放进 world 即可。
 
-    ★v9 的 `HORIZON` 是 **ROI 回收期窗口**（`left = HORIZON - turn`，回本超过 `left`
-    的楼不入选），口径是 **视野 = 每局实际回合 + 20**（用户 2026-09-11：
-    「视野按交接视野+20」）。BC/DAgger 的局只有几十回合，不该按 500 回合规划 ——
-    那样老师会选一堆局末才回本的楼，学生跟着学一堆没用的。
+    原先这里是整套 `HORIZON` 注入：`sys.modules[fn.__module__].HORIZON = n`，
+      对 v10（单文件）管用、对 v11/v12（包）**是空操作** ⇒ 它们全程按缺省 200
+      规划，而 v10 真的被设上了。**能被设错的旋钮，不如没有旋钮** ——
+      所以那个旋钮当晚就被删掉了，不是修好的。见 `rl/ruleai_bridge.py` 的说明。
     """
     # ★走 `rule_ai` 注册表，**不在 RL 侧写死版本号**（main 的纪律：
     #   「版本名 → 模块路径的映射在 `rule_ai.py` 那一处，引擎侧不许出现版本号」）。
     #   ⇒ 这样加新代（v11 / v12 …）RL 侧一行都不用改。
-    #   HORIZON 仍在**这里**按 `turns + 20` 设（老师的 ROI 回收期窗口口径，见下），
-    #   且 `set_horizon` 每局还会再设一次（块调度里 BC 局 70、DAgger 局 100 回合，只设一次会错）。
     import rule_ai as _rule_ai
-    from rl.ruleai_bridge import set_horizon as _set_horizon
     _name, fn = _rule_ai.resolve(which)
-    # ★2026-09-15 修：原来这里是 `sys.modules[fn.__module__].HORIZON = ...`，
-    #   对 v10（单文件）管用，对 v11/v12（包，`fn.__module__` 是 `<代>.entry`）
-    #   **是空操作** —— 经济层读的是 `<代>.economy.HORIZON`，从没被改到。
-    #   桥会设完回读自证，设不上就当场 raise（详见 `rl/ruleai_bridge.py`）。
-    _set_horizon(fn, horizon if horizon > 0 else turns + 20)
     return fn
 
 
-def set_horizon(teacher_fn, turns: int) -> None:
-    """把老师的 ROI 回收期窗口设成 `本局回合 + 20`（口径见 `get_teacher` 的注释）。
+def set_episode_horizon(world, turns: int) -> None:
+    """把**本局总回合数**交给世界 ⇒ 规则 AI 的规划窗口 = 它 + 20。
 
-    ★**每局都要调**，不能只在 `get_teacher` 里设一次（2026-09-12）：块调度里
+    ★**每局都要调**，不能只在建环境时设一次（2026-09-12 口径）：块调度里
     BC 局 70 回合、DAgger 局 100 回合，只设一次的话 70 回合那几局会按 100 回合
     规划 —— 这个错**实测过**：老师按 200 回合规划时领地 28→19、进攻 24→17
     （见 `tests/test_rule_v10.py::TestTeacherHorizon`）。
 
-    `teacher_fn` 是模块级函数，`HORIZON` 是它所在模块的全局量 —— 所以按
-    `__module__` 找模块去改，而不是把函数包一层（那样 `on_action` 之类的
-    关键字参数会漏）。
-    ★2026-09-15：改走 `rl.ruleai_bridge`（包版本的权威副本在更深的模块里，
-    直接给 `__module__` 赋值是空操作）。"""
-    from rl.ruleai_bridge import set_horizon as _set_horizon
-    _set_horizon(teacher_fn, int(turns) + 20)
+    ★2026-09-15 起这是**唯一**的视野口径：不再是"给老师设一个数"，而是
+      "告诉世界本局多长"，老师自己推。没有可设错的旋钮。
+    """
+    world.max_turns = int(turns)
 
 
 def episode_is_degenerate(tiles: int, seen: list[int], *, turns: int | None = None,
@@ -208,6 +197,8 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
     #   这个共犯（v10 没有这个模块，不受影响）。没有状态的版本返回 False，正常。
     clear_rule_state(teacher_fn)
     env.reset(seed, map_seed=map_seed)
+    # ★`reset` 会**新建 world** ⇒ 视野口径必须在这之后设（在循环里设会被冲掉）。
+    set_episode_horizon(env.world, turns)
 
     # ---------------- DAgger：学生走、老师打标签 ----------------
     # 每个回合**开头**问一次老师，拿到它这一回合的**整个动作序列**（在世界的副本上问，
@@ -227,6 +218,7 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
         demos_d: list[tuple] = []
         miss_d = 0
         obs = env.reset(seed, map_seed=map_seed)
+        set_episode_horizon(env.world, turns)      # ★同上：reset 之后再设一次
         rng = random.Random(seed)
         # ★失败触发专用 rng：**必须是独立的一条流** —— 老师的回合计划用 `rng`，
         #   重规划用它。共用会让"多问一次"改变后续所有老师计划，整条轨迹没法对比。
@@ -467,8 +459,8 @@ def main() -> None:
                     help="老师：v10=抗抖版（引擎数值现读 + 不绕山地；**配 --rules-jitter 时用它**）/ "
                          "v9=**旧基线**（= v8 + 视野门控，默认）/ "
                          "v6=旧基线（T500 2384k 但 T300 只有 485k）/ v3=第一版（82k）")
-    ap.add_argument("--horizon", type=int, default=-1,
-                    help="v9 老师的 ROI 回收期窗口（视野）；默认 = 每局回合 + 20")
+    # ★`--horizon` 已删（2026-09-15）：视野不再是可设的旋钮，恒 = 每局回合数 + 20，
+    #   由 `set_episode_horizon` 把本局长度写进 world，规则 AI 自己推。
     ap.add_argument("--episodes", type=int, default=30, help="跑多少局老师 AI 采样本")
     ap.add_argument("--turns", type=int, default=500)
     ap.add_argument("--map-size", type=int, default=16)
@@ -665,7 +657,7 @@ def main() -> None:
         print(f"★纠正模式：从 {args.init} 起步（iter {_ck.get('iter')}）——"
               f"不从头 BC，只做纠正", flush=True)
 
-    teacher_fn = get_teacher(args.teacher, args.turns, args.horizon)
+    teacher_fn = get_teacher(args.teacher)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -684,21 +676,12 @@ def main() -> None:
                              #   0 = 真值；>0 = 每局按 seed 换表（`rl/jitter.py`）。
                              "rules_jitter": getattr(args, "rules_jitter", 0.0),
                              "grad_steps": grad_steps}}, path)
-    # ★把老师的 ROI 窗口打进日志：**口径要能自证** —— 漏设 HORIZON 那次
-    #   （v10 用默认 200 跑了 6 局）就是因为日志里没有这一项，事后才发现。
-    #   ★2026-09-15 重写：旧版 `if args.teacher in ("v9","v10")` + `__import__("expand_rule_%s")`
-    #   是**死代码**（版本收进 `ruleai/` 包后 `expand_rule_v11` 这个名字不存在了）：
-    #   对 v11/v12 它一声不吭，对 v10 它会 ImportError。**自检被版本名硬编码挡在门外**
-    #   —— 这正是"v11/v12 视野全程是缺省 200"没人发现的原因。
-    #   现在：不限版本名，且读的是**权威副本**（`rl/ruleai_bridge.horizon_of`）。
-    _hz = ""
-    try:
-        _h = horizon_of(teacher_fn)
-        _hz = f"  视野(HORIZON)={_h}（口径 = 每局 {args.turns} + 20）"
-        if _h != args.turns + 20 and (args.horizon or 0) <= 0:
-            _hz += "  ★与口径不符！"
-    except Exception as _e:                                   # pragma: no cover
-        _hz = f"  视野(HORIZON)=★读不到（{_e!r}）"
+    # ★把老师的**规划窗口口径**打进日志：口径要能自证。
+    #   历史：漏设 HORIZON 那次（v10 用默认 200 跑了 6 局）就是因为日志里没有这一项。
+    #   ★2026-09-15 起这个口径**不再由本文件决定** —— 规则 AI 读 `world.max_turns + 20`
+    #   （用户：「v10 起，不设默认视野，恒等于回合数加 20」），由 `set_episode_horizon`
+    #   每局把本局长度写进 world。所以这里报的是**每局长度**（唯一输入），不是被设的值。
+    _hz = f"  视野 = 每局回合数 + 20（本局 {args.turns} ⇒ {args.turns + 20}）"
     print(f"老师 = {args.teacher}（{teacher_fn.__module__}）{_hz}"
           f"  每局 {args.turns} 回合 × {args.episodes} 局"
           f"  每局 {args.steps} 梯度步  缓冲 {args.buffer}")
@@ -737,9 +720,6 @@ def main() -> None:
             _in_dagger = ep >= dagger_from
             _turns = args.turns
         use_student = _in_dagger and len(buffer) > 0
-        # ★老师的 ROI 窗口按**本局**回合数设：块调度里 BC 70 / DAgger 100 混着跑，
-        #   只在建老师时设一次会让短的那几局按长的规划。
-        set_horizon(teacher_fn, _turns)
         if use_student:
             set_collect_threads()      # batch=1 逐步前向 → 单线程
         demos, spend, miss = collect_episode(

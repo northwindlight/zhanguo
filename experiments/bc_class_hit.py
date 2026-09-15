@@ -133,7 +133,7 @@ def main() -> None:
     a = ap.parse_args()
 
     env = ZhanguoEnv(map_size=a.map_size, max_turns=a.turns)
-    teacher = get_teacher(a.teacher, a.turns)
+    teacher = get_teacher(a.teacher)
     if a.labels or not a.ckpt:
         label_quality(env, teacher, a.turns, a.seed)
     if a.ckpt:

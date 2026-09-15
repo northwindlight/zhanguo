@@ -29,11 +29,12 @@ KS = (1, 5, 10, 25, 50)
 def collect_labels(env: ZhanguoEnv, turns: int, seed: int, which: str = "v9"):
     """跑一局，采 (观测, 老师动作在候选里的下标, 类别)。
 
-    `turns` 要传给 `get_teacher`：v9 的视野（HORIZON）按其口径 = 每局回合 + 20，
-    不传的话会按默认 500+20 规划，短局里挑的楼就不对了。
+    `turns` 要写进 world：视野口径 = 本局回合数 + 20（用户 2026-09-15），
+    不设的话会按 world 的缺省长度规划，短局里挑的楼就不对了。
     """
-    teacher = get_teacher(which, turns)
+    teacher = get_teacher(which)
     env.reset(seed)
+    env.world.max_turns = int(turns)
     samples: list[tuple] = []
     pend: dict = {}
 

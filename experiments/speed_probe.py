@@ -66,7 +66,7 @@ def main() -> None:
                       sub_sizes=[len(env.sub_tables[k]) for k in KINDS],
                       n_tiles=args.map_size ** 2)
     opt = torch.optim.Adam(model.parameters(), lr=3e-4)
-    teacher_fn = get_teacher(args.teacher, args.turns)
+    teacher_fn = get_teacher(args.teacher)
 
     # ---- 相 1：老师采样（纯 Python，线程数无关）----
     t0 = time.time()

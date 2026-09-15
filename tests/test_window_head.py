@@ -28,7 +28,7 @@ from rl.tokenize import GROUPS, tokenize
 def _env_obs(turns: int = 30, seed: int = 0, map_size: int = 16):
     from rl.bc import collect_episode, get_teacher
     env = ZhanguoEnv(map_size=map_size, max_turns=turns)
-    collect_episode(env, turns, seed=seed, teacher_fn=get_teacher("v9", turns))
+    collect_episode(env, turns, seed=seed, teacher_fn=get_teacher("v10"))
     return env, env._obs()
 
 

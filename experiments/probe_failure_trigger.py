@@ -42,7 +42,7 @@ m = WindowTransformer({g: w0.feats[g].shape[1] for g in GROUPS},
 m.set_sub_sizes([len(env.sub_tables[k]) for k in KINDS])
 m.load_state_dict(torch.load(CKPT, map_location="cpu", weights_only=False)["model"])
 m.eval()
-teacher = bc.get_teacher("v10", turns=TURNS)
+teacher = bc.get_teacher("v10")
 
 # "建设性" = 能推进「装备 → 征兵 → 出兵」这条链的动作。
 # 学生撞墙的原因是"装备不足"，所以救它的答案必须落在这条链上。

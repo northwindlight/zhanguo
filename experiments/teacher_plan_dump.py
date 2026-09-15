@@ -19,7 +19,7 @@ w0 = tokenize(env, env._obs())
 m = WindowTransformer({g: w0.feats[g].shape[1] for g in GROUPS}, d_model=192, n_layer=4, n_head=4)
 m.set_sub_sizes([len(env.sub_tables[k]) for k in KINDS])
 m.load_state_dict(torch.load(CKPT, map_location="cpu", weights_only=False)["model"]); m.eval()
-base = bc.get_teacher("v10", turns=TURNS)
+base = bc.get_teacher("v10")
 
 plans = []
 def wrapped(world, agent, rng, max_actions=10**9, on_action=None):

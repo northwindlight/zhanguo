@@ -7,7 +7,7 @@ from rl.env import ZhanguoEnv
 
 SEED, TURNS = 2000, 70
 env = ZhanguoEnv(map_size=16, max_turns=TURNS)
-teacher = bc.get_teacher("v10", turns=TURNS)
+teacher = bc.get_teacher("v10")
 
 def sig(demos):
     out = []
@@ -31,7 +31,7 @@ if sigs[0] != sigs[1]:
     print(f"     差异 {len(diff)} 条，前 3：{diff[:3]}")
 
 print("\n=== (2) DAgger 里老师计划中的 build 是哪些楼 ===")
-base = bc.get_teacher("v10", turns=TURNS)
+base = bc.get_teacher("v10")
 cnt = collections.Counter(); nb_barracks = 0; n_plans = 0
 def wrapped(world, agent, rng, max_actions=10**9, on_action=None, on_result=None):
     global nb_barracks, n_plans

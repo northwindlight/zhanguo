@@ -31,7 +31,7 @@ EPS = int(sys.argv[1]) if len(sys.argv) > 1 else 3
 TURNS = int(sys.argv[2]) if len(sys.argv) > 2 else 200
 BUCKET = 20
 
-teacher = get_teacher("v10", turns=TURNS)
+teacher = get_teacher("v10")
 env = ZhanguoEnv(map_size=16, max_turns=TURNS)
 print(f"老师 v10，{EPS} 局 × {TURNS} 回合，逐 {BUCKET} 回合汇总动作种类\n")
 

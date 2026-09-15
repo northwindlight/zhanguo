@@ -437,22 +437,6 @@ class TestMapSeedSplit(unittest.TestCase):
     块内是"同一片地形 + 不同数值表 + 不同老师轨迹"。
     """
 
-    def setUp(self):
-        # ★`bc.get_teacher` 会改**模块级的 `HORIZON`**（那正是它的职责），
-        #   但测试用完**必须还回去** —— 2026-09-15 实测：本类留下的
-        #   `ruleai.v10.HORIZON = 40` 会让**后面**的 `test_rule_v10` 山地对照
-        #   按 40 回合的窗口跑，凭空多出一个"失败"（"27 not greater than 28"），
-        #   而单跑 test_rule_v10 是 20/20 全绿。**污染比失败更难查，所以从源头还。**
-        from rl.ruleai_bridge import horizon_of, set_horizon
-        _saved = {v: horizon_of(v) for v in __import__("rule_ai").versions()}
-
-        def _restore():
-            for _v, _h in _saved.items():
-                if _h is not None:
-                    set_horizon(_v, _h)
-
-        self.addCleanup(_restore)
-
     @staticmethod
     def _map_digest(env):
         """地形与开局的指纹 —— **不含**规则表、不含 RNG 状态。"""
@@ -518,7 +502,7 @@ class TestMapSeedSplit(unittest.TestCase):
         """
         import rl.bc as bc
         env = ZhanguoEnv(map_size=16, max_turns=20)          # rules_jitter 默认 0
-        teacher = bc.get_teacher("v10", turns=20)
+        teacher = bc.get_teacher("v10")
         a = self._traj(env, teacher, 101, 900)
         b = self._traj(env, teacher, 102, 900)
         self.assertEqual(a, b, "规则表固定时老师是确定性的，两局应当一模一样")
@@ -527,7 +511,7 @@ class TestMapSeedSplit(unittest.TestCase):
         """块内三局 BC 是**同一份数据**（用户口径：就副本）；但**换块必须换内容**。"""
         import rl.bc as bc
         env = ZhanguoEnv(map_size=16, max_turns=20, rules_jitter=0.1)
-        teacher = bc.get_teacher("v10", turns=20)
+        teacher = bc.get_teacher("v10")
         same_block = [self._traj(env, teacher, s, 900) for s in (101, 102, 103)]
         self.assertEqual(len(set(same_block)), 1, "同块内应当是副本（用户口径，别当 bug 改）")
         next_block = self._traj(env, teacher, 104, 901)

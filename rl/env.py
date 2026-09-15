@@ -231,7 +231,11 @@ class ZhanguoEnv:
                 random.Random(ms ^ 0x9E3779B9).randrange(len(self.map_sizes))]
         n = self.map_size
         names = [self.agent] + [r for r in self.rivals if r != self.agent]
-        self.world = World(size=n, seed=ms, nations=names)
+        # ★把**本局总回合数**交给世界（用户 2026-09-15：「v10 起，不设默认视野，
+        #   恒等于回合数加 20」）—— 规则 AI 的规划窗口 = `world.max_turns + 20`，
+        #   不再有可设错的 `HORIZON` 旋钮。老师的回合数由跑局的人定（BC 块调度里
+        #   BC 局 70、DAgger 局 100），所以 `collect_episode` 每局还会按 `turns` 再设一次。
+        self.world = World(size=n, seed=ms, nations=names, max_turns=self.max_turns)
         # ★「家」= 开局那格（与引擎 mp.py 里 `home = own_tiles(name)[0]` 同口径），
         #   **本局内固定**，作为模型坐标系的唯一原点。智能体永远以家为 (0,0) 看世界 ——
         #   于是策略天然平移无关，也看不出自己在地图的哪个位置（它本就不该知道：

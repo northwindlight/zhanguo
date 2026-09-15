@@ -22,10 +22,9 @@ SEED = int(sys.argv[3]) if len(sys.argv) > 3 else 0
 
 env = ZhanguoEnv(map_size=MAP, max_turns=TURNS)
 env.reset(SEED)
-teacher = bc.get_teacher("v10", turns=TURNS)
-# ★ROI 回收期窗口要按**本局**回合数设：老师默认按 500 回合规划，会去造一堆
-#   局末才回本的楼（见 `bc.set_horizon` 的注释）。
-bc.set_horizon(teacher, TURNS)
+teacher = bc.get_teacher("v10")
+# ★视野口径（用户 2026-09-15）：规则 AI 读 `world.max_turns + 20` ——
+#   `ZhanguoEnv(max_turns=TURNS)` 已在 reset 时把它设好，这里不用再设任何数。
 
 rng = random.Random(SEED)
 curve = []

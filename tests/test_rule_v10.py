@@ -215,40 +215,83 @@ if __name__ == "__main__":
 
 
 class TestTeacherHorizon(unittest.TestCase):
-    """★老师口径：`HORIZON` 必须按「每局回合 + 20」设（用户 2026-09-11 口径）。
+    """★老师的规划窗口口径（用户 2026-09-15：「v10 起，不设默认视野，
+    恒等于回合数加 20」）。
 
-    漏过这一行：v10 分支在 `bc.py`/`compare.py` 里只注册了函数、没设 HORIZON，
-    于是它用默认的 200 —— 70 回合的局按 200 回合规划，扩张明显变少
-    （实测 20 图：领地 28→19、进攻 24→17，消费 4,019→4,260）。
-    这条测试盯着"两个入口都给 v10 设了同样的窗口"。
+    ## 为什么口径长这样
+
+    原先 v10/v11/v12 各有一个 `HORIZON = 200` 常量，要外部 `set_horizon()` 覆盖才对准，
+    而**设不上是静默的**：`mod.HORIZON = n` 对 v10（单文件）管用、对 v11/v12（包）
+    只是给 `entry` 造了个新变量，经济层读的 `<代>.economy.HORIZON` 纹丝不动
+    ⇒ 它们全程按 200 规划，而 v10 真的被设上了（500 回合那轮两边口径差 2.6 倍，
+    一度被误读成"v11/v12 长局塌到 25%"）。
+    历史教训（2026-09-11）：漏设时 70 回合的局按 200 回合规划，扩张明显变少
+    （实测 20 图：领地 28→19、进攻 24→17）。
+
+    ⇒ **能被设错的旋钮，不如没有旋钮**：现在口径唯一 ——
+      `视野 = world.max_turns + 20`，由跑局的人把本局长度放进 world。
     """
 
-    def tearDown(self):
-        jitter.restore()
-        import importlib
-        from ruleai import v10
-        importlib.reload(v10)      # 还原模块级 HORIZON
+    def test_no_horizon_knob_left(self):
+        """★旋钮必须**彻底消失** —— 留一个"调了也没用"的接口正是当初那个坑。"""
+        for ver, modname in (("v10", "ruleai.v10"), ("v11", "ruleai.v11"),
+                             ("v12", "ruleai.v12")):
+            with self.subTest(ver=ver):
+                import importlib
+                mod = importlib.import_module(modname)
+                self.assertFalse(hasattr(mod, "HORIZON"),
+                                 f"{ver} 还留着 HORIZON 旋钮（应当没有默认视野）")
+                self.assertFalse(hasattr(mod, "set_horizon"),
+                                 f"{ver} 还留着 set_horizon 接口")
 
-    def test_bc_get_teacher_sets_horizon(self):
-        from ruleai import v10
+    def test_get_teacher_takes_only_the_version(self):
+        """`get_teacher` 不再收回合数/窗口（收了就是又在暗示"可以设"）。"""
+        import inspect
         from rl.bc import get_teacher
-        get_teacher("v10", 70)
-        self.assertEqual(v10.HORIZON, 90,
-                         "bc.get_teacher('v10', 70) 该把 HORIZON 设成 90")
+        params = list(inspect.signature(get_teacher).parameters)
+        self.assertEqual(params, ["which"],
+                         f"get_teacher 签名是 {params} —— 视野不该再从这里设")
 
-    def test_bc_get_teacher_honours_explicit_horizon(self):
-        from ruleai import v10
-        from rl.bc import get_teacher
-        get_teacher("v10", 70, horizon=150)
-        self.assertEqual(v10.HORIZON, 150)
+    def test_plan_window_follows_world_max_turns(self):
+        """★决定性：**只改 `world.max_turns`**，老师的行为必须跟着变。
 
-    def test_compare_run_rule_sets_horizon(self):
+        同一张图、同一根种子、同一版老师，唯一的差别是"本局多长"——
+        若行为不变，说明视野没接上 world（那正是 2026-09-15 那个 bug 的形状）。
+        """
+        import random
         from ruleai import v10
+        from rl.env import ZhanguoEnv
+        out = []
+        for mt in (70, 500):
+            env = ZhanguoEnv(map_size=16, rivals=("楚",), max_turns=mt)
+            env.reset(900000)                    # ★world 要 reset 之后才存在
+            w = env.world
+            w.max_turns = mt
+            rng = random.Random(0xB4BE)
+            for _ in range(70):
+                w.begin_turn()
+                v10.expand_rule_turn_v10(w, env.agent, rng, max_actions=10 ** 9)
+                w.resolve_turn()
+            out.append((w.spend_total(env.agent), len(w.own_tiles(env.agent))))
+        self.assertNotEqual(out[0], out[1],
+                            f"改 world.max_turns 老师却没反应（{out}）—— 视野没接上 world")
+
+    def test_set_episode_horizon_writes_world(self):
+        """每局把**本局**长度写进 world（块调度里 BC 70 / DAgger 100 混着跑）。"""
+        from rl.bc import set_episode_horizon
+        from rl.env import ZhanguoEnv
+        env = ZhanguoEnv(map_size=8, max_turns=10)
+        env.reset(0)                             # ★world 要 reset 之后才存在
+        set_episode_horizon(env.world, 100)
+        self.assertEqual(env.world.max_turns, 100)
+
+    def test_run_rule_writes_world(self):
+        """`compare.run_rule` 也要把本局长度写进 world（它直接用引擎跑老师）。"""
         from rl.compare import run_rule
         from rl.env import ZhanguoEnv
         env = ZhanguoEnv(map_size=8, max_turns=10)
         run_rule(env, seed=0, turns=10, which="v10")
-        self.assertEqual(v10.HORIZON, 30)
+        self.assertEqual(env.world.max_turns, 10)
 
 
 class TestBcLabelMatching(unittest.TestCase):

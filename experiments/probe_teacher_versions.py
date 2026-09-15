@@ -19,7 +19,7 @@ main 那批把各代收进 `ruleai/` 并新加了 **v11（经济层与军事层�
 - `TURNS` 回合（默认 200）、`jitter=0`（评估一律真值）
 - 老师基准：`rng = random.Random(0xB4BE)`（`rl/train.teacher_baseline` 同款固定流）、
   跑在 `copy.deepcopy(env.world)` 上、每回合 `resolve_turn()` + `begin_turn()`
-- `HORIZON = turns + 20`（各代同口径，漏了它在短局里会按 200 回合规划）
+- 视野 = `world.max_turns + 20`（规则 AI 自己推，没有可设错的旋钮）
 
 用法：python experiments/probe_teacher_versions.py [v10,v11,...] [--maps 8] [--turns 200] [--seed0 900000]
 """
@@ -32,7 +32,7 @@ import sys
 
 import rule_ai
 from rl.env import ZhanguoEnv
-from rl.ruleai_bridge import clear_state, horizon_of, set_horizon
+from rl.ruleai_bridge import clear_state
 
 VERSIONS: list[str] = []
 MAPS, TURNS, SEED0 = 8, 200, 900_000
@@ -57,10 +57,10 @@ print(f"{len(VERSIONS)} 代 × {MAPS} 图 × {TURNS} 回合（图集基点 {SEED
 per: dict[str, list] = {}
 for v in VERSIONS:
     _name, fn = rule_ai.resolve(v)
-    # ★ 与 get_teacher 同口径。**必须走桥**：`mod.HORIZON = n` 对包版本（v11/v12）
-    #   是空操作 —— 2026-09-15 踩过（500 回合那次 v10 真设成 520、v11/v12 仍是
-    #   缺省 200，口径差 2.6 倍，一度误读成"v11/v12 长局塌到 25%"）。
-    set_horizon(fn, TURNS + 20)
+    # ★视野口径（用户 2026-09-15）：「v10 起，不设默认视野，恒等于回合数加 20」。
+    #   规则 AI 读 `world.max_turns + 20`，`ZhanguoEnv(max_turns=TURNS)` 已经在
+    #   reset 时把它设好了（2026-09-15 之前这里是给老师设 `HORIZON`，而那套旋钮
+    #   已经删掉 —— v11/v12 因为 `mod.HORIZON=n` 是空操作全程按 200 规划过）。
     vals = []
     # ★刻度要覆盖长局：早先只到 200，500 回合那轮**看不到"从哪一回合开始塌"**
     #   （只有终值）⇒ 补到 500（用户 2026-09-15「还要看 500 回合的结果」）。
@@ -82,7 +82,7 @@ for v in VERSIONS:
                                        w.spend_total(env.agent)))
         vals.append(w.spend_total(env.agent))
     per[v] = vals
-    print(f"  {v:>4}: 视野(HORIZON)={horizon_of(fn)}  均值 {st.mean(vals):>9,.0f}  "
+    print(f"  {v:>4}: 均值 {st.mean(vals):>9,.0f}  "
           f"中位 {st.median(vals):>9,.0f}  "
           f"最低 {min(vals):>9,.0f}  最高 {max(vals):>9,.0f}")
     print(f"        逐图 " + " ".join(f"{x:,.0f}" for x in vals))

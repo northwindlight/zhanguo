@@ -9,7 +9,7 @@ from rl.env import ZhanguoEnv
 import rl.bc as bc
 N, TURNS, JIT = (int(sys.argv[1]) if len(sys.argv) > 1 else 20), 70, 0.1
 env = ZhanguoEnv(map_size=16, max_turns=TURNS); env.rules_jitter = JIT
-teacher = bc.get_teacher("v10", turns=TURNS)
+teacher = bc.get_teacher("v10")
 
 paths, tiles_end = [], []
 for s in range(700000, 700000 + N):

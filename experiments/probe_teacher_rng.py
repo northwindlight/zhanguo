@@ -53,7 +53,7 @@ while i < len(sys.argv):
 if not SEEDS:
     print(__doc__); sys.exit(2)
 
-teacher = get_teacher("v10", turns=TURNS)
+teacher = get_teacher("v10")
 env = ZhanguoEnv(map_size=16, max_turns=TURNS)
 
 CROSS_STD = 5744      # 老师 128 图（900000+）的组间 std，硬编码作参照

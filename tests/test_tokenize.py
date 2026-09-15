@@ -39,7 +39,7 @@ def _mature(turns: int = 40, seed: int = 0, map_size: int = 16):
     if key not in _MATURE:
         from rl.bc import collect_episode, get_teacher
         env = ZhanguoEnv(map_size=map_size, max_turns=turns)
-        collect_episode(env, turns, seed=seed, teacher_fn=get_teacher("v9", turns))
+        collect_episode(env, turns, seed=seed, teacher_fn=get_teacher("v10"))
         _MATURE[key] = (env, env._obs())
     return _MATURE[key]
 

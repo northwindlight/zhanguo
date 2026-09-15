@@ -16,7 +16,7 @@ w0 = tokenize(env, env._obs())
 m = WindowTransformer({g: w0.feats[g].shape[1] for g in GROUPS}, d_model=192, n_layer=4, n_head=4)
 m.set_sub_sizes([len(env.sub_tables[k]) for k in KINDS])
 m.load_state_dict(torch.load(CKPT, map_location="cpu", weights_only=False)["model"]); m.eval()
-teacher = bc.get_teacher("v10", turns=TURNS)
+teacher = bc.get_teacher("v10")
 demos, _sp, _miss = bc.collect_episode(env, TURNS, seed=SEED, teacher_fn=teacher, with_window=True)
 print(f"样本 {len(demos)}（全新老师局）")
 

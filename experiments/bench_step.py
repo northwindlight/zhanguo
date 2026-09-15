@@ -23,7 +23,7 @@ print(f"参数 {model.n_params():,}")
 
 # ---- 采集一小段真实样本当 minibatch ----
 t = time.time()
-teacher = bc.get_teacher("v10", turns=TURNS)
+teacher = bc.get_teacher("v10")
 demos, spend, miss = bc.collect_episode(env, turns=6, seed=2000, teacher_fn=teacher, with_window=True)
 t_collect = time.time() - t
 print(f"采集 6 回合：{len(demos)} 样本，耗时 {t_collect:.1f}s  → {t_collect/6:.2f} s/回合")

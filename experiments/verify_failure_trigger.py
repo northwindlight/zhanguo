@@ -31,8 +31,7 @@ m = WindowTransformer({g: w0.feats[g].shape[1] for g in GROUPS},
 m.set_sub_sizes([len(env.sub_tables[k]) for k in KINDS])
 m.load_state_dict(torch.load(CKPT, map_location="cpu", weights_only=False)["model"])
 m.eval()
-t = bc.get_teacher("v10", turns=TURNS)
-bc.set_horizon(t, TURNS)
+t = bc.get_teacher("v10")
 
 
 def label_of(a):
