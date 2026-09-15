@@ -90,7 +90,7 @@ Each nation is an LLM agent interacting via function calling:
 - Events are filtered by the **vision snapshot at write time** — old battle reports from land you
   capture later never retroactively appear.
 - Nations without keys are played by the built-in rule AI (`dummy_turn`), version-configurable
-  (default `v10`), obeying the same vision discipline and never peeking at the map — competing on
+  (default `v10`; `v11` also available), obeying the same vision discipline and never peeking — competing on
   the same information as LLM players.
 
 ## Context & memory (cost & continuity of long games)
@@ -137,6 +137,7 @@ byte-identical to main, so rule changes never need cherry-picking. Design docs a
 | `mp_run.py` · `console.py` | Orchestrator · watch-terminal (Markdown rendering, CJK-width aware) |
 | `settlement.py` | End-game settlement: total-consumption ranking + settlement chamber |
 | `rule_ai.py` · `expand_rule_*.py` | Rule-AI registry · expansion heuristics across generations |
+| `grouping.py` · `combat.py` · `pathfind.py` · `targeting.py` | v11 military modules: global grouping (state machine + solver) · combat oracle · vision mask & cost fields · candidate pool |
 | `experiments/` · `docs/` | Metric probe experiments · human-side docs |
 | `tests/` | Unit tests + cross-process determinism watchdog |
 

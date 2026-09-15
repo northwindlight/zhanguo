@@ -28,7 +28,8 @@ ROOT = str(Path(__file__).resolve().parent.parent)
 SCRIPT = r"""
 import hashlib, random, sys
 sys.path.insert(0, {root!r})
-import mp, expand_rule_v10
+import mp, rule_ai
+_, fn = rule_ai.resolve({ver!r})          # 走注册表：剧本里不出现版本号字面量
 w = mp.World(size=20, seed=42, nations=["秦", "燕", "齐", "赵", "楚"])
 for g in ("齐", "赵", "楚"):
     assert w.declare_guarantee(g, "燕")[0]
@@ -42,31 +43,40 @@ rng = random.Random(5)
 for _ in range(8):
     w.begin_turn()
     for n in w.alive():
-        expand_rule_v10.expand_rule_turn_v10(w, n, rng, max_actions=12)
+        fn(w, n, rng, max_actions=12)
     w.resolve_turn()
 w.save({path!r})
 print(hashlib.sha256(open({path!r}, "rb").read()).hexdigest())
 """
 
 
-def _run(hashseed: str) -> str:
+def _run(ver: str, hashseed: str) -> str:
     with tempfile.TemporaryDirectory() as d:
         p = str(Path(d) / "save.json")
         env = dict(os.environ, PYTHONHASHSEED=hashseed)
-        r = subprocess.run([sys.executable, "-c", SCRIPT.format(root=ROOT, path=p)],
+        r = subprocess.run([sys.executable, "-c",
+                            SCRIPT.format(root=ROOT, path=p, ver=ver)],
                            capture_output=True, text=True, env=env, cwd=ROOT, timeout=300)
-        assert r.returncode == 0, f"子进程失败：{r.stderr[-500:]}"
+        assert r.returncode == 0, f"子进程失败（{ver}）：{r.stderr[-500:]}"
         return r.stdout.strip().splitlines()[-1]
 
 
 class TestHashSeedIndependence(unittest.TestCase):
     def test_save_digest_identical_across_hash_seeds(self):
-        """两个不同 PYTHONHASHSEED 的子进程 → 同一份存档（哈希序不得影响任何状态）。"""
-        h1 = _run("0")
-        h2 = _run("123456789")
-        self.assertEqual(h1, h2,
-                         "同 seed 跨进程分叉：有迭代会影响状态的裸 set/dict 遍历复活了"
-                         "（重点排查宣战闭包与弃城即陷）")
+        """两个不同 PYTHONHASHSEED 的子进程 → 同一份存档（哈希序不得影响任何状态）。
+
+        ★ **每一版都要过这一关**：规则 AI 里只要有一处"裸 set/dict 遍历影响了决策"
+        （候选集、编队、寻路的候选全是 set），单进程测试永远抓不到（同进程 seed 相同）。
+        v11 那四个新模块正是重灾区，所以按版本逐个跑。
+        """
+        for ver in ("v10", "v11"):
+            with self.subTest(version=ver):
+                h1 = _run(ver, "0")
+                h2 = _run(ver, "123456789")
+                self.assertEqual(h1, h2,
+                                 f"{ver} 同 seed 跨进程分叉：有迭代会影响状态的裸 set/dict "
+                                 f"遍历复活了（重点排查宣战闭包、弃城即陷，以及 v11 的"
+                                 f"候选/编队/寻路）")
 
 
 if __name__ == "__main__":
