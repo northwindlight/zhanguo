@@ -24,8 +24,8 @@ import unittest
 
 import rule_ai
 
-from rl.ruleai_bridge import (clear_state, horizon_of, set_horizon,
-                              _owning_pkg, _horizon_sites)
+from rl.ruleai_bridge import (clear_state, horizon_of, set_horizon, set_knob,
+                              _owning_pkg, _horizon_sites, _knob_sites)
 
 
 class RuleAIBridgeTest(unittest.TestCase):
@@ -124,6 +124,55 @@ class RuleAIBridgeTest(unittest.TestCase):
                 with self.subTest(version=v, site=n):
                     self.assertTrue(n == scope or n.startswith(scope + "."),
                                     f"{v} 的存储点 {n} 不在 {scope} 之内（跨代串味）")
+
+    # ------------------------------------------------------------ 通用旋钮
+    def test_set_knob_round_trips_on_every_version_that_has_it(self):
+        """`MIL_SHARE` 这类模块级旋钮：设上、回读、还原。"""
+        for v in self.VERSIONS:
+            _name, fn = rule_ai.resolve(v)
+            pkg = _owning_pkg(fn)
+            scope = pkg.__name__ if pkg is not None else fn.__module__
+            sites = _knob_sites(scope, "MIL_SHARE")
+            if not sites:
+                with self.subTest(version=v):
+                    self.assertIsNone(set_knob(v, "MIL_SHARE", 0.3, required=False))
+                continue
+            old = sites[0][2].__dict__["MIL_SHARE"]
+            self.addCleanup(set_knob, v, "MIL_SHARE", old)
+            with self.subTest(version=v):
+                self.assertEqual(set_knob(v, "MIL_SHARE", 0.45), 0.45)
+                self.assertEqual(sites[0][2].__dict__["MIL_SHARE"], 0.45)
+
+    def test_knob_authority_is_the_deepest_module(self):
+        """包版本的权威副本在**经济层**，不是入口模块（与 HORIZON 同一个坑）。
+
+        钉住它：若哪天有人把 `MIL_SHARE` 直接赋给 `entry`，权威值不会变，
+        `set_knob` 的回读就会当场报错，而不是让探针量出一组"没生效"的数。
+        """
+        for v in self.HAS_KNOB:
+            _name, fn = rule_ai.resolve(v)
+            pkg = _owning_pkg(fn)
+            if pkg is None:
+                continue
+            scope = pkg.__name__
+            sites = _knob_sites(scope, "MIL_SHARE")
+            if not sites:
+                continue
+            with self.subTest(version=v):
+                self.assertEqual(
+                    sites[0][1], f"{scope}.economy",
+                    f"{v} 的 MIL_SHARE 权威副本应当是经济层，实际取到 {sites[0][1]}")
+
+    def test_set_knob_missing_raises_when_required(self):
+        for v in self.VERSIONS:
+            _name, fn = rule_ai.resolve(v)
+            pkg = _owning_pkg(fn)
+            scope = pkg.__name__ if pkg is not None else fn.__module__
+            if _knob_sites(scope, "MIL_SHARE"):
+                continue
+            with self.subTest(version=v):
+                with self.assertRaises(RuntimeError):
+                    set_knob(v, "MIL_SHARE", 0.3)
 
     # ------------------------------------------------------------ 编组状态
     def test_clear_state_reports_whether_it_did_something(self):

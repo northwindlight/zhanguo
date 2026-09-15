@@ -74,8 +74,8 @@ def _owning_pkg(fn):
     return found
 
 
-def _horizon_sites(scope_name):
-    """`scope_name` **那一代之内**所有真实存着 `HORIZON` 的模块（按名字深度降序）。
+def _knob_sites(scope_name, knob: str):
+    """`scope_name` **那一代之内**所有真实存着 `knob` 的模块（按名字深度降序）。
 
     ★只看 `vars(m)`，**不触发 `__getattr__`** —— 包上的"读时转口"不是存储点，
     而 `entry.py` 里 `from .economy import HORIZON` 那种**快照**是，会出现在这里。
@@ -89,10 +89,15 @@ def _horizon_sites(scope_name):
     for name, m in list(sys.modules.items()):
         if m is None or not (name == scope_name or name.startswith(scope_name + ".")):
             continue
-        if "HORIZON" in vars(m):
+        if knob in vars(m):
             out.append((name.count("."), name, m))
     out.sort(key=lambda x: (-x[0], x[1]))
     return out
+
+
+def _horizon_sites(scope_name):
+    """`HORIZON` 的存储点（`_knob_sites` 的专名版，测试与日志在用）。"""
+    return _knob_sites(scope_name, "HORIZON")
 
 
 def horizon_of(which_or_fn) -> int | None:
@@ -156,6 +161,36 @@ def set_horizon(which_or_fn, turns: int) -> int | None:
             f"视野没设上：{getattr(fn, '__module__', fn)} 目标 {target}，回读 {got}"
             f"（pkg_api={has_pkg_api}）——★别用 `mod.HORIZON = n` 那种写法，"
             f"包版本的权威副本在更深的模块里（见本文件说明）")
+    return got
+
+
+def set_knob(which_or_fn, name: str, value, *, required: bool = True):
+    """设该代**模块级旋钮**（`MIL_SHARE` 这类），**回读自证**，返回生效值。
+
+    和 `set_horizon` 同一套纪律，只是旋钮名可换：找**那一代之内**真实存着这个名字的
+    最深模块（权威副本），设它，再回读。★`required=False` 时"这代没这个旋钮"返回
+    `None` 而不是报错（与 `set_horizon` 对 v4/v5/v6 的处理一致）。
+
+    ★为什么不直接用 `ruleai.v11.economy.MIL_SHARE = x`：**下次重构搬了家就静默失效**
+      （`HORIZON` 那次就是这么栽的）。名字 → 位置的解析只该有一处，就是这里。
+    """
+    import rule_ai
+    fn = which_or_fn
+    if isinstance(which_or_fn, str):
+        _name, fn = rule_ai.resolve(which_or_fn)
+    mod = sys.modules.get(getattr(fn, "__module__", "") or "")
+    pkg = _owning_pkg(fn)
+    scope_name = (pkg or mod).__name__ if (pkg or mod) is not None else ""
+    sites = _knob_sites(scope_name, name)
+    if not sites:
+        if required:
+            raise RuntimeError(
+                f"{scope_name} 里找不到旋钮 {name}，无法设置")
+        return None
+    sites[0][2].__dict__[name] = value
+    got = sites[0][2].__dict__[name]
+    if got != value:
+        raise RuntimeError(f"旋钮 {name} 没设上：目标 {value!r}，回读 {got!r}")
     return got
 
 
