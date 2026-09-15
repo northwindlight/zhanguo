@@ -95,7 +95,12 @@ from game import (BUILDINGS, TERRAIN_STATS, ARMY_MAX_HP, MAX_SLOTS,
 from mp import build_econ, good_value
 
 # ---------------------------------------------------------------- 口径常量
-HORIZON = 200          # 评估基准回合数（用户：以后都按 200 回合算，不做长期 ROI）
+# ★**没有"默认视野"这个常量了**（用户 2026-09-15：「v10 起，不设默认视野，恒等于回合数加 20」）。
+#   原来这里是 `HORIZON = 200`，必须由外部 `set_horizon()` 覆盖才对准；一旦没设上
+#   （2026-09-15：v11/v12 因为 `mod.HORIZON=n` 对包版本是空操作，全程按 200 规划），
+#   短局里老师就会挑一堆局末才回本的楼。⇒ 现在**只有一个口径**：
+#   `视野 = world.max_turns + 20`，由跑局的人把本局长度放进 world（见 `mp.World.__init__`）。
+PLAN_EXTRA = 20        # 视野 = 本局总回合数 + 这个数（用户 2026-09-11「视野按交接视野+20」）
 MIL_SHARE = 0.30       # 军费占收入的上限：出兵、涨兵**同一个条件**（用户 2026-09-11）
 # ★ 2026-09-11 晚从 0.15 提到 0.30，**理由不是"老师打得更好"，是"BC 数据里军事样本更多"**：
 #   BC 的老师是它，学生学不到打仗的根子是**训练数据里几乎没有打仗** ——
@@ -309,7 +314,7 @@ def expand_rule_turn_v10(world, name: str, rng: random.Random | None = None,
     # ================================================================ 3. 本回合的计划
     # **一次决策**：条件项先定"做不做、做几件"（不是"每格一件"—— 那会一回合
     # 在 5 个格子上各建一座电厂/兵营），ROI 项再按回本占剩下的格子。
-    left = max(1, HORIZON - world.turn)
+    left = max(1, world.max_turns + PLAN_EXTRA - world.turn)   # 视野 = 本局回合数 + 20
     free_tiles = [p for p in own if free_at(p)]
     room = len(free_tiles)
 
