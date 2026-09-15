@@ -205,11 +205,51 @@ def _spawn(driver: Path, args: list[str]) -> str:
     raise AssertionError(f"没拿到输出（{' '.join(args[:2])}）：\n{r.stdout[-1500:]}")
 
 
+def _main_import_closure(roots: tuple[str, ...]) -> list[str]:
+    """main 的引擎文件**模块级 import 到的本仓库模块**（传递闭包）。
+
+    ★为什么要自动推、而不是写死清单（2026-09-15）：`_materialise_main` 原先只抽
+      `("game.py", "mp.py")` 两个文件。上游那批把 `BUILDINGS/TERRAINS/...` 的定义
+      搬进新的 **`balance.py`** 之后，main 的 `game.py` 开头成了 `from balance import (...)`
+      ⇒ 抽出来的临时树**缺 balance.py**，驱动当场 `ModuleNotFoundError`，
+      **4 条契约测试全崩** —— 而"契约测试崩了"和"契约被破坏了"在红色里长得一样，
+      很容易被当成后者，白查半天。
+
+    判据：`git show main:<mod>.py` 能取到 ⇒ 是本仓库模块（取不到 = 标准库/第三方，
+    比如 `numpy`、`random`），加进集合并**继续展开**它的 import。
+    """
+    import re
+    seen: set[str] = set()
+    stack = list(roots)
+    while stack:
+        f = stack.pop()
+        if f in seen:
+            continue
+        seen.add(f)
+        try:
+            src = _show(f)
+        except Exception:                       # `_show` 取不到会 SkipTest
+            continue
+        # ★带前导空白：**函数内的延迟 import 也算**（`mp.py` 的 `mapgen` property 里
+        #   就藏着 `from mapgen import MapGen`，只扫模块级会漏掉整个 mapgen.py）。
+        for m in re.finditer(r"^[ \t]*(?:from|import)\s+([A-Za-z_]\w*)", src, re.M):
+            cand = m.group(1) + ".py"
+            if cand in seen:
+                continue
+            try:
+                _show(cand)                     # 存在于 main ⇒ 本仓库模块
+            except Exception:                   # 标准库/第三方（`_show` 会 SkipTest）
+                continue
+            stack.append(cand)
+    return sorted(seen)
+
+
 def _materialise_main(tmp: Path) -> Path:
-    """把 main 的 game.py + mp.py 抽到临时目录（不动工作区、不 checkout）。"""
+    """把 main 的 `game.py` + `mp.py` **及其本仓库依赖闭包**抽到临时目录
+    （不动工作区、不 checkout）。"""
     tree = tmp / "main_tree"
     tree.mkdir()
-    for f in ("game.py", "mp.py"):
+    for f in _main_import_closure(("game.py", "mp.py")):
         try:
             (tree / f).write_text(_show(f), encoding="utf-8")
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
