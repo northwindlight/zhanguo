@@ -52,7 +52,16 @@ def _made(w, name: str, good: str) -> int:
 
 
 def army_upkeep_units(w, name: str) -> int:
-    """军队本回合要吃的补给**单位数**（步 1 / 骑 2）。"""
+    """军队本回合要吃的补给**单位数**（步 1 / 骑 2）。
+
+    ️ **已知 bug（2026-09-15 发现，暂不修）**：下面读的是 `a.get("kind", "步")`，
+    而军队字典存的键是 **`type`**（见 `mp.py` 的 `_new_army`/`recruit`，`game.unit_kind`
+    也是读 `type`）⇒ **每支骑兵都被按 1 算**（真值 2）。v9/v10 的军费闸门、
+    补给备料、断粮判断因此全线偏低（引擎自己的 `World._supply_need` 是对的）。
+    用户口径：**v10 不动**（它是 BC 老师，改了=作废历史标签），**v11 自己用
+    `game.unit_supply` 算对**（见 v11 那支规则 AI 里的 `_supply_units`）。
+    要修这里，得连 v10 的行为一起改并重量一轮基线 —— 单独开一轮再说，别顺手改。
+    """
     return sum(SUPPLY_PER_ARMY.get(a.get("kind", "步"), 1)
                for a in w.nation_armies(name))
 

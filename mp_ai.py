@@ -128,6 +128,15 @@ def _move_rule_text() -> str:
             f"多格移动**逐格判定**：隔着一道山地/森林、或借道别人的地界，都冲不过去。")
 
 
+def _reach_brief() -> str:
+    """`atk` 够得着多远的短说法——**由 `MOVE_COST` / `UNIT_TYPES` 现算**。
+
+    （这里原来手写着"步1格/骑2格"：移动代价表一改就成假话，而工具描述是 LLM 玩家
+    做决策时唯一的规则来源。改表 ⇒ 这句跟着变。）
+    """
+    return "、".join(f"{UNIT_TYPES[k]['label']}{_move_brief(k)}" for k in UNIT_TYPES)
+
+
 def _cost_text(cost: dict[str, int]) -> str:
     """把一份料单写成"10粮+5装"这样的短说法（面板/工具描述共用，不写死数字）。"""
     short = {"粮食": "粮", "装备": "装", "黄金": "金", "木头": "木", "矿石": "矿",
@@ -568,16 +577,21 @@ def _help_sections() -> list[tuple[str, str]]:
         ("建筑与造价", "\n".join(bld) + f"\n  每地块 {MAX_SLOTS} 建筑位；每地块每回合限建 1 座；"
                                         "建好后下一回合才生效（在建中）。"
                                         "\n  表中造价为平原基准价；实际金价按地块地形建设惩罚上浮"
-                                        f"（如山地 ×{1 + TERRAIN_STATS["山地"]["build_penalty"] / 100:g}，只加金不加木），"f"匈奴再乘 {POLITY["huns"]["build_cost_pct"] / 100:.2g}。"),
+                                        f"（如山地 ×{1 + TERRAIN_STATS['山地']['build_penalty'] / 100:g}，只加金不加木），"
+                                        f"匈奴再乘 {POLITY['huns']['build_cost_pct'] / 100:.2g}。"),
         ("经济与能源", (
             "全国制：国库/木材/粮矿油装补给都在你账上（res 面板）。"
             "电网全国且不存储：能源厂发电；补给厂/装备厂/兵营/市政厅都要耗电维持，"
             "发电 < 维持则这些高级建筑全部停摆（能源厂除外）。"
-            f"补给厂({_cost_text(BUILDINGS["补给厂"]["inputs"])}→{_cost_text(BUILDINGS["补给厂"]["outputs"])})；"f"装备厂({_cost_text(BUILDINGS["装备厂"]["inputs"])}→{_cost_text(BUILDINGS["装备厂"]["outputs"])})；"f"补给仓每军每回合耗 {UNIT_TYPES["步"]["supply"]}（骑兵 {UNIT_TYPES["骑"]["supply"]}），"
+            f"补给厂({_cost_text(BUILDINGS['补给厂']['inputs'])}→{_cost_text(BUILDINGS['补给厂']['outputs'])})；"
+            f"装备厂({_cost_text(BUILDINGS['装备厂']['inputs'])}→{_cost_text(BUILDINGS['装备厂']['outputs'])})；"
+            f"补给仓每军每回合耗 {UNIT_TYPES['步']['supply']}（骑兵 {UNIT_TYPES['骑']['supply']}），"
             f"空则每军按缺口比例扣血（满缺 -{ARMY_STARVE_DAMAGE}HP/回合，交战中也照扣），可能饿毙。"
             "例外：民兵驻在自家军屯格不耗补给（每座军屯覆盖本格 1 支），离格照常吃。"
-            f"黄金矿场是稳定产金；市政厅(需本地已用位≥{BUILDINGS["市政厅"]["min_slots"]}·限{BUILDINGS["市政厅"]["limit"]}座·耗{BUILDINGS["市政厅"]["energy"]}电)"f"每座每回合 = {building_effect("市政厅", "gold_base")}金基础"
-            f" + 该地块每座建筑×{building_effect("市政厅", "gold_per_slot")}金（不含自身，城越满越值）；"
+            f"黄金矿场是稳定产金；市政厅(需本地已用位≥{BUILDINGS['市政厅']['min_slots']}"
+            f"·限{BUILDINGS['市政厅']['limit']}座·耗{BUILDINGS['市政厅']['energy']}电)"
+            f"每座每回合 = {building_effect('市政厅', 'gold_base')}金基础"
+            f" + 该地块每座建筑×{building_effect('市政厅', 'gold_per_slot')}金（不含自身，城越满越值）；"
             "也可在 world market 卖物资换金（卖得越多价压越低）。"
         )),
         ("军队与战斗", (
@@ -1551,7 +1565,7 @@ TOOL_SCHEMAS = [
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
     {"type": "function", "function": {
-        "name": "attack", "description": "军队(按兵种速度可及：步1格/骑2格)冲入目标地块并交战——打赢该地守军自动占地；格上**无任何军队**则直接进驻占领；野地上只有中立/盟友和平驻守时也直接进驻占领（它们不参战，回合末自动遣返）；他国领土上有非敌军队则不能进驻。**不抢别人的战斗**：野地上有与你非敌非盟的一方正在打野 → 不能 atk 插足（可 mv 旁观）；敌人/盟友在打野 → 可以参战（同格多方各打各的敌人，互相宣战才互打）。占地按索取顺序：第一个 atk 者优先，它阵亡则顺位最早入场的同盟者。与别国开打需已宣战。",
+        "name": "attack", "description": "军队(" + f"按兵种移动力可及：{_reach_brief()}" + ")冲入目标地块并交战——打赢该地守军自动占地；格上**无任何军队**则直接进驻占领；野地上只有中立/盟友和平驻守时也直接进驻占领（它们不参战，回合末自动遣返）；他国领土上有非敌军队则不能进驻。**不抢别人的战斗**：野地上有与你非敌非盟的一方正在打野 → 不能 atk 插足（可 mv 旁观）；敌人/盟友在打野 → 可以参战（同格多方各打各的敌人，互相宣战才互打）。占地按索取顺序：第一个 atk 者优先，它阵亡则顺位最早入场的同盟者。与别国开打需已宣战。",
         "parameters": _props({"army_ids": {"type": "array", "items": {"type": "integer"}, "description": "参战本国军队id数组（各国独立从1编号）", "required": True},
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
