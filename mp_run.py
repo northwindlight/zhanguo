@@ -326,7 +326,13 @@ def run() -> None:
                                        max_steps=ncfg.get("max_steps", 24))
             else:
                 done = dummy_turn(world, name, rng,
-                                  max_actions=ncfg.get("max_actions", 12),
+                                  # ★缺省**无上限**（用户 2026-09-15：「看海口径的动作
+                                  #   上限是谁设的，给我全删了」）——原缺省 12，看海时
+                                  #   超了直接截断（实测 v10 有 8.6% 的回合被截顶）。
+                                  #   口径见 `rule_ai.UNLIMITED_ACTIONS`；配置里仍可
+                                  #   显式写 `max_actions` 卡住。
+                                  max_actions=ncfg.get("max_actions",
+                                                       rule_ai_registry.UNLIMITED_ACTIONS),
                                   rule_ai=ncfg.get("rule_ai", rule_ai))
             secs = time.time() - t0
             observer(world, out, f"◈ {name} 行动完毕（{done} 次工具调用，{secs:.0f}s）")
