@@ -48,17 +48,17 @@ def run_rule(env, seed: int, turns: int, max_actions: int = 10 ** 9,
     才回本的楼，评估出来的就不是它真实的水平。
     """
     if which == "v3":
-        from expand_rule_ai import expand_rule_turn as fn
+        from ruleai.ai_legacy import expand_rule_turn as fn
     elif which == "v10":
-        import expand_rule_v10 as m
+        from ruleai import v10 as m
         m.HORIZON = turns + 20      # ★与 v9 同口径（漏这一行 = 短局里按 200 回合规划）
         fn = m.expand_rule_turn_v10
     elif which == "v9":
-        import expand_rule_v9 as m
+        from ruleai import v9 as m
         m.HORIZON = turns + 20
         fn = m.expand_rule_turn_v9
     else:
-        from expand_rule_v6 import expand_rule_turn_v6 as fn
+        from ruleai.v6 import expand_rule_turn_v6 as fn
     env.reset(seed)
     rng = random.Random(seed)
     for t in range(turns):

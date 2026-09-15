@@ -53,10 +53,10 @@ if (-not (Test-Path $Py)) {
 }
 
 # 代码是否已同步？拿 v8 那处修复当探针（同步到位才有「愿望单」这三个字）
-$v9 = Join-Path $Root "expand_rule_v9.py"
-if (-not (Test-Path $v9)) { Write-Host "[错误] 没有 expand_rule_v9.py，先跑 ~/bin/deploy-zhanguo 同步" -ForegroundColor Red; Read-Host "回车退出"; exit 1 }
+$v9 = Join-Path $Root "ruleai\v9.py"
+if (-not (Test-Path $v9)) { Write-Host "[错误] 没有 ruleai/v9.py，先跑 ~/bin/deploy-zhanguo 同步" -ForegroundColor Red; Read-Host "回车退出"; exit 1 }
 if (-not (Select-String -Path $v9 -Pattern "愿望单" -SimpleMatch -Quiet)) {
-    Write-Host "[警告] expand_rule_v9.py 里没有这次的电厂修复 —— 代码可能是旧的。" -ForegroundColor Yellow
+    Write-Host "[警告] ruleai/v9.py 里没有这次的电厂修复 —— 代码可能是旧的。" -ForegroundColor Yellow
     Write-Host "       先在 Pi 上跑：~/bin/deploy-zhanguo" -ForegroundColor Yellow
     Read-Host "回车继续（或 Ctrl-C 退出）"
 } else {

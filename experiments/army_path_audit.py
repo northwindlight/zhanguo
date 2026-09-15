@@ -22,7 +22,7 @@ import sys
 
 from mp import World
 
-import expand_rule_v9 as V9
+from ruleai import v9 as V9
 
 SEED = int(sys.argv[1]) if len(sys.argv) > 1 else 0
 TURNS = int(sys.argv[2]) if len(sys.argv) > 2 else 150

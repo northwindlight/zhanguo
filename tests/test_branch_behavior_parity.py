@@ -114,8 +114,8 @@ if mode == "militia":
     raise SystemExit(0)
 
 if mode == "gen":
-    from expand_rule_v9 import expand_rule_turn_v9
-    import expand_rule_v9 as V9
+    from ruleai.v9 import expand_rule_turn_v9
+    from ruleai import v9 as V9
     V9.HORIZON = turns + 20          # 视野口径 = 每局回合 + 20（与 bc.py/compare.py 一致）
 
     w = mp.World(size=SIZE, seed=seed, nations=[ME])

@@ -23,7 +23,7 @@ import game
 from mp import World
 from rl import jitter
 
-import expand_rule_v10 as V10
+from ruleai import v10 as V10
 
 
 def _world(seed: int = 0, size: int = 12) -> World:
@@ -97,7 +97,7 @@ class TestNoMountainSpecialCase(RuleCase):
         为什么不用更短的回合：扩张本来就晚（前面几十回合在建产能），
         回合数不够时两边都是 0，那样的断言是空的。
         """
-        import expand_rule_v9 as V9
+        from ruleai import v9 as V9
 
         def moves_of(fn, turns=100, size=10):
             w = _world(seed=0, size=size)
@@ -226,24 +226,24 @@ class TestTeacherHorizon(unittest.TestCase):
     def tearDown(self):
         jitter.restore()
         import importlib
-        import expand_rule_v10
+        from ruleai import v10
         importlib.reload(expand_rule_v10)      # 还原模块级 HORIZON
 
     def test_bc_get_teacher_sets_horizon(self):
-        import expand_rule_v10
+        from ruleai import v10
         from rl.bc import get_teacher
         get_teacher("v10", 70)
         self.assertEqual(expand_rule_v10.HORIZON, 90,
                          "bc.get_teacher('v10', 70) 该把 HORIZON 设成 90")
 
     def test_bc_get_teacher_honours_explicit_horizon(self):
-        import expand_rule_v10
+        from ruleai import v10
         from rl.bc import get_teacher
         get_teacher("v10", 70, horizon=150)
         self.assertEqual(expand_rule_v10.HORIZON, 150)
 
     def test_compare_run_rule_sets_horizon(self):
-        import expand_rule_v10
+        from ruleai import v10
         from rl.compare import run_rule
         from rl.env import ZhanguoEnv
         env = ZhanguoEnv(map_size=8, max_turns=10)
