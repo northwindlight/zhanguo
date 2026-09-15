@@ -260,7 +260,12 @@ class ZhanguoEnv:
         self._last_ok = bool(ok)
         self._last_reject = None if ok else F.reject_reason(msg)
         self.turn_actions += 1
-        ended = action.kind == "end_turn" or self.turn_actions >= self.max_actions_per_turn
+        # ★**不限制操作数量**（用户 2026-09-15）：「回合该结束由 agent 自己用 end_turn 决定，
+        #   不该由这个数替它决定」（本文件 §ACT_SAFETY 上方的原话）⇒ 这里**只认 end_turn**。
+        #   实测：老师每回合 7~9 步、学生 67~71 步，而 ACT_SAFETY=512 ⇒ **谁都没碰过它**
+        #   （0/800 回合触顶）⇒ 去掉这半句在行为上是**空操作**，跑着的炉子不受影响。
+        #   `max_actions_per_turn` 属性保留（`_obs` 里 `turn_actions` 那条特征还在用它计数）。
+        ended = action.kind == "end_turn"
         events = {}
         if ended and not self._done:
             events = self._run_round_end()

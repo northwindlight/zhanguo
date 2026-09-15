@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""`expand_rule_v10`：**抗抖** + **不绕山地**（用户 2026-09-12）。
+"""`v10`：**抗抖** + **不绕山地**（用户 2026-09-12）。
 
 v10 相对 v9 只改两处，测试也就守这两处：
 
@@ -227,20 +227,20 @@ class TestTeacherHorizon(unittest.TestCase):
         jitter.restore()
         import importlib
         from ruleai import v10
-        importlib.reload(expand_rule_v10)      # 还原模块级 HORIZON
+        importlib.reload(v10)      # 还原模块级 HORIZON
 
     def test_bc_get_teacher_sets_horizon(self):
         from ruleai import v10
         from rl.bc import get_teacher
         get_teacher("v10", 70)
-        self.assertEqual(expand_rule_v10.HORIZON, 90,
+        self.assertEqual(v10.HORIZON, 90,
                          "bc.get_teacher('v10', 70) 该把 HORIZON 设成 90")
 
     def test_bc_get_teacher_honours_explicit_horizon(self):
         from ruleai import v10
         from rl.bc import get_teacher
         get_teacher("v10", 70, horizon=150)
-        self.assertEqual(expand_rule_v10.HORIZON, 150)
+        self.assertEqual(v10.HORIZON, 150)
 
     def test_compare_run_rule_sets_horizon(self):
         from ruleai import v10
@@ -248,7 +248,7 @@ class TestTeacherHorizon(unittest.TestCase):
         from rl.env import ZhanguoEnv
         env = ZhanguoEnv(map_size=8, max_turns=10)
         run_rule(env, seed=0, turns=10, which="v10")
-        self.assertEqual(expand_rule_v10.HORIZON, 30)
+        self.assertEqual(v10.HORIZON, 30)
 
 
 class TestBcLabelMatching(unittest.TestCase):
