@@ -10,8 +10,8 @@
 1. **只改「值」，绝不替换容器。** `game.py` / `mp.py` 是 `from balance import BUILDINGS`
    —— 拿到的是**同一个 dict 对象**，就地改立即生效；写 `balance.BUILDINGS = {...}`
    只改本模块看到的引用，**引擎毫无察觉**（值拷贝）。
-   `rl/jitter.py`（训练期域随机化）整套机制就建立在这条上：它 `game.BUILDINGS[name].update(...)`
-   就地抖，抖完 `restore()` 就地还原。
+   `feat/rl` 分支的 `rl/jitter.py`（训练期域随机化）整套机制就建立在这条上：
+   它 `game.BUILDINGS[name].update(...)` 就地抖，抖完 `restore()` 就地还原。
 2. **本文件不 import 任何引擎模块**（纯数据，无环）：`balance` ← `game` ← `mp`/`mp_ai`。
    守卫：`tests/test_balance.py`。
 3. **README 不背数值**（2026-09-15 起）：本文件是规则的唯一权威，想查数值就来看这里；
@@ -386,6 +386,8 @@ MAPGEN_SHIFT_MIX = 7    # 资源掩码 = 地形掩码的环形位移（按资源
 #    不再有可设错的常量。）
 
 V11_MIL_RESERVE = 6        # 经济层最多花到「max_actions − 这个数」，把剩下的留给军事层。
+#   ⚠ v11plus **已不再用它**（2026-09-16 用户：「取消任何 v11 的动作限制」⇒ 那条闸拆了）；
+#   冻结版 v11 与 v12 仍 import 它，所以常量留着。
                            # ★ 卡在**买卖**上而不只是建造循环：清仓/备料一次能花十几个动作，
                            #   不拦它，军事段一个动作都发不出（看海默认只有 12 个动作）。
 V11_MAX_CANDIDATES = 40    # 候选目标格上限（全局池：视野内全部可攻且未被认领的格）

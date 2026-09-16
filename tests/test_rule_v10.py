@@ -4,24 +4,27 @@
 v10 相对 v9 只改两处，测试也就守这两处：
 
 1. **抗抖**：所有引擎事实（攻击力/减伤/血量/征兵成本/采集资源）都**现读**。
-   为什么这条要紧：训练期一开 `--rules-jitter`，引擎数值按 seed 抖；
+   为什么这条要紧：数值一旦不是写死的那个（训练期抖动、调平衡、改政体），
    老师若还按写死的 2 支/50 攻/100 血做决策，**它给的标签就是错的** ——
    实测 20% 抖动下 v9 在 3/5 个 seed 上直接崩盘（只占 5 格、0 次进攻），
    v10 照常打（+12.5% 终局消费）。
+   ★ 抖动注入器本身是 RL 线的活（`feat/rl` 分支的 `rl/jitter.py`）；main 这边用
+     "就地改 `game.*` 活表"验同一件事，不依赖任何第三方库。
 2. **不绕山地**：v9 有两处山地特例（`TROOPS_FOR[山地]=3`、行军落点排除山地）。
    v10 去掉特例，改成**只看打不打得赢**（多轮估算）—— 山地只是减伤高的地形之一。
 
-纪律：这些用例都会改 `game.*` 的活表，`tearDown` 必须 `jitter.restore()`，
-否则污染后面所有用例（那种失败极难定位）。
+纪律：这些用例都会**就地改 `game.*` 的活表**，所以每例前后各拷一份、就地还原
+（`clear()` + `update()`，**绝不替换容器** —— `mp.py` 拿的是同一个 dict 对象）。
+漏了还原会污染后面所有用例，那种失败极难定位。
 """
 from __future__ import annotations
 
+import copy
 import random
 import unittest
 
 import game
 from mp import World
-from rl import jitter
 
 from ruleai import v10 as V10
 
@@ -30,9 +33,20 @@ def _world(seed: int = 0, size: int = 12) -> World:
     return World(size=size, seed=seed, nations=["秦"])
 
 
+_LIVE_TABLES = ("UNIT_TYPES", "TERRAIN_STATS", "BUILDINGS")   # 被这些用例就地改的活表
+
+
 class RuleCase(unittest.TestCase):
+    """基线类：活表快照 + 就地还原（口径见模块说明的"纪律"）。"""
+
+    def setUp(self):
+        self._snap = {k: copy.deepcopy(getattr(game, k)) for k in _LIVE_TABLES}
+
     def tearDown(self):
-        jitter.restore()
+        for k, v in self._snap.items():
+            cur = getattr(game, k)
+            cur.clear()
+            cur.update(v)
 
 
 class TestFightCost(RuleCase):
