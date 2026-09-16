@@ -70,7 +70,7 @@ class _Base(unittest.TestCase):
         return w
 
     def _play(self, w, turns: int = 5) -> None:
-        _, fn = rule_ai.resolve("v11")
+        _, fn = rule_ai.resolve("v11plus")
         rng = random.Random(11)
         for _ in range(turns):
             for n in list(w.alive()):

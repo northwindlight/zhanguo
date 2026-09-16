@@ -69,7 +69,7 @@ class TestHashSeedIndependence(unittest.TestCase):
         （候选集、编队、寻路的候选全是 set），单进程测试永远抓不到（同进程 seed 相同）。
         v11 那四个新模块正是重灾区，所以按版本逐个跑。
         """
-        for ver in ("v10", "v11"):
+        for ver in ("v10", "v11", "v11plus"):
             with self.subTest(version=ver):
                 h1 = _run(ver, "0")
                 h2 = _run(ver, "123456789")

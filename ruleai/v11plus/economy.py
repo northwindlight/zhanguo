@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v11 的**经济层**：一榜、一账、一次决策（口径照抄 `expand_rule_v10.py` 的经济段）。
+"""v11plus 的**经济层**：一榜、一账、一次决策（口径照抄 `expand_rule_v10.py` 的经济段）。
 
 ★ **它不该知道军事层的存在**（用户 2026-09-15：「v11 是个经济层和军事层分离的 ruleai」）：
   两层只共享**一本动作账**（`ruleai.Ledger`）与 `world`。经济层管钱、料、建造、征兵；
@@ -153,7 +153,7 @@ def run(ledger, world, name: str) -> None:
     own = tiles()
     if not own:
         return acts
-    armies = [a for a in world.armies if a["owner"] == name and a["hp"] > 0]
+    armies = [a for a in world.troops if a["owner"] == name and a["hp"] > 0]
     army_n = len(armies)
 
     # ================================================================ 1. 账面盘点

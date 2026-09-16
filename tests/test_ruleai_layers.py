@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-PKG = ROOT / "ruleai" / "v11"
+PKG = ROOT / "ruleai" / "v11plus"
 MILITARY = {"military", "grouping", "combat", "pathfind", "targeting"}
 ENTRY = "entry.py"
 

@@ -33,10 +33,10 @@ sys.path.insert(0, str(ROOT))
 import mp  # noqa: E402
 import rule_ai  # noqa: E402
 
-DECISION_MODULES = ("ruleai/v11/pathfind.py", "ruleai/v11/targeting.py",
-                    "ruleai/v11/combat.py", "ruleai/v11/grouping.py")
-V11_MODULES = DECISION_MODULES + ("ruleai/v11/military.py", "ruleai/v11/economy.py",
-                                  "ruleai/v11/entry.py")
+DECISION_MODULES = ("ruleai/v11plus/pathfind.py", "ruleai/v11plus/targeting.py",
+                    "ruleai/v11plus/combat.py", "ruleai/v11plus/grouping.py")
+V11_MODULES = DECISION_MODULES + ("ruleai/v11plus/military.py", "ruleai/v11plus/economy.py",
+                                  "ruleai/v11plus/entry.py")
 
 
 class _ReservePoison:
