@@ -81,6 +81,8 @@ from balance import (
     SPY_TURNS,
     START_RES,
     SUMMARY_MIN_CHARS,
+    ACADEMY_AMORT_TURNS,
+    TOWNHALL_SLOT_BONUS,
 )
 
 
@@ -169,6 +171,9 @@ def build_econ(world: "World", building: str, tile=None) -> dict:
           "detail":   分项明细（给面板拼文案用）,
         }
 
+    `kind == "townhall"`（市政厅）按**该格真实密度**算产出（`gold_base + 其他建筑位 × gold_per_slot`），
+    与引擎 `resolve_turn` 那段逐字同式 —— 所以传 `tile` 与不传会得到不同答案（这就是"按格子效果选"）。
+
     ⚠️ **注意口径**：加工厂（补给厂/装备厂）的产出按"**自用替代**"（买价）计 ——
     即"这些产出替你去市场上买"。这个口径对**流量品**（补给：军队每回合都吃）成立，
     对**存量品**（装备：只在征兵时一次性消耗）会**高估** —— 你并不是每回合都去买装备。
@@ -210,7 +215,54 @@ def build_econ(world: "World", building: str, tile=None) -> dict:
         per = out_buy - inv - ec
         detail.update(inputs_value=inv, outputs_buy=out_buy, outputs_sell=out_sell,
                       energy_cost=ec, net=out_buy - inv)
-    else:                                   # castle / barracks / townhall / tower
+    elif kind == "academy":
+        # ★ 工程院（2026-09-16，用户：「工程院的收益会自然体现到 roi，自然密度建筑」＋
+        #   「你只算了省的钱，没算未来更快的密度速度为市政厅赚来的钱，太短视了」）：
+        #   效果 = **本格一切建造金价 −25%**。收益是**两笔，都要算**：
+        #     ① **省下的钱**：每建一座省 `disc × 该座金价`（用本格已建楼的平均造价现读
+        #        —— 采集楼 45~70、工厂/兵营/市政厅 175~500，越密越贵的格省得越多）；
+        #     ② **密度红利（市政厅联动）**：楼便宜 ⇒ 这一格填得更快更满 ⇒ 本格市政厅的产出
+        #        `gold_base + 本格其他建筑位 × gold_per_slot` 跟着涨 ——
+        #        省下的钱折成"多买几座楼"，每多一座楼 ⇒ 厅**每回合**多 `gold_per_slot` 金
+        #        （`disc × 本格建筑位 × gold_per_slot`）。本格还没厅但**够格建**时也算：
+        #        那是"厅会来"。
+        #   一次性那笔（①）按 `ACADEMY_AMORT_TURNS` 摊成每回合；②本来就是每回合的钱。
+        disc = building_effect(building, "build_discount") / 100.0
+        tt = world.tiles.get(tile) if tile is not None else None
+        n_used = 0
+        c_avg = 0.0
+        hall_ok = False
+        if tt is not None:
+            n_used = sum(tt["buildings"].values())          # 不含它自己（还没建）
+            costs = [BUILDINGS[b_]["cost"] if isinstance(BUILDINGS[b_]["cost"], int)
+                     else BUILDINGS[b_]["cost"][0]
+                     for b_, c_ in tt["buildings"].items() for _ in range(c_)]
+            c_avg = (sum(costs) / len(costs)) if costs else 0.0
+            hall_ok = bool(tt["buildings"].get("市政厅")) or n_used >= (
+                BUILDINGS["市政厅"].get("min_slots") or 10 ** 6)
+        saved = (disc * n_used * c_avg) / ACADEMY_AMORT_TURNS if c_avg else 0.0
+        density_gain = (disc * n_used * building_effect("市政厅", "gold_per_slot")
+                        if hall_ok else 0.0)
+        per = saved + density_gain
+        detail.update(discounts=disc, avg_cost=c_avg, per_turn_saved=saved,
+                      per_turn_density=density_gain, hall_ok=hall_ok)
+    elif kind == "townhall":
+        # ★ 2026-09-16（用户）：「应该走正常的 roi 机制……有市政厅的 roi 自动高」：
+        #   市政厅的产出是**该格真实密度**的函数 —— 引擎 `resolve_turn` 每回合给它
+        #   `gold_base + 本格其他建筑位 × gold_per_slot` 金（见上面那段"市政厅：每座 =…"）。
+        #   原先这里把它和兵营/城堡一起归到 `per = 0.0` ⇒ 回本 None ⇒ **任何按回本排序的
+        #   地方都看不见它**（经济层的 ROI 榜、面板都看不见）⇒ 两代规则 AI 从未建过它。
+        #   这里按**传进来的那一格**算真值：密度越高的格，回本越快、ROI 自动越高。
+        base = building_effect(building, "gold_base")
+        per_slot = building_effect(building, "gold_per_slot")
+        tt = world.tiles.get(tile) if tile is not None else None
+        others = sum(tt["buildings"].values()) if tt is not None else 1   # 不含它自己（还没建）
+        others += TOWNHALL_SLOT_BONUS      # ★ 稍微乐观：那一格还会继续堆（用户 2026-09-16：+2~3）
+        per = base + others * per_slot
+        if info.get("energy"):
+            per -= info["energy"] * good_value(world, "木头", 1, "buy") / 2   # 与工厂同款电耗估法
+        detail.update(gold_base=base, gold_per_slot=per_slot, other_slots=others)
+    else:                                   # castle / barracks / tower：不产出，回本无定义
         per = 0.0
 
     return {"building": building, "capex": capex, "per_turn": per,

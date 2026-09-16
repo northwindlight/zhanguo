@@ -26,8 +26,9 @@
 """
 from __future__ import annotations
 
-from game import BUILDINGS, MAX_SLOTS, TRADEABLE, unit_kind, unit_supply
-from mp import build_econ
+from game import (BUILDINGS, MAX_SLOTS, TRADEABLE, building_effect,
+                   unit_kind, unit_supply)
+from mp import build_econ, good_value
 
 # ★**没有"默认视野"这个常量了**（用户 2026-09-15：「v10 起，不设默认视野，恒等于回合数加 20」）。
 #   原来这里是 `HORIZON = 200`，而它住在**本模块**里 —— 外面 `mod.HORIZON = n` 那种写法
@@ -35,6 +36,10 @@ from mp import build_econ
 #   而 v10 因为单文件真的被设上了 ⇒ 500 回合那一轮两边口径差 2.6 倍）。
 #   ⇒ 现在**只有一个口径**：`视野 = world.max_turns + 20`，跑局的人把本局长度放进 world。
 PLAN_EXTRA = 20        # 视野 = 本局总回合数 + 这个数（用户 2026-09-11「视野按交接视野+20」）
+BARRACKS_CAP = 4      # 兵营数上限：它的意义是"每回合能征几支"，而征兵被钱卡在 ~1 支/回合
+#   ★ 2026-09-16（用户）：「为什么无脑爆兵营啊，那么多兵营何意味」——
+#     原来 `want_barr = supply_cap//2 + 2`（= 补给厂数 + 2，只由编制上限推、不看钱也不看军队数）
+#     ⇒ 实测 30 座兵营、产能利用率 0.7%、花掉 10,500 金（实际征兵只花 3,052）。
 WOOD_KEEP = 60         # 木头**只留工作库存**（够建两三座：经济建筑 5~20 木/座）。
 #   ★ 2026-09-16（用户）：「木不是按金折算了吗，保证不屯木头」。原逻辑把 `n_barr`
 #   （**想要**的兵营数，兵营 350 金/座、往往买不起）无条件折成 20 木/座计进 `need`：
@@ -167,7 +172,14 @@ def run(ledger, world, name: str) -> None:
 
     # ================================================================ 2. 条件项
     supply_cap = cnt("补给厂") * 2               # 补给产能 = 军队编制上限
-    want_barr = max(2, supply_cap // 2 + 2)      # 还想要几座兵营（编制缺口）
+    # ★ 2026-09-16（用户）：「为什么无脑爆兵营啊，那么多兵营何意味」。
+    #   原来这里由**编制上限**推：`supply_cap // 2 + 2` = 补给厂数 + 2 ⇒ 补给厂一多就无限加兵营，
+    #   而它**不看军队数、也不看钱** —— 实测（40x40 seed 900000、300 回合）：兵营 30 座、
+    #   全期只征了 63 支（0.2 支/回合）⇒ **产能利用率 0.7%**；兵营花了 10,500 金，是实际征兵
+    #   花费（3,052）的 3.4 倍；后期 30 座营位全空着（军队 62 已超编制上限 56）。
+    #   兵营的真实意味 = **每回合能征几支**，而实际征兵被钱卡在 ~1 支/回合 ⇒ 几座就够。
+    #   ⇒ 封顶到 `BARRACKS_CAP`（够了就行，多的钱该去建采集楼，回本更快）。
+    want_barr = max(2, min(supply_cap // 2 + 2, BARRACKS_CAP))
 
     inc = income_of(world, name)
     upkeep = _supply_units(world, name) * supply_px      # ★ v11：真实兵种（骑算 2）
@@ -180,23 +192,31 @@ def run(ledger, world, name: str) -> None:
     room = len(free_tiles)
 
     roi: list[tuple[float, str, tuple]] = []
+    # ★ 2026-09-16（用户）：「应该走正常的 roi 机制，其他建筑会根据真实格子效果选，
+    #   有市政厅的 roi 自动高」⇒ 不再手抄"哪些建筑参榜"（原来是 `_extractors()` + 补给厂
+    #   两张名单），改成**遍历建筑表**：`build_econ(world, bn, p)` 已经按**这一格的真实效果**
+    #   算出每回合净收益，所以
+    #     · 有回本期的（`per > 0`）自动进榜（采集类还受本格资源上限约束，见下面两行）；
+    #     · 不产出的（兵营/城堡/瞭望塔：`per == 0` ⇒ 回本 None）自动落榜；
+    #     · **市政厅按本格密度算产出** ⇒ 密度越高的格回本越快、ROI 自动越高（不用另写选址规则）。
+    #   `sorted()` 只为可复现（`BUILDINGS` 的字典序会随插入变化）。
     for p in free_tiles:
         t = world.tiles[p]
         res, built = t["resources"], t["buildings"]
-        for bn in _extractors():               # ★现算：引擎加一种采集建筑就自动带上
-            _need = _res_of(bn)                # ★现读 cap_resource（不再手抄一份）
-            if _need is None:
+        pend = t.get("pending") or {}
+        for bn in sorted(BUILDINGS):
+            _need = _res_of(bn)                    # 现读 cap_resource（不再手抄一份）
+            if _need is not None and res.get(_need, 0) <= built.get(bn, 0) + pend.get(bn, 0):
                 continue
-            if res.get(_need, 0) <= built.get(bn, 0) + (t.get("pending") or {}).get(bn, 0):
-                continue
-            e = build_econ(world, bn, p)           # 传地块：按该格实际造价算回本
+            e = build_econ(world, bn, p)           # 传地块：按该格实际造价与效果算回本
             if e["payback"] and e["payback"] <= left:
                 roi.append((e["payback"], bn, p))
-        for bn in _FACTORIES:
-            e = build_econ(world, bn, p)
-            if e["payback"] and e["payback"] <= left:
-                roi.append((e["payback"], bn, p))
-    roi.sort(key=lambda x: x[0])
+    # ★ 2026-09-16（用户）：「还是按 roi 建，只是全国扫地，高级建筑会扫到很多 roi 相同的地，
+    #   然后按密度最高的建」⇒ 排序键加一条**密度降序**当平手判据：
+    #   不挑地的那几族（补给厂/装备厂/电厂/市政厅）在很多格上算出**同一个回本**
+    #   （同造价、同每回合收益 ⇒ 回本只差地形施工惩罚），平手时就往**建筑位最多**的格上建。
+    roi.sort(key=lambda x: (x[0], -slots(x[2]), x[2]))
+    plant_order = sorted(free_tiles, key=lambda q: (-slots(q), q))     # 电厂站址：同一条规则
 
     n_barr = min(max(0, want_barr - cnt("兵营")),
                  sum(1 for p in free_tiles if slots(p) >= 3)) if cnt("兵营") < want_barr else 0
@@ -293,13 +313,27 @@ def run(ledger, world, name: str) -> None:
         return int(R()["黄金"]) - save >= cost_of(bn)
 
     def place(p, bn) -> bool:
-        """下单一座楼，**带电厂替换**：这一座是**用电建筑**而账上没电 → 换成电厂。"""
+        """下单一座楼，**带电厂替换**：这一座是**用电建筑**而账上没电 → 换成电厂。
+
+        ★ 2026-09-16（用户）：「改成电厂替换逻辑，落在电厂后，市政厅前，市政厅大概在 10 座
+          建筑左右建，那么工程院省下市政厅就省了一笔钱」—— 用**同一套替换写法**加一条：
+          **建市政厅前先把工程院建上**（顺序 = 电厂 → 工程院 → 市政厅）。
+          理由：厅 500 金，−25% 就是 **125 金**（工程院自己才 300 金）⇒ 这一笔就抵掉它四成
+          造价，而这一格**之后的楼**继续吃折扣 ⇒ 工程院不再是"要不要建"，而是"盖厅的步骤之一"。
+        """
         nonlocal gen_add, _dem_add
         if BUILDINGS[bn].get("energy", 0) and (power + gen_add) < need_pw + _dem_add + 1:
             if afford(p, "木材能源厂") and spend_ok("木材能源厂"):
                 if build(p, "木材能源厂"):
                     gen_add += BUILDINGS["木材能源厂"]["energy_out"]
             return True                              # 本格已占用（建了，或电厂也建不起）
+        # ② 工程院前置（同款替换，见上）：只在建市政厅那一座时触发
+        if bn == "市政厅" and not world.tiles[p]["buildings"].get("工程院") \
+                and afford(p, "工程院") and spend_ok("工程院") \
+                and (sum(world.tiles[p]["buildings"].values())
+                     + sum((world.tiles[p].get("pending") or {}).values())) < MAX_SLOTS:
+            if build(p, "工程院"):
+                return True                          # 本格本回合已下单 ⇒ 厅顺延到下一回合
         if not afford(p, bn) or not spend_ok(bn):
             return False
         if build(p, bn):
@@ -337,14 +371,29 @@ def run(ledger, world, name: str) -> None:
                 continue
 
         # ---- ③ 电厂（条件项）：补已成事实的缺口 ----
-        if (power + gen_add) < need_pw + _dem_add and afford(p, "木材能源厂") \
-                and spend_ok("木材能源厂"):
-            if build(p, "木材能源厂"):
+        #   ★ 2026-09-16（用户）：「任何电厂……也不挑地，应该密度堆积」⇒ 站址取密度最高的格
+        #   （同 ROI 那条规则；池子是全图可建格，所以不会卡住建不出来）。
+        if (power + gen_add) < need_pw + _dem_add:
+            _site = next((q for q in plant_order
+                          if free_at(q) and afford(q, "木材能源厂") and spend_ok(q, "木材能源厂")), None)
+            if _site is not None and build(_site, "木材能源厂"):
                 gen_add += BUILDINGS["木材能源厂"]["energy_out"]
                 continue
 
-        # ---- ④ ROI 项（选项）：这一格回本最快的那些 ----
-        cand = [(pb, bn) for pb, bn, q in roi if q == p]
-        if cand:
-            _pb, bn = cand[0]
-            place(p, bn)
+        # ---- ④ ROI 项：**不在这里建** —— 见循环之后那一段（按回本期顺序）----
+
+    # ---- ④ ROI 项（选项）：**按回本期顺序**花这笔钱 ----
+    #   原先这里是"逐格按坐标序"发钱：排在前面的**难地**先动工（森林/丘陵/山地，施工惩罚
+    #   +15~50%），回本更快的**平地**反而等不到钱 —— 实测 t=200（seed 900000）：v11plus 建了
+    #   70 座在惩罚地上，而"有资源、回本达标"的平地还空着 53 格。
+    #   用户 2026-09-16：「有难地你完全可以不建」⇒ 改成按 `roi`（**回本期升序**）逐格建：
+    #   钱先落在回本最快的地上，难地只有在便宜地建完、钱还剩时才轮得到。
+    #   （⚠ 别改成"只建 `planned` 那几条"：那张表是按预算裁过的、且被 ①②③ 花掉的钱会失效，
+    #     实测那样建筑会从 219 掉到 72 —— 逐格尝试、失败即跳过才是原语义。）
+    best_of: dict = {}
+    for _pb, _bn, _p in roi:
+        best_of.setdefault(_p, _bn)              # roi 升序 ⇒ 每格第一次出现即该格最佳
+    for _p, _bn in best_of.items():
+        if not free_at(_p):
+            continue
+        place(_p, _bn)
