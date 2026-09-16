@@ -506,6 +506,16 @@ def main() -> None:
     ap.add_argument("--dagger-turns", type=int, default=100,
                     help="DAgger 局的回合数（BC 局仍用 --turns）。★拉长是为了让**后 30 回合**"
                          "成为「复制模式」的自证窗口 —— 同一张图它已经熟了，能不能自己延续")
+    ap.add_argument("--map-pool", default="",
+                    help="★从**筛过的地图池**里取训练图（JSON 里的 `pool` 字段，"
+                         "`experiments/screen_maps.py` / `screen_teacher_start.py` 的产物）。"
+                         "`rl/train.py` 那边一直有（PPO 用 `medium_pool.json` 把图难度从 "
+                         "5.4× 压到 1.6×），**BC 这边一直缺** —— 加它是为了照口径生成池子后，"
+                         "BC 能直接用同一批图。语义：**按块顺序取池子**（块 k 用池子第 "
+                         "k % len 个，取完回绕），取代旧的 `seed + 块号 × 7919`；"
+                         "不给就逐位沿用旧行为。⚠ 只在 `--block > 0` 下有意义。"
+                         "⚠ 与 `--skip-blocks-from` 同时给会串号（那份筛查的块号是按 "
+                         "`块号×7919` 测的），别同时用")
     ap.add_argument("--degenerate-guard", default="auto", choices=("auto", "off"),
                     help="退化局守卫（`episode_is_degenerate`）。**auto**（默认）= 照旧判。"
                          "★**off 是给「短回合教开局」的**（用户 2026-09-17：「第一次训就 50 回合"
@@ -731,9 +741,23 @@ def main() -> None:
             if not _turns_match:
                 print(f"  ⚠ 那份筛查是 {_d.get('turns')} 回合做的，本炉 --turns "
                       f"{args.turns} —— 口径不一致，退化判据未必成立，自己掂量")
+            if args.map_pool:
+                print("  ⚠ 同时给了 --map-pool ⇒ **块号不再对应 `块号×7919`**，"
+                      "那份筛查的块号已经对不上号了，跳块请自己确认（或别同时用两个）")
         else:
             print(f"⚠ --skip-blocks-from {_p} 不存在 ⇒ 不跳块（先跑 "
                   f"experiments/screen_degenerate_maps.py 生成它）")
+    # ★**地图池**（`rl/train.py` 那边早就有，BC 这边一直缺）：块号 → 池子里的第 k 个 seed。
+    #   没有池子时保持旧行为（`seed + 块号 × 7919`），逐位不变。
+    _pool: list[int] | None = None
+    if args.map_pool:
+        _pd = json.loads(Path(args.map_pool).read_text(encoding="utf-8"))
+        _pool = [int(s) for s in _pd["pool"]]
+        print(f"★地图池：{args.map_pool}（{len(_pool)} 张）⇒ 训练图不再按 `块号×7919` 取，"
+              f"改成**按块顺序取池子**（块 k 用池子第 k % {len(_pool)} 个）")
+        if args.block <= 0:
+            print("  ⚠ --map-pool 只在 --block > 0（块调度）下有意义："
+                  "池子是**按块**推进的，不给 --block 就还是每局随机换图")
     rng = random.Random(args.seed ^ 0xBEEF)
     buffer: list = []
     val: list = []                 # 验证集：只用来量命中率，**永不参与训练**
@@ -754,7 +778,10 @@ def main() -> None:
             #   而不是把同一份数据抄 N 遍（同 seed 是逐条相同的副本，实测过）。
             if (ep // args.block) in _skip_blocks:
                 continue           # ★筛选出来的退化块：整块不跑（见 --skip-blocks-from）
-            _map_seed = args.seed + (ep // args.block) * 7919
+            _blk = ep // args.block
+            # 有池子 ⇒ 块 k 取池子第 k 个（顺序取、取完回绕）；没池子 ⇒ 旧的 `块号×7919`。
+            _map_seed = (_pool[_blk % len(_pool)] if _pool is not None
+                         else args.seed + _blk * 7919)
             _in_dagger = (ep % args.block) >= args.bc_per_map
             _turns = args.dagger_turns if _in_dagger else args.turns
         else:

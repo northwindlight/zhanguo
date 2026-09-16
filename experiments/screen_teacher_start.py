@@ -14,12 +14,15 @@
 `--seed 0 --block 3`）；**不抖动**（与当前那炉 `--rules-jitter 0` 同口径）。
 
 用法：
-    python experiments/screen_teacher_start.py [turns] [n_maps] [teacher]
-    # 默认 80 回合 / 67 张 / v11plus
+    python experiments/screen_teacher_start.py [turns] [n] [teacher] [mode]
+    # 默认 80 回合 / 67 张 / v11plus / mode=block
+    #   mode=block —— seed = 序号 × 7919（**训练炉的 67 张图**，与 `rl/bc.py:_map_seed` 同源）
+    #   mode=range —— seed = 序号（**`experiments/screen_maps.py` 那 0..N-1 的 500 张**，
+    #                  与 `medium_pool.json` 同一个种子空间 ⇒ 两份筛查可以直接取交集）
 
-输出：rl/maps/teacher_start.json —— 每块一行（首攻回合 / 首扩回合 / 各节点领地），
-      外加 `start_within_20_attack` / `start_within_20_expand` 两个块号列表。
-      ⚠ **不碰** `rl/maps/degenerate.json`（那是另一个口径的产物：150 回合的退化筛查）。
+输出：rl/maps/teacher_start_<mode>.json —— 每张一行（首攻/首扩/各节点领地），
+      外加 `start_within_20_attack` / `start_within_20_expand` 两个 seed 列表。
+      ⚠ **不碰** `rl/maps/degenerate.json`（另一个口径：150 回合的退化筛查）。
 """
 import json
 import random
@@ -34,21 +37,24 @@ import rl.bc as bc                     # noqa: E402
 TURNS = int(sys.argv[1]) if len(sys.argv) > 1 else 80
 N_MAPS = int(sys.argv[2]) if len(sys.argv) > 2 else 67
 TEACHER = sys.argv[3] if len(sys.argv) > 3 else "v11plus"
+MODE = sys.argv[4] if len(sys.argv) > 4 else "block"
 BLOCK_STRIDE = 7919                    # ★与 rl/bc.py 的 `_map_seed` 同源，别改
 START_GATE = 20                        # "20 回合内启动"的那道门
-OUT = Path("rl/maps/teacher_start.json")
-MARK_TURNS = (10, 20, 50, 80)          # 报领地快照的几个节点
+OUT = Path(f"rl/maps/teacher_start_{MODE}.json")
+MARK_TURNS = tuple(t for t in (10, 20, 50, 80) if t <= TURNS)   # 报领地快照的节点
 
 teacher = bc.get_teacher(TEACHER)
 env = ZhanguoEnv(map_size=16, max_turns=TURNS)
 rng = random.Random(0xB4BE)            # 固定流：同图必得同结果
 
-print(f"筛「老师何时启动」：{N_MAPS} 张（seed = 块号 × {BLOCK_STRIDE}），"
+_how = (f"seed = 序号 × {BLOCK_STRIDE}（训练炉那 67 张）" if MODE == "block"
+        else "seed = 序号（0..N-1，与 medium_pool.json 同空间）")
+print(f"筛「老师何时启动」：{N_MAPS} 张（{_how}），"
       f"老师 {TEACHER}，跑到 {TURNS} 回合（16×16，不抖动）", flush=True)
 
 rows = []
 for block in range(N_MAPS):
-    seed = 0 + block * BLOCK_STRIDE
+    seed = block * BLOCK_STRIDE if MODE == "block" else block
     env.reset(seed, map_seed=seed)
     env.world.max_turns = TURNS
     first_attack = None
@@ -81,7 +87,7 @@ for block in range(N_MAPS):
     })
     fa = "—" if first_attack is None else str(first_attack)
     fe = "—" if first_expand is None else str(first_expand)
-    print(f"  块{block:>3}  seed {seed:>7}  首攻 {fa:>4}  首扩 {fe:>4}  "
+    print(f"  #{block:>3}  seed {seed:>7}  首攻 {fa:>4}  首扩 {fe:>4}  "
           f"领地 {marks.get(20, '-'):>4}(20) → {marks.get(50, '-'):>4}(50) → "
           f"{rows[-1]['tiles_end']:>4}({TURNS})", flush=True)
 
