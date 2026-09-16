@@ -68,31 +68,57 @@ class Group(NamedTuple):
 
 
 # ---------------------------------------------------------------- 距离与代价
-def _army_cost(world, name: str, army: dict, cell: tuple, mask, cache) -> int:
+def _army_cost(world, name: str, army: dict, cell: tuple, mask, cache,
+               memo: dict | None = None) -> int:
     """这一军**还需要多少移动力**才到得了 `cell`（多回合，逐格地形代价）。
 
     走代价场（以 `cell` 为源反向铺，截断在 `V11_FIELD_MAX_COST`）；场够不到（离得太远）
     就退回**切比雪夫距离** —— 与 `pathfind.best_step` 的兜底同口径：先按直线走，
     走进场的半径之后再交给地形代价。
+
+    `memo`（可选）= `{(军 id, 格): 代价}` —— **只在一次 `_solve` 内部用**。
+    为什么它是对的：求解器只读世界（一格不动、一兵不移），所以同一对
+    (军, 格) 的答案在一次求解里是常数。实测（40x40、第 120 回合）：
+    一次求解问 43,995 次，**去重后只有 1,646 对**（96% 是重复问同一个问题）。
     """
+    if memo is not None:
+        key = (army["id"], cell)
+        got = memo.get(key)
+        if got is not None:
+            return got
     fld = cost_field(world, name, {cell}, unit_kind(army), mask,
                      max_cost=V11_FIELD_MAX_COST, cache=cache)
     got = fld.get((army["x"], army["y"]))
-    return got if got is not None else chebyshev((army["x"], army["y"]), cell)
+    out = got if got is not None else chebyshev((army["x"], army["y"]), cell)
+    if memo is not None:
+        memo[key] = out
+    return out
 
 
-def _spread(members: list[dict]) -> int:
+def _spread(members: list[dict], memo: dict | None = None) -> int:
     """组内距离：**两两切比雪夫距离之和**（`V11_MAX_GROUP` 军以内，O(n²) 无所谓）。
 
     ★ 为什么是"和"而不是"平均"或"直径"：和会**随人数增长**，于是目标函数天然偏向
       "多开几条战线、每线少带人" —— 而这正是扩张效率要的（并行拿地）。
       平均值会把这个倾向抹掉，直径则容易被单个飞将主导。
+
+    `memo`（可选）= `{成员 id 元组: 和}` —— 同一次求解内按**成员集合**记忆
+    （两两距离之和与成员顺序、与谁先谁后无关 ⇒ 用 id 元组当键是准的；
+    位置在一次求解里不变 ⇒ 值是常数）。实测重复率 97.5%。
     """
+    key = None
+    if memo is not None:
+        key = tuple(sorted(m["id"] for m in members))
+        got = memo.get(key)
+        if got is not None:
+            return got
     out = 0
     for i in range(len(members)):
         for j in range(i + 1, len(members)):
             out += chebyshev((members[i]["x"], members[i]["y"]),
                              (members[j]["x"], members[j]["y"]))
+    if memo is not None:
+        memo[key] = out
     return out
 
 
@@ -133,7 +159,7 @@ def candidates(world, name: str, mask, armies: list[dict], *, radius: int,
 
 
 def _atom_cost(world, name, members: list[dict], cand: Candidate, mask, cache,
-               penalty: float, committed: int = 0) -> float:
+               penalty: float, committed: int = 0, ac_memo=None, sp_memo=None) -> float:
     """一个候选组的代价 = `spread + reach + 罚×缺员`。
 
     罚项是**目标函数的一部分**（不是兜底）："给这一格派的人不够 `n_j`"意味着
@@ -141,11 +167,12 @@ def _atom_cost(world, name, members: list[dict], cand: Candidate, mask, cache,
     否则求解器会到处派"打不动的小队"来省路。罚得比任何路程都大
     （`V11_SHORTFALL_PENALTY`）⇒ **能打下来永远优先于省路**。
     """
-    reach = max(_army_cost(world, name, a, cand.cell, mask, cache) for a in members)
+    reach = max(_army_cost(world, name, a, cand.cell, mask, cache, ac_memo)
+                for a in members)
     # ★ `committed` = **已经有编组在打这一格**的兵力（状态里查得到）：它们也在往那儿走，
     #   所以要算进"够不够 n_j"，否则新兵会以为这格还差 2 支、跑去另开一块。
     short = max(0, cand.need - len(members) - committed)
-    return float(_spread(members) + reach) + penalty * short
+    return float(_spread(members, sp_memo) + reach) + penalty * short
 
 
 # ---------------------------------------------------------------- 全局求解
@@ -174,23 +201,27 @@ def _solve(world, name: str, cands: list, armies: list[dict], mask, cache,
     committed = committed or {}
     memo: dict = {(): 0.0}          # 空集也要进 memo：回溯时直接查 `memo[rest]`
     nodes = [0]
+    # ★ 2026-09-16：两张**求解内**记忆表（求解器只读世界 ⇒ 答案在一次求解里是常数）
+    #   实测：`_army_cost` 43,995 次调用里 96% 是重复问题，`_spread` 97.5%
+    ac_memo: dict = {}
+    sp_memo: dict = {}
 
     def options(i: int, unassigned: tuple):
         """给军 `i` 的候选方案：`(成员元组, 目标格, 代价)` —— 必然包含 `i`。"""
         me = by_id[i]
         rest = [x for x in unassigned if x != i]
-        near = sorted(cands, key=lambda c: (_army_cost(world, name, me, c.cell, mask, cache),
-                                            c.cell))[:near_targets]
+        near = sorted(cands, key=lambda c: (_army_cost(world, name, me, c.cell, mask,
+                                                       cache, ac_memo), c.cell))[:near_targets]
         for c in near:
-            rest.sort(key=lambda aid: (_army_cost(world, name, by_id[aid], c.cell, mask, cache),
-                                       aid))
+            rest.sort(key=lambda aid: (_army_cost(world, name, by_id[aid], c.cell, mask,
+                                                  cache, ac_memo), aid))
             top = min(len(unassigned), V11_MAX_GROUP)
             for k in range(1, top + 1):
                 mem = tuple(sorted((i,) + tuple(rest[:k - 1])))
                 mems = [by_id[x] for x in mem]
                 yield mem, c.cell, _atom_cost(world, name, mems, c, mask, cache,
                                               V11_SHORTFALL_PENALTY,
-                                              committed.get(c.cell, 0))
+                                              committed.get(c.cell, 0), ac_memo, sp_memo)
 
     def best_from(unassigned: tuple) -> float:
         """把这批军全部认领完的**最小代价**。"""

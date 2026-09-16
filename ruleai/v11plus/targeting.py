@@ -43,7 +43,34 @@ def candidates(world, name: str, mask, *, radius: int, limit: int) -> list[tuple
     anchors += [(a["x"], a["y"]) for a in world.nation_armies(name)]
 
     def near(cell: tuple) -> int:
-        return min((chebyshev(cell, p) for p in anchors), default=0)
+        """到最近锚点的切比雪夫距离 —— **只算 `radius` 以内的锚点**。
+
+        ★ 2026-09-16：原先每个候选格都 `min(chebyshev(c, p) for p in anchors)`，
+          而锚点 = 自家/盟国地块 + 自家军队（后期三四百个），候选 40 个，还**算两遍**
+          （筛一遍、排序一遍）⇒ 一回合上万次函数调用 + 九百万次 `abs`（实测占整局 16%）。
+        ★ 剪枝为什么**逐值等价**（这两处用途各自都不受影响）：
+          · **筛**用的是 `near <= radius`：`chebyshev > radius` 的锚点不可能给出更小的值，
+            全被剪掉时"真值 > radius" ⇒ 判否，与 `radius + 1` 同效；
+          · **排序**只在"筛过了的格"之间比，那些格的 near 都 ≤ radius ⇒ 剪掉的锚点
+            本来也参与不进最小值。
+        """
+        cx, cy = cell
+        best = radius + 1
+        for px, py in anchors:
+            dx = cx - px
+            if dx < 0:
+                dx = -dx
+            if dx > radius:
+                continue
+            dy = cy - py
+            if dy < 0:
+                dy = -dy
+            if dy > radius:
+                continue
+            d = dx if dx > dy else dy
+            if d < best:
+                best = d
+        return best if anchors else 0            # 锚点为空时 `min(..., default=0)` 的原样
 
     out: set = set()
     for cell in sorted(world.frontier_of(name)):          # ★ frontier 是裸 set ⇒ 必须排序
@@ -56,6 +83,7 @@ def candidates(world, name: str, mask, *, radius: int, limit: int) -> list[tuple
         if cell in mask and world.war_between(name, t["owner"]):
             out.add(cell)
 
-    kept = [c for c in sorted(out) if near(c) <= radius]   # 半径粗筛
-    kept.sort(key=lambda c: (near(c), c))
+    # 半径粗筛 + 按 (距离, 坐标) 排序 —— **每格只算一次 near**（原先算两遍）
+    scored = sorted((near(c), c) for c in sorted(out))
+    kept = [c for n, c in scored if n <= radius]
     return sorted(kept[:limit])

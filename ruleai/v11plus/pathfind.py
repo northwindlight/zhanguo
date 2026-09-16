@@ -169,13 +169,6 @@ def _dijkstra(world, name: str, gl: list, kind: str, vision, max_cost: int) -> d
     size = world.size
     n = size * size
     adj = _adj_of(size)
-    best = [_INF] * n
-    buckets: list = [[] for _ in range(max_cost + 1)]
-    for gx, gy in gl:
-        i = gx * size + gy
-        if best[i] == _INF:                 # 源格（同格重复的 goal 只算一次）
-            best[i] = 0
-            buckets[0].append(i)
 
     xs = [g[0] for g in gl]
     ys = [g[1] for g in gl]
@@ -185,23 +178,83 @@ def _dijkstra(world, name: str, gl: list, kind: str, vision, max_cost: int) -> d
     move = MOVE_COST.get(kind, {})
     by_owner = world.owned_by
     allied = world.allied_between
-    terrain = world.tile_terrain
     blocked = enemy_cells(world, name)      # ★ 一趟算好，别在几十万次松弛里各扫一遍全图
-    cost_of = [_UNSEEN_COST] * n            # 视野外一律按平原估（与 `cell_cost` 同款）
     wall_of = bytearray(n)                  # 视野内"走不进去"的格（与 `is_wall` 同口径）
+    uniform = not move or all(v == 1 for v in move.values())
+    cost_of = None if uniform else [_UNSEEN_COST] * n
     for x in range(lo_x, hi_x + 1):
         base = x * size
         for y in range(lo_y, hi_y + 1):
             if (x, y) not in vision:
                 continue                    # 视野外：地形一次都不读、墙一律不认
             i = base + y
-            cost_of[i] = move.get(terrain(x, y), 1)
+            if cost_of is not None:
+                cost_of[i] = move.get(world.tile_terrain(x, y), 1)
             owner = by_owner(x, y)
             if owner is not None and owner != name and not allied(name, owner):
                 wall_of[i] = 1
             elif (x, y) in blocked:
                 wall_of[i] = 1
 
+    # ★ 2026-09-16：**每步都只花 1 点**的兵种（步/民，以及兵种表里没有的名字 ——
+    #   那时 `move.get(terrain, 1)` 一律回 1）走**纯 BFS**：代价 = 步数，
+    #   连地形表都不用建（省一遍 `tile_terrain`）。逐值等价，见 `_bfs_ball` 的说明。
+    if uniform:
+        best = _bfs_ball(gl, size, adj, wall_of, max_cost, n)
+        absent = 255
+    else:
+        best = _bucket_ball(gl, size, adj, cost_of, wall_of, max_cost, n)
+        absent = _INF
+
+    out: dict = {}
+    for x in range(lo_x, hi_x + 1):
+        base = x * size
+        for y in range(lo_y, hi_y + 1):
+            v = best[base + y]
+            if v != absent:
+                out[(x, y)] = v
+    return out
+
+
+def _bfs_ball(gl: list, size: int, adj, wall_of: bytearray, max_cost: int,
+              n: int) -> bytearray:
+    """**每步只花 1 点移动力**时的代价场：逐层 BFS，返回"距离表"（255 = 够不到）。
+
+    ★ 为什么可以走这条快路：`MOVE_COST[kind]` 全为 1 ⇒ 代价就是**步数**，
+      BFS 的"层号"与 Dijkstra 的距离**逐值相同**（八邻等权，先到即最短）；
+      于是不需要地形表、桶队列与 `max(...)`，每个格只进队一次。
+    ★ 与 Dijkstra 一样：源格照记（哪怕它是墙）、墙格不许进、只铺到 `max_cost` 层。
+    """
+    best = bytearray([255]) * n
+    level: list = []
+    for gx, gy in gl:
+        i = gx * size + gy
+        if best[i] == 255:                  # 源格（同格重复的 goal 只算一次）
+            best[i] = 0
+            level.append(i)
+    d = 0
+    while level and d < max_cost:
+        d += 1
+        nxt: list = []
+        for i in level:
+            for j in adj[i]:
+                if best[j] == 255 and not wall_of[j]:
+                    best[j] = d
+                    nxt.append(j)
+        level = nxt
+    return best
+
+
+def _bucket_ball(gl: list, size: int, adj, cost_of: list, wall_of: bytearray,
+                 max_cost: int, n: int) -> list:
+    """步代价 1/2 的代价场：**桶队列**（Dial）版的 Dijkstra，逐值等价（见 `_dijkstra`）。"""
+    best = [_INF] * n
+    buckets: list = [[] for _ in range(max_cost + 1)]
+    for gx, gy in gl:
+        i = gx * size + gy
+        if best[i] == _INF:                 # 源格（同格重复的 goal 只算一次）
+            best[i] = 0
+            buckets[0].append(i)
     for d in range(max_cost + 1):
         b = buckets[d]
         while b:                            # ← 0 代价的边会往当前桶追加，故用 while 排空
@@ -217,15 +270,7 @@ def _dijkstra(world, name: str, gl: list, kind: str, vision, max_cost: int) -> d
                 if ncost <= max_cost and ncost < best[j]:
                     best[j] = ncost
                     buckets[ncost].append(j)
-
-    out: dict = {}
-    for x in range(lo_x, hi_x + 1):
-        base = x * size
-        for y in range(lo_y, hi_y + 1):
-            v = best[base + y]
-            if v < _INF:
-                out[(x, y)] = v
-    return out
+    return best
 
 
 def cost_field(world, name: str, goals, kind: str, vision, *, max_cost: int,

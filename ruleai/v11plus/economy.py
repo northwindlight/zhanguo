@@ -97,11 +97,16 @@ def run(ledger, world, name: str) -> None:
         return world.nations[name].res
 
     def tiles():
-        return sorted((x, y) for (x, y), t in world.tiles.items() if t["owner"] == name)
+        return [p for p, _t in own_pairs]
+
+    # 本回合自家地块的 `(格, 地块对象)`：**经济段不改归属**（建/征/买卖都不动 owner），
+    # 所以这一趟算一次就够；建筑数照旧**现读同一批对象**，不会陈旧。
+    # ★ 2026-09-16：原先 `cnt` 每问一次就扫全图 `world.tiles.values()`（1600 格，
+    #   而自家地块只有三四百）—— 一回合两万三千次 genexpr，占整局 ~9%。
+    own_pairs: list = sorted((p, t) for p, t in world.tiles.items() if t["owner"] == name)
 
     def cnt(bn):
-        return sum(t["buildings"].get(bn, 0)
-                   for t in world.tiles.values() if t["owner"] == name)
+        return sum(t["buildings"].get(bn, 0) for _p, t in own_pairs)
 
     def slots(p):
         t = world.tiles[p]
@@ -305,6 +310,11 @@ def run(ledger, world, name: str) -> None:
             return True
         return False
 
+    # ★ 2026-09-16：逐格循环里那句 `cnt("兵营")` 原先**每格重扫一遍自家地块**
+    #   （实测一回合六十来次 × 三四百格）。这里提成计数器：兵营在**本循环里**只增不减
+    #   （全文件只有这一处建兵营），所以"建一座减一"与原式逐值等价。
+    barr_left = want_barr - cnt("兵营")           # 本回合还差几座兵营
+
     for p in free_tiles:
         if ledger.full(V11_MIL_RESERVE):
             break
@@ -323,9 +333,12 @@ def run(ledger, world, name: str) -> None:
                 continue
 
         # ---- ② 兵营（条件项）----
-        if cnt("兵营") < want_barr and slots(p) >= 3 and afford(p, "兵营") \
+        if barr_left > 0 and slots(p) >= 3 and afford(p, "兵营") \
                 and spend_ok("兵营"):
-            if place(p, "兵营"):
+            had = t["buildings"].get("兵营", 0)     # `place` 也有一条"改建成电厂"的支路：
+            if place(p, "兵营"):                    # 那条返回 True 却没建兵营 ⇒ 回读牌面判定
+                if t["buildings"].get("兵营", 0) > had:
+                    barr_left -= 1
                 continue
 
         # ---- ③ 电厂（条件项）：补已成事实的缺口 ----
