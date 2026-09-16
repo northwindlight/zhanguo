@@ -70,6 +70,7 @@ from balance import (
     FALL_TRUCE_TURNS,
     HUNS_RING_RATIO,
     MARKET_DEPTH_NATIONS_DIV,
+    MOVE_COST,
     PLAN_MAX_TURNS,
     POLITY,
     REPORT_EVERY,
@@ -218,6 +219,30 @@ def build_econ(world: "World", building: str, tile=None) -> dict:
             "detail": detail}
 
 
+_ADJ_CACHE: dict[int, tuple] = {}
+
+
+def _adjacency(size: int) -> tuple:
+    """每格的邻居（**整数下标** = `x * size + y`）：只与地图边长有关，按边长建一次全家共用。
+
+    与 `World.neighbors` **同序**（`dx` 外层、`dy` 内层）。为什么要有它：`_reachable`
+    每支军每回合都要跑，而旧内层每弹一格都要现建一个邻居列表。这张表是**纯几何**的
+    （与局面无关），所以不存在"缓存陈旧"这个问题。`ruleai` 的代价场有一张同款的。
+    """
+    got = _ADJ_CACHE.get(size)
+    if got is None:
+        rows = []
+        for x in range(size):
+            for y in range(size):
+                rows.append(tuple(
+                    x2 * size + y2
+                    for x2 in (x - 1, x, x + 1) for y2 in (y - 1, y, y + 1)
+                    if (x2 != x or y2 != y) and 0 <= x2 < size and 0 <= y2 < size))
+        got = tuple(rows)
+        _ADJ_CACHE[size] = got
+    return got
+
+
 class World:
     def __init__(self, size: int = 80, seed: int | None = None, *,
                  nations: list[str] | None = None,
@@ -359,38 +384,57 @@ class World:
         - 每步消耗 = `max(出发格代价, 目标格代价)`（用户 2026-09-15：**对称**——
           进森林/山地减速，**待在森林/山地里的那一回合也一样慢**，不存在
           "从山上冲出来跑更快"），总预算 `unit_speed(a)`
-          ⇒ 骑兵平地 2 格；涉森林/山地一步就吃满 ⇒ **只能 1 格、且不可能穿过山地**；
+          ⇒ 骑兵平地 2 格；涉森林/山地一步吃满 ⇒ **只能 1 格、且不可能穿过山地**；
         - **中间格**必须可通行（`_mv_wall` 为 None）：野地/自家/盟国；
         - `for_attack=True` 时**终点**额外允许敌国领土与驻军格（那是要打的），
           但中途仍必须可通行 —— 所以"隔着一座山打到纵深"不再可能；
         - 起点以代价 0 计入（原地 atk 用得上；mv 到自己格照旧是"挪了个寂寞"）。
 
         返回 `{格子: 代价}`（不含预算之外的格子）。
+
+        ★ 2026-09-16 换实现，**逐值等价**（同一套判定式、同样的松弛条件与"可攻终点只记不扩"）：
+          预算只有 1~2（`unit_speed`）⇒ 用**桶队列**替掉堆（省掉每回合几万次 heapq 调用），
+          邻居改用按边长预建的**整数下标表**（`_adjacency`，纯几何）替掉"每步现建列表"。
+          这是 v11plus 每支军每回合都要走的路径（`best_step` 与 `marchable` 的前提）。
         """
-        start = (a["x"], a["y"])
+        size = self.size
+        adj = _adjacency(size)
         budget = unit_speed(a)
-        best = {start: 0}
-        heap = [(0, start[0], start[1])]
-        import heapq
-        while heap:
-            cost, x, y = heapq.heappop(heap)
-            if cost > best.get((x, y), 1 << 30):
-                continue
-            here = unit_move_cost(a, self.tile_terrain(x, y))
-            for nx, ny in self.neighbors(x, y):
-                ncost = cost + max(here, unit_move_cost(a, self.tile_terrain(nx, ny)))
-                if ncost > budget:
+        start = a["x"] * size + a["y"]
+        best = bytearray([255]) * (size * size)      # 索引 = x * size + y；255 = 还没到过
+        best[start] = 0
+        buckets: list = [[] for _ in range(budget + 1)]
+        buckets[0].append(start)
+        # ★ 碰过的格记一份**下标名单**：收尾只把这几格还原成坐标建 dict。
+        #   （别去枚举整张 `best`：那是 O(全图)，实测比旧版还慢一倍。）
+        touched: list = [start]
+        terrain = self.tile_terrain
+        wall = self._mv_wall
+        move = MOVE_COST.get(unit_kind(a), {})
+        for d in range(budget + 1):
+            b = buckets[d]
+            while b:
+                i = b.pop()
+                if best[i] != d:                     # 陈旧条目（后来有更近的路）
                     continue
-                if ncost >= best.get((nx, ny), 1 << 30):
-                    continue
-                blocked = self._mv_wall(name, nx, ny)
-                if blocked:
-                    if for_attack and self._atk_target_ok(name, nx, ny):
-                        best[(nx, ny)] = ncost     # 可攻：算**终点**，但不从它继续扩
-                    continue                            # 走不进去 ⇒ 更不能穿过
-                best[(nx, ny)] = ncost
-                heapq.heappush(heap, (ncost, nx, ny))
-        return best
+                x, y = divmod(i, size)
+                here = move.get(terrain(x, y), 1)
+                for j in adj[i]:
+                    jx, jy = divmod(j, size)
+                    cj = move.get(terrain(jx, jy), 1)
+                    ncost = d + (here if here > cj else cj)
+                    if ncost > budget or ncost >= best[j]:
+                        continue
+                    why = wall(name, jx, jy)
+                    if why:
+                        if for_attack and self._atk_target_ok(name, jx, jy):
+                            best[j] = ncost          # 可攻：算**终点**，但不从它继续扩
+                            touched.append(j)
+                        continue                     # 走不进去 ⇒ 更不能穿过
+                    best[j] = ncost
+                    touched.append(j)
+                    buckets[ncost].append(j)
+        return {(i // size, i % size): best[i] for i in touched}
 
     def polity_rule(self, name: str, key: str, default):
         """取该国的政体修正项（数值全在 `balance.POLITY`；没有政体/没这一项 → `default`）。"""
