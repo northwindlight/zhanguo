@@ -276,6 +276,10 @@ class World:
         self.flow_in: dict[str, int] = {g: 0 for g in TRADEABLE}   # 本回合世界入库流量（产出），算完均衡价清零
         self.flow_out: dict[str, int] = {g: 0 for g in TRADEABLE}  # 本回合世界出库流量（消耗）
         self.armies: list[dict] = []
+        # `troops` / `guardians`（非野人名单、野人按格索引）的惰性缓存 —— 派生量，**不进存档**
+        self._troops: list[dict] = []
+        self._guards: dict = {}
+        self._army_key: tuple | None = None
         self.next_army_seq: dict[str, int] = {}  # 各国独立军队序列：从1递增、阵亡不回收
         self.diplo_built: dict[str, int] = {}    # 各国「自建」外交中心座数（夺地抢来的不计，不影响自建限额）
         self.nation_code: dict[str, int] = {}    # 国家码：军队全局唯一id = 码×1e8+序列（野人=0，秦=1→100000001）
@@ -342,7 +346,7 @@ class World:
         if owner is None and any(d["owner"] != name and d["owner"] != "野人"
                                  and (d["x"], d["y"]) == (x, y)
                                  and self.war_between(name, d["owner"])
-                                 for d in self.armies):
+                                 for d in self.troops):    # 谓词本就排除野人 ⇒ 只扫国家军队
             return f"({x + 1},{y + 1}) 有敌军驻守，不能 mv 过去；进攻请用 atk（会交战）"
         return None
 
@@ -890,7 +894,7 @@ class World:
             if tile_cap <= 0:
                 return False, "本回合该地块民兵征召产能已用完（每军屯 1 支/回合）"
             quota = self.nation_building_count(name, "军屯")
-            alive = sum(1 for a in self.armies if a["owner"] == name and unit_kind(a) == "民")
+            alive = sum(1 for a in self.troops if a["owner"] == name and unit_kind(a) == "民")
             cap = min(tile_cap, quota - alive)
             if cap <= 0:
                 return False, (f"民兵总数已达军屯编制上限（{alive}/{quota} 座）："
@@ -978,21 +982,90 @@ class World:
                                              if not a.get("retreat_to")),
                                             default=10 ** 9))
 
+    @property
+    def troops(self) -> list[dict]:
+        """**非野人**的军队（= 各国军队）——一张现成的名单，省掉"扫全表只为滤掉野人"。
+
+        ★ 为什么要有它（2026-09-16 实测）：野人是地图的静态属性（每个无主格一支），
+          一局里通常 1500+ 支，而**绝大多数判定里它们连候选都不是** —— `_mv_wall` 的
+          "野地驻军"那条、`nation_armies`、v11 的寻路/编组…… 谓词里都写着 `!= "野人"`，
+          却仍要逐条走过那 1500 支。40x40、60 回合量到：全库扫 `armies` 的元素数约 93 万，
+          其中 98% 是这种**必然落空**的白扫（这笔开销全部摊在每回合/每次寻路上）。
+
+        ★ **口径**：`[a for a in self.armies if a["owner"] != "野人"]` —— 逐条相同。
+          **只许用在谓词本来就把野人排除在外的地方**：`_defs_at` 要拿野人当守军、
+          `targeting` 要枚举野人驻军，那些地方不许用。
+        ★ **失效判据** = `(id(self.armies), len(self.armies), sum(next_army_seq.values()))`：
+          军队的 `owner` **一经创建不再改写**（引擎里没有一处写军队的 `["owner"]` ——
+          `["owner"] =` 那两处改的是**地块**），所以名单只在**新建 / 阵亡 / 整表重建**时变，
+          而这三件事必然动到上面三项里的至少一项：新建 ⇒ 序列号 +1；阵亡 ⇒ 长度变；
+          `load()` 与过滤式重建 ⇒ 列表对象换人。
+        ★ 缓存的是**引用**：调用方不许就地改这张表（要改先 `list(...)` 拷一份）。
+        ★ 它是**派生量、不进存档** —— 别按"新增字段三步"往 SAVE_KEYS 里写。
+        """
+        self._army_split()
+        return self._troops
+
+    @property
+    def guardians(self) -> dict:
+        """`{(x, y): 野人军队}` —— 按格查野人，省掉"为了找一支野人扫 1500 支"。
+
+        ★ 为什么敢缓存：**野人从不移动**（它们是地图的静态属性，`_spawn_guardian` 出生后
+          只会被 `_drop_guardians` 撤走或在战斗里阵亡），所以这张表只在**野人增减**时失效 ——
+          判据与 `troops` 同一把钥匙（id/长度/序列号），而"新建/阵亡/整表重建"三件事
+          必然动到它。**国家军队不在这张表里**（它们会移动，缓存就会陈旧）。
+        ★ 一个格最多一支野人（`guard_once`：出生过就不再补），所以是"格 → 一支"。
+        ★ 用途：`_defs_at`（v11 的战斗评估每回合要问 ~10 次，每次原本都要全表扫一遍）。
+        """
+        self._army_split()
+        return self._guards
+
+    def _army_split(self) -> None:
+        """按需重建 `troops` / `guardians`（**一次扫描**建两张表）。
+
+        判据：`(id(self.armies), len(self.armies), sum(next_army_seq.values()))` ——
+        推导见 `troops` 的文档（军队 `owner` 不可改写 ⇒ 名单只在建/亡/整表重建时变）。
+        惰性：只有真被问到的那一张会付重建成本（两张一起扫，比各扫一遍便宜）。
+        """
+        arm = self.armies
+        key = (id(arm), len(arm), sum(self.next_army_seq.values()))
+        if key == self._army_key:
+            return
+        troops: list[dict] = []
+        guards: dict = {}
+        for a in arm:
+            if a["owner"] == "野人":
+                guards[(a["x"], a["y"])] = a
+            else:
+                troops.append(a)
+        self._troops, self._guards, self._army_key = troops, guards, key
+
     def _army(self, name: str, aid: int) -> dict | None:
-        return next((a for a in self.armies if a["owner"] == name and a["id"] == aid), None)
+        src = self.armies if name == "野人" else self.troops   # 野人不是"国家军队"，见 `troops`
+        return next((a for a in src if a["owner"] == name and a["id"] == aid), None)
 
     def nation_armies(self, name: str) -> list[dict]:
-        return [a for a in self.armies if a["owner"] == name]
+        src = self.armies if name == "野人" else self.troops   # 同上：传"野人"走全表
+        return [a for a in src if a["owner"] == name]
 
     def _defs_at(self, name: str, x: int, y: int) -> list[dict]:
+        """这一格上、对 `name` 而言算**敌人**的军队（引擎口径的唯一出处）。
+
+        ★ 2026-09-16：不再全表扫——**野人从不移动**，所以按格查表（`guardians`）；
+          国家军队那张表小（几十支），直接扫 `troops`。逐条等价，唯一要守的是**顺序**：
+          原写法按 `self.armies` 的列表序产出，而野人恒为该列表的**前缀**
+          （`_ensure_guardians` 在建局时一次铺完，此后只会被撤走/阵亡，不会插到国家军队之后），
+          所以"先野人、后国家军队（各按列表序）"与原序**逐位相同** ——
+          `tests/test_troops.py` 用一份朴素实现逐格对照钉住它。
+        """
         owner = self.owned_by(x, y)
         out = []
-        for a in self.armies:
+        if owner is None:                       # 野人只守无主格（已物化的地块上没有野人）
+            g = self.guardians.get((x, y))
+            if g is not None:
+                out.append(g)
+        for a in self.troops:
             if (a["x"], a["y"]) != (x, y) or a["owner"] == name:
-                continue
-            if a["owner"] == "野人":
-                if owner is None:
-                    out.append(a)
                 continue
             if self.war_between(name, a["owner"]):
                 out.append(a)
@@ -1018,7 +1091,7 @@ class World:
         # 交战地中的军队（含防守方）不能直接 mv 撤离——撤出走 retreat（回合末随战斗结算后脱离）
         if any(d["owner"] != a["owner"] and d["owner"] != "野人" and d.get("engaged")
                and (d["x"], d["y"]) == (a["x"], a["y"]) and self.war_between(a["owner"], d["owner"])
-               for d in self.armies):
+               for d in self.troops):        # 谓词排除野人 ⇒ 只扫国家军队
             return False, f"{a['name']} 所在格正在交战，不能直接 mv 撤离；撤出请用 retreat（回合末随战斗结算后脱离）"
         try:
             self._check(x, y)
@@ -1063,7 +1136,7 @@ class World:
             # 野地上别人正在打野（交战方与你既非敌也非盟）→ 不能插足抢地：
             # 这是「不抢别人的战斗」——中立打野时你不能 atk；盟友/敌人在打野则可以参战
             # （都按索取顺序占地）。想旁观仍可 mv 过去（不参战）。
-            busy = [a for a in self.armies
+            busy = [a for a in self.troops
                     if (a["x"], a["y"]) == (x, y) and a.get("engaged") and a["owner"] not in ("野人", name)]
             if owner is None and busy and not any(self.war_between(name, a["owner"]) or self.allied_between(name, a["owner"])
                                                   for a in busy):
@@ -1123,7 +1196,7 @@ class World:
             return self.allied_between(name, o)
         return not any(a["owner"] != name and a["owner"] != "野人"
                        and (a["x"], a["y"]) == (x, y) and self.war_between(name, a["owner"])
-                       for a in self.armies)
+                       for a in self.troops)
 
     def retreat(self, name: str, aid: int, x: int, y: int) -> tuple[bool, str]:
         """撤出：与 mv/atk 同一个『每回合一次移动』额度。
@@ -1137,7 +1210,7 @@ class World:
         in_battle = bool(a.get("engaged")) or any(
             d["owner"] != a["owner"] and d["owner"] != "野人" and d.get("engaged")
             and (d["x"], d["y"]) == (a["x"], a["y"]) and self.war_between(a["owner"], d["owner"])
-            for d in self.armies)
+            for d in self.troops)
         if not in_battle:
             return False, f"{a['name']} 未在交战中，无需撤退"
         try:
@@ -1163,7 +1236,7 @@ class World:
         # RETREAT_DEF_COVER%（谁挨打谁是守方，野地和平驻军同理）；主动进攻方撤退是全额。
         holder = self.owned_by(a["x"], a["y"])
         attacking = any(m["owner"] == name and m.get("engaged") and (m["x"], m["y"]) == (a["x"], a["y"])
-                        for m in self.armies)
+                        for m in self.troops)
         cover = RETREAT_DEF_COVER if (not attacking or holder == name) else 100
         a["retreat_to"] = [x, y]
         a["retreat_cover"] = cover
@@ -1698,7 +1771,7 @@ class World:
                 famine[n] = (short, per, len(dead))
                 ps = self.nation_armies(n)
             battle_tiles = {(a["x"], a["y"]) for a in self.armies if a.get("engaged")}
-            for a in list(self.armies):
+            for a in list(self.troops):          # 回血只给本国军队（野人不在 `n` 的账上）
                 if a["owner"] != n:
                     continue
                 if short or (a["x"], a["y"]) in battle_tiles:
@@ -1832,7 +1905,7 @@ class World:
                     legal_tiles += self.own_tiles(m)
             if not legal_tiles:
                 continue
-            for a in list(self.armies):
+            for a in list(self.troops):              # 撤军只可能是国家军队（野人不 retreat）
                 if a["owner"] != n or a.get("engaged"):
                     continue
                 owner = self.owned_by(a["x"], a["y"])
