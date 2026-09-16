@@ -313,13 +313,27 @@ def run(ledger, world, name: str) -> None:
         return int(R()["黄金"]) - save >= cost_of(bn)
 
     def place(p, bn) -> bool:
-        """下单一座楼，**带电厂替换**：这一座是**用电建筑**而账上没电 → 换成电厂。"""
+        """下单一座楼，**带电厂替换**：这一座是**用电建筑**而账上没电 → 换成电厂。
+
+        ★ 2026-09-16（用户）：「改成电厂替换逻辑，落在电厂后，市政厅前，市政厅大概在 10 座
+          建筑左右建，那么工程院省下市政厅就省了一笔钱」—— 用**同一套替换写法**加一条：
+          **建市政厅前先把工程院建上**（顺序 = 电厂 → 工程院 → 市政厅）。
+          理由：厅 500 金，−25% 就是 **125 金**（工程院自己才 300 金）⇒ 这一笔就抵掉它四成
+          造价，而这一格**之后的楼**继续吃折扣 ⇒ 工程院不再是"要不要建"，而是"盖厅的步骤之一"。
+        """
         nonlocal gen_add, _dem_add
         if BUILDINGS[bn].get("energy", 0) and (power + gen_add) < need_pw + _dem_add + 1:
             if afford(p, "木材能源厂") and spend_ok("木材能源厂"):
                 if build(p, "木材能源厂"):
                     gen_add += BUILDINGS["木材能源厂"]["energy_out"]
             return True                              # 本格已占用（建了，或电厂也建不起）
+        # ② 工程院前置（同款替换，见上）：只在建市政厅那一座时触发
+        if bn == "市政厅" and not world.tiles[p]["buildings"].get("工程院") \
+                and afford(p, "工程院") and spend_ok("工程院") \
+                and (sum(world.tiles[p]["buildings"].values())
+                     + sum((world.tiles[p].get("pending") or {}).values())) < MAX_SLOTS:
+            if build(p, "工程院"):
+                return True                          # 本格本回合已下单 ⇒ 厅顺延到下一回合
         if not afford(p, bn) or not spend_ok(bn):
             return False
         if build(p, bn):
