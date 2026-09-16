@@ -26,8 +26,9 @@
 """
 from __future__ import annotations
 
-from game import BUILDINGS, MAX_SLOTS, TRADEABLE, unit_kind, unit_supply
-from mp import build_econ
+from game import (BUILDINGS, MAX_SLOTS, TRADEABLE, building_effect,
+                   unit_kind, unit_supply)
+from mp import build_econ, good_value
 
 # ★**没有"默认视野"这个常量了**（用户 2026-09-15：「v10 起，不设默认视野，恒等于回合数加 20」）。
 #   原来这里是 `HORIZON = 200`，而它住在**本模块**里 —— 外面 `mod.HORIZON = n` 那种写法
@@ -35,6 +36,9 @@ from mp import build_econ
 #   而 v10 因为单文件真的被设上了 ⇒ 500 回合那一轮两边口径差 2.6 倍）。
 #   ⇒ 现在**只有一个口径**：`视野 = world.max_turns + 20`，跑局的人把本局长度放进 world。
 PLAN_EXTRA = 20        # 视野 = 本局总回合数 + 这个数（用户 2026-09-11「视野按交接视野+20」）
+TOWNHALL_EXTRA_SLOTS = 4
+#   市政厅的**期望**：它之后再往这一格堆几座楼（见 ROI 收集里的那段推导）。
+#   ★ 2026-09-16（用户）：「经济层的市政厅算法应该考虑期望，选址关于市政厅也应该考虑期望」。
 WOOD_KEEP = 60         # 木头**只留工作库存**（够建两三座：经济建筑 5~20 木/座）。
 #   ★ 2026-09-16（用户）：「木不是按金折算了吗，保证不屯木头」。原逻辑把 `n_barr`
 #   （**想要**的兵营数，兵营 350 金/座、往往买不起）无条件折成 20 木/座计进 `need`：
@@ -196,6 +200,35 @@ def run(ledger, world, name: str) -> None:
             e = build_econ(world, bn, p)
             if e["payback"] and e["payback"] <= left:
                 roi.append((e["payback"], bn, p))
+        # ★ 市政厅（2026-09-16，用户：「市政厅算法应该考虑期望，选址也应该考虑期望」）：
+        #   它是**唯一产出随本格密度长大的建筑** —— 引擎（`mp.py:1750`）每回合给
+        #   `gold_base(5) + 本格其他建筑数 × gold_per_slot(1)` 金；限每格 1 座、
+        #   需该格**已用建筑位 ≥ min_slots(6)**、维持 1 电（电网不足即停摆）。
+        #   而 `build_econ` 对它给 `per_turn = 0`（回本 None）⇒ 它进不了 ROI 榜，
+        #   经济段里也**没有任何一处提到「市政厅」** ⇒ 两代规则 AI **从来没建过它**。
+        #   ⇒ 这里自己算**期望产出**：
+        #       E[每回合金] = gold_base + min(MAX_SLOTS−1, 本格现有其他建筑 + TOWNHALL_EXTRA_SLOTS)
+        #                     × gold_per_slot − 1 电的燃料成本（"1 木发 2 电"折）
+        #     `TOWNHALL_EXTRA_SLOTS` = "以后再往这格堆几座"的期望：产出随密度长，
+        #     所以要用**期望密度**而不是当下的密度来算回本。
+        #   **选址**不用另写：造价各格基本相同（只差地形施工惩罚），所以按回本期排序时
+        #   "回本最快的格"就是"期望产出最高的格"（越密越值）—— 这正是用户要的那条。
+        #   电网不足的那一回合按**停摆**算（per = 0，不建）。
+        if not built.get("市政厅") and slots(p) >= BUILDINGS["市政厅"]["min_slots"] \
+                and not world.grid_short.get(name):
+            others_now = sum(built.values())
+            e_others = min(MAX_SLOTS - 1, others_now + TOWNHALL_EXTRA_SLOTS)
+            per = (building_effect("市政厅", "gold_base")
+                   + e_others * building_effect("市政厅", "gold_per_slot")
+                   - good_value(world, "木头", 1, "buy") / 2)
+            _capex = build_econ(world, "市政厅", p)["capex"]
+            # ★ 回本闸用**真实剩余回合**（`max_turns − turn`），不用 `left`（那里含 +20 的
+            #   规划余量）：实测用 `left` 时它会在末期建下 300 回合内回不了本的厅 ——
+            #   500 金 ≈ 8~10 座采集楼，那笔钱本该去买回本更快的楼。
+            #   "考虑期望"在这里的落点就是：**期望要对准真实剩下的回合数**。
+            _real_left = max(1, world.max_turns - world.turn)
+            if per > 0 and _capex / per <= _real_left:
+                roi.append((_capex / per, "市政厅", p))
     roi.sort(key=lambda x: x[0])
 
     n_barr = min(max(0, want_barr - cnt("兵营")),
