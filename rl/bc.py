@@ -18,6 +18,7 @@ BC 把最难的那一步用现成的规则 AI 直接灌进去：`expand_rule_v6`
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import time
 from pathlib import Path
@@ -505,6 +506,14 @@ def main() -> None:
     ap.add_argument("--dagger-turns", type=int, default=100,
                     help="DAgger 局的回合数（BC 局仍用 --turns）。★拉长是为了让**后 30 回合**"
                          "成为「复制模式」的自证窗口 —— 同一张图它已经熟了，能不能自己延续")
+    ap.add_argument("--skip-blocks-from", default="rl/maps/degenerate.json",
+                    help="★**事前**跳掉退化块（用户 2026-09-17：「先筛选地图，防止退化局」）。"
+                         "读 `experiments/screen_degenerate_maps.py` 写的那份 JSON 的 "
+                         "`bad_blocks`：那些块里老师整局启动不起来（领地停在个位数），"
+                         "块内 1 局 BC + 2 局 DAgger **全废**。事后的 `episode_is_degenerate` "
+                         "守卫照样要跑满回合才发现，事前跳省的是**整块**的时间。"
+                         "**只认 --block > 0**（块号 = 局号 // --block，与 map_seed 同源，"
+                         "所以筛选时的 `--block` 口径必须一致）。空串 = 不跳")
     ap.add_argument("--val-blocks", type=int, default=6,
                     help="块调度下每几**块**留出 1 整块当验证集。**必须按块留**：块内各局"
                          "共用同一张地图，按局留出会让验证局和训练局同图，"
@@ -694,6 +703,26 @@ def main() -> None:
         if args.episodes % args.block:
             print(f"  ⚠ --episodes {args.episodes} 不是 --block {args.block} 的整数倍，"
                   f"最后一块只有 {args.episodes % args.block} 局")
+    # ★**事前**跳掉退化块（见 `--skip-blocks-from`）：块号 = 局号 // --block，与
+    #   `_map_seed` 同一个除法 ⇒ 跳掉的正是筛选时测出来的那几张图。
+    #   实现是**跳过这些局**（`continue`）而不是重排块号：重排会让块号与 map_seed
+    #   的对应关系跟筛选时不一致，跳过则逐字保持 —— 省下的只是那几块的时间。
+    _skip_blocks: set[int] = set()
+    if args.block > 0 and args.skip_blocks_from:
+        _p = Path(args.skip_blocks_from)
+        if _p.exists():
+            _d = json.loads(_p.read_text(encoding="utf-8"))
+            _turns_match = int(_d.get("turns", 0)) == int(args.turns)
+            _skip_blocks = {int(b) for b in _d.get("bad_blocks", [])}
+            print(f"★退化图筛查：{_p}（老师 {_d.get('teacher')}，{_d.get('n_maps')} 张，"
+                  f"{_d.get('turns')} 回合）⇒ 跳块 {sorted(_skip_blocks)}（每块 "
+                  f"{args.block} 局，共 {len(_skip_blocks) * args.block} 局）")
+            if not _turns_match:
+                print(f"  ⚠ 那份筛查是 {_d.get('turns')} 回合做的，本炉 --turns "
+                      f"{args.turns} —— 口径不一致，退化判据未必成立，自己掂量")
+        else:
+            print(f"⚠ --skip-blocks-from {_p} 不存在 ⇒ 不跳块（先跑 "
+                  f"experiments/screen_degenerate_maps.py 生成它）")
     rng = random.Random(args.seed ^ 0xBEEF)
     buffer: list = []
     val: list = []                 # 验证集：只用来量命中率，**永不参与训练**
@@ -712,6 +741,8 @@ def main() -> None:
             #   地图种子**按块**推进（乘一个大质数错开，免得相邻块的地图有相关性），
             #   对局种子仍每局变 —— 这是"同一片地形上换一套规则表与老师轨迹"，
             #   而不是把同一份数据抄 N 遍（同 seed 是逐条相同的副本，实测过）。
+            if (ep // args.block) in _skip_blocks:
+                continue           # ★筛选出来的退化块：整块不跑（见 --skip-blocks-from）
             _map_seed = args.seed + (ep // args.block) * 7919
             _in_dagger = (ep % args.block) >= args.bc_per_map
             _turns = args.dagger_turns if _in_dagger else args.turns
