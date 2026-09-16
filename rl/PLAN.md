@@ -4,6 +4,72 @@
 
 ---
 
+# ★★★ 2026-09-17 深夜：**candx 落地**（2 号模型头号改动）+ 老师电厂那行 TypeError
+
+## 一、candx 已落地（用户 2026-09-17：「把 3 落地了，然后重新训」）
+
+落的是 **indep 版**（`experiments/_ecs_scripts/transformer_candx2.py` / `candx2.diff`，
+§V.27 里"Pi 审查后指定方向"的那版）：`rl/transformer.py` 的读出段加一层**候选间自注意力**
+
+```
+att, _ = self.cross(qq, x, x, ...)      # 候选 → 窗口（原有）
+h = self.ln_c(att + qq)
+att2, _ = self.cross2(h, h, h, key_padding_mask=~cand_mask)   # ★候选 → 候选（新增）
+h = self.ln_cand(att2 + h)              # score 与 exec_head 继续吃同一份 [h, q0]
+```
+
+**落地自检（Pi 现场跑的，`/tmp/candx_check.py`，old = `git show HEAD:rl/transformer.py`）**：
+
+| | 参数量 | ① 决定性：扰动候选 j 的量档 ⇒ i≠j 的 logit 变？ | value |
+|---|---|---|---|
+| old | 2,110,851 | **0/159**（最大 0.000e+00 ⇒ 测试非假） | 6.3364 |
+| **new** | **2,259,459**（+148,608 / **+7.040%**） | **159/159**（最大 2.93e−3 / 中位 1.23e−3） | 6.3364 |
+
+⇒ 候选互见**真的生效**，且**价值头逐位未动**（它吃窗口掩码池化，candx 只动读出段）——
+"换架构只动策略侧"这条自证成立。**74 条模型路径测试全绿。**
+
+## 二、★★candx 落地 = **换模型重生**（09-14 就写死的那条）
+
+`state_dict` 多出 `cross2.*` / `ln_cand.*` **6 个键** ⇒ **旧 ckpt 一律装不进**
+（`strict=False` 能装，但 `att2` 是随机的、`h` 的分布立刻变 ⇒ 续训是假的）。
+**必须从零 BC → 锚 PPO。** 已起 `bc_candx`（老师 v11plus，150 BC / 200 DAgger，
+block 3 / bc-per-map 1，200 局，`--rules-jitter 0.1`，**无 `--init`**）。
+
+⚠ **裁决判据仍然站着、且现在只落了一半**（§V.27 / `CANDX_README.md` §2）：
+> 首轮 re-BC 后各用 `probe_grad_noise_v2` 测一炉 12 局，比 **score 组 `‖μ‖²` 的 z**：
+> indep 显著 > tied ⇒ 落 indep；都仍 ≤0 或分不开 ⇒ 按参数优先落 tied。
+
+现在只落了 indep、没有 tied 那一炉 ⇒ **要走完这条判据，得再跑一炉 tied 做对照**。
+在那之前 **"indep 赢了"是不成立的**，只能说"落的是审查指定的那版"。
+
+## 三、老师侧一个把整炉打死的 TypeError（已修，`8c15eb6`）
+
+`ruleai/v11plus/economy.py:460` 把站址 `q` 带进了只吃建筑名的 `spend_ok`：
+
+```python
+if free_at(q) and afford(q, "木材能源厂") and spend_ok(q, "木材能源厂")   # ✗ TypeError
+```
+
+引入者是 `bcc7eb1`（09-16 22:07，把电厂站址改成按密度取 `plant_order` 时的手误；
+同文件 398/404/409/448 都是一个参数）。**ECS 那炉（`bc_0917_0351`）跑到第 2 局就死在这行**，
+04:04 之后机器上一个 python 进程都没有 —— 查"炉子还在不在"看到的静默就是它。
+
+⚠ **它只在 DAgger 下暴露**：纯老师轨迹里老师自己把电平衡住了，③「补已成事实的缺口」
+那条腿不成立；DAgger 是**学生**走出来的局面（消费只有老师 1/3、格子少）才真缺电。
+⇒ **所以之前 24 图 × 500 回合的纯老师对拍一次都没撞上**，别拿它当"老师没问题"的证据。
+
+## 四、`--skip-blocks-from`：退化图**事前**跳过（同日加）
+
+`rl/bc.py` 新增，默认读 `rl/maps/degenerate.json`（`experiments/screen_degenerate_maps.py`
+的产物）。块号 = 局号 // `--block`，与 `_map_seed` **同一个除法** ⇒ 跳的正是筛选测出来的
+那几张图（实现是 `continue` 掉那些局，**不重排块号** —— 重排会让块号与 map_seed 的对应
+关系跟筛选时不一致）。当前筛查（150 回合 × 67 张、老师 v11plus）：`bad_blocks = [18, 38, 57]`。
+
+`episode_is_degenerate` 那道**事后**守卫留着不动：它管"跑完了才发现是退化局"，
+这里管"根本别跑"。
+
+---
+
 # ★★★ 2026-09-17 接手须知（**比下面那节新，先读这节**）
 
 ## 一句话：v11plus 的经济层被用户逐条点掉四处病，**24 图（16×16 × 500 回合）
