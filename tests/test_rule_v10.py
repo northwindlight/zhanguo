@@ -8,8 +8,9 @@ v10 相对 v9 只改两处，测试也就守这两处：
    老师若还按写死的 2 支/50 攻/100 血做决策，**它给的标签就是错的** ——
    实测 20% 抖动下 v9 在 3/5 个 seed 上直接崩盘（只占 5 格、0 次进攻），
    v10 照常打（+12.5% 终局消费）。
-   ★ 抖动注入器本身是 RL 线的活（`feat/rl` 分支的 `rl/jitter.py`）；main 这边用
-     "就地改 `game.*` 活表"验同一件事，不依赖任何第三方库。
+   ★ 抖动注入器是 RL 线的活（`rl/jitter.py`，只在 `feat/rl`）；main 侧没有它，
+     用"就地改 `game.*` 活表"验同一件事。**本分支两者都在**：`TestJitterRegression`
+     走注入器，其余用例就地改表 —— 还原统一走下面 `RuleCase` 的活表快照。
 2. **不绕山地**：v9 有两处山地特例（`TROOPS_FOR[山地]=3`、行军落点排除山地）。
    v10 去掉特例，改成**只看打不打得赢**（多轮估算）—— 山地只是减伤高的地形之一。
 
@@ -25,6 +26,7 @@ import unittest
 
 import game
 from mp import World
+from rl import jitter
 
 from ruleai import v10 as V10
 
