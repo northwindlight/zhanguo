@@ -506,6 +506,17 @@ def main() -> None:
     ap.add_argument("--dagger-turns", type=int, default=100,
                     help="DAgger 局的回合数（BC 局仍用 --turns）。★拉长是为了让**后 30 回合**"
                          "成为「复制模式」的自证窗口 —— 同一张图它已经熟了，能不能自己延续")
+    ap.add_argument("--degenerate-guard", default="auto", choices=("auto", "off"),
+                    help="退化局守卫（`episode_is_degenerate`）。**auto**（默认）= 照旧判。"
+                         "★**off 是给「短回合教开局」的**（用户 2026-09-17：「第一次训就 50 回合"
+                         "就行……先教开局，免得学混了」）：那条判据的核心是 `tiles <= 5 ⇒ 退化`"
+                         "（开局十字就是 5 格），而实测老师**在 50 回合前一格都不打**"
+                         "（seed 0/7919/15838/23757 逐 25 回合量：25/50 回合全是 5 格，"
+                         "扩地要到 75 回合才起步）⇒ 短回合下**健康局也全是 5 格**，"
+                         "判据分不开健康与退化，会把每一局都丢掉"
+                         "（BC 局丢光 ⇒ 缓冲空 ⇒ DAgger 退回老师自走 ⇒ 也丢光 ⇒ **整炉零样本**）。"
+                         "⚠ 关掉之后**退化局（若有）会被当成示范**，只在回合短到"
+                         "「领地还没开始动」时才该关 —— 长回合别关")
     ap.add_argument("--skip-blocks-from", default="rl/maps/degenerate.json",
                     help="★**事前**跳掉退化块（用户 2026-09-17：「先筛选地图，防止退化局」）。"
                          "读 `experiments/screen_degenerate_maps.py` 写的那份 JSON 的 "
@@ -766,8 +777,8 @@ def main() -> None:
         #   （领地停在开局 5 格、0 次进攻）—— 那种局的样本几乎全是 end_turn，
         #   收进缓冲等于**教学生"别动"**。判据见 `episode_is_degenerate`。
         _tiles = len(env.world.own_tiles(env.agent)) if env.world is not None else 0
-        if episode_is_degenerate(_tiles, _seen_tiles, turns=_turns,
-                                 student_driven=use_student):
+        if args.degenerate_guard != "off" and episode_is_degenerate(
+                _tiles, _seen_tiles, turns=_turns, student_driven=use_student):
             # ★报**从 1 开始**的局号：与进度行「局 N/42」同一口径。
             #   写 0 基的 `ep` 会让日志读起来像"第 10 局被丢"而实际是第 11 局（踩过）。
             print(f"⚠ 第 {ep + 1} 局老师没启动起来（领地 {_tiles}，见过的中位 "
