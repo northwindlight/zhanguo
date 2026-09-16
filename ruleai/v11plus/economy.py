@@ -30,12 +30,15 @@ from game import (BUILDINGS, MAX_SLOTS, TRADEABLE, building_effect,
                    unit_kind, unit_supply)
 from mp import build_econ, good_value
 
-# ★**没有"默认视野"这个常量了**（用户 2026-09-15：「v10 起，不设默认视野，恒等于回合数加 20」）。
-#   原来这里是 `HORIZON = 200`，而它住在**本模块**里 —— 外面 `mod.HORIZON = n` 那种写法
-#   改的是包的入口模块，本层读不到（2026-09-15 实测：v11/v12 全程按 200 规划，
-#   而 v10 因为单文件真的被设上了 ⇒ 500 回合那一轮两边口径差 2.6 倍）。
-#   ⇒ 现在**只有一个口径**：`视野 = world.max_turns + 20`，跑局的人把本局长度放进 world。
-PLAN_EXTRA = 20        # 视野 = 本局总回合数 + 这个数（用户 2026-09-11「视野按交接视野+20」）
+# ★**本层没有"规划视界"这个旋钮了**（用户 2026-09-16：「应该不设回合限制」）。
+#   这段历史：原来这里是 `HORIZON = 200`，而它住在**本模块**里 —— 外面 `mod.HORIZON = n`
+#   那种写法改的是包的入口模块、本层读不到（2026-09-15 实测栽过：v11/v12 全程按 200 规划
+#   而 v10 被真设上了 ⇒ 500 回合那一轮两边口径差 2.6 倍）；后来改成
+#   `left = world.max_turns + PLAN_EXTRA - world.turn`，拿它当 ROI 榜的「回本 ≤ left」门槛。
+#   ⇒ 现在**门槛整个拆掉**：不设回合限制，只要有回本期（`payback` 存在）就进榜，
+#     排在哪由 `payback` 自己决定。理由（用户）：目标函数是**总消费** ——
+#     "本局之内回不回得了本"不该当成建不建的前提，建了就是消费。
+#   ⚠ 作用面只有 ROI 榜那一处，与军事层无关（v10/v11 是冻结基线，各自的 PLAN_EXTRA 不动）。
 BARRACKS_CAP = 4      # 兵营数上限：它的意义是"每回合能征几支"，而征兵被钱卡在 ~1 支/回合
 #   ★ 2026-09-16（用户）：「为什么无脑爆兵营啊，那么多兵营何意味」——
 #     原来 `want_barr = supply_cap//2 + 2`（= 补给厂数 + 2，只由编制上限推、不看钱也不看军队数）
@@ -51,7 +54,7 @@ MIL_SHARE = 0.30       # 军费占收入的上限：出兵、涨兵**同一个�
 STOCK_OUTPUT_FACTORIES = ("装备厂",)
 #   产出**存量品**的工厂：装备只在**征兵时一次性消耗**，不像补给那样每回合被军队吃掉
 #   ⇒ "自用替代"那套估值对它不成立（你并不是每回合都去买装备）。
-STOCK_FACTORY_DISCOUNT = 0.75
+STOCK_FACTORY_DISCOUNT = 0.85
 #   上面这些工厂在**本层**的 ROI 手动折减：产出**改按卖价估**，再乘这个系数
 #   （用户 2026-09-16：「拉低装备厂，不但按卖价估价且手动拉低 roi」）。
 #   ★ 引擎 `build_econ` 那份**不动** —— 它给的是中性口径（工厂产出按买价 = 自用替代），
@@ -214,7 +217,6 @@ def run(ledger, world, name: str) -> None:
     army_cap = max(army_n + 1, supply_cap) if mil_ok else army_n
 
     # ================================================================ 3. 本回合的计划
-    left = max(1, world.max_turns + PLAN_EXTRA - world.turn)   # 视野 = 本局回合数 + 20
     free_tiles = [p for p in own if free_at(p)]
     room = len(free_tiles)
 
@@ -237,7 +239,7 @@ def run(ledger, world, name: str) -> None:
                 continue
             e = build_econ(world, bn, p)           # 传地块：按该格实际造价与效果算回本
             pb = _roi_payback(bn, e)               # ★ 存量品工厂在本层重估（见常量注释）
-            if pb and pb <= left:
+            if pb:                                 # ★ 不设回合限制（用户 2026-09-16）
                 roi.append((pb, bn, p))
     # ★ 2026-09-16（用户）：「还是按 roi 建，只是全国扫地，高级建筑会扫到很多 roi 相同的地，
     #   然后按密度最高的建」⇒ 排序键加一条**密度降序**当平手判据：

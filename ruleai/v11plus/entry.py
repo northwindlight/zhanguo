@@ -12,8 +12,8 @@
   细节见 `ruleai/v11plus/__init__.py`。配置里写 `"rule_ai": "v11plus"` 用它。
 
 ★ RL 线提醒（`feat/rl` 分支）：这条线若要当 BC 老师，那边的 `rl/bc.py`
-  teacher 分派是硬编码 if/elif，得单独加一支；规划窗口没有旋钮 ——
-  读 `world.max_turns + 20`（用户 2026-09-15：「不设默认视野，恒等于回合数加 20」）。
+  teacher 分派是硬编码 if/elif，得单独加一支；**经济层按"不设回合限制"跑**
+  （ROI 榜不按剩余回合过滤，用户 2026-09-16），不再读 `world.max_turns + 20`。
 """
 from __future__ import annotations
 
