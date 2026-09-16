@@ -81,6 +81,8 @@ from balance import (
     SPY_TURNS,
     START_RES,
     SUMMARY_MIN_CHARS,
+    ACADEMY_AMORT_TURNS,
+    ACADEMY_OPT_DENSITY,
     TOWNHALL_SLOT_BONUS,
 )
 
@@ -214,6 +216,32 @@ def build_econ(world: "World", building: str, tile=None) -> dict:
         per = out_buy - inv - ec
         detail.update(inputs_value=inv, outputs_buy=out_buy, outputs_sell=out_sell,
                       energy_cost=ec, net=out_buy - inv)
+    elif kind == "academy":
+        # ★ 工程院（2026-09-16，用户：「写一个建筑院……的收益函数，转换为 roi，理论上 6-8 个建筑
+        #   的时候最应该建造，你的函数应该拟合这个结论」）：
+        #   它的效果是**本格一切建造金价 −25%**（与地形惩罚乘算），所以收益 = 省下的那笔钱，
+        #   只对本格**以后**建的楼生效 ⇒ 两个因子相乘：
+        #     · `room = MAX_SLOTS − 1 − 本格已用建筑位` —— 以后还能建几座（越密越少）；
+        #     · `c_avg` = 本格已建楼的**平均造价**（现读那一格自己 —— 越密越贵：先建便宜的采集楼，
+        #       后面的工厂/兵营/市政厅都贵）。
+        #   ⇒ 乘积在**中等密度**处最大：太早，剩下的位将给便宜楼（折扣浪费）；太晚，位快没了。
+        #   一次性收益按 `ACADEMY_AMORT_TURNS` 摊成"每回合省多少"再算回本（标定参数，见 balance）。
+        disc = building_effect(building, "build_discount") / 100.0
+        tt = world.tiles.get(tile) if tile is not None else None
+        if tt is None:
+            per = 0.0
+        else:
+            n_used = sum(tt["buildings"].values())          # 不含它自己（还没建）
+            room = max(0, MAX_SLOTS - 1 - n_used)
+            costs = [BUILDINGS[b_]["cost"] if isinstance(BUILDINGS[b_]["cost"], int)
+                     else BUILDINGS[b_]["cost"][0]
+                     for b_, c_ in tt["buildings"].items() for _ in range(c_)]
+            c_avg = (sum(costs) / len(costs)) if costs else 0.0
+            _ramp = min(1.0, n_used / ACADEMY_OPT_DENSITY)     # 到 ACADEMY_OPT_DENSITY 座才进入该建区间
+            per = ((disc * room * c_avg * _ramp) / ACADEMY_AMORT_TURNS
+                   if room and c_avg else 0.0)
+        detail.update(discount=disc, c_avg=c_avg if tt is not None else 0.0,
+                      room=room if tt is not None else 0)
     elif kind == "townhall":
         # ★ 2026-09-16（用户）：「应该走正常的 roi 机制……有市政厅的 roi 自动高」：
         #   市政厅的产出是**该格真实密度**的函数 —— 引擎 `resolve_turn` 每回合给它
