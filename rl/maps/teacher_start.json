@@ -1,0 +1,989 @@
+{
+ "turns": 80,
+ "n_maps": 67,
+ "teacher": "v11plus",
+ "block_stride": 7919,
+ "seed0": 0,
+ "jitter": 0.0,
+ "start_gate": 20,
+ "start_within_20_attack": [
+  4,
+  20,
+  24,
+  35,
+  38,
+  41,
+  43,
+  44,
+  48,
+  56,
+  58,
+  59,
+  64,
+  65
+ ],
+ "start_within_20_expand": [
+  4,
+  20,
+  24,
+  35,
+  38,
+  41,
+  43,
+  44,
+  48,
+  56,
+  58,
+  59,
+  64,
+  65
+ ],
+ "never_expanded": [
+  5,
+  17,
+  18,
+  21,
+  22,
+  57
+ ],
+ "rows": [
+  {
+   "block": 0,
+   "map_seed": 0,
+   "first_attack": 78,
+   "first_expand": 78,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 7
+   },
+   "tiles_end": 7,
+   "spend": 5630.319666666665
+  },
+  {
+   "block": 1,
+   "map_seed": 7919,
+   "first_attack": 63,
+   "first_expand": 64,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 18
+   },
+   "tiles_end": 18,
+   "spend": 5427.018666666667
+  },
+  {
+   "block": 2,
+   "map_seed": 15838,
+   "first_attack": 65,
+   "first_expand": 65,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 24
+   },
+   "tiles_end": 24,
+   "spend": 6419.778333333334
+  },
+  {
+   "block": 3,
+   "map_seed": 23757,
+   "first_attack": 65,
+   "first_expand": 66,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 15
+   },
+   "tiles_end": 15,
+   "spend": 4571.965999999999
+  },
+  {
+   "block": 4,
+   "map_seed": 31676,
+   "first_attack": 14,
+   "first_expand": 15,
+   "tiles_at": {
+    "10": 5,
+    "20": 7,
+    "50": 18,
+    "80": 30
+   },
+   "tiles_end": 30,
+   "spend": 3800.8103333333333
+  },
+  {
+   "block": 5,
+   "map_seed": 39595,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 5
+   },
+   "tiles_end": 5,
+   "spend": 3569.0243333333337
+  },
+  {
+   "block": 6,
+   "map_seed": 47514,
+   "first_attack": 56,
+   "first_expand": 57,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 31
+   },
+   "tiles_end": 31,
+   "spend": 6295.767333333334
+  },
+  {
+   "block": 7,
+   "map_seed": 55433,
+   "first_attack": 52,
+   "first_expand": 52,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 39
+   },
+   "tiles_end": 39,
+   "spend": 7285.554666666669
+  },
+  {
+   "block": 8,
+   "map_seed": 63352,
+   "first_attack": 54,
+   "first_expand": 54,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 19
+   },
+   "tiles_end": 19,
+   "spend": 4101.456999999999
+  },
+  {
+   "block": 9,
+   "map_seed": 71271,
+   "first_attack": 57,
+   "first_expand": 58,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 32
+   },
+   "tiles_end": 32,
+   "spend": 6800.885666666667
+  },
+  {
+   "block": 10,
+   "map_seed": 79190,
+   "first_attack": 66,
+   "first_expand": 67,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 23
+   },
+   "tiles_end": 23,
+   "spend": 7433.789666666665
+  },
+  {
+   "block": 11,
+   "map_seed": 87109,
+   "first_attack": 66,
+   "first_expand": 67,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 16
+   },
+   "tiles_end": 16,
+   "spend": 4634.953
+  },
+  {
+   "block": 12,
+   "map_seed": 95028,
+   "first_attack": 60,
+   "first_expand": 60,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 29
+   },
+   "tiles_end": 29,
+   "spend": 5560.325
+  },
+  {
+   "block": 13,
+   "map_seed": 102947,
+   "first_attack": 61,
+   "first_expand": 62,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 33
+   },
+   "tiles_end": 33,
+   "spend": 6521.0740000000005
+  },
+  {
+   "block": 14,
+   "map_seed": 110866,
+   "first_attack": 78,
+   "first_expand": 79,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 6
+   },
+   "tiles_end": 6,
+   "spend": 5867.062000000001
+  },
+  {
+   "block": 15,
+   "map_seed": 118785,
+   "first_attack": 52,
+   "first_expand": 52,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 23
+   },
+   "tiles_end": 23,
+   "spend": 4891.522333333332
+  },
+  {
+   "block": 16,
+   "map_seed": 126704,
+   "first_attack": 40,
+   "first_expand": 41,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 14,
+    "80": 38
+   },
+   "tiles_end": 38,
+   "spend": 6725.172666666666
+  },
+  {
+   "block": 17,
+   "map_seed": 134623,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 5
+   },
+   "tiles_end": 5,
+   "spend": 3952.094666666667
+  },
+  {
+   "block": 18,
+   "map_seed": 142542,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 5
+   },
+   "tiles_end": 5,
+   "spend": 3734.739
+  },
+  {
+   "block": 19,
+   "map_seed": 150461,
+   "first_attack": 62,
+   "first_expand": 63,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 16
+   },
+   "tiles_end": 16,
+   "spend": 5266.912333333335
+  },
+  {
+   "block": 20,
+   "map_seed": 158380,
+   "first_attack": 7,
+   "first_expand": 7,
+   "tiles_at": {
+    "10": 8,
+    "20": 13,
+    "50": 25,
+    "80": 32
+   },
+   "tiles_end": 32,
+   "spend": 3992.1900000000005
+  },
+  {
+   "block": 21,
+   "map_seed": 166299,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 5
+   },
+   "tiles_end": 5,
+   "spend": 5744.372999999998
+  },
+  {
+   "block": 22,
+   "map_seed": 174218,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 5
+   },
+   "tiles_end": 5,
+   "spend": 3890.268
+  },
+  {
+   "block": 23,
+   "map_seed": 182137,
+   "first_attack": 79,
+   "first_expand": 79,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 6
+   },
+   "tiles_end": 6,
+   "spend": 5161.540000000001
+  },
+  {
+   "block": 24,
+   "map_seed": 190056,
+   "first_attack": 8,
+   "first_expand": 10,
+   "tiles_at": {
+    "10": 6,
+    "20": 9,
+    "50": 19,
+    "80": 31
+   },
+   "tiles_end": 31,
+   "spend": 4143.589666666666
+  },
+  {
+   "block": 25,
+   "map_seed": 197975,
+   "first_attack": 67,
+   "first_expand": 67,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 11
+   },
+   "tiles_end": 11,
+   "spend": 5352.499666666666
+  },
+  {
+   "block": 26,
+   "map_seed": 205894,
+   "first_attack": 48,
+   "first_expand": 49,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 6,
+    "80": 24
+   },
+   "tiles_end": 24,
+   "spend": 6077.241000000002
+  },
+  {
+   "block": 27,
+   "map_seed": 213813,
+   "first_attack": 73,
+   "first_expand": 74,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 7
+   },
+   "tiles_end": 7,
+   "spend": 3896.335666666667
+  },
+  {
+   "block": 28,
+   "map_seed": 221732,
+   "first_attack": 55,
+   "first_expand": 55,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 15
+   },
+   "tiles_end": 15,
+   "spend": 3656.4289999999996
+  },
+  {
+   "block": 29,
+   "map_seed": 229651,
+   "first_attack": 45,
+   "first_expand": 46,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 7,
+    "80": 21
+   },
+   "tiles_end": 21,
+   "spend": 4301.93
+  },
+  {
+   "block": 30,
+   "map_seed": 237570,
+   "first_attack": 78,
+   "first_expand": 79,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 6
+   },
+   "tiles_end": 6,
+   "spend": 6322.8826666666655
+  },
+  {
+   "block": 31,
+   "map_seed": 245489,
+   "first_attack": 69,
+   "first_expand": 70,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 12
+   },
+   "tiles_end": 12,
+   "spend": 5056.216333333333
+  },
+  {
+   "block": 32,
+   "map_seed": 253408,
+   "first_attack": 53,
+   "first_expand": 54,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 34
+   },
+   "tiles_end": 34,
+   "spend": 5833.0199999999995
+  },
+  {
+   "block": 33,
+   "map_seed": 261327,
+   "first_attack": 62,
+   "first_expand": 63,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 18
+   },
+   "tiles_end": 18,
+   "spend": 4809.995333333332
+  },
+  {
+   "block": 34,
+   "map_seed": 269246,
+   "first_attack": 61,
+   "first_expand": 61,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 27
+   },
+   "tiles_end": 27,
+   "spend": 6059.352000000001
+  },
+  {
+   "block": 35,
+   "map_seed": 277165,
+   "first_attack": 6,
+   "first_expand": 7,
+   "tiles_at": {
+    "10": 7,
+    "20": 10,
+    "50": 19,
+    "80": 31
+   },
+   "tiles_end": 31,
+   "spend": 3271.1763333333333
+  },
+  {
+   "block": 36,
+   "map_seed": 285084,
+   "first_attack": 68,
+   "first_expand": 69,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 15
+   },
+   "tiles_end": 15,
+   "spend": 5844.996333333333
+  },
+  {
+   "block": 37,
+   "map_seed": 293003,
+   "first_attack": 78,
+   "first_expand": 79,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 6
+   },
+   "tiles_end": 6,
+   "spend": 5197.613
+  },
+  {
+   "block": 38,
+   "map_seed": 300922,
+   "first_attack": 10,
+   "first_expand": 10,
+   "tiles_at": {
+    "10": 6,
+    "20": 12,
+    "50": 15,
+    "80": 15
+   },
+   "tiles_end": 15,
+   "spend": 3541.527666666667
+  },
+  {
+   "block": 39,
+   "map_seed": 308841,
+   "first_attack": 50,
+   "first_expand": 51,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 48
+   },
+   "tiles_end": 48,
+   "spend": 7423.248333333332
+  },
+  {
+   "block": 40,
+   "map_seed": 316760,
+   "first_attack": 53,
+   "first_expand": 54,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 28
+   },
+   "tiles_end": 28,
+   "spend": 5520.162666666666
+  },
+  {
+   "block": 41,
+   "map_seed": 324679,
+   "first_attack": 8,
+   "first_expand": 8,
+   "tiles_at": {
+    "10": 7,
+    "20": 13,
+    "50": 32,
+    "80": 51
+   },
+   "tiles_end": 51,
+   "spend": 4670.0763333333325
+  },
+  {
+   "block": 42,
+   "map_seed": 332598,
+   "first_attack": 60,
+   "first_expand": 60,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 30
+   },
+   "tiles_end": 30,
+   "spend": 5993.055666666665
+  },
+  {
+   "block": 43,
+   "map_seed": 340517,
+   "first_attack": 8,
+   "first_expand": 9,
+   "tiles_at": {
+    "10": 6,
+    "20": 9,
+    "50": 19,
+    "80": 34
+   },
+   "tiles_end": 34,
+   "spend": 4023.924
+  },
+  {
+   "block": 44,
+   "map_seed": 348436,
+   "first_attack": 11,
+   "first_expand": 11,
+   "tiles_at": {
+    "10": 5,
+    "20": 8,
+    "50": 18,
+    "80": 28
+   },
+   "tiles_end": 28,
+   "spend": 3473.0846666666653
+  },
+  {
+   "block": 45,
+   "map_seed": 356355,
+   "first_attack": 50,
+   "first_expand": 51,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 34
+   },
+   "tiles_end": 34,
+   "spend": 5526.296
+  },
+  {
+   "block": 46,
+   "map_seed": 364274,
+   "first_attack": 64,
+   "first_expand": 65,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 17
+   },
+   "tiles_end": 17,
+   "spend": 5533.026333333332
+  },
+  {
+   "block": 47,
+   "map_seed": 372193,
+   "first_attack": 58,
+   "first_expand": 58,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 21
+   },
+   "tiles_end": 21,
+   "spend": 4663.390666666667
+  },
+  {
+   "block": 48,
+   "map_seed": 380112,
+   "first_attack": 18,
+   "first_expand": 19,
+   "tiles_at": {
+    "10": 5,
+    "20": 6,
+    "50": 13,
+    "80": 21
+   },
+   "tiles_end": 21,
+   "spend": 3634.7519999999995
+  },
+  {
+   "block": 49,
+   "map_seed": 388031,
+   "first_attack": 45,
+   "first_expand": 45,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 10,
+    "80": 36
+   },
+   "tiles_end": 36,
+   "spend": 6192.074666666666
+  },
+  {
+   "block": 50,
+   "map_seed": 395950,
+   "first_attack": 48,
+   "first_expand": 49,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 6,
+    "80": 35
+   },
+   "tiles_end": 35,
+   "spend": 5066.385333333332
+  },
+  {
+   "block": 51,
+   "map_seed": 403869,
+   "first_attack": 62,
+   "first_expand": 63,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 26
+   },
+   "tiles_end": 26,
+   "spend": 5816.209666666666
+  },
+  {
+   "block": 52,
+   "map_seed": 411788,
+   "first_attack": 30,
+   "first_expand": 31,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 15,
+    "80": 22
+   },
+   "tiles_end": 22,
+   "spend": 3531.100333333333
+  },
+  {
+   "block": 53,
+   "map_seed": 419707,
+   "first_attack": 67,
+   "first_expand": 68,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 15
+   },
+   "tiles_end": 15,
+   "spend": 4609.272666666667
+  },
+  {
+   "block": 54,
+   "map_seed": 427626,
+   "first_attack": 73,
+   "first_expand": 74,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 11
+   },
+   "tiles_end": 11,
+   "spend": 4796.741999999999
+  },
+  {
+   "block": 55,
+   "map_seed": 435545,
+   "first_attack": 50,
+   "first_expand": 51,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 47
+   },
+   "tiles_end": 47,
+   "spend": 7110.838000000001
+  },
+  {
+   "block": 56,
+   "map_seed": 443464,
+   "first_attack": 19,
+   "first_expand": 20,
+   "tiles_at": {
+    "10": 5,
+    "20": 6,
+    "50": 16,
+    "80": 23
+   },
+   "tiles_end": 23,
+   "spend": 3886.031333333334
+  },
+  {
+   "block": 57,
+   "map_seed": 451383,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 5
+   },
+   "tiles_end": 5,
+   "spend": 2853.396
+  },
+  {
+   "block": 58,
+   "map_seed": 459302,
+   "first_attack": 10,
+   "first_expand": 10,
+   "tiles_at": {
+    "10": 6,
+    "20": 12,
+    "50": 34,
+    "80": 61
+   },
+   "tiles_end": 61,
+   "spend": 4808.299333333333
+  },
+  {
+   "block": 59,
+   "map_seed": 467221,
+   "first_attack": 9,
+   "first_expand": 9,
+   "tiles_at": {
+    "10": 6,
+    "20": 6,
+    "50": 19,
+    "80": 38
+   },
+   "tiles_end": 38,
+   "spend": 3646.8466666666664
+  },
+  {
+   "block": 60,
+   "map_seed": 475140,
+   "first_attack": 78,
+   "first_expand": 79,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 6
+   },
+   "tiles_end": 6,
+   "spend": 5751.275999999999
+  },
+  {
+   "block": 61,
+   "map_seed": 483059,
+   "first_attack": 68,
+   "first_expand": 69,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 12
+   },
+   "tiles_end": 12,
+   "spend": 4874.639666666667
+  },
+  {
+   "block": 62,
+   "map_seed": 490978,
+   "first_attack": 67,
+   "first_expand": 67,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 9
+   },
+   "tiles_end": 9,
+   "spend": 3012.9443333333334
+  },
+  {
+   "block": 63,
+   "map_seed": 498897,
+   "first_attack": 56,
+   "first_expand": 56,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 21
+   },
+   "tiles_end": 21,
+   "spend": 6829.515333333333
+  },
+  {
+   "block": 64,
+   "map_seed": 506816,
+   "first_attack": 9,
+   "first_expand": 10,
+   "tiles_at": {
+    "10": 6,
+    "20": 8,
+    "50": 16,
+    "80": 29
+   },
+   "tiles_end": 29,
+   "spend": 3867.1590000000006
+  },
+  {
+   "block": 65,
+   "map_seed": 514735,
+   "first_attack": 13,
+   "first_expand": 13,
+   "tiles_at": {
+    "10": 5,
+    "20": 12,
+    "50": 28,
+    "80": 47
+   },
+   "tiles_end": 47,
+   "spend": 4009.6433333333334
+  },
+  {
+   "block": 66,
+   "map_seed": 522654,
+   "first_attack": 74,
+   "first_expand": 75,
+   "tiles_at": {
+    "10": 5,
+    "20": 5,
+    "50": 5,
+    "80": 9
+   },
+   "tiles_end": 9,
+   "spend": 3809.1900000000005
+  }
+ ]
+}
