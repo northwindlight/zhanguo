@@ -43,12 +43,10 @@ BARRACKS_CAP = 4      # 兵营数上限：它的意义是"每回合能征几支"
 #   ★ 2026-09-16（用户）：「为什么无脑爆兵营啊，那么多兵营何意味」——
 #     原来 `want_barr = supply_cap//2 + 2`（= 补给厂数 + 2，只由编制上限推、不看钱也不看军队数）
 #     ⇒ 实测 30 座兵营、产能利用率 0.7%、花掉 10,500 金（实际征兵只花 3,052）。
-WOOD_KEEP = 60         # 木头**只留工作库存**（够建两三座：经济建筑 5~20 木/座）。
-#   ★ 2026-09-16（用户）：「木不是按金折算了吗，保证不屯木头」。原逻辑把 `n_barr`
-#   （**想要**的兵营数，兵营 350 金/座、往往买不起）无条件折成 20 木/座计进 `need`：
-#   实测末期 `need木 ≈ 493`（n_barr 24 × 20 = 480 全来自它）⇒ 清仓只卖「库存 − 493」
-#   ⇒ 木堆到 500~900；而那块价值又**不计入 `_budget`**（v10 的做法，见那里的注释）
-#   ⇒ 既锁死资金、又不产生购买力。现在把它压到工作库存，多出来的照市价卖掉。
+# ★ 木头**没有"工作库存上限"这个旋钮了**（用户 2026-09-17：「不应该找上限值，应该实际算」）。
+#   历史：上游加过 `WOOD_KEEP = 60` 压需求（防囤积），但它连"本回合真要用的量"一起压，
+#   每回合只买得起 60 木 ⇒ 终局 234 格可建却只动得了 2 座、钱全砸手里。
+#   现在改成**把需求算准**：每地块每回合只建 1 座 ⇒ 要备的就是 `best_of` 那批（见第 4 节）。
 MIL_SHARE = 0.30       # 军费占收入的上限：出兵、涨兵**同一个条件**（用户 2026-09-11）
 
 STOCK_OUTPUT_FACTORIES = ("装备厂",)
@@ -112,6 +110,8 @@ def _extractors() -> tuple[str, ...]:
 
 _FACTORIES = ("补给厂",)
 
+SKIP_BUILDINGS = ("军屯",)   # v11plus 不参榜的建筑（用户 2026-09-16：「然后 v11plus 过滤军屯」）
+
 
 def _roi_payback(bn: str, e: dict) -> float | None:
     """榜上用的回本期 —— **存量品工厂另算**（口径见 `STOCK_FACTORY_DISCOUNT`）。
@@ -124,6 +124,37 @@ def _roi_payback(bn: str, e: dict) -> float | None:
     d = e["detail"]
     per = (d["outputs_sell"] - d["inputs_value"] - d["energy_cost"]) * STOCK_FACTORY_DISCOUNT
     return (e["capex"] / per) if per > 0 else None
+
+
+def _engine_allows(world, bn: str, p: tuple, nation_count) -> bool:
+    """这一格**现在真能建** `bn` 吗 —— 逐条复现引擎 `World.build` 的前置判定
+    （`mp.py` 920~940），只读不写。榜单的最后一道，摆在 ROI 搜索与密度之后
+    （用户 2026-09-16：「每个建筑 roi 搜索，然后是密度搜索，然后你这个时候才能
+    通过引擎规则真实过滤非法建筑，然后顺位」）。少了它，榜单会把引擎**必拒**的楼
+    排在前头（工程院/市政厅回本比采集楼短），白烧动作：实测 seed 900010 一回合
+    185 次 build 里 176 次被拒。
+    """
+    info = BUILDINGS[bn]
+    t = world.tiles[p]
+    b, pend = t["buildings"], (t.get("pending") or {})
+    eff = {k: b.get(k, 0) + pend.get(k, 0) for k in b}      # 引擎 `_eff`：已建成 + 在建
+    used = sum(eff.values())
+    if used >= MAX_SLOTS:
+        return False
+    cr = info.get("cap_resource")
+    if cr is not None:
+        have = t["resources"].get(cr, 0)
+        if have <= 0 or eff.get(bn, 0) >= have:
+            return False
+    if info.get("max_level") and eff.get(bn, 0) >= info["max_level"]:
+        return False
+    if info.get("min_slots") and used < info["min_slots"]:
+        return False
+    if info.get("limit") and eff.get(bn, 0) >= info["limit"]:
+        return False
+    if info.get("limit_nation") and nation_count(bn) >= info["limit_nation"]:
+        return False
+    return True
 
 
 def run(ledger, world, name: str) -> None:
@@ -234,6 +265,8 @@ def run(ledger, world, name: str) -> None:
         res, built = t["resources"], t["buildings"]
         pend = t.get("pending") or {}
         for bn in sorted(BUILDINGS):
+            if bn in SKIP_BUILDINGS:
+                continue
             _need = _res_of(bn)                    # 现读 cap_resource（不再手抄一份）
             if _need is not None and res.get(_need, 0) <= built.get(bn, 0) + pend.get(bn, 0):
                 continue
@@ -246,6 +279,8 @@ def run(ledger, world, name: str) -> None:
     #   不挑地的那几族（补给厂/装备厂/电厂/市政厅）在很多格上算出**同一个回本**
     #   （同造价、同每回合收益 ⇒ 回本只差地形施工惩罚），平手时就往**建筑位最多**的格上建。
     roi.sort(key=lambda x: (x[0], -slots(x[2]), x[2]))
+    # ③ 引擎规则过滤非法建筑 —— **必须摆在 ①② 之后**（先算收益，再判合法性）
+    roi = [(pb, bn, p) for pb, bn, p in roi if _engine_allows(world, bn, p, cnt)]
     plant_order = sorted(free_tiles, key=lambda q: (-slots(q), q))     # 电厂站址：同一条规则
 
     n_barr = min(max(0, want_barr - cnt("兵营")),
@@ -259,7 +294,12 @@ def run(ledger, world, name: str) -> None:
         _slots_rec = sum(max(0, world.tiles[p]["buildings"].get("兵营", 0)
                              - world.tiles[p].get("recruited_this_turn", 0)) for p in own)
         n_recruit = min(army_cap - army_n, _slots_rec)
-    n_roi_slots = max(0, room - n_barr - n_plant)
+    # ★ 本回合**实际会建的那批**：每地块每回合只建 1 座 ⇒ 就是**每格榜上那一个**
+    #   （`roi` 升序 ⇒ 每格第一次出现即该格最优）。木头需求（第 4 节）与建造（第 ④ 段）
+    #   共用这一份，免得两处各说各话。
+    best_of: dict = {}
+    for _pb, _bn, _p in roi:
+        best_of.setdefault(_p, _bn)
 
     # ================================================================ 4. 记账（**唯一口径**）
     need: dict[str, int] = {g: 0 for g in TRADEABLE}
@@ -280,8 +320,15 @@ def run(ledger, world, name: str) -> None:
     for _ in range(n_barr):
         want("木头", BUILDINGS["兵营"]["wood"])
 
-    # 计划料：**只留"金和木当下都付得起"的那些楼**
-    #   木头留多了是致命的（钱全锁在木头里，而挡着建造的是金）；留少了只是这回合少建一座。
+    # ★ 钱与木是**联合分配**（用户 2026-09-17：「钱和木的关系是动态规划，不是简单的计算」）：
+    #   按全局回本顺序走一遍 `best_of`（每格榜上那一个），用 `_budget` = 现金 + 余货折价
+    #   **一座一座地扣** —— 扣得起的才进"本回合真会建"这一批，木头需求就是**这一批**的木头。
+    #   · 只按 `best_of` 走（不是全局榜的前 N 项）：每地块每回合只建 1 座，前 N 项会挤在
+    #     少数格上，把需求灌成几千 ⇒ 买回一堆用不掉的木（实测 seed 900007 木囤到 2633、
+    #     现金被换成木头、兵营的 350 金攒不出 ⇒ 卡在开局 5 格到 T150）。
+    #   · 用 `_budget` 而不是"缺多少买多少"：买木的钱与建造的钱是**同一笔**，
+    #     不联合分配就会两头落空。
+    #   ⇒ 需求算准了，也就不必再有 `WOOD_KEEP` 那种拍脑袋的上限：买多少 = 用多少。
     _budget = int(R()["黄金"])
     for _g in TRADEABLE:
         if _g == "木头":
@@ -290,24 +337,19 @@ def run(ledger, world, name: str) -> None:
         if _sur > 0:
             _budget += int(_sur * 0.9 * max(1, int(world.prices.get(_g, 2))))
     _wx = max(1, int(world.prices.get("木头", 2)))
-    planned: list[tuple[float, str, tuple]] = []
-    for _pb, _bn, _p in roi:
-        if len(planned) >= n_roi_slots:
-            break
+    for _bn in best_of.values():
         _need_gold = int(cost_of(_bn)) + int(BUILDINGS[_bn].get("wood", 0)) * _wx
         if _need_gold > _budget:
             continue                     # 付不起就跳过（不中断：后面可能有更便宜的）
         _budget -= _need_gold
-        planned.append((_pb, _bn, _p))
-    for _pb, _bn, _p in planned:
         want("木头", BUILDINGS[_bn].get("wood", 0))
     for _ in range(n_recruit):                                    # 计划征兵料
         for g, per in world.recruit_cost(name, "步").items():     # ★ v11：与引擎同一份口径
             want(g, per)
 
-    # ★ 2026-09-16：木头**只留工作库存**再清仓（多出来的一律卖掉）。
-    #   上限见 `WOOD_KEEP`：原来的 `need` 里被"想要的兵营"灌进了几百木，白锁死。
-    need["木头"] = min(need.get("木头", 0), WOOD_KEEP)
+    # ★ 木头**不在这里压需求**（用户 2026-09-16：「备木要保留，但是不能囤积木头」
+    #   「缺木头会买，买不设上限就行」）：`need` 就是"本回合真要用的量" ——
+    #   第 5 步清仓把超出它的卖掉（不囤积），第 6 步按缺口买（缺就买、不设上限）。
 
     # ================================================================ 5. 清仓
     for g in TRADEABLE:
@@ -376,20 +418,30 @@ def run(ledger, world, name: str) -> None:
     #   （全文件只有这一处建兵营），所以"建一座减一"与原式逐值等价。
     barr_left = want_barr - cnt("兵营")           # 本回合还差几座兵营
 
+    # ---- ① 征兵：**独立循环**，只认"有兵营、本回合还没用过"的格 ----
+    #   ★ 用户 2026-09-17：「征兵走的独立条件，按兵营建，和当地格子应该毫无关系，
+    #     除非你满格过滤过滤掉了征兵」。原先把这段塞在下面的 `for p in free_tiles:` 里，
+    #     而 `free_tiles` 只含"还建得了"的格（`slots < MAX_SLOTS`）—— 兵营格一旦建满
+    #     20 座就掉出这个列表，**征兵跟着被跳过**，军队永远长不大：
+    #     实测 seed 900010，兵营 4 座、装备粮食都够、`army_cap` = 282，
+    #     军队却死死卡在 36 支，军费因此少 17 万（而建造量与基线其实是持平的）。
+    if mil_ok and army_n < army_cap and not world.grid_short.get(name):
+        for p in sorted(own):
+            if army_n >= army_cap:
+                break
+            t = world.tiles[p]
+            if t["buildings"].get("兵营", 0) <= t.get("recruited_this_turn", 0):
+                continue
+            if not _can_afford(world, name, R(), "步"):            # ★ v11：现读 recruit_cost
+                continue
+            if do("recruit", {"tile": f"{p[0]+1} {p[1]+1}", "n": 1, "unit": "步"},
+                  world.recruit, name, p[0], p[1], 1, "步"):
+                army_n += 1
+
     for p in free_tiles:
         if not free_at(p):
             continue
         t = world.tiles[p]
-
-        # ---- ① 征兵（条件项）----
-        if (army_n < army_cap
-                and t["buildings"].get("兵营", 0) > t.get("recruited_this_turn", 0)
-                and not world.grid_short.get(name)
-                and _can_afford(world, name, R(), "步")):          # ★ v11：现读 recruit_cost
-            if do("recruit", {"tile": f"{p[0]+1} {p[1]+1}", "n": 1, "unit": "步"},
-                  world.recruit, name, p[0], p[1], 1, "步"):
-                army_n += 1
-                continue
 
         # ---- ② 兵营（条件项）----
         if barr_left > 0 and slots(p) >= 3 and afford(p, "兵营") \
@@ -420,9 +472,7 @@ def run(ledger, world, name: str) -> None:
     #   钱先落在回本最快的地上，难地只有在便宜地建完、钱还剩时才轮得到。
     #   （⚠ 别改成"只建 `planned` 那几条"：那张表是按预算裁过的、且被 ①②③ 花掉的钱会失效，
     #     实测那样建筑会从 219 掉到 72 —— 逐格尝试、失败即跳过才是原语义。）
-    best_of: dict = {}
-    for _pb, _bn, _p in roi:
-        best_of.setdefault(_p, _bn)              # roi 升序 ⇒ 每格第一次出现即该格最佳
+    #   `best_of`（每格榜上那一个）在第 3 节就算好了 —— 木头需求与这里共用同一份。
     for _p, _bn in best_of.items():
         if not free_at(_p):
             continue
