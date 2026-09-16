@@ -4,24 +4,27 @@
 v10 相对 v9 只改两处，测试也就守这两处：
 
 1. **抗抖**：所有引擎事实（攻击力/减伤/血量/征兵成本/采集资源）都**现读**。
-   为什么这条要紧：训练期一开 `--rules-jitter`，引擎数值按 seed 抖；
+   为什么这条要紧：数值一旦不是写死的那个（训练期抖动、调平衡、改政体），
    老师若还按写死的 2 支/50 攻/100 血做决策，**它给的标签就是错的** ——
    实测 20% 抖动下 v9 在 3/5 个 seed 上直接崩盘（只占 5 格、0 次进攻），
    v10 照常打（+12.5% 终局消费）。
+   ★ 抖动注入器本身是 RL 线的活（`feat/rl` 分支的 `rl/jitter.py`）；main 这边用
+     "就地改 `game.*` 活表"验同一件事，不依赖任何第三方库。
 2. **不绕山地**：v9 有两处山地特例（`TROOPS_FOR[山地]=3`、行军落点排除山地）。
    v10 去掉特例，改成**只看打不打得赢**（多轮估算）—— 山地只是减伤高的地形之一。
 
-纪律：这些用例都会改 `game.*` 的活表，`tearDown` 必须 `jitter.restore()`，
-否则污染后面所有用例（那种失败极难定位）。
+纪律：这些用例都会**就地改 `game.*` 的活表**，所以每例前后各拷一份、就地还原
+（`clear()` + `update()`，**绝不替换容器** —— `mp.py` 拿的是同一个 dict 对象）。
+漏了还原会污染后面所有用例，那种失败极难定位。
 """
 from __future__ import annotations
 
+import copy
 import random
 import unittest
 
 import game
 from mp import World
-from rl import jitter
 
 from ruleai import v10 as V10
 
@@ -30,9 +33,20 @@ def _world(seed: int = 0, size: int = 12) -> World:
     return World(size=size, seed=seed, nations=["秦"])
 
 
+_LIVE_TABLES = ("UNIT_TYPES", "TERRAIN_STATS", "BUILDINGS")   # 被这些用例就地改的活表
+
+
 class RuleCase(unittest.TestCase):
+    """基线类：活表快照 + 就地还原（口径见模块说明的"纪律"）。"""
+
+    def setUp(self):
+        self._snap = {k: copy.deepcopy(getattr(game, k)) for k in _LIVE_TABLES}
+
     def tearDown(self):
-        jitter.restore()
+        for k, v in self._snap.items():
+            cur = getattr(game, k)
+            cur.clear()
+            cur.update(v)
 
 
 class TestFightCost(RuleCase):
@@ -126,157 +140,3 @@ class TestNoMountainSpecialCase(RuleCase):
         self.assertEqual(v9_mv, 0, "v9 本该一步不走（它的绕山地过滤）—— 对照失效了")
         self.assertGreater(v10_mv, 0, "全山地世界里一步没走 —— 绕山地的逻辑还在")
         self.assertGreater(v10_tiles, v9_tiles, "不绕山地却没多占地")
-
-
-class TestJitterRegression(RuleCase):
-    """★抖动不许把引擎打进非法状态（踩过一次：投料抖成 0 → 引擎除零）。"""
-
-    def test_yields_and_inputs_never_zero(self):
-        for seed in range(40):
-            jitter.apply(seed, 0.4)
-            for b in game.BUILDINGS.values():
-                for f in ("outputs", "inputs", "fuel"):
-                    for v in (b.get(f) or {}).values():
-                        self.assertGreaterEqual(
-                            v, 1, f"{f} 抖成了 {v} —— 引擎的 `res // need` 会除零")
-
-    def test_engine_survives_jittered_factory(self):
-        """真跑一小局：抖动后引擎不许抛异常（除零那个 bug 的端到端回归）。"""
-        for seed in (7, 3, 11):
-            jitter.apply(seed, 0.4)
-            w = World(size=10, seed=seed, nations=["秦"])
-            w.begin_turn()
-            rng = random.Random(seed)
-            for t in range(8):
-                V10.expand_rule_turn_v10(w, "秦", rng, max_actions=10 ** 9)
-                w.resolve_turn()
-                if t < 7:
-                    w.begin_turn()
-
-
-class TestDegenerateEpisodeGuard(unittest.TestCase):
-    """★退化局守卫（`rl/bc.py` 的 `episode_is_degenerate`）。
-
-    抖动过大时老师可能整局"启动不起来"（领地停在开局 5 格、0 次进攻），
-    那种局的样本几乎全是 end_turn —— 收进缓冲等于**教学生"别动"**。
-    实测（20 图 × 80 回合）：±20% 健康局最少 12 格；±35% 起出现 ≤7 格的退化局。
-    """
-
-    def test_open_cross_is_always_degenerate(self):
-        from rl.bc import episode_is_degenerate
-        for seen in ([], [30], [12, 40, 33, 28]):
-            self.assertTrue(episode_is_degenerate(5, seen), "开局 5 格 = 一格没打下来")
-
-    def test_measured_gap(self):
-        """实测间隔：退化 ≤7、健康 ≥12 —— 阈值要落在这中间，且不许误伤健康局。"""
-        from rl.bc import episode_is_degenerate
-        seen = [12, 22, 28, 33, 40, 50]          # ±20% 实测的一批
-        for bad in (5, 6, 7):
-            self.assertTrue(episode_is_degenerate(bad, seen), f"{bad} 格该判退化")
-        for ok in (12, 22, 30, 40, 50):
-            self.assertFalse(episode_is_degenerate(ok, seen), f"{ok} 格不该判退化")
-
-    def test_relative_threshold_not_absolute(self):
-        """阈值相对化：同一格数在"大盘面"里是退化、在"小盘面"里正常。
-
-        （绝对阈值会随回合数/地图尺寸漂 —— 而"比别的局差一大截"是稳定信号。）
-        """
-        from rl.bc import episode_is_degenerate
-        self.assertTrue(episode_is_degenerate(10, [40, 45, 50, 42]))
-        self.assertFalse(episode_is_degenerate(10, [12, 11, 13, 12]))
-
-    def test_few_samples_uses_floor(self):
-        from rl.bc import episode_is_degenerate
-        self.assertTrue(episode_is_degenerate(7, [50]))     # 样本少 → 只看 floor
-        self.assertFalse(episode_is_degenerate(12, [50]))
-
-    def test_dagger_episodes_are_never_degenerate(self):
-        """★DAgger 局一律不判退化：那时领地反映的是**学生**，而学生不会扩张
-        正是要打标签的东西（踩过：`--dagger-from 21` 一开，后半程 21 局全被丢弃，
-        那半炉一个样本没进缓冲；且丢弃局不做梯度步 ⇒ 整炉只跑了 3.6 小时就"完成"）。"""
-        from rl.bc import episode_is_degenerate
-        for tiles in (5, 7, 12, 30):
-            self.assertFalse(episode_is_degenerate(tiles, [30, 28, 33], turns=70,
-                                                   student_driven=True))
-        self.assertTrue(episode_is_degenerate(5, [30, 28, 33], turns=70))
-
-    def test_short_episodes_are_never_degenerate(self):
-        """★回合数不够时判据不成立：扩张本来就晚（首攻中位第 21 回合），
-        短回合的冒烟/调试跑法本来就只有开局那 5 格 —— 别把它的样本丢掉。"""
-        from rl.bc import episode_is_degenerate
-        for turns in (8, 12, 30, 39):
-            self.assertFalse(episode_is_degenerate(5, [], turns=turns),
-                             f"{turns} 回合不该按退化处理")
-        self.assertTrue(episode_is_degenerate(5, [], turns=70))
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-
-class TestTeacherHorizon(unittest.TestCase):
-    """★老师口径：`HORIZON` 必须按「每局回合 + 20」设（用户 2026-09-11 口径）。
-
-    漏过这一行：v10 分支在 `bc.py`/`compare.py` 里只注册了函数、没设 HORIZON，
-    于是它用默认的 200 —— 70 回合的局按 200 回合规划，扩张明显变少
-    （实测 20 图：领地 28→19、进攻 24→17，消费 4,019→4,260）。
-    这条测试盯着"两个入口都给 v10 设了同样的窗口"。
-    """
-
-    def tearDown(self):
-        jitter.restore()
-        import importlib
-        from ruleai import v10
-        importlib.reload(v10)      # 还原模块级 HORIZON
-
-    def test_bc_get_teacher_sets_horizon(self):
-        from ruleai import v10
-        from rl.bc import get_teacher
-        get_teacher("v10", 70)
-        self.assertEqual(v10.HORIZON, 90,
-                         "bc.get_teacher('v10', 70) 该把 HORIZON 设成 90")
-
-    def test_bc_get_teacher_honours_explicit_horizon(self):
-        from ruleai import v10
-        from rl.bc import get_teacher
-        get_teacher("v10", 70, horizon=150)
-        self.assertEqual(v10.HORIZON, 150)
-
-    def test_compare_run_rule_sets_horizon(self):
-        from ruleai import v10
-        from rl.compare import run_rule
-        from rl.env import ZhanguoEnv
-        env = ZhanguoEnv(map_size=8, max_turns=10)
-        run_rule(env, seed=0, turns=10, which="v10")
-        self.assertEqual(v10.HORIZON, 30)
-
-
-class TestBcLabelMatching(unittest.TestCase):
-    """`rl/bc.py:match()` 的兜底语义（标签质量）。
-
-    踩过：老师一次卖 20~49 个，而 `AMOUNTS` 上限 16 ⇒ 旧的"取同类别第一个候选"
-    兜底给出 **amount 1** —— 标签变成「有 35 个余量 → 只卖 1 个」（实测占样本 2.3%）。
-    """
-
-    def _acts(self, kind, sub, amounts):
-        from rl.env import Action
-        return [Action(kind, sub, None, 0, n) for n in amounts]
-
-    def test_exact_wins(self):
-        from rl.bc import match
-        acts = self._acts("sell", "木头", (1, 2, 8, 16))
-        self.assertEqual(match(acts, ("sell", "木头", None, 0, 8)), 2)
-
-    def test_fallback_picks_nearest_amount_not_first(self):
-        from rl.bc import match
-        acts = self._acts("sell", "木头", (1, 2, 8, 16))
-        # 老师想卖 20（超出档位上限）→ 该给 16，而不是第一个（1）
-        i = match(acts, ("sell", "木头", None, 0, 20))
-        self.assertEqual(acts[i].amount, 16, "兜底该取最接近的档位")
-        i = match(acts, ("sell", "木头", None, 0, 7))
-        self.assertEqual(acts[i].amount, 8)
-
-    def test_cross_kind_is_not_matched(self):
-        from rl.bc import match
-        acts = self._acts("buy", "木头", (1, 16))
-        self.assertIsNone(match(acts, ("sell", "木头", None, 0, 20)))

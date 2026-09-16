@@ -10,8 +10,8 @@
 1. **只改「值」，绝不替换容器。** `game.py` / `mp.py` 是 `from balance import BUILDINGS`
    —— 拿到的是**同一个 dict 对象**，就地改立即生效；写 `balance.BUILDINGS = {...}`
    只改本模块看到的引用，**引擎毫无察觉**（值拷贝）。
-   `rl/jitter.py`（训练期域随机化）整套机制就建立在这条上：它 `game.BUILDINGS[name].update(...)`
-   就地抖，抖完 `restore()` 就地还原。
+   `feat/rl` 分支的 `rl/jitter.py`（训练期域随机化）整套机制就建立在这条上：
+   它 `game.BUILDINGS[name].update(...)` 就地抖，抖完 `restore()` 就地还原。
 2. **本文件不 import 任何引擎模块**（纯数据，无环）：`balance` ← `game` ← `mp`/`mp_ai`。
    守卫：`tests/test_balance.py`。
 3. **README 不背数值**（2026-09-15 起）：本文件是规则的唯一权威，想查数值就来看这里；

@@ -234,7 +234,7 @@ class World:
         #   `HORIZON` 常量** —— 那个常量必须由外部 `set_horizon()` 覆盖才对准，而
         #   "设了但没设上"是这个项目反复栽的坑（2026-09-15 一次：v11/v12 全程按 200 规划）。
         #   ⇒ 口径唯一：**视野 = `max_turns + 20`**。跑局的人只需把本局长度放进来
-        #   （`mp_run` 按 `--turns`/配置设，`rl/env.py` 按 `max_turns` 设）。
+        #   （`mp_run` 按 `--turns`/配置设；`feat/rl` 分支的 `rl/env.py` 按 `max_turns` 设）。
         #   缺省 200 是**这场游戏的缺省长度**（与 `mp_config` 的 `max_turns` 同值），
         #   不是"缺省视野"。
         self.max_turns = int(max_turns)

@@ -17,7 +17,7 @@ import random
 
 # 数值表全部住在 balance.py（**唯一调参入口**）；这里原样转口，不是副本：
 # `from game import BUILDINGS` 拿到的与 `balance.BUILDINGS` 是**同一个对象**，
-# 就地改（如 `rl/jitter.py` 的域随机化）两边同时可见。
+# 就地改（如 `feat/rl` 分支 `rl/jitter.py` 的域随机化）两边同时可见。
 from balance import (
     ARMY_ATTACK_DAMAGE,
     ARMY_HEAL_PER_TURN,
@@ -66,7 +66,7 @@ from balance import (
 # 「工程院 -25%」是一条可读、可对比、可整体抖动的**数据**。
 # 约定：**键名是语义**（见下面 `building_effect` 的取值表），缺省 = 0（没这项效果）。
 # ⚠ 只搬了六座复合建筑的效果；**外交线**的 LETTER_*/DIPLO_CENTER_* 仍是常量
-#   （RL 不观测外交，见 rl/TOKEN_DESIGN.md §10.10）。
+#   （RL 不观测外交，见 `feat/rl` 分支的 `rl/TOKEN_DESIGN.md` §10.10）。
 def building_effect(name: str, key: str, default: float = 0):
     """取某建筑的效果值。`effects` 里没有的键 → `default`（默认 0 = 无此效果）。"""
     return BUILDINGS.get(name, {}).get("effects", {}).get(key, default)

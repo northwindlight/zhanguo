@@ -153,7 +153,7 @@ def run(ledger, world, name: str) -> None:
     own = tiles()
     if not own:
         return acts
-    armies = [a for a in world.armies if a["owner"] == name and a["hp"] > 0]
+    armies = [a for a in world.troops if a["owner"] == name and a["hp"] > 0]
     army_n = len(armies)
 
     # ================================================================ 1. 账面盘点

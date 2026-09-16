@@ -17,7 +17,7 @@
 """
 from __future__ import annotations
 
-from balance import (V11_FIELD_MAX_COST, V11_MAX_ATTACKS, V11_NEED_CAP,
+from balance import (V11_FIELD_MAX_COST, V11_NEED_CAP,
                      V11_ROUNDS_CAP, V11_SCAN_RADIUS)
 from .combat import assess
 from game import unit_kind, unit_max_hp
@@ -39,7 +39,7 @@ def run(ledger, world, name: str) -> None:
     acts = ledger.acts
     do = ledger.do
     max_actions = ledger.max_actions
-    armies = [a for a in world.armies if a["owner"] == name and a["hp"] > 0]
+    armies = [a for a in world.troops if a["owner"] == name and a["hp"] > 0]
     pool = sorted((a for a in armies
                    if not a.get("engaged") and a.get("moved_turn") != world.turn),
                   key=lambda a: a["id"])
@@ -62,7 +62,6 @@ def run(ledger, world, name: str) -> None:
 
     reach: dict = {}                                      # 每军每回合只问引擎一次（它无缓存）
     engaged_or_used: set = set()
-    n_attacks = 0                                         # 本回合已开打的场数（上限见 V11_MAX_ATTACKS）
 
     def taken(cell) -> bool:
         """出手前再查一次：这一格现在**已经不是能打的**了（变成自己的/中立/盟国的）。
@@ -92,8 +91,13 @@ def run(ledger, world, name: str) -> None:
                                        reach=reach_of(a, for_attack=True))]
         # ★ 打不打**不问常数、只问判定式**：把"够得着的满血那几支"喂给 `combat.assess`，
         #   它说赢得下来就打 —— 这就是"最小编组由军队需要算出来"，没有 `MIN_SQUAD`。
+        # ★ 2026-09-15：**删掉了"每回合最多 `V11_MAX_ATTACKS`(4) 场进攻"那条闸**
+        #   （用户：「v11 的操作限制删掉」）。实测它几乎不咬人：40x40、200 回合、种子 0
+        #   有 14% 的回合打满 4 场，删后进攻 +1.7%、领土 343→353、**消费逐字不变**；
+        #   种子 7 / 900000 一次都没触顶（逐字相同）。下界仍在：`len(acts) < max_actions - 2`
+        #   与引擎自己的"每军每回合动一次"。`balance.V11_MAX_ATTACKS` **留着** ——
+        #   v12 仍在用它（v12 = v11 整包副本 + 4 处 int() 修复），别当它没主。
         fit = (able and len(acts) < max_actions - 2 and not taken(cell)
-               and n_attacks < V11_MAX_ATTACKS
                and assess(world, name, cell, able, visible=cell in mask,
                           need_cap=V11_NEED_CAP, rounds_cap=V11_ROUNDS_CAP).winnable)
         if fit:
@@ -101,7 +105,6 @@ def run(ledger, world, name: str) -> None:
                              "x": cell[0] + 1, "y": cell[1] + 1},
                   world.attack, name, [a["id"] for a in able], cell[0], cell[1]):
                 engaged_or_used.update(a["id"] for a in able)
-                n_attacks += 1
                 continue
         if taken(cell):
             continue

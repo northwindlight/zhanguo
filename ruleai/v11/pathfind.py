@@ -29,7 +29,6 @@ v10 的这一件是**单步贪心**：`min(邻居, key=切比雪夫距离)`。�
 """
 from __future__ import annotations
 
-import heapq
 
 from game import MOVE_COST, building_effect
 
@@ -89,16 +88,20 @@ def cell_cost(world, kind: str, cell: tuple[int, int], vision) -> int:
 
 
 def enemy_cells(world, name: str) -> frozenset:
-    """**有与我交战的他国驻军**的格（一趟 O(军队数)，一回合算一次）。
+    """**有与我交战的他国驻军**的格（一趟 O(国家军队数)，一回合算一次）。
 
     ★ 为什么要预先算：引擎 `_mv_wall` 里那一条是 `any(... for d in world.armies)` ——
       而野人守卫把**全图**铺满了（40×40 就有 ~1500 支），所以逐格问一次就是 O(1500)。
       代价场每回合要问几十万次，这一项一度占了 79% 的运行时。
       口径与引擎逐字一致：只看**他国**且**与我交战**的（野人驻军不是墙 —— 行军不打野人）。
+
+    ★ 2026-09-16：改成扫 `world.troops`（**非野人名单**，引擎里那张惰性自失效的表）。
+      `"野人"` 那一条本就写着 `d["owner"] != "野人"`，所以**逐条等价**；而 1500 支野人
+      从此不再被走过 —— 实测（40x40、第 60 回合、1583 支军队）本函数 128μs → 0.7μs，
+      而一回合要问 ~9 张场。名单本身的维护见 `mp.World.troops` 的文档。
     """
-    return frozenset((d["x"], d["y"]) for d in world.armies
-                     if d["owner"] != name and d["owner"] != "野人"
-                     and world.war_between(name, d["owner"]))
+    return frozenset((d["x"], d["y"]) for d in world.troops
+                     if d["owner"] != name and world.war_between(name, d["owner"]))
 
 
 def is_wall(world, name: str, cell: tuple[int, int], vision, blocked=None) -> bool:
@@ -121,6 +124,110 @@ def is_wall(world, name: str, cell: tuple[int, int], vision, blocked=None) -> bo
     return cell in blocked
 
 
+_ADJ: dict[int, tuple[tuple[int, ...], ...]] = {}
+
+
+def _adj_of(size: int) -> tuple[tuple[int, ...], ...]:
+    """每格的邻居表（**整数下标** = `x * size + y`）：只与地图边长有关，建一次全家共用。
+
+    与 `World.neighbors` **同序**（`dx` 外层、`dy` 内层）。为什么要有它：旧内层每弹一格
+    都现建一个邻居列表，实测那一项（80 万次调用）占掉整体运行时的 1/6；而这张表是
+    **纯几何**的 —— 与局面无关，所以它不存在"缓存陈旧"这个问题（与下面那两张表不同）。
+    """
+    got = _ADJ.get(size)
+    if got is None:
+        rows = []
+        for x in range(size):
+            for y in range(size):
+                rows.append(tuple(
+                    x2 * size + y2
+                    for x2 in (x - 1, x, x + 1) for y2 in (y - 1, y, y + 1)
+                    if (x2 != x or y2 != y) and 0 <= x2 < size and 0 <= y2 < size))
+        got = tuple(rows)
+        _ADJ[size] = got
+    return got
+
+
+def _dijkstra(world, name: str, gl: list, kind: str, vision, max_cost: int) -> dict:
+    """代价场的**快实现**：与 `cost_field` 原先那版（元组 + 字典 + `World.neighbors`）
+    **逐值等价**，只是把内层降到"整数下标 + 定长数组"。
+
+    三处提速，都不改语义：
+
+      · **邻居表按边长预建**（`_adj_of`）—— 纯几何，与局面无关；
+      · **`best` 用定长数组、堆里存 `(代价, 下标)`** —— 下标 `x * size + y` 单调于
+        `(x, y)`，所以出堆顺序与旧写的 `(代价, x, y)` **同序**，逐值不变；
+      · **地形代价与"墙"在本场够得到的方框内现算成两张表** —— 每跨一步至少花 1 点移动力，
+        所以代价 ≤ `max_cost` 的格必然落在切比雪夫距离 `max_cost` 之内（方框外够不到）。
+        现算 ⇒ 与旧写法同源、**不存在缓存陈旧**；而每格只问引擎一次（旧写法每格问 8 次）。
+    ★ 2026-09-16：堆换成**桶队列**（Dial）—— 步代价只可能是 1/2 的小整数，于是"按距离
+      分桶 + 从小到大扫一遍"就够了，省掉 68 万次 push/67 万次 pop 的堆操作（实测这一项
+      占整局 ~8%）。**逐值等价**：Dijkstra 的取值与松弛顺序无关，桶只是把"下一个该弹谁"
+      从堆里换成数组下标；只有代价为 0 的边才会往**当前**桶里追加，`while b` 那个内层
+      循环正好兜住（本局地形最小代价是 1，这条是防将来加"道路 0 代价"）。
+    """
+    size = world.size
+    n = size * size
+    adj = _adj_of(size)
+    best = [_INF] * n
+    buckets: list = [[] for _ in range(max_cost + 1)]
+    for gx, gy in gl:
+        i = gx * size + gy
+        if best[i] == _INF:                 # 源格（同格重复的 goal 只算一次）
+            best[i] = 0
+            buckets[0].append(i)
+
+    xs = [g[0] for g in gl]
+    ys = [g[1] for g in gl]
+    lo_x, hi_x = max(0, min(xs) - max_cost), min(size - 1, max(xs) + max_cost)
+    lo_y, hi_y = max(0, min(ys) - max_cost), min(size - 1, max(ys) + max_cost)
+
+    move = MOVE_COST.get(kind, {})
+    by_owner = world.owned_by
+    allied = world.allied_between
+    terrain = world.tile_terrain
+    blocked = enemy_cells(world, name)      # ★ 一趟算好，别在几十万次松弛里各扫一遍全图
+    cost_of = [_UNSEEN_COST] * n            # 视野外一律按平原估（与 `cell_cost` 同款）
+    wall_of = bytearray(n)                  # 视野内"走不进去"的格（与 `is_wall` 同口径）
+    for x in range(lo_x, hi_x + 1):
+        base = x * size
+        for y in range(lo_y, hi_y + 1):
+            if (x, y) not in vision:
+                continue                    # 视野外：地形一次都不读、墙一律不认
+            i = base + y
+            cost_of[i] = move.get(terrain(x, y), 1)
+            owner = by_owner(x, y)
+            if owner is not None and owner != name and not allied(name, owner):
+                wall_of[i] = 1
+            elif (x, y) in blocked:
+                wall_of[i] = 1
+
+    for d in range(max_cost + 1):
+        b = buckets[d]
+        while b:                            # ← 0 代价的边会往当前桶追加，故用 while 排空
+            i = b.pop()
+            if best[i] != d:                # 陈旧条目（这一格后来被更近的路改过）
+                continue
+            here = cost_of[i]
+            for j in adj[i]:
+                if wall_of[j]:
+                    continue                # 走不进去 ⇒ 更不能穿过（与引擎逐格判定一致）
+                cj = cost_of[j]
+                ncost = d + (here if here > cj else cj)
+                if ncost <= max_cost and ncost < best[j]:
+                    best[j] = ncost
+                    buckets[ncost].append(j)
+
+    out: dict = {}
+    for x in range(lo_x, hi_x + 1):
+        base = x * size
+        for y in range(lo_y, hi_y + 1):
+            v = best[base + y]
+            if v < _INF:
+                out[(x, y)] = v
+    return out
+
+
 def cost_field(world, name: str, goals, kind: str, vision, *, max_cost: int,
                cache: dict | None = None) -> dict:
     """以 `goals` 为源的**代价场**：`{格子: 走到最近那个目标还要几点移动力}`。
@@ -131,29 +238,20 @@ def cost_field(world, name: str, goals, kind: str, vision, *, max_cost: int,
 
     `cache`：调用方持有的字典（键 = `(goals, kind, max_cost)`），同一回合里重复问同一个
     目标就直接命中。**模块自己不存缓存** —— 见文件头。
+
+    ★ 2026-09-15：内层换成 `_dijkstra`（快版，逐值等价）。**为什么**：v11 在 40x40、
+      200 回合上比 v10 慢 5.9x（22.9s vs 3.9s），而它的动作数**更少** —— 慢的不是动作多，
+      是这里。后期每回合真算 ~40 张场、每张 330~475 格，连同 `neighbors`/`cell_cost`
+      占掉整体时间的六成。
+    ★ **前提到 `goals` 全在地图内** —— `targeting.candidates` 只产出地图内的格；
+      万一越界会被丢掉（旧写法把它当"代价 0 的源"记下来，那是个没有调用方的死分支）。
     """
     key = (tuple(sorted(goals)), kind, max_cost)
     if cache is not None and key in cache:
         return cache[key]
-    best: dict = {}
-    heap: list = []
-    blocked = enemy_cells(world, name)      # ★ 一趟算好，别在几十万次松弛里各扫一遍全图
-    for g in sorted(goals):
-        best[g] = 0
-        heapq.heappush(heap, (0, g[0], g[1]))
-    while heap:
-        c, x, y = heapq.heappop(heap)
-        if c > best.get((x, y), _INF):
-            continue
-        here = cell_cost(world, kind, (x, y), vision)
-        for nb in world.neighbors(x, y):
-            ncost = c + max(here, cell_cost(world, kind, nb, vision))
-            if ncost > max_cost or ncost >= best.get(nb, _INF):
-                continue
-            if is_wall(world, name, nb, vision, blocked):
-                continue                    # 走不进去 ⇒ 更不能穿过（与引擎逐格判定一致）
-            best[nb] = ncost
-            heapq.heappush(heap, (ncost, nb[0], nb[1]))
+    gl = [g for g in sorted(goals)
+          if 0 <= g[0] < world.size and 0 <= g[1] < world.size]
+    best = _dijkstra(world, name, gl, kind, vision, max_cost) if gl else {}
     if cache is not None:
         cache[key] = best
     return best
