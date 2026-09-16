@@ -34,9 +34,12 @@ v10 **一个字节没动**（它仍是缺省基线、也是 RL 线的 BC 老师�
 ## 给 RL 线的接口
 
 - **入口**：`ruleai.v12.expand_rule_turn_v12`（签名与各代一致）。
-- **`set_horizon(n)`**：改经济层的评估窗口。★ 别用 `mod.HORIZON = n` 那种写法 ——
-  那个值住在 `economy.py` 里，直接给本模块赋值**不会**传到经济层（v10 当年就踩过
-  "老师被设了窗口、自己还按缺省算"的坑）。所以这里给的是函数。
+- **没有视野旋钮**（用户 2026-09-15：「v10 起，不设默认视野，恒等于回合数加 20」）：
+  规划窗口 = `world.max_turns + 20`，跑局的人把**本局总回合数**放进 world 即可。
+  ★原先这里有 `set_horizon(n)` / `HORIZON` 转口；**已删** —— 那个接口本身就是坑：
+  值住在 `economy.py`，从外面 `mod.HORIZON = n` 只会给入口模块造个新变量，
+  经济层读不到（2026-09-15 实测：v11/v12 因此全程按 200 规划）。
+  **能被设错的旋钮，不如没有旋钮。**
 - **编组状态是模块内存**（`grouping._STATE`，见底稿 §七）：RL **每局开始必须
   `ruleai.v12.grouping.clear()`**，否则上一局的编组会漏进新局。
 """
@@ -45,17 +48,4 @@ from __future__ import annotations
 from . import economy, grouping, military       # noqa: F401  转口：调用方按需取用
 from .entry import expand_rule_turn_v12         # noqa: F401  注册表指向它
 
-__all__ = ["expand_rule_turn_v12", "set_horizon", "HORIZON", "economy", "military",
-           "grouping"]
-
-
-def set_horizon(turns: int) -> None:
-    """设经济层的评估窗口（RL 的 `set_horizon` 口径；见模块说明）。"""
-    economy.HORIZON = int(turns)
-
-
-def __getattr__(name: str):                     # noqa: D105
-    """`HORIZON` **读时转口**到经济层：拿到的是当下的值，不是 import 那一刻的快照。"""
-    if name == "HORIZON":
-        return economy.HORIZON
-    raise AttributeError(name)
+__all__ = ["expand_rule_turn_v12", "economy", "military", "grouping"]

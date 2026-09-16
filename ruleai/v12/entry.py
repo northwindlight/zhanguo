@@ -10,8 +10,9 @@
 ★ 与 v10 的关系：v10 一个字节没动（它仍是缺省基线，也是 RL 线的 BC 老师）。
   `DEFAULT_RULE_AI` 也还是 `v10`；要用 v11 得在配置里写 `"rule_ai": "v11"`。
 
-★ RL 线提醒：v11 若要当 BC 老师，`rl/bc.py` 的 teacher 分派是硬编码 if/elif，
-  得单独加一支；`HORIZON` 已按惯例在这个模块级暴露（`set_horizon` 改的就是它）。
+★ RL 线提醒：v12 若要当 BC 老师，`rl/bc.py` 的 teacher 分派是硬编码 if/elif，
+  得单独加一支；规划窗口没有旋钮 —— 读 `world.max_turns + 20`
+  （用户 2026-09-15：「不设默认视野，恒等于回合数加 20」）。
 """
 from __future__ import annotations
 
@@ -19,7 +20,6 @@ import random
 
 from . import economy, military
 from .ledger import Ledger
-from .economy import HORIZON                          # noqa: F401  转口（RL 的 set_horizon 认它）
 
 
 def expand_rule_turn_v12(world, name: str, rng: random.Random | None = None,
