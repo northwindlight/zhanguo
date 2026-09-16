@@ -343,8 +343,20 @@ def run(ledger, world, name: str) -> None:
                 gen_add += BUILDINGS["木材能源厂"]["energy_out"]
                 continue
 
-        # ---- ④ ROI 项（选项）：这一格回本最快的那些 ----
-        cand = [(pb, bn) for pb, bn, q in roi if q == p]
-        if cand:
-            _pb, bn = cand[0]
-            place(p, bn)
+        # ---- ④ ROI 项：**不在这里建** —— 见循环之后那一段（按回本期顺序）----
+
+    # ---- ④ ROI 项（选项）：**按回本期顺序**花这笔钱 ----
+    #   原先这里是"逐格按坐标序"发钱：排在前面的**难地**先动工（森林/丘陵/山地，施工惩罚
+    #   +15~50%），回本更快的**平地**反而等不到钱 —— 实测 t=200（seed 900000）：v11plus 建了
+    #   70 座在惩罚地上，而"有资源、回本达标"的平地还空着 53 格。
+    #   用户 2026-09-16：「有难地你完全可以不建」⇒ 改成按 `roi`（**回本期升序**）逐格建：
+    #   钱先落在回本最快的地上，难地只有在便宜地建完、钱还剩时才轮得到。
+    #   （⚠ 别改成"只建 `planned` 那几条"：那张表是按预算裁过的、且被 ①②③ 花掉的钱会失效，
+    #     实测那样建筑会从 219 掉到 72 —— 逐格尝试、失败即跳过才是原语义。）
+    best_of: dict = {}
+    for _pb, _bn, _p in roi:
+        best_of.setdefault(_p, _bn)              # roi 升序 ⇒ 每格第一次出现即该格最佳
+    for _p, _bn in best_of.items():
+        if not free_at(_p):
+            continue
+        place(_p, _bn)
