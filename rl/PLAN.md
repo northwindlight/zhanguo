@@ -68,6 +68,52 @@ if free_at(q) and afford(q, "木材能源厂") and spend_ok(q, "木材能源厂"
 `episode_is_degenerate` 那道**事后**守卫留着不动：它管"跑完了才发现是退化局"，
 这里管"根本别跑"。
 
+## 五、★★50 回合的「教开局」炉：三个前置，缺一个就白跑
+
+用户 2026-09-17 定：「第一次训就 50 回合……bc2 局 dagger1 局，bc50 回合 dagger80 回合，
+先教开局，免得学混了」+「训练不抖动」+「找老师 20 回合内启动的图」+「按 v11plus 筛」。
+
+1. **`--degenerate-guard off`（不加就是零样本）**：守卫的核心判据是 `tiles <= 5 ⇒ 退化`
+   （开局十字就是 5 格），而**实测老师 50 回合前一格都不打**（逐 25 回合量：25/50 回合
+   全是 5 格，扩地要到 75 回合起步）⇒ 短回合下健康局也全是 5 格。实测 `--turns 50` 三局纯 BC：
+   `auto` = **0 个样本 · 0 梯度步**；`off` = 918 个样本 · 3 梯度步。而且**级联**：
+   BC 局丢光 ⇒ 缓冲空 ⇒ `use_student=False` ⇒ DAgger 局退回老师自走、照样被丢。
+2. **`--map-pool`（BC 侧原先没有，本轮补的）**：`rl/train.py` 一直有（PPO 用
+   `medium_pool.json` 把难度 5.4×→1.6×），BC 侧写死 `seed + 块号 × 7919`。现在
+   **按块顺序取池子**（块 k 取池子第 k % len 个），不给池子逐位沿用旧行为。
+3. **`--skip-blocks-from` 与 `--map-pool` 互斥**：那份退化筛查的块号是按 `块号×7919`
+   测的，换池子就对不上号，两边都会告警。
+
+### 地图池怎么来的（两个口径，都记在 JSON 里）
+
+| 产物 | 是什么 | 口径 |
+|---|---|---|
+| `rl/maps/medium_pool_v11plus.json` | 难度中间 50%，251 张 | **v11plus**、100 回合、不抖动；5.2× → 1.5× |
+| `rl/maps/teacher_start_range.json` | 0..499 里 20 回合内启动的 **93** 张 | v11plus、30 回合（只回答"启动快不快"） |
+| `rl/maps/fast_start_pool.json` | ★**两者交集 44 张**（现役训练池） | 首攻 min 6 / 中位 12 / max 17 |
+| `rl/maps/medium_pool.json` | 旧的 v10 口径（PPO 在用） | **别拿它给 v11plus 用** |
+
+★**两份难度池只重合 127/500** —— 换老师就换一张难度表（用户要求重筛是对的）。
+⚠ `块号×7919` 那 67 张与 `0..499` **不是同一片种子空间**，14 与 93 不构成包含关系。
+⚠ `screen_maps.py` 原先老师写死 v10、输出写死 `medium_pool.json`（会把 PPO 那份盖掉），
+且缺 `sys.path.insert` —— 本轮都修了，老师 / 输出路径改成参数。
+
+## 六、★当前在跑（2026-09-17 06:05 起）
+
+```
+./rl/run_ecs.sh bc --teacher v11plus --net tf --episodes 200 --block 3 --bc-per-map 2 \
+  --turns 50 --dagger-turns 80 --map-pool rl/maps/fast_start_pool.json \
+  --degenerate-guard off --skip-blocks-from "" --steps 250 --buffer 40000 --ckpt-every 4 \
+  --out rl/runs/bc_candx50_pool/last.pt
+```
+
+ECS，日志 `rl/runs/bc_0917_0605.log`，看门狗（每 2 分钟查新行 / Traceback / 进程没了）。
+**无 `--init`**（candx 换架构 ⇒ 从零）。每局约 12 分钟（**由 250 梯度步主导，不由回合数**）
+⇒ 200 局约 **一天**。跑完才谈锚 PPO。
+
+**ECS 侧已核**：`ruleai/` 全部 + `rl/` 全部 + 引擎六文件共 **63 个文件 md5 与本地逐一对齐**。
+本地 `feat/rl` 领先 `origin/feat/rl` 6 个提交（**记得 push**）。
+
 ---
 
 # ★★★ 2026-09-17 接手须知（**比下面那节新，先读这节**）
