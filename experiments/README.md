@@ -80,3 +80,20 @@ PYTHONUTF8=1 .venv311/python.exe experiments/march_probe.py --seeds 0,1,2 --size
 **实测（锚定提交 `0f7cc3c`，40×40 · 300 回合 · 6 种子，中位）**：v11 领土 279 → 400.5
 （6/6 种子全胜）、倒退次数 198 → **0**、行军 1223 → 406、消费 29.9k → 28.7k。
 设计与推导见 `docs/v11编组模型.md`。
+
+## probe_spend_v10_v11.py — v10 vs v11plus 的单国消费对比（2026-09-16）
+
+一图一国（用户口径：多国对战会把"谁先动手、谁背刺"的运气混进消费里），16×16 或 40×40 × 300 回合，
+逐图配对报**终局总消费 / 领土 / 剩余金 / 余货折金**，另附消费构成（建造 / 征兵 / 军费）与国库金曲线。
+口径与 `rl/train.py:teacher_baseline`（`feat/rl`）逐条对齐：图种子 = 局种子 = `900000+i`、
+老师 rng `0xB4BE`、`max_actions` 无上限、每局开跑前清编组状态。
+
+```bash
+python3 experiments/probe_spend_v10_v11.py                          # 16x16 × 300 回合 × 8 图
+python3 experiments/probe_spend_v10_v11.py --size 40 --maps 8       # 40x40（不饱和，区分度更好）
+python3 experiments/probe_spend_v10_v11.py --shares 0.15,0.30,0.60   # v11plus 的 MIL_SHARE 扫描
+python3 experiments/probe_spend_v10_v11.py --gold-trace             # 另打国库金曲线
+```
+
+**一条读数的坑**：16×16 在 300 回合会**打满**（256 格全占）⇒ 指标被压平，看不出差别；
+要区分得用 40×40（不饱和）或更短的回合数（`teacher_baseline` 只用前 100 回合就是这个道理）。
