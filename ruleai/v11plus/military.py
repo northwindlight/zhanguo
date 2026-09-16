@@ -94,10 +94,16 @@ def run(ledger, world, name: str) -> None:
         # ★ 2026-09-15：**删掉了"每回合最多 `V11_MAX_ATTACKS`(4) 场进攻"那条闸**
         #   （用户：「v11 的操作限制删掉」）。实测它几乎不咬人：40x40、200 回合、种子 0
         #   有 14% 的回合打满 4 场，删后进攻 +1.7%、领土 343→353、**消费逐字不变**；
-        #   种子 7 / 900000 一次都没触顶（逐字相同）。下界仍在：`len(acts) < max_actions - 2`
-        #   与引擎自己的"每军每回合动一次"。`balance.V11_MAX_ATTACKS` **留着** ——
-        #   v12 仍在用它（v12 = v11 整包副本 + 4 处 int() 修复），别当它没主。
-        fit = (able and len(acts) < max_actions - 2 and not taken(cell)
+        #   种子 7 / 900000 一次都没触顶（逐字相同）。
+        # ★ 2026-09-16：**又删掉两处自我限制**（用户：「不是早就让你取消任何 v11 的动作限制吗」）：
+        #   ① 这里的 `max_actions - 2`（军事段给自己留的 2 个动作）→ 回到 `max_actions`；
+        #   ② 经济段的 `econ_full()`（给军事段留 `V11_MIL_RESERVE`=6 个动作）→ 整条闸拆掉。
+        #   两处都是**为"看海默认 12 个动作"那个上限而生的**；上限 2026-09-15 已删，
+        #   它们就成了单纯的自我限制。现在唯一还在的额度是**引擎自己**的
+        #   `ledger.max_actions`（缺省 10**9 = 无上限）与"每军每回合动一次"。
+        #   `balance.V11_MAX_ATTACKS` / `V11_MIL_RESERVE` **都留着** ——
+        #   冻结版 v11 与 v12 还在 import 它们，别当它们没主。
+        fit = (able and len(acts) < max_actions and not taken(cell)
                and assess(world, name, cell, able, visible=cell in mask,
                           need_cap=V11_NEED_CAP, rounds_cap=V11_ROUNDS_CAP).winnable)
         if fit:

@@ -14,18 +14,18 @@
   2. **征召料按引擎同一口径现读**（`world.recruit_cost(name, "步")`，含政体特价）：
      v10 读的是 `UNIT_TYPES["步"]["recruit"]` 与 `BUILDINGS["兵营"]["army_cost"]`
      两份手抄表——今天数值恰好相同，一改平衡就漂。
-  3. **给军事段留额度**（`V11_MIL_RESERVE`）：清仓/备料也要卡这个闸。v10 只在建造循环里卡，
-     于是买卖能把 `max_actions` 吃干、军事段一个动作都发不出（看海配置默认只有 12 个）。
-     ⚠**2026-09-15：那个"看海默认 12 个"的上限已删**（用户：「给我全删了」）——
-     见 `rule_ai.UNLIMITED_ACTIONS`。本条留作**当年的设计动机**（它也解释了
-     `V11_MIL_RESERVE` 为什么存在），别当成现状读。
+  3. ~~给军事段留额度（`V11_MIL_RESERVE`）：清仓/备料也要卡这个闸。~~
+     **★ 2026-09-16 已删**（用户：「不是早就让你取消任何 v11 的动作限制吗」）：
+     这条闸（`econ_full()` 卡买卖 + 建造循环里的 `break`）是**为"看海默认只给 12 个动作"
+     那个上限而生的** —— 上限本身 2026-09-15 就删了（`rule_ai.UNLIMITED_ACTIONS`），
+     闸却留了下来。额度既然无上限，"给军事段留 6 个"就是纯粹的自我限制 ⇒ 一并拆掉。
+     `balance.V11_MIL_RESERVE` **留着**（冻结版 v11 与 v12 还在 import 它），别当它没主。
 
 ★ **产兵权在这里**（用户 2026-09-15：「产兵由经济引擎决定」）：产几支、何时产、
   出生在哪个兵营格，都由本层决定；军事层只负责**用**已经存在的兵，不碰产兵。
 """
 from __future__ import annotations
 
-from balance import V11_MIL_RESERVE
 from game import BUILDINGS, MAX_SLOTS, TRADEABLE, unit_kind, unit_supply
 from mp import build_econ
 
@@ -89,7 +89,8 @@ def run(ledger, world, name: str) -> None:
     """把一个回合的经济动作追加进 `ledger`（额度与回调都由它统一管）。"""
     acts = ledger.acts
     do = ledger.do
-    max_actions = ledger.max_actions
+    # ★ 2026-09-16：这里原先还有 `max_actions = ledger.max_actions`（只为 `econ_full()` 服务）
+    #   与"给军事段留额度"那条闸 —— 都随"v11 不留任何动作限制"一起拆了（见模块说明第 3 条）。
 
     # ================================================================ 0. 工具
     # （第 0~7 节 = `expand_rule_v10.py` 的经济段，照抄不动，只在上面那几处按 v11 口径改）
@@ -129,29 +130,15 @@ def run(ledger, world, name: str) -> None:
         return do("build", {"tile": f"{p[0]+1} {p[1]+1}", "building": bn},
                   world.build, name, p[0], p[1], bn)
 
-    def econ_full() -> bool:
-        """经济段的额度用完了吗（给军事段留出 `V11_MIL_RESERVE` 个动作）。
-
-        ★ 这条闸**必须卡在买卖上**：清仓（第 5 节）与备料（第 6 节）在建造之前跑，
-          一次可以花掉十几个动作（最多 6 项物资各一笔）。不拦它，经济段就会把
-          `max_actions` 吃干，军事段一个动作都发不出去 —— 看海配置里默认只有 12 个动作，
-          实测（40×40 seed 0）就是"200 回合 0 扩张、领土一直停在 5 格"。
-          ⚠**2026-09-15：那个上限已删**（`rule_ai.UNLIMITED_ACTIONS`）—— 但这条闸**留着**：
-          额度没有上限不等于不用记账，两层仍共用一本账（见 `ledger.py`）。
-          v10 也有这个结构，只是它的数字是那么量出来的；v11 要扩张，就得真留出额度。
-        """
-        return ledger.full(V11_MIL_RESERVE)
-
     def buy(good, qty):
         """**市场调剂**：买多少由 `need` 定，不由余额定（不设 `reserve` 门槛）。"""
         px = max(1, int(world.prices.get(good, 2)))
         q = min(int(qty), max(0, int(R()["黄金"]) // px))
-        return (q > 0 and not econ_full()
-                and do("buy", {"good": good, "qty": q}, world.buy, name, good, q))
+        return (q > 0 and do("buy", {"good": good, "qty": q}, world.buy, name, good, q))
 
     def sell(good, qty):
         # `>=` 而不是 `>`：要卖光时 qty 恰好等于 have，用严格大于会**一个都卖不掉**
-        return (int(qty) > 0 and int(R().get(good, 0)) >= int(qty) and not econ_full()
+        return (int(qty) > 0 and int(R().get(good, 0)) >= int(qty)
                 and do("sell", {"good": good, "qty": int(qty)},
                        world.sell, name, good, int(qty)))
 
@@ -316,8 +303,6 @@ def run(ledger, world, name: str) -> None:
     barr_left = want_barr - cnt("兵营")           # 本回合还差几座兵营
 
     for p in free_tiles:
-        if ledger.full(V11_MIL_RESERVE):
-            break
         if not free_at(p):
             continue
         t = world.tiles[p]
