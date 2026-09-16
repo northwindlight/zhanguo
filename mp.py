@@ -81,6 +81,7 @@ from balance import (
     SPY_TURNS,
     START_RES,
     SUMMARY_MIN_CHARS,
+    TOWNHALL_SLOT_BONUS,
 )
 
 
@@ -224,6 +225,7 @@ def build_econ(world: "World", building: str, tile=None) -> dict:
         per_slot = building_effect(building, "gold_per_slot")
         tt = world.tiles.get(tile) if tile is not None else None
         others = sum(tt["buildings"].values()) if tt is not None else 1   # 不含它自己（还没建）
+        others += TOWNHALL_SLOT_BONUS      # ★ 稍微乐观：那一格还会继续堆（用户 2026-09-16：+2~3）
         per = base + others * per_slot
         if info.get("energy"):
             per -= info["energy"] * good_value(world, "木头", 1, "buy") / 2   # 与工厂同款电耗估法

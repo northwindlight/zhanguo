@@ -200,7 +200,12 @@ def run(ledger, world, name: str) -> None:
             e = build_econ(world, bn, p)           # 传地块：按该格实际造价与效果算回本
             if e["payback"] and e["payback"] <= left:
                 roi.append((e["payback"], bn, p))
-    roi.sort(key=lambda x: x[0])
+    # ★ 2026-09-16（用户）：「还是按 roi 建，只是全国扫地，高级建筑会扫到很多 roi 相同的地，
+    #   然后按密度最高的建」⇒ 排序键加一条**密度降序**当平手判据：
+    #   不挑地的那几族（补给厂/装备厂/电厂/市政厅）在很多格上算出**同一个回本**
+    #   （同造价、同每回合收益 ⇒ 回本只差地形施工惩罚），平手时就往**建筑位最多**的格上建。
+    roi.sort(key=lambda x: (x[0], -slots(x[2]), x[2]))
+    plant_order = sorted(free_tiles, key=lambda q: (-slots(q), q))     # 电厂站址：同一条规则
 
     n_barr = min(max(0, want_barr - cnt("兵营")),
                  sum(1 for p in free_tiles if slots(p) >= 3)) if cnt("兵营") < want_barr else 0
@@ -341,9 +346,12 @@ def run(ledger, world, name: str) -> None:
                 continue
 
         # ---- ③ 电厂（条件项）：补已成事实的缺口 ----
-        if (power + gen_add) < need_pw + _dem_add and afford(p, "木材能源厂") \
-                and spend_ok("木材能源厂"):
-            if build(p, "木材能源厂"):
+        #   ★ 2026-09-16（用户）：「任何电厂……也不挑地，应该密度堆积」⇒ 站址取密度最高的格
+        #   （同 ROI 那条规则；池子是全图可建格，所以不会卡住建不出来）。
+        if (power + gen_add) < need_pw + _dem_add:
+            _site = next((q for q in plant_order
+                          if free_at(q) and afford(q, "木材能源厂") and spend_ok(q, "木材能源厂")), None)
+            if _site is not None and build(_site, "木材能源厂"):
                 gen_add += BUILDINGS["木材能源厂"]["energy_out"]
                 continue
 
