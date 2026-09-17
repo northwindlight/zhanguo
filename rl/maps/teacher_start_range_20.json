@@ -1,0 +1,279 @@
+{
+ "turns": 30,
+ "n_maps": 20,
+ "teacher": "v11plus",
+ "block_stride": 7919,
+ "seed0": 0,
+ "jitter": 0.0,
+ "start_gate": 20,
+ "start_within_20_attack": [
+  18,
+  19
+ ],
+ "start_within_20_expand": [
+  18,
+  19
+ ],
+ "never_expanded": [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  14,
+  15,
+  16,
+  17
+ ],
+ "rows": [
+  {
+   "block": 0,
+   "map_seed": 0,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2739.555666666666
+  },
+  {
+   "block": 1,
+   "map_seed": 1,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2902.250666666667
+  },
+  {
+   "block": 2,
+   "map_seed": 2,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2390.2839999999997
+  },
+  {
+   "block": 3,
+   "map_seed": 3,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2598.8903333333333
+  },
+  {
+   "block": 4,
+   "map_seed": 4,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2534.195333333333
+  },
+  {
+   "block": 5,
+   "map_seed": 5,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2714.2019999999993
+  },
+  {
+   "block": 6,
+   "map_seed": 6,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2128.3053333333332
+  },
+  {
+   "block": 7,
+   "map_seed": 7,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2754.6570000000006
+  },
+  {
+   "block": 8,
+   "map_seed": 8,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2585.358
+  },
+  {
+   "block": 9,
+   "map_seed": 9,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2861.7520000000004
+  },
+  {
+   "block": 10,
+   "map_seed": 10,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2438.8326666666667
+  },
+  {
+   "block": 11,
+   "map_seed": 11,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2417.217333333333
+  },
+  {
+   "block": 12,
+   "map_seed": 12,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2143.422333333333
+  },
+  {
+   "block": 13,
+   "map_seed": 13,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2411.071
+  },
+  {
+   "block": 14,
+   "map_seed": 14,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2600.735333333333
+  },
+  {
+   "block": 15,
+   "map_seed": 15,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2480.7363333333333
+  },
+  {
+   "block": 16,
+   "map_seed": 16,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2515.117333333333
+  },
+  {
+   "block": 17,
+   "map_seed": 17,
+   "first_attack": null,
+   "first_expand": null,
+   "tiles_at": {
+    "10": 5,
+    "20": 5
+   },
+   "tiles_end": 5,
+   "spend": 2793.9683333333332
+  },
+  {
+   "block": 18,
+   "map_seed": 18,
+   "first_attack": 13,
+   "first_expand": 13,
+   "tiles_at": {
+    "10": 5,
+    "20": 10
+   },
+   "tiles_end": 17,
+   "spend": 2306.0253333333335
+  },
+  {
+   "block": 19,
+   "map_seed": 19,
+   "first_attack": 12,
+   "first_expand": 14,
+   "tiles_at": {
+    "10": 5,
+    "20": 7
+   },
+   "tiles_end": 9,
+   "spend": 2296.81
+  }
+ ]
+}
