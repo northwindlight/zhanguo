@@ -154,6 +154,9 @@ python3 settlement.py                   # end-game settlement (scoring + chamber
 
 ## Docs
 
+- [Game manual](docs/游戏说明书.md) (Chinese) — the full human-side rulebook: turn resolution, start &
+  fog of war, buildings, armies & combat, diplomacy, blocs, market, economic reports, command list.
+  Numbers are auto-generated from `balance.py` by `docs/sync_manual.py`; terrain lives in the map doc.
 - [On the consumption-based evaluation metric](docs/消费总量评测指标论证.md) — why rank by "total
   consumption": first-principles argument + three deterministic controlled experiments + an adversarial experiment.
 - [Map generation & resource distribution](docs/地图生成与资源分布.md) — human-side reference.
