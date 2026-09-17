@@ -339,13 +339,17 @@ def _fmt_diplomacy(world, name) -> str:
     bloc = world.bloc_of(name)
     if bloc is not None:
         chief = world.bloc_chief(bloc)
-        me_chief = ("（你是盟主：可否决议案、可改盟名、可移交盟主、可解散联盟；盟主不能退盟）"
-                    if chief == name else f"（盟主 {chief} 可否决议案；盟主不能退盟）")
+        me_chief = ("（你是盟主：可否决议案、可改盟名、可移交盟主、可解散联盟）"
+                    if chief == name else f"（盟主 {chief} 可否决议案）")
+        fighting = [m for m in bloc["members"] if world.at_war(m)]
+        lock = (f" ⚠ 战时锁死：{'、'.join(fighting)} 正在交战——不退盟、不解散，只能议和。"
+                if fighting else "")
         lines.append(
             f"  🤝 你的联盟「{bloc['name']}」（盟主 {chief}）成员：{'、'.join(bloc['members'])}"
-            " —— 盟内互通领土/互不攻击/共享视野/外交免费；进攻战争须联盟投票；"
-            "议和由盟主出面并经投票；同战线盟友会自动归还你的核心领土（land 面板 ♥ 标记）\n"
-            f"     {me_chief}"
+            " —— 盟内互通领土/互不攻击/共享视野；**对外以「联盟」这个外交实体出面**："
+            "保障独立/共同防御/宣战/议和一律须联盟投票通过（vote 表态），成员个人签不了任何条约；"
+            "议和由盟主出面并经投票；同战线盟友会自动归还你的核心领土（land 面板 ♥ 标记）。"
+            f"{lock}\n     {me_chief}"
         )
     # 本人在内的交战战线（议和须找谈判代表：主导者；有联盟时=其盟主）
     wars_in = []
@@ -371,9 +375,14 @@ def _fmt_diplomacy(world, name) -> str:
         pending = len(members) - yes - no - abst
         pl = v["payload"]
         if v["kind"] == "宣战":
-            desc = f"对 {pl.get('target')} 宣战"
+            desc = f"对 {world.entity_label(pl.get('target'))} 宣战"
         elif v["kind"] == "入盟":
             desc = f"{pl.get('candidate')} 申请入盟"
+        elif v["kind"] == "缔约":
+            act = ("撤回/解除" if pl.get("cancel")
+                   else ("对外提议" if pl.get("offer") else "接受对方邀约"))
+            desc = (f"{act}{pl.get('pact')}（{world.entity_label(pl.get('A'))} ↔ "
+                    f"{world.entity_label(pl.get('B'))}）")
         elif pl.get("type") == "offer":
             desc = f"向 {pl.get('to')} 求和（{pl.get('kind')}{(' ' + str(pl.get('gold')) + '金') if pl.get('gold') else ''}）"
         else:
@@ -387,15 +396,19 @@ def _fmt_diplomacy(world, name) -> str:
         lines.append(f"  🗳 投票#{v['id']}（{v['bloc']}·{v['kind']}，发起 {v['proposer']}）{desc}"
                      f" 赞成{yes}/反对{no}/弃权{abst}/未投{pending}"
                      f"（需赞成>反对；盟主投 no 可否决）{tail}")
+    my_ent = world.entity_of(name)
     incoming = [p for p in world.proposals
-                if p.get("b") == name or (p["kind"] == "联盟" and name in p.get("invitees", []))]
+                if (p["kind"] == "联盟" and name in p.get("invitees", []))
+                or (p["kind"] != "联盟" and p.get("B") == my_ent)]
     if incoming:
         for p in incoming:
             if p["kind"] == "联盟":
                 lines.append(f"  📨 邀约#{p['id']}: {p['a']} 提议结盟「{p['name']}」"
                              f"（创始成员：{'、'.join(p['invitees'])}；respond_proposal {p['id']} true/false）")
             else:
-                lines.append(f"  📨 邀约#{p['id']}: {p['a']} 提议 {p['kind']}（respond_proposal {p['id']} true/false）")
+                how = (f"——回应即提交联盟表决（respond_proposal {p['id']} true/false）"
+                       if bloc is not None else f"（respond_proposal {p['id']} true/false）")
+                lines.append(f"  📨 邀约#{p['id']}: {world.entity_label(p['A'])} 提议 {p['kind']} {how}")
     offers = [p for p in world.peace_offers if p["b"] == name]
     if offers:
         for p in offers:
@@ -404,8 +417,13 @@ def _fmt_diplomacy(world, name) -> str:
             if p.get("truce"):
                 k += f"（休战{p['truce']}回合）"
             lines.append(f"  🕊 求和#{p['id']}（{p['a']}→你）: {k} —— {p.get('note','')}（accept_peace/reject_peace {p['id']}）")
-    if world.guarantees.get(name):
-        lines.append(f"  你保障: {'、'.join(sorted(world.guarantees[name]))}")
+    my_e = world.entity_of(name)
+    if world.guaranteed_by(my_e):
+        lines.append("  你的实体（" + world.entity_label(my_e) + "）保障: "
+                     + "、".join(world.entity_label(e) for e in world.guaranteed_by(my_e)))
+    if world.guarantors_of(my_e):
+        lines.append("  保障你的实体: "
+                     + "、".join(world.entity_label(e) for e in world.guarantors_of(my_e)))
     own_offers = [p for p in world.peace_offers if p["a"] == name]
     for p in own_offers:
         k = {"pay": f"你愿赔{p['gold']}金", "demand": f"你索{p['gold']}金", "white": "白和"}[p["kind"]]
@@ -421,19 +439,20 @@ def _fmt_countries(world, name) -> str:
     for n in world.alive():
         if n == name:
             continue
+        my, them = world.entity_of(name), world.entity_of(n)
         tags = []
-        if world.allied_between(name, n):
-            tags.append(f"联盟({world.bloc_of(name)['name']})")
-        if world.dp_between(name, n):
+        if them == my:
+            tags.append(f"联盟成员(同属{world.entity_label(my)})")
+        if world.has_pact("共同防御", my, them):
             tags.append("共同防御")
+        if world.has_pact("保障", my, them):
+            tags.append("本实体保障它")
+        if world.has_pact("保障", them, my):
+            tags.append("它保障本实体")
         if world.war_between(name, n):
             tags.append("交战")
         if not tags:
             tags.append("中立")
-        if n in world.guarantee_of(name):
-            tags.append("保障我")
-        if world.guarantees.get(name) and n in world.guarantees[name]:
-            tags.append("我保障")
         # 是否接壤
         border = False
         for (x, y) in world.own_tiles(name):
@@ -629,22 +648,33 @@ def _help_sections() -> list[tuple[str, str]]:
             "（任一拒绝即流产）；**发起方自动成为盟主**（盟主身份随立盟确定，与谁先开战无关）。"
             "一国同时只属一个联盟。"
             "入盟：bloc_join(name=联盟名) 申请，现成员投票——**赞成 > 反对即通过**（弃权不计入分母）。"
-            "退盟：普通成员 bloc_leave 单方面立即退出、无须任何人同意（已参战的战线不因此退出；滞留在前盟友"
-            "领土的军队回合末自动遣返）。**盟主不能退盟**：只能 bloc_transfer(to=成员) 移交，或 bloc_dissolve "
-            "解散；盟主亡国时由加入最早的剩余成员继承。"
+            "**入盟即放弃个人条约**：该国原有的保障/共同防御一律作废（入盟后它不再是外交实体、签不了约）。"
+            "退盟：普通成员 bloc_leave 单方面立即退出、无须任何人同意（滞留在前盟友领土的军队回合末自动遣返）。"
+            "★ **战争期间一律不准退盟、不准解散**——只要有一名成员在交战，全盟被锁死到整盟停战为止（先议和）；"
+            "**盟主不能退盟**：只能 bloc_transfer(to=成员) 移交，或 bloc_dissolve 解散；"
+            "盟主亡国时由加入最早的剩余成员继承。"
             "盟主特权：对任何联盟投票**一票否决**（投 no 即作废）、可 bloc_rename 改盟名、"
             "可 bloc_transfer 移交盟主、可 bloc_dissolve 解散联盟。"
+            "★ **外交实体**：本作只有两种实体——**独立国家**（不在任何联盟里的国家）与**联盟**。"
+            "在盟的国家不是实体：它的一切约束性外交（保障独立/共同防御/宣战/议和）都必须由联盟出面，"
+            "且**须联盟投票通过**；成员个人签不了、也撤不了任何条约（入盟时原有的个人条约连根作废）。"
+            "保障独立/共同防御的双方**都必须是实体**（国↔国、国↔盟、盟↔盟都合法）；"
+            "联盟对联盟缔约要**两边各自过自己的联盟投票**。"
+            "非约束动作（写信/馈赠/换图/间谍）仍归国家自己——那是通信与物资，不是对外承诺。"
             "盟内效果：互通领土（自由通行、合法撤退地）、互不攻击、共享视野（盟友地盘及其相邻一圈你都看得见）、"
             f"成员之间的外交动作（馈赠/换图/投票/回应邀约）全部免费；**写信例外——联盟内起步价 {LETTER_COST_ALLY} 金（非联盟 {LETTER_COST}），前 {LETTER_FREE_CHARS} 字免费，超出每 {LETTER_CHARS_PER_GOLD} 字 1 金**。"
             "战争：联盟成员不能擅自开战——declare_war 自动转为宣战投票，**赞成 > 反对**即全盟对目标宣战"
             "（盟主为进攻主导、全体成员为进攻跟随方）；防守不需要投票：任一成员被打，全盟自动参战。"
-            "传导无限跳：宣战时守侧按 保障/共同防御/联盟 的传递闭包自动参战（A 保 B、B 盟 C → 打 B 时 C 也上）；"
+            "传导无限跳（以**实体**为单位）：宣战时守侧按 保障/共同防御 的传递闭包自动参战"
+            "（A 保 B、B 盟 C → 打 B 时 C 也上；盟员被打=联盟被打，全盟一起上）；"
             "防守义务优先：与进攻方的保障/共同防御自动解除后参战；联盟成员永不会被拖去打自家盟友。"
             "议和：每侧谈判代表 = 主导者（宣战方/被宣战方），主导者有联盟时 = 其盟主（联盟主体身份）——"
             "普通成员与跟随方不能单独议和；盟主提出或接受议和都须经联盟投票；主导者议和则整条战线停战。"
             "投票：vote(投票id, choice=yes/no/abstain) 表态（可改票）；发起者默认赞成；**不投 = 到期算弃权**；"
             "逾期未决时按 赞成 > 反对 定论。"
-            "**战争期间禁止**：缔结/加入联盟、保障独立、共同防御、解散联盟——先议和停战再谈。"
+            "**战争期间禁止**：缔结/加入联盟、保障独立、共同防御、**退盟、解散联盟**——先议和停战再谈。"
+            "★ 这几条合起来的意思：一旦开打，盟友就是**锁死**的——没有『打不过就跑』的通道，"
+            "想脱身只有两条路：把盟主打成议和（或自己被灭）。"
             "核心领土：每块地有核心归属（land 面板 ♥ 标记=本国核心）；每次战争结束按参战各国实际持有重算核心"
             "——议和时的版图即新核心（战时丢的地，只要同战线盟友夺回就还是你的；议和割出去的地则归对方核心）。"
             "自动归还：同联盟且同战线（同一场战争同一侧）的盟友占领了你的核心领土时，立即自动归还给你，"
@@ -652,9 +682,11 @@ def _help_sections() -> list[tuple[str, str]]:
         )),
         ("外交", (
             "国家关系：中立=不能入境也不能攻击对方；联盟=互通领土+互不攻击（详见【联盟与核心领土】）；"
+            "**签约方只能是外交实体**（独立国家 或 联盟）：你在联盟里，保障/共同防御/宣战/议和就都得走"
+            "联盟投票、由联盟出面；成员个人没有外交权（写信/馈赠/换图/间谍这些非约束动作仍归你自己）。"
             "宣战：对方必须应战，即刻生效；被宣战方的『保障独立/共同防御/联盟』关系按传递闭包自动参战打你"
             "（无限传导：A 保 B、B 盟 C，你打 B 则 C 也上）。"
-            "共同防御=遭攻自动并肩；保障独立=你保它，别人打它你参战。"
+            "共同防御=遭攻自动并肩；保障独立=你（或你的联盟）保它，别人打它你方参战。"
             "战争分主导者：宣战方=进攻主导、被宣战方=防御主导，因保障/共同防御/联盟自动参战的是跟随方；"
             "议和只能由双方谈判代表提出/接受（主导者，或主导者的盟主），主导者议和则整条战线（含跟随方）停战。"
             "求和(offer_peace)：pay=你赔钱、demand=你索款、white=白和；接受即整条战线停战。"
@@ -1392,7 +1424,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         pid = int(args.get("proposal_id", args.get("id", 0)))
         accept = str(args.get("accept", "")).lower() in ("true", "yes", "1", "接受", "是")
         p = next((x for x in world.proposals if x["id"] == pid), None)
-        to = p["a"] if p else None
+        to = (p["a"] if (p and p["kind"] == "联盟") else (p.get("asker") if p else None))
         cost = _diplo_cost(world, actor, to)
         if accept:
             return _charge(world, actor, cost, world.accept_pact, actor, pid)
@@ -1601,14 +1633,14 @@ TOOL_SCHEMAS = [
         "name": "plan", "description": f"制定或修订你的国策（长期战略目标），会永久常驻你的上下文（【国策规划】标记），直到你再次修订。⚠ 结束回合(end_turn)前必须已有国策；且每 {PLAN_MAX_TURNS} 回合必须修订一次，否则 end_turn 会被拦。建议按四方面写：经济发展（粮木矿油/建设/卖买）、军事规划（扩军/攻防/结盟）、情报管理（间谍/换图/来信研判）、外交方向（结盟/宣战/求和/馈赠立场）。",
         "parameters": _props({"content": {"type": "string", "description": "国策内容", "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_found", "description": f"发起结盟（多边联盟）：**必须给联盟起名**（1~{BLOC_NAME_MAX} 字、不含空格、全局唯一）并邀请创始成员。全体创始成员 respond_proposal 接受后联盟成立（任一拒绝即流产），**发起方自动成为盟主**。盟内效果：互通领土/互不攻击/共享视野/成员间外交免费；进攻战争须联盟投票；议和由盟主出面并经投票；同战线自动归还核心领土。**战争期间不能缔结同盟**。发起扣外交费（基准 {DIPLO_COST} 金；受邀方有外交中心则免费）。",
+        "name": "bloc_found", "description": f"发起结盟（多边联盟）：**必须给联盟起名**（1~{BLOC_NAME_MAX} 字、不含空格、全局唯一）并邀请创始成员。全体创始成员 respond_proposal 接受后联盟成立（任一拒绝即流产），**发起方自动成为盟主**。★ 联盟本身就是**外交实体**：此后保障独立/共同防御/宣战/议和都由联盟出面、且须联盟投票通过，成员个人签不了任何条约；**入盟即放弃个人条约**（成员国原有的保障/共同防御一律作废）。盟内效果：互通领土/互不攻击/共享视野；同战线自动归还核心领土。**战争期间不能缔结同盟**。发起扣外交费（基准 {DIPLO_COST} 金；受邀方有外交中心则免费）。",
         "parameters": _props({"name": {"type": "string", "description": "联盟名（1~{BLOC_NAME_MAX}字，全局唯一）", "required": True},
                               "tos": {"type": "array", "items": {"type": "string"}, "description": "创始成员国名数组（至少1个，须为 countries 里的别国）", "required": True}})}},
     {"type": "function", "function": {
         "name": "bloc_join", "description": f"申请加入指定联盟：现成员投票，**赞成 > 反对**即通过（盟主投 no 可否决）；一国同时只属一个联盟；与该联盟成员交战、或自己正在交战 → 不能申请。扣外交费（基准 {DIPLO_COST} 金）。",
         "parameters": _props({"name": {"type": "string", "description": "联盟名", "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_leave", "description": f"退出所在联盟：普通成员单方面退出、立即生效、无须任何人同意（已参战的战线不因此退出；滞留在前盟友领土的军队回合末自动遣返）。**盟主不能退盟**——请先 bloc_transfer 移交，或 bloc_dissolve 解散。扣外交费（基准 {DIPLO_COST} 金）。",
+        "name": "bloc_leave", "description": f"退出所在联盟：普通成员单方面退出、立即生效（滞留前盟友领土的军队回合末自动遣返）。★ **战争期间一律不准退盟**——任一成员在交战即被拒，盟员在战时被锁死，先议和。**盟主不能退盟**——请先 bloc_transfer 移交，或 bloc_dissolve 解散。扣外交费（基准 {DIPLO_COST} 金）。",
         "parameters": _props({})}},
     {"type": "function", "function": {
         "name": "bloc_rename", "description": f"【盟主专属】给联盟改名（1~{BLOC_NAME_MAX} 字、不含空格、全局唯一）。免费。",
@@ -1617,34 +1649,34 @@ TOOL_SCHEMAS = [
         "name": "bloc_transfer", "description": "【盟主专属】把盟主之位移交给本联盟另一成员（移交后你变成普通成员，从此可自由退盟）。盟主身份由发起方自动获得，只有现任盟主能移交。免费。",
         "parameters": _props({"to": {"type": "string", "description": "接任盟主的成员国名（须在本盟成员里）", "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_dissolve", "description": "【盟主专属】解散你的联盟：全体成员恢复独立、盟约作废、进行中的联盟投票一并作废。**战争期间不能解散**（任一成员正在交战即被拒，先议和停战）。盟主不能退盟，想脱身就用解散或移交。免费。",
+        "name": "bloc_dissolve", "description": "【盟主专属】解散你的联盟：全体成员恢复独立（各自重新成为外交实体）、条约作废、进行中的联盟投票一并作废。**战争期间不能解散**（任一成员正在交战即被拒，先议和停战）。盟主不能退盟，想脱身就用解散或移交。免费。",
         "parameters": _props({})}},
     {"type": "function", "function": {
-        "name": "vote", "description": "对所在联盟进行中的投票表态（宣战/议和/入盟）。choice=yes 赞成 / no 反对 / abstain 弃权（不投=到期算弃权）。**赞成 > 反对即通过**（弃权不计入分母）并立即执行；**盟主投 no 是一票否决，议案立即作废**。可改票；联盟成员投票免费。",
+        "name": "vote", "description": "对所在联盟进行中的投票表态（宣战/议和/入盟/缔约）。choice=yes 赞成 / no 反对 / abstain 弃权（不投=到期算弃权）。**赞成 > 反对即通过**（弃权不计入分母）并立即执行；**盟主投 no 是一票否决，议案立即作废**。可改票；联盟成员投票免费。★「缔约」表决是本作**唯一**的签约通道：保障独立、共同防御都只能这样签或撤。",
         "parameters": _props({"vote_id": {"type": "integer", "description": "投票id（diplomacy 面板有）", "required": True},
                               "choice": {"type": "string", "enum": ["yes", "no", "abstain"], "description": "你的表态", "required": True}})}},
     {"type": "function", "function": {
-        "name": "propose", "description": f"向别国提议『共同防御』（仅守：它被打才自动并肩参战，你主动开战它不上）。全面结盟请用 bloc_found（起名的多边联盟）。to 必须用 countries 选出的别国，不能是自己；对方 respond_proposal 接受才生效。**双方都必须在和平状态**（任一方正在交战 → 不能缔结，先议和）。外交费（基准 {DIPLO_COST} 金；对象为盟友免费；对方有外交中心则免费），成功才扣。",
+        "name": "propose", "description": f"提议『共同防御』（仅守：它被打才自动并肩参战，你主动开战它不上）。**签约方是外交实体**：你所在的联盟出面与你**是独立国家**出面，效果不同——你在联盟里 → 调用先转为**联盟投票**，通过后由联盟出面提议；对方是联盟 → 它接受时同样要过它的联盟投票（一盟一票）。全面结盟请用 bloc_found。to 必须用 countries 选出的别国，不能是自己。**双方实体都必须在和平状态**（任一方在交战 → 不能缔结，先议和）。外交费（基准 {DIPLO_COST} 金；同实体免费；对方有外交中心则免费），成功才扣。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
                               "kind": {"type": "string", "enum": ["共同防御"], "description": "类型", "required": True}})}},
     {"type": "function", "function": {
-        "name": "respond_proposal", "description": "回应收到的邀约（共同防御/结盟：accept=true 接受 / false 拒绝；联盟创始须全体接受才成立；对方是盟友时免费）。",
+        "name": "respond_proposal", "description": "回应收到的邀约（共同防御/结盟：accept=true 接受 / false 拒绝；联盟创始须全体接受才成立；同实体免费）。★ 你**在联盟里**时，共同防御邀约不是你说了就算：accept 只是把它**提交联盟表决**（随后 vote 表态，赞成>反对才缔结）；拒绝由盟主代表实体对外出面。",
         "parameters": _props({"proposal_id": {"type": "integer", "description": "邀约id（diplomacy面板有）", "required": True},
                               "accept": {"type": "boolean", "description": "接受? true/false", "required": True}})}},
     {"type": "function", "function": {
-        "name": "break_defense", "description": "单方面解除共同防御（成功扣外交费）。",
+        "name": "break_defense", "description": "解除共同防御。★ 你在联盟里 → 先转为**联盟投票**，通过后由联盟解除（成员个人无权解约）；你是独立国家 → 你自己就是实体，直接解除。解除同时退出由该盟约带来的战线，滞留对方领土的军队回合末自动遣返。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "guarantee", "description": f"宣布保障别国独立：任何国家攻击它，你将自动参战（仅此单向、一跳）。你与它之间后来结成共同防御/联盟时，这条保障会自动解除（保障是三档里最低的）；已有更高档时无须保障。**双方都必须在和平状态**（任一方正在交战 → 不能保障，先议和）。不想履行参战义务时可解除保障（或断盟）退出。to=别国（不能自己）。成功扣外交费（基准 {DIPLO_COST} 金）。",
+        "name": "guarantee", "description": f"宣布保障别国（实体）独立：任何国家攻击它，你方实体将自动参战。**签约方是外交实体**：你在联盟里 → 先转为**联盟投票**，通过后由**联盟**保障它（恩义记在联盟头上、全盟担义务）；你是独立国家 → 你自己就是实体，直接生效。保障与共同防御互斥（共同防御更高一档，缔结它会自动解除保障）。**双方实体都必须在和平状态**（任一方在交战 → 不能保障，先议和）。to=别国（不能自己）。成功扣外交费（基准 {DIPLO_COST} 金）。",
         "parameters": _props({"to": {"type": "string", "description": "被保障国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "cancel_guarantee", "description": "撤回独立保障（成功扣外交费）。",
+        "name": "cancel_guarantee", "description": "撤回独立保障（你在联盟里 → 先转为联盟投票，通过后由联盟撤回）。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "declare_war", "description": "对别国宣战（对方必须应战，即刻生效；成功扣外交费）。先 countries 选目标，to=别国（不能自己）。⚠ 联盟成员不能擅自开战：调用即自动转为**联盟宣战投票**（多数决通过后全盟参战、盟主为进攻主导）。战争传导（无限跳）：对方的保障/共同防御/联盟全体按传递闭包自动参战打你（A 保 B、B 盟 C → 打 B 则 C 也上）。若目标正与你方成员/共同防御对象交战，宣战会**并入其现有战线**当跟随方（跟随方不能单独议和，主导者议和整条战线停战）。",
+        "name": "declare_war", "description": "对别国宣战（对方必须应战，即刻生效；成功扣外交费）。先 countries 选目标，to=别国（不能自己）。★ **交战方是外交实体**：你在联盟里 → 调用即转为**联盟宣战投票**（多数决通过后全盟参战、盟主为进攻主导）；你是独立国家 → 直接开战。战争传导（无限跳，以实体为单位）：对方的保障国/共同防御伙伴/它所在的联盟按传递闭包自动参战打你（A 保 B、B 盟 C → 打 B 则 C 也上）。若目标正与你方实体的盟友/共同防御伙伴交战，宣战会**并入其现有战线**当跟随方（跟随方不能单独议和，主导者议和整条战线停战）。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "offer_peace", "description": "向对方谈判代表求和（每侧代表=主导者；主导者有联盟时=其盟主；普通成员/跟随方不能谈，to=diplomacy 面板所示对方代表；成功扣外交费）。⚠ 盟主求和会先发起联盟投票，多数同意才正式提出。pay=我方向对方赔X金；demand=要求对方赔X金；white=白和。接受后整条战线（含跟随方）停战，且各方实际持有地块重算为核心领土。truce=休战回合数（0=不休战）。",
+        "name": "offer_peace", "description": "向对方谈判代表求和（每侧代表=主导者；主导者有联盟时=其盟主；普通成员/跟随方不能谈，to=diplomacy 面板所示对方代表；成功扣外交费）。⚠ 盟主求和会先发起联盟投票，多数同意才正式提出。pay=我方向对方赔X金；demand=要求对方赔X金；white=白和。接受后整条战线（含跟随方）停战，且各方实际持有地块重算为核心领土。truce=休战回合数（0=不休战）。★ 战时盟员**不能退盟、不能解散**，议和是唯一的解套路径。",
         "parameters": _props({"to": {"type": "string", "description": "对方谈判代表国", "required": True},
                               "kind": {"type": "string", "enum": ["pay", "demand", "white"], "description": "pay=我方赔款 / demand=要求对方赔款 / white=白和", "required": True},
                               "gold": {"type": "integer", "description": "赔款量（pay/demand 必填>0）"},

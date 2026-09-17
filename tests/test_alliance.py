@@ -245,5 +245,290 @@ class TestSaveLoad(unittest.TestCase):
                 mp.World.load(p)
 
 
+class TestDiplomaticEntity(unittest.TestCase):
+    """★ 2026-09-18 外交改革：**签约主体是外交实体**（独立国家 | 联盟）。
+
+    在盟的国家不是实体——保障独立/共同防御/宣战/议和一律由联盟出面、且须联盟投票；
+    成员个人签不了也撤不了任何条约。这一批用例就是那几条规矩的可执行版本。
+    """
+
+    def test_entity_of_independent_vs_bloc(self):
+        w = make_world()
+        self.assertEqual(w.entity_of("燕"), "国:燕")            # 独立国家 = 自己的实体
+        make_bloc(w)
+        self.assertEqual(w.entity_of("秦"), "盟:北盟")          # 在盟 = 联盟实体
+        self.assertEqual(w.entity_of("齐"), "盟:北盟")
+        self.assertIn(mp.ent_bloc("北盟"), w.entities())
+        self.assertNotIn(mp.ent_nation("秦"), w.entities())    # 成员不是实体
+
+    def test_entity_members_and_chief(self):
+        w = make_world()
+        make_bloc(w)
+        ent = w.entity_of("秦")
+        self.assertEqual(sorted(w.entity_members(ent)), sorted(["秦", "楚", "齐"]))
+        self.assertEqual(w.entity_chief(ent), "秦")
+        w.bloc_transfer("秦", "齐")
+        self.assertEqual(w.entity_chief(ent), "齐")            # 代表跟着盟主走
+
+    def test_pact_with_own_member_refused(self):
+        w = make_world()
+        make_bloc(w)
+        ok, msg = w.declare_guarantee("秦", "楚")               # 同一实体内部
+        self.assertFalse(ok)
+        self.assertIn("同属一个实体", msg)
+        self.assertEqual(w.pacts, [])
+
+    def test_member_guarantee_routed_to_bloc_vote(self):
+        """★ 成员的保障动作不直接生效：先落成联盟投票，通过才由**联盟**签。"""
+        w = make_world()
+        make_bloc(w)
+        ok, msg = w.declare_guarantee("楚", "燕")
+        self.assertTrue(ok)
+        self.assertIn("投票", msg)
+        self.assertEqual(w.pacts, [])                           # 还没表决 → 无条约
+        v = w.votes[-1]
+        self.assertEqual(v["kind"], "缔约")
+        self.assertEqual(v["payload"]["A"], mp.ent_bloc("北盟"))  # 签约方是联盟
+        self.assertEqual(v["payload"]["B"], mp.ent_nation("燕"))
+        w.cast_vote("秦", v["id"], True)
+        w.cast_vote("齐", v["id"], True)
+        self.assertTrue(w.has_pact("保障", mp.ent_bloc("北盟"), mp.ent_nation("燕")))
+        self.assertFalse(w.has_pact("保障", mp.ent_nation("楚"), mp.ent_nation("燕")))
+
+    def test_member_pact_proposal_routed_to_bloc_vote(self):
+        w = make_world()
+        make_bloc(w)
+        ok, msg = w.propose_pact("共同防御", "楚", "燕")
+        self.assertTrue(ok)
+        self.assertIn("投票", msg)
+        self.assertEqual([p for p in w.proposals if p["kind"] == "共同防御"], [])
+        v = w.votes[-1]
+        self.assertTrue(v["payload"].get("offer"))
+        w.cast_vote("秦", v["id"], True)
+        w.cast_vote("齐", v["id"], True)
+        offers = [p for p in w.proposals if p["kind"] == "共同防御"]
+        self.assertEqual(len(offers), 1)
+        self.assertEqual(offers[0]["A"], mp.ent_bloc("北盟"))   # 邀约以联盟名义发出
+        self.assertEqual(offers[0]["B"], mp.ent_nation("燕"))
+
+    def test_member_cannot_withdraw_pact_alone(self):
+        """成员也不能单独解约——同样要过联盟投票。"""
+        w = make_world()
+        make_bloc(w)
+        w.declare_guarantee("秦", "燕")
+        vid = w.votes[-1]["id"]
+        w.cast_vote("秦", vid, True)
+        w.cast_vote("齐", vid, True)                            # 条约已签（实体级）
+        ok, msg = w.cancel_guarantee("楚", "燕")
+        self.assertTrue(ok)
+        self.assertIn("投票", msg)
+        self.assertTrue(w.has_pact("保障", mp.ent_bloc("北盟"), mp.ent_nation("燕")))
+
+    def test_chief_veto_on_pact_vote(self):
+        w = make_world()
+        make_bloc(w)
+        w.declare_guarantee("楚", "燕")
+        vid = w.votes[-1]["id"]
+        ok, msg = w.cast_vote("秦", vid, False)                 # 盟主一票否决
+        self.assertFalse(ok)
+        self.assertIn("否决", msg)
+        self.assertEqual(w.votes, [])
+        self.assertEqual(w.pacts, [])
+
+    def test_attacking_member_drags_whole_bloc(self):
+        """★ 打成员 = 打联盟：全盟自动落在守侧，不需要投票（防守无须表决）。"""
+        w = make_world()
+        make_bloc(w)
+        ok, msg = w.declare_war("燕", "楚")
+        self.assertTrue(ok, msg)
+        war = w.wars[0]
+        self.assertEqual(war["atk"], "燕")
+        self.assertEqual(war["def"], "秦")                      # 防御主导 = 盟主
+        self.assertEqual(sorted(war["followers"]), sorted(["楚", "齐"]))
+        self.assertIn("楚", msg)
+
+    def test_bloc_guarantee_pulls_bloc_into_defense(self):
+        """★ 联盟保障某独立国 → 谁打它，全盟按实体闭包参战。"""
+        w = make_world(nations=("秦", "楚", "齐", "燕", "赵"))
+        make_bloc(w)
+        w.declare_guarantee("秦", "燕")
+        vid = w.votes[-1]["id"]
+        w.cast_vote("秦", vid, True)
+        w.cast_vote("齐", vid, True)
+        self.assertTrue(w.has_pact("保障", mp.ent_bloc("北盟"), mp.ent_nation("燕")))
+        ok, msg = w.declare_war("赵", "燕")
+        self.assertTrue(ok, msg)
+        war = w.wars[0]
+        self.assertEqual(war["atk"], "赵")
+        self.assertEqual(sorted(war["followers"]), sorted(["秦", "楚", "齐"]))
+
+    def test_joining_bloc_voids_personal_pacts(self):
+        """★ 入盟即放弃个人条约（两个方向都作废）。"""
+        w = make_world()
+        self.assertTrue(w.declare_guarantee("燕", "秦")[0])     # 燕保障秦
+        self.assertTrue(w.declare_guarantee("燕", "楚")[0])     # 燕又保障楚
+        self.assertEqual(len(w.pacts), 2)
+        make_bloc(w, chief="秦", others=("楚", "燕"))            # 燕入盟
+        self.assertEqual([p for p in w.pacts if "国:燕" in (p["a"], p["b"])], [])
+
+    def test_joining_bloc_voids_incoming_pacts(self):
+        """别人给你的个人条约也一样作废——留着的条约会指向一个不再是实体的国家。"""
+        w = make_world()
+        self.assertTrue(w.declare_guarantee("燕", "秦")[0])     # 燕(外部)保障 秦
+        make_bloc(w, chief="秦", others=("楚",))
+        self.assertEqual(w.pacts, [])
+
+    def test_bloc_to_bloc_pact_needs_both_votes(self):
+        """★ 联盟↔联盟：两边各自过自己的联盟投票，缺一边签不成。"""
+        w = mp.World(size=16, seed=3, nations=["秦", "楚", "齐", "赵"])
+        make_bloc(w, chief="秦", others=("楚",), name="北盟")
+        make_bloc(w, chief="齐", others=("赵",), name="南盟")
+        w.propose_pact("共同防御", "秦", "齐")
+        v1 = w.votes[-1]
+        w.cast_vote("秦", v1["id"], True)
+        w.cast_vote("楚", v1["id"], True)                      # 北盟通过 → 发出邀约
+        self.assertEqual(w.pacts, [])                          # 南盟还没表态
+        offer = [p for p in w.proposals if p["kind"] == "共同防御"][0]
+        self.assertEqual(offer["A"], mp.ent_bloc("北盟"))
+        self.assertEqual(offer["B"], mp.ent_bloc("南盟"))
+        ok, msg = w.accept_pact("齐", offer["id"])
+        self.assertTrue(ok)
+        self.assertIn("表决", msg)                              # 接受 = 提交南盟表决
+        self.assertEqual(w.pacts, [])
+        v2 = [v for v in w.votes if v["kind"] == "缔约"][-1]
+        w.cast_vote("齐", v2["id"], True)
+        w.cast_vote("赵", v2["id"], True)
+        self.assertTrue(w.has_pact("共同防御", mp.ent_bloc("北盟"), mp.ent_bloc("南盟")))
+
+    def test_rename_syncs_pact_refs(self):
+        """★ 联盟改名必须同步条约里的实体 id（实体 id 里嵌着联盟名）。"""
+        w = make_world()
+        make_bloc(w)
+        w.declare_guarantee("秦", "燕")
+        vid = w.votes[-1]["id"]
+        w.cast_vote("秦", vid, True)
+        w.cast_vote("齐", vid, True)
+        self.assertTrue(w.has_pact("保障", mp.ent_bloc("北盟"), mp.ent_nation("燕")))
+        self.assertTrue(w.bloc_rename("秦", "合纵")[0])
+        self.assertTrue(w.has_pact("保障", mp.ent_bloc("合纵"), mp.ent_nation("燕")))
+        self.assertFalse(w.has_pact("保障", mp.ent_bloc("北盟"), mp.ent_nation("燕")))
+
+    def test_death_voids_pacts_of_that_entity(self):
+        w = make_world()
+        self.assertTrue(w.declare_guarantee("燕", "秦")[0])
+        self.assertEqual(len(w.pacts), 1)
+        w.tiles = {k: t for k, t in w.tiles.items() if t["owner"] != "燕"}
+        self.assertTrue(w._eliminate_if_dead("燕"))
+        self.assertEqual(w.pacts, [])
+
+    def test_bloc_war_vote_target_is_entity(self):
+        w = make_world()
+        make_bloc(w)
+        w.declare_war("楚", "燕")
+        v = w.votes[-1]
+        self.assertEqual(v["kind"], "宣战")
+        self.assertEqual(v["payload"]["target"], mp.ent_nation("燕"))   # 实体 id
+        w.cast_vote("秦", v["id"], True)
+        w.cast_vote("齐", v["id"], True)
+        war = w.wars[0]
+        self.assertEqual(war["atk"], "秦")                     # 进攻主导 = 盟主
+        self.assertEqual(sorted(war["atk_followers"]), sorted(["楚", "齐"]))
+
+
+class TestWartimeLock(unittest.TestCase):
+    """★ 战时锁死（2026-09-18）：**不退盟、不解散**——盟员被锁到整盟停战为止。"""
+
+    def _warring_bloc(self):
+        w = make_world()
+        make_bloc(w)
+        w.declare_war("秦", "燕")
+        vid = w.votes[-1]["id"]
+        w.cast_vote("楚", vid, True)
+        w.cast_vote("齐", vid, True)                           # 全盟对燕开战
+        return w
+
+    def test_member_cannot_leave_at_war(self):
+        w = self._warring_bloc()
+        ok, msg = w.bloc_leave("楚")
+        self.assertFalse(ok)
+        self.assertIn("战争期间", msg)
+        self.assertIn("楚", w.bloc_of("秦")["members"])
+
+    def test_chief_cannot_dissolve_at_war(self):
+        w = self._warring_bloc()
+        ok, msg = w.bloc_dissolve("秦")
+        self.assertFalse(ok)
+        self.assertIn("战争期间", msg)
+        self.assertTrue(w.blocs)
+
+    def test_leave_allowed_again_after_war_ends(self):
+        """锁死只在战时——停战后出口重新打开。"""
+        w = self._warring_bloc()
+        self.assertFalse(w.bloc_leave("楚")[0])
+        w.wars = []                                            # 议和（整条战线停战）
+        self.assertTrue(w.bloc_leave("楚")[0])
+        self.assertTrue(w.bloc_dissolve("秦")[0])
+
+    def test_lock_covers_members_who_did_not_start_it(self):
+        """锁死看的是"任一成员在交战"，不是"我要不要打"。"""
+        w = make_world()
+        make_bloc(w)
+        w.declare_war("燕", "秦")                               # 燕(独立)打盟主 → 全盟守侧
+        self.assertTrue(w.wars)
+        self.assertFalse(w.bloc_leave("齐")[0])                 # 齐自己没发起，但一样锁死
+
+
+class TestEntityPactTable(unittest.TestCase):
+    """条约表的实体级原语（面板/闭包/亡国清理都建在它上面）。"""
+
+    def test_pact_direction_and_symmetry(self):
+        w = make_world()
+        w.declare_guarantee("燕", "秦")                         # 单向：燕保障秦
+        self.assertTrue(w.has_pact("保障", mp.ent_nation("燕"), mp.ent_nation("秦")))
+        self.assertFalse(w.has_pact("保障", mp.ent_nation("秦"), mp.ent_nation("燕")))
+        self.assertEqual(w.guaranteed_by(mp.ent_nation("燕")), [mp.ent_nation("秦")])
+        self.assertEqual(w.guarantors_of(mp.ent_nation("秦")), [mp.ent_nation("燕")])
+
+    def test_defense_pact_is_symmetric(self):
+        w = make_world()
+        self.assertTrue(w.propose_pact("共同防御", "秦", "燕")[0])
+        w.accept_pact("燕", w.proposals[-1]["id"])
+        self.assertTrue(w.has_pact("共同防御", mp.ent_nation("秦"), mp.ent_nation("燕")))
+        self.assertTrue(w.has_pact("共同防御", mp.ent_nation("燕"), mp.ent_nation("秦")))
+        self.assertEqual(w.defense_partners_of(mp.ent_nation("燕")), [mp.ent_nation("秦")])
+
+    def test_defense_pact_upgrades_and_drops_guarantee(self):
+        """保障 < 共同防御：缔结高档自动解除低档（沿用旧口径）。"""
+        w = make_world()
+        w.declare_guarantee("燕", "秦")
+        self.assertEqual(len(w.pacts), 1)
+        w.propose_pact("共同防御", "燕", "秦")
+        w.accept_pact("秦", w.proposals[-1]["id"])
+        self.assertEqual([p["kind"] for p in w.pacts], ["共同防御"])
+
+    def test_guarantee_refused_when_defense_pact_exists(self):
+        w = make_world()
+        w.propose_pact("共同防御", "秦", "燕")
+        w.accept_pact("燕", w.proposals[-1]["id"])
+        ok, msg = w.declare_guarantee("秦", "燕")
+        self.assertFalse(ok)
+        self.assertIn("更高一档", msg)
+
+    def test_pacts_survive_save_load(self):
+        w = make_world()
+        make_bloc(w)
+        w.declare_guarantee("秦", "燕")
+        vid = w.votes[-1]["id"]
+        w.cast_vote("秦", vid, True)
+        w.cast_vote("齐", vid, True)
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "s.json"
+            w.save(p)
+            w2 = mp.World.load(p)
+        self.assertEqual([(x["kind"], x["a"], x["b"]) for x in w2.pacts],
+                         [(x["kind"], x["a"], x["b"]) for x in w.pacts])
+        self.assertTrue(w2.has_pact("保障", mp.ent_bloc("北盟"), mp.ent_nation("燕")))
+
+
 if __name__ == "__main__":
     unittest.main()
