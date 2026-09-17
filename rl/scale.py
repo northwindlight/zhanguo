@@ -1,78 +1,105 @@
 # -*- coding: utf-8 -*-
-"""经济缩放 S：把规则表里的**全部"量"字段**整体 ×S（金与物一起放）。
+"""经济缩放 S：把规则表按**单位换算**整体放大，让抖动终于抖得动。
 
-用户 2026-09-14 口述：「**产 1 木抖 10% 还是 1** —— 先加缩放，再谈抖动」。
-用户 2026-09-17：「我打算把**抖动改成缩放**……数值都在 `balance.py` 了，很好做」。
+用户 2026-09-14：「**产 1 木抖 10% 还是 1** —— 先加缩放，再谈抖动」。
+用户 2026-09-18：「大缩放下，抖动才有意义」「小尺度抖不动」「按这个改，且产出之类的都要抖动」。
 
-## 为什么现在好做（与 2026-09-14 那版的区别）
+## 一、为什么必须分「次数」（2026-09-18 实测定的，别再改回去）
 
-那版要对着 `game.*` 与 `mp.*` **两个命名空间**逐字段 `setattr` —— 因为当时数值散在各模块、
-标量更是好几处副本。现在 `balance.py` 是**唯一入口**，`game.py`/`mp.py` 都是
-`from balance import ...` **转口同一个对象**（已实测 `is` 为真）：
+一次缩放就是**换单位**：物理单位 ×a、金单位 ×b ⇒ **单价必须 ×(b/a)**。
+只有这样 `物值 = (a·q)·(b/a·p) = b·(q·p)` 才与「金 ×b」**同度**，
+整个游戏才是自身的等比放大，老师/引擎/模型的行为才逐条不变。
 
-| | 容器（dict/list） | 标量（int/float） |
-|---|---|---|
-| 转口方式 | 同一对象 ⇒ **就地改 `balance` 一处，全引擎都看见** | **值拷贝** ⇒ 改 `balance.X` **不会**动 `mp.X` |
-| 本模块做法 | `_write` 就地改 `balance.*` | 显式白名单 + 逐个回写 `balance` 与转口方 |
+（踩过：单价**不**跟着 a、b 一起调时，`物值` 与 `金` **次数不同** ⇒ **游戏本身变了** ——
+实测 S=10 时老师第 4 回合不去建兵营、第 5 回合不征兵；引擎 `build_econ` 的
+`capex = 造价 + 木×价` 也混了次数 ⇒ ROI 排序随 S 漂。）
 
-⇒ **容器不用再管**（这版省掉了旧版一半代码），**标量仍必须点名**。
+**要抖动有分辨率**，就得让原来小的数变大：
 
-## 缩放面（与 `rl/jitter.py` 的字段清单对齐：凡"量"都进，凡"计数/百分比/拓扑"都不进）
+| 要抖的 | 现值 | 目标 | 条件 |
+|---|---|---|---|
+| 产量 / 木耗 / 征兵料 / 能源（`outputs` 等） | 1~6 | ×S | **a = S** |
+| **单价**（`MARKET`） | 2~8 | ×S | **b/a = S** |
 
-- `MARKET`（金/单位）、`MARKET_DEPTH`（价弹性的量纲，×S 后同比例）
-- `BUILDINGS[*]`：`cost`（含城堡逐级表）/ `wood` / `energy_out` / **`energy`**（工厂/兵营/市政厅
-  维持耗电）/ 字典量 `outputs` / `inputs` / `fuel` / `army_cost` / `effects.gold_base` /
-  `effects.gold_per_slot`
-- `UNIT_TYPES[*]`：`supply`（单位/回合）/ `recruit`（字典量）
-- `START_RES`（开局全部资源，含黄金 1500）
-- 标量：`SPY_COST` / `DIPLO_COST` / `DIPLO_CENTER_MIN_COST`
-- **`rl.env.AMOUNTS`**（候选"量档位"）—— 它住在 `rl/env.py`、且是 tuple（改不了），必须**重绑**
+⇒ 两样都要 ⇒ 唯一解 **`a = S`、`b = S²`**：
+
+```
+物量 ×S        单价 ×S        金 ×S²
+```
+
+验算：`物值 = (S·q)(S·p) = S²·qp` 与 `金 = S²·G` 同度 ✓；而产量 1→10、单价 2→20，
+**±10% 抖动终于落在整数上** ✓✓（这就是"大缩放下抖动才有意义"）。
+
+⇒ **连带好处：老师与引擎一行都不用改就自动齐次**：
+
+```
+_budget = 金(S²) + 余货(S·q)×价(S·p) = S²·(G + Σqp)      ← 全 S² ✓
+_need   = 造价(S²) + 木(S·q)×价(S·p) = S²·(C + w·p)      ← 全 S² ✓
+build_econ: capex 与 per_turn 同度 ⇒ payback 与 S 无关 ✓
+```
+
+## 二、字段分类（**每个字段的次数**，漏一个就比例失衡且不报错）
+
+- **次数 2（金）**：`BUILDINGS[*].cost`（含城堡逐级表）/ `army_cost` /
+  `effects.gold_base` / `effects.gold_per_slot`；`START_RES["黄金"]`；
+  标量 `SPY_COST` / `DIPLO_COST` / `DIPLO_CENTER_MIN_COST` / `LETTER_*`（四个）
+- **次数 1（物）**：`BUILDINGS[*].wood` / `energy` / `energy_out` /
+  `outputs` / `inputs` / `fuel`；`UNIT_TYPES[*].supply` / `recruit`；`START_RES` 金以外项
+- **次数 1（单价/深度）**：`MARKET`（金/单位）· `MARKET_DEPTH`（单位）
+- **`rl.env.AMOUNTS`**（候选量档）：住处不在 balance ⇒ 单独重绑
 
 **不进**：`hp`/`atk`/`speed`、`max_level`/`limit`/`min_slots`/`cap_resource`/`recruit_cap`/
-`militia_cap`、一切**百分比**（`build_penalty`/`defense`/`RETRETE_DEF_COVER`/`PRICE_*`）、
-`MAX_SLOTS`、`ARMY_*` 伤害。
+`militia_cap`、一切**百分比**（`build_penalty`/`defense`/`PRICE_*`/`MARKET_SPREAD`）、
+`MAX_SLOTS`、`ARMY_*` 伤害 —— 它们是**计数 / 比例 / 拓扑**，与单位无关。
 
-## 三个静默坑（2026-09-14 实测换来的，一个都不能省）
+## 三、两个静默坑（2026-09-14 实测换来的）
 
-1. **`energy` 漏网** —— `energy_out ×10` 而维持耗电不 ×10 ⇒ **电网凭空充足** ⇒ 行为爆炸
-   （领土 158→25）。所以 `_B_FIELDS` 里必须有它。
-2. ★★**jitter 基线反噬** —— `jitter.apply(seed, 0)`（=restore）会把**它自己的快照**写回规则表；
-   若那份快照是缩放**前**的真值，则每次 `env.reset()` 都会把 ×S **悄悄抹掉**
-   （"看着生效、其实没生效"）。⇒ 缩放写完**必须让 jitter 重抓基线**（`_resync_jitter_baseline`）。
-3. **`AMOUNTS` 也是量** —— 候选量档（1..16）不放大 ⇒ **相对流量小 10 倍**（`len` 不变，
-   特征侧无感，只在行为上显形）。⇒ 上面那行"必须重绑"。
+1. **`energy` 漏网** ⇒ `energy_out ×S` 而维持耗电不 ×S ⇒ **电网凭空充足**、行为爆炸。
+2. ★★**jitter 基线反噬** ⇒ `jitter.apply(ms, 0)`（=restore）会把**它自己的快照**写回；
+   若那份快照是缩放**前**的 ⇒ 每次 `env.reset()` 都把缩放**悄悄抹掉**。
+   ⇒ 缩放写完**必须让 jitter 重抓基线**（`_resync_jitter_baseline`）。
 
-## 通用守卫（同事 2026-09-14 提的，本模块实现成 `coverage_report()`）
+## 四、守卫
 
-**缩放前后列一张全部经济量对照表，逐项打 ×S 对勾** —— 漏项**当场可见**，
-而不是靠"跑起来发现领土 158→25"。`coverage_report()` 把 `balance` 里**每一个模块级标量**
-列出来并标"缩放/不缩放"，让**漏项无处可藏**。
+`coverage_report()` 逐字段标**次数**（标量 + `BUILDINGS`/`UNIT_TYPES` 的每个字段）——
+漏项**当场可见**，不靠"跑起来发现领土 158→25"。（同事 2026-09-14 提的那道守卫，
+2026-09-18 升级成带次数。）
 
-## 不变式
+## 五、不变式
 
-- `S=1` 是**显式 no-op**（restore 到真值）；默认路径**逐位不变**。
-- `apply(S)` **幂等**：任何时刻都从 `_TRUE` 派生，不在上一次结果上再乘。
-- 与 jitter **不能同时生效**（组合语义未定义）—— 撞上就 raise，不许悄悄叠加。
+- `S=1` 是**真 no-op**（不抓快照、不碰 jitter）；默认路径逐位不变。
+- `apply(S)` **幂等**（任何时刻从真值派生，不在上次结果上再乘）。
+- **奖励/回报/惩罚一律以 S=1 的消费为单位**（`ZhanguoEnv.spend_units` 做 ÷S²），
+  否则 S 会偷偷把学习率 ×S²、把 `--invalid-penalty` 相对削弱 S² 倍。
+- 与 jitter **不能同时生效**（组合语义未定义）—— 撞上就 raise。
 """
 from __future__ import annotations
 
 import copy
 
-# —— 缩放面白名单（字段级，见文件头）——
-_CONTAINERS = ("MARKET", "MARKET_DEPTH", "BUILDINGS", "UNIT_TYPES", "START_RES")
-_B_FIELDS = ("cost", "wood", "energy_out", "energy")          # ← energy 那个坑就在这行
-_B_DICTS = ("outputs", "inputs", "fuel", "army_cost")
-_B_EFFECTS = ("gold_base", "gold_per_slot")
-_U_FIELDS = ("supply",)
-_U_DICTS = ("recruit",)
-# 标量：`from balance import X` 是**值拷贝** ⇒ 必须回写到每个转口方
+# ---- 字段次数表（物=1、金=2；单价/深度见 _PRICE_DEG / _DEPTH_DEG）----
+_B_DEG = {                       # BUILDINGS[*] 的字段（effects 里的键也在这查）
+    "cost": 2, "army_cost": 2, "gold_base": 2, "gold_per_slot": 2,
+    "wood": 1, "energy": 1, "energy_out": 1,
+    "outputs": 1, "inputs": 1, "fuel": 1,
+}
+_U_DEG = {"supply": 1, "recruit": 1}          # UNIT_TYPES[*]
+_START_DEG = {"黄金": 2}                       # START_RES：只有黄金是金，其余是物
+_PRICE_DEG = 1                                 # MARKET：单价 ×S（见文件头 §一）
+_DEPTH_DEG = 1                                 # MARKET_DEPTH：单位数
+# 标量（`from balance import X` 是**值拷贝** ⇒ 必须回写到每个转口方）
 _SCALARS = (
-    ("SPY_COST", ("mp",)),
-    ("DIPLO_COST", ("mp",)),
-    ("DIPLO_CENTER_MIN_COST", ("game", "mp")),
+    ("SPY_COST", 2, ("mp",)),
+    ("DIPLO_COST", 2, ("mp",)),
+    ("DIPLO_CENTER_MIN_COST", 2, ("game", "mp")),
+    ("LETTER_COST", 2, ("mp",)),
+    ("LETTER_COST_ALLY", 2, ("mp",)),
+    ("LETTER_CENTER_DISCOUNT", 2, ("mp",)),
+    ("LETTER_COST_MIN", 2, ("mp",)),
 )
+_CONTAINERS = ("MARKET", "MARKET_DEPTH", "BUILDINGS", "UNIT_TYPES", "START_RES")
 
-_TRUE: dict | None = None      # 真值快照（首次 apply 时抓）
+_TRUE: dict | None = None
 _S: int = 1
 
 
@@ -98,62 +125,78 @@ def _snapshot() -> None:
     _TRUE = {name: copy.deepcopy(getattr(B, name)) for name in _CONTAINERS}
     _TRUE["AMOUNTS"] = tuple(M["env"].AMOUNTS)
     _TRUE["scalars"] = {}
-    for name, holders in _SCALARS:
+    for name, _deg, holders in _SCALARS:
         _TRUE["scalars"][name] = (getattr(B, name, None),
                                   {h: getattr(M[h], name, None) for h in holders})
 
 
+def _scaled(v, deg: int, S: int):
+    """按次数放大：次数 1 ⇒ ×S，次数 2 ⇒ ×S²（金）。"""
+    if deg == 1:
+        return v * S
+    if deg == 2:
+        return v * S * S
+    raise ValueError(f"次数只能是 1 或 2，得到 {deg}")
+
+
 def _write(S: int) -> None:
-    """从 `_TRUE` 派生出 ×S 的表，**就地**写进 `balance`（容器与 game/mp 共享同一对象）。"""
+    """从 `_TRUE` 派生 ×(S^次数) 的表，**就地**写进 `balance`（容器与 game/mp 共享同一对象）。"""
     B = _mods()["balance"]
     T = _TRUE
     for k, v in T["MARKET"].items():
-        B.MARKET[k] = v * S
+        B.MARKET[k] = _scaled(v, _PRICE_DEG, S)
     for k, v in T["MARKET_DEPTH"].items():
-        B.MARKET_DEPTH[k] = v * S
+        B.MARKET_DEPTH[k] = _scaled(v, _DEPTH_DEG, S)
     for b, tb in T["BUILDINGS"].items():
         cur = B.BUILDINGS[b]
-        for f in _B_FIELDS:
-            if f in tb:
-                v = tb[f]
-                cur[f] = [x * S for x in v] if isinstance(v, list) else v * S
-        for f in _B_DICTS:
-            if f in tb:
-                cur[f] = {k: v * S for k, v in tb[f].items()}
+        # ★`effects` **单独一支**：它的次数写在 `_B_DEG` 的**键**上（gold_base/gold_per_slot），
+        #   而 `_B_DEG` 的**字段**里没有 "effects" 这一项 —— 所以它**不能**混在下面那个
+        #   `for f, deg in _B_DEG` 循环里（那样这个分支永远不会被执行）。
+        #   实测栽过：市政厅 `gold_per_slot` 没放大，而 `coverage_report()` 还报它"次数 2"
+        #   ⇒ **守卫谎报**，比没有守卫更危险。
         if "effects" in tb:
-            eff = dict(tb["effects"])
-            for f in _B_EFFECTS:
-                if f in eff:
-                    eff[f] = eff[f] * S
-            cur["effects"] = eff
+            cur["effects"] = {k: (_scaled(v, _B_DEG[k], S) if k in _B_DEG else v)
+                              for k, v in tb["effects"].items()}
+        for f, deg in _B_DEG.items():
+            if f not in tb or f in ("gold_base", "gold_per_slot"):
+                continue                 # 后两个是 effects 的**内键**，不是字段
+            src = tb[f]
+            if isinstance(src, dict):    # outputs/inputs/fuel/army_cost：整只同次数
+                cur[f] = {k: _scaled(v, deg, S) for k, v in src.items()}
+            elif isinstance(src, list):  # 城堡逐级造价表
+                cur[f] = [_scaled(x, deg, S) for x in src]
+            else:
+                cur[f] = _scaled(src, deg, S)
+        # ⚠ 上面也**不能**写成"跳过 dict 字段"：`outputs`/`inputs`/`fuel` 都是 dict，
+        #   跳过它们 = **产出/投料不缩放**（实测：装备产出 2→2 应为 2→20）。
+        #   两处都是"漏一个字段 ⇒ 比例失衡"那类坑，而且**不报错**。
     for t, tu in T["UNIT_TYPES"].items():
         cur = B.UNIT_TYPES[t]
-        for f in _U_FIELDS:
+        for f, deg in _U_DEG.items():
             if f in tu:
-                cur[f] = tu[f] * S
-        for f in _U_DICTS:
-            if f in tu:
-                cur[f] = {k: v * S for k, v in tu[f].items()}
+                src = tu[f]
+                cur[f] = ({k: _scaled(v, deg, S) for k, v in src.items()}
+                          if isinstance(src, dict) else _scaled(src, deg, S))
     for k, v in T["START_RES"].items():
-        B.START_RES[k] = v * S
-    # ★坑 3：候选量档也是量，且住在 rl/env.py（tuple ⇒ 只能重绑模块全局）
+        B.START_RES[k] = _scaled(v, _START_DEG.get(k, 1), S)
+    # ★候选量档：住在 rl/env.py、是 tuple ⇒ 只能重绑模块全局（物 ⇒ 次数 1）
     M = _mods()
     M["env"].AMOUNTS = tuple(v * S for v in T["AMOUNTS"])
-    # ★标量：值拷贝 ⇒ 逐个回写。balance 也要写（它是权威），转口方跟着写。
-    for name, holders in _SCALARS:
+    # ★标量：值拷贝 ⇒ balance 与每个转口方都要回写
+    for name, deg, holders in _SCALARS:
         bval, hvals = T["scalars"][name]
         if bval is not None:
-            setattr(M["balance"], name, bval * S)
+            setattr(M["balance"], name, _scaled(bval, deg, S))
         for h, hv in hvals.items():
             if hv is not None and hasattr(M[h], name):
-                setattr(M[h], name, hv * S)
+                setattr(M[h], name, _scaled(hv, deg, S))
 
 
 def _resync_jitter_baseline() -> None:
     """★坑 2 的堵法：缩放写完，让 jitter 的基线**重抓成当前（已缩放）表**。
 
     否则 `jitter.apply(ms, 0)`（=restore）会把**缩放前**的快照写回，
-    每次 `env.reset()` 都把 ×S 悄悄抹掉。
+    每次 `env.reset()` 都把缩放悄悄抹掉。
     """
     import rl.jitter as J
     if J._REC is not None:
@@ -164,15 +207,12 @@ def _resync_jitter_baseline() -> None:
 
 
 def apply(S) -> dict:
-    """把经济量放大到 ×S（幂等：任何时刻都从真值派生）。`S=1` ⇒ 恢复真值。"""
+    """把规则表按单位换算放大（物 ×S、价 ×S、金 ×S²）。`S=1` ⇒ 恢复真值。"""
     global _S
     S = int(S)
     if S < 1:
         raise ValueError(f"S 必须是正整数，得到 {S}")
-    # ★**真 no-op**：S=1 且从未缩放过 ⇒ 什么都不做。
-    #   若在这里仍去 `_snapshot()` + `_resync_jitter_baseline()`，就会**动到 jitter 的基线** ——
-    #   默认路径（S=1）本该逐位不变，而且 jitter 正生效时那步会 raise
-    #   （实测：`rules_jitter>0` 的 env 第二次 reset 必炸，68 个测试挂在这）。
+    # ★真 no-op：S=1 且从未缩放过 ⇒ 什么都不做（不抓快照、不碰 jitter）。
     if S == 1 and _TRUE is None:
         return {"scale": 1, "touched": "noop（从未缩放过）"}
     _snapshot()
@@ -192,20 +232,33 @@ def current() -> int:
 
 
 def coverage_report() -> dict:
-    """★把 `balance` 里**每一个模块级标量**列出来并标"缩放 / 不缩放"。
+    """★**逐字段标次数**的守卫。
 
-    这是防"漏一个字段 ⇒ 比例失衡 ⇒ 行为爆炸"的那道**可见**守卫（文件头「通用守卫」）。
-    返回 `{"scaled": {...}, "not_scaled": {...}}`；两个集合的并集 = 全部标量。
-    用法（写测试或人眼过一遍）：`print(scale.coverage_report())`。
+    把 `balance` 里每个模块级标量、`BUILDINGS`/`UNIT_TYPES` 的每个字段都列出来并标次数
+    （1=物/价、2=金、"不缩放"）。漏一个字段 ⇒ 比例失衡 ⇒ 行为爆炸，而且**不会报错**
+    —— 这张表让它**当场可见**。
     """
     import balance as B
-    scaled_names = {n for n, _ in _SCALARS}
-    scaled, not_scaled = {}, {}
+    names = {n: d for n, d, _h in _SCALARS}
+    scalars = {}
     for n in dir(B):
         if n.startswith("_"):
             continue
         v = getattr(B, n)
         if isinstance(v, (int, float)) and not isinstance(v, bool):
-            (scaled if n in scaled_names else not_scaled)[n] = v
-    return {"scaled": scaled, "not_scaled": not_scaled,
-            "containers": {n: type(getattr(B, n)).__name__ for n in _CONTAINERS}}
+            scalars[n] = names.get(n, "不缩放")
+    bfields = {}
+    for _b, tb in B.BUILDINGS.items():
+        for f in tb:
+            if f in _B_DEG:
+                bfields[f] = _B_DEG[f]
+            elif f == "effects":
+                for k in tb[f]:
+                    bfields[f"effects.{k}"] = _B_DEG.get(k, "不缩放")
+    return {
+        "scalars": scalars,
+        "building_fields": {k: bfields[k] for k in sorted(bfields)},
+        "unit_fields": dict(_U_DEG),
+        "containers": {n: ({"MARKET": _PRICE_DEG, "MARKET_DEPTH": _DEPTH_DEG}.get(n, 1))
+                       for n in _CONTAINERS},
+    }
