@@ -477,6 +477,69 @@ class TestWartimeLock(unittest.TestCase):
         self.assertTrue(w.wars)
         self.assertFalse(w.bloc_leave("齐")[0])                 # 齐自己没发起，但一样锁死
 
+    # ---- ★ 条约冻结（2026-09-18）：缔结与解除都不行 ----
+
+    def test_cannot_break_defense_at_war(self):
+        """断约脱战已封：`break_pact` 原先会顺带退出该条约带来的战线，那等于留了条跑路通道。"""
+        w = make_world(nations=("秦", "楚", "齐", "燕", "赵"))
+        w.propose_pact("共同防御", "秦", "燕")
+        w.accept_pact("燕", w.proposals[-1]["id"])
+        w.declare_war("赵", "秦")                               # 燕按共同防御被拖入守侧
+        self.assertEqual(w.wars[0]["followers"], ["燕"])
+        ok, msg = w.break_pact("共同防御", "燕", "秦")
+        self.assertFalse(ok)
+        self.assertIn("战争期间", msg)
+        self.assertTrue(w.pacts)                                # 条约还在
+        self.assertIn("燕", w.wars[0]["followers"])             # 也没被踢出战线
+
+    def test_cannot_cancel_guarantee_at_war(self):
+        """撤回保障同口径冻结（对称：战时既不能缔结也不能撤回）。"""
+        w = make_world(nations=("秦", "楚", "齐", "燕", "赵"))
+        w.declare_guarantee("秦", "燕")
+        w.declare_war("赵", "燕")                               # 秦按保障被拖入守侧
+        self.assertEqual(w.wars[0]["followers"], ["秦"])
+        ok, msg = w.cancel_guarantee("秦", "燕")
+        self.assertFalse(ok)
+        self.assertIn("战争期间", msg)
+        self.assertTrue(w.pacts)
+
+    def test_treaty_withdrawal_allowed_after_war(self):
+        """冻结只在战时——停战后解除通道重开（不是永久锁死）。"""
+        w = make_world(nations=("秦", "楚", "齐", "燕", "赵"))
+        w.propose_pact("共同防御", "秦", "燕")
+        w.accept_pact("燕", w.proposals[-1]["id"])
+        w.declare_war("赵", "秦")
+        self.assertFalse(w.break_pact("共同防御", "燕", "秦")[0])
+        w.wars = []                                             # 议和 → 整条战线停战
+        self.assertTrue(w.break_pact("共同防御", "燕", "秦")[0])
+        self.assertEqual(w.pacts, [])
+
+    def test_pact_vote_cannot_take_effect_during_war(self):
+        """★联盟表决也绕不过冻结：票在**和平期**发出、战争爆发后才通过 —— 执行时要再查一次。
+
+        这是"投票在途"的真实窗口：`break_pact` 当时合法（没打仗），但等票凑齐时已经在打了。
+        """
+        w = make_world(nations=("秦", "楚", "齐", "燕", "赵"))
+        make_bloc(w)                                            # 秦/楚/齐 结盟（盟主秦）
+        w.propose_pact("共同防御", "秦", "燕")
+        vid = w.votes[-1]["id"]
+        w.cast_vote("楚", vid, True)
+        w.cast_vote("齐", vid, True)                            # 通过 → 向燕发出邀约
+        offer = [p for p in w.proposals if p["kind"] == "共同防御"][0]
+        w.accept_pact("燕", offer["id"])                        # 燕是独立国家 → 直接缔结
+        self.assertTrue(w.has_pact("共同防御", mp.ent_bloc("北盟"), mp.ent_nation("燕")))
+        # 和平期发起「解除」表决：此刻合法，投票在途
+        ok, msg = w.break_pact("共同防御", "秦", "燕")
+        self.assertTrue(ok, msg)
+        cid = [v["id"] for v in w.votes
+               if v["kind"] == "缔约" and v["payload"].get("cancel")][0]
+        # 战争爆发（赵打北盟 → 燕按共同防御被拖入守侧）
+        w.declare_war("赵", "秦")
+        ok, msg = w.cast_vote("楚", cid, True)                  # 凑够 → 立即通过并执行
+        self.assertFalse(ok, "战时不该让解除生效")
+        self.assertIn("冻结", msg)
+        self.assertTrue(w.has_pact("共同防御", mp.ent_bloc("北盟"), mp.ent_nation("燕")))
+
 
 class TestEntityPactTable(unittest.TestCase):
     """条约表的实体级原语（面板/闭包/亡国清理都建在它上面）。"""

@@ -99,7 +99,7 @@ SPEND_FIELDS = ("build",    # 建造实付金 + 木×市价（含城堡升级）
                 "recruit",  # 征兵消耗（粮/装备/金）× 市价
                 "supply")   # 军费：军队吃掉的补给 × 市价
 # 本期经济账本字段（按国累计，结完报表清零；全部按当时市价折金）
-LEDGER_FIELDS = ("prod_value",      # 采集/工厂/军屯 产出 × 市价
+LEDGER_FIELDS = ("prod_value",      # 采集/工厂 产出 × 市价（军屯 2026-09-18 起不产，不在此列）
                  "mid_value",       # 工厂中间投入 × 市价
                  "fuel_value",      # 能源厂燃料 × 市价
                  "gold_in",         # 金矿 + 市政厅 入国库的金
@@ -233,7 +233,7 @@ def build_econ(world: "World", building: str, tile=None) -> dict:
     if kind == "gold":
         per = sum(good_value(world, g, a) for g, a in info["outputs"].items())
         detail["net"] = per
-    elif kind == "extract" or kind == "militia_camp":
+    elif kind == "extract":
         per = sum(good_value(world, g, a, "sell") for g, a in info["outputs"].items())
         detail["net"] = per
     elif kind == "energy":
@@ -1947,8 +1947,10 @@ class World:
                     continue
                 info = BUILDINGS[bname]
                 kind = info["kind"]
-                if kind in ("extract", "militia_camp"):
-                    # 军屯=屯田：同样按 outputs 产粮（不耗电、不占电网维持）
+                if kind == "extract":
+                    # 采集类：无投入，按 outputs 产出入储备。
+                    # （军屯曾走这条分支屯田产粮，2026-09-18 起不产——它现在是纯民兵编制，
+                    #   见 balance.py；这条分支只剩采集建筑。）
                     for g, amt in info["outputs"].items():
                         self.add_res(owner, g, amt * cnt)
                         prod[owner][g] += amt * cnt
@@ -2589,8 +2591,11 @@ class World:
         return True, f"你拒绝了 {self.entity_label(A)} 的{p['kind']}"
 
     def break_pact(self, kind: str, a: str, b: str) -> tuple[bool, str]:
-        """单方面解除共同防御。在盟国家须联盟投票。断约同时退出由该盟约带来的战线
-        （跟随方不想打的退出通道）——这是**实体**的集体选择，不是成员的个人退路。"""
+        """解除共同防御。在盟国家须联盟投票。
+
+        ★ **战争期间一律不准解除**（2026-09-18 改）：条约在战时**冻结**——平时缔结不了、
+        战时也解不掉。原先是"断约顺带退出该条约带来的战线"（`_pact_exit_wars`），
+        那等于留了一条「打不过就背弃盟友跑路」的脱战通道；现在只有**议和**能停战。"""
         if kind == "同盟":
             return False, "双边同盟已由多边联盟取代（bloc_found 结盟 / bloc_leave 退盟）"
         if kind != "共同防御":
@@ -2600,6 +2605,10 @@ class World:
         A, B = self.entity_of(a), self.entity_of(b)
         if not self.has_pact("共同防御", A, B):
             return False, f"{self.entity_label(A)} 与 {self.entity_label(B)} 并无共同防御"
+        if self.entity_at_war(A) or self.entity_at_war(B):
+            who = A if self.entity_at_war(A) else B
+            return False, (f"战争期间不能解除共同防御：{self._war_brief_ent(who)}"
+                           "（**条约在战时冻结**，缔结与解除都不行——先议和停战）")
         bl = self.bloc_of(a)
         if bl is not None:
             v = self._new_vote("缔约", bl["name"], a,
@@ -2952,6 +2961,8 @@ class World:
         if not self.entity_members(B):
             return False, f"{self.entity_label(B)} 已不存在，{kind}表决落空"
         if pl.get("cancel"):                       # 撤回保障 / 解除共同防御
+            if self.entity_at_war(A) or self.entity_at_war(B):
+                return False, "战争期间条约冻结：表决通过也失效了（先议和停战）"
             if self._drop_pact(kind, A, B):
                 self.log(f"💔 {self.entity_label(A)} 经联盟表决解除与 {self.entity_label(B)} 的{kind}",
                          phase="外交")
@@ -3035,6 +3046,10 @@ class World:
             return False, "你与它同属一个实体，没有保障可撤"
         if not self.has_pact("保障", A, B):
             return False, f"{self.entity_label(A)} 并未保障 {self.entity_label(B)}"
+        if self.entity_at_war(A) or self.entity_at_war(B):
+            who = A if self.entity_at_war(A) else B
+            return False, (f"战争期间不能撤回独立保障：{self._war_brief_ent(who)}"
+                           "（**条约在战时冻结**，缔结与撤回都不行——先议和停战）")
         bl = self.bloc_of(a)
         if bl is not None:
             v = self._new_vote("缔约", bl["name"], a,

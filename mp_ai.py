@@ -569,9 +569,9 @@ def _help_sections() -> list[tuple[str, str]]:
                 f"（含城堡升级，与地形惩罚乘算，"
                     "只认已落成的）；需本地已用建筑位≥" + str(info["min_slots"]) + "、每地块限1座")
         elif k == "militia_camp":
-            note = (f"屯田+民兵编制：每回合 +{info['outputs']['粮食']} 粮（不耗电）。可在此征召民兵"
+            note = (f"无产出不耗电；**纯民兵编制——不产粮**，只有它征得了民兵"
                     f"（{_cost_text(UNIT_TYPES['民']['recruit'])}/支；每座每回合{info['effects'].get('militia_cap', 1)}支，"
-                    "**全国民兵总数 ≤ 全国军屯总数**；不耗电、电网停摆也不影响）；民兵=廉价驻守军队"
+                    "**全国民兵总数 ≤ 全国军屯总数**，阵亡后可补员）；民兵=廉价驻守军队"
                     f"（{UNIT_TYPES['民']['hp']}HP/攻{UNIT_TYPES['民']['atk']}/{_move_brief('民')}），驻**本格**不耗补给"
                     "（每座军屯覆盖本格1支，离格/超额照常吃）；需本地耕地≥1、每地块限1座")
         else:  # barracks
@@ -672,7 +672,8 @@ def _help_sections() -> list[tuple[str, str]]:
             "普通成员与跟随方不能单独议和；盟主提出或接受议和都须经联盟投票；主导者议和则整条战线停战。"
             "投票：vote(投票id, choice=yes/no/abstain) 表态（可改票）；发起者默认赞成；**不投 = 到期算弃权**；"
             "逾期未决时按 赞成 > 反对 定论。"
-            "**战争期间禁止**：缔结/加入联盟、保障独立、共同防御、**退盟、解散联盟**——先议和停战再谈。"
+            "**战争期间条约冻结**：不能缔结、也**不能解除**——保障独立/共同防御的缔结**与**撤回、加入或缔结联盟、"
+            "退盟、解散联盟，全部禁止——先议和停战再谈。"
             "★ 这几条合起来的意思：一旦开打，盟友就是**锁死**的——没有『打不过就跑』的通道，"
             "想脱身只有两条路：把盟主打成议和（或自己被灭）。"
             "核心领土：每块地有核心归属（land 面板 ♥ 标记=本国核心）；每次战争结束按参战各国实际持有重算核心"
@@ -978,15 +979,15 @@ def _econ_building(world, building: str) -> str:
     if k == "castle":
         return (f"{building}: L1造价 {cost}金+{info['wood']}木(折{capex:.0f}金) · "
                 f"每级+{building_effect('城堡', 'defense_per_level')}%防御，不产金")
-    if k in ("extract", "gold", "militia_camp"):
+    if k == "militia_camp":
+        return (f"{building}: 造价折{capex:.0f}金 · **不产粮**（纯民兵编制，无产出）；"
+                f"可征民兵（{_cost_text(UNIT_TYPES['民']['recruit'])}/支，每座{info['effects'].get('militia_cap', 1)}支/回合，"
+                "全国民兵总数≤全国军屯数），民兵驻本格不耗补给"
+                f"（需本地{info['cap_resource']}≥1、每地块限{info.get('limit', 1)}座）")
+    if k in ("extract", "gold"):
         net = e["detail"]["net"]
         if k == "gold":
             tag = "固定+金"
-        elif k == "militia_camp":
-            return (f"{building}: 造价折{capex:.0f}金 · 屯田 +{info['outputs']['粮食']}粮/回合；"
-                    f"可征民兵（{_cost_text(UNIT_TYPES['民']['recruit'])}/支，每座{info['effects'].get('militia_cap', 1)}支/回合，"
-                    "全国民兵总数≤全国军屯数），民兵驻本格不耗补给"
-                    f"（需本地{info['cap_resource']}≥1、每地块限{info.get('limit', 1)}座）")
         else:
             tag = "外销(卖价)"
         pb = f"{e['payback']:.0f}回合" if e["payback"] else "—"
@@ -1582,7 +1583,7 @@ TOOL_SCHEMAS = [
         "name": "econ", "description": "按当前市价核算建设回报：某建筑的 造价(折金)/每回合毛利/回本时间；不带 building 则输出全部建筑经济表。做建设/买卖决策前先算再定。",
         "parameters": _props({"building": {"type": "string", "enum": BUILD_NAMES, "description": "要核算的建筑名（可选；省则输出全部）"}})}},
     {"type": "function", "function": {
-        "name": "build", "description": f"在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅/瞭望塔/外交中心/工程院/军屯。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥{BUILDINGS['兵营']['min_slots']}；瞭望塔=事件视野+{building_effect('瞭望塔', 'vision_radius')}圆；市政厅需本地已用位≥{BUILDINGS['市政厅']['min_slots']}且每地块限{BUILDINGS['市政厅']['limit']}；外交中心=外交费减半可叠加但自建全国限{BUILDINGS['外交中心']['limit_nation']}（第2座只能抢）；工程院=本地建造费-{building_effect('工程院', 'build_discount')}%需本地位≥{BUILDINGS['工程院']['min_slots']}；军屯=屯田+{BUILDINGS['军屯']['outputs']['粮食']}粮、可征民兵({_cost_text(UNIT_TYPES['民']['recruit'])}/支、全国民兵总数≤军屯数)且民兵驻本格不耗补给（需本地{BUILDINGS['军屯']['cap_resource']}≥1、每地块限{BUILDINGS['军屯']['limit']}座）。",
+        "name": "build", "description": f"在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅/瞭望塔/外交中心/工程院/军屯。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥{BUILDINGS['兵营']['min_slots']}；瞭望塔=事件视野+{building_effect('瞭望塔', 'vision_radius')}圆；市政厅需本地已用位≥{BUILDINGS['市政厅']['min_slots']}且每地块限{BUILDINGS['市政厅']['limit']}；外交中心=外交费减半可叠加但自建全国限{BUILDINGS['外交中心']['limit_nation']}（第2座只能抢）；工程院=本地建造费-{building_effect('工程院', 'build_discount')}%需本地位≥{BUILDINGS['工程院']['min_slots']}；军屯=**不产粮**的民兵编制、可征民兵({_cost_text(UNIT_TYPES['民']['recruit'])}/支、全国民兵总数≤军屯数)且民兵驻本格不耗补给（需本地{BUILDINGS['军屯']['cap_resource']}≥1、每地块限{BUILDINGS['军屯']['limit']}座）。",
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标如 '5 6' 或自家地块名（land 面板有）", "required": True},
                               "building": {"type": "string", "enum": BUILD_NAMES, "description": "建筑名", "required": True}})}},
     {"type": "function", "function": {
@@ -1664,13 +1665,13 @@ TOOL_SCHEMAS = [
         "parameters": _props({"proposal_id": {"type": "integer", "description": "邀约id（diplomacy面板有）", "required": True},
                               "accept": {"type": "boolean", "description": "接受? true/false", "required": True}})}},
     {"type": "function", "function": {
-        "name": "break_defense", "description": "解除共同防御。★ 你在联盟里 → 先转为**联盟投票**，通过后由联盟解除（成员个人无权解约）；你是独立国家 → 你自己就是实体，直接解除。解除同时退出由该盟约带来的战线，滞留对方领土的军队回合末自动遣返。",
+        "name": "break_defense", "description": "解除共同防御。★ **战争期间一律不准解除**（条约在战时冻结：缔结与解除都不行，只有议和能停战）——原先「断约即退出该盟约带来的战线」，那是一条打不过就跑路的脱战通道，已封。你在联盟里 → 先转为**联盟投票**，通过后由联盟解除（成员个人无权解约）；你是独立国家 → 直接解除。解除后跟随方身份一并解除，滞留对方领土的军队回合末自动遣返。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
         "name": "guarantee", "description": f"宣布保障别国（实体）独立：任何国家攻击它，你方实体将自动参战。**签约方是外交实体**：你在联盟里 → 先转为**联盟投票**，通过后由**联盟**保障它（恩义记在联盟头上、全盟担义务）；你是独立国家 → 你自己就是实体，直接生效。保障与共同防御互斥（共同防御更高一档，缔结它会自动解除保障）。**双方实体都必须在和平状态**（任一方在交战 → 不能保障，先议和）。to=别国（不能自己）。成功扣外交费（基准 {DIPLO_COST} 金）。",
         "parameters": _props({"to": {"type": "string", "description": "被保障国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "cancel_guarantee", "description": "撤回独立保障（你在联盟里 → 先转为联盟投票，通过后由联盟撤回）。",
+        "name": "cancel_guarantee", "description": "撤回独立保障。★ **战争期间不准撤回**（条约在战时冻结，与 break_defense 同口径）。你在联盟里 → 先转为联盟投票，通过后由联盟撤回。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
         "name": "declare_war", "description": "对别国宣战（对方必须应战，即刻生效；成功扣外交费）。先 countries 选目标，to=别国（不能自己）。★ **交战方是外交实体**：你在联盟里 → 调用即转为**联盟宣战投票**（多数决通过后全盟参战、盟主为进攻主导）；你是独立国家 → 直接开战。战争传导（无限跳，以实体为单位）：对方的保障国/共同防御伙伴/它所在的联盟按传递闭包自动参战打你（A 保 B、B 盟 C → 打 B 则 C 也上）。若目标正与你方实体的盟友/共同防御伙伴交战，宣战会**并入其现有战线**当跟随方（跟随方不能单独议和，主导者议和整条战线停战）。",

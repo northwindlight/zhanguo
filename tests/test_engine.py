@@ -380,15 +380,28 @@ class TestNewBuildings(unittest.TestCase):
         ok3, msg3 = w.build("秦", ox, oy, "军屯")
         self.assertFalse(ok3)
 
-    def test_militia_camp_grows_food(self):
-        """军屯屯田：每座每回合 +1 粮（不耗电）。"""
+    def test_militia_camp_grows_no_food(self):
+        """★军屯**不产粮**（2026-09-18 口径改动）：它是纯民兵编制，粮食增量为 0。
+
+        原先断言的是 `+1`（屯田）。翻面之后这条就是守卫——挡住"军屯又被当成产粮建筑"。
+        """
         w = self._world()
         x, y = self._own_tile(w)
         w.tiles[(x, y)]["buildings"]["军屯"] = 1
         w.tiles[(x, y)]["buildings"]["农场"] = 0
+        self.assertEqual(mp.BUILDINGS["军屯"]["outputs"], {})     # 数据层：无产出
         f0 = w.res("秦", "粮食")
         w.resolve_turn()
-        self.assertEqual(w.res("秦", "粮食") - f0, 1)
+        self.assertEqual(w.res("秦", "粮食") - f0, 0)             # 行为层：不产
+
+    def test_militia_camp_still_supplies_militia(self):
+        """不产粮**不影响**它的正职：民兵照样征得了、驻屯照样免补给。"""
+        w = self._world()
+        x, y = self._own_tile(w)
+        w.tiles[(x, y)]["buildings"]["军屯"] = 1
+        ok, msg = w.recruit("秦", x, y, 1, "民")
+        self.assertTrue(ok, msg)
+        self.assertEqual(w.res("秦", "粮食"), mp.START_RES["粮食"] - 5)   # 只被征兵吃掉 5 粮
 
     def test_militia_needs_camp(self):
         w = self._world()

@@ -141,8 +141,8 @@ def _b_behavior(name: str, info: dict) -> str:
         return (f"不耗电：本地块一切建造金价 −{eff['build_discount']}%"
                 "（含城堡升级，与地形惩罚乘算，只认已落成的）")
     if k == "militia_camp":
-        return (f"不耗电：屯田（每回合 {'、'.join(f'{g} +{a}' for g, a in info['outputs'].items())}）"
-                f" ＋民兵编制（每座每回合可征 {eff['militia_cap']} 支民兵，"
+        return ("不耗电：**纯民兵编制，不产粮**"
+                f"（每座每回合可征 {eff['militia_cap']} 支民兵，"
                 "全国民兵总数 ≤ 全国军屯总数）")
     raise SyncError(f"未覆盖的建筑 kind：{k}（{name}）—— 请在本文件补一段行为文案")
 

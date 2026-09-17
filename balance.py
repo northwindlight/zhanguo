@@ -183,11 +183,14 @@ BUILDINGS = {
     # 工程院：本地块一切建造金价 -25%（与地形惩罚乘算，只认已落成的），需本地已用建筑位≥4
     "工程院": {"kind": "academy", "cost": 300, "wood": 30, "cap_resource": None,
                "limit": 1, "min_slots": 4, "effects": {"build_discount": 25}},
-    # 军屯：屯田 + 民兵编制——每回合 +1 粮；可征民兵（50金+5粮/支，不耗电、不受电网停摆影响）；
+    # 军屯：**纯民兵编制**（2026-09-18 改：原先每回合 +1 粮，按口径拿掉——它是驻军编制，
+    # 不是产粮建筑）；可征民兵（50金+5粮/支，不耗电、不受电网停摆影响）；
     # **每地块限 1 座**，且**全国民兵总数 ≤ 全国军屯总数×effects.militia_cap**（军屯即民兵编制上限，阵亡可补员）；
-    # 民兵驻本格不耗补给（每座军屯覆盖本格 1 支），离格照常吃
+    # 民兵驻本格不耗补给（每座军屯覆盖本格 1 支），离格照常吃。
+    # ★ `outputs` 留成**空 dict**、而不是把键删掉：引擎/面板/账本好几处都按 `info["outputs"]` 统一读，
+    #   删键会 KeyError；空 dict 让"无产出建筑"这条路走得通，ruleai 的 `_extractors()` 也会自动排除它。
     "军屯": {"kind": "militia_camp", "cost": 220, "wood": 15, "cap_resource": "耕地",
-             "limit": 1, "outputs": {"粮食": 1}, "effects": {"militia_cap": 1}},
+             "limit": 1, "outputs": {}, "effects": {"militia_cap": 1}},
 }
 
 
