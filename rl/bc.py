@@ -317,7 +317,7 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
             if done:
                 break
         end = env.world.spend_total(env.agent)
-        return ([(o, i, (end - sp) * env.reward_scale, w) for o, i, sp, w in demos_d],
+        return ([(o, i, env.spend_units(end - sp) * env.reward_scale, w) for o, i, sp, w in demos_d],
                 end, miss_d)
 
     demos: list[tuple] = []
@@ -370,7 +370,7 @@ def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
     # 剩余回报 G_t =（局末累计消费 − 此刻累计消费）× reward_scale。
     # γ=1 时它就是 PPO 里 V(s) 该逼近的目标——BC 顺手把 critic 也热身了。
     end = env.world.spend_total(env.agent)
-    return ([(o, i, (end - sp) * env.reward_scale, w) for o, i, sp, w in demos],
+    return ([(o, i, env.spend_units(end - sp) * env.reward_scale, w) for o, i, sp, w in demos],
             end, miss)
 
 

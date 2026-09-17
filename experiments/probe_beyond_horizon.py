@@ -32,7 +32,8 @@ from rl.ppo import act  # noqa: E402
 from rl.tokenize import GROUPS, tokenize  # noqa: E402
 from rl.transformer import WindowTransformer  # noqa: E402
 
-CKPTS = [a for a in sys.argv[1:] if not a.startswith("--") and not a.lstrip("-").isdigit()] or ["rl/runs/ep24.pt"]
+CKPTS = [a for a in sys.argv[1:] if not a.startswith("--") and not a.lstrip("-").isdigit()
+         and a not in ("candx", "t111")] or ["rl/runs/ep24.pt"]
 TURNS = 200
 SEED = 900000
 
@@ -45,7 +46,9 @@ def _opt(name, default):
 
 
 TURNS = _opt("--turns", TURNS)
-SEED = _opt("--seed", SEED)      # ★对照用：留出图 900000+ / 训练池里的图（如 18）
+SEED = _opt("--seed", SEED)
+ARCH = (sys.argv[sys.argv.index("--arch") + 1] if "--arch" in sys.argv else "candx")
+REPS = _opt("--reps", 1)      # ★采样噪声极大：重要结论至少 5 次取中位      # ★对照用：留出图 900000+ / 训练池里的图（如 18）
 SEG = 50                      # 分段长度：1-50 是训练窗口，后面都是"没见过"
 set_threads(4)
 
@@ -55,8 +58,22 @@ _w = tokenize(env, env._obs())
 
 
 def load(path):
-    m = WindowTransformer({g: _w.feats[g].shape[1] for g in GROUPS},
-                          d_model=192, n_layer=4, n_head=4)
+    """★`--arch t111`：用 **111 张量那代架构**加载 2026-09-13 之前的 ckpt。
+
+    为什么不能直接 `strict=False` 塞进新架构：后两代各加了键（`exec_head` / `cross2`+`ln_cand`），
+    塞进去它们是**随机初值** ⇒ 行为已被污染，新旧对比不成立。
+    见 `experiments/_transformer_111.py` 的文件头（三代对照表）。
+    """
+    cls = WindowTransformer
+    if ARCH == "t111":
+        import importlib.util
+        _p = Path(__file__).resolve().parent / "_transformer_111.py"
+        _spec = importlib.util.spec_from_file_location("_transformer_111", _p)
+        _mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        cls = _mod.WindowTransformer
+    m = cls({g: _w.feats[g].shape[1] for g in GROUPS},
+            d_model=192, n_layer=4, n_head=4)
     m.set_sub_sizes([len(env.sub_tables[k]) for k in KINDS])
     ck = torch.load(path, map_location="cpu", weights_only=False)
     m.load_state_dict(ck["model"])
@@ -64,7 +81,7 @@ def load(path):
     return m, ck
 
 
-def run(model, deterministic: bool, teacher=None):
+def run(model, deterministic: bool, teacher=None, rep: int = 0):
     """跑满 TURNS 回合，按段累计。返回 (总消费, 总领地, 分段表)。
 
     `teacher` 非空时不用模型，改跑**规则老师**（对照臂）—— 它每次只动一步、
@@ -72,11 +89,19 @@ def run(model, deterministic: bool, teacher=None):
     """
     import random
 
+    # ★**采样臂必须播种**：`act(deterministic=False)` 走 `torch.multinomial`，
+    #   不播种的话同一个 ckpt 同一张图两遍能跑出完全不同的轨迹（实测：同一模型
+    #   一次 recruit 0 / attack 0 / 地 5，一次 recruit 76 / attack 33 / 地 18）。
+    #   贪心臂是 argmax，本来就确定；播种对它是 no-op。
+    #   `rep` 只影响种子 ⇒ 多次重复可以平均掉采样噪声（PLAN 工具纪律那条）。
+    torch.manual_seed(0x5EED + rep)
+
     env.reset(SEED)
     env.world.max_turns = TURNS
     obs = env._obs()
-    segs = []          # [(段号, {kind: n}, 消费增量, 领地末)]
+    segs = []          # [(段号, {kind: n}, 消费增量, 领地末, {子项: n}, 军队数)]
     cur = {k: 0 for k in KINDS}
+    sub = {}           # ★"build:兵营" 这类 —— 决定链子断在第几环（见 §C 死锁）
     spend0 = 0.0
     seg_i = 0
     rng = random.Random(0xB4BE)
@@ -98,13 +123,18 @@ def run(model, deterministic: bool, teacher=None):
             i, _lp, _v = act(model, obs, deterministic=deterministic, win=w)
             a = obs.cand["actions"][i]
             cur[a.kind] = cur.get(a.kind, 0) + 1
+            if a.kind in ("build", "recruit") and a.sub:
+                k2 = f"{a.kind}:{a.sub}"
+                sub[k2] = sub.get(k2, 0) + 1
             obs, _r, done, _info = env.step(a)
             t = env.world.turn
         if t >= (seg_i + 1) * SEG or done:
             sp = env.world.spend_total(env.agent)
             segs.append((seg_i + 1, dict(cur), sp - spend0,
-                         len(env.world.own_tiles(env.agent))))
+                         len(env.world.own_tiles(env.agent)), dict(sub),
+                         len(env.world.nation_armies(env.agent))))
             cur = {k: 0 for k in KINDS}
+            sub = {}
             spend0 = sp
             seg_i += 1
         if done or t >= TURNS:
@@ -127,17 +157,35 @@ for path in CKPTS:
         arms = ((True, "贪心"), (False, "采样"))
     print(f"\n{'='*78}\n{who}  评估图 seed {SEED}，跑到 {TURNS} 回合", flush=True)
     for det, tag in arms:
+      acc = []
+      for rep in range(REPS):
         t0 = time.time()
-        sp, tiles, segs = run(model, det, teacher=teacher)
+        sp, tiles, segs = run(model, det, teacher=teacher, rep=rep)
+        acc.append((sp, tiles, segs))
+        if REPS > 1:
+            print(f"\n  ── {tag} rep{rep}: 终局消费 {sp:>9,.0f}  领地 {tiles:>4}"
+                  f"  ({time.time()-t0:.0f}s)", flush=True)
+      if REPS > 1:
+        _sp = [a[0] for a in acc]; _tl = [a[1] for a in acc]
+        print(f"  ── {tag} **{REPS} 次重复**：消费 中位 {st.median(_sp):>9,.0f}"
+              f"（{min(_sp):,.0f}~{max(_sp):,.0f}）  领地 中位 {st.median(_tl):.0f}"
+              f"（{min(_tl)}~{max(_tl)}）", flush=True)
+      sp, tiles, segs = acc[0]
+      if True:
         print(f"\n  ── {tag}：终局消费 {sp:>9,.0f}  领地 {tiles:>4}  ({time.time()-t0:.0f}s)", flush=True)
         print(f"     {'回合段':<10}{'build':>6}{'recruit':>8}{'move':>6}{'attack':>7}"
               f"{'buy':>5}{'sell':>5}{'end':>5}   {'消费增量':>10}{'领地末':>7}", flush=True)
-        for idx, kinds, dsp, tl in segs:
+        for idx, kinds, dsp, tl, sb, nar in segs:
             lo = (idx - 1) * SEG + 1
             hi = min(idx * SEG, TURNS)
             print(f"     {f'{lo}-{hi}':<10}{kinds['build']:>6}{kinds['recruit']:>8}"
                   f"{kinds['move']:>6}{kinds['attack']:>7}{kinds['buy']:>5}"
                   f"{kinds['sell']:>5}{kinds['end_turn']:>5}   {dsp:>10,.0f}{tl:>7}", flush=True)
+            # ★链子那一行：§C 死锁 = 兵营 → 征兵 → 军队 → move/attack → 扩地
+            bar = sb.get("build:兵营", 0)
+            rec = " ".join(f"{k.split(':')[1]}×{v}" for k, v in sorted(sb.items())
+                           if k.startswith("recruit:")) or "—"
+            print(f"       └ 链子：建兵营 {bar} · 征兵 {rec} · 期末军队 {nar}", flush=True)
         # 一眼判据：训练视界**之后**那几段，还在建/征/打吗？还是一路 end_turn？
         after = segs[1:]
         if after:

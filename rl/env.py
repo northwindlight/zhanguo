@@ -35,7 +35,7 @@ from game import (BUILDINGS, MARKET, MAX_SLOTS, TERRAIN_STATS,
 from mp import World
 from rl import vocab as V
 from rl import features as F
-from rl import jitter
+from rl import jitter, scale
 from rl.vocab import (AF_ATK, AF_DX, AF_DY, AF_ENGAGED, AF_HP, AF_MOVED, AF_SPEED)
 
 # 动作种类（固定顺序，模型的下标语义依赖它）
@@ -122,7 +122,8 @@ class ZhanguoEnv:
                  seed: int = 0, agent: str = "秦",
                  rivals: tuple[str, ...] = (), max_turns: int = 40,
                  max_actions_per_turn: int = ACT_SAFETY, reward_scale: float = 0.01,
-                 rules_jitter: float = 0.0, invalid_penalty: float = 0.0):
+                 rules_jitter: float = 0.0, invalid_penalty: float = 0.0,
+                 scale: int = 1):
         # ★RL 是**通用**的：真实游戏的地图由玩家选（16×16 / 50×50 / 100×100 都可能），
         #   所以**地图尺寸必须每局可变**（用户 2026-09-11 口径）。
         #   传 `map_sizes` 就每局按种子重采样一个；不传 = 固定 `map_size`（旧行为）。
@@ -156,9 +157,20 @@ class ZhanguoEnv:
         #   属游戏的一部分）—— 扣在 `ok` 上天然只覆盖前者。
         #   ★默认 0 ⇒ 行为与开关存在前逐位相同。
         self.invalid_penalty = float(invalid_penalty)
+
         # ★训练期域随机化的幅度（0 = 关，见 `rl/jitter.py` 与 §10.4）。
         #   默认关：评估/看海/对拍一律真值 —— 只有训练采样期才该抖。
         self.rules_jitter = float(rules_jitter)
+        # ★经济缩放 S（`rl/scale.py`）：把规则表里的"量"整体 ×S。默认 1 = 真值、逐位不变。
+        #   ⚠ 与 `rules_jitter` **不能同时用**（缩放×抖动的组合语义未定义）—— 在这里就炸，
+        #   别等到训练中途某一局 reset 时才炸。
+        self.scale = int(scale)
+        if self.scale < 1:
+            raise ValueError(f"scale 必须是正整数，得到 {self.scale}")
+        if self.scale > 1 and self.rules_jitter > 0:
+            raise ValueError(
+                "scale>1 与 rules_jitter>0 不能同时用：缩放×抖动的组合未定义"
+                "（见 rl/scale.py 文件头）。二选一。")
 
         # ★ 三张子表**全部取自冻结词表**（`rl/vocab.py` 的 `SUB_TABLE_OF`），不取 `game.*`
         #   —— 引擎加一项、或 main 变动，都不该动观测/动作空间的**形状**。
@@ -193,6 +205,22 @@ class ZhanguoEnv:
         self.army_index: dict[int, int] = {}
 
     # ------------------------------------------------------------------ 生命周期
+
+    def spend_units(self, raw: float) -> float:
+        """★把引擎的**消费总额**换算成**奖励单位**（S=1 尺度）：÷`scale`。
+
+        为什么必须有这一道（用户 2026-09-18 点出来的，我先前漏了）：
+        `reward = Δ消费 × reward_scale`，而缩放把**消费整体 ×S** ⇒ 奖励跟着 ×S；
+        可 `--invalid-penalty` 是**配置常量**（以 S=1 的"消费"为单位，如 20）、**不跟着放大**
+        ⇒ **S=10 时奖励放大 10 倍、惩罚相对弱 10 倍** —— 等于偷偷把学习率乘了 10、
+        把惩罚除以 10，所有按 S=1 标定的超参全部失效。
+
+        ⇒ 口径定死：**奖励、回报、惩罚一律以 S=1 的消费为单位**（÷scale）。
+        凡是拿 `spend_total` 造 reward / 回报的地方**都必须走这里** ——
+        `env.step` 与 `rl/bc.py` 的回报都走它，别各自写除法。
+        """
+        return raw / self.scale
+
     def reset(self, seed: int | None = None, *, map_seed: int | None = None) -> Obs:
         """开一局。`map_seed` = **地图种子**（驱动地形/开局位置**和规则抖动**），
         `seed` = **对局种子**（驱动地图尺寸与 `self.rng`）。不传 `map_seed` 时两根合一根
@@ -224,6 +252,10 @@ class ZhanguoEnv:
         #   同一 seed 必得同一套（可复现；记录见 `jitter.current()`）。
         #   它改的是 `game.*` 的**活表**：候选枚举、引擎结算、观测内容、老师
         #   （`build_econ`/`good_value`）读的都是同一份 —— 不同源就会学出假动力学。
+        # ★先缩放、后抖动：`scale.apply` 内部会把 jitter 的基线**重抓成缩放后的表**，
+        #   否则 `jitter.apply(ms, 0)`（=restore）会把缩放前的快照写回、把 ×S 悄悄抹掉
+        #   （`rl/scale.py` 文件头「坑 2」）。顺序反了就是那个静默 bug。
+        scale.apply(self.scale)
         jitter.apply(ms, self.rules_jitter)
         # ★每局重采样地图尺寸（同一 map_seed 必得同一尺寸 —— 可复现）。
         if len(self.map_sizes) > 1:
@@ -274,7 +306,7 @@ class ZhanguoEnv:
         if ended and not self._done:
             events = self._run_round_end()
         total = self.world.spend_total(self.agent) if self.agent in self.world.nations else self.prev_spend
-        reward = (total - self.prev_spend) * self.reward_scale
+        reward = (self.spend_units(total) - self.spend_units(self.prev_spend)) * self.reward_scale
         # ★虚空惩罚：**只动 reward，绝不动 `total`/`spend_total`** —— 后者是计分板
         #   的真值（排名按它）、也是下一回合 delta 的基准，动了它会同时污染游戏内
         #   计分和后续所有 reward。"虚空"就是指它不进任何游戏内账。

@@ -31,6 +31,7 @@ v1 源文件被 2026-09-14 12:26 的 push-all 覆盖成 0 字节，且两处都�
 """
 import argparse
 import json
+from pathlib import Path
 import sys
 import time
 
@@ -38,13 +39,18 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rl.ppo import Rollout, act, forward_batch, _one_step
+# ★本文件住在 experiments/_ecs_scripts/ 下，得自己把仓库根挂上（同目录那几个探针都有这行）
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from rl.ppo import Rollout, act, forward_batch, _one_step  # noqa: E402
 from rl.tokenize import tokenize
 from rl.train import SAMPLING_USE_EXEC, build_env, build_model
 
 ap = argparse.ArgumentParser()
 ap.add_argument("w_ck"); ap.add_argument("r_ck")
 ap.add_argument("episodes", nargs="?", type=int, default=12)
+ap.add_argument("--arch", default="candx", choices=("candx", "t111"),
+                help="权重 ckpt 是哪代架构：candx=现在 / t111=2026-09-13 之前（111 键）")
 ap.add_argument("turns", nargs="?", type=int, default=200)
 ap.add_argument("off", nargs="?", type=int, default=100)
 ap.add_argument("--seedmode", default="s", choices=("s", "e", "s3000", "2000", "none"))
@@ -59,6 +65,19 @@ class NS:
         for k, v in d.items():
             setattr(self, k, v)
 
+
+# ★`--arch t111`：用 **111 张量那代架构**加载 2026-09-13 之前的 ckpt。
+#   不能直接 strict=False 塞进新架构 —— candx 加的 cross2/ln_cand 会是随机初值，
+#   而 candx 就在读出段，直接改 h ⇒ 量出来的 ‖μ‖² 不是那个模型的。
+#   `rl/train.py:build_model` 是在函数**内部** import 的，所以猴补丁能生效。
+if getattr(A, "arch", "candx") == "t111":
+    import importlib.util as _ilu
+    import rl.transformer as _rt
+    _sp = _ilu.spec_from_file_location(
+        "_t111", Path(__file__).resolve().parent.parent / "_transformer_111.py")
+    _tm = _ilu.module_from_spec(_sp); _sp.loader.exec_module(_tm)
+    _rt.WindowTransformer = _tm.WindowTransformer
+    print("★用 111 张量那代架构（candx 之前）")
 
 RCK = torch.load(A.r_ck, map_location="cpu", weights_only=False)
 WCK = torch.load(A.w_ck, map_location="cpu", weights_only=False)

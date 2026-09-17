@@ -72,10 +72,21 @@ def label_quality(env, teacher, turns: int, seed: int) -> None:
             print(f"    {k}: 想要 {spec} → 给成 {got}")
 
 
-def class_hits(ckpt: str, env, teacher, turns: int, seed: int) -> None:
+def class_hits(ckpt: str, env, teacher, turns: int, seed: int, ARCH: str = 'candx') -> None:
     from rl.model import PolicyNet
     from rl.transformer import WindowTransformer
     from rl.tokenize import tokenize
+
+    # ★`--arch t111`：用 **111 张量那代架构**加载 2026-09-13 之前的 ckpt（v10 老师训的那批）。
+    #   直接 strict=False 塞进新架构能跑，但后两代新加的键是**随机初值** ⇒ 比较被污染。
+    #   见 `experiments/_transformer_111.py` 的文件头（三代对照表）。
+    if ARCH == "t111":
+        import importlib.util
+        _sp = importlib.util.spec_from_file_location(
+            "_transformer_111", Path(__file__).resolve().parent / "_transformer_111.py")
+        _m = importlib.util.module_from_spec(_sp)
+        _sp.loader.exec_module(_m)
+        WindowTransformer = _m.WindowTransformer
 
     demos, spend, miss = collect_episode(env, turns, seed=seed, teacher_fn=teacher,
                                          with_window=True)
@@ -125,6 +136,8 @@ def class_hits(ckpt: str, env, teacher, turns: int, seed: int) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("ckpt", nargs="?", default="", help="留空则只查标签质量（--labels）")
+    ap.add_argument("--arch", default="candx", choices=("candx", "t111"),
+                    help="ckpt 是哪一代架构：candx=现在这代(119 键) / t111=2026-09-13 之前(111 键)")
     ap.add_argument("--labels", action="store_true", help="只查标签质量，不加载模型")
     ap.add_argument("--turns", type=int, default=70)
     ap.add_argument("--seed", type=int, default=500000)
@@ -137,7 +150,7 @@ def main() -> None:
     if a.labels or not a.ckpt:
         label_quality(env, teacher, a.turns, a.seed)
     if a.ckpt:
-        class_hits(a.ckpt, env, teacher, a.turns, a.seed)
+        class_hits(a.ckpt, env, teacher, a.turns, a.seed, a.arch)
 
 
 if __name__ == "__main__":
