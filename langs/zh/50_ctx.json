@@ -1,0 +1,17 @@
+{
+  "_meta": {
+    "lang": "zh",
+    "name": "上下文层：归档与瘦身脚手架"
+  },
+  "names": {},
+  "msg": {
+    "ctx.archive.block": "【第{a}-{b}回合 · 阶段总结】\n{text}",
+    "ctx.archive.head": "【历史归档 · 已滑出完整记录的旧回合（一行=该回合小结，「阶段总结」=多回合压缩）】",
+    "ctx.archive.long_memory": "【长期记忆 · 递归累积（压缩时以旧扩写：长程计划/盟约/教训）】\n{memory}",
+    "ctx.archive.omitted": "；更早的 {n} 条总结因配额已省略",
+    "ctx.archive.sum_line": "  第{turn}回合：{text}",
+    "ctx.archive.tail": "（归档截至第 {until} 回合{omitted}）",
+    "ctx.shrink.reasoning": "（思考过程已并入历史归档，细节以 rules/面板为准）",
+    "ctx.shrink.truncated": "…[已截断{n}字]"
+  }
+}

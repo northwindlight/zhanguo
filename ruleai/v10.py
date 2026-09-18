@@ -204,7 +204,7 @@ def expand_rule_turn_v10(world, name: str, rng: random.Random | None = None,
                         max_actions: int = 40, on_action=None, on_result=None) -> list:
     if rng is None:
         rng = random.Random(0)
-    acts: list[tuple[str, dict, bool, str]] = []
+    acts: list[tuple[str, dict, bool, "i18n.Text"]] = []
 
     # ================================================================ 0. 工具
     def do(tool, args, fn, *a, **k) -> bool:
@@ -218,7 +218,7 @@ def expand_rule_turn_v10(world, name: str, rng: random.Random | None = None,
             ok, msg = False, f"{type(e).__name__}: {e}"
         if on_result is not None:
             on_result(tool, args, bool(ok))
-        acts.append((tool, args, bool(ok), str(msg)))
+        acts.append((tool, args, bool(ok), msg))
         return bool(ok)
 
     def R():

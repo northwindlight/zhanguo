@@ -40,6 +40,7 @@ from game import (
     unit_supply,
 )
 import ctx as ctxlib
+import i18n
 from console import dw as _dw, pad as _pad
 from llm_provider import make_backend
 from ctx import est_tokens
@@ -52,7 +53,7 @@ from mp import (BLOC_NAME_MAX, CROSS, DIPLO_COST, EXTRA_PROMPT_TURNS, FALL_TRUCE
 MAIL_BRIEF_FULL = 3      # 状态面板里完整展示的新信数（更旧的只列摘要行）
 MAIL_BRIEF_ROWS = 20     # 状态面板里最多列多少条旧信摘要
 
-# ★ 局内上下文**不注入 README**（2026-09-15）：`rules` 一律返回 `_help_sections()`
+# ★ 局内上下文**不注入 README**（2026-09-15）：`rules` 一律返回 `_rules_sections()`
 #   现算的规则文本，**所有政体同一份**。曾经匈奴的 rules 额外附一份 README 原文全文
 #   （`mp_ai._README_TEXT`）——那份文本是给人类看的（配置项/项目结构/RL 线/结算说明），
 #   对局内玩家大半是噪声，而且把"README 里能写什么"绑成了**规则约束**（分布类数字
@@ -84,8 +85,64 @@ HUNS_BLOCKED = {
     "bloc_rename", "改盟名", "联盟改名",
 }
 
-# 匈奴教义（喂给匈奴 AI，令其贯彻；人类侧全文见 匈奴教义.md）
-def _move_brief(kind: str) -> str:
+# 文案小工具：全部返回 `i18n.Msg`（键 + 参数），渲染推迟到边界（口径见 i18n.py）。
+# 分隔符/量纲词这些**语言属性**一律进模板（`ai.fmt.*`），代码里不再写 `'/'.join(...)`。
+
+def _join(items, put):
+    """若干段文案按语言自己的分隔符串起来（分隔符住在模板里，两两递归相连）。
+
+    `put(a, b)` 给出「a 连 b」那一条模板（见下面的 `_by_*`——键名以字面量出现在源码里，
+    `tests/test_i18n.py` 的键自洽才认得它们）。单项时直接返回那一项（不需要模板）；
+    空列表返回 `""`（调用点的模板据此把整段省略）。
+    """
+    it = [x for x in items if x != ""]
+    if not it:
+        return ""
+    if len(it) == 1:
+        return it[0]
+    return put(it[0], _join(it[1:], put))
+
+
+# 连接符是**语言属性**（中文「、」/英文 ", "、中文「；」/英文 "; "…），所以一律住模板。
+def _by_slash(a, b):   return i18n.Msg("ai.fmt.slash", a=a, b=b)
+def _by_semi(a, b):    return i18n.Msg("ai.fmt.semi", a=a, b=b)
+def _by_dun(a, b):     return i18n.Msg("ai.fmt.dun", a=a, b=b)
+def _by_gap(a, b):     return i18n.Msg("ai.fmt.gap", a=a, b=b)
+def _by_sp(a, b):      return i18n.Msg("ai.fmt.sp", a=a, b=b)
+def _by_arrow(a, b):   return i18n.Msg("ai.fmt.arrow", a=a, b=b)
+def _by_bar(a, b):     return i18n.Msg("ai.fmt.bar", a=a, b=b)
+def _by_nl(a, b):      return i18n.Msg("ai.fmt.nl", a=a, b=b)
+def _by_para(a, b):    return i18n.Msg("ai.fmt.para", a=a, b=b)
+
+
+def _rows(lines, lang: str | None) -> str:
+    """把一叠**行**组成多行表：逐行按 `lang` 渲染，行间 `\\n` 是排版不是文案。
+
+    面板/规则全文都是这种「行表」——每行整句进模板，行与行之间只是版面。
+    """
+    return "\n".join(i18n.show(x, lang) for x in lines)
+
+
+COST_SHORT = {"粮食": "粮", "装备": "装", "黄金": "金", "木头": "木", "矿石": "矿",
+              "石油": "油", "补给": "补给"}
+
+
+def _cost_msg(cost: dict[str, int]) -> i18n.Text:
+    """把一份料单写成"10粮+5装"这样的短说法（面板/工具描述共用，不写死数字）。
+
+    「+」两侧的空格与单位名（粮/装…）都住在模板与词库里 ⇒ 英文局自动成 "10 Food + 5 Equip"。
+    """
+    it = list(cost.items())
+    if not it:
+        return ""
+    (k, amt), *rest = it
+    item = i18n.Msg("ai.fmt.cost_item", amt=amt, unit=COST_SHORT.get(k, k))
+    if not rest:
+        return item
+    return i18n.Msg("ai.fmt.cost", a=item, b=_cost_msg(dict(rest)))
+
+
+def _move_brief(kind: str) -> i18n.Text:
     """某兵种"能走几格"的说法——**从 `MOVE_COST` / `UNIT_TYPES` 现算**，不写死数字。
 
     规则：移动力 = `UNIT_TYPES[kind]["speed"]`；一步的代价 = max(出发格, 目标格)，
@@ -97,12 +154,13 @@ def _move_brief(kind: str) -> str:
     open_cells = budget // max(1, open_cost)
     slow = [t for t in TERRAIN_STATS if costs.get(t, 1) > open_cost]
     if not slow:
-        return f"动{open_cells}格/回合（任何地形）"
+        return i18n.Msg("ai.fmt.move_flat", n=open_cells)
     slow_cells = budget // max(costs.values())
-    return f"动{open_cells}格/回合（{'/'.join(slow)}只 {slow_cells} 格）"
+    return i18n.Msg("ai.fmt.move_slow", n=open_cells,
+                    terr=_join(slow, _by_slash), m=slow_cells)
 
 
-def _move_cost_text() -> str:
+def _move_cost_text() -> i18n.Text:
     """地形代价那一句——**由 `MOVE_COST` 现算**（改表 ⇒ 文案跟着变）。
 
     捷径/崎岖两类地形名、以及"崎岖能走几格"都从表里推，不写死。
@@ -111,37 +169,35 @@ def _move_cost_text() -> str:
     open_t = [t for t in TERRAIN_STATS if costs.get(t, 1) == min(costs.values())]
     slow_t = [t for t in TERRAIN_STATS if t not in open_t]
     budget = UNIT_TYPES["骑"]["speed"]
-    return (f"每走一格按地形扣（出发格与目标格取更贵的那个）："
-            f"骑兵在{'/'.join(open_t)}便宜、在{'/'.join(slow_t)}贵一倍"
-            f"（⇒ 只能走 {budget // max(costs.values())} 格，且**穿不过去**）；"
-            f"步兵/民兵任何地形每格 1")
+    slow_kinds = [UNIT_TYPES[k]["label"] for k in UNIT_TYPES if k != "骑"]
+    return i18n.Msg("ai.text.move_cost",
+                    fast=_join(open_t, _by_slash), slow=_join(slow_t, _by_slash),
+                    n=budget // max(costs.values()),
+                    kinds=_join(slow_kinds, _by_slash), flat=max(MOVE_COST["步"].values()))
 
 
-def _move_rule_text() -> str:
+def _move_rule_text() -> i18n.Text:
     """移动规则的完整说法——**全部由 `MOVE_COST` / `UNIT_TYPES` 现算**。
 
     2026-09-15 起：速度=移动力，逐格按地形扣（出发格与目标格取更贵的那个），
     多格移动逐格判定 ⇒ 崎岖地形"减速 + 穿不过去"。
     """
-    rows = [f"{UNIT_TYPES[k]['label']}{_move_brief(k)}" for k in UNIT_TYPES]
-    return (f"**移动**：{'、'.join(rows)}；{_move_cost_text()}。"
-            f"多格移动**逐格判定**：隔着一道山地/森林、或借道别人的地界，都冲不过去。")
+    return i18n.Msg("ai.text.move_rule", rows=_move_rows(), cost=_move_cost_text())
 
 
-def _reach_brief() -> str:
+def _move_rows() -> list:
+    """每个兵种「名称 + 能走几格」的一行（移动条款与 `attack` 描述共用）。"""
+    return [i18n.Msg("ai.fmt.move_row", unit=UNIT_TYPES[k]["label"], brief=_move_brief(k))
+            for k in UNIT_TYPES]
+
+
+def _reach_brief() -> i18n.Text:
     """`atk` 够得着多远的短说法——**由 `MOVE_COST` / `UNIT_TYPES` 现算**。
 
     （这里原来手写着"步1格/骑2格"：移动代价表一改就成假话，而工具描述是 LLM 玩家
     做决策时唯一的规则来源。改表 ⇒ 这句跟着变。）
     """
-    return "、".join(f"{UNIT_TYPES[k]['label']}{_move_brief(k)}" for k in UNIT_TYPES)
-
-
-def _cost_text(cost: dict[str, int]) -> str:
-    """把一份料单写成"10粮+5装"这样的短说法（面板/工具描述共用，不写死数字）。"""
-    short = {"粮食": "粮", "装备": "装", "黄金": "金", "木头": "木", "矿石": "矿",
-             "石油": "油", "补给": "补给"}
-    return "+".join(f"{amt}{short.get(k, k)}" for k, amt in cost.items())
+    return i18n.Msg("ai.fmt.rows", rows=_move_rows())
 
 
 def _diplo_chain() -> list[str]:
@@ -156,7 +212,12 @@ def _diplo_chain() -> list[str]:
     return out
 
 
-def _recruit_desc(costs: dict[str, dict]) -> str:
+def _diplo_chain_text() -> i18n.Text:
+    """外交费递减链的**文案**（'10→5→2→1'，箭头由语言表给）。"""
+    return _join(_diplo_chain(), _by_arrow)
+
+
+def _recruit_desc(costs: dict[str, dict]) -> i18n.Text:
     """征召工具的说明：费用/补给/移动**全部现算**（`UNIT_TYPES` + 政体表）。
 
     `costs` = {兵种: 料单}，由「该国实际征召价」（`World.recruit_cost`）或
@@ -164,106 +225,99 @@ def _recruit_desc(costs: dict[str, dict]) -> str:
     """
     rows = []
     for k, info in UNIT_TYPES.items():
-        extra = "；驻本格军屯不耗补给" if k == "民" else ""
-        rows.append(f"{k}={info['label']}({_cost_text(costs.get(k, info['recruit']))}、"
-                    f"耗补给{info['supply']}/回合、{_move_brief(k)}{extra})")
-    return ("在自己有兵营且电网正常的地块征召军队，每兵营每回合1支。兵种 kind："
-            + "；".join(rows)
-            + "——民兵是廉价驻守军队，每军屯每回合1支、全国民兵总数≤全国军屯总数（阵亡后才能补员）。"
-            + "注意补给仓必须跟上：补给不足时全军按缺口比例扣血"
-            + f"（满缺 -{ARMY_STARVE_DAMAGE}HP/军/回合，交战中也照扣），饿毙不复活。")
+        rows.append(i18n.Msg("ai.schema.recruit.kind", k=k, label=info["label"],
+                             cost=_cost_msg(costs.get(k, info["recruit"])),
+                             supply=info["supply"], reach=_move_brief(k),
+                             extra=(i18n.Msg("ai.schema.recruit.militia") if k == "民" else "")))
+    return i18n.Msg("ai.schema.recruit.desc", rows=_join(rows, _by_semi),
+                    starve=ARMY_STARVE_DAMAGE)
 
 
+# 匈奴教义（喂给匈奴 AI，令其贯彻；人类侧全文见 匈奴教义.md）
+def _huns_doctrine() -> i18n.Text:
+    """八条教义：一条一个键，整段由 `ai.prompt.huns.doc` 排版（数值仍从表里现算）。"""
+    return i18n.Msg("ai.prompt.huns.doc",
+                    b1=i18n.Msg("ai.prompt.huns.doc.1"),
+                    b2=i18n.Msg("ai.prompt.huns.doc.2"),
+                    b3=i18n.Msg("ai.prompt.huns.doc.3"),
+                    b4=i18n.Msg("ai.prompt.huns.doc.4", atk=UNIT_TYPES['骑']['atk'],
+                                hp=UNIT_TYPES['骑']['hp'], cav=_move_brief('骑'),
+                                inf=_move_brief('步'), rng=RETREAT_RANGE),
+                    b5=i18n.Msg("ai.prompt.huns.doc.5", cav_speed=UNIT_TYPES['骑']['speed'],
+                                inf_speed=UNIT_TYPES['步']['speed']),
+                    b6=i18n.Msg("ai.prompt.huns.doc.6"),
+                    b7=i18n.Msg("ai.prompt.huns.doc.7"),
+                    b8=i18n.Msg("ai.prompt.huns.doc.8"))
 
 
-HUNS_DOCTRINE = (
-    "· **抢产为生，不是勒索为生**：你真正的口粮是**夺来的金矿与补给厂**，勒索只是零钱。"
-    "→ **金矿优先、补给厂并列**。\n"
-    "· **时间是敌人：越拖越容易死**：开局补给有限，每回合都在流血、对方在种田。"
-    "必须在见底前把「存量」变成「流量」——抢到能持续产金/产补给的地才活得下去。"
-    "抢地优先级：金矿地 > 补给厂地 > 粮木矿产地 > 无驻军空城 > 有驻军要塞（最后，能不碰就不碰）。\n"
-    "· 勒索要小而真：**别张口太大**——开口过高对方宁可开战，小数目他懒得打、反而真能到手。"
-    "**别过度夸大兵威**：对手能 spy 数你的军（各兵种真实数量），虚报兵数只会让报价不可信、直接被拒；"
-    "要不报具体数字，别报假数。\n"
-    f"· **骑兵战力与步兵相同**（都是 {UNIT_TYPES['骑']['atk']} 攻/{UNIT_TYPES['骑']['hp']} 血），"
-    f"你的优势**只有速度**：平地上你{_move_brief('骑')}、它{_move_brief('步')}——"
-    f"但**森林/山地是慢速地形、而且穿不过去**（多格移动逐格判定，"
-    f"「跳过一格直取纵深」那条已经没有了）；绕山绕林是常态，别把越格突袭当想当然。"
-    f"你登场时对方早已发育成型，"
-    f"**打不过任何中等国家的主力，永远避开**（与敌方主力保持距离；"
-    f"被咬住用 retreat 撤：只退相邻 {RETREAT_RANGE} 格、回合末结算后脱离）。\n"
-    f"· **分兵掠地**（对**大而旷**的国家最有效）：骑兵分几路，各扑不同方向的无驻军城市——"
-    f"平地上你比它快（{UNIT_TYPES['骑']['speed']} 对 {UNIT_TYPES['步']['speed']}），"
-    f"但崎岖地形会把这点优势抹平（两边都只能少走）⇒ **走平地、挑旷野**。**机动聚集**："
-    f"它被迫分兵守城/回夺时，把相邻几路临时聚起来，"
-    "以多打少吃掉它的**落单部队/小股守军**，打完立刻散开继续掠地。"
-    "纵深抢来的城**不必守**（守不住；价值是打击经济+逼它分兵）；**靠边、成片、产金/产补给的地才值得留兵**。"
-    "别挑小国要塞化的硬骨头。\n"
-    "· **议和只跟能谈的谈，且绝不亏本**：拒绝谈判/只肯白和/不回信的国家，**别再发第二次——"
-    "打疼了再说**（分兵抢它的城与产金地、吃它的落单部队，疼了它自己来求）。停战期对方一分不给，你的骑兵照吃补给"
-    "，所以索款(demand) 必须 ≥（已打回合 + truce 停战回合）× 每回合开销；"
-    "算不过账就把 truce 压低，或干脆不议和、继续抢。\n"
-    "· **坚壁清野型**（不议和、不给钱、油盐不进）：别在它身上费回合，**全力摧毁**——"
-    "不打要塞，专拆它无驻军的产金/产补给地块，一块一块吃干净，直到它亡国或服软。\n"
-    "· 拿到金/赔款第一件事：立刻 buy 补给备几回合的口粮，别囤黄金。"
-    "补给仓的消耗与挨饿规则以 rules 为准（每军按缺口比例扣血，别饿死）。"
-)
-
-
-def _res_line(world, name) -> str:
+def _res_line(world, name, lang: str | None = None) -> str:
+    """国力行：储备一行 + 电网一行（+ 有结算摘要时再来一行）。"""
     r = world.nations[name].res
     et, mt, short = world.energy_report.get(name, (0, 0, False))
-    parts = []
-    for k in RES_KEYS:
-        parts.append(f"{RES_LABEL.get(k, k)}{r.get(k, 0)}")
-    grid = "正常" if not short else "⚠停摆"
+    parts = [i18n.Msg("ai.fmt.res_item", label=RES_LABEL.get(k, k), v=r.get(k, 0))
+             for k in RES_KEYS]
+    grid = (i18n.Msg("ai.panel.grid_ok") if not short else i18n.Msg("ai.panel.grid_down"))
     summ = world.econ_summary.get(name, "")
-    return (
-        f"{'  '.join(parts)}\n"
-        f"电网: 产{et}/需{mt} {grid}（不足则补给厂/装备厂/兵营/市政厅全部停摆）"
-        + (f"\n上一回合结算: {summ}" if summ else "")
-    )
+    lines = [_join(parts, _by_gap),
+             i18n.Msg("ai.panel.res.grid", et=et, mt=mt, grid=grid)]
+    if summ:
+        lines.append(i18n.Msg("ai.panel.res.econ", summ=summ))
+    return _rows(lines, lang)
 
 
-def _fmt_armies(world, name) -> str:
+def _fmt_armies(world, name, lang: str | None = None) -> str:
     mine = [a for a in world.armies if a["owner"] == name]
     if not mine:
-        return "（无军队——先建兵营，再用 recruit 征兵）"
+        return i18n.show(i18n.Msg("ai.panel.army.none"), lang)
     lines = []
     for a in sorted(mine, key=lambda x: x["id"]):
         t = world.tiles.get((a["x"], a["y"]))
-        where = t["name"] if t else "野外"
-        st = "交战中" if a.get("engaged") else ("已移动" if a.get("moved_turn") == world.turn else "可行动")
+        where = (t["name"] if t else i18n.Msg("ai.panel.army.wilds"))
+        engaged = bool(a.get("engaged"))
+        can_act = not engaged and a.get("moved_turn") != world.turn
+        st = (i18n.Msg("ai.panel.army.st_engaged") if engaged
+              else i18n.Msg("ai.panel.army.st_moved") if a.get("moved_turn") == world.turn
+              else i18n.Msg("ai.panel.army.st_ready"))
         # 移动力与"本回合能挪到几格"现算（地形代价表见 balance.MOVE_COST）
         mv = _move_brief(a.get("type", "步"))
-        reach = len(world._reachable(name, a)) - 1 if st == "可行动" else 0
-        lines.append(f"{a['name']}(#{a['id']}) | {a['hp']}HP | ({a['x']+1},{a['y']+1}) {where} | "
-                     f"{st} | {mv}" + (f"｜本回合可及 {reach} 格" if st == "可行动" else ""))
-    return "\n".join(lines)
+        reach = len(world._reachable(name, a)) - 1 if can_act else 0
+        lines.append(i18n.Msg("ai.panel.army.row", nm=a['name'], id=a['id'], hp=a['hp'],
+                              x=a['x'] + 1, y=a['y'] + 1, where=where, st=st, mv=mv,
+                              reach=(i18n.Msg("ai.panel.army.reach", n=reach)
+                                     if can_act else "")))
+    return _rows(lines, lang)
 
 
-def _fmt_land(world, name, cap=40) -> str:
+def _fmt_land(world, name, cap=40, lang: str | None = None) -> str:
     own = world.own_tiles(name)
-    lines = [f"国土 {len(own)} 块（最多列 {cap}，按坐标排序）:"]
+    lines = [i18n.Msg("ai.panel.land.head", n=len(own), cap=cap)]
     shown = 0
     for (x, y) in own:
         if shown >= cap:
-            lines.append("  …")
+            lines.append(i18n.Msg("ai.panel.land.more"))
             break
         t = world.tiles[(x, y)]
         b = t["buildings"]
         used = sum(b.values()) + sum((t.get("pending") or {}).values())
-        res = " ".join(f"{k}x{t['resources'][k]}" for k in ("矿石", "黄金", "耕地", "石油", "木头"))
-        pend = " ".join(f"{bn}在建" for bn, n in (t.get("pending") or {}).items() if n)
-        built = " ".join(f"{bn}×{n}" for bn, n in b.items() if n) or "无"
-        free = "可建" if not t["built_this_turn"] else "本回合已下单"
-        gar = " ".join(f"军{a['id']}({a['hp']})" for a in world.armies if a["owner"] == name and (a["x"], a["y"]) == (x, y))
-        extra = f" 在建:{pend}" if pend else ""
+        res = _join([i18n.Msg("ai.fmt.res_x", k=k, v=t['resources'][k])
+                     for k in ("矿石", "黄金", "耕地", "石油", "木头")], _by_sp)
+        pend = _join([i18n.Msg("ai.panel.land.pending", bn=bn)
+                      for bn, n in (t.get("pending") or {}).items() if n], _by_sp)
+        built = _join([i18n.Msg("ai.panel.land.built", bn=bn, n=n)
+                       for bn, n in b.items() if n], _by_sp) \
+            or i18n.Msg("ai.panel.land.none_built")
+        free = (i18n.Msg("ai.panel.land.buildable") if not t["built_this_turn"]
+                else i18n.Msg("ai.panel.land.ordered"))
+        gar = _join([i18n.Msg("ai.panel.land.garrison", id=a['id'], hp=a['hp'])
+                     for a in world.armies
+                     if a["owner"] == name and (a["x"], a["y"]) == (x, y)], _by_sp)
+        extra = i18n.Msg("ai.panel.land.pending_col", what=pend) if pend else ""
         core = "♥" if t.get("core") == name else ""  # ♥=核心领土（同战线盟友夺回会自动归还）
-        lines.append(
-            f"  {core}{t['name']} ({x+1},{y+1}){t['terrain']} 城L{b['城堡']} 位{used}/{MAX_SLOTS} "
-            f"[资源 {res}] 建筑:{built}{extra} {free}{(' 驻:'+gar) if gar else ''}"
-        )
+        lines.append(i18n.Msg(
+            "ai.panel.land.row", core=core, tile=t['name'], x=x + 1, y=y + 1,
+            terrain=t['terrain'], lv=b['城堡'], used=used, max=MAX_SLOTS, res=res,
+            built=built, extra=extra, free=free,
+            gar=(i18n.Msg("ai.panel.land.garrison_col", who=gar) if gar else "")))
         shown += 1
     fr = sorted(world.frontier_of(name))
     # 本回合**够得着**的格子：至少一支军队能从现位置走/打到（逐格代价，见 balance.MOVE_COST）
@@ -272,95 +326,94 @@ def _fmt_land(world, name, cap=40) -> str:
         if a["owner"] == name and a["hp"] > 0 and not a.get("engaged") \
                 and a.get("moved_turn") != world.turn:
             reach |= set(world._reachable(name, a, for_attack=True))
-    lines.append(f"可拓荒地 {len(fr)} 块（[野人]=有守军需 atk 打赢；[空地]=无守军，atk 进驻即占；"
-                 f"可及=本回合有军队够得着）:")
+    lines.append(i18n.Msg("ai.panel.land.frontier_head", n=len(fr)))
     frs = []
     for (x, y) in fr:
         guard = any(a["owner"] == "野人" and (a["x"], a["y"]) == (x, y) for a in world.armies)
-        tag = "[野人]" if guard else "[空地]"
-        ok = "可及" if (x, y) in reach and world.visible_to(name, x, y) else ""
-        frs.append(f"({x+1},{y+1}){world.ter_char(x, y)}{tag}{ok}")
-    if frs:
-        for i in range(0, len(frs), 8):
-            lines.append("  " + " ".join(frs[i:i + 8]))
-    lines.append(f"  地形挡路：{_move_cost_text()}。")
-    return "\n".join(lines)
+        frs.append(i18n.Msg("ai.panel.land.frontier_cell", x=x + 1, y=y + 1,
+                            ter=world.ter_char(x, y),
+                            tag=(i18n.Msg("ai.panel.land.tag_savage") if guard
+                                 else i18n.Msg("ai.panel.land.tag_empty")),
+                            ok=(i18n.Msg("ai.panel.land.tag_reachable")
+                                if (x, y) in reach and world.visible_to(name, x, y) else "")))
+    for i in range(0, len(frs), 8):
+        lines.append(i18n.Msg("ai.panel.land.frontier_row",
+                              cells=_join(frs[i:i + 8], _by_sp)))
+    lines.append(i18n.Msg("ai.panel.land.terrain_note", cost=_move_cost_text()))
+    return _rows(lines, lang)
 
 
-def _fmt_market(world, name) -> str:
+def _fmt_market(world, name, lang: str | None = None) -> str:
     r = world.nations[name].res
-    lines = [f"世界市场（黄金是货币；可交易：{' '.join(GOODS_DISPLAY)}）",
-             f"  成交=沿曲线均价结算，含 {MARKET_SPREAD:.0%} 买卖价差；每回合向供需均衡价回归。"]
+    lines = [i18n.Msg("ai.panel.market.head", goods=_join(GOODS_DISPLAY, _by_sp)),
+             i18n.Msg("ai.panel.market.spread", spread=f"{MARKET_SPREAD:.0%}")]
     for g in GOODS_DISPLAY:
         p = world.prices[g]
         base = MARKET[g]
         eq = world.equilibrium.get(g, base)
-        tag = "≈基准" if abs(p - base) <= 0.02 * base else ("贵" if p > base else "贱")
+        tag = (i18n.Msg("ai.panel.market.tag_base") if abs(p - base) <= 0.02 * base
+               else i18n.Msg("ai.panel.market.tag_high") if p > base
+               else i18n.Msg("ai.panel.market.tag_low"))
         bp, _ = world.market_quote(g, 1, "buy")
         sp, _ = world.market_quote(g, 1, "sell")
         _, s50 = world.market_quote(g, 50, "sell")
         _, b50 = world.market_quote(g, 50, "buy")
-        lines.append(f"  {g} 现价{p:.2f}(基准{base} 均衡{eq:.2f} {tag}) 买{bp:.2f}/卖{sp:.2f} "
-                     f"持有{r.get(g, 0)} ｜ 卖50≈{s50}金 买50≈{b50}金")
-    return "\n".join(lines)
+        lines.append(i18n.Msg("ai.panel.market.row", g=g, p=f"{p:.2f}", base=base,
+                              eq=f"{eq:.2f}", tag=tag, bp=f"{bp:.2f}", sp=f"{sp:.2f}",
+                              have=r.get(g, 0), s50=s50, b50=b50))
+    return _rows(lines, lang)
 
 
-def _fmt_mail(world, name, brief: bool = False) -> str:
+def _fmt_mail(world, name, brief: bool = False, lang: str | None = None) -> str:
     """信箱。brief=True（每回合状态面板用）：只完整展示最新几封，旧信压成摘要行；
     brief=False（query panel=mail 按需查询用）：列出全部信件全文——面板里"旧信见
     query"的提示必须真能取回，否则老信件对 AI 永久丢失。"""
     box = world.mailbox.get(name, [])
     if not box:
-        return "（收件箱为空）"
-    if not brief:
-        lines = [f"收件箱 {len(box)} 封（寄出后下回合到）:"]
-        for m in reversed(box):
-            lines.append(f"  [第{m['turn']}回合] {m['from']} → 你：{m['text']}")
-        return "\n".join(lines)
-    if len(box) <= MAIL_BRIEF_FULL:
-        lines = [f"收件箱 {len(box)} 封（寄出后下回合到）:"]
-        for m in reversed(box):
-            lines.append(f"  [第{m['turn']}回合] {m['from']} → 你：{m['text']}")
-        return "\n".join(lines)
-    lines = [f"收件箱 {len(box)} 封（寄出后下回合到；旧信只列摘要，全文用 query panel=mail）:"]
-    for m in reversed(box[-MAIL_BRIEF_FULL:]):
-        lines.append(f"  [第{m['turn']}回合] {m['from']} → 你：{m['text']}")
+        return i18n.show(i18n.Msg("ai.panel.mail.empty"), lang)
+
+    def _one(m, text):
+        return i18n.Msg("ai.panel.mail.row", turn=m['turn'], frm=m['from'], text=text)
+
+    if not brief or len(box) <= MAIL_BRIEF_FULL:
+        return _rows([i18n.Msg("ai.panel.mail.head", n=len(box)),
+                      *(_one(m, m['text']) for m in reversed(box))], lang)
+    lines = [i18n.Msg("ai.panel.mail.head_brief", n=len(box))]
+    lines += [_one(m, m['text']) for m in reversed(box[-MAIL_BRIEF_FULL:])]
     old = box[:-MAIL_BRIEF_FULL]
     for m in reversed(old[-MAIL_BRIEF_ROWS:]):
         t = " ".join(str(m["text"]).split())
-        lines.append(f"  [第{m['turn']}回合] {m['from']} → 你：{t[:28]}{'…' if len(t) > 28 else ''}")
+        lines.append(_one(m, t[:28] + ('…' if len(t) > 28 else '')))
     if len(old) > MAIL_BRIEF_ROWS:
-        lines.append(f"  （更早 {len(old) - MAIL_BRIEF_ROWS} 封见 query panel=mail）")
-    return "\n".join(lines)
+        lines.append(i18n.Msg("ai.panel.mail.older", n=len(old) - MAIL_BRIEF_ROWS))
+    return _rows(lines, lang)
 
 
-def _fmt_diplomacy(world, name) -> str:
-    lines = [f"国家关系: {world.rel_desc(name)}"]
+def _fmt_diplomacy(world, name, lang: str | None = None) -> str:
+    lines = [i18n.Msg("ai.panel.diplo.rel", rel=world.rel_desc(name))]
     bloc = world.bloc_of(name)
     if bloc is not None:
         chief = world.bloc_chief(bloc)
-        me_chief = ("（你是盟主：可否决议案、可改盟名、可移交盟主、可解散联盟）"
-                    if chief == name else f"（盟主 {chief} 可否决议案）")
+        me_chief = (i18n.Msg("ai.panel.diplo.me_chief") if chief == name
+                    else i18n.Msg("ai.panel.diplo.chief", who=chief))
         fighting = [m for m in bloc["members"] if world.at_war(m)]
-        lock = (f" ⚠ 战时锁死：{'、'.join(fighting)} 正在交战——不退盟、不解散，只能议和。"
+        lock = (i18n.Msg("ai.panel.diplo.warlock", who=_join(fighting, _by_dun))
                 if fighting else "")
-        lines.append(
-            f"  🤝 你的联盟「{bloc['name']}」（盟主 {chief}）成员：{'、'.join(bloc['members'])}"
-            " —— 盟内互通领土/互不攻击/共享视野；**对外以「联盟」这个外交实体出面**："
-            "保障独立/共同防御/宣战/议和一律须联盟投票通过（vote 表态），成员个人签不了任何条约；"
-            "议和由盟主出面并经投票；同战线盟友会自动归还你的核心领土（land 面板 ♥ 标记）。"
-            f"{lock}\n     {me_chief}"
-        )
+        lines.append(i18n.Msg("ai.panel.diplo.bloc", nm=bloc['name'], chief=chief,
+                              members=_join(bloc['members'], _by_dun),
+                              lock=lock, me=me_chief))
     # 本人在内的交战战线（议和须找谈判代表：主导者；有联盟时=其盟主）
     wars_in = []
     for w in world.wars:
         sides = world._war_sides(w)
         if name in sides[0] or name in sides[1]:
             fls = list(w["followers"]) + list(w.get("atk_followers", []))
-            wars_in.append(f"{w['atk']}↔{w['def']}" + (f"(跟随 {'、'.join(fls)})" if fls else ""))
+            wars_in.append(i18n.Msg("ai.panel.diplo.war", atk=w['atk'], df=w['def'],
+                                    follow=(i18n.Msg("ai.panel.diplo.followers",
+                                                     who=_join(fls, _by_dun))
+                                            if fls else "")))
     if wars_in:
-        lines.append("  交战战线: " + "；".join(wars_in)
-                     + "（议和只能由双方谈判代表提出/接受：主导者，或主导者的盟主）")
+        lines.append(i18n.Msg("ai.panel.diplo.wars", rows=_join(wars_in, _by_semi)))
     # 联盟进行中的投票（本盟成员或入盟申请人可见）
     for v in world.votes:
         vb = world.bloc_by_name(v["bloc"])
@@ -375,84 +428,113 @@ def _fmt_diplomacy(world, name) -> str:
         pending = len(members) - yes - no - abst
         pl = v["payload"]
         if v["kind"] == "宣战":
-            desc = f"对 {world.entity_label(pl.get('target'))} 宣战"
+            desc = i18n.Msg("ai.panel.diplo.vote_war", target=world.entity_label(pl.get('target')))
         elif v["kind"] == "入盟":
-            desc = f"{pl.get('candidate')} 申请入盟"
+            desc = i18n.Msg("ai.panel.diplo.vote_join", who=pl.get('candidate'))
         elif v["kind"] == "缔约":
-            act = ("撤回/解除" if pl.get("cancel")
-                   else ("对外提议" if pl.get("offer") else "接受对方邀约"))
-            desc = (f"{act}{pl.get('pact')}（{world.entity_label(pl.get('A'))} ↔ "
-                    f"{world.entity_label(pl.get('B'))}）")
+            act = (i18n.Msg("ai.panel.diplo.pact_cancel") if pl.get("cancel")
+                   else i18n.Msg("ai.panel.diplo.pact_offer") if pl.get("offer")
+                   else i18n.Msg("ai.panel.diplo.pact_accept"))
+            desc = i18n.Msg("ai.panel.diplo.vote_pact", act=act, pact=pl.get('pact'),
+                            a=world.entity_label(pl.get('A')), b=world.entity_label(pl.get('B')))
         elif pl.get("type") == "offer":
-            desc = f"向 {pl.get('to')} 求和（{pl.get('kind')}{(' ' + str(pl.get('gold')) + '金') if pl.get('gold') else ''}）"
+            desc = i18n.Msg("ai.panel.diplo.vote_peace", to=pl.get('to'), kind=pl.get('kind'),
+                            gold=(i18n.Msg("ai.panel.diplo.gold_tail", v=pl.get('gold'))
+                                  if pl.get('gold') else ""))
         else:
-            desc = f"接受议和#{pl.get('offer_id')}"
+            desc = i18n.Msg("ai.panel.diplo.vote_accept", id=pl.get('offer_id'))
         tail = ""
         if mine and v["kind"] != "入盟":
             if name not in v["votes"]:
-                tail = f" —— vote {v['id']} choice=yes/no/abstain 表态"
+                tail = i18n.Msg("ai.panel.diplo.vote_hint", id=v['id'])
             else:
-                tail = "（你已投" + {True: "赞成", False: "反对", None: "弃权"}[v["votes"][name]] + "）"
-        lines.append(f"  🗳 投票#{v['id']}（{v['bloc']}·{v['kind']}，发起 {v['proposer']}）{desc}"
-                     f" 赞成{yes}/反对{no}/弃权{abst}/未投{pending}"
-                     f"（需赞成>反对；盟主投 no 可否决）{tail}")
+                tail = i18n.Msg("ai.panel.diplo.vote_done",
+                                how={True: i18n.Msg("ai.panel.diplo.v_yes"),
+                                     False: i18n.Msg("ai.panel.diplo.v_no"),
+                                     None: i18n.Msg("ai.panel.diplo.v_abst")}[v["votes"][name]])
+        lines.append(i18n.Msg("ai.panel.diplo.vote", id=v['id'], bloc=v['bloc'], kind=v['kind'],
+                              proposer=v['proposer'], desc=desc, yes=yes, no=no, abst=abst,
+                              todo=pending, tail=tail))
     my_ent = world.entity_of(name)
     incoming = [p for p in world.proposals
                 if (p["kind"] == "联盟" and name in p.get("invitees", []))
                 or (p["kind"] != "联盟" and p.get("B") == my_ent)]
-    if incoming:
-        for p in incoming:
-            if p["kind"] == "联盟":
-                lines.append(f"  📨 邀约#{p['id']}: {p['a']} 提议结盟「{p['name']}」"
-                             f"（创始成员：{'、'.join(p['invitees'])}；respond_proposal {p['id']} true/false）")
-            else:
-                how = (f"——回应即提交联盟表决（respond_proposal {p['id']} true/false）"
-                       if bloc is not None else f"（respond_proposal {p['id']} true/false）")
-                lines.append(f"  📨 邀约#{p['id']}: {world.entity_label(p['A'])} 提议 {p['kind']} {how}")
-    offers = [p for p in world.peace_offers if p["b"] == name]
-    if offers:
-        for p in offers:
-            k = {"pay": f"{p['a']}愿赔{p['gold']}金", "demand": f"{p['a']}要你赔{p['gold']}金",
-                 "white": "白和"}[p["kind"]]
-            if p.get("truce"):
-                k += f"（休战{p['truce']}回合）"
-            lines.append(f"  🕊 求和#{p['id']}（{p['a']}→你）: {k} —— {p.get('note','')}（accept_peace/reject_peace {p['id']}）")
+    for p in incoming:
+        if p["kind"] == "联盟":
+            lines.append(i18n.Msg("ai.panel.diplo.invite_bloc", id=p['id'], a=p['a'],
+                                  nm=p['name'],
+                                  members=_join(p['invitees'], _by_dun)))
+        else:
+            lines.append(i18n.Msg(
+                "ai.panel.diplo.invite_pact", id=p['id'], a=world.entity_label(p['A']),
+                kind=p['kind'],
+                how=(i18n.Msg("ai.panel.diplo.invite_vote", id=p['id']) if bloc is not None
+                     else i18n.Msg("ai.panel.diplo.invite_plain", id=p['id']))))
+    for p in world.peace_offers:
+        if p["b"] == name:
+            k = _peace_kind(world, name, p, "in")
+            lines.append(i18n.Msg("ai.panel.diplo.peace_in", id=p['id'], a=p['a'], k=k,
+                                  note=p.get('note', '')))
     my_e = world.entity_of(name)
     if world.guaranteed_by(my_e):
-        lines.append("  你的实体（" + world.entity_label(my_e) + "）保障: "
-                     + "、".join(world.entity_label(e) for e in world.guaranteed_by(my_e)))
+        lines.append(i18n.Msg("ai.panel.diplo.give_g", ent=world.entity_label(my_e),
+                              who=_join([world.entity_label(e)
+                                         for e in world.guaranteed_by(my_e)], _by_dun)))
     if world.guarantors_of(my_e):
-        lines.append("  保障你的实体: "
-                     + "、".join(world.entity_label(e) for e in world.guarantors_of(my_e)))
-    own_offers = [p for p in world.peace_offers if p["a"] == name]
-    for p in own_offers:
-        k = {"pay": f"你愿赔{p['gold']}金", "demand": f"你索{p['gold']}金", "white": "白和"}[p["kind"]]
-        if p.get("truce"):
-            k += f"（休战{p['truce']}回合）"
-        lines.append(f"  你提的求和#{p['id']}（给{p['b']}）: {k}")
-    return "\n".join(lines)
+        lines.append(i18n.Msg("ai.panel.diplo.got_g",
+                              who=_join([world.entity_label(e)
+                                         for e in world.guarantors_of(my_e)], _by_dun)))
+    for p in world.peace_offers:
+        if p["a"] == name:
+            lines.append(i18n.Msg("ai.panel.diplo.peace_out", id=p['id'], b=p['b'],
+                                  k=_peace_kind(world, name, p, "out")))
+    return _rows(lines, lang)
 
 
-def _fmt_countries(world, name) -> str:
+def _peace_kind(world, name, p, side: str) -> i18n.Text:
+    """一条求和的要点（谁赔/谁索/白和 + 约定的休战回合）。side=in 别人提给我的，out 我提的。
+
+    键名一律以**字面量**出现（`Msg({...}[k], ...)` 的字典首参键自洽检查看不见）。
+    """
+    who, gold = p['a'], p['gold']
+    if side == "in":
+        if p["kind"] == "pay":
+            k = i18n.Msg("ai.panel.diplo.pay_me", who=who, gold=gold)
+        elif p["kind"] == "demand":
+            k = i18n.Msg("ai.panel.diplo.demand_me", who=who, gold=gold)
+        else:
+            k = i18n.Msg("ai.panel.diplo.white")
+    elif p["kind"] == "pay":
+        k = i18n.Msg("ai.panel.diplo.pay_them", who=who, gold=gold)
+    elif p["kind"] == "demand":
+        k = i18n.Msg("ai.panel.diplo.demand_them", who=who, gold=gold)
+    else:
+        k = i18n.Msg("ai.panel.diplo.white")
+    if p.get("truce"):
+        k = i18n.Msg("ai.panel.diplo.truce", k=k, n=p['truce'])
+    return k
+
+
+def _fmt_countries(world, name, lang: str | None = None) -> str:
     """外交对象面板：先把『不是自己』的国家列出来选目标。所有 to= 参数只能填这里面的国名。"""
-    lines = [f"可选外交对象（其余国家；外交/通信的 to= 必须是其中之一，不能是自己）:"]
+    lines = [i18n.Msg("ai.panel.countries.head")]
     for n in world.alive():
         if n == name:
             continue
         my, them = world.entity_of(name), world.entity_of(n)
         tags = []
         if them == my:
-            tags.append(f"联盟成员(同属{world.entity_label(my)})")
+            tags.append(i18n.Msg("ai.panel.countries.same_bloc", ent=world.entity_label(my)))
         if world.has_pact("共同防御", my, them):
-            tags.append("共同防御")
+            tags.append(i18n.Msg("ai.panel.countries.pact_def"))
         if world.has_pact("保障", my, them):
-            tags.append("本实体保障它")
+            tags.append(i18n.Msg("ai.panel.countries.give_guar"))
         if world.has_pact("保障", them, my):
-            tags.append("它保障本实体")
+            tags.append(i18n.Msg("ai.panel.countries.got_guar"))
         if world.war_between(name, n):
-            tags.append("交战")
+            tags.append(i18n.Msg("ai.panel.countries.at_war"))
         if not tags:
-            tags.append("中立")
+            tags.append(i18n.Msg("ai.panel.countries.neutral"))
         # 是否接壤
         border = False
         for (x, y) in world.own_tiles(name):
@@ -461,40 +543,47 @@ def _fmt_countries(world, name) -> str:
                 break
         letters = sum(1 for m in world.mailbox.get(name, []) if m["from"] == n)
         vis = [a for a in world.armies if a["owner"] == n and world.visible_to(name, a["x"], a["y"])]
-        lines.append(
-            f"  {n}：{'、'.join(tags)}{'，接壤' if border else '，不接壤'}"
-            f" 你收其来信 {letters} 封" + (f"，视野内有其军队 {len(vis)} 支" if vis else "")
-        )
-    return "\n".join(lines)
+        lines.append(i18n.Msg(
+            "ai.panel.countries.row", n=n, tags=_join(tags, _by_dun),
+            border=(i18n.Msg("ai.panel.countries.border") if border
+                    else i18n.Msg("ai.panel.countries.noborder")),
+            letters=letters,
+            visible=(i18n.Msg("ai.panel.countries.seen", n=len(vis)) if vis else "")))
+    return _rows(lines, lang)
 
 
-def observer_board(world) -> str:
+def observer_board(world, lang: str | None = None) -> str:
     """Observer 全景大面板：各国国库/储备/国土/军队/关系/近期通信，一屏尽览。"""
     alive = world.alive()
-    L = [f"══════ 世界全景 · 第 {world.turn} 回合 · 现存 {'、'.join(alive)} ══════"]
-    L.append("世界市场: " + "  ".join(f"{g}{world.market_price(g)}" for g in GOODS_DISPLAY))
+    L = [i18n.Msg("ai.observer.head", turn=world.turn, alive=_join(alive, _by_dun)),
+         i18n.Msg("ai.observer.market",
+                  prices=_join([i18n.Msg("ai.fmt.res_item", label=g, v=world.market_price(g))
+                                for g in GOODS_DISPLAY], _by_gap))]
     if world.blocs:
-        L.append("联盟: " + world.bloc_desc())
+        L.append(i18n.Msg("ai.observer.blocs", desc=world.bloc_desc()))
     for n in alive:
         r = world.nations[n].res
-        L.append(f"◆ {n}：国库{r['黄金']} 粮{r['粮食']} 木{r['木头']} 矿{r['矿石']} "
-                 f"油{r['石油']} 装{r['装备']} 补给仓{r['补给']} | {world.econ_summary.get(n,'')}")
-        L.append(f"   国土 {len(world.own_tiles(n))} 块 | 军队 {len(world.nation_armies(n))} 支 | {world.rel_desc(n)}")
+        L.append(i18n.Msg("ai.observer.nation", n=n, gold=r['黄金'], food=r['粮食'],
+                          wood=r['木头'], ore=r['矿石'], oil=r['石油'], equip=r['装备'],
+                          supply=r['补给'], summ=world.econ_summary.get(n, '')))
+        L.append(i18n.Msg("ai.observer.power", tiles=len(world.own_tiles(n)),
+                          armies=len(world.nation_armies(n)), rel=world.rel_desc(n)))
         msgs = []
         # 只提示"本回合新到"的信（避免旧信内容在全景头每回合重打）
         for m in [m for m in (world.mailbox.get(n) or []) if m.get("turn") == world.turn][-1:]:
-            msgs.append(f"收[{m['from']}]「{m['text'][:50]}」")
-        for m in [m for m in world.mail_pending if m["from"] == n and m["arrive"] == world.turn + 1][-1:]:
-            msgs.append(f"寄[{m['to']}]「{m['text'][:50]}」")
+            msgs.append(i18n.Msg("ai.observer.got_mail", frm=m['from'], text=m['text'][:50]))
+        for m in [m for m in world.mail_pending
+                  if m["from"] == n and m["arrive"] == world.turn + 1][-1:]:
+            msgs.append(i18n.Msg("ai.observer.sent_mail", to=m['to'], text=m['text'][:50]))
         if msgs:
-            L.append("   " + " ⏐ ".join(msgs))
+            L.append(i18n.Msg("ai.observer.mails", row=_join(msgs, _by_bar)))
     dead = [n for n in world.order if n not in world.nations]
     if dead:
-        L.append("亡国: " + "、".join(dead))
-    return "\n".join(L)
+        L.append(i18n.Msg("ai.observer.dead", who=_join(dead, _by_dun)))
+    return _rows(L, lang)
 
 
-def observer_map(world) -> str:
+def observer_map(world, lang: str | None = None) -> str:
     """Observer 整张世界地图：大写字母=该国占领并**按国别着色**，小写=无人地形（不着色）。
 
     颜色只落在"国家占领区"，好一眼看出势力版图；荒野/野人维持字母不着色。
@@ -518,297 +607,230 @@ def observer_map(world) -> str:
 
     rows = ["".join(cell(x, y) for x in range(world.size)) for y in range(world.size)]
     legend = " ".join(f"\033[{col[n]}m{ch[n]}\033[0m={n}" for n in world.order if n in ch)
-    return "\n".join(rows) + f"\n地图例：{legend} | 小写p/f/h/m/d=平原/森林/丘陵/山地/沙漠（无人）野人亦在其上"
+    return i18n.show(i18n.Msg("ai.observer.map", body="\n".join(rows), legend=legend), lang)
 
 
-def _help_sections() -> list[tuple[str, str]]:
-    """规则全文（=README 的游戏规则），按主题分节，供 rules 查询按需返回。"""
-    ter = "\n".join(
-        f"  {k}：防御{v['defense']:+d}% · 建设惩罚{v['build_penalty']:+d}%"
-        for k, v in TERRAIN_STATS.items()
-    )
-    bld = []
-    for nm, info in BUILDINGS.items():
-        cost = "、".join(map(str, info["cost"])) if isinstance(info["cost"], list) else info["cost"]
-        cap = ("上限=本地" + info["cap_resource"]) if info["cap_resource"] else "任地可建"
-        k = info["kind"]
-        if k == "castle":
-            note = (f"城堡每级 +{building_effect('城堡', 'defense_per_level')}% 防御，"
-                    f"最多 L{info['max_level']}")
-        elif k == "extract":
-            note = "每回合产出 " + "、".join(f"{g}x{a}" for g, a in info["outputs"].items())
-        elif k == "gold":
-            note = "每回合 +" + str(info["outputs"].get("黄金", 0) * MARKET["黄金"]) + " 金入国库"
-        elif k == "energy":
-            note = "耗 " + "、".join(f"{f}x{a}" for f, a in info["fuel"].items()) + \
-                   f" → 发 {info['energy_out']} 电（电不存储）"
-        elif k == "factory":
-            note = f"维持{info['energy']}电；投 " + "、".join(f"{f}x{a}" for f, a in info["inputs"].items()) + \
-                   " 产 " + "、".join(f"{g}x{a}" for g, a in info["outputs"].items())
-        elif k == "townhall":
-            note = (f"维持{info['energy']}电；每座每回合 = "
-                    f"{building_effect('市政厅', 'gold_base')}金基础 + "
-                    f"该地块每座建筑×{building_effect('市政厅', 'gold_per_slot')}金（不含自身，地越盖越值）"
-                    f"入国库；需本地已用建筑位≥{info['min_slots']}、每地块限{info.get('limit', 1)}座")
-        elif k == "tower":
-            note = (f"无产出不耗电；己方/盟方任一瞭望塔半径 "
-                f"{building_effect('瞭望塔', 'vision_radius')} 圆内的事件你都收得到"
-                    "（含战报；视野=国土+相邻一圈+所有瞭望塔圈；只扩事件视野，不增加可拓地）")
-        elif k == "diplomat":
-            c_ = DIPLO_COST; chain = []
-            while True:
-                chain.append(str(c_))
-                if c_ <= DIPLO_CENTER_MIN_COST: break
-                c_ = max(DIPLO_CENTER_MIN_COST, c_ // 2)
-            note = (f"无产出不耗电；每座（含抢来的）让你的外交费再减半"
-                    f"（{'→'.join(chain)}，下限{DIPLO_CENTER_MIN_COST}金）、"
-                    "他国向你提议结盟/联盟/议和永远免费；**写信起步价吃这个减免，超字费不吃**；"
-                    f"**自建全国限{info['limit_nation']}座，第2座只能抢**；需本地已用位≥{info['min_slots']}")
-        elif k == "academy":
-            note = (f"无产出不耗电；本地块一切建造金价 -{building_effect('工程院', 'build_discount')}%"
-                f"（含城堡升级，与地形惩罚乘算，"
-                    "只认已落成的）；需本地已用建筑位≥" + str(info["min_slots"]) + "、每地块限1座")
-        elif k == "militia_camp":
-            note = (f"无产出不耗电；**纯民兵编制——不产粮**，只有它征得了民兵"
-                    f"（{_cost_text(UNIT_TYPES['民']['recruit'])}/支；每座每回合{info['effects'].get('militia_cap', 1)}支，"
-                    "**全国民兵总数 ≤ 全国军屯总数**，阵亡后可补员）；民兵=廉价驻守军队"
-                    f"（{UNIT_TYPES['民']['hp']}HP/攻{UNIT_TYPES['民']['atk']}/{_move_brief('民')}），驻**本格**不耗补给"
-                    "（每座军屯覆盖本格1支，离格/超额照常吃）；需本地耕地≥1、每地块限1座")
-        else:  # barracks
-            note = (f"维持{info['energy']}电；每兵营每回合可征 {info['effects'].get('recruit_cap', 1)} 支军队"
-                    f"（耗 {_cost_text(info['army_cost'])}）；需本地已用建筑位≥{info['min_slots']}（含在建）")
-        bld.append(f"  {nm}：造价 {cost}金 + {info['wood']}木 · {cap} · {note}")
-    sections = [
-        ("总览", (
-            f"EU4式 大地图国战：每人从 {len(CROSS)} 块地起家，拓荒/建设/生产/建军，可对他国结盟或开战。"
-            "回合制：每回合你行动（可做多件事）→ 过回合统一结算（产出/电网/战斗/补给/市场回归）。"
-            "地皮名字=ID，坐标 1-based。你能看的是自己地盘+相邻一圈（有联盟则连盟友的地盘也看得到；建瞭望塔可把事件视野再往外推）；他国国力只能推测。"
-            "迷雾限制你**看见**的，不限制你**下令**的：可对视野外的格下 mv/atk——撞上不透明的"
-            "墙（中立领土/暗藏的敌军/别人的战场）时，报错如实告知撞了什么（这就是侦察所得的情报），"
-            "但代价是该军本回合移动额度作废；对看得见的格撞墙则不罚（试错免费）。想省额度就别盲推，"
-            "想硬侦察就认这一回合动不了。"
-            "想细看任何机制就带主题调 rules，例如 rules(建筑) rules(联盟) rules(战斗)。"
-        )),
-        ("地形", ter + "\n  占地一律走 atk：派军队进格——有守军打赢即占，敌人=0 进驻即占；"
-                        "mv 只挪位不占地；没有『凭空拓荒』命令。"
-                        "行军不打野人：mv 可直接往野地（含野人驻守格）移动/穿行，野人从不主动攻击、路过不打，只在被 atk 时才接战；"
-                        "但野地上有敌军驻守（含正在打野的敌军）时不得 mv——必须 atk 交战。"),
-        ("建筑与造价", "\n".join(bld) + f"\n  每地块 {MAX_SLOTS} 建筑位；每地块每回合限建 1 座；"
-                                        "建好后下一回合才生效（在建中）。"
-                                        "\n  表中造价为平原基准价；实际金价按地块地形建设惩罚上浮"
-                                        f"（如山地 ×{1 + TERRAIN_STATS['山地']['build_penalty'] / 100:g}，只加金不加木），"
-                                        f"匈奴再乘 {POLITY['huns']['build_cost_pct'] / 100:.2g}。"),
-        ("经济与能源", (
-            "全国制：国库/木材/粮矿油装补给都在你账上（res 面板）。"
-            "电网全国且不存储：能源厂发电；补给厂/装备厂/兵营/市政厅都要耗电维持，"
-            "发电 < 维持则这些高级建筑全部停摆（能源厂除外）。"
-            f"补给厂({_cost_text(BUILDINGS['补给厂']['inputs'])}→{_cost_text(BUILDINGS['补给厂']['outputs'])})；"
-            f"装备厂({_cost_text(BUILDINGS['装备厂']['inputs'])}→{_cost_text(BUILDINGS['装备厂']['outputs'])})；"
-            f"补给仓每军每回合耗 {UNIT_TYPES['步']['supply']}（骑兵 {UNIT_TYPES['骑']['supply']}），"
-            f"空则每军按缺口比例扣血（满缺 -{ARMY_STARVE_DAMAGE}HP/回合，交战中也照扣），可能饿毙。"
-            "例外：民兵驻在自家军屯格不耗补给（每座军屯覆盖本格 1 支），离格照常吃。"
-            f"黄金矿场是稳定产金；市政厅(需本地已用位≥{BUILDINGS['市政厅']['min_slots']}"
-            f"·限{BUILDINGS['市政厅']['limit']}座·耗{BUILDINGS['市政厅']['energy']}电)"
-            f"每座每回合 = {building_effect('市政厅', 'gold_base')}金基础"
-            f" + 该地块每座建筑×{building_effect('市政厅', 'gold_per_slot')}金（不含自身，城越满越值）；"
-            "也可在 world market 卖物资换金（卖得越多价压越低）。"
-        )),
-        ("军队与战斗", (
-            f"每军 {ARMY_MAX_HP}HP；兵营征召，每兵营每回合 1 支。兵种：步兵(耗{_cost_text(UNIT_TYPES['步']['recruit'])}，耗补给{UNIT_TYPES['步']['supply']}/回合)、"
-            f"骑兵(耗{_cost_text(UNIT_TYPES['骑']['recruit'])}，耗补给{UNIT_TYPES['骑']['supply']}/回合)、"
-            f"民兵(军屯征召 {_cost_text(UNIT_TYPES['民']['recruit'])}/支，{UNIT_TYPES['民']['hp']}HP、攻{UNIT_TYPES['民']['atk']}，驻本格军屯不耗补给——廉价驻守军队，"
-            f"每军屯每回合{BUILDINGS['军屯']['effects']['militia_cap']}支、全国民兵总数≤全国军屯总数)。"
-            + _move_rule_text() + " "
+# ---- 规则全文：一节一个键（`ai.rules.*`），数值全部从 balance 现算 ⇒ 模板只留槽位。
+#      节序 = `rules` 不带主题时的输出序；路由关键词按语言各存一份（英文局用英文词路由）。
+
+RULE_SECTIONS = ("overview", "terrain", "buildings", "economy", "army", "bloc",
+                 "diplomacy", "mail", "market", "report", "turn")
+
+RULE_TITLES: dict[str, i18n.Text] = {          # 节的标题（键写字面量：死键检查要看得见）
+    "overview": i18n.Msg("ai.rules.title.overview"),
+    "terrain": i18n.Msg("ai.rules.title.terrain"),
+    "buildings": i18n.Msg("ai.rules.title.buildings"),
+    "economy": i18n.Msg("ai.rules.title.economy"),
+    "army": i18n.Msg("ai.rules.title.army"),
+    "bloc": i18n.Msg("ai.rules.title.bloc"),
+    "diplomacy": i18n.Msg("ai.rules.title.diplomacy"),
+    "mail": i18n.Msg("ai.rules.title.mail"),
+    "market": i18n.Msg("ai.rules.title.market"),
+    "report": i18n.Msg("ai.rules.title.report"),
+    "turn": i18n.Msg("ai.rules.title.turn"),
+}
+
+RULE_KEYWORDS: dict[str, i18n.Text] = {        # 每节的路由关键词（逗号分隔，随语言而变）
+    "overview": i18n.Msg("ai.rules.kw.overview"),
+    "terrain": i18n.Msg("ai.rules.kw.terrain"),
+    "buildings": i18n.Msg("ai.rules.kw.buildings"),
+    "economy": i18n.Msg("ai.rules.kw.economy"),
+    "army": i18n.Msg("ai.rules.kw.army"),
+    "bloc": i18n.Msg("ai.rules.kw.bloc"),
+    "diplomacy": i18n.Msg("ai.rules.kw.diplomacy"),
+    "mail": i18n.Msg("ai.rules.kw.mail"),
+    "market": i18n.Msg("ai.rules.kw.market"),
+    "report": i18n.Msg("ai.rules.kw.report"),
+    "turn": i18n.Msg("ai.rules.kw.turn"),
+}
 
 
-            "军队 id **各国独立编号、从 1 递增且阵亡不回收**：历史上的 #n 永远指同一支军队，"
-            "引用一律以最近一次 query army 面板为准。"
-            f"交战 = atk 冲入；每回合掷骰结算一轮；每军基础伤害 步/骑 {UNIT_TYPES['步']['atk']}、"
-            f"民兵 {UNIT_TYPES['民']['atk']}，"
-            f"受守方地形+城堡防御%修正（地形与城堡为**相乘**叠加，山地+城堡L{BUILDINGS['城堡']['max_level']}≈{100 - ((100 - TERRAIN_STATS['山地']['defense']) * (100 - BUILDINGS['城堡']['max_level'] * building_effect('城堡', 'defense_per_level'))) // 100}%而非100%）、总伤害分摊；攻方在敌地无加成。"
-            "**多势力交战（进攻方不纯联合）**：同格多方各打各的敌人（互相宣战才互打）、每方掷自己的骰、"
-            "伤害均分给各敌人；**地形减伤给守方**（未参战的和平驻军/格主/野人——谁挨打谁是守方），"
-            "交战中的进攻方一律不吃；野人只守无主格、只打进攻方。"
-            "**不抢别人的战斗**：野地上有与你非敌非盟的一方正在打野 → 不能 atk 插足（可 mv 旁观待命）；"
-            "敌人/盟友在打野 → 可以 atk 参战（三方混战，各打各的敌人）。"
-            "**占地看索取顺序**：野人清空且无活敌后，进攻方里第一个 atk 的（索取者）占地，它若阵亡则顺位给最早入场的同盟者；"
-            "和平驻守的第三方不占地也不参战（占地后回合末自动遣返）。敌国领土同理：多国围攻同一城时，守军清空后归第一个 atk 者。"
-            f"撤出攻守对等：交战中的军队（含防守方守军）要离开战场一律用 retreat——耗移动，本回合末随战斗结算（伤害全场分摊；防御方撤退减伤{RETREAT_DEF_COVER}%；撤退军本回合输出-{RETREAT_ATK_PENALTY}%），结算后自动脱离；"
-            f"撤退固定只能退相邻 {RETREAT_RANGE} 格，四周无合法撤退点（己方/同盟/无人荒地）则无法撤退；"
-            "mv 不能从交战地撤离（会被拦）。守军全撤走/全灭时，进攻方自动占领该地（守军弃城即陷）。"
-            "交战中双方（含守军）一律不回血。"
-            "打赢守军→该地归你；无守军的空地/敌空城用 atk 直接进驻占领（mv 不占地）。"
-            f"非交战且补给够时每回合回血 +{ARMY_HEAL_PER_TURN}HP；断粮则每军按缺口比例扣血"
-            f"（-{ARMY_STARVE_DAMAGE}×缺口/需求，交战中也照扣），可能饿毙。"
-            f"野人=无人荒地守军（{ARMY_MAX_HP}HP、自给自足、不主动打）：**开局全图每块无主地都有**，不随视野出现；杀了不再生。"
-        )),
-        ("联盟与核心领土", (
-            "联盟（多边实体）：bloc_found(name=联盟名, tos=[创始成员…]) 发起——**联盟名必填**"
-            f"（1~{BLOC_NAME_MAX} 字、不含空格、全局唯一），全体创始成员 respond_proposal 接受后才成立"
-            "（任一拒绝即流产）；**发起方自动成为盟主**（盟主身份随立盟确定，与谁先开战无关）。"
-            "一国同时只属一个联盟。"
-            "入盟：bloc_join(name=联盟名) 申请，现成员投票——**赞成 > 反对即通过**（弃权不计入分母）。"
-            "**入盟即放弃个人条约**：该国原有的保障/共同防御一律作废（入盟后它不再是外交实体、签不了约）。"
-            "退盟：普通成员 bloc_leave 单方面立即退出、无须任何人同意（滞留在前盟友领土的军队回合末自动遣返）。"
-            "★ **战争期间一律不准退盟、不准解散**——只要有一名成员在交战，全盟被锁死到整盟停战为止（先议和）；"
-            "**盟主不能退盟**：只能 bloc_transfer(to=成员) 移交，或 bloc_dissolve 解散；"
-            "盟主亡国时由加入最早的剩余成员继承。"
-            "盟主特权：对任何联盟投票**一票否决**（投 no 即作废）、可 bloc_rename 改盟名、"
-            "可 bloc_transfer 移交盟主、可 bloc_dissolve 解散联盟。"
-            "★ **外交实体**：本作只有两种实体——**独立国家**（不在任何联盟里的国家）与**联盟**。"
-            "在盟的国家不是实体：它的一切约束性外交（保障独立/共同防御/宣战/议和）都必须由联盟出面，"
-            "且**须联盟投票通过**；成员个人签不了、也撤不了任何条约（入盟时原有的个人条约连根作废）。"
-            "保障独立/共同防御的双方**都必须是实体**（国↔国、国↔盟、盟↔盟都合法）；"
-            "联盟对联盟缔约要**两边各自过自己的联盟投票**。"
-            "非约束动作（写信/馈赠/换图/间谍）仍归国家自己——那是通信与物资，不是对外承诺。"
-            "盟内效果：互通领土（自由通行、合法撤退地）、互不攻击、共享视野（盟友地盘及其相邻一圈你都看得见）、"
-            f"成员之间的外交动作（馈赠/换图/投票/回应邀约）全部免费；**写信例外——联盟内起步价 {LETTER_COST_ALLY} 金（非联盟 {LETTER_COST}），前 {LETTER_FREE_CHARS} 字免费，超出每 {LETTER_CHARS_PER_GOLD} 字 1 金**。"
-            "战争：联盟成员不能擅自开战——declare_war 自动转为宣战投票，**赞成 > 反对**即全盟对目标宣战"
-            "（盟主为进攻主导、全体成员为进攻跟随方）；防守不需要投票：任一成员被打，全盟自动参战。"
-            "传导无限跳（以**实体**为单位）：宣战时守侧按 保障/共同防御 的传递闭包自动参战"
-            "（A 保 B、B 盟 C → 打 B 时 C 也上；盟员被打=联盟被打，全盟一起上）；"
-            "防守义务优先：与进攻方的保障/共同防御自动解除后参战；联盟成员永不会被拖去打自家盟友。"
-            "议和：每侧谈判代表 = 主导者（宣战方/被宣战方），主导者有联盟时 = 其盟主（联盟主体身份）——"
-            "普通成员与跟随方不能单独议和；盟主提出或接受议和都须经联盟投票；主导者议和则整条战线停战。"
-            "投票：vote(投票id, choice=yes/no/abstain) 表态（可改票）；发起者默认赞成；**不投 = 到期算弃权**；"
-            "逾期未决时按 赞成 > 反对 定论。"
-            "**战争期间条约冻结**：不能缔结、也**不能解除**——保障独立/共同防御的缔结**与**撤回、加入或缔结联盟、"
-            "退盟、解散联盟，全部禁止——先议和停战再谈。"
-            "★ 这几条合起来的意思：一旦开打，盟友就是**锁死**的——没有『打不过就跑』的通道，"
-            "想脱身只有两条路：把盟主打成议和（或自己被灭）。"
-            "核心领土：每块地有核心归属（land 面板 ♥ 标记=本国核心）；每次战争结束按参战各国实际持有重算核心"
-            "——议和时的版图即新核心（战时丢的地，只要同战线盟友夺回就还是你的；议和割出去的地则归对方核心）。"
-            "自动归还：同联盟且同战线（同一场战争同一侧）的盟友占领了你的核心领土时，立即自动归还给你，"
-            "其驻军原地不动（盟国领土合法停留）；不同战线时（如盟友自己单独打的）占领者可以留下。"
-        )),
-        ("外交", (
-            "国家关系：中立=不能入境也不能攻击对方；联盟=互通领土+互不攻击（详见【联盟与核心领土】）；"
-            "**签约方只能是外交实体**（独立国家 或 联盟）：你在联盟里，保障/共同防御/宣战/议和就都得走"
-            "联盟投票、由联盟出面；成员个人没有外交权（写信/馈赠/换图/间谍这些非约束动作仍归你自己）。"
-            "宣战：对方必须应战，即刻生效；被宣战方的『保障独立/共同防御/联盟』关系按传递闭包自动参战打你"
-            "（无限传导：A 保 B、B 盟 C，你打 B 则 C 也上）。"
-            "共同防御=遭攻自动并肩；保障独立=你（或你的联盟）保它，别人打它你方参战。"
-            "战争分主导者：宣战方=进攻主导、被宣战方=防御主导，因保障/共同防御/联盟自动参战的是跟随方；"
-            "议和只能由双方谈判代表提出/接受（主导者，或主导者的盟主），主导者议和则整条战线（含跟随方）停战。"
-            "求和(offer_peace)：pay=你赔钱、demand=你索款、white=白和；接受即整条战线停战。"
-            "休战时长由求和双方自行约定（offer_peace 的 truce 参数，0=不休战）；接受后 N 回合内"
-            f"双方（含跟随方）不得再互相宣战。一方灭亡后强制全天下休战 {FALL_TRUCE_TURNS} 回合（防连环征服）。"
-            f"断盟/停战后滞留在对方领土的军队会自动遣返（每回合按兵种速度往家走："
-            f"步 {UNIT_TYPES['步']['speed']} 格/骑 {UNIT_TYPES['骑']['speed']} 格，不看地形代价）。"
-            "外交不一定要等到被打：先 countries 看清对象，主动发信、提结盟、换情报，都是合法手段。"
-            "也可用 gift 把本国资源馈赠对方（粮木矿油装补给或黄金，本回合垫支、下回合到账）——示好、资助盟国、买通都行。"
-            "还能用 share_map 把你的整张已知地图（全部坐标）发给对方，对方下回合在 query panel=intel 收到——换情报、亮家底、协调攻守都用得上。"
-            f"外交是有成本的：每成功一次外交动作（提议/回应/断盟/保障/宣战/求和/换图/馈赠）扣基础 {DIPLO_COST} 金，"
-            f"写信(send_letter)按字数单独计价：**起步价联盟内 {LETTER_COST_ALLY} 金 / 非联盟 {LETTER_COST} 金**（含前 {LETTER_FREE_CHARS} 字，吃外交中心减免：每座 {LETTER_CENTER_DISCOUNT}、下限 {LETTER_COST_MIN}），"
-            f"**超出部分每 {LETTER_CHARS_PER_GOLD} 字 1 金（不足 {LETTER_CHARS_PER_GOLD} 字按 {LETTER_CHARS_PER_GOLD} 字算）且不吃任何减免**——联盟成员不再免费，长信照样花钱；"
-            "他国向你提议结盟/联盟/议和永远免费——外交强国有外交中心的加持。"
-            f"情报战：如果你不想开口问（懒得谈、不想欠人情）、又钱多，可用 spy(间谍) 花{SPY_COST}金刺探别国，"
-            f"{SPY_TURNS}回合后盗回其国库/收入/全部建设底细、粗略军情（仅各兵种数量，位置未知）、整张已知地图（地图进 query panel=intel 看）；"
-            "⚠ 间谍**只给各兵种数量**——敌军的位置/血量/番号侦察不到，布防与调动只能靠换图、边地观察或正面交战得知——"
-            "打谁、敲谁、开战时机都心中有数。"
-        )),
-        ("信箱", (
-            f"send_letter 可给任何别国写信（结盟邀约/和谈/威胁/情报交换），**按字数计价：起步价联盟内 {LETTER_COST_ALLY} 金 / "
-            f"非联盟 {LETTER_COST} 金（含前 {LETTER_FREE_CHARS} 字，吃外交中心减免），超出部分每 {LETTER_CHARS_PER_GOLD} 字 1 金、不吃任何减免；"
-            "成功即扣、下回合送达**——联盟成员不再免费，长信照样花钱。"
-            "**每封信寄出前先算账：值不值？** 预期收益（勒索要到的贡品/结盟带来的安全/关键情报/逼降止损）"
-            "明显 > 信价才写；说不说出收益就别写——**写长了就是花钱**。"
-            "写信前再 query panel=res 看国库：**国库紧张时别写信**；"
-            "能并进一次正式外交提议（外交费）的话就别单独写信，更别拿写信闲聊。"
-            "收到信要在 diplomacy/mail 面板回应——不回信，对方可能以为你拒绝。"
-        )),
-        ("市场", (
-            "世界市场 buy/sell：黄金是货币；可交易粮/木/矿/油/装/补给。"
-            f"价格受供需影响：买→推高、卖→压低；成交按「沿曲线均价」结算（不是整笔按最差价），"
-            f"另有 {MARKET_SPREAD:.0%} 买卖价差（买 +{MARKET_SPREAD/2:.0%} / 卖 −{MARKET_SPREAD/2:.0%}）。"
-            "每回合市价向「供需均衡价」回归——全世界产得多就便宜、战时耗得多就贵（面板显示均衡价）。"
-            "深度按商品分档（粮木深、装备浅），随现存国家数放大：国家越多，单笔买卖对市价的冲击越小。"
-            "基准价：" + "  ".join(f"{g}{MARKET[g]}" for g in GOODS_DISPLAY) + "。分批慢慢卖比一次砸盘划算；"
-            "粮/木是内需品（价低量大），矿/油/装备才是外贸主力。"
-        )),
-        ("经济报表", (
-            f"每 {REPORT_EVERY} 回合**自动**给每国结一期经济报表（第 {REPORT_EVERY+1}/{2*REPORT_EVERY+1}/{3*REPORT_EVERY+1}… 回合起），"
-            f"**出表那一回合（第 {REPORT_EVERY+1}/{2*REPORT_EVERY+1}/{3*REPORT_EVERY+1}…）全文自动进你的状态面板【经济报表】**，"
-            "其余回合只留一行摘要；历史期与跨期趋势用 report 工具查（免费、只读）——"
-            "**无法手动运行**，也不能补做历史期。"
-            f"一期覆盖最近 {REPORT_EVERY} 回合，全部按当时市价折算："
-            "①GDP（本回合）= **期末那一回合**的生产增加值（市价，**不含军费**：采集/工厂产出 + 金矿/市政厅金 − 中间投入 − 能源燃料）——不除天数、不攒期累计，就是当前的产出速率；"
-            "②GDP 增长率 = 环比上期的期末值（两个 run-rate 直接比，不受首期覆盖长短影响）；"
-            "③财政收入 = GDP − 军费；"
-            "④军费（本回合）= 期末那一回合军队**实际吃掉的补给** × 现价（不看来源，自产/外购一视同仁）；"
-            "⑤军费占 GDP 比；⑥国家总资产 = 全部建筑重置成本（造价金+木×现价，含夺来的地）；"
-            "⑦资产增长率；⑧本期投资 = 本期建造实付（金 + 木×当时市价，含城堡升级）；"
-            "⑨投资增长率；⑩外贸/内循环占比 = (买卖总额)/(自产+进口) 与自产自用部分。"
-            f"report all=true 看跨期趋势表；report turn={REPORT_EVERY+1} 看指定期。"
-            "军费是双刃剑：过高挤压投资、长期竞争落后；过低则成待宰羔羊、发展空间受限。"
-        )),
-        ("回合与存档", (
-            "end_turn 结束你的本回合。每回合结算会：落地在建建筑→产出/电网→战争→补给/回血→"
-            "遣返→市场回归。存档每回合自动写 mp_save.json，随时可中断续局。"
-            f"国策规划：用 plan 制定/修订（常驻上下文【国策规划】）；没有国策、或距上次修订"
-            f"已满 {PLAN_MAX_TURNS} 回合时，end_turn 会被拦下，先 plan 再结束。"
-            "计划建议涵盖 经济发展/军事规划/情报管理/外交方向 四方面。"
-        )),
-    ]
-    return sections
+def _terrain_rows() -> i18n.Text:
+    return _join([i18n.Msg("ai.rules.terrain.row", ter=k,
+                           d=f"{v['defense']:+d}", p=f"{v['build_penalty']:+d}")
+                  for k, v in TERRAIN_STATS.items()], _by_nl)
 
 
-def rules_text(world, topic: str = "") -> str:
+def _res_x(items: dict[str, int]) -> list:
+    """{"粮食": 1, "矿石": 1} → 供模板槽位用的清单（渲染器按语言连接：中文顿号、英文逗号）。"""
+    return [i18n.Msg("ai.fmt.res_x", k=k, v=a) for k, a in items.items()]
+
+
+def _building_line(nm: str, info: dict) -> i18n.Text:
+    """一种建筑的一行规则说明：造价/占地上限由表给，机制按 kind 走各自的键。"""
+    k = info["kind"]
+    if k == "castle":
+        note = i18n.Msg("ai.rules.bld.castle",
+                        per=building_effect('城堡', 'defense_per_level'), max=info['max_level'])
+    elif k == "extract":
+        note = i18n.Msg("ai.rules.bld.extract", out=_res_x(info["outputs"]))
+    elif k == "gold":
+        note = i18n.Msg("ai.rules.bld.gold", gold=info["outputs"].get("黄金", 0) * MARKET["黄金"])
+    elif k == "energy":
+        note = i18n.Msg("ai.rules.bld.energy", fuel=_res_x(info["fuel"]), out=info['energy_out'])
+    elif k == "factory":
+        note = i18n.Msg("ai.rules.bld.factory", en=info['energy'], ins=_res_x(info["inputs"]),
+                        out=_res_x(info["outputs"]))
+    elif k == "townhall":
+        note = i18n.Msg("ai.rules.bld.townhall", en=info['energy'],
+                        base=building_effect('市政厅', 'gold_base'),
+                        per=building_effect('市政厅', 'gold_per_slot'),
+                        need=info['min_slots'], limit=info.get('limit', 1))
+    elif k == "tower":
+        note = i18n.Msg("ai.rules.bld.tower", r=building_effect('瞭望塔', 'vision_radius'))
+    elif k == "diplomat":
+        note = i18n.Msg("ai.rules.bld.diplomat", chain=_diplo_chain_text(),
+                        floor=DIPLO_CENTER_MIN_COST, nlimit=info['limit_nation'],
+                        need=info['min_slots'])
+    elif k == "academy":
+        note = i18n.Msg("ai.rules.bld.academy", disc=building_effect('工程院', 'build_discount'),
+                        need=info['min_slots'])
+    elif k == "militia_camp":
+        note = i18n.Msg("ai.rules.bld.militia_camp", cost=_cost_msg(UNIT_TYPES['民']['recruit']),
+                        cap=info['effects'].get('militia_cap', 1), hp=UNIT_TYPES['民']['hp'],
+                        atk=UNIT_TYPES['民']['atk'], reach=_move_brief('民'))
+    else:                                                       # barracks
+        note = i18n.Msg("ai.rules.bld.barracks", en=info['energy'],
+                        cap=info['effects'].get('recruit_cap', 1),
+                        cost=_cost_msg(info['army_cost']), need=info['min_slots'])
+    cap = (i18n.Msg("ai.rules.bld.cap_res", res=info["cap_resource"]) if info["cap_resource"]
+           else i18n.Msg("ai.rules.bld.any_site"))
+    return i18n.Msg("ai.rules.bld.line", nm=nm, cost=info["cost"], wood=info['wood'],
+                    cap=cap, note=note)
+
+
+def _sec_overview() -> i18n.Text:
+    return i18n.Msg("ai.rules.overview", n=len(CROSS))
+
+
+def _sec_terrain() -> i18n.Text:
+    return i18n.Msg("ai.rules.terrain", rows=_terrain_rows(),
+                    prose=i18n.Msg("ai.rules.terrain.prose"))
+
+
+def _sec_buildings() -> i18n.Text:
+    return i18n.Msg("ai.rules.buildings",
+                    rows=_join([_building_line(nm, info) for nm, info in BUILDINGS.items()],
+                               _by_nl),
+                    max=MAX_SLOTS,
+                    mult=f"{1 + TERRAIN_STATS['山地']['build_penalty'] / 100:g}",
+                    huns=f"{POLITY['huns']['build_cost_pct'] / 100:.2g}")
+
+
+def _sec_economy() -> i18n.Text:
+    return i18n.Msg(
+        "ai.rules.economy",
+        sup_in=_cost_msg(BUILDINGS['补给厂']['inputs']),
+        sup_out=_cost_msg(BUILDINGS['补给厂']['outputs']),
+        eq_in=_cost_msg(BUILDINGS['装备厂']['inputs']),
+        eq_out=_cost_msg(BUILDINGS['装备厂']['outputs']),
+        inf_sup=UNIT_TYPES['步']['supply'], cav_sup=UNIT_TYPES['骑']['supply'],
+        starve=ARMY_STARVE_DAMAGE, need=BUILDINGS['市政厅']['min_slots'],
+        limit=BUILDINGS['市政厅']['limit'], en=BUILDINGS['市政厅']['energy'],
+        base=building_effect('市政厅', 'gold_base'),
+        per=building_effect('市政厅', 'gold_per_slot'))
+
+
+def _sec_army() -> i18n.Text:
+    return i18n.Msg(
+        "ai.rules.army", maxhp=ARMY_MAX_HP,
+        inf_cost=_cost_msg(UNIT_TYPES['步']['recruit']), inf_sup=UNIT_TYPES['步']['supply'],
+        cav_cost=_cost_msg(UNIT_TYPES['骑']['recruit']), cav_sup=UNIT_TYPES['骑']['supply'],
+        mil_cost=_cost_msg(UNIT_TYPES['民']['recruit']), mil_hp=UNIT_TYPES['民']['hp'],
+        mil_atk=UNIT_TYPES['民']['atk'], mil_cap=BUILDINGS['军屯']['effects']['militia_cap'],
+        move=_move_rule_text(), atk=UNIT_TYPES['步']['atk'],
+        lv=BUILDINGS['城堡']['max_level'],
+        combo=f"{100 - ((100 - TERRAIN_STATS['山地']['defense']) * (100 - BUILDINGS['城堡']['max_level'] * building_effect('城堡', 'defense_per_level'))) // 100}",
+        cover=RETREAT_DEF_COVER, pen=RETREAT_ATK_PENALTY, rng=RETREAT_RANGE,
+        heal=ARMY_HEAL_PER_TURN, starve=ARMY_STARVE_DAMAGE)
+
+
+def _sec_bloc() -> i18n.Text:
+    return i18n.Msg("ai.rules.bloc", maxlen=BLOC_NAME_MAX, ally=LETTER_COST_ALLY,
+                    cost=LETTER_COST, free=LETTER_FREE_CHARS, per=LETTER_CHARS_PER_GOLD)
+
+
+def _sec_diplomacy() -> i18n.Text:
+    return i18n.Msg("ai.rules.diplomacy", fall=FALL_TRUCE_TURNS,
+                    inf=UNIT_TYPES['步']['speed'], cav=UNIT_TYPES['骑']['speed'],
+                    diplo=DIPLO_COST, ally=LETTER_COST_ALLY, cost=LETTER_COST,
+                    free=LETTER_FREE_CHARS, disc=LETTER_CENTER_DISCOUNT, floor=LETTER_COST_MIN,
+                    per=LETTER_CHARS_PER_GOLD, spy=SPY_COST, spy_turns=SPY_TURNS)
+
+
+def _sec_mail() -> i18n.Text:
+    return i18n.Msg("ai.rules.mail", ally=LETTER_COST_ALLY, cost=LETTER_COST,
+                    free=LETTER_FREE_CHARS, per=LETTER_CHARS_PER_GOLD)
+
+
+def _sec_market() -> i18n.Text:
+    return i18n.Msg("ai.rules.market", spread=f"{MARKET_SPREAD:.0%}",
+                    half=f"{MARKET_SPREAD / 2:.0%}",
+                    base=_join([i18n.Msg("ai.fmt.res_item", label=g, v=MARKET[g])
+                                for g in GOODS_DISPLAY], _by_gap))
+
+
+def _sec_report() -> i18n.Text:
+    return i18n.Msg("ai.rules.report", every=REPORT_EVERY,
+                    t1=REPORT_EVERY + 1, t2=2 * REPORT_EVERY + 1, t3=3 * REPORT_EVERY + 1)
+
+
+def _sec_turn() -> i18n.Text:
+    return i18n.Msg("ai.rules.turn", plan=PLAN_MAX_TURNS)
+
+
+def _rules_sections() -> list[tuple[str, i18n.Text]]:
+    """规则全文（=《游戏说明书》的规则），按主题分节，供 `rules` 按需返回。"""
+    return [("overview", _sec_overview()),
+            ("terrain", _sec_terrain()),
+            ("buildings", _sec_buildings()),
+            ("economy", _sec_economy()),
+            ("army", _sec_army()),
+            ("bloc", _sec_bloc()),
+            ("diplomacy", _sec_diplomacy()),
+            ("mail", _sec_mail()),
+            ("market", _sec_market()),
+            ("report", _sec_report()),
+            ("turn", _sec_turn())]
+
+
+def _route(topic: str, lang: str | None) -> set[str]:
+    """主题串 → 命中的节 id 集合（关键词表随语言走，中英各路由各的）。"""
+    want: set[str] = set()
+    for sid in RULE_SECTIONS:
+        kws = [k for k in i18n.show(RULE_KEYWORDS[sid], lang).split(",") if k]
+        if any(k in topic for k in kws):
+            want.add(sid)
+    return want
+
+
+def rules_text(world, topic: str = "", lang: str | None = None) -> str:
     """rules tool：按主题返回规则段落；主题识别不了就返回全文（不设限）。"""
-    t = (topic or "").strip()
-    secs = _help_sections()
-    labels = {
-        "建筑": "建筑", "建造": "建筑", "兵营": "建筑", "农场": "建筑", "城堡": "建筑",
-        "瞭望塔": "建筑", "外交中心": "建筑", "工程院": "建筑", "军屯": "建筑", "民兵": "建筑",
-        "工厂": "建筑", "能源": "建筑", "电厂": "建筑", "造价": "建筑",
-        "地形": "地形", "资源": "地形", "拓荒": "地形", "领土": "地形",
-        "经济": "经济与能源", "电": "经济与能源", "能源": "经济与能源", "补给": "经济与能源",
-        "装备": "经济与能源",
-        "军队": "军队与战斗", "战斗": "军队与战斗", "战争": "军队与战斗", "征兵": "军队与战斗",
-        "军队移动": "军队与战斗", "攻击": "军队与战斗", "野人": "军队与战斗",
-        "移动": "军队与战斗", "速度": "军队与战斗", "移动力": "军队与战斗",
-        "射程": "军队与战斗", "距离": "军队与战斗", "路": "军队与战斗",
-        "地形挡路": "军队与战斗",
-        "外交": "外交", "保障": "外交", "宣战": "外交", "求和": "外交",
-        "共同防御": "外交", "休战": "外交",
-        "联盟": "联盟与核心领土", "同盟": "联盟与核心领土", "入盟": "联盟与核心领土",
-        "退盟": "联盟与核心领土", "盟主": "联盟与核心领土", "投票": "联盟与核心领土",
-        "核心": "联盟与核心领土", "归还": "联盟与核心领土", "视野": "联盟与核心领土",
-        "信箱": "信箱", "信": "信箱", "邮件": "信箱",
-        "市场": "市场", "买卖": "市场", "价格": "市场", "交易": "市场",
-        "回合": "回合与存档", "存档": "回合与存档", "结算": "回合与存档",
-        "报表": "经济报表", "GDP": "经济报表", "投资": "经济报表", "军费": "经济报表",
-    }
-    picks = []
-    for key, label in labels.items():
-        if key in topic:
-            if label not in picks:
-                picks.append(label)
-    if picks:
-        canon = {"建筑": "建筑与造价"}  # 关键词 → 章节真实标题
-        picks = [canon.get(p, p) for p in picks]
-        return "\n\n".join(f"【{label}】\n{text}" for label, text in secs if label in picks)
-    return "\n\n".join(f"【{label}】\n{text}" for label, text in secs)
+    want = _route((topic or "").strip(), lang)
+    out = [i18n.Msg("ai.rules.block", title=RULE_TITLES[sid], body=body)
+           for sid, body in _rules_sections() if not want or sid in want]
+    return i18n.show(_join(out, _by_para), lang)     # 节与节之间空一行（版式，住模板）
 
 
-def _fmt_threats(world, name) -> str:
+def _fmt_threats(world, name, lang: str | None = None) -> str:
     """视野内（自家地盘+相邻一圈）的他国/野人军队。"""
-    rows = []
-    for a in world.armies:
-        if a["owner"] == name:
-            continue
-        if not world.visible_to(name, a["x"], a["y"]):
-            continue
-        rows.append(f"{a['name']}({a['owner']}) {a['hp']}HP @({a['x']+1},{a['y']+1})")
-    return ("视野内的敌军/守军:\n  " + "\n  ".join(rows)) if rows else "视野内没有他国军队"
+    rows = [i18n.Msg("ai.panel.threats.row", nm=a['name'], who=a['owner'], hp=a['hp'],
+                     x=a['x'] + 1, y=a['y'] + 1)
+            for a in world.armies
+            if a["owner"] != name and world.visible_to(name, a["x"], a["y"])]
+    if not rows:
+        return i18n.show(i18n.Msg("ai.panel.threats.none"), lang)
+    return i18n.show(i18n.Msg("ai.panel.threats", rows=_join(rows, _by_nl)), lang)
 
 
-def _fmt_news(world, name) -> str:
-    ev = world.events_for(name, limit=10)
-    return ("近讯:\n  " + "\n  ".join(ev)) if ev else "近讯: 暂无"
+def _fmt_news(world, name, lang: str | None = None) -> str:
+    ev = world.events_for(name, limit=10, lang=lang)
+    if not ev:
+        return i18n.show(i18n.Msg("ai.panel.news.none"), lang)
+    return i18n.show(i18n.Msg("ai.panel.news", rows=_join(ev, _by_nl)), lang)
 
 
-def _fmt_memory(world, name, since: int | None = None) -> str:
+def _fmt_memory(world, name, since: int | None = None, lang: str | None = None) -> str:
     """本国回合小结纪事（私有记忆，别国不可见）。
 
     since=已进 replay 的最早回合 → 只保留 replay 覆盖不到的更早小结，避免和完整记录重复。
@@ -817,65 +839,69 @@ def _fmt_memory(world, name, since: int | None = None) -> str:
     if since is not None:
         mem = [m for m in mem if int(m["turn"]) < since]
     if not mem:
-        return "（无——近况见上文完整记录）" if since is not None else "（尚无往回合小结）"
-    return "\n".join(f"  [第{m['turn']}回合] {m['text']}" for m in mem[-10:])
+        return i18n.show(i18n.Msg("ai.panel.memory.seen") if since is not None
+                         else i18n.Msg("ai.panel.memory.none"), lang)
+    return _rows([i18n.Msg("ai.panel.memory.row", turn=m['turn'], text=m['text'])
+                  for m in mem[-10:]], lang)
 
 
-def _fmt_plan(world, name) -> str:
+def _fmt_plan(world, name, lang: str | None = None) -> str:
     """国策规划（常驻上下文）：无 plan 不能结束回合；每 PLAN_MAX_TURNS 回合须修订。"""
     pl = world.plans.get(name)
     if not pl or not str(pl.get("text", "")).strip():
-        return ("（尚未制定）——结束回合(end_turn)前必须先 plan(content=…) 制定国策；"
-                "可从 经济发展 / 军事规划 / 情报管理 / 外交方向 四方面写明目标")
+        return i18n.show(i18n.Msg("ai.panel.plan.none"), lang)
     since = world.turn - pl.get("turn", world.turn)
     flag = ""
     if since >= PLAN_MAX_TURNS:
-        flag = f" ⚠ 已 {since} 回合未修订（每 {PLAN_MAX_TURNS} 回合必须修订一次才能结束）"
+        flag = i18n.Msg("ai.panel.plan.stale", n=since, every=PLAN_MAX_TURNS)
     elif PLAN_MAX_TURNS - since == 1:
-        flag = f" ⚠ 本回合必须修订（下回合即满 {PLAN_MAX_TURNS} 回合）"
-    return f"[第{pl.get('turn')}回合制定/修订]{flag}\n  {pl['text']}"
+        flag = i18n.Msg("ai.panel.plan.due", every=PLAN_MAX_TURNS)
+    return i18n.show(i18n.Msg("ai.panel.plan.row", turn=pl.get('turn'), flag=flag,
+                              text=pl['text']), lang)
 
 
-def _fmt_intel_hint(world, name) -> str:
+def _fmt_intel_hint(world, name, lang: str | None = None) -> str:
     """收到的地图情报摘要（简短提示，完整见 query panel=intel）。"""
     ms = world.maps.get(name, [])
     if not ms:
-        return f"无（可用 share_map 与别国互发地图：对方下回合到；或 spy 间谍偷地图：{SPY_TURNS} 回合后到）"
+        return i18n.show(i18n.Msg("ai.panel.intel.none", turns=SPY_TURNS), lang)
     last = ms[-1]
-    return f"收到 {len(ms)} 张，最新来自 {last['from']}（第{last['turn']}回合）；完整内容见 query panel=intel"
+    return i18n.show(i18n.Msg("ai.panel.intel.hint", n=len(ms), frm=last['from'],
+                              turn=last['turn']), lang)
 
 
-def _fmt_intel(world, name) -> str:
+def _fmt_intel(world, name, lang: str | None = None) -> str:
     """完整地图情报：最近收到的别国地图。"""
     ms = world.maps.get(name, [])
     if not ms:
-        return "（你尚未收到别国的地图情报）"
-    out = [f"收到 {len(ms)} 张地图情报（按到达先后）:"]
+        return i18n.show(i18n.Msg("ai.panel.intel.empty"), lang)
+    out = [i18n.Msg("ai.panel.intel.head", n=len(ms))]
     for m in ms[-3:]:
-        out.append(f"── 第{m['turn']}回合 {m['from']} 的地图 ──")
+        out.append(i18n.Msg("ai.panel.intel.map_head", turn=m['turn'], frm=m['from']))
         out.append(m["text"])
-    return "\n".join(out)
+    return _rows(out, lang)
 
 
-def _fmt_spy_hint(world, name) -> str:
+def _fmt_spy_hint(world, name, lang: str | None = None) -> str:
     """收到的间谍情报摘要（完整见 query panel=spy）。"""
     es = world.econ_intel.get(name, [])
     if not es:
-        return f"无（可用 spy 花{SPY_COST}金刺探别国，{SPY_TURNS}回合后到手经济底细+粗略军情数量+地图）"
+        return i18n.show(i18n.Msg("ai.panel.spy.none", cost=SPY_COST, turns=SPY_TURNS), lang)
     last = es[-1]
-    return f"{len(es)} 份，最新 {last['from']}（第{last['turn']}回合）；完整见 query panel=spy"
+    return i18n.show(i18n.Msg("ai.panel.spy.hint", n=len(es), frm=last['from'],
+                              turn=last['turn']), lang)
 
 
-def _fmt_spy(world, name) -> str:
+def _fmt_spy(world, name, lang: str | None = None) -> str:
     """完整间谍情报：最近拿到的别国经济底细 + 粗略军情（各兵种数量）。"""
     es = world.econ_intel.get(name, [])
     if not es:
-        return "（你尚未拿到任何间谍情报）"
-    return "\n".join(m["text"] for m in es[-2:])
+        return i18n.show(i18n.Msg("ai.panel.spy.empty"), lang)
+    return _rows([m["text"] for m in es[-2:]], lang)
 
 
-MIL_WARNING = ("⚠ 军费是双刃剑：开支过大会挤压投资，长期竞争落后；开支过低则成待宰羔羊，"
-               "发展空间受限、短期竞争失利——自己权衡。")
+# 常驻提醒（报表全文/趋势表都带这一行）：军费与发展投资的取舍
+MIL_WARNING = i18n.Msg("ai.warn.military")
 
 
 def _pct(v: float | None, sign: bool = True) -> str:
@@ -885,90 +911,99 @@ def _pct(v: float | None, sign: bool = True) -> str:
     return f"{v * 100:+.1f}%" if sign else f"{v * 100:.1f}%"
 
 
-def _fmt_report_one(rep: dict) -> str:
+def _fmt_report_one(rep: dict, lang: str | None = None) -> str:
     """单期经济报表。口径：GDP 与军费都是**结报那一回合**的实际值（run-rate，不平均、
     不攒期累计）；投资/资产/贸易仍是整期值。覆盖回合数只在表头交代时间跨度。"""
     days = rep.get("span", REPORT_EVERY)
     start = rep.get("period_start", rep["period_end"] - days + 1)
-    span = f"第 {start}–{rep['period_end']} 回合" + ("" if days == REPORT_EVERY else f"（{days} 回合）")
+    span = i18n.Msg("ai.panel.report.span", a=start, b=rep['period_end'])
+    if days != REPORT_EVERY:
+        span = i18n.Msg("ai.panel.report.span_days", span=span, n=days)
     gdp, mil = rep["gdp"], rep["military"]
     fiscal = gdp - mil
-    L = [f"【经济报表 · 报表回合 {rep['report_turn']} · 覆盖{span}】"]
-    L.append(f"  GDP（本回合，市价）      {gdp:>8.1f} 金   {_pct(rep['gdp_growth'])}")
-    L.append(f"  财政收入（GDP−军费）     {fiscal:>8.1f} 金"
-             + ("   ⚠ 本回合军费已超过 GDP，靠卖库存/吃老本维持" if fiscal < 0 else ""))
-    L.append(f"  军费（本回合补给消耗）   {mil:>8.1f} 金   "
-             f"占 GDP {_pct(rep['military_ratio'], sign=False)}")
-    L.append(f"  国家总资产               {rep['assets']:>8.0f} 金   {_pct(rep['assets_growth'])}"
-             "   （含夺地所得）")
-    L.append(f"  本期投资                 {rep['invest']:>8.0f} 金   {_pct(rep['invest_growth'])}")
-    L.append(f"  外贸 / 内循环            外贸 {_pct(rep['trade_ratio'], sign=False)} · "
-             f"内循环 {_pct(1 - rep['trade_ratio'], sign=False)}"
-             "   （外贸=买卖总额/(自产+进口)）")
-    L.append(f"  （本回合军队吃掉补给 {rep.get('supply_eaten_turn', 0)} 单位、折 {mil:.1f} 金；"
-             f"整期累计吃掉 {rep['supply_eaten']} 单位；市场买入 "
-             f"{rep['import_gold']:.0f} 金、卖出 {rep['export_gold']:.0f} 金）")
-    L.append("")
-    L.append(MIL_WARNING)
-    return "\n".join(L)
+    L = [i18n.Msg("ai.panel.report.head", turn=rep['report_turn'], span=span),
+         i18n.Msg("ai.panel.report.gdp", gdp=gdp, g=_pct(rep['gdp_growth'])),
+         i18n.Msg("ai.panel.report.fiscal", v=fiscal,
+                  warn=(i18n.Msg("ai.panel.report.overrun") if fiscal < 0 else "")),
+         i18n.Msg("ai.panel.report.military", mil=mil,
+                  ratio=_pct(rep['military_ratio'], sign=False)),
+         i18n.Msg("ai.panel.report.assets", v=rep['assets'], g=_pct(rep['assets_growth'])),
+         i18n.Msg("ai.panel.report.invest", v=rep['invest'], g=_pct(rep['invest_growth'])),
+         i18n.Msg("ai.panel.report.trade", out=_pct(rep['trade_ratio'], sign=False),
+                  home=_pct(1 - rep['trade_ratio'], sign=False)),
+         i18n.Msg("ai.panel.report.foot", n=rep.get('supply_eaten_turn', 0), mil=mil,
+                  total=rep['supply_eaten'], imp=rep['import_gold'], exp=rep['export_gold']),
+         "", MIL_WARNING]
+    return _rows(L, lang)
 
 
-def _fmt_report_trend(world, name) -> str:
-    """跨期趋势表：一行一期，便于比较不同时期。"""
+def _fmt_report_trend(world, name, lang: str | None = None) -> str:
+    """跨期趋势表：一行一期，便于比较不同时期。表头是文案（逐语言），列宽按渲染结果排。"""
     reps = world.econ_reports.get(name, [])
-    header = ["期", "报表回合", "GDP/回合", "GDP增长", "军费/回合", "军费占GDP",
-              "投资(期)", "投资增长", "总资产", "资产增长", "外贸占比"]
+    header = [i18n.show(x, lang) for x in (
+        i18n.Msg("ai.panel.report.h_period"), i18n.Msg("ai.panel.report.h_turn"),
+        i18n.Msg("ai.panel.report.h_gdp"), i18n.Msg("ai.panel.report.h_gdp_g"),
+        i18n.Msg("ai.panel.report.h_mil"), i18n.Msg("ai.panel.report.h_mil_r"),
+        i18n.Msg("ai.panel.report.h_invest"), i18n.Msg("ai.panel.report.h_invest_g"),
+        i18n.Msg("ai.panel.report.h_assets"), i18n.Msg("ai.panel.report.h_assets_g"),
+        i18n.Msg("ai.panel.report.h_trade"))]
     rows = [header]
     for i, r in enumerate(reps, 1):
-        rows.append([str(i), str(r["report_turn"]), f"{r['gdp']:.1f}", _pct(r["gdp_growth"]),
-                     f"{r['military']:.1f}", _pct(r["military_ratio"], sign=False),
-                     f"{r['invest']:.0f}", _pct(r["invest_growth"]), f"{r['assets']:.0f}",
-                     _pct(r["assets_growth"]), _pct(r["trade_ratio"], sign=False)])
+        rows.append([str(i), str(r["report_turn"]), f"{r['gdp']:.1f}", _pct(r['gdp_growth']),
+                     f"{r['military']:.1f}", _pct(r['military_ratio'], sign=False),
+                     f"{r['invest']:.0f}", _pct(r['invest_growth']), f"{r['assets']:.0f}",
+                     _pct(r['assets_growth']), _pct(r['trade_ratio'], sign=False)])
     widths = [max(_dw(row[c]) for row in rows) for c in range(len(header))]
-    lines = [f"【经济报表 · 跨期趋势】共 {len(reps)} 期"
-             f"（报表回合 {'、'.join(str(r['report_turn']) for r in reps)}）"]
-    lines += ["  " + "  ".join(_pad(row[c], widths[c]) for c in range(len(header)))
+    lines = [i18n.Msg("ai.panel.report.trend_head", n=len(reps),
+                      turns=_join([str(r['report_turn']) for r in reps], _by_dun))]
+    lines += [i18n.Msg("ai.panel.report.trend_row",
+                       cols="  ".join(_pad(row[c], widths[c]) for c in range(len(header))))
               for row in rows]
     lines += ["", MIL_WARNING]
-    return "\n".join(lines)
+    return _rows(lines, lang)
 
 
-def _fmt_report(world, name, turn: int | None = None, all_: bool = False) -> str:
+def _fmt_report(world, name, turn: int | None = None, all_: bool = False,
+                lang: str | None = None) -> str:
     """本国经济报表（只读）：不传参数=最新一期；all_=跨期趋势表；turn=指定报表回合。"""
     reps = world.econ_reports.get(name, [])
     if not reps:
-        return (f"（尚无经济报表：第 {REPORT_EVERY+1} 回合起每 {REPORT_EVERY} 回合自动出一期——第 {REPORT_EVERY+1}/{2*REPORT_EVERY+1}/{3*REPORT_EVERY+1}… 回合开局可查。"
-                "这是自动生成的，不能手动运行。）")
+        return i18n.show(i18n.Msg("ai.panel.report.empty", every=REPORT_EVERY,
+                                  t1=REPORT_EVERY + 1, t2=2 * REPORT_EVERY + 1,
+                                  t3=3 * REPORT_EVERY + 1), lang)
     if all_:
-        return _fmt_report_trend(world, name)
+        return _fmt_report_trend(world, name, lang)
     if turn is None:
-        return _fmt_report_one(reps[-1])
+        return _fmt_report_one(reps[-1], lang)
     for r in reps:
         if r["report_turn"] == turn:
-            return _fmt_report_one(r)
-    return (f"没有第 {turn} 回合的报表。已出："
-            + "、".join(f"第{r['report_turn']}回合" for r in reps)
-            + f"（每 {REPORT_EVERY} 回合自动出一期，不能手动运行；趋势看 report all=true）")
+            return _fmt_report_one(r, lang)
+    return i18n.show(i18n.Msg(
+        "ai.panel.report.no_turn", turn=turn, every=REPORT_EVERY,
+        have=_join([i18n.Msg("ai.panel.report.turn_ref", n=r['report_turn']) for r in reps],
+                   _by_dun)), lang)
 
 
-def _fmt_report_panel(world, name) -> str:
+def _fmt_report_panel(world, name, lang: str | None = None) -> str:
     """状态面板里的经济报表：**只在出表那一回合（第 11/21/31…）显示全文**，
     其余回合只给一行摘要——省上下文，需要时用 report 取全文/历史/趋势。"""
     reps = world.econ_reports.get(name, [])
     if not reps:
-        return f"尚无（第 {REPORT_EVERY+1} 回合起每 {REPORT_EVERY} 回合自动出一期，出表那回合自动进本面板，不能手动运行）"
+        return i18n.show(i18n.Msg("ai.panel.report.none_panel", every=REPORT_EVERY,
+                                  t1=REPORT_EVERY + 1), lang)
     r = reps[-1]
     if world.turn == r["report_turn"]:                   # 本期刚出 → 全文
-        text = _fmt_report_one(r)
+        text = _fmt_report_one(r, lang)
         if len(reps) > 1:
-            text += f"\n（共 {len(reps)} 期；历史期 report turn=N，跨期趋势 report all=true）"
+            text = i18n.show(i18n.Msg("ai.panel.report.more", body=text, n=len(reps)), lang)
         return text
-    return (f"最新第 {r['report_turn']} 回合（GDP {r['gdp']:.1f}/回合"
-            f"（{_pct(r['gdp_growth'])}）、军费占 GDP {_pct(r['military_ratio'], sign=False)}、"
-            f"总资产 {r['assets']:.0f}）——全文 report、跨期趋势 report all=true")
+    return i18n.show(i18n.Msg("ai.panel.report.latest", turn=r['report_turn'],
+                              gdp=f"{r['gdp']:.1f}", g=_pct(r['gdp_growth']),
+                              ratio=_pct(r['military_ratio'], sign=False),
+                              assets=f"{r['assets']:.0f}"), lang)
 
 
-def _econ_building(world, building: str) -> str:
+def _econ_building(world, building: str, lang: str | None = None) -> str:
     """单个建筑的经济核算文案。**数字全部来自 mp.build_econ**——与规则 AI v9 同一份
     计算，LLM 看到的回本和 bot 排序用的回本不会有第二套口径。
     （文案与旧版逐字一致；仅加工厂「回本」从"毛利不含电"改为按含电的 per_turn 计，
@@ -976,116 +1011,117 @@ def _econ_building(world, building: str) -> str:
     info = BUILDINGS[building]
     e = build_econ(world, building)
     cost, capex, k = e["cost"], e["capex"], info["kind"]
+    pb = (i18n.Msg("ai.econ.turns", n=f"{e['payback']:.0f}") if e["payback"]
+          else i18n.Msg("ai.econ.dash"))
     if k == "castle":
-        return (f"{building}: L1造价 {cost}金+{info['wood']}木(折{capex:.0f}金) · "
-                f"每级+{building_effect('城堡', 'defense_per_level')}%防御，不产金")
-    if k == "militia_camp":
-        return (f"{building}: 造价折{capex:.0f}金 · **不产粮**（纯民兵编制，无产出）；"
-                f"可征民兵（{_cost_text(UNIT_TYPES['民']['recruit'])}/支，每座{info['effects'].get('militia_cap', 1)}支/回合，"
-                "全国民兵总数≤全国军屯数），民兵驻本格不耗补给"
-                f"（需本地{info['cap_resource']}≥1、每地块限{info.get('limit', 1)}座）")
-    if k in ("extract", "gold"):
-        net = e["detail"]["net"]
-        if k == "gold":
-            tag = "固定+金"
-        else:
-            tag = "外销(卖价)"
-        pb = f"{e['payback']:.0f}回合" if e["payback"] else "—"
-        return f"{building}: 造价折{capex:.0f}金 · 每回合产出{tag}≈{net:.0f}金 · 回本≈{pb}"
-    if k == "energy":
-        fuel = e["detail"]["fuel"]
-        return (f"{building}: 造价折{capex:.0f}金 · 每回合烧燃料现值≈{fuel:.0f}金 "
-                f"→ 产{info['energy_out']}电（电不交易，供高级建筑维持）")
-    if k == "factory":
+        msg = i18n.Msg("ai.econ.castle", nm=building, cost=cost, wood=info['wood'],
+                       capex=f"{capex:.0f}", per=building_effect('城堡', 'defense_per_level'))
+    elif k == "militia_camp":
+        msg = i18n.Msg("ai.econ.militia_camp", nm=building, capex=f"{capex:.0f}",
+                       cost=_cost_msg(UNIT_TYPES['民']['recruit']),
+                       cap=info['effects'].get('militia_cap', 1),
+                       res=info['cap_resource'], limit=info.get('limit', 1))
+    elif k in ("extract", "gold"):
+        msg = i18n.Msg("ai.econ.extract", nm=building, capex=f"{capex:.0f}",
+                       tag=(i18n.Msg("ai.econ.tag_gold") if k == "gold"
+                            else i18n.Msg("ai.econ.tag_export")),
+                       net=f"{e['detail']['net']:.0f}", payback=pb)
+    elif k == "energy":
+        msg = i18n.Msg("ai.econ.energy", nm=building, capex=f"{capex:.0f}",
+                       fuel=f"{e['detail']['fuel']:.0f}", out=info['energy_out'])
+    elif k == "factory":
         d = e["detail"]
-        inv, out_self, out_sell, ec = (d["inputs_value"], d["outputs_buy"],
-                                       d["outputs_sell"], d["energy_cost"])
-        net = d["net"]
-        pb = f"{e['payback']:.0f}回合" if e["payback"] else "—"
-        return (f"{building}: 造价折{capex:.0f}金 · 每回合投{inv:.0f}金(买价)料→产{out_self:.0f}金"
-                f"(买价=自用替代；纯外销只值{out_sell:.0f}金)"
-                f"（毛利{net:+.0f}金；另耗{info.get('energy', 0)}电≈{ec:.0f}金） · 回本≈{pb}")
-    if k == "barracks":
-        return (f"{building}: 造价折{capex:.0f}金 · 不自动产金，每兵营每回合可征1军"
-                f"（步{_cost_text(UNIT_TYPES['步']['recruit'])} / 骑{_cost_text(UNIT_TYPES['骑']['recruit'])}，耗兵料另计）")
-    if k == "townhall":
-        return (f"{building}: 造价折{capex:.0f}金 · 每回合 = "
-                f"{building_effect('市政厅', 'gold_base')}金基础"
-                f" + 该地块每座建筑×{building_effect('市政厅', 'gold_per_slot')}金（不含自身；{MAX_SLOTS}格满城≈"
-                f"{building_effect('市政厅', 'gold_base') + MAX_SLOTS * building_effect('市政厅', 'gold_per_slot')}金/回合）"
-                f" · 需本地已用位≥{info['min_slots']}、每地块限{info.get('limit', 1)}座、耗{info.get('energy', 0)}电")
-    if k == "tower":
-        return (f"{building}: 造价折{capex:.0f}金 · 不产金：事件视野 "
-                f"+{building_effect('瞭望塔', 'vision_radius')} 圆（情报投入）")
-    if k == "diplomat":
-        return (f"{building}: 造价折{capex:.0f}金 · 不产金：外交费每座再减半（{'→'.join(_diplo_chain())}）；"
-                "写信起步价吃减免、超字费不吃；"
-                f"自建全国限{info['limit_nation']}座，第2座只能抢")
-    if k == "academy":
-        return (f"{building}: 造价折{capex:.0f}金 · 不产金：本地块一切建造金价 "
-                f"-{building_effect('工程院', 'build_discount')}%"
-                f"（需本地已用位≥{info['min_slots']}，后续建筑越贵回得越多）")
-    return f"{building}: 无核算"
+        msg = i18n.Msg("ai.econ.factory", nm=building, capex=f"{capex:.0f}",
+                       inv=f"{d['inputs_value']:.0f}", own=f"{d['outputs_buy']:.0f}",
+                       sell=f"{d['outputs_sell']:.0f}", gross=f"{d['net']:+.0f}",
+                       en=info.get('energy', 0), ec=f"{d['energy_cost']:.0f}", payback=pb)
+    elif k == "barracks":
+        msg = i18n.Msg("ai.econ.barracks", nm=building, capex=f"{capex:.0f}",
+                       inf=_cost_msg(UNIT_TYPES['步']['recruit']),
+                       cav=_cost_msg(UNIT_TYPES['骑']['recruit']))
+    elif k == "townhall":
+        msg = i18n.Msg("ai.econ.townhall", nm=building, capex=f"{capex:.0f}",
+                       base=building_effect('市政厅', 'gold_base'),
+                       per=building_effect('市政厅', 'gold_per_slot'), max=MAX_SLOTS,
+                       full=building_effect('市政厅', 'gold_base')
+                       + MAX_SLOTS * building_effect('市政厅', 'gold_per_slot'),
+                       need=info['min_slots'], limit=info.get('limit', 1),
+                       en=info.get('energy', 0))
+    elif k == "tower":
+        msg = i18n.Msg("ai.econ.tower", nm=building, capex=f"{capex:.0f}",
+                       r=building_effect('瞭望塔', 'vision_radius'))
+    elif k == "diplomat":
+        msg = i18n.Msg("ai.econ.diplomat", nm=building, capex=f"{capex:.0f}",
+                       chain=_diplo_chain_text(), nlimit=info['limit_nation'])
+    elif k == "academy":
+        msg = i18n.Msg("ai.econ.academy", nm=building, capex=f"{capex:.0f}",
+                       disc=building_effect('工程院', 'build_discount'), need=info['min_slots'])
+    else:
+        msg = i18n.Msg("ai.econ.none", nm=building)
+    return i18n.show(msg, lang)
 
 
-def _fmt_econ(world, name: str | None = None) -> str:
+def _fmt_econ(world, name: str | None = None, lang: str | None = None) -> str:
     """当前市价经济表：各建筑造价(折金)/毛利/回本，供建设决策。
     采集/金矿按「卖价」折算产出（外销口径）；加工厂按「买价」折算（自用替代口径）。"""
-    L = ["【经济核算 · 当前市价】单位建筑投入产出（木头按现价折金入造价，市政厅=5金基础+本地建筑×1金/回合）："]
-    L.append("现价: " + "  ".join(f"{g}={world.prices.get(g):.1f}" for g in GOODS_DISPLAY)
-             + f"（买卖另有 {MARKET_SPREAD:.0%} 价差）")
+    L = [i18n.Msg("ai.panel.econ.head"),
+         i18n.Msg("ai.panel.econ.prices",
+                  prices=_join([i18n.Msg("ai.fmt.price_eq", g=g, p=f"{world.prices.get(g):.1f}")
+                                for g in GOODS_DISPLAY], _by_gap),
+                  spread=f"{MARKET_SPREAD:.0%}")]
     for b in BUILDINGS:
-        L.append("  " + _econ_building(world, b))
+        L.append(i18n.Msg("ai.panel.econ.row", body=_econ_building(world, b, lang)))
     if name:
         ps = world.nation_armies(name)
         need = sum(unit_supply(a) for a in ps)
         if need:
             buy_p = world.market_quote("补给", 1, "buy")[0]
-            L.append(f"  【你的口径】{len(ps)} 支军队每回合吃 {need} 补给；全按现买价 {buy_p:.2f} 买 ≈ "
-                     f"{need * buy_p:.0f} 金/回合——补给厂/装备厂的价值随军队规模摊薄，别只盯外销价。")
-    L.append("  注：粮/木是内需品（便宜、回本慢）；靠外贸赚钱卖 矿/油/装备。加工厂产出按「买价」折算，"
-             "因为它的产出是替你去市场上买。")
-    return "\n".join(L)
+            L.append(i18n.Msg("ai.panel.econ.mine", n=len(ps), need=need,
+                              price=f"{buy_p:.2f}", cost=f"{need * buy_p:.0f}"))
+    L.append(i18n.Msg("ai.panel.econ.foot"))
+    return _rows(L, lang)
 
 
-def full_state(world, name, replay_since: int | None = None) -> str:
-    """本回合的新鲜状态（上下文尾部）。replay_since 见 turn_state。"""
-    others = "、".join(n for n in world.alive() if n != name) or "（只剩你）"
-    return "\n".join([
-        f"你（{name}）现在进行第 {world.turn} 回合的行动。其余国家：{others}。",
-        f"【国力】\n{_res_line(world, name)}",
-        f"【国策规划】\n{_fmt_plan(world, name)}",
-        f"【国土/视野】\n{_fmt_land(world, name)}",
-        f"【军队】\n{_fmt_armies(world, name)}",
-        f"【威胁】\n{_fmt_threats(world, name)}",
-        f"【市场】\n{_fmt_market(world, name)}",
-        f"【经济报表】\n{_fmt_report_panel(world, name)}",
-        f"【纪事(近10回合)】\n{_fmt_memory(world, name, replay_since)}",
-        f"【地图情报】\n{_fmt_intel_hint(world, name)}",
-        f"【间谍情报】\n{_fmt_spy_hint(world, name)}",
-        f"【信箱】\n{_fmt_mail(world, name, brief=True)}",
-        f"【外交】\n{_fmt_diplomacy(world, name)}",
-        f"【近讯】\n{_fmt_news(world, name)}",
-    ])
+def full_state(world, name, replay_since: int | None = None, lang: str | None = None) -> str:
+    """本回合的新鲜状态（上下文尾部）。replay_since 见 turn_state。
+
+    各分项面板是「表」，按 `lang` 各自渲染一次；这里只把成品嵌进带【标题】的框架
+    ——框架本身（哪些段、什么顺序、什么标题）也是模板，所以英文局的标题是英文的。
+    """
+    others = [n for n in world.alive() if n != name] or i18n.Msg("ai.panel.full.only")
+    return i18n.show(i18n.Msg(
+        "ai.panel.full", nation=name, turn=world.turn, others=others,
+        res=_res_line(world, name, lang), plan=_fmt_plan(world, name, lang),
+        land=_fmt_land(world, name, lang=lang), army=_fmt_armies(world, name, lang),
+        threats=_fmt_threats(world, name, lang), market=_fmt_market(world, name, lang),
+        report=_fmt_report_panel(world, name, lang),
+        memory=_fmt_memory(world, name, replay_since, lang),
+        intel=_fmt_intel_hint(world, name, lang), spy=_fmt_spy_hint(world, name, lang),
+        mail=_fmt_mail(world, name, True, lang),
+        diplomacy=_fmt_diplomacy(world, name, lang),
+        news=_fmt_news(world, name, lang)), lang)
 
 
-def compact_state(world, name) -> str:
+def compact_state(world, name, lang: str | None = None) -> str:
     r = world.nations[name].res
     n_army = len([a for a in world.armies if a["owner"] == name])
     box = world.mailbox.get(name, [])
-    return (
-        f"【刷新】你{name} 国库{r['黄金']} 粮{r['粮食']} 木{r['木头']} 矿{r['矿石']} "
-        f"油{r['石油']} 装{r['装备']} 补给仓{r['补给']} | 军队{n_army} | 收信{len(box)} | "
-        f"关系:{world.rel_desc(name)} | 近讯见 events。继续你的行动，做完了调 end_turn。"
-    )
+    return i18n.show(i18n.Msg("ai.panel.refresh", nation=name, gold=r['黄金'], food=r['粮食'],
+                              wood=r['木头'], ore=r['矿石'], oil=r['石油'], equip=r['装备'],
+                              supply=r['补给'], armies=n_army, mails=len(box),
+                              rel=world.rel_desc(name)), lang)
 
 
 # ---------------------------------------------------------------------------
 # 坐标/物品解析
 # ---------------------------------------------------------------------------
 
-def _tile_xy(world, actor, ref: str) -> tuple[int, int] | None:
-    """ref 可形如 '5 6'（1-based 坐标）、地块名、或『名字 (x,y)』混合串。返回 0-based 坐标或 None。"""
+def _tile_xy(world, actor, ref: str, lang: str | None = None) -> tuple[int, int] | None:
+    """ref 可形如 '5 6'（1-based 坐标）、地块名、或『名字 (x,y)』混合串。返回 0-based 坐标或 None。
+
+    英文局里模型看到的是词库拼出来的地名（`ScarletPark`），它会照原样回传 ⇒ 名字比对
+    过一遍 `label`（口径见 `i18n.label`：整串命中或逐语素拼）。
+    """
     s = ref.strip()
     s = " ".join(s.replace("（", " ").replace("）", " ").replace("(", " ").replace(")", " ")
                   .replace(",", " ").split())
@@ -1096,9 +1132,37 @@ def _tile_xy(world, actor, ref: str) -> tuple[int, int] | None:
     best, bl = None, -1
     for (x, y), t in world.tiles.items():
         nm = t.get("name")
-        if nm and nm in s and len(nm) > bl:
+        if not nm:
+            continue
+        hit = nm in s or (lang and lang != i18n.BASE_LANG and i18n.label(nm, lang) in s)
+        if hit and len(nm) > bl:
             best, bl = (x, y), len(nm)
     return best
+
+
+# 参数值 → 规范名：模型从面板上抄的是**显示名**（英文局 `Farm`/`Food`），落地前译回来。
+#   键是 (工具, 参数)，因为 `kind` 在 recruit/peace/条约里完全不同义。
+#   候选域必须给窄（`unlabel` 的 `among`）：全域反查会把 `Gold` 认成地名词素「金」。
+_DENAME: dict[tuple[str, str], tuple] = {
+    ("build", "building"): tuple(BUILDINGS),
+    ("econ", "building"): tuple(BUILDINGS),
+    ("recruit", "kind"): ("步", "骑", "民"),
+    ("propose", "kind"): ("共同防御",),
+    ("buy", "good"): tuple(GOODS_DISPLAY),
+    ("sell", "good"): tuple(GOODS_DISPLAY),
+    ("gift", "good"): tuple(GOODS_DISPLAY) + ("黄金",),
+}
+
+
+def _dename(tool: str, args: dict, lang: str | None) -> dict:
+    """把带规范名取值的参数从显示名换回规范名（中文局直接原样返回）。"""
+    if not lang or lang == i18n.BASE_LANG or not isinstance(args, dict):
+        return args
+    out = dict(args)
+    for (tl, arg), among in _DENAME.items():
+        if tl == tool and arg in out and isinstance(out[arg], str):
+            out[arg] = i18n.unlabel(out[arg], lang, among)
+    return out
 
 
 BUILD_NAMES = list(BUILDINGS)
@@ -1142,7 +1206,12 @@ def _mem_cut(text: str, n: int) -> str:
     return text if len(text) <= n else text[:n] + "…"
 
 
-def _memory_search(world, name: str, args: dict) -> str:
+# 「小结：」这类前缀也是文案 ⇒ 走各自的模板（见 `ai.mem.tag.*`）。
+
+_TAG_LONG = "long"      # 长期记忆那条的**内部标签**（非数字 ⇒ 排序时垫底），显示名才走语言表
+
+
+def _memory_search(world, name: str, args: dict, lang: str | None = None) -> str:
     """按关键词搜本国历史记忆的正文，返回命中回合号 + 相邻上下文。
 
     只搜 `turn_memory`/`summaries`/`summary_blocks`/`long_memory`/`plans` 的
@@ -1155,23 +1224,24 @@ def _memory_search(world, name: str, args: dict) -> str:
     except (TypeError, ValueError):
         limit = 3
     if not query:
-        return "用法：memory_search(query=关键词 用空格分隔多个词, limit=条数)，例：memory_search(query=盟约 楚)"
+        return i18n.show(i18n.Msg("ai.mem.usage"), lang)
     _sep = {",", "，", "、", ";", "；", "	"}
     kws = [k for k in "".join(c if c not in _sep else " " for c in query).split() if k]
     if not kws:
-        return f"记忆检索「{query}」：空关键词。"
+        return i18n.show(i18n.Msg("ai.mem.empty_query", q=query), lang)
 
-    # 收集候选单元：(回合标签, 正文, 前文, 后文)
+    # 收集候选单元：(回合标签, 正文, 前文, 后文)。标签里的数字是**回合号（数据）**，
+    # 「长期记忆」这类占位标签才是文案，渲染时才定语言。
     units: list[tuple[str, str, str, str]] = []
     for rec in (world.turn_memory.get(name) or []):
         msgs = rec.get("messages") or []
         for i, m in enumerate(msgs):
             parts = []
             if m.get("role") == "tool":
-                parts.append(str(m.get("content") or ""))
+                parts.append(i18n.show(m.get("content") or "", lang))
             else:
                 if m.get("content"):
-                    parts.append(str(m["content"]))
+                    parts.append(i18n.show(m["content"], lang))
                 for tc in (m.get("tool_calls") or []):
                     fn = tc.get("function") or {}
                     parts.append(f"{fn.get('name')}({fn.get('arguments')})")
@@ -1182,21 +1252,25 @@ def _memory_search(world, name: str, args: dict) -> str:
             nxt = _mem_cut(msgs[i + 1].get("content"), _MEM_NEIGH) if i + 1 < len(msgs) else ""
             units.append((str(rec.get("turn", "?")), text, prev, nxt))
     for it in (world.summaries.get(name) or []):
-        units.append((str(it["turn"]), "小结：" + str(it.get("text") or ""), "", ""))
+        units.append((str(it["turn"]),
+                      i18n.show(i18n.Msg("ai.mem.tag.summary", text=str(it.get("text") or "")),
+                                lang), "", ""))
     for b in (world.summary_blocks.get(name) or []):
-        units.append((f"{b['from']}-{b['to']}", "阶段总结：" + str(b.get("text") or ""), "", ""))
+        units.append((f"{b['from']}-{b['to']}",
+                      i18n.show(i18n.Msg("ai.mem.tag.block", text=str(b.get("text") or "")),
+                                lang), "", ""))
     lm = (world.long_memory.get(name) or "").strip()
     if lm:
-        units.append(("长期记忆", lm, "", ""))
+        units.append((_TAG_LONG, lm, "", ""))
     pl = (world.plans.get(name) or {}).get("text", "")
     if pl:
         units.append((str((world.plans.get(name) or {}).get("turn", "") or 0),
-                      "国策：" + str(pl), "", ""))
+                      i18n.show(i18n.Msg("ai.mem.tag.plan", text=str(pl)), lang), "", ""))
 
     scored = [(sum(1 for k in kws if k in u[1]), u) for u in units
               if any(k in u[1] for k in kws)]
     if not scored:
-        return f"记忆检索「{query}」：没有命中（正文检索，不含思考过程）。"
+        return i18n.show(i18n.Msg("ai.mem.no_hit", q=query), lang)
     # 排序：分数降序 → 回合新→旧；非数字回合（长期记忆/阶段）放最后
     def _tkey(x):
         try:
@@ -1204,94 +1278,103 @@ def _memory_search(world, name: str, args: dict) -> str:
         except (TypeError, ValueError):
             return 1
     scored.sort(key=lambda x: (-x[0], _tkey(x)))
-    L = [f"📇 记忆检索「{query}」命中 {len(scored)} 处（正文，不含思考），列出前 {limit}："]
+    L = [i18n.Msg("ai.mem.hits", q=query, n=len(scored), limit=limit)]
     for i, (_, u) in enumerate(scored[:limit], 1):
         tag, text, prev, nxt = u
-        head = f"第{tag}回合" if tag.isdigit() else f"【{tag}】"
-        L.append(f"{i}. {head} ▸ {_mem_cut(text, _MEM_CUT)}")
+        head = (i18n.Msg("ai.panel.report.turn_ref", n=tag) if tag.isdigit()
+                else i18n.Msg("ai.mem.head_tag",
+                              tag=(i18n.Msg("ai.mem.tag.long") if tag == _TAG_LONG else tag)))
+        L.append(i18n.Msg("ai.mem.hit_row", i=i, head=head, text=_mem_cut(text, _MEM_CUT)))
         if prev or nxt:
-            L.append(f"    └ 相邻：{prev}{' … ' if prev and nxt else ''}{nxt}")
-    return "\n".join(L)
+            L.append(i18n.Msg("ai.mem.hit_near", prev=prev,
+                              mid=" … " if prev and nxt else "", nxt=nxt))
+    return _rows(L, lang)
 
 
 # ---------------------------------------------------------------------------
 # 工具执行（隔离：所有动作都以 actor=本国身份执行，引擎自会校验合法）
 # ---------------------------------------------------------------------------
 
-def execute(world, actor: str, tool: str, args: dict) -> str:
-    """执行一个工具调用并返回结果文本（喂回给 LLM）。所有机制校验都在引擎内完成。
+def execute(world, actor: str, tool: str, args: dict, lang: str | None = None) -> i18n.Text:
+    """执行一个工具调用，返回**回执**（喂回给 LLM 前由回合循环渲染成本国语言）。
+
+    回执两种形状，界限就是「谁是读者」：
+    · **查询面板 / 规则全文 / 报表** = 已按 `lang` 渲染好的成品串——它们是「表」，
+      行内整句进模板、行间只是排版，且看海纪事要按 [:180] 截断存原文（整张表塞进
+      键值会把存档撑爆）；
+    · **动作回执**（引擎的与 `ai.err.*` 这类拒绝提示）= `Msg`，由边界决定语言 ⇒
+      存进纪事的仍是键值，各国与看海端各渲染各的。
+    `str()` 走缺省语言，所以直接拿它当字符串用的老调用点照旧。机制校验全在引擎内完成。
 
     顶层兜底：单次工具调用参数非法或内部异常只记为一次失败返回给模型，
     绝不让异常穿出回合循环炸掉整个看海进程（结算前的行动会全部丢失）。
     """
     if actor not in world.nations:
-        return "（你已亡国/不存在）"
+        return i18n.show(i18n.Msg("ai.err.dead"), lang)
     try:
-        return _exec(world, actor, tool, args)
+        return _exec(world, actor, tool, args, lang)
     except Exception as e:
-        return (f"⚠ 工具 {tool} 执行出错，本次调用未生效（参数可能非法）；"
-                f"请检查后用合法参数重试）：{type(e).__name__}: {e}")
+        return i18n.Msg("ai.err.tool_crash", tool=tool, etype=type(e).__name__, why=e)
 
 
-def _charge(world, actor: str, cost: int, fn, *a, **k) -> str:
+def _charge(world, actor: str, cost: int, fn, *a, **k) -> i18n.Text:
     """外交/换图/馈赠/信件统一收费：先验国库，动作成功后扣费。
 
     动作合法失败（已同盟/已交战/物资不足等）不烧金，避免模型空试浪费；
     国库 < 费用时动作直接不发。
     """
     if world.res(actor, "黄金") < cost:
-        return f"国库不足：此操作需 {cost} 金（你现 {world.res(actor, '黄金')}）"
+        return i18n.Msg("ai.err.no_gold", cost=cost, have=world.res(actor, '黄金'))
     ok, msg = fn(*a, **k)
     if ok:
         world.add_res(actor, "黄金", -cost)
     return msg
 
 
-def _exec(world, actor: str, tool: str, args: dict) -> str:
+def _exec(world, actor: str, tool: str, args: dict, lang: str | None = None) -> i18n.Text:
     """execute 的实质分发（兜底由 execute 负责）。"""
+    args = _dename(tool, args, lang)      # 面板上抄来的显示名先译回规范名，再进引擎
     if world.polity.get(actor) == "huns" and tool in HUNS_BLOCKED:
-        return ("匈奴不搞这套外交：你只能用 通信勒索贡品(send_letter) / 宣战(declare_war) / "
-                "要求投降或赔款求和(offer_peace / accept_peace / reject_peace)。「"
-                + tool + "」被禁。")
+        return i18n.Msg("ai.err.huns_blocked", tool=tool)
     # ---- 面板（查询接口）
     if tool in ("query", "view", "panel", "查", "查询", "看", "面板"):
         which = str(args.get("panel", "all")).lower()
         return {
-            "all": full_state(world, actor),
-            "res": _res_line(world, actor),
-            "land": _fmt_land(world, actor),
-            "army": _fmt_armies(world, actor),
-            "market": _fmt_market(world, actor),
-            "mail": _fmt_mail(world, actor),
-            "diplomacy": _fmt_diplomacy(world, actor),
-            "countries": _fmt_countries(world, actor),
-            "news": _fmt_news(world, actor),
-            "threats": _fmt_threats(world, actor),
-            "econ": _fmt_econ(world, actor),
-            "intel": _fmt_intel(world, actor),
-            "spy": _fmt_spy(world, actor),
-            "plan": _fmt_plan(world, actor),
-        }.get(which, full_state(world, actor))
+            "all": full_state(world, actor, lang=lang),
+            "res": _res_line(world, actor, lang),
+            "land": _fmt_land(world, actor, lang=lang),
+            "army": _fmt_armies(world, actor, lang),
+            "market": _fmt_market(world, actor, lang),
+            "mail": _fmt_mail(world, actor, lang=lang),
+            "diplomacy": _fmt_diplomacy(world, actor, lang),
+            "countries": _fmt_countries(world, actor, lang),
+            "news": _fmt_news(world, actor, lang),
+            "threats": _fmt_threats(world, actor, lang),
+            "econ": _fmt_econ(world, actor, lang),
+            "intel": _fmt_intel(world, actor, lang),
+            "spy": _fmt_spy(world, actor, lang),
+            "plan": _fmt_plan(world, actor, lang),
+        }.get(which, full_state(world, actor, lang=lang))
 
-    # ---- 规则查询：**所有政体同一份**（`_help_sections()` 按代码数值现算）
+    # ---- 规则查询：**所有政体同一份**（`_rules_sections()` 按代码数值现算）
     #   政体专属的机制写在各自的 system prompt 里（如匈奴的【教义】），rules 不重复。
     if tool in ("rules", "规则", "help", "帮助"):
-        return rules_text(world, str(args.get("topic", "") or ""))
+        return rules_text(world, str(args.get("topic", "") or ""), lang)
 
     # ---- 记忆检索（翻旧账：只搜本体正文，不含思考；免费只读）
     if tool in ("memory_search", "search_memory", "检索记忆", "记忆检索", "回想", "回忆", "history", "翻旧账"):
-        return _memory_search(world, actor, args)
+        return _memory_search(world, actor, args, lang)
 
     # ---- 外交对象（先选一个非自己的国家）
     if tool in ("countries", "外交对象", "国家列表", "对手"):
-        return _fmt_countries(world, actor)
+        return _fmt_countries(world, actor, lang)
 
     # ---- 经济核算（建设回报，按当前市价）
     if tool in ("econ", "核算", "经济核算", "预算", "回本"):
         b = str(args.get("building", "") or "")
         if b in BUILDINGS:
-            return _econ_building(world, b)
-        return _fmt_econ(world, actor)
+            return _econ_building(world, b, lang)
+        return _fmt_econ(world, actor, lang)
 
     # ---- 经济报表（只读：每 10 回合自动结一期，没有任何手动生成入口）
     if tool in ("report", "报表", "经济报表"):
@@ -1301,29 +1384,25 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         except (TypeError, ValueError):
             turn = None
         all_ = str(args.get("all", "")).strip().lower() in ("1", "true", "yes", "y", "是", "全部")
-        return _fmt_report(world, actor, turn, all_)
+        return _fmt_report(world, actor, turn, all_, lang)
 
     # ---- 领土（无"凭空占"：只有军队 mv 移入"敌人=0"的地格才占地）
     if tool in ("expand", "拓荒", "activate"):
-        return ("没有单独占地命令：占地一律走 atk——派军队 attack 目标格，若那格没有守军/敌军（敌人=0）军队直接进驻占领；"
-                "有野人/敌军则打赢后自动占地；野地上只有中立/盟友和平驻守时也直接进驻占领（它们不参战、回合末被遣返）。"
-                "mv 只挪位置、不占地；野地有敌军驻守（含正在打野的）时不能 mv，只能 atk。"
-                "野地上有与你非敌非盟的一方正在打野时不能 atk 插足；敌人/盟友在打野则可以参战。"
-                "占地按索取顺序：第一个 atk 者优先，它阵亡则顺位最早入场的同盟者。")
+        return i18n.Msg("ai.tip.expand")
 
     # ---- 建设 / 征兵
     if tool in ("build", "建", "建造"):
         ref = str(args.get("tile", ""))
-        xy = _tile_xy(world, actor, ref)
+        xy = _tile_xy(world, actor, ref, lang)
         if xy is None:
-            return f"地块引用无效：{ref}（用坐标如 '5 6' 或自家地块名）"
+            return i18n.Msg("ai.err.bad_tile", ref=ref)
         ok, msg = world.build(actor, xy[0], xy[1], str(args.get("building", "")))
         return msg
     if tool in ("recruit", "征兵", "r"):
         ref = str(args.get("tile", ""))
-        xy = _tile_xy(world, actor, ref)
+        xy = _tile_xy(world, actor, ref, lang)
         if xy is None:
-            return f"地块引用无效：{ref}"
+            return i18n.Msg("ai.err.bad_tile_short", ref=ref)
         ok, msg = world.recruit(actor, xy[0], xy[1], int(args.get("n", 1)),
                                 str(args.get("kind", "步") or "步"))
         return msg
@@ -1334,7 +1413,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         try:
             x, y = int(args["x"]) - 1, int(args["y"]) - 1
         except (KeyError, TypeError, ValueError):
-            return "需要目标坐标 x y（1-based）"
+            return i18n.Msg("ai.err.need_xy_1b")
         ok, msg = world.move(actor, aid, x, y)
         return msg
     if tool in ("attack", "atk", "进攻"):
@@ -1345,7 +1424,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         try:
             x, y = int(args["x"]) - 1, int(args["y"]) - 1
         except (KeyError, TypeError, ValueError):
-            return "需要目标坐标 x y"
+            return i18n.Msg("ai.err.need_xy")
         ok, msg = world.attack(actor, aids, x, y)
         return msg
     if tool in ("retreat", "撤", "撤出"):
@@ -1353,7 +1432,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         try:
             x, y = int(args["x"]) - 1, int(args["y"]) - 1
         except (KeyError, TypeError, ValueError):
-            return "需要撤退目标坐标 x y"
+            return i18n.Msg("ai.err.need_xy_retreat")
         ok, msg = world.retreat(actor, aid, x, y)
         return msg
 
@@ -1361,13 +1440,13 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
     if tool in ("buy", "买"):
         g = GOOD_ALIAS.get(str(args.get("good", "")).lower())
         if g is None:
-            return "物资名无效：" + "、".join(GOODS_DISPLAY)
+            return i18n.Msg("ai.err.bad_good", goods=list(GOODS_DISPLAY))
         ok, msg = world.buy(actor, g, int(args.get("qty", args.get("amount", 0))))
         return msg
     if tool in ("sell", "卖"):
         g = GOOD_ALIAS.get(str(args.get("good", "")).lower())
         if g is None:
-            return "物资名无效：" + "、".join(GOODS_DISPLAY)
+            return i18n.Msg("ai.err.bad_good", goods=list(GOODS_DISPLAY))
         ok, msg = world.sell(actor, g, int(args.get("qty", args.get("amount", 0))))
         return msg
 
@@ -1379,17 +1458,16 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         lc = letter_cost(text, allied=allied,
                          diplo_centers=world.nation_building_count(actor, "外交中心"))
         if world.res(actor, "黄金") < lc:
-            base = LETTER_COST_ALLY if allied else LETTER_COST
-            over = max(0, len(text) - LETTER_FREE_CHARS)
-            return (f"国库不足：写这封 {len(text)} 字的信需 {lc} 金"
-                    f"（起步价 {base} 金{'（联盟内）' if allied else ''}含前 {LETTER_FREE_CHARS} 字、"
-                    f"外交中心每座 -{LETTER_CENTER_DISCOUNT} 金，下限 {LETTER_COST_MIN}；"
-                    f"超出 {over} 字 × 每 {LETTER_CHARS_PER_GOLD} 字 1 金**不打折**），"
-                    f"你现 {world.res(actor, '黄金')} 金")
+            return i18n.Msg("ai.err.no_gold_letter", chars=len(text), cost=lc,
+                            base=(LETTER_COST_ALLY if allied else LETTER_COST),
+                            ally=(i18n.Msg("ai.letter.ally_tag") if allied else ""),
+                            free=LETTER_FREE_CHARS, disc=LETTER_CENTER_DISCOUNT,
+                            floor=LETTER_COST_MIN, over=max(0, len(text) - LETTER_FREE_CHARS),
+                            per=LETTER_CHARS_PER_GOLD, have=world.res(actor, '黄金'))
         ok, msg = world.send_mail(actor, to, text)
         if ok:
             world.add_res(actor, "黄金", -lc)
-            msg += f"（{len(text)} 字，-{lc} 金）"
+            return i18n.Msg("ai.letter.sent", receipt=msg, chars=len(text), gold=lc)
         return msg
 
     # ---- 外交馈赠（本国储备垫支赠他国，下回合到账；另扣 10 金手续费）
@@ -1399,11 +1477,11 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         if g is None:
             g = {"黄金": "黄金", "金": "黄金", "gold": "黄金"}.get(str(args.get("good", "")).lower())
         if g is None:
-            return "物资名无效（可赠：" + "、".join(GOODS_DISPLAY) + " 或 黄金）"
+            return i18n.Msg("ai.err.bad_good_gift", goods=list(GOODS_DISPLAY))
         try:
             n = int(args.get("qty", args.get("amount", 0)))
         except (TypeError, ValueError):
-            return "数量需为整数"
+            return i18n.Msg("ai.err.need_int_qty")
         return _charge(world, actor, _diplo_cost(world, actor, to), world.gift, actor, to, g, n)
 
     # ---- 交换地图（把你的整张已知地图发给对方，下回合到账对方 intel；对象为盟友时免费）
@@ -1470,7 +1548,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
             elif s in ("abstain", "abstention", "弃权", "中立", "不表态"):
                 choice = None
             else:
-                return "vote 需要 choice=yes/no/abstain（你要怎么表态？）"
+                return i18n.Msg("ai.err.need_vote")
         return _charge(world, actor, 0, world.cast_vote, actor, vid, choice)  # 盟内投票免费
     if tool in ("break_defense", "解除共同防御"):
         to = str(args.get("to", ""))
@@ -1503,40 +1581,47 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
     if tool in ("plan", "国策", "国策规划"):
         text = str(args.get("content", args.get("text", ""))).strip()
         if not text:
-            return "plan 需要 content=你的国策一句话（常驻上下文作为长期目标，可随时修订）"
+            return i18n.Msg("ai.err.need_plan_content")
         is_new = actor not in world.plans
         world.plans[actor] = {"text": text, "turn": world.turn}
-        act = "制定" if is_new else "修订"
-        return (f"✅ 国策已{act}（第{world.turn}回合），常驻你的上下文。"
-                f"每 {PLAN_MAX_TURNS} 回合须再修订一次，否则无法结束回合。"
-                f"建议从 经济发展/军事规划/情报管理/外交方向 四方面写（可后续 plan 随时修订）。")
+        tail = i18n.Msg("ai.plan.tail", every=PLAN_MAX_TURNS)
+        if is_new:
+            return i18n.Msg("ai.plan.made", turn=world.turn, tail=tail)
+        return i18n.Msg("ai.plan.revised", turn=world.turn, tail=tail)
 
     # ---- 结束回合（必须带一句话小结 + 有效国策）
     if tool in ("end_turn", "结束回合", "done"):
         pl = world.plans.get(actor)
         if not pl or not str(pl.get("text", "")).strip():
-            return ("本回合还不能结束：还没有国策规划。请先 plan(content=…) 制定国策"
-                    "（常驻上下文作为长期目标；建议涵盖 经济发展/军事规划/情报管理/外交方向）。")
+            return i18n.Msg("ai.turn.need_plan")
         since = world.turn - pl.get("turn", world.turn)
         if since >= PLAN_MAX_TURNS:
-            return (f"本回合还不能结束：国策已 {since} 回合未修订（每 {PLAN_MAX_TURNS} 回合必须修订一次），"
-                    f"请先用 plan(content=…) 更新国策。")
+            return i18n.Msg("ai.turn.stale_plan", n=since, every=PLAN_MAX_TURNS)
         summary = str(args.get("summary", "")).strip()
         if len(summary) < SUMMARY_MIN_CHARS:
-            return "本回合还没收尾：end_turn 必须带 summary=一句话，总结你这回合做了什么/立场（例如 summary=这回合建了两座农场并继续拓荒）。"
-        world.log(f"{actor} 回合小结：{summary}", phase="行动", nation=actor)
+            return i18n.Msg("ai.turn.need_summary", min=SUMMARY_MIN_CHARS)
+        world.log(i18n.Msg("ai.journal.turn_summary", nation=actor, summary=summary),
+                  phase="行动", nation=actor)
         mem = world.summaries.setdefault(actor, [])
         mem.append({"turn": world.turn, "text": summary})  # 全留（每行很短），供旧回合前情回顾汇总
-        return f"✅ 本回合结束（小结已记录：{summary}）"
-    return f"未知工具 {tool}"
+        return i18n.Msg("ai.turn.ended", summary=summary)
+    return i18n.Msg("ai.err.unknown_tool", tool=tool)
 
 
 def log_tool(world, actor, tool, args, result):
-    """把一次工具调用写进看海日志（Observer 能看到每个行动）。"""
-    def _fmt(v):
-        return json.dumps(v, ensure_ascii=False) if not isinstance(v, str) else v
+    """把一次工具调用写进看海日志（Observer 能看到每个行动）。
+
+    `result` 可能是 `Msg` —— 那就**按键值存进纪事**，看的人各自渲染自己的语言；
+    只有面板那类已渲染成品的回执才截断存原文（回执本身不再预先渲染，见 i18n.py）。
+    参数值（`building=农场`）是规范名 ⇒ 纪事里也存规范名，`label` 只在**显示层**发生
+    （存英文串进存档就等于把语言写进了存档，各国看到的纪事会互相污染）。
+    """
+    def _kv(k, v):
+        val = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
+        return i18n.Msg("ai.fmt.kv", k=k, v=val)     # 值过 label 是在渲染时（i18n.render）
+
     a = args or {}
-    a_str = " ".join(f"{k}={_fmt(v)}" for k, v in a.items())
+    a_str = _join([_kv(k, v) for k, v in a.items()], _by_sp)
     x = a.get("x")
     y = a.get("y")
     try:
@@ -1544,7 +1629,8 @@ def log_tool(world, actor, tool, args, result):
         y = int(y) - 1 if y is not None else None
     except (TypeError, ValueError):
         x = y = None
-    world.action(actor, tool, a_str, result[:180], x=x, y=y)
+    res = result if isinstance(result, i18n.Msg) else str(result)[:180]
+    world.action(actor, tool, a_str, res, x=x, y=y)
 
 
 # ---------------------------------------------------------------------------
@@ -1565,210 +1651,228 @@ def _props(schema: dict) -> dict:
     return d
 
 
-TOOL_SCHEMAS = [
+def _enum(values, lang: str) -> list[str]:
+    """枚举值按查看语言显示（中文局逐字不变）。模型照面板抄回 `Farm` 时由 `_dename` 译回来。"""
+    return [i18n.label(v, lang) for v in values]
+
+
+def _make_schemas(lang: str, costs: dict[str, dict]) -> list[dict]:
+    """按 **(语言, 政体征召价)** 生成 35 个工具的 schema。
+
+    · `description` 与参数说明一律 `i18n.t(键, lang, …)` ⇒ 英文局拿到的描述是英文的，
+      中文局逐字节等于键值化前那份（对拍钉着）；
+    · `enum` 里是**规范名（数据）**：建筑名/兵种名/面板名不翻译，模型发回来的参数值
+      也仍是规范名（`_exec` 按规范名校验，别名回退见 `GOOD_ALIAS`/`KIND_MAP`/`PACT_MAP`）；
+    · 数值全部现算（`balance.py` / 政体表），模板里只留槽位 ⇒ 改表就改文案，不留第二套口径；
+    · 结果只取决于 (lang, costs)，与回合无关 ⇒ 同一国跨回合拿到**字节完全相同**的 schema，
+      提供商的前缀缓存才命中（`TOOL_SCHEMAS_TOKENS` 按这份固定开销计入上下文预算）。
+    """
+    P = costs
+    return [
     {"type": "function", "function": {
-        "name": "query", "description": "查询接口：随时获取你的各面板。res=国库与储备 / plan=国策规划 / land=地皮(国土+可拓荒地) / army=军队 / market=世界市场(现价/买价/卖价/均衡价+大单试算) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=间谍情报(别国经济底细+粗略军情) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
-        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "plan", "land", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True}})}},
+        "name": "query", "description": i18n.t("ai.schema.query.desc", lang),
+        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "plan", "land", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats"], "description": i18n.t("ai.schema.query.p.panel", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "report", "description": f"查本国经济报表（免费、只读）。每 {REPORT_EVERY} 回合**自动**结一期，第 {REPORT_EVERY+1}/{2*REPORT_EVERY+1}/{3*REPORT_EVERY+1}… 回合开局可查，**不能手动运行**。内容：市场计价 GDP 及增长率、扣除军费的财政收入、军费占 GDP 比、国家总资产及增长率、本期投资总量及增长率、外贸/内循环占比。不传参数=最新一期；turn=指定报表回合（如 {REPORT_EVERY+1}）；all=true=跨期趋势对比表。",
-        "parameters": _props({"turn": {"type": "integer", "description": f"报表回合（{REPORT_EVERY+1}/{2*REPORT_EVERY+1}/{3*REPORT_EVERY+1}…）；省略=最新一期"},
-                              "all": {"type": "boolean", "description": "true=返回全部期的趋势对比表"}})}},
+        "name": "report", "description": i18n.t("ai.schema.report.desc", lang, every=REPORT_EVERY, t1=REPORT_EVERY + 1, t2=2 * REPORT_EVERY + 1, t3=3 * REPORT_EVERY + 1),
+        "parameters": _props({"turn": {"type": "integer", "description": i18n.t("ai.schema.report.p_turn", lang, t1=REPORT_EVERY + 1, t2=2 * REPORT_EVERY + 1, t3=3 * REPORT_EVERY + 1)},
+                              "all": {"type": "boolean", "description": i18n.t("ai.schema.report.p_all", lang)}})}},
     {"type": "function", "function": {
-        "name": "countries", "description": "列出所有可选外交对象（除你之外的每个国家：关系/是否接壤/有无来信）。外交动作前先用它选一个目标，再以 to=该国家 行动；绝不能对自己用外交工具。",
+        "name": "countries", "description": i18n.t("ai.schema.countries.desc", lang),
         "parameters": _props({})}},
     {"type": "function", "function": {
-        "name": "rules", "description": "查询完整游戏规则：建筑造价与上限、地形、电网经济、军队战斗、外交、信箱、市场、回合存档。可带 topic 只取相关段（如 '兵营'、'外交'、'宣战'）；不带则返回全文。",
-        "parameters": _props({"topic": {"type": "string", "description": "想查的主题（可选）"}})}},
+        "name": "rules", "description": i18n.t("ai.schema.rules.desc", lang),
+        "parameters": _props({"topic": {"type": "string", "description": i18n.t("ai.schema.rules.p_topic", lang)}})}},
     {"type": "function", "function": {
-        "name": "econ", "description": "按当前市价核算建设回报：某建筑的 造价(折金)/每回合毛利/回本时间；不带 building 则输出全部建筑经济表。做建设/买卖决策前先算再定。",
-        "parameters": _props({"building": {"type": "string", "enum": BUILD_NAMES, "description": "要核算的建筑名（可选；省则输出全部）"}})}},
+        "name": "econ", "description": i18n.t("ai.schema.econ.desc", lang),
+        "parameters": _props({"building": {"type": "string", "enum": _enum(BUILD_NAMES, lang), "description": i18n.t("ai.schema.econ.p_building", lang)}})}},
     {"type": "function", "function": {
-        "name": "build", "description": f"在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅/瞭望塔/外交中心/工程院/军屯。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥{BUILDINGS['兵营']['min_slots']}；瞭望塔=事件视野+{building_effect('瞭望塔', 'vision_radius')}圆；市政厅需本地已用位≥{BUILDINGS['市政厅']['min_slots']}且每地块限{BUILDINGS['市政厅']['limit']}；外交中心=外交费减半可叠加但自建全国限{BUILDINGS['外交中心']['limit_nation']}（第2座只能抢）；工程院=本地建造费-{building_effect('工程院', 'build_discount')}%需本地位≥{BUILDINGS['工程院']['min_slots']}；军屯=**不产粮**的民兵编制、可征民兵({_cost_text(UNIT_TYPES['民']['recruit'])}/支、全国民兵总数≤军屯数)且民兵驻本格不耗补给（需本地{BUILDINGS['军屯']['cap_resource']}≥1、每地块限{BUILDINGS['军屯']['limit']}座）。",
-        "parameters": _props({"tile": {"type": "string", "description": "地块：坐标如 '5 6' 或自家地块名（land 面板有）", "required": True},
-                              "building": {"type": "string", "enum": BUILD_NAMES, "description": "建筑名", "required": True}})}},
+        "name": "build", "description": i18n.t(
+            "ai.schema.build.desc", lang, buildings=_join(list(BUILDINGS), _by_slash),
+            barracks_need=BUILDINGS['兵营']['min_slots'],
+            tower_r=building_effect('瞭望塔', 'vision_radius'),
+            th_need=BUILDINGS['市政厅']['min_slots'], th_limit=BUILDINGS['市政厅']['limit'],
+            dip_limit=BUILDINGS['外交中心']['limit_nation'],
+            academy_disc=building_effect('工程院', 'build_discount'),
+            academy_need=BUILDINGS['工程院']['min_slots'],
+            militia_cost=_cost_msg(UNIT_TYPES['民']['recruit']),
+            camp_res=BUILDINGS['军屯']['cap_resource'], camp_limit=BUILDINGS['军屯']['limit']),
+        "parameters": _props({"tile": {"type": "string", "description": i18n.t("ai.schema.build.p_tile", lang), "required": True},
+                              "building": {"type": "string", "enum": _enum(BUILD_NAMES, lang), "description": i18n.t("ai.schema.build.p_building", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "recruit", "description": _recruit_desc(
-            {k: v["recruit"] for k, v in UNIT_TYPES.items()}),
-        "parameters": _props({"tile": {"type": "string", "description": "地块：坐标 '5 6' 或名字", "required": True},
-                              "n": {"type": "integer", "description": "征召数量（默认1）"},
-                              "kind": {"type": "string", "enum": ["步", "骑", "民"], "description": "兵种（默认 步；民=民兵，只能在自家军屯格征召）"}})}},
+        "name": "recruit", "description": _recruit_desc(P).render(lang),
+        "parameters": _props({"tile": {"type": "string", "description": i18n.t("ai.schema.recruit.p_tile", lang), "required": True},
+                              "n": {"type": "integer", "description": i18n.t("ai.schema.recruit.p_n", lang)},
+                              "kind": {"type": "string", "enum": _enum(["步", "骑", "民"], lang), "description": i18n.t("ai.schema.recruit.p_kind", lang)}})}},
     {"type": "function", "function": {
-        "name": "move", "description": "把一支自己的军队挪位置，纯移动不占地。每回合每支限1次。" + _move_rule_text() + " **行军不打野人**：合法移动目标只有三种：**野地（无人荒地）、自家格、盟国格**——野地可直接走进/穿过（行军不打野人，野人只在被 atk 时接战）；自家/盟国格被混战敌军占着也可以 mv 进去（增援，入格即随军参战）。**敌国领土 mv 一律不得进入（空格也是）**：每一步进敌境都是 atk——会交战或直接进占。**野地上有与你交战的敌军驻守（含正在打野的）也不得 mv**——必须 atk 交战；中立/盟友驻守的野地可以 mv 进去（旁观待命，互不干扰）。交战中不能移动，须先 retreat 撤出。",
-        "parameters": _props({"army_id": {"type": "integer", "description": "本国军队id（各国独立从1编号，以 query army 面板为准）", "required": True},
-                              "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
-                              "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
+        "name": "move", "description": i18n.t("ai.schema.move.desc", lang, rule=_move_rule_text()),
+        "parameters": _props({"army_id": {"type": "integer", "description": i18n.t("ai.schema.p_army_id", lang), "required": True},
+                              "x": {"type": "integer", "description": i18n.t("ai.schema.p_x", lang), "required": True},
+                              "y": {"type": "integer", "description": i18n.t("ai.schema.p_y", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "attack", "description": "军队(" + f"按兵种移动力可及：{_reach_brief()}" + ")冲入目标地块并交战——打赢该地守军自动占地；格上**无任何军队**则直接进驻占领；野地上只有中立/盟友和平驻守时也直接进驻占领（它们不参战，回合末自动遣返）；他国领土上有非敌军队则不能进驻。**不抢别人的战斗**：野地上有与你非敌非盟的一方正在打野 → 不能 atk 插足（可 mv 旁观）；敌人/盟友在打野 → 可以参战（同格多方各打各的敌人，互相宣战才互打）。占地按索取顺序：第一个 atk 者优先，它阵亡则顺位最早入场的同盟者。与别国开打需已宣战。",
-        "parameters": _props({"army_ids": {"type": "array", "items": {"type": "integer"}, "description": "参战本国军队id数组（各国独立从1编号）", "required": True},
-                              "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
-                              "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
+        "name": "attack", "description": i18n.t("ai.schema.attack.desc", lang, reach=_reach_brief()),
+        "parameters": _props({"army_ids": {"type": "array", "items": {"type": "integer"}, "description": i18n.t("ai.schema.attack.p_ids", lang), "required": True},
+                              "x": {"type": "integer", "description": i18n.t("ai.schema.p_x", lang), "required": True},
+                              "y": {"type": "integer", "description": i18n.t("ai.schema.p_y", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "retreat", "description": f"交战中的军队（含防守方守军）撤出——**固定只能退相邻 {RETREAT_RANGE} 格**（所有人，不按兵种速度、也不看地形代价）。撤退不立刻结算：军队留在战场参与本回合末战斗结算（伤害全场分摊；防御方撤退减伤{RETREAT_DEF_COVER}%；撤退军本回合输出-{RETREAT_ATK_PENALTY}%），结算后自动脱离到目标格。目标限 己方/同盟/无人荒地；四周无合法撤退点则无法撤退。mv 不能从交战地撤离；想脱离战场一律用 retreat。",
-        "parameters": _props({"army_id": {"type": "integer", "description": "本国军队id（各国独立从1编号，以 query army 面板为准）", "required": True},
-                              "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
-                              "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
+        "name": "retreat", "description": i18n.t("ai.schema.retreat.desc", lang, rng=RETREAT_RANGE, cover=RETREAT_DEF_COVER, pen=RETREAT_ATK_PENALTY),
+        "parameters": _props({"army_id": {"type": "integer", "description": i18n.t("ai.schema.p_army_id", lang), "required": True},
+                              "x": {"type": "integer", "description": i18n.t("ai.schema.p_x", lang), "required": True},
+                              "y": {"type": "integer", "description": i18n.t("ai.schema.p_y", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "buy", "description": f"从世界市场买物资花黄金。买=推高市价；成交按「沿曲线均价」结算并含 {MARKET_SPREAD/2:.0%} 买价差，越急买越贵（试算见 query panel=market）。",
-        "parameters": _props({"good": {"type": "string", "description": "物资：粮食/木头/矿石/石油/装备/补给", "required": True},
-                              "qty": {"type": "integer", "description": "数量", "required": True}})}},
+        "name": "buy", "description": i18n.t("ai.schema.buy.desc", lang, spread=f"{MARKET_SPREAD / 2:.0%}"),
+        "parameters": _props({"good": {"type": "string", "description": i18n.t("ai.schema.buy.p_good", lang,
+                                      goods=_join(list(GOODS_DISPLAY), _by_slash)), "required": True},
+                              "qty": {"type": "integer", "description": i18n.t("ai.schema.p_qty", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "sell", "description": f"向世界市场卖物资赚黄金。卖=压低市价；成交按「沿曲线均价」结算并扣 {MARKET_SPREAD/2:.0%} 卖价差，大单自己砸盘（试算见 query panel=market），分批慢慢卖更划算。",
-        "parameters": _props({"good": {"type": "string", "description": "物资", "required": True},
-                              "qty": {"type": "integer", "description": "数量", "required": True}})}},
+        "name": "sell", "description": i18n.t("ai.schema.sell.desc", lang, spread=f"{MARKET_SPREAD / 2:.0%}"),
+        "parameters": _props({"good": {"type": "string", "description": i18n.t("ai.schema.sell.p_good", lang), "required": True},
+                              "qty": {"type": "integer", "description": i18n.t("ai.schema.p_qty", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "send_letter", "description": f"给别国写信。**按字数计价：起步价联盟内 {LETTER_COST_ALLY} 金 / 非联盟 {LETTER_COST} 金（含前 {LETTER_FREE_CHARS} 字，吃外交中心减免：每座 {LETTER_CENTER_DISCOUNT}、下限 {LETTER_COST_MIN}）；超出 {LETTER_FREE_CHARS} 字的部分每 {LETTER_CHARS_PER_GOLD} 字 1 金、不吃任何减免**。成功即扣、下回合送达；联盟成员不再免费。写长信就是花钱——写信前先算账：值不值？预期收益（贡品/结盟/情报/逼降）明显大于信价才写，说不出收益就别写，更别拿写信闲聊；国库紧张时短写或不写。诉求能并进一次正式外交提议（外交费）就别单独写信。to 必须用 countries 选出的别国，不能是自己。",
-        "parameters": _props({"to": {"type": "string", "description": "收信国名", "required": True},
-                              "content": {"type": "string", "description": "信件正文", "required": True}})}},
+        "name": "send_letter", "description": i18n.t("ai.schema.send_letter.desc", lang, ally=LETTER_COST_ALLY, cost=LETTER_COST, free=LETTER_FREE_CHARS, disc=LETTER_CENTER_DISCOUNT, floor=LETTER_COST_MIN, per=LETTER_CHARS_PER_GOLD),
+        "parameters": _props({"to": {"type": "string", "description": i18n.t("ai.schema.send_letter.p_to", lang), "required": True},
+                              "content": {"type": "string", "description": i18n.t("ai.schema.send_letter.p_content", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "gift", "description": f"把本国储备赠给别国（to=countries 里的别国，不能是自己）：good=粮食/木头/矿石/石油/装备/补给 或 黄金，qty=数量。本回合垫支扣出、下回合到账；另扣外交手续费（基准 {DIPLO_COST} 金；有外交中心则减半；收件人是联盟成员则免费）。示好/资助盟国/买通可用。",
-        "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
-                              "good": {"type": "string", "description": "物资名", "required": True},
-                              "qty": {"type": "integer", "description": "数量", "required": True}})}},
+        "name": "gift", "description": i18n.t("ai.schema.gift.desc", lang,
+                           goods=_join(list(GOODS_DISPLAY), _by_slash), diplo=DIPLO_COST),
+        "parameters": _props({"to": {"type": "string", "description": i18n.t("ai.schema.p_to", lang), "required": True},
+                              "good": {"type": "string", "description": i18n.t("ai.schema.gift.p_good", lang), "required": True},
+                              "qty": {"type": "integer", "description": i18n.t("ai.schema.p_qty", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "share_map", "description": f"把你的整张已知地图（全部国土块+边界外可见块，含坐标）发给别国，对方下一回合在 query panel=intel 收到（外交费，基准 {DIPLO_COST} 金，成功才扣；对象是联盟成员则免费）。换情报/亮家底/协同步调可用。to=countries 里的别国，不能是自己。",
-        "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
+        "name": "share_map", "description": i18n.t("ai.schema.share_map.desc", lang, diplo=DIPLO_COST),
+        "parameters": _props({"to": {"type": "string", "description": i18n.t("ai.schema.p_to", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "spy", "description": f"不想开口问（懒得谈、钱多）时派间谍刺探别国：花 {SPY_COST} 金（国库不足会被拒），{SPY_TURNS} 回合后拿回该国全部经济情报（query panel=spy 看——国库/储备、上回合收入、每一块地的建筑与在建）**、粗略军情（仅各兵种数量，军队位置/血量/番号不外泄）**，以及它的整张已知地图（进 query panel=intel）。目标不能是自己。",
-        "parameters": _props({"to": {"type": "string", "description": "刺探对象国", "required": True}})}},
+        "name": "spy", "description": i18n.t("ai.schema.spy.desc", lang, cost=SPY_COST, turns=SPY_TURNS),
+        "parameters": _props({"to": {"type": "string", "description": i18n.t("ai.schema.spy.p_to", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "plan", "description": f"制定或修订你的国策（长期战略目标），会永久常驻你的上下文（【国策规划】标记），直到你再次修订。⚠ 结束回合(end_turn)前必须已有国策；且每 {PLAN_MAX_TURNS} 回合必须修订一次，否则 end_turn 会被拦。建议按四方面写：经济发展（粮木矿油/建设/卖买）、军事规划（扩军/攻防/结盟）、情报管理（间谍/换图/来信研判）、外交方向（结盟/宣战/求和/馈赠立场）。",
-        "parameters": _props({"content": {"type": "string", "description": "国策内容", "required": True}})}},
+        "name": "plan", "description": i18n.t("ai.schema.plan.desc", lang, every=PLAN_MAX_TURNS),
+        "parameters": _props({"content": {"type": "string", "description": i18n.t("ai.schema.plan.p_content", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_found", "description": f"发起结盟（多边联盟）：**必须给联盟起名**（1~{BLOC_NAME_MAX} 字、不含空格、全局唯一）并邀请创始成员。全体创始成员 respond_proposal 接受后联盟成立（任一拒绝即流产），**发起方自动成为盟主**。★ 联盟本身就是**外交实体**：此后保障独立/共同防御/宣战/议和都由联盟出面、且须联盟投票通过，成员个人签不了任何条约；**入盟即放弃个人条约**（成员国原有的保障/共同防御一律作废）。盟内效果：互通领土/互不攻击/共享视野；同战线自动归还核心领土。**战争期间不能缔结同盟**。发起扣外交费（基准 {DIPLO_COST} 金；受邀方有外交中心则免费）。",
-        "parameters": _props({"name": {"type": "string", "description": "联盟名（1~{BLOC_NAME_MAX}字，全局唯一）", "required": True},
-                              "tos": {"type": "array", "items": {"type": "string"}, "description": "创始成员国名数组（至少1个，须为 countries 里的别国）", "required": True}})}},
+        "name": "bloc_found", "description": i18n.t("ai.schema.bloc_found.desc", lang, maxlen=BLOC_NAME_MAX, diplo=DIPLO_COST),
+        "parameters": _props({"name": {"type": "string", "description": i18n.t("ai.schema.bloc_found.p_name", lang, maxlen=BLOC_NAME_MAX), "required": True},
+                              "tos": {"type": "array", "items": {"type": "string"}, "description": i18n.t("ai.schema.bloc_found.p_tos", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_join", "description": f"申请加入指定联盟：现成员投票，**赞成 > 反对**即通过（盟主投 no 可否决）；一国同时只属一个联盟；与该联盟成员交战、或自己正在交战 → 不能申请。扣外交费（基准 {DIPLO_COST} 金）。",
-        "parameters": _props({"name": {"type": "string", "description": "联盟名", "required": True}})}},
+        "name": "bloc_join", "description": i18n.t("ai.schema.bloc_join.desc", lang, diplo=DIPLO_COST),
+        "parameters": _props({"name": {"type": "string", "description": i18n.t("ai.schema.bloc_join.p_name", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_leave", "description": f"退出所在联盟：普通成员单方面退出、立即生效（滞留前盟友领土的军队回合末自动遣返）。★ **战争期间一律不准退盟**——任一成员在交战即被拒，盟员在战时被锁死，先议和。**盟主不能退盟**——请先 bloc_transfer 移交，或 bloc_dissolve 解散。扣外交费（基准 {DIPLO_COST} 金）。",
+        "name": "bloc_leave", "description": i18n.t("ai.schema.bloc_leave.desc", lang, diplo=DIPLO_COST),
         "parameters": _props({})}},
     {"type": "function", "function": {
-        "name": "bloc_rename", "description": f"【盟主专属】给联盟改名（1~{BLOC_NAME_MAX} 字、不含空格、全局唯一）。免费。",
-        "parameters": _props({"name": {"type": "string", "description": "新联盟名", "required": True}})}},
+        "name": "bloc_rename", "description": i18n.t("ai.schema.bloc_rename.desc", lang, maxlen=BLOC_NAME_MAX),
+        "parameters": _props({"name": {"type": "string", "description": i18n.t("ai.schema.bloc_rename.p_name", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_transfer", "description": "【盟主专属】把盟主之位移交给本联盟另一成员（移交后你变成普通成员，从此可自由退盟）。盟主身份由发起方自动获得，只有现任盟主能移交。免费。",
-        "parameters": _props({"to": {"type": "string", "description": "接任盟主的成员国名（须在本盟成员里）", "required": True}})}},
+        "name": "bloc_transfer", "description": i18n.t("ai.schema.bloc_transfer.desc", lang),
+        "parameters": _props({"to": {"type": "string", "description": i18n.t("ai.schema.bloc_transfer.p_to", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_dissolve", "description": "【盟主专属】解散你的联盟：全体成员恢复独立（各自重新成为外交实体）、条约作废、进行中的联盟投票一并作废。**战争期间不能解散**（任一成员正在交战即被拒，先议和停战）。盟主不能退盟，想脱身就用解散或移交。免费。",
+        "name": "bloc_dissolve", "description": i18n.t("ai.schema.bloc_dissolve.desc", lang),
         "parameters": _props({})}},
     {"type": "function", "function": {
-        "name": "vote", "description": "对所在联盟进行中的投票表态（宣战/议和/入盟/缔约）。choice=yes 赞成 / no 反对 / abstain 弃权（不投=到期算弃权）。**赞成 > 反对即通过**（弃权不计入分母）并立即执行；**盟主投 no 是一票否决，议案立即作废**。可改票；联盟成员投票免费。★「缔约」表决是本作**唯一**的签约通道：保障独立、共同防御都只能这样签或撤。",
-        "parameters": _props({"vote_id": {"type": "integer", "description": "投票id（diplomacy 面板有）", "required": True},
-                              "choice": {"type": "string", "enum": ["yes", "no", "abstain"], "description": "你的表态", "required": True}})}},
+        "name": "vote", "description": i18n.t("ai.schema.vote.desc", lang),
+        "parameters": _props({"vote_id": {"type": "integer", "description": i18n.t("ai.schema.vote.p_id", lang), "required": True},
+                              "choice": {"type": "string", "enum": ["yes", "no", "abstain"], "description": i18n.t("ai.schema.vote.p_choice", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "propose", "description": f"提议『共同防御』（仅守：它被打才自动并肩参战，你主动开战它不上）。**签约方是外交实体**：你所在的联盟出面与你**是独立国家**出面，效果不同——你在联盟里 → 调用先转为**联盟投票**，通过后由联盟出面提议；对方是联盟 → 它接受时同样要过它的联盟投票（一盟一票）。全面结盟请用 bloc_found。to 必须用 countries 选出的别国，不能是自己。**双方实体都必须在和平状态**（任一方在交战 → 不能缔结，先议和）。外交费（基准 {DIPLO_COST} 金；同实体免费；对方有外交中心则免费），成功才扣。",
-        "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True},
-                              "kind": {"type": "string", "enum": ["共同防御"], "description": "类型", "required": True}})}},
+        "name": "propose", "description": i18n.t("ai.schema.propose.desc", lang, diplo=DIPLO_COST),
+        "parameters": _props({"to": {"type": "string", "description": i18n.t("ai.schema.p_to", lang), "required": True},
+                              "kind": {"type": "string", "enum": _enum(["共同防御"], lang), "description": i18n.t("ai.schema.propose.p_kind", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "respond_proposal", "description": "回应收到的邀约（共同防御/结盟：accept=true 接受 / false 拒绝；联盟创始须全体接受才成立；同实体免费）。★ 你**在联盟里**时，共同防御邀约不是你说了就算：accept 只是把它**提交联盟表决**（随后 vote 表态，赞成>反对才缔结）；拒绝由盟主代表实体对外出面。",
-        "parameters": _props({"proposal_id": {"type": "integer", "description": "邀约id（diplomacy面板有）", "required": True},
-                              "accept": {"type": "boolean", "description": "接受? true/false", "required": True}})}},
+        "name": "respond_proposal", "description": i18n.t("ai.schema.respond_proposal.desc", lang),
+        "parameters": _props({"proposal_id": {"type": "integer", "description": i18n.t("ai.schema.respond_proposal.p_id", lang), "required": True},
+                              "accept": {"type": "boolean", "description": i18n.t("ai.schema.respond_proposal.p_accept", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "break_defense", "description": "解除共同防御。★ **战争期间一律不准解除**（条约在战时冻结：缔结与解除都不行，只有议和能停战）——原先「断约即退出该盟约带来的战线」，那是一条打不过就跑路的脱战通道，已封。你在联盟里 → 先转为**联盟投票**，通过后由联盟解除（成员个人无权解约）；你是独立国家 → 直接解除。解除后跟随方身份一并解除，滞留对方领土的军队回合末自动遣返。",
-        "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
+        "name": "break_defense", "description": i18n.t("ai.schema.break_defense.desc", lang),
+        "parameters": _props({"to": {"type": "string", "description": i18n.t("ai.schema.p_to", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "guarantee", "description": f"宣布保障别国（实体）独立：任何国家攻击它，你方实体将自动参战。**签约方是外交实体**：你在联盟里 → 先转为**联盟投票**，通过后由**联盟**保障它（恩义记在联盟头上、全盟担义务）；你是独立国家 → 你自己就是实体，直接生效。保障与共同防御互斥（共同防御更高一档，缔结它会自动解除保障）。**双方实体都必须在和平状态**（任一方在交战 → 不能保障，先议和）。to=别国（不能自己）。成功扣外交费（基准 {DIPLO_COST} 金）。",
-        "parameters": _props({"to": {"type": "string", "description": "被保障国", "required": True}})}},
+        "name": "guarantee", "description": i18n.t("ai.schema.guarantee.desc", lang, diplo=DIPLO_COST),
+        "parameters": _props({"to": {"type": "string", "description": i18n.t("ai.schema.guarantee.p_to", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "cancel_guarantee", "description": "撤回独立保障。★ **战争期间不准撤回**（条约在战时冻结，与 break_defense 同口径）。你在联盟里 → 先转为联盟投票，通过后由联盟撤回。",
-        "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
+        "name": "cancel_guarantee", "description": i18n.t("ai.schema.cancel_guarantee.desc", lang),
+        "parameters": _props({"to": {"type": "string", "description": i18n.t("ai.schema.p_to", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "declare_war", "description": "对别国宣战（对方必须应战，即刻生效；成功扣外交费）。先 countries 选目标，to=别国（不能自己）。★ **交战方是外交实体**：你在联盟里 → 调用即转为**联盟宣战投票**（多数决通过后全盟参战、盟主为进攻主导）；你是独立国家 → 直接开战。战争传导（无限跳，以实体为单位）：对方的保障国/共同防御伙伴/它所在的联盟按传递闭包自动参战打你（A 保 B、B 盟 C → 打 B 则 C 也上）。若目标正与你方实体的盟友/共同防御伙伴交战，宣战会**并入其现有战线**当跟随方（跟随方不能单独议和，主导者议和整条战线停战）。",
-        "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
+        "name": "declare_war", "description": i18n.t("ai.schema.declare_war.desc", lang),
+        "parameters": _props({"to": {"type": "string", "description": i18n.t("ai.schema.p_to", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "offer_peace", "description": "向对方谈判代表求和（每侧代表=主导者；主导者有联盟时=其盟主；普通成员/跟随方不能谈，to=diplomacy 面板所示对方代表；成功扣外交费）。⚠ 盟主求和会先发起联盟投票，多数同意才正式提出。pay=我方向对方赔X金；demand=要求对方赔X金；white=白和。接受后整条战线（含跟随方）停战，且各方实际持有地块重算为核心领土。truce=休战回合数（0=不休战）。★ 战时盟员**不能退盟、不能解散**，议和是唯一的解套路径。",
-        "parameters": _props({"to": {"type": "string", "description": "对方谈判代表国", "required": True},
-                              "kind": {"type": "string", "enum": ["pay", "demand", "white"], "description": "pay=我方赔款 / demand=要求对方赔款 / white=白和", "required": True},
-                              "gold": {"type": "integer", "description": "赔款量（pay/demand 必填>0）"},
-                              "truce": {"type": "integer", "description": "休战回合数（自行约定，0=不休战）"},
-                              "note": {"type": "string", "description": "附加条件/说明（可选）"}})}},
+        "name": "offer_peace", "description": i18n.t("ai.schema.offer_peace.desc", lang),
+        "parameters": _props({"to": {"type": "string", "description": i18n.t("ai.schema.offer_peace.p_to", lang), "required": True},
+                              "kind": {"type": "string", "enum": ["pay", "demand", "white"], "description": i18n.t("ai.schema.offer_peace.p_kind", lang), "required": True},
+                              "gold": {"type": "integer", "description": i18n.t("ai.schema.offer_peace.p_gold", lang)},
+                              "truce": {"type": "integer", "description": i18n.t("ai.schema.offer_peace.p_truce", lang)},
+                              "note": {"type": "string", "description": i18n.t("ai.schema.offer_peace.p_note", lang)}})}},
     {"type": "function", "function": {
-        "name": "accept_peace", "description": "接受对方求和（diplomacy 面板可看提议编号；只有被点名的一方=谈判代表能接受；成功扣外交费）。⚠ 若你是盟主，接受会先发起联盟投票，多数同意才正式生效。",
-        "parameters": _props({"offer_id": {"type": "integer", "description": "求和提议id", "required": True}})}},
+        "name": "accept_peace", "description": i18n.t("ai.schema.accept_peace.desc", lang),
+        "parameters": _props({"offer_id": {"type": "integer", "description": i18n.t("ai.schema.peace.p_offer_id", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "reject_peace", "description": "拒绝对方求和，战争继续（成功扣外交费）。",
-        "parameters": _props({"offer_id": {"type": "integer", "description": "求和提议id", "required": True}})}},
+        "name": "reject_peace", "description": i18n.t("ai.schema.reject_peace.desc", lang),
+        "parameters": _props({"offer_id": {"type": "integer", "description": i18n.t("ai.schema.peace.p_offer_id", lang), "required": True}})}},
     {"type": "function", "function": {
-        "name": "memory_search", "description": "检索你自己的历史记忆（只看行动/发言/结果的**正文**，不看思考过程）：按关键词找出相关回合，返回**回合号与相邻上下文**。适合翻旧账——「我之前答应过楚国什么」「哪几场仗烧补给最凶」「谁对我宣过战」。关键词用空格分隔（如 盟约 楚），全部命中优先、部分命中次之；limit 控制返回条数。只搜得到你自己的记忆，不影响他人。免费、只读。",
-        "parameters": _props({"query": {"type": "string", "description": "检索关键词（用空格分隔多个词）", "required": True},
-                              "limit": {"type": "integer", "description": "最多返回几条（默认3，最大8）"}})}},
+        "name": "memory_search", "description": i18n.t("ai.schema.memory_search.desc", lang),
+        "parameters": _props({"query": {"type": "string", "description": i18n.t("ai.schema.memory_search.p_query", lang), "required": True},
+                              "limit": {"type": "integer", "description": i18n.t("ai.schema.memory_search.p_limit", lang)}})}},
     {"type": "function", "function": {
-        "name": "end_turn", "description": "结束本国本回合的行动。⚠ 必填 summary：用一句话总结你这回合做了什么/当前立场（例如：summary=这回合建了两座农场并继续拓荒）。没有这句小结就不算结束本回合。",
-        "parameters": _props({"summary": {"type": "string", "description": f"一句话回合小结（必填，>={SUMMARY_MIN_CHARS}字）", "required": True}})}},
-]
+        "name": "end_turn", "description": i18n.t("ai.schema.end_turn.desc", lang),
+        "parameters": _props({"summary": {"type": "string", "description": i18n.t("ai.schema.end_turn.p_summary", lang, min=SUMMARY_MIN_CHARS), "required": True}})}},
+    ]
+
+
+# 中文那一份（无政体加成价目）：`docs/sync_manual.py` 与 `TOOL_SCHEMAS_TOKENS` 都读它，
+# 模块级名字必须保留 ⇒ 它是 `_make_schemas` 在 (zh, 常规价) 下的产物。
+TOOL_SCHEMAS = _make_schemas(i18n.BASE_LANG, {k: v["recruit"] for k, v in UNIT_TYPES.items()})
 
 # 工具 schema 的固定 token 开销（每次请求都随 tools 发送，计入上下文预算）
 TOOL_SCHEMAS_TOKENS = est_tokens(json.dumps(TOOL_SCHEMAS, ensure_ascii=False))
 
-_SCHEMA_CACHE: dict[str, list[dict]] = {}
+_SCHEMA_CACHE: dict[tuple[str, str], list[dict]] = {}
 
 
-def tool_schemas(world, name) -> list[dict]:
-    """该国的工具 schema。**政体差异（如匈奴骑兵征召特价）由引擎现算**，
-    再据此重建征召描述——不再对描述文本做字符串替换（那种补丁改一处漂一处）。
+def tool_schemas(world, name, lang: str | None = None) -> list[dict]:
+    """该国的工具 schema：**按 (语言, 政体) 缓存**。
 
-    口径唯一来源：`World.recruit_cost()`（读 `balance.POLITY`）。
-    schema 对同一政体跨回合稳定 ⇒ 不影响前缀缓存（按政体缓存一份）。
+    · 语言逐国而定（配置里各国可写 `lang`），政体差异（如匈奴骑兵征召特价）由引擎现算
+      （口径唯一来源：`World.recruit_cost()` 读 `balance.POLITY`）⇒ 不再对描述文本做
+      字符串替换（那种补丁改一处漂一处）。
+    · 中文 + 无政体 ⇒ 直接返回模块级 `TOOL_SCHEMAS`（同一份对象，前缀缓存的字节基准）。
+    · 同一国跨回合拿到的是缓存里同一份对象 ⇒ schema 与回合无关，前缀缓存才不被打断。
     """
-    key = world.polity.get(name) or ""
-    if not key:
+    lg = lang or i18n.get_lang()
+    polity = world.polity.get(name) or ""
+    if not polity and lg == i18n.BASE_LANG:
         return TOOL_SCHEMAS
+    key = (lg, polity)
     if key not in _SCHEMA_CACHE:
-        schemas = copy.deepcopy(TOOL_SCHEMAS)
-        costs = {k: world.recruit_cost(name, k) for k in UNIT_TYPES}
-        for t in schemas:
-            fn = t["function"]
-            if fn["name"] == "recruit":
-                fn["description"] = _recruit_desc(costs)
-        _SCHEMA_CACHE[key] = schemas
+        costs = ({k: world.recruit_cost(name, k) for k in UNIT_TYPES} if polity
+                 else {k: v["recruit"] for k, v in UNIT_TYPES.items()})
+        _SCHEMA_CACHE[key] = _make_schemas(lg, costs)
     return _SCHEMA_CACHE[key]
 
 
-def _huns_prompt(world, name) -> str:
-    return (
-        "你是草原游牧帝国【" + name + "】（匈奴）的单于，以劫掠、夺产、勒索维生。\n\n"
-        "【政体约束（硬性）】你不搞结盟/共同防御/保障/馈赠/交换地图那套外交。你能用的只有："
-        "send_letter（写信威吓勒索贡品）、spy（刺探对方国情）、declare_war（宣战）、"
-        "offer_peace（要求投降/赔款求和）、accept_peace / reject_peace（议和/拒绝）。\n"
-        "【开局（事实）】你是骑兵开局，别饿空补给（消耗与补给情况随 query 面板现算）；"
-        f"你建建筑要贵 {world.polity_rule(name, 'build_cost_pct', 100) - 100}%（别走种田流），"
-        f"但你的骑兵征召只要 {_cost_text(world.polity_rule(name, 'recruit', {}).get('骑', {}))}"
-        f"（寻常国家 {_cost_text(UNIT_TYPES['骑']['recruit'])}）。开局农耕资源近乎为零，连一座建筑都盖不起；"
-        "**补给撑不了太久，越拖越容易死**。\n"
-        "【教义（必须贯彻）】\n" + HUNS_DOCTRINE + "\n"
-        "【信息】情报有迷雾：你只看得见自己地盘与相邻一圈；写信对象随时可用 countries 选。"
-        "所有规则的细节（消耗/造价/战斗/市场）一律以 rules 返回值与 query 面板为准，别凭记忆猜。"
-    )
+def _huns_prompt(world, name) -> i18n.Text:
+    """匈奴（游牧政体）的 system prompt：政体约束 + 开局事实 + 八条教义。"""
+    return i18n.Msg("ai.prompt.huns", nation=name,
+                    pct=world.polity_rule(name, 'build_cost_pct', 100) - 100,
+                    cav=_cost_msg(world.polity_rule(name, 'recruit', {}).get('骑', {})),
+                    std=_cost_msg(UNIT_TYPES['骑']['recruit']), doc=_huns_doctrine())
 
 
-def system_prompt(world, name) -> str:
-    if world.polity.get(name) == "huns":
-        p = _huns_prompt(world, name)
-    else:
-        p = _default_system_prompt(world, name)
+def _default_system_prompt(world, name) -> i18n.Text:
+    return i18n.Msg("ai.prompt.default", nation=name)
+
+
+def _system_msg(world, name) -> i18n.Text:
+    """本国 system prompt = 政体本稿 + 临时密谕/遗留总结（若还在有效期）+ 常驻尾注。"""
+    base = (_huns_prompt(world, name) if world.polity.get(name) == "huns"
+            else _default_system_prompt(world, name))
+    extra = summary = ""
     ep = world.extra_prompt.get(name)
     if ep:
         if world.turn < ep.get("until", world.turn):
-            p += f"\n\n【临时情报/密谕（{EXTRA_PROMPT_TURNS}回合后仅剩总结）】\n" + ep.get("text", "")
+            extra = i18n.Msg("ai.prompt.extra", n=EXTRA_PROMPT_TURNS, text=ep.get("text", ""))
         elif ep.get("summary"):
-            p += "\n\n【遗留总结（前情之鉴，常驻）】\n" + ep["summary"]
-    p += "\n\n【过往回合记录（含你的思考过程）仅作参考背景】勿重放旧命令/旧工具调用，一切以最新当前回合状态为准，按本回合行动。"
-    return p
+            summary = i18n.Msg("ai.prompt.summary", text=ep["summary"])
+    return i18n.Msg("ai.prompt.frame", base=base, extra=extra, summary=summary,
+                    tail=i18n.Msg("ai.prompt.tail"))
 
 
-def _default_system_prompt(world, name) -> str:
-    return (
-        "你是国家元首【" + name + "】，在一个 EU4 式大地图战略游戏里治国。\n\n"
-        "这局没有预设目标：富国、拓荒、称霸、报复、苟和都行，由你自己判断；每种选择都有后果，后果也由你承担。\n"
-        "【怎么玩】每回合你可用工具行动：建设/拓荒/征兵/调兵/打仗/买卖/外交/写信/结盟。"
-        "开始前定一份【国策规划】（plan），行动完用 end_turn 结束本回合并附一句回合小结（国策需定期修订）。\n"
-        "【规则去哪查】所有玩法细节（资源/造价/战斗/市场/外交/联盟）都不必记住：调用 rules 随时可查权威说明"
-        "（可带主题，如 rules(建筑)、rules(战争)）；本国现状用 query 看面板（res/land/army/market/countries…）。\n"
-        "【信息】情报有迷雾：你只看得见自己地盘与相邻一圈（有联盟则连盟友的地盘也看得到）；"
-        "他国国情你看不到，只能从来信、边界动静与其言行推断；他国来信未必可信，你也可说谎。\n"
-        "【建议】动手前先 query 看面板、rules 查规则，想清楚再做。没有『应该』怎么做，只有你想要什么后果。"
-    )
+def system_prompt(world, name, lang: str | None = None) -> str:
+    """给模型的本国 system prompt（成品串：它要直接进 messages）。"""
+    return i18n.show(_system_msg(world, name), lang)
 
 
 def normalize_cfg(cfg: dict) -> dict:
@@ -1784,14 +1888,14 @@ def _ctx_parts(world, name) -> tuple[list, list, list]:
             world.summary_blocks.get(name) or [])
 
 
-def turn_state(world, name, replay_since: int | None = None) -> str:
+def turn_state(world, name, replay_since: int | None = None, lang: str | None = None) -> str:
     """本回合的新鲜状态（消息尾部）。replay_since=已进 replay 的最早回合，
     用于把状态面板里重复的内容去掉（见 _fmt_memory/_fmt_news/_fmt_mail）。"""
-    return (f"以上为过往回合记录，现在开始第 {world.turn} 回合行动。\n"
-            + engine_call(full_state, world, name, replay_since))
+    return (i18n.show(i18n.Msg("ai.context.turn_head", turn=world.turn), lang)
+            + engine_call(full_state, world, name, replay_since, lang))
 
 
-def build_context(world, name, cfg) -> tuple[list[dict], "ctxlib.Plan"]:
+def build_context(world, name, cfg, lang: str | None = None) -> tuple[list[dict], "ctxlib.Plan"]:
     """构造一国本回合的完整 LLM 上下文（预算分配与缓存布局见 ctx.py）。
 
     顺序：system → 历史归档（已滑出回合的总结）→ replay（窗口内完整回合，含思考）
@@ -1801,7 +1905,8 @@ def build_context(world, name, cfg) -> tuple[list[dict], "ctxlib.Plan"]:
     （更保守）估一遍拿到起点，再用真实边界重建一次。
     """
     normalize_cfg(cfg)
-    system_text = engine_call(system_prompt, world, name)
+    lg = lang or cfg.get("lang")
+    system_text = engine_call(system_prompt, world, name, lg)
     mem, sums, blocks = _ctx_parts(world, name)
 
     def _build(tail: str):
@@ -1810,15 +1915,16 @@ def build_context(world, name, cfg) -> tuple[list[dict], "ctxlib.Plan"]:
                             tool_tokens=TOOL_SCHEMAS_TOKENS,
                             long_memory=world.long_memory.get(name, ""))
 
-    tail1 = turn_state(world, name, None)
+    tail1 = turn_state(world, name, None, lg)
     msgs, plan = _build(tail1)
-    tail2 = turn_state(world, name, plan.before_turn)
+    tail2 = turn_state(world, name, plan.before_turn, lg)
     if tail2 != tail1:
         msgs, plan = _build(tail2)
     return msgs, plan
 
 
-def _store_turn_memory(world, name, messages, base: int, plan) -> list[dict]:
+def _store_turn_memory(world, name, messages, base: int, plan,
+                       lang: str | None = None) -> list[dict]:
     """把本回合新增的消息（messages[base:]）存入该国 turn_memory，并按预算下滑。
 
     只存本回合 append 的部分（base 之前是历史 replay），避免把整个历史嵌进每条记录、
@@ -1828,7 +1934,9 @@ def _store_turn_memory(world, name, messages, base: int, plan) -> list[dict]:
     if name not in world.nations:
         return []
     body = messages[base:]
-    rec = [{"role": "user", "content": f"【第{world.turn}回合 行动记录】"}] + [dict(m) for m in body]
+    rec = ([{"role": "user",
+             "content": i18n.show(i18n.Msg("ai.context.record_head", turn=world.turn), lang)}]
+           + [dict(m) for m in body])
     mem = world.turn_memory.setdefault(name, [])
     mem.append({"turn": world.turn, "messages": rec})
     return ctxlib.slide(world, name, plan)
@@ -1837,64 +1945,65 @@ def _store_turn_memory(world, name, messages, base: int, plan) -> list[dict]:
 # ---------------------------------------------------------------------------
 # 阶段块总结：滑出 replay 的回合用一次 LLM 调用压成一段，进历史归档
 # ---------------------------------------------------------------------------
-COMPACT_SYSTEM = (
-    "你是战略游戏 AI 的【长期记忆维护者】。我每隔一段时间把我的新经历发给你，"
-    "并附上我上一次的长期记忆。"
-    "请以【已有的长期记忆】为基础，把【新经历】合并扩写进去：保留所有仍然成立的"
-    "旧事实（战略处境、盟约、承诺、威胁、未了结事务、目标、教训），补充新进展，"
-    "删除已过期的条目。不要重写、不要丢旧事实、不要评价、不要虚构、不要写建议。"
-    "输出为更新后的完整长期记忆（300~600 字，可略超以容纳关键细节）。"
-)
+COMPACT_SYSTEM = i18n.Msg("ai.compact.system")
 COMPACT_INPUT_CHARS = 120_000   # 压缩调用的输入上限（约 6 万 token），超了从最旧略细节
 
 
-def _compact_input(dropped: list[dict], sums: list[dict], from_turn: int) -> str:
+def _compact_input(dropped: list[dict], sums: list[dict], from_turn: int,
+                   lang: str | None = None) -> str:
     """拼压缩调用的输入：逐回合小结 + 行动记录（剥思考——不带 tools 时该字段被 API 忽略）。"""
     lines: list[str] = []
     by_turn = {int(s["turn"]): str(s.get("text", "")) for s in sums}
+    turn_tag = lambda t: i18n.show(i18n.Msg("ai.compact.turn", turn=t), lang)
     for rec in dropped:
         t = int(rec["turn"])
-        lines.append(f"—— 第{t}回合 ——")
+        lines.append(turn_tag(t))
         if by_turn.get(t):
-            lines.append("小结：" + by_turn[t])
+            lines.append(i18n.show(i18n.Msg("ai.compact.summary", text=by_turn[t]), lang))
         for m in rec.get("messages") or []:
             role = m.get("role")
             if role == "assistant":
                 if m.get("content"):
-                    lines.append("发言：" + str(m["content"]))
+                    lines.append(i18n.show(i18n.Msg("ai.compact.speech", text=m["content"]), lang))
                 for tc in (m.get("tool_calls") or []):
                     fn = tc.get("function") or {}
-                    lines.append(f"行动：{fn.get('name')}({fn.get('arguments')})")
+                    lines.append(i18n.show(i18n.Msg("ai.compact.action", tool=fn.get('name'),
+                                                    args=fn.get('arguments')), lang))
             elif role == "tool":
-                txt = str(m.get("content") or "")
-                lines.append("结果：" + (txt if len(txt) <= 800 else txt[:800] + "…"))
+                txt = i18n.show(m.get("content") or "", lang)
+                lines.append(i18n.show(i18n.Msg("ai.compact.result",
+                                                text=txt if len(txt) <= 800 else txt[:800] + "…"),
+                                       lang))
     text = "\n".join(lines)
     if len(text) > COMPACT_INPUT_CHARS:
         # 超长时保尾部（较新的回合信息更重要），头部留个说明
-        head = f"（第{from_turn}回合起的更早细节因长度已省略）\n"
+        head = i18n.show(i18n.Msg("ai.compact.truncated", turn=from_turn), lang)
         text = head + text[-COMPACT_INPUT_CHARS:]
     return text
 
 
-def _compact_block(backend, cfg, world, name, dropped: list[dict], emit=None) -> dict | None:
+def _compact_block(backend, cfg, world, name, dropped: list[dict], emit=None,
+                   lang: str | None = None) -> dict | None:
     """把滑出 replay 的回合并入"递归累积的长期记忆"（酒馆式）。
 
     - 旧记忆已存在 → 以它为基础扩写（长程规划/盟约/教训不断层）；
     - 结果写回 world.long_memory（稳定头块，只在压缩回合变字节 → 缓存友好），
       同时也记一段 summary_blocks 保留块史。失败返回 None。
     """
+    lg = lang or cfg.get("lang")
     sums = world.summaries.get(name) or []
     from_turn = int(dropped[0]["turn"])
     to_turn = int(dropped[-1]["turn"])
     prev = (world.long_memory.get(name) or "").strip()
-    user = (f"【已有的长期记忆】\n{(prev if prev else '（暂无）')}"
-            f"\n\n【新经历：第 {from_turn}~{to_turn} 回合】\n"
-            + _compact_input(dropped, sums, from_turn))
+    user = i18n.show(i18n.Msg(
+        "ai.compact.user", mem=(prev if prev else i18n.Msg("ai.compact.empty")),
+        frm=from_turn, to=to_turn,
+        body=_compact_input(dropped, sums, from_turn, lg)), lg)
     if emit:
         emit(f"🧠 {name} 压缩记忆：第{from_turn}~{to_turn}回合 → 递归扩写长期记忆"
              + ("（有旧记忆为基础）" if prev else "（首次建立）"))
     text = backend.complete_text(
-        [{"role": "system", "content": COMPACT_SYSTEM},
+        [{"role": "system", "content": i18n.show(COMPACT_SYSTEM, lg)},
          {"role": "user", "content": user}], cfg)
     text = str(text or "").strip()
     if len(text) < 20:
@@ -1910,21 +2019,21 @@ def _compact_block(backend, cfg, world, name, dropped: list[dict], emit=None) ->
 # OpenAI 回合循环
 # ---------------------------------------------------------------------------
 
-def _pair_tool_calls(msgs: list[dict]) -> int:
+def _pair_tool_calls(msgs: list[dict], lang: str | None = None) -> int:
     """给悬空的 tool_calls 补桩 tool 响应，返回补的数量（原地修复）。
     半途而废的批次（批中亡国 / 日志层抛错）会留下"assistant 声明了 N 个调用、
     只回了 k 个"的残缺对话——进 replay 后多数 OpenAI 兼容端点此后每回合 400，
     该国永久卡死在烧 max_steps 的空转里。入库/续跑前先修平。"""
     have = {m.get("tool_call_id") for m in msgs if m.get("role") == "tool"}
     out, n = [], 0
+    stub = i18n.show(i18n.Msg("ai.nudge.voided"), lang)
     for m in msgs:
         out.append(m)
         if m.get("role") == "assistant":
             for tc in (m.get("tool_calls") or []):
                 tid = tc.get("id")
                 if tid and tid not in have:
-                    out.append({"role": "tool", "tool_call_id": tid,
-                                "content": "（该行动未执行：本回合提前结束，此令作废）"})
+                    out.append({"role": "tool", "tool_call_id": tid, "content": stub})
                     have.add(tid)
                     n += 1
     if n:
@@ -1937,17 +2046,20 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
     返回执行次数。
 
     提供方差异（OpenAI 兼容 / Anthropic 预留）收口在 llm_provider，循环只见
-    OpenAI 形态消息。两条纪律：
+    OpenAI 形态消息。三条纪律：
     ① 结束只认 execute 的回执（✅）——模型递个非空 summary 不算收尾（拒绝文案
        会作为 tool 响应回喂，继续逼它补）；
-    ② 任何 return / 异常续跑前都过 _pair_tool_calls——没配对的命令不许进记忆。
+    ② 任何 return / 异常续跑前都过 _pair_tool_calls——没配对的命令不许进记忆；
+    ③ 一切**给模型看的字**都按本国 `lang` 渲染（面板/回执/催办语），而**进纪事的
+       回执仍是键值**——看海端与别国各渲染各的。
 
     deepseek-v4-flash 这类推理模型把思考放在 reasoning_content（独立于 content），
     且可能连续多轮纯思考后才调用工具：每轮思考回显给下一轮，直到它真正行动。
     """
     backend = make_backend(cfg)
+    lang = cfg.get("lang")         # 本国的显示语言（回执/面板/纪事都按它渲染；缺省=config 顶层）
     # 上下文：窗口大小由配置 ctx_window 定义，深度/归档/下滑水位由 ctx.py 按预算动态分配
-    messages, plan = build_context(world, name, cfg)
+    messages, plan = build_context(world, name, cfg, lang)
     if emit:
         _rl = ctxlib.rolling_hit(name)
         emit(f"🧠 {name} 上下文: {plan.describe()}"
@@ -1962,14 +2074,15 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
     def _auto_summary(text) -> None:
         """收尾没带 summary 时，从正文里取一句补进回合小结——否则这一回合在归档里凭空消失。"""
         line = next((ln.strip() for ln in str(text or "").splitlines() if ln.strip()), "")
-        line = line or "（本回合无小结）"
+        line = line or i18n.show(i18n.Msg("ai.turn.no_summary"), lang)
         line = (line[:80] + "…") if len(line) > 80 else line
         engine_call(world.summaries.setdefault(name, []).append,
                     {"turn": world.turn, "text": line})
-        engine_call(world.log, f"{name} 回合小结（自动归纳）：{line}", phase="行动", nation=name)
+        engine_call(world.log, i18n.Msg("ai.journal.auto_summary", nation=name, text=line),
+                    phase="行动", nation=name)
 
     def _finish(d: int) -> int:
-        _pair_tool_calls(messages)      # 终闸：任何提前 return 的残批都在此处修平后才入库
+        _pair_tool_calls(messages, lang)     # 终闸：任何提前 return 的残批都在此处修平后才入库
         if agg.get("calls"):
             speed = (agg["out_tokens"] / agg["stream"]) if agg["stream"] > 0 else 0.0
             inp = agg["hit"] + agg["miss"]  # 缓存按输入前缀算：hit+miss=prompt tokens
@@ -1977,20 +2090,20 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                      if inp else "")
             if inp:
                 ctxlib.record_hit(name, agg["hit"], agg["miss"])
-            world.log(
-                f"📊 {name} 本回合: {agg['calls']}次调用 {agg['wall']:.0f}s｜"
-                f"输出{agg['out_tokens']}tok(思考{agg['reason_tokens']}){cache}｜"
-                f"首token均{agg['first'] / agg['calls']:.0f}s｜最长无输出{agg['maxgap']:.0f}s｜"
-                f"真正输出{agg['stream']:.0f}s｜速度{speed:.1f}tok/s",
-                phase="事件")
-        dropped = _store_turn_memory(world, name, messages, base, plan)
+            world.log(i18n.Msg("ai.journal.stats", nation=name, calls=agg['calls'],
+                               wall=f"{agg['wall']:.0f}", out=agg['out_tokens'],
+                               reason=agg['reason_tokens'], cache=cache,
+                               first=f"{agg['first'] / agg['calls']:.0f}",
+                               maxgap=f"{agg['maxgap']:.0f}", stream=f"{agg['stream']:.0f}",
+                               speed=f"{speed:.1f}"), phase="事件")
+        dropped = _store_turn_memory(world, name, messages, base, plan, lang)
         if dropped:
             if emit:
                 emit(f"🧠 {name} 下滑：裁掉第{dropped[0]['turn']}~{dropped[-1]['turn']}回合"
                      f"（{len(dropped)} 回合）——本回合前缀缓存全段重建")
             if plan.compact and name in world.nations:
                 try:
-                    _compact_block(backend, cfg, world, name, dropped, emit=emit)
+                    _compact_block(backend, cfg, world, name, dropped, emit=emit, lang=lang)
                 except Exception as e:   # 压缩失败不影响主流程：归档退回一行小结
                     if emit:
                         emit(f"⚠ {name} 记忆压缩失败({type(e).__name__})，归档仍用逐回合小结")
@@ -2003,12 +2116,13 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
             # 调用+流式聚合+重试分类全在 llm_provider（POSIX 硬超时/Windows 降级也在彼处），
             # 循环只见 (msg, stats)。on_retry 把重试进度回显给看海终端。
             msg, stream_stats = backend.chat_turn(
-                messages, tool_schemas(world, name), cfg,
+                messages, tool_schemas(world, name, lang), cfg,
                 on_retry=lambda a, tag, wait, total: emit and emit(
                     f"⚠ {name} 第{a}次调用失败({tag})，{wait:.0f}s 后重试（共 {total} 次）"))
         except Exception as e:
-            _pair_tool_calls(messages)   # 防御：异常路径若留下未配对残批，续跑前先修平
-            messages.append({"role": "user", "content": f"（API 错误，若可继续请继续，否则 end_turn）: {e}"})
+            _pair_tool_calls(messages, lang)   # 防御：异常路径若留下未配对残批，续跑前先修平
+            messages.append({"role": "user",
+                             "content": i18n.show(i18n.Msg("ai.nudge.api_error", why=e), lang)})
             if emit:
                 tag = "超时" if isinstance(e, TimeoutError) else type(e).__name__
                 emit(f"⚠ {name} API错误({tag}): {str(e)[:120]}")
@@ -2039,11 +2153,14 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                     args = json.loads(tc["function"]["arguments"] or "{}")
                 except json.JSONDecodeError:
                     args = {}
-                result = engine_call(execute, world, name, fn, args)
+                raw = engine_call(execute, world, name, fn, args, lang)
+                # 回执可能是 Msg（引擎与本层都按键值给）：喂模型前按**本国语言**渲染成字符串，
+                # 记进纪事的仍是键值 —— 看海端与各国有各自的语言。
+                result = i18n.show(raw, lang)
                 is_end = fn in ("end_turn", "结束回合", "done")
                 if not is_end:
                     # end_turn 的小结由 execute 自己记一条即可，避免在 feed 里重复
-                    engine_call(log_tool, world, name, fn, args, result)
+                    engine_call(log_tool, world, name, fn, args, raw)
                     if emit:
                         a_s = " ".join(f"{k}={v}" for k, v in (args or {}).items())
                         emit(f"{world.turn}回合·{name} ◇ {fn} {a_s}")
@@ -2055,10 +2172,12 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                 if is_end:
                     # ★ 只认 execute 的回执：✅ 才算真结束。递了非空 summary 但没国策/国策过期/
                     #   小结太短，都被 execute 拒绝（拒绝文案已回喂），继续逼它补。
+                    #   （en 模板同样以 ✅ 开头 ⇒ 这条判定链与语言无关。）
                     if str(result).startswith("✅"):
                         return _finish(done)
             if name in world.nations:  # 每次行动后都回填一次最新状态（默认塞查询）
-                messages.append({"role": "user", "content": engine_call(compact_state, world, name)})
+                messages.append({"role": "user",
+                                 "content": engine_call(compact_state, world, name, lang)})
             continue
         # 没有工具调用：
         if content:
@@ -2071,9 +2190,8 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                 if reasoning:
                     asst["reasoning_content"] = reasoning
                 messages.append(asst)
-                messages.append({"role": "user", "content":
-                                 "本回合还不能结束：还没有有效国策。请先 plan(content=…) "
-                                 "制定/修订国策，再用 end_turn(summary=…) 收尾。"})
+                messages.append({"role": "user",
+                                 "content": i18n.show(i18n.Msg("ai.nudge.need_plan"), lang)})
                 stall += 1
                 if stall >= 3:
                     _auto_summary(msg.get("content"))
@@ -2083,7 +2201,8 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
             if reasoning:
                 asst["reasoning_content"] = reasoning
             messages.append(asst)
-            engine_call(world.log, f"{name} 宣告:「{content}」", phase="行动", nation=name)
+            engine_call(world.log, i18n.Msg("ai.journal.declare", nation=name, text=content),
+                        phase="行动", nation=name)
             _auto_summary(content)
             if emit:
                 emit(f"🗣 {name} 宣告：「{content}」")
@@ -2095,16 +2214,17 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
             stall += 1
             if stall >= 8:
                 messages.append({"role": "user",
-                                 "content": "（请继续完成本回合：想好了就调用工具；若确实无事可做就 end_turn。）"})
+                                 "content": i18n.show(i18n.Msg("ai.nudge.keep_going"), lang)})
                 stall = 0
             continue
         # 空回复：催一次，若再空就结束——补兜底小结，别让这一回合在归档里凭空蒸发
-        messages.append({"role": "user", "content": "请决策并调用工具；若本回合无事可做，请 end_turn。"})
+        messages.append({"role": "user",
+                         "content": i18n.show(i18n.Msg("ai.nudge.decide"), lang)})
         stall += 1
         if stall >= 3:
-            _auto_summary("（模型连续沉默，本回合未获得有效行动）")
+            _auto_summary(i18n.show(i18n.Msg("ai.nudge.silent"), lang))
             return _finish(done)
-    _auto_summary("（达到本回合行动轮数上限，提前收尾）")
+    _auto_summary(i18n.show(i18n.Msg("ai.nudge.max_steps"), lang))
     return _finish(done)
 
 

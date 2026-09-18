@@ -26,7 +26,7 @@ class Ledger:
         self.max_actions = int(max_actions)
         self.on_action = on_action
         self.on_result = on_result
-        self.acts: list[tuple[str, dict, bool, str]] = []
+        self.acts: list[tuple[str, dict, bool, "i18n.Text"]] = []
 
     def full(self, reserve: int = 0) -> bool:
         """额度是不是快用完了（`reserve` = 还要给后面留几个动作）。"""
@@ -44,5 +44,5 @@ class Ledger:
             ok, msg = False, f"{type(e).__name__}: {e}"
         if self.on_result is not None:
             self.on_result(tool, args, bool(ok))
-        self.acts.append((tool, args, bool(ok), str(msg)))
+        self.acts.append((tool, args, bool(ok), msg))
         return bool(ok)

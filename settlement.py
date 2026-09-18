@@ -60,6 +60,7 @@ import unicodedata
 from pathlib import Path
 from types import SimpleNamespace
 
+import i18n
 from game import (BUILDINGS, MARKET, building_effect,
                   TRADEABLE, UNIT_TYPES)
 
@@ -77,8 +78,22 @@ BUILD_COST = {name: (info["cost"], info["wood"]) for name, info in BUILDINGS.ite
               if isinstance(info["cost"], int)}
 
 # 总消费的三条去向（键须与 mp.py 的 SPEND_FIELDS 一致）；排名只看它们的合计
+# 值是**内部规范名**（进语言表 `names` 词库出译文），不在这里渲染 —— 见 `i18n.py` 的约定 2
 SPEND_LABELS = {"build": "建造", "recruit": "征兵", "supply": "军费"}
 CHAT_ROUNDS = 5
+
+# 计分板列宽口径（左/右对齐）；列名在 `langs/*/30_human.json` 里，一格一键
+ALIGNMENTS = ["right", "left"] + ["right"] * 8
+
+
+def scoreboard_header() -> list[str]:
+    """列头一格一键：键必须**字面**写在这里（`tests/test_i18n.py` 按字面量认键），
+    列宽按渲染结果现算 —— 换成英文列头，表格自己撑开。"""
+    return [i18n.t("settle.col.rank"), i18n.t("settle.col.nation"),
+            i18n.t("settle.col.spend_total"), i18n.t("settle.col.spend_build"),
+            i18n.t("settle.col.spend_recruit"), i18n.t("settle.col.spend_supply"),
+            i18n.t("settle.col.gdp"), i18n.t("settle.col.power"),
+            i18n.t("settle.col.land"), i18n.t("settle.col.asset")]
 
 
 # ───────────────────────── 存档解析与打分 ─────────────────────────
@@ -89,8 +104,9 @@ def load_save(path: str) -> dict:
     # 与 mp.World.load 同一契约：版本不符直接拒算——旧档字段形状不同，
     # 硬打分只会得出一本正经的错误账（结算器自己 load 原始 dict，不走 World.load）。
     if data.get("version") != SAVE_VERSION:
-        sys.exit(f"存档版本不符（档内 {data.get('version', '无版本号＝旧档')} ≠ 当前 "
-                 f"{SAVE_VERSION}）：结算拒绝在旧档上打分，请用当前代码重跑一局。")
+        sys.exit(i18n.t("settle.version_mismatch",
+                        have=data.get("version", i18n.t("settle.version_none")),
+                        want=SAVE_VERSION))
     return data
 
 
@@ -110,12 +126,16 @@ def army_type(a: dict) -> str:
     return "骑" if "骑" in a.get("name", "") else "步"  # 旧档无 type 时从番号推断
 
 
-def score_gdp(save: dict, nation: str) -> tuple[float, list[str]]:
-    """生产法 GDP：按快照推算每回合增加值（基准价）。返回 (gdp, 聚合明细行)。"""
-    agg: dict[str, tuple[int, float]] = {}  # 名目 → (数量, 金额)
+def score_gdp(save: dict, nation: str) -> tuple[float, list[i18n.Text]]:
+    """生产法 GDP：按快照推算每回合增加值（基准价）。返回 (gdp, 聚合明细行)。
+
+    明细行是 `Msg`（键 + 参数）不是散文：名目传规范名（`林场`/`金矿`…）、金额与数量传数字，
+    语言由渲染那一刻才定；数值一律这里现算，模板里只放槽位。
+    """
+    agg: dict[i18n.Text, tuple[int, float]] = {}  # 名目 → (数量, 金额)
     gdp = 0.0
 
-    def _add(item: str, cnt: int, v: float) -> None:
+    def _add(item: i18n.Text, cnt: int, v: float) -> None:
         c0, v0 = agg.get(item, (0, 0.0))
         agg[item] = (c0 + cnt, v0 + v)
         nonlocal gdp
@@ -131,26 +151,26 @@ def score_gdp(save: dict, nation: str) -> tuple[float, list[str]]:
             if name == "城堡":
                 continue  # 城堡无产出，投入计固定资产
             elif name == "林场":
-                _add("林场", cnt, cnt * BASE_PRICE["木头"])
+                _add(name, cnt, cnt * BASE_PRICE["木头"])
             elif name == "农场":
-                _add("农场", cnt, cnt * BASE_PRICE["粮食"])
+                _add(name, cnt, cnt * BASE_PRICE["粮食"])
             elif name == "矿场":
-                _add("矿场", cnt, cnt * BASE_PRICE["矿石"])
+                _add(name, cnt, cnt * BASE_PRICE["矿石"])
             elif name == "石油厂":
-                _add("石油厂", cnt, cnt * BASE_PRICE["石油"])
+                _add(name, cnt, cnt * BASE_PRICE["石油"])
             elif name == "黄金矿场":
-                _add("金矿", cnt, cnt * GOLD_MINE_PER_TURN)
+                _add("金矿", cnt, cnt * GOLD_MINE_PER_TURN)   # 金矿=结算口径里的简称
             elif name == "市政厅":
                 others = sum(b.values()) - cnt  # 与游戏内公式一致：不含市政厅自身
-                _add(f"市政厅(每座+{others}位)", cnt,
+                _add(i18n.Msg("settle.gdp_town_hall", slots=others), cnt,
                      cnt * (TOWN_HALL_BASE
                             + others * building_effect("市政厅", "gold_per_slot")))
             elif name == "木材能源厂":
-                _add("木材能源厂", cnt, cnt * (2 * ENERGY_PRICE - BASE_PRICE["木头"]))
+                _add(name, cnt, cnt * (2 * ENERGY_PRICE - BASE_PRICE["木头"]))
             elif name == "石油能源厂":
-                _add("石油能源厂", cnt, cnt * (8 * ENERGY_PRICE - BASE_PRICE["石油"]))
+                _add(name, cnt, cnt * (8 * ENERGY_PRICE - BASE_PRICE["石油"]))
             elif name == "装备厂":
-                _add("装备厂", cnt,
+                _add(name, cnt,
                      cnt * (2 * BASE_PRICE["装备"] - BASE_PRICE["矿石"] - BASE_PRICE["石油"]))
             # 补给厂不计增加值：补给价值在军费（政府最终消费）中体现，防双算
     armies = [a for a in save["armies"] if a.get("owner") == nation]
@@ -174,8 +194,8 @@ def score_gdp(save: dict, nation: str) -> tuple[float, list[str]]:
                     continue  # 驻屯民兵不吃补给
             need += UNIT_SUPPLY[army_type(a)]
         mcost = need * BASE_PRICE["补给"]
-        _add(f"军费({len(armies)}支)", len(armies), mcost)
-    rows = [f"{k}×{c} {v:+.0f}" for k, (c, v) in agg.items()]
+        _add(i18n.Msg("settle.gdp_military_pay", n=len(armies)), len(armies), mcost)
+    rows = [i18n.Msg("settle.gdp_row", item=k, count=c, value=v) for k, (c, v) in agg.items()]
     return gdp, rows
 
 
@@ -191,11 +211,11 @@ def score_land(save: dict, nation: str) -> tuple[int, int]:
     return len(tiles), len(tiles)
 
 
-def score_asset(save: dict, nation: str) -> tuple[float, list[str]]:
-    agg: dict[str, tuple[int, float]] = {}
+def score_asset(save: dict, nation: str) -> tuple[float, list[i18n.Text]]:
+    agg: dict[i18n.Text, tuple[int, float]] = {}
     total = 0.0
 
-    def _add(item: str, cnt: int, inv: float) -> None:
+    def _add(item: i18n.Text, cnt: int, inv: float) -> None:
         c0, v0 = agg.get(item, (0, 0.0))
         agg[item] = (c0 + cnt, v0 + inv)
 
@@ -207,12 +227,14 @@ def score_asset(save: dict, nation: str) -> tuple[float, list[str]]:
             if not cnt:
                 continue
             if name == "城堡":
-                _add(f"城堡L{cnt}", cnt, sum(CASTLE_COST[:cnt]))  # 逐级累计投入
+                # 城堡按已升到的级数入账（`城堡L2`）——级数就是它的显示名，走 core 那条键
+                _add(i18n.Msg("building.castle_level", lv=cnt), cnt, sum(CASTLE_COST[:cnt]))
             else:
                 gold, wood = BUILD_COST[name]
                 _add(name, cnt, cnt * (gold + wood * BASE_PRICE["木头"]))
     total = sum(v for _, v in agg.values())
-    rows = [f"{k}×{c} {v:.0f}金" for k, (c, v) in sorted(agg.items(), key=lambda kv: -kv[1][1])]
+    rows = [i18n.Msg("settle.asset_row", item=k, count=c, gold=v)
+            for k, (c, v) in sorted(agg.items(), key=lambda kv: -kv[1][1])]
     return total, rows
 
 
@@ -250,15 +272,21 @@ def _pad(s, width: int, align: str = "left") -> str:
 
 
 def scoreboard_text(save: dict, result: dict, remarks: dict[str, str] | None = None) -> str:
+    """成绩单（看海人宣读的那一屏）。
+
+    列头/口径脚注全走语言表；**口径里的数值一个都不写死**：兵种权重取自 `UNIT_WEIGHT`
+    （本文件按攻击力 50/50/20 定的结算口径），换语言只是换说法，不改账。
+    """
     turn = save.get("turn", "?")
     rank = sorted(result, key=lambda n: -result[n]["spend_total"])
-    header = ["排名", "国家", "总消费", "建造", "征兵", "军费", "GDP", "军力", "领土", "资产"]
-    aligns = ["right", "left"] + ["right"] * 8
+    header = scoreboard_header()
+    aligns = ALIGNMENTS
     rows: list[list[str]] = [header]
     for i, n in enumerate(rank, 1):
         r = result[n]
         rows.append([
-            str(i), n if r["alive"] else f"{n}（亡）", f"{r['spend_total']:.0f}",
+            str(i), n if r["alive"] else i18n.t("settle.dead_tag", nation=n),
+            f"{r['spend_total']:.0f}",
             f"{r['spend']['build']:.0f}", f"{r['spend']['recruit']:.0f}",
             f"{r['spend']['supply']:.0f}",
             f"{r['gdp']:.0f}", f"{r['army']:.1f}", f"{r['land']}", f"{r['asset']:.0f}",
@@ -267,24 +295,23 @@ def scoreboard_text(save: dict, result: dict, remarks: dict[str, str] | None = N
     body = ["  ".join(_pad(row[c], widths[c], aligns[c]) for c in range(len(header)))
             for row in rows]
     body.insert(1, "-" * _dw(body[0]))
-    lines = [f"《战国》第 {turn} 回合 · 终局结算（按总消费排名）", ""] + body
+    lines = [i18n.t("settle.board_title", turn=turn), ""] + body
     lines.append("")
-    lines.append("口径：总消费 = 累计建造 + 征兵 + 军费（军队吃掉的补给），全部按当时市价折金——"
-                 "本质是支出法 GDP 的骨架（投资 + 政府消费，本游戏无居民部门故无 C）。")
-    lines.append("　　　只算「真正花掉的」：市场买卖与馈赠不计（买来的物资在被消耗时才入账），"
-                 "存货也不计（囤积不是消费）——所以囤而不用的国家在这张榜上垫底。")
-    lines.append("　　　GDP=生产法每回合推算(基准价)；军力=ΣHP%×兵种权重(步1.0/骑1.5/民0.4)；"
-                 "领土=地块数；资产=建筑重置成本(基准价)——后四列只列示现状，不参与排名。")
+    lines.append(i18n.t("settle.note_spend"))
+    lines.append(i18n.t("settle.note_real"))
+    lines.append(i18n.t("settle.note_dims",
+                        inf="步", w_inf=UNIT_WEIGHT["步"], cav="骑", w_cav=UNIT_WEIGHT["骑"],
+                        mil="民", w_mil=UNIT_WEIGHT["民"]))
     if any(not result[n]["alive"] for n in rank):
-        lines.append("　　　已亡国同样上榜（按累计消费排名，四维现状记 0）——活着不是及格线，参与到底也算数。")
+        lines.append(i18n.t("settle.note_dead"))
     if not any(result[n]["spend_total"] for n in rank):
-        lines.append("⚠ 本档没有消费记录（总消费从记账启用后开始累计）——请用新档结算。")
+        lines.append(i18n.t("settle.warn_no_spend"))
     if remarks:
         lines.append("")
-        lines.append("【看海人寄语】（游戏作者致辞，公开）")
+        lines.append(i18n.t("settle.remarks_head"))
         for n in result:
             if remarks.get(n):
-                lines.append(f"· 致{n}：{remarks[n]}")
+                lines.append(i18n.t("settle.remark_line", nation=n, text=remarks[n]))
     return "\n".join(lines)
 
 
@@ -292,19 +319,8 @@ def scoreboard_text(save: dict, result: dict, remarks: dict[str, str] | None = N
 # 君主不是被塞一份记忆摘要，而是「从游戏里直接走过来」：
 # system 与逐字 replay 与游戏内 build_context 完全一致（含思考 reasoning_content），
 # 结算厅规则作为附则挂在 system 尾部，终局宣告开新话头——对话流从未断过。
-
-SETTLE_APPENDIX = """
-
-【终局附则 · 结算厅】
-游戏到此为止：你已离开王座，被请进「结算厅」。这里没有工具、不能行动，
-只能以文字发言，共 {rounds} 轮、每轮一次。主持者是「看海人」——本游戏的作者，
-全程旁观了你们的一切，他将宣读终局成绩单，并给每位君主留一句开场寄语（公开、全体可见）。
-1. 第一轮发言先回应看海人的寄语；
-2. 凭你自己的记忆总结这一局：哪些决策英明、哪些是败笔（诚实，给看海人一个交代）；
-3. 对最终排名表态：服或不服，说清理由；
-4. 与其他君主交换意见：可以致意、可以反驳、可以互认得失——这是全剧终前的最后对话；
-5. 中文，200~500 字，不要客套空话，不要跳出角色。
-"""
+# 附则与宣告都是**模板**（`settle.appendix` / `settle.finale`，含原有的空行排版）：
+# 那两句话是发给君主本人的，按**该国配置的 `lang`** 渲染，不再写死中文。
 
 
 def _replay_msg(m: dict) -> dict:
@@ -333,7 +349,9 @@ def _game_context(save: dict, name: str, rounds: int, ncfg: dict | None = None) 
         extra_prompt=save.get("extra_prompt") or {},
         alive=lambda: list(save["nations"].keys()),
     )
-    system_text = (mp_ai.system_prompt(shim, name) + SETTLE_APPENDIX.format(rounds=rounds))
+    lang = (ncfg or {}).get("lang")          # 该国自己的语言（缺省=全局缺省）
+    system_text = (mp_ai.system_prompt(shim, name)
+                   + i18n.t("settle.appendix", lang=lang, rounds=rounds))
     recs = (save.get("turn_memory") or {}).get(name) or []
     # 结算厅不带 tools → 按思考模式文档 reasoning_content 会被忽略，直接剥掉省 token
     mem = [{"turn": r["turn"], "messages": [_replay_msg(m) for m in r.get("messages") or []]}
@@ -346,11 +364,9 @@ def _game_context(save: dict, name: str, rounds: int, ncfg: dict | None = None) 
     return msgs
 
 
-def _finale_text(save: dict, board: str) -> str:
-    return (f"【终局】看海人宣布：游戏在第 {save.get('turn', '?')} 回合结束，天下大局已定。\n\n"
-            f"{board}\n\n"
-            "你摘下王冠，走进结算厅——system 尾部的【终局附则】即刻生效："
-            "没有工具、不能行动，只能发言。落座吧，等看海人点名。")
+def _finale_text(save: dict, board: str, lang: str | None = None) -> str:
+    """终局宣告：成绩单是**看海人**念的（他的语言），所以随附进来的 board 不再转译。"""
+    return i18n.t("settle.finale", lang=lang, turn=save.get("turn", "?"), board=board)
 
 
 def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log,
@@ -358,7 +374,7 @@ def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log,
     nations = list(save["nations"].keys())
     if not nations:
         # 全员同归于尽的档：结算厅无人可坐（轮转取模会除零）——只出成绩单，聊天跳过。
-        log("（诸国俱亡，结算厅无人到场——只出成绩单。）")
+        log(i18n.t("settle.hall_empty"))
         return []
     from openai import OpenAI
     clients = {}
@@ -374,13 +390,13 @@ def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log,
                                    nc.get("max_tokens", 8192), extra)
     missing = [n for n in nations if n not in clients]
     if missing:
-        log(f"（缺 API 配置，{ '、'.join(missing) } 不参加结算厅）")
+        log(i18n.Msg("settle.hall_no_api", nations=missing))   # 名单怎么连由渲染器按语言定
 
     board = scoreboard_text(save, result, remarks)
     if remarks:
         for n, txt in remarks.items():
             if txt:
-                log(f"🕊 看海人 致{n}：{txt}")
+                log(i18n.Msg("settle.remark_say", nation=n, text=txt))
 
     # 每位君主一条从游戏延续下来的对话流，发言以 assistant 消息追加，不断重建
     states: dict[str, dict] = {}
@@ -388,23 +404,24 @@ def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log,
     for name in nations:
         if name not in clients:
             continue
+        lang = (ctx_cfg.get(name) or {}).get("lang")     # 该国在游戏里说哪种话，进场还是哪种
         msgs = _game_context(save, name, rounds, ctx_cfg.get(name))
-        msgs.append({"role": "user", "content": _finale_text(save, board)})
-        states[name] = {"msgs": msgs, "client": clients[name]}
-    transcript: list[str] = []  # [f"【第r轮·{name}】..."]
+        msgs.append({"role": "user", "content": _finale_text(save, board, lang)})
+        states[name] = {"msgs": msgs, "client": clients[name], "lang": lang}
+    transcript: list[str] = []  # 落定文字的发言行（谁说的用谁的语言，如同当场录音）
     seen: dict[str, int] = {n: 0 for n in states}  # 各君主已读到的 transcript 位置
     for r in range(1, rounds + 1):
         order = nations[(r - 1) % len(nations):] + nations[:(r - 1) % len(nations)]
-        log(f"─── 结算厅 第 {r}/{rounds} 轮 ───")
+        log(i18n.Msg("settle.hall_round", r=r, rounds=rounds))
         for name in order:
             if name not in states:
                 continue
             st = states[name]
             new = transcript[seen[name]:]  # 上次发言之后厅里新说的话，由看海人转达
-            hist = "\n\n".join(new) if new else "（还无人发言，你是第一位落座的）"
-            st["msgs"].append({"role": "user", "content":
-                               f"【第 {r}/{rounds} 轮】看海人环视一圈。\n\n"
-                               f"【你上离席后厅里的发言】\n{hist}\n\n轮到你（{name} 的君主）发言。"})
+            hist = "\n\n".join(new) if new else i18n.t("settle.hall_no_speech", lang=st["lang"])
+            st["msgs"].append({"role": "user", "content": i18n.t(
+                "settle.hall_prompt", lang=st["lang"], r=r, rounds=rounds,
+                hist=hist, nation=name)})
             client, model, temp, max_tok, extra = st["client"]
             for attempt in (1, 2, 3):
                 try:
@@ -414,17 +431,19 @@ def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log,
                     text = (resp.choices[0].message.content or "").strip()
                     break
                 except Exception as e:
-                    log(f"（{name} 第{attempt}次发言失败：{e}）")
+                    log(i18n.Msg("settle.speech_retry", nation=name, n=attempt, err=e))
                     text = ""
                     time.sleep(3 * attempt)
             if not text:
-                transcript.append(f"【第{r}轮·{name}】（发言失败，缺席）")
+                transcript.append(i18n.t("settle.transcript_line", lang=st["lang"], turn=r,
+                                         nation=name, text=i18n.Msg("settle.speech_failed")))
                 seen[name] = len(transcript)
                 continue
             st["msgs"].append({"role": "assistant", "content": text})
-            transcript.append(f"【第{r}轮·{name}】{text}")
+            transcript.append(i18n.t("settle.transcript_line", lang=st["lang"],
+                                     turn=r, nation=name, text=text))
             seen[name] = len(transcript)
-            log(f"◆ {name}：{text}")
+            log(i18n.Msg("settle.speech_log", nation=name, text=text))
     return transcript
 
 
@@ -436,10 +455,10 @@ def load_remarks(path: str | None, save: dict, log) -> dict[str, str]:
     if not sys.stdin.isatty():
         return {}
     remarks: dict[str, str] = {}
-    log("—— 看海人寄语（公开挂载计分板下，直接回车跳过该国）——")
+    log(i18n.t("settle.remarks_prompt"))
     for n in save["nations"]:
         try:
-            txt = input(f"  致{n}：").strip()
+            txt = input(i18n.t("settle.remarks_input", nation=n)).strip()
         except (EOFError, KeyboardInterrupt):
             break
         if txt:
@@ -461,13 +480,21 @@ def main() -> None:
                     help="看海人寄语 JSON 文件（键=国名 值=一句话）；缺省且终端可交互时现场输入")
     args = ap.parse_args()
 
+    # 语言跟着**这一局的配置**走（与 mp_run 同一口径：`lang` 只在渲染这层生效，不进存档）。
+    # 先读配置再动存档，成绩表/报告/结算厅才都说同一种话；读不到就按缺省语言继续。
+    # （argparse 的帮助文本在**读配置之前**就要交给 argparse，语言还不知道，故不键值化。）
+    cfg_path = Path(args.config)
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
+    if cfg:
+        i18n.set_lang(cfg.get("lang"))
+
     if not Path(args.save).exists():
-        sys.exit(f"找不到存档 {args.save}（用 --save 指定）")
+        sys.exit(i18n.t("settle.no_save", path=args.save))
     save = load_save(args.save)
     result = settle(save)
 
-    def log(s: str) -> None:
-        print(s, flush=True)
+    def log(s: i18n.Text) -> None:
+        print(i18n.show(s), flush=True)
 
     board = scoreboard_text(save, result)
     log(board)
@@ -476,33 +503,41 @@ def main() -> None:
 
     transcript: list[str] = []
     if not args.no_chat:
-        cfg = {}
-        if Path(args.config).exists():
-            cfg = json.load(open(args.config, encoding="utf-8"))
+        if cfg:
             import ctx as ctxlib
             ctxlib.apply_defaults(cfg)   # 顶层 ctx_* 下沉到各国，与游戏内一致
-        else:
-            log(f"（找不到 {args.config}，跳过结算厅）")
-        if cfg:
             remarks = load_remarks(args.remarks, save, log)
             board = scoreboard_text(save, result, remarks)  # 报告版含寄语
             log("")
             transcript = run_chat(save, result, cfg, args.rounds, log, remarks)
+        else:
+            log(i18n.Msg("settle.no_config", path=args.config))
 
-    report = [f"# 《战国》终局结算报告\n", f"生成于第 {save.get('turn','?')} 回合存档。\n",
-              "## 成绩单\n", f"```\n{board}\n```\n"]
+    # 报告里的分项行是**定长三条**（总消费明细）与**变长清单**（GDP/资产明细）两种：
+    # 变长清单的连接号是记录格式的一部分（中文分号），所以把它也做成键，
+    # 由语言表给号 —— 代码里不写 `if 中文` 的分支，也不留 `"；".join` 的硬编码语言。
+    sep = i18n.t("settle.sep_items")
+    report = [i18n.t("settle.report_title") + "\n",
+              i18n.t("settle.report_generated", turn=save.get("turn", "?")) + "\n",
+              i18n.t("settle.report_scores_head") + "\n", f"```\n{board}\n```\n"]
     for n, r in sorted(result.items(), key=lambda kv: -kv[1]["spend_total"]):
-        tag = "" if r["alive"] else " · 已亡国"
-        report.append(f"### {n}{tag}（总消费 {r['spend_total']:.0f}）\n")
-        report.append("- 总消费明细：" + "；".join(
-            f"{SPEND_LABELS[k]} {r['spend'][k]:.0f}" for k in SPEND_LABELS))
-        report.append(f"- GDP 原始值 {r['gdp']:.0f}：{'；'.join(r['gdp_rows']) or '无经济产出'}")
-        report.append(f"- 固定资产 {r['asset']:.0f}：{'；'.join(r['asset_rows']) or '无建筑'}\n")
+        tag = "" if r["alive"] else i18n.t("settle.report_dead_tag")
+        report.append(i18n.t("settle.report_nation_head", nation=n, tag=tag,
+                             total=r["spend_total"]) + "\n")
+        report.append(i18n.t("settle.report_spend_detail", items=sep.join(
+            i18n.t("settle.spend_item", label=SPEND_LABELS[k], amount=r["spend"][k])
+            for k in SPEND_LABELS)))
+        report.append(i18n.t("settle.report_gdp", gdp=r["gdp"],
+                             rows=sep.join(i18n.show(x) for x in r["gdp_rows"])
+                                  or i18n.t("settle.none_output")))
+        report.append(i18n.t("settle.report_asset", asset=r["asset"],
+                             rows=sep.join(i18n.show(x) for x in r["asset_rows"])
+                                  or i18n.t("settle.none_buildings")) + "\n")
     if transcript:
-        report.append("## 结算厅对话录\n")
+        report.append(i18n.t("settle.report_chat_head") + "\n")
         report.append("\n\n".join(transcript))
     Path(args.out).write_text("\n".join(report), encoding="utf-8")
-    log(f"\n📄 报告已写入 {args.out}")
+    log("\n" + i18n.t("settle.report_written", path=args.out))
 
 
 if __name__ == "__main__":

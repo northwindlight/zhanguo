@@ -269,8 +269,10 @@ class TestStarvation(unittest.TestCase):
     def test_no_shortage_no_damage(self):
         w, hps = self._run(50, [80, 80, 80])
         self.assertEqual(hps, [100, 100, 100])
-        self.assertFalse(any("断粮" in h["text"] for h in w.history))  # 无断粮日志
-        self.assertTrue(any("断粮" in h["text"] for h in self._run(0, [100])[0].history))
+        # 纪事 v4 起 `text` 存的是**键 + 参数**（语言不进存档）：断言措辞要先按中文渲染
+        self.assertFalse(any("断粮" in mp.World.entry_text(h, "zh") for h in w.history))  # 无断粮日志
+        hungry, _ = self._run(0, [100])
+        self.assertTrue(any("断粮" in mp.World.entry_text(h, "zh") for h in hungry.history))
 
 
 class TestNewBuildings(unittest.TestCase):
@@ -350,7 +352,7 @@ class TestNewBuildings(unittest.TestCase):
         # 全国 2 座军屯 → 满编 2 支
         ok1, m1 = w.recruit("秦", x1, y1, 1, "民")
         ok2, m2 = w.recruit("秦", x2, y2, 1, "民")
-        self.assertTrue(ok1 and ok2, m1 + m2)
+        self.assertTrue(ok1 and ok2, f"{m1}{m2}")
         ok3, m3 = w.recruit("秦", x1, y1, 1, "民")
         self.assertFalse(ok3)
         w.resolve_turn()

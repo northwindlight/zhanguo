@@ -72,6 +72,8 @@ from __future__ import annotations
 
 import re
 
+import i18n
+
 # ---------------------------------------------------------------------------
 # token 估算
 # ---------------------------------------------------------------------------
@@ -111,23 +113,29 @@ def record_tokens(rec: dict) -> int:
     return messages_tokens(rec.get("messages") or [])
 
 
-def _shrink_messages(msgs: list[dict], *, keep_reasoning: bool, tool_trim: int) -> list[dict]:
-    """读路径瘦身单条记录的消息列表：只替换 reasoning 占位 / 截 tool 超长内容。"""
+def _shrink_messages(msgs: list[dict], *, keep_reasoning: bool, tool_trim: int,
+                     lang: str | None = None) -> list[dict]:
+    """读路径瘦身单条记录的消息列表：只替换 reasoning 占位 / 截 tool 超长内容。
+
+    占位句与截断说明是**给人看的文案**，进语言表（`ctx.shrink.*`）；同一国语言恒定 ⇒
+    瘦身后字节仍稳定，不影响前缀命中。
+    """
     out = []
     for m in msgs:
         nm = dict(m)
         if not keep_reasoning and nm.get("role") == "assistant" and nm.get("reasoning_content"):
-            nm["reasoning_content"] = "（思考过程已并入历史归档，细节以 rules/面板为准）"
+            nm["reasoning_content"] = i18n.t("ctx.shrink.reasoning", lang)
         if tool_trim and nm.get("role") == "tool":
             c = nm.get("content") or ""
             if len(c) > tool_trim:
-                nm["content"] = c[:tool_trim] + f"…[已截断{len(c)}字]"
+                nm["content"] = c[:tool_trim] + i18n.t("ctx.shrink.truncated", lang, n=len(c))
         out.append(nm)
     return out
 
 
 def shrink_records(records: list[dict], *, newest_turn: int,
-                   old_reasoning: str = "full", tool_trim: int = 0) -> list[dict]:
+                   old_reasoning: str = "full", tool_trim: int = 0,
+                   lang: str | None = None) -> list[dict]:
     """组装请求前的读路径瘦身：只保留最近 1 回合完整 thinking，更旧换占位；
     tool 超长内容截断。**只看不改存档**，切回 "full" 即恢复全量。"""
     if old_reasoning == "full" and not tool_trim:
@@ -138,16 +146,17 @@ def shrink_records(records: list[dict], *, newest_turn: int,
     for rec in records:
         keep = (old_reasoning == "full" or int(rec.get("turn") or 0) >= newest_turn)
         ms = _shrink_messages(rec.get("messages") or [], keep_reasoning=keep,
-                              tool_trim=tool_trim)
+                              tool_trim=tool_trim, lang=lang)
         out.append({**rec, "messages": ms})
     return out
 
 
 def send_tokens(rec: dict, *, newest_turn: int,
-                old_reasoning: str = "full", tool_trim: int = 0) -> int:
+                old_reasoning: str = "full", tool_trim: int = 0,
+                lang: str | None = None) -> int:
     """瘦身后的单条记录体积（slide 判水位、build 计量都用它）。"""
     sr = shrink_records([rec], newest_turn=newest_turn,
-                        old_reasoning=old_reasoning, tool_trim=tool_trim)
+                        old_reasoning=old_reasoning, tool_trim=tool_trim, lang=lang)
     return record_tokens(sr[0]) if sr else 0
 
 
@@ -228,7 +237,7 @@ class Plan:
                  "sys_tokens", "tail_tokens", "archive_tokens", "replay_tokens",
                  "replay_turns", "before_turn", "stable_tokens",
                  "old_reasoning", "tool_trim", "roll", "period", "slice_keep",
-                 "effective_period")
+                 "effective_period", "lang")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -239,22 +248,30 @@ class Plan:
         return int((self.sys_tokens or 0) + (self.archive_tokens or 0)
                    + (self.replay_tokens or 0) + (self.tail_tokens or 0))
 
-    def describe(self) -> str:
-        """给日志用的一行摘要。"""
+    def describe(self) -> i18n.Text:
+        """给日志用的一行摘要（`mp_ai` 的 `🧠` 那行就是它）。
+
+        整行进模板：`固定窗口…/窗口…·预算…` 这些是**同一句话的不同说法**，
+        英文里语序与量词都不同，拼串会拼出中式英文 —— 所以 head / period / hit
+        各是一个 `Msg`，由外层 `ctx.plan.line` 嵌进来递归渲染。
+        """
         if self.mode == "fixed":
-            head = f"固定窗口{self.fixed_turns}回合"
+            head = i18n.Msg("ctx.plan.head_fixed", turns=self.fixed_turns)
         else:
-            head = (f"窗口{_k(self.window)}·预算{_k(self.budget)}"
-                    f"（{self.window and self.budget / self.window * 100:.0f}%）")
+            head = i18n.Msg("ctx.plan.head_budget",
+                            window=_k(self.window), budget=_k(self.budget),
+                            pct=f"{self.window and self.budget / self.window * 100:.0f}")
         if self.roll == "period":
-            head += (f"·period每{self.period}回合压缩"
-                     if self.period else
-                     f"·period自动≈每{self.effective_period or '?'}回合")
+            head = i18n.Msg("ctx.plan.head_period", head=head, n=self.period) if self.period \
+                else i18n.Msg("ctx.plan.head_period_auto", head=head,
+                              n=self.effective_period or "?")
         total = self.total_tokens or 1
-        hit = f"｜可命中前缀≈{self.stable_tokens / total * 100:.0f}%" if self.stable_tokens else ""
-        return (f"{head}｜replay {self.replay_turns}回合{_k(self.replay_tokens)}"
-                f"｜归档{_k(self.archive_tokens)}｜状态{_k(self.tail_tokens)}"
-                f"｜system{_k(self.sys_tokens)}｜合计{_k(total)}{hit}")
+        hit = i18n.Msg("ctx.plan.hit", pct=f"{self.stable_tokens / total * 100:.0f}") \
+            if self.stable_tokens else ""
+        return i18n.Msg("ctx.plan.line", head=head, turns=self.replay_turns,
+                        replay=_k(self.replay_tokens), archive=_k(self.archive_tokens),
+                        state=_k(self.tail_tokens), system=_k(self.sys_tokens),
+                        total=_k(total), hit=hit)
 
 
 def _k(n) -> str:
@@ -274,6 +291,7 @@ def make_plan(cfg: dict, *, fallback_turns: int | None = None) -> Plan:
     roll = "period" if str(cfg.get("ctx_roll", "slide")).lower() in ("period", "periodic", "none") else "slide"
     period = max(0, int(cfg.get("ctx_period") or 0))   # 0=自动（窗口几何+实测回合体积推导）；>0=手动固定周期
     slice_keep = _fnum(cfg.get("ctx_slice_keep"), 0.55, 0.2, 0.9)
+    lang = cfg.get("lang")      # 本国语言（mp_run 已把顶层 `lang` 下沉进各国条目）
     fixed = cfg.get("ctx_full_turns")
     window = cfg.get("ctx_window")
     if fixed:
@@ -282,14 +300,14 @@ def make_plan(cfg: dict, *, fallback_turns: int | None = None) -> Plan:
                     archive_cap=int(cfg.get("ctx_archive_max") or 60000),
                     slide_keep=DEFAULT_SLIDE_KEEP, min_turns=1, fixed_turns=n,
                     compact=compact, old_reasoning=old_reasoning, tool_trim=tool_trim,
-                    roll=roll, period=period, slice_keep=slice_keep)
+                    roll=roll, period=period, slice_keep=slice_keep, lang=lang)
     if not window:
         n = max(1, int(fallback_turns or DEFAULT_FIXED_TURNS))
         return Plan(mode="fixed", window=None, budget=0, replay_budget=0,
                     archive_cap=int(cfg.get("ctx_archive_max") or 60000),
                     slide_keep=DEFAULT_SLIDE_KEEP, min_turns=1, fixed_turns=n,
                     compact=compact, old_reasoning=old_reasoning, tool_trim=tool_trim,
-                    roll=roll, period=period, slice_keep=slice_keep)
+                    roll=roll, period=period, slice_keep=slice_keep, lang=lang)
 
     window = max(8192, int(window))
     fill = _fnum(cfg.get("ctx_fill"), DEFAULT_FILL, 0.05, 0.95)
@@ -304,7 +322,7 @@ def make_plan(cfg: dict, *, fallback_turns: int | None = None) -> Plan:
                 min_turns=max(1, int(cfg.get("ctx_min_turns", DEFAULT_MIN_TURNS))),
                 fixed_turns=None, compact=compact,
                 old_reasoning=old_reasoning, tool_trim=tool_trim,
-                roll=roll, period=period, slice_keep=slice_keep)
+                roll=roll, period=period, slice_keep=slice_keep, lang=lang)
 
 
 # ---------------------------------------------------------------------------
@@ -354,7 +372,7 @@ def slide(world, name: str, plan: Plan) -> list[dict]:
         else:
             sizes = [send_tokens(r, newest_turn=newest,
                                  old_reasoning=plan.old_reasoning,
-                                 tool_trim=plan.tool_trim) for r in mem]
+                                 tool_trim=plan.tool_trim, lang=plan.lang) for r in mem]
         total = sum(sizes)
         if plan.roll == "period":
             # 非滑动周期模式：只在「到期」或「已超水位兜底」那个回合裁剪，
@@ -383,12 +401,12 @@ def slide(world, name: str, plan: Plan) -> list[dict]:
 # ---------------------------------------------------------------------------
 # 历史归档（已滑出 replay 的回合总结）
 # ---------------------------------------------------------------------------
-ARCHIVE_HEAD = ("【历史归档 · 已滑出完整记录的旧回合（一行=该回合小结，"
-                "「阶段总结」=多回合压缩）】")
+# 归档抬头（原 ARCHIVE_HEAD 常量）住进语言表 `ctx.archive.head`：它是缓存前缀的一部分，
+# 同一语言内字节恒定 ⇒ 逐国各说各话也不影响前缀命中。
 
 
 def render_archive(sums: list[dict], blocks: list[dict], before_turn: int,
-                   cap: int, long_memory: str = "") -> str:
+                   cap: int, long_memory: str = "", lang: str | None = None) -> str:
     """渲染第 <before_turn 回合的总结归档；超配额从最旧截断并标注。
 
     long_memory：各国**递归累积的长期记忆**（酒馆式：压缩回合以旧记忆为基础
@@ -408,10 +426,12 @@ def render_archive(sums: list[dict], blocks: list[dict], before_turn: int,
     items: list[tuple[int, str]] = []
     for b in blocks:
         items.append((int(b["from"]),
-                      f"【第{b['from']}-{b['to']}回合 · 阶段总结】\n{str(b.get('text', '')).strip()}"))
+                      i18n.Msg("ctx.archive.block", a=b["from"], b=b["to"],
+                               text=str(b.get("text", "")).strip()).render(lang)))
     for s in sums:
         if int(s["turn"]) not in covered:
-            items.append((int(s["turn"]), f"  第{s['turn']}回合：{s['text']}"))
+            items.append((int(s["turn"]),
+                          i18n.t("ctx.archive.sum_line", lang, turn=s["turn"], text=s["text"])))
     items.sort(key=lambda x: x[0])
     kept: list[tuple[int, str]] = []
     used = 0
@@ -428,14 +448,13 @@ def render_archive(sums: list[dict], blocks: list[dict], before_turn: int,
     # 是新归档的前缀 → 下滑那一回合归档本身仍可命中（区间行是唯一失效的几行）。
     lines = []
     if long_memory:
-        lines.append("【长期记忆 · 递归累积（压缩时以旧扩写：长程计划/盟约/教训）】\n" + long_memory)
+        lines.append(i18n.t("ctx.archive.long_memory", lang, memory=long_memory))
     if blocks or sums:
-        lines.append(ARCHIVE_HEAD)
+        lines.append(i18n.t("ctx.archive.head", lang))
         lines.extend(t for _, t in kept)
-        tail = f"（归档截至第 {before_turn - 1} 回合"
-        if omitted:
-            tail += f"；更早的 {omitted} 条总结因配额已省略"
-        lines.append(tail + "）")
+        lines.append(i18n.t("ctx.archive.tail", lang, until=before_turn - 1,
+                            omitted=(i18n.t("ctx.archive.omitted", lang, n=omitted)
+                                     if omitted else "")))
     return "\n".join(lines)
 
 
@@ -510,7 +529,8 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
         records = list(mem[-plan.fixed_turns:]) if mem else []
         plan.replay_tokens = sum(record_tokens(r) for r in records)
         before = int(records[0]["turn"]) if records else last_turn + 1
-        archive_text = render_archive(sums, blocks, before, plan.archive_cap, long_memory)
+        archive_text = render_archive(sums, blocks, before, plan.archive_cap,
+                                      long_memory, plan.lang)
         plan.archive_tokens = est_tokens(archive_text)
     else:
         # 预算模式：slide 与 period **共用同一份预算分配**（replay 顶满请求，别让
@@ -519,7 +539,7 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
         if plan.old_reasoning != "full" or plan.tool_trim:
             size_fn = (lambda r: send_tokens(r, newest_turn=last_turn,
                                              old_reasoning=plan.old_reasoning,
-                                             tool_trim=plan.tool_trim))
+                                             tool_trim=plan.tool_trim, lang=plan.lang))
         else:
             size_fn = record_tokens
         for _ in range(2):   # 两遍收敛：先按归档占满配额估，再按归档实际大小回补
@@ -528,7 +548,8 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
             records, plan.replay_tokens = select_replay(mem, plan.replay_budget,
                                                         plan.min_turns, size_fn=size_fn)
             before = int(records[0]["turn"]) if records else last_turn + 1
-            archive_text = render_archive(sums, blocks, before, plan.archive_cap, long_memory)
+            archive_text = render_archive(sums, blocks, before, plan.archive_cap,
+                                          long_memory, plan.lang)
             plan.archive_tokens = est_tokens(archive_text)
         if plan.roll == "period" and not plan.period:   # 自动周期 = 余量 ÷ 实测回合体积
             k = min(4, len(mem))
@@ -537,7 +558,8 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
 
     if plan.old_reasoning != "full" or plan.tool_trim:
         records = shrink_records(records, newest_turn=max(0, last_turn),
-                                 old_reasoning=plan.old_reasoning, tool_trim=plan.tool_trim)
+                                 old_reasoning=plan.old_reasoning, tool_trim=plan.tool_trim,
+                                 lang=plan.lang)
         plan.replay_tokens = sum(record_tokens(r) for r in records)
 
     plan.replay_turns = len(records)

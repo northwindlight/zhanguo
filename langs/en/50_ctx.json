@@ -1,0 +1,17 @@
+{
+  "_meta": {
+    "lang": "en",
+    "name": "Context layer: archive & shrink scaffolding"
+  },
+  "names": {},
+  "msg": {
+    "ctx.archive.block": "[Turns {a}-{b} · Phase recap]\n{text}",
+    "ctx.archive.head": "[Archive — turns that slid out of the full replay (one line = that turn's summary; \"Phase recap\" compresses several turns)]",
+    "ctx.archive.long_memory": "[Long-term memory · recursive (each compaction expands the previous one: long-range plans, pacts, lessons)]\n{memory}",
+    "ctx.archive.omitted": "; {n} older summaries dropped to fit the budget",
+    "ctx.archive.sum_line": "  Turn {turn}: {text}",
+    "ctx.archive.tail": "(archive through turn {until}{omitted})",
+    "ctx.shrink.reasoning": "(reasoning folded into the archive — check rules/panels for detail)",
+    "ctx.shrink.truncated": "…[truncated from {n} chars]"
+  }
+}

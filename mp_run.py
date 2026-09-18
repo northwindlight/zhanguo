@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 import ctx as ctxlib
+import i18n
 import rule_ai as rule_ai_registry
 from console import Console
 from mp import SaveFormatError, World
@@ -35,19 +36,24 @@ from mp_ai import dummy_turn, observer_board, observer_map, run_openai_turn
 CONSOLE: Console | None = None      # 命令台（run() 里创建；flush 用它回显）
 
 
-def observer(world, out, header: str):
-    """把 world 新增的历史事件刷给看海端（含每封信/每个行动/战报/外交）。"""
+def observer(world, out, header: i18n.Text):
+    """把 world 新增的历史事件刷给看海端（含每封信/每个行动/战报/外交）。
+
+    `header` 给 `Msg`：整行（含回合头、行动完毕那行）都由模板出，语言在**这里**才定。
+    """
     lines = world.fresh_history()
     if not lines:
         return
     out.append("")
-    out.append(header)
+    out.append(i18n.show(header))
+    tags = {"信件": "✉", "外交": "🕊", "灭国": "☠", "领土": "🏳"}
     for h in lines:
-        who = h.get("nation") or ""
-        tag = {"信件": "✉", "外交": "🕊", "灭国": "☠", "领土": "🏳"}.get(h["phase"], "")
-        if tag and h["text"].startswith(tag):
+        text = world.entry_text(h)          # ★ 按键值渲染，别把 h["text"] 当字符串用
+        tag = tags.get(h["phase"], "")
+        if tag and text.startswith(tag):
             tag = ""  # 文本自带图标，避免 ✉✉/🕊🕊 之类双打
-        out.append(f"  [{h['turn']}·{h['phase']}]{who} {tag} {h['text']}")
+        out.append(i18n.Msg("journal.observer_line", turn=h["turn"], phase=h["phase"],
+                            nation=h.get("nation") or "", tag=tag, text=text).render())
 
 
 def flush(out, path: Path | None = None, echo: bool = True):
@@ -120,11 +126,11 @@ def make_world(cfg, force_new: bool, save_path: Path) -> tuple[World, bool]:
         except SaveFormatError as e:
             # 版本不符＝代码升级后的旧档：不迁移、更**不静默覆盖**——
             # 直接重开会把老局连档一起冲掉（取证都没了），所以停下来让人决定。
-            print(f"⚠ {e}")
-            print("  （旧存档原样保留：确认可弃后自行删除，或加 --new 强制新开）")
+            print(i18n.Msg("run.warn", why=str(e)))
+            print(i18n.t("save.keep_old_hint"))
             raise SystemExit(2)
         except Exception as e:
-            print(f"读档失败({e})，重开新局")
+            print(i18n.Msg("save.load_failed", err=e))
     # 带 polity 的条目=待加入国（如匈奴），不作为开局国家；用 `add` 中途加入
     start_names = [n["name"] for n in cfg["nations"] if not n.get("polity")]
     w = World(size=cfg.get("map_size", 60), seed=cfg.get("seed"), nations=start_names)
@@ -146,6 +152,12 @@ def run() -> None:
     args = ap.parse_args()
 
     cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
+    # 语言：顶层定全局，`nations[]` 里可逐国覆盖（对照实验、或让某国说另一种话）。
+    # **开局前就把每国的表都验一遍** —— 缺键的语言表要在这里报，不是撑到第一个渲染点。
+    lang = i18n.set_lang(cfg.get("lang"))
+    for _n in cfg.get("nations", []) or []:
+        _n.setdefault("lang", lang)
+        i18n.check(_n["lang"])
     ctxlib.apply_defaults(cfg)          # 顶层 ctx_* 下沉到各国（国家条目优先）
     if args.small_ctx:
         for n in cfg["nations"]:
@@ -176,12 +188,12 @@ def run() -> None:
     rng = random.Random(2026)
     out: list[str] = []
 
-    def emit(s=""):
-        out.append(s)
+    def emit(s: i18n.Text = ""):
+        out.append(i18n.show(s))       # 这里就是边界：`Msg` 按看海端的语言落成文字
 
     if is_new:
-        emit(f"新开一局 {world.size}x{world.size}（种子 {world.seed}）："
-             + "、".join(world.alive()) + " 各占 5 块十字，四周是野人。")
+        emit(i18n.Msg("run.open_new", size=world.size, seed=world.seed,
+                      nations=world.alive()))
         flush(out, journal_path)
 
     stop = {"flag": False}
@@ -189,7 +201,7 @@ def run() -> None:
     def _sig(sig=None, frm=None):
         stop["flag"] = True
         # 手动退出不保存：磁盘存档保持「上一回合结算完」的干净档，载入永不跳回合
-        emit(f"（Ctrl-C：手动退出不保存，进度保留到第 {world.turn} 回合结算；本回合未结算的行动作废）")
+        emit(i18n.Msg("run.interrupted", turn=world.turn))
         flush(out, journal_path, echo=True)
         if CONSOLE is not None:
             CONSOLE.close()          # 恢复终端（cbreak 模式）
@@ -204,11 +216,8 @@ def run() -> None:
                       and len(s.split()) == 2).start()
     cmd_queue = CONSOLE.queue
 
-    CONSOLE.write(f"开始看海。存档 {save_path}（每回合结算后自动保存；Ctrl-C 退出不保存），"
-                  f"日志 {journal_path}。")
-    CONSOLE.write("命令：`add 国名 [匈奴]` 中途加国；`send 国家 内容` 寄神秘来信"
-                  "（多行先 `send 国家` 粘贴正文以 END 收尾；或 `send 国家 @文件路径` 从文件读）。"
-                  "↑↓ 翻历史，Ctrl-C 退出。")
+    CONSOLE.write(i18n.t("run.start_watch", save=save_path, journal=journal_path))
+    CONSOLE.write(i18n.t("run.cmd_help"))
     while not stop["flag"]:
         cmds = []
         while True:
@@ -220,7 +229,7 @@ def run() -> None:
             parts = cmd.split(maxsplit=2)  # send 正文可含换行，只拆前两段
             if parts[0] in ("add", "加", "加入"):
                 if len(parts) < 2:
-                    emit("用法：add 国名 [匈奴]，如 `add 匈奴` / `add 秦`")
+                    emit(i18n.t("cmd.add_usage"))
                 else:
                     nm = parts[1]
                     polity = parts[2] if len(parts) > 2 else (
@@ -236,12 +245,12 @@ def run() -> None:
                             cfg_by_name.setdefault(nm, dict(_template))
                             cfg_by_name[nm]["name"] = nm
                     except Exception as e:
-                        ok, msg = False, f"加国失败：{type(e).__name__}: {e}"
-                    emit(msg if ok else f"⚠ {msg}")
+                        ok = False
+                        msg = i18n.Msg("cmd.add_failed", err=f"{type(e).__name__}: {e}")
+                    emit(msg if ok else i18n.Msg("run.warn", why=msg))
             elif parts[0] in ("send", "寄", "写信", "神秘信"):
                 if len(parts) < 3:
-                    emit("用法：send 国家 内容（同行）；或多行先 `send 国家` 粘贴正文以 END 收尾；"
-                         "或 `send 国家 @文件路径` 从文件读全文")
+                    emit(i18n.t("cmd.send_usage"))
                 else:
                     try:
                         to = parts[1]
@@ -250,12 +259,12 @@ def run() -> None:
                             p = Path(text[1:].strip())
                             text = p.read_text(encoding="utf-8")
                         ok, msg = world.mystery_letter(to, text)
-                        emit(msg if ok else f"⚠ {msg}")
+                        emit(msg if ok else i18n.Msg("run.warn", why=msg))
                     except Exception as e:
-                        emit(f"⚠ 神秘来信失败：{type(e).__name__}: {e}")
+                        emit(i18n.Msg("cmd.send_failed", err=f"{type(e).__name__}: {e}"))
             elif parts[0] in ("cheat", "作弊", "补助"):
                 if len(parts) < 3:
-                    emit("用法：cheat 国家 骑N 粮N 金N …（骑=骑兵；金/粮/木/矿/油/装/补=资源）")
+                    emit(i18n.t("cmd.cheat_usage"))
                 else:
                     nm = parts[1]
                     kw = {}
@@ -271,20 +280,20 @@ def run() -> None:
                                 break
                     try:
                         ok, msg = world.cheat(nm, **kw)
-                        emit(msg if ok else f"⚠ {msg}")
+                        emit(msg if ok else i18n.Msg("run.warn", why=msg))
                     except Exception as e:
-                        emit(f"⚠ cheat 失败：{type(e).__name__}: {e}")
+                        emit(i18n.Msg("cmd.cheat_failed", err=f"{type(e).__name__}: {e}"))
             else:
-                emit(f"未知命令：{cmd}（支持 add 国名 [匈奴] / send 国家 内容 / cheat 国家 骑N 粮N 金N）")
+                emit(i18n.Msg("cmd.unknown", cmd=cmd))
         if cmds:
             flush(out, journal_path)
             continue
         if len(world.alive()) < 2:
-            emit("只剩一个国家——终局。")
+            emit(i18n.t("run.only_one_left"))
             flush(out, journal_path)
             break
         if world.turn >= max_turns:
-            emit(f"到达回合上限 {max_turns}，结束。")
+            emit(i18n.Msg("run.turn_limit", n=max_turns))
             flush(out, journal_path)
             break
 
@@ -299,14 +308,14 @@ def run() -> None:
             _ok, _msg = world.add_nation(_nm, _st.get("polity", ""),
                                          extra=_nation_extra(_st), start=_nation_start(_st),
                                          summary=_nation_summary(_st))
-            emit(_msg if _ok else f"⚠ 自动登场失败：{_msg}")
+            emit(_msg if _ok else i18n.Msg("cmd.standby_failed", why=_msg))
             _added = True
         if _added:
             flush(out, journal_path)
         if delivered:
-            observer(world, out, f"——— 第 {world.turn} 回合 · 投信 {delivered} 封 ———")
+            observer(world, out, i18n.Msg("run.turn_head_mail", turn=world.turn, n=delivered))
         else:
-            emit(f"——— 第 {world.turn} 回合 ———")
+            emit(i18n.Msg("run.turn_head", turn=world.turn))
         flush(out, journal_path)
         # Observer 大面板：一屏看各国
         emit(observer_board(world))
@@ -339,32 +348,35 @@ def run() -> None:
                                                        rule_ai_registry.UNLIMITED_ACTIONS),
                                   rule_ai=ncfg.get("rule_ai", rule_ai))
             secs = time.time() - t0
-            observer(world, out, f"◈ {name} 行动完毕（{done} 次工具调用，{secs:.0f}s）")
+            observer(world, out, i18n.Msg("run.nation_done", nation=name, calls=done, secs=secs))
             flush(out, journal_path)
             if stop["flag"]:
                 break
             if name not in world.nations:
-                emit(f"（{name} 已在行动中被灭）")
+                emit(i18n.Msg("run.nation_dead_midway", nation=name))
 
         if stop["flag"]:
             break
         world.resolve_turn()
-        observer(world, out, f"——— 第 {world.turn} 回合结算 ———")
+        observer(world, out, i18n.Msg("run.turn_settle", turn=world.turn))
         flush(out, journal_path)
         world.save(save_path)
         # 全景地图（Observer 看海用）：覆盖写 mp_map.txt
         Path("mp_map.txt").write_text(observer_map(world), encoding="utf-8")
-        emit("🗺 地图已更新 mp_map.txt（字母=国家占领，小写=无人野地地形）")
+        emit(i18n.t("run.map_updated"))
         flush(out, journal_path)
         time.sleep(0.1)
 
     # 终局统计
     emit("")
-    emit("## 终局")
+    emit(i18n.t("run.final_head"))
     for n in world.alive():
-        emit(f"- {n}: 国土 {len(world.own_tiles(n))} 块，"
-             f"国库 {world.nations[n].res['黄金']}，军队 {len(world.nation_armies(n))} 支，{world.econ_summary.get(n,'')}")
-    emit("灭国者：" + ("、".join(n for n in world.order if n not in world.nations) or "无"))
+        emit(i18n.Msg("run.final_nation", nation=n, tiles=len(world.own_tiles(n)),
+                      gold=world.nations[n].res["黄金"], armies=len(world.nation_armies(n)),
+                      econ=world.econ_summary.get(n, "")))
+    gone = [n for n in world.order if n not in world.nations]
+    emit(i18n.Msg("run.final_dead", nations=gone) if gone
+         else i18n.t("run.final_dead_none"))
     world.save(save_path)
     flush(out, journal_path)
 

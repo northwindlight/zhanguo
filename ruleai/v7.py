@@ -148,7 +148,7 @@ def expand_rule_turn_v7(world, name: str, rng: random.Random | None = None,
     """
     if rng is None:
         rng = random.Random(0)
-    acts: list[tuple[str, dict, bool, str]] = []
+    acts: list[tuple[str, dict, bool, "i18n.Text"]] = []
 
     def do(tool, args, fn, *a, **k) -> bool:
         if len(acts) >= max_actions:
@@ -161,7 +161,7 @@ def expand_rule_turn_v7(world, name: str, rng: random.Random | None = None,
             ok, msg = False, f"{type(e).__name__}: {e}"
         if on_result is not None:
             on_result(tool, args, bool(ok))
-        acts.append((tool, args, bool(ok), str(msg)))
+        acts.append((tool, args, bool(ok), msg))
         return bool(ok)
 
     # ---- ① 出兵提前：**不交棒、不换模块**，只把 v6 的征兵闸门换掉 ----

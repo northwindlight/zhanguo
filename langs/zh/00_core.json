@@ -1,0 +1,28 @@
+{
+  "_meta": {
+    "lang": "zh",
+    "name": "简体中文（基准表）"
+  },
+  "names": {},
+  "msg": {
+    "build.capped_by_resource": "{building} 已达上限：本地 {res}={have}",
+    "build.engineer_discount": "，工程院-{pct}%",
+    "build.max_level": "{building} 已达上限 L{max}",
+    "build.nation_limit": "{building} 自建全国限 {limit} 座（已自建过；再要只能从别国手里抢）",
+    "build.need_slots": "{building} 需该地块已用建筑位 ≥{need}（现 {now}），先建满再盖",
+    "build.no_gold": "黄金不足：{label} 需 {cost}，国库 {have}",
+    "build.no_resource": "本地无{res}，无法建{building}",
+    "build.no_wood": "木材不足：{label} 需 {wood}，储备 {have}",
+    "build.one_per_turn": "该地块本回合已下过单（每地块每回合限建 1 座）",
+    "build.only_own_tile": "只能在自己的地块上建造",
+    "build.slots_full": "建筑位已满（{max} 格，含在建）",
+    "build.started": "动工 {label}（@{tile}{note}{disc}，本回合在建、下回合生效），-{cost}金 -{wood}木",
+    "build.terrain_penalty": "，{terrain}施工+{pct}%",
+    "build.tile_limit": "{building} 已达上限（每地块 {limit} 座）",
+    "building.castle_level": "城堡L{lv}",
+    "err.no_such_nation": "国家 {name} 不存在",
+    "err.unknown_building": "未知建筑：{building}",
+    "journal.action": "{nation} ◇ {tool} {args} → {result}",
+    "journal.event_line": "[第{turn}回合] {text}"
+  }
+}

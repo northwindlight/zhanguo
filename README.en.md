@@ -32,6 +32,16 @@
   «long-term memory → archive → recent full replay», and prefix-cache hits are tuned
   (recursive long-term memory + non-sliding periodic compaction + measured hit-rate logging);
   a 300-turn game only rebuilds the prefix once per compaction period.
+- 🌐 **Bilingual, and language never enters the save** — one `"lang": "zh"` / `"en"` in the config
+  (per-nation overrides allowed) switches everything the model and the watcher read: the 14
+  panels, the full `rules` text, the system prompt, all 35 tool descriptions and their enums,
+  action receipts, the chronicle and journal, the map and settlement report, the context archive
+  headers, spy and shared-map intel. All copy goes through `i18n` keys + parameters, so a
+  Chinese and an English run of the same seed save **byte-identical files** (checked on a live
+  12-turn game). In an English game the model may also answer `building=Farm` or
+  `tile=ScarletPark` — the display name is looked back up into the canonical one. Language packs
+  are plain JSON (`langs/<code>/*.json`) — **copy a directory to add a language**; missing keys
+  fail loudly instead of falling back to Chinese.
 
 ## Quick start
 
@@ -121,6 +131,36 @@ Context is assembled by **decreasing stability**, so prefix caching hits as much
   (default `"full"`; **stripping old thinking makes the model short-sighted — not recommended**) /
   `ctx_trim_tool_chars` / `ctx_compact`. Implementation: `ctx.py` + `mp_ai.py` docstrings.
 
+## Bilingual (`lang`)
+
+`"lang"` at the top of the config sets the whole game (`zh` by default); a per-nation `lang`
+inside `nations[]` overrides it — so Qin can play in Chinese while Chu plays in English as a
+controlled comparison.
+
+**Covered**: everything listed above. The Chinese side is **character-for-character what it
+was before key-ization**, verified by two golden comparisons — a 6-turn narrow scenario and a
+26-turn one with war, diplomacy, spies, letters and reports. Two places were changed on purpose:
+the building list in the `build` description used to be hand-written and disagreed with
+`BUILDINGS` by one entry, it is now taken from the table; and `bloc_found`'s `name` parameter
+shipped the literal `{BLOC_NAME_MAX}` to the model because a `.format` was missing — it now shows
+the real cap. **Left to the player**: nation, army and alliance names go through the `names`
+glossary (tile names have a morpheme table, so they compose into e.g. `ScarletPark`); anything
+not listed is output as-is — what your state is called is your business, not the engine's.
+
+- **Key-ized, not dictionary-substituted**: the engine produces `Msg("build.started",
+  building="农场", cost=50)` — a **key plus parameters** — and the language is chosen at render
+  time. Canonical names (buildings / terrain / resources / units) stay Chinese: they are
+  `BUILDINGS` keys and saved state, not copy.
+- **Language never enters the save**: same seed + same opening sequence ⇒ the Chinese and English
+  runs save **byte-identical** state (`tests/test_i18n.py` pins this, alongside a golden check that
+  Chinese output is unchanged character-for-character).
+- **Adding a language = copy `langs/zh/` to `langs/xx/` and translate file by file.** Each key may
+  live in exactly one file; missing keys, extra keys or mismatched placeholders **fail at load**
+  rather than silently falling back to Chinese. `zh` and `en` must be complete; the name glossary
+  (`names`, including the morphemes behind tile names) may be partial — untranslated proper
+  nouns are output as-is.
+- Conventions (the five rules) are documented in the `i18n.py` module docstring.
+
 ## RL training line (`feat/rl` branch)
 
 RL training is maintained **on a separate branch**: the PyTorch environment, BC / PPO and the
@@ -133,6 +173,7 @@ byte-identical to main, so rule changes never need cherry-picking. Design docs a
 | File / Dir | Purpose |
 |------------|---------|
 | `balance.py` | **Numeric tables · single tuning entry**: buildings / terrain / units / market / diplomacy costs |
+| `i18n.py` · `langs/` | **Key-ized rendering layer** · language packs (one directory per language, JSON split by domain) |
 | `game.py` · `mp.py` | Shared rules layer · Multi-nation engine `World` (settlement / combat / diplomacy / alliances / vision / save) |
 | `mapgen.py` | Map generation: `(seed, size)` → full terrain & resource map (blue noise + density modulation) |
 | `mp_ai.py` | AI layer: 35 tools (incl. memory_search), system prompt, panels, provider-agnostic turn loop |

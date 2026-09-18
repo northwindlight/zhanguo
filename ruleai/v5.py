@@ -50,7 +50,7 @@ def expand_rule_turn_v5(world, name: str, rng: random.Random | None = None,
                      max_actions: int = 40) -> list:
     if rng is None:
         rng = random.Random(0)
-    acts: list[tuple[str, dict, bool, str]] = []
+    acts: list[tuple[str, dict, bool, "i18n.Text"]] = []
 
     def do(tool, args, fn, *a, **k) -> bool:
         if len(acts) >= max_actions:
@@ -59,7 +59,7 @@ def expand_rule_turn_v5(world, name: str, rng: random.Random | None = None,
             ok, msg = fn(*a, **k)
         except Exception as e:
             ok, msg = False, f"{type(e).__name__}: {e}"
-        acts.append((tool, args, bool(ok), str(msg)))
+        acts.append((tool, args, bool(ok), msg))
         return bool(ok)
 
     def R():

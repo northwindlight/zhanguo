@@ -254,7 +254,9 @@ class TestAnnouncement(unittest.TestCase):
         """报表生成要写一条纪事：看海终端看得到，该国【近讯】也看得到（别国看不到）。"""
         w, *_ = _mk()
         _run(w, 10)
-        lines = [h["text"] for h in w.history if "经济报表已生成" in h.get("text", "")]
+        # 纪事 v4 起 `text` 是**键 + 参数**：断言措辞走 entry_text（渲染后才是散文）
+        lines = [mp.World.entry_text(h, "zh") for h in w.history
+                 if "经济报表已生成" in mp.World.entry_text(h, "zh")]
         self.assertEqual(len(lines), 2)                      # 秦、楚 各一条
         self.assertIn("第 11 回合经济报表已生成", " ".join(lines))
         self.assertIn("report", lines[0])
@@ -333,7 +335,7 @@ class TestReadOnly(unittest.TestCase):
         w.nation_assets = boom
         _run(w, 10)                                      # 第 10 回合结账时炸 → 不该抛异常
         self.assertFalse(w.econ_reports.get("秦"))
-        self.assertTrue(any("经济报表生成失败" in h.get("text", "") for h in w.history))
+        self.assertTrue(any("经济报表生成失败" in mp.World.entry_text(h, "zh") for h in w.history))
 
     def test_save_load_roundtrip(self):
         w, *_ = _mk()

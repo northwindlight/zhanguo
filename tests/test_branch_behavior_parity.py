@@ -44,6 +44,27 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+def _branch() -> str:
+    """当前分支名（取不到就空串）。"""
+    r = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=ROOT,
+                       capture_output=True, text=True)
+    return (r.stdout or "").strip()
+
+
+class _OnlyOnRlBranch(unittest.TestCase):
+    """这套对拍讲的是 **feat/rl 的**规矩（引擎不得偏离 main）。
+
+    从 main 分出去的工作分支（`feat/i18n` 这种）当然与 main 不同 —— 在那儿跑它只会
+    误报"引擎漂了"。所以先认分支，不是 feat/rl 就整类跳过。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        br = _branch()
+        if br != "feat/rl":
+            raise unittest.SkipTest(f"分支行为对拍只对 feat/rl 成立（当前分支：{br or '未知'}）")
+
+
 SEED = 0
 TURNS = 60
 MAP_SIZE = 16
@@ -339,7 +360,7 @@ def compare() -> tuple[int, str, dict, dict]:
     return min(len(main), len(ours)), "", cov, {"main": main, "ours": ours}
 
 
-class TestCoverage(unittest.TestCase):
+class TestCoverage(_OnlyOnRlBranch):
     """先证「这一局真的打到了东西」，再谈对等。
 
     空跑通过 = 零信息。手搓配方那版就栽在这：军队恒 0、一次仗没打，测试却绿着。
@@ -352,7 +373,7 @@ class TestCoverage(unittest.TestCase):
                                 f"换驱动或调 TURNS，别让它绿着但什么都没测")
 
 
-class TestMilitiaAccounting(unittest.TestCase):
+class TestMilitiaAccounting(_OnlyOnRlBranch):
     """★民兵记账：曾在 main 上虚高 10 倍（国库黄金被按**地块资源**折算率 ×10 计）。
 
     **为什么回放测试抓不到**：`MIN_COVERAGE` 不要求征民兵，而民兵要军屯才征得了，
@@ -393,7 +414,7 @@ class TestMilitiaAccounting(unittest.TestCase):
                             f"国库黄金被当成地块资源折算了（1 单位 = 10 金）")
 
 
-class TestEngineIsMainByteForByte(unittest.TestCase):
+class TestEngineIsMainByteForByte(_OnlyOnRlBranch):
     """★ 说了算的那条：本分支的引擎文件**必须与 main 逐字节相同**。
 
     2026-09-12 变基时定的规矩：`feat/rl` = main（引擎一字不改）+ RL 训练线。
@@ -421,7 +442,7 @@ class TestEngineIsMainByteForByte(unittest.TestCase):
             f"要改就改在 main 上，或者把 rl 独有的东西留在 rl/ 里（`best_build` 就是这么搬走的）")
 
 
-class TestBranchBehaviorParity(unittest.TestCase):
+class TestBranchBehaviorParity(_OnlyOnRlBranch):
     def test_engine_matches_main(self):
         t, why, cov, _d = compare()
         if why:

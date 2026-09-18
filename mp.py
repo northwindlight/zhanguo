@@ -23,6 +23,7 @@ import math
 import random
 from pathlib import Path
 
+import i18n
 from game import (
     ARMY_HEAL_PER_TURN,
     ARMY_MAX_HP,
@@ -123,7 +124,15 @@ LEDGER_FIELDS = ("prod_value",      # 采集/工厂 产出 × 市价（军屯 20
 #   宣战/议和一律以实体为签约方，在盟国家不再持有个人条约。**必须**bump：旧的
 #   alliances/defense_pacts/guarantees 是**国家级**的，读进来就会出现"成员国还留着
 #   个人条约"这种新规则下不可能存在的状态（比整档作废更糟——它不报错）。
-SAVE_VERSION = 3
+# v4（2026-09-18）：纪事 `history[*]["text"]` 从**渲染好的中文散文**换成**键 + 参数**
+#   （`i18n.Msg`，见 i18n.py）——语言不再进存档，读取时才按查看者的语言渲染。
+#   **必须**bump：旧档那些条目是裸字符串，续局时中文原文会被原样渲染进英文局，
+#   出现"旧回合=中文、新回合=英文"的混档（同样不报错，同样是那类病）。
+# v5（2026-09-19）：`econ_summary` / `maps` / `map_pending` / `econ_intel` 这四处的值同样
+#   从**渲染好的中文文档**换成键 + 参数（上一版只办了 `history`，这四条是当时留下的
+#   「存档搬运待改」注释）。**必须**bump：旧档里它们是裸中文串，续局后会原样贴进英文局的
+#   【国力】【地图情报】【间谍情报】三块面板 —— 和 v4 那一条是同一种病。
+SAVE_VERSION = 5
 SAVE_KEYS = ("version", "size", "seed", "turn", "rng_state", "nations", "order",
              "tiles", "armies", "next_army_seq", "diplo_built", "nation_code",
              "guard_once", "wars", "war_id", "truce", "blocs",
@@ -142,6 +151,73 @@ class SaveFormatError(Exception):
 
 def _pair(a: str, b: str) -> frozenset:
     return frozenset((a, b))
+
+
+# ---- 连接符也要进模板（`i18n.py` 约定 5）----
+# 渲染器只会按语言连列表（中文顿号、英文逗号），可是战报里有些串是用「；」「  」「/」「+」
+# 连起来的（那是记法，不是散文）——那些地方改成两两嵌套的 `Msg`：分隔符写在模板里，
+# 语言仍由读取方决定。这些助手各配一个**字面量**键（死键守卫只认字面量引用）。
+def _semi(items) -> i18n.Text:
+    """`；` 连接多方战报（→ `join.semicolon`）。"""
+    out: i18n.Text = ""
+    for x in reversed(list(items)):
+        out = x if not out else i18n.Msg("join.semicolon", a=x, b=out)
+    return out
+
+
+def _gap(items) -> i18n.Text:
+    """两格空白连接一份一览（→ `join.gap`；关系一览用）。"""
+    out: i18n.Text = ""
+    for x in reversed(list(items)):
+        out = x if not out else i18n.Msg("join.gap", a=x, b=out)
+    return out
+
+
+def _plus(items) -> i18n.Text:
+    """`+` 连接花费明细（→ `join.plus`；`8粮+8装` 那种记法）。"""
+    out: i18n.Text = ""
+    for x in reversed(list(items)):
+        out = x if not out else i18n.Msg("join.plus", a=x, b=out)
+    return out
+
+
+def _slash(items) -> i18n.Text:
+    """`/` 连接可选项（→ `join.slash`；`黄金/粮食/…` 那种记法）。"""
+    out: i18n.Text = ""
+    for x in reversed(list(items)):
+        out = x if not out else i18n.Msg("join.slash", a=x, b=out)
+    return out
+
+
+def _sp(items) -> i18n.Text:
+    """单格空白连一份明细（→ `join.sp`；`木头+5 矿石+3` 那种）。"""
+    out: i18n.Text = ""
+    for x in reversed(list(items)):
+        out = x if not out else i18n.Msg("join.sp", a=x, b=out)
+    return out
+
+
+def _dun(items) -> i18n.Text:
+    """`、` 连接一份清单（→ `join.dun`；军情各兵种那种）。"""
+    out: i18n.Text = ""
+    for x in reversed(list(items)):
+        out = x if not out else i18n.Msg("join.dun", a=x, b=out)
+    return out
+
+
+def _nl(items) -> i18n.Text:
+    """多行文档：`\n` 是版式，所以换行也住模板（→ `join.nl`）。"""
+    out: i18n.Text = ""
+    for x in reversed(list(items)):
+        out = x if not out else i18n.Msg("join.nl", a=x, b=out)
+    return out
+
+
+def _why(exc: BaseException) -> i18n.Text:
+    """`_check` 抛的是装着 `Msg` 的 `IndexError`：能取回键值就取回（语言留给读取方），
+    取不回（别的异常/无参）才退回原文。"""
+    arg = exc.args[0] if exc.args else ""
+    return arg if isinstance(arg, i18n.Msg) else str(exc)
 
 
 # ---- 外交实体：本作**唯一**的对外签约主体（2026-09-18 外交改革）----
@@ -431,7 +507,7 @@ class World:
 
     def _check(self, x: int, y: int) -> None:
         if not (0 <= x < self.size and 0 <= y < self.size):
-            raise IndexError(f"坐标越界：({x+1},{y+1}) 超出地图（1..{self.size}）")
+            raise IndexError(i18n.Msg("err.out_of_bounds", x=x + 1, y=y + 1, size=self.size))
 
     def tile_terrain(self, x: int, y: int) -> str:
         """这一格的地形：**已物化的地块以它自己的 `terrain` 为准**（那是权威值——
@@ -444,7 +520,7 @@ class World:
         return t["terrain"] if t is not None else self.mapgen.terrain(x, y)
 
     # ---- 移动可达性（2026-09-15：多格移动**逐格**判定，不再是一次跳跃）----
-    def _mv_wall(self, name: str, x: int, y: int) -> str | None:
+    def _mv_wall(self, name: str, x: int, y: int) -> i18n.Text | None:
         """mv 走一步进这格的"墙"：`None` = 可通行。
 
         口径与旧版**目标格**判定逐条对齐（只是现在每步都要过这一关）：
@@ -453,14 +529,14 @@ class World:
         """
         owner = self.owned_by(x, y)
         if owner is not None and owner != name and not self.allied_between(name, owner):
-            return (f"({x + 1},{y + 1}) 是敌国领土，mv 不得进入；进占请用 atk（会交战/占领）"
+            return (i18n.Msg("mv.enemy_tile", x=x + 1, y=y + 1)
                     if self.war_between(name, owner)
-                    else f"中立不可入境：({x + 1},{y + 1}) 是「{owner}」的领土（结盟或宣战后才能进出）")
+                    else i18n.Msg("mv.neutral_tile", x=x + 1, y=y + 1, owner=owner))
         if owner is None and any(d["owner"] != name and d["owner"] != "野人"
                                  and (d["x"], d["y"]) == (x, y)
                                  and self.war_between(name, d["owner"])
                                  for d in self.troops):    # 谓词本就排除野人 ⇒ 只扫国家军队
-            return f"({x + 1},{y + 1}) 有敌军驻守，不能 mv 过去；进攻请用 atk（会交战）"
+            return i18n.Msg("mv.garrisoned", x=x + 1, y=y + 1)
         return None
 
     def _reachable(self, name: str, a: dict, *, for_attack: bool = False
@@ -546,21 +622,20 @@ class World:
                 and self.war_between(name, owner)
         return any(d["owner"] != name and (d["x"], d["y"]) == (x, y) for d in self.armies)
 
-    def _unreachable_msg(self, a: dict, x: int, y: int, *, for_attack: bool) -> str:
+    def _unreachable_msg(self, a: dict, x: int, y: int, *, for_attack: bool) -> i18n.Text:
         """走不到目标格时的说法：能教人（平地几格、崎岖几格），但**不替玩家开图**
         ——地形只在视野内才点名（迷雾限眼不限手：盲推撞墙如实报"墙在视野外"）。"""
-        label = UNIT_TYPES[unit_kind(a)]["label"]
+        unit = UNIT_TYPES[unit_kind(a)]["label"]
         budget = unit_speed(a)
         ter = self.tile_terrain(x, y)
         cost = unit_move_cost(a, ter)
-        acted = "冲不进去" if for_attack else "走不到"
         seen = self.visible_to(a["owner"], x, y)
-        if seen:
-            tip = (f"（{label}移动力 {budget}；进{ter}要 {cost}"
-                   f"{'，一步就吃满 ⇒ 只能走 1 格' if cost >= budget else ''}）")
-        else:
-            tip = f"（{label}移动力 {budget}；沿路地形/敌情不明——盲推撞墙如实报告，但额度照烧）"
-        return f"{a['name']} {acted} ({x + 1},{y + 1}){tip}"
+        tip = (i18n.Msg("army.tip_seen", unit=unit, budget=budget, ter=ter, cost=cost,
+                        full=(i18n.Msg("army.tip_one_step") if cost >= budget else ""))
+               if seen else i18n.Msg("army.tip_blind", unit=unit, budget=budget))
+        return (i18n.Msg("army.unreachable_attack", army=a["name"], x=x + 1, y=y + 1, tip=tip)
+                if for_attack else
+                i18n.Msg("army.unreachable_move", army=a["name"], x=x + 1, y=y + 1, tip=tip))
 
     @property
     def mapgen(self):
@@ -701,12 +776,23 @@ class World:
         n = ent_key(ent)
         return n if n in self.nations else None
 
-    def entity_label(self, ent: str) -> str:
-        """日志/面板用的人话名。"""
+    def entity_text(self, ent: str) -> i18n.Text:
+        """外交实体的**键值化**人话名：造回执/纪事时用这个（语言留给读取方）。
+        独立国家 = 国名本身（专有名词，进 `names` 词库由玩家自补）。"""
         if is_bloc_ent(ent):
-            b = self.bloc_by_name(ent_key(ent))
-            return f"联盟「{ent_key(ent)}」" if b else f"联盟「{ent_key(ent)}」（已散）"
+            nm = ent_key(ent)
+            return (i18n.Msg("ent.bloc", name=nm) if self.bloc_by_name(nm)
+                    else i18n.Msg("ent.bloc_gone", name=nm))
         return ent_key(ent)
+
+    def entity_label(self, ent: str) -> str:
+        """日志/面板用的人话名（**已按缺省语言渲染**）。
+
+        ⚠ 这里必须返回 `str`：`mp_ai` 的保障/邀约行拿它做 `+` 拼接（`Msg` 故意不支持拼接
+        —— 一拼就把语言定死，见 i18n.py《键值化的约定》第 5 条）。mp.py 内部造文案一律走
+        `entity_text()` 返回 `Msg`，只有那种存量拼串边界才用它。
+        """
+        return i18n.show(self.entity_text(ent))
 
     def entities(self) -> list[str]:
         """全部现存外交实体（独立国家 + 联盟），**sorted** —— 面板与闭包都不许裸集合迭代。"""
@@ -719,11 +805,11 @@ class World:
         """实体是否卷入战争（任一国在打就算）——战时锁死与缔约禁令都看它。"""
         return any(self.at_war(m) for m in self.entity_members(ent))
 
-    def _war_brief_ent(self, ent: str) -> str:
+    def _war_brief_ent(self, ent: str) -> i18n.Text:
         for m in self.entity_members(ent):
             if self.at_war(m):
                 return self._war_brief(m)
-        return f"{self.entity_label(ent)} 正在交战"
+        return i18n.Msg("war.at_war", who=self.entity_text(ent))
 
     def _same_camp(self, x: str, y: str) -> bool:
         """x、y 是否"该并肩"：同属一个实体，或有共同防御（宣战并入战线的判据）。"""
@@ -770,50 +856,53 @@ class World:
                 return True
         return False
 
-    def drop_pacts_of(self, ent: str) -> list[str]:
+    def drop_pacts_of(self, ent: str) -> list[i18n.Text]:
         """清掉与该实体有关的一切条约（入盟吞掉个人条约、国家灭亡）。返回人话描述。"""
         gone = []
         for p in list(self.pacts):
             if ent in (p["a"], p["b"]):
                 self.pacts.remove(p)
-                gone.append(f"{p['kind']}（{self.entity_label(p['a'])}—{self.entity_label(p['b'])}）")
+                gone.append(i18n.Msg("pact.item", kind=p["kind"],
+                                     a=self.entity_text(p["a"]), b=self.entity_text(p["b"])))
         return gone
 
-    def _pact_block(self, kind: str, A: str, B: str) -> str | None:
+    def _pact_block(self, kind: str, A: str, B: str) -> i18n.Text | None:
         """准入：两实体能否签这种条约。返回拒绝理由，None=可以签。"""
         if A == B:
-            return (f"{self.entity_label(B)} 与你同属一个实体——盟内互通领土/互不攻击/互卫"
-                    "是联盟自带效果，无须也无法单独缔约")
+            return i18n.Msg("pact.same_entity", who=self.entity_text(B))
         if kind == "保障":
             if self.has_pact("保障", A, B):
-                return f"{self.entity_label(A)} 已保障 {self.entity_label(B)}，无须重复"
+                return i18n.Msg("pact.dup_guard", a=self.entity_text(A), b=self.entity_text(B))
             if self.has_pact("共同防御", A, B):
-                return f"两实体已有共同防御（更高一档），无须再保障"
+                return i18n.Msg("pact.dp_higher")
             return None
         if self.has_pact("共同防御", A, B):
-            return "两实体已是共同防御"
+            return i18n.Msg("pact.dp_exists")
         return None
 
-    def _conclude_pact(self, kind: str, A: str, B: str) -> tuple[bool, str]:
+    def _conclude_pact(self, kind: str, A: str, B: str) -> tuple[bool, i18n.Text]:
         """真正落条约（双方实体都已同意）。缔结共同防御时自动解除低档的保障。"""
         low = []
         if kind == "共同防御":
             for x, y in ((A, B), (B, A)):
                 if self._drop_pact("保障", x, y):
-                    low.append(f"{self.entity_label(x)} 对 {self.entity_label(y)} 的保障")
+                    low.append(i18n.Msg("pact.guard_of", a=self.entity_text(x),
+                                        b=self.entity_text(y)))
         self._add_pact(kind, A, B)
-        up = f"（自动解除低档：{'、'.join(low)}）" if low else ""
-        self.log(f"🕊 {self.entity_label(A)} 与 {self.entity_label(B)} 缔结{kind}{up}", phase="外交")
-        return True, f"{self.entity_label(A)} 与 {self.entity_label(B)} 缔结{kind}{up}"
+        msg = i18n.Msg("pact.concluded", a=self.entity_text(A), b=self.entity_text(B), kind=kind,
+                       up=(i18n.Msg("pact.auto_void", items=low) if low else ""))
+        self.log(i18n.Msg("pact.concluded.event", text=msg), phase="外交")
+        return True, msg
 
-    def _break_pacts_between(self, e1: str, e2: str) -> list[str]:
+    def _break_pacts_between(self, e1: str, e2: str) -> list[i18n.Text]:
         """开战前清约束：解除两实体之间的一切保障/共同防御（含双向保障）。"""
         out = []
         for kind, x, y in (("共同防御", e1, e2), ("保障", e1, e2), ("保障", e2, e1)):
             if self._drop_pact(kind, x, y):
-                out.append(f"解除 {self.entity_label(x)} 与 {self.entity_label(y)} 的{kind}")
-        for line in out:
-            self.log(f"💔 {line}（双方开战，自动解除）", phase="外交")
+                line = i18n.Msg("pact.broken", a=self.entity_text(x), b=self.entity_text(y),
+                                kind=kind)
+                out.append(line)
+                self.log(i18n.Msg("pact.broken.event", text=line), phase="外交")
         return out
 
     def _pact_exit_wars(self, side: list[str], other: list[str]) -> list[dict]:
@@ -851,18 +940,22 @@ class World:
                 return True
         return False
 
-    def _war_brief(self, name: str) -> str:
+    def _war_brief(self, name: str) -> i18n.Text:
         """给"战争期禁止外交"类错误提示用的战线简述。"""
         for w in self.wars:
             atk, dfs = self._war_sides(w)
             if name in atk:
-                return f"{name} 正与 {'、'.join(dfs)} 交战"
+                return i18n.Msg("war.brief", who=name, foes=dfs)
             if name in dfs:
-                return f"{name} 正与 {'、'.join(atk)} 交战"
+                return i18n.Msg("war.brief", who=name, foes=atk)
         return ""
 
     def bloc_desc(self) -> str:
-        """看海/面板用：全部联盟一览。"""
+        """看海/面板用：全部联盟一览。
+
+        ⚠ 只能返回**已渲染的 str**：`mp_ai.observer_board` 拿它做 `"联盟: " + bloc_desc()`
+        拼接（`Msg` 不支持拼接），要键值化得先改那一处调用点（不在本文件）。
+        """
         if not self.blocs:
             return "无联盟"
         parts = []
@@ -880,37 +973,51 @@ class World:
         if x is not None and self.nations:
             entry["seen"] = [n for n in self.nations if self.visible_to(n, x, y)]
 
-    def log(self, text: str, phase: str = "事件", nation: str | None = None,
-            x: int | None = None, y: int | None = None) -> str:
+    def log(self, text, phase: str = "事件", nation: str | None = None,
+            x: int | None = None, y: int | None = None):
+        """落一条纪事，并**原样返回** text（回执照旧 `return self.log(...)`）。
+
+        `text` 给 `i18n.Msg` 就存**键 + 参数**（渲染推到读取时，语言不进存档）；
+        给裸字符串就存原文——那是还没键值化的存量，不是兜底格式。
+        """
         entry = {
             "turn": self.turn, "phase": phase, "nation": nation,
-            "x": x, "y": y, "text": text,
+            "x": x, "y": y, "text": i18n.enc(text),
         }
         self._stamp_seen(entry)
         self.history.append(entry)
         return text
 
-    def action(self, nation: str, tool: str, args: str, result: str, x=None, y=None):
+    def action(self, nation: str, tool: str, args: str, result, x=None, y=None):
+        """把一次工具调用写进纪事：回执可能是 `Msg`（英文局要按各国的语言重渲染）。"""
         entry = {
             "turn": self.turn, "phase": "行动", "nation": nation,
             "x": x, "y": y,
-            "text": f"{nation} ◇ {tool} {args} → {result}",
+            "text": i18n.enc(i18n.Msg("journal.action", nation=nation, tool=tool,
+                                      args=args, result=result)),
         }
         self._stamp_seen(entry)
         self.history.append(entry)
 
-    def events_for(self, name: str, limit: int = 14) -> list[str]:
+    @staticmethod
+    def entry_text(h: dict, lang: str | None = None) -> str:
+        """一条纪事的正文（按键值渲染，读的时候才定语言）。"""
+        return i18n.show(h["text"], lang)
+
+    def events_for(self, name: str, limit: int = 14, lang: str | None = None) -> list[str]:
         """该国能看到的近期事件（自己相关，或发生在视野内）。信件走信箱，此处不重复。"""
         out = []
         for h in reversed(self.history):
             if h["phase"] == "信件":
                 continue
             if h["nation"] == name:
-                out.append(f"[第{h['turn']}回合] {h['text']}")
+                out.append(i18n.Msg("journal.event_line", turn=h["turn"],
+                                    text=i18n.Msg.from_json(h["text"])).render(lang))
             elif h.get("x") is not None and \
                     (name in h["seen"] if "seen" in h else self.visible_to(name, h["x"], h["y"])):
                 # ★ 按落盘时刻的视野快照过滤（_stamp_seen）；无快照的极少数条目退回现视野
-                out.append(f"[第{h['turn']}回合] {h['text']}")
+                out.append(i18n.Msg("journal.event_line", turn=h["turn"],
+                                    text=i18n.Msg.from_json(h["text"])).render(lang))
             if len(out) >= limit:
                 break
         return list(reversed(out))
@@ -987,15 +1094,15 @@ class World:
 
     # ------------------------------------------------------------- 看海中途加国
     def add_nation(self, name: str, polity: str = "", extra=None,
-                   start: dict | None = None, summary=None) -> tuple[bool, str]:
+                   start: dict | None = None, summary=None) -> tuple[bool, i18n.Text]:
         """看海中途加国：随机到距所有现有领地足够远的位置登场。polity='huns'=匈奴。
         extra=临时注入上下文(塞入正常 system_prompt，20回合后仅剩 summary 小结)；
         summary=20回合后常驻的小结(存进存档)；start=定制开局（如 {"骑":8,"黄金":2000,"补给":300}）。"""
         name = (name or "").strip()
         if not name:
-            return False, "需要国名，如 add 匈奴 / add 秦"
+            return False, i18n.Msg("err.need_nation_name")
         if name in self.nations:
-            return False, f"国家 {name} 已存在"
+            return False, i18n.Msg("err.nation_exists", name=name)
         polity = (polity or "").strip()
         is_huns = polity in ("匈奴", "huns", "hun")
         margin = max(ARRIVE_MARGIN_MIN, self.size // ARRIVE_MARGIN_DIV)
@@ -1021,7 +1128,6 @@ class World:
         if extra:
             self.extra_prompt[name] = {"text": str(extra), "until": self.turn + EXTRA_PROMPT_TURNS,
                                        "summary": str(summary or "")}
-        desc = ("匈奴" if is_huns else "国家") + f" {name} 登场（距各国至少 {margin} 格）"
         if is_huns:
             pd = POLITY["huns"]
             d0 = pd.get("start", {})
@@ -1031,17 +1137,20 @@ class World:
             sup = int(s.get("补给", d0.get("补给", 0)))
             r = pd.get("recruit", {}).get("骑", {}) or {}
             short = {"粮食": "粮", "装备": "装", "黄金": "金"}
-            rc = "+".join(f"{a}{short.get(k, k)}" for k, a in r.items()) or "—"
-            desc += (f"：开局 {cav} 骑兵·金{gold}·补给{sup}"
-                     f"·建筑+{pd.get('build_cost_pct', 100) - 100}%惩罚·骑兵征召{rc}"
-                     "·不能外交（只可勒索/宣战/逼降/求和）")
+            rc = _plus(i18n.Msg("nation.cost_item", n=a, res=short.get(k, k))
+                       for k, a in r.items()) or "—"
+            desc = i18n.Msg("nation.arrived_huns", name=name, margin=margin,
+                            cav=cav, gold=gold, sup=sup,
+                            bpct=pd.get("build_cost_pct", 100) - 100, rc=rc)
+        else:
+            desc = i18n.Msg("nation.arrived", name=name, margin=margin)
         self.log(desc, phase="事件", nation=name)
         return True, desc
 
-    def cheat(self, name: str, **kw) -> tuple[bool, str]:
+    def cheat(self, name: str, **kw) -> tuple[bool, i18n.Text]:
         """观海作弊补助：直接给某国加资源/骑兵（kw: 黄金/粮食/木头/矿石/石油/装备/补给/骑）。"""
         if name not in self.nations:
-            return False, f"国家 {name} 不存在"
+            return False, i18n.Msg("err.no_such_nation", name=name)
         r = self.nations[name].res
         parts = []
         home = self.own_tiles(name)[0] if self.own_tiles(name) else None
@@ -1053,14 +1162,14 @@ class World:
                     self.armies.append({"id": seq, "gid": gid, "name": army_name(name, seq, "骑"), "type": "骑",
                                         "hp": ARMY_MAX_HP, "x": home[0], "y": home[1],
                                         "owner": name, "moved_turn": -1, "engaged": False})
-                parts.append(f"骑+{v}")
+                parts.append(i18n.Msg("cheat.item", res="骑", n=v))
             elif k in r:
                 r[k] += v
-                parts.append(f"{k}+{v}")
+                parts.append(i18n.Msg("cheat.item", res=k, n=v))
         if not parts:
-            return False, "没补任何东西（可用 金/粮/木/矿/油/装/补/骑）"
-        self.log(f"⚙ 观海补助 {name}：{'、'.join(parts)}", phase="事件")  # 观察者可见
-        return True, f"已给 {name} 补助：{'、'.join(parts)}"
+            return False, i18n.Msg("cheat.nothing")
+        self.log(i18n.Msg("cheat.event", name=name, items=parts), phase="事件")  # 观察者可见
+        return True, i18n.Msg("cheat.done", name=name, items=parts)
 
     def apply_polity(self, name: str, polity: str, home: tuple[int, int] | None = None,
                      start: dict | None = None) -> None:
@@ -1105,58 +1214,67 @@ class World:
         p = t.get("pending", {})
         return {k: b.get(k, 0) + p.get(k, 0) for k in b}
 
-    def build(self, name: str, x: int, y: int, building: str) -> tuple[bool, str]:
-        """下单建造。造价即扣，但建筑先进入『在建』，回合结算时才落地，下回合起生效。"""
+    def build(self, name: str, x: int, y: int, building: str) -> tuple[bool, i18n.Text]:
+        """下单建造。造价即扣，但建筑先进入『在建』，回合结算时才落地，下回合起生效。
+
+        回执一律 `Msg`（键 + 参数）：语言不进存档，谁读谁定语言（口径见 `i18n.py`）。
+        """
         t = self.tiles.get((x, y))
         if name not in self.nations:
-            return False, f"国家 {name} 不存在"
+            return False, i18n.Msg("err.no_such_nation", name=name)
         if t is None or t["owner"] != name:
-            return False, "只能在自己的地块上建造"
+            return False, i18n.Msg("build.only_own_tile")
         if building not in BUILDINGS:
-            return False, f"未知建筑：{building}"
+            return False, i18n.Msg("err.unknown_building", building=building)
         info = BUILDINGS[building]
         b = t["buildings"]
         eff = self._eff(t)
         if t["built_this_turn"]:
-            return False, "该地块本回合已下过单（每地块每回合限建 1 座）"
+            return False, i18n.Msg("build.one_per_turn")
         if sum(eff.values()) >= MAX_SLOTS:
-            return False, f"建筑位已满（{MAX_SLOTS} 格，含在建）"
+            return False, i18n.Msg("build.slots_full", max=MAX_SLOTS)
         cr = info["cap_resource"]
         if cr is not None:
             have = t["resources"][cr]
             if have <= 0:
-                return False, f"本地无{cr}，无法建{building}"
+                return False, i18n.Msg("build.no_resource", res=cr, building=building)
             if eff[building] >= have:
-                return False, f"{building} 已达上限：本地 {cr}={have}"
+                return False, i18n.Msg("build.capped_by_resource",
+                                       building=building, res=cr, have=have)
         if info["kind"] == "castle" and eff[building] >= info["max_level"]:
-            return False, f"{building} 已达上限 L{info['max_level']}"
+            return False, i18n.Msg("build.max_level", building=building, max=info["max_level"])
         # 特殊约束（市政厅等）：需该地块已用建筑位达标（含在建）/ 每地块限座
         used_eff = sum(eff.values())
         if info.get("min_slots") and used_eff < info["min_slots"]:
-            return False, f"{building} 需该地块已用建筑位 ≥{info['min_slots']}（现 {used_eff}），先建满再盖"
+            return False, i18n.Msg("build.need_slots", building=building,
+                                   need=info["min_slots"], now=used_eff)
         if info.get("limit") and eff[building] >= info["limit"]:
-            return False, f"{building} 已达上限（每地块 {info['limit']} 座）"
+            return False, i18n.Msg("build.tile_limit", building=building, limit=info["limit"])
         if info.get("limit_nation") and self.diplo_built.get(name, 0) >= info["limit_nation"]:
-            return False, f"{building} 自建全国限 {info['limit_nation']} 座（已自建过；再要只能从别国手里抢）"
+            return False, i18n.Msg("build.nation_limit", building=building,
+                                   limit=info["limit_nation"])
         lv = eff[building]
         cost = info["cost"][lv] if info["kind"] == "castle" else info["cost"]
-        label = f"城堡L{lv+1}" if info["kind"] == "castle" else building
+        label = (i18n.Msg("building.castle_level", lv=lv + 1)
+                 if info["kind"] == "castle" else building)
         bp = TERRAIN_STATS[t["terrain"]]["build_penalty"]   # 地形施工惩罚（只上浮金价，木材不变）
         if bp:
             cost = cost * (100 + bp) // 100
-        disc = ""
+        disc = None
         if t["buildings"].get("工程院") and building != "工程院":
             _disc = building_effect("工程院", "build_discount")   # 只认**已落成**的（本格有它）
             cost = cost * (100 - _disc) // 100
-            disc = f"，工程院-{_disc}%"
+            disc = i18n.Msg("build.engineer_discount", pct=_disc)
         if self.polity.get(name) == "huns":
             # 政体建造惩罚（数值在 balance.POLITY，乘算：不擅建设，靠抢）
             cost = cost * self.polity_rule(name, "build_cost_pct", 100) // 100
         wood = info["wood"]
         if self.res(name, "黄金") < cost:
-            return False, f"黄金不足：{label} 需 {cost}，国库 {self.res(name,'黄金')}"
+            return False, i18n.Msg("build.no_gold", label=label, cost=cost,
+                                   have=self.res(name, "黄金"))
         if self.res(name, "木头") < wood:
-            return False, f"木材不足：{label} 需 {wood}，储备 {self.res(name,'木头')}"
+            return False, i18n.Msg("build.no_wood", label=label, wood=wood,
+                                   have=self.res(name, "木头"))
         self.add_res(name, "黄金", -cost)
         self.add_res(name, "木头", -wood)
         self.flow_out["木头"] += wood   # 世界流量：大兴土木推高木价
@@ -1168,46 +1286,49 @@ class World:
         t["built_this_turn"] = 1
         if building == "外交中心":
             self.diplo_built[name] = self.diplo_built.get(name, 0) + 1  # 自建名额记账（抢来的不占）
-        tile_name = t["name"]
-        note = f"，{t['terrain']}施工+{bp}%" if bp else ""
-        return True, f"动工 {label}（@{tile_name}{note}{disc}，本回合在建、下回合生效），-{cost}金 -{wood}木"
+        return True, i18n.Msg("build.started", label=label, tile=t["name"],
+                              note=(i18n.Msg("build.terrain_penalty", terrain=t["terrain"], pct=bp)
+                                    if bp else ""),
+                              disc=(disc or ""), cost=cost, wood=wood)
 
-    def recruit(self, name: str, x: int, y: int, n: int = 1, kind: str = "步") -> tuple[bool, str]:
+    def recruit(self, name: str, x: int, y: int, n: int = 1, kind: str = "步"
+                ) -> tuple[bool, i18n.Text]:
         t = self.tiles.get((x, y))
         if kind not in UNIT_TYPES:
-            return False, f"未知兵种：{kind}（可选：{'、'.join(UNIT_TYPES)}）"
+            return False, i18n.Msg("err.unknown_unit", kind=kind, kinds=list(UNIT_TYPES))
         if name not in self.nations:
-            return False, f"国家 {name} 不存在"
+            return False, i18n.Msg("err.no_such_nation", name=name)
         if t is None or t["owner"] != name:
-            return False, "只能在自己有兵营/军屯的地块征兵"
+            return False, i18n.Msg("recruit.only_own")
         if kind == "民":
             # 民兵走军屯征召：军屯不耗电，不受全国电网停摆影响。
             # 双限额：每座军屯每回合 1 支；且**全国民兵总数 ≤ 全国军屯总数**（军屯=民兵编制上限）
             if t["buildings"]["军屯"] <= 0:
-                return False, "该地块没有军屯（民兵只能在军屯征召：50金+5粮/支，每军屯每回合1支）"
+                return False, i18n.Msg("recruit.no_garrison_farm")
             _mcap = building_effect("军屯", "militia_cap")
             tile_cap = t["buildings"]["军屯"] * _mcap - t.get("militia_recruited_this_turn", 0)
             if tile_cap <= 0:
-                return False, "本回合该地块民兵征召产能已用完（每军屯 1 支/回合）"
+                return False, i18n.Msg("recruit.militia_tile_done")
             quota = self.nation_building_count(name, "军屯")
             alive = sum(1 for a in self.troops if a["owner"] == name and unit_kind(a) == "民")
             cap = min(tile_cap, quota - alive)
             if cap <= 0:
-                return False, (f"民兵总数已达军屯编制上限（{alive}/{quota} 座）："
-                               f"军屯即民兵编制——想扩编先建军屯，阵亡后方可补员")
+                return False, i18n.Msg("recruit.militia_cap", alive=alive, quota=quota)
         else:
             if self.grid_short.get(name):
-                return False, "全国电网不足，高级建筑（含兵营）停摆，无法征兵"
+                return False, i18n.Msg("recruit.grid_short")
             if t["buildings"]["兵营"] <= 0:
-                return False, "该地块没有兵营"
+                return False, i18n.Msg("recruit.no_barracks")
             cap = t["buildings"]["兵营"] * building_effect("兵营", "recruit_cap") - t["recruited_this_turn"]
             if cap <= 0:
-                return False, "本回合征召产能已用完（每兵营 1 支/回合）"
+                return False, i18n.Msg("recruit.tile_done")
         n = min(n, cap)
         cost = self.recruit_cost(name, kind)
         n = min(n, min(self.res(name, f) // amt for f, amt in cost.items()))
         if n <= 0:
-            return False, "战略储备不足（每支耗 " + "、".join(f"{f}x{a}" for f, a in cost.items()) + "）"
+            return False, i18n.Msg("recruit.no_res",
+                                   cost=[i18n.Msg("recruit.cost_item", res=f, amt=a)
+                                         for f, a in cost.items()])
         spent = 0.0
         for f, amt in cost.items():
             self.add_res(name, f, -amt * n)
@@ -1230,7 +1351,8 @@ class World:
             t["militia_recruited_this_turn"] = t.get("militia_recruited_this_turn", 0) + n
         else:
             t["recruited_this_turn"] += n
-        return True, f"征召 {n} 支{UNIT_TYPES[kind]['label']} @{t['name']}"
+        return True, i18n.Msg("recruit.done", n=n, unit=UNIT_TYPES[kind]["label"],
+                              tile=t["name"])
 
     # ------------------------------------------------------------- 军队
     def _assign_code(self, name: str) -> None:
@@ -1378,23 +1500,23 @@ class World:
         for a in armies:
             a["moved_turn"] = self.turn
 
-    def move(self, name: str, aid: int, x: int, y: int) -> tuple[bool, str]:
+    def move(self, name: str, aid: int, x: int, y: int) -> tuple[bool, i18n.Text]:
         a = self._army(name, aid)
         if a is None:
-            return False, f"军队 {aid} 不存在"
+            return False, i18n.Msg("army.not_found", aid=aid)
         if a.get("engaged"):
-            return False, f"{a['name']} 交战中，先 retreat 撤出"
+            return False, i18n.Msg("army.engaged_no_mv", army=a["name"])
         # 交战地中的军队（含防守方）不能直接 mv 撤离——撤出走 retreat（回合末随战斗结算后脱离）
         if any(d["owner"] != a["owner"] and d["owner"] != "野人" and d.get("engaged")
                and (d["x"], d["y"]) == (a["x"], a["y"]) and self.war_between(a["owner"], d["owner"])
                for d in self.troops):        # 谓词排除野人 ⇒ 只扫国家军队
-            return False, f"{a['name']} 所在格正在交战，不能直接 mv 撤离；撤出请用 retreat（回合末随战斗结算后脱离）"
+            return False, i18n.Msg("army.battle_tile_mv", army=a["name"])
         try:
             self._check(x, y)
         except IndexError as e:
-            return False, str(e)
+            return False, _why(e)
         if a.get("moved_turn") == self.turn:
-            return False, "本回合已移动过"
+            return False, i18n.Msg("mv.onetime")
         # ★ 目标格本身的墙先判（与旧口径一致：视野外撞墙 → 报错照给、**额度照烧**，侦察要付钱）。
         #   然后才是"走不到"（地形代价/中途被挡）——那一条**不烧额度**（旧版的射程不够也不罚）。
         why = self._mv_wall(name, x, y)
@@ -1406,9 +1528,9 @@ class World:
         # mv 只挪位置，不占地——占地走 atk
         a["x"], a["y"] = x, y
         a["moved_turn"] = self.turn
-        return True, f"军队{a['id']} 移防 ({x+1},{y+1})"
+        return True, i18n.Msg("mv.done", army=a["id"], x=x + 1, y=y + 1)
 
-    def attack(self, name: str, aids: list[int], x: int, y: int) -> tuple[bool, str]:
+    def attack(self, name: str, aids: list[int], x: int, y: int) -> tuple[bool, i18n.Text]:
         """atk = 一次『进军占地』：派军队进目标格——
         有守军(野人/敌国军)就交战（打赢后按索取顺序占地）；格上**无任何军队**才直接进驻占领（空城/无主空地），
         他国领土上有非敌军队（中立/第三方）则不能进驻；**野地例外**——和平驻守的第三方不参战、不占地，
@@ -1417,17 +1539,19 @@ class World:
         try:
             self._check(x, y)
         except IndexError as e:
-            return False, str(e)
+            return False, _why(e)
         targets = [a for a in self.armies if a["owner"] == name and a["id"] in aids]
         if not targets:
-            return False, f"未找到我方军队 {aids}"
+            # `str(aids)`：原样保留 `[1, 2]` 这个**记法**（渲染器只会按语言用顿号/逗号连列表，
+            # 拿它当参数会把中文的方括号逗号改掉）
+            return False, i18n.Msg("army.none_found", ids=str(aids))
         # ★ 目标格上的"墙"与 mv 同规：视野外撞墙 → 报错如实，但突入军队本回合额度照烧。
         owner = self.owned_by(x, y)
         why = None
         if owner is not None and (owner == name or self.allied_between(name, owner)):
-            why = "目标是自己或盟国的领土，不能进攻"
+            why = i18n.Msg("atk.own_or_ally")
         elif owner is not None and not self.war_between(name, owner):
-            why = "中立不可攻击他国领土"
+            why = i18n.Msg("atk.neutral")
         else:
             # 野地上别人正在打野（交战方与你既非敌也非盟）→ 不能插足抢地：
             # 这是「不抢别人的战斗」——中立打野时你不能 atk；盟友/敌人在打野则可以参战
@@ -1436,34 +1560,32 @@ class World:
                     if (a["x"], a["y"]) == (x, y) and a.get("engaged") and a["owner"] not in ("野人", name)]
             if owner is None and busy and not any(self.war_between(name, a["owner"]) or self.allied_between(name, a["owner"])
                                                   for a in busy):
-                other = busy[0]["owner"]
-                why = (f"({x+1},{y+1}) 有 {other}军正在打野（与你非交战也非盟友），"
-                       f"不能插足抢地——等这场战斗打完再 atk（想插手就先向 {other} 宣战）；"
-                       f"旁观可以 mv 过去（不参战）")
+                why = i18n.Msg("atk.hunting", x=x + 1, y=y + 1, other=busy[0]["owner"],
+                               foe=i18n.Msg("army.nation_army", who=busy[0]["owner"]))
         if why:
             self._blind_cost(name, targets, x, y)   # 视野外撞墙：报错照给，突入军队的移动额度照烧
             return False, why
         defs = self._defs_at(name, x, y)
         for a in targets:
             if a.get("engaged") and (a["x"], a["y"]) != (x, y):
-                return False, (f"{a['name']} 正在交战中，不能离开战场改攻他处；"
-                               f"想脱战先 retreat 军队id 目标格（会挨守军一击）")
+                return False, i18n.Msg("army.engaged_locked", army=a["name"])
             # ★ atk 也**逐格**走：隔着山/隔着别人的地界就冲不进去（旧版是 5×5 直取）
             if (a["x"], a["y"]) != (x, y) and (x, y) not in self._reachable(name, a, for_attack=True):
                 return False, self._unreachable_msg(a, x, y, for_attack=True)
             if (a["x"], a["y"]) != (x, y) and a.get("moved_turn") == self.turn:
-                return False, f"{a['name']} 本回合已移动过"
+                return False, i18n.Msg("army.moved_already", army=a["name"])
         for a in targets:
             if (a["x"], a["y"]) != (x, y):
                 a["x"], a["y"] = x, y
                 a["moved_turn"] = self.turn
-        ids = "、".join(f"{a['name']}" for a in targets)
+        ids = [a["name"] for a in targets]
         if defs:
             for a in targets:
                 a["engaged"] = True
                 a["engage_seq"] = self._next_engage_seq()  # 野地索取顺序：谁先 atk 谁号小
-            who = "野人" if defs[0]["owner"] == "野人" else f"{defs[0]['owner']}军"
-            return True, f"{ids} 冲入 ({x+1},{y+1}) 与{who}交战，之后每回合结算一轮；可 retreat 撤出"
+            who = ("野人" if defs[0]["owner"] == "野人"
+                   else i18n.Msg("army.nation_army", who=defs[0]["owner"]))
+            return True, i18n.Msg("atk.engaged", ids=ids, x=x + 1, y=y + 1, who=who)
         # 格上还有其他军队但不是你的敌人（中立/盟友，和平驻守）：
         #  · 他国领土 → 不能进驻（旧规：中立地不进门）；
         #  · 野地（无主）→ 和平驻守不产生任何权利、也不构成障碍：atk 只打野人/敌人，
@@ -1471,14 +1593,13 @@ class World:
         squatters = sorted({a["owner"] for a in self.armies
                             if a["owner"] != name and a["hp"] > 0 and (a["x"], a["y"]) == (x, y)})
         if squatters and owner is not None:
-            return False, (f"({x+1},{y+1}) 有他国军队但并非你的敌人（中立/第三方），"
-                           f"不能直接进驻；只能攻击敌人或占领无任何守军的空地")
+            return False, i18n.Msg("atk.squatter", x=x + 1, y=y + 1)
         # 格上无守军/敌人 → atk 进驻即占
         _ok, cmsg = self._conquer(x, y, name, "进驻占领", log_it=False)
-        nm2 = self.tiles[(x, y)]["name"]
-        self.log(f"{name} {ids} 进驻 ({x+1},{y+1})，{cmsg}", phase="领土", nation=name, x=x, y=y)
-        note = (f"（{'、'.join(squatters)}军未参战，回合末自动遣返）" if squatters else "")
-        return True, f"{ids} 进驻 ({x+1},{y+1})，敌人为 0，{cmsg}{note}"
+        self.log(i18n.Msg("atk.occupy.event", who=name, ids=ids, x=x + 1, y=y + 1, msg=cmsg),
+                 phase="领土", nation=name, x=x, y=y)
+        return True, i18n.Msg("atk.occupy", ids=ids, x=x + 1, y=y + 1, msg=cmsg,
+                              note=(i18n.Msg("war.bystanders", who=squatters) if squatters else ""))
 
     def _retreat_legal(self, name: str, x: int, y: int) -> bool:
         """撤退合法点：无人荒地 / 己方领土 / 同盟领土（中立与敌国格都不行）。
@@ -1494,7 +1615,7 @@ class World:
                        and (a["x"], a["y"]) == (x, y) and self.war_between(name, a["owner"])
                        for a in self.troops)
 
-    def retreat(self, name: str, aid: int, x: int, y: int) -> tuple[bool, str]:
+    def retreat(self, name: str, aid: int, x: int, y: int) -> tuple[bool, i18n.Text]:
         """撤出：与 mv/atk 同一个『每回合一次移动』额度。
         交战中的军队（含防守方守军）都能用；撤退固定只能退相邻 1 格（3×3，所有人，不按兵种速度）；
         目标限 己方/同盟/无人荒地（中立与敌国格都不行）；四周没有合法撤退点则不能撤退。
@@ -1502,29 +1623,29 @@ class World:
         RETREAT_DEF_COVER%），结算后自动脱离到目标格——避免『每撤一支各吃一次全额』的灾难。"""
         a = self._army(name, aid)
         if a is None:
-            return False, f"军队 {aid} 不存在"
+            return False, i18n.Msg("army.not_found", aid=aid)
         in_battle = bool(a.get("engaged")) or any(
             d["owner"] != a["owner"] and d["owner"] != "野人" and d.get("engaged")
             and (d["x"], d["y"]) == (a["x"], a["y"]) and self.war_between(a["owner"], d["owner"])
             for d in self.troops)
         if not in_battle:
-            return False, f"{a['name']} 未在交战中，无需撤退"
+            return False, i18n.Msg("retreat.not_engaged", army=a["name"])
         try:
             self._check(x, y)
         except IndexError as e:
-            return False, str(e)
+            return False, _why(e)
         if (a["x"], a["y"]) == (x, y):
-            return False, "撤出需选一个不同的格"
+            return False, i18n.Msg("retreat.same_tile")
         if max(abs(a["x"] - x), abs(a["y"] - y)) > RETREAT_RANGE:
-            return False, "撤退固定只能退相邻 1 格（3×3），超出范围"
+            return False, i18n.Msg("retreat.out_of_range")
         # 没有合法撤退点则不能撤退（目标限 己方/同盟/无人荒地）
         if not any(self._retreat_legal(name, nx, ny)
                    for nx, ny in self.neighbors(a["x"], a["y"])):
-            return False, "四周没有合法撤退点（己方/同盟/无人荒地），无法撤退"
+            return False, i18n.Msg("retreat.no_exit")
         if a.get("moved_turn") == self.turn:
-            return False, f"{a['name']} 本回合已移动/进攻过，移动额度用尽，撤不出（下回合再撤）"
+            return False, i18n.Msg("retreat.spent", army=a["name"])
         if not self._retreat_legal(name, x, y):
-            return False, "不能撤到敌国或中立国的格子；只能撤向 己方/同盟/无人荒地"
+            return False, i18n.Msg("retreat.illegal_tile")
         # 撤退不立刻结算：标记 retreat_to 留在原地，本回合结束时随战斗结算走正常战斗机制
         # （敌方伤害全场分摊，撤退者在场照常吃自己那份；防御方撤退减伤 RETREAT_DEF_COVER%），
         # 结算后自动脱离到目标格（见 resolve_turn 撤退落地）。
@@ -1537,9 +1658,9 @@ class World:
         a["retreat_to"] = [x, y]
         a["retreat_cover"] = cover
         a["moved_turn"] = self.turn
-        note = f"（防御方撤退，结算减伤 {100 - cover}%）" if cover < 100 else ""
-        return True, (f"{a['name']} 准备撤到 ({x+1},{y+1}){note}：本回合结束时随战斗结算"
-                      f"（全场分摊）后自动脱离；结算期间仍在战场")
+        return True, i18n.Msg(
+            "retreat.pending", army=a["name"], x=x + 1, y=y + 1,
+            note=(i18n.Msg("retreat.cover", pct=100 - cover) if cover < 100 else ""))
 
     # ------------------------------------------------------------- 战斗
     def _die(self):
@@ -1575,11 +1696,11 @@ class World:
         """每方骰修正的简短文本：如「甲+5% 乙-15%」。"""
         return " ".join(f"{F}{m:+d}%" for F, m in sorted(mods.items())) or "—"
 
-    def _resolve_battles(self) -> list[str]:
+    def _resolve_battles(self) -> list[i18n.Text]:
         """每格每回合的多势力交战结算：**进攻方不纯联合**——每方独立只打自己的敌人（互相宣战才互打），
         每方掷自己的骰；野人只守无主格、只打"进攻方"（不打扰和平停驻者）；地形/城堡减伤只给格主/野人；
         同格多方同时出手再统一结算阵亡；占地 = 唯一幸存且野人已清的势力。"""
-        lines: list[tuple[int, int, str]] = []  # (x, y, 战报行)——带坐标才进得了事件视野
+        lines: list[tuple[int, int, i18n.Text]] = []  # (x, y, 战报行)——带坐标才进得了事件视野
         engaged = [a for a in self.armies if a.get("engaged") and a["owner"] != "野人"]
         for (x, y) in sorted({(a["x"], a["y"]) for a in engaged}):
             tag = f"({x+1},{y+1}){self.ter_char(x, y)}"
@@ -1659,57 +1780,66 @@ class World:
             # 占地 / 战报：归属候选 = 进攻方中「无活敌」者，按索取顺序取最早 atk 的（索取者优先；
             # 索取者阵亡则顺位最早入场的同盟者）。野地与敌国同规。
             win = self._claim_winner(alive, attackers=attacker)
-            desc_alive = "；".join(f"{F} 余{len(alive[F])}支[{alive[F][0]['hp']}hp]" for F in survivors)
+
+            def _remains(F: str) -> i18n.Text:
+                """「楚 余2支[87]」——战报里每一方的存量口径。"""
+                return i18n.Msg("battle.remains", who=F, n=len(alive[F]), hp=alive[F][0]["hp"])
+
+            def _left(F: str) -> i18n.Text:
+                return i18n.Msg("battle.left", n=len(alive[F]), hp=alive[F][0]["hp"])
+
+            desc_alive = _semi(_remains(F) for F in survivors)
             if owner is None:
                 # ---- 野地（无主）----
                 # 野人清空 + 有归属候选 → 占地；和平驻守的第三方不占地也不参战（回合末被遣返）。
                 if "野人" in alive:
                     if win is not None:
-                        fs = alive[win]
-                        lines.append((x, y, f"⚔ {win} 仍与野人交战 @{tag}"
-                                     f"（余{len(fs)}支[{fs[0]['hp']}hp]，守军未清，占不得）"))
+                        lines.append((x, y, i18n.Msg("battle.still_fighting", win=win, tag=tag,
+                                                     left=_left(win))))
                     else:
-                        lines.append((x, y, f"⚔ 攻方全灭 @{tag}，野人仍在（无主地守军未清）"))
+                        lines.append((x, y, i18n.Msg("battle.attackers_wiped", tag=tag)))
                 elif win is not None:
-                    fs = alive[win]
-                    info = f"{win} 余{len(fs)}支[{fs[0]['hp']}hp]"
                     _ok, msg = self._conquer(x, y, win, "进驻")
                     others = [F for F in survivors if F != win and F in attacker]
-                    joint = (f"（共占，按索取顺序归 {win}；同场 {'、'.join(others)}）" if others else "")
                     sq = sorted(F for F in survivors if F not in attacker)
-                    squeeze = (f"（{'、'.join(sq)}军未参战，回合末自动遣返）" if sq else "")
-                    lines.append((x, y, f"⚔ 全歼守军 @{tag}，{msg}（{info}）{joint}{squeeze}"))
+                    lines.append((x, y, i18n.Msg(
+                        "battle.take_over", tag=tag, msg=msg, info=_remains(win),
+                        joint=(i18n.Msg("battle.joint", win=win, items=others) if others else ""),
+                        squeeze=(i18n.Msg("war.bystanders", who=sq) if sq else ""))))
                 elif any(F in attacker for F in survivors):
-                    lines.append((x, y, f"⚔ 多方混战 @{tag}（骰 {self._modtxt(mods)}）：{desc_alive}（战局未定）"))
+                    lines.append((x, y, i18n.Msg("battle.melee", tag=tag,
+                                                 dice=self._modtxt(mods), desc=desc_alive)))
                 elif survivors:
-                    lines.append((x, y, f"⚔ 野人已清 @{tag}，但场上只剩未参战的驻军，野地维持无主"))
+                    lines.append((x, y, i18n.Msg("battle.guards_gone", tag=tag)))
                 else:
-                    lines.append((x, y, f"⚔ 同归于尽 @{tag}——此地成无主空地，可直接占领"))
+                    lines.append((x, y, i18n.Msg("battle.mutual_kill_open", tag=tag)))
             else:
                 # ---- 他国领土：同一套索取顺序（多国共同围攻时，第一个 atk 者优先接管）----
                 if win is not None and win != owner:
-                    fs = alive[win]
-                    info = f"{win} 余{len(fs)}支[{fs[0]['hp']}hp]"
-                    ok, msg = self._conquer(x, y, win, "攻陷")
-                    lines.append((x, y, f"⚔ 全歼守军 @{tag}，{msg}（{info}）"))
+                    _ok, msg = self._conquer(x, y, win, "攻陷")
+                    lines.append((x, y, i18n.Msg("battle.take_over", tag=tag, msg=msg,
+                                                 info=_remains(win), joint="", squeeze="")))
                 elif owner in alive:
-                    fs = alive[owner]
-                    info = f"{owner} 余{len(fs)}支[{fs[0]['hp']}hp]"
                     if any(F in attacker for F in survivors):
-                        lines.append((x, y, f"⚔ 守军坚守 @{tag}：{info}，攻方未退"
-                                     f"（骰 {self._modtxt(mods)}）"))
+                        lines.append((x, y, i18n.Msg("battle.held", tag=tag,
+                                                     info=_remains(owner),
+                                                     dice=self._modtxt(mods))))
                     else:
                         dead = sum(len(v) for F, v in forces.items() if F != owner)
-                        lines.append((x, y, f"⚔ 守军坚守 @{tag}：攻方{dead}支全灭，{info}"
-                                     f"（骰 {self._modtxt(mods)}）"))
+                        lines.append((x, y, i18n.Msg("battle.held_wiped", tag=tag, dead=dead,
+                                                     info=_remains(owner),
+                                                     dice=self._modtxt(mods))))
                 elif survivors:
-                    lines.append((x, y, f"⚔ 多方混战 @{tag}（骰 {self._modtxt(mods)}）：{desc_alive}（战局未定）"))
+                    lines.append((x, y, i18n.Msg("battle.melee", tag=tag,
+                                                 dice=self._modtxt(mods), desc=desc_alive)))
                 else:
-                    lines.append((x, y, f"⚔ 同归于尽 @{tag}——城仍在敌手"))
+                    lines.append((x, y, i18n.Msg("battle.mutual_kill_held", tag=tag)))
         return lines
 
     # ------------------------------------------------------------- 占领/灭国
-    def _conquer(self, x: int, y: int, by: str, how: str, *, log_it: bool = True) -> tuple[bool, str]:
+    def _conquer(self, x: int, y: int, by: str, how: str,
+                 *, log_it: bool = True) -> tuple[bool, i18n.Text]:
+        """占地。`how` 是**内部规范词**（进驻/进驻占领/攻陷/守军尽撤），英文由词库给。"""
         self._check(x, y)
         old = self.owned_by(x, y)
         self.guard_once.discard((x, y))
@@ -1717,17 +1847,16 @@ class World:
         if old is None:
             t = self._new_tile(x, y, by)
             self.tiles[(x, y)] = t
-            msg = f"{by} {how}拓疆「{t['name']}」({x+1},{y+1}){t['terrain']}"
+            msg = i18n.Msg("conquer.expand", by=by, how=how, tile=t["name"],
+                           x=x + 1, y=y + 1, terrain=t["terrain"])
         elif old != by:
             t = self.tiles[(x, y)]
             t["owner"] = by
-            msg = f"{by} {how}「{t['name']}」({x+1},{y+1})"
             extra = self._return_core(x, y, by)  # 同战线盟友核心领土 → 自动归还
-            if extra:
-                t = self.tiles[(x, y)]
-                msg += extra
+            msg = i18n.Msg("conquer.seize", by=by, how=how, tile=t["name"],
+                           x=x + 1, y=y + 1, extra=extra)
         else:
-            return False, "已是自己领土"
+            return False, i18n.Msg("conquer.already_own")
         if log_it:
             self.log(msg, phase="领土", nation=by, x=x, y=y)
         if old and old != by:
@@ -1739,7 +1868,7 @@ class World:
             return False
         if any(t["owner"] == name for t in self.tiles.values()):
             return False
-        self.log(f"☠ {name} 亡国：领土尽失，国祚断绝！", phase="灭国", nation=name)
+        self.log(i18n.Msg("nation.fallen", name=name), phase="灭国", nation=name)
         del self.nations[name]
         # 军队解散
         self.armies = [a for a in self.armies if a["owner"] != name]
@@ -1766,11 +1895,12 @@ class World:
                 if bloc["members"]:
                     if was_chief:
                         bloc["chief"] = bloc["members"][0]
-                        self.log(f"👑 {name} 亡国，盟主之位由 {bloc['chief']} 继承（联盟「{bloc['name']}」）",
+                        self.log(i18n.Msg("bloc.chief_inherited", name=name,
+                                          chief=bloc["chief"], bloc=bloc["name"]),
                                  phase="外交")
                 else:
                     self.blocs.remove(bloc)
-                    self.log(f"💔 联盟「{bloc['name']}」因成员凋零而解散", phase="外交")
+                    self.log(i18n.Msg("bloc.dissolved_wane", bloc=bloc["name"]), phase="外交")
         self.votes = [v for v in self.votes if self.bloc_by_name(v["bloc"]) is not None]
         self.truce = {p: u for p, u in self.truce.items() if name not in p}
         # 一方灭亡 → 强制全天下休战 10 回合（防连环征服滚雪球；已有更长休战则保留）
@@ -1781,7 +1911,7 @@ class World:
                 self.truce[p] = max(self.truce.get(p, 0), self.turn + FALL_TRUCE_TURNS)
         gone = self.drop_pacts_of(ent_nation(name))
         if gone:
-            self.log(f"💔 {name} 亡国，其条约随之作废（{'、'.join(gone)}）", phase="外交")
+            self.log(i18n.Msg("pacts.voided", name=name, items=gone), phase="外交")
         self.mailbox.pop(name, None)
         self.summaries.pop(name, None)
         self.summary_blocks.pop(name, None)
@@ -1910,10 +2040,10 @@ class World:
             self.econ_reports.setdefault(n, []).append(snap)
             # 公告一条（看海终端可见；该国在【近讯】里也能看到 → 提醒它去 report 查）
             mr = snap["military_ratio"]
-            self.log(f"📊 第 {snap['report_turn']} 回合经济报表已生成："
-                     f"本回合 GDP {snap['gdp']:.0f} 金、军费占 GDP "
-                     f"{f'{mr * 100:.0f}%' if mr is not None else '—'}、"
-                     f"总资产 {snap['assets']:.0f}（report 看明细 / report all=true 看趋势）",
+            self.log(i18n.Msg("report.ready", turn=snap["report_turn"], gdp=snap["gdp"],
+                              ratio=(i18n.Msg("report.mil_ratio", pct=mr * 100)
+                                     if mr is not None else "—"),
+                              assets=snap["assets"]),
                      phase="内政", nation=n)
         self.ledger = {}
 
@@ -2030,19 +2160,20 @@ class World:
             if self._retreat_legal(a["owner"], tx, ty):
                 a["x"], a["y"] = tx, ty
                 a["engaged"] = False
-                self.log(f"{a['name']} 撤到 ({tx+1},{ty+1})，脱离交战", phase="战报",
-                         nation=a["owner"], x=tx, y=ty)
+                self.log(i18n.Msg("battle.retreated", army=a["name"], x=tx + 1, y=ty + 1),
+                         phase="战报", nation=a["owner"], x=tx, y=ty)
             else:
                 alts = [(nx, ny) for nx, ny in self.neighbors(a["x"], a["y"])
                         if (nx, ny) != (a["x"], a["y"]) and self._retreat_legal(a["owner"], nx, ny)]
                 if alts:
                     a["x"], a["y"] = alts[0]
                     a["engaged"] = False
-                    self.log(f"{a['name']} 撤退目标格战局生变，改撤 ({alts[0][0]+1},{alts[0][1]+1})",
+                    self.log(i18n.Msg("battle.retreat_rerouted", army=a["name"],
+                                      x=alts[0][0] + 1, y=alts[0][1] + 1),
                              phase="战报", nation=a["owner"], x=alts[0][0], y=alts[0][1])
                 else:
-                    self.log(f"{a['name']} 撤退目标格已不合法且四周无可退点，原地留守", phase="战报",
-                             nation=a["owner"], x=a["x"], y=a["y"])
+                    self.log(i18n.Msg("battle.retreat_blocked", army=a["name"]),
+                             phase="战报", nation=a["owner"], x=a["x"], y=a["y"])
 
         # 4) 军队补给 + 回复（每国吃自己的补给仓）
         famine = {}
@@ -2076,12 +2207,13 @@ class World:
                     continue  # 断粮或所在格正在交战（含防御方守军）→ 不回血
                 a["hp"] = min(unit_max_hp(a), a["hp"] + ARMY_HEAL_PER_TURN)
         for n, (short, per, dead) in famine.items():
-            self.log(f"⚠ {n} 补给断粮（缺 {short}，每军 -{per}HP）：{dead} 支军队饿毙", phase="内政", nation=n)
+            self.log(i18n.Msg("supply.famine", who=n, short=short, per=per, dead=dead),
+                     phase="内政", nation=n)
 
         # 4.9) 脱离清扫：撤退军已落地离开原格，格上留守者不该再背「交战中」
         cleared = self._clear_disengaged()
         if cleared:
-            self.log(f" {cleared} 支军队解除交战（敌军已撤离/覆灭）", phase="战报")
+            self.log(i18n.Msg("battle.disengaged", n=cleared), phase="战报")
 
         # 4.95) 弃城即陷：本回合发生过战斗的格子，守军全撤走/覆灭后格上只剩唯一一方
         # （且与格主交战）→ 直接改旗。兑现 rules 既定的「守军弃城即陷」，无需再补一刀 atk。
@@ -2104,7 +2236,8 @@ class World:
                 continue
             ok, msg = self._conquer(bx, by, g, "守军尽撤")
             if ok:
-                self.log(f"⚔ 守军尽撤 @({bx + 1},{by + 1}){self.ter_char(bx, by)}，{msg}",
+                self.log(i18n.Msg("battle.abandoned", x=bx + 1, y=by + 1,
+                                  ter=self.ter_char(bx, by), msg=msg),
                          phase="战报", x=bx, y=by)
 
         # 5) 非法滞留 → 自动遣返（断盟/退盟/停战后必须撤出）
@@ -2125,18 +2258,22 @@ class World:
             t["pending"] = {k: 0 for k in BUILDINGS}
 
         # 7) 各国结算摘要（供 agent 看）
+        #    ★ 存的是**键值**（`econ_summary` 在 `SAVE_KEYS` 里，搬运时走 `i18n.enc` /
+        #    `Msg.from_json`），面板只把它当一个槽位值贴上去 ⇒ 存档与语言无关。
         for n in self.alive():
             et, mt, short = self.energy_report.get(n, (0, 0, False))
-            parts = [f"{k}+{v}" for k, v in prod[n].items() if v]
+            parts = [i18n.Msg("econ.gain", g=k, v=v) for k, v in prod[n].items() if v]
             if gold_in[n]:
-                parts.append(f"金+{gold_in[n]}")
-            fam = f"，⚠断粮缺{famine[n][0]}" if famine.get(n) else ""
-            grid = "停摆" if short else f"电{et}/{mt}"
-            armies = len(self.nation_armies(n))
-            self.econ_summary[n] = (
-                f"产出 {' '.join(parts) if parts else '无'} | 电网 {grid} | 军队 {armies} 支{fam} | "
-                f"国库{self.res(n,'黄金')} 木{self.res(n,'木头')} 补给仓{self.res(n,'补给')}"
-            )
+                parts.append(i18n.Msg("econ.gain_gold", v=gold_in[n]))
+            self.econ_summary[n] = i18n.Msg(
+                "econ.summary",
+                parts=_sp(parts) if parts else i18n.Msg("fmt.none"),
+                grid=(i18n.Msg("fmt.stop") if short
+                      else i18n.Msg("econ.grid", out=et, need=mt)),
+                armies=len(self.nation_armies(n)),
+                fam=(i18n.Msg("econ.famine", n=famine[n][0]) if famine.get(n) else ""),
+                gold=self.res(n, '黄金'), wood=self.res(n, '木头'),
+                supply=self.res(n, '补给'))
 
         # 7.5) 经济报表：每 REPORT_EVERY 回合自动结一期（第 11/21/31… 回合开局可查）
         # 报表是派生数据（坏了不影响世界状态），所以这里兜底：出岔子只跳过本期并记进纪事，
@@ -2145,7 +2282,8 @@ class World:
             try:
                 self._close_report_period(runrate_from)
             except Exception as e:
-                self.log(f"⚠ 经济报表生成失败，本期跳过：{type(e).__name__}: {e}", phase="内政")
+                self.log(i18n.Msg("report.failed", err=type(e).__name__, why=str(e)),
+                         phase="内政")
         return {"war_lines": flat_lines, "famine": famine}
 
     def _supply_need(self, n: str, ps: list[dict]) -> int:
@@ -2225,7 +2363,9 @@ class World:
                     a["x"], a["y"] = best
                     moved = True
                 if moved:
-                    self.log(f"🚶 {n} 军队{a['id']} 自敌境「遣返」撤向合法地（{a['x']+1},{a['y']+1}）", phase="事件", nation=n, x=a["x"], y=a["y"])
+                    self.log(i18n.Msg("army.repatriated", who=n, army=a["id"],
+                                      x=a["x"] + 1, y=a["y"] + 1),
+                             phase="事件", nation=n, x=a["x"], y=a["y"])
 
     def _enterable_step(self, n: str, x: int, y: int, forced: bool = False) -> bool:
         """军队能否落步到 (x,y)。forced=True 供强制遣返用：军队已非法滞留他国（断盟/停战后），
@@ -2247,7 +2387,8 @@ class World:
                 box.append({"from": m["from"], "text": m["text"], "turn": m["arrive"]})
         for m in due:
             if m["to"] in self.nations:
-                self.log(f"📮 {m['to']} 收到 {m['from']} 的信", phase="事件", nation=m["to"])
+                self.log(i18n.Msg("mail.arrived", to=m["to"], frm=m["from"]),
+                         phase="事件", nation=m["to"])
         # 在途馈赠：下回合到账；收方已亡国则退回
         due_g = [g for g in self.gift_pending if g["arrive"] <= self.turn]
         self.gift_pending = [g for g in self.gift_pending if g["arrive"] > self.turn]
@@ -2257,7 +2398,8 @@ class World:
                     self.add_res(g["from"], g["good"], g["n"])  # 退回
                 continue
             self.add_res(g["to"], g["good"], g["n"])
-            self.log(f"🎁 {g['from']} 赠你的 {g['good']}×{g['n']} 到账", phase="事件", nation=g["to"])
+            self.log(i18n.Msg("gift.arrived", frm=g["from"], good=g["good"], n=g["n"]),
+                     phase="事件", nation=g["to"])
         # 在途地图情报：下回合到账
         due_m = [m for m in self.map_pending if m["arrive"] <= self.turn]
         self.map_pending = [m for m in self.map_pending if m["arrive"] > self.turn]
@@ -2267,7 +2409,8 @@ class World:
             store = self.maps.setdefault(m["to"], [])
             store.append({"from": m["from"], "turn": m["arrive"], "text": m["text"]})
             del store[:-KEEP_MAPS]  # 只留最近 N 张图，控体积
-            self.log(f"🗺 {m['to']} 收到 {m['from']} 的地图", phase="事件", nation=m["to"])
+            self.log(i18n.Msg("map.arrived", to=m["to"], frm=m["from"]),
+                     phase="事件", nation=m["to"])
         # 间谍回报：3回合后盗回目标当前经济情报（含粗略军情数量）+ 地图；目标亡国则任务失败
         due_sp = [s for s in self.spy_pending if s["arrive"] <= self.turn]
         self.spy_pending = [s for s in self.spy_pending if s["arrive"] > self.turn]
@@ -2275,7 +2418,7 @@ class World:
             if s["from"] not in self.nations:
                 continue
             if s["to"] not in self.nations:
-                self.log(f"🕵 {s['from']} 的间谍回报：目标 {s['to']} 已亡国，情报落空",
+                self.log(i18n.Msg("spy.target_gone", who=s["from"], target=s["to"]),
                          phase="事件", nation=s["from"])
                 continue
             store = self.econ_intel.setdefault(s["from"], [])
@@ -2286,7 +2429,7 @@ class World:
             mstore.append({"from": f"{s['to']}(间谍)", "turn": s["arrive"],
                            "text": self._map_snapshot(s["to"])})
             del mstore[:-KEEP_MAPS]
-            self.log(f"🕵 {s['from']} 的间谍回报了 {s['to']} 的情报与地图",
+            self.log(i18n.Msg("spy.reported", who=s["from"], target=s["to"]),
                      phase="事件", nation=s["from"])
         return len(due)
 
@@ -2324,31 +2467,31 @@ class World:
         unit, _p1, total = self.market_walk(good, n, side)
         return unit, int(round(total))
 
-    def buy(self, name: str, good: str, n: int) -> tuple[bool, str]:
+    def buy(self, name: str, good: str, n: int) -> tuple[bool, i18n.Text]:
         if good not in TRADEABLE:
-            return False, f"「{good}」不可交易（可交易：{'、'.join(TRADEABLE)}）"
+            return False, i18n.Msg("market.untradeable", good=good, goods=list(TRADEABLE))
         if n <= 0:
-            return False, "数量需为正整数"
+            return False, i18n.Msg("market.qty_positive")
         p0 = self.prices[good]
         unit, p1, total = self.market_walk(good, n, "buy")
         cost = int(round(total))
         if self.res(name, "黄金") < cost:
-            return False, (f"黄金不足：买 {good}×{n}（均价 {unit:.2f}）需 {cost}，"
-                           f"国库 {self.res(name,'黄金')}")
+            return False, i18n.Msg("market.no_gold", good=good, n=n, unit=unit, cost=cost,
+                                   have=self.res(name, "黄金"))
         self.add_res(name, "黄金", -cost)
         self.add_res(name, good, n)
         self.prices[good] = p1
         self._ledger(name)["import_gold"] += cost   # 经济报表：进口额（外贸占比用）
-        return True, (f"购入 {good}×{n}（中间价 {p0:.2f}→{p1:.2f}，含价差均价 {unit:.2f}，"
-                      f"实付 {cost}），余{self.res(name,good)}")
+        return True, i18n.Msg("market.bought", good=good, n=n, p0=p0, p1=p1, unit=unit,
+                              cost=cost, left=self.res(name, good))
 
-    def sell(self, name: str, good: str, n: int) -> tuple[bool, str]:
+    def sell(self, name: str, good: str, n: int) -> tuple[bool, i18n.Text]:
         if good not in TRADEABLE:
-            return False, f"「{good}」不可交易"
+            return False, i18n.Msg("market.untradeable_short", good=good)
         if n <= 0:
-            return False, "数量需为正整数"
+            return False, i18n.Msg("market.qty_positive")
         if self.res(name, good) < n:
-            return False, f"储备不足：{good} 现有 {self.res(name,good)}"
+            return False, i18n.Msg("market.short_stock", good=good, have=self.res(name, good))
         p0 = self.prices[good]
         unit, p1, total = self.market_walk(good, n, "sell")
         gold = int(round(total))
@@ -2356,8 +2499,8 @@ class World:
         self.add_res(name, "黄金", gold)
         self.prices[good] = p1
         self._ledger(name)["export_gold"] += gold   # 经济报表：出口额
-        return True, (f"售出 {good}×{n}（中间价 {p0:.2f}→{p1:.2f}，含价差均价 {unit:.2f}，"
-                      f"实收 {gold}），余{self.res(name,good)}")
+        return True, i18n.Msg("market.sold", good=good, n=n, p0=p0, p1=p1, unit=unit,
+                              gold=gold, left=self.res(name, good))
 
     def _update_market(self) -> None:
         """每回合末：按全世界本回合流量算供需均衡价，市价向均衡价回归（而非死盯基准价）。
@@ -2381,173 +2524,191 @@ class World:
         self.flow_out = {g: 0 for g in TRADEABLE}
 
     # ------------------------------------------------------------- 信箱
-    def send_mail(self, frm: str, to: str, text: str) -> tuple[bool, str]:
+    def send_mail(self, frm: str, to: str, text: str) -> tuple[bool, i18n.Text]:
         if frm not in self.nations or to not in self.nations:
-            return False, "收发双方都必须是现存国家"
+            return False, i18n.Msg("mail.two_nations")
         if to == frm:
-            return False, "不能给自己写信"
+            return False, i18n.Msg("mail.to_self")
         self.mail_pending.append({"from": frm, "to": to, "text": text, "arrive": self.turn + 1})
         # 信件正文不单独记一条（信件=一次行动，正文已在行动行里）；送达时另有"收到信"事件+收件箱
-        return True, f"信已发出，{to} 将于第 {self.turn+1} 回合收到"
+        # 回执嵌在 `ai.letter.sent` 的 {receipt} 槽里（键值套键值，见 i18n.py 约定 3），
+        # 所以这里不必再留裸串。
+        return True, i18n.Msg("mail.sent", to=to, turn=self.turn + 1)
 
     # ------------------------------------------------------------- 神秘人来信（Observer 用）
-    def mystery_letter(self, to: str, text: str) -> tuple[bool, str]:
+    def mystery_letter(self, to: str, text: str) -> tuple[bool, i18n.Text]:
         """Observer 从看海终端给任意国家寄一封『神秘人』来信（下回合到其信箱）。
 
         发件人恒为「神秘人」，各国 AI 无从判断是谁；只记一条观察者可见的
         日志（nations 收不到），收件人下回合在信箱看到。
         """
         if to not in self.nations:
-            return False, f"国家 {to} 不存在"
+            return False, i18n.Msg("err.no_such_nation", name=to)
         text = (text or "").strip()
         if not text:
-            return False, "神秘来信内容不能为空"
+            return False, i18n.Msg("mail.empty_mystery")
         self.mail_pending.append({"from": "神秘人", "to": to, "text": text,
                                   "arrive": self.turn + 1})
-        self.log(f"🕵️ 神秘人来信 → {to}：{text}", phase="事件")  # 观察者可见，各国近讯收不到
-        return True, f"神秘人来信已寄给 {to}，将于第 {self.turn+1} 回合送达其信箱"
+        self.log(i18n.Msg("mail.mystery_event", to=to, text=text), phase="事件")  # 观察者可见，各国近讯收不到
+        return True, i18n.Msg("mail.mystery_sent", to=to, turn=self.turn + 1)
 
     # ------------------------------------------------------------- 外交馈赠
-    def gift(self, frm: str, to: str, good: str, n: int) -> tuple[bool, str]:
+    def gift(self, frm: str, to: str, good: str, n: int) -> tuple[bool, i18n.Text]:
         """馈赠：把本国储备赠与他国（粮木矿油装补给或黄金）。本回合垫支扣出，下回合到账。"""
         if frm not in self.nations or to not in self.nations:
-            return False, "馈赠双方都必须是现存国家"
+            return False, i18n.Msg("gift.two_nations")
         if to == frm:
-            return False, "不能赠给自己"
+            return False, i18n.Msg("gift.to_self")
         if good not in RES_KEYS:
-            return False, f"不可赠送：{good}（可赠：{'/'.join(RES_KEYS)}）"
+            return False, i18n.Msg("gift.unable", good=good, goods=_slash(RES_KEYS))
         if not isinstance(n, int) or n <= 0:
-            return False, "数量需为正整数"
+            return False, i18n.Msg("market.qty_positive")
         have = self.res(frm, good)
         if have < n:
-            return False, f"你{good}不够：现 {have}，赠不出 {n}"
+            return False, i18n.Msg("gift.not_enough", good=good, have=have, n=n)
         self.add_res(frm, good, -n)  # 先垫支扣出（锁住）
         self.gift_pending.append({"from": frm, "to": to, "good": good, "n": n,
                                   "arrive": self.turn + 1})
-        return True, f"已赠 {to} {good}×{n}（你余 {self.res(frm, good)}），将于第 {self.turn+1} 回合到账"
+        return True, i18n.Msg("gift.sent", to=to, good=good, n=n, left=self.res(frm, good),
+                              turn=self.turn + 1)
 
     # ------------------------------------------------------------- 交换地图
-    def _map_snapshot(self, n: str) -> str:
-        """把某国的"已知地图"做成文本：全部国土块 + 边界外可见块，全部带坐标（不截断）。"""
+    def _map_snapshot(self, n: str) -> i18n.Text:
+        """把某国的"已知地图"做成一份文档：全部国土块 + 边界外可见块，全部带坐标（不截断）。
+
+        ⚠ 这份多行文档**存进存档**（`maps`/`map_pending`）：存的是键值树（搬运走
+        `i18n.enc`/`Msg.from_json`），由看的人按自己的语言渲染 ⇒ 换语言不必重开一局。
+        """
         own = self.own_tiles(n)
         fr = sorted(self.frontier_of(n))
-        L = [f"{n} 已知地图：国土 {len(own)} 块、边界外可拓地 {len(fr)} 格（全部坐标）"]
+        L = [i18n.Msg("map.head", n=n, own=len(own), fr=len(fr))]
         for p in own:
             t = self.tiles[p]
-            L.append(f"  {t.get('name', '?')} {t['terrain']}({p[0] + 1},{p[1] + 1}) "
-                     f"城L{t['buildings']['城堡']} 位{sum(t['buildings'].values())}")
+            L.append(i18n.Msg("map.tile", name=t.get('name', '?'), ter=t['terrain'],
+                              x=p[0] + 1, y=p[1] + 1, lv=t['buildings']['城堡'],
+                              slots=sum(t['buildings'].values())))
         if fr:
-            L.append("  边界外可见（未占）:")
+            L.append(i18n.Msg("map.front_head"))
             for p in fr:
-                L.append(f"  {self.tile_terrain(*p)}({p[0] + 1},{p[1] + 1})")
-        return "\n".join(L)
+                L.append(i18n.Msg("map.front", ter=self.tile_terrain(*p), x=p[0] + 1, y=p[1] + 1))
+        return _nl(L)
 
-    def share_map(self, frm: str, to: str) -> tuple[bool, str]:
+    def share_map(self, frm: str, to: str) -> tuple[bool, i18n.Text]:
         """把你的已知地图发给别国（交换情报/展示势力），下回合到对方【地图情报】。"""
         if frm not in self.nations or to not in self.nations:
-            return False, "交换地图双方都必须是现存国家"
+            return False, i18n.Msg("map.two_nations")
         if to == frm:
-            return False, "不能把地图发给自己"
+            return False, i18n.Msg("map.to_self")
         self.map_pending.append({"from": frm, "to": to, "text": self._map_snapshot(frm),
                                  "arrive": self.turn + 1})
-        return True, f"已把你的地图发给 {to}，将于第 {self.turn+1} 回合到账"
+        return True, i18n.Msg("map.sent", to=to, turn=self.turn + 1)
 
     # ------------------------------------------------------------- 间谍
-    def _econ_snapshot(self, n: str) -> str:
-        """目标国当前完整底细：国库/储备 + 收入结算 + 全部地块建设(含在建) + 粗略军情。"""
+    def _econ_snapshot(self, n: str) -> i18n.Text:
+        """目标国当前完整底细：国库/储备 + 收入结算 + 全部地块建设(含在建) + 粗略军情。
+
+        ⚠ 同 `_map_snapshot`：存进存档（`econ_intel`）的是**键值树**，`mp_ai` 贴进面板时
+        才按看的人的语言落成文字。
+        """
         r = self.nations[n].res
-        res_txt = " ".join(f"{k}{r.get(k, 0)}" for k in RES_KEYS)
         et, mt, short = self.energy_report.get(n, (0, 0, False))
-        grid = "停摆" if short else f"产{et}/需{mt}"
-        L = [f"【{n} 情报】国库/储备: {res_txt} | 电网: {grid}"]
+        L = [i18n.Msg(
+            "spy.head", n=n,
+            res=_sp([i18n.Msg("spy.res_item", g=k, v=r.get(k, 0)) for k in RES_KEYS]),
+            grid=(i18n.Msg("fmt.stop") if short
+                  else i18n.Msg("spy.grid", out=et, need=mt)))]
         summ = self.econ_summary.get(n)
         if summ:
-            L.append(f"  上回合收入结算: {summ}")
-        L.append(f"  全部地块建设情况（{len(self.own_tiles(n))} 块）:")
+            L.append(i18n.Msg("spy.summ", summ=summ))
+        L.append(i18n.Msg("spy.tiles_head", n=len(self.own_tiles(n))))
         for (x, y) in self.own_tiles(n):
             t = self.tiles[(x, y)]
-            b = t["buildings"]
-            p = t.get("pending") or {}
-            built = " ".join(f"{bn}×{c}" for bn, c in b.items() if c) or "无"
-            pend = " ".join(f"{bn}×{c}(在建)" for bn, c in p.items() if c)
-            extra = ("；" + pend) if pend else ""
-            L.append(f"    {t.get('name', '?')} {t['terrain']}({x + 1},{y + 1}) "
-                     f"城L{b['城堡']} 位{sum(b.values())}/20 建筑[{built}{extra}]")
+            b, p = t["buildings"], (t.get("pending") or {})
+            built = _sp([i18n.Msg("spy.count", bn=bn, c=c) for bn, c in b.items() if c]) \
+                if any(b.values()) else i18n.Msg("fmt.none")
+            pend = _sp([i18n.Msg("spy.pending", bn=bn, c=c) for bn, c in p.items() if c])
+            L.append(i18n.Msg("spy.tile", name=t.get('name', '?'), ter=t['terrain'],
+                              x=x + 1, y=y + 1, lv=b['城堡'], slots=sum(b.values()),
+                              max=MAX_SLOTS, built=built,
+                              extra=(i18n.Msg("spy.parenth", rows=pend) if pend else "")))
         # 粗略军情：只有各兵种数量——位置/血量/番号不外泄（间谍能探到敌国在扩军，但别想精准侦察）
         kinds: dict[str, int] = {}
         for a in self.nation_armies(n):
             k = unit_kind(a)
             kinds[k] = kinds.get(k, 0) + 1
-        L.append("  军情（仅数量，位置未知）: " + ("、".join(f"{k}×{c}" for k, c in kinds.items()) or "无军队"))
-        return "\n".join(L)
+        L.append(i18n.Msg("spy.armies",
+                          rows=(_dun([i18n.Msg("spy.count", bn=k, c=c) for k, c in kinds.items()])
+                                if kinds else i18n.Msg("spy.no_army"))))
+        return _nl(L)
 
-    def spy(self, frm: str, to: str) -> tuple[bool, str]:
+    def spy(self, frm: str, to: str) -> tuple[bool, i18n.Text]:
         """派间谍刺探别国（花 SPY_COST 金），SPY_TURNS 回合后盗回其经济底细 +
         粗略军情（仅各兵种数量，位置/血量/番号不外泄）+ 整张已知地图。不能对自己用。"""
         if frm not in self.nations or to not in self.nations:
-            return False, "间谍双方都必须是现存国家"
+            return False, i18n.Msg("spy.two_nations")
         if to == frm:
-            return False, "不能派间谍刺探自己"
+            return False, i18n.Msg("spy.on_self")
         if self.res(frm, "黄金") < SPY_COST:
-            return False, f"国库不足：派间谍需 {SPY_COST} 金，你现 {self.res(frm, '黄金')}"
+            return False, i18n.Msg("spy.no_gold", cost=SPY_COST, have=self.res(frm, "黄金"))
         self.add_res(frm, "黄金", -SPY_COST)
         self.spy_pending.append({"from": frm, "to": to, "arrive": self.turn + SPY_TURNS})
-        return True, (f"已派间谍前往 {to}（-{SPY_COST}金），"
-                      f"将于第 {self.turn + SPY_TURNS} 回合拿回其情报（经济底细+粗略军情+地图）")
+        return True, i18n.Msg("spy.sent", to=to, cost=SPY_COST, turn=self.turn + SPY_TURNS)
 
     # ------------------------------------------------------------- 外交
     def _next_offer_id(self) -> int:
         self._offer_id += 1
         return self._offer_id
 
-    def propose_pact(self, kind: str, a: str, b: str) -> tuple[bool, str]:
+    def propose_pact(self, kind: str, a: str, b: str) -> tuple[bool, i18n.Text]:
         """提议『共同防御』。**签约方是外交实体**：a 在盟 → 先过联盟投票再对外发邀约；
         a 独立 → 直接发邀约。对方若是联盟，接受时同样要过它的联盟投票。"""
         if kind == "同盟":
-            return False, "双边同盟已由多边联盟取代：用 bloc_found(name=联盟名, tos=[创始成员]) 发起结盟（需起名，全体创始成员同意）"
+            return False, i18n.Msg("pact.alliance_gone")
         if kind != "共同防御":
-            return False, f"未知盟约类型：{kind}（可选：共同防御；联盟请用 bloc_found）"
+            return False, i18n.Msg("pact.unknown_kind", kind=kind)
         if a == b or a not in self.nations or b not in self.nations:
-            return False, "双方必须是两个现存国家"
+            return False, i18n.Msg("diplo.two_nations")
         if self.polity.get(b) == "huns":
-            return False, f"{b} 是游牧政体，不接受盟约（别在它身上花外交费）"
+            return False, i18n.Msg("diplo.huns_no_pact", who=b)
         A, B = self.entity_of(a), self.entity_of(b)
         bad = self._pact_block(kind, A, B)
         if bad:
             return False, bad
         if self.entity_at_war(A):
-            return False, f"战争期间不能缔结{kind}：{self._war_brief_ent(A)}（先议和）"
+            return False, i18n.Msg("pact.war_lock", kind=kind, brief=self._war_brief_ent(A))
         if self.entity_at_war(B):
-            return False, f"{self.entity_label(B)} 正在交战，战争期间不能与它缔结{kind}（先议和）"
+            return False, i18n.Msg("pact.target_at_war", who=self.entity_text(B), kind=kind)
         if any(p["kind"] == kind and {p.get("A"), p.get("B")} == {A, B} for p in self.proposals):
-            return False, "该提议已在桌上"
+            return False, i18n.Msg("pact.already_on_table")
         bl = self.bloc_of(a)
         if bl is not None:
             v = self._new_vote("缔约", bl["name"], a,
                                {"pact": kind, "A": A, "B": B, "offer": True})
-            self.log(f"🗳 {a} 发起联盟投票（「{bl['name']}」）：向 {self.entity_label(B)} "
-                     f"提议{kind}（投票#{v['id']}）", phase="外交", nation=a)
-            return True, (f"已发起联盟投票（投票#{v['id']}）：通过后由 {self.entity_label(A)} "
-                          f"向 {self.entity_label(B)} 提议{kind}；成员用 vote {v['id']} true/false 表态")
+            self.log(i18n.Msg("pact.vote_offer", who=a, bloc=bl["name"],
+                              target=self.entity_text(B), kind=kind, vid=v["id"]),
+                     phase="外交", nation=a)
+            return True, i18n.Msg("pact.vote_started", vid=v["id"], a=self.entity_text(A),
+                                  b=self.entity_text(B), kind=kind)
         self.proposals.append({"id": self._next_offer_id(), "kind": kind, "A": A, "B": B,
                                "asker": a, "turn": self.turn})
-        return True, f"{self.entity_label(A)} 向 {self.entity_label(B)} 提议{kind}，等对方接受"
+        return True, i18n.Msg("pact.proposed", a=self.entity_text(A), b=self.entity_text(B),
+                              kind=kind)
 
-    def accept_pact(self, me: str, offer_id: int) -> tuple[bool, str]:
+    def accept_pact(self, me: str, offer_id: int) -> tuple[bool, i18n.Text]:
         """接受收到的邀约。对方若是**联盟**，接受本身也要过联盟投票（一盟一票制）。"""
         p = next((x for x in self.proposals if x["id"] == offer_id), None)
         if p is None:
-            return False, "没有这个邀约"
+            return False, i18n.Msg("offer.none")
         if p["kind"] == "联盟":
             if me not in p.get("invitees", []):
-                return False, "没有这个给你的邀约"
+                return False, i18n.Msg("offer.not_for_you")
             return self._accept_bloc_founding(p, me)
         A, B = p.get("A"), p.get("B")
         if B is None or self.entity_of(me) != B:
-            return False, "没有这个给你的邀约"
+            return False, i18n.Msg("offer.not_for_you")
         if self.entity_of(p.get("asker", "")) != A:
             self.proposals.remove(p)
-            return False, "提出方已变更外交实体（入盟/退盟），提议作废"
+            return False, i18n.Msg("offer.asker_changed")
         kind = p["kind"]
         bad = self._pact_block(kind, A, B)
         if bad:
@@ -2555,222 +2716,221 @@ class World:
             return False, bad
         if self.entity_at_war(A) or self.entity_at_war(B):
             self.proposals.remove(p)
-            return False, "战争期间不能缔结盟约（提议作废，先议和）"
+            return False, i18n.Msg("pact.war_freeze_accept")
         if is_bloc_ent(B):
             if any(v["kind"] == "缔约" and v["payload"].get("offer_id") == p["id"]
                    for v in self.votes):
-                return False, f"「{ent_key(B)}」已在表决这个邀约（投票进行中，用 vote 表态）"
+                return False, i18n.Msg("pact.voting_already", bloc=ent_key(B))
             v = self._new_vote("缔约", ent_key(B), me,
                                {"pact": kind, "A": A, "B": B, "offer_id": p["id"]})
-            self.log(f"🗳 {me} 把 {self.entity_label(A)} 的{kind}邀约提交「{ent_key(B)}」表决"
-                     f"（投票#{v['id']}）", phase="外交", nation=me)
-            return True, (f"已把邀约提交「{ent_key(B)}」表决（投票#{v['id']}）：赞成 > 反对"
-                          f"即通过与 {self.entity_label(A)} 缔约")
+            self.log(i18n.Msg("pact.vote_submit", who=me, a=self.entity_text(A), kind=kind,
+                              bloc=ent_key(B), vid=v["id"]), phase="外交", nation=me)
+            return True, i18n.Msg("pact.vote_submitted", bloc=ent_key(B), vid=v["id"],
+                                  a=self.entity_text(A))
         self.proposals.remove(p)
         return self._conclude_pact(kind, A, B)
 
-    def reject_pact(self, me: str, offer_id: int) -> tuple[bool, str]:
+    def reject_pact(self, me: str, offer_id: int) -> tuple[bool, i18n.Text]:
         p = next((x for x in self.proposals if x["id"] == offer_id), None)
         if p is None:
-            return False, "没有这个邀约"
+            return False, i18n.Msg("offer.none")
         if p["kind"] == "联盟":
             if me not in p.get("invitees", []):
-                return False, "没有这个给你的邀约"
+                return False, i18n.Msg("offer.not_for_you")
             self.proposals.remove(p)
-            self.log(f"💔 {me} 拒绝了 {p['a']} 的结盟提议——「{p['name']}」创始流产（全体创始成员须一致同意）",
+            self.log(i18n.Msg("bloc.founding_rejected", who=me, a=p["a"], name=p["name"]),
                      phase="外交", nation=me)
-            return True, f"你拒绝了 {p['a']} 的结盟提议「{p['name']}」（创始流产）"
+            return True, i18n.Msg("bloc.founding_declined", a=p["a"], name=p["name"])
         A, B = p.get("A"), p.get("B")
         if B is None or self.entity_of(me) != B:
-            return False, "没有这个邀约"
+            return False, i18n.Msg("offer.none")
         if is_bloc_ent(B) and self.entity_chief(B) != me:
             self.proposals.remove(p)
-            return True, (f"盟主 {self.entity_chief(B)} 代表 {self.entity_label(B)} 拒绝了 "
-                          f"{self.entity_label(A)} 的{p['kind']}")
+            return True, i18n.Msg("offer.chief_rejected", chief=self.entity_chief(B),
+                                  b=self.entity_text(B), a=self.entity_text(A), kind=p["kind"])
         self.proposals.remove(p)
-        return True, f"你拒绝了 {self.entity_label(A)} 的{p['kind']}"
+        return True, i18n.Msg("offer.declined", a=self.entity_text(A), kind=p["kind"])
 
-    def break_pact(self, kind: str, a: str, b: str) -> tuple[bool, str]:
+    def break_pact(self, kind: str, a: str, b: str) -> tuple[bool, i18n.Text]:
         """解除共同防御。在盟国家须联盟投票。
 
         ★ **战争期间一律不准解除**（2026-09-18 改）：条约在战时**冻结**——平时缔结不了、
         战时也解不掉。原先是"断约顺带退出该条约带来的战线"（`_pact_exit_wars`），
         那等于留了一条「打不过就背弃盟友跑路」的脱战通道；现在只有**议和**能停战。"""
         if kind == "同盟":
-            return False, "双边同盟已由多边联盟取代（bloc_found 结盟 / bloc_leave 退盟）"
+            return False, i18n.Msg("pact.alliance_gone_break")
         if kind != "共同防御":
-            return False, f"未知盟约类型：{kind}（可选：共同防御）"
+            return False, i18n.Msg("pact.unknown_break_kind", kind=kind)
         if a == b or a not in self.nations or b not in self.nations:
-            return False, "双方必须是两个现存国家"
+            return False, i18n.Msg("diplo.two_nations")
         A, B = self.entity_of(a), self.entity_of(b)
         if not self.has_pact("共同防御", A, B):
-            return False, f"{self.entity_label(A)} 与 {self.entity_label(B)} 并无共同防御"
+            return False, i18n.Msg("pact.no_dp_between", a=self.entity_text(A),
+                                   b=self.entity_text(B))
         if self.entity_at_war(A) or self.entity_at_war(B):
             who = A if self.entity_at_war(A) else B
-            return False, (f"战争期间不能解除共同防御：{self._war_brief_ent(who)}"
-                           "（**条约在战时冻结**，缔结与解除都不行——先议和停战）")
+            return False, i18n.Msg("pact.war_freeze_break", brief=self._war_brief_ent(who))
         bl = self.bloc_of(a)
         if bl is not None:
             v = self._new_vote("缔约", bl["name"], a,
                                {"pact": kind, "A": A, "B": B, "cancel": True})
-            self.log(f"🗳 {a} 发起联盟投票（「{bl['name']}」）：解除与 {self.entity_label(B)} "
-                     f"的共同防御（投票#{v['id']}）", phase="外交", nation=a)
-            return True, (f"已发起联盟投票（投票#{v['id']}）：通过后解除与 "
-                          f"{self.entity_label(B)} 的共同防御；成员用 vote {v['id']} true/false 表态")
+            self.log(i18n.Msg("pact.vote_break", who=a, bloc=bl["name"],
+                              target=self.entity_text(B), vid=v["id"]), phase="外交", nation=a)
+            return True, i18n.Msg("pact.vote_break_started", vid=v["id"],
+                                  b=self.entity_text(B))
         self._drop_pact(kind, A, B)
         exited = self._pact_exit_wars(self.entity_members(A), self.entity_members(B))
-        extxt = f"，并退出 {self.entity_label(B)} 所在的 {len(exited)} 条战线" if exited else ""
-        self.log(f"💔 {self.entity_label(A)} 单方面解除与 {self.entity_label(B)} 的{kind}{extxt}"
-                 f"（{'、'.join(self.entity_members(A))} 在他国境内的军队将全部撤出）",
-                 phase="外交", nation=a)
-        return True, (f"{self.entity_label(A)} 已解除与 {self.entity_label(B)} 的{kind}{extxt}。"
-                      "如你在他国境内，会于回合末自动遣返回国")
+        extxt = (i18n.Msg("pact.exit_fronts", b=self.entity_text(B), n=len(exited))
+                 if exited else "")
+        ent_a, ent_b = self.entity_text(A), self.entity_text(B)
+        self.log(i18n.Msg("pact.broken_event", a=ent_a, b=ent_b, kind=kind, ext=extxt,
+                          members=self.entity_members(A)), phase="外交", nation=a)
+        return True, i18n.Msg("pact.broken_reply", a=ent_a, b=ent_b, kind=kind, ext=extxt)
 
     # ------------------------------------------------------------- 联盟
-    def propose_bloc(self, a: str, name: str, invitees: list[str]) -> tuple[bool, str]:
+    def propose_bloc(self, a: str, name: str, invitees: list[str]) -> tuple[bool, i18n.Text]:
         """发起结盟：起名 + 邀全体创始成员，所有人接受才成立（全体成员同意）。
         发起方即盟主；战争期间不得缔结同盟（避免战时抱团脱战）。"""
         if a not in self.nations:
-            return False, "发起方必须是现存国家"
+            return False, i18n.Msg("bloc.needs_proposer")
         if self.at_war(a):
-            return False, f"战争期间不能缔结同盟：{self._war_brief(a)}（先议和再谈结盟）"
+            return False, i18n.Msg("bloc.war_no_found", brief=self._war_brief(a))
         if self.bloc_of(a) is not None:
-            return False, f"你已在联盟「{self.bloc_of(a)['name']}」中（一国同时只属一个联盟）"
+            return False, i18n.Msg("bloc.already_in", bloc=self.bloc_of(a)["name"])
         name = (name or "").strip()
         if not name or " " in name or len(name) > BLOC_NAME_MAX:
-            return False, f"联盟名需为 1~{BLOC_NAME_MAX} 字、不含空格（name 参数）"
+            return False, i18n.Msg("bloc.bad_name", max=BLOC_NAME_MAX)
         if self.bloc_by_name(name) is not None:
-            return False, f"联盟名「{name}」已被占用"
+            return False, i18n.Msg("bloc.name_taken", name=name)
         inv = []
         for x in invitees:
             if x == a or x in inv:
                 continue
             if x not in self.nations:
-                return False, f"创始成员 {x} 不是现存国家"
+                return False, i18n.Msg("bloc.member_absent", who=x)
             if self.bloc_of(x) is not None:
-                return False, f"{x} 已在联盟「{self.bloc_of(x)['name']}」中"
+                return False, i18n.Msg("bloc.member_in_other", who=x,
+                                       bloc=self.bloc_of(x)["name"])
             if self.polity.get(x) == "huns":
-                return False, f"{x} 是游牧政体，不参与结盟（邀它只会让提议悬空）"
+                return False, i18n.Msg("bloc.huns_no_join", who=x)
             if self.at_war(x):
-                return False, f"创始成员 {x} 正在交战，战争期间不能缔结同盟（先议和）"
+                return False, i18n.Msg("bloc.member_at_war", who=x)
             inv.append(x)
         if not inv:
-            return False, "至少邀请一个创始成员（tos=[国名,…]）；单国无需结盟"
+            return False, i18n.Msg("bloc.need_invitees")
         for i in range(len([a] + inv)):
             for j in range(i + 1, len([a] + inv)):
                 x, y = ([a] + inv)[i], ([a] + inv)[j]
                 if self.war_between(x, y):
-                    return False, f"创始成员 {x} 与 {y} 正在交战，不能结盟（先议和）"
+                    return False, i18n.Msg("bloc.members_at_war", x=x, y=y)
         if any(p["kind"] == "联盟" and p["a"] == a and p["name"] == name for p in self.proposals):
-            return False, "该结盟提议已在桌上"
+            return False, i18n.Msg("bloc.already_proposed")
         self.proposals.append({"id": self._next_offer_id(), "kind": "联盟", "a": a, "b": "",
                                "name": name, "invitees": inv, "turn": self.turn})
-        self.log(f"🕊 {a} 发起结盟「{name}」：邀 {'、'.join(inv)} 为创始成员（全体同意才成立）",
-                 phase="外交", nation=a)
-        return True, (f"已发起结盟「{name}」：等 {'、'.join(inv)} 全部 respond_proposal 接受后成立；"
-                      f"任一拒绝即流产")
+        self.log(i18n.Msg("bloc.founding", who=a, name=name, inv=inv), phase="外交", nation=a)
+        return True, i18n.Msg("bloc.founding_started", name=name, inv=inv)
 
-    def _accept_bloc_founding(self, p: dict, me: str) -> tuple[bool, str]:
+    def _accept_bloc_founding(self, p: dict, me: str) -> tuple[bool, i18n.Text]:
         """创始成员接受结盟提议；全体接受即立盟。"""
         p.setdefault("accepted", [])
         if me in p["accepted"]:
-            return False, "你已接受过该提议"
+            return False, i18n.Msg("bloc.already_accepted")
         p["accepted"].append(me)
-        self.log(f"🕊 {me} 接受加入联盟「{p['name']}」", phase="外交", nation=me)
+        self.log(i18n.Msg("bloc.join_accept", who=me, name=p["name"]), phase="外交", nation=me)
         pending = [x for x in p["invitees"] if x not in p["accepted"]]
         if pending:
-            return True, f"你已接受结盟「{p['name']}」：还差 {'、'.join(pending)} 同意"
+            return True, i18n.Msg("bloc.waiting_for", name=p["name"], pending=pending)
         # 全体同意 → 立盟
         self.proposals.remove(p)
         members = [p["a"]] + list(p["invitees"])
         for x in members:
             if x not in self.nations or self.bloc_of(x) is not None:
-                return False, f"立盟失败：{x} 已不在可入盟状态（提议作废）"
+                return False, i18n.Msg("bloc.founding_failed_state", who=x)
         for i in range(len(members)):
             for j in range(i + 1, len(members)):
                 if self.war_between(members[i], members[j]):
-                    return False, f"立盟失败：{members[i]} 与 {members[j]} 已交战（提议作废）"
+                    return False, i18n.Msg("bloc.founding_failed_war", x=members[i],
+                                           y=members[j])
         self.blocs.append({"name": p["name"], "chief": p["a"], "members": members,
                            "turn": self.turn})
         # ★ 入盟即放弃个人条约：创始成员手里原有的保障/共同防御一律作废（它们本来就
         #   是"国家级"的，而入盟后这个国家不再是签约主体）。别想带着条约入伙。
         absorbed = self._absorb_personal_pacts(members)
-        ab = f"（{'、'.join(absorbed)} 自动作废）" if absorbed else ""
-        self.log(f"🕊 联盟「{p['name']}」成立！成员：{'、'.join(members)}（盟主 {p['a']}）{ab}",
-                 phase="外交", nation=p["a"])
-        return True, (f"联盟「{p['name']}」成立！成员：{'、'.join(members)}，盟主 {p['a']}"
-                      f"（你为创始成员）{ab}")
+        ab = i18n.Msg("bloc.pacts_void", items=absorbed) if absorbed else ""
+        self.log(i18n.Msg("bloc.formed", name=p["name"], members=members,
+                          chief=p["a"], ab=ab), phase="外交", nation=p["a"])
+        return True, i18n.Msg("bloc.formed_reply", name=p["name"], members=members,
+                              chief=p["a"], ab=ab)
 
-    def _absorb_personal_pacts(self, members: list[str]) -> list[str]:
+    def _absorb_personal_pacts(self, members: list[str]) -> list[i18n.Text]:
         """入盟清账：把成员手里的**个人**条约全部作废（成员不再是签约主体）。
         返回人话描述，供日志与提示。"""
         out = []
         for m in members:
             out.extend(self.drop_pacts_of(ent_nation(m)))
         if out:
-            self.log(f"💔 入盟即放弃个人条约：{'、'.join(out)} 作废", phase="外交")
+            self.log(i18n.Msg("pacts.leave_to_bloc", items=out), phase="外交")
         return out
 
-    def bloc_leave(self, a: str) -> tuple[bool, str]:
+    def bloc_leave(self, a: str) -> tuple[bool, i18n.Text]:
         """退盟：普通成员单方面退出，立即生效。**战争期间一律不准退**——盟员在战时被锁死
         （2026-09-18 外交改革：坚壁到底，不给"打不过就跑"的通道），直到整盟停战。"""
         bloc = self.bloc_of(a)
         if bloc is None:
-            return False, "你不在任何联盟中"
+            return False, i18n.Msg("bloc.none")
         if self.bloc_chief(bloc) == a:
-            return False, ("你是盟主，不能退盟——请用 bloc_transfer(to=成员) 移交盟主之位，"
-                           "或 bloc_dissolve 解散联盟")
+            return False, i18n.Msg("bloc.chief_cannot_leave")
         fighting = [m for m in bloc["members"] if self.at_war(m)]
         if fighting:
-            return False, (f"战争期间不能退盟：{'、'.join(fighting)} 正在交战"
-                           "（盟员在战时被锁死，直到整盟停战——先议和）")
+            return False, i18n.Msg("bloc.war_no_leave", items=fighting)
         bloc["members"].remove(a)
-        self.log(f"💔 {a} 单方面退出联盟「{bloc['name']}」", phase="外交", nation=a)
+        self.log(i18n.Msg("bloc.left", who=a, name=bloc["name"]), phase="外交", nation=a)
         if len(bloc["members"]) < 2:   # 只剩盟主一人 → 联盟自动解散
             chief = self.bloc_chief(bloc)
             self.blocs.remove(bloc)
             self.votes = [v for v in self.votes if v["bloc"] != bloc["name"]]
-            self.log(f"💔 联盟「{bloc['name']}」仅剩盟主 {chief}，自动解散", phase="外交")
-            return True, f"你已退出「{bloc['name']}」——联盟只剩盟主，随之解散"
-        return True, (f"你已单方面退出「{bloc['name']}」。"
-                      "（滞留他国领土的军队将自回合末起自动遣返）")
+            self.log(i18n.Msg("bloc.dissolved_alone", name=bloc["name"], chief=chief),
+                     phase="外交")
+            return True, i18n.Msg("bloc.leave_done_alone", name=bloc["name"])
+        return True, i18n.Msg("bloc.leave_done", name=bloc["name"])
 
-    def bloc_transfer(self, a: str, to: str) -> tuple[bool, str]:
+    def bloc_transfer(self, a: str, to: str) -> tuple[bool, i18n.Text]:
         """盟主移交：把盟主之位让给本联盟另一成员（只有现任盟主能调）。"""
         bloc = self.bloc_of(a)
         if bloc is None:
-            return False, "你不在任何联盟中"
+            return False, i18n.Msg("bloc.none")
         chief = self.bloc_chief(bloc)
         if chief != a:
-            return False, f"只有盟主能移交（现任盟主是 {chief}）"
+            return False, i18n.Msg("bloc.only_chief_transfer", chief=chief)
         if to == a:
-            return False, "不能把盟主之位移交给自己"
+            return False, i18n.Msg("bloc.transfer_self")
         if to not in bloc["members"]:
-            return False, f"{to} 不是本联盟成员（成员：{'、'.join(bloc['members'])}）"
+            return False, i18n.Msg("bloc.transfer_not_member", who=to, members=bloc["members"])
         bloc["chief"] = to
-        self.log(f"👑 {a} 把联盟「{bloc['name']}」盟主之位移交给 {to}", phase="外交", nation=a)
-        return True, f"已把「{bloc['name']}」盟主之位移交给 {to}"
+        self.log(i18n.Msg("bloc.chief_moved", who=a, name=bloc["name"], to=to),
+                 phase="外交", nation=a)
+        return True, i18n.Msg("bloc.chief_move_done", name=bloc["name"], to=to)
 
-    def bloc_rename(self, a: str, new_name: str) -> tuple[bool, str]:
+    def bloc_rename(self, a: str, new_name: str) -> tuple[bool, i18n.Text]:
         """盟主给联盟改名（只有盟主能改）。命名规则与立盟一致：1~12 字、不含空格、全局唯一。"""
         bloc = self.bloc_of(a)
         if bloc is None:
-            return False, "你不在任何联盟中"
+            return False, i18n.Msg("bloc.none")
         chief = self.bloc_chief(bloc)
         name = (new_name or "").strip()
         if chief != a:
-            return False, f"只有盟主能给联盟改名（现任盟主是 {chief}）"
+            return False, i18n.Msg("bloc.only_chief_rename", chief=chief)
         if not name or " " in name or len(name) > BLOC_NAME_MAX:
-            return False, f"联盟名需为 1~{BLOC_NAME_MAX} 字、不含空格（name 参数）"
+            return False, i18n.Msg("bloc.bad_name", max=BLOC_NAME_MAX)
         if name == bloc["name"]:
-            return False, f"你的联盟已经叫「{name}」了"
+            return False, i18n.Msg("bloc.same_name", name=name)
         if self.bloc_by_name(name) is not None:
-            return False, f"联盟名「{name}」已被占用"
+            return False, i18n.Msg("bloc.name_taken", name=name)
         old = bloc["name"]
         bloc["name"] = name
         self._rename_bloc_refs(old, name)
-        self.log(f"🏷 盟主 {a} 把联盟「{old}」改名为「{name}」", phase="外交", nation=a)
-        return True, f"联盟已改名：「{old}」→「{name}」"
+        self.log(i18n.Msg("bloc.renamed", who=a, old=old, name=name), phase="外交", nation=a)
+        return True, i18n.Msg("bloc.rename_done", old=old, name=name)
 
     def _rename_bloc_refs(self, old: str, new: str) -> None:
         """联盟改名 → 把按**实体 id** 索引的引用整体同步（条约表），顺手同步按联盟名索引的
@@ -2783,46 +2943,43 @@ class World:
             if v["bloc"] == old:
                 v["bloc"] = new
 
-    def bloc_dissolve(self, a: str) -> tuple[bool, str]:
+    def bloc_dissolve(self, a: str) -> tuple[bool, i18n.Text]:
         """盟主解散联盟（只有盟主能调）。**战争期间一律不准解散**（盟员在战时被锁死），
         防止盟主用解散脱战坑盟友。"""
         bloc = self.bloc_of(a)
         if bloc is None:
-            return False, "你不在任何联盟中"
+            return False, i18n.Msg("bloc.none")
         chief = self.bloc_chief(bloc)
         if chief != a:
-            return False, f"只有盟主能解散联盟（现任盟主是 {chief}）"
+            return False, i18n.Msg("bloc.only_chief_dissolve", chief=chief)
         fighting = [m for m in bloc["members"] if self.at_war(m)]
         if fighting:
-            return False, (f"战争期间不能解散联盟：{'、'.join(fighting)} 正在交战"
-                           "（坚壁到底——先议和停战再谈解散）")
+            return False, i18n.Msg("bloc.war_no_dissolve", items=fighting)
         members = list(bloc["members"])
         self.blocs.remove(bloc)
         self.votes = [v for v in self.votes if v["bloc"] != bloc["name"]]
-        self.log(f"💔 盟主 {a} 解散联盟「{bloc['name']}」（原成员：{'、'.join(members)}）",
+        self.log(i18n.Msg("bloc.dissolved", who=a, name=bloc["name"], members=members),
                  phase="外交", nation=a)
-        return True, (f"已解散联盟「{bloc['name']}」：原成员 {'、'.join(members)} 恢复各自独立"
-                      "（他们此后才是各自的外交实体）")
+        return True, i18n.Msg("bloc.dissolve_done", name=bloc["name"], members=members)
 
-    def bloc_join(self, a: str, bloc_name: str) -> tuple[bool, str]:
+    def bloc_join(self, a: str, bloc_name: str) -> tuple[bool, i18n.Text]:
         """申请入盟：联盟现成员投票（赞成 > 反对，盟主可否决），通过即入盟。
         战争期间不能入盟（先议和）。"""
         if a not in self.nations:
-            return False, "申请方必须是现存国家"
+            return False, i18n.Msg("bloc.needs_applicant")
         if self.at_war(a):
-            return False, f"战争期间不能缔结同盟：{self._war_brief(a)}（先议和再谈入盟）"
+            return False, i18n.Msg("bloc.war_no_join", brief=self._war_brief(a))
         bloc = self.bloc_by_name(bloc_name)
         if bloc is None:
-            return False, f"联盟「{bloc_name}」不存在（可用面板查联盟列表）"
+            return False, i18n.Msg("bloc.no_such", name=bloc_name)
         if self.bloc_of(a) is not None:
-            return False, f"你已在联盟「{self.bloc_of(a)['name']}」中（一国同时只属一个联盟）"
+            return False, i18n.Msg("bloc.already_in", bloc=self.bloc_of(a)["name"])
         if any(self.war_between(a, m) for m in bloc["members"]):
-            return False, "你与该联盟成员正在交战，不能入盟（先议和）"
+            return False, i18n.Msg("bloc.at_war_with_member")
         v = self._new_vote("入盟", bloc["name"], a, {"candidate": a})
-        self.log(f"🗳 {a} 申请加入联盟「{bloc_name}」（投票#{v['id']}，赞成>反对通过，盟主可否决）",
+        self.log(i18n.Msg("bloc.join_vote", who=a, name=bloc_name, vid=v["id"]),
                  phase="外交", nation=a)
-        return True, (f"已向「{bloc_name}」申请入盟（投票#{v['id']}）：成员用 "
-                      f"vote {v['id']} yes/no/abstain 表态；赞成多于反对即通过（盟主投 no 可否决）")
+        return True, i18n.Msg("bloc.join_voted", name=bloc_name, vid=v["id"])
 
     # ------------------------------------------------------------- 联盟投票
     def _new_vote(self, kind: str, bloc: str, proposer: str, payload: dict) -> dict:
@@ -2835,26 +2992,28 @@ class World:
         self.votes.append(v)
         return v
 
-    def cast_vote(self, me: str, vote_id: int, choice) -> tuple[bool, str]:
+    def cast_vote(self, me: str, vote_id: int, choice) -> tuple[bool, i18n.Text]:
         """联盟成员表态：choice = True 赞成 / False 反对 / None 弃权（可改票）。
         盟主投反对 = 一票否决，议案立即作废。"""
         v = next((x for x in self.votes if x["id"] == vote_id), None)
         if v is None:
-            return False, "没有这个投票（diplomacy 面板查看进行中的投票）"
+            return False, i18n.Msg("vote.none")
         bloc = self.bloc_by_name(v["bloc"])
         if bloc is None or self.bloc_of(me) is not bloc:
-            return False, "该投票不属于你所在的联盟"
+            return False, i18n.Msg("vote.not_yours")
         if v["kind"] == "入盟" and v["payload"].get("candidate") == me:
-            return False, "入盟投票由现成员表决，申请人不投票"
+            return False, i18n.Msg("vote.candidate_silent")
         if choice is False and self.bloc_chief(bloc) == me:
             self.votes.remove(v)
-            self.log(f"🚫 盟主 {me} 否决了「{v['bloc']}」投票#{v['id']}（{v['kind']}）",
-                     phase="外交", nation=me)
-            return False, f"你以盟主身份否决了投票#{v['id']}（{v['kind']}）——议案立即作废"
+            self.log(i18n.Msg("vote.vetoed", who=me, bloc=v["bloc"], vid=v["id"],
+                              kind=v["kind"]), phase="外交", nation=me)
+            return False, i18n.Msg("vote.veto_done", vid=v["id"], kind=v["kind"])
         v["votes"][me] = choice
-        label = "赞成" if choice is True else ("反对" if choice is False else "弃权")
-        self.log(f"🗳 {me} 在「{v['bloc']}」投票#{v['id']}（{v['kind']}）：{label}",
-                 phase="外交", nation=me)
+        label = (i18n.Msg("vote.choice_yes") if choice is True
+                 else i18n.Msg("vote.choice_no") if choice is False
+                 else i18n.Msg("vote.choice_abst"))
+        self.log(i18n.Msg("vote.cast", who=me, bloc=v["bloc"], vid=v["id"], kind=v["kind"],
+                          label=label), phase="外交", nation=me)
         return self._tally(v)
 
     @staticmethod
@@ -2865,31 +3024,31 @@ class World:
         abst = sum(1 for m in members if m in v["votes"] and v["votes"][m] is None)
         return yes, no, abst, len(members) - yes - no - abst
 
-    def _pass_vote(self, v: dict, members: list[str], yes: int, no: int, abst: int) -> tuple[bool, str]:
+    def _pass_vote(self, v: dict, members: list[str], yes: int, no: int, abst: int
+                   ) -> tuple[bool, i18n.Text]:
         """投票通过：移出投票列表、记账、执行。"""
         self.votes.remove(v)
-        self.log(f"🗳 「{v['bloc']}」投票#{v['id']}（{v['kind']}）通过：赞成 {yes}/反对 {no}/弃权 {abst}",
-                 phase="外交", nation=v["proposer"])
+        self.log(i18n.Msg("vote.passed", bloc=v["bloc"], vid=v["id"], kind=v["kind"],
+                          yes=yes, no=no, abst=abst), phase="外交", nation=v["proposer"])
         ok, msg = self._execute_vote(v)
-        return ok, f"投票通过（赞成 {yes}/反对 {no}）——{msg}"
+        return ok, i18n.Msg("vote.pass_reply", yes=yes, no=no, msg=msg)
 
-    def _tally(self, v: dict) -> tuple[bool, str]:
+    def _tally(self, v: dict) -> tuple[bool, i18n.Text]:
         """计票：赞成 > 反对 → 通过并立即执行（弃权不计入分母）；结果已无悬念时提前定论。"""
         bloc = self.bloc_by_name(v["bloc"])
         if bloc is None:
             self.votes.remove(v)
-            return False, "联盟已不存在，投票作废"
+            return False, i18n.Msg("vote.bloc_gone")
         members = [m for m in bloc["members"] if m in self.nations]
         yes, no, abst, pending = self._vote_counts(v, members)
         if yes > no + pending:          # 未投的全投反对也追不上 → 通过
             return self._pass_vote(v, members, yes, no, abst)
         if yes + pending <= no:         # 未投的全赞成也超不过 → 未通过
             self.votes.remove(v)
-            self.log(f"🗳 「{v['bloc']}」投票#{v['id']}（{v['kind']}）未通过：赞成 {yes}/反对 {no}",
-                     phase="外交", nation=v["proposer"])
-            return False, f"投票未通过（赞成 {yes}/反对 {no}，反对已不可能被超过）"
-        return True, (f"已记票（赞成 {yes}/反对 {no}/弃权 {abst}/未投 {pending}，需赞成 > 反对）："
-                      f"等其余成员表态")
+            self.log(i18n.Msg("vote.failed", bloc=v["bloc"], vid=v["id"], kind=v["kind"],
+                              yes=yes, no=no), phase="外交", nation=v["proposer"])
+            return False, i18n.Msg("vote.not_passed", yes=yes, no=no)
+        return True, i18n.Msg("vote.tally_pending", yes=yes, no=no, abst=abst, pending=pending)
 
     def _expire_votes(self) -> None:
         """结算时处理逾期投票：未投 = 弃权，按 赞成 > 反对 定论（不再直接作废）。"""
@@ -2906,19 +3065,20 @@ class World:
                 self._pass_vote(v, members, yes, no, abst + pending)
             else:
                 self.votes.remove(v)
-                self.log(f"🗳 「{v['bloc']}」投票#{v['id']}（{v['kind']}）逾期未通过："
-                         f"赞成 {yes}/反对 {no}/弃权 {abst + pending}", phase="外交", nation=v["proposer"])
+                self.log(i18n.Msg("vote.expired", bloc=v["bloc"], vid=v["id"], kind=v["kind"],
+                                  yes=yes, no=no, abst=abst + pending),
+                         phase="外交", nation=v["proposer"])
 
-    def _execute_vote(self, v: dict) -> tuple[bool, str]:
+    def _execute_vote(self, v: dict) -> tuple[bool, i18n.Text]:
         """投票通过后的实际执行。"""
         pl = v["payload"]
         if v["kind"] == "宣战":
             bloc = self.bloc_by_name(v["bloc"])
             if bloc is None:
-                return False, "联盟已散，宣战落空"
+                return False, i18n.Msg("vote.war_lost")
             target = pl.get("target")          # ★ 实体 id（不是国名）
             if not self.entity_members(ent_bloc(v["bloc"])) or not self.entity_members(target):
-                return False, f"目标 {self.entity_label(target)} 已不在，宣战落空"
+                return False, i18n.Msg("vote.target_gone", who=self.entity_text(target))
             return self._declare_war_internal(ent_bloc(v["bloc"]), target, v["proposer"])
         if v["kind"] == "缔约":
             return self._execute_pact_vote(v)
@@ -2926,56 +3086,59 @@ class World:
             bloc = self.bloc_by_name(v["bloc"])
             cand = pl.get("candidate")
             if bloc is None or cand not in self.nations:
-                return False, "入盟条件已变，申请落空"
+                return False, i18n.Msg("vote.join_lost")
             if self.bloc_of(cand) is not None or any(self.war_between(cand, m) for m in bloc["members"]):
-                return False, f"{cand} 已入他盟/与成员交战，入盟落空"
+                return False, i18n.Msg("vote.join_blocked", who=cand)
             absorbed = self._absorb_personal_pacts([cand])
             bloc["members"].append(cand)
-            ab = f"（入盟即放弃个人条约：{'、'.join(absorbed)} 作废）" if absorbed else ""
-            self.log(f"🕊 {cand} 加入联盟「{bloc['name']}」{ab}", phase="外交", nation=cand)
-            return True, f"{cand} 正式加入「{bloc['name']}」{ab}"
+            ab = (i18n.Msg("vote.join_pacts_void", items=absorbed) if absorbed else "")
+            self.log(i18n.Msg("vote.joined", who=cand, name=bloc["name"], ab=ab),
+                     phase="外交", nation=cand)
+            return True, i18n.Msg("vote.joined_reply", who=cand, name=bloc["name"], ab=ab)
         if v["kind"] == "议和":
             if pl.get("type") == "offer":
                 w = next((x for x in self.wars if x["id"] == pl.get("war_id")), None)
                 if w is None:
-                    return False, "战争已结束，议和投票落空"
+                    return False, i18n.Msg("vote.peace_gone")
                 a_side = "atk" if v["proposer"] in self._war_sides(w)[0] else "def"
                 if self._peace_rep(w, a_side) != v["proposer"]:
-                    return False, "你已不是本方谈判代表，议和落空"
+                    return False, i18n.Msg("vote.not_rep")
                 return self._record_peace_offer(w, v["proposer"], pl["to"], pl["kind"],
                                                 pl["gold"], pl.get("note", ""), pl.get("truce", 0))
             if pl.get("type") == "accept":
                 p = next((x for x in self.peace_offers if x["id"] == pl.get("offer_id")), None)
                 if p is None:
-                    return False, "求和提议已不在，接受落空"
+                    return False, i18n.Msg("vote.offer_gone")
                 return self._do_accept_peace(p)
-        return False, f"未知投票类型 {v['kind']}"
+        return False, i18n.Msg("vote.unknown_kind", kind=v["kind"])
 
-    def _execute_pact_vote(self, v: dict) -> tuple[bool, str]:
+    def _execute_pact_vote(self, v: dict) -> tuple[bool, i18n.Text]:
         """联盟「缔约」投票通过后的执行：签保障 / 签共同防御 / 撤回保障 / 解除共同防御 /
         对外发出共同防御邀约。**条约的表决与执行都只走这条路径**——成员个人签不了。"""
         pl = v["payload"]
         kind, A, B = pl["pact"], pl["A"], pl["B"]
         if not self.entity_members(A):
-            return False, f"{self.entity_label(A)} 已不存在，{kind}表决落空"
+            return False, i18n.Msg("pact.vote_void", who=self.entity_text(A), kind=kind)
         if not self.entity_members(B):
-            return False, f"{self.entity_label(B)} 已不存在，{kind}表决落空"
+            return False, i18n.Msg("pact.vote_void", who=self.entity_text(B), kind=kind)
         if pl.get("cancel"):                       # 撤回保障 / 解除共同防御
             if self.entity_at_war(A) or self.entity_at_war(B):
-                return False, "战争期间条约冻结：表决通过也失效了（先议和停战）"
+                return False, i18n.Msg("pact.vote_war_freeze")
             if self._drop_pact(kind, A, B):
-                self.log(f"💔 {self.entity_label(A)} 经联盟表决解除与 {self.entity_label(B)} 的{kind}",
-                         phase="外交")
-                return True, f"{self.entity_label(A)} 已解除与 {self.entity_label(B)} 的{kind}"
-            return False, f"条约已不在，解除{kind}落空"
+                self.log(i18n.Msg("pact.vote_broken", a=self.entity_text(A),
+                                  b=self.entity_text(B), kind=kind), phase="外交")
+                return True, i18n.Msg("pact.vote_broken_done", a=self.entity_text(A),
+                                      b=self.entity_text(B), kind=kind)
+            return False, i18n.Msg("pact.vote_no_pact", kind=kind)
         if pl.get("offer"):                        # 我方实体对外提议共同防御
             p = {"id": self._next_offer_id(), "kind": kind, "A": A, "B": B,
                  "asker": v["proposer"], "turn": self.turn}
             self.proposals.append(p)
-            self.log(f"🗳 {self.entity_label(A)} 经联盟表决，向 {self.entity_label(B)} "
-                     f"提议{kind}（邀约#{p['id']}）", phase="外交")
-            return True, (f"已以 {self.entity_label(A)} 的名义向 {self.entity_label(B)} 发出"
-                          f"{kind}邀约（#{p['id']}），等对方回应")
+            ent_a, ent_b = self.entity_text(A), self.entity_text(B)
+            self.log(i18n.Msg("pact.vote_offered", a=ent_a, b=ent_b, kind=kind, oid=p["id"]),
+                     phase="外交")
+            return True, i18n.Msg("pact.vote_offer_sent", a=ent_a, b=ent_b, kind=kind,
+                                  oid=p["id"])
         oid = pl.get("offer_id")                   # 对方邀约的表决通过 → 落条约
         if oid is not None:
             self.proposals = [x for x in self.proposals if x["id"] != oid]
@@ -3001,7 +3164,7 @@ class World:
                 return True
         return False
 
-    def _return_core(self, x: int, y: int, by: str) -> str:
+    def _return_core(self, x: int, y: int, by: str) -> i18n.Text:
         """同战线盟友自动归还核心领土：by 刚占领 (x,y)，若此地是同联盟且同战线的
         盟友的核心，则立即归还盟友（驻军原地不动，盟国领土合法停留）。返回附加说明。"""
         t = self.tiles.get((x, y))
@@ -3013,85 +3176,84 @@ class World:
         if not self._same_front(by, core):
             return ""
         t["owner"] = core
-        return f"——此乃盟友 {core} 的核心领土，已自动归还（同战线·联盟「{self.bloc_of(core)['name']}」）"
+        return i18n.Msg("core.returned", who=core, bloc=self.bloc_of(core)["name"])
 
-    def declare_guarantee(self, a: str, b: str) -> tuple[bool, str]:
+    def declare_guarantee(self, a: str, b: str) -> tuple[bool, i18n.Text]:
         """a 宣布保障 b 独立。**签约方是外交实体**：a 在盟 → 由它的联盟出面，须联盟投票通过；
         a 独立 → 直接生效（它自己就是实体）。"""
         if a not in self.nations or b not in self.nations:
-            return False, "双方必须是两个现存国家"
+            return False, i18n.Msg("diplo.two_nations")
         A, B = self.entity_of(a), self.entity_of(b)
         bad = self._pact_block("保障", A, B)
         if bad:
             return False, bad
         if self.entity_at_war(A):
-            return False, f"战争期间不能提供保障独立：{self._war_brief_ent(A)}（先议和）"
+            return False, i18n.Msg("guarantee.war_lock", brief=self._war_brief_ent(A))
         if self.entity_at_war(B):
-            return False, f"{self.entity_label(B)} 正在交战，战争期间不能保障它（先议和）"
+            return False, i18n.Msg("guarantee.target_at_war", who=self.entity_text(B))
         bl = self.bloc_of(a)
         if bl is not None:
             v = self._new_vote("缔约", bl["name"], a, {"pact": "保障", "A": A, "B": B})
-            self.log(f"🗳 {a} 发起联盟投票（「{bl['name']}」）：{self.entity_label(A)} 保障 "
-                     f"{self.entity_label(B)} 独立（投票#{v['id']}）", phase="外交", nation=a)
-            return True, (f"已发起联盟投票（投票#{v['id']}）：通过后由 {self.entity_label(A)} "
-                          f"保障 {self.entity_label(B)} 独立；成员用 vote {v['id']} true/false 表态")
+            self.log(i18n.Msg("guarantee.vote_start", who=a, bloc=bl["name"], a=self.entity_text(A),
+                              b=self.entity_text(B), vid=v["id"]), phase="外交", nation=a)
+            return True, i18n.Msg("guarantee.vote_reply", vid=v["id"], a=self.entity_text(A),
+                                  b=self.entity_text(B))
         return self._conclude_pact("保障", A, B)
 
-    def cancel_guarantee(self, a: str, b: str) -> tuple[bool, str]:
+    def cancel_guarantee(self, a: str, b: str) -> tuple[bool, i18n.Text]:
         """撤回保障（方向敏感：只有保障方能撤）。在盟国家须联盟投票。"""
         if a not in self.nations or b not in self.nations:
-            return False, "双方必须是两个现存国家"
+            return False, i18n.Msg("diplo.two_nations")
         A, B = self.entity_of(a), self.entity_of(b)
         if A == B:
-            return False, "你与它同属一个实体，没有保障可撤"
+            return False, i18n.Msg("guarantee.same_entity")
         if not self.has_pact("保障", A, B):
-            return False, f"{self.entity_label(A)} 并未保障 {self.entity_label(B)}"
+            return False, i18n.Msg("guarantee.none", a=self.entity_text(A), b=self.entity_text(B))
         if self.entity_at_war(A) or self.entity_at_war(B):
             who = A if self.entity_at_war(A) else B
-            return False, (f"战争期间不能撤回独立保障：{self._war_brief_ent(who)}"
-                           "（**条约在战时冻结**，缔结与撤回都不行——先议和停战）")
+            return False, i18n.Msg("guarantee.war_freeze", brief=self._war_brief_ent(who))
         bl = self.bloc_of(a)
         if bl is not None:
             v = self._new_vote("缔约", bl["name"], a,
                                {"pact": "保障", "A": A, "B": B, "cancel": True})
-            self.log(f"🗳 {a} 发起联盟投票（「{bl['name']}」）：撤回对 {self.entity_label(B)} 的保障"
-                     f"（投票#{v['id']}）", phase="外交", nation=a)
-            return True, (f"已发起联盟投票（投票#{v['id']}）：通过后撤回对 "
-                          f"{self.entity_label(B)} 的独立保障")
+            self.log(i18n.Msg("guarantee.vote_cancel", who=a, bloc=bl["name"],
+                              b=self.entity_text(B), vid=v["id"]), phase="外交", nation=a)
+            return True, i18n.Msg("guarantee.vote_cancel_started", vid=v["id"],
+                                  b=self.entity_text(B))
         self._drop_pact("保障", A, B)
-        self.log(f"{self.entity_label(A)} 撤回对 {self.entity_label(B)} 的独立保障",
-                 phase="外交", nation=a)
-        return True, f"{self.entity_label(A)} 已撤回对 {self.entity_label(B)} 的保障"
+        ent_a, ent_b = self.entity_text(A), self.entity_text(B)
+        self.log(i18n.Msg("guarantee.cancelled", a=ent_a, b=ent_b), phase="外交", nation=a)
+        return True, i18n.Msg("guarantee.cancelled_reply", a=ent_a, b=ent_b)
 
-    def declare_war(self, a: str, b: str) -> tuple[bool, str]:
+    def declare_war(self, a: str, b: str) -> tuple[bool, i18n.Text]:
         """宣战。**交战方是外交实体**：在盟国家不能擅自开战，调用即转为联盟宣战投票
         （多数决通过后全盟参战）；独立国家直接开战。
 
         守侧传导 = 保障 / 共同防御 / 联盟 的**传递闭包**（无限跳，以实体为单位）。"""
         if a == b or a not in self.nations or b not in self.nations:
-            return False, "双方必须是两个现存国家"
+            return False, i18n.Msg("diplo.two_nations")
         if self.war_between(a, b):
-            return False, "你们已经在交战"
+            return False, i18n.Msg("war.already")
         t = self.truce.get(_pair(a, b))
         if t is not None:
             if self.turn < t:
-                return False, f"休战中：你与 {b} 约定休战至第 {t} 回合（还剩 {t - self.turn} 回合），不得再宣战"
+                return False, i18n.Msg("war.truce_self", who=b, until=t,
+                                       left=t - self.turn)
             self.truce.pop(_pair(a, b), None)  # 到期清除
         A, B = self.entity_of(a), self.entity_of(b)
         if A == B:
-            return False, (f"{b} 与你同属 {self.entity_label(A)}，不能宣战"
-                           "（盟内互不攻击是联盟自带效果）")
+            return False, i18n.Msg("war.same_entity", who=b, ent=self.entity_text(A))
         bl = self.bloc_of(a)
         if bl is not None:
             v = self._new_vote("宣战", bl["name"], a, {"target": B})
-            self.log(f"🗳 {a} 发起联盟宣战投票（「{bl['name']}」）：对 {self.entity_label(B)} "
-                     f"宣战（投票#{v['id']}，多数决）", phase="外交", nation=a)
-            return True, (f"已发起联盟宣战投票（投票#{v['id']}）：多数同意后全盟对 "
-                          f"{self.entity_label(B)} 宣战；成员用 vote {v['id']} true/false 表态")
+            self.log(i18n.Msg("war.vote_start", who=a, bloc=bl["name"],
+                              target=self.entity_text(B), vid=v["id"]), phase="外交", nation=a)
+            return True, i18n.Msg("war.vote_reply", vid=v["id"],
+                                  target=self.entity_text(B))
         return self._declare_war_internal(A, B, a)
 
     def _declare_war_internal(self, atk_ent: str, def_ent: str,
-                              proposer: str) -> tuple[bool, str]:
+                              proposer: str) -> tuple[bool, i18n.Text]:
         """实际开战。atk_ent / def_ent 都是**外交实体**（独立国家或联盟）；proposer=发起国名。
 
         守侧传导：从 def_ent 出发的 保障/共同防御 传递闭包（无限跳，以实体为单位）——
@@ -3102,9 +3264,9 @@ class World:
         members = self.entity_members(atk_ent)
         def_members = self.entity_members(def_ent)
         if not members:
-            return False, f"{self.entity_label(atk_ent)} 已不存在，宣战落空"
+            return False, i18n.Msg("war.attacker_gone", who=self.entity_text(atk_ent))
         if not def_members:
-            return False, f"目标 {self.entity_label(def_ent)} 已灭亡，宣战落空"
+            return False, i18n.Msg("war.target_dead", who=self.entity_text(def_ent))
         b = self.entity_chief(def_ent) or def_members[0]
         # 休战检查（任一进攻侧成员与任一守侧成员休战中则不能开战；到期的顺手清掉）
         for m in members:
@@ -3113,9 +3275,10 @@ class World:
                 if t is None:
                     continue
                 if self.turn < t:
-                    return False, f"休战中：{m} 与 {d} 约定休战至第 {t} 回合，不得开战"
+                    return False, i18n.Msg("war.truce_between", a=m, b=d, until=t)
                 self.truce.pop(_pair(m, d), None)
         # 并入现有战线（不开平行战争）：目标实体正在攻打我方实体的盟友/共同防御对象 → 守侧并入
+        ent_def = self.entity_text(def_ent)
         for w in self.wars:
             atk, dfs = self._war_sides(w)
             if any(d in atk for d in def_members) and any(
@@ -3125,12 +3288,10 @@ class World:
                          and not any(self.war_between(m, x) for x in atk)]
                 w["followers"].extend(added)
                 for m in added:
-                    self.log(f"⚔ {m} 对 {self.entity_label(def_ent)} 宣战：盟友正被它攻打，"
-                             "并入该战线当防守方跟随方（不开第二场战争；跟随方不能单独议和）",
+                    self.log(i18n.Msg("war.join_def", who=m, target=ent_def),
                              phase="外交", nation=m)
-                return True, (f"对 {self.entity_label(def_ent)} 宣战：并入既有战线当防守方"
-                              f"（新增 {'、'.join(added) or '无'}；跟随方不能单独议和，"
-                              "主导者议和则整条战线停战）")
+                return True, i18n.Msg("war.join_def_reply", target=ent_def,
+                                      added=added or "无")
         # 目标实体正被我方实体的盟友/共同防御对象攻打 → 随攻并入
         for w in self.wars:
             atk, dfs = self._war_sides(w)
@@ -3141,11 +3302,10 @@ class World:
                          and not any(self.war_between(m, x) for x in dfs)]
                 w.setdefault("atk_followers", []).extend(added)
                 for m in added:
-                    self.log(f"⚔ {m} 对 {self.entity_label(def_ent)} 宣战：盟友正在攻打它，"
-                             "并入该战线随攻（不开第二场战争；跟随方不能单独议和）",
+                    self.log(i18n.Msg("war.join_atk", who=m, target=ent_def),
                              phase="外交", nation=m)
-                return True, (f"对 {self.entity_label(def_ent)} 宣战：并入既有战线随攻"
-                              f"（新增 {'、'.join(added) or '无'}）")
+                return True, i18n.Msg("war.join_atk_reply", target=ent_def,
+                                      added=added or "无")
         # 两实体之间的保障/共同防御自动解除（不打自己人）
         self._break_pacts_between(atk_ent, def_ent)
         # 守侧闭包（无限跳）：保障（谁保障它）+ 共同防御（谁与它互卫）
@@ -3174,20 +3334,22 @@ class World:
         # 防守义务优先：守侧成员与进攻侧实体的保障/共同防御自动解除；逐国通知
         for c in followers:
             self._break_pacts_between(self.entity_of(c), atk_ent)
-            self.log(f"⚔ {c} 因联盟/共同防御/保障义务被拖入守侧，自动参战打 {'、'.join(members)}"
-                     "（跟随方不能单独议和，主导者议和则整条战线停战）", phase="外交", nation=c)
+            self.log(i18n.Msg("war.dragged", who=c, foes=members), phase="外交", nation=c)
         leader = self.entity_chief(atk_ent) or members[0]
         self.wars.append({"id": self._next_war_id(), "atk": leader, "def": b,
                           "followers": followers,
                           "atk_followers": [m for m in members if m != leader],
                           "turn": self.turn})
-        mtxt = "、".join(members)
-        self.log(f"⚔ {proposer} 发起：{mtxt}（{self.entity_label(atk_ent)}）对 "
-                 f"{self.entity_label(def_ent)} 宣战！", phase="外交", nation=leader)
+        # 名单**整列交给渲染器连**（中文顿号 / 英文逗号），这里不再 `"、".join(...)`
+        self.log(i18n.Msg("war.declared", who=proposer, members=members,
+                          atk=self.entity_text(atk_ent), target=self.entity_text(def_ent)),
+                 phase="外交", nation=leader)
         if leader == proposer and len(members) == 1:
-            self.log(f"⚔ {proposer} 对 {b} 宣战！{b} 必须应战", phase="外交", nation=proposer)
-        jtxt = f"；守侧传导参战：{'、'.join(followers)}" if followers else ""
-        return True, f"对 {self.entity_label(def_ent)} 宣战（进攻侧：{mtxt}）{jtxt}"
+            self.log(i18n.Msg("war.solo", who=proposer, target=b), phase="外交", nation=proposer)
+        return True, i18n.Msg("war.declared_reply", target=self.entity_text(def_ent),
+                              members=members,
+                              joined=(i18n.Msg("war.followers", items=followers)
+                                      if followers else ""))
 
     def _peace_rep(self, w: dict, side: str) -> str:
         """某侧的谈判代表：主导者本人；主导者属联盟时 = 联盟主体（盟主）——
@@ -3202,30 +3364,31 @@ class World:
         return leader
 
     def offer_peace(self, a: str, b: str, kind: str, gold: int = 0, note: str = "",
-                    truce: int = 0) -> tuple[bool, str]:
+                    truce: int = 0) -> tuple[bool, i18n.Text]:
         if kind not in ("pay", "demand", "white"):
-            return False, "kind 须为 pay(我方赔款) / demand(要求对方赔款) / white(白和)"
+            return False, i18n.Msg("peace.kind_bad")
         if not isinstance(truce, int) or truce < 0:
-            return False, "休战回合数须为非负整数（0=不休战，自行约定）"
+            return False, i18n.Msg("peace.truce_bad")
         if a == b or a not in self.nations or b not in self.nations:
-            return False, "双方必须是两个现存国家"
+            return False, i18n.Msg("diplo.two_nations")
         w = self._war_of(a, b)
         if w is None:
-            return False, "你们并不在交战"
+            return False, i18n.Msg("peace.not_at_war")
         # 谈判代表：每侧=主导者；主导者有联盟时=其盟主（联盟主体身份）
         a_side = "atk" if a in self._war_sides(w)[0] else "def"
         b_side = "def" if a_side == "atk" else "atk"
         rep_a, rep_b = self._peace_rep(w, a_side), self._peace_rep(w, b_side)
         if a != rep_a:
-            hint = f"（你方主体是盟主 {rep_a}，由其出面并经联盟投票）" if rep_a != w["atk" if a_side == "atk" else "def"] else ""
-            return False, f"议和必须由本方谈判代表 {rep_a} 出面{hint}"
+            hint = (i18n.Msg("peace.rep_hint", who=rep_a)
+                    if rep_a != w["atk" if a_side == "atk" else "def"] else "")
+            return False, i18n.Msg("peace.need_rep", who=rep_a, hint=hint)
         if b != rep_b:
-            return False, f"求和对象须为对方谈判代表 {rep_b}（主导者或其盟主）"
+            return False, i18n.Msg("peace.need_target_rep", who=rep_b)
         if gold < 0 or (kind in ("pay", "demand") and gold == 0):
             if kind == "white":
                 gold = 0
             else:
-                return False, "赔款量需为正整数（white 则不带赔款）"
+                return False, i18n.Msg("peace.gold_bad")
         bloc = self.bloc_of(a)
         # 判断"是否联盟主体出面"必须用权威 bloc_chief，不能用 members[0]——
         # bloc_transfer 后盟主已换人，members[0] 仍是创始旧盟主，会让新盟主绕过投票私签和平。
@@ -3234,55 +3397,59 @@ class World:
             v = self._new_vote("议和", bloc["name"], a,
                                {"type": "offer", "war_id": w["id"], "to": rep_b,
                                 "kind": kind, "gold": gold, "note": note, "truce": truce})
-            self.log(f"🗳 {a} 发起联盟议和投票（「{bloc['name']}」）：向 {rep_b} 求和（投票#{v['id']}，多数决）",
-                     phase="外交", nation=a)
-            return True, (f"已发起联盟议和投票（投票#{v['id']}）：多数同意后正式向 {rep_b} 提出；"
-                          f"成员用 vote {v['id']} true/false 表态")
+            self.log(i18n.Msg("peace.vote_offer", who=a, bloc=bloc["name"], target=rep_b,
+                              vid=v["id"]), phase="外交", nation=a)
+            return True, i18n.Msg("peace.vote_offer_reply", vid=v["id"], target=rep_b)
         return self._record_peace_offer(w, a, b, kind, gold, note, truce)
 
+    def _peace_terms(self, kind: str, a: str, b: str, gold: int, truce: int) -> i18n.Text:
+        """求和条款的一句话（赔款/索款/白和 + 可选的约定休战）。"""
+        k = (i18n.Msg("peace.pay", a=a, gold=gold) if kind == "pay" else
+             i18n.Msg("peace.demand", a=a, b=b, gold=gold) if kind == "demand" else
+             i18n.Msg("peace.white"))
+        return i18n.Msg("peace.truce_tail", text=k, n=truce) if truce > 0 else k
+
     def _record_peace_offer(self, w: dict, a: str, b: str, kind: str, gold: int,
-                            note: str, truce: int) -> tuple[bool, str]:
+                            note: str, truce: int) -> tuple[bool, i18n.Text]:
         """记录求和提议（投票通过后或非联盟主体直接提出）。"""
         self.peace_offers.append({"id": self._next_offer_id(), "a": a, "b": b,
                                   "kind": kind, "gold": gold, "note": note, "turn": self.turn,
                                   "war_id": w["id"], "truce": truce})
-        k = {"pay": f"{a} 愿赔 {gold} 金求和", "demand": f"{a} 要求 {b} 赔 {gold} 金",
-             "white": "白和（不赔不索）"}[kind]
-        if truce > 0:
-            k += f"，约定休战 {truce} 回合"
-        self.log(f"🕊 求和提议：{k}" + (f"——{note}" if note else ""), phase="外交", nation=a)
-        return True, f"已向 {b} 提出：{k}，等 {b} 在下一回合回应（accept/reject 议和 id）"
+        k = self._peace_terms(kind, a, b, gold, truce)
+        self.log(i18n.Msg("peace.offer_event", text=k,
+                          tail=i18n.Msg("peace.note_tail", note=note) if note else ""),
+                 phase="外交", nation=a)
+        return True, i18n.Msg("peace.offered", to=b, text=k)
 
-    def accept_peace(self, me: str, offer_id: int) -> tuple[bool, str]:
+    def accept_peace(self, me: str, offer_id: int) -> tuple[bool, i18n.Text]:
         p = next((x for x in self.peace_offers if x["id"] == offer_id and x["b"] == me), None)
         if p is None:
-            return False, "没有这个给你的求和提议"
+            return False, i18n.Msg("peace.no_offer_for_you")
         bloc = self.bloc_of(me)
         # 同 offer_peace：认盟主用 bloc_chief，防 bloc_transfer 后新盟主绕过投票直接接受
         if bloc is not None and self.bloc_chief(bloc) == me:
             # 联盟主体接受议和须先过联盟投票（多数决）
             v = self._new_vote("议和", bloc["name"], me, {"type": "accept", "offer_id": offer_id})
-            self.log(f"🗳 {me} 发起联盟议和投票（「{bloc['name']}」）：接受 {p['a']} 的求和（投票#{v['id']}）",
-                     phase="外交", nation=me)
-            return True, (f"已发起联盟议和投票（投票#{v['id']}）：多数同意后正式接受；"
-                          f"成员用 vote {v['id']} true/false 表态")
+            self.log(i18n.Msg("peace.vote_accept", who=me, bloc=bloc["name"], target=p["a"],
+                              vid=v["id"]), phase="外交", nation=me)
+            return True, i18n.Msg("peace.vote_accept_reply", vid=v["id"])
         return self._do_accept_peace(p)
 
-    def _do_accept_peace(self, p: dict) -> tuple[bool, str]:
+    def _do_accept_peace(self, p: dict) -> tuple[bool, i18n.Text]:
         a, b, kind, gold = p["a"], p["b"], p["kind"], p["gold"]
         me = p["b"]
         w = self._war_of(a, b)
         if w is None:
             self.peace_offers.remove(p)
-            return False, "你们已不在交战（提议作废）"
+            return False, i18n.Msg("peace.no_longer")
         if kind == "pay":
             if self.res(a, "黄金") < gold:
-                return False, f"{a} 国库不足 {gold}，赔不起这个价"
+                return False, i18n.Msg("peace.payer_broke", who=a, gold=gold)
             self.add_res(a, "黄金", -gold)
             self.add_res(b, "黄金", gold)
         elif kind == "demand":
             if self.res(b, "黄金") < gold:
-                return False, f"你的国库不足 {gold}，付不起这笔赔款（可回提 pay 求和）"
+                return False, i18n.Msg("peace.self_broke", gold=gold)
             self.add_res(b, "黄金", -gold)
             self.add_res(a, "黄金", gold)
         self.peace_offers.remove(p)
@@ -3302,20 +3469,23 @@ class World:
         for m in self.armies:
             if m["owner"] in members and m.get("engaged"):
                 m["engaged"] = False  # 整条战线（含跟随方）一并解除交战
-        extra = {"pay": f"{a} 付 {b} {gold} 金", "demand": f"{b} 赔 {a} {gold} 金", "white": "白和"}[kind]
+        extra = (i18n.Msg("peace.paid", a=a, b=b, gold=gold) if kind == "pay" else
+                 i18n.Msg("peace.indemnity", a=a, b=b, gold=gold) if kind == "demand" else
+                 i18n.Msg("peace.white_short"))
         fls = list(w["followers"]) + list(w.get("atk_followers", []))
-        who = ("（含跟随方 " + "、".join(fls) + "）") if fls else ""
-        truce_txt = f"，休战 {truce_n} 回合（至第 {until} 回合）" if truce_n > 0 else ""
-        self.log(f"🕊 {a} 与 {b} 议和停战{who}{truce_txt}（{extra}）", phase="外交", nation=me)
-        return True, (f"停战议成：{extra}{truce_txt}。整条战线已停{who}，各方军队解除交战；"
-                      f"各方实际持有地块重算为核心领土；滞留在对方领土的军队将于回合末遣返")
+        who = i18n.Msg("peace.with_followers", items=fls) if fls else ""
+        truce_txt = (i18n.Msg("peace.truce_txt", n=truce_n, until=until)
+                     if truce_n > 0 else "")
+        self.log(i18n.Msg("peace.done", a=a, b=b, who=who, truce=truce_txt, extra=extra),
+                 phase="外交", nation=me)
+        return True, i18n.Msg("peace.done_reply", extra=extra, truce=truce_txt, who=who)
 
-    def reject_peace(self, me: str, offer_id: int) -> tuple[bool, str]:
+    def reject_peace(self, me: str, offer_id: int) -> tuple[bool, i18n.Text]:
         p = next((x for x in self.peace_offers if x["id"] == offer_id and x["b"] == me), None)
         if p is None:
-            return False, "没有这个求和提议"
+            return False, i18n.Msg("peace.no_offer")
         self.peace_offers.remove(p)
-        return True, f"你拒绝 {p['a']} 的求和（战争继续）"
+        return True, i18n.Msg("peace.rejected", who=p["a"])
 
     # ------------------------------------------------------------- 关系查询
     def allied_between(self, a: str, b: str) -> bool:
@@ -3351,7 +3521,7 @@ class World:
         return self.guarantors_of(self.entity_of(b))
 
     # ------------------------------------------------------------- 关系汇总（供面板）
-    def rel_desc(self, me: str) -> str:
+    def rel_desc(self, me: str) -> i18n.Text:
         """本国视角的全员关系一览（实体口径：条约挂在实体上，不挂在国家上）。"""
         my = self.entity_of(me)
         out = []
@@ -3361,17 +3531,17 @@ class World:
             them = self.entity_of(n)
             tags = []
             if them == my:
-                tags.append(f"联盟成员（同属{self.entity_label(my)}）")
+                tags.append(i18n.Msg("rel.in_bloc", ent=self.entity_text(my)))
             if self.war_between(me, n):
-                tags.append("交战")
+                tags.append(i18n.Msg("rel.at_war"))
             if self.has_pact("共同防御", my, them):
-                tags.append("共同防御")
+                tags.append(i18n.Msg("rel.dp"))
             if self.has_pact("保障", my, them):
-                tags.append("本实体保障它")
+                tags.append(i18n.Msg("rel.guarantees"))
             if self.has_pact("保障", them, my):
-                tags.append("它保障本实体")
-            out.append(f"{n}=" + ("、".join(tags) if tags else "中立"))
-        return "  ".join(out) if out else "（只有你一个国了）"
+                tags.append(i18n.Msg("rel.guaranteed"))
+            out.append(i18n.Msg("rel.line", who=n, tags=tags or [i18n.Msg("rel.neutral")]))
+        return _gap(out) if out else i18n.Msg("rel.alone")
 
     # ------------------------------------------------------------- 存档
     def save(self, path: str | Path) -> None:
@@ -3405,10 +3575,10 @@ class World:
             "long_memory": self.long_memory,
             "turn_memory": self.turn_memory,
             "gift_pending": self.gift_pending,
-            "map_pending": self.map_pending,
-            "maps": self.maps,
+            "map_pending": i18n.enc(self.map_pending),
+            "maps": i18n.enc(self.maps),
             "spy_pending": self.spy_pending,
-            "econ_intel": self.econ_intel,
+            "econ_intel": i18n.enc(self.econ_intel),
             "plans": self.plans,
             "polity": self.polity,
             "extra_prompt": self.extra_prompt,
@@ -3421,7 +3591,7 @@ class World:
             "flow_out": self.flow_out,
             "grid_short": self.grid_short,
             "energy_report": self.energy_report,
-            "econ_summary": self.econ_summary,
+            "econ_summary": i18n.enc(self.econ_summary),
             "econ_reports": self.econ_reports,
             "ledger": self.ledger,
             "spend": self.spend,
@@ -3432,9 +3602,9 @@ class World:
         # 在第一次存档就炸（开发期），而不是变成静默丢档（运行时才发现=惨案）
         keys, want = set(data), set(SAVE_KEYS)
         if keys != want:
-            raise RuntimeError(
-                f"存档契约漂移：save 多出 {sorted(keys - want)}、少写 {sorted(want - keys)}"
-                f"——新增状态字段请同步 SAVE_KEYS 清单与 load 搬运")
+            # 列表按 **repr** 传（`['a', 'b']` 是开发者看的记法，不是散文）
+            raise RuntimeError(i18n.Msg("save.contract_drift", more=str(sorted(keys - want)),
+                                        less=str(sorted(want - keys))))
         # 原子写（tmp+rename）：turn_memory 使存档变大近一倍，避免写一半中断损坏档
         tmp = Path(str(path) + ".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -3444,12 +3614,14 @@ class World:
     def load(cls, path: str | Path) -> "World":
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         if data.get("version") != SAVE_VERSION:
-            raise SaveFormatError(
-                f"存档版本不符（档内 {data.get('version', '无版本号＝旧档')} ≠ 当前 {SAVE_VERSION}）："
-                f"本项目不做旧档兼容，请用 --new 重开，或删掉 {path}")
+            have = data.get("version")
+            raise SaveFormatError(i18n.Msg(
+                "save.version_mismatch",
+                have=i18n.Msg("save.no_version") if have is None else have,
+                want=SAVE_VERSION, path=path))
         missing = [k for k in SAVE_KEYS if k not in data]
         if missing:
-            raise SaveFormatError(f"存档缺字段：{missing}（文件被截断或改坏），请重开一局")
+            raise SaveFormatError(i18n.Msg("save.missing_fields", fields=str(missing)))
         w = cls(size=data["size"], seed=data["seed"], gen=False)   # 空壳：世界由存档整体还原（不预建默认三国，否则残出幽灵地块）
         w.turn = data["turn"]
         ver, internal, gauss = data["rng_state"]
@@ -3468,10 +3640,10 @@ class World:
         w.long_memory = {n: str(v) for n, v in data["long_memory"].items() if n in w.nations}
         w.turn_memory = {n: list(v) for n, v in data["turn_memory"].items() if n in w.nations}
         w.gift_pending = data["gift_pending"]
-        w.map_pending = data["map_pending"]
-        w.maps = {n: list(v) for n, v in data["maps"].items() if n in w.nations}
+        w.map_pending = i18n.Msg.from_json(data["map_pending"])
+        w.maps = {n: list(v) for n, v in i18n.Msg.from_json(data["maps"]).items() if n in w.nations}
         w.spy_pending = data["spy_pending"]
-        w.econ_intel = {n: list(v) for n, v in data["econ_intel"].items() if n in w.nations}
+        w.econ_intel = {n: list(v) for n, v in i18n.Msg.from_json(data["econ_intel"]).items() if n in w.nations}
         w.plans = {n: dict(v) for n, v in data["plans"].items() if n in w.nations}
         w.polity = {n: v for n, v in data["polity"].items() if n in w.nations}
         w.extra_prompt = {n: dict(v) for n, v in data["extra_prompt"].items() if n in w.nations}
@@ -3516,7 +3688,7 @@ class World:
         # 电网/结算摘要也持久化：否则续档后第一回合 all 面板电力 0、上回合结算丢失
         w.grid_short = {n: bool(v) for n, v in data["grid_short"].items() if n in w.nations}
         w.energy_report = {n: tuple(v) for n, v in data["energy_report"].items() if n in w.nations}
-        w.econ_summary = {n: s for n, s in data["econ_summary"].items() if n in w.nations}
+        w.econ_summary = {n: s for n, s in i18n.Msg.from_json(data["econ_summary"]).items() if n in w.nations}
         w.econ_reports = {n: list(v) for n, v in data["econ_reports"].items() if n in w.nations}
         w.ledger = {n: {**{k: float(v[k]) for k in LEDGER_FIELDS},
                         "_since": max(1, int(v["_since"]))}
