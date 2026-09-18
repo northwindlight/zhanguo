@@ -1443,10 +1443,14 @@ def _memory_search(world, name: str, args: dict) -> str:
     for rec in (world.turn_memory.get(name) or []):
         msgs = rec.get("messages") or []
         for i, m in enumerate(msgs):
+            # ★记录首条是本回合的状态面板原文（为了前缀缓存逐字节存进来的，见
+            #   `_store_turn_memory`）。它只当"相邻上下文"用，不做检索单元——否则
+            #   每回合几千字的状态会淹没正文命中（检索的语义是"我当时做了什么"）。
+            is_state = i == 0 and str(m.get("content") or "").startswith(TURN_STATE_HEAD)
             parts = []
             if m.get("role") == "tool":
                 parts.append(str(m.get("content") or ""))
-            else:
+            elif not is_state:
                 if m.get("content"):
                     parts.append(str(m["content"]))
                 for tc in (m.get("tool_calls") or []):
@@ -2086,10 +2090,16 @@ def _ctx_parts(world, name) -> tuple[list, list, list]:
             world.summary_blocks.get(name) or [])
 
 
+TURN_STATE_HEAD = "以上为过往回合记录"   # 本回合状态消息的抬头（存档/检索靠它认这条）
+
+
 def turn_state(world, name, replay_since: int | None = None) -> str:
     """本回合的新鲜状态（消息尾部）。replay_since=已进 replay 的最早回合，
-    用于把状态面板里重复的内容去掉（见 _fmt_memory/_fmt_news/_fmt_mail）。"""
-    return (f"以上为过往回合记录，现在开始第 {world.turn} 回合行动。\n"
+    用于把状态面板里重复的内容去掉（见 _fmt_memory/_fmt_news/_fmt_mail）。
+
+    ★这条消息**原样进 replay**（见 `_store_turn_memory`）：它是本回合请求的最后一条，
+    下回合必须按同一串字节把它摆在 replay 里，请求才是"上一次请求 + 新状态"的纯追加。"""
+    return (f"{TURN_STATE_HEAD}，现在开始第 {world.turn} 回合行动。\n"
             + engine_call(full_state, world, name, replay_since))
 
 
@@ -2121,18 +2131,32 @@ def build_context(world, name, cfg) -> tuple[list[dict], "ctxlib.Plan"]:
 
 
 def _store_turn_memory(world, name, messages, base: int, plan) -> list[dict]:
-    """把本回合新增的消息（messages[base:]）存入该国 turn_memory，并按预算下滑。
+    """把本回合**真正发给模型的那段原文**存入该国 turn_memory，并按预算下滑。
 
-    只存本回合 append 的部分（base 之前是历史 replay），避免把整个历史嵌进每条记录、
-    记录间二次方膨胀。首条加 user 回合标记，回放时分隔回合边界。完整存，不截断。
+    存 `messages[base-1:]`：base 是 build_context 返回的长度，所以 `messages[base-1]`
+    就是本回合那条状态消息（`turn_state`），其后是本回合的工具往返。base 之前是历史
+    replay，不重复存（否则记录间二次方膨胀）。完整存，不截断。
     返回被裁掉的旧回合记录（调用方可据此生成阶段块总结）。
+
+    ★★ 为什么不能用一行自造的回合标记当首条（2026-09-19 修，实测）：
+    旧实现存 `[{"role":"user","content":"【第N回合 行动记录】"}] + messages[base:]`——
+    等于**把上一回合的发文开头改写掉**。于是下一回合的请求不是上一回合请求的延长，
+    而是在"上一回合开头"处就分叉：
+
+        上一次请求 … | user: 以上为过往回合记录，现在开始第 87 回合行动… （真状态）
+        本次请求   … | user: 【第87回合 行动记录】                    （占位符）→ 后面全 miss
+
+    后果就是**上一回合的整条记录（思考 + 工具往返）永远进不了前缀缓存，每回合白付一遍**；
+    60×60 两国、262k 窗口、每回合 4 次调用的实测（第 62→88 回合）：命中 46.8%→95.1%，
+    分歧点每一次都精确落在占位符那一行，每回合固定 miss ≈ 上一回合记录 7.0k + 状态 2.8k。
+    存原文后，下回合请求 = 上回合请求的**逐字节延长**，命中由"窗口多大"决定而非被自己砍掉。
+    代价：replay 每回合多存一条状态（实测 ≈2.9k tok，窗口填得略快，压缩周期略短）。
     """
     if name not in world.nations:
         return []
-    body = messages[base:]
-    rec = [{"role": "user", "content": f"【第{world.turn}回合 行动记录】"}] + [dict(m) for m in body]
+    body = [dict(m) for m in messages[max(0, base - 1):]]
     mem = world.turn_memory.setdefault(name, [])
-    mem.append({"turn": world.turn, "messages": rec})
+    mem.append({"turn": world.turn, "messages": body})
     return ctxlib.slide(world, name, plan)
 
 

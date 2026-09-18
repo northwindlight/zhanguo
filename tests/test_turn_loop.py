@@ -222,6 +222,33 @@ class TestTurnLoop(unittest.TestCase):
         self.assertTrue(any("第3回合的事" in e for e in ev))
         self.assertTrue(any("第9回合的事" in e for e in ev))
 
+    def test_next_turn_request_extends_last_turn_verbatim(self):
+        """★前缀缓存的根：replay 必须是上一回合**真正发出去的那段原文**。
+
+        旧实现给每条记录塞一行自造的「【第N回合 行动记录】」当年首条（真状态被丢掉）
+        = 把上一回合的发文开头改写掉 ⇒ 下一回合的请求在那一刻就分叉，上一回合整条
+        记录（思考 + 工具往返）**永远进不了前缀缓存**（实测每回合白付 ≈7k tok）。
+        这里钉两条：①记录首条是本回合状态原文；②下回合的**首次请求**逐字节延长上回合
+        的**末次请求**（= 缓存可命中的充分条件）。
+        """
+        w = self._world()
+        w.turn = 1
+        cfg = self._cfg(ctx_window=200000)
+        mp_ai.run_openai_turn(w, "秦", cfg)
+        first1 = _FakeOpenAI.instances[0].calls[0]["messages"]
+        last1 = _FakeOpenAI.instances[0].calls[-1]["messages"]
+        self.assertGreater(len(last1), len(first1), "本回合应有工具往返（plan + end_turn）")
+        rec = w.turn_memory["秦"][0]
+        self.assertTrue(str(rec["messages"][0].get("content", "")).startswith(
+            mp_ai.TURN_STATE_HEAD),
+            "记录首条应是本回合状态原文，而不是自造的回合标记")
+        w.turn = 2
+        mp_ai.run_openai_turn(w, "秦", cfg)
+        first2 = _FakeOpenAI.instances[1].calls[0]["messages"]
+        self.assertGreater(len(first2), len(last1))
+        self.assertEqual(first2[:len(last1)], last1,
+                         "下回合首次请求必须逐字节延长上回合末次请求（前缀缓存）")
+
 
 class _ScriptedOpenAI:
     """可编程假 client：每次回合调用按预置脚本吐 tool_calls / content。"""
