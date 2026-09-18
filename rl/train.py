@@ -247,6 +247,12 @@ def main() -> None:
                     help="熵系数退火终点：从 --ent-coef 线性降到它（不设=不退火）。"
                          "熵高时 argmax 无意义（分布太平），收尾退火才能收出一个"
                          "好的确定性策略")
+    ap.add_argument("--grad-diag", default=None, metavar="路径",
+                    help="梯度分项诊断（默认关）：每块把 `pg/vf/ent/bc` 四项各自梯度的"
+                         "**批间一致性**与 **Adam 信噪比**追加写进这个 JSON。"
+                         "★判据是 snr 不是 ‖g‖ —— Adam 每参数步长≈lr，幅度大的零均值"
+                         "噪声会被 `m/√v` 压掉，只有批间一致的分量推得动权重。"
+                         "开了会让每步多跑 4 次反向（只量一次用，别常开）")
     ap.add_argument("--adv-norm", choices=("minibatch", "global"), default="minibatch",
                     help="优势归一化范围。minibatch=CleanRL 默认；global=整块一次，"
                          "保留「整局好/坏」的信息（策略双峰骑墙时用这个）")
@@ -335,7 +341,8 @@ def main() -> None:
               ent_coef=args.ent_coef, adv_norm=args.adv_norm,
               clip=args.clip, exec_coef=args.exec_head,
               bc_model=_bc_model, bc_coef=args.bc_anchor,
-              bc_turns=args.bc_anchor_turns)
+              bc_turns=args.bc_anchor_turns,
+              grad_diag=bool(args.grad_diag))
     start_iter = 0
     ck = None
     if args.resume:
@@ -589,6 +596,14 @@ def main() -> None:
                   f"策略冻结）", flush=True)
         stats = ppo.update(rollout, last_value=last_v, warmup=_warm)
         rollout.clear()
+
+        if args.grad_diag:
+            # 逐块追加（每块一行 JSON）——中途被打断也留得下已量到的那些块
+            _rep = ppo.report_grad_diag()
+            _rep["iter"] = it
+            with open(args.grad_diag, "a", encoding="utf-8") as _f:
+                _f.write(json.dumps(_rep, ensure_ascii=False) + "\n")
+            print(f"  梯度分项 → {args.grad_diag}", flush=True)
 
         recent = eps[-3:]
         # 注意：row 的键必须在**每一块**都齐全——csv.DictWriter 的列头取自第一块，

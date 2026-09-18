@@ -328,8 +328,17 @@ class PPO:
                  minibatch: int = 256, vf_coef: float = 0.5, ent_coef: float = 0.01,
                  exec_coef: float = 0.0,
                  bc_model=None, bc_coef: float = 0.0, bc_turns: int = 70,
-                 max_grad_norm: float = 0.5, adv_norm: str = "minibatch"):
+                 max_grad_norm: float = 0.5, adv_norm: str = "minibatch",
+                 grad_diag: bool = False):
         self.model = model
+        # ★梯度分项诊断（2026-09-18，用户：「方差主导了？比价值头更高？」）。
+        #   **默认关 ⇒ 行为与开关存在前逐位相同**（关时一行诊断代码都不进）。
+        #   打开后每步额外算 `pg/vf/ent/bc` 四项各自的梯度，累计批间一致性与分散度。
+        #   为什么量「一致性」而不是梯度大小：**Adam 每参数步长≈lr**（`m̂/√v̂`），
+        #   所以幅度大的零均值噪声会被压掉，**只有批间一致的分量推得动权重**。
+        self.grad_diag = bool(grad_diag)
+        self._diag: dict | None = {} if self.grad_diag else None
+
         self.adv_norm = adv_norm          # "minibatch"（CleanRL 默认）/"global"（整块一次）
         self.opt = torch.optim.Adam(model.parameters(), lr=lr)
         self.clip = clip
@@ -349,6 +358,59 @@ class PPO:
         self.bc_coef = bc_coef
         self.bc_turns = bc_turns
         self.max_grad_norm = max_grad_norm
+
+    # ---- 梯度分项诊断（只有 `grad_diag=True` 才会被调到） ----
+    def _diag_step(self, terms: dict) -> None:
+        """累计**本 minibatch** 各项的梯度（向量和 + 平方和 + 范数和）。
+
+        为什么留这三个量：Adam 的 `m̂/√v̂` 就是**逐参数信噪比** ——
+        批间一致的项 `m` 涨、`√v` 也涨但比值趋于 1（拿满步长）；零均值噪声项 `m→0`
+        而 `√v` 照涨 ⇒ 步长被压掉。**所以判据是 `‖m/(σ+ε)‖`，不是 `‖g‖`。**
+        """
+        params = [p for p in self.model.parameters() if p.requires_grad]
+        for name, t in terms.items():
+            if t is None:
+                continue
+            gs = torch.autograd.grad(t, params, retain_graph=True, allow_unused=True)
+            g = torch.cat([(torch.zeros_like(p) if x is None else x).detach().reshape(-1)
+                           for p, x in zip(params, gs)])
+            e = self._diag.setdefault(name, {"sum": torch.zeros_like(g),
+                                             "sq": torch.zeros_like(g),
+                                             "norm": 0.0, "n": 0})
+            e["sum"] += g
+            e["sq"] += g * g
+            e["norm"] += float(g.norm())
+            e["n"] += 1
+
+    def report_grad_diag(self, reset: bool = True) -> dict:
+        """把累计的分项梯度算成可读数：批间一致性 `coh` 与 Adam 信噪比 `snr`。
+
+        `coh = ‖mean_b g‖/mean_b‖g‖`：1 = 每批都指同一个方向；→0 = 纯零均值噪声。
+        `snr = ‖mean_b g/(std_b g + ε)‖`：**这一项真正推得动多少权重**。
+        `cos:a:b`：两项的一致分量是互相帮忙还是互相拆台。
+        """
+        out: dict = {}
+        means: dict = {}
+        for name, e in (self._diag or {}).items():
+            n = max(1, e["n"])
+            m = e["sum"] / n
+            sd = (e["sq"] / n - m * m).clamp(min=0.0).sqrt()
+            means[name] = m
+            out[name] = {
+                "n_minibatch": e["n"],
+                "norm_mean": float(m.norm()),               # 一致分量的大小
+                "norm_avg": e["norm"] / n,                  # 逐批平均大小
+                "coh": float(m.norm()) / max(e["norm"] / n, 1e-30),
+                "snr": float((m / (sd + 1e-8)).norm()),
+            }
+        names = list(means)
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                den = float(means[a].norm() * means[b].norm())
+                out[f"cos:{a}:{b}"] = (float((means[a] * means[b]).sum()) / den) if den else 0.0
+        if reset and self._diag is not None:
+            self._diag = {}
+        return out
 
     def update(self, rollout: Rollout, last_value: float = 0.0,
                warmup: bool = False) -> dict:
@@ -491,6 +553,15 @@ class PPO:
                     if bc_kl is not None:
                         loss = loss + self.bc_coef * bc_kl
 
+                if self.grad_diag and not warmup:
+                    # 四项**按它们在 loss 里的系数**取（符号也照 loss）⇒
+                    # `Σ 四项梯度 ≡ ∇loss`，分解是恒等式不是近似。
+                    self._diag_step({
+                        "pg": pg,
+                        "vf": self.vf_coef * vf,
+                        "ent": -self.ent_coef * ent,
+                        "bc": (self.bc_coef * bc_kl) if bc_kl is not None else None,
+                    })
                 self.opt.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
