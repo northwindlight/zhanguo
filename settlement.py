@@ -342,12 +342,19 @@ def _game_context(save: dict, name: str, rounds: int, ncfg: dict | None = None) 
     上下文跳转过来，而非收到一份转述。
     """
     import ctx as ctxlib
+    import mp
     import mp_ai
+    # 复盘替身：`mp_ai.system_prompt` 只用到这几个 world 成员（造不起真 World——存档
+    # 未必齐、也不该为一句话提示重建整张图）。★ 提示词每多用一个 world 方法，这里就得
+    # 补一个；政体本稿要现算 `polity_rule`，漏了它带 huns 政体的国家一进结算厅就崩
+    # （`tests/test_settlement.py::TestGameContext` 钉着这条）。
     shim = SimpleNamespace(
         turn=save.get("turn", 0),
         polity=save.get("polity") or {},
         extra_prompt=save.get("extra_prompt") or {},
         alive=lambda: list(save["nations"].keys()),
+        polity_rule=lambda n, key, default: mp.polity_rule_of(
+            save.get("polity"), n, key, default),
     )
     lang = (ncfg or {}).get("lang")          # 该国自己的语言（缺省=全局缺省）
     system_text = (mp_ai.system_prompt(shim, name)

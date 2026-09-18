@@ -101,5 +101,49 @@ class TestScoreboardText(unittest.TestCase):
         self.assertLess(board.index("乙"), board.index("甲"))   # 乙花得多 → 排前面
 
 
+class TestGameContext(unittest.TestCase):
+    """进场对话流：`_game_context` 用 `SimpleNamespace` 造了个假 world 喂给
+    `mp_ai.system_prompt` —— 提示词里多要一个 world 方法，这里就多一个崩溃点。
+    ★ 带政体的国家是重灾区：`_huns_prompt` 要现算政体数值（`polity_rule`），
+      示例配置里林胡/楼烦都是 `polity:"huns"`，真跑到终局就会整场结算炸掉。"""
+
+    def _ctx_save(self, polity: dict) -> dict:
+        save = _save()
+        save.update(polity=polity, extra_prompt={}, turn_memory={}, summaries={},
+                    summary_blocks={})
+        return save
+
+    def test_polity_nation_enters_the_hall(self):
+        save = self._ctx_save({"甲": "huns", "乙": ""})
+        msgs = settlement._game_context(save, "甲", 4, {})
+        self.assertEqual(msgs[0]["role"], "system")
+        self.assertIn("草原游牧帝国", msgs[0]["content"])
+        self.assertIn("教义", msgs[0]["content"])          # 八条教义整篇要在
+        self.assertIn("结算", msgs[0]["content"])          # 附则拼在同一条 system 里
+
+    def test_plain_nation_still_gets_default_prompt(self):
+        content = settlement._game_context(self._ctx_save({}), "乙", 4, {})[0]["content"]
+        self.assertIn("你是国家元首", content)
+        self.assertNotIn("单于", content)                  # 没政体别套游牧本稿
+
+    def test_context_survives_save_reload_roundtrip(self):
+        """真跑出来的档（走 `World.save` 的字段形状）也要能进场：合成档容易漏掉
+        只有实档才有的键。"""
+        import json
+        import tempfile
+        from pathlib import Path as P
+        import mp
+        w = mp.World(size=12, seed=3, nations=["甲", "乙"], max_turns=2)
+        w.polity["甲"] = "huns"
+        w.begin_turn()
+        w.resolve_turn()
+        with tempfile.TemporaryDirectory() as tmp:
+            f = P(tmp) / "s.json"
+            w.save(f)
+            real = json.loads(f.read_text(encoding="utf-8"))
+        content = settlement._game_context(real, "甲", 4, {})[0]["content"]
+        self.assertIn("单于", content)
+
+
 if __name__ == "__main__":
     unittest.main()

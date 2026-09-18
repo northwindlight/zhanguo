@@ -405,6 +405,15 @@ def _adjacency(size: int) -> tuple:
     return got
 
 
+def polity_rule_of(polity_map: dict, name: str, key: str, default):
+    """政体修正项的**唯一取法**（数值全在 `balance.POLITY`；没政体/没这项 → `default`）。
+
+    `World.polity_rule` 与结算厅的复盘替身都走这里 —— 那边只拿得到存档 dict（造不起真
+    World），但绝不能因此抄第二份口径。
+    """
+    return POLITY.get((polity_map or {}).get(name) or "", {}).get(key, default)
+
+
 class World:
     def __init__(self, size: int = 80, seed: int | None = None, *,
                  nations: list[str] | None = None,
@@ -601,8 +610,8 @@ class World:
         return {(i // size, i % size): best[i] for i in touched}
 
     def polity_rule(self, name: str, key: str, default):
-        """取该国的政体修正项（数值全在 `balance.POLITY`；没有政体/没这一项 → `default`）。"""
-        return POLITY.get(self.polity.get(name) or "", {}).get(key, default)
+        """取该国的政体修正项（口径见 `polity_rule_of`）。"""
+        return polity_rule_of(self.polity, name, key, default)
 
     def recruit_cost(self, name: str, kind: str) -> dict[str, int]:
         """该国征召一支 `kind` 实际要花的原料（**含政体特价**）。
