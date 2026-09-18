@@ -66,8 +66,12 @@ python3 mp_run.py --turns 10    # resume from save; start fresh if none exists
 - **Military** — three unit types (infantry / cavalry / militia); **movement is tile-by-tile with
   terrain costs**, mountains and forests are impassable; combat resolves by dice each turn with
   terrain and castle cover. Expansion requires fighting — there is no "colonize from thin air".
-- **Diplomacy** — letters, war, peace, defensive pacts, guarantees, spies, alliances and betrayal;
-  war can cascade through treaties without limit (A guarantees B, B allies C → attack B and C joins).
+- **Diplomacy** — letters, war, peace, defensive pacts, guarantees, spies, alliances and betrayal.
+  The only parties that may sign anything are **diplomatic entities** (an independent nation, or a
+  bloc): a bloc's members have no foreign policy of their own — every guarantee / pact / war / peace
+  goes through a **bloc vote** and is executed by the bloc; joining a bloc voids your personal
+  treaties; and once at war the whole bloc is **locked** (no leaving, no dissolving). War cascades
+  through treaties without limit (A guarantees B, B is pacted to C → attack B and C joins).
   After a nation falls, a global forced truce prevents rapid-fire conquest.
 - **Fog of war & information discipline** — each nation only sees what it is entitled to know:
   its own territory, the adjacent ring, alliance-shared vision, watchtower range. The truth about
@@ -154,6 +158,9 @@ python3 settlement.py                   # end-game settlement (scoring + chamber
 
 ## Docs
 
+- [Game manual](docs/游戏说明书.md) (Chinese) — the full human-side rulebook: turn resolution, start &
+  fog of war, buildings, armies & combat, diplomacy, blocs, market, economic reports, command list.
+  Numbers are auto-generated from `balance.py` by `docs/sync_manual.py`; terrain lives in the map doc.
 - [On the consumption-based evaluation metric](docs/消费总量评测指标论证.md) — why rank by "total
   consumption": first-principles argument + three deterministic controlled experiments + an adversarial experiment.
 - [Map generation & resource distribution](docs/地图生成与资源分布.md) — human-side reference.
