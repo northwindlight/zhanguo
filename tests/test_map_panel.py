@@ -1,0 +1,342 @@
+# -*- coding: utf-8 -*-
+"""国土/视野**地图**（常驻）+ 逐格明细/单格的**精确查询**（按需）。
+
+覆盖三件事：
+1. `_visible_cells`（反推法，快 280 倍）与引擎 `World.visible_to`（逐格问）**逐格等价** ——
+   面板宁可快，但不能与引擎的视野口径漂开（那可是情报纪律）。
+2. 地图：带坐标轴、只画自己国土+视野、有界、标记正确、**只读**（不物化地块、不改世界）。
+3. 查询：`land` 的 cap/offset/filter、`tile` 的单格明细与**视野门禁**。
+
+注意：`World()` 开局各国**自带** {len(CROSS)} 块地，所以本文件里所有格数都拿
+`w.own_tiles(name)` 现算，不写死。
+
+跑法：python3 -m unittest discover -s tests -v
+"""
+
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import mp  # noqa: E402
+import mp_ai  # noqa: E402
+
+
+def _world(nations=("秦", "楚")):
+    return mp.World(size=24, seed=3, nations=list(nations))
+
+
+def _grow(w, name, n, *, farm=False, tower=False):
+    """再划 n 块无主格给 name（手工物化，绕开扩张）。返回新加的那几块。"""
+    added = []
+    for x in range(w.size):
+        for y in range(w.size):
+            if len(added) >= n:
+                break
+            if (x, y) in w.tiles:
+                continue
+            t = w._new_tile(x, y, name)
+            t["owner"] = name
+            w.tiles[(x, y)] = t
+            if farm and t["resources"].get("耕地", 0) >= 1:
+                t["buildings"]["农场"] = 1
+            added.append((x, y))
+        if len(added) >= n:
+            break
+    if tower and added:
+        w.tiles[added[0]]["buildings"]["瞭望塔"] = 1
+    return added
+
+
+def _bbox(cells):
+    xs = [p[0] for p in cells]
+    ys = [p[1] for p in cells]
+    return min(xs), max(xs), min(ys), max(ys)
+
+
+class TestVisibleCellsEquivalence(unittest.TestCase):
+    """★ 反推法必须与引擎的逐格判定完全一致（含瞭望塔圆与联盟共享视野）。"""
+
+    def _cross_check(self, w, name):
+        fast = mp_ai._visible_cells(w, name)
+        slow = {(x, y) for x in range(w.size) for y in range(w.size)
+                if w.visible_to(name, x, y)}
+        self.assertEqual(fast, slow, f"{name} 的可见集合与 visible_to 不一致")
+
+    def test_plain_territory(self):
+        w = _world()
+        _grow(w, "秦", 5)
+        self._cross_check(w, "秦")
+
+    def test_with_watchtower(self):
+        w = _world()
+        _grow(w, "秦", 5, tower=True)
+        self._cross_check(w, "秦")
+
+    def test_with_ally_shared_vision(self):
+        """联盟共享视野：盟友的地盘及其相邻一圈也得算进来。"""
+        w = _world()
+        _grow(w, "秦", 3)
+        _grow(w, "楚", 3)
+        w.propose_bloc("秦", "北盟", ["楚"])
+        w.accept_pact("楚", w.proposals[-1]["id"])
+        self.assertIsNotNone(w.bloc_of("楚"))
+        self._cross_check(w, "秦")
+        self._cross_check(w, "楚")
+
+    def test_cells_clipped_to_map(self):
+        """贴边的国土：瞭望塔/邻圈算出界时必须裁掉（否则地图会越界取格）。"""
+        w = mp.World(size=24, seed=3, nations=["秦"])
+        t = w._new_tile(0, 0, "秦")
+        t["owner"] = "秦"
+        t["buildings"]["瞭望塔"] = 1
+        w.tiles[(0, 0)] = t
+        for p in mp_ai._visible_cells(w, "秦"):
+            self.assertTrue(0 <= p[0] < w.size and 0 <= p[1] < w.size, p)
+        self._cross_check(w, "秦")
+
+
+class TestMapPanel(unittest.TestCase):
+    def test_has_axes_and_summary(self):
+        w = _world()
+        _grow(w, "秦", 5, farm=True)
+        own = w.own_tiles("秦")
+        vis = mp_ai._visible_cells(w, "秦")
+        x0, x1, y0, y1 = _bbox(vis)
+        s = mp_ai._fmt_map(w, "秦")
+        self.assertIn(f"地图 x {x0 + 1}→{x1 + 1}、y {y0 + 1}→{y1 + 1}", s)
+        lab = [f"{(x + 1) % 100:02d}" for x in range(x0, x1 + 1)]
+        self.assertIn("".join(d[0] + " " for d in lab), s, "缺列头（十位行）")
+        self.assertIn("".join(d[1] + " " for d in lab), s, "缺列头（个位行）")
+        self.assertIn(f"  {y0 + 1:3d} ", s, "缺行坐标")
+        self.assertIn(f"国土 {len(own)} 块", s)
+        self.assertIn(f"视野内 {len(vis)} 格", s)
+        self.assertIn("每格 2 字符", s)
+
+    def test_row_count_and_width_match_bbox(self):
+        w = _world()
+        _grow(w, "秦", 5)
+        vis = mp_ai._visible_cells(w, "秦")
+        x0, x1, y0, y1 = _bbox(vis)
+        bw, bh = x1 - x0 + 1, y1 - y0 + 1
+        rows = [l for l in mp_ai._fmt_map(w, "秦").splitlines()
+                if l.startswith("  ") and len(l) > 5 and l[2:5].strip().isdigit()]
+        self.assertEqual(len(rows), bh, "行数应等于可见区高度")
+        for r in rows:
+            self.assertEqual(len(r) - 6, bw * 2, f"每格 2 字符、共 {bw} 列：{r!r}")
+
+    def test_out_of_vision_stays_blank(self):
+        """视野外的格只能显示占位符，不许泄内容。"""
+        w = _world()
+        _grow(w, "秦", 4)
+        vis = mp_ai._visible_cells(w, "秦")
+        x0, x1, y0, y1 = _bbox(vis)
+        outside = [(x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)
+                   if (x, y) not in vis]
+        if not outside:
+            self.skipTest("这个种子下包围盒被视野填满，没有可验的空角")
+        s = mp_ai._fmt_map(w, "秦")
+        rows = {int(l[2:5]): l for l in s.splitlines()
+                if l.startswith("  ") and len(l) > 5 and l[2:5].strip().isdigit()}
+        for (x, y) in outside:
+            seg = rows[y + 1][6 + (x - x0) * 2: 8 + (x - x0) * 2]
+            self.assertEqual(seg[0], ".", f"({x + 1},{y + 1}) 视野外却画了 {seg!r}")
+
+    def test_marks_building_army_barbarian(self):
+        w = _world()
+        own = w.own_tiles("秦")
+        x, y = own[0]
+        w.tiles[(x, y)]["buildings"]["农场"] = 1
+        s0 = mp_ai._fmt_map(w, "秦")
+        vis = mp_ai._visible_cells(w, "秦")
+        x0, _, _, _ = _bbox(vis)
+        rows = {int(l[2:5]): l for l in s0.splitlines()
+                if l.startswith("  ") and len(l) > 5 and l[2:5].strip().isdigit()}
+        seg = rows[y + 1][6 + (x - x0) * 2: 8 + (x - x0) * 2]
+        self.assertEqual(seg[1], "■", f"自家建筑没标出来：{seg!r}")
+        # 自家军队优先于建筑标记
+        w.armies = [{"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+                     "x": x, "y": y, "owner": "秦", "moved_turn": -1, "engaged": False}]
+        s1 = mp_ai._fmt_map(w, "秦")
+        rows = {int(l[2:5]): l for l in s1.splitlines()
+                if l.startswith("  ") and len(l) > 5 and l[2:5].strip().isdigit()}
+        self.assertEqual(rows[y + 1][6 + (x - x0) * 2 + 1], "@", "自家军队没标出来")
+        self.assertIn("*", s1, "野人守军没标出来")
+
+    def test_map_is_read_only(self):
+        """★ 渲染不许物化地块/改世界——它每回合都跑，一旦写状态就会毁掉复现性。"""
+        w = _world()
+        _grow(w, "秦", 4)
+        snap = (len(w.tiles), sorted(w.tiles), len(w.armies), w.nations["秦"].res["粮食"])
+        mp_ai._fmt_map(w, "秦")
+        mp_ai._fmt_map(w, "秦")
+        self.assertEqual(snap, (len(w.tiles), sorted(w.tiles), len(w.armies),
+                                w.nations["秦"].res["粮食"]), "地图渲染改了世界状态")
+
+    def test_deterministic(self):
+        w = _world()
+        _grow(w, "秦", 6, farm=True)
+        self.assertEqual(mp_ai._fmt_map(w, "秦"), mp_ai._fmt_map(w, "秦"))
+
+    def test_always_on_state_uses_map_not_the_full_list(self):
+        """★ 回归守卫：常驻必须是地图，不许有人再把逐格清单塞回去。"""
+        w = _world()
+        _grow(w, "秦", 12)
+        st = mp_ai.full_state(w, "秦")
+        seg = st.split("【国土/视野】")[1].split("【")[0]
+        self.assertIn("地图 x ", seg, "常驻状态里没有地图")
+        self.assertNotIn("城L", seg, "常驻里又出现了逐格明细行（那只该在 query panel=land）")
+
+
+class TestLandQuery(unittest.TestCase):
+    def setUp(self):
+        self.w = _world()
+        _grow(self.w, "秦", 6, farm=True)
+        self.own = self.w.own_tiles("秦")
+        self.w.tiles[self.own[0]]["buildings"]["兵营"] = 1
+
+    def test_no_filter_lists_tiles_and_frontier(self):
+        s = mp_ai._fmt_land(self.w, "秦")
+        self.assertIn(f"国土 {len(self.own)} 块", s)
+        self.assertIn("可拓荒地", s)
+        self.assertIn("兵营", s)
+
+    def test_filter_by_building(self):
+        s = mp_ai._fmt_land(self.w, "秦", filter_="兵营")
+        self.assertIn(f"筛「兵营」命中 1 块（原国土 {len(self.own)} 块）", s)
+        self.assertEqual(s.count("城L"), 1)
+
+    def test_filter_counts_pending(self):
+        x, y = self.own[1]
+        self.w.tiles[(x, y)]["pending"] = {"兵营": 1}
+        s = mp_ai._fmt_land(self.w, "秦", filter_="兵营")
+        self.assertIn("命中 2 块", s)
+
+    def test_filter_by_resource(self):
+        s = mp_ai._fmt_land(self.w, "秦", filter_="耕地")
+        hit = sum(1 for p in self.own if self.w.tiles[p]["resources"].get("耕地", 0) > 0)
+        self.assertIn(f"筛「耕地」命中 {hit} 块", s)
+        self.assertEqual(s.count("城L"), hit)
+
+    def test_unknown_filter_is_rejected_with_options(self):
+        s = mp_ai._fmt_land(self.w, "秦", filter_="可建")
+        self.assertIn("只认", s)
+        self.assertIn("兵营", s)      # 列出建筑名
+        self.assertIn("耕地", s)      # 列出资源名
+
+    def test_filter_skips_frontier_section(self):
+        """筛选时只给命中的地，不再附可拓荒地清单。"""
+        self.assertNotIn("可拓荒地", mp_ai._fmt_land(self.w, "秦", filter_="兵营"))
+
+    def test_paging(self):
+        small = mp_ai._fmt_land(self.w, "秦", cap=2, offset=0)
+        self.assertIn("本次列 第 1–2 块", small)
+        self.assertIn(f"还有 {len(self.own) - 2} 块，用 offset=2", small)
+        page2 = mp_ai._fmt_land(self.w, "秦", cap=2, offset=2)
+        self.assertIn("本次列 第 3–4 块", page2)
+        self.assertNotEqual(small.splitlines()[1], page2.splitlines()[1])
+
+    def test_offset_beyond_end_is_clamped(self):
+        s = mp_ai._fmt_land(self.w, "秦", cap=2, offset=999)
+        self.assertIn(f"本次列 第 {len(self.own)}–{len(self.own)} 块", s)
+
+    def test_empty_territory(self):
+        w = mp.World(size=16, seed=3, nations=["秦"])
+        w.tiles = {}
+        s = mp_ai._fmt_land(w, "秦")
+        self.assertIn("国土 0 块", s)
+
+
+class TestTileQuery(unittest.TestCase):
+    def setUp(self):
+        self.w = _world()
+        _grow(self.w, "秦", 6, farm=True)
+        self.pos = self.w.own_tiles("秦")[0]
+        self.w.tiles[self.pos]["buildings"]["兵营"] = 1
+        self.w.tiles[self.pos]["core"] = "秦"
+
+    def test_shows_full_detail(self):
+        s = mp_ai._fmt_tile(self.w, "秦", self.pos)
+        self.assertIn(f"({self.pos[0] + 1},{self.pos[1] + 1})", s)
+        self.assertIn("你的国土", s)
+        self.assertIn("核心领土", s)
+        self.assertIn("兵营", s)
+        self.assertIn("建筑位", s)
+        self.assertIn("资源：", s)
+        self.assertIn("可下令建造", s)
+
+    def test_refuses_out_of_vision(self):
+        """★ 视野纪律：视野外的格一律不答（否则等于给了全图透视）。"""
+        vis = mp_ai._visible_cells(self.w, "秦")
+        far = next((x, y) for x in range(self.w.size) for y in range(self.w.size)
+                   if (x, y) not in vis)
+        s = mp_ai._fmt_tile(self.w, "秦", far)
+        self.assertIn("不在你视野内", s)
+        self.assertNotIn("建筑位", s)
+
+    def test_reports_unowned(self):
+        vis = mp_ai._visible_cells(self.w, "秦")
+        wild = next(p for p in sorted(vis) if self.w.owned_by(*p) != "秦")
+        s = mp_ai._fmt_tile(self.w, "秦", wild)
+        self.assertIn("无主", s)
+
+    def test_render_is_read_only(self):
+        snap = (len(self.w.tiles), sorted(self.w.tiles))
+        mp_ai._fmt_tile(self.w, "秦", self.pos)
+        self.assertEqual(snap, (len(self.w.tiles), sorted(self.w.tiles)))
+
+    def test_out_of_bounds(self):
+        s = mp_ai._fmt_tile(self.w, "秦", (self.w.size + 3, 0))
+        self.assertIn("超出地图范围", s)
+
+
+class TestQueryDispatch(unittest.TestCase):
+    """走 `_exec` 的真实分发（模型看到的那一层）。"""
+
+    def setUp(self):
+        self.w = _world()
+        _grow(self.w, "秦", 6, farm=True)
+        self.own = self.w.own_tiles("秦")
+        self.w.tiles[self.own[0]]["buildings"]["兵营"] = 1
+
+    def test_tile_panel_by_xy_and_by_name(self):
+        x, y = self.own[0]
+        s = mp_ai._exec(self.w, "秦", "query", {"panel": "tile", "x": x + 1, "y": y + 1})
+        self.assertIn("建筑位", s)
+        name = self.w.tiles[(x, y)]["name"]
+        s2 = mp_ai._exec(self.w, "秦", "query", {"panel": "tile", "at": name})
+        self.assertIn(name, s2)
+
+    def test_tile_panel_without_target_gives_usage(self):
+        self.assertIn("用法", mp_ai._exec(self.w, "秦", "query", {"panel": "tile"}))
+
+    def test_land_panel_passes_cap_offset_filter(self):
+        s = mp_ai._exec(self.w, "秦", "query",
+                        {"panel": "land", "cap": 2, "offset": 2, "filter": "兵营"})
+        self.assertIn("本次列 第 1–1 块", s)      # 筛完只剩 1 块
+        self.assertIn("筛「兵营」", s)
+
+    def test_bad_cap_offset_do_not_crash(self):
+        s = mp_ai._exec(self.w, "秦", "query",
+                        {"panel": "land", "cap": "很多", "offset": None})
+        self.assertIn(f"国土 {len(self.own)} 块", s)
+
+    def test_unknown_panel_falls_back_to_all(self):
+        self.assertIn("【国土/视野】",
+                      mp_ai._exec(self.w, "秦", "query", {"panel": "不存在的面板"}))
+
+    def test_query_schema_advertises_new_panel_and_args(self):
+        """工具表是模型唯一的说明书——新面板/新参数必须写进去。"""
+        sch = [s for s in mp_ai.tool_schemas(self.w, "秦")
+               if s["function"]["name"] == "query"][0]["function"]
+        self.assertIn("tile", sch["parameters"]["properties"]["panel"]["enum"])
+        for k in ("cap", "offset", "filter", "x", "y", "at"):
+            self.assertIn(k, sch["parameters"]["properties"], f"query 少了参数 {k}")
+        self.assertIn("常驻", sch["description"])
+
+
+if __name__ == "__main__":
+    unittest.main()

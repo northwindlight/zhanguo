@@ -33,6 +33,7 @@ from game import (
     MAX_SLOTS,
     MOVE_COST,
     RETREAT_ATK_PENALTY,
+    RESOURCES,
     RETREAT_RANGE,
     TERRAIN_STATS,
     UNIT_TYPES,
@@ -51,6 +52,11 @@ from mp import (BLOC_NAME_MAX, CROSS, DIPLO_COST, EXTRA_PROMPT_TURNS, FALL_TRUCE
 
 MAIL_BRIEF_FULL = 3      # 状态面板里完整展示的新信数（更旧的只列摘要行）
 MAIL_BRIEF_ROWS = 20     # 状态面板里最多列多少条旧信摘要
+LAND_CAP = 40            # `query panel=land` 一次列几块（可传 cap= 覆盖）
+MAP_MAX_CELLS = 2400     # 常驻地图最多画多少格；视野被远方飞地/盟友撑爆时退回"本土+邻圈"
+MAP_LEGEND = ("每格 2 字符：第 1 位=地形（P平原 F森林 H丘陵 M山地 D沙漠；**大写=你的地**、"
+              "小写=视野内非你的地、. =视野外）；第 2 位=·无 ■你有建筑(含在建) "
+              "@你的军队 *野人守军 !他国军队")
 
 # ★ 局内上下文**不注入 README**（2026-09-15）：`rules` 一律返回 `_help_sections()`
 #   现算的规则文本，**所有政体同一份**。曾经匈奴的 rules 额外附一份 README 原文全文
@@ -242,50 +248,225 @@ def _fmt_armies(world, name) -> str:
     return "\n".join(lines)
 
 
-def _fmt_land(world, name, cap=40) -> str:
-    own = world.own_tiles(name)
-    lines = [f"国土 {len(own)} 块（最多列 {cap}，按坐标排序）:"]
-    shown = 0
-    for (x, y) in own:
-        if shown >= cap:
-            lines.append("  …")
-            break
-        t = world.tiles[(x, y)]
-        b = t["buildings"]
-        used = sum(b.values()) + sum((t.get("pending") or {}).values())
-        res = " ".join(f"{k}x{t['resources'][k]}" for k in ("矿石", "黄金", "耕地", "石油", "木头"))
-        pend = " ".join(f"{bn}在建" for bn, n in (t.get("pending") or {}).items() if n)
-        built = " ".join(f"{bn}×{n}" for bn, n in b.items() if n) or "无"
-        free = "可建" if not t["built_this_turn"] else "本回合已下单"
-        gar = " ".join(f"军{a['id']}({a['hp']})" for a in world.armies if a["owner"] == name and (a["x"], a["y"]) == (x, y))
-        extra = f" 在建:{pend}" if pend else ""
-        core = "♥" if t.get("core") == name else ""  # ♥=核心领土（同战线盟友夺回会自动归还）
-        lines.append(
-            f"  {core}{t['name']} ({x+1},{y+1}){t['terrain']} 城L{b['城堡']} 位{used}/{MAX_SLOTS} "
-            f"[资源 {res}] 建筑:{built}{extra} {free}{(' 驻:'+gar) if gar else ''}"
-        )
-        shown += 1
-    fr = sorted(world.frontier_of(name))
-    # 本回合**够得着**的格子：至少一支军队能从现位置走/打到（逐格代价，见 balance.MOVE_COST）
+def _visible_cells(world, name) -> set:
+    """name 看得见的全部格（自己/盟友的地 + 其相邻一圈 + 己方与盟友瞭望塔圆内）。
+
+    ★ 与 `World.visible_to` **同口径**，但**从地块侧反推**而不是逐格去问：
+    `visible_to` 每次调用都要遍历全表找瞭望塔，按格问 60×60 就是 3600 次 × 全表 ——
+    实测 29ms（地块越多越慢），反推只要 0.1ms（**280 倍**）。
+    `tests/test_map_panel.py::test_visible_cells_matches_visible_to` 逐格钉住两者等价。
+    """
+    bloc = world.bloc_of(name)
+    allies = set(bloc["members"]) if bloc is not None else {name}
+    out: set = set()
+    for (x, y), t in world.tiles.items():
+        if t["owner"] in allies:
+            out.add((x, y))
+            out.update(world.neighbors(x, y))
+    r = int(building_effect("瞭望塔", "vision_radius") or 0)
+    if r > 0:
+        for (x, y), t in world.tiles.items():
+            if t["owner"] not in allies or not t["buildings"].get("瞭望塔"):
+                continue
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    if dx * dx + dy * dy <= r * r:
+                        out.add((x + dx, y + dy))
+    return {(x, y) for (x, y) in out if 0 <= x < world.size and 0 <= y < world.size}
+
+
+def _has_barb(world, x: int, y: int) -> bool:
+    return any(a["owner"] == "野人" and (a["x"], a["y"]) == (x, y) for a in world.armies)
+
+
+def _reach_cells(world, name) -> set:
+    """本回合**有军队够得着**的格（能直接 atk 入驻/开打的）。与 land 面板同口径。"""
     reach: set = set()
     for a in world.armies:
         if a["owner"] == name and a["hp"] > 0 and not a.get("engaged") \
                 and a.get("moved_turn") != world.turn:
             reach |= set(world._reachable(name, a, for_attack=True))
-    lines.append(f"可拓荒地 {len(fr)} 块（[野人]=有守军需 atk 打赢；[空地]=无守军，atk 进驻即占；"
-                 f"可及=本回合有军队够得着）:")
-    frs = []
-    for (x, y) in fr:
-        guard = any(a["owner"] == "野人" and (a["x"], a["y"]) == (x, y) for a in world.armies)
-        tag = "[野人]" if guard else "[空地]"
-        ok = "可及" if (x, y) in reach and world.visible_to(name, x, y) else ""
-        frs.append(f"({x+1},{y+1}){world.ter_char(x, y)}{tag}{ok}")
-    if frs:
-        for i in range(0, len(frs), 8):
-            lines.append("  " + " ".join(frs[i:i + 8]))
-    lines.append(f"  地形挡路：{_move_cost_text()}。")
+    return reach
+
+
+def _fmt_map(world, name) -> str:
+    """带坐标轴的**国土/视野地图**（常驻面板：只画自己国土 + 自己看得见的格）。
+
+    为什么用地图替掉逐格清单：逐格明细 61 字符/格、且随国土**无界**增长
+    （实测 160 回合国土 166 块 → 不限幅 10.6k 字符 ≈7k token，而它每回合都进上下文）。
+    地图尺寸只随**视野包围盒**走（实测 528 格 ≈0.6k 字符），天然有界。
+    逐格细节改由按需查询给：`panel=tile`（单格全明细）、`panel=land`（明细/翻页/过滤）。
+    """
+    own = set(world.own_tiles(name))
+    vis = _visible_cells(world, name)
+    if not vis:
+        return "（你还没有国土，也没有视野）"
+    x0, x1 = min(p[0] for p in vis), max(p[0] for p in vis)
+    y0, y1 = min(p[1] for p in vis), max(p[1] for p in vis)
+    cropped = False
+    if (x1 - x0 + 1) * (y1 - y0 + 1) > MAP_MAX_CELLS:
+        # 视野被远方飞地/盟友撑爆 → 只画"本土+邻圈"（与国土同量级），其余用清单指路
+        near = set(own)
+        for (x, y) in own:
+            near |= set(world.neighbors(x, y))
+        near &= vis
+        if near:
+            x0, x1 = min(p[0] for p in near), max(p[0] for p in near)
+            y0, y1 = min(p[1] for p in near), max(p[1] for p in near)
+            cropped = True
+    army_at: dict = {}
+    for a in world.armies:
+        army_at.setdefault((a["x"], a["y"]), []).append(a)
+
+    def cell(x: int, y: int) -> str:
+        o = world.owned_by(x, y)
+        if o == name:
+            c = world.ter_char(x, y)                 # 大写 = 自家地
+        elif (x, y) in vis:
+            c = world.ter_char(x, y).lower()         # 小写 = 视野内非自家
+        else:
+            c = "."                                  # 视野外（只在包围盒角落出现）
+        here = army_at.get((x, y), ())
+        if any(a["owner"] == name for a in here):
+            return c + "@"
+        if any(a["owner"] == "野人" for a in here):
+            return c + "*"
+        if any(a["owner"] not in (name, "野人") for a in here):
+            return c + "!"
+        t = world.tiles.get((x, y))
+        if o == name and t and (any(t["buildings"].values()) or (t.get("pending") or {})):
+            return c + "■"
+        return c + "·"
+
+    # 列头用**两行**（十位/个位），与 2 字符格严格对齐：单行写会在 9→10 处变成
+    # "9101112…"，模型有读错坐标的风险（读错 = 白烧一个动作）。
+    lab = [f"{(x + 1) % 100:02d}" for x in range(x0, x1 + 1)]
+    lines = [f"地图 x {x0 + 1}→{x1 + 1}、y {y0 + 1}→{y1 + 1}（坐标 1-based，每格 2 字符；"
+             f"列头上下两行拼起来就是 x）",
+             "      " + "".join(d[0] + " " for d in lab),
+             "      " + "".join(d[1] + " " for d in lab)]
+    for y in range(y0, y1 + 1):
+        lines.append(f"  {y + 1:3d} " + "".join(cell(x, y) for x in range(x0, x1 + 1)))
+    lines.append(f"国土 {len(own)} 块 · 视野内 {len(vis)} 格（非自家 {len(vis - own)}）· "
+                 f"可拓荒地 {len(world.frontier_of(name))} 块")
+    reach = sorted(p for p in _reach_cells(world, name) if p in vis)
+    if reach:
+        head = reach[:24]
+        txt = " ".join(f"({x + 1},{y + 1}){world.ter_char(x, y)}"
+                       f"{'野人' if _has_barb(world, x, y) else '空地'}" for (x, y) in head)
+        more = f" …另 {len(reach) - len(head)} 块" if len(reach) > len(head) else ""
+        lines.append(f"本回合可及（有军队够得着，可直接 atk 入驻）: {txt}{more}")
+    if cropped:
+        lines.append("（视野里有远离本土的格，未画进图——用 query panel=land 看全清单）")
+    lines.append(MAP_LEGEND)
+    lines.append("逐格明细：query panel=land（cap= 列几块 / offset= 从第几块起 / "
+                 "filter= 只看含某建筑或某资源的格）；单格全明细：query panel=tile x= y=（或 at=地名）")
     return "\n".join(lines)
 
+
+def _fmt_land(world, name, cap=LAND_CAP, offset=0, filter_="") -> str:
+    """国土**逐格明细**（按需查询；常驻只画 `_fmt_map`）。
+
+    cap=一次列几块；offset=从第几块开始（翻页）；filter_=只看含某**建筑**或某**资源**的格
+    （只认这两类名字，别的会被拒并列出全部可选项）。
+    """
+    own = world.own_tiles(name)
+    flt = str(filter_ or "").strip()
+    if flt:
+        if flt in BUILDINGS:
+            own = [p for p in own if world.tiles[p]["buildings"].get(flt)
+                   or (world.tiles[p].get("pending") or {}).get(flt)]
+        elif flt in RESOURCES:
+            own = [p for p in own if world.tiles[p]["resources"].get(flt, 0) > 0]
+        else:
+            return ("filter 只认**建筑名**或**地块资源名**，别的查不了：\n"
+                    f"  建筑：{' '.join(BUILDINGS)}\n"
+                    f"  资源：{' '.join(RESOURCES)}\n"
+                    "（想按别的条件找格，用 query panel=tile 逐格看）")
+    total = len(own)
+    head = (f"筛「{flt}」命中 {total} 块（原国土 {len(world.own_tiles(name))} 块）"
+            if flt else f"国土 {total} 块")
+    off = max(0, min(int(offset or 0), max(0, total - 1))) if total else 0
+    page = own[off:off + max(1, int(cap or LAND_CAP))]
+    span = f"第 {off + 1}–{off + len(page)} 块" if page else "0 块"
+    lines = [f"{head}（按坐标排序；本次列 {span}，cap={cap} offset={off}）:"]
+    for (x, y) in page:
+        t = world.tiles[(x, y)]
+        b = t["buildings"]
+        used = sum(b.values()) + sum((t.get("pending") or {}).values())
+        res = " ".join(f"{k}x{t['resources'][k]}" for k in RESOURCES)
+        pend = " ".join(f"{bn}在建" for bn, n in (t.get("pending") or {}).items() if n)
+        built = " ".join(f"{bn}×{n}" for bn, n in b.items() if n) or "无"
+        free = "可建" if not t["built_this_turn"] else "本回合已下单"
+        gar = " ".join(f"军{a['id']}({a['hp']})" for a in world.armies
+                       if a["owner"] == name and (a["x"], a["y"]) == (x, y))
+        extra = f" 在建:{pend}" if pend else ""
+        core = "♥" if t.get("core") == name else ""   # ♥=核心领土（同战线盟友夺回会自动归还）
+        lines.append(
+            f"  {core}{t['name']} ({x + 1},{y + 1}){t['terrain']} 城L{b['城堡']} 位{used}/{MAX_SLOTS} "
+            f"[资源 {res}] 建筑:{built}{extra} {free}{(' 驻:' + gar) if gar else ''}"
+        )
+    if off + len(page) < total:
+        lines.append(f"  …还有 {total - off - len(page)} 块，用 offset={off + len(page)} 接着看")
+    if not flt:
+        fr = sorted(world.frontier_of(name))
+        vis = _visible_cells(world, name)
+        reach = _reach_cells(world, name)
+        lines.append(f"可拓荒地 {len(fr)} 块（[野人]=有守军需 atk 打赢；[空地]=无守军，atk 进驻即占；"
+                     f"可及=本回合有军队够得着）:")
+        frs = []
+        for (x, y) in fr:
+            tag = "[野人]" if _has_barb(world, x, y) else "[空地]"
+            ok = "可及" if (x, y) in reach and (x, y) in vis else ""
+            frs.append(f"({x + 1},{y + 1}){world.ter_char(x, y)}{tag}{ok}")
+        for i in range(0, len(frs), 8):
+            lines.append("  " + " ".join(frs[i:i + 8]))
+        lines.append(f"  地形挡路：{_move_cost_text()}。")
+    return "\n".join(lines)
+
+
+def _fmt_tile(world, name, xy) -> str:
+    """**单格全明细**（精确查询）。只回答你视野内的格——与其它面板同一套视野纪律。"""
+    x, y = xy
+    if not (0 <= x < world.size and 0 <= y < world.size):
+        return f"({x + 1},{y + 1}) 超出地图范围（1~{world.size}）"
+    if (x, y) not in _visible_cells(world, name):
+        return (f"({x + 1},{y + 1}) 不在你视野内——你只看得见自己国土 + 相邻一圈"
+                "（联盟共享视野；瞭望塔再往外扩）。")
+    t = world.tiles.get((x, y))
+    owner = world.owned_by(x, y)
+    terrain = world.tile_terrain(x, y)
+    st = TERRAIN_STATS[terrain]
+    if owner == name:
+        who = "你的国土"
+    elif owner == "野人" or (owner is None and _has_barb(world, x, y)):
+        who = "无主（有野人守军，atk 打赢才能占）"
+    elif owner is None:
+        who = "无主空地（atk 进驻即占）"
+    else:
+        who = f"{owner} 的领土"
+    lines = [f"({x + 1},{y + 1}) {terrain}｜{who}"
+             + (f"｜{t['name']}" if t and t.get("name") else "")
+             + ("｜♥ 你的核心领土" if t and t.get("core") == name else "")]
+    lines.append(f"  地形：防御 {st['defense']:+d}%、建设惩罚 {st['build_penalty']:+d}%")
+    res = t["resources"] if t else world.tile_resources(x, y)
+    lines.append("  资源：" + " ".join(f"{k}x{res.get(k, 0)}" for k in RESOURCES))
+    if t:
+        b, pend = t["buildings"], (t.get("pending") or {})
+        used = sum(b.values()) + sum(pend.values())
+        built = " ".join(f"{bn}×{n}" for bn, n in b.items() if n) or "无"
+        lines.append(f"  建筑位 {used}/{MAX_SLOTS}；已建成：{built}"
+                     + ("；在建：" + " ".join(f"{bn}×{n}" for bn, n in pend.items() if n) if pend else ""))
+        lines.append("  本回合可下令建造：" + ("可以" if not t["built_this_turn"] else "不行（本回合已下过单）"))
+    mine = [a for a in world.armies if a["owner"] == name and (a["x"], a["y"]) == (x, y)]
+    if mine:
+        lines.append("  你的驻军：" + " ".join(f"{a['name']}({a['hp']}HP)" for a in mine))
+    outside = [a for a in world.armies
+               if a["owner"] not in (name, "野人") and (a["x"], a["y"]) == (x, y)]
+    if outside:
+        lines.append("  他国军队：" + " ".join(f"{a['name']}({a['owner']},{a['hp']}HP)" for a in outside))
+    lines.append("  本回合有军队够得着：" + ("是" if (x, y) in _reach_cells(world, name) else "否"))
+    return "\n".join(lines)
 
 def _fmt_market(world, name) -> str:
     r = world.nations[name].res
@@ -583,6 +764,9 @@ def _help_sections() -> list[tuple[str, str]]:
             f"EU4式 大地图国战：每人从 {len(CROSS)} 块地起家，拓荒/建设/生产/建军，可对他国结盟或开战。"
             "回合制：每回合你行动（可做多件事）→ 过回合统一结算（产出/电网/战斗/补给/市场回归）。"
             "地皮名字=ID，坐标 1-based。你能看的是自己地盘+相邻一圈（有联盟则连盟友的地盘也看得到；建瞭望塔可把事件视野再往外推）；他国国力只能推测。"
+            "**你的国土与视野以「带坐标轴的地图」常驻在状态里**（只画你国土和你视野内的格，每格 2 字符：地形 + 标记）——"
+            "逐格明细用 query panel=land（cap= 列几块、offset= 翻页、filter= 只看含某建筑或某资源的格，如 filter=兵营 / filter=耕地）；"
+            "某一格的全明细用 query panel=tile x= y=（或 at=地名）。"
             "迷雾限制你**看见**的，不限制你**下令**的：可对视野外的格下 mv/atk——撞上不透明的"
             "墙（中立领土/暗藏的敌军/别人的战场）时，报错如实告知撞了什么（这就是侦察所得的情报），"
             "但代价是该军本回合移动额度作废；对看得见的格撞墙则不罚（试错免费）。想省额度就别盲推，"
@@ -1055,7 +1239,7 @@ def full_state(world, name, replay_since: int | None = None) -> str:
         f"你（{name}）现在进行第 {world.turn} 回合的行动。其余国家：{others}。",
         f"【国力】\n{_res_line(world, name)}",
         f"【国策规划】\n{_fmt_plan(world, name)}",
-        f"【国土/视野】\n{_fmt_land(world, name)}",
+        f"【国土/视野】\n{_fmt_map(world, name)}",
         f"【军队】\n{_fmt_armies(world, name)}",
         f"【威胁】\n{_fmt_threats(world, name)}",
         f"【市场】\n{_fmt_market(world, name)}",
@@ -1256,6 +1440,25 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
     # ---- 面板（查询接口）
     if tool in ("query", "view", "panel", "查", "查询", "看", "面板"):
         which = str(args.get("panel", "all")).lower()
+        if which == "land":
+            def _num(v, d):
+                try:
+                    return int(v)
+                except (TypeError, ValueError):
+                    return d
+            return _fmt_land(world, actor, cap=_num(args.get("cap"), LAND_CAP),
+                             offset=_num(args.get("offset"), 0),
+                             filter_=str(args.get("filter", "") or ""))
+        if which == "tile":
+            # 坐标可以给 x= y=，也可以给 at=地名（复用 _tile_xy，支持 "5 6"/地名/"名字 (x,y)"）
+            ref = str(args.get("at", "") or "").strip()
+            if not ref:
+                ref = f"{args.get('x', '')} {args.get('y', '')}"
+            xy = _tile_xy(world, actor, ref)
+            if xy is None:
+                return ("用法：query panel=tile x= 5 y= 6（或 at=地名，如 at=沃港）。"
+                        "只查得到你视野内的格。")
+            return _fmt_tile(world, actor, xy)
         return {
             "all": full_state(world, actor),
             "res": _res_line(world, actor),
@@ -1567,8 +1770,14 @@ def _props(schema: dict) -> dict:
 
 TOOL_SCHEMAS = [
     {"type": "function", "function": {
-        "name": "query", "description": "查询接口：随时获取你的各面板。res=国库与储备 / plan=国策规划 / land=地皮(国土+可拓荒地) / army=军队 / market=世界市场(现价/买价/卖价/均衡价+大单试算) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=间谍情报(别国经济底细+粗略军情) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
-        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "plan", "land", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True}})}},
+        "name": "query", "description": f"查询接口：随时获取你的各面板。★ 你的**国土与视野地图已常驻**在每回合的状态里（带坐标轴、只画你国土和你视野内的格），所以这里查的是**细节**。land=地皮逐格明细（可翻页/按建筑或资源过滤） / tile=**单格全明细**（x= y= 或 at=地名） / res=国库与储备 / plan=国策规划 / army=军队 / market=世界市场(现价/买价/卖价/均衡价+大单试算) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=间谍情报(别国经济底细+粗略军情) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
+        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "plan", "land", "tile", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True},
+                              "cap": {"type": "integer", "description": f"panel=land：本次列几块（默认 {LAND_CAP}）"},
+                              "offset": {"type": "integer", "description": "panel=land：从第几块开始列（翻页用）"},
+                              "filter": {"type": "string", "description": "panel=land：只看含该**建筑**或该**资源**的格（如 兵营 / 耕地 / 军屯）"},
+                              "x": {"type": "integer", "description": "panel=tile：坐标 x（1-based）"},
+                              "y": {"type": "integer", "description": "panel=tile：坐标 y（1-based）"},
+                              "at": {"type": "string", "description": "panel=tile：地名（可代替 x/y）"}})}},
     {"type": "function", "function": {
         "name": "report", "description": f"查本国经济报表（免费、只读）。每 {REPORT_EVERY} 回合**自动**结一期，第 {REPORT_EVERY+1}/{2*REPORT_EVERY+1}/{3*REPORT_EVERY+1}… 回合开局可查，**不能手动运行**。内容：市场计价 GDP 及增长率、扣除军费的财政收入、军费占 GDP 比、国家总资产及增长率、本期投资总量及增长率、外贸/内循环占比。不传参数=最新一期；turn=指定报表回合（如 {REPORT_EVERY+1}）；all=true=跨期趋势对比表。",
         "parameters": _props({"turn": {"type": "integer", "description": f"报表回合（{REPORT_EVERY+1}/{2*REPORT_EVERY+1}/{3*REPORT_EVERY+1}…）；省略=最新一期"},
