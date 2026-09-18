@@ -513,7 +513,15 @@ def _fmt_land(world, name, cap=LAND_CAP, offset=0, filter_="") -> str:
 
 
 def _fmt_tile(world, name, xy) -> str:
-    """**单格全明细**（精确查询）。只回答你视野内的格——与其它面板同一套视野纪律。"""
+    """**单格全明细**（精确查询）。三条纪律，缺一不可：
+
+    · **视野外** → 一律不答（与地图 / 威胁面板同一套口径）；
+    · **自家地** → 全明细：资源 / 建筑位 / 已建成与在建 / 可否下单 / 驻军；
+    · **非自家地**（无主野地 或 他国领土）→ **只给地形与归属**（+ 看得见的军队、能否够着）。
+      资源与建筑**不报**——那是"占下来才知道"的东西，也是 spy / 换图才拿得到的底细；
+      顺手给"本回合可否建造"更是一种误导：那不是你的地。
+      （2026-09-18 用户：「野地不是没有资源视野吗，只有地形」。）
+    """
     x, y = xy
     if not (0 <= x < world.size and 0 <= y < world.size):
         return f"({x + 1},{y + 1}) 超出地图范围（1~{world.size}）"
@@ -522,11 +530,12 @@ def _fmt_tile(world, name, xy) -> str:
                 "（联盟共享视野；瞭望塔再往外扩）。")
     t = world.tiles.get((x, y))
     owner = world.owned_by(x, y)
+    mine = owner == name
     terrain = world.tile_terrain(x, y)
     st = TERRAIN_STATS[terrain]
-    if owner == name:
+    if mine:
         who = "你的国土"
-    elif owner == "野人" or (owner is None and _has_barb(world, x, y)):
+    elif owner is None and _has_barb(world, x, y):
         who = "无主（有野人守军，atk 打赢才能占）"
     elif owner is None:
         who = "无主空地（atk 进驻即占）"
@@ -536,22 +545,29 @@ def _fmt_tile(world, name, xy) -> str:
              + (f"｜{t['name']}" if t and t.get("name") else "")
              + ("｜♥ 你的核心领土" if t and t.get("core") == name else "")]
     lines.append(f"  地形：防御 {st['defense']:+d}%、建设惩罚 {st['build_penalty']:+d}%")
-    res = t["resources"] if t else world.tile_resources(x, y)
-    lines.append("  资源：" + " ".join(f"{k}x{res.get(k, 0)}" for k in RESOURCES))
-    if t:
-        b, pend = t["buildings"], (t.get("pending") or {})
-        used = sum(b.values()) + sum(pend.values())
-        built = " ".join(f"{bn}×{n}" for bn, n in b.items() if n) or "无"
-        lines.append(f"  建筑位 {used}/{MAX_SLOTS}；已建成：{built}"
-                     + ("；在建：" + " ".join(f"{bn}×{n}" for bn, n in pend.items() if n) if pend else ""))
-        lines.append("  本回合可下令建造：" + ("可以" if not t["built_this_turn"] else "不行（本回合已下过单）"))
-    mine = [a for a in world.armies if a["owner"] == name and (a["x"], a["y"]) == (x, y)]
     if mine:
-        lines.append("  你的驻军：" + " ".join(f"{a['name']}({a['hp']}HP)" for a in mine))
+        res = t["resources"] if t else world.tile_resources(x, y)
+        lines.append("  资源：" + " ".join(f"{k}x{res.get(k, 0)}" for k in RESOURCES))
+        if t:
+            b, pend = t["buildings"], (t.get("pending") or {})
+            used = sum(b.values()) + sum(pend.values())
+            built = " ".join(f"{bn}×{n}" for bn, n in b.items() if n) or "无"
+            lines.append(f"  建筑位 {used}/{MAX_SLOTS}；已建成：{built}"
+                         + ("；在建：" + " ".join(f"{bn}×{n}" for bn, n in pend.items() if n)
+                            if pend else ""))
+            lines.append("  本回合可下令建造："
+                         + ("可以" if not t["built_this_turn"] else "不行（本回合已下过单）"))
+    else:
+        lines.append("  资源与建筑：**未探明**（那是别人的地/无主地——占下来才知道，"
+                     "别国的底细只能靠 spy / 换图）")
+    mine_army = [a for a in world.armies if a["owner"] == name and (a["x"], a["y"]) == (x, y)]
+    if mine_army:
+        lines.append("  你的驻军：" + " ".join(f"{a['name']}({a['hp']}HP)" for a in mine_army))
     outside = [a for a in world.armies
                if a["owner"] not in (name, "野人") and (a["x"], a["y"]) == (x, y)]
     if outside:
-        lines.append("  他国军队：" + " ".join(f"{a['name']}({a['owner']},{a['hp']}HP)" for a in outside))
+        lines.append("  他国军队：" + " ".join(f"{a['name']}({a['owner']},{a['hp']}HP)"
+                                              for a in outside))
     lines.append("  本回合有军队够得着：" + ("是" if (x, y) in _reach_cells(world, name) else "否"))
     return "\n".join(lines)
 

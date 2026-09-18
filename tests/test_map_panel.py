@@ -370,6 +370,40 @@ class TestTileQuery(unittest.TestCase):
         self.assertIn("不在你视野内", s)
         self.assertNotIn("建筑位", s)
 
+    def test_hides_resources_and_buildings_for_non_own_land(self):
+        """★ 非自家地只给**地形与归属**：资源/建筑一律不报（用户 2026-09-18：
+        「野地不是没有资源视野吗，只有地形」）。
+
+        原先这里把两样都漏了，而且对**敌国领土**还多漏一句错误的
+        "本回合可下令建造：可以"（那是人家的地）。资源是"占下来才知道"的东西，
+        别国的建设底细是 spy / 换图才买得到的。
+        """
+        w = _world()
+        _grow(w, "秦", 3)
+        vis = mp_ai._visible_cells(w, "秦")
+        wild = next(p for p in sorted(vis) if w.owned_by(*p) is None)
+        enemy = next(p for p in sorted(vis) if w.owned_by(*p) is None and p != wild)
+        t = w._new_tile(*enemy, "楚")
+        t["owner"] = "楚"
+        t["buildings"]["兵营"] = 1
+        t["pending"] = {"农场": 1}
+        w.tiles[enemy] = t
+        for tag, pos in (("无主野地", wild), ("他国领土", enemy)):
+            out = mp_ai._fmt_tile(w, "秦", pos)
+            self.assertIn("地形：", out, tag)
+            self.assertNotIn("资源：", out, f"{tag} 不该报资源：{out}")
+            self.assertNotIn("已建成", out, f"{tag} 不该报建筑：{out}")
+            self.assertNotIn("可下令建造", out, f"{tag} 不该给建造建议：{out}")
+            self.assertIn("未探明", out, tag)
+
+    def test_own_land_still_shows_everything(self):
+        w = _world()
+        own = _grow(w, "秦", 3)
+        w.tiles[own[0]]["buildings"]["农场"] = 1
+        out = mp_ai._fmt_tile(w, "秦", own[0])
+        for k in ("资源：", "建筑位", "已建成", "可下令建造"):
+            self.assertIn(k, out, f"自家地应给全明细，缺 {k}")
+
     def test_reports_unowned(self):
         vis = mp_ai._visible_cells(self.w, "秦")
         wild = next(p for p in sorted(vis) if self.w.owned_by(*p) != "秦")
