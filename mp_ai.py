@@ -56,9 +56,10 @@ LAND_CAP = 40            # `query panel=land` 一次列几块（可传 cap= 覆�
 MAP_MAX_CELLS = 2400     # 常驻地图最多画多少格；视野被远方飞地/盟友撑爆时退回"本土+邻圈"
 # ★ 地图只用**纯 ASCII**：`■`(U+25A0)、`·`(U+00B7) 的 East Asian Width 是 Ambiguous，
 #   在 CJK 等宽字体下按全角渲染 ⇒ 整张格子错位（2026-09-18 修）。
-MAP_LEGEND = ("地形/国土图（每格 2 字符）：第 1 位=地形（P平原 F森林 H丘陵 M山地 D沙漠；"
-              "**大写=你的地**、小写=视野内非你的地、?=视野外）；第 2 位=. 无异物 / "
-              "# 自家有建筑(含在建) / * 野人守军 / 无主空地（可直接进驻）/ 他国字母=它的领土")
+MAP_LEGEND = ("地形/国土图（每格 2 字符）：第 1 位=地形（p平原 f森林 h丘陵 m山地 d沙漠，"
+              "**统一小写**——不靠大小写区分敌我）；第 2 位=归属：**国别代码**（见上方对照，"
+              "你自己的地同样写你自己的代码）/ . 无主空地（可直接进驻）/ * 无主且有野人守军；"
+              "视野外整格写作 ?.")
 MIL_LEGEND = ("军事图（与地形图同框，一格只画一个符号）：自家军=1..9 再 a..z（按番号）、"
               "他国军=A..Z；番号/血量/坐标见下方图注。野人守军**不在**此图——"
               "它们是地块的静态属性，见地形图的 *")
@@ -344,27 +345,22 @@ def _fmt_map(world, name) -> str:
         return "（你还没有国土，也没有视野）"
     x0, x1, y0, y1, cropped = _map_frame(world, name, vis)
     letters = _nation_letters(world)
-    seen_nations: set = set()
 
     def cell(x: int, y: int) -> str:
+        """第 1 位地形（统一小写）、第 2 位归属。**只有一条规则**，没有例外分支：
+        自家的地和别国的地写法完全一样，只是代码不同（用户 2026-09-18：「和外国一样，
+        只是换成本国代码」）。建筑不再占位——要找建筑走 `land filter=<建筑名>`。"""
         o = world.owned_by(x, y)
-        if o == name:                                # 自家地：永远看得见
-            c = world.ter_char(x, y)
-            t = world.tiles.get((x, y))
-            if t and (any(t["buildings"].values()) or (t.get("pending") or {})):
-                return c + "#"
-            return c + "."
-        if (x, y) not in vis:
-            # ★ 视野外**一律** `?.`：地形不显，归属/守军更不显。
-            #   （曾经漏了归属那一支——他国的地会画出 "?D"，等于白送一张势力图。）
+        if o != name and (x, y) not in vis:
+            # 视野外一律 `?.`：地形不显、归属/守军更不显（曾漏了归属那一支，
+            # 他国的地画出 "?D" ＝白送一张势力图）。
             return "?."
-        c = world.ter_char(x, y).lower()             # 小写 = 视野内非自家
+        c = world.ter_char(x, y).lower()             # 地形：统一小写
         if o:
-            seen_nations.add(o)
-            return c + letters.get(o, "o")            # 他国的地：地形 + 国别字母
+            return c + letters.get(o, "o")           # 归属：一律国别代码（含自家）
         if _has_barb(world, x, y):
-            return c + "*"                            # 无主 + 有野人守军
-        return c + "."                                # 无主空地：可直接 atk 进驻
+            return c + "*"                           # 无主 + 有野人守军
+        return c + "."                               # 无主空地：可直接 atk 进驻
 
     lines = [f"地形/国土图 x {x0 + 1}→{x1 + 1}、y {y0 + 1}→{y1 + 1}"
              f"（坐标 1-based，每格 2 字符；列头上下两行拼起来就是 x）"]
@@ -373,9 +369,9 @@ def _fmt_map(world, name) -> str:
         lines.append(f"  {y + 1:3d} " + "".join(cell(x, y) for x in range(x0, x1 + 1)))
     lines.append(f"国土 {len(own)} 块 · 视野内 {len(vis)} 格（非自家 {len(vis - own)}）· "
                  f"可拓荒地 {len(world.frontier_of(name))} 块")
-    if seen_nations:
-        lines.append("图中他国：" + " ".join(
-            f"{letters.get(n, '?')}={n}" for n in world.order if n in seen_nations))
+    lines.append("国别代码：" + "  ".join(
+        f"{letters[n]}={n}" + ("(你)" if n == name else "")
+        for n in world.order if n in world.nations))
     reach = sorted(p for p in _reach_cells(world, name) if p in vis)
     if reach:
         head = reach[:24]
@@ -854,8 +850,8 @@ def _help_sections() -> list[tuple[str, str]]:
             "回合制：每回合你行动（可做多件事）→ 过回合统一结算（产出/电网/战斗/补给/市场回归）。"
             "地皮名字=ID，坐标 1-based。你能看的是自己地盘+相邻一圈（有联盟则连盟友的地盘也看得到；建瞭望塔可把事件视野再往外推）；他国国力只能推测。"
             "**你的国土与视野以两张带坐标轴的地图常驻在状态里**（同框、每格 2 字符）："
-            "【地形/国土图】只画你国土 + 视野内的地形与归属（自家=大写地形、他国=小写地形+国别字母、"
-            "*=野人守军、#=自家建筑）；**【军事图】只标能动的军队**（自家 1..9a..z、他国 A..Z，"
+            "【地形/国土图】只画你国土 + 视野内的地形与归属（第 1 位=**统一小写**的地形、第 2 位=**国别代码**——自家的地也写自家代码、与别国写法完全一致；"
+            "*=无主且有野人守军、.=无主空地、?=视野外）；**【军事图】只标能动的军队**（自家 1..9a..z、他国 A..Z，"
             "一格只画一个符号，番号/血量/坐标看图注），两张图都没有汉字与全角符号。\n"
             "视野内**已经包含地形**（每格第 1 位就是）；视野外的格一律不显示（画成 ?）——"
             "**地形不会比视野更宽**（迷雾对你一视同仁）。\n"

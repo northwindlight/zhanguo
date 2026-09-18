@@ -194,14 +194,41 @@ class TestMapPanel(unittest.TestCase):
         self.assertNotIn("B", rows[11][6 + (10 - x0) * 2: 8 + (10 - x0) * 2],
                          "他国归属漏出了视野")
 
-    def test_marks_own_building_and_barbarian(self):
+    def test_own_land_uses_own_country_code(self):
+        """★ 统一口径：自家的地和别国的地写法**完全一致**，只是代码不同。
+
+        不再有"大写=我的地"这套（用户 2026-09-18：「不要搞大小写了，和外国一样，
+        只是换成本国代码」）——所以自家地上即使有建筑，第 2 位也只写自家代码。
+        """
         w = _world()
         own = w.own_tiles("秦")
         x, y = own[0]
-        w.tiles[(x, y)]["buildings"]["农场"] = 1
+        w.tiles[(x, y)]["buildings"]["农场"] = 1     # 有建筑也不改变写法
+        w.tiles[(x, y)]["pending"] = {"兵营": 1}     # 在建同理
         s = mp_ai._fmt_map(w, "秦")
-        self.assertEqual(self._seg(s, w, (x, y))[1], "#", "自家建筑应标 #")
-        self.assertIn("*", s, "野人守军没标出来")
+        seg = self._seg(s, w, (x, y))
+        self.assertEqual(seg[0], w.ter_char(x, y).lower(), "地形应统一小写")
+        self.assertEqual(seg[1], "A", f"自家地应写自家代码 A：{seg!r}")
+        self.assertIn("A=秦(你)", s, "国别对照里应标出(你)")
+        self.assertNotIn("#", _grid_lines(s), "建筑不该再占归属那一位")
+
+    def test_terrain_is_uniformly_lowercase_and_grid_has_no_case_trick(self):
+        """第 1 位只允许 小写地形 / `?`；网格里不许再出现大写地形字母或 `#`。"""
+        w = _world()
+        _grow(w, "秦", 4)
+        _grow(w, "楚", 4)
+        s = mp_ai._fmt_map(w, "秦")
+        grid = _grid_lines(s)
+        first = {l[i] for l in grid.splitlines() for i in range(6, len(l), 2)}
+        self.assertLessEqual(first, set("pfhmd?"), f"第 1 位出现了非法字符：{sorted(first)}")
+        self.assertNotIn("#", grid)
+        for up in "PFHMD":
+            self.assertNotIn(up, grid, f"网格里还有大写地形 {up}（大小写 trick 应已废除）")
+
+    def test_barbarian_marker(self):
+        w = _world()
+        _grow(w, "秦", 3)
+        self.assertIn("*", mp_ai._fmt_map(w, "秦"), "野人守军没标出来")
 
     def test_armies_are_not_on_the_terrain_map(self):
         """★ 军队移出地形图（那是军事图的活）：地形图上不该出现 @/!。"""
