@@ -65,7 +65,10 @@ def teacher_trajectory():
     snap = []
     for k in range(TURNS):
         obs = env._obs()
-        snap.append({"turn": k + 1, "obs": obs,
+        # ★**窗口必须当场算**：`tokenize(env, obs)` 会拿"**当前** world"与"这一帧 obs"
+        #   交叉校验（`tokenize.py` 的 A 组断言：军队数 vs 候选的 `army_feats`），
+        #   事后补算必然对不上（实测：终局 31 支 vs 当时 0 支 → AssertionError）。
+        snap.append({"turn": k + 1, "obs": obs, "win": tokenize(env, obs),
                      "spent": env.world.spend_total(env.agent),
                      "tiles": len(env.world.own_tiles(env.agent)),
                      "armies": len(env.world.nation_armies(env.agent))})
@@ -103,7 +106,7 @@ models = {p: load(p) for p in CKPTS}
 for s in snap:
     if s["turn"] % 25 and s["turn"] != 1:
         continue
-    w = tokenize(env, s["obs"])
+    w = s["win"]
     row = f"{s['turn']:>5}{s['spent']:>9,.0f}{s['true_future']:>10.2f}" \
           f"{s['tiles']:>6}{s['armies']:>6}"
     for p in CKPTS:
