@@ -50,7 +50,9 @@ MAPS = [
 BC = sys.argv[1] if len(sys.argv) > 1 else "rl/runs/gpu_pull/bc_candx100_gpu/ep400.pt"
 PPO = sys.argv[2] if len(sys.argv) > 2 else "rl/runs/gpu_pull/ppo_candx/last.pt"
 
-set_threads(4)
+# ★线程数可配：ECS 是 **1 物理核**（开 2 线程反而慢 3.4×，见 rl/hw.py），
+#   Pi 是 4 核。写死 4 在 ECS 上等于打开超订 —— 跑之前先设 `ZHANGUO_THREADS=1`。
+set_threads(int(__import__("os").environ.get("ZHANGUO_THREADS", "4")))
 env = ZhanguoEnv(map_size=16, max_turns=TURNS, max_actions_per_turn=ACT_SAFETY)
 env.reset(0)
 _w = tokenize(env, env._obs())
