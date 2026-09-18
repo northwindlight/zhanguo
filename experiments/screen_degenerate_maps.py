@@ -57,9 +57,14 @@ for block in range(N_MAPS):
     rows.append({"block": block, "map_seed": seed, "tiles": tiles, "spend": spend})
     print(f"  块{block:>3}  seed {seed:>7}  领地 {tiles:>4}  消费 {spend:>10,.0f}", flush=True)
 
+# ★**两条判据一起用**（用户 2026-09-18）—— 分别记下是哪条命中的，便于日后归因
 seen = [r["tiles"] for r in rows]
+seen_spend = [r["spend"] for r in rows]
 for r in rows:
-    r["degenerate"] = bc.episode_is_degenerate(r["tiles"], seen, turns=TURNS)
+    r["deg_tiles"] = bc.episode_is_degenerate(r["tiles"], seen, turns=TURNS)
+    r["deg_spend"] = bc.episode_is_degenerate(
+        999, seen, turns=TURNS, spend=r["spend"], seen_spend=seen_spend)   # 领地喂个健康值 ⇒ 只让②生效
+    r["degenerate"] = r["deg_tiles"] or r["deg_spend"]
 
 bad = [r["block"] for r in rows if r["degenerate"]]
 tiles_sorted = sorted(seen)
@@ -75,6 +80,10 @@ OUT.write_text(json.dumps({
 }, ensure_ascii=False, indent=1), encoding="utf-8")
 
 print(f"\n领地：min {tiles_sorted[0]}  中位 {med}  max {tiles_sorted[-1]}")
+n_t = sum(1 for r in rows if r["deg_tiles"]); n_s = sum(1 for r in rows if r["deg_spend"])
 print(f"★退化图 {len(bad)}/{N_MAPS}：块 {bad}")
+print(f"  其中 **领地判据** 抓到 {n_t} 张、**消费判据** 抓到 {n_s} 张"
+      f"（只被消费抓到的 {n_s - sum(1 for r in rows if r['deg_tiles'] and r['deg_spend'])} 张"
+      f" —— 那些正是旧脚本会漏掉的）")
 print(f"  ⇒ 跳掉这些块，省 {len(bad) * 3} 局（每块 3 局）")
 print(f"已写 {OUT}")

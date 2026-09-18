@@ -143,15 +143,20 @@ def set_episode_horizon(world, turns: int) -> None:
 def episode_is_degenerate(tiles: int, seen: list[int], *, turns: int | None = None,
                           student_driven: bool = False,
                           ratio: float = 0.3, floor: int = 8,
-                          min_turns: int = 40) -> bool:
+                          min_turns: int = 40,
+                          spend: float | None = None, seen_spend: list[float] | None = None,
+                          spend_ratio: float = 0.5, spend_floor: float = 2000.0) -> bool:
     """这一局是不是「老师根本没启动起来」？（抖动过大的地图会这样）
 
     实测（20 张图 × 80 回合，`expand_rule_v10`）：抖动 ±20% 时健康局最少 12 格，
     ±35% 起出现退化局（领地停在开局的 5 格、0~1 次进攻），±50% 时 4/20 张图退化。
     ⇒ **退化局 ≤7 格，健康局 ≥12 格**，中间是干净的间隔。
 
-    为什么不用"老师这一局的消费"当判据：**分不开** —— 退化局照样烧 3k~4k
-    （消费记账是建造+征兵+军费，卡住的帝国也在建东西、养兵，只是不扩张）。
+    ★**领地不是唯一的判据，消费是第二条**（用户 2026-09-18：「两个一起用」）。
+    历史：这个函数原先写着「为什么不用消费当判据：**分不开** —— 退化局照样烧 3k~4k」，
+    那是 **80 回合 + 旧老师** 时代的实测。**2026-09-18 在 200 回合 + v11plus 上重量，
+    结论反过来**：按总消费一刀切开得很干净（健康 19.4k vs 退化的 6~7k），
+    而领地判据反而**漏掉一整类**（下面 ② 那三行例子）。⇒ 两条并用，任一条命中即判退化。
 
     阈值**相对化**（见过的中位数的 `ratio`，且不低于 `floor`）：绝对阈值会随回合数、
     地图尺寸、老师版本漂，而"这一局比别的局差一大截"是稳定的信号。
@@ -171,12 +176,33 @@ def episode_is_degenerate(tiles: int, seen: list[int], *, turns: int | None = No
         return False
     if turns is not None and turns < min_turns:
         return False
+    # ---- ① 领地判据：老师**没启动起来**（一格没打下来 / 比别人差一大截）----
     if tiles <= 5:                      # 开局就是 5 格（十字）→ 一格没打下来
         return True
     if len(seen) < 3:                   # 样本太少时只用绝对下限
-        return tiles < floor
-    med = sorted(seen)[len(seen) // 2]
-    return tiles < max(floor, ratio * med)
+        if tiles < floor:
+            return True
+    else:
+        med = sorted(seen)[len(seen) // 2]
+        if tiles < max(floor, ratio * med):
+            return True
+    # ---- ② 消费判据：经济**被卡死**（用户 2026-09-18：「两个一起用」）----
+    #   ★为什么必须有这一条：领地判据**抓不住一整类退化图**。实测（200 回合，老师 v11plus）：
+    #       seed 18 健康   地 190 · 消费 19,422 · 建造58%/征兵6%/军费36%
+    #       seed 451383    地  63 · 消费  6,083 · 建造70%/征兵4%/军费26%  ← 地不少，但只有健康的 1/3
+    #       seed 300922    地 172 · 消费  6,571 · 建造28%/征兵61%/军费11% ← 地很多，司样卡死
+    #       seed 142542    地   5 · 消费  6,922 · 建造25%/征兵72%/军费3%  ← 「养兵不用」（这条领地判据抓得到）
+    #   ⇒ **按消费一刀切开**：健康 19.4k，退化的全挤在 6~7k —— 比领地判据干净得多。
+    #     而**总消费就是目标函数**，用它当退化判据名正言顺（§J.2-7：其他指标是先验指标，只有它是目标）。
+    if spend is not None and seen_spend:
+        if len(seen_spend) < 3:
+            if spend < spend_floor:
+                return True
+        else:
+            smed = sorted(seen_spend)[len(seen_spend) // 2]
+            if spend < max(spend_floor, spend_ratio * smed):
+                return True
+    return False
 
 
 def collect_episode(env: ZhanguoEnv, turns: int, seed: int, teacher_fn=None,
@@ -767,7 +793,8 @@ def main() -> None:
     dagger_from = args.dagger_from if args.dagger_from >= 0 else args.episodes // 2
     degenerate = 0                 # 被判为退化局的局数（丢弃样本，不参与训练）
     _warned_buffer = False         # 缓冲溢出只报一次（报多了刷屏）
-    _seen_tiles: list[int] = []    # 见过的健康局领地数（判据的相对基准）
+    _seen_tiles: list[int] = []    # 见过的健康局领地数（判据①的相对基准）
+    _seen_spend: list[float] = []  # 见过的消费（判据②的相对基准）
     for ep in range(args.episodes):
         # 后半程用 **DAgger**：让学生自己跑，再让老师在**学生走到的状态**上打标签。
         # 这是治「分布漂移」的标准药——只学老师的轨迹，学生一旦偏离就没标签了。
@@ -804,8 +831,10 @@ def main() -> None:
         #   （领地停在开局 5 格、0 次进攻）—— 那种局的样本几乎全是 end_turn，
         #   收进缓冲等于**教学生"别动"**。判据见 `episode_is_degenerate`。
         _tiles = len(env.world.own_tiles(env.agent)) if env.world is not None else 0
+        # ★消费判据也要喂进去（用户 2026-09-18「两个一起用」）—— 见 `episode_is_degenerate` ②
         if args.degenerate_guard != "off" and episode_is_degenerate(
-                _tiles, _seen_tiles, turns=_turns, student_driven=use_student):
+                _tiles, _seen_tiles, turns=_turns, student_driven=use_student,
+                spend=spend, seen_spend=_seen_spend):
             # ★报**从 1 开始**的局号：与进度行「局 N/42」同一口径。
             #   写 0 基的 `ep` 会让日志读起来像"第 10 局被丢"而实际是第 11 局（踩过）。
             print(f"⚠ 第 {ep + 1} 局老师没启动起来（领地 {_tiles}，见过的中位 "
@@ -815,6 +844,7 @@ def main() -> None:
             set_train_threads()
             continue
         _seen_tiles.append(_tiles)
+        _seen_spend.append(spend)
         total_steps += len(demos)
         # 验证集 = **整局留出**（每 --val-every 局抽 1 局）。先前是从每局里切 10%，
         # 那些样本和训练集**共用同一张地图**——只能测出"对见过的地图过拟合"，
