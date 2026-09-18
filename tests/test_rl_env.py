@@ -516,3 +516,83 @@ class TestMapSeedSplit(unittest.TestCase):
         self.assertEqual(len(set(same_block)), 1, "同块内应当是副本（用户口径，别当 bug 改）")
         next_block = self._traj(env, teacher, 104, 901)
         self.assertNotEqual(next_block, same_block[0], "换块必须换出不同的局面")
+
+
+class TestLandBonus(unittest.TestCase):
+    """★占地奖励（用户 2026-09-18：「对占地轻微加权，占地送奖励」）。
+
+    这条开关最容易**看起来对、其实错了**：写成"每拿一块地就 +b"会让中途拿地/丢地
+    **不抵消**，那时它就不是"终局每块地 +b"、而是"累计占地次数 × b" —— 后者奖励的是
+    反复抢了又丢，是**另一个目标函数**。所以钉的是**望远镜恒等式**：
+
+        Σ_t b·Δ地_t  ==  b × (终局地数 − 开局地数)     ← `γ=1` 下逐步项全抵消
+
+    ★**驱动方式不能随便挑**：这引擎的扩张不靠"乱走"（实测 600 步随机动作地数 5→5，
+    一块没动）⇒ 拿随机动作驱动的恒等式测试会**静默空过**（两边都是 0，恒等式当然成立）。
+    所以这里用**老师推世界 + `env.step(end_turn)` 收奖励**，并断言这局真的扩张了。
+    """
+
+    def _drive(self, env, seed: int, turns: int = 40):
+        """跑一局真实扩张，返回 `(总奖励, 逐步奖励表, 逐步地数表)`。"""
+        import rl.bc as bc
+        teacher = bc.get_teacher("v10")
+        obs = env.reset(seed, map_seed=seed)
+        rng = random.Random(0)
+        tot, deltas = 0.0, []
+        tiles = [len(env.world.own_tiles(env.agent))]
+        for _ in range(turns):
+            teacher(env.world, env.agent, rng, max_actions=10 ** 9,
+                    on_action=lambda *a: None)
+            et = [a for a in obs.cand["actions"] if a.kind == "end_turn"]
+            if not et:
+                break
+            obs, r, done, _info = env.step(et[0])
+            tot += r
+            deltas.append(r)
+            tiles.append(len(env.world.own_tiles(env.agent)))
+            if done:
+                break
+        return tot, deltas, tiles
+
+    def _pair(self, seed: int = 33, b: float = 10.0, rs: float = 1.0):
+        e0 = ZhanguoEnv(map_size=16, seed=seed, max_turns=40, reward_scale=rs)
+        e1 = ZhanguoEnv(map_size=16, seed=seed, max_turns=40, reward_scale=rs,
+                        land_bonus=b)
+        return self._drive(e0, seed), self._drive(e1, seed)
+
+    def test_关着时逐位等于消费增量(self):
+        """默认 0 ⇒ 一次地都不数（零开销），reward 就是消费增量。"""
+        env = ZhanguoEnv(map_size=12, seed=7, max_turns=8, reward_scale=1.0)
+        obs = env.reset(7, map_seed=7)
+        rng = random.Random(7)
+        prev = 0.0
+        for _ in range(400):
+            a = obs.cand["actions"][rng.randrange(len(obs.cand["actions"]))]
+            obs, r, done, info = env.step(a)
+            self.assertAlmostEqual(r, info["spend_total"] - prev, places=9)
+            prev = info["spend_total"]
+            if done:
+                break
+        self.assertEqual(env.prev_tiles, 0, "关着时不该去数地")
+
+    def test_望远镜恒等式(self):
+        """★核心：总奖励之差 == b × (终局地 − 开局地) × reward_scale。"""
+        b, rs = 10.0, 1.0
+        (t0, _, g0), (t1, _, g1) = self._pair(33, b, rs)
+        self.assertEqual(g0, g1, "开关不该动世界 —— 两边逐回合地数必须一致")
+        self.assertGreater(g0[-1], g0[0], "这局没扩张 ⇒ 这条恒等式是空过的（见类说明）")
+        self.assertEqual(t1 - t0, b * (g1[-1] - g1[0]) * rs,
+                         f"望远镜恒等式不成立：{t1 - t0} != {b}×({g1[-1]}-{g1[0]})")
+
+    def test_逐步增量也逐位对得上(self):
+        """不只看总和：每一步都必须等于 b × **该步净增地数** × reward_scale。"""
+        b, rs = 7.0, 1.0
+        (_, d0, g0), (_, d1, g1) = self._pair(33, b, rs)
+        self.assertEqual(len(d0), len(d1))
+        fires = 0
+        for i, (x, y) in enumerate(zip(d0, d1)):
+            step = g1[i + 1] - g1[i]          # 本步净增地数
+            self.assertAlmostEqual(y - x, b * step * rs, places=9,
+                                   msg=f"第 {i} 步差 {y - x} != {b}×{step}")
+            fires += 1 if step else 0
+        self.assertGreater(fires, 0, "整整一局占地奖励一次都没生效 —— 测试是空的")

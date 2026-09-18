@@ -123,7 +123,7 @@ class ZhanguoEnv:
                  rivals: tuple[str, ...] = (), max_turns: int = 40,
                  max_actions_per_turn: int = ACT_SAFETY, reward_scale: float = 0.01,
                  rules_jitter: float = 0.0, invalid_penalty: float = 0.0,
-                 scale: int = 1):
+                 scale: int = 1, land_bonus: float = 0.0):
         # ★RL 是**通用**的：真实游戏的地图由玩家选（16×16 / 50×50 / 100×100 都可能），
         #   所以**地图尺寸必须每局可变**（用户 2026-09-11 口径）。
         #   传 `map_sizes` 就每局按种子重采样一个；不传 = 固定 `map_size`（旧行为）。
@@ -157,6 +157,27 @@ class ZhanguoEnv:
         #   属游戏的一部分）—— 扣在 `ok` 上天然只覆盖前者。
         #   ★默认 0 ⇒ 行为与开关存在前逐位相同。
         self.invalid_penalty = float(invalid_penalty)
+
+        # ★**占地奖励**（用户 2026-09-18：「对占地轻微加权，占地送奖励」）。
+        #   单位同 `invalid_penalty`：**"消费"口径**（`b=10` = 每净得一块地，
+        #   reward 上加"10 消费"的等价物）。★默认 0 ⇒ 逐位不变。
+        #
+        #   ★为什么是"净变化"而不是"每拿一块就 +b"：`γ=1` 下逐步项在**回报**层面
+        #   望远镜求和 ——
+        #       Σ_t b·Δ地_t = b × (终局地数 − 开局地数)
+        #   中途拿地/丢地**全抵消**，等价于「**终局每块地 +b**」。这正是"地是资源
+        #   期权、兑现要到后期"在回报里兑现的形式。
+        #   但在**优势**层面逐步项**不**抵消：`A_t` 多出 `b·(地_T − 地_t)`,
+        #   于是每个 minibatch 里出现**与动作直接挂钩**的密集跳变 —— 这正是
+        #   `--grad-diag` 量到 `coh(pg)=0.0635` 掉在噪声底（`1/√230=0.0659`）时缺的东西。
+        #
+        #   ⚠ 标定（老师那局）：整局 reward = 24,871 消费 × `reward_scale 0.01` = **248.7**。
+        #     `b=100` 时 210 块地 = 200 reward ≈ **目标的 80%** ⇒ 那不是加权，是换目标。
+        #     "轻微"的刻度在 **5~15**（占地项 ≈ 目标的 5~10%）。
+        #   ⚠ 它同时把"终局地数"塞进了目标函数 ⇒ **退化图要盯**
+        #     （451383 那种"地多但消费只有健康 1/3"的图，地奖励正好奖励退化行为）。
+        self.land_bonus = float(land_bonus)
+        self.prev_tiles = 0
 
         # ★训练期域随机化的幅度（0 = 关，见 `rl/jitter.py` 与 §10.4）。
         #   默认关：评估/看海/对拍一律真值 —— 只有训练采样期才该抖。
@@ -285,6 +306,9 @@ class ZhanguoEnv:
         self._last_reject = None
         self.world.begin_turn()
         self.prev_spend = self.world.spend_total(self.agent)
+        # 只在开了占地奖励时才数地（关着时一次都不数 ⇒ 零开销、逐位不变）
+        self.prev_tiles = (len(self.world.own_tiles(self.agent))
+                           if self.land_bonus else 0)
         return self._obs()
 
     def step(self, action: Action):
@@ -315,6 +339,12 @@ class ZhanguoEnv:
         #   计分和后续所有 reward。"虚空"就是指它不进任何游戏内账。
         if not ok and self.invalid_penalty:
             reward -= self.invalid_penalty * self.reward_scale
+        if self.land_bonus:
+            # 净变化（不是"每拿一块就加"）：见 `__init__` 里那段望远镜求和的说明。
+            _tiles = (len(self.world.own_tiles(self.agent))
+                      if self.agent in self.world.nations else self.prev_tiles)
+            reward += self.land_bonus * (_tiles - self.prev_tiles) * self.reward_scale
+            self.prev_tiles = _tiles
         self.prev_spend = total
         info = {"ok": ok, "msg": msg, "events": events, "turn": self.world.turn,
                 "spend_total": total, "ended": ended}

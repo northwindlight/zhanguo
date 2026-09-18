@@ -90,7 +90,8 @@ def build_env(args, *, jitter: float | None = None) -> ZhanguoEnv:
                       max_turns=args.turns, max_actions_per_turn=args.max_actions,
                       reward_scale=args.reward_scale,
                       rules_jitter=(args.rules_jitter if jitter is None else jitter),
-                      invalid_penalty=getattr(args, "invalid_penalty", 0.0))
+                      invalid_penalty=getattr(args, "invalid_penalty", 0.0),
+                      land_bonus=getattr(args, "land_bonus", 0.0))
 
 
 def build_model(env: ZhanguoEnv, args):
@@ -178,6 +179,20 @@ def main() -> None:
                          "不是老师标签、不入库），**PPO 上来这个约束就没了** ⇒ 这个开关"
                          "是给 PPO 准备的。标定别拍 100：学生一局消费 4747/100 回合 ≈ 47/回合、"
                          "撞墙 2.4 次/回合，10 ⇒ -24/回合（约占一半），100 ⇒ -240/回合（净变负）。")
+    ap.add_argument("--land-bonus", type=float, default=0.0,
+                    help="**占地奖励**（用户 2026-09-18），单位与 `--invalid-penalty` 同口径"
+                         "（`10` = 每净得一块地，reward 上加「10 消费」的等价物）。默认 0。"
+                         "★`γ=1` 下逐步项在**回报**层面望远镜求和："
+                         "`Σ b·Δ地 = b × (终局地 − 开局地)`，中途拿地/丢地全抵消 ⇒ "
+                         "等价于「**终局每块地 +b**」。但在**优势**层面不抵消：`A_t` 多出"
+                         "`b·(地_T − 地_t)` ⇒ 每个 minibatch 里多了与动作直接挂钩的密集跳变。"
+                         "为什么要它：`--grad-diag` 实测 `coh(pg)=0.0635` 正好落在噪声底"
+                         "（`1/√230=0.0659`）—— 回报信号对更新方向没有系统贡献，"
+                         "「地是资源期权、兑现要到后期」这条信息传不进优势函数。"
+                         "⚠ 标定：老师整局 reward = 24,871×0.01 = **248.7**；"
+                         "`100` 时 210 块地 = 200 ≈ **目标的 80%** ⇒ 那不是加权是换目标。"
+                         "「轻微」的刻度在 **5~15**。⚠ 它把「终局地数」塞进目标函数 ⇒ "
+                         "**退化图要盯**（451383 那种「地多但消费只 1/3」的图正好被它奖励）。")
     ap.add_argument("--clip", type=float, default=0.2,
                     help="PPO 的 ratio 裁剪半径（默认 0.2）。专家 2026-09-13 建议在"
                          "熵漂的炉里收到 **0.1**：优势信噪比 ≈1 时，它能截断「噪声方向」"
