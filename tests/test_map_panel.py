@@ -446,39 +446,55 @@ class TestMilMap(unittest.TestCase):
              "x": b[0], "y": b[1], "owner": "秦", "moved_turn": -1, "engaged": False},
         ]
 
-    def test_own_armies_get_distinct_symbols_with_legend(self):
+    def test_own_armies_use_own_country_code(self):
+        """★ 军队用**国别符号**，不给每支军编号（用户 2026-09-18：「军队不用数字，也用国家符号就行」）。"""
         s = mp_ai._fmt_mil_map(self.w, "秦")
         grid = _grid_lines(s)
-        self.assertIn("1", grid)
-        self.assertIn("2", grid)
-        self.assertIn("1=秦·步一军 100HP", s)
-        self.assertIn("2=秦·骑二军 80HP", s)
+        self.assertIn("A", grid, "自家军应画自家国别代码 A")
+        body = "\n".join(l[6:] for l in grid.splitlines())     # 去掉行号（行号本身是数字）
+        self.assertLessEqual(set(body) - set(" \n"), set(".ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+                             f"格子区只该有 . 与国别字母，却出现：{sorted(set(body))}")
+        for digit in "0123456789":
+            self.assertNotIn(digit, body, f"军事图格子区不该出现数字 {digit!r}")
+        self.assertIn("自家军 2 支", s)
 
-    def test_foreign_army_uses_uppercase(self):
+    def test_foreign_army_uses_its_own_code(self):
         vis = mp_ai._visible_cells(self.w, "秦")
         spot = next(p for p in sorted(vis) if self.w.owned_by(*p) is None)
         self.w.armies.append({"id": 3, "gid": 3, "name": "楚·步三军", "type": "步", "hp": 60,
                               "x": spot[0], "y": spot[1], "owner": "楚",
                               "moved_turn": -1, "engaged": False})
         s = mp_ai._fmt_mil_map(self.w, "秦")
-        self.assertIn("A", _grid_lines(s), "他国军应是大写字母")
-        self.assertIn("A=楚·步三军 60HP", s)
+        self.assertIn("B", _grid_lines(s), "他国军应画该国代码 B")
+        self.assertIn("B×1", s, "摘要里应有他国军的国籍计数")
+        self.assertNotIn("楚·步三军", s, "逐军明细不该再堆在图注里（那在【军队】/【威胁】面板）")
 
-    def test_overlap_draws_one_symbol_and_notes_the_rest(self):
-        """★ 重叠只标一个：同格多支时画优先级最高的那个，其余数量写进图注。"""
+    def test_same_nation_stack_draws_one_symbol(self):
+        """★ 重叠只标一个：同国叠兵在图上就是一个符号（不重复、不编号）。"""
         vis = mp_ai._visible_cells(self.w, "秦")
         spot = next(p for p in sorted(vis) if self.w.owned_by(*p) is None)
-        for i, own in ((3, "楚"), (4, "楚")):
-            self.w.armies.append({"id": i, "gid": i, "name": f"{own}·步{i}军", "type": "步",
-                                  "hp": 60, "x": spot[0], "y": spot[1], "owner": own,
+        for i in (3, 4):
+            self.w.armies.append({"id": i, "gid": i, "name": f"楚·步{i}军", "type": "步",
+                                  "hp": 60, "x": spot[0], "y": spot[1], "owner": "楚",
                                   "moved_turn": -1, "engaged": False})
         s = mp_ai._fmt_mil_map(self.w, "秦")
-        grid = _grid_lines(s)
-        # 该格在网格里只占 2 字符，且只画了一个符号
-        self.assertEqual(grid.count("A"), 1, "同格两支他国军应只画一个符号")
-        self.assertNotIn("B", grid, "被压在下面的那支不该出现在网格里")
-        self.assertIn("(同格另有1支)", s)
-        self.assertIn("B=楚·步4军", s, "被压住的那支仍要在图注里列出")
+        self.assertEqual(_grid_lines(s).count("B"), 1, "同格两支楚军只该画一个 B")
+        self.assertIn("B×2", s, "两支都该计入国籍计数")
+
+    def test_cross_nation_stack_is_noted(self):
+        """跨国的同格重叠要单独指出来（那才是战术信息：敌我挤在一格）。"""
+        vis = mp_ai._visible_cells(self.w, "秦")
+        spot = next(p for p in sorted(vis) if self.w.owned_by(*p) is None)
+        self.w.armies.append({"id": 3, "gid": 3, "name": "楚·步三军", "type": "步", "hp": 60,
+                              "x": spot[0], "y": spot[1], "owner": "楚",
+                              "moved_turn": -1, "engaged": False})
+        self.w.armies.append({"id": 4, "gid": 4, "name": "秦·步一军", "type": "步", "hp": 100,
+                              "x": spot[0], "y": spot[1], "owner": "秦",
+                              "moved_turn": -1, "engaged": False})
+        s = mp_ai._fmt_mil_map(self.w, "秦")
+        self.assertIn(f"同格混编：A+B@({spot[0] + 1},{spot[1] + 1})", s)
+        self.assertEqual(_grid_lines(s).count("A") + _grid_lines(s).count("B"), 3,
+                         "混编格只画一个符号（自家优先 → A）")
 
     def test_barbarians_are_not_on_the_military_map(self):
         """野人守军每块无主地都有——画进军事图会把图糊满；它在地形图里用 * 表示。"""

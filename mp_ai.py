@@ -60,9 +60,10 @@ MAP_LEGEND = ("地形/国土图（每格 2 字符）：第 1 位=地形（p平�
               "**统一小写**——不靠大小写区分敌我）；第 2 位=归属：**国别代码**（见上方对照，"
               "你自己的地同样写你自己的代码）/ . 无主空地（可直接进驻）/ * 无主且有野人守军；"
               "视野外整格写作 ?.")
-MIL_LEGEND = ("军事图（与地形图同框，一格只画一个符号）：自家军=1..9 再 a..z（按番号）、"
-              "他国军=A..Z；番号/血量/坐标见下方图注。野人守军**不在**此图——"
-              "它们是地块的静态属性，见地形图的 *")
+MIL_LEGEND = ("军事图（与地形图同框）：一格只画一个**国别符号**（和地形图同一套国别代码，"
+              "你自己的军就是你的代码）；重叠时画优先级最高的那个（自家优先，其次按国序）。"
+              "野人守军**不在**此图（见地形图的 *）。逐军明细看【军队】面板，视野内敌军看【威胁】面板——"
+              "这张图只管「谁在哪儿」")
 
 # ★ 局内上下文**不注入 README**（2026-09-15）：`rules` 一律返回 `_help_sections()`
 #   现算的规则文本，**所有政体同一份**。曾经匈奴的 rules 额外附一份 README 原文全文
@@ -388,57 +389,58 @@ def _fmt_map(world, name) -> str:
 
 
 def _fmt_mil_map(world, name) -> str:
-    """**军事图**（常驻）：只标**能动的军队**——自家全部 + 视野内的他国军。
+    """**军事图**（常驻）：谁在哪儿——自己全部军队 + 视野内的他国军队。
 
-    · 符号：自家军 `1..9` 再 `a..z`（按番号升序）、他国军 `A..Z`（按国序再番号）——
-      数字/小写 vs 大写，一眼分敌我。
-    · **一格只画一个符号**（同格有别的军队时，数量与符号写在图注里），
-      优先级：自家优先，其次按符号序（确定的）。
-    · **野人守军不在此图**：它们驻在每一块无主地上（静态属性），画进来会把图糊满；
-      地形图里的 `*` 已经标了它们。
+    · 格内是**归属国的国别代码**（和地形图同一套），不是逐军编号；
+    · **一格只画一个**（重叠时画优先级最高的：自家优先 → 国序 → 番号），
+      跨国的重叠位置会另起一行列出（同格混编），同国叠兵不重复标；
+    · **野人守军不在此图**：它们驻在每一块无主地上（静态属性），见地形图的 `*`；
+    · 逐军明细（番号/血量/状态/坐标）在【军队】/【威胁】面板，本图不重复。
     """
     vis = _visible_cells(world, name)
     if not vis:
         return "（无视野）"
     x0, x1, y0, y1, cropped = _map_frame(world, name, vis)
-    mine = sorted((a for a in world.armies if a["owner"] == name), key=lambda a: a["id"])
+    letters = _nation_letters(world)
     order = {n: i for i, n in enumerate(world.order)}
+    mine = sorted((a for a in world.armies if a["owner"] == name), key=lambda a: a["id"])
     foreign = sorted((a for a in world.armies
                       if a["owner"] != name and a["owner"] != "野人"
                       and (a["x"], a["y"]) in vis),
                      key=lambda a: (order.get(a["owner"], 99), a["id"]))
-    syms: dict = {}
-    for i, a in enumerate(mine):
-        syms[id(a)] = "123456789abcdefghijklmnopqrstuvwxyz"[i] if i < 35 else "?"
-    for i, a in enumerate(foreign):
-        syms[id(a)] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[i] if i < 26 else "?"
     by_tile: dict = {}
     for a in mine + foreign:
         if x0 <= a["x"] <= x1 and y0 <= a["y"] <= y1:
             by_tile.setdefault((a["x"], a["y"]), []).append(a)
 
     def pick(lst: list) -> dict:
-        return sorted(lst, key=lambda a: (0 if a["owner"] == name else 1, syms[id(a)]))[0]
+        return sorted(lst, key=lambda a: (0 if a["owner"] == name else 1,
+                                          order.get(a["owner"], 99), a["id"]))[0]
 
     lines = [f"军事图 x {x0 + 1}→{x1 + 1}、y {y0 + 1}→{y1 + 1}"
-             f"（与地形图同框；一格只画一个符号）"]
+             f"（与地形图同框；一格只画一个国家符号）"]
     lines += _axis_lines(x0, x1, y0, y1)
     for y in range(y0, y1 + 1):
         cells = []
         for x in range(x0, x1 + 1):
             lst = by_tile.get((x, y))
-            cells.append((syms[id(pick(lst))] if lst else ".") + " ")
+            cells.append((letters.get(pick(lst)["owner"], "?") if lst else ".") + " ")
         lines.append(f"  {y + 1:3d} " + "".join(cells))
-    notes = []
+    counts = {}
     for a in mine + foreign:
-        if id(a) not in syms or (a["x"], a["y"]) not in by_tile:
-            continue
-        tag = f"{syms[id(a)]}={a['name']} {a['hp']}HP@{a['x'] + 1},{a['y'] + 1}"
-        lst = by_tile.get((a["x"], a["y"]), [])
-        if len(lst) > 1 and pick(lst) is a:
-            tag += f"(同格另有{len(lst) - 1}支)"
-        notes.append(tag)
-    lines.append("图注：" + "  ".join(notes) if notes else "图注：（视野内没有军队）")
+        counts[a["owner"]] = counts.get(a["owner"], 0) + 1
+    lines.append("自家军 %d 支 · 视野内他国军 %d 支（%s）· 国别代码同地形图"
+                 % (len(mine), len(foreign),
+                    " ".join(f"{letters.get(o, '?')}×{c}" for o, c in
+                             sorted(counts.items(), key=lambda kv: order.get(kv[0], 99))
+                             if o != name) or "无"))
+    mixed = [p for p in sorted(by_tile)
+             if len({a["owner"] for a in by_tile[p]}) > 1]
+    if mixed:
+        lines.append("同格混编：" + " ".join(
+            "+".join(sorted({letters.get(a["owner"], "?") for a in by_tile[p]}))
+            + f"@({p[0] + 1},{p[1] + 1})" for p in mixed[:8])
+            + (f" …另 {len(mixed) - 8} 处" if len(mixed) > 8 else ""))
     left = [a for a in mine if (a["x"], a["y"]) not in by_tile]
     if left:
         lines.append(f"（另有 {len(left)} 支自家军在框外："
