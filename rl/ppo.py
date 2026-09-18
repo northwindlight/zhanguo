@@ -280,13 +280,35 @@ def value_of(model, obs, win=None) -> float:
     return float(forward_batch(model, [_one_step(obs)], wins)[1][0].item())
 
 
+EXEC_EPS = 1e-3            # σ(p_exec) 的下限：p→0 时 log 不发散
+EXEC_BETA = 0.5            # 软加权强度（专家 2026-09-13 给的原值）
+
+
+def exec_bias(logits, pexec, beta: float = EXEC_BETA, eps: float = EXEC_EPS):
+    """可执行性软加权的**唯一一份公式**：`logit' = logit + β · log(σ(p_exec) + ε)`。
+
+    ★★**采样侧与更新侧必须都走这一处**（2026-09-18 用户选定的第三条路的立命之本）：
+    上一版把加权**只加在采样侧** ⇒ `act()` 存的 `old_logp` 来自加权分布，而
+    `PPO.update` 重算的 `logp_all` 来自未加权分布 ⇒ 参数一动没动时
+    `ratio = π_raw/π_w ≠ 1`，clip 作用在**错位**的比值上（探针实测：训过的头
+    1.9% 候选出信任域）。**修法不是"别加权"，是"两侧一致"** —— 于是 β 变成一个
+    可以调、可以退火的正常超参。
+
+    为什么值得再试（那一版还测出"软加权对行为是空操作"，33.2% vs 33.8%）：
+    那条测量的前提是**头没训过**（p_exec≈0.5 ⇒ 压制≈0）。而冻结表征里
+    `ok` 是线性可分的（`probe_exec_head_learn.py` 冒烟：留出 AUC 0.457 → **0.880**）
+    ⇒ 头训得出来，压制才有力。
+    """
+    return logits + beta * torch.log(torch.sigmoid(pexec) + eps)
+
+
 @torch.no_grad()
-def policy_logits(model, obs, win=None, use_exec: bool = False):
+def policy_logits(model, obs, win=None, use_exec: bool = False,
+                  exec_beta: float = EXEC_BETA):
     """候选 logits，**`act()` 与诊断探针共用这一处**。返回 `(logits, value, mask)`。
 
-    `use_exec=True` 时套上可执行性软加权（专家 2026-09-13）：
-        `logit' = logit + 0.5 · log(σ(p_exec) + 1e-3)`
-    **软加权、不硬 mask**，保住「让模型自己学会哪些点不动」的口径。
+    `use_exec=True` 时套上可执行性软加权（`exec_bias`）：**软加权、不硬 mask**，
+    保住「让模型自己学会哪些点不动」的口径。
 
     ★**公式只此一份**：探针要判断「主干自己学会了没有」还是「靠推理时加权兜住」，
       必须跑同一策略的开关两档。公式要是抄成第二份，改一处忘一处，
@@ -297,23 +319,25 @@ def policy_logits(model, obs, win=None, use_exec: bool = False):
         logits, value, mask, pexec = forward_batch(model, [_one_step(obs)], wins,
                                                    return_exec=True)
         # 软加权：概率高的候选 logit 上去，低的下来，但**谁都没被删掉**。
-        logits = logits + 0.5 * torch.log(torch.sigmoid(pexec) + 1e-3)
-        return logits, value, mask
+        return exec_bias(logits, pexec, exec_beta), value, mask
     logits, value, mask = forward_batch(model, [_one_step(obs)], wins)
     return logits, value, mask
 
 
-def act(model, obs, deterministic: bool = False, win=None, use_exec: bool = False):
+def act(model, obs, deterministic: bool = False, win=None, use_exec: bool = False,
+        exec_beta: float = EXEC_BETA):
     """按当前策略选一个候选动作。返回 (下标, logprob, value)。
 
     `win`：token 窗口（P3 起）。给了就走窗口编码的 query。**采样期间 batch=1**，
     所以 `collate_window` 的补 token 维是空操作。
 
-    `use_exec`：见 `policy_logits`。
+    `use_exec` / `exec_beta`：见 `policy_logits` 与 `exec_bias`。
     ⚠ **默认关**：`bc.py` 也调这个函数，而它的 ckpt 里 `exec_head` 是随机初始化的
     （旧 ckpt 用 `strict=False` 加载），打开等于拿噪声去加权。
+    ⚠ **开了就一定把 `PPO(exec_beta=…)` 设成同一个值**，否则两侧不一致。
     """
-    logits, value, _m = policy_logits(model, obs, win=win, use_exec=use_exec)
+    logits, value, _m = policy_logits(model, obs, win=win, use_exec=use_exec,
+                                      exec_beta=exec_beta)
     logp = F.log_softmax(logits, dim=-1)
     if deterministic:
         idx = int(logp.argmax(-1).item())
@@ -326,7 +350,7 @@ def act(model, obs, deterministic: bool = False, win=None, use_exec: bool = Fals
 class PPO:
     def __init__(self, model, *, lr: float = 3e-4, clip: float = 0.2, epochs: int = 4,
                  minibatch: int = 256, vf_coef: float = 0.5, ent_coef: float = 0.01,
-                 exec_coef: float = 0.0,
+                 exec_coef: float = 0.0, exec_beta: float = 0.0,
                  bc_model=None, bc_coef: float = 0.0, bc_turns: int = 70,
                  max_grad_norm: float = 0.5, adv_norm: str = "minibatch",
                  grad_diag: bool = False):
@@ -349,6 +373,10 @@ class PPO:
         # ★可执行性辅助头的权重（0 = 关，行为与开关存在前逐位相同）。
         #   专家给的起点是 0.1；标签只有"当步选中的候选"有（部分标签）。
         self.exec_coef = exec_coef
+        # ★第三条路（用户 2026-09-18）：把可执行性软加权**同时**加在采样侧与更新侧。
+        #   `0.0` = 关 ⇒ 行为与开关存在前逐位相同。⚠ 采样侧必须用同一个值
+        #   （`act(use_exec=…, exec_beta=…)`），否则又回到那个 `ratio ≠ 1` 的错位 bug。
+        self.exec_beta = float(exec_beta)
         # ★BC 锚（用户 2026-09-14 拍板）：冻一份 BC 策略，对**回合 ≤ bc_turns** 的状态
         #   加 `bc_coef · KL(π_θ ‖ π_BC)`。理由：实测「学了忘」发生在**开局**
         #   （`mkt` 切法 A：开局前 20 回合 7/8 局已在掉，而那里所有策略构成相同），
@@ -462,11 +490,16 @@ class PPO:
                 # 统一入口：点积头与 P4 主干签名不同，`forward_batch` 自己分派。
                 # 窗口只对 P4 主干有意义，别给点积头传（它的 forward 不收 win）。
                 wins = ([s["win"] for s in mb] if is_transformer(self.model) else None)
-                if self.exec_coef:
+                if self.exec_coef or self.exec_beta:
                     logits, value, mask, pexec = forward_batch(
                         self.model, mb, wins, return_exec=True)
                 else:
-                    logits, value, mask = forward_batch(self.model, mb, wins)
+                    logits, value, mask, pexec = *forward_batch(self.model, mb, wins), None
+                if self.exec_beta:
+                    # ★**与采样侧同一个公式、同一个 β**（`exec_bias` 只此一份）。
+                    #   放在这里 ⇒ `logp_all` / `ent` / `ratio` 全都基于**加权后**的
+                    #   分布，与 `act()` 存下来的 `old_logp` 一致 ⇒ `ratio` 在参数未动时 = 1。
+                    logits = exec_bias(logits, pexec, self.exec_beta)
                 # ★`as_tensor` 不给 `device=` 就落在 **CPU**，而 `forward_batch` 已经把
                 #   logits/value 搬到了模型所在设备 ⇒ `gather` 会炸
                 #   「Expected all tensors to be on the same device」。

@@ -24,17 +24,27 @@
 训过的头 **1.9%** —— 不大，但是**系统性偏差**，且**随 exec 头变自信而放大**
 （头的区分度越高，`w` 的离散度越大）。
 
-## 修法为什么是"删采样侧的加权"
+## 两条路，同一件事
 
-`rl/train.py` 的 `SAMPLING_USE_EXEC = False`（§V.3d 实测：软加权对**行为**是空操作
-—— 12 局配对，撞墙 33.2% vs 33.8%）⇒ 删掉它**零行为损失**，还顺手消掉这个 bug。
-`--exec-head` **保留**：辅助头仍经 `[h, q0]` 把梯度回流主干（那才是它有用的部分）。
+要满足「两侧同分布」，只有两条路：**(a) 两侧都不加权** 或 **(b) 两侧同一个 β**。
+
+- **2026-09-14 选了 (a)**：`SAMPLING_USE_EXEC = False`。依据是 §V.3d 实测
+  "软加权对**行为**是空操作"（12 局配对，撞墙 33.2% vs 33.8%）⇒ 删掉零行为损失。
+- **2026-09-18 用户改选 (b)**（"第三条路"）。因为那条"空操作"的前提是**头没训过**
+  （`p_exec≈0.5` ⇒ 压制≈0），而实测冻结表征里 `ok` **线性可分**
+  （`probe_exec_head_learn.py`：留出 AUC 0.457→**0.880**）⇒ 头训得出来、压制才有力。
+  于是 β 成了可调/可退火的正常超参，**但两侧必须同值**。
+
+★无论走哪条，**本文件钉的不变量都不变**：采样存的 `logp` 与更新算的 `logp`
+必须来自**同一个分布**。变的是实现（(a) 靠"都不加权"，(b) 靠"同一处赋值"）。
 
 ## 本测试钉什么
 
-**训练采样用的那一档（默认 `use_exec=False`）拿到的 logp，必须与
-"对原始 logits 做 log_softmax 再 gather"逐位相同。**
-—— 一旦有人把加权加回采样侧，这条会红。
+1. 默认（`β=0`）时采样 logp == 原始 logits 的 `log_softmax`（与更新侧逐位相同）；
+2. **β 只有一个赋值点**（`_sync_exec_sampling`），采样三处与更新侧同源；
+3. worker（spawn 子进程）**从 `args` 现取**，不靠父进程的模块全局。
+
+行为侧的那条（β>0 时 `kl≈0` 且 `clipfrac≈0`）在 `tests/test_exec_bias.py`。
 """
 from __future__ import annotations
 
@@ -82,26 +92,42 @@ class TestSamplingLogpMatchesUpdate(unittest.TestCase):
             msg="采样 logp 与更新侧的 log_softmax 不一致 —— ratio 起点不是 1，"
                 "信任域会错位。别把软加权加回采样侧（见本文件头）。")
 
-    def test_train_py_sampling_does_not_use_exec(self):
-        """静态断言：`train.py` 里采样/评估那三处走的是 `SAMPLING_USE_EXEC` 常量，
-        且该常量是 `False`。有人把它改成 True 时这条会红，逼他先读文件头。"""
+    def test_train_py_sampling_uses_the_same_beta_as_the_update(self):
+        """★静态守卫：采样三处与更新侧**同源**，且 β 只有一个赋值点。
+
+        旧口径是"采样一律不加权"；(b) 之后加权合法，但**两侧必须同值** ——
+        所以这里钉的是"只有一个地方能设定它"，而不是"它必须是 False"。
+        """
         import rl.train as T
-        self.assertIs(T.SAMPLING_USE_EXEC, False,
-                      "SAMPLING_USE_EXEC 被改回 True 了 —— 那会重新引入 ratio 错位的 bug，"
-                      "先读 tests/test_sampling_logp.py 文件头。")
         src = inspect.getsource(T)
         self.assertNotIn("use_exec=args.exec_head > 0", src,
-                         "采样侧又出现了 `use_exec=args.exec_head > 0`")
+                         "采样侧又出现了自成一体的 `use_exec=args.exec_head > 0`")
         self.assertEqual(src.count("use_exec=SAMPLING_USE_EXEC"), 3,
                          "train.py 里应有 3 处采样/评估调用走 SAMPLING_USE_EXEC")
+        self.assertEqual(src.count("exec_beta=SAMPLING_EXEC_BETA"), 3,
+                         "那 3 处必须同时带上同一个 β（否则两侧不同分布）")
+        self.assertIn("exec_beta=args.exec_beta,", src,
+                      "PPO(更新侧) 没拿到 --exec-beta")
+        self.assertIn("_sync_exec_sampling(args.exec_beta)", src,
+                      "没把 --exec-beta 同步到采样侧")
+        self.assertEqual(src.count("SAMPLING_EXEC_BETA = "), 2,
+                         "SAMPLING_EXEC_BETA 应当只有「模块默认 + 函数内赋值」两处")
+        self.assertEqual(src.count("SAMPLING_USE_EXEC = "), 2,
+                         "SAMPLING_USE_EXEC 应当只有「模块默认 False + 函数内赋值」两处")
 
-    def test_workers_sampling_does_not_use_exec(self):
-        """并行 worker 的采样同理（`rl/workers.py`）。"""
+    def test_workers_take_beta_from_args(self):
+        """并行 worker 同理，但它是 `spawn` 子进程 ⇒ **父进程的模块全局带不过来**，
+        必须从 `args` 现取（`HORIZON` 那族坑：别用 import 时刻的快照）。"""
         import rl.workers as W
         src = inspect.getsource(W)
+        self.assertNotIn("use_exec=False", src,
+                         "worker 采样又被硬编码成不加权了 —— 那会与更新侧不同分布")
         self.assertNotIn("use_exec=(args.exec_head > 0)", src,
-                         "worker 采样侧又出现了加权")
-        self.assertIn("use_exec=False", src)
+                         "worker 采样侧又出现了自成一体的加权")
+        self.assertIn('getattr(args, "exec_beta"', src,
+                      "worker 没从 args 现取 β")
+        self.assertIn("use_exec=_beta > 0, exec_beta=_beta", src,
+                      "worker 的开关与强度必须出自同一个 _beta")
 
 
 if __name__ == "__main__":

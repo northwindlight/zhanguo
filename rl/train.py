@@ -32,7 +32,7 @@ from rl.bc import get_teacher, set_episode_horizon
 from rl.device import pick_device
 from rl.env import ACT_SAFETY, KINDS, ZhanguoEnv
 from rl.model import PolicyNet
-from rl.ppo import PPO, Rollout, act, value_of
+from rl.ppo import EXEC_BETA, PPO, Rollout, act, value_of
 
 
 # ★★采样/推理**一律不加权**（2026-09-14 修 bug，用户拍板）：
@@ -47,6 +47,17 @@ from rl.ppo import PPO, Rollout, act, value_of
 #   （12 局配对：撞墙 33.2% vs 33.8%）⇒ 删掉它**零行为损失**，还顺手消掉这个 bug。
 #   `--exec-head` **保留**：辅助头仍经 `[h, q0]` 把梯度回流主干（那才是它有用的部分）。
 SAMPLING_USE_EXEC = False
+# ★软加权强度，与 `SAMPLING_USE_EXEC` **同生共死**：两者都由 `--exec-beta` 一处赋值
+#   （见 main 里 `_sync_exec_sampling()`）。**绝不允许分别设** —— 采样侧与更新侧不同值
+#   就是那个 `ratio ≠ 1` 的错位 bug 的复现条件。
+SAMPLING_EXEC_BETA = EXEC_BETA
+
+
+def _sync_exec_sampling(beta: float) -> None:
+    """`--exec-beta` → 采样侧开关（一处赋值，杜绝两侧不一致）。"""
+    global SAMPLING_USE_EXEC, SAMPLING_EXEC_BETA
+    SAMPLING_EXEC_BETA = float(beta)
+    SAMPLING_USE_EXEC = float(beta) > 0.0
 
 
 def teacher_baseline(world, agent, turns, teacher_fn):
@@ -131,14 +142,15 @@ def _win(env, obs, on: bool):
 
 
 def play_episode(env: ZhanguoEnv, model, seed: int, deterministic: bool = False,
-                 use_exec: bool = False,
+                 use_exec: bool = False, exec_beta: float = EXEC_BETA,
                  use_win: bool = False) -> dict:
     """跑完整一局（不训练），用于评估。"""
     obs = env.reset(seed)
     total = 0.0
     while True:
         idx, _lp, _v = act(model, obs, deterministic=deterministic,
-                           win=_win(env, obs, use_win), use_exec=use_exec)
+                           win=_win(env, obs, use_win), use_exec=use_exec,
+                           exec_beta=exec_beta)
         obs, r, done, _info = env.step(obs.cand["actions"][idx])
         total += r
         if done:
@@ -214,6 +226,18 @@ def main() -> None:
                          "「这个候选此刻能不能执行」，推理时**软加权不硬 mask**"
                          "（`logit' = logit + 0.5·log(σ(p_exec)+1e-3)`），"
                          "**保住「让模型自己学会哪些点不动」的口径**。建议起点 0.1。")
+    ap.add_argument("--exec-beta", type=float, default=0.0,
+                    help="★**第三条路的开关**（用户 2026-09-18 选定）：可执行性软加权的强度，"
+                         "`logit += β·log(σ(p_exec)+1e-3)`，**采样侧与更新侧同值**（由这里一处"
+                         "赋值，见 `_sync_exec_sampling`）。默认 0 = 关 ⇒ 逐位不变。"
+                         "为什么要它：撞墙率里 `build` 占 83%，而 1764 次里 **1761 次是"
+                         "「黄金不足」**（反复买买不起的装备厂）—— 这是**可学却没学会**"
+                         "（钱在全局向量里精确、造价在候选内容表里），根因是 pg 掉在噪声底。"
+                         "而 `ok` 是引擎当场给的**确定标签**，不经过回报 ⇒ 绕开那个死结。"
+                         "★冻结表征里 `ok` **线性可分**（`probe_exec_head_learn.py`："
+                         "留出 AUC 0.457→0.880）⇒ 头训得出来，压制才有力。"
+                         "⚠ 上一版失败是因为**只加在采样侧**（ratio ≠ 1 的错位 bug）+ 头没训过；"
+                         "现在两侧同值、并配合 `--exec-head` 训头。")
     ap.add_argument("--exec-warmup", type=int, default=0,
                     help="★前几块**只训辅助头**（策略与价值参数冻结）。"
                          "从旧 ckpt 续训时 `exec_head` 是随机初始化的（`strict=False`），"
@@ -310,6 +334,8 @@ def main() -> None:
                          "`--rollout-cap` 在并行下是软上限（最多超一局）。"
                          "⚠ 量具不动：评估 / 探针仍走单 env 顺序路径（规格 §3.4）。")
     args = ap.parse_args()
+    # ★一处赋值 ⇒ 采样侧与更新侧不可能不一致（那个 `ratio ≠ 1` 的错位 bug 的复现条件）
+    _sync_exec_sampling(args.exec_beta)
 
     from rl.hw import set_threads
     _n_threads = set_threads(args.threads)    # 0 = 自动 = 物理核（ECS 1 / Pi 5 4）
@@ -355,6 +381,7 @@ def main() -> None:
     ppo = PPO(model, lr=args.lr, epochs=args.epochs, minibatch=args.minibatch,
               ent_coef=args.ent_coef, adv_norm=args.adv_norm,
               clip=args.clip, exec_coef=args.exec_head,
+              exec_beta=args.exec_beta,
               bc_model=_bc_model, bc_coef=args.bc_anchor,
               bc_turns=args.bc_anchor_turns,
               grad_diag=bool(args.grad_diag))
@@ -396,10 +423,12 @@ def main() -> None:
         贪心掉进「建最贵的建筑→资源耗光→躺平」的近视陷阱，而采样仍有 4~6 万消费。
         """
         g = [play_episode(eval_env, model, seed=900_000 + i, deterministic=True,
-                          use_win=_use_win, use_exec=SAMPLING_USE_EXEC)
+                          use_win=_use_win, use_exec=SAMPLING_USE_EXEC,
+                          exec_beta=SAMPLING_EXEC_BETA)
              for i in range(n)]
         s = [play_episode(eval_env, model, seed=800_000 + i, deterministic=False,
-                          use_win=_use_win, use_exec=SAMPLING_USE_EXEC)
+                          use_win=_use_win, use_exec=SAMPLING_USE_EXEC,
+                          exec_beta=SAMPLING_EXEC_BETA)
              for i in range(n)]
         return {"eval_spend": float(np.mean([x["spend_total"] for x in g])),
                 "eval_tiles": float(np.mean([x["tiles"] for x in g])),
@@ -581,7 +610,8 @@ def main() -> None:
                     break
                 _w = _win(env, obs, _use_win)
                 idx, logp, val = act(model, obs, win=_w,
-                                     use_exec=SAMPLING_USE_EXEC)
+                                     use_exec=SAMPLING_USE_EXEC,
+                                     exec_beta=SAMPLING_EXEC_BETA)
                 keep = obs
                 obs, r, done, info = env.step(obs.cand["actions"][idx])
                 # ★窗口与 obs 必须**同一瞬间**取，一起入缓冲。分开取会让更新侧重算的 logp

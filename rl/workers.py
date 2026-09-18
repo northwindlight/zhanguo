@@ -61,9 +61,14 @@ def _collect_episode(env, model, args, seed: int):
     use_win = args.net in ("pool", "tf")
     obs = env.reset(seed)
     steps, ep_ret = [], 0.0
+    # ★从 `args` **现取**，别 import 父进程的模块全局：worker 是 `spawn` 出来的子进程
+    #   （见 `WorkerPool.__init__`），父进程 main 里 `_sync_exec_sampling()` 设的值
+    #   **不会**带过来。这与本仓库 `HORIZON` 那次栽的是同一族坑（拿 import 时刻的快照）。
+    #   ⚠ 必须与更新侧同值，否则就是那个 `ratio ≠ 1` 的错位 bug。
+    _beta = float(getattr(args, "exec_beta", 0.0))
     while True:
         w = _win(env, obs, use_win)
-        idx, logp, val = act(model, obs, win=w, use_exec=False)  # ★采样不加权，见 train.py 的 SAMPLING_USE_EXEC)
+        idx, logp, val = act(model, obs, win=w, use_exec=_beta > 0, exec_beta=_beta)
         keep = obs
         obs, r, done, info = env.step(keep.cand["actions"][idx])
         c = dict(keep.cand)
