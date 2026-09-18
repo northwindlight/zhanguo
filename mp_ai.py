@@ -54,9 +54,14 @@ MAIL_BRIEF_FULL = 3      # 状态面板里完整展示的新信数（更旧的�
 MAIL_BRIEF_ROWS = 20     # 状态面板里最多列多少条旧信摘要
 LAND_CAP = 40            # `query panel=land` 一次列几块（可传 cap= 覆盖）
 MAP_MAX_CELLS = 2400     # 常驻地图最多画多少格；视野被远方飞地/盟友撑爆时退回"本土+邻圈"
-MAP_LEGEND = ("每格 2 字符：第 1 位=地形（P平原 F森林 H丘陵 M山地 D沙漠；**大写=你的地**、"
-              "小写=视野内非你的地、. =视野外）；第 2 位=·无 ■你有建筑(含在建) "
-              "@你的军队 *野人守军 !他国军队")
+# ★ 地图只用**纯 ASCII**：`■`(U+25A0)、`·`(U+00B7) 的 East Asian Width 是 Ambiguous，
+#   在 CJK 等宽字体下按全角渲染 ⇒ 整张格子错位（2026-09-18 修）。
+MAP_LEGEND = ("地形/国土图（每格 2 字符）：第 1 位=地形（P平原 F森林 H丘陵 M山地 D沙漠；"
+              "**大写=你的地**、小写=视野内非你的地、?=视野外）；第 2 位=. 无异物 / "
+              "# 自家有建筑(含在建) / * 野人守军 / 无主空地（可直接进驻）/ 他国字母=它的领土")
+MIL_LEGEND = ("军事图（与地形图同框，一格只画一个符号）：自家军=1..9 再 a..z（按番号）、"
+              "他国军=A..Z；番号/血量/坐标见下方图注。野人守军**不在**此图——"
+              "它们是地块的静态属性，见地形图的 *")
 
 # ★ 局内上下文**不注入 README**（2026-09-15）：`rules` 一律返回 `_help_sections()`
 #   现算的规则文本，**所有政体同一份**。曾经匈奴的 rules 额外附一份 README 原文全文
@@ -289,23 +294,23 @@ def _reach_cells(world, name) -> set:
     return reach
 
 
-def _fmt_map(world, name) -> str:
-    """带坐标轴的**国土/视野地图**（常驻面板：只画自己国土 + 自己看得见的格）。
+def _nation_letters(world) -> dict:
+    """国别字母（A/B/C…，按世界顺序、跳过已亡国）——与看海大地图同款口径，两张地图共用。"""
+    out = {}
+    for i, n in enumerate(world.order):
+        if n in world.nations:
+            out[n] = chr(65 + i) if i < 26 else str(i - 25)
+    return out
 
-    为什么用地图替掉逐格清单：逐格明细 61 字符/格、且随国土**无界**增长
-    （实测 160 回合国土 166 块 → 不限幅 10.6k 字符 ≈7k token，而它每回合都进上下文）。
-    地图尺寸只随**视野包围盒**走（实测 528 格 ≈0.6k 字符），天然有界。
-    逐格细节改由按需查询给：`panel=tile`（单格全明细）、`panel=land`（明细/翻页/过滤）。
-    """
+
+def _map_frame(world, name, vis):
+    """两张地图**共用的取景框**：视野包围盒；过大（被远方飞地/盟友撑爆）时退回"本土+邻圈"。
+    同框是为了上下对照着读——地形图与军事图的行列必须一一对应。"""
     own = set(world.own_tiles(name))
-    vis = _visible_cells(world, name)
-    if not vis:
-        return "（你还没有国土，也没有视野）"
     x0, x1 = min(p[0] for p in vis), max(p[0] for p in vis)
     y0, y1 = min(p[1] for p in vis), max(p[1] for p in vis)
     cropped = False
     if (x1 - x0 + 1) * (y1 - y0 + 1) > MAP_MAX_CELLS:
-        # 视野被远方飞地/盟友撑爆 → 只画"本土+邻圈"（与国土同量级），其余用清单指路
         near = set(own)
         for (x, y) in own:
             near |= set(world.neighbors(x, y))
@@ -314,9 +319,32 @@ def _fmt_map(world, name) -> str:
             x0, x1 = min(p[0] for p in near), max(p[0] for p in near)
             y0, y1 = min(p[1] for p in near), max(p[1] for p in near)
             cropped = True
-    army_at: dict = {}
-    for a in world.armies:
-        army_at.setdefault((a["x"], a["y"]), []).append(a)
+    return x0, x1, y0, y1, cropped
+
+
+def _axis_lines(x0, x1, y0, y1) -> list:
+    """列头用**两行**（十位/个位），与 2 字符格严格对齐：单行写会在 9→10 处变成
+    "9101112…"，模型有读错坐标的风险（读错 = 白烧一个动作）。"""
+    lab = [f"{(x + 1) % 100:02d}" for x in range(x0, x1 + 1)]
+    return ["      " + "".join(d[0] + " " for d in lab),
+            "      " + "".join(d[1] + " " for d in lab)]
+
+
+def _fmt_map(world, name) -> str:
+    """**地形/国土图**（常驻）。只画自己国土 + 视野内的格。
+
+    · **军队不在这张图上**（见 `_fmt_mil_map`）：军队每回合都在动，混在一起既挤又乱。
+    · 视野内的**他国领地**：地形照给（小写），第 2 位放该国的**国别字母** ——
+      即"既显示地形、也显示归属"，两者不冲突（地形占第 1 位、归属占第 2 位）。
+    · 只用纯 ASCII：`■`/`·` 的宽度是 Ambiguous，CJK 等宽字体下按全角渲染会整张错位。
+    """
+    own = set(world.own_tiles(name))
+    vis = _visible_cells(world, name)
+    if not vis:
+        return "（你还没有国土，也没有视野）"
+    x0, x1, y0, y1, cropped = _map_frame(world, name, vis)
+    letters = _nation_letters(world)
+    seen_nations: set = set()
 
     def cell(x: int, y: int) -> str:
         o = world.owned_by(x, y)
@@ -325,30 +353,29 @@ def _fmt_map(world, name) -> str:
         elif (x, y) in vis:
             c = world.ter_char(x, y).lower()         # 小写 = 视野内非自家
         else:
-            c = "."                                  # 视野外（只在包围盒角落出现）
-        here = army_at.get((x, y), ())
-        if any(a["owner"] == name for a in here):
-            return c + "@"
-        if any(a["owner"] == "野人" for a in here):
-            return c + "*"
-        if any(a["owner"] not in (name, "野人") for a in here):
-            return c + "!"
-        t = world.tiles.get((x, y))
-        if o == name and t and (any(t["buildings"].values()) or (t.get("pending") or {})):
-            return c + "■"
-        return c + "·"
+            c = "?"                                  # 视野外（只在裁切后的角落出现）
+        if o == name:
+            t = world.tiles.get((x, y))
+            if t and (any(t["buildings"].values()) or (t.get("pending") or {})):
+                return c + "#"
+            return c + "."
+        if o and o != "野人":
+            seen_nations.add(o)
+            return c + letters.get(o, "o")           # 他国的地：地形 + 国别字母
+        if _has_barb(world, x, y):
+            return c + "*"                           # 无主 + 有野人守军
+        return c + "."                               # 无主空地：可直接 atk 进驻
 
-    # 列头用**两行**（十位/个位），与 2 字符格严格对齐：单行写会在 9→10 处变成
-    # "9101112…"，模型有读错坐标的风险（读错 = 白烧一个动作）。
-    lab = [f"{(x + 1) % 100:02d}" for x in range(x0, x1 + 1)]
-    lines = [f"地图 x {x0 + 1}→{x1 + 1}、y {y0 + 1}→{y1 + 1}（坐标 1-based，每格 2 字符；"
-             f"列头上下两行拼起来就是 x）",
-             "      " + "".join(d[0] + " " for d in lab),
-             "      " + "".join(d[1] + " " for d in lab)]
+    lines = [f"地形/国土图 x {x0 + 1}→{x1 + 1}、y {y0 + 1}→{y1 + 1}"
+             f"（坐标 1-based，每格 2 字符；列头上下两行拼起来就是 x）"]
+    lines += _axis_lines(x0, x1, y0, y1)
     for y in range(y0, y1 + 1):
         lines.append(f"  {y + 1:3d} " + "".join(cell(x, y) for x in range(x0, x1 + 1)))
     lines.append(f"国土 {len(own)} 块 · 视野内 {len(vis)} 格（非自家 {len(vis - own)}）· "
                  f"可拓荒地 {len(world.frontier_of(name))} 块")
+    if seen_nations:
+        lines.append("图中他国：" + " ".join(
+            f"{letters.get(n, '?')}={n}" for n in world.order if n in seen_nations))
     reach = sorted(p for p in _reach_cells(world, name) if p in vis)
     if reach:
         head = reach[:24]
@@ -363,6 +390,68 @@ def _fmt_map(world, name) -> str:
                  "filter= 只看含某建筑或某资源的格）；单格全明细：query panel=tile x= y=（或 at=地名）")
     return "\n".join(lines)
 
+
+def _fmt_mil_map(world, name) -> str:
+    """**军事图**（常驻）：只标**能动的军队**——自家全部 + 视野内的他国军。
+
+    · 符号：自家军 `1..9` 再 `a..z`（按番号升序）、他国军 `A..Z`（按国序再番号）——
+      数字/小写 vs 大写，一眼分敌我。
+    · **一格只画一个符号**（同格有别的军队时，数量与符号写在图注里），
+      优先级：自家优先，其次按符号序（确定的）。
+    · **野人守军不在此图**：它们驻在每一块无主地上（静态属性），画进来会把图糊满；
+      地形图里的 `*` 已经标了它们。
+    """
+    vis = _visible_cells(world, name)
+    if not vis:
+        return "（无视野）"
+    x0, x1, y0, y1, cropped = _map_frame(world, name, vis)
+    mine = sorted((a for a in world.armies if a["owner"] == name), key=lambda a: a["id"])
+    order = {n: i for i, n in enumerate(world.order)}
+    foreign = sorted((a for a in world.armies
+                      if a["owner"] != name and a["owner"] != "野人"
+                      and (a["x"], a["y"]) in vis),
+                     key=lambda a: (order.get(a["owner"], 99), a["id"]))
+    syms: dict = {}
+    for i, a in enumerate(mine):
+        syms[id(a)] = "123456789abcdefghijklmnopqrstuvwxyz"[i] if i < 35 else "?"
+    for i, a in enumerate(foreign):
+        syms[id(a)] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[i] if i < 26 else "?"
+    by_tile: dict = {}
+    for a in mine + foreign:
+        if x0 <= a["x"] <= x1 and y0 <= a["y"] <= y1:
+            by_tile.setdefault((a["x"], a["y"]), []).append(a)
+
+    def pick(lst: list) -> dict:
+        return sorted(lst, key=lambda a: (0 if a["owner"] == name else 1, syms[id(a)]))[0]
+
+    lines = [f"军事图 x {x0 + 1}→{x1 + 1}、y {y0 + 1}→{y1 + 1}"
+             f"（与地形图同框；一格只画一个符号）"]
+    lines += _axis_lines(x0, x1, y0, y1)
+    for y in range(y0, y1 + 1):
+        cells = []
+        for x in range(x0, x1 + 1):
+            lst = by_tile.get((x, y))
+            cells.append((syms[id(pick(lst))] if lst else ".") + " ")
+        lines.append(f"  {y + 1:3d} " + "".join(cells))
+    notes = []
+    for a in mine + foreign:
+        if id(a) not in syms or (a["x"], a["y"]) not in by_tile:
+            continue
+        tag = f"{syms[id(a)]}={a['name']} {a['hp']}HP@{a['x'] + 1},{a['y'] + 1}"
+        lst = by_tile.get((a["x"], a["y"]), [])
+        if len(lst) > 1 and pick(lst) is a:
+            tag += f"(同格另有{len(lst) - 1}支)"
+        notes.append(tag)
+    lines.append("图注：" + "  ".join(notes) if notes else "图注：（视野内没有军队）")
+    left = [a for a in mine if (a["x"], a["y"]) not in by_tile]
+    if left:
+        lines.append(f"（另有 {len(left)} 支自家军在框外："
+                     + " ".join(f"{a['name']}@{a['x'] + 1},{a['y'] + 1}" for a in left[:6])
+                     + "——见 query panel=army）")
+    if cropped:
+        lines.append("（视野里有远离本土的格，未画进图）")
+    lines.append(MIL_LEGEND)
+    return "\n".join(lines)
 
 def _fmt_land(world, name, cap=LAND_CAP, offset=0, filter_="") -> str:
     """国土**逐格明细**（按需查询；常驻只画 `_fmt_map`）。
@@ -764,7 +853,12 @@ def _help_sections() -> list[tuple[str, str]]:
             f"EU4式 大地图国战：每人从 {len(CROSS)} 块地起家，拓荒/建设/生产/建军，可对他国结盟或开战。"
             "回合制：每回合你行动（可做多件事）→ 过回合统一结算（产出/电网/战斗/补给/市场回归）。"
             "地皮名字=ID，坐标 1-based。你能看的是自己地盘+相邻一圈（有联盟则连盟友的地盘也看得到；建瞭望塔可把事件视野再往外推）；他国国力只能推测。"
-            "**你的国土与视野以「带坐标轴的地图」常驻在状态里**（只画你国土和你视野内的格，每格 2 字符：地形 + 标记）——"
+            "**你的国土与视野以两张带坐标轴的地图常驻在状态里**（同框、每格 2 字符）："
+            "【地形/国土图】只画你国土 + 视野内的地形与归属（自家=大写地形、他国=小写地形+国别字母、"
+            "*=野人守军、#=自家建筑）；**【军事图】只标能动的军队**（自家 1..9a..z、他国 A..Z，"
+            "一格只画一个符号，番号/血量/坐标看图注），两张图都没有汉字与全角符号。\n"
+            "视野内**已经包含地形**（每格第 1 位就是）；视野外的格一律不显示（画成 ?）——"
+            "**地形不会比视野更宽**（迷雾对你一视同仁）。\n"
             "逐格明细用 query panel=land（cap= 列几块、offset= 翻页、filter= 只看含某建筑或某资源的格，如 filter=兵营 / filter=耕地）；"
             "某一格的全明细用 query panel=tile x= y=（或 at=地名）。"
             "迷雾限制你**看见**的，不限制你**下令**的：可对视野外的格下 mv/atk——撞上不透明的"
@@ -1240,6 +1334,7 @@ def full_state(world, name, replay_since: int | None = None) -> str:
         f"【国力】\n{_res_line(world, name)}",
         f"【国策规划】\n{_fmt_plan(world, name)}",
         f"【国土/视野】\n{_fmt_map(world, name)}",
+        f"【军事图】\n{_fmt_mil_map(world, name)}",
         f"【军队】\n{_fmt_armies(world, name)}",
         f"【威胁】\n{_fmt_threats(world, name)}",
         f"【市场】\n{_fmt_market(world, name)}",

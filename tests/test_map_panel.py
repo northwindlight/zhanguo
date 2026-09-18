@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import sys
+import unicodedata
 import unittest
 from pathlib import Path
 
@@ -49,6 +50,12 @@ def _grow(w, name, n, *, farm=False, tower=False):
     if tower and added:
         w.tiles[added[0]]["buildings"]["瞭望塔"] = 1
     return added
+
+
+def _grid_lines(s: str) -> str:
+    """只取网格行（带行号的那些），去掉标题/摘要/图例——验"网格纯 ASCII"用。"""
+    return "\n".join(l for l in s.splitlines()
+                     if l.startswith("  ") and len(l) > 5 and l[2:5].strip().isdigit())
 
 
 def _bbox(cells):
@@ -107,7 +114,7 @@ class TestMapPanel(unittest.TestCase):
         vis = mp_ai._visible_cells(w, "秦")
         x0, x1, y0, y1 = _bbox(vis)
         s = mp_ai._fmt_map(w, "秦")
-        self.assertIn(f"地图 x {x0 + 1}→{x1 + 1}、y {y0 + 1}→{y1 + 1}", s)
+        self.assertIn(f"地形/国土图 x {x0 + 1}→{x1 + 1}、y {y0 + 1}→{y1 + 1}", s)
         lab = [f"{(x + 1) % 100:02d}" for x in range(x0, x1 + 1)]
         self.assertIn("".join(d[0] + " " for d in lab), s, "缺列头（十位行）")
         self.assertIn("".join(d[1] + " " for d in lab), s, "缺列头（个位行）")
@@ -143,28 +150,51 @@ class TestMapPanel(unittest.TestCase):
                 if l.startswith("  ") and len(l) > 5 and l[2:5].strip().isdigit()}
         for (x, y) in outside:
             seg = rows[y + 1][6 + (x - x0) * 2: 8 + (x - x0) * 2]
-            self.assertEqual(seg[0], ".", f"({x + 1},{y + 1}) 视野外却画了 {seg!r}")
+            self.assertEqual(seg[0], "?", f"({x + 1},{y + 1}) 视野外却画了 {seg!r}")
 
-    def test_marks_building_army_barbarian(self):
+    def _seg(self, s, w, pos):
+        """取网格里某格的 2 字符。"""
+        vis = mp_ai._visible_cells(w, "秦")
+        x0, _, _, _ = _bbox(vis)
+        rows = {int(l[2:5]): l for l in s.splitlines()
+                if l.startswith("  ") and len(l) > 5 and l[2:5].strip().isdigit()}
+        return rows[pos[1] + 1][6 + (pos[0] - x0) * 2: 8 + (pos[0] - x0) * 2]
+
+    def test_marks_own_building_and_barbarian(self):
         w = _world()
         own = w.own_tiles("秦")
         x, y = own[0]
         w.tiles[(x, y)]["buildings"]["农场"] = 1
-        s0 = mp_ai._fmt_map(w, "秦")
-        vis = mp_ai._visible_cells(w, "秦")
-        x0, _, _, _ = _bbox(vis)
-        rows = {int(l[2:5]): l for l in s0.splitlines()
-                if l.startswith("  ") and len(l) > 5 and l[2:5].strip().isdigit()}
-        seg = rows[y + 1][6 + (x - x0) * 2: 8 + (x - x0) * 2]
-        self.assertEqual(seg[1], "■", f"自家建筑没标出来：{seg!r}")
-        # 自家军队优先于建筑标记
+        s = mp_ai._fmt_map(w, "秦")
+        self.assertEqual(self._seg(s, w, (x, y))[1], "#", "自家建筑应标 #")
+        self.assertIn("*", s, "野人守军没标出来")
+
+    def test_armies_are_not_on_the_terrain_map(self):
+        """★ 军队移出地形图（那是军事图的活）：地形图上不该出现 @/!。"""
+        w = _world()
+        own = w.own_tiles("秦")
+        x, y = own[0]
         w.armies = [{"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
                      "x": x, "y": y, "owner": "秦", "moved_turn": -1, "engaged": False}]
-        s1 = mp_ai._fmt_map(w, "秦")
-        rows = {int(l[2:5]): l for l in s1.splitlines()
-                if l.startswith("  ") and len(l) > 5 and l[2:5].strip().isdigit()}
-        self.assertEqual(rows[y + 1][6 + (x - x0) * 2 + 1], "@", "自家军队没标出来")
-        self.assertIn("*", s1, "野人守军没标出来")
+        grid = _grid_lines(mp_ai._fmt_map(w, "秦"))
+        self.assertNotIn("@", grid)
+        self.assertNotIn("!", grid)
+
+    def test_foreign_territory_shows_terrain_and_owner_letter(self):
+        """视野里他国的地：**地形照给**（小写），第 2 位是该国字母 —— 两者都要有。"""
+        w = _world()
+        _grow(w, "秦", 3)
+        _grow(w, "楚", 3)
+        vis = mp_ai._visible_cells(w, "秦")
+        foreign = next((p for p in sorted(vis)
+                        if w.owned_by(*p) not in (None, "秦")), None)
+        if foreign is None:
+            self.skipTest("这个种子下视野里没有他国领土")
+        s = mp_ai._fmt_map(w, "秦")
+        seg = self._seg(s, w, foreign)
+        self.assertEqual(seg[0], w.ter_char(*foreign).lower(), "他国地应显示小写地形")
+        self.assertEqual(seg[1], "B", f"第 2 位应是国别字母（秦=A 楚=B）：{seg!r}")
+        self.assertIn("B=楚", s, "缺国别字母对照")
 
     def test_map_is_read_only(self):
         """★ 渲染不许物化地块/改世界——它每回合都跑，一旦写状态就会毁掉复现性。"""
@@ -186,8 +216,10 @@ class TestMapPanel(unittest.TestCase):
         w = _world()
         _grow(w, "秦", 12)
         st = mp_ai.full_state(w, "秦")
-        seg = st.split("【国土/视野】")[1].split("【")[0]
-        self.assertIn("地图 x ", seg, "常驻状态里没有地图")
+        self.assertIn("地形/国土图 x ", st, "常驻状态里没有地形图")
+        self.assertIn("军事图 x ", st, "常驻状态里没有军事图")
+        # 两张图那两段里都不许出现逐格明细行（那只该在 query panel=land）
+        seg = st.split("【国土/视野】")[1].split("【军队】")[0]
         self.assertNotIn("城L", seg, "常驻里又出现了逐格明细行（那只该在 query panel=land）")
 
 
@@ -336,6 +368,118 @@ class TestQueryDispatch(unittest.TestCase):
         for k in ("cap", "offset", "filter", "x", "y", "at"):
             self.assertIn(k, sch["parameters"]["properties"], f"query 少了参数 {k}")
         self.assertIn("常驻", sch["description"])
+
+
+class TestMilMap(unittest.TestCase):
+    """军事图：自家 1..9a..z、他国 A..Z；一格只画一个符号；野人不在图上。"""
+
+    def setUp(self):
+        self.w = _world()
+        _grow(self.w, "秦", 4)
+        self.own = self.w.own_tiles("秦")
+        a, b = self.own[0], self.own[1]
+        self.w.armies = [
+            {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+             "x": a[0], "y": a[1], "owner": "秦", "moved_turn": -1, "engaged": False},
+            {"id": 2, "gid": 2, "name": "秦·骑二军", "type": "骑", "hp": 80,
+             "x": b[0], "y": b[1], "owner": "秦", "moved_turn": -1, "engaged": False},
+        ]
+
+    def test_own_armies_get_distinct_symbols_with_legend(self):
+        s = mp_ai._fmt_mil_map(self.w, "秦")
+        grid = _grid_lines(s)
+        self.assertIn("1", grid)
+        self.assertIn("2", grid)
+        self.assertIn("1=秦·步一军 100HP", s)
+        self.assertIn("2=秦·骑二军 80HP", s)
+
+    def test_foreign_army_uses_uppercase(self):
+        vis = mp_ai._visible_cells(self.w, "秦")
+        spot = next(p for p in sorted(vis) if self.w.owned_by(*p) is None)
+        self.w.armies.append({"id": 3, "gid": 3, "name": "楚·步三军", "type": "步", "hp": 60,
+                              "x": spot[0], "y": spot[1], "owner": "楚",
+                              "moved_turn": -1, "engaged": False})
+        s = mp_ai._fmt_mil_map(self.w, "秦")
+        self.assertIn("A", _grid_lines(s), "他国军应是大写字母")
+        self.assertIn("A=楚·步三军 60HP", s)
+
+    def test_overlap_draws_one_symbol_and_notes_the_rest(self):
+        """★ 重叠只标一个：同格多支时画优先级最高的那个，其余数量写进图注。"""
+        vis = mp_ai._visible_cells(self.w, "秦")
+        spot = next(p for p in sorted(vis) if self.w.owned_by(*p) is None)
+        for i, own in ((3, "楚"), (4, "楚")):
+            self.w.armies.append({"id": i, "gid": i, "name": f"{own}·步{i}军", "type": "步",
+                                  "hp": 60, "x": spot[0], "y": spot[1], "owner": own,
+                                  "moved_turn": -1, "engaged": False})
+        s = mp_ai._fmt_mil_map(self.w, "秦")
+        grid = _grid_lines(s)
+        # 该格在网格里只占 2 字符，且只画了一个符号
+        self.assertEqual(grid.count("A"), 1, "同格两支他国军应只画一个符号")
+        self.assertNotIn("B", grid, "被压在下面的那支不该出现在网格里")
+        self.assertIn("(同格另有1支)", s)
+        self.assertIn("B=楚·步4军", s, "被压住的那支仍要在图注里列出")
+
+    def test_barbarians_are_not_on_the_military_map(self):
+        """野人守军每块无主地都有——画进军事图会把图糊满；它在地形图里用 * 表示。"""
+        w = _world()
+        _grow(w, "秦", 3)
+        s = mp_ai._fmt_mil_map(w, "秦")
+        barb = [a for a in w.armies if a["owner"] == "野人"]
+        self.assertTrue(barb, "这个局面本该有野人")
+        self.assertNotIn("野人", s.replace("野人守军**不在**此图", ""))
+
+    def test_deterministic(self):
+        self.assertEqual(mp_ai._fmt_mil_map(self.w, "秦"), mp_ai._fmt_mil_map(self.w, "秦"))
+
+    def test_read_only(self):
+        snap = (len(self.w.tiles), sorted(self.w.tiles), len(self.w.armies))
+        mp_ai._fmt_mil_map(self.w, "秦")
+        self.assertEqual(snap, (len(self.w.tiles), sorted(self.w.tiles), len(self.w.armies)))
+
+
+class TestGridIsPureAscii(unittest.TestCase):
+    """★ 网格必须是**纯 ASCII 且半角**。
+
+    `■`(U+25A0) 与 `·`(U+00B7) 的 East Asian Width 是 **Ambiguous** —— 在 CJK 等宽字体下
+    按全角渲染，整张格子会错位（2026-09-18 用户发现）。这张用例把它钉死。
+    """
+
+    def _assert_ascii_grid(self, text):
+        grid = _grid_lines(text)
+        self.assertTrue(grid, "没取到网格行")
+        for line in grid.splitlines():
+            for ch in line:
+                self.assertLess(ord(ch), 128, f"网格里出现非 ASCII 字符 {ch!r}：{line!r}")
+                self.assertEqual(unicodedata.east_asian_width(ch), "Na",
+                                 f"网格里出现非半角字符 {ch!r}：{line!r}")
+
+    def test_terrain_map_grid(self):
+        w = _world()
+        _grow(w, "秦", 6, farm=True)
+        self._assert_ascii_grid(mp_ai._fmt_map(w, "秦"))
+
+    def test_military_map_grid(self):
+        w = _world()
+        own = _grow(w, "秦", 4)
+        w.armies = [{"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+                     "x": own[0][0], "y": own[0][1], "owner": "秦",
+                     "moved_turn": -1, "engaged": False}]
+        self._assert_ascii_grid(mp_ai._fmt_mil_map(w, "秦"))
+
+    def test_axis_labels_are_ascii(self):
+        w = _world()
+        _grow(w, "秦", 4)
+        for fn in (mp_ai._fmt_map, mp_ai._fmt_mil_map):
+            for line in fn(w, "秦").splitlines()[1:3]:   # 只查两行列头（标题是中文散文）
+                for ch in line:
+                    self.assertLess(ord(ch), 128, f"坐标轴/标题混入非 ASCII：{line!r}")
+
+    def test_no_ambiguous_width_markers_left(self):
+        """守死"别再手滑用 ■/·"：那两个字符的宽度是歧义值，CJK 字体下按全角渲染。
+        只查记号（中文散文与破折号不在此列——它们不在网格里，不影响对齐）。"""
+        for bad in ("■", "·", "▣", "□"):
+            self.assertNotIn(bad, mp_ai.MAP_LEGEND + mp_ai.MIL_LEGEND,
+                             f"图例里还有宽度歧义的记号 {bad!r}")
 
 
 if __name__ == "__main__":
