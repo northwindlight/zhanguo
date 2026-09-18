@@ -17,6 +17,13 @@
 turn_memory 存档、tests 的 mock 断言都以此为契约；换提供方时只改"调用瞬间"的
 双向翻译，循环与记忆层无感。
 
+**提供方只有两种**（用户 2026-09-19）：`openai`（OpenAI 兼容，缺省）与 `anthropic`
+（兼容，预留未实现）。不再按厂家分名字（deepseek / ark / vLLM 一律写 `openai`），
+**OpenAI 兼容这一路的行为一律按 DeepSeek 处理**——thinking / reasoning_effort /
+reasoning_content / prompt_cache_* 这套 DeepSeek 语义就是本层的默认行为，扩展字段
+不按端点能力分化、一律发（2026-09-13 的 F1「未声明就不发」保护据此撤销；代价是
+严格端点（纯 OpenAI / vLLM）收到未知字段可能 400，用户已知并接受）。
+
 hard_timeout：POSIX 用 SIGALRM 硬超时兜底（SDK 因网络黑洞不抛时强制抛）。
 Windows 没有 SIGALRM——旧代码在函数入口裸用 `signal.SIGALRM`，本机一进 LLM 回合
 就 AttributeError 炸掉整局（2026-09-12 修）；现在按 console.py 的 os.name 分支
@@ -56,7 +63,11 @@ def hard_timeout(seconds: float, label: str):
 
 
 class OpenAICompat:
-    """任意 OpenAI 兼容端点（DeepSeek / 火山方舟 / vLLM / ...）。"""
+    """任意 OpenAI 兼容端点（DeepSeek / 火山方舟 / vLLM / ...）。
+
+    **行为按 DeepSeek 处理**（用户 2026-09-19）：本类不再区分端点脾气，DeepSeek 系
+    语义即默认行为——`reasoning_content` 照收，`thinking` / `reasoning_effort` 照发、
+    不因 cfg 没声明就省（见 `_stream_once` / `complete_text` 内注释）。"""
 
     def __init__(self, cfg: dict):
         from openai import OpenAI          # 运行时取属性：测试 patch openai.OpenAI 即生效
@@ -89,10 +100,10 @@ class OpenAICompat:
 
     def _stream_once(self, messages, tools, cfg, api_timeout):
         """一次流式调用 + 聚合：返回 (msg, stats)。"""
-        extra = {}
-        # deepseek-v4：thinking 开关 + reasoning_effort（low/medium/high）
-        if "thinking" in cfg:
-            extra["thinking"] = {"type": cfg["thinking"]}      # "enabled"/"disabled"
+        # deepseek-v4：thinking 开关 + reasoning_effort（low/medium/high）。
+        # 一律发（用户 2026-09-19「行为按 deepseek 处理」）：cfg 没写 thinking 就按
+        # enabled 走，不再有「没声明推理模型就省掉」的分叉（原 F1 保护已撤销）。
+        extra = {"thinking": {"type": cfg.get("thinking") or "enabled"}}
         if cfg.get("reasoning_effort"):
             extra["reasoning_effort"] = cfg["reasoning_effort"]
         stream_stats: dict = {}
@@ -155,14 +166,9 @@ class OpenAICompat:
         return msg, stream_stats
 
     def complete_text(self, messages, cfg, max_tokens=None):
-        # 压缩不需要思考；但 thinking 是 DeepSeek 系推理模型的**专属扩展**参数——
-        #   配置显式声明了推理模型（thinking / reasoning_effort）→ 发 thinking:disabled，
-        #   和 chat_turn 同源（cfg 声明才带），压缩时不白烧推理 token；
-        #   未声明的 OpenAI 兼容端点（vLLM / 方舟 / 纯 OpenAI）一律**不发**——
-        #   未知字段对严格端点直接 400（F1，2026-09-13 修）。
-        extra = {}
-        if "thinking" in cfg or cfg.get("reasoning_effort"):
-            extra["thinking"] = {"type": "disabled"}
+        # 压缩不需要思考：一律发 thinking:disabled（用户 2026-09-19「行为按 deepseek
+        #   处理」——和 chat_turn 同源，扩展字段不再按端点能力分化）。
+        extra = {"thinking": {"type": "disabled"}}
         resp = self.client.chat.completions.create(
             model=cfg["model"], messages=messages,
             max_tokens=int(max_tokens if max_tokens is not None
@@ -204,20 +210,17 @@ class AnthropicCompat:
 
 
 def make_backend(cfg: dict):
-    """按配置里的**显式 provider 字段**选提供方，**不按 base_url 猜**（2026-09-13：
-    猜 URL 会踩代理/网关地址，也说不清该不该发 DeepSeek 系的扩展字段——所以走 LLM
-    的条目必须自己声明）。
-      openai / openai-compat / deepseek / ark -> OpenAICompat（任意 OpenAI 兼容端点）
-      anthropic / claude                      -> AnthropicCompat（**预留未实现**，会抛）
-    缺失或未知 -> ValueError（提示先补 provider，见 README 配置表与 mp_config.example.json）。"""
-    prov = str(cfg.get("provider") or "").strip().lower()
-    if not prov:
-        raise ValueError("配置缺少 provider 字段：走 LLM 的条目必须显式声明提供方"
-                         "（openai / openai-compat / deepseek / ark / anthropic；"
-                         "详见 README 配置表与 mp_config.example.json）")
-    if prov in ("openai", "openai-compat", "deepseek", "ark"):
+    """按配置里的 provider 字段选提供方，**不按 base_url 猜**（2026-09-13：猜 URL 会
+    踩代理/网关地址）。
+      openai    -> OpenAICompat（任意 OpenAI 兼容端点，**行为按 DeepSeek 处理**）
+      anthropic -> AnthropicCompat（**预留未实现**，会抛）
+    **只有这两种**（用户 2026-09-19）；**provider 缺省即 openai**（不再强制显式声明），
+    deepseek / ark / vLLM / openai-compat / claude 这些厂家名一律不再接受——它们本就是
+    「OpenAI 兼容」，写 `openai` 即可。其它值 -> ValueError。"""
+    prov = str(cfg.get("provider") or "openai").strip().lower()
+    if prov == "openai":
         return OpenAICompat(cfg)
-    if prov in ("anthropic", "claude"):
+    if prov == "anthropic":
         return AnthropicCompat(cfg)
-    raise ValueError(f"未知 provider：{prov!r}"
-                     f"（可用：openai / openai-compat / deepseek / ark / anthropic）")
+    raise ValueError(f"未知 provider：{prov!r}（只有两种：openai / anthropic；"
+                     f"deepseek、ark、vLLM 等 OpenAI 兼容端点一律写 openai）")

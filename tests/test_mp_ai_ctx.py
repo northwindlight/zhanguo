@@ -122,8 +122,9 @@ class TestCompactBlock(unittest.TestCase):
         self.assertIn("暂无", sent[1]["content"])
         self.assertNotIn("内部思考内容不该进压缩输入", sent[1]["content"])
         self.assertIn("第21回合", sent[1]["content"])
-        # F1（2026-09-13）：cfg 未声明推理模型 → 不向请求体塞 DeepSeek 专属 thinking 参数
-        self.assertIsNone(c.calls[0]["extra_body"])
+        # 2026-09-19：行为一律按 DeepSeek 处理 —— 压缩请求**总是**带 thinking:disabled
+        #（原 F1「cfg 未声明就不发」保护已撤销，用户拍板）
+        self.assertEqual(c.calls[0]["extra_body"], {"thinking": {"type": "disabled"}})
         self.assertNotIn("tools", c.calls[0])
 
     def test_recursive_with_previous_memory(self):
