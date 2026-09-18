@@ -51,10 +51,16 @@ def _opt(name, default):
     return type(default)(sys.argv[sys.argv.index(name) + 1]) if name in sys.argv else default
 
 
-CKPTS = [a for a in sys.argv[1:] if not a.startswith("--") and not a.lstrip("-").isdigit()]
+# ★位置参数只认**路径**：带逗号的（`--sweep 0,0.5,1` 的值）不是 ckpt。
+#   之前漏了这一条 ⇒ 跑完扫描后又拿 "0,0.5,1,2,4" 当路径去 load，末尾白炸一次。
+CKPTS = [a for a in sys.argv[1:]
+         if not a.startswith("--") and not a.lstrip("-").isdigit() and "," not in a]
 SEED = _opt("--seed", 900000)
 TURNS = _opt("--turns", 200)
 DET = "--det" in sys.argv
+# β 扫描（第三条路的**效果**）：训练完头之后，同一张图上把 β 从 0 扫上去。
+SWEEP = ([float(x) for x in sys.argv[sys.argv.index("--sweep") + 1].split(",")]
+         if "--sweep" in sys.argv else [])
 set_threads(int(os.environ.get("ZHANGUO_THREADS", "4")))
 
 env = ZhanguoEnv(map_size=16, max_turns=TURNS, max_actions_per_turn=ACT_SAFETY)
@@ -73,20 +79,35 @@ def load(p: str):
     return m
 
 
-def collect(model, seed: int) -> Rollout:
-    """跑一局，把每步的 `(win, 选中候选, ok)` 收进 Rollout（和训练同一条路）。"""
+def collect(model, seed: int, beta: float = 0.0) -> Rollout:
+    """跑一局，把每步的 `(win, 选中候选, ok)` 收进 Rollout（和训练同一条路）。
+
+    `beta>0` 时**按第三条路的样子采样**（`use_exec` 与 `exec_beta` 同源）——
+    于是这把尺量的就是"真开起来会怎样"，而不是另造一份推理逻辑。
+    """
     torch.manual_seed(0x5EED)
     r = Rollout(lam=1.0, normalize=False)
     obs = env.reset(seed)
     while True:
         w = tokenize(env, obs)
-        i, lp, v = act(model, obs, deterministic=DET, win=w)
+        i, lp, v = act(model, obs, deterministic=DET, win=w,
+                       use_exec=beta > 0, exec_beta=beta)
         keep = obs
         obs, rew, done, info = env.step(obs.cand["actions"][i])
         r.add(keep, i, lp, v, rew, done, win=w, ok=info["ok"], turn=info["turn"])
         if done:
             break
     return r
+
+
+def episode_stats(model, seed: int, beta: float) -> dict:
+    """跑一局，报第三条路最关心的三个数：撞墙率 / 消费 / 地。"""
+    r = collect(model, seed, beta)
+    n = len(r.steps)
+    rej = sum(1 for s in r.steps if not s["ok"])
+    s = env.summary()
+    return {"steps": n, "rej": rej, "rate": rej / max(n, 1),
+            "spend": s["spend_total"], "tiles": s["tiles"]}
 
 
 def head_inputs(model, rollout) -> tuple[torch.Tensor, torch.Tensor]:
@@ -158,5 +179,12 @@ for p in CKPTS:
     res = train_head(m, X, y, test)
     print(f"{Path(p).stem:<22}{len(y):>7}{float(1 - y.mean()):>10.1%}"
           f"{res['auc_before']:>13.3f}{res['auc_after']:>13.3f}", flush=True)
+    if SWEEP:
+        print(f"    β 扫描（同一张图 {SEED}）：", flush=True)
+        print(f"    {'β':>6}{'被拒率':>9}{'消费':>10}{'地':>7}", flush=True)
+        for b in SWEEP:
+            st = episode_stats(m, SEED, b)
+            print(f"    {b:>6.2f}{st['rate']:>8.1%}{st['spend']:>10,.0f}{st['tiles']:>7}",
+                  flush=True)
 
 print(f"\n总耗时 {time.time() - t0:.0f}s", flush=True)

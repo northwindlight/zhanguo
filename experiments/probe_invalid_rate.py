@@ -44,7 +44,10 @@ def _opt(name, default):
     return type(default)(sys.argv[sys.argv.index(name) + 1]) if name in sys.argv else default
 
 
-CKPTS = [a for a in sys.argv[1:] if not a.startswith("--") and not a.lstrip("-").isdigit()]
+# ★位置参数只认**路径**：带逗号的（`--sweep 0,0.5,1` 的值）不是 ckpt。
+#   之前漏了这一条 ⇒ 跑完扫描后又拿 "0,0.5,1,2,4" 当路径去 load，末尾白炸一次。
+CKPTS = [a for a in sys.argv[1:]
+         if not a.startswith("--") and not a.lstrip("-").isdigit() and "," not in a]
 SEED = _opt("--seed", 900000)
 DET = "--det" in sys.argv            # 贪心臂：分开"模仿没学会"与"采样抽出来的"
 WANT_ENT = "--ent" in sys.argv       # 顺带量**同一批状态**上的动作分布熵
