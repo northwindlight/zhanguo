@@ -35,7 +35,10 @@ def _world(seed: int = 0, size: int = 12) -> World:
     return World(size=size, seed=seed, nations=["秦"])
 
 
-_LIVE_TABLES = ("UNIT_TYPES", "TERRAIN_STATS", "BUILDINGS")   # 被这些用例就地改的活表
+# 被这些用例就地改的活表。★`MARKET` 是 2026-09-18 补的：抖动注入器**也改市价**
+# （`rl/jitter.py` 的 `game.MARKET.update`），而快照里原先没有它 ⇒ 抖过的粮/矿/油/装备价
+# **漏进后面所有用例**（实测残留 4 个商品）。
+_LIVE_TABLES = ("UNIT_TYPES", "TERRAIN_STATS", "BUILDINGS", "MARKET")
 
 
 class RuleCase(unittest.TestCase):
@@ -45,6 +48,13 @@ class RuleCase(unittest.TestCase):
         self._snap = {k: copy.deepcopy(getattr(game, k)) for k in _LIVE_TABLES}
 
     def tearDown(self):
+        # ★把注入器的**记录**也清掉（`MARKET` 已由上面的快照还原，这里管的是状态）：
+        #   `_REC` 留着非空会让 `rl/scale.py` 以为"抖动正生效"而拒绝 `apply()`。
+        # ⚠ **只在真抖过时碰它** —— 注入器第一次 `apply` 才抓真值快照；若在从没抖过的进程里
+        #   无条件 `restore()`，它会把**当前**（可能已被本用例就地改过的）表当成"真值"记下来，
+        #   那比原来的漏还原更毒（后面 `jitter.restore()` 会"还原"成被改过的值）。
+        if jitter.current() is not None:
+            jitter.apply(0, 0)          # 等价 `restore()`：清记录 + 还原 MARKET 等
         for k, v in self._snap.items():
             cur = getattr(game, k)
             cur.clear()
