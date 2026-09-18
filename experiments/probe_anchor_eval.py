@@ -57,6 +57,19 @@ def med(xs):
     return st.median(xs)
 
 
+def spread(xs, base):
+    """逐图离散度：`最大/最小` 倍率 + 逐图占老师的百分比。
+
+    ★为什么中位数之外还要看这个（用户 2026-09-18：「**方差高有点危险了**」）：
+    中位数把"5 张图整体上移"和"1 张图暴涨、4 张塌"读成同一个数，而后者才是塌方前兆。
+    **判据要跟老师自己的离散度比** —— 老师那 5 张图本来就散（最差/最好 10 图差近一倍，
+    见 PLAN §V.26），所以先看老师的倍率当噪声地板，再看学生有没有明显超过它。
+    """
+    lo, hi = min(xs), max(xs)
+    pct = " ".join(f"{v / base:>4.0%}" for v in xs)
+    return f"逐图 {pct}   极差 {hi / max(lo, 1):.2f}×"
+
+
 t0 = time.time()
 print(f"留出图 {SEEDS}，各 200 回合；★ = 该档**超过老师**\n", flush=True)
 
@@ -64,7 +77,9 @@ print(f"留出图 {SEEDS}，各 200 回合；★ = 该档**超过老师**\n", fl
 g = [run_rule(env, sd, 200, max_actions=10 ** 9, which=TEACHER) for sd in SEEDS]
 base_s, base_t = med([x[0] for x in g]), med([x[1] for x in g])
 print(f"  {TEACHER + ' 老师':<26} 消费中位 {base_s:>9,.0f}   地中位 {base_t:>6.1f}", flush=True)
-print(f"  {'':<26} {'':>9}   ← 这就是「赶上」的分母\n", flush=True)
+print(f"  {'':<26} {'':>9}   ← 这就是「赶上」的分母", flush=True)
+print(f"  {'':<26} {'':>9}   {spread([x[0] for x in g], base_s)}（老师自己的离散＝噪声地板）\n",
+      flush=True)
 
 for p in CKPTS:
     m = load(p)
@@ -75,5 +90,6 @@ for p in CKPTS:
     print(f"  {Path(p).stem:<26} 贪心 {gs:>9,.0f}（{gs / base_s:>5.0%}）地 {gt:>5.1f}"
           f" | 采样 {ss_:>9,.0f}（{ss_ / base_s:>5.0%}）地 {st_:>5.1f}"
           f"{'  ★超过老师' if max(gs, ss_) > base_s else ''}", flush=True)
+    print(f"  {'':<26} 采样 {spread([x[0] for x in ss], base_s)}", flush=True)
 
 print(f"\n总耗时 {time.time() - t0:.0f}s", flush=True)
