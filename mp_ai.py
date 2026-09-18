@@ -348,23 +348,23 @@ def _fmt_map(world, name) -> str:
 
     def cell(x: int, y: int) -> str:
         o = world.owned_by(x, y)
-        if o == name:
-            c = world.ter_char(x, y)                 # 大写 = 自家地
-        elif (x, y) in vis:
-            c = world.ter_char(x, y).lower()         # 小写 = 视野内非自家
-        else:
-            c = "?"                                  # 视野外（只在裁切后的角落出现）
-        if o == name:
+        if o == name:                                # 自家地：永远看得见
+            c = world.ter_char(x, y)
             t = world.tiles.get((x, y))
             if t and (any(t["buildings"].values()) or (t.get("pending") or {})):
                 return c + "#"
             return c + "."
-        if o and o != "野人":
+        if (x, y) not in vis:
+            # ★ 视野外**一律** `?.`：地形不显，归属/守军更不显。
+            #   （曾经漏了归属那一支——他国的地会画出 "?D"，等于白送一张势力图。）
+            return "?."
+        c = world.ter_char(x, y).lower()             # 小写 = 视野内非自家
+        if o:
             seen_nations.add(o)
-            return c + letters.get(o, "o")           # 他国的地：地形 + 国别字母
+            return c + letters.get(o, "o")            # 他国的地：地形 + 国别字母
         if _has_barb(world, x, y):
-            return c + "*"                           # 无主 + 有野人守军
-        return c + "."                               # 无主空地：可直接 atk 进驻
+            return c + "*"                            # 无主 + 有野人守军
+        return c + "."                                # 无主空地：可直接 atk 进驻
 
     lines = [f"地形/国土图 x {x0 + 1}→{x1 + 1}、y {y0 + 1}→{y1 + 1}"
              f"（坐标 1-based，每格 2 字符；列头上下两行拼起来就是 x）"]

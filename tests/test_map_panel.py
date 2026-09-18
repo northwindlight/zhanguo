@@ -160,6 +160,40 @@ class TestMapPanel(unittest.TestCase):
                 if l.startswith("  ") and len(l) > 5 and l[2:5].strip().isdigit()}
         return rows[pos[1] + 1][6 + (pos[0] - x0) * 2: 8 + (pos[0] - x0) * 2]
 
+    def test_no_info_leak_outside_vision(self):
+        """★ 视野外的格只能是 `?` + 无记号：野人/**他国归属**/建筑都不许漏（与 visible_to 同纪律）。
+
+        两个真踩过的漏点：`*`（野人）与**国别字母**——后者更严重（等于白送一张势力图）。
+        下面显式构造"包围盒里、但视野外"的他国领土：秦两块飞地拉开包围盒，楚的地夹在中间。
+        """
+        w = mp.World(size=30, seed=3, nations=["秦", "楚"])
+        for (x, y) in [(0, 0), (1, 0), (0, 1), (20, 20), (21, 20), (20, 21)]:
+            t = w._new_tile(x, y, "秦")
+            t["owner"] = "秦"
+            w.tiles[(x, y)] = t
+        for (x, y) in [(10, 10), (11, 10)]:      # 楚的地：离秦两块飞地都远 → 视野外
+            t = w._new_tile(x, y, "楚")
+            t["owner"] = "楚"
+            w.tiles[(x, y)] = t
+        vis = mp_ai._visible_cells(w, "秦")
+        self.assertNotIn((10, 10), vis, "这个构造本该让楚的地在视野外")
+        x0, x1, y0, y1 = _bbox(vis)
+        self.assertTrue(x0 < 10 < x1, "楚的地应在包围盒内（才能验到框内但视野外的格）")
+        s = mp_ai._fmt_map(w, "秦")
+        rows = {int(l[2:5]): l for l in s.splitlines()
+                if l.startswith("  ") and len(l) > 5 and l[2:5].strip().isdigit()}
+        checked = 0
+        for x in range(x0, x1 + 1):
+            for y in range(y0, y1 + 1):
+                if (x, y) in vis:
+                    continue
+                seg = rows[y + 1][6 + (x - x0) * 2: 8 + (x - x0) * 2]
+                self.assertEqual(seg, "?.", f"({x + 1},{y + 1}) 视野外应画 ?.：{seg!r}")
+                checked += 1
+        self.assertGreater(checked, 0, "没验到任何框外格，用例白跑")
+        self.assertNotIn("B", rows[11][6 + (10 - x0) * 2: 8 + (10 - x0) * 2],
+                         "他国归属漏出了视野")
+
     def test_marks_own_building_and_barbarian(self):
         w = _world()
         own = w.own_tiles("秦")
