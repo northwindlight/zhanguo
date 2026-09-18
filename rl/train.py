@@ -572,6 +572,12 @@ def main() -> None:
 
     for it in range(start_iter + 1, start_iter + args.iterations + 1):
         # ---- 采样
+        # ★warmup 期间**关掉软加权**（两侧同时清零）：头那时还是随机的，
+        #   `β>0` 等于拿噪声去压 logits —— 前科是"实测两块把策略打回开局"
+        #   （见 `--exec-warmup` 的说明）。头训好之后 β 才生效。
+        _warm = args.exec_warmup > 0 and (it - start_iter) <= args.exec_warmup
+        _sync_exec_sampling(0.0 if _warm else args.exec_beta)
+        ppo.exec_beta = 0.0 if _warm else args.exec_beta
         # 默认「采满 --rollout-episodes 局」：一局约 1.2 万步，而固定 2048 步的话
         # **每次更新只看得到 1/6 局**——λ=1 的信用传播被卡在窗口里，而「这局打得好不好」
         # 要等一万多步后才揭晓。采满整局，优势才等于真正的整局蒙特卡洛优势。
@@ -635,7 +641,7 @@ def main() -> None:
         set_train_threads()
         last_v = 0.0 if ep_done else value_of(model, obs, win=_win(env, obs, _use_win))
         # ★辅助头 warmup：前几块只训头，策略/价值冻结（见 `--exec-warmup` 的说明）。
-        _warm = args.exec_warmup > 0 and (it - start_iter) <= args.exec_warmup
+        #   `_warm` 已在**本轮开头**算好（那时要把 β 清零，所以不能等这里）。
         if _warm:
             print(f"  ★辅助头 warmup（第 {it - start_iter}/{args.exec_warmup} 块，"
                   f"策略冻结）", flush=True)
