@@ -298,6 +298,75 @@ def _reach_cells(world, name) -> set:
     return reach
 
 
+ATLAS_LEGEND = (
+    "坐标地图（每行一格）：`(x,y)归属地形，[驻军…][，L2城][，地名]`——归属=我 / 野(无主) / 国名；"
+    "驻军按『国别+兵种』合并计数（格主的部队省国别）；**只列你视野内的格**。"
+    "想要格子图（ASCII 网格）用 query panel=grid。")
+
+
+def _fmt_atlas(world, name) -> str:
+    """**坐标地图**（常驻默认）：视野内逐格一行文字。
+
+    为什么默认文字而不是 ASCII 网格（用户 2026-09-19：「现在的地图对 llm 而言有点混乱……
+    llm 还是文本理解好」）：网格要配图例，模型还得自己在脑子里把 2 字符格对齐成坐标；
+    而 `(3,19)楚山地，驻军步兵x1，L2城` 是**自带语义的一行，零解码**。
+    实测第 120 回合、视野 192 格：文字版 2537 字符 ≈1268 token，
+    比原来两张网格（3035 字符）**还省**，且每格多带了驻军与城堡。
+    网格版没删——`_fmt_map` / `_fmt_mil_map` 走 `query panel=grid` 按需取。
+    """
+    vis = _visible_cells(world, name)
+    if not vis:
+        return "（你还没有国土，也没有视野）"
+    own = set(world.own_tiles(name))
+    army_at: dict = {}
+    for a in world.armies:
+        army_at.setdefault((a["x"], a["y"]), []).append(a)
+    lines = []
+    for (x, y) in sorted(vis):
+        t = world.tiles.get((x, y))
+        o = world.owned_by(x, y)
+        who = "我" if (x, y) in own else (o if o else "野")
+        line = f"({x + 1},{y + 1}){who}{world.tile_terrain(x, y)}"
+        here = army_at.get((x, y), ())
+        if here:
+            # 格主的部队排前面（读起来就是「我的守军 + 挤进来的敌人」）；
+            # 格主的部队省国别，野人守军写作「野人」。
+            mine_g: dict = {}
+            other_g: dict = {}
+            for a in here:
+                if a["owner"] == "野人":
+                    tgt = mine_g if o in (None, "野人") else other_g
+                    tgt["野人"] = tgt.get("野人", 0) + 1
+                    continue
+                _lb = UNIT_TYPES.get(a.get("type", "步"), {}).get("label", a.get("type", "步"))
+                if a["owner"] == o:
+                    mine_g[_lb] = mine_g.get(_lb, 0) + 1
+                else:
+                    other_g[a["owner"] + _lb] = other_g.get(a["owner"] + _lb, 0) + 1
+            parts = ([f"{k}x{n}" for k, n in sorted(mine_g.items())]
+                     + [f"{k}x{n}" for k, n in sorted(other_g.items())])
+            line += "，驻军" + "、".join(parts)
+        # 城堡：我们只遍历**视野内**的格，所以直接读即可（与 visible_buildings 同口径，
+        # 但省掉每格一次 O(全表) 的 visible_to）。
+        cl = t["buildings"].get("城堡", 0) if t else 0
+        if cl:
+            line += f"，L{cl}城"
+        if t and t.get("name"):
+            line += f"，{t['name']}"
+        lines.append(line)
+    lines.append(f"国土 {len(own)} 块 · 视野内 {len(vis)} 格（非自家 {len(vis - own)}）· "
+                 f"可拓荒地 {len(world.frontier_of(name))} 块")
+    reach = sorted(p for p in _reach_cells(world, name) if p in vis)
+    if reach:
+        head = reach[:24]
+        txt = " ".join(f"({x + 1},{y + 1}){world.tile_terrain(x, y)}"
+                       f"{'野人' if _has_barb(world, x, y) else '空地'}" for (x, y) in head)
+        more = f" …另 {len(reach) - len(head)} 块" if len(reach) > len(head) else ""
+        lines.append(f"本回合可及（有军队够得着，可直接 atk 入驻）: {txt}{more}")
+    lines.append(ATLAS_LEGEND)
+    return "\n".join(lines)
+
+
 def _nation_letters(world) -> dict:
     """国别字母（A/B/C…，按世界顺序、跳过已亡国）——与看海大地图同款口径，两张地图共用。"""
     out = {}
@@ -888,12 +957,11 @@ def _help_sections() -> list[tuple[str, str]]:
             f"EU4式 大地图国战：每人从 {len(CROSS)} 块地起家，拓荒/建设/生产/建军，可对他国结盟或开战。"
             "回合制：每回合你行动（可做多件事）→ 过回合统一结算（产出/电网/战斗/补给/市场回归）。"
             "地皮名字=ID，坐标 1-based。你能看的是自己地盘+相邻一圈（有联盟则连盟友的地盘也看得到；建瞭望塔可把事件视野再往外推）；他国国力只能推测。"
-            "**你的国土与视野以两张带坐标轴的地图常驻在状态里**（同框、每格 2 字符）："
-            "【地形/国土图】只画你国土 + 视野内的地形与归属（第 1 位=**统一小写**的地形、第 2 位=**国别代码**——自家的地也写自家代码、与别国写法完全一致；"
-            "*=无主且有野人守军、.=无主空地、?=视野外）。**城堡是公开的**（看得见的要塞，"
-            "攻它之前先掂量）；**【军事图】只标能动的军队**（一格画**归属国的国别代码**、与地形图同一套，"
-            "一格只画一个符号），两张图都没有汉字与全角符号。\n"
-            "视野内**已经包含地形**（每格第 1 位就是）；视野外的格一律不显示（画成 ?）——"
+            "**你的国土与视野以「坐标地图」常驻在状态里**：每行一格、**自带语义、零解码**——"
+            "`(x,y)归属地形，[驻军…][，L2城][，地名]`（归属=我 / 野(无主) / 国名；"
+            "驻军按『国别+兵种』合并计数，格主的部队省国别；**只列你视野内的格**）。"
+            "想要**网格版**（ASCII 格子图，一眼看形状）用 query panel=grid。\n"
+            "视野内**已经包含地形**；视野外的格一律不列——"
             "**地形不会比视野更宽**（迷雾对你一视同仁）。\n"
             "逐格明细用 query panel=land（cap= 列几块、offset= 翻页、filter= 只看含某建筑或某资源的格，如 filter=兵营 / filter=耕地）；"
             "**城堡一律公开**：凡是报某格、某军的地方都带上该格的城堡等级——地图摘要、tile 查询、"
@@ -1376,8 +1444,7 @@ def full_state(world, name, replay_since: int | None = None) -> str:
         f"你（{name}）现在进行第 {world.turn} 回合的行动。其余国家：{others}。",
         f"【国力】\n{_res_line(world, name)}",
         f"【国策规划】\n{_fmt_plan(world, name)}",
-        f"【国土/视野】\n{_fmt_map(world, name)}",
-        f"【军事图】\n{_fmt_mil_map(world, name)}",
+        f"【国土/视野】\n{_fmt_atlas(world, name)}",
         f"【军队】\n{_fmt_armies(world, name)}",
         f"【威胁】\n{_fmt_threats(world, name)}",
         f"【市场】\n{_fmt_market(world, name)}",
@@ -1591,6 +1658,11 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
             return _fmt_land(world, actor, cap=_num(args.get("cap"), LAND_CAP),
                              offset=_num(args.get("offset"), 0),
                              filter_=str(args.get("filter", "") or ""))
+        if which in ("grid", "gridmap", "网格", "格子图"):
+            # 网格版地图**按需**取（默认给的是坐标地图）：地形/国土图 + 军事图
+            return (_fmt_map(world, actor) + "\n\n" + _fmt_mil_map(world, actor)
+                    + "\n\n（这是网格版；默认面板给的是**坐标地图**——每行一格、自带语义、"
+                      "不用解码格子。两者信息等价，网格版适合「想一眼看出形状」的时候。）")
         if which == "tile":
             # 坐标可以给 x= y=，也可以给 at=地名（复用 _tile_xy，支持 "5 6"/地名/"名字 (x,y)"）
             ref = str(args.get("at", "") or "").strip()
@@ -1912,8 +1984,8 @@ def _props(schema: dict) -> dict:
 
 TOOL_SCHEMAS = [
     {"type": "function", "function": {
-        "name": "query", "description": f"查询接口：随时获取你的各面板。★ 你的**国土与视野地图已常驻**在每回合的状态里（带坐标轴、只画你国土和你视野内的格），所以这里查的是**细节**。land=地皮逐格明细（可翻页/按建筑或资源过滤） / tile=**单格全明细**（x= y= 或 at=地名） / res=国库与储备 / plan=国策规划 / army=军队 / market=世界市场(现价/买价/卖价/均衡价+大单试算) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=间谍情报(别国经济底细+粗略军情) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
-        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "plan", "land", "tile", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True},
+        "name": "query", "description": f"查询接口：随时获取你的各面板。★ 你的**国土与视野已作为「坐标地图」常驻**在每回合的状态里（每行一格：`(x,y)归属地形，[驻军…][，L2城][，地名]`），所以这里查的是**细节**。land=地皮逐格明细（可翻页/按建筑或资源过滤） / tile=**单格全明细**（x= y= 或 at=地名） / grid=**网格版地图**（ASCII 格子图，适合想一眼看形状时） / res=国库与储备 / plan=国策规划 / army=军队 / market=世界市场(现价/买价/卖价/均衡价+大单试算) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=间谍情报(别国经济底细+粗略军情) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
+        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "plan", "land", "tile", "grid", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True},
                               "cap": {"type": "integer", "description": f"panel=land：本次列几块（默认 {LAND_CAP}）"},
                               "offset": {"type": "integer", "description": "panel=land：从第几块开始列（翻页用）"},
                               "filter": {"type": "string", "description": "panel=land：只看含该**建筑**或该**资源**的格（如 兵营 / 耕地 / 军屯）"},

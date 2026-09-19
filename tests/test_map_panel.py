@@ -43,6 +43,7 @@ def _grow(w, name, n, *, farm=False, tower=False):
             t = w._new_tile(x, y, name)
             t["owner"] = name
             w.tiles[(x, y)] = t
+            w._drop_guardians(x, y)      # 照引擎 `_conquer` 的口径：占下就清野人守军
             if farm and t["resources"].get("耕地", 0) >= 1:
                 t["buildings"]["农场"] = 1
             added.append((x, y))
@@ -273,16 +274,19 @@ class TestMapPanel(unittest.TestCase):
         _grow(w, "秦", 6, farm=True)
         self.assertEqual(mp_ai._fmt_map(w, "秦"), mp_ai._fmt_map(w, "秦"))
 
-    def test_always_on_state_uses_map_not_the_full_list(self):
-        """★ 回归守卫：常驻必须是地图，不许有人再把逐格清单塞回去。"""
+    def test_always_on_state_is_the_coordinate_atlas(self):
+        """★ 常驻给的是**坐标地图**（每行一格文字），不是网格图（网格走 query panel=grid）。
+
+        （用户 2026-09-19：「现在的地图对 llm 而言有点混乱……llm 还是文本理解好」。）
+        """
         w = _world()
         _grow(w, "秦", 12)
         st = mp_ai.full_state(w, "秦")
-        self.assertIn("地形/国土图 x ", st, "常驻状态里没有地形图")
-        self.assertIn("军事图 x ", st, "常驻状态里没有军事图")
-        # 两张图那两段里都不许出现逐格明细行（那只该在 query panel=land）
+        self.assertIn("坐标地图（每行一格）", st, "常驻里没有坐标地图的说明")
         seg = st.split("【国土/视野】")[1].split("【军队】")[0]
-        self.assertNotIn("城L", seg, "常驻里又出现了逐格明细行（那只该在 query panel=land）")
+        self.assertRegex(seg, r"\(\d+,\d+\)我平原", "坐标地图的行格式不对")
+        self.assertNotIn("地形/国土图 x ", seg, "网格图不该再常驻（它走 panel=grid）")
+        self.assertNotIn("军事图 x ", seg, "军事网格也不该常驻（驻军已进每行）")
 
 
 class TestLandQuery(unittest.TestCase):
@@ -596,6 +600,92 @@ class TestMilMap(unittest.TestCase):
         snap = (len(self.w.tiles), sorted(self.w.tiles), len(self.w.armies))
         mp_ai._fmt_mil_map(self.w, "秦")
         self.assertEqual(snap, (len(self.w.tiles), sorted(self.w.tiles), len(self.w.armies)))
+
+
+class TestCoordinateAtlas(unittest.TestCase):
+    """★ 坐标地图（常驻默认）：每行一格、自带语义。
+
+    用户 2026-09-19：「现在的地图对 llm 而言有点混乱……加一个 tool 展示其他地图，
+    默认是坐标地图……llm 还是文本理解好」。
+    """
+
+    def _setup(self):
+        w = mp.World(size=24, seed=3, nations=["秦", "楚"])
+        own = w.own_tiles("秦")[0]
+        w.tiles[own]["buildings"]["城堡"] = 2                     # 自家 L2
+        adj = w.neighbors(*own)[0]
+        t = w._new_tile(*adj, "楚")
+        t["owner"] = "楚"
+        t["buildings"]["城堡"] = 3
+        w.tiles[adj] = t
+        w._drop_guardians(*adj)
+        # ★ 用 `+` 追加而不是整体替换：`w.armies = [...]` 会把全图 566 个野人守军一起冲掉，
+        #   于是"无主格都有野人"这个真实局面在测试里消失（这正是刚才三条用例失败的原因）。
+        w.armies += [
+            {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+             "x": own[0], "y": own[1], "owner": "秦", "moved_turn": -1, "engaged": False},
+            {"id": 2, "gid": 2, "name": "楚·骑二军", "type": "骑", "hp": 100,
+             "x": adj[0], "y": adj[1], "owner": "楚", "moved_turn": -1, "engaged": False},
+        ]
+        return w, own, adj
+
+    def test_line_format(self):
+        """`(x,y)归属地形，[驻军…][，L2城][，地名]` —— 四段都要能出现。"""
+        w, own, adj = self._setup()
+        out = mp_ai._fmt_atlas(w, "秦")
+        self.assertIn(f"({own[0]+1},{own[1]+1})我平原，驻军步兵x1，L2城", out, out)
+        self.assertIn(f"({adj[0]+1},{adj[1]+1})楚山地，驻军骑兵x1，L3城", out, out)
+
+    def test_野与空地(self):
+        w, _own, _adj = self._setup()
+        lines = mp_ai._fmt_atlas(w, "秦").splitlines()
+        self.assertTrue(any("驻军野人x1" in l for l in lines),
+                        "无主+野人守军该写成 `(x,y)野山地，驻军野人x1`")
+        # 清掉某块无主地的野人 → 它就该只剩 `野+地形`（空地）。
+        # （注意：开局每块无主地都有野人，所以"空地"必须显式造出来。）
+        vis = sorted(mp_ai._visible_cells(w, "秦"))
+        wild = next(p for p in vis if w.owned_by(*p) is None and mp_ai._has_barb(w, *p))
+        w._drop_guardians(*wild)
+        line = next(l for l in mp_ai._fmt_atlas(w, "秦").splitlines()
+                    if l.startswith(f"({wild[0] + 1},{wild[1] + 1})"))
+        self.assertNotIn("驻军", line, f"空地不该有驻军：{line}")
+        self.assertNotIn("城", line, f"空地不该有城：{line}")
+
+    def test_只列视野内的格(self):
+        """视野外一律不列（与迷雾同纪律）。"""
+        w, _own, _adj = self._setup()
+        vis = mp_ai._visible_cells(w, "秦")
+        far = next((x, y) for x in range(w.size) for y in range(w.size) if (x, y) not in vis)
+        t = w._new_tile(*far, "楚")
+        t["owner"] = "楚"
+        w.tiles[far] = t
+        out = mp_ai._fmt_atlas(w, "秦")
+        self.assertNotIn(f"({far[0]+1},{far[1]+1})楚", out, "视野外的格不该出现在坐标地图里")
+
+    def test_驻军按国别与兵种合并(self):
+        """同格混编：格主的部队省国别，别人的带国别。"""
+        w, own, _adj = self._setup()
+        w.armies.append({"id": 3, "gid": 3, "name": "楚·步三军", "type": "步", "hp": 60,
+                         "x": own[0], "y": own[1], "owner": "楚",
+                         "moved_turn": -1, "engaged": False})
+        out = mp_ai._fmt_atlas(w, "秦")
+        self.assertIn("驻军步兵x1、楚步兵x1", out, "格主的部队应排前面：" + out)
+
+    def test_格局图仍可按需取(self):
+        """网格版没删——`query panel=grid` 取，且默认面板不再是网格。"""
+        w, _own, _adj = self._setup()
+        g = mp_ai._exec(w, "秦", "query", {"panel": "grid"})
+        self.assertIn("地形/国土图 x ", g)
+        self.assertIn("军事图 x ", g)
+        self.assertIn("坐标地图", g, "取网格图时应提示默认是坐标地图")
+        self.assertNotIn("地形/国土图 x ", mp_ai.full_state(w, "秦"))
+
+    def test_query_schema_advertises_grid(self):
+        w, _own, _adj = self._setup()
+        sch = [x for x in mp_ai.tool_schemas(w, "秦")
+               if x["function"]["name"] == "query"][0]["function"]
+        self.assertIn("grid", sch["parameters"]["properties"]["panel"]["enum"])
+        self.assertIn("grid=", sch["description"])
 
 
 class TestCastleReportedEverywhere(unittest.TestCase):
