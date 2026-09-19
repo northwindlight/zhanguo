@@ -169,13 +169,6 @@ def run() -> None:
     #   「v10 起，不设默认视野，恒等于回合数加 20」）。`make_world` 建 World 时还不知道
     #   `--turns`（上面几行才算出来），所以在这里补上；读档续局同样会被纠正到**本局**的长度。
     world.max_turns = int(max_turns)
-    # 世界央行：**配置开关**（mp_config.json 的 world_bank，默认关）。
-    # ★ 口径（2026-09-19 用户）：「银行**只能在配置文件开、不能关**，可以中途加」⇒
-    #   `on` **只允许 false → true**（配置说 true 就在本局打开，**中途开也行**；
-    #   配置说 false 也不会把已经开着的关掉——一局里边开边关，账目就对不上了）。
-    if bool(cfg.get("world_bank")) and world.bank_enable():
-        emit("（世界央行：本局**已开启**（配置 world_bank=true；开了就不可关闭））")
-
     cfg_by_name = {n["name"]: n for n in cfg["nations"]}
     # 中途加国的 AI 模板：复用第一个配置了 base_url/api_key 的国家（如 arkcoding+glm-5.3）
     _template = next((n for n in cfg["nations"] if n.get("base_url") and n.get("api_key")), {})
@@ -184,6 +177,15 @@ def run() -> None:
 
     def emit(s=""):
         out.append(s)
+
+    # ⚠ 这段必须在 `emit` 定义**之后**（它是 run() 里的嵌套函数；放前面就是
+    #   UnboundLocalError —— 2026-09-19 真栽过：World 层冒烟全绿，./start.sh 一跑就崩）。
+    # 世界央行：**配置开关**（mp_config.json 的 world_bank，默认关）。
+    # ★ 口径（2026-09-19 用户）：「银行**只能在配置文件开、不能关**，可以中途加」⇒
+    #   `on` **只允许 false → true**（配置说 true 就在本局打开，**中途开也行**；
+    #   配置说 false 也不会把已经开着的关掉——一局里边开边关，账目就对不上了）。
+    if bool(cfg.get("world_bank")) and world.bank_enable():
+        emit("（世界央行：本局**已开启**（配置 world_bank=true；开了就不可关闭））")
 
     if is_new:
         emit(f"新开一局 {world.size}x{world.size}（种子 {world.seed}）："
