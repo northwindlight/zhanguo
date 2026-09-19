@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import random
 import sys
 import unicodedata
 import unittest
@@ -595,6 +596,67 @@ class TestMilMap(unittest.TestCase):
         snap = (len(self.w.tiles), sorted(self.w.tiles), len(self.w.armies))
         mp_ai._fmt_mil_map(self.w, "秦")
         self.assertEqual(snap, (len(self.w.tiles), sorted(self.w.tiles), len(self.w.armies)))
+
+
+class TestCastleReportedEverywhere(unittest.TestCase):
+    """★ 城堡公开要**铺满所有"报某格/某军"的地方**（2026-09-19 用户：
+
+    「对齐视野机制了吗，不光是地图改，视野也应该回报城堡」）。
+
+    光在 tile 查询里报是不够的——守方靠城减伤，攻方在地图、军队栏、威胁栏、战报里
+    都得看得见这个城。这里逐个钉住。
+    """
+
+    def _setup(self):
+        w = mp.World(size=20, seed=3, nations=["秦", "楚"])
+        own = w.own_tiles("秦")[0]
+        w.tiles[own]["buildings"]["城堡"] = 2          # 自家城堡（L2）
+        adj = w.neighbors(*own)[0]
+        t = w._new_tile(*adj, "楚")
+        t["owner"] = "楚"
+        t["buildings"]["城堡"] = 3                     # 敌国城堡（L3）
+        w.tiles[adj] = t
+        w.armies = [
+            {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+             "x": own[0], "y": own[1], "owner": "秦", "moved_turn": -1, "engaged": False},
+            {"id": 2, "gid": 2, "name": "楚·步二军", "type": "步", "hp": 100,
+             "x": adj[0], "y": adj[1], "owner": "楚", "moved_turn": -1, "engaged": False},
+        ]
+        return w, own, adj
+
+    def test_地图摘要(self):
+        w, _own, adj = self._setup()
+        self.assertIn(f"L3@({adj[0] + 1},{adj[1] + 1})", mp_ai._fmt_map(w, "秦"))
+
+    def test_军队面板报自家军驻的城(self):
+        w, _own, _adj = self._setup()
+        self.assertIn("城L2", mp_ai._fmt_armies(w, "秦"))
+
+    def test_威胁面板报敌军脚下的城(self):
+        w, _own, _adj = self._setup()
+        out = mp_ai._fmt_threats(w, "秦")
+        self.assertIn("楚·步二军", out)
+        self.assertIn("城L3", out, "报『敌军在某格』就要报出它脚下的城")
+
+    def test_战报格子标记带城(self):
+        w, _own, adj = self._setup()
+        w.wars = [{"id": 1, "atk": "秦", "def": "楚", "followers": [],
+                   "atk_followers": [], "turn": 1}]
+        w.attack("秦", [1], adj[0], adj[1])
+        w.rng = random.Random(1)
+        w.resolve_turn()
+        rep = " ".join(w.events_for("秦", limit=6))
+        self.assertIn("城L3", rep, f"战报应点出守方的城：{rep}")
+
+    def test_无城堡时不加后缀(self):
+        """没城就不该冒出一个 城L0——那是噪声。"""
+        w = mp.World(size=20, seed=3, nations=["秦", "楚"])
+        own = w.own_tiles("秦")[0]
+        w.armies = [{"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+                     "x": own[0], "y": own[1], "owner": "秦", "moved_turn": -1,
+                     "engaged": False}]
+        self.assertNotIn("城L", mp_ai._fmt_armies(w, "秦"))
+        self.assertNotIn("城L", mp_ai._fmt_threats(w, "秦"))
 
 
 class TestGridIsPureAscii(unittest.TestCase):

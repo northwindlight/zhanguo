@@ -1603,7 +1603,12 @@ class World:
         lines: list[tuple[int, int, str]] = []  # (x, y, 战报行)——带坐标才进得了事件视野
         engaged = [a for a in self.armies if a.get("engaged") and a["owner"] != "野人"]
         for (x, y) in sorted({(a["x"], a["y"]) for a in engaged}):
-            tag = f"({x+1},{y+1}){self.ter_char(x, y)}"
+            # 格子标记带上**城堡等级**（2026-09-19：城堡公开——凡是报"哪格在打"的地方都带上它，
+            # 否则守方靠城减伤，攻方却看不出为什么打不动）。tag 被本格所有战报行复用，
+            # 所以这一处改动就让每条战报都带上。
+            _t_castle = self.tiles.get((x, y))
+            _cl = _t_castle["buildings"].get("城堡", 0) if _t_castle else 0
+            tag = f"({x+1},{y+1}){self.ter_char(x, y)}" + (f" 城L{_cl}" if _cl else "")
             owner = self.owned_by(x, y)
             # 格上活军按势力分组（进攻方 + 守军 + 停驻者 + 无主格野人）
             forces: dict[str, list[dict]] = {}

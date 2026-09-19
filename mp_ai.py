@@ -250,8 +250,10 @@ def _fmt_armies(world, name) -> str:
         # 移动力与"本回合能挪到几格"现算（地形代价表见 balance.MOVE_COST）
         mv = _move_brief(a.get("type", "步"))
         reach = len(world._reachable(name, a)) - 1 if st == "可行动" else 0
-        lines.append(f"{a['name']}(#{a['id']}) | {a['hp']}HP | ({a['x']+1},{a['y']+1}) {where} | "
-                     f"{st} | {mv}" + (f"｜本回合可及 {reach} 格" if st == "可行动" else ""))
+        cl = world.visible_buildings(name, a["x"], a["y"]).get("城堡", 0)
+        lines.append(f"{a['name']}(#{a['id']}) | {a['hp']}HP | ({a['x']+1},{a['y']+1}) {where}"
+                     + (f" 城L{cl}" if cl else "")          # 驻在自家城堡里就标出来（守城加成）
+                     + f" | {st} | {mv}" + (f"｜本回合可及 {reach} 格" if st == "可行动" else ""))
     return "\n".join(lines)
 
 
@@ -894,6 +896,8 @@ def _help_sections() -> list[tuple[str, str]]:
             "视野内**已经包含地形**（每格第 1 位就是）；视野外的格一律不显示（画成 ?）——"
             "**地形不会比视野更宽**（迷雾对你一视同仁）。\n"
             "逐格明细用 query panel=land（cap= 列几块、offset= 翻页、filter= 只看含某建筑或某资源的格，如 filter=兵营 / filter=耕地）；"
+            "**城堡一律公开**：凡是报某格、某军的地方都会带上该格的城堡等级（地图摘要、tile 查询、"
+            "军队/威胁面板、战报的格子标记）；"
             "某一格的全明细用 query panel=tile x= y=（或 at=地名）——那里**会报该格的城堡等级**"
             "（只要在你视野里，谁的地都报）；地块资源与其它建筑则只有自家地才看得到。"
             "迷雾限制你**看见**的，不限制你**下令**的：可对视野外的格下 mv/atk——撞上不透明的"
@@ -1112,7 +1116,9 @@ def _fmt_threats(world, name) -> str:
             continue
         if not world.visible_to(name, a["x"], a["y"]):
             continue
-        rows.append(f"{a['name']}({a['owner']}) {a['hp']}HP @({a['x']+1},{a['y']+1})")
+        cl = world.visible_buildings(name, a["x"], a["y"]).get("城堡", 0)
+        rows.append(f"{a['name']}({a['owner']}) {a['hp']}HP @({a['x']+1},{a['y']+1})"
+                    + (f" 城L{cl}" if cl else ""))     # 城堡公开：报"敌军在某格"就一并报它脚下的城
     return ("视野内的敌军/守军:\n  " + "\n  ".join(rows)) if rows else "视野内没有他国军队"
 
 
