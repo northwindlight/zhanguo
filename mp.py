@@ -1748,6 +1748,12 @@ class World:
             t = self.tiles[(x, y)]
             t["owner"] = by
             msg = f"{by} {how}「{t['name']}」({x+1},{y+1})"
+            # 城堡**公开**（2026-09-19）：占领后建筑原样保留，所以要报出缴获了什么要塞。
+            # ★ 这条日志是**视野广播**的（同格谁看得见谁就收到），所以只能带公开信息——
+            #   城堡可以；兵营/工厂/农田那些若报出去，等于向第三者泄露被占国的内政底细。
+            _cl = t["buildings"].get("城堡", 0)
+            if _cl:
+                msg += f"（城L{_cl}）"
             extra = self._return_core(x, y, by)  # 同战线盟友核心领土 → 自动归还
             if extra:
                 t = self.tiles[(x, y)]

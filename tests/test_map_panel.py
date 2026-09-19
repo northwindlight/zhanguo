@@ -648,6 +648,30 @@ class TestCastleReportedEverywhere(unittest.TestCase):
         rep = " ".join(w.events_for("秦", limit=6))
         self.assertIn("城L3", rep, f"战报应点出守方的城：{rep}")
 
+    def test_占领回执报缴获的城(self):
+        """★ 占领后建筑原样保留 ⇒ 回执要报出缴获的要塞。
+
+        这条日志是**视野广播**的（同格谁看得见谁收到），所以只能带公开信息：
+        城堡可以，兵营/工厂不行（那些会向第三者泄露被占国的内政）。
+        """
+        w = mp.World(size=20, seed=3, nations=["秦", "楚"])
+        t = w._new_tile(5, 5, "楚")
+        t["owner"] = "楚"
+        t["buildings"]["城堡"] = 3
+        t["buildings"]["兵营"] = 2
+        w.tiles[(5, 5)] = t
+        ok, msg = w._conquer(5, 5, "秦", "攻陷")
+        self.assertTrue(ok, msg)
+        self.assertIn("（城L3）", msg, "占领回执应报出缴获的城堡")
+        self.assertNotIn("兵营", msg, "广播日志不许带非公开信息")
+        self.assertEqual(w.tiles[(5, 5)]["buildings"]["兵营"], 2, "建筑应原样保留")
+
+    def test_拓疆回执不带城(self):
+        w = mp.World(size=20, seed=3, nations=["秦"])
+        ok, msg = w._conquer(8, 8, "秦", "进驻")
+        self.assertTrue(ok, msg)
+        self.assertNotIn("城L", msg)
+
     def test_无城堡时不加后缀(self):
         """没城就不该冒出一个 城L0——那是噪声。"""
         w = mp.World(size=20, seed=3, nations=["秦", "楚"])
