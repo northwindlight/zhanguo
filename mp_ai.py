@@ -2662,11 +2662,17 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                     f"⚠ {name} 第{a}次调用失败({tag})，{wait:.0f}s 后重试（共 {total} 次）"))
         except Exception as e:
             _pair_tool_calls(messages)   # 防御：异常路径若留下未配对残批，续跑前先修平
-            messages.append({"role": "user", "content": f"（API 错误，若可继续请继续，否则 end_turn）: {e}"})
+            # ★★ 致命：**直接终止整局**，不兜、不代打、不接着烧步数。
+            #   用户 2026-09-20：「任何错误都应该直接终止游戏」。
+            #   这里曾经是把错误写成一条 user 消息再 `continue`——API 一挂（或配额耗尽）就
+            #   每回合空烧 max_steps 次调用、每次还叠 3 次重试与退避：2026-09-19 夜里 5 国
+            #   同时撞上 token-plan 周配额墙，白跑 14 个回合、白烧一整周额度，还把 83 万条
+            #   报错灌进 replay 让存档从 5 MB 涨到 1.1 GB。**进度不会丢**：每回合结算后
+            #   存档已原子落盘，重启即从上一回合续。
             if emit:
                 tag = "超时" if isinstance(e, TimeoutError) else type(e).__name__
-                emit(f"⚠ {name} API错误({tag}): {str(e)[:120]}")
-            continue
+                emit(f"🛑 {name} LLM 调用失败（{tag}），本局终止：{str(e)[:200]}")
+            raise
         reasoning = (msg.get("reasoning_content") or "").strip()
         content = (msg.get("content") or "").strip()
         tool_calls = msg.get("tool_calls") or []

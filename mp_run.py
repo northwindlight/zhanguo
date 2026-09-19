@@ -372,29 +372,37 @@ def run() -> None:
                 continue
             ncfg = cfg_by_name.get(name, {})
             t0 = time.time()
-            if ncfg.get("base_url") and ncfg.get("api_key"):
-                # 不包 try、不代打：LLM 回合的未愈异常一律向上抛。
-                # 「每国由一个 LLM agent 治理」是前提，规则 AI 冒充会污染基准数据；
-                # 且 run_openai_turn 内部已重试/兜 API 错误，能冒到这里的都是真故障，
-                # 该让它炸出来（配合 mp_run 顶层的存档），而不是悄悄换个 bot 接着打。
-                # ★必须传 emit：`run_openai_turn` 里的播报全写成 `if emit:`，不传就是
-                #   一整条死通道（上下文计划🧠 / 下滑🧠 / 压缩记忆🧠 / 压缩失败⚠ /
-                #   重试⚠ / 思考💭 / 动作回显 / 宣告🗣）。2026-09-19 查出：本行自
-                #   8dc7f7f 起就没传过，于是**压缩明明一直在跑**（存档 summary_blocks /
-                #   long_memory 有据）却从没在看海台和 mp_journal.md 里出现过一次。
-                #   最危险的是「⚠ 记忆压缩失败」也静默——归档悄悄退回逐回合小结，无痕。
-                done = run_openai_turn(world, name, ncfg,
-                                       max_steps=ncfg.get("max_steps", 24), emit=emit)
-            else:
-                done = dummy_turn(world, name, rng,
-                                  # ★缺省**无上限**（用户 2026-09-15：「看海口径的动作
-                                  #   上限是谁设的，给我全删了」）——原缺省 12，看海时
-                                  #   超了直接截断（实测 v10 有 8.6% 的回合被截顶）。
-                                  #   口径见 `rule_ai.UNLIMITED_ACTIONS`；配置里仍可
-                                  #   显式写 `max_actions` 卡住。
-                                  max_actions=ncfg.get("max_actions",
-                                                       rule_ai_registry.UNLIMITED_ACTIONS),
-                                  rule_ai=ncfg.get("rule_ai", rule_ai))
+            try:
+                if ncfg.get("base_url") and ncfg.get("api_key"):
+                    # 不代打：「每国由一个 LLM agent 治理」是前提，规则 AI 冒充会污染基准数据。
+                    # ★必须传 emit：`run_openai_turn` 里的播报全写成 `if emit:`，不传就是
+                    #   一整条死通道（上下文计划🧠 / 下滑🧠 / 压缩记忆🧠 / 压缩失败⚠ / 重试⚠）。
+                    #   2026-09-19 查出：本行自 8dc7f7f 起就没传过，于是**压缩明明一直在跑**
+                    #   （存档 summary_blocks / long_memory 有据）却从没在看海台和
+                    #   mp_journal.md 里出现过一次；最危险的是「⚠ 记忆压缩失败」也静默。
+                    done = run_openai_turn(world, name, ncfg,
+                                           max_steps=ncfg.get("max_steps", 24), emit=emit)
+                else:
+                    done = dummy_turn(world, name, rng,
+                                      # ★缺省**无上限**（用户 2026-09-15：「看海口径的动作
+                                      #   上限是谁设的，给我全删了」）——原缺省 12，看海时
+                                      #   超了直接截断（实测 v10 有 8.6% 的回合被截顶）。
+                                      #   口径见 `rule_ai.UNLIMITED_ACTIONS`；配置里仍可
+                                      #   显式写 `max_actions` 卡住。
+                                      max_actions=ncfg.get("max_actions",
+                                                           rule_ai_registry.UNLIMITED_ACTIONS),
+                                      rule_ai=ncfg.get("rule_ai", rule_ai))
+            except Exception as e:
+                # ★★ 任何未愈错误一律**终止本局**（用户 2026-09-20：「任何错误都应该直接终止
+                #    游戏」）——不兜、不换 bot、不接着往下跑。进度是安全的：每回合结算后存档
+                #    已原子落盘，修好再 ./start.sh 就从上一回合续。
+                #    （2026-09-19 夜里正是这里没做到：429 配额墙被 `run_openai_turn` 吞成
+                #     user 消息接着烧步数，5 国白跑 14 回合、白烧整周额度、存档涨到 1.1 GB。）
+                emit("")
+                emit(f"🛑 本局终止（{name} 回合）：{type(e).__name__}: {str(e)[:300]}")
+                emit(f"（存档停在第 {world.turn} 回合结算后，重启即可续局）")
+                flush(out, journal_path, echo=True)
+                raise
             secs = time.time() - t0
             observer(world, out, f"◈ {name} 行动完毕（{done} 次工具调用，{secs:.0f}s）")
             flush(out, journal_path)

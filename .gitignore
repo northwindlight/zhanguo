@@ -29,3 +29,4 @@ mp_save*.bak*
 mp_save*.bak-*
 experiments/__pycache__/
 experiments/out/
+mp_save*

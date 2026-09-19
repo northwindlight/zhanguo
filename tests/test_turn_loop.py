@@ -151,6 +151,57 @@ class TestContentOnlyExit(unittest.TestCase):
         self.assertIn("按兵不动", w.summaries["秦"][-1]["text"])
 
 
+class _ExplodingOpenAI:
+    """每次调用都抛——冒充"配额耗尽/端点挂了"这类**不可恢复**的失败。"""
+
+    instances: list = []
+
+    def __init__(self, **kw):
+        self.calls: list[dict] = []
+        self.chat = types.SimpleNamespace(completions=self)
+        _ExplodingOpenAI.instances.append(self)
+
+    def create(self, **kw):
+        self.calls.append(kw)
+        raise RuntimeError("Error code: 429 - {'error': {'message': 'Your token-plan 1-week "
+                           "quota has been exhausted.', 'type': 'insufficient_quota'}}")
+
+
+class TestFatalErrorsKillTheRun(unittest.TestCase):
+    """★ 2026-09-20 用户口径：「**任何错误都应该直接终止游戏**」。
+
+    `run_openai_turn` 曾经把 API 错误吞成一条 user 消息再 `continue`：API 一挂就每回合
+    空烧 max_steps 次调用（每次还叠 3 次重试 + 退避）。2026-09-19 夜里五国同时撞上
+    token-plan 周配额墙，白跑 14 个回合、白烧一整周额度，83 万条报错把存档从 5 MB 撑到 1.1 GB。
+
+    契约：**异常原样冒出去**（由 mp_run 终止本局并留下一行 🛑），且这一回合**不落任何记忆**
+    （进度停在上一回合结算后的存档，重启即续）。
+    """
+
+    def setUp(self):
+        _ExplodingOpenAI.instances.clear()
+        import openai
+        self._orig = openai.OpenAI
+        openai.OpenAI = _ExplodingOpenAI
+        self.addCleanup(lambda: setattr(openai, "OpenAI", self._orig))
+
+    def _cfg(self):
+        return {"base_url": "http://stub", "api_key": "k", "provider": "openai", "model": "m",
+                "max_tokens": 1000, "max_steps": 5, "ctx_window": 200000}
+
+    def test_api_error_propagates_and_stores_nothing(self):
+        w = mp.World(size=16, seed=7, nations=["秦", "楚"])
+        w.turn = 1
+        lines: list[str] = []
+        with self.assertRaises(RuntimeError, msg="API 错误必须冒出去，不许被吞"):
+            mp_ai.run_openai_turn(w, "秦", self._cfg(), emit=lines.append)
+        self.assertFalse(w.turn_memory.get("秦"), "失败回合不该留下任何记忆")
+        self.assertFalse(w.summaries.get("秦"), "失败回合不该留下回合小结")
+        self.assertEqual(len(_ExplodingOpenAI.instances[0].calls), 1,
+                         "第一次失败就该终止——不许接着烧 max_steps 次调用")
+        self.assertTrue(any("🛑" in l for l in lines), f"没播报终止行：{lines}")
+
+
 class TestTurnLoop(unittest.TestCase):
     def setUp(self):
         _FakeOpenAI.instances.clear()
