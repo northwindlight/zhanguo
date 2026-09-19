@@ -207,16 +207,25 @@ def run() -> None:
 
     # 命令台：带提示符的输入行（汉字退格删整字），日志输出自动让开、不打架
     global CONSOLE
+    # 多行粘贴的**入口谓词**：单独一行 `send 国家`（两段）与单独一行 `公告`/`say`
+    # 都进"攒到 END"的模式 —— 与 `send` 共用同一套 Console 机制。
+    # （用户 2026-09-19：「是 send，send 正确处理了多段文字问题，而 say 没有」——
+    #   漏的就是这个谓词：`say` 从没进过多行模式。）
+    _ML_ALONE = ("say", "公告", "广播", "宣告", "announce")
     CONSOLE = Console(on_interrupt=_sig,
-                      is_multiline_start=lambda s: (s.startswith("send ") or s in ("寄", "写信", "神秘信"))
-                      and len(s.split()) == 2).start()
+                      is_multiline_start=lambda s: (
+                          ((s.startswith("send ") or s in ("寄", "写信", "神秘信"))
+                           and len(s.split()) == 2)
+                          or s.strip() in _ML_ALONE)).start()
     cmd_queue = CONSOLE.queue
 
     CONSOLE.write(f"开始看海。存档 {save_path}（每回合结算后自动保存；Ctrl-C 退出不保存），"
                   f"日志 {journal_path}。")
-    CONSOLE.write("命令：`add 国名 [匈奴]` 中途加国；`send 国家 内容` 寄神秘来信"
-                  "（多行先 `send 国家` 粘贴正文以 END 收尾；或 `send 国家 @文件路径` 从文件读）。"
-                  "↑↓ 翻历史，Ctrl-C 退出。")
+    CONSOLE.write("命令：`add 国名 [匈奴]` 中途加国；`send 国家 内容` 寄神秘来信；"
+                  "`公告 正文`（别名 say/广播/宣告）向**全世界**发公告（进各国【近讯】，面板里就看得到）。"
+                  "后两者**都支持多行**：先敲 `send 国家` / `公告` 再粘贴正文、以 END 收尾；"
+                  "或 `send 国家 @文件路径` / `公告 @文件路径` 从文件读。"
+                  "`rate 5` 调息。↑↓ 翻历史，Ctrl-C 退出。")
     while not stop["flag"]:
         cmds = []
         while True:
@@ -299,16 +308,22 @@ def run() -> None:
                 # 与"按视野过滤"的纪事不同）。这是**通用机制**——跟开不开世界央行无关
                 # （用户 2026-09-19：「直接说公告就行了，因为有的局没有央行」）。
                 # 用途：解释你为什么降息、天下大势、规则变更预告……正文原样广播。
-                if len(parts) < 2:
-                    emit("用法：say 正文 / 公告 正文（**全世界**都看得见，与开不开央行无关；"
-                         "例：公告 今年大旱，粮价必涨，各位早做打算）")
+                # 三档与 `send` 完全一致：同行正文 / **多行先敲 `公告` 再粘正文以 END 收尾** /
+                # `公告 @文件路径` 从文件读全文（多行正文**原样保留换行**）。
+                text = cmd.split(None, 1)[1] if len(parts) > 1 else ""
+                if text.strip().startswith("@"):
+                    try:
+                        text = Path(text.strip()[1:].strip()).read_text(encoding="utf-8")
+                    except OSError as e:
+                        emit(f"⚠ 读不到文件：{type(e).__name__}: {e}")
+                        text = ""
+                if not text.strip():
+                    emit("用法：say 正文 / 公告 正文（**全世界**都看得见，与开不开央行无关）；"
+                         "多行先敲 `公告` 再粘贴正文、以 END 收尾；或 `公告 @文件路径` 从文件读")
                 else:
-                    text = cmd.split(None, 1)[1].strip()
-                    if text:
-                        world.broadcast(f"📢 {text}")
-                        emit(f"（已向全世界广播：📢 {text}）")
-                    else:
-                        emit("用法：say 正文")
+                    text = text.strip()
+                    world.broadcast(f"📢 {text}")
+                    emit(f"（已向全世界广播：📢 {text}）")
             else:
                 emit(f"未知命令：{cmd}（支持 add 国名 [匈奴] / send 国家 内容 / "
                      f"cheat 国家 骑N 粮N 金N / rate 5 / say(公告) 正文）")

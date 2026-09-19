@@ -123,6 +123,39 @@ class TestObserverCommands(unittest.TestCase):
             hist = json.loads((d / "s.json").read_text(encoding="utf-8"))["history"]
             self.assertTrue(any("今年大旱" in h["text"] for h in hist))
 
+    def test_announcement_handles_multiline_paste(self):
+        """★ **多段文字**：先敲 `公告` 再粘正文、以 END 收尾 —— 与 `send` 同一套 Console 机制。
+
+        （用户 2026-09-19：「是 send，send 正确处理了多段文字问题，而 say 没有」：
+        漏的是 `Console(is_multiline_start=…)` 那个谓词——`say` 从没进过多行模式。）
+        """
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            r = _run(_cfg(d, bank=False), d, turns=2,
+                     stdin="公告\n世界央行公告：\n为抑制过度储蓄，本次下调至 -8%。\nEND\n")
+            self.assertEqual(r.returncode, 0, r.stderr[-800:])
+            hist = json.loads((d / "s.json").read_text(encoding="utf-8"))["history"]
+            ann = [h["text"] for h in hist if "📢" in h["text"]]
+            self.assertTrue(ann, f"多行公告没进纪事：{r.stdout[-400:]}")
+            body = ann[-1]
+            self.assertIn("世界央行公告：", body)
+            self.assertIn("为抑制过度储蓄，本次下调至 -8%。", body)
+            self.assertIn("\n", body, f"换行该原样保留（两段要分开）：{body!r}")
+
+    def test_announcement_from_file(self):
+        """`公告 @文件` 与 `send 国家 @文件` 同款（正文从文件读，多行原样）。"""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            f = d / "notice.txt"
+            f.write_text("第一条：利率下调。\n第二条：贷款照旧。", encoding="utf-8")
+            r = _run(_cfg(d, bank=False), d, turns=2, stdin=f"公告 @{f}\n")
+            self.assertEqual(r.returncode, 0, r.stderr[-800:])
+            hist = json.loads((d / "s.json").read_text(encoding="utf-8"))["history"]
+            ann = [h["text"] for h in hist if "📢" in h["text"]]
+            self.assertTrue(ann, "从文件发的公告没进纪事")
+            self.assertIn("第二条：贷款照旧。", ann[-1])
+            self.assertIn("\n", ann[-1], "文件里的换行要保留")
+
     def test_rate_command_sets_rate_and_announces(self):
         with tempfile.TemporaryDirectory() as td:
             d = Path(td)

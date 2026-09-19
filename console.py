@@ -186,9 +186,7 @@ class Console:
             line = sys.stdin.readline()
             if not line:
                 return
-            s = line.rstrip("\n")
-            if s.strip():
-                self._submit_text(s)
+            self._handle_line(line.rstrip("\n"))    # ★ 与 tty 那支共用同一套（含多行 END）
 
     def _read_posix(self) -> None:
         import termios
@@ -321,6 +319,20 @@ class Console:
             with self._lock:
                 sys.stdout.write("\r\033[K" + self.prompt + line + "\n")
                 sys.stdout.flush()
+        self._handle_line(line)
+        self._redraw()
+
+    def _handle_line(self, line: str) -> None:
+        """一行输入的**统一处理**（tty 与非 tty 两条读取路径共用）：
+
+        ① 多行模式下攒到 `END` 才提交（正文原样带换行）；
+        ② 否则命中 `is_multiline_start` ⇒ 进多行模式；
+        ③ 其余直接提交。
+
+        ★ 2026-09-19 修：这套原先只写在 `_accept()`（tty 那支）里，而 `_read_plain()`（非 tty）
+        **逐行直投** ⇒ 管道/重定向输入时多行完全不生效（用户报「send 能处理多段、say 不能」，
+        修的时候才发现非 tty 那一支连 `send` 也不处理）。
+        """
         if self._ml:                            # 多行模式：攒到 END
             if line.strip().upper() == "END":
                 self._ml = False
@@ -328,16 +340,17 @@ class Console:
                 self._ml_buf = []
             else:
                 self._ml_buf.append(line)
-        elif line.strip():
-            self._history.append(line)
-            del self._history[:-self._hist_size]
-            self._hist_idx = len(self._history)
-            if self._is_ml_start and self._is_ml_start(line.strip()):
-                self._ml = True
-                self._ml_buf = [line.strip()]
-            else:
-                self._submit_text(line.strip())
-        self._redraw()
+            return
+        if not line.strip():
+            return
+        self._history.append(line)
+        del self._history[:-self._hist_size]
+        self._hist_idx = len(self._history)
+        if self._is_ml_start and self._is_ml_start(line.strip()):
+            self._ml = True
+            self._ml_buf = [line.strip()]
+        else:
+            self._submit_text(line.strip())
 
     def _submit_text(self, text: str) -> None:
         self.queue.put(text)
