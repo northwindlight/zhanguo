@@ -2458,6 +2458,18 @@ class World:
     def bank_on(self) -> bool:
         return bool(self.bank.get("on"))
 
+    def bank_enable(self) -> bool:
+        """[配置开关] 打开世界央行，返回"本次是否真的打开了"。
+
+        ★ 口径（2026-09-19 用户）：「银行**只能在配置文件开、不能关**，**可以中途加**」
+        ⇒ 单向：`on` 只允许 false → true。配置说 true 就在本局打开（续局中途开也行）；
+        配置说 false **也不会**把已经开着的关掉——一局里边开边关，账目与贷款期限就对不上了。
+        """
+        if self.bank.get("on"):
+            return False
+        self.bank["on"] = True
+        return True
+
     def bank_rate(self) -> float:
         """储蓄利率（观察者设，可为负）。"""
         return float(self.bank.get("rate", 0.0))

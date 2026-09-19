@@ -170,11 +170,11 @@ def run() -> None:
     #   `--turns`（上面几行才算出来），所以在这里补上；读档续局同样会被纠正到**本局**的长度。
     world.max_turns = int(max_turns)
     # 世界央行：**配置开关**（mp_config.json 的 world_bank，默认关）。
-    # 读档续局时以**配置**为准（观察者手上的开关才是权威），并提示一次差异。
-    _bank_cfg = bool(cfg.get("world_bank"))
-    if world.bank.get("on") != _bank_cfg:
-        world.bank["on"] = _bank_cfg
-        emit(f"（世界央行：{'已开启' if _bank_cfg else '已关闭'}——配置 world_bank={_bank_cfg}）")
+    # ★ 口径（2026-09-19 用户）：「银行**只能在配置文件开、不能关**，可以中途加」⇒
+    #   `on` **只允许 false → true**（配置说 true 就在本局打开，**中途开也行**；
+    #   配置说 false 也不会把已经开着的关掉——一局里边开边关，账目就对不上了）。
+    if bool(cfg.get("world_bank")) and world.bank_enable():
+        emit("（世界央行：本局**已开启**（配置 world_bank=true；开了就不可关闭））")
 
     cfg_by_name = {n["name"]: n for n in cfg["nations"]}
     # 中途加国的 AI 模板：复用第一个配置了 base_url/api_key 的国家（如 arkcoding+glm-5.3）

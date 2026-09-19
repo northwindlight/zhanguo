@@ -181,11 +181,12 @@ class TestLoan(unittest.TestCase):
     def test_accrual_and_forced_deduction(self):
         """每回合计息（应还额自动算），到期**强制扣款**。"""
         w = _world()
-        w.bank_set_rate(0.05)                   # 贷款利率 = 8%
+        w.bank_set_rate(0.05)                   # 贷款利率 = 5% + BANK_SPREAD
+        lr = 0.05 + mp.BANK_SPREAD
         ln = self._borrow(w, 800, 3)
         self.assertEqual(ln["due"], 800)
         w.resolve_turn()
-        self.assertEqual(w.bank["loans"]["秦"]["due"], int(round(800 * 1.08)))
+        self.assertEqual(w.bank["loans"]["秦"]["due"], int(round(800 * (1 + lr))))
         self.assertEqual(w.bank["loans"]["秦"]["turns_left"], 2)
         g_before = w.res("秦", "黄金")
         w.resolve_turn()
@@ -258,6 +259,62 @@ class TestToolLayer(unittest.TestCase):
         self.assertIn("面板", sch["description"], "该把现值指到面板去")
 
 
+class TestSwitchIsOneWay(unittest.TestCase):
+    """★ 「银行只能在配置文件开、不能关，可以中途加」（用户 2026-09-19）。
+
+    `bank_enable()` 因此是**单向**的：只允许 false → true；配置说 false 也不会关掉已开的局。
+    """
+
+    def test_enable_from_off(self):
+        w = _world(on=False)
+        self.assertTrue(w.bank_enable(), "关着时该能打开（含中途开）")
+        self.assertTrue(w.bank_on())
+        self.assertFalse(w.bank_enable(), "已经开着 ⇒ 这次不算打开")
+
+    def test_cannot_be_turned_off(self):
+        w = _world(on=True)
+        self.assertFalse(w.bank_enable())
+        self.assertTrue(w.bank_on(), "没有「关」这个动作——开了就一直在")
+
+    def test_midgame_enable_works_with_existing_save(self):
+        """中途开：先跑几回合（关着），再打开，然后正常结息。"""
+        w = _world(on=False)
+        w.resolve_turn()
+        g0 = w.res("秦", "黄金")
+        w.bank_enable()
+        w.bank_set_rate(0.1)
+        w.resolve_turn()
+        self.assertEqual(w.res("秦", "黄金"), g0 + int(g0 * 0.1))
+
+
+class TestLoanSurvivesSave(unittest.TestCase):
+    """★ 贷款进存档：中途存/读之后，计息与**到期强制扣款**必须接着算。
+
+    （用户 2026-09-19：「贷款进存档，防止神秘 bug」——一笔没还的贷款如果在读档后
+    凭空消失或算错，就是最难查的那种账。）
+    """
+
+    def test_resume_mid_loan(self):
+        w = _world()
+        w.bank_loan("秦", 600, 3)
+        w.resolve_turn()                       # 计息一次（此刻利率 0 ⇒ 欠款 = 600×(1+利差)）
+        due_at_save = w.bank["loans"]["秦"]["due"]
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "s.json"
+            w.save(p)
+            w2 = mp.World.load(p)
+        self.assertIn("秦", w2.bank["loans"], "读档后贷款不该消失")
+        self.assertEqual(w2.bank["loans"]["秦"]["turns_left"], 2)
+        self.assertEqual(w2.bank["loans"]["秦"]["due"], due_at_save)
+        w2.resolve_turn()                      # 续跑：继续计息
+        self.assertEqual(w2.bank["loans"]["秦"]["due"],
+                         int(round(due_at_save * (1 + mp.BANK_SPREAD))))
+        g0 = w2.res("秦", "黄金")
+        w2.resolve_turn()                      # 到期这一下
+        self.assertNotIn("秦", w2.bank["loans"])
+        self.assertLess(w2.res("秦", "黄金"), g0, "续档后到期仍要强制扣款")
+
+
 class TestPanelAndSave(unittest.TestCase):
     def test_panel_shows_rate_and_debt(self):
         w = _world()
@@ -265,7 +322,7 @@ class TestPanelAndSave(unittest.TestCase):
         w.bank_loan("秦", 500, 3)
         st = mp_ai.full_state(w, "秦")
         self.assertIn("储蓄利率 +5.0%", st)
-        self.assertIn("贷款利率 +8.0%", st)
+        self.assertIn(f"贷款利率 {(0.05 + mp.BANK_SPREAD):+.1%}", st)
         self.assertIn("你欠央行 500 金", st)
         self.assertIn("还剩 3 回合到期", st)
 
