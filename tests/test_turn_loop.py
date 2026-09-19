@@ -196,6 +196,31 @@ class TestTurnLoop(unittest.TestCase):
         self.assertTrue(blocks, "下滑后应生成阶段块总结")
         self.assertLessEqual(blocks[0]["from"], blocks[0]["to"])
 
+    def test_emit_channel_reports_slide_and_compact(self):
+        """★ 播报通道（emit）接上了就必须**响**：下滑 / 压缩记忆都要有回显。
+
+        2026-09-19 查出：`mp_run.py` 调用 `run_openai_turn(...)` 时从没传过 `emit=`
+        ⇒ 函数里所有 `if emit:` 播报（上下文🧠 / 下滑🧠 / 压缩记忆🧠 / 压缩失败⚠）
+        全是死代码。真实后果是"压缩一直在跑、却从没在看海台和 mp_journal.md 里
+        出现过一次"（存档里 summary_blocks 有 27 条、long_memory 五国各一份）。
+
+        这条钉库层：接上 emit 就得收得到这些行；配套 `test_mp_run_startup` 里的
+        调用点断言守"接没接上"——**两条缺一不可**（那边守接线，这边守别写回 `if emit:`）。
+        """
+        w = self._world()
+        cfg = self._cfg(ctx_window=20000, ctx_fill=0.6, ctx_slide_keep=0.5,
+                        ctx_min_turns=1, max_tokens=1000)
+        lines: list[str] = []
+        for t in range(1, 7):
+            w.turn = t
+            _FakeOpenAI.instances.clear()
+            mp_ai.run_openai_turn(w, "秦", cfg, emit=lines.append)
+        self.assertTrue(w.summary_blocks["秦"], "前提：这几回合该压出块总结")
+        self.assertTrue(any("上下文:" in ln for ln in lines), f"没收到上下文播报：{lines[:5]}")
+        self.assertTrue(any("下滑" in ln for ln in lines), f"下滑没播报：{lines[:5]}")
+        self.assertTrue(any("压缩记忆" in ln for ln in lines),
+                        f"压缩了却没播报（正是 2026-09-19 那个洞的形状）：{lines[:5]}")
+
     def test_fixed_window_mode_still_works(self):
         w = self._world()
         for t in range(1, 4):

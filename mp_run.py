@@ -377,8 +377,14 @@ def run() -> None:
                 # 「每国由一个 LLM agent 治理」是前提，规则 AI 冒充会污染基准数据；
                 # 且 run_openai_turn 内部已重试/兜 API 错误，能冒到这里的都是真故障，
                 # 该让它炸出来（配合 mp_run 顶层的存档），而不是悄悄换个 bot 接着打。
+                # ★必须传 emit：`run_openai_turn` 里的播报全写成 `if emit:`，不传就是
+                #   一整条死通道（上下文计划🧠 / 下滑🧠 / 压缩记忆🧠 / 压缩失败⚠ /
+                #   重试⚠ / 思考💭 / 动作回显 / 宣告🗣）。2026-09-19 查出：本行自
+                #   8dc7f7f 起就没传过，于是**压缩明明一直在跑**（存档 summary_blocks /
+                #   long_memory 有据）却从没在看海台和 mp_journal.md 里出现过一次。
+                #   最危险的是「⚠ 记忆压缩失败」也静默——归档悄悄退回逐回合小结，无痕。
                 done = run_openai_turn(world, name, ncfg,
-                                       max_steps=ncfg.get("max_steps", 24))
+                                       max_steps=ncfg.get("max_steps", 24), emit=emit)
             else:
                 done = dummy_turn(world, name, rng,
                                   # ★缺省**无上限**（用户 2026-09-15：「看海口径的动作

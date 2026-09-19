@@ -166,5 +166,29 @@ class TestObserverCommands(unittest.TestCase):
             self.assertAlmostEqual(bk["rate"], -0.08, places=6)
 
 
+class TestEmitWiring(unittest.TestCase):
+    """★ 接线守卫：`run_openai_turn` 的播报通道（emit）必须真的被接上。
+
+    2026-09-19 查出：`mp_run.py` 调的是 `run_openai_turn(world, name, ncfg,
+    max_steps=…)`——**从没传过 `emit=`**（`emit` 参数自 8dc7f7f 就在，
+    `git log -S"emit=emit" -- mp_run.py` 零命中）。函数里所有播报都写成 `if emit:`
+    ⇒ 整条通道是死的：上下文计划🧠 / 下滑🧠 / 压缩记忆🧠 / 压缩失败⚠ / 重试⚠ /
+    思考💭 / 宣告🗣 全部静默。真实后果：**压缩一直在跑**（存档 5 国共 27 条
+    summary_blocks + long_memory），但看海台与 mp_journal.md 里一次都没出现过
+    ——「为什么从没见过压缩」的真凶就是这个。
+
+    洞在**调用方**：库层测试传不传 emit 都绿，只有源码断言守得住。配套
+    `test_turn_loop.test_emit_channel_reports_slide_and_compact` 守"接上了响不响"。
+    """
+
+    def test_call_site_passes_emit(self):
+        src = (ROOT / "mp_run.py").read_text(encoding="utf-8")
+        i = src.index("run_openai_turn(")
+        seg = src[i:i + 600].replace(" ", "").replace("\n", "")
+        self.assertIn("emit=emit", seg,
+                      "run_openai_turn 的播报通道没接上（`emit=emit` 丢了）："
+                      "压缩/下滑/思考/宣告会重新变成静默的死通道")
+
+
 if __name__ == "__main__":
     unittest.main()
