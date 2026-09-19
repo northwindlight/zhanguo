@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import random
+import re
 import sys
 import unicodedata
 import unittest
@@ -814,6 +815,50 @@ class TestCastleReportedEverywhere(unittest.TestCase):
                      "engaged": False}]
         self.assertNotIn("城L", mp_ai._fmt_armies(w, "秦"))
         self.assertNotIn("城L", mp_ai._fmt_threats(w, "秦"))
+
+
+class TestThreatsVisionGate(unittest.TestCase):
+    """★ 【威胁】只列**视野内**的军队——这是情报纪律，不是"可优化的实现细节"。
+
+    （用户 2026-09-19 问「威胁不应该只出现在视野范围内吗」——是的，而且实测它确实如此；
+    这里把它钉住，免得以后有人为了省 token 顺手把过滤条件挪掉。）
+    """
+
+    def _world(self):
+        w = mp.World(size=24, seed=3, nations=["秦", "楚", "齐"])
+        vis = mp_ai._visible_cells(w, "秦")
+        inside = next(p for p in sorted(vis) if w.owned_by(*p) is None)
+        outside = next(p for p in sorted((x, y) for x in range(w.size)
+                                         for y in range(w.size)) if p not in vis)
+        w.armies += [
+            {"id": 101, "gid": 101, "name": "楚·步101军", "type": "步", "hp": 60,
+             "x": inside[0], "y": inside[1], "owner": "楚", "moved_turn": -1, "engaged": False},
+            {"id": 102, "gid": 102, "name": "楚·步102军", "type": "步", "hp": 60,
+             "x": outside[0], "y": outside[1], "owner": "楚", "moved_turn": -1, "engaged": False},
+        ]
+        return w
+
+    def test_视野内的列出_视野外的不列(self):
+        out = mp_ai._fmt_threats(self._world(), "秦")
+        self.assertIn("步101军", out, "视野内的敌军该列")
+        self.assertNotIn("步102军", out, "**视野外的敌军不该出现在威胁面板**")
+
+    def test_列出的每一条都回查可见(self):
+        """反向守卫：把面板里报出的坐标逐条回查 `visible_to`。"""
+        w = self._world()
+        out = mp_ai._fmt_threats(w, "秦")
+        coords = re.findall(r"@\((\d+),(\d+)\)", out)
+        self.assertTrue(coords, "没抓到坐标，用例白跑")
+        for a, b in coords:
+            self.assertTrue(w.visible_to("秦", int(a) - 1, int(b) - 1),
+                            f"({a},{b}) 不在视野内，却在威胁面板里")
+
+    def test_计数与视野内实况一致(self):
+        w = self._world()
+        vis = mp_ai._visible_cells(w, "秦")
+        want = sum(1 for a in w.armies if a["owner"] != "秦" and (a["x"], a["y"]) in vis)
+        got = len(re.findall(r"@\(", mp_ai._fmt_threats(w, "秦")))
+        self.assertEqual(got, want)
 
 
 class TestGridIsPureAscii(unittest.TestCase):
