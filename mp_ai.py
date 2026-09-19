@@ -726,6 +726,34 @@ def _fmt_mail(world, name, brief: bool = False) -> str:
     return "\n".join(lines)
 
 
+def _fmt_public_affairs(world, me: str) -> str:
+    """【公开条约与战线】：**全世界公开**的国家行为——谁与谁缔约/保障、谁在打谁、有哪些联盟。
+
+    口径（2026-09-19 用户：「**必须知情**」）：条约与战争是**公开行为**，第三方有权知道；
+    **商议过程**（联盟投票与计票、求和提议的来回、写信）仍然只有当事人看得见。
+    这些条目走 `World.proclaim` → `broadcast`（`seen`=全体，不受视野过滤），
+    所以这里可以放心把全世界的条约/战线一次列全——它跟各国近讯里收到的播报是同一份事实。
+    """
+    parts = []
+    for b in world.blocs:
+        mem = [m for m in b["members"] if m in world.nations]
+        if mem:
+            parts.append(f"🤝 联盟「{b['name']}」（盟主 {world.bloc_chief(b)}）成员：{'、'.join(mem)}")
+    for p in world.pacts:
+        arrow = "→" if p["kind"] == "保障" else "↔"      # 保障单向、共同防御双向
+        parts.append(f"🕊 {p['kind']} {world.entity_label(p['a'])}{arrow}"
+                     f"{world.entity_label(p['b'])}")
+    for w in world.wars:
+        fls = list(w["followers"]) + list(w.get("atk_followers", []))
+        parts.append(f"⚔ {w['atk']} ↔ {w['def']}" + (f"（跟随：{'、'.join(fls)}）" if fls else ""))
+    for pair, until in world.truce.items():
+        if until >= world.turn:
+            a, b = sorted(pair)
+            parts.append(f"🕊 {a} ↔ {b} 休战至第 {until} 回合")
+    head = "  【公开条约与战线】（全世界可见：签了什么、谁打谁——商议过程不公开）"
+    return head + "\n" + ("    " + "\n    ".join(parts) if parts else "暂无：全世界还没有联盟/条约/战争")
+
+
 def _fmt_diplomacy(world, name) -> str:
     lines = [f"国家关系: {world.rel_desc(name)}"]
     bloc = world.bloc_of(name)
@@ -822,6 +850,8 @@ def _fmt_diplomacy(world, name) -> str:
         if p.get("truce"):
             k += f"（休战{p['truce']}回合）"
         lines.append(f"  你提的求和#{p['id']}（给{p['b']}）: {k}")
+    # 世界层面的公开事实放最后：前面是"你要行动的东西"（投票/邀约/求和），这里才是"天下大势"
+    lines.append(_fmt_public_affairs(world, me=name))
     return "\n".join(lines)
 
 
@@ -1092,6 +1122,10 @@ def _help_sections() -> list[tuple[str, str]]:
             "国家关系：中立=不能入境也不能攻击对方；联盟=互通领土+互不攻击（详见【联盟与核心领土】）；"
             "**签约方只能是外交实体**（独立国家 或 联盟）：你在联盟里，保障/共同防御/宣战/议和就都得走"
             "联盟投票、由联盟出面；成员个人没有外交权（写信/馈赠/换图/间谍这些非约束动作仍归你自己）。"
+            "**条约与战争是公开行为**（2026-09-19 口径）：谁跟谁缔约/解除/宣战/议和/结盟退盟，"
+            "**全世界都会收到播报**（进你的近讯），`query panel=diplomacy` 末尾也有常查的"
+            "【公开条约与战线】（全世界所有联盟/条约/战线/休战）；但**商议过程不公开**——"
+            "联盟内部投票与计票、求和提议的来回、写信、情报，只有当事人看得见。"
             "宣战：对方必须应战，即刻生效；被宣战方的『保障独立/共同防御/联盟』关系按传递闭包自动参战打你"
             "（无限传导：A 保 B、B 盟 C，你打 B 则 C 也上）。"
             "共同防御=遭攻自动并肩；保障独立=你（或你的联盟）保它，别人打它你方参战。"
@@ -1110,7 +1144,9 @@ def _help_sections() -> list[tuple[str, str]]:
             f"**超出部分每 {LETTER_CHARS_PER_GOLD} 字 1 金（不足 {LETTER_CHARS_PER_GOLD} 字按 {LETTER_CHARS_PER_GOLD} 字算）且不吃任何减免**——联盟成员不再免费，长信照样花钱；"
             "他国向你提议结盟/联盟/议和永远免费——外交强国有外交中心的加持。"
             f"情报战：如果你不想开口问（懒得谈、不想欠人情）、又钱多，可用 spy(间谍) 花{SPY_COST}金刺探别国，"
-            f"{SPY_TURNS}回合后盗回其国库/收入/全部建设底细、粗略军情（仅各兵种数量，位置未知）、整张已知地图（地图进 query panel=intel 看）；"
+            f"{SPY_TURNS}回合后盗回其国库/收入/全部建设底细、**外交关系**（它自己视角：与谁 交战/共同防御/保障、"
+            "在哪个联盟、哪条战线——给的是关系，投票与求和来回那些商议照旧探不到）、"
+            "粗略军情（仅各兵种数量，位置未知）、整张已知地图（地图进 query panel=intel 看）；"
             "⚠ 间谍**只给各兵种数量**——敌军的位置/血量/番号侦察不到，布防与调动只能靠换图、边地观察或正面交战得知——"
             "打谁、敲谁、开战时机都心中有数。"
         )),
@@ -1329,14 +1365,14 @@ def _fmt_spy_hint(world, name) -> str:
            if world.bank_on() else "")
     if not es:
         return (f"无（可用 spy 花{SPY_COST}金刺探别国，{SPY_TURNS}回合后到手经济底细"
-                f"+粗略军情数量+地图{alt}）")
+                f"+外交关系+粗略军情数量+地图{alt}）")
     last = es[-1]
     return (f"{len(es)} 份，最新 {last['from']}（第{last['turn']}回合）；"
             f"完整见 query panel=spy{alt}")
 
 
 def _fmt_spy(world, name) -> str:
-    """完整间谍情报：最近拿到的别国经济底细 + 粗略军情（各兵种数量）。"""
+    """完整间谍情报：最近拿到的别国经济底细 + 外交关系 + 粗略军情（各兵种数量）。"""
     es = world.econ_intel.get(name, [])
     if not es:
         return "（你尚未拿到任何间谍情报）"
@@ -2119,7 +2155,7 @@ def _props(schema: dict) -> dict:
 
 TOOL_SCHEMAS = [
     {"type": "function", "function": {
-        "name": "query", "description": f"查询接口：随时获取你的各面板。★ 你的**国土与视野已作为「坐标地图」常驻**在每回合的状态里（按势力分段：我 / 野人 / 各国；每行一格：`(x,y)归属地形，[L2城][，地名][，番号…]`），所以这里查的是**细节**。land=地皮逐格明细（可翻页/按建筑或资源过滤） / tile=**单格全明细**（x= y= 或 at=地名） / grid=**网格版地图**（ASCII 格子图，适合想一眼看形状时） / res=国库与储备 / plan=国策规划 / army=军队 / market=世界市场(现价/买价/卖价/均衡价+大单试算) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=间谍情报(别国经济底细+粗略军情) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内他国军队（野人守军不列，见地图标记） / all=全部。每个行动后状态会变，拿不准就再查一次。",
+        "name": "query", "description": f"查询接口：随时获取你的各面板。★ 你的**国土与视野已作为「坐标地图」常驻**在每回合的状态里（按势力分段：我 / 野人 / 各国；每行一格：`(x,y)归属地形，[L2城][，地名][，番号…]`），所以这里查的是**细节**。land=地皮逐格明细（可翻页/按建筑或资源过滤） / tile=**单格全明细**（x= y= 或 at=地名） / grid=**网格版地图**（ASCII 格子图，适合想一眼看形状时） / res=国库与储备 / plan=国策规划 / army=军队 / market=世界市场(现价/买价/卖价/均衡价+大单试算) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=间谍情报(别国经济底细+外交关系+粗略军情) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内他国军队（野人守军不列，见地图标记） / all=全部。每个行动后状态会变，拿不准就再查一次。",
         "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "plan", "land", "tile", "grid", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True},
                               "cap": {"type": "integer", "description": f"panel=land：本次列几块（默认 {LAND_CAP}）"},
                               "offset": {"type": "integer", "description": "panel=land：从第几块开始列（翻页用）"},
@@ -2186,7 +2222,7 @@ TOOL_SCHEMAS = [
         "name": "share_map", "description": f"把你的整张已知地图（全部国土块+边界外可见块，含坐标）发给别国，对方下一回合在 query panel=intel 收到（外交费，基准 {DIPLO_COST} 金，成功才扣；对象是联盟成员则免费）。换情报/亮家底/协同步调可用。to=countries 里的别国，不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "对象国", "required": True}})}},
     {"type": "function", "function": {
-        "name": "spy", "description": f"不想开口问（懒得谈、钱多）时派间谍刺探别国：花 {SPY_COST} 金（国库不足会被拒），{SPY_TURNS} 回合后拿回该国全部经济情报（query panel=spy 看——国库/储备、上回合收入、每一块地的建筑与在建）**、粗略军情（仅各兵种数量，军队位置/血量/番号不外泄）**，以及它的整张已知地图（进 query panel=intel）。目标不能是自己。",
+        "name": "spy", "description": f"不想开口问（懒得谈、钱多）时派间谍刺探别国：花 {SPY_COST} 金（国库不足会被拒），{SPY_TURNS} 回合后拿回该国全部经济情报（query panel=spy 看——国库/储备、上回合收入、每一块地的建筑与在建）**、它的外交关系（该国视角：与谁 交战/共同防御/保障、在哪个联盟、哪条战线）**、粗略军情（仅各兵种数量，军队位置/血量/番号不外泄），以及它的整张已知地图（进 query panel=intel）。目标不能是自己。",
         "parameters": _props({"to": {"type": "string", "description": "刺探对象国", "required": True}})}},
     {"type": "function", "function": {
         "name": "plan", "description": f"制定或修订你的国策（长期战略目标），会永久常驻你的上下文（【国策规划】标记），直到你再次修订。⚠ 结束回合(end_turn)前必须已有国策；且每 {PLAN_MAX_TURNS} 回合必须修订一次，否则 end_turn 会被拦。建议按四方面写：经济发展（粮木矿油/建设/卖买）、军事规划（扩军/攻防/结盟）、情报管理（间谍/换图/来信研判）、外交方向（结盟/宣战/求和/馈赠立场）。",

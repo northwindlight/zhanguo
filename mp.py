@@ -854,7 +854,7 @@ class World:
                     low.append(f"{self.entity_label(x)} 对 {self.entity_label(y)} 的保障")
         self._add_pact(kind, A, B)
         up = f"（自动解除低档：{'、'.join(low)}）" if low else ""
-        self.log(f"🕊 {self.entity_label(A)} 与 {self.entity_label(B)} 缔结{kind}{up}", phase="外交")
+        self.proclaim(f"🕊 {self.entity_label(A)} 与 {self.entity_label(B)} 缔结{kind}{up}")
         return True, f"{self.entity_label(A)} 与 {self.entity_label(B)} 缔结{kind}{up}"
 
     def _break_pacts_between(self, e1: str, e2: str) -> list[str]:
@@ -864,7 +864,7 @@ class World:
             if self._drop_pact(kind, x, y):
                 out.append(f"解除 {self.entity_label(x)} 与 {self.entity_label(y)} 的{kind}")
         for line in out:
-            self.log(f"💔 {line}（双方开战，自动解除）", phase="外交")
+            self.proclaim(f"💔 {line}（双方开战，自动解除）")
         return out
 
     def _pact_exit_wars(self, side: list[str], other: list[str]) -> list[dict]:
@@ -942,6 +942,20 @@ class World:
                  "seen": list(self.nations)}
         self.history.append(entry)
         return text
+
+    def proclaim(self, text: str) -> str:
+        """**国家行为**的世界公告：缔约 / 解除 / 宣战 / 议和 / 联盟成立与变更。
+
+        ★ 口径（2026-09-19 用户：「**必须知情**」）：条约与战争是**公开行为**——第三方有权
+        知道谁跟谁结盟、谁打谁、谁跟谁议和了（现实里这些本来就要公布，共同防御尤其如此：
+        它本来就是冲着第三方设计的，第三方却被蒙在鼓里说不过去）。
+        走 `broadcast`（`seen` = 全体现存国家，`phase="外交"`，进各国近讯的外交类），
+        **不受视野过滤**——与央行利率公告同一条通道。
+
+        与之相对，**商议过程**仍只给当事人（`log(nation=…)`）：联盟内部投票与计票、求和提议的
+        来回、写信、情报。一句话：**「签了没有」公开，「怎么谈的」不公开。**
+        """
+        return self.broadcast(text, phase="外交")
 
     def log(self, text: str, phase: str = "事件", nation: str | None = None,
             x: int | None = None, y: int | None = None) -> str:
@@ -1851,11 +1865,11 @@ class World:
                 if bloc["members"]:
                     if was_chief:
                         bloc["chief"] = bloc["members"][0]
-                        self.log(f"👑 {name} 亡国，盟主之位由 {bloc['chief']} 继承（联盟「{bloc['name']}」）",
-                                 phase="外交")
+                        self.proclaim(f"👑 {name} 亡国，盟主之位由 {bloc['chief']} "
+                                      f"继承（联盟「{bloc['name']}」）")
                 else:
                     self.blocs.remove(bloc)
-                    self.log(f"💔 联盟「{bloc['name']}」因成员凋零而解散", phase="外交")
+                    self.proclaim(f"💔 联盟「{bloc['name']}」因成员凋零而解散")
         self.votes = [v for v in self.votes if self.bloc_by_name(v["bloc"]) is not None]
         self.truce = {p: u for p, u in self.truce.items() if name not in p}
         # 一方灭亡 → 强制全天下休战 10 回合（防连环征服滚雪球；已有更长休战则保留）
@@ -1866,7 +1880,7 @@ class World:
                 self.truce[p] = max(self.truce.get(p, 0), self.turn + FALL_TRUCE_TURNS)
         gone = self.drop_pacts_of(ent_nation(name))
         if gone:
-            self.log(f"💔 {name} 亡国，其条约随之作废（{'、'.join(gone)}）", phase="外交")
+            self.proclaim(f"💔 {name} 亡国，其条约随之作废（{'、'.join(gone)}）")
         self.mailbox.pop(name, None)
         self.summaries.pop(name, None)
         self.summary_blocks.pop(name, None)
@@ -2694,6 +2708,21 @@ class World:
         summ = self.econ_summary.get(n)
         if summ:
             L.append(f"  上回合收入结算: {summ}")
+        # 外交关系（2026-09-19 用户「间谍要包含外交关系」）：给的是**该国自己的视角**——
+        # 它与各国的 交战/共同防御/保障/联盟成员/中立，加上它的联盟与战线。
+        # 只给"关系"（谁跟谁是什么），不给"商议"（投票/求和来回/信件）——与公开口径一致。
+        L.append("  外交关系（该国的视角）: " + self.rel_desc(n))
+        bl = self.bloc_of(n)
+        if bl is not None:
+            L.append(f"    联盟「{bl['name']}」（盟主 {self.bloc_chief(bl)}）"
+                     f"成员：{'、'.join(m for m in bl['members'] if m in self.nations)}")
+        fronts = []
+        for w in self.wars:
+            sides = self._war_sides(w)
+            if n in sides[0] or n in sides[1]:
+                fls = list(w["followers"]) + list(w.get("atk_followers", []))
+                fronts.append(f"{w['atk']}↔{w['def']}" + (f"(跟随 {'、'.join(fls)})" if fls else ""))
+        L.append("    战线: " + ("；".join(fronts) if fronts else "无"))
         L.append(f"  全部地块建设情况（{len(self.own_tiles(n))} 块）:")
         for (x, y) in self.own_tiles(n):
             t = self.tiles[(x, y)]
@@ -2714,6 +2743,7 @@ class World:
 
     def spy(self, frm: str, to: str) -> tuple[bool, str]:
         """派间谍刺探别国（花 SPY_COST 金），SPY_TURNS 回合后盗回其经济底细 +
+        外交关系（该国视角：与谁 交战/共同防御/保障、在哪个联盟、哪条战线）+
         粗略军情（仅各兵种数量，位置/血量/番号不外泄）+ 整张已知地图。不能对自己用。"""
         if frm not in self.nations or to not in self.nations:
             return False, "间谍双方都必须是现存国家"
@@ -2724,7 +2754,7 @@ class World:
         self.add_res(frm, "黄金", -SPY_COST)
         self.spy_pending.append({"from": frm, "to": to, "arrive": self.turn + SPY_TURNS})
         return True, (f"已派间谍前往 {to}（-{SPY_COST}金），"
-                      f"将于第 {self.turn + SPY_TURNS} 回合拿回其情报（经济底细+粗略军情+地图）")
+                      f"将于第 {self.turn + SPY_TURNS} 回合拿回其情报（经济底细+外交关系+粗略军情+地图）")
 
     # ------------------------------------------------------------- 外交
     def _next_offer_id(self) -> int:
@@ -2851,9 +2881,8 @@ class World:
         self._drop_pact(kind, A, B)
         exited = self._pact_exit_wars(self.entity_members(A), self.entity_members(B))
         extxt = f"，并退出 {self.entity_label(B)} 所在的 {len(exited)} 条战线" if exited else ""
-        self.log(f"💔 {self.entity_label(A)} 单方面解除与 {self.entity_label(B)} 的{kind}{extxt}"
-                 f"（{'、'.join(self.entity_members(A))} 在他国境内的军队将全部撤出）",
-                 phase="外交", nation=a)
+        self.proclaim(f"💔 {self.entity_label(A)} 单方面解除与 {self.entity_label(B)} 的{kind}{extxt}"
+                      f"（{'、'.join(self.entity_members(A))} 在他国境内的军队将全部撤出）")
         return True, (f"{self.entity_label(A)} 已解除与 {self.entity_label(B)} 的{kind}{extxt}。"
                       "如你在他国境内，会于回合末自动遣返回国")
 
@@ -2927,8 +2956,7 @@ class World:
         #   是"国家级"的，而入盟后这个国家不再是签约主体）。别想带着条约入伙。
         absorbed = self._absorb_personal_pacts(members)
         ab = f"（{'、'.join(absorbed)} 自动作废）" if absorbed else ""
-        self.log(f"🕊 联盟「{p['name']}」成立！成员：{'、'.join(members)}（盟主 {p['a']}）{ab}",
-                 phase="外交", nation=p["a"])
+        self.proclaim(f"🕊 联盟「{p['name']}」成立！成员：{'、'.join(members)}（盟主 {p['a']}）{ab}")
         return True, (f"联盟「{p['name']}」成立！成员：{'、'.join(members)}，盟主 {p['a']}"
                       f"（你为创始成员）{ab}")
 
@@ -2939,7 +2967,7 @@ class World:
         for m in members:
             out.extend(self.drop_pacts_of(ent_nation(m)))
         if out:
-            self.log(f"💔 入盟即放弃个人条约：{'、'.join(out)} 作废", phase="外交")
+            self.proclaim(f"💔 入盟即放弃个人条约：{'、'.join(out)} 作废")
         return out
 
     def bloc_leave(self, a: str) -> tuple[bool, str]:
@@ -2956,12 +2984,12 @@ class World:
             return False, (f"战争期间不能退盟：{'、'.join(fighting)} 正在交战"
                            "（盟员在战时被锁死，直到整盟停战——先议和）")
         bloc["members"].remove(a)
-        self.log(f"💔 {a} 单方面退出联盟「{bloc['name']}」", phase="外交", nation=a)
+        self.proclaim(f"💔 {a} 单方面退出联盟「{bloc['name']}」")
         if len(bloc["members"]) < 2:   # 只剩盟主一人 → 联盟自动解散
             chief = self.bloc_chief(bloc)
             self.blocs.remove(bloc)
             self.votes = [v for v in self.votes if v["bloc"] != bloc["name"]]
-            self.log(f"💔 联盟「{bloc['name']}」仅剩盟主 {chief}，自动解散", phase="外交")
+            self.proclaim(f"💔 联盟「{bloc['name']}」仅剩盟主 {chief}，自动解散")
             return True, f"你已退出「{bloc['name']}」——联盟只剩盟主，随之解散"
         return True, (f"你已单方面退出「{bloc['name']}」。"
                       "（滞留他国领土的军队将自回合末起自动遣返）")
@@ -2979,7 +3007,7 @@ class World:
         if to not in bloc["members"]:
             return False, f"{to} 不是本联盟成员（成员：{'、'.join(bloc['members'])}）"
         bloc["chief"] = to
-        self.log(f"👑 {a} 把联盟「{bloc['name']}」盟主之位移交给 {to}", phase="外交", nation=a)
+        self.proclaim(f"👑 {a} 把联盟「{bloc['name']}」盟主之位移交给 {to}")
         return True, f"已把「{bloc['name']}」盟主之位移交给 {to}"
 
     def bloc_rename(self, a: str, new_name: str) -> tuple[bool, str]:
@@ -3000,7 +3028,7 @@ class World:
         old = bloc["name"]
         bloc["name"] = name
         self._rename_bloc_refs(old, name)
-        self.log(f"🏷 盟主 {a} 把联盟「{old}」改名为「{name}」", phase="外交", nation=a)
+        self.proclaim(f"🏷 盟主 {a} 把联盟「{old}」改名为「{name}」")
         return True, f"联盟已改名：「{old}」→「{name}」"
 
     def _rename_bloc_refs(self, old: str, new: str) -> None:
@@ -3030,8 +3058,7 @@ class World:
         members = list(bloc["members"])
         self.blocs.remove(bloc)
         self.votes = [v for v in self.votes if v["bloc"] != bloc["name"]]
-        self.log(f"💔 盟主 {a} 解散联盟「{bloc['name']}」（原成员：{'、'.join(members)}）",
-                 phase="外交", nation=a)
+        self.proclaim(f"💔 盟主 {a} 解散联盟「{bloc['name']}」（原成员：{'、'.join(members)}）")
         return True, (f"已解散联盟「{bloc['name']}」：原成员 {'、'.join(members)} 恢复各自独立"
                       "（他们此后才是各自的外交实体）")
 
@@ -3163,7 +3190,7 @@ class World:
             absorbed = self._absorb_personal_pacts([cand])
             bloc["members"].append(cand)
             ab = f"（入盟即放弃个人条约：{'、'.join(absorbed)} 作废）" if absorbed else ""
-            self.log(f"🕊 {cand} 加入联盟「{bloc['name']}」{ab}", phase="外交", nation=cand)
+            self.proclaim(f"🕊 {cand} 加入联盟「{bloc['name']}」{ab}")
             return True, f"{cand} 正式加入「{bloc['name']}」{ab}"
         if v["kind"] == "议和":
             if pl.get("type") == "offer":
@@ -3195,8 +3222,8 @@ class World:
             if self.entity_at_war(A) or self.entity_at_war(B):
                 return False, "战争期间条约冻结：表决通过也失效了（先议和停战）"
             if self._drop_pact(kind, A, B):
-                self.log(f"💔 {self.entity_label(A)} 经联盟表决解除与 {self.entity_label(B)} 的{kind}",
-                         phase="外交")
+                self.proclaim(f"💔 {self.entity_label(A)} 经联盟表决解除与 "
+                              f"{self.entity_label(B)} 的{kind}")
                 return True, f"{self.entity_label(A)} 已解除与 {self.entity_label(B)} 的{kind}"
             return False, f"条约已不在，解除{kind}落空"
         if pl.get("offer"):                        # 我方实体对外提议共同防御
@@ -3290,8 +3317,7 @@ class World:
             return True, (f"已发起联盟投票（投票#{v['id']}）：通过后撤回对 "
                           f"{self.entity_label(B)} 的独立保障")
         self._drop_pact("保障", A, B)
-        self.log(f"{self.entity_label(A)} 撤回对 {self.entity_label(B)} 的独立保障",
-                 phase="外交", nation=a)
+        self.proclaim(f"{self.entity_label(A)} 撤回对 {self.entity_label(B)} 的独立保障")
         return True, f"{self.entity_label(A)} 已撤回对 {self.entity_label(B)} 的保障"
 
     def declare_war(self, a: str, b: str) -> tuple[bool, str]:
@@ -3356,9 +3382,8 @@ class World:
                          and not any(self.war_between(m, x) for x in atk)]
                 w["followers"].extend(added)
                 for m in added:
-                    self.log(f"⚔ {m} 对 {self.entity_label(def_ent)} 宣战：盟友正被它攻打，"
-                             "并入该战线当防守方跟随方（不开第二场战争；跟随方不能单独议和）",
-                             phase="外交", nation=m)
+                    self.proclaim(f"⚔ {m} 对 {self.entity_label(def_ent)} 宣战：盟友正被它攻打，"
+                                  "并入该战线当防守方跟随方（不开第二场战争；跟随方不能单独议和）")
                 return True, (f"对 {self.entity_label(def_ent)} 宣战：并入既有战线当防守方"
                               f"（新增 {'、'.join(added) or '无'}；跟随方不能单独议和，"
                               "主导者议和则整条战线停战）")
@@ -3372,9 +3397,8 @@ class World:
                          and not any(self.war_between(m, x) for x in dfs)]
                 w.setdefault("atk_followers", []).extend(added)
                 for m in added:
-                    self.log(f"⚔ {m} 对 {self.entity_label(def_ent)} 宣战：盟友正在攻打它，"
-                             "并入该战线随攻（不开第二场战争；跟随方不能单独议和）",
-                             phase="外交", nation=m)
+                    self.proclaim(f"⚔ {m} 对 {self.entity_label(def_ent)} 宣战：盟友正在攻打它，"
+                                  "并入该战线随攻（不开第二场战争；跟随方不能单独议和）")
                 return True, (f"对 {self.entity_label(def_ent)} 宣战：并入既有战线随攻"
                               f"（新增 {'、'.join(added) or '无'}）")
         # 两实体之间的保障/共同防御自动解除（不打自己人）
@@ -3405,18 +3429,18 @@ class World:
         # 防守义务优先：守侧成员与进攻侧实体的保障/共同防御自动解除；逐国通知
         for c in followers:
             self._break_pacts_between(self.entity_of(c), atk_ent)
-            self.log(f"⚔ {c} 因联盟/共同防御/保障义务被拖入守侧，自动参战打 {'、'.join(members)}"
-                     "（跟随方不能单独议和，主导者议和则整条战线停战）", phase="外交", nation=c)
+            self.proclaim(f"⚔ {c} 因联盟/共同防御/保障义务被拖入守侧，自动参战打 "
+                          f"{'、'.join(members)}（跟随方不能单独议和，主导者议和则整条战线停战）")
         leader = self.entity_chief(atk_ent) or members[0]
         self.wars.append({"id": self._next_war_id(), "atk": leader, "def": b,
                           "followers": followers,
                           "atk_followers": [m for m in members if m != leader],
                           "turn": self.turn})
         mtxt = "、".join(members)
-        self.log(f"⚔ {proposer} 发起：{mtxt}（{self.entity_label(atk_ent)}）对 "
-                 f"{self.entity_label(def_ent)} 宣战！", phase="外交", nation=leader)
+        self.proclaim(f"⚔ {proposer} 发起：{mtxt}（{self.entity_label(atk_ent)}）对 "
+                      f"{self.entity_label(def_ent)} 宣战！")
         if leader == proposer and len(members) == 1:
-            self.log(f"⚔ {proposer} 对 {b} 宣战！{b} 必须应战", phase="外交", nation=proposer)
+            self.proclaim(f"⚔ {proposer} 对 {b} 宣战！{b} 必须应战")
         jtxt = f"；守侧传导参战：{'、'.join(followers)}" if followers else ""
         return True, f"对 {self.entity_label(def_ent)} 宣战（进攻侧：{mtxt}）{jtxt}"
 
@@ -3537,7 +3561,7 @@ class World:
         fls = list(w["followers"]) + list(w.get("atk_followers", []))
         who = ("（含跟随方 " + "、".join(fls) + "）") if fls else ""
         truce_txt = f"，休战 {truce_n} 回合（至第 {until} 回合）" if truce_n > 0 else ""
-        self.log(f"🕊 {a} 与 {b} 议和停战{who}{truce_txt}（{extra}）", phase="外交", nation=me)
+        self.proclaim(f"🕊 {a} 与 {b} 议和停战{who}{truce_txt}（{extra}）")
         return True, (f"停战议成：{extra}{truce_txt}。整条战线已停{who}，各方军队解除交战；"
                       f"各方实际持有地块重算为核心领土；滞留在对方领土的军队将于回合末遣返")
 

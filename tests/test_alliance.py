@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import mp  # noqa: E402
+import mp_ai  # noqa: E402
 
 
 def make_bloc(w, chief="秦", others=("楚", "齐"), name="北盟"):
@@ -591,6 +592,91 @@ class TestEntityPactTable(unittest.TestCase):
         self.assertEqual([(x["kind"], x["a"], x["b"]) for x in w2.pacts],
                          [(x["kind"], x["a"], x["b"]) for x in w.pacts])
         self.assertTrue(w2.has_pact("保障", mp.ent_bloc("北盟"), mp.ent_nation("燕")))
+
+
+class TestPublicAffairs(unittest.TestCase):
+    """★ 2026-09-19 用户口径：「**必须知情**」——条约与战争是**公开行为**，第三方有权知道
+    （共同防御本来就是冲着第三方设计的，第三方却被蒙在鼓里说不过去）；
+    而**商议过程**（联盟投票、求和来回、写信）仍然只给当事人。
+
+    改之前这些纪事一律走 `log(nation=…)`（有几处连 `nation=` 都没有）⇒ 第三方近讯里一个字都没有，
+    连签字双方都收不到「缔结」那条（只有看海台 journal 有）。现在走 `World.proclaim` → `broadcast`
+    （`seen`=全体、`phase="外交"`、不受视野过滤，与央行利率公告同一条通道）。
+    """
+
+    def test_third_party_hears_treaty_and_war(self):
+        w = make_world()
+        w._conclude_pact("共同防御", mp.ent_nation("秦"), mp.ent_nation("楚"))
+        for n in ("秦", "楚", "燕"):          # 连签字双方自己也算（以前他们自己都收不到）
+            self.assertTrue(any("缔结共同防御" in e for e in w.events_for(n, limit=6)),
+                            f"{n} 没收到缔结播报")
+        w.declare_war("秦", "楚")
+        self.assertTrue(any("宣战" in e for e in w.events_for("燕", limit=6)),
+                        "第三国没收到宣战播报")
+        self.assertTrue(any("宣战" in e for e in w.events_for("楚", limit=6)),
+                        "被宣战方也该收到（以前只有宣战方看得到）")
+
+    def test_third_party_hears_war_ending_and_bloc_changes(self):
+        w = make_world()
+        w.declare_war("秦", "楚")
+        ok, msg = w.offer_peace("秦", "楚", "white")
+        self.assertTrue(ok, msg)
+        w.accept_peace("楚", w.peace_offers[-1]["id"])
+        self.assertTrue(any("议和停战" in e for e in w.events_for("燕", limit=6)),
+                        "第三国没收到议和播报")
+        make_bloc(w, chief="秦", others=("楚", "齐"))
+        self.assertTrue(any("联盟「北盟」成立" in e for e in w.events_for("燕", limit=8)),
+                        "第三国没收到立盟播报")
+        w.bloc_leave("楚")
+        self.assertTrue(any("退出联盟" in e for e in w.events_for("燕", limit=8)),
+                        "第三国没收到退盟播报")
+
+    def test_deliberation_stays_private(self):
+        """商议不公开：联盟内部投票与计票、求和提议的来回，第三方近讯里不该有。"""
+        w = make_world()
+        make_bloc(w)
+        w.declare_guarantee("楚", "燕")            # 在盟 → 转成联盟投票（内部商议）
+        v = w.votes[-1]
+        w.cast_vote("秦", v["id"], True)
+        w.declare_war("秦", "楚")
+        w.offer_peace("秦", "楚", "white")         # 谈判来回
+        feed = w.events_for("燕", limit=10)
+        self.assertFalse(any("投票#" in e or "投票（" in e for e in feed), f"内部投票泄了：{feed}")
+        self.assertFalse(any("求和提议" in e for e in feed), f"求和来回泄了：{feed}")
+        out = mp_ai.execute(w, "燕", "query", {"panel": "diplomacy"})
+        self.assertNotIn("投票#", out, "别盟的内部投票不该进第三方面板")
+
+    def test_public_panel_lists_world_treaties_war_and_truce(self):
+        w = make_world()
+        w._conclude_pact("共同防御", mp.ent_nation("秦"), mp.ent_nation("楚"))
+        make_bloc(w, chief="齐", others=("燕",), name="东盟")
+        w.declare_war("秦", "齐")
+        out = mp_ai.execute(w, "燕", "query", {"panel": "diplomacy"})
+        self.assertIn("公开条约与战线", out)
+        # 双向条约在 `_add_pact` 里按实体 id 排序存 ⇒ 显示顺序是「楚↔秦」而不是发起顺序
+        self.assertIn("共同防御 楚↔秦", out)
+        self.assertIn("联盟「东盟」", out)
+        self.assertIn("⚔ 秦 ↔ 齐", out)
+        # 收尾：议和后要能查到休战期（用两个**独立国**——在盟国家的议和要走联盟投票，另测）
+        w2 = make_world(nations=("秦", "燕", "齐"))
+        w2.declare_war("秦", "燕")
+        ok, msg = w2.offer_peace("秦", "燕", "white", truce=3)
+        self.assertTrue(ok, msg)
+        w2.accept_peace("燕", w2.peace_offers[-1]["id"])
+        out2 = mp_ai.execute(w2, "齐", "query", {"panel": "diplomacy"})
+        self.assertIn("休战至第", out2)
+
+    def test_spy_report_includes_diplomatic_relations(self):
+        """★ 用户 2026-09-19：「**间谍要包含外交关系**」——给的是**该国自己的视角**。"""
+        w = make_world()
+        make_bloc(w)                                # 秦楚齐 立盟「北盟」
+        w.declare_war("燕", "秦")                    # 燕 打 北盟
+        txt = w._econ_snapshot("秦")
+        self.assertIn("外交关系（该国的视角）", txt)
+        self.assertIn("联盟「北盟」（盟主 秦）", txt)
+        self.assertIn("燕=交战", txt)
+        self.assertIn("战线: 燕↔秦", txt)
+        self.assertNotIn("投票#", txt, "间谍给的是关系，不是别国的商议过程")
 
 
 if __name__ == "__main__":
