@@ -853,10 +853,29 @@ class TestThreatsVisionGate(unittest.TestCase):
             self.assertTrue(w.visible_to("秦", int(a) - 1, int(b) - 1),
                             f"({a},{b}) 不在视野内，却在威胁面板里")
 
+    def test_野人一律不列(self):
+        """★ 野人守军**整类剔除**（用户 2026-09-19：「野人也不应该列威胁，全过滤算了」）。
+
+        理由：它们从不主动攻击、HP 恒 100、每块无主地都有一只，而且坐标地图每格已经用「，野人」
+        标过了。实测第 120 回合：原 1668 字符 / 64 行里 59 行（90%）是野人条目 ——
+        全砍掉后【威胁】只剩 107 字符（5 行真敌军），整个常驻状态省 ≈853 token/回合。
+        """
+        w = self._world()
+        vis = mp_ai._visible_cells(w, "秦")
+        inside = next(p for p in sorted(vis) if w.owned_by(*p) is None)
+        w.armies.append({"id": 101, "gid": 101, "name": "楚·步101军", "type": "步", "hp": 60,
+                         "x": inside[0], "y": inside[1], "owner": "楚",
+                         "moved_turn": -1, "engaged": False})
+        self.assertTrue(any(a["owner"] == "野人" for a in w.armies), "这个局面本该有野人")
+        out = mp_ai._fmt_threats(w, "秦")
+        self.assertNotIn("(野人)", out, f"野人不该出现在威胁面板：{out}")
+        self.assertIn("步101军", out, "他国军队仍要列出来")
+
     def test_计数与视野内实况一致(self):
         w = self._world()
         vis = mp_ai._visible_cells(w, "秦")
-        want = sum(1 for a in w.armies if a["owner"] != "秦" and (a["x"], a["y"]) in vis)
+        want = sum(1 for a in w.armies
+                   if a["owner"] not in ("秦", "野人") and (a["x"], a["y"]) in vis)
         got = len(re.findall(r"@\(", mp_ai._fmt_threats(w, "秦")))
         self.assertEqual(got, want)
 

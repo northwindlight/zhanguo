@@ -1196,17 +1196,24 @@ def rules_text(world, topic: str = "") -> str:
 
 
 def _fmt_threats(world, name) -> str:
-    """视野内（自家地盘+相邻一圈）的他国/野人军队。"""
+    """视野内的**他国军队**。
+
+    ★ 野人守军**一律不列**（2026-09-19 用户：「顺便野人也不应该列威胁，全过滤算了」）：
+    它们从不主动攻击、HP 恒 100、每块无主地都有一只，而**坐标地图每格已经用「，野人」标了它们**。
+    实测第 120 回合：原本 1668 字符 / 64 行里 **59 行（90%）是野人条目**，全砍掉省 ≈750 token/回合。
+    想看某个守军的血量/位置：地图那一行（或 `query panel=tile x= y=`）。
+    """
     rows = []
     for a in world.armies:
-        if a["owner"] == name:
+        if a["owner"] == name or a["owner"] == "野人":   # 野人不算威胁（见上）
             continue
         if not world.visible_to(name, a["x"], a["y"]):
             continue
         cl = world.visible_buildings(name, a["x"], a["y"]).get("城堡", 0)
         rows.append(f"{a['name']}({a['owner']}) {a['hp']}HP @({a['x']+1},{a['y']+1})"
                     + (f" 城L{cl}" if cl else ""))     # 城堡公开：报"敌军在某格"就一并报它脚下的城
-    return ("视野内的敌军/守军:\n  " + "\n  ".join(rows)) if rows else "视野内没有他国军队"
+    return (("视野内的他国军队:\n  " + "\n  ".join(rows)) if rows else
+            "视野内没有他国军队（野人守军不列在此——它们从不主动进攻，见坐标地图里每格的「，野人」）")
 
 
 def _fmt_news(world, name) -> str:
@@ -2001,7 +2008,7 @@ def _props(schema: dict) -> dict:
 
 TOOL_SCHEMAS = [
     {"type": "function", "function": {
-        "name": "query", "description": f"查询接口：随时获取你的各面板。★ 你的**国土与视野已作为「坐标地图」常驻**在每回合的状态里（按势力分段：我 / 野人 / 各国；每行一格：`(x,y)归属地形，[L2城][，地名][，番号…]`），所以这里查的是**细节**。land=地皮逐格明细（可翻页/按建筑或资源过滤） / tile=**单格全明细**（x= y= 或 at=地名） / grid=**网格版地图**（ASCII 格子图，适合想一眼看形状时） / res=国库与储备 / plan=国策规划 / army=军队 / market=世界市场(现价/买价/卖价/均衡价+大单试算) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=间谍情报(别国经济底细+粗略军情) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内敌军 / all=全部。每个行动后状态会变，拿不准就再查一次。",
+        "name": "query", "description": f"查询接口：随时获取你的各面板。★ 你的**国土与视野已作为「坐标地图」常驻**在每回合的状态里（按势力分段：我 / 野人 / 各国；每行一格：`(x,y)归属地形，[L2城][，地名][，番号…]`），所以这里查的是**细节**。land=地皮逐格明细（可翻页/按建筑或资源过滤） / tile=**单格全明细**（x= y= 或 at=地名） / grid=**网格版地图**（ASCII 格子图，适合想一眼看形状时） / res=国库与储备 / plan=国策规划 / army=军队 / market=世界市场(现价/买价/卖价/均衡价+大单试算) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=间谍情报(别国经济底细+粗略军情) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内他国军队（野人守军不列，见地图标记） / all=全部。每个行动后状态会变，拿不准就再查一次。",
         "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "plan", "land", "tile", "grid", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True},
                               "cap": {"type": "integer", "description": f"panel=land：本次列几块（默认 {LAND_CAP}）"},
                               "offset": {"type": "integer", "description": "panel=land：从第几块开始列（翻页用）"},
