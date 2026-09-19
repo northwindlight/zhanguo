@@ -294,9 +294,24 @@ def run() -> None:
                         emit(msg if ok else f"⚠ {msg}")
                     except ValueError:
                         emit("⚠ 利率要写百分数，如 rate 5 / rate -3")
+            elif parts[0] in ("say", "公告", "广播", "宣告", "announce"):
+                # **世界公告**：观察者自己开口，全世界都看得到（走 world.broadcast，
+                # 与"按视野过滤"的纪事不同）。这是**通用机制**——跟开不开世界央行无关
+                # （用户 2026-09-19：「直接说公告就行了，因为有的局没有央行」）。
+                # 用途：解释你为什么降息、天下大势、规则变更预告……正文原样广播。
+                if len(parts) < 2:
+                    emit("用法：say 正文 / 公告 正文（**全世界**都看得见，与开不开央行无关；"
+                         "例：公告 今年大旱，粮价必涨，各位早做打算）")
+                else:
+                    text = cmd.split(None, 1)[1].strip()
+                    if text:
+                        world.broadcast(f"📢 {text}")
+                        emit(f"（已向全世界广播：📢 {text}）")
+                    else:
+                        emit("用法：say 正文")
             else:
                 emit(f"未知命令：{cmd}（支持 add 国名 [匈奴] / send 国家 内容 / "
-                     f"cheat 国家 骑N 粮N 金N / rate 5）")
+                     f"cheat 国家 骑N 粮N 金N / rate 5 / say(公告) 正文）")
         if cmds:
             flush(out, journal_path)
             continue
