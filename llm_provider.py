@@ -8,7 +8,7 @@
                 {content, reasoning_content, tool_calls:[{id,type,function:{name,arguments}}]}
         stats : 用量统计 {"wall","stream","first","maxgap","out_tokens","reason_tokens",
                 "hit","miss"}（缺项按 0 计）
-        重试全部在提供方内部做完（"重试也不会好"的错误——配额耗尽/欠费——**不重试**）；
+        重试全部在提供方内部做完（**配额耗尽这类 429 也照样重试**——重试窗口正是留给"当场续费"的）；
         **耗尽后原样抛出 ⇒ 上层（`mp_ai.run_openai_turn` → `mp_run`）直接终止本局**
         （2026-09-20 用户口径：「任何错误都应该直接终止游戏」；旧行为是吞成一条 user
         消息接着烧步数，一次配额墙白烧了 14 个回合）。
@@ -37,20 +37,6 @@ from __future__ import annotations
 import os
 import signal
 import time
-
-# 「重试也不会好」的错误指纹（命中即**不重试、直接抛** ⇒ 上层终止本局）。
-# ★ 2026-09-20：aliyun token-plan 的 `Your token-plan 1-week quota has been exhausted`
-#   是个 429，被当成普通限流重试了 —— 每次调用叠 3 次退避、每回合叠 max_steps 次、
-#   5 国 × 14 个回合，白烧一整周额度。这类错误重试一万次也不会好，只该立刻停。
-_PERMANENT_ERR = ("insufficient_quota", "quota has been exhausted", "exceeded your current quota",
-                  "quota exceeded", "insufficient balance", "insufficient_balance",
-                  "arrears", "billing", "account_deactivated", "欠费", "余额不足")
-
-
-def _is_permanent(e: BaseException) -> bool:
-    """这条错误是不是"重试也不会好"的（配额耗尽 / 欠费 / 账号停用）。只看错误正文。"""
-    s = str(e).lower()
-    return any(k in s for k in _PERMANENT_ERR)
 
 
 def hard_timeout(seconds: float, label: str):
@@ -102,9 +88,12 @@ class OpenAICompat:
             try:
                 return self._stream_once(messages, tools, cfg, api_timeout)
             except (APIConnectionError, APITimeoutError, RateLimitError, TimeoutError) as e:
-                if _is_permanent(e):          # 配额耗尽/欠费这类 429：重试没有意义，立刻抛
-                    raise
-                last = e                      # 网络/限流/硬超时：可重试
+                # ★ 配额耗尽（429 insufficient_quota）**也走重试**，不特判、不立刻抛：
+                #   用户 2026-09-20：「重试到本回合必须跳过时，再退出，而不是马上退——
+                #   不然玩家要是当场续费呢」。重试窗口内续费成功 ⇒ 无缝继续；
+                #   窗口耗尽 ⇒ 抛给上层终止本局（存档停在上一回合结算后）。
+                #   窗口长度 = api_retries × api_retry_wait（配置项，想给"续费"留更长时间就调它）。
+                last = e
             except APIStatusError as e:       # 5xx 可重试；4xx（鉴权/参数）直接抛
                 if 500 <= e.status_code < 600:
                     last = e
