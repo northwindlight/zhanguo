@@ -44,10 +44,13 @@ def _opt(name, default):
     return type(default)(sys.argv[sys.argv.index(name) + 1]) if name in sys.argv else default
 
 
-# ★位置参数只认**路径**：带逗号的（`--sweep 0,0.5,1` 的值）不是 ckpt。
-#   之前漏了这一条 ⇒ 跑完扫描后又拿 "0,0.5,1,2,4" 当路径去 load，末尾白炸一次。
+# ★位置参数只认**路径**：`--beta 1.0` 的 "1.0"、`--sweep 0,0.5` 的值，都不是 ckpt。
+#   踩过两次：一次是 `--sweep` 的值、一次是 `--beta` 的值，都是在**跑完之后**白炸一次
+#   （数据其实已经收到了，但退出码非零 ⇒ 我脚本里的 `|| echo` 兜底会把它误报成"超时卡住"）。
+#   ⇒ 判据写死为"带小数点或逗号的一律不是路径"。
 CKPTS = [a for a in sys.argv[1:]
-         if not a.startswith("--") and not a.lstrip("-").isdigit() and "," not in a]
+         if not a.startswith("--")
+         and not a.lstrip("-").replace(".", "").isdigit() and "," not in a]
 SEED = _opt("--seed", 900000)
 DET = "--det" in sys.argv            # 贪心臂：分开"模仿没学会"与"采样抽出来的"
 WANT_ENT = "--ent" in sys.argv       # 顺带量**同一批状态**上的动作分布熵
@@ -55,6 +58,7 @@ REPS = _opt("--reps", 2)
 TURNS = _opt("--turns", 200)
 PEN = _opt("--invalid-penalty", 2.0)      # 与炉子同口径
 LAND = _opt("--land-bonus", 0.0)
+BETA = _opt("--beta", 0.0)      # 第三条路：可执行性软加权强度
 set_threads(int(os.environ.get("ZHANGUO_THREADS", "4")))
 
 env = ZhanguoEnv(map_size=16, max_turns=TURNS, max_actions_per_turn=ACT_SAFETY,
@@ -85,6 +89,8 @@ def run(model, seed: int, rep: int) -> dict:
     pen_sum = 0.0
     ent_sum = 0.0
     by_kind: dict[str, int] = {}
+    att: dict[str, int] = {}
+    okk: dict[str, int] = {}
     while True:
         w = tokenize(env, obs)
         if WANT_ENT:
@@ -94,10 +100,14 @@ def run(model, seed: int, rep: int) -> dict:
                 _lg, _v0, _ = policy_logits(model, obs, win=w)
                 _p = torch.softmax(_lg, dim=-1)
                 ent_sum += float(-(_p * torch.log(_p + 1e-12)).sum(-1).mean())
-        i, _lp, _v = act(model, obs, deterministic=DET, win=w)
+        i, _lp, _v = act(model, obs, deterministic=DET, win=w,
+                       use_exec=BETA > 0, exec_beta=BETA)
         a = obs.cand["actions"][i]
         obs, _r, done, info = env.step(a)
         steps += 1
+        att[a.kind] = att.get(a.kind, 0) + 1
+        if info["ok"]:
+            okk[a.kind] = okk.get(a.kind, 0) + 1
         if not info["ok"]:
             rej += 1
             pen_sum += PEN * RS
@@ -116,7 +126,8 @@ def run(model, seed: int, rep: int) -> dict:
     return {"steps": steps, "rej": rej, "turns": turn_ends,
             "spend": s["spend_total"], "tiles": s["tiles"],
             "con_rew": s["spend_total"] * RS, "pen_rew": pen_sum,
-            "ent": ent_sum / max(steps, 1), "kinds": top}
+            "ent": ent_sum / max(steps, 1), "kinds": top,
+            "att": dict(att), "okk": dict(okk)}
 
 
 if not CKPTS:
@@ -129,6 +140,8 @@ print(f"种子 {SEED}，各 {TURNS} 回合（{'**贪心臂**' if DET else '采�
 print(f"{'ckpt':<22}{'步/回合':>9}{'撞墙/回合':>11}{'消费':>10}{'地':>6}"
       f"{'消费reward':>12}{'惩罚reward':>12}{'惩罚占比':>10}{'动作熵':>9}   被拒构成（前 4）", flush=True)
 
+A_ATT: dict = {}
+A_OKK: dict = {}
 for p in CKPTS:
     m = load(p)
     rs = [run(m, SEED, r) for r in range(REPS)]
@@ -140,7 +153,15 @@ for p in CKPTS:
     pen = st.median(x["pen_rew"] for x in rs)
     share = pen / (con + pen) if (con + pen) else 0.0
     kinds = max(rs, key=lambda x: x["rej"])["kinds"]
+    A_ATT, A_OKK = rs[-1]["att"], rs[-1]["okk"]
     print(f"{Path(p).stem:<22}{steps:>9.1f}{rej:>11.1f}{spend:>10,.0f}{tiles:>6.0f}"
           f"{con:>12.1f}{pen:>12.1f}{share:>10.0%}{st.median(x['ent'] for x in rs):>9.2f}   {kinds}", flush=True)
+
+if BETA:
+    print(f"\n逐动作类型：β={BETA} 下「尝试 / 成功 / 被拒」", flush=True)
+    print(f"  {'动作':<10}{'尝试':>7}{'成功':>7}{'被拒':>7}{'成功率':>9}", flush=True)
+    for k, n in sorted(A_ATT.items(), key=lambda kv: -kv[1]):
+        print(f"  {k:<10}{n:>7}{A_OKK.get(k, 0):>7}{n - A_OKK.get(k, 0):>7}"
+              f"{A_OKK.get(k, 0) / max(n, 1):>9.0%}", flush=True)
 
 print(f"\n总耗时 {time.time() - t0:.0f}s", flush=True)
