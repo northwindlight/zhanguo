@@ -370,6 +370,19 @@ def _fmt_map(world, name) -> str:
         lines.append(f"  {y + 1:3d} " + "".join(cell(x, y) for x in range(x0, x1 + 1)))
     lines.append(f"国土 {len(own)} 块 · 视野内 {len(vis)} 格（非自家 {len(vis - own)}）· "
                  f"可拓荒地 {len(world.frontier_of(name))} 块")
+    forts = []
+    for (fx, fy) in sorted(vis):
+        t2 = world.tiles.get((fx, fy))
+        if not t2 or t2["owner"] == name:
+            continue
+        lv = t2["buildings"].get("城堡", 0)
+        if lv:
+            forts.append(((fx, fy), lv))
+    if forts:
+        head = forts[:12]
+        txt = " ".join(f"L{lv}@({fx + 1},{fy + 1})" for (fx, fy), lv in head)
+        more = f" …另 {len(forts) - len(head)} 座" if len(forts) > len(head) else ""
+        lines.append(f"视野内城堡（看得见的要塞，攻它之前先掂量）：{txt}{more}")
     lines.append("国别代码：" + "  ".join(
         f"{letters[n]}={n}" + ("(你)" if n == name else "")
         for n in world.order if n in world.nations))
@@ -558,8 +571,14 @@ def _fmt_tile(world, name, xy) -> str:
             lines.append("  本回合可下令建造："
                          + ("可以" if not t["built_this_turn"] else "不行（本回合已下过单）"))
     else:
-        lines.append("  资源与建筑：**未探明**（那是别人的地/无主地——占下来才知道，"
-                     "别国的底细只能靠 spy / 换图）")
+        # 城堡**公开**（2026-09-19 用户：「不知道城堡很吃亏」）——它是看得见的要塞；
+        # 其余建筑与地块资源仍未探明（占下来才知道，别国建设底细靠 spy / 换图）。
+        for bn, cnt in world.visible_buildings(name, x, y).items():
+            if bn == "城堡":
+                cd = cnt * building_effect("城堡", "defense_per_level")
+                lines.append(f"  城堡：L{cnt}（该格再加 {cd:+d}% 防御，与地形**相乘**叠加）")
+        lines.append("  资源与其它建筑：**未探明**（那是别人的地/无主地——占下来才知道，"
+                     "别国的建设底细只能靠 spy / 换图）")
     mine_army = [a for a in world.armies if a["owner"] == name and (a["x"], a["y"]) == (x, y)]
     if mine_army:
         lines.append("  你的驻军：" + " ".join(f"{a['name']}({a['hp']}HP)" for a in mine_army))
@@ -869,12 +888,14 @@ def _help_sections() -> list[tuple[str, str]]:
             "地皮名字=ID，坐标 1-based。你能看的是自己地盘+相邻一圈（有联盟则连盟友的地盘也看得到；建瞭望塔可把事件视野再往外推）；他国国力只能推测。"
             "**你的国土与视野以两张带坐标轴的地图常驻在状态里**（同框、每格 2 字符）："
             "【地形/国土图】只画你国土 + 视野内的地形与归属（第 1 位=**统一小写**的地形、第 2 位=**国别代码**——自家的地也写自家代码、与别国写法完全一致；"
-            "*=无主且有野人守军、.=无主空地、?=视野外）；**【军事图】只标能动的军队**（自家 1..9a..z、他国 A..Z，"
-            "一格只画一个符号，番号/血量/坐标看图注），两张图都没有汉字与全角符号。\n"
+            "*=无主且有野人守军、.=无主空地、?=视野外）。**城堡是公开的**（看得见的要塞，"
+            "攻它之前先掂量）；**【军事图】只标能动的军队**（一格画**归属国的国别代码**、与地形图同一套，"
+            "一格只画一个符号），两张图都没有汉字与全角符号。\n"
             "视野内**已经包含地形**（每格第 1 位就是）；视野外的格一律不显示（画成 ?）——"
             "**地形不会比视野更宽**（迷雾对你一视同仁）。\n"
             "逐格明细用 query panel=land（cap= 列几块、offset= 翻页、filter= 只看含某建筑或某资源的格，如 filter=兵营 / filter=耕地）；"
-            "某一格的全明细用 query panel=tile x= y=（或 at=地名）。"
+            "某一格的全明细用 query panel=tile x= y=（或 at=地名）——那里**会报该格的城堡等级**"
+            "（只要在你视野里，谁的地都报）；地块资源与其它建筑则只有自家地才看得到。"
             "迷雾限制你**看见**的，不限制你**下令**的：可对视野外的格下 mv/atk——撞上不透明的"
             "墙（中立领土/暗藏的敌军/别人的战场）时，报错如实告知撞了什么（这就是侦察所得的情报），"
             "但代价是该军本回合移动额度作废；对看得见的格撞墙则不罚（试错免费）。想省额度就别盲推，"

@@ -370,13 +370,13 @@ class TestTileQuery(unittest.TestCase):
         self.assertIn("不在你视野内", s)
         self.assertNotIn("建筑位", s)
 
-    def test_hides_resources_and_buildings_for_non_own_land(self):
-        """★ 非自家地只给**地形与归属**：资源/建筑一律不报（用户 2026-09-18：
-        「野地不是没有资源视野吗，只有地形」）。
+    def test_外邦地_报城堡但仍瞒资源与其它建筑(self):
+        """★ 城堡**公开**（用户 2026-09-19：「我想公开，因为不知道城堡很吃亏」），
+        其余建筑与地块资源仍旧未探明。
 
-        原先这里把两样都漏了，而且对**敌国领土**还多漏一句错误的
-        "本回合可下令建造：可以"（那是人家的地）。资源是"占下来才知道"的东西，
-        别国的建设底细是 spy / 换图才买得到的。
+        这里同时守着三条：① 城堡等级必须报（含防御加成）；② `资源：` 不许出现；
+        ③ 敌国领土不许出现 `已建成`/`可下令建造`（原先是"资源与建筑一律不报"，
+        2026-09-18 那轮把这两样都漏了出去，2026-09-19 只放行城堡这一档）。
         """
         w = _world()
         _grow(w, "秦", 3)
@@ -385,16 +385,65 @@ class TestTileQuery(unittest.TestCase):
         enemy = next(p for p in sorted(vis) if w.owned_by(*p) is None and p != wild)
         t = w._new_tile(*enemy, "楚")
         t["owner"] = "楚"
+        t["buildings"]["城堡"] = 3
         t["buildings"]["兵营"] = 1
         t["pending"] = {"农场": 1}
         w.tiles[enemy] = t
-        for tag, pos in (("无主野地", wild), ("他国领土", enemy)):
-            out = mp_ai._fmt_tile(w, "秦", pos)
-            self.assertIn("地形：", out, tag)
-            self.assertNotIn("资源：", out, f"{tag} 不该报资源：{out}")
-            self.assertNotIn("已建成", out, f"{tag} 不该报建筑：{out}")
-            self.assertNotIn("可下令建造", out, f"{tag} 不该给建造建议：{out}")
-            self.assertIn("未探明", out, tag)
+        out = mp_ai._fmt_tile(w, "秦", enemy)
+        self.assertIn("城堡：L3", out, "视野内的敌国城堡必须报")
+        self.assertIn("+30% 防御", out, "该连它对防御的加成一起报")
+        self.assertNotIn("资源：", out, f"资源仍不该报：{out}")
+        self.assertNotIn("兵营", out, f"其它建筑仍不该报：{out}")
+        self.assertNotIn("已建成", out, f"不该报建设明细：{out}")
+        self.assertNotIn("可下令建造", out, f"不该给建造建议：{out}")
+        self.assertIn("未探明", out)
+        # 无主野地：没有城堡可报，同样不报资源
+        out_wild = mp_ai._fmt_tile(w, "秦", wild)
+        self.assertNotIn("资源：", out_wild)
+        self.assertNotIn("兵营", out_wild)
+
+    def test_视野外的城堡也不报(self):
+        """城堡公开的前提是"看得见"——视野外照旧不给（与 visible_to 同纪律）。"""
+        w = _world()
+        _grow(w, "秦", 3)
+        vis = mp_ai._visible_cells(w, "秦")
+        far = next((x, y) for x in range(w.size) for y in range(w.size)
+                   if (x, y) not in vis)
+        t = w._new_tile(*far, "楚")
+        t["owner"] = "楚"
+        t["buildings"]["城堡"] = 5
+        w.tiles[far] = t
+        self.assertEqual(w.visible_buildings("秦", *far), {}, "视野外不该看得见城堡")
+        self.assertIn("不在你视野内", mp_ai._fmt_tile(w, "秦", far))
+
+    def test_visible_buildings_rule(self):
+        """引擎侧唯一口径：自家地→全部；视野内他国→只有城堡；视野外→空。"""
+        w = _world()
+        own = _grow(w, "秦", 3)
+        w.tiles[own[0]]["buildings"]["城堡"] = 2
+        w.tiles[own[0]]["buildings"]["兵营"] = 1
+        self.assertEqual(w.visible_buildings("秦", *own[0]), {"城堡": 2, "兵营": 1})
+        adj = w.neighbors(*own[0])[0]
+        t = w._new_tile(*adj, "楚")
+        t["owner"] = "楚"
+        t["buildings"]["城堡"] = 3
+        t["buildings"]["兵营"] = 2
+        w.tiles[adj] = t
+        self.assertEqual(w.visible_buildings("秦", *adj), {"城堡": 3}, "只该看得见城堡")
+        empty = next((x, y) for x in range(w.size) for y in range(w.size)
+                     if (x, y) not in w.tiles)
+        self.assertEqual(w.visible_buildings("秦", *empty), {}, "未物化的格没有建筑")
+
+    def test_地形图摘要列出视野内城堡(self):
+        w = _world()
+        own = _grow(w, "秦", 3)
+        adj = w.neighbors(*own[0])[0]
+        t = w._new_tile(*adj, "楚")
+        t["owner"] = "楚"
+        t["buildings"]["城堡"] = 4
+        w.tiles[adj] = t
+        self.assertIn(f"视野内城堡", mp_ai._fmt_map(w, "秦"))
+        self.assertIn(f"L4@({adj[0] + 1},{adj[1] + 1})", mp_ai._fmt_map(w, "秦"))
 
     def test_own_land_still_shows_everything(self):
         w = _world()

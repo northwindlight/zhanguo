@@ -593,6 +593,27 @@ class World:
     def ter_char(self, x: int, y: int) -> str:
         return TERRAIN_CHARS[self.tile_terrain(x, y)]
 
+    def visible_buildings(self, name: str, x: int, y: int) -> dict:
+        """name 在 (x,y) 上**看得见**的建筑（不含在建）——全作唯一口径，面板一律走这里。
+
+        · **自家的地**：全部建筑（自己的工地当然清楚；在建不在此列，看 `pending`）。
+        · **视野内的他国/无主地**：**只有城堡** —— 要塞从外面就看得见，而兵营/工厂/农田
+          是内政底细，那是 `spy` / 换图才买得到的东西。
+        · **视野外**：空 dict（与 `visible_to` 同一条纪律）。
+
+        （2026-09-19 用户：「我想公开，因为不知道城堡很吃亏」——公开的**只有城堡**那一档，
+        其余建筑与地块资源仍旧未探明。）
+        """
+        t = self.tiles.get((x, y))
+        if not t:
+            return {}
+        if t["owner"] == name:
+            return {b: n for b, n in t["buildings"].items() if n}
+        if not self.visible_to(name, x, y):
+            return {}
+        n = t["buildings"].get("城堡", 0)
+        return {"城堡": n} if n else {}
+
     def owned_by(self, x: int, y: int) -> str | None:
         t = self.tiles.get((x, y))
         return t["owner"] if t else None
