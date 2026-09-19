@@ -45,7 +45,9 @@ from console import dw as _dw, pad as _pad
 from llm_provider import make_backend
 from ctx import est_tokens
 import rule_ai as rule_ai_registry
-from mp import (BLOC_NAME_MAX, CROSS, DIPLO_COST, EXTRA_PROMPT_TURNS, FALL_TRUCE_TURNS,
+from mp import (BANK_LOAN_MAX, BANK_LOAN_MAX_TURNS, BANK_RATE_MAX, BANK_RATE_MIN,
+                BANK_SPREAD, BLOC_NAME_MAX, CROSS, DIPLO_COST, EXTRA_PROMPT_TURNS,
+                FALL_TRUCE_TURNS,
                 PLAN_MAX_TURNS, POLITY, REPORT_EVERY, RES_KEYS, RES_LABEL,
                 RETREAT_DEF_COVER, SPY_COST, SPY_TURNS, SUMMARY_MIN_CHARS,
                 build_econ, good_value)
@@ -1157,10 +1159,49 @@ def _help_sections() -> list[tuple[str, str]]:
     return sections
 
 
+def _bank_rules() -> str:
+    """【世界央行】规则段（**只有开行时才返回**——关着就整节不存在，不占 token）。"""
+    return (
+        "国库现金**默认就是储蓄**（不用存）：每回合按储蓄利率结息——正=入账，负=扣钱"
+        "（**扣到 0 为止**：储蓄永远扣不成负的）。\n"
+        f"可向央行借款：单笔上限 {BANK_LOAN_MAX} 金、最长 {BANK_LOAN_MAX_TURNS} 回合，"
+        "**还清前不能再借**（不叠加）。贷款利率 = 储蓄利率 + "
+        f"{BANK_SPREAD:.0%}（**可为负**：那时欠款每回合缩水）。\n"
+        "每回合自动累计应还额（面板与近讯都会报）；**到期一次性强制扣款**——"
+        "这一笔允许把国库**扣成负的**（欠债不还，国库先扣穿）。"
+        "所以借款要拿去用在**回本快于到期日**的地方，否则到期那一下就白干。\n"
+        "借钱**算外交动作**，按外交费计（成功才扣；有外交中心照样减半）。\n"
+        "利率由**世界央行**设定，变更时**全世界播报**：上调＝抑制通货膨胀、下调＝减少紧缩。"
+        "利率为负时囤现金每回合缩水——那是央行在逼你把钱花出去或投出去。"
+    )
+
+
+def _fmt_bank(world, name) -> str:
+    """【央行】面板（开行才进常驻状态）：利率 + 你的借款状况。"""
+    r, lr = world.bank_rate(), world.bank_loan_rate()
+    ln = world.bank["loans"].get(name)
+    if ln:
+        st = (f"你欠央行 {ln['due']} 金（本金 {ln['principal']}、利率 {ln['rate']:+.1%}、"
+              f"还剩 {ln['turns_left']} 回合到期）——到期**强制扣款**，还清前不能再借")
+    else:
+        st = (f"你可以借一笔：≤{BANK_LOAN_MAX} 金、≤{BANK_LOAN_MAX_TURNS} 回合"
+              "（还清前不能再借）；目前无欠款")
+    if r < 0:
+        tip = "⚠ 储蓄利率为负：囤现金每回合都在缩水——央行在逼你把钱花出去或投出去。"
+    elif r > 0:
+        tip = "储蓄利率为正：现金每回合自动生息（别把它当成免费的——市场那本账另算）。"
+    else:
+        tip = "储蓄利率为 0：现金不生息也不被扣。"
+    return (f"储蓄利率 {r:+.1%}（国库现金默认就是储蓄，每回合结息）｜"
+            f"贷款利率 {lr:+.1%}（= 储蓄 + {BANK_SPREAD:.0%}）\n  {st}\n  {tip}")
+
+
 def rules_text(world, topic: str = "") -> str:
     """rules tool：按主题返回规则段落；主题识别不了就返回全文（不设限）。"""
     t = (topic or "").strip()
     secs = _help_sections()
+    if world.bank_on():                      # 开行才有这一节（关着不占 token）
+        secs = secs + [("世界央行", _bank_rules())]
     labels = {
         "建筑": "建筑", "建造": "建筑", "兵营": "建筑", "农场": "建筑", "城堡": "建筑",
         "瞭望塔": "建筑", "外交中心": "建筑", "工程院": "建筑", "军屯": "建筑", "民兵": "建筑",
@@ -1183,6 +1224,9 @@ def rules_text(world, topic: str = "") -> str:
         "回合": "回合与存档", "存档": "回合与存档", "结算": "回合与存档",
         "报表": "经济报表", "GDP": "经济报表", "投资": "经济报表", "军费": "经济报表",
     }
+    if world.bank_on():
+        labels.update({"央行": "世界央行", "利率": "世界央行", "贷款": "世界央行",
+                       "借款": "世界央行", "储蓄": "世界央行"})
     picks = []
     for key, label in labels.items():
         if key in topic:
@@ -1472,6 +1516,7 @@ def full_state(world, name, replay_since: int | None = None) -> str:
         f"【军队】\n{_fmt_armies(world, name)}",
         f"【威胁】\n{_fmt_threats(world, name)}",
         f"【市场】\n{_fmt_market(world, name)}",
+        *([f"【央行】\n{_fmt_bank(world, name)}"] if world.bank_on() else []),
         f"【经济报表】\n{_fmt_report_panel(world, name)}",
         f"【纪事(近10回合)】\n{_fmt_memory(world, name, replay_since)}",
         f"【地图情报】\n{_fmt_intel_hint(world, name)}",
@@ -1799,6 +1844,21 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
         return msg
 
     # ---- 市场
+    # ---- 世界央行：借款（开行才可用）
+    #   ★「贷款算外交，要 10 块钱」（用户 2026-09-19）⇒ 走 _charge + _diplo_cost：
+    #     先验国库、**成功才扣**、有外交中心照样减半。
+    #   ★「匈奴也可以借」⇒ **不**放进 HUNS_BLOCKED（它不是国与国的外交，是第三方的钱）。
+    if tool in ("loan", "贷款", "借款"):
+        def _int(v):
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return 0
+        return _charge(world, actor, _diplo_cost(world, actor),
+                       world.bank_loan, actor,
+                       _int(args.get("amount", args.get("qty", 0))),
+                       _int(args.get("turns", 0)))
+
     if tool in ("buy", "买"):
         g = GOOD_ALIAS.get(str(args.get("good", "")).lower())
         if g is None:
@@ -2151,6 +2211,20 @@ TOOL_SCHEMAS_TOKENS = est_tokens(json.dumps(TOOL_SCHEMAS, ensure_ascii=False))
 _SCHEMA_CACHE: dict[str, list[dict]] = {}
 
 
+BANK_TOOL_SCHEMA = {"type": "function", "function": {
+    "name": "loan",
+    "description": f"向世界央行借一笔（现金立刻到账）。**单笔上限 {BANK_LOAN_MAX} 金、"
+                   f"最长 {BANK_LOAN_MAX_TURNS} 回合**，**还清前不能再借**。"
+                   f"利率 = 储蓄利率 + {BANK_SPREAD:.0%}，**可为负**（那时欠款每回合缩水）。"
+                   "每回合自动累计应还额，**到期一次性强制扣款**——那一笔允许把国库扣成负的，"
+                   "所以只借**回本快于到期日**的钱。当前利率见状态面板的【央行】。"
+                   f"借钱算外交动作，按外交费计（{DIPLO_COST} 金，成功才扣，有外交中心减半）。",
+    "parameters": _props({
+        "amount": {"type": "integer", "description": f"借款额（≤{BANK_LOAN_MAX}）", "required": True},
+        "turns": {"type": "integer",
+                  "description": f"期限回合数（1~{BANK_LOAN_MAX_TURNS}）", "required": True}})}}
+
+
 def tool_schemas(world, name) -> list[dict]:
     """该国的工具 schema。**政体差异（如匈奴骑兵征召特价）由引擎现算**，
     再据此重建征召描述——不再对描述文本做字符串替换（那种补丁改一处漂一处）。
@@ -2160,7 +2234,8 @@ def tool_schemas(world, name) -> list[dict]:
     """
     key = world.polity.get(name) or ""
     if not key:
-        return TOOL_SCHEMAS
+        # 开行才挂上借款工具（开关是配置项、整局不变 ⇒ 工具表逐字节稳定、不吃缓存）
+        return TOOL_SCHEMAS + [BANK_TOOL_SCHEMA] if world.bank_on() else TOOL_SCHEMAS
     if key not in _SCHEMA_CACHE:
         schemas = copy.deepcopy(TOOL_SCHEMAS)
         costs = {k: world.recruit_cost(name, k) for k in UNIT_TYPES}

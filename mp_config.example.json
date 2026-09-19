@@ -3,6 +3,7 @@
   "seed": 20260905,
   "max_turns": 200,
   "rule_ai": "v10",
+  "world_bank": false,
   "save": "mp_save.json",
   "journal": "mp_journal.md",
 

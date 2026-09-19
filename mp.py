@@ -25,6 +25,11 @@ from pathlib import Path
 
 from game import (
     ARMY_HEAL_PER_TURN,
+    BANK_LOAN_MAX,
+    BANK_LOAN_MAX_TURNS,
+    BANK_RATE_MAX,
+    BANK_RATE_MIN,
+    BANK_SPREAD,
     ARMY_MAX_HP,
     ARMY_STARVE_DAMAGE,
     BUILDINGS,
@@ -123,11 +128,13 @@ LEDGER_FIELDS = ("prod_value",      # 采集/工厂 产出 × 市价（军屯 20
 #   宣战/议和一律以实体为签约方，在盟国家不再持有个人条约。**必须**bump：旧的
 #   alliances/defense_pacts/guarantees 是**国家级**的，读进来就会出现"成员国还留着
 #   个人条约"这种新规则下不可能存在的状态（比整档作废更糟——它不报错）。
-SAVE_VERSION = 3
+# v4（2026-09-19）：加「世界央行」（`bank`：开关/储蓄利率/未还贷款）。**必须**bump：
+#   旧档没有 bank 键、load 的键集合校验会直接拒载（本项目零兼容，见上）。
+SAVE_VERSION = 4
 SAVE_KEYS = ("version", "size", "seed", "turn", "rng_state", "nations", "order",
              "tiles", "armies", "next_army_seq", "diplo_built", "nation_code",
              "guard_once", "wars", "war_id", "truce", "blocs",
-             "votes", "vote_id", "pacts", "mail_pending",
+             "votes", "vote_id", "pacts", "bank", "mail_pending",
              "mailbox", "summaries", "summary_blocks", "long_memory", "turn_memory", "gift_pending",
              "map_pending", "maps", "spy_pending", "econ_intel", "plans", "polity",
              "extra_prompt", "peace_offers", "proposals", "offer_id", "prices",
@@ -367,6 +374,12 @@ class World:
         # 旧的「双边同盟」alliances 与**国家级**的 defense_pacts/guarantees 已随 v3 退休：
         #   国家不再是签约主体，成员手里不可能存在个人条约（入盟即作废）。
         self.pacts: list[dict] = []
+        # 世界央行（2026-09-19）：**默认关**（`mp_config.json` 的 world_bank 打开才生效）。
+        #   on   —— 开关
+        #   rate —— 储蓄利率（观察者设，可为负；负则每回合按现金扣钱，**扣到 0 为止**）
+        #   loans —— {国名: {principal, due, turns_left, taken_turn, rate}}，一国同时只有一笔
+        # 开了之后：国库现金默认就是储蓄（不用存）；贷款利率 = rate + BANK_SPREAD。
+        self.bank: dict = {"on": False, "rate": 0.0, "loans": {}}
         self.mail_pending: list[dict] = []
         self.mailbox: dict[str, list[dict]] = {}
         self.summaries: dict[str, list[dict]] = {}  # 各国回合小结纪事 [{turn,text}]（私有，本国 AI 记忆；全留，供旧回合汇总）
@@ -901,6 +914,18 @@ class World:
         if x is not None and self.nations:
             entry["seen"] = [n for n in self.nations if self.visible_to(n, x, y)]
 
+    def broadcast(self, text: str, phase: str = "事件") -> str:
+        """**全世界都看得见**的公告（央行利率这类世界新闻用它）。
+
+        与 `log` 的区别：`log` 按坐标做视野快照，**没有坐标的条目谁也看不到**；
+        这里显式把 `seen` 写成全体现存国家，`events_for` 按快照放行。
+        """
+        entry = {"turn": self.turn, "phase": phase, "nation": None,
+                 "x": None, "y": None, "text": text,
+                 "seen": list(self.nations)}
+        self.history.append(entry)
+        return text
+
     def log(self, text: str, phase: str = "事件", nation: str | None = None,
             x: int | None = None, y: int | None = None) -> str:
         entry = {
@@ -928,8 +953,12 @@ class World:
                 continue
             if h["nation"] == name:
                 out.append(f"[第{h['turn']}回合] {h['text']}")
-            elif h.get("x") is not None and \
-                    (name in h["seen"] if "seen" in h else self.visible_to(name, h["x"], h["y"])):
+            elif "seen" in h:
+                # ★ 有快照就**只认快照**（绝不退回现视野——否则夺地后旧战报会回溯显形）；
+                #   无坐标的世界广播也走这条：broadcast 把 seen 写成全体现存国家。
+                if name in h["seen"]:
+                    out.append(f"[第{h['turn']}回合] {h['text']}")
+            elif h.get("x") is not None and self.visible_to(name, h["x"], h["y"]):
                 # ★ 按落盘时刻的视野快照过滤（_stamp_seen）；无快照的极少数条目退回现视野
                 out.append(f"[第{h['turn']}回合] {h['text']}")
             if len(out) >= limit:
@@ -2163,6 +2192,9 @@ class World:
                     t["buildings"][k] += c
             t["pending"] = {k: 0 for k in BUILDINGS}
 
+        # 6.8) 世界央行：储蓄结息 + 贷款计息/到期强制扣款（开关关着就是空转）
+        self._bank_settle()
+
         # 7) 各国结算摘要（供 agent 看）
         for n in self.alive():
             et, mt, short = self.energy_report.get(n, (0, 0, False))
@@ -2418,6 +2450,104 @@ class World:
                                        base * PRICE_MAX_RATIO), 3)
         self.flow_in = {g: 0 for g in TRADEABLE}
         self.flow_out = {g: 0 for g in TRADEABLE}
+
+    # ------------------------------------------------------------- 世界央行
+    # 口径（2026-09-19 用户）：国库现金**默认就是储蓄**（不用存）；观察者设储蓄利率、可为负
+    # （负则每回合扣钱，**扣到 0 为止**）；贷款 = 储蓄利率 + BANK_SPREAD（也可为负）；
+    # 单笔 ≤1000 金、≤10 回合、**还清前不能再借**；到期**强制扣款**（这一笔允许扣成负的）。
+    def bank_on(self) -> bool:
+        return bool(self.bank.get("on"))
+
+    def bank_rate(self) -> float:
+        """储蓄利率（观察者设，可为负）。"""
+        return float(self.bank.get("rate", 0.0))
+
+    def bank_loan_rate(self) -> float:
+        """贷款利率 = 储蓄利率 + BANK_SPREAD（可为负 ⇒ 欠款每回合**缩水**）。"""
+        return self.bank_rate() + BANK_SPREAD
+
+    def bank_set_rate(self, rate: float) -> tuple[bool, str]:
+        """[观察者] 设储蓄利率；**变了就全世界播报**。
+
+        播报口径按用户原话：**上调＝抑制通货膨胀、下调＝减少紧缩**，带**变动幅度 + 现值**。
+        越界会夹到 [BANK_RATE_MIN, BANK_RATE_MAX]，并在回执里说明夹过。
+        """
+        if not self.bank_on():
+            return False, "本局没开世界央行（mp_config.json 的 world_bank=true 才生效）"
+        r = float(rate)
+        clamped = max(BANK_RATE_MIN, min(BANK_RATE_MAX, r))
+        old = self.bank_rate()
+        if abs(clamped - old) < 1e-9:
+            return False, f"利率没变（还是 {old:+.1%}）"
+        self.bank["rate"] = clamped
+        d = abs(clamped - old)
+        if clamped > old:
+            msg = f"🏦 世界央行公告：为了抑制通货膨胀，上调了 {d:.1%} 利率（现为 {clamped:+.1%}）"
+        else:
+            msg = f"🏦 世界央行公告：为了减少紧缩，下调了 {d:.1%} 利率（现为 {clamped:+.1%}）"
+        if abs(clamped - r) > 1e-9:
+            msg += f"（{r:+.1%} 超出可设区间，已夹到 {clamped:+.1%}）"
+        self.broadcast(msg)
+        return True, msg
+
+    def bank_loan(self, name: str, amount: int, turns: int) -> tuple[bool, str]:
+        """向世界央行借一笔：现金即刻到账；**还清之前不能再借**（不叠加）。"""
+        if not self.bank_on():
+            return False, "本局没开世界央行（mp_config.json 的 world_bank=true 才生效）"
+        if name not in self.nations:
+            return False, "借款方必须是现存国家"
+        if name in self.bank["loans"]:
+            ln = self.bank["loans"][name]
+            return False, (f"你在第 {ln['taken_turn']} 回合借的那笔还没还清"
+                           f"（到期应还 {ln['due']} 金、还剩 {ln['turns_left']} 回合）——"
+                           "还清前不能再借")
+        if not isinstance(amount, int) or amount <= 0:
+            return False, "借款额需为正整数"
+        if amount > BANK_LOAN_MAX:
+            return False, f"单笔上限 {BANK_LOAN_MAX} 金（你借 {amount}）"
+        if not isinstance(turns, int) or not (1 <= turns <= BANK_LOAN_MAX_TURNS):
+            return False, f"期限需为 1~{BANK_LOAN_MAX_TURNS} 回合（你给 {turns}）"
+        self.add_res(name, "黄金", amount)
+        self.bank["loans"][name] = {"principal": amount, "due": amount, "turns_left": turns,
+                                    "taken_turn": self.turn, "rate": self.bank_loan_rate()}
+        self.log(f"🏦 {name} 向世界央行借款 {amount} 金（{turns} 回合后到期，"
+                 f"利率 {self.bank_loan_rate():+.1%}）", phase="事件", nation=name)
+        return True, (f"已到账 {amount} 金：{turns} 回合后到期，当前利率 "
+                      f"{self.bank_loan_rate():+.1%}（= 储蓄 {self.bank_rate():+.1%} + "
+                      f"{BANK_SPREAD:.0%}）；到期**强制扣款**，还清前不能再借")
+
+    def _bank_settle(self) -> None:
+        """每回合末的央行结算：储蓄结息 + 贷款计息/到期强制扣款（开关关着就空转）。"""
+        if not self.bank_on():
+            return
+        r, lr = self.bank_rate(), self.bank_loan_rate()
+        for n in self.alive():
+            gold = self.res(n, "黄金")
+            if r and gold > 0:
+                d = int(gold * r)                     # 金是整数，截断取整
+                if d < 0 and gold + d < 0:
+                    d = -gold                         # ★ 储蓄**扣不到负**（用户口径）
+                if d:
+                    self.add_res(n, "黄金", d)
+                    self.log(f"🏦 {n} 储蓄结息 {d:+d} 金（利率 {r:+.1%}，"
+                             f"国库 {self.res(n, '黄金')}）", phase="事件", nation=n)
+            ln = self.bank["loans"].get(n)
+            if not ln:
+                continue
+            if lr:
+                ln["due"] = max(0, int(round(ln["due"] * (1 + lr))))
+            ln["turns_left"] -= 1
+            if ln["turns_left"] <= 0:
+                pay = ln["due"]
+                self.add_res(n, "黄金", -pay)          # ★ 贷款**允许扣成负的**（用户口径）
+                self.bank["loans"].pop(n, None)
+                self.log(f"🏦 {n} 的央行贷款到期：强制扣款 {pay} 金"
+                         f"（本金 {ln['principal']}、利率 {ln['rate']:+.1%}，"
+                         f"国库 {self.res(n, '黄金')}）", phase="事件", nation=n)
+            else:
+                self.log(f"🏦 {n} 的央行贷款计息：应还 {ln['due']} 金、"
+                         f"还剩 {ln['turns_left']} 回合（利率 {lr:+.1%}）",
+                         phase="事件", nation=n)
 
     # ------------------------------------------------------------- 信箱
     def send_mail(self, frm: str, to: str, text: str) -> tuple[bool, str]:
@@ -3433,6 +3563,7 @@ class World:
             "war_id": self._war_id,
             "truce": [[a, b, until] for (a, b), until in self.truce.items()],
             "pacts": self.pacts,
+            "bank": self.bank,
             "blocs": self.blocs,
             "votes": self.votes,
             "vote_id": self._vote_id,
@@ -3542,6 +3673,10 @@ class World:
         w.votes = [dict(v) for v in data["votes"]]
         w._vote_id = int(data["vote_id"])
         w.pacts = [dict(p) for p in data["pacts"]]
+        # 世界央行：on/rate/loans 全在档里（开关也持久化——续局不该把央行开了又关）
+        _bk = data["bank"]
+        w.bank = {"on": bool(_bk.get("on")), "rate": float(_bk.get("rate", 0.0)),
+                  "loans": {k: dict(v) for k, v in (_bk.get("loans") or {}).items()}}
         w.mail_pending = data["mail_pending"]
         w.peace_offers = data["peace_offers"]
         w.proposals = data["proposals"]

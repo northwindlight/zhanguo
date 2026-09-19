@@ -301,6 +301,16 @@ PRICE_REVERT = 0.75       # 每回合保留的偏离比例（向均衡价回归 
 PRICE_MIN_RATIO = 0.2     # 市价下限 = 基准价 × 该值
 PRICE_MAX_RATIO = 3.0     # 市价上限 = 基准价 × 该值
 
+# ---- 世界央行（2026-09-19）----
+# **配置开关**：mp_config.json 的 `world_bank`（默认 false）——没开就是纯装饰，一分钱不动。
+# 开了之后：国库现金**默认就是储蓄**（不用存），每回合按 `rate` 结息；
+# 可向央行借一笔，利率 = 储蓄利率 + BANK_SPREAD。
+BANK_SPREAD = 0.03          # 贷款利率 = 储蓄利率 + 该值（可为负 ⇒ 欠款每回合**缩水**）
+BANK_LOAN_MAX = 1000        # 单笔上限（金）；且**还清前不能再借**（不叠加）
+BANK_LOAN_MAX_TURNS = 10    # 单笔最长回合数
+BANK_RATE_MIN = -0.5        # 观察者能设的利率区间（每回合）；越界会被夹住并回显
+BANK_RATE_MAX = 0.5
+
 # 供需均衡价：每回合末按全世界本回合流量算
 #   净缺口比 gap = (耗 − 产) ÷ (耗 + 产) ∈[-1,1]（耗大于产 → 贵）；单边为 0 时取 ±MARKET_GAP_ONE_SIDE
 #   均衡价 = 基准价 × (1 + MARKET_SENS × gap)，再夹到 [EQ_MIN, EQ_MAX]
