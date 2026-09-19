@@ -55,6 +55,42 @@ class TestVersionGate(unittest.TestCase):
             with self.assertRaises(mp.SaveFormatError):
                 mp.World.load(p)
 
+    def test_append_field_filled_from_defaults(self):
+        """★ 追加式：老档缺的**追加字段**按默认补齐，整档不作废。"""
+        with tempfile.TemporaryDirectory() as d:
+            p = self._save_file(d)
+            data = json.loads(p.read_text(encoding="utf-8"))
+            for k in mp.SAVE_DEFAULTS:            # 把所有追加字段都删掉，模拟更老的档
+                data.pop(k, None)
+            data["version"] = mp.SAVE_MIN_VERSION
+            p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            w = mp.World.load(p)
+            self.assertFalse(w.bank_on(), "缺 bank ⇒ 按默认（关着）补齐")
+            self.assertEqual(w.pacts, [])
+
+    def test_resaving_upgrades_the_file_in_place(self):
+        """增量更新：旧档开起来、再存一次，文件就带上新键（不必换文件名/重开）。"""
+        with tempfile.TemporaryDirectory() as d:
+            p = self._save_file(d)
+            data = json.loads(p.read_text(encoding="utf-8"))
+            data.pop("bank")
+            data["version"] = mp.SAVE_MIN_VERSION
+            p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            mp.World.load(p).save(p)
+            back = json.loads(p.read_text(encoding="utf-8"))
+            self.assertEqual(set(back), set(mp.SAVE_KEYS))
+            self.assertEqual(back["version"], mp.SAVE_VERSION)
+
+    def test_too_old_version_rejected(self):
+        """比 SAVE_MIN_VERSION 还老 ⇒ 拒（那几版删过字段，读进来会静默丢东西）。"""
+        with tempfile.TemporaryDirectory() as d:
+            p = self._save_file(d)
+            data = json.loads(p.read_text(encoding="utf-8"))
+            data["version"] = mp.SAVE_MIN_VERSION - 1
+            p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            with self.assertRaises(mp.SaveFormatError):
+                mp.World.load(p)
+
     def test_save_key_set_matches_contract(self):
         """正常存档必须与 SAVE_KEYS 严丝合缝（save 侧的契约断言不触发即证明）。"""
         with tempfile.TemporaryDirectory() as d:

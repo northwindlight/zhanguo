@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import math
 import random
@@ -114,13 +115,18 @@ LEDGER_FIELDS = ("prod_value",      # 采集/工厂 产出 × 市价（军屯 20
                  "invest_gold",     # 建造实付金
                  "invest_wood_value")  # 建造耗木 × 当时市价
 
-# ---- 存档契约：版本锁死，零旧格式兼容 ----
-# SAVE_VERSION + SAVE_KEYS 是唯一来源：
-#   save() 写前断言键集合与 SAVE_KEYS 一致——新增状态字段忘了登记，第一次存档就炸，
-#   而不是静默丢字段（历史上"幽灵地块"就是 save/load 人肉对齐 50 键漏出来的病）；
-#   load() 先验版本再验键，任何不符直接抛 SaveFormatError——旧档不迁移、不猜，
-#   "同 seed 同档同状态"是复现性的口径，跨版本迁移就是腐烂。
-# 新增字段三步：__init__ 给默认 → SAVE_KEYS 登记 → save/load 各一行搬运。
+# ---- 存档契约：**追加式**（只加字段、不删字段）----
+# 2026-09-19 政策改动（用户口径：「这个档允许追加，而不是重开，只加银行不能删硬件，
+# 就是为了增量更新存档」）。此前是"版本锁死、零旧格式兼容"，现在改成：
+#   · **加字段**：登记 SAVE_KEYS + 在 SAVE_DEFAULTS 给默认（save/load 各一行搬运）。
+#     老档缺这个键 ⇒ **按默认补齐**，整档不作废、不用重开。⇒ **加字段不需要 bump 版本**。
+#   · **不许删字段、不许改已有字段的语义**（那才需要 SAVE_VERSION +1 让旧档作废，
+#     并把 SAVE_MIN_VERSION 抬到新版本）。
+#   · 版本闸门：`SAVE_MIN_VERSION ≤ 档内版本 ≤ SAVE_VERSION` 才放行——
+#     **比代码新的档依旧拒载**（未来格式我们读不懂），无版本号的古董档也拒。
+#   · 覆盖不到的区域仍旧拒载：缺"非追加字段"（截断/手改坏）直接报错，不带病续局。
+# save() 写前仍断言键集合与 SAVE_KEYS 严丝合缝——新增字段忘了登记，第一次存档就炸，
+# 而不是静默丢字段（历史上"幽灵地块"就是 save/load 人肉对齐 50 键漏出来的病）。
 # v2（2026-09-15）：地图生成换成蓝噪声 + 密度图调制（`mapgen.py`）。**必须**bump：
 #   已物化格子的 terrain/resources 是**字面量存在档里**的，不拒载就会出现
 #   "已占格=旧算法、新占格=新算法"的混图（比整档作废更糟——它不报错）。
@@ -128,9 +134,19 @@ LEDGER_FIELDS = ("prod_value",      # 采集/工厂 产出 × 市价（军屯 20
 #   宣战/议和一律以实体为签约方，在盟国家不再持有个人条约。**必须**bump：旧的
 #   alliances/defense_pacts/guarantees 是**国家级**的，读进来就会出现"成员国还留着
 #   个人条约"这种新规则下不可能存在的状态（比整档作废更糟——它不报错）。
-# v4（2026-09-19）：加「世界央行」（`bank`：开关/储蓄利率/未还贷款）。**必须**bump：
-#   旧档没有 bank 键、load 的键集合校验会直接拒载（本项目零兼容，见上）。
+# v4（2026-09-19）：加「世界央行」（`bank`：开关/储蓄利率/未还贷款）。
+#   ★ 按新的追加式政策，这一笔**本来不必 bump**（旧档缺 bank 就按默认补齐）；
+#     留 4 只是记录"bank 是哪一版进来的"。**v2/v3 那两次是真破坏性变更**（删过字段、
+#     改过语义）⇒ SAVE_MIN_VERSION 卡在 3：比它老的档不认（读进来会静默丢条约）。
 SAVE_VERSION = 4
+SAVE_MIN_VERSION = 3
+
+# 追加式存档的**默认值表**：老档缺这些键时就按这里补齐（只列"追加进来的"字段）。
+# 加字段时：SAVE_KEYS 登记 + 这里给默认 + save/load 各一行搬运 —— 三处齐了就不用 bump。
+SAVE_DEFAULTS: dict = {
+    "pacts": [],                                      # v3 起：实体级条约表
+    "bank": {"on": False, "rate": 0.0, "loans": {}},  # v4 起：世界央行
+}
 SAVE_KEYS = ("version", "size", "seed", "turn", "rng_state", "nations", "order",
              "tiles", "armies", "next_army_seq", "diplo_built", "nation_code",
              "guard_once", "wars", "war_id", "truce", "blocs",
@@ -3625,13 +3641,24 @@ class World:
     @classmethod
     def load(cls, path: str | Path) -> "World":
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-        if data.get("version") != SAVE_VERSION:
+        ver = data.get("version")
+        if ver is None:
             raise SaveFormatError(
-                f"存档版本不符（档内 {data.get('version', '无版本号＝旧档')} ≠ 当前 {SAVE_VERSION}）："
-                f"本项目不做旧档兼容，请用 --new 重开，或删掉 {path}")
+                f"存档没有版本号（无版本号＝上古档，没法判断该按哪套语义读）：请用 --new 重开，"
+                f"或删掉 {path}")
+        if not (SAVE_MIN_VERSION <= int(ver) <= SAVE_VERSION):
+            raise SaveFormatError(
+                f"存档版本超出可读区间（档内 {ver}，本代码可读 {SAVE_MIN_VERSION}~{SAVE_VERSION}）："
+                f"比代码新的档读不懂；比 {SAVE_MIN_VERSION} 老的档属于「删过字段」的那几版、"
+                f"语义对不上。请用 --new 重开，或删掉 {path}")
+        # ★ 追加式兼容：老档缺的**追加字段**按默认补齐（只加不删 ⇒ 老档永远开得起来）
+        for k, dv in SAVE_DEFAULTS.items():
+            if k not in data:
+                data[k] = copy.deepcopy(dv)
         missing = [k for k in SAVE_KEYS if k not in data]
         if missing:
-            raise SaveFormatError(f"存档缺字段：{missing}（文件被截断或改坏），请重开一局")
+            raise SaveFormatError(
+                f"存档缺字段：{missing}（这些不是已知的追加字段——文件被截断或改坏），请重开一局")
         w = cls(size=data["size"], seed=data["seed"], gen=False)   # 空壳：世界由存档整体还原（不预建默认三国，否则残出幽灵地块）
         w.turn = data["turn"]
         ver, internal, gauss = data["rng_state"]

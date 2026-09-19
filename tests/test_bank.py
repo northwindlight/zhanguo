@@ -344,18 +344,24 @@ class TestPanelAndSave(unittest.TestCase):
         self.assertEqual(w2.bank["loans"]["秦"]["due"], 700)
         self.assertEqual(w2.bank["loans"]["秦"]["turns_left"], 5)
 
-    def test_old_save_rejected(self):
-        """加了 bank 键 ⇒ 版本必须 bump（本项目零兼容：旧档直接拒载，不做迁移）。"""
+    def test_v3_save_still_loads_with_bank_off(self):
+        """★ **追加式存档**（2026-09-19 用户：「这个档允许追加，而不是重开，只加银行不能删
+        硬件，就是为了增量更新存档」）：老档缺 `bank` 键 ⇒ 按默认补齐（银行关着），
+        **不用重开**；再存一次就把新键带上（增量更新）。"""
         self.assertEqual(mp.SAVE_VERSION, 4)
+        self.assertIn("bank", mp.SAVE_DEFAULTS)
         w = _world()
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "s.json"
             w.save(p)
             data = json.loads(p.read_text(encoding="utf-8"))
+            data.pop("bank")                      # 模拟 v3 档
             data["version"] = 3
             p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-            with self.assertRaises(mp.SaveFormatError):
-                mp.World.load(p)
+            w2 = mp.World.load(p)                 # 应能开，不该拒载
+            self.assertFalse(w2.bank_on())
+            w2.save(p)                            # 再存 ⇒ 新键补上
+            self.assertIn("bank", json.loads(p.read_text(encoding="utf-8")))
 
 
 if __name__ == "__main__":
