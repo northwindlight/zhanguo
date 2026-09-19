@@ -203,6 +203,20 @@ class TestCachePrefixInvariant(unittest.TestCase):
         self.assertGreaterEqual(p2.replay_turns, p1.replay_turns)
         self.assertLessEqual(p2.total_tokens, big["ctx_window"] * big["ctx_fill"])
 
+    def test_describe_speaks_chinese_not_config_keys(self):
+        """★ 这行是**给看海台看的**，不是给配置文件看的。
+
+        2026-09-19 实况里它是「·period自动≈每13回合」——把配置键名 `period` 直接拼进了中文
+        （用户：这啥啊）。同一行后半段用的是 `｜` 分隔，前后风格也该一致。
+        """
+        auto = ctx.make_plan({"ctx_window": 262144, "ctx_roll": "period"}).describe()
+        self.assertIn("压缩周期自动≈每", auto)
+        self.assertNotIn("period", auto)
+        manual = ctx.make_plan({"ctx_window": 262144, "ctx_roll": "period",
+                                "ctx_period": 13}).describe()
+        self.assertIn("每13回合压缩（config 指定）", manual)
+        self.assertNotIn("period", manual)
+
 
 if __name__ == "__main__":
     unittest.main()

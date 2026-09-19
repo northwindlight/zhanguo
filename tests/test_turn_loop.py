@@ -220,6 +220,16 @@ class TestTurnLoop(unittest.TestCase):
         self.assertTrue(any("下滑" in ln for ln in lines), f"下滑没播报：{lines[:5]}")
         self.assertTrue(any("压缩记忆" in ln for ln in lines),
                         f"压缩了却没播报（正是 2026-09-19 那个洞的形状）：{lines[:5]}")
+        # ★ 看海口径（用户 2026-09-19）：「**我只想看压缩了多少，我不想知道他们怎么想的**」
+        #   ⇒ 运行期只播压缩（🧠）与故障（⚠）：思考 / 动作 / 宣告一律不回显
+        #   （动作与宣告几秒后由纪事块原样打出；思考只进 replay，本来就不进纪事）。
+        self.assertFalse(any("💭" in ln or "思考：" in ln for ln in lines),
+                         "别再回显模型的思考")
+        self.assertFalse(any("◇" in ln for ln in lines),
+                         "别再实时回显动作（纪事块里有，重复两遍是纯噪音）")
+        self.assertFalse(any("🗣" in ln for ln in lines), "宣告由世界纪事承接，不另 emit")
+        self.assertFalse(any("period" in ln for ln in lines),
+                         "中文播报里不该漏配置键名（period 是给配置文件看的）")
 
     def test_fixed_window_mode_still_works(self):
         w = self._world()

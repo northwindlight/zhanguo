@@ -271,9 +271,10 @@ class Plan:
             head = (f"窗口{_k(self.window)}·预算{_k(self.budget)}"
                     f"（{self.window and self.budget / self.window * 100:.0f}%）")
         if self.roll == "period":
-            head += (f"·period每{self.period}回合压缩"
+            # 中文里别漏模式名（`period` 是配置键，不是给看海台看的词）
+            head += (f"·每{self.period}回合压缩（config 指定）"
                      if self.period else
-                     f"·period自动≈每{self.effective_period or '?'}回合")
+                     f"·压缩周期自动≈每{self.effective_period or '?'}回合")
         total = self.total_tokens or 1
         hit = f"｜可命中前缀≈{self.stable_tokens / total * 100:.0f}%" if self.stable_tokens else ""
         return (f"{head}｜replay {self.replay_turns}回合{_k(self.replay_tokens)}"

@@ -2638,8 +2638,8 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                    "hit", "miss"):
             agg[_k] = agg.get(_k, 0.0) + (stream_stats.get(_k) or 0.0)
         agg["calls"] = agg.get("calls", 0) + 1
-        if emit and reasoning:
-            emit(f"💭 {name} 思考：{reasoning[:160].replace(chr(10),' ')}")
+        # ★ 不再回显 💭 思考（2026-09-19 用户口径：「我不想知道他们怎么想的」）。思考原文
+        #   照样进 replay/记录（那是模型自己的上下文），只是不上看海台。
         if tool_calls:
             stall = 0
             asst: dict = {"role": "assistant", "content": msg.get("content")}
@@ -2662,10 +2662,10 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                 if not is_end:
                     # end_turn 的小结由 execute 自己记一条即可，避免在 feed 里重复
                     engine_call(log_tool, world, name, fn, args, result)
-                    if emit:
-                        a_s = " ".join(f"{k}={v}" for k, v in (args or {}).items())
-                        emit(f"{world.turn}回合·{name} ◇ {fn} {a_s}")
-                        emit(f"      ↳ {result}")
+                    # ★ 不再实时回显动作与 ↳ 结果（曾 emit `{N}回合·{名} ◇ {工具} …`）：
+                    #   看海口径（用户 2026-09-19）是**只要压缩**——动作几秒后本来就会由
+                    #   纪事块（`[N·行动]…`，observer 刷 world.history）原样打出来，重复两遍纯噪音。
+                    #   ⇒ 运行期只播报 **记忆压缩**（🧠 上下文/下滑/压缩记忆）与 **故障**（⚠）。
                 messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
                 done += 1
                 if name not in world.nations:
@@ -2701,10 +2701,10 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
             if reasoning:
                 asst["reasoning_content"] = reasoning
             messages.append(asst)
+            # 宣告正文由这一条世界纪事全文承接（observer 会原样打到看海台），
+            # 故**不再**另 emit 一条 🗣（同一句话打两遍）。
             engine_call(world.log, f"{name} 宣告:「{content}」", phase="行动", nation=name)
             _auto_summary(content)
-            if emit:
-                emit(f"🗣 {name} 宣告：「{content}」")
             return _finish(done)
         if reasoning:
             # 纯思考轮（无正文无工具）：把思考原文回喂，让模型接着想而不是每次从零大思考
