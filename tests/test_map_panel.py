@@ -282,7 +282,8 @@ class TestMapPanel(unittest.TestCase):
         w = _world()
         _grow(w, "秦", 12)
         st = mp_ai.full_state(w, "秦")
-        self.assertIn("坐标地图（每行一格）", st, "常驻里没有坐标地图的说明")
+        self.assertIn("坐标地图", st, "常驻里没有坐标地图的说明")
+        self.assertIn("按势力分段", st)
         seg = st.split("【国土/视野】")[1].split("【军队】")[0]
         self.assertRegex(seg, r"\(\d+,\d+\)我平原", "坐标地图的行格式不对")
         self.assertNotIn("地形/国土图 x ", seg, "网格图不该再常驻（它走 panel=grid）")
@@ -630,17 +631,24 @@ class TestCoordinateAtlas(unittest.TestCase):
         return w, own, adj
 
     def test_line_format(self):
-        """`(x,y)归属地形，[驻军…][，L2城][，地名]` —— 四段都要能出现。"""
+        """`(x,y)归属地形，[L2城][，地名][，番号…]` —— **番号垫在行尾**（它长度不定）。
+
+        （用户 2026-09-19：「先地名后军队，这样美观，军队会扩展」。）
+        """
         w, own, adj = self._setup()
         out = mp_ai._fmt_atlas(w, "秦")
-        self.assertIn(f"({own[0]+1},{own[1]+1})我平原，驻军步兵x1，L2城", out, out)
-        self.assertIn(f"({adj[0]+1},{adj[1]+1})楚山地，驻军骑兵x1，L3城", out, out)
+        mine = next(l for l in out.splitlines() if l.startswith(f"({own[0]+1},{own[1]+1})"))
+        self.assertTrue(mine.startswith(f"({own[0]+1},{own[1]+1})我平原，L2城，"), mine)
+        self.assertTrue(mine.endswith("，步1"), f"番号该在行尾：{mine}")
+        outer = next(l for l in out.splitlines() if l.startswith(f"({adj[0]+1},{adj[1]+1})"))
+        self.assertTrue(outer.startswith(f"({adj[0]+1},{adj[1]+1})楚山地，L3城，"), outer)
+        self.assertTrue(outer.endswith("，骑2"), f"番号该在行尾：{outer}")
 
     def test_野与空地(self):
         w, _own, _adj = self._setup()
         lines = mp_ai._fmt_atlas(w, "秦").splitlines()
-        self.assertTrue(any("驻军野人x1" in l for l in lines),
-                        "无主+野人守军该写成 `(x,y)野山地，驻军野人x1`")
+        self.assertTrue(any(l.endswith("，野人") for l in lines),
+                        "无主+野人守军该写成 `(x,y)野山地，野人`")
         # 清掉某块无主地的野人 → 它就该只剩 `野+地形`（空地）。
         # （注意：开局每块无主地都有野人，所以"空地"必须显式造出来。）
         vis = sorted(mp_ai._visible_cells(w, "秦"))
@@ -648,7 +656,7 @@ class TestCoordinateAtlas(unittest.TestCase):
         w._drop_guardians(*wild)
         line = next(l for l in mp_ai._fmt_atlas(w, "秦").splitlines()
                     if l.startswith(f"({wild[0] + 1},{wild[1] + 1})"))
-        self.assertNotIn("驻军", line, f"空地不该有驻军：{line}")
+        self.assertEqual(len(line.split("，")), 1, f"空地该只有 `(x,y)野地形` 一段：{line}")
         self.assertNotIn("城", line, f"空地不该有城：{line}")
 
     def test_只列视野内的格(self):
@@ -662,14 +670,29 @@ class TestCoordinateAtlas(unittest.TestCase):
         out = mp_ai._fmt_atlas(w, "秦")
         self.assertNotIn(f"({far[0]+1},{far[1]+1})楚", out, "视野外的格不该出现在坐标地图里")
 
-    def test_驻军按国别与兵种合并(self):
-        """同格混编：格主的部队省国别，别人的带国别。"""
+    def test_番号段_格主的排前面且省前缀(self):
+        """同格混编：格主的部队省归属前缀、排前面；别人的带国名。"""
         w, own, _adj = self._setup()
         w.armies.append({"id": 3, "gid": 3, "name": "楚·步三军", "type": "步", "hp": 60,
                          "x": own[0], "y": own[1], "owner": "楚",
                          "moved_turn": -1, "engaged": False})
         out = mp_ai._fmt_atlas(w, "秦")
-        self.assertIn("驻军步兵x1、楚步兵x1", out, "格主的部队应排前面：" + out)
+        self.assertIn("步1、楚步3", out, "格主的部队应排前面且省前缀：" + out)
+
+    def test_按势力分段(self):
+        """★ 分段顺序：我 → 野人 → 其他国，段间空行（用户 2026-09-19：
+
+        「顺便按自己，野人，其他国排开 要一个回车分割势力」）。
+        """
+        w, _own, _adj = self._setup()
+        out = mp_ai._fmt_atlas(w, "秦")
+        self.assertIn("【我】", out)
+        self.assertIn("【野人】", out)
+        self.assertIn("【楚】", out)
+        self.assertLess(out.index("【我】"), out.index("【野人】"))
+        self.assertLess(out.index("【野人】"), out.index("【楚】"))
+        self.assertIn("\n\n【野人】", out, "段间要有空行")
+        self.assertIn("\n\n【楚】", out)
 
     def test_格局图仍可按需取(self):
         """网格版没删——`query panel=grid` 取，且默认面板不再是网格。"""
