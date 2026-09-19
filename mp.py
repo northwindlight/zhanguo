@@ -71,6 +71,7 @@ from balance import (
     ARRIVE_MARGIN_DIV,
     ARRIVE_MARGIN_MIN,
     BLOC_NAME_MAX,
+    BUY_REPORT_COST,
     DIPLO_COST,
     EXTRA_PROMPT_TURNS,
     FALL_TRUCE_TURNS,
@@ -2543,6 +2544,39 @@ class World:
         return True, (f"已到账 {amount} 金：{turns} 回合后到期，当前利率 "
                       f"{self.bank_loan_rate():+.1%}（= 储蓄 {self.bank_rate():+.1%} + "
                       f"{BANK_SPREAD:.0%}）；到期**强制扣款**，还清前不能再借")
+
+    def bank_sell_report(self, frm: str, to: str, report_turn: int,
+                         text: str) -> tuple[bool, str]:
+        """[工具] 向世界央行买一份**别国已公布**的经济报表（`BUY_REPORT_COST` 金/次）。
+
+        ★ 卖的是明细不是秘密：每期报表生成时全世界都收到过一行公告（GDP / 军费占 GDP /
+        总资产），央行卖的是那张表的全文（投资、外贸、跨期增长…）。所以它跟 `spy` 不冲突——
+        `spy` 偷的是**当下**的国库/储备/每块地的建设（100 金、3 回合后到手），
+        这里买的是**定期公开的账**（20 金、当场到手）。
+
+        `text` 由调用方（`mp_ai`）用同一套报表渲染器生成——引擎只认钱与库，不认排版。
+        **买不到一律不收钱**（没开行 / 不是现存国家 / 买自己 / 国库不足）：扣款在全部校验之后。
+        买到手进买家的 `econ_intel`（`query panel=spy` 可重看，与间谍情报同池、同配额）。
+        """
+        if not self.bank_on():
+            return False, "本局没开世界央行（mp_config.json 的 world_bank=true 才生效）——没人在卖报表"
+        if frm not in self.nations or to not in self.nations:
+            return False, "买卖双方都必须是现存国家"
+        if to == frm:
+            return False, "买自己国家的报表不用花钱：report 工具直接看（免费）"
+        if self.res(frm, "黄金") < BUY_REPORT_COST:
+            return False, (f"国库不足：买报表需 {BUY_REPORT_COST} 金，"
+                           f"你现 {self.res(frm, '黄金')}")
+        self.add_res(frm, "黄金", -BUY_REPORT_COST)
+        store = self.econ_intel.setdefault(frm, [])
+        store.append({"from": to, "turn": self.turn,
+                      "text": f"🏦【央行售出】{to} 第 {report_turn} 回合经济报表\n{text}"})
+        del store[:-KEEP_SAVES]          # 与间谍情报同池、同配额（控体积）
+        self.log(f"🏦 {frm} 花 {BUY_REPORT_COST} 金从世界央行买下 {to} 第 {report_turn} "
+                 f"回合的经济报表（query panel=spy 可重看）", phase="事件", nation=frm)
+        return True, (f"✅ 已买下 {to} 第 {report_turn} 回合的经济报表"
+                      f"（-{BUY_REPORT_COST} 金，国库 {self.res(frm, '黄金')}）；"
+                      f"这份表也进了你的情报库（query panel=spy）。全文如下：\n\n{text}")
 
     def _bank_settle(self) -> None:
         """每回合末的央行结算：储蓄结息 + 贷款计息/到期强制扣款（开关关着就空转）。"""

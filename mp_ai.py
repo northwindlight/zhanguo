@@ -46,7 +46,8 @@ from llm_provider import make_backend
 from ctx import est_tokens
 import rule_ai as rule_ai_registry
 from mp import (BANK_LOAN_MAX, BANK_LOAN_MAX_TURNS, BANK_RATE_MAX, BANK_RATE_MIN,
-                BANK_SPREAD, BLOC_NAME_MAX, CROSS, DIPLO_COST, EXTRA_PROMPT_TURNS,
+                BANK_SPREAD, BLOC_NAME_MAX, BUY_REPORT_COST, CROSS, DIPLO_COST,
+                EXTRA_PROMPT_TURNS,
                 FALL_TRUCE_TURNS,
                 PLAN_MAX_TURNS, POLITY, REPORT_EVERY, RES_KEYS, RES_LABEL,
                 RETREAT_DEF_COVER, SPY_COST, SPY_TURNS, SUMMARY_MIN_CHARS,
@@ -1171,6 +1172,10 @@ def _bank_rules() -> str:
         "这一笔允许把国库**扣成负的**（欠债不还，国库先扣穿）。"
         "所以借款要拿去用在**回本快于到期日**的地方，否则到期那一下就白干。\n"
         "借钱**算外交动作**，按外交费计（成功才扣；有外交中心照样减半）。\n"
+        f"央行还**卖别国已公布的经济报表**：{BUY_REPORT_COST} 金一份（`buy_report`，目标用 to=，"
+        "可选 turn= 指定期；当场到手，进 query panel=spy）。报表是每国每 "
+        f"{REPORT_EVERY} 回合自动结一期、**生成时全世界都收到过一行公告**的公开账，"
+        "央行卖的只是**明细全文**——要偷**当下**的国库/储备/每块地建设，仍得用 spy。\n"
         "利率由**世界央行**设定，变更时**全世界播报**：上调＝抑制通货膨胀、下调＝减少紧缩。"
         "利率为负时囤现金每回合缩水——那是央行在逼你把钱花出去或投出去。"
     )
@@ -1193,7 +1198,9 @@ def _fmt_bank(world, name) -> str:
     else:
         tip = "储蓄利率为 0：现金不生息也不被扣。"
     return (f"储蓄利率 {r:+.1%}（国库现金默认就是储蓄，每回合结息）｜"
-            f"贷款利率 {lr:+.1%}（= 储蓄 + {BANK_SPREAD:.0%}）\n  {st}\n  {tip}")
+            f"贷款利率 {lr:+.1%}（= 储蓄 + {BANK_SPREAD:.0%}）\n  {st}\n  {tip}\n"
+            f"  央行也卖别国已公布的经济报表：{BUY_REPORT_COST} 金一份"
+            f"（buy_report to=目标国）；要偷当下的底细仍得 spy。")
 
 
 def rules_text(world, topic: str = "") -> str:
@@ -1317,10 +1324,15 @@ def _fmt_intel(world, name) -> str:
 def _fmt_spy_hint(world, name) -> str:
     """收到的间谍情报摘要（完整见 query panel=spy）。"""
     es = world.econ_intel.get(name, [])
+    # 开行才有 buy_report 这条替代路线——关行时工具压根不存在，提示里也别提它（不占 token）
+    alt = (f"；或 buy_report 花 {BUY_REPORT_COST} 金买它**已公布**的经济报表（明细，当场到手）"
+           if world.bank_on() else "")
     if not es:
-        return f"无（可用 spy 花{SPY_COST}金刺探别国，{SPY_TURNS}回合后到手经济底细+粗略军情数量+地图）"
+        return (f"无（可用 spy 花{SPY_COST}金刺探别国，{SPY_TURNS}回合后到手经济底细"
+                f"+粗略军情数量+地图{alt}）")
     last = es[-1]
-    return f"{len(es)} 份，最新 {last['from']}（第{last['turn']}回合）；完整见 query panel=spy"
+    return (f"{len(es)} 份，最新 {last['from']}（第{last['turn']}回合）；"
+            f"完整见 query panel=spy{alt}")
 
 
 def _fmt_spy(world, name) -> str:
@@ -1406,6 +1418,27 @@ def _fmt_report(world, name, turn: int | None = None, all_: bool = False) -> str
     return (f"没有第 {turn} 回合的报表。已出："
             + "、".join(f"第{r['report_turn']}回合" for r in reps)
             + f"（每 {REPORT_EVERY} 回合自动出一期，不能手动运行；趋势看 report all=true）")
+
+
+def _report_of(world, to: str, turn: int | None = None):
+    """取**任意国家**某期经济报表的快照：返回 dict，取不到则返回一句错误文案（str）。
+
+    给 `buy_report`（向央行买别国报表）用——与本国 `report` 工具读的是同一份快照，
+    所以买家看到的明细与卖主自己看到的一模一样。不传 turn = 最新一期。
+    """
+    if to not in world.nations:
+        return f"没有这个国家：{to or '（空）'}（现存：" + "、".join(world.nations) + "）"
+    reps = world.econ_reports.get(to) or []
+    if not reps:
+        return (f"{to} 还没有任何经济报表：每 {REPORT_EVERY} 回合自动结一期，"
+                f"第 {REPORT_EVERY+1} 回合起才有（现第 {world.turn} 回合）")
+    if turn is None:
+        return reps[-1]
+    for r in reps:
+        if r["report_turn"] == turn:
+            return r
+    return (f"{to} 没有第 {turn} 回合的报表。它已出的期："
+            + "、".join(f"第{r['report_turn']}回合" for r in reps))
 
 
 def _fmt_report_panel(world, name) -> str:
@@ -1859,6 +1892,24 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
                        _int(args.get("amount", args.get("qty", 0))),
                        _int(args.get("turns", 0)))
 
+    # ---- 世界央行：买别国**已公布**的经济报表（BUY_REPORT_COST 金/次，开行才有）
+    #   卖的是明细不是秘密（每期报表生成时全世界都收到过一行公告），故不进 HUNS_BLOCKED。
+    if tool in ("buy_report", "买报表", "购买报表", "央行报表"):
+        to = str(args.get("to", "")).strip()
+        turn = args.get("turn", args.get("期", None))
+        if turn not in (None, "", 0, "0"):
+            try:
+                turn = int(turn)
+            except (TypeError, ValueError):
+                return "报表回合（turn）要写数字，如 turn=21；省略=最新一期"
+        else:
+            turn = None
+        rep = _report_of(world, to, turn)
+        if isinstance(rep, str):
+            return rep                      # 没这个国家 / 没那期报表：**不收钱**
+        return world.bank_sell_report(actor, to, rep["report_turn"],
+                                      _fmt_report_one(rep))[1]
+
     if tool in ("buy", "买"):
         g = GOOD_ALIAS.get(str(args.get("good", "")).lower())
         if g is None:
@@ -2225,18 +2276,40 @@ BANK_TOOL_SCHEMA = {"type": "function", "function": {
                   "description": f"期限回合数（1~{BANK_LOAN_MAX_TURNS}）", "required": True}})}}
 
 
+BUY_REPORT_TOOL_SCHEMA = {"type": "function", "function": {
+    "name": "buy_report",
+    "description": f"向世界央行买一份**别国已公布**的经济报表（{BUY_REPORT_COST} 金一次，"
+                   "当场到手；国库不足会被拒、不收钱）。★ 这不是偷：报表每 "
+                   f"{REPORT_EVERY} 回合自动结一期，**生成时全世界都收到过一行公告**"
+                   "（GDP / 军费占 GDP / 总资产），央行卖的只是那张表的**明细全文**"
+                   "（市场计价 GDP 及增长率、军费占比、总资产及增长、本期投资、外贸/内循环占比）。"
+                   "要偷**当下**的国库、储备与每块地的建设，仍得用 spy（100 金、3 回合后到手）。"
+                   "买到手进你的情报库（query panel=spy 可重看）。to=卖谁（不能是自己）；"
+                   "turn=指定报表回合，省略=它最新一期。",
+    "parameters": _props({
+        "to": {"type": "string", "description": "买哪一国的报表（别国名）", "required": True},
+        "turn": {"type": "integer", "description": "指定报表回合（如 21）；省略=它最新一期"}})}}
+
+# 开行才挂上的工具（整局不变 ⇒ 工具表逐字节稳定、不吃缓存）
+BANK_TOOL_SCHEMAS = (BANK_TOOL_SCHEMA, BUY_REPORT_TOOL_SCHEMA)
+
+
 def tool_schemas(world, name) -> list[dict]:
     """该国的工具 schema。**政体差异（如匈奴骑兵征召特价）由引擎现算**，
     再据此重建征召描述——不再对描述文本做字符串替换（那种补丁改一处漂一处）。
 
     口径唯一来源：`World.recruit_cost()`（读 `balance.POLITY`）。
     schema 对同一政体跨回合稳定 ⇒ 不影响前缀缓存（按政体缓存一份）。
+
+    ★ 银行工具（借款 / 买报表）挂在 **`bank_on()`** 上，**与政体无关**：
+    面板与 `rules` 从来就只看开没开行（手册那句「**匈奴也能借**」），
+    以前匈奴走的是 `_SCHEMA_CACHE` 那条路、漏挂了银行工具 ⇒ 看得见【央行】面板却借不到钱
+    （2026-09-19 随「央行卖报表」一并修）。
     """
     key = world.polity.get(name) or ""
     if not key:
-        # 开行才挂上借款工具（开关是配置项、整局不变 ⇒ 工具表逐字节稳定、不吃缓存）
-        return TOOL_SCHEMAS + [BANK_TOOL_SCHEMA] if world.bank_on() else TOOL_SCHEMAS
-    if key not in _SCHEMA_CACHE:
+        base = TOOL_SCHEMAS                      # 关行时**原样返回**（身份不变，省一次拷贝）
+    elif key not in _SCHEMA_CACHE:
         schemas = copy.deepcopy(TOOL_SCHEMAS)
         costs = {k: world.recruit_cost(name, k) for k in UNIT_TYPES}
         for t in schemas:
@@ -2244,7 +2317,10 @@ def tool_schemas(world, name) -> list[dict]:
             if fn["name"] == "recruit":
                 fn["description"] = _recruit_desc(costs)
         _SCHEMA_CACHE[key] = schemas
-    return _SCHEMA_CACHE[key]
+        base = schemas
+    else:
+        base = _SCHEMA_CACHE[key]
+    return base + list(BANK_TOOL_SCHEMAS) if world.bank_on() else base
 
 
 def _huns_prompt(world, name) -> str:

@@ -364,5 +364,113 @@ class TestPanelAndSave(unittest.TestCase):
             self.assertIn("bank", json.loads(p.read_text(encoding="utf-8")))
 
 
+def _world_with_report(nations=("秦", "楚"), on=True):
+    """跑到第 10 回合末 ⇒ 第 11 回合开局，各国各有第一期报表（`report_turn`=11）。"""
+    w = mp.World(size=24, seed=3, nations=list(nations))
+    w.bank["on"] = on
+    for _ in range(10):
+        w.begin_turn()
+        w.resolve_turn()
+    return w
+
+
+class TestSellReport(unittest.TestCase):
+    """★ 「找央行买他国经济报表，20 金一次」（用户 2026-09-19）。
+
+    口径：卖的是**已公布的公开账**的明细（每期报表生成时全世界都收到过一行公告），
+    所以与 spy（偷当下的国库/储备/每块地建设）不冲突；买不到**一律不收钱**。
+    """
+
+    def test_buy_charges_and_lands_in_intel(self):
+        w = _world_with_report()
+        g0 = w.res("秦", "黄金")
+        out = mp_ai.execute(w, "秦", "buy_report", {"to": "楚"})
+        self.assertIn("✅ 已买下 楚 第 11 回合的经济报表", out)
+        self.assertIn("【经济报表 · 报表回合 11", out, "该给全文，不是一行摘要")
+        self.assertEqual(w.res("秦", "黄金"), g0 - mp.BUY_REPORT_COST, "一次该扣 20 金")
+        self.assertEqual(len(w.econ_intel["秦"]), 1)
+        self.assertTrue(w.econ_intel["秦"][0]["text"].startswith("🏦【央行售出】楚 第 11 回合经济报表"),
+                        "买来的报表该带来源标记进情报库")
+        self.assertIn("央行售出", mp_ai.execute(w, "秦", "query", {"panel": "spy"}),
+                      "query panel=spy 该能重看买来的表")
+        self.assertTrue(any("从世界央行买下 楚 第 11 回合的经济报表" in e
+                            for e in w.events_for("秦", limit=5)), "该记一条纪事")
+        self.assertFalse(any("央行" in e for e in w.events_for("楚", limit=5)),
+                         "买谁的表是买家自己的事，不该让卖主收到通知")
+
+    def test_turn_selects_period(self):
+        w = _world_with_report()
+        for _ in range(10):                       # 再跑 10 回合 ⇒ 第 21 回合那期也出来了
+            w.begin_turn()
+            w.resolve_turn()
+        out = mp_ai.execute(w, "秦", "buy_report", {"to": "楚", "turn": 11})
+        self.assertIn("报表回合 11", out)
+        out = mp_ai.execute(w, "秦", "buy_report", {"to": "楚", "turn": 21})
+        self.assertIn("报表回合 21", out)
+        out = mp_ai.execute(w, "秦", "buy_report", {"to": "楚", "turn": 99})
+        self.assertIn("没有第 99 回合的报表", out)
+        self.assertIn("已出的期", out, "该把可买的期列出来")
+
+    def test_repeat_buying_same_period_pays_each_time(self):
+        """20 金**一次**：同一期反复买就反复收费（不是买断制）。"""
+        w = _world_with_report()
+        g0 = w.res("秦", "黄金")
+        mp_ai.execute(w, "秦", "buy_report", {"to": "楚"})
+        mp_ai.execute(w, "秦", "buy_report", {"to": "楚"})
+        self.assertEqual(w.res("秦", "黄金"), g0 - 2 * mp.BUY_REPORT_COST)
+        self.assertEqual(len(w.econ_intel["秦"]), 2)
+
+    def test_nothing_is_charged_when_it_cannot_be_sold(self):
+        """★ 买不到不收钱：没报表 / 买自己 / 该期不存在 / 国库不足，钱一分不动。"""
+        w = _world_with_report()
+        g0 = w.res("秦", "黄金")
+
+        w2 = mp.World(size=24, seed=3, nations=["秦", "楚"])   # 第 3 回合：一期报表都还没结过
+        w2.bank["on"] = True
+        w2.turn = 3
+        self.assertIn("还没有任何经济报表",
+                      mp_ai.execute(w2, "秦", "buy_report", {"to": "楚"}))
+        self.assertFalse(w2.econ_intel.get("秦"))
+
+        self.assertIn("买自己国家的报表不用花钱",
+                      mp_ai.execute(w, "秦", "buy_report", {"to": "秦"}))
+        self.assertIn("没有这个国家",
+                      mp_ai.execute(w, "秦", "buy_report", {"to": "齐"}))
+        w.add_res("秦", "黄金", -(w.res("秦", "黄金") - 5))     # 国库只剩 5
+        self.assertIn("国库不足", mp_ai.execute(w, "秦", "buy_report", {"to": "楚"}))
+        self.assertEqual(w.res("秦", "黄金"), 5, "被拒的购买不该扣钱")
+        self.assertFalse(w.econ_intel.get("秦"))
+        self.assertEqual(w.res("楚", "黄金"), 1500, "钱只是不扣，不该转给卖主")
+
+    def test_needs_the_bank(self):
+        """开行才有这工具（关着则工具表里一个字都不出现）。"""
+        w = _world_with_report(on=False)
+        names = [s["function"]["name"] for s in mp_ai.tool_schemas(w, "秦")]
+        self.assertNotIn("buy_report", names)
+        self.assertNotIn("buy_report", mp_ai.rules_text(w, ""))
+        self.assertNotIn("buy_report", mp_ai.full_state(w, "秦"))
+        self.assertIn("没开世界央行", mp_ai.execute(w, "秦", "buy_report", {"to": "楚"}))
+        w.bank["on"] = True
+        names = [s["function"]["name"] for s in mp_ai.tool_schemas(w, "秦")]
+        self.assertIn("buy_report", names)
+        self.assertIn("buy_report", mp_ai.rules_text(w, "央行"))
+        self.assertIn("buy_report", mp_ai.full_state(w, "秦"), "面板该指条明路")
+
+    def test_huns_can_buy_too(self):
+        """★ 银行工具与政体无关（手册：「匈奴也能借」）——匈奴看得见【央行】就得拿得到工具。
+
+        此前 `tool_schemas` 只在**无政体**那条路上挂银行工具，匈奴走 `_SCHEMA_CACHE`
+        那条路 ⇒ 面板写着"你可以借一笔"、工具表里却连 `loan` 都没有（看得见摸不着）。
+        """
+        w = _world_with_report(nations=("秦", "林胡"))
+        w.apply_polity("林胡", "huns")
+        names = [s["function"]["name"] for s in mp_ai.tool_schemas(w, "林胡")]
+        self.assertIn("loan", names, "匈奴该拿得到借款工具")
+        self.assertIn("buy_report", names, "匈奴该拿得到买报表工具")
+        out = mp_ai._exec(w, "林胡", "buy_report", {"to": "秦"})
+        self.assertNotIn("匈奴不搞", out)
+        self.assertIn("✅ 已买下 秦", out)
+
+
 if __name__ == "__main__":
     unittest.main()
