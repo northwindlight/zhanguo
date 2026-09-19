@@ -648,6 +648,26 @@ class TestCastleReportedEverywhere(unittest.TestCase):
         rep = " ".join(w.events_for("秦", limit=6))
         self.assertIn("城L3", rep, f"战报应点出守方的城：{rep}")
 
+    def test_冲入交战回执报城(self):
+        """atk 冲进去的那一刻就要知道对面有城（不然下一回合才发现打不动）。"""
+        w, _own, adj = self._setup()
+        w.wars = [{"id": 1, "atk": "秦", "def": "楚", "followers": [],
+                   "atk_followers": [], "turn": 1}]
+        ok, msg = w.attack("秦", [1], adj[0], adj[1])
+        self.assertTrue(ok, msg)
+        self.assertIn("城L3", msg, f"冲入回执应报出该格城堡：{msg}")
+
+    def test_mv撞墙报错报城(self):
+        """mv 撞在敌国领土上时，顺带告诉你那格有城（进攻决策就差这一句）。
+
+        注意：城堡是在**调用点**补的，不是写进 `_mv_wall` —— 后者在 `_reachable`
+        的逐格 BFS 热路径上，往里加 `visible_to`（O(全表)）会把寻路拖垮。
+        """
+        w, _own, adj = self._setup()
+        ok, msg = w.move("秦", 1, adj[0], adj[1])
+        self.assertFalse(ok, msg)
+        self.assertIn("城L3", msg, f"mv 报错应带上该格城堡：{msg}")
+
     def test_占领回执报缴获的城(self):
         """★ 占领后建筑原样保留 ⇒ 回执要报出缴获的要塞。
 

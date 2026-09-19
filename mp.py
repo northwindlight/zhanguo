@@ -1421,7 +1421,11 @@ class World:
         why = self._mv_wall(name, x, y)
         if why:
             self._blind_cost(name, [a], x, y)
-            return False, why
+            # 城堡公开（2026-09-19）：这里之所以只在**调用点**补、不写进 `_mv_wall`，
+            # 是因为 `_mv_wall` 在 `_reachable` 的逐格 BFS 热路径上——往里加
+            # `visible_to`（O(全表)）会把寻路拖垮。
+            _cl = self.visible_buildings(name, x, y).get("城堡", 0)
+            return False, why + (f"（该格城L{_cl}）" if _cl else "")
         if (x, y) not in self._reachable(name, a):
             return False, self._unreachable_msg(a, x, y, for_attack=False)
         # mv 只挪位置，不占地——占地走 atk
@@ -1484,7 +1488,10 @@ class World:
                 a["engaged"] = True
                 a["engage_seq"] = self._next_engage_seq()  # 野地索取顺序：谁先 atk 谁号小
             who = "野人" if defs[0]["owner"] == "野人" else f"{defs[0]['owner']}军"
-            return True, f"{ids} 冲入 ({x+1},{y+1}) 与{who}交战，之后每回合结算一轮；可 retreat 撤出"
+            _cl = self.visible_buildings(name, x, y).get("城堡", 0)
+            _fort = f"（该格城L{_cl}，守方吃它的减伤）" if _cl else ""
+            return True, (f"{ids} 冲入 ({x+1},{y+1}) 与{who}交战{_fort}，"
+                          "之后每回合结算一轮；可 retreat 撤出")
         # 格上还有其他军队但不是你的敌人（中立/盟友，和平驻守）：
         #  · 他国领土 → 不能进驻（旧规：中立地不进门）；
         #  · 野地（无主）→ 和平驻守不产生任何权利、也不构成障碍：atk 只打野人/敌人，
