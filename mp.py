@@ -907,6 +907,60 @@ class World:
                 return True
         return False
 
+    def active_truce(self, a: str, b: str) -> int | None:
+        """a、b 之间**未到期**的休战返回到期回合（已到期的顺手清掉并返回 None）。"""
+        p = _pair(a, b)
+        t = self.truce.get(p)
+        if t is None:
+            return None
+        if self.turn >= t:
+            self.truce.pop(p, None)
+            return None
+        return t
+
+    def truces_of(self, name: str) -> list[tuple[str, int]]:
+        """该国**还在休战期内**的全部对手 → [(对手, 到期回合)]，按国名排序。
+
+        ★ 含**亡国时压给全天下的强制休战**（`FALL_TRUCE_TURNS`）——用户 2026-09-20 口径：
+        那条也算"和约"。所以某国亡国后的 10 回合里，全世界都"有和约在身"，
+        **谁都入不了盟/结不了盟**（口径如此，不是漏判）。
+        """
+        out: list[tuple[str, int]] = []
+        for p in list(self.truce):
+            if name not in p:
+                continue
+            other = next((x for x in p if x != name), None)
+            if other is None:
+                continue
+            t = self.active_truce(name, other)
+            if t is not None:
+                out.append((other, t))
+        return sorted(out)
+
+    def _bloc_join_block(self, a: str) -> str | None:
+        """**休战期内不得入盟 / 结盟**（用户 2026-09-20：「有和约的国家不能加入联盟」）。
+
+        全局口径：只要还有**未到期休战**，不论对手是谁，都不进任何军事同盟体系
+        （入盟与**发起结盟**都算——否则从"自己开一个盟"就绕过去了）。
+        返回拒绝理由，None = 可以。
+        """
+        ts = self.truces_of(a)
+        if not ts:
+            return None
+        who = "、".join(f"{o}（至第 {u} 回合）" for o, u in ts[:3])
+        more = f" 等 {len(ts)} 家" if len(ts) > 3 else ""
+        return (f"休战期内不能加入联盟：{a} 与 {who}{more}有和约在身"
+                "（休战期＝中立期，不结新的军事同盟——期满再谈）")
+
+    def _truce_blocks_war_join(self, countries: list[str], opponents: list[str]) -> bool:
+        """这批国家里有没有谁与**对面**还在休战期内 ⇒ 不能把它拖进这场战争。
+
+        用在自动参战（联盟/共同防御/保障的传递闭包）上：用户 2026-09-20
+        「有和约时，防御条约和独立保障应该无法执行」——**已有的条约不触发**，
+        和约不能因为盟友开战就当场作废。
+        """
+        return any(self.active_truce(m, o) for m in countries for o in opponents)
+
     def _war_brief(self, name: str) -> str:
         """给"战争期禁止外交"类错误提示用的战线简述。"""
         for w in self.wars:
@@ -1851,10 +1905,16 @@ class World:
         elif old != by:
             t = self.tiles[(x, y)]
             t["owner"] = by
-            # ★ 点名**原属国**（用户 2026-09-20：「丢地不报消息」）：原先只写攻方视角
-            #   （"秦 攻占「绥湾」"），失主从自己的近讯里**认不出这是自己丢了地**——
-            #   消息里既没有它、也没说"这块地易主了"。
-            msg = f"{by} {how}「{t['name']}」({x+1},{y+1})——原属 {old}"
+            # ★ **地名在前、被动语态**（用户 2026-09-20：「应该显示最近消息，地名(坐标)被x攻占」）：
+            #   一条纪事同时喂养三方（攻方、失主、视野内的第三方），所以取**事件视角**——
+            #   "「绥湾」(12,20) 被 秦 攻陷" 谁读都对；原先写"秦 攻占「绥湾」"是攻方视角，
+            #   失主从自己的近讯里**认不出是自己丢了地**（用户报的「丢地不报消息」）。
+            #   末尾点名原属国：失主据此一眼确认"这是我的地"。
+            #   ★ 动词只认"攻陷"这一种**真打下来**的说法，其余（`进驻`/`进驻占领`/
+            #   `守军尽撤`）一律中性"占领"——`how` 不全是动词，直接套被动会读成
+            #   "被秦守军尽撤"；那些是**原因**，同一回合的动作纪事里就写着。
+            msg = f"「{t['name']}」({x+1},{y+1}) 被 {by} {'攻陷' if how == '攻陷' else '占领'}" \
+                  f"（原属 {old}）"
             # 城堡**公开**（2026-09-19）：占领后建筑原样保留，所以要报出缴获了什么要塞。
             # ★ 这条日志是**视野广播**的（同格谁看得见谁就收到），所以只能带公开信息——
             #   城堡可以；兵营/工厂/农田那些若报出去，等于向第三者泄露被占国的内政底细。
@@ -2960,6 +3020,9 @@ class World:
             return False, "发起方必须是现存国家"
         if self.at_war(a):
             return False, f"战争期间不能缔结同盟：{self._war_brief(a)}（先议和再谈结盟）"
+        bad = self._bloc_join_block(a)          # 发起结盟也算入盟（别从"自己开一个盟"绕过去）
+        if bad:
+            return False, bad
         if self.bloc_of(a) is not None:
             return False, f"你已在联盟「{self.bloc_of(a)['name']}」中（一国同时只属一个联盟）"
         name = (name or "").strip()
@@ -2979,6 +3042,9 @@ class World:
                 return False, f"{x} 是游牧政体，不参与结盟（邀它只会让提议悬空）"
             if self.at_war(x):
                 return False, f"创始成员 {x} 正在交战，战争期间不能缔结同盟（先议和）"
+            bad = self._bloc_join_block(x)      # 有和约的创始成员拉不进来：别让提议悬空
+            if bad:
+                return False, f"创始成员 {x} 入不了盟——{bad}"
             inv.append(x)
         if not inv:
             return False, "至少邀请一个创始成员（tos=[国名,…]）；单国无需结盟"
@@ -3001,6 +3067,10 @@ class World:
         p.setdefault("accepted", [])
         if me in p["accepted"]:
             return False, "你已接受过该提议"
+        # 提议到接受之间可能刚议和/刚有人亡国（天下休战）⇒ 接受这一刻**再判一次**休战
+        bad = self._bloc_join_block(me)
+        if bad:
+            return False, bad
         p["accepted"].append(me)
         self.log(f"🕊 {me} 接受加入联盟「{p['name']}」", phase="外交", nation=me)
         pending = [x for x in p["invitees"] if x not in p["accepted"]]
@@ -3142,6 +3212,9 @@ class World:
             return False, f"你已在联盟「{self.bloc_of(a)['name']}」中（一国同时只属一个联盟）"
         if any(self.war_between(a, m) for m in bloc["members"]):
             return False, "你与该联盟成员正在交战，不能入盟（先议和）"
+        bad = self._bloc_join_block(a)          # 有和约在身 ⇒ 入不了盟（含亡国后的天下休战）
+        if bad:
+            return False, bad
         v = self._new_vote("入盟", bloc["name"], a, {"candidate": a})
         self.log(f"🗳 {a} 申请加入联盟「{bloc_name}」（投票#{v['id']}，赞成>反对通过，盟主可否决）",
                  phase="外交", nation=a)
@@ -3253,6 +3326,9 @@ class World:
                 return False, "入盟条件已变，申请落空"
             if self.bloc_of(cand) is not None or any(self.war_between(cand, m) for m in bloc["members"]):
                 return False, f"{cand} 已入他盟/与成员交战，入盟落空"
+            bad = self._bloc_join_block(cand)   # 投票期间刚议和/刚有人亡国 ⇒ 执行时再判一次
+            if bad:
+                return False, f"入盟落空——{bad}"
             absorbed = self._absorb_personal_pacts([cand])
             bloc["members"].append(cand)
             ab = f"（入盟即放弃个人条约：{'、'.join(absorbed)} 作废）" if absorbed else ""
@@ -3445,7 +3521,9 @@ class World:
                     self._same_camp(m, d) for m in members for d in dfs):
                 self._break_pacts_between(atk_ent, def_ent)
                 added = [m for m in members if m not in dfs
-                         and not any(self.war_between(m, x) for x in atk)]
+                         and not any(self.war_between(m, x) for x in atk)
+                         # 与这条战线的攻方有和约 ⇒ 不并进去打自己的休战对手
+                         and not self._truce_blocks_war_join([m], atk)]
                 w["followers"].extend(added)
                 for m in added:
                     self.proclaim(f"⚔ {m} 对 {self.entity_label(def_ent)} 宣战：盟友正被它攻打，"
@@ -3460,7 +3538,9 @@ class World:
                     self._same_camp(m, x) for m in members for x in atk):
                 self._break_pacts_between(atk_ent, def_ent)
                 added = [m for m in members if m not in atk
-                         and not any(self.war_between(m, x) for x in dfs)]
+                         and not any(self.war_between(m, x) for x in dfs)
+                         # 同上：与守方有和约 ⇒ 不并进去随攻
+                         and not self._truce_blocks_war_join([m], dfs)]
                 w.setdefault("atk_followers", []).extend(added)
                 for m in added:
                     self.proclaim(f"⚔ {m} 对 {self.entity_label(def_ent)} 宣战：盟友正在攻打它，"
@@ -3472,6 +3552,7 @@ class World:
         # 守侧闭包（无限跳）：保障（谁保障它）+ 共同防御（谁与它互卫）
         def_side = {def_ent}
         stack = [def_ent]
+        skipped: list[str] = []          # 因"和约在身"没被拖进来的援军（事后要通知）
         while stack:
             x = stack.pop()
             cands = set(self.guarantors_of(x)) | set(self.defense_partners_of(x))
@@ -3488,10 +3569,24 @@ class World:
                     continue        # 已与攻方交战，不并入守侧
                 if any(self.war_between(m, d) for m in cm for d in def_members):
                     continue        # 已与守侧某员交战，不并入
+                if self._truce_blocks_war_join(cm, members):
+                    # ★ **已有的保障/共同防御在休战期内不触发**（用户 2026-09-20：
+                    #   「有和约时，防御条约和独立保障应该无法执行」）——它正与攻方某国
+                    #   休战中，就不把它拖进这场战争：**和约优先于盟约**，否则盟友一开战
+                    #   和约当场作废（那"和约"就白签了）。不并入 ⇒ 也不从它继续传导
+                    #   （链子在此断），免得它的保障对象再被隔山打牛。
+                    skipped.append(c)
+                    continue
                 def_side.add(c)
                 def_members = def_members + cm
                 stack.append(c)
         followers = [c for c in def_members if c != b]
+        # 和约拦下的援军：**通知当事人与守方**（"预期中的援军为什么没来"——
+        # 不说就成了第三个"结果不告诉当事人"的洞）
+        for c in skipped:
+            self.log(f"⚠ {self.entity_label(c)} 的保障/共同防御义务**未触发**：它与攻方有和约在身"
+                     f"（和约优先，未参战）", phase="外交",
+                     parties=self.entity_members(c) + [b])
         # 防守义务优先：守侧成员与进攻侧实体的保障/共同防御自动解除；逐国通知
         for c in followers:
             self._break_pacts_between(self.entity_of(c), atk_ent)
