@@ -928,13 +928,27 @@ class World:
         return "  ".join(parts)
 
     # ------------------------------------------------------------- 看海日志
-    def _stamp_seen(self, entry: dict) -> None:
+    def _stamp_seen(self, entry: dict, parties: list[str] | None = None) -> None:
         """纪事落盘时刻抓一份"谁看得见这里"的快照。events_for 按快照过滤，
         而不是按查询时刻的视野——否则你后来夺下的地上发生的**旧** Retreat/战报
-        会事后凭空显形（回溯补发情报）。"""
+        会事后凭空显形（回溯补发情报）。
+
+        `parties`：**必须看到这条**的当事国（把结果告诉对面）。有坐标时是**并进**
+        视野快照，没坐标时它们就是全部可见者。这条通道是用户 2026-09-20 报的两个洞
+        的正解：求和/缔约**被拒**此前只有拒绝方自己看得见（对面一直等下去），
+        夺地只写攻方视角（失主**四周已无自家地**时连"我丢了哪块"都收不到）。
+        ★ 口径：**"怎么谈的"不广播**，但**当事人必须知道结果**——两者不冲突
+        （广播是给第三方的，parties 是给桌上那两方的）。
+        """
         x, y = entry.get("x"), entry.get("y")
-        if x is not None and self.nations:
-            entry["seen"] = [n for n in self.nations if self.visible_to(n, x, y)]
+        has_coords = x is not None and bool(self.nations)
+        if not has_coords and not parties:
+            return
+        seen = [n for n in self.nations if self.visible_to(n, x, y)] if has_coords else []
+        for p in (parties or ()):
+            if p in self.nations and p not in seen:
+                seen.append(p)
+        entry["seen"] = seen
 
     def broadcast(self, text: str, phase: str = "事件") -> str:
         """**全世界都看得见**的公告（央行利率这类世界新闻用它）。
@@ -963,12 +977,16 @@ class World:
         return self.broadcast(text, phase="外交")
 
     def log(self, text: str, phase: str = "事件", nation: str | None = None,
-            x: int | None = None, y: int | None = None) -> str:
+            x: int | None = None, y: int | None = None,
+            parties: list[str] | None = None) -> str:
+        """写一条纪事。可见性见 `_stamp_seen`：
+        `nation=` 只给那一家；坐标按视野快照；`parties=` **保证这些当事国看到**
+        （对手方通知：被拒了、地被夺了——不广播，但对面必须知道）。"""
         entry = {
             "turn": self.turn, "phase": phase, "nation": nation,
             "x": x, "y": y, "text": text,
         }
-        self._stamp_seen(entry)
+        self._stamp_seen(entry, parties)
         self.history.append(entry)
         return text
 
@@ -1582,7 +1600,8 @@ class World:
         # 格上无守军/敌人 → atk 进驻即占
         _ok, cmsg = self._conquer(x, y, name, "进驻占领", log_it=False)
         nm2 = self.tiles[(x, y)]["name"]
-        self.log(f"{name} {ids} 进驻 ({x+1},{y+1})，{cmsg}", phase="领土", nation=name, x=x, y=y)
+        self.log(f"{name} {ids} 进驻 ({x+1},{y+1})，{cmsg}", phase="领土", nation=name, x=x, y=y,
+                 parties=[owner] if owner and owner != name else None)   # 同上：失主必看
         note = (f"（{'、'.join(squatters)}军未参战，回合末自动遣返）" if squatters else "")
         return True, f"{ids} 进驻 ({x+1},{y+1})，敌人为 0，{cmsg}{note}"
 
@@ -1832,7 +1851,10 @@ class World:
         elif old != by:
             t = self.tiles[(x, y)]
             t["owner"] = by
-            msg = f"{by} {how}「{t['name']}」({x+1},{y+1})"
+            # ★ 点名**原属国**（用户 2026-09-20：「丢地不报消息」）：原先只写攻方视角
+            #   （"秦 攻占「绥湾」"），失主从自己的近讯里**认不出这是自己丢了地**——
+            #   消息里既没有它、也没说"这块地易主了"。
+            msg = f"{by} {how}「{t['name']}」({x+1},{y+1})——原属 {old}"
             # 城堡**公开**（2026-09-19）：占领后建筑原样保留，所以要报出缴获了什么要塞。
             # ★ 这条日志是**视野广播**的（同格谁看得见谁就收到），所以只能带公开信息——
             #   城堡可以；兵营/工厂/农田那些若报出去，等于向第三者泄露被占国的内政底细。
@@ -1846,7 +1868,11 @@ class World:
         else:
             return False, "已是自己领土"
         if log_it:
-            self.log(msg, phase="领土", nation=by, x=x, y=y)
+            # ★ `parties=[old]`：失主**必看**——按视野快照它可能已经看不到这格了
+            #   （那块地是飞地、或失去它之后四周再无自家地），于是"丢了地"这件事
+            #   在它的近讯里彻底不存在（用户 2026-09-20 报的第二个洞的极端情形）。
+            self.log(msg, phase="领土", nation=by, x=x, y=y,
+                     parties=[old] if old and old != by else None)
         if old and old != by:
             self._eliminate_if_dead(old)
         return True, msg
@@ -1856,7 +1882,10 @@ class World:
             return False
         if any(t["owner"] == name for t in self.tiles.values()):
             return False
-        self.log(f"☠ {name} 亡国：领土尽失，国祚断绝！", phase="灭国", nation=name)
+        # ★ 亡国**是公开事实**（`broadcast`）：原先写成 `log(nation=name)`——只有那个
+        #   已经不存在、再也不会查询的国家"看得见"，等于谁都不知道（连灭它的那家也不知道，
+        #   若它正好在视野外）。同族问题的极端形态（用户 2026-09-20「丢地不报消息」）。
+        self.broadcast(f"☠ {name} 亡国：领土尽失，国祚断绝！", phase="灭国")
         del self.nations[name]
         # 军队解散
         self.armies = [a for a in self.armies if a["owner"] != name]
@@ -2848,6 +2877,20 @@ class World:
         self.proposals.remove(p)
         return self._conclude_pact(kind, A, B)
 
+    def _pact_parties(self, p: dict) -> list[str]:
+        """一条缔约/结盟邀约的**当事人**：两边外交实体的全体现存成员（含无盟时的本国），
+        结盟提议再带上各位创始成员。**"被拒了"必须让对面知道**——不广播（"怎么谈的"
+        不公开），但对面一直在等这条邀约的结果（用户 2026-09-20 报的洞）。"""
+        out: list[str] = []
+        for ent in (p.get("A"), p.get("B")):
+            for c in (self.entity_members(ent) if ent else []):
+                if c not in out:
+                    out.append(c)
+        for c in [p.get("a")] + list(p.get("invitees", [])):
+            if c and c in self.nations and c not in out:
+                out.append(c)
+        return out
+
     def reject_pact(self, me: str, offer_id: int) -> tuple[bool, str]:
         p = next((x for x in self.proposals if x["id"] == offer_id), None)
         if p is None:
@@ -2857,16 +2900,21 @@ class World:
                 return False, "没有这个给你的邀约"
             self.proposals.remove(p)
             self.log(f"💔 {me} 拒绝了 {p['a']} 的结盟提议——「{p['name']}」创始流产（全体创始成员须一致同意）",
-                     phase="外交", nation=me)
+                     phase="外交", parties=self._pact_parties(p))
             return True, f"你拒绝了 {p['a']} 的结盟提议「{p['name']}」（创始流产）"
         A, B = p.get("A"), p.get("B")
         if B is None or self.entity_of(me) != B:
             return False, "没有这个邀约"
         if is_bloc_ent(B) and self.entity_chief(B) != me:
             self.proposals.remove(p)
+            self.log(f"💔 {self.entity_label(B)}（盟主 {self.entity_chief(B)}）拒绝了 "
+                     f"{self.entity_label(A)} 的{p['kind']}", phase="外交",
+                     parties=self._pact_parties(p))
             return True, (f"盟主 {self.entity_chief(B)} 代表 {self.entity_label(B)} 拒绝了 "
                           f"{self.entity_label(A)} 的{p['kind']}")
         self.proposals.remove(p)
+        self.log(f"💔 {self.entity_label(B)} 拒绝了 {self.entity_label(A)} 的{p['kind']}",
+                 phase="外交", parties=self._pact_parties(p))
         return True, f"你拒绝了 {self.entity_label(A)} 的{p['kind']}"
 
     def break_pact(self, kind: str, a: str, b: str) -> tuple[bool, str]:
@@ -3588,6 +3636,12 @@ class World:
         if p is None:
             return False, "没有这个求和提议"
         self.peace_offers.remove(p)
+        # ★ 必须回到提议方（用户 2026-09-20：「外交拒绝不会回应到对应国家」）：
+        #   原先这里**一条纪事都不写**，于是提议方既不知道被拒、也无法据"被拒"重估
+        #   （面板里那条"你提的求和#N"下回合直接消失，等于无声无息）。拒绝**不广播**
+        #   （"怎么谈的"不公开），只给桌上的两家。
+        self.log(f"💔 {p['b']} 拒绝了 {p['a']} 的求和提议（战争继续）", phase="外交",
+                 parties=[p["a"], p["b"]])
         return True, f"你拒绝 {p['a']} 的求和（战争继续）"
 
     # ------------------------------------------------------------- 关系查询
