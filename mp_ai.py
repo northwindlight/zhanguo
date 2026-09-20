@@ -241,7 +241,14 @@ def _res_line(world, name) -> str:
     )
 
 
-def _fmt_armies(world, name) -> str:
+def _fmt_armies(world, name, brief: bool = False) -> str:
+    """逐军明细；`brief=False`（`query panel=army`）**尾部附军事图**——谁在哪儿一眼看得出。
+
+    ★ 2026-09-20 用户：「军队面板很不详细，应该展现军队地图，地图专门做了面板没用」——
+    军事图（`_fmt_mil_map`）早就做好了，却只挂在 `panel=grid` 里，而 AI 查军队看的是
+    `panel=army` ⇒ 那份图基本没人看。现在接进军队面板；常驻状态里仍只给列表 + 一句指路
+    （免得每回合都把整张图塞进上下文）。
+    """
     mine = [a for a in world.armies if a["owner"] == name]
     if not mine:
         return "（无军队——先建兵营，再用 recruit 征兵）"
@@ -257,7 +264,10 @@ def _fmt_armies(world, name) -> str:
         lines.append(f"{a['name']}(#{a['id']}) | {a['hp']}HP | ({a['x']+1},{a['y']+1}) {where}"
                      + (f" 城L{cl}" if cl else "")          # 驻在自家城堡里就标出来（守城加成）
                      + f" | {st} | {mv}" + (f"｜本回合可及 {reach} 格" if st == "可行动" else ""))
-    return "\n".join(lines)
+    body = "\n".join(lines)
+    if brief:
+        return body + "\n  （想看「谁在哪儿」的军队位置图：query panel=army）"
+    return body + "\n\n" + _fmt_mil_map(world, name)
 
 
 def _visible_cells(world, name) -> set:
@@ -1582,7 +1592,7 @@ def full_state(world, name, replay_since: int | None = None) -> str:
         f"【国力】\n{_res_line(world, name)}",
         f"【国策规划】\n{_fmt_plan(world, name)}",
         f"【国土/视野】\n{_fmt_atlas(world, name)}",
-        f"【军队】\n{_fmt_armies(world, name)}",
+        f"【军队】\n{_fmt_armies(world, name, brief=True)}",   # 常驻只给列表（图按需查）
         f"【威胁】\n{_fmt_threats(world, name)}",
         f"【市场】\n{_fmt_market(world, name)}",
         *([f"【央行】\n{_fmt_bank(world, name)}"] if world.bank_on() else []),
