@@ -483,9 +483,14 @@ class World:
         """
         owner = self.owned_by(x, y)
         if owner is not None and owner != name and not self.allied_between(name, owner):
-            return (f"({x + 1},{y + 1}) 是敌国领土，mv 不得进入；进占请用 atk（会交战/占领）"
+            # ★ 话术要"教学式"：光说"不行"会让模型换个姿势再撞（实测赵 连撞 5 次 battle 自家地，
+            #   2026-09-20）。这里直接给三条出路：夺格用 atk / 靠近改走无主或自家地 / 查军队面板。
+            return (f"({x + 1},{y + 1}) 是「{owner}」的领土，**mv 进不去**（mv 只走自己地/盟国地/"
+                    f"无主地）。要夺这格：用 atk（那几支军会突入交战）；只是想靠近：改走相邻的"
+                    f"无主地或自家地；先看清各军在哪、能不能动：query panel=army"
                     if self.war_between(name, owner)
-                    else f"中立不可入境：({x + 1},{y + 1}) 是「{owner}」的领土（结盟或宣战后才能进出）")
+                    else f"中立不可入境：({x + 1},{y + 1}) 是「{owner}」的领土——mv 只走自己地/"
+                         f"盟国地/无主地；要进它的地，先结盟或先宣战（宣战后用 atk 夺格）")
         if owner is None and any(d["owner"] != name and d["owner"] != "野人"
                                  and (d["x"], d["y"]) == (x, y)
                                  and self.war_between(name, d["owner"])
@@ -1475,7 +1480,9 @@ class World:
         except IndexError as e:
             return False, str(e)
         if a.get("moved_turn") == self.turn:
-            return False, "本回合已移动过"
+            # 教学式话术：说清"它这回合不能再动"且**下一步该做什么**（别让它反复试同一支军）
+            return False, (f"{a['name']} 本回合已移动过（每军每回合只挪一次），这回合不能再动；"
+                           f"换一支还能动的军，或等结算后下回合——名单见 query panel=army 的「可行动」")
         # ★ 目标格本身的墙先判（与旧口径一致：视野外撞墙 → 报错照给、**额度照烧**，侦察要付钱）。
         #   然后才是"走不到"（地形代价/中途被挡）——那一条**不烧额度**（旧版的射程不够也不罚）。
         why = self._mv_wall(name, x, y)
@@ -1510,7 +1517,17 @@ class World:
         owner = self.owned_by(x, y)
         why = None
         if owner is not None and (owner == name or self.allied_between(name, owner)):
-            why = "目标是自己或盟国的领土，不能进攻"
+            # ★ 教学式（2026-09-20 实测赵 连续 5 次 atk 自家地）：说清"这格本来就是你的"，
+            #   给出正确动作，免得它换个编队继续撞。
+            here = [a["name"] for a in self.troops
+                    if (a["x"], a["y"]) == (x, y) and a["owner"] == name]
+            tile = self.tiles.get((x, y)) or {}
+            tname = tile.get("name", "?")
+            why = (f"({x+1},{y+1})「{tname}」已经是{('你' if owner == name else '你盟国')}的地，"
+                   f"**不用进攻**"
+                   + (f"——{('、'.join(here))} 已经在格上，算已进驻" if here else "")
+                   + "。要让军队过去：**用 mv**（自家/盟国/无主地都能进）；"
+                     "想看各军在哪、谁还能动：query panel=army")
         elif owner is not None and not self.war_between(name, owner):
             why = "中立不可攻击他国领土"
         else:
@@ -1537,7 +1554,8 @@ class World:
             if (a["x"], a["y"]) != (x, y) and (x, y) not in self._reachable(name, a, for_attack=True):
                 return False, self._unreachable_msg(a, x, y, for_attack=True)
             if (a["x"], a["y"]) != (x, y) and a.get("moved_turn") == self.turn:
-                return False, f"{a['name']} 本回合已移动过"
+                return False, (f"{a['name']} 本回合已移动过（每军每回合只动一次），不能再冲；"
+                               f"换一支「可行动」的军，或等结算——名单见 query panel=army")
         for a in targets:
             if (a["x"], a["y"]) != (x, y):
                 a["x"], a["y"] = x, y

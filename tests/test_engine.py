@@ -100,7 +100,7 @@ class TestRetreatCover(unittest.TestCase):
         w3.wars = [{"id": 1, "atk": "秦", "def": "楚", "followers": [], "turn": 1}]
         ok2, msg2 = w3.move("秦", 1, 6, 5)
         self.assertFalse(ok2)
-        self.assertIn("敌国领土", msg2)
+        self.assertIn("mv 进不去", msg2)   # 2026-09-20 话术改了
         # 野地格被敌军驻守 → 仍拦（脸贴脸必须 atk）
         w4 = mp.World(size=16, seed=5, nations=["秦", "楚"])
         f4 = {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
@@ -985,7 +985,7 @@ class TestFogScouting(unittest.TestCase):
         self.assertTrue(w.visible_to("秦", 4, 2))
         ok, msg = w.move("秦", 1, 4, 2)
         self.assertFalse(ok)
-        self.assertIn("敌国领土", msg)
+        self.assertIn("mv 进不去", msg)   # 2026-09-20 话术改了：断言不变量
         self.assertEqual(w._army("秦", 1)["moved_turn"], -1)  # 看得见 → 试错免费
 
 
