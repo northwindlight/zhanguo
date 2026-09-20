@@ -15,7 +15,10 @@
 
 from __future__ import annotations
 
+import os
+import signal
 import sys
+import time
 import types
 import unittest
 from pathlib import Path
@@ -162,6 +165,88 @@ class TestUsageReporting(unittest.TestCase):
         self.assertEqual(st["out_tokens"], 123)
         self.assertEqual(st["reason_tokens"], 45)
         self.assertEqual((st["hit"], st["miss"]), (900, 100))
+
+
+class TestStreamTimeout(unittest.TestCase):
+    """★ 流式的超时量的是**等待**，不是总时长（用户 2026-09-20 口径：
+    「首字3分钟，sse内60秒，非流式900」）。
+
+    首字 180s / 流内 60s / **流式没有总时长上限**；非流式（记忆压缩）900s 总时长。
+    这里用小数秒跑真定时器（生产值是 180/60/900，量纲一样）。
+    """
+
+    def setUp(self):
+        if os.name == "nt" or not hasattr(signal, "SIGALRM"):
+            self.skipTest("Windows / 无 SIGALRM：看门狗空转（那边只有 SDK timeout 兜底）")
+
+    def test_first_chunk_deadline(self):
+        """首字：发起后 0.3s 还没第一个块 ⇒ 判死，且消息点明是「首字」。"""
+        with self.assertRaises(TimeoutError) as cm:
+            with llm_provider.stream_timeout(0.3, 60) as clock:
+                time.sleep(0.8)
+                clock.kick()
+        self.assertIn("首字", str(cm.exception))
+
+    def test_chunk_gap_deadline(self):
+        """流内：收到过块之后，隔 0.3s 没来下一块 ⇒ 判死，消息点明是「流内」。"""
+        with self.assertRaises(TimeoutError) as cm:
+            with llm_provider.stream_timeout(60, 0.3) as clock:
+                clock.kick()
+                time.sleep(0.8)
+                clock.kick()
+        self.assertIn("流内", str(cm.exception))
+
+    def test_no_total_cap_while_streaming(self):
+        """★★ 核心口径：**一直在吐字就没有总时长上限**——跑的总时长远超"首字数"也不算超时。
+
+        旧的实现是 `hard_timeout(api_timeout)` 拿整段总时长硬砍（180s），这条会红：
+        按实测 ≈27 tok/s，180s 只够 ≈4.9k token，`max_tokens=16384` 根本到不了。
+        """
+        t0 = time.time()
+        with llm_provider.stream_timeout(0.5, 0.8) as clock:
+            for _ in range(6):
+                time.sleep(0.2)
+                clock.kick()
+        self.assertGreater(time.time() - t0, 0.5, "前提：这一跑的总时长的确超过了首字数")
+
+    def test_clock_always_disarms(self):
+        """★ 收工必卸（与 `hard_timeout` 同一条纪律）：看门狗**不许漏到块外**——
+        漏了就会在工具执行/引擎结算时突然抛超时，把好好的一回合炸掉。"""
+        with llm_provider.stream_timeout(5, 5) as clock:
+            clock.kick()
+        self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0.0, "没卸掉 alarm")
+
+    def test_stalled_stream_raises_and_retries(self):
+        """接上真循环：流卡住由看门狗判死，异常类型是 TimeoutError ⇒ 走既有重试通道。"""
+        import openai
+
+        class _Stalled:
+            def __init__(self, **kw):
+                self.calls = 0
+                self.chat = types.SimpleNamespace(completions=self)
+
+            def create(self, **kw):
+                self.calls += 1
+
+                def gen():
+                    time.sleep(0.8)          # 首块迟迟不来（> api_ttft_timeout）
+                    yield _Chunk(_Delta(content="迟到的正文"))
+                return gen()
+
+        fake = _Stalled()
+        orig = openai.OpenAI
+        openai.OpenAI = lambda **kw: fake
+        self.addCleanup(lambda: setattr(openai, "OpenAI", orig))
+        b = llm_provider.make_backend({"provider": "openai", "base_url": "http://stub",
+                                       "api_key": "k", "model": "m"})
+        cfg = {"model": "m", "max_tokens": 100, "api_ttft_timeout": 0.2,
+               "api_retries": 2, "api_retry_wait": 0}
+        tags: list[str] = []
+        with self.assertRaises(TimeoutError):
+            b.chat_turn([], [], cfg, on_retry=lambda a, tag, w, t: tags.append(tag))
+        self.assertEqual(fake.calls, 2, "超时属可重试类：该重试满 api_retries 次")
+        # 状态区上要能看出是哪一段超时（"TimeoutError" 等于没说：180s 和 60s 不是一回事）
+        self.assertTrue(tags and "首字" in tags[0], f"重试播报该点明是哪一段超时：{tags}")
 
 
 if __name__ == "__main__":

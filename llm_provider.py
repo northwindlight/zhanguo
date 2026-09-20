@@ -27,10 +27,24 @@ reasoning_content / prompt_cache_* 这套 DeepSeek 语义就是本层的默认�
 不按端点能力分化、一律发（2026-09-13 的 F1「未声明就不发」保护据此撤销；代价是
 严格端点（纯 OpenAI / vLLM）收到未知字段可能 400，用户已知并接受）。
 
-hard_timeout：POSIX 用 SIGALRM 硬超时兜底（SDK 因网络黑洞不抛时强制抛）。
+**超时按"流式/非流式"分成两套**（用户 2026-09-20 口径：「首字3分钟，sse内60秒，
+非流式900」）——量的是**等待**，不是总时长：
+
+  流式（`chat_turn` / `_stream_once`）  `stream_timeout(api_ttft_timeout=180,
+                                          api_chunk_timeout=60)`
+      · 首字 180s：发起请求到**第一个 chunk**；
+      · 流内 60s：收到一块就重新上弦，下一块超过 60s 没来才判死；
+      · **没有总时长上限**：一直在吐字就能一直跑（这才是流式的语义——按 ≈27 tok/s，
+        原来的 180s 总时长只够 ≈4.9k token，`max_tokens=16384` 根本到不了，
+        长思考的回合会被砍在半路，砍掉＝整局终止）。
+  非流式（`complete_text`，记忆压缩）  `hard_timeout(api_timeout=900)`
+      · 整段就一个响应、没有"块间隔"可看，只能整段计时。
+
+两套都走 SIGALRM：它能**打断阻塞中的读**（"流卡住了"正是要抓这个）。
 Windows 没有 SIGALRM——旧代码在函数入口裸用 `signal.SIGALRM`，本机一进 LLM 回合
-就 AttributeError 炸掉整局（2026-09-12 修）；现在按 console.py 的 os.name 分支
-惯例降级：Windows 只靠 SDK 自带 timeout + 提供方重试。
+就 AttributeError 炸掉整局（2026-09-12 修）；现在按 console.py 的 os.name 分支惯例降级：
+`stream_timeout` 空转、`hard_timeout` 空转，**只靠 SDK 自带 timeout + 提供方重试**
+（流式那边传的是 `timeout=ttft`：首字对得上，流内停滞会宽到 180s 才判死，已知差异）。
 """
 from __future__ import annotations
 
@@ -67,6 +81,53 @@ def hard_timeout(seconds: float, label: str):
     return _CM()
 
 
+class stream_timeout:
+    """**流式调用的两段式看门狗**（用户 2026-09-20 口径：「首字3分钟，sse内60秒，非流式900」）。
+
+      · **首字**：从发起请求到**第一个 chunk**，给 `first` 秒（默认 180 = 3 分钟）；
+      · **流内**：收到一块就**重新上弦**，下一块超过 `gap` 秒（默认 60）没来即判死。
+
+    ⇒ 流式调用**没有总时长上限**：只要一直在吐字，跑多久都行。此前是拿 `api_timeout`
+    当"整段总时长"硬砍（180s），而流式的真实语义是"等待"——按实测 ≈27 tok/s，
+    180s 只够 ≈4.9k token，`max_tokens=16384` 那个上限**根本到不了**：长思考的回合会被
+    砍在半路，而且砍掉＝整局终止。
+
+    POSIX 用 SIGALRM：它能**打断阻塞中的读**，正是"流卡住了"要抓的那种情形；
+    没有 SIGALRM 的平台（Windows）**空转**——那里只有 SDK 自带的 timeout 兜底，
+    见 `_stream_once` 里传的 `timeout=`（首字对得上，流内停滞则宽到首字那个数才判死）。
+    """
+
+    def __init__(self, first: float, gap: float):
+        self.first, self.gap = float(first), float(gap)
+        self._phase = "首字"
+
+    def _fire(self, signum, frame):
+        lim = self.first if self._phase == "首字" else self.gap
+        raise TimeoutError(f"{self._phase}等待超过 {lim:g}s（一直没等到新的输出块）")
+
+    def __enter__(self):
+        self._prev = None
+        if os.name == "nt" or not hasattr(signal, "SIGALRM"):
+            return self                        # Windows：空转，只有 SDK timeout 兜底
+        self._prev = signal.signal(signal.SIGALRM, self._fire)
+        signal.setitimer(signal.ITIMER_REAL, self.first)
+        return self
+
+    def kick(self) -> None:
+        """收到一个 chunk ⇒ 踢一脚重新上弦（此后按"流内间隔"算）。"""
+        if self._prev is None:
+            return
+        self._phase = "流内"
+        signal.setitimer(signal.ITIMER_REAL, self.gap)
+
+    def __exit__(self, *exc):
+        if self._prev is not None:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, self._prev)
+            self._prev = None
+        return False
+
+
 class OpenAICompat:
     """任意 OpenAI 兼容端点（DeepSeek / 火山方舟 / vLLM / ...）。
 
@@ -76,19 +137,20 @@ class OpenAICompat:
 
     def __init__(self, cfg: dict):
         from openai import OpenAI          # 运行时取属性：测试 patch openai.OpenAI 即生效
+        # 客户端级 timeout 只是**兜底**：两条路各自在请求上显式传（流式传首字数、
+        # 非流式传总时长），见 `_stream_once` / `complete_text`。
         self.client = OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"],
-                             timeout=float(cfg.get("api_timeout", 180)))
+                             timeout=float(cfg.get("api_timeout", 900)))
 
     def chat_turn(self, messages, tools, cfg, on_retry=None):
         from openai import (APIStatusError, APIConnectionError,
                             APITimeoutError, RateLimitError)
-        api_timeout = int(cfg.get("api_timeout", 180))
         retries = int(cfg.get("api_retries", 3))
         backoff = float(cfg.get("api_retry_wait", 2.0))
         last: Exception | None = None
         for attempt in range(1, retries + 1):
             try:
-                return self._stream_once(messages, tools, cfg, api_timeout)
+                return self._stream_once(messages, tools, cfg)
             except (APIConnectionError, APITimeoutError, RateLimitError, TimeoutError) as e:
                 # ★ 配额耗尽（429 insufficient_quota）**也走重试**，不特判、不立刻抛：
                 #   用户 2026-09-20：「重试到本回合必须跳过时，再退出，而不是马上退——
@@ -103,22 +165,33 @@ class OpenAICompat:
                     raise
             if attempt < retries and last is not None:
                 if on_retry:
-                    on_retry(attempt, type(last).__name__, backoff * attempt, retries)
+                    # 超时要**说明是哪一段**（首字 / 流内）——状态区上写个 "TimeoutError"
+                    # 等于没说：180s 与 60s 两个数不是一回事（用户 2026-09-20 问的就是这个）。
+                    # 其它异常仍只报类名（429 那句 message 是整坨 JSON，塞进状态区没法看）。
+                    tag = str(last) if isinstance(last, TimeoutError) else type(last).__name__
+                    on_retry(attempt, tag, backoff * attempt, retries)
                 time.sleep(backoff * attempt)
         assert last is not None
         raise last
 
-    def _stream_once(self, messages, tools, cfg, api_timeout):
-        """一次流式调用 + 聚合：返回 (msg, stats)。"""
+    def _stream_once(self, messages, tools, cfg):
+        """一次流式调用 + 聚合：返回 (msg, stats)。
+
+        **超时按流式的语义走**（用户 2026-09-20：「首字3分钟，sse内60秒」）：
+        `stream_timeout` 两段看门狗管首字与流内间隔，**没有总时长上限**。
+        `timeout=ttft` 那个参数是给**没有 SIGALRM 的平台**（Windows）用的 SDK 兜底。"""
         # deepseek-v4：thinking 开关 + reasoning_effort（low/medium/high）。
         # 一律发（用户 2026-09-19「行为按 deepseek 处理」）：cfg 没写 thinking 就按
         # enabled 走，不再有「没声明推理模型就省掉」的分叉（原 F1 保护已撤销）。
         extra = {"thinking": {"type": cfg.get("thinking") or "enabled"}}
         if cfg.get("reasoning_effort"):
             extra["reasoning_effort"] = cfg["reasoning_effort"]
+        # 首字 180s（3 分钟）/ 流内 60s：**都是"等待"，不是总时长**（用户 2026-09-20）。
+        ttft = float(cfg.get("api_ttft_timeout", 180))
+        gap = float(cfg.get("api_chunk_timeout", 60))
         stream_stats: dict = {}
         wall0 = time.time()
-        with hard_timeout(api_timeout, "超时"):
+        with stream_timeout(ttft, gap) as clock:
             stream = self.client.chat.completions.create(
                 model=cfg["model"], messages=messages,
                 tools=tools, tool_choice="auto",
@@ -128,11 +201,15 @@ class OpenAICompat:
                 # max_tokens 时，一口气做十几个动作的国家会被 4000 砍在半路）。
                 max_tokens=cfg.get("max_tokens", 16384),
                 extra_body=extra or None,
+                # SDK 自己的 timeout 只在**没有 SIGALRM 的平台**（Windows）才说了算：
+                # 那里首字 180s 对得上，流内停滞则要等到 180s 才判死（宽于 60s，已知）。
+                timeout=ttft,
                 stream=True, stream_options={"include_usage": True})
             c_s, r_s, tool_acc = "", "", {}
             first_t = None
             last_t = time.time()
             for chunk in stream:
+                clock.kick()               # 收到块 ⇒ 重新上弦（首字那一段到此结束）
                 now = time.time()
                 if first_t is None and chunk.choices:
                     d0 = chunk.choices[0].delta
@@ -198,15 +275,25 @@ class OpenAICompat:
         return msg, stream_stats
 
     def complete_text(self, messages, cfg, max_tokens=None):
+        """无工具的普通**非流式**调用（记忆压缩用）：**总时长**上限（默认 900s，
+        用户 2026-09-20「非流式900」）。
+
+        非流式没有"块间隔"可看（整段就一个响应），只能整段计时 ⇒ 用 `hard_timeout`
+        而不是流式那套两段看门狗（`stream_timeout`）。900 是"一次压缩能跑多久"的余量，
+        跟流式那两个数不是一个量纲，别混。
+        """
         # 压缩不需要思考：一律发 thinking:disabled（用户 2026-09-19「行为按 deepseek
         #   处理」——和 chat_turn 同源，扩展字段不再按端点能力分化）。
         extra = {"thinking": {"type": "disabled"}}
-        resp = self.client.chat.completions.create(
-            model=cfg["model"], messages=messages,
-            max_tokens=int(max_tokens if max_tokens is not None
-                           else cfg.get("ctx_compact_tokens", 1500)),
-            temperature=0.3,
-            extra_body=extra or None)
+        limit = float(cfg.get("api_timeout", 900))
+        with hard_timeout(limit, "非流式调用超时"):
+            resp = self.client.chat.completions.create(
+                model=cfg["model"], messages=messages,
+                max_tokens=int(max_tokens if max_tokens is not None
+                               else cfg.get("ctx_compact_tokens", 1500)),
+                temperature=0.3,
+                extra_body=extra or None,
+                timeout=limit)
         return (resp.choices[0].message.content or "").strip()
 
 
