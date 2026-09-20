@@ -1313,6 +1313,56 @@ def _fmt_threats(world, name) -> str:
             "视野内没有他国军队（野人守军不列在此——它们从不主动进攻，见坐标地图里每格的「，野人」）")
 
 
+def _fmt_alerts(world, name) -> str | None:
+    """**领土警报**——钉在状态面板**最前**（用户 2026-09-21：「领土变更，被侵略是大事，得强调」）。
+
+    原先这些只落在面板**最末尾**的【近讯】里，前面压着几百行地图与十来个面板 ⇒ 一屏滚过去
+    就没了紧迫感；而"我刚丢了地/敌人正踩在我地上"是**要立刻改国策**的事。
+
+    只报**自上次行动以来**（上一轮结算 + 本回合，`turn >= world.turn - 1`）真正发生的：
+      ✖ **失地**：被夺走的自己的地（♥ 标核心——那种"同战线盟友夺回会自动归还"，口径不同）；
+      ＋ **得地**：自己夺来/拓来的地（进项也一并报，免得只报坏消息）；
+      🚨 **境内敌军**：站在**我地上**的外国军队（还没丢地，但已被踩进来了）——盟军不算。
+    三样都没有 ⇒ 返回 None，**整段不出现**（不白占 token）。
+
+    ★ 全部按**结构化字段**查（`phase/nation/lost_by/x/y`），**不解析文本**：
+    措辞是给人读的，解析它等于把面板钉死在文案上。
+    """
+    since = world.turn - 1
+    lost: list[str] = []
+    gain: list[str] = []
+    for h in world.history:
+        if h.get("phase") != "领土" or int(h.get("turn", 0)) < since:
+            continue
+        x, y = h.get("x"), h.get("y")
+        if x is None or y is None:
+            continue
+        t = world.tiles.get((x, y)) or {}
+        where = f"「{t.get('name') or '?'}」({x + 1},{y + 1})"
+        if h.get("lost_by") == name:
+            lost.append(where + f" 被 {h.get('nation')} 夺去"
+                        + ("（♥核心）" if t.get("core") == name else ""))
+        elif h.get("nation") == name:
+            gain.append(where + (f" 夺自 {h['lost_by']}" if h.get("lost_by") else " 拓疆"))
+    intruders = [a for a in world.armies
+                 if a["owner"] != name and a["owner"] != "野人" and a.get("hp", 0) > 0
+                 and world.owned_by(a["x"], a["y"]) == name
+                 and world.entity_of(a["owner"]) != world.entity_of(name)]   # 盟军合法驻留
+    rows: list[str] = []
+    if lost:
+        rows.append(f"  ✖ **失地 {len(lost)} 块**：" + "；".join(lost))
+    if gain:
+        rows.append(f"  ＋ 得地 {len(gain)} 块：" + "；".join(gain))
+    if intruders:
+        shown = "、".join(f"{a['name']}({a['owner']} {a['hp']}HP)@({a['x'] + 1},{a['y'] + 1})"
+                          for a in intruders[:8])
+        more = f" …共 {len(intruders)} 支" if len(intruders) > 8 else ""
+        rows.append(f"  🚨 **境内敌军 {len(intruders)} 支**（就站在你的地上）：{shown}{more}")
+    if not rows:
+        return None
+    return "⚠ 【领土警报】\n" + "\n".join(rows)
+
+
 def _fmt_news(world, name) -> str:
     ev = world.events_for(name, limit=10)
     return ("近讯:\n  " + "\n  ".join(ev)) if ev else "近讯: 暂无"
@@ -1585,10 +1635,16 @@ def _fmt_econ(world, name: str | None = None) -> str:
 
 
 def full_state(world, name, replay_since: int | None = None) -> str:
-    """本回合的新鲜状态（上下文尾部）。replay_since 见 turn_state。"""
+    """本回合的新鲜状态（上下文尾部）。replay_since 见 turn_state。
+
+    ★ **领土警报在最前**（`_fmt_alerts`，用户 2026-09-21）：丢地/被侵略是"立刻改国策"的事，
+    不能埋在最末尾的近讯里。没事时整段不出现。
+    """
     others = "、".join(n for n in world.alive() if n != name) or "（只剩你）"
+    alerts = _fmt_alerts(world, name)
     return "\n".join([
         f"你（{name}）现在进行第 {world.turn} 回合的行动。其余国家：{others}。",
+        *([alerts] if alerts else []),
         f"【国力】\n{_res_line(world, name)}",
         f"【国策规划】\n{_fmt_plan(world, name)}",
         f"【国土/视野】\n{_fmt_atlas(world, name)}",

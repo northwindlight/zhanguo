@@ -1032,14 +1032,22 @@ class World:
 
     def log(self, text: str, phase: str = "事件", nation: str | None = None,
             x: int | None = None, y: int | None = None,
-            parties: list[str] | None = None) -> str:
+            parties: list[str] | None = None,
+            lost_by: str | None = None) -> str:
         """写一条纪事。可见性见 `_stamp_seen`：
         `nation=` 只给那一家；坐标按视野快照；`parties=` **保证这些当事国看到**
-        （对手方通知：被拒了、地被夺了——不广播，但对面必须知道）。"""
+        （对手方通知：被拒了、地被夺了——不广播，但对面必须知道）。
+
+        `lost_by`：**地块易主时原属国**（`phase="领土"` 用）——给面板的
+        【领土警报】按事实查（`nation`=得方 / `lost_by`=失方 / x,y=哪一格），
+        **不解析文本**（文本是给人读的，改个措辞就把面板读崩了）。
+        """
         entry = {
             "turn": self.turn, "phase": phase, "nation": nation,
             "x": x, "y": y, "text": text,
         }
+        if lost_by is not None:
+            entry["lost_by"] = lost_by
         self._stamp_seen(entry, parties)
         self.history.append(entry)
         return text
@@ -1655,7 +1663,8 @@ class World:
         _ok, cmsg = self._conquer(x, y, name, "进驻占领", log_it=False)
         nm2 = self.tiles[(x, y)]["name"]
         self.log(f"{name} {ids} 进驻 ({x+1},{y+1})，{cmsg}", phase="领土", nation=name, x=x, y=y,
-                 parties=[owner] if owner and owner != name else None)   # 同上：失主必看
+                 parties=[owner] if owner and owner != name else None,   # 同上：失主必看
+                 lost_by=owner if owner and owner != name else None)
         note = (f"（{'、'.join(squatters)}军未参战，回合末自动遣返）" if squatters else "")
         return True, f"{ids} 进驻 ({x+1},{y+1})，敌人为 0，{cmsg}{note}"
 
@@ -1932,7 +1941,8 @@ class World:
             #   （那块地是飞地、或失去它之后四周再无自家地），于是"丢了地"这件事
             #   在它的近讯里彻底不存在（用户 2026-09-20 报的第二个洞的极端情形）。
             self.log(msg, phase="领土", nation=by, x=x, y=y,
-                     parties=[old] if old and old != by else None)
+                     parties=[old] if old and old != by else None,
+                     lost_by=old if old and old != by else None)
         if old and old != by:
             self._eliminate_if_dead(old)
         return True, msg

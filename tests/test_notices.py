@@ -29,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import mp  # noqa: E402
+import mp_ai  # noqa: E402
 
 
 def seen_by(world, name: str, *keys: str) -> list[str]:
@@ -133,6 +134,85 @@ class TestTerritoryLossNoticesLoser(unittest.TestCase):
         self.assertNotIn("楚", w.nations)
         self.assertTrue(seen_by(w, "齐", "亡国"), "第三方该知道谁亡国了")
         self.assertTrue(seen_by(w, "秦", "亡国"), "灭它的那家更该知道")
+
+
+class TestTerritoryAlertPanel(unittest.TestCase):
+    """③ 领土变更/被侵略要**钉在面板最前**（用户 2026-09-21：「紧急性不够高……得强调」）。
+
+    原先这些只落在面板**最末尾**的【近讯】里，前面压着几百行地图 ⇒ 没紧迫感。
+    现在 `full_state` 顶部有【领土警报】：失地（含 ♥核心标记）/ 得地 / **境内敌军**，
+    且只在**自上次行动以来**（上一轮结算 + 本回合）有事时出现。
+    """
+
+    def _world(self, **kw):
+        w = mp.World(size=20, seed=7, nations=["秦", "楚"])
+        w.turn = 6
+        return w
+
+    def test_loss_is_at_top_of_panel(self):
+        w = self._world()
+        t = sorted(w.own_tiles("楚"))[0]
+        w._conquer(t[0], t[1], "秦", "攻陷")
+        lines = mp_ai.full_state(w, "楚").splitlines()
+        self.assertEqual(lines[1], "⚠ 【领土警报】", f"警报该紧跟首行：{lines[:3]}")
+        self.assertIn("失地", lines[2])
+        self.assertIn(f"({t[0] + 1},{t[1] + 1})", lines[2])
+
+    def test_non_core_loss_also_reported(self):
+        """★ 用户问的：「只算核心？」——**不算**，任何地块易主都报；核心只多一个 ♥ 标。"""
+        w = self._world()
+        tiles = sorted(w.own_tiles("楚"))
+        noncore, core = tiles[0], tiles[1]
+        w.tiles[noncore]["core"] = "秦"        # 对楚是**非核心**（它早先从秦手里夺来的）
+        w._conquer(*noncore, "秦", "攻陷")
+        w._conquer(*core, "秦", "攻陷")
+        alert = mp_ai._fmt_alerts(w, "楚")
+        self.assertIn("失地 2 块", alert)
+        self.assertIn("♥核心", alert, "核心那块要标出来（盟友夺回会自动归还）")
+        self.assertEqual(alert.count("♥核心"), 1, "只有核心那块标 ♥")
+
+    def test_intruding_army_reported(self):
+        """**境内敌军**：敌人还没夺地、但已站在我的地上——这就是"被侵略"。"""
+        w = self._world()
+        t = sorted(w.own_tiles("楚"))[0]
+        gid, seq = w._new_army("秦")
+        w.armies.append({"id": seq, "gid": gid, "name": f"秦步{seq}", "type": "步",
+                         "hp": 94, "x": t[0], "y": t[1], "owner": "秦",
+                         "moved_turn": -1, "engaged": False})
+        alert = mp_ai._fmt_alerts(w, "楚")
+        self.assertIn("境内敌军 1 支", alert)
+        self.assertIn("94HP", alert)
+
+    def test_ally_army_is_not_intrusion(self):
+        """**阴性对照**：盟军合法驻留在我的地上，不算被侵略。"""
+        w = mp.World(size=20, seed=7, nations=["秦", "楚"])
+        w.turn = 6
+        w.propose_bloc("秦", "合纵", ["楚"])
+        w._accept_bloc_founding(w.proposals[-1], "楚")
+        t = sorted(w.own_tiles("楚"))[0]
+        gid, seq = w._new_army("秦")
+        w.armies.append({"id": seq, "gid": gid, "name": f"秦步{seq}", "type": "步",
+                         "hp": 94, "x": t[0], "y": t[1], "owner": "秦",
+                         "moved_turn": -1, "engaged": False})
+        self.assertIsNone(mp_ai._fmt_alerts(w, "楚"), "盟军驻留不该报成境内敌军")
+
+    def test_quiet_turn_has_no_alert_block(self):
+        """没事就**整段不出现**（不白占 token）——面板第二行直接是【国力】。"""
+        w = self._world()
+        self.assertIsNone(mp_ai._fmt_alerts(w, "秦"))
+        lines = mp_ai.full_state(w, "秦").splitlines()
+        self.assertNotIn("领土警报", "\n".join(lines))
+        self.assertEqual(lines[1], "【国力】")
+
+    def test_only_since_last_action(self):
+        """陈年旧账不报：只报 `turn >= 本回合-1`（上一轮结算 + 本回合）。"""
+        w = self._world()
+        t = sorted(w.own_tiles("楚"))[0]
+        w.history.append({"turn": 1, "phase": "领土", "nation": "秦",
+                          "x": t[0], "y": t[1], "text": "陈年旧事", "lost_by": "楚"})
+        self.assertIsNone(mp_ai._fmt_alerts(w, "楚"), "上一轮之前的失地不该再报")
+        w.turn = 2
+        self.assertIn("失地", mp_ai._fmt_alerts(w, "楚") or "", "上一轮的失地要报")
 
 
 if __name__ == "__main__":
