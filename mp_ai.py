@@ -2631,11 +2631,16 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                      if inp else "")
             if inp:
                 ctxlib.record_hit(name, agg["hit"], agg["miss"])
+            # ★ 提供方没报用量时，数字是本地估算 ⇒ **打上 ≈**，别让它看起来像真数
+            #   （用户 2026-09-20：「报错误的会导致估价错误」——宁标"估"，不装"准"）
+            eq = "≈" if agg.get("estimated") else ""
+            tok = (f"输出{eq}{agg['out_tokens']}tok(思考{eq}{agg['reason_tokens']})"
+                   + ("（本网关未报用量，此为本地估算）" if agg.get("estimated") else ""))
             world.log(
                 f"📊 {name} 本回合: {agg['calls']}次调用 {agg['wall']:.0f}s｜"
-                f"输出{agg['out_tokens']}tok(思考{agg['reason_tokens']}){cache}｜"
+                f"{tok}{cache}｜"
                 f"首token均{agg['first'] / agg['calls']:.0f}s｜最长无输出{agg['maxgap']:.0f}s｜"
-                f"真正输出{agg['stream']:.0f}s｜速度{speed:.1f}tok/s",
+                f"真正输出{agg['stream']:.0f}s｜速度{eq}{speed:.1f}tok/s",
                 phase="事件")
         dropped = _store_turn_memory(world, name, messages, base, plan)
         if dropped:
@@ -2680,6 +2685,8 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
                    "hit", "miss"):
             agg[_k] = agg.get(_k, 0.0) + (stream_stats.get(_k) or 0.0)
         agg["calls"] = agg.get("calls", 0) + 1
+        if stream_stats.get("estimated"):
+            agg["estimated"] = True        # 提供方没报用量 ⇒ 这组数是本地估算，显示时要打 ≈
         # ★ 不再回显 💭 思考（2026-09-19 用户口径：「我不想知道他们怎么想的」）。思考原文
         #   照样进 replay/记录（那是模型自己的上下文），只是不上看海台。
         if tool_calls:

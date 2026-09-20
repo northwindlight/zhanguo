@@ -318,7 +318,9 @@ def make_plan(cfg: dict, *, fallback_turns: int | None = None) -> Plan:
 
     window = max(8192, int(window))
     fill = _fnum(cfg.get("ctx_fill"), DEFAULT_FILL, 0.05, 0.95)
-    reserve = int(cfg.get("ctx_reserve_out") or (int(cfg.get("max_tokens", 4000)) + 2048))
+    # 预留输出预算 = 输出上限 + 2048（默认与 llm_provider 的 16384 保持一致：不一致的话
+    # 窗口按小值预留、模型却按大值输出，就可能把窗口挤爆）
+    reserve = int(cfg.get("ctx_reserve_out") or (int(cfg.get("max_tokens", 16384)) + 2048))
     budget = max(8192, int(min(window * fill, window - reserve)))
     archive_cap = int(cfg.get("ctx_archive_max")
                       or max(20000, window * _fnum(cfg.get("ctx_archive_fill"),

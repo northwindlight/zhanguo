@@ -85,5 +85,69 @@ class TestRetryWindow(unittest.TestCase):
         self.assertEqual(len(calls), 5)
 
 
+class _Delta:
+    def __init__(self, content=None, reasoning_content=None, tool_calls=None):
+        self.content = content
+        self.reasoning_content = reasoning_content
+        self.tool_calls = tool_calls
+
+
+class _Chunk:
+    def __init__(self, delta=None, usage=None):
+        self.choices = [types.SimpleNamespace(delta=delta)] if delta is not None else []
+        self.usage = usage
+
+
+class _FakeStreamClient:
+    """冒充 openai.OpenAI 的流式端点：可指定**报不报 usage**（实测本机 qoder-flash 网关恒不报）。"""
+
+    def __init__(self, with_usage: bool):
+        self.with_usage = with_usage
+        self.chat = types.SimpleNamespace(completions=self)
+
+    def create(self, **kw):
+        out = [_Chunk(_Delta(reasoning_content="先想一想" * 50)),
+               _Chunk(_Delta(content="我决定了"))]
+        if self.with_usage:
+            u = types.SimpleNamespace(completion_tokens=123,
+                                      completion_tokens_details=types.SimpleNamespace(
+                                          reasoning_tokens=45),
+                                      prompt_cache_hit_tokens=900, prompt_cache_miss_tokens=100)
+            out.append(_Chunk(None, usage=u))
+        return iter(out)
+
+
+class TestUsageReporting(unittest.TestCase):
+    """★ 用户 2026-09-20：「报错误的会导致估价错误……那应该改游戏，而不是改网关」。
+    ⇒ 提供方**没报**用量时：本地估算 + 打 `estimated` 标记（显示成 ≈），
+      绝不把"没报"当成 0（那会打印 `输出0.0tok`，看起来像模型没说话）。报了就一律用真数。
+    """
+
+    def _backend(self, with_usage: bool):
+        import openai
+        orig = openai.OpenAI
+        openai.OpenAI = lambda **kw: _FakeStreamClient(with_usage)
+        self.addCleanup(lambda: setattr(openai, "OpenAI", orig))
+        return llm_provider.make_backend({"provider": "openai", "base_url": "http://stub",
+                                          "api_key": "k", "model": "m"})
+
+    def test_missing_usage_is_estimated_and_marked(self):
+        b = self._backend(with_usage=False)
+        _msg, st = b.chat_turn([], [], {"model": "m", "max_tokens": 100})
+        self.assertTrue(st.get("estimated"), "没报用量必须打标记（客户端据此显示 ≈）")
+        self.assertGreater(st["out_tokens"], 0, "不能把'没报'当成 0 输出")
+        self.assertGreater(st["reason_tokens"], 0, "思考部分也要估")
+        self.assertFalse(st.get("usage_reported"))
+
+    def test_real_usage_wins(self):
+        b = self._backend(with_usage=True)
+        _msg, st = b.chat_turn([], [], {"model": "m", "max_tokens": 100})
+        self.assertTrue(st.get("usage_reported"))
+        self.assertFalse(st.get("estimated"), "报了真数就不该再估算")
+        self.assertEqual(st["out_tokens"], 123)
+        self.assertEqual(st["reason_tokens"], 45)
+        self.assertEqual((st["hit"], st["miss"]), (900, 100))
+
+
 if __name__ == "__main__":
     unittest.main()

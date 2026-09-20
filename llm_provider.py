@@ -38,6 +38,8 @@ import os
 import signal
 import time
 
+from ctx import est_tokens      # token 估算（存档校准过的那套），只在"提供方没报用量"时兜底
+
 
 def hard_timeout(seconds: float, label: str):
     """上下文管理器：POSIX 下 arm SIGALRM 硬超时；Windows/无 SIGALRM 平台空转。
@@ -121,7 +123,10 @@ class OpenAICompat:
                 model=cfg["model"], messages=messages,
                 tools=tools, tool_choice="auto",
                 temperature=cfg.get("temperature", 0.3),
-                max_tokens=cfg.get("max_tokens", 4000),
+                # 默认输出上限 16k（2026-09-20 用户口径：「默认改大一点 16k」）。
+                # 原默认 4000 太小：长回合一说话就被截断 ⇒ 模型提前收尾（实测：配置里漏写
+                # max_tokens 时，一口气做十几个动作的国家会被 4000 砍在半路）。
+                max_tokens=cfg.get("max_tokens", 16384),
                 extra_body=extra or None,
                 stream=True, stream_options={"include_usage": True})
             c_s, r_s, tool_acc = "", "", {}
@@ -138,6 +143,7 @@ class OpenAICompat:
                 last_t = now
                 if getattr(chunk, "usage", None):
                     u = chunk.usage
+                    stream_stats["usage_reported"] = True
                     stream_stats["out_tokens"] = getattr(u, "completion_tokens", 0) or 0
                     det = getattr(u, "completion_tokens_details", None)
                     stream_stats["reason_tokens"] = getattr(det, "reasoning_tokens", 0) if det else 0
@@ -171,6 +177,17 @@ class OpenAICompat:
         msg = {"content": c_s, "reasoning_content": r_s}
         if tool_acc:
             msg["tool_calls"] = [tool_acc[i] for i in sorted(tool_acc)]
+        # ★ 提供方没报用量（实测：本机 qoder-flash 网关的 usage 恒为 0）⇒ 用**本地估算**兜底
+        #   并打 `estimated` 标记。绝不把"没报"当成 0：那样看海台会打印 `输出0.0tok(思考0.0)`，
+        #   看起来像"模型一个字都没说"，是骗人的显示（用户 2026-09-20：「报错误的会导致估价
+        #   错误……那应该改游戏，而不是改网关」）。客户端据此把数字显示成 `≈`。
+        #   注意：这组数只服务**展示**；上下文规划器用的是记录体积（`ctx.size_fn`），不吃它。
+        if not stream_stats.get("usage_reported"):
+            stream_stats["estimated"] = True
+            stream_stats["out_tokens"] = (est_tokens(c_s) + est_tokens(r_s)
+                                          + sum(est_tokens(tc["function"]["arguments"])
+                                                for tc in msg.get("tool_calls") or []))
+            stream_stats["reason_tokens"] = est_tokens(r_s)
         return msg, stream_stats
 
     def complete_text(self, messages, cfg, max_tokens=None):

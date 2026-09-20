@@ -24,7 +24,7 @@
       "thinking": "enabled",
       "reasoning_effort": "low",
       "temperature": 0.3,
-      "max_tokens": 4000,
+      "max_tokens": 16384,
       "max_steps": 28
     },
     {
@@ -36,7 +36,7 @@
       "thinking": "enabled",
       "reasoning_effort": "low",
       "temperature": 0.3,
-      "max_tokens": 4000,
+      "max_tokens": 16384,
       "max_steps": 28
     },
     {
@@ -48,7 +48,7 @@
       "thinking": "enabled",
       "reasoning_effort": "low",
       "temperature": 0.3,
-      "max_tokens": 4000,
+      "max_tokens": 16384,
       "max_steps": 28
     },
     {
