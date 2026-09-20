@@ -1322,15 +1322,14 @@ def _fmt_alerts(world, name) -> str | None:
     只报**自上次行动以来**（上一轮结算 + 本回合，`turn >= world.turn - 1`）真正发生的：
       ✖ **失地**：被夺走的自己的地（♥ 标核心——那种"同战线盟友夺回会自动归还"，口径不同）；
       ＋ **得地**：自己夺来/拓来的地（进项也一并报，免得只报坏消息）；
-      🚨 **站在你地上的敌军**：还没丢地、但敌人已经踩进来了——这就是"被侵略"的信号。
-    三样都没有 ⇒ 返回 None，**整段不出现**（不白占 token）。
+    两样都没有 ⇒ 返回 None，**整段不出现**（不白占 token）。
 
-    ★ 口径（用户 2026-09-21）：「**国境内敌军不存在，只有视野内**」——本引擎没有"国境/
-    境内"这种多边形概念，领土就是**一格一格的地块**，所以这里按**地块**说（`owned_by`
-    = 我），不按"国境"说。这一行**不是新概念**，是【威胁】面板（`_fmt_threats`，= 视野内
-    他国军队，含对角/盟国共享视野/瞭望塔半径）里"**恰好站在我地上**"的那个子集——
-    自己的地对自己恒可见（见 `visible_to`），所以它必在视野内，只是被埋在几十支军队里。
-    盟军合法驻留不算（同实体排除）。
+    ★ 不列"敌军站在我地上"（用户 2026-09-21：「**不存在踩上去没丢地，脱裤子放屁**」）：
+    进我的地只能靠 `atk`，那一脚就已经进交战了——回合末结算要么这格易主（上面 ✖ 失地
+    那行会报）、要么它被打退；而"视野内他国军队"本来就在【威胁】面板里（含对角/盟国
+    共享视野/瞭望塔半径）。单列一行纯属重复。
+    ★ 也不按"国境/境内"说话：本引擎没有这种多边形模型，领土是**一格一格的地块**，
+    看见口径只有 `visible_to`（该格本身或含对角的相邻格里有自家/盟国地）。
 
     ★ 全部按**结构化字段**查（`phase/nation/lost_by/x/y`），**不解析文本**：
     措辞是给人读的，解析它等于把面板钉死在文案上。
@@ -1351,21 +1350,11 @@ def _fmt_alerts(world, name) -> str | None:
                         + ("（♥核心）" if t.get("core") == name else ""))
         elif h.get("nation") == name:
             gain.append(where + (f" 夺自 {h['lost_by']}" if h.get("lost_by") else " 拓疆"))
-    intruders = [a for a in world.armies
-                 if a["owner"] != name and a["owner"] != "野人" and a.get("hp", 0) > 0
-                 and world.owned_by(a["x"], a["y"]) == name
-                 and world.entity_of(a["owner"]) != world.entity_of(name)]   # 盟军合法驻留
     rows: list[str] = []
     if lost:
         rows.append(f"  ✖ **失地 {len(lost)} 块**：" + "；".join(lost))
     if gain:
         rows.append(f"  ＋ 得地 {len(gain)} 块：" + "；".join(gain))
-    if intruders:
-        shown = "、".join(f"{a['name']}({a['owner']} {a['hp']}HP)@({a['x'] + 1},{a['y'] + 1})"
-                          for a in intruders[:8])
-        more = f" …共 {len(intruders)} 支" if len(intruders) > 8 else ""
-        rows.append(f"  🚨 **站在你地上的敌军 {len(intruders)} 支**"
-                    f"（尚未夺地，但已踩进来）：{shown}{more}")
     if not rows:
         return None
     return "⚠ 【领土警报】\n" + "\n".join(rows)
@@ -1645,19 +1634,20 @@ def _fmt_econ(world, name: str | None = None) -> str:
 def full_state(world, name, replay_since: int | None = None) -> str:
     """本回合的新鲜状态（上下文尾部）。replay_since 见 turn_state。
 
-    ★ **领土警报在最前**（`_fmt_alerts`，用户 2026-09-21）：丢地/被侵略是"立刻改国策"的事，
-    不能埋在最末尾的近讯里。没事时整段不出现。
+    ★ **【威胁】排最上 + 【领土警报】紧随**（用户 2026-09-21：「威胁排最上」；丢地/被侵略
+    是"立刻改国策"的事）：原先【威胁】压在第 5 段（国力/国策/地图/军队之后）、丢地在最末尾的
+    近讯里，一屏滚过去就没了紧迫感。警报没事时整段不出现。
     """
     others = "、".join(n for n in world.alive() if n != name) or "（只剩你）"
     alerts = _fmt_alerts(world, name)
     return "\n".join([
         f"你（{name}）现在进行第 {world.turn} 回合的行动。其余国家：{others}。",
+        f"【威胁】\n{_fmt_threats(world, name)}",       # 视野内他国军队——最要紧的放最前
         *([alerts] if alerts else []),
         f"【国力】\n{_res_line(world, name)}",
         f"【国策规划】\n{_fmt_plan(world, name)}",
         f"【国土/视野】\n{_fmt_atlas(world, name)}",
         f"【军队】\n{_fmt_armies(world, name, brief=True)}",   # 常驻只给列表（图按需查）
-        f"【威胁】\n{_fmt_threats(world, name)}",
         f"【市场】\n{_fmt_market(world, name)}",
         *([f"【央行】\n{_fmt_bank(world, name)}"] if world.bank_on() else []),
         f"【经济报表】\n{_fmt_report_panel(world, name)}",
