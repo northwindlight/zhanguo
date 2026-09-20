@@ -49,10 +49,26 @@ Windows 没有 SIGALRM——旧代码在函数入口裸用 `signal.SIGALRM`，�
 from __future__ import annotations
 
 import os
+import re
 import signal
 import time
 
 from ctx import est_tokens      # token 估算（存档校准过的那套），只在"提供方没报用量"时兜底
+
+
+def status_code_of(e: Exception) -> int | None:
+    """尽最大努力取 HTTP 状态码。
+
+    SDK **认得出结构**的错误（JSON 错误体）是 `APIStatusError`，带 `status_code`；
+    但**网关/负载均衡回的 HTML 错误页**（2026-09-20 实测：`HTTP 504 …<center>alb</center>`）
+    解析不出 JSON，SDK 只能抛**基类 `APIError`**——**没有** `status_code`。
+    那时从消息里捞一把 "HTTP 504"（代理与 SDK 都把状态行带在 message 里）。
+    """
+    code = getattr(e, "status_code", None)
+    if isinstance(code, int):
+        return code
+    m = re.search(r"\bHTTP (\d{3})\b", str(e))
+    return int(m.group(1)) if m else None
 
 
 def hard_timeout(seconds: float, label: str):
@@ -143,7 +159,7 @@ class OpenAICompat:
                              timeout=float(cfg.get("api_timeout", 900)))
 
     def chat_turn(self, messages, tools, cfg, on_retry=None):
-        from openai import (APIStatusError, APIConnectionError,
+        from openai import (APIError, APIConnectionError,
                             APITimeoutError, RateLimitError)
         retries = int(cfg.get("api_retries", 3))
         backoff = float(cfg.get("api_retry_wait", 2.0))
@@ -158,17 +174,31 @@ class OpenAICompat:
                 #   窗口耗尽 ⇒ 抛给上层终止本局（存档停在上一回合结算后）。
                 #   窗口长度 = api_retries × api_retry_wait（配置项，想给"续费"留更长时间就调它）。
                 last = e
-            except APIStatusError as e:       # 5xx 可重试；4xx（鉴权/参数）直接抛
-                if 500 <= e.status_code < 600:
-                    last = e
-                else:
-                    raise
+            except APIError as e:
+                # ★ 这里接的是**基类**（`APIStatusError`/`APIResponseValidationError` 都是它）：
+                #   只接 `APIStatusError` 会漏掉一整类——**网关回的 HTML 错误页**。
+                #   2026-09-20 实测：`openai.APIError: HTTP 504 …<center>alb</center>`
+                #   （端点前面的负载均衡超时），SDK 解析不出 JSON ⇒ 抛**裸 APIError**、
+                #   **没有 `status_code`** ⇒ 旧代码不接它 ⇒ 一次都没重试就冒出循环、
+                #   整局终止（197 回合的档停在半路，用户：「压根没有重试就崩了」）。
+                #   现在的口径：**4xx（鉴权/参数）直接抛，其余（5xx / 认不出状态码）一律重试**
+                #   ——"认不出"必须是**可重试**，否则又是一条静默绕过重试的后门。
+                code = status_code_of(e)
+                if code is not None and 400 <= code < 500:
+                    raise                     # 4xx 重试没意义（429 已被上面那条接走）
+                last = e
             if attempt < retries and last is not None:
                 if on_retry:
                     # 超时要**说明是哪一段**（首字 / 流内）——状态区上写个 "TimeoutError"
                     # 等于没说：180s 与 60s 两个数不是一回事（用户 2026-09-20 问的就是这个）。
-                    # 其它异常仍只报类名（429 那句 message 是整坨 JSON，塞进状态区没法看）。
-                    tag = str(last) if isinstance(last, TimeoutError) else type(last).__name__
+                    if isinstance(last, TimeoutError):
+                        tag = str(last)
+                    else:
+                        # 有状态码就报 `HTTP 504`（HTML 错误页那种裸 APIError 靠它才看得出是
+                        # 网关/负载均衡的问题）；没有就退回报类名。
+                        # （429 那句 message 是整坨 JSON，不能塞进状态区。）
+                        code = status_code_of(last)
+                        tag = f"HTTP {code} {type(last).__name__}" if code else type(last).__name__
                     on_retry(attempt, tag, backoff * attempt, retries)
                 time.sleep(backoff * attempt)
         assert last is not None

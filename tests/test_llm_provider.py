@@ -167,6 +167,66 @@ class TestUsageReporting(unittest.TestCase):
         self.assertEqual((st["hit"], st["miss"]), (900, 100))
 
 
+class TestGatewayHtmlErrorRetries(unittest.TestCase):
+    """★ **网关回的 HTML 错误页**必须走重试（用户 2026-09-20：「压根没有重试就崩了」）。
+
+    实测那一局的异常是 `openai.APIError: HTTP 504 …<center>alb</center>`——错误体是
+    HTML、解析不出 JSON ⇒ SDK 抛的是**基类 `APIError`**（**没有** `status_code`），
+    而旧代码只接 `APIStatusError` ⇒ 一次都没重试就冒出循环、整局终止
+    （197 回合的档停在半路）。
+    口径：**4xx（鉴权/参数）直接抛；5xx 与"认不出状态码"一律重试**——"认不出"必须
+    按可重试处理，否则就是一条静默绕过重试的后门。
+    """
+
+    def setUp(self):
+        import openai
+        self._orig = openai.OpenAI
+        openai.OpenAI = lambda **kw: types.SimpleNamespace()
+        self.addCleanup(lambda: setattr(openai, "OpenAI", self._orig))
+
+    def _backend(self, exc: Exception, **cfg):
+        calls: list[int] = []
+        b = llm_provider.make_backend({"provider": "openai", "base_url": "http://stub",
+                                       "api_key": "k", "model": "m"})
+
+        def once(*a, **k):
+            calls.append(1)
+            raise exc
+        b._stream_once = once
+        return b, calls, {"api_retries": 3, "api_retry_wait": 0, **cfg}
+
+    def _api_error(self, msg: str):
+        import openai
+        return openai.APIError(msg, request=None, body=None)
+
+    def test_html_504_is_retried(self):
+        import openai
+        e = self._api_error("HTTP 504 <html><head><title>504 Gateway Time-out</title>"
+                            "</head><body><center>alb</center></body></html>")
+        b, calls, cfg = self._backend(e)
+        tags: list[str] = []
+        with self.assertRaises(openai.APIError):
+            b.chat_turn([], [], cfg, on_retry=lambda a, tag, w, t: tags.append(tag))
+        self.assertEqual(len(calls), 3, "5xx（HTML 错误页）必须重试满 api_retries 次")
+        self.assertIn("504", tags[0], f"状态区该看出是网关的 504：{tags}")
+
+    def test_unknown_status_is_treated_as_retryable(self):
+        """认不出状态码（SSE 中途断、上游只说了一句）⇒ 按可重试处理。"""
+        import openai
+        b, calls, cfg = self._backend(self._api_error("An error occurred during streaming"))
+        with self.assertRaises(openai.APIError):
+            b.chat_turn([], [], cfg)
+        self.assertEqual(len(calls), 3, "认不出状态码不许静默跳过重试")
+
+    def test_html_4xx_is_not_retried(self):
+        """4xx（鉴权/参数）重试没意义：一次就抛。"""
+        import openai
+        b, calls, cfg = self._backend(self._api_error("HTTP 403 <html>forbidden</html>"))
+        with self.assertRaises(openai.APIError):
+            b.chat_turn([], [], cfg)
+        self.assertEqual(len(calls), 1, "4xx 不该重试")
+
+
 class TestStreamTimeout(unittest.TestCase):
     """★ 流式的超时量的是**等待**，不是总时长（用户 2026-09-20 口径：
     「首字3分钟，sse内60秒，非流式900」）。
