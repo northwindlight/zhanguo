@@ -172,7 +172,11 @@ class TestTerritoryAlertPanel(unittest.TestCase):
         self.assertEqual(alert.count("♥核心"), 1, "只有核心那块标 ♥")
 
     def test_intruding_army_reported(self):
-        """**境内敌军**：敌人还没夺地、但已站在我的地上——这就是"被侵略"。"""
+        """**站在你地上的敌军**：敌人还没夺地、但已踩进来——这就是"被侵略"的信号。
+
+        口径（用户 2026-09-21）：「国境内敌军不存在，只有视野内」——按**地块**说（`owned_by`），
+        它是【威胁】面板的子集（自己的地对自己恒可见），不是新概念。
+        """
         w = self._world()
         t = sorted(w.own_tiles("楚"))[0]
         gid, seq = w._new_army("秦")
@@ -180,7 +184,7 @@ class TestTerritoryAlertPanel(unittest.TestCase):
                          "hp": 94, "x": t[0], "y": t[1], "owner": "秦",
                          "moved_turn": -1, "engaged": False})
         alert = mp_ai._fmt_alerts(w, "楚")
-        self.assertIn("境内敌军 1 支", alert)
+        self.assertIn("站在你地上的敌军 1 支", alert)
         self.assertIn("94HP", alert)
 
     def test_ally_army_is_not_intrusion(self):
