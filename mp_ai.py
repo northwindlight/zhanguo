@@ -2604,9 +2604,25 @@ def _pair_tool_calls(msgs: list[dict]) -> int:
     return n
 
 
-def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
+def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=None,
+                    head=None) -> int:
     """跑一国一回合：反复调 LLM 用工具，直到 end_turn **被引擎回执认可** / 正文宣告 / 步数上限。
     返回执行次数。
+
+    **三条播报通道**（分工见下，别再往 `emit` 里塞动作/思考——那边只发通知）：
+
+      `emit(s)`    —— **通知行**：🧠 下滑/压缩记忆、⚠ 重试/故障。看海端**逐行即时**刷出
+                      （`mp_run` 把它们钉进终端底部固定状态区）。
+      `head(s)`    —— **本回合的常驻状态行**（只有一条：🧠 上下文计划），状态区第 1 行钉着它，
+                      整回合不滚走。给了 `head` 就走 `head`、不再走 `emit`（调用方自己决定
+                      落哪里：真终端给状态区、管道退回日志流，见 `mp_run.panel_note`）。
+      `on_call(k)` —— **每次 LLM 调用回显一次**（用户 2026-09-20：「能不能每次调用回显一次，
+                      而不是全部操作完毕后一次性回显」）：第 k 次（**0-based**）调用**把它的
+                      工具跑完之后**回调，让看海端当场把这次调用的动作从纪事里刷出来。
+                      此前攒到**整国回合结束**才 flush ⇒ 一次 5 次调用的回合（实测 426s）
+                      期间看海台一个字都不出，结束时一次性砸下来。
+                      **最后一次调用不回调**——它的尾巴由调用方在回合末兜（`mp_run` 那句
+                      `◈ … 行动完毕` 块正是干这个的）⇒ 既不重复回显，也不丢动作。
 
     提供方差异（OpenAI 兼容 / Anthropic 预留）收口在 llm_provider，循环只见
     OpenAI 形态消息。两条纪律：
@@ -2620,10 +2636,13 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
     backend = make_backend(cfg)
     # 上下文：窗口大小由配置 ctx_window 定义，深度/归档/下滑水位由 ctx.py 按预算动态分配
     messages, plan = build_context(world, name, cfg)
-    if emit:
+    if emit or head:
         _rl = ctxlib.rolling_hit(name)
-        emit(f"🧠 {name} 上下文: {plan.describe()}"
-             + (f"｜实测命中≈{_rl * 100:.0f}%（近20次滚动）" if _rl is not None else ""))
+        # ★ 这一行是**常驻状态行**（给了 head 就走 head）：它得整回合钉在状态区第 1 行，
+        #   跟"下滑/压缩/重试"那种一闪而过的通知不是一回事。
+        _ctx_line = (f"🧠 {name} 上下文: {plan.describe()}"
+                     + (f"｜实测命中≈{_rl * 100:.0f}%（近20次滚动）" if _rl is not None else ""))
+        (head or emit)(_ctx_line)
     base = len(messages)  # 本回合新增消息的起点（base 之前是历史 replay，存储时不再重复）
     done = 0
     stall = 0  # 连续"只思考/空转"轮数
@@ -2674,6 +2693,12 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None) -> int:
         return d
 
     for step in range(max_steps):
+        # ★ 每次 LLM 调用回显一次（用户 2026-09-20）：**上一轮**调用（step-1）的动作已经执行
+        #   完了，在这里就把它刷给看海端——而不是等整国回合结束。`on_call` 收的是**已完成**
+        #   那次调用的序号（0-based）；最后一次调用不回显（尾巴归调用方在回合末兜，
+        #   见函数 docstring 的两条通道分工）。
+        if step and on_call:
+            on_call(step - 1)
         if name not in world.nations:
             return _finish(done)
         try:

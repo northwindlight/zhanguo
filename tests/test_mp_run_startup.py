@@ -181,13 +181,124 @@ class TestEmitWiring(unittest.TestCase):
     `test_turn_loop.test_emit_channel_reports_slide_and_compact` 守"接上了响不响"。
     """
 
-    def test_call_site_passes_emit(self):
+    def test_call_site_passes_notice_channel(self):
+        """★ 通知通道（🧠/⚠/🛑）必须接上——现在接的是 `panel_note`
+        （底部固定状态区，用户 2026-09-20「这些弄个固定位置」；非 tty 时它自己退回日志流）。"""
         src = (ROOT / "mp_run.py").read_text(encoding="utf-8")
         i = src.index("run_openai_turn(")
-        seg = src[i:i + 600].replace(" ", "").replace("\n", "")
-        self.assertIn("emit=emit", seg,
-                      "run_openai_turn 的播报通道没接上（`emit=emit` 丢了）："
-                      "压缩/下滑/思考/宣告会重新变成静默的死通道")
+        seg = src[i:i + 1200].replace(" ", "").replace("\n", "")
+        self.assertIn("emit=partial(panel_note", seg,
+                      "run_openai_turn 的通知通道没接上：压缩/下滑/重试/故障会重新变成"
+                      "静默的死通道（2026-09-19 那个洞的形状）")
+        self.assertIn("head=partial(panel_note", seg,
+                      "常驻状态行（上下文计划）没接上：状态区第 1 行会一直空着")
+
+    def test_call_site_passes_on_call(self):
+        """★ 接线守卫：**每次调用回显一次**（用户 2026-09-20）也得真接上。
+
+        与 emit 同一个洞的形状：库层（`test_turn_loop`）只守"接上了响不响"，
+        调用点这一半只有源码断言守得住。丢了 on_call ⇒ 看海台又变成
+        「整国回合结束才一次性砸下来」。
+        """
+        src = (ROOT / "mp_run.py").read_text(encoding="utf-8")
+        i = src.index("run_openai_turn(")
+        seg = src[i:i + 900].replace(" ", "").replace("\n", "")
+        self.assertIn("on_call=partial(echo_call", seg,
+                      "run_openai_turn 的**逐次调用回显**没接上（`on_call=` 丢了）："
+                      "动作会重新攒到回合末才回显")
+
+
+class TestPanelNote(unittest.TestCase):
+    """通知行的去向：**日志文件一定全量记**，终端上则分「有状态区 / 没状态区」两条路。"""
+
+    def _journal(self):
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        return Path(td.name) / "j.md"
+
+    def test_falls_back_to_log_when_no_panel(self):
+        """没有真终端（管道/重定向）⇒ 退回日志流：这些行在那边**必须还能看见**。"""
+        import io
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        import mp_run
+        p = self._journal()
+        buf = io.StringIO()
+        old, mp_run.CONSOLE = mp_run.CONSOLE, None
+        self.addCleanup(lambda: setattr(mp_run, "CONSOLE", old))
+        _stdout, sys.stdout = sys.stdout, buf
+        self.addCleanup(lambda: setattr(sys, "stdout", _stdout))
+        mp_run.panel_note(p, "⚠ 秦 第1次调用失败(APITimeoutError)")
+        self.assertIn("第1次调用失败", buf.getvalue(), "没面板时该退回日志流")
+        self.assertIn("第1次调用失败", p.read_text(encoding="utf-8"), "日志文件必须全量记")
+
+    def test_goes_to_panel_and_still_journals(self):
+        """有状态区 ⇒ 进面板（终端上**不再**重复打一遍），日志文件照旧全量。"""
+        import io
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        import mp_run
+
+        class _FakeConsole:
+            panel_on = True
+
+            def __init__(self):
+                self.calls = []
+
+            def set_panel(self, head=None, note=None):
+                self.calls.append((head, note))
+
+        p = self._journal()
+        fake = _FakeConsole()
+        old, mp_run.CONSOLE = mp_run.CONSOLE, fake
+        self.addCleanup(lambda: setattr(mp_run, "CONSOLE", old))
+        buf = io.StringIO()
+        _stdout, sys.stdout = sys.stdout, buf
+        self.addCleanup(lambda: setattr(sys, "stdout", _stdout))
+        mp_run.panel_note(p, "🧠 秦 上下文: 窗口262k·预算195k", head=True)
+        mp_run.panel_note(p, "⚠ 秦 第1次调用失败")
+        self.assertEqual(fake.calls, [("🧠 秦 上下文: 窗口262k·预算195k", None),
+                                      (None, "⚠ 秦 第1次调用失败")],
+                         "常驻行走 head、通知走 note")
+        self.assertEqual(buf.getvalue(), "", "进了面板就不该再往日志流重复打一遍")
+        text = p.read_text(encoding="utf-8")
+        self.assertIn("上下文: 窗口262k", text)
+        self.assertIn("第1次调用失败", text)
+
+
+class TestEchoCall(unittest.TestCase):
+    """`echo_call` 本身的契约：抬头 + 纪事原文，且**不重打**（游标只前进）。"""
+
+    def _world(self):
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        import mp
+        w = mp.World(size=16, seed=7, nations=["秦", "楚"])
+        w.turn = 3
+        return w
+
+    def test_echo_call_writes_header_and_consumes_history(self):
+        import io
+        w = self._world()
+        import mp_run
+        _stdout, sys.stdout = sys.stdout, io.StringIO()   # 回显会打到终端：测试里噤声
+        self.addCleanup(lambda: setattr(sys, "stdout", _stdout))
+        w.action("秦", "build", "tile=5 5 building=农场", "✅ 动工 农场")
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "j.md"
+            out: list[str] = []
+            mp_run.echo_call(w, out, p, "秦", 0)
+            self.assertEqual(out, [], "回显该当场刷走（不留缓冲）")
+            text = p.read_text(encoding="utf-8")
+            self.assertIn("◈ 秦 第 1 次调用", text, "缺逐次调用的抬头")
+            self.assertIn("◇ build", text, "动作没刷出来")
+            # 第二次调用：只打新的那条，旧动作不许重打（纪事游标已前进）
+            w.action("秦", "query", "panel=all", "（面板）")
+            mp_run.echo_call(w, out, p, "秦", 1)
+            text = p.read_text(encoding="utf-8")
+            self.assertIn("◈ 秦 第 2 次调用", text)
+            self.assertIn("◇ query", text)
+            self.assertEqual(text.count("◇ build"), 1, "旧动作被重打了（游标没前进）")
 
 
 if __name__ == "__main__":

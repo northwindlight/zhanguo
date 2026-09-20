@@ -30,3 +30,7 @@ mp_save*.bak-*
 experiments/__pycache__/
 experiments/out/
 mp_save*
+
+# 配置备份同样含明文 key（2026-09-20：误提交过一次，补上）
+mp_config.json.bak*
+mp_config*.bak*

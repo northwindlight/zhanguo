@@ -4,7 +4,11 @@
 读配置 → 开新局或续局 → 无人值守：
   每回合轮流唤醒各国 agent（各国用工具行动）→ 统一结算 → 投信 → 存 journal；
   每回合结算后自动存档，手动退出（Ctrl-C）不保存——存档永远是回合边界，载入不跳回合。
-Observer（你）能看到：每个国家的每个行动、每封信、每场战、每桩外交。
+
+Observer（你）能看到：每个国家的每个行动、每封信、每场战、每桩外交——**边发生边打**
+（`echo_call`：每次 LLM 调用刷一段，不攒到整国回合结束一次性砸下来，用户 2026-09-20）。
+通知（🧠 上下文计划/下滑/压缩、⚠ 重试、🛑 故障）钉在终端**底部固定状态区**（`panel_note`）；
+两者都**全量落 mp_journal.md**（状态区只是终端的呈现方式，不替代战史）。
 
 用法：
     python3 mp_run.py                     # 用 mp_config.json，无档则开新局
@@ -24,6 +28,7 @@ import queue
 import random
 import signal
 import time
+from functools import partial
 from pathlib import Path
 
 import ctx as ctxlib
@@ -50,17 +55,60 @@ def observer(world, out, header: str):
         out.append(f"  [{h['turn']}·{h['phase']}]{who} {tag} {h['text']}")
 
 
+def to_journal(path: Path, text: str) -> None:
+    """往 mp_journal.md 追加一行/一段（**原始 markdown**——它是个 .md 文件）。"""
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(text + "\n")
+
+
+def echo_line(text: str) -> None:
+    """只往**终端**回显一段（不碰日志文件）。"""
+    if CONSOLE is not None:
+        CONSOLE.write(text)           # 终端渲染 markdown（粗体/标题/列表）
+    else:
+        print(text, flush=True)
+
+
+def panel_note(journal_path: Path, text: str, head: bool = False) -> None:
+    """通知行走**底部固定状态区**（用户 2026-09-20：「这些弄个固定位置」）。
+
+    适用对象就是那几行**要即时看**的通知：🧠 上下文计划（`head=True`，常驻第一行）、
+    🧠 下滑/压缩记忆、⚠ 重试/压缩失败、🛑 故障。它们此前混在日志流里滚，一屏战报刷过去
+    就找不着了（而它们恰恰是"现在到底卡在哪一步"的唯一线索）。
+
+    **日志文件照旧全量记**（`to_journal`）——状态区只是终端的呈现方式，不替代战史；
+    不是真终端（管道/重定向，`Console.panel_on` 为假）时**退回日志流**，
+    否则这些行在那条路上就彻底消失了。
+    """
+    to_journal(journal_path, text)
+    if CONSOLE is not None and CONSOLE.panel_on:
+        CONSOLE.set_panel(head=text if head else None, note=None if head else text)
+    else:
+        echo_line(text)
+
+
 def flush(out, path: Path | None = None, echo: bool = True):
     text = "\n".join(out)
     if path is not None and text:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(text + "\n")      # 日志存原始 markdown（它是个 .md 文件）
+        to_journal(path, text)
     if echo and text:
-        if CONSOLE is not None:
-            CONSOLE.write(text)       # 终端渲染 markdown（粗体/标题/列表）
-        else:
-            print(text, flush=True)
+        echo_line(text)
     out.clear()
+
+
+def echo_call(world, out, journal_path: Path, name: str, step: int) -> None:
+    """**每次 LLM 调用回显一次**（`run_openai_turn` 的 `on_call` 回调，用户 2026-09-20）。
+
+    把这轮调用**已经执行完**的动作从世界纪事里刷出来（`[N·行动]秦 ◇ …`、信件、战报、外交），
+    并给这一批加一行 `◈ 秦 第 k 次调用` 的抬头——看海台因此是**一次调用一段**地长出来，
+    而不是等到整国回合结束（实测一次回合 426s、5 次调用）才一次性砸下来。
+
+    动作本身**不另 emit**（纪事块里原样有，重复两遍是噪音——2026-09-19 口径），这里只是
+    把纪事的消费时机从"回合末"提前到"每次调用后"：`observer` 的游标（`fresh_history`）
+    前进一格，回合末那次 observer 只剩尾巴，不会重复打。
+    """
+    observer(world, out, f"◈ {name} 第 {step + 1} 次调用")
+    flush(out, journal_path)
 
 
 def _nation_extra(n: dict) -> str | None:
@@ -176,7 +224,13 @@ def run() -> None:
     out: list[str] = []
 
     def emit(s=""):
+        # ★ **逐行即时刷**（用户 2026-09-20：「每次调用回显一次，而不是全部操作完毕后一次性
+        #   回显」）。此前 `emit` 只往 `out` 里攒、而 flush 只在整国回合结束（与少数回合边界）
+        #   才发生 ⇒ 一国的整段对话（动辄十几分钟）期间看海台一个字都不出，完了才一次性砸下来：
+        #   上下文计划🧠 / 重试⚠ / 故障🛑 这些**正是要即时看**的通知全被憋到回合末。
+        #   动作不走这里（走 `echo_call`，见上），所以这里一行一刷不会碎。
         out.append(s)
+        flush(out, journal_path)
 
     # ⚠ 这段必须在 `emit` 定义**之后**（它是 run() 里的嵌套函数；放前面就是
     #   UnboundLocalError —— 2026-09-19 真栽过：World 层冒烟全绿，./start.sh 一跑就崩）。
@@ -371,6 +425,10 @@ def run() -> None:
             if name not in world.nations:
                 continue
             ncfg = cfg_by_name.get(name, {})
+            # 换国：状态区清空——上一个国家的常驻行（它的上下文计划）与通知留在那儿
+            # 就是误导（"现在到底是谁在动"）。本国的常驻行由 `head=` 在回合开始时重新钉上。
+            if CONSOLE is not None:
+                CONSOLE.clear_panel()
             t0 = time.time()
             try:
                 if ncfg.get("base_url") and ncfg.get("api_key"):
@@ -381,7 +439,17 @@ def run() -> None:
                     #   （存档 summary_blocks / long_memory 有据）却从没在看海台和
                     #   mp_journal.md 里出现过一次；最危险的是「⚠ 记忆压缩失败」也静默。
                     done = run_openai_turn(world, name, ncfg,
-                                           max_steps=ncfg.get("max_steps", 24), emit=emit)
+                                           max_steps=ncfg.get("max_steps", 24),
+                                           # ★ 通知（🧠 上下文/下滑/压缩、⚠ 重试、🛑 故障）走**底部
+                                           #   固定状态区**，不再混在日志流里滚过去（用户 2026-09-20
+                                           #   「这些弄个固定位置」）；日志文件照旧全量记，非 tty 时
+                                           #   自动退回日志流。`head=` 那一行常驻第一行。
+                                           emit=partial(panel_note, journal_path),
+                                           head=partial(panel_note, journal_path, head=True),
+                                           # ★ 每次调用回显一次（用户 2026-09-20）：动作**当场**刷，
+                                           #   不攒到「行动完毕」才一次性砸下来。最后一次调用的
+                                           #   尾巴由下面那句 observer 兜（不重复、不丢）。
+                                           on_call=partial(echo_call, world, out, journal_path, name))
                 else:
                     done = dummy_turn(world, name, rng,
                                       # ★缺省**无上限**（用户 2026-09-15：「看海口径的动作
@@ -402,6 +470,12 @@ def run() -> None:
                 emit(f"🛑 本局终止（{name} 回合）：{type(e).__name__}: {str(e)[:300]}")
                 emit(f"（存档停在第 {world.turn} 回合结算后，重启即可续局）")
                 flush(out, journal_path, echo=True)
+                if CONSOLE is not None:
+                    # ★ 恢复终端（cbreak ⇒ 本来 echo/ICANON 是关的）。异常会一路冒出 run()、
+                    #   进程带 traceback 退出——不在这里收尾的话，用户的 shell 会留在
+                    #   **无回显**状态（得手敲 stty sane 才回来）。状态区不清：🛑 那行正
+                    #   留在屏幕上给用户看（这是"为什么停了"的唯一现场）。
+                    CONSOLE.close()
                 raise
             secs = time.time() - t0
             observer(world, out, f"◈ {name} 行动完毕（{done} 次工具调用，{secs:.0f}s）")
@@ -424,6 +498,8 @@ def run() -> None:
         time.sleep(0.1)
 
     # 终局统计
+    if CONSOLE is not None:
+        CONSOLE.clear_panel()        # 收尾：别让最后一国的上下文计划挂在"终局"旁边
     emit("")
     emit("## 终局")
     for n in world.alive():

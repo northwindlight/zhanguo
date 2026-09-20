@@ -135,5 +135,82 @@ class TestLineEditor(unittest.TestCase):
         self.assertEqual(c._buf, [])
 
 
+class TestPanel(unittest.TestCase):
+    """底部固定状态区（用户 2026-09-20「这些弄个固定位置」）：内容、折行、擦除行数。
+
+    不碰真终端：把 stdout 换成 StringIO、手工把 `_active` 置真（真终端里由输入线程置）。
+    """
+
+    def setUp(self):
+        import io
+        self.buf = io.StringIO()
+        self._old = sys.stdout
+        sys.stdout = self.buf
+        self.addCleanup(lambda: setattr(sys, "stdout", self._old))
+
+    def test_head_and_notes_in_box(self):
+        c = Console(panel_rows=3, panel_notes=2)
+        c._active = True
+        c.set_panel(head="🧠 秦 上下文: 窗口262.1k·预算194.6k", note="⚠ 第1次调用失败")
+        out = self.buf.getvalue()
+        self.assertIn("+---", out)
+        self.assertIn("🧠 秦 上下文", out)
+        self.assertIn("⚠ 第1次调用失败", out)
+        self.assertEqual(c._footer_n, len(c._footer_lines()), "画了几行要记准（擦除按它走）")
+
+    def test_only_recent_notes_kept(self):
+        c = Console(panel_rows=3, panel_notes=2)
+        c._active = True
+        for i in (1, 2, 3):
+            c.set_panel(note=f"通知{i}")
+        self.assertEqual(c._notes, ["通知2", "通知3"], "状态区只留最近几条")
+
+    def test_clear_panel_removes_box(self):
+        c = Console(panel_rows=3, panel_notes=2)
+        c._active = True
+        c.set_panel(head="🧠 秦 上下文: …")
+        self.assertTrue(c._footer_lines())
+        c.clear_panel()
+        self.assertEqual(c._footer_lines(), [], "清空后盒子不该再占屏")
+        self.assertEqual(c._footer_n, 0)
+
+    def test_box_frame_is_ascii_and_even(self):
+        """★ 方框必须**各行等宽、边框只用 ASCII**（用户 2026-09-20：「汉字两个格子宽」）。
+
+        制表符 `│─╭╮` 的东亚宽度是 **A（Ambiguous）**——`dw()` 只把 W/F 算两格，
+        在"ambiguous 也算两格"的终端里它们真占两格 ⇒ 方框当场错位/折行。
+        `+ - |` 是 Na（Narrow），哪里都是一格；汉字内容两格由 `dw()` 计入。
+        """
+        c = Console(panel_rows=3, panel_notes=2)
+        c.set_panel(head="🧠 秦 上下文: 窗口262.1k·预算194.6k（74%）",
+                    note="⚠ 秦 第1次调用失败(APITimeoutError)，2s 后重试")
+        lines = c._footer_lines()
+        widths = {dw(l) for l in lines}
+        self.assertEqual(len(widths), 1, f"方框各行不等宽：{[dw(l) for l in lines]}")
+        self.assertEqual(lines[0], lines[-1], "上下边框该一样长")
+        self.assertTrue(all(ch in "+-" for ch in lines[0]), f"上边框不是纯 ASCII：{lines[0]}")
+        for ln in lines[1:-1]:
+            self.assertEqual((ln[0], ln[-1]), ("|", "|"), f"侧边框不是纯 ASCII：{ln}")
+
+    def test_long_head_wraps_not_truncated(self):
+        """★ 上下文计划那种长行**折行不截断**（用户 2026-09-20：「不截断」）。"""
+        c = Console(panel_rows=3, panel_notes=2)
+        head = "🧠 秦 上下文: " + "·".join(f"第{i}段数据{i * 7}k" for i in range(12))
+        c.set_panel(head=head)
+        rows = c._panel_content()
+        self.assertGreater(len(rows), 1, "这么长的行该折成多行")
+        self.assertEqual("".join(rows).rstrip(), head, "折行不许丢字")
+
+    def test_write_shifts_footer_not_breaks_it(self):
+        """写日志＝先擦页脚、写日志、再画回来；`_footer_n` 始终等于真画的行数。"""
+        c = Console(panel_rows=3, panel_notes=2)
+        c._active = True
+        c.set_panel(head="🧠 秦 上下文: …", note="⚠ 重试")
+        n = c._footer_n
+        c.write("一条日志")
+        self.assertEqual(c._footer_n, n, "写日志后方框的行数应保持不变")
+        self.assertIn("一条日志", self.buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

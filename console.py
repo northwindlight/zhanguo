@@ -36,6 +36,34 @@ def pad(s: str, width: int, align: str = "left") -> str:
     return " " * gap + s if align == "right" else s + " " * gap
 
 
+def _wrap(s: str, width: int) -> list[str]:
+    """按**显示宽度**折行（汉字 2 格）。**不截断**——状态区宁可多占一行：
+    上下文计划那种行截掉尾巴就只剩半句（用户 2026-09-20 口径：不截断）。"""
+    rows: list[str] = []
+    cur, w = "", 0
+    for ch in str(s):
+        cw = 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+        if cur and w + cw > width:
+            rows.append(cur)
+            cur, w = "", 0
+        cur += ch
+        w += cw
+    rows.append(cur)
+    return rows
+
+
+def _clip(s: str, width: int) -> str:
+    """按显示宽度截断（超出部分丢弃）——只在状态区**封顶**时才用（见 `_panel_content`）。"""
+    out, w = "", 0
+    for ch in str(s):
+        cw = 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+        if w + cw > width:
+            break
+        out += ch
+        w += cw
+    return out
+
+
 # ───────────────────────── Markdown → ANSI ─────────────────────────
 _B, _D, _C, _R = "\033[1m", "\033[2m", "\033[36m", "\033[0m"
 
@@ -106,12 +134,22 @@ class Console:
         c = Console(on_line=..., is_multiline_start=lambda s: s.startswith("send ") and len(s.split())==2)
         c.start()
         c.write("日志一行")        # 线程安全，自动让开输入行
+        c.set_panel(head="🧠 秦 上下文: …", note="⚠ 第1次调用失败")
+        c.clear_panel()
         c.close()                  # 恢复终端
     提交的命令进 `c.queue`（队列），由主循环在回合边界取。
+
+    **底部固定状态区**（`set_panel`，用户 2026-09-20「这些弄个固定位置」）：
+    终端最底几行钉着一个方框——第 1 行常驻（上下文计划，按宽度折行不截断），
+    其后是最近的通知（⚠ 重试 / 🧠 下滑·压缩 / 🛑 故障）。日志照旧往上滚，
+    写日志前先把这个页脚擦掉、写完再画回来（`_erase_footer`/`_draw_footer`），
+    所以方框看着是钉住的。**只画在真终端上**（`panel_on`），非 tty 时调用方
+    得把行退回日志流，否则这些行就彻底看不见了。
     """
 
     def __init__(self, prompt: str = "❯ ", on_interrupt=None,
-                 is_multiline_start=None, history_size: int = 100):
+                 is_multiline_start=None, history_size: int = 100,
+                 panel_rows: int = 3, panel_notes: int = 2):
         self.prompt = prompt
         self.queue: queue.Queue[str] = queue.Queue()
         self._on_interrupt = on_interrupt
@@ -131,8 +169,92 @@ class Console:
         self._md = sys.stdout.isatty()
         self._old_term = None
         self._thread: threading.Thread | None = None
+        # 固定状态区：`_head` 常驻行，`_notes` 最近通知（FIFO，只留 panel_notes 条）；
+        # `_footer_n` = **屏幕上正画着几行页脚**（不含输入行）——擦除必须按这个数走，
+        # 否则折行/清空之后会擦错行（把日志一起吃掉）。
+        self._head = ""
+        self._notes: list[str] = []
+        self._panel_rows = panel_rows
+        self._panel_notes = panel_notes
+        self._panel_max = panel_rows + 2      # 折行最多允许多占 2 行，再多就截断
+        self._footer_n = 0
 
-    # ---- 输出（线程安全：先让开输入行，写完再画回来）
+    @property
+    def panel_on(self) -> bool:
+        """固定状态区是否**真的在画**（真终端 + 输入线程已接管）。
+        不是它 ⇒ 调用方必须把行写回日志流（管道/重定向里也能看见）。"""
+        return self._tty and self._active
+
+    # ---- 固定状态区
+    def set_panel(self, head: str | None = None, note: str | None = None) -> None:
+        """更新底部固定状态区：`head` 换常驻行（如上下文计划），`note` 追加一条通知。"""
+        with self._lock:
+            if head is not None:
+                self._head = head
+            if note is not None:
+                self._notes.append(note)
+                del self._notes[:-self._panel_notes]
+            if self._active:
+                self._refresh_footer()
+
+    def clear_panel(self) -> None:
+        """清空固定状态区（回合之间/终局）：盒子连同占位一起消失。"""
+        with self._lock:
+            self._head, self._notes = "", []
+            if self._active:
+                self._refresh_footer()
+
+    def _term_size(self) -> tuple[int, int]:
+        import shutil
+        try:
+            sz = shutil.get_terminal_size((100, 24))
+            return max(20, sz.columns - 1), max(4, sz.lines)
+        except Exception:
+            return 99, 24
+
+    def _term_width(self) -> int:
+        """画方框用的宽度。**减 1**：正好写满最后一格会触发终端的"待折行"状态。"""
+        return self._term_size()[0]
+
+    def _panel_content(self) -> list[str]:
+        """状态区**内容**行：常驻行在前，其后是最近通知（不足则补空行，盒子高度稳）。"""
+        avail = max(16, self._term_width() - 4)     # 「│ 」+「 │」各占 2 格
+        rows: list[str] = _wrap(self._head, avail) if self._head else [""]
+        for n in self._notes:
+            rows += _wrap(n, avail)
+        while len(rows) < 1 + self._panel_notes:
+            rows.append("")
+        # 封顶：按配置，且**不许超过屏幕高度的 1/3**（矮终端里 5 行页脚会把日志挤没）
+        cap = min(self._panel_max, max(1 + self._panel_notes, self._term_size()[1] // 3))
+        if len(rows) > cap:                         # 只在这时才截断
+            rows = rows[:cap]
+            rows[-1] = _clip(rows[-1], max(4, avail - 1)) + "…"
+        return rows
+
+    def _footer_lines(self) -> list[str]:
+        """页脚要画的**全部行**（状态方框；不含光标所在的输入行）。内容空 ⇒ 不占屏。
+
+        ★ 边框**用 ASCII**（`+ - |`），不用 `╭─╮│` 那套制表符：制表符的东亚宽度是
+        **A（Ambiguous）**——在把 ambiguous 算两格的终端（中日韩环境的常见设置，
+        `dw()` 只按 W/F 算两格）里它会变成两个格子宽，方框当场错位/折行。
+        `+ - |` 是 Na（Narrow），哪里都是一格。汉字内容本身两格，已由 `dw()` 计入。
+        """
+        if not self._head and not self._notes:
+            return []
+        w = self._term_width()
+        inner = max(1, w - 4)
+        out = ["+" + "-" * (w - 2) + "+"]
+        for r in self._panel_content():
+            out.append("| " + pad(r, inner) + " |")
+        out.append("+" + "-" * (w - 2) + "+")
+        return out
+
+    def _refresh_footer(self) -> None:
+        """重画整个页脚（先擦旧的，再画新的）。调用方须持锁。"""
+        sys.stdout.write(self._erase_footer())
+        self._draw_footer()
+
+    # ---- 输出（线程安全：先让开输入行与状态区，写完再画回来）
     def write(self, text: str, render: bool = True) -> None:
         if not text:
             return
@@ -140,11 +262,11 @@ class Console:
             text = render_md(text)
         with self._lock:
             if self._active:
-                sys.stdout.write("\r\033[K")
+                sys.stdout.write(self._erase_footer())
             sys.stdout.write(text + "\n")
             sys.stdout.flush()
             if self._active:
-                self._redraw()
+                self._draw_footer()
 
     def start(self) -> "Console":
         self._thread = threading.Thread(target=self._reader, daemon=True)
@@ -317,10 +439,14 @@ class Console:
         self._buf, self._pos = [], 0
         if self._active:
             with self._lock:
-                sys.stdout.write("\r\033[K" + self.prompt + line + "\n")
+                # ★ 回车这一行**连同状态方框一起让位**：敲下去的命令本身像日志行一样进滚动区
+                #   （跟 shell 一个观感），页脚随即画回来。若只写一行再 `_redraw`，输入行会被
+                #   顶到方框**下方**——"页脚紧贴输入行上方"这个不变量一破，下次 `_erase_footer`
+                #   就擦错行（把日志吃掉）。
+                sys.stdout.write(self._erase_footer() + self.prompt + line + "\n")
                 sys.stdout.flush()
+                self._draw_footer()
         self._handle_line(line)
-        self._redraw()
 
     def _handle_line(self, line: str) -> None:
         """一行输入的**统一处理**（tty 与非 tty 两条读取路径共用）：
@@ -362,15 +488,35 @@ class Console:
             self.close()
 
     # ---- 重画
-    def _redraw(self) -> None:
-        if not self._active:
-            return
+    def _prompt_render(self) -> str:
+        """输入行的渲染（含光标定位）：光标停在 `_pos` 那一格。"""
         prompt = "… " if self._ml else self.prompt
         line = prompt + "".join(self._buf)
         tail = "".join(self._buf[self._pos:])
+        out = "\r\033[K" + line
+        if tail:
+            out += f"\033[{dw(tail)}D"
+        return out
+
+    def _erase_footer(self) -> str:
+        """擦掉屏幕上当前的页脚（状态方框 + 输入行），光标停在页脚**顶行**。
+        只擦**正画着的那几行**（`_footer_n`）——多擦一行就会把日志吃掉。"""
+        out = "\r\033[K"                       # 光标在输入行：先擦输入行
+        for _ in range(self._footer_n):
+            out += "\033[1A\r\033[K"           # 再逐行上移擦掉状态方框
+        return out
+
+    def _draw_footer(self) -> None:
+        """画出页脚（状态方框 + 输入行），光标停在输入行。"""
+        lines = self._footer_lines()
+        self._footer_n = len(lines)
+        sys.stdout.write("".join(ln + "\n" for ln in lines) + self._prompt_render())
+        sys.stdout.flush()
+
+    def _redraw(self) -> None:
+        """按键后的重画：**只重画输入行**（状态方框没变，别整个重画——会闪）。"""
+        if not self._active:
+            return
         with self._lock:
-            out = "\r\033[K" + line
-            if tail:
-                out += f"\033[{dw(tail)}D"
-            sys.stdout.write(out)
+            sys.stdout.write(self._prompt_render())
             sys.stdout.flush()

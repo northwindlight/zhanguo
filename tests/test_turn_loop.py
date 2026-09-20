@@ -415,5 +415,82 @@ class TestTurnLoopHardening(unittest.TestCase):
                          f"悬空 tool_call: {called_ids - resp_ids}")
 
 
+class TestPerCallEcho(unittest.TestCase):
+    """★ **一次调用回显一次**（用户 2026-09-20：「能不能每次调用回显一次，而不是全部操作
+    完毕后一次性回显」）。
+
+    `on_call(k)` 的契约：**第 k 次（0-based）调用把它的工具跑完之后**回调一次，
+    **最后一次调用不回调**——它的尾巴由调用方在回合末兜（`mp_run` 那句
+    `◈ … 行动完毕` 块），所以既不多打一遍、也不丢动作。
+
+    这条钉两件事：① 三次调用 ⇒ 回调恰好两次（0、1）；② 回调那一刻，**这次调用的动作
+    已经在纪事里**了——否则等于提前刷了个空（把 on_call 挪到 chat_turn 之后、工具之前，
+    这条就会红）。
+    """
+
+    def setUp(self):
+        _ScriptedOpenAI.instances.clear()
+        import openai
+        self._orig = openai.OpenAI
+        openai.OpenAI = _ScriptedOpenAI
+        self.addCleanup(lambda: setattr(openai, "OpenAI", self._orig))
+
+    def _cfg(self, **kw):
+        cfg = {"base_url": "http://stub", "api_key": "k", "provider": "openai", "model": "m",
+               "max_tokens": 4000, "max_steps": 4, "ctx_window": 200000}
+        cfg.update(kw)
+        return cfg
+
+    def test_on_call_fires_once_per_completed_call(self):
+        w = mp.World(size=16, seed=7, nations=["秦"])
+        w.turn = 1
+        _ScriptedOpenAI.script = [
+            {"tool_calls": [{"id": "p1", "name": "plan", "args": '{"content":"屯田扩军。"}'}]},
+            {"tool_calls": [{"id": "q1", "name": "query", "args": '{"panel":"all"}'}]},
+            {"tool_calls": [{"id": "e1", "name": "end_turn", "args": '{"summary":"本回合屯田。"}'}]},
+        ]
+        seen: list[tuple[int, list[str]]] = []
+
+        def on_call(k):
+            seen.append((k, [h["text"] for h in w.history]))
+
+        n = mp_ai.run_openai_turn(w, "秦", self._cfg(), max_steps=4, on_call=on_call)
+        self.assertEqual(n, 3, "前提：这回合该有三次调用")
+        self.assertEqual([k for k, _ in seen], [0, 1],
+                         "三次调用应回显两次——最后一次的尾巴归调用方在回合末兜")
+        self.assertTrue(any("◇ plan" in t for t in seen[0][1]),
+                        f"第 1 次回调时动作还没进纪事（回显了个空）：{seen[0][1]}")
+        self.assertTrue(any("◇ query" in t for t in seen[1][1]),
+                        f"第 2 次回调时该看到第 2 次调用的动作：{seen[1][1]}")
+        self.assertFalse(any("end_turn" in t for t in seen[1][1]),
+                         "第 2 次回调时第 3 次调用还没发生，不该提前出现")
+
+    def test_head_takes_context_line_instead_of_emit(self):
+        """★ 常驻状态行（上下文计划）走 `head` 时**不再**走 `emit`——否则同一句话在终端上
+        打两遍（状态区一遍 + 日志流一遍）。没给 `head` 才落回 `emit`（其它调用点/测试照旧）。"""
+        w = mp.World(size=16, seed=7, nations=["秦"])
+        w.turn = 1
+        _ScriptedOpenAI.script = [
+            {"tool_calls": [{"id": "p1", "name": "plan", "args": '{"content":"屯田扩军。"}'}]},
+            {"tool_calls": [{"id": "e1", "name": "end_turn", "args": '{"summary":"本回合屯田。"}'}]},
+        ]
+        heads: list[str] = []
+        lines: list[str] = []
+        mp_ai.run_openai_turn(w, "秦", self._cfg(), emit=lines.append, head=heads.append)
+        self.assertEqual(len(heads), 1, f"上下文计划该走 head，且只有一条：{heads}")
+        self.assertIn("上下文:", heads[0])
+        self.assertFalse(any("上下文:" in ln for ln in lines), "别再往 emit 里重复打一遍")
+
+    def test_no_on_call_is_fine(self):
+        """回调是可选通道：不传照样跑（库层其它调用点/测试不受影响）。"""
+        w = mp.World(size=16, seed=7, nations=["秦"])
+        w.turn = 1
+        _ScriptedOpenAI.script = [
+            {"tool_calls": [{"id": "p1", "name": "plan", "args": '{"content":"屯田扩军。"}'}]},
+            {"tool_calls": [{"id": "e1", "name": "end_turn", "args": '{"summary":"本回合屯田。"}'}]},
+        ]
+        self.assertEqual(mp_ai.run_openai_turn(w, "秦", self._cfg()), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
