@@ -108,7 +108,13 @@ class _FakeStreamClient:
     def create(self, **kw):
         out = [_Chunk(_Delta(reasoning_content="先想一想" * 50)),
                _Chunk(_Delta(content="我决定了"))]
-        if self.with_usage:
+        if self.with_usage == "zeros":
+            # 本机 qoder-flash 网关的真实形态：**回一个全 0 的 usage 对象**（上游不给计数）
+            u0 = types.SimpleNamespace(completion_tokens=0, prompt_tokens=0,
+                                       completion_tokens_details=None,
+                                       prompt_cache_hit_tokens=0, prompt_cache_miss_tokens=0)
+            out.append(_Chunk(None, usage=u0))
+        elif self.with_usage:
             u = types.SimpleNamespace(completion_tokens=123,
                                       completion_tokens_details=types.SimpleNamespace(
                                           reasoning_tokens=45),
@@ -138,6 +144,15 @@ class TestUsageReporting(unittest.TestCase):
         self.assertGreater(st["out_tokens"], 0, "不能把'没报'当成 0 输出")
         self.assertGreater(st["reason_tokens"], 0, "思考部分也要估")
         self.assertFalse(st.get("usage_reported"))
+
+    def test_zeroed_usage_counts_as_unreported(self):
+        """★ 全 0 的 usage 对象 = "没报"（实测网关就是这样）：只看对象在不在会误判成"报了真数"，
+        于是估算不触发、显示照旧 `输出0.0tok`。真调用不可能 prompt/completion 同时为 0。"""
+        b = self._backend(with_usage="zeros")
+        _msg, st = b.chat_turn([], [], {"model": "m", "max_tokens": 100})
+        self.assertFalse(st.get("usage_reported"), "全 0 必须判为没报")
+        self.assertTrue(st.get("estimated"))
+        self.assertGreater(st["out_tokens"], 0)
 
     def test_real_usage_wins(self):
         b = self._backend(with_usage=True)

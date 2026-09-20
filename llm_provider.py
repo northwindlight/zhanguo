@@ -143,12 +143,19 @@ class OpenAICompat:
                 last_t = now
                 if getattr(chunk, "usage", None):
                     u = chunk.usage
-                    stream_stats["usage_reported"] = True
-                    stream_stats["out_tokens"] = getattr(u, "completion_tokens", 0) or 0
+                    out_n = getattr(u, "completion_tokens", 0) or 0
+                    in_n = getattr(u, "prompt_tokens", 0) or 0
+                    miss_n = getattr(u, "prompt_cache_miss_tokens", 0) or 0
+                    # ★ "usage 对象在不在" **不足以**判断有没有真数：本机 qoder-flash 网关会回
+                    #   一个**全 0 的 usage 对象**（上游不给计数）——只看"在不在"就会把它当成
+                    #   "报了真数"，于是估算分支不触发、显示照旧 `输出0.0tok`（2026-09-20 实测栽过）。
+                    #   真调用不可能 prompt/completion 同时为 0 ⇒ **全 0 一律按"没报"处理**。
+                    stream_stats["usage_reported"] = bool(out_n or in_n or miss_n)
+                    stream_stats["out_tokens"] = out_n
                     det = getattr(u, "completion_tokens_details", None)
                     stream_stats["reason_tokens"] = getattr(det, "reasoning_tokens", 0) if det else 0
                     stream_stats["hit"] = getattr(u, "prompt_cache_hit_tokens", 0) or 0
-                    stream_stats["miss"] = getattr(u, "prompt_cache_miss_tokens", 0) or 0
+                    stream_stats["miss"] = miss_n
                 if not chunk.choices:
                     continue
                 d = chunk.choices[0].delta
