@@ -106,8 +106,8 @@ class TestTerritoryLossNoticesLoser(unittest.TestCase):
         w = mp.World(size=20, seed=7, nations=["秦", "楚"])
         w.turn = 5
         t = sorted(w.own_tiles("楚"))[0]
-        w._conquer(t[0], t[1], "秦", "攻占")
-        ev = seen_by(w, "楚", "攻占")
+        w._conquer(t[0], t[1], "秦", "攻陷")
+        ev = seen_by(w, "楚", "攻陷")  # 引擎真用的动词（`how` 值：攻陷/进驻/守军尽撤）
         self.assertTrue(ev, "失主没收到丢地消息")
         self.assertIn("原属 楚", ev[-1], f"消息该点名原属国（否则认不出是自己丢了地）：{ev[-1]}")
 
@@ -120,16 +120,16 @@ class TestTerritoryLossNoticesLoser(unittest.TestCase):
         for nb in w.neighbors(*t):          # 四周划给秦 ⇒ 楚 对该格的视野清零
             if w.tiles.get(nb, {}).get("owner") == "楚":
                 w.tiles[nb]["owner"] = "秦"
-        w._conquer(t[0], t[1], "秦", "攻占")
+        w._conquer(t[0], t[1], "秦", "攻陷")
         self.assertFalse(w.visible_to("楚", t[0], t[1]), "前提：失主确实看不见这格了")
-        self.assertTrue(seen_by(w, "楚", "攻占"), "看不见也得被告知：这块地是你的")
+        self.assertTrue(seen_by(w, "楚", "攻陷"), "看不见也得被告知：这块地是你的")
 
     def test_elimination_is_public(self):
         """亡国是公开事实：**第三方也该看到**（原先是 `log(nation=死者)`＝谁也看不见）。"""
         w = mp.World(size=20, seed=7, nations=["秦", "楚", "齐"])
         w.turn = 5
         for (x, y) in list(w.own_tiles("楚")):
-            w._conquer(x, y, "秦", "攻占")
+            w._conquer(x, y, "秦", "攻陷")
         self.assertNotIn("楚", w.nations)
         self.assertTrue(seen_by(w, "齐", "亡国"), "第三方该知道谁亡国了")
         self.assertTrue(seen_by(w, "秦", "亡国"), "灭它的那家更该知道")
