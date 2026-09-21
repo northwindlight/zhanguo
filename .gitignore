@@ -2,6 +2,7 @@
 save.json
 mp_save.json
 mp_journal.md
+mp_journal*.md
 mp_map.txt
 __pycache__/
 *.pyc
@@ -10,6 +11,10 @@ __pycache__/
 mp_config.json
 mp_config copy.json
 mp_config *.json
+#   剧本的配套配置（`mp_config.8国.json`）同样含明文 key：按前缀整类忽略，
+#   模板文件单独放行（它里面是"粘贴你的 key"占位，本来就该入库）
+mp_config.*.json
+!mp_config.example.json
 
 # 通用
 .DS_Store

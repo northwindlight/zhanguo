@@ -267,6 +267,7 @@ def blk_market() -> str:
                      f"（买 +{B.MARKET_SPREAD * 50:g}% / 卖 −{B.MARKET_SPREAD * 50:g}%）"],
         ["每回合向均衡价回归", f"{100 - B.PRICE_REVERT * 100:g}%"],
         ["市价区间（占基准价）", f"{B.PRICE_MIN_RATIO:g}× ~ {B.PRICE_MAX_RATIO:g}×"],
+        ["市价绝对下限", f"{B.PRICE_MIN_ABS:g} 金/单位（地板价 = 两者取高：便宜货可跌破 1 金）"],
         ["均衡价区间（占基准价）", f"{B.MARKET_EQ_MIN_RATIO:g}× ~ {B.MARKET_EQ_MAX_RATIO:g}×"],
         ["供需敏感度", f"全世界缺口比每 ±1，均衡价 ×(1 ± {B.MARKET_SENS:g})"
                        "（过剩变便宜、紧缺变贵）"],

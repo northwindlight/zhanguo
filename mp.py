@@ -47,6 +47,7 @@ from game import (
     MAX_SLOTS,
     PRICE_IMPACT,
     PRICE_MAX_RATIO,
+    PRICE_MIN_ABS,
     PRICE_MIN_RATIO,
     PRICE_REVERT,
     RETREAT_ATK_PENALTY,
@@ -2603,9 +2604,19 @@ class World:
         """每单位推动（金/单位）：基准价 × PRICE_IMPACT ÷ 深度。"""
         return MARKET[good] * PRICE_IMPACT / self.market_depth(good)
 
+    def price_floor(self, good: str) -> float:
+        """该商品的**地板价** = max(基准价 × PRICE_MIN_RATIO, PRICE_MIN_ABS)。
+
+        两级并存（2026-09-21）：倍率地板管"贵货跌到基准价的一成"，**绝对地板**管"便宜货
+        也别跌穿 0.5 金"——粮食基准 2，一成只有 0.2，那已经比一份补给的口粮还便宜，
+        面板与 AI 估价都会失去意义。两处夹价（`_clamp_price` 与回合末 `_update_market`）
+        一律走这个函数，别各写各的。
+        """
+        return max(MARKET[good] * PRICE_MIN_RATIO, PRICE_MIN_ABS)
+
     def _clamp_price(self, good: str, p: float) -> float:
         base = MARKET[good]
-        return min(max(p, base * PRICE_MIN_RATIO), base * PRICE_MAX_RATIO)
+        return min(max(p, self.price_floor(good)), base * PRICE_MAX_RATIO)
 
     def market_walk(self, good: str, n: int, side: str) -> tuple[float, float, float]:
         """沿价格曲线走 n 单位。返回 (成交单价含价差, 成交后中间价 p1, 总额)。
@@ -2674,7 +2685,7 @@ class World:
             eq = min(max(eq, base * MARKET_EQ_MIN_RATIO), base * MARKET_EQ_MAX_RATIO)
             self.equilibrium[g] = round(eq, 3)
             p = self.prices[g]
-            self.prices[g] = round(min(max(eq + (p - eq) * PRICE_REVERT, base * PRICE_MIN_RATIO),
+            self.prices[g] = round(min(max(eq + (p - eq) * PRICE_REVERT, self.price_floor(g)),
                                        base * PRICE_MAX_RATIO), 3)
         self.flow_in = {g: 0 for g in TRADEABLE}
         self.flow_out = {g: 0 for g in TRADEABLE}

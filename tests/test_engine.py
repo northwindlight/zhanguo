@@ -838,14 +838,56 @@ class TestMarket(unittest.TestCase):
         self.assertAlmostEqual(w.equilibrium["粮食"], mp.MARKET["粮食"] * mp.MARKET_EQ_MIN_RATIO, places=2)
 
     def test_price_floor_and_ceiling(self):
-        """极端买卖被夹在 [基准×0.2, 基准×3]。"""
+        """极端买卖被夹在 [地板价, 基准×3]；地板价 = max(基准×PRICE_MIN_RATIO, PRICE_MIN_ABS)。
+
+        ★ 2026-09-21 口径：便宜货（粮/木）允许跌破 1 金，但停在 **0.5 金**；
+        贵货（装备 0.8）由倍率地板管——两条路都要走到，所以这里两样都试。
+        """
         w = self._world()
         w.nations["秦"].res["粮食"] = 10 ** 6
+        w.nations["秦"].res["装备"] = 10 ** 6
         w.nations["秦"].res["黄金"] = 10 ** 7
         w.sell("秦", "粮食", 10 ** 6)
-        self.assertAlmostEqual(w.prices["粮食"], mp.MARKET["粮食"] * mp.PRICE_MIN_RATIO, places=2)
+        w.sell("秦", "装备", 10 ** 6)
+        self.assertLess(mp.MARKET["粮食"] * mp.PRICE_MIN_RATIO, mp.PRICE_MIN_ABS,
+                        "前提：粮食的倍率地板本来就低于绝对地板（这条测的才是绝对地板）")
+        self.assertAlmostEqual(w.prices["粮食"], mp.PRICE_MIN_ABS, places=2)
+        self.assertLess(w.prices["粮食"], 1.0, "允许跌破 1 金")
+        self.assertAlmostEqual(w.prices["装备"], mp.MARKET["装备"] * mp.PRICE_MIN_RATIO, places=2)
         w.buy("秦", "粮食", 10 ** 6)
         self.assertAlmostEqual(w.prices["粮食"], mp.MARKET["粮食"] * mp.PRICE_MAX_RATIO, places=2)
+
+    def test_price_floor_holds_at_turn_settle(self):
+        """回合末的回归也要夹在**地板价**上（两条夹价路径都不许漏）。
+
+        场景取"**旧档留下的低价**"（比新地板还低，如旧规则 0.2×基准 时的粮价）：
+        均衡价被产/耗流量压到区间下限，回归把市价往下拽 —— 拽到地板价为止。
+        （慢回归 0.9 下，一回合只走一成，所以要让它在**一回合内**触底，起点必须更低。）
+        """
+        w = self._world()
+        for good in ("粮食", "装备"):
+            w.prices[good] = w.price_floor(good) / 2          # 低于地板价：旧档/旧规则的残值
+            w.flow_in[good], w.flow_out[good] = 10 ** 6, 1    # 均衡价被压到区间下限
+            w.resolve_turn()
+            self.assertAlmostEqual(w.equilibrium[good], mp.MARKET[good] * mp.MARKET_EQ_MIN_RATIO,
+                                   places=2, msg="前提：均衡价该被压到区间下限")
+            self.assertAlmostEqual(w.prices[good], w.price_floor(good), places=2,
+                                   msg=f"{good} 该被托到地板价")
+
+    def test_revert_is_the_retained_deviation(self):
+        """★ 语义钉死：`PRICE_REVERT` 是**保留**的偏离比例（不是"回归力度"）。
+
+        本键极易读反（2026-09-21 用户与实现者都问过一遍），所以这里直接量：
+        偏离 1 倍基准价时，一回合后剩下的偏离 ÷ 原偏离 == PRICE_REVERT。
+        """
+        w = self._world()
+        base = mp.MARKET["粮食"]
+        w.prices["粮食"] = base * 2.0          # 偏离 +100%
+        w.resolve_turn()                        # 流量全 0 ⇒ 均衡价 = 基准价
+        self.assertAlmostEqual(w.equilibrium["粮食"], base, places=2, msg="前提：均衡价回到基准价")
+        self.assertAlmostEqual((w.prices["粮食"] - base) / (base * 2.0 - base),
+                               mp.PRICE_REVERT, places=2,
+                               msg="每回合保留的偏离比例就是 PRICE_REVERT")
 
     def test_quote_matches_actual_sale(self):
         """面板试算与真实成交一致（AI 据试算决策，不能骗它）。"""

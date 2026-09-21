@@ -49,6 +49,7 @@ from balance import (
     MOVE_COST,
     PRICE_IMPACT,
     PRICE_MAX_RATIO,
+    PRICE_MIN_ABS,
     PRICE_MIN_RATIO,
     PRICE_REVERT,
     RESOURCES,
