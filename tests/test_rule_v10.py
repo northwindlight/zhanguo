@@ -12,6 +12,12 @@ v10 相对 v9 只改两处，测试也就守这两处：
      "就地改 `game.*` 活表"验同一件事，不依赖任何第三方库。
 2. **不绕山地**：v9 有两处山地特例（`TROOPS_FOR[山地]=3`、行军落点排除山地）。
    v10 去掉特例，改成**只看打不打得赢**（多轮估算）—— 山地只是减伤高的地形之一。
+   ⚠ 这一条原先还有一条对照实验（全图山地跑 100 回合：v9 一步不动、v10 照常行军
+   且**多占地**），**2026-09-22 用户要求删掉**。删得有理：它的收尾断言"v10 占地更多"
+   是个**结局指标**，同日建筑金减半后就在 seed 0 上翻成了 43 vs 45（另几个 seed 仍是
+   v10 多占地）——留一条会随平衡漂移的红灯，只会训练人忽略红灯。
+   真正对准这条改动的判据在前半句（v9 一步不动、v10 照常行军），它在 A/B 行为层，
+   不随造价浮动；要复现结局对比，见 `docs/` 的实验脚本与 `experiments/`。
 
 纪律：这些用例都会**就地改 `game.*` 的活表**，所以每例前后各拷一份、就地还原
 （`clear()` + `update()`，**绝不替换容器** —— `mp.py` 拿的是同一个 dict 对象）。
@@ -20,7 +26,6 @@ v10 相对 v9 只改两处，测试也就守这两处：
 from __future__ import annotations
 
 import copy
-import random
 import unittest
 
 import game
@@ -98,45 +103,3 @@ class TestFightCost(RuleCase):
         boosted = V10._terrain_defense(w, "平原", x, y, "秦")   # 该格有城堡才吃
         self.assertGreaterEqual(boosted, plain)
 
-
-class TestNoMountainSpecialCase(RuleCase):
-    """★"绕山地"没有了：山地是普通地形，只看打不打得赢。"""
-
-    def test_mountain_is_not_excluded_from_steps(self):
-        """★对照实验：**全图都是山地**时 v10 照常行军，v9 一步不动。
-
-        这是"去掉绕山地"最直接的可执行判据 —— v9 的落点过滤里有
-        `world.tile_terrain(*q) != "山地"`，全山地世界里它一个合法落点都没有
-        （实测：100 回合、4 支兵、**0 次行军**；v10 同期走 60 次、多占 4 格）。
-        为什么不用更短的回合：扩张本来就晚（前面几十回合在建产能），
-        回合数不够时两边都是 0，那样的断言是空的。
-        """
-        from ruleai import v9 as V9
-
-        def moves_of(fn, turns=100, size=10):
-            w = _world(seed=0, size=size)
-            w.tile_terrain = lambda x, y: "山地"      # 全图山地（含自家地与野地）
-            w.begin_turn()
-            rng = random.Random(0)
-            n = {"mv": 0}
-            orig = w.move
-
-            def spy(name, aid, x, y):
-                r = orig(name, aid, x, y)
-                if r[0]:
-                    n["mv"] += 1
-                return r
-
-            w.move = spy
-            for t in range(turns):
-                fn(w, "秦", rng, max_actions=10 ** 9)
-                w.resolve_turn()
-                if t + 1 < turns:
-                    w.begin_turn()
-            return n["mv"], len(w.own_tiles("秦"))
-
-        v10_mv, v10_tiles = moves_of(V10.expand_rule_turn_v10)
-        v9_mv, v9_tiles = moves_of(V9.expand_rule_turn_v9)
-        self.assertEqual(v9_mv, 0, "v9 本该一步不走（它的绕山地过滤）—— 对照失效了")
-        self.assertGreater(v10_mv, 0, "全山地世界里一步没走 —— 绕山地的逻辑还在")
-        self.assertGreater(v10_tiles, v9_tiles, "不绕山地却没多占地")

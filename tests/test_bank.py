@@ -493,10 +493,11 @@ class TestPanelAndSave(unittest.TestCase):
         self.assertIn("都不能自选", st)
 
     def test_panel_explains_why_there_is_no_credit_yet(self):
+        """面板不能只写"你没有额度"——得说清**怎么才有**（GDP 是上一回合的产出）。"""
         w = _world()
         st = mp_ai.full_state(w, "秦")
         self.assertIn("你还没有授信", st)
-        self.assertIn("第 1 回合结算后", st)
+        self.assertIn("上一回合的产出", st)
 
     def test_panel_warns_on_negative_rate(self):
         w = _world()

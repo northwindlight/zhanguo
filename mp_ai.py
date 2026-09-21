@@ -1341,8 +1341,8 @@ def _fmt_bank(world, name) -> str:
         st = (f"你的授信 {credit} 金（= 当前 GDP {gdp:.1f} × {BANK_LOAN_GDP_MULT}）："
               f"loan 一次借满、期限 {BANK_LOAN_TURNS} 回合（**都不能自选**）；目前无欠款")
     else:
-        st = ("你还没有授信（= 当前 GDP × "
-              f"{BANK_LOAN_GDP_MULT}，现在 GDP 是 0）——GDP 要等第 1 回合结算后才结得出来")
+        st = (f"你还没有授信：额度 = 当前 GDP × {BANK_LOAN_GDP_MULT}，而你现在 GDP 为 0"
+              "——GDP 是**上一回合的产出**（市价），先去建设/扩张，产出过东西才有授信")
     if r < 0:
         tip = "⚠ 储蓄利率为负：囤现金每回合都在缩水——央行在逼你把钱花出去或投出去。"
     elif r > 0:

@@ -505,10 +505,12 @@ class TestNewBuildings(unittest.TestCase):
         ok, msg = w.build("秦", x, y, "工程院")
         self.assertTrue(ok, msg)
         w.resolve_turn()  # 落成
-        # 同格再建矿场（70 金）：工程院 -25% → 52 金
+        # 同格再建矿场：工程院 -25%（价从 balance 现算——硬编码会随调平衡腐烂）
+        price = mp.BUILDINGS["矿场"]["cost"]
+        discounted = price * (100 - mp.building_effect("工程院", "build_discount")) // 100
         ok2, msg2 = w.build("秦", x, y, "矿场")
         self.assertTrue(ok2, msg2)
-        self.assertIn("-52金", msg2)
+        self.assertIn(f"-{discounted}金", msg2)
         self.assertIn("工程院-25%", msg2)
         # 别的地块不享受（只惠及本地块）
         ox, oy = next(p for p, t in w.tiles.items() if t["owner"] == "秦" and p != (x, y))
@@ -518,7 +520,7 @@ class TestNewBuildings(unittest.TestCase):
         w.tiles[(ox, oy)]["terrain"] = "平原"
         ok3, msg3 = w.build("秦", ox, oy, "矿场")
         self.assertTrue(ok3, msg3)
-        self.assertIn("-70金", msg3)
+        self.assertIn(f"-{price}金", msg3, "别的地块照原价")
 
 
 class TestWildernessClaims(unittest.TestCase):
@@ -802,14 +804,21 @@ class TestMarket(unittest.TestCase):
         self.assertGreater(w.market_tick("装备"), w.market_tick("粮食"))
 
     def test_split_order_across_turns_beats_one_big_dump(self):
-        """跨回合分批卖比一次砸盘划算（同回合拆单无差别：均价结算下线性路径可加）。"""
+        """跨回合分批卖比一次砸盘划算（同回合拆单无差别：均价结算下线性路径可加）。
+
+        ★ 单子要**足够大**才量得出来：优势 ≈ Q²×tick÷40（Q=总量、tick=每单位推动），
+        而每笔成交按**整金**取整 ⇒ 小额单子的那点优势会被取整吃掉
+        （矿石 2.5 金/单位、深度 20 时，Q=100 的理论优势只有 0.6 金 ⇒ 两边都取整成 226）。
+        取 Q=400：理论 +10 金、实测 +9（慢回归只回血一成，所以优势比早期版本小得多，
+        但没有消失——**"分批更划算"这条结论仍在**）。"""
+        Q = 400
         one, split = self._world(), self._world()
         for w in (one, split):
-            w.nations["秦"].res["矿石"] = 500
-        one.sell("秦", "矿石", 100)
-        split.sell("秦", "矿石", 50)
-        split.resolve_turn()      # 市价向均衡价回血后再卖剩下 50
-        split.sell("秦", "矿石", 50)
+            w.nations["秦"].res["矿石"] = Q * 2
+        one.sell("秦", "矿石", Q)
+        split.sell("秦", "矿石", Q // 2)
+        split.resolve_turn()      # 市价向均衡价回血后再卖剩下一半
+        split.sell("秦", "矿石", Q // 2)
         self.assertGreater(split.nations["秦"].res["黄金"], one.nations["秦"].res["黄金"])
 
     def test_equilibrium_from_world_flows(self):

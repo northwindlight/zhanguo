@@ -2825,9 +2825,9 @@ class World:
         cap = (f"贷款额固定 = 你当前 GDP {gdp:.1f} 金/回合 × {BANK_LOAN_GDP_MULT} "
                f"= {credit} 金，期限固定 {BANK_LOAN_TURNS} 回合（都不能自选）")
         if credit <= 0:
-            # 开局头几回合央行还没见过你的账：GDP 要等**第 1 回合结算之后**才结得出来
-            return False, (f"央行还没看到你的账：{cap}——GDP 要等第 1 回合结算后才结得出来，"
-                           "先干一回合再借")
+            # 央行还没见过你的账：GDP 是"上一回合的产出"，开局没产出的国家就是 0 授信
+            return False, (f"央行还没看到你的账：{cap}——GDP 记的是**上一回合的产出**（市价），"
+                           "先去建设/扩张，产出过东西才谈得上授信")
         amount, turns = credit, BANK_LOAN_TURNS
         self.add_res(name, "黄金", amount)
         self.bank["loans"][name] = {"principal": amount, "due": amount, "turns_left": turns,
