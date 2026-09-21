@@ -129,14 +129,35 @@ class TestCharter(unittest.TestCase):
         self.assertEqual(len(self.w.extra_prompt), 8)
         for n in S.NATIONS:
             ep = self.w.extra_prompt[n]
-            self.assertEqual(ep["text"], S.CHARTER)
-            self.assertEqual(ep["summary"], S.CHARTER, "20 回合后要靠 summary 继续扛")
+            want = S.charter_of(n)
+            self.assertEqual(ep["text"], want)
+            self.assertEqual(ep["summary"], want, "20 回合后要靠 summary 继续扛")
             self.assertGreater(ep["until"], self.w.turn, "开局该是密谕形态")
 
     def test_之志明写覆盖默认的没有预设目标(self):
-        self.assertIn("一统天下", S.CHARTER)
-        self.assertIn("覆盖", S.CHARTER, "必须点明盖掉『没有预设目标』那句，否则两句话打架")
-        self.assertIn("没有预设目标", S.CHARTER, "引用原句才盖得住")
+        for text in (S.CHARTER, S.CHARTER_ZHOU):
+            self.assertIn("一统天下", text)
+            self.assertIn("覆盖", text, "必须点明盖掉『没有预设目标』那句，否则两句话打架")
+            self.assertIn("没有预设目标", text, "引用原句才盖得住")
+
+    def test_八国共此大势_路子各一条(self):
+        """七雄走"灭国"，周王室走"复振王纲"——两条路不许互相串味。"""
+        self.assertIn("灭掉另外七家", S.CHARTER)
+        self.assertNotIn("灭掉另外七家", S.CHARTER_ZHOU, "周王室的路不是屠戮")
+        self.assertIn("复振王纲", S.CHARTER_ZHOU)
+        self.assertIn("周天下", S.CHARTER_ZHOU, "联盟名要写死，它起名时才不会另起一个")
+        self.assertIn("bloc_found", S.CHARTER_ZHOU, "得告诉它用什么工具立盟")
+        self.assertNotIn("复振王纲", S.CHARTER, "七雄不该去复振王纲")
+        self.assertEqual(S.charter_of(S.ZHOU), S.CHARTER_ZHOU)
+        self.assertEqual(S.charter_of("秦"), S.CHARTER)
+
+    def test_提醒七雄保障可以撤回_且口径是战时撤不了(self):
+        """用户：「顺便提醒七雄，可以随时撤销对周的保障」——但**战时条约冻结**，别写成
+        "随时"（写了它战时去撤被拒，就会开始不信提示词）。"""
+        self.assertIn("cancel_guarantee", S.CHARTER)
+        self.assertIn("只要不在战时", S.CHARTER, "口径必须是「只要不在战时，随时可撤」")
+        self.assertIn("战时", S.CHARTER, "把战时撤不了说清楚")
+        self.assertIn("cancel_guarantee", S.CHARTER_ZHOU, "周王室也该知道那七张纸随时会飞")
 
     def test_常驻_过了密谕期仍在system_prompt里(self):
         """前 20 回合是密谕、之后是「常驻」总结——**两个阶段都要在**。"""
@@ -154,8 +175,9 @@ class TestCharter(unittest.TestCase):
             self.w.save(p)
             w2 = World.load(p)
             for n in S.NATIONS:
-                self.assertEqual(w2.extra_prompt[n]["summary"], S.CHARTER)
+                self.assertEqual(w2.extra_prompt[n]["summary"], S.charter_of(n))
             self.assertIn("六王毕", self.mp_ai.system_prompt(w2, S.ZHOU))
+            self.assertIn("复振王纲", self.mp_ai.system_prompt(w2, S.ZHOU), "周读档后走的还是它那条路")
 
     def test_对照开关_可以不要之志(self):
         """`charter=False` ⇒ 同一张图、同一套条约，但无志向（留作对照实验的臂）。"""
