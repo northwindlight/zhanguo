@@ -193,6 +193,16 @@ class MapGen:
         return dict(self._res[y][x])      # ★ 返回**副本**：调用方（`_new_tile`）拿到的是
         #   地块自己的 dict，就地改（历史上有过就地扣资源的写法）不能污染整张图的缓存
 
+    def resources_as(self, x: int, y: int, terrain: str) -> dict[str, int]:
+        """按**指定地形**的权重现算该格资源（同一张 rank 掩码、同一个 `_dither`）。
+
+        专供"开局强行改地形"这一处：中心格必为平原（见 `World._place_crosses`）。
+        资源在 `_build` 里就是**由地形权重抖动出来的**（`TERRAINS[ter][r]`），
+        所以改了地形却不重算资源，会留下一格"平原上产石油"的怪物——那既违背
+        《地图生成与资源分布》里"沙漠偏油、山地偏矿"的口径，也会让面板自相矛盾。
+        """
+        return {r: _dither(self._rmask[r][y][x], TERRAINS[terrain][r]) for r in RESOURCES}
+
     # ---- 内部 ----
     def _build(self) -> None:
         size = self.size

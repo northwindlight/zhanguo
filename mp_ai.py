@@ -220,7 +220,12 @@ HUNS_DOCTRINE = (
     "，所以索款(demand) 必须 ≥（已打回合 + truce 停战回合）× 每回合开销；"
     "算不过账就把 truce 压低，或干脆不议和、继续抢。\n"
     "· **坚壁清野型**（不议和、不给钱、油盐不进）：别在它身上费回合，**全力摧毁**——"
-    "不打要塞，专拆它无驻军的产金/产补给地块，一块一块吃干净，直到它亡国或服软。\n"
+    "不打要塞，专拆它无驻军的产金/产补给地块，一块一块吃干净，直到它服软。\n"
+    "· **要它死，得拔市政厅**（亡国条件＝**市政厅尽失**，不是领土尽失）：只吃产金/产补给地，"
+    "它只是变穷、**永远不会亡**。真下决心灭国时，把市政厅当目标清单"
+    "（厅与城堡一样在**视野内公开**，地图摘要单列「视野内市政厅」）；"
+    "**拔光它最后一座厅的那一刻，它剩下的地全成无主废墟——建筑留在原地、谁进驻归谁**，"
+    "你可以直接去捡（含它没来得及盖完的厅）。\n"
     "· 拿到金/赔款第一件事：立刻 buy 补给备几回合的口粮，别囤黄金。"
     "补给仓的消耗与挨饿规则以 rules 为准（每军按缺口比例扣血，别饿死）。"
 )
@@ -234,9 +239,13 @@ def _res_line(world, name) -> str:
         parts.append(f"{RES_LABEL.get(k, k)}{r.get(k, 0)}")
     grid = "正常" if not short else "⚠停摆"
     summ = world.econ_summary.get(name, "")
+    # ★ 国祚（用户 2026-09-21：灭国条件＝市政厅尽失）——**每回合常驻**，因为它就是命：
+    #   丢了最后一座就当场亡国，没有第二次机会，所以不许它只藏在 land 面板里。
+    halls = world.nation_building_count(name, "市政厅")
     return (
         f"{'  '.join(parts)}\n"
-        f"电网: 产{et}/需{mt} {grid}（不足则补给厂/装备厂/兵营/市政厅全部停摆）"
+        f"电网: 产{et}/需{mt} {grid}（不足则补给厂/装备厂/兵营/市政厅全部停摆）\n"
+        f"国祚: 市政厅 {halls} 座（★失去全部即亡国，余土沦为无主之地）"
         + (f"\n上一回合结算: {summ}" if summ else "")
     )
 
@@ -469,7 +478,7 @@ def _fmt_map(world, name) -> str:
         lines.append(f"  {y + 1:3d} " + "".join(cell(x, y) for x in range(x0, x1 + 1)))
     lines.append(f"国土 {len(own)} 块 · 视野内 {len(vis)} 格（非自家 {len(vis - own)}）· "
                  f"可拓荒地 {len(world.frontier_of(name))} 块")
-    forts = []
+    forts, halls = [], []
     for (fx, fy) in sorted(vis):
         t2 = world.tiles.get((fx, fy))
         if not t2 or t2["owner"] == name:
@@ -477,11 +486,23 @@ def _fmt_map(world, name) -> str:
         lv = t2["buildings"].get("城堡", 0)
         if lv:
             forts.append(((fx, fy), lv))
+        th = t2["buildings"].get("市政厅", 0)
+        if th:
+            halls.append(((fx, fy), th))
     if forts:
         head = forts[:12]
         txt = " ".join(f"L{lv}@({fx + 1},{fy + 1})" for (fx, fy), lv in head)
         more = f" …另 {len(forts) - len(head)} 座" if len(forts) > len(head) else ""
         lines.append(f"视野内城堡（看得见的要塞，攻它之前先掂量）：{txt}{more}")
+    if halls:
+        # ★ 市政厅与城堡同档公开（2026-09-21）：它是**国祚**——拔光某国全部市政厅即灭其国。
+        #   不给这张清单，那条规则就无从瞄准（看不见的东西打不着）。
+        #   无主的那种（前朝废墟）显式标出来：它不是谁的国祚，是**白捡的**。
+        head = halls[:12]
+        txt = " ".join(f"×{n}@({fx + 1},{fy + 1})"
+                       + ("" if world.owned_by(fx, fy) else "[无主]") for (fx, fy), n in head)
+        more = f" …另 {len(halls) - len(head)} 处" if len(halls) > len(head) else ""
+        lines.append(f"视野内市政厅（各家的国祚——拔光即亡国；[无主]=废墟白捡）：{txt}{more}")
     lines.append("国别代码：" + "  ".join(
         f"{letters[n]}={n}" + ("(你)" if n == name else "")
         for n in world.order if n in world.nations))
@@ -633,6 +654,9 @@ def _fmt_tile(world, name, xy) -> str:
       资源与建筑**不报**——那是"占下来才知道"的东西，也是 spy / 换图才拿得到的底细；
       顺手给"本回合可否建造"更是一种误导：那不是你的地。
       （2026-09-18 用户：「野地不是没有资源视野吗，只有地形」。）
+    · **例外：无主故土**（前朝废墟——亡国留下的、`owner is None` 且已物化的格，2026-09-21）：
+      **全报**（资源 + 存留建筑）。那条纪律护的是"别国的内政"，而这里已经没有国了；
+      不报就等于让"建筑保留"这条规则谁也看不见、没人去捡。
     """
     x, y = xy
     if not (0 <= x < world.size and 0 <= y < world.size):
@@ -649,6 +673,9 @@ def _fmt_tile(world, name, xy) -> str:
         who = "你的国土"
     elif owner is None and _has_barb(world, x, y):
         who = "无主（有野人守军，atk 打赢才能占）"
+    elif owner is None and t is not None:
+        # 物化过、又没有主 —— 只可能是**亡国留下的无主故土**（见 mp._eliminate_if_dead）
+        who = "无主故土·前朝废墟（atk 进驻即占，存留建筑归你）"
     elif owner is None:
         who = "无主空地（atk 进驻即占）"
     else:
@@ -669,13 +696,26 @@ def _fmt_tile(world, name, xy) -> str:
                             if pend else ""))
             lines.append("  本回合可下令建造："
                          + ("可以" if not t["built_this_turn"] else "不行（本回合已下过单）"))
+    elif owner is None and t is not None and any(t["buildings"].values()):
+        # ★ 无主故土（前朝废墟，2026-09-21 起才有）：**全报**——无主即无机密
+        #   （口径同 `visible_buildings`）。这是"亡国的余产"，看得见才有人去捡。
+        b = t["buildings"]
+        used = sum(b.values())
+        lines.append("  资源：" + " ".join(f"{k}x{t['resources'].get(k, 0)}" for k in RESOURCES))
+        lines.append(f"  建筑位 {used}/{MAX_SLOTS}；存留建筑："
+                     + (" ".join(f"{bn}×{n}" for bn, n in b.items() if n) or "无"))
+        lines.append("  （无主之地：atk 进驻即占，**存留建筑归占领者**；谁先到谁得）")
     else:
         # 城堡**公开**（2026-09-19 用户：「不知道城堡很吃亏」）——它是看得见的要塞；
-        # 其余建筑与地块资源仍未探明（占下来才知道，别国建设底细靠 spy / 换图）。
+        # ★ 市政厅（2026-09-21）同档公开：它是**国祚**（拔光即亡国），看不见就没法瞄准；
+        #   其余建筑与地块资源仍未探明（占下来才知道，别国建设底细靠 spy / 换图）。
         for bn, cnt in world.visible_buildings(name, x, y).items():
             if bn == "城堡":
                 cd = cnt * building_effect("城堡", "defense_per_level")
                 lines.append(f"  城堡：L{cnt}（该格再加 {cd:+d}% 防御，与地形**相乘**叠加）")
+            elif bn == "市政厅":
+                lines.append(f"  市政厅：{cnt} 座 —— **此国之祚**：拔光即亡国，"
+                             "它剩下的地会全成无主之地（建筑留原地）")
         lines.append("  资源与其它建筑：**未探明**（那是别人的地/无主地——占下来才知道，"
                      "别国的建设底细只能靠 spy / 换图）")
     mine_army = [a for a in world.armies if a["owner"] == name and (a["x"], a["y"]) == (x, y)]
@@ -981,7 +1021,10 @@ def _help_sections() -> list[tuple[str, str]]:
             note = (f"维持{info['energy']}电；每座每回合 = "
                     f"{building_effect('市政厅', 'gold_base')}金基础 + "
                     f"该地块每座建筑×{building_effect('市政厅', 'gold_per_slot')}金（不含自身，地越盖越值）"
-                    f"入国库；需本地已用建筑位≥{info['min_slots']}、每地块限{info.get('limit', 1)}座")
+                    f"入国库；需本地已用建筑位≥{info['min_slots']}、每地块限{info.get('limit', 1)}座。"
+                    "★ **它是国祚**：市政厅全部易主/被毁即亡国——哪怕你还握着二十块地，"
+                    "余土照样当场沦为**无主之地**（建筑全留在原地，谁进驻归谁）。"
+                    "开局本国核心白送 1 座（不花钱、不受 ≥6 位门槛约束）")
         elif k == "tower":
             note = (f"无产出不耗电；己方/盟方任一瞭望塔半径 "
                 f"{building_effect('瞭望塔', 'vision_radius')} 圆内的事件你都收得到"
@@ -1012,8 +1055,12 @@ def _help_sections() -> list[tuple[str, str]]:
         bld.append(f"  {nm}：造价 {cost}金 + {info['wood']}木 · {cap} · {note}")
     sections = [
         ("总览", (
-            f"EU4式 大地图国战：每人从 {len(CROSS)} 块地起家，拓荒/建设/生产/建军，可对他国结盟或开战。"
+            f"EU4式 大地图国战：每人从 {len(CROSS)} 块地起家（**核心格自带一座市政厅**），"
+            "拓荒/建设/生产/建军，可对他国结盟或开战。"
             "回合制：每回合你行动（可做多件事）→ 过回合统一结算（产出/电网/战斗/补给/市场回归）。"
+            "★ **亡国条件＝市政厅尽失**（不是领土尽失）：还握着地、市政厅却被拔光的国家照样亡国，"
+            "其**余土沦为无主之地**——地上的建筑（含市政厅/城堡）原样保留，谁 atk 进驻就归谁。"
+            "反过来，领土丢光自然也没了市政厅，所以老口径是这一条的特例。"
             "地皮名字=ID，坐标 1-based。你能看的是自己地盘+相邻一圈（有联盟则连盟友的地盘也看得到；建瞭望塔可把事件视野再往外推）；他国国力只能推测。"
             "**你的国土与视野以「坐标地图」常驻在状态里**：**按势力分段**（我 / 野人 / 其他各国，"
             "空行隔开），每行一格、**自带语义、零解码**——"
@@ -1030,6 +1077,9 @@ def _help_sections() -> list[tuple[str, str]]:
             "但视野没到过的地方，城堡不会主动出现在地图摘要里。）"
             "某一格的全明细用 query panel=tile x= y=（或 at=地名）——那里**会报该格的城堡等级**"
             "（只要在你视野里，谁的地都报）；地块资源与其它建筑则只有自家地才看得到。"
+            "**市政厅同样公开**（它是国祚——拔光某国全部市政厅即灭其国）：视野内的他国市政厅"
+            "在 tile 查询与地图摘要（单列一行「视野内市政厅」）里都看得到，但地图摘要**只列视野内**；"
+            "**无主故土**（亡国留下的无主空地）则连资源与存留建筑全报——那里没有国，也就无机密。"
             "迷雾限制你**看见**的，不限制你**下令**的：可对视野外的格下 mv/atk——撞上不透明的"
             "墙（中立领土/暗藏的敌军/别人的战场）时，报错如实告知撞了什么（这就是侦察所得的情报），"
             "但代价是该军本回合移动额度作废；对看得见的格撞墙则不罚（试错免费）。想省额度就别盲推，"
@@ -1320,7 +1370,8 @@ def _fmt_alerts(world, name) -> str | None:
     就没了紧迫感；而"我刚丢了地/敌人正踩在我地上"是**要立刻改国策**的事。
 
     只报**自上次行动以来**（上一轮结算 + 本回合，`turn >= world.turn - 1`）真正发生的：
-      ✖ **失地**：被夺走的自己的地（♥ 标核心——那种"同战线盟友夺回会自动归还"，口径不同）；
+      ✖ **失地**：被夺走的自己的地（♥ 标核心——那种"同战线盟友夺回会自动归还"，口径不同；
+        带市政厅的格另标「市政厅」——2026-09-21 起它是**国祚**，丢光了当场亡国）；
       ＋ **得地**：自己夺来/拓来的地（进项也一并报，免得只报坏消息）；
     两样都没有 ⇒ 返回 None，**整段不出现**（不白占 token）。
 
@@ -1346,8 +1397,12 @@ def _fmt_alerts(world, name) -> str | None:
         t = world.tiles.get((x, y)) or {}
         where = f"「{t.get('name') or '?'}」({x + 1},{y + 1})"
         if h.get("lost_by") == name:
-            lost.append(where + f" 被 {h.get('nation')} 夺去"
-                        + ("（♥核心）" if t.get("core") == name else ""))
+            # ★ 地块上的市政厅也标出来（2026-09-21 起它是**国祚**：丢光了就亡国）。
+            #   建筑随城易主、原地留存 ⇒ 直接看这格现在的建筑就知道丢的是什么。
+            tags = "，".join(x for x in ("♥核心" if t.get("core") == name else "",
+                                         "市政厅" if (t.get("buildings") or {}).get("市政厅") else "")
+                             if x)
+            lost.append(where + f" 被 {h.get('nation')} 夺去" + (f"（{tags}）" if tags else ""))
         elif h.get("nation") == name:
             gain.append(where + (f" 夺自 {h['lost_by']}" if h.get("lost_by") else " 拓疆"))
     rows: list[str] = []
@@ -2241,7 +2296,7 @@ TOOL_SCHEMAS = [
         "name": "econ", "description": "按当前市价核算建设回报：某建筑的 造价(折金)/每回合毛利/回本时间；不带 building 则输出全部建筑经济表。做建设/买卖决策前先算再定。",
         "parameters": _props({"building": {"type": "string", "enum": BUILD_NAMES, "description": "要核算的建筑名（可选；省则输出全部）"}})}},
     {"type": "function", "function": {
-        "name": "build", "description": f"在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅/瞭望塔/外交中心/工程院/军屯。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥{BUILDINGS['兵营']['min_slots']}；瞭望塔=事件视野+{building_effect('瞭望塔', 'vision_radius')}圆；市政厅需本地已用位≥{BUILDINGS['市政厅']['min_slots']}且每地块限{BUILDINGS['市政厅']['limit']}；外交中心=外交费减半可叠加但自建全国限{BUILDINGS['外交中心']['limit_nation']}（第2座只能抢）；工程院=本地建造费-{building_effect('工程院', 'build_discount')}%需本地位≥{BUILDINGS['工程院']['min_slots']}；军屯=**不产粮**的民兵编制、可征民兵({_cost_text(UNIT_TYPES['民']['recruit'])}/支、全国民兵总数≤军屯数)且民兵驻本格不耗补给（需本地{BUILDINGS['军屯']['cap_resource']}≥1、每地块限{BUILDINGS['军屯']['limit']}座）。",
+        "name": "build", "description": f"在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅/瞭望塔/外交中心/工程院/军屯。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥{BUILDINGS['兵营']['min_slots']}；瞭望塔=事件视野+{building_effect('瞭望塔', 'vision_radius')}圆；市政厅需本地已用位≥{BUILDINGS['市政厅']['min_slots']}且每地块限{BUILDINGS['市政厅']['limit']}（★**它是国祚：市政厅尽失即亡国**，余土沦为无主之地、建筑留原地；开局核心白送1座）；外交中心=外交费减半可叠加但自建全国限{BUILDINGS['外交中心']['limit_nation']}（第2座只能抢）；工程院=本地建造费-{building_effect('工程院', 'build_discount')}%需本地位≥{BUILDINGS['工程院']['min_slots']}；军屯=**不产粮**的民兵编制、可征民兵({_cost_text(UNIT_TYPES['民']['recruit'])}/支、全国民兵总数≤军屯数)且民兵驻本格不耗补给（需本地{BUILDINGS['军屯']['cap_resource']}≥1、每地块限{BUILDINGS['军屯']['limit']}座）。",
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标如 '5 6' 或自家地块名（land 面板有）", "required": True},
                               "building": {"type": "string", "enum": BUILD_NAMES, "description": "建筑名", "required": True}})}},
     {"type": "function", "function": {

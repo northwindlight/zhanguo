@@ -143,6 +143,10 @@ class TestRetreatCover(unittest.TestCase):
         w.tiles[(5, 5)] = t
         t0 = w._new_tile(0, 0, "楚")  # 楚的老家：弃城后不至于亡国
         t0["owner"] = "楚"
+        # ★ 老家上还得有**市政厅**才算"不至于亡国"（2026-09-21 起亡国条件＝市政厅尽失，
+        #   而 `_new_tile` 手工造的地没有开局那份白送的厅）：否则弃城那一刻楚就亡国、
+        #   军队被解散，这条测的"守军撤退落地"根本走不到。
+        t0["buildings"]["市政厅"] = 1
         w.tiles[(0, 0)] = t0
         w.armies = [
             {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,

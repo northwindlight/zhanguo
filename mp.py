@@ -632,11 +632,18 @@ class World:
         """name 在 (x,y) 上**看得见**的建筑（不含在建）——全作唯一口径，面板一律走这里。
 
         · **自家的地**：全部建筑（自己的工地当然清楚；在建不在此列，看 `pending`）。
-        · **视野内的他国/无主地**：**只有城堡** —— 要塞从外面就看得见，而兵营/工厂/农田
-          是内政底细，那是 `spy` / 换图才买得到的东西。
+        · **视野内的他国地**：**只有城堡与市政厅** —— 两样都是"从外面就看得出"的公共建筑：
+          要塞（2026-09-19 用户：「不知道城堡很吃亏」）与**市政厅（国祚，2026-09-21）**。
+          后者必须公开，否则"拔光市政厅即亡国"这条规则根本无从瞄准（看不见就打不着）。
+          兵营/工厂/农田仍是内政底细，那是 `spy` / 换图才买得到的东西。
+        · **视野内的无主故土**（前朝废墟，`owner is None` 且已物化）：**全部建筑** ——
+          那条纪律护的是"**别国的**内政底细"，这里没有国（亡国才留下这种格），
+          也就无机密可言。**它是唯一能产出 `owner is None` 的物化格的来源**
+          （见 `_eliminate_if_dead`），所以这条分支不会误伤任何"正常的无主野地"
+          （那些格根本没物化）。
         · **视野外**：空 dict（与 `visible_to` 同一条纪律）。
 
-        （2026-09-19 用户：「我想公开，因为不知道城堡很吃亏」——公开的**只有城堡**那一档，
+        （公开档位：2026-09-19 只放行城堡；2026-09-21 加市政厅（国祚）与无主故土全开。
         其余建筑与地块资源仍旧未探明。）
         """
         t = self.tiles.get((x, y))
@@ -646,8 +653,9 @@ class World:
             return {b: n for b, n in t["buildings"].items() if n}
         if not self.visible_to(name, x, y):
             return {}
-        n = t["buildings"].get("城堡", 0)
-        return {"城堡": n} if n else {}
+        if t["owner"] is None:
+            return {b: n for b, n in t["buildings"].items() if n}
+        return {b: t["buildings"][b] for b in ("城堡", "市政厅") if t["buildings"].get(b)}
 
     def owned_by(self, x: int, y: int) -> str | None:
         t = self.tiles.get((x, y))
@@ -1111,12 +1119,31 @@ class World:
         }
 
     def _place_crosses(self, starts: dict[str, tuple[int, int]]):
+        """十字开局：中心 + 上下左右。★ **中心（=本国核心）必然是平原、且自带一座市政厅**——
+        用户 2026-09-21 口径「开局默认有个市政厅，在国家核心」＋「中心格必然是平原」；
+        它是**国祚**（见 `has_townhall` / `_eliminate_if_dead`）。白送，不花钱、也不受
+        `min_slots≥6` 那道门槛约束（那是"自己再盖一座"的门槛）。
+
+        ★ 地形改成平原**只写这一格的 `terrain`**：地块一旦物化，它自己的 `terrain`
+        就是权威（`tile_terrain` 先查已物化的格）⇒ 地图/移动代价/防御/建造惩罚
+        全都跟着这一处变，不必到处打补丁。理由：核心是国祚所在地，开局就顶着一座
+        山地/森林的施工惩罚说不过去（且山地地形防御会把首都变成免费要塞）。"""
         for nm, (cx, cy) in starts.items():
             for dx, dy in CROSS:
                 x, y = cx + dx, cy + dy
                 if 0 <= x < self.size and 0 <= y < self.size and (x, y) not in self.tiles:
                     self._drop_guardians(x, y)   # 全图野人已预置：新占的格子上的守卫撤走
-                    self.tiles[(x, y)] = self._new_tile(x, y, nm)
+                    t = self._new_tile(x, y, nm)
+                    if dx == 0 and dy == 0:
+                        t["terrain"] = "平原"
+                        # 资源是**按地形权重**抖出来的 ⇒ 改了地形就得跟着重算，
+                        # 否则留下一格"平原产石油"的怪物（见 `MapGen.resources_as`）
+                        t["resources"] = self.mapgen.resources_as(x, y, "平原")
+                        t["buildings"]["市政厅"] = 1
+                    self.tiles[(x, y)] = t
+            # 兜底：中心格跑到界外时（畸形 starts）也得有国祚——否则这国一出场就是死的
+            if not self.has_townhall(nm):
+                self._seed_townhall(nm)
 
     def _place_ring(self, names: list[str]):
         """各国环状开局（3 国=三角）。"""
@@ -1907,12 +1934,25 @@ class World:
         old = self.owned_by(x, y)
         self.guard_once.discard((x, y))
         self._drop_guardians(x, y)
-        if old is None:
+        t = self.tiles.get((x, y))
+        if t is None:
             t = self._new_tile(x, y, by)
             self.tiles[(x, y)] = t
             msg = f"{by} {how}拓疆「{t['name']}」({x+1},{y+1}){t['terrain']}"
+        elif old is None:
+            # ★ **无主故土**（前朝废墟，用户 2026-09-21 口径「剩余领土变成空地，建筑保留，
+            #   但是无主」）：格子在、名字在、建筑也在，只是没有主人。
+            #   ⇒ **复用这一格，不许 `_new_tile` 重造**——重造会把地名/建筑/资源全洗掉，
+            #   等于"建筑保留"这条口径在这个入口上被静默吃掉（`old is None` 曾经只可能
+            #   意味着"从没物化过"，现在多了一种）。
+            #   无主 ⇔ 没有失主：没有 `lost_by`，也没有 `_return_core`（旧核心主张随亡国作废）。
+            t["owner"] = by
+            msg = f"{by} {how}「{t['name']}」({x+1},{y+1}){t['terrain']}（无主之地）"
+            _loot = " ".join(f"{b}×{n}" for b, n in t["buildings"].items() if n)
+            if _loot:
+                # 无主的建筑不涉机密（无主＝没有国家需要护着的内政底细）⇒ 可以照报
+                msg += f"，得 {_loot}"
         elif old != by:
-            t = self.tiles[(x, y)]
             t["owner"] = by
             # ★ **地名在前、被动语态**（用户 2026-09-20：「应该显示最近消息，地名(坐标)被x攻占」）：
             #   一条纪事同时喂养三方（攻方、失主、视野内的第三方），所以取**事件视角**——
@@ -1922,14 +1962,18 @@ class World:
             #   ★ 动词只认"攻陷"这一种**真打下来**的说法，其余（`进驻`/`进驻占领`/
             #   `守军尽撤`）一律中性"占领"——`how` 不全是动词，直接套被动会读成
             #   "被秦守军尽撤"；那些是**原因**，同一回合的动作纪事里就写着。
-            msg = f"「{t['name']}」({x+1},{y+1}) 被 {by} {'攻陷' if how == '攻陷' else '占领'}" \
-                  f"（原属 {old}）"
             # 城堡**公开**（2026-09-19）：占领后建筑原样保留，所以要报出缴获了什么要塞。
             # ★ 这条日志是**视野广播**的（同格谁看得见谁就收到），所以只能带公开信息——
             #   城堡可以；兵营/工厂/农田那些若报出去，等于向第三者泄露被占国的内政底细。
+            # ★ 市政厅（2026-09-21 起）与城堡同级公开：它是**国祚**（拔光即亡国），
+            #   攻城方必须看得出"这一刀砍在国祚上"——否则"我为什么把它打死了"无从知晓
+            #   （亡国广播只说结果，不说这一格的价值）。兵营/工厂等内政底细仍照旧瞒着。
             _cl = t["buildings"].get("城堡", 0)
-            if _cl:
-                msg += f"（城L{_cl}）"
+            _th = t["buildings"].get("市政厅", 0)
+            _pub = "，".join(x for x in (f"原属 {old}", f"城L{_cl}" if _cl else "",
+                                         f"市政厅×{_th}" if _th else "") if x)
+            msg = f"「{t['name']}」({x+1},{y+1}) 被 {by} " \
+                  f"{'攻陷' if how == '攻陷' else '占领'}（{_pub}）"
             extra = self._return_core(x, y, by)  # 同战线盟友核心领土 → 自动归还
             if extra:
                 t = self.tiles[(x, y)]
@@ -1947,15 +1991,51 @@ class World:
             self._eliminate_if_dead(old)
         return True, msg
 
+    def has_townhall(self, name: str) -> bool:
+        """本国是否还有**已落成**的市政厅 —— 这是**国祚**（用户 2026-09-21 口径）。
+        在建的不算：`pending` 里的那笔还没盖起来（同"产出只认已落成"的口径）。"""
+        return any(t["owner"] == name and t["buildings"].get("市政厅", 0) > 0
+                   for t in self.tiles.values())
+
+    def _seed_townhall(self, name: str) -> str | None:
+        """白送一座**已落成**的市政厅，落在"国家核心"。两处用法都叫"给它一条国祚"——
+        开局（`_place_crosses`）与**旧档迁移**（`load`）。
+
+        「核心」＝**自家最早物化的那块地**：`_place_crosses` 先建中心、后建四臂，而
+        `tiles` 按插入序保存/还原（见 `save`），所以这个次序跨存档稳定。
+        ★ 别拿 `t["core"]` 判：那是"首任归属"（战后按实占重算），**开局每一格都等于 owner**，
+        认不出首都在哪——拿它挑只会挑到坐标最小的那块。"""
+        owned = set(self.own_tiles(name))
+        if not owned:
+            return None
+        pick = next(p for p in self.tiles if p in owned)
+        self.tiles[pick]["buildings"]["市政厅"] += 1
+        return self.tiles[pick]["name"]
+
     def _eliminate_if_dead(self, name: str) -> bool:
+        """**亡国条件＝一座市政厅都不剩**（用户 2026-09-21 改版；旧口径是"领土尽失"）。
+
+        领土丢光自然也没有市政厅（市政厅盖在地上），所以旧口径是这一条的特例；
+        但反过来不成立：**还握着大片土地、市政厅却被拔光的国家照样亡国**——
+        这时它的领土**不归任何人**：变成**无主空地**，地上的建筑（含市政厅/城堡/兵营）
+        **原样留在原地**，等着谁进驻谁得（`_conquer` 的 `old is None` 分支复用该格）。
+        """
         if name not in self.nations:
             return False
-        if any(t["owner"] == name for t in self.tiles.values()):
+        if self.has_townhall(name):
             return False
+        # 亡国 ⇒ 余土变无主之地（建筑留存）；核心主张随之作废（没有国了，谈何核心）
+        orphaned = [t for t in self.tiles.values() if t["owner"] == name]
+        for t in orphaned:
+            t["owner"] = None
+            t["core"] = None
         # ★ 亡国**是公开事实**（`broadcast`）：原先写成 `log(nation=name)`——只有那个
         #   已经不存在、再也不会查询的国家"看得见"，等于谁都不知道（连灭它的那家也不知道，
         #   若它正好在视野外）。同族问题的极端形态（用户 2026-09-20「丢地不报消息」）。
-        self.broadcast(f"☠ {name} 亡国：领土尽失，国祚断绝！", phase="灭国")
+        #   归无主的余土要报出**块数**：那是全世界都能去捡的废墟（有建筑就值钱）。
+        tail = (f"余 {len(orphaned)} 块领地沦为无主之地（建筑留在原地，先到先得）"
+                if orphaned else "")
+        self.broadcast(f"☠ {name} 亡国：市政厅尽失，国祚断绝！{tail}", phase="灭国")
         del self.nations[name]
         # 军队解散
         self.armies = [a for a in self.armies if a["owner"] != name]
@@ -3978,6 +4058,14 @@ class World:
             w.tiles[(x, y)] = t
         w.guard_once = {tuple(k) for k in data["guard_once"]}
         w._ensure_guardians()
+        # ★ 2026-09-21 规则改版（灭国条件：领土尽失 → 市政厅尽失）对**老档**的迁移：
+        #   老档里的国家一座市政厅都没有（那时不送），照新规则**第一次丢地就当场亡国**，
+        #   哪怕它还握着二十块地——那不是新规则的意思，是它没赶上新开局。
+        #   ⇒ 给每个还活着的国家补发一座（`_seed_townhall` 落在它的核心格）。
+        #   只补**活着**的国家：死国没有国祚可言，它的地早就归了别人。
+        for nm in list(w.nations):
+            if not w.has_townhall(nm):
+                w._seed_townhall(nm)
         return w
 
 

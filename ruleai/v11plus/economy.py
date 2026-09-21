@@ -456,8 +456,12 @@ def run(ledger, world, name: str) -> None:
         #   ★ 2026-09-16（用户）：「任何电厂……也不挑地，应该密度堆积」⇒ 站址取密度最高的格
         #   （同 ROI 那条规则；池子是全图可建格，所以不会卡住建不出来）。
         if (power + gen_add) < need_pw + _dem_add:
+            # ★ `spend_ok` 只吃一个参数（建筑名）——这里曾经多传了一个 `q`，
+            #   而它是**惰性生成器里的短路尾巴**：只有前面 `afford` 全真时才会求值，
+            #   于是这个 TypeError 在"开局没电、又有钱建电厂"之前一直没被踩到
+            #   （2026-09-21 开局白送市政厅 ⇒ 第 1 回合 need_pw 就 >0 ⇒ 当场露头）。
             _site = next((q for q in plant_order
-                          if free_at(q) and afford(q, "木材能源厂") and spend_ok(q, "木材能源厂")), None)
+                          if free_at(q) and afford(q, "木材能源厂") and spend_ok("木材能源厂")), None)
             if _site is not None and build(_site, "木材能源厂"):
                 gen_add += BUILDINGS["木材能源厂"]["energy_out"]
                 continue

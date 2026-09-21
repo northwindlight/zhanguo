@@ -796,7 +796,9 @@ class TestCastleReportedEverywhere(unittest.TestCase):
         w.tiles[(5, 5)] = t
         ok, msg = w._conquer(5, 5, "秦", "攻陷")
         self.assertTrue(ok, msg)
-        self.assertIn("（城L3）", msg, "占领回执应报出缴获的城堡")
+        # 公开信息挤在**同一个括号**里：`（原属 楚，城L3，市政厅×1）`
+        # （2026-09-21 起市政厅也公开——它是国祚；原先写死成 `（城L3）` 的断言跟着改）
+        self.assertIn("（原属 楚，城L3）", msg, "占领回执应报出原属国与缴获的城堡")
         self.assertNotIn("兵营", msg, "广播日志不许带非公开信息")
         self.assertEqual(w.tiles[(5, 5)]["buildings"]["兵营"], 2, "建筑应原样保留")
 
