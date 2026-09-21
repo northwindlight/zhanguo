@@ -137,6 +137,13 @@ MAX_SLOTS = 20
 # 建筑定义（kind 决定回合行为）：
 #   cost           造价（金）；城堡为列表，第 i 级造价 = cost[i]，逐级递增
 #   wood           建造另需木材数（从全局木材储备扣除）
+#
+# ★ 2026-09-22 用户「所有建筑用金 −50%、用木 +100%」——**全套建筑一起改**（城堡逐级皆然），
+#   口径就这一条：**金减半、木加倍**。两个随之而来的事实（都是设计意图，不是副作用）：
+#   ① 建造的**木**门槛翻倍 ⇒ 木头（内需品）更吃紧、更值钱，"先攒木再上大件"；
+#   ② 金价减半 ⇒ 建造挤占的黄金变少，现金更容易被逼去**征兵**（征兵耗粮装、不耗木）。
+#   奇数的金价（林场 45 / 石油厂 135 / 补给厂 175）**向上取整**（23 / 68 / 88）——
+#   宁可多 0.5 金，也不让"减半"变成"减 51%"（引擎按整数 `//` 算折扣，不留小数）。
 #   cap_resource   建造上限来源（该地块此项资源量即上限）；None=仅受建筑位/城堡级数限制
 #   kind:
 #     castle    城堡：max_level 级，每级 +10% 防御
@@ -147,41 +154,41 @@ MAX_SLOTS = 20
 BUILDINGS = {
     "城堡": {
         "kind": "castle",
-        "cost": [100, 200, 400, 800, 1600],
-        "wood": 10,
+        "cost": [50, 100, 200, 400, 800],
+        "wood": 20,
         "max_level": 5,
         "cap_resource": None,
         "effects": {"defense_per_level": 10},
     },
-    "林场": {"kind": "extract", "cost": 45, "wood": 5, "cap_resource": "木头", "outputs": {"木头": 1}},
-    "农场": {"kind": "extract", "cost": 50, "wood": 5, "cap_resource": "耕地", "outputs": {"粮食": 1}},
-    "矿场": {"kind": "extract", "cost": 70, "wood": 5, "cap_resource": "矿石", "outputs": {"矿石": 1}},
-    "石油厂": {"kind": "extract", "cost": 135, "wood": 8, "cap_resource": "石油", "outputs": {"石油": 1}},
-    "黄金矿场": {"kind": "gold", "cost": 200, "wood": 10, "cap_resource": "黄金", "outputs": {"黄金": 1}},
-    "木材能源厂": {"kind": "energy", "cost": 120, "wood": 15, "cap_resource": None, "fuel": {"木头": 1}, "energy_out": 2},
-    "石油能源厂": {"kind": "energy", "cost": 240, "wood": 15, "cap_resource": None, "fuel": {"石油": 1}, "energy_out": 8},
-    "补给厂": {"kind": "factory", "cost": 175, "wood": 12, "cap_resource": None, "inputs": {"粮食": 1, "矿石": 1}, "outputs": {"补给": 2}, "energy": 1},
-    "装备厂": {"kind": "factory", "cost": 210, "wood": 12, "cap_resource": None, "inputs": {"矿石": 1, "石油": 1}, "outputs": {"装备": 2}, "energy": 1},
+    "林场": {"kind": "extract", "cost": 23, "wood": 10, "cap_resource": "木头", "outputs": {"木头": 1}},
+    "农场": {"kind": "extract", "cost": 25, "wood": 10, "cap_resource": "耕地", "outputs": {"粮食": 1}},
+    "矿场": {"kind": "extract", "cost": 35, "wood": 10, "cap_resource": "矿石", "outputs": {"矿石": 1}},
+    "石油厂": {"kind": "extract", "cost": 68, "wood": 16, "cap_resource": "石油", "outputs": {"石油": 1}},
+    "黄金矿场": {"kind": "gold", "cost": 100, "wood": 20, "cap_resource": "黄金", "outputs": {"黄金": 1}},
+    "木材能源厂": {"kind": "energy", "cost": 60, "wood": 30, "cap_resource": None, "fuel": {"木头": 1}, "energy_out": 2},
+    "石油能源厂": {"kind": "energy", "cost": 120, "wood": 30, "cap_resource": None, "fuel": {"石油": 1}, "energy_out": 8},
+    "补给厂": {"kind": "factory", "cost": 88, "wood": 24, "cap_resource": None, "inputs": {"粮食": 1, "矿石": 1}, "outputs": {"补给": 2}, "energy": 1},
+    "装备厂": {"kind": "factory", "cost": 105, "wood": 24, "cap_resource": None, "inputs": {"矿石": 1, "石油": 1}, "outputs": {"装备": 2}, "energy": 1},
     # 兵营不自动产兵：每兵营每回合可征 effects.recruit_cap 支军队（army_cost 每支耗资），军队 100HP，从本地块征集；需本地已用建筑位≥3（防裸地兵营）
-    "兵营": {"kind": "barracks", "cost": 350, "wood": 20, "cap_resource": None, "min_slots": 3,
+    "兵营": {"kind": "barracks", "cost": 175, "wood": 40, "cap_resource": None, "min_slots": 3,
              "army_cost": {"粮食": 10, "装备": 5}, "energy": 1,
              "effects": {"recruit_cap": 1}},
     # 市政厅：很贵、每地块限 1 座、需该地块已用建筑位≥6 才可建；维持 1 电（电网不足即停摆）；
     # 每座每回合 = effects.gold_base(基础) + 该地块已占建筑位(不含自身)×effects.gold_per_slot 金 入国库
-    "市政厅": {"kind": "townhall", "cost": 500, "wood": 40, "cap_resource": None,
+    "市政厅": {"kind": "townhall", "cost": 250, "wood": 80, "cap_resource": None,
                "energy": 1, "limit": 1, "min_slots": 6,
                "effects": {"gold_base": 5, "gold_per_slot": 1}},
     # ---- 特殊建筑（不产出、不耗电，改规则）----
     # 瞭望塔：己方/盟方任一瞭望塔半径（effects.vision_radius）圆内的事件都可见（事件视野，不改可拓地）
-    "瞭望塔": {"kind": "tower", "cost": 120, "wood": 15, "cap_resource": None,
+    "瞭望塔": {"kind": "tower", "cost": 60, "wood": 30, "cap_resource": None,
                "effects": {"vision_radius": 4}},
     # 外交中心：**自建限 1 座**（limit_nation），叠加的只能靠夺地抢别国的——
     # 每座（含抢来的）让自己的外交费再减半（10→5→2→1，下限1）、写信费每座 -5 金（下限 5）；
     # 他国向你提议结盟/联盟/议和免费
-    "外交中心": {"kind": "diplomat", "cost": 400, "wood": 30, "cap_resource": None,
+    "外交中心": {"kind": "diplomat", "cost": 200, "wood": 60, "cap_resource": None,
                  "limit": 1, "limit_nation": 1, "min_slots": 5},
     # 工程院：本地块一切建造金价 -25%（与地形惩罚乘算，只认已落成的），需本地已用建筑位≥4
-    "工程院": {"kind": "academy", "cost": 300, "wood": 30, "cap_resource": None,
+    "工程院": {"kind": "academy", "cost": 150, "wood": 60, "cap_resource": None,
                "limit": 1, "min_slots": 4, "effects": {"build_discount": 25}},
     # 军屯：**纯民兵编制**（2026-09-18 改：原先每回合 +1 粮，按口径拿掉——它是驻军编制，
     # 不是产粮建筑）；可征民兵（50金+5粮/支，不耗电、不受电网停摆影响）；
@@ -189,7 +196,7 @@ BUILDINGS = {
     # 民兵驻本格不耗补给（每座军屯覆盖本格 1 支），离格照常吃。
     # ★ `outputs` 留成**空 dict**、而不是把键删掉：引擎/面板/账本好几处都按 `info["outputs"]` 统一读，
     #   删键会 KeyError；空 dict 让"无产出建筑"这条路走得通，ruleai 的 `_extractors()` 也会自动排除它。
-    "军屯": {"kind": "militia_camp", "cost": 220, "wood": 15, "cap_resource": "耕地",
+    "军屯": {"kind": "militia_camp", "cost": 110, "wood": 30, "cap_resource": "耕地",
              "limit": 1, "outputs": {}, "effects": {"militia_cap": 1}},
 }
 
@@ -281,7 +288,11 @@ ARRIVE_ATTEMPTS = 400      # 看海中途加国：随机找合法落点的尝试
 # 可交易 = 全部可存储物资：粮食/木头/矿石/石油/装备 + 补给（军队口粮，买卖直接走全局补给仓）。
 # 能源不可存储、不在市场内。
 MARKET = {
-    "粮食": 2, "木头": 2, "矿石": 4, "石油": 6, "装备": 8, "补给": 5,
+    # ★ 2026-09-22 用户「矿石价格拉低到 2.5」：矿石从 4 砍到 **2.5**（−37.5%）。
+    #   连带两件事：① **矿场回本变慢**（基准价低了，一单位矿石换的金更少）；
+    #   ② **工厂更赚**——补给厂/装备厂都吃矿石作投料，投料便宜了、产出价没动
+    #   （补给厂毛利 3→5.5、装备厂 6→7.5 金/回合）。矿从此更偏"工业原料"而非"出口创汇"。
+    "粮食": 2, "木头": 2, "矿石": 2.5, "石油": 6, "装备": 8, "补给": 5,
     "黄金": 10,
 }
 TRADEABLE = ["粮食", "木头", "矿石", "石油", "装备", "补给"]
@@ -315,14 +326,22 @@ PRICE_MAX_RATIO = 3.0     # 市价上限 = 基准价 × 该值
 # **配置开关**：mp_config.json 的 `world_bank`（默认 false）——没开就是纯装饰，一分钱不动。
 # 开了之后：国库现金**默认就是储蓄**（不用存），每回合按 `rate` 结息；
 # 可向央行借一笔，利率 = 储蓄利率 + BANK_SPREAD。
-BANK_SPREAD = 0.05          # 贷款利率 = 储蓄利率 + 该值（可为负 ⇒ 欠款每回合**缩水**）
-#   ★ 2026-09-19 用户把它从 3% 提到 8%（「想让囤钱的肉疼一点」）；**2026-09-21 调回 5%**
-#     （八国剧本一起定的口径）。注意**利差只决定借钱有多贵**，真正"让囤钱肉疼"的是
-#     **储蓄利率为负**——两者合起来才是那套组合拳：
+BANK_SPREAD = 0.02          # 贷款利率 = 储蓄利率 + 该值（可为负 ⇒ 欠款每回合**缩水**）
+#   ★ 2026-09-19 用户把它从 3% 提到 8%（「想让囤钱的肉疼一点」）；2026-09-21 调回 5%；
+#     **2026-09-22 再降到 2%**（八国剧本一起定的口径）。注意**利差只决定借钱有多贵**，
+#     真正"让囤钱肉疼"的是**储蓄利率为负**——两者合起来才是那套组合拳：
 #     储蓄 -8% + 利差 8% ⇒ 囤钱每回合 -8%、借钱 0 成本（钱被逼出金库，又不至于借不起）；
-#     现在利差 5% ⇒ 同样 `rate -8` 时借钱 **-3%**（欠款每回合缩水，比 0 成本还便宜）。
-BANK_LOAN_MAX = 1000        # 单笔上限（金）；且**还清前不能再借**（不叠加）
-BANK_LOAN_MAX_TURNS = 10    # 单笔最长回合数
+#     现在利差 2% ⇒ 同样 `rate -8` 时借钱 **-6%**（欠款每回合缩水 6%，比 0 成本还便宜）。
+#
+# ★ 2026-09-22 授信改革（用户：「银行只能贷款当时 GDP×5 的金，不再要求设置回合，也不要求
+#   金额，默认当前 GDP×5」→「改成不能选贷款额和时间」）——**固定额度上限（旧的 1000 金）
+#   作废**，改按**经济规模**授信，而且**额度和期限都不是选项**：只有一种贷款。
+BANK_LOAN_GDP_MULT = 5      # 贷款额 = 借款当时的 GDP × 该值（GDP=上回合产出速率，见 World.nation_gdp）
+BANK_LOAN_TURNS = 5         # 贷款期限（固定，不可自选）——用户：「默认 5 回合，10 回合纯吃利息」
+#   为什么是 5 回合：利息按**复利**滚（每回合 `due *= 1 + 利率`，见 `_bank_settle`），
+#   期限越长，到期那笔里"利息"占比越高——2% 利差下 5 回合要还 ≈ 本金 ×1.10、
+#   10 回合 ≈ ×1.22（**多借 5 回合，利息翻一倍多**）。口径仍是那句：
+#   **钱要借去用在"回本快于到期日"的地方**——5 回合就是那个基准尺度。
 BANK_RATE_MIN = -0.5        # 观察者能设的利率区间（每回合）；越界会被夹住并回显
 BANK_RATE_MAX = 0.5
 # 央行还卖**别国已公布的经济报表**（同一期买家可反复买，一次一价；国库不足即被拒、

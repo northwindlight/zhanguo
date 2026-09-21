@@ -26,8 +26,8 @@ from pathlib import Path
 
 from game import (
     ARMY_HEAL_PER_TURN,
-    BANK_LOAN_MAX,
-    BANK_LOAN_MAX_TURNS,
+    BANK_LOAN_GDP_MULT,
+    BANK_LOAN_TURNS,
     BANK_RATE_MAX,
     BANK_RATE_MIN,
     BANK_SPREAD,
@@ -148,6 +148,9 @@ SAVE_MIN_VERSION = 3
 SAVE_DEFAULTS: dict = {
     "pacts": [],                                      # v3 起：实体级条约表
     "bank": {"on": False, "rate": 0.0, "loans": {}},  # v4 起：世界央行
+    # v4 起：每回合的 GDP run-rate（央行授信按它算）。旧档缺 → 空表，
+    # 由 `nation_gdp` 退回"最新一期经济报表的 GDP"，不会把授信算成 0。
+    "gdp_run": {},
 }
 SAVE_KEYS = ("version", "size", "seed", "turn", "rng_state", "nations", "order",
              "tiles", "armies", "next_army_seq", "diplo_built", "nation_code",
@@ -157,7 +160,7 @@ SAVE_KEYS = ("version", "size", "seed", "turn", "rng_state", "nations", "order",
              "map_pending", "maps", "spy_pending", "econ_intel", "plans", "polity",
              "extra_prompt", "peace_offers", "proposals", "offer_id", "prices",
              "equilibrium", "flow_in", "flow_out", "grid_short", "energy_report",
-             "econ_summary", "econ_reports", "ledger", "spend", "history",
+             "econ_summary", "econ_reports", "ledger", "spend", "gdp_run", "history",
              "history_seen")
 
 
@@ -436,6 +439,9 @@ class World:
         # 经济报表：每 REPORT_EVERY 回合自动结一期（第 11/21/31… 回合开局可查），AI 只读、不能手动跑
         self.econ_reports: dict[str, list[dict]] = {}   # {国: [期快照…]}
         self.ledger: dict[str, dict] = {}               # 本期累计账本（结完报表清零）
+        # 每回合的 GDP run-rate（{国: 金/回合}）：报表每 REPORT_EVERY 回合才结一期，
+        # 而央行授信要按"**当时**的 GDP"放款 ⇒ 每回合都记一份（与报表同一条公式）。
+        self.gdp_run: dict[str, float] = {}
         self.spend: dict[str, dict] = {}                # 总消费（全期累计，不清零）：终局排名用
         self.history: list[dict] = []
         self.history_seen = 0
@@ -2160,24 +2166,49 @@ class World:
     _RUNRATE_FIELDS = ("prod_value", "mid_value", "fuel_value", "gold_in", "supply_eaten")
 
     def _ledger_runrate_mark(self) -> dict:
-        """结算开头为每国抓一份 GDP/军费相关字段的快照，供 _close_report_period 求本回合增量。"""
+        """结算开头为每国抓一份 GDP/军费相关字段的快照，供本回合增量（_turn_flows）用。"""
         return {n: {k: self._ledger(n).get(k, 0.0) for k in self._RUNRATE_FIELDS}
                 for n in self.alive()}
 
-    def _close_report_period(self, runrate_from: dict) -> None:
+    def _turn_flows(self, runrate_from: dict) -> dict[str, dict[str, float]]:
+        """**本回合**各国账本的增量（GDP/军费口径的五个字段）：{国: {字段: 增量}}。
+
+        结算开头抓的 `runrate_from` 快照（生产/军耗发生之前）与此刻的账本逐字段相减，
+        得到"这一回合实际发生了多少"——与报表口径同源：**报表每 REPORT_EVERY 回合用一次，
+        央行授信每回合都要用一次**（`gdp_run`），所以抽出来共用，免得两处各写一条公式。
+        """
+        out = {}
+        for n in self.alive():
+            led = self._ledger(n)
+            s0 = runrate_from.get(n) or {}
+            out[n] = {k: led.get(k, 0.0) - s0.get(k, 0.0) for k in self._RUNRATE_FIELDS}
+        return out
+
+    @staticmethod
+    def _flows_gdp(f: dict) -> float:
+        """GDP = 本回合生产增加值（市价，**不含军费**）：采集/工厂产出 + 金矿与市政厅金
+        − 中间投入 − 能源燃料。不除天数、不攒期累计——就是当前的产出速率（run-rate）。"""
+        return (f.get("prod_value", 0.0) - f.get("mid_value", 0.0)
+                - f.get("fuel_value", 0.0) + f.get("gold_in", 0.0))
+
+    def _close_report_period(self, runrate_from: dict,
+                             flows: dict | None = None) -> None:
         """把本期账本结成一期快照并清零账本。只在回合结算末尾调用——AI 无手动入口。
         runrate_from：本回合结算开头（生产/军耗发生之前）的账本快照；
+        flows：本回合增量（`_turn_flows` 的结果）；不传就现算（口径完全一样，
+        留着是为了让单独调用本函数的测试/工具不必先备好 flows）。
         GDP 与军费只反映**本回合**（报表所结算的那一回合）的实际增量。"""
+        if flows is None:
+            flows = self._turn_flows(runrate_from)
         for n in self.alive():
             led = self._ledger(n)
             start = int(led.get("_since", self.turn - REPORT_EVERY + 1))
             days = max(1, min(REPORT_EVERY, self.turn - start + 1))   # 覆盖回合数（仅供展示）
-            snap0 = runrate_from.get(n, {k: 0.0 for k in self._RUNRATE_FIELDS})
-            d = lambda k: led.get(k, 0.0) - snap0.get(k, 0.0)          # 本回合增量
+            f = flows.get(n) or {}
             # GDP = 本回合生产增加值（市价，不含军费）——不除天数、不攒期累计
-            gdp = d("prod_value") - d("mid_value") - d("fuel_value") + d("gold_in")
+            gdp = self._flows_gdp(f)
             # 军费 = 本回合军队实际吃掉的补给 × 现价（不看来源：自产/外购一视同仁）
-            military = d("supply_eaten") * self.prices.get("补给", float(MARKET["补给"]))
+            military = f.get("supply_eaten", 0.0) * self.prices.get("补给", float(MARKET["补给"]))
             invest = led["invest_gold"] + led["invest_wood_value"]      # 整期累计（不 run-rate）
             assets = self.nation_assets(n)
             supply_total = led["prod_value"] + led["import_gold"]
@@ -2201,7 +2232,7 @@ class World:
                 "export_gold": round(led["export_gold"], 1),
                 "import_gold": round(led["import_gold"], 1),
                 "supply_eaten": int(led["supply_eaten"]),           # 整期累计（供展示）
-                "supply_eaten_turn": int(d("supply_eaten")),        # 本回合吃掉（军费口径）
+                "supply_eaten_turn": int(f.get("supply_eaten", 0.0)),  # 本回合吃掉（军费口径）
                 "trade_ratio": round(trade, 4),
             }
             self.econ_reports.setdefault(n, []).append(snap)
@@ -2438,12 +2469,18 @@ class World:
                 f"国库{self.res(n,'黄金')} 木{self.res(n,'木头')} 补给仓{self.res(n,'补给')}"
             )
 
+        # 7.4) 每回合的 GDP run-rate（央行授信按"**当时**的 GDP"放款，见 World.bank_credit）。
+        # 报表每 REPORT_EVERY 回合才结一期，太稀了；这里用与报表**同一条公式**每回合记一份。
+        # ★ 必须赶在 7.5 之前算：报表结完会把本期账本清零，之后再来读增量就全是 0 了。
+        flows = self._turn_flows(runrate_from)
+        self.gdp_run = {n: round(self._flows_gdp(f), 1) for n, f in flows.items()}
+
         # 7.5) 经济报表：每 REPORT_EVERY 回合自动结一期（第 11/21/31… 回合开局可查）
         # 报表是派生数据（坏了不影响世界状态），所以这里兜底：出岔子只跳过本期并记进纪事，
         # 绝不把异常抛进 resolve_turn 拖垮整局（与「不静默」原则一致——日志里看得见）。
         if self.turn and self.turn % REPORT_EVERY == 0:
             try:
-                self._close_report_period(runrate_from)
+                self._close_report_period(runrate_from, flows)
             except Exception as e:
                 self.log(f"⚠ 经济报表生成失败，本期跳过：{type(e).__name__}: {e}", phase="内政")
         return {"war_lines": flat_lines, "famine": famine}
@@ -2693,7 +2730,11 @@ class World:
     # ------------------------------------------------------------- 世界央行
     # 口径（2026-09-19 用户）：国库现金**默认就是储蓄**（不用存）；观察者设储蓄利率、可为负
     # （负则每回合扣钱，**扣到 0 为止**）；贷款 = 储蓄利率 + BANK_SPREAD（也可为负）；
-    # 单笔 ≤1000 金、≤10 回合、**还清前不能再借**；到期**强制扣款**（这一笔允许扣成负的）。
+    # **还清前不能再借**；到期**强制扣款**（这一笔允许扣成负的）。
+    # ★ 2026-09-22 授信改革（用户：「银行只能贷款当时 GDP×5 的金，不再要求设置回合，
+    #   也不要求金额，默认 10 回合，默认当前 GDP×5」→ 随后改口径「默认 5 回合，
+    #   10 回合纯吃利息」）：**固定的 1000 金上限作废**，改按经济规模授信——
+    #   额度 = `bank_credit()` = 当前 GDP × BANK_LOAN_GDP_MULT，金额与期限都可省（有默认）。
     def bank_on(self) -> bool:
         return bool(self.bank.get("on"))
 
@@ -2716,6 +2757,26 @@ class World:
     def bank_loan_rate(self) -> float:
         """贷款利率 = 储蓄利率 + BANK_SPREAD（可为负 ⇒ 欠款每回合**缩水**）。"""
         return self.bank_rate() + BANK_SPREAD
+
+    def nation_gdp(self, name: str) -> float:
+        """该国**当前 GDP**（金/回合）= 上一回合结算记下的 run-rate（`gdp_run`）。
+
+        口径与 `report` 报表里的 GDP 是**同一条公式**（见 `_flows_gdp`），只是每回合都记，
+        不像报表那样每 REPORT_EVERY 回合才结一期——央行授信要的是"**当时**的 GDP"。
+
+        旧档兜底：`gdp_run` 缺该国（v4 之前的档、或本回合还没结算过）→ 退回**最新一期
+        经济报表的 GDP**；连报表都没有（开局头几回合）→ 0（央行还没看到这个国家的账）。
+        """
+        if name in self.gdp_run:
+            return float(self.gdp_run[name])
+        reps = self.econ_reports.get(name) or []
+        if reps and isinstance(reps[-1], dict):
+            return float(reps[-1].get("gdp", 0.0))
+        return 0.0
+
+    def bank_credit(self, name: str) -> int:
+        """央行给该国的**授信额度**（金）= 当前 GDP × `BANK_LOAN_GDP_MULT`，向下取整。"""
+        return max(0, int(self.nation_gdp(name) * BANK_LOAN_GDP_MULT))
 
     def bank_set_rate(self, rate: float) -> tuple[bool, str]:
         """[观察者] 设储蓄利率；**变了就全世界播报**。
@@ -2741,8 +2802,15 @@ class World:
         self.broadcast(msg)
         return True, msg
 
-    def bank_loan(self, name: str, amount: int, turns: int) -> tuple[bool, str]:
-        """向世界央行借一笔：现金即刻到账；**还清之前不能再借**（不叠加）。"""
+    def bank_loan(self, name: str) -> tuple[bool, str]:
+        """向世界央行借一笔：现金即刻到账；**还清之前不能再借**（不叠加）。
+
+        ★ 2026-09-22 授信改革（用户：「银行只能贷款当时 GDP×5 的金，不再要求设置回合，
+        也不要求金额」→「**改成不能选贷款额和时间**」）⇒ **没有参数可选**，只有一种贷款：
+        额度 = 当时 GDP × `BANK_LOAN_GDP_MULT`，期限 = `BANK_LOAN_TURNS`。
+        额度只看借款当时的 GDP（上回合产出的 run-rate）——富国的信用上限自己会长，
+        穷国想借满 1000 也借不到（这就是"按经济规模授信"的意思）。
+        """
         if not self.bank_on():
             return False, "本局没开世界央行（mp_config.json 的 world_bank=true 才生效）"
         if name not in self.nations:
@@ -2752,20 +2820,24 @@ class World:
             return False, (f"你在第 {ln['taken_turn']} 回合借的那笔还没还清"
                            f"（到期应还 {ln['due']} 金、还剩 {ln['turns_left']} 回合）——"
                            "还清前不能再借")
-        if not isinstance(amount, int) or amount <= 0:
-            return False, "借款额需为正整数"
-        if amount > BANK_LOAN_MAX:
-            return False, f"单笔上限 {BANK_LOAN_MAX} 金（你借 {amount}）"
-        if not isinstance(turns, int) or not (1 <= turns <= BANK_LOAN_MAX_TURNS):
-            return False, f"期限需为 1~{BANK_LOAN_MAX_TURNS} 回合（你给 {turns}）"
+        gdp = self.nation_gdp(name)
+        credit = self.bank_credit(name)
+        cap = (f"贷款额固定 = 你当前 GDP {gdp:.1f} 金/回合 × {BANK_LOAN_GDP_MULT} "
+               f"= {credit} 金，期限固定 {BANK_LOAN_TURNS} 回合（都不能自选）")
+        if credit <= 0:
+            # 开局头几回合央行还没见过你的账：GDP 要等**第 1 回合结算之后**才结得出来
+            return False, (f"央行还没看到你的账：{cap}——GDP 要等第 1 回合结算后才结得出来，"
+                           "先干一回合再借")
+        amount, turns = credit, BANK_LOAN_TURNS
         self.add_res(name, "黄金", amount)
         self.bank["loans"][name] = {"principal": amount, "due": amount, "turns_left": turns,
                                     "taken_turn": self.turn, "rate": self.bank_loan_rate()}
         self.log(f"🏦 {name} 向世界央行借款 {amount} 金（{turns} 回合后到期，"
-                 f"利率 {self.bank_loan_rate():+.1%}）", phase="事件", nation=name)
+                 f"利率 {self.bank_loan_rate():+.1%}；授信 {credit}）", phase="事件", nation=name)
         return True, (f"已到账 {amount} 金：{turns} 回合后到期，当前利率 "
                       f"{self.bank_loan_rate():+.1%}（= 储蓄 {self.bank_rate():+.1%} + "
-                      f"{BANK_SPREAD:.0%}）；到期**强制扣款**，还清前不能再借")
+                      f"{BANK_SPREAD:.0%}）；到期**强制扣款**，还清前不能再借"
+                      f"（{cap}）")
 
     def bank_sell_report(self, frm: str, to: str, report_turn: int,
                          text: str) -> tuple[bool, str]:
@@ -3949,6 +4021,7 @@ class World:
             "econ_reports": self.econ_reports,
             "ledger": self.ledger,
             "spend": self.spend,
+            "gdp_run": self.gdp_run,
             "history": self.history,
             "history_seen": self.history_seen,
         }
@@ -4062,6 +4135,10 @@ class World:
                     for n, v in data["ledger"].items() if n in w.nations}
         w.spend = {n: {k: float(v[k]) for k in SPEND_FIELDS}
                    for n, v in data["spend"].items() if n in w.nations}
+        # 每回合的 GDP run-rate（央行授信口径）。旧档（v4 之前）没有这个键 ⇒ 空表，
+        # `nation_gdp` 会退回最新一期报表的 GDP——不许把"缺字段"读成"GDP=0、授信=0"。
+        w.gdp_run = {n: float(v) for n, v in (data.get("gdp_run") or {}).items()
+                     if n in w.nations}
         # 地块：存档即完整（recruited/built/buildings/pending/core 与全部建筑键都在），
         # 只做 "x,y" 字符串键 → (x,y) 元组键的还原，不再补字段
         for k, t in data["tiles"].items():

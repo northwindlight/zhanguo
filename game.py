@@ -20,8 +20,8 @@ import random
 # 就地改（如 `feat/rl` 分支 `rl/jitter.py` 的域随机化）两边同时可见。
 from balance import (
     ARMY_ATTACK_DAMAGE,
-    BANK_LOAN_MAX,
-    BANK_LOAN_MAX_TURNS,
+    BANK_LOAN_GDP_MULT,
+    BANK_LOAN_TURNS,
     BANK_RATE_MAX,
     BANK_RATE_MIN,
     BANK_SPREAD,

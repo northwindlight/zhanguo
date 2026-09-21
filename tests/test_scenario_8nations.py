@@ -146,6 +146,17 @@ class TestCharter(unittest.TestCase):
         self.assertIn("复振王纲", S.CHARTER)
         self.assertIn("周王室的志向", S.CHARTER)
 
+    def test_文案要点_周也能赢_单向保障_立盟即废保(self):
+        """★ 2026-09-22 用户补的三条（「周一样可以完成最终胜利，且周可以打别国，别国不能打周，
+        独立保障是单项保护，防御条约才双向，一旦周开始建立周天下，那么所有的独立保障立刻失效」）
+        ——**写清楚**才有人知道，不然"周只会尊王"与"那七张纸是永久的"都会变成模型的默认假设。"""
+        self.assertIn("兼并天下」那条终极胜利的路", S.CHARTER, "周也能走终极胜利那条路")
+        self.assertIn("先动手打别国", S.CHARTER, "周可以主动开战（保障只保它、不禁止它动手）")
+        self.assertIn("单向保护", S.CHARTER)
+        self.assertIn("共同防御才是双向的", S.CHARTER)
+        self.assertIn("七张保障纸立刻全部作废", S.CHARTER, "立「周天下」即废保（盾收起来了）")
+        self.assertIn("自己立盟", S.CHARTER, "得说清触发条件：立盟、当盟主")
+
     def test_只写目标不写胜利条件(self):
         """用户：「**不用写胜利条件，我手动结束就行了**」——志里不许出现机械判定
         （那种话会变成"打到某条线就收工"的暗条件，而这局是由观察者手动结束的）。"""
@@ -184,6 +195,69 @@ class TestCharter(unittest.TestCase):
         w = S.build(charter=False)
         self.assertEqual(w.extra_prompt, {})
         self.assertEqual(len(w.guarantors_of(w.entity_of(S.ZHOU))), 7, "条约不受影响")
+
+
+class TestZhouCanWinAndStrike(unittest.TestCase):
+    """★ 2026-09-22 用户：「**周一样可以完成最终胜利，且周可以打别国，别国不能打周，独立保障是
+    单项保护，防御条约才双向，一旦周开始建立周天下，那么所有的独立保障立刻失效**」。
+
+    追问后用户明确：「**这不是机制，是现有机制就这样**，别人宣战周会触发 7 雄对周的独立保障」
+    ⇒ 这一组钉的是**既有行为**：引擎里不许出现任何"周不能赢 / 周不能打"的暗规则，
+    而"周立盟 ⇒ 七张纸全废"要**真的发生**（它是 `_absorb_personal_pacts` 的推论，
+    但没人钉过——立盟废的是"成员**手里**的条约"，而保障是**冲着周**来的那七张）。
+    """
+
+    def setUp(self):
+        self.w = S.build()
+
+    def test_周可以主动打别国(self):
+        """保障是**单向**的：只保周不被别人动，不禁止周自己动手。"""
+        ok, msg = self.w.declare_war(S.ZHOU, "秦")
+        self.assertTrue(ok, msg)
+        self.assertEqual((self.w.wars[0]["atk"], self.w.wars[0]["def"]), (S.ZHOU, "秦"))
+        self.assertTrue(self.w.war_between(S.ZHOU, "秦"))
+
+    def test_周也一样能兼并天下_引擎没有例外(self):
+        """把七雄的市政厅全拔光 ⇒ 剩下的唯一赢家就是周（引擎的终局口径与国别无关）。"""
+        w = self.w
+        for n in S.SEVEN:
+            for t in w.tiles.values():
+                if t["owner"] == n:
+                    t["buildings"]["市政厅"] = 0
+            self.assertTrue(w._eliminate_if_dead(n), f"{n} 该就此亡国")
+        self.assertEqual(w.alive(), [S.ZHOU], "周是最后站着的那家")
+
+    def test_周立盟_七张保障立刻全废(self):
+        """「一旦周开始建立周天下，那么所有的独立保障立刻失效」——周当盟主就**不再要人保**。"""
+        w = self.w
+        w.propose_bloc(S.ZHOU, "周天下", ["燕", "齐"])
+        p = w.proposals[-1]
+        for m in ("燕", "齐"):
+            w.accept_pact(m, p["id"])
+        self.assertIsNotNone(w.bloc_of(S.ZHOU), "「周天下」该立起来了")
+        self.assertEqual(w.guarantors_of(w.entity_of(S.ZHOU)), [],
+                         "七张保障纸该在立盟那一刻全部作废")
+        self.assertTrue(any("入盟即放弃个人条约" in e or "保障" in e
+                            for e in w.events_for("秦", limit=10)),
+                        "该有全世界可见的播报——七雄得知道自己那张纸被烧了")
+
+    def test_立盟之后来救的只剩联盟自己人(self):
+        """纸烧了之后：别人再打周，**另外四雄不再自动参战**——来救的只有「周天下」的盟员。
+
+        （联盟传导照旧：打盟员＝打联盟。所以这不是"周变弱了"，而是"周的盾换了一面"：
+        七张纸换成一张盟约，援军从"全体诸侯"变成"自己拉进来的那几家"。）
+        """
+        w = self.w
+        w.propose_bloc(S.ZHOU, "周天下", ["燕", "齐"])
+        p = w.proposals[-1]
+        for m in ("燕", "齐"):
+            w.accept_pact(m, p["id"])
+        ok, msg = w.declare_war("秦", S.ZHOU)
+        self.assertTrue(ok, msg)
+        self.assertEqual(sorted(w.wars[0]["followers"]), ["燕", "齐"],
+                         "保障已废：该来的只有联盟成员")
+        for n in ("魏", "韩", "赵"):
+            self.assertFalse(w.war_between("秦", n), f"{n} 的保障纸已经烧了，不该再参战")
 
 
 class TestGeneratorRefusesToClobber(unittest.TestCase):

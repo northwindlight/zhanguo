@@ -289,6 +289,24 @@ def blk_rhythm() -> str:
     ])
 
 
+def blk_bank() -> str:
+    """世界央行（2026-09-22 授信改革）：只有一种贷款——额度、期限都不能自选。"""
+    return _table(["世界央行（`world_bank` 配置开关）", "值"], [
+        ["储蓄利率", "观察者设（`rate N`），可设区间 "
+                     f"{B.BANK_RATE_MIN:+.0%} ~ {B.BANK_RATE_MAX:+.0%}；"
+                     "国库现金默认就是储蓄，每回合结息（负则扣钱，**扣到 0 为止**）"],
+        ["贷款利率", f"储蓄利率 + {B.BANK_SPREAD:.0%}（可为负 ⇒ 欠款每回合缩水）"],
+        ["贷款额度", f"借款当时的 GDP × {B.BANK_LOAN_GDP_MULT}（**不能自选金额**）"],
+        ["贷款期限", f"{B.BANK_LOAN_TURNS} 回合（**不能自选**；利息按复利滚，"
+                     f"拖到 {B.BANK_LOAN_TURNS * 2} 回合要还 ≈ 本金 ×"
+                     f"{(1 + B.BANK_SPREAD) ** (B.BANK_LOAN_TURNS * 2):.2f}）"],
+        ["同时笔数", "一国一笔：**还清前不能再借**"],
+        ["到期", "一次性**强制扣款**（这一笔允许把国库扣成负的）"],
+        ["借款手续费", f"算外交动作，按外交费 {B.DIPLO_COST} 金计（成功才扣，外交中心照样减半）"],
+        ["买别国报表", f"{B.BUY_REPORT_COST} 金一份（`buy_report`；买不到一分钱不收）"],
+    ])
+
+
 def _huns_blocked() -> list[str]:
     try:
         import mp_ai
@@ -455,6 +473,7 @@ BLOCKS: dict[str, object] = {
     "combat": blk_combat,
     "diplo": blk_diplo,
     "market": blk_market,
+    "bank": blk_bank,
     "rhythm": blk_rhythm,
     "polity": blk_polity,
     "settle": blk_settle,

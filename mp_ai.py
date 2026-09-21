@@ -32,8 +32,10 @@ from game import (
     MARKET_SPREAD,
     MAX_SLOTS,
     MOVE_COST,
-    RETREAT_ATK_PENALTY,
+    PRICE_MIN_ABS,
+    PRICE_MIN_RATIO,
     RESOURCES,
+    RETREAT_ATK_PENALTY,
     RETREAT_RANGE,
     TERRAIN_STATS,
     UNIT_TYPES,
@@ -45,7 +47,7 @@ from console import dw as _dw, pad as _pad
 from llm_provider import make_backend
 from ctx import est_tokens
 import rule_ai as rule_ai_registry
-from mp import (BANK_LOAN_MAX, BANK_LOAN_MAX_TURNS, BANK_RATE_MAX, BANK_RATE_MIN,
+from mp import (BANK_LOAN_GDP_MULT, BANK_LOAN_TURNS, BANK_RATE_MAX, BANK_RATE_MIN,
                 BANK_SPREAD, BLOC_NAME_MAX, BUY_REPORT_COST, CROSS, DIPLO_COST,
                 EXTRA_PROMPT_TURNS,
                 FALL_TRUCE_TURNS,
@@ -993,6 +995,51 @@ def observer_map(world) -> str:
     return "\n".join(rows) + f"\n地图例：{legend} | 小写p/f/h/m/d=平原/森林/丘陵/山地/沙漠（无人）野人亦在其上"
 
 
+def _econ_manual() -> str:
+    """【经济学手册】：规则段讲"**能做**什么"，这一节讲"**为什么**该这么做"。
+
+    用户 2026-09-22 口述整本、要求「**可查询**」——所以它走 `rules` 的章节表：
+    `rules(经济手册)` 单独取，`rules` 全文里也有一节。**只做润色与分节，不改主张**；
+    里面的数字一律现读 `balance`（价差、地板价、贷款倍数），不手抄第二份。
+    六节依次是：①扩张＝买建设的期权 ②兵与钱互为前提 ③军费不能榨干现金流
+    ④别做"先卖后买"的转手 ⑤市场是个"没人消费就崩"的循环 ⑥战争是最快的获取资源方式。
+    """
+    half = MARKET_SPREAD / 2
+    return (
+        "规则段讲「**能做**什么」，这一节讲「**为什么**该这么做」。\n"
+        "一、扩张是**买建设的期权**，不是买资源。\n"
+        "  占下来的地本身**不产一粒粮、不出一块矿**——它是**建筑位**，是一张「以后在这儿盖什么」的"
+        "期权，兑现还得再掏一次建造钱。所以：**光有兵，只拿得下战略纵深**（防线、缓冲、通路、"
+        "逼近敌人的位置），**换不来经济增长**；地占着不建设，就是一笔压死在手里的钱。\n"
+        "二、兵与钱互为前提。\n"
+        "  **光有资本没有兵** ⇒ 没有投资位置（好地都在别人手里，除非你去打）；"
+        "**光有兵没有资本** ⇒ 打下来也建设不起，等于拿血换了一堆空地。"
+        "**资本创造复利，军队创造新的资本投资地块、同时保卫资本。** 两条腿缺一条，都走不远。\n"
+        "三、军队千万不能榨干现金流。\n"
+        "  军费是**每回合**持续的补给支出，吃掉的正是你本该拿去建造、再投资的那笔现金。"
+        "如果你已经被榨干（国库见底、产出全被军费吃掉）：**主动送掉一批军队**——去打一场"
+        "明知打不赢的仗，用一次战损把每回合的补给负担甩掉，**换回经济增长**。"
+        "**否则你一定会被滚雪球滚死**：别人在复利，你在给军队发口粮。\n"
+        "四、同一批货，别先卖后买。\n"
+        f"  市场有 {MARKET_SPREAD:.0%} 买卖价差（买 +{half:.0%} / 卖 −{half:.0%}），同一批货卖了再"
+        "买回来**必然亏本**——那是纯替市场转手、白送手续费。要买就直接买、要卖就直接卖，"
+        "别拿市场当仓库周转。\n"
+        "五、市场是个循环：没人消费，价格就崩。\n"
+        "  市价由全世界的产/耗决定（每回合向供需均衡价回归）：\n"
+        "  · **没有军队、也没有新地块可建** ⇒ 没人消费资源 ⇒ 供大于求 ⇒ 市价一路跌到地板"
+        f"（{PRICE_MIN_RATIO:g}× 基准价，最低 {PRICE_MIN_ABS:g} 金/单位）。"
+        "**所有资源同时变便宜 = 大家同时变穷**：同样的存货换不回同样的金，更养不起消费，"
+        "于是更没人消费——这就是**经济危机**：市场吞不下过量的资源，价格触底，谁也卖不出钱。\n"
+        "  · 反过来：**大家一起大力消费**（建造、征兵、打仗的军需）⇒ 资源变贵 ⇒ 军队也养得起 ⇒"
+        "把赚到的再投出去赚新利润 ⇒ **同时也托住了自己手里资源的价格**。"
+        "也就是说：**你花钱本身就在替自己维持物价**——都捂着不花，先崩的是你自己的资产。\n"
+        "六、战争是最快的获取资源方式。\n"
+        "  吞并一个国家：它的地、地上一砖一瓦、它的产出，一起归你——**你的 GDP 与资产可能瞬间"
+        "翻倍**，如同**秦王扫六合**，滚起来就不可阻挡。所以能打的仗要敢打；"
+        "但**开打前先回看第三节**：养不起的军队，先垮的是自己。"
+    )
+
+
 def _help_sections() -> list[tuple[str, str]]:
     """规则全文（=README 的游戏规则），按主题分节，供 rules 查询按需返回。"""
     ter = "\n".join(
@@ -1228,6 +1275,7 @@ def _help_sections() -> list[tuple[str, str]]:
             "深度按商品分档（粮木深、装备浅），随现存国家数放大：国家越多，单笔买卖对市价的冲击越小。"
             "基准价：" + "  ".join(f"{g}{MARKET[g]}" for g in GOODS_DISPLAY) + "。分批慢慢卖比一次砸盘划算；"
             "粮/木是内需品（价低量大），矿/油/装备才是外贸主力。"
+            "★ 为什么价格会崩、为什么「光有兵换不来增长」——见 rules(经济手册)。"
         )),
         ("经济报表", (
             f"每 {REPORT_EVERY} 回合**自动**给每国结一期经济报表（第 {REPORT_EVERY+1}/{2*REPORT_EVERY+1}/{3*REPORT_EVERY+1}… 回合起），"
@@ -1252,6 +1300,7 @@ def _help_sections() -> list[tuple[str, str]]:
             f"已满 {PLAN_MAX_TURNS} 回合时，end_turn 会被拦下，先 plan 再结束。"
             "计划建议涵盖 经济发展/军事规划/情报管理/外交方向 四方面。"
         )),
+        ("经济手册", _econ_manual()),   # 讲义（"为什么"）：扩张＝期权、军费不能榨干现金流、市场循环…
     ]
     return sections
 
@@ -1261,12 +1310,15 @@ def _bank_rules() -> str:
     return (
         "国库现金**默认就是储蓄**（不用存）：每回合按储蓄利率结息——正=入账，负=扣钱"
         "（**扣到 0 为止**：储蓄永远扣不成负的）。\n"
-        f"可向央行借款：单笔上限 {BANK_LOAN_MAX} 金、最长 {BANK_LOAN_MAX_TURNS} 回合，"
-        "**还清前不能再借**（不叠加）。贷款利率 = 储蓄利率 + "
+        f"可向央行借款（`loan`）：**额度与期限都不能自选**，只有一种贷款——"
+        f"**额度 = 你当时的 GDP × {BANK_LOAN_GDP_MULT}**、**期限固定 {BANK_LOAN_TURNS} 回合**；"
+        "**还清前不能再借**（一国同时只有一笔）。贷款利率 = 储蓄利率 + "
         f"{BANK_SPREAD:.0%}（**可为负**：那时欠款每回合缩水）。\n"
         "每回合自动累计应还额（面板与近讯都会报）；**到期一次性强制扣款**——"
         "这一笔允许把国库**扣成负的**（欠债不还，国库先扣穿）。"
-        "所以借款要拿去用在**回本快于到期日**的地方，否则到期那一下就白干。\n"
+        "所以借款要拿去用在**回本快于到期日**的地方，否则到期那一下就白干。"
+        f"（期限只有 {BANK_LOAN_TURNS} 回合就是这个道理：拖到 10 回合，利息翻一倍多，"
+        "大半个期限都在替央行打工。）\n"
         "借钱**算外交动作**，按外交费计（成功才扣；有外交中心照样减半）。\n"
         f"央行还**卖别国已公布的经济报表**：{BUY_REPORT_COST} 金一份（`buy_report`，目标用 to=，"
         "可选 turn= 指定期；当场到手，进 query panel=spy）。报表是每国每 "
@@ -1278,15 +1330,19 @@ def _bank_rules() -> str:
 
 
 def _fmt_bank(world, name) -> str:
-    """【央行】面板（开行才进常驻状态）：利率 + 你的借款状况。"""
+    """【央行】面板（开行才进常驻状态）：利率 + 你的借款状况 + 你的授信额度。"""
     r, lr = world.bank_rate(), world.bank_loan_rate()
     ln = world.bank["loans"].get(name)
+    gdp, credit = world.nation_gdp(name), world.bank_credit(name)
     if ln:
         st = (f"你欠央行 {ln['due']} 金（本金 {ln['principal']}、利率 {ln['rate']:+.1%}、"
               f"还剩 {ln['turns_left']} 回合到期）——到期**强制扣款**，还清前不能再借")
+    elif credit > 0:
+        st = (f"你的授信 {credit} 金（= 当前 GDP {gdp:.1f} × {BANK_LOAN_GDP_MULT}）："
+              f"loan 一次借满、期限 {BANK_LOAN_TURNS} 回合（**都不能自选**）；目前无欠款")
     else:
-        st = (f"你可以借一笔：≤{BANK_LOAN_MAX} 金、≤{BANK_LOAN_MAX_TURNS} 回合"
-              "（还清前不能再借）；目前无欠款")
+        st = ("你还没有授信（= 当前 GDP × "
+              f"{BANK_LOAN_GDP_MULT}，现在 GDP 是 0）——GDP 要等第 1 回合结算后才结得出来")
     if r < 0:
         tip = "⚠ 储蓄利率为负：囤现金每回合都在缩水——央行在逼你把钱花出去或投出去。"
     elif r > 0:
@@ -1326,6 +1382,10 @@ def rules_text(world, topic: str = "") -> str:
         "市场": "市场", "买卖": "市场", "价格": "市场", "交易": "市场",
         "回合": "回合与存档", "存档": "回合与存档", "结算": "回合与存档",
         "报表": "经济报表", "GDP": "经济报表", "投资": "经济报表", "军费": "经济报表",
+        # 经济手册（讲义）：问"为什么"的词都指它——"经济"本身仍指【经济与能源】那节
+        "手册": "经济手册", "经济学": "经济手册", "经济哲学": "经济手册", "讲义": "经济手册",
+        "扩张": "经济手册", "滚雪球": "经济手册", "现金流": "经济手册", "复利": "经济手册",
+        "资本": "经济手册", "经济危机": "经济手册", "通缩": "经济手册", "消费": "经济手册",
     }
     if world.bank_on():
         labels.update({"央行": "世界央行", "利率": "世界央行", "贷款": "世界央行",
@@ -2037,15 +2097,16 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
     #     先验国库、**成功才扣**、有外交中心照样减半。
     #   ★「匈奴也可以借」⇒ **不**放进 HUNS_BLOCKED（它不是国与国的外交，是第三方的钱）。
     if tool in ("loan", "贷款", "借款"):
-        def _int(v):
-            try:
-                return int(v)
-            except (TypeError, ValueError):
-                return 0
-        return _charge(world, actor, _diplo_cost(world, actor),
-                       world.bank_loan, actor,
-                       _int(args.get("amount", args.get("qty", 0))),
-                       _int(args.get("turns", 0)))
+        # ★ 额度与期限**都不能自选**（用户 2026-09-22：「改成不能选贷款额和时间」）：
+        #   只有一种贷款——当时 GDP×BANK_LOAN_GDP_MULT、固定 BANK_LOAN_TURNS 回合。
+        #   参数一律忽略，但**不静默**：模型要是还塞了 amount/turns（旧提示词或记忆残留），
+        #   回执里点明"已按固定额度/期限放款"，免得它以为自己的数字生效了。
+        msg = _charge(world, actor, _diplo_cost(world, actor), world.bank_loan, actor)
+        given = [k for k in ("amount", "qty", "turns", "期", "额") if args.get(k)]
+        if given:
+            msg += (f"（你给的 {'、'.join(given)} 已被忽略：贷款额与期限都不能自选，"
+                    f"一律按 当时 GDP×{BANK_LOAN_GDP_MULT} / {BANK_LOAN_TURNS} 回合放款）")
+        return msg
 
     # ---- 世界央行：买别国**已公布**的经济报表（BUY_REPORT_COST 金/次，开行才有）
     #   卖的是明细不是秘密（每期报表生成时全世界都收到过一行公告），故不进 HUNS_BLOCKED。
@@ -2419,16 +2480,14 @@ _SCHEMA_CACHE: dict[str, list[dict]] = {}
 
 BANK_TOOL_SCHEMA = {"type": "function", "function": {
     "name": "loan",
-    "description": f"向世界央行借一笔（现金立刻到账）。**单笔上限 {BANK_LOAN_MAX} 金、"
-                   f"最长 {BANK_LOAN_MAX_TURNS} 回合**，**还清前不能再借**。"
+    "description": f"向世界央行借一笔（现金立刻到账）。**金额与期限都不能自选**："
+                   f"额度 = 你**当时 GDP × {BANK_LOAN_GDP_MULT}**、期限固定 "
+                   f"{BANK_LOAN_TURNS} 回合；**还清前不能再借**（一国同时只有一笔）。"
                    f"利率 = 储蓄利率 + {BANK_SPREAD:.0%}，**可为负**（那时欠款每回合缩水）。"
                    "每回合自动累计应还额，**到期一次性强制扣款**——那一笔允许把国库扣成负的，"
-                   "所以只借**回本快于到期日**的钱。当前利率见状态面板的【央行】。"
+                   "所以只借**回本快于到期日**的钱。当前利率与额度见状态面板的【央行】。"
                    f"借钱算外交动作，按外交费计（{DIPLO_COST} 金，成功才扣，有外交中心减半）。",
-    "parameters": _props({
-        "amount": {"type": "integer", "description": f"借款额（≤{BANK_LOAN_MAX}）", "required": True},
-        "turns": {"type": "integer",
-                  "description": f"期限回合数（1~{BANK_LOAN_MAX_TURNS}）", "required": True}})}}
+    "parameters": _props({})}}
 
 
 BUY_REPORT_TOOL_SCHEMA = {"type": "function", "function": {
