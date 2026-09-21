@@ -20,6 +20,22 @@
 （`World._declare_war_internal` 的守侧传导）。七雄各保周一次 ⇒ 任何一国动周，
 **另外六国自动进场**打它。周王室自己一兵不出，靠的就是这七张纸。
 
+## 剧本说明（**常驻**在局里）：六王毕，四海一
+
+用户 2026-09-21：「剧本要求**六王毕，四海一，一统天下**，**常驻**这个剧本」。
+这不是写给人看的注释，而是**每个国家每一回合都带着的志向**——引擎默认的 system prompt
+里那句「这局**没有预设目标**：富国、拓荒、称霸、报复、苟和都行」是**看海局**的口径，
+本剧本要盖掉它，所以志向走 `extra_prompt` 常驻通道：
+
+- `build()` 给八国各写一条
+  `world.extra_prompt[国] = {"text": CHARTER, "until": turn + EXTRA_PROMPT_TURNS, "summary": CHARTER}`
+  —— 前 `EXTRA_PROMPT_TURNS` 回合以密谕形式出现，之后以**「遗留总结（常驻）」**的形式
+  **一直留在** system prompt 里（见 `mp_ai.system_prompt`）：换回合、压缩、重启都不掉；
+- 它落在**存档里**（`extra_prompt` 是 `SAVE_KEYS` 之一）⇒ 与条约同理，属于"这份剧本"
+  本身，换配置也不影响；
+- 引擎本来就以「**只剩一国即终局**」收局（`mp_run` 的主循环），所以"一统天下"不是空话：
+  把另外七家全灭，这局就结束了。
+
 ## 地图是**手摆的**（不是环状随机）
 
 `STARTS` 给的是各家的中心格，按史地大势摆：燕东北、赵正北、齐东、秦最西、魏/韩夹着
@@ -48,7 +64,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from mp import World  # noqa: E402  —— 引擎（剧本只建局 + 落条约，不改任何规则）
+from mp import EXTRA_PROMPT_TURNS, World  # noqa: E402  —— 引擎（剧本只建局 + 落条约/志向，不改规则）
 
 # ---------------------------------------------------------------- 剧本参数
 
@@ -80,13 +96,30 @@ COVENANT = ("🕊 七雄共誓：{who} 共保 周王室 独立"
             "——谁动周，七雄按保障自动参战（周王室自己不出一兵，靠的是这七张纸）")
 
 
+# 剧本之志（**常驻**每个国家的 system prompt；见模块头部「剧本说明」一节）。
+# ★ 措辞要点：① 明写它**覆盖**引擎默认那句"没有预设目标"（那是看海局口径，不盖掉就是
+#   两句话打架、模型自己挑一句听）；② 给出**可判定的终局**（只剩一国即终局，引擎自己会收局）；
+#   ③ 点破"不扩张=替别人攒家当"，因为本作的经济是复利型的，苟安在数值上确实吃亏。
+CHARTER = (
+    "【本剧本之志：六王毕，四海一】\n"
+    "天下定于一 —— 八国并立只是暂局，**终局只留一个主人**。\n"
+    "★ 本剧本**覆盖**前面那句「这局没有预设目标」：**一统天下就是你的目标** —— 把别国全部"
+    "灭掉；场上只剩一国，这局就结束。\n"
+    "这不是看海种田局：苟安者终被吞并，富国而不扩土等于替别人攒家当。扩张、结盟、离间、"
+    "背刺都可以，但一切服务于「活下去，并吃掉别人」。\n"
+    "周王室手上有七张保障纸（谁动周，另外六国自动参战）——纸是大势给的，刀得自己磨。"
+)
+
+
 def build(size: int = SIZE, seed: int = SEED, starts: dict | None = STARTS,
-          nations=SEVEN + (ZHOU,), *, announce: bool = True) -> World:
-    """建出这份开局：8 国落位 + 七雄各保周王室一次。
+          nations=SEVEN + (ZHOU,), *, announce: bool = True, charter: bool = True) -> World:
+    """建出这份开局：8 国落位 + 七雄各保周王室一次 + 八国各带一份**常驻**剧本之志。
 
     `starts=None` ⇒ 退回环状随机开局（`_place_ring`）。
     `announce=True` ⇒ 往纪事里写一条**全世界可见**的共誓公告（开局第一回合，
     各国在【近讯】里就收得到——条约本身还有面板那条公开列表，两条路都通）。
+    `charter=False` ⇒ 不注入「六王毕，四海一」之志（留给对照实验用：同一张图、
+    同一套条约，"有志向 vs 没志向"的行为差）。
     """
     w = World(size=size, seed=seed, nations=list(nations),
               starts=(dict(starts) if starts else None))
@@ -94,6 +127,14 @@ def build(size: int = SIZE, seed: int = SEED, starts: dict | None = STARTS,
     # ——"利差 5%"这套口径要有央行才有意义。`bank_enable` 是单向闸（只 false→true），
     # 已经开着就返回 False，所以这里直接写字段不会跟配置打架。
     w.bank["on"] = True
+    # 剧本之志：八国都拿同一句（**常驻**：`until` 之后由 `summary` 接着扛）。
+    # ★ 为什么不写进 `mp_config.8国.json` 的 `extra_prompt`：那是"待加入国"的通道
+    #   （`mp_run._nation_extra` 只在中途 `add` 时用），开局八国根本走不到；而且志向该跟
+    #   条约一样**长在存档里**——换配置也不丢。
+    if charter:
+        for n in list(w.nations):
+            w.extra_prompt[n] = {"text": CHARTER, "until": w.turn + EXTRA_PROMPT_TURNS,
+                                 "summary": CHARTER}
     if ZHOU in w.nations:
         zhou_ent = w.entity_of(ZHOU)
         for n in nations:
@@ -176,6 +217,7 @@ def main(argv=None) -> int:
         print("  保障：" + "、".join(f"{w.entity_label(g)}→{ZHOU}"
                                     for g in w.guarantors_of(w.entity_of(ZHOU))))
         print(f"  各国 {len(w.own_tiles(w.order[0]))} 格十字 + 中心市政厅（国祚）")
+        print(f"  剧本之志（常驻 {len(w.extra_prompt)} 国）：六王毕，四海一 —— 一统天下")
     print(f"配置 → {cfg_path}（{len(NATIONS)} 国，含明文 key，**不入库**）")
     print(f"开局：./start.sh --config {Path(args.config).name}")
     return 0

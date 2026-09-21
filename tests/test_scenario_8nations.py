@@ -105,6 +105,57 @@ class TestGuarantee(unittest.TestCase):
         self.assertEqual(set(head["seen"]), set(S.NATIONS), "seen=全体（不受视野过滤）")
 
 
+class TestCharter(unittest.TestCase):
+    """剧本之志「六王毕，四海一，一统天下」——**常驻**，不是写在注释里给人看的。
+
+    引擎默认的 system prompt 里那句「这局没有预设目标」是看海局口径，本剧本要盖掉它；
+    盖不住就是两句话打架、模型自己挑一句听（所以锚一条：志里必须**明写覆盖**）。
+    """
+
+    def setUp(self):
+        self.w = S.build()
+        import mp_ai
+        self.mp_ai = mp_ai
+
+    def test_八国各带一份之志(self):
+        self.assertEqual(len(self.w.extra_prompt), 8)
+        for n in S.NATIONS:
+            ep = self.w.extra_prompt[n]
+            self.assertEqual(ep["text"], S.CHARTER)
+            self.assertEqual(ep["summary"], S.CHARTER, "20 回合后要靠 summary 继续扛")
+            self.assertGreater(ep["until"], self.w.turn, "开局该是密谕形态")
+
+    def test_之志明写覆盖默认的没有预设目标(self):
+        self.assertIn("一统天下", S.CHARTER)
+        self.assertIn("覆盖", S.CHARTER, "必须点明盖掉『没有预设目标』那句，否则两句话打架")
+        self.assertIn("没有预设目标", S.CHARTER, "引用原句才盖得住")
+
+    def test_常驻_过了密谕期仍在system_prompt里(self):
+        """前 20 回合是密谕、之后是「常驻」总结——**两个阶段都要在**。"""
+        early = self.mp_ai.system_prompt(self.w, "秦")
+        self.assertIn("六王毕", early)
+        self.assertIn("密谕", early, "开局该以密谕形态出现")
+        self.w.turn = 10 ** 3                      # 越过 EXTRA_PROMPT_TURNS
+        late = self.mp_ai.system_prompt(self.w, "秦")
+        self.assertIn("六王毕", late, "过期后不许消失")
+        self.assertIn("常驻", late)
+
+    def test_之志进存档_读档后仍在(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "8.json"
+            self.w.save(p)
+            w2 = World.load(p)
+            for n in S.NATIONS:
+                self.assertEqual(w2.extra_prompt[n]["summary"], S.CHARTER)
+            self.assertIn("六王毕", self.mp_ai.system_prompt(w2, S.ZHOU))
+
+    def test_对照开关_可以不要之志(self):
+        """`charter=False` ⇒ 同一张图、同一套条约，但无志向（留作对照实验的臂）。"""
+        w = S.build(charter=False)
+        self.assertEqual(w.extra_prompt, {})
+        self.assertEqual(len(w.guarantors_of(w.entity_of(S.ZHOU))), 7, "条约不受影响")
+
+
 class TestScenarioSave(unittest.TestCase):
     """剧本的产物是**存档**，所以"读回来还是不是那个局"必须钉。"""
 

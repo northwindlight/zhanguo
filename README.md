@@ -121,6 +121,7 @@ RL 训练与看海主线**分支维护**：PyTorch 环境、BC / PPO、transform
 | `settlement.py` | 终局结算：按总消费排名 + 结算厅 |
 | `rule_ai.py` · `ruleai/` | 规则 AI 注册表 · **各代扩张流（一代一个文件，v11 单独目录）** |
 | `ruleai/` | **v11 规则 AI（经济层与军事层分离）**：`economy.py` 管钱料建造征兵 · `military.py` 管编组与出手 · 部件 `grouping`/`combat`/`pathfind`/`targeting` |
+| `scenarios/` | **剧本 · 预置开局**（`eight_nations.py` = 战国七雄 + 周王室：36×36 手摆落位、七雄共保周王室独立、八国常驻「六王毕，四海一」之志）——剧本就是**一份开局存档**（配置塞不进条约表），`python3 -m scenarios.eight_nations` 生成，`./start.sh --config mp_config.8国.json` 开局 |
 | `experiments/` · `docs/` | 指标对照实验 · 人类侧资料 |
 | `tests/` | 单元测试 + 跨进程确定性看门狗 |
 
