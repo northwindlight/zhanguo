@@ -15,7 +15,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import sys
 import tempfile
 import unittest
@@ -26,6 +28,12 @@ sys.path.insert(0, str(ROOT))
 
 from mp import World, ent_nation  # noqa: E402
 from scenarios import eight_nations as S  # noqa: E402
+
+
+def _quiet(*argv) -> int:
+    """跑生成器的命令行、但**吞掉它的 stdout**（否则整套测试的输出里会插进它的打印）。"""
+    with contextlib.redirect_stdout(io.StringIO()):
+        return S.main([str(a) for a in argv])
 
 
 class TestScenarioShape(unittest.TestCase):
@@ -154,6 +162,41 @@ class TestCharter(unittest.TestCase):
         w = S.build(charter=False)
         self.assertEqual(w.extra_prompt, {})
         self.assertEqual(len(w.guarantors_of(w.entity_of(S.ZHOU))), 7, "条约不受影响")
+
+
+class TestGeneratorRefusesToClobber(unittest.TestCase):
+    """生成器是"**重开**"语义：不许静默盖掉一份已经在打的局。
+
+    （剧本重生成很随意，但"随手盖掉一局进度"不可逆——所以在程序里拦，不靠人记得住。）
+    """
+
+    def test_已打过回合就停下(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "s.json"
+            w = S.build()
+            w.turn = 7                      # 假装已经打了 7 回合
+            w.save(out)
+            with self.assertRaises(SystemExit) as cm:
+                _quiet("--out", out, "--config", Path(d) / "c.json")
+            self.assertIn("--force", str(cm.exception), "该告诉人怎么继续")
+            self.assertEqual(World.load(out).turn, 7, "拦下时**一个字都不许写**")
+
+    def test_force_才覆盖(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "s.json"
+            w = S.build()
+            w.turn = 7
+            w.save(out)
+            _quiet("--out", out, "--config", Path(d) / "c.json", "--force")
+            self.assertEqual(World.load(out).turn, 0, "给了 --force 才重开")
+
+    def test_回合0可以随手重生(self):
+        """干净的开局档（回合 0）随便覆盖——那本来就是幂等产物。"""
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "s.json"
+            _quiet("--out", out, "--config", Path(d) / "c.json")
+            _quiet("--out", out, "--config", Path(d) / "c.json")
+            self.assertEqual(World.load(out).turn, 0)
 
 
 class TestScenarioSave(unittest.TestCase):

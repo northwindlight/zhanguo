@@ -205,10 +205,27 @@ def main(argv=None) -> int:
     ap.add_argument("--config", default=str(ROOT / CONFIG), help="配置写到哪")
     ap.add_argument("--ring", action="store_true", help="改成环状随机开局（默认手摆）")
     ap.add_argument("--config-only", action="store_true", help="只重生成配置，不碰存档")
+    ap.add_argument("--force", action="store_true",
+                    help="确认丢弃已有进度（目标存档已打过回合时必须显式给）")
     args = ap.parse_args(argv)
 
     cfg_path = write_config(args.config)
     if not args.config_only:
+        out = Path(args.out)
+        # ★ 生成器是"**重开**"语义（整体覆盖写）——它跟 `mp_run` 的每回合存档不是一回事。
+        #   所以绝不许**静默**盖掉一份已经在打的局：先看目标档的回合数，不是 0 就停下要
+        #   `--force`（读不出来也算"不干净"，同样要 --force）。这条闸是给未来的人看的：
+        #   剧本重生成很随意，但"随手盖掉一局"是不可逆的。
+        if out.exists() and not args.force:
+            try:
+                played = json.loads(out.read_text(encoding="utf-8")).get("turn")
+            except Exception:
+                played = None
+            if played != 0:
+                raise SystemExit(
+                    f"✗ {out} 已经打到第 {played} 回合（读不出来时会显示 None）——"
+                    f"生成剧本＝**重开**，会把它整个覆盖。\n"
+                    f"  要丢弃就加 --force；只是想要新档就换个 --out 路径。")
         w = build(starts=None if args.ring else STARTS)
         w.save(args.out)   # 整体覆盖写（`World.save` 自己就是覆盖语义）
         print(f"存档 → {args.out}")
