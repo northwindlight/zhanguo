@@ -125,39 +125,39 @@ class TestCharter(unittest.TestCase):
         import mp_ai
         self.mp_ai = mp_ai
 
-    def test_八国各带一份之志(self):
+    def test_八国同一份文案_都带之志(self):
+        """用户：「**改成相同的文案**」——八国拿到的一字不差（所有人都该知道别人要什么）。"""
         self.assertEqual(len(self.w.extra_prompt), 8)
         for n in S.NATIONS:
             ep = self.w.extra_prompt[n]
-            want = S.charter_of(n)
-            self.assertEqual(ep["text"], want)
-            self.assertEqual(ep["summary"], want, "20 回合后要靠 summary 继续扛")
+            self.assertEqual(ep["text"], S.CHARTER, f"{n} 的文案该与全世界同一份")
+            self.assertEqual(ep["summary"], S.CHARTER, "20 回合后要靠 summary 继续扛")
             self.assertGreater(ep["until"], self.w.turn, "开局该是密谕形态")
 
-    def test_之志明写覆盖默认的没有预设目标(self):
-        for text in (S.CHARTER, S.CHARTER_ZHOU):
-            self.assertIn("一统天下", text)
-            self.assertIn("覆盖", text, "必须点明盖掉『没有预设目标』那句，否则两句话打架")
-            self.assertIn("没有预设目标", text, "引用原句才盖得住")
+    def test_文案要点_大势_两条路_周的目标(self):
+        self.assertIn("一统天下", S.CHARTER)
+        self.assertIn("覆盖", S.CHARTER, "必须点明盖掉『没有预设目标』那句，否则两句话打架")
+        self.assertIn("没有预设目标", S.CHARTER, "引用原句才盖得住")
+        # 两条得胜之路（用户原话：加入周天下＝次要胜利、兼并天下＝终极胜利）
+        self.assertIn("次要胜利", S.CHARTER)
+        self.assertIn("终极胜利", S.CHARTER)
+        self.assertIn("周天下", S.CHARTER, "联盟名要写死，起名时才不会另起一个")
+        # 周的目标必须人人知道
+        self.assertIn("复振王纲", S.CHARTER)
+        self.assertIn("周王室的志向", S.CHARTER)
 
-    def test_八国共此大势_路子各一条(self):
-        """七雄走"灭国"，周王室走"复振王纲"——两条路不许互相串味。"""
-        self.assertIn("灭掉另外七家", S.CHARTER)
-        self.assertNotIn("灭掉另外七家", S.CHARTER_ZHOU, "周王室的路不是屠戮")
-        self.assertIn("复振王纲", S.CHARTER_ZHOU)
-        self.assertIn("周天下", S.CHARTER_ZHOU, "联盟名要写死，它起名时才不会另起一个")
-        self.assertIn("bloc_found", S.CHARTER_ZHOU, "得告诉它用什么工具立盟")
-        self.assertNotIn("复振王纲", S.CHARTER, "七雄不该去复振王纲")
-        self.assertEqual(S.charter_of(S.ZHOU), S.CHARTER_ZHOU)
-        self.assertEqual(S.charter_of("秦"), S.CHARTER)
+    def test_只写目标不写胜利条件(self):
+        """用户：「**不用写胜利条件，我手动结束就行了**」——志里不许出现机械判定
+        （那种话会变成"打到某条线就收工"的暗条件，而这局是由观察者手动结束的）。"""
+        for bad in ("只剩一国", "即终局", "这局就结束", "游戏结束"):
+            self.assertNotIn(bad, S.CHARTER, f"志里不该写胜利条件（{bad}）")
 
-    def test_提醒七雄保障可以撤回_且口径是战时撤不了(self):
+    def test_提醒保障可以撤回_且口径是战时撤不了(self):
         """用户：「顺便提醒七雄，可以随时撤销对周的保障」——但**战时条约冻结**，别写成
         "随时"（写了它战时去撤被拒，就会开始不信提示词）。"""
         self.assertIn("cancel_guarantee", S.CHARTER)
         self.assertIn("只要不在战时", S.CHARTER, "口径必须是「只要不在战时，随时可撤」")
-        self.assertIn("战时", S.CHARTER, "把战时撤不了说清楚")
-        self.assertIn("cancel_guarantee", S.CHARTER_ZHOU, "周王室也该知道那七张纸随时会飞")
+        self.assertIn("只有别人打它时才生效", S.CHARTER, "得点破那七张纸只是盾（不是矛）")
 
     def test_常驻_过了密谕期仍在system_prompt里(self):
         """前 20 回合是密谕、之后是「常驻」总结——**两个阶段都要在**。"""
@@ -175,7 +175,7 @@ class TestCharter(unittest.TestCase):
             self.w.save(p)
             w2 = World.load(p)
             for n in S.NATIONS:
-                self.assertEqual(w2.extra_prompt[n]["summary"], S.charter_of(n))
+                self.assertEqual(w2.extra_prompt[n]["summary"], S.CHARTER)
             self.assertIn("六王毕", self.mp_ai.system_prompt(w2, S.ZHOU))
             self.assertIn("复振王纲", self.mp_ai.system_prompt(w2, S.ZHOU), "周读档后走的还是它那条路")
 
