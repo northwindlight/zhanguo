@@ -2781,7 +2781,7 @@ def _pair_tool_calls(msgs: list[dict]) -> int:
 
 def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=None,
                     head=None) -> int:
-    """跑一国一回合：反复调 LLM 用工具，直到 end_turn **被引擎回执认可** / 正文宣告 / 步数上限。
+    """跑一国一回合：反复调 LLM 用工具，直到 end_turn **被引擎回执认可** / 步数上限。
     返回执行次数。
 
     **三条播报通道**（分工见下，别再往 `emit` 里塞动作/思考——那边只发通知）：
@@ -2800,10 +2800,12 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=No
                       `◈ … 行动完毕` 块正是干这个的）⇒ 既不重复回显，也不丢动作。
 
     提供方差异（OpenAI 兼容 / Anthropic 预留）收口在 llm_provider，循环只见
-    OpenAI 形态消息。两条纪律：
+    OpenAI 形态消息。三条纪律：
     ① 结束只认 execute 的回执（✅）——模型递个非空 summary 不算收尾（拒绝文案
        会作为 tool 响应回喂，继续逼它补）；
-    ② 任何 return / 异常续跑前都过 _pair_tool_calls——没配对的命令不许进记忆。
+    ② 任何 return / 异常续跑前都过 _pair_tool_calls——没配对的命令不许进记忆；
+    ③ **只回正文、没调工具也不算收尾**——正文照常入 messages（与带 tool_calls 时
+       同等待遇），然后回喂催它继续。模型在动手前先陈述一句是常态，不是收尾信号。
 
     deepseek-v4-flash 这类推理模型把思考放在 reasoning_content（独立于 content），
     且可能连续多轮纯思考后才调用工具：每轮思考回显给下一轮，直到它真正行动。
@@ -2945,34 +2947,28 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=No
             if name in world.nations:  # 每次行动后都回填一次最新状态（默认塞查询）
                 messages.append({"role": "user", "content": engine_call(compact_state, world, name)})
             continue
-        # 没有工具调用：
+        # 没有工具调用：**不构成收尾**——收回合只认 end_turn 的 ✅ 回执或步数上限。
+        # 正文照常入 messages（和带 tool_calls 时一个待遇，跨回合记忆靠它），然后催它继续。
         if content:
-            # 有正文——当作宣告/收尾（把宣告也写进记录，跨回合记忆能回放这次收尾）。
-            # 但不能靠"只说话"绕过 end_turn 的门槛：没有有效国策就先催它 plan，不许收尾。
-            pl = world.plans.get(name)
-            if (not pl or not str(pl.get("text", "")).strip()
-                    or world.turn - pl.get("turn", world.turn) >= PLAN_MAX_TURNS):
-                asst = {"role": "assistant", "content": msg.get("content")}
-                if reasoning:
-                    asst["reasoning_content"] = reasoning
-                messages.append(asst)
-                messages.append({"role": "user", "content":
-                                 "本回合还不能结束：还没有有效国策。请先 plan(content=…) "
-                                 "制定/修订国策，再用 end_turn(summary=…) 收尾。"})
-                stall += 1
-                if stall >= 3:
-                    _auto_summary(msg.get("content"))
-                    return _finish(done)
-                continue
             asst = {"role": "assistant", "content": msg.get("content")}
             if reasoning:
                 asst["reasoning_content"] = reasoning
             messages.append(asst)
-            # 宣告正文由这一条世界纪事全文承接（observer 会原样打到看海台），
-            # 故**不再**另 emit 一条 🗣（同一句话打两遍）。
-            engine_call(world.log, f"{name} 宣告:「{content}」", phase="行动", nation=name)
-            _auto_summary(content)
-            return _finish(done)
+            stall += 1
+            pl = world.plans.get(name)
+            if (not pl or not str(pl.get("text", "")).strip()
+                    or world.turn - pl.get("turn", world.turn) >= PLAN_MAX_TURNS):
+                messages.append({"role": "user", "content":
+                                 "本回合还不能结束：还没有有效国策。请先 plan(content=…) "
+                                 "制定/修订国策，再用工具行动，最后用 end_turn(summary=…) 收尾。"})
+            else:
+                # 点名它自己刚说的话：讲了一套计划 ≠ 执行了这套计划
+                said = next((ln.strip() for ln in content.splitlines() if ln.strip()), "")
+                said = (said[:80] + "…") if len(said) > 80 else said
+                messages.append({"role": "user", "content":
+                                 f"你没有调用任何工具，本回合尚未结束。你上面说：「{said}」——"
+                                 "请实际调用工具把它执行掉；若确实无事可做，请 end_turn(summary=…)。"})
+            continue
         if reasoning:
             # 纯思考轮（无正文无工具）：把思考原文回喂，让模型接着想而不是每次从零大思考
             # （否则每轮重想一遍，又慢又贵——百万上下文模型输出 token 价高且不缓存）。
@@ -2983,12 +2979,9 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=No
                                  "content": "（请继续完成本回合：想好了就调用工具；若确实无事可做就 end_turn。）"})
                 stall = 0
             continue
-        # 空回复：催一次，若再空就结束——补兜底小结，别让这一回合在归档里凭空蒸发
+        # 空回复：催它继续（同样不收尾）
         messages.append({"role": "user", "content": "请决策并调用工具；若本回合无事可做，请 end_turn。"})
         stall += 1
-        if stall >= 3:
-            _auto_summary("（模型连续沉默，本回合未获得有效行动）")
-            return _finish(done)
     _auto_summary("（达到本回合行动轮数上限，提前收尾）")
     return _finish(done)
 

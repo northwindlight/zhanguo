@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """回合循环的端到端冒烟测试：用假 OpenAI client 跑真实 run_openai_turn。
 
-覆盖：build_context → 流式解析 → 工具执行 → end_turn → 存档 → 下滑 → 阶段块总结。
+覆盖：build_context → 流式解析 → 工具执行 → 只说话被回喂催促 → end_turn → 存档 → 下滑 → 阶段块总结。
 不联网、不读写真实存档（World 用临时目录里的合成档）。
 跑法：python3 -m unittest discover -s tests -v
 """
@@ -114,8 +114,8 @@ class _ContentOnlyOpenAI:
         ])
 
 
-class TestContentOnlyExit(unittest.TestCase):
-    """"只说话不调工具"不能绕过 end_turn 的门槛。"""
+class TestContentOnlyNudged(unittest.TestCase):
+    """"只说话不调工具"既不收尾、也不绕过 end_turn 的门槛——只会被催着继续。"""
 
     def setUp(self):
         _ContentOnlyOpenAI.instances.clear()
@@ -133,22 +133,30 @@ class TestContentOnlyExit(unittest.TestCase):
     def test_no_plan_gets_nudged_not_finished(self):
         w = mp.World(size=16, seed=7, nations=["秦", "楚"])
         w.turn = 1
-        mp_ai.run_openai_turn(w, "秦", self._cfg())
+        mp_ai.run_openai_turn(w, "秦", self._cfg(), max_steps=4)
         msgs = _ContentOnlyOpenAI.instances[0].calls[-1]["messages"]
         self.assertTrue(any("还没有有效国策" in str(m.get("content")) for m in msgs),
                         "缺国策时应催它 plan，而不是直接收尾")
-        # 即使它一直不 plan，回合也会被兜底收尾并补一条小结（归档不留空）
+        # 一直不 plan 也不提前收尾：催满 max_steps，再兜底补一条小结（归档不留空）
+        self.assertEqual(len(_ContentOnlyOpenAI.instances[0].calls), 4)
         self.assertEqual(w.summaries["秦"][-1]["turn"], 1)
 
-    def test_plan_present_content_ends_turn_with_auto_summary(self):
+    def test_plan_present_content_only_does_not_end_turn(self):
+        """有国策、但只说话——不构成收尾：点名它刚说的话催它动手，循环到 max_steps 用尽。"""
         w = mp.World(size=16, seed=7, nations=["秦", "楚"])
         w.turn = 3
         w.plans["秦"] = {"text": "先屯田后扩军。", "turn": 3}
-        n = mp_ai.run_openai_turn(w, "秦", self._cfg())
-        self.assertEqual(n, 0)                       # 没有工具调用
-        self.assertEqual(len(_ContentOnlyOpenAI.instances[0].calls), 1,
-                         "有国策时应一次宣告就收尾")
-        self.assertIn("按兵不动", w.summaries["秦"][-1]["text"])
+        n = mp_ai.run_openai_turn(w, "秦", self._cfg(), max_steps=4)
+        self.assertEqual(n, 0, "一个工具都没执行")
+        self.assertEqual(len(_ContentOnlyOpenAI.instances[0].calls), 4,
+                         "只说话不能收尾，应被催到 max_steps 用尽")
+        msgs = _ContentOnlyOpenAI.instances[0].calls[-1]["messages"]
+        self.assertTrue(any("你没有调用任何工具" in str(m.get("content")) for m in msgs),
+                        "应点名它刚说的话催它动手")
+        self.assertTrue(any(m.get("role") == "assistant" and "按兵不动" in str(m.get("content"))
+                            for m in msgs),
+                        "正文仍照常入 messages——跨回合记忆靠它，不靠日志")
+        self.assertIn("上限", w.summaries["秦"][-1]["text"])   # 走的是 max_steps 兜底小结
 
 
 class _ExplodingOpenAI:
@@ -272,13 +280,12 @@ class TestTurnLoop(unittest.TestCase):
         self.assertTrue(any("压缩记忆" in ln for ln in lines),
                         f"压缩了却没播报（正是 2026-09-19 那个洞的形状）：{lines[:5]}")
         # ★ 看海口径（用户 2026-09-19）：「**我只想看压缩了多少，我不想知道他们怎么想的**」
-        #   ⇒ 运行期只播压缩（🧠）与故障（⚠）：思考 / 动作 / 宣告一律不回显
-        #   （动作与宣告几秒后由纪事块原样打出；思考只进 replay，本来就不进纪事）。
+        #   ⇒ 运行期只播压缩（🧠）与故障（⚠）：思考 / 动作一律不回显
+        #   （动作几秒后由纪事块原样打出；思考只进 replay，本来就不进纪事）。
         self.assertFalse(any("💭" in ln or "思考：" in ln for ln in lines),
                          "别再回显模型的思考")
         self.assertFalse(any("◇" in ln for ln in lines),
                          "别再实时回显动作（纪事块里有，重复两遍是纯噪音）")
-        self.assertFalse(any("🗣" in ln for ln in lines), "宣告由世界纪事承接，不另 emit")
         self.assertFalse(any("period" in ln for ln in lines),
                          "中文播报里不该漏配置键名（period 是给配置文件看的）")
 
@@ -394,6 +401,25 @@ class TestTurnLoopHardening(unittest.TestCase):
         last = w.summaries["秦"][-1]["text"]
         self.assertNotEqual(last.strip(), "好")            # 假小结没被当成收尾
         self.assertIn("上限", last)                        # 走的是 max_steps 兜底小结
+
+    def test_content_rounds_nudged_until_real_end_turn(self):
+        """只说话的回合不被收尾，催回去继续，直到真的 plan + end_turn。
+        （用户 2026-09-22：讲了一套计划 ≠ 执行了这套计划；浪费几个回合不是事。）"""
+        w = mp.World(size=16, seed=7, nations=["秦"])
+        w.turn = 1
+        _ScriptedOpenAI.script = [
+            {"content": "魏军终于现身，我这就去打启寨。"},               # 只说不做
+            {"content": "三满军合伤 300，一击可歼其主力。"},            # 还在说
+            {"tool_calls": [{"id": "p1", "name": "plan",
+                             "args": '{"content":"先灭魏，再图楚。"}'}]},
+            {"tool_calls": [{"id": "e1", "name": "end_turn",
+                             "args": '{"summary":"定下灭魏国策。"}'}]},
+        ]
+        n = mp_ai.run_openai_turn(w, "秦", self._cfg(), max_steps=8)
+        self.assertEqual(n, 2, "plan + end_turn")
+        self.assertEqual(len(_ScriptedOpenAI.instances[0].calls), 4,
+                         "两次只说话都被催回去，第 4 次 plan+end_turn 才收尾")
+        self.assertEqual(w.summaries["秦"][-1]["text"].strip(), "定下灭魏国策。")
 
     def test_dangling_tool_calls_paired_before_store(self):
         """#5：一批里 end_turn(✅) 在前、build 在后 → end_turn 即刻 return，
