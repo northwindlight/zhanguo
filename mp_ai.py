@@ -746,6 +746,10 @@ def _fmt_market(world, name) -> str:
         _, b50 = world.market_quote(g, 50, "buy")
         lines.append(f"  {g} 现价{p:.2f}(基准{base} 均衡{eq:.2f} {tag}) 买{bp:.2f}/卖{sp:.2f} "
                      f"持有{r.get(g, 0)} ｜ 卖50≈{s50}金 买50≈{b50}金")
+    warn = world.churn_brief(name)     # 本回合的空转（成交回执里已当场报过，这里给个汇总）
+    if warn:
+        lines.append(f"  {warn} —— 同一批货倒手＝白付两趟买卖价差，别倒回来"
+                     "（详见 rules(经济手册) 第四节）")
     return "\n".join(lines)
 
 
@@ -1024,6 +1028,9 @@ def _econ_manual() -> str:
         f"  市场有 {MARKET_SPREAD:.0%} 买卖价差（买 +{half:.0%} / 卖 −{half:.0%}），同一批货卖了再"
         "买回来**必然亏本**——那是纯替市场转手、白送手续费。要买就直接买、要卖就直接卖，"
         "别拿市场当仓库周转。\n"
+        "  ★ 引擎会盯着这条：**同一回合**在同一个商品上又买又卖，成交回执里**当场**报出"
+        "「空转量与净亏」（那一刻起每笔都报一次，面板与回合摘要也会带上）——倒手量按两边"
+        "重叠的部分算，多出来的那截是真实仓位、不算空转。**跨回合分批不算**：那是省钱的正确做法。\n"
         "五、市场是个循环：没人消费，价格就崩。\n"
         "  市价由全世界的产/耗决定（每回合向供需均衡价回归）：\n"
         "  · **没有军队、也没有新地块可建** ⇒ 没人消费资源 ⇒ 供大于求 ⇒ 市价一路跌到地板"
@@ -2382,11 +2389,11 @@ TOOL_SCHEMAS = [
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
     {"type": "function", "function": {
-        "name": "buy", "description": f"从世界市场买物资花黄金。买=推高市价；成交按「沿曲线均价」结算并含 {MARKET_SPREAD/2:.0%} 买价差，越急买越贵（试算见 query panel=market）。",
+        "name": "buy", "description": f"从世界市场买物资花黄金。买=推高市价；成交按「沿曲线均价」结算并含 {MARKET_SPREAD/2:.0%} 买价差，越急买越贵（试算见 query panel=market）。⚠ 同一回合在**同一个商品**上又卖又买＝**空转**（白付两趟价差），回执里会当场报出倒手量与净亏——先想清楚再下单。",
         "parameters": _props({"good": {"type": "string", "description": "物资：粮食/木头/矿石/石油/装备/补给", "required": True},
                               "qty": {"type": "integer", "description": "数量", "required": True}})}},
     {"type": "function", "function": {
-        "name": "sell", "description": f"向世界市场卖物资赚黄金。卖=压低市价；成交按「沿曲线均价」结算并扣 {MARKET_SPREAD/2:.0%} 卖价差，大单自己砸盘（试算见 query panel=market），分批慢慢卖更划算。",
+        "name": "sell", "description": f"向世界市场卖物资赚黄金。卖=压低市价；成交按「沿曲线均价」结算并扣 {MARKET_SPREAD/2:.0%} 卖价差，大单自己砸盘（试算见 query panel=market），分批慢慢卖更划算（**跨回合**分批才划算）。⚠ 同一回合在**同一个商品**上又买又卖＝**空转**（白付两趟价差），回执里会当场报出倒手量与净亏。",
         "parameters": _props({"good": {"type": "string", "description": "物资", "required": True},
                               "qty": {"type": "integer", "description": "数量", "required": True}})}},
     {"type": "function", "function": {

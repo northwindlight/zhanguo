@@ -422,6 +422,10 @@ class World:
         self.equilibrium: dict[str, float] = {g: float(MARKET[g]) for g in TRADEABLE}  # 供需均衡价（每回合末重算）
         self.flow_in: dict[str, int] = {g: 0 for g in TRADEABLE}   # 本回合世界入库流量（产出），算完均衡价清零
         self.flow_out: dict[str, int] = {g: 0 for g in TRADEABLE}  # 本回合世界出库流量（消耗）
+        # **市场空转**追踪（2026-09-22）：{国: {商品: {buy_n, buy_gold, sell_n, sell_gold}}}——
+        # 生命周期是**行动阶段**（一次结算到下一次结算之间），见 `_record_trade` / `resolve_turn` 末尾。
+        # 派生的回合内暂态：**不进存档**（存档永远落在结算之后，那时它本来就是空的）。
+        self.churn: dict[str, dict[str, dict[str, int]]] = {}
         self.armies: list[dict] = []
         # `troops` / `guardians`（非野人名单、野人按格索引）的惰性缓存 —— 派生量，**不进存档**
         self._troops: list[dict] = []
@@ -2464,6 +2468,9 @@ class World:
             fam = f"，⚠断粮缺{famine[n][0]}" if famine.get(n) else ""
             grid = "停摆" if short else f"电{et}/{mt}"
             armies = len(self.nation_armies(n))
+            churn = self.churn_brief(n)        # 本回合的空转（同商品又买又卖）——没有就空串
+            if churn:
+                parts.append(churn)
             self.econ_summary[n] = (
                 f"产出 {' '.join(parts) if parts else '无'} | 电网 {grid} | 军队 {armies} 支{fam} | "
                 f"国库{self.res(n,'黄金')} 木{self.res(n,'木头')} 补给仓{self.res(n,'补给')}"
@@ -2483,6 +2490,14 @@ class World:
                 self._close_report_period(runrate_from, flows)
             except Exception as e:
                 self.log(f"⚠ 经济报表生成失败，本期跳过：{type(e).__name__}: {e}", phase="内政")
+
+        # 8) 空转追踪**过回合**：把 `churn` 清空，下一回合重新从零累计。
+        #    ★ 空转**不是在这里判的**——判在每一次 buy/sell 里（`_record_trade`：成交即比对，
+        #      买不提示、随后那笔卖当场提示、再买又提示）。这里只是划"本回合"的界：
+        #      不分回合的话，"上回合卖、这回合买"也会被算成倒手——而跨回合分批恰恰是**对的**做法。
+        #    生命周期＝行动阶段（一次结算到下一次结算之间），与 flow_in/flow_out（结算内部
+        #    累积、`_update_market` 里清）不是一回事。派生暂态、不进存档（存档永远落在结算后）。
+        self.churn = {}
         return {"war_lines": flat_lines, "famine": famine}
 
     def _supply_need(self, n: str, ps: list[dict]) -> int:
@@ -2687,7 +2702,8 @@ class World:
         self.prices[good] = p1
         self._ledger(name)["import_gold"] += cost   # 经济报表：进口额（外贸占比用）
         return True, (f"购入 {good}×{n}（中间价 {p0:.2f}→{p1:.2f}，含价差均价 {unit:.2f}，"
-                      f"实付 {cost}），余{self.res(name,good)}")
+                      f"实付 {cost}），余{self.res(name,good)}"
+                      + self._record_trade(name, good, "buy", n, cost))
 
     def sell(self, name: str, good: str, n: int) -> tuple[bool, str]:
         if good not in TRADEABLE:
@@ -2704,7 +2720,72 @@ class World:
         self.prices[good] = p1
         self._ledger(name)["export_gold"] += gold   # 经济报表：出口额
         return True, (f"售出 {good}×{n}（中间价 {p0:.2f}→{p1:.2f}，含价差均价 {unit:.2f}，"
-                      f"实收 {gold}），余{self.res(name,good)}")
+                      f"实收 {gold}），余{self.res(name,good)}"
+                      + self._record_trade(name, good, "sell", n, gold))
+
+    # ------------------------------------------------- 市场空转（同回合又买又卖）
+    # 用户 2026-09-22：「如果出现市场空转，例如某个商品在这个回合又买又卖，**提示空转**，
+    # 并**计算出损失**」——引擎只做两件事：**认出来**（同国 + 同商品 + 同一回合两个方向都成交）
+    # 与**算清楚**（重叠的那部分是纯倒手，值多少金），然后把结论塞进成交回执、纪事与结算摘要。
+    # 判据**只看买卖方向**，不看动机：倒手必然付两趟价差（买 +半价差 / 卖 −半价差），
+    # 这正是《经济学手册》第四节那条"别先卖后买"的可执行版本。
+    def churn_state(self, name: str, good: str) -> dict:
+        """该国**本回合**在 good 上的累计成交（买/卖的数量与所付/所收金）。"""
+        return self.churn.setdefault(name, {}).setdefault(
+            good, {"buy_n": 0, "buy_gold": 0, "sell_n": 0, "sell_gold": 0})
+
+    @staticmethod
+    def churn_loss(t: dict) -> tuple[int, float]:
+        """(空转量, 空转损益)：空转量 = min(买, 卖)——两边重叠的那部分才是**纯倒手**
+        （多出来的那截是真实仓位变化，不算空转）；损益 = 空转量 ×(买均价 − 卖均价)，
+        **正 = 亏**、负 = 竟然赚了（只有市价在你两笔之间被外人推动时才可能，如实报，不硬说成亏）。"""
+        c = min(t["buy_n"], t["sell_n"])
+        if c <= 0:
+            return 0, 0.0
+        return c, c * (t["buy_gold"] / t["buy_n"] - t["sell_gold"] / t["sell_n"])
+
+    def churn_note(self, name: str, good: str) -> str:
+        """空转提示（人话一句）。没发生空转就返回空串。"""
+        t = self.churn_state(name, good)
+        c, loss = self.churn_loss(t)
+        if not c:
+            return ""
+        head = (f"⚠ 市场空转：本回合你在 {good} 上又买又卖"
+                f"（买 {t['buy_n']} 均价 {t['buy_gold'] / t['buy_n']:.2f}、"
+                f"卖 {t['sell_n']} 均价 {t['sell_gold'] / t['sell_n']:.2f}）"
+                f"——重叠的 {c} 单位是**纯倒手**")
+        if loss >= 0:
+            tail = (f"，净亏 {int(round(loss))} 金（一进一出＝白付两趟买卖价差，外加自己推价的冲击）。"
+                    "要买就直接买、要卖就直接卖，别拿市场当仓库周转。")
+        else:
+            tail = (f"，反倒赚了 {int(round(-loss))} 金（市价在你两笔之间被动过）——"
+                    "别把它当生意：价差是照付的，长期必亏。")
+        return head + tail
+
+    def _record_trade(self, name: str, good: str, side: str, n: int, gold: int) -> str:
+        """记一笔成交；若由此构成/延续空转，返回提示（前面带换行，直接拼进回执）。"""
+        t = self.churn_state(name, good)
+        t[f"{side}_n"] += n
+        t[f"{side}_gold"] += gold
+        note = self.churn_note(name, good)
+        if note:
+            self.log(note, phase="市场", nation=name)
+            return "\n" + note
+        return ""
+
+    def churn_brief(self, name: str) -> str:
+        """结算摘要里的一句本回合空转（没有就空串；多商品按损失从大到小，最多列两个）。"""
+        rows = []
+        for good, t in (self.churn.get(name) or {}).items():
+            c, loss = self.churn_loss(t)
+            if c:
+                amt = (f"亏 {int(round(loss))} 金" if loss >= 0
+                       else f"赚 {int(round(-loss))} 金")
+                rows.append((loss, f"空转{good}×{c} {amt}"))
+        if not rows:
+            return ""
+        rows.sort(key=lambda r: -r[0])
+        return "⚠ " + "、".join(r[1] for r in rows[:2])
 
     def _update_market(self) -> None:
         """每回合末：按全世界本回合流量算供需均衡价，市价向均衡价回归（而非死盯基准价）。
