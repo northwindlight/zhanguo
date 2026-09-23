@@ -1014,7 +1014,10 @@ class World:
         （广播是给第三方的，parties 是给桌上那两方的）。
         """
         x, y = entry.get("x"), entry.get("y")
-        has_coords = x is not None and bool(self.nations)
+        # ★ **坐标成对才算坐标**（2026-09-23 修）：只看 `x is not None` 的话，
+        #   半个坐标（有 x 没 y）会一路带到 `visible_to` → `neighbors` → `None + int` 崩掉。
+        #   缺一个 = 没有坐标（按无坐标处理），后面 events_for 也只认成对的（同口径）。
+        has_coords = x is not None and y is not None and bool(self.nations)
         if not has_coords and not parties:
             return
         seen = [n for n in self.nations if self.visible_to(n, x, y)] if has_coords else []
@@ -1093,7 +1096,8 @@ class World:
                 #   无坐标的世界广播也走这条：broadcast 把 seen 写成全体现存国家。
                 if name in h["seen"]:
                     out.append(f"[第{h['turn']}回合] {h['text']}")
-            elif h.get("x") is not None and self.visible_to(name, h["x"], h["y"]):
+            elif (h.get("x") is not None and h.get("y") is not None
+                  and self.visible_to(name, h["x"], h["y"])):
                 # ★ 按落盘时刻的视野快照过滤（_stamp_seen）；无快照的极少数条目退回现视野
                 out.append(f"[第{h['turn']}回合] {h['text']}")
             if len(out) >= limit:

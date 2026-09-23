@@ -198,5 +198,63 @@ class TestTerritoryAlertPanel(unittest.TestCase):
         self.assertIn("失地", mp_ai._fmt_alerts(w, "楚") or "", "上一轮的失地要报")
 
 
+class TestHalfCoordNeverCrashes(unittest.TestCase):
+    """④ **半个坐标**（有 x 没 y）不许崩回合（2026-09-23 修）。
+
+    实际崩法：模型调 `move(army_id=17, x=16)`（y 漏了——schema 里 required 拦不住
+    函数调用参数缺失）→ `log_tool` 各自判 None ⇒ 留下 `x=15, y=None` →
+    `_stamp_seen` 只看 `x is not None` ⇒ 当"有坐标" ⇒ `visible_to` → `neighbors`
+    → `None + int` ⇒ **TypeError 直接掀掉整个回合**（用户报的正是这条栈）。
+
+    口径：**成对才算坐标**（`_fmt_alerts` 里本来就是这么写的：`if x is None or y is None`）。
+    缺一个 = 没有坐标，走无坐标通道；不静默补 0、不猜。
+    """
+
+    def _world(self):
+        w = mp.World(size=20, seed=7, nations=["秦", "楚"])
+        w.turn = 4
+        return w
+
+    def test_action_with_x_only_does_not_raise(self):
+        w = self._world()
+        mp_ai.log_tool(w, "秦", "move", {"army_id": 17, "x": 16}, "军队17 移防 (16,7)")
+        entry = w.history[-1]
+        self.assertIsNone(entry["x"], "半个坐标不许下传")
+        self.assertIsNone(entry["y"])
+        self.assertTrue(seen_by(w, "秦", "移防"), "行动方自己照旧看得到自己的动作")
+        self.assertFalse(seen_by(w, "楚", "移防"), "无坐标 ⇒ 第三天看不到（不白送情报）")
+
+    def test_action_with_unparsable_y_is_also_coordless(self):
+        w = self._world()
+        mp_ai.log_tool(w, "秦", "attack", {"army_ids": [1], "x": "5", "y": "?"}, "冲入")
+        self.assertIsNone(w.history[-1]["x"])
+
+    def test_paired_coords_still_land(self):
+        """不回归：成对坐标照旧解 1-based → 0-based 并带视野快照。"""
+        w = self._world()
+        t = sorted(w.own_tiles("秦"))[0]
+        mp_ai.log_tool(w, "秦", "build", {"tile": f"{t[0] + 1} {t[1] + 1}",
+                                          "building": "农场", "x": t[0] + 1, "y": t[1] + 1},
+                       "✅ 动工 农场")
+        entry = w.history[-1]
+        self.assertEqual((entry["x"], entry["y"]), t)
+        self.assertIn("秦", entry["seen"], "落盘时刻的视野快照照旧")
+
+    def test_stale_half_coord_entry_is_skipped_not_fatal(self):
+        """存量坏条目（旧档/手工塞）在 `events_for` 里也**跳过而非崩**。"""
+        w = self._world()
+        w.history.append({"turn": 4, "phase": "行动", "nation": "齐",
+                          "x": 5, "y": None, "text": "半坐标坏条目"})
+        self.assertEqual(w.events_for("秦", 20), [], "该跳过，不该抛 TypeError")
+
+    def test_log_with_half_coord_is_coordless(self):
+        """`log()` 也一样：有 x 没 y ⇒ 无坐标（不写 seen，第三方看不到）。"""
+        w = self._world()
+        w.log("半坐标纪事", phase="事件", x=5, y=None)
+        entry = w.history[-1]
+        self.assertNotIn("seen", entry)
+        self.assertFalse(seen_by(w, "楚", "半坐标纪事"))
+
+
 if __name__ == "__main__":
     unittest.main()

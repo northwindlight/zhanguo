@@ -2312,13 +2312,17 @@ def log_tool(world, actor, tool, args, result):
         return json.dumps(v, ensure_ascii=False) if not isinstance(v, str) else v
     a = args or {}
     a_str = " ".join(f"{k}={_fmt(v)}" for k, v in a.items())
-    x = a.get("x")
-    y = a.get("y")
-    try:
-        x = int(x) - 1 if x is not None else None
-        y = int(y) - 1 if y is not None else None
-    except (TypeError, ValueError):
-        x = y = None
+    # ★ 坐标**成对**解析（2026-09-23 修）：move/attack/retreat 的 x/y 虽是 required，
+    #   但函数调用参数由模型给，**不保证齐全**——只给 x 不给 y 时旧写法（各自独立判 None）
+    #   会留下半个坐标下传，`_stamp_seen` → `visible_to` → `neighbors` 里 `None + int`
+    #   直接崩掉（整个回合都跑不完）。缺一个就当没有坐标：日志文本原样留（给人看），
+    #   只把坐标置空走"无坐标"通道。
+    x = y = None
+    if a.get("x") is not None and a.get("y") is not None:
+        try:
+            x, y = int(a["x"]) - 1, int(a["y"]) - 1
+        except (TypeError, ValueError):
+            x = y = None
     world.action(actor, tool, a_str, result[:180], x=x, y=y)
 
 
