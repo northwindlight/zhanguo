@@ -39,7 +39,14 @@ from game import unit_max_hp
 from .hall_memory import HallMemory
 
 # ---------------------------------------------------------------- 规格常量
-PLAYERS = ("甲", "乙")
+# ★★ **国家名池**（**上限 6**，天干序）—— 唯一出处是 `vocab.PLAYER_NAMES`，
+#   这里只是转发（两处各写一份必然漂移，而漂移的后果是"某个国名对不上"）。
+from .vocab import PLAYER_NAMES  # noqa: E402
+
+# ⚠ **遗留的"两国"常量**：只有 `rl/mcts.py`（**早已作废、用户明说别动**）还在引它。
+#   沙盒本身**不再用它** —— 一切走 `self.players`。
+PLAYERS = PLAYER_NAMES[:2]
+# 固定开局（`random_starts=False` 时的对照用）。多国时由 `_fallback_starts` 兜底。
 STARTS = {"甲": (1, 1), "乙": (6, 6)}   # ★ 对角、最远；十字各 5 格完整（(0,0) 会缺两臂）
 T_MAX = 200           # 兜底上限（只防僵局）
 BASE_CAP = 5          # 补员上限基础值（= 开局兵数，自洽）
@@ -47,6 +54,95 @@ TILES_PER_CAP = 10    # 每控制这么多格国土，补员上限 +1
 RESUPPLY_EVERY = 5    # 每几回合触发一次补员
 UNLIMITED = 10 ** 9   # 动作额度（引擎早已删掉"看海 12 个"那条上限）
 END = "end"           # 「本方收手」的哨兵动作（换人 / 结算回合）
+
+# --------------------------------------------------------------- ★ 几个国家
+# 用户 2026-09-24：「多玩家（**3 人起步**）+ ≥3 轮流手 + `n_nations = f(size)`」。
+# ★ 为什么要多玩家：8×8 两国已到天花板 —— `min_margin(8,2)=5`、步兵 1 格/回合
+#   ⇒ **先手 5 回合直达、回防不可能**，先手优势是**结构性**的（实测闸门连响）。
+#   多一个对手，"抽空家里去偷家"就得付代价 ⇒ 这才有真正的攻守取舍。
+#
+# ★ 下面三个数是**可调先验**（不是硬编码的物理常数），按"每国摊到多少格"来估：
+N_NATIONS_MIN = 3     # ★ 用户：「3 人起步」—— 小图也至少 3 个（否则等于没做这件事）
+N_NATIONS_MAX = 5     # ★ 用户 2026-09-25：「**3-5 个国家**」⇒ 上限 5
+TILES_PER_NATION = 150   # ≈ 每国 12×12 的活动空间（够铺开、又不至于挤成一团）
+
+
+def n_nations_for(size: int) -> int:
+    """★ **`n_nations = f(size)`** —— 地图越大、放得下的国家越多。
+
+        8×8  (64 格) ⇒ 3   ← 用户的"3 人起步"兜住（面积算出来只有 1）
+        16×16(256)   ⇒ 3
+        24×24(576)   ⇒ 4
+        32×32(1024)  ⇒ 6   （封顶）
+        40×40(1600)  ⇒ 6   （封顶）
+
+    ★ 上限 6 有两条独立的理由：① 名字池 6 个；② **每个国家一份网络**
+      （`train.py`）⇒ 份数就是显存/内存与收敛速度。
+    ★ 下限 3 是**目的**（解僵局），不是几何 —— 所以它**优先于**面积估计。
+    ⚠ **这一版是我拍的**（用户逐条问准过的口径里没这一条）：真跑起来觉得
+      16×16 该放 4 个、或者 24×24 太挤，改 `TILES_PER_NATION` 即可（一处生效）。
+    ★ 与 `min_margin(size, n)` 的配合：`n` 定下来之后，开局最小间距就是
+      `min_margin` 给的 `size/√n` —— 两者是同一个几何的两个方向，别各调各的。
+    """
+    by_area = round(size * size / TILES_PER_NATION)
+    return max(N_NATIONS_MIN, min(N_NATIONS_MAX, int(by_area)))
+
+
+class KillLedger:
+    """★ **累计击杀账本** —— 用户 2026-09-25：
+
+        「会不会太复杂了，**只计算我军杀掉的敌军来加分**就行了」
+
+    它替换掉打分器原来那一项「**看得见的**敌国军队数 × `W_KILL`」，因为那一项有两个病
+    （与厅那条**一模一样**）：
+
+      ① **迷雾悖论**：只数看得见的 ⇒ **侦察到敌军反而当场扣分**（势函数取差分），
+         而"丢视野"反而涨分 —— 恰好把"该去侦察"教成负收益；
+      ② **闪断**：同一件事实（敌人还有几支军）一帧读得到、一帧读成 0 ⇒ 差分变噪声。
+
+    ⇒ 改成**单调事件计数**：杀了就加，**只增不减、与视野无关**（同 `HallMemory` 的道理）。
+
+    **归因怎么做的**（引擎不记账，而 `mp.py` 与本线必须逐字一致 ⇒ 不许改引擎）：
+    结算**之前**拍一张 `{军id: (主人, 格)}`，`resolve_turn()` 之后**没了的**就是战死；
+    它死在哪一格，**那一格上（结算前）还有别的国家的军队** ⇒ 那些国家就是凶手。
+      · 互殴同归于尽**照样算**（用结算**前**的快照 ⇒ 死者也能当凶手）
+      · 多国同格 ⇒ **每国都记一笔**（这是塑造用的先验，不是逐笔对账的账本）
+      · 饿死/撤退/无人同格 ⇒ **没人记账**（沙盒里补给管够，这条路基本不会走）
+
+    ⚠ 它**不区分"是不是我出的手"**之外的细节（哪支军、打了几点血）：用户要的就是
+      "只算杀掉的数量"，别把它做成战斗日志。
+    """
+
+    def __init__(self):
+        self._by: dict[str, int] = {}          # 凶手国 → 累计击杀数
+
+    def observe(self, world, before: dict) -> None:
+        """结算后调一次。`before` = 结算前的 `{军id: (主人, x, y)}`。"""
+        alive = {a["id"] for a in world.armies}
+        # 死者的 (主人, 格)
+        dead = [(o, (x, y)) for aid, (o, x, y) in before.items() if aid not in alive]
+        if not dead:
+            return
+        # 每格上（结算前）有哪些国家在场
+        at: dict = {}
+        for o, x, y in before.values():
+            at.setdefault((x, y), set()).add(o)
+        for victim, cell in dead:
+            for killer in at.get(cell, ()):
+                if killer != victim and killer != "野人":
+                    self._by[killer] = self._by.get(killer, 0) + 1
+
+    def kills_by(self, name: str | None) -> int:
+        """该国**累计**杀了多少支敌军（没记过 ⇒ 0）。"""
+        return int(self._by.get(name, 0)) if name else 0
+
+    def all(self) -> dict:
+        return dict(self._by)
+
+    def clone(self) -> "KillLedger":
+        k = KillLedger()
+        k._by = dict(self._by)
+        return k
 
 
 def min_margin(size: int, n_nations: int) -> int:
@@ -73,12 +169,24 @@ class Sandbox:
 
     def __init__(self, seed: int = 0, size: int = 8, t_max: int = T_MAX,
                  war: bool = True, first: str | None = None,
-                 halls_known: bool = False):
+                 halls_known: bool = False, n_nations: int | None = None,
+                 wars: list[tuple[str, str]] | None = None):
         self.seed = seed
         self.size = size
         self.t_max = t_max
         self.war = war                    # 开局是否宣战（★不宣战 v11plus 不会进攻）
-        self.first = first                # ★ 谁先手（`None` ⇒ `PLAYERS[0]`）
+        # ★ 显式战争对：给了就**只**宣这些（用来造**中立国**/局部战争场景）。
+        #   没给 ⇒ `war=True` 时**全对宣战**（多玩家的缺省：默认全体敌对）。
+        self.wars = wars
+        self.first = first                # ★ 谁先手（`None` ⇒ `self.players[0]`）
+        # ★★ **几个国家**（用户 2026-09-24：「3 人起步 + `n_nations = f(size)`」）。
+        #   `None` ⇒ 按地图大小算（`n_nations_for`）；显式给数则用它（测试/对照用）。
+        self.n_nations = int(n_nations if n_nations else n_nations_for(size))
+        if not (2 <= self.n_nations <= len(PLAYER_NAMES)):
+            raise ValueError(
+                f"n_nations 必须在 2..{len(PLAYER_NAMES)}（名字池上限），"
+                f"给了 {self.n_nations}")
+        self.players = tuple(PLAYER_NAMES[:self.n_nations])
         # ★★ **他国市政厅是否已知** —— 用户 2026-09-24：
         #   「对手的厅应该是**明知**的，有**两种模式**，一个是 llm **已经派了间谍**、
         #    明知对手厅了，一个是没有、**rl 模型自己找厅**」。
@@ -97,6 +205,8 @@ class Sandbox:
         #     · 自己找厅（`False`）⇒ 账本从空开始，靠 `known_halls()` 累积
         #   ⇒ 调用方（`encode`/`evaluate`）**不用分情况**，一律问 `known_halls`。
         self.halls = HallMemory(all_known=halls_known)
+        # ★ 累计击杀账本（用户 2026-09-25：「只计算我军杀掉的敌军来加分」）
+        self.kills = KillLedger()
         self.world = None
         self.turn = 0
         self.log: list[str] = []
@@ -112,16 +222,37 @@ class Sandbox:
         """
         from mp import World
         from ruleai.v11plus import grouping
-        starts = self._random_starts() if random_starts else dict(STARTS)
-        w = World(size=self.size, seed=self.seed, nations=list(PLAYERS), starts=starts)
+        starts = self._random_starts() if random_starts else self._fixed_starts()
+        w = World(size=self.size, seed=self.seed, nations=list(self.players),
+                  starts=starts)
         w.max_turns = self.t_max
         self.world = w
         self.turn = 0
         self.log = []
         self.halls = HallMemory(all_known=self.halls_known)   # ★ 每局重开账本
-        if self.war:
-            w.declare_war(PLAYERS[0], PLAYERS[1])
-        for name in PLAYERS:
+        self.kills = KillLedger()                             # ★ 每局重开击杀账本
+        if self.wars is not None:
+            # ★ 显式给了战争对 ⇒ **只**宣这些（其余国家互为中立国：mv/atk 都不行）
+            for a, b in self.wars:
+                if a in self.players and b in self.players:
+                    w.declare_war(a, b)
+        elif self.war:
+            # ★★ **全对宣战**（多玩家）—— 用户 2026-09-24：「是否中立和联盟和模型
+            #   无关，开局直接指定」⇒ 没被 `set_alliance` 写进任何联盟的国家**默认敌对**。
+            #   ⚠ 原来只宣战 `(甲, 乙)` 一对 ⇒ 三国局里第三个国家**谁都不打**，
+            #     而 `_owner_class` 会把它当 `OWN_NEUTRAL_NATION`（mv/atk **都不行**）
+            #     ⇒ 它一步也走不出去、也不挨打，成一块"冻住的石头"。
+            #   引擎的 `declare_war` 本来就建的是**一对多**的战争记录（`_war_sides`
+            #   带 followers）⇒ 逐对调用即可，语义与"全体交战"一致。
+            #   ★ 与联盟并存是**安全**的：引擎两处判定都是"**联盟优先**"
+            #     （`_atk_target_ok` 要 `not allied_between` **且** `war_between`；
+            #      `_mv_wall` 也放行盟国地）⇒ 先全对宣战、再 `set_alliance` 结盟，
+            #      盟友之间照样"可 mv 不可 atk"。所以**造中立国要用 `wars=[...]`**，
+            #      不能靠"不结盟"（缺省已经是全体交战了）。
+            for i, a in enumerate(self.players):
+                for b in self.players[i + 1:]:
+                    w.declare_war(a, b)
+        for name in self.players:
             # ★ 沙盒**不管经济** ⇒ 补给必须管够：引擎每回合收军粮（步1/骑2），
             #   断粮则**每军扣 HP**、扣到 0 饿毙。资源给 0 的话军队是**饿死**的不是战死的
             #   （实测踩过：无人交战却每回合稳定掉 35 hp，全灭后靠补员复活 ⇒ 死循环）。
@@ -130,7 +261,7 @@ class Sandbox:
         # ★ 主城默认 **L2 城堡**（用户 2026-09-24：「顺便 rl 线给主城加一个默认 l2 的城堡」）：
         #   引擎里 `t["buildings"]["城堡"]` 的**计数就是等级**（`_defense_pct` 按它算减伤）
         #   ⇒ 主城更难打、防守更站得住，攻守才有真正的取舍。
-        for name in PLAYERS:
+        for name in self.players:
             core = self.core_of(name)
             if core is not None:
                 w.tiles[core]["buildings"]["城堡"] = 2
@@ -138,8 +269,9 @@ class Sandbox:
         #   （`ruleai/v11plus/__init__.py` 明文要求）
         grouping.clear()
         # ★ **先手可换**（用户 2026-09-24：「每 8 局换先后手」）—— 固定先手会把
-        #   "先手优势"永远记在同一个网络的头上；轮换后两个网络都当过得利/吃亏的那一方。
-        order = list(PLAYERS)
+        #   "先手优势"永远记在同一个网络的头上；轮换后每个网络都当过得利/吃亏的那一方。
+        #   ★ 多玩家下 `first` 是 `self.players` 里的**任意一个**（≥3 轮流手）。
+        order = list(self.players)
         if self.first in order:
             order.remove(self.first)
             order.insert(0, self.first)
@@ -148,23 +280,55 @@ class Sandbox:
         return self
 
     def _random_starts(self) -> dict:
-        """随机开局：两国核心随机、但**切比雪夫距离 ≥ `min_margin(size, 国数)`**。
+        """随机开局：N 国核心随机、但**两两切比雪夫距离 ≥ `min_margin(size, 国数)`**。
 
         十字开局要 3×3 的空间 ⇒ 核心落在 `[1, size-2]`（贴边会让十字缺臂）。
-        200 次抽不到就退回固定 `STARTS`（8×8 上几乎不可能 —— 可放位置 6×6=36 个，
-        距离 ≥5 的组合一大把）。
+        200 次抽不到就退回 `_fallback_starts()`（确定性铺开）。
         """
         import random
         rng = random.Random(self.seed)
         lo, hi = 1, max(1, self.size - 2)
-        need = min_margin(self.size, len(PLAYERS))
+        need = min_margin(self.size, len(self.players))
         for _ in range(200):
-            pts = [(rng.randint(lo, hi), rng.randint(lo, hi)) for _ in PLAYERS]
+            pts = [(rng.randint(lo, hi), rng.randint(lo, hi))
+                   for _ in self.players]
             ok = all(max(abs(pts[i][0] - pts[j][0]), abs(pts[i][1] - pts[j][1])) >= need
                      for i in range(len(pts)) for j in range(i + 1, len(pts)))
             if ok:
-                return dict(zip(PLAYERS, pts))
-        return dict(STARTS)
+                return dict(zip(self.players, pts))
+        return self._fallback_starts()
+
+    def _fallback_starts(self) -> dict:
+        """★ **确定性兜底开局**（随机 200 次抽不到时）。
+
+        ⚠ 原来退回的是写死的 `STARTS`（**两个**坐标）—— 多国时会
+          `zip(self.players, STARTS)` 出长度不符，或者更糟：**两个国家同一个核心**
+          （`_place_crosses` 里 `(x,y) not in self.tiles` 会静默跳过第二家 ⇒ 那一家
+          **开局就没有厅 ⇒ 一出场就是死的**，而**不报错**）。
+        ⇒ 现在改成**贪心最远点**：从一角起，每次挑"离已选点最远"的格。
+          确定性、总给出 N 个互不相同的核心，且只要格子够就自动最大化间距。
+        """
+        lo, hi = 1, max(1, self.size - 2)
+        grid = [(x, y) for x in range(lo, hi + 1) for y in range(lo, hi + 1)]
+        if len(grid) < len(self.players):          # 图太小：退回边界内的前 N 格（仍互不相同）
+            grid = [(x, y) for x in range(self.size) for y in range(self.size)]
+        chosen = [grid[0]]
+        while len(chosen) < len(self.players):
+            best = max((p for p in grid if p not in chosen),
+                       key=lambda p: min(max(abs(p[0] - q[0]), abs(p[1] - q[1]))
+                                         for q in chosen))
+            chosen.append(best)
+        return dict(zip(self.players, chosen))
+
+    def _fixed_starts(self) -> dict:
+        """`random_starts=False` 的固定开局（对照/复现用）。
+
+        两国 ⇒ 老的 `STARTS`（对角最远，**逐位不变**，老测试与老结论都还成立）；
+        多国 ⇒ 用确定性兜底（`STARTS` 只有两个坐标，`zip` 到 3 国就出错了）。
+        """
+        if len(self.players) == len(STARTS):
+            return dict(STARTS)
+        return self._fallback_starts()
 
     def set_alliance(self, *blocs: tuple[str, list[str]]) -> None:
         """★★ **开局直接指定**联盟 —— 外交关系是**场景条件**，不是模型的动作。
@@ -309,6 +473,7 @@ class Sandbox:
         sb.first = self.first
         sb.halls_known = self.halls_known
         sb.halls = self.halls.clone()            # ★ 记忆要跟着副本走（试演不能凭空多知道）
+        sb.kills = self.kills.clone()            # ★ 击杀账本同理
         return sb
 
     def current_player(self) -> str | None:
@@ -426,7 +591,7 @@ class Sandbox:
         self.pending.pop(0)
         if not self.pending:
             self.end_turn()
-            self.pending = [n for n in PLAYERS if self.alive(n)]
+            self.pending = [n for n in self.players if self.alive(n)]
 
     def is_terminal(self) -> bool:
         return self.done()
@@ -442,7 +607,12 @@ class Sandbox:
         """
         if not self.alive(name):
             return []
-        enemy = next((n for n in PLAYERS if n != name), None)
+        # ★ 对照线老师（`rl/military.py`）只吃**一个** `enemy` ⇒ 多玩家下取
+        #   **最近的那个对手**（按双方核心的切比雪夫距离）。
+        #   ⚠ 这是**近似**：真正的多玩家目标池它还没写。它只是**对照线**
+        #     （RL 训练走 `train.py` 的自对弈，不经过这里）⇒ 先能跑、够用即可，
+        #     别拿它的成绩当多玩家的基准。
+        enemy = self._nearest_rival(name)
         if teacher == "v11plus":
             from ruleai.v11plus import military as v11
             from ruleai.v11plus.ledger import Ledger
@@ -453,6 +623,20 @@ class Sandbox:
         return mine.run(self.world, name, enemy=enemy, verbose=verbose)
 
     # ---- 查询：厅数（= 补员产能）----
+    def _nearest_rival(self, name: str) -> str | None:
+        """离我核心**最近**的对手（按切比雪夫距离；没有 ⇒ `None`）。
+
+        ★ 只给**对照线老师**用（它只吃一个 `enemy`）—— 见 `ai_turn` 的注释。
+        """
+        from .evaluate import rival_nations
+        mine = self.core_of(name) or (0, 0)
+        foes = rival_nations(self.world, name)
+        if not foes:
+            return None
+        return min(foes, key=lambda f: (max(abs((self.core_of(f) or (0, 0))[0] - mine[0]),
+                                            abs((self.core_of(f) or (0, 0))[1] - mine[1])),
+                                        f))     # ★ 末尾带 `f` ⇒ 同距时**确定性**（不靠字典序）
+
     def halls_of(self, name: str) -> int:
         """该国**已落成**的市政厅数（= 国祚，也是补员的"产能"）。"""
         return sum(t["buildings"].get("市政厅", 0) for t in self.world.tiles.values()
@@ -474,7 +658,7 @@ class Sandbox:
         notes = []
         if self.turn == 0 or self.turn % RESUPPLY_EVERY != 0:
             return notes
-        for name in PLAYERS:
+        for name in self.players:
             if not self.alive(name):
                 continue
             hall = self.halls_of(name)
@@ -508,7 +692,11 @@ class Sandbox:
           ⇒ **全军一步不走**（实测踩过：30 回合原地不动，无任何动作）。
           引擎的回合模型是 `begin_turn → 各国行动 → resolve_turn`。
         """
+        # ★★ 结算**前**拍快照（击杀归因靠它）—— `resolve_turn` 一跑，战死的军
+        #   就从 `world.armies` 里没了，事后无法复原"它死在那一格"。
+        before = {a["id"]: (a["owner"], a["x"], a["y"]) for a in self.world.armies}
         self.world.resolve_turn()
+        self.kills.observe(self.world, before)
         self.world.begin_turn()
         self.turn = self.world.turn          # ★ 与引擎同步，别自己数（免得漂）
         for note in self.resupply():
@@ -523,7 +711,7 @@ class Sandbox:
         """
         turns = []
         while not self.done():
-            for name in PLAYERS:
+            for name in self.players:
                 acts = self.ai_turn(name)
                 if acts:
                     turns.append((self.turn, name, acts))
@@ -563,16 +751,19 @@ class Sandbox:
 def _playout(seed: int = 0, verbose: bool = True) -> dict:
     sb = Sandbox(seed=seed).reset()
     if verbose:
-        print(f"建局：核心 {{'甲': {sb.core_of('甲')}, '乙': {sb.core_of('乙')}}}"
+        cores = {n: sb.core_of(n) for n in sb.players}
+        wars = [(a, b) for i, a in enumerate(sb.players)
+                for b in sb.players[i + 1:] if sb.world.war_between(a, b)]
+        print(f"建局：{sb.n_nations} 国 {cores}"
               f"  tiles={len(sb.world.tiles)}"
               f"  野人={sum(1 for a in sb.world.armies if a['owner'] == '野人')}"
-              f"  步兵={[len(sb.armies_of(n)) for n in PLAYERS]}"
-              f"  交战={sb.world.war_between(*PLAYERS)}")
+              f"  步兵={[len(sb.armies_of(n)) for n in sb.players]}"
+              f"  交战对={wars}")
     out = sb.rollout(verbose=verbose)
     if verbose:
         print(f"结果：{out['turns']} 回合  winner={out['winner']}"
-              f"  奖励 甲={sb.reward('甲'):+.3f} 乙={sb.reward('乙'):+.3f}")
-        for n in PLAYERS:
+              f"  （实体口径：{out.get('winner_members', sb.winner_members())}）")
+        for n in sb.players:
             print(f"  {n}: 国土 {sb.tiles_of(n)}  军队 {len(sb.armies_of(n))}"
                   f"  上限 {sb.cap_of(n)}  国祚 {sb.alive(n)}  核心 {sb.core_of(n)}")
         n_acts = sum(len(a) for _, _, a in out["actions"])

@@ -44,22 +44,37 @@ from . import scoring as S
 INF = S.INF
 
 
-def score(world, me: str, enemy: str, mask=None, allies=None,
-          known=None) -> float:
+def score(world, me: str, enemy=None, *, mask=None, allies=None,
+          known=None, kills=None) -> float:
     """从 `me` 视角打分（正 = 我占优）= **自己 + 0.5 × 盟友（不含国土差）**。
 
     ★ **敌方的一切都过 `mask`**（见文件头）。`mask` = `pathfind.vision_mask(world, me)`；
       `None` ⇒ 全知（只给诊断用）。
 
+    ★★ **`mask` 及它后面的一律是"仅限关键字"** —— 这是**防偷看**的一道结构闸，不是风格：
+      `enemy` 现在是**可选**的，若 `mask` 还能当第 3 个位置参数传，那么
+      `score(w, me, mask)`（想省掉 enemy 的写法）会被**静默**解释成 `enemy=mask`
+      而 `mask` 保持 `None` ⇒ **全知打分**（打分器能点名视野外的敌军/国土）。
+      2026-09-25 我自己写测试时就踩了：那条测试"通过"了，但它测的其实是全知口径。
+      ⇒ 改成仅限关键字后，写错的调用**当场 `TypeError`**，不会静默降级成偷看。
+
     ★ 盟友那一份**用的还是同一张 `mask`** —— 这不是省事，是**正确**：
       `vision_mask` 建的时候就把**联盟成员的地块**算进去了（`o not in members` 就跳过）
       ⇒ 那张 mask 本来就是**整个联盟的**视野，拿它评估盟友既不多看、也不少看。
+
+    ★★ `enemy`（用户 2026-09-25：多玩家 3 人起步）—— 可以是**一个名字、一串名字、
+      或 `None`**。`None` ⇒ **所有对手**（`rival_nations`）。
+      ⚠ 原来这里是"**那一个**敌人"的假设：三国局里被漏掉的那个对手，
+        它的军队/国土/厅**一概不进分数**，而**不报错** —— 模型会以为天下只有两个人。
+      ⇒ 现在 `foe_*` 的每一项都是**对手集合上的聚合**（国土/兵力/血量求和，
+        厅取并集，距离取最近）。二国局下与原来**逐位相同**（集合里就一个人）。
     """
     t = terminal(world, me, enemy)
     if t is not None:
         return t                          # 已定局 ⇒ 直接用终局分（**与 `terminal` 同一套口径**）
     allies = allies_of(world, me) if allies is None else list(allies)
-    s = _one(world, me, enemy, mask, with_tiles=True, known=known)
+    foes = _as_list(enemy) or rival_nations(world, me, allies)
+    s = _one(world, me, foes, mask, with_tiles=True, known=known, kills=kills)
     # ★★ 国祚那一项**只数我这边**（用户 2026-09-24 纠正）：
     #   「**分数是针对于自己而言，得厅加分，丢厅扣分，和对面几个厅有半毛钱关系？**」
     #
@@ -87,24 +102,56 @@ def score(world, me: str, enemy: str, mask=None, allies=None,
     #      将来联盟/视野口径一改，打分器跟着走，不会静默说谎。
     s += S.W_HALL * (halls_of(world, me)
                      + S.ALLY_SHARE * sum(halls_of(world, al, mask, known)
-                                          for al in allies if al != enemy))
+                                          for al in allies if al not in foes))
     for al in allies:
-        if al == me or al == enemy:
+        if al == me or al in foes:
             continue
         if not world.has_townhall(al):
             s += S.ALLY_SHARE * S.ALLY_DEAD   # 见 `ALLY_DEAD` 的注释
             continue
-        s += S.ALLY_SHARE * _one(world, al, enemy, mask, with_tiles=False,
-                                 known=known)
+        # ★ 盟友那一份传**同一串对手**：盟与我是**同一外交实体** ⇒ 对手集合本就相同
+        #   （`rival_nations` 按实体算），所以这不是近似，是同一个集合。
+        s += S.ALLY_SHARE * _one(world, al, foes, mask, with_tiles=False,
+                                 known=known, kills=kills)
     return s
 
 
-def _one(world, me: str, enemy: str, mask, *, with_tiles: bool,
-         known=None) -> float:
+def _as_list(enemy) -> list[str]:
+    """`enemy` 归一成**名字列表**：`None` ⇒ `[]`（由调用方决定"那就是全部对手"）；
+    字符串 ⇒ 单元素；**列表/元组** ⇒ 原样。
+
+    ★★ **只收 `str`/`list`/`tuple`，其余一律 `TypeError`** —— 这是**防偷看的结构闸**，
+      不是类型洁癖。要挡的是这个错：`score(world, me, mask)`（想省掉 `enemy`）
+      会被读成 `enemy=mask`，而 `mask` 保持 `None` ⇒ **全知打分**（打分器能点名
+      视野外的敌军/国土），而它**不报错**、只是悄悄不再迷雾受限。
+      ★ 为什么"仅限关键字"不够：`*` 只挡第 **4** 个位置参数，而危险的那个调用
+        **只有 3 个**（`world, me, mask`）⇒ 照样静默通过（我 2026-09-25 实测过）。
+      ★ 为什么判 `frozenset`/`set`/`dict`：`mask` 的实际类型就是 `frozenset`
+        （`pathfind.vision_mask` 的返回），而"敌人"**永远**是国名字符串
+        ⇒ 收到集合就一定是把 mask 传错了位置。
+    """
+    if enemy is None:
+        return []
+    if isinstance(enemy, str):
+        return [enemy]
+    if isinstance(enemy, (list, tuple)):
+        return list(enemy)
+    raise TypeError(
+        f"`enemy` 只收 国名字符串 / 名字列表 / None，收到 {type(enemy).__name__}："
+        f"{enemy!r} —— ★ 多半是**把 `mask` 传到了 `enemy` 的位置**"
+        f"（`score(world, me, mask)` 会被读成 `enemy=mask`，而 `mask` 仍是 None"
+        f" ⇒ **全知打分 = 偷看**）。要传视野请写 `mask=`。")
+
+
+def _one(world, me: str, foes, mask, *, with_tiles: bool,
+         known=None, kills=None) -> float:
     """单国评分（打分构成见文件头）。`with_tiles=False` ⇒ **不算国土差**（盟友那一份用）。
 
-    ★ 这里**不再**对"`enemy` 已亡"返回 `+INF` —— 那件事是不是胜局由 `score` 判
-      （要看**全部**对手）。`enemy` 亡时它那几项自然塌成 0（没有军队/国土/核心），
+    ★★ `foes` = **对手集合**（见 `score` 的 docstring）。集合里每一项都参与聚合，
+      二国局下与"那一个敌人"逐位相同。
+
+    ★ 这里**不再**对"对手已亡"返回 `+INF` —— 那件事是不是胜局由 `score` 判
+      （要看**全部**对手）。对手亡时它那几项自然塌成 0（没有军队/国土/核心），
       剩下的就是"我自己这一摊"，是有限的、有意义的数。
     """
     if not world.has_townhall(me):
@@ -115,15 +162,30 @@ def _one(world, me: str, enemy: str, mask, *, with_tiles: bool,
         # ★ 盟友那一份**去掉这一项**（用户：「盟友评分**除了地皮分以外**」）——
         #   理由也自洽：盟友的地**可 mv 不可 atk**，本来就不是我能夺取的目标，
         #   给盟友的地记分等于奖励一件我做不到的事。
-        s += S.W_TILE * (tiles(world, me) - tiles(world, enemy, mask))
+        s += S.W_TILE * (tiles(world, me) - foe_tiles(world, foes, mask))
+    # ★★ **击杀 = 累计事件计数**（用户 2026-09-25：「会不会太复杂了，**只计算我军
+    #   杀掉的敌军来加分**就行了」）—— 替换掉原来那一项「**看得见的**敌国军队数」。
+    #   那一项有两个病（与厅那条一模一样）：
+    #     ① **迷雾悖论**：只数看得见的 ⇒ **侦察到敌军反而当场扣分**、丢视野反而涨分，
+    #        把"该去侦察"教成负收益；
+    #     ② **闪断**：同一件事实一帧读得到、一帧读成 0 ⇒ 势函数差分变噪声。
+    #   ⇒ 改成**只增不减、与视野无关**的计数（`sandbox.KillLedger`，按结算瞬间
+    #     同格共处归因）。`kills` = `{国: 累计击杀}`；`None` ⇒ 当成 0
+    #     （**没接账本**的调用方得 0 而不是"看不见就偷看"）。
+    s += S.W_KILL * int((kills or {}).get(me, 0))
+    # ⚠ `foe_armies`/敌方 hp 那两项**仍然过 mask**（用户只点了击杀那一项）——
+    #   它们是同一类"看得见才数"的量，仍然有轻微的同类毛病（`W_HP` 每点 0.02，
+    #   比 `W_KILL` 小两个量级）。**已记进 PLAN 待拍**，别当没看见。
+    foes_armies = foe_armies(world, foes, mask)
     s += S.W_ARMY * len(armies(world, me))               # 我方：全知
-    s -= S.W_KILL * len(armies(world, enemy, mask))      # ★ 敌方：**只数看得见的**
-    s += S.W_HP * (hp_total(world, me) - hp_total(world, enemy, mask))
+    s += S.W_HP * (hp_total(world, me) - sum(a.get("hp", 0) for a in foes_armies))
 
     # ★★ 逼近 / 威胁 / 守家：**对每一座厅都生效**（用户 2026-09-24：「打分器的**距离
     #   市政厅**的厅，应该**对每个市政厅都生效**」）—— 一国有两座厅时，不能只盯其中一座。
     my_halls = hall_cells(world, me)                   # 我的厅：全知
-    foe_halls = hall_cells(world, enemy, mask, known)   # ★ 敌的厅（视野 ∪ **记忆**）
+    # ★ 敌的厅 = **所有对手的厅的并集**（视野 ∪ **记忆**）——
+    #   多玩家下"最近的敌厅"要跨全部对手取，不能只看一个。
+    foe_halls = foe_hall_cells(world, foes, mask, known)
     # ★★ **"逼近"和"守家"要分开判**（2026-09-24 拆开，`--no-halls-known` 逼出来的）：
     #   · **逼近**（`W_NEAR`）比的是"我离敌厅"vs"敌离我厅" ⇒ ★ **两边都得知道**，
     #     少了敌厅就没得比（这正是「间谍模式 / 自己找厅」两种模式要买的东西）。
@@ -137,7 +199,7 @@ def _one(world, me: str, enemy: str, mask, *, with_tiles: bool,
     if my_halls and foe_halls:
         # 我离**最近的敌厅**（挑最好打的那座）；敌离**我最危险的那座厅**
         my_d = min(min_dist(world, me, h) for h in foe_halls)
-        foe_d = min(min_dist(world, enemy, h, mask) for h in my_halls)
+        foe_d = min(foe_min_dist(world, foes, h, mask) for h in my_halls)
         s += S.W_NEAR * (-my_d + foe_d)
 
     # ★★ 安全 / 防御 —— **只在真有威胁时生效**：
@@ -146,7 +208,7 @@ def _one(world, me: str, enemy: str, mask, *, with_tiles: bool,
     #   "回来拦"也有了收益 —— 攻守这才对称。
     #   ★ 判定用**最近的那支敌军**（到我最危险的那座厅），所以"保住任何一座"都算数。
     if my_halls:
-        foe_d = min(min_dist(world, enemy, h, mask) for h in my_halls)
+        foe_d = min(foe_min_dist(world, foes, h, mask) for h in my_halls)
         if foe_d <= S.THREAT_R:
             intensity = (S.THREAT_R - foe_d + 1) / float(S.THREAT_R)
             s -= S.W_THREAT * intensity
@@ -294,6 +356,34 @@ def min_dist(world, name: str, cell, mask=None) -> int:
       否则就是隔着迷雾点名敌军位置（用户 2026-09-24 抓到的那个漏洞）。
     """
     pool = armies(world, name, mask)
+    if not pool:
+        return 99
+    return min(max(abs(a["x"] - cell[0]), abs(a["y"] - cell[1])) for a in pool)
+
+
+# ---------------------------------------------------------------- ★ 对手是**集合**
+# 用户 2026-09-25：多玩家（3 人起步）⇒「敌人」不再是一个人。下列四个是上面四个的
+# **集合版**：国土/兵力求和，厅取并集，距离取最近。`foes` 是名字列表（`_as_list`）。
+# ⚠ 别在调用点自己写 `sum(... for n in foes)` —— 散落多处就会有一处漏掉某个对手，
+#   而那种错**不报错**（分数少算一块，训练照跑）。
+def foe_tiles(world, foes, mask=None) -> int:
+    """对手**国土总和**（★ 每一个都过 `mask`）。"""
+    return sum(tiles(world, n, mask) for n in foes)
+
+
+def foe_armies(world, foes, mask=None) -> list[dict]:
+    """对手**全部军队**（★ 每一个都过 `mask`；看不见的一个都不算）。"""
+    return [a for n in foes for a in armies(world, n, mask)]
+
+
+def foe_hall_cells(world, foes, mask=None, known=None) -> list:
+    """对手**全部已落成的厅格**（并集，排序稳定 ⇒ 取"最近的那座"是确定性的）。"""
+    return sorted({c for n in foes for c in hall_cells(world, n, mask, known)})
+
+
+def foe_min_dist(world, foes, cell, mask=None) -> int:
+    """**任意对手**的军队到 `cell` 的最近距离（没有 ⇒ 99）。"""
+    pool = foe_armies(world, foes, mask)
     if not pool:
         return 99
     return min(max(abs(a["x"] - cell[0]), abs(a["y"] - cell[1])) for a in pool)

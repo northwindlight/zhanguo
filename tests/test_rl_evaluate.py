@@ -402,7 +402,7 @@ class TestThreatNeedsOnlyMyHall(unittest.TestCase):
         self.assertNotIn(foe_hall, mask, "本场景的前提：敌厅在视野外")
         self.assertEqual(E.hall_cells(w, "乙", mask), [],
                          "自己找厅 + 空记忆时，看不见的敌厅必须数不到")
-        s = E.score(w, "甲", "乙", mask)
+        s = E.score(w, "甲", "乙", mask=mask)
         self.assertNotEqual(s, 0.0, "分数恒 0 ⇒ 下面的比较全是空的")
 
     def test_threat_is_alive_without_enemy_hall(self):
@@ -417,12 +417,12 @@ class TestThreatNeedsOnlyMyHall(unittest.TestCase):
         #   （我第一版没关，断言写反了：实测 near 反而**高** 7 分 = 守家 10 − 威胁 3。）
         with S.override(W_GUARD=0.0):
             foe["x"], foe["y"] = near
-            s_near = E.score(w, "甲", "乙", mask)
+            s_near = E.score(w, "甲", "乙", mask=mask)
             self.assertLessEqual(E.min_dist(w, "乙", my_hall, mask), S.THREAT_R)
             # 挪到那块**远处的自家地**上（仍在视野内 ⇒ `W_KILL`/`W_HP` 那几项一字不变），
             # 只让"到我厅的距离"变大
             foe["x"], foe["y"] = far
-            s_far = E.score(w, "甲", "乙", mask)
+            s_far = E.score(w, "甲", "乙", mask=mask)
         self.assertLess(s_near, s_far,
                         "敌军逼近我的厅却没扣分 ⇒ 威胁项在「自己找厅」这一版里是死的")
         # ★ 把威胁**和**守家都关掉 ⇒ 这个差必须消失（证明差只来自这两项，不是别的项）。
@@ -430,9 +430,9 @@ class TestThreatNeedsOnlyMyHall(unittest.TestCase):
         #   所以挪近挪远照样差一个守家分（实测差 10.0）—— 那也是"有意的"。
         with S.override(W_THREAT=0.0, W_GUARD=0.0):
             foe["x"], foe["y"] = near
-            a = E.score(w, "甲", "乙", mask)
+            a = E.score(w, "甲", "乙", mask=mask)
             foe["x"], foe["y"] = far
-            b = E.score(w, "甲", "乙", mask)
+            b = E.score(w, "甲", "乙", mask=mask)
         self.assertAlmostEqual(a, b, places=9, msg="W_THREAT=0 还有差 ⇒ 差不是威胁项来的")
 
     def test_guard_reward_is_alive_without_enemy_hall(self):
@@ -443,21 +443,21 @@ class TestThreatNeedsOnlyMyHall(unittest.TestCase):
         mine = self._my_armies(w)
         for a in mine:                                   # 先都摆在厅边（守家）
             a["x"], a["y"] = my_hall
-        s_guard = E.score(w, "甲", "乙", mask)
+        s_guard = E.score(w, "甲", "乙", mask=mask)
         # 调走（仍在我地盘上 ⇒ 只有"守家军数"这一项变）
         away = far
         for a in mine:
             a["x"], a["y"] = away
-        s_away = E.score(w, "甲", "乙", mask)
+        s_away = E.score(w, "甲", "乙", mask=mask)
         self.assertGreater(s_guard, s_away,
                            "威胁圈内守家没加分 ⇒ 守家项在「自己找厅」这一版里是死的")
         with S.override(W_GUARD=0.0):
             for a in mine:
                 a["x"], a["y"] = my_hall
-            a1 = E.score(w, "甲", "乙", mask)
+            a1 = E.score(w, "甲", "乙", mask=mask)
             for a in mine:
                 a["x"], a["y"] = away
-            a2 = E.score(w, "甲", "乙", mask)
+            a2 = E.score(w, "甲", "乙", mask=mask)
         self.assertAlmostEqual(a1, a2, places=9, msg="W_GUARD=0 还有差 ⇒ 差不是守家项来的")
 
     def test_no_guard_bonus_without_threat(self):
@@ -468,10 +468,10 @@ class TestThreatNeedsOnlyMyHall(unittest.TestCase):
         mine = self._my_armies(w)
         for a in mine:
             a["x"], a["y"] = my_hall
-        s_guard = E.score(w, "甲", "乙", mask)
+        s_guard = E.score(w, "甲", "乙", mask=mask)
         for a in mine:
             a["x"], a["y"] = far
-        s_away = E.score(w, "甲", "乙", mask)
+        s_away = E.score(w, "甲", "乙", mask=mask)
         self.assertAlmostEqual(s_guard, s_away, places=9,
                                msg="没威胁时守家也加分 ⇒ 模型会缩着不动")
 
@@ -486,9 +486,9 @@ class TestThreatNeedsOnlyMyHall(unittest.TestCase):
         mine = self._my_armies(w)
         for a in mine:
             a["x"], a["y"] = my_hall
-        s0 = E.score(w, "甲", "乙", mask)
+        s0 = E.score(w, "甲", "乙", mask=mask)
         for a in mine:                              # 摸到敌厅边上（但看不见 ⇒ 不该有收益）
             a["x"], a["y"] = foe_hall
-        s1 = E.score(w, "甲", "乙", mask)
+        s1 = E.score(w, "甲", "乙", mask=mask)
         self.assertAlmostEqual(s0, s1, places=9,
                                msg="看不见敌厅时「逼近」项却动了 ⇒ 那个项泄漏了敌厅位置")

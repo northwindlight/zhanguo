@@ -9,7 +9,7 @@
       · `KIND` 32（8 活跃 + 20 外交 + 4 留位）→ **3**（`move` / `attack` / `end_turn`）
       · `BUILDING`(20) · `TRADEABLE`(8) · `TILE_RES`(5) · `STOCK`(7) → **整表删除**
         （沙盒没有经济：**不建、不征、不买卖**；兵由补员规则白给）
-      · `NATION_SLOTS` 8 → **2**（甲 / 乙）
+      · `NATION_SLOTS` 8 → **不再存在**：军队 token 的归属段改成**六类**（同网格）
       · `DIPLO_KINDS`(20) · `EVENT`(24) · `RELATION`(6) → **删除**
         （沙盒**默认敌对**，无外交动作、无信件、无联盟）
       · token 窗口 `TOKEN_BUDGET` 512 → 见 `tokenize.py` 的 `CAP`（沙盒实体很少）
@@ -38,9 +38,19 @@ TERRAIN = ("平原", "森林", "丘陵", "山地", "沙漠")
 # 兵种：3 项（沙盒只有步兵上场，骑/民留着不废下标）。
 UNIT = ("步", "骑", "民")
 
-# 国家槽：**2**（甲 / 乙）。归属通道与 token 的 `owner` 段都用它。
-NATION_SLOTS = 2
-PLAYER_NAMES = ("甲", "乙")
+# 国家槽 —— ★★ **不再是"两国"**（原来写死 2，甲/乙）。
+#
+#   用户 2026-09-24/25：多玩家（3 人起步）+ `n_nations = f(size)`。
+#   ⚠ 原来军队 token 的归属段是「甲/乙」**两国 one-hot** ⇒ 国家数一改，
+#     token 宽度就变（`A_UNIT0` 跟着挪）⇒ **观测形状变 ⇒ ckpt 作废**。
+#   ⇒ 现在**改成与网格/候选同一套的六类**（`OWNER_CHANNELS`，见下），
+#     于是"几个国家"**不再进观测形状**：多玩家落地时形状不变、基座不用重炼。
+#   ★ 顺带修掉一个真漏洞：原来盟友的军与敌国的军在 token 里**长得一模一样**
+#     （都是"不是我"那一位），而引擎对这两类的判定**相反**（盟友可 mv 不可 atk）。
+NATION_SLOTS = None          # 已废；保留名字只为让"谁还在引用它"立刻炸出来
+# 国家名（**上限 6**，天干序）。`min_margin(size, n)` 保证 n 个核心互不贴脸；
+# 具体用几个由 `sandbox.n_nations(size)` 定 —— 这里只给"够用的名字池"。
+PLAYER_NAMES = ("甲", "乙", "丙", "丁", "戊", "己")
 
 # ===========================================================================
 # 2. 动作 KIND（3）—— 下标即 `type_emb` 的身份
@@ -195,6 +205,14 @@ GLOB = (
     "my_halls",         # 座数 / 4
     "ally_halls",
     "foe_halls",
+    # ★★ **我累计击杀的敌军支数**（用户 2026-09-25：「**只计算我军杀掉的敌军来加分**」）。
+    #   ★ 为什么必须进观测：那一项进了打分器（势函数的加项）⇒ **评论家得能预测它**，
+    #     否则同一局面下奖励有一个它看不见的分量 ⇒ 纯加方差。
+    #   ★ 它是**单调事件计数**（`sandbox.KillLedger`）⇒ 不进迷雾、不闪断
+    #     —— 与「厅的永久标记」同一个道理（原来那项数"看得见的敌军"是反的：
+    #     侦察到敌人反而扣分）。
+    #   ★ 追加在**表尾**（本文件铁律：只许追加，不许插队/删）。
+    "my_kills",         # 累计击杀 / KILLS_SCALE
 )
 GLOB_SIZE = len(GLOB)
 
@@ -210,15 +228,17 @@ GLOB_SIZE = len(GLOB)
 TOKEN_GROUPS = ("g", "a")
 
 # 军队 token 的特征列（下标即语义，冻结）
-A_OWNER0 = 0                                        # 归属 one-hot（2）
-A_UNIT0 = A_OWNER0 + NATION_SLOTS                   # 兵种 one-hot（3）
+A_OWNER0 = 0                                        # 归属 one-hot（**6**，同 `OWNER_CHANNELS`）
+A_UNIT0 = A_OWNER0 + len(OWNER_CHANNELS)            # 兵种 one-hot（3）
 A_X = A_UNIT0 + len(UNIT)                           # 位置（相对家的偏移，已归一）
 A_Y = A_X + 1
 A_HP = A_Y + 1                                      # hp / 100
 A_MOVED = A_HP + 1                                  # 本回合已动（1/0）
 A_ENGAGED = A_MOVED + 1                             # 交战中（1/0）
 A_WIDTH = A_ENGAGED + 1
-#   = 2 + 3 + 2 + 1 + 1 + 1 = 10
+#   = 6 + 3 + 2 + 1 + 1 + 1 = 14
+#   ★★ 归属**六类**、与网格/候选**同一套**（`_owner_class` 是唯一出处）——
+#     见上面 `NATION_SLOTS` 那段：这样"几个国家"不进观测形状，多玩家不改宽度。
 
 # ★ 军队 token 的**冻结列宽**（10）。窗口里每条 army token 的**实际**宽度 =
 #   `A_WIDTH` ⊕ `features.F_U`（兵种数值 4 列：hp/atk/speed/supply）⊕ `A_EXTRA`

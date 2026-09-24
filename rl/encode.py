@@ -35,7 +35,8 @@ from . import combat_probs as CB
 from . import features as F
 from . import scoring as S
 from . import vocab as V
-from .sandbox import PLAYERS
+# ★ 编码层**不依赖沙盒**：`enemies_of` 转发 `evaluate.rival_nations`（唯一实现），
+#   其余一切都从 `world` 上读 —— 少一条 import 就少一条循环依赖的路。
 
 # ★★ 军队 token 的行内布局（**唯一出处** —— 别在别处手算这两个数）：
 #     [0, A_WIDTH_RAW)      局面列（归属/兵种 one-hot/位置/hp/moved/engaged）
@@ -195,7 +196,6 @@ def encode_grid(sb, me: str, mask=None, known=None,
     #   ⚠ 军队的可见性**永远**走 `mask`（下面那段没动）—— "知道厅在哪" ≠ "看得见守军"。
     known = sb.known_halls(me, mask) if known is None else known
     x0, y0, h, ww = frame_of(sb, me, mask)
-    foe = _other(me)
     g = np.zeros((V.GRID_CHANNELS, h, ww), dtype=np.float32)
     # ★★ **先建"格 → 军队"索引**（一次 O(军) 遍历），别在网格循环里扫全表：
     #   16×16 上有 256 个野人（每格一个）⇒ 一格扫 256 次（实测 2 局 600s 跑不完）。
@@ -256,17 +256,24 @@ def encode_grid(sb, me: str, mask=None, known=None,
                 # ★ 三档：我的 / **盟友的** / 对手的 —— 盟友的厅原来被漏掉了
                 if t["owner"] == me:
                     g[V.GRID_HALL_MINE, i, j] = 1.0
-                elif t["owner"] == foe:
-                    g[V.GRID_HALL_RIVAL, i, j] = 1.0
-                elif _owner_class(w, me, x, y, by_cell) == V.OWN_ALLY:
-                    g[V.GRID_HALL_ALLY, i, j] = 1.0
+                else:
+                    # ★ 走**六类**判定（不再是 `== foe`）⇒ 多玩家下"打谁能亡国"不再漏人；
+                    #   中立国的厅既不进"我的"也不进"对手的"（它不可攻），与候选侧同口径。
+                    hc = _owner_class(w, me, x, y, by_cell)
+                    if hc == V.OWN_RIVAL:
+                        g[V.GRID_HALL_RIVAL, i, j] = 1.0
+                    elif hc == V.OWN_ALLY:
+                        g[V.GRID_HALL_ALLY, i, j] = 1.0
             if not visible:
                 continue                     # ★ 看不清的格：军队与 hp 一概不写
             mine = foehp = 0.0
             for a in by_cell.get((x, y), ()):        # ★ 查索引，不扫全表
                 if a["owner"] == me:
                     mine += a["hp"]
-                elif a["owner"] == foe:
+                elif a["owner"] in w.nations:
+                    # ★ 别人的军（原来写死 `== foe`）：多玩家下"敌人"是集合
+                    #   ⇒ 只认一个会把另一个对手的兵力**静默漏掉**。
+                    #   ⚠ 野人（`野人 ∉ w.nations`）**维持现状不计入**（与 token 同口径）。
                     foehp += a["hp"]
             g[V.GRID_MY_HP, i, j] = min(1.0, mine / 100.0)
             g[V.GRID_FOE_HP, i, j] = min(1.0, foehp / 100.0)
@@ -277,9 +284,15 @@ def encode_grid(sb, me: str, mask=None, known=None,
 def encode_glob(sb, me: str, mask=None, known=None) -> np.ndarray:
     """局面 → `(GLOB_SIZE,)` 标量（归一到 0~1）。**不含任何绝对坐标。**"""
     w = sb.world
-    foe = _other(me)
-    mine, his = _armies(w, me), _armies(w, foe)
-    cap_m, cap_f = sb.cap_of(me), sb.cap_of(foe)
+    # ★★ **对手是一个集合**（用户 2026-09-25：多玩家 3 人起步）——
+    #   `foe_*` 那几个标量一律是**所有对手之和**，"还有没有对手活着"用 `any`。
+    #   ⚠ 原来的 `_other(me)` 只取"另一个" ⇒ 三国局里**第二个对手整个不进观测**
+    #     （而那**不报错**，只是模型少看到一个敌人）。
+    foes = enemies_of(w, me)
+    mine = _armies(w, me)
+    his = [a for f in foes for a in _armies(w, f)]
+    cap_m = sb.cap_of(me)
+    cap_f = sum(sb.cap_of(f) for f in foes)
     n2 = float(sb.size * sb.size)
     hx, hy = _home_cell(sb, me)
     ps = float(sb.size)
@@ -288,7 +301,7 @@ def encode_glob(sb, me: str, mask=None, known=None) -> np.ndarray:
     #   我/盟友的厅全知；对手的厅按 `known`（**视野 ∪ 永久记忆** —— 见过就永远知道）。
     hall_vals = {}
     known = sb.known_halls(me, mask) if known is None else known
-    for tag, who in (("my", (me,)), ("ally", _allies_of(sb, me)), ("foe", (foe,))):
+    for tag, who in (("my", (me,)), ("ally", _allies_of(sb, me)), ("foe", tuple(foes))):
         cells = [c for n in who for c in _hall_cells_of(w, n, mask, known)]
         if cells:
             cx, cy = min(cells, key=lambda c: max(abs(c[0] - hx), abs(c[1] - hy)))
@@ -302,18 +315,22 @@ def encode_glob(sb, me: str, mask=None, known=None) -> np.ndarray:
     vals = {
         "turn_frac": sb.turn / max(1, sb.t_max),
         "my_tiles": sb.tiles_of(me) / n2,
-        "foe_tiles": sb.tiles_of(foe) / n2,
+        "foe_tiles": sum(sb.tiles_of(f) for f in foes) / n2,
         "my_armies": len(mine) / 8.0,
         "foe_armies": len(his) / 8.0,
         "my_cap": cap_m / 8.0,
         "foe_cap": cap_f / 8.0,
         "my_hall": 1.0 if sb.alive(me) else 0.0,
-        "foe_hall": 1.0 if sb.alive(foe) else 0.0,
+        # ★ 语义：**还有对手活着**（多玩家下"某一个对手的国祚"已无意义）。
+        #   国祚存亡是**公开事件**（引擎 `_eliminate_if_dead`）⇒ 不算偷看。
+        "foe_hall": 1.0 if any(sb.alive(f) for f in foes) else 0.0,
         "my_hp_frac": _hp_frac(mine, cap_m),
         "foe_hp_frac": _hp_frac(his, cap_f),
         "my_moved": sum(1 for a in mine if a.get("moved_turn") != w.turn) / 8.0,
         "foe_moved": sum(1 for a in his if a.get("moved_turn") != w.turn) / 8.0,
         "last_ok": 1.0 if sb.last_ok else 0.0,
+        # ★ 我**累计**击杀的敌军支数（见 `vocab.GLOB` 那段；单调、与视野无关）
+        "my_kills": min(1.0, sb.kills.kills_by(me) / S.KILLS_SCALE),
         **hall_vals,
     }
     return np.array([vals[k] for k in V.GLOB], dtype=np.float32)
@@ -327,15 +344,21 @@ def window_armies(sb, me: str, mask=None) -> list[dict]:
       撤退概率）—— 否则 `obs_of` 得把选军那段抄两遍（抄两遍就会**慢慢不一致**）。
     """
     w = sb.world
-    foe = _other(me)
     mask = _vision(w, me) if mask is None else mask
     out = []
     # 顺序：我方在前、按 id 升序（**稳定** —— 候选的 `army_idx` 按下标引用它）
     for a in sorted(w.armies, key=lambda a: (a["owner"] != me, a["id"])):
-        if a.get("hp", 0) <= 0 or a["owner"] not in (me, foe):
+        if a.get("hp", 0) <= 0:
             continue
-        if a["owner"] == foe and (a["x"], a["y"]) not in mask:
-            continue                          # ★ 看不见的敌军不进 token
+        if a["owner"] != me:
+            # ★★ 别人的军：**看得见才进**。★ 原来写的是 `owner not in (me, foe)`
+            #    —— "那一个敌人"的假设 ⇒ 三国局里**另一个对手的军静默消失**
+            #    （明明在视野里，却进不了 token，而**不报错**）。
+            #    ⇒ 现在收**任何国家**的军（盟友/敌国/中立国），归属由六类 one-hot 区分。
+            if a["owner"] not in w.nations:
+                continue                      # 野人：**不进 token**（维持现状，见下）
+            if (a["x"], a["y"]) not in mask:
+                continue
         out.append(a)
     return out
 
@@ -369,9 +392,13 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
     wfull = ARMY_WIDTH
 
     rows = []
+    by_cell_w = _by_cell(w)
     for a in armies:
         row = [0.0] * wfull
-        row[V.A_OWNER0 + (0 if a["owner"] == me else 1)] = 1.0
+        # ★★ 归属 **六类**（与网格/候选同一套 `_owner_class`）—— 不再是"甲/乙"两位：
+        #    ① **国家数不进观测形状**（多玩家落地时宽度不变，基座不用重炼）；
+        #    ② 盟友的军与敌国的军**从此分得开**（引擎对这两类判定相反）。
+        row[V.A_OWNER0 + _owner_class(w, me, a["x"], a["y"], by_cell_w)] = 1.0
         kind = a.get("type", "步")
         if kind in V.UNIT:
             row[V.A_UNIT0 + V.UNIT.index(kind)] = 1.0
@@ -429,7 +456,6 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
       · `cand_marks [K,CAND_MARKS]` 归属/厅/可见/距离（见 `vocab.CAND_*`）
     """
     w = sb.world
-    foe = _other(me) if me else None
     hx, hy = _home_cell(sb, me)
     ps = float(sb.size)
     mask = ((_vision(w, me) if mask is None else mask) if me else set())
@@ -532,7 +558,44 @@ def vision_of(sb, me: str):
 
 
 def _other(name: str | None) -> str:
-    return next((n for n in PLAYERS if n != name), PLAYERS[1])
+    """★ **已废**（只认"另一个"）—— 多玩家下"敌人"是一个**集合**，见 `enemies_of`。
+
+    留着它只为让"谁还在按两国假设取敌人"立刻炸出来（现在没有调用方）。
+    """
+    raise AssertionError(
+        "「_other」是两国假设的残骸：多玩家必须用 enemies_of(world, me)（集合），"
+        "别再取「某一个」敌人 —— 那会静默漏掉另外几个对手")
+
+
+def enemies_of(world, me: str | None) -> list:
+    """★ **敌国集合**（除我**与我的盟友**之外的现存国家，顺序 = `world.order`）。
+
+    用户 2026-09-25：多玩家（3 人起步）⇒「敌人」不再是一个人。
+    ★ 用它替换原来的 `_other(me)`：那个只取"另一个"，三国局里会**静默漏掉一个对手**
+      （它的军既进不了 token、也不算进 `foe_tiles`/`foe_armies`，而**不报错**）。
+
+    ★★ **实现只有一份**：直接转发 `evaluate.rival_nations` —— 那个函数 2026-09-24
+      就在了（"对手国 = 除我与我盟友之外的所有现存国家"），口径一模一样。
+      ⚠ 千万别在这里再写一遍：**两份实现必然漂移**，而后果是
+      "观测与打分器对**谁是对手**各说各话" —— 那种错不报错、只在训练里慢慢歪。
+    """
+    if not me:
+        return []
+    from .evaluate import rival_nations
+    try:
+        return rival_nations(world, me)
+    except Exception:                          # noqa: BLE001
+        return [n for n in getattr(world, "order", ())
+                if n in world.nations and n != me]
+
+
+def _by_cell(world) -> dict:
+    """格 → 该格上的军（`_owner_class` 查野人用它；一次 O(军) 建好）。"""
+    out: dict = {}
+    for a in world.armies:
+        if a.get("hp", 0) > 0:
+            out.setdefault((a["x"], a["y"]), []).append(a)
+    return out
 
 
 def _vision(world, name: str) -> set:

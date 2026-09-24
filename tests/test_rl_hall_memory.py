@@ -163,23 +163,32 @@ class TestNoFlicker(unittest.TestCase):
         g = encode.encode_glob(sb, "甲", blind(), known=k)
         self.assertGreater(float(g[FOE_HALL_D]), 0.0,
                            "★ 厅离开视野后 GLOB 里的敌厅位置归零 ⇒ 观测在闪断")
-        self.assertNotEqual(float(g[FOE_HALL_DX]), 0.0, "方向那一列也该在")
+        # ★★ 真正的不变量：**"全看见"与"看不见"两帧的读数必须逐位相同**
+        #   （原来这里断言 `dx != 0` —— 那是**依赖地图布局**的假性质：
+        #    `size=24` 现在默认 4 国，最近的对手厅可能**正好与我同列** ⇒ dx=0 合法）。
+        g_see = encode.encode_glob(sb, "甲", frozenset(sb.world.tiles),
+                                   known=sb.known_halls("甲", frozenset(sb.world.tiles)))
+        for i in (FOE_HALL_D, FOE_HALL_DX):
+            self.assertEqual(float(g[i]), float(g_see[i]),
+                             "看得见与看不见两帧的敌厅读数不同 ⇒ 闪断（这才是要钉的）")
+        self.assertNotEqual(float(g[FOE_HALL_DX]) + float(g[FOE_HALL_D]),
+                            0.0, "方向与距离至少得有一列在（不然上面那条是空的）")
 
     def test_scorer_proximity_survives_losing_sight(self):
         """打分器的「逼近」项同理：见过之后，看不见也不许塌成 0。"""
         sb = sb_of()
         foe_hall = hall_of(sb, "乙")
         mask = blind()
-        s_blind = E.score(sb.world, "甲", "乙", mask,
+        s_blind = E.score(sb.world, "甲", "乙", mask=mask,
                           known=sb.known_halls("甲", mask))
         sb.known_halls("甲", frozenset(sb.world.tiles))     # 见过
         k = sb.known_halls("甲", mask)
-        s_mem = E.score(sb.world, "甲", "乙", mask, known=k)
+        s_mem = E.score(sb.world, "甲", "乙", mask=mask, known=k)
         self.assertNotEqual(s_blind, s_mem,
                             "★ 记忆对打分毫无影响 ⇒ 势函数差分在厅离开视野时会变成噪声")
         # ★ 差值必须来自**逼近项**（关掉 W_NEAR 就该消失）
         with S.override(W_NEAR=0.0):
-            s2 = E.score(sb.world, "甲", "乙", mask, known=k)
+            s2 = E.score(sb.world, "甲", "乙", mask=mask, known=k)
         self.assertAlmostEqual(s2, s_blind, places=9,
                                msg="W_NEAR=0 还有差 ⇒ 差不是逼近项来的")
 
@@ -252,16 +261,16 @@ class TestAllyHallsAreMarked(unittest.TestCase):
         w = world3()
         ally_hall = E.hall_cells(w, "乙")[0]
         blind = frozenset()                    # ★ 视野空：能不能算**只**取决于账本
-        s_empty = E.score(w, "甲", "丙", blind, known={})
-        s_full = E.score(w, "甲", "丙", blind, known={ally_hall: "乙"})
+        s_empty = E.score(w, "甲", "丙", mask=blind, known={})
+        s_full = E.score(w, "甲", "丙", mask=blind, known={ally_hall: "乙"})
         self.assertAlmostEqual(
             s_full - s_empty, S.W_HALL * S.ALLY_SHARE, places=9,
             msg="盟友的厅没按 `known` 计 ⇒ 打分器还是全知口径（观测说 0、打分器说 1）")
         # ★ 对照：把 W_HALL 关掉，差值必须消失（证明差值**只**来自厅那一项）
         with S.override(W_HALL=0.0):
             self.assertAlmostEqual(
-                E.score(w, "甲", "丙", blind, known={ally_hall: "乙"}),
-                E.score(w, "甲", "丙", blind, known={}), places=9,
+                E.score(w, "甲", "丙", mask=blind, known={ally_hall: "乙"}),
+                E.score(w, "甲", "丙", mask=blind, known={}), places=9,
                 msg="W_HALL=0 还有差 ⇒ 差值不是厅那一项来的")
 
 

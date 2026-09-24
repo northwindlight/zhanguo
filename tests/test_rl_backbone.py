@@ -391,8 +391,8 @@ class TestHallsKnownMode(unittest.TestCase):
         spy, blind = self._sb(True), self._sb(False)
         m_spy = encode.vision_of(spy, "甲")
         self.assertNotEqual(
-            E.score(spy.world, "甲", "乙", m_spy, known=spy.known_halls("甲", m_spy)),
-            E.score(blind.world, "甲", "乙", mask, known=blind.known_halls("甲", mask)),
+            E.score(spy.world, "甲", "乙", mask=m_spy, known=spy.known_halls("甲", m_spy)),
+            E.score(blind.world, "甲", "乙", mask=mask, known=blind.known_halls("甲", mask)),
             "★ 间谍模式对打分毫无影响 ⇒ 没透进去")
 
     def test_grid_frame_cannot_hold_out_of_view_halls(self):
