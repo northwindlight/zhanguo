@@ -130,6 +130,31 @@ REWARD_TANH_SCALE = W_HALL_IN_INFANTRY * W_ARMY
 ASSESS_MAX_STATES = 60000
 ASSESS_MAX_ROUNDS = 40
 
+# ★★ **"接触即看见"**（2026-09-24 实测后的口径决定；这是一个开关，不是数）
+# ─────────────────────────────────────────────────────────────────────
+#   问题：引擎的视野是 `visible_to` = **自家/盟方地块及其八邻** + 瞭望塔半径
+#   （`ruleai/v11plus/pathfind.vision_mask`）。它**不含"我军自己站的那一格"** ——
+#   于是野战（离开自家地块 1 格以外开打）的格子上，`mask` 是 **False**。
+#   实测（8 局随机对局、每 3 步采样一次交战格）：
+#       · 8×8  —— 交战格可见率 **27%~66%**
+#       · 16×16 —— 交战格可见率 **0%~7%**（seed=3 是 **0/1202**）
+#   ⇒ 若死守 `visible_to`，战斗概率通道在**大地图上基本恒为 0** ⇒ 这个特征等于没做。
+#
+#   口径：**"我的军正在这一格上打" ⇒ 这一格的战斗明细我算得出来**。理由三条：
+#     ① 不是偷看**远方/未来**，是**接触**——仗打在我身上，伤害按对面兵种结算
+#        （`mp.py:1823` 的 `_resolve_battles` **根本不看视野**，它拿的是真值），
+#        引擎本来就把"打起来了"当成无条件的事实；
+#     ② 引擎自己就**用错误消息公开接触**（`_probe_cells` 那段实测原话：
+#        「(5,5) 有敌军驻守，不能 mv 过去；进攻请用 atk（会交战）」）——
+#        "那儿有人"是引擎主动告诉玩家的；
+#     ③ **对称**：两边同一条规则 ⇒ 自对弈不失衡。
+#   ★ 它**只**管"哪些格子可以写概率"，**不扩视野本身**（网格其余通道、
+#     敌方军队 token、增援过滤**一律照旧走 `mask`**）——
+#     接触暴露的是**眼前这场仗**，不是**周围的援军**。
+#   ★ 关掉它（`False`）= 死守引擎 `visible_to` 口径：更保守，代价是大地图上这个特征
+#     基本是空的（见上面的实测）。**改这一个开关就切换两种口径。**
+CB_CONTACT_VISION = True
+
 # `Odds.as_vec()` 喂网络时的归一尺度（★ 这两个原来写死在函数体里：
 # `e_rounds / 10.0`、`e_loss / 100.0` —— 换了地图尺度或兵力规模就得跟着改，是**先验**）。
 PROB_ROUND_SCALE = 10.0     # 期望轮数 ÷ 它（≈"打十轮算很久"）
@@ -159,7 +184,7 @@ _TUNABLE = ("W_TILE", "W_ARMY", "W_KILL", "W_HP", "W_NEAR",
             "THREAT_R", "GUARD_R", "W_THREAT", "W_GUARD",
             "ALLY_SHARE", "ALLY_DEAD",
             "W_HALL_IN_INFANTRY", "W_HALL", "REWARD_TANH_SCALE",
-            "ASSESS_MAX_STATES", "ASSESS_MAX_ROUNDS",
+            "ASSESS_MAX_STATES", "ASSESS_MAX_ROUNDS", "CB_CONTACT_VISION",
             "PROB_ROUND_SCALE", "PROB_LOSS_SCALE", "ROUND_BIN_EDGES",
             "PPO_MINIBATCH")
 

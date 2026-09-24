@@ -31,9 +31,20 @@ from __future__ import annotations
 
 import numpy as np
 
+from . import combat_probs as CB
 from . import features as F
+from . import scoring as S
 from . import vocab as V
 from .sandbox import PLAYERS
+
+# ★★ 军队 token 的行内布局（**唯一出处** —— 别在别处手算这两个数）：
+#     [0, A_WIDTH_RAW)      局面列（归属/兵种 one-hot/位置/hp/moved/engaged）
+#     [A_WIDTH_RAW, ARMY_TAIL0)   规则表数值（`features.unit_vector`，F_U 列）
+#     [ARMY_TAIL0, ARMY_WIDTH)    ★ 战斗明细尾段（`vocab.A_EXTRA` 列）
+#   ⚠ `vocab.A_CB_*` 是**尾段内**的下标，**不是**整行的下标 —— 直接拿来索引整行
+#     会**读错列且不报错**（我写测试时就踩了：读到的其实是 `A_OWNER0` 的 one-hot）。
+ARMY_TAIL0 = V.A_WIDTH_RAW + F.F_U
+ARMY_WIDTH = ARMY_TAIL0 + V.A_EXTRA
 
 
 # ============================================================ 谁占这一格
@@ -91,6 +102,63 @@ def _owner_class(world, name: str, x: int, y: int, by_cell: dict | None = None) 
     return V.OWN_UNOWNED                       # 无主、无驻军
 
 
+# ============================================================ ★★ 战斗明细的取数口
+def combat_of(sb, me: str, mask, armies=None) -> CB.FrameOdds:
+    """★ **一帧算一次**的战斗明细（`combat_probs.frame_odds` 的薄包装）。
+
+    ★ 只在 `obs_of` 里调**一次**，返回值往下传（网格与军队 token 共用那一份）——
+      别在每个编码函数里各算一遍：那是**每帧重算**（正确），但是白算几遍（`assess`
+      的 DP 不便宜，`reachable_reinforcements` 还带寻路）。
+
+    ★ `mask` 是**引擎视野**（`vision_mask`），必传（见 `frame_odds` 的注释：
+      它是增援过滤的**唯一**依据，给默认值就等于留一条静默偷看的路）。
+    """
+    return CB.frame_odds(sb.world, me, mask, with_reinf=True, retreat=True)
+
+
+def _mine_engaged_here(by_cell, me: str, x: int, y: int) -> bool:
+    """这一格上有没有**我的**军（= "仗打在我身上"）。
+
+    ★ 这是"**接触即看见**"判据（`scoring.CB_CONTACT_VISION`）的**唯一**依据 ——
+      它**不扩视野本身**，只决定"这一格能不能写概率"。见 `scoring.py` 那段实测。
+    """
+    return any(a["owner"] == me for a in by_cell.get((x, y), ()))
+
+
+def _combat_tail(frame: CB.FrameOdds | None, cell, side: str,
+                 retreat: float | None) -> list[float]:
+    """该格那场仗、从 `side` 那一方看 ⇒ `A_EXTRA` 列（见 `vocab` 的 5' 段）。
+
+    · `frame` 为 `None` 或该格**没在打** ⇒ 只有撤退那一列是 `1.0`（没在打，撤了当然活）。
+    · `retreat is None` ⇒ **读不到这一格的战况**（口径不准许）⇒ **整段全 0**，
+      连撤退那列也 0（`A_CB_ACTIVE=0` 就是"这一段没有内容"的标记）。
+
+    ★ **逐列按 `vocab.A_*` 下标填**，不按顺序 append —— 顺序错了不报错，只会静默错位。
+    """
+    row = [0.0] * V.A_EXTRA
+    if retreat is None:
+        return row
+    row[V.A_RETREAT] = retreat
+    o = None if frame is None else frame.cells.get(cell)
+    if o is None:
+        return row
+    row[V.A_CB_ACTIVE] = 1.0
+    row[V.A_CB_PWIN] = o.p_win.get(side, 0.0)
+    row[V.A_CB_PLOSE] = o.p_lose.get(side, 0.0)
+    row[V.A_CB_PDRAW] = o.p_draw
+    row[V.A_CB_PHOLD] = o.p_hold.get(side, 0.0)
+    for k, v in enumerate(o.round_bins()):          # ★ 边界读先验表（`scoring`）
+        row[V.A_CB_R0 + k] = v
+    r = frame.reinf.get(cell) or o                  # 没有增援 ⇒ 与现状同一个对象
+    row[V.A_CB_PWIN_REINF] = r.p_win.get(side, 0.0)
+    #   ★ **不夹到 1**（原来写 `min(1.0, …)`）：夹了就把"丢一支军"和"丢三支军"
+    #     抹成同一个数 —— 那正是 `REWARD_TANH_SCALE` 那条坑的翻版（调了等于没调）。
+    #     尺度含义见 `scoring.PROB_*_SCALE`：1.0 = 一支满血兵 / 打十轮。
+    row[V.A_CB_EROUNDS] = o.e_rounds / S.PROB_ROUND_SCALE
+    row[V.A_CB_ELOSS] = o.e_loss.get(side, 0.0) / S.PROB_LOSS_SCALE
+    return row
+
+
 # ============================================================ 观测框（★与地图大小无关）
 def frame_of(sb, me: str, mask=None) -> tuple[int, int, int, int]:
     """我方视角的**观测框** `(x0, y0, H, W)` = **视野的外接矩形**。
@@ -110,8 +178,16 @@ def frame_of(sb, me: str, mask=None) -> tuple[int, int, int, int]:
     return x0, y0, y1 - y0 + 1, x1 - x0 + 1
 
 
-def encode_grid(sb, me: str, mask=None, halls_known: bool | None = None) -> np.ndarray:
-    """局面 → `(GRID_CHANNELS, H, W)`，**H/W 逐帧可变**（= 视野外接框，见 `frame_of`）。"""
+def encode_grid(sb, me: str, mask=None, halls_known: bool | None = None,
+                frame: CB.FrameOdds | None = None) -> np.ndarray:
+    """局面 → `(GRID_CHANNELS, H, W)`，**H/W 逐帧可变**（= 视野外接框，见 `frame_of`）。
+
+    `frame` = `combat_of` 算好的那一帧战斗明细（**同一帧只算一次**，`obs_of` 传下来）。
+    ★ 网格里的战斗通道**只在"这一格放得进框"时才有位置** —— 交战格大多在框外
+      （实测 16×16 只有 0~7% 在视野里）⇒ **真正扛事的是军队 token 那一段**
+      （`_combat_tail`，与视野无关）。网格这份是"**看得见的那几场仗**"，
+      给候选直接 gather 用（候选要去的那格正好是战场时，一眼读到）。
+    """
     w = sb.world
     mask = _vision(w, me) if mask is None else mask
     # ★ "已派间谍"模式：他国的厅**位置**已知 ⇒ 厅通道不看视野。
@@ -139,6 +215,27 @@ def encode_grid(sb, me: str, mask=None, halls_known: bool | None = None) -> np.n
             g[V.GRID_MOVE, i, j] = _move_cost_of(w, x, y) / 2.0
             g[V.GRID_OWNER0 + _owner_class(w, me, x, y, by_cell), i, j] = 1.0
             g[V.GRID_VISIBLE, i, j] = 1.0 if visible else 0.0
+            # ★★ 战斗明细 —— **每帧重算**（`frame` 由 `obs_of` 现算传下来，不是缓存）。
+            #    取数条件：这一格在打，**且**（看得见 **或** 仗打在我身上）。
+            #    后者 = "**接触即看见**"（`scoring.CB_CONTACT_VISION` + 实测理由）。
+            #    ⚠ 看不见又没我的军 ⇒ **一格都不写**（概率是从 `world.armies` 真值算的，
+            #      写下去就是把迷雾里的兵力透给模型 —— 本线最忌的偷看）。
+            if frame is not None:
+                oc = frame.cells.get((x, y))
+                if oc is not None and (visible or (
+                        S.CB_CONTACT_VISION and _mine_engaged_here(by_cell, me, x, y))):
+                    g[V.GRID_CB_ACTIVE, i, j] = 1.0
+                    g[V.GRID_CB_PWIN, i, j] = oc.p_win.get(me, 0.0)
+                    g[V.GRID_CB_PLOSE, i, j] = oc.p_lose.get(me, 0.0)
+                    g[V.GRID_CB_PDRAW, i, j] = oc.p_draw
+                    g[V.GRID_CB_PHOLD, i, j] = oc.p_hold.get(me, 0.0)
+                    for k, v in enumerate(oc.round_bins()):
+                        g[V.GRID_CB_R0 + k, i, j] = v
+                    ro = frame.reinf.get((x, y)) or oc
+                    g[V.GRID_CB_PWIN_REINF, i, j] = ro.p_win.get(me, 0.0)
+                    g[V.GRID_CB_EROUNDS, i, j] = oc.e_rounds / S.PROB_ROUND_SCALE
+                    g[V.GRID_CB_ELOSS, i, j] = (
+                        oc.e_loss.get(me, 0.0) / S.PROB_LOSS_SCALE)   # ★ 不夹，见 `_combat_tail`
             if not visible:
                 continue                     # ★ 看不清的格：军队与厅一概不写
             mine = foehp = 0.0
@@ -209,33 +306,54 @@ def encode_glob(sb, me: str, mask=None) -> np.ndarray:
 
 
 # ============================================================ ★ 窗口
-def encode_window(sb, me: str, mask=None) -> tuple[dict, dict, list[dict]]:
+def window_armies(sb, me: str, mask=None) -> list[dict]:
+    """窗口里**该有哪些军**（顺序 = 军队 token 的行序）。
+
+    ★ 单拎出来是为了让调用方能**先拿到军单**、再算战斗明细（`combat_of` 要按军取
+      撤退概率）—— 否则 `obs_of` 得把选军那段抄两遍（抄两遍就会**慢慢不一致**）。
+    """
+    w = sb.world
+    foe = _other(me)
+    mask = _vision(w, me) if mask is None else mask
+    out = []
+    # 顺序：我方在前、按 id 升序（**稳定** —— 候选的 `army_idx` 按下标引用它）
+    for a in sorted(w.armies, key=lambda a: (a["owner"] != me, a["id"])):
+        if a.get("hp", 0) <= 0 or a["owner"] not in (me, foe):
+            continue
+        if a["owner"] == foe and (a["x"], a["y"]) not in mask:
+            continue                          # ★ 看不见的敌军不进 token
+        out.append(a)
+    return out
+
+
+def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
+                  armies: list[dict] | None = None) -> tuple[dict, dict, list[dict]]:
     """→ `(win, win_mask, armies)`：窗口 token 组 + 掩码 + 军队清单（候选要按行号引用）。
 
     `win["g"]`（1 条，恒亮）= `encode_glob`(14) ⊕ `features.glob_rule_vector()`(11)
       ★ 规则表常量要进**价值头**那条路（价值走窗口池化）—— 引擎改了数值，
       "同一局面值多少"本来就该跟着变。
     `win["a"]`（n 条）= 军队 token：`vocab` 的 10 列 ⊕ `features.unit_vector(kind)` 4 列
-      ★ 那 4 列就是用户要的「**各个单位的血量和各个单位的战斗力**」，且是**现算**的。
+      ⊕ **`vocab.A_EXTRA` 13 列**（★ 这支军身处的那场仗，从它自己那一方看 ——
+      见 `vocab` 的 5' 段；**与视野无关**，大地图上也是活的）
+      ★ 中间那 4 列就是用户要的「**各个单位的血量和各个单位的战斗力**」，且是**现算**的。
+
+    `frame` = `combat_of` 算好的那一帧（**同一帧只算一次**）；不传 ⇒ 自己算一次
+    （单测里方便，正式路径由 `obs_of` 传下来）。
     """
     w = sb.world
-    foe = _other(me)
     mask = _vision(w, me) if mask is None else mask
     ps = float(sb.size)                       # ★ 归一尺度 = 地图边长（参数化，不写死）
     hx, hy = _home_cell(sb, me)
-
-    # 顺序：我方在前、按 id 升序（**稳定** —— 候选的 `army_idx` 按下标引用它）
-    armies = []
-    for a in sorted(w.armies, key=lambda a: (a["owner"] != me, a["id"])):
-        if a.get("hp", 0) <= 0 or a["owner"] not in (me, foe):
-            continue
-        if a["owner"] == foe and (a["x"], a["y"]) not in mask:
-            continue                          # ★ 看不见的敌军不进 token
-        armies.append(a)
+    if armies is None:
+        armies = window_armies(sb, me, mask)
+    if frame is None:
+        frame = combat_of(sb, me, mask, armies)
+    wfull = ARMY_WIDTH
 
     rows = []
     for a in armies:
-        row = [0.0] * (V.A_WIDTH_RAW + F.F_U)
+        row = [0.0] * wfull
         row[V.A_OWNER0 + (0 if a["owner"] == me else 1)] = 1.0
         kind = a.get("type", "步")
         if kind in V.UNIT:
@@ -246,13 +364,29 @@ def encode_window(sb, me: str, mask=None) -> tuple[dict, dict, list[dict]]:
         row[V.A_HP] = a.get("hp", 0) / 100.0
         row[V.A_MOVED] = 1.0 if a.get("moved_turn") == w.turn else 0.0
         row[V.A_ENGAGED] = 1.0 if a.get("engaged") else 0.0
-        row[V.A_WIDTH_RAW:] = F.unit_vector(kind)     # ★ 兵种数值（现算）
+        row[V.A_WIDTH_RAW:ARMY_TAIL0] = F.unit_vector(kind)        # ★ 兵种数值（现算）
+        # ★★ 战斗明细：**按这支军自己那一方**填（甲看到的"甲的概率"就是乙看到的
+        #    "乙的概率" ⇒ 两国共用一套编码，自对弈不失衡）。
+        #    ★ 取数条件与网格**同一条**：看得见这一格，**或**"仗打在我身上"
+        #      （接触；`scoring.CB_CONTACT_VISION`）。
+        #      · 我的军：`a["owner"] == me` ⇒ 走接触档（我军恒在 token 里，与视野无关）
+        #      · 敌的军：进 token 的前提就是 `(x,y) in mask`（`window_armies`）
+        #        ⇒ 它天然是"看得见"那一档
+        #      ⇒ 关掉 `CB_CONTACT_VISION` 时**两边一起关**，这个开关才是真的口径开关。
+        cell = (a["x"], a["y"])
+        allowed = (cell in mask) or (S.CB_CONTACT_VISION and a["owner"] == me)
+        row[ARMY_TAIL0:] = _combat_tail(
+            frame, cell, a["owner"],
+            frame.retreat.get(id(a), 1.0) if allowed else None)
         rows.append(row)
 
     g_row = np.concatenate([encode_glob(sb, me, mask), F.glob_rule_vector()])
-    win = {"g": g_row[None, :].astype(np.float32),
-           "a": np.array(rows, dtype=np.float32) if rows
-                else np.zeros((0, V.A_WIDTH_RAW + F.F_U), np.float32)}
+    arr = np.array(rows, dtype=np.float32) if rows else np.zeros((0, wfull), np.float32)
+    # ★★ 行宽断言：**list 的切片赋值会静默改变长度**（`row[18:] = [14 个数]`
+    #    在 28 长的 list 上会把它撑到 32，**不报错**）⇒ 少了这条，尾段整体错位
+    #    也只是"模型少读到几列"，训练照跑。宁可在这里炸。
+    assert arr.shape[1] == wfull, f"军队 token 行宽 {arr.shape[1]} ≠ 约定的 {wfull}"
+    win = {"g": g_row[None, :].astype(np.float32), "a": arr}
     win_mask = {"g": np.ones(1, bool),
                 "a": np.ones(len(rows), bool)}
     return win, win_mask, armies
@@ -345,12 +479,21 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
 
 # ============================================================ 一次拿全
 def obs_of(sb, me: str, acts=None) -> dict:
-    """沙盒局面 → 网络要的一整套（**`legal()` 与视野各只算一次**）。"""
+    """沙盒局面 → 网络要的一整套（**`legal()` / 视野 / 战斗明细各只算一次**）。
+
+    ★ 顺序是定死的：**视野 → 军单 → 战斗明细 → （窗口、网格）**。
+      战斗明细要在窗口之前算（军队 token 要用它），而它自己要用军单（撤退概率按军取）
+      ⇒ 先 `window_armies` 拿军单，`combat_of` 算一次，再分别喂给窗口与网格。
+      ★★ `combat_of` **一帧只调一次**：它内部是精确 DP + 寻路，
+        在两个编码函数里各算一遍 = 白烧一遍（结果逐位相同，纯粹浪费）。
+    """
     acts = sb.legal() if acts is None else acts
     mask = vision_of(sb, me)
-    win, win_mask, armies = encode_window(sb, me, mask)
+    armies = window_armies(sb, me, mask)
+    frame = combat_of(sb, me, mask, armies)
+    win, win_mask, _ = encode_window(sb, me, mask, frame=frame, armies=armies)
     return {
-        "grid": encode_grid(sb, me, mask),
+        "grid": encode_grid(sb, me, mask, frame=frame),
         "win": win,
         "win_mask": win_mask,
         "cand": candidate_batch(sb, me, acts, mask, armies=armies),

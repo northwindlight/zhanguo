@@ -196,10 +196,11 @@ class TestCandidateMarks(unittest.TestCase):
         from rl import features as F
         sb = self._sb()
         win, _, armies = encode.encode_window(sb, sb.current_player())
-        self.assertEqual(win["a"].shape[1], V.A_WIDTH_RAW + F.F_U)
+        self.assertEqual(win["a"].shape[1], V.A_WIDTH_RAW + F.F_U + V.A_EXTRA)
         i = next(i for i, a in enumerate(armies) if a.get("type") == "步")
         off = V.A_WIDTH_RAW
-        np.testing.assert_allclose(win["a"][i, off:], F.unit_vector("步"))
+        # ★ 兵种数值在**中间**那 4 列（尾部还有 `A_EXTRA` 的战斗明细段，见 5' 段）
+        np.testing.assert_allclose(win["a"][i, off:off + F.F_U], F.unit_vector("步"))
 
 
 # ===========================================================================

@@ -117,7 +117,7 @@ class PolicyNet(nn.Module):
     def __init__(self, *, win_widths: dict[str, int], n_grid_ch: int = V.GRID_CHANNELS,
                  n_types: int = len(V.KIND), f_cand: int = F.F_CAND,
                  f_marks: int = V.CAND_MARKS,
-                 arm_width: int = V.A_WIDTH_RAW + F.F_U,
+                 arm_width: int = V.A_WIDTH_RAW + F.F_U + V.A_EXTRA,
                  d_conv: int = 96, d_model: int = 160, n_layer: int = 3, n_head: int = 4,
                  d_cand: int = 160, groups: tuple[str, ...] = V.TOKEN_GROUPS):
         super().__init__()
@@ -259,7 +259,7 @@ def build_model(n_grid_ch: int = V.GRID_CHANNELS, **kw) -> PolicyNet:
     """
     widths = {
         "g": V.GLOB_SIZE + F.F_GLOB,
-        "a": V.A_WIDTH_RAW + F.F_U,
+        "a": V.A_WIDTH_RAW + F.F_U + V.A_EXTRA,
     }
     return PolicyNet(win_widths={g: widths[g] for g in V.TOKEN_GROUPS},
                      n_grid_ch=n_grid_ch, **kw)

@@ -279,11 +279,16 @@ class Odds:
         return cum
 
     def as_vec(self, me: str) -> list[float]:
-        """喂网络的定长向量（`vocab.GRID_COMBAT` 那几条通道）。"""
+        """定长向量 = `encode._combat_tail` 前 6 个量的**素版**（口径必须一致）。
+
+        ★ **不夹到 1**（原来写 `min(1.0, …)`）：夹了就把"丢一支军"和"丢三支军"
+          抹成同一个数（`REWARD_TANH_SCALE` 那条坑的翻版）。
+          尺度含义见 `scoring.PROB_ROUND_SCALE` / `PROB_LOSS_SCALE`。
+        """
         return [self.p_win.get(me, 0.0), self.p_lose.get(me, 0.0), self.p_draw,
                 self.p_hold.get(me, 0.0),
-                min(1.0, self.e_rounds / S.PROB_ROUND_SCALE),
-                min(1.0, self.e_loss.get(me, 0.0) / S.PROB_LOSS_SCALE)]
+                self.e_rounds / S.PROB_ROUND_SCALE,
+                self.e_loss.get(me, 0.0) / S.PROB_LOSS_SCALE]
 
     def report(self, sides: tuple[str, ...] | None = None) -> str:
         """人读的一行（终端/日志用）。`sides` 为 `None` ⇒ 全部势力。"""
@@ -416,7 +421,8 @@ def _die_combos(n: int) -> tuple:
 
 # ================================================================ ② 可及增援
 def reachable_reinforcements(world, b: Battle, side: str, *,
-                             exclude_on_cell: bool = True) -> list[dict]:
+                             exclude_on_cell: bool = True,
+                             allow=None) -> list[dict]:
     """★ "**够得着**这格的军"—— 分角色，因为攻守的入场动作不同。
 
     用户 2026-09-24：「注意**进攻方的增援是 atk，防御方的增援是 mv**，有点区别」
@@ -426,6 +432,12 @@ def reachable_reinforcements(world, b: Battle, side: str, *,
     · `side` 是**守方** ⇒ 用 `_reachable(...)`：★ **只在自家/盟国地成立**——
       无主地上有交战敌军时 `_mv_wall` 拒 mv（只认 atk），所以野地防守**没有增援**，
       这本身就是要喂给模型的信息（"这格救不了"）。
+
+    ★★ `allow` = **可见性过滤器**（`army -> bool`），**观测路径必须传**。
+    `None` = 不过滤 = **全知**（那是"引擎真值"口径，给报告/工具/测试用）。
+    为什么观测路径必须传：本函数遍历的是 `world.armies` **全表**，含**看不见的敌军**
+    ⇒ 不过滤就把"敌人有一支我看不见的军能赶到这格"漏进观测（本线最忌的偷看）。
+    见 `frame_odds`（观测入口，`mask` 是**必填**位置参数，就是不让它被忘掉）。
     """
     if side not in b.order:
         return []
@@ -440,15 +452,21 @@ def reachable_reinforcements(world, b: Battle, side: str, *,
             continue                            # 本回合额度已用 ⇒ 来不了
         if exclude_on_cell and (a["x"], a["y"]) == (b.x, b.y):
             continue                            # 已在场上，不算"增援"
+        if allow is not None and not allow(a):
+            continue                            # ★ 看不见的军**不算数**（观测路径）
         reach = world._reachable(side, a, for_attack=atk_side)
         if (b.x, b.y) in reach:
             out.append(a)
     return out
 
 
-def assess_with_reinforcements(world, b: Battle, *, max_states: int | None = None) -> Odds:
-    """把**双方各自够得着的增援**都算进去后的概率（用户：「mv 和 atk 的增援会改变什么」）。"""
-    extra = {F: reachable_reinforcements(world, b, F) for F in b.order}
+def assess_with_reinforcements(world, b: Battle, *, max_states: int | None = None,
+                               allow=None) -> Odds:
+    """把**双方各自够得着的增援**都算进去后的概率（用户：「mv 和 atk 的增援会改变什么」）。
+
+    `allow` 语义同 `reachable_reinforcements`（`None` = 全知口径；观测路径别用 `None`）。
+    """
+    extra = {F: reachable_reinforcements(world, b, F, allow=allow) for F in b.order}
     extra = {F: ms for F, ms in extra.items() if ms}
     if not extra:
         return assess(b, max_states=max_states)
@@ -457,7 +475,7 @@ def assess_with_reinforcements(world, b: Battle, *, max_states: int | None = Non
 
 
 # ================================================================ ③ 撤退保命
-def retreat_odds(world, x: int, y: int, army: dict) -> float:
+def retreat_odds(world, x: int, y: int, army: dict, b: Battle | None = None) -> float:
     """**这支军撤了之后活下来的概率**。
 
     撤退不立刻结算（`mp.py:1765-1780`）：它留在战场照常吃本轮伤害，只是
@@ -465,8 +483,11 @@ def retreat_odds(world, x: int, y: int, army: dict) -> float:
     · 进攻方 ⇒ cover 100（全额，撤退没有免费午餐）
     · 自己本轮输出 −80%
     结算后自动脱离。⇒ P(保命) = **一轮结算后它还在**的概率（枚举 6^n 组合即得）。
+
+    `b` = 已经建好的这一格的战斗（**同一帧里同一格会被问 m 次** ⇒ 别重建；
+    不传就自己建，语义不变）。
     """
-    b = build(world, x, y)
+    b = build(world, x, y) if b is None else b
     if b is None:
         return 1.0                              # 没在交战 ⇒ 撤了当然活
     side = army["owner"]
@@ -537,4 +558,72 @@ def snapshot(world, *, with_reinf: bool = False, max_states: int | None = None
             continue
         out[c] = (assess_with_reinforcements(world, b, max_states=max_states)
                   if with_reinf else assess(b, max_states=max_states))
+    return out
+
+
+# ================================================================ ★★ 观测入口（一帧一次）
+@dataclass
+class FrameOdds:
+    """**一整帧**的战斗明细 —— 编码层要的全部战斗概率，**一帧算一次**。
+
+    ★ 只对**生成它的那一帧**成立（同 `snapshot` 的纪律）：战斗每打一轮 hp 就变 ⇒
+      跨帧复用就是错的。**没有**跨帧缓存，也不许有。
+
+    ★ `retreat` 按 `id(army)` 索引 —— 这是**帧内局部**的 dict，调用方手里还攥着
+      那些 army（`world.armies` 的成员，全程活着）⇒ **不存在**"id 被回收后复用"
+      （那正是 `Battle.agg_cache` 那条坑：那里是**长期**的模块级缓存，这里是一帧）。
+
+    字段：
+      · `cells[cell]`   —— **现状**（不含增援）的 `Odds`。★ **双方都在里面**
+        （`Odds.p_win[F]` 是按势力索引的）⇒ 一格的 `Odds` 同时服务"我的视角"和
+        "对手的视角"，不用按人各算一遍。
+      · `reinf[cell]`   —— **双方可及增援都到齐后**的 `Odds`（看不见的敌军增援不算，
+        见 `reachable_reinforcements` 的 `allow`）。没有增援 ⇒ 与 `cells[cell]` 同一个对象。
+      · `retreat[id]`   —— 该军"撤了之后活下来"的概率。★ **只在交战格上的军**有值；
+        其余（含所有没参战的军）读不到 ⇒ 调用方按 **1.0** 填（没在打，撤了当然活）。
+      · `n_retreat`     —— 真算过撤退概率的军数（性能对账用）。
+    """
+    cells: dict = field(default_factory=dict)
+    reinf: dict = field(default_factory=dict)
+    retreat: dict = field(default_factory=dict)
+    n_retreat: int = 0
+
+    def at(self, cell) -> Odds | None:
+        return self.cells.get(cell)
+
+
+def frame_odds(world, me: str, mask, *, with_reinf: bool = True,
+               retreat: bool = True) -> FrameOdds:
+    """★ **观测路径的唯一入口** —— 这一帧的全部战斗概率。
+
+    `mask` 是**必填的第三个位置参数**（不是关键字、更不给默认值）：这个函数遍历
+    `world.armies` 全表，而增援过滤**只能**靠 `mask` —— 给个默认值就等于留一条
+    "忘了传 ⇒ 静默偷看"的路（本线最忌）。忘传直接 `TypeError`，这是有意的。
+
+    ★ `mask` = **引擎的视野**（`vision_mask`），**不是**加了"接触"之后的那个
+      （接触只影响"哪些格子可以写概率"，不影响"哪些增援算数"——
+      接触暴露的是**眼前的这场仗**，不是**周围的援军**）。
+    """
+    keep = (lambda a: (a["x"], a["y"]) in mask)
+    out = FrameOdds()
+    for c in engaged_cells(world):
+        b = build(world, *c)
+        if b is None:
+            continue
+        o = assess(b)
+        out.cells[c] = o
+        if with_reinf:
+            extra = {}
+            for F in b.order:
+                ms = reachable_reinforcements(
+                    world, b, F, allow=None if F == me else keep)
+                if ms:
+                    extra[F] = ms
+            b2 = build(world, *c, extra=extra) if extra else None
+            out.reinf[c] = o if b2 is None else assess(b2)
+        if retreat:
+            for a in world.armies:
+                if a["hp"] > 0 and (a["x"], a["y"]) == c:
+                    out.retreat[id(a)] = retreat_odds(world, c[0], c[1], a, b)
+                    out.n_retreat += 1
     return out
