@@ -144,6 +144,29 @@ class Sandbox:
                 return dict(zip(PLAYERS, pts))
         return dict(STARTS)
 
+    def set_alliance(self, *blocs: tuple[str, list[str]]) -> None:
+        """★★ **开局直接指定**联盟 —— 外交关系是**场景条件**，不是模型的动作。
+
+        用户 2026-09-24：「**是否中立和联盟和模型无关，开局直接指定，而不是让模型
+        发起和接受**」。⇒ 沙盒的动作空间只有 `hold/move/attack`（`vocab.KIND`），
+        **没有** propose/accept 那一套；联盟/中立由这里（或调用方）在开局摆好。
+
+        用法：`sb.set_alliance(("北方同盟", ["甲", "丙"]))` ⇒ 甲丙互为盟友（`allied_between`
+        为真、可 mv 不可 atk）；**没被写进任何联盟的国家就是中立国** —— 它的地
+        `mv` 走不进、`atk` 也打不了（引擎："先结盟或先宣战"），观测里是
+        `vocab.OWN_NEUTRAL_NATION`，与"敌国"分得清清楚楚。
+
+        ★ 引擎侧的实现就是往 `world.blocs` 放一条 `{name, chief, members}`
+          （`allied_between` = `entity_of` 相等）—— 这里不做 propose/accept 的流程，
+          因为那套流程的产出**等价于**直接给这条记录，而流程本身是给 LLM 玩家用的。
+        """
+        for name, members in blocs:
+            living = [m for m in members if m in self.world.nations]
+            if len(living) < 2:
+                continue
+            self.world.blocs.append({"name": name, "chief": living[0],
+                                     "members": living})
+
     def count_of(self, name: str, kind: str) -> int:
         """该国某兵种的支数（`民` = 民兵）。"""
         return sum(1 for a in self.armies_of(name) if a.get("type", "步") == kind)
@@ -187,25 +210,48 @@ class Sandbox:
         return name in self.world.nations and self.world.has_townhall(name)
 
     def done(self) -> bool:
-        if not (self.alive(PLAYERS[0]) and self.alive(PLAYERS[1])):
+        if self.winning_entity() is not None:
             return True
         return self.turn >= self.t_max
 
+    def winning_entity(self) -> str | None:
+        """★★ 胜者 = 场上**唯一剩下的外交实体**（`None` = 还没定局）。
+
+        用户 2026-09-24：「**应该是联盟胜利或者单国胜利**」。⇒ 判据不是"某一个国家
+        还在不在"，而是"还剩几个**实体**"：
+          · 只剩 1 个实体 ⇒ 它赢（**单国**= 它没盟友；**联盟**= 它的盟赢）
+          · 一个不剩       ⇒ 同归于尽/平局 ⇒ `None`
+        这也把"多国时灭掉一家不算结束"**结构性地**表达出来了 —— 不再依赖"两国"这个假设。
+        """
+        alive = [n for n in self.world.order
+                 if n in self.world.nations and self.alive(n)]
+        if not alive:
+            return None
+        ents = {self.world.entity_of(n) for n in alive}
+        return ents.pop() if len(ents) == 1 else None
+
+    def winner_members(self) -> tuple[str, ...]:
+        """胜方实体里的国家名单（单国胜利 ⇒ 只有一个）。没定局 ⇒ `()`。"""
+        e = self.winning_entity()
+        return tuple(self.world.entity_members(e)) if e else ()
+
     def winner(self) -> str | None:
-        """`None` = 平局 / 超时。"""
-        a, b = PLAYERS
-        if not self.alive(b):
-            return a
-        if not self.alive(a):
-            return b
-        return None
+        """胜方的**实体标签**（`国:甲` / `盟:X`）；`None` = 平局 / 超时 / 未定局。
+
+        ★ 返回的是**实体**不是国名 —— 调用方要判断"某一国赢没赢"，用
+          `name in winner_members()`，别拿国名跟它比字符串。
+        """
+        return self.winning_entity()
 
     def reward(self, for_player: str) -> float:
-        """★ 赢 ⇒ `1 − turns / T_MAX`（时间越短越高）；输 ⇒ −1；平 ⇒ 0。"""
-        win = self.winner()
-        if win is None:
+        """★ 赢 ⇒ `1 − turns / T_MAX`（时间越短越高）；输 ⇒ −1；平 ⇒ 0。
+
+        ★ **赢 = 我的实体赢**（联盟胜利或单国胜利）⇒ 查 `winner_members()`，
+          **不是**拿国名跟实体标签比字符串（改实体口径时这里最容易漏）。
+        """
+        if self.winner() is None:
             return 0.0
-        if win != for_player:
+        if for_player not in self.winner_members():
             return -1.0
         return 1.0 - self.turn / self.t_max
 

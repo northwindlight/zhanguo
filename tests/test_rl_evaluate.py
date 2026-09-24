@@ -1,0 +1,299 @@
+# -*- coding: utf-8 -*-
+"""`rl/evaluate.py` 打分器的守卫 —— 盟友那 50% 与"灭国"那一大笔。
+
+用户 2026-09-24 两条口径：
+
+  ① 「评分系统中应该加入**盟友的评分**，盟友评分**除了地皮分以外**，应该和**自己的
+     评分机制一致**，但是**分数只有 50%**」
+  ② 「**多国的情况下拿下一两个市政厅游戏并没有结束**，应该也纳入评分，**分数非常高**」
+
+★ 写这个测试时踩到的**第一个坑**：第一版用 `World(size=14, seed=5, nations=[…])` 造局，
+  而那个 World 里各国**一支军都没有** ⇒ `min_dist` 双方都是 99、国土又相等、hp 全 0
+  ⇒ `score` 恒等于 **0.0**，断言 `0.0 == 0.0` **全绿但什么都没证明**。
+  ⇒ 这里的每个场景都**先摆军队**，并额外 `assert` 分数非零 —— 否则测试会再次"骗人"。
+
+跑法：python3 -m unittest discover -s tests -v
+"""
+
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from mp import World                                # noqa: E402
+from rl import evaluate as E                        # noqa: E402
+from rl import scoring as S                         # noqa: E402
+
+
+def mk_world(nations=("甲", "乙", "丙"), size=16, seed=5, war=("甲", "丙")):
+    """造局并**摆上军队**（不摆军队的话所有项都是 0，测试会假绿）。"""
+    w = World(size=size, seed=seed, nations=list(nations))
+    w.declare_war(*war)                    # ★ 先宣战再结盟（在盟国宣战会变成投票）
+    for nm in nations:
+        core = next((c for c, t in sorted(w.tiles.items()) if t["owner"] == nm), None)
+        if core is None:
+            continue
+        for i in range(2):
+            gid, seq = w._new_army(nm)
+            w.armies.append({"id": seq + i, "gid": gid, "name": f"{nm}{seq}",
+                             "type": "步", "hp": 100 - 10 * i,
+                             "x": core[0], "y": core[1], "owner": nm,
+                             "moved_turn": -1, "engaged": False})
+    return w
+
+
+def core(w, nm):
+    return next((c for c, t in sorted(w.tiles.items())
+                 if t["owner"] == nm and t["buildings"].get("市政厅", 0) > 0), None)
+
+
+class TestAllyShare(unittest.TestCase):
+    def test_ally_contribution_is_half_of_same_mechanism(self):
+        """① 盟友那一份 = **0.5 × 同一套机制（不含国土差）**，且数字非零。
+
+        ★ 结盟这件事**不只是**多出"盟友那一份"：乙从**对手**变成**盟友**，
+          它的厅也就从 `−W_HALL`（对手的厅）变成 `+0.5·W_HALL`（盟友的厅）
+          ⇒ 总额外变化 `1.5·W_HALL`。这不是 bug —— 把敌人的厅变成盟友的厅，本来就
+          是巨大的改善。断言里必须把这一项算进来，否则会误判成"盟友那份算错了"。
+        """
+        w = mk_world()
+        solo = E.score(w, "甲", "丙")
+        self.assertNotEqual(solo, 0.0, "★ 分数是 0 —— 这个场景证不了任何事，先把它摆出非零")
+        self.assertEqual(E.halls_of(w, "乙"), 1, "乙该有一座厅，这条才有意义")
+        w.blocs.append({"name": "L", "chief": "甲", "members": ["甲", "乙"]})
+        both = E.score(w, "甲", "丙")
+        part = E._one(w, "乙", "丙", None, with_tiles=False)     # ★ 不含国土差
+        self.assertNotEqual(part, 0.0, "盟友那一份是 0 —— 同上，场景无效")
+        expect = 0.5 * part + 1.5 * S.W_HALL                     # 机制份 + 厅易主
+        self.assertAlmostEqual(both - solo, expect, places=6)
+        # ★ 用户 2026-09-24 把数点实了：「盟友赚厅应该有 **250** 进账，丢厅 −250」
+        self.assertAlmostEqual(S.ALLY_SHARE * S.W_HALL, 250.0, places=6)
+
+    def test_ally_part_excludes_tiles(self):
+        """① 盟友那一份**不含地皮分** —— 给盟友加地，它那一份必须**不动**。"""
+        w = mk_world()
+        w.blocs.append({"name": "L", "chief": "甲", "members": ["甲", "乙"]})
+        before = E._one(w, "乙", "丙", None, with_tiles=False)
+        # 给盟友凭空加三格（直接改归属）
+        free = [(x, y) for x in range(w.size) for y in range(w.size)
+                if (x, y) not in w.tiles][:3]
+        for c in free:
+            w.tiles[c] = {"owner": "乙", "terrain": "平原", "buildings": {}, "core": None}
+        self.assertGreater(E.tiles(w, "乙"), 5, "地没加上，这条测不出东西")
+        self.assertAlmostEqual(E._one(w, "乙", "丙", None, with_tiles=False), before,
+                               places=6, msg="★ 盟友那一份跟着地皮变了 ⇒ 没排除地皮分")
+        # 对照：**我**那一份是含地皮的 ⇒ 应该跟着变
+        mine_before = E._one(w, "甲", "丙", None, with_tiles=True)
+        for c in free:
+            w.tiles[c]["owner"] = "甲"
+        self.assertNotAlmostEqual(E._one(w, "甲", "丙", None, with_tiles=True),
+                                  mine_before, places=6, msg="我那一份该含地皮分")
+
+    def test_ally_uses_the_same_mechanism_not_a_copy(self):
+        """① "机制一致"要**可验证**：把 `_one` 里任一权重调一下，盟友那一份跟着变。
+
+        防的是"盟友分是另写一份简化公式"—— 那样将来改 `_one` 的构成，盟友就漂开了。
+        """
+        w = mk_world()
+        w.blocs.append({"name": "L", "chief": "甲", "members": ["甲", "乙"]})
+        before = E.score(w, "甲", "丙")
+        old = S.W_ARMY
+        try:
+            S.W_ARMY = old * 3                      # 只改一个权重
+            after = E.score(w, "甲", "丙")
+            part = E._one(w, "乙", "丙", None, with_tiles=False)
+        finally:
+            S.W_ARMY = old
+        self.assertNotEqual(before, after)
+        # 盟友那一份里 W_ARMY 的贡献 = 0.5 × 3 × 军数（说明它走的是同一个 `_one`）
+        self.assertAlmostEqual(after - before, 0.5 * (part - E._one(w, "乙", "丙", None,
+                                                                    with_tiles=False))
+                               + (3 - 1) * old * len(E.armies(w, "甲")), places=6)
+
+    def test_ally_term_respects_vision(self):
+        """★ 盟友那一份也**只对可见视野打分** —— 别让它变成偷看敌军的后门。"""
+        w = mk_world(size=24)
+        w.blocs.append({"name": "L", "chief": "甲", "members": ["甲", "乙"]})
+        w.tiles[(0, 0)] = {"owner": "丙", "terrain": "平原", "buildings": {}, "core": None}
+        gid, seq = w._new_army("丙")
+        w.armies.append({"id": seq, "gid": gid, "name": "丙X", "type": "步", "hp": 100,
+                         "x": 0, "y": 0, "owner": "丙", "moved_turn": -1, "engaged": False})
+        far = E._one(w, "乙", "丙", frozenset(), with_tiles=False)     # 空视野
+        allknow = E._one(w, "乙", "丙", None, with_tiles=False)         # 全知
+        self.assertNotEqual(far, allknow,
+                            "★ 空视野与全知给出同一个数 ⇒ 盟友那一份没过 mask（偷看）")
+
+
+def _far_own_tile(w, who, from_cell):
+    """`who` 名下**非核心、且离 `from_cell` 最远**的一格 —— 在那上面加厅可以隔离变量。
+
+    ★ 为什么非要"最远"：`_one` 的逼近/威胁项用 `min over 厅` 算距离。若新厅比核心
+      **更近**敌人，`foe_d` 就会变小、威胁项跟着变 ⇒ 分数变化里混进别的东西，
+      断言就不再是"只有厅那一项"。挑最远的那格 ⇒ `min` 不变 ⇒ 隔离干净。
+    """
+    return max((c for c, t in w.tiles.items()
+                if t["owner"] == who and t["buildings"].get("市政厅", 0) == 0),
+               key=lambda c: max(abs(c[0] - from_cell[0]), abs(c[1] - from_cell[1])))
+
+
+class TestHallScore(unittest.TestCase):
+    """★ 用户 2026-09-24 的四条口径：拿下一座厅/多国不结束/拿下≠灭国/赚丢都记分。"""
+
+    def _world(self):
+        w = mk_world(nations=("甲", "乙", "丙", "丁"), war=("甲", "丙"))
+        return w
+
+    def test_capturing_a_rival_hall_scores_very_high(self):
+        """② 打掉对手**一座**厅 ⇒ 立刻进分（**不必等到灭国**），且量非常大。"""
+        w = self._world()
+        before = E.score(w, "甲", "丙")
+        self.assertNotEqual(before, 0.0, "场景无效（分数为 0）")
+        dx, dy = core(w, "丁")
+        w.tiles[(dx, dy)]["buildings"]["市政厅"] = 0
+        after = E.score(w, "甲", "丙")
+        # ★ 计分单位是**座**：这家的厅没了，我那一项就 +W_HALL
+        self.assertAlmostEqual(after - before, S.W_HALL, places=6)
+        self.assertGreater(S.W_HALL, 10 * (S.W_ARMY + S.W_KILL + S.W_GUARD),
+                           "「分数非常高」：要压过一整套常规项")
+
+    def test_two_halls_per_nation_partial_capture_scores(self):
+        """★ 「**拿下市政厅不代表灭国**，例如每个国家有两个市政厅呢？」"""
+        w = self._world()
+        cx, cy = core(w, "丙")
+        # 给 丙 再添一座厅（两座）
+        fx, fy = [(x, y) for x in range(w.size) for y in range(w.size)
+                  if (x, y) not in w.tiles][0]
+        w.tiles[(fx, fy)] = {"owner": "丙", "terrain": "平原",
+                             "buildings": {"市政厅": 1}, "core": None}
+        self.assertEqual(E.halls_of(w, "丙"), 2)
+        before = E.score(w, "甲", "丙")
+        w.tiles[(cx, cy)]["buildings"]["市政厅"] = 0         # 只拔掉一座
+        self.assertTrue(w.has_townhall("丙"), "还有一座厅 ⇒ **丙没亡**")
+        after = E.score(w, "甲", "丙")
+        self.assertNotEqual(after, S.INF, "★ 只拿一座厅**不该**判成胜局（多国不结束）")
+        self.assertAlmostEqual(after - before, S.W_HALL, places=6,
+                               msg="★ 只拿一座厅没记分 —— 就是「拿下≠灭国」那条口径")
+
+    def test_gaining_and_losing_my_own_hall_both_score(self):
+        """★ 「**赚厅和丢厅都记分了吗**」—— 我自己的厅，赚一座 +、丢一座 −。
+
+        ★ 在**已有的自家格**上加厅（不是占新格）⇒ 国土数不变 ⇒ 变化里只有厅那一项。
+        """
+        w = self._world()
+        before = E.score(w, "甲", "丙")
+        fx, fy = _far_own_tile(w, "甲", core(w, "丙"))
+        w.tiles[(fx, fy)]["buildings"]["市政厅"] = 1
+        built = E.score(w, "甲", "丙")
+        self.assertAlmostEqual(built - before, S.W_HALL, places=6,
+                               msg="★ 赚厅没记分（或与丢厅不对称）")
+        w.tiles[(fx, fy)]["buildings"]["市政厅"] = 0
+        self.assertAlmostEqual(E.score(w, "甲", "丙"), before, places=6, msg="★ 丢厅没记分")
+
+    def test_ally_hall_scores_at_half(self):
+        """盟友的厅按 50% 记（与盟友那一份同折扣）；盟友亡**不是**进账。"""
+        w = self._world()
+        w.blocs.append({"name": "L", "chief": "甲", "members": ["甲", "乙"]})
+        before = E.score(w, "甲", "丙")
+        fx, fy = _far_own_tile(w, "乙", core(w, "丙"))
+        w.tiles[(fx, fy)]["buildings"]["市政厅"] = 1          # 盟友多一座厅
+        self.assertAlmostEqual(E.score(w, "甲", "丙") - before,
+                               S.ALLY_SHARE * S.W_HALL, places=6,
+                               msg="盟友赚厅该只加 50%")
+        w.tiles[(fx, fy)]["buildings"]["市政厅"] = 0          # 又丢了
+        self.assertAlmostEqual(E.score(w, "甲", "丙"), before, places=6,
+                               msg="盟友丢厅该只扣 50%")
+        self.assertEqual(S.ALLY_DEAD, 0.0, "盟友亡不该变成进账")
+
+    def test_all_rivals_dead_is_the_win(self):
+        """③ 只剩**一个实体** ⇒ `+INF`；2 人局里"对手亡"就是这种情况 ⇒ 不重复计。"""
+        w = mk_world(nations=("甲", "丙"), war=("甲", "丙"))
+        cx, cy = core(w, "丙")
+        w.tiles[(cx, cy)]["buildings"]["市政厅"] = 0
+        self.assertEqual(E.score(w, "甲", "丙"), S.INF, "2 人局对手亡该直接是 +INF")
+        self.assertEqual(E.rival_nations(w, "甲"), ["丙"])
+
+    def test_alliance_victory_counts_as_my_win(self):
+        """★ 「应该是**联盟胜利**或者单国胜利」—— 盟友还活着也算我赢。"""
+        w = mk_world(nations=("甲", "乙", "丙"), war=("甲", "丙"))
+        w.blocs.append({"name": "L", "chief": "甲", "members": ["甲", "乙"]})
+        self.assertEqual(E.terminal(w, "甲"), None, "两家实体 ⇒ 还没定局")
+        cx, cy = core(w, "丙")
+        w.tiles[(cx, cy)]["buildings"]["市政厅"] = 0
+        self.assertEqual(E.terminal(w, "甲"), S.INF, "★ 只剩我的实体 ⇒ 联盟胜利")
+        self.assertEqual(E.terminal(w, "乙"), S.INF, "盟友视角同样是赢")
+        # ★ 我战死但我的盟赢了 ⇒ 也算我赢（"联盟胜利"的含义）
+        ax, ay = core(w, "甲")
+        w.tiles[(ax, ay)]["buildings"]["市政厅"] = 0
+        self.assertEqual(E.terminal(w, "甲"), S.INF, "★ 我死了但联盟赢了 ⇒ 仍算赢")
+
+    def test_distance_terms_cover_every_hall(self):
+        """★ 「距离市政厅的厅，应该**对每个市政厅都生效**」—— 不能只看第一座。
+
+        做法：让**第二座**厅旁边站着敌军；若距离项只认第一座，这个威胁就看不见。
+        """
+        w = self._world()
+        ax, ay = core(w, "甲")
+        fx, fy = [(x, y) for x in range(w.size) for y in range(w.size)
+                  if (x, y) not in w.tiles and max(abs(x - ax), abs(y - ay)) > 4][0]
+        w.tiles[(fx, fy)] = {"owner": "甲", "terrain": "平原",
+                             "buildings": {"市政厅": 1}, "core": None}
+        far = E._one(w, "甲", "丙", None, with_tiles=True)     # 第二座厅旁没威胁
+        gid, seq = w._new_army("丙")
+        w.armies.append({"id": seq, "gid": gid, "name": "丙T", "type": "步", "hp": 100,
+                         "x": fx + 1, "y": fy, "owner": "丙",
+                         "moved_turn": -1, "engaged": False})
+        near = E._one(w, "甲", "丙", None, with_tiles=True)
+        self.assertLess(near, far,
+                        "★ 敌军贴着我**第二座**厅，威胁项却没反应 ⇒ 距离项只认了第一座厅")
+
+
+class TestScoringTableIsLive(unittest.TestCase):
+    """★★ 先验表必须**当场可调** —— 用户：「打分标准是**先验**的，可能要**经常调**」。
+
+    这一条防的是那个**不报错**的经典写法：`evaluate.py` 里若写成
+    `from .scoring import W_ARMY`，值就被**绑死在导入时**了 —— 之后改
+    `scoring.W_ARMY` 对打分毫无影响，而一切看起来都正常（引擎那边吃过同一个亏）。
+    """
+
+    def test_weights_are_read_live(self):
+        w = mk_world()
+        base = E.score(w, "甲", "丙")
+        with S.override(W_ARMY=S.W_ARMY * 3):          # 只改一个权重
+            bumped = E.score(w, "甲", "丙")
+        self.assertAlmostEqual(bumped - base, 2 * S.W_ARMY * len(E.armies(w, "甲")),
+                               places=6, msg="★ 改 scoring 表对打分没影响 ⇒ 值被绑死了")
+        self.assertAlmostEqual(E.score(w, "甲", "丙"), base, places=6,
+                               msg="`override` 退出后没还原")
+
+    def test_hall_weight_and_ally_share_are_tunable(self):
+        """厅那一项也要能调（`W_HALL` / `ALLY_SHARE`），且派生量是**乘出来的**。"""
+        w = mk_world(nations=("甲", "乙", "丙", "丁"), war=("甲", "丙"))
+        w.blocs.append({"name": "L", "chief": "甲", "members": ["甲", "乙"]})
+        fx, fy = _far_own_tile(w, "乙", core(w, "丙"))
+        # ★ `before`/`after` 必须**在同一个 override 里**取 —— 否则差里混进了
+        #   "权重变了"这一项（第一版就是栽在这：250 vs 50，因为 before 用的是 500 那版）。
+        with S.override(W_HALL=100.0):
+            before = E.score(w, "甲", "丙")
+            w.tiles[(fx, fy)]["buildings"]["市政厅"] = 1
+            after = E.score(w, "甲", "丙")
+        self.assertAlmostEqual(after - before, S.ALLY_SHARE * 100.0, places=6,
+                               msg="盟友赚一座厅 = W_HALL × ALLY_SHARE，要能跟着调")
+
+    def test_override_rejects_unknown_names(self):
+        """写错名字要**当场报错**，不能静默无效（否则"调了但没生效"查不出来）。"""
+        with self.assertRaises(KeyError):
+            with S.override(W_ARMIES=1):               # 拼错了
+                pass
+
+    def test_describe_and_as_dict(self):
+        d = S.as_dict()
+        self.assertIn("W_HALL", d)
+        self.assertIn("REWARD_TANH_SCALE", d)
+        self.assertIn("W_HALL=", S.describe())
+
+
+if __name__ == "__main__":
+    unittest.main()

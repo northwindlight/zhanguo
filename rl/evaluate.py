@@ -26,70 +26,182 @@
       · **逼近**：我军离敌核越近越好、敌军离我核越近越糟（**两边都得看得见才算**）
       · ★ **安全 / 防御**（用户：「怎么不可能回防，5 支军队赖着主城不动压根输不了，
         是目前的打分模型**没有奖励防御，没有安全扣分机制**」）
+      · ★★ **盟友**（用户 2026-09-24）：「评分系统中应该加入**盟友的评分**，盟友评分
+        **除了地皮分以外**，应该和自己的评分机制一致，但是**分数只有 50%**」
+        ⇒ `score = 自己 + 0.5 × 盟友(不含国土差)`。盟友那一份走**同一个 `_one`**，
+        所以将来改 `_one` 的构成，盟友自动跟着改（这正是"机制一致"的意思）。
 """
 from __future__ import annotations
 
-INF = 1e9
+# ★★ **打分器的所有数字都在 `rl/scoring.py`**（用户 2026-09-24：「别硬编码，打分标准是
+#   先验的，可能要经常调，学 `balance.py` 抽出来」）—— 本文件只剩下**怎么算**。
+#
+#   ★ 一律写成 `W_TILE` 这种**模块属性访问**，**不要** `from .scoring import W_TILE`：
+#     后者会在导入时把值绑死在 `evaluate` 的命名空间里，之后改 `scoring.W_TILE` 对打分
+#     **毫无影响**，而那种错**不报错**（引擎那边吃过同一个亏）。
+from . import scoring as S
 
-# 权重 —— 按用户口径定：「越近敌方分越高，越多地分越高，丢地扣小分，损兵扣大分，丢家直接输」
-W_TILE = 1.0      # 国土：多一格 +1、丢一格 −1（**小分**）
-W_ARMY = 10.0     # ★ 我的兵：**损兵是大分** —— 一支兵压过十格地
-W_KILL = 6.0      # ★ 敌的兵：**消灭敌军也加分**（略低于自己的兵 —— 造兵要回合，别人的不用）
-W_HP = 0.02       # 每点 hp：伤而不死只是小账
-W_NEAR = 1.5      # ★ 逼近：我军离敌核每近一格 +1.5，被逼近对称地扣
-
-# ★★ 安全 / 防御（用户 2026-09-24 指出打分器缺这两样）
-#   旧版只有 `W_NEAR`，而它对攻守**名义上对称、实际上只奖励进攻**：
-#   守家不会让"我离敌核"变近 ⇒ 守家**白守**，模型当然一路冲出去。
-THREAT_R = 6      # 威胁判定半径（敌军进到离我核这么近才算"家有事"）
-GUARD_R = 3       # "守在家附近"的半径
-W_THREAT = 3.0    # ★ 被逼近：按逼近强度扣分
-W_GUARD = 5.0     # ★ 守家：按逼近强度 × 守家军数**加分**（只在有威胁时生效）
+INF = S.INF
 
 
-def score(world, me: str, enemy: str, mask=None) -> float:
-    """从 `me` 视角打分（正 = 我占优）。★ **敌方的一切都过 `mask`**（见文件头）。
+def score(world, me: str, enemy: str, mask=None, allies=None) -> float:
+    """从 `me` 视角打分（正 = 我占优）= **自己 + 0.5 × 盟友（不含国土差）**。
 
-    `mask` = `pathfind.vision_mask(world, me)` 的集合；`None` ⇒ 全知（只给诊断用）。
+    ★ **敌方的一切都过 `mask`**（见文件头）。`mask` = `pathfind.vision_mask(world, me)`；
+      `None` ⇒ 全知（只给诊断用）。
+
+    ★ 盟友那一份**用的还是同一张 `mask`** —— 这不是省事，是**正确**：
+      `vision_mask` 建的时候就把**联盟成员的地块**算进去了（`o not in members` 就跳过）
+      ⇒ 那张 mask 本来就是**整个联盟的**视野，拿它评估盟友既不多看、也不少看。
+    """
+    t = terminal(world, me, enemy)
+    if t is not None:
+        return t                          # 已定局 ⇒ 直接用终局分（**与 `terminal` 同一套口径**）
+    allies = allies_of(world, me) if allies is None else list(allies)
+    s = _one(world, me, enemy, mask, with_tiles=True)
+    # ★★ **赚厅与丢厅都记分**（用户：「赚厅和丢厅都记分了吗」）—— 双向、对称：
+    #   我的厅全额、盟友的厅 50%（与盟友那一份同折扣）、对手的厅全额。
+    #   放在 `score` 里**只加一次**（不放进 `_one`）—— 放进 `_one` 的话同一个对手的厅
+    #   会**同时**给我和盟友各记一笔（盟友那份又是 0.5）⇒ 一座厅被算 1.5 遍。
+    s += S.W_HALL * (halls_of(world, me)                                   # 我的：全知
+                   + S.ALLY_SHARE * sum(halls_of(world, al) for al in allies if al != enemy)
+                   - sum(halls_of(world, n, mask) for n in rival_nations(world, me, allies)))
+    for al in allies:
+        if al == me or al == enemy:
+            continue
+        if not world.has_townhall(al):
+            s += S.ALLY_SHARE * S.ALLY_DEAD   # 见 `ALLY_DEAD` 的注释
+            continue
+        s += S.ALLY_SHARE * _one(world, al, enemy, mask, with_tiles=False)
+    return s
+
+
+def _one(world, me: str, enemy: str, mask, *, with_tiles: bool) -> float:
+    """单国评分（打分构成见文件头）。`with_tiles=False` ⇒ **不算国土差**（盟友那一份用）。
+
+    ★ 这里**不再**对"`enemy` 已亡"返回 `+INF` —— 那件事是不是胜局由 `score` 判
+      （要看**全部**对手）。`enemy` 亡时它那几项自然塌成 0（没有军队/国土/核心），
+      剩下的就是"我自己这一摊"，是有限的、有意义的数。
     """
     if not world.has_townhall(me):
-        return -INF
-    if not world.has_townhall(enemy):
-        return +INF                       # 亡国是**公开事件**，不算偷看
+        return -S.INF
 
-    s = W_TILE * (tiles(world, me) - tiles(world, enemy, mask))
-    s += W_ARMY * len(armies(world, me))               # 我方：全知
-    s -= W_KILL * len(armies(world, enemy, mask))      # ★ 敌方：**只数看得见的**
-    s += W_HP * (hp_total(world, me) - hp_total(world, enemy, mask))
+    s = 0.0
+    if with_tiles:
+        # ★ 盟友那一份**去掉这一项**（用户：「盟友评分**除了地皮分以外**」）——
+        #   理由也自洽：盟友的地**可 mv 不可 atk**，本来就不是我能夺取的目标，
+        #   给盟友的地记分等于奖励一件我做不到的事。
+        s += S.W_TILE * (tiles(world, me) - tiles(world, enemy, mask))
+    s += S.W_ARMY * len(armies(world, me))               # 我方：全知
+    s -= S.W_KILL * len(armies(world, enemy, mask))      # ★ 敌方：**只数看得见的**
+    s += S.W_HP * (hp_total(world, me) - hp_total(world, enemy, mask))
 
-    mc = core_of(world, me)
-    ec = core_of(world, enemy, mask)                   # ★ 看不见敌核 ⇒ None
-    if mc is not None and ec is not None:
-        my_d = min_dist(world, me, ec)                 # 我离敌核（我方位置全知）
-        foe_d = min_dist(world, enemy, mc, mask)       # ★ 敌离我核：**只数看得见的敌军**
-        s += W_NEAR * (-my_d + foe_d)
+    # ★★ 逼近 / 威胁 / 守家：**对每一座厅都生效**（用户 2026-09-24：「打分器的**距离
+    #   市政厅**的厅，应该**对每个市政厅都生效**」）—— 一国有两座厅时，不能只盯其中一座。
+    my_halls = hall_cells(world, me)                   # 我的厅：全知
+    foe_halls = hall_cells(world, enemy, mask)         # ★ 敌的厅：看不见 ⇒ 空的
+    if my_halls and foe_halls:
+        # 我离**最近的敌厅**（挑最好打的那座）；敌离**我最危险的那座厅**
+        my_d = min(min_dist(world, me, h) for h in foe_halls)
+        foe_d = min(min_dist(world, enemy, h, mask) for h in my_halls)
+        s += S.W_NEAR * (-my_d + foe_d)
 
         # ★★ 安全 / 防御 —— **只在真有威胁时生效**：
         #   没威胁时守家**不加分**，否则模型会永远缩在核心格不动（另一个极端）。
         #   有威胁时：被逼近扣分 + **守家的军按逼近强度加分** ⇒ "赖在主城"第一次有了收益，
         #   "回来拦"也有了收益 —— 攻守这才对称。
-        if foe_d <= THREAT_R:
-            intensity = (THREAT_R - foe_d + 1) / float(THREAT_R)
-            s -= W_THREAT * intensity
+        #   ★ 判定用**最近的那座敌厅/最近的那支敌军**，所以"保住任何一座"都算数。
+        if foe_d <= S.THREAT_R:
+            intensity = (S.THREAT_R - foe_d + 1) / float(S.THREAT_R)
+            s -= S.W_THREAT * intensity
             guards = sum(1 for a in armies(world, me)
-                         if max(abs(a["x"] - mc[0]), abs(a["y"] - mc[1])) <= GUARD_R)
-            s += W_GUARD * intensity * guards
+                         if min(max(abs(a["x"] - h[0]), abs(a["y"] - h[1]))
+                                for h in my_halls) <= S.GUARD_R)
+            s += S.W_GUARD * intensity * guards
     return s
 
 
-def terminal(world, me: str, enemy: str) -> float | None:
-    """终局分（一方国祚尽失）。没结束 ⇒ `None`。**亡国是公开事件，不需要视野。**"""
-    a, b = world.has_townhall(me), world.has_townhall(enemy)
-    if a and b:
+def allies_of(world, me: str) -> list[str]:
+    """与 `me` 同盟的**其他国家**（同属一个外交实体）。没联盟 ⇒ `[]`。
+
+    ★ 联盟是**开局指定的场景条件**（用户 2026-09-24：「是否中立和联盟和模型无关，
+      开局直接指定」）⇒ 这里只**读**关系，不产生任何外交动作。
+    """
+    return [n for n in world.nations
+            if n != me and n in world.order and world.allied_between(me, n)]
+
+
+def rival_nations(world, me: str, allies=None) -> list[str]:
+    """**对手国** = 除我与我盟友之外的所有现存国家（顺序 = `world.order`）。
+
+    ★ 只看"还在不在册"（`world.nations`），**不看有没有厅** —— 那是 `dead_rivals` 的事。
+    """
+    mine = {me, *(allies_of(world, me) if allies is None else allies)}
+    return [n for n in world.order if n in world.nations and n not in mine]
+
+
+def dead_rivals(world, me: str, allies=None) -> list[str]:
+    """**已被灭的对手国**（市政厅尽失）。
+
+    ★ 只看"这个国家还在不在"，**不区分是谁灭的** —— 亡国是**公开事件**
+      （引擎 `_eliminate_if_dead`），而"是谁打下来的"不是公开信息，要靠额外记账；
+      而且在联盟体系里"少一个敌人"本身就是共同收益。⇒ 只数结果，不追究功劳。
+    """
+    return [n for n in rival_nations(world, me, allies) if not world.has_townhall(n)]
+
+
+def terminal(world, me: str, enemy: str | None = None) -> float | None:
+    """终局分（**只剩一个外交实体**）。没结束 ⇒ `None`。
+
+    ★★ 胜者是**实体**，不是单个国家 —— 用户 2026-09-24：「**应该是联盟胜利或者
+      单国胜利**」。⇒ 判据是"场上还剩几个**外交实体**（`entity_of`）"，不是"某一国的
+      厅还在不在"：
+        · 还剩 ≥2 个实体 ⇒ 未定局
+        · 还剩 1 个     ⇒ 它赢；**我的实体**是它 ⇒ `+INF`，否则 `-INF`
+        · 一个都不剩     ⇒ 同归于尽 ⇒ `0.0`
+      ★ 我**战死但我的联盟赢了** ⇒ 也算我赢（`+S.INF`）—— 那正是"联盟胜利"的含义。
+
+    **亡国是公开事件，不需要视野**（`has_townhall` 是公开的）。
+    `enemy` 参数保留只为向后兼容，**不再参与判定**（多国时"某个对手"不是判据）。
+    """
+    alive = [n for n in world.order if n in world.nations and world.has_townhall(n)]
+    if not alive:
+        return 0.0                                   # 同归于尽
+    ents = {world.entity_of(n) for n in alive}
+    if len(ents) == 1:                               # ★ 只剩一个实体 ⇒ 它赢了
+        return +S.INF if _my_entity(world, me) in ents else -S.INF
+    if world.has_townhall(me) or _my_entity(world, me) in ents:
+        return None                                  # 我还有戏（我活着，或我的盟还活着）
+    return -S.INF
+
+
+def _my_entity(world, me: str) -> str | None:
+    """我的外交实体标签；我已从 `nations` 里消失 ⇒ `None`（尽力而为，不抛）。"""
+    try:
+        return world.entity_of(me) if me in world.nations else None
+    except Exception:                                # noqa: BLE001
         return None
-    if not a and not b:
-        return 0.0
-    return INF if a else -INF
+
+
+def hall_cells(world, name: str, mask=None) -> list:
+    """该国**所有已落成**的市政厅格（排序稳定）。
+
+    ★ 用户 2026-09-24：「打分器的**距离市政厅**的厅，应该**对每个市政厅都生效**」
+      ⇒ 逼近/威胁/守家那三项都走这个函数，**不是只取第一座厅**（`core_of` 只回一座，
+      一国有两座厅时另一座等于不存在）。
+    """
+    return [cell for cell, t in sorted(world.tiles.items())
+            if t["owner"] == name and t["buildings"].get("市政厅", 0) > 0
+            and _vis(cell, mask)]
+
+
+def halls_of(world, name: str, mask=None) -> int:
+    """该国**已落成**的市政厅**座数**（= 国祚，也是补员产能）。
+
+    ★ 数**对手**的厅时必须传 `mask` —— 厅只在**视野内**公开（引擎 `_public_buildings`：
+      "看不见就打不着"）。自己与盟友的厅走全知（`vision_mask` 本来就把盟友的地算进去了）。
+    """
+    return len(hall_cells(world, name, mask))
 
 
 # ---------------------------------------------------------------- 小工具（★都可过 mask）

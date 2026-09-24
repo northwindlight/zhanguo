@@ -34,6 +34,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rl import combat_probs as CP                     # noqa: E402
+from rl import scoring as S                          # noqa: E402
 from rl.sandbox import Sandbox                        # noqa: E402
 
 TRIALS = 2000
@@ -296,6 +297,51 @@ class TestReinforcements(unittest.TestCase):
         second = CP.snapshot(w)[cell]
         self.assertNotAlmostEqual(first.p_win["甲"], second.p_win["甲"], delta=0.05,
                                   msg="局面变了概率没变 ⇒ 有跨帧缓存")
+
+
+class TestPriorsAreLive(unittest.TestCase):
+    """★ 尺度与上限都读 `rl/scoring.py`，且**改表立刻生效**（用户 2026-09-24：
+    「搜索引擎是不是也是硬编码的，改成从 `balance` 抽」）。
+
+    防的还是那个**不报错**的写法：`from .scoring import ROUND_BIN_EDGES` 会把值绑死在
+    导入时 ⇒ 之后改表对推演毫无影响，而一切看起来正常。
+    """
+
+    def _battle(self):
+        w, cell = stage(sides={"甲": ["步", "步", "步"], "乙": ["步", "步", "步"]})
+        return CP.build(w, *cell)
+
+    def test_round_bins_read_the_table(self):
+        b = self._battle()
+        o = CP.assess(b)
+        self.assertEqual(len(o.round_bins()), len(S.ROUND_BIN_EDGES))
+        with S.override(ROUND_BIN_EDGES=(2, 4)):
+            self.assertEqual(len(o.round_bins()), 2, "★ 改表对分档没影响 ⇒ 值被绑死了")
+            self.assertAlmostEqual(o.round_bins()[0], o.p_rounds[1] + o.p_rounds[2])
+
+    def test_as_vec_scales_read_the_table(self):
+        b = self._battle()
+        o = CP.assess(b)
+        v0 = o.as_vec("甲")[4]                       # 期望轮数那一项
+        with S.override(PROB_ROUND_SCALE=S.PROB_ROUND_SCALE * 4):
+            self.assertNotAlmostEqual(o.as_vec("甲")[4], v0, places=6,
+                                      msg="★ 归一秒度改表没生效")
+
+    def test_assess_limits_read_the_table(self):
+        """上限被顶到时必须**看得见**（`truncated` 报出来），不许静默给个半截答案。"""
+        b = self._battle()
+        with S.override(ASSESS_MAX_ROUNDS=1):
+            o = CP.assess(b)
+        self.assertGreater(o.truncated, 0.0,
+                           "★ 轮数上限压到 1 却没报未收敛 —— 静默截断了")
+        self.assertEqual(CP.assess(b).truncated, 0.0, "默认上限下不该有未收敛质量")
+
+    def test_report_and_as_vec_agree_on_edges(self):
+        """`report` 的分档边界必须**来自** `round_bins`（原来两处各写一遍）。"""
+        b = self._battle()
+        o = CP.assess(b)
+        with S.override(ROUND_BIN_EDGES=(1, 2)):
+            self.assertIn("≤2:", o.report(b.order))
 
 
 if __name__ == "__main__":

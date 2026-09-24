@@ -42,7 +42,12 @@ PLAYER_NAMES = ("甲", "乙")
 # ===========================================================================
 # 沙盒的军事动作。`retreat` 暂不进（用户 2026-09-24：先不做；引擎里有，
 # 代价是 `RETREAT_ATK_PENALTY=80`）。将来要加，**追加在表尾**。
-KIND = ("move", "attack", "end_turn")
+#   ★ 2026-09-24：**没有全局 `end_turn`** —— 用户把它换成了每支军的 `hold`（原地不动），
+#     全部 mask 后沙盒自动推进（`sandbox._auto_advance`）。
+#     ⚠ 这里曾经写的是 `end_turn`，而 `encode.candidate_features` 用的是
+#     `row[0 if kind=="move" else 1]` ⇒ **`hold` 被静默编码成了 `attack`**（两种完全相反的
+#     动作在观测里一模一样）。改 kind 表就是修这个 —— 别只改一边。
+KIND = ("hold", "move", "attack")
 KIND_INDEX = {k: i for i, k in enumerate(KIND)}
 assert len(KIND) == 3
 
@@ -74,19 +79,34 @@ SUB_SIZES = tuple(len(SUB_TABLE_OF[k]) for k in KIND)
 GRID_DEFENSE = 0                                      # ★ 本格总减伤 / 100（地形×城堡）
 GRID_MOVE = 1                                         # ★ 骑兵进这一格的移动代价 / 2
 GRID_OWNER0 = 2                                       # 归属 one-hot（**5**）
-# ★ 归属 **5 类**（用户 2026-09-24：「**还有盟友和中立**」）：
-#   `self` / `ally` / `rival` / `neutral` / `barbarian` ——
-#   多玩家（≥3）时会有联盟，而**盟友的地能走不能打**、与"对手的地"是两回事；
-#   混成一类网络就分不出"这一格该不该打"（引擎 `_mv_wall` 与 `attack` 对这两类的
-#   判定正好相反：盟友可 mv 不可 atk，敌国可 atk 不可 mv）。
-OWNER_CHANNELS = ("self", "ally", "rival", "neutral", "barbarian")     # = 5
+# ★★ 归属 **6 类**（用户 2026-09-24：「**还有盟友和中立**」；2026-09-24 晚再点：
+#   「主干候选有**中立国家**和盟友吗，**盟友市政厅也重要**」）：
+#   `self` / `ally` / `rival` / `neutral_nation` / `unowned` / `barbarian`
+#
+#   ⚠ 前一版是 5 类，两个洞（都是"不报错、只是信息丢光"）：
+#     · 只判"不是我的、不是盟友的" ⇒ **中立国**（有主、没宣战、没结盟）被归进 `rival`，
+#       而引擎对这两类判定**相反**：中立国 mv 不可、atk 也不可（"先结盟或先宣战"）；
+#       敌国 atk 可、mv 不可。混成一类，网络分不出"该不该打/能不能进"。
+#     · 把"无主"和"野人驻守"并进同一槽 —— 而这两件事对动作的含义不同。
+#   ⇒ 现在六类一一对应引擎 `_mv_wall` / `_atk_target_ok` 的分支。
+OWN_SELF = 0
+OWN_ALLY = 1
+OWN_RIVAL = 2                 # ★ 已宣战（`war_between`）
+OWN_NEUTRAL_NATION = 3        # ★ 有主但既非盟友也非敌国
+OWN_UNOWNED = 4               # 无主、无驻军（走进去就占）
+OWN_BARBARIAN = 5             # 无主、有野人驻守（得打下来才算）
+OWNER_CHANNELS = ("self", "ally", "rival", "neutral_nation", "unowned", "barbarian")
 GRID_VISIBLE = GRID_OWNER0 + len(OWNER_CHANNELS)      # 1：视野内
 GRID_MY_HP = GRID_VISIBLE + 1                         # 1：本格我方军队总 hp / 100
 GRID_FOE_HP = GRID_MY_HP + 1                          # 1：本格可见敌方军队总 hp / 100
-GRID_MY_HALL = GRID_FOE_HP + 1                        # 1：本格是我的市政厅
-GRID_FOE_HALL = GRID_MY_HALL + 1                      # 1：本格是对手市政厅（★公开）
-GRID_CHANNELS = GRID_FOE_HALL + 1
-#   = 2 + 4 + 1 + 1 + 1 + 1 + 1 = 11（原 14：省掉 5 地形通道，城堡并进 defense）
+# ★ 市政厅按**归属**分三档 —— 用户 2026-09-24 晚：「**盟友市政厅也重要**」。
+#   （原来只有 `MY_HALL`/`FOE_HALL` ⇒ 盟友的厅既不进"我的"也不进"对手的"，**直接丢了**。
+#    中立国的厅不单列：它不可攻，且候选侧已由归属 one-hot 表达，网格里再占一列不值。）
+GRID_HALL_MINE = GRID_FOE_HP + 1                      # 1：本格是我的市政厅
+GRID_HALL_ALLY = GRID_HALL_MINE + 1                   # 1：★ 盟友的市政厅
+GRID_HALL_RIVAL = GRID_HALL_ALLY + 1                  # 1：对手的市政厅（★公开 = 打不着）
+GRID_CHANNELS = GRID_HALL_RIVAL + 1
+#   = 2 + 6 + 1 + 1 + 1 + 3 = 14
 
 # ===========================================================================
 # 4. 全局标量（`glob` 段，冻结顺序）
@@ -112,9 +132,13 @@ GLOB_SIZE = len(GLOB)
 # ===========================================================================
 # 5. token 组（实体序列；上限在 `tokenize.py` 的 `CAP`）
 # ===========================================================================
-# 沙盒的实体只有一种：**军队**（我的 + 视野内可见的敌方）。
-# 旧线还有地块/外交/事件几组 —— 沙盒不需要（棋盘已经在网格里了）。
-TOKEN_GROUPS = ("army",)
+# ★ 窗口**分组**（`WindowTransformer.encode_window` 按这个顺序拼 token）。
+#   旧线是 7 组（`g/m/a/n/e/r/k`）；沙盒**先只开两组**，但**结构留位** ——
+#   `proj` 是 `ModuleDict`、`group_emb` 按组数建表 ⇒ 将来加组是"加一个 key"，
+#   不是改主干（用户 2026-09-24：「沙盒先只开军队，**结构留位**」）。
+#     · `g` —— 全局：`encode_glob`（14 标量）⊕ 规则表内容（`features.F_GLOB` = 11）
+#     · `a` —— 军队 token（我的全部 + 视野内可见的敌方）
+TOKEN_GROUPS = ("g", "a")
 
 # 军队 token 的特征列（下标即语义，冻结）
 A_OWNER0 = 0                                        # 归属 one-hot（2）
@@ -127,4 +151,33 @@ A_ENGAGED = A_MOVED + 1                             # 交战中（1/0）
 A_WIDTH = A_ENGAGED + 1
 #   = 2 + 3 + 2 + 1 + 1 + 1 = 10
 
-POS_SCALE = 8.0        # 位置归一尺度 = 地图边长（8×8）；相对**自家核心**的偏移
+# ★ 军队 token 的**冻结列宽**（10）。窗口里每条 army token 的**实际**宽度 =
+#   `A_WIDTH` ⊕ `features.F_U`（兵种数值 4 列：hp/atk/speed/supply）——
+#   那 4 列就是用户 2026-09-24 要的「**各单位血量和各个单位的战斗力**」，
+#   而且走的是**现算的规则表**（`features.unit_vector`），引擎改了数值它就跟着变。
+A_WIDTH_RAW = A_WIDTH
+
+# ===========================================================================
+# 6'. 候选的**标记段**（下标形态之外的离散/标量信息，冻结顺序）
+# ===========================================================================
+# 候选改成**下标形态**（`type_idx` / 落点 / `army_idx` / 内容向量）之后，剩下这些
+# "这一格是什么"的标记还得显式给 —— 它们不是规则表数值（那是 `features` 的内容段）。
+# ★ 顺序冻结，`CAND_MARKS` 是宽度。
+#
+#   ① 归属 one-hot（**与 `OWNER_CHANNELS` 同一套六类**——候选与网格必须同口径，
+#      否则"候选看到的那格"和"网格里那格"讲的是两件事）。
+CAND_OWN0 = 0                                   # +6
+#   ② 市政厅归属 one-hot（**同一套六类**）—— 用户 2026-09-24 晚：「**盟友市政厅也重要**」。
+#      ★ 单列一组的理由：`归属 ⊕ 有厅` 两个输入让网络自己学 AND 是可以的，但
+#      "这格的厅是谁的"是**国祚层的核心判断**（打谁能亡国、谁亡了我就危险），
+#      不该指望它从两个 one-hot 里凑 —— 显式给，代价只有 6 列。
+CAND_HALL0 = CAND_OWN0 + len(OWNER_CHANNELS)    # +6
+CAND_VISIBLE = CAND_HALL0 + len(OWNER_CHANNELS)  # 1：目标格在视野内（看不见也要给候选=侦察）
+CAND_DIST = CAND_VISIBLE + 1                    # 1：到我家核心的 Chebyshev 距离 ÷ 地图边长
+CAND_MARKS = CAND_DIST + 1
+#   = 6 + 6 + 1 + 1 = 14
+
+# ★ 位置归一尺度 —— **不再写死**（用户 2026-09-24：「地图大小无关」）。
+#   旧值 8.0 是 8×8 的边长；现在由**调用方按 `sandbox.size` 传**（`encode` 的
+#   `pos_scale` 参数）。留这个常量只作**兜底与文档**：谁再用它当"地图边长"就错了。
+POS_SCALE_FALLBACK = 8.0

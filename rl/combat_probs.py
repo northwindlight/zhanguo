@@ -48,6 +48,13 @@ from dataclasses import dataclass, field
 from balance import COMBAT_DIE_MOD, RETREAT_ATK_PENALTY, RETREAT_DEF_COVER
 from game import unit_atk, unit_kind
 
+# ★★ 本模块里的**尺度与上限**全部读先验表（用户 2026-09-24：「搜索引擎是不是也是
+#   硬编码的，**改成从 `balance` 抽**」）—— 引擎口径（骰子/撤退/兵种攻击）本来就已经
+#   读 `balance`/`game`；会调的是尺度与上限，它们现在在 `rl/scoring.py`。
+#   ★ 一律 `S.名字`（**不要** `from .scoring import ...`：那会在导入时把值绑死，
+#     之后改表**不生效且不报错**）。
+from . import scoring as S
+
 DIE_FACES = tuple(sorted(COMBAT_DIE_MOD))          # (1,2,3,4,5,6)
 BARBARIAN = "野人"
 
@@ -259,12 +266,13 @@ class Odds:
     n_states: int = 0
     truncated: float = 0.0                                    # 未收敛的质量（正常应恒 0）
 
-    def round_bins(self, edges: tuple[int, ...] = (1, 2, 3, 5, 8)) -> list[float]:
+    def round_bins(self, edges: tuple[int, ...] | None = None) -> list[float]:
         """★ P(轮数 ≤ edge) 的**累积**分档 —— "多久打完"喂网络用这个（定长、单调）。
 
         用户 2026-09-24：「还要报告**多少概率打几个回合**」——要的是**轮数的分布**，
         不是只有期望（期望会把"1 轮速胜"和"8 轮惨胜"抹成同一个数）。
         """
+        edges = S.ROUND_BIN_EDGES if edges is None else edges
         cum = []
         for e in edges:
             cum.append(sum(p for k, p in enumerate(self.p_rounds) if k <= e))
@@ -274,7 +282,8 @@ class Odds:
         """喂网络的定长向量（`vocab.GRID_COMBAT` 那几条通道）。"""
         return [self.p_win.get(me, 0.0), self.p_lose.get(me, 0.0), self.p_draw,
                 self.p_hold.get(me, 0.0),
-                min(1.0, self.e_rounds / 10.0), min(1.0, self.e_loss.get(me, 0.0) / 100.0)]
+                min(1.0, self.e_rounds / S.PROB_ROUND_SCALE),
+                min(1.0, self.e_loss.get(me, 0.0) / S.PROB_LOSS_SCALE)]
 
     def report(self, sides: tuple[str, ...] | None = None) -> str:
         """人读的一行（终端/日志用）。`sides` 为 `None` ⇒ 全部势力。"""
@@ -283,13 +292,16 @@ class Odds:
             f"{F}: 赢{self.p_win.get(F, 0):.0%} 输{self.p_lose.get(F, 0):.0%}"
             f" 占{self.p_hold.get(F, 0):.0%} 掉{self.e_loss.get(F, 0):.0f}hp"
             for F in who)
+        # ★ 边界只从 `round_bins` 来（它读先验表）—— 原来这里又写了一遍 (1,2,3,5,8)，
+        #   改一处漏一处
         rounds = " ".join(f"≤{e}:{p:.0%}" for e, p in
-                          zip((1, 2, 3, 5, 8), self.round_bins()))
+                          zip(S.ROUND_BIN_EDGES, self.round_bins()))
         return (f"{head} | 同归{self.p_draw:.0%} | 期望{self.e_rounds:.1f}轮"
                 f" | 轮数 {rounds}")
 
 
-def assess(b: Battle, *, max_states: int = 60000, max_rounds: int = 40,
+def assess(b: Battle, *, max_states: int | None = None,
+           max_rounds: int | None = None,
            retreat_units: frozenset[int] | None = None) -> Odds:
     """精确 DP。`retreat_units` = 这些**下标**的军本轮带撤退标记（撤退保命用）。
 
@@ -297,6 +309,9 @@ def assess(b: Battle, *, max_states: int = 60000, max_rounds: int = 40,
       ⇒ hp 严格下降 ⇒ 状态图无环。`max_states/max_rounds` 只是防呆上限，
       真被顶到会在 `truncated` 里报出来（**不允许静默**）。
     """
+    # ★ 上限**每次调用时**从先验表读 —— 写进签名会在**导入时**绑死，改表不生效（不报错）
+    max_states = S.ASSESS_MAX_STATES if max_states is None else max_states
+    max_rounds = S.ASSESS_MAX_ROUNDS if max_rounds is None else max_rounds
     state0 = tuple(b.init[F] for F in b.order)
     if retreat_units:
         state0 = tuple(tuple((k, h, (idx in retreat_units) or r, c) for idx, (k, h, r, c) in enumerate(units))
@@ -431,7 +446,7 @@ def reachable_reinforcements(world, b: Battle, side: str, *,
     return out
 
 
-def assess_with_reinforcements(world, b: Battle, *, max_states: int = 60000) -> Odds:
+def assess_with_reinforcements(world, b: Battle, *, max_states: int | None = None) -> Odds:
     """把**双方各自够得着的增援**都算进去后的概率（用户：「mv 和 atk 的增援会改变什么」）。"""
     extra = {F: reachable_reinforcements(world, b, F) for F in b.order}
     extra = {F: ms for F, ms in extra.items() if ms}
@@ -501,7 +516,7 @@ def engaged_cells(world) -> list[tuple[int, int]]:
                    if a.get("engaged") and a["owner"] != BARBARIAN})
 
 
-def snapshot(world, *, with_reinf: bool = False, max_states: int = 60000
+def snapshot(world, *, with_reinf: bool = False, max_states: int | None = None
              ) -> dict[tuple[int, int], Odds]:
     """★ **本回合**所有交战格的概率 —— **每回合重算，绝不跨回合缓存**。
 
