@@ -140,6 +140,19 @@ PROB_LOSS_SCALE = 100.0     # 期望掉血 ÷ 它（≈"一支满血兵"）
 ROUND_BIN_EDGES = (1, 2, 3, 5, 8)
 
 # ===========================================================================
+# 7'. PPO 的 minibatch
+# ===========================================================================
+# ★★ **不是调优项，是必需项**（2026-09-24 实测踩出来的）：
+#   `cross2` 的开销是 **O(K²)**（K = 候选数），而 `ppo_update` 原来把**整个 buffer**
+#   （一条 iter 里两个玩家各 ~900 步、K 可达 200）**一次性**前向+反传
+#   ⇒ 单个注意力矩阵就 `B·H·K²` = 1800×4×200²×4B ≈ **1.1 GB**，连着反传要留的中间量
+#   直接顶到 **14 GB RSS** —— 在 16 GB 的 Pi 上被 **OOM 杀**（`exit=137`，
+#   日志只写到表头就断）。这正是之前"ECS 炉子日志 0 字节 + tmux 消失"的同一个病。
+#   标准 PPO **本来就分 minibatch**，这里漏了 ⇒ 补上。
+PPO_MINIBATCH = 128
+
+
+# ===========================================================================
 # 8. 工具：读表 / 改表（★ 别用 `from scoring import W_ARMY`，见文件头纪律 1）
 # ===========================================================================
 _TUNABLE = ("W_TILE", "W_ARMY", "W_KILL", "W_HP", "W_NEAR",
@@ -147,7 +160,8 @@ _TUNABLE = ("W_TILE", "W_ARMY", "W_KILL", "W_HP", "W_NEAR",
             "ALLY_SHARE", "ALLY_DEAD",
             "W_HALL_IN_INFANTRY", "W_HALL", "REWARD_TANH_SCALE",
             "ASSESS_MAX_STATES", "ASSESS_MAX_ROUNDS",
-            "PROB_ROUND_SCALE", "PROB_LOSS_SCALE", "ROUND_BIN_EDGES")
+            "PROB_ROUND_SCALE", "PROB_LOSS_SCALE", "ROUND_BIN_EDGES",
+            "PPO_MINIBATCH")
 
 
 def as_dict() -> dict:

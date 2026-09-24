@@ -210,39 +210,58 @@ def gae(rewards: list[float], values: list[float], dones: list[bool],
 
 def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
                clip: float = 0.2, vf_coef: float = 0.5, ent_coef: float = 0.01,
-               lr: float = 3e-4) -> dict:
-    """标准 PPO clip 更新（**只喂这一方的步**）。"""
+               lr: float = 3e-4, minibatch: int | None = None) -> dict:
+    """标准 PPO clip 更新（**只喂这一方的步**）。
+
+    ★★ **必须分 minibatch**（`scoring.PPO_MINIBATCH`，缺省 128）—— 这是踩出来的：
+      `cross2` 的开销是 **O(K²)**，而"整个 buffer 一次性前向+反传"在一条 iter
+      （~1800 步、K 可达 200）下会把注意力中间量顶到 **14 GB RSS** ⇒ 在 16 GB 的 Pi 上
+      被 **OOM 杀**（实测 `exit=137`，日志只写到表头）。标准 PPO 本来就分 minibatch。
+    """
     if not steps:
         return {}
-    batch = collate([s.obs for s in steps])
-    aidx = torch.tensor([s.aidx for s in steps], dtype=torch.long)
-    old_logp = torch.tensor([s.logp for s in steps], dtype=torch.float32)
+    minibatch = S.PPO_MINIBATCH if minibatch is None else minibatch
+    n = len(steps)
+    aidx_all = np.array([s.aidx for s in steps], dtype=np.int64)
+    old_logp_all = np.array([s.logp for s in steps], dtype=np.float32)
     adv, ret = gae([s.reward for s in steps], [s.value for s in steps],
                    [s.done for s in steps])
-    adv_t = torch.tensor(adv)
-    adv_t = (adv_t - adv_t.mean()) / (adv_t.std() + 1e-8)
-    ret_t = torch.tensor(ret)
+    adv_all = (adv - adv.mean()) / (adv.std() + 1e-8)
+    ret_all = np.asarray(ret, dtype=np.float32)
 
     opt = torch.optim.Adam(net.parameters(), lr=lr)
-    stats = {}
+    stats: dict = {}
+    order = np.arange(n)
     for _ in range(epochs):
-        logits, value = net(batch)
-        logp_all = torch.log_softmax(logits, -1)
-        logp = logp_all.gather(1, aidx.unsqueeze(1)).squeeze(1)
-        ratio = torch.exp(logp - old_logp)
-        surr = torch.min(ratio * adv_t,
-                         torch.clamp(ratio, 1 - clip, 1 + clip) * adv_t)
-        p = torch.softmax(logits, -1)
-        ent = -(p * logp_all).sum(-1).mean()
-        loss = -surr.mean() + vf_coef * nn.functional.mse_loss(value, ret_t) - ent_coef * ent
-        opt.zero_grad()
-        loss.backward()
-        nn.utils.clip_grad_norm_(net.parameters(), 0.5)
-        opt.step()
-        stats = {"loss": float(loss.detach()), "pg": float(-surr.mean().detach()),
-                 "vf": float(nn.functional.mse_loss(value, ret_t).detach()),
-                 "ent": float(ent.detach()),
-                 "kl": float((old_logp - logp).mean().detach())}
+        np.random.shuffle(order)
+        for lo in range(0, n, minibatch):
+            sel = order[lo:lo + minibatch]
+            # ★ **按 minibatch collate**（不是先 collate 全部再切）—— 大 batch 的补零
+            #   张量本身就是一笔大分配，切完再切就白付了
+            obs = [steps[i].obs for i in sel]
+            batch = collate(obs)
+            aidx = torch.as_tensor(aidx_all[sel])
+            old_logp = torch.as_tensor(old_logp_all[sel])
+            adv_t = torch.as_tensor(adv_all[sel])
+            ret_t = torch.as_tensor(ret_all[sel])
+            logits, value = net(batch)
+            logp_all = torch.log_softmax(logits, -1)
+            logp = logp_all.gather(1, aidx.unsqueeze(1)).squeeze(1)
+            ratio = torch.exp(logp - old_logp)
+            surr = torch.min(ratio * adv_t,
+                             torch.clamp(ratio, 1 - clip, 1 + clip) * adv_t)
+            p = torch.softmax(logits, -1)
+            ent = -(p * logp_all).sum(-1).mean()
+            loss = (-surr.mean() + vf_coef * nn.functional.mse_loss(value, ret_t)
+                    - ent_coef * ent)
+            opt.zero_grad()
+            loss.backward()
+            nn.utils.clip_grad_norm_(net.parameters(), 0.5)
+            opt.step()
+            stats = {"loss": float(loss.detach()), "pg": float(-surr.mean().detach()),
+                     "vf": float(nn.functional.mse_loss(value, ret_t).detach()),
+                     "ent": float(ent.detach()),
+                     "kl": float((old_logp - logp).mean().detach())}
     return stats
 
 
