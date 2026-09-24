@@ -93,21 +93,35 @@ def collect(model, seed: int, beta: float = 0.0) -> Rollout:
         i, lp, v = act(model, obs, deterministic=DET, win=w,
                        use_exec=beta > 0, exec_beta=beta)
         keep = obs
+        _kind = obs.cand["actions"][i].kind
         obs, rew, done, info = env.step(obs.cand["actions"][i])
         r.add(keep, i, lp, v, rew, done, win=w, ok=info["ok"], turn=info["turn"])
+        r.steps[-1]["kind"] = _kind
         if done:
             break
     return r
 
 
 def episode_stats(model, seed: int, beta: float) -> dict:
-    """跑一局，报第三条路最关心的三个数：撞墙率 / 消费 / 地。"""
+    """跑一局，报第三条路最关心的数：撞墙率 / 消费 / 地 + **逐类型的尝试与成功**。
+
+    ★逐类型那张表是回答「β 会不会把**合法**动作也压掉」的关键：只看被拒率降了不够 ——
+    要确认 `build` 的**成功次数**没掉，才说明压掉的尽是本来就会失败的。
+    """
     r = collect(model, seed, beta)
     n = len(r.steps)
     rej = sum(1 for s in r.steps if not s["ok"])
+    att: dict = {}
+    okk: dict = {}
+    for st in r.steps:
+        k = st.get("kind", "?")
+        att[k] = att.get(k, 0) + 1
+        if st["ok"]:
+            okk[k] = okk.get(k, 0) + 1
     s = env.summary()
     return {"steps": n, "rej": rej, "rate": rej / max(n, 1),
-            "spend": s["spend_total"], "tiles": s["tiles"]}
+            "spend": s["spend_total"], "tiles": s["tiles"],
+            "att": att, "okk": okk}
 
 
 def head_inputs(model, rollout) -> tuple[torch.Tensor, torch.Tensor]:
@@ -186,5 +200,11 @@ for p in CKPTS:
             st = episode_stats(m, SEED, b)
             print(f"    {b:>6.2f}{st['rate']:>8.1%}{st['spend']:>10,.0f}{st['tiles']:>7}",
                   flush=True)
+            if b in (0.0, 1.0) or b == SWEEP[-1]:
+                for k in ("build", "sell", "recruit", "buy", "move", "attack"):
+                    if st["att"].get(k):
+                        a, o = st["att"][k], st["okk"].get(k, 0)
+                        print(f"        {k:<8} 尝试 {a:>5}  成功 {o:>5}  被拒 {a - o:>5}"
+                              f"  成功率 {o / a:>5.0%}", flush=True)
 
 print(f"\n总耗时 {time.time() - t0:.0f}s", flush=True)

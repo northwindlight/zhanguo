@@ -32,9 +32,12 @@ from rl.hw import set_threads  # noqa: E402
 from rl.tokenize import GROUPS, tokenize  # noqa: E402
 from rl.transformer import WindowTransformer  # noqa: E402
 
-CKPTS = [a for a in sys.argv[1:] if not a.startswith("--")]
+# ★位置参数只认路径：`--beta 1.0` 的那个 "1.0" 不是 ckpt（踩过：跑完扫描拿它去 load）
+CKPTS = [a for a in sys.argv[1:]
+         if not a.startswith("--") and not a.lstrip("-").replace(".", "").isdigit()]
 SEEDS = [900000 + i for i in range(5)]
 TEACHER = "v11plus"
+BETA = float(sys.argv[sys.argv.index("--beta") + 1]) if "--beta" in sys.argv else 0.0
 set_threads(int(__import__("os").environ.get("ZHANGUO_THREADS", "4")))
 
 env = ZhanguoEnv(map_size=16, max_turns=200, max_actions_per_turn=ACT_SAFETY)
@@ -71,7 +74,7 @@ def spread(xs, base):
 
 
 t0 = time.time()
-print(f"留出图 {SEEDS}，各 200 回合；★ = 该档**超过老师**\n", flush=True)
+print(f"留出图 {SEEDS}，各 200 回合；β={BETA}；★ = 该档**超过老师**\n", flush=True)
 
 # ---- 老师（基准线）----
 g = [run_rule(env, sd, 200, max_actions=10 ** 9, which=TEACHER) for sd in SEEDS]
@@ -83,8 +86,10 @@ print(f"  {'':<26} {'':>9}   {spread([x[0] for x in g], base_s)}（老师自己�
 
 for p in CKPTS:
     m = load(p)
-    gg = [run_model(env, m, sd, deterministic=True, use_win=True) for sd in SEEDS]
-    ss = [run_model(env, m, sd, deterministic=False, use_win=True) for sd in SEEDS]
+    gg = [run_model(env, m, sd, deterministic=True, use_win=True, exec_beta=BETA)
+          for sd in SEEDS]
+    ss = [run_model(env, m, sd, deterministic=False, use_win=True, exec_beta=BETA)
+          for sd in SEEDS]
     gs, gt = med([x[0] for x in gg]), med([x[1] for x in gg])
     ss_, st_ = med([x[0] for x in ss]), med([x[1] for x in ss])
     print(f"  {Path(p).stem:<26} 贪心 {gs:>9,.0f}（{gs / base_s:>5.0%}）地 {gt:>5.1f}"

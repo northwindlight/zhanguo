@@ -21,13 +21,18 @@ from rl.ppo import act
 
 
 def run_model(env, model, seed: int, deterministic: bool,
-              use_win: bool = False) -> tuple[float, int]:
+              use_win: bool = False, exec_beta: float = 0.0) -> tuple[float, int]:
+    """`exec_beta>0` ⇒ 走第三条路的软加权（`use_exec` 与 `exec_beta` 同源，见 `ppo.act`）。
+
+    ★默认 0 ⇒ 与开关存在前逐位相同；历史那些 46%/33% 的数都是 β=0 量的，
+    与 β>0 的数**不能混着比**（那是两个不同的策略）。"""
     from rl.tokenize import tokenize
     torch.manual_seed(0)
     obs = env.reset(seed)
     while True:
         w = tokenize(env, obs) if use_win else None
-        i, _lp, _v = act(model, obs, deterministic=deterministic, win=w)
+        i, _lp, _v = act(model, obs, deterministic=deterministic, win=w,
+                         use_exec=exec_beta > 0, exec_beta=exec_beta)
         obs, _r, done, _info = env.step(obs.cand["actions"][i])
         if done:
             break
