@@ -57,18 +57,19 @@ class Step:
     player: str
 
 
-def obs_of(sb, me: str) -> dict:
+def obs_of(sb, me: str, acts=None) -> dict:
     """沙盒局面 → 网络要的一整套张量（**候选与 `legal()` 一一对应**）。"""
-    acts = sb.legal()               # ★ **只算一次**（见 `encode.candidate_features` 的说明）
-    cand = encode.candidate_features(sb, acts)
+    acts = sb.legal() if acts is None else acts   # ★ 只算一次
+    mask = encode.vision_of(sb, me)  # ★ 视野也只算一次（它原来被各函数各建一遍）
+    cand = encode.candidate_features(sb, acts, mask)
     return {
-        "grid": encode.encode_grid(sb, me),
+        "grid": encode.encode_grid(sb, me, mask),
         "glob": encode.encode_glob(sb, me),
         "cand": cand,
         "mask": np.ones(len(cand), dtype=bool),
-        "army": encode.encode_armies(sb, me),
+        "army": encode.encode_armies(sb, me, mask),
         "army_mask": None,          # 下面按实际条数补
-        "cand_xy": encode.candidate_xy(sb, acts),
+        "cand_xy": encode.candidate_xy(sb, acts, mask),
     }
 
 
@@ -130,7 +131,10 @@ def collect_episode(nets: dict[str, PolicyNet], sb: Sandbox, *,
         me = sb.current_player()
         if me is None:
             break
-        obs = obs_of(sb, me)
+        actions = sb.legal()
+        if not actions:      # ★ 保险：`_auto_advance` 本该已经推进了（动作空间已无全局 END）
+            break
+        obs = obs_of(sb, me, actions)
         batch = collate([obs])
         logits, value = nets[me](batch["grid"], batch["glob"], batch["cand"],
                                  batch["mask"], batch["army"], batch["army_mask"],
@@ -145,7 +149,6 @@ def collect_episode(nets: dict[str, PolicyNet], sb: Sandbox, *,
             aidx = int(rng.choice(len(p), p=p))
         logp = float(np.log(max(1e-12, probs[aidx])))
 
-        actions = sb.legal()
         act = actions[aidx]
         prev_score = _score(sb, me)
         sb.step(act)

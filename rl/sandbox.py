@@ -235,12 +235,18 @@ class Sandbox:
         """
         name = self.current_player()
         if name is None or not self.alive(name):
-            return [(END, None, None, None)]
+            return []
         out: list[tuple] = []
         for a in self.armies_of(name):
             if a.get("engaged") or a.get("moved_turn") == self.world.turn:
                 continue                       # ★ 已用过的军 / 交战中的军：整支屏蔽
             here = (a["x"], a["y"])
+            # ★★ **"原地不动"**（用户 2026-09-24：「不应该回合结束，改成一个给军队的
+            #   特殊动作，**原地不动**，使用后 **mask 这个军队**，当全部军队 mask 后，
+            #   **自动结束**，而不是手动结束」）
+            #   ⇒ 取代了原来的**全局** `end_turn` 动作。这样每个候选都挂在某支军队上
+            #   （动作空间同质），模型必须**为每支军各自决定**，不能一按 END 跳过全部。
+            out.append((a["id"], "hold", here[0], here[1]))
             walk = self.world._reachable(name, a, for_attack=False)
             for cell in sorted(walk):
                 if cell != here:
@@ -248,7 +254,7 @@ class Sandbox:
             for cell in sorted(self.world._reachable(name, a, for_attack=True)):
                 if cell not in walk:
                     out.append((a["id"], "attack", cell[0], cell[1]))
-            # ★ ③ **无视野的邻格：移动与进攻两条路都给**（用户 2026-09-24）
+            # ★ **无视野的邻格：移动与进攻两条路都给**（用户 2026-09-24）
             #   引擎的规矩是「**敌国领土不能 mv，但允许 atk**」（`_mv_wall` 拒 mv / `attack` 收），
             #   而看不见的时候模型**无从知道那一格是什么** ⇒ 两条都给，让引擎当场判，
             #   并把它那句教学式错误消息（实测原话：「(5,5) 有敌军驻守，不能 mv 过去；
@@ -256,7 +262,6 @@ class Sandbox:
             for (x, y) in self._probe_cells(name, a, walk):
                 out.append((a["id"], "move", x, y))
                 out.append((a["id"], "attack", x, y))
-        out.append((END, None, None, None))
         return out
 
     def _probe_cells(self, name: str, a: dict, walk) -> list[tuple]:
@@ -293,13 +298,13 @@ class Sandbox:
         if name is None:
             return False, "本局已结束"
         aid, kind, x, y = action
-        if aid == END:
-            self.pending.pop(0)
-            if not self.pending:
-                self.end_turn()
-                self.pending = [n for n in PLAYERS if self.alive(n)]
+        if kind == "hold":
+            a = self.world._army(name, aid)
+            if a is not None:
+                a["moved_turn"] = self.world.turn     # ★ mask 这支军（本回合不再有动作）
             self.last_ok = True
-            return True, "end"
+            self._auto_advance()
+            return True, "hold"
         if kind == "move":
             ok, msg = self.world.move(name, aid, x, y)
         elif kind == "attack":
@@ -307,7 +312,30 @@ class Sandbox:
         else:
             ok, msg = False, f"未知动作 {action!r}"
         self.last_ok = bool(ok)
+        self._auto_advance()
         return ok, msg
+
+    def can_act(self, name: str) -> bool:
+        """该国**还有能动的军**吗（都 mask 过 / 交战中 ⇒ 没有）。
+
+        ★ `_auto_advance` 的判据 —— "全部军队 mask 后自动结束"落在这条上。
+        """
+        return any(not a.get("engaged") and a.get("moved_turn") != self.world.turn
+                   for a in self.armies_of(name))
+
+    def _auto_advance(self) -> None:
+        """★ **全部军队都被 mask 后自动推进**（用户 2026-09-24：「当全部军队 mask 后，
+        **自动结束**，而不是手动结束」）。
+
+        判据是 `can_act()`（还有没有能动的军）。没有 ⇒ 本方收手；两方都收手 ⇒ 结算 + 开下一回合。
+        """
+        name = self.current_player()
+        if name is None or self.can_act(name):
+            return
+        self.pending.pop(0)
+        if not self.pending:
+            self.end_turn()
+            self.pending = [n for n in PLAYERS if self.alive(n)]
 
     def is_terminal(self) -> bool:
         return self.done()

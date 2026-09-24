@@ -60,7 +60,7 @@ def _move_cost_of(world, x: int, y: int) -> int:
         return 1
 
 
-def _owner_class(world, name: str, x: int, y: int) -> int:
+def _owner_class(world, name: str, x: int, y: int, by_cell: dict | None = None) -> int:
     """归属通道下标（`vocab.OWNER_CHANNELS`）：
 
     `0=self · 1=ally · 2=rival · 3=neutral · 4=barbarian`
@@ -79,14 +79,14 @@ def _owner_class(world, name: str, x: int, y: int) -> int:
         except Exception:                      # noqa: BLE001
             pass
         return 2                               # 对手（含中立国——它不可 atk，但 mv 也不可）
-    for a in world.armies:
+    for a in (by_cell.get((x, y), world.armies) if by_cell is not None else world.armies):
         if a["owner"] == "野人" and a.get("hp", 0) > 0 and (a["x"], a["y"]) == (x, y):
             return 4
     return 3                                   # 无主
 
 
 # ============================================================ 观测框（★与地图大小无关）
-def frame_of(sb, me: str) -> tuple[int, int, int, int]:
+def frame_of(sb, me: str, mask=None) -> tuple[int, int, int, int]:
     """我方视角的**观测框** `(x0, y0, H, W)` = **视野的外接矩形**。
 
     旧线口径（`rl/transformer.py` / 旧 `model.py` 原话）：「观测网格是『**可见区外接框**』，
@@ -96,7 +96,7 @@ def frame_of(sb, me: str) -> tuple[int, int, int, int]:
     ⇒ **没有固定半径**：框跟着视野走（这也是为什么大地图上模型只看自己周围那一圈）。
     极端情况（一支军都没有、视野空）⇒ 退回核心周围 1 格，保证框非空。
     """
-    mask = _vision(sb.world, me)
+    mask = _vision(sb.world, me) if mask is None else mask
     if not mask:
         hx, hy = _home_cell(sb, me)
         return hx, hy, 1, 1
@@ -115,13 +115,24 @@ def to_frame(sb, me: str, x: int, y: int) -> tuple[int, int]:
     return -1, -1
 
 
-def encode_grid(sb, me: str) -> np.ndarray:
-    """局面 → `(GRID_CHANNELS, H, W)`，**H/W 逐帧可变**（= 视野外接框，见 `frame_of`）。"""
+def encode_grid(sb, me: str, mask=None) -> np.ndarray:
+    """局面 → `(GRID_CHANNELS, H, W)`，**H/W 逐帧可变**（= 视野外接框，见 `frame_of`）。
+
+    ★ `mask` 可外部传入（`obs_of` 里算一次）—— `vision_mask` 是 O(地块数) 的，
+      实测一局被调上万次（每个编码函数各建一遍、`candidate_xy` 还**每候选**建一遍）。
+    """
     w = sb.world
-    x0, y0, h, ww = frame_of(sb, me)
+    mask = _vision(w, me) if mask is None else mask
+    x0, y0, h, ww = frame_of(sb, me, mask)
     foe = _other(me)
-    mask = _vision(w, me)
     g = np.zeros((V.GRID_CHANNELS, h, ww), dtype=np.float32)
+    # ★★ **先建"格 → 军队"索引**（一次 O(军) 遍历），别在网格循环里扫全表：
+    #   原来每格都 `for a in w.armies` ⇒ **O(格数 × 军队数)**，而 16×16 上有 256 个
+    #   野人（每格一个）⇒ 一格要扫 256 次（实测 2 局 600s 跑不完，8×8 上被小地图掩盖）。
+    by_cell: dict = {}
+    for a in w.armies:
+        if a.get("hp", 0) > 0:
+            by_cell.setdefault((a["x"], a["y"]), []).append(a)
     for i in range(h):
         for j in range(ww):
             x, y = x0 + j, y0 + i
@@ -135,14 +146,12 @@ def encode_grid(sb, me: str) -> np.ndarray:
             owner_here = w.owned_by(x, y)
             g[V.GRID_DEFENSE, i, j] = _defense_of(w, x, y, owner_here) / 100.0
             g[V.GRID_MOVE, i, j] = _move_cost_of(w, x, y) / 2.0
-            g[V.GRID_OWNER0 + _owner_class(w, me, x, y), i, j] = 1.0
+            g[V.GRID_OWNER0 + _owner_class(w, me, x, y, by_cell), i, j] = 1.0
             g[V.GRID_VISIBLE, i, j] = 1.0 if visible else 0.0
             if not visible:
                 continue                     # ★ 看不清的格：军队与厅一概不写
             mine = foehp = 0.0
-            for a in w.armies:
-                if a.get("hp", 0) <= 0 or (a["x"], a["y"]) != (x, y):
-                    continue
+            for a in by_cell.get((x, y), ()):        # ★ 查索引，不扫全表
                 if a["owner"] == me:
                     mine += a["hp"]
                 elif a["owner"] == foe:
@@ -185,11 +194,11 @@ def encode_glob(sb, me: str) -> np.ndarray:
 
 
 # ============================================================ 军队 token
-def encode_armies(sb, me: str) -> np.ndarray:
+def encode_armies(sb, me: str, mask=None) -> np.ndarray:
     """军队 token `(k, A_WIDTH)`：我的全部 + **看得见的**敌方。位置 = **相对家的偏移**。"""
     w = sb.world
     foe = _other(me)
-    mask = _vision(w, me)
+    mask = _vision(w, me) if mask is None else mask
     hx, hy = _home_cell(sb, me)
     rows = []
     for a in sorted(w.armies, key=lambda a: (a["owner"] != me, a["id"])):
@@ -220,7 +229,16 @@ def _army_row(sb, a: dict, me: str, hx: int, hy: int) -> list[float]:
 CAND_WIDTH = 12
 
 
-def candidate_features(sb, acts=None) -> np.ndarray:
+def vision_of(sb, me: str):
+    """当前视野 —— `obs_of` 里**算一次**、再传给下面各编码函数用。
+
+    ★ 为什么单拎出来：`vision_mask` 是 O(地块数) 的，而各编码函数原先各自重建一遍
+      （`candidate_xy` 甚至**每候选**一遍）—— 实测一局被调上万次（20×20 上 10883 次）。
+    """
+    return _vision(sb.world, me)
+
+
+def candidate_features(sb, acts=None, mask=None, by_cell=None) -> np.ndarray:
     """候选动作 → 一行特征 `(K, CAND_WIDTH)`。
 
     ★ `acts` 可外部传入（`sandbox.legal()` 的结果）—— **别在这里再调一次**：
@@ -240,8 +258,13 @@ def candidate_features(sb, acts=None) -> np.ndarray:
     me = sb.current_player()
     foe = _other(me) if me else None
     hx, hy = _home_cell(sb, me)
-    mask = _vision(w, me) if me else set()
+    mask = ((_vision(w, me) if mask is None else mask) if me else set())
     by_id = {a["id"]: a for a in sb.armies_of(me)} if me else {}
+    if by_cell is None:                     # ★ 格→军索引（`_owner_class` 查它，不扫全表）
+        by_cell = {}
+        for _a in w.armies:
+            if _a.get("hp", 0) > 0:
+                by_cell.setdefault((_a["x"], _a["y"]), []).append(_a)
     out = []
     for aid, kind, x, y in (sb.legal() if acts is None else acts):
         row = [0.0] * CAND_WIDTH
@@ -250,7 +273,7 @@ def candidate_features(sb, acts=None) -> np.ndarray:
             row[11] = 1.0
         else:
             row[0 if kind == "move" else 1] = 1.0
-            cls = _owner_class(w, me, x, y)
+            cls = _owner_class(w, me, x, y, by_cell)
             row[3 + min(cls, 2)] = 1.0
             t = w.tiles.get((x, y))
             row[6] = 1.0 if (t is not None and t["owner"] == foe
@@ -264,19 +287,26 @@ def candidate_features(sb, acts=None) -> np.ndarray:
     return np.array(out, dtype=np.float32)
 
 
-def candidate_xy(sb, acts=None) -> np.ndarray:
+def candidate_xy(sb, acts=None, mask=None) -> np.ndarray:
     """每个候选的**框内坐标** `(K, 2)`（整数索引）—— 网络拿它去卷积特征图里 gather。
 
     与 `encode_grid` **同一坐标系**（视野外接框），所以"候选看到的那一格"与"网格里的
     那一格"严格对应；框外的候选（视野外的试探格、`end_turn`）⇒ `(-1,-1)`，网络侧夹到 0。
     """
     me = sb.current_player()
+    acts = sb.legal() if acts is None else acts
+    if me is None:
+        return np.array([(-1, -1)] * len(acts), dtype=np.int64)
+    # ★ **框算一次**（原来每个候选都 `to_frame` → `frame_of` → **重建一次 vision_mask**，
+    #   候选 ~40 个 ⇒ 每步白建 40 次；实测一局 vision_mask 被调上万次，这是主因）
+    x0, y0, h, w = frame_of(sb, me, mask)
     out = []
-    for aid, kind, x, y in (sb.legal() if acts is None else acts):
-        if aid == END or me is None:
+    for aid, kind, x, y in acts:
+        if aid == END:
             out.append((-1, -1))
-        else:
-            out.append(to_frame(sb, me, int(x), int(y)))
+            continue
+        i, j = int(y) - y0, int(x) - x0
+        out.append((i, j) if (0 <= i < h and 0 <= j < w) else (-1, -1))
     return np.array(out, dtype=np.int64)
 
 
