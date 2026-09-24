@@ -36,6 +36,30 @@ from .sandbox import END, PLAYERS
 
 
 # ============================================================ 谁占这一格
+def _defense_of(world, x: int, y: int, owner) -> int:
+    """本格**总减伤%** = 引擎的 `_defense_pct`（地形 × 城堡**已合并**在引擎里）。
+
+    ★ 城堡不单列（用户：「**也不应该看城堡**」）—— 它本来就是防御的一部分。
+    """
+    try:
+        return int(world._defense_pct(x, y, owner or "野人"))
+    except Exception:                              # noqa: BLE001  地图边界等
+        return 0
+
+
+def _move_cost_of(world, x: int, y: int) -> int:
+    """骑兵进这一格的**移动代价**（用户点名的"移动属性（对应骑兵）"）。
+
+    取 `game.unit_move_cost({"type": "骑"}, 地形)`；骑兵 `speed=2` ⇒ 森林/山地这类
+    高代价地形对它的相对影响最大（步兵 speed=1 反正只能走一格，分辨不出差别）。
+    """
+    from game import unit_move_cost
+    try:
+        return int(unit_move_cost({"type": "骑"}, world.tile_terrain(x, y)))
+    except Exception:                              # noqa: BLE001
+        return 1
+
+
 def _owner_class(world, name: str, x: int, y: int) -> int:
     """归属通道下标（`vocab.OWNER_CHANNELS`）：0=自己 1=对手 2=无主 3=野人驻守。"""
     o = world.owned_by(x, y)
@@ -93,9 +117,12 @@ def encode_grid(sb, me: str) -> np.ndarray:
                 continue                                  # 框超出地图 ⇒ 保持全 0
             t = w.tiles.get((x, y))
             visible = (x, y) in mask
-            terr = w.tile_terrain(x, y)
-            if terr in V.TERRAIN:
-                g[V.GRID_TERRAIN0 + V.TERRAIN.index(terr), i, j] = 1.0
+            # ★★ 地形**扁平化为两个军事属性**（用户 2026-09-24：「看不见地形特征，
+            #   也不应该看城堡，扁平化为**防御属性**和**移动属性**（对应骑兵）…
+            #   地形…**对于军事价值很低**」）—— 军事上只值"好不好守"与"走得快不快"。
+            owner_here = w.owned_by(x, y)
+            g[V.GRID_DEFENSE, i, j] = _defense_of(w, x, y, owner_here) / 100.0
+            g[V.GRID_MOVE, i, j] = _move_cost_of(w, x, y) / 2.0
             g[V.GRID_OWNER0 + _owner_class(w, me, x, y), i, j] = 1.0
             g[V.GRID_VISIBLE, i, j] = 1.0 if visible else 0.0
             if not visible:

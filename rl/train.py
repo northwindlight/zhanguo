@@ -300,6 +300,24 @@ def _fmt(d: dict) -> str:
 
 
 if __name__ == "__main__":
-    import sys
-    it = int(sys.argv[1]) if len(sys.argv) > 1 else 5
-    train(iters=it, episodes_per_iter=4)
+    import argparse
+
+    ap = argparse.ArgumentParser(description="沙盒 PPO 自对弈训练")
+    ap.add_argument("--threads", type=int, default=1,
+                    help="torch 线程数（0=自动=物理核）。★ **ECS 上必须 1** —— "
+                         "SMT 逻辑核对向量计算零收益、只多同步开销（实测开 2 线程慢 3.4×）。"
+                         "`rl/run_ecs.sh` 已经在**进程启动前**设了 OMP/MKL/OpenBLAS=1，"
+                         "这里是第三道保险。")
+    ap.add_argument("--iters", type=int, default=5)
+    ap.add_argument("--episodes", type=int, default=4, help="每 iter 自对弈局数")
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--lr", type=float, default=3e-4)
+    ap.add_argument("--temperature", type=float, default=1.0)
+    ap.add_argument("--first-streak-limit", type=int, default=5,
+                    help="先手连续赢这么多局就抛断言（闸门，见 train() 的 docstring）")
+    a = ap.parse_args()
+    if a.threads:
+        import torch
+        torch.set_num_threads(a.threads)
+    train(iters=a.iters, episodes_per_iter=a.episodes, seed=a.seed, lr=a.lr,
+          temperature=a.temperature, first_streak_limit=a.first_streak_limit)
