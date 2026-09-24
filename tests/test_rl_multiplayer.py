@@ -169,91 +169,179 @@ class TestEnemiesAreASet(unittest.TestCase):
     def test_scorer_counts_all_rivals(self):
         """打分器：**两个**对手都进分数（原来只有"那一个"进）。
 
-        ★ 双向（缺一条就是空测试）：
-          · **看得见** ⇒ 打掉**丙**的军 / 打掉**乙**的军，**都**要让分数变
-            （乙 = "原来那个对手"，丙 = "被静默漏掉的那个"）。
-          · **看不见**（空 mask）⇒ 打谁分数都**一分不变**（防偷看那条同时钉住）。
-          · 差值**正好** = `W_HP × 一支军的血`（残留的敌方 hp 项；击杀那一项已改成
-            累计计数，见 `test_kills_term_is_cumulative_and_mine_only`）。
+        ★ 战果账本按 `(凶手, 受害者)` 成对记，打分器按**当时的 `foes`** 筛
+          ⇒ 「打乙」和「打丙」**都**要计，而「打野人」**一分不计**。
         """
         from rl import scoring as S
-        want = S.W_HP * 100                        # 一支满血步兵的 hp 项 = 0.02×100 = 2
+        sb = sb_of(size=16)
+        base = E.score(sb.world, "甲", mask=BLIND, known={})
 
-        def kill_diff(who, mask):
-            sb = sb_of(size=16)
-            w = sb.world
-            s0 = E.score(w, "甲", mask=mask, known={})
-            [a for a in w.armies if a["owner"] == who][0]["hp"] = 0
-            return E.score(w, "甲", mask=mask, known={}) - s0
+        def with_kills(k):
+            return E.score(sb.world, "甲", mask=BLIND, known={}, kills=k) - base
 
-        seen = frozenset(sb_of(size=16).world.tiles)      # 全看见（军队都在自家核心上）
-        for who in ("乙", "丙"):
-            self.assertAlmostEqual(kill_diff(who, seen), want, places=6,
-                                   msg=f"打掉「{who}」的军分数没动 ⇒ 这个对手不进分数")
-        for who in ("乙", "丙"):                          # ★ 反向：看不见就必须一分不变
-            self.assertAlmostEqual(kill_diff(who, BLIND), 0.0, places=6,
-                                   msg=f"看不见「{who}」的军却影响分数 ⇒ 偷看")
+        self.assertAlmostEqual(with_kills({("甲", "乙"): 1}), S.W_KILL, places=6,
+                               msg="打乙没计 ⇒ 那个对手被静默漏掉")
+        self.assertAlmostEqual(with_kills({("甲", "丙"): 1}), S.W_KILL, places=6,
+                               msg="打丙没计 ⇒ 那个对手被静默漏掉")
+        self.assertAlmostEqual(with_kills({("甲", "乙"): 1, ("甲", "丙"): 1}),
+                               2 * S.W_KILL, places=6, msg="两个对手的战果都要计")
+        self.assertAlmostEqual(with_kills({("甲", "野人"): 5}), 0.0, places=6,
+                               msg="打野人不是「破敌」，不该加分")
+        self.assertAlmostEqual(with_kills({("乙", "甲"): 5}), 0.0, places=6,
+                               msg="**别人**的战果不该给我加分")
 
-    def test_kills_term_is_cumulative_and_mine_only(self):
-        """★★ 击杀那一项（用户 2026-09-25：「只计算**我军**杀掉的敌军来加分」）。
+    def test_kills_and_dmg_terms_are_cumulative(self):
+        """★★ 两项战果（用户 2026-09-25：「只计算我军杀掉的敌军来加分」
+        ＋「`W_HP × (我的血 − 看得见的敌方血)` **也要改，和击杀一样**」）。
 
-        · 我的击杀数进分数（`W_KILL × 支数`），且**不需要视野**（单调计数）；
-        · **对手**的击杀数**不进我的分数**（那是"我被杀了"的份，不能变成加分）。
+        · 累计计数进分数，且**完全不需要视野**（单调 ⇒ 不会闪断）；
+        · 只认**打敌国**（成对记账 + 按 `foes` 筛）；
+        · 不传账本 ⇒ 当成 0（**不是**退回"数看得见的东西"那条老路）。
         """
         from rl import scoring as S
         sb = sb_of(size=16)
         base = E.score(sb.world, "甲", mask=BLIND, known={})
         for n in (1, 3):
-            got = E.score(sb.world, "甲", mask=BLIND, known={}, kills={"甲": n})
-            self.assertAlmostEqual(got - base, S.W_KILL * n, places=6,
-                                   msg=f"击杀 {n} 支该加 {S.W_KILL * n} 分")
-        self.assertAlmostEqual(
-            E.score(sb.world, "甲", mask=BLIND, known={}, kills={"乙": 9}), base,
-            places=6, msg="对手的击杀数不该给我加分")
-        # ★ 不传账本 ⇒ 当成 0（**不是**退回"数看得见的敌人"那条老路）
-        self.assertAlmostEqual(base, E.score(sb.world, "甲", mask=BLIND, known={}),
-                               places=6)
+            self.assertAlmostEqual(
+                E.score(sb.world, "甲", mask=BLIND, known={},
+                        kills={("甲", "乙"): n}) - base,
+                S.W_KILL * n, places=6, msg=f"击杀 {n} 支该加 {S.W_KILL * n} 分")
+        for hp in (40, 250):
+            self.assertAlmostEqual(
+                E.score(sb.world, "甲", mask=BLIND, known={},
+                        dmg={("甲", "丙"): hp}) - base,
+                S.W_HP * hp, places=6, msg=f"打掉 {hp} 点血该加 {S.W_HP * hp} 分")
+        # ★★ 两项战果**完全不吃视野** —— 正确的比法是"**隔离出战果的贡献**"：
+        #   同一个 mask 下取"带战果 − 不带战果"，两个 mask 的这个差必须**一模一样**。
+        #   （直接比两个 mask 的总分是错的：总分里还有 `W_TILE` 那一项，它**仍然吃视野**。）
+        seen = frozenset(sb_of(size=16).world.tiles)
+        for k, d in (({("甲", "乙"): 2}, None), (None, {("甲", "丙"): 300})):
+            def contrib(mask):
+                return (E.score(sb.world, "甲", mask=mask, known={}, kills=k, dmg=d)
+                        - E.score(sb.world, "甲", mask=mask, known={}))
+            self.assertAlmostEqual(contrib(BLIND), contrib(seen), places=6,
+                                   msg="战果的贡献随视野变了 ⇒ 又回到「看得见才数」了")
+        # ★★ **领土那半也去掉了**（2026-09-25 用户：「每个打分器只对自己国家负责…
+        #   完全不需要什么视野地图」）⇒ 把**读敌人**的项关掉之后，分数**与 mask 无关**。
+        with S.override(W_NEAR=0.0, W_THREAT=0.0):
+            self.assertAlmostEqual(
+                E.score(sb.world, "甲", mask=seen, known={}),
+                E.score(sb.world, "甲", mask=BLIND, known={}), places=6,
+                msg="除威胁系统之外还有项在吃视野 ⇒ 那条口径没落实")
+
+
+class TestNoFogDependence(unittest.TestCase):
+    """★★ 用户 2026-09-25 的口径（覆盖**除威胁系统以外**的全部项）：
+
+        「每个打分器**只对自己国家负责**就行了，例如**甲打了一块地，甲自己的计分器
+          加分，乙的扣分**，**完全不需要什么视野地图**」
+
+    而**威胁系统是唯一的例外**，且那一项读敌军位置是**用户明说正确**的：
+      「这里本来就是**暴露出的敌人越多防御越有价值，没暴露的也无法虚空防守**」。
+
+    所以能钉死的不变量是：**用真实路径**（厅的位置来自**永久账本** `known_halls`）
+    时，打分的**所有其它项都 mask 无关**。
+    """
+
+    def test_score_is_mask_independent_except_threat(self):
+        from rl import scoring as S
+        from rl.sandbox import Sandbox
+        for spy in (True, False):
+            sb = Sandbox(seed=1, size=16, halls_known=spy).reset()
+            w, me = sb.world, "甲"
+            if not spy:                        # 自己找厅：先让它"看见过"
+                sb.known_halls(me, frozenset(w.tiles))
+            emp, full = frozenset(), frozenset(w.tiles)
+            a = E.score(w, me, mask=emp, known=sb.known_halls(me, emp))
+            b = E.score(w, me, mask=full, known=sb.known_halls(me, full))
+            self.assertAlmostEqual(a, b, places=9,
+                                   msg=f"spy={spy}：除威胁外还有项吃视野")
+        # ★ 反向对照：把敌军摆到我厅边上、**且看得见** ⇒ 威胁项必须让两者分开
+        #   （否则上面那条"相等"可能只是因为威胁项整个是死的）
+        sb = sb_of(size=16)
+        w, me = sb.world, "甲"
+        hall = E.hall_cells(w, me)[0]
+        foe = next(f for f in sb.players if f != me)
+        army = [x for x in w.armies if x["owner"] == foe][0]
+        army["x"], army["y"] = hall           # 贴到我的厅上 ⇒ 必在视野内
+        self.assertLess(E.score(w, me, mask=frozenset(w.tiles),
+                                known=sb.known_halls(me, frozenset(w.tiles))), 1e9)
+        with S.override(W_THREAT=0.0):
+            emp2 = frozenset()
+            x1 = E.score(w, me, mask=emp2, known=sb.known_halls(me, emp2))
+            x2 = E.score(w, me, mask=frozenset(w.tiles),
+                         known=sb.known_halls(me, frozenset(w.tiles)))
+            self.assertAlmostEqual(x1, x2, places=9,
+                                   msg="W_THREAT=0 后两者还不等 ⇒ 差不是威胁项来的")
 
 
 class TestKillLedger(unittest.TestCase):
-    """★★ 归因规则（引擎不记账，`mp.py` 又不许改 ⇒ 只能按"结算瞬间同格共处"归因）。"""
+    """★★ 归因规则（引擎不记账，`mp.py` 又不许改 ⇒ 只能按「结算瞬间同格共处」归因）。
+
+    快照格式：`before = {军id: (主人, x, y, 血)}`；结算后传**还活着的军**（dict 列表）。
+    """
 
     class _W:
         def __init__(self, armies):
             self.armies = armies
 
-    def test_attributes_to_co_located_owners(self):
+    def _led(self, before, after):
         from rl.sandbox import KillLedger
         led = KillLedger()
-        before = {1: ("甲", 3, 3), 2: ("乙", 3, 3), 3: ("丙", 7, 7)}
-        led.observe(self._W([{"id": 1, "owner": "甲"}]), before)   # 乙那支（id 2）死了
+        led.observe(self._W(after), before)
+        return led
+
+    def test_attributes_to_co_located_owners(self):
+        led = self._led({1: ("甲", 3, 3, 100), 2: ("乙", 3, 3, 100), 3: ("丙", 7, 7, 100)},
+                        [{"id": 1, "owner": "甲", "hp": 100}])     # 乙那支（id 2）死了
         self.assertEqual(led.kills_by("甲"), 1, "同格的甲该记一笔")
         self.assertEqual(led.kills_by("丙"), 0, "丙不在那一格，不该记")
+        self.assertEqual(led.dmg_by("甲"), 100, "战死 ⇒ 整条血都算打掉的")
+
+    def test_damage_without_death_counts(self):
+        """★ **打伤不打死的血也要记**（用户：「`W_HP …` 也要改，和击杀一样」）。"""
+        led = self._led({1: ("甲", 3, 3, 100), 2: ("乙", 3, 3, 100)},
+                        [{"id": 1, "owner": "甲", "hp": 100},
+                         {"id": 2, "owner": "乙", "hp": 60}])
+        self.assertEqual(led.dmg_by("甲"), 40, "该记差额 40")
+        self.assertEqual(led.kills_by("甲"), 0, "没死就不算击杀")
+        self.assertEqual(led.dmg_by("乙"), 0, "乙没打人")
 
     def test_mutual_destruction_still_counts(self):
         """★ 互殴同归于尽**照样算**（用结算**前**的快照 ⇒ 死者也能当凶手）。"""
-        from rl.sandbox import KillLedger
-        led = KillLedger()
-        before = {1: ("甲", 3, 3), 2: ("乙", 3, 3)}
-        led.observe(self._W([]), before)                # 两个都死了
+        led = self._led({1: ("甲", 3, 3, 100), 2: ("乙", 3, 3, 100)}, [])
         self.assertEqual(led.kills_by("甲"), 1)
         self.assertEqual(led.kills_by("乙"), 1)
+        self.assertEqual(led.dmg_by("甲"), 100)
+        self.assertEqual(led.dmg_by("乙"), 100)
 
     def test_no_one_co_located_means_no_credit(self):
         """★ 饿死/撤退/无人同格 ⇒ **没人记账**（别把"敌人自己没了"算成我的功劳）。"""
-        from rl.sandbox import KillLedger
-        led = KillLedger()
-        before = {1: ("乙", 5, 5)}
-        led.observe(self._W([]), before)
-        self.assertEqual(led.all(), {})
+        led = self._led({1: ("乙", 5, 5, 100)}, [])
+        self.assertEqual(led.snapshot(), ({}, {}))
 
-    def test_ledger_is_monotone_and_per_nation(self):
+    def test_barbarians_are_never_credited(self):
+        """★ 打**野人**不算"破敌"（原来数 `foe_armies` 时野人本来就不在内）。"""
+        led = self._led({1: ("野人", 3, 3, 100), 2: ("乙", 3, 3, 100)},
+                        [{"id": 1, "owner": "野人", "hp": 100}])
+        self.assertEqual(led.snapshot(), ({}, {}), "野人当凶手不该记账")
+
+    def test_victim_filter_separates_rivals_from_barbarians(self):
+        """★★ **成对记账**换来的能力：**只数"打敌国"**（打野人/盟友要能筛掉）。"""
+        led = self._led({1: ("甲", 3, 3, 100), 2: ("乙", 3, 3, 100)},
+                        [{"id": 1, "owner": "甲", "hp": 100}])
+        self.assertEqual(led.kills_by("甲", victims={"乙"}), 1)
+        self.assertEqual(led.kills_by("甲", victims={"丙"}), 0)
+        self.assertEqual(led.kills_by("甲", victims={"野人"}), 0)
+
+    def test_ledger_is_monotone(self):
         from rl.sandbox import KillLedger
         led = KillLedger()
-        led.observe(self._W([]), {1: ("乙", 1, 1), 2: ("甲", 1, 1)})
+        led.observe(self._W([]), {1: ("乙", 1, 1, 100), 2: ("甲", 1, 1, 100)})
         self.assertEqual(led.kills_by("甲"), 1)
-        led.observe(self._W([{"id": 9, "owner": "甲"}]), {})        # 没死人
+        led.observe(self._W([{"id": 9, "owner": "甲", "hp": 100}]), {})   # 没死人
         self.assertEqual(led.kills_by("甲"), 1, "没死人还涨 ⇒ 不是计数是乱加")
+        self.assertEqual(led.dmg_by("甲"), 100, "空快照不该记血（血数该停在战死那 100）")
 
 
 if __name__ == "__main__":

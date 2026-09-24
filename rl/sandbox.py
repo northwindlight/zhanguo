@@ -89,59 +89,91 @@ def n_nations_for(size: int) -> int:
 
 
 class KillLedger:
-    """★ **累计击杀账本** —— 用户 2026-09-25：
+    """★ **累计战果账本**（击杀支数 + 打掉的血量）—— 用户 2026-09-25：
 
         「会不会太复杂了，**只计算我军杀掉的敌军来加分**就行了」
+        「`W_HP × (我的血 − **看得见的**敌方血)` **也要改，和击杀一样**」
 
-    它替换掉打分器原来那一项「**看得见的**敌国军队数 × `W_KILL`」，因为那一项有两个病
-    （与厅那条**一模一样**）：
+    它替换掉打分器原来那**两**项「看得见的敌国军队数 / 看得见的敌方血量」——
+    两项是**同一个病**（与厅那条一模一样）：
 
       ① **迷雾悖论**：只数看得见的 ⇒ **侦察到敌军反而当场扣分**（势函数取差分），
          而"丢视野"反而涨分 —— 恰好把"该去侦察"教成负收益；
-      ② **闪断**：同一件事实（敌人还有几支军）一帧读得到、一帧读成 0 ⇒ 差分变噪声。
+      ② **闪断**：同一件事实一帧读得到、一帧读成 0 ⇒ 差分变噪声。
 
-    ⇒ 改成**单调事件计数**：杀了就加，**只增不减、与视野无关**（同 `HallMemory` 的道理）。
+    ⇒ 两项都改成**单调事件计数**：打了就加，**只增不减、与视野无关**
+      （同 `HallMemory` 的道理）。
 
     **归因怎么做的**（引擎不记账，而 `mp.py` 与本线必须逐字一致 ⇒ 不许改引擎）：
-    结算**之前**拍一张 `{军id: (主人, 格)}`，`resolve_turn()` 之后**没了的**就是战死；
-    它死在哪一格，**那一格上（结算前）还有别的国家的军队** ⇒ 那些国家就是凶手。
+    结算**之前**拍一张 `{军id: (主人, 格, 血)}`，`resolve_turn()` 之后：
+      · **没了的** ⇒ 战死（击杀 +1，血量按**结算前**的血算）
+      · **还在但血少了** ⇒ 挨了打（血量按差额算）
+    挨打/战死发生在哪一格，**那一格上（结算前）还有别的国家的军队** ⇒ 那些国家就是凶手。
       · 互殴同归于尽**照样算**（用结算**前**的快照 ⇒ 死者也能当凶手）
       · 多国同格 ⇒ **每国都记一笔**（这是塑造用的先验，不是逐笔对账的账本）
       · 饿死/撤退/无人同格 ⇒ **没人记账**（沙盒里补给管够，这条路基本不会走）
 
-    ⚠ 它**不区分"是不是我出的手"**之外的细节（哪支军、打了几点血）：用户要的就是
-      "只算杀掉的数量"，别把它做成战斗日志。
+    ★★ **按 `(凶手, 受害者)` 成对记账** —— 不是为了好看：打分器要的是"打**敌国**"，
+      而"打野人 / 打盟友"**不该**算进那一项（原来数 `foe_armies` 时野人本来就不在内）。
+      成对记之后，**口径由打分器按当时的敌我关系去筛**，账本自己不猜关系
+      （关系是会变的：今天的中立国明天就宣战了）。
+
+    ⚠ 它**不记**"哪支军打的、打了几轮"：用户要的是"只算杀掉/打掉的量"，
+      别把它做成战斗日志。
     """
 
     def __init__(self):
-        self._by: dict[str, int] = {}          # 凶手国 → 累计击杀数
+        self._kills: dict = {}      # (凶手, 受害者) → 累计击杀支数
+        self._dmg: dict = {}        # (凶手, 受害者) → 累计打掉的血
 
     def observe(self, world, before: dict) -> None:
-        """结算后调一次。`before` = 结算前的 `{军id: (主人, x, y)}`。"""
-        alive = {a["id"] for a in world.armies}
-        # 死者的 (主人, 格)
-        dead = [(o, (x, y)) for aid, (o, x, y) in before.items() if aid not in alive]
-        if not dead:
-            return
-        # 每格上（结算前）有哪些国家在场
+        """结算后调一次。`before` = 结算前的 `{军id: (主人, x, y, 血)}`。"""
+        now = {a["id"]: a for a in world.armies}
+        # 每格上（结算前）有哪些国家在场 —— 结算一跑位置就变了，只能用快照判
         at: dict = {}
-        for o, x, y in before.values():
+        for o, x, y, _hp in before.values():
             at.setdefault((x, y), set()).add(o)
-        for victim, cell in dead:
-            for killer in at.get(cell, ()):
-                if killer != victim and killer != "野人":
-                    self._by[killer] = self._by.get(killer, 0) + 1
+        for aid, (victim, x, y, hp0) in before.items():
+            a = now.get(aid)
+            if a is None:
+                loss, killed = int(hp0), True        # 战死：整条血都算打掉的
+            else:
+                loss, killed = int(hp0) - int(a.get("hp", 0)), False
+            if loss <= 0:
+                continue                             # 没掉血（可能还回了血）⇒ 无事
+            for killer in at.get((x, y), ()):
+                if killer == victim or killer == "野人":
+                    continue
+                key = (killer, victim)
+                self._dmg[key] = self._dmg.get(key, 0) + loss
+                if killed:
+                    self._kills[key] = self._kills.get(key, 0) + 1
 
-    def kills_by(self, name: str | None) -> int:
-        """该国**累计**杀了多少支敌军（没记过 ⇒ 0）。"""
-        return int(self._by.get(name, 0)) if name else 0
+    @staticmethod
+    def _sum(table: dict, name, victims) -> int:
+        if not name:
+            return 0
+        return sum(n for (k, v), n in table.items()
+                   if k == name and (victims is None or v in victims))
 
-    def all(self) -> dict:
-        return dict(self._by)
+    def kills_by(self, name, victims=None) -> int:
+        """`name` **累计**杀了多少支军（`victims` 给了就只数那些受害者国）。"""
+        return self._sum(self._kills, name, victims)
+
+    def dmg_by(self, name, victims=None) -> int:
+        """`name` **累计**打掉多少点血（`victims` 给了就只数那些受害者国）。"""
+        return self._sum(self._dmg, name, victims)
+
+    def snapshot(self):
+        """`(击杀表, 血量表)` 的**副本**，都是 `{(凶手, 受害者): 累计}`。
+
+        ★ 打分器/编码层要的就是这份**纯数据**（它们不该认识沙盒类）。
+        """
+        return dict(self._kills), dict(self._dmg)
 
     def clone(self) -> "KillLedger":
         k = KillLedger()
-        k._by = dict(self._by)
+        k._kills, k._dmg = dict(self._kills), dict(self._dmg)
         return k
 
 
@@ -694,7 +726,8 @@ class Sandbox:
         """
         # ★★ 结算**前**拍快照（击杀归因靠它）—— `resolve_turn` 一跑，战死的军
         #   就从 `world.armies` 里没了，事后无法复原"它死在那一格"。
-        before = {a["id"]: (a["owner"], a["x"], a["y"]) for a in self.world.armies}
+        before = {a["id"]: (a["owner"], a["x"], a["y"], a.get("hp", 0))
+                  for a in self.world.armies}
         self.world.resolve_turn()
         self.kills.observe(self.world, before)
         self.world.begin_turn()

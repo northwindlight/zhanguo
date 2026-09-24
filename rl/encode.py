@@ -329,8 +329,11 @@ def encode_glob(sb, me: str, mask=None, known=None) -> np.ndarray:
         "my_moved": sum(1 for a in mine if a.get("moved_turn") != w.turn) / 8.0,
         "foe_moved": sum(1 for a in his if a.get("moved_turn") != w.turn) / 8.0,
         "last_ok": 1.0 if sb.last_ok else 0.0,
-        # ★ 我**累计**击杀的敌军支数（见 `vocab.GLOB` 那段；单调、与视野无关）
-        "my_kills": min(1.0, sb.kills.kills_by(me) / S.KILLS_SCALE),
+        # ★★ 我**累计**的战果（见 `vocab.GLOB` 那两段；单调、与视野无关）。
+        #   ⚠ **只数"敌国"**（`victims=foes`）：打野人/打盟友不算 —— 口径与打分器一致，
+        #     而账本按 (凶手, 受害者) 成对记，正是为了在这里能筛。
+        "my_kills": min(1.0, sb.kills.kills_by(me, victims=foes) / S.KILLS_SCALE),
+        "my_dmg": min(1.0, sb.kills.dmg_by(me, victims=foes) / S.DMG_SCALE),
         **hall_vals,
     }
     return np.array([vals[k] for k in V.GLOB], dtype=np.float32)

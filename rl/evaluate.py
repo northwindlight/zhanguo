@@ -23,7 +23,7 @@
     ─────────────────────────────────────────────
       · **国祚**：自己没了 = `-INF`，对手没了 = `+INF`（亡国是**公开事件**，不算偷看）
       · **国土差 / 兵力差 / 血量差**（敌方那半边过 mask）
-      · **逼近**：我军离敌核越近越好、敌军离我核越近越糟（**两边都得看得见才算**）
+      · **逼近**：★ **只有我这一半** —— 我军离敌厅越近越好（敌军往我这边推进记在**它自己**的分里）
       · ★ **安全 / 防御**（用户：「怎么不可能回防，5 支军队赖着主城不动压根输不了，
         是目前的打分模型**没有奖励防御，没有安全扣分机制**」）
       · ★★ **盟友**（用户 2026-09-24）：「评分系统中应该加入**盟友的评分**，盟友评分
@@ -45,7 +45,7 @@ INF = S.INF
 
 
 def score(world, me: str, enemy=None, *, mask=None, allies=None,
-          known=None, kills=None) -> float:
+          known=None, kills=None, dmg=None) -> float:
     """从 `me` 视角打分（正 = 我占优）= **自己 + 0.5 × 盟友（不含国土差）**。
 
     ★ **敌方的一切都过 `mask`**（见文件头）。`mask` = `pathfind.vision_mask(world, me)`；
@@ -74,7 +74,8 @@ def score(world, me: str, enemy=None, *, mask=None, allies=None,
         return t                          # 已定局 ⇒ 直接用终局分（**与 `terminal` 同一套口径**）
     allies = allies_of(world, me) if allies is None else list(allies)
     foes = _as_list(enemy) or rival_nations(world, me, allies)
-    s = _one(world, me, foes, mask, with_tiles=True, known=known, kills=kills)
+    s = _one(world, me, foes, mask, with_tiles=True, known=known,
+             kills=kills, dmg=dmg)
     # ★★ 国祚那一项**只数我这边**（用户 2026-09-24 纠正）：
     #   「**分数是针对于自己而言，得厅加分，丢厅扣分，和对面几个厅有半毛钱关系？**」
     #
@@ -112,8 +113,20 @@ def score(world, me: str, enemy=None, *, mask=None, allies=None,
         # ★ 盟友那一份传**同一串对手**：盟与我是**同一外交实体** ⇒ 对手集合本就相同
         #   （`rival_nations` 按实体算），所以这不是近似，是同一个集合。
         s += S.ALLY_SHARE * _one(world, al, foes, mask, with_tiles=False,
-                                 known=known, kills=kills)
+                                 known=known, kills=kills, dmg=dmg)
     return s
+
+
+def _sum_pairs(table, me: str, foes) -> int:
+    """从 `{(凶手, 受害者): 累计}` 里取"**我打敌国**"那一份的和。
+
+    ★ 为什么按对记、并在这里筛：账本不该猜敌我关系（会变），而打分器**知道**
+      当前的 `foes`（盟友/中立/野人都在 `foes` 之外）⇒ 口径只有一处。
+    """
+    if not table:
+        return 0
+    fs = set(foes)
+    return sum(n for (k, v), n in table.items() if k == me and v in fs)
 
 
 def _as_list(enemy) -> list[str]:
@@ -144,7 +157,7 @@ def _as_list(enemy) -> list[str]:
 
 
 def _one(world, me: str, foes, mask, *, with_tiles: bool,
-         known=None, kills=None) -> float:
+         known=None, kills=None, dmg=None) -> float:
     """单国评分（打分构成见文件头）。`with_tiles=False` ⇒ **不算国土差**（盟友那一份用）。
 
     ★★ `foes` = **对手集合**（见 `score` 的 docstring）。集合里每一项都参与聚合，
@@ -162,7 +175,18 @@ def _one(world, me: str, foes, mask, *, with_tiles: bool,
         # ★ 盟友那一份**去掉这一项**（用户：「盟友评分**除了地皮分以外**」）——
         #   理由也自洽：盟友的地**可 mv 不可 atk**，本来就不是我能夺取的目标，
         #   给盟友的地记分等于奖励一件我做不到的事。
-        s += S.W_TILE * (tiles(world, me) - foe_tiles(world, foes, mask))
+        # ★★ **只算我自己的国土** —— 用户 2026-09-25（这条口径覆盖除威胁系统以外的**全部**项）：
+        #   「你记账到底是怎么写的，**每个打分器只对自己国家负责**就行了，例如
+        #    **甲打了一块地，甲自己的计分器加分，乙的扣分**，**完全不需要什么视野地图**」。
+        #
+        #   ⚠ 原来写的是 `W_TILE × (我的国土 − **看得见的**敌国国土)`，两个错：
+        #     ① **重复计**（就是他在厅那里骂过的那个毛病）：甲打下一格 ⇒ 我的国土 +1
+        #        **并且** 敌国国土 −1 ⇒ 甲**一次拿两分**；而"乙扣分"本该是**乙自己那本账**
+        #        的事（乙的 `tiles(乙)` 少一格，乙的分自然少）⇒ 同一件事记两遍。
+        #     ② **迷雾悖论**：那半过 mask ⇒ **侦察到敌国领土反而扣分**、丢视野反而涨分。
+        #   ⇒ 现在**一行、无 mask、无重复**：`W_TILE × 我的国土`。
+        #   ★ 拿下敌国地块依然加分（我的国土 +1），"越多地分越高、丢地扣小分"逐字兑现。
+        s += S.W_TILE * tiles(world, me)
     # ★★ **击杀 = 累计事件计数**（用户 2026-09-25：「会不会太复杂了，**只计算我军
     #   杀掉的敌军来加分**就行了」）—— 替换掉原来那一项「**看得见的**敌国军队数」。
     #   那一项有两个病（与厅那条一模一样）：
@@ -172,13 +196,15 @@ def _one(world, me: str, foes, mask, *, with_tiles: bool,
     #   ⇒ 改成**只增不减、与视野无关**的计数（`sandbox.KillLedger`，按结算瞬间
     #     同格共处归因）。`kills` = `{国: 累计击杀}`；`None` ⇒ 当成 0
     #     （**没接账本**的调用方得 0 而不是"看不见就偷看"）。
-    s += S.W_KILL * int((kills or {}).get(me, 0))
-    # ⚠ `foe_armies`/敌方 hp 那两项**仍然过 mask**（用户只点了击杀那一项）——
-    #   它们是同一类"看得见才数"的量，仍然有轻微的同类毛病（`W_HP` 每点 0.02，
-    #   比 `W_KILL` 小两个量级）。**已记进 PLAN 待拍**，别当没看见。
-    foes_armies = foe_armies(world, foes, mask)
+    s += S.W_KILL * _sum_pairs(kills, me, foes)
+    # ★★ **打掉的血也改成累计事件**（用户 2026-09-25：「`W_HP × (我的血 − 看得见的
+    #   敌方血)` **也要改，和击杀一样**」）—— 两项同源、同一个账本。
+    #   ★ **我的血**那半**不变**：我自己的血量本来就是全知（没有迷雾问题）。
+    #   ⚠ `foe_armies`（**看得见的**敌国军队数）那一项还在 `W_ARMY`/`W_TILE` 里
+    #     没有对应物 —— 见下面 `foe_tiles` 的注释（那是**同一个病**的最后一处）。
+    s += S.W_HP * hp_total(world, me)                    # 我的血：全知，不变
+    s += S.W_HP * _sum_pairs(dmg, me, foes)              # 打掉敌军的血：累计、不进迷雾
     s += S.W_ARMY * len(armies(world, me))               # 我方：全知
-    s += S.W_HP * (hp_total(world, me) - sum(a.get("hp", 0) for a in foes_armies))
 
     # ★★ 逼近 / 威胁 / 守家：**对每一座厅都生效**（用户 2026-09-24：「打分器的**距离
     #   市政厅**的厅，应该**对每个市政厅都生效**」）—— 一国有两座厅时，不能只盯其中一座。
@@ -187,9 +213,10 @@ def _one(world, me: str, foes, mask, *, with_tiles: bool,
     #   多玩家下"最近的敌厅"要跨全部对手取，不能只看一个。
     foe_halls = foe_hall_cells(world, foes, mask, known)
     # ★★ **"逼近"和"守家"要分开判**（2026-09-24 拆开，`--no-halls-known` 逼出来的）：
-    #   · **逼近**（`W_NEAR`）比的是"我离敌厅"vs"敌离我厅" ⇒ ★ **两边都得知道**，
-    #     少了敌厅就没得比（这正是「间谍模式 / 自己找厅」两种模式要买的东西）。
-    #   · **威胁/守家**（`W_THREAT`/`W_GUARD`）只看**我的厅** + **敌军在哪**
+    #   · **逼近**（`W_NEAR`）★ 2026-09-25 起**只算我自己那一半**（"我的军离敌厅多近"）
+    #     —— 敌厅的位置来自**永久记忆账本**（不是当前视野）；对手往我这边推进
+    #     在**对手自己的账**里记（对手的 `−my_d`）。
+    #   · **威胁**（`W_THREAT`）只看**我的厅** + **敌军在哪**
     #     （`foe_d` 走的是 `min_dist(world, enemy, …)` = **敌军**到我的厅的距离，
     #     **不是**敌厅到我的厅）⇒ ★ **跟知不知道敌厅毫无关系**。
     #   ⚠ 原来两块塞在同一个 `if my_halls and foe_halls:` 里 ⇒ 在"自己找厅"那一版
@@ -197,25 +224,28 @@ def _one(world, me: str, foes, mask, *, with_tiles: bool,
     #     （「5 支军队赖着主城不动压根输不了，是打分模型**没有奖励防御**」），
     #     而那个版本要跑到找到厅为止才生效 ⇒ **防御梯度整局缺席**。
     if my_halls and foe_halls:
-        # 我离**最近的敌厅**（挑最好打的那座）；敌离**我最危险的那座厅**
+        # 我离**最近的敌厅**（挑最好打的那座）
         my_d = min(min_dist(world, me, h) for h in foe_halls)
-        foe_d = min(foe_min_dist(world, foes, h, mask) for h in my_halls)
-        s += S.W_NEAR * (-my_d + foe_d)
+        # ★★ **只留我自己的那一半**（用户 2026-09-25：「每个打分器**只对自己国家负责**」）
+        #   —— 原来还有 `+ foe_d`（**敌**军离我的厅多远）：那是**对手自己那本账**的事
+        #   （对手的 `−my_d` 里已经记过一遍），放进我的分里就是**同一件事记两遍**。
+        s += S.W_NEAR * (-my_d)
 
-    # ★★ 安全 / 防御 —— **只在真有威胁时生效**：
-    #   没威胁时守家**不加分**，否则模型会永远缩在核心格不动（另一个极端）。
-    #   有威胁时：被逼近扣分 + **守家的军按逼近强度加分** ⇒ "赖在主城"第一次有了收益，
-    #   "回来拦"也有了收益 —— 攻守这才对称。
+    # ★★ 安全 / 防御 —— ★ **只扣分**（用户 2026-09-25：「其实**扣分就行了**」）。
+    #   ★★ **这是全套打分里唯一允许"读敌军位置"的地方，而且是用户明说正确的**：
+    #      「再说这里**本来就是暴露出的敌人越多防御越有价值，没暴露的也无法虚空防守**」
+    #      ⇒ 这一项的迷雾门控**不是毛病，是正确**：看不见的敌人本来就防不了，
+    #        "虚空防守"没有意义。⇒ 它**不**适用"完全不需要视野"那条口径（那条覆盖
+    #        其它所有项），keep as-is。
+    #   ⚠ 原来还按威胁强度给"守家的军"**加分**（`W_GUARD`）—— **已停用**：
+    #     那会把"缩在核心不动"变成无条件收益（另一个极端），而**威胁本身已经提供
+    #     了回防的压力**（不走过去处理就一直扣分）。
     #   ★ 判定用**最近的那支敌军**（到我最危险的那座厅），所以"保住任何一座"都算数。
     if my_halls:
         foe_d = min(foe_min_dist(world, foes, h, mask) for h in my_halls)
         if foe_d <= S.THREAT_R:
             intensity = (S.THREAT_R - foe_d + 1) / float(S.THREAT_R)
             s -= S.W_THREAT * intensity
-            guards = sum(1 for a in armies(world, me)
-                         if min(max(abs(a["x"] - h[0]), abs(a["y"] - h[1]))
-                                for h in my_halls) <= S.GUARD_R)
-            s += S.W_GUARD * intensity * guards
     return s
 
 

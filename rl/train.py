@@ -193,7 +193,9 @@ def _score(sb: Sandbox, me: str) -> float:
     #   而**不报错**（用户 2026-09-25：3 人起步）。见 `evaluate.score` 的 docstring。
     return evaluate.score(sb.world, me, mask=mask,
                           known=sb.known_halls(me, mask),
-                          kills=sb.kills.all())      # ★ 累计击杀账本（单调、不进迷雾）
+                          **dict(zip(("kills", "dmg"), sb.kills.snapshot())))
+    # ★★ `kills`/`dmg` = **累计战果账本**的 (击杀表, 血量表)（单调、不进迷雾）——
+    #   替换掉原来「看得见的敌国军队数 / 敌方血量」那两项（它们有**迷雾悖论**）。
 
 
 def _reward(sb: Sandbox, me: str, prev: float, done: bool) -> float:
