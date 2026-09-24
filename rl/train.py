@@ -98,8 +98,16 @@ def collate(rows: list[dict]) -> dict:
         if nn_:
             army[i, :nn_] = r["army"]
             army_mask[i, :nn_] = True
+    # ★ 观测框**逐帧可变**（= 视野外接框，与地图大小无关）⇒ 批内**补零对齐**到最大尺寸。
+    #   用户 2026-09-24：「你不能整网格大小，必须是**地图大小无关**的设计，和以前一样」。
+    gs = [r["grid"] for r in rows]
+    gh = max(g.shape[1] for g in gs)
+    gw = max(g.shape[2] for g in gs)
+    grid = np.zeros((b, gs[0].shape[0], gh, gw), np.float32)
+    for i, g in enumerate(gs):
+        grid[i, :, :g.shape[1], :g.shape[2]] = g
     return {
-        "grid": torch.tensor(np.stack([r["grid"] for r in rows])),
+        "grid": torch.tensor(grid),
         "glob": torch.tensor(np.stack([r["glob"] for r in rows])),
         "cand": torch.tensor(cand),
         "mask": torch.tensor(mask),
@@ -153,8 +161,15 @@ def collect_episode(nets: dict[str, PolicyNet], sb: Sandbox, *,
 
 
 def _score(sb: Sandbox, me: str) -> float:
+    """★ 打分前先取**视野掩码** —— 「打分只对可见视野打分」（用户 2026-09-24）。
+
+    不给 mask 的话打分器就是**上帝视角**（能点名视野外的敌军位置/数量/国土），
+    那是作弊，模型会照着它学出"朝看不见的敌人去"的策略。
+    """
     foe = next((n for n in PLAYERS if n != me), None)
-    return evaluate.score(sb.world, me, foe)
+    from ruleai.v11plus import pathfind
+    mask = pathfind.vision_mask(sb.world, me)
+    return evaluate.score(sb.world, me, foe, mask)
 
 
 def _reward(sb: Sandbox, me: str, prev: float, done: bool) -> float:

@@ -104,6 +104,13 @@ class Sandbox:
             #   （实测踩过：无人交战却每回合稳定掉 35 hp，全灭后靠补员复活 ⇒ 死循环）。
             w.nations[name].res["补给"] = 10 ** 6
             self.spawn(name, BASE_CAP)
+        # ★ 主城默认 **L2 城堡**（用户 2026-09-24：「顺便 rl 线给主城加一个默认 l2 的城堡」）：
+        #   引擎里 `t["buildings"]["城堡"]` 的**计数就是等级**（`_defense_pct` 按它算减伤）
+        #   ⇒ 主城更难打、防守更站得住，攻守才有真正的取舍。
+        for name in PLAYERS:
+            core = self.core_of(name)
+            if core is not None:
+                w.tiles[core]["buildings"]["城堡"] = 2
         # ★ 编组状态是**模块内存**：每局开始必须清，否则上一局的编组漏进来
         #   （`ruleai/v11plus/__init__.py` 明文要求）
         grouping.clear()
