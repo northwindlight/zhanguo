@@ -381,13 +381,19 @@ class TestHallsKnownMode(unittest.TestCase):
                          "★ 间谍模式把厅上的守军也暴露了 —— 那是偷看，不是'知道厅在哪'")
 
     def test_spy_mode_changes_the_score_only_through_proximity(self):
-        """打分器那侧：`halls_known` 只影响**逼近项**（"我离敌厅还有多远"）。"""
+        """打分器那侧：**已知的厅**只影响**逼近项**（"我离敌厅还有多远"）。
+
+        ★ 两种模式现在走**同一个入口**（`known` = 已知的厅，见 `rl/hall_memory.py`）：
+          间谍模式的沙盒记忆初值就装满 ⇒ `known_halls` 直接给出敌厅。
+        """
         from rl import evaluate as E
-        sb = self._sb(False)
-        mask = encode.vision_of(sb, "甲")
-        self.assertNotEqual(E.score(sb.world, "甲", "乙", mask, halls_known=True),
-                            E.score(sb.world, "甲", "乙", mask, halls_known=False),
-                            "★ 间谍模式对打分毫无影响 ⇒ 没透进去")
+        mask = encode.vision_of(self._sb(False), "甲")
+        spy, blind = self._sb(True), self._sb(False)
+        m_spy = encode.vision_of(spy, "甲")
+        self.assertNotEqual(
+            E.score(spy.world, "甲", "乙", m_spy, known=spy.known_halls("甲", m_spy)),
+            E.score(blind.world, "甲", "乙", mask, known=blind.known_halls("甲", mask)),
+            "★ 间谍模式对打分毫无影响 ⇒ 没透进去")
 
     def test_grid_frame_cannot_hold_out_of_view_halls(self):
         """★ 钉住"**为什么厅不进网格**"：网格 = 视野外接框，框外的格**没有位置**。

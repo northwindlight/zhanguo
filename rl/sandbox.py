@@ -36,6 +36,8 @@ from __future__ import annotations
 
 from game import unit_max_hp
 
+from .hall_memory import HallMemory
+
 # ---------------------------------------------------------------- 规格常量
 PLAYERS = ("甲", "乙")
 STARTS = {"甲": (1, 1), "乙": (6, 6)}   # ★ 对角、最远；十字各 5 格完整（(0,0) 会缺两臂）
@@ -89,6 +91,12 @@ class Sandbox:
         #     ⇒ 实现上是一个**独立的开关**，**不能**靠"把这些格塞进 `vision_mask`"
         #       （那会连守军、地形一起暴露，是偷看）。见 `rl/encode.py` 的 `halls_known`。
         self.halls_known = halls_known
+        # ★★ **已知市政厅的账本**（用户 2026-09-24：「**发现厅了就应该永久标记，
+        #   因为厅是拆不掉也不能移动的**」）—— 两种模式是**同一个机制的两种初值**：
+        #     · 间谍模式（`halls_known=True`）⇒ 账本 `all_known`（开局全知）
+        #     · 自己找厅（`False`）⇒ 账本从空开始，靠 `known_halls()` 累积
+        #   ⇒ 调用方（`encode`/`evaluate`）**不用分情况**，一律问 `known_halls`。
+        self.halls = HallMemory(all_known=halls_known)
         self.world = None
         self.turn = 0
         self.log: list[str] = []
@@ -110,6 +118,7 @@ class Sandbox:
         self.world = w
         self.turn = 0
         self.log = []
+        self.halls = HallMemory(all_known=self.halls_known)   # ★ 每局重开账本
         if self.war:
             w.declare_war(PLAYERS[0], PLAYERS[1])
         for name in PLAYERS:
@@ -269,6 +278,23 @@ class Sandbox:
         return 1.0 - self.turn / self.t_max
 
     # ============================================================ 环境接口（给 MCTS / RL）
+    def known_halls(self, name: str, mask=None) -> dict:
+        """该国**已知**的市政厅 `{格: 最后看见时的主人}` —— **记忆 ∪ 本帧视野**。
+
+        ★ 顺手把**本帧看得见的**并进记忆（lazy latch）：调用点（`encode`/`evaluate`）
+          手里正好攥着 `mask`，不必再算一遍视野。★ 只有被问到的那个国会被记账，
+          而"问谁"恰好就是"谁在观测/被评分" ⇒ 账本永远是齐的。
+        ★ `mask=None` ⇒ 自己现算一遍视野（方便、但比传进来贵一次 `vision_mask`）。
+        """
+        w = self.world
+        if w is None:
+            return {}
+        if mask is None:
+            from ruleai.v11plus import pathfind
+            mask = pathfind.vision_mask(w, name)
+        self.halls.observe(w, name, mask)
+        return self.halls.known(w, name)
+
     def clone(self) -> "Sandbox":
         """试演副本。★ 8×8 上 `deepcopy` 实测 **~1.8 ms** ⇒ MCTS 可以**真实试演**
         （不用搞"记录动作再重放"那套）。"""
@@ -282,6 +308,7 @@ class Sandbox:
         sb.last_ok = self.last_ok
         sb.first = self.first
         sb.halls_known = self.halls_known
+        sb.halls = self.halls.clone()            # ★ 记忆要跟着副本走（试演不能凭空多知道）
         return sb
 
     def current_player(self) -> str | None:

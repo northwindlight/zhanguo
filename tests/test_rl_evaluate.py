@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mp import World                                # noqa: E402
 from rl import evaluate as E                        # noqa: E402
+from ruleai.v11plus.pathfind import vision_mask      # noqa: E402
 from rl import scoring as S                         # noqa: E402
 
 
@@ -346,3 +347,148 @@ class TestScoringTableIsLive(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+# ===========================================================================
+class TestThreatNeedsOnlyMyHall(unittest.TestCase):
+    """★★ "守家"那两项**只需要我自己的厅**，与"知不知道敌厅"无关。
+
+    用户 2026-09-24 加安全/防御两项的原话：
+      「怎么不可能回防，5 支军队赖着主城不动压根输不了，是目前的打分模型**没有奖励
+        防御，没有安全扣分机制**」。
+    而原实现把「逼近」和「威胁/守家」塞在**同一个** `if my_halls and foe_halls:` 里
+    ⇒ 在"**自己找厅**"那一版（敌厅还没找到）里，**守家一分没有**
+    —— 防御梯度整局缺席，而那恰恰是这一版最需要的东西。
+
+    判据（为什么可以拆）：`foe_d` 走的是 `min_dist(world, enemy, …)` =
+    **敌军**到我的厅的距离，**不是**敌厅到我的厅 ⇒ 跟敌厅在不在视野里毫无关系。
+
+    ★ 每条都带**反断言**（否则"分数变了"可能来自别的项 —— 我在这份测试里踩过
+      "全 0 相等"那种假绿，见文件头）。
+    """
+
+    def _setup(self, size=24, seed=5, far_gap=7):
+        """摆一个"**敌厅在视野外**、但我有一块**远处的自家地**"的局面。
+
+        ★ 为什么要自己造那块地：开局各国只有**一格**（核心），
+          "把军挪远点但还在我地盘上"这个动作**根本不存在**（实测最远 1 格），
+          上一版就栽在这 —— `assertGreater(dist, THREAT_R)` 直接红。
+        ★ `mask` 直接**手工给**（我的视野 ∪ 那块远地，**不含敌厅**）：
+          这里测的是**打分器**的口径，不是引擎的视野（视野另有 `TestVisionMask` 钉）。
+        """
+        w = mk_world(nations=("甲", "乙", "丙"), size=size, seed=seed, war=("甲", "乙"))
+        my_hall = E.hall_cells(w, "甲")[0]
+        foe_hall = E.hall_cells(w, "乙")[0]
+        # 远处的一块自家地：离我的厅 ≥ far_gap 格、离敌厅也远（别把敌厅圈进视野）
+        far = next(c for c in sorted(
+            (x, y) for x in range(w.size) for y in range(w.size))
+            if max(abs(c[0] - my_hall[0]), abs(c[1] - my_hall[1])) >= far_gap
+            and max(abs(c[0] - foe_hall[0]), abs(c[1] - foe_hall[1])) >= far_gap
+            and c not in w.tiles)
+        w.tiles[far] = mk_tile(w, "甲")
+        mask = frozenset(set(vision_mask(w, "甲")) | {far})
+        self.assertNotIn(foe_hall, mask, "本场景的前提：敌厅在视野外")
+        self.assertIn(far, mask, "那块远地得看得见（否则敌军挪过去就换了一档可见性）")
+        return w, mask, my_hall, foe_hall, far
+
+    def _foe_army(self, w):
+        return next(a for a in w.armies if a["owner"] == "乙")
+
+    def _my_armies(self, w):
+        return [a for a in w.armies if a["owner"] == "甲"]
+
+    def test_setup_is_non_vacuous(self):
+        """前提必须成立：**敌厅真的看不见**、而且分数**不是恒 0**。"""
+        w, mask, my_hall, foe_hall, far = self._setup()
+        self.assertNotIn(foe_hall, mask, "本场景的前提：敌厅在视野外")
+        self.assertEqual(E.hall_cells(w, "乙", mask), [],
+                         "自己找厅 + 空记忆时，看不见的敌厅必须数不到")
+        s = E.score(w, "甲", "乙", mask)
+        self.assertNotEqual(s, 0.0, "分数恒 0 ⇒ 下面的比较全是空的")
+
+    def test_threat_is_alive_without_enemy_hall(self):
+        """敌军逼近我的厅 ⇒ 扣分；把它挪远 ⇒ 不扣。**敌厅始终看不见。**"""
+        w, mask, my_hall, foe_hall, far = self._setup()
+        foe = self._foe_army(w)
+        # 离我的厅 1 格（威胁圈内），且**仍在视野内**（贴着我自己的厅 ⇒ 一定看得见）
+        near = next(c for c in w.neighbors(*my_hall)
+                    if c in mask and c != my_hall)
+        # ★ **把守家项关掉再比**：不关的话"守家加分"（+W_GUARD×军数）会盖过威胁扣分
+        #   —— 那是**有意的**（用户要"赖在主城"有收益）⇒ 不关就测不出威胁项本身。
+        #   （我第一版没关，断言写反了：实测 near 反而**高** 7 分 = 守家 10 − 威胁 3。）
+        with S.override(W_GUARD=0.0):
+            foe["x"], foe["y"] = near
+            s_near = E.score(w, "甲", "乙", mask)
+            self.assertLessEqual(E.min_dist(w, "乙", my_hall, mask), S.THREAT_R)
+            # 挪到那块**远处的自家地**上（仍在视野内 ⇒ `W_KILL`/`W_HP` 那几项一字不变），
+            # 只让"到我厅的距离"变大
+            foe["x"], foe["y"] = far
+            s_far = E.score(w, "甲", "乙", mask)
+        self.assertLess(s_near, s_far,
+                        "敌军逼近我的厅却没扣分 ⇒ 威胁项在「自己找厅」这一版里是死的")
+        # ★ 把威胁**和**守家都关掉 ⇒ 这个差必须消失（证明差只来自这两项，不是别的项）。
+        #   只关 W_THREAT 不够：守家加分的**条件**也是"敌军在威胁圈内"，
+        #   所以挪近挪远照样差一个守家分（实测差 10.0）—— 那也是"有意的"。
+        with S.override(W_THREAT=0.0, W_GUARD=0.0):
+            foe["x"], foe["y"] = near
+            a = E.score(w, "甲", "乙", mask)
+            foe["x"], foe["y"] = far
+            b = E.score(w, "甲", "乙", mask)
+        self.assertAlmostEqual(a, b, places=9, msg="W_THREAT=0 还有差 ⇒ 差不是威胁项来的")
+
+    def test_guard_reward_is_alive_without_enemy_hall(self):
+        """守家加分：敌军在威胁圈内时，把军**留在厅边**比调走分高。"""
+        w, mask, my_hall, foe_hall, far = self._setup()
+        foe = self._foe_army(w)
+        foe["x"], foe["y"] = next(c for c in w.neighbors(*my_hall) if c in mask and c != my_hall)
+        mine = self._my_armies(w)
+        for a in mine:                                   # 先都摆在厅边（守家）
+            a["x"], a["y"] = my_hall
+        s_guard = E.score(w, "甲", "乙", mask)
+        # 调走（仍在我地盘上 ⇒ 只有"守家军数"这一项变）
+        away = far
+        for a in mine:
+            a["x"], a["y"] = away
+        s_away = E.score(w, "甲", "乙", mask)
+        self.assertGreater(s_guard, s_away,
+                           "威胁圈内守家没加分 ⇒ 守家项在「自己找厅」这一版里是死的")
+        with S.override(W_GUARD=0.0):
+            for a in mine:
+                a["x"], a["y"] = my_hall
+            a1 = E.score(w, "甲", "乙", mask)
+            for a in mine:
+                a["x"], a["y"] = away
+            a2 = E.score(w, "甲", "乙", mask)
+        self.assertAlmostEqual(a1, a2, places=9, msg="W_GUARD=0 还有差 ⇒ 差不是守家项来的")
+
+    def test_no_guard_bonus_without_threat(self):
+        """没威胁时守家**不加分**（否则模型会永远缩在核心格 —— 另一个极端）。"""
+        w, mask, my_hall, foe_hall, far = self._setup()
+        foe = self._foe_army(w)
+        foe["x"], foe["y"] = far          # 挪远 ⇒ 没威胁
+        mine = self._my_armies(w)
+        for a in mine:
+            a["x"], a["y"] = my_hall
+        s_guard = E.score(w, "甲", "乙", mask)
+        for a in mine:
+            a["x"], a["y"] = far
+        s_away = E.score(w, "甲", "乙", mask)
+        self.assertAlmostEqual(s_guard, s_away, places=9,
+                               msg="没威胁时守家也加分 ⇒ 模型会缩着不动")
+
+    def test_proximity_still_needs_both_halls(self):
+        """★★ 「逼近」项**仍然**要两边都知道厅 —— 拆开不能顺手把偷看放进来。
+
+        测法：敌厅看不见时，把**我的军**挪到敌厅旁边（我并不知道那是厅）
+        ⇒ 分数**必须一字不变**（否则等于隔雾点名敌厅位置）。
+        """
+        w, mask, my_hall, foe_hall, far = self._setup()
+        self.assertNotIn(foe_hall, mask)
+        mine = self._my_armies(w)
+        for a in mine:
+            a["x"], a["y"] = my_hall
+        s0 = E.score(w, "甲", "乙", mask)
+        for a in mine:                              # 摸到敌厅边上（但看不见 ⇒ 不该有收益）
+            a["x"], a["y"] = foe_hall
+        s1 = E.score(w, "甲", "乙", mask)
+        self.assertAlmostEqual(s0, s1, places=9,
+                               msg="看不见敌厅时「逼近」项却动了 ⇒ 那个项泄漏了敌厅位置")

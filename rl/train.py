@@ -178,8 +178,13 @@ def _score(sb: Sandbox, me: str) -> float:
     foe = next((n for n in PLAYERS if n != me), None)
     from ruleai.v11plus import pathfind
     mask = pathfind.vision_mask(sb.world, me)
-    # ★ 把沙盒的"已派间谍"模式透给打分器（用户：「对手的厅应该是明知的，有两种模式」）
-    return evaluate.score(sb.world, me, foe, mask, halls_known=sb.halls_known)
+    # ★ 已知的厅 = **视野 ∪ 永久记忆**（`known_halls` 顺手把本帧看见的记下来）。
+    #   用户 2026-09-24：「**发现厅了就应该永久标记，因为厅是拆不掉也不能移动的**」
+    #   ⇒ 不能再拿"当前视野"回答"厅在哪"：敌厅一离开视野，逼近/守家那几项**当帧塌 0**，
+    #     势函数差分变噪声（本该是"我看见过它，它一直在那儿"）。见 `rl/hall_memory.py`。
+    #   ★ 两种可见模式（间谍 / 自己找厅）的差别**只在沙盒构造时**（记忆的初值），
+    #     这里一条路走到底。
+    return evaluate.score(sb.world, me, foe, mask, known=sb.known_halls(me, mask))
 
 
 def _reward(sb: Sandbox, me: str, prev: float, done: bool) -> float:

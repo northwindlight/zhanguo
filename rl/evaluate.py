@@ -45,7 +45,7 @@ INF = S.INF
 
 
 def score(world, me: str, enemy: str, mask=None, allies=None,
-          halls_known: bool = False) -> float:
+          known=None) -> float:
     """从 `me` 视角打分（正 = 我占优）= **自己 + 0.5 × 盟友（不含国土差）**。
 
     ★ **敌方的一切都过 `mask`**（见文件头）。`mask` = `pathfind.vision_mask(world, me)`；
@@ -59,7 +59,7 @@ def score(world, me: str, enemy: str, mask=None, allies=None,
     if t is not None:
         return t                          # 已定局 ⇒ 直接用终局分（**与 `terminal` 同一套口径**）
     allies = allies_of(world, me) if allies is None else list(allies)
-    s = _one(world, me, enemy, mask, with_tiles=True, halls_known=halls_known)
+    s = _one(world, me, enemy, mask, with_tiles=True, known=known)
     # ★★ 国祚那一项**只数我这边**（用户 2026-09-24 纠正）：
     #   「**分数是针对于自己而言，得厅加分，丢厅扣分，和对面几个厅有半毛钱关系？**」
     #
@@ -87,12 +87,12 @@ def score(world, me: str, enemy: str, mask=None, allies=None,
             s += S.ALLY_SHARE * S.ALLY_DEAD   # 见 `ALLY_DEAD` 的注释
             continue
         s += S.ALLY_SHARE * _one(world, al, enemy, mask, with_tiles=False,
-                                 halls_known=halls_known)
+                                 known=known)
     return s
 
 
 def _one(world, me: str, enemy: str, mask, *, with_tiles: bool,
-         halls_known: bool = False) -> float:
+         known=None) -> float:
     """单国评分（打分构成见文件头）。`with_tiles=False` ⇒ **不算国土差**（盟友那一份用）。
 
     ★ 这里**不再**对"`enemy` 已亡"返回 `+INF` —— 那件事是不是胜局由 `score` 判
@@ -115,18 +115,30 @@ def _one(world, me: str, enemy: str, mask, *, with_tiles: bool,
     # ★★ 逼近 / 威胁 / 守家：**对每一座厅都生效**（用户 2026-09-24：「打分器的**距离
     #   市政厅**的厅，应该**对每个市政厅都生效**」）—— 一国有两座厅时，不能只盯其中一座。
     my_halls = hall_cells(world, me)                   # 我的厅：全知
-    foe_halls = hall_cells(world, enemy, mask, halls_known)   # ★ 敌的厅（见 halls_known）
+    foe_halls = hall_cells(world, enemy, mask, known)   # ★ 敌的厅（视野 ∪ **记忆**）
+    # ★★ **"逼近"和"守家"要分开判**（2026-09-24 拆开，`--no-halls-known` 逼出来的）：
+    #   · **逼近**（`W_NEAR`）比的是"我离敌厅"vs"敌离我厅" ⇒ ★ **两边都得知道**，
+    #     少了敌厅就没得比（这正是「间谍模式 / 自己找厅」两种模式要买的东西）。
+    #   · **威胁/守家**（`W_THREAT`/`W_GUARD`）只看**我的厅** + **敌军在哪**
+    #     （`foe_d` 走的是 `min_dist(world, enemy, …)` = **敌军**到我的厅的距离，
+    #     **不是**敌厅到我的厅）⇒ ★ **跟知不知道敌厅毫无关系**。
+    #   ⚠ 原来两块塞在同一个 `if my_halls and foe_halls:` 里 ⇒ 在"自己找厅"那一版
+    #     里**敌厅没找到之前，守家一分没有** —— 用户加这两项就是为了让"回防"有收益
+    #     （「5 支军队赖着主城不动压根输不了，是打分模型**没有奖励防御**」），
+    #     而那个版本要跑到找到厅为止才生效 ⇒ **防御梯度整局缺席**。
     if my_halls and foe_halls:
         # 我离**最近的敌厅**（挑最好打的那座）；敌离**我最危险的那座厅**
         my_d = min(min_dist(world, me, h) for h in foe_halls)
         foe_d = min(min_dist(world, enemy, h, mask) for h in my_halls)
         s += S.W_NEAR * (-my_d + foe_d)
 
-        # ★★ 安全 / 防御 —— **只在真有威胁时生效**：
-        #   没威胁时守家**不加分**，否则模型会永远缩在核心格不动（另一个极端）。
-        #   有威胁时：被逼近扣分 + **守家的军按逼近强度加分** ⇒ "赖在主城"第一次有了收益，
-        #   "回来拦"也有了收益 —— 攻守这才对称。
-        #   ★ 判定用**最近的那座敌厅/最近的那支敌军**，所以"保住任何一座"都算数。
+    # ★★ 安全 / 防御 —— **只在真有威胁时生效**：
+    #   没威胁时守家**不加分**，否则模型会永远缩在核心格不动（另一个极端）。
+    #   有威胁时：被逼近扣分 + **守家的军按逼近强度加分** ⇒ "赖在主城"第一次有了收益，
+    #   "回来拦"也有了收益 —— 攻守这才对称。
+    #   ★ 判定用**最近的那支敌军**（到我最危险的那座厅），所以"保住任何一座"都算数。
+    if my_halls:
+        foe_d = min(min_dist(world, enemy, h, mask) for h in my_halls)
         if foe_d <= S.THREAT_R:
             intensity = (S.THREAT_R - foe_d + 1) / float(S.THREAT_R)
             s -= S.W_THREAT * intensity
@@ -199,32 +211,42 @@ def _my_entity(world, me: str) -> str | None:
         return None
 
 
-def hall_cells(world, name: str, mask=None, halls_known: bool = False) -> list:
+def hall_cells(world, name: str, mask=None, known=None) -> list:
     """该国**所有已落成**的市政厅格（排序稳定）。
 
     ★ 用户 2026-09-24：「打分器的**距离市政厅**的厅，应该**对每个市政厅都生效**」
       ⇒ 逼近/威胁/守家那三项都走这个函数，**不是只取第一座厅**（`core_of` 只回一座，
       一国有两座厅时另一座等于不存在）。
 
-    ★ `halls_known=True`（"**已派间谍**"模式，`sandbox.halls_known`）⇒ 不看掩码：
-      拿不到视野也照样知道厅在哪。★ 这**只**放行"厅在哪"，**不**放行厅上的守军 ——
-      军队的可见性永远走真正的 `mask`（`armies()` / `min_dist()`），那是两件情报。
+    ★★ `known` = **已知的厅** `{格: 最后看见时的主人}`（`sandbox.known_halls`）——
+      用户 2026-09-24：「**发现厅了就应该永久标记，因为厅是拆不掉也不能移动的**」。
+      ★ 为什么不能用"当前视野"代替它：厅是**永久事实**，而视野是**逐帧**的
+        ⇒ 敌厅一离开视野，逼近/守家那几项**当帧塌成 0**，势函数差分变噪声。
+        详见 `rl/hall_memory.py`。
+      ★ 归属仍以**当前** `t["owner"]` 为准（记忆只放宽**可见性**）⇒ 取**保守**那一侧。
+
+    ★ 这**只**放行"厅在哪"，**不**放行厅上的守军 —— 军队的可见性永远走真正的
+      `mask`（`armies()` / `min_dist()`），那是两件情报。
+    ★ `mask=None` ⇒ **不过滤**（自己的厅、盟友的厅走这条：`vision_mask` 本来
+      就把自家与盟方的地算进去了）。
     """
-    if halls_known:
-        return [cell for cell, t in sorted(world.tiles.items())
-                if t["owner"] == name and t["buildings"].get("市政厅", 0) > 0]
-    return [cell for cell, t in sorted(world.tiles.items())
-            if t["owner"] == name and t["buildings"].get("市政厅", 0) > 0
-            and _vis(cell, mask)]
+    out = []
+    for cell, t in sorted(world.tiles.items()):
+        if t["owner"] != name or t["buildings"].get("市政厅", 0) <= 0:
+            continue
+        if mask is None or cell in mask or (known is not None and known.get(cell) == name):
+            out.append(cell)
+    return out
 
 
-def halls_of(world, name: str, mask=None, halls_known: bool = False) -> int:
+def halls_of(world, name: str, mask=None, known=None) -> int:
     """该国**已落成**的市政厅**座数**（= 国祚，也是补员产能）。
 
-    ★ 数**对手**的厅时必须传 `mask` —— 厅只在**视野内**公开（引擎 `_public_buildings`：
-      "看不见就打不着"）。自己与盟友的厅走全知（`vision_mask` 本来就把盟友的地算进去了）。
+    ★ 数**对手**的厅时必须传 `mask`（+ `known`）—— 厅只在**视野内**公开
+      （引擎 `_public_buildings`："看不见就打不着"），**见过一次之后永久记得**。
+      自己与盟友的厅走全知（`vision_mask` 本来就把盟友的地算进去了）。
     """
-    return len(hall_cells(world, name, mask, halls_known))
+    return len(hall_cells(world, name, mask, known))
 
 
 # ---------------------------------------------------------------- 小工具（★都可过 mask）

@@ -178,7 +178,7 @@ def frame_of(sb, me: str, mask=None) -> tuple[int, int, int, int]:
     return x0, y0, y1 - y0 + 1, x1 - x0 + 1
 
 
-def encode_grid(sb, me: str, mask=None, halls_known: bool | None = None,
+def encode_grid(sb, me: str, mask=None, known=None,
                 frame: CB.FrameOdds | None = None) -> np.ndarray:
     """局面 → `(GRID_CHANNELS, H, W)`，**H/W 逐帧可变**（= 视野外接框，见 `frame_of`）。
 
@@ -190,9 +190,10 @@ def encode_grid(sb, me: str, mask=None, halls_known: bool | None = None,
     """
     w = sb.world
     mask = _vision(w, me) if mask is None else mask
-    # ★ "已派间谍"模式：他国的厅**位置**已知 ⇒ 厅通道不看视野。
+    # ★ 已知的厅 = **视野 ∪ 永久记忆**（`known`）。间谍模式只是**记忆的初值不同**
+    #   （开局就装满），所以这里**不再分模式**。
     #   ⚠ 军队的可见性**永远**走 `mask`（下面那段没动）—— "知道厅在哪" ≠ "看得见守军"。
-    halls_known = sb.halls_known if halls_known is None else halls_known
+    known = sb.known_halls(me, mask) if known is None else known
     x0, y0, h, ww = frame_of(sb, me, mask)
     foe = _other(me)
     g = np.zeros((V.GRID_CHANNELS, h, ww), dtype=np.float32)
@@ -247,7 +248,7 @@ def encode_grid(sb, me: str, mask=None, halls_known: bool | None = None,
             g[V.GRID_MY_HP, i, j] = min(1.0, mine / 100.0)
             g[V.GRID_FOE_HP, i, j] = min(1.0, foehp / 100.0)
             if (t is not None and t["buildings"].get("市政厅", 0) > 0
-                    and (visible or halls_known)):
+                    and (visible or (x, y) in known)):
                 # ★ 三档：我的 / **盟友的** / 对手的 —— 盟友的厅原来被漏掉了
                 if t["owner"] == me:
                     g[V.GRID_HALL_MINE, i, j] = 1.0
@@ -259,7 +260,7 @@ def encode_grid(sb, me: str, mask=None, halls_known: bool | None = None,
 
 
 # ============================================================ 全局标量
-def encode_glob(sb, me: str, mask=None) -> np.ndarray:
+def encode_glob(sb, me: str, mask=None, known=None) -> np.ndarray:
     """局面 → `(GLOB_SIZE,)` 标量（归一到 0~1）。**不含任何绝对坐标。**"""
     w = sb.world
     foe = _other(me)
@@ -270,12 +271,11 @@ def encode_glob(sb, me: str, mask=None) -> np.ndarray:
     ps = float(sb.size)
     mask = _vision(w, me) if mask is None else mask
     # ★ 已知的厅（三个类各一条"最近的那座"，相对**我家核心**）—— 见 `vocab.GLOB` 的注释。
-    #   我/盟友的厅全知；对手的厅按 `sb.halls_known`（间谍模式）或视野。
+    #   我/盟友的厅全知；对手的厅按 `known`（**视野 ∪ 永久记忆** —— 见过就永远知道）。
     hall_vals = {}
-    for tag, who, known in (("my", (me,), False), ("ally", _allies_of(sb, me), True),
-                            ("foe", (foe,), False)):
-        cells = [c for n in who for c in
-                 _hall_cells_of(w, n, mask, sb.halls_known or known)]
+    known = sb.known_halls(me, mask) if known is None else known
+    for tag, who in (("my", (me,)), ("ally", _allies_of(sb, me)), ("foe", (foe,))):
+        cells = [c for n in who for c in _hall_cells_of(w, n, mask, known)]
         if cells:
             cx, cy = min(cells, key=lambda c: max(abs(c[0] - hx), abs(c[1] - hy)))
             hall_vals[f"{tag}_hall_dx"] = (cx - hx) / ps
@@ -327,7 +327,8 @@ def window_armies(sb, me: str, mask=None) -> list[dict]:
 
 
 def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
-                  armies: list[dict] | None = None) -> tuple[dict, dict, list[dict]]:
+                  armies: list[dict] | None = None,
+                  known=None) -> tuple[dict, dict, list[dict]]:
     """→ `(win, win_mask, armies)`：窗口 token 组 + 掩码 + 军队清单（候选要按行号引用）。
 
     `win["g"]`（1 条，恒亮）= `encode_glob`(14) ⊕ `features.glob_rule_vector()`(11)
@@ -347,6 +348,8 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
     hx, hy = _home_cell(sb, me)
     if armies is None:
         armies = window_armies(sb, me, mask)
+    if known is None:
+        known = sb.known_halls(me, mask)
     if frame is None:
         frame = combat_of(sb, me, mask, armies)
     wfull = ARMY_WIDTH
@@ -380,7 +383,7 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
             frame.retreat.get(id(a), 1.0) if allowed else None)
         rows.append(row)
 
-    g_row = np.concatenate([encode_glob(sb, me, mask), F.glob_rule_vector()])
+    g_row = np.concatenate([encode_glob(sb, me, mask, known), F.glob_rule_vector()])
     arr = np.array(rows, dtype=np.float32) if rows else np.zeros((0, wfull), np.float32)
     # ★★ 行宽断言：**list 的切片赋值会静默改变长度**（`row[18:] = [14 个数]`
     #    在 28 长的 list 上会把它撑到 32，**不报错**）⇒ 少了这条，尾段整体错位
@@ -394,7 +397,7 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
 
 # ============================================================ ★ 下标形态候选
 def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
-                    armies=None, halls_known: bool | None = None) -> dict:
+                    armies=None, known=None) -> dict:
     """候选动作 → **下标形态**（`model.PolicyNet` 的那几个字段）。
 
     ★ 这里**不再平铺成一行标量**（旧版 12 列）。理由（§11）：平铺标量下
@@ -416,7 +419,7 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
     hx, hy = _home_cell(sb, me)
     ps = float(sb.size)
     mask = ((_vision(w, me) if mask is None else mask) if me else set())
-    halls_known = sb.halls_known if halls_known is None else halls_known
+    known = sb.known_halls(me, mask) if known is None else known
     acts = sb.legal() if acts is None else acts
     if by_cell is None:                     # ★ 格→军索引（`_owner_class` 查它，不扫全表）
         by_cell = {}
@@ -460,10 +463,10 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
         # ★ 市政厅归属 one-hot（同一套六类）—— 单列一组，让"这格的厅是谁的"直接可读：
         #   打谁能亡国、谁亡了我就危险，是国祚层的核心判断，不指望它从两个 one-hot 里凑。
         t = w.tiles.get((x, y))
-        # ★ 陷阱候选也要走 `halls_known`：间谍模式下"我知道那格是敌厅"，
-        #   哪怕它此刻不在视野里 —— 这正是"明知"要买到的东西。
+        # ★ 陷阱候选也要走 `known`："我知道那格是敌厅"，哪怕它此刻不在视野里
+        #   —— 这正是"记忆/间谍"要买到的东西（厅拆不掉 ⇒ 见过就永远算数）。
         if t is not None and t["buildings"].get("市政厅", 0) > 0 \
-                and ((x, y) in mask or halls_known):
+                and ((x, y) in mask or (x, y) in known):
             hall_owner = t["owner"]
             if hall_owner == me:
                 m[V.CAND_HALL0 + V.OWN_SELF] = 1.0
@@ -489,14 +492,16 @@ def obs_of(sb, me: str, acts=None) -> dict:
     """
     acts = sb.legal() if acts is None else acts
     mask = vision_of(sb, me)
+    known = sb.known_halls(me, mask)          # ★ 顺带把本帧看见的厅并进记忆（一次）
     armies = window_armies(sb, me, mask)
     frame = combat_of(sb, me, mask, armies)
-    win, win_mask, _ = encode_window(sb, me, mask, frame=frame, armies=armies)
+    win, win_mask, _ = encode_window(sb, me, mask, frame=frame, armies=armies,
+                                     known=known)
     return {
-        "grid": encode_grid(sb, me, mask, frame=frame),
+        "grid": encode_grid(sb, me, mask, known=known, frame=frame),
         "win": win,
         "win_mask": win_mask,
-        "cand": candidate_batch(sb, me, acts, mask, armies=armies),
+        "cand": candidate_batch(sb, me, acts, mask, armies=armies, known=known),
         "mask": np.ones(len(acts), bool),
         "n_armies": len(armies),                 # 供 collate 记录（不做张量）
     }
@@ -521,15 +526,21 @@ def _vision(world, name: str) -> set:
     return pathfind.vision_mask(world, name)
 
 
-def _hall_cells_of(world, name: str | None, mask, halls_known: bool) -> list:
-    """该国**已落成**的厅格（`halls_known` ⇒ 不看掩码；见 `vocab.GLOB` 的注释）。"""
+def _hall_cells_of(world, name: str | None, mask, known) -> list:
+    """该国**已落成**的厅格 —— **视野 ∪ 永久记忆**（见 `vocab.GLOB` 的注释）。
+
+    ★ `known` = `sandbox.known_halls(...)`，`{格: 最后看见时的主人}`。
+      用户 2026-09-24：「**发现厅了就应该永久标记，因为厅是拆不掉也不能移动的**」
+      ⇒ 不能再拿"当前视野"回答"厅在哪"（那会让已知的厅在观测里**闪断**）。
+    ★ 归属以**当前** `t["owner"]` 为准（记忆只放宽可见性）—— 取保守那一侧。
+    """
     if not name:
         return []
     out = []
     for cell, t in world.tiles.items():
         if t["owner"] != name or t["buildings"].get("市政厅", 0) <= 0:
             continue
-        if halls_known or cell in mask:
+        if cell in mask or (known is not None and known.get(cell) == name):
             out.append(cell)
     return out
 
