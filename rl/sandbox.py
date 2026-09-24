@@ -70,11 +70,12 @@ class Sandbox:
     """一局 8×8 攻取国祚。**规则归沙盒、动作归 v11plus**。"""
 
     def __init__(self, seed: int = 0, size: int = 8, t_max: int = T_MAX,
-                 war: bool = True):
+                 war: bool = True, first: str | None = None):
         self.seed = seed
         self.size = size
         self.t_max = t_max
         self.war = war                    # 开局是否宣战（★不宣战 v11plus 不会进攻）
+        self.first = first                # ★ 谁先手（`None` ⇒ `PLAYERS[0]`）
         self.world = None
         self.turn = 0
         self.log: list[str] = []
@@ -114,7 +115,13 @@ class Sandbox:
         # ★ 编组状态是**模块内存**：每局开始必须清，否则上一局的编组漏进来
         #   （`ruleai/v11plus/__init__.py` 明文要求）
         grouping.clear()
-        self.pending = [n for n in PLAYERS if self.alive(n)]   # 本回合还轮到谁行动
+        # ★ **先手可换**（用户 2026-09-24：「每 8 局换先后手」）—— 固定先手会把
+        #   "先手优势"永远记在同一个网络的头上；轮换后两个网络都当过得利/吃亏的那一方。
+        order = list(PLAYERS)
+        if self.first in order:
+            order.remove(self.first)
+            order.insert(0, self.first)
+        self.pending = [n for n in order if self.alive(n)]   # 本回合还轮到谁行动
         self.last_ok = True                                    # 上一步是否被引擎接受（进观测）
         return self
 
@@ -210,6 +217,7 @@ class Sandbox:
         sb.log = list(self.log)
         sb.pending = list(self.pending)
         sb.last_ok = self.last_ok
+        sb.first = self.first
         return sb
 
     def current_player(self) -> str | None:

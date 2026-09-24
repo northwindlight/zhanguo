@@ -251,7 +251,9 @@ def _streak(infos: list[dict], state: dict, who: str) -> int:
 
 def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           lr: float = 3e-4, temperature: float = 1.0,
-          first_streak_limit: int = 5, log=print) -> dict[str, PolicyNet]:
+          first_streak_limit: int = 5, size: int = 8,
+          size_min: int | None = None, size_max: int | None = None,
+          log=print) -> dict[str, PolicyNet]:
     """主循环：自对弈 collect → 两份网络各 update 一次。
 
     ★★ **自动闸门**：`first_streak_limit`（缺省 5）—— **先手连续赢这么多局就抛断言**
@@ -268,8 +270,19 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     for it in range(1, iters + 1):
         buf = {n: [] for n in PLAYERS}
         infos = []
+        # ★ **每 `episodes_per_iter` 局换一次先后手**（用户 2026-09-24：「每 8 局换先后手」）
+        #   —— 缺省 `episodes_per_iter=8` ⇒ 正好每个 iter 换一次。
+        #   固定先手会把"先手优势"永远记在同一个网络头上（实测闸门连响就是这个）。
+        first = PLAYERS[(it - 1) % len(PLAYERS)]
         for e in range(episodes_per_iter):
-            sb = Sandbox(seed=int(rng.integers(1 << 30))).reset()
+            # ★ **地图尺寸也随机**（用户 2026-09-24：「改成随机地图」）—— **域随机化**：
+            #   模型要能泛化到不同大小的图，而不是记住"这张图该怎么打"。
+            #   （seed 本来就每局不同 ⇒ 地形早已随机；这里补的是**尺寸**这一维。）
+            lo = size_min if size_min is not None else size
+            hi = size_max if size_max is not None else size
+            sz = int(rng.integers(lo, hi + 1))
+            sb = Sandbox(seed=int(rng.integers(1 << 30)), size=sz,
+                         first=first).reset()
             steps, info = collect_episode(nets, sb, temperature=temperature,
                                           rng=rng)
             infos.append(info)
@@ -316,9 +329,18 @@ if __name__ == "__main__":
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--first-streak-limit", type=int, default=5,
                     help="先手连续赢这么多局就抛断言（闸门，见 train() 的 docstring）")
+    ap.add_argument("--size", type=int, default=8,
+                    help="地图边长（`--size-min/--size-max` 给了就忽略它）。"
+                         "★ 8 上「先手速攻」是结构性最优（两国核心最多隔 "
+                         "min_margin(8,2)=5 格、步兵 1 格/回合 ⇒ 5 回合直达，"
+                         "实测闸门连响）⇒ 16 起才有真正的对抗空间")
+    ap.add_argument("--size-min", type=int, default=None,
+                    help="★ **随机地图**：每局在 [min,max] 里抽边长（域随机化）。建议 16 起")
+    ap.add_argument("--size-max", type=int, default=None)
     a = ap.parse_args()
     if a.threads:
         import torch
         torch.set_num_threads(a.threads)
     train(iters=a.iters, episodes_per_iter=a.episodes, seed=a.seed, lr=a.lr,
-          temperature=a.temperature, first_streak_limit=a.first_streak_limit)
+          temperature=a.temperature, first_streak_limit=a.first_streak_limit,
+          size=a.size, size_min=a.size_min, size_max=a.size_max)
