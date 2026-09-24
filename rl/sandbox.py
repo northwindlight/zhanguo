@@ -417,12 +417,19 @@ class Sandbox:
     def armies_of(self, name: str) -> list[dict]:
         return [a for a in self.world.armies if a["owner"] == name and a.get("hp", 0) > 0]
 
-    def tiles_of(self, name: str) -> int:
-        return sum(1 for t in self.world.tiles.values() if t["owner"] == name)
+    def tiles_of(self, name: str, mask=None) -> int:
+        """国土格数。★ 数**对手**时必须传 `mask`（视野外看不见谁占了哪）。
 
-    def cap_of(self, name: str) -> int:
-        """补员上限 = `BASE_CAP + 国土数 // TILES_PER_CAP`。"""
-        return BASE_CAP + self.tiles_of(name) // TILES_PER_CAP
+        ★ 为什么给 mask 而不是让调用方自己数：补员上限那条公式
+          （`BASE_CAP + 国土 // TILES_PER_CAP`）**只能有一处** ——
+          调用方自己数一遍就会和 `cap_of` 漂移，而那种错不报错、只是观测慢慢说谎。
+        """
+        return sum(1 for cell, t in self.world.tiles.items()
+                   if t["owner"] == name and (mask is None or cell in mask))
+
+    def cap_of(self, name: str, mask=None) -> int:
+        """补员上限 = `BASE_CAP + 国土数 // TILES_PER_CAP`（★ 对手要过 `mask`）。"""
+        return BASE_CAP + self.tiles_of(name, mask) // TILES_PER_CAP
 
     def alive(self, name: str) -> bool:
         return name in self.world.nations and self.world.has_townhall(name)

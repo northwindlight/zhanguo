@@ -145,16 +145,32 @@ class TestEnemiesAreASet(unittest.TestCase):
         self.assertIsInstance(E.score(sb.world, "甲", "乙", mask=BLIND), float)
         self.assertIsInstance(E.score(sb.world, "甲", ["乙", "丙"], mask=BLIND), float)
 
-    def test_glob_foe_aggregates_cover_every_rival(self):
-        """三国各 5 支军 ⇒ `foe_armies` 该数到 **10**（不是一个对手的 5）。"""
+    def test_no_foe_scalars_and_no_rule_derived_caps(self):
+        """★★ 那五个"对手标量"**必须不在观测里**（用户 2026-09-25：「**全都不要了**」）。
+
+        它们有**两个**病：
+          ① **超越真玩家** —— 一次 `mask` 都没过 ⇒ 不侦察就知道对手的国土总量、
+             军队总数、总血量；`foe_moved` 更是**战术级**泄露
+             （「他们全军都动过了 ⇒ 现在打他」）。
+          ② ★ **它们在数"训练用的规则"** —— `*_cap` = `5 + 国土//10` 是**沙盒的补员公式**，
+             而「实际如何补员**由 llm 决定**，未来这些规则都会**情景化**」
+             ⇒ 把它们当"知识"喂进去，模型学的是**沙盒规则**，不是**战局**。
+
+        留下的 `foe_*` **只许是公开的国祚**（存活 + 位置：亡国是公开事件、
+        厅位置走永久记忆账本）。
+        """
+        banned = {"foe_tiles", "foe_armies", "foe_cap", "foe_hp_frac", "foe_moved",
+                  "my_cap"}
+        self.assertEqual(banned & set(V.GLOB), set(),
+                         f"这些列又回来了：{sorted(banned & set(V.GLOB))}")
+        allowed = {"foe_hall", "foe_hall_dx", "foe_hall_dy", "foe_hall_d", "foe_halls"}
+        self.assertEqual({c for c in V.GLOB if c.startswith("foe_")}, allowed,
+                         "`foe_*` 只许剩**公开的国祚**那几列")
+        # ★ 反向对照：观测量本身还得是活的（别把"删干净"做成"整段空掉"）
         sb = sb_of(size=16)
-        for p in sb.players:
-            self.assertEqual(len(sb.armies_of(p)), 5)
         g = encode.encode_glob(sb, "甲", BLIND, known={})
-        self.assertAlmostEqual(float(g[V.GLOB.index("foe_armies")]), 10 / 8.0, places=6,
-                               msg="敌国兵力只数了一个对手 ⇒ 另一个对手被静默漏掉")
-        # 国土同理：三国各 5 格 ⇒ 敌国国土合计 10（÷ 边长²）
-        self.assertAlmostEqual(float(g[V.GLOB.index("foe_tiles")]), 10 / 256.0, places=6)
+        self.assertGreater(float(g[V.GLOB.index("my_tiles")]), 0.0, "我自己的国土该还在")
+        self.assertEqual(float(g[V.GLOB.index("foe_hall")]), 1.0, "对手存活是公开信息")
 
     def test_visible_rival_armies_all_enter_tokens(self):
         """两个对手的军，**只要看得见都该进 token**（原来只收"那一个敌人"的）。"""

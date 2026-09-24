@@ -288,15 +288,18 @@ def encode_glob(sb, me: str, mask=None, known=None) -> np.ndarray:
     #   `foe_*` 那几个标量一律是**所有对手之和**，"还有没有对手活着"用 `any`。
     #   ⚠ 原来的 `_other(me)` 只取"另一个" ⇒ 三国局里**第二个对手整个不进观测**
     #     （而那**不报错**，只是模型少看到一个敌人）。
+    # ★ **mask 必须先归一**：下面 `enemies_of`/`_hall_cells_of`/`known_halls` 都要用它
+    #   （我 2026-09-25 一度把用 mask 的代码写在归一**之前** ⇒ `mask=None` 调用会
+    #    `TypeError: argument of type NoneType is not iterable`）。
+    mask = _vision(w, me) if mask is None else mask
     foes = enemies_of(w, me)
     mine = _armies(w, me)
-    his = [a for f in foes for a in _armies(w, f)]
-    cap_m = sb.cap_of(me)
-    cap_f = sum(sb.cap_of(f) for f in foes)
+    # ★★ 那五个"对手标量"**已整批删除**（用户 2026-09-25：「**全都不要了**…这个规则是
+    #   **训练的规则**，实际如何补员由 llm 决定…**根本不是该计入的规则**」）——
+    #   它们既**超越真玩家**（不过 mask），又在数**沙盒的补员公式**。见 `vocab.GLOB`。
     n2 = float(sb.size * sb.size)
     hx, hy = _home_cell(sb, me)
     ps = float(sb.size)
-    mask = _vision(w, me) if mask is None else mask
     # ★ 已知的厅（三个类各一条"最近的那座"，相对**我家核心**）—— 见 `vocab.GLOB` 的注释。
     #   我/盟友的厅全知；对手的厅按 `known`（**视野 ∪ 永久记忆** —— 见过就永远知道）。
     hall_vals = {}
@@ -315,19 +318,13 @@ def encode_glob(sb, me: str, mask=None, known=None) -> np.ndarray:
     vals = {
         "turn_frac": sb.turn / max(1, sb.t_max),
         "my_tiles": sb.tiles_of(me) / n2,
-        "foe_tiles": sum(sb.tiles_of(f) for f in foes) / n2,
         "my_armies": len(mine) / 8.0,
-        "foe_armies": len(his) / 8.0,
-        "my_cap": cap_m / 8.0,
-        "foe_cap": cap_f / 8.0,
         "my_hall": 1.0 if sb.alive(me) else 0.0,
         # ★ 语义：**还有对手活着**（多玩家下"某一个对手的国祚"已无意义）。
         #   国祚存亡是**公开事件**（引擎 `_eliminate_if_dead`）⇒ 不算偷看。
         "foe_hall": 1.0 if any(sb.alive(f) for f in foes) else 0.0,
-        "my_hp_frac": _hp_frac(mine, cap_m),
-        "foe_hp_frac": _hp_frac(his, cap_f),
+        "my_hp_frac": _hp_frac(mine, S.HP_REF_ARMIES),
         "my_moved": sum(1 for a in mine if a.get("moved_turn") != w.turn) / 8.0,
-        "foe_moved": sum(1 for a in his if a.get("moved_turn") != w.turn) / 8.0,
         "last_ok": 1.0 if sb.last_ok else 0.0,
         # ★★ 我**累计**的战果（见 `vocab.GLOB` 那两段；单调、与视野无关）。
         #   ⚠ **只数"敌国"**（`victims=foes`）：打野人/打盟友不算 —— 口径与打分器一致，
@@ -644,5 +641,8 @@ def _home_cell(sb, name: str | None) -> tuple[int, int]:
     return c if c else (0, 0)
 
 
-def _hp_frac(armies: list[dict], cap: int) -> float:
-    return min(1.0, sum(a.get("hp", 0) for a in armies) / max(1.0, 100.0 * max(1, cap)))
+def _hp_frac(armies: list[dict], ref: float) -> float:
+    """总血量 ÷ (100 × ref)。★ ref **只是个数**（见 scoring.HP_REF_ARMIES）——
+    不许再拿"补员上限"当分母（那是**沙盒规则**推出来的量）。"""
+    return min(1.0, sum(a.get("hp", 0) for a in armies)
+               / max(1.0, 100.0 * max(1.0, ref)))
