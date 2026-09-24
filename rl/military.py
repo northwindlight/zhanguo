@@ -38,6 +38,14 @@ from ruleai.v11plus import grouping, pathfind
 from ruleai.v11plus.combat import assess
 
 
+# ★★ **守家判定半径**（"敌军离我家几格才算告急"）。
+#   原来是散在 `run` 里的一处**裸字面量 `3`**，现在提出来、两处共用
+#   （"要不要把自家核心放进候选池" 与 "要不要收缩池子" 必须是**同一个**判据，
+#   各写一个数就会出现"收缩了但池子里没有家"或反过来的静默错配）。
+#   ⚠ 它**不属于** `balance.py`（那是 main 的引擎文件，本线必须逐字一致）⇒ 放这里。
+DEFEND_R = 3
+
+
 class Plan:
     """一条编好的决策：`cell` 是目标，`ids` 是认领它的军队。"""
 
@@ -166,23 +174,20 @@ def run(world, name: str, *, enemy: str | None, max_actions: int = 10 ** 9,
     if not pool:
         return acts
 
-    cells = targets(world, name, mask, enemy=enemy, defend=defend, scout=scout)
-    if not cells:
-        return acts
-
-    # ---- 1. 目标评估（★抄 v11plus 的 assess）----
-    cands = []
-    for cell in cells:
-        d = assess(world, name, cell, armies, visible=cell in mask,
-                   need_cap=V11_NEED_CAP, rounds_cap=V11_ROUNDS_CAP)
-        cands.append(grouping.Candidate(cell, d.need, d.rounds, d.empty, d.winnable,
-                                        world.tile_terrain(*cell) if cell in mask else None,
-                                        ()))
-    diff_of = {c.cell: c for c in cands}
-
-    # ---- 2. 威胁（★写）：家里越危险，守家目标越"便宜" ⇒ 求解器越愿意派人回去 ----
+    # ---- 1. 威胁（★写）：**必须最先算** —— 它决定"要不要守家"，也就决定候选池。
+    #   ★★ 两处真 bug（2026-09-25 查出来的，HEAD 上一样）：
+    #     ① 原来 `targets(defend=True)` **无条件**把自家核心放进池子，而自家核心是个
+    #        **零代价**目标（reach=0、spread=0、缺员罚 0）⇒ `grouping._solve` 是最小代价
+    #        指派 ⇒ **全军认领自家核心、原地不动** ⇒ `best_step` 全 None ⇒
+    #        **`rollout` 零动作**、200 回合判平（实测：`picked={1..5: 自家核心}`）。
+    #        对照线（`ai_turn`）因此**整个是死的**。
+    #     ② "家里告急 ⇒ 收缩池子"那段只筛了 `cells`，而 `_solve` 用的是**筛之前**
+    #        建好的 `cands` ⇒ **收缩是空操作**（守家特性从来没生效过）。
+    #   ⇒ 现在：威胁先行 → 只**真有威胁**时才把自家核心当目标 → 用**最终**池子建候选。
     near = threat_at_home(world, name, mask, enemy=enemy)
-    if near <= 3 and defend:
+    urgent = bool(defend) and near <= DEFEND_R
+    cells = targets(world, name, mask, enemy=enemy, defend=urgent, scout=scout)
+    if urgent:
         # ★ 家里告急：把池子**收缩**到「守家 + 侦察前沿」⇒ 求解器只能派兵往回走。
         #   为什么不用"加成"：`grouping._solve` 的目标函数是固定的（`Σ(spread+reach+λ·缺员)`），
         #   它**不收**外部权重 ⇒ 表达优先级只能靠「给它什么候选」，这也顺带不用改 v11plus 的代码。
@@ -191,6 +196,18 @@ def run(world, name: str, *, enemy: str | None, max_actions: int = 10 ** 9,
         cells = [c for c in cells if c == home or c in keep]
         if not cells and home is not None:
             cells = [home]
+    if not cells:
+        return acts
+
+    # ---- 2. 目标评估（★抄 v11plus 的 assess）----
+    cands = []
+    for cell in cells:
+        d = assess(world, name, cell, armies, visible=cell in mask,
+                   need_cap=V11_NEED_CAP, rounds_cap=V11_ROUNDS_CAP)
+        cands.append(grouping.Candidate(cell, d.need, d.rounds, d.empty, d.winnable,
+                                        world.tile_terrain(*cell) if cell in mask else None,
+                                        ()))
+    diff_of = {c.cell: c for c in cands}
 
     # ---- 3. 编组（★抄 v11plus 的全局指派求解器）----
     cache: dict = {}
