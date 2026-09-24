@@ -178,7 +178,7 @@ class Sandbox:
         out: list[tuple] = []
         for a in self.armies_of(name):
             if a.get("engaged") or a.get("moved_turn") == self.world.turn:
-                continue
+                continue                       # ★ 已用过的军 / 交战中的军：整支屏蔽
             here = (a["x"], a["y"])
             walk = self.world._reachable(name, a, for_attack=False)
             for cell in sorted(walk):
@@ -187,8 +187,44 @@ class Sandbox:
             for cell in sorted(self.world._reachable(name, a, for_attack=True)):
                 if cell not in walk:
                     out.append((a["id"], "attack", cell[0], cell[1]))
+            # ★ ③ **无视野的邻格：移动与进攻两条路都给**（用户 2026-09-24）
+            #   引擎的规矩是「**敌国领土不能 mv，但允许 atk**」（`_mv_wall` 拒 mv / `attack` 收），
+            #   而看不见的时候模型**无从知道那一格是什么** ⇒ 两条都给，让引擎当场判，
+            #   并把它那句教学式错误消息（实测原话：「(5,5) 有敌军驻守，不能 mv 过去；
+            #   **进攻请用 atk（会交战）**」）当成**侦察的情报来源**。
+            for (x, y) in self._probe_cells(name, a, walk):
+                out.append((a["id"], "move", x, y))
+                out.append((a["id"], "attack", x, y))
         out.append((END, None, None, None))
         return out
+
+    def _probe_cells(self, name: str, a: dict, walk) -> list[tuple]:
+        """★ **允许撞墙的试探格**：该军周围（1 格移动力）里**视野外**的格（边界除外）。
+
+        用户 2026-09-24：「**特殊撞墙 mv 允许存在**，在**无视野**的情况下，全部候选集允许
+        （边界除外），**按现有的引擎设计返回错误消息**，为模型那里存在敌国领土」。
+
+        ⇒ 看不见的地方**必须让模型摸得到**：摸了，引擎照报错、**额度照烧**
+          （`mp.py` 的 `_blind_cost` 原话：「视野外撞墙 → 报错照给、额度照烧，**侦察要付钱**」），
+          模型就**从那条错误消息里**学到"那儿走不进去 / 那儿是敌国领土"。
+        ★ 把候选卡死在 `_reachable` 上等于**把侦察这条路由封死** —— 模型永远发现不了
+          视野外的敌国领土（那正是它要去拔的厅所在的地方）。
+        """
+        from ruleai.v11plus import pathfind
+        mask = pathfind.vision_mask(self.world, name)
+        n = self.size
+        out = []
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                x, y = a["x"] + dx, a["y"] + dy
+                if not (0 <= x < n and 0 <= y < n):
+                    continue                   # ★ 边界除外
+                if (x, y) in walk or (x, y) in mask:
+                    continue                   # 已给过 / 有视野的引擎已判过
+                out.append((x, y))
+        return sorted(out)
 
     def step(self, action: tuple) -> tuple[bool, str]:
         """执行一个动作。`END` = 本方收手 ⇒ 换人；双方都收手 ⇒ 结算 + 开下一回合。"""
