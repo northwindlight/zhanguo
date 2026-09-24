@@ -304,5 +304,79 @@ class TestBackbone(unittest.TestCase):
         self.assertTrue(bool(batch["win_mask"]["g"][0, 0]), "`g` 组必须恒亮")
 
 
+class TestHallsKnownMode(unittest.TestCase):
+    """★★ 用户 2026-09-24：「对手的厅应该是**明知**的，有**两种模式**，一个是 llm
+    **已经派了间谍**、明知对手厅了，一个是**没有**、rl 模型**自己找厅**」。
+
+    ★ 这一组同时钉住那条**安全边界**：知道厅在哪 **≠** 看得见厅上的守军。
+    """
+
+    def _sb(self, spy):
+        # 24×24 ⇒ 两国核心离得远，缺省视野**看不到**对方的厅
+        return Sandbox(seed=3, size=24, halls_known=spy).reset()
+
+    def test_glob_carries_known_hall_position(self):
+        a, b = self._sb(False), self._sb(True)
+        ga = dict(zip(V.GLOB, encode.encode_glob(a, "甲")))
+        gb = dict(zip(V.GLOB, encode.encode_glob(b, "甲")))
+        self.assertEqual(ga["foe_halls"], 0.0, "没派间谍 ⇒ 不该知道敌厅在哪")
+        self.assertGreater(gb["foe_halls"], 0.0, "★ 派了间谍 ⇒ 敌厅座数该已知")
+        self.assertNotEqual((gb["foe_hall_dx"], gb["foe_hall_dy"]), (0.0, 0.0),
+                            "★ 派了间谍却没给出敌厅的**方位** ⇒ 这一路白加了")
+        # ★ **相对坐标**：偏移归一化到 [−1,1]（地图大小无关），不是绝对格号
+        self.assertLessEqual(max(abs(gb["foe_hall_dx"]), abs(gb["foe_hall_dy"])), 1.0)
+
+    def test_my_hall_is_always_known(self):
+        """我自己的厅**永远**已知（是 0,0 —— 原点就是我家核心），两种模式一致。"""
+        for spy in (False, True):
+            g = dict(zip(V.GLOB, encode.encode_glob(self._sb(spy), "甲")))
+            self.assertEqual(g["my_halls"], 0.25)          # 1 座 / 4
+            self.assertEqual((g["my_hall_dx"], g["my_hall_dy"]), (0.0, 0.0))
+
+    def test_spy_mode_does_not_leak_garrisons(self):
+        """★★ 安全边界：**"知道厅在哪" 不许顺带暴露厅上的守军**。
+
+        做法：给对手的厅上摆一支军（在视野外），两种模式下的**可见敌军 token 数**
+        必须一模一样 —— 若实现是"把厅格塞进 `vision_mask`"，这里就会多出一支军。
+        """
+        counts = {}
+        for spy in (False, True):
+            sb = self._sb(spy)
+            w = sb.world
+            fx, fy = sb.core_of("乙")
+            gid, seq = w._new_army("乙")
+            w.armies.append({"id": seq, "gid": gid, "name": f"乙{seq}", "type": "步",
+                             "hp": 100, "x": fx, "y": fy, "owner": "乙",
+                             "moved_turn": -1, "engaged": False})
+            mask = encode.vision_of(sb, "甲")
+            self.assertNotIn((fx, fy), mask, "前提：该格本来在视野外")
+            win, _, _ = encode.encode_window(sb, "甲", mask)
+            counts[spy] = win["a"].shape[0]
+            # 真视野掩码本身**一点没变** —— 变的只是"厅的位置"这一路
+            self.assertEqual(len(mask), len(encode.vision_of(self._sb(spy), "甲")))
+        self.assertEqual(counts[False], counts[True],
+                         "★ 间谍模式把厅上的守军也暴露了 —— 那是偷看，不是'知道厅在哪'")
+
+    def test_spy_mode_changes_the_score_only_through_proximity(self):
+        """打分器那侧：`halls_known` 只影响**逼近项**（"我离敌厅还有多远"）。"""
+        from rl import evaluate as E
+        sb = self._sb(False)
+        mask = encode.vision_of(sb, "甲")
+        self.assertNotEqual(E.score(sb.world, "甲", "乙", mask, halls_known=True),
+                            E.score(sb.world, "甲", "乙", mask, halls_known=False),
+                            "★ 间谍模式对打分毫无影响 ⇒ 没透进去")
+
+    def test_grid_frame_cannot_hold_out_of_view_halls(self):
+        """★ 钉住"**为什么厅不进网格**"：网格 = 视野外接框，框外的格**没有位置**。
+
+        这条是给未来的自己看的 —— 别再尝试"把已知的厅塞进网格通道"。
+        """
+        sb = self._sb(True)
+        g = encode.encode_grid(sb, "甲")
+        self.assertEqual(g[V.GRID_HALL_RIVAL].sum(), 0.0,
+                         "间谍模式下网格里**仍然**没有敌厅 —— 因为它在视野框外，"
+                         "这正是要把厅放进**全局/相对坐标**而不是网格的原因")
+
+
 if __name__ == "__main__":
     unittest.main()

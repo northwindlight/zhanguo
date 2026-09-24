@@ -173,7 +173,8 @@ def _score(sb: Sandbox, me: str) -> float:
     foe = next((n for n in PLAYERS if n != me), None)
     from ruleai.v11plus import pathfind
     mask = pathfind.vision_mask(sb.world, me)
-    return evaluate.score(sb.world, me, foe, mask)
+    # ★ 把沙盒的"已派间谍"模式透给打分器（用户：「对手的厅应该是明知的，有两种模式」）
+    return evaluate.score(sb.world, me, foe, mask, halls_known=sb.halls_known)
 
 
 def _reward(sb: Sandbox, me: str, prev: float, done: bool) -> float:

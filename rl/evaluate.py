@@ -44,7 +44,8 @@ from . import scoring as S
 INF = S.INF
 
 
-def score(world, me: str, enemy: str, mask=None, allies=None) -> float:
+def score(world, me: str, enemy: str, mask=None, allies=None,
+          halls_known: bool = False) -> float:
     """从 `me` 视角打分（正 = 我占优）= **自己 + 0.5 × 盟友（不含国土差）**。
 
     ★ **敌方的一切都过 `mask`**（见文件头）。`mask` = `pathfind.vision_mask(world, me)`；
@@ -58,7 +59,7 @@ def score(world, me: str, enemy: str, mask=None, allies=None) -> float:
     if t is not None:
         return t                          # 已定局 ⇒ 直接用终局分（**与 `terminal` 同一套口径**）
     allies = allies_of(world, me) if allies is None else list(allies)
-    s = _one(world, me, enemy, mask, with_tiles=True)
+    s = _one(world, me, enemy, mask, with_tiles=True, halls_known=halls_known)
     # ★★ 国祚那一项**只数我这边**（用户 2026-09-24 纠正）：
     #   「**分数是针对于自己而言，得厅加分，丢厅扣分，和对面几个厅有半毛钱关系？**」
     #
@@ -85,11 +86,13 @@ def score(world, me: str, enemy: str, mask=None, allies=None) -> float:
         if not world.has_townhall(al):
             s += S.ALLY_SHARE * S.ALLY_DEAD   # 见 `ALLY_DEAD` 的注释
             continue
-        s += S.ALLY_SHARE * _one(world, al, enemy, mask, with_tiles=False)
+        s += S.ALLY_SHARE * _one(world, al, enemy, mask, with_tiles=False,
+                                 halls_known=halls_known)
     return s
 
 
-def _one(world, me: str, enemy: str, mask, *, with_tiles: bool) -> float:
+def _one(world, me: str, enemy: str, mask, *, with_tiles: bool,
+         halls_known: bool = False) -> float:
     """单国评分（打分构成见文件头）。`with_tiles=False` ⇒ **不算国土差**（盟友那一份用）。
 
     ★ 这里**不再**对"`enemy` 已亡"返回 `+INF` —— 那件事是不是胜局由 `score` 判
@@ -112,7 +115,7 @@ def _one(world, me: str, enemy: str, mask, *, with_tiles: bool) -> float:
     # ★★ 逼近 / 威胁 / 守家：**对每一座厅都生效**（用户 2026-09-24：「打分器的**距离
     #   市政厅**的厅，应该**对每个市政厅都生效**」）—— 一国有两座厅时，不能只盯其中一座。
     my_halls = hall_cells(world, me)                   # 我的厅：全知
-    foe_halls = hall_cells(world, enemy, mask)         # ★ 敌的厅：看不见 ⇒ 空的
+    foe_halls = hall_cells(world, enemy, mask, halls_known)   # ★ 敌的厅（见 halls_known）
     if my_halls and foe_halls:
         # 我离**最近的敌厅**（挑最好打的那座）；敌离**我最危险的那座厅**
         my_d = min(min_dist(world, me, h) for h in foe_halls)
@@ -196,25 +199,32 @@ def _my_entity(world, me: str) -> str | None:
         return None
 
 
-def hall_cells(world, name: str, mask=None) -> list:
+def hall_cells(world, name: str, mask=None, halls_known: bool = False) -> list:
     """该国**所有已落成**的市政厅格（排序稳定）。
 
     ★ 用户 2026-09-24：「打分器的**距离市政厅**的厅，应该**对每个市政厅都生效**」
       ⇒ 逼近/威胁/守家那三项都走这个函数，**不是只取第一座厅**（`core_of` 只回一座，
       一国有两座厅时另一座等于不存在）。
+
+    ★ `halls_known=True`（"**已派间谍**"模式，`sandbox.halls_known`）⇒ 不看掩码：
+      拿不到视野也照样知道厅在哪。★ 这**只**放行"厅在哪"，**不**放行厅上的守军 ——
+      军队的可见性永远走真正的 `mask`（`armies()` / `min_dist()`），那是两件情报。
     """
+    if halls_known:
+        return [cell for cell, t in sorted(world.tiles.items())
+                if t["owner"] == name and t["buildings"].get("市政厅", 0) > 0]
     return [cell for cell, t in sorted(world.tiles.items())
             if t["owner"] == name and t["buildings"].get("市政厅", 0) > 0
             and _vis(cell, mask)]
 
 
-def halls_of(world, name: str, mask=None) -> int:
+def halls_of(world, name: str, mask=None, halls_known: bool = False) -> int:
     """该国**已落成**的市政厅**座数**（= 国祚，也是补员产能）。
 
     ★ 数**对手**的厅时必须传 `mask` —— 厅只在**视野内**公开（引擎 `_public_buildings`：
       "看不见就打不着"）。自己与盟友的厅走全知（`vision_mask` 本来就把盟友的地算进去了）。
     """
-    return len(hall_cells(world, name, mask))
+    return len(hall_cells(world, name, mask, halls_known))
 
 
 # ---------------------------------------------------------------- 小工具（★都可过 mask）

@@ -110,10 +110,13 @@ def frame_of(sb, me: str, mask=None) -> tuple[int, int, int, int]:
     return x0, y0, y1 - y0 + 1, x1 - x0 + 1
 
 
-def encode_grid(sb, me: str, mask=None) -> np.ndarray:
+def encode_grid(sb, me: str, mask=None, halls_known: bool | None = None) -> np.ndarray:
     """局面 → `(GRID_CHANNELS, H, W)`，**H/W 逐帧可变**（= 视野外接框，见 `frame_of`）。"""
     w = sb.world
     mask = _vision(w, me) if mask is None else mask
+    # ★ "已派间谍"模式：他国的厅**位置**已知 ⇒ 厅通道不看视野。
+    #   ⚠ 军队的可见性**永远**走 `mask`（下面那段没动）—— "知道厅在哪" ≠ "看得见守军"。
+    halls_known = sb.halls_known if halls_known is None else halls_known
     x0, y0, h, ww = frame_of(sb, me, mask)
     foe = _other(me)
     g = np.zeros((V.GRID_CHANNELS, h, ww), dtype=np.float32)
@@ -146,7 +149,8 @@ def encode_grid(sb, me: str, mask=None) -> np.ndarray:
                     foehp += a["hp"]
             g[V.GRID_MY_HP, i, j] = min(1.0, mine / 100.0)
             g[V.GRID_FOE_HP, i, j] = min(1.0, foehp / 100.0)
-            if t is not None and t["buildings"].get("市政厅", 0) > 0:
+            if (t is not None and t["buildings"].get("市政厅", 0) > 0
+                    and (visible or halls_known)):
                 # ★ 三档：我的 / **盟友的** / 对手的 —— 盟友的厅原来被漏掉了
                 if t["owner"] == me:
                     g[V.GRID_HALL_MINE, i, j] = 1.0
@@ -158,13 +162,32 @@ def encode_grid(sb, me: str, mask=None) -> np.ndarray:
 
 
 # ============================================================ 全局标量
-def encode_glob(sb, me: str) -> np.ndarray:
+def encode_glob(sb, me: str, mask=None) -> np.ndarray:
     """局面 → `(GLOB_SIZE,)` 标量（归一到 0~1）。**不含任何绝对坐标。**"""
     w = sb.world
     foe = _other(me)
     mine, his = _armies(w, me), _armies(w, foe)
     cap_m, cap_f = sb.cap_of(me), sb.cap_of(foe)
     n2 = float(sb.size * sb.size)
+    hx, hy = _home_cell(sb, me)
+    ps = float(sb.size)
+    mask = _vision(w, me) if mask is None else mask
+    # ★ 已知的厅（三个类各一条"最近的那座"，相对**我家核心**）—— 见 `vocab.GLOB` 的注释。
+    #   我/盟友的厅全知；对手的厅按 `sb.halls_known`（间谍模式）或视野。
+    hall_vals = {}
+    for tag, who, known in (("my", (me,), False), ("ally", _allies_of(sb, me), True),
+                            ("foe", (foe,), False)):
+        cells = [c for n in who for c in
+                 _hall_cells_of(w, n, mask, sb.halls_known or known)]
+        if cells:
+            cx, cy = min(cells, key=lambda c: max(abs(c[0] - hx), abs(c[1] - hy)))
+            hall_vals[f"{tag}_hall_dx"] = (cx - hx) / ps
+            hall_vals[f"{tag}_hall_dy"] = (cy - hy) / ps
+            hall_vals[f"{tag}_hall_d"] = max(abs(cx - hx), abs(cy - hy)) / ps
+        else:
+            hall_vals[f"{tag}_hall_dx"] = hall_vals[f"{tag}_hall_dy"] = 0.0
+            hall_vals[f"{tag}_hall_d"] = 0.0
+        hall_vals[f"{tag}_halls"] = min(1.0, len(cells) / 4.0)
     vals = {
         "turn_frac": sb.turn / max(1, sb.t_max),
         "my_tiles": sb.tiles_of(me) / n2,
@@ -180,6 +203,7 @@ def encode_glob(sb, me: str) -> np.ndarray:
         "my_moved": sum(1 for a in mine if a.get("moved_turn") != w.turn) / 8.0,
         "foe_moved": sum(1 for a in his if a.get("moved_turn") != w.turn) / 8.0,
         "last_ok": 1.0 if sb.last_ok else 0.0,
+        **hall_vals,
     }
     return np.array([vals[k] for k in V.GLOB], dtype=np.float32)
 
@@ -225,7 +249,7 @@ def encode_window(sb, me: str, mask=None) -> tuple[dict, dict, list[dict]]:
         row[V.A_WIDTH_RAW:] = F.unit_vector(kind)     # ★ 兵种数值（现算）
         rows.append(row)
 
-    g_row = np.concatenate([encode_glob(sb, me), F.glob_rule_vector()])
+    g_row = np.concatenate([encode_glob(sb, me, mask), F.glob_rule_vector()])
     win = {"g": g_row[None, :].astype(np.float32),
            "a": np.array(rows, dtype=np.float32) if rows
                 else np.zeros((0, V.A_WIDTH_RAW + F.F_U), np.float32)}
@@ -236,7 +260,7 @@ def encode_window(sb, me: str, mask=None) -> tuple[dict, dict, list[dict]]:
 
 # ============================================================ ★ 下标形态候选
 def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
-                    armies=None) -> dict:
+                    armies=None, halls_known: bool | None = None) -> dict:
     """候选动作 → **下标形态**（`model.PolicyNet` 的那几个字段）。
 
     ★ 这里**不再平铺成一行标量**（旧版 12 列）。理由（§11）：平铺标量下
@@ -258,6 +282,7 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
     hx, hy = _home_cell(sb, me)
     ps = float(sb.size)
     mask = ((_vision(w, me) if mask is None else mask) if me else set())
+    halls_known = sb.halls_known if halls_known is None else halls_known
     acts = sb.legal() if acts is None else acts
     if by_cell is None:                     # ★ 格→军索引（`_owner_class` 查它，不扫全表）
         by_cell = {}
@@ -301,7 +326,10 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
         # ★ 市政厅归属 one-hot（同一套六类）—— 单列一组，让"这格的厅是谁的"直接可读：
         #   打谁能亡国、谁亡了我就危险，是国祚层的核心判断，不指望它从两个 one-hot 里凑。
         t = w.tiles.get((x, y))
-        if t is not None and t["buildings"].get("市政厅", 0) > 0:
+        # ★ 陷阱候选也要走 `halls_known`：间谍模式下"我知道那格是敌厅"，
+        #   哪怕它此刻不在视野里 —— 这正是"明知"要买到的东西。
+        if t is not None and t["buildings"].get("市政厅", 0) > 0 \
+                and ((x, y) in mask or halls_known):
             hall_owner = t["owner"]
             if hall_owner == me:
                 m[V.CAND_HALL0 + V.OWN_SELF] = 1.0
@@ -348,6 +376,29 @@ def _other(name: str | None) -> str:
 def _vision(world, name: str) -> set:
     from ruleai.v11plus import pathfind
     return pathfind.vision_mask(world, name)
+
+
+def _hall_cells_of(world, name: str | None, mask, halls_known: bool) -> list:
+    """该国**已落成**的厅格（`halls_known` ⇒ 不看掩码；见 `vocab.GLOB` 的注释）。"""
+    if not name:
+        return []
+    out = []
+    for cell, t in world.tiles.items():
+        if t["owner"] != name or t["buildings"].get("市政厅", 0) <= 0:
+            continue
+        if halls_known or cell in mask:
+            out.append(cell)
+    return out
+
+
+def _allies_of(sb, me: str | None) -> tuple:
+    if not me:
+        return ()
+    try:
+        return tuple(n for n in sb.world.nations
+                     if n != me and sb.world.allied_between(me, n))
+    except Exception:                              # noqa: BLE001
+        return ()
 
 
 def _armies(world, name: str) -> list[dict]:

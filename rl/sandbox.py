@@ -70,12 +70,25 @@ class Sandbox:
     """一局 8×8 攻取国祚。**规则归沙盒、动作归 v11plus**。"""
 
     def __init__(self, seed: int = 0, size: int = 8, t_max: int = T_MAX,
-                 war: bool = True, first: str | None = None):
+                 war: bool = True, first: str | None = None,
+                 halls_known: bool = False):
         self.seed = seed
         self.size = size
         self.t_max = t_max
         self.war = war                    # 开局是否宣战（★不宣战 v11plus 不会进攻）
         self.first = first                # ★ 谁先手（`None` ⇒ `PLAYERS[0]`）
+        # ★★ **他国市政厅是否已知** —— 用户 2026-09-24：
+        #   「对手的厅应该是**明知**的，有**两种模式**，一个是 llm **已经派了间谍**、
+        #    明知对手厅了，一个是没有、**rl 模型自己找厅**」。
+        #   · `False`（缺省，"自己找厅"）：沿用引擎 `_public_buildings` 的口径 ——
+        #     厅**进了视野就公开**（"看不见就打不着"）。
+        #   · `True`（"已派间谍"）：他国的厅**位置直接已知**，不必先侦察。
+        #
+        #   ⚠ 它**只影响"厅在哪"这一件事，不影响"厅上有什么"** ——
+        #     知道一座厅的位置**不等于**看得见驻守它的军队（那是两件情报）。
+        #     ⇒ 实现上是一个**独立的开关**，**不能**靠"把这些格塞进 `vision_mask`"
+        #       （那会连守军、地形一起暴露，是偷看）。见 `rl/encode.py` 的 `halls_known`。
+        self.halls_known = halls_known
         self.world = None
         self.turn = 0
         self.log: list[str] = []
@@ -268,6 +281,7 @@ class Sandbox:
         sb.pending = list(self.pending)
         sb.last_ok = self.last_ok
         sb.first = self.first
+        sb.halls_known = self.halls_known
         return sb
 
     def current_player(self) -> str | None:
