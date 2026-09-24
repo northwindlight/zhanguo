@@ -81,6 +81,7 @@ class Sandbox:
         #   （`ruleai/v11plus/__init__.py` 明文要求）
         grouping.clear()
         self.pending = [n for n in PLAYERS if self.alive(n)]   # 本回合还轮到谁行动
+        self.last_ok = True                                    # 上一步是否被引擎接受（进观测）
         return self
 
     def spawn(self, name: str, n: int) -> None:
@@ -155,6 +156,7 @@ class Sandbox:
         sb.turn = self.turn
         sb.log = list(self.log)
         sb.pending = list(self.pending)
+        sb.last_ok = self.last_ok
         return sb
 
     def current_player(self) -> str | None:
@@ -199,12 +201,16 @@ class Sandbox:
             if not self.pending:
                 self.end_turn()
                 self.pending = [n for n in PLAYERS if self.alive(n)]
+            self.last_ok = True
             return True, "end"
         if kind == "move":
-            return self.world.move(name, aid, x, y)
-        if kind == "attack":
-            return self.world.attack(name, [aid], x, y)
-        return False, f"未知动作 {action!r}"
+            ok, msg = self.world.move(name, aid, x, y)
+        elif kind == "attack":
+            ok, msg = self.world.attack(name, [aid], x, y)
+        else:
+            ok, msg = False, f"未知动作 {action!r}"
+        self.last_ok = bool(ok)
+        return ok, msg
 
     def is_terminal(self) -> bool:
         return self.done()
