@@ -45,6 +45,21 @@ def mk_world(nations=("甲", "乙", "丙"), size=16, seed=5, war=("甲", "丙"))
     return w
 
 
+def mk_tile(w, owner, *, hall=False):
+    """造一块**结构完整**的地块（照抄一个真地块的键）。
+
+    ⚠ 手写 `{"owner":…, "terrain":…, "buildings":…}` 是**不够**的 —— `_conquer` 要
+      `t["name"]`、`_defense_pct` 要 `buildings["城堡"]` ⇒ 少键会在**别的地方**炸
+      （我第一版就栽在 `KeyError: 'name'`）。
+    """
+    t = dict(next(iter(w.tiles.values())))
+    t["buildings"] = {k: 0 for k in t["buildings"]}
+    t["owner"], t["core"] = owner, None
+    if hall:
+        t["buildings"]["市政厅"] = 1
+    return t
+
+
 def core(w, nm):
     return next((c for c, t in sorted(w.tiles.items())
                  if t["owner"] == nm and t["buildings"].get("市政厅", 0) > 0), None)
@@ -67,7 +82,8 @@ class TestAllyShare(unittest.TestCase):
         both = E.score(w, "甲", "丙")
         part = E._one(w, "乙", "丙", None, with_tiles=False)     # ★ 不含国土差
         self.assertNotEqual(part, 0.0, "盟友那一份是 0 —— 同上，场景无效")
-        expect = 0.5 * part + 1.5 * S.W_HALL                     # 机制份 + 厅易主
+        # ★ 对手的厅**不进分数**了（用户纠正）⇒ 结盟的额外变化只有"盟友的厅那一份 50%"
+        expect = 0.5 * part + 0.5 * S.W_HALL
         self.assertAlmostEqual(both - solo, expect, places=6)
         # ★ 用户 2026-09-24 把数点实了：「盟友赚厅应该有 **250** 进账，丢厅 −250」
         self.assertAlmostEqual(S.ALLY_SHARE * S.W_HALL, 250.0, places=6)
@@ -127,6 +143,25 @@ class TestAllyShare(unittest.TestCase):
                             "★ 空视野与全知给出同一个数 ⇒ 盟友那一份没过 mask（偷看）")
 
 
+def capture_hall(w, attacker, defender):
+    """**用真引擎**让 `attacker` 攻占 `defender` 的核心格；返回该格坐标。
+
+    ★ 不自己改 `owner` —— 用户 2026-09-24 那条纠正的**承重事实**是"打下一座厅之后
+      那格归谁、厅还在不在"，必须由 `resolve_turn()` 说了算。实测：`甲厅 1→2`、
+      建筑（含市政厅）保留 ⇒ 拿下**已经**体现在"我的厅 +1"里。
+    """
+    cx, cy = core(w, defender)
+    w.armies[:] = [a for a in w.armies
+                   if not (a["owner"] == defender and (a["x"], a["y"]) == (cx, cy))]
+    gid, seq = w._new_army(attacker)
+    w.armies.append({"id": seq, "gid": gid, "name": f"{attacker}{seq}", "type": "步",
+                     "hp": 100, "x": cx, "y": cy, "owner": attacker,
+                     "moved_turn": -1, "engaged": True})
+    w.resolve_turn()
+    assert w.owned_by(cx, cy) == attacker, "攻占没成功，这条测试的前提不成立"
+    return (cx, cy)
+
+
 def _far_own_tile(w, who, from_cell):
     """`who` 名下**非核心、且离 `from_cell` 最远**的一格 —— 在那上面加厅可以隔离变量。
 
@@ -147,35 +182,47 @@ class TestHallScore(unittest.TestCase):
         return w
 
     def test_capturing_a_rival_hall_scores_very_high(self):
-        """② 打掉对手**一座**厅 ⇒ 立刻进分（**不必等到灭国**），且量非常大。"""
+        """② 攻下对手一座厅 ⇒ 那格**归我**（厅跟着走）⇒ 我的厅 +1 ⇒ `+W_HALL`。"""
         w = self._world()
         before = E.score(w, "甲", "丙")
         self.assertNotEqual(before, 0.0, "场景无效（分数为 0）")
-        dx, dy = core(w, "丁")
-        w.tiles[(dx, dy)]["buildings"]["市政厅"] = 0
-        after = E.score(w, "甲", "丙")
-        # ★ 计分单位是**座**：这家的厅没了，我那一项就 +W_HALL
-        self.assertAlmostEqual(after - before, S.W_HALL, places=6)
+        n0 = E.halls_of(w, "甲")
+        capture_hall(w, "甲", "丁")
+        self.assertEqual(E.halls_of(w, "甲"), n0 + 1, "打下对手的厅，那座厅该归我")
+        # ★ 别断言"恰好 +W_HALL"：攻占同时**多了一格地**（+`W_TILE`）并挪动了逼近项
+        #   —— 实测差额 517 = 500 + 1 + 16。断言"厅那一项整额到账"就够。
+        self.assertGreaterEqual(E.score(w, "甲", "丙") - before, S.W_HALL)
         self.assertGreater(S.W_HALL, 10 * (S.W_ARMY + S.W_KILL + S.W_GUARD),
                            "「分数非常高」：要压过一整套常规项")
+
+    def test_enemy_hall_count_alone_scores_nothing(self):
+        """★★ 用户那句的反面：**对手的厅数本身与我无关**。
+
+        把对手的厅打掉（没变成我的），我的分数就该**一动不动** —— 上一版在这里会 +500，
+        那既是**重复计**（拿下时"我的厅 +1"已经记过），又造成"侦察到对手的厅反而扣分"。
+        """
+        w = self._world()
+        before = E.score(w, "甲", "丙")
+        dx, dy = core(w, "丁")
+        w.tiles[(dx, dy)]["buildings"]["市政厅"] = 0      # 丁 的厅没了，但没归我
+        self.assertEqual(E.halls_of(w, "甲"), 1, "我的厅数不该变")
+        self.assertAlmostEqual(E.score(w, "甲", "丙"), before, places=6,
+                               msg="★ 对手少了几座厅不该改变我的分数")
 
     def test_two_halls_per_nation_partial_capture_scores(self):
         """★ 「**拿下市政厅不代表灭国**，例如每个国家有两个市政厅呢？」"""
         w = self._world()
-        cx, cy = core(w, "丙")
-        # 给 丙 再添一座厅（两座）
         fx, fy = [(x, y) for x in range(w.size) for y in range(w.size)
                   if (x, y) not in w.tiles][0]
-        w.tiles[(fx, fy)] = {"owner": "丙", "terrain": "平原",
-                             "buildings": {"市政厅": 1}, "core": None}
+        w.tiles[(fx, fy)] = mk_tile(w, "丙", hall=True)
         self.assertEqual(E.halls_of(w, "丙"), 2)
         before = E.score(w, "甲", "丙")
-        w.tiles[(cx, cy)]["buildings"]["市政厅"] = 0         # 只拔掉一座
-        self.assertTrue(w.has_townhall("丙"), "还有一座厅 ⇒ **丙没亡**")
-        after = E.score(w, "甲", "丙")
-        self.assertNotEqual(after, S.INF, "★ 只拿一座厅**不该**判成胜局（多国不结束）")
-        self.assertAlmostEqual(after - before, S.W_HALL, places=6,
-                               msg="★ 只拿一座厅没记分 —— 就是「拿下≠灭国」那条口径")
+        capture_hall(w, "甲", "丙")                       # 拿下其中一座
+        self.assertTrue(w.has_townhall("丙"), "丙还有一座厅 ⇒ **没亡国**")
+        self.assertIsNone(E.terminal(w, "甲"), "★ 只拿一座厅**不该**判成胜局")
+        self.assertGreaterEqual(E.score(w, "甲", "丙") - before, S.W_HALL,
+                                "★ 只拿一座厅没记分 —— 就是「拿下≠灭国」那条口径"
+                                "（差额里还会有那一格地与逼近项，所以只断下界）")
 
     def test_gaining_and_losing_my_own_hall_both_score(self):
         """★ 「**赚厅和丢厅都记分了吗**」—— 我自己的厅，赚一座 +、丢一座 −。
@@ -238,8 +285,7 @@ class TestHallScore(unittest.TestCase):
         ax, ay = core(w, "甲")
         fx, fy = [(x, y) for x in range(w.size) for y in range(w.size)
                   if (x, y) not in w.tiles and max(abs(x - ax), abs(y - ay)) > 4][0]
-        w.tiles[(fx, fy)] = {"owner": "甲", "terrain": "平原",
-                             "buildings": {"市政厅": 1}, "core": None}
+        w.tiles[(fx, fy)] = mk_tile(w, "甲", hall=True)
         far = E._one(w, "甲", "丙", None, with_tiles=True)     # 第二座厅旁没威胁
         gid, seq = w._new_army("丙")
         w.armies.append({"id": seq, "gid": gid, "name": "丙T", "type": "步", "hp": 100,

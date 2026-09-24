@@ -59,13 +59,26 @@ def score(world, me: str, enemy: str, mask=None, allies=None) -> float:
         return t                          # 已定局 ⇒ 直接用终局分（**与 `terminal` 同一套口径**）
     allies = allies_of(world, me) if allies is None else list(allies)
     s = _one(world, me, enemy, mask, with_tiles=True)
-    # ★★ **赚厅与丢厅都记分**（用户：「赚厅和丢厅都记分了吗」）—— 双向、对称：
-    #   我的厅全额、盟友的厅 50%（与盟友那一份同折扣）、对手的厅全额。
-    #   放在 `score` 里**只加一次**（不放进 `_one`）—— 放进 `_one` 的话同一个对手的厅
-    #   会**同时**给我和盟友各记一笔（盟友那份又是 0.5）⇒ 一座厅被算 1.5 遍。
-    s += S.W_HALL * (halls_of(world, me)                                   # 我的：全知
-                   + S.ALLY_SHARE * sum(halls_of(world, al) for al in allies if al != enemy)
-                   - sum(halls_of(world, n, mask) for n in rival_nations(world, me, allies)))
+    # ★★ 国祚那一项**只数我这边**（用户 2026-09-24 纠正）：
+    #   「**分数是针对于自己而言，得厅加分，丢厅扣分，和对面几个厅有半毛钱关系？**」
+    #
+    #   ⚠ 我上一版写的是 `+ W_HALL × (我的厅 + 0.5×盟友的厅 **− 对手的厅**)`，两处错：
+    #     ① **重复计**：引擎实测「打下一座对手的厅 ⇒ 那格的 `owner` 变成我、建筑保留」
+    #        （`甲厅 1→2`）⇒ 拿下这件事**已经**体现在"我的厅 +1"里了，再从对手那侧扣一次
+    #        等于同一件事记两遍。
+    #     ② **迷雾悖论**：`halls_of(对手, mask)` 只数看得见的 ⇒ **侦察到对手的厅反而
+    #        当场扣 500**（势函数是差分），"去找厅"在奖励上变成负的 —— 而找厅恰恰是
+    #        本任务要模型学会的事。不 mask 又是偷看。**根因就是"分数里不该有对手的厅"。**
+    #   ⇒ 现在这一项**不需要 mask**：我的厅全知、盟友的（同盟共享视野）也全知，
+    #     对手的厅**根本不进分数** ⇒ 迷雾悖论从根上消失，侦察不再有负收益。
+    #
+    #   ★ 对手的厅数在**别处**仍然有用且合法：`_one` 里的逼近/威胁项要"我离最近的
+    #     敌厅多远"（那是**距离**、是差分，侦察到更近的厅是**加分**的）。
+    #   ★ 放在 `score` 里**只加一次**（不放进 `_one`）—— 放进 `_one` 会让同一座厅
+    #     同时给我和盟友各记一笔（盟友那份又是 0.5）。
+    s += S.W_HALL * (halls_of(world, me)
+                     + S.ALLY_SHARE * sum(halls_of(world, al)
+                                          for al in allies if al != enemy))
     for al in allies:
         if al == me or al == enemy:
             continue
