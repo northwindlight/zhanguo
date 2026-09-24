@@ -61,16 +61,28 @@ def _move_cost_of(world, x: int, y: int) -> int:
 
 
 def _owner_class(world, name: str, x: int, y: int) -> int:
-    """归属通道下标（`vocab.OWNER_CHANNELS`）：0=自己 1=对手 2=无主 3=野人驻守。"""
+    """归属通道下标（`vocab.OWNER_CHANNELS`）：
+
+    `0=self · 1=ally · 2=rival · 3=neutral · 4=barbarian`
+
+    ★ **盟友单列**（用户 2026-09-24：「还有盟友和中立」）：引擎对这两类的判定正好**相反**
+      —— 盟友的地**可 mv 不可 atk**（`_mv_wall` 放行、`attack` 拒），
+      敌国的地**可 atk 不可 mv**。混成一类，网络就分不出"这一格该不该打"。
+    """
     o = world.owned_by(x, y)
     if o == name:
         return 0
     if o is not None:
-        return 1
+        try:
+            if world.allied_between(name, o):
+                return 1                       # ★ 盟友
+        except Exception:                      # noqa: BLE001
+            pass
+        return 2                               # 对手（含中立国——它不可 atk，但 mv 也不可）
     for a in world.armies:
         if a["owner"] == "野人" and a.get("hp", 0) > 0 and (a["x"], a["y"]) == (x, y):
-            return 3
-    return 2
+            return 4
+    return 3                                   # 无主
 
 
 # ============================================================ 观测框（★与地图大小无关）

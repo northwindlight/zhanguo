@@ -73,9 +73,13 @@ SUB_SIZES = tuple(len(SUB_TABLE_OF[k]) for k in KIND)
 # 顺序 = 拼图顺序，**不许改**。
 GRID_DEFENSE = 0                                      # ★ 本格总减伤 / 100（地形×城堡）
 GRID_MOVE = 1                                         # ★ 骑兵进这一格的移动代价 / 2
-GRID_OWNER0 = 2                                       # 归属 one-hot（4）
-#   归属只用得着 4 类：自己 / 对手 / 无主 / 野人（沙盒只有两国）
-OWNER_CHANNELS = ("self", "rival0", "neutral", "barbarian")     # = 4
+GRID_OWNER0 = 2                                       # 归属 one-hot（**5**）
+# ★ 归属 **5 类**（用户 2026-09-24：「**还有盟友和中立**」）：
+#   `self` / `ally` / `rival` / `neutral` / `barbarian` ——
+#   多玩家（≥3）时会有联盟，而**盟友的地能走不能打**、与"对手的地"是两回事；
+#   混成一类网络就分不出"这一格该不该打"（引擎 `_mv_wall` 与 `attack` 对这两类的
+#   判定正好相反：盟友可 mv 不可 atk，敌国可 atk 不可 mv）。
+OWNER_CHANNELS = ("self", "ally", "rival", "neutral", "barbarian")     # = 5
 GRID_VISIBLE = GRID_OWNER0 + len(OWNER_CHANNELS)      # 1：视野内
 GRID_MY_HP = GRID_VISIBLE + 1                         # 1：本格我方军队总 hp / 100
 GRID_FOE_HP = GRID_MY_HP + 1                          # 1：本格可见敌方军队总 hp / 100
