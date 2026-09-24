@@ -144,7 +144,11 @@ class Sandbox:
                 return dict(zip(PLAYERS, pts))
         return dict(STARTS)
 
-    def spawn(self, name: str, n: int) -> None:
+    def count_of(self, name: str, kind: str) -> int:
+        """该国某兵种的支数（`民` = 民兵）。"""
+        return sum(1 for a in self.armies_of(name) if a.get("type", "步") == kind)
+
+    def spawn(self, name: str, n: int, kind: str = "步") -> None:
         """在**核心格**摆 `n` 支步兵。
 
         ★ 别用 `own_tiles[0]` —— 那是字典序第一格（实测 (3,2) 之类），**不是核心**。
@@ -156,8 +160,8 @@ class Sandbox:
         for _ in range(n):
             gid, seq = self.world._new_army(name)
             self.world.armies.append({
-                "id": seq, "gid": gid, "name": f"{name}{seq}", "type": "步",
-                "hp": unit_max_hp({"type": "步"}), "x": x, "y": y,
+                "id": seq, "gid": gid, "name": f"{name}{seq}", "type": kind,
+                "hp": unit_max_hp({"type": kind}), "x": x, "y": y,
                 "owner": name, "moved_turn": -1, "engaged": False,
             })
 
@@ -387,13 +391,25 @@ class Sandbox:
             if not self.alive(name):
                 continue
             hall = self.halls_of(name)
-            quota = 1 + hall                              # ★ 基础 1 + 每座厅 1
+            quota = 1 + hall                     # ★ 基础 1 + 每座厅 1
             cap = self.cap_of(name)
-            gap = cap - len(self.armies_of(name))
-            n = min(quota, gap)                           # ★ 不能超上限
-            if n > 0:
-                self.spawn(name, n)
-                notes.append(f"{name} 补员 +{n}（厅×{hall} ⇒ 配额 {quota}，上限 {cap}）")
+            foot = self.count_of(name, "步")     # ★ 只数**步兵** —— 上限是给步兵设的
+            gap = cap - foot
+            if gap > 0:
+                n = min(quota, gap)              # ★ 不能超上限
+                self.spawn(name, n, kind="步")
+                notes.append(f"{name} **缺员** ⇒ 补步兵 +{n}"
+                             f"（厅×{hall} 配额{quota}，步兵 {foot}/{cap}）")
+            else:
+                # ★★ **不缺员 ⇒ 出民兵**（用户 2026-09-24：「如果军队不缺员，市政厅每 5 个
+                #   回合的增援改成**一支民兵**，**民兵无上限**，缺员就改为补步兵」）。
+                #   民兵在引擎里是**廉价驻守兵**（80hp / 攻 20 = 步骑的四成）⇒ 它天生是
+                #   守家用：守方增援可 `mv` 进自家地（见 `legal()` 与墙规则），正好补上防守。
+                #   ⚠ 引擎原本的民兵有"只能军屯征召、总数 ≤ 军屯数"的限制，这里按用户
+                #     的要求**绕过它**（沙盒不走经济层）。
+                self.spawn(name, quota, kind="民")
+                notes.append(f"{name} **不缺员** ⇒ 民兵 +{quota}"
+                             f"（厅×{hall}；民兵无上限）")
         return notes
 
     def end_turn(self) -> None:
