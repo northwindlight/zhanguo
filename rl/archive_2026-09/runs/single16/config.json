@@ -1,0 +1,21 @@
+{
+  "map_size": 16,
+  "turns": 500,
+  "agent": "秦",
+  "max_actions": 24,
+  "reward_scale": 0.01,
+  "iterations": 600,
+  "rollout_steps": 2048,
+  "seed": 0,
+  "lr": 0.0003,
+  "epochs": 3,
+  "minibatch": 512,
+  "ent_coef": 0.01,
+  "lam": 0.99,
+  "threads": 4,
+  "out": "rl/runs/single16",
+  "resume": "rl/runs/single16/last.pt",
+  "eval_only": false,
+  "eval_every": 50,
+  "eval_episodes": 1
+}

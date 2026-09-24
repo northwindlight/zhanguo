@@ -1,0 +1,56 @@
+iter=1 | env_steps=2048 | secs=35.800 | episodes=0 | last_spend=nan | mean_spend=nan | last_tiles=nan | last_armies=nan | pg=-0.001 | vf=0.815 | ent=2.987 | kl=-0.000 | clipfrac=0.000 | n=12 | adv_mean=0.169 | adv_std=0.897
+iter=2 | env_steps=4096 | secs=69.000 | episodes=0 | last_spend=nan | mean_spend=nan | last_tiles=nan | last_armies=nan | pg=-0.000 | vf=0.000 | ent=2.832 | kl=0.000 | clipfrac=0.000 | n=12 | adv_mean=0.000 | adv_std=0.006
+iter=3 | env_steps=6144 | secs=102.100 | episodes=0 | last_spend=nan | mean_spend=nan | last_tiles=nan | last_armies=nan | pg=-0.000 | vf=0.000 | ent=2.748 | kl=-0.000 | clipfrac=0.000 | n=12 | adv_mean=-0.000 | adv_std=0.011
+iter=4 | env_steps=8192 | secs=137.000 | episodes=1 | last_spend=1385.509 | mean_spend=1385.509 | last_tiles=5.000 | last_armies=0.000 | pg=-0.000 | vf=0.255 | ent=3.255 | kl=-0.000 | clipfrac=0.000 | n=12 | adv_mean=0.128 | adv_std=0.502
+iter=5 | env_steps=10240 | secs=170.700 | episodes=1 | last_spend=1385.509 | mean_spend=1385.509 | last_tiles=5.000 | last_armies=0.000 | pg=-0.000 | vf=0.000 | ent=3.024 | kl=-0.000 | clipfrac=0.000 | n=12 | adv_mean=-0.001 | adv_std=0.009
+iter=6 | env_steps=12288 | secs=204.100 | episodes=1 | last_spend=1385.509 | mean_spend=1385.509 | last_tiles=5.000 | last_armies=0.000 | pg=-0.001 | vf=0.000 | ent=3.079 | kl=0.000 | clipfrac=0.000 | n=12 | adv_mean=-0.000 | adv_std=0.009
+iter=7 | env_steps=14336 | secs=239.100 | episodes=2 | last_spend=1228.872 | mean_spend=1307.190 | last_tiles=5.000 | last_armies=0.000 | pg=-0.000 | vf=0.387 | ent=3.348 | kl=0.000 | clipfrac=0.000 | n=12 | adv_mean=0.119 | adv_std=0.626
+iter=8 | env_steps=16384 | secs=272.800 | episodes=2 | last_spend=1228.872 | mean_spend=1307.190 | last_tiles=5.000 | last_armies=0.000 | pg=-0.001 | vf=0.030 | ent=3.591 | kl=0.001 | clipfrac=0.000 | n=12 | adv_mean=0.128 | adv_std=0.156
+iter=9 | env_steps=18432 | secs=307.200 | episodes=2 | last_spend=1228.872 | mean_spend=1307.190 | last_tiles=5.000 | last_armies=0.000 | pg=-0.000 | vf=0.233 | ent=3.746 | kl=-0.001 | clipfrac=0.000 | n=12 | adv_mean=0.447 | adv_std=0.380
+iter=10 | env_steps=20480 | secs=341.500 | episodes=2 | last_spend=1228.872 | mean_spend=1307.190 | last_tiles=5.000 | last_armies=0.000 | pg=-0.002 | vf=0.333 | ent=3.751 | kl=0.001 | clipfrac=0.000 | n=12 | adv_mean=0.599 | adv_std=0.460
+iter=11 | env_steps=22528 | secs=376.900 | episodes=3 | last_spend=4699.623 | mean_spend=2438.001 | last_tiles=5.000 | last_armies=0.000 | pg=-0.001 | vf=0.741 | ent=3.687 | kl=-0.002 | clipfrac=0.001 | n=12 | adv_mean=0.336 | adv_std=0.843
+iter=12 | env_steps=24576 | secs=411.100 | episodes=3 | last_spend=4699.623 | mean_spend=2438.001 | last_tiles=5.000 | last_armies=0.000 | pg=-0.000 | vf=0.368 | ent=3.565 | kl=0.000 | clipfrac=0.001 | n=12 | adv_mean=0.489 | adv_std=0.513
+iter=13 | env_steps=26624 | secs=445.500 | episodes=3 | last_spend=4699.623 | mean_spend=2438.001 | last_tiles=5.000 | last_armies=0.000 | pg=-0.003 | vf=0.348 | ent=3.690 | kl=0.005 | clipfrac=0.035 | n=12 | adv_mean=0.640 | adv_std=0.453
+iter=14 | env_steps=28672 | secs=479.600 | episodes=3 | last_spend=4699.623 | mean_spend=2438.001 | last_tiles=5.000 | last_armies=0.000 | pg=-0.001 | vf=0.322 | ent=3.547 | kl=-0.001 | clipfrac=0.006 | n=12 | adv_mean=0.441 | adv_std=0.495
+iter=15 | env_steps=30720 | secs=515.000 | episodes=4 | last_spend=5995.197 | mean_spend=3974.564 | last_tiles=5.000 | last_armies=0.000 | pg=-0.001 | vf=0.898 | ent=3.596 | kl=0.000 | clipfrac=0.000 | n=12 | adv_mean=0.396 | adv_std=0.911
+iter=16 | env_steps=32768 | secs=550.000 | episodes=4 | last_spend=5995.197 | mean_spend=3974.564 | last_tiles=5.000 | last_armies=0.000 | pg=-0.001 | vf=1.519 | ent=3.333 | kl=0.001 | clipfrac=0.000 | n=12 | adv_mean=0.690 | adv_std=1.151
+iter=17 | env_steps=34816 | secs=583.900 | episodes=4 | last_spend=5995.197 | mean_spend=3974.564 | last_tiles=5.000 | last_armies=0.000 | pg=-0.001 | vf=6.226 | ent=3.370 | kl=0.002 | clipfrac=0.000 | n=12 | adv_mean=2.227 | adv_std=1.931
+iter=18 | env_steps=36864 | secs=619.800 | episodes=4 | last_spend=5995.197 | mean_spend=3974.564 | last_tiles=5.000 | last_armies=0.000 | pg=0.003 | vf=92.072 | ent=3.230 | kl=0.015 | clipfrac=0.181 | n=12 | adv_mean=11.927 | adv_std=3.287
+iter=19 | env_steps=38912 | secs=655.900 | episodes=5 | last_spend=52215.491 | mean_spend=20970.104 | last_tiles=16.000 | last_armies=1.000 | pg=0.007 | vf=126.050 | ent=2.767 | kl=0.011 | clipfrac=0.102 | n=12 | adv_mean=8.152 | adv_std=11.343
+iter=20 | env_steps=40960 | secs=689.600 | episodes=5 | last_spend=52215.491 | mean_spend=20970.104 | last_tiles=16.000 | last_armies=1.000 | pg=-0.001 | vf=0.191 | ent=3.086 | kl=0.000 | clipfrac=0.000 | n=12 | adv_mean=0.225 | adv_std=0.398
+iter=21 | env_steps=43008 | secs=724.700 | episodes=5 | last_spend=52215.491 | mean_spend=20970.104 | last_tiles=16.000 | last_armies=1.000 | pg=0.001 | vf=1.130 | ent=3.330 | kl=0.002 | clipfrac=0.006 | n=12 | adv_mean=1.445 | adv_std=0.679
+iter=22 | env_steps=45056 | secs=759.600 | episodes=6 | last_spend=5767.428 | mean_spend=21326.038 | last_tiles=5.000 | last_armies=0.000 | pg=-0.001 | vf=9.183 | ent=3.288 | kl=0.000 | clipfrac=0.001 | n=12 | adv_mean=0.569 | adv_std=3.110
+iter=23 | env_steps=47104 | secs=794.800 | episodes=6 | last_spend=5767.428 | mean_spend=21326.038 | last_tiles=5.000 | last_armies=0.000 | pg=-0.000 | vf=2.740 | ent=3.287 | kl=0.000 | clipfrac=0.001 | n=12 | adv_mean=1.916 | adv_std=0.861
+iter=24 | env_steps=49152 | secs=830.300 | episodes=6 | last_spend=5767.428 | mean_spend=21326.038 | last_tiles=5.000 | last_armies=0.000 | pg=-0.001 | vf=15.971 | ent=3.002 | kl=0.003 | clipfrac=0.019 | n=12 | adv_mean=4.835 | adv_std=2.823
+iter=25 | env_steps=51200 | secs=866.700 | episodes=7 | last_spend=19843.536 | mean_spend=25942.151 | last_tiles=5.000 | last_armies=0.000 | pg=-0.002 | vf=32.851 | ent=2.985 | kl=0.001 | clipfrac=0.003 | n=12 | adv_mean=-0.037 | adv_std=5.835
+iter=26 | env_steps=53248 | secs=902.200 | episodes=7 | last_spend=19843.536 | mean_spend=25942.151 | last_tiles=5.000 | last_armies=0.000 | pg=-0.001 | vf=0.582 | ent=3.036 | kl=-0.000 | clipfrac=0.000 | n=12 | adv_mean=0.575 | adv_std=0.656
+iter=27 | env_steps=55296 | secs=938.400 | episodes=8 | last_spend=3920.921 | mean_spend=9843.962 | last_tiles=5.000 | last_armies=0.000 | pg=-0.002 | vf=16.382 | ent=3.054 | kl=-0.000 | clipfrac=0.003 | n=12 | adv_mean=-0.621 | adv_std=4.137
+iter=28 | env_steps=57344 | secs=973.800 | episodes=8 | last_spend=3920.921 | mean_spend=9843.962 | last_tiles=5.000 | last_armies=0.000 | pg=-0.002 | vf=1.497 | ent=3.116 | kl=0.003 | clipfrac=0.045 | n=12 | adv_mean=1.461 | adv_std=1.004
+iter=29 | env_steps=59392 | secs=1009.300 | episodes=9 | last_spend=9275.033 | mean_spend=11013.163 | last_tiles=5.000 | last_armies=0.000 | pg=-0.000 | vf=17.097 | ent=3.115 | kl=0.000 | clipfrac=0.000 | n=12 | adv_mean=0.846 | adv_std=4.122
+iter=30 | env_steps=61440 | secs=1046.200 | episodes=9 | last_spend=9275.033 | mean_spend=11013.163 | last_tiles=5.000 | last_armies=0.000 | pg=-0.000 | vf=303.239 | ent=2.998 | kl=0.001 | clipfrac=0.003 | n=12 | adv_mean=16.463 | adv_std=10.364
+iter=31 | env_steps=63488 | secs=1084.600 | episodes=10 | last_spend=54713.260 | mean_spend=22636.405 | last_tiles=15.000 | last_armies=0.000 | pg=-0.001 | vf=451.209 | ent=2.530 | kl=0.008 | clipfrac=0.065 | n=12 | adv_mean=17.767 | adv_std=17.146
+iter=32 | env_steps=65536 | secs=1123.400 | episodes=11 | last_spend=73808.869 | mean_spend=45932.387 | last_tiles=21.000 | last_armies=1.000 | pg=-0.001 | vf=971.094 | ent=1.923 | kl=0.002 | clipfrac=0.010 | n=12 | adv_mean=17.815 | adv_std=28.907
+iter=33 | env_steps=67584 | secs=1159.500 | episodes=11 | last_spend=73808.869 | mean_spend=45932.387 | last_tiles=21.000 | last_armies=1.000 | pg=-0.001 | vf=3.400 | ent=3.136 | kl=0.001 | clipfrac=0.001 | n=12 | adv_mean=2.625 | adv_std=1.109
+iter=34 | env_steps=69632 | secs=1196.000 | episodes=12 | last_spend=10770.594 | mean_spend=46430.907 | last_tiles=5.000 | last_armies=0.000 | pg=-0.000 | vf=60.859 | ent=3.024 | kl=0.000 | clipfrac=0.000 | n=12 | adv_mean=3.010 | adv_std=7.631
+iter=35 | env_steps=71680 | secs=1232.800 | episodes=13 | last_spend=32878.922 | mean_spend=39152.795 | last_tiles=8.000 | last_armies=1.000 | pg=-0.001 | vf=218.616 | ent=2.892 | kl=0.003 | clipfrac=0.022 | n=12 | adv_mean=9.821 | adv_std=13.309
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/northwind/projects/python/zhanguo/rl/train.py", line 178, in <module>
+    main()
+    ~~~~^^
+  File "/home/northwind/projects/python/zhanguo/rl/train.py", line 141, in main
+    obs, r, done, info = env.step(obs.cand["actions"][idx])
+                         ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/northwind/projects/python/zhanguo/rl/env.py", line 142, in step
+    return (None if self._done else self._obs()), reward, self._done, info
+                                    ~~~~~~~~~^^
+  File "/home/northwind/projects/python/zhanguo/rl/env.py", line 495, in _obs
+    cand=self._cand_pack(afeat))
+         ~~~~~~~~~~~~~~~^^^^^^^
+  File "/home/northwind/projects/python/zhanguo/rl/env.py", line 498, in _cand_pack
+    acts = self.legal_actions()
+  File "/home/northwind/projects/python/zhanguo/rl/env.py", line 223, in legal_actions
+    cost = info["cost"][lv] if info["kind"] == "castle" else info["cost"]
+           ~~~~~~~~~~~~^^^^
+IndexError: list index out of range

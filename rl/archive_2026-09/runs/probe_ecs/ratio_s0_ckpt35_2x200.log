@@ -1,0 +1,24 @@
+# cmd: /home/northwind/.venv/bin/python -u experiments/probe_ratio_drift.py rl/runs/ppo_v10/ckpt_35.pt - 2 200 960 32
+ckpt_a rl/runs/ppo_v10/ckpt_35.pt（第 35 块）  ckpt_b None
+2 局 × 200 回合  步上限 960  minibatch 32
+exec_head=0.1 use_exec=True ent_coef=0.01 clip=0.2 lam=1.0 norm_reward=True invalid_penalty=2.0 jitter=0.1
+model.training=True  dropout(p>0)=无
+
+采样 3669 步 → 用 960 步 / 30 个 minibatch  （99s）
+
+=== S0 零更新时的 ratio ===
+[训练口径：更新用未加权 logp]  N=960
+  mean(old−new)（= 日志 kl 在零更新时的读数） +0.00503
+  |log ratio| 中位/90%/99%  0.0369 / 0.1130 / 0.2370
+  ratio ∉ [1−clip, 1+clip] 的比例  2.60%
+  梯度被 clip 清零  1.15%   A<0 且 ratio>1+clip（放大惩罚）1.04%   A>0 且 ratio<1−clip（削弱奖励）0.42%
+  mean log ratio：被接受动作 -0.0211   被拒动作 +0.0741
+[对照：更新也加权（只剩浮点残差）]  N=960
+  mean(old−new)（= 日志 kl 在零更新时的读数） +0.00000
+  |log ratio| 中位/90%/99%  0.0000 / 0.0000 / 0.0000
+  ratio ∉ [1−clip, 1+clip] 的比例  0.00%
+  梯度被 clip 清零  0.00%   A<0 且 ratio>1+clip（放大惩罚）0.00%   A>0 且 ratio<1−clip（削弱奖励）0.00%
+  mean log ratio：被接受动作 +0.0000   被拒动作 -0.0000
+  corr(log ratio, log σ(p_exec[a]))  -0.614   σ 中位/90%/99% 0.7854 / 0.9030 / 0.9315
+（123s）
+

@@ -1,0 +1,1 @@
+iter=189 steps=387072 secs=16926.6 episodes=280 last_spend=8701 mean_spend=9661 tiles=25 armies=3 ent=2.925 eval_spend=-

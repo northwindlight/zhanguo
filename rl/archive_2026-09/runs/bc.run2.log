@@ -1,0 +1,16 @@
+/home/northwind/projects/python/zhanguo/rl/bc.py:230: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /__w/pytorch/pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:820.)
+  losses.append(float(loss))
+老师 = v6（expand_rule_v6）
+局 1/24  样本 3210  规则AI消费 154,016  未匹配 437  loss 4.897  命中率 5.0%  累计 76s
+局 2/24  样本 3384  规则AI消费 133,288  未匹配 385  loss 4.364  命中率 17.0%  累计 153s
+局 3/24  样本 3202  规则AI消费 121,288  未匹配 310  loss 4.272  命中率 0.0%  累计 226s
+局 4/24  样本 2965  规则AI消费 148,848  未匹配 414  loss 3.915  命中率 4.5%  累计 300s
+局 5/24  样本 2741  规则AI消费 146,239  未匹配 191  loss 3.786  命中率 4.0%  累计 366s
+局 6/24  样本 3222  规则AI消费 155,960  未匹配 224  loss 3.683  命中率 10.0%  累计 441s
+局 7/24  样本 3059  规则AI消费 153,453  未匹配 189  loss 3.469  命中率 0.0%  累计 520s
+局 8/24  样本 1698  规则AI消费 13,032  未匹配 7  loss 3.299  命中率 0.5%  累计 553s
+局 9/24  样本 2626  规则AI消费 42,540  未匹配 174  loss 3.862  命中率 42.5%  累计 606s
+局 10/24  样本 2765  规则AI消费 77,886  未匹配 87  loss 3.578  命中率 12.0%  累计 693s
+局 11/24  样本 2337  规则AI消费 15,190  未匹配 0  loss 3.109  命中率 18.0%  累计 728s
+局 12/24  样本 3002  规则AI消费 97,131  未匹配 171  loss 3.845  命中率 2.5%  累计 791s

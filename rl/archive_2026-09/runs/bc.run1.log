@@ -1,0 +1,6 @@
+/home/northwind/projects/python/zhanguo/rl/bc.py:228: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /__w/pytorch/pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:820.)
+  losses.append(float(loss))
+老师 = v6（expand_rule_v6）
+局 1/24  样本 2690  规则AI消费 154,016  未匹配 957  loss 4.612  命中率 8.0%  累计 64s
+局 2/24  样本 2688  规则AI消费 133,288  未匹配 1081  loss 4.214  命中率 21.5%  累计 127s

@@ -1,0 +1,12 @@
+设备：cuda
+★BC 锚开启：w=0.1  只锚 turn ≤ 70  权重来自 rl/runs/bc_ep400.pt（缺失 0 项）
+（含优化器状态）
+续训自 rl/runs/ppo_candx/ckpt_115.pt（第 115 块）
+（训练图种子接着数：0）
+★地图池：802 张（难度已筛）  从第 460 张接着数
+（含回报归一化状态）
+  ★辅助头 warmup（第 1/1 块，策略冻结）
+eval_spend=- | eval_tiles=- | eval_armies=- | eval_s_spend=- | eval_s_tiles=- | iter=116 | env_steps=7395 | secs=145.300 | episodes=4 | last_spend=12156.346 | mean_spend=8603.223 | last_tiles=31.000 | last_armies=8.000 | pg=0.000 | vf=213.045 | ent=2.679 | kl=0.000 | clipfrac=0.000 | n=232 | bc_kl=0.227 | adv_mean=6.695 | adv_std=13.000
+eval_spend=- | eval_tiles=- | eval_armies=- | eval_s_spend=- | eval_s_tiles=- | iter=117 | env_steps=14857 | secs=331.500 | episodes=8 | last_spend=8643.508 | mean_spend=7671.066 | last_tiles=16.000 | last_armies=6.000 | pg=0.004 | vf=60.583 | ent=2.349 | kl=0.006 | clipfrac=0.071 | n=234 | bc_kl=0.277 | adv_mean=-0.056 | adv_std=7.908
+eval_spend=- | eval_tiles=- | eval_armies=- | eval_s_spend=- | eval_s_tiles=- | iter=118 | env_steps=22339 | secs=515.300 | episodes=12 | last_spend=10634.925 | mean_spend=7641.400 | last_tiles=24.000 | last_armies=1.000 | pg=0.006 | vf=123.327 | ent=2.645 | kl=0.008 | clipfrac=0.079 | n=234 | bc_kl=0.240 | adv_mean=-5.397 | adv_std=9.820
+eval_spend=- | eval_tiles=- | eval_armies=- | eval_s_spend=- | eval_s_tiles=- | iter=119 | env_steps=29927 | secs=704.500 | episodes=16 | last_spend=10190.906 | mean_spend=8831.654 | last_tiles=25.000 | last_armies=4.000 | pg=0.005 | vf=17.150 | ent=2.449 | kl=0.007 | clipfrac=0.089 | n=238 | bc_kl=0.250 | adv_mean=1.888 | adv_std=3.824

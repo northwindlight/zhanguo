@@ -1,0 +1,4 @@
+eval_spend,eval_tiles,eval_armies,eval_s_spend,eval_s_tiles,iter,env_steps,secs,episodes,last_spend,mean_spend,last_tiles,last_armies,pg,vf,ent,kl,clipfrac,n,adv_mean,adv_std
+nan,nan,nan,nan,nan,31,1223,63.0,4,2695.2083333333335,2371.9013333333332,5.0,0.0,-0.0002,1712.0484,1.9127,-0.0008,0.0,39,-38.3656,16.1304
+nan,nan,nan,nan,nan,32,2379,174.3,8,2336.550666666667,2476.9303333333332,5.0,0.0,0.0154,1767.6695,2.0298,0.0621,0.2627,37,-38.4497,17.5904
+nan,nan,nan,nan,nan,33,3189,252.1,12,2513.691333333333,2426.5846666666666,5.0,0.0,0.0045,2388.9322,1.2395,0.0048,0.1024,26,-46.2933,16.4039

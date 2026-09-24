@@ -1,0 +1,22 @@
+# cmd: /home/northwind/.venv/bin/python -u experiments/probe_validity.py rl/runs/bc_cont/ep100.pt 8 60
+# md5: 540aeb3b89aee1bb831fdade1dab7d6c  rl/runs/bc_cont/ep100.pt
+（缺失 2 项，随机初始化：['exec_head.bias', 'exec_head.weight']）
+权重 rl/runs/bc_cont/ep100.pt   （训练到第 0 块）
+8 局 × 60 回合   采样档；两档同种子（配对对照）
+
+--- 裸策略（use_exec=False）—— 主干自己学到了多少 ---
+  局0:  H_all=1.732  撞墙率=36.3%  build成功/步=0.055  非build成功/步=0.582
+  局1:  H_all=1.606  撞墙率=29.8%  build成功/步=0.053  非build成功/步=0.649
+  局2:  H_all=1.460  撞墙率=22.8%  build成功/步=0.069  非build成功/步=0.703
+  局3:  H_all=1.467  撞墙率=32.8%  build成功/步=0.041  非build成功/步=0.631
+  局4:  H_all=1.752  撞墙率=23.0%  build成功/步=0.047  非build成功/步=0.723
+  局5:  H_all=1.450  撞墙率=24.6%  build成功/步=0.078  非build成功/步=0.677
+  局6:  H_all=1.349  撞墙率=32.9%  build成功/步=0.046  非build成功/步=0.625
+  局7:  H_all=1.635  撞墙率=34.0%  build成功/步=0.037  非build成功/步=0.623
+  ── H_all 1.556 │ 撞墙率 29.5% │ build 0.053 │ 非build 0.652
+     ★corr(H_all, 撞墙率) = +0.09   （> +0.6 ⇒ 熵涨主要来自死选项泄漏；≈0 ⇒ 合法集内变随机）
+     前 25% → 后 25%：撞墙率 33.1% → 33.5%   （差 +0.4%，正=越玩越乱）
+
+--- 带软加权（use_exec=True）—— 训练/推理时实际跑的那条 ---
+  ⚠ 跳过：这个 ckpt 的 exec_head 是**随机初始化**的（加头之前的旧权重），拿它加权等于加噪声，测了也不能信。
+
