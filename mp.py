@@ -435,6 +435,7 @@ class World:
         self.diplo_built: dict[str, int] = {}    # 各国「自建」外交中心座数（夺地抢来的不计，不影响自建限额）
         self.nation_code: dict[str, int] = {}    # 国家码：军队全局唯一id = 码×1e8+序列（野人=0，秦=1→100000001）
         self._next_code = 1
+        self._terr_grid = None      # ★ `tile_terrain` 的缓存（见那里；惰性，指向 MapGen._terrain）
         self.guard_once: set[tuple[int, int]] = set()  # 每格至多出生一支野人：死了就没了，不重生
         self._engage_seq = 0                     # 入场序号：军队每次 atk 参战取一个递增号（野地索取顺序）
         self.grid_short: dict[str, bool] = {}
@@ -481,8 +482,17 @@ class World:
         （移动代价按地形算之后，这条从"纯函数"变成"以地块为准"很关键：
         测试里就地改地形、以及将来任何地形改造，都必须让可达性看得见。）
         """
+        # ★ **2026-09-24 优化**：`mapgen` 是 `@property`（惰性建图），而 `MapGen._terrain`
+        #   本来就是一张建好的二维数组 ⇒ 这里**直接缓存那张数组**，不再逐次过 property。
+        #   cProfile 实测（两局）：`mapgen` 的 getter 被调 **456,844 次**，是 `_reachable`
+        #   之后的第二大热点。语义不变（同一张数组、同一个惰性时机 —— 第一次问才建图）。
         t = self.tiles.get((x, y))
-        return t["terrain"] if t is not None else self.mapgen.terrain(x, y)
+        if t is not None:
+            return t["terrain"]
+        g = self._terr_grid
+        if g is None:
+            g = self._terr_grid = self.mapgen._terrain
+        return g[y][x]
 
     # ---- 移动可达性（2026-09-15：多格移动**逐格**判定，不再是一次跳跃）----
     def _mv_wall(self, name: str, x: int, y: int) -> str | None:
