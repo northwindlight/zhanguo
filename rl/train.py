@@ -159,7 +159,7 @@ def collect_episode(nets: dict[str, PolicyNet], sb: Sandbox, *,
                           else np.ones(max(1, obs["army"].shape[0]), bool),
                           obs["cand_xy"],
                           aidx, logp, float(value[0]), rew, done, me))
-    info = {"turns": sb.turn, "winner": sb.winner(),
+    info = {"turns": sb.turn, "winner": sb.winner(), "first": sb.first,
             "reward": {n: sb.reward(n) for n in PLAYERS}}
     return steps, info
 
@@ -238,17 +238,29 @@ def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
         loss.backward()
         nn.utils.clip_grad_norm_(net.parameters(), 0.5)
         opt.step()
-        stats = {"loss": float(loss), "pg": float(-surr.mean()),
-                 "vf": float(nn.functional.mse_loss(value, ret_t)),
-                 "ent": float(ent), "kl": float((old_logp - logp).mean())}
+        stats = {"loss": float(loss.detach()), "pg": float(-surr.mean().detach()),
+                 "vf": float(nn.functional.mse_loss(value, ret_t).detach()),
+                 "ent": float(ent.detach()),
+                 "kl": float((old_logp - logp).mean().detach())}
     return stats
 
 
 # ================================================================ ③ 训练
 def _streak(infos: list[dict], state: dict, who: str) -> int:
-    """更新并返回"`who` 连续赢了几局"（`state` 跨 iter 存活）。"""
+    """更新并返回"`who` 连续赢了几局"（`state` 跨 iter 存活）。
+
+    ★ 判据是**该局自己的先手**（`info["first"]`，传 `who="__first__"` 时），
+      不是写死的某一方 —— 先手**每轮在轮换**，盯着"甲"看会把
+      "甲在轮换中赢了 5 局"（= 两份网络技能不对称，自对弈里**正常**）
+      误报成"先手连赢"（= 胜负由行动顺序决定，**才是红旗**）。
+    """
     for i in infos:
-        state[who] = state.get(who, 0) + 1 if i["winner"] == who else 0
+        w = i["winner"]
+        if who == "__first__":
+            hit = w is not None and w == i["first"]
+        else:
+            hit = w == who
+        state[who] = state.get(who, 0) + 1 if hit else 0
     return state.get(who, 0)
 
 
@@ -296,15 +308,20 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
             st[n] = ppo_update(nets[n], buf[n], lr=lr)
         wins = sum(1 for i in infos if i["winner"] == PLAYERS[0])
         turns = np.mean([i["turns"] for i in infos])
-        log(f"[{it:4d}] 局数{len(infos)} 甲胜{wins} 平均回合{turns:.1f} "
+        # 先手胜率（本 iter 内）：`0.5` = 行棋顺序不影响胜负 ⇒ 健康。
+        # 两份网络技能不对称（甲/乙胜场悬殊）**不是**警报，自对弈里正常。
+        nf = sum(1 for i in infos if i["winner"] is not None
+                 and i["winner"] == i["first"])
+        log(f"[{it:4d}] 局数{len(infos)} 甲胜{wins} 先手胜{nf} 平均回合{turns:.1f} "
             f"| W_甲 {_fmt(st['甲'])} | W_乙 {_fmt(st['乙'])}")
         # ---- ★ 自动闸门：先手连续赢 ⇒ 炸 ----
-        first = PLAYERS[0]
-        n_first = _streak(infos, state, first)
+        # 判据见 `_streak` 的 docstring：看**该局自己的先手**，不看某一方。
+        n_first = _streak(infos, state, "__first__")
         if n_first >= first_streak_limit:
             raise AssertionError(
-                f"★ 先手（{first}）已**连续赢 {n_first} 局** —— 这是"
-                f"「训练没在学真对抗」的红旗：策略可能退化成'谁先手谁赢'，"
+                f"★ **先手已连续赢 {n_first} 局**（判据 = `winner == first`，"
+                f"先手每轮在轮换）—— 这是「训练没在学真对抗」的红旗："
+                f"胜负由**行动顺序**而不是策略决定，可能策略退化成'谁先手谁赢'，"
                 f"或存在结构性 bug（打分器偏向进攻 / 开局距离不足 / 有越权偷看…）。"
                 f"用户 2026-09-24 要求此处断言抛出，别让它悄悄跑下去。")
     return nets
