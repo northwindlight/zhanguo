@@ -62,9 +62,14 @@ class ArmyEncoder(nn.Module):
 
 class PolicyNet(nn.Module):
     def __init__(self, n_grid_ch: int = V.GRID_CHANNELS, n_glob: int = V.GLOB_SIZE,
-                 n_cand: int = CAND_WIDTH, d_conv: int = 64, d_bottle: int = 32,
-                 n_conv3: int = 2, d_global: int = 128, d_cand: int = 128,
-                 d_army: int = 64, army_width: int = V.A_WIDTH):
+                 n_cand: int = CAND_WIDTH, d_conv: int = 128, d_bottle: int = 64,
+                 n_conv3: int = 5, d_global: int = 320, d_cand: int = 320,
+                 d_army: int = 128, army_width: int = V.A_WIDTH):
+        # ★ 容量（用户 2026-09-24：「0.135m 的模型真的够用吗，国际象棋也不是这么小吧，
+        #   **至少给我弄到 1m**」）—— 初版按"8×8 够用"把它砍到 0.135M，是**按最小场景
+        #   设计**的错（同一类错还有过：全局池化、均值池化军队编码、删 cross2）。
+        #   现在这组默认值约 **1M**；要再大就调这三个：`d_conv` / `n_conv3` / `d_cand`。
+        #   （旧线端到端那套 `WindowTransformer` 是 2.26M —— 见 plan §11，那是下一步。）
         super().__init__()
         self.n_kinds = len(V.KIND)
 
@@ -93,8 +98,12 @@ class PolicyNet(nn.Module):
         #   ⇒ 宽度是 `d_conv` 不是 `d_cand`（删掉 `grid_pool` 时差点漏改这里，实测报
         #   "mat1 and mat2 shapes cannot be multiplied (1x256 and 320x128)"）
         self.query = nn.Linear(d_global + d_army + d_conv, d_cand)
-        # ★ 价值头从**原始 glob** 自己走一条路（不共用 query 的表征），理由见 docstring
-        self.value = nn.Sequential(nn.Linear(n_glob, 128), nn.ReLU(), nn.Linear(128, 1))
+        # ★ 价值头从**原始 glob** 自己走一条路（不共用 query 的表征），理由见 docstring。
+        #   加深到 3 层 —— 1M 容量下这两层 128 太瘦（旧线那个"价值吃光梯度"的坑
+        #   是**共用表征**造成的，不是层数；分开走之后加深是安全的）。
+        self.value = nn.Sequential(nn.Linear(n_glob, 256), nn.ReLU(),
+                                   nn.Linear(256, 256), nn.ReLU(),
+                                   nn.Linear(256, 1))
 
     def forward(self, grid: torch.Tensor, glob: torch.Tensor, cand: torch.Tensor,
                 mask: torch.Tensor | None = None,
@@ -119,6 +128,9 @@ class PolicyNet(nn.Module):
         gp = flat.mean(1)                                       # query 那一份仍看整图
 
         if army is not None and army.size(1) > 0:
+            if army_mask is None:               # 容错：不给 mask ⇒ 全可见
+                army_mask = torch.ones(army.size(0), army.size(1),
+                                       dtype=torch.bool, device=army.device)
             am = self.army_enc(army, army_mask)                 # [B,d_army]
         else:
             am = torch.zeros(b, self.army_enc.mlp[-2].out_features,
