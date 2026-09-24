@@ -47,6 +47,25 @@ UNLIMITED = 10 ** 9   # 动作额度（引擎早已删掉"看海 12 个"那条�
 END = "end"           # 「本方收手」的哨兵动作（换人 / 结算回合）
 
 
+def min_margin(size: int, n_nations: int) -> int:
+    """随机开局时两国核心的**最小距离**。
+
+    用户 2026-09-24：「必须至少有足够距离，这个距离是**对于国家总量和地图大小**的函数」。
+
+    取"平均铺开间距"的几何估计：`N` 国在 `size × size` 上铺开 ⇒ 理想间距 ≈ `size / √N`，
+    再夹一个下限 2（小于 2 就是贴脸，没有对抗空间可言）。
+
+        8×8、2 国  ⇒ 8/1.414 ≈ 5.66 ⇒ **5**   ← 正好等于原来那个固定开局 (1,1)-(6,6) 的距离
+        40×40、2 国 ⇒ 28；40×40、5 国 ⇒ 17
+
+    ★ 引擎自己也有同类口径可参照：中途加国用
+      `max(balance.ARRIVE_MARGIN_MIN, size // balance.ARRIVE_MARGIN_DIV)` ——
+      但它**只跟 size 走、不看国家数**，所以这里不直接用它。
+    """
+    import math
+    return max(2, int(size / max(1.0, math.sqrt(max(1, n_nations)))))
+
+
 class Sandbox:
     """一局 8×8 攻取国祚。**规则归沙盒、动作归 v11plus**。"""
 
@@ -61,10 +80,18 @@ class Sandbox:
         self.log: list[str] = []
 
     # ============================================================ 建局
-    def reset(self) -> "Sandbox":
+    def reset(self, *, random_starts: bool = True) -> "Sandbox":
+        """★ `random_starts=True`（缺省）⇒ **随机开局**，但两国核心至少隔 `min_margin`。
+
+        用户 2026-09-24：「训练改成**随机开局**，但是必须至少有足够距离，这个距离是
+        **对于国家总量和地图大小**的函数」。固定 (1,1)/(6,6) 会让模型过拟合那个布局；
+        随机 + 足够距离才逼它学"相对位置"而不是"记住坐标"。
+        `random_starts=False` ⇒ 退回固定的 `STARTS`（对照/复现用）。
+        """
         from mp import World
         from ruleai.v11plus import grouping
-        w = World(size=self.size, seed=self.seed, nations=list(PLAYERS), starts=dict(STARTS))
+        starts = self._random_starts() if random_starts else dict(STARTS)
+        w = World(size=self.size, seed=self.seed, nations=list(PLAYERS), starts=starts)
         w.max_turns = self.t_max
         self.world = w
         self.turn = 0
@@ -83,6 +110,25 @@ class Sandbox:
         self.pending = [n for n in PLAYERS if self.alive(n)]   # 本回合还轮到谁行动
         self.last_ok = True                                    # 上一步是否被引擎接受（进观测）
         return self
+
+    def _random_starts(self) -> dict:
+        """随机开局：两国核心随机、但**切比雪夫距离 ≥ `min_margin(size, 国数)`**。
+
+        十字开局要 3×3 的空间 ⇒ 核心落在 `[1, size-2]`（贴边会让十字缺臂）。
+        200 次抽不到就退回固定 `STARTS`（8×8 上几乎不可能 —— 可放位置 6×6=36 个，
+        距离 ≥5 的组合一大把）。
+        """
+        import random
+        rng = random.Random(self.seed)
+        lo, hi = 1, max(1, self.size - 2)
+        need = min_margin(self.size, len(PLAYERS))
+        for _ in range(200):
+            pts = [(rng.randint(lo, hi), rng.randint(lo, hi)) for _ in PLAYERS]
+            ok = all(max(abs(pts[i][0] - pts[j][0]), abs(pts[i][1] - pts[j][1])) >= need
+                     for i in range(len(pts)) for j in range(i + 1, len(pts)))
+            if ok:
+                return dict(zip(PLAYERS, pts))
+        return dict(STARTS)
 
     def spawn(self, name: str, n: int) -> None:
         """在**核心格**摆 `n` 支步兵。
