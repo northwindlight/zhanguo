@@ -241,11 +241,29 @@ def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
 
 
 # ================================================================ ③ 训练
+def _streak(infos: list[dict], state: dict, who: str) -> int:
+    """更新并返回"`who` 连续赢了几局"（`state` 跨 iter 存活）。"""
+    for i in infos:
+        state[who] = state.get(who, 0) + 1 if i["winner"] == who else 0
+    return state.get(who, 0)
+
+
 def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
-          lr: float = 3e-4, temperature: float = 1.0, log=print) -> dict[str, PolicyNet]:
-    """主循环：自对弈 collect → 两份网络各 update 一次。"""
+          lr: float = 3e-4, temperature: float = 1.0,
+          first_streak_limit: int = 5, log=print) -> dict[str, PolicyNet]:
+    """主循环：自对弈 collect → 两份网络各 update 一次。
+
+    ★★ **自动闸门**：`first_streak_limit`（缺省 5）—— **先手连续赢这么多局就抛断言**
+    （用户 2026-09-24：「如果先手连续赢 5 局，**断言抛出**」）。
+
+    "先手连赢"是**训练没在学真对抗**的红旗：要么策略退化成"谁先手谁赢"，
+    要么有结构性 bug（比如打分器只奖励进攻 ⇒ 双方都无脑冲、先动的赢）。
+    它不该悄悄跑下去 —— 当场炸，然后去查。
+    ★ 本闸门**已故意弄响过一次**（把 `first_streak_limit` 调成 1 跑一遍，见提交记录）。
+    """
     rng = np.random.default_rng(seed)
     nets = {n: PolicyNet() for n in PLAYERS}
+    state: dict = {}
     for it in range(1, iters + 1):
         buf = {n: [] for n in PLAYERS}
         infos = []
@@ -263,6 +281,15 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         turns = np.mean([i["turns"] for i in infos])
         log(f"[{it:4d}] 局数{len(infos)} 甲胜{wins} 平均回合{turns:.1f} "
             f"| W_甲 {_fmt(st['甲'])} | W_乙 {_fmt(st['乙'])}")
+        # ---- ★ 自动闸门：先手连续赢 ⇒ 炸 ----
+        first = PLAYERS[0]
+        n_first = _streak(infos, state, first)
+        if n_first >= first_streak_limit:
+            raise AssertionError(
+                f"★ 先手（{first}）已**连续赢 {n_first} 局** —— 这是"
+                f"「训练没在学真对抗」的红旗：策略可能退化成'谁先手谁赢'，"
+                f"或存在结构性 bug（打分器偏向进攻 / 开局距离不足 / 有越权偷看…）。"
+                f"用户 2026-09-24 要求此处断言抛出，别让它悄悄跑下去。")
     return nets
 
 
