@@ -316,7 +316,6 @@ def encode_glob(sb, me: str, mask=None, known=None) -> np.ndarray:
             hall_vals[f"{tag}_hall_d"] = 0.0
         hall_vals[f"{tag}_halls"] = min(1.0, len(cells) / 4.0)
     vals = {
-        "turn_frac": sb.turn / max(1, sb.t_max),
         "my_tiles": sb.tiles_of(me) / n2,
         "my_armies": len(mine) / 8.0,
         "my_hall": 1.0 if sb.alive(me) else 0.0,
