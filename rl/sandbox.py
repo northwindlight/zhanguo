@@ -325,20 +325,39 @@ class Sandbox:
         from . import military as mine
         return mine.run(self.world, name, enemy=enemy, verbose=verbose)
 
+    # ---- 查询：厅数（= 补员产能）----
+    def halls_of(self, name: str) -> int:
+        """该国**已落成**的市政厅数（= 国祚，也是补员的"产能"）。"""
+        return sum(t["buildings"].get("市政厅", 0) for t in self.world.tiles.values()
+                   if t["owner"] == name)
+
     # ============================================================ 回合推进
     def resupply(self) -> list[str]:
-        """每 `RESUPPLY_EVERY` 回合**触发一次**：把每国军队**补足到上限**。"""
+        """每 `RESUPPLY_EVERY` 回合**触发一次补员**，按**配额**出兵。
+
+        ★ 规则（用户 2026-09-24）：「补员**不是一次补满**，而是 **5 回合一支兵**，
+        **每有一个市政厅多补一支**，每个市政厅每次补员出一支，**不能补员超上限**」
+
+        ⇒ **补员量 = 1（基础） + 市政厅数**，总数**不超过 `cap_of`**（= 5 + 国土//10）。
+
+        ★ 效果：开局 5 支已经等于上限 ⇒ **只有战损后才补得进来**，兵成了稀缺资源；
+          而"多一座厅多一支"⇒ **疆域里的厅数决定补员速度**（厅只有核心白送那一座，
+          再想多要得自己建 —— 门槛 `min_slots≥6`、且贵）。
+        """
         notes = []
         if self.turn == 0 or self.turn % RESUPPLY_EVERY != 0:
             return notes
         for name in PLAYERS:
             if not self.alive(name):
                 continue
+            hall = self.halls_of(name)
+            quota = 1 + hall                              # ★ 基础 1 + 每座厅 1
             cap = self.cap_of(name)
             gap = cap - len(self.armies_of(name))
-            if gap > 0:
-                self.spawn(name, gap)
-                notes.append(f"{name} 补员 +{gap}（上限 {cap}）")
+            n = min(quota, gap)                           # ★ 不能超上限
+            if n > 0:
+                self.spawn(name, n)
+                notes.append(f"{name} 补员 +{n}（厅×{hall} ⇒ 配额 {quota}，上限 {cap}）")
         return notes
 
     def end_turn(self) -> None:
