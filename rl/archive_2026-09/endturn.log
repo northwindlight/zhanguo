@@ -1,0 +1,29 @@
+===== β=0 =====
+种子 900000，各 200 回合（采样臂，torch 种子内部固定）；撞墙惩罚 2.0 消费/次
+
+ckpt                       步/回合      撞墙/回合        消费     地    消费reward    惩罚reward      惩罚占比      动作熵   被拒构成（前 4）
+  载入 /home/northwind/projects/python/zhanguo/rl/runs/gpu_pull/ppo_exec/ckpt_185.pt（缺失 0 项）
+ckpt_185                   16.3        9.0    10,691    23       106.9        36.0       25%     0.00   build:959 sell:593 recruit:228 buy:20
+
+总耗时 220s
+===== β=1（900s 超时，防它在这儿也卡）=====
+种子 900000，各 200 回合（采样臂，torch 种子内部固定）；撞墙惩罚 2.0 消费/次
+
+ckpt                       步/回合      撞墙/回合        消费     地    消费reward    惩罚reward      惩罚占比      动作熵   被拒构成（前 4）
+  载入 /home/northwind/projects/python/zhanguo/rl/runs/gpu_pull/ppo_exec/ckpt_185.pt（缺失 0 项）
+ckpt_185                   10.9        3.5     9,422    13        94.2        13.9       13%     0.00   build:337 sell:170 recruit:131 buy:56
+Traceback (most recent call last):
+  File [35m"/home/northwind/.claude/jobs/556a2faa/tmp/wt_eval/experiments/probe_invalid_rate.py"[0m, line [35m143[0m, in [35m<module>[0m
+    m = load(p)
+  File [35m"/home/northwind/.claude/jobs/556a2faa/tmp/wt_eval/experiments/probe_invalid_rate.py"[0m, line [35m72[0m, in [35mload[0m
+    ck = torch.load(p, map_location="cpu", weights_only=False)
+  File [35m"/home/northwind/projects/python/zhanguo/.venv/lib/python3.13/site-packages/torch/serialization.py"[0m, line [35m1565[0m, in [35mload[0m
+    with [31m_open_file_like[0m[1;31m(f, "rb")[0m as opened_file:
+         [31m~~~~~~~~~~~~~~~[0m[1;31m^^^^^^^^^[0m
+  File [35m"/home/northwind/projects/python/zhanguo/.venv/lib/python3.13/site-packages/torch/serialization.py"[0m, line [35m795[0m, in [35m_open_file_like[0m
+    return _open_file(name_or_buffer, mode)
+  File [35m"/home/northwind/projects/python/zhanguo/.venv/lib/python3.13/site-packages/torch/serialization.py"[0m, line [35m776[0m, in [35m__init__[0m
+    super().__init__([31mopen[0m[1;31m(name, mode)[0m)  # noqa: SIM115
+                     [31m~~~~[0m[1;31m^^^^^^^^^^^^[0m
+[1;35mFileNotFoundError[0m: [35m[Errno 2] No such file or directory: '1.0'[0m
+★★ β=1 超时未完成 —— 就是它卡

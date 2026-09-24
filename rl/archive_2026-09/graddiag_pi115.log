@@ -1,0 +1,7 @@
+设备：cpu
+★BC 锚开启：w=0.1  只锚 turn ≤ 70  权重来自 /home/northwind/.claude/jobs/556a2faa/tmp/bc_ep400.pt（缺失 0 项）
+（含优化器状态）
+续训自 /home/northwind/projects/python/zhanguo/rl/runs/gpu_pull/ppo_candx/ckpt_115.pt（第 115 块）
+（训练图种子接着数：0）
+★地图池：802 张（难度已筛）  从第 460 张接着数
+（含回报归一化状态）

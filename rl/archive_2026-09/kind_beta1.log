@@ -1,0 +1,4 @@
+种子 900000，各 200 回合（采样臂，torch 种子内部固定）；撞墙惩罚 2.0 消费/次
+
+ckpt                       步/回合      撞墙/回合        消费     地    消费reward    惩罚reward      惩罚占比      动作熵   被拒构成（前 4）
+  载入 /home/northwind/projects/python/zhanguo/rl/runs/gpu_pull/ppo_candx/ckpt_115.pt（缺失 0 项）
