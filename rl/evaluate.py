@@ -77,8 +77,16 @@ def score(world, me: str, enemy: str, mask=None, allies=None,
     #     敌厅多远"（那是**距离**、是差分，侦察到更近的厅是**加分**的）。
     #   ★ 放在 `score` 里**只加一次**（不放进 `_one`）—— 放进 `_one` 会让同一座厅
     #     同时给我和盟友各记一笔（盟友那份又是 0.5）。
+    #   ★★ **盟友的厅也走同一本账**（`mask` ∪ `known`）—— 用户 2026-09-24：
+    #      「顺便**盟友发现厅应该也纳入标记**」。原来这里是 `halls_of(world, al)`
+    #      （**没传 mask/known = 全知**），而 `encode_glob` 的 ally 段走的是 `known`
+    #      ⇒ 同一件事在**观测**和**打分器**里两套口径（实测：同一局面下无 mask→1 座、
+    #      空 mask→0 座）。两半读数不一致就是"不报错的错"，一律归到一本账上。
+    #   ★ 结构上二者**当前等价**（`vision_mask` 把联盟成员的**地块**也算进视野
+    #      ⇒ 盟友的厅本来就看得见），所以这里**不改数值**；改的是**机制**：
+    #      将来联盟/视野口径一改，打分器跟着走，不会静默说谎。
     s += S.W_HALL * (halls_of(world, me)
-                     + S.ALLY_SHARE * sum(halls_of(world, al)
+                     + S.ALLY_SHARE * sum(halls_of(world, al, mask, known)
                                           for al in allies if al != enemy))
     for al in allies:
         if al == me or al == enemy:

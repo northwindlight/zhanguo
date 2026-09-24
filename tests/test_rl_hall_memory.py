@@ -49,6 +49,21 @@ def hall_of(sb, name):
     return E.hall_cells(sb.world, name)[0]
 
 
+def world3(seed=1, size=16):
+    """**三国**世界（甲/乙/丙，甲乙同盟）。
+
+    ★ 为什么非得另造一个：两人沙盒里**没有盟友**（`allies_of` 恒空）⇒
+      「盟友的厅也纳入标记」那几条在沙盒上**测不了**（写了也是空测试）。
+      引擎侧多国本来就是现成的（`World(nations=[…])`）。
+    """
+    from mp import World
+    w = World(size=size, seed=seed, nations=["甲", "乙", "丙"],
+              starts={"甲": (1, 1), "乙": (13, 13), "丙": (1, 13)})
+    # 联盟 = 场景条件（`sandbox.set_alliance` 就是往这里放一条记录）
+    w.blocs.append({"name": "同盟", "chief": "甲", "members": ["甲", "乙"]})
+    return w
+
+
 def blind():
     """「这一帧什么都看不见」的掩码（空集 —— 比「视野很小」更极端，便于证伪）。"""
     return frozenset()
@@ -199,6 +214,97 @@ class TestClone(unittest.TestCase):
         self.assertIn(hall_of(sb, "乙"), sb.halls.known(sb.world, "甲"))
         self.assertEqual(len(sb.halls.known(sb.world, "乙")), 0,
                          "甲的记忆漏给了乙 ⇒ 两国共用一本账")
+
+
+# ===========================================================================
+class TestAllyHallsAreMarked(unittest.TestCase):
+    """★ 用户 2026-09-24：「顺便**盟友发现厅应该也纳入标记**」。
+
+    查实过的事实（这三条是"机制已通"的证明，不是"新加的功能"）：
+      · `HallMemory.observe` **按格记账、不看归属** ⇒ 盟友的厅本来就在册；
+      · `encode_glob` 的 ally 段走 `known` ⇒ 观测那半边早就统一了；
+      · ★ **只有 `evaluate.score` 是全知口径**（`halls_of(world, al)` 没传 mask/known）
+        ⇒ 观测与打分器**两套口径**。已归到同一本账。
+    """
+
+    def test_ledger_is_owner_agnostic_including_allies(self):
+        """账本按**格**记账、不看归属 ⇒ 盟友的厅照样进册，且记清是谁的。"""
+        w = world3()
+        ally_hall = E.hall_cells(w, "乙")[0]
+        m = HallMemory()
+        m.observe(w, "甲", frozenset(w.tiles))          # 曾经全看见
+        k = m.known(w, "甲")
+        self.assertIn(ally_hall, k, "盟友的厅没进账本 ⇒ 「也纳入标记」没做到")
+        self.assertEqual(k[ally_hall], "乙", "进册了，但得记住**是谁的**")
+        # ★ 反向对照：什么都没看见 ⇒ 不许进册（否则那不是"记忆"是"全知"）
+        m2 = HallMemory()
+        m2.observe(w, "甲", frozenset())
+        self.assertNotIn(ally_hall, m2.known(w, "甲"),
+                         "一帧都没看见也进了册 ⇒ 记忆变成了全知")
+
+    def test_scorer_counts_ally_hall_through_the_ledger(self):
+        """★★ 打分器数盟友的厅走**同一本账**（观测与打分器不许两套口径）。
+
+        两向断言，缺一条就是空测试：
+          · 账本里有 ⇒ 正好多 `W_HALL × ALLY_SHARE`（**不多不少** ⇒ 差只来自这一项）
+          · 账本空 + 视野空 ⇒ 盟友的厅**一分不加**（不许退回"全知"）
+        """
+        w = world3()
+        ally_hall = E.hall_cells(w, "乙")[0]
+        blind = frozenset()                    # ★ 视野空：能不能算**只**取决于账本
+        s_empty = E.score(w, "甲", "丙", blind, known={})
+        s_full = E.score(w, "甲", "丙", blind, known={ally_hall: "乙"})
+        self.assertAlmostEqual(
+            s_full - s_empty, S.W_HALL * S.ALLY_SHARE, places=9,
+            msg="盟友的厅没按 `known` 计 ⇒ 打分器还是全知口径（观测说 0、打分器说 1）")
+        # ★ 对照：把 W_HALL 关掉，差值必须消失（证明差值**只**来自厅那一项）
+        with S.override(W_HALL=0.0):
+            self.assertAlmostEqual(
+                E.score(w, "甲", "丙", blind, known={ally_hall: "乙"}),
+                E.score(w, "甲", "丙", blind, known={}), places=9,
+                msg="W_HALL=0 还有差 ⇒ 差值不是厅那一项来的")
+
+
+# ===========================================================================
+class TestGridHallDoesNotFlicker(unittest.TestCase):
+    """★ 网格 = **视野外接框**（矩形），而视野**不是**矩形 ⇒ 框内有一圈看不见的格。
+
+    一座**记得的**厅若落在那一圈里，`GRID_HALL_*` 曾经当帧塌 0 —— 真闪断
+    （实测证实过），而同帧 `GLOB foe_hall_d` 还在 ⇒ 同一件"永久事实"在观测的
+    两半里**读数不一致**。根因是厅那一段被塞在 `if not visible: continue` **下面**，
+    于是判据里的 `or (x, y) in known` 成了**死代码**。
+    """
+
+    def test_remembered_hall_inside_bbox_is_still_drawn(self):
+        sb = sb_of(seed=5, size=16)
+        w = sb.world
+        mask = encode.vision_of(sb, "甲")
+        x0, y0, h, ww = encode.frame_of(sb, "甲", mask)
+        hole = [(x, y) for y in range(y0, y0 + h) for x in range(x0, x0 + ww)
+                if 0 <= x < sb.size and 0 <= y < sb.size
+                and (x, y) not in mask and (x, y) not in w.tiles]
+        self.assertTrue(hole, "这幅图上没有「框内但看不见」的格 ⇒ 换个种子，否则是空测试")
+        cell = hole[0]
+        # 在那儿造一块**敌国带厅**的地块（键照抄真地块，少键会在别处炸）
+        t = dict(next(iter(w.tiles.values())))
+        t["buildings"] = {k: 0 for k in t["buildings"]}
+        t["owner"], t["core"] = "乙", None
+        t["buildings"]["市政厅"] = 1
+        w.tiles[cell] = t
+        sb.known_halls("甲", frozenset(w.tiles))       # 曾经全看见
+        known = sb.known_halls("甲", frozenset())      # 这一帧什么都看不见
+        self.assertIn(cell, known, "前提：账本记得它")
+        fi, fj = cell[1] - y0, cell[0] - x0
+        g = encode.encode_grid(sb, "甲", mask, known=known)
+        self.assertEqual(g[V.GRID_HALL_RIVAL, fi, fj], 1.0,
+                         "框内 + 记得 + 此刻看不见 ⇒ 网格塌 0（闪断）")
+        # ★ 反向对照：账本空且看不见 ⇒ **必须** 0（"记得才画"，不是偷看）
+        g0 = encode.encode_grid(sb, "甲", mask, known={})
+        self.assertEqual(g0[V.GRID_HALL_RIVAL, fi, fj], 0.0,
+                         "账本空也画得出来 ⇒ 那是偷看，不是记忆")
+        # ★ 军队仍死守 `mask`（"知道厅在哪" ≠ "看得见守军"）
+        self.assertEqual(g[V.GRID_FOE_HP, fi, fj], 0.0,
+                         "厅的可见性放宽了、守军也跟着放宽 ⇒ 偷看")
 
 
 if __name__ == "__main__":

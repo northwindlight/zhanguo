@@ -237,16 +237,20 @@ def encode_grid(sb, me: str, mask=None, known=None,
                     g[V.GRID_CB_EROUNDS, i, j] = oc.e_rounds / S.PROB_ROUND_SCALE
                     g[V.GRID_CB_ELOSS, i, j] = (
                         oc.e_loss.get(me, 0.0) / S.PROB_LOSS_SCALE)   # ★ 不夹，见 `_combat_tail`
-            if not visible:
-                continue                     # ★ 看不清的格：军队与厅一概不写
-            mine = foehp = 0.0
-            for a in by_cell.get((x, y), ()):        # ★ 查索引，不扫全表
-                if a["owner"] == me:
-                    mine += a["hp"]
-                elif a["owner"] == foe:
-                    foehp += a["hp"]
-            g[V.GRID_MY_HP, i, j] = min(1.0, mine / 100.0)
-            g[V.GRID_FOE_HP, i, j] = min(1.0, foehp / 100.0)
+            # ★★ **市政厅要走"已知"（视野 ∪ 永久记忆），因此必须在 `if not visible` 之前**
+            #   —— 用户 2026-09-24：「**发现厅了就应该永久标记，因为厅是拆不掉也不能
+            #   移动的**」（含**盟友的厅**：「盟友发现厅应该也纳入标记」）。
+            #
+            #   ⚠ 这里原来把厅塞在 `if not visible: continue` **下面**，而那条判据当时写的是
+            #     `visible or (x, y) in known` —— `visible` 恒真 ⇒ **`in known` 那半截是
+            #     死代码**。后果是**真闪断**（实测过）：网格 = **视野外接框**（矩形），
+            #     而视野不是矩形 ⇒ 框内有一圈**看不见**的格；一座**记得的**敌厅若正落在
+            #     那一圈里，`GRID_HALL_RIVAL` 当帧塌 0，而同帧 `GLOB foe_hall_d` 还在
+            #     ⇒ 同一件"永久事实"在观测的两半里**读数不一致**（正是要禁的那类闪断）。
+            #
+            #   ★ 只抬**厅**这一段：军队/hp 仍然死守 `mask`（"知道厅在哪" ≠ "看得见守军"，
+            #     两件情报 —— 见 `hall_memory.py` 的文件头）。
+            #   ★ 归属仍以**当前** `t["owner"]` 为准（记忆只放宽**可见性**，取保守那侧）。
             if (t is not None and t["buildings"].get("市政厅", 0) > 0
                     and (visible or (x, y) in known)):
                 # ★ 三档：我的 / **盟友的** / 对手的 —— 盟友的厅原来被漏掉了
@@ -256,6 +260,16 @@ def encode_grid(sb, me: str, mask=None, known=None,
                     g[V.GRID_HALL_RIVAL, i, j] = 1.0
                 elif _owner_class(w, me, x, y, by_cell) == V.OWN_ALLY:
                     g[V.GRID_HALL_ALLY, i, j] = 1.0
+            if not visible:
+                continue                     # ★ 看不清的格：军队与 hp 一概不写
+            mine = foehp = 0.0
+            for a in by_cell.get((x, y), ()):        # ★ 查索引，不扫全表
+                if a["owner"] == me:
+                    mine += a["hp"]
+                elif a["owner"] == foe:
+                    foehp += a["hp"]
+            g[V.GRID_MY_HP, i, j] = min(1.0, mine / 100.0)
+            g[V.GRID_FOE_HP, i, j] = min(1.0, foehp / 100.0)
     return g
 
 
