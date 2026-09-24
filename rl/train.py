@@ -22,6 +22,11 @@
     不引入 reward hacking。它把"稀疏奖励 + 纯 PPO 学不动"那个死结从根上消掉：
     BC 与 MCTS **都不需要**。
 
+    ★★ `halls_known`（缺省 **True**）—— 用户 2026-09-24：「**先炼一个基于已知的得基座**」
+    ─────────────────────────────────────────────────────────────────────────
+    即**他国市政厅的位置已知**（"已派间谍"模式）。这是**基座**：先把"拿到已知目标"
+    这件事学会，再上"自己找厅"那一版（`halls_known=False`，`--no-halls-known`）。
+
     ★ 自对弈的**两份网络各练各的**：甲的经验只喂 `W_甲`，乙的只喂 `W_乙`。
       对手在动（非平稳），但能防"自己克自己"（用户 2026-09-24 的选择）。
 """
@@ -264,7 +269,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           lr: float = 3e-4, temperature: float = 1.0,
           first_streak_limit: int = 5, size: int = 8,
           size_min: int | None = None, size_max: int | None = None,
-          log=print) -> dict[str, PolicyNet]:
+          halls_known: bool = True, log=print) -> dict[str, PolicyNet]:
     """主循环：自对弈 collect → 两份网络各 update 一次。
 
     ★★ **自动闸门**：`first_streak_limit`（缺省 5）—— **先手连续赢这么多局就抛断言**
@@ -294,7 +299,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
             hi = size_max if size_max is not None else size
             sz = int(rng.integers(lo, hi + 1))
             sb = Sandbox(seed=int(rng.integers(1 << 30)), size=sz,
-                         first=first).reset()
+                         first=first, halls_known=halls_known).reset()
             steps, info = collect_episode(nets, sb, temperature=temperature,
                                           rng=rng)
             infos.append(info)
@@ -330,6 +335,7 @@ def _log_params(net: PolicyNet, log) -> None:
     n = net.n_params()
     log(f"★ 主干 = WindowTransformer（窗口组 {list(net.groups)}，d_model={net.d_model}）"
         f" · 参数量 **{n/1e6:.3f}M**")
+    log(f"★ 打分先验 {S.describe()}")
 
 
 def _fmt(d: dict) -> str:
@@ -362,10 +368,17 @@ if __name__ == "__main__":
     ap.add_argument("--size-min", type=int, default=None,
                     help="★ **随机地图**：每局在 [min,max] 里抽边长（域随机化）。建议 16 起")
     ap.add_argument("--size-max", type=int, default=None)
+    ap.add_argument("--halls-known", dest="halls_known", action="store_true",
+                    default=True,
+                    help="★ 他国市政厅位置**已知**（缺省；'已派间谍'模式）—— "
+                         "用户：「先炼一个基于已知的**基座**」")
+    ap.add_argument("--no-halls-known", dest="halls_known", action="store_false",
+                    help="★ 反过来：'自己找厅'（模型得先侦察）")
     a = ap.parse_args()
     if a.threads:
         import torch
         torch.set_num_threads(a.threads)
     train(iters=a.iters, episodes_per_iter=a.episodes, seed=a.seed, lr=a.lr,
           temperature=a.temperature, first_streak_limit=a.first_streak_limit,
-          size=a.size, size_min=a.size_min, size_max=a.size_max)
+          size=a.size, size_min=a.size_min, size_max=a.size_max,
+          halls_known=a.halls_known)

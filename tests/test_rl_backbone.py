@@ -225,13 +225,30 @@ class TestBackbone(unittest.TestCase):
         self.assertTrue(torch.isfinite(logits[batch["mask"]]).all())
         self.assertTrue(torch.isfinite(value).all())
 
-    def test_cross2_is_live(self):
-        """★★ 换**另一个**候选的特征 ⇒ 这个候选的 logit 必须变。
+    def test_cross2_is_on_the_gradient_path(self):
+        """★★ **候选 0 的 logit 必须依赖 `cross2` 的参数** —— 确定性证明，不靠运气。
 
-        `cross2` 若没接进去（或接成 `cross(qq, ...)` 那样的复制品），这条会红。
-        做法：只动候选 1 的落点，比较候选 0 的 logit。
+        ⚠ 我第一版用的是"动候选 1、看候选 0 的 logit 变不变"，**它是个靠运气的测试**：
+          网络是随机初始化的，扰动效应有时小于 `allclose` 的默认容差 ⇒ 同一条测试
+          会因为初始化不同而**时绿时红**（实测：加了几列 GLOB 之后它自己变红了）。
+          ⇒ 换成反传：`cross2` 若不在候选 0 的计算图上，它的 `weight.grad` 就是 `None`。
         """
         batch, _ = self._batch(n=1)
+        torch.manual_seed(0)
+        net = model.build_model()
+        logits, _ = net(batch)
+        logits[0, 0].backward()
+        g = net.cross2.q.weight.grad
+        self.assertIsNotNone(g, "★ cross2 不在候选的梯度路径上 ⇒ 加了一层却没用上")
+        self.assertGreater(float(g.abs().sum()), 0.0)
+
+    def test_perturbing_one_candidate_moves_another(self):
+        """★★ 语义版：动候选 1 的落点 ⇒ 候选 0 的 logit 必须变。
+
+        固定种子 + **显式阈值**（不用 `allclose` 的默认容差）⇒ 不再时绿时红。
+        """
+        batch, _ = self._batch(n=1)
+        torch.manual_seed(0)
         net = model.build_model()
         net.eval()
         with torch.no_grad():
@@ -243,8 +260,13 @@ class TestBackbone(unittest.TestCase):
             b2["pos_dx"] = batch["pos_dx"].clone()
             b2["pos_dx"][0, 1] = batch["pos_dx"][0, 1] + 0.37      # 只动候选 1
             alt, _ = net(b2)
-        self.assertFalse(torch.allclose(base[0, 0], alt[0, 0]),
-                         "★ 改了候选 1，候选 0 的 logit 却一动不动 ⇒ cross2 没接进去")
+        diff = float((base[0, 0] - alt[0, 0]).abs().max())
+        # ★ 判据是"**传播了没有**"，所以阈值就是 **0**：`cross2` 没接进去的话
+        #   候选 0 与候选 1 之间**没有任何通路** ⇒ 差**精确等于 0**。
+        #   别用一个拍脑袋的数（我第一版写 1e-5，而随机初始化下真实效应只有 2.9e-6
+        #   ⇒ 测试无缘无故地红）。同理别用 `allclose` 的默认容差。
+        self.assertGreater(diff, 0.0,
+                           "★ 改了候选 1，候选 0 的 logit 一动不动 ⇒ cross2 没接进去")
 
     def test_cross_is_live(self):
         """候选 → **窗口** 的 cross 也得是活的：动一支军队 token，候选 logit 要变。"""

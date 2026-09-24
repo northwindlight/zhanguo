@@ -86,7 +86,9 @@ class TestAllyShare(unittest.TestCase):
         expect = 0.5 * part + 0.5 * S.W_HALL
         self.assertAlmostEqual(both - solo, expect, places=6)
         # ★ 用户 2026-09-24 把数点实了：「盟友赚厅应该有 **250** 进账，丢厅 −250」
-        self.assertAlmostEqual(S.ALLY_SHARE * S.W_HALL, 250.0, places=6)
+        self.assertAlmostEqual(S.W_HALL, S.W_HALL_IN_INFANTRY * S.W_ARMY, places=6,
+                               msg="★ 厅必须**等于 10 个步兵的分数**（用户口径），"
+                                   "不是两处各写一个数")
 
     def test_ally_part_excludes_tiles(self):
         """① 盟友那一份**不含地皮分** —— 给盟友加地，它那一份必须**不动**。"""
@@ -192,8 +194,9 @@ class TestHallScore(unittest.TestCase):
         # ★ 别断言"恰好 +W_HALL"：攻占同时**多了一格地**（+`W_TILE`）并挪动了逼近项
         #   —— 实测差额 517 = 500 + 1 + 16。断言"厅那一项整额到账"就够。
         self.assertGreaterEqual(E.score(w, "甲", "丙") - before, S.W_HALL)
-        self.assertGreater(S.W_HALL, 10 * (S.W_ARMY + S.W_KILL + S.W_GUARD),
-                           "「分数非常高」：要压过一整套常规项")
+        # ★ 口径是**关系**（厅 = N 个步兵），不是"压过某某之和"那种我自己编的断言。
+        self.assertAlmostEqual(S.W_HALL, S.W_HALL_IN_INFANTRY * S.W_ARMY, places=6)
+        self.assertGreater(S.W_HALL, 5 * S.W_ARMY, "打下对手一座厅要顶得上好几支军")
 
     def test_enemy_hall_count_alone_scores_nothing(self):
         """★★ 用户那句的反面：**对手的厅数本身与我无关**。
