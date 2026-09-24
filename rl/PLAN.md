@@ -55,16 +55,17 @@
 
 | 路径 | 是什么 | 封存后留下 |
 |---|---|---|
-| `gpu_pull/ppo_candx/` | 09-18 那炉（`ckpt_5..215`，43 个）—— **+25% 就是它的 `ckpt_95`** | `last.pt` + `log.csv`/`status.txt` |
-| `gpu_pull/ppo_exec/` | 09-19 `exec_beta=1.0` 那炉（14 个 ckpt） | `last.pt` + `log.csv`/`config.json`/`status.txt` |
-| `gpu_pull/bc_candx100_gpu/` | 从 ep520 续的 100 回合 BC（201 个文件） | `last.pt` |
-| `gpu_pull/bc_candx50_gpu/` | ECS 那炉（261 个文件） | `last.pt` |
+| `gpu_pull/ppo_candx/` | 09-18 那炉（`ckpt_5..215`，43 个）—— **+25% 就是它的 `ckpt_95`** | `last.pt`+`model.pt`+`log.csv`/`status.txt`/`config.json` |
+| `gpu_pull/ppo_exec/` | 09-19 `exec_beta=1.0` 那炉（14 个 ckpt） | 同上 |
+| `gpu_pull/bc_candx100_gpu/` | 从 ep520 续的 100 回合 BC（200 个 `epN.pt`） | `last.pt` |
+| `gpu_pull/bc_candx50_gpu/` | ECS 那炉（261 个 `epN.pt`）—— **从没写过 `last.pt`**（被回收时没跑完） | **全删**（这目录里本来就没有日志） |
 | `gpu_pull/*.log` | 各炉原始日志 | **全留** |
 | `runs/probe_ecs/`、`experiments/_ecs_logs/` | 第一代线的探针原始数 | 全留 |
 | `rlmail_mirror/`、`rlmail2_mirror/` | 两代 ECS 同事的信箱 | 全留（★最后通信停在 **09-14 21:14**） |
 
-封存时把中间 ckpt 删了（约 11G → 留三个 `last.pt`），**理由**：引擎大改后它们装不上，
-留证够用；免费机那两批是"随时回收"抢回来的，**不可再生**，所以 `last.pt` 留在仓库侧。
+封存时把中间 ckpt 删了：**806 个 `.pt` 删到 5 个**（`rl/runs` **11G → 114M**），留的是
+三炉的 `last.pt` + 两炉的 `model.pt`。**理由**：引擎大改后它们装不上，留证够用；
+免费机那两批是"随时回收"抢回来的、**不可再生**，所以每炉的"最后状态"留在仓库侧。
 
 ## `rl/` 文档一览（哪些是活的、哪些只是历史快照）
 
