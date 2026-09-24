@@ -184,6 +184,22 @@ def candidate_features(sb) -> np.ndarray:
     return np.array(out, dtype=np.float32)
 
 
+# ============================================================ 候选的坐标（给网络 gather）
+def candidate_xy(sb) -> np.ndarray:
+    """每个候选的**目标格坐标** `(K, 2)` 整数索引 —— 网络拿它去卷积特征图里 **gather**。
+
+    ★ 为什么不在 `candidate_features` 里当两列数值给：坐标是**拿来做索引的**，
+      当特征喂进去等于逼网络自己学"把 0.375 反算回第 3 列"。
+      直接给索引，`PolicyNet` 就能像旧线那样按 `tile_idx` 取那一格的空间特征。
+
+    `end_turn` 没有目标格 ⇒ 记 `(-1, -1)`，网络侧 gather 时夹到 0 并在 mask 里丢掉。
+    """
+    out = []
+    for aid, kind, x, y in sb.legal():
+        out.append((-1, -1) if aid == END else (int(x), int(y)))
+    return np.array(out, dtype=np.int64)
+
+
 # ============================================================ 小工具
 def _other(name: str | None) -> str:
     return next((n for n in PLAYERS if n != name), PLAYERS[1])

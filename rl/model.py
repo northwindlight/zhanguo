@@ -75,40 +75,57 @@ class PolicyNet(nn.Module):
             layers += [nn.Conv2d(prev, d_conv, 3, padding=1), nn.ReLU()]
             prev = d_conv
         self.conv = nn.Sequential(*layers)
-        # 网格 → 整图池化（沙盒只 8×8，池化够；旧线是"按候选的地块下标去 gather"，
-        # 那需要 tile_idx，沙盒的候选特征里没有也不需要）
-        self.grid_pool = nn.Sequential(nn.Linear(d_conv, d_cand), nn.ReLU())
+        # ★ 候选的**空间特征**：按候选的**目标格**去卷积特征图里 **gather**（旧线 `tile_idx` 的做法）。
+        #   **不做全局平均池化** —— 池化会把 8×8 的空间信息压成一个数，候选就"看不见自己
+        #   那格周围有什么、离核心多远"，而棋盘游戏的关键正是空间。
+        #   （旧版这里图省事写过 `.mean(dim=(2,3))`，是错的。）
 
         self.glob_mlp = nn.Sequential(nn.Linear(n_glob, d_global), nn.ReLU(),
                                       nn.Linear(d_global, d_global), nn.ReLU())
         self.army_enc = ArmyEncoder(army_width, d_enc=32, d_out=d_army)
 
-        self.cand_mlp = nn.Sequential(nn.Linear(n_cand, d_cand), nn.ReLU())
+        # 候选编码吃「**该格的空间特征** + 候选自己的 12 列特征」
+        self.cand_mlp = nn.Sequential(nn.Linear(d_conv + n_cand, d_cand), nn.ReLU())
         # ★ 打分前的 LayerNorm —— 旧线栽过的那个跟头，见模块 docstring
         self.cand_ln = nn.LayerNorm(d_cand)
         self.q_ln = nn.LayerNorm(d_cand)
-        self.query = nn.Linear(d_global + d_army + d_cand, d_cand)
+        # ★ 输入是 `g(d_global) + am(d_army) + gp(d_conv)` —— `gp` 是**卷积特征图的整图均值**
+        #   ⇒ 宽度是 `d_conv` 不是 `d_cand`（删掉 `grid_pool` 时差点漏改这里，实测报
+        #   "mat1 and mat2 shapes cannot be multiplied (1x256 and 320x128)"）
+        self.query = nn.Linear(d_global + d_army + d_conv, d_cand)
         # ★ 价值头从**原始 glob** 自己走一条路（不共用 query 的表征），理由见 docstring
         self.value = nn.Sequential(nn.Linear(n_glob, 128), nn.ReLU(), nn.Linear(128, 1))
 
     def forward(self, grid: torch.Tensor, glob: torch.Tensor, cand: torch.Tensor,
                 mask: torch.Tensor | None = None,
                 army: torch.Tensor | None = None,
-                army_mask: torch.Tensor | None = None):
-        """→ `(logits [B,K], value [B])`。"""
+                army_mask: torch.Tensor | None = None,
+                cand_xy: torch.Tensor | None = None):
+        """→ `(logits [B,K], value [B])`。
+
+        `cand_xy [B,K,2]`：候选的**目标格索引**（`encode.candidate_xy`）——
+        给了就按它 gather 那一格的空间特征；没给则退回全局池化（只做兜底）。
+        """
         b, k, _ = cand.shape
         fmap = self.conv(grid)                                  # [B,d,H,W]
-        pooled = fmap.mean(dim=(2, 3))                          # [B,d]
-        gp = self.grid_pool(pooled)                             # [B,dc]
+        h, w = fmap.shape[2], fmap.shape[3]
+        flat = fmap.flatten(2).transpose(1, 2)                  # [B,H*W,d]
+        if cand_xy is not None:
+            xy = cand_xy.clamp(min=0)                           # `end_turn` 的 (-1,-1) → (0,0)
+            idx = (xy[..., 0] * w + xy[..., 1]).clamp(0, h * w - 1)      # [B,K]
+            tf = flat.gather(1, idx.unsqueeze(-1).expand(-1, -1, flat.size(-1)))
+        else:
+            tf = flat.mean(1, keepdim=True).expand(-1, k, -1)   # 兜底
+        gp = flat.mean(1)                                       # query 那一份仍看整图
 
         if army is not None and army.size(1) > 0:
             am = self.army_enc(army, army_mask)                 # [B,d_army]
         else:
             am = torch.zeros(b, self.army_enc.mlp[-2].out_features,
-                             dtype=gp.dtype, device=gp.device)
+                             dtype=fmap.dtype, device=fmap.device)
         g = self.glob_mlp(glob)                                 # [B,dg]
 
-        c = self.cand_mlp(cand)                                 # [B,K,dc]
+        c = self.cand_mlp(torch.cat([tf, cand], dim=-1))        # [B,K,dc]
         q = self.query(torch.cat([g, am, gp], dim=-1))          # [B,dc]
         logits = (self.q_ln(q).unsqueeze(1) * self.cand_ln(c)).sum(-1) / (c.size(-1) ** 0.5)
         if mask is not None:
