@@ -220,8 +220,13 @@ def _army_row(sb, a: dict, me: str, hx: int, hy: int) -> list[float]:
 CAND_WIDTH = 12
 
 
-def candidate_features(sb) -> np.ndarray:
-    """`sandbox.legal()` 的每个候选 → 一行特征 `(K, CAND_WIDTH)`。
+def candidate_features(sb, acts=None) -> np.ndarray:
+    """候选动作 → 一行特征 `(K, CAND_WIDTH)`。
+
+    ★ `acts` 可外部传入（`sandbox.legal()` 的结果）—— **别在这里再调一次**：
+      实测（cProfile，2026-09-24）`legal()` 每支军要跑**两次 `_reachable`**（Dijkstra），
+      而 `obs_of` 原来同时调 `candidate_features` 与 `candidate_xy` ⇒ **一军一步 4 次搜索**。
+      统一由调用方算一次传进来。
 
     列（冻结）：0..2 kind one-hot(move/attack/end) · 3..5 目标格归属 one-hot
     （自己/对手/无主）· 6 ★目标格是不是**对手的市政厅** · 7 **到我家核心的距离**/**地图边长**
@@ -238,7 +243,7 @@ def candidate_features(sb) -> np.ndarray:
     mask = _vision(w, me) if me else set()
     by_id = {a["id"]: a for a in sb.armies_of(me)} if me else {}
     out = []
-    for aid, kind, x, y in sb.legal():
+    for aid, kind, x, y in (sb.legal() if acts is None else acts):
         row = [0.0] * CAND_WIDTH
         if aid == END:
             row[2] = 1.0
@@ -259,7 +264,7 @@ def candidate_features(sb) -> np.ndarray:
     return np.array(out, dtype=np.float32)
 
 
-def candidate_xy(sb) -> np.ndarray:
+def candidate_xy(sb, acts=None) -> np.ndarray:
     """每个候选的**框内坐标** `(K, 2)`（整数索引）—— 网络拿它去卷积特征图里 gather。
 
     与 `encode_grid` **同一坐标系**（视野外接框），所以"候选看到的那一格"与"网格里的
@@ -267,7 +272,7 @@ def candidate_xy(sb) -> np.ndarray:
     """
     me = sb.current_player()
     out = []
-    for aid, kind, x, y in sb.legal():
+    for aid, kind, x, y in (sb.legal() if acts is None else acts):
         if aid == END or me is None:
             out.append((-1, -1))
         else:

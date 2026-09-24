@@ -59,7 +59,8 @@ class Step:
 
 def obs_of(sb, me: str) -> dict:
     """沙盒局面 → 网络要的一整套张量（**候选与 `legal()` 一一对应**）。"""
-    cand = encode.candidate_features(sb)
+    acts = sb.legal()               # ★ **只算一次**（见 `encode.candidate_features` 的说明）
+    cand = encode.candidate_features(sb, acts)
     return {
         "grid": encode.encode_grid(sb, me),
         "glob": encode.encode_glob(sb, me),
@@ -67,7 +68,7 @@ def obs_of(sb, me: str) -> dict:
         "mask": np.ones(len(cand), dtype=bool),
         "army": encode.encode_armies(sb, me),
         "army_mask": None,          # 下面按实际条数补
-        "cand_xy": encode.candidate_xy(sb),
+        "cand_xy": encode.candidate_xy(sb, acts),
     }
 
 
