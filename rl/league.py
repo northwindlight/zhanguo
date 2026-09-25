@@ -155,7 +155,17 @@ class League:
         self.updated_iter = 0
 
         if self.db is None:
-            self.conn = sqlite3.connect(":memory:")
+            # ★★ **内存池也必须 `isolation_level=None`**（2026-09-25 修的真 bug）：
+            #   缺省 `''` 模式下，第一条 INSERT/UPDATE 会**隐式开一个事务且不放手**
+            #   ⇒ 后面 `retire()` 里的 `BEGIN IMMEDIATE` 当场抛
+            #     `cannot start a transaction within a transaction`。
+            #   ★ 而且这条**只在内存池上炸**（文件池本来就是 None）⇒ 症状是
+            #     "探针/测试炸、真炉子没事"，最容易被误判成"探针写错了"。
+            #   ★★ 更毒的是它**被测试掩盖过**：用例里设战绩的 `_stat()` 带 `conn.commit()`，
+            #     顺手把那个隐式事务关掉了 ⇒ 23 条用例全绿，而**同样的路径在
+            #     不调 `_stat` 时必炸**。（教训：测试用的辅助函数会把 bug 遮住，
+            #     所以新增的守卫要**走最短的那条路**。）
+            self.conn = sqlite3.connect(":memory:", isolation_level=None)
         else:
             self.db.parent.mkdir(parents=True, exist_ok=True)
             # ★★ `isolation_level=None` = **自动提交**。这是并行下的关键：

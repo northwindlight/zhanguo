@@ -379,6 +379,39 @@ class TestParallelReady(unittest.TestCase):
         self.assertEqual(rows, [("L0", 1, 7, "w1"), ("L0", 0, 7, "w1")])
 
 
+class TestShortestPathHasNoHiddenTransaction(unittest.TestCase):
+    """★★ 内存池的 `BEGIN IMMEDIATE` 必须开得起来 —— **走最短的那条路**。
+
+    **实测炸过**（2026-09-25，一个探针撞出来的）：`:memory:` 那条连接原来
+    **没设 `isolation_level=None`**（文件连接设了）⇒ 缺省 `''` 模式下
+    `bind_live` 的 INSERT **隐式开了一个事务且不放手** ⇒ `retire()` 里的
+    `BEGIN IMMEDIATE` 当场抛 `cannot start a transaction within a transaction`。
+
+    ★★ **最毒的地方**：23 条用例**全绿**却没抓到 —— 它们设战绩用的 `_stat()`
+      自带 `conn.commit()`，**顺手把那个隐式事务关掉了**。
+      ⇒ 守卫必须**不借助那些辅助函数**（`_live`/`_stat`/`_deactivate` 全不用）。
+      ⇒ 一般化的教训：**测试的辅助函数会把 bug 遮住，所以新增的守卫要另走一遍最短路径。**
+
+    ★ 症状也误导人：**只在内存池上炸**（文件池本来就是 `None`）
+      ⇒ 看起来像"探针/测试写错了"，而真炉子没事。
+    """
+
+    def test_bind_live_then_retire_without_any_helper(self):
+        lg = _mem()                        # ← 不用 _live / _stat / _deactivate
+        lg.bind_live("L0", _net())         # 唯一的写：INSERT
+        self.assertEqual(lg.retire(), [], "最短路径上 `retire()` 抛了")
+        lg.add_snapshot(_net(), 1)         # 再加一个写：INSERT + （内存池）留内存
+        self.assertEqual(lg.retire(), [], "`add_snapshot` 之后 `retire()` 又抛了")
+
+    def test_memory_and_file_agree_on_isolation(self):
+        """★ 两种池的 `isolation_level` **必须一致**（不一致就是这个 bug 的形状）。"""
+        with tempfile.TemporaryDirectory() as d:
+            f = _mk(self, os.path.join(d, "league.db"))
+            m = _mem()
+            self.assertEqual(m.conn.isolation_level, f.conn.isolation_level,
+                             "内存池与文件池的事务模式不一致 ⇒ 一定有一条路会炸")
+
+
 class TestParallelRetireKeepsTheFloor(unittest.TestCase):
     """★★ 并行下**淘汰的两条兜底必须还是硬保证**。
 
