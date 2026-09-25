@@ -132,13 +132,15 @@ class League:
     def __init__(self, db: str | os.PathLike | None, *, mains: int = 2,
                  retire_min_games: int = 10, retire_rate: float = 0.20,
                  max_k: int = 5, min_learners: int = 1, worker: str | None = None,
-                 fingerprint: dict | None = None, log=print):
+                 net_cap: int = 24, fingerprint: dict | None = None, log=print):
         self.db = None if db is None else Path(db)
         self.mains = max(0, int(mains))
         self.retire_min_games = int(retire_min_games)
         self.retire_rate = float(retire_rate)
         self.max_k = max(1, int(max_k))
         self.min_learners = max(0, int(min_learners))
+        # ★ 快照权重缓存的上界（份数）。24 份 ≈ 130MB —— 见 `net_of` 的 ★★。
+        self.net_cap = max(0, int(net_cap))
         self.fingerprint = dict(fingerprint or {})
         self.worker = worker or f"pid{os.getpid()}"
         self.log = log
@@ -224,6 +226,7 @@ class League:
             for q in frozen.parameters():
                 q.requires_grad_(False)
             self._nets[mid] = frozen
+            self._evict()                     # ★ 内存池里逐不出东西（没 path），但保持一致
         # ★ `INSERT OR IGNORE`：多进程同时冻同一 mid 时**先到先得**，不炸也不覆盖
         self.conn.execute(
             "INSERT OR IGNORE INTO members(mid,kind,born,path,added) VALUES(?,?,?,?,?)",
@@ -235,9 +238,19 @@ class League:
         return m
 
     def net_of(self, mid: str):
-        """取这一份的权重对象（快照懒加载 + 缓存）。"""
+        """取这一份的权重对象（快照懒加载 + **有上界的缓存**）。
+
+        ★★ **必须有上界**（`net_cap`）：池子是**只增不删**的，而每份权重 ≈ **5.5MB**
+          （1.383M 参数）。不设上界的话，池子一大，**训练进程自己就 OOM 了** ——
+          正是我们一路在躲的那个病，而且这次是池子养的。
+          ⇒ LRU：用得少的那份被逐出（从盘上还在，下次用到再读回来）。
+        ★★ **在训成员永不许逐出**：它们的权重就是训练循环里那个对象
+           （`path=None`，盘上没有副本）⇒ 逐出会让 `net_of` 直接崩。
+        """
         if mid in self._nets:
-            return self._nets[mid]
+            net = self._nets.pop(mid)
+            self._nets[mid] = net            # ★ LRU：用到就挪到队尾
+            return net
         m = self.members[mid]
         if not m.path:
             raise KeyError(f"{mid} 没有权重文件（在训成员应当已经 `bind_live` 过）")
@@ -255,7 +268,28 @@ class League:
         for p in net.parameters():
             p.requires_grad_(False)
         self._nets[mid] = net
+        self._evict()
         return net
+
+    def _evict(self) -> None:
+        """把缓存按 LRU 逐出到 `net_cap` 以内。
+
+        ★★ **只逐出"能读回来的"** —— 两条都必须满足：
+          ① **有盘上副本**（`member.path` 非空）。`db=None` 的**内存池**里，
+             冻结份**只有内存这一份** ⇒ 逐出 = **永久丢掉**（而池子"只增不删"）。
+          ② 是**快照**。**在训成员**的权重就是训练循环里那个对象（`path=None`），
+             逐出会让 `net_of` 当场崩。
+        """
+        if self.net_cap <= 0:
+            return
+        while len(self._nets) > self.net_cap:
+            victim = next((k for k in self._nets
+                           if (self.members.get(k) is not None
+                               and self.members[k].kind == "snap"
+                               and self.members[k].path)), None)
+            if victim is None:
+                return                        # 剩下的全都逐不得 ⇒ 停手
+            del self._nets[victim]
 
     # ---------------------------------------------------------- 抽签
     def refresh(self) -> None:
@@ -410,7 +444,8 @@ class League:
         dead = [m for m in ms if not m.active]
         head = " ".join(str(m) for m in live)
         return (f"池子{len(ms)}份(active {len(self.active())}) "
-                f"| 在训 {head} | 快照{len(snap)}份 停用{len(dead)}份")
+                f"| 在训 {head} | 快照{len(snap)}份 停用{len(dead)}份"
+                f" | 权重缓存{len(self._nets)}/{self.net_cap or '∞'}")
 
 
 def _now() -> str:

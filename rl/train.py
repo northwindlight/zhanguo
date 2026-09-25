@@ -331,6 +331,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           league_db: str | None = None, league_mains: int = 2,
           league_snapshot_every: int = 50, league_from: str | None = None,
           league_min_games: int = 10, league_retire_rate: float = 0.20,
+          league_cache: int = 24,
           log=print) -> dict[int, PolicyNet]:
     """主循环：自对弈 collect → 每个网络各 update 一次。
 
@@ -361,7 +362,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     #   ★ `league_db=None` ⇒ 池子照跑但**不落盘**（战绩不过夜）—— 真起炉必须给。
     lg = League(league_db, mains=league_mains,
                 retire_min_games=league_min_games, retire_rate=league_retire_rate,
-                max_k=k_of(hi), min_learners=1,
+                max_k=k_of(hi), min_learners=1, net_cap=league_cache,
                 fingerprint=_shape_fingerprint(), log=log)
     had = lg.load()
     mids = [f"L{i}" for i in range(n_slots)]
@@ -671,7 +672,13 @@ if __name__ == "__main__":
     ap.add_argument("--league-snapshot-every", dest="league_snapshot_every",
                     type=int, default=50,
                     help="★ 每几个 iter 冻一份当前权重进池（**只增不删**）。"
-                         "0 = 不冻（池子就只有在训的那几份）")
+                         "0 = 不冻（池子就只有在训的那几份）。"
+                         "★ 这个数**决定池子长多快**：50 ⇒ 单核上一小时长不出几份，"
+                         "「攒到足够的池」就永远等不到 ⇒ 要让池子长大就得调小它。")
+    ap.add_argument("--league-cache", dest="league_cache", type=int, default=24,
+                    help="★ 快照权重的**缓存上界**（份数）。每份 ≈ 5.5MB ⇒ 不设上界的话"
+                         "池子一大，**训练进程自己就 OOM**（池子是只增不删的）。"
+                         "被逐出的那份还在盘上，下次用到再读回来。0 = 不限")
     ap.add_argument("--league-from", dest="league_from", type=str, default=None,
                     help="★ **分化的起点**（用户：「分化指从**原来 5 个**来分化，"
                          "**而不是一个**」）⇒ **按槽位灌**：第 i 份继承起点里的第 i 份，"
@@ -717,7 +724,7 @@ if __name__ == "__main__":
           league_mains=a.league_mains,
           league_snapshot_every=a.league_snapshot_every,
           league_from=a.league_from, league_min_games=a.league_min_games,
-          league_retire_rate=a.league_retire_rate)
+          league_retire_rate=a.league_retire_rate, league_cache=a.league_cache)
     if a.restart_after and a.iters > seg:
         # ★★ **定时重启**（用户 2026-09-25：「不如定时重启」）：跑完这一段就 `exec` 自己，
         #   **新进程 ⇒ RSS 归零**，并从刚存的档续跑。

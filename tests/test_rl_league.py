@@ -378,6 +378,62 @@ class TestParallelReady(unittest.TestCase):
         self.assertEqual(rows, [("L0", 1, 7, "w1"), ("L0", 0, 7, "w1")])
 
 
+class TestNetCacheIsBounded(unittest.TestCase):
+    """★★ 快照权重的缓存**必须有上界** —— 池子是只增不删的，每份 ≈ 5.5MB。
+
+    不设上界的话，池子一大**训练进程自己就 OOM**（正是我们一路在躲的那个病，
+    这次是池子养的）。
+
+    ★ 同时钉死一条**安全边**：**在训成员永不许被逐出** —— 它们的权重就是训练循环里
+    那个对象（`path=None`，盘上没有副本）⇒ 逐出会让 `net_of` 当场崩。
+    """
+
+    def test_lru_evicts_snapshots_only(self):
+        """★ 用**落盘**的池子（内存池里冻结份只在内存，逐出=永久丢掉 ⇒ 见 `_evict`）。"""
+        net = _net()
+        with tempfile.TemporaryDirectory() as d:
+            lg = _mk(self, os.path.join(d, "league.db"), net_cap=2)
+            _live(lg, 1)                       # 在训的那一份
+            for i in range(3):
+                lg.add_snapshot(net, i, mid=f"S{i}")
+                lg.net_of(f"S{i}")
+            self.assertLessEqual(len(lg._nets), 3,
+                                 f"缓存 {len(lg._nets)} 份 > 上界 2（+1 在训）")
+            self.assertIn("L0", lg._nets, "★ 在训成员被逐出了 ⇒ 下次 net_of 会崩")
+            cached = [k for k in lg._nets if k.startswith("S")]
+            self.assertLessEqual(len(cached), 2, "快照没被逐出到上界内")
+            # ★ 被逐出的那份**还在盘上**（只增不删），下一次用到必须能读回来
+            missing = [f"S{i}" for i in range(3) if f"S{i}" not in lg._nets]
+            self.assertTrue(missing, "用例前提：该有一份被逐出")
+            back = lg.net_of(missing[0])
+            for a, b in zip(back.parameters(), net.parameters()):
+                self.assertTrue(torch.equal(a.detach(), b.detach()), "读回来的权重不对")
+
+    def test_memory_pool_never_evicts(self):
+        """★★ `db=None` 的**内存池**里冻结份**只有内存这一份** ⇒ 逐出 = 永久丢掉。
+
+        而池子的口径是「**只增不删**」⇒ 这里**一份都不许逐出**。
+        """
+        net = _net()
+        lg = _mem(net_cap=1)
+        for i in range(4):
+            lg.add_snapshot(net, i, mid=f"S{i}")
+            lg.net_of(f"S{i}")
+        self.assertEqual(len([k for k in lg._nets if k.startswith("S")]), 4,
+                         "内存池里的冻结份被逐出了 ⇒ 那份权重**永久没了**")
+        lg.net_of("S0")                    # 仍然拿得到（没被丢）
+
+    def test_cap_zero_means_unlimited(self):
+        """★ 反向对照：`0` = 不限（别把闸门做成"永远只留 0 份"）。"""
+        net = _net()
+        with tempfile.TemporaryDirectory() as d:
+            lg = _mk(self, os.path.join(d, "league.db"), net_cap=0)
+            for i in range(4):
+                lg.add_snapshot(net, i, mid=f"S{i}")
+                lg.net_of(f"S{i}")
+            self.assertEqual(len([k for k in lg._nets if k.startswith("S")]), 4)
+
+
 class TestDrawIsNotALoss(unittest.TestCase):
     """★★ **平局不进战绩** —— 胜率的分母是「有胜负的局」。
 
