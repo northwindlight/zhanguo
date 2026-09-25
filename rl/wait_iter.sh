@@ -14,13 +14,20 @@ F1=${2:-$(ls -t rl/runs/mem1_*.log 2>/dev/null | head -1)}
 F2=${3:-$(ls -t rl/runs/base1_*.log 2>/dev/null | head -1)}
 [ -n "$F1" ] && [ -n "$F2" ] || { echo "找不到日志文件"; exit 1; }
 echo "盯：$F1 / $F2"
-n1=$(grep -cE '^\[' "$F1" 2>/dev/null || echo 0)
-n2=$(grep -cE '^\[' "$F2" 2>/dev/null || echo 0)
+
+# ★★ 数 iter 行**只能用这个**：`grep -c` 在"零匹配"时**既打印 `0`、又以退出码 1 结束**
+#   ⇒ 写成 `grep -c … || echo 0` 会得到**两行** `0`（`"0\n0"`），
+#   算术比较拿到它当场报 `integer expression expected`，而且**从此永远判不出"有新 iter"**
+#   ⇒ 只能在超时后报"静默"（我 2026-09-25 就这么踩了一次，还先怀疑了炉子）。
+#   文件不存在时 `grep -c` 什么都不打印 ⇒ `${n:-0}` 兜住。
+count_iter() { local n; n=$(grep -cE '^\[' "$1" 2>/dev/null); echo "${n:-0}"; }
+n1=$(count_iter "$F1")
+n2=$(count_iter "$F2")
 echo "起等：mem1 已有 $n1 个 iter，base1 已有 $n2 个（最多等 ${MAX}s）"
 for _ in $(seq 1 $((MAX / 20))); do
   sleep 20
-  a=$(grep -cE '^\[' "$F1" 2>/dev/null || echo 0)
-  b=$(grep -cE '^\[' "$F2" 2>/dev/null || echo 0)
+  a=$(count_iter "$F1")
+  b=$(count_iter "$F2")
   if [ "$a" -gt "$n1" ] || [ "$b" -gt "$n2" ]; then
     [ "$a" -gt "$n1" ] && { echo "== mem1 =="; grep -E '^\[' "$F1" | tail -n $((a - n1)); }
     [ "$b" -gt "$n2" ] && { echo "== base1 =="; grep -E '^\[' "$F2" | tail -n $((b - n2)); }
