@@ -492,7 +492,13 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         # 先手胜率（本 iter 内）：健康值 = **1/k**（先手在 k 国之间轮换）
         #   —— 明显偏高才是"胜负由行动顺序决定"的嫌疑。
         nf = sum(1 for i in infos if i["first"] in (i.get("winner_members") or ()))
-        live = {m: _fmt(st[m]) for m in st if buf[m]}
+        # ★ `log K`：这一份**实际走到的候选数**的均值取对数 —— `ent` 的参照系。
+        #   从 `obs` 里直接数（没有额外前向），代价可忽略。
+        def _logk(mid: str) -> float:
+            ks = [s.obs["cand"]["type_idx"].shape[0] for s in buf[mid]
+                  if s.obs.get("cand") is not None]
+            return float(np.mean(np.log(np.maximum(1, ks)))) if ks else float("nan")
+        live = {m: _fmt(st[m], _logk(m)) for m in st if buf[m]}
         # ★ 截断局数**必须报**：大图上早期局局截断会成常态，不报的话
         #   "池子一直没战绩 / 没终局奖励"会**静默**（这正是这条日志存在的理由）。
         cut = f" 截断{n_cut}" if n_cut else ""
@@ -646,10 +652,23 @@ def _log_params(net: PolicyNet, log) -> None:
     log(f"★ 打分先验 {S.describe()}")
 
 
-def _fmt(d: dict) -> str:
+def _fmt(d: dict, logk: float = float("nan")) -> str:
+    """把一条网络统计格式化进日志。**`ent` 必须配 `log K` 一起看**。
+
+    ★★ 为什么：**均匀分布的熵 = `log K`**，而 **`K`（候选数）是变的**
+      （实测 8×8 上中位 **51**、范围 **4~128** ⇒ `log K` 在 **1.4~4.9** 之间）。
+      ⇒ 单看 `ent=0.435` 无法判断"策略收窄了"还是"这一个 iter 恰好候选很少"
+        （只剩一两支军时 K 就 4~6）。**判据只能是 `ent / log K`**（1.0 = 纯均匀）。
+      ★ 我自己就差点凭 `ent=0.435` 报"策略塌缩" —— 而**日志里当时没有 `log K`**。
+    """
     if not d:
         return "—"
-    return " ".join(f"{k}={v:+.3f}" for k, v in d.items() if k in ("pg", "vf", "ent"))
+    out = " ".join(f"{k}={v:+.3f}" for k, v in d.items() if k in ("pg", "vf"))
+    ent = d.get("ent")
+    if ent is not None:
+        ratio = (ent / logk) if logk and logk == logk and logk > 0 else float("nan")
+        out += f" ent={ent:+.3f}(logK={logk:.2f} e/K={ratio:.2f})"
+    return out
 
 
 if __name__ == "__main__":
