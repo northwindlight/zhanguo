@@ -379,28 +379,52 @@ class League:
              —— `main`（主 pt）本来就免检，它们正是"基座"的保险。
         ★ 顺序：**胜率从低到高**淘汰，兜底先到先拦（谁最该走谁先走）。
         ★ 先 `refresh()`：判据用的是**库里**的胜率（并行时别人也记了账）。
+        ★★ **整段"读判据 → 写停用"必须在一个 `BEGIN IMMEDIATE` 事务里**
+          （2026-09-25 补）：否则两个 worker 各自 `refresh()` 后**都**看到
+          "active=5、还能淘汰一个" ⇒ 各自 UPDATE 一个 ⇒ **一共淘汰两个**，
+          而两条兜底（active ≥ max_k、在训 ≥ min_learners）**都被绕过**。
+          ★ 后果不致命（下一轮 `refresh` 会看到真实数量、不会继续塌），
+            但"兜底"在并行下**不再是硬保证** —— 而这正是"静默"那一类：
+            没有报错，只是池子比该有的小一点。
+          ★ `UPDATE ... AND active=1` 是第二道锁：同一个成员被两个 worker 同时选中时，
+            后到的那个**改 0 行**，不会重复计数。
         """
         self.refresh()
-        cand = [m for m in self.members.values()
-                if m.active and m.kind != "main"
-                and m.games >= self.retire_min_games and m.rate < self.retire_rate]
-        cand.sort(key=lambda m: (m.rate, -m.games))
         killed: list[str] = []
-        n_active = len(self.active())
-        n_live = len([m for m in self._live() if m.active])
-        for m in cand:
-            if n_active - 1 < self.max_k:            # 兜底①
-                break
-            if m.kind == "live" and n_live - 1 < self.min_learners:   # 兜底②
-                continue
-            self.conn.execute("UPDATE members SET active=0 WHERE mid=?", (m.mid,))
-            m.active = False
-            n_active -= 1
-            if m.kind == "live":
-                n_live -= 1
-            killed.append(m.mid)
+        self.conn.execute("BEGIN IMMEDIATE")        # ★ 拿写锁 ⇒ 别人得等
+        try:
+            # ★ 判据**在事务里重读**，不用事务外那份缓存
+            rows = self.conn.execute(
+                "SELECT mid,kind,born,games,wins,active FROM members").fetchall()
+            cand = [Member(mid=r[0], kind=r[1], born=int(r[2]),
+                           games=int(r[3]), wins=int(r[4]))
+                    for r in rows
+                    if r[5] and r[1] != "main"
+                    and int(r[3]) >= self.retire_min_games
+                    and (int(r[4]) / int(r[3]) if int(r[3]) else 0.0) < self.retire_rate]
+            cand.sort(key=lambda m: (m.rate, -m.games))
+            n_active = sum(1 for r in rows if r[5])
+            n_live = sum(1 for r in rows if r[5] and r[1] in ("main", "live"))
+            for m in cand:
+                if n_active - 1 < self.max_k:            # 兜底①
+                    break
+                if m.kind == "live" and n_live - 1 < self.min_learners:   # 兜底②
+                    continue
+                cur = self.conn.execute(
+                    "UPDATE members SET active=0 WHERE mid=? AND active=1",
+                    (m.mid,))
+                if cur.rowcount == 0:                    # 别人刚停用过它 ⇒ 不重复计数
+                    continue
+                n_active -= 1
+                if m.kind == "live":
+                    n_live -= 1
+                killed.append(m.mid)
+            self.conn.execute("COMMIT")
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
         if killed:
-            self.conn.commit()
+            self.refresh()
         return killed
 
     def _slot_guess(self, net) -> str:

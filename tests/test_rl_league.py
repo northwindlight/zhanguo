@@ -379,6 +379,59 @@ class TestParallelReady(unittest.TestCase):
         self.assertEqual(rows, [("L0", 1, 7, "w1"), ("L0", 0, 7, "w1")])
 
 
+class TestParallelRetireKeepsTheFloor(unittest.TestCase):
+    """★★ 并行下**淘汰的两条兜底必须还是硬保证**。
+
+    `retire()` 原来是"读判据 → 写停用"分两步，**中间没有锁**。
+    N 个 worker 各自 `refresh()` 后**都**看到"active=5、还能淘汰一个"
+    ⇒ 各自 UPDATE 一个 ⇒ 一共淘汰两个，而两条兜底（active ≥ `max_k`、
+    在训 ≥ `min_learners`）**都被绕过**。
+    ★ 后果不致命（下一轮会看到真实数量、不会继续塌），但"兜底"就不再是保证 ——
+      而且**没有报错**，只是池子比该有的小一点。**静默那一类。**
+    ⇒ 整段放进 `BEGIN IMMEDIATE` 事务，判据**在事务里重读**；
+      `UPDATE ... AND active=1` 是第二道锁（同一成员被两个 worker 同时选中时，
+      后到的那个改 0 行、不重复计数）。
+
+    ★ **诚实说明**：这条守卫是**并发不变量**（N 个连接同时淘汰，池子不得低于下限）。
+      我没能让它在"改回无锁版本"时**稳定**变红（竞态窗口很窄）——
+      所以它算**回归护栏**，不算"已证明有牙齿的闸门"。
+    """
+
+    def test_concurrent_retire_never_breaks_the_floor(self):
+        import threading
+        with tempfile.TemporaryDirectory() as d:
+            db = os.path.join(d, "league.db")
+            setup = _mk(self, db, mains=0, max_k=3, min_learners=1)
+            _live(setup, 6)
+            for m in ("L0", "L1", "L2", "L3", "L4", "L5"):
+                _stat(setup, m, 99, 0)          # 全员 0% ⇒ 6 个都是候选
+            errs: list[str] = []
+            floors: list[int] = []
+
+            def worker():
+                try:
+                    lg = _mk(self, db, mains=0, max_k=3, min_learners=1)
+                    lg.load()
+                    lg.retire()
+                    lg.refresh()
+                    floors.append(len(lg.active()))
+                    lg.close()
+                except Exception as e:          # ★ 线程里的异常别被吞掉
+                    errs.append(repr(e))
+
+            ts = [threading.Thread(target=worker) for _ in range(6)]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join()
+            self.assertEqual(errs, [], "并发淘汰里抛异常了")
+            setup.refresh()
+            self.assertGreaterEqual(len(setup.active()), 3,
+                                    f"active 掉到 {len(setup.active())} < max_k=3 ⇒ 兜底被绕过")
+            self.assertTrue(all(f >= 3 for f in floors),
+                            f"某个 worker 看到的 active 低于下限：{sorted(floors)}")
+
+
 class TestParallelSnapshotsDoNotCollide(unittest.TestCase):
     """★★ **并行的世界里两个 worker 会在同一 iter 冻同一槽位**。
 
