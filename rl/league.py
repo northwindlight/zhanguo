@@ -132,7 +132,8 @@ class League:
     def __init__(self, db: str | os.PathLike | None, *, mains: int = 2,
                  retire_min_games: int = 10, retire_rate: float = 0.20,
                  max_k: int = 5, min_learners: int = 1, worker: str | None = None,
-                 net_cap: int = 24, fingerprint: dict | None = None, log=print):
+                 net_cap: int = 24, device: str = "cpu",
+                 fingerprint: dict | None = None, log=print):
         self.db = None if db is None else Path(db)
         self.mains = max(0, int(mains))
         self.retire_min_games = int(retire_min_games)
@@ -141,6 +142,11 @@ class League:
         self.min_learners = max(0, int(min_learners))
         # ★ 快照权重缓存的上界（份数）。24 份 ≈ 130MB —— 见 `net_of` 的 ★★。
         self.net_cap = max(0, int(net_cap))
+        # ★★ **快照的网络必须和在训的在同一台设备上**：`net_of` 出来的那份要跟
+        #    `collect_episode` 里那个 batch 同设备，否则前向当场报
+        #    "expected self and mask to be on the same device"。
+        #    （在训成员由 `bind_live` 挂引用，设备由 `train` 那边负责。）
+        self.device = device
         self.fingerprint = dict(fingerprint or {})
         self.worker = worker or f"pid{os.getpid()}"
         self.log = log
@@ -227,6 +233,7 @@ class League:
         else:
             frozen = build_model()               # 不落盘：冻结份留内存
             frozen.load_state_dict(w)
+            frozen.to(self.device)
             frozen.eval()
             for q in frozen.parameters():
                 q.requires_grad_(False)
@@ -269,6 +276,7 @@ class League:
                 f"  ⇒ 它是**旧代码**训的，不能上场（铁律：会被新代码加载就必须重炼）")
         net = build_model()
         net.load_state_dict(blob["weights"])
+        net.to(self.device)                  # ★ 快照也要上同一台设备（见 __init__ 的 ★★）
         net.eval()
         for p in net.parameters():
             p.requires_grad_(False)

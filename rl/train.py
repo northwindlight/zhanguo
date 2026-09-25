@@ -80,6 +80,21 @@ _INT_KEYS = ("type_idx", "tile_xy", "army_idx")
 _FLOAT_KEYS = ("pos_dx", "pos_dy", "has_pos", "cand_content", "cand_marks")
 
 
+def to_dev(batch: dict, device: str) -> dict:
+    """把 `collate` 出来的整批搬到设备上。
+
+    ★★ **`win`/`win_mask` 是嵌套 dict**，不一起搬就会漏 ——
+      漏了的表现是前向里报 "expected self and mask to be on the same device"，
+      而那是在**模型内部**才炸，追起来很远。
+    ★ `device == "cpu"` 时**原样返回**（同一份 dict）⇒ CPU 路径**一个字节都没变**。
+    """
+    if not device or device == "cpu":
+        return batch
+    return {k: ({g: t.to(device, non_blocking=True) for g, t in v.items()}
+                if isinstance(v, dict) else v.to(device, non_blocking=True))
+            for k, v in batch.items()}
+
+
 def collate(rows: list[dict]) -> dict:
     """把一串单样本拼成批次。"""
     b = len(rows)
@@ -138,8 +153,8 @@ def collate(rows: list[dict]) -> dict:
 @torch.no_grad()
 def collect_episode(nets: dict, sb: Sandbox, *,
                     temperature: float = 1.0, rng: np.random.Generator | None = None,
-                    greedy: bool = False,
-                    max_steps: int | None = None) -> tuple[list[Step], dict]:
+                    greedy: bool = False, max_steps: int | None = None,
+                    device: str = "cpu") -> tuple[list[Step], dict]:
     """一局自对弈。返回 `(步列表, 概要)`。步列表里每步记着**是哪一方的**。
 
     ★★ `nets` 是**按槽位编号**的网络表 `{槽位: PolicyNet}`（用户 2026-09-25：
@@ -167,10 +182,12 @@ def collect_episode(nets: dict, sb: Sandbox, *,
         if not actions:      # ★ 保险：`_auto_advance` 本该已经推进了（动作空间已无全局 END）
             break
         obs = obs_of(sb, me, actions)
-        batch = collate([obs])
+        batch = to_dev(collate([obs]), device)
         logits, value = nets[me](batch)
         logits = logits[0]
-        probs = torch.softmax(logits, -1).numpy()
+        # ★ GPU 上必须 `.detach().cpu()` 再 `.numpy()`（直接 `.numpy()` 会抛
+        #   "can't convert cuda tensor to numpy"）；CPU 上这两步是白给。
+        probs = torch.softmax(logits, -1).detach().cpu().numpy()
         if greedy:
             aidx = int(np.argmax(probs))
         else:
@@ -273,7 +290,8 @@ def gae(rewards: list[float], values: list[float], dones: list[bool],
 
 def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
                clip: float = 0.2, vf_coef: float = 0.5, ent_coef: float = 0.01,
-               lr: float = 3e-4, minibatch: int | None = None) -> dict:
+               lr: float = 3e-4, minibatch: int | None = None,
+               device: str = "cpu") -> dict:
     """标准 PPO clip 更新（**只喂这一方的步**）。
 
     ★★ **必须分 minibatch**（`scoring.PPO_MINIBATCH`，缺省 128）—— 这是踩出来的：
@@ -302,11 +320,13 @@ def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
             # ★ **按 minibatch collate**（不是先 collate 全部再切）—— 大 batch 的补零
             #   张量本身就是一笔大分配，切完再切就白付了
             obs = [steps[i].obs for i in sel]
-            batch = collate(obs)
-            aidx = torch.as_tensor(aidx_all[sel])
-            old_logp = torch.as_tensor(old_logp_all[sel])
-            adv_t = torch.as_tensor(adv_all[sel])
-            ret_t = torch.as_tensor(ret_all[sel])
+            batch = to_dev(collate(obs), device)
+            # ★ 标签也要上同一台设备 —— 只在 GPU 上才有区别，CPU 上是空操作
+            d = None if device in (None, "cpu") else device
+            aidx = torch.as_tensor(aidx_all[sel], device=d)
+            old_logp = torch.as_tensor(old_logp_all[sel], device=d)
+            adv_t = torch.as_tensor(adv_all[sel], device=d)
+            ret_t = torch.as_tensor(ret_all[sel], device=d)
             logits, value = net(batch)
             logp_all = torch.log_softmax(logits, -1)
             logp = logp_all.gather(1, aidx.unsqueeze(1)).squeeze(1)
@@ -358,7 +378,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           league_db: str | None = None, league_mains: int = 2,
           league_snapshot_every: int = 50, league_from: str | None = None,
           league_min_games: int = 10, league_retire_rate: float = 0.20,
-          league_cache: int = 24,
+          league_cache: int = 24, device: str = "cpu",
           log=print) -> dict[int, PolicyNet]:
     """主循环：自对弈 collect → 每个网络各 update 一次。
 
@@ -382,6 +402,9 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     k_of = (lambda _sz: int(nations)) if nations else n_nations_for
     n_slots = max(int(pool), k_of(hi) if not nations else int(nations))
     nets = {i: build_model() for i in range(n_slots)}
+    if device and device != "cpu":           # ★ 建完就上设备，**在 resume/播种之前**
+        for i in range(n_slots):
+            nets[i] = nets[i].to(device)
     _log_params(nets[0], log)
     # ★★ **联赛池**（用户 2026-09-25 定的口径，逐条见 `rl/league.py` 的 docstring）
     #   摘要：从最新快照开始分化 / 只增不删 / 随机抽 pt / 胜率永久化到 json /
@@ -390,7 +413,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     lg = League(league_db, mains=league_mains,
                 retire_min_games=league_min_games, retire_rate=league_retire_rate,
                 max_k=k_of(hi), min_learners=1, net_cap=league_cache,
-                fingerprint=_shape_fingerprint(), log=log)
+                device=device, fingerprint=_shape_fingerprint(), log=log)
     had = lg.load()
     mids = [f"L{i}" for i in range(n_slots)]
     log(f"★ 联赛池 **{n_slots} 份在训**（主 pt {league_mains}）"
@@ -452,7 +475,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
             net_of = {p: lg.net_of(draw[i]) for i, p in enumerate(players)}
             mid_of = {p: draw[i] for i, p in enumerate(players)}
             steps, info = collect_episode(net_of, sb, temperature=temperature,
-                                          rng=rng,
+                                          rng=rng, device=device,
                                           max_steps=(budget if max_steps else None))
             if max_steps:
                 budget -= len(steps)
@@ -479,7 +502,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                 if mi in buf:                 # ★ 只有在训成员进梯度；快照只当对手
                     buf[mi].append(s)
         pk = {} if epochs is None else {"epochs": epochs}
-        st = {mids[i]: ppo_update(nets[i], buf[mids[i]], lr=lr,
+        st = {mids[i]: ppo_update(nets[i], buf[mids[i]], lr=lr, device=device,
                                   minibatch=mb, **pk)
               for i in range(n_slots)}
         # ★ 按**实体**判谁赢（联盟胜利 / 单国胜利）：`winner` 是实体标签，比不得国名
@@ -648,7 +671,7 @@ def _log_params(net: PolicyNet, log) -> None:
     **至少给我弄到 1m**」）—— 容量是设计目标之一，别让它悄悄退回去。"""
     n = net.n_params()
     log(f"★ 主干 = WindowTransformer（窗口组 {list(net.groups)}，d_model={net.d_model}）"
-        f" · 参数量 **{n/1e6:.3f}M**")
+        f" · 参数量 **{n/1e6:.3f}M** · 设备 **{next(net.parameters()).device}**")
     log(f"★ 打分先验 {S.describe()}")
 
 
@@ -677,6 +700,14 @@ if __name__ == "__main__":
     import sys
 
     ap = argparse.ArgumentParser(description="沙盒 PPO 自对弈训练")
+    ap.add_argument("--device", type=str, default="cpu",
+                    help="★ 跑在哪台设备上（`cpu` / `cuda` / `cuda:0`）。"
+                         "缺省 cpu = **行为一字不变**。"
+                         "★ 用它的场合：多核机上的免费卡（如 Tesla P4）。"
+                         "时间构成里 **update ≈ 90%% 且全是 matmul** ⇒ 上卡收益最大；"
+                         "collect 是 Python 沙盒 + B=1 前向 ⇒ 基本单线程、上卡收益小。"
+                         "⚠ GPU 显存要算 **进程数 × 上下文开销**（每进程数百 MB），"
+                         "多个 worker 共享一张卡时别开太多。")
     ap.add_argument("--threads", type=int, default=1,
                     help="torch 线程数（0=自动=物理核）。★ **ECS 上必须 1** —— "
                          "SMT 逻辑核对向量计算零收益、只多同步开销（实测开 2 线程慢 3.4×）。"
@@ -787,7 +818,8 @@ if __name__ == "__main__":
           league_mains=a.league_mains,
           league_snapshot_every=a.league_snapshot_every,
           league_from=a.league_from, league_min_games=a.league_min_games,
-          league_retire_rate=a.league_retire_rate, league_cache=a.league_cache)
+          league_retire_rate=a.league_retire_rate, league_cache=a.league_cache,
+          device=a.device)
     if a.restart_after and a.iters > seg:
         # ★★ **定时重启**（用户 2026-09-25：「不如定时重启」）：跑完这一段就 `exec` 自己，
         #   **新进程 ⇒ RSS 归零**，并从刚存的档续跑。
