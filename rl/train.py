@@ -510,7 +510,13 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
             pool_i = [i for i, mi in enumerate(mids) if lg.members[mi].active]
             if pool_i:                      # ★ 冻一份当前权重进池（只增不删）
                 i = pool_i[(it // league_snapshot_every) % len(pool_i)]
-                lg.add_snapshot(nets[i], it, mid=f"S{it:05d}L{i}")
+                # ★★ **别自己拼 mid** —— 走 `add_snapshot` 的缺省，它带**worker 标识**。
+                #   我第一版写死了 `mid=f"S{it:05d}L{i}"`，于是"并行的两个 worker
+                #   会在同一 iter 冻同一槽位 ⇒ 权重文件互相覆盖"那个修复**被绕过去了**
+                #   （`league.py` 的缺省修好了，训练这条路却显式覆盖了它）。
+                #   缺省里的槽位由 `_slot_guess(net)` 反查 —— 在训成员都 `bind_live` 过
+                #   ⇒ 照样得到 `L{i}`，只是**多带了 worker**。
+                lg.add_snapshot(nets[i], it)
         lg.updated_iter = it
         lg.save()
         log(f"  {lg.report()}")

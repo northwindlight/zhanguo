@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -411,6 +412,26 @@ class TestParallelSnapshotsDoNotCollide(unittest.TestCase):
             p1 = next(iter(b.net_of(ms[1].mid).parameters())).detach()
             self.assertFalse(torch.equal(p0, p1),
                              "两份快照的权重一模一样 ⇒ 有一份被覆盖了（静默）")
+
+    def test_default_mid_carries_worker_and_slot(self):
+        """★★ **训练那条路**（`train.py`）原来自己拼 mid，把 worker 标识**绕过去了**。
+
+        这是实测撞出来的：第一份快照的 mid 是 `S00003L1` —— **没有 worker**。
+        ⇒ 修法不是"在 train 里也拼一遍"，而是**别自己拼**，走缺省
+          （缺省的槽位由 `_slot_guess(net)` 反查，在训成员都 `bind_live` 过 ⇒ 照样是 `L{i}`）。
+        """
+        net = _net()
+        lg = _mk(self, os.path.join(self._tmp(), "league.db"), worker="pid777")
+        lg.bind_live("L3", net)
+        m = lg.add_snapshot(net, 12)          # ★ 不传 mid ⇒ 走训练那条路
+        self.assertIn("pid777", m.mid, f"缺省 mid 里没有 worker：{m.mid}")
+        self.assertIn("L3", m.mid, f"缺省 mid 里没有槽位：{m.mid}")
+        self.assertIn("12", m.mid, f"缺省 mid 里没有 iter：{m.mid}")
+
+    def _tmp(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        return d
 
     def test_same_worker_is_still_idempotent(self):
         """★ 反向对照：**同一个** worker 重复冻同一 iter ⇒ 仍然幂等（不能变成两份）。"""
