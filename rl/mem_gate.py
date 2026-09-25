@@ -20,6 +20,13 @@
   ★ 还有一条**必须同时看**的基线：**同权重、关掉记忆**（`forward` 走初值槽）的分数。
     「带槽」比「不带槽」好，才说明记忆有用；否则只是"槽占了几行 K/V"的副作用。
 
+  ★★ **跑闸 B 的前提：局里得真的"接触过又失去接触"** —— 幽灵账本
+    （`war_memory`）只在"先看见、后看不见"时才有内容。视野是自家地块及其八邻，
+    所以短局 / 小图 / 未训练的随机策略常常**一个幽灵都没有** ⇒ 标签恒为 0
+    ⇒ 那时 R² **平凡地等于 1**（`ss_tot ≈ 0`）。探针会**打 n/a 并说明**
+    （实测踩过：五个标签全是 R²=+1.000，跟槽里有没有东西**完全无关**）。
+    ⇒ 要跑出有意义的结果：`--t-max` 放大、`--episodes` 加到 6+、图别太小。
+
   **闸 B（表征·线性解码）**：从槽**线性**回归"此刻**看不见但账本里有**的敌军"
     （`war_memory` 的幽灵：番号/位置/血量/年龄）。R² 高 ⇒ 槽里**线性可读地**
     编码了记忆内容；R² ≈ 0 ⇒ 槽是**哑的**（哪怕策略分数没掉）。
@@ -143,7 +150,7 @@ def gate_b(nets, seeds, a_max_steps=600, **kw) -> dict:
                      t_max=kw["t_max"], halls_known=kw["halls_known"]).reset()
         mem: dict = {}
         n = 0
-        while not sb.is_terminal() and n < a.max_steps:   # ★ 同 `_rollout`：兜底必给
+        while not sb.is_terminal() and n < a_max_steps:   # ★ 同 `_rollout`：兜底必给
             n += 1
             me = sb.current_player()
             if me is None:
@@ -168,18 +175,53 @@ def gate_b(nets, seeds, a_max_steps=600, **kw) -> dict:
             probs = torch.softmax(logits[0], -1).numpy()
             sb.step(acts[int(np.random.default_rng(2000 + i).choice(
                 len(probs), p=probs / probs.sum()))])
-    if len(X) < 20:
-        return {"n": len(X), "note": "样本太少，探针不可信"}
     X = np.asarray(X, np.float64)
     Y = np.asarray(Y, np.float64)
+    if len(X) < 60:
+        return {"n": len(X), "note": "样本太少（<60），探针不可信"}
     X = np.c_[X, np.ones(len(X))]                       # 截距
-    # 岭回归（闭式）—— 槽的维度高于样本数时普通最小二乘会过拟合
-    lam = 1e-2 * np.trace(X.T @ X) / X.shape[1]
-    W = np.linalg.solve(X.T @ X + lam * np.eye(X.shape[1]), X.T @ Y)
-    pred = X @ W
-    ss_res = ((Y - pred) ** 2).sum(0)
-    ss_tot = ((Y - Y.mean(0)) ** 2).sum(0) + 1e-12
-    return {"n": len(X), "r2": (1 - ss_res / ss_tot).tolist(),
+    # ★★★ **必须留出测试集** —— 这是本探针最容易写成**橡皮图章**的地方：
+    #   槽的展平维度是 `M × d_model`（缺省 **1280**），而一局只给几十个样本
+    #   ⇒ **特征维 > 样本数** ⇒ 过参数化的线性模型**样本内必然完美拟合**
+    #   （`R² = 1.000`），**跟槽里有没有东西完全无关**。
+    #   ★ 我第一版就是这样：实测**五个标签全是 R²=+1.000** —— 那正是"工具骗人"
+    #     的形状（闸门永远说"记忆很好"）。⇒ 现在**按样本切 70/30，只报测试集 R²**，
+    #     并把样本内 R² 一并打出来（两者的**差距**本身就是过拟合的证据）。
+    rs = np.random.default_rng(0)
+    idx = rs.permutation(len(X))
+    n_tr = max(1, int(0.7 * len(X)))
+    tr, te = idx[:n_tr], idx[n_tr:]
+    if len(te) < 20:
+        return {"n": len(X), "note": f"测试集只有 {len(te)} 个样本，探针不可信"}
+
+    # ★★★ **先查标签有没有方差** —— 这是本探针的**第三个**失效模式（每个都是
+    #   "数字看起来很正常、其实毫无意义"）：
+    #     幽灵大多数时刻是**空的** ⇒ 标签恒定（全 0）⇒ `ss_tot ≈ 0`
+    #     ⇒ `R² = 1 − 微小/微小 ≈ 1.000` —— **跟槽里有没有东西完全无关**。
+    #   ⇒ 标签方差 ≈ 0 的列**一律不报 R²**（报 n/a），并把"非零样本数"打出来。
+    std = Y.std(0)
+    nz = (np.abs(Y) > 1e-9).sum(0)
+    dead = std < 1e-6
+
+    def _fit_eval(tr, te):
+        A, B = X[tr], Y[tr]
+        # 岭回归（闭式）；λ 按特征尺度定（`p > n` 时普通最小二乘是奇异的）
+        lam = 1e-2 * np.trace(A.T @ A) / A.shape[1] + 1e-9
+        W = np.linalg.solve(A.T @ A + lam * np.eye(A.shape[1]), A.T @ B)
+        out = []
+        for S, T in ((A, B), (X[te], Y[te])):
+            pred = S @ W
+            ss_res = ((T - pred) ** 2).sum(0)
+            ss_tot = ((T - T.mean(0)) ** 2).sum(0) + 1e-12
+            out.append((1 - ss_res / ss_tot).tolist())
+        return out
+
+    r2_tr, r2_te = _fit_eval(tr, te)
+    r2_te = [None if d else v for d, v in zip(dead, r2_te)]
+    r2_tr = [None if d else v for d, v in zip(dead, r2_tr)]
+    return {"n": len(X), "n_test": len(te), "r2_test": r2_te, "r2_train": r2_tr,
+            "feat_dim": int(X.shape[1] - 1), "label_std": std.tolist(),
+            "label_nonzero": nz.tolist(),
             "cols": ["幽灵数", "总血", "位置和x", "位置和y", "最旧年龄"]}
 
 
@@ -210,21 +252,38 @@ def main(argv=None) -> int:
             print(f"   槽={k:8s} {res[k]:12.2f}"
                   + (f"   ⚠ 其中 {cap}/{len(seeds)} 局**撞了步数上限**"
                      f"（分数是上限处的 Φ，不是终局分）" if cap else ""))
+        # ★★ 结论必须**分情况说**：四档全相等时，"零/打乱一样"**不代表正常** ——
+        #   它只说明**模型对槽完全无感**（未训练的档就是这种，`on−off = 0`）。
+        #   我第一版不管三七二十一打了「正常（信息在槽里）」—— 那是**假报告**。
         d_off = res["on"] - res["off"]
-        print(f"   · 带槽 − 不带槽 = {d_off:+.2f}"
-              f"{'  ⇒ 记忆有增益' if d_off > 0 else '  ⇒ ★ 记忆没带来增益'}")
-        print(f"   · 置零 vs 打乱 = {res['zero']:+.2f} vs {res['shuffle']:+.2f}"
-              f"{'  ⇒ 正常（信息在槽里，不是常数偏置）' if res['shuffle'] <= res['zero'] + 1e-6 else '  ⇒ ★ 可疑：模型依赖的是槽的平均值'}")
+        d_zs = res["shuffle"] - res["zero"]
+        if abs(d_off) < 1e-9 and abs(d_zs) < 1e-9:
+            print("   · ★ **模型对槽完全无感**（四档全相等）—— 未训练的档就该是这样；"
+                  "训完之后若还是这样 ⇒ 槽是**装饰品**（没人读 / 没学到东西）")
+        else:
+            print(f"   · 带槽 − 不带槽 = {d_off:+.2f}"
+                  + ("  ⇒ 记忆有增益" if d_off > 0 else "  ⇒ ★ 记忆**没有**增益"))
+            print(f"   · 置零 vs 打乱 = {res['zero']:+.2f} vs {res['shuffle']:+.2f}"
+                  + ("  ⇒ 打乱更糟/相当 ⇒ 信息在槽里" if d_zs <= 1e-9 else
+                     "  ⇒ ★ 打乱反而更好 ⇒ 模型依赖的是**槽的平均值**（常数偏置），不是信息"))
     b = gate_b(nets, seeds, a_max_steps=a.max_steps, **kw)
     print("★ 闸 B（线性解码）：从槽回归「账本里有、此刻看不见」的敌军")
-    if "r2" not in b:
+    if "r2_test" not in b:
         print("   ", b)
     else:
-        print(f"    n={b['n']}")
-        for c, r in zip(b["cols"], b["r2"]):
-            print(f"    {c:8s} R²={r:+.3f}")
-        print("   ★ R² 高 = 槽里线性可读地编码了记忆；≈0 = 槽是哑的"
-              "（线性可解码是**充分不必要**，低不能单独判死）")
+        print(f"    n={b['n']}（训练 {b['n'] - b['n_test']} / **测试 {b['n_test']}**）"
+              f"，特征维 {b['feat_dim']}")
+        print(f"    {'标签':10s} {'测试 R²':>10s} {'(样本内)':>10s} {'非零样本':>8s}")
+        for c, rt, rr, nz, sd in zip(b["cols"], b["r2_test"], b["r2_train"],
+                                     b["label_nonzero"], b["label_std"]):
+            if rt is None:
+                print(f"    {c:10s} {'n/a':>10s} {'n/a':>10s} {nz:>8d}"
+                      f"   ← ★ 标签**没有方差**（std={sd:.2e}）⇒ R² 无意义")
+            else:
+                print(f"    {c:10s} {rt:+10.3f} {rr:+10.3f} {nz:>8d}")
+        print("   ★ **只认测试集 R²**：高 = 槽里线性可读地编码了记忆；≈0 = 槽是哑的。"
+              "\n     （★ 样本内 R² 一律接近 1 —— 特征维 > 样本数时那是必然，别信它。"
+              "\n      线性可解码是**充分不必要**：低不能单独判死，高才是强证据。）")
     return 0
 
 
