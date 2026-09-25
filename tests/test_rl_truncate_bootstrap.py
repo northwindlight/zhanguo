@@ -15,8 +15,18 @@
 
 ⇒ 修法：截断处用 **`Φ(s_T)`（当时的分数）** 自举；真终局仍然是 0。
 
-★ 钉三件事：
-  1. 截断局的最后一步 `boot` **非空、且等于当时的分数**（不是 0、不是 None）；
+★★ **2026-09-25 二次修（用户拍"只做 1"）：自举必须与奖励同单位。**
+  每步奖励是 `tanh(ΔΦ / REWARD_TANH_SCALE)`，小 ΔΦ 下 `r ≈ ΔΦ/200`
+  ⇒ **奖励的单位是 `Φ/200`** ⇒ 势函数整形下 `V ≈ Φ/200`（几十的量级）。
+  而第一版自举灌的是**原始 Φ**（10³）⇒ 比奖励单位**大 200 倍**。
+  实测症状：`vf` 常年上千（`+7269`/`+8898`），同时刻别的网络却是 `+0.01`
+  —— 那 200 倍就是"critic 从 ~0 起步去够 10³ 的目标"。
+  ★ 意图没变（"用当时的势、不用 0"），**单位**变了 —— 这是两个不同的错。
+
+★ 钉四件事：
+  1. 截断局的最后一步 `boot` **非空、且等于 `Φ / REWARD_TANH_SCALE`**（不是 0、不是 None）；
+  1b. ★ **单位守卫**：`|boot|` 必须在**奖励量级**（几十以内），
+      不是原始 Φ 的 10³ —— 这条正是"少除一个 200"会响的那一声；
   2. `gae` **真的用了它**（拿两个不同的 boot 算出不同的 return —— 反向对照）；
   3. 真终局那一步 `boot` 是 `None`（⇒ 按 0 自举，不能被我顺手改成别的）。
 """
@@ -34,6 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from rl.model import build_model                      # noqa: E402
 from rl.sandbox import Sandbox                        # noqa: E402
 from rl.train import _score, collect_episode, gae     # noqa: E402
+from rl import scoring as SC                          # noqa: E402
 
 
 def _sb(size=8, n=3, t_max=500, seed=3):
@@ -55,11 +66,20 @@ class TestTruncateBootstrap(unittest.TestCase):
         boot = steps[-1].boot
         self.assertIsNotNone(boot, "截断处没有自举值 ⇒ 会按 0 算")
         self.assertNotEqual(boot, 0.0, "自举值恰好是 0 —— 那正是要避免的那个值")
-        # ★ 它必须**就是当时的分数**（不是随便一个数）
-        self.assertAlmostEqual(boot, _score(sb, steps[-1].player), places=6,
-                               msg="自举值不等于 `Φ(s_T)`")
-        # ★ 反向对照：`Φ(s_T)` 确实不是 0（否则上面那条"非 0"是空的）
+        # ★ 它必须**就是当时的分数、且按奖励单位**（不是随便一个数）
+        phi = _score(sb, steps[-1].player)
+        self.assertAlmostEqual(boot, phi / SC.REWARD_TANH_SCALE, places=6,
+                               msg="自举值不等于 `Φ(s_T) / REWARD_TANH_SCALE`")
+        # ★★ **单位守卫** —— 这条就是"少除了一个 200"会响的那一声：
+        #   奖励是 `tanh(ΔΦ/200)` ⇒ 每步 ±1、`V ≈ Φ/200`（几十的量级）。
+        #   自举若用**原始 Φ**（10³），critic 就得从 ~0 起步去够 1000 倍的目标。
+        self.assertLess(abs(boot), 100.0,
+                        f"自举值是 {boot:.1f} —— 那是**原始 Φ** 的量级（10³），"
+                        f"而奖励单位是 Φ/{SC.REWARD_TANH_SCALE:.0f}"
+                        f"（实测症状：`vf` 常年上千）")
+        # ★ 反向对照：原始 Φ 确实**大得多**（否则上一条是空的 ⇒ 假绿）
         self.assertGreater(abs(boot), 1e-6, "这局的势函数恰好为 0 ⇒ 用例测不出东西")
+        self.assertGreater(abs(phi), abs(boot), "`Φ` 该比 `Φ/200` 大（不然守卫没意义）")
 
     def test_gae_actually_uses_the_bootstrap(self):
         """★★ **反向对照**：同一个 step，换一个 boot ⇒ return 必须跟着变。
