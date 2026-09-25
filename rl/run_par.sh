@@ -27,7 +27,13 @@
 #      往同一个 .pt 里写（原子写只保证"不写坏"，不保证"不互相覆盖"）。
 #   ② `--league-cache` 按内存调小：**每 worker 每份缓存 ≈ 5.5MB**，
 #      N=32、cache=24 ⇒ 32×130MB ≈ 4.2GB。内存充足就不用管。
-#   ③ 每个 worker 单线程（`--threads 1`）⇒ N 个 worker 吃 N 个核，别互相抢 SMT。
+#   ③ ★★ **线程数要按机器定，别写死**（`THREADS_PER_WORKER`，缺省 1）：
+#      时间构成里 **update 约 90%**，而 update 全是 matmul/注意力 ⇒ **多线程能铺开**；
+#      collect（Python 沙盒 + B=1 前向）基本单线程。
+#      ⇒ 在**真多核**机器上，"少数 worker × 每 worker 多线程" 通常优于 "N 个单线程 worker"。
+#      ⚠ 但 `--threads 1` 在 **ECS 上是对的**（1 物理核 + SMT，开 2 线程实测慢 3.4×）——
+#        **那条结论不能搬**。真多核机器上先实测 scaling 再定。
+#      ★ 经验摆法：`N×T ≈ 物理核数`，且 `N` 别太小（N = 血脉数 = 池子的多样性来源）。
 #   ④ **别给两个 worker 同一份 `--resume`**：它们会从同一条血脉出发
 #      （要分化就该各自不同 —— 缺省让每个 worker 从**公共起点**出发即可，
 #       之后的随机抽签会把它们推开）。
@@ -40,11 +46,14 @@ RUNDIR="${ZHANGUO_PAR_DIR:-$HERE/rl/runs/par}"
 LOGDIR="$HERE/rl/runs"
 PY="${ZHANGUO_PY:-$HOME/.venv/bin/python}"
 SESSION_PREFIX="w"
+# ★ 每个 worker 用几个 torch 线程（见上面 ③）。缺省 1 = 老行为（ECS 上是对的）。
+THREADS_PER_WORKER="${THREADS_PER_WORKER:-1}"
 
 # 进程级线程环境：必须在 python 起来**之前**设（import torch 之后再设就晚了）
 THREAD_ENV=(
-  OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
-  NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
+  OMP_NUM_THREADS="$THREADS_PER_WORKER" MKL_NUM_THREADS="$THREADS_PER_WORKER"
+  OPENBLAS_NUM_THREADS="$THREADS_PER_WORKER" NUMEXPR_NUM_THREADS="$THREADS_PER_WORKER"
+  VECLIB_MAXIMUM_THREADS="$THREADS_PER_WORKER"
   PYTHONIOENCODING=utf-8 PYTHONUNBUFFERED=1
 )
 
@@ -70,7 +79,7 @@ case "$cmd" in
       if tmux has-session -t "$s" 2>/dev/null; then
         echo "  跳过 $s（已在跑）" | tee -a "$LOG"; continue
       fi
-      CMD=(env "${THREAD_ENV[@]}" "$PY" -u -m rl.train --threads 1
+      CMD=(env "${THREAD_ENV[@]}" "$PY" -u -m rl.train --threads "$THREADS_PER_WORKER"
            --out "$RUNDIR/w$(printf %02d "$i").pt" "$@")
       printf -v QUOTED '%q ' "${CMD[@]}"
       INNER="$QUOTED 2>&1 | tee -a '$LOGDIR/${s}_$(date +%m%d_%H%M).log'; echo \"[$s 退出码 \${PIPESTATUS[0]}]\""
