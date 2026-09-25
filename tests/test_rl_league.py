@@ -427,6 +427,10 @@ class TestParallelSnapshotsDoNotCollide(unittest.TestCase):
         self.assertIn("pid777", m.mid, f"缺省 mid 里没有 worker：{m.mid}")
         self.assertIn("L3", m.mid, f"缺省 mid 里没有槽位：{m.mid}")
         self.assertIn("12", m.mid, f"缺省 mid 里没有 iter：{m.mid}")
+        # ★ 实测撞到过的难看形状：`S00006LL2_pid...`（`L` 重复）——
+        #   缺省格式串里写死一个 `L`，而 `_slot_guess` 又返回 `L2`。
+        self.assertNotIn("LL", m.mid, f"槽位前缀重复了：{m.mid}")
+        self.assertEqual(m.mid, "S00012L3_pid777", "mid 形状该是 S{iter}{槽位}_{worker}")
 
     def _tmp(self):
         d = tempfile.mkdtemp()

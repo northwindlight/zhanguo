@@ -212,7 +212,7 @@ class League:
         #   挡住（先到先得）没问题，但**权重文件会被后写的覆盖**
         #   ⇒ 有一份快照**静默地**变成别人的（池子里两份"不同成员"其实是同一份权重）。
         #   ⇒ 缺省 mid 里带上 `self.worker`（缺省 `pid<pid>`，一个进程一个）。
-        mid = mid or f"S{int(it):05d}L{self._slot_guess(net)}_{self.worker}"
+        mid = mid or f"S{int(it):05d}{self._slot_guess(net)}_{self.worker}"
         if mid in self.members:                  # 同一 mid 重复冻 → 幂等
             return self.members[mid]
         w = {k: v.detach().cpu().clone() for k, v in net.state_dict().items()}
@@ -410,8 +410,8 @@ class League:
         """
         for mid, n in self._nets.items():
             if n is net:
-                return mid
-        return "x"
+                return mid          # 在训成员的 mid 本来就是 `L{i}` ⇒ 直接拼上
+        return "Lx"                 # 没 `bind_live` 过的（测试/临时）—— 别让它变空
 
     # ---------------------------------------------------------- 持久化
     def _snap_dir(self) -> Path:
