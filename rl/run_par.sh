@@ -85,7 +85,13 @@ case "$cmd" in
       CMD=(env "${THREAD_ENV[@]}" "$PY" -u -m rl.train --threads "$THREADS_PER_WORKER"
            --out "$RUNDIR/${SESSION_PREFIX}$(printf %02d "$i").pt" "$@")
       printf -v QUOTED '%q ' "${CMD[@]}"
-      INNER="$QUOTED 2>&1 | tee -a '$LOGDIR/${s}_$(date +%m%d_%H%M).log'; echo \"[$s 退出码 \${PIPESTATUS[0]}]\""
+      LOGF="$LOGDIR/${s}_$(date +%m%d_%H%M).log"
+      # ★★ 退出码**必须也进日志**：原来那句 `echo "[$s 退出码 …]"` 没接在 `tee` 后面
+      #   ⇒ 只落在 **tmux 窗格**里，进程一退窗格就没了 ⇒ **日志里永远查不到退出码**。
+      #   ⇒ 崩溃和"正常跑完"在日志上长得一模一样（我 2026-09-25 为此白查了两次；
+      #     而且我还写了依赖这个字符串的等待脚本，它**结构上永远不会命中**）。
+      #   现在追加到同一个日志文件。
+      INNER="$QUOTED 2>&1 | tee -a '$LOGF'; ec=\${PIPESTATUS[0]}; echo \"[$s 退出码 \$ec]\" | tee -a '$LOGF'"
       printf -v INNER_Q '%q' "$INNER"
       tmux new-session -d -s "$s" "bash -c $INNER_Q"
       echo "  ✔ $s" | tee -a "$LOG"
