@@ -36,7 +36,9 @@ from __future__ import annotations
 
 from game import unit_max_hp
 
+from . import vocab as V
 from .hall_memory import HallMemory
+from .war_memory import WarMemory
 
 # ---------------------------------------------------------------- 规格常量
 # ★★ **国家名池**（**上限 6**，天干序）—— 唯一出处是 `vocab.PLAYER_NAMES`，
@@ -251,10 +253,20 @@ class Sandbox:
         #     · 自己找厅（`False`）⇒ 账本从空开始，靠 `known_halls()` 累积
         #   ⇒ 调用方（`encode`/`evaluate`）**不用分情况**，一律问 `known_halls`。
         self.halls = HallMemory(all_known=halls_known)
+        # ★★ 敌军**番号账本**（用户 2026-09-25：「模型要识别的出，这次击退了 a 兵团，
+        #   下次露头的是 a 军团的**残余**，还是一支没见过的、满编的 b 军团」）
+        #   ★ 与 `halls` 的差别：厅拆不掉、不能动 ⇒ 只增不减；
+        #     军队**会动会死** ⇒ 必须带**时间戳**、必须**会过期**。两件事不能共用一套。
+        self.war_mem = WarMemory()
         # ★ 累计击杀账本（用户 2026-09-25：「只计算我军杀掉的敌军来加分」）
         self.kills = KillLedger()
         self.world = None
         self.turn = 0
+        # ★★ **本局的回合偏移**（`my_turn` 那一列要用，见 `vocab.GLOB` 的三条口径）：
+        #   观测里给的是 `(turn + turn_offset) / TURN_SCALE` ⇒ **逐局随机**，
+        #   于是「第 50 回合就该这么打」这种死记无处落脚，而局内的增量完整保留。
+        #   ★ `reset()` 里按 seed 抽 ⇒ 同一 seed 仍然**可复现**（确定性没丢）。
+        self.turn_offset = 0
         self.log: list[str] = []
 
     # ============================================================ 建局
@@ -274,8 +286,20 @@ class Sandbox:
         w.max_turns = self.t_max
         self.world = w
         self.turn = 0
+        # ★★ **每局重抽偏移**（用户 2026-09-25：「**每次开局传入一个随机偏移就行**」）。
+        #   ★ 用 `self.seed` 派生 + **一个异或盐**：与 `_random_starts()` 的
+        #     `random.Random(self.seed)` **各走各的流** ⇒ 抽偏移**不会扰动开局位置**
+        #     （否则就是「加了个时间戳、顺带把地图换了」——那种耦合极难查）。
+        #   ★ 逐局不同：训练在 `train` 里给每局**新的随机 seed** ⇒ 偏移自然逐局不同。
+        import random as _random
+        self.turn_offset = _random.Random(
+            self.seed ^ 0x7A17).randrange(V.TURN_OFFSET_SPAN)
         self.log = []
         self.halls = HallMemory(all_known=self.halls_known)   # ★ 每局重开账本
+        self.war_mem = WarMemory()                            # ★ 每局重开**敌军番号账本**
+        #   ★★ **必须每局重置**：上一局的"敌军在某处"对新的一局是**纯噪声**，
+        #     而它不会自己消失（`age` 只在同一局的时间轴上算）⇒ 忘了重置 =
+        #     模型带着上一局的幽灵开局，而且**不报错**。
         self.kills = KillLedger()                             # ★ 每局重开击杀账本
         if self.wars is not None:
             # ★ 显式给了战争对 ⇒ **只**宣这些（其余国家互为中立国：mv/atk 都不行）
@@ -512,6 +536,27 @@ class Sandbox:
         self.halls.observe(w, name, mask)
         return self.halls.known(w, name)
 
+    def known_enemies(self, me: str, mask=None, armies=None) -> list[dict]:
+        """记忆里**此刻不可见**的敌军（按番号，附 `age`）—— **顺手把本帧看得见的记下来**。
+
+        ★ 与 `known_halls` 同一个套路（lazy latch）：调用方手里正好攥着 `mask`/`armies`，
+          不必再算一遍。★ 只有被问到的那个国会被记账，而"问谁"就是"谁在观测"⇒ 账本永远是齐的。
+        ★ `armies` = `window_armies` 的结果：用它来算"哪些已经进 token 了"，
+          **与军队 token 的口径逐字一致**（连"野人不进"这条也一致）⇒ 不会重复发、也不会漏发。
+        """
+        w = self.world
+        if w is None:
+            return []
+        if mask is None:
+            from ruleai.v11plus import pathfind
+            mask = pathfind.vision_mask(w, me)
+        self.war_mem.observe(w, me, mask, self.turn)
+        if armies is None:
+            from .encode import window_armies
+            armies = window_armies(self, me, mask)
+        vis = {a["gid"] for a in armies if a["owner"] != me}
+        return self.war_mem.known(me, self.turn, vis)
+
     def clone(self) -> "Sandbox":
         """试演副本。★ 8×8 上 `deepcopy` 实测 **~1.8 ms** ⇒ MCTS 可以**真实试演**
         （不用搞"记录动作再重放"那套）。"""
@@ -520,6 +565,7 @@ class Sandbox:
         sb.seed, sb.size, sb.t_max, sb.war = self.seed, self.size, self.t_max, self.war
         sb.world = copy.deepcopy(self.world)
         sb.turn = self.turn
+        sb.turn_offset = self.turn_offset   # ★ 试演里「现在几点」必须和真身一致
         sb.log = list(self.log)
         sb.pending = list(self.pending)
         sb.last_ok = self.last_ok
@@ -527,6 +573,7 @@ class Sandbox:
         sb.halls_known = self.halls_known
         sb.halls = self.halls.clone()            # ★ 记忆要跟着副本走（试演不能凭空多知道）
         sb.kills = self.kills.clone()            # ★ 击杀账本同理
+        sb.war_mem = self.war_mem.clone()        # ★ 敌军番号账本同理（试演不能共享）
         return sb
 
     def current_player(self) -> str | None:

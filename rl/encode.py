@@ -197,6 +197,11 @@ def encode_grid(sb, me: str, mask=None, known=None,
     known = sb.known_halls(me, mask) if known is None else known
     x0, y0, h, ww = frame_of(sb, me, mask)
     g = np.zeros((V.GRID_CHANNELS, h, ww), dtype=np.float32)
+    # ★ 顺手把本帧看得见的记进番号账本（**幂等**：同一帧记两次无害），
+    #   再取"按格"的读法。★ 放在这里是为了让 `encode_grid` **自给自足**
+    #   —— 它可能被单独调用（测试、探针），那时不能指望 `encode_window` 先跑过。
+    sb.war_mem.observe(w, me, mask, sb.turn)
+    mem_ages = sb.war_mem.cell_ages(me, sb.turn)
     # ★★ **先建"格 → 军队"索引**（一次 O(军) 遍历），别在网格循环里扫全表：
     #   16×16 上有 256 个野人（每格一个）⇒ 一格扫 256 次（实测 2 局 600s 跑不完）。
     by_cell: dict = {}
@@ -216,6 +221,13 @@ def encode_grid(sb, me: str, mask=None, known=None,
             g[V.GRID_MOVE, i, j] = _move_cost_of(w, x, y) / 2.0
             g[V.GRID_OWNER0 + _owner_class(w, me, x, y, by_cell), i, j] = 1.0
             g[V.GRID_VISIBLE, i, j] = 1.0 if visible else 0.0
+            # ★★ **记忆**两列（与 `"k"` 组同源、同一次观测，两种读法）——
+            #   "这格我上次看见有敌军（多旧）"。★ 它让候选能**直接 gather** 到
+            #   "我要去的那一格，情报有多旧"，而不必先看 token。
+            _age = mem_ages.get((x, y))
+            if _age is not None:
+                g[V.GRID_MEM_AGE, i, j] = max(0.0, 1.0 - _age / V.AGE_SCALE)
+                g[V.GRID_MEM_ENEMY, i, j] = 1.0 / (1.0 + _age)
             # ★★ 战斗明细 —— **每帧重算**（`frame` 由 `obs_of` 现算传下来，不是缓存）。
             #    取数条件：这一格在打，**且**（看得见 **或** 仗打在我身上）。
             #    后者 = "**接触即看见**"（`scoring.CB_CONTACT_VISION` + 实测理由）。
@@ -329,7 +341,20 @@ def encode_glob(sb, me: str, mask=None, known=None) -> np.ndarray:
         #   ⚠ **只数"敌国"**（`victims=foes`）：打野人/打盟友不算 —— 口径与打分器一致，
         #     而账本按 (凶手, 受害者) 成对记，正是为了在这里能筛。
         "my_kills": min(1.0, sb.kills.kills_by(me, victims=foes) / S.KILLS_SCALE),
+
         "my_dmg": min(1.0, sb.kills.dmg_by(me, victims=foes) / S.DMG_SCALE),
+
+        # ★★ **当前回合数**（用户 2026-09-25：「llm 玩家也知道的，现在多少回合了」）。
+        #   ★ 三条口径见 `vocab.GLOB` 里 `my_turn` 那段。这里只落实两条实现细节：
+        #     ① 分子加的是**本局随机的 `turn_offset`** ⇒ 死记无处落脚，
+        #        而局内**逐帧做差**仍读得出「又过了一回合」（相对量完整保留）；
+        #     ② ★ **不夹到 1**（与上面两列 `min(1.0, …)` 相反）—— 回合数一直涨，
+        #        夹了就把后半段的增量抹平，而增量是 ① 里唯一保留下来的东西。
+        #     ③ ★ 分母是 `V.TURN_SCALE`（**纯尺度**），**不是 `sb.t_max`**：
+        #        `t_max` 是训练为了防僵局定的地平线，进观测就等于把删掉的
+        #        `turn_frac` 从后门放回来。守卫钉这条（改 `t_max` 不许动这一列）。
+        "my_turn": (sb.turn + sb.turn_offset) / V.TURN_SCALE,
+
         **hall_vals,
     }
     return np.array([vals[k] for k in V.GLOB], dtype=np.float32)
@@ -429,9 +454,29 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
     #    在 28 长的 list 上会把它撑到 32，**不报错**）⇒ 少了这条，尾段整体错位
     #    也只是"模型少读到几列"，训练照跑。宁可在这里炸。
     assert arr.shape[1] == wfull, f"军队 token 行宽 {arr.shape[1]} ≠ 约定的 {wfull}"
-    win = {"g": g_row[None, :].astype(np.float32), "a": arr}
+    # ★★ `"k"` 组：**记忆中的敌军**（按番号）—— 与 `"m"`（将来的潜槽）**并存**，
+    #   见 `vocab.TOKEN_GROUPS` 的注释。★ 一条都没有时返回**空表** ⇒ `collate`
+    #   会补一个 mask 全 False 的零 token（注意力自动忽略），不会凭空多一行。
+    k_rows = []
+    for r in sb.known_enemies(me, mask, armies):
+        row = [0.0] * V.K_WIDTH
+        row[V.K_OWNER0 + _owner_class(w, me, r["x"], r["y"], by_cell_w)] = 1.0
+        if r["kind"] in V.UNIT:
+            row[V.K_UNIT0 + V.UNIT.index(r["kind"])] = 1.0
+        row[V.K_X] = (r["x"] - hx) / ps
+        row[V.K_Y] = (r["y"] - hy) / ps
+        row[V.K_HP] = r["hp"] / 100.0
+        row[V.K_NO] = min(1.0, r["no"] / V.NO_SCALE)          # ★ 番号
+        row[V.K_AGE] = min(1.0, r["age"] / V.AGE_SCALE)       # ★ 陈旧度
+        k_rows.append(row)
+    karr = (np.array(k_rows, dtype=np.float32) if k_rows
+            else np.zeros((0, V.K_WIDTH), np.float32))
+    assert karr.shape[1] == V.K_WIDTH, f"k token 行宽 {karr.shape[1]} ≠ {V.K_WIDTH}"
+
+    win = {"g": g_row[None, :].astype(np.float32), "a": arr, "k": karr}
     win_mask = {"g": np.ones(1, bool),
-                "a": np.ones(len(rows), bool)}
+                "a": np.ones(len(rows), bool),
+                "k": np.ones(len(k_rows), bool)}
     return win, win_mask, armies
 
 

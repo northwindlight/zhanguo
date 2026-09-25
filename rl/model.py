@@ -260,6 +260,9 @@ def build_model(n_grid_ch: int = V.GRID_CHANNELS, **kw) -> PolicyNet:
     widths = {
         "g": V.GLOB_SIZE + F.F_GLOB,
         "a": V.A_WIDTH_RAW + F.F_U + V.A_EXTRA,
+        # ★★ `"k"` = **记忆中的敌军**（按番号，见 `vocab.TOKEN_GROUPS` 的注释）。
+        #   将来的 `"m"`（潜槽）加在这里一行即可 —— 主干不动（§11「结构留位」）。
+        "k": V.K_WIDTH,
     }
     return PolicyNet(win_widths={g: widths[g] for g in V.TOKEN_GROUPS},
                      n_grid_ch=n_grid_ch, **kw)

@@ -198,3 +198,73 @@ class TestWarMemory(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestSandboxWiring(unittest.TestCase):
+    """★★ **接线守卫** —— 2026-09-25 栽的那个坑，钉死它。
+
+    我把番号账本写成 `self.war`，而 `Sandbox.war` **本来就是个 bool**
+    （「开局是否宣战」）。更毒的是 `WarMemory.__len__`：空账本 `len()==0`
+    ⇒ **假值**，于是 `reset()` 里的 `elif self.war:` 判空账本为假
+    ⇒ **开局一个宣战都没宣** ⇒ 每格战斗一轮就散、`p_win` 两边都成 1.0。
+
+    它**不报错、不抛异常**：整套战斗测试只是"分布对不上"，看起来像复刻漂移。
+    ⇒ 这里钉三件事：**名字**（`war` 必须是 bool）、**行为**（宣战真的宣了）、
+      **账本每局重开**。
+    """
+
+    def test_sandbox_war_flag_is_still_a_bool(self):
+        """★ **名字守卫**：`Sandbox.war` 是配置开关，任何账本都不许抢这个名。
+
+        ★ 这条正是当初会立刻响的那一声 —— 账本一写成 `self.war` 它就红。
+        """
+        sb = Sandbox(seed=3, size=12, n_nations=3, war=False)
+        self.assertIsInstance(sb.war, bool,
+                              "`Sandbox.war` 被别的东西（账本？）抢走了 ⇒ "
+                              "`elif self.war:` 的语义被静默改写")
+        self.assertIs(sb.war, False)
+        sb2 = Sandbox(seed=3, size=12, n_nations=3).reset()
+        self.assertIsInstance(sb2.war, bool, "`reset()` 之后 `war` 不再是 bool")
+
+    def test_declaring_war_actually_declares_it(self):
+        """★★ **行为守卫**：`war=True` ⇒ 三国**两两宣战**；`war=False` ⇒ 一对都不宣。
+
+        ★ 空账本假值那次，这一条会直接红（三个 pair 全 False）——
+          而"名字守卫"只抓命名，抓不到**同名的别的假值来源**，两条都要。
+        """
+        for want in (True, False):
+            sb = Sandbox(seed=3, size=12, n_nations=3, war=want).reset()
+            w, ps = sb.world, sb.players
+            pairs = [(a, b) for i, a in enumerate(ps) for b in ps[i + 1:]]
+            self.assertEqual(len(pairs), 3, "三国局应有 3 个 pair")
+            for a, b in pairs:
+                self.assertIs(w.war_between(a, b), want,
+                              f"war={want} 但 {a}-{b} 的宣战状态是 {w.war_between(a, b)}")
+
+    def test_fresh_sandbox_has_an_empty_ledger(self):
+        """★ 账本每局重开：上一局的"敌军在某处"对新一局是**纯噪声**，且不会自己消失。"""
+        sb = _sb()
+        me = sb.players[0]
+        sb.known_enemies(me, _all_cells(sb))
+        self.assertGreater(len(sb.war_mem), 0, "看见敌军却没记账")
+        sb2 = sb.reset()
+        self.assertEqual(len(sb2.war_mem), 0,
+                         "新一局带着上一局的幽灵开局（age 只在同一局时间轴上算，不会自愈）")
+
+    def test_clone_carries_an_independent_ledger(self):
+        """★ 试演副本要**带着**记忆走，但**不共享**（试演不能凭空多知道，也不能污染本体）。"""
+        sb = _sb()
+        me = sb.players[0]
+        sb.known_enemies(me, _all_cells(sb))
+        c = sb.clone()
+        self.assertEqual(len(c.war_mem), len(sb.war_mem), "副本把记忆丢了")
+        c.war_mem._by[me].clear()
+        self.assertGreater(len(sb.war_mem), 0, "副本改记忆改到了本体 ⇒ 试演会污染真身")
+
+    def test_known_enemies_needs_no_extra_work_from_the_caller(self):
+        """★ 与 `known_halls` 同款 lazy latch：不给 mask / armies 也能自己算。"""
+        sb = _sb()
+        me = sb.players[0]
+        a = sb.known_enemies(me)                      # 不给 mask、不给 armies
+        b = sb.known_enemies(me, _all_cells(sb))      # 全知掩码 ⇒ 全在 token 里 ⇒ 无幽灵
+        self.assertIsInstance(a, list)
+        self.assertEqual(b, [], "全知时看得见的还被当成'幽灵'发了一遍（重复占注意力）")

@@ -48,6 +48,33 @@ DEFAULT_MAX_AGE = 20      # 超过这么多回合没再看见 ⇒ 作废（别�
 DEFAULT_CAP = 24          # 一条观测里最多带几支"幽灵军"（★ 注意力是 O(N²)，必须有界）
 
 
+def visible_foes(world, name: str | None, mask) -> dict:
+    """本帧**看得见**的敌军：`{gid: {x, y, kind, hp, no, owner}}`（**不含**见到的回合）。
+
+    ★★ **唯一出处** —— `WarMemory.observe`（记进账本）和"即将离开视野"那条**辅助目标**
+      （见 `rl/mem_aux.py`）**必须**用同一个口径。抄两遍的话"哪些算敌人 / 野人算不算"
+      会**慢慢漂开**，而漂开的后果是辅助损失在教模型**错的东西**，**不报错**。
+    ★ 口径（逐条与 `encode.window_armies` 对齐）：
+      · 只算**国家**的军（野人不是"情报"，`window_armies` 也不给它们 token）；
+      · `hp > 0`；
+      · 落在 `mask`（视野）里。
+    """
+    if not name:
+        return {}
+    out = {}
+    for a in world.armies:
+        if a.get("owner") == name or a.get("owner") not in world.nations:
+            continue
+        if a.get("hp", 0) <= 0:
+            continue
+        if (a["x"], a["y"]) not in mask:
+            continue
+        out[a["gid"]] = {"x": int(a["x"]), "y": int(a["y"]),
+                         "kind": a.get("type", "步"), "hp": int(a.get("hp", 0)),
+                         "no": int(a.get("id", 0)), "owner": a["owner"]}
+    return out
+
+
 class WarMemory:
     """一局之内、**逐国**的敌军账本：`{我方: {gid: 最后看见时的样子}}`。"""
 
@@ -77,21 +104,11 @@ class WarMemory:
         for gid in [g for g, r in got.items()
                     if (r["x"], r["y"]) in mask and g not in alive]:
             del got[gid]
-        n = 0
-        for a in world.armies:
-            if a.get("owner") == name or a.get("owner") not in world.nations:
-                continue
-            if a.get("hp", 0) <= 0:
-                continue
-            if (a["x"], a["y"]) not in mask:
-                continue                      # ★ 看不见 ⇒ 不动（不是删！见文件头的 ②）
-            got[a["gid"]] = {
-                "turn": int(turn), "x": int(a["x"]), "y": int(a["y"]),
-                "kind": a.get("type", "步"), "hp": int(a.get("hp", 0)),
-                "no": int(a.get("id", 0)), "owner": a["owner"],
-            }
-            n += 1
-        return n
+        # ★ 口径走 `visible_foes`（**唯一出处**，见它的 docstring）—— 别在这里再抄一遍。
+        seen = visible_foes(world, name, mask)
+        for gid, rec in seen.items():
+            got[gid] = {"turn": int(turn), **rec}   # ★ 看见就**覆盖**（位置/血量会变）
+        return len(seen)
 
     # ---------------------------------------------------------------- 读
     def known(self, name: str | None, turn: int,
@@ -115,6 +132,22 @@ class WarMemory:
             out.append({**rec, "gid": gid, "age": age})
         out.sort(key=lambda r: (r["age"], r["gid"]))     # 新的在前
         return out[:self.cap]
+
+    def cell_ages(self, name: str | None, turn: int) -> dict:
+        """每格**最后一次看见有敌军**距今几回合（**没记过的不在表里**）。
+
+        ★ 与 `known()` 分开：那是"**按番号**"的读法（发给 token），
+          这是"**按格**"的读法（填网格两列）。**同一次观测，两种读法**。
+        """
+        out: dict = {}
+        for r in (self._by.get(name) or {}).values():
+            age = int(turn) - int(r["turn"])
+            if age > self.max_age:
+                continue
+            c = (r["x"], r["y"])
+            if c not in out or age < out[c]:
+                out[c] = age
+        return out
 
     def __len__(self) -> int:
         return sum(len(v) for v in self._by.values())
