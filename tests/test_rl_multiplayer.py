@@ -50,12 +50,28 @@ class TestNationCount(unittest.TestCase):
         self.assertEqual(n_nations_for(8), 3)
         self.assertEqual(n_nations_for(32), 5, "32×32 该到 5 国（否则 3-5 只覆盖到一半）")
 
+    def test_the_furnace_range_covers_3_to_5(self):
+        """★★ **起炉范围（12-20）必须真的能出 3、4、5 国**。
+
+        ★ 这条是 2026-09-25 那次改动的守卫：用户把地图从 12-30 缩到 **12-20**
+          （治换家流 + 让一局装进步数预算），而当时 `TILES_PER_NATION=150`
+          在 12-20 上**只会算出 3 国**（12²/150、20²/150 都夹到下限）
+          ⇒ 用户要的「**玩家 3-5 个**」**静默地**没了。
+          当时把 `TILES_PER_NATION` 调到 **60** 才同时满足两个口径。
+        ★ 所以这里钉的是**范围的两端**，不是中某个点 —— 只测一端会漏掉这种退化。
+        """
+        self.assertEqual(n_nations_for(12), 3, "起炉范围下端该是 3 国")
+        self.assertEqual(n_nations_for(20), 5, "起炉范围上端该是 5 国")
+        seen = {n_nations_for(s) for s in range(12, 21)}
+        self.assertEqual(seen, {3, 4, 5},
+                         f"12-20 里应当 3/4/5 国都出现，实际只有 {sorted(seen)}")
+
 
 class TestSandboxMultiNation(unittest.TestCase):
     """②③④ 沙盒本身：k 国、全对宣战、每人有厅、先手可换。"""
 
     def test_players_and_halls(self):
-        sb = sb_of(size=16)
+        sb = sb_of(size=12)                        # ★ 12 ⇒ 3 国（16 现在是 4 国）
         self.assertEqual(sb.n_nations, 3)
         self.assertEqual(len(sb.players), 3)
         self.assertEqual(sb.players, V.PLAYER_NAMES[:3])
@@ -67,7 +83,7 @@ class TestSandboxMultiNation(unittest.TestCase):
     def test_default_no_neutral_all_pairs_at_war(self):
         """★ 「默认**无中立**」= 全对宣战（不宣战的话 `_owner_class` 会判成中立国，
         而中立国 mv/atk **都不行** ⇒ 那国一步走不出去、也不挨打，成冻住的石头）。"""
-        sb = sb_of(size=16)
+        sb = sb_of(size=12)
         ps = sb.players
         for i, a in enumerate(ps):
             for b in ps[i + 1:]:
@@ -75,7 +91,7 @@ class TestSandboxMultiNation(unittest.TestCase):
 
     def test_explicit_wars_make_neutrals(self):
         """④ 反过来：要中立国得**显式**给 `wars=`（结盟不够 —— 缺省已全体交战）。"""
-        sb = sb_of(size=16, wars=[("甲", "乙")])
+        sb = sb_of(size=12, wars=[("甲", "乙")])
         self.assertTrue(sb.world.war_between("甲", "乙"))
         self.assertFalse(sb.world.war_between("甲", "丙"), "丙该是中立国")
         # 中立国那格在观测里必须是 `OWN_NEUTRAL_NATION`（不是 `RIVAL`）——
@@ -87,9 +103,9 @@ class TestSandboxMultiNation(unittest.TestCase):
     def test_first_rotates_over_all_k(self):
         """⑤ 「**≥3 轮流手**」—— `first` 可以是 k 国里的任意一个。"""
         for p in ("甲", "乙", "丙"):
-            sb = sb_of(size=16, first=p)
+            sb = sb_of(size=12, first=p)
             self.assertEqual(sb.current_player(), p, f"first={p} 没生效")
-        sb = sb_of(size=16, first="丁")            # 不在这一局的名单里 ⇒ 忽略
+        sb = sb_of(size=12, first="丁")            # 不在这一局的名单里 ⇒ 忽略
         self.assertEqual(sb.current_player(), "甲")
 
 
@@ -119,7 +135,7 @@ class TestEnemiesAreASet(unittest.TestCase):
     """③ ★★ 最要命的一条：**不许静默漏掉一个对手**。"""
 
     def test_enemies_of_returns_all_rivals(self):
-        sb = sb_of(size=16)
+        sb = sb_of(size=12)
         self.assertEqual(set(encode.enemies_of(sb.world, "甲")), {"乙", "丙"})
         # ★ 与打分器**同一口径**（两份实现必然漂移 ⇒ 只允许一份）
         self.assertEqual(sorted(encode.enemies_of(sb.world, "甲")),
@@ -135,7 +151,7 @@ class TestEnemiesAreASet(unittest.TestCase):
           而危险的那个调用只有 3 个 ⇒ 照样通过（实测）。真正能挡的是
           **`enemy` 拒收集合**（`mask` 是 `frozenset`，"敌人"永远是国名字符串）。
         """
-        sb = sb_of(size=16)
+        sb = sb_of(size=12)
         with self.assertRaises(TypeError):
             E.score(sb.world, "甲", BLIND)              # 本意是 mask，会被当成 enemy
         with self.assertRaises(TypeError):
@@ -167,14 +183,14 @@ class TestEnemiesAreASet(unittest.TestCase):
         self.assertEqual({c for c in V.GLOB if c.startswith("foe_")}, allowed,
                          "`foe_*` 只许剩**公开的国祚**那几列")
         # ★ 反向对照：观测量本身还得是活的（别把"删干净"做成"整段空掉"）
-        sb = sb_of(size=16)
+        sb = sb_of(size=12)
         g = encode.encode_glob(sb, "甲", BLIND, known={})
         self.assertGreater(float(g[V.GLOB.index("my_tiles")]), 0.0, "我自己的国土该还在")
         self.assertEqual(float(g[V.GLOB.index("foe_hall")]), 1.0, "对手存活是公开信息")
 
     def test_visible_rival_armies_all_enter_tokens(self):
         """两个对手的军，**只要看得见都该进 token**（原来只收"那一个敌人"的）。"""
-        sb = sb_of(size=16)
+        sb = sb_of(size=12)
         w = sb.world
         mask = frozenset(w.tiles)                  # 全看见
         armies = encode.window_armies(sb, "甲", mask)
@@ -189,7 +205,7 @@ class TestEnemiesAreASet(unittest.TestCase):
           ⇒ 「打乙」和「打丙」**都**要计，而「打野人」**一分不计**。
         """
         from rl import scoring as S
-        sb = sb_of(size=16)
+        sb = sb_of(size=12)
         base = E.score(sb.world, "甲", mask=BLIND, known={})
 
         def with_kills(k):
@@ -215,7 +231,7 @@ class TestEnemiesAreASet(unittest.TestCase):
         · 不传账本 ⇒ 当成 0（**不是**退回"数看得见的东西"那条老路）。
         """
         from rl import scoring as S
-        sb = sb_of(size=16)
+        sb = sb_of(size=12)
         base = E.score(sb.world, "甲", mask=BLIND, known={})
         for n in (1, 3):
             self.assertAlmostEqual(
@@ -230,7 +246,7 @@ class TestEnemiesAreASet(unittest.TestCase):
         # ★★ 两项战果**完全不吃视野** —— 正确的比法是"**隔离出战果的贡献**"：
         #   同一个 mask 下取"带战果 − 不带战果"，两个 mask 的这个差必须**一模一样**。
         #   （直接比两个 mask 的总分是错的：总分里还有 `W_TILE` 那一项，它**仍然吃视野**。）
-        seen = frozenset(sb_of(size=16).world.tiles)
+        seen = frozenset(sb_of(size=12).world.tiles)
         for k, d in (({("甲", "乙"): 2}, None), (None, {("甲", "丙"): 300})):
             def contrib(mask):
                 return (E.score(sb.world, "甲", mask=mask, known={}, kills=k, dmg=d)
@@ -263,18 +279,26 @@ class TestNoFogDependence(unittest.TestCase):
         from rl import scoring as S
         from rl.sandbox import Sandbox
         for spy in (True, False):
-            sb = Sandbox(seed=1, size=16, halls_known=spy).reset()
+            sb = Sandbox(seed=1, size=12, halls_known=spy).reset()
             w, me = sb.world, "甲"
             if not spy:                        # 自己找厅：先让它"看见过"
                 sb.known_halls(me, frozenset(w.tiles))
             emp, full = frozenset(), frozenset(w.tiles)
-            a = E.score(w, me, mask=emp, known=sb.known_halls(me, emp))
-            b = E.score(w, me, mask=full, known=sb.known_halls(me, full))
+            # ★★ **必须先把威胁项置零再比** —— 威胁是**唯一被允许**吃视野的项
+            #   （用户：「暴露出的敌人越多防御越有价值，**没暴露的也无法虚空防守**」）。
+            #   ★ 不置零的话，这条用例的绿是**靠运气**：只有当"没有敌军落在
+            #     `THREAT_R` 内"时两者才相等。实测 size=12/seed=1 上正好有一支敌军
+            #     在我厅 6 格内 ⇒ 差 **0.5**（= `W_THREAT × intensity`），
+            #     而那是**正确**的行为、不是 bug —— 是**测试**写窄了。
+            #   （原来 size=16 时侥幸没触发 ⇒ 一直是绿的。）
+            with S.override(W_THREAT=0.0):
+                a = E.score(w, me, mask=emp, known=sb.known_halls(me, emp))
+                b = E.score(w, me, mask=full, known=sb.known_halls(me, full))
             self.assertAlmostEqual(a, b, places=9,
                                    msg=f"spy={spy}：除威胁外还有项吃视野")
         # ★ 反向对照：把敌军摆到我厅边上、**且看得见** ⇒ 威胁项必须让两者分开
         #   （否则上面那条"相等"可能只是因为威胁项整个是死的）
-        sb = sb_of(size=16)
+        sb = sb_of(size=12)
         w, me = sb.world, "甲"
         hall = E.hall_cells(w, me)[0]
         foe = next(f for f in sb.players if f != me)
