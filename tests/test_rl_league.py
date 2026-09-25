@@ -378,6 +378,52 @@ class TestParallelReady(unittest.TestCase):
         self.assertEqual(rows, [("L0", 1, 7, "w1"), ("L0", 0, 7, "w1")])
 
 
+class TestParallelSnapshotsDoNotCollide(unittest.TestCase):
+    """★★ **并行的世界里两个 worker 会在同一 iter 冻同一槽位**。
+
+    只用 `S{iter}L{槽位}` 当 mid 的话：DB 那行被 `INSERT OR IGNORE` 挡住
+    （先到先得，没事），但**权重文件会被后写的覆盖** ⇒
+    池子里两份"不同成员"**其实是同一份权重** —— 而**不报错**。
+    ⇒ 缺省 mid 里带上 `worker`。
+
+    ★ 钉的判据是**权重真的不同**，不是"mid 不同"就完事：
+      mid 撞了才会覆盖，覆盖的后果就是两份权重一模一样。
+    """
+
+    def test_two_workers_freeze_two_distinct_members(self):
+        with tempfile.TemporaryDirectory() as d:
+            db = os.path.join(d, "league.db")
+            a_net, b_net = _net(), _net()
+            with torch.no_grad():
+                for p in b_net.parameters():
+                    p.add_(0.5)                    # 两份权重**明显不同**
+            a = _mk(self, db, worker="wA")
+            a.add_snapshot(a_net, 5)               # 缺省 mid（不许撞）
+            b = _mk(self, db, worker="wB")
+            b.load()
+            b.add_snapshot(b_net, 5)
+            ms = sorted((m for m in b.members.values() if m.kind == "snap"),
+                        key=lambda m: m.mid)
+            self.assertEqual(len(ms), 2,
+                             "两份快照被当成同一份 ⇒ 后写的把先写的覆盖了")
+            self.assertNotEqual(ms[0].mid, ms[1].mid, "mid 撞了")
+            p0 = next(iter(b.net_of(ms[0].mid).parameters())).detach()
+            p1 = next(iter(b.net_of(ms[1].mid).parameters())).detach()
+            self.assertFalse(torch.equal(p0, p1),
+                             "两份快照的权重一模一样 ⇒ 有一份被覆盖了（静默）")
+
+    def test_same_worker_is_still_idempotent(self):
+        """★ 反向对照：**同一个** worker 重复冻同一 iter ⇒ 仍然幂等（不能变成两份）。"""
+        with tempfile.TemporaryDirectory() as d:
+            net = _net()
+            lg = _mk(self, os.path.join(d, "league.db"), worker="wA")
+            a = lg.add_snapshot(net, 5)
+            b = lg.add_snapshot(net, 5)
+            self.assertIs(a, b, "同 worker 同 iter 重复冻出了两份")
+            self.assertEqual(len([m for m in lg.members.values()
+                                  if m.kind == "snap"]), 1)
+
+
 class TestNetCacheIsBounded(unittest.TestCase):
     """★★ 快照权重的缓存**必须有上界** —— 池子是只增不删的，每份 ≈ 5.5MB。
 

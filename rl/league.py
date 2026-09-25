@@ -207,7 +207,12 @@ class League:
         ★ 存在的意义就是"分化"：这些快照是**不同代**的对手，
           池子里因此有多个打法，而不是一池子同一个自己。
         """
-        mid = mid or f"S{int(it):05d}"
+        # ★★ mid **必须带 worker 标识**：并行的世界里，两个 worker 会在**同一 iter**
+        #   冻**同一槽位** —— 只用 `S{iter}L{槽位}` 的话，DB 那行被 `INSERT OR IGNORE`
+        #   挡住（先到先得）没问题，但**权重文件会被后写的覆盖**
+        #   ⇒ 有一份快照**静默地**变成别人的（池子里两份"不同成员"其实是同一份权重）。
+        #   ⇒ 缺省 mid 里带上 `self.worker`（缺省 `pid<pid>`，一个进程一个）。
+        mid = mid or f"S{int(it):05d}L{self._slot_guess(net)}_{self.worker}"
         if mid in self.members:                  # 同一 mid 重复冻 → 幂等
             return self.members[mid]
         w = {k: v.detach().cpu().clone() for k, v in net.state_dict().items()}
@@ -397,6 +402,16 @@ class League:
         if killed:
             self.conn.commit()
         return killed
+
+    def _slot_guess(self, net) -> str:
+        """这份权重是**哪个槽位**的在训成员（只为让 mid 可读；找不到就 `x`）。
+
+        ★ 只在**缺省 mid** 里用；`train` 那边一直显式传 `mid`，所以这里不影响训练。
+        """
+        for mid, n in self._nets.items():
+            if n is net:
+                return mid
+        return "x"
 
     # ---------------------------------------------------------- 持久化
     def _snap_dir(self) -> Path:
