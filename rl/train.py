@@ -32,7 +32,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import torch
@@ -56,6 +56,11 @@ class Step:
     reward: float
     done: bool
     player: str
+    # ★★ **截断处的自举值**（`done=True` 但不是真终局时才非空）。
+    #   见 `gae` 的 docstring：势函数差分的返回值近似 `Φ(s_T) − Φ(s_0)`，
+    #   所以截断点该用 **`Φ(s_T)`（当时的分数）** 自举，**不是 0**。
+    #   真终局 ⇒ `None` ⇒ 按 0 自举（那是对的：局已结束，价值就是 0）。
+    boot: float | None = None
 
 
 def obs_of(sb, me: str, acts=None) -> dict:
@@ -185,8 +190,13 @@ def collect_episode(nets: dict, sb: Sandbox, *,
     truncated = not sb.is_terminal()
     if truncated and steps:
         # ★★ 截断 ⇒ 最后一步**当成边界**（`done=True`）—— 见上面 docstring 里那条。
-        steps[-1] = Step(steps[-1].obs, steps[-1].aidx, steps[-1].logp,
-                         steps[-1].value, steps[-1].reward, True, steps[-1].player)
+        # ★★ 并且给它一个**自举值**：势函数差分的返回值近似 `Φ(s_T) − Φ(s_0)`，
+        #   所以截断点该用 **`Φ(s_T)`（当时的分数）** 自举。**不能用 0** ——
+        #   0 等于宣称"这个局面一文不值"，而 `Φ` 明明说它值那么多；
+        #   截断在这套配置下是常态 ⇒ critic 会被持续教成 V≈0
+        #   ⇒ 优势退化成"当步的势函数差分" ⇒ **策略变近视，白扔 critic 的前瞻**。
+        boot = float(_score(sb, steps[-1].player))
+        steps[-1] = replace(steps[-1], done=True, boot=boot)
     info = {"turns": sb.turn, "winner": sb.winner(),          # ★ **实体标签**（联盟/单国）
             "winner_members": sb.winner_members(),        # ★ 胜方实体里的国家名单
             "truncated": truncated,                       # ★ 没打完（步数预算截断）
@@ -232,13 +242,29 @@ def _reward(sb: Sandbox, me: str, prev: float, done: bool) -> float:
 
 # ================================================================ ② PPO
 def gae(rewards: list[float], values: list[float], dones: list[bool],
-        *, gamma: float = 0.99, lam: float = 0.95) -> tuple[np.ndarray, np.ndarray]:
-    """GAE-λ。**每方的轨迹单独算**（两份网络各练各的）。"""
+        *, gamma: float = 0.99, lam: float = 0.95,
+        boots: list[float | None] | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """GAE-λ。**每方的轨迹单独算**（两份网络各练各的）。
+
+    ★★ `dones[t]` 是**边界**（要么真终局、要么被步数预算截断），两种的
+      `next_v` 完全不同：
+        · **真终局** ⇒ `next_v = 0`（局已结束，价值就是 0）✓
+        · **截断** ⇒ `next_v = boots[t]`（= 当时的势函数 `Φ(s_T)`，见 `Step.boot`）
+      ★ 把截断也按 0 算是个**会静默学错**的做法：这套奖励是势函数差分，
+        返回值近似 `Φ(s_T) − Φ(s_0)` ⇒ 用 0 等于说那个局面一文不值
+        ⇒ critic 被持续往 0 拽（而截断是常态）⇒ 优势退化成当步差分
+        ⇒ **策略变近视**。★ 而 loss 会照常下降、日志上什么异常都没有。
+    """
     n = len(rewards)
+    bs = boots if boots is not None else [None] * n
     adv = np.zeros(n, np.float32)
     last = 0.0
     for t in reversed(range(n)):
-        next_v = 0.0 if (t == n - 1 or dones[t]) else values[t + 1]
+        if t == n - 1 or dones[t]:
+            b = bs[t]
+            next_v = 0.0 if b is None else float(b)
+        else:
+            next_v = values[t + 1]
         delta = rewards[t] + gamma * next_v - values[t]
         last = delta + gamma * lam * (0.0 if dones[t] else last)
         adv[t] = last
@@ -262,7 +288,7 @@ def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
     aidx_all = np.array([s.aidx for s in steps], dtype=np.int64)
     old_logp_all = np.array([s.logp for s in steps], dtype=np.float32)
     adv, ret = gae([s.reward for s in steps], [s.value for s in steps],
-                   [s.done for s in steps])
+                   [s.done for s in steps], boots=[s.boot for s in steps])
     adv_all = (adv - adv.mean()) / (adv.std() + 1e-8)
     ret_all = np.asarray(ret, dtype=np.float32)
 
