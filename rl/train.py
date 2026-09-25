@@ -133,13 +133,26 @@ def collate(rows: list[dict]) -> dict:
 @torch.no_grad()
 def collect_episode(nets: dict, sb: Sandbox, *,
                     temperature: float = 1.0, rng: np.random.Generator | None = None,
-                    greedy: bool = False) -> tuple[list[Step], dict]:
+                    greedy: bool = False,
+                    max_steps: int | None = None) -> tuple[list[Step], dict]:
     """一局自对弈。返回 `(步列表, 概要)`。步列表里每步记着**是哪一方的**。
 
     ★★ `nets` 是**按槽位编号**的网络表 `{槽位: PolicyNet}`（用户 2026-09-25：
       多玩家 3 人起步）—— 谁是哪个槽位由 `train` 每局**轮转**决定（见那里）。
+
+    ★★ `max_steps`（**本局步数上限**，`None` = 不限）—— **内存闸**。
+      实测（见 `rl/PLAN.md` §12.10）：12-30 的图上**一步观测上百 KB**，
+      而缓冲区是 `步数 × 单帧观测` 全量held在内存里 ⇒ 大图上**一局就能顶到 GB 级**
+      （实测：12-30 的炉子第 1 个 iter 跑了 31 分钟、RSS 涨到 **1742MB 还在涨**，
+      可用内存只剩 1697MB ⇒ 那是要 OOM 的）。
+      ⇒ 截断在**训练**里是标准做法（truncated rollout）。
+      ★★ 截断时**必须把最后一步标成 `done`**：否则 GAE 会**跨局串味**
+        （`gae` 靠 `dones[t]` 重置；不标的话这一局的尾巴会去借下一局的价值）。
+        代价是最后一步的值自举为 0（少算了 `γV(s_T)`）—— 标准近似，量级很小。
     """
     rng = rng or np.random.default_rng(0)
+    if max_steps is not None and max_steps <= 0:
+        max_steps = None          # ★ `0` 是"不限"，不是"走一步就停"
     steps: list[Step] = []
     while not sb.is_terminal():
         me = sb.current_player()
@@ -167,8 +180,16 @@ def collect_episode(nets: dict, sb: Sandbox, *,
         done = sb.is_terminal()
         rew = _reward(sb, me, prev_score, done)
         steps.append(Step(obs, aidx, logp, float(value[0]), rew, done, me))
+        if max_steps is not None and len(steps) >= max_steps:
+            break
+    truncated = not sb.is_terminal()
+    if truncated and steps:
+        # ★★ 截断 ⇒ 最后一步**当成边界**（`done=True`）—— 见上面 docstring 里那条。
+        steps[-1] = Step(steps[-1].obs, steps[-1].aidx, steps[-1].logp,
+                         steps[-1].value, steps[-1].reward, True, steps[-1].player)
     info = {"turns": sb.turn, "winner": sb.winner(),          # ★ **实体标签**（联盟/单国）
             "winner_members": sb.winner_members(),        # ★ 胜方实体里的国家名单
+            "truncated": truncated,                       # ★ 没打完（步数预算截断）
             "first": sb.first,
             "players": tuple(sb.players),                 # ★ 这一局有几个国家（统计用）
             "reward": {n: sb.reward(n) for n in sb.players}}
@@ -306,7 +327,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           size_min: int | None = None, size_max: int | None = None,
           halls_known: bool = True, nations: int | None = None,
           t_max: int = 200, pool: int = 5, out: str | None = None,
-          ckpt_every: int = 5, resume: str | None = None,
+          ckpt_every: int = 5, resume: str | None = None, max_steps: int = 0,
           league_db: str | None = None, league_mains: int = 2,
           league_snapshot_every: int = 50, league_from: str | None = None,
           league_min_games: int = 10, league_retire_rate: float = 0.20,
@@ -376,7 +397,11 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     for it in range(it0 + 1, it0 + iters + 1):
         buf: dict[str, list] = {mid: [] for mid in mids}
         infos = []
+        budget = int(max_steps) if max_steps else 0     # ★ 本 iter 的**步数预算**（内存闸）
+        n_cut = 0
         for e in range(episodes_per_iter):
+            if max_steps and budget <= 0:
+                break                                   # ★ 预算用完 ⇒ 本 iter 就收这些
             # ★ **地图尺寸也随机**（用户 2026-09-24：「改成随机地图」）—— **域随机化**：
             #   模型要能泛化到不同大小的图，而不是记住"这张图该怎么打"。
             #   （seed 本来就每局不同 ⇒ 地形早已随机；这里补的是**尺寸**这一维。）
@@ -399,13 +424,23 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
             net_of = {p: lg.net_of(draw[i]) for i, p in enumerate(players)}
             mid_of = {p: draw[i] for i, p in enumerate(players)}
             steps, info = collect_episode(net_of, sb, temperature=temperature,
-                                          rng=rng)
-            infos.append(info)
-            # ★ 战绩记到**每个上场的成员**头上（用户：「标记每个 pt 的胜率」）——
-            #   包括冻结快照：它们也要有胜率，否则"打不动的停用"无从判起。
-            won = set(info.get("winner_members") or ())
-            for p in players:
-                lg.record(mid_of[p], p in won, it=it)
+                                          rng=rng,
+                                          max_steps=(budget if max_steps else None))
+            if max_steps:
+                budget -= len(steps)
+            if info.get("truncated"):
+                # ★ 没打完的局**没有胜方** ⇒ 不进 `infos`（先手连赢闸门看的就是它）、
+                #   也**不记战绩**（谁都没赢，记了就是把噪声当胜率）。
+                #   ★ 但要**数出来**并进日志：大图早期局局截断会变成常态，
+                #     不报的话"池子一直没有战绩"这件事会**静默**。
+                n_cut += 1
+            else:
+                infos.append(info)
+                # ★ 战绩记到**每个上场的成员**头上（用户：「标记每个 pt 的胜率」）——
+                #   包括冻结快照：它们也要有胜率，否则"打不动的停用"无从判起。
+                won = set(info.get("winner_members") or ())
+                for p in players:
+                    lg.record(mid_of[p], p in won, it=it)
             for s in steps:
                 mi = mid_of[s.player]
                 if mi in buf:                 # ★ 只有在训成员进梯度；快照只当对手
@@ -416,12 +451,18 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         win_by = {p: sum(1 for i in infos
                          if p in (i.get("winner_members") or ()))
                   for p in V.PLAYER_NAMES}
-        turns = np.mean([i["turns"] for i in infos])
+        # ★ 全部截断时 `infos` 是空的 —— `np.mean([])` 会出 nan + 一条 RuntimeWarning
+        #   （**看起来像 bug 但其实是"本 iter 一局都没打完"**）⇒ 这里显式兜住。
+        turns = float(np.mean([i["turns"] for i in infos])) if infos else float("nan")
         # 先手胜率（本 iter 内）：健康值 = **1/k**（先手在 k 国之间轮换）
         #   —— 明显偏高才是"胜负由行动顺序决定"的嫌疑。
         nf = sum(1 for i in infos if i["first"] in (i.get("winner_members") or ()))
         live = {m: _fmt(st[m]) for m in st if buf[m]}
-        log(f"[{it:4d}] 局数{len(infos)} 胜场{win_by} 先手胜{nf} 平均回合{turns:.1f} "
+        # ★ 截断局数**必须报**：大图上早期局局截断会成常态，不报的话
+        #   "池子一直没战绩 / 没终局奖励"会**静默**（这正是这条日志存在的理由）。
+        cut = f" 截断{n_cut}" if n_cut else ""
+        tstr = f"{turns:.1f}" if infos else "—"
+        log(f"[{it:4d}] 局数{len(infos)}{cut} 胜场{win_by} 先手胜{nf} 平均回合{tstr} "
             f"| 网络 {live}")
         # ---- ★ 联赛池：淘汰 / 冻快照 / 账本落盘 ----
         #  ★ 这三件事**每 iter 都做**，不是"每 N iter 做一次" —— 淘汰规则靠的是
@@ -594,6 +635,13 @@ if __name__ == "__main__":
                          "★ 8 上「先手速攻」曾是结构性最优（**两国**核心最多隔 "
                          "min_margin(8,2)=5 格、步兵 1 格/回合 ⇒ 5 回合直达，"
                          "实测闸门连响）—— 多玩家正是为**解这个僵局**而做")
+    ap.add_argument("--max-steps", dest="max_steps", type=int, default=0,
+                    help="★★ **每 iter 的步数预算**（内存闸；0 = 不限）。"
+                         "缓冲区 = `步数 × 单帧观测`全量held在内存里，而 12-30 的图上"
+                         "单帧观测上百 KB ⇒ 大图无上限**一局就能顶到 GB 级**"
+                         "（实测：12-30 的炉子第 1 个 iter 跑 31 分钟、RSS 1742MB 还在涨）。"
+                         "用完了本 iter 就收摊，该局**截断**（没打完 ⇒ 不记战绩、"
+                         "不进先手闸门，但**会计数进日志**）。")
     ap.add_argument("--t-max", dest="t_max", type=int, default=200,
                     help="★ 对局回合上限（兜底防僵局；到了判平）。"
                          "用户 2026-09-25 定：起炉用 **500**")
@@ -655,7 +703,7 @@ if __name__ == "__main__":
     train(iters=seg, episodes_per_iter=a.episodes, seed=a.seed, lr=a.lr,
           temperature=a.temperature, first_streak_limit=a.first_streak_limit,
           size=a.size, size_min=a.size_min, size_max=a.size_max,
-          halls_known=a.halls_known, nations=a.nations, t_max=a.t_max,
+          halls_known=a.halls_known, nations=a.nations, t_max=a.t_max, max_steps=a.max_steps,
           pool=a.pool, out=a.out, ckpt_every=a.ckpt_every, resume=a.resume,
           league_db=(None if (a.league_db or "").lower() in ("none", "") else a.league_db),
           league_mains=a.league_mains,

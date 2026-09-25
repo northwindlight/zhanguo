@@ -627,15 +627,30 @@ class Sandbox:
         """★ **全部军队都被 mask 后自动推进**（用户 2026-09-24：「当全部军队 mask 后，
         **自动结束**，而不是手动结束」）。
 
-        判据是 `can_act()`（还有没有能动的军）。没有 ⇒ 本方收手；两方都收手 ⇒ 结算 + 开下一回合。
+        判据是 `can_act()`（还有没有能动的军）。没有 ⇒ 本方收手；全员收手 ⇒ 结算 + 开下一回合。
+
+        ★★ **必须是循环**（2026-09-25 修的真 bug）：原来只推进**一步**，
+          于是"结算后新一轮的第一个国家就不能动"就**卡在中途退出** ——
+          `legal()` 空、`is_terminal()` 假、**没有胜方**，而**不报错**。
+          ⇒ 那一局既拿不到终局的 ±1、也不进"先手连赢"闸门，**静默地白打**。
+        ★ 为什么"活着却不能动"是正常的：沙盒**没有征兵动作**（只有补员），
+          **兵全打光了的国家**要等下一次补员（每 `RESUPPLY_EVERY` 回合）才有事可做。
+          ⇒ 卡住的是这种国家，而且它**每一步都可能是当前玩家**。
         """
-        name = self.current_player()
-        if name is None or self.can_act(name):
-            return
-        self.pending.pop(0)
-        if not self.pending:
+        while True:
+            if self.done():
+                return                      # ★ 收尾：别在终局后继续推进
+            name = self.current_player()
+            if name is not None and self.can_act(name):
+                return
+            if self.pending:
+                self.pending.pop(0)
+                continue
+            # 本轮所有人都收手了 ⇒ 结算、开新回合
             self.end_turn()
             self.pending = [n for n in self.players if self.alive(n)]
+            if not self.pending:
+                return                      # 没人活着（终局由 `done()` 判）
 
     def is_terminal(self) -> bool:
         return self.done()
