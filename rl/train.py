@@ -305,7 +305,8 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           size_min: int | None = None, size_max: int | None = None,
           halls_known: bool = True, nations: int | None = None,
           t_max: int = 200, pool: int = 5, out: str | None = None,
-          ckpt_every: int = 5, log=print) -> dict[int, PolicyNet]:
+          ckpt_every: int = 5, resume: str | None = None,
+          log=print) -> dict[int, PolicyNet]:
     """主循环：自对弈 collect → 每个网络各 update 一次。
 
     ★★ **网络池按"槽位"编号**（用户 2026-09-25：多玩家 3 人起步）。
@@ -338,12 +339,13 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     log(f"★ 联赛池 **{n_slots} 份**（全新初始化）—— 每局按 `n_nations_for(边长)` "
         f"**随机抽 k 份**上场")
     state: dict = {}
+    it0 = _load_ckpt(resume, nets, log=log) if resume else 0
     if out:
         # ★ 起炉前先落一份"第 0 代"存档：跑挂了也还有东西可续，且形状元数据在册
-        _save_ckpt(out, nets, 0,
+        _save_ckpt(out, nets, it0,
                    meta=_ckpt_meta(lo, hi, halls_known, nations, n_slots, t_max))
-        log(f"★ 起始存档 → {out}")
-    for it in range(1, iters + 1):
+        log(f"★ 起始存档 → {out}（第 {it0} iter）")
+    for it in range(it0 + 1, it0 + iters + 1):
         buf: dict[int, list] = {i: [] for i in range(n_slots)}
         infos = []
         for e in range(episodes_per_iter):
@@ -399,7 +401,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                                                       nations, n_slots, t_max))
             log(f"  ★ 存档 → {out}（第 {it} iter）")
     if out:
-        _save_ckpt(out, nets, iters, meta=_ckpt_meta(lo, hi, halls_known,
+        _save_ckpt(out, nets, it0 + iters, meta=_ckpt_meta(lo, hi, halls_known,
                                                      nations, n_slots, t_max))
     return nets
 
@@ -430,6 +432,33 @@ def _shape_fingerprint() -> dict:
         "army_width": int(V.A_WIDTH_RAW + F.F_U + V.A_EXTRA),
         "glob_content": int(F.F_GLOB),
     }
+
+
+def _load_ckpt(path: str, nets: dict, *, log=print) -> int:
+    """★ **续跑读档**：把权重灌回 `nets`，返回**已经跑过的 iter 数**。
+
+    ★★ 先校**形状指纹**：对不上就**直接拒**（不是警告）——
+      用户定的铁律：「**ckpt 会被新代码加载就必须重炼**」。权重张量能 `load_state_dict`
+      成功、却喂错口径的通道，是查不出来的 ⇒ 只能用指纹挡。
+    """
+    blob = torch.load(path, map_location="cpu", weights_only=False)
+    meta = blob.get("meta") or {}
+    fp = meta.get("fingerprint") or {}
+    now = _shape_fingerprint()
+    bad = {k: (fp.get(k), v) for k, v in now.items() if k in fp and fp[k] != v}
+    if bad:
+        raise SystemExit(
+            f"★ {path} 的形状指纹对不上：{bad}（存的是旧值，现在的是新值）\n"
+            f"  ⇒ 这个存档是**旧代码**训的，必须重炼（别硬加载）。")
+    got = blob["nets"]
+    hit = 0
+    for i, net in nets.items():
+        if i in got:
+            net.load_state_dict(got[i]); hit += 1
+    it0 = int(meta.get("iters", 0))
+    log(f"★ 从 {path} 续跑：灌回 {hit}/{len(nets)} 份权重，已完成 **{it0}** 个 iter，"
+        f"t_max={meta.get('t_max')} size={meta.get('size')}")
+    return it0
 
 
 def _save_ckpt(path: str, nets: dict, iters: int, *, meta: dict) -> None:
@@ -463,6 +492,8 @@ def _fmt(d: dict) -> str:
 
 if __name__ == "__main__":
     import argparse
+    import os
+    import sys
 
     ap = argparse.ArgumentParser(description="沙盒 PPO 自对弈训练")
     ap.add_argument("--threads", type=int, default=1,
@@ -488,6 +519,11 @@ if __name__ == "__main__":
                          "用户 2026-09-25 定：起炉用 **500**")
     ap.add_argument("--pool", type=int, default=5,
                     help="★ 联赛池份数（用户：「开局 **5** 个空权重，随机抽 pt 参与」）")
+    ap.add_argument("--resume", type=str, default=None,
+                    help="★ 从存档**续跑**（先校形状指纹，对不上直接拒）")
+    ap.add_argument("--restart-after", dest="restart_after", type=int, default=0,
+                    help="★ 每跑这么多 iter 就**重启进程**（存档后续跑）—— 抗内存增长，"
+                         "用户 2026-09-25：「不如定时重启」")
     ap.add_argument("--out", type=str, default=None,
                     help="★ 存档路径（长跑必须给！原子写 .tmp→rename）")
     ap.add_argument("--ckpt-every", dest="ckpt_every", type=int, default=5,
@@ -508,8 +544,26 @@ if __name__ == "__main__":
     if a.threads:
         import torch
         torch.set_num_threads(a.threads)
-    train(iters=a.iters, episodes_per_iter=a.episodes, seed=a.seed, lr=a.lr,
+    seg = min(a.iters, a.restart_after) if a.restart_after else a.iters
+    train(iters=seg, episodes_per_iter=a.episodes, seed=a.seed, lr=a.lr,
           temperature=a.temperature, first_streak_limit=a.first_streak_limit,
           size=a.size, size_min=a.size_min, size_max=a.size_max,
           halls_known=a.halls_known, nations=a.nations, t_max=a.t_max,
-          pool=a.pool, out=a.out, ckpt_every=a.ckpt_every)
+          pool=a.pool, out=a.out, ckpt_every=a.ckpt_every, resume=a.resume)
+    if a.restart_after and a.iters > seg:
+        # ★★ **定时重启**（用户 2026-09-25：「不如定时重启」）：跑完这一段就 `exec` 自己，
+        #   **新进程 ⇒ RSS 归零**，并从刚存的档续跑。
+        #   ★ 为什么用 `execv` 而不是外面套 shell 循环：`run_ecs.sh` 只认 `rl.<模块>`，
+        #     而 exec 保持同一套 stdout/`tee`/日志管道不变（日志会一路接下去）。
+        remain = a.iters - seg
+        argv = [arg for arg in sys.argv[1:]]
+        for i, arg in enumerate(argv):                 # 把 `--iters` 改成剩余量
+            if arg == "--iters":
+                argv[i + 1] = str(remain)
+        if "--resume" in argv:                         # 续跑点换成刚写的档
+            argv[argv.index("--resume") + 1] = a.out
+        else:
+            argv += ["--resume", a.out]
+        print(f"★ **定时重启进程**（RSS 归零）—— 剩余 {remain} 个 iter，"
+              f"从 {a.out} 续跑", flush=True)
+        os.execv(sys.executable, [sys.executable, "-m", "rl.train"] + argv)
