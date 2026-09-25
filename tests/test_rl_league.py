@@ -24,12 +24,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from rl import train as train_mod                # noqa: E402
 from rl.league import League                     # noqa: E402
 from rl.model import build_model                 # noqa: E402
+from rl.sandbox import Sandbox                   # noqa: E402
+from rl.train import collect_episode             # noqa: E402
 
 QUIET = staticmethod(lambda *a, **k: None)
 FP = {"glob_size": 21, "grid_channels": 27}      # 假的形状指纹（不建真网也够用）
@@ -372,6 +376,41 @@ class TestParallelReady(unittest.TestCase):
         rows = lg.conn.execute(
             "SELECT mid,won,iter,worker FROM results ORDER BY id").fetchall()
         self.assertEqual(rows, [("L0", 1, 7, "w1"), ("L0", 0, 7, "w1")])
+
+
+class TestDrawIsNotALoss(unittest.TestCase):
+    """★★ **平局不进战绩** —— 胜率的分母是「有胜负的局」。
+
+    不排除平局的话，"没赢"被记成"输了" ⇒ 一池子平局把**所有人**的胜率压到 0
+    ⇒ 淘汰规则把池子清空，而日志上看只是"大家都在输"。**静默**那一类。
+
+    ★ 用 `--t-max 1` 造平局：第 1 回合就到上限、场上还有 3 个实体 ⇒ 无胜方。
+      并且**先证明那局真的打完了**（否则这条用例会因为"被截断"而假绿 —— 截断同样不记战绩）。
+    """
+
+    def test_draw_is_finished_but_not_recorded(self):
+        # ① 前提：t_max=1 那一局是**打完的平局**，不是截断
+        sb = Sandbox(seed=1, size=8, n_nations=3, t_max=1, halls_known=True).reset()
+        torch.manual_seed(0)
+        nets = {p: build_model() for p in sb.players}
+        steps, info = collect_episode(nets, sb, rng=np.random.default_rng(0))
+        self.assertFalse(info["truncated"],
+                         "用例前提：t_max=1 该是**打完的平局**；截断的话本用例会假绿")
+        self.assertIsNone(info["winner"], "用例前提：该判平局（无胜方）")
+        self.assertTrue(steps)
+        # ② 正题：整条 train() 跑一轮，池子里**谁的战绩都不该动**
+        with tempfile.TemporaryDirectory() as d:
+            db = os.path.join(d, "league.db")
+            train_mod.train(iters=1, episodes_per_iter=1, size=8, t_max=1,
+                            pool=3, league_db=db, league_mains=0,
+                            league_snapshot_every=0, log=QUIET)
+            lg = League(db, fingerprint=train_mod._shape_fingerprint(), log=QUIET)
+            self.addCleanup(lg.close)
+            lg.load()
+            self.assertTrue(lg.members, "池子没建起来 ⇒ 本用例什么都没测到")
+            for m in lg.members.values():
+                self.assertEqual(m.games, 0, f"{m.mid} 把平局记成了战绩")
+            self.assertEqual(len(lg.active()), len(lg.members), "平局不该触发淘汰")
 
 
 if __name__ == "__main__":

@@ -438,9 +438,14 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                 infos.append(info)
                 # ★ 战绩记到**每个上场的成员**头上（用户：「标记每个 pt 的胜率」）——
                 #   包括冻结快照：它们也要有胜率，否则"打不动的停用"无从判起。
+                # ★★ **平局不计**（打满 `t_max`、没有胜方）：胜率的分母是「**有胜负的局**」。
+                #   不排除的话，"甲没赢"会被记成"甲输了"—— 打满上限的局**每方各记一负**，
+                #   于是一池子平局会把**所有人**的胜率压到 0 ⇒ 淘汰规则把池子清空，
+                #   而日志上看只是"大家都在输"。★ 这是"静默"那一类，专门钉了守卫。
                 won = set(info.get("winner_members") or ())
-                for p in players:
-                    lg.record(mid_of[p], p in won, it=it)
+                if won:
+                    for p in players:
+                        lg.record(mid_of[p], p in won, it=it)
             for s in steps:
                 mi = mid_of[s.player]
                 if mi in buf:                 # ★ 只有在训成员进梯度；快照只当对手
