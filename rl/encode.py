@@ -32,6 +32,8 @@ from __future__ import annotations
 import numpy as np
 
 from . import combat_probs as CB
+from . import hall_memory as HM
+from . import intel as IN
 from . import features as F
 from . import scoring as S
 from . import vocab as V
@@ -85,7 +87,18 @@ def _owner_class(world, name: str, x: int, y: int, by_cell: dict | None = None) 
       并进了 `RIVAL`（只判"不是我的、不是盟友的"），而这两类的**可行动作完全不同**：
       敌国能打，中立国**既不能走也不能打**（得先宣战/结盟）。混成一类就分不出。
     """
-    o = world.owned_by(x, y)
+    return _owner_class_of(world, name, world.owned_by(x, y), x, y, by_cell)
+
+
+def _owner_class_of(world, name: str, o: str | None, x: int, y: int,
+                    by_cell: dict | None = None) -> int:
+    """★ **显式给主人**的那一版 —— `o` = "我**认知里**的主人"（见 `hall_memory.owner_seen`）。
+
+    ★ 拆这一版是为了**厅**：一座**记得的、看不见的**厅，认知里的主人是"最后看见时的"，
+      而不是当前真值（用户 2026-09-25：「**厅的归属会变的**」）。
+      军队/候选/网格归属仍然走 `_owner_class`（那必须用当前真值 —— 它们要么可见、
+      要么本来就不该有归属，见 `encode_grid` 里归属只在可见时写的注释）。
+    """
     if o == name:
         return V.OWN_SELF
     if o is not None:
@@ -219,7 +232,19 @@ def encode_grid(sb, me: str, mask=None, known=None,
             owner_here = w.owned_by(x, y)
             g[V.GRID_DEFENSE, i, j] = _defense_of(w, x, y, owner_here) / 100.0
             g[V.GRID_MOVE, i, j] = _move_cost_of(w, x, y) / 2.0
-            g[V.GRID_OWNER0 + _owner_class(w, me, x, y, by_cell), i, j] = 1.0
+            # ★★ **归属只在"看得见"时写** —— 用户 2026-09-25 问「视野内的地块归属有记忆吗」，
+            #   顺着查出来的：原来这里是**无条件**写的，而网格是**视野的外接矩形**
+            #   ⇒ 框内总有一圈/若干格**看不见**（视野不是矩形），那些格的归属
+            #   却是**真值**。实测每帧泄漏 **10%~16% 的框内格**（16×16 上 4 格是别国地）。
+            #   ★ 这正是用户让我整批删掉 `foe_tiles/foe_armies/...` 的**同一类**：
+            #     「**有没有超越真玩家的内容**」—— 不侦察就知道那块地是谁的。
+            #   ★ 只写可见会不会丢掉**自家**疆域？不会：实测 2400 格自家地里
+            #     **0 格**不在视野内（`vision_mask` 本来就含自家/盟方地块及其八邻）。
+            #   ★ 与**厅**那段不冲突：厅在 `if not visible: continue` **之上**、
+            #     且走「视野 ∪ 永久记忆」—— 那是**独立的一次情报**（厅不能动/拆不掉）。
+            #     归属**会**易主 ⇒ 不能靠记忆放宽，**取保守那侧**（只信当帧视野）。
+            if visible:
+                g[V.GRID_OWNER0 + _owner_class(w, me, x, y, by_cell), i, j] = 1.0
             g[V.GRID_VISIBLE, i, j] = 1.0 if visible else 0.0
             # ★★ **记忆**两列（与 `"k"` 组同源、同一次观测，两种读法）——
             #   "这格我上次看见有敌军（多旧）"。★ 它让候选能**直接 gather** 到
@@ -265,13 +290,19 @@ def encode_grid(sb, me: str, mask=None, known=None,
             #   ★ 归属仍以**当前** `t["owner"]` 为准（记忆只放宽**可见性**，取保守那侧）。
             if (t is not None and t["buildings"].get("市政厅", 0) > 0
                     and (visible or (x, y) in known)):
-                # ★ 三档：我的 / **盟友的** / 对手的 —— 盟友的厅原来被漏掉了
-                if t["owner"] == me:
+                # ★★ **归属取"我认知里的主人"**（用户 2026-09-25：「厅的归属会变的」）：
+                #   看得见 ⇒ 当前真值；看不见 ⇒ 记忆里"最后看见时的"。
+                #   ⚠ 原来这里用的是 `t["owner"]`（当前真值）⇒ 一座**看不见的**记得的厅
+                #     若在我不知情时易主，这几列会**静默跟着变** —— 模型白得一条情报。
+                #     （★ 实测：30 个 seed 没抓到这种格 —— 敌厅一般落在我视野框**外**，
+                #      所以这不是"正在流血"，而是"差一个 if"；但口径必须对。）
+                _ho = HM.owner_seen(w, (x, y), mask, known)
+                if _ho == me:
                     g[V.GRID_HALL_MINE, i, j] = 1.0
                 else:
                     # ★ 走**六类**判定（不再是 `== foe`）⇒ 多玩家下"打谁能亡国"不再漏人；
                     #   中立国的厅既不进"我的"也不进"对手的"（它不可攻），与候选侧同口径。
-                    hc = _owner_class(w, me, x, y, by_cell)
+                    hc = _owner_class_of(w, me, _ho, x, y, by_cell)
                     if hc == V.OWN_RIVAL:
                         g[V.GRID_HALL_RIVAL, i, j] = 1.0
                     elif hc == V.OWN_ALLY:
@@ -356,8 +387,50 @@ def encode_glob(sb, me: str, mask=None, known=None) -> np.ndarray:
         "my_turn": (sb.turn + sb.turn_offset) / V.TURN_SCALE,
 
         **hall_vals,
+        # ★★ **情报（可写观测层）** —— 见 `rl/intel.py` 与 `vocab.GLOB` 那 12 列。
+        **_intel_vals(sb, me),
     }
     return np.array([vals[k] for k in V.GLOB], dtype=np.float32)
+
+
+def _intel_vals(sb, me: str) -> dict:
+    """**外部告知的军情** → 六类里"别人的那三类"各一份（数量 + 陈旧度）。
+
+    ★ 口径照抄引擎的间谍（`mp.World._econ_snapshot`）：
+      「粗略军情：**只有各兵种数量 —— 位置/血量/番号不外泄**」
+      ⇒ 这里**只有数量**，没有位置。（位置/番号只能来自自己看见。）
+    ★ 归成**定长**（盟友/对手/中立各 4 列）：国家数不许进观测形状（本线铁律）。
+      同类里有多个来源国报了 ⇒ 取**最新的那一份**；★ 同回合按**国名**定序
+      ⇒ 与字典插入顺序无关 ⇒ **确定性**（同一局面观测逐位相同）。
+    ★ 没收到过情报 ⇒ 全 0（"我没派人去探 / 还没回来"，读得出来）。
+    """
+    out = {}
+    for tag in IN.INTEL_CLASSES:                     # 先把 12 列铺成 0
+        for u in V.UNIT:
+            out[f"intel_{tag}_{u}"] = 0.0
+        out[f"intel_{tag}_age"] = 0.0
+    got = sb.intel.armies_of(me, sb.turn)
+    if not got:
+        return out
+    buckets: dict = {t: [] for t in IN.INTEL_CLASSES}
+    for src, rec in got.items():
+        if src == me or src not in sb.world.nations:
+            continue                                 # 自己不用探；野人不是国家
+        # ★ 复用同一套六类判定（`o` 给了 ⇒ 只可能落到 ALLY/RIVAL/NEUTRAL）
+        cls = _owner_class_of(sb.world, me, src, 0, 0)
+        tag = ("ally" if cls == V.OWN_ALLY else
+               "rival" if cls == V.OWN_RIVAL else "neutral")
+        buckets[tag].append((int(rec["turn"]), src, rec))
+    for tag, items in buckets.items():
+        if not items:
+            continue
+        items.sort(key=lambda t: (-t[0], t[1]))      # ★ 最新优先；同回合按国名 ⇒ 确定性
+        _, _, rec = items[0]
+        for u in V.UNIT:
+            out[f"intel_{tag}_{u}"] = min(
+                1.0, rec["kinds"].get(u, 0) / S.INTEL_ARMY_SCALE)
+        out[f"intel_{tag}_age"] = min(1.0, rec["age"] / V.AGE_SCALE)
+    return out
 
 
 # ============================================================ ★ 窗口
@@ -655,15 +728,11 @@ def _hall_cells_of(world, name: str | None, mask, known) -> list:
       ⇒ 不能再拿"当前视野"回答"厅在哪"（那会让已知的厅在观测里**闪断**）。
     ★ 归属以**当前** `t["owner"]` 为准（记忆只放宽可见性）—— 取保守那一侧。
     """
-    if not name:
-        return []
-    out = []
-    for cell, t in world.tiles.items():
-        if t["owner"] != name or t["buildings"].get("市政厅", 0) <= 0:
-            continue
-        if cell in mask or (known is not None and known.get(cell) == name):
-            out.append(cell)
-    return out
+    # ★★ **转发 `hall_memory.cells_of_seen`**（唯一实现）—— 原来这里和
+    #   `evaluate.hall_cells` **各写了一遍同样的谓词**，而两份都拿**当前真值**
+    #   判归属 ⇒ 「厅永久标记」被看不见的易主无声推翻（实测见 `owner_seen` 的注释）。
+    #   ★ 现在两处共用一份口径 ⇒ 不会再漂开。
+    return HM.cells_of_seen(world, name, mask, known)
 
 
 def _allies_of(sb, me: str | None) -> tuple:

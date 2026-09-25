@@ -51,10 +51,20 @@ def _turn_col(sb, me):
 
 
 class TestTurnClock(unittest.TestCase):
+    # ★ `my_turn` 在 `GLOB` 里的**下标黄金值**。真正的铁律是**只许追加**：
+    #   往中间插一列 ⇒ 后面每一列都平移 ⇒ 所有 ckpt 的输入口径静默错位
+    #   （`load_state_dict` 照样成功，因为形状没变！）。下标黄金值钉的就是这个。
+    #   ⚠ 我第一版写的是"`my_turn` 必须是**最后一列**"——那是个**假规则**：
+    #     它把"当时它恰好是最后一个"当成了不变量，于是**后来追加情报那 12 列时它红了**
+    #     （追加是**合法**的！）。钉"下标"才是钉住了真东西。
+    TURN_COL_IDX = 21
+
     def test_the_column_exists(self):
-        """① `my_turn` 在 `GLOB` 里（**表尾追加**，本文件铁律：不许插队）。"""
+        """① `my_turn` 在 `GLOB` 里，且**下标不许变**（只许追加）。"""
         self.assertIn("my_turn", V.GLOB)
-        self.assertEqual(V.GLOB[-1], "my_turn", "`my_turn` 必须追加在表尾")
+        self.assertEqual(V.GLOB.index("my_turn"), self.TURN_COL_IDX,
+                         "`my_turn` 的下标变了 ⇒ 有列被插到了它前面 "
+                         "⇒ 所有 ckpt 的输入口径静默错位（形状不变、加载照样成功）")
         self.assertEqual(V.GLOB_SIZE, len(V.GLOB))
 
     def test_offset_is_random_per_episode(self):

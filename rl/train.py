@@ -61,6 +61,17 @@ class Step:
     #   所以截断点该用 **`Φ(s_T)`（当时的分数）** 自举，**不是 0**。
     #   真终局 ⇒ `None` ⇒ 按 0 自举（那是对的：局已结束，价值就是 0）。
     boot: float | None = None
+    # ★★ **这一步输入网络的潜槽**（`[1,M,d]`，**已 detach**）。
+    #   · `None` ⇒ 这一步没开记忆（`--memory none`）；
+    #   · 它在 TBPTT 里是**窗口边界处的 stop-grad 点**（见 `_mem_windows`）——
+    #     梯度**不许**跨过窗口边界往回传（不然就是"无限长 BPTT"，
+    #     显存与方差都失控）。
+    mem_in: "torch.Tensor | None" = None
+    # ★★ **潜槽的辅助目标**：「下一帧即将离开视野的那部分」（`rl/mem_aux.py`）。
+    #   ★ **它带后见之明**（要等下一帧才知道少了谁）—— 这是**正当的监督学习**，
+    #     用在**损失的目标**上；但它**一个字都不许进观测**（那是真玩家不可能有的情报）。
+    #   ★ `None` ⇒ 这一方在这局里**没机会**再观测一次（最后一步）⇒ 这项跳过。
+    aux: "np.ndarray | None" = None
 
 
 def obs_of(sb, me: str, acts=None) -> dict:
@@ -174,6 +185,15 @@ def collect_episode(nets: dict, sb: Sandbox, *,
     if max_steps is not None and max_steps <= 0:
         max_steps = None          # ★ `0` 是"不限"，不是"走一步就停"
     steps: list[Step] = []
+    # ★★ 潜槽：**每个国家一份**（按国名，而不是按网络对象）——
+    #   一局之内一个国家正好一个网络；而评估里**一个网络可能扮多个国家**
+    #   （`eval_fixed` 按下标取模）⇒ 按网络存会把两国的记忆搅在一起。
+    mem: dict[str, "torch.Tensor"] = {}
+    # ★★ 辅助目标：记着**上一帧看见的敌军**与该国**上一次的步下标**，
+    #   等它下一次观测时回填（"哪些离开了视野"要事后才知道）。
+    prev_vis: dict[str, dict] = {}
+    last_step: dict[str, int] = {}
+    memory_on = any(getattr(n, "mem_slots", 0) for n in nets.values())
     while not sb.is_terminal():
         me = sb.current_player()
         if me is None:
@@ -183,7 +203,22 @@ def collect_episode(nets: dict, sb: Sandbox, *,
             break
         obs = obs_of(sb, me, actions)
         batch = to_dev(collate([obs]), device)
-        logits, value = nets[me](batch)
+        # ★★ 先算**本帧看得见什么**（这一步的辅助目标要靠它，且必须取**动作之前**的帧）。
+        vis_now = sb.visible_enemies(me) if memory_on else None
+        if memory_on:
+            _backfill_aux(sb, me, prev_vis.get(me), vis_now, steps, last_step)
+            prev_vis[me] = vis_now
+            last_step[me] = len(steps)
+        net = nets[me]
+        if memory_on:
+            if me not in mem:
+                mem[me] = net.mem_init(1, device=batch["grid"].device)
+            mem_in = mem[me]
+            logits, value, mem_out = net.forward_state(batch, mem_in)
+            mem[me] = mem_out.detach()          # ★ **跨步带着走**（槽是本局的隐藏态）
+        else:
+            mem_in = None
+            logits, value = net(batch)
         logits = logits[0]
         # ★ GPU 上必须 `.detach().cpu()` 再 `.numpy()`（直接 `.numpy()` 会抛
         #   "can't convert cuda tensor to numpy"）；CPU 上这两步是白给。
@@ -201,7 +236,8 @@ def collect_episode(nets: dict, sb: Sandbox, *,
         sb.step(act)
         done = sb.is_terminal()
         rew = _reward(sb, me, prev_score, done)
-        steps.append(Step(obs, aidx, logp, float(value[0]), rew, done, me))
+        steps.append(Step(obs, aidx, logp, float(value[0]), rew, done, me,
+                          mem_in=mem_in))
         if max_steps is not None and len(steps) >= max_steps:
             break
     truncated = not sb.is_terminal()
@@ -221,6 +257,30 @@ def collect_episode(nets: dict, sb: Sandbox, *,
             "players": tuple(sb.players),                 # ★ 这一局有几个国家（统计用）
             "reward": {n: sb.reward(n) for n in sb.players}}
     return steps, info
+
+
+def _backfill_aux(sb, me: str, prev: dict | None, now: dict,
+                  steps: list[Step], last_step: dict) -> None:
+    """把「**上一帧看得见、这一帧看不见了**」的那批军，做成**定长目标**回填到上一步。
+
+    ★★ **用后见之明**：要等这一帧才知道"少了谁"。这是**正当的监督学习**（损失的目标
+      可以用模型拿不到的信息），但**一个字都不许进观测** —— 进了就等于告诉模型
+      "你即将失去什么"，那是**真玩家不可能有的情报**（本线最忌的偷看）。
+      `tests/test_rl_memory.py` 钉了这条。
+    ★ 两次快照都必须是**该玩家看得见的帧**（`prev` 取自它上一步观测前，
+      `now` 取自这一步观测前）⇒ 差的正是"**从它的视角**下一次看的差别"。
+    """
+    if prev is None:
+        return
+    i = last_step.get(me)
+    if i is None:
+        return
+    from .mem_aux import aggregate_lost, diff_lost
+    from .encode import _home_cell
+    lost = diff_lost(prev, now)
+    hx, hy = _home_cell(sb, me)
+    steps[i] = replace(steps[i],
+                       aux=aggregate_lost(lost, hx, hy, sb.size))
 
 
 def _score(sb: Sandbox, me: str) -> float:
@@ -288,10 +348,124 @@ def gae(rewards: list[float], values: list[float], dones: list[bool],
     return adv, adv + np.array(values, np.float32)
 
 
+def _mem_windows(steps: list[Step], tbptt: int) -> list[list[int]]:
+    """把**这一方的步**切成 TBPTT 窗口（下标列表）。→ 见 `ppo_update_mem`。
+
+    ★★ 两条**必须**同时成立，缺一条就是静默学错：
+
+      ① **顺序不许打乱**（记忆是**有向**的：t+1 的槽依赖 t 的槽）；
+      ② ★★ **窗口绝不许跨过"一局的结束"**（`done=True`）。跨了的话，下一局的
+         第一步会**接着上一局的槽**往下算 —— 那等于**把两局焊成一局**，
+         记忆跨局泄漏，而**不报错**（loss 照降）。
+         所以窗口在 `done` 处**强制断开**（`done` 本来就是终局或截断的边界）。
+    """
+    wins, cur = [], []
+    for i, st in enumerate(steps):
+        cur.append(i)
+        if st.done or len(cur) >= max(1, int(tbptt)):
+            wins.append(cur)
+            cur = []
+    if cur:
+        wins.append(cur)
+    return wins
+
+
+def _ppo_update_mem(net: PolicyNet, steps: list[Step], *, epochs: int, clip: float,
+                    vf_coef: float, ent_coef: float, lr: float, minibatch: int,
+                    device: str, tbptt: int, log=print) -> dict:
+    """**带潜槽**的 PPO 更新（TBPTT）—— `ppo_update` 在 `mem_in` 非空时走这里。
+
+    与无记忆版的三处**根本差别**（都是"记忆"这件事逼出来的）：
+
+      ① **顺序**：无记忆版每轮 `np.random.shuffle` 整个 buffer（步与步独立）；
+         这里**窗口内必须顺序前向**（槽是链式的）。★ 窗与窗之间可以打乱。
+      ② **边界 stop-grad**：每个窗口从 `steps[w[0]].mem_in` 起算 ——
+         那是**收集时存下来的**（已 detach）⇒ 梯度**不跨窗口**。
+         ★ 不这么做就变成"无限长 BPTT"：显存随 buffer 线性涨、梯度方差爆掉。
+      ③ **辅助损失**（`mem_aux`）搭在同一个图上：它才是"该记什么"的直接信号。
+
+    ★★ 并行方式：**同一条链在一个 batch 里跑多个窗口**（每个窗口一行）——
+      窗口之间完全独立 ⇒ 在 t 上顺序、在窗口上并行。
+      ⇒ 一次前向的 batch = 窗口数（`minibatch // tbptt`），
+      总前向次数 ≈ `tbptt` 次（与无记忆版的 `n/minibatch` 同量级）⇒ **代价可控**。
+      ★ 若按"一条链一次前向（B=1）"来写，`tbptt=8` 下前向次数会变成 **8×步数**，
+        比无记忆版慢**两个数量级** —— 那是个跑不动的实现（实测过 B=1 单步 44ms 在 CPU 上）。
+
+    ★★ **陈旧状态**（R2D2 那一套的固有代价，**不是 bug**）：窗口内的槽是**重新算的**，
+      而窗口起点那份是**收集时**的；`epochs>1` 时写头已经变了两轮 ⇒
+      窗口内重算的槽与当初采样的槽**会漂开** ⇒ 比值偏离 1（靠 PPO 的 clip 兜住）。
+      ⇒ 记忆模式下 `epochs` 要保守（1~2），别照抄无记忆版的 4。
+    """
+    n = len(steps)
+    aidx_all = np.array([s.aidx for s in steps], dtype=np.int64)
+    old_logp_all = np.array([s.logp for s in steps], dtype=np.float32)
+    adv, ret = gae([s.reward for s in steps], [s.value for s in steps],
+                   [s.done for s in steps], boots=[s.boot for s in steps])
+    adv_all = (adv - adv.mean()) / (adv.std() + 1e-8)
+    ret_all = np.asarray(ret, dtype=np.float32)
+
+    wins = _mem_windows(steps, tbptt)
+    opt = torch.optim.Adam(net.parameters(), lr=lr)
+    d = None if device in (None, "cpu") else device
+    # ★ 一次并行几个窗（每个窗占一行）⇒ 一次前向的 batch ≈ minibatch
+    nwin = max(1, int(minibatch) // max(1, int(tbptt)))
+    stats: dict = {}
+    for _ in range(max(1, int(epochs))):
+        perm = np.random.permutation(len(wins))
+        for lo in range(0, len(wins), nwin):
+            group = [wins[j] for j in perm[lo:lo + nwin]]
+            # ★ 每个窗的**起点槽**：收集时存的、已 detach ⇒ 边界处 stop-grad
+            mems = [steps[w[0]].mem_in for w in group]
+            opt.zero_grad()
+            total = None
+            for t in range(int(tbptt)):
+                sel = [gi for gi, w in enumerate(group) if t < len(w)]
+                if not sel:
+                    break
+                idx = [group[gi][t] for gi in sel]
+                batch = to_dev(collate([steps[i].obs for i in idx]), device)
+                mem = torch.cat([mems[gi] for gi in sel], dim=0)
+                logits, value, newmem = net.forward_state(batch, mem)
+                for k, gi in enumerate(sel):           # 链式：槽往下传
+                    mems[gi] = newmem[k:k + 1]
+                aidx = torch.as_tensor(aidx_all[idx], device=d)
+                old_logp = torch.as_tensor(old_logp_all[idx], device=d)
+                adv_t = torch.as_tensor(adv_all[idx], device=d)
+                ret_t = torch.as_tensor(ret_all[idx], device=d)
+                logp_all = torch.log_softmax(logits, -1)
+                logp = logp_all.gather(1, aidx.unsqueeze(1)).squeeze(1)
+                ratio = torch.exp(logp - old_logp)
+                surr = torch.min(ratio * adv_t,
+                                 torch.clamp(ratio, 1 - clip, 1 + clip) * adv_t)
+                p = torch.softmax(logits, -1)
+                ent = -(p * logp_all).sum(-1).mean()
+                loss = (-surr.mean() + vf_coef * nn.functional.mse_loss(value, ret_t)
+                        - ent_coef * ent)
+                # ---- ★ 辅助损失：从**这一步写出的槽**预测"下一帧失去的那部分" ----
+                ar = [(k, i) for k, i in enumerate(idx) if steps[i].aux is not None]
+                if ar:
+                    tgt = torch.as_tensor(
+                        np.stack([steps[i].aux for _, i in ar]).astype(np.float32),
+                        device=d)
+                    loss = loss + S.MEM_AUX_COEF * net.mem_aux_loss(
+                        newmem[[k for k, _ in ar]], tgt)
+                total = loss if total is None else total + loss
+                stats = {"loss": float(loss.detach()), "pg": float(-surr.mean().detach()),
+                         "vf": float(nn.functional.mse_loss(value, ret_t).detach()),
+                         "ent": float(ent.detach()),
+                         "kl": float((old_logp - logp).mean().detach())}
+            if total is None:
+                continue
+            total.backward()
+            nn.utils.clip_grad_norm_(net.parameters(), 0.5)
+            opt.step()
+    return stats
+
+
 def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
                clip: float = 0.2, vf_coef: float = 0.5, ent_coef: float = 0.01,
                lr: float = 3e-4, minibatch: int | None = None,
-               device: str = "cpu") -> dict:
+               device: str = "cpu", tbptt: int = S.MEM_TBPTT) -> dict:
     """标准 PPO clip 更新（**只喂这一方的步**）。
 
     ★★ **必须分 minibatch**（`scoring.PPO_MINIBATCH`，缺省 128）—— 这是踩出来的：
@@ -302,6 +476,12 @@ def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
     if not steps:
         return {}
     minibatch = S.PPO_MINIBATCH if minibatch is None else minibatch
+    # ★★ **带记忆 ⇒ 走 TBPTT 那条路**（判别用 `mem_in`，不是"网络有没有槽"：
+    #   同一个网络在评估里可能被当**对照臂**跑不带记忆的前向）。
+    if any(s.mem_in is not None for s in steps):
+        return _ppo_update_mem(net, steps, epochs=epochs, clip=clip,
+                               vf_coef=vf_coef, ent_coef=ent_coef, lr=lr,
+                               minibatch=minibatch, device=device, tbptt=tbptt)
     n = len(steps)
     aidx_all = np.array([s.aidx for s in steps], dtype=np.int64)
     old_logp_all = np.array([s.logp for s in steps], dtype=np.float32)
@@ -379,6 +559,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           league_snapshot_every: int = 50, league_from: str | None = None,
           league_min_games: int = 10, league_retire_rate: float = 0.20,
           league_cache: int = 24, device: str = "cpu",
+          memory: str = "none", tbptt: int | None = None,
           log=print) -> dict[int, PolicyNet]:
     """主循环：自对弈 collect → 每个网络各 update 一次。
 
@@ -401,10 +582,20 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     # ★ `nations` 显式给了就**钉死**国家数（受控实验用；缺省按图大小算）
     k_of = (lambda _sz: int(nations)) if nations else n_nations_for
     n_slots = max(int(pool), k_of(hi) if not nations else int(nations))
-    nets = {i: build_model() for i in range(n_slots)}
+    # ★★ **潜槽开关**（用户 2026-09-25 的隐空间设计；用户口径：「分阶段，`--memory`
+    #   开关，**马尔可夫基线留作对照**」）：
+    #     · `none`（缺省）= 马尔可夫基线，**一个参数都不多建** ⇒ 老档照样能读；
+    #     · `latent` = 开 M 个潜槽（`vocab.M_SLOTS`）。
+    #   ★ 判别放在**这里**、而不是模型里猜：形状指纹会跟着 `mem_slots` 变
+    #     ⇒ 开记忆的档与不开的档**互不兼容**（「ckpt 会被新代码加载就必须重炼」）。
+    mem_slots = V.M_SLOTS if str(memory).lower() in ("latent", "m", "on", "1") \
+        else 0
+    nets = {i: build_model(mem_slots=mem_slots) for i in range(n_slots)}
     if device and device != "cpu":           # ★ 建完就上设备，**在 resume/播种之前**
         for i in range(n_slots):
             nets[i] = nets[i].to(device)
+    log(f"★★ 型号 = **{V.MODEL_NAME}**（多用途战争；各特化——打野/占地形/防御/斩首/"
+        f"消耗战/混战/情报/探索——的**基座兼基线**）")
     _log_params(nets[0], log)
     # ★★ **联赛池**（用户 2026-09-25 定的口径，逐条见 `rl/league.py` 的 docstring）
     #   摘要：从最新快照开始分化 / 只增不删 / 随机抽 pt / 胜率永久化到 json /
@@ -413,15 +604,16 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     lg = League(league_db, mains=league_mains,
                 retire_min_games=league_min_games, retire_rate=league_retire_rate,
                 max_k=k_of(hi), min_learners=1, net_cap=league_cache,
-                device=device, fingerprint=_shape_fingerprint(), log=log)
+                device=device, fingerprint=_shape_fingerprint(mem_slots), log=log)
     had = lg.load()
     mids = [f"L{i}" for i in range(n_slots)]
+    log(f"★ 记忆：{'**潜槽 %d 个**（TBPTT %d，辅助权重 %.2f）' % (mem_slots, int(tbptt or S.MEM_TBPTT), S.MEM_AUX_COEF) if mem_slots else '**关**（马尔可夫基线）'}")
     log(f"★ 联赛池 **{n_slots} 份在训**（主 pt {league_mains}）"
         f"{'＋库已读回' if had else '（新库）'}"
         f" —— 每局按 `n_nations_for(边长)` **随机抽 k 份不重复**上场"
         + (f"；库 → {league_db}（SQLite/WAL）" if league_db else "；★ **库不落盘**"))
     state: dict = {}
-    it0 = _load_ckpt(resume, nets, log=log) if resume else 0
+    it0 = _load_ckpt(resume, nets, mem_slots=mem_slots, log=log) if resume else 0
     # ★★「联赛池从**最新快照**开始分化」（用户原话）：所有在训成员**从同一份起跑**，
     #   ⇒ 起点相同、每局抽到的对手组合不同 ⇒ **风格自己漂开**。
     #   （原来是各随机初始化 —— 大部分生下来就是废的，谈不上"分化"。）
@@ -431,7 +623,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         log(f"★ 同时给了 `--league-from` 和 `--resume` —— **resume 赢**"
             f"（延续训练优先，别把练过的权重盖回起点）")
     elif league_from:
-        seed = _load_seed(league_from)
+        seed = _load_seed(league_from, mem_slots=mem_slots)
         for i in range(n_slots):
             # ★ **按槽位**：第 i 份继承起点里的第 i 份（缺了才退回第 0 份）
             nets[i].load_state_dict(seed.get(i, seed[min(seed)]))
@@ -443,7 +635,8 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     if out:
         # ★ 起炉前先落一份"第 0 代"存档：跑挂了也还有东西可续，且形状元数据在册
         _save_ckpt(out, nets, it0,
-                   meta=_ckpt_meta(lo, hi, halls_known, nations, n_slots, t_max))
+                   meta=_ckpt_meta(lo, hi, halls_known, nations, n_slots, t_max,
+                                   mem_slots))
         log(f"★ 起始存档 → {out}（第 {it0} iter）")
     for it in range(it0 + 1, it0 + iters + 1):
         buf: dict[str, list] = {mid: [] for mid in mids}
@@ -502,6 +695,10 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                 if mi in buf:                 # ★ 只有在训成员进梯度；快照只当对手
                     buf[mi].append(s)
         pk = {} if epochs is None else {"epochs": epochs}
+        if mem_slots:
+            # ★ 记忆模式：`epochs` 保守（见 `_ppo_update_mem` 的"陈旧状态"那段）
+            pk.setdefault("epochs", 2 if epochs is None else epochs)
+            pk["tbptt"] = int(tbptt or S.MEM_TBPTT)
         st = {mids[i]: ppo_update(nets[i], buf[mids[i]], lr=lr, device=device,
                                   minibatch=mb, **pk)
               for i in range(n_slots)}
@@ -571,7 +768,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
 
 
 def _ckpt_meta(lo: int, hi: int, halls_known: bool, nations: int | None,
-               n_slots: int, t_max: int = 200) -> dict:
+               n_slots: int, t_max: int = 200, mem_slots: int = 0) -> dict:
     """★★ 存档的**形状元数据** —— 只为了一件事：将来加载时能**判定它过期了**。
 
     用户定过的铁律：**「ckpt 会被新代码加载就必须重炼」**（旧线 `feat/rl` 的教训）。
@@ -581,13 +778,24 @@ def _ckpt_meta(lo: int, hi: int, halls_known: bool, nations: int | None,
     """
     return {"size": [lo, hi], "halls_known": bool(halls_known),
             "nations": nations, "pool": n_slots, "t_max": int(t_max),
-            "fingerprint": _shape_fingerprint()}
+            # ★ **型号名跟着权重走**（用户 2026-09-25：「这一型号的模型叫**战争v1**…
+            #   是各个特化的**基座**，未来也作为**基线**」）⇒ 存档里记下来，
+            #   以后各特化（打野/占地形/防御/斩首/消耗战/混战/情报/探索…）都从它分出去，
+            #   而"这条线是从哪个基座、哪一代分出去的"必须可查。
+            "model": V.MODEL_NAME,
+            "fingerprint": _shape_fingerprint(mem_slots)}
 
 
-def _shape_fingerprint() -> dict:
+def _shape_fingerprint(mem_slots: int = 0) -> dict:
     """决定**观测形状**的那几个常量（变了 ⇒ 旧 ckpt 一律作废）。"""
     from . import features as F
     return {
+        # ★★ **潜槽个数**必须在指纹里：它改的是**网络结构**（多 M 行 token + 写头 +
+        #   辅助头）⇒ 开记忆的档与不开的档**互不兼容**。
+        #   ★ 不写进指纹的后果：用马尔可夫档去"续"一个带记忆的池子 ⇒
+        #     `load_state_dict` 报形状不符（那还算好的），或者更糟 —— 反过来
+        #     静默把记忆头当成随机初始化继续练。
+        "mem_slots": int(mem_slots),
         "grid_channels": int(V.GRID_CHANNELS),
         "glob_size": int(V.GLOB_SIZE),
         "grid_cb_bins": int(V.CB_ROUND_BINS),
@@ -598,7 +806,7 @@ def _shape_fingerprint() -> dict:
     }
 
 
-def _load_seed(path: str) -> dict:
+def _load_seed(path: str, *, mem_slots: int = 0) -> dict:
     """★ 读一份**分化起点**（`--league-from`）的**全部**权重（按槽位）。
 
     ★★ **按槽位灌**（`L0←nets[0]`、`L1←nets[1]`…）—— 用户 2026-09-25：
@@ -611,12 +819,13 @@ def _load_seed(path: str) -> dict:
     """
     blob = torch.load(path, map_location="cpu", weights_only=False)
     fp = (blob.get("meta") or {}).get("fingerprint") or {}
-    now = _shape_fingerprint()
+    now = _shape_fingerprint(mem_slots)     # ★ 同 `_load_ckpt`：判别参数不许用默认值
     bad = {k: (fp.get(k), v) for k, v in now.items() if k in fp and fp[k] != v}
     if bad:
         raise SystemExit(
             f"★ 分化起点 {path} 的形状指纹对不上：{bad}（存的是旧值，现在的是新值）\n"
-            f"  ⇒ 它是**旧代码**训的，不能当起点（整池都会被它带歪）")
+            f"  ⇒ 它是**另一套结构**训的（旧代码 / 或 `--memory` 开关不一致），"
+            f"不能当起点（整池都会被它带歪）")
     src = blob.get("nets") or {}
     if isinstance(src, dict) and src:
         return {int(k): v for k, v in src.items()}
@@ -625,7 +834,7 @@ def _load_seed(path: str) -> dict:
     raise SystemExit(f"★ {path} 里没找到可用权重（既没有 `nets` 也没有 `weights`）")
 
 
-def _load_ckpt(path: str, nets: dict, *, log=print) -> int:
+def _load_ckpt(path: str, nets: dict, *, mem_slots: int = 0, log=print) -> int:
     """★ **续跑读档**：把权重灌回 `nets`，返回**已经跑过的 iter 数**。
 
     ★★ 先校**形状指纹**：对不上就**直接拒**（不是警告）——
@@ -635,12 +844,18 @@ def _load_ckpt(path: str, nets: dict, *, log=print) -> int:
     blob = torch.load(path, map_location="cpu", weights_only=False)
     meta = blob.get("meta") or {}
     fp = meta.get("fingerprint") or {}
-    now = _shape_fingerprint()
+    # ★★ `mem_slots` **必须**按"现在这份网开没开记忆"传进来 ——
+    #   我第一版这里写死默认值 0 ⇒ ① 续跑**记忆档**会被当"旧代码训的"拒掉
+    #   （明明是同一份代码）；② 反过来（没开记忆去续记忆档）虽然会拒，
+    #   但拒的理由是 `load_state_dict` 的 shape 异常、**看不懂**。
+    #   指纹的意义就是"**干净地拒**"，所以判别参数一个都不能用默认值。
+    now = _shape_fingerprint(mem_slots)
     bad = {k: (fp.get(k), v) for k, v in now.items() if k in fp and fp[k] != v}
     if bad:
         raise SystemExit(
             f"★ {path} 的形状指纹对不上：{bad}（存的是旧值，现在的是新值）\n"
-            f"  ⇒ 这个存档是**旧代码**训的，必须重炼（别硬加载）。")
+            f"  ⇒ 这个存档是**另一套结构**训的（旧代码 / 或者 `--memory` 开关不一致），"
+            f"必须重炼（别硬加载）。")
     got = blob["nets"]
     hit = 0
     for i, net in nets.items():
@@ -792,6 +1007,13 @@ if __name__ == "__main__":
                     help="★ 存档路径（长跑必须给！原子写 .tmp→rename）")
     ap.add_argument("--ckpt-every", dest="ckpt_every", type=int, default=5,
                     help="每几个 iter 存一次档")
+    ap.add_argument("--memory", type=str, default="none",
+                    choices=("none", "latent"),
+                    help="潜槽记忆：none = 马尔可夫基线（缺省）；latent = 开 %d 个槽"
+                         % V.M_SLOTS)
+    ap.add_argument("--tbptt", dest="tbptt", type=int, default=None,
+                    help="TBPTT 窗口长度（缺省 %d；只在 --memory latent 下有用）"
+                         % S.MEM_TBPTT)
     ap.add_argument("--nations", type=int, default=None,
                     help="★ **钉死国家数**（受控实验用；缺省按图大小算）。"
                          "§多玩家的最小验证：`--nations 3 --size 8`")
@@ -819,7 +1041,7 @@ if __name__ == "__main__":
           league_snapshot_every=a.league_snapshot_every,
           league_from=a.league_from, league_min_games=a.league_min_games,
           league_retire_rate=a.league_retire_rate, league_cache=a.league_cache,
-          device=a.device)
+          device=a.device, memory=a.memory, tbptt=a.tbptt)
     if a.restart_after and a.iters > seg:
         # ★★ **定时重启**（用户 2026-09-25：「不如定时重启」）：跑完这一段就 `exec` 自己，
         #   **新进程 ⇒ RSS 归零**，并从刚存的档续跑。

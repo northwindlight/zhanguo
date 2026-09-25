@@ -46,3 +46,34 @@ class TestCliHelp(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestEveryFlagReachesTrain(unittest.TestCase):
+    """★★ **CLI 里出现的每个选项都必须真的传进 `train()`** —— 用户 2026-09-25。
+
+    ★ 这条是我自己踩出来的：`--memory latent` 加了 argparse 选项、也在 `train()` 里
+      实现了，**但忘了在 CLI 那行 `train(...)` 里转发** ⇒ 跑起来日志照打
+      「记忆：**关**」、参数全按缺省走，**一声不响**。那正是用户最忌的
+      "工具骗人"形状（工具在"本该生效"处静默返回成功）。
+
+    ★ 做法：把 `main()` 的源码里 `train(...)` 那段实参名抓出来，和
+      `train()` 的**关键字形参名**比对 ⇒ "加了选项却没接线"当场红。
+    """
+
+    def test_all_keyword_params_are_passed(self):
+        import ast
+        import inspect
+        sys.path.insert(0, str(ROOT))
+        from rl import train as TR
+        src = (ROOT / "rl" / "train.py").read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        call = None
+        for node in ast.walk(tree):                 # 找 `main()` 里那个 train(...) 调用
+            if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "train":
+                call = node
+        self.assertIsNotNone(call, "没找到 CLI 里的 `train(...)` 调用")
+        passed = {kw.arg for kw in call.keywords if kw.arg}
+        params = set(inspect.signature(TR.train).parameters)
+        miss = params - passed - {"log"}            # `log` 由调用方注入，允许不传
+        self.assertEqual(miss, set(),
+                         f"★ 这些 `train()` 参数**没被 CLI 转发**：{sorted(miss)}\n"
+                         "  ⇒ 加了命令行选项却不生效，而且**不报错**")

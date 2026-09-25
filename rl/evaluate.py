@@ -330,13 +330,14 @@ def hall_cells(world, name: str, mask=None, known=None) -> list:
     ★ `mask=None` ⇒ **不过滤**（自己的厅、盟友的厅走这条：`vision_mask` 本来
       就把自家与盟方的地算进去了）。
     """
-    out = []
-    for cell, t in sorted(world.tiles.items()):
-        if t["owner"] != name or t["buildings"].get("市政厅", 0) <= 0:
-            continue
-        if mask is None or cell in mask or (known is not None and known.get(cell) == name):
-            out.append(cell)
-    return out
+    # ★★ **转发 `hall_memory.cells_of_seen`**（唯一实现）—— 原来这里和
+    #   `encode._hall_cells_of` 各写了一遍同样的谓词。★ 而两份都拿 `t["owner"]`
+    #   （**当前真值**）判归属 ⇒ 一座**记得的**厅只要在我看不见的时候易主，
+    #   就会从这里**当场消失**（实测：`foe_hall_cells(乙)` 变 `[]`）——
+    #   势函数的「逼近/守家」跟着跳，而那次易主我**从没见过**。
+    #   用户 2026-09-25：「**厅的归属会变的**」⇒ 看不见时要用**记忆里的主人**。
+    from . import hall_memory as HM
+    return HM.cells_of_seen(world, name, mask, known)
 
 
 def halls_of(world, name: str, mask=None, known=None) -> int:

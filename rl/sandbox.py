@@ -38,6 +38,7 @@ from game import unit_max_hp
 
 from . import vocab as V
 from .hall_memory import HallMemory
+from .intel import Intel
 from .war_memory import WarMemory
 
 # ---------------------------------------------------------------- 规格常量
@@ -258,6 +259,8 @@ class Sandbox:
         #   ★ 与 `halls` 的差别：厅拆不掉、不能动 ⇒ 只增不减；
         #     军队**会动会死** ⇒ 必须带**时间戳**、必须**会过期**。两件事不能共用一套。
         self.war_mem = WarMemory()
+        # ★★ **可写观测层**：外部告知的情报（对应引擎玩家的**间谍内容**，见 `rl/intel.py`）
+        self.intel = Intel()
         # ★ 累计击杀账本（用户 2026-09-25：「只计算我军杀掉的敌军来加分」）
         self.kills = KillLedger()
         self.world = None
@@ -297,6 +300,7 @@ class Sandbox:
         self.log = []
         self.halls = HallMemory(all_known=self.halls_known)   # ★ 每局重开账本
         self.war_mem = WarMemory()                            # ★ 每局重开**敌军番号账本**
+        self.intel = Intel()                                  # ★ 每局重开**情报账本**
         #   ★★ **必须每局重置**：上一局的"敌军在某处"对新的一局是**纯噪声**，
         #     而它不会自己消失（`age` 只在同一局的时间轴上算）⇒ 忘了重置 =
         #     模型带着上一局的幽灵开局，而且**不报错**。
@@ -557,6 +561,59 @@ class Sandbox:
         vis = {a["gid"] for a in armies if a["owner"] != me}
         return self.war_mem.known(me, self.turn, vis)
 
+    # ============================================================ ★★ 情报注入（唯一口子）
+    def tell_halls(self, name: str, items: dict) -> int:
+        """**外部注入厅的情报** `{格: 主人}` —— 见 `hall_memory.HallMemory.tell`。
+
+        ★★ 用户 2026-09-25：「**任何记忆都允许合法外部修改，或者有办法传入新的，
+          这是配合情报的设计**」—— 记忆是**可写的**，因为这套东西最终要跟
+          **LLM 玩家**配合，而玩家的情报来源不止自己那点视野（间谍/盟友/战报/推理）。
+        ★★ **口子只开在这里**（沙盒层）。`encode` **不许**调 `tell`：
+          观测只**读**记忆，写记忆只有两条合法路径 ——
+          ① "**看见就覆盖**"（`observe`，来自视野）；② **这里**（来自情报）。
+          把引擎真值**自动**倒进来 = 偷看（本线最忌），所以注入**必须**是
+          显式的、由调用方（将来的 LLM 面板/间谍系统）按合法性决定内容。
+        ★ `all_known=True`（间谍模式）就是本口子的一个特例（构造时一次性全注）。
+        """
+        return self.halls.tell(name, items)
+
+    def tell_armies(self, name: str, items: dict, turn: int | None = None) -> int:
+        """**外部告知某国的军情** `{来源国: {"步": n, "骑": n, "民": n}}`（见 `rl/intel.py`）。
+
+        ★★ 口径**照抄引擎的间谍**（`mp.World._econ_snapshot` 的注释）：
+          「粗略军情：**只有各兵种数量 —— 位置/血量/番号不外泄**」
+          ⇒ 这里**只有数量**。
+        ★ 我一度写过"逐军注入位置 + 番号"的 `tell_enemies` —— **那正是引擎禁止
+          间谍给的东西**，已删。**位置/番号只能来自自己看见**（`war_memory`）。
+        `turn`（缺省当前回合）= 这份情报**是什么时候的**（间谍 3 回合才回报 ⇒ 常常更旧）。
+        ★ 合法性由调用方负责；**口子只在这里**（同 `tell_halls`）。
+        """
+        t = self.turn if turn is None else int(turn)
+        # ★★ **未来回合的情报 ⇒ 当场报错**（不许静默丢）：`age = 现在 − 情报的回合`
+        #   一旦为负，读取侧会把它整条丢掉 —— 那是"注了但看不见、也不报错"，
+        #   正是本线最忌讳的形状（注入口尤其不能这样）。调用方给错 turn 就该炸。
+        if t > self.turn:
+            raise ValueError(
+                f"情报的回合 {t} 晚于当前回合 {self.turn} —— 情报不可能来自未来"
+                f"（要么是调用方给错了 turn，要么是想「预告」还没发生的事）")
+        return self.intel.tell_armies(name, items, t)
+
+    def visible_enemies(self, me: str, mask=None) -> dict:
+        """本帧**看得见**的敌军快照 `{gid: {x,y,kind,hp,no,owner}}`。
+
+        ★ 唯一的用处是给潜槽的**辅助目标**算"下一帧哪些会离开视野"
+          （`rl/mem_aux.py`）。★ 口径与番号账本**同一份**（`war_memory.visible_foes`）——
+          两处抄两遍就会慢慢漂开，而漂开的后果是**在教模型错的东西**且不报错。
+        """
+        w = self.world
+        if w is None:
+            return {}
+        if mask is None:
+            from ruleai.v11plus import pathfind
+            mask = pathfind.vision_mask(w, me)
+        from .war_memory import visible_foes
+        return visible_foes(w, me, mask)
+
     def clone(self) -> "Sandbox":
         """试演副本。★ 8×8 上 `deepcopy` 实测 **~1.8 ms** ⇒ MCTS 可以**真实试演**
         （不用搞"记录动作再重放"那套）。"""
@@ -574,6 +631,7 @@ class Sandbox:
         sb.halls = self.halls.clone()            # ★ 记忆要跟着副本走（试演不能凭空多知道）
         sb.kills = self.kills.clone()            # ★ 击杀账本同理
         sb.war_mem = self.war_mem.clone()        # ★ 敌军番号账本同理（试演不能共享）
+        sb.intel = self.intel.clone()            # ★ 情报账本同理
         return sb
 
     def current_player(self) -> str | None:

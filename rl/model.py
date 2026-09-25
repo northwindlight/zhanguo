@@ -119,12 +119,16 @@ class PolicyNet(nn.Module):
                  f_marks: int = V.CAND_MARKS,
                  arm_width: int = V.A_WIDTH_RAW + F.F_U + V.A_EXTRA,
                  d_conv: int = 96, d_model: int = 160, n_layer: int = 3, n_head: int = 4,
-                 d_cand: int = 160, groups: tuple[str, ...] = V.TOKEN_GROUPS):
+                 d_cand: int = 160, groups: tuple[str, ...] = V.TOKEN_GROUPS,
+                 mem_slots: int = 0, mem_gate_bias: float = V.MEM_GATE_BIAS):
         super().__init__()
         self.groups = tuple(groups)
         self.d_model = int(d_model)
         self.n_types = int(n_types)
         self.arm_width = int(arm_width)
+        # ★★ **潜槽个数**（`0` = 关掉记忆 ⇒ **一个参数都不多建**
+        #   ⇒ 不开 `--memory` 的老档照样能读、老行为逐字不变）。见 `vocab.MEM_GROUP`。
+        self.mem_slots = int(mem_slots)
 
         # ---- 网格侧：只做 1×1→3×3 提特征，供候选按目标格 **gather** ----
         #   ★ 不做全局平均池化 —— 池化会把空间信息压成一个数，候选就"看不见自己那格
@@ -165,9 +169,89 @@ class PolicyNet(nn.Module):
         self.value = nn.Sequential(nn.Linear(d_model, 128), nn.ReLU(),
                                    nn.Linear(128, 1))
 
+        # ---- ★★ 潜槽（`--memory`；见 `vocab.MEM_GROUP` 与模块 docstring 末段）----
+        if self.mem_slots:
+            # ★ 槽的**初值**（学出来的"空"）。★ 用**很小的**标准差初始化：
+            #   它同时是"没有记忆时的默认状态"，而进注意力时它越小、对既有
+            #   注意力的扰动越小 ⇒ 开记忆的第一版**接近**马尔可夫基线。
+            #   ⚠ 但"接近"不是"相等"：槽毕竟占了 M 行 K/V。**信息上**才是空的
+            #     （写门初值关着 ⇒ 槽跨步不变 ⇒ 槽里没有本局的信息），这条由
+            #     `MEM_GATE_BIAS` 保证、由守卫钉住（见 `tests/test_rl_memory.py`）。
+            self.mem0 = nn.Parameter(torch.zeros(1, self.mem_slots, d_model))
+            nn.init.normal_(self.mem0, std=0.02)
+            # 组身份（槽 vs 观测 token）——让主干知道"这行是内部状态"。
+            self.mem_emb = nn.Parameter(torch.zeros(1, 1, d_model))
+            # ★ 写：**门控 cross-attention**（Q = 槽，K/V = **观测** token）。
+            #   ★ K/V 只取观测段、**不取槽自己**：让槽互相写会引入"槽→槽"的
+            #     二阶回路（谁先写谁就先被读），既难训又容易自激。
+            self.mem_write = Attn(d_model, n_head)
+            # ★★ **把写头的输出层初始化成 0** ⇒ `upd ≡ 0` **精确成立**
+            #   ⇒ 初值时 `mem_out == mem_in` **逐位相等** ⇒ 记忆路径**信息上是空的**
+            #     ⇒「开了 `--memory` 的第一版 = 马尔可夫基线」是个**精确**的对照。
+            #   ★★ 这一条是我**量出来才改对的**：我原先只把门偏置压到 -3
+            #      （sigmoid≈0.047），以为"几乎不写"——实测槽每步仍变 **4.1e-02**，
+            #      而 `mem0` 的标准差才 0.02 ⇒ 门乘上 O(1) 的注意力输出**并不小**，
+            #      "几乎不写"根本不成立（而且它是个**近似**，不是等式，没法钉）。
+            #      08 行下零初始化：`upd` 恒为 0，等式成立。
+            #   ★ 梯度**不会**因此断掉：`∂loss/∂out.weight = gate · ∂upd/∂out.weight`
+            #     ≠ 0（门非 0）⇒ 写头照样学得动；写头一动、`upd ≠ 0`，门也就开始学了。
+            #     （★ 反过来，若把**门**压到饱和区，`∂/∂bias ∝ gate(1-gate)·upd`
+            #      会趋近 0 ⇒ 门**永远开不了**——所以是"零初始化写头"，
+            #      不是"把门压死"。）
+            nn.init.zeros_(self.mem_write.out.weight)
+            nn.init.zeros_(self.mem_write.out.bias)
+            # ★ 门 = sigmoid(线性([槽的上下文, 写入候选]))。★ 用门而不是"直接覆盖"：
+            #   覆盖会把槽变成**最近一帧的复读机**（容量全用在"当下"上，
+            #   而"当下"本来就在观测里）。
+            self.mem_gate = nn.Linear(2 * d_model, 1)
+            nn.init.zeros_(self.mem_gate.weight)
+            nn.init.constant_(self.mem_gate.bias, float(mem_gate_bias))
+            # ★ 辅助头：从**全部槽**预测"即将离开视野的那部分"（`rl/mem_aux.py`）。
+            #   全展平（不是均值池化）—— M 个槽是 M 条独立记忆，池化会把它们搅在一起。
+            self.mem_aux = nn.Sequential(nn.Linear(self.mem_slots * d_model, 64),
+                                         nn.ReLU(), nn.Linear(64, V.M_AUX))
+
     # ------------------------------------------------------------------
     def n_params(self) -> int:
         return sum(p.numel() for p in self.parameters())
+
+    # ------------------------------------------------------------------
+    def mem_init(self, batch_size: int, *, init: torch.Tensor | None = None,
+                 device=None, dtype=None) -> torch.Tensor | None:
+        """本局**开局**的槽状态 `[B,M,d]`（`mem_slots=0` ⇒ `None`）。
+
+        ★ `init` = **外部给定的开局槽**（形状 `[B,M,d]` 或 `[M,d]`）——
+          这就是潜槽这一侧的"**合法外部修改**"接口（用户 2026-09-25：「任何记忆
+          都允许合法外部修改…这是配合情报的设计」）。
+        ★★ 但要说实话：**它不该是情报的主入口**。槽是 `d_model` 维的**学出来的**
+          向量，人/LLM **写不出来**（没有词汇表、也没有语义坐标）。
+          ⇒ 真情报走**显式记忆**（厅 / 番号账本，见 `sandbox.tell_halls/tell_enemies`），
+            潜槽**跟着学**。`init` 留着是给两件事用的：① 把某一局的槽**存档/复现**；
+            ② 将来若要拿另一个模型（或一个编码器）把情报**编码**成槽，接口在这儿。
+        """
+        if not self.mem_slots:
+            return None
+        if init is not None:
+            t = torch.as_tensor(init)
+            if t.dim() == 2:
+                t = t.unsqueeze(0)
+            if t.shape[0] == 1 and int(batch_size) > 1:
+                t = t.expand(int(batch_size), -1, -1)
+            if int(t.shape[0]) != int(batch_size) or int(t.shape[1]) != self.mem_slots:
+                raise ValueError(
+                    f"外部槽的形状 {tuple(t.shape)} 不对（期望 [B={batch_size}, "
+                    f"M={self.mem_slots}, d]）")
+            return t.contiguous().to(dtype=t.dtype)
+        p = self.mem0
+        t = p.expand(int(batch_size), -1, -1)
+        if device is not None or dtype is not None:
+            t = t.to(device=device or p.device, dtype=dtype or p.dtype)
+        return t.contiguous()
+
+    def mem_aux_loss(self, mem: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """辅助损失（MSE）—— 见 `rl/mem_aux.py`。★ 目标**只在训练时**有。"""
+        pred = self.mem_aux(mem.flatten(1))
+        return nn.functional.mse_loss(pred, target)
 
     # ------------------------------------------------------------------
     def encode_window(self, win: dict, wmask: dict) -> tuple[torch.Tensor, torch.Tensor]:
@@ -181,11 +265,43 @@ class PolicyNet(nn.Module):
         return torch.cat(toks, dim=1), torch.cat(msks, dim=1)
 
     def forward(self, batch: dict):
+        """★ **不带记忆**的那条路（`mem_slots=0` 时它就是唯一的路）。"""
+        logits, value, _ = self.forward_state(batch, None)
+        return logits, value
+
+    def forward_state(self, batch: dict, mem: torch.Tensor | None = None):
+        """真正的实现：→ `(logits, value, mem_out)`。
+
+        `mem` = **上一步**的槽 `[B,M,d]`（`None` ⇒ 用初值 `mem0`）；`mem_slots=0` ⇒
+        `mem_out is None`。
+
+        ★ 为什么保留 `forward` 那个两元组的老签名：`collect_episode` / `ppo_update` /
+          `eval_fixed` 都在用它，而记忆是**可选**的 ⇒ 老路径**一个字节都不该动**
+          （「不开 `--memory` 的行为逐字不变」是这条线的地基）。
+
+        ★★ 代价（**这是"工具骗人"的形状，所以写在这里**）：`mem_slots>0` 时调
+          `forward(batch)` 会用**初值槽** ⇒ *记忆等于没带*，而且**不报错**。
+          它在两处是**正当**的：① 评估时的**对照臂**（"不带记忆"）；
+          ② 守卫里钉"初值槽 = 马尔可夫基线"。**其余地方一律走 `forward_state`。**
+        """
         grid = batch["grid"]
         win, wmask = batch["win"], batch["win_mask"]
 
         # ---- 窗口（K/V 的来源）----
         x, wm = self.encode_window(win, wmask)
+        n_obs = int(x.shape[1])
+        # ★★ 潜槽拼在**观测 token 之后**（不是之前）—— 这样 `g`/`a`/`k` 的下标
+        #   一个都不动 ⇒ `army_idx` 的 gather、`x[:, 1:1+n_a]` 全部原样成立。
+        #   槽**恒亮**（always unmasked）：它是定长的内部状态，没有 padding。
+        s_in = None
+        if self.mem_slots:
+            b = x.shape[0]
+            s_in = self.mem0.expand(b, -1, -1) if mem is None else mem
+            # ★ 身份路径用 `s_in`（**不加** `mem_emb`）：加了会让槽每步累积组身份
+            #   ⇒ 槽值**自己往上漂**（与"记了什么"无关）—— 那是个静默的漂移。
+            x = torch.cat([x, s_in + self.mem_emb], dim=1)
+            wm = torch.cat([wm, torch.ones(b, self.mem_slots, dtype=wm.dtype,
+                                           device=wm.device)], dim=1)
         # ★ 教训第 2 条：`key_padding_mask` 的 True = **不看** ⇒ 取反
         kpm = ~wm
         # ★ 教训第 3 条：整条全 padding 的行会让 softmax 全 -inf → NaN，放行第 0 条兜底
@@ -197,6 +313,17 @@ class PolicyNet(nn.Module):
             x = blk(x, key_padding_mask=kpm)
         x = self.ln_out(x)
         n_a = int(win["a"].shape[1]) if "a" in win else 0
+
+        # ---- ★★ 写槽：门控 cross-attention（**先读完再写**）----
+        #   Q = 槽（已经在 `blocks` 里**读过**观测了 ⇒ "读走现有注意力"）；
+        #   K/V = **观测** token（**不含槽自己**：槽互相写会引入二阶回路）。
+        #   门初值偏向"保持"（`MEM_GATE_BIAS`）⇒ 初版几乎不写 ⇒ 对照干净。
+        mem_out = None
+        if self.mem_slots:
+            upd = self.mem_write(x[:, n_obs:], x[:, :n_obs], ~wm[:, :n_obs])
+            gate = torch.sigmoid(self.mem_gate(
+                torch.cat([x[:, n_obs:], upd], dim=-1)))
+            mem_out = s_in + gate * upd
 
         # ---- 网格：候选按目标格 gather 空间特征 ----
         fmap = self.conv(grid)                                  # [B,dc,H,W]
@@ -246,12 +373,15 @@ class PolicyNet(nn.Module):
             logits = logits.masked_fill(~batch["mask"].to(logits.device), -1e9)
 
         # ---- 价值：窗口的**掩码均值池化** ----
+        # ★ 池化覆盖**观测 + 槽**：记忆是"局面有多少价值"的一部分（"我还有一支
+        #   看不见的敌军在旁边"本来就该影响估值）。`mem_slots=0` 时与原来逐字相同。
         m = wm.unsqueeze(-1).to(x.dtype)
         pooled = (x * m).sum(1) / m.sum(1).clamp(min=1.0)
-        return logits, self.value(pooled).squeeze(-1)
+        return logits, self.value(pooled).squeeze(-1), mem_out
 
 
-def build_model(n_grid_ch: int = V.GRID_CHANNELS, **kw) -> PolicyNet:
+def build_model(n_grid_ch: int = V.GRID_CHANNELS, mem_slots: int = 0,
+                **kw) -> PolicyNet:
     """按沙盒词表建网（`train.py` 用）。
 
     窗口各组的宽度**从词表与 `features` 现算**（不是写死的表）—— 将来加组只改
@@ -265,4 +395,4 @@ def build_model(n_grid_ch: int = V.GRID_CHANNELS, **kw) -> PolicyNet:
         "k": V.K_WIDTH,
     }
     return PolicyNet(win_widths={g: widths[g] for g in V.TOKEN_GROUPS},
-                     n_grid_ch=n_grid_ch, **kw)
+                     n_grid_ch=n_grid_ch, mem_slots=mem_slots, **kw)
