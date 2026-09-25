@@ -567,6 +567,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           league_min_games: int = 10, league_retire_rate: float = 0.20,
           league_cache: int = 24, device: str = "cpu",
           memory: str = "none", tbptt: int | None = None,
+          territory: bool = True,
           log=print) -> dict[int, PolicyNet]:
     """主循环：自对弈 collect → 每个网络各 update 一次。
 
@@ -625,7 +626,8 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     log(f"★ 记忆：{'**潜槽 %d 个**（TBPTT %d，辅助权重 %.2f）' % (mem_slots, int(tbptt or S.MEM_TBPTT), S.MEM_AUX_COEF) if mem_slots else '**关**（马尔可夫基线）'}"
         f" · epochs **{eff_epochs}** · minibatch {mb or S.PPO_MINIBATCH}"
         f" · 局/iter {episodes_per_iter} · t_max {t_max} · 尺寸 [{lo},{hi}]"
-        f" · 池 {n_slots}")
+        f" · 池 {n_slots}"
+        f" · 国土 {'**随机**（每局抽，各国同数）' if territory else '固定 5 格（老行为）'}")
     log(f"★ 联赛池 **{n_slots} 份在训**（主 pt {league_mains}）"
         f"{'＋库已读回' if had else '（新库）'}"
         f" —— 每局按 `n_nations_for(边长)` **随机抽 k 份不重复**上场"
@@ -675,7 +677,8 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
             #   （健康值 = 1/k，不再是 0.5）。
             first = players[(it + e) % k]
             sb = Sandbox(seed=int(rng.integers(1 << 30)), size=sz, t_max=t_max,
-                         first=first, halls_known=halls_known).reset()
+                         first=first, halls_known=halls_known,
+                         territory=territory).reset()
             # ★★ **从池子里随机抽 k 份不重复的 pt** 上场（用户：「随机抽 pt」）。
             #   `rng.permutation` 取前 k ⇒ 无重复、且每局独立。沙盒是**对称**的
             #   （各国开局一样、先手另算）⇒ 网络扮哪个国家不带偏差，
@@ -1059,6 +1062,13 @@ if __name__ == "__main__":
                          "用户：「先炼一个基于已知的**基座**」")
     ap.add_argument("--no-halls-known", dest="halls_known", action="store_false",
                     help="★ 反过来：'自己找厅'（模型得先侦察）")
+    ap.add_argument("--territory", dest="territory", action="store_true",
+                    default=True,
+                    help="★ **开局国土随机大小**（缺省）—— 以市政厅为中心随机吃接壤的无主地，"
+                         "各国**严格同数**，范围按 地图²/国家数 自动算（见 "
+                         "`rl/sandbox.py:territory_range`）")
+    ap.add_argument("--no-territory", dest="territory", action="store_false",
+                    help="★ 关掉：只留十字那 5 格（**老行为**，做版间对照用）")
     a = ap.parse_args()
     if a.threads:
         import torch
@@ -1074,7 +1084,8 @@ if __name__ == "__main__":
           league_snapshot_every=a.league_snapshot_every,
           league_from=a.league_from, league_min_games=a.league_min_games,
           league_retire_rate=a.league_retire_rate, league_cache=a.league_cache,
-          device=a.device, memory=a.memory, tbptt=a.tbptt)
+          device=a.device, memory=a.memory, tbptt=a.tbptt,
+          territory=a.territory)
     if a.restart_after and a.iters > seg:
         # ★★ **定时重启**（用户 2026-09-25：「不如定时重启」）：跑完这一段就 `exec` 自己，
         #   **新进程 ⇒ RSS 归零**，并从刚存的档续跑。

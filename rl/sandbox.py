@@ -213,17 +213,72 @@ def min_margin(size: int, n_nations: int) -> int:
     return max(2, int(size / max(1.0, math.sqrt(max(1, n_nations)))))
 
 
+# ------------------------------------------------- ★ 开局国土（随机大小，各国严格同数）
+# 用户 2026-09-25：「初始国土**随机大小**（但是**各国国土数量严格相同**），生成方式是
+#   **以市政厅为中心，随机选择接壤合法国土**，直到满足国土需求，**国土大小和地图和
+#   国家数量正相关**，**每局自动设置范围**（**国土要记得移除野人**）」
+#
+# ★ 口径怎么落的（三条，都是有意的）：
+#   ① **"每国摊到的格数" = `size² / n`** —— 国土大小按**份额的比例**取，不按绝对格数。
+#      于是：地图越大 ⇒ 份额越大 ⇒ 国土越大（12²/3=48 → 20²/5=80）；
+#      而在本项目的 `n = f(size)`（`n_nations_for`）下，**国家数与地图是同一个方向**的
+#      ⇒ "和地图、国家数量正相关"这条在**实际会跑到的 (size, n) 组合上**成立。
+#      ⚠ **同一张图上多加国家 ⇒ 每国份额变小 ⇒ 国土变小** —— 这是几何，不是 bug：
+#        `n` 个国家要装在一张固定大小的图上，还要留出野地（扩张成本）与彼此间距，
+#        不可能"国家越多每国反而越大"（那要求总面积 ∝ n²）。
+#   ② 下界是**十字那 5 格**（已经在名下的地不可能比这更少）。
+#   ③ ★★ **国土可以贴上**（用户 2026-09-25 当场定的：「**国土可以贴上**」）——
+#      ⇒ **不加"几何闸"去保证两国国土之间留空当**。我一开始自己加了一条
+#      （按 `min_margin` 限制国土半径，理由是"贴脸 ⇒ 先手直达"），
+#      实测那条**既不成立也不必要**：随机长出来的国土有细长触手，
+#      按球估的半径上限挡不住（12×12 三国仍有 42% 的局贴上），
+#      而真正防"先手直达"的是**厅到厅**的 `min_margin`（那条没动）。
+#      ⇒ 贴上是**有意接受**的形态（开局就能接触 = 一种开局分布），**别再"修"它**。
+TERRITORY_FRAC_LO = 0.15      # 占"每国摊到的格数"的比例（下限）
+TERRITORY_FRAC_HI = 0.35      # 上限 —— ★ 两个数都是**可调先验**，不是物理常数
+TERRITORY_SALT = 0x7E77       # 抽国土用的**独立随机流**盐（见 `reset()` 的三条口径）
+
+
+def territory_range(size: int, n_nations: int) -> tuple[int, int]:
+    """本局国土格数的**范围** `[lo, hi]`（含端点）—— **每局自动算**，不是命令行常数。
+
+    份额 = `size² / n`（每国摊到的格数）⇒ `lo = frac_lo × 份额`、`hi = frac_hi × 份额`，
+    再夹一个下界 ②（十字 5 格）。**没有上界闸** —— 见 ③。
+
+        12×12、3 国 ⇒ 份额 48 ⇒ **[7, 17]**   ← 起炉范围下端
+        16×16、4 国 ⇒ 份额 64 ⇒ **[10, 22]**
+        20×20、5 国 ⇒ 份额 80 ⇒ **[12, 28]**  ← 上端
+         8×8、3 国 ⇒ 份额 21 ⇒ **[5,  7]**
+
+    ★ 两个比例是**份额**的比例 ⇒ 全国加起来最多占地图的 `frac_hi = 35%`，
+      其余 65% 还是野地（= 扩张成本，那是这条线的既有口径）。
+    """
+    from mp import CROSS
+    floor = len(CROSS)                                  # ② 十字那 5 格
+    share = (size * size) / max(1, n_nations)           # ① 每国摊到的格数
+    lo = max(floor, int(round(TERRITORY_FRAC_LO * share)))
+    hi = max(lo, int(round(TERRITORY_FRAC_HI * share)))
+    return lo, hi
+
+
 class Sandbox:
     """一局 8×8 攻取国祚。**规则归沙盒、动作归 v11plus**。"""
 
     def __init__(self, seed: int = 0, size: int = 8, t_max: int = T_MAX,
                  war: bool = True, first: str | None = None,
                  halls_known: bool = False, n_nations: int | None = None,
-                 wars: list[tuple[str, str]] | None = None):
+                 wars: list[tuple[str, str]] | None = None,
+                 territory: bool = True):
         self.seed = seed
         self.size = size
         self.t_max = t_max
         self.war = war                    # 开局是否宣战（★不宣战 v11plus 不会进攻）
+        # ★★ **开局国土随机**（用户 2026-09-25，口径见 `territory_range` 上的那段）。
+        #   `False` ⇒ 只留十字那 5 格（**老行为**，做版间对照用）——
+        #   不然"加了随机国土"这件事就没法 A/B，而它改的是**开局的形状分布**。
+        self.territory = bool(territory)
+        # 本局抽到的**国土目标格数**（含十字；`reset()` 里抽，测试/报表要看）
+        self.territory_target = 0
         # ★ 显式战争对：给了就**只**宣这些（用来造**中立国**/局部战争场景）。
         #   没给 ⇒ `war=True` 时**全对宣战**（多玩家的缺省：默认全体敌对）。
         self.wars = wars
@@ -289,12 +344,21 @@ class Sandbox:
         w.max_turns = self.t_max
         self.world = w
         self.turn = 0
+        # ★★ **开局国土**（用户 2026-09-25，口径见 `territory_range` 上的那段）。
+        #   放在这里（建完世界、还没宣战/摆兵）是因为它**改的是地图本身**：
+        #   先把地长出来，后面"摆兵/宣战/哨兵"看到的才是这一局的真实开局。
+        #   ★ 抽签走**独立的随机流**（盐 `TERRITORY_SALT`）：与 `_random_starts()` 的
+        #     `Random(self.seed)`、与 `World` 内部的建图流、与 `turn_offset` 的流
+        #     **各走各的** ⇒ 加了这个特性**不会挪动**同一 seed 的地图与开局位置
+        #     （否则 version 间 A/B 全废，而且没有任何东西会报错 —— 同 `my_turn` 那条教训）。
+        import random as _random
+        self.territory_target = self._grow_territory(
+            _random.Random(self.seed ^ TERRITORY_SALT))
         # ★★ **每局重抽偏移**（用户 2026-09-25：「**每次开局传入一个随机偏移就行**」）。
         #   ★ 用 `self.seed` 派生 + **一个异或盐**：与 `_random_starts()` 的
         #     `random.Random(self.seed)` **各走各的流** ⇒ 抽偏移**不会扰动开局位置**
         #     （否则就是「加了个时间戳、顺带把地图换了」——那种耦合极难查）。
         #   ★ 逐局不同：训练在 `train` 里给每局**新的随机 seed** ⇒ 偏移自然逐局不同。
-        import random as _random
         self.turn_offset = _random.Random(
             self.seed ^ 0x7A17).randrange(V.TURN_OFFSET_SPAN)
         self.log = []
@@ -403,6 +467,95 @@ class Sandbox:
         if len(self.players) == len(STARTS):
             return dict(STARTS)
         return self._fallback_starts()
+
+    # ---------------------------------------------- 开局国土（随机大小，各国严格同数）
+    def _grow_territory(self, rng) -> int:
+        """把各国的开局国土从**十字 5 格**长到本局抽到的目标（**各国严格同数**）。
+
+        用户 2026-09-25 的口径，逐条对应：
+
+          · 「**以市政厅为中心**」 —— 起点就是十字（中心格 = 市政厅所在格）；
+          · 「**随机选择接壤合法国土**」 —— 每国在**自己的边界**上随机挑一格
+            （4 邻域，与引擎 `CROSS` / "接壤"口径一致）；
+          · 「**各国国土数量严格相同**」 —— 走**同步轮次**：每轮**每国各吃一格**，
+            谁都不许多吃；某国一旦无格可吃，**整轮不落子**、全体一起停
+            ⇒ 相等是**构造出来的**，不是"长完再补齐"（那种写法在被围住时会静默不等）；
+          · 「**直到满足国土需求**」 —— 吃到目标格数，或吃到吃不动为止；
+          · 「**国土要记得移除野人**」 —— 每占一格就撤守卫，见 `_claim`。
+
+        ★ **合法** = 图内 + **无主**（`owned_by is None`）。别国的地/别国的厅都不是无主
+          ⇒ 结构上抢不到；地形里没有水（`balance.TERRAINS` 只有平原/森林/丘陵/山地/沙漠）
+          ⇒ 没有"不能占的地形"要额外排除。
+
+        ★★ 为什么必须是**同步轮次**：换成"每国各自长到目标"，一旦某国被自己的边界/
+          别国/墙角挡住，它就会**少长几格而没人报错** —— 那正是用户点名要避免的
+          （「严格相同」）。同步轮次把它变成结构性质，事后不需要再查一遍。
+
+        返回**实际达成**的格数（可能 < 目标：被挡死了 —— 但各国仍是同一个数）。
+        """
+        from mp import CROSS
+        w = self.world
+        cross = len(CROSS)                                  # 十字自带 5 格
+        if not self.territory:
+            return cross                                    # ★ 老行为（版间对照用）
+        lo, hi = territory_range(self.size, len(self.players))
+        target = int(rng.randint(lo, hi))
+        own = {n: set(w.own_tiles(n)) for n in self.players}
+        while True:
+            todo = [n for n in self.players if len(own[n]) < target]
+            if not todo:
+                break
+            rng.shuffle(todo)               # ★ 每轮洗牌：谁先挑不固定（先挑的会挡住后挑的）
+            picks: dict[str, tuple[int, int]] = {}
+            used: set[tuple[int, int]] = set()
+            blocked = False
+            for n in todo:
+                cand = self._frontier(own[n], used)
+                if not cand:
+                    blocked = True
+                    break
+                picks[n] = cand[rng.randrange(len(cand))]
+                used.add(picks[n])
+            if blocked:
+                break                       # ★ 整轮不落子 ⇒ 各国仍严格同数（见 docstring）
+            for n, c in picks.items():      # 一轮的落子**全部**放这里，别混进上面的循环
+                self._claim(c, n)
+                own[n].add(c)
+        return min(len(s) for s in own.values())
+
+    def _frontier(self, own: set, used: set) -> list:
+        """`own` 的**合法接壤格**（图内 + 无主 + 不在 `own` + 本轮没被别人挑走）。
+
+        ★ 返回**排序后的列表**：抽签是 `rng.randrange(len(cand))` ⇒ 顺序变了
+          就等于换了随机流（同一 seed 复现不出来），所以这里不许依赖 set 的迭代序。
+        """
+        w = self.world
+        out = []
+        for (x, y) in own:
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                c = (x + dx, y + dy)
+                if not (0 <= c[0] < self.size and 0 <= c[1] < self.size):
+                    continue
+                if c in own or c in used or w.owned_by(*c) is not None:
+                    continue
+                out.append(c)
+        return sorted(set(out))
+
+    def _claim(self, cell: tuple[int, int], name: str) -> None:
+        """占一格当**开局国土**：撤走野人 + 物化地块（`owner=name`，`core=name`）。
+
+        ★ 两件事**必须一起做**，而且顺序与引擎自己的开局 `_place_crosses` 逐条相同：
+          · 引擎里**野人只守无主格**（`guardians` 那张表的口径、`_defeat_at` 也按此查）
+            ⇒ 占下来的地上还留着一支野人 = "有主 + 有野人"的矛盾格；
+          · `_ensure_guardians` **只给没物化的格补野人** ⇒ 先物化就不会再长出来
+            （读档时同理：它跳过 `(x, y) in self.tiles` 的格）。
+        ★ **不动 mp.py**（引擎与 main 必须逐字一致）⇒ 占地只能从沙盒这边做；
+          用的两个内部函数 `_drop_guardians` / `_new_tile` 正是引擎开局自己那对
+          （`_place_crosses` 里同款），语义不会漂。
+        """
+        x, y = cell
+        self.world._drop_guardians(x, y)
+        self.world.tiles[cell] = self.world._new_tile(x, y, name)
 
     def set_alliance(self, *blocs: tuple[str, list[str]]) -> None:
         """★★ **开局直接指定**联盟 —— 外交关系是**场景条件**，不是模型的动作。
