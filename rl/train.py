@@ -597,6 +597,14 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     #     ⇒ 开记忆的档与不开的档**互不兼容**（「ckpt 会被新代码加载就必须重炼」）。
     mem_slots = V.M_SLOTS if str(memory).lower() in ("latent", "m", "on", "1") \
         else 0
+    # ★★ **有效 `epochs` 只在这一处算** —— 我踩过：原先它在两处各算一遍
+    #   （横幅没有、`pk` 里按 `if mem_slots:` 分支 `setdefault`），于是
+    #   **两臂不传 `--epochs` 时拿到的不是同一个值**（记忆臂 2、基线臂 4，
+    #   `ppo_update` 的默认值），而**日志里一个字都不提** ⇒
+    #   A/B 看着只差 `--memory`，实际差了两个因子。这类"第二个因子"是
+    #   静默的：两边 loss 都在降、曲线都好看，只有结论是错的。
+    #   ⇒ 只算一次、横幅里打出来，让**日志自己能证明**两臂的配置。
+    eff_epochs = int(epochs) if epochs is not None else (2 if mem_slots else 4)
     nets = {i: build_model(mem_slots=mem_slots) for i in range(n_slots)}
     if device and device != "cpu":           # ★ 建完就上设备，**在 resume/播种之前**
         for i in range(n_slots):
@@ -614,7 +622,10 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                 device=device, fingerprint=_shape_fingerprint(mem_slots), log=log)
     had = lg.load()
     mids = [f"L{i}" for i in range(n_slots)]
-    log(f"★ 记忆：{'**潜槽 %d 个**（TBPTT %d，辅助权重 %.2f）' % (mem_slots, int(tbptt or S.MEM_TBPTT), S.MEM_AUX_COEF) if mem_slots else '**关**（马尔可夫基线）'}")
+    log(f"★ 记忆：{'**潜槽 %d 个**（TBPTT %d，辅助权重 %.2f）' % (mem_slots, int(tbptt or S.MEM_TBPTT), S.MEM_AUX_COEF) if mem_slots else '**关**（马尔可夫基线）'}"
+        f" · epochs **{eff_epochs}** · minibatch {mb or S.PPO_MINIBATCH}"
+        f" · 局/iter {episodes_per_iter} · t_max {t_max} · 尺寸 [{lo},{hi}]"
+        f" · 池 {n_slots}")
     log(f"★ 联赛池 **{n_slots} 份在训**（主 pt {league_mains}）"
         f"{'＋库已读回' if had else '（新库）'}"
         f" —— 每局按 `n_nations_for(边长)` **随机抽 k 份不重复**上场"
@@ -643,7 +654,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         # ★ 起炉前先落一份"第 0 代"存档：跑挂了也还有东西可续，且形状元数据在册
         _save_ckpt(out, nets, it0,
                    meta=_ckpt_meta(lo, hi, halls_known, nations, n_slots, t_max,
-                                   mem_slots))
+                                   mem_slots=mem_slots))
         log(f"★ 起始存档 → {out}（第 {it0} iter）")
     for it in range(it0 + 1, it0 + iters + 1):
         buf: dict[str, list] = {mid: [] for mid in mids}
@@ -701,10 +712,11 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                 mi = mid_of[s.player]
                 if mi in buf:                 # ★ 只有在训成员进梯度；快照只当对手
                     buf[mi].append(s)
-        pk = {} if epochs is None else {"epochs": epochs}
+        # ★ `epochs` **用上面算好的那一个**（`eff_epochs`）—— 原先在这里又
+        #   `setdefault` 一遍，就是"两臂偷偷差一个因子"的来源（见它的注释）。
+        pk = {"epochs": eff_epochs}
         if mem_slots:
             # ★ 记忆模式：`epochs` 保守（见 `_ppo_update_mem` 的"陈旧状态"那段）
-            pk.setdefault("epochs", 2 if epochs is None else epochs)
             pk["tbptt"] = int(tbptt or S.MEM_TBPTT)
         st = {mids[i]: ppo_update(nets[i], buf[mids[i]], lr=lr, device=device,
                                   minibatch=mb, **pk)
@@ -766,22 +778,36 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         # ---- ★ 存档（起炉长跑必须：原来一行保存都没有，崩了全没）----
         if out and it % max(1, ckpt_every) == 0:
             _save_ckpt(out, nets, it, meta=_ckpt_meta(lo, hi, halls_known,
-                                                      nations, n_slots, t_max))
+                                                      nations, n_slots, t_max,
+                                                      mem_slots=mem_slots))
             log(f"  ★ 存档 → {out}（第 {it} iter）")
     if out:
         _save_ckpt(out, nets, it0 + iters, meta=_ckpt_meta(lo, hi, halls_known,
-                                                     nations, n_slots, t_max))
+                                                     nations, n_slots, t_max,
+                                                     mem_slots=mem_slots))
     return nets
 
 
 def _ckpt_meta(lo: int, hi: int, halls_known: bool, nations: int | None,
-               n_slots: int, t_max: int = 200, mem_slots: int = 0) -> dict:
+               n_slots: int, t_max: int = 200, *, mem_slots: int) -> dict:
     """★★ 存档的**形状元数据** —— 只为了一件事：将来加载时能**判定它过期了**。
 
     用户定过的铁律：**「ckpt 会被新代码加载就必须重炼」**（旧线 `feat/rl` 的教训）。
     而"形状对不对"这件事**光看权重张量是查不出来的**（能 `load_state_dict` 成功、
     却喂错口径的通道）。⇒ 把**决定输入宽度的那些常量**一并存进去，
     加载方拿 `_shape_fingerprint()` 比一下就知道该不该拒。
+
+    ★★ `mem_slots` 是**必填的关键字参数**（没有默认值）—— 我踩过：
+      第一版给了个 `= 0` 的默认值，于是**三个调用点里只有第一个**传了它
+      （加参数时"放最后以免动到位置调用"图省事），另外两个按默认值写盘 ⇒
+      存档里 `mem_slots` 恒为 0，即**记忆档自称马尔可夫档**。
+      后果**不是**"加载时报错"，而是**定时重启当场自杀**：
+      `--restart-after` 用 `--resume <out>` 续跑自己刚写的档，
+      `_load_ckpt` 拿 `_shape_fingerprint(8)` 去比存下来的 `mem_slots=0` ⇒
+      `SystemExit: 形状指纹对不上` —— 炉子在第 5 个 iter 无声地死掉。
+      ⇒ 「**判别参数一个都不能用默认值**」这句话我在 `_load_ckpt` / `_load_seed`
+        里都写过，这里也得是**没有默认值**才能真的钉住：漏传 = `TypeError`，
+        在**定义处**就响，不留给"跑到第 5 个 iter 才死"。
     """
     return {"size": [lo, hi], "halls_known": bool(halls_known),
             "nations": nations, "pool": n_slots, "t_max": int(t_max),

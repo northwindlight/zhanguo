@@ -304,7 +304,7 @@ class TestShapeFingerprintSeparatesMemoryModes(unittest.TestCase):
             p = str(Path(d) / "m.pt")
             nets = {0: build_model(mem_slots=V.M_SLOTS)}
             T._save_ckpt(p, nets, 3, meta=T._ckpt_meta(8, 8, True, 3, 1, 60,
-                                                       V.M_SLOTS))
+                                                       mem_slots=V.M_SLOTS))
             # ★ 同一套结构 ⇒ 续得上
             T._load_ckpt(p, {0: build_model(mem_slots=V.M_SLOTS)},
                          mem_slots=V.M_SLOTS, log=lambda *_: None)
@@ -313,6 +313,134 @@ class TestShapeFingerprintSeparatesMemoryModes(unittest.TestCase):
                 with self.assertRaises(SystemExit, msg="指纹没有拦住换开关的档"):
                     T._load_ckpt(p, {0: build_model(mem_slots=ms)},
                                  mem_slots=ms, log=lambda *_: None)
+
+
+class TestEveryCkptWriteRecordsTheRealShape(unittest.TestCase):
+    """★★ **每一处写档都要记下"真实形状"** —— 2026-09-25 我踩的活坑。
+
+    `_ckpt_meta(..., mem_slots=0)` **有个默认值** ⇒ 加参数时图省事放最后，
+    于是 `train()` 里**三个写档点只有第一个传了它**：起炉那份对，**周期档/收尾档错**
+    （记忆档自称"马尔可夫"）。而 `--restart-after` 正是用 `--resume <out>` 续
+    **周期档** ⇒ `_load_ckpt` 拿 `mem_slots=8` 比存下来的 `0` ⇒
+    `SystemExit: 形状指纹对不上` —— **炉子在第 5 个 iter 无声地死**，
+    而且死在 `execv` 出来的新进程里（旧日志看着一切正常）。
+
+    ⇒ 两条一起钉：① `mem_slots` **没有默认值**（漏传 = `TypeError`，在定义处就响）；
+      ② 模块里**每一处** `_ckpt_meta(...)` 调用都显式传了 `mem_slots=`
+      （静态扫源码 —— 以后新加写档点也跑不掉）。
+
+    ★ 这两条**都故意破坏过**确认会响：把默认值 `= 0` 加回去 ⇒ ① 响；
+      把周期档那处的 `mem_slots=mem_slots` 删掉 ⇒ ② 响。
+    """
+
+    TRAIN_SRC = Path(__file__).resolve().parent.parent / "rl" / "train.py"
+
+    def test_mem_slots_has_no_default(self):
+        """① 漏传必须**当场** `TypeError`，不许静默按 0 写盘。"""
+        import inspect
+        p = inspect.signature(T._ckpt_meta).parameters["mem_slots"]
+        self.assertIs(p.default, inspect.Parameter.empty,
+                      "`mem_slots` 又有默认值了 ⇒ 漏传的写档点会静默写错形状"
+                      "（`--restart-after` 会在第 5 个 iter 自杀）")
+        with self.assertRaises(TypeError, msg="漏传 mem_slots 居然没报错"):
+            T._ckpt_meta(8, 8, True, 3, 1, 60)
+
+    def test_every_call_site_passes_mem_slots(self):
+        """② 源码里**每一处** `_ckpt_meta(` 都显式带了 `mem_slots=`。"""
+        import ast
+        tree = ast.parse(self.TRAIN_SRC.read_text(encoding="utf-8"))
+        sites = [n for n in ast.walk(tree)
+                 if isinstance(n, ast.Call)
+                 and getattr(n.func, "id", getattr(n.func, "attr", None))
+                 == "_ckpt_meta"]
+        self.assertGreaterEqual(len(sites), 3,
+                                f"只找到 {len(sites)} 处 `_ckpt_meta(` ⇒ "
+                                f"扫描失效了（写档点数量对不上）")
+        missing = [n.lineno for n in sites
+                   if not any(k.arg == "mem_slots" for k in n.keywords)]
+        self.assertEqual(missing, [],
+                         f"rl/train.py 第 {missing} 行的 `_ckpt_meta(...)` 没传 "
+                         f"`mem_slots` ⇒ 那一处写盘会把**真实形状**记错"
+                         f"（记忆档自称马尔可夫档 ⇒ 定时重启自杀）")
+
+
+class TestEffectiveEpochsIsComputedOnce(unittest.TestCase):
+    """★★ **A/B 不许有"第二个因子"** —— 2026-09-25 我踩的第二个活坑。
+
+    起两臂做记忆 A/B 时，`epochs` 原先在**两处各算一遍**：
+    `ppo_update(..., epochs=4)` 的默认值（无记忆分支走它）与
+    `if mem_slots: pk.setdefault("epochs", 2 ...)`。⇒ **两臂都不传 `--epochs`** 时
+    实际拿到的是 **4 vs 2**，而**日志里一个字都不提**：横幅只有"记忆开/关"，
+    于是"两臂只差 `--memory` 一个因子"这句话是**假的**，且没有任何东西会响
+    （两边 loss 都照降、曲线都好看，只有结论错）。
+
+    ⇒ 两条一起钉：① 有效值**只在一处算**（`eff_epochs`）、且**横幅打出来**；
+      ② 不传 `--epochs` 时，记忆臂保守取 2、基线臂取 4（**这一条本身是有意的**，
+        见 `_ppo_update_mem` 的"陈旧状态"那段）—— 钉的是"它被**说出来**了"。
+
+    ★ 故意破坏过：把 `eff_epochs` 换回"横幅不打印"的写法 ⇒ ① 响。
+    """
+
+    def _banner(self, **kw):
+        import tempfile
+        from pathlib import Path
+        buf: list[str] = []
+        with tempfile.TemporaryDirectory() as d:
+            T.train(iters=0, episodes_per_iter=0, pool=2, t_max=150,
+                    size_min=12, size_max=20, halls_known=True,
+                    league_mains=1, out=str(Path(d) / "a.pt"),
+                    log=lambda s, *a: buf.append(str(s)), **kw)
+        hit = [l for l in buf if l.startswith("★ 记忆")]
+        self.assertTrue(hit, f"横幅里没有「★ 记忆」那一行 ⇒ 配置没被打出来：{buf[:3]}")
+        return hit[0]
+
+    def test_banner_states_the_effective_epochs(self):
+        """① 横幅必须写出**有效** `epochs`（否则"两臂差几个因子"看不出来）。"""
+        for mem, want in (("none", 4), ("latent", 2)):
+            line = self._banner(memory=mem)
+            self.assertIn(f"epochs **{want}**", line,
+                          f"`--memory {mem}` 没传 `--epochs` 时有效值是 {want}，"
+                          f"横幅却写的是：{line}")
+
+    def test_explicit_epochs_wins_in_both_modes(self):
+        """② 显式给了 `--epochs` ⇒ 两臂**都听它**（这才是 A/B 能对齐的前提）。"""
+        a = self._banner(memory="none", epochs=3)
+        b = self._banner(memory="latent", epochs=3)
+        self.assertIn("epochs **3**", a)
+        self.assertIn("epochs **3**", b)
+
+    def test_what_actually_reaches_the_optimizer(self):
+        """★★ **端到端**：真正喂给 `ppo_update` 的 `epochs` —— 横幅那条只说明"打出来了"，
+        这条才说明"**打的数与实际一致**"（横幅可以印 2、实际传 4，两者都不报错）。
+
+        ★ 用**极短局**（`t_max=3`）+ **打桩的 `ppo_update`**（只记 kwargs、不做更新）
+          把代价压到亚秒级 —— 真跑一整个 iter 要几分钟，进不了测试套件。
+        """
+        import tempfile
+        from pathlib import Path
+        got: list[int] = []
+        real = T.ppo_update
+
+        def spy(net, steps, **kw):
+            got.append(kw.get("epochs"))
+            return {"pg": 0.0, "vf": 0.0, "ent": 0.0}
+
+        with tempfile.TemporaryDirectory() as d:
+            for mem, want in (("none", 4), ("latent", 2)):
+                got.clear()
+                T.ppo_update = spy
+                try:
+                    T.train(iters=1, episodes_per_iter=1, pool=2, t_max=3,
+                            size=8, size_min=8, size_max=8, halls_known=True,
+                            league_mains=1, out=str(Path(d) / f"{mem}.pt"),
+                            memory=mem, log=lambda *_: None)
+                finally:
+                    T.ppo_update = real
+                self.assertTrue(got, f"`--memory {mem}` 一次 `ppo_update` 都没调到")
+                self.assertEqual(set(got), {want},
+                                 f"`--memory {mem}` 实际喂给优化器的 `epochs` 是 "
+                                 f"{sorted(set(got))}，应当是 {want}"
+                                 f"（两臂差了这个因子 ⇒ A/B 结论无效）")
 
 
 if __name__ == "__main__":
