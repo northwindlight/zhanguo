@@ -3,39 +3,53 @@
 
 用户 2026-09-25 的口径（逐条落到实现，**别自己发明**）
 ──────────────────────────────────────────────────────
-1.「**联赛池从最新快照开始分化**」
-   ⇒ `--league-from <pt>`：**所有在训成员都从同一份快照起跑**（不是各随机初始化）。
-      起点相同、每局抽到的对手组合不同 ⇒ **风格自己漂开**。
-      （原来的做法是 5 份随机初始化，大部分生下来就是废的，谈不上"分化"。）
+1.「**分化从原来 5 个来分化，而不是一个**」
+   ⇒ 池子的起点是**原来那 5 份各自的血脉**（`--league-from` **按槽位**灌：
+      `L0←nets[0]`、`L1←nets[1]`…）⇒ 5 份**继续各走各的**。
+   ★★ 我第一版做错过：把 5 份**都从同一个快照**起跑 ——
+      那等于**把 5 条血脉掐成 1 条**，跟"分化"正好相反。
 2.「**老快照丢了，从新快照开始**」
-   ⇒ 建池那一刻**不导入旧线**；池子从这一炉的新快照起算。
+   ⇒ 建池那一刻**不导入旧的冻结快照**；池子从这一炉的新快照起算。
       ★ 这句说的是**建池时**，不是运行时删除 —— 运行时的规矩是第 3 条。
 3.「**只增不删**」
-   ⇒ 成员**永不删除**。打不动只是 `active=False`（不再抽上场），**仍留在账上**。
+   ⇒ 成员**永不删除**。打不动只是 `active=0`（不再抽上场），**仍留在库里**。
 4.「**随机抽 pt**」
    ⇒ 每局从 active 里**不重复**随机抽 k 份上场。
-5.「**标记每个 pt 的胜率，永久化到一个数据库或者 json 文件**」
-   ⇒ roster 落 `rl/runs/league.json`（原子写）。**跨重启活着** —— 定时重启
-      （`--restart-after`）换进程也不丢战绩，这正是"永久化"要解决的问题。
+5.「**标记每个 pt 的胜率，永久化到数据库**」
+   ⇒ **SQLite**（`rl/runs/league.db`，WAL）。★ 为什么是库不是 json：
+      **为了以后并行** —— 「池子够大并行抽，起多个独立进程筛」。
+      ⇒ 写入一律**原子自增**（`games=games+1`）而不是"读出来加一再写回"，
+        这是多进程同时记战绩**唯一**不会互相覆盖的写法；
+        并且每次读判据前先 `refresh()`，别人进程刚记的战绩这边看得见。
 6.「**可以有两个固定主 pt，也可以没有**」
    ⇒ `--league-mains N`（缺省 2，可 0）：前 N 份成员钉为**主 pt** ——
       **不受淘汰规则约束**（它们是**基座本身**，不是候选，淘汰掉就没得炼了）。
 7.「**打 10 局以上胜率低于 20% 的不再启用**」
-   ⇒ `retire_min_games=10`、`retire_rate=0.20` ⇒ `active=False`。
+   ⇒ `retire_min_games=10`、`retire_rate=0.20` ⇒ `active=0`。
    ★ **兜底**（否则会自己把自己搞死）：active 总数不得低于**当前最大国家数**
      （否则凑不齐一局），且**至少留 `min_learners` 份在训成员**。
    ★ **口径提醒**：K 国局里"随机"胜率是 `1/K` —— 3 国局 33%、5 国局 **20%**。
      ⇒ 固定 20% 这个阈值在 **5 国局里等于"和随机持平"**（偏严）。
-     用户原话就是 20%，照做；但将来若发现 5 国局把池子淘汰空了，就是这里。
+     ★ 将来若发现"池子被淘汰空"，这里是第一嫌疑。
 
 ★ 为什么要有这个模块（用户的原话是「现在换家流完全占上风」）
   一池子同源同打法 ⇒ 训练里"对手"这一维是退化的，模型学不到"被克了怎么办"。
   让成员**分化**才是池子的意义；胜率账本是**判据**（谁还有用），不是目的。
+  ★ 但注意：**换家流本身不是池子能治的** —— 8×8 上它是几何决定的结构性最优
+    （见 PLAN §12.7）；池子治的是"一池子同一个打法"，不是"某个打法太强"。
+
+★ 为**并行筛选**留的口子（用户：「为了以后并行，池子够大并行抽，起多个独立进程筛」）：
+  · `draw()` 是只读的；`record()` 是原子自增 + 追加一行 `results`（带进程/iter/时刻）
+    ⇒ **N 个独立进程各自"抽签→对局→记账"**，不互相覆盖。
+  · `results` 表是**逐局流水**（不是只留聚合值）⇒ 将来"筛"的时候能按
+    进程/时间窗口重算，也能看出"某个成员最近是不是不行了"。
 """
 from __future__ import annotations
 
 import json
 import os
+import sqlite3
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -69,7 +83,7 @@ class Member:
         不会被误淘汰（"没打过"和"打得很差"是两件事，别在计数上混）。"""
         return (self.wins / self.games) if self.games else 0.0
 
-    def as_json(self) -> dict:
+    def as_dict(self) -> dict:
         return {"mid": self.mid, "kind": self.kind, "born": int(self.born),
                 "games": int(self.games), "wins": int(self.wins),
                 "active": bool(self.active), "path": self.path,
@@ -80,31 +94,88 @@ class Member:
         return f"{self.mid}{flag}({self.kind},{self.wins}/{self.games})"
 
 
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS members (
+    mid     TEXT PRIMARY KEY,
+    kind    TEXT    NOT NULL,          -- main | live | snap
+    born    INTEGER NOT NULL,
+    games   INTEGER NOT NULL DEFAULT 0,
+    wins    INTEGER NOT NULL DEFAULT 0,
+    active  INTEGER NOT NULL DEFAULT 1,
+    path    TEXT,
+    added   TEXT    NOT NULL
+);
+-- ★ 逐局流水：将来"并行筛"的时候按进程/时间窗口重算用（不只留聚合值）
+CREATE TABLE IF NOT EXISTS results (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    mid     TEXT    NOT NULL,
+    won     INTEGER NOT NULL,
+    iter    INTEGER,
+    worker  TEXT,
+    ts      TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_results_mid ON results(mid);
+"""
+
+
 # ================================================================ 池子
 class League:
-    """权重池。**只增不删** —— 唯一的"减"是 `active=False`（不再抽上场）。"""
+    """权重池。**只增不删** —— 唯一的"减"是 `active=0`（不再抽上场）。
 
-    VERSION = 1
+    ★ 存储是 **SQLite（WAL）**：多进程并发读写安全，写入走**原子自增**。
+      `db=None` ⇒ 内存库（`:memory:`，测试用）。
+    """
+
+    VERSION = 2                       # 1=旧的 json（已弃），2=sqlite
 
     def __init__(self, db: str | os.PathLike | None, *, mains: int = 2,
                  retire_min_games: int = 10, retire_rate: float = 0.20,
-                 max_k: int = 5, min_learners: int = 1,
+                 max_k: int = 5, min_learners: int = 1, worker: str | None = None,
                  fingerprint: dict | None = None, log=print):
-        # ★ `db=None` = **不落盘的池子**（权重与账本都留内存）——
-        #   给测试和临时实验用。★ 注意这意味着"永久化"那条口径**没有生效**，
-        #   所以真起炉必须给 `--league-db`（否则定时重启会把战绩清零，
-        #   而 10 局的门槛永远够不到 ⇒ 淘汰规则变死代码，**还不报错**）。
-        self.db = Path(db) if db is not None else None
+        self.db = None if db is None else Path(db)
         self.mains = max(0, int(mains))
         self.retire_min_games = int(retire_min_games)
         self.retire_rate = float(retire_rate)
         self.max_k = max(1, int(max_k))
         self.min_learners = max(0, int(min_learners))
         self.fingerprint = dict(fingerprint or {})
+        self.worker = worker or f"pid{os.getpid()}"
         self.log = log
-        self.members: dict[str, Member] = {}
-        self._nets: dict[str, object] = {}       # mid -> PolicyNet（懒加载 + 缓存）
+        self.members: dict[str, Member] = {}      # 缓存（判据前一律先 refresh）
+        self._nets: dict[str, object] = {}         # mid -> PolicyNet（懒加载 + 缓存）
         self.updated_iter = 0
+
+        if self.db is None:
+            self.conn = sqlite3.connect(":memory:")
+        else:
+            self.db.parent.mkdir(parents=True, exist_ok=True)
+            # ★★ `isolation_level=None` = **自动提交**。这是并行下的关键：
+            #   Python 的 sqlite3 缺省会在第一条 INSERT/UPDATE 上**隐式开一个事务**
+            #   并一直攥着不放手 —— 两个进程一起跑时，第二个写就撞
+            #   `database is locked`（实测就是这么踩到的，而且它是**偶发**的）。
+            #   自动提交下每条语句自成事务，写得快、放锁快。
+            self.conn = sqlite3.connect(str(self.db), timeout=30.0,
+                                        isolation_level=None)
+        if self.db is not None:
+            self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=30000")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
+        self.conn.executescript(SCHEMA)
+        # ★★ 形状指纹**只在建库时写一次，此后永不覆盖** ——
+        #   若每次 save 都用"当前指纹"盖上去，那么"代码改了、旧池子还在"这件事
+        #   会**被自己抹平**，`load()` 永远比得中 ⇒ 旧池子静默上场（铁律要拒的正是这个）。
+        if self.fingerprint and self._meta_get("fingerprint") is None:
+            self._meta_set("fingerprint", json.dumps(self.fingerprint))
+
+    # ---------------------------------------------------------- 元信息
+    def _meta_get(self, k: str) -> str | None:
+        r = self.conn.execute("SELECT v FROM meta WHERE k=?", (k,)).fetchone()
+        return r[0] if r else None
+
+    def _meta_set(self, k: str, v: str) -> None:
+        self.conn.execute("INSERT INTO meta(k,v) VALUES(?,?) "
+                          "ON CONFLICT(k) DO UPDATE SET v=excluded.v", (k, str(v)))
 
     # ---------------------------------------------------------- 成员
     def bind_live(self, mid: str, net, *, born: int = 0) -> Member:
@@ -112,7 +183,7 @@ class League:
 
         ★ 必须**挂引用而不是复制**：在训成员的权重每 iter 都在变，
           复制一份就变成"冻结快照"了。
-        ★ 已经挂过的（`load()` 从账本读回来）**保留它原来的 `kind`** ——
+        ★ 已经入册的（`load()` 从库里读回来）**保留它原来的 `kind`** ——
           否则重启后重算一遍"前 N 份当主 pt"，会把主 pt 的身份**漂掉**。
         """
         m = self.members.get(mid)
@@ -120,6 +191,10 @@ class League:
             kind = "main" if len(self._live()) < self.mains else "live"
             m = Member(mid=mid, kind=kind, born=born)
             self.members[mid] = m
+            self.conn.execute(
+                "INSERT INTO members(mid,kind,born,path,added) VALUES(?,?,?,?,?) "
+                "ON CONFLICT(mid) DO UPDATE SET kind=excluded.kind, path=NULL",
+                (mid, kind, int(born), None, _now()))
         m.path = None
         self._nets[mid] = net
         return m
@@ -131,7 +206,7 @@ class League:
           池子里因此有多个打法，而不是一池子同一个自己。
         """
         mid = mid or f"S{int(it):05d}"
-        if mid in self.members:                  # 同一 iter 重复冻 → 直接返回（幂等）
+        if mid in self.members:                  # 同一 mid 重复冻 → 幂等
             return self.members[mid]
         w = {k: v.detach().cpu().clone() for k, v in net.state_dict().items()}
         p = None
@@ -149,6 +224,11 @@ class League:
             for q in frozen.parameters():
                 q.requires_grad_(False)
             self._nets[mid] = frozen
+        # ★ `INSERT OR IGNORE`：多进程同时冻同一 mid 时**先到先得**，不炸也不覆盖
+        self.conn.execute(
+            "INSERT OR IGNORE INTO members(mid,kind,born,path,added) VALUES(?,?,?,?,?)",
+            (mid, "snap", int(it), p, _now()))
+        self.conn.commit()
         m = Member(mid=mid, kind="snap", born=int(it), path=p)
         self.members[mid] = m
         self.log(f"  ★ 池子 +1 → {mid}（冻结第 {it} iter 的权重，只增不删）")
@@ -178,6 +258,32 @@ class League:
         return net
 
     # ---------------------------------------------------------- 抽签
+    def refresh(self) -> None:
+        """★ 从库里重读战绩 —— **判据（抽签/淘汰/报告）之前一律先跑一次**。
+
+        ★ 为什么必须：并行的世界里，别人进程刚记的战绩只存在于库里。
+          读自己的内存缓存 = 拿**过时的胜率**去淘汰/抽签，而且**不报错**。
+        """
+        rows = self.conn.execute(
+            "SELECT mid,kind,born,games,wins,active,path FROM members").fetchall()
+        seen = set()
+        for mid, kind, born, games, wins, active, path in rows:
+            seen.add(mid)
+            m = self.members.get(mid)
+            if m is None:
+                m = Member(mid=mid, kind=kind, born=born, path=path)
+                self.members[mid] = m
+            m.kind = kind
+            m.games, m.wins, m.active = int(games), int(wins), bool(active)
+            if m.path is None:
+                m.path = path
+        # ★★ **库里没有的，缓存里也不许有。** 否则缓存会**撒谎**：
+        #   库里那行被删了，缓存还留着它 ⇒ `active()`/`report()`/判据全都装作它还在，
+        #   而且**不报错**。★ 这条是"只增不删"那个守卫逼出来的 ——
+        #   把淘汰改成真 `DELETE` 时，测试原本是**绿的**（它只看了内存）。
+        for mid in [k for k in self.members if k not in seen]:
+            del self.members[mid]
+
     def active(self) -> list[str]:
         return [m.mid for m in self.members.values() if m.active]
 
@@ -195,10 +301,24 @@ class League:
         return [pool[i] for i in rng.permutation(len(pool))[:k]]
 
     # ---------------------------------------------------------- 战绩
-    def record(self, mid: str, won: bool) -> None:
-        m = self.members[mid]
-        m.games += 1
-        m.wins += int(bool(won))
+    def record(self, mid: str, won: bool, *, it: int | None = None) -> None:
+        """记一局战绩。★★ **原子自增**（不是"读出来加一再写回"）。
+
+        并发下唯一正确的写法：两个进程同时记同一份，
+        `games=games+1` 由 SQLite 串行化 ⇒ **一局都不会丢**；
+        而"读-加-写回"会让后写的那个把先写的**抹掉**（而且看起来一切正常）。
+        """
+        w = int(bool(won))
+        self.conn.execute("UPDATE members SET games=games+1, wins=wins+? WHERE mid=?",
+                          (w, mid))
+        self.conn.execute(
+            "INSERT INTO results(mid,won,iter,worker,ts) VALUES(?,?,?,?,?)",
+            (mid, w, None if it is None else int(it), self.worker, _now()))
+        self.conn.commit()
+        m = self.members.get(mid)
+        if m is not None:                        # 本地缓存跟着走（判据前仍会 refresh）
+            m.games += 1
+            m.wins += w
 
     def _live(self) -> list[Member]:
         return [m for m in self.members.values() if m.kind in ("main", "live")]
@@ -214,7 +334,9 @@ class League:
           ② **在训成员至少留 `min_learners` 份**（全停用 = 炉子没得炼）。
              —— `main`（主 pt）本来就免检，它们正是"基座"的保险。
         ★ 顺序：**胜率从低到高**淘汰，兜底先到先拦（谁最该走谁先走）。
+        ★ 先 `refresh()`：判据用的是**库里**的胜率（并行时别人也记了账）。
         """
+        self.refresh()
         cand = [m for m in self.members.values()
                 if m.active and m.kind != "main"
                 and m.games >= self.retire_min_games and m.rate < self.retire_rate]
@@ -227,11 +349,14 @@ class League:
                 break
             if m.kind == "live" and n_live - 1 < self.min_learners:   # 兜底②
                 continue
+            self.conn.execute("UPDATE members SET active=0 WHERE mid=?", (m.mid,))
             m.active = False
             n_active -= 1
             if m.kind == "live":
                 n_live -= 1
             killed.append(m.mid)
+        if killed:
+            self.conn.commit()
         return killed
 
     # ---------------------------------------------------------- 持久化
@@ -240,51 +365,40 @@ class League:
         return self.db.parent / (self.db.stem + "_snaps")
 
     def save(self) -> None:
-        """roster 落盘（**原子写**）。
+        """提交 + 落 `updated_iter`。
 
-        ★ 用户要的"永久化"就在这一行：胜率账本必须**跨进程重启活着**，
+        ★ 用户要的"永久化"就在这条路上：胜率账本必须**跨进程重启活着**，
           否则 `--restart-after` 每 5 个 iter 换一次进程，账本永远攒不到 10 局，
           淘汰规则就成了死代码（而且**不报错**）。
         """
-        if self.db is None:
-            return                               # 不落盘（见 __init__ 的 ★）
-        self.db.parent.mkdir(parents=True, exist_ok=True)
-        blob = {"version": self.VERSION, "updated_iter": int(self.updated_iter),
-                "mains": self.mains,
-                "retire": {"min_games": self.retire_min_games,
-                           "rate": self.retire_rate},
-                "fingerprint": self.fingerprint,
-                "members": [m.as_json() for m in self.members.values()]}
-        tmp = self.db.with_suffix(self.db.suffix + ".tmp")
-        tmp.write_text(json.dumps(blob, ensure_ascii=False, indent=1),
-                       encoding="utf-8")
-        os.replace(tmp, self.db)
+        self._meta_set("updated_iter", self.updated_iter)
+        self._meta_set("version", self.VERSION)
+        self._meta_set("worker", self.worker)
+        self.conn.commit()
 
     def load(self) -> bool:
-        """读回 roster。返回**是否读到了**（第一次跑没有账本，正常）。"""
-        if self.db is None or not self.db.exists():
-            return False
-        blob = json.loads(self.db.read_text(encoding="utf-8"))
-        fp = dict(blob.get("fingerprint") or {})
-        bad = {k: (fp.get(k), v) for k, v in self.fingerprint.items()
-               if k in fp and fp[k] != v}
+        """读回池子。返回**库里原本有没有成员**（第一次跑没有，正常）。"""
+        fp = json.loads(self._meta_get("fingerprint") or "{}")
+        bad = {k: (fp.get(k), v2) for k, v2 in self.fingerprint.items()
+               if k in fp and fp[k] != v2}
         if bad:
             raise SystemExit(
-                f"★ 联赛账本 {self.db} 的形状指纹对不上：{bad}\n"
-                f"  ⇒ 账本里的快照是**旧代码**训的，整池作废（别硬读）")
-        for d in blob.get("members", []):
-            m = Member(mid=d["mid"], kind=d["kind"], born=int(d["born"]),
-                       games=int(d["games"]), wins=int(d["wins"]),
-                       active=bool(d["active"]), path=d.get("path"))
-            # ★ 在训成员（path=None）由 `bind_live` 重新挂 —— 权重在主档里，
-            #   账本只负责**战绩**。这里先原样收进来，`bind_live` 会覆盖 kind。
-            self.members[m.mid] = m
-        self.updated_iter = int(blob.get("updated_iter", 0))
-        return True
+                f"★ 联赛库 {self.db} 的形状指纹对不上：{bad}\n"
+                f"  ⇒ 库里的快照是**旧代码**训的，整池作废（别硬读）")
+        self.updated_iter = int(self._meta_get("updated_iter") or 0)
+        self.refresh()
+        return bool(self.members)
+
+    def close(self) -> None:
+        try:
+            self.conn.close()
+        except Exception:
+            pass
 
     # ---------------------------------------------------------- 报告
     def report(self) -> str:
         """一行战绩摘要（进日志）。**别只看在训的那些** —— 池子的健康度看全体。"""
+        self.refresh()
         ms = sorted(self.members.values(), key=lambda m: (-m.rate, m.mid))
         live = [m for m in ms if m.kind in ("main", "live")]
         snap = [m for m in ms if m.kind == "snap"]
@@ -292,3 +406,7 @@ class League:
         head = " ".join(str(m) for m in live)
         return (f"池子{len(ms)}份(active {len(self.active())}) "
                 f"| 在训 {head} | 快照{len(snap)}份 停用{len(dead)}份")
+
+
+def _now() -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S")

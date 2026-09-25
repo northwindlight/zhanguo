@@ -345,9 +345,9 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     had = lg.load()
     mids = [f"L{i}" for i in range(n_slots)]
     log(f"★ 联赛池 **{n_slots} 份在训**（主 pt {league_mains}）"
-        f"{'＋账本已读回' if had else '（新账本）'}"
+        f"{'＋库已读回' if had else '（新库）'}"
         f" —— 每局按 `n_nations_for(边长)` **随机抽 k 份不重复**上场"
-        + (f"；账本 → {league_db}" if league_db else "；★ **账本不落盘**"))
+        + (f"；库 → {league_db}（SQLite/WAL）" if league_db else "；★ **库不落盘**"))
     state: dict = {}
     it0 = _load_ckpt(resume, nets, log=log) if resume else 0
     # ★★「联赛池从**最新快照**开始分化」（用户原话）：所有在训成员**从同一份起跑**，
@@ -359,11 +359,13 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         log(f"★ 同时给了 `--league-from` 和 `--resume` —— **resume 赢**"
             f"（延续训练优先，别把练过的权重盖回起点）")
     elif league_from:
-        pick = _load_seed(league_from)
+        seed = _load_seed(league_from)
         for i in range(n_slots):
-            nets[i].load_state_dict(pick)
-        log(f"★ 联赛池**从最新快照开始分化**：{n_slots} 份在训成员都从 "
-            f"{league_from} 起跑（此后各抽各的对手 ⇒ 风格漂开）")
+            # ★ **按槽位**：第 i 份继承起点里的第 i 份（缺了才退回第 0 份）
+            nets[i].load_state_dict(seed.get(i, seed[min(seed)]))
+        log(f"★ 联赛池**从原来 {len(seed)} 个分出去**：{n_slots} 份在训成员"
+            f"**各继承自己那一条血脉**（{league_from}）⇒ 此后各抽各的对手、"
+            f"**继续分化**（★ 不是「都从同一份起跑」—— 那等于把几条血脉掐成一条）")
     for i, mid in enumerate(mids):
         lg.bind_live(mid, nets[i], born=it0)
     if out:
@@ -403,7 +405,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
             #   包括冻结快照：它们也要有胜率，否则"打不动的停用"无从判起。
             won = set(info.get("winner_members") or ())
             for p in players:
-                lg.record(mid_of[p], p in won)
+                lg.record(mid_of[p], p in won, it=it)
             for s in steps:
                 mi = mid_of[s.player]
                 if mi in buf:                 # ★ 只有在训成员进梯度；快照只当对手
@@ -486,8 +488,12 @@ def _shape_fingerprint() -> dict:
 
 
 def _load_seed(path: str) -> dict:
-    """★ 读一份**分化起点**（`--league-from`）的权重。
+    """★ 读一份**分化起点**（`--league-from`）的**全部**权重（按槽位）。
 
+    ★★ **按槽位灌**（`L0←nets[0]`、`L1←nets[1]`…）—— 用户 2026-09-25：
+      「**分化指从原来 5 个来分化，而不是一个**」。
+      我第一版把 5 份**都从 `nets[0]`** 起跑，那等于**把 5 条血脉掐成 1 条**，
+      跟"分化"正好相反（5 份会先收敛成同一个东西，再一起漂）。
     ★★ 一样要校**形状指纹** —— 铁律：「**ckpt 会被新代码加载就必须重炼**」。
       权重张量能 `load_state_dict` 成功、却喂错口径的通道是**查不出来**的，
       而"起点"这条路是**唯一会静默毒害整个池子**的地方（池子里每一份都从它来）。
@@ -501,10 +507,11 @@ def _load_seed(path: str) -> dict:
             f"★ 分化起点 {path} 的形状指纹对不上：{bad}（存的是旧值，现在的是新值）\n"
             f"  ⇒ 它是**旧代码**训的，不能当起点（整池都会被它带歪）")
     src = blob.get("nets") or {}
-    pick = src.get(0) if isinstance(src, dict) and src else blob.get("weights")
-    if pick is None:
-        raise SystemExit(f"★ {path} 里没找到可用权重（既没有 `nets` 也没有 `weights`）")
-    return pick
+    if isinstance(src, dict) and src:
+        return {int(k): v for k, v in src.items()}
+    if blob.get("weights"):
+        return {0: blob["weights"]}              # 单份（如池子成员那种格式）
+    raise SystemExit(f"★ {path} 里没找到可用权重（既没有 `nets` 也没有 `weights`）")
 
 
 def _load_ckpt(path: str, nets: dict, *, log=print) -> int:
@@ -596,8 +603,10 @@ if __name__ == "__main__":
                     help="★ 从存档**续跑**（先校形状指纹，对不上直接拒）")
     # ---- ★ 联赛池（用户 2026-09-25：「现在做联赛池」）----
     ap.add_argument("--league-db", dest="league_db", type=str,
-                    default="rl/runs/league.json",
-                    help="★ 联赛账本（json，**胜率永久化**在这个文件里）。"
+                    default="rl/runs/league.db",
+                    help="★ 联赛库（**SQLite**，胜率永久化在这里）。"
+                         "★ 用库不用 json 是**为了以后并行**（用户：「池子够大并行抽，"
+                         "起多个独立进程筛」）—— 写入走原子自增 ⇒ 多进程记账不互相覆盖。"
                          "给 `none` ⇒ 池子照跑但**不落盘**（战绩不过夜 ⇒ 10 局门槛"
                          "永远够不到 ⇒ 淘汰规则变死代码，**还不报错**）")
     ap.add_argument("--league-mains", dest="league_mains", type=int, default=2,
@@ -608,9 +617,9 @@ if __name__ == "__main__":
                     help="★ 每几个 iter 冻一份当前权重进池（**只增不删**）。"
                          "0 = 不冻（池子就只有在训的那几份）")
     ap.add_argument("--league-from", dest="league_from", type=str, default=None,
-                    help="★ **从最新快照开始分化**（用户原话）：所有在训成员都从"
-                         "这一份起跑（不再各随机初始化）⇒ 起点相同、对手组合不同、"
-                         "风格自己漂开。★ 与 `--resume` 同时给时 **resume 赢**")
+                    help="★ **分化的起点**（用户：「分化指从**原来 5 个**来分化，"
+                         "**而不是一个**」）⇒ **按槽位灌**：第 i 份继承起点里的第 i 份，"
+                         "各自延续自己的血脉。★ 与 `--resume` 同时给时 **resume 赢**")
     ap.add_argument("--league-min-games", dest="league_min_games", type=int,
                     default=10,
                     help="★ 淘汰门槛之一：**打满几局**才谈胜率（用户：10）")

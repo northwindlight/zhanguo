@@ -108,8 +108,36 @@ class TestLeagueSeed(unittest.TestCase):
                              meta={"fingerprint": train._shape_fingerprint()})
             w = train._load_seed(path)
             self.assertTrue(w, "没返回权重")
+            self.assertEqual(sorted(w), [0], "单份起点该只有槽位 0")
             for k, v in net.state_dict().items():
-                self.assertTrue(torch.equal(w[k], v), f"{k} 没读对")
+                self.assertTrue(torch.equal(w[0][k], v), f"{k} 没读对")
+
+    def test_seed_keeps_each_slot_apart(self):
+        """★★ 「分化指从**原来 5 个**来分化，**而不是一个**」（用户 2026-09-25）。
+
+        ⇒ `_load_seed` 必须**按槽位**返回**各不相同的**权重。
+          ★ 我第一版把 5 份都从 `nets[0]` 起跑 —— 那等于**把 5 条血脉掐成 1 条**，
+            正是"分化"的反面。这条用例专门钉死它。
+        """
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "seed.pt")
+            nets = {}
+            for i in range(3):
+                nets[i] = build_model()
+                with torch.no_grad():          # 让三份**互不相同**
+                    for j, p in enumerate(nets[i].parameters()):
+                        p.add_(0.1 * (i + 1) * (1 + j % 3))
+            train._save_ckpt(path, nets, 0,
+                             meta={"fingerprint": train._shape_fingerprint()})
+            w = train._load_seed(path)
+            self.assertEqual(sorted(w), [0, 1, 2], "槽位没按份数返回")
+            for i in sorted(w):
+                for k, v in nets[i].state_dict().items():
+                    self.assertTrue(torch.equal(w[i][k], v), f"槽位 {i} 的 {k} 串了")
+            # ★ 反向对照：三份之间**必须真的不同**，否则"各继承自己那条"是空话
+            self.assertFalse(torch.equal(w[0]["head.weight"], w[1]["head.weight"])
+                             if "head.weight" in w[0] else False,
+                             "起点里三份本来就一样 ⇒ 上面那条测不出东西")
 
 
 class TestCkptIsAtomic(unittest.TestCase):
