@@ -45,7 +45,8 @@ cd "$HERE"
 RUNDIR="${ZHANGUO_PAR_DIR:-$HERE/rl/runs/par}"
 LOGDIR="$HERE/rl/runs"
 PY="${ZHANGUO_PY:-$HOME/.venv/bin/python}"
-SESSION_PREFIX="w"
+# ★ 会话前缀（可改）⇒ **能起两组、各给不同参数**（例如一组 `--device cpu`、一组 `--device cuda`）
+SESSION_PREFIX="${ZHANGUO_PAR_PREFIX:-w}"
 # ★ 每个 worker 用几个 torch 线程（见上面 ③）。缺省 1 = 老行为（ECS 上是对的）。
 THREADS_PER_WORKER="${THREADS_PER_WORKER:-1}"
 
