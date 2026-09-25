@@ -83,6 +83,35 @@ class TestSaveLoad(unittest.TestCase):
             self.assertIn(k, fp, f"指纹里少了 {k} —— 它变了旧 ckpt 就该作废")
 
 
+class TestLeagueSeed(unittest.TestCase):
+    """★ `--league-from`（「**联赛池从最新快照开始分化**」）那条路也要指纹把关。
+
+    它是**唯一会静默毒害整个池子**的入口：池子里每一份都从它起跑 ——
+    起点错，错的是全池，而**训练日志上看不出任何异常**。
+    """
+
+    def test_stale_seed_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "stale_seed.pt")
+            fp = dict(train._shape_fingerprint())
+            fp["glob_size"] = 999
+            train._save_ckpt(path, {0: build_model()}, 0, meta={"fingerprint": fp})
+            with self.assertRaises(SystemExit):
+                train._load_seed(path)
+
+    def test_current_seed_is_accepted_and_returns_weights(self):
+        """★ 反向对照：**对得上**的起点必须能读，且返回的确实是权重。"""
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "seed.pt")
+            net = build_model()
+            train._save_ckpt(path, {0: net}, 0,
+                             meta={"fingerprint": train._shape_fingerprint()})
+            w = train._load_seed(path)
+            self.assertTrue(w, "没返回权重")
+            for k, v in net.state_dict().items():
+                self.assertTrue(torch.equal(w[k], v), f"{k} 没读对")
+
+
 class TestCkptIsAtomic(unittest.TestCase):
     def test_no_partial_file_left_behind(self):
         """★ 原子写：只留最终文件，不留 `.tmp`（别让"写了一半"被拉走）。"""

@@ -41,6 +41,7 @@ import torch.nn as nn
 from . import encode, evaluate
 from . import scoring as S
 from . import vocab as V
+from .league import League
 from .model import PolicyNet, build_model
 from .sandbox import Sandbox, n_nations_for
 
@@ -306,6 +307,9 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           halls_known: bool = True, nations: int | None = None,
           t_max: int = 200, pool: int = 5, out: str | None = None,
           ckpt_every: int = 5, resume: str | None = None,
+          league_db: str | None = None, league_mains: int = 2,
+          league_snapshot_every: int = 50, league_from: str | None = None,
+          league_min_games: int = 10, league_retire_rate: float = 0.20,
           log=print) -> dict[int, PolicyNet]:
     """主循环：自对弈 collect → 每个网络各 update 一次。
 
@@ -330,23 +334,45 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     n_slots = max(int(pool), k_of(hi) if not nations else int(nations))
     nets = {i: build_model() for i in range(n_slots)}
     _log_params(nets[0], log)
-    # ★★ **联赛池**（用户 2026-09-25）：「**开局 5 个空权重，随机抽 pt 参与游戏**」
-    #   ⇒ 池子里 `n_slots` 份**全新初始化**的网络（"空权重"），每局**随机抽不重复的
-    #     k 份**上场。★ 抽不重复：同一个网络在一局里扮两个国家 = 自己打自己，
-    #     对"学对抗"没有增量，还会把那一局的梯度混在一起。
-    #   ★ 现在**没有**"把历史 ckpt 加进池子"那一半（#11 的"只增不删"）—— 用户
-    #     2026-09-25 说剩下内容先入计划暂不做；池子目前就是这 `n_slots` 份在训。
-    log(f"★ 联赛池 **{n_slots} 份**（全新初始化）—— 每局按 `n_nations_for(边长)` "
-        f"**随机抽 k 份**上场")
+    # ★★ **联赛池**（用户 2026-09-25 定的口径，逐条见 `rl/league.py` 的 docstring）
+    #   摘要：从最新快照开始分化 / 只增不删 / 随机抽 pt / 胜率永久化到 json /
+    #        可有 2 个固定主 pt / 打 10 局以上胜率 <20% 的不再启用。
+    #   ★ `league_db=None` ⇒ 池子照跑但**不落盘**（战绩不过夜）—— 真起炉必须给。
+    lg = League(league_db, mains=league_mains,
+                retire_min_games=league_min_games, retire_rate=league_retire_rate,
+                max_k=k_of(hi), min_learners=1,
+                fingerprint=_shape_fingerprint(), log=log)
+    had = lg.load()
+    mids = [f"L{i}" for i in range(n_slots)]
+    log(f"★ 联赛池 **{n_slots} 份在训**（主 pt {league_mains}）"
+        f"{'＋账本已读回' if had else '（新账本）'}"
+        f" —— 每局按 `n_nations_for(边长)` **随机抽 k 份不重复**上场"
+        + (f"；账本 → {league_db}" if league_db else "；★ **账本不落盘**"))
     state: dict = {}
     it0 = _load_ckpt(resume, nets, log=log) if resume else 0
+    # ★★「联赛池从**最新快照**开始分化」（用户原话）：所有在训成员**从同一份起跑**，
+    #   ⇒ 起点相同、每局抽到的对手组合不同 ⇒ **风格自己漂开**。
+    #   （原来是各随机初始化 —— 大部分生下来就是废的，谈不上"分化"。）
+    #   ★ 只在**建池时**生效（`--resume` 时权重来自主档，两者同时给会互相覆盖，
+    #     所以这里显式让 resume 赢，并说明白）。
+    if league_from and resume:
+        log(f"★ 同时给了 `--league-from` 和 `--resume` —— **resume 赢**"
+            f"（延续训练优先，别把练过的权重盖回起点）")
+    elif league_from:
+        pick = _load_seed(league_from)
+        for i in range(n_slots):
+            nets[i].load_state_dict(pick)
+        log(f"★ 联赛池**从最新快照开始分化**：{n_slots} 份在训成员都从 "
+            f"{league_from} 起跑（此后各抽各的对手 ⇒ 风格漂开）")
+    for i, mid in enumerate(mids):
+        lg.bind_live(mid, nets[i], born=it0)
     if out:
         # ★ 起炉前先落一份"第 0 代"存档：跑挂了也还有东西可续，且形状元数据在册
         _save_ckpt(out, nets, it0,
                    meta=_ckpt_meta(lo, hi, halls_known, nations, n_slots, t_max))
         log(f"★ 起始存档 → {out}（第 {it0} iter）")
     for it in range(it0 + 1, it0 + iters + 1):
-        buf: dict[int, list] = {i: [] for i in range(n_slots)}
+        buf: dict[str, list] = {mid: [] for mid in mids}
         infos = []
         for e in range(episodes_per_iter):
             # ★ **地图尺寸也随机**（用户 2026-09-24：「改成随机地图」）—— **域随机化**：
@@ -361,19 +387,29 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
             first = players[(it + e) % k]
             sb = Sandbox(seed=int(rng.integers(1 << 30)), size=sz, t_max=t_max,
                          first=first, halls_known=halls_known).reset()
-            # ★★ **随机抽 k 份不重复的网络**上场（用户：「随机抽 pt 参与游戏」）。
+            # ★★ **从池子里随机抽 k 份不重复的 pt** 上场（用户：「随机抽 pt」）。
             #   `rng.permutation` 取前 k ⇒ 无重复、且每局独立。沙盒是**对称**的
             #   （各国开局一样、先手另算）⇒ 网络扮哪个国家不带偏差，
             #   "谁的数据"只是被摊平。
-            draw = [int(x) for x in rng.permutation(n_slots)[:k]]
-            net_of = {p: nets[draw[i]] for i, p in enumerate(players)}
-            slot_of = {p: draw[i] for i, p in enumerate(players)}
+            #   ★ 抽出来的可能是**池里的冻结快照**（旧代的自己）—— 那正是"分化"的
+            #     来源：对手不只一个打法。快照**只当对手、不进梯度**（下面按 mid 分派）。
+            draw = lg.draw(k, rng)
+            net_of = {p: lg.net_of(draw[i]) for i, p in enumerate(players)}
+            mid_of = {p: draw[i] for i, p in enumerate(players)}
             steps, info = collect_episode(net_of, sb, temperature=temperature,
                                           rng=rng)
             infos.append(info)
+            # ★ 战绩记到**每个上场的成员**头上（用户：「标记每个 pt 的胜率」）——
+            #   包括冻结快照：它们也要有胜率，否则"打不动的停用"无从判起。
+            won = set(info.get("winner_members") or ())
+            for p in players:
+                lg.record(mid_of[p], p in won)
             for s in steps:
-                buf[slot_of[s.player]].append(s)
-        st = {i: ppo_update(nets[i], buf[i], lr=lr) for i in range(n_slots)}
+                mi = mid_of[s.player]
+                if mi in buf:                 # ★ 只有在训成员进梯度；快照只当对手
+                    buf[mi].append(s)
+        st = {mids[i]: ppo_update(nets[i], buf[mids[i]], lr=lr)
+              for i in range(n_slots)}
         # ★ 按**实体**判谁赢（联盟胜利 / 单国胜利）：`winner` 是实体标签，比不得国名
         win_by = {p: sum(1 for i in infos
                          if p in (i.get("winner_members") or ()))
@@ -382,9 +418,24 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         # 先手胜率（本 iter 内）：健康值 = **1/k**（先手在 k 国之间轮换）
         #   —— 明显偏高才是"胜负由行动顺序决定"的嫌疑。
         nf = sum(1 for i in infos if i["first"] in (i.get("winner_members") or ()))
-        live = {i: _fmt(st[i]) for i in st if buf[i]}
+        live = {m: _fmt(st[m]) for m in st if buf[m]}
         log(f"[{it:4d}] 局数{len(infos)} 胜场{win_by} 先手胜{nf} 平均回合{turns:.1f} "
             f"| 网络 {live}")
+        # ---- ★ 联赛池：淘汰 / 冻快照 / 账本落盘 ----
+        #  ★ 这三件事**每 iter 都做**，不是"每 N iter 做一次" —— 淘汰规则靠的是
+        #    战绩累积，漏做一次不会有症状，但账本会慢慢和现实对不上。
+        killed = lg.retire()
+        if killed:
+            log(f"  ★ 停用（打满{lg.retire_min_games}局且胜率<{lg.retire_rate:.0%}）"
+                f"→ {killed}（**只标停用、不删除**，仍留在账本里）")
+        if league_snapshot_every and it % league_snapshot_every == 0:
+            pool_i = [i for i, mi in enumerate(mids) if lg.members[mi].active]
+            if pool_i:                      # ★ 冻一份当前权重进池（只增不删）
+                i = pool_i[(it // league_snapshot_every) % len(pool_i)]
+                lg.add_snapshot(nets[i], it, mid=f"S{it:05d}L{i}")
+        lg.updated_iter = it
+        lg.save()
+        log(f"  {lg.report()}")
         # ---- ★ 自动闸门：先手连续赢 ⇒ 炸 ----
         # 判据见 `_streak` 的 docstring：看**该局自己的先手**，不看某一方。
         n_first = _streak(infos, state, "__first__")
@@ -432,6 +483,28 @@ def _shape_fingerprint() -> dict:
         "army_width": int(V.A_WIDTH_RAW + F.F_U + V.A_EXTRA),
         "glob_content": int(F.F_GLOB),
     }
+
+
+def _load_seed(path: str) -> dict:
+    """★ 读一份**分化起点**（`--league-from`）的权重。
+
+    ★★ 一样要校**形状指纹** —— 铁律：「**ckpt 会被新代码加载就必须重炼**」。
+      权重张量能 `load_state_dict` 成功、却喂错口径的通道是**查不出来**的，
+      而"起点"这条路是**唯一会静默毒害整个池子**的地方（池子里每一份都从它来）。
+    """
+    blob = torch.load(path, map_location="cpu", weights_only=False)
+    fp = (blob.get("meta") or {}).get("fingerprint") or {}
+    now = _shape_fingerprint()
+    bad = {k: (fp.get(k), v) for k, v in now.items() if k in fp and fp[k] != v}
+    if bad:
+        raise SystemExit(
+            f"★ 分化起点 {path} 的形状指纹对不上：{bad}（存的是旧值，现在的是新值）\n"
+            f"  ⇒ 它是**旧代码**训的，不能当起点（整池都会被它带歪）")
+    src = blob.get("nets") or {}
+    pick = src.get(0) if isinstance(src, dict) and src else blob.get("weights")
+    if pick is None:
+        raise SystemExit(f"★ {path} 里没找到可用权重（既没有 `nets` 也没有 `weights`）")
+    return pick
 
 
 def _load_ckpt(path: str, nets: dict, *, log=print) -> int:
@@ -521,6 +594,31 @@ if __name__ == "__main__":
                     help="★ 联赛池份数（用户：「开局 **5** 个空权重，随机抽 pt 参与」）")
     ap.add_argument("--resume", type=str, default=None,
                     help="★ 从存档**续跑**（先校形状指纹，对不上直接拒）")
+    # ---- ★ 联赛池（用户 2026-09-25：「现在做联赛池」）----
+    ap.add_argument("--league-db", dest="league_db", type=str,
+                    default="rl/runs/league.json",
+                    help="★ 联赛账本（json，**胜率永久化**在这个文件里）。"
+                         "给 `none` ⇒ 池子照跑但**不落盘**（战绩不过夜 ⇒ 10 局门槛"
+                         "永远够不到 ⇒ 淘汰规则变死代码，**还不报错**）")
+    ap.add_argument("--league-mains", dest="league_mains", type=int, default=2,
+                    help="★ **固定主 pt** 的份数（用户：「可以有两个固定主 pt，"
+                         "也可以没有」）。主 pt = **不受淘汰规则约束**的基座")
+    ap.add_argument("--league-snapshot-every", dest="league_snapshot_every",
+                    type=int, default=50,
+                    help="★ 每几个 iter 冻一份当前权重进池（**只增不删**）。"
+                         "0 = 不冻（池子就只有在训的那几份）")
+    ap.add_argument("--league-from", dest="league_from", type=str, default=None,
+                    help="★ **从最新快照开始分化**（用户原话）：所有在训成员都从"
+                         "这一份起跑（不再各随机初始化）⇒ 起点相同、对手组合不同、"
+                         "风格自己漂开。★ 与 `--resume` 同时给时 **resume 赢**")
+    ap.add_argument("--league-min-games", dest="league_min_games", type=int,
+                    default=10,
+                    help="★ 淘汰门槛之一：**打满几局**才谈胜率（用户：10）")
+    ap.add_argument("--league-retire-rate", dest="league_retire_rate", type=float,
+                    default=0.20,
+                    help="★ 淘汰门槛之二：胜率低于它 ⇒ `active=false`（用户：0.20）。"
+                         "⚠ K 国局里随机胜率是 1/K —— 3 国 33%、**5 国 20%**"
+                         "⇒ 这个阈值在 5 国局上等于「和随机持平」（偏严）")
     ap.add_argument("--restart-after", dest="restart_after", type=int, default=0,
                     help="★ 每跑这么多 iter 就**重启进程**（存档后续跑）—— 抗内存增长，"
                          "用户 2026-09-25：「不如定时重启」")
@@ -549,7 +647,12 @@ if __name__ == "__main__":
           temperature=a.temperature, first_streak_limit=a.first_streak_limit,
           size=a.size, size_min=a.size_min, size_max=a.size_max,
           halls_known=a.halls_known, nations=a.nations, t_max=a.t_max,
-          pool=a.pool, out=a.out, ckpt_every=a.ckpt_every, resume=a.resume)
+          pool=a.pool, out=a.out, ckpt_every=a.ckpt_every, resume=a.resume,
+          league_db=(None if (a.league_db or "").lower() in ("none", "") else a.league_db),
+          league_mains=a.league_mains,
+          league_snapshot_every=a.league_snapshot_every,
+          league_from=a.league_from, league_min_games=a.league_min_games,
+          league_retire_rate=a.league_retire_rate)
     if a.restart_after and a.iters > seg:
         # ★★ **定时重启**（用户 2026-09-25：「不如定时重启」）：跑完这一段就 `exec` 自己，
         #   **新进程 ⇒ RSS 归零**，并从刚存的档续跑。
@@ -557,6 +660,12 @@ if __name__ == "__main__":
         #     而 exec 保持同一套 stdout/`tee`/日志管道不变（日志会一路接下去）。
         remain = a.iters - seg
         argv = [arg for arg in sys.argv[1:]]
+        # ★ `--league-from` 是**一次性**的起点：重启时权重来自 `--resume` 的档，
+        #   再带上它只会每 5 个 iter 刷一条"resume 赢"的提示（噪声）。
+        for flag in ("--league-from",):
+            if flag in argv:
+                i = argv.index(flag)
+                del argv[i:i + 2]
         for i, arg in enumerate(argv):                 # 把 `--iters` 改成剩余量
             if arg == "--iters":
                 argv[i + 1] = str(remain)
