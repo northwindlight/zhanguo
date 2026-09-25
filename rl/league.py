@@ -241,7 +241,7 @@ class League:
             os.replace(tmp, fp)                  # ★ 原子：别让"写了一半"被读走
             p = str(fp)
         else:
-            frozen = build_model()               # 不落盘：冻结份留内存
+            frozen = self._new_net()             # 不落盘：冻结份留内存
             frozen.load_state_dict(w)
             frozen.to(self.device)
             frozen.eval()
@@ -258,6 +258,21 @@ class League:
         self.members[mid] = m
         self.log(f"  ★ 池子 +1 → {mid}（冻结第 {it} iter 的权重，只增不删）")
         return m
+
+    def _new_net(self):
+        """按**本池的形状**建一份空网 —— ★★ **不许用裸的 `build_model()`**。
+
+        我踩过（2026-09-25，记忆臂跑到第 4 个 iter **当场崩**）：
+        这里原来写的是 `build_model()`，而它的默认值是 `mem_slots=0`
+        ⇒ **给记忆档建了一份马尔可夫网**，`load_state_dict` 报
+        `Unexpected key(s) in state_dict: "mem0", "mem_write.q.weight", …`。
+        最讽刺的是**上一行的指纹闸门刚刚放行** —— 它比的是"池子的形状"，
+        两边一致 ⇒ 闸门说"这是记忆池"，紧接着按"0 槽"建网，**自己跟自己矛盾**。
+
+        形状的**唯一出处**是 `self.fingerprint`（`_shape_fingerprint(mem_slots)`，
+        它本来就带着 `mem_slots`）⇒ 从它取，别再让默认值插一脚。
+        """
+        return build_model(mem_slots=int(self.fingerprint.get("mem_slots", 0)))
 
     def net_of(self, mid: str):
         """取这一份的权重对象（快照懒加载 + **有上界的缓存**）。
@@ -284,7 +299,7 @@ class League:
             raise SystemExit(
                 f"★ 池子成员 {mid} 的形状指纹对不上：{bad}\n"
                 f"  ⇒ 它是**旧代码**训的，不能上场（铁律：会被新代码加载就必须重炼）")
-        net = build_model()
+        net = self._new_net()
         net.load_state_dict(blob["weights"])
         net.to(self.device)                  # ★ 快照也要上同一台设备（见 __init__ 的 ★★）
         net.eval()

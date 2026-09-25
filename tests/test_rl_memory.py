@@ -443,5 +443,69 @@ class TestEffectiveEpochsIsComputedOnce(unittest.TestCase):
                                  f"（两臂差了这个因子 ⇒ A/B 结论无效）")
 
 
+class TestPoolAndJudgeBuildTheRightShape(unittest.TestCase):
+    """★★ **"按存档/池子建网"的地方，形状必须从指纹取** —— 2026-09-25 记忆臂跑崩的根因。
+
+    现场：`mem1` 跑到第 4 个 iter **当场炸**（`RuntimeError: Unexpected key(s) in
+    state_dict: "mem0", "mem_write.q.weight", …`），根因是 `League.net_of` 里
+    裸的 `build_model()`（默认 `mem_slots=0`）⇒ 给**记忆快照**建了一份**马尔可夫网**。
+    最刺眼的是那道**指纹闸门就在上一行、而且刚刚放行**（两边指纹一致）——
+    闸门说"这是记忆池"，下一行按"0 槽"建网，**自己跟自己矛盾**。
+
+    同一个病还有第二处：`eval_fixed.load_pool` 也是先 `build_model()` 再读档
+    ⇒ **这条线唯一的裁判评不了记忆臂**（而它正是判 A/B 胜利用的那把尺子）。
+
+    ⇒ 钉住：① 池子里冻出来的快照（落盘/不落盘两条路）都能被 `net_of` 取回，
+      且取回的网**真的有记忆模块**；② `load_pool` 读记忆档给出记忆网。
+
+    ★ 两条都**故意破坏过**（把 `self._new_net()` / `build_model(mem_slots=mem)`
+      改回裸的 `build_model()`）⇒ 当场红。
+    """
+
+    def test_league_snapshot_of_a_memory_net_round_trips(self):
+        import tempfile
+        from pathlib import Path
+        from rl.league import League
+        from rl.train import _shape_fingerprint
+        net = build_model(mem_slots=V.M_SLOTS)
+        with tempfile.TemporaryDirectory() as d:
+            for db in (str(Path(d) / "l.db"), None):     # ★ 落盘 / 不落盘 两条路都走
+                lg = League(db, mains=1, fingerprint=_shape_fingerprint(V.M_SLOTS),
+                            device="cpu", log=lambda *_: None)
+                lg.bind_live("L0", net)
+                mid = lg.add_snapshot(net, 3).mid
+                got = lg.net_of(mid)
+                self.assertTrue(hasattr(got, "mem_write"),
+                                f"（db={db}）池子取回的网**没有记忆模块** "
+                                f"⇒ 给记忆快照建了马尔可夫网（`build_model()` 的默认值陷阱）")
+                self.assertEqual(
+                    sum(p.numel() for p in got.parameters()),
+                    sum(p.numel() for p in net.parameters()),
+                    "取回的网参数量与冻进去的不一致 ⇒ 形状错了")
+
+    def test_eval_fixed_can_load_a_memory_ckpt(self):
+        """★ **裁判必须评得了记忆臂** —— 否则 A/B 的胜率判据根本取不到数。"""
+        import tempfile
+        from pathlib import Path
+        from rl.eval_fixed import load_pool
+        with tempfile.TemporaryDirectory() as d:
+            p = str(Path(d) / "m.pt")
+            nets = {i: build_model(mem_slots=V.M_SLOTS) for i in range(2)}
+            T._save_ckpt(p, nets, 4,
+                         meta=T._ckpt_meta(8, 8, True, 3, 2, 60,
+                                           mem_slots=V.M_SLOTS))
+            got = load_pool(p, 2, log=lambda *_: None)
+            for i, n in got.items():
+                self.assertTrue(hasattr(n, "mem_write"),
+                                f"第 {i} 份没有记忆模块 ⇒ 裁判把记忆档当成马尔可夫档读了")
+            # ★ 反向：指纹对不上（网格宽度改了）必须**直接拒**，不是硬加载
+            blob = torch.load(p, map_location="cpu", weights_only=False)
+            blob["meta"]["fingerprint"]["glob_size"] = int(V.GLOB_SIZE) + 7
+            bad = str(Path(d) / "bad.pt")
+            torch.save(blob, bad)
+            with self.assertRaises(SystemExit, msg="指纹对不上居然没拒"):
+                load_pool(bad, 2, log=lambda *_: None)
+
+
 if __name__ == "__main__":
     unittest.main()

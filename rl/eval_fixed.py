@@ -39,31 +39,41 @@ from . import encode, scoring as S
 from . import vocab as V
 from .model import build_model
 from .sandbox import Sandbox, n_nations_for
-from .train import collate
+from .train import _shape_fingerprint, collate
 
 
 def load_pool(path: str | None, n_slots: int, *, log=print) -> dict:
-    """从 ckpt 读回整池权重；`None` ⇒ **未训练的网**（基线臂）。"""
-    nets = {i: build_model() for i in range(n_slots)}
+    """从 ckpt 读回整池权重；`None` ⇒ **未训练的网**（基线臂）。
+
+    ★★ **网的形状要从存档的指纹里取**（`mem_slots`）—— 我踩过：这里原来先
+      `build_model()`（默认 `mem_slots=0`）**再**读档，于是**评测记忆臂时**
+      `load_state_dict` 报一堆 `Unexpected key(s): mem0, mem_write…` ⇒
+      **这条线唯一的裁判（`eval_fixed`）根本评不了记忆臂**，而它正是用来判
+      A/B 胜率的那把尺子（`--memory` 那两臂就靠它比）。
+      指纹检查也顺带**比全**了（原来只手写了两项，`mem_slots` 不在内）。
+    """
     if not path:
         log(f"★ 基线臂：**未训练**的 {n_slots} 份网（全新初始化）")
-        return nets
+        return {i: build_model() for i in range(n_slots)}
     blob = torch.load(path, map_location="cpu", weights_only=False)
     meta = blob.get("meta") or {}
     fp = meta.get("fingerprint") or {}
+    mem = int(fp.get("mem_slots", 0))            # ★ 唯一出处：存档自己写的形状
     # ★★ 形状指纹对不上 ⇒ **直接拒**（旧线铁律：ckpt 会被新代码加载就必须重炼）
-    now = {"grid_channels": int(V.GRID_CHANNELS), "glob_size": int(V.GLOB_SIZE)}
-    for k, v in now.items():
-        if k in fp and fp[k] != v:
-            raise SystemExit(
-                f"★ ckpt 的形状指纹对不上：{k} 存的是 {fp[k]}，现在是 {v}"
-                f" ⇒ 这个 ckpt 是**旧代码**训的，必须重炼（别硬加载）")
+    now = _shape_fingerprint(mem)
+    bad = {k: (fp.get(k), v) for k, v in now.items()
+           if k != "mem_slots" and k in fp and fp[k] != v}
+    if bad:
+        raise SystemExit(
+            f"★ ckpt 的形状指纹对不上：{bad}（存的是旧值，现在的是新值）"
+            f" ⇒ 这个 ckpt 是**旧代码**训的，必须重炼（别硬加载）")
+    nets = {i: build_model(mem_slots=mem) for i in range(n_slots)}
     got = blob["nets"]
     for i in range(n_slots):
         if i in got:
             nets[i].load_state_dict(got[i])
     log(f"★ 从 {path} 读回 {len(got)} 份权重（iter={meta.get('iters')}，"
-        f"指纹 {fp}）")
+        f"记忆 {mem} 槽，指纹 {fp}）")
     return nets
 
 
