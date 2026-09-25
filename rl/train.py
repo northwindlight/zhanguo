@@ -328,6 +328,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           halls_known: bool = True, nations: int | None = None,
           t_max: int = 200, pool: int = 5, out: str | None = None,
           ckpt_every: int = 5, resume: str | None = None, max_steps: int = 0,
+          mb: int | None = None, epochs: int | None = None,
           league_db: str | None = None, league_mains: int = 2,
           league_snapshot_every: int = 50, league_from: str | None = None,
           league_min_games: int = 10, league_retire_rate: float = 0.20,
@@ -451,7 +452,9 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                 mi = mid_of[s.player]
                 if mi in buf:                 # ★ 只有在训成员进梯度；快照只当对手
                     buf[mi].append(s)
-        st = {mids[i]: ppo_update(nets[i], buf[mids[i]], lr=lr)
+        pk = {} if epochs is None else {"epochs": epochs}
+        st = {mids[i]: ppo_update(nets[i], buf[mids[i]], lr=lr,
+                                  minibatch=mb, **pk)
               for i in range(n_slots)}
         # ★ 按**实体**判谁赢（联盟胜利 / 单国胜利）：`winner` 是实体标签，比不得国名
         win_by = {p: sum(1 for i in infos
@@ -644,6 +647,15 @@ if __name__ == "__main__":
                          "实测闸门连响）—— 多玩家正是为**解这个僵局**而做；"
                          "★ 2026-09-25 起炉范围改成 **12-20**（治换家流 + 让一局装得下"
                          "步数预算），`TILES_PER_NATION` 同时调到 60 以保住 3-5 国")
+    ap.add_argument("--minibatch", dest="mb", type=int, default=None,
+                    help="★ PPO 的 minibatch 大小（缺省 = `scoring.PPO_MINIBATCH`）。"
+                         "⚠ **大图上真正的内存旋钮**：窗口里的**网格 token** 数随"
+                         "视野外接框长大（8×8 最多 64 格、20×20 最多 400），"
+                         "而注意力是 **O(N²)** 再乘 minibatch ⇒ 8×8 上够用的 128，"
+                         "换个图就未必。**只在真 OOM 时才动它。**")
+    ap.add_argument("--epochs", dest="epochs", type=int, default=None,
+                    help="★ PPO 每批跑几遍（缺省 4）。调小 = 更新更快更省，"
+                         "但每份数据被榨取的次数变少。**只在真 OOM 时才动它。**")
     ap.add_argument("--max-steps", dest="max_steps", type=int, default=0,
                     help="★★ **每 iter 的步数预算**（内存闸；0 = 不限）。"
                          "缓冲区 = `步数 × 单帧观测`全量held在内存里，而 12-30 的图上"
@@ -689,7 +701,7 @@ if __name__ == "__main__":
     ap.add_argument("--league-retire-rate", dest="league_retire_rate", type=float,
                     default=0.20,
                     help="★ 淘汰门槛之二：胜率低于它 ⇒ `active=false`（用户：0.20）。"
-                         "⚠ K 国局里随机胜率是 1/K —— 3 国 33%、**5 国 20%**"
+                         "⚠ K 国局里随机胜率是 1/K —— 3 国 33%%、**5 国 20%%**"
                          "⇒ 这个阈值在 5 国局上等于「和随机持平」（偏严）")
     ap.add_argument("--restart-after", dest="restart_after", type=int, default=0,
                     help="★ 每跑这么多 iter 就**重启进程**（存档后续跑）—— 抗内存增长，"
@@ -718,7 +730,7 @@ if __name__ == "__main__":
     train(iters=seg, episodes_per_iter=a.episodes, seed=a.seed, lr=a.lr,
           temperature=a.temperature, first_streak_limit=a.first_streak_limit,
           size=a.size, size_min=a.size_min, size_max=a.size_max,
-          halls_known=a.halls_known, nations=a.nations, t_max=a.t_max, max_steps=a.max_steps,
+          halls_known=a.halls_known, nations=a.nations, t_max=a.t_max, max_steps=a.max_steps, mb=a.mb, epochs=a.epochs,
           pool=a.pool, out=a.out, ckpt_every=a.ckpt_every, resume=a.resume,
           league_db=(None if (a.league_db or "").lower() in ("none", "") else a.league_db),
           league_mains=a.league_mains,
