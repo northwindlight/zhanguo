@@ -79,8 +79,15 @@ def load_pool(path: str | None, n_slots: int, *, log=print) -> dict:
 
 @torch.no_grad()
 def play(nets: dict, sb: Sandbox, *, greedy: bool,
-         rng: np.random.Generator) -> dict:
-    """一局到底。返回 `{"turns", "winner_members", "ent", "n", "ok"}`（一局一句）。"""
+         rng: np.random.Generator, net_of: dict | None = None) -> dict:
+    """一局到底。返回 `{"turns", "winner_members", "ent", "n", "ok"}`（一局一句）。
+
+    ★ `net_of`（`{国名: 网}`）给了就**按座位取网** —— 这是给**跨臂对打**
+      （`rl/head2head.py`：甲臂的网 vs 乙臂的网）用的。
+      不给 ⇒ 老行为：`nets[players.index(me) % len(nets)]`，即**同一个池子自对弈**
+      （`eval_fixed` 的用法）。★ 两条路共用同一套动作选择与统计口径，
+      所以"自对弈评测"与"跨臂对打"的数**可以直接放在一起看**。
+    """
     # ★★ 逐步记 **`ent` 与 `log K` 两个**（K = 当时的候选数）——
     #   只报"整局平均 ent"是错的：局一长、民兵一多 K 就涨，"均匀熵"跟着涨
     #   ⇒ 拿它对比一个固定数（如 3.16）是**拿苹果比橘子**（实测踩过：未训练的网
@@ -95,7 +102,8 @@ def play(nets: dict, sb: Sandbox, *, greedy: bool,
         if not acts:                       # ★ 保险（`_auto_advance` 本该已推进）
             break
         obs = encode.obs_of(sb, me, acts)
-        net = nets[sb.players.index(me) % len(nets)]
+        net = (net_of[me] if net_of is not None
+               else nets[sb.players.index(me) % len(nets)])
         logits, _ = net(collate([obs]))
         p = torch.softmax(logits[0], -1).numpy()
         aidx = int(np.argmax(p)) if greedy else int(rng.choice(len(p), p=p))
