@@ -80,8 +80,10 @@ case "$cmd" in
       if tmux has-session -t "$s" 2>/dev/null; then
         echo "  跳过 $s（已在跑）" | tee -a "$LOG"; continue
       fi
+      # ★ `--out` **必须带会话前缀**：起两组（如 CPU 一组、GPU 一组）时，
+      #   写死的 `wNN` 会让两组往同一个文件写 ⇒ 互相覆盖，而且重启后会收敛到一起。
       CMD=(env "${THREAD_ENV[@]}" "$PY" -u -m rl.train --threads "$THREADS_PER_WORKER"
-           --out "$RUNDIR/w$(printf %02d "$i").pt" "$@")
+           --out "$RUNDIR/${SESSION_PREFIX}$(printf %02d "$i").pt" "$@")
       printf -v QUOTED '%q ' "${CMD[@]}"
       INNER="$QUOTED 2>&1 | tee -a '$LOGDIR/${s}_$(date +%m%d_%H%M).log'; echo \"[$s 退出码 \${PIPESTATUS[0]}]\""
       printf -v INNER_Q '%q' "$INNER"
