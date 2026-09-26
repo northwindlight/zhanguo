@@ -471,9 +471,14 @@ class TestParallelRetireKeepsTheFloor(unittest.TestCase):
       `UPDATE ... AND active=1` 是第二道锁（同一成员被两个 worker 同时选中时，
       后到的那个改 0 行、不重复计数）。
 
-    ★ **诚实说明**：这条守卫是**并发不变量**（N 个连接同时淘汰，池子不得低于下限）。
-      我没能让它在"改回无锁版本"时**稳定**变红（竞态窗口很窄）——
-      所以它算**回归护栏**，不算"已证明有牙齿的闸门"。
+    ★★ **它现在是"已证明有牙齿的闸门"了**（2026-09-26 更新，此前那句"稳定不了"
+      的诚实说明**已作废**）：把 `retire()` 的三处事务语句（`BEGIN IMMEDIATE`/
+      `COMMIT`/`ROLLBACK`）**文本替换成 `pass`** 再跑，**连跑 5 次全红**
+      （`active 掉到 1 < max_k=3`）。★ 为什么原来"稳定不了"：不是竞态窗口窄，
+      是这条用例**本身在空转** —— 它的夹具把候选沉到评级 **1418**，
+      而 `retire_rating` 是 **1400** ⇒ `cand` 恒空 ⇒ **一个都不淘汰**，
+      "破底"自然永远不发生（详见下面夹具里那段）。
+      ⇒ 教训：**"闸门不响"要先怀疑闸门是不是没通电**，别急着归因给"竞态窗口窄"。
     """
 
     def test_concurrent_retire_never_breaks_the_floor(self):
@@ -481,22 +486,43 @@ class TestParallelRetireKeepsTheFloor(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             db = os.path.join(d, "league.db")
             setup = _mk(self, db, mains=0, max_k=3, min_learners=1)
-            _live(setup, 7)
-            # ★ 6 个候选必须有**低评级**：`_stat`（直接写 games/wins）对新判据**无效**
-            #   ⇒ 用真的对局把它们按在地上（12 局输给 L6、彼此互平 ⇒ 评级低 + RD 小）
-            _record(setup, "warm", [("L6", True)] + [(f"L{i}", False) for i in range(6)])
+            # ★★ 池子里放**快照**（`path` 指向 `.pt`），**不是**在训成员 ——
+            #   这条是用例的**牙齿**所在，别改回去：
+            #   兜底① 按 `drawable()` 的口径数（「**本进程**抽得到的份数」），
+            #   而**在训成员**（`path=None`）只有绑它的那个进程抽得到。
+            #   这些线程各自开池子、**不绑任何成员** ⇒ 若池子里全是在训成员，
+            #   它们每个的 `drawable()` 都是 **0** ⇒ 兜底① 当场 `break`
+            #   ⇒ **一个都不淘汰**，而两条断言（≥3）**照样全绿** = 用例**空转**。
+            #   （这正是"假绿"，比红更坏 —— 我 2026-09-26 把 `active()` 收窄时
+            #     就是这么把它变成空转的，所以现在钉了一条**非空转**断言在下面。）
+            for i in range(7):
+                setup.add_snapshot(_net(), i, mid=f"S{i}")
+            # ★★ 6 个候选必须有**低评级**：`_stat`（直接写 games/wins）对评级判据**无效**
+            #   ⇒ 只能用**真的对局**把它们按在地上。
+            #   ★★★ 这里踩过一个**静默的空转**，记下来别再犯：原先写的是
+            #     「一局 7 人，S6 赢、S1..S5 全输」—— 而多人局在 Glicko 里是**两两结算**
+            #     ⇒ S0..S5 之间**彼此互平**、每人只输给 S6 一局 ⇒ 13 局后评级 **1418**，
+            #     而 `retire_rating` 是 **1400** ⇒ **一个候选都没有**（`cand = []`）
+            #     ⇒ `killed` 恒为 `[]`，两条断言（active ≥ 3）**照样全绿**。
+            #     ⇒ 这条用例自 `retire` 改成"按评级"（2026-09-26）起就**一直是空转的**，
+            #       直到下面那条**非空转**断言把它照出来。
+            #   ⇒ 正确形状：让它们**互相也输**（三人局：S6 赢、目标输、轮换的同伴也输），
+            #     每个低分成员攒够 24 局**全负、零平** ⇒ 评级压到 ≈1087、RD ≈81。
             for i in range(12):
-                _record(setup, f"c{i}", [("L6", True)] + [(f"L{i}", False) for i in range(6)])
+                for j in range(6):
+                    _record(setup, f"s{j}-{i}",
+                            [("S6", True), (f"S{j}", False), (f"S{(j + 1) % 6}", False)])
             errs: list[str] = []
             floors: list[int] = []
+            killed: list[list[str]] = []
 
             def worker():
                 try:
                     lg = _mk(self, db, mains=0, max_k=3, min_learners=1)
                     lg.load()
-                    lg.retire()
+                    killed.append(lg.retire())
                     lg.refresh()
-                    floors.append(len(lg.active()))
+                    floors.append(len(lg.drawable()))
                     lg.close()
                 except Exception as e:          # ★ 线程里的异常别被吞掉
                     errs.append(repr(e))
@@ -508,10 +534,13 @@ class TestParallelRetireKeepsTheFloor(unittest.TestCase):
                 t.join()
             self.assertEqual(errs, [], "并发淘汰里抛异常了")
             setup.refresh()
+            # ★★ **非空转**：本用例的全部意义在"并发地**淘汰**而不破底"。
+            #   一个都没淘汰 ⇒ 它什么都没测到 ⇒ 直接红（别让它静默变成空转）。
+            self.assertTrue(any(killed), f"一个都没淘汰 ⇒ 本用例空转：{[len(k) for k in killed]}")
             self.assertGreaterEqual(len(setup.active()), 3,
                                     f"active 掉到 {len(setup.active())} < max_k=3 ⇒ 兜底被绕过")
             self.assertTrue(all(f >= 3 for f in floors),
-                            f"某个 worker 看到的 active 低于下限：{sorted(floors)}")
+                            f"某个 worker 能抽的份数低于下限：{sorted(floors)}")
 
 
 class TestParallelSnapshotsDoNotCollide(unittest.TestCase):

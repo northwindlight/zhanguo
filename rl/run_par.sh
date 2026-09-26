@@ -44,7 +44,27 @@ cd "$HERE"
 
 RUNDIR="${ZHANGUO_PAR_DIR:-$HERE/rl/runs/par}"
 LOGDIR="$HERE/rl/runs"
-PY="${ZHANGUO_PY:-$HOME/.venv/bin/python}"
+# ★★ python 的**缺省路径要按机器找，别写死一处**（2026-09-26 踩）：
+#   原来缺省是 `$HOME/.venv/bin/python`，而**两台机器上都不存在** ——
+#   Pi 的 venv 在**仓库内**（`<repo>/.venv`）、免费 GPU 机在 `/root/venv`。
+#   表现是两个 tmux 会话**起来就死**、日志里一行 `ModuleNotFoundError: torch`，
+#   而 `run_par.sh` 自己照样打印「✔ mt1 ✔ mt2」（它只负责起会话）。
+#   ★ 解析与检查**只在 `up` 分支做** —— `status`/`kill` 不该白等一次 `import torch`。
+PY="${ZHANGUO_PY:-}"
+resolve_py() {
+  if [ -z "$PY" ]; then
+    for c in "$HERE/.venv/bin/python" "$HOME/.venv/bin/python" /root/venv/bin/python; do
+      [ -x "$c" ] && { PY="$c"; break; }
+    done
+  fi
+  # ★ 光有可执行文件不够 —— 必须是**装了 torch 的那个**（这才是我踩的形状）
+  if [ -z "$PY" ] || [ ! -x "$PY" ] || ! "$PY" -c "import torch" 2>/dev/null; then
+    echo "[错误] 找不到能用（装了 torch）的 python：PY=${PY:-<空>}" >&2
+    echo "       手动指定：ZHANGUO_PY=/path/to/venv/bin/python $0 ..." >&2
+    exit 2
+  fi
+  echo "python = $PY"
+}
 # ★ 会话前缀（可改）⇒ **能起两组、各给不同参数**（例如一组 `--device cpu`、一组 `--device cuda`）
 SESSION_PREFIX="${ZHANGUO_PAR_PREFIX:-w}"
 # ★ 每个 worker 用几个 torch 线程（见上面 ③）。缺省 1 = 老行为（ECS 上是对的）。
@@ -66,6 +86,7 @@ case "$cmd" in
   up)
     N="${1:-}"; shift || usage
     [ "${1:-}" = "--" ] && shift
+    resolve_py
     [[ "$N" =~ ^[0-9]+$ ]] || { echo "第一个参数是 worker 数（正整数）"; usage; }
     # ★ 共享库是这件事的**前提**，缺了它每个 worker 各训各的 = 白起
     case " $* " in
@@ -82,8 +103,12 @@ case "$cmd" in
       fi
       # ★ `--out` **必须带会话前缀**：起两组（如 CPU 一组、GPU 一组）时，
       #   写死的 `wNN` 会让两组往同一个文件写 ⇒ 互相覆盖，而且重启后会收敛到一起。
+      # ★★ `--worker-id "$s"`（会话名，如 mem1）**必须给**：在训成员的 mid 靠它区分。
+      #   多个 worker 共用一个库时，没有它 ⇒ 各自的 `L0..L4` 会落到**同一行账本**
+      #   （两份不同的权重记同一份胜负/Elo、退役互相影响、抽签抽到的其实是
+      #   各进程自己那份权重）—— 而且**日志上完全看不出来**。见 `rl/train._worker_tag`。
       CMD=(env "${THREAD_ENV[@]}" "$PY" -u -m rl.train --threads "$THREADS_PER_WORKER"
-           --out "$RUNDIR/${SESSION_PREFIX}$(printf %02d "$i").pt" "$@")
+           --out "$RUNDIR/${SESSION_PREFIX}$(printf %02d "$i").pt" --worker-id "$s" "$@")
       printf -v QUOTED '%q ' "${CMD[@]}"
       LOGF="$LOGDIR/${s}_$(date +%m%d_%H%M).log"
       # ★★ 退出码**必须也进日志**：原来那句 `echo "[$s 退出码 …]"` 没接在 `tee` 后面

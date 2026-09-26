@@ -32,6 +32,8 @@
 """
 from __future__ import annotations
 
+import hashlib
+import os
 from dataclasses import dataclass, replace
 
 import numpy as np
@@ -104,6 +106,42 @@ def to_dev(batch: dict, device: str) -> dict:
     return {k: ({g: t.to(device, non_blocking=True) for g, t in v.items()}
                 if isinstance(v, dict) else v.to(device, non_blocking=True))
             for k, v in batch.items()}
+
+
+def _worker_tag(explicit: str | None, out: str | None) -> tuple[str, str]:
+    """**worker 身份** ＋ 它的来源（来源只用于横幅打印，不参与逻辑）。
+
+    ★★★ 为什么在训成员的 mid 里必须带它（2026-09-26 查出来的静默坑）：
+      在训成员的 mid 原来是 `L0..L4` —— **不带 worker 标识**，而 `League.bind_live`
+      是 `INSERT … ON CONFLICT(mid) DO UPDATE` ⇒ **两个 worker 共用一个库时，
+      各自的 `L0` 落到同一行账本**。后果全是静默的：
+        · 两份**不同的权重**的胜负与 Elo 记在同一行 ⇒ 评级对谁都不成立；
+        · `retire()` 停用 `L0` 会**同时影响两个 worker**；
+        · `draw()` 抽中 `L0` 当对手时，**每个进程用的是自己那份**权重
+          ⇒ 「账本说同一个成员上场，实际上是两个不同的对手」。
+      （冻结快照那边早就带了（`G<iter>@<sha>_<pid>`），**在训成员这边一直漏着** ——
+        因为单 worker 下这两种写法**完全等价**，看不出来。）
+
+    ★★ 三条来源，优先级从高到低，且**身份必须在同一 worker 重启前后稳定**
+      （`--restart-after` 靠 `execv` 换进程，mid 变了就会留下一堆
+        `path=None`、谁也读不回来的僵尸在训行）：
+        ① `--worker-id` 显式给（`run_par.sh` 传 tmux 会话名，如 `mem1`）；
+        ② 从 `--out` 的**绝对路径**派生（缺省；`run_par.sh` 的 `--out` 本来就每 worker
+           唯一、且重启前后不变）；
+        ③ 都没有 ⇒ `pid<pid>`（只够单进程用；`--restart-after` 已要求 `--out`）。
+      ★ 特意**不打日志就不算数**：横幅里会把身份和来源一起打出来（不搞隐形魔法）。
+    """
+    if explicit:
+        return explicit, "显式 --worker-id"
+    if out:
+        h = hashlib.sha1(os.path.abspath(out).encode("utf-8")).hexdigest()[:8]
+        return h, "从 --out 派生"
+    return f"pid{os.getpid()}", "缺省（没有 --out ⇒ 用 pid，只够单进程用）"
+
+
+def _slot_mid(i: int, tag: str) -> str:
+    """在训成员第 i 槽的 mid：`L0@mem1`（tag 为空时退回 `L0`，只给直接调 `train()` 用）。"""
+    return f"L{i}@{tag}" if tag else f"L{i}"
 
 
 def collate(rows: list[dict]) -> dict:
@@ -568,7 +606,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           league_cache: int = 24, device: str = "cpu",
           memory: str = "none", tbptt: int | None = None,
           territory: bool = True, alliances: str = "none",
-          log=print) -> dict[int, PolicyNet]:
+          worker_tag: str = "", log=print) -> dict[int, PolicyNet]:
     """主循环：自对弈 collect → 每个网络各 update 一次。
 
     ★★ **网络池按"槽位"编号**（用户 2026-09-25：多玩家 3 人起步）。
@@ -622,7 +660,9 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                 max_k=k_of(hi), min_learners=1, net_cap=league_cache,
                 device=device, fingerprint=_shape_fingerprint(mem_slots), log=log)
     had = lg.load()
-    mids = [f"L{i}" for i in range(n_slots)]
+    # ★★ 在训成员的 mid **必须带 worker 身份** —— 见 `_worker_tag` 的 docstring。
+    #   身份和来源都打进横幅（身份是判据的一部分，不该只在代码里）。
+    mids = [_slot_mid(i, worker_tag) for i in range(n_slots)]
     log(f"★ 记忆：{'**潜槽 %d 个**（TBPTT %d，辅助权重 %.2f）' % (mem_slots, int(tbptt or S.MEM_TBPTT), S.MEM_AUX_COEF) if mem_slots else '**关**（马尔可夫基线）'}"
         f" · epochs **{eff_epochs}** · minibatch {mb or S.PPO_MINIBATCH}"
         f" · 局/iter {episodes_per_iter} · t_max {t_max} · 尺寸 [{lo},{hi}]"
@@ -633,6 +673,9 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         f"{'＋库已读回' if had else '（新库）'}"
         f" —— 每局按 `n_nations_for(边长)` **随机抽 k 份不重复**上场"
         + (f"；库 → {league_db}（SQLite/WAL）" if league_db else "；★ **库不落盘**"))
+    if worker_tag:
+        log(f"★ 在训成员的 mid 带 worker 身份：**{mids[0]} … {mids[-1]}**"
+            f"（★ 多 worker 共用一个库时，这就是「谁是谁」的唯一依据 —— 见 `_worker_tag`）")
     state: dict = {}
     it0 = _load_ckpt(resume, nets, mem_slots=mem_slots, log=log) if resume else 0
     # ★★「联赛池从**最新快照**开始分化」（用户原话）：所有在训成员**从同一份起跑**，
@@ -1085,6 +1128,13 @@ if __name__ == "__main__":
                          "用户 2026-09-25：「不如定时重启」")
     ap.add_argument("--out", type=str, default=None,
                     help="★ 存档路径（长跑必须给！原子写 .tmp→rename）")
+    ap.add_argument("--worker-id", dest="worker_id", type=str, default=None,
+                    help="★★ **worker 身份**（多进程共用一个联赛库时，在训成员的 mid "
+                         "靠它区分；缺省从 `--out` 绝对路径派生前 8 位）。"
+                         "★ 必须在**同一个 worker 重启前后保持稳定** —— "
+                         "`--restart-after` 靠 execv 换进程，身份一变就会在库里留下一堆 "
+                         "`path=None`、谁也读不回来的僵尸在训行。"
+                         "`run_par.sh` 会传会话名（如 mem1）。见 `train._worker_tag`。")
     ap.add_argument("--ckpt-every", dest="ckpt_every", type=int, default=5,
                     help="每几个 iter 存一次档")
     ap.add_argument("--memory", type=str, default="none",
@@ -1123,6 +1173,14 @@ if __name__ == "__main__":
         import torch
         torch.set_num_threads(a.threads)
     seg = min(a.iters, a.restart_after) if a.restart_after else a.iters
+    # ★★ `--restart-after` 硬要求 `--out`：重启靠 `--resume <out>` 续跑，而且
+    #   **worker 身份缺省就是从 `--out` 派生的** ⇒ 没有它就没有稳定身份
+    #   ⇒ 每次重启都换一批 mid，库里会积一堆读不回来的僵尸在训行。
+    #   这是一条**硬闸**（宁可起不来，也别静默跑出一个坏账本）。
+    if a.restart_after and not a.out:
+        ap.error("--restart-after 必须同时给 --out（续跑点和 worker 身份都靠它）")
+    worker_tag, tag_src = _worker_tag(a.worker_id, a.out)
+    print(f"★ worker 身份 = **{worker_tag}**（{tag_src}）")
     train(iters=seg, episodes_per_iter=a.episodes, seed=a.seed, lr=a.lr,
           temperature=a.temperature, first_streak_limit=a.first_streak_limit,
           size=a.size, size_min=a.size_min, size_max=a.size_max,
@@ -1135,7 +1193,7 @@ if __name__ == "__main__":
           league_retire_rating=a.league_retire_rating,
           league_retire_rd=a.league_retire_rd, league_cache=a.league_cache,
           device=a.device, memory=a.memory, tbptt=a.tbptt,
-          territory=a.territory, alliances=a.alliances)
+          territory=a.territory, alliances=a.alliances, worker_tag=worker_tag)
     if a.restart_after and a.iters > seg:
         # ★★ **定时重启**（用户 2026-09-25：「不如定时重启」）：跑完这一段就 `exec` 自己，
         #   **新进程 ⇒ RSS 归零**，并从刚存的档续跑。

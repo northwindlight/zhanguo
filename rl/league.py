@@ -49,6 +49,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -174,6 +175,16 @@ class League:
         self._nets: dict[str, object] = {}       # mid -> PolicyNet（懒加载 + 缓存）
         # ★ 「学过但还没落盘」的成员（见 `mark_hot`）：**逐出时必须跳开**
         self._hot: set[str] = set()
+        # ★★★ **本进程亲手 `bind_live` 过的那几份在训成员**（2026-09-26 加）。
+        #   判"这份在训成员是不是我的"**只看这个集合，不去解析 mid 的格式** ——
+        #   这样 mid 长什么样（`L0` 还是 `L0@mem1`）与这里的判据**解耦**，
+        #   改命名不会静默改变语义。
+        #   ★ 为什么必须有：在训成员的权重**只在本进程内存里**（`path=None`），
+        #     而 `net_of` 对 `path=None` 是**直接抛 KeyError**（见它的 docstring）。
+        #     多个 worker 共用一个库时，"别人的在训成员"也在这张表里
+        #     ⇒ 不把它挡在 `drawable()` 之外，`draw()` 一抽中就**当场崩**。
+        #   ★ 重启后要重新 `bind_live` 一遍（同一个 mid）⇒ 这个集合自然就补回来了。
+        self._local_live: set[str] = set()
         self.updated_iter = 0
 
         if self.db is None:
@@ -238,7 +249,13 @@ class League:
         """
         m = self.members.get(mid)
         if m is None or m.kind not in ("main", "live"):
-            kind = "main" if len(self._live()) < self.mains else "live"
+            # ★★ **主 pt 的份数是「每个 worker 各自」的**（用户 2026-09-26 拍的口径）：
+            #   数**本进程已经绑过的那几份**，不是全库的。数全库的话，第二个 worker
+            #   一上来就发现「库里有 2 份 main 了」⇒ 它自己的 L0/L1 全变 live
+            #   （**不受退役保护**）—— 而它那两份才是它自己的基座。
+            #   ★ 单 worker 下两种数法完全等价。
+            n_local = len([x for x in self._live() if x.mid in self._local_live])
+            kind = "main" if n_local < self.mains else "live"
             m = Member(mid=mid, kind=kind, born=born)
             self.members[mid] = m
             self.conn.execute(
@@ -247,6 +264,7 @@ class League:
                 (mid, kind, int(born), None, _now()))
         m.path = None
         self._nets[mid] = net
+        self._local_live.add(mid)          # ★★ 见 `_local_live` 上的那段
         return m
 
     def add_snapshot(self, net, it: int, *, mid: str | None = None) -> Member:
@@ -467,18 +485,53 @@ class League:
             del self.members[mid]
 
     def active(self) -> list[str]:
+        """**账本口径**：库里 `active=1` 的**全部**成员（含**别人的**在训成员）。
+
+        ★★ 它和"我能不能抽上场"是**两个问题**，所以是两个方法（2026-09-26 分开）：
+          · 这里 = 「**池子**里有几份启用的」（报表、下限不变量、外部只读观察）；
+          · `drawable()` = 「**我这个进程**真能抽上场的」。
+        ★★ 判据只能是 `m.active`，**不许**在这里解析 mid 的格式去猜"这份是谁的"
+          —— 命名一改语义就静默变了（见 `_local_live` 那段）。
+        ★★★ **曾经把两个问题合成一个方法**（把
+          `m.path is not None or m.mid in self._local_live` 写进这里），
+          后果是**静默废掉两条旧守卫**——记在这里，因为它是"改对了判据、
+          却把别处的口径一起改了"的典型：
+            · `test_draw_is_finished_but_not_recorded`：跑完 `train()` 后**另开**
+              一个池子读账本 ⇒ 它从没 `bind_live` 过 ⇒ `active()` 变 **0**；
+            · `test_concurrent_retire_never_breaks_the_floor`：6 个线程各自开池子
+              淘汰，**同样没绑** ⇒ 每个线程看到的 active 都是 0
+              ⇒ 兜底①当场 `break` ⇒ **一个成员都没淘汰**，而断言**照样全绿**
+              —— 用例**变成空转**（正是最该防的"假绿"：它比红更坏）。
+          ⇒ 教训：**"这个集合是给谁用的"要问清楚**；把判据收窄是对的，
+            但收窄的**方法**只能给真正需要收窄的调用方（`draw()`）。
+        """
         return [m.mid for m in self.members.values() if m.active]
+
+    def drawable(self) -> list[str]:
+        """**本进程口径**：我真能抽上场的那些 = **有盘上副本的** ∪ **我亲手绑的在训成员**。
+
+        ★ 前者谁都能读回来（快照的 `path` 指向 `.pt`）；后者只有本进程内存里有
+          （`path=None`）。别人的在训成员**两者都不是** ⇒ 抽中它 ⇒ `net_of` 拿不到
+          权重 ⇒ **当场 `KeyError` 崩**（单 worker 时两种写法完全等价 ⇒
+          这个 bug 只在并行时才显形，正是"静默"那一类）。
+        ★ `retire()` 的兜底① 也按**这个**算（见那里）：兜底要防的是"**我**下一局
+          凑不齐 k 份"，所以只能数我抽得到的。
+        """
+        return [m.mid for m in self.members.values()
+                if m.active and (m.path is not None or m.mid in self._local_live)]
 
     def draw(self, k: int, rng: np.random.Generator) -> list[str]:
         """**不重复**随机抽 k 份上场（用户：「随机抽 pt」）。
 
         ★ 不重复是硬要求：同一份在一局里扮两个国家 = **自己打自己**，
           对"学对抗"没有增量，还会把那一局的梯度混在一起。
+        ★★ 抽的是 `drawable()`（**本进程**口径），不是 `active()`（账本口径）——
+          别人的在训成员在账本上是 active，但它的权重不在我这儿（抽中即崩）。
         """
-        pool = self.active()
+        pool = self.drawable()
         if len(pool) < k:
             raise RuntimeError(
-                f"池子里 active 只有 {len(pool)} 份，凑不齐一局（要 {k} 份）—— "
+                f"本进程能抽的（drawable）只有 {len(pool)} 份，凑不齐一局（要 {k} 份）—— "
                 f"淘汰兜底本该拦住这件事，说明闸门漏了")
         return [pool[i] for i in rng.permutation(len(pool))[:k]]
 
@@ -550,14 +603,32 @@ class League:
         self.conn.execute("BEGIN IMMEDIATE")        # ★ 拿写锁 ⇒ 别人得等
         try:
             # ★ 判据**在事务里重读**，不用事务外那份缓存
+            # ★★ 2026-09-26：三处口径改成**"按本进程能抽到的池子"**算
+            #   （多 worker 共用一个库时才显形；单 worker 下与旧行为**逐字等价**）。
+            #   · 别人的**在训成员**由**他自己**停用，我不碰 —— 它的权重只在他内存里，
+            #     我停用它等于替他改口径，而且那个进程还会继续训它（不报错、说不清）；
+            #   · 兜底①/② 改数**本进程可抽的份数**：库里的 active 总数 ≥ max_k
+            #     并**不保证**我这一侧抽得齐（别人的在训成员我抽不了）
+            #     ⇒ 按全局数算会让 `draw()` 在本地池子空掉时崩。
             rows = self.conn.execute(
-                "SELECT mid,kind,born,games,wins,active FROM members").fetchall()
+                "SELECT mid,kind,born,games,wins,active,path FROM members").fetchall()
             res = _elo.rate(_elo.group_rows(self.conn.execute(
                 "SELECT mid,won,iter,worker,ts,game FROM results").fetchall()))
+            mine = self._local_live
+            # 「本进程能抽上场」= **`drawable()` 的口径**：有盘上副本（谁的都行）
+            # 或 是我绑的在训成员。★ 判据必须与 `drawable()` **一致** ——
+            # 兜底① 拦的是"`draw()` 下一局凑不齐"，两边口径一岔，闸门就拦错了对象
+            # （而它是**静默**的：拦多了只是"少淘汰几个"，看日志看不出来）。
+            n_draw = sum(1 for r in rows
+                         if r[5] and (r[6] is not None or r[0] in mine))
+            n_my_live = sum(1 for r in rows
+                            if r[5] and r[1] in ("main", "live") and r[0] in mine)
             cand = []
             for r in rows:
                 if not r[5] or r[1] == "main":        # 停用过的、主 pt ⇒ 免检
                     continue
+                if r[1] == "live" and r[0] not in mine:
+                    continue                          # ★ 别人的在训成员：他自己管
                 got = res.get(r[0])
                 if got is None:                       # 一局没打过 ⇒ 没有评级 ⇒ 不判
                     continue
@@ -567,21 +638,19 @@ class League:
                                                      born=int(r[2]),
                                                      games=int(r[3]), wins=int(r[4]))))
             cand.sort(key=lambda x: x[0])             # ★ 评级从低到高
-            n_active = sum(1 for r in rows if r[5])
-            n_live = sum(1 for r in rows if r[5] and r[1] in ("main", "live"))
             for _rating, _rd, m in cand:                     # ★ 元素是 (评级, RD, Member)
-                if n_active - 1 < self.max_k:            # 兜底①
+                if n_draw - 1 < self.max_k:              # 兜底①（★ 本地口径）
                     break
-                if m.kind == "live" and n_live - 1 < self.min_learners:   # 兜底②
+                if m.kind == "live" and n_my_live - 1 < self.min_learners:  # 兜底②
                     continue
                 cur = self.conn.execute(
                     "UPDATE members SET active=0 WHERE mid=? AND active=1",
                     (m.mid,))
                 if cur.rowcount == 0:                    # 别人刚停用过它 ⇒ 不重复计数
                     continue
-                n_active -= 1
+                n_draw -= 1
                 if m.kind == "live":
-                    n_live -= 1
+                    n_my_live -= 1
                 killed.append(m.mid)
             self.conn.execute("COMMIT")
         except Exception:
@@ -629,6 +698,20 @@ class League:
                 f"  ⇒ 库里的快照是**旧代码**训的，整池作废（别硬读）")
         self.updated_iter = int(self._meta_get("updated_iter") or 0)
         self.refresh()
+        # ★★ 旧库告警（2026-09-26）：**在训成员的 mid 现在带 worker 身份**（`L0@mem1`），
+        #   而旧代码写的是裸 `L0..L4` ⇒ 用新代码打开旧库时，那些旧行会变成
+        #   **`path=None`、谁也读不回来的僵尸**（新的 `active()` 会把它们挡在抽签之外，
+        #   **不会崩** —— 正因如此才要**大声说一句**，否则只是"池子份数看着不对"）。
+        #   ★ 判据用 `^L\d+$` 这个**旧格式**：新格式一定带 `@`，重启后自己的行也对得上。
+        stale = [m.mid for m in self.members.values()
+                 if m.kind in ("main", "live") and not m.path
+                 and re.fullmatch(r"L\d+", m.mid)]
+        if stale:
+            self.log(f"⚠ 联赛库 {self.db} 里有 **{len(stale)} 个旧格式的在训行**"
+                     f"（{', '.join(sorted(stale))}）—— 那是**旧代码**留下的："
+                     f"新代码的在训 mid 是 `L0@<身份>` ⇒ 这些旧行**永远不会被抽上场**"
+                     f"（也不会崩），但会一直占着库。⇒ 建议**起新库**"
+                     f"（旧库的战绩与快照仍读得回来）")
         return bool(self.members)
 
     def close(self) -> None:
