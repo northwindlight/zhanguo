@@ -55,6 +55,59 @@ from . import features as F
 from . import vocab as V
 
 
+class FastLinear(nn.Linear):
+    """★ **只在推理路径**把权重预转置成连续 —— 救的是 **Raspberry Pi** 那份 torch。
+
+    ★★★ 为什么要有这个（2026-09-26，用户：「如果在 rpi 上跑快点也挺不错，
+       毕竟内存大，可以修，如果好修的话」）：
+      在 **Pi（aarch64）** 上 `F.linear(x, w)` 比**等价的** `x @ w.t().contiguous()`
+      慢 **6.6×**（实测 182.7 vs 27.8 µs，[1,45,160]×[160,160] 单线程）；
+      而在 **x86/ECS 上只差 1.05×**（33.4 vs 31.8）⇒ 那是**这份 aarch64 torch
+      构建的 BLAS 回退**，**不是模型的问题**，x86 上也**没有收益**。
+      ★ 代价有多大（同一副工具 `rl/real_phase.py`，同配置 size12/t_max40）：
+
+        | | 前向 | 同一局的战斗 DP（纯 Python） |
+        |---|---|---|
+        | Pi | **66.07 ms/步（占整条回路 70%）** | 17.49 ms/步 |
+        | x86 免费机 | 5.32 ms/步（18%） | 17.42 ms/步 |
+
+      ⇒ 前向差 **12.4×**，而纯 Python 的 DP **一模一样** ⇒ 差的全在 torch。
+      ⇒ 换成本类之后：Pi 上前向 **2.00×**（实测同进程交替，输出最大差 1.6e-07）。
+
+    ★★ **不需要动 state_dict**（我原先以为必须动、所以说"别改"，那是错的）：
+      参数仍然是 `nn.Linear.weight`（`[out,in]`）**原样不动**，只是**另存**一份
+      `[in,out]` 连续的副本 ⇒ **老 ckpt 照样读**，两台训练机的档不作废。
+      ★ 失效靠 `weight._version`（**自动**：实测 `opt.step()` 与 no_grad 下的
+        `add_()` 都会让它自增）—— **不靠"记得刷新"**，那种是静默错的形状。
+
+    ★★★ **唯一的硬约束：这条路只许用在推理路径。** 缓存那份是 `detach()` 出来的
+      拷贝 ⇒ 梯度会流到**拷贝**上、`weight.grad` 永远是 `None` ⇒ 训练**静默不学**。
+      ⇒ 用 `torch.is_grad_enabled()` **自动分流**：采集回路在 `inference_mode`
+        下（不记梯度）走缓存；`ppo_update` 记梯度 ⇒ 走原来的 `F.linear`。
+      ★ **别把这道门改成"记得传个 flag"** —— 那正是会静默搞坏训练的形状。
+      门由 `tests/test_rl_fast_linear.py` 钉着（含"梯度路径必须真的拿到梯度"）。
+    """
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        # ★ 普通属性（**不是** buffer ⇒ 不进 state_dict、不参与 .to()）。
+        #   所以下面判有效时要连 device/dtype 一起看 —— 模型搬到别的设备后
+        #   这份副本还在原地，直接用会炸（好在是**响的**，不是静默错）。
+        self._wt = None          # (tensor, version, device, dtype)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if torch.is_grad_enabled():                 # ★★ 训练路径：原样（见上）
+            return nn.functional.linear(x, self.weight, self.bias)
+        w = self.weight
+        c = self._wt
+        if (c is None or c[1] != w._version or c[2] != w.device
+                or c[3] != w.dtype):
+            c = (w.detach().t().contiguous(), w._version, w.device, w.dtype)
+            self._wt = c
+        out = x @ c[0]
+        return out if self.bias is None else out + self.bias
+
+
 class Attn(nn.Module):
     """多头注意力（Q 与 K/V 长度可以不同）—— ★ **不用 `nn.MultiheadAttention`**。
 
@@ -74,9 +127,9 @@ class Attn(nn.Module):
         assert d_model % n_head == 0, (d_model, n_head)
         self.h = int(n_head)
         self.dh = d_model // n_head
-        self.q = nn.Linear(d_model, d_model)
-        self.kv = nn.Linear(d_model, 2 * d_model)
-        self.out = nn.Linear(d_model, d_model)
+        self.q = FastLinear(d_model, d_model)
+        self.kv = FastLinear(d_model, 2 * d_model)
+        self.out = FastLinear(d_model, d_model)
         self.p_drop = float(p_drop)
 
     def forward(self, q_in: torch.Tensor, kv_in: torch.Tensor,
@@ -104,8 +157,8 @@ class Block(nn.Module):
         self.attn = Attn(d_model, n_head, p_drop)
         self.ln2 = nn.LayerNorm(d_model)
         d_ff = d_ff or 4 * d_model
-        self.ff = nn.Sequential(nn.Linear(d_model, d_ff), nn.GELU(),
-                                nn.Linear(d_ff, d_model))
+        self.ff = nn.Sequential(FastLinear(d_model, d_ff), nn.GELU(),
+                                FastLinear(d_ff, d_model))
 
     def forward(self, x: torch.Tensor, key_padding_mask: torch.Tensor | None = None):
         h = self.ln1(x)
@@ -138,7 +191,7 @@ class PolicyNet(nn.Module):
             nn.Conv2d(d_conv, d_conv, 3, padding=1), nn.ReLU())
 
         # ---- 窗口侧：每组一层投影（各组宽度不同，**不补零当同质 token**）----
-        self.proj = nn.ModuleDict({g: nn.Linear(int(win_widths[g]), d_model)
+        self.proj = nn.ModuleDict({g: FastLinear(int(win_widths[g]), d_model)
                                    for g in self.groups})
         # 组身份嵌入：投影后各组的统计性质仍不同（g 是摘要、a 是单支军队），
         # 给模型一个"这条 token 是哪种"的显式提示。
@@ -151,11 +204,11 @@ class PolicyNet(nn.Module):
         # ★ 输出宽度必须是 `d_model`（不是 32）：它要和**上下文里的军队 token**
         #   （已经过 transformer，宽 `d_model`）相加 —— 写 32 会在 forward 报
         #   "The size of tensor a (160) must match the size of tensor b (32)"。
-        self.army_mlp = nn.Sequential(nn.Linear(arm_width, d_model), nn.ReLU())
+        self.army_mlp = nn.Sequential(FastLinear(arm_width, d_model), nn.ReLU())
         # 落点 (dx,dy)/边长 + 有无落点 + 军队编码 d_model(+1 has) + 规则表内容 + 标记段
         d_q = 16 + 3 + (d_model + 1) + int(f_cand) + int(f_marks)
-        self.cand_mlp = nn.Sequential(nn.Linear(d_q + d_conv, d_cand), nn.ReLU())
-        self.to_q = nn.Linear(d_cand, d_model)
+        self.cand_mlp = nn.Sequential(FastLinear(d_q + d_conv, d_cand), nn.ReLU())
+        self.to_q = FastLinear(d_cand, d_model)
         # ★ 候选 → 窗口（K/V = 窗口）
         self.cross = Attn(d_model, n_head)
         self.ln_c = nn.LayerNorm(d_model)
@@ -163,11 +216,11 @@ class PolicyNet(nn.Module):
         self.cross2 = Attn(d_model, n_head)
         self.ln_cand = nn.LayerNorm(d_model)
         # ★ 打分 = 互看输出 ⊕ 候选自身编码（教训第 6 条）
-        self.score = nn.Sequential(nn.Linear(d_model + d_cand, d_model), nn.GELU(),
-                                   nn.Linear(d_model, 1))
+        self.score = nn.Sequential(FastLinear(d_model + d_cand, d_model), nn.GELU(),
+                                   FastLinear(d_model, 1))
         # ★ 价值头走上限池化后的**窗口**（不是 glob）—— 窗口才是全局状态的唯一来源。
-        self.value = nn.Sequential(nn.Linear(d_model, 128), nn.ReLU(),
-                                   nn.Linear(128, 1))
+        self.value = nn.Sequential(FastLinear(d_model, 128), nn.ReLU(),
+                                   FastLinear(128, 1))
 
         # ---- ★★ 潜槽（`--memory`；见 `vocab.MEM_GROUP` 与模块 docstring 末段）----
         if self.mem_slots:
@@ -210,13 +263,13 @@ class PolicyNet(nn.Module):
             # ★ 门 = sigmoid(线性([槽的上下文, 写入候选]))。★ 用门而不是"直接覆盖"：
             #   覆盖会把槽变成**最近一帧的复读机**（容量全用在"当下"上，
             #   而"当下"本来就在观测里）。
-            self.mem_gate = nn.Linear(2 * d_model, 1)
+            self.mem_gate = FastLinear(2 * d_model, 1)
             nn.init.zeros_(self.mem_gate.weight)
             nn.init.constant_(self.mem_gate.bias, float(mem_gate_bias))
             # ★ 辅助头：从**全部槽**预测"即将离开视野的那部分"（`rl/mem_aux.py`）。
             #   全展平（不是均值池化）—— M 个槽是 M 条独立记忆，池化会把它们搅在一起。
-            self.mem_aux = nn.Sequential(nn.Linear(self.mem_slots * d_model, 64),
-                                         nn.ReLU(), nn.Linear(64, V.M_AUX))
+            self.mem_aux = nn.Sequential(FastLinear(self.mem_slots * d_model, 64),
+                                         nn.ReLU(), FastLinear(64, V.M_AUX))
 
     # ------------------------------------------------------------------
     def n_params(self) -> int:
