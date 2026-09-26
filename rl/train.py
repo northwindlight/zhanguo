@@ -1131,7 +1131,7 @@ if __name__ == "__main__":
           league_db=(None if (a.league_db or "").lower() in ("none", "") else a.league_db),
           league_mains=a.league_mains,
           league_snapshot_every=a.league_snapshot_every,
-          league_from=a.league_from, league_min_games=a.league_min_games,
+          league_from=a.league_from,
           league_retire_rating=a.league_retire_rating,
           league_retire_rd=a.league_retire_rd, league_cache=a.league_cache,
           device=a.device, memory=a.memory, tbptt=a.tbptt,

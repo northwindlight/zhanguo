@@ -77,3 +77,53 @@ class TestEveryFlagReachesTrain(unittest.TestCase):
         self.assertEqual(miss, set(),
                          f"★ 这些 `train()` 参数**没被 CLI 转发**：{sorted(miss)}\n"
                          "  ⇒ 加了命令行选项却不生效，而且**不报错**")
+
+
+class TestCliEndToEnd(unittest.TestCase):
+    """★★ **真的把 `main()` 跑一遍**（最小配置）—— 补上今天查出来的两块盲区。
+
+    ★ 盲区（2026-09-26 实际踩到，两条臂当场死在启动上）：
+      ① `TestEveryFlagReachesTrain` **只查一个方向**（"所有参数都传了吗"）——
+         传了一个 `train()` **不认**的名字它不管 ⇒ 我删掉旧参数 `--league-min-games`
+         时漏删了 `train(...)` 里的 `league_min_games=a.league_min_games`
+         ⇒ 一跑就 `AttributeError: 'Namespace' object has no attribute ...`，
+         **而全量 919 条测试全绿**。
+      ② `--help` 只解析参数就退出、`train(iters=0,...)` 的冒烟测试又**直接调 `train()`**
+         ⇒ 两条路都**不过 `main()`** ⇒ 谁都没碰到那行。
+    ⇒ 这条守卫用**最小配置真的起一次进程**，只要求它**正常退出**。
+    """
+
+    def test_main_runs_with_a_minimal_config(self):
+        import tempfile
+        from pathlib import Path as _P
+        with tempfile.TemporaryDirectory() as d:
+            r = subprocess.run(
+                [sys.executable, "-m", "rl.train",
+                 "--iters", "0", "--episodes", "0", "--pool", "2",
+                 "--size-min", "12", "--size-max", "12", "--t-max", "20",
+                 "--halls-known", "--league-db", "none",
+                 "--league-retire-rating", "1400", "--league-retire-rd", "110",
+                 "--first-streak-limit", "8", "--alliances", "none",
+                 "--out", str(_P(d) / "a.pt")],
+                cwd=str(ROOT), capture_output=True, text=True, timeout=900)
+            self.assertEqual(r.returncode, 0,
+                             f"`main()` 跑挂了（参数接线错？）：\n{r.stderr[-900:]}")
+
+    def test_no_stale_kwarg_is_passed(self):
+        """① 的另一半：**传进去的名字必须是 `train()` 认的**（防漏删旧参数）。"""
+        import ast
+        import inspect
+        from rl import train as TR
+        tree = ast.parse((ROOT / "rl" / "train.py").read_text(encoding="utf-8"))
+        call = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "train":
+                call = node
+        self.assertIsNotNone(call, "没找到 CLI 里的 `train(...)` 调用")
+        passed = {kw.arg for kw in call.keywords if kw.arg}
+        params = set(inspect.signature(TR.train).parameters)
+        stale = passed - params
+        self.assertEqual(stale, set(),
+                         f"★ 这些关键字 `train()` **不认**：{sorted(stale)}\n"
+                         "  ⇒ 删参数时漏删了调用点（一跑就 AttributeError/TypeError，"
+                         "而「所有参数都传了」那个方向的守卫**看不见**它）")
