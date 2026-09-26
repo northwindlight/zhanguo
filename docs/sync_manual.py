@@ -1,19 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""《游戏说明书》数值同步器：文档里的数字**一律**从 `balance.py` 现算，不手抄。
+"""人类侧手册的 AUTO 块同步器：文档里的数字与正文**一律**现算，不手抄。
+
+管两份文档：
+
+- `docs/游戏说明书.md` —— 规则（"**能做什么**"）：各块的数字从 `balance.py`（必要时
+  + `mp_ai.py` 的工具表、`settlement.py` 的结算口径）现算。
+- `docs/经济学手册.md` —— 讲义（"**为什么**"）：正文逐字取自 `mp_ai._econ_manual()`
+  ——**局内 AI 读的就是那一份**，这里只做 Markdown 分节，不复制、不改写。
 
 用法::
 
-    python3 docs/sync_manual.py            # 就地刷新 docs/游戏说明书.md 里的 AUTO 块
+    python3 docs/sync_manual.py            # 就地刷新两份文档里的 AUTO 块
     python3 docs/sync_manual.py --check     # 只校验：漂移就打印 diff 并以退出码 1 退出
     python3 docs/sync_manual.py --lint      # 顺手提示「AUTO 块外的正文里出现了数字」的行
+    python3 docs/sync_manual.py --doc docs/经济学手册.md    # 只处理其中一份
 
 三条纪律（与 `balance.py` 的「唯一权威」一致）：
 
-1. **数字只住在 AUTO 块里。** 块内容全部由本文件从 `balance.py`（必要时 + `mp_ai.py`
-   的工具表）现算，改平衡后跑一次刷新即可，不存在"文档抄了一份数字"。
+1. **数字只住在 AUTO 块里。** 块内容全部由本文件现算（`balance.py` / `mp_ai.py` /
+   `settlement.py`），改平衡或改手册后跑一次刷新即可，不存在"文档抄了一份数字"或
+   "文档抄了一份讲义"。
 2. **AUTO 块外的手改会被抓住。** `--check` 把文档里的块与现算结果逐字节比，
-   不一致就报出 diff；`tests/test_manual_sync.py` 跑的就是同一条校验。
+   不一致就报出 diff；`tests/test_manual_sync.py` 与 `tests/test_econ_manual_sync.py`
+   跑的就是这条校验。
 3. **遇到没覆盖的新东西就炸，不静默。** 新增建筑 kind / 新增工具而这里没写文案时，
    直接抛 `SyncError`（宁可红色报错，也不要文档里悄悄少一行）。
 
@@ -29,6 +39,7 @@ import re
 import sys
 
 DOC_PATH = pathlib.Path(__file__).resolve().parent / "游戏说明书.md"
+ECON_DOC_PATH = pathlib.Path(__file__).resolve().parent / "经济学手册.md"
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -481,6 +492,44 @@ BLOCKS: dict[str, object] = {
 }
 
 
+# ---- 《经济学手册》：正文不重写，逐字取自局内提示 ----
+
+_SECTION_RE = re.compile(r"^[一二三四五六七八九十]+、")
+
+
+def _econ_source() -> str:
+    """局内《经济学手册》原文（`mp_ai._econ_manual()`）——本文档正文的唯一来源。"""
+    try:
+        import mp_ai
+    except Exception as e:  # pragma: no cover - 环境缺依赖时的明确报错
+        raise SyncError(f"读不到 mp_ai._econ_manual（{type(e).__name__}: {e}）") from e
+    return mp_ai._econ_manual()
+
+
+def blk_econ() -> str:
+    """《经济学手册》正文：逐字取自 `mp_ai._econ_manual()`，**只做 Markdown 分节**。
+
+    变换只有三条，一个字都不动：编号行提成 `##` 小标题、去掉行首缩进、行间补空行
+    （原文是塞进 prompt 的紧凑排版、靠缩进分段，直接贴进 Markdown 会被 lazy
+    continuation 并成一坨）。**要改主张、加节、补例子，请去改 `_econ_manual()`**
+    ——那里才是局内 AI 读的那一份；这里改了会被 `--check` 和测试抓住。
+    """
+    lines = [ln.strip() for ln in _econ_source().splitlines() if ln.strip()]
+    if not any(_SECTION_RE.match(ln) for ln in lines):
+        raise SyncError("《经济学手册》里解析不出小节标题（“一、二、…”）—— "
+                        "`mp_ai._econ_manual()` 的排版变了？对着它改本函数的分节规则")
+    return "\n\n".join(("## " + ln) if _SECTION_RE.match(ln) else ln for ln in lines)
+
+
+ECON_BLOCKS: dict[str, object] = {"econ": blk_econ}
+
+# 已知的人类侧手册 → 各自的块表（`--doc` 按文件名认领）
+DOCS: dict[pathlib.Path, dict[str, object]] = {
+    DOC_PATH: BLOCKS,
+    ECON_DOC_PATH: ECON_BLOCKS,
+}
+
+
 # --------------------------------------------------------------------------
 # 读写与校验
 # --------------------------------------------------------------------------
@@ -494,9 +543,9 @@ def block_re(block_id: str) -> re.Pattern:
     )
 
 
-def render(doc: str) -> str:
+def render(doc: str, blocks: dict[str, object] | None = None) -> str:
     """把 doc 里所有 AUTO 块刷新成现算内容（不改块外一个字）。"""
-    for block_id, fn in BLOCKS.items():
+    for block_id, fn in (BLOCKS if blocks is None else blocks).items():
         m = block_re(block_id).search(doc)
         if not m:
             raise SyncError(f"文档里找不到 AUTO 块：{block_id}")
@@ -504,14 +553,14 @@ def render(doc: str) -> str:
     return doc
 
 
-def lint_prose(doc: str) -> list[str]:
+def lint_prose(doc: str, blocks: dict[str, object] | None = None) -> list[str]:
     """列出 AUTO 块外正文里带数字的行（建议挪进数值表；行内含 lint-ok 的跳过）。
 
     「带数字」指**光秃秃的数字**：代码块、行内 `code`、Markdown 链接（`[名](路径)`）
     里的数字不算（那些是提交号 / 文件名 / 标识符，本来就不该进数值表）。
     """
     stripped = doc
-    for block_id in BLOCKS:
+    for block_id in (BLOCKS if blocks is None else blocks):
         stripped = block_re(block_id).sub(
             lambda m: m.group("head") + "\n" + m.group("tail"), stripped)
     stripped = re.sub(r"```.*?```", "", stripped, flags=re.DOTALL)   # 代码块
@@ -525,48 +574,72 @@ def lint_prose(doc: str) -> list[str]:
     return hits
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="刷新/校验《游戏说明书》里的 AUTO 数值块")
-    ap.add_argument("--check", action="store_true", help="只校验，不写盘；漂移则退出码 1")
-    ap.add_argument("--lint", action="store_true", help="额外列出正文里的数字行（建议项）")
-    ap.add_argument("--doc", default=str(DOC_PATH), help="文档路径（默认 docs/游戏说明书.md）")
-    args = ap.parse_args(argv)
+def _blocks_for(path: pathlib.Path) -> dict[str, object]:
+    """按文件名认领块表；指到已知手册之外的文件就硬报错（不猜、不静默）。"""
+    for known, blocks in DOCS.items():
+        if known.name == path.name:
+            return blocks
+    raise SyncError("不认识的文档：" + path.name
+                    + "（已知：" + "、".join(p.name for p in DOCS) + "）")
 
-    path = pathlib.Path(args.doc)
+
+def _rel(path: pathlib.Path) -> str:
+    try:
+        return str(path.resolve().relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _sync_one(path: pathlib.Path, *, check: bool, lint: bool) -> int:
+    """同步（或校验）一份文档，返回退出码（0 好 / 1 漂移或出错 / 2 找不到文件）。"""
     if not path.exists():
         print(f"找不到文档：{path}", file=sys.stderr)
         return 2
     old = path.read_text(encoding="utf-8")
     try:
-        new = render(old)
+        blocks = _blocks_for(path)
+        new = render(old, blocks)
     except SyncError as e:
         print(f"✗ 同步失败：{e}", file=sys.stderr)
         return 1
 
-    if args.check:
+    if check:
         if old == new:
-            print(f"✓ AUTO 块与 balance.py 一致（{len(BLOCKS)} 块：{'、'.join(BLOCKS)}）")
+            print(f"✓ {_rel(path)}：AUTO 块与现算一致（{len(blocks)} 块：{'、'.join(blocks)}）")
         else:
-            print("✗ AUTO 块已漂移（跑 python3 docs/sync_manual.py 刷新）：", file=sys.stderr)
+            print(f"✗ {_rel(path)}：AUTO 块已漂移（跑 python3 docs/sync_manual.py 刷新）：",
+                  file=sys.stderr)
             sys.stderr.writelines(difflib.unified_diff(
                 old.splitlines(True), new.splitlines(True),
-                fromfile="文档现状", tofile="balance.py 现算"))
-        if args.lint:
-            hits = lint_prose(old)
-            print("⚠ 正文里的数字（建议挪进 AUTO 块）：" if hits else "✓ 正文无游离数字")
-            print("\n".join(hits))
-        return 0 if old == new else 1
-
-    if old == new:
-        print("已是最新，未改动。")
+                fromfile="文档现状", tofile="现算"))
+    elif old == new:
+        print(f"已是最新，未改动：{_rel(path)}")
     else:
         path.write_text(new, encoding="utf-8")
-        print(f"✓ 已刷新 {path.relative_to(ROOT)}（{len(BLOCKS)} 个 AUTO 块）")
-    if args.lint:
-        hits = lint_prose(new)
+        print(f"✓ 已刷新 {_rel(path)}（{len(blocks)} 个 AUTO 块）")
+
+    if lint:
+        hits = lint_prose(old if check else new, blocks)
         print("⚠ 正文里的数字（建议挪进 AUTO 块）：" if hits else "✓ 正文无游离数字")
         print("\n".join(hits))
-    return 0
+    return 0 if (old == new or not check) else 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(
+        description="刷新/校验人类侧手册（游戏说明书 · 经济学手册）里的 AUTO 块")
+    ap.add_argument("--check", action="store_true", help="只校验，不写盘；漂移则退出码 1")
+    ap.add_argument("--lint", action="store_true", help="额外列出正文里的数字行（建议项）")
+    ap.add_argument("--doc", default=None, help="只处理指定文档（默认两份都刷）")
+    args = ap.parse_args(argv)
+
+    paths = [pathlib.Path(args.doc)] if args.doc else list(DOCS)
+    rc = 0
+    for path in paths:
+        r = _sync_one(path, check=args.check, lint=args.lint)
+        if r and not rc:
+            rc = r          # 有文档出错就带着退出码走，但不拦下另一份
+    return rc
 
 
 if __name__ == "__main__":
