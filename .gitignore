@@ -4,6 +4,7 @@ mp_save.json
 mp_journal.md
 mp_journal*.md
 mp_map.txt
+mp_map*.txt
 __pycache__/
 *.pyc
 

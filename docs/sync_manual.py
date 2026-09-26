@@ -232,6 +232,7 @@ def blk_combat() -> str:
         ["防御方撤退时受到的伤害", f"{B.RETREAT_DEF_COVER}%（上限 100 = 免伤）"],
         ["断粮伤害（按缺口比例，上限）", f"−{B.ARMY_STARVE_DAMAGE} HP/回合（交战中照扣）"],
         ["非交战且补给充足的回血", f"+{B.ARMY_HEAL_PER_TURN} HP/回合"],
+        ["回血的代价（每支每回合）", f"装备 −{B.HEAL_EQUIP_COST} 件（**民兵除外**；满血/断供/交战中的不扣）"],
     ])
     return die + "\n\n" + params
 
