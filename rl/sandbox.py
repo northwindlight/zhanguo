@@ -235,6 +235,15 @@ def min_margin(size: int, n_nations: int) -> int:
 #      而真正防"先手直达"的是**厅到厅**的 `min_margin`（那条没动）。
 #      ⇒ 贴上是**有意接受**的形态（开局就能接触 = 一种开局分布），**别再"修"它**。
 TERRITORY_FRAC_LO = 0.15      # 占"每国摊到的格数"的比例（下限）
+# ★★ **随机结盟（只限 2v2）** —— 用户 2026-09-26：「考虑加入随机结盟(只限 2v2 对局)」。
+#   只在 **4 国局**（`len(players) == 4`）做：把 4 国随机配成**两个两人实体**；
+#   3 国/5 国**不做**（凑不出 2v2）。抽签走独立流（盐 `ALLIANCE_SALT`），
+#   与地图/开局位置/回合偏移/国土**各走各的** ⇒ 加这个特性不会挪动同一 seed 的其它东西。
+#
+# ★ 为什么这件事顺带解了"大图打不出胜负"：胜者口径是**场上只剩一个实体**
+#   （`winning_entity`）。5 国局要灭 4 家；而 2v2 下**两个实体**，灭掉对面那一家就赢
+#   ⇒ 大图重新变得**可赢**。这也是"允许大图、最高 5 国"能一起成立的原因。
+ALLIANCE_SALT = 0x2A11
 TERRITORY_FRAC_HI = 0.35      # 上限 —— ★ 两个数都是**可调先验**，不是物理常数
 TERRITORY_SALT = 0x7E77       # 抽国土用的**独立随机流**盐（见 `reset()` 的三条口径）
 
@@ -268,7 +277,7 @@ class Sandbox:
                  war: bool = True, first: str | None = None,
                  halls_known: bool = False, n_nations: int | None = None,
                  wars: list[tuple[str, str]] | None = None,
-                 territory: bool = True):
+                 territory: bool = True, alliances: str = "none"):
         self.seed = seed
         self.size = size
         self.t_max = t_max
@@ -279,6 +288,11 @@ class Sandbox:
         self.territory = bool(territory)
         # 本局抽到的**国土目标格数**（含十字；`reset()` 里抽，测试/报表要看）
         self.territory_target = 0
+        # ★★ **随机结盟**（见 `ALLIANCE_SALT` 上面那段）：`"none"`（缺省）或 `"random2v2"`。
+        #   只对 **4 国局**生效。
+        self.alliances = str(alliances)
+        # 本局抽到的**两个同盟**（`((甲,丙),(乙,丁))`；没结盟 ⇒ `()`）—— 测试/报表要看
+        self.alliance_pairs: tuple = ()
         # ★ 显式战争对：给了就**只**宣这些（用来造**中立国**/局部战争场景）。
         #   没给 ⇒ `war=True` 时**全对宣战**（多玩家的缺省：默认全体敌对）。
         self.wars = wars
@@ -390,6 +404,12 @@ class Sandbox:
             for i, a in enumerate(self.players):
                 for b in self.players[i + 1:]:
                     w.declare_war(a, b)
+        # ★★ **随机结盟（只限 2v2）** —— 用户 2026-09-26。
+        #   放在宣战**之后**：引擎两处判定都是「**联盟优先**」（`_atk_target_ok` 要
+        #   `not allied_between` **且** `war_between`；`_mv_wall` 也放行盟国地）
+        #   ⇒ 先全对宣战、再结盟，盟友之间照样"可 mv 不可 atk" ✓
+        #   （口径同 `set_alliance` 那段注释）。
+        self._make_alliances(w)
         for name in self.players:
             # ★ 沙盒**不管经济** ⇒ 补给必须管够：引擎每回合收军粮（步1/骑2），
             #   断粮则**每军扣 HP**、扣到 0 饿毙。资源给 0 的话军队是**饿死**的不是战死的
@@ -556,6 +576,34 @@ class Sandbox:
         x, y = cell
         self.world._drop_guardians(x, y)
         self.world.tiles[cell] = self.world._new_tile(x, y, name)
+
+    def _make_alliances(self, w) -> None:
+        """抽本局的同盟（**只限 2v2**：4 国随机配成两个两人实体；3 国/5 国不结盟）。
+
+        用户 2026-09-26：「考虑加入随机结盟(**只限 2v2 对局**)」。
+
+        ★ 为什么"只限 2v2"是**对**的：胜者口径是**场上只剩一个实体**
+          （`winning_entity`）—— 2v2 下只剩两个实体、灭掉对面那一家就赢
+          ⇒ 大图重新变得**可赢**（5 国局要灭 4 家，基本打不出来）。
+          这也是"允许大图、最高 5 国"能一起成立的原因。
+        ★ 抽签走**独立流**（盐 `ALLIANCE_SALT`）：与地图/开局位置/回合偏移/国土
+          **各走各的** ⇒ 加这个特性**不会挪动**同一 seed 的其它东西
+          （那条纪律在 `my_turn` 与国土那两处都踩过）。
+        ★ 幂等/干净：每局先清空 `alliance_pairs`（上一局的盟不能漏进来 —— 那种错
+          **不报错**，只是这一局的开局关系悄悄变成了上一局的）。
+        """
+        self.alliance_pairs = ()
+        if self.alliances not in ("random2v2", "2v2"):
+            return
+        if len(self.players) != 4:              # ★ 只限 2v2：3 国/5 国凑不出来
+            return
+        import random as _random
+        order = list(self.players)
+        _random.Random(self.seed ^ ALLIANCE_SALT).shuffle(order)
+        a, b = tuple(order[:2]), tuple(order[2:])
+        self.set_alliance((f"同盟{a[0]}{a[1]}", list(a)),
+                          (f"同盟{b[0]}{b[1]}", list(b)))
+        self.alliance_pairs = (a, b)
 
     def set_alliance(self, *blocs: tuple[str, list[str]]) -> None:
         """★★ **开局直接指定**联盟 —— 外交关系是**场景条件**，不是模型的动作。

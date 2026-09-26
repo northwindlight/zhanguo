@@ -144,14 +144,20 @@ class League:
     VERSION = 2                       # 1=旧的 json（已弃），2=sqlite
 
     def __init__(self, db: str | os.PathLike | None, *, mains: int = 2,
-                 retire_min_games: int = 10, retire_rate: float = 0.20,
+                 retire_rating: float = 1400.0, retire_rd: float = 110.0,
                  max_k: int = 5, min_learners: int = 1, worker: str | None = None,
                  net_cap: int = 24, device: str = "cpu",
                  fingerprint: dict | None = None, log=print):
         self.db = None if db is None else Path(db)
         self.mains = max(0, int(mains))
-        self.retire_min_games = int(retire_min_games)
-        self.retire_rate = float(retire_rate)
+        # ★★ 2026-09-26 用户改口径：「**也可以以 elo 方法退役，取消原来的退役机制**」
+        #   ⇒ 判据从"打满 N 局 + 胜率 < p"换成"**评级低于阈值、且已经打出来（RD 小）**"。
+        #   两条阈值的含义：
+        #     · `retire_rating`：绝对评级（池子均值恒 ≈1500 ⇒ <1400 = 比平均水平低 100 分）；
+        #     · `retire_rd`：**只有 RD 小到"打出来了"才许退** —— 这一条替代了原来的
+        #       "打满 10 局"，而且更准：样本少 ⇒ RD 大 ⇒ 先别判（裸胜率做不到这点）。
+        self.retire_rating = float(retire_rating)
+        self.retire_rd = float(retire_rd)
         self.max_k = max(1, int(max_k))
         self.min_learners = max(0, int(min_learners))
         # ★ 快照权重缓存的上界（份数）。24 份 ≈ 130MB —— 见 `net_of` 的 ★★。
@@ -513,25 +519,32 @@ class League:
     def retire(self) -> list[str]:
         """应用淘汰规则，返回**这一轮被停用**的 mid 列表。
 
-        规则（用户原话）：**打满 `retire_min_games` 局、胜率低于 `retire_rate`
-        ⇒ 不再启用**。
+        规则（用户 2026-09-26 改的口径）：**评级低于 `retire_rating`、且 RD ≤ `retire_rd`
+        ⇒ 不再启用**（`active=0`，**仍留在库里** —— 只增不删）。
 
-        ★ 两条兜底，都是防"闸门把自己搞死"：
+        ★★ 为什么换掉"打满 10 局 + 胜率 <20%"（原来的机制，**已取消**）：
+          ① **裸胜率有混淆**：一份的胜率取决于它**抽到谁**；
+          ② **"打满 10 局"在池子长大后几乎凑不齐**：期望要 ≈`1.7N` 个 iter
+             （N=200 时 ≈340 iter）⇒ 那条规则慢慢变成死代码；
+          ③ **RD 比"打满 N 局"更准**：它直接量"这个评级可不可信" ——
+             样本少 ⇒ RD 大 ⇒ 先别判。这是原来那条规则**做不到**的事。
+        ★ 两条兜底**照旧**（都是防"闸门把自己搞死"）：
           ① active 总数不得低于 `max_k`（否则下一局凑不齐 k 份 ⇒ 直接崩）；
           ② **在训成员至少留 `min_learners` 份**（全停用 = 炉子没得炼）。
              —— `main`（主 pt）本来就免检，它们正是"基座"的保险。
-        ★ 顺序：**胜率从低到高**淘汰，兜底先到先拦（谁最该走谁先走）。
-        ★ 先 `refresh()`：判据用的是**库里**的胜率（并行时别人也记了账）。
+        ★ 顺序：**评级从低到高**淘汰，兜底先到先拦（谁最该走谁先走）。
+        ★ 先 `refresh()`：判据用的是**库里**的账（并行时别人也记了账）。
         ★★ **整段"读判据 → 写停用"必须在一个 `BEGIN IMMEDIATE` 事务里**
           （2026-09-25 补）：否则两个 worker 各自 `refresh()` 后**都**看到
           "active=5、还能淘汰一个" ⇒ 各自 UPDATE 一个 ⇒ **一共淘汰两个**，
           而两条兜底（active ≥ max_k、在训 ≥ min_learners）**都被绕过**。
-          ★ 后果不致命（下一轮 `refresh` 会看到真实数量、不会继续塌），
-            但"兜底"在并行下**不再是硬保证** —— 而这正是"静默"那一类：
-            没有报错，只是池子比该有的小一点。
           ★ `UPDATE ... AND active=1` 是第二道锁：同一个成员被两个 worker 同时选中时，
             后到的那个**改 0 行**，不会重复计数。
+        ★ 评级**在事务里现算**（读 `results` 的逐局流水 ⇒ 跑一遍 Glicko-2）：
+          代价可忽略（几百局是毫秒级），换来的是判据**永远和账本一致** ——
+          不存第二份"评级快照"就不会有两份对不上的那一天。
         """
+        from . import elo as _elo                      # ★ 纯函数模块，无环依赖
         self.refresh()
         killed: list[str] = []
         self.conn.execute("BEGIN IMMEDIATE")        # ★ 拿写锁 ⇒ 别人得等
@@ -539,16 +552,24 @@ class League:
             # ★ 判据**在事务里重读**，不用事务外那份缓存
             rows = self.conn.execute(
                 "SELECT mid,kind,born,games,wins,active FROM members").fetchall()
-            cand = [Member(mid=r[0], kind=r[1], born=int(r[2]),
-                           games=int(r[3]), wins=int(r[4]))
-                    for r in rows
-                    if r[5] and r[1] != "main"
-                    and int(r[3]) >= self.retire_min_games
-                    and (int(r[4]) / int(r[3]) if int(r[3]) else 0.0) < self.retire_rate]
-            cand.sort(key=lambda m: (m.rate, -m.games))
+            res = _elo.rate(_elo.group_rows(self.conn.execute(
+                "SELECT mid,won,iter,worker,ts,game FROM results").fetchall()))
+            cand = []
+            for r in rows:
+                if not r[5] or r[1] == "main":        # 停用过的、主 pt ⇒ 免检
+                    continue
+                got = res.get(r[0])
+                if got is None:                       # 一局没打过 ⇒ 没有评级 ⇒ 不判
+                    continue
+                rating, rd_, _n = got
+                if rd_ <= self.retire_rd and rating < self.retire_rating:
+                    cand.append((rating, rd_, Member(mid=r[0], kind=r[1],
+                                                     born=int(r[2]),
+                                                     games=int(r[3]), wins=int(r[4]))))
+            cand.sort(key=lambda x: x[0])             # ★ 评级从低到高
             n_active = sum(1 for r in rows if r[5])
             n_live = sum(1 for r in rows if r[5] and r[1] in ("main", "live"))
-            for m in cand:
+            for _rating, _rd, m in cand:                     # ★ 元素是 (评级, RD, Member)
                 if n_active - 1 < self.max_k:            # 兜底①
                     break
                 if m.kind == "live" and n_live - 1 < self.min_learners:   # 兜底②

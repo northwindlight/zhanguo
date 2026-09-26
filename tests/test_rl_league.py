@@ -101,37 +101,85 @@ def _stat(lg, mid, games, wins):
 
 
 def _deactivate(lg, mid):
-    """同上：停用状态也必须落库（`draw` 才真的抽不到它）。"""
+    """同上：停用状态必须**落库 + 改缓存**（两边都要）。
+
+    ★ 落库：`retire()` 是在事务里**重读库**的 ⇒ 只改缓存会被库里那行静默盖掉；
+    ★ 改缓存：`draw()`/`active()` 读的**是缓存**（判据前才会 `refresh()`）
+      ⇒ 只改库不刷缓存 ⇒ 抽签照样抽到它（我上一版就是这么把 `_deactivate` 改坏的：
+      155 次抽中了"已停用"的那份，而**没有任何东西报错**）。
+    """
     lg.conn.execute("UPDATE members SET active=0 WHERE mid=?", (mid,))
     lg.conn.commit()
     lg.members[mid].active = False
 
 
+def _record(lg, game: str, entries) -> None:
+    """记**一局**：`entries` = `[(mid, 赢没赢), …]`。
+
+    ★ 必须带 `game`（每局一个 id）—— 没有它，同一秒的两局会被评级按
+      `(iter, worker, ts)` 并成 6 行（**静默**错的输入）。
+    """
+    for mid, won in entries:
+        lg.record(mid, bool(won), it=0, game=game)
+
+
+def _sink(lg, target: str, n: int = 12, *, others=("A0", "A1")) -> None:
+    """把 `target` 一直按在地上（评级掉到阈值下）、两个陪跑交替赢（留在 1500 附近）。
+
+    ★★ 为什么必须是**三人局**而不是两人对打：两人池里评级只确定"谁比谁强"，
+      **绝对水平是飘的** ⇒ 20 局全输 RD 还有 **181**（>110，按 RD 门永远退不掉）。
+      三人局多了"两个输家之间互平"这一路比较 ⇒ 12 局就能把 RD 压到 **≈100**。
+      ★ 这正好说明 RD 门比旧的"打满 N 局"准：它量的是"这个评级**可不可信**"，
+        两人池里打 20 局也还是不可信。
+    """
+    for i in range(n):
+        w = others[i % len(others)]
+        _record(lg, f"{target}-{i}",
+                [(w, True)] + [(m, False) for m in (target, *others) if m != w])
+
+
 # ================================================================ 淘汰规则
 class TestRetire(unittest.TestCase):
-    """「打 10 局以上胜率低于 20% 的不再启用」—— 三条边界都要钉。"""
+    """★ 用户 2026-09-26 改的口径：**按评级退役**（「也可以以 elo 方法退役，
+    **取消原来的退役机制**」）—— 判据 = `评级 < retire_rating` **且** `RD ≤ retire_rd`。
 
-    def test_retires_below_threshold_after_min_games(self):
-        lg = _mem(retire_min_games=10, retire_rate=0.20)
+    两条边界都要钉：**评级够低但没打出来（RD 大）不许退**、
+    **主 pt / 兜底（active ≥ max_k、在训 ≥ min_learners）不许被退穿**。
+    """
+
+    def test_retires_when_rating_low_and_established(self):
+        lg = _mem()
         _live(lg, 3)
-        _stat(lg, "L0", 10, 1)          # 10% < 20%  ⇒ 停用
-        _stat(lg, "L1", 10, 2)          # 20% (恰在线上，**不是**低于) ⇒ 留
-        _stat(lg, "L2", 9, 0)           # 局数不够 ⇒ 留（哪怕一支没赢）
+        _sink(lg, "L0")                  # 12 局一直输 ⇒ 评级 ≈1295、RD ≈100 ⇒ 该退
         killed = lg.retire()
-        self.assertEqual(killed, ["L0"])
+        self.assertEqual(killed, ["L0"], f"该退的没退（或者退了不该退的）：{killed}")
         self.assertFalse(lg.members["L0"].active)
-        self.assertTrue(lg.members["L1"].active, "20% 恰好在线上，不该被淘汰（阈值是「低于」）")
-        self.assertTrue(lg.members["L2"].active, "只打了 9 局，还没资格谈胜率")
+        self.assertTrue(lg.members["L1"].active, "一局没打过 ⇒ 没有评级 ⇒ 不该被判")
+        self.assertTrue(lg.members["L2"].active, "陪跑份在 1500 附近 ⇒ 不该退")
+
+    def test_rd_gate_protects_the_unproven(self):
+        """★★ **RD 门**（取代了旧的"打满 10 局"）：评级低但**样本少**不许退。
+
+        ★ 4 局全输 ⇒ 评级已经掉到 ≈1230（很低），但 RD ≈230 > 110 ⇒ **不许判**。
+          换成旧的胜率规则，这条会被退掉（4 局 0% < 20% ⇒ 退）——
+          那正是"被噪声驱动"：4 局说明不了任何事。
+        """
+        lg = _mem()
+        _live(lg, 3)
+        _sink(lg, "L0", 4)
+        got = lg.retire()
+        self.assertEqual(got, [], f"样本只有 4 局就退了 ⇒ RD 门没生效：{got}")
+        self.assertTrue(lg.members["L0"].active)
 
     def test_main_pt_is_exempt(self):
         """★ 「可以有两个固定主 pt」—— 它们是**基座本身**，淘汰掉就没得炼了。"""
-        lg = _mem(mains=2, retire_min_games=10, retire_rate=0.20)
+        lg = _mem(mains=2)
         _live(lg, 4)
         self.assertEqual(lg.members["L0"].kind, "main")
         self.assertEqual(lg.members["L1"].kind, "main")
         self.assertEqual(lg.members["L2"].kind, "live")
         for m in ("L0", "L1", "L2", "L3"):
-            _stat(lg, m, 20, 0)          # 全 0% —— 除主 pt 外都该走
+            _sink(lg, m, 12, others=("A0", "A1"))      # 全员按在地上
         killed = lg.retire()
         self.assertNotIn("L0", killed)
         self.assertNotIn("L1", killed)
@@ -140,20 +188,20 @@ class TestRetire(unittest.TestCase):
 
     def test_never_goes_below_max_k(self):
         """★ 兜底①：active 不得少于**当前最大国家数** —— 否则下一局凑不齐 k 份直接崩。"""
-        lg = _mem(retire_min_games=1, retire_rate=0.99, max_k=3)
+        lg = _mem(max_k=3)
         _live(lg, 5)
-        for m in lg.members:
-            _stat(lg, m, 5, 0)
+        for m in ("L0", "L1", "L2", "L3", "L4"):
+            _sink(lg, m, 12, others=("A0", "A1"))
         lg.retire()
         self.assertEqual(len(lg.active()), 3, "该停在 max_k 上，不能继续淘汰")
         lg.draw(3, __import__("numpy").random.default_rng(0))     # 凑得齐，不抛
 
     def test_never_kills_the_last_learner(self):
         """★ 兜底②：在训成员至少留 `min_learners` 份 —— 全停用 = 炉子没得炼。"""
-        lg = _mem(retire_min_games=1, retire_rate=0.99, max_k=1, min_learners=2)
+        lg = _mem(max_k=1, min_learners=2)
         _live(lg, 3)
-        for m in lg.members:
-            _stat(lg, m, 5, 0)
+        for m in ("L0", "L1", "L2"):
+            _sink(lg, m, 12, others=("A0", "A1"))
         lg.retire()
         self.assertEqual(len([m for m in lg._live() if m.active]), 2,
                          "必须在 min_learners 上停住，不能把在训的全淘汰")
@@ -167,9 +215,9 @@ class TestRetire(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as d:
             db = os.path.join(d, "league.db")
-            lg = _mk(self, db, retire_min_games=1, retire_rate=0.99)
+            lg = _mk(self, db)
             _live(lg, 3)
-            _stat(lg, "L2", 5, 0)
+            _sink(lg, "L2")
             lg.retire()
             row = lg.conn.execute("SELECT kind,active FROM members WHERE mid=?",
                                   ("L2",)).fetchone()
@@ -177,7 +225,7 @@ class TestRetire(unittest.TestCase):
             self.assertEqual(row[1], 0, "库里没标成停用")
             self.assertNotIn("L2", lg.active(), "停用后不该再被抽上场")
             # ★ 另一个池子读同一个库，结论必须一样
-            other = _mk(self, db, retire_min_games=1, retire_rate=0.99)
+            other = _mk(self, db)
             other.load()
             self.assertIn("L2", other.members, "别的进程读不到这条被停用的成员")
             self.assertFalse(other.members["L2"].active)
@@ -197,7 +245,7 @@ class TestDraw(unittest.TestCase):
     def test_draw_is_distinct_and_active_only(self):
         """★ 「随机抽 pt」：k 份**互不重复**，且抽出来的**一定 active**。"""
         import numpy as np
-        lg = _mem(retire_min_games=1, retire_rate=0.99, max_k=1)
+        lg = _mem(max_k=1)
         _live(lg, 6)
         _deactivate(lg, "L5")                          # 手工停用一份
         rng = np.random.default_rng(7)
@@ -259,8 +307,7 @@ class TestPersistence(unittest.TestCase):
     def test_roundtrip_restores_the_ledger(self):
         with tempfile.TemporaryDirectory() as d:
             db = os.path.join(d, "league.db")
-            lg = _mk(self, db, mains=2, retire_min_games=10, retire_rate=0.20,
-                            max_k=1)
+            lg = _mk(self, db, mains=2, max_k=1)
             _live(lg, 3)
             _stat(lg, "L0", 12, 5)          # 主 pt
             _stat(lg, "L2", 11, 3)          # 27% ⇒ 留
@@ -269,8 +316,7 @@ class TestPersistence(unittest.TestCase):
             lg.save()
             self.assertTrue(os.path.exists(db), "库没落盘 ⇒ 定时重启会把它清零")
 
-            lg2 = _mk(self, db, mains=2, retire_min_games=10, retire_rate=0.20,
-                             max_k=1)
+            lg2 = _mk(self, db, mains=2, max_k=1)
             self.assertTrue(lg2.load(), "库在，必须读得回来")
             self.assertEqual(lg2.updated_iter, 42)
             m = lg2.members["L2"]
@@ -435,9 +481,12 @@ class TestParallelRetireKeepsTheFloor(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             db = os.path.join(d, "league.db")
             setup = _mk(self, db, mains=0, max_k=3, min_learners=1)
-            _live(setup, 6)
-            for m in ("L0", "L1", "L2", "L3", "L4", "L5"):
-                _stat(setup, m, 99, 0)          # 全员 0% ⇒ 6 个都是候选
+            _live(setup, 7)
+            # ★ 6 个候选必须有**低评级**：`_stat`（直接写 games/wins）对新判据**无效**
+            #   ⇒ 用真的对局把它们按在地上（12 局输给 L6、彼此互平 ⇒ 评级低 + RD 小）
+            _record(setup, "warm", [("L6", True)] + [(f"L{i}", False) for i in range(6)])
+            for i in range(12):
+                _record(setup, f"c{i}", [("L6", True)] + [(f"L{i}", False) for i in range(6)])
             errs: list[str] = []
             floors: list[int] = []
 

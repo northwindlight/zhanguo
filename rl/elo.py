@@ -171,22 +171,16 @@ def rate(games: list[Game], *, period_key=None):
 
 
 # ------------------------------------------------------------------ 读流水
-def games_from_db(path: str) -> list[Game]:
-    """从联赛库里把每局重组出来。
+def group_rows(rows) -> list[Game]:
+    """把 `results` 的行**重组**成对局（`rows` = `(mid, won, iter, worker, ts, game)`）。
 
     ★ 分组键：**`(worker, game)`**（`game` 是 2026-09-26 加的列，每局一个 id）。
       老行没有 `game` ⇒ 退回 `(iter, worker, ts)` —— ⚠ `ts` 只到**秒**，
-      同一秒的两局会被并成 6 行（评级输入就静默错了）。所以：
-      **只信 `game` 非空的行**，老行只在"该 (iter,worker,ts) 下的行数正好是国数"时才用。
+      同一秒的两局会被并成 6 行（评级输入就静默错了）⇒ **只有该桶行数 ≥2 才用**
+      （一行看不出这是几人局，猜出来的输入是错的）。
+    ★ 抽成函数是为了让**训练里也能直接算**（按 Elo 退役，`League.retire`），
+      而不必绕一圈写盘再读。
     """
-    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-    # ★★ **老库没有 `game` 列**（2026-09-26 才加的）—— 只读地打开它时**不会**触发
-    #   迁移（迁移在 `League.__init__` 里，而这里是只读）⇒ 直接 `SELECT game` 会
-    #   `no such column` 当场崩。⇒ 先看列在不在，不在就按 NULL 取（走老的退路）。
-    cols = {r[1] for r in con.execute("PRAGMA table_info(results)")}
-    sel = "mid,won,iter,worker,ts," + ("game" if "game" in cols else "NULL")
-    rows = con.execute(f"SELECT {sel} FROM results").fetchall()
-    con.close()
     buckets: dict[tuple, list[tuple[str, int]]] = {}
     legacy: dict[tuple, list[tuple[str, int]]] = {}
     for mid, won, it, worker, ts, game in rows:
@@ -199,11 +193,24 @@ def games_from_db(path: str) -> list[Game]:
         out.append(Game(period=game, mids=tuple(sorted(m for m, _ in ms)),
                         winners=tuple(sorted(m for m, w in ms if w))))
     for (it, worker, ts), ms in legacy.items():
-        if len(ms) < 2:                     # 只有一行 ⇒ 看不出这是几人局 ⇒ 弃用（别猜）
+        if len(ms) < 2:
             continue
         out.append(Game(period=f"L{it}:{ts}", mids=tuple(sorted(m for m, _ in ms)),
                         winners=tuple(sorted(m for m, w in ms if w))))
     return out
+
+
+def games_from_db(path: str) -> list[Game]:
+    """从联赛库里把每局重组出来（只读）。"""
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    # ★★ **老库没有 `game` 列**（2026-09-26 才加的）—— 只读地打开它时**不会**触发
+    #   迁移（迁移在 `League.__init__` 里，而这里是只读）⇒ 直接 `SELECT game` 会
+    #   `no such column` 当场崩。⇒ 先看列在不在，不在就按 NULL 取（走老的退路）。
+    cols = {r[1] for r in con.execute("PRAGMA table_info(results)")}
+    sel = "mid,won,iter,worker,ts," + ("game" if "game" in cols else "NULL")
+    rows = con.execute(f"SELECT {sel} FROM results").fetchall()
+    con.close()
+    return group_rows(rows)
 
 
 def games_from_jsonl(path: str) -> list[Game]:

@@ -564,7 +564,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           mb: int | None = None, epochs: int | None = None,
           league_db: str | None = None, league_mains: int = 2,
           league_snapshot_every: int = 50, league_from: str | None = None,
-          league_min_games: int = 10, league_retire_rate: float = 0.20,
+          league_retire_rating: float = 1400.0, league_retire_rd: float = 110.0,
           league_cache: int = 24, device: str = "cpu",
           memory: str = "none", tbptt: int | None = None,
           territory: bool = True,
@@ -618,7 +618,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     #        可有 2 个固定主 pt / 打 10 局以上胜率 <20% 的不再启用。
     #   ★ `league_db=None` ⇒ 池子照跑但**不落盘**（战绩不过夜）—— 真起炉必须给。
     lg = League(league_db, mains=league_mains,
-                retire_min_games=league_min_games, retire_rate=league_retire_rate,
+                retire_rating=league_retire_rating, retire_rd=league_retire_rd,
                 max_k=k_of(hi), min_learners=1, net_cap=league_cache,
                 device=device, fingerprint=_shape_fingerprint(mem_slots), log=log)
     had = lg.load()
@@ -627,7 +627,8 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         f" · epochs **{eff_epochs}** · minibatch {mb or S.PPO_MINIBATCH}"
         f" · 局/iter {episodes_per_iter} · t_max {t_max} · 尺寸 [{lo},{hi}]"
         f" · 池 {n_slots}"
-        f" · 国土 {'**随机**（每局抽，各国同数）' if territory else '固定 5 格（老行为）'}")
+        f" · 国土 {'**随机**（每局抽，各国同数）' if territory else '固定 5 格（老行为）'}"
+        + (f" · 结盟 **{alliances}**（只对 4 国局生效）" if alliances not in ("none", "") else ""))
     log(f"★ 联赛池 **{n_slots} 份在训**（主 pt {league_mains}）"
         f"{'＋库已读回' if had else '（新库）'}"
         f" —— 每局按 `n_nations_for(边长)` **随机抽 k 份不重复**上场"
@@ -686,7 +687,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
             first = players[(it + e) % k]
             sb = Sandbox(seed=int(rng.integers(1 << 30)), size=sz, t_max=t_max,
                          first=first, halls_known=halls_known,
-                         territory=territory).reset()
+                         territory=territory, alliances=alliances).reset()
             # ★★ **从池子里随机抽 k 份不重复的 pt** 上场（用户：「随机抽 pt」）。
             #   `rng.permutation` 取前 k ⇒ 无重复、且每局独立。沙盒是**对称**的
             #   （各国开局一样、先手另算）⇒ 网络扮哪个国家不带偏差，
@@ -803,7 +804,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         #    由 `--league-snapshot-every` 控制**每几 iter 把学过的那一版归档一次**（缺省 1）。
         killed = lg.retire()
         if killed:
-            log(f"  ★ 停用（打满{lg.retire_min_games}局且胜率<{lg.retire_rate:.0%}）"
+            log(f"  ★ 停用（评级<{lg.retire_rating:.0f} 且 RD≤{lg.retire_rd:.0f}）"
                 f"→ {killed}（**只标停用、不删除**，仍留在账本里）")
         lg.updated_iter = it
         lg.save()
@@ -1069,14 +1070,16 @@ if __name__ == "__main__":
                     help="★ **分化的起点**（用户：「分化指从**原来 5 个**来分化，"
                          "**而不是一个**」）⇒ **按槽位灌**：第 i 份继承起点里的第 i 份，"
                          "各自延续自己的血脉。★ 与 `--resume` 同时给时 **resume 赢**")
-    ap.add_argument("--league-min-games", dest="league_min_games", type=int,
-                    default=10,
-                    help="★ 淘汰门槛之一：**打满几局**才谈胜率（用户：10）")
-    ap.add_argument("--league-retire-rate", dest="league_retire_rate", type=float,
-                    default=0.20,
-                    help="★ 淘汰门槛之二：胜率低于它 ⇒ `active=false`（用户：0.20）。"
-                         "⚠ K 国局里随机胜率是 1/K —— 3 国 33%%、**5 国 20%%**"
-                         "⇒ 这个阈值在 5 国局上等于「和随机持平」（偏严）")
+    ap.add_argument("--league-retire-rating", dest="league_retire_rating",
+                    type=float, default=1400.0,
+                    help="★ **按评级退役**（用户 2026-09-26：「也可以以 elo 方法退役，"
+                         "取消原来的退役机制」）：评级低于它 ⇒ `active=false`。"
+                         "池子均值恒 ≈1500 ⇒ 1400 = 比平均水平低 100 分")
+    ap.add_argument("--league-retire-rd", dest="league_retire_rd", type=float,
+                    default=110.0,
+                    help="★ 退役的第二道门：**RD 大于它就不判**（「还没打出来」）。"
+                         "它取代了旧的「打满 10 局」—— 样本少 ⇒ RD 大 ⇒ 先别动，"
+                         "比数局数准得多")
     ap.add_argument("--restart-after", dest="restart_after", type=int, default=0,
                     help="★ 每跑这么多 iter 就**重启进程**（存档后续跑）—— 抗内存增长，"
                          "用户 2026-09-25：「不如定时重启」")
@@ -1110,6 +1113,11 @@ if __name__ == "__main__":
                          "`rl/sandbox.py:territory_range`）")
     ap.add_argument("--no-territory", dest="territory", action="store_false",
                     help="★ 关掉：只留十字那 5 格（**老行为**，做版间对照用）")
+    ap.add_argument("--alliances", default="none", choices=("none", "random2v2"),
+                    help="★ **随机结盟**（用户 2026-09-26：「考虑加入随机结盟"
+                         "(**只限 2v2 对局**)」）—— `random2v2` = 4 国局随机配成两个两人实体"
+                         "（3/5 国不结盟）。★ 它顺带解了「大图打不出胜负」："
+                         "胜者口径是「只剩一个实体」，2v2 下灭掉对面那家就赢")
     a = ap.parse_args()
     if a.threads:
         import torch
@@ -1124,9 +1132,10 @@ if __name__ == "__main__":
           league_mains=a.league_mains,
           league_snapshot_every=a.league_snapshot_every,
           league_from=a.league_from, league_min_games=a.league_min_games,
-          league_retire_rate=a.league_retire_rate, league_cache=a.league_cache,
+          league_retire_rating=a.league_retire_rating,
+          league_retire_rd=a.league_retire_rd, league_cache=a.league_cache,
           device=a.device, memory=a.memory, tbptt=a.tbptt,
-          territory=a.territory)
+          territory=a.territory, alliances=a.alliances)
     if a.restart_after and a.iters > seg:
         # ★★ **定时重启**（用户 2026-09-25：「不如定时重启」）：跑完这一段就 `exec` 自己，
         #   **新进程 ⇒ RSS 归零**，并从刚存的档续跑。
