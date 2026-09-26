@@ -509,3 +509,27 @@ class TestPoolAndJudgeBuildTheRightShape(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestActivityProbeOnAnUntrainedNet(unittest.TestCase):
+    """★★ **未训练的网：写入必须逐位恒等**（`rl/mem_activity.py` 的直接读数）。
+
+    ★ 这条钉的是那条**设计等式**：写头 output 层零初始化 ⇒ `upd ≡ 0` ⇒
+      `mem_out == mem_in`（"开记忆 = 马尔可夫基线"是**等式**不是近似）。
+      ⇒ 未训练的档上，探测器的①写入幅度必须是 **0**。
+    ★ 反向对照（同一条测试里）：**训过的档必须 > 0** —— 否则说明"门从来没开过"。
+      （实测：iter 38 的档 ①=0.0078/步 ⇒ 门开了；这条对照让"0"有意义。）
+
+    ★ 为什么值得钉：这个探针是用来回答用户那句「里面到底有没有活动」的，
+      而"写入恒等"是它**唯一的硬判据**；判据本身错了，整套读数都是假的。
+    """
+
+    def test_untrained_write_is_exactly_zero(self):
+        from rl import mem_activity as MA
+        net = build_model(mem_slots=V.M_SLOTS)
+        net.eval()
+        r = MA.probe(net, [1000], size=8, t_max=8, max_steps=120)
+        self.assertGreater(r["步数"], 5, "探针没采到步（测试没生效）")
+        self.assertEqual(r["写入幅度_均值"], 0.0,
+                         f"未训练的网居然在写：{r['写入幅度_均值']} ⇒ "
+                         f"零初始化的恒等被破坏了（那条等式是整条线的对照地基）")
+        self.assertEqual(r["局内漂移"], 0.0, "未训练却漂移了 ⇒ 同上")
