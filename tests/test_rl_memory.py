@@ -92,10 +92,22 @@ class TestNoMemoryIsUntouched(unittest.TestCase):
         self.assertIsNone(mem, "不开记忆时 `mem_out` 必须是 None")
 
 
-class TestInitialSlotsAreInformationallyEmpty(unittest.TestCase):
-    """② 初值：槽跨步**精确**不动 ⇒ 信息上等于马尔可夫基线。"""
+class TestInitialSlotsAreSmallButAlive(unittest.TestCase):
+    """② 初值契约（**2026-09-26 改**）：扰动**有界且小**、但槽**确实带状态**。
 
-    def test_slots_do_not_move_at_init(self):
+    ★★ 这一条原来是"槽跨步**逐位**不动 ⇒ 信息上等于马尔可夫基线"（写头零初始化）。
+      那个性质漂亮（对照是**等式**），**但它把读路径掐死了** —— 实测：换掉整个槽的
+      内容，策略 KL 4.4e-7、8999 次比较里**动作变了 0 次**（"在写、但没人读"）。
+      因果链：初值槽不含**状态** ⇒ 读路径能学到的最多是"用 `mem0` 这个常数"，
+      而写路径被**辅助损失**独立推着 ⇒ 两条路解耦。
+    ⇒ 现在写头输出层**小而非零**（`V.MEM_WRITE_INIT`）：
+      · 扰动**有上界**（下面钉住）⇒「开记忆 ≈ 马尔可夫基线」仍然成立（从等式退成近似）；
+      · 槽**带状态信息**（下面也钉住）⇒ 读路径从第一步就有梯度 ⇒ 它才学得会去读。
+      ★ 对照没有丢：`--memory none` 那条臂**就是**马尔可夫基线。
+    """
+
+    def test_perturbation_is_bounded(self):
+        """扰动有上界（相对 `mem0` 的量级）——「≈ 基线」这条仍然钉着。"""
         sb = _sb()
         net = build_model(mem_slots=V.M_SLOTS)
         net.eval()
@@ -103,14 +115,16 @@ class TestInitialSlotsAreInformationallyEmpty(unittest.TestCase):
         with torch.no_grad():
             _, _, m0 = net.forward_state(batch, None)
             m = m0
-            for _ in range(30):                     # 连着走 30 步
+            for _ in range(30):
                 _, _, m = net.forward_state(batch, m)
-        self.assertEqual(float((m - m0).abs().max()), 0.0,
-                         "初值时槽自己动了 ⇒ 记忆路径**信息上不是空的** ⇒ "
-                         "「开记忆的第一版 = 马尔可夫基线」这个对照不成立")
+            base = float(net.mem0.detach().abs().mean())
+            d = float((m - m0).abs().max())
+        self.assertLess(d, 8 * max(base, 1e-6),
+                        f"30 步扰动 {d:.4f} 远超 `mem0` 量级 {base:.4f} ⇒ "
+                        f"「开记忆 ≈ 基线」不成立（那就不是在测记忆的增益，是在测重新初始化）")
 
-    def test_init_slots_do_not_depend_on_the_episode(self):
-        """★ 换一局（不同 seed）⇒ 初值槽**一模一样**（它本来就是学出来的常量）。"""
+    def test_slots_do_depend_on_the_state_at_init(self):
+        """★★ **反过来了**：初值槽**必须**跟着局面变 —— 这正是读路径有梯度的来源。"""
         a = build_model(mem_slots=V.M_SLOTS)
         b = build_model(mem_slots=V.M_SLOTS)
         b.load_state_dict(a.state_dict())
@@ -120,7 +134,9 @@ class TestInitialSlotsAreInformationallyEmpty(unittest.TestCase):
         with torch.no_grad():
             _, _, ma = a.forward_state(_batch(sa, sa.players[0]), None)
             _, _, mb = b.forward_state(_batch(sb_, sb_.players[0]), None)
-        self.assertEqual(float((ma - mb).abs().max()), 0.0, "初值槽跟着局面变了")
+        self.assertGreater(float((ma - mb).abs().max()), 0.0,
+                           "初值槽与局面无关 ⇒ 写头还是零初始化 ⇒ 读路径没有梯度"
+                           "（那就是 2026-09-26 查出来的「在写但没人读」）")
 
 
 class TestReadPathIsAlive(unittest.TestCase):
@@ -158,15 +174,14 @@ class TestReadPathIsAlive(unittest.TestCase):
 
 
 class TestGradientReachesTheWriteHead(unittest.TestCase):
-    """④ 零初始化**不许**把学习掐死。"""
+    """④ 写头两端都要有梯度（**2026-09-26 口径变了**）。"""
 
     def test_aux_loss_has_gradient_on_the_write_head(self):
-        """★ 零初始化**只让上游晚一步**，不是掐死学习。
+        """★ 写头**输出层与上游（注意力）第一步都要有梯度**。
 
-        ★ 我第一版在这里断言"第一步 `mem_write.q` 的梯度 > 0" —— **错了**：
-          输出层零初始化 ⇒ `∂upd/∂q ≡ out.weight @ … = 0` ⇒ 注意力**内部**的那些
-          权重（q/kv）第一步**本来就该**是 0 梯度。这是该初始化的**标准性质**，
-          不是 bug。真正该钉的是：**第一步输出层有梯度**，而**走一步之后**上游也有了。
+        ★ 零初始化时代这里断言的正好相反（上游第一步梯度 = 0，那是零初始化的标准
+          性质）；改成小而非零之后，**上游第一步就该有梯度** —— 而这一条正是
+          "读路径能学会"的前提（零初始化时代，读路径的梯度是 0 ⇒ 永远学不会）。
         """
         sb = _sb()
         net = build_model(mem_slots=V.M_SLOTS)
@@ -183,13 +198,14 @@ class TestGradientReachesTheWriteHead(unittest.TestCase):
         g_out0, g_q0 = grads()
         self.assertGreater(g_out0, 0.0,
                            "辅助损失对写头**输出层**的梯度是 0 ⇒ 写头永远开不了口")
-        self.assertEqual(g_q0, 0.0, "零初始化下上游第一步不该有梯度（性质变了就要重新想）")
+        self.assertGreater(g_q0, 0.0,
+                           "上游（注意力）第一步没有梯度 ⇒ 写头只能被辅助损失"
+                           "从输出层推着走，内部永远学不到东西")
         # ★ 走一步（只动输出层）⇒ 上游立刻拿到梯度 ⇒ 学习**没有**被掐死
         opt = torch.optim.SGD(net.parameters(), lr=1.0)
         opt.step()
         _, g_q1 = grads()
-        self.assertGreater(g_q1, 0.0,
-                           "走一步之后写头内部（q）仍无梯度 ⇒ 学习被零初始化**掐死**了")
+        self.assertGreater(g_q1, 0.0, "走一步之后写头内部反而没梯度了")
 
 
 class TestWindowsNeverCrossAnEpisode(unittest.TestCase):
@@ -523,13 +539,15 @@ class TestActivityProbeOnAnUntrainedNet(unittest.TestCase):
       而"写入恒等"是它**唯一的硬判据**；判据本身错了，整套读数都是假的。
     """
 
-    def test_untrained_write_is_exactly_zero(self):
+    def test_untrained_write_is_small_but_nonzero(self):
         from rl import mem_activity as MA
         net = build_model(mem_slots=V.M_SLOTS)
         net.eval()
         r = MA.probe(net, [1000], size=8, t_max=8, max_steps=120)
         self.assertGreater(r["步数"], 5, "探针没采到步（测试没生效）")
-        self.assertEqual(r["写入幅度_均值"], 0.0,
-                         f"未训练的网居然在写：{r['写入幅度_均值']} ⇒ "
-                         f"零初始化的恒等被破坏了（那条等式是整条线的对照地基）")
-        self.assertEqual(r["局内漂移"], 0.0, "未训练却漂移了 ⇒ 同上")
+        self.assertGreater(r["写入幅度_均值"], 0.0,
+                           "未训练的网**一点不写** ⇒ 写头又回到零初始化了 ⇒ "
+                           "读路径没梯度 ⇒ 记忆会再次变成「在写但没人读」")
+        self.assertLess(r["写入幅度_均值"], 0.05,
+                        f"未训练的网一上来就写 {r['写入幅度_均值']:.4f} ⇒ "
+                        f"「开记忆 ≈ 基线」不成立（扰动必须先小）")
