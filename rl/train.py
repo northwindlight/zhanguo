@@ -567,7 +567,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           league_retire_rating: float = 1400.0, league_retire_rd: float = 110.0,
           league_cache: int = 24, device: str = "cpu",
           memory: str = "none", tbptt: int | None = None,
-          territory: bool = True,
+          territory: bool = True, alliances: str = "none",
           log=print) -> dict[int, PolicyNet]:
     """主循环：自对弈 collect → 每个网络各 update 一次。
 
