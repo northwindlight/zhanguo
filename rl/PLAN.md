@@ -877,6 +877,71 @@ vs 全图，分差都是 `0.000000`** ⇒ 除威胁外**确实零视野依赖**�
    ⇒ 结论：**该等它自己学会收局，别提前下"永远不会"的断言** ——
      我当时是从"平局不记战绩"直接推到"永远没战绩"，漏了"局本来就可能打死"这一支。
 
+### 12.11 ★★ 2026-09-26 免费 GPU 机（Tesla P4）实测三件事 + 一个新查出的静默坑
+
+**机型**（免费机、24 小时回收、每次都是新的）：`v3nyakmdbpr6kweesnow.deepln.com:53449`。
+`~/bin/setup-zhanguo-gpu <host> <port> [密码]` 一条命令从零装好
+（装公钥 → tmux → venv+torch → rsync 仓库 → **真跑一次矩阵乘**验 CUDA）。
+★ 装完**必做**：`rm -rf /root/.cache/pip`（pip 缓存 2.5G；这台机器每一 G 都算数）。
+★ `deploy-zhanguo-gpu` / `pull-zhanguo-gpu` / `/usr/local/bin/zhanguo-gpu-pull` **三处
+  HOST/PORT 都要改**（前两个是手动、第三个是 `zhanguo-gpu-pull.timer` 每 2 分钟跑的那个）。
+  漏改第三处的表现是：服务每 2 分钟报一次「连不上（机器可能已被回收）」—— 一句**假话**。
+
+**一、`--device cuda` 在长局配置下**比 cpu 慢** —— 「update ≈ 90%」那条口径不能搬。
+
+| 同一份工作（12×12 / t-max 100 / 8000 步 / 1 局 / 池 3） | 墙钟 |
+|---|---|
+| `--device cpu --threads 1` | **117 s** |
+| `--device cpu --threads 8` | 203 s |
+| `--device cuda --threads 1` | 257 s |
+
+① **瓶颈是 Python 沙盒的步进（单线程），不是矩阵乘**：一局 60000 步 × ~15ms ≈ 15 分钟，
+   这段时间 GPU 完全闲着。`--device cuda` 的注释里那句「update ≈ 90% 且全是 matmul」
+   是在**短局**配置下量的 ⇒ **搬到长局就是错的**。
+② **torch 多线程在这套小算子上是负收益**（117 → 203 s），与 ECS 上「开 2 线程慢 3.4×」同源。
+③ P4 算力低（实测 3.55 TFLOPS，arch 列表里**没有 sm_61**、走 sm_60 兼容）+ 小矩阵的
+   内核启动开销 ⇒ 上卡**倒贴**。⇒ 这台机器上**用 cpu、每 worker 1 线程**。
+
+**二、免费机的「64 核」是假的**：`nproc` 报 64、`cpuset.cpus.effective` 是 `0-63`，
+但 **cgroup v2 配额是 `900000 100000` = 9 核**。⇒ 起 worker 前**先读
+`/sys/fs/cgroup/cpu.max`**，别信 `nproc` —— 和「工具骗人」同一类：它报了一个**看着对**的数。
+
+**三、★★ 查出一个静默坑：共享联赛库里，各 worker 的「在训成员」会并到同一行账本。**
+  `train.py` 的 `mids = [f"L{i}" for i in range(n_slots)]` —— **不带 worker 标识**；
+  而 `League.bind_live()` 是 `INSERT … ON CONFLICT(mid) DO UPDATE`
+  ⇒ 两个 worker 共用一个 `--league-db` 时，各自的 `L0..L4` **落到同一行**。
+  冻结快照那边**修过了**（`G<iter>@<sha>_<pid>` 带了 `_pid`），**在训成员这边没有**。
+  后果全是静默的：
+    · 两个 worker 的 L0 是**两份不同的权重**，胜负/Elo 却记在同一行 ⇒ 评级是两份网的**混合**；
+    · `retire()` 停用 L0 会**同时影响两个 worker**；
+    · `draw()` 抽中 L0 当对手时，**每个进程用的是自己那份**权重
+      （`net_of` 先查本地 `_nets` 缓存）⇒ 「账本说同一个成员上场，实际是两个不同的对手」。
+  ⇒ **现状口径：一臂一个 worker**（= 证据档那次的口径）。
+    要真并行，得先把 worker 标识编进在训 mid（或每 worker 一个库），**并配一条守卫**。
+  ★ 这条**只记录、没修** —— 修它要动 `--league-db` 既有内容的解释口径，得用户拍。
+
+**四、`rl/disk_guard.sh`（新）—— 免费机的盘是硬顶，而池子是只增不删的。**
+  实测每份冻结快照 **6.03 MB**（不是注释里写的 5.5）；30G 盘装完 torch 只剩 **9.7G**
+  ⇒ **磁盘寿命 = 快照速率 = worker 数 × iter 速率 × 池子份数 ÷ snapshot_every**。
+  闸的判据是**剩余空间**，动作是**停炉**——**不是删快照**：池子成员的文件就是它的权重，
+  删了哪天抽到直接抛（不是优雅跳过）。停的代价很小：`zhanguo-gpu-pull.timer`
+  每 2 分钟把产物镜像回 Pi ⇒ 最多丢 2 分钟。
+  ★ 按纪律**故意破坏了一次**：阈值设成 `999999999` ⇒ 当场触发并停掉假会话；
+    **心跳那条路也单独验过**（`DISK_GUARD_HEARTBEAT=5` + 阈值 0 ⇒ 每 5 秒一行心跳，
+    且用 `timeout` 收尾，确认它「在跑且正常」和「没起来」在日志上分得开）。
+
+**五、这台机器上的起炉配置**（两臂各 1 worker，cpu/1 线程，2026-09-26 15:44 起）：
+  `--memory latent|none` · `--episodes 2 --t-max 400 --max-steps 60000`
+  `--size-min 12 --size-max 20 --pool 5 --halls-known` · `--league-mains 2`
+  `--league-snapshot-every 1`（守用户「学一个增一个」的口径；盘够就按 1 跑，
+  闸兜底）· `--league-retire-rating 1400 --league-retire-rd 110`
+  `--first-streak-limit 8 --restart-after 5 --ckpt-every 2 --epochs 2 --iters 200`
+  `--territory --alliances random2v2` · 走 `ZHANGUO_PY=/root/venv/bin/python` +
+  `ZHANGUO_PAR_PREFIX={mem,base}` + `THREADS_PER_WORKER=1`。
+  ★ **别在参数里显式给 `--out`**：`run_par.sh` 已经按 worker 编号自动命名了，
+  你再给一个 ⇒ argparse **取最后一个** ⇒ 你的赢 ⇒ **加到第 2 个 worker 时两个进程
+  往同一个 `.pt` 写**（正是它 docstring 警告的第一条，而 N=1 时**看不出来**）。
+
 ## 十、两条纪律（来自旧线的教训）
 
 1. **报数要说清覆盖到哪一段**（用户 09-18）。
