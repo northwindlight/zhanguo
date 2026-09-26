@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 
 import numpy as np
 import torch
@@ -102,6 +103,10 @@ def main() -> None:
     ap.add_argument("--halls-known", dest="halls_known", action="store_true", default=True)
     ap.add_argument("--no-halls-known", dest="halls_known", action="store_false")
     ap.add_argument("--threads", type=int, default=0)
+    ap.add_argument("--record", default=None,
+                    help="★ 把每局写进这个 JSONL（供 `rl/elo.py --extra` 用）—— "
+                         "**它是让两臂进同一张比较图的唯一途径**：评级只在连通分量内"
+                         "有意义，各自算各自的池子两张表不可比（A/B 要的正是可比）。")
     a = ap.parse_args()
     if a.threads:
         torch.set_num_threads(a.threads)
@@ -119,10 +124,25 @@ def main() -> None:
         a_side, first = game_setup(nations, i, a.seed0)
         sb.first = first
         net_of = nets_for(nations, a_side, pool_a, pool_b, i, a.seed0)
+        # ★ 座位 → 身份标签（`A2` = 甲臂第 2 份）：跨臂流水用**合成 mid**，
+        #   因为 `load_pool` 只给回权重、没有池子里的 mid ⇒ 这一层命名是本工具自己的口径。
+        slot_of = {}
+        for side, pool in ((True, pool_a), (False, pool_b)):
+            order = list(np.random.default_rng(a.seed0 * 7 + i).permutation(len(pool)))
+            names = [n for n in nations if ((n in a_side) == side)]
+            for j, n in enumerate(names):
+                slot_of[n] = f"{'A' if side else 'B'}{order[j % len(pool)]}"
         r = play({}, sb, greedy=a.greedy, rng=rng, net_of=net_of)
+        won = set(r["winner_members"])
         rows.append({"i": i, "na": len(a_side), "turns": r["turns"],
-                     "side": side_of(set(r["winner_members"]), a_side),
+                     "side": side_of(won, a_side),
                      "ratio": r["ratio"]})
+        if a.record:
+            with open(a.record, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps({
+                    "i": i, "mids": {n: slot_of[n] for n in nations},
+                    "winner": (slot_of[sorted(won)[0]] if won else None),
+                    "turns": r["turns"]}, ensure_ascii=False) + "\n")
 
     na = sum(r["na"] for r in rows)
     nb = k * len(rows) - na

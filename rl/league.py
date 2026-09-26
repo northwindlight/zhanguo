@@ -126,7 +126,8 @@ CREATE TABLE IF NOT EXISTS results (
     won     INTEGER NOT NULL,
     iter    INTEGER,
     worker  TEXT,
-    ts      TEXT    NOT NULL
+    ts      TEXT    NOT NULL,
+    game    TEXT               -- ★ 每局一个 id：同局的所有参与者共用（见 record 的 docstring）
 );
 CREATE INDEX IF NOT EXISTS idx_results_mid ON results(mid);
 """
@@ -202,6 +203,9 @@ class League:
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(members)")}
         if cols and "parent" not in cols:
             self.conn.execute("ALTER TABLE members ADD COLUMN parent TEXT")
+        rcols = {r[1] for r in self.conn.execute("PRAGMA table_info(results)")}
+        if rcols and "game" not in rcols:
+            self.conn.execute("ALTER TABLE results ADD COLUMN game TEXT")
         # ★★ 形状指纹**只在建库时写一次，此后永不覆盖** ——
         #   若每次 save 都用"当前指纹"盖上去，那么"代码改了、旧池子还在"这件事
         #   会**被自己抹平**，`load()` 永远比得中 ⇒ 旧池子静默上场（铁律要拒的正是这个）。
@@ -473,7 +477,8 @@ class League:
         return [pool[i] for i in rng.permutation(len(pool))[:k]]
 
     # ---------------------------------------------------------- 战绩
-    def record(self, mid: str, won: bool, *, it: int | None = None) -> None:
+    def record(self, mid: str, won: bool, *, it: int | None = None,
+               game: str | None = None) -> None:
         """记一局战绩。★★ **原子自增**（不是"读出来加一再写回"）。
 
         并发下唯一正确的写法：两个进程同时记同一份，
@@ -484,13 +489,18 @@ class League:
           把"没赢"记成"输了"的话，一池子平局会把**所有人**的胜率压到 0
           ⇒ 淘汰规则把池子清空，而日志上看只是"大家都在输"（**静默**那一类）。
           调用方 `train()` 已经过滤了。
+
+        ★★ `game` = **每局一个 id**（同一局的所有参与者共用同一个值）——
+          这是给**离线重算**（Glicko-2 评级，`rl/elo.py`）留的口子：
+          只靠 `(iter, worker, ts)` 分组是不够的，`ts` 只到秒，同一秒的两局会并成
+          **6 行**，分不清"谁跟谁一局"⇒ 评级的输入就错了（而且是**静默**错的）。
         """
         w = int(bool(won))
         self.conn.execute("UPDATE members SET games=games+1, wins=wins+? WHERE mid=?",
                           (w, mid))
         self.conn.execute(
-            "INSERT INTO results(mid,won,iter,worker,ts) VALUES(?,?,?,?,?)",
-            (mid, w, None if it is None else int(it), self.worker, _now()))
+            "INSERT INTO results(mid,won,iter,worker,ts,game) VALUES(?,?,?,?,?,?)",
+            (mid, w, None if it is None else int(it), self.worker, _now(), game))
         self.conn.commit()
         m = self.members.get(mid)
         if m is not None:                        # 本地缓存跟着走（判据前仍会 refresh）

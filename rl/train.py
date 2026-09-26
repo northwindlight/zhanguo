@@ -718,7 +718,8 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                 won = set(info.get("winner_members") or ())
                 if won:
                     for p in players:
-                        lg.record(mid_of[p], p in won, it=it)
+                        lg.record(mid_of[p], p in won, it=it,
+                                      game=f"{it}:{e}")   # ★ 每局一个 id（离线评级要用）
             for s in steps:
                 mi = mid_of[s.player]
                 played.add(mi)
