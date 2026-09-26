@@ -144,6 +144,17 @@ MAX_SLOTS = 20
 #   ② 金价减半 ⇒ 建造挤占的黄金变少，现金更容易被逼去**征兵**（征兵耗粮装、不耗木）。
 #   奇数的金价（林场 45 / 石油厂 135 / 补给厂 175）**向上取整**（23 / 68 / 88）——
 #   宁可多 0.5 金，也不让"减半"变成"减 51%"（引擎按整数 `//` 算折扣，不留小数）。
+# ★ 2026-09-26 用户「基础建筑的木全部增加 30% 然后尽量凑整」——落地口径两条：
+#   ① **范围 = 采集五件**（林场/农场/矿场/石油厂/黄金矿场）：`kind` 为 extract 的四件
+#      ＋ 黄金矿场（`kind=gold`，但它本质也是采集楼）。能源厂/工厂/兵营/市政厅/城堡与
+#      四座特殊建筑**一律不动**。
+#   ② **取整 = 就近凑 5 的倍数**：木料这一列本来就几乎全是 5 的倍数（只有石油厂 16、
+#      补给厂/装备厂 24 是零头），所以 ×1.3 之后就近归到 5 —— 10→13→**15**、16→20.8→**20**、
+#      20→26→**25**。代价是明说：三座基础采集楼实际是 **+50%**（13 距 15 比距 10 近），
+#      石油厂/黄金矿场 +25%。"尽量凑整"要的就是这个手感，不是精确 +30%。
+#   意图（按尸检反推）：上局八国盖了 41 林场 + 84 农场 + 20 矿场，最便宜那批采集楼被
+#      无脑 spam、回本最快（林场 ~20 回合）⇒ 抬它们的木门槛，让"先攒木再铺楼"成立，
+#      也让产木的林场自己更值钱。
 #   cap_resource   建造上限来源（该地块此项资源量即上限）；None=仅受建筑位/城堡级数限制
 #   kind:
 #     castle    城堡：max_level 级，每级 +10% 防御
@@ -160,11 +171,11 @@ BUILDINGS = {
         "cap_resource": None,
         "effects": {"defense_per_level": 10},
     },
-    "林场": {"kind": "extract", "cost": 23, "wood": 10, "cap_resource": "木头", "outputs": {"木头": 1}},
-    "农场": {"kind": "extract", "cost": 25, "wood": 10, "cap_resource": "耕地", "outputs": {"粮食": 1}},
-    "矿场": {"kind": "extract", "cost": 35, "wood": 10, "cap_resource": "矿石", "outputs": {"矿石": 1}},
-    "石油厂": {"kind": "extract", "cost": 68, "wood": 16, "cap_resource": "石油", "outputs": {"石油": 1}},
-    "黄金矿场": {"kind": "gold", "cost": 100, "wood": 20, "cap_resource": "黄金", "outputs": {"黄金": 1}},
+    "林场": {"kind": "extract", "cost": 23, "wood": 15, "cap_resource": "木头", "outputs": {"木头": 1}},
+    "农场": {"kind": "extract", "cost": 25, "wood": 15, "cap_resource": "耕地", "outputs": {"粮食": 1}},
+    "矿场": {"kind": "extract", "cost": 35, "wood": 15, "cap_resource": "矿石", "outputs": {"矿石": 1}},
+    "石油厂": {"kind": "extract", "cost": 68, "wood": 20, "cap_resource": "石油", "outputs": {"石油": 1}},
+    "黄金矿场": {"kind": "gold", "cost": 100, "wood": 25, "cap_resource": "黄金", "outputs": {"黄金": 1}},
     "木材能源厂": {"kind": "energy", "cost": 60, "wood": 30, "cap_resource": None, "fuel": {"木头": 1}, "energy_out": 2},
     "石油能源厂": {"kind": "energy", "cost": 120, "wood": 30, "cap_resource": None, "fuel": {"石油": 1}, "energy_out": 8},
     "补给厂": {"kind": "factory", "cost": 88, "wood": 24, "cap_resource": None, "inputs": {"粮食": 1, "矿石": 1}, "outputs": {"补给": 2}, "energy": 1},
