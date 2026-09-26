@@ -107,8 +107,9 @@ case "$cmd" in
       #   多个 worker 共用一个库时，没有它 ⇒ 各自的 `L0..L4` 会落到**同一行账本**
       #   （两份不同的权重记同一份胜负/Elo、退役互相影响、抽签抽到的其实是
       #   各进程自己那份权重）—— 而且**日志上完全看不出来**。见 `rl/train._worker_tag`。
+      OUTP="$RUNDIR/${SESSION_PREFIX}$(printf %02d "$i").pt"
       CMD=(env "${THREAD_ENV[@]}" "$PY" -u -m rl.train --threads "$THREADS_PER_WORKER"
-           --out "$RUNDIR/${SESSION_PREFIX}$(printf %02d "$i").pt" --worker-id "$s" "$@")
+           --out "$OUTP" --worker-id "$s" "$@")
       printf -v QUOTED '%q ' "${CMD[@]}"
       LOGF="$LOGDIR/${s}_$(date +%m%d_%H%M).log"
       # ★★ 退出码**必须也进日志**：原来那句 `echo "[$s 退出码 …]"` 没接在 `tee` 后面
@@ -116,9 +117,12 @@ case "$cmd" in
       #   ⇒ 崩溃和"正常跑完"在日志上长得一模一样（我 2026-09-25 为此白查了两次；
       #     而且我还写了依赖这个字符串的等待脚本，它**结构上永远不会命中**）。
       #   现在追加到同一个日志文件。
-      INNER="$QUOTED 2>&1 | tee -a '$LOGF'; ec=\${PIPESTATUS[0]}; echo \"[$s 退出码 \$ec]\" | tee -a '$LOGF'"
-      printf -v INNER_Q '%q' "$INNER"
-      tmux new-session -d -s "$s" "bash -c $INNER_Q"
+      # ★★ 交给 `par_one.sh`：它负责"进程真的退出就自动拉起来"（OOM/崩溃），
+      #   并在重来时带 `--resume`（不带就是**静默从头训**）。
+      #   它**不**干扰 `--restart-after`（那条走 `os.execv`，进程不退出）。
+      #   —— 2026-09-26 实测代价：8 个 worker 被 OOM 杀掉 3 个之后**一直躺着没人拉**。
+      tmux new-session -d -s "$s" \
+        "bash '$HERE/rl/par_one.sh' '$LOGF' '$OUTP' $QUOTED"
       echo "  ✔ $s" | tee -a "$LOG"
     done
     echo "查看：$0 status $N    单看：$0 logs <i>    结束：$0 kill $N"
