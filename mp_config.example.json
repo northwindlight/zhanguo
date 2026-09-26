@@ -4,6 +4,7 @@
   "max_turns": 200,
   "rule_ai": "v10",
   "world_bank": false,
+  "opening_guide": true,
   "save": "mp_save.json",
   "journal": "mp_journal.md",
 

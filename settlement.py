@@ -56,6 +56,7 @@ import argparse
 import json
 import sys
 import time
+import types
 import unicodedata
 from pathlib import Path
 from types import SimpleNamespace
@@ -327,12 +328,20 @@ def _game_context(save: dict, name: str, rounds: int, ncfg: dict | None = None) 
     """
     import ctx as ctxlib
     import mp_ai
+    import mp as _mp
     shim = SimpleNamespace(
         turn=save.get("turn", 0),
         polity=save.get("polity") or {},
         extra_prompt=save.get("extra_prompt") or {},
         alive=lambda: list(save["nations"].keys()),
+        # 结算厅**不是开局**：无论这局停在第几回合，都不该把《开局指南》带进终局对话
+        # （没有这一条时 `system_prompt` 会去读它的 `opening_guide`，直接 AttributeError）。
+        opening_guide=False,
     )
+    # `_huns_prompt` 还要读政体修正（匈奴的造价/征兵价）。shim 少这一个方法时，
+    # **幸存下来的匈奴君主会让整个结算厅在这一行崩掉**（这是一条既有的潜伏 bug，
+    # 2026-09-26 顺手补上）。直接借 `World.polity_rule` 本人，口径只有一份。
+    shim.polity_rule = types.MethodType(_mp.World.polity_rule, shim)
     system_text = (mp_ai.system_prompt(shim, name) + SETTLE_APPENDIX.format(rounds=rounds))
     recs = (save.get("turn_memory") or {}).get(name) or []
     # 结算厅不带 tools → 按思考模式文档 reasoning_content 会被忽略，直接剥掉省 token

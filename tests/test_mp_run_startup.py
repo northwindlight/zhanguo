@@ -25,14 +25,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def _cfg(d: Path, bank: bool) -> Path:
-    """最小可用配置：无 base_url/api_key ⇒ 规则 AI 代打（离线、秒级）。"""
+def _cfg(d: Path, bank: bool, **extra) -> Path:
+    """最小可用配置：无 base_url/api_key ⇒ 规则 AI 代打（离线、秒级）。
+
+    `extra` 用来逐条加开关（如 `opening_guide=False`）——**不加就是"配置里没写这个键"**，
+    正好用来区分"没写"与"写了 false"。
+    """
     p = d / "cfg.json"
     p.write_text(json.dumps({
         "map_size": 16, "seed": 7, "max_turns": 1, "rule_ai": "v10",
         "save": str(d / "s.json"), "journal": str(d / "j.md"),
         "nations": [{"name": "秦"}, {"name": "楚"}],
         "world_bank": bank,
+        **extra,
     }, ensure_ascii=False), encoding="utf-8")
     return p
 
@@ -88,6 +93,34 @@ class TestMpRunStartup(unittest.TestCase):
             self.assertNotIn("新开一局", r.stdout, "该走续局，不该重开")
             self.assertTrue(json.loads((d / "s.json").read_text(encoding="utf-8"))["bank"]["on"],
                             "配置说 false 也不能把已经开着的银行关掉")
+
+    def test_opening_guide_defaults_on(self):
+        """配置里不写 `opening_guide` ⇒ 开局指南照挂（默认开）。"""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            self.assertEqual(_run(_cfg(d, bank=False), d).returncode, 0)
+            self.assertIs(json.loads((d / "s.json").read_text(encoding="utf-8"))["opening_guide"],
+                          True)
+
+    def test_opening_guide_config_can_only_turn_it_off(self):
+        """★ 配置**只许关、不许强开**（与央行正好相反）——这是"有指南 vs 无指南"的对照臂。
+
+        为什么必须在这里跑真启动：开关的接线点在 `mp_run.run()`（不是 `make_world`），
+        因为剧本局的开局存档是 `scenarios/eight_nations.py` 自己 `build()` 出来的，
+        `--new` 走不到那条路 —— 写在 `make_world` 里会让 `opening_guide: false`
+        对剧本局**静默失效**。
+        """
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            self.assertEqual(_run(_cfg(d, bank=False, opening_guide=False), d).returncode, 0)
+            self.assertIs(json.loads((d / "s.json").read_text(encoding="utf-8"))["opening_guide"],
+                          False, "配置说关就该关（新建的 World 默认是 True）")
+            # 同一份存档，配置改回 true —— 续局（不带 --new）
+            r = _run(_cfg(d, bank=False, opening_guide=True), d, turns=2, new=False)
+            self.assertEqual(r.returncode, 0, r.stderr[-1500:])
+            self.assertNotIn("新开一局", r.stdout, "该走续局，不该重开")
+            self.assertIs(json.loads((d / "s.json").read_text(encoding="utf-8"))["opening_guide"],
+                          False, "配置说 true 也不能把已经关掉的指南强开回来")
 
 
 class TestObserverCommands(unittest.TestCase):

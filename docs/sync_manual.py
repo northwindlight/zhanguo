@@ -40,6 +40,7 @@ import sys
 
 DOC_PATH = pathlib.Path(__file__).resolve().parent / "游戏说明书.md"
 ECON_DOC_PATH = pathlib.Path(__file__).resolve().parent / "经济学手册.md"
+GUIDE_DOC_PATH = pathlib.Path(__file__).resolve().parent / "开局指南.md"
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -506,27 +507,51 @@ def _econ_source() -> str:
     return mp_ai._econ_manual()
 
 
-def blk_econ() -> str:
-    """《经济学手册》正文：逐字取自 `mp_ai._econ_manual()`，**只做 Markdown 分节**。
+def _sections_block(text: str, doc_label: str, src_label: str) -> str:
+    """局内提示正文 → Markdown 正文：**只做分节，一个字都不动**。
 
-    变换只有三条，一个字都不动：编号行提成 `##` 小标题、去掉行首缩进、行间补空行
+    变换只有三条：编号行（`一、`…）提成 `##` 小标题、去掉行首缩进、行间补空行
     （原文是塞进 prompt 的紧凑排版、靠缩进分段，直接贴进 Markdown 会被 lazy
-    continuation 并成一坨）。**要改主张、加节、补例子，请去改 `_econ_manual()`**
+    continuation 并成一坨）。**要改主张、加节、补例子，请去改源函数**
     ——那里才是局内 AI 读的那一份；这里改了会被 `--check` 和测试抓住。
     """
-    lines = [ln.strip() for ln in _econ_source().splitlines() if ln.strip()]
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if not any(_SECTION_RE.match(ln) for ln in lines):
-        raise SyncError("《经济学手册》里解析不出小节标题（“一、二、…”）—— "
-                        "`mp_ai._econ_manual()` 的排版变了？对着它改本函数的分节规则")
+        raise SyncError(f"《{doc_label}》里解析不出小节标题（“一、二、…”）—— "
+                        f"`{src_label}` 的排版变了？对着它改本函数的分节规则")
     return "\n\n".join(("## " + ln) if _SECTION_RE.match(ln) else ln for ln in lines)
 
 
+def blk_econ() -> str:
+    """《经济学手册》正文：逐字取自 `mp_ai._econ_manual()`（`rules(经济手册)` 那一份）。"""
+    return _sections_block(_econ_source(), "经济学手册", "mp_ai._econ_manual()")
+
+
 ECON_BLOCKS: dict[str, object] = {"econ": blk_econ}
+
+
+def _guide_source() -> str:
+    """局内《开局指南》原文（`mp_ai.opening_guide()`）——本文档正文的唯一来源。"""
+    try:
+        import mp_ai
+    except Exception as e:  # pragma: no cover - 环境缺依赖时的明确报错
+        raise SyncError(f"读不到 mp_ai.opening_guide（{type(e).__name__}: {e}）") from e
+    return mp_ai.opening_guide()
+
+
+def blk_guide() -> str:
+    """《开局指南》正文：逐字取自 `mp_ai.opening_guide()`（`rules(开局指南)` 那一份，
+    也是开局前若干回合被**强行挂进 system prompt** 的那一份）。"""
+    return _sections_block(_guide_source(), "开局指南", "mp_ai.opening_guide()")
+
+
+GUIDE_BLOCKS: dict[str, object] = {"guide": blk_guide}
 
 # 已知的人类侧手册 → 各自的块表（`--doc` 按文件名认领）
 DOCS: dict[pathlib.Path, dict[str, object]] = {
     DOC_PATH: BLOCKS,
     ECON_DOC_PATH: ECON_BLOCKS,
+    GUIDE_DOC_PATH: GUIDE_BLOCKS,
 }
 
 

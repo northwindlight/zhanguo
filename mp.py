@@ -148,6 +148,9 @@ SAVE_MIN_VERSION = 3
 SAVE_DEFAULTS: dict = {
     "pacts": [],                                      # v3 起：实体级条约表
     "bank": {"on": False, "rate": 0.0, "loans": {}},  # v4 起：世界央行
+    # 《开局指南》开关（mp_ai.opening_guide）。旧档缺它 → 按 True 补齐：实际无影响，
+    # 因为挂载窗口是"前 EXTRA_PROMPT_TURNS 回合"，而现存老档早已远超这个回合数。
+    "opening_guide": True,
     # v4 起：每回合的 GDP run-rate（央行授信按它算）。旧档缺 → 空表，
     # 由 `nation_gdp` 退回"最新一期经济报表的 GDP"，不会把授信算成 0。
     "gdp_run": {},
@@ -158,7 +161,7 @@ SAVE_KEYS = ("version", "size", "seed", "turn", "rng_state", "nations", "order",
              "votes", "vote_id", "pacts", "bank", "mail_pending",
              "mailbox", "summaries", "summary_blocks", "long_memory", "turn_memory", "gift_pending",
              "map_pending", "maps", "spy_pending", "econ_intel", "plans", "polity",
-             "extra_prompt", "peace_offers", "proposals", "offer_id", "prices",
+             "extra_prompt", "opening_guide", "peace_offers", "proposals", "offer_id", "prices",
              "equilibrium", "flow_in", "flow_out", "grid_short", "energy_report",
              "econ_summary", "econ_reports", "ledger", "spend", "gdp_run", "history",
              "history_seen")
@@ -415,6 +418,11 @@ class World:
         self.plans: dict[str, dict] = {}           # 各国国策规划 {text, turn}——常驻上下文，每10回合须修订
         self.polity: dict[str, str] = {}           # 政体标记（"huns"=匈奴）→ 造价/征召/外交限制
         self.extra_prompt: dict[str, dict] = {}    # 临时注入的额外上下文 {text, until}——塞入正常 system_prompt，until 后自动消失
+        # 《开局指南》：前 EXTRA_PROMPT_TURNS 回合由 system_prompt 强行挂给**每一国**
+        # （讲开局该做什么，见 mp_ai.opening_guide）。它是**引擎级的开局带教**，与
+        # `extra_prompt` 那套"一国一条密谕"分开——八国剧本的常驻之志正占着 extra_prompt，
+        # 两者各走各的路。开关走 mp_config 的 `opening_guide`（只能关、不能强开，见 mp_run）。
+        self.opening_guide: bool = True
         self.peace_offers: list[dict] = []
         self.proposals: list[dict] = []
         self._offer_id = 0  # 同上：首个邀约 id 为 1
@@ -4103,6 +4111,7 @@ class World:
             "plans": self.plans,
             "polity": self.polity,
             "extra_prompt": self.extra_prompt,
+            "opening_guide": self.opening_guide,
             "peace_offers": self.peace_offers,
             "proposals": self.proposals,
             "offer_id": self._offer_id,
@@ -4178,6 +4187,7 @@ class World:
         w.plans = {n: dict(v) for n, v in data["plans"].items() if n in w.nations}
         w.polity = {n: v for n, v in data["polity"].items() if n in w.nations}
         w.extra_prompt = {n: dict(v) for n, v in data["extra_prompt"].items() if n in w.nations}
+        w.opening_guide = bool(data["opening_guide"])
         w.armies = data["armies"]
         # 野地索取顺序计数器：从档内现有最大入场序号续起（未参战军队无此键，按 0 计）
         w._engage_seq = max((int(a.get("engage_seq", 0) or 0) for a in w.armies), default=0)
