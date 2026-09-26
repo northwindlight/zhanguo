@@ -246,5 +246,48 @@ class TestNoIterIsWasted(unittest.TestCase):
                     self.assertTrue(Path(m.path).exists(), f"{m.mid} 的 .pt 不在盘上")
 
 
+class TestRetireWiringThroughTrain(unittest.TestCase):
+    """★★ **按评级退役**在 `train()` 这条路上真的接上了（不只是 `League` 单测）。
+
+    ★ 为什么单测 + CLI 的 AST 守卫**不够**：CLI 守卫只比"关键字名有没有传"，
+      **不看值**；而 `League.retire` 的单测直接调它、绕过了 `train()`。
+      ⇒ 出过的事故正是这一类：`alliances` 加进了函数体却**漏进签名** ⇒
+      一跑 `train()` 就 `NameError`，而 `--help` 与 AST 守卫**两边都绿**
+      （它们都不调用 `train()`）。这条守的就是"真的跑一遍"。
+
+    ★ 场景要**刻意造**：`t_max=6` 时局局判平 ⇒ `results` 是空的 ⇒ 没有评级 ⇒
+      "不判"（这是设计：没打过就不能判）⇒ 那样子根本碰不到退役那行代码。
+      所以先把"决定过的对局"**预写进库**（`seed` 那段），再让 `train()` 去退。
+    """
+
+    def test_train_actually_retires_by_rating(self):
+        from rl.model import build_model as _bm
+        with tempfile.TemporaryDirectory() as d:
+            db = str(Path(d) / "l.db")
+            seed = League(db, mains=0, fingerprint=FP, device="cpu",
+                          log=lambda *_: None)
+            for i in range(3):
+                seed.bind_live(f"L{i}", _bm())
+            for i in range(12):                   # L0 一直输 ⇒ 评级低、RD 小
+                w = "L1" if i % 2 == 0 else "L2"
+                g = f"seed{i}"
+                for m in ("L0", "L1", "L2"):
+                    seed.record(m, m == w, it=0, game=g)
+            seed.close()
+            buf: list[str] = []
+            T.train(iters=1, episodes_per_iter=1, pool=3, t_max=6, size=8,
+                    size_min=8, size_max=8, halls_known=True, league_db=db,
+                    league_mains=0, league_snapshot_every=1, memory="none",
+                    out=None, league_retire_rating=1400.0, league_retire_rd=110.0,
+                    log=lambda s, *a: buf.append(str(s)))
+            hit = [l for l in buf if "停用（评级" in l]
+            self.assertTrue(hit, f"`train()` 里没打印停用行 ⇒ 参数没接上：{buf[-4:]}")
+            self.assertIn("L0", hit[0], f"该退的 L0 没退：{hit[0]}")
+            lg = League(db, mains=0, fingerprint=FP, device="cpu", log=lambda *_: None)
+            lg.refresh()
+            self.assertFalse(lg.members["L0"].active, "库里没标停用")
+            self.assertIn("L0", lg.members, "停用 ≠ 删除（只增不删）")
+
+
 if __name__ == "__main__":
     unittest.main()
