@@ -660,6 +660,14 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         log(f"★ 起始存档 → {out}（第 {it0} iter）")
     for it in range(it0 + 1, it0 + iters + 1):
         buf: dict[str, list] = {mid: [] for mid in mids}
+        # ★ 「谁在训」（那 5 个槽）—— 只用来判"要不要切回推理态"：
+        #   在训成员由 `bind_live` 挂着**训练回路里那个对象**（train 态、要梯度），
+        #   快照是 `eval()` + 无梯度加载的 ⇒ 两者在 `ppo_update` 前后的**状态切换**不同。
+        live_set = set(mids)
+        # ★ **真正上过场的**成员。★ 别拿 `buf.keys()` 当它：`buf` 初始化时就带着
+        #   **全部在训成员**（哪怕这一轮它一次都没被抽到）⇒ 拿它当"上场集合"
+        #   会把没上场的也算进去，而日志/守卫都靠这个集合对账。
+        played: set[str] = set()
         infos = []
         budget = int(max_steps) if max_steps else 0     # ★ 本 iter 的**步数预算**（内存闸）
         n_cut = 0
@@ -713,17 +721,47 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                         lg.record(mid_of[p], p in won, it=it)
             for s in steps:
                 mi = mid_of[s.player]
-                if mi in buf:                 # ★ 只有在训成员进梯度；快照只当对手
-                    buf[mi].append(s)
+                played.add(mi)
+                # ★★ **谁上场谁学**（用户 2026-09-26：「谁上场谁学，同时冻结」）——
+                #   原来这里写着 `if mi in buf`（**只有在训的 5 个槽进梯度，快照只当对手**），
+                #   那是**我自己的实现决定**、不是用户口径；用户否掉了它：
+                #   抽到谁谁就吃梯度（老快照也学），学完**冻成一个新成员**
+                #   （「**学一个增一个**」，见下面的 `freeze_trained`）。
+                #   ★ 原来的写法还有个副作用：一局若**三个座位全是快照**，
+                #     那一整轮**一点梯度都没有**（日志上只会看到 `网络 {}`）—— 白打。
+                buf.setdefault(mi, []).append(s)
         # ★ `epochs` **用上面算好的那一个**（`eff_epochs`）—— 原先在这里又
         #   `setdefault` 一遍，就是"两臂偷偷差一个因子"的来源（见它的注释）。
         pk = {"epochs": eff_epochs}
         if mem_slots:
             # ★ 记忆模式：`epochs` 保守（见 `_ppo_update_mem` 的"陈旧状态"那段）
             pk["tbptt"] = int(tbptt or S.MEM_TBPTT)
-        st = {mids[i]: ppo_update(nets[i], buf[mids[i]], lr=lr, device=device,
-                                  minibatch=mb, **pk)
-              for i in range(n_slots)}
+        # ★★ **每个上过场的成员各训一轮** —— 网络对象一律走 `lg.net_of(mi)`：
+        #   在训槽由 `bind_live` **挂的是同一个对象**，快照则由池子懒加载
+        #   ⇒ 两条路在下面这段里**不用分情况**（这是 `bind_live` 当初就那么写的好处）。
+        st = {}
+        for mi, ss in list(buf.items()):
+            if not ss:
+                continue
+            net_obj = lg.net_of(mi)
+            live = mi in live_set
+            if not live:
+                # 快照是 `eval()` + `requires_grad_(False)` 加载的（当对手用）⇒
+                # 要训它得先切回训练态。★ **必须切**：模型里有多头注意力的 dropout
+                # （`dropout_p=self.p_drop if self.training else 0.0`）⇒
+                # 不切 = 训练时按"推理态"前向，与收集时不是同一个分布。
+                net_obj.train()
+                for q in net_obj.parameters():
+                    q.requires_grad_(True)
+            lg.mark_hot(mi)                  # ★ 学之前就钉住：冻之前不许被逐出
+            st[mi] = ppo_update(net_obj, ss, lr=lr, device=device,
+                                minibatch=mb, **pk)
+            if league_snapshot_every and it % league_snapshot_every == 0:
+                lg.freeze_trained(net_obj, mi, it)      # ★ 学一个增一个
+            if not live:                     # 归位（下次抽到它仍是"当对手"的推理态）
+                net_obj.eval()
+                for q in net_obj.parameters():
+                    q.requires_grad_(False)
         # ★ 按**实体**判谁赢（联盟胜利 / 单国胜利）：`winner` 是实体标签，比不得国名
         win_by = {p: sum(1 for i in infos
                          if p in (i.get("winner_members") or ()))
@@ -745,26 +783,27 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         #   "池子一直没战绩 / 没终局奖励"会**静默**（这正是这条日志存在的理由）。
         cut = f" 截断{n_cut}" if n_cut else ""
         tstr = f"{turns:.1f}" if infos else "—"
+        # ★★ **`上场` 与 `网络` 并列打出来**（2026-09-26 加）—— 让「谁上场谁学」
+        #   这条口径**在日志里可直接核对**：
+        #   `上场` = 这一轮**上过场**的成员（去重），`网络` = 这一轮**学到梯度**的成员。
+        #   两者**必须一样**；不一样就是口径破了（老写法里"一局三个座位全是快照"
+        #   会只留下 `网络 {}` —— 那一轮白打，而日志上只有那一处空括号）。
+        #   ★ 上限是 `国数 × 局数`（这里 3×2=6）⇒ 行不会无限长。
+        played_s = sorted(played)
         log(f"[{it:4d}] 局数{len(infos)}{cut} 胜场{win_by} 先手胜{nf} 平均回合{tstr} "
-            f"| 网络 {live}")
-        # ---- ★ 联赛池：淘汰 / 冻快照 / 账本落盘 ----
-        #  ★ 这三件事**每 iter 都做**，不是"每 N iter 做一次" —— 淘汰规则靠的是
+            f"| 上场 {played_s} | 网络 {live}")
+        # ---- ★ 联赛池：淘汰 / 账本落盘 ----
+        #  ★ 淘汰**每 iter 都做**，不是"每 N iter 做一次" —— 淘汰规则靠的是
         #    战绩累积，漏做一次不会有症状，但账本会慢慢和现实对不上。
+        #  ★★ **冻快照那一段（`add_snapshot`）2026-09-26 已删** ——
+        #    用户改成「**学一个增一个**」之后，"按 iter 定期冻在训成员"变成了
+        #    **第二套机制**（它冻出来的成员没有父本、和"学出来的那一版"混在一个池子里，
+        #    对账本和血脉都是噪声）。现在冻结只有一条路：`lg.freeze_trained`，
+        #    由 `--league-snapshot-every` 控制**每几 iter 把学过的那一版归档一次**（缺省 1）。
         killed = lg.retire()
         if killed:
             log(f"  ★ 停用（打满{lg.retire_min_games}局且胜率<{lg.retire_rate:.0%}）"
                 f"→ {killed}（**只标停用、不删除**，仍留在账本里）")
-        if league_snapshot_every and it % league_snapshot_every == 0:
-            pool_i = [i for i, mi in enumerate(mids) if lg.members[mi].active]
-            if pool_i:                      # ★ 冻一份当前权重进池（只增不删）
-                i = pool_i[(it // league_snapshot_every) % len(pool_i)]
-                # ★★ **别自己拼 mid** —— 走 `add_snapshot` 的缺省，它带**worker 标识**。
-                #   我第一版写死了 `mid=f"S{it:05d}L{i}"`，于是"并行的两个 worker
-                #   会在同一 iter 冻同一槽位 ⇒ 权重文件互相覆盖"那个修复**被绕过去了**
-                #   （`league.py` 的缺省修好了，训练这条路却显式覆盖了它）。
-                #   缺省里的槽位由 `_slot_guess(net)` 反查 —— 在训成员都 `bind_live` 过
-                #   ⇒ 照样得到 `L{i}`，只是**多带了 worker**。
-                lg.add_snapshot(nets[i], it)
         lg.updated_iter = it
         lg.save()
         log(f"  {lg.report()}")
@@ -1015,11 +1054,12 @@ if __name__ == "__main__":
                     help="★ **固定主 pt** 的份数（用户：「可以有两个固定主 pt，"
                          "也可以没有」）。主 pt = **不受淘汰规则约束**的基座")
     ap.add_argument("--league-snapshot-every", dest="league_snapshot_every",
-                    type=int, default=50,
-                    help="★ 每几个 iter 冻一份当前权重进池（**只增不删**）。"
-                         "0 = 不冻（池子就只有在训的那几份）。"
-                         "★ 这个数**决定池子长多快**：50 ⇒ 单核上一小时长不出几份，"
-                         "「攒到足够的池」就永远等不到 ⇒ 要让池子长大就得调小它。")
+                    type=int, default=1,
+                    help="★ 每几个 iter 把**学过的那一版**归档成新成员（**只增不删**）。"
+                         "缺省 1 = 用户 2026-09-26 的口径「**学一个增一个**」"
+                         "「每次上场都冻一份」；0 = 不归档（池子就只有当前那几份，"
+                         "但**学过没落盘的会被一直钉在内存里**，见 `mark_hot`）。"
+                         "★ 调大它要付代价：没落盘的成员不许被逐出 ⇒ 缓存会涨。")
     ap.add_argument("--league-cache", dest="league_cache", type=int, default=24,
                     help="★ 快照权重的**缓存上界**（份数）。每份 ≈ 5.5MB ⇒ 不设上界的话"
                          "池子一大，**训练进程自己就 OOM**（池子是只增不删的）。"

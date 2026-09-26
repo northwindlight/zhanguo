@@ -46,6 +46,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -67,7 +68,17 @@ class Member:
     `kind` 三类：
       - `main` —— **主 pt**：永久 active、不受淘汰约束（基座本身）；
       - `live` —— **在训成员**：每局被抽到就往梯度里攒经验（权重在主档里，`path=None`）；
-      - `snap` —— **冻结快照**：只当对手，永不训练（权重在 `path` 指向的文件里）。
+      - `snap` —— **冻结版本**：权重在 `path` 指向的文件里。
+
+    ★★ 2026-09-26 用户改了口径：**`snap` 不再"永不训练"** ——
+      「**谁上场谁学，同时冻结**」「**学一个增一个**」「都进硬盘，每次上场都冻一份，
+       这就是只增不删」。
+      ⇒ 抽到的每一份（含老快照）都吃梯度；**每次学完就冻成一个新成员**
+        （`freeze_trained`，mid 形如 `G<iter>@<父本>`），**父本本身不动**
+        （它的 `.pt` 永远是它自己那一版）⇒ 「只增不删」= 池子按**版本**增长。
+      ⇒ 账本口径因此天然干净：**一局胜负属于"上场的那一版"**（父本那一行），
+        新生儿**带 0 战绩出生**，之后自己上场挣。
+      ⇒ `parent` 记**父本的 mid**（用户：「以后能查这条线是从哪个基座、哪一代分出去的」）。
     """
     mid: str
     kind: str
@@ -76,6 +87,7 @@ class Member:
     wins: int = 0
     active: bool = True
     path: str | None = None
+    parent: str | None = None
 
     @property
     def rate(self) -> float:
@@ -104,7 +116,8 @@ CREATE TABLE IF NOT EXISTS members (
     wins    INTEGER NOT NULL DEFAULT 0,
     active  INTEGER NOT NULL DEFAULT 1,
     path    TEXT,
-    added   TEXT    NOT NULL
+    added   TEXT    NOT NULL,
+    parent  TEXT                       -- ★ 父本 mid（血脉可追；见 Member 的 docstring）
 );
 -- ★ 逐局流水：将来"并行筛"的时候按进程/时间窗口重算用（不只留聚合值）
 CREATE TABLE IF NOT EXISTS results (
@@ -151,7 +164,9 @@ class League:
         self.worker = worker or f"pid{os.getpid()}"
         self.log = log
         self.members: dict[str, Member] = {}      # 缓存（判据前一律先 refresh）
-        self._nets: dict[str, object] = {}         # mid -> PolicyNet（懒加载 + 缓存）
+        self._nets: dict[str, object] = {}       # mid -> PolicyNet（懒加载 + 缓存）
+        # ★ 「学过但还没落盘」的成员（见 `mark_hot`）：**逐出时必须跳开**
+        self._hot: set[str] = set()
         self.updated_iter = 0
 
         if self.db is None:
@@ -180,6 +195,13 @@ class League:
         self.conn.execute("PRAGMA busy_timeout=30000")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.executescript(SCHEMA)
+        # ★★ **迁移**：`parent` 列是 2026-09-26 加的（"学一个增一个"要记父本），
+        #   而**已经跑着的池子库没有这一列** ⇒ `CREATE TABLE IF NOT EXISTS` 不会补它，
+        #   之后任何 `SELECT parent` 都会当场报 `no such column`
+        #   （而我这条线**铁律之一是"只增不删"** ⇒ 不能重建表、只能加列）。
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(members)")}
+        if cols and "parent" not in cols:
+            self.conn.execute("ALTER TABLE members ADD COLUMN parent TEXT")
         # ★★ 形状指纹**只在建库时写一次，此后永不覆盖** ——
         #   若每次 save 都用"当前指纹"盖上去，那么"代码改了、旧池子还在"这件事
         #   会**被自己抹平**，`load()` 永远比得中 ⇒ 旧池子静默上场（铁律要拒的正是这个）。
@@ -274,6 +296,79 @@ class League:
         """
         return build_model(mem_slots=int(self.fingerprint.get("mem_slots", 0)))
 
+    def mark_hot(self, mid: str) -> None:
+        """把这份标成「**刚学过、内存里比盘上新**」⇒ **`_evict` 必须跳开它**。
+
+        ★★ 为什么非有不可（用户 2026-09-26 拍的口径：「**钉住 + 下次冻结落盘**」）：
+          `_evict` 的判据是"**盘上有副本**"（`path` 非空就能逐出、下次再读回来）。
+          而"学过"的权重**恰恰比盘上新** ⇒ 一被逐出就**静默回到旧版本**
+          （学习丢了，日志上什么都没有）。这不是理论风险：`net_cap` 默认 24、
+          而"学一个增一个"之后池子长得快 ⇒ 逐出每天都在发生。
+        """
+        self._hot.add(mid)
+
+    def freeze_trained(self, net, parent: str, it: int) -> Member:
+        """★★ **「学一个增一个」**：把**学完之后**的权重冻成**新成员**（落盘 + 入册）。
+
+        用户 2026-09-26 的原话：「**谁上场谁学，同时冻结**」「**学一个增一个**」
+        「**都进硬盘，每次上场都冻一份，这就是只增不删**」。
+
+        ★ **父本不动**：新生儿是**另一份**权重（父本学完的那一版），写进自己的
+          `.pt`；父本自己的文件**永远是它出生时那一版** ⇒ 池子按**版本**增长。
+        ★ **新生儿带 0 战绩出生**：那一局的胜负属于"**上场的那一版**"（父本那一行）；
+          新生儿还没上过场 ⇒ 账本口径不会跨版本混（这是这条设计最要紧的地方）。
+        ★ **父本学完的权重不再留在内存**（如果是快照）：它已经被归档成新生儿，
+          继续留在缓存里只会让"它"和"它的下一代"变成同一个对象
+          （**别名**：训下一代会顺手改父本，而两边账本各记各的 ⇒ 静默污染）。
+          ⇒ 快照父本从缓存里**撤掉**（下次抽到它 ⇒ 从盘上读回它出生那一版）。
+          **在训成员不撤**（它的权重对象就是训练回路里那个，撤了会崩）。
+        ★ mid 用 `G<iter>@<父本缩写>_<worker>`：
+          · `G` = "学出来的那一代"；
+          · 缩写是为了 id **别一代比一代长**（每代 +30 字符，几十代就撑破文件名）；
+          · **worker 不能省**（同 iter 同父本，两个 worker 会撞同一个文件名 ⇒
+            互相覆盖，池子里两份"不同成员"其实是同一份权重 —— `add_snapshot` 踩过）；
+          · **父本的准确身份另存 `parent` 列** ⇒ 血脉照旧可追。
+        """
+        # ★ 调用方**必须先 `mark_hot(parent)`** 再训、再冻 —— 这里只负责归档。
+        short = hashlib.sha1(parent.encode("utf-8")).hexdigest()[:8]
+        mid = f"G{int(it):05d}@{short}_{self.worker}"
+        m = self.members.get(mid)
+        if m is not None and m.path:                 # 幂等（同一 iter 同父本只冻一次）
+            self._hot.discard(parent)
+            return m
+        w = {k: v.detach().cpu().clone() for k, v in net.state_dict().items()}
+        p = None
+        if self.db is not None:
+            fp = self._snap_dir() / f"{mid}.pt"
+            fp.parent.mkdir(parents=True, exist_ok=True)
+            tmp = fp.with_suffix(".pt.tmp")
+            torch.save({"weights": w, "fingerprint": self.fingerprint}, tmp)
+            os.replace(tmp, fp)                      # ★ 原子写（同 `add_snapshot`）
+            p = str(fp)
+        else:
+            frozen = self._new_net()
+            frozen.load_state_dict(w)
+            frozen.to(self.device)
+            frozen.eval()
+            for q in frozen.parameters():
+                q.requires_grad_(False)
+            self._nets[mid] = frozen
+        self.conn.execute(
+            "INSERT OR IGNORE INTO members(mid,kind,born,path,added,parent) "
+            "VALUES(?,?,?,?,?,?)",
+            (mid, "snap", int(it), p, _now(), parent))
+        self.conn.commit()
+        m = Member(mid=mid, kind="snap", born=int(it), path=p, parent=parent)
+        self.members[mid] = m
+        # ★ 父本（如果是快照）学完的那一版已经归档 ⇒ 从缓存撤掉，回到它出生那一版
+        pm = self.members.get(parent)
+        if pm is not None and pm.kind == "snap":
+            self._nets.pop(parent, None)
+        self._hot.discard(parent)
+        self._evict()
+        self.log(f"  ★ 学一个增一个 → {mid}（父本 {parent}，第 {it} iter）")
+        return m
+
     def net_of(self, mid: str):
         """取这一份的权重对象（快照懒加载 + **有上界的缓存**）。
 
@@ -321,8 +416,11 @@ class League:
         if self.net_cap <= 0:
             return
         while len(self._nets) > self.net_cap:
+            # ★★ `k not in self._hot`：**刚学过、盘上还是旧版**的不许逐出
+            #   （否则学习**静默**丢失 —— 见 `mark_hot` 的 docstring）
             victim = next((k for k in self._nets
-                           if (self.members.get(k) is not None
+                           if (k not in self._hot
+                               and self.members.get(k) is not None
                                and self.members[k].kind == "snap"
                                and self.members[k].path)), None)
             if victim is None:
@@ -337,9 +435,10 @@ class League:
           读自己的内存缓存 = 拿**过时的胜率**去淘汰/抽签，而且**不报错**。
         """
         rows = self.conn.execute(
-            "SELECT mid,kind,born,games,wins,active,path FROM members").fetchall()
+            "SELECT mid,kind,born,games,wins,active,path,parent FROM members"
+        ).fetchall()
         seen = set()
-        for mid, kind, born, games, wins, active, path in rows:
+        for mid, kind, born, games, wins, active, path, parent in rows:
             seen.add(mid)
             m = self.members.get(mid)
             if m is None:
@@ -347,6 +446,7 @@ class League:
                 self.members[mid] = m
             m.kind = kind
             m.games, m.wins, m.active = int(games), int(wins), bool(active)
+            m.parent = parent
             if m.path is None:
                 m.path = path
         # ★★ **库里没有的，缓存里也不许有。** 否则缓存会**撒谎**：
