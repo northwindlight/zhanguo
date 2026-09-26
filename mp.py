@@ -26,6 +26,7 @@ from pathlib import Path
 
 from game import (
     ARMY_HEAL_PER_TURN,
+    HEAL_EQUIP_COST,
     BANK_LOAN_GDP_MULT,
     BANK_LOAN_TURNS,
     BANK_RATE_MAX,
@@ -112,6 +113,7 @@ LEDGER_FIELDS = ("prod_value",      # 采集/工厂 产出 × 市价（军屯 20
                  "fuel_value",      # 能源厂燃料 × 市价
                  "gold_in",         # 金矿 + 市政厅 入国库的金
                  "supply_eaten",    # 军队实际吃掉的补给（单位）——军费口径，不看来源
+                 "heal_value",      # 军队回血消耗的装备 × 市价（HEAL_EQUIP_COST）
                  "import_gold",     # 市场买入总额
                  "export_gold",     # 市场卖出总额
                  "invest_gold",     # 建造实付金
@@ -2423,12 +2425,32 @@ class World:
                 famine[n] = (short, per, len(dead))
                 ps = self.nation_armies(n)
             battle_tiles = {(a["x"], a["y"]) for a in self.armies if a.get("engaged")}
+            # 回血的两个前提、一个代价（用户 2026-09-26「回血要补给，现在回血变成满足补给的
+            # 条件下，自动扣 1 装备回血」）：① 本国本回合没断供 ② 不在交战格；
+            # 代价 = 每支真吃到回血的军自动扣 `HEAL_EQUIP_COST` 件装备。满血的不扣（它没回血），
+            # 装备见底就停（付不起就不回血）。迭代序用 `self.troops` 的稳定序，同 seed 可复现。
+            heal_equip = 0
             for a in list(self.troops):          # 回血只给本国军队（野人不在 `n` 的账上）
                 if a["owner"] != n:
                     continue
                 if short or (a["x"], a["y"]) in battle_tiles:
                     continue  # 断粮或所在格正在交战（含防御方守军）→ 不回血
+                if a["hp"] >= unit_max_hp(a):
+                    continue  # 满血：没得回，也就不该扣装备
+                # ★ 民兵除外（用户 2026-09-26「民兵除外」）：它**征召就不吃装备**（50金+5粮），
+                #   回血自然也不该吃 ⇒ 免费。用 continue 而不是 break：付不起只卡住正规军，
+                #   别把排在后面的民兵一起连坐（装备只减不增，非民兵之间 break≡continue）。
+                if unit_kind(a) != "民":
+                    if self.res(n, "装备") < HEAL_EQUIP_COST:
+                        continue
+                    self.add_res(n, "装备", -HEAL_EQUIP_COST)
+                    self.flow_out["装备"] += HEAL_EQUIP_COST   # 世界流量：回血吃装备
+                    self._ledger(n)["heal_value"] += self._mval("装备", HEAL_EQUIP_COST)
+                    heal_equip += HEAL_EQUIP_COST
                 a["hp"] = min(unit_max_hp(a), a["hp"] + ARMY_HEAL_PER_TURN)
+            if heal_equip:
+                self.log(f"🩹 {n} 军队回血：正规军吃装备 {heal_equip} 件（民兵免费）",
+                         phase="内政", nation=n)
         for n, (short, per, dead) in famine.items():
             self.log(f"⚠ {n} 补给断粮（缺 {short}，每军 -{per}HP）：{dead} 支军队饿毙", phase="内政", nation=n)
 
@@ -4235,7 +4257,9 @@ class World:
         w.energy_report = {n: tuple(v) for n, v in data["energy_report"].items() if n in w.nations}
         w.econ_summary = {n: s for n, s in data["econ_summary"].items() if n in w.nations}
         w.econ_reports = {n: list(v) for n, v in data["econ_reports"].items() if n in w.nations}
-        w.ledger = {n: {**{k: float(v[k]) for k in LEDGER_FIELDS},
+        # ★ ledger 按 LEDGER_FIELDS 归一：追加式政策下新加的账目字段在老档里不存在，
+        #   而 `_ledger(n)[新键] += x` 是直接取键 ⇒ 不补就会 KeyError。缺的补 0，有的原样。
+        w.ledger = {n: {**{k: float(v.get(k, 0.0) or 0.0) for k in LEDGER_FIELDS},
                         "_since": max(1, int(v["_since"]))}
                     for n, v in data["ledger"].items() if n in w.nations}
         w.spend = {n: {k: float(v[k]) for k in SPEND_FIELDS}

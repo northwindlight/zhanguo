@@ -26,6 +26,7 @@ from balance import (
     BANK_RATE_MIN,
     BANK_SPREAD,
     ARMY_HEAL_PER_TURN,
+    HEAL_EQUIP_COST,
     ARMY_MAX_HP,
     ARMY_STARVE_DAMAGE,
     BUILDINGS,

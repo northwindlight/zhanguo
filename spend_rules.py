@@ -21,7 +21,7 @@
 """
 from __future__ import annotations
 
-from game import BUILDINGS, MARKET, building_effect
+from game import BUILDINGS, HEAL_EQUIP_COST, MARKET, building_effect
 
 SUPPLY_PER_ARMY = {"步": 1, "骑": 2}      # 每支军队每回合吃掉的补给
 GATE = 0.60                               # 第二条：刚性支出占收入的上限
@@ -34,6 +34,35 @@ def _price(good: str) -> float:
 
 def _cnt(w, name: str, bn: str) -> int:
     return sum(t["buildings"][bn] for t in w.tiles.values() if t["owner"] == name)
+
+
+def _heal_equip_need(w, name: str) -> int:
+    """该国**本回合会为回血吃掉的装备件数**（`HEAL_EQUIP_COST` × 真会回血的军数）。
+
+    ★ 与引擎（`mp.py` 结算第 4 步）同一口径，缺一不可：回血的三个条件全都要算对——
+      ① 本国本回合**没断供** ② 军**不在交战格** ③ **没满血**；另加 **民兵除外**
+      （它征召就不吃装备）。装备仓不够付时引擎会让付不起的那支不回血（不连坐民兵），
+      这里按"想回血的数量"估，属于**偏高一点**的保守估计（宁可账单多算，别假通过闸门）。
+    """
+    try:
+        from mp import World  # noqa: F401  （只为确认在引擎环境里；实际只用 w 的公开读法）
+        need = sum(1 for a in w.troops
+                   if a["owner"] == name and a.get("type", "步") != "民"
+                   and not a.get("engaged") and a["hp"] < _max_hp(a))
+    except Exception:
+        return 0
+    short = _supply_short(w, name)
+    return 0 if short else need * HEAL_EQUIP_COST
+
+
+def _supply_short(w, name: str) -> bool:
+    """本国本回合是否**断供**（补给仓 < 军队需求）——断供则全体不回血。"""
+    return int(w.res(name, "补给")) < army_upkeep_units(w, name)
+
+
+def _max_hp(a: dict) -> int:
+    from game import UNIT_TYPES
+    return UNIT_TYPES[a.get("type", "步")].get("hp", 100)
 
 
 def _made(w, name: str, good: str) -> int:
@@ -133,6 +162,13 @@ def rigid_expenditure(w, name: str, *, recruit: int = 0) -> dict:
     if recruit > 0:
         for good, per in BUILDINGS["兵营"]["army_cost"].items():
             add(good, per * recruit - _made(w, name, good) - int(w.res(name, good)))
+
+    # ⑤ 回血装备（2026-09-26 起：满足补给就自动扣装备回血，**民兵除外**）——
+    #    这是**条件刚性支出**：只有"伤了、且不在交战、且本国没断供"的步/骑才吃。
+    #    ★ 必须算进来，否则与 ② 同一个病：账单少算 → 军费占比偏低 → 闸门假通过。
+    heal = _heal_equip_need(w, name)
+    if heal:
+        add("装备", heal - _made(w, name, "装备") - int(w.res(name, "装备")))
 
     # 「该留多少」= 本回合需要 − 自产（**不是固定缓冲**）：
     #   清仓时留这么多，多出来的全卖成现金 —— 用户口径"不买多，也不买少"。
