@@ -107,7 +107,17 @@ class TestInitialSlotsAreSmallButAlive(unittest.TestCase):
     """
 
     def test_perturbation_is_bounded(self):
-        """扰动有上界（相对 `mem0` 的量级）——「≈ 基线」这条仍然钉着。"""
+        """扰动有上界 ——「≈ 基线」这条仍然钉着。
+
+        ★ 界取 **0.4**，理由是**有量纲的**：训练之后槽的量级实测 ≈ **7.8**
+          （`rl/mem_activity.py` 在 iter 38/40 的档上量的），初值扰动必须只是它的
+          **一小部分**（5%），否则「开记忆 ≈ 基线」不成立 —— 那时 A/B 测的是
+          **重新初始化**，不是记忆的增益。
+        ★ 我第一版把界写成 `8 × mem0 的均值`（≈0.13）⇒ **飘**：它卡在随机初值的
+          方差上（这条测试没固定种子，跑整套时红、单跑时绿）。⇒ 现在固定种子 +
+          用上面那个有量纲的界，两个毛病一起治。
+        """
+        torch.manual_seed(0)
         sb = _sb()
         net = build_model(mem_slots=V.M_SLOTS)
         net.eval()
@@ -117,11 +127,11 @@ class TestInitialSlotsAreSmallButAlive(unittest.TestCase):
             m = m0
             for _ in range(30):
                 _, _, m = net.forward_state(batch, m)
-            base = float(net.mem0.detach().abs().mean())
             d = float((m - m0).abs().max())
-        self.assertLess(d, 8 * max(base, 1e-6),
-                        f"30 步扰动 {d:.4f} 远超 `mem0` 量级 {base:.4f} ⇒ "
-                        f"「开记忆 ≈ 基线」不成立（那就不是在测记忆的增益，是在测重新初始化）")
+        self.assertLess(d, 0.4,
+                        f"30 步扰动 {d:.4f} 已是训练后槽量级(≈7.8)的 "
+                        f"{d / 7.8:.0%} ⇒ 「开记忆 ≈ 基线」不成立"
+                        f"（那就不是在测记忆的增益，是在测重新初始化）")
 
     def test_slots_do_depend_on_the_state_at_init(self):
         """★★ **反过来了**：初值槽**必须**跟着局面变 —— 这正是读路径有梯度的来源。"""
