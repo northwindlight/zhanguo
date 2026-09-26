@@ -120,6 +120,61 @@ def update_cost(nsteps: int, threads_list, size: int = 16, t_max: int = 150) -> 
             "秒每千步": {k: 1000 * v / max(1, len(rows)) for k, v in out.items()}}
 
 
+def train_vs_infer(mb: int = 128, reps: int = 20, size: int = 16,
+                   t_max: int = 150) -> dict:
+    """④ ★★ **同一批数据**：只前向（推理） vs 前向+反向+优化器（训练），耗时比。
+
+    用户 2026-09-26：「你测过**训练和推理速度差多少**吗」。
+
+    ★★ 为什么不拿现成的两个数相除（那是**错的**）：
+      · `collect` 的 ms/步 = **B=1 的前向** —— 批量 1 吃不到 BLAS 的批量收益，
+        每步都按"小矩阵"最慢的那一档算；
+      · `update` 的 ms/步 = 整批（minibatch=128）**一次前向+反向**，再摊到 128 步上。
+      ⇒ 两者**不是同一个口径**；直接相除甚至会得出"训练比推理快"。
+      ⇒ 正经量法：**同一批 obs、同一个 batch size**，只差"有没有 backward + optimizer.step"。
+        这才是"训练比推理慢几倍"的标准答案（也是决定"能不能把评估铺开跑"的数）。
+    """
+    sb = Sandbox(seed=11, size=size, n_nations=3, t_max=t_max,
+                 halls_known=True).reset()
+    rows: list = []
+    rng = np.random.default_rng(0)
+    while len(rows) < mb and not sb.is_terminal():
+        me = sb.current_player()
+        if me is None:
+            break
+        acts = sb.legal()
+        if not acts:
+            break
+        rows.append(Step(obs=encode.obs_of(sb, me, acts),
+                         aidx=int(rng.integers(len(acts))), logp=-1.0,
+                         value=0.0, reward=0.0, done=False, player=me))
+        sb.step(acts[int(rng.integers(len(acts)))])
+    batch = collate([s.obs for s in rows])
+    net = build_model()
+    net.train()
+    opt = torch.optim.Adam(net.parameters(), lr=1e-4)
+
+    def _run(train: bool) -> float:
+        t0 = time.time()
+        for _ in range(reps):
+            if train:
+                opt.zero_grad()
+                out = net(batch)
+                (out[0].sum() + out[1].sum()).backward()
+                opt.step()
+            else:
+                with torch.no_grad():
+                    net(batch)
+        return (time.time() - t0) / reps
+
+    inf = _run(False)
+    tr = _run(True)
+    return {"batch": len(rows), "推理_毫秒": 1000 * inf, "训练_毫秒": 1000 * tr,
+            "训练是推理的几倍": tr / max(inf, 1e-9),
+            "每样本_推理_微秒": 1e6 * inf / max(1, len(rows)),
+            "每样本_训练_微秒": 1e6 * tr / max(1, len(rows))}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="量这台机器能不能跑、怎么摆")
     ap.add_argument("--threads-list", default="1,2,4,8",
@@ -142,6 +197,10 @@ def main() -> None:
     res["单核标尺_GFLOPs"] = matmul_gflops()
     res["collect"] = collect_cost(a.size, a.t_max, a.collect_steps)
     res["update"] = update_cost(a.update_steps, tl, size=a.size, t_max=a.t_max)
+    # ★★ 「训练比推理慢几倍」—— 同批数据的同口径对比（见 `train_vs_infer`）。
+    #   ★ 它跑在**单线程**上（`update_cost` 收尾把线程数复位成 1）：
+    #     "训练/推理的倍数"是**算法口径**（多一次反向+优化器），不该被线程数混淆。
+    res["训练vs推理"] = train_vs_infer(size=a.size, t_max=a.t_max)
     # ★ 推算：把两块成本拼起来看"一个 worker 用 T 线程"的相对耗时
     c = res["collect"]["秒"] / (res["collect"]["秒"] + res["update"]["各线程数耗时秒"].get("1", 1))
     res["collect占比"] = c
