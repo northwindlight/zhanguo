@@ -78,8 +78,12 @@ with torch.no_grad():
         if mem is None:
             mem = net.mem_init(1, device=device)
         batch = to_dev(batch, device)
-        logits, value, mem_out = net.forward_state(batch, mem)
-        mem = mem_out.detach()
+        # ★★ 必须与 `collect_episode` **逐字同口径**（2026-09-26：那边换成了
+        #   `inference_mode`，实测 1.10×）—— 工具跟不上生产，读数就是假的。
+        #   ★ `.clone()` 也照抄：它是"把槽带出 inference_mode"的那一步。
+        with torch.inference_mode():
+            logits, value, mem_out = net.forward_state(batch, mem)
+        mem = mem_out.detach().clone()
         T["前向fwd"] += time.perf_counter() - t
 
         t = time.perf_counter()

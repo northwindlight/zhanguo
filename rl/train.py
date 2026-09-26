@@ -248,15 +248,35 @@ def collect_episode(nets: dict, sb: Sandbox, *,
             prev_vis[me] = vis_now
             last_step[me] = len(steps)
         net = nets[me]
+        # ★★ **前向这一段单独用 `inference_mode`**（比外层那个 `no_grad` 快；
+        #   2026-09-26 在免费 GPU 机上量：**1.10×**，逐位相同、差 0.0）。
+        #   为什么值得动它：B=1 的前向每步过 **1062 个算子**（`rl/phase_bench.py`），
+        #   每个算子的**固定开销**乘 1062 就是整个前向的一半 ——
+        #   所以"每个算子省一点"是**唯一能一次动全身**的改法，
+        #   而手改写法（少几次 cat/unsqueeze/取反）最多只有 5%（量过，见 PLAN §12.2）。
+        #
+        # ★★★ 但它有个**必须显式处理的代价**（不处理就是"跑起来看着没事"那一类）：
+        #   `inference_mode` 里造出来的 tensor 带“inference”标记，**喂不进 autograd**：
+        #       RuntimeError: Inference tensors cannot be saved for backward
+        #   而 `Step.mem_in` 会被 `_ppo_update_mem` 当 TBPTT 的**起点槽**重算
+        #   ⇒ 它必须是**普通 tensor**。
+        #   ⇒ 在 `inference_mode` **外面** `clone()` 一次：
+        #      · `.detach()` **不够** —— 它不改变那个标记；
+        #      · `_ppo_update_mem` 里的 `torch.cat` **恰好会**把标记洗掉
+        #        （实测 `is_inference(cat(...)) == False`）⇒ **今天不 clone 也不报错**
+        #        —— 但那是**运气不是保证**，别把正确性押在 cat 的实现上。
+        #   `tests/test_rl_memory.py` 钉了「`Step.mem_in` 不是 inference tensor」这条。
         if memory_on:
             if me not in mem:
                 mem[me] = net.mem_init(1, device=batch["grid"].device)
             mem_in = mem[me]
-            logits, value, mem_out = net.forward_state(batch, mem_in)
-            mem[me] = mem_out.detach()          # ★ **跨步带着走**（槽是本局的隐藏态）
+            with torch.inference_mode():
+                logits, value, mem_out = net.forward_state(batch, mem_in)
+            mem[me] = mem_out.detach().clone()   # ★ 见上面那段：**出来再 clone**
         else:
             mem_in = None
-            logits, value = net(batch)
+            with torch.inference_mode():
+                logits, value = net(batch)
         logits = logits[0]
         # ★ GPU 上必须 `.detach().cpu()` 再 `.numpy()`（直接 `.numpy()` 会抛
         #   "can't convert cuda tensor to numpy"）；CPU 上这两步是白给。

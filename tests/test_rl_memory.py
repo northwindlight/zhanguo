@@ -561,3 +561,69 @@ class TestActivityProbeOnAnUntrainedNet(unittest.TestCase):
         self.assertLess(r["写入幅度_均值"], 0.05,
                         f"未训练的网一上来就写 {r['写入幅度_均值']:.4f} ⇒ "
                         f"「开记忆 ≈ 基线」不成立（扰动必须先小）")
+
+
+class TestMemInSurvivesInferenceMode(unittest.TestCase):
+    """★★ `Step.mem_in` **必须是普通 tensor** —— `inference_mode` 加的那道代价。
+
+    背景（2026-09-26）：`collect_episode` 的前向从 `no_grad` 换成了
+    `inference_mode`（实测 **1.10×**，逐位相同）。它换来一个**必须显式处理**的约束：
+
+      `inference_mode` 里造出来的 tensor 带“inference”标记，**喂不进 autograd**：
+          RuntimeError: Inference tensors cannot be saved for backward
+
+    而 `Step.mem_in` 会被 `_ppo_update_mem` 当 **TBPTT 的起点槽**拿去重算
+    （`mems = [steps[w[0]].mem_in for w in group]`）⇒ 它必须是普通的。
+
+    ★★★ 这条守卫为什么非有不可（**它挡的是一个"今天不报错"的坑**）：
+      `_ppo_update_mem` 拿到之后先 `torch.cat(...)`，而 **cat 恰好会洗掉**那个标记
+      （实测 `is_inference(cat([m, m])) == False`）⇒ **今天漏了 clone 也照样训练**。
+      但那是 **cat 的实现细节，不是语言保证**：哪天 cat 换成 `torch.stack`、
+      或者有人改成直接喂单个槽，就会变成一句
+      `RuntimeError: Inference tensors cannot be saved for backward` ——
+      而且要到**训练几十分钟后**才炸。⇒ 在这里把不变量**钉死**，别让正确性
+      押在"cat 会洗标记"这种运气上。
+
+    ★ 破坏方式：把 `collect_episode` 里的
+      `mem[me] = mem_out.detach().clone()` 改回 `mem_out.detach()` ⇒ 本条当场红。
+    """
+
+    def test_step_mem_in_is_not_an_inference_tensor(self):
+        sb = _sb(seed=5, size=8, n=3, t_max=12)
+        torch.manual_seed(0)
+        nets = {p: build_model(mem_slots=V.M_SLOTS) for p in sb.players}
+        for n in nets.values():
+            n.eval()
+        steps, _info = T.collect_episode(nets, sb,
+                                         rng=np.random.default_rng(0))
+        self.assertTrue(steps, "一局都没采到 ⇒ 本用例什么都没测")
+        with_mem = [s for s in steps if s.mem_in is not None]
+        self.assertTrue(with_mem, "没有一步带 mem_in ⇒ 本用例空转（记忆没开？）")
+        bad = [i for i, s in enumerate(steps)
+               if s.mem_in is not None and torch.is_inference(s.mem_in)]
+        self.assertEqual(bad, [], f"这些步的 mem_in 是 inference tensor：{bad[:5]}")
+
+    def test_mem_in_can_be_fed_back_into_a_grad_recording_forward(self):
+        """★ 不只查标记 —— **真的照着 `_ppo_update_mem` 那条路走一遍**。
+
+        （只查 `is_inference` 是"查了个代理指标"；这里做的是那件真事：
+           `cat` 起来、grad 开着前向、`backward()`。）
+        """
+        sb = _sb(seed=5, size=8, n=3, t_max=12)
+        torch.manual_seed(0)
+        net = build_model(mem_slots=V.M_SLOTS)
+        net.train()
+        nets = {p: net for p in sb.players}
+        steps, _info = T.collect_episode(nets, sb, rng=np.random.default_rng(0))
+        i = next((j for j, s in enumerate(steps) if s.mem_in is not None
+                  and j + 1 < len(steps)), None)
+        self.assertIsNotNone(i, "没有可用的相邻两步 ⇒ 本用例空转")
+        mem = torch.cat([steps[i].mem_in, steps[i].mem_in], dim=0)   # 就像 TBPTT
+        batch = T.collate([steps[i].obs, steps[i].obs])
+        logits, value, _ = net.forward_state(batch, mem)
+        self.assertTrue(logits.requires_grad, "前向没建图 ⇒ 这条守卫测不到东西")
+        (logits.sum() + value.sum()).backward()
+
+
+if __name__ == "__main__":
+    unittest.main()
