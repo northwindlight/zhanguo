@@ -323,17 +323,33 @@ def assess(b: Battle, *, max_states: int | None = None,
                        for units in state0)
     memo: dict[tuple, tuple[dict[frozenset, float], dict[int, float], float,
                            dict[str, float]]] = {}
+    # ★★ **吸收态也进 `memo`**，但**另用一个 `n_exp` 数"真展开"**（2026-09-27）。
+    #
+    #   改之前：吸收态是**每次到达都重算**。实测（`rl/dp_internals_probe.py`）
+    #   2125 次 `rec` 调用里 **1980 次**走这条路，每次重跑 `_absorbed` 谓词
+    #   **外加重建一个 `frozenset`**（`_survivors`）⇒ 占整个 DP 的 **~19%**。
+    #   `_absorbed`/`_survivors` 都是 `state` 的**纯函数**，而 `state` 正是 memo 的键
+    #   ⇒ 记忆化**逐位相同**（`tests/test_rl_dp_identity.py` 拿冻结基准钉死）。
+    #
+    #   ★ 为什么不直接拿 `len(memo)` 当状态数：那样吸收态会一并计入 `max_states`
+    #     上限，`n_states` 也会从"展开数"变成"到达过的状态数"（59 → ~1980）
+    #     —— 两个都是**可观测的口径变化**，白改，没必要。
+    n_exp = 0
 
     def rec(state: tuple, depth: int):
         """→ (结局分布, **轮数分布**, 期望轮数, 期望掉血)。"""
+        nonlocal n_exp
+        hit = memo.get(state)
+        if hit is not None:                  # ★ 展开态与吸收态走同一个查表
+            return hit
         if _absorbed(b, state):
-            return ({_survivors(b, state): 1.0}, {0: 1.0}, 0.0,
-                    [0.0] * len(b.order))
-        if state in memo:
-            return memo[state]
-        if depth >= max_rounds or len(memo) >= max_states:
+            r = ({_survivors(b, state): 1.0}, {0: 1.0}, 0.0, [0.0] * len(b.order))
+            memo[state] = r
+            return r
+        if depth >= max_rounds or n_exp >= max_states:
             # ★ 兜底：把剩余质量压进"未定"，并让调用方看得见（不静默当成功）
             return {}, {}, 0.0, [0.0] * len(b.order)
+        n_exp += 1
         dist: dict[frozenset, float] = {}
         rh: dict[int, float] = {}                # ★ 轮数分布（原始计数，最后归一）
         er = 0.0
@@ -343,7 +359,12 @@ def assess(b: Battle, *, max_states: int | None = None,
         #   ⇒ 整张 `{伤害向量: 概率质量}` 按签名缓存（`_agg_damage`）。
         #   同一签名下 36 种骰子还可能**算出同一份伤害** ⇒ 归并也是精确的（概率相加）。
         agg = _agg_damage(b, tuple(_atk_sig(s) for s in state))
-        pre_hp = [sum(u[1] for u in s) for s in state]
+        # ★★ `flat` 只取决于**该方的存活兵种**（`u[3]` 是兵种常数），**与 hp 无关**
+        #    ⇒ 在**一个状态内是常量**。原来写在内层 ⇒ 每个「状态 × 伤害结果 × 方」
+        #    都要重跑一次 `all(...)` 和一个生成器：实测 `all` **4248** 次、
+        #    genexpr **8496** 次（正好 = 2 × 结果数），占 DP **~10%**。
+        #    提到结果循环外，逐位相同。
+        flat_by_side = [all(u[3] == 100 for u in s) for s in state]
         for dv, p in agg.items():
             # `_apply` + `_drop` **就地内联**（这是全模块最热的两行；
             # 每次 DP 要跑几千遍，函数调用开销本身就有分量）。口径同 `_apply`/`_drop`。
@@ -356,7 +377,7 @@ def assess(b: Battle, *, max_states: int | None = None,
                     nxt.append(units)
                     lost_all.append(0)
                     continue
-                flat = all(u[3] == 100 for u in units)
+                flat = flat_by_side[i]
                 per, rem = divmod(d, len(units))
                 keep = []
                 lost = 0
@@ -381,7 +402,8 @@ def assess(b: Battle, *, max_states: int | None = None,
 
     dist, rh, er, ehp = rec(state0, 0)
     total = sum(dist.values())
-    o = Odds(e_rounds=er, n_states=len(memo), truncated=max(0.0, 1.0 - total))
+    # ★ `n_states` = **真展开数**（不是 `len(memo)`：memo 现在也装吸收态）
+    o = Odds(e_rounds=er, n_states=n_exp, truncated=max(0.0, 1.0 - total))
     for i, F in enumerate(b.order):
         # 赢 = 我活着、**所有敌人**都死了（可能是多方混战里活下来的两家之一 ⇒ 不算赢）
         o.p_win[F] = sum(p for s, p in dist.items()
