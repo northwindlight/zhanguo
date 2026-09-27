@@ -605,8 +605,11 @@ def _ppo_update_mem(net: PolicyNet, steps: list[Step], *, epochs: int, clip: flo
     n = len(steps)
     aidx_all = np.array([s.aidx for s in steps], dtype=np.int64)
     old_logp_all = np.array([s.logp for s in steps], dtype=np.float32)
+    # ★ 折扣/平滑**读先验表**（`S.GAMMA`/`S.GAE_LAMBDA`）—— 原先是签名里的硬编码
+    #   默认值、从没被传过、也没有开关。为什么必须可调见 `scoring.GAMMA` 那段。
     adv, ret = gae([s.reward for s in steps], [s.value for s in steps],
-                   [s.done for s in steps], boots=[s.boot for s in steps])
+                   [s.done for s in steps], boots=[s.boot for s in steps],
+                   gamma=S.GAMMA, lam=S.GAE_LAMBDA)
     adv_all = (adv - adv.mean()) / (adv.std() + 1e-8)
     ret_all = np.asarray(ret, dtype=np.float32)
 
@@ -691,8 +694,11 @@ def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
     n = len(steps)
     aidx_all = np.array([s.aidx for s in steps], dtype=np.int64)
     old_logp_all = np.array([s.logp for s in steps], dtype=np.float32)
+    # ★ 折扣/平滑**读先验表**（`S.GAMMA`/`S.GAE_LAMBDA`）—— 原先是签名里的硬编码
+    #   默认值、从没被传过、也没有开关。为什么必须可调见 `scoring.GAMMA` 那段。
     adv, ret = gae([s.reward for s in steps], [s.value for s in steps],
-                   [s.done for s in steps], boots=[s.boot for s in steps])
+                   [s.done for s in steps], boots=[s.boot for s in steps],
+                   gamma=S.GAMMA, lam=S.GAE_LAMBDA)
     adv_all = (adv - adv.mean()) / (adv.std() + 1e-8)
     ret_all = np.asarray(ret, dtype=np.float32)
 
@@ -1327,6 +1333,14 @@ if __name__ == "__main__":
                          "`run_par.sh` 会传会话名（如 mem1）。见 `train._worker_tag`。")
     ap.add_argument("--ckpt-every", dest="ckpt_every", type=int, default=5,
                     help="每几个 iter 存一次档")
+    # ★★ 折扣/平滑（2026-09-28 提上来的）：缺省读先验表 `S.GAMMA`/`S.GAE_LAMBDA`。
+    #   为什么要能调、以及为什么默认从 0.99 改成 **1.0**，见 `rl/scoring.py` 那段。
+    ap.add_argument("--gamma", type=float, default=None,
+                    help="GAE 折扣（缺省 = 先验表 S.GAMMA）。"
+                         "★ 0.99 的视野只有 ~100 步，而一局每方 ~900 步 ⇒ 前 89%% "
+                         "的决策拿不到终局信号；改成 1.0 = 无折扣、全额回传")
+    ap.add_argument("--lam", type=float, default=None,
+                    help="GAE-λ 平滑（缺省 = 先验表 S.GAE_LAMBDA）")
     ap.add_argument("--memory", type=str, default="none",
                     choices=("none", "latent"),
                     help="潜槽记忆：none = 马尔可夫基线（缺省）；latent = 开 %d 个槽"
@@ -1359,6 +1373,12 @@ if __name__ == "__main__":
                          "（3/5 国不结盟）。★ 它顺带解了「大图打不出胜负」："
                          "胜者口径是「只剩一个实体」，2v2 下灭掉对面那家就赢")
     a = ap.parse_args()
+    # ★★ 折扣/平滑**在建任何东西之前**覆盖先验表 —— 晚了的话横幅和实际用的会对不上，
+    #   而"日志里记的那个数和真正跑的数不是一回事"是这一行里最贵的一类错。
+    if a.gamma is not None:
+        S.GAMMA = float(a.gamma)
+    if a.lam is not None:
+        S.GAE_LAMBDA = float(a.lam)
     if a.threads:
         import torch
         torch.set_num_threads(a.threads)
