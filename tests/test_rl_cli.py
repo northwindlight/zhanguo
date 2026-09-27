@@ -16,8 +16,10 @@
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -127,3 +129,49 @@ class TestCliEndToEnd(unittest.TestCase):
                          f"★ 这些关键字 `train()` **不认**：{sorted(stale)}\n"
                          "  ⇒ 删参数时漏删了调用点（一跑就 AttributeError/TypeError，"
                          "而「所有参数都传了」那个方向的守卫**看不见**它）")
+
+
+class TestOutAutoResumes(unittest.TestCase):
+    """★★★ `--out` 存在 ⇒ **默认从它续跑**（2026-09-27 加）。
+
+    ★ 为什么必须钉：我**手动**重起 ECS 那一臂时漏了 `--resume`，而 `--ckpt-every 1`
+      立刻把 it=0 的新档写盘 ⇒ **把那份 14 iter 的档覆盖掉了**。
+      这类事故的形状是「**重起要靠人记得传一个参数**」——
+      而 `--restart-after` 自己那套 `os.execv` **是记得的**（它显式加 `--resume`），
+      **只有人手动重起时会漏** ⇒ 让"档在就续跑"成为默认，把这条路堵死。
+
+    ★ 破坏方式：把 `_resume_point` 里 `if out and os.path.exists(out)` 那段删掉
+      （退回"只有显式 `--resume` 才续跑"）⇒ 第一条用例当场红。
+    """
+
+    def test_existing_out_is_resumed_by_default(self):
+        from rl import train as T
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "w01.pt")
+            Path(out).write_bytes(b"x")           # 只要**存在**就够（这里不真加载）
+            msgs: list = []
+            self.assertEqual(T._resume_point(None, out, log=msgs.append), out,
+                             "`--out` 存在却没默认续跑 ⇒ 会静默从头训、覆盖那份档")
+            self.assertTrue(any("自动从它续跑" in m for m in msgs),
+                            f"没把这件事说出来（不该静默）：{msgs}")
+
+    def test_missing_out_starts_fresh(self):
+        from rl import train as T
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(
+                T._resume_point(None, os.path.join(d, "nope.pt"), log=lambda *_: None),
+                "档不存在却要续跑 ⇒ 会当场炸（不该）")
+
+    def test_explicit_resume_wins(self):
+        from rl import train as T
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "w01.pt")
+            Path(out).write_bytes(b"x")
+            self.assertEqual(
+                T._resume_point("/elsewhere/other.pt", out, log=lambda *_: None),
+                "/elsewhere/other.pt",
+                "显式 --resume 必须优先（它可能要指向别的档，比如从别人的档分出去）")
+
+    def test_no_out_at_all(self):
+        from rl import train as T
+        self.assertIsNone(T._resume_point(None, None, log=lambda *_: None))

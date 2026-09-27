@@ -974,6 +974,27 @@ def _load_seed(path: str, *, mem_slots: int = 0) -> dict:
     raise SystemExit(f"★ {path} 里没找到可用权重（既没有 `nets` 也没有 `weights`）")
 
 
+def _resume_point(explicit: str | None, out: str | None, log=print) -> str | None:
+    """**续跑点**：显式 `--resume` 优先；否则 **`--out` 存在就从它续跑**。
+
+    ★★★ 为什么默认续跑（2026-09-27 加，用户：「以后靠自动化，不要手操作」）：
+      我**手动**重起 ECS 那一臂时**漏了 `--resume`**，而 `--ckpt-every 1` 立刻把
+      it=0 的新档写盘 ⇒ **那份 14 iter 的档被覆盖掉了**。
+      这类事故的形状是：**"重起"要靠人记得传一个参数**。
+      ★ 对照：`--restart-after` 自己那套 `os.execv` **是记得的**（它显式加 `--resume`）
+        ⇒ **只有人手动重起时会漏**。
+      ⇒ 干脆让"档在就续跑"成为默认：想从头训，**删掉 `--out` 那个文件**才是明确动作
+        （比"记得传 `--resume`"可靠得多）。
+    ★ 显式给的 `--resume` 仍然优先（它可以指向别的档，例如从别人的档分出去）。
+    """
+    if explicit:
+        return explicit
+    if out and os.path.exists(out):
+        log(f"★ **--out 已存在 ⇒ 自动从它续跑**：{out}（想从头训就先删掉这个文件）")
+        return out
+    return None
+
+
 def _load_ckpt(path: str, nets: dict, *, mem_slots: int = 0, log=print) -> int:
     """★ **续跑读档**：把权重灌回 `nets`，返回**已经跑过的 iter 数**。
 
@@ -1201,11 +1222,20 @@ if __name__ == "__main__":
         ap.error("--restart-after 必须同时给 --out（续跑点和 worker 身份都靠它）")
     worker_tag, tag_src = _worker_tag(a.worker_id, a.out)
     print(f"★ worker 身份 = **{worker_tag}**（{tag_src}）")
+    # ★★★ **`--out` 存在就默认从它续跑**（2026-09-27 加，用户：「以后靠自动化，不要手操作」）。
+    #   起因是我**手动**重起 ECS 那一臂时漏了 `--resume`，而 `--ckpt-every 1`
+    #   立刻把 it=0 的新档写盘 ⇒ **把那份 14 iter 的档覆盖掉了**。
+    #   ★ 这类事故的形状是：**"重起"这件事靠人记得传一个参数** —— 而 `--restart-after`
+    #     自己那套 `os.execv` 是记得的（它显式加 `--resume`），
+    #     **只有人手动重起时会漏**。⇒ 干脆让"档在就续跑"成为**默认**：
+    #     想从头训，**删掉 `--out` 那个文件**才是明确动作（比"记得传 --resume"可靠）。
+    #   ★ 显式给的 `--resume` 仍然优先（它可以指向别的档）。
+    resume = _resume_point(a.resume, a.out)
     train(iters=seg, episodes_per_iter=a.episodes, seed=a.seed, lr=a.lr,
           temperature=a.temperature, first_streak_limit=a.first_streak_limit,
           size=a.size, size_min=a.size_min, size_max=a.size_max,
           halls_known=a.halls_known, nations=a.nations, t_max=a.t_max, max_steps=a.max_steps, mb=a.mb, epochs=a.epochs,
-          pool=a.pool, out=a.out, ckpt_every=a.ckpt_every, resume=a.resume,
+          pool=a.pool, out=a.out, ckpt_every=a.ckpt_every, resume=resume,
           league_db=(None if (a.league_db or "").lower() in ("none", "") else a.league_db),
           league_mains=a.league_mains,
           league_snapshot_every=a.league_snapshot_every,

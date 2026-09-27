@@ -73,12 +73,22 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
   exit 1
 fi
 
+# ★★ 从参数里取出 `--out`（`par_one.sh` 要用它判"档在不在"）
+OUTP=""
+_prev=""
+for _a in "$@"; do
+  [ "$_prev" = "--out" ] && OUTP="$_a"
+  _prev="$_a"
+done
+
 printf -v QUOTED '%q ' "${CMD[@]}"
-# tmux 用 `sh -c` 起命令，而 `PIPESTATUS`/`tee` 这套是 bash 的 —— 显式套一层 bash，
-# 免得出问题时日志静默为空（比报错更难查）。
-INNER="$QUOTED 2>&1 | tee '$LOG'; echo \"[退出码 \${PIPESTATUS[0]}]\""
-printf -v INNER_Q '%q' "$INNER"
-tmux new-session -d -s "$SESSION" "bash -c $INNER_Q"
+# ★★★ 交给 `rl/par_one.sh`（2026-09-27 加，用户：「以后靠自动化，不要手操作」）：
+#   它负责**进程真的退出就自动拉起来**（OOM / 崩溃 / 被 kill），
+#   并保证重来时**从档续跑**（不带 `--resume` 就是静默从头训 —— 我踩过：
+#   手动重起 ECS 那臂时漏了 `--resume`，`--ckpt-every 1` 立刻把 it=0 写盘，
+#   把那 14 iter 的档覆盖了）。
+#   ★ 与 `--restart-after` 不冲突：那条走 `os.execv`，**进程不退出** ⇒ 这层看不到它。
+tmux new-session -d -s "$SESSION" "bash '$HERE/rl/par_one.sh' '$LOG' '$OUTP' $QUOTED"
 
 echo "已启动 tmux 会话 ${SESSION}：rl.${JOB} $*"
 echo "日志：$LOG"
