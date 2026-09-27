@@ -437,6 +437,29 @@ class Sandbox:
         self.last_ok = True                                    # 上一步是否被引擎接受（进观测）
         return self
 
+    def _turn_order(self) -> list[str]:
+        """本回合的**行动顺序**。★ **≥3 人每回合轮换先手；两人局不轮换。**
+
+        ★★★ 为什么要有它（用户 2026-09-27：「**改了，双人局不轮流，三人局以上
+          必须轮换**」）—— 真游戏就是这么做的：`mp_run.py` 的
+          「顺序回合制（**公平：轮流先手，无人被永久排最后**）」：
+              start = (world.turn - 1) % len(alive)
+          而**沙盒原来没有这条**：`pending` 每回合都按固定的 `self.players` 重建
+          ⇒ **整局都是同一个人先落子**。
+        ★ 后果不是"不公平"这么轻：后手能看到先手**已落子**的世界状态再应对
+          （`legal()` 是按已落子的状态算的，不是排队结算）⇒ 先手每回合都得先亮牌、
+          后手每回合都能针对 ⇒ **两边都推不动** —— 这很可能正是"打满即平局"
+          的一条成因（跨局的 `first` 抵得掉平均偏差，抵不掉**局内**的动力学）。
+        ★ **两人局不轮换**（用户明确定的口径）：两人时 `(turn-1)%2` 就是每回合
+          来回换，会把局面变成纯"你一手我一手"的应对循环；用户要的是两人局
+          **保持固定顺序**，先手优势由**跨局**轮换（`first`，见建局那段）来摊平。
+        """
+        alive = [n for n in self.players if self.alive(n)]
+        if len(alive) < 3:
+            return alive                       # ★ 两人局：不轮换
+        start = (self.turn - 1) % len(alive)   # ★ 与 `mp_run.py` 同一个公式
+        return [alive[(start + i) % len(alive)] for i in range(len(alive))]
+
     def _random_starts(self) -> dict:
         """随机开局：N 国核心随机、但**两两切比雪夫距离 ≥ `min_margin(size, 国数)`**。
 
@@ -963,7 +986,7 @@ class Sandbox:
                 continue
             # 本轮所有人都收手了 ⇒ 结算、开新回合
             self.end_turn()
-            self.pending = [n for n in self.players if self.alive(n)]
+            self.pending = self._turn_order()
             if not self.pending:
                 return                      # 没人活着（终局由 `done()` 判）
 

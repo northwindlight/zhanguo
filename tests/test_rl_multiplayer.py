@@ -386,3 +386,63 @@ class TestKillLedger(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestTurnOrderRotation(unittest.TestCase):
+    """★★★ **≥3 人每回合轮换先手；两人局不轮换**（用户 2026-09-27 拍板）。
+
+    ★ 为什么必须有这一条：真游戏就是这么做的 —— `mp_run.py` 的「顺序回合制
+      （**公平：轮流先手，无人被永久排最后**）」用 `start = (turn-1) % len(alive)`
+      每回合把起始位挪一格。而**沙盒原来没有这条**：`pending` 每回合都按固定的
+      `self.players` 重建 ⇒ **整局都是同一个人先落子**。
+    ★ 后果不是"不公平"这么轻：后手能看到先手**已落子**的世界状态再应对
+      （`legal()` 按已落子的状态算，不是排队结算）⇒ 先手每回合先亮牌、后手每回合
+      针对 ⇒ 两边都推不动 —— 很可能正是"打满即平局"的一条成因。
+
+    ★ 破坏方式：把 `_turn_order` 里 `if len(alive) < 3: return alive` 之后那三行
+      删掉（退回"永远不轮换"）⇒ 第二条用例当场红；
+      反过来把 `< 3` 改成 `< 0`（两人也轮换）⇒ 第一条当场红。
+    """
+
+    def _advance(self, sb, n=6):
+        """走 n 个回合，每回合记下**本回合第一个行动的人**。"""
+        seen = []
+        for _ in range(n):
+            sb.pending = []                 # 逼 `_auto_advance` 走"开新回合"那条路
+            sb._auto_advance()
+            if not sb.pending or sb.done():
+                break
+            seen.append(sb.pending[0])
+        return seen
+
+    def test_two_nation_does_not_rotate(self):
+        """两人局：**每回合的第一个行动者不变**（用户明确要求）。"""
+        sb = sb_of(seed=7, size=10, n=2, t_max=60)
+        self.assertEqual(len(sb.players), 2)
+        seen = self._advance(sb, 6)
+        self.assertGreaterEqual(len(seen), 4, f"没走够回合，本用例没测到东西：{seen}")
+        self.assertEqual(len(set(seen)), 1,
+                         f"两人局不该轮换，实际每回合先手是 {seen}")
+
+    def test_three_nation_rotates_each_turn(self):
+        """三人局：**每回合的第一个行动者换人**（真游戏的规则）。"""
+        sb = sb_of(seed=7, size=12, n=3, t_max=60)
+        self.assertEqual(len(sb.players), 3)
+        seen = self._advance(sb, 6)
+        self.assertGreaterEqual(len(seen), 4, f"没走够回合：{seen}")
+        self.assertGreater(len(set(seen)), 1,
+                           f"三人局该轮换，实际每回合先手一直是 {seen[0]}：{seen}")
+        # ★ 再钉**位移**：每回合挪一格，不是乱换
+        alive = [n for n in sb.players if sb.alive(n)]
+        for i in range(1, len(seen)):
+            self.assertNotEqual(seen[i], seen[i - 1],
+                                f"相邻两回合的先手撞了：{seen}")
+
+    def test_formula_matches_mp_run(self):
+        """★ 公式必须与 `mp_run.py` 同一口径：`start = (turn-1) % len(alive)`。"""
+        sb = sb_of(seed=7, size=12, n=3, t_max=60)
+        alive = [n for n in sb.players if sb.alive(n)]
+        for turn in (1, 2, 3, 4, 5):
+            sb.turn = turn
+            want = alive[(turn - 1) % len(alive)]
+            self.assertEqual(sb._turn_order()[0], want,
+                             f"turn={turn} 的先手与 mp_run 的公式不一致")
