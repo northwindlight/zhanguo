@@ -195,6 +195,13 @@ def collate(rows: list[dict]) -> dict:
     for i, g in enumerate(gs):
         grid[i, :, :g.shape[1], :g.shape[2]] = g
     out["grid"] = torch.tensor(grid)
+    # ★★ 每行的**真实外接框**（`[B,2]` = (h,w)）—— 模型靠它把**补零区在特征图上清零**。
+    #   为什么必须给：`model.conv` 的 1×1 那层**带 bias** ⇒ 输入空间的零过完
+    #   `1×1+ReLU` 变成 `ReLU(bias) ≠ 0`，和 3×3 那层的**隐式补零**（特征空间的 0）
+    #   **不是一回事** ⇒ 边界格看到的邻居变了。实测不补零 max|Δ|=7.5e-08、
+    #   **一补零 max|Δ|=1.2e-03**（差 4 个数量级）⇒ 一行的输出会**取决于它和谁同批**。
+    #   ★ B=1 时 `gh/gw` 就是真实值 ⇒ 模型那边**恒等**，现役训练与旧 ckpt 全不受影响。
+    out["grid_hw"] = torch.tensor([[g.shape[1], g.shape[2]] for g in gs])
     return out
 
 
@@ -322,6 +329,140 @@ def collect_episode(nets: dict, sb: Sandbox, *,
             "players": tuple(sb.players),                 # ★ 这一局有几个国家（统计用）
             "reward": {n: sb.reward(n) for n in sb.players}}
     return steps, info
+
+
+@torch.no_grad()          # ★ 与 `collect_episode` 同（值不受影响，但别建图）
+def collect_episodes_batched(nets: dict, sandboxes: list, *,
+                             temperature: float = 1.0, rngs: list | None = None,
+                             greedy: bool = False, max_steps: int | None = None,
+                             device: str = "cpu"
+                             ) -> tuple[list[list[Step]], list[dict]]:
+    """**N 局并排推进**：把 N 个沙盒的前向**合成一批**发出去。返回 `([每局步表], [每局概要])`。
+
+    ★ 为什么：B=1 的前向每步过 **1062 个算子**，每个算子的**固定调度开销**
+      （实测 ~4.3 µs）就是整个前向的大头。实测（`rl/batch_fwd_probe.py`）：
+      B=8 把这部分摊到 **2.50×**、B=16 到 2.66×。而前向占决策点 **~50%**
+      ⇒ 端到端 **~1.43×**。
+      ★ 它**不是多核的东西** —— 单线程一样拿得到（摊的是每算子开销，与核数无关）。
+
+    ★★ 与 `collect_episode` 的关系：**并存**、逐句镜像。差别只有三处：
+      ① 每个沙盒**自己一份 rng** —— `collect_episode` 里一条 rng 走一局，
+         这里若共用一条，各局的抽样会互相错开 ⇒ 动作全变；
+      ② 前向**按网络分组合批** —— 不同沙盒的当前玩家可能不同（`--league-mains 2`
+         时是两张网）⇒ 不能硬塞进一批，按 `id(net)` 分组，每组一次前向；
+      ③ 每局**自己一条 `steps`** —— **绝不合并**（`gae` 按 `done` 边界算，
+         合并就是**跨局串味**，和"截断必须标 done"是同一类坑）。
+
+    ★★★ **结果不保证逐位相同**（必须说清楚）：合批会改变 BLAS 的分块/归约顺序，
+      而且 `collate` 会把网格补到**批内最大** ⇒ 数值差最后几个 ulp；那些 ulp
+      经抽样会放大成不同的动作。⇒ 守卫分两层（`tests/test_rl_batch_rollout.py`）：
+        · **N=1** 时与 `collect_episode` **逐位相同** —— 钉的是**回路逻辑**
+          （rng/记忆/回填/截断/记账），不是数值；
+        · **N>1** 时钉**对齐**：`logits[k]` 约等于单独跑第 k 个沙盒的 logits ——
+          抓的是"第 i 个沙盒拿到了第 j 个的输出"这类**静默错位**。
+    """
+    n_sb = len(sandboxes)
+    if rngs is None:
+        rngs = [np.random.default_rng(i) for i in range(n_sb)]
+    if len(rngs) != n_sb:
+        raise ValueError(f"rngs 要给 {n_sb} 条（每局一条），收到 {len(rngs)}")
+    if max_steps is not None and max_steps <= 0:
+        max_steps = None
+    stepss: list[list[Step]] = [[] for _ in range(n_sb)]
+    mem: dict[tuple, "torch.Tensor"] = {}      # (沙盒下标, 国名) -> (1, ...)
+    prev_vis: list[dict] = [{} for _ in range(n_sb)]
+    last_step: list[dict] = [{} for _ in range(n_sb)]
+    memory_on = any(getattr(n, "mem_slots", 0) for n in nets.values())
+    finished = [False] * n_sb
+
+    while True:
+        # ---- ① 每局各取一个决策点（引擎/观测那半边仍是逐个跑，快不了，也不用快）----
+        rows: list[tuple] = []                 # (i, me, net, obs, actions)
+        for i, sb in enumerate(sandboxes):
+            if finished[i] or sb.is_terminal():
+                finished[i] = True
+                continue
+            me = sb.current_player()
+            if me is None:
+                finished[i] = True
+                continue
+            actions = sb.legal()
+            if not actions:                    # ★ 同原版：当截断收场（原版是 break）
+                finished[i] = True
+                continue
+            obs = obs_of(sb, me, actions)
+            # ★★ 辅目标必须取**动作之前**的帧（与原版同序：obs → vis → 回填 → 前向）
+            if memory_on:
+                vis_now = sb.visible_enemies(me)
+                _backfill_aux(sb, me, prev_vis[i].get(me), vis_now,
+                              stepss[i], last_step[i])
+                prev_vis[i][me] = vis_now
+                last_step[i][me] = len(stepss[i])
+            rows.append((i, me, nets[me], obs, actions))
+        if not rows:
+            break
+
+        # ---- ② 按网络分组，每组一次前向（这才是省下来的那部分）----
+        groups: dict[int, list] = {}
+        for r in rows:
+            groups.setdefault(id(r[2]), []).append(r)
+        for grp in groups.values():
+            batch = to_dev(collate([r[3] for r in grp]), device)
+            if memory_on:
+                keys = [(r[0], r[1]) for r in grp]
+                for kk in keys:
+                    if kk not in mem:
+                        mem[kk] = grp[0][2].mem_init(1, device=batch["grid"].device)
+                mem_b = torch.cat([mem[kk] for kk in keys], 0)
+                with torch.inference_mode():
+                    logits, value, mem_out = grp[0][2].forward_state(batch, mem_b)
+                # ★ 先留好 mem_in 的引用（下面会把 mem 覆盖成输出）
+                mem_ins = [mem[kk] for kk in keys]
+                outs = list(mem_out.split(1, 0))
+            else:
+                keys = [(r[0], r[1]) for r in grp]
+                mem_ins = [None] * len(grp)
+                with torch.inference_mode():
+                    logits, value = grp[0][2](batch)
+
+            # ---- ③ 逐个采样 + 落子（顺序与 `collect_episode` 逐行对齐）----
+            for k, (i, me, _net, obs, actions) in enumerate(grp):
+                if memory_on:
+                    mem[keys[k]] = outs[k].detach().clone()   # ★ 出来再 clone（同原版）
+                lg = logits[k]
+                probs = torch.softmax(lg, -1).detach().cpu().numpy()
+                if greedy:
+                    aidx = int(np.argmax(probs))
+                else:
+                    p = np.power(probs, 1.0 / max(1e-6, temperature))
+                    p = p / p.sum()
+                    aidx = int(rngs[i].choice(len(p), p=p))
+                logp = float(np.log(max(1e-12, probs[aidx])))
+                sb = sandboxes[i]
+                act = actions[aidx]
+                prev_score = _score(sb, me)
+                sb.step(act)
+                done = sb.is_terminal()
+                rew = _reward(sb, me, prev_score, done)
+                stepss[i].append(Step(obs, aidx, logp, float(value[k]), rew, done,
+                                      me, mem_in=mem_ins[k]))
+                if max_steps is not None and len(stepss[i]) >= max_steps:
+                    finished[i] = True
+
+    # ---- ④ 收尾：截断处置 + 概要（**逐局**，与 `collect_episode` 同口径）----
+    infos: list[dict] = []
+    for i, sb in enumerate(sandboxes):
+        steps = stepss[i]
+        truncated = not sb.is_terminal()
+        if truncated and steps:
+            boot = float(_score(sb, steps[-1].player)) / S.REWARD_TANH_SCALE
+            steps[-1] = replace(steps[-1], done=True, boot=boot)
+        infos.append({"turns": sb.turn, "winner": sb.winner(),
+                      "winner_members": sb.winner_members(),
+                      "truncated": truncated, "first": sb.first,
+                      "players": tuple(sb.players),
+                      "reward": {n: sb.reward(n) for n in sb.players}})
+    return stepss, infos
 
 
 def _backfill_aux(sb, me: str, prev: dict | None, now: dict,

@@ -386,7 +386,33 @@ class PolicyNet(nn.Module):
             mem_out = s_in + gate * upd
 
         # ---- 网格：候选按目标格 gather 空间特征 ----
-        fmap = self.conv(grid)                                  # [B,dc,H,W]
+        # ★★ **补零区要在「1×1+ReLU」之后、「3×3」之前清零**（2026-09-27）。
+        #   病灶：`conv` 的第一个是 **带 bias 的 1×1 卷积** ⇒ `collate` 补进去的
+        #   **输入空间的零**过完 `1×1+ReLU` 变成 `ReLU(bias) ≠ 0`，而 3×3 那层的
+        #   `padding=1` 是**特征空间的隐式零** —— 两者不是一回事 ⇒ 真实边界格
+        #   看到的邻居变了。实测：不补零 max|Δ|=7.5e-08，**一补零 max|Δ|=1.2e-03**
+        #   （差 4 个数量级）⇒ 一行的输出**取决于它和谁同批**（不可复现）。
+        #   ★ 顺序很重要：清零**必须在 3×3 之前**，之后再清就晚了（边界格已经被污染）。
+        #   ★ B=1 时 `grid_hw` 就是真实形状 ⇒ 走 `else` 分支，与原来的 `self.conv(grid)`
+        #     **逐位相同** ⇒ 现役训练与旧 ckpt 全不受影响。
+        ghw = batch.get("grid_hw")
+        _h0, _w0 = grid.shape[2], grid.shape[3]
+        #   ★ 判据用 **min**：「有没有哪一行比画布小」。用 max 永远为假
+        #     ——画布高度**就是**各行的最大值（我第一版就写错了，分支根本没进去）。
+        if ghw is not None and (int(ghw[:, 0].min()) < _h0 or int(ghw[:, 1].min()) < _w0):
+            #   ★ 临时变量**绝不能叫 `x`** —— `x` 是本函数的主 token 序列
+            #     （后面 `xa = x[:, 1:1+n_a]`），我第一版就是用它当临时变量，
+            #     把主序列覆盖了 ⇒ 报的还是**窗口那边**的维度错，追起来很远。
+            gx = self.conv[1](self.conv[0](grid))
+            # ★ 掩码是**二维**的：先各自 (B,H) / (B,W)，再外积成 (B,H,W)
+            #   （直接把两个一维 `&` 起来是错的 —— 维度对不上）
+            h_ok = torch.arange(_h0, device=gx.device)[None, :] < ghw[:, 0:1]
+            w_ok = torch.arange(_w0, device=gx.device)[None, :] < ghw[:, 1:2]
+            keep = h_ok[:, :, None] & w_ok[:, None, :]          # [B,H,W]
+            gx = gx * keep.unsqueeze(1).to(gx.dtype)
+            fmap = self.conv[3](self.conv[2](gx))               # [B,dc,H,W]
+        else:
+            fmap = self.conv(grid)                              # [B,dc,H,W]
         hh, ww = fmap.shape[2], fmap.shape[3]
         flat = fmap.flatten(2).transpose(1, 2)                   # [B,H*W,dc]
         xy = batch["tile_xy"].clamp(min=0)                       # (-1,-1) → (0,0)
