@@ -74,4 +74,5 @@ for size in SIZES:
               f"{first:>7}{first / max(1, dec):>8.0%}{np.mean(turns):>9.1f}",
               flush=True)
 SB.TERRITORY_FRAC_LO, SB.TERRITORY_FRAC_HI = 0.15, 0.35
+SB.TERRITORY_FRAC_2P = (0.35, 0.60)
 print("\n★ 健康：先手占比 ≈ **50%**。接近 100% ⇒ 由行动顺序决定，学不到技能。", flush=True)
