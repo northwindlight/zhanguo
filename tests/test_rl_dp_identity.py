@@ -80,16 +80,37 @@ def golden():
 
 
 class TestDpBitIdentity(unittest.TestCase):
-    """`assess` 的输出必须与冻结基准**逐位一致**。"""
+    """`assess` 的输出必须与冻结基准**逐位一致** —— **两条路都要**。"""
 
-    def test_every_case_matches_the_frozen_reference(self):
+    def _run(self, label, kw, pure: bool):
+        keep = CP._FAST
+        CP._FAST = None if pure else keep
+        try:
+            w, cell = stage(**kw)
+            return dump(CP.assess(CP.build(w, *cell)))
+        finally:
+            CP._FAST = keep
+
+    def test_pure_python_matches_the_frozen_reference(self):
         for label, kw in KWARGS.items():
             with self.subTest(label):
-                w, cell = stage(**kw)
-                o = CP.assess(CP.build(w, *cell))
-                self.assertEqual(dump(o), golden()[label],
-                                 f"{label}：DP 输出变了 —— 观测特征跟着变，"
-                                 f"这不是「差不多」的事")
+                self.assertEqual(self._run(label, kw, True), golden()[label],
+                                 f"{label}：**纯 Python 路径**的 DP 输出变了 —— "
+                                 f"观测特征跟着变，这不是「差不多」的事")
+
+    def test_fast_path_matches_the_frozen_reference(self):
+        """★ C 扩展存在时，它也必须逐位对上同一份基准。
+
+        没有扩展就 **skip 并说明原因**（`_FAST_ERR`）—— 这是**可选**扩展，
+        但"没有"这件事必须**有记录**，不能静默跳过。
+        """
+        if CP._FAST is None:
+            self.assertIsNotNone(CP._FAST_ERR, "扩展不可用却连原因都没有")
+            self.skipTest(f"扩展没编译（可选）：{CP._FAST_ERR}")
+        for label, kw in KWARGS.items():
+            with self.subTest(label):
+                self.assertEqual(self._run(label, kw, False), golden()[label],
+                                 f"{label}：**C 扩展路径**与冻结基准不一致")
 
     def test_the_reference_is_not_vacuous(self):
         """基准得真有内容（概率非空、轮数分布是条分布），别是个空的假绿。"""
@@ -108,6 +129,9 @@ class TestAbsorbedMemoIsLive(unittest.TestCase):
     这是提速那一条改动的守卫。光有基准不够 —— 把 memo 整个删掉基准照样绿
     （结果没变，只是变慢），所以这里直接量"同一个 `state` 有没有被送给
     `_survivors` 两次"。改了 memo 而它失效 ⇒ 这里红。
+
+    ★ 只管**纯 Python 路径**：C 扩展里没有 `_survivors`（它用位掩码），
+      那条路由 `test_fast_path_matches_the_frozen_reference` 管。
     """
 
     # ★ 大于这个数才说明用例够大、量得动（别拿一个只有两三个状态的局自欺）
@@ -118,6 +142,8 @@ class TestAbsorbedMemoIsLive(unittest.TestCase):
         b = CP.build(w, *cell)
         seen = []
         real = CP._survivors
+        keep_fast = CP._FAST
+        CP._FAST = None                    # ★ 强制走纯 Python（否则 _survivors 不会被调）
 
         def spy(bb, state):
             seen.append(state)               # state 是嵌套 tuple ⇒ 可哈希可比
@@ -128,6 +154,7 @@ class TestAbsorbedMemoIsLive(unittest.TestCase):
             CP.assess(b)
         finally:
             CP._survivors = real
+            CP._FAST = keep_fast
 
         self.assertGreaterEqual(len(seen), self.MIN_ABSORBED,
                                 "用例太小、量不出东西 —— 换个更大的局面")

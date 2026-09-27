@@ -39,3 +39,7 @@ mp_save*
 # 配置备份同样含明文 key（2026-09-20：误提交过一次，补上）
 mp_config.json.bak*
 mp_config*.bak*
+
+# 可选加速扩展的编译产物（按架构各编各的，绝不入库 —— 源码是 rl/_combat_fast.c）
+rl/_combat_fast*.so
+rl/*.so

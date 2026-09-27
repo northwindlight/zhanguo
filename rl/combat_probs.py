@@ -55,6 +55,23 @@ from game import unit_atk, unit_kind
 #     之后改表**不生效且不报错**）。
 from . import scoring as S
 
+# ★★ **可选加速扩展**（源码 `rl/_combat_fast.c`）。编译：`bash rl/build_combat_fast.sh`
+#
+#   为什么：战斗 DP 占采集回路墙钟 **58.8%**，而它几乎全是 CPython 的**解释器开销**
+#   —— 实测一次转移 **4.5 µs**、约 20 个解释器级操作（225 ns/操作），
+#   cProfile 里**一个数值计算函数都没有**（`rl/dp_internals_probe.py`）。
+#   换语言能拿 1~2 个数量级：原型实测 **DP ×12**（对原始 Python ×20）⇒ 整体 **2.27×**。
+#
+#   ★ **编不出来就整条回落纯 Python** —— 仓库仍然纯 Python 可用、行为不变。
+#   ★ 但**不静默**：失败原因留在 `_FAST_ERR` 里（仓库纪律：静默失效最贵）。
+#   ★ 扩展存在时结果**逐位相同**：它复刻了这里的浮点求和顺序（见 C 文件头部）。
+try:                                                    # pragma: no cover
+    from . import _combat_fast as _FAST
+    _FAST_ERR = None
+except Exception as _e:                                 # noqa: BLE001
+    _FAST = None
+    _FAST_ERR = repr(_e)
+
 DIE_FACES = tuple(sorted(COMBAT_DIE_MOD))          # (1,2,3,4,5,6)
 BARBARIAN = "野人"
 
@@ -305,6 +322,79 @@ class Odds:
                 f" | 轮数 {rounds}")
 
 
+def _finish(b: Battle, dist, rh, er, ehp, n_exp: int, max_rounds: int) -> Odds:
+    """DP 出来的四个量 → `Odds`。
+
+    ★ **只有一份**：纯 Python 路径和 C 扩展路径都走这里（C 那边只做 DP，
+  归一化 / p_win 口径 / 轮数配置全留在 Python —— 口径只有一份）。
+    ★ `dist` / `rh` 必须按**原来的插入序**传进来：`sum(dist.values())` 与
+  `for s, p in dist.items()` 都是按这个序累加的，换个序就会差最后几个比特。
+  """
+    total = sum(dist.values())
+    # ★ `n_states` = **真展开数**（不是 `len(memo)`：memo 现在也装吸收态）
+    o = Odds(e_rounds=er, n_states=n_exp, truncated=max(0.0, 1.0 - total))
+    for i, F in enumerate(b.order):
+        # 赢 = 我活着、**所有敌人**都死了（可能是多方混战里活下来的两家之一 ⇒ 不算赢）
+        o.p_win[F] = sum(p for s, p in dist.items()
+                         if F in s and not (set(b.enemies[F]) & s))
+        # 输 = 我全灭、且我至少还有一个敌人活着
+        o.p_lose[F] = sum(p for s, p in dist.items()
+                          if F not in s and (set(b.enemies[F]) & s))
+        o.p_hold[F] = sum(p for s, p in dist.items() if s == {F})
+        o.e_loss[F] = ehp[i] / total if total else 0.0
+    o.p_draw = dist.get(frozenset(), 0.0)
+    if total:
+        for k in list(o.p_win):
+            o.p_win[k] /= total
+            o.p_lose[k] /= total
+            o.p_hold[k] /= total
+        o.p_draw /= total
+        o.e_rounds = er / total
+    # ★ 轮数分布：规整成"下标 = 轮数"的定长表（0..max_rounds），且**归一化到 dist 的总质量**
+    #   （`_absorbed` 的根节点轮数为 0 ⇒ 表里恒有 p_rounds[0]，但那种局面调用方不会拿到）
+    o.p_rounds = [0.0] * (max_rounds + 1)
+    for k, v in rh.items():
+        if 0 <= k <= max_rounds:
+            o.p_rounds[k] = v / total if total else 0.0
+    return o
+
+
+def _fast_dp(b: Battle, state0: tuple, max_states: int, max_rounds: int):
+    """走 C 扩展跑 DP。返回 `(dist, rh, er, ehp, n_exp)`，失败返回 `None`（⇒ 回落）。
+
+    ★ 兵种对象**原样传下去再原样收回**（只传下标）：`_agg_damage` 的缓存键就是
+  签名元组，兵种必须是**同一批对象/相等对象**，不能换成整数，否则缓存表会错。
+    """
+    n = len(b.order)
+    kinds: list = []
+    kidx: dict = {}
+    init_units = []
+    for units in state0:
+        row = []
+        for (k, h, r, c) in units:
+            i = kidx.get(k)
+            if i is None:
+                i = len(kinds)
+                kidx[k] = i
+                kinds.append(k)
+            row.append((i, int(h), bool(r), int(c)))
+        init_units.append(row)
+    try:
+        dlist, rlist, er, ehp, n_exp = _FAST.assess(
+            n, [list(b.enemy_idx[i]) for i in range(n)], init_units, kinds,
+            lambda sig: _agg_damage(b, sig), int(max_rounds), int(max_states))
+    except Exception:                       # noqa: BLE001
+        # ★ 扩展出任何问题都回落，**但绝不静默** —— 把原因挂到模块级，测试会钉它
+        global _FAST_ERR
+        import traceback
+        _FAST_ERR = traceback.format_exc()
+        return None
+    dist = {}
+    for m, v in dlist:
+        dist[frozenset(b.order[i] for i in range(n) if (m >> i) & 1)] = v
+    return dist, dict(rlist), er, list(ehp), n_exp
+
+
 def assess(b: Battle, *, max_states: int | None = None,
            max_rounds: int | None = None,
            retreat_units: frozenset[int] | None = None) -> Odds:
@@ -321,6 +411,12 @@ def assess(b: Battle, *, max_states: int | None = None,
     if retreat_units:
         state0 = tuple(tuple((k, h, (idx in retreat_units) or r, c) for idx, (k, h, r, c) in enumerate(units))
                        for units in state0)
+    # ★★ **可选加速**：扩展在就交给它跑 DP（结果逐位相同），否则下面走纯 Python。
+    #   任何异常都回落（`_fast_dp` 里兜住并把原因挂到 `_FAST_ERR`，不静默）。
+    if _FAST is not None:
+        got = _fast_dp(b, state0, max_states, max_rounds)
+        if got is not None:
+            return _finish(b, *got, max_rounds)
     memo: dict[tuple, tuple[dict[frozenset, float], dict[int, float], float,
                            dict[str, float]]] = {}
     # ★★ **吸收态也进 `memo`**，但**另用一个 `n_exp` 数"真展开"**（2026-09-27）。
@@ -401,33 +497,7 @@ def assess(b: Battle, *, max_states: int | None = None,
         return memo[state]
 
     dist, rh, er, ehp = rec(state0, 0)
-    total = sum(dist.values())
-    # ★ `n_states` = **真展开数**（不是 `len(memo)`：memo 现在也装吸收态）
-    o = Odds(e_rounds=er, n_states=n_exp, truncated=max(0.0, 1.0 - total))
-    for i, F in enumerate(b.order):
-        # 赢 = 我活着、**所有敌人**都死了（可能是多方混战里活下来的两家之一 ⇒ 不算赢）
-        o.p_win[F] = sum(p for s, p in dist.items()
-                         if F in s and not (set(b.enemies[F]) & s))
-        # 输 = 我全灭、且我至少还有一个敌人活着
-        o.p_lose[F] = sum(p for s, p in dist.items()
-                          if F not in s and (set(b.enemies[F]) & s))
-        o.p_hold[F] = sum(p for s, p in dist.items() if s == {F})
-        o.e_loss[F] = ehp[i] / total if total else 0.0
-    o.p_draw = dist.get(frozenset(), 0.0)
-    if total:
-        for k in list(o.p_win):
-            o.p_win[k] /= total
-            o.p_lose[k] /= total
-            o.p_hold[k] /= total
-        o.p_draw /= total
-        o.e_rounds = er / total
-    # ★ 轮数分布：规整成"下标 = 轮数"的定长表（0..max_rounds），且**归一化到 dist 的总质量**
-    #   （`_absorbed` 的根节点轮数为 0 ⇒ 表里恒有 p_rounds[0]，但那种局面调用方不会拿到）
-    o.p_rounds = [0.0] * (max_rounds + 1)
-    for k, v in rh.items():
-        if 0 <= k <= max_rounds:
-            o.p_rounds[k] = v / total if total else 0.0
-    return o
+    return _finish(b, dist, rh, er, ehp, n_exp, max_rounds)
 
 
 _DIE_CACHE: dict[int, tuple] = {}
