@@ -889,6 +889,13 @@ class Sandbox:
         if name is None or not self.alive(name):
             return []
         out: list[tuple] = []
+        # ★★ **视野整次 `legal()` 只算一遍**（2026-09-27 实测出来的）。
+        #   原来 `_probe_cells` 里**每支军队**各算一次 `vision_mask(self.world, name)`,
+        #   而 `name` 在整个循环里**恒定**、world 在 `legal()` 期间**不变**
+        #   ⇒ 那是**纯重复计算**。实测：`vision_mask` 每决策点被调 **10.9 次**、
+        #   cumtime 占整个采集回路 **21%**（`rl/` 里最贵的一项 Python 开销）。
+        #   ★ 懒算：真有军队要处理时才算（没有军队时一次都不算，比原来还省）。
+        mask = None
         for a in self.armies_of(name):
             if a.get("engaged") or a.get("moved_turn") == self.world.turn:
                 continue                       # ★ 已用过的军 / 交战中的军：整支屏蔽
@@ -911,12 +918,16 @@ class Sandbox:
             #   而看不见的时候模型**无从知道那一格是什么** ⇒ 两条都给，让引擎当场判，
             #   并把它那句教学式错误消息（实测原话：「(5,5) 有敌军驻守，不能 mv 过去；
             #   **进攻请用 atk（会交战）**」）当成**侦察的情报来源**。
-            for (x, y) in self._probe_cells(name, a, walk):
+            if mask is None:
+                # ★ 局部 import（本模块各处都这么写，见 `known_halls` 等）
+                from ruleai.v11plus import pathfind
+                mask = pathfind.vision_mask(self.world, name)   # ★ 整次 legal() 只此一次
+            for (x, y) in self._probe_cells(a, walk, mask):
                 out.append((a["id"], "move", x, y))
                 out.append((a["id"], "attack", x, y))
         return out
 
-    def _probe_cells(self, name: str, a: dict, walk) -> list[tuple]:
+    def _probe_cells(self, a: dict, walk, mask) -> list[tuple]:
         """★ **允许撞墙的试探格**：该军周围（1 格移动力）里**视野外**的格（边界除外）。
 
         用户 2026-09-24：「**特殊撞墙 mv 允许存在**，在**无视野**的情况下，全部候选集允许
@@ -927,9 +938,12 @@ class Sandbox:
           模型就**从那条错误消息里**学到"那儿走不进去 / 那儿是敌国领土"。
         ★ 把候选卡死在 `_reachable` 上等于**把侦察这条路由封死** —— 模型永远发现不了
           视野外的敌国领土（那正是它要去拔的厅所在的地方）。
+
+        ★★ `mask` **由调用方传进来**（2026-09-27）：它只取决于 `(world, 玩家)`，
+          与是哪支军**无关**，而 `legal()` 里 `name` 恒定、world 不变
+          ⇒ 原来在这里每支军各算一次是**纯重复**（实测 10.9 次/决策点、
+          `vision_mask` cumtime 占整条回路 **21%**）。
         """
-        from ruleai.v11plus import pathfind
-        mask = pathfind.vision_mask(self.world, name)
         n = self.size
         out = []
         for dx in (-1, 0, 1):
