@@ -446,3 +446,43 @@ class TestTurnOrderRotation(unittest.TestCase):
             want = alive[(turn - 1) % len(alive)]
             self.assertEqual(sb._turn_order()[0], want,
                              f"turn={turn} 的先手与 mp_run 的公式不一致")
+
+
+class TestNationsFlagReachesTheSandbox(unittest.TestCase):
+    """★★★ `--nations` 必须**同时**钉住沙盒与 nets（2026-09-27 修的真 bug）。
+
+    现场：`train()` 建沙盒那句**没传 `n_nations`** ⇒ 沙盒按 `n_nations_for(size)`
+    自己算国家数，而 `players`/`net_of` 是按 `--nations` 的 `k` 建的 ⇒ 两者不一致时
+    `collect_episode` 里 `nets[me]` 立刻 **`KeyError: '丙'`** ——
+    起炉当场崩、`par_one.sh` 每 10 秒重拉一次 ⇒ **崩溃循环**。
+
+    ★ 为什么潜伏这么久：配置里**从来没用过 `--nations`**（都靠 `n_nations_for(size)`）
+      ⇒ 只有 `k != n_nations_for(size)` 时才炸。2026-09-27 起 1v1 就踩上了。
+
+    ★ 破坏方式：把 `Sandbox(..., n_nations=k, ...)` 里的 `n_nations=k` 删掉
+      ⇒ 本条当场红（`KeyError: '丙'`）。
+    """
+
+    def test_two_nation_train_does_not_crash(self):
+        import tempfile
+        from pathlib import Path
+        from rl import train as T
+        real = T.ppo_update
+        T.ppo_update = lambda net, steps, **kw: {"pg": 0.0, "vf": 0.0, "ent": 0.0}
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                T.train(iters=1, episodes_per_iter=1, nations=2,
+                        size=8, size_min=8, size_max=8, t_max=12,
+                        pool=2, league_mains=0, memory="none",
+                        out=str(Path(d) / "n2.pt"), log=lambda *_: None)
+        finally:
+            T.ppo_update = real
+
+    def test_the_sandbox_sees_the_same_k(self):
+        """★ 钉**不变量本身**：沙盒的国家数必须等于 `--nations` 的 `k`。"""
+        from rl.sandbox import Sandbox
+        for k in (2, 3, 4):
+            sb = Sandbox(seed=1, size=16, n_nations=k, t_max=10).reset()
+            self.assertEqual(len(sb.players), k,
+                             f"size=16 传 n_nations={k} 却出来 {len(sb.players)} 国")
+            self.assertEqual(sb.players, V.PLAYER_NAMES[:k])

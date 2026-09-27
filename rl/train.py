@@ -748,7 +748,15 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
             #   ⇒ 一个 iter 内 k 个国家都当过一次先手，"先手胜率"这个统计才有意义
             #   （健康值 = 1/k，不再是 0.5）。
             first = players[(it + e) % k]
+            # ★★★ **必须把 `k` 传给沙盒**（2026-09-27 修的真 bug）：
+            #   原来这里**没传 `n_nations`** ⇒ 沙盒按 `n_nations_for(size)` 自己算国家数，
+            #   而 `players = V.PLAYER_NAMES[:k]` / `net_of` 是按 `k` 建的
+            #   ⇒ 两者**不一致**时 `collect_episode` 里 `nets[me]` 立刻
+            #   `KeyError: '丙'`（`me` 是沙盒的第三个国家，而 nets 只有甲/乙）。
+            #   ★ `--nations` 这个开关**一直是坏的**（配置里从没用过 `--nations`，
+            #     所以潜伏到 2026-09-27 起 1v1 才炸）。**别删 `n_nations=k`。**
             sb = Sandbox(seed=int(rng.integers(1 << 30)), size=sz, t_max=t_max,
+                         n_nations=k,
                          first=first, halls_known=halls_known,
                          territory=territory, alliances=alliances).reset()
             # ★★ **从池子里随机抽 k 份不重复的 pt** 上场（用户：「随机抽 pt」）。

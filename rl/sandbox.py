@@ -245,6 +245,17 @@ TERRITORY_FRAC_LO = 0.15      # 占"每国摊到的格数"的比例（下限）
 #   ⇒ 大图重新变得**可赢**。这也是"允许大图、最高 5 国"能一起成立的原因。
 ALLIANCE_SALT = 0x2A11
 TERRITORY_FRAC_HI = 0.35      # 上限 —— ★ 两个数都是**可调先验**，不是物理常数
+# ★★★ **1v1 专用加码**（用户 2026-09-27：「你在 **1v1 地图上增加国土规模**就行」）。
+#   三条理由，前两条是用户给的、第三条是顺带的：
+#   ① 「**小地图后手吃亏更严重**」—— 两人局厅到厅只有 `min_margin = size/√2`
+#      （size 10 ⇒ 7.1 格），先手 5 回合就能直达对方厅；**国土大 ⇒ 纵深大**
+#      ⇒ 先手直达不成立（项目里记过「先手优势是**结构性**的、闸门连响」）。
+#   ② 「随机国土给了**更大纵深**，换家敏感性更高」⇒ 加大它正好顺着这条设计走。
+#   ③ ★ 顺带解掉一条老问题：**野地变少 = 免费午餐变少** —— 而
+#      「免费午餐吃不完 ⇒ 攻城永远次优」正是 8 国局摆烂尸检（[[zhanguo_8n_stalemate_autopsy]]）
+#      查出来的平局成因。
+#   ⚠ **只对 `n <= 2` 生效**：3-5 国那套比例**一个字不动**（用户只说了 1v1 地图）。
+TERRITORY_FRAC_2P = (0.35, 0.60)
 TERRITORY_SALT = 0x7E77       # 抽国土用的**独立随机流**盐（见 `reset()` 的三条口径）
 
 
@@ -265,8 +276,11 @@ def territory_range(size: int, n_nations: int) -> tuple[int, int]:
     from mp import CROSS
     floor = len(CROSS)                                  # ② 十字那 5 格
     share = (size * size) / max(1, n_nations)           # ① 每国摊到的格数
-    lo = max(floor, int(round(TERRITORY_FRAC_LO * share)))
-    hi = max(lo, int(round(TERRITORY_FRAC_HI * share)))
+    # ★ 1v1（`n<=2`）走**加码**的比例，见 `TERRITORY_FRAC_2P` 那段
+    flo, fhi = (TERRITORY_FRAC_2P if n_nations <= 2
+                else (TERRITORY_FRAC_LO, TERRITORY_FRAC_HI))
+    lo = max(floor, int(round(flo * share)))
+    hi = max(lo, int(round(fhi * share)))
     return lo, hi
 
 

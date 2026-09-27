@@ -327,3 +327,31 @@ class TestMarginIsUntouched(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestOneVOneTerritoryBoost(unittest.TestCase):
+    """★★★ **1v1 专用国土加码**（用户 2026-09-27）。
+
+    「你在 **1v1 地图上增加国土规模**就行」+「地图 **10-14** 格，**小地图后手吃亏更严重**」
+    + 「随机国土给了**更大纵深**，换家敏感性更高」。
+
+    ★ 为什么要加：两人局厅到厅只有 `min_margin = size/√2`（size 10 ⇒ 7.1 格），
+      先手 5 回合就能直达对方厅 —— 项目里记过「先手优势是**结构性**的、闸门连响」。
+      国土大 ⇒ **纵深大** ⇒ 直达不成立。顺带：野地变少 = 免费午餐变少，
+      那正是 8 国局摆烂尸检查出来的平局成因。
+
+    ★ 破坏方式：把 `territory_range` 里 `TERRITORY_FRAC_2P if n_nations <= 2` 那句
+      改回一律用 `TERRITORY_FRAC_LO/HI` ⇒ 第一条当场红。
+    """
+
+    def test_one_v_one_gets_more_territory(self):
+        from rl.sandbox import territory_range
+        # ★ 钉**具体数**（不是"比 3 国大"—— 那个因为 share 不同本来就成立，测不出东西）
+        self.assertEqual(territory_range(10, 2), (18, 30),
+                         "size10/1v1 的国土范围变了（用户拍过：要加大纵深）")
+        self.assertEqual(territory_range(14, 2), (34, 59))
+
+    def test_three_plus_nations_are_untouched(self):
+        """★ 用户只说了 1v1 地图 ⇒ **3-5 国那套比例一个字都不许动**。"""
+        from rl.sandbox import territory_range
+        self.assertEqual(territory_range(12, 3), (7, 17))
+        self.assertEqual(territory_range(20, 5), (12, 28))
