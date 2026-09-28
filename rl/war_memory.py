@@ -50,8 +50,30 @@
 """
 from __future__ import annotations
 
-DEFAULT_MAX_AGE = 20      # 超过这么多回合没再看见 ⇒ 作废（别拿上古情报当现状）
+HALF_LIFE = 30            # ★★ 遗忘的**半衰期**（回合）—— 与潜槽同一套逻辑（指数保留）
+#   ★★★ 2026-09-28 用户两连改：「**至少能记忆 30 回合**，和 LLM 一个水平」+「**k 组不要悬崖**，
+#     弄类似的逻辑」。原来这里是 `DEFAULT_MAX_AGE = 20` 的**硬窗**：`age > 20` ⇒
+#     **一条都不给**（悬崖式）。现在改成潜槽那套：
+#       · `decay(age) = 0.5 ** (age/HALF_LIFE)` —— 和 `(1-gate)` 同一个形状的指数保留；
+#       · **排名按 decay 降序**取前 `cap` ⇒ 老记录是被**更新的记录挤出去**的
+#         （连续的容量压力），不是被一个阈值一刀砍掉；
+#       · `DEFAULT_MAX_AGE` 退化成**很远的安全网**（`FLOOR_HALVES` 个半衰期，
+#         即只剩 0.1% 才算作废）—— 一局才 ~38 回合，它**根本碰不到**。
+#   ★ 于是"幽灵"风险改由**明说的陈旧度**兜底：`K_AGE = age/HALF_LIFE` 直接告诉模型
+#     "这是几个半衰期前的事"，信多少由它自己学（比硬切一刀更诚实）。
+#   ★ **必须等于 `vocab.AGE_SCALE`**（那是 `K_AGE` 的分母）—— 守卫钉住。
+FLOOR_HALVES = 10         # `DEFAULT_MAX_AGE = HALF_LIFE * FLOOR_HALVES`（安全网，不是工作窗口）
+DEFAULT_MAX_AGE = HALF_LIFE * FLOOR_HALVES
 DEFAULT_CAP = 24          # 一条观测里最多带几支"幽灵军"（★ 注意力是 O(N²)，必须有界）
+
+
+def decay(age: int) -> float:
+    """`0.5 ** (age / HALF_LIFE)` —— 这条记录还剩多少"份量"（与潜槽的 `(1-gate)` 同形）。
+
+    ★ 用来**排名**（`known()` 取前 `cap` 条）、也用来给任何想按陈旧度加权的调用方读。
+      `age = HALF_LIFE` ⇒ 0.5；`age = 0` ⇒ 1.0；`age < 0`（调用方给错 turn）按 0 算。
+    """
+    return 0.5 ** (max(0, int(age)) / HALF_LIFE)
 
 
 def visible_foes(world, name: str | None, mask) -> dict:
@@ -123,8 +145,10 @@ class WarMemory:
 
         ★ `visible_gids`：调用方把**这一帧看得见**的 gid 传进来 ——
           那些已经在军队 token 里了，**不要重复发**（重复会让同一条信息占两行注意力）。
-        ★ 过期的（`age > max_age`）**不返回**（也别删 —— 删了就没法在它再露头时
-          认出"这是很久以前那支"了；而且按文件头 ②，删除这个动作本身要小心）。
+        ★ **没有"到点就没了"**：排名按 `decay(age)` 降序，取前 `cap` ⇒ 老记录是被
+  更新的记录**挤出去**的（连续容量压力）。`max_age` 只是**很远的安全网**
+  （`FLOOR_HALVES` 个半衰期），一局 ~38 回合碰不到它。
+  ★ 过期也**别删** —— 删了就没法在它再露头时认出"这是很久以前那支"了。
         """
         if not name:
             return []
@@ -145,7 +169,9 @@ class WarMemory:
             if age <= 0 or age > self.max_age:
                 continue
             out.append({**rec, "gid": gid, "age": age})
-        out.sort(key=lambda r: (r["age"], r["gid"]))     # 新的在前
+        # ★ 按 **decay 降序**（= 按 age 升序，但把"为什么"写出来）：
+        #   老记录是被更新的记录**挤出去**的，不是被阈值砍掉的。
+        out.sort(key=lambda r: (-decay(r["age"]), r["gid"]))   # 份量大的在前
         return out[:self.cap]
 
     def cell_ages(self, name: str | None, turn: int) -> dict:

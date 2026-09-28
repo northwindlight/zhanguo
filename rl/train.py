@@ -1117,8 +1117,14 @@ def _ckpt_meta(lo: int, hi: int, halls_known: bool, nations: int | None,
 
 
 def _shape_fingerprint(mem_slots: int = 0) -> dict:
-    """决定**观测形状**的那几个常量（变了 ⇒ 旧 ckpt 一律作废）。"""
+    """决定**观测形状或语义**的那几个常量（变了 ⇒ 旧 ckpt 一律作废）。
+
+    ★ 2026-09-28 扩了范围：不只"形状"。`mem_write_norm`（写槽语义）和
+      `k_max_age`（观测**内容**）都不改形状，但改了**跑出来是什么** ——
+      而"能加载、形状全对、跑的是另一个东西"比形状不符危险得多。
+    """
     from . import features as F
+    from . import war_memory as _wm
     return {
         # ★★ **潜槽个数**必须在指纹里：它改的是**网络结构**（多 M 行 token + 写头 +
         #   辅助头）⇒ 开记忆的档与不开的档**互不兼容**。
@@ -1138,6 +1144,10 @@ def _shape_fingerprint(mem_slots: int = 0) -> dict:
         #     但前向语义变了（槽从无界累加改成 RMS 钉回 `MEM_SLOT_RMS`）。
         #     ⇒ 必须进指纹，否则旧档会被**静默**续跑成一个不一样的东西。
         "mem_write_norm": "rms" if mem_slots else "none",
+        # ★ `k` 组（记忆中的敌军）的**遗忘半衰期**：`decay(age) = 0.5**(age/HALF_LIFE)`
+        #   决定它的份量与排名。改它**不改形状**（`K_WIDTH`/`cap` 都没动）
+        #   ⇒ 不写进指纹就是**静默**换了输入。
+        "k_half_life": int(_wm.HALF_LIFE),
     }
 
 

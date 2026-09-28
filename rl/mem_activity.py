@@ -197,7 +197,7 @@ def report_gate(net) -> None:
         g = 1.0 / (1.0 + math.exp(-bi))
         h = math.log(0.5) / math.log(1.0 - g) if g < 1.0 else float("inf")
         print(f"     {i:>3}{bi:>9.3f}{g:>9.5f}{h:>12.1f}{h / 24.0:>9.2f}")
-    print(f"     （24 步/回合；初值：槽0 半衰期 3.4 步，槽7 207.5 步）")
+    print("     （24 步/回合；初值是 vocab 里那条梯队，训完上面这些就是它自己选的）")
 
 
 def main() -> None:

@@ -179,9 +179,9 @@ class TestGateSpectrum(unittest.TestCase):
         h0, h7 = self._half_life(b[0]), self._half_life(b[-1])
         self.assertAlmostEqual(h0, 3.4, delta=0.4,
                                msg=f"槽 0 的半衰期 {h0:.1f} 步，文档写的是 3.4")
-        self.assertAlmostEqual(h7, 207.5, delta=15.0,
-                               msg=f"槽 7 的半衰期 {h7:.1f} 步，文档写的是 207.5 —— "
-                                   f"首尾差一个数量级才是「梯队」，这条最能抓反号")
+        self.assertAlmostEqual(h7, 966.7, delta=40.0,
+                               msg=f"槽 7 的半衰期 {h7:.1f} 步，文档写的是 966.7 —— "
+                                   f"首尾差两个数量级才是「梯队」，这条最能抓反号")
 
     def test_the_spectrum_spans_a_usable_range_in_turns(self):
         """换算成**回合**才有意义（实测一局 ≈908 步/方、≈38 回合 ⇒ **24 步/回合**）。"""
@@ -189,8 +189,12 @@ class TestGateSpectrum(unittest.TestCase):
         b = build_model(mem_slots=V.M_SLOTS).mem_gate_bias.detach().flatten().tolist()
         lo, hi = self._half_life(b[0]) / TURN, self._half_life(b[-1]) / TURN
         self.assertLess(lo, 0.5, f"最快的槽半衰期 {lo:.2f} 回合 —— 连回合内的工作记忆都撑不住")
-        self.assertGreater(hi, 3.0, f"最慢的槽半衰期 {hi:.2f} 回合 —— 跨不了几个回合，"
-                                    f"记忆就没有意义了（旧值 bias=-1.0 只有 0.09 回合）")
+        # ★★ 2026-09-28 用户定的**硬要求**：「**至少能记忆 30 回合**，和 LLM 一个水平」。
+        #   旧梯队（STEP=0.6）最慢只到 8.65 回合 ⇒ 差 3.5 倍，这条会红。
+        self.assertGreaterEqual(
+            hi, 30.0,
+            f"最慢的槽半衰期 {hi:.2f} 回合 < 30 —— 不满足用户「至少能记忆 30 回合」的要求"
+            f"（bias −1.0 只有 0.09 回合；STEP=0.6 时是 8.65）")
 
     def test_gradient_reaches_every_slot_bias(self):
         """★ 非空泛性：偏置得真的能学（每槽都拿得到梯度，不是死的）。"""
