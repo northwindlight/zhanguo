@@ -576,6 +576,35 @@ def _mem_windows(steps: list[Step], tbptt: int) -> list[list[int]]:
     return wins
 
 
+def _adam_for(net, lr: float) -> "torch.optim.Adam":
+    """**每个网络一份、跨 iter 常驻**的 Adam。
+
+    ★★★ 2026-09-28 修：原来两处都是就地 `Adam(net.parameters(), lr=lr)`
+      —— **建在 `ppo_update` 里面**，而它每个 iter 每个成员只调一次
+      ⇒ **Adam 的动量（`m`/`v`）每个 iter 被清零一次**，等于每步都用"刚起步的 Adam"
+      跑 74 步。Adam 起步时偏差修正占主导（`m/sqrt(v) ≈ sign(g)`），于是每步都变成
+      **固定大小 ≈lr、方向由当次噪声梯度决定**的步子。
+
+      ★ 实测对得上：一次 `ppo_update` 挪 `‖Δθ‖ = 2.33`，而 **265 次调用净挪只有 1.88**
+        （独立随机方向本该 `sqrt(265)*2.33 = 38`，方向一致本该 617）
+        ⇒ **更新在系统性地互相抵消**，策略卡在初始的均匀分布上
+        （`e/K` 几百个 iter 贴 1.00、`cos(两半数据)=0.20`、同一份数据重跑也只有 0.33）。
+
+    ★ 为什么**挂在网对象上**、不按 `mi` 或 `id()` 建表：联赛会冻结/换网，
+      按 `mi` 存可能在 `net_of(mi)` 换掉对象后指向**已死的参数**（静默无效）。
+      挂在 `net` 上则永远和它自己的参数一一对应，网没了优化器也就没了。
+    ★ `lr` **每次调用都同步**（`param_groups`），否则命令行改 `--lr` 会被旧值吃掉。
+    """
+    opt = getattr(net, "_ppo_opt", None)
+    if opt is None:
+        opt = torch.optim.Adam(net.parameters(), lr=lr)
+        net._ppo_opt = opt
+    else:
+        for g in opt.param_groups:
+            g["lr"] = lr
+    return opt
+
+
 def _ppo_update_mem(net: PolicyNet, steps: list[Step], *, epochs: int, clip: float,
                     vf_coef: float, ent_coef: float, lr: float, minibatch: int,
                     device: str, tbptt: int, log=print) -> dict:
@@ -614,7 +643,7 @@ def _ppo_update_mem(net: PolicyNet, steps: list[Step], *, epochs: int, clip: flo
     ret_all = np.asarray(ret, dtype=np.float32)
 
     wins = _mem_windows(steps, tbptt)
-    opt = torch.optim.Adam(net.parameters(), lr=lr)
+    opt = _adam_for(net, lr)
     d = None if device in (None, "cpu") else device
     # ★ 一次并行几个窗（每个窗占一行）⇒ 一次前向的 batch ≈ minibatch
     nwin = max(1, int(minibatch) // max(1, int(tbptt)))
@@ -702,7 +731,7 @@ def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
     adv_all = (adv - adv.mean()) / (adv.std() + 1e-8)
     ret_all = np.asarray(ret, dtype=np.float32)
 
-    opt = torch.optim.Adam(net.parameters(), lr=lr)
+    opt = _adam_for(net, lr)
     stats: dict = {}
     order = np.arange(n)
     for _ in range(epochs):
