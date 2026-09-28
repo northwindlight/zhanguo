@@ -24,13 +24,28 @@ OUT="${2:?用法: par_one.sh <日志> <存档> <命令行...>}"
 shift 2
 
 while true; do
-  if [ -f "$OUT" ]; then
+  # ★ 调用方**已经**带了 `--resume`（`run_ecs.sh` 的课表里就有）⇒ 别再叠一个。
+  #   叠了不会错（argparse 取最后一个，同一个值），但日志上会看到
+  #   `--resume A --resume A`，排查时白白多一层"这俩是不是不一样"的怀疑。
+  _has_resume=0
+  for _a in "$@"; do [ "$_a" = "--resume" ] && _has_resume=1; done
+
+  if [ -f "$OUT" ] && [ "$_has_resume" = 0 ]; then
     "$@" --resume "$OUT" 2>&1 | tee -a "$LOG"
   else
     "$@" 2>&1 | tee -a "$LOG"
   fi
   ec="${PIPESTATUS[0]}"
   # ★ 退出码**必须**落在日志里（同一类教训：只留在 tmux 窗格里，进程一退窗格就没了）
-  echo "[退出码 $ec] ⇒ 10 秒后自动重来（$(date '+%m-%d %H:%M:%S')）" | tee -a "$LOG"
+  echo "[退出码 $ec]（$(date '+%m-%d %H:%M:%S')）" | tee -a "$LOG"
+  # ★★ **退出码 0 = 正常跑完（`--iters` 用尽）⇒ 收工，别再拉起来**
+  #   （2026-09-28 实测出来的：原来对 0 也重启 ⇒ `--iters` **不再是终点** ——
+  #    第 2 条命跑到 done=400 会自己开第 3 条，一炉永远跑不完。
+  #    OOM/崩溃都是非 0，实测见过 137 和 1。`os.execv` 那条路进程不退出，与本层无关。）
+  if [ "$ec" -eq 0 ]; then
+    echo "[完成] 退出码 0 ⇒ 不再重来" | tee -a "$LOG"
+    break
+  fi
+  echo "⇒ 10 秒后自动重来" | tee -a "$LOG"
   sleep 10
 done
