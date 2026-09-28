@@ -23,13 +23,25 @@
 from __future__ import annotations
 
 import re
+from statistics import pstdev
 import subprocess
 import sys
 
 HOST = sys.argv[1] if len(sys.argv) > 1 else "ecs.northwind.site"
 REPO = "/home/northwind/zhanguo"
 SEG = 30          # 滚动窗口（iter 数）
-DROP = 0.10       # `e/K` 从本段起点掉这么多 ⇒ 算"明显动了"
+# ★★★ 2026-09-28 **两版**才定下来（第一版当天就狼来了两次）：
+#   · 第一版 `DROP = 0.10` 是**拍**的"首尾差"阈值。实测**这个统计量自己的摆动**就有
+#     0.12~0.14（L0 滚动均值范围 0.866..1.008、std 0.039；L1 0.881..1.000、std 0.028）
+#     ⇒ 阈值坐在噪声里 ⇒ 连着两次报警、而且是**不同成员、方向相反**
+#     （L0 先 0.881 后弹回 0.967）。**与 §12.17 那个 ④b 同一类错误：判据的噪声底吞掉信号。**
+#   · 第二版我给"相对掉了多少"配了个 σ 倍数 —— **当天又响了**，而我还去调它的系数。
+#     那正是"一版版试参数"，用户明令禁止的形状。
+#   ⇒ **退回逻辑**：用户要的验收是「`e/K` **掉下来**」——那是个**绝对水平**；
+#     而"相对自己掉了多少"的噪声底本来就吞得下信号 ⇒ **该删的是相对判据本身**。
+#   ⇒ 现在只有**绝对**判据；`Δ` 与噪声底照旧打出来当**事实**，但不据此报警
+#     （用户的设计哲学："给事实不给判断"）。
+FORM_LEVEL = 0.85   # 30-iter 均值降到这个以下 = "形成中"（0.85 = 熵降到最大值的 85%）
 
 
 def sh(cmd: str) -> str:
@@ -103,11 +115,16 @@ def main() -> int:
         t0 = sum(rows[i][4] for i in head) / len(head)
         t1 = sum(rows[i][4] for i in tail) / len(tail)
         d = e1 - e0
+        # 这个统计量**自己的**波动 —— 打出来当事实（Δ 不跟它比就没有意义）
+        ser = [rows[i][5][k] for i in its if k in rows[i][5]]
+        roll = [sum(ser[j:j + SEG]) / SEG for j in range(len(ser) - SEG + 1)] or [e1]
+        rsd = pstdev(roll) if len(roll) > 1 else 0.0
         flag = ""
-        if d <= -DROP:
-            flag = "  ← ★ 明显在掉"
+        if e1 < FORM_LEVEL:
+            flag = f"  ← ★★ 末30 已到 {FORM_LEVEL} 以下 —— **形成中**"
             notable = True
-        print(f"{k:<5}{e0:>10.3f}{e1:>12.3f}{d:>+9.3f}{t0:>9.1f}{t1:>9.1f}{flag}")
+        print(f"{k:<5}{e0:>10.3f}{e1:>12.3f}{d:>+9.3f}{t0:>9.1f}{t1:>9.1f}{flag}"
+              f"   滚动std {rsd:.3f}（Δ 要跟它比才有意义）")
     print(f"       （1.00 = 均匀策略；掉下来才叫「形成」）")
 
     print(f"\n席位  甲 {a / g * 100:.1f}% 乙 {b / g * 100:.1f}%  "
