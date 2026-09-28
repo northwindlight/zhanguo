@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 
 import numpy as np
 import torch
@@ -117,6 +118,7 @@ def main() -> None:
     print(f"★ 甲 = {a.ckpt_a or '未训练'}  乙 = {a.ckpt_b or '未训练'}")
     rows = []
     rng = np.random.default_rng(0)
+    _t0 = time.perf_counter()
     for i, s in enumerate(range(a.seed0, a.seed0 + a.seeds)):
         sb = Sandbox(seed=s, size=a.size, n_nations=k, t_max=a.t_max,
                      halls_known=a.halls_known).reset()
@@ -137,6 +139,16 @@ def main() -> None:
         rows.append({"i": i, "na": len(a_side), "turns": r["turns"],
                      "side": side_of(won, a_side),
                      "ratio": r["ratio"]})
+        # ★★ 2026-09-28 加：**逐局进度**。
+        #   原来只在最后打汇总 ⇒ 40 局跑十几分钟**一行都不出**。我今天被这件事咬了两回：
+        #   第一回进程死了我不知道它跑到哪（`ps` 里连 `rl.head2head` 都 grep 不到，
+        #   因为**进程标题会被 PyTorch 改写成 `pt_main_thread`**，PLAN §12.19 记过这个坑）；
+        #   第二回你问我"探针还没跑完？"，我只能靠 `ps` 的 CPU 时间反推。
+        #   ⇒ 一行一局，带**已用秒数**：既能看进度，也能在"卡住"和"在跑"之间分开
+        #     （那正是判据工具该给的东西：**给事实**）。
+        _el = time.perf_counter() - _t0
+        print(f"  [{i + 1:>3}/{a.seeds}] 回合 {r['turns']:>3}  甲{rows[-1]['side']:<2}"
+              f"  已用 {_el:6.1f}s（{_el / (i + 1):.1f}s/局）", flush=True)
         if a.record:
             with open(a.record, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps({
