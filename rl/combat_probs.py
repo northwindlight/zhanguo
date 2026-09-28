@@ -196,6 +196,26 @@ def _agg_damage(b: Battle, sig: tuple) -> dict[tuple[int, ...], float]:
     live = [bool(s) for s in sig]
     agg: dict[tuple[int, ...], float] = {}
     p_die = 1.0 / (len(DIE_FACES) ** n)
+    # ★★ **可选加速**（M2，2026-09-28）：那套 6^方数 的**纯算术展开**搬进 C。
+    #   ★ 搬的只是"均分 + 减伤取整 + 归并"；伤害**基数**（`unit_atk` 查兵种表、
+    #   `COMBAT_DIE_MOD` 骰面修正、撤退 −80% 罚）仍然在这里由 `_power_by_die` 算好
+    #   再传下去 —— 引擎口径只有一份（`_combat_fast.c` 头部约束①）。
+    #   实测：一次 cache miss **0.294 ms**、miss 合计占整个 DP 的 **41.8%**
+    #   （`size12/t40`，`rl/agg_probe.py`，PLAN §12.25）。
+    #   顺带把 `_power_by_die` 从"每组合 × 每方"（6^n·n 次查表）压成**每方一次** ——
+    #   那正是 miss 贵的主要原因。逐位相同由 `tests/test_agg_damage_fast.py` 钉死；
+    #   出问题**不静默**：原因挂 `_FAST_ERR` 后照旧走下面这份 Python。
+    if _FAST is not None and 1 <= n <= 8:
+        global _FAST_ERR
+        try:
+            got = _FAST.agg_damage(sig, b.enemy_idx, b.soak_list,
+                                   tuple(_power_by_die(b, s) for s in sig), DIE_FACES)
+        except Exception:                       # noqa: BLE001
+            import traceback
+            _FAST_ERR = traceback.format_exc()
+        else:
+            b.agg_cache[sig] = got
+            return got
     for combo in _die_combos(n):
         dmg = [0] * n
         for i in range(n):
