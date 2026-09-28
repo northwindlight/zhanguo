@@ -41,6 +41,22 @@ SEEDS = (3, 20260905, 987654321)
 
 
 # ---------------------------------------------------------------- 指标
+def _digest(seed: int, size: int) -> str:
+    """整张图（地形 + **全部资源**，逐格、固定序）的 md5 前 12 位。
+
+    ★ 与 `mapgen_probe` / 手写对拍脚本**同一套编码**，否则两边的数对不上：
+      每格 `"{x},{y}:{terrain}"` 再按 `RESOURCES` 的顺序拼 `|{名}={值}`。
+    """
+    g = MapGen(seed, size)
+    h = hashlib.md5()
+    for y in range(size):
+        for x in range(size):
+            h.update(f"{x},{y}:{g.terrain(x, y)}".encode("utf-8"))
+            r = g.resources(x, y)
+            h.update("".join(f"|{k}={r[k]}" for k in RESOURCES).encode("utf-8"))
+    return h.hexdigest()[:12]
+
+
 def _blocks(field, size, pred) -> int:
     """最大 8 邻域连通块。"""
     seen = [[False] * size for _ in range(size)]
@@ -181,6 +197,33 @@ class TestSpatial(unittest.TestCase):
         oblk = self._iid_avg(lambda _t, res: _blocks(gold(res), self.SIZE, lambda v: v >= 1))
         self.assertLess(nrc, orc, f"黄金还是结块：新 {nrc:.3f} vs iid {orc:.3f}")
         self.assertLessEqual(nblk, oblk, f"黄金最大簇没变小：新 {nblk} vs iid {oblk}")
+
+
+class TestGoldenDigest(unittest.TestCase):
+    """★ **金色校验和**：钉住"具体那四张图"的地形+资源，而不只是"自洽"。
+
+    为什么单独一条（`test_same_seed_same_map` 已经证明确定性了）：那条只说
+    "两次生成一样" ⇒ 一次把图**整体换掉**的改写照样能过它。而 `mapgen.py` 里
+    任何"看着等价"的提速（格点缓存 / 批量化 / 将来真去写 C）必须证明的是
+    **同一张图**，那只能靠预先记下的绝对值。
+
+    下面这四个值是 **2026-09-28 从当时的纯 Python 实现**（主线与 `c++line` 的
+    `mapgen.py` 逐字节相同）跑出来的，编码方式见 `_digest()`。
+    复算：`.venv/bin/python -c "import sys;sys.path.insert(0,'.');from tests.test_mapgen import _digest;print(_digest(SEED,SIZE))"`
+    """
+
+    GOLDEN = {
+        (20260905, 20): "705d33c98e8e",
+        (424242, 30): "e5ed0f360889",
+        (31337, 12): "a58324fa9d61",
+        (7, 16): "479f0f9705eb",
+    }
+
+    def test_maps_unchanged(self):
+        for (seed, size), want in sorted(self.GOLDEN.items()):
+            with self.subTest(seed=seed, size=size):
+                self.assertEqual(_digest(seed, size), want,
+                                 f"({seed},{size}) 换图了 —— 提速可以，**改图不行**")
 
 
 class TestDeterminism(unittest.TestCase):

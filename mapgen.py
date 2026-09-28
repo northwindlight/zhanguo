@@ -20,6 +20,9 @@
 1. **确定性**：只由 `(seed, size)` 决定，同参数两次生成**逐格相同**；
    不许遍历裸 `set`/`dict`（跨 `PYTHONHASHSEED` 会分叉，`test_determinism` 会红）；
    不许用内置 `hash()`（它就是按 PYTHONHASHSEED 加盐的）——统一走 `_hash_int`（blake2b）。
+   ★ 另外**具体那张图**也不能变：`tests/test_mapgen.py::TestGoldenDigest` 钉了 4 组
+   `(seed,size)` 的**地形+资源 md5**。⇒ 任何"看着等价"的改写（缓存、批量化、换 C）
+   都必须过它，**光过"两次生成相同"是不够的**（那只证明自洽，不证明没改图）。
 2. **全局分布 = 权重表**：地形各类**全局占比**按 `TERRAIN_WEIGHTS` 配额精确落位
    （`_quotas` + "稀有类型先挑"，挑满即停，总数恰好 = size²），资源的**每格边缘分布**
    按 `TERRAINS[terrain]` 逐字保持（抖动阈值法，见 `_dither`）
@@ -65,26 +68,38 @@ def _unit(*parts) -> float:
 
 
 # ---------------------------------------------------------------- 低频场
-def _value_noise(seed: int, salt: str, x: float, y: float) -> float:
-    """格点值噪声（平滑插值），[0,1)。纯函数：只看 (seed, salt, 坐标)。"""
+def _value_noise(lat: dict, seed: int, salt: str, x: float, y: float) -> float:
+    """格点值噪声（平滑插值），[0,1)。纯函数：只看 (seed, salt, 坐标)。
+
+    ★ `lat` 是**本张图自己的**格点缓存（键 `(salt, gx, gy)`）：`_fbm` 前几层 `freq < 1`，
+      相邻格落在**同一批格点**上 —— 实测 size20 的 11,200 次角点取数里只有 **1,361 个不同格点
+      （88% 是重复计算）**。缓存返回的是**同一个 `_unit(seed, salt, gx, gy)` 的值**，
+      ⇒ **逐位不变**（金色校验和钉在 `tests/test_mapgen.py::TestGoldenDigest`）。
+      ★ 必须**每张图一个 dict**、随 `_build` 一起释放：跨图共享在一炉几千局里会无界长大。
+      ★ 只做取值与写入，**从不遍历这个 dict** ⇒ 不破"跨 `PYTHONHASHSEED` 一致"那条不变量。
+    """
     x0, y0 = math.floor(x), math.floor(y)
     tx, ty = x - x0, y - y0
     sx = tx * tx * (3 - 2 * tx)          # smoothstep：避免网格条纹
     sy = ty * ty * (3 - 2 * ty)
 
     def g(dx: int, dy: int) -> float:
-        return _unit(seed, salt, x0 + dx, y0 + dy)
+        k = (salt, x0 + dx, y0 + dy)
+        v = lat.get(k)
+        if v is None:
+            v = lat[k] = _unit(seed, *k)
+        return v
 
     a, b, c, d = g(0, 0), g(1, 0), g(0, 1), g(1, 1)
     return (a * (1 - sx) + b * sx) * (1 - sy) + (c * (1 - sx) + d * sx) * sy
 
 
-def _fbm(seed: int, salt: str, x: int, y: int, octaves: int) -> float:
+def _fbm(seed: int, salt: str, x: int, y: int, octaves: int, lat: dict) -> float:
     """分形噪声：逐层频率翻倍、振幅减半，返回 [0,1)（按最大可能振幅归一）。"""
     total = 0.0
     amp, freq, norm = 1.0, MAPGEN_SCALE, 0.0
     for i in range(octaves):
-        total += amp * _value_noise(seed, f"{salt}{i}", x * freq, y * freq)
+        total += amp * _value_noise(lat, seed, f"{salt}{i}", x * freq, y * freq)
         norm += amp
         amp *= 0.5
         freq *= 2.0
@@ -207,9 +222,13 @@ class MapGen:
     def _build(self) -> None:
         size = self.size
         # ① 低频场：海拔 / 湿度，各自按本图 min-max 归一化
-        elev = [[_fbm(self.seed, "e", x, y, MAPGEN_OCT_E) for x in range(size)]
+        #    ★ 两个**各自独立**的格点缓存（见 `_value_noise`）：省掉 88% 的重复哈希，值逐位不变；
+        #      它们是局部的，随本次 `_build` 一起释放。
+        lat_e: dict = {}
+        lat_m: dict = {}
+        elev = [[_fbm(self.seed, "e", x, y, MAPGEN_OCT_E, lat_e) for x in range(size)]
                 for y in range(size)]
-        moist = [[_fbm(self.seed, "m", x, y, MAPGEN_OCT_M) for x in range(size)]
+        moist = [[_fbm(self.seed, "m", x, y, MAPGEN_OCT_M, lat_m) for x in range(size)]
                  for y in range(size)]
         elev = _norm(elev)
         moist = _norm(moist)
