@@ -55,6 +55,19 @@ from . import features as F
 from . import vocab as V
 
 
+def _rms_to(s: torch.Tensor, scale: float, eps: float = 1e-6) -> torch.Tensor:
+    """把**最后一维**的 RMS 钉到 `scale`，**方向一字不动**（PLAN §12.28）。
+
+    ★ 为什么不是 `LayerNorm`：LN 会**减掉均值** ⇒ 去掉一个自由度（全 1 方向上的分量），
+      而潜槽要的是一个"方向"载体（累加出来的状态），减均值是白丢信息。
+      这里只做各向同性的缩放 ⇒ 逐位可逆（`s / rms * c`）。
+    ★ 为什么钉到 `V.MEM_SLOT_RMS` 而不是任意常数：那个值 = `mem0` 的初始化 std
+      ⇒ 第 0 步的槽与之后每一步的槽**同一尺度**，主干不用同时适配两个量级。
+    """
+    rms = s.pow(2).mean(dim=-1, keepdim=True).sqrt().clamp_min(eps)
+    return s / rms * scale
+
+
 class FastLinear(nn.Linear):
     """★ **只在推理路径**把权重预转置成连续 —— 救的是 **Raspberry Pi** 那份 torch。
 
@@ -231,7 +244,10 @@ class PolicyNet(nn.Module):
             #     （写门初值关着 ⇒ 槽跨步不变 ⇒ 槽里没有本局的信息），这条由
             #     `MEM_GATE_BIAS` 保证、由守卫钉住（见 `tests/test_rl_memory.py`）。
             self.mem0 = nn.Parameter(torch.zeros(1, self.mem_slots, d_model))
-            nn.init.normal_(self.mem0, std=0.02)
+            #   ★ 这个 std **必须**等于 `V.MEM_SLOT_RMS` —— 它同时是"写后归一化的
+            #     目标量级"（见那边那段）。两者不一致 ⇒ 第 0 步的槽和后面每一步的槽
+            #     不在同一尺度上，主干要同时适配两个量级。守卫钉住这个等式。
+            nn.init.normal_(self.mem0, std=V.MEM_SLOT_RMS)
             # 组身份（槽 vs 观测 token）——让主干知道"这行是内部状态"。
             self.mem_emb = nn.Parameter(torch.zeros(1, 1, d_model))
             # ★ 写：**门控 cross-attention**（Q = 槽，K/V = **观测** token）。
@@ -263,9 +279,24 @@ class PolicyNet(nn.Module):
             # ★ 门 = sigmoid(线性([槽的上下文, 写入候选]))。★ 用门而不是"直接覆盖"：
             #   覆盖会把槽变成**最近一帧的复读机**（容量全用在"当下"上，
             #   而"当下"本来就在观测里）。
-            self.mem_gate = FastLinear(2 * d_model, 1)
+            #   ★ `bias=False`：**每槽一个偏置**不能塞进 `nn.Linear` 的 bias ——
+            #     实测 `F.linear` 会把 bias `expand` 到输出的**最后一维**
+            #     （`expand([1,8,1], size=[16,1])` ⇒ RuntimeError），它只认 `[out]`。
+            #     ⇒ 单独挂一个 `[1,M,1]` 的参数，在前向里显式加（两边都能广播）。
+            self.mem_gate = FastLinear(2 * d_model, 1, bias=False)
             nn.init.zeros_(self.mem_gate.weight)
-            nn.init.constant_(self.mem_gate.bias, float(mem_gate_bias))
+            # ★★★ 2026-09-28：偏置从**单一标量**改成**每槽一个**，铺成时间尺度梯队
+            #   （`bias_i = mem_gate_bias + MEM_GATE_BIAS_STEP*i`，表在 `vocab.py`）。
+            #   ★ 参数形状从 `[1]` 变 `[1,M,1]` ⇒ **state_dict 形状变了** ⇒ 旧档
+            #     会**响亮地**报形状错（比静默好），指纹里也另有一道（`mem_write_norm`）。
+            #   ★ 两条路都验过能广播：记梯度那条走 `F.linear`，推理那条走
+            #     `out + self.bias`（`FastLinear.forward` 两个分支），都是 `[B,M,1]` 加 `[1,M,1]`。
+            #   ★★ 符号：`bias` **越负 ⇒ gate 越小 ⇒ 忘得越慢**（表在 vocab 那段）。
+            #     我第一版写成 `+ STEP*i` ⇒ 槽 7 跑到 **+2.7**（gate 0.94，每步忘光），
+            #     和表**正好反了** —— 是"把表打出来对一遍"当场抓到的，别只写公式不验表。
+            _b = torch.tensor([float(mem_gate_bias) - V.MEM_GATE_BIAS_STEP * i
+                               for i in range(self.mem_slots)]).view(1, -1, 1)
+            self.mem_gate_bias = nn.Parameter(_b)
             # ★ 辅助头：从**全部槽**预测"即将离开视野的那部分"（`rl/mem_aux.py`）。
             #   全展平（不是均值池化）—— M 个槽是 M 条独立记忆，池化会把它们搅在一起。
             self.mem_aux = nn.Sequential(FastLinear(self.mem_slots * d_model, 64),
@@ -382,8 +413,33 @@ class PolicyNet(nn.Module):
         if self.mem_slots:
             upd = self.mem_write(x[:, n_obs:], x[:, :n_obs], ~wm[:, :n_obs])
             gate = torch.sigmoid(self.mem_gate(
-                torch.cat([x[:, n_obs:], upd], dim=-1)))
-            mem_out = s_in + gate * upd
+                torch.cat([x[:, n_obs:], upd], dim=-1)) + self.mem_gate_bias)
+            # ★★★ 2026-09-28：**写后归一化**（用户拍板「2」，PLAN §12.28）。
+            #   原来这里是 `mem_out = s_in + gate * upd` —— **纯累加**：门只缩放
+            #   `upd` 的幅度（`sigmoid∈0~1`），**从不从 `s_in` 里减掉任何东西**
+            #   ⇒ N 步后是 `mem_0 + Σ gate_t·upd_t` ⇒ **无界**。
+            #   实测（`mem_activity` / 自己的轨迹探针，iter 385 的档、3686 步）：
+            #   槽从 0.02 涨到 ~1e4（涨 621×、**95.8% 的步在涨**），而且是**正反馈**
+            #   —— `upd` 由 `mem_write(Q=槽, K/V=观测)` 算出 ⇒ 槽越大 upd 越大。
+            #   代价：`mem_emb`（主干按 0.02 量级学出来的"这是第几个槽"标记，
+            #   实测长到 ~0.03）被**淹没 ~1e5×** ⇒ 8 个槽在主干眼里一个样；
+            #   而涨上去的量级进 Block 第一件事就被 `ln1` 归一化掉 ⇒ **白涨**。
+            #   ⇒ 把最后一维的 RMS 钉回 `V.MEM_SLOT_RMS`，量级回到主干预期的尺度。
+            #
+            # ★★★ 2026-09-28（同一天的第二刀，用户问出来的）：
+            #   「**他能删槽里的东西吗**」—— 能"减"（`upd` 是 `Attn` 末尾裸 `FastLinear`
+            #   的输出，**带符号**，所以逐分量可正可负、理论上能写反平行向量去抵消），
+            #   但**没有"忘"这个动作**：擦除要写出**方向与大小都对**的向量去抵消已累起来
+            #   的东西 —— 精确操作，很难学；而"加"是累加器的默认行为。
+            #   ⇒ 改成 **凸组合**（GRU 式）：`(1-gate)*s_in + gate*upd`
+            #     ⇒ "忘"变成**每槽每步一个标量**就能做到的事，代价完全不同。
+            #   ★ 而且这个式子**天然有界**（凸组合不会跑出 `{s_in, upd}` 的凸包），
+            #     归一化仍留着是为了 ① `mem_emb` 的尺度（主干按 0.02 学出来的）、
+            #     ② 让"第 0 步的槽"和"之后每一步的槽"同一量级。
+            #   ★ 门偏置**必须每槽一个**：单一标量定死了"忘多快"，而定长了门就进饱和区
+            #     （`∂/∂bias ∝ gate(1-gate) → 0` ⇒ 永远开不了）、定短了记忆跨不过一个回合。
+            #     ⇒ 铺成梯队、让训练挑，表在 `vocab.MEM_GATE_BIAS` 那段。
+            mem_out = _rms_to((1.0 - gate) * s_in + gate * upd, V.MEM_SLOT_RMS)
 
         # ---- 网格：候选按目标格 gather 空间特征 ----
         # ★★ **补零区要在「1×1+ReLU」之后、「3×3」之前清零**（2026-09-27）。

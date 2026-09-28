@@ -1133,7 +1133,26 @@ def _shape_fingerprint(mem_slots: int = 0) -> dict:
         "cand_content": int(F.F_CAND),
         "army_width": int(V.A_WIDTH_RAW + F.F_U + V.A_EXTRA),
         "glob_content": int(F.F_GLOB),
+        # ★★★ 2026-09-28：**潜槽写后归一化**（用户拍板「2」，PLAN §12.28）。
+        #   ★ 它**不加参数、不改形状** ⇒ `load_state_dict` 会**成功**，
+        #     但前向语义变了（槽从无界累加改成 RMS 钉回 `MEM_SLOT_RMS`）。
+        #     ⇒ 必须进指纹，否则旧档会被**静默**续跑成一个不一样的东西。
+        "mem_write_norm": "rms" if mem_slots else "none",
     }
+
+
+def _fp_mismatch(fp: dict, now: dict) -> dict:
+    """形状/语义指纹比对 —— ★★ **双向**：任一侧有而另一侧没有的键，也算对不上。
+
+    ★★★ 2026-09-28 修（原来两处都写 `if k in fp and fp[k] != v`）：那只查"**旧档里有的**
+      键"。⇒ 给 `_shape_fingerprint` **新增**一个键时，旧档里没有它 ⇒ `k in fp` 为假
+      ⇒ **静默放行**。而新增的那个键往往正是"语义变了"的标志（这次就是）——
+      加载成功、形状全对，跑出来却是另一个东西。**这比形状不符危险得多**
+      （形状不符会当场报错，这个不会）。⇒ 缺键即不匹配。
+    """
+    miss = "<缺>"
+    return {k: (fp.get(k, miss), now.get(k, miss))
+            for k in set(fp) | set(now) if fp.get(k, miss) != now.get(k, miss)}
 
 
 def _load_seed(path: str, *, mem_slots: int = 0) -> dict:
@@ -1150,7 +1169,7 @@ def _load_seed(path: str, *, mem_slots: int = 0) -> dict:
     blob = torch.load(path, map_location="cpu", weights_only=False)
     fp = (blob.get("meta") or {}).get("fingerprint") or {}
     now = _shape_fingerprint(mem_slots)     # ★ 同 `_load_ckpt`：判别参数不许用默认值
-    bad = {k: (fp.get(k), v) for k, v in now.items() if k in fp and fp[k] != v}
+    bad = _fp_mismatch(fp, now)
     if bad:
         raise SystemExit(
             f"★ 分化起点 {path} 的形状指纹对不上：{bad}（存的是旧值，现在的是新值）\n"
@@ -1201,7 +1220,7 @@ def _load_ckpt(path: str, nets: dict, *, mem_slots: int = 0, log=print) -> int:
     #   但拒的理由是 `load_state_dict` 的 shape 异常、**看不懂**。
     #   指纹的意义就是"**干净地拒**"，所以判别参数一个都不能用默认值。
     now = _shape_fingerprint(mem_slots)
-    bad = {k: (fp.get(k), v) for k, v in now.items() if k in fp and fp[k] != v}
+    bad = _fp_mismatch(fp, now)
     if bad:
         raise SystemExit(
             f"★ {path} 的形状指纹对不上：{bad}（存的是旧值，现在的是新值）\n"

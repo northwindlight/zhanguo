@@ -177,6 +177,29 @@ def report(name: str, r: dict) -> None:
              "**在写、但几乎不影响决策**（记忆没被用起来）"))
 
 
+
+def report_gate(net) -> None:
+    """★ 把**每个槽的遗忘速度**读出来 —— 这才是"忘得多快"的答案。
+
+    ★ 2026-09-28：门偏置改成**每槽一个**、铺成时间尺度梯队（表在 `vocab.MEM_GATE_BIAS`）。
+      初值是我们铺的，**训完变成多少才是它自己选的** —— 这个函数就是读那个的东西。
+      ★ 换算成**回合**才有意义：实测一局 ≈ 908 步/方、≈ 38 回合 ⇒ **24 步/回合**。
+      ★ 半衰期 `h = ln2 / −ln(1−gate)` —— `gate` 是"每步替换掉多少"，
+        保留 `1−gate`，所以 `(1−gate)^h = 0.5`。
+    """
+    if not getattr(net, "mem_slots", 0):
+        return
+    import math
+    b = net.mem_gate_bias.detach().flatten().tolist()
+    print(f"  ── 每个槽的遗忘速度（初值是梯队，训完是它自己选的）──")
+    print(f"     {'槽':>3}{'bias':>9}{'gate':>9}{'半衰期(步)':>12}{'≈回合':>9}")
+    for i, bi in enumerate(b):
+        g = 1.0 / (1.0 + math.exp(-bi))
+        h = math.log(0.5) / math.log(1.0 - g) if g < 1.0 else float("inf")
+        print(f"     {i:>3}{bi:>9.3f}{g:>9.5f}{h:>12.1f}{h / 24.0:>9.2f}")
+    print(f"     （24 步/回合；初值：槽0 半衰期 3.4 步，槽7 207.5 步）")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="潜槽活跃度直接读数")
     ap.add_argument("--ckpt", default=None, help="不给 ⇒ 未训练的网（对照）")
@@ -204,6 +227,7 @@ def main() -> None:
         name = "**未训练**（对照）"
     net.eval()
     seeds = list(range(a.seed0, a.seed0 + a.seeds))
+    report_gate(net)
     r = probe(net, seeds, size=a.size, t_max=a.t_max,
               n_nations=a.nations or 3, max_steps=a.max_steps)
     report(name, r)
