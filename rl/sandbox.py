@@ -467,10 +467,28 @@ class Sandbox:
         ★ **两人局不轮换**（用户明确定的口径）：两人时 `(turn-1)%2` 就是每回合
           来回换，会把局面变成纯"你一手我一手"的应对循环；用户要的是两人局
           **保持固定顺序**，先手优势由**跨局**轮换（`first`，见建局那段）来摊平。
+
+        ★★★ **2026-09-28 修的 bug：上面这条"由跨局轮换 `first` 摊平"原来是空的。**
+          两人局这里写的是 `return alive` —— 直接返回固定的 `self.players` 顺序，
+          **把 `self.first` 丢了**。而 `first` 只在 `reset()` 里建过 `pending`（turn 0），
+          回合边界重建全靠本函数 ⇒ **一局里只有第 1 个回合认先手**。
+          实测（`size=12`、`first='乙'` 的一整局 60 回合）：**乙先动 1 次、甲先动 59 次**
+          ⇒ 补偿 ≈ 失效，且**每回合都是同一个座位先亮牌**（后手每回合都能看着
+          已落子的局面应对）。席位胜率实测 甲 44.1% vs 乙 55.9%（487 局，z=−2.58）。
+          ★ 更坏的连带：`info["first"] = sb.first` ⇒ 日志的 `先手胜` 和
+          `_streak`（"先手连赢就炸"）闸门**都在看一个不控制胜负的变量**，
+          结构上抓不到它本来要抓的东西。详见 `PLAN.md` §12.24 与
+          `tests/test_rl_first_rotation.py`。**别再改回 `return alive`。**
         """
         alive = [n for n in self.players if self.alive(n)]
         if len(alive) < 3:
-            return alive                       # ★ 两人局：不轮换
+            # ★ 两人局：局内**固定顺序**（用户口径不变），但那个"固定"必须是
+            #   `self.first` —— 由**跨局**轮换 `first` 来摊平先手优势。
+            order = list(alive)
+            if self.first in order:
+                order.remove(self.first)
+                order.insert(0, self.first)
+            return order
         start = (self.turn - 1) % len(alive)   # ★ 与 `mp_run.py` 同一个公式
         return [alive[(start + i) % len(alive)] for i in range(len(alive))]
 
