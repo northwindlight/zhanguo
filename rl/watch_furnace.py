@@ -81,7 +81,15 @@ def main() -> int:
     print(f"进度  iter {its[0]}..{last}（{len(its)} 个） · 共 {g} 局"
           f" · 平局 {(g - a - b) / g * 100:.1f}%")
 
-    head, tail = its[:SEG], its[-SEG:]
+    # ★★ 窗口**不许重叠**：iter 不够时 `its[:30]` 与 `its[-30:]` 是同一批
+    #   ⇒ Δ 恒为 0.000，看着像"没动"，其实是"还看不出来"。宁可说"样本不足"。
+    seg = min(SEG, len(its) // 2)
+    if seg < 5:
+        print(f"\n（只有 {len(its)} 个 iter ⇒ 样本不足，**看不出趋势**；"
+              f"至少要 {2 * 5} 个才敢开口）")
+        print("==> 照旧（还不知道）")
+        return 0 if alive else 10
+    head, tail = its[:seg], its[-seg:]
     notable = False
 
     def mean(seg, k):
