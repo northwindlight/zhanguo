@@ -790,7 +790,7 @@ def _streak(infos: list[dict], state: dict, who: str) -> int:
 
 def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           lr: float = 3e-4, temperature: float = 1.0,
-          first_streak_limit: int = 5, size: int = 8,
+          first_streak_limit: int = 8, size: int = 8,
           size_min: int | None = None, size_max: int | None = None,
           halls_known: bool = True, nations: int | None = None,
           t_max: int = 200, pool: int = 5, out: str | None = None,
@@ -810,8 +810,14 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
       ★ **"国家 → 网络"每局轮转**（见 `net_of`）：否则小图国家少时，
       高编号的网络那一局**一点数据都拿不到**（饿死），而它在大图上还要上场。
 
-    ★★ **自动闸门**：`first_streak_limit`（缺省 5）—— **先手连续赢这么多局就抛断言**
-    （用户 2026-09-24：「如果先手连续赢 5 局，**断言抛出**」）。
+    ★★ **自动闸门**：`first_streak_limit`（**缺省 8**）—— **先手连续赢这么多局就抛断言**。
+    用户 2026-09-24：「如果先手连续赢 5 局，**断言抛出**」；
+    ★ **2026-09-28 用户改成 8**：「5 偶然性太高，改成 8 也合适」（当时 5 是拍脑袋定的）。
+    算得过来：`先手胜 ≈ 0.45` 时 5 连的概率是 `0.45^5 = 1.8%/局`，
+    528 局里**期望响 ~9 次**（实测响 2 次，且 `先手胜` 那个数在修好 `sb.first` 之前
+    **量的是 turn 0、是构造出来的假象**）⇒ **5 连几乎全是巧合，闸门响了说明不了任何事**，
+    而每次响都要**炸进程 + 重启 + 重跑那一段**。
+    8 连是 `0.45^8 = 0.17%/局` ⇒ 528 局期望 ~0.9 次，才像个红旗。
 
     "先手连赢"是**训练没在学真对抗**的红旗：要么策略退化成"谁先手谁赢"，
     要么有结构性 bug（比如打分器只奖励进攻 ⇒ 双方都无脑冲、先动的赢）。
@@ -1278,8 +1284,10 @@ if __name__ == "__main__":
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--temperature", type=float, default=1.0)
-    ap.add_argument("--first-streak-limit", type=int, default=5,
-                    help="先手连续赢这么多局就抛断言（闸门，见 train() 的 docstring）")
+    ap.add_argument("--first-streak-limit", type=int, default=8,
+                    help="先手连续赢这么多局就抛断言（闸门，见 train() 的 docstring）。"
+                         "★ 2026-09-28 用户从 5 改成 8：先手胜≈0.45 时 5 连是 1.8%%/局、"
+                         "**几乎全是巧合**，闸门响了说明不了任何事却要炸进程。")
     ap.add_argument("--size", type=int, default=8,
                     help="地图边长（`--size-min/--size-max` 给了就忽略它）。"
                          "★ 国家数按 `n_nations_for(边长)` 自动定"
