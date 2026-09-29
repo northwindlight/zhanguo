@@ -881,19 +881,21 @@ class Sandbox:
         （不用搞"记录动作再重放"那套）。"""
         import copy
         sb = Sandbox.__new__(Sandbox)
-        sb.seed, sb.size, sb.t_max, sb.war = self.seed, self.size, self.t_max, self.war
+        # ★★★ 2026-09-29 修：**原来是"手列属性"的 —— 而它漏了 `players`**
+        #   ⇒ 在副本上 `step()` 会崩：`_turn_order` → `self.players` ⇒ `AttributeError`。
+        #   ★ 手列清单**必然漏**（加一个属性就漏一个，而且**不报错**直到某条路径用到它）。
+        #     ⇒ 改成**全量浅拷**，**再**把该独立的深拷/克隆替换掉。
+        #   ★ 这条不是"顺手修的"：`rl/opponents.py` 的贪心稻草人**每一步都要 clone**，
+        #     第一次跑就撞上了（守卫 `tests/test_rl_sandbox_clone.py`）。
+        sb.__dict__.update(self.__dict__)         # ★ 一个都不漏
+        # ---- 以下必须**独立**（试演不能改到真身、也不能凭空多知道）----
         sb.world = copy.deepcopy(self.world)
-        sb.turn = self.turn
-        sb.turn_offset = self.turn_offset   # ★ 试演里「现在几点」必须和真身一致
         sb.log = list(self.log)
         sb.pending = list(self.pending)
-        sb.last_ok = self.last_ok
-        sb.first = self.first
-        sb.halls_known = self.halls_known
-        sb.halls = self.halls.clone()            # ★ 记忆要跟着副本走（试演不能凭空多知道）
-        sb.kills = self.kills.clone()            # ★ 击杀账本同理
-        sb.war_mem = self.war_mem.clone()        # ★ 敌军番号账本同理（试演不能共享）
-        sb.intel = self.intel.clone()            # ★ 情报账本同理
+        sb.halls = self.halls.clone()            # 记忆要跟着副本走
+        sb.kills = self.kills.clone()            # 击杀账本
+        sb.war_mem = self.war_mem.clone()        # 敌军番号账本
+        sb.intel = self.intel.clone()            # 情报账本
         return sb
 
     def current_player(self) -> str | None:

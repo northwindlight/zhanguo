@@ -211,6 +211,23 @@ def collate(rows: list[dict]) -> dict:
 
 # ================================================================ ① 收集
 @torch.no_grad()
+def _param_digest(net) -> str:
+    """权重的**指纹**（给"差生真的没被练"当读数用）。
+
+    ★ 为什么不靠"读文件比对"：差生是 `train()` **内部**造的对象，**不写盘**
+      （只有 `--out` 那份会写）⇒ 文件比对**看不见它**。
+      我第一版用例就是拿"输入档 nets[0]"比"输出档 nets[0]"——**那根本是两个东西**
+      （前者是骨架、后者是学习者），于是报了个 4.51 的假警。
+      ⇒ 改成**把指纹打进日志**（训练前一次、训练后一次），比它自己。
+    """
+    import hashlib
+    h = hashlib.sha256()
+    for k, v in sorted(net.state_dict().items()):
+        h.update(k.encode())
+        h.update(v.detach().cpu().numpy().tobytes())
+    return h.hexdigest()[:16]
+
+
 def collect_episode(nets: dict, sb: Sandbox, *,
                     temperature: float = 1.0, rng: np.random.Generator | None = None,
                     greedy: bool = False, max_steps: int | None = None,
@@ -824,6 +841,8 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           ckpt_every: int = 5, resume: str | None = None, max_steps: int = 0,
           mb: int | None = None, epochs: int | None = None,
           league_db: str | None = None, league_mains: int = 2,
+          opponent: str | None = None, opponent_ckpt: str | None = None,
+          opponent_k: int = 8,
           league_snapshot_every: int = 50, league_from: str | None = None,
           league_retire_rating: float = 1400.0, league_retire_rd: float = 110.0,
           league_cache: int = 24, device: str = "cpu",
@@ -937,6 +956,44 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         #   在训成员由 `bind_live` 挂着**训练回路里那个对象**（train 态、要梯度），
         #   快照是 `eval()` + 无梯度加载的 ⇒ 两者在 `ppo_update` 前后的**状态切换**不同。
         live_set = set(mids)
+        # ★★★ 2026-09-29 **对手池模式**（用户：「这次就打固定稻草人好好学」）：
+        #   · 对手**冻结不学**（`rl/opponents.py` 的 `frozen=True`）；
+        #   · 骨架 = `--opponent-ckpt` 那份档的**第 0 份网**（用户：「就正常的 L0，但是不学」）；
+        #   · 不给 ⇒ 一切照旧（池内自对弈），**默认行为一个字节没动**。
+        opp = opp_net = mid_opp = None
+        if opponent:
+            from . import opponents as _OPP
+            _src = opponent_ckpt or resume or out
+            if not _src:
+                raise SystemExit("★ `--opponent` 需要 `--opponent-ckpt`（或 `--resume`/`--out`）"
+                                 "来指定差生的骨架档")
+            _blob = torch.load(_src, map_location="cpu", weights_only=False)
+            _fp = (_blob.get("meta") or {}).get("fingerprint") or {}
+            _ms = int(_fp.get("mem_slots", 0))
+            _nets = _blob.get("nets") or {}
+            if not _nets:
+                raise SystemExit(f"★ 骨架档 {_src} 里没有 `nets`")
+            _k0 = 0 if 0 in _nets else sorted(_nets)[0]
+            opp_net = build_model(mem_slots=_ms)
+            opp_net.load_state_dict(_nets[_k0])
+            opp_net.eval()
+            opp_net.requires_grad_(False)
+            opp = _OPP.make(opponent, k=opponent_k)
+            log(f"★ 差生权重指纹（训前）= **{_param_digest(opp_net)}**")
+            mid_opp = f"<{opponent}>"
+            log(f"★★ **对手池模式**：{opponent}（k={opponent_k}）· 骨架 = {_src} 的第 {_k0} 份"
+                f"（mem_slots={_ms}）· **冻结不学**（不进梯度/不进 buf/不记战绩）")
+            log(f"★ 席位：**每局 1 个我方 + 1 个差生**；我方**按局号交替**"
+                f"（{mids}）⇒ 每个成员拿正好一半")
+            # ★ 席位分配是「1 我方 + 1 差生」**写死的** ⇒ 必须恰好 2 国。
+            #   ★ 这里用**配置区间**算（`k = k_of(sz)` 在循环里，这里拿不到）——
+            #     写错过一次：在循环外断言循环内的 `k` ⇒ `UnboundLocalError`。
+            _ks = sorted({k_of(s) for s in range(lo, hi + 1)})
+            if _ks != [2]:
+                raise SystemExit(
+                    f"★ 对手池模式只支持 2 国局（`--size` 区间 {lo}..{hi} 算出 {_ks} 国）"
+                    f"—— 席位分配是「1 我方 + 1 差生」写死的；"
+                    f"要么把 `--nations 2` 给上，要么把区间收窄到 2 国的尺寸")
         # ★ **真正上过场的**成员。★ 别拿 `buf.keys()` 当它：`buf` 初始化时就带着
         #   **全部在训成员**（哪怕这一轮它一次都没被抽到）⇒ 拿它当"上场集合"
         #   会把没上场的也算进去，而日志/守卫都靠这个集合对账。
@@ -974,12 +1031,23 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
             #   "谁的数据"只是被摊平。
             #   ★ 抽出来的可能是**池里的冻结快照**（旧代的自己）—— 那正是"分化"的
             #     来源：对手不只一个打法。快照**只当对手、不进梯度**（下面按 mid 分派）。
-            draw = lg.draw(k, rng)
-            net_of = {p: lg.net_of(draw[i]) for i, p in enumerate(players)}
-            mid_of = {p: draw[i] for i, p in enumerate(players)}
+            if opp is not None:
+                # ★★ 一个我方 + 一个差生。我方**按局号交替** ⇒ 正好各一半
+                #   （随机抽签会抽成 103/97 —— 用户要的是"l0/l1 各 100 局"）。
+                _learner = mids[e % len(mids)]
+                draw = [_learner]
+                net_of = {players[0]: lg.net_of(_learner), players[1]: opp_net}
+                mid_of = {players[0]: _learner, players[1]: mid_opp}
+                opp_of = {players[1]: opp}
+            else:
+                draw = lg.draw(k, rng)
+                net_of = {p: lg.net_of(draw[i]) for i, p in enumerate(players)}
+                mid_of = {p: draw[i] for i, p in enumerate(players)}
+                opp_of = None
             steps, info = collect_episode(net_of, sb, temperature=temperature,
                                           rng=rng, device=device,
-                                          max_steps=(budget if max_steps else None))
+                                          max_steps=(budget if max_steps else None),
+                                          opponents=opp_of)
             if max_steps:
                 budget -= len(steps)
             if info.get("truncated"):
@@ -999,9 +1067,16 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                 won = set(info.get("winner_members") or ())
                 if won:
                     for p in players:
+                        if opp_of and p in opp_of:
+                            continue        # ★ 差生不在联赛里，不记战绩（我方战绩照记）
                         lg.record(mid_of[p], p in won, it=it,
                                       game=f"{it}:{e}")   # ★ 每局一个 id（离线评级要用）
             for s in steps:
+                if s.frozen:
+                    # ★★★ 差生的步：**不进 `buf`、不进 `played`** —— 它不来学。
+                    #   ★ 09-26 的「谁上场谁学」会把它练掉（抽到谁谁吃梯度）⇒
+                    #     不显式跳过，差生就不再是差生，而且**不报错**。
+                    continue
                 mi = mid_of[s.player]
                 played.add(mi)
                 # ★★ **谁上场谁学**（用户 2026-09-26：「谁上场谁学，同时冻结」）——
@@ -1106,6 +1181,9 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                                                       mem_slots=mem_slots))
             log(f"  ★ 存档 → {out}（第 {it} iter）")
     if out:
+        if opp_net is not None:
+            log(f"★ 差生权重指纹（训后）= **{_param_digest(opp_net)}**"
+                f"  —— 必须与训前**逐位相同**（它就是不来学的）")
         _save_ckpt(out, nets, it0 + iters, meta=_ckpt_meta(lo, hi, halls_known,
                                                      nations, n_slots, t_max,
                                                      mem_slots=mem_slots))
@@ -1384,6 +1462,14 @@ if __name__ == "__main__":
                          "起多个独立进程筛」）—— 写入走原子自增 ⇒ 多进程记账不互相覆盖。"
                          "给 `none` ⇒ 池子照跑但**不落盘**（战绩不过夜 ⇒ 10 局门槛"
                          "永远够不到 ⇒ 淘汰规则变死代码，**还不报错**）")
+    ap.add_argument("--opponent", default=None,
+                    help="★ 对手池模式（`rl/opponents.py` 的 KINDS）；不给 = 现状（池内自对弈）。"
+                         "给了就是「每局 1 个我方 + 1 个差生」，差生**冻结不学**")
+    ap.add_argument("--opponent-ckpt", dest="opponent_ckpt", default=None,
+                    help="差生的骨架档（缺省用 `--resume`/`--out`）；取它的**第 0 份网**")
+    ap.add_argument("--opponent-k", dest="opponent_k", type=int, default=8,
+                    help="短名单长度：差生用自己的网挑 k 个候选，再用打分器在里面挑最好的"
+                         "（k 越大越慢：实测一次 clone 3.68ms，全贪心 45 个要 13 小时/200 局）")
     ap.add_argument("--league-mains", dest="league_mains", type=int, default=2,
                     help="★ **固定主 pt** 的份数（用户：「可以有两个固定主 pt，"
                          "也可以没有」）。主 pt = **不受淘汰规则约束**的基座")
@@ -1500,6 +1586,7 @@ if __name__ == "__main__":
           pool=a.pool, out=a.out, ckpt_every=a.ckpt_every, resume=resume,
           league_db=(None if (a.league_db or "").lower() in ("none", "") else a.league_db),
           league_mains=a.league_mains,
+          opponent=a.opponent, opponent_ckpt=a.opponent_ckpt, opponent_k=a.opponent_k,
           league_snapshot_every=a.league_snapshot_every,
           league_from=a.league_from,
           league_retire_rating=a.league_retire_rating,
