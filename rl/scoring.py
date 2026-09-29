@@ -236,13 +236,33 @@ PPO_MINIBATCH = 128
 # ===========================================================================
 # 8. 工具：读表 / 改表（★ 别用 `from scoring import W_ARMY`，见文件头纪律 1）
 # ===========================================================================
+# ---- ★★★ 终局奖励口径（2026-09-29，用户拍板）---------------------------------
+#   用户：「平 **−0.5**」+「**无打分**」+ 时间项「**暂时去掉**」。
+#   ⇒ 一局的全部奖励就是这三个数；**没有势函数差分、没有时间项**。
+#
+#   ★ 为什么这么改（今天的实测链）：
+#     · 势函数差分 **93.5% 由「兵力 + 国土」驱动**，击杀/守家/**厅**三项贡献是 **0**
+#       （`rl/reward_compose_probe.py`）⇒ 它**没在教"打赢"**，教的是"占得多、兵多"；
+#     · 训了 330 iter，**对随机网络 47%~61%、无显著优势** ⇒ 而 `e/K` 从 0.89 掉到 0.78
+#       ⇒ **掉的是"怎么占地"的熵，不是"怎么赢"的熵**；
+#     · 加上这个游戏**防守占优**（地形防御 森林+10/丘陵+25/山地+50、城堡每级+10%，
+#       外加后手的信息优势）⇒ 有势函数时，「顶住」是最省力的刷分方式。
+#   ★ 而 `REWARD_DRAW = -0.5` 是冲着"不输没惩罚"去的：**平局不再免费**。
+REWARD_WIN = 1.0          # 赢
+REWARD_LOSS = -1.0        # 输
+REWARD_DRAW = -0.5        # 平（★ 用户拍板：**不再是 0**）
+SHAPING = False           # 势函数差分 `tanh(Δscore/scale)` —— **关**
+WIN_TIME_BONUS = False    # 赢的奖励里带不带 `1 − 回合/t_max` —— **关**
+#   ★ 三条都进 `_TUNABLE` ⇒ 每一炉的横幅都会把它们打出来（**日志自带口径出处**）。
+
 _TUNABLE = ("W_TILE", "W_ARMY", "W_KILL", "W_HP", "W_NEAR",
             "THREAT_R", "GUARD_R", "W_THREAT", "W_GUARD",
             "ALLY_SHARE", "ALLY_DEAD",
             "W_HALL_IN_INFANTRY", "W_HALL", "REWARD_TANH_SCALE",
             "ASSESS_MAX_STATES", "ASSESS_MAX_ROUNDS", "CB_CONTACT_VISION",
             "PROB_ROUND_SCALE", "PROB_LOSS_SCALE", "ROUND_BIN_EDGES",
-            "PPO_MINIBATCH", "GAMMA", "GAE_LAMBDA")
+            "PPO_MINIBATCH", "GAMMA", "GAE_LAMBDA",
+            "REWARD_WIN", "REWARD_LOSS", "REWARD_DRAW", "SHAPING", "WIN_TIME_BONUS")
 
 
 def as_dict() -> dict:

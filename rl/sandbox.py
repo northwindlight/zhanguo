@@ -772,11 +772,17 @@ class Sandbox:
         ★ **赢 = 我的实体赢**（联盟胜利或单国胜利）⇒ 查 `winner_members()`，
           **不是**拿国名跟实体标签比字符串（改实体口径时这里最容易漏）。
         """
+        # ★ 2026-09-29：口径搬进 `scoring`（**单一出处**，横幅会打出来）。
+        #   原来这里硬编码 `1 − 回合/400`，而 `train._reward` 里**另有一份终局口径**
+        #   —— 两处独立实现是"静默不一致"的温床，守卫 `tests/test_rl_reward_spec.py` 钉住。
+        from . import scoring as S
         if self.winner() is None:
-            return 0.0
+            return S.REWARD_DRAW
         if for_player not in self.winner_members():
-            return -1.0
-        return 1.0 - self.turn / self.t_max
+            return S.REWARD_LOSS
+        if S.WIN_TIME_BONUS:
+            return S.REWARD_WIN * (1.0 - self.turn / self.t_max)
+        return S.REWARD_WIN
 
     # ============================================================ 环境接口（给 MCTS / RL）
     def known_halls(self, name: str, mask=None) -> dict:

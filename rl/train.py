@@ -63,6 +63,10 @@ class Step:
     #   所以截断点该用 **`Φ(s_T)`（当时的分数）** 自举，**不是 0**。
     #   真终局 ⇒ `None` ⇒ 按 0 自举（那是对的：局已结束，价值就是 0）。
     boot: float | None = None
+    # ★★ **对手席位**（2026-09-29）：`True` ⇒ 这一席是**冻结的对手**（`rl/opponents.py`）
+    #   ⇒ **不进梯度、不进 `buf`、不记战绩**（09-26 的「谁上场谁学」会把它练掉）。
+    #   ★ 它照样记 `Step`（`_backfill_aux` 的 `last_step` 账要靠它对齐），只是下游跳过。
+    frozen: bool = False
     # ★★ **这一步输入网络的潜槽**（`[1,M,d]`，**已 detach**）。
     #   · `None` ⇒ 这一步没开记忆（`--memory none`）；
     #   · 它在 TBPTT 里是**窗口边界处的 stop-grad 点**（见 `_mem_windows`）——
@@ -210,7 +214,8 @@ def collate(rows: list[dict]) -> dict:
 def collect_episode(nets: dict, sb: Sandbox, *,
                     temperature: float = 1.0, rng: np.random.Generator | None = None,
                     greedy: bool = False, max_steps: int | None = None,
-                    device: str = "cpu") -> tuple[list[Step], dict]:
+                    device: str = "cpu",
+                    opponents: dict | None = None) -> tuple[list[Step], dict]:
     """一局自对弈。返回 `(步列表, 概要)`。步列表里每步记着**是哪一方的**。
 
     ★★ `nets` 是**按槽位编号**的网络表 `{槽位: PolicyNet}`（用户 2026-09-25：
@@ -288,7 +293,14 @@ def collect_episode(nets: dict, sb: Sandbox, *,
         # ★ GPU 上必须 `.detach().cpu()` 再 `.numpy()`（直接 `.numpy()` 会抛
         #   "can't convert cuda tensor to numpy"）；CPU 上这两步是白给。
         probs = torch.softmax(logits, -1).detach().cpu().numpy()
-        if greedy:
+        # ★★ **对手席位**（`rl/opponents.py`）：拦在采样之前 —— 它拿 `probs` 当短名单，
+        #   再**用打分器**在短名单里挑（用户 2026-09-29：「贪心稻草人」）。
+        #   ★ 为什么必须在前向之后：短名单来自**它自己的网**，而挑选用**沙盒 + 候选表**
+        #     （`_score` 是对局面算的）⇒ 光有观测办不到。见 `opponents.py` 头部。
+        _opp = opponents.get(me) if opponents else None
+        if _opp is not None:
+            aidx = int(_opp.act(sb, me, actions, probs))
+        elif greedy:
             aidx = int(np.argmax(probs))
         else:
             p = np.power(probs, 1.0 / max(1e-6, temperature))
@@ -302,6 +314,7 @@ def collect_episode(nets: dict, sb: Sandbox, *,
         done = sb.is_terminal()
         rew = _reward(sb, me, prev_score, done)
         steps.append(Step(obs, aidx, logp, float(value[0]), rew, done, me,
+                           frozen=_opp is not None,
                           mem_in=mem_in))
         if max_steps is not None and len(steps) >= max_steps:
             break
@@ -517,9 +530,13 @@ def _reward(sb: Sandbox, me: str, prev: float, done: bool) -> float:
     """★ **打分器差分**；终局换成 ±1（丢家直接输，别让 ±INF 进梯度）。"""
     t = evaluate.terminal(sb.world, me)      # ★ 终局判据是**实体**，与"某个敌人"无关
     if t is not None:
-        return 1.0 if t > 0 else (-1.0 if t < 0 else 0.0)
+        # ★ 2026-09-29：口径取自 `scoring`（**单一出处**）——
+        #   平局 **−0.5**、赢 **+1**（不带时间项）、输 **−1**。见 `scoring` 那段。
+        return S.REWARD_WIN if t > 0 else (S.REWARD_LOSS if t < 0 else S.REWARD_DRAW)
     if done:
         return 0.0
+    if not S.SHAPING:
+        return 0.0                            # ★ 势函数差分**关**（用户 2026-09-29）
     return float(np.tanh((_score(sb, me) - prev) / S.REWARD_TANH_SCALE))
 
 
