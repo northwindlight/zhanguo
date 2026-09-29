@@ -1034,7 +1034,10 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
             if opp is not None:
                 # ★★ 一个我方 + 一个差生。我方**按局号交替** ⇒ 正好各一半
                 #   （随机抽签会抽成 103/97 —— 用户要的是"l0/l1 各 100 局"）。
-                _learner = mids[e % len(mids)]
+                # ★★ 必须用**全局局号**（`it * 每iter局数 + e`），**不是** `e`！
+                #   `e` 每个 iter 都从 0 开始 ⇒ 用它交替的话**永远是同一个成员当学习者**
+                #   （另一个一次都轮不到、白跑一炉）。我第一版就是这么写的。
+                _learner = mids[(it * episodes_per_iter + e) % len(mids)]
                 draw = [_learner]
                 net_of = {players[0]: lg.net_of(_learner), players[1]: opp_net}
                 mid_of = {players[0]: _learner, players[1]: mid_opp}

@@ -161,3 +161,33 @@ class TestBatchedPathRefuses(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLearnerAlternatesGlobally(unittest.TestCase):
+    """★ 2026-09-29：交替必须按**全局局号**，不是每 iter 的 `e`。
+
+    ★ 病灶（我第一版就是这么写的）：`mids[e % len(mids)]` —— 而 `e` **每个 iter 都从 0 开始**
+      ⇒ **永远是同一个成员当学习者**，另一个一次都轮不到。跑 200 局，一个学 200 局、
+      另一个学 0 局，而**日志上看不出任何异常**（`网络 {…}` 那一行只会一直列同一个人）。
+    """
+
+    def test_the_learner_is_not_always_the_same(self):
+        lines: list[str] = []
+        with tempfile.TemporaryDirectory() as d:
+            ck = Path(d) / "bone.pt"
+            _tiny_ckpt(ck, seed=9)
+            T.train(iters=4, episodes_per_iter=1, seed=11, size=8, t_max=5,
+                    size_min=8, size_max=8, halls_known=True, nations=2,
+                    pool=2, league_mains=2, out=str(Path(d) / "o.pt"),
+                    ckpt_every=1, epochs=1, max_steps=0, device="cpu",
+                    memory="latent", opponent="scorer_greedy",
+                    opponent_ckpt=str(ck), opponent_k=2,
+                    log=lambda *a: lines.append(" ".join(str(x) for x in a)))
+        import re
+        # 每 iter 的 `网络 {…}` 那行：学习者只该是其中一个成员
+        # ★ mid 可能带 `@worker` 后缀也可能不带 ⇒ 取到第一个 `'` 就停，再切掉 `@`
+        got = [m.split("@")[0] for m in re.findall(r"网络 \{'([^']+)'", "\n".join(lines))]
+        self.assertTrue(got, f"没解析到 `网络` 行\n{chr(10).join(lines[-15:])}")
+        self.assertGreater(len(set(got)), 1,
+                           f"4 个 iter 里当学习者的**一直是同一个人**（{set(got)}）—— "
+                           f"交替按了每 iter 的 `e`（每轮都从 0 开始）而不是全局局号")
