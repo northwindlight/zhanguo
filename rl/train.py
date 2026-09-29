@@ -348,7 +348,8 @@ def collect_episode(nets: dict, sb: Sandbox, *,
 def collect_episodes_batched(nets: dict, sandboxes: list, *,
                              temperature: float = 1.0, rngs: list | None = None,
                              greedy: bool = False, max_steps: int | None = None,
-                             device: str = "cpu"
+                             device: str = "cpu",
+                             opponents: dict | None = None
                              ) -> tuple[list[list[Step]], list[dict]]:
     """**N 局并排推进**：把 N 个沙盒的前向**合成一批**发出去。返回 `([每局步表], [每局概要])`。
 
@@ -374,6 +375,15 @@ def collect_episodes_batched(nets: dict, sandboxes: list, *,
         · **N>1** 时钉**对齐**：`logits[k]` 约等于单独跑第 k 个沙盒的 logits ——
           抓的是"第 i 个沙盒拿到了第 j 个的输出"这类**静默错位**。
     """
+    # ★★★ 2026-09-29：**本函数不支持对手池** —— 明确拒绝，不静默忽略。
+    #   对手的动作要**逐候选**在**它自己那一局**的沙盒上打分（`rl/opponents.py`），
+    #   而这里 N 局是**合批**推进的 ⇒ 语义接不上。
+    #   ★ 为什么写"当场拒"而不是"先不管"：调用方若传了 `opponents` 而这里默默忽略，
+    #     **差生会退回成"按自己的网采样"** —— 那正好是我们要换掉的行为，而且**不报错**。
+    if opponents:
+        raise NotImplementedError(
+            "`collect_episodes_batched` 不支持 `opponents`（对手要逐候选在本局沙盒上打分，"
+            "与合批推进接不上）。用 `collect_episode`（`--episodes 1`）。")
     n_sb = len(sandboxes)
     if rngs is None:
         rngs = [np.random.default_rng(i) for i in range(n_sb)]
