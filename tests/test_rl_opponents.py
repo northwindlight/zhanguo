@@ -191,3 +191,43 @@ class TestLearnerAlternatesGlobally(unittest.TestCase):
         self.assertGreater(len(set(got)), 1,
                            f"4 个 iter 里当学习者的**一直是同一个人**（{set(got)}）—— "
                            f"交替按了每 iter 的 `e`（每轮都从 0 开始）而不是全局局号")
+
+
+class TestRandomOpponent(unittest.TestCase):
+    """★ `random`：**均匀抽**（2026-09-29 加的"真差生"）。
+
+    ★ 为什么要它：`scorer_greedy` 的"空网"只是短名单，**下棋的是打分器** ⇒ 不弱。
+      实测 300 局学习者只赢 8%、`e/K` 还回到 1.00 ⇒ 病根是**胜率太低**（正样本太少）。
+    """
+
+    def test_returns_a_valid_index(self):
+        sb = Sandbox(seed=21, size=10, t_max=40, n_nations=2, halls_known=True,
+                     territory=True).reset()
+        sb._auto_advance()
+        acts = sb.legal()
+        o = OPP.make("random", seed=1)
+        for _ in range(50):
+            i = o.act(sb, "甲", acts, np.zeros(len(acts)))
+            self.assertTrue(0 <= i < len(acts), f"下标越界：{i}")
+
+    def test_it_is_actually_uniform(self):
+        """★ 非空泛性：不许偷偷变成"永远取第 0 个"。"""
+        sb = Sandbox(seed=22, size=10, t_max=40, n_nations=2, halls_known=True,
+                     territory=True).reset()
+        sb._auto_advance()
+        acts = sb.legal()
+        o = OPP.make("random", seed=3)
+        got = [o.act(sb, "甲", acts, np.zeros(len(acts))) for _ in range(600)]
+        self.assertGreater(len(set(got)), max(3, len(acts) // 2),
+                           f"600 次只抽到 {len(set(got))} 个不同下标 ⇒ 不像均匀")
+
+    def test_it_ignores_the_probs(self):
+        """★ 它**不打分器、不看网** —— 给一个极度偏斜的 `probs`，抽出来仍该是散的。"""
+        sb = Sandbox(seed=23, size=10, t_max=40, n_nations=2, halls_known=True,
+                     territory=True).reset()
+        sb._auto_advance()
+        acts = sb.legal()
+        o = OPP.make("random", seed=4)
+        peak = np.zeros(len(acts)); peak[0] = 1.0        # `scorer_greedy` 会被这玩意带跑
+        got = {o.act(sb, "甲", acts, peak) for _ in range(300)}
+        self.assertGreater(len(got), 3, "被 `probs` 带跑了 ⇒ 它不是纯随机")

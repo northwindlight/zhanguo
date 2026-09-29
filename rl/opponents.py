@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["Opponent", "ScorerGreedy", "KINDS", "make", "DEFAULT_K"]
+__all__ = ["Opponent", "ScorerGreedy", "RandomOpp", "KINDS", "make", "DEFAULT_K"]
 
 
 DEFAULT_K = 8             # 短名单长度（用户没指定，取 8）
@@ -87,9 +87,31 @@ class ScorerGreedy(Opponent):
         return best_i
 
 
+class RandomOpp(Opponent):
+    """★ **纯随机**：在候选里**均匀抽**（不打分器、不看网）。
+
+    ★ 为什么要它（2026-09-29 实测的教训）：`scorer_greedy` 那个"空网"**只提供 top-8 短名单**，
+      **真正下棋的是打分器** ⇒ 它其实是个 **6~16 回合的规则速攻手，不弱**。
+      实测：学习者 300 局只赢 8%（且 `e/K` 回到 1.00 —— **根本没在学**）。
+      诊断：`SHAPING=False` 之后唯一的信号是**终局 ±1**，而 γ=1 ⇒ 一局内每步回报**相同**
+      ⇒ 优势在同一局内是常数 ⇒ PPO 分不出哪一步重要；而**胜率才 8%** ⇒ 正样本太少 ⇒ 学不动。
+      ⇒ **病根是胜率太低**，所以先把对手降到真正的最弱（均匀随机），让"赢"这件事可达。
+    """
+
+    kind = "random"
+
+    def __init__(self, seed: int = 0):
+        self.rng = np.random.default_rng(seed)
+
+    def act(self, sb, me: str, acts: list, probs: np.ndarray) -> int:
+        # ★ 用**自带 rng**（按实例种子）⇒ 同一配置可复现。
+        return int(self.rng.integers(len(acts)))
+
+
 # ★ 注册表 —— 「**支持多种对手模型**」（用户 2026-09-29）。加一种 = 加一行。
 KINDS: dict[str, type[Opponent]] = {
     "scorer_greedy": ScorerGreedy,
+    "random": RandomOpp,
 }
 
 
