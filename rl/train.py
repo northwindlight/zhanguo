@@ -950,50 +950,50 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                    meta=_ckpt_meta(lo, hi, halls_known, nations, n_slots, t_max,
                                    mem_slots=mem_slots))
         log(f"★ 起始存档 → {out}（第 {it0} iter）")
+    # ★★★ 2026-09-29 **对手池模式**（用户：「这次就打固定稻草人好好学」）：
+    #   · 对手**冻结不学**（`rl/opponents.py` 的 `frozen=True`）；
+    #   · 骨架 = `--opponent-ckpt` 那份档的**第 0 份网**（用户：「就正常的 L0，但是不学」）；
+    #   · 不给 ⇒ 一切照旧（池内自对弈），**默认行为一个字节没动**。
+    opp = opp_net = mid_opp = None
+    if opponent:
+        from . import opponents as _OPP
+        _src = opponent_ckpt or resume or out
+        if not _src:
+            raise SystemExit("★ `--opponent` 需要 `--opponent-ckpt`（或 `--resume`/`--out`）"
+                             "来指定差生的骨架档")
+        _blob = torch.load(_src, map_location="cpu", weights_only=False)
+        _fp = (_blob.get("meta") or {}).get("fingerprint") or {}
+        _ms = int(_fp.get("mem_slots", 0))
+        _nets = _blob.get("nets") or {}
+        if not _nets:
+            raise SystemExit(f"★ 骨架档 {_src} 里没有 `nets`")
+        _k0 = 0 if 0 in _nets else sorted(_nets)[0]
+        opp_net = build_model(mem_slots=_ms)
+        opp_net.load_state_dict(_nets[_k0])
+        opp_net.eval()
+        opp_net.requires_grad_(False)
+        opp = _OPP.make(opponent, k=opponent_k)
+        log(f"★ 差生权重指纹（训前）= **{_param_digest(opp_net)}**")
+        mid_opp = f"<{opponent}>"
+        log(f"★★ **对手池模式**：{opponent}（k={opponent_k}）· 骨架 = {_src} 的第 {_k0} 份"
+            f"（mem_slots={_ms}）· **冻结不学**（不进梯度/不进 buf/不记战绩）")
+        log(f"★ 席位：**每局 1 个我方 + 1 个差生**；我方**按局号交替**"
+            f"（{mids}）⇒ 每个成员拿正好一半")
+        # ★ 席位分配是「1 我方 + 1 差生」**写死的** ⇒ 必须恰好 2 国。
+        #   ★ 这里用**配置区间**算（`k = k_of(sz)` 在循环里，这里拿不到）——
+        #     写错过一次：在循环外断言循环内的 `k` ⇒ `UnboundLocalError`。
+        _ks = sorted({k_of(s) for s in range(lo, hi + 1)})
+        if _ks != [2]:
+            raise SystemExit(
+                f"★ 对手池模式只支持 2 国局（`--size` 区间 {lo}..{hi} 算出 {_ks} 国）"
+                f"—— 席位分配是「1 我方 + 1 差生」写死的；"
+                f"要么把 `--nations 2` 给上，要么把区间收窄到 2 国的尺寸")
     for it in range(it0 + 1, it0 + iters + 1):
         buf: dict[str, list] = {mid: [] for mid in mids}
         # ★ 「谁在训」（那 5 个槽）—— 只用来判"要不要切回推理态"：
         #   在训成员由 `bind_live` 挂着**训练回路里那个对象**（train 态、要梯度），
         #   快照是 `eval()` + 无梯度加载的 ⇒ 两者在 `ppo_update` 前后的**状态切换**不同。
         live_set = set(mids)
-        # ★★★ 2026-09-29 **对手池模式**（用户：「这次就打固定稻草人好好学」）：
-        #   · 对手**冻结不学**（`rl/opponents.py` 的 `frozen=True`）；
-        #   · 骨架 = `--opponent-ckpt` 那份档的**第 0 份网**（用户：「就正常的 L0，但是不学」）；
-        #   · 不给 ⇒ 一切照旧（池内自对弈），**默认行为一个字节没动**。
-        opp = opp_net = mid_opp = None
-        if opponent:
-            from . import opponents as _OPP
-            _src = opponent_ckpt or resume or out
-            if not _src:
-                raise SystemExit("★ `--opponent` 需要 `--opponent-ckpt`（或 `--resume`/`--out`）"
-                                 "来指定差生的骨架档")
-            _blob = torch.load(_src, map_location="cpu", weights_only=False)
-            _fp = (_blob.get("meta") or {}).get("fingerprint") or {}
-            _ms = int(_fp.get("mem_slots", 0))
-            _nets = _blob.get("nets") or {}
-            if not _nets:
-                raise SystemExit(f"★ 骨架档 {_src} 里没有 `nets`")
-            _k0 = 0 if 0 in _nets else sorted(_nets)[0]
-            opp_net = build_model(mem_slots=_ms)
-            opp_net.load_state_dict(_nets[_k0])
-            opp_net.eval()
-            opp_net.requires_grad_(False)
-            opp = _OPP.make(opponent, k=opponent_k)
-            log(f"★ 差生权重指纹（训前）= **{_param_digest(opp_net)}**")
-            mid_opp = f"<{opponent}>"
-            log(f"★★ **对手池模式**：{opponent}（k={opponent_k}）· 骨架 = {_src} 的第 {_k0} 份"
-                f"（mem_slots={_ms}）· **冻结不学**（不进梯度/不进 buf/不记战绩）")
-            log(f"★ 席位：**每局 1 个我方 + 1 个差生**；我方**按局号交替**"
-                f"（{mids}）⇒ 每个成员拿正好一半")
-            # ★ 席位分配是「1 我方 + 1 差生」**写死的** ⇒ 必须恰好 2 国。
-            #   ★ 这里用**配置区间**算（`k = k_of(sz)` 在循环里，这里拿不到）——
-            #     写错过一次：在循环外断言循环内的 `k` ⇒ `UnboundLocalError`。
-            _ks = sorted({k_of(s) for s in range(lo, hi + 1)})
-            if _ks != [2]:
-                raise SystemExit(
-                    f"★ 对手池模式只支持 2 国局（`--size` 区间 {lo}..{hi} 算出 {_ks} 国）"
-                    f"—— 席位分配是「1 我方 + 1 差生」写死的；"
-                    f"要么把 `--nations 2` 给上，要么把区间收窄到 2 国的尺寸")
         # ★ **真正上过场的**成员。★ 别拿 `buf.keys()` 当它：`buf` 初始化时就带着
         #   **全部在训成员**（哪怕这一轮它一次都没被抽到）⇒ 拿它当"上场集合"
         #   会把没上场的也算进去，而日志/守卫都靠这个集合对账。
