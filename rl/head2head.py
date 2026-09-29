@@ -117,6 +117,8 @@ def main() -> None:
     pool_b = load_pool(a.ckpt_b, a.pool)
     print(f"★ 甲 = {a.ckpt_a or '未训练'}  乙 = {a.ckpt_b or '未训练'}")
     rows = []
+    bad: list = []            # ★ (局号, 被拒次数)；负数 = 步数闸先炸
+    fallbacks = 0             # ★ 首选被拒、退到次优的总次数
     rng = np.random.default_rng(0)
     _t0 = time.perf_counter()
     for i, s in enumerate(range(a.seed0, a.seed0 + a.seeds)):
@@ -136,6 +138,9 @@ def main() -> None:
                 slot_of[n] = f"{'A' if side else 'B'}{order[j % len(pool)]}"
         r = play({}, sb, greedy=a.greedy, rng=rng, net_of=net_of)
         won = set(r["winner_members"])
+        if r.get("refused"):
+            bad.append((i, r["refused"]))
+        fallbacks += r.get("fallback", 0)
         rows.append({"i": i, "na": len(a_side), "turns": r["turns"],
                      "side": side_of(won, a_side),
                      "ratio": r["ratio"]})
@@ -173,6 +178,19 @@ def main() -> None:
     print(f"  平均回合 {turns.mean():.0f}（中位 {np.median(turns):.0f}，"
           f"打到上限 {int((turns >= a.t_max).sum())} 局）")
     print(f"  两方合计 策略集中度 ent/logK = {ratio.mean():.3f}（1.0=纯均匀）")
+    if fallbacks:
+        print(f"  （退次优合计 {fallbacks} 次 —— 首选被规则拒，取了下一个能执行的）")
+    if bad:
+        tot = sum(-v - 1 if v < 0 else v for _, v in bad)
+        print(f"  ★ **{len(bad)} 局出现过「被引擎拒收的动作」**（合计 {tot} 次，最多 {max(bad, key=lambda x: x[1])[1]} 次）"
+              f"：{bad[:5]}")
+        print(f"     ★ 这**不是 bug**：`sandbox.legal()` 的 2026-09-24 口径是"
+              f"「无视野的邻格：移动与进攻**两条路都给**，让引擎当场判，"
+              f"把这句教学式错误消息当**侦察的情报来源**」⇒ 这类拒绝是**设计**，"
+              f"评估侧靠「退而取次优」处理（`eval_fixed.play`）。")
+        print(f"     ★ **但次数异常高**（比如每局上百次）仍值得看：说明策略在反复挑已知会被拒的动作。")
+        if any(v < 0 for _, v in bad):
+            print(f"     ★★ 其中有局是**步数闸先炸**的（负数标记）—— 那局没跑完，别当有效样本。")
     print("  ★ 覆盖范围：只说明「这组种子 × 这个图幅 × 这个地平线 × 采样臂」下的强弱")
 
 

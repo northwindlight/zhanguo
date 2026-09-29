@@ -94,9 +94,23 @@ def play(nets: dict, sb: Sandbox, *, greedy: bool,
     #   拖到 100 回合时 ent 报到 4.585，而那时 log K 也 ≈4.6，其实**仍是均匀**）。
     #   ⇒ 唯一可比的量是**逐步的 `ent / log K`**（1.0 = 纯均匀）。
     ents, logks, n = [], [], 0
+    # ★★★ 2026-09-29：**步数闸 + 拒绝计数**。
+    #   病灶：`legal()` 曾把「交战格上防守方的 move」列进候选集（`mp.py:1606-1609`
+    #   的判据是"同格有别的势力的 engaged 军"，**含防守方**，而 `legal()` 只看自己那支）
+    #   ⇒ 引擎拒收、**状态不变** ⇒ `--greedy` 下 argmax 固定 ⇒ **原地死循环**。
+    #   实测：一个 100 回合的局挂了 50+ 分钟（训练有 `--max-steps` 兜底、评估**没有**）。
+    #   根因已在 `sandbox.legal()` 里修掉（同判据屏蔽）；这里加两道**纵深**：
+    #     ① 硬步数上限（`t_max` 只数回合，挡不住"同一回合内空转"）；
+    #     ② `step` 返回 `ok=False` 时**计数并在局末报出来** —— 这类不一致以后不许静默。
+    step_cap = int(sb.t_max) * 200 + 500          # 每回合 ~24 步 ⇒ 200 倍是宽裕的上限
+    refused = 0          # 被引擎拒收的次数
+    fallback = 0         # 首选被拒、退到次优的次数
     while not sb.is_terminal():
         me = sb.current_player()
         if me is None:
+            break
+        if n > step_cap:
+            refused = -refused - 1                 # 用负号标记"是步数闸先炸的"
             break
         acts = sb.legal()
         if not acts:                       # ★ 保险（`_auto_advance` 本该已推进）
@@ -106,17 +120,38 @@ def play(nets: dict, sb: Sandbox, *, greedy: bool,
                else nets[sb.players.index(me) % len(nets)])
         logits, _ = net(collate([obs]))
         p = torch.softmax(logits[0], -1).numpy()
-        aidx = int(np.argmax(p)) if greedy else int(rng.choice(len(p), p=p))
+        # ★★★ 2026-09-29：**候选集里本来就有"引擎会拒"的动作**，这是**设计**
+        #   （`sandbox.legal()` 的 2026-09-24 口径：「无视野的邻格：移动与进攻两条路都给
+        #   …… 让引擎当场判，并把它那句**教学式错误消息**当**侦察的情报来源**」）。
+        #   ⇒ 所以**不能假装它不存在**：按概率从高到低试，取**第一个真能执行**的
+        #     （等价于"给策略一个合法动作掩码"）。抽样臂同理，在剩下的里重抽。
+        #   ★ 为什么必须这么做：拒绝 ⇒ **状态不变** ⇒ 贪心下 argmax 不变 ⇒
+        #     **原地死循环**（实测：一个 100 回合的局挂了 50+ 分钟；`t_max` 只数回合，
+        #     挡不住"同一回合内空转"，而训练靠采样+`--max-steps` 才没炸）。
+        order = np.argsort(-p) if greedy else rng.permutation(len(p))
+        _ok = False
+        for _try, aidx in enumerate(order):
+            ok, msg = sb.step(acts[int(aidx)])
+            if ok:
+                if _try:
+                    fallback += 1          # ★ 首选被拒、退到了次优 —— 计数、别静默
+                _ok = True
+                break
+            refused += 1
+        if not _ok:
+            break                          # 一个都不成 ⇒ 这局没法继续（不该发生）
         ents.append(float(-(p * np.log(np.maximum(p, 1e-12))).sum()))
         logks.append(float(np.log(len(p))))
-        sb.step(acts[aidx])
         n += 1
     return {"turns": sb.turn, "winner_members": tuple(sb.winner_members()),
             "ent": float(np.mean(ents)) if ents else 0.0,
             "logk": float(np.mean(logks)) if logks else 0.0,
             "ratio": (float(np.mean([e / k for e, k in zip(ents, logks)]))
                       if ents else 0.0),
-            "n": n, "players": tuple(sb.players)}
+            "n": n, "players": tuple(sb.players),
+            # ★ 被引擎拒收的动作数；**负数 = 步数闸先炸的**（见上面那段）。
+            #   两者都该是 0 —— 不是 0 就说明 `legal()` 与 `step` 又不一致了。
+            "refused": refused, "fallback": fallback}
 
 
 def main() -> None:
