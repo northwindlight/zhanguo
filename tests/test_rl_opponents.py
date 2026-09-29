@@ -231,3 +231,22 @@ class TestRandomOpponent(unittest.TestCase):
         peak = np.zeros(len(acts)); peak[0] = 1.0        # `scorer_greedy` 会被这玩意带跑
         got = {o.act(sb, "甲", acts, peak) for _ in range(300)}
         self.assertGreater(len(got), 3, "被 `probs` 带跑了 ⇒ 它不是纯随机")
+
+
+class TestEveryKindTakesTheTrainersCallShape(unittest.TestCase):
+    """★★ 2026-09-29：**每个注册的 kind 都必须能用 `train()` 的确切 kwargs 建出来**。
+
+    ★ 病灶：`train()` 一律 `make(kind, k=opponent_k)`，而 `RandomOpp` 当时只收 `seed`
+      ⇒ 换 `--opponent random` **当场 TypeError、崩循环**（`par_one` 每 10 秒拉起一次，
+      日志里 30 秒 3 次重启、**一行 iter 都没有**）。
+    ★ 我的用例当时写的是 `make("random", seed=1)` —— **和生产调用形状不一样** ⇒ 漏掉了。
+      ⇒ 这条守卫**按生产形状**遍历注册表：**加一种对手忘了统一签名，这里就红**。
+    """
+
+    def test_all_kinds_constructible_with_trainers_kwargs(self):
+        from rl import opponents as O2
+        for kind in sorted(O2.KINDS):
+            with self.subTest(kind=kind):
+                o = O2.make(kind, k=8)              # ★ 与 `train()` 同形（它只传 k）
+                self.assertTrue(getattr(o, "frozen", False), f"{kind} 不是冻结的")
+                self.assertIsInstance(o.act, type(o.act))

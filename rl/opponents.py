@@ -41,6 +41,15 @@ class Opponent:
     kind = "?"
     frozen = True
 
+    # ★★★ 2026-09-29：**统一签名** —— `train()` 一律用 `make(kind, k=..., seed=...)` 调。
+    #   我第一版没统一（`ScorerGreedy` 收 `k`、`RandomOpp` 只收 `seed`）
+    #   ⇒ 换 `--opponent random` 时**当场 TypeError、崩循环**（`par_one` 每 10 秒拉起一次）。
+    #   ★ 而我的用例写的是 `make("random", seed=1)` —— **和生产调用形状不一样** ⇒ 没盖住。
+    #     ⇒ 现在子类一律 `**kw` 收下不需要的，并且加守卫**按生产形状逐个建**。
+    def __init__(self, **kw):
+        self.k = int(kw.get("k", DEFAULT_K))
+        self.seed = int(kw.get("seed", 0))
+
     def act(self, sb, me: str, acts: list, probs: np.ndarray) -> int:
         """给**候选下标**。`probs` = 这一席自己的网给出的动作分布（可能没用）。"""
         raise NotImplementedError
@@ -57,9 +66,6 @@ class ScorerGreedy(Opponent):
     """
 
     kind = "scorer_greedy"
-
-    def __init__(self, k: int = DEFAULT_K):
-        self.k = int(k)
 
     def act(self, sb, me: str, acts: list, probs: np.ndarray) -> int:
         # ★ 局部 import：`train` 会 import 本模块 ⇒ 顶层 import 会成环。
@@ -100,8 +106,9 @@ class RandomOpp(Opponent):
 
     kind = "random"
 
-    def __init__(self, seed: int = 0):
-        self.rng = np.random.default_rng(seed)
+    def __init__(self, **kw):
+        super().__init__(**kw)                     # ★ 统一签名（见基类那段）
+        self.rng = np.random.default_rng(self.seed)
 
     def act(self, sb, me: str, acts: list, probs: np.ndarray) -> int:
         # ★ 用**自带 rng**（按实例种子）⇒ 同一配置可复现。
