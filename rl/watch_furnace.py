@@ -99,6 +99,12 @@ def main() -> int:
     if seg < 5:
         print(f"\n（只有 {len(its)} 个 iter ⇒ 样本不足，**看不出趋势**；"
               f"至少要 {2 * 5} 个才敢开口）")
+        # ★ 仍然把**最近一 iter 的 e/K** 打出来：换地平线后一 iter ≈11 分钟，
+        #   头几个 iter 里"样本不足"会持续很久，而调用方（cron）要的就是这两个数。
+        #   少打一次就得再 ssh 一趟去 grep 日志 —— 那就等于这一小时的检查白跑了。
+        _last = rows[last][5]
+        print(f"   最近一 iter（{last}）："
+              + "  ".join(f"{k} e/K={_last[k]:.2f}" for k in ("L0", "L1") if k in _last))
         print("==> 照旧（还不知道）")
         return 0 if alive else 10
     head, tail = its[:seg], its[-seg:]
@@ -120,12 +126,43 @@ def main() -> int:
         roll = [sum(ser[j:j + SEG]) / SEG for j in range(len(ser) - SEG + 1)] or [e1]
         rsd = pstdev(roll) if len(roll) > 1 else 0.0
         flag = ""
-        if e1 < FORM_LEVEL:
-            flag = f"  ← ★★ 末30 已到 {FORM_LEVEL} 以下 —— **形成中**"
+        # ★★★ 2026-09-29 **第三次**校准（前两次都是我的判据在狼来了）：
+        #   · 第一版固定 0.10 的"首尾差"⇒ 坐在滚动均值自身的极差里（0.12~0.14）；
+        #   · 第二版删掉相对判据、只留**绝对水平** —— 但**没给它设最小样本**，
+        #     于是换地平线后（一 iter ≈11 分钟）它在**只有 5 个 iter** 的窗口上开了火
+        #     （`末5 = 0.820 < 0.85`），而那一行 `滚动std 0.000` 本就是
+        #     "窗口太少、算不出波动"的迹象 —— **我把它打出来了，却没拿它当闸**。
+        #   · 现在：**水平判据只在满窗时才允许触发**（`seg >= SEG`，即 n ≥ 2×SEG）。
+        #     不满窗就只报数、不判断 —— 判据的样本前提不成立时，它不该说话。
+        if e1 < FORM_LEVEL and seg >= SEG:
+            flag = f"  ← ★★ 满窗（{seg} iter）均值已到 {FORM_LEVEL} 以下 —— **形成中**"
             notable = True
+        elif e1 < FORM_LEVEL:
+            flag = (f"  ← （{seg} iter 窗口到了 {FORM_LEVEL} 以下，但**不满 {SEG}** "
+                    f"⇒ 样本前提不成立，**不据此判断**）")
         print(f"{k:<5}{e0:>10.3f}{e1:>12.3f}{d:>+9.3f}{t0:>9.1f}{t1:>9.1f}{flag}"
               f"   滚动std {rsd:.3f}（Δ 要跟它比才有意义）")
     print(f"       （1.00 = 均匀策略；掉下来才叫「形成」）")
+
+    # ★★★ 2026-09-29 **对手池模式专用读数**：这一炉的验收是「**打贪心稻草人的胜率**」，
+    #   不是 `e/K`（用户：「先学会打贪心，就当 bc 了」）。
+    #   ★ 口径：`胜场{'甲': a, '乙': b}` 里 **甲 = 学习者、乙 = 差生**（席位是写死的：
+    #     `players[0]` 给池子成员、`players[1]` 给对手）。**别拿它当"甲/乙座位胜率"读**。
+    if "对手池模式" in raw:
+        w = [(rows[i][1], rows[i][2]) for i in its]        # (甲=学习者胜, 乙=差生胜)
+        n_g = sum(a + b for a, b in w)
+        la = sum(a for a, _ in w)
+        blk = 25
+        print(f"\n★★ **对差生（贪心稻草人）**：{n_g} 局分胜负 · **学习者胜 {la}"
+              f"（{la / max(n_g, 1) * 100:.0f}%）** · 差生胜 {n_g - la}")
+        cur = []
+        for i in range(0, len(its), blk):
+            seg = w[i:i + blk]
+            na = sum(a for a, _ in seg)
+            nb = sum(b for _, b in seg)
+            cur.append(f"{na}/{na + nb}")
+        print(f"     每 {blk} 局的爬升曲线： {' '.join(cur)}")
+        print(f"     （**这一炉看这条**：它爬才叫学到；`e/K` 只是旁证）")
 
     print(f"\n席位  甲 {a / g * 100:.1f}% 乙 {b / g * 100:.1f}%  "
           f"先手胜 {sum(rows[i][3] for i in its) / g * 100:.1f}%"
