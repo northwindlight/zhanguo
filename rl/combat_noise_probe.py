@@ -488,13 +488,29 @@ def _inconsistent(r: dict) -> str:
 def report(rows: list[dict]) -> bool:
     """打汇总；返回 **`True` = 对拍台本身失效**（不是 DP 错，是预言机错）。"""
     n_all = len(rows)
+    note = ""
     if PVP_ONLY:
-        rows = [r for r in rows if not r.get("has_barb")]
+        # ★★ `has_barb` 是后加的字段，**旧 JSON 里没有** —— 第一版直接
+        #   `r.get("has_barb")` ⇒ 全 None ⇒ 全保留 ⇒ **过滤静默失效**，
+        #   而下面那行"剔掉几场"也不会打（差值是 0）⇒ 看着像"过滤了、没剔掉东西"。
+        #   ⇒ 从 `order`（**一直都有**）反推；两样都没有才认输，且**大声认输**。
+        def _barb(r) -> bool:
+            if "has_barb" in r:
+                return bool(r["has_barb"])
+            if "order" in r:
+                return BARBARIAN in r["order"]
+            return False
+        if not any("has_barb" in r or "order" in r for r in rows):
+            note = ("★★ `--pvp-only` **没生效**：这份明细里既没有 `has_barb` 也没有 "
+                    "`order` ⇒ **下面全是未过滤的样本**，别当成 PvP 结论。")
+            print(note)
+        rows = [r for r in rows if not _barb(r)]
     if not rows:
         print("★ 过滤后一场不剩（`--pvp-only`？）")
         return False
     if len(rows) != n_all:
-        print(f"  （`--pvp-only`：从 {n_all} 场里剔掉 {n_all - len(rows)} 场含野人的）")
+        print(f"  （`--pvp-only`：从 {n_all} 场里**剔掉 {n_all - len(rows)} 场含野人**的，"
+              f"剩 {len(rows)} 场纯玩家对打）")
     tv = np.array([r["tv"] for r in rows])
     tvf = np.array([r["tv_floor"] for r in rows])
     pw = np.array([r["p_win_dp"] for r in rows])
