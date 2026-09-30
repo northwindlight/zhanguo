@@ -236,9 +236,12 @@ def collect(args, hook: Hook) -> dict:
             win = info["winner"]
         stat["turns"].append(sb.turn)
         stat["winner"].append(win)
+        # ★ 打的是**见过的总数**（`_seen`），不是**池里的存量**（`len(recs)`）——
+        #   蓄水池一满，存量就恒等于 `limit`，日志会一直写"累计 100 场"而实际早已上千
+        #   （又是一个"读数在骗人"的形状）。
         print(f"  [局 {g + 1}/{args.games}] seed={args.seed + g} 回合 {sb.turn} "
-              f"胜方 {win} · 累计 {len(hook.recs)} 场战斗 · {time.time() - t0:.1f}s",
-              flush=True)
+              f"胜方 {win} · 共开打 {hook._seen} 场（池里 {len(hook.recs)}）"
+              f" · {time.time() - t0:.1f}s", flush=True)
     stat["games"] = args.games
     return stat
 
