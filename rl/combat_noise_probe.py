@@ -103,6 +103,31 @@ def _install_raw_hook():
 _install_raw_hook()
 
 
+# ============================================================ ⓪' 快照减重
+# ★★ 为什么必须减（2026-09-30 实测，ECS 上 1.43 GB 还在涨）：
+#   一台 10×10、打了 400 回合的 `World` 快照 **205 KB / 17.4 ms**，其中
+#   **`history` 一个属性就 135 KB**（每场行动/每封信/每条战报都往里塞）。
+#   而 `Hook` 要存**每一场开打的仗**（实测 net 驱动一局 **299 场**）⇒
+#   6 局 ≈ 1800 份 ≈ 1.5 GB（ECS 只有 3.7 GB）—— **会 OOM**；
+#   而且 MC 每个 trial 还要再 deepcopy 一次 ⇒ 1200 次 × 17.4 ms = 21 s/场。
+#   ⇒ 砍掉它：`history` 只被 `events_for`/`fresh_history`（**观察者**）读，
+#     战斗与 `evaluate.score` **都不碰它**。留尾部而不是清空，是为了万一有路径
+#     读"最近几条"。`econ_reports` 同理（经济期快照，与战斗无关）。
+_SNAP_TAIL = 200
+
+
+def _trim(w):
+    """把跟战斗无关的大件截断 —— 只影响快照大小，**不影响任何被读到的量**。"""
+    if len(getattr(w, "history", ())) > _SNAP_TAIL:
+        w.history = w.history[-_SNAP_TAIL:]
+    er = getattr(w, "econ_reports", None)
+    if isinstance(er, dict):
+        for k, v in er.items():
+            if isinstance(v, list) and len(v) > 4:
+                er[k] = v[-4:]
+    return w
+
+
 # ============================================================ ① 抓真实战斗
 class Hook:
     """包一层 `World._resolve_battles`，**只记录**、不改行为。
@@ -113,9 +138,14 @@ class Hook:
       当成"老仗"漏掉。
     """
 
-    def __init__(self, limit: int = 10 ** 9):
+    def __init__(self, limit: int = 10 ** 9, seed: int = 0):
+        # ★ **蓄水池抽样**（`reservoir`）：内存只跟 `limit` 走，**不跟战斗总数走**。
+        #   我第一版是"全存下来、分析时再抽"——`--max-records` 只限了分析量、
+        #   没限存量 ⇒ 1800 场 × 205 KB 直接顶到 OOM。**限流要限在入口**。
         self.recs: list[dict] = []
         self.limit = limit
+        self._rng = random.Random(seed)
+        self._seen = 0
         self._prev: set = set()
         self._orig = mp.World._resolve_battles
         self._game = -1
@@ -128,20 +158,26 @@ class Hook:
         def patched(world):
             now = set(CP.engaged_cells(world))
             for c in sorted(now - self._prev):
-                if len(self.recs) >= self.limit:
-                    continue
                 b = CP.build(world, *c)
                 if b is None:
                     continue
-                self.recs.append({
-                    "game": self._game, "cell": c,
-                    "order": list(b.order), "attacker": sorted(b.attacker),
-                    "owner": b.owner, "n_units": {F: len(b.init[F]) for F in b.order},
-                    "world": copy.deepcopy(world),
-                })
+                self._seen += 1
+                if len(self.recs) < self.limit:
+                    self.recs.append(self._grab(world, b, c))
+                else:
+                    # 蓄水池：以 limit/n 的概率替换掉一个旧样本（⇒ 整体均匀）
+                    j = self._rng.randrange(self._seen)
+                    if j < self.limit:
+                        self.recs[j] = self._grab(world, b, c)
             self._prev = now
             return self._orig(world)
         mp.World._resolve_battles = patched
+
+    def _grab(self, world, b, c) -> dict:
+        return {"game": self._game, "cell": c,
+                "order": list(b.order), "attacker": sorted(b.attacker),
+                "owner": b.owner, "n_units": {F: len(b.init[F]) for F in b.order},
+                "world": _trim(copy.deepcopy(world))}
 
 
 def _load_nets(path: str):
@@ -203,7 +239,7 @@ def mc(rec: dict, trials: int, seed: int, sides: list[str]):
       ⇒ `--sabotage` 把这条故意破坏回去，用来确认下面那道闸真的会响。
     """
     x, y = rec["cell"]
-    bw = copy.deepcopy(rec["world"])
+    bw = _trim(copy.deepcopy(rec["world"]))
     for a in bw.armies:
         if (a["x"], a["y"]) != (x, y):
             a["engaged"] = False
@@ -302,22 +338,19 @@ def main() -> int:
           f"REWARD_TANH_SCALE={S.REWARD_TANH_SCALE:g}")
     print("=" * 100)
 
-    hook = Hook()
+    hook = Hook(limit=args.max_records, seed=args.seed)
     hook.install()
     print("\n【① 抓真实战斗】")
     t0 = time.time()
     stat = collect(args, hook)
     recs = hook.recs
-    print(f"  ⇒ {stat['games']} 局 · {len(recs)} 场新开打的仗 · "
-          f"平均回合 {np.mean(stat['turns']):.0f} · 采样耗时 {time.time() - t0:.0f}s")
+    print(f"  ⇒ {stat['games']} 局 · **共开打 {hook._seen} 场** · 蓄水池留 "
+          f"{len(recs)} 场 · 平均回合 {np.mean(stat['turns']):.0f}"
+          f" · 采样耗时 {time.time() - t0:.0f}s")
     if not recs:
         print("★ 一场仗都没抓到 —— 这套参数下双方没打起来（探针无效）")
         return 10
-    if len(recs) > args.max_records:
-        idx = sorted({int(i) for i in
-                      np.linspace(0, len(recs) - 1, args.max_records).round()})
-        recs = [recs[i] for i in idx]
-    print(f"  ⇒ 抽 {len(recs)} 场进入对拍")
+    print(f"  ⇒ 抽 {len(recs)} 场进入对拍（蓄水池抽样，内存与战斗总数无关）")
 
     print(f"\n【② 逐场：DP vs 引擎 MC（每场 {args.trials} 次）】")
     print("   TV=分布的半变差（0=完全一致）  TV底=完美DP的抽样噪声  "
@@ -375,6 +408,7 @@ def main() -> int:
                             sum(v for s, v in m["occ"].items()
                                 if F in s and not (set(b.enemies[F]) & s)) / n),
                         "n_units": len(b.init[F]), "hp0": m["hp0"][F],
+                        "p_lose_dp": o.p_lose.get(F, 0.0),
                         "e_loss_dp": o.e_loss.get(F, 0.0),
                         "e_raw_mc": float(m["raw"][F].mean()),
                         "e_clamp_mc": float(m["loss"][F].mean())}
@@ -451,13 +485,18 @@ def report(rows: list[dict]) -> bool:
     print(f"  期望伤害（DP 口径：**未夹 0**）  |DP − MC| 中位 "
           f"{np.median(np.abs(el_dp - er_mc)):.2f} hp "
           f"（DP {el_dp.mean():.1f} / MC {er_mc.mean():.1f}）")
-    ov = float(np.median(er_mc / np.maximum(el_mc, 1e-9)))
+    ov = float(er_mc.mean() / max(el_mc.mean(), 1e-9))
     print(f"  ★ **口径差（不是 DP 的错）**：DP 的 `e_loss` 是**承受的伤害总量**"
           f"（`u[1] − nh`，`nh` 不夹 0），实际掉的血只有 {el_mc.mean():.1f}"
-          f" ⇒ 伤害总量是掉血的 **{ov:.2f}×**（多出来的是**过量击杀**）。"
+          f" ⇒ 伤害总量是掉血的 **{ov:.3f}×**（多出来的是**过量击杀**）。"
           f"两个数不是同一个量，喂网络的是前者。")
-    print(f"  期望轮数   |DP − MC| 中位 {np.median(np.abs(rd - rm)):.2f} 轮 "
-          f"（DP {rd.mean():.2f} / MC {rm.mean():.2f}）")
+    # ★ 剔掉 `e_rounds_dp == 0`：那种局面 DP 判"开局即定局"（0 轮），而引擎那边
+    #   仍会被调一次、什么都不做 ⇒ MC 记成 1 轮。**两边都对，是计数口径不同**，
+    #   混进去只会造出一个假的"差 1 轮"。
+    nz = rd > 0
+    print(f"  期望轮数   |DP − MC| 中位 {np.median(np.abs(rd[nz] - rm[nz])):.2f} 轮 "
+          f"（DP {rd[nz].mean():.2f} / MC {rm[nz].mean():.2f}；"
+          f"另有 {int((~nz).sum())} 场『开局即定局』已剔除）")
 
     # ★★ 闸门：**对拍台自己失效** vs **DP 说谎**，必须分得开
     #   （2026-09-30 我为这个栽过一次：只复原 armies+tiles ⇒ 攻下核心领地让失主亡国
@@ -484,6 +523,16 @@ def report(rows: list[dict]) -> bool:
                     for a, b in zip(pw, pl)])
     print(f"  结局熵（bit，log2 3 = 1.585 是上限）  中位 {np.median(ent):.2f}  "
           f"均值 {ent.mean():.2f}")
+    # ★★ 「骰子真正参与了多少」—— 现状奖励是**终局 ±1**（`SHAPING=False`），
+    #   所以骰子只有**改变胜负**时才算数。判据：这一仗的结果**不是**概率最大的那个
+    #   的概率 = `1 − max(p赢, p负, p同归)`。一边倒的仗它 ≈ 0（骰子白掷）。
+    pdraw = np.array([r["p_draw_dp"] for r in rows])
+    # ★ 名字别叫 `flip` —— 下面 C 段还有一个"符号翻转率"，两个 `flip` 会互相遮蔽
+    pflip = 1.0 - np.maximum(np.maximum(pw, pl), pdraw)
+    print(f"  ★ **骰子能改变这一仗胜负的概率**（`1 − max(p赢,p负,p同归)`）："
+          f"中位 {np.median(pflip) * 100:.0f}%  均值 {pflip.mean() * 100:.0f}%")
+    print(f"    · 一边倒（翻盘率 <10%）：{np.mean(pflip < 0.10) * 100:.0f}% 的仗"
+          f"　· 真·硬币（翻盘率 >35%）：{np.mean(pflip > 0.35) * 100:.0f}%")
 
     print("\n── C. ★ 噪声 vs 信号（按打「打分器分」这一项算）──")
     print("  Δscore = 这一格打完 − 打之前（`evaluate.score`，全知）；"
@@ -503,21 +552,36 @@ def report(rows: list[dict]) -> bool:
                    if v.mean() else 0.0)
             d.append(v.mean())
             s.append(v.std())
-            snr.append(abs(v.mean()) / max(v.std(), 1e-9))
+            # ★★ `σ = 0`（**完全确定的一场仗**：M 次重打分毫不差）不是"很小的 σ"，
+            #   它让 SNR **无穷**。第一版写 `max(σ, 1e-9)` ⇒ 打出一个 `5.8e9` 的 SNR，
+            #   把整张分箱表冲成 `6.995800000000.38` 这种串（列宽也救不了）。
+            #   ⇒ 单独计数、**不并进 SNR 统计**。
+            if v.std() > 0:
+                snr.append(abs(v.mean()) / v.std())
             flip.append(_fl)
-            _samples.append((r, abs(v.mean()), v.std(), _fl))
+            _samples.append((r, F, abs(v.mean()), v.std(), _fl))
     if d:
         d, s, snr, flip = map(np.array, (d, s, snr, flip))
-        print(f"  样本 {len(d)} 个（势力×战斗）"
+        n_det = sum(1 for x in _samples if x[3] == 0.0)
+        print(f"  样本 {len(d)} 个（势力×战斗）；其中 **{n_det} 个 σ=0**"
+              f"（骰子**完全不参与**的一场仗，已从 SNR 里剔除）"
               + (f"；另有 **{n_ended} 个直接把一方打亡国**（Δscore=±1e9，已剔除）"
                  if n_ended else ""))
         print(f"    |期望收益| 中位 {np.median(np.abs(d)):.2f} 分   "
               f"（最大 {np.abs(d).max():.1f}）")
         print(f"    骰子噪声 σ  中位 {np.median(s):.2f} 分   （最大 {s.max():.1f}）")
+        snr = np.array(snr) if len(snr) else np.array([np.nan])
         print(f"    **信噪比 |ΔE|/σ 中位 {np.median(snr):.2f}**   "
               f"<1 的占 {np.mean(snr < 1) * 100:.0f}%")
         print(f"    **符号翻转率 中位 {np.median(flip) * 100:.0f}%**"
               f"（= 单次采样里结果与期望反号的概率；50% ⇒ 纯抛硬币）")
+        # ★★ 把这个 σ 换算成**读者能掂量的东西** —— 光说"0.41 分"没人有感觉
+        _sig, _dE = float(np.median(s)), float(np.median(np.abs(d)))
+        print(f"    ★ 掂量一下：σ 中位 {_sig:.2f} 分 = **一支军**（W_ARMY={S.W_ARMY:g}）的 "
+              f"{_sig / S.W_ARMY * 100:.1f}%　= **一座厅**（W_HALL={S.W_HALL:g}）的 "
+              f"{_sig / S.W_HALL * 100:.2f}%")
+        print(f"      期望收益 |ΔE| 中位 {_dE:.2f} 分 = 一支军的 "
+              f"{_dE / S.W_ARMY * 100:.1f}%")
         print(f"    折成势函数奖励：tanh(σ/{S.REWARD_TANH_SCALE:g}) 中位 "
               f"{np.median(np.tanh(s / S.REWARD_TANH_SCALE)):.3f}，"
               f"tanh(|ΔE|/{S.REWARD_TANH_SCALE:g}) 中位 "
@@ -527,20 +591,29 @@ def report(rows: list[dict]) -> bool:
         #   ★ 这个分箱是**从数据里长出来的**，不是拍的：汇总一跑就看见规则 AI 的仗
         #     `p_win` 几乎全是 1.000（它只打必胜的仗）⇒ 不分箱的话，
         #     "骰子噪声小"这个结论会被**必胜仗**稀释掉，而模型面对的恰恰是悬的仗。
-        print("    ── 按「这场仗有多悬」分箱（dec = max(p赢, p负)）──")
-        print(f"      {'档':<10}{'n':>5}{'σ中位':>9}{'|ΔE|中位':>10}"
+        def _dec(r, F):
+            """这一方自己的悬殊度。旧 JSON 没有 `p_lose_dp` ⇒ 两国局可反推。"""
+            q = r["per"][F]
+            pl = q.get("p_lose_dp")
+            if pl is None:
+                pl = max(0.0, 1.0 - q["p_win_dp"] - r["p_draw_dp"])
+            return max(q["p_win_dp"], pl)
+        print("    ── 按「这场仗有多悬」分箱（dec = **该方自己**的 max(p赢, p负)）──")
+        print(f"      {'档':<14}{'n':>5}{'σ中位':>9}{'|ΔE|中位':>10}"
               f"{'SNR中位':>9}{'翻转率':>9}")
-        for name, lo, hi in (("果断 ≥0.90", 0.90, 1.01), ("有把握 0.65~0.90", 0.65, 0.90),
+        for name, lo, hi in (("果断 ≥0.90", 0.90, 1.01),
+                             ("有把握 0.65~0.90", 0.65, 0.90),
                              ("★硬币 <0.65", 0.0, 0.65)):
-            sel = [(dd, ss, ff) for r, dd, ss, ff in _samples
-                   if lo <= max(r["p_win_dp"], r["p_lose_dp"]) < hi]
+            sel = [(dd, ss, ff) for r, F, dd, ss, ff in _samples
+                   if lo <= _dec(r, F) < hi]
             if not sel:
                 continue
             dd = np.array([x[0] for x in sel]); ss = np.array([x[1] for x in sel])
             ff = np.array([x[2] for x in sel])
-            print(f"      {name:<10}{len(sel):>5}{np.median(ss):>9.2f}"
-                  f"{np.median(np.abs(dd)):>10.2f}"
-                  f"{np.median(np.abs(dd) / np.maximum(ss, 1e-9)):>9.2f}"
+            m = ss > 0
+            _sn = f"{np.median(np.abs(dd[m]) / ss[m]):>9.2f}" if m.any() else f"{'∞':>9}"
+            print(f"      {name:<14}{len(sel):>5}{np.median(ss):>9.2f}"
+                  f"{np.median(np.abs(dd)):>10.2f}{_sn}"
                   f"{np.median(ff) * 100:>8.0f}%")
 
     print("\n── D. 阵亡：一场仗到底吃掉几支军 ──")
@@ -557,8 +630,12 @@ def report(rows: list[dict]) -> bool:
               f"平均阵亡 {gone.mean():.2f} 支 · 一场仗打光全部兵力的场次占 "
               f"{np.mean(left < 0.5) * 100:.0f}%")
     print("\n── E. 抽查（DP 该不该被信）──")
-    print(f"  DP 被顶到上限（`truncated`）的场次："
-          f"{sum(1 for r in rows if r['truncated'])}/{len(rows)}")
+    tr = np.array([r["truncated"] for r in rows])
+    ncut = int((tr > 1e-9).sum())            # ★ `>0` 会把 1e-16 的浮点噪声算成截断
+    print(f"  DP 被顶到上限（`truncated` > 1e-9）的场次：{ncut}/{len(rows)}"
+          f"（最大 {tr.max():.2e}）"
+          + ("　⇒ ★ 这些局的概率**质量有丢失**，网络看到的是被削过的分布"
+             if ncut else "　⇒ 没有一场超预算"))
     print("=" * 100)
     return bool(bad)
 
