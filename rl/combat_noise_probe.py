@@ -70,6 +70,10 @@ BARBARIAN = CP.BARBARIAN
 MAX_ROUNDS = 60           # MC 重打轮数上限（与 `tests/test_combat_probs.py` 同）
 # ★ 闸门自检开关：把「每 trial 整世界重来」故意破坏回「只复原 armies+tiles」。
 SABOTAGE = False
+# ★ 只统计**纯玩家对打**（`--pvp-only`）—— 分析期过滤，`--analyze` 也认。
+#   用户 2026-09-30：「不要测规则AI，规则AI只会打野人」：打野人的仗和两个玩家
+#   互殴**不是一回事**（野人只守无主格、不占地、不出兵增援），混在一起会稀释结论。
+PVP_ONLY = False
 
 
 # ============================================================ ⓪ 原始伤害计量
@@ -180,6 +184,22 @@ class Hook:
                 "world": _trim(copy.deepcopy(world))}
 
 
+def _fresh_nets():
+    """**空网**（随机初始化）—— 现行课程第一阶段就是它：`空网 vs random`。
+
+    ★ 为什么值得单列一条路（用户 2026-09-30：「不要测规则AI，规则AI只会打野人」）：
+      规则 AI 驱动出来的样本 **69/80 场含野人**（纯玩家对打只有 9 场）——
+      那是"打野人"，跟"两个玩家互殴"根本不是一回事。
+      而"骰子噪声会不会教坏模型"这件事，要看的恰恰是**学习者自己**打出来的仗，
+      而且是它**还在探索（策略接近均匀）**时的仗。
+    """
+    from rl.model import build_model
+    from rl import vocab as V
+    net = build_model(mem_slots=V.M_SLOTS)
+    net.eval()
+    return {0: net}
+
+
 def _load_nets(path: str):
     """读备份权重（`_load_seed` 自己会校**形状指纹**，对不上直接 SystemExit）。"""
     from rl.model import build_model
@@ -195,7 +215,9 @@ def _load_nets(path: str):
 
 
 def collect(args, hook: Hook) -> dict:
-    nets = _load_nets(args.ckpt) if args.driver == "net" else None
+    nets = None
+    if args.driver == "net":
+        nets = _fresh_nets() if args.fresh else _load_nets(args.ckpt)
     from rl import opponents as OPP
     stat = {"turns": [], "winner": []}
     for g in range(args.games):
@@ -310,16 +332,21 @@ def main() -> int:
     ap.add_argument("--trials", type=int, default=3000)
     ap.add_argument("--seed", type=int, default=1234)
     ap.add_argument("--max-records", type=int, default=80)
-    ap.add_argument("--driver", choices=("rule", "net"), default="rule")
+    ap.add_argument("--driver", choices=("rule", "net"), default="net")
+    ap.add_argument("--fresh", action="store_true",
+                    help="用**空网**（随机初始化）当学习者 —— 现行课程第一阶段")
     ap.add_argument("--ckpt", default="rl/runs/backup_20260929/sp3_iter375.pt")
     ap.add_argument("--json", default="")
     ap.add_argument("--analyze", default="",
                     help="只读一份 --json 明细重打汇总（不重跑 MC）")
+    ap.add_argument("--pvp-only", action="store_true",
+                    help="只统计**纯玩家对打**（剔掉含野人的场次）")
     ap.add_argument("--sabotage", action="store_true",
                     help="故意破坏对拍台（闸门自检：必须能看见它响）")
     args = ap.parse_args()
-    global SABOTAGE
+    global SABOTAGE, PVP_ONLY
     SABOTAGE = bool(args.sabotage)
+    PVP_ONLY = bool(getattr(args, "pvp_only", False))
     if args.analyze:
         blob = json.loads(Path(args.analyze).read_text(encoding="utf-8"))
         rows = blob["rows"]
@@ -392,6 +419,7 @@ def main() -> int:
             "cell": list(rec["cell"]), "order": list(b.order),
             "attacker": sorted(b.attacker), "owner": b.owner,
             "n_units": {F: len(b.init[F]) for F in b.order},
+            "has_barb": BARBARIAN in b.order,
             "soak": {F: int(b.soak[F]) for F in b.order},
             "p_win_dp": pw_dp, "p_win_mc": pw_mc,
             "p_lose_dp": pl_dp, "p_lose_mc": pl_mc,
@@ -459,8 +487,14 @@ def _inconsistent(r: dict) -> str:
 
 def report(rows: list[dict]) -> bool:
     """打汇总；返回 **`True` = 对拍台本身失效**（不是 DP 错，是预言机错）。"""
+    n_all = len(rows)
+    if PVP_ONLY:
+        rows = [r for r in rows if not r.get("has_barb")]
     if not rows:
+        print("★ 过滤后一场不剩（`--pvp-only`？）")
         return False
+    if len(rows) != n_all:
+        print(f"  （`--pvp-only`：从 {n_all} 场里剔掉 {n_all - len(rows)} 场含野人的）")
     tv = np.array([r["tv"] for r in rows])
     tvf = np.array([r["tv_floor"] for r in rows])
     pw = np.array([r["p_win_dp"] for r in rows])
