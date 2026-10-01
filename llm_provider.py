@@ -407,10 +407,11 @@ class OpenAICompat:
                         hit_n = _cached_tokens(u)
                     if not miss_n and in_n:
                         miss_n = max(0, in_n - hit_n)
-                    # ★ "usage 对象在不在" **不足以**判断有没有真数：本机 qoder-flash 网关会回
-                    #   一个**全 0 的 usage 对象**（上游不给计数）——只看"在不在"就会把它当成
-                    #   "报了真数"，于是估算分支不触发、显示照旧 `输出0.0tok`（2026-09-20 实测栽过）。
+                    # ★ "usage 对象在不在" **不足以**判断有没有真数：本机 qoder-flash 网关**原先**
+                    #   会回一个**全 0 的 usage 对象**——只看"在不在"就会把它当成"报了真数"，
+                    #   于是估算分支不触发、显示照旧 `输出0.0tok`（2026-09-20 实测栽过）。
                     #   真调用不可能 prompt/completion 同时为 0 ⇒ **全 0 一律按"没报"处理**。
+                    #   （2026-10-02：网关已修成透出上游真数；这条纪律对任何网关都成立，留着。）
                     stream_stats["usage_reported"] = bool(out_n or in_n or miss_n or hit_n)
                     stream_stats["out_tokens"] = out_n
                     det = getattr(u, "completion_tokens_details", None)
@@ -445,10 +446,14 @@ class OpenAICompat:
         msg = {"content": c_s, "reasoning_content": r_s}
         if tool_acc:
             msg["tool_calls"] = [tool_acc[i] for i in sorted(tool_acc)]
-        # ★ 提供方没报用量（实测：本机 qoder-flash 网关的 usage 恒为 0）⇒ 用**本地估算**兜底
-        #   并打 `estimated` 标记。绝不把"没报"当成 0：那样看海台会打印 `输出0.0tok(思考0.0)`，
-        #   看起来像"模型一个字都没说"，是骗人的显示（用户 2026-09-20：「报错误的会导致估价
-        #   错误……那应该改游戏，而不是改网关」）。客户端据此把数字显示成 `≈`。
+        # ★ 提供方没报用量 ⇒ 用**本地估算**兜底并打 `estimated` 标记。绝不把"没报"当成 0：
+        #   那样看海台会打印 `输出0.0tok(思考0.0)`，看起来像"模型一个字都没说"，是骗人的显示
+        #   （用户 2026-09-20：「报错误的会导致估价错误……那应该改游戏，而不是改网关」）。
+        #   客户端据此把数字显示成 `≈`。
+        #   ★ 2026-10-02 更正：本机 qoder-flash 网关**原先**回全 0，但根因不在"上游不给计数"——
+        #   上游每块都带 usage（含 cached_tokens/credits），是网关 `_parse_chunk` 把它丢了。
+        #   网关已修，现在这条路会带上真数；这里的估算分支留着兜底**没报用量的网关**，
+        #   全 0 一律按"没报"处理这条纪律照旧（真调用不可能 prompt/completion 同时为 0）。
         #   注意：这组数只服务**展示**；上下文规划器用的是记录体积（`ctx.size_fn`），不吃它。
         if not stream_stats.get("usage_reported"):
             stream_stats["estimated"] = True

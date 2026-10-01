@@ -3020,6 +3020,30 @@ def _asst_msg(msg: dict, content, reasoning: str) -> dict:
     return out
 
 
+def _usage_running_line(world) -> str:
+    """📊 行尾追加的**全期累计 token**（`world.token_usage` 的总账）。
+
+    **满 100 万才显示**：八国 × 几百回合，每条状态行都挂一长串数字会把真正的信息淹掉。
+    掺了本地估算就整行打 `≈`（见 `World.usage_totals` 的 `estimated`）——
+    绝不把估数当准数报（2026-09-20 那条口径：「报错误的会导致估价错误」）。
+    """
+    try:
+        total = world.usage_totals()
+    except Exception:                      # 统计永远不该把跑局搞崩
+        return ""
+    if total["total"] < 1_000_000:
+        return ""
+    mark = "≈" if total["estimated"] else ""
+    parts = [f"累计 {mark}{total['total'] / 1e6:.1f}M tok"]
+    if total.get("hit_rate") is not None:
+        parts.append(f"命中{total['hit_rate'] * 100:.0f}%")
+    if total["out"]:
+        parts.append(f"输出{total['out'] / 1e6:.2f}M")
+    if total["est_calls"]:
+        parts.append(f"其中{total['est_calls']}/{total['calls']}次为估算")
+    return "｜" + " ".join(parts)
+
+
 def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=None,
                     head=None) -> int:
     """跑一国一回合：反复调 LLM 用工具，直到 end_turn **被引擎回执认可** / 步数上限。
@@ -3090,15 +3114,22 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=No
             #   （用户 2026-09-20：「报错误的会导致估价错误」——宁标"估"，不装"准"）
             #   思考那一格单独判：Anthropic 那路**报了真用量但思考 token 分不出来**（它把
             #   思考并进 output_tokens），这格是本地估的 ⇒ 也得打 ≈（`reason_estimated`）。
+            #   ★ 2026-10-02：本机 qoder-flash 网关已改为**透出上游真数**（上游一直在报
+            #   prompt/completion/cached_tokens，是网关 `_parse_chunk` 把它丢了），
+            #   所以走那条路时这里不再出现"未报用量"。
             eq = "≈" if agg.get("estimated") else ""
             rq = "≈" if (agg.get("estimated") or agg.get("reason_estimated")) else ""
             tok = (f"输出{eq}{agg['out_tokens']}tok(思考{rq}{agg['reason_tokens']})"
                    + ("（本网关未报用量，此为本地估算）" if agg.get("estimated") else ""))
+            # ★ 累计进世界总账（`world.token_usage`）：看海台要能回答"这一局到底烧了多少"。
+            #   估的与报的分开数（见 `World.add_usage`），所以把 agg 原样交给它。
+            world.add_usage(name, agg)
             world.log(
                 f"📊 {name} 本回合: {agg['calls']}次调用 {agg['wall']:.0f}s｜"
                 f"{tok}{cache}｜"
                 f"首token均{agg['first'] / agg['calls']:.0f}s｜最长无输出{agg['maxgap']:.0f}s｜"
-                f"真正输出{agg['stream']:.0f}s｜速度{eq}{speed:.1f}tok/s",
+                f"真正输出{agg['stream']:.0f}s｜速度{eq}{speed:.1f}tok/s"
+                + _usage_running_line(world),
                 phase="事件")
         dropped = _store_turn_memory(world, name, messages, base, plan)
         if dropped:

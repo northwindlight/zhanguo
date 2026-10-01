@@ -156,7 +156,14 @@ SAVE_DEFAULTS: dict = {
     # v4 起：每回合的 GDP run-rate（央行授信按它算）。旧档缺 → 空表，
     # 由 `nation_gdp` 退回"最新一期经济报表的 GDP"，不会把授信算成 0。
     "gdp_run": {},
+    # 全期累计 token 用量（**纯统计**）。旧档缺 → 空表；load 时按存档里的国家补零起步。
+    # 默认必须是**空**的表，不能写成含"秦楚齐"的模板：八国档读进来会多出三个不存在的国家。
+    "token_usage": {},
 }
+# `World.token_usage` 每国一格的字段清单。**save 与 load 共用这一份**：
+# save 按它补齐国家键，load 按它重建骨架 ⇒ 两边顺序、字段名必然一致，
+# 存档往返（save→load→save）才可能字节级相等（见 test_save_load_save_is_byte_identical）。
+USAGE_FIELDS = ("calls", "prompt", "hit", "miss", "out", "reason", "est_calls", "real_calls")
 SAVE_KEYS = ("version", "size", "seed", "turn", "rng_state", "nations", "order",
              "tiles", "armies", "next_army_seq", "diplo_built", "nation_code",
              "guard_once", "wars", "war_id", "truce", "blocs",
@@ -166,7 +173,7 @@ SAVE_KEYS = ("version", "size", "seed", "turn", "rng_state", "nations", "order",
              "extra_prompt", "opening_guide", "peace_offers", "proposals", "offer_id", "prices",
              "equilibrium", "flow_in", "flow_out", "grid_short", "energy_report",
              "econ_summary", "econ_reports", "ledger", "spend", "gdp_run", "history",
-             "history_seen")
+             "history_seen", "token_usage")
 
 
 class SaveFormatError(Exception):
@@ -460,6 +467,13 @@ class World:
         self.spend: dict[str, dict] = {}                # 总消费（全期累计，不清零）：终局排名用
         self.history: list[dict] = []
         self.history_seen = 0
+        # ★ 全期累计 token 用量（**只为统计**，不参与任何规则结算）。
+        #   口径与 llm_provider 的 stats 对齐：hit+miss=输入总量、out 是输出、reason 是其中的思考。
+        #   按国分、只认 `nations` 里的键（`add_usage` 会滤掉没有的国家）——
+        #   绝不让"模型名"之类的外部字符串当键长进存档，否则存档契约断言会不定期炸。
+        #   est_calls/real_calls 分开记：网关没报用量时走本地估算，那部分必须**可分辨**，
+        #   不然汇总出来的"总用量"会把估算当真数用（用户 2026-09-20 的那条口径）。
+        self.token_usage: dict[str, dict] = {}
         # gen=False：只为读档准备一个空壳（世界由存档整体还原）。默认 gen=True 才铺地图/野人——
         # 否则 load() 会先按默认「秦楚齐」建一遍，再逐格覆盖存档，留下存档里没有的**幽灵地块**
         # （国家数 ≠3 时必然发生：默认三国里没被覆盖的那些格子会留在图上）。
@@ -476,6 +490,10 @@ class World:
             else:
                 self._place_ring(names)
             self._ensure_guardians()
+        # ★ 表必须在**国家建完之后**补齐：`nations=` 直传的国家是在上面这个 gen 块里
+        #   才进 self.nations 的（此前只有空壳 {}）。若照上面那样提前建表，
+        #   直传国家的世界会得到空表 ⇒ 跑一局什么都不记，还和 load 侧不对称。
+        self.token_usage = {nm: {k: 0 for k in USAGE_FIELDS} for nm in self.nations}
 
     # ------------------------------------------------------------- 基建
     def alive(self) -> list[str]:
@@ -1071,6 +1089,51 @@ class World:
         来回、写信、情报。一句话：**「签了没有」公开，「怎么谈的」不公开。**
         """
         return self.broadcast(text, phase="外交")
+
+    def add_usage(self, nation: str, stats: dict) -> None:
+        """把一次调用的用量累计进 `token_usage[nation]`（**只为统计**，不参与结算）。
+
+        口径与 `llm_provider` 的 stats 同键：`hit`/`miss` 是输入的两半（hit+miss=输入总量）、
+        `out_tokens` 是输出、`reason_tokens` 是其中的思考。
+
+        两条纪律（都是这个项目栽过的坑）：
+        1. **只认 `nations` 里的国家**。键一旦让外部字符串长进来（模型名、临时 actor），
+           存档契约断言就会在某个不相干的回合突然炸 —— 宁可丢掉这一笔记账。
+        2. **估的与报的分开数**。`usage_reported` 为假时走的是本地估算，那部分必须能
+           被分辨出来；否则汇总出来的"总用量"就是估数与真数的混合，拿它算钱会错得没边。
+        """
+        slot = self.token_usage.get(nation)
+        if slot is None:
+            return
+        hit = int(stats.get("hit") or 0)
+        miss = int(stats.get("miss") or 0)
+        out = int(stats.get("out_tokens") or 0)
+        slot["calls"] += 1
+        slot["hit"] += hit
+        slot["miss"] += miss
+        slot["prompt"] += hit + miss
+        slot["out"] += out
+        slot["reason"] += int(stats.get("reason_tokens") or 0)
+        if stats.get("usage_reported"):
+            slot["real_calls"] += 1
+        else:
+            slot["est_calls"] += 1
+
+    def usage_totals(self) -> dict:
+        """把 `token_usage` 汇总成一行总账（放看海台用）。
+
+        `estimated` 为真表示总数里掺了本地估算 —— 显示时要打 `≈`，别当真数看。
+        """
+        total = {"calls": 0, "prompt": 0, "hit": 0, "miss": 0, "out": 0,
+                 "reason": 0, "est_calls": 0, "real_calls": 0}
+        for slot in self.token_usage.values():
+            for k in total:
+                total[k] += int(slot.get(k) or 0)
+        inp = total["hit"] + total["miss"]
+        total["hit_rate"] = (total["hit"] / inp) if inp else None
+        total["total"] = total["prompt"] + total["out"]
+        total["estimated"] = bool(total["est_calls"])
+        return total
 
     def log(self, text: str, phase: str = "事件", nation: str | None = None,
             x: int | None = None, y: int | None = None,
@@ -4150,6 +4213,13 @@ class World:
             "gdp_run": self.gdp_run,
             "history": self.history,
             "history_seen": self.history_seen,
+            # ★ 按 `USAGE_FIELDS` 补齐**每个国家**的格子（缺的补 0），而不是原样倒出
+            #   `self.token_usage`：`gen=False` 的空壳世界、或建号后中途才补的国家，
+            #   它可能只有一部分键甚至全空。load 侧是按国家重建的 ⇒ 不补齐就会出现
+            #   "存的是 {}、读回来是 {秦:{...零...}}" 这种不对称，字节级往返立刻失败。
+            "token_usage": {n: {k: int(self.token_usage.get(n, {}).get(k, 0) or 0)
+                                for k in USAGE_FIELDS}
+                            for n in self.nations},
         }
         # 契约断言：save 的键集合必须与 SAVE_KEYS 严丝合缝——忘了登记的新字段
         # 在第一次存档就炸（开发期），而不是变成静默丢档（运行时才发现=惨案）
@@ -4268,6 +4338,13 @@ class World:
         # `nation_gdp` 会退回最新一期报表的 GDP——不许把"缺字段"读成"GDP=0、授信=0"。
         w.gdp_run = {n: float(v) for n, v in (data.get("gdp_run") or {}).items()
                      if n in w.nations}
+        # 全期累计 token 用量：**统计字段，不参与结算**。按存档里的国家重建零值骨架，
+        # 再把档内已有的数搬进来 —— 老档（没有这个键）也能正常开，只是从 0 起算。
+        w.token_usage = {
+            n: {k: int((data.get("token_usage") or {}).get(n, {}).get(k, 0) or 0)
+                for k in USAGE_FIELDS}
+            for n in w.nations
+        }
         # 地块：存档即完整（recruited/built/buildings/pending/core 与全部建筑键都在），
         # 只做 "x,y" 字符串键 → (x,y) 元组键的还原，不再补字段
         for k, t in data["tiles"].items():

@@ -406,6 +406,26 @@ class TestEngineIsMainByteForByte(unittest.TestCase):
     ENGINE_FILES = ("mp.py", "game.py", "mp_ai.py", "mp_run.py")
 
     def test_engine_files_identical_to_main(self):
+        # ★ 站在 main 上时这条**无意义**：`main` 解析到的就是 HEAD，于是比较退化成
+        #   "工作区 vs HEAD"——任何未提交的引擎改动都会判失败，而那恰恰是本测试
+        #   docstring 叫你做的事（"要改就改在 main 上"）。规矩是"feature 分支相对
+        #   main 一字不改"，main 自己没有可比对象 ⇒ 跳过，别把正常开发报成漂移。
+        try:
+            head = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=ROOT,
+                                  capture_output=True, text=True, timeout=30)
+            main_sha = subprocess.run(["git", "rev-parse", "main"], cwd=ROOT,
+                                      capture_output=True, text=True, timeout=30)
+            head_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT,
+                                      capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError) as e:
+            raise unittest.SkipTest(f"取不到 git 信息（{e}）") from e
+        if head.returncode != 0 or main_sha.returncode != 0 or head_sha.returncode != 0:
+            raise unittest.SkipTest("git 信息取不到（不是仓库或缺 main）")
+        if main_sha.stdout.strip() == head_sha.stdout.strip():
+            raise unittest.SkipTest(
+                f"当前就在 main 上（{head.stdout.strip()}）——引擎一字不改是对"
+                f"feature 分支的约束，main 上没有可比对象")
+
         differ = []
         for f in self.ENGINE_FILES:
             try:
