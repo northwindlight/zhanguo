@@ -218,5 +218,50 @@ class TestCachePrefixInvariant(unittest.TestCase):
         self.assertNotIn("period", manual)
 
 
+class TestReplayHead(unittest.TestCase):
+    """`replay_head` + `plan.archive_text`：压缩调用要拿它们求"上一次请求的前缀"切点
+    （见 mp_ai._compact_block）。这两样错了，压缩调用就静默不命中——最难查的那种错。"""
+
+    def _build(self, turns=6, fixed=4, long_memory=""):
+        w = StubWorld()
+        w.turn_memory["秦"] = [rec(i) for i in range(1, turns + 1)]
+        msgs, plan = ctx.build(cfg={"ctx_full_turns": fixed}, mem=w.turn_memory["秦"],
+                               sums=sums_upto(turns), blocks=[], system_text=SYSTEM,
+                               tail_text="【本回合状态】", long_memory=long_memory)
+        return w, msgs, plan
+
+    def test_archive_text_is_exactly_what_was_sent(self):
+        """归档必须留**这一次真正渲染出来的字节**：重算一遍 render_archive 会因为
+        before_turn / long_memory 变了而对不上，命中整段断在归档处。"""
+        _w, msgs, plan = self._build(long_memory="旧记忆：与齐结盟。")
+        self.assertIn(plan.archive_text, msgs[1]["content"])
+        self.assertIn("旧记忆：与齐结盟。", plan.archive_text)
+
+    def test_head_length_matches_the_sent_messages(self):
+        """切点必须落在真请求的那条合并消息之后：归档(user) 与请求里第一条回合记录的
+        首条(user) 会被 assemble 合成**一条**，所以"从请求的第一条记录数到要回放的
+        最后一条"的**合并后条数**才是真请求里的下标（不是 1+1+回合数）。"""
+        w, msgs, plan = self._build()          # 固定 4 回合 + 6 条记录 ⇒ 请求里是第 3~6 回合
+        self.assertEqual(plan.before_turn, 3)
+        dropped = [r for r in w.turn_memory["秦"] if r["turn"] in (3, 4)]
+        head = ctx.replay_head(msgs[0]["content"], plan.archive_text, dropped)
+        self.assertEqual(msgs[:len(head)], head, "切出来的前缀必须逐字节等于真请求的前缀")
+        # 归档与第 3 回合（=请求里的第一条记录）就是被合成的那一对
+        self.assertEqual(head[1]["role"], "user")
+        self.assertIn("历史归档", head[1]["content"])
+        self.assertIn("第3回合", head[1]["content"])
+        body = "".join(str(m.get("content")) for m in head)
+        self.assertNotIn("第5回合", body, "没滑掉的回合不许混进前缀——切点算错了")
+
+    def test_no_archive_when_there_is_nothing_to_archive(self):
+        w = StubWorld()
+        w.turn_memory["秦"] = [rec(1)]
+        _msgs, plan = ctx.build(cfg={"ctx_full_turns": 1}, mem=w.turn_memory["秦"],
+                                sums=[], blocks=[], system_text=SYSTEM, tail_text="状态")
+        self.assertEqual(plan.archive_text, "")
+        head = ctx.replay_head(SYSTEM, plan.archive_text, [])
+        self.assertEqual(head, [{"role": "system", "content": SYSTEM}])
+
+
 if __name__ == "__main__":
     unittest.main()

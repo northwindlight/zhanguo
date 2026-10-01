@@ -117,6 +117,23 @@ def est_tokens(text: str | None) -> int:
     return int(c * _CJK_W + (len(text) - c) * _OTHER_W) + 1
 
 
+# ---------------------------------------------------------------------------
+# 提供方私有回填键（挂在 OpenAI 形态的消息上，随 turn_memory 一起落盘）
+# ---------------------------------------------------------------------------
+REPLAY_KEY = "reasoning_signature"
+"""Anthropic thinking 签名的落盘位置，值形如 `{"model": …, "signature": …}`。
+
+**为什么定义在 ctx.py**：这个模块是"一条消息长什么样"（`content` / `reasoning_content` /
+`tool_calls`）这条契约的拥有者，凡是**会重写消息**的地方都得照顾它——本文件里有两处
+（`_shrink_messages` 换掉思考正文、`merge_same_role` 合并两条 assistant），提供方那边在
+`llm_provider.AnthropicCompat`（用它拼回 thinking block）与 `_public_messages`（OpenAI
+那路发请求前摘掉它）里用。详细理由见 `llm_provider` 模块 docstring「Anthropic 那一路」。
+
+**它不进 token 预算**：`msg_tokens` 只看 content / reasoning_content / tool_calls。
+"""
+PRIVATE_MSG_KEYS = (REPLAY_KEY,)
+
+
 def msg_tokens(m: dict) -> int:
     """估算一条 OpenAI 消息（含工具调用参数）的 token 数。"""
     t = est_tokens(m.get("content")) + est_tokens(m.get("reasoning_content"))
@@ -142,6 +159,11 @@ def _shrink_messages(msgs: list[dict], *, keep_reasoning: bool, tool_trim: int) 
         nm = dict(m)
         if not keep_reasoning and nm.get("role") == "assistant" and nm.get("reasoning_content"):
             nm["reasoning_content"] = "（思考过程已并入历史归档，细节以 rules/面板为准）"
+            # ★ 思考正文被换掉了 ⇒ 签名**必须一起丢**：Anthropic 回放 thinking 要求签名与
+            #   正文逐字节对应，拿旧签名配一段占位文案，轻则被拒 400（＝终止整局），重则
+            #   让模型把"已归档"当自己真想过的话。少了签名，翻译层就整块不回放 thinking。
+            for _k in PRIVATE_MSG_KEYS:
+                nm.pop(_k, None)
         if tool_trim and nm.get("role") == "tool":
             c = nm.get("content") or ""
             if len(c) > tool_trim:
@@ -252,7 +274,7 @@ class Plan:
                  "sys_tokens", "tail_tokens", "archive_tokens", "replay_tokens",
                  "replay_turns", "before_turn", "stable_tokens",
                  "old_reasoning", "tool_trim", "roll", "period", "slice_keep",
-                 "effective_period")
+                 "effective_period", "archive_text")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -497,6 +519,17 @@ def merge_same_role(msgs: list[dict]) -> list[dict]:
             if role == "assistant" and not last.get("tool_calls") and not m.get("tool_calls"):
                 last["content"] = _join(last.get("content"), m.get("content"))
                 if last.get("reasoning_content") or m.get("reasoning_content"):
+                    # ★ 提供方私有回填键（thinking 签名）跟着思考正文走，两条规矩：
+                    #   · 两边都有思考 ⇒ 拼出来的正文已不是任何一次签名的原文 ⇒ 签名作废
+                    #     （凑一个假签名去回放，等于拿 400 换整局终止）；
+                    #   · 只有新的那条有思考 ⇒ 正文原样搬来，签名一起搬（它还是原文的签名）。
+                    if last.get("reasoning_content") and m.get("reasoning_content"):
+                        for _k in PRIVATE_MSG_KEYS:
+                            last.pop(_k, None)
+                    elif m.get("reasoning_content"):
+                        for _k in PRIVATE_MSG_KEYS:
+                            if m.get(_k):
+                                last[_k] = m[_k]
                     last["reasoning_content"] = _join(last.get("reasoning_content"),
                                                       m.get("reasoning_content"))
                 continue
@@ -514,6 +547,26 @@ def assemble(system_text: str, archive_text: str, records: list[dict],
         msgs.extend(rec.get("messages") or [])
     if tail_text:
         msgs.append({"role": "user", "content": tail_text})
+    return merge_same_role(msgs)
+
+
+def replay_head(system_text: str, archive_text: str, records: list[dict]) -> list[dict]:
+    """重建「system → 归档 → 这批回合」的消息头，**与 `build()` 同一套合并规则**。
+
+    只给一个用处：**求切点**——压缩调用要接着上一次请求的前缀往下发（见
+    `mp_ai._compact_block`），而切点不能按"回合数"硬算：`assemble` 末尾那次
+    `merge_same_role` 会把归档（user）与紧随其后的回合首条（也是 user，本回合状态）
+    合成**一条**消息。所以先在这里把同样的头拼一遍、数出它合并后的条数，再去真发出去
+    的那份 `messages` 上切片——**字节一律取真发的那份**，别拿本函数的返回值去发
+    （重渲染出来的两条独立 user 消息会让命中断在归档末尾，正好断在被压区间的起点）。
+
+    长度可数、内容不必信：本函数只保证"合并后的条数"与真请求的前缀一致。
+    """
+    msgs: list[dict] = [{"role": "system", "content": system_text}]
+    if archive_text:
+        msgs.append({"role": "user", "content": archive_text})
+    for rec in records:
+        msgs.extend(dict(m) for m in (rec.get("messages") or []))
     return merge_same_role(msgs)
 
 
@@ -569,6 +622,11 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
 
     plan.replay_turns = len(records)
     plan.before_turn = before
+    # ★ 归档**这一次真正渲染出来的字节**留在 plan 上：压缩调用要拿它 + 被滑掉的回合原文
+    #   拼出"上一次请求的前缀"（见 `replay_head` / `mp_ai._compact_block`）。重算一遍
+    #   `render_archive(...)` 是错的——`before_turn`、`long_memory` 在压缩那一刻都可能
+    #   已经变了，重算出来的就不是发出去的那份字节，命中会在归档处整段断掉。
+    plan.archive_text = archive_text
     # 稳态可命中前缀 = system + 归档 + 除最后一回合外的 replay（下一回合这两段字节不变；
     # 下滑那一回合除外——那时 replay 整体位移，前缀全废）
     last = record_tokens(records[-1]) if records else 0

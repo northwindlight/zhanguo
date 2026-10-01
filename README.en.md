@@ -96,6 +96,16 @@ Each nation is an LLM agent interacting via function calling:
 - Nations without keys are played by the built-in rule AI (`dummy_turn`), version-configurable
   (default `v10`; `v11` also available), obeying the same vision discipline and never peeking — competing on
   the same information as LLM players.
+- **Exactly two providers** (config key `provider`): `openai` (any OpenAI-compatible endpoint,
+  default, **treated as DeepSeek**) and `anthropic` (the Anthropic Messages protocol — e.g.
+  `https://api.deepseek.com/anthropic` or a token-plan `…/apps/anthropic` base). The Anthropic
+  path uses **stdlib only** (no `anthropic` package needed) and persists the model's
+  **thinking blocks together with their signatures**, replaying them next turn (the official API
+  rejects a missing signature with 400, so a missing/stale signature degrades to "replay no
+  thinking"). Shared keys (`thinking` / `max_tokens` / `temperature` / `api_retries` /
+  `api_ttft_timeout` …) mean the same on both paths; the Anthropic-only ones (`anthropic_auth` /
+  `anthropic_beta` / `anthropic_cache_control` / `anthropic_thinking_budget`) are documented in
+  `llm_provider.py`'s docstring.
 
 ## Context & memory (cost & continuity of long games)
 
@@ -108,6 +118,11 @@ Context is assembled by **decreasing stability**, so prefix caching hits as much
 - **Recursive long-term memory** — rounds sliding out of the replay are folded into a memory by one
   LLM call that **expands on the previous memory** (never drops old facts). It lives as a byte-stable
   head block and carries long-range plans / alliances / lessons — it only changes on compaction.
+  ★ That auxiliary call itself **continues the main request's warm prefix**
+  (`[system][archive][raw slid-out rounds]` + a trailing instruction, with `tools` and
+  `tool_choice` replayed verbatim), so it is almost entirely a cache hit and only the instruction
+  plus the summary are new bytes (measured 93.6% on the real endpoint, 2026-10-02; the old shape
+  started a separate request and hit only 9.8% on compaction turns).
 - **Non-sliding periodic compaction** (`ctx_roll="period"`) — between compactions the replay is
   **append-only, the prefix does not change one byte**; when `ctx_period` is unset the period is
   **auto-derived from the window geometry × measured per-turn size** (set a number to fix it).
@@ -136,7 +151,7 @@ byte-identical to main, so rule changes never need cherry-picking. Design docs a
 | `game.py` · `mp.py` | Shared rules layer · Multi-nation engine `World` (settlement / combat / diplomacy / alliances / vision / save) |
 | `mapgen.py` | Map generation: `(seed, size)` → full terrain & resource map (blue noise + density modulation) |
 | `mp_ai.py` | AI layer: 35 tools (incl. memory_search), system prompt, panels, provider-agnostic turn loop |
-| `llm_provider.py` | LLM provider adaptation (OpenAI-compatible endpoints + reserved Anthropic slot) |
+| `llm_provider.py` | LLM provider adaptation (OpenAI-compatible endpoints **/ Anthropic Messages**; defaults, retries and timeouts for both paths live in this one file) |
 | `ctx.py` | Context-window management: token estimation, budget allocation, cache-friendly assembly (shrink / non-sliding periodic compaction / recursive long-term memory) |
 | `mp_run.py` · `console.py` | Orchestrator · watch-terminal (Markdown rendering, CJK-width aware) |
 | `settlement.py` | End-game settlement: total-consumption ranking + settlement chamber |

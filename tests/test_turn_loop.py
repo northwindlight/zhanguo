@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import types
@@ -16,6 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import ctx  # noqa: E402
+import llm_provider  # noqa: E402
 import mp  # noqa: E402
 import mp_ai  # noqa: E402
 
@@ -66,13 +69,19 @@ class _FakeCompletions:
 
     def create(self, **kw):
         self.outer.calls.append(dict(kw, messages=list(kw["messages"])))  # 快照，别记引用
-        if "tools" not in kw:      # 压缩调用（无 tools）→ 非流式
+        # ★ 压缩调用是**非流式**那条路（`complete_text`）——2026-10-02 起它同样带
+        #   tools + tool_choice=auto（要复用主请求的前缀缓存），所以别再拿"有没有
+        #   tools/是不是 none"区分；只有流式那条路会传 stream=True。
+        if not kw.get("stream"):
             return types.SimpleNamespace(
                 choices=[types.SimpleNamespace(
                     message=types.SimpleNamespace(
-                        content="阶段总结：这几回合在扩地屯田，与邻国保持中立，北方有敌军集结。"))])
+                        content="阶段总结：这几回合在扩地屯田，与邻国保持中立，北方有敌军集结。"))],
+                usage=types.SimpleNamespace(
+                    completion_tokens=30, prompt_tokens=1200,
+                    prompt_cache_hit_tokens=1000, prompt_cache_miss_tokens=200))
         # 本回合第 1 次调用先制定国策，第 2 次才 end_turn（引擎要求先有国策）
-        nth = sum(1 for c in self.outer.calls if "tools" in c)
+        nth = sum(1 for c in self.outer.calls if c.get("stream"))
         if nth == 1:
             tc = _TC(0, "p1", "plan", '{"content": "经济发展优先，稳守边境，先探明北面。"}')
         else:
@@ -516,6 +525,128 @@ class TestPerCallEcho(unittest.TestCase):
             {"tool_calls": [{"id": "e1", "name": "end_turn", "args": '{"summary":"本回合屯田。"}'}]},
         ]
         self.assertEqual(mp_ai.run_openai_turn(w, "秦", self._cfg()), 2)
+
+
+def _sse(*events) -> str:
+    out: list[str] = []
+    for name, payload in events:
+        out.append(f"event: {name}")
+        out.append("data: " + json.dumps(payload, ensure_ascii=False))
+        out.append("")
+    return "\n".join(out) + "\n"
+
+
+def _tool_stream(tid: str, name: str, args: str, sig: str = "SIG") -> str:
+    """一段"思考 + 调一个工具"的 Anthropic SSE（形态照 2026-10-01 实测：签名走
+    `signature_delta`，工具参数走 `input_json_delta`，累计用量在 `message_delta` 上）。"""
+    usage = {"input_tokens": 10, "cache_read_input_tokens": 90,
+             "cache_creation_input_tokens": 0, "output_tokens": 5}
+    return _sse(
+        ("message_start", {"type": "message_start", "message": {"usage": usage}}),
+        ("content_block_start", {"index": 0,
+                                 "content_block": {"type": "thinking", "thinking": "",
+                                                   "signature": ""}}),
+        ("content_block_delta", {"index": 0,
+                                 "delta": {"type": "thinking_delta", "thinking": "先想想。"}}),
+        ("content_block_delta", {"index": 0,
+                                 "delta": {"type": "signature_delta", "signature": sig}}),
+        ("content_block_stop", {"index": 0}),
+        ("content_block_start", {"index": 1,
+                                 "content_block": {"type": "tool_use", "id": tid,
+                                                   "name": name, "input": {}}}),
+        ("content_block_delta", {"index": 1,
+                                 "delta": {"type": "input_json_delta", "partial_json": args}}),
+        ("content_block_stop", {"index": 1}),
+        ("message_delta", {"type": "message_delta",
+                           "delta": {"stop_reason": "tool_use"}, "usage": usage}),
+        ("message_stop", {"type": "message_stop"}))
+
+
+class _AnthropicStream:
+    def __init__(self, text: str):
+        self._lines = [ln.encode("utf-8") for ln in text.splitlines()]
+        self.status = 200
+
+    def __iter__(self):
+        return iter(self._lines)
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self):
+        return b"".join(self._lines)
+
+
+class TestTurnLoopAnthropic(unittest.TestCase):
+    """★ `provider="anthropic"` 跑**真实回合循环**（不联网：只换掉传输层）。
+
+    钉四件事（都是"换端口"最容易漏的接线）：
+      ① 循环把 assistant 消息的 `reasoning_signature` **带进了存档**——少了它，下一回合
+         官方 Anthropic 会因"thinking 块缺签名"直接 400（＝终止整局）；
+      ② 下一回合的请求把上一条 thinking **连签名一起回放**了（签名对不上/丢了就是白换端口）；
+      ③ 一次批量工具结果合成**一条** user 消息里的多个 tool_result；
+      ④ system 提到顶层（Anthropic 没有 system 角色）。
+    """
+
+    def setUp(self):
+        self._orig = llm_provider._anthropic_open
+        self.addCleanup(lambda: setattr(llm_provider, "_anthropic_open", self._orig))
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def _cfg(self, **kw):
+        cfg = {"base_url": "https://api.deepseek.com/anthropic", "api_key": "sk-test",
+               "provider": "anthropic", "model": "deepseek-flash[1m]",
+               "max_tokens": 4000, "max_steps": 4, "ctx_window": 200000}
+        cfg.update(kw)
+        return cfg
+
+    def test_turn_runs_and_signature_round_trips(self):
+        script = [_tool_stream("p1", "plan", '{"content": "屯田稳边，先探北面。"}', sig="SIG-A"),
+                  _tool_stream("e1", "end_turn", '{"summary": "本回合修了两座农场。"}',
+                               sig="SIG-B")]
+        calls: list[dict] = []
+
+        def fake_open(url, headers, body, timeout):
+            calls.append({"url": url, "headers": headers, "body": body})
+            return _AnthropicStream(script[min(len(calls) - 1, len(script) - 1)])
+
+        llm_provider._anthropic_open = fake_open
+        w = mp.World(size=16, seed=7, nations=["秦"])
+        w.turn = 1
+        n = mp_ai.run_openai_turn(w, "秦", self._cfg())
+        self.assertEqual(n, 2, "plan + end_turn 各一次")
+
+        # ① 签名随消息进存档（落盘后下一回合才回放得出来）
+        stored = w.turn_memory["秦"][0]["messages"]
+        sigs = [m[ctx.REPLAY_KEY]["signature"] for m in stored
+                if m.get("role") == "assistant" and m.get(ctx.REPLAY_KEY)]
+        self.assertEqual(sigs, ["SIG-A", "SIG-B"], f"签名没进存档：{stored}")
+
+        # ② 第二次请求把第一次的 thinking 连签名一起回放
+        second = calls[1]["body"]
+        self.assertEqual(calls[1]["url"], "https://api.deepseek.com/anthropic/v1/messages")
+        self.assertEqual(calls[1]["headers"]["authorization"], "Bearer sk-test")
+        first_asst = next(m for m in second["messages"] if m["role"] == "assistant")
+        thinking = [b for b in first_asst["content"] if b["type"] == "thinking"]
+        self.assertEqual(len(thinking), 1, f"没回放 thinking：{first_asst}")
+        self.assertEqual(thinking[0]["signature"], "SIG-A")
+        self.assertEqual(thinking[0]["thinking"], "先想想。")
+
+        # ③ 工具结果合成一条 user 里的 tool_result；④ system 在顶层
+        holders = [m for m in second["messages"] if m["role"] == "user"
+                   and any(b.get("type") == "tool_result" for b in m["content"])]
+        self.assertEqual(len(holders), 1, f"工具结果该合成一条 user：{second['messages']}")
+        self.assertEqual(holders[0]["content"][0]["tool_use_id"], "p1")
+        self.assertNotIn("system", [m["role"] for m in second["messages"]])
+        self.assertEqual(second["system"][0]["type"], "text")
+        self.assertIn("你是国家元首", second["system"][0]["text"])
 
 
 if __name__ == "__main__":

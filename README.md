@@ -83,6 +83,14 @@ python3 mp_run.py --turns 10    # 读档续局；无档则新开
   同样遵守视野纪律、不开图偷看——和 LLM 玩家在同一层信息下竞争。
   `v11plus` 把军事段换成**全局编组**（每支军认领一个目标，够判定式算出的兵力才开打；
   模型与推导见 `docs/v11编组模型.md`），实测同局同种子比 v10 多拿约四成地。
+- **提供方只有两种**（配置键 `provider`）：`openai`（任意 OpenAI 兼容端点，缺省，**行为按 DeepSeek
+  处理**）与 `anthropic`（Anthropic Messages 协议——`https://api.deepseek.com/anthropic`、
+  token-plan 的 `…/apps/anthropic` 这类都走它）。Anthropic 那一路**只用标准库**（不必装
+  `anthropic` 包），会把模型给的 **thinking 连签名**存进回放、下一回合原样发回（官方 API 缺签名
+  会 400，故签名缺失/换模型时自动降级为不回放那段思考）；两条路共用的键（`thinking` /
+  `max_tokens` / `temperature` / `api_retries` / `api_ttft_timeout` …）含义一致，Anthropic
+  专有的几个（`anthropic_auth` / `anthropic_beta` / `anthropic_cache_control` /
+  `anthropic_thinking_budget`）见 `llm_provider.py` 的 docstring。
 
 ## 上下文与记忆（长局的成本与连续性）
 
@@ -94,6 +102,9 @@ python3 mp_run.py --turns 10    # 读档续局；无档则新开
 
 - **递归长期记忆**：滑出回放的旧回合由一次 LLM 调用**以旧记忆为基础扩写**（不丢旧事实），
   作为归档最前的稳定头块，承载长程计划 / 盟约 / 教训——只在压缩回合变，字节稳定利于缓存。
+  ★ 那次压缩调用**自己就接在主请求的热前缀后面**（`[system][归档][被滑掉的回合原文]` +
+  尾随指令，tools 与 `tool_choice` 逐字照发），所以它自己几乎全命中，只有指令与摘要输出
+  是新字节（2026-10-02 真端点实测 93.6%；旧形状另起一份请求，压缩回合命中只有 9.8%）。
 - **非滑动周期压缩**（`ctx_roll="period"`）：两次压缩之间回放**纯追加、前缀一个字节不动**；
   `ctx_period` 不配时**按窗口几何 + 实测回合体积自动推导**压缩周期（配数字则手动固定）；
   冷回合从"每几回合一次"摊薄到"每周期一次"。
@@ -119,7 +130,7 @@ RL 训练与看海主线**分支维护**：PyTorch 环境、BC / PPO、transform
 | `game.py` · `mp.py` | 共享规则层 · 多国引擎 `World`（结算 / 战斗 / 外交 / 联盟 / 视野 / 存档） |
 | `mapgen.py` | 地图生成：`(seed, size)` → 整张地形 / 资源图（蓝噪声 + 密度图调制） |
 | `mp_ai.py` | AI 层：35 个工具（含 memory_search 记忆检索）、system prompt、面板、回合循环（提供方无关） |
-| `llm_provider.py` | LLM 提供方兼容层（OpenAI 兼容端点 + Anthropic 预留位） |
+| `llm_provider.py` | LLM 提供方兼容层（OpenAI 兼容端点 **/ Anthropic Messages 协议**；两条路的默认值、重试与超时口径都收在这一个文件） |
 | `ctx.py` | 上下文窗口管理：token 估算、预算分配、缓存友好组装（瘦身 / 非滑动周期压缩 / 递归长期记忆） |
 | `mp_run.py` · `console.py` | 编排器 · 看海终端（Markdown 渲染、汉字宽度感知） |
 | `settlement.py` | 终局结算：按总消费排名 + 结算厅 |

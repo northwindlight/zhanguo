@@ -167,6 +167,106 @@ class TestUsageReporting(unittest.TestCase):
         self.assertEqual((st["hit"], st["miss"]), (900, 100))
 
 
+class _FakeNonStreamClient:
+    """冒充非流式端点：`usage` 由用例指定（`None` = 不报用量）。"""
+
+    def __init__(self, text="长期记忆摘要", usage=None):
+        self.text = text
+        self.usage = usage
+        self.calls: list[dict] = []
+        self.chat = types.SimpleNamespace(completions=self)
+
+    def create(self, **kw):
+        self.calls.append(kw)
+        return types.SimpleNamespace(
+            choices=[types.SimpleNamespace(
+                message=types.SimpleNamespace(content=self.text))],
+            usage=self.usage)
+
+
+class TestCompleteText(unittest.TestCase):
+    """`complete_text`（记忆压缩那条非流式路）：2026-10-02 起 ① 可带 tools（**只为
+    前缀缓存**，压缩调用要接在主请求后面）、② 回 `(text, stats)`，好让压缩调用自己的
+    命中率看得见——在那之前它没有任何统计，改造的收益无法验证。"""
+
+    def _backend(self, client):
+        b = llm_provider.OpenAICompat.__new__(llm_provider.OpenAICompat)
+        b.client = client
+        return b
+
+    def _cfg(self):
+        return {"provider": "openai", "base_url": "http://stub", "api_key": "k",
+                "model": "m", "ctx_compact_tokens": 1500}
+
+    def test_tools_are_sent_verbatim_for_prefix_reuse(self):
+        """★ 压缩调用要复用主请求的前缀 ⇒ tools 与 tool_choice 必须**逐字照发**。
+        2026-10-02 真端点实测：`tool_choice="none"` 会让网关整个丢掉 tools 段，
+        前缀从 system 之后断掉（命中只剩 40%）；照发 auto 则 93.6%。"""
+        c = _FakeNonStreamClient()
+        tools = [{"type": "function", "function": {"name": "query", "parameters": {}}}]
+        text, _st = self._backend(c).complete_text(
+            [{"role": "system", "content": "S"}, {"role": "user", "content": "U"}],
+            self._cfg(), tools=tools)
+        self.assertEqual(text, "长期记忆摘要")
+        self.assertEqual(c.calls[0]["tools"], tools)
+        self.assertEqual(c.calls[0]["tool_choice"], "auto")
+        self.assertEqual(c.calls[0]["extra_body"], {"thinking": {"type": "disabled"}})
+        self.assertEqual(c.calls[0]["max_tokens"], 1500)
+
+    def test_no_tools_keeps_the_old_request_shape(self):
+        c = _FakeNonStreamClient()
+        self._backend(c).complete_text([{"role": "user", "content": "U"}], self._cfg())
+        self.assertNotIn("tools", c.calls[0])
+        self.assertNotIn("tool_choice", c.calls[0])
+
+    def test_usage_becomes_stats(self):
+        u = types.SimpleNamespace(completion_tokens=30, prompt_tokens=1000,
+                                  prompt_cache_hit_tokens=1000 - 200,
+                                  prompt_cache_miss_tokens=200)
+        _text, st = self._backend(_FakeNonStreamClient(usage=u)).complete_text(
+            [{"role": "user", "content": "U"}], self._cfg())
+        self.assertTrue(st["usage_reported"])
+        self.assertEqual((st["hit"], st["miss"], st["out_tokens"]), (800, 200, 30))
+        self.assertGreaterEqual(st["wall"], 0)
+
+    def test_unreported_usage_is_estimated_not_zero(self):
+        _text, st = self._backend(_FakeNonStreamClient(usage=None)).complete_text(
+            [{"role": "user", "content": "U"}], self._cfg())
+        self.assertFalse(st["usage_reported"])
+        self.assertTrue(st["estimated"])
+        self.assertGreater(st["out_tokens"], 0, "不能把'没报'当成 0")
+
+    def test_standard_cached_tokens_field_is_read(self):
+        """★ 只认 DeepSeek 的 `prompt_cache_hit_tokens` 是不够的：标准 OpenAI 拼法把命中
+        放在 `prompt_tokens_details.cached_tokens` 里，只认前者会把**真命中报成 0**
+        （看着像缓存整段失效，比不报还坑）。"""
+        u = types.SimpleNamespace(
+            completion_tokens=30, prompt_tokens=1000,
+            prompt_tokens_details=types.SimpleNamespace(cached_tokens=640))
+        _text, st = self._backend(_FakeNonStreamClient(usage=u)).complete_text(
+            [{"role": "user", "content": "U"}], self._cfg())
+        self.assertEqual(st["hit"], 640)
+        self.assertEqual(st["miss"], 360, "没给 miss 字段就自己减出未命中部分")
+
+    def test_streaming_path_reads_the_standard_field_too(self):
+        """流式那条路同一个坑（§9.0 的老账）：顺手一起修。"""
+        class _Client:
+            def __init__(self):
+                self.chat = types.SimpleNamespace(completions=self)
+
+            def create(self, **kw):
+                u = types.SimpleNamespace(completion_tokens=10, prompt_tokens=500,
+                                          completion_tokens_details=None,
+                                          prompt_tokens_details=types.SimpleNamespace(
+                                              cached_tokens=400))
+                return iter([_Chunk(_Delta(content="好")), _Chunk(None, usage=u)])
+
+        b = llm_provider.OpenAICompat.__new__(llm_provider.OpenAICompat)
+        b.client = _Client()
+        _msg, st = b.chat_turn([], [], {"model": "m", "max_tokens": 100})
+        self.assertEqual((st["hit"], st["miss"]), (400, 100))
+
+
 class TestGatewayHtmlErrorRetries(unittest.TestCase):
     """★ **网关回的 HTML 错误页**必须走重试（用户 2026-09-20：「压根没有重试就崩了」）。
 

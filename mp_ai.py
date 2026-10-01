@@ -45,7 +45,7 @@ from game import (
 )
 import ctx as ctxlib
 from console import dw as _dw, pad as _pad
-from llm_provider import make_backend
+from llm_provider import REPLAY_KEY, make_backend
 from ctx import est_tokens
 import rule_ai as rule_ai_registry
 from mp import (BANK_LOAN_GDP_MULT, BANK_LOAN_TURNS, BANK_RATE_MAX, BANK_RATE_MIN,
@@ -2811,19 +2811,54 @@ def _store_turn_memory(world, name, messages, base: int, plan) -> list[dict]:
 # ---------------------------------------------------------------------------
 # 阶段块总结：滑出 replay 的回合用一次 LLM 调用压成一段，进历史归档
 # ---------------------------------------------------------------------------
-COMPACT_SYSTEM = (
-    "你是战略游戏 AI 的【长期记忆维护者】。我每隔一段时间把我的新经历发给你，"
-    "并附上我上一次的长期记忆。"
-    "请以【已有的长期记忆】为基础，把【新经历】合并扩写进去：保留所有仍然成立的"
+# ★★ 2026-10-02：压缩调用改成「**上一次请求的前缀** + 一条尾随指令」。
+#
+# 旧形状是另起一份请求：`[{system: COMPACT_SYSTEM}, {user: 长期记忆 + 改写稿}]`，不带 tools。
+# 它与主请求**零字节重叠** ⇒ 那次调用几乎全 miss（实测压缩回合命中 9.8%、普通回合 91%）。
+# 而它要压掉的那些回合，本来就是上一次请求里「system + 归档」之后紧跟着的最老一段——
+# **热前缀本来就在那儿**，只是被自己另起炉灶丢掉了。现在的形状：
+#
+#     [system 原样][归档 原样][即将滑掉的回合原文…][长期记忆维护指令(user)]
+#
+# 前三段与上一次请求逐字节相同 ⇒ 由提供方前缀缓存命中（能压掉多少历史就命中多少），
+# 只有尾随指令与摘要输出是新字节。三个不许动的点：
+#   · 字节一律取**真发出去的那份 messages 的切片**，不重渲染——`assemble` 末尾那次
+#     `merge_same_role` 会把归档(user) 与紧随其后的回合首条(user) 合成**一条**消息，
+#     重渲染成两条独立 user 消息就会让命中断在归档末尾（正好是被压区间的起点）；
+#   · **system 不许重算**：`system_prompt()` 逐回合可变（开局指南、临时情报 until、
+#     遗留总结），压缩那一刻重算出来的未必是发出去的那份字节；
+#   · **tools 照发、tool_choice 保持与主请求同值**：Anthropic 那路的请求前缀顺序是
+#     tools → system → messages，少发一份就等于零命中；而 2026-10-02 真端点实测还多一条
+#     ——把 tool_choice 改成 `none` 会让网关**整个丢掉 tools 段**，前缀从 system 之后
+#     当场断掉（冷缓存那轮命中只剩 40%，照发 auto 是 93.6%）。工具调用只能靠下面那句
+#     "不要调用任何工具"约束（DSH 的 compact 也是这么做的：指令里写死，不动 tool_choice）。
+#
+# 代价要认：这次压缩落地后 `long_memory` 变字节、而它压在归档最前 ⇒ 归档之后照旧整段
+# miss（"替换"语义的固有成本，只能靠"压得稀"摊薄，见 ctx.py 顶部那段）。改的只是
+# **压缩这次调用自己**的命中率：以前它是自造的冷启动，现在它接在热前缀后面。
+COMPACT_INSTRUCTION = (
+    "你是战略游戏 AI 的【长期记忆维护者】。上面是本国更早回合的记录（大多为原文，"
+    "含当时的思考与工具往返；若是逐回合小结，会另有说明），"
+    "其中【长期记忆】那一块是上一次维护出来的版本。"
+    "请以【长期记忆】为基础，把这些更早经历合并扩写进去：保留所有仍然成立的"
     "旧事实（战略处境、盟约、承诺、威胁、未了结事务、目标、教训），补充新进展，"
     "删除已过期的条目。不要重写、不要丢旧事实、不要评价、不要虚构、不要写建议。"
     "输出为更新后的完整长期记忆（300~600 字，可略超以容纳关键细节）。"
+    "只输出这段记忆正文：不要调用任何工具，不要写标题，不要复述上面的记录。"
 )
-COMPACT_INPUT_CHARS = 120_000   # 压缩调用的输入上限（约 6 万 token），超了从最旧略细节
+COMPACT_INPUT_CHARS = 120_000    # 溢出降级稿（_compact_input）的字符上限：超了从最旧略细节
+COMPACT_REPLAY_TOKENS = 120_000  # 逐字回放预算（token）。超了**只砍尾部**——前缀性质必须
+                                 # 保住；砍掉的旧回合降级成小结行接在指令之前（新字节很少）。
+
 
 
 def _compact_input(dropped: list[dict], sums: list[dict], from_turn: int) -> str:
-    """拼压缩调用的输入：逐回合小结 + 行动记录（剥思考——不带 tools 时该字段被 API 忽略）。"""
+    """拼压缩调用的**降级稿**：逐回合小结 + 行动记录（剥思考——不带 tools 时该字段被忽略）。
+
+    2026-10-02 起它只用在**溢出**那条路上：逐字回放的前缀超了 `COMPACT_REPLAY_TOKENS`
+    时，砍掉的那部分旧回合（前缀性质要求只能砍尾部）用这份小结补在指令之前。
+    正常体量下根本不走这里——原文回放既准又（命中缓存）便宜。
+    """
     lines: list[str] = []
     by_turn = {int(s["turn"]): str(s.get("text", "")) for s in sums}
     for rec in dropped:
@@ -2846,30 +2881,92 @@ def _compact_input(dropped: list[dict], sums: list[dict], from_turn: int) -> str
     if len(text) > COMPACT_INPUT_CHARS:
         # 超长时保尾部（较新的回合信息更重要），头部留个说明
         head = f"（第{from_turn}回合起的更早细节因长度已省略）\n"
-        text = head + text[-COMPACT_INPUT_CHARS:]
+        text = text[-COMPACT_INPUT_CHARS:]
+        text = head + text
     return text
 
 
-def _compact_block(backend, cfg, world, name, dropped: list[dict], emit=None) -> dict | None:
+def _compact_prefix(messages: list[dict], plan, dropped: list[dict],
+                    budget: int | None = None) -> tuple[list[dict], list[dict]]:
+    """切出「上一次请求的前缀」，返回 (逐字前缀消息, 没能逐字回放的旧回合)。
+
+    两条纪律，缺一不可：
+
+    ① **只有"本回合请求里真的带着"的旧回合才能逐字回放**。`slide` 是按低水位裁的，
+       被它裁掉的回合里，只有 `turn >= plan.before_turn` 的那些当初真的进了这次请求
+       （更老的早就被预算挡在请求之外了）；把不在请求里的回合硬塞进来，前缀性质当场
+       就没了。不在请求里的那部分走小结（`_compact_input`）补在指令之前。
+    ② **切点让 `ctxlib.replay_head` 数，字节取 `messages` 的切片**。`replay_head` 复刻了
+       `assemble` 的同一套合并规则——归档(user) 与请求里第一条回合记录的首条(user) 被
+       合成**一条**消息。合并只改变条数、不改变顺序，所以"从请求的第一条记录起、数到
+       最后一条要回放的记录"的条数，就是真请求里的下标。自己重渲染成两条独立 user
+       消息会让命中断在归档末尾（正好是被压区间的起点）。
+
+    超预算时**只砍尾部**（砍掉的旧回合也进小结）：砍头会毁掉前缀性质，那等于把这次
+    改造的意义整个丢掉。认不出布局（首条不是 system / 没有 plan）时退回"全走小结"。
+    """
+    if not messages or messages[0].get("role") != "system" or plan is None:
+        return [], list(dropped)
+    budget = COMPACT_REPLAY_TOKENS if budget is None else budget
+    sys_text = messages[0].get("content") or ""
+    arch = getattr(plan, "archive_text", None) or ""
+    before = getattr(plan, "before_turn", None)
+    start = 0
+    if before is not None:
+        while start < len(dropped) and int(dropped[start]["turn"]) < int(before):
+            start += 1
+    present = dropped[start:]
+    keep = len(present)
+    while True:
+        cut = len(ctxlib.replay_head(sys_text, arch, present[:keep]))
+        if keep == 0 or ctxlib.messages_tokens(messages[:cut]) <= budget:
+            break
+        keep -= 1
+    return [dict(m) for m in messages[:cut]], dropped[:start] + present[keep:]
+
+
+def _compact_messages(messages: list[dict], plan, dropped: list[dict],
+                      sums: list[dict]) -> list[dict]:
+    """拼压缩请求：**热前缀**（system + 归档 + 旧回合原文）+ 可选小结 + 尾随指令。"""
+    prefix, over = _compact_prefix(messages, plan, dropped)
+    out = list(prefix)
+    if over:
+        out.append({"role": "user", "content":
+                    "【更早的旧回合（这些回合不在上一次请求里，只有逐回合小结）】\n"
+                    + _compact_input(over, sums, int(over[0]["turn"]))})
+    out.append({"role": "user", "content": COMPACT_INSTRUCTION})
+    return out
+
+
+def _compact_block(backend, cfg, world, name, dropped: list[dict], plan=None,
+                   messages: list[dict] | None = None, tools=None,
+                   emit=None) -> str | None:
     """把滑出 replay 的回合并入"递归累积的长期记忆"（酒馆式）。
 
-    - 旧记忆已存在 → 以它为基础扩写（长程规划/盟约/教训不断层）；
-    - 结果写回 world.long_memory（稳定头块，只在压缩回合变字节 → 缓存友好），
-      同时也记一段 summary_blocks 保留块史。失败返回 None。
+    - 请求 = **上一次请求的前缀**（system + 归档 + 这些旧回合的原文）+ 尾随维护指令，
+      所以这次调用自己几乎全部命中提供方前缀缓存（见本节顶部那段注释）；
+    - 旧记忆压在归档里（就在前缀内），指令要求以它为基础递归扩写，长程不断层；
+    - 结果写回 world.long_memory（稳定头块，只在压缩回合变字节），同时也记一段
+      summary_blocks 保留块史。失败返回 None（调用方退回逐回合小结）。
+    - `messages` 是本回合真正发出去的那份上下文（取前缀字节用）；`tools` 必须是主请求
+      同一份工具声明（缺了就是零命中）。
     """
     sums = world.summaries.get(name) or []
     from_turn = int(dropped[0]["turn"])
     to_turn = int(dropped[-1]["turn"])
     prev = (world.long_memory.get(name) or "").strip()
-    user = (f"【已有的长期记忆】\n{(prev if prev else '（暂无）')}"
-            f"\n\n【新经历：第 {from_turn}~{to_turn} 回合】\n"
-            + _compact_input(dropped, sums, from_turn))
+    payload = _compact_messages(messages or [], plan, dropped, sums)
     if emit:
         emit(f"🧠 {name} 压缩记忆：第{from_turn}~{to_turn}回合 → 递归扩写长期记忆"
              + ("（有旧记忆为基础）" if prev else "（首次建立）"))
-    text = backend.complete_text(
-        [{"role": "system", "content": COMPACT_SYSTEM},
-         {"role": "user", "content": user}], cfg)
+    text, stats = backend.complete_text(payload, cfg, tools=tools)
+    if emit:
+        # ★ 压缩调用自己的命中率（2026-10-02 起才统计得到）：改造的全部意义就在这个数上，
+        #   看不见就等于没改。提供方没报用量时不打这行，别拿估算装准数。
+        inp = int(stats.get("hit") or 0) + int(stats.get("miss") or 0)
+        if stats.get("usage_reported") and inp:
+            emit(f"🧠 {name} 压缩调用：输入{inp}tok 命中{stats['hit'] / inp * 100:.0f}%"
+                 f"（{stats['hit']}/{inp}）｜{stats.get('wall', 0):.0f}s")
     text = str(text or "").strip()
     if len(text) < 20:
         return None
@@ -2906,6 +3003,23 @@ def _pair_tool_calls(msgs: list[dict]) -> int:
     return n
 
 
+def _asst_msg(msg: dict, content, reasoning: str) -> dict:
+    """把提供方返回的 assistant 消息收进 replay（只挑该存的字段，别把整个 msg 抄进去）。
+
+    ★ `llm_provider.REPLAY_KEY`（Anthropic 的 **thinking 签名**）必须跟着走：它不给模型看，
+      是留给 Anthropic 那一路**下一回合**把 thinking block 连签名一起回放用的（官方 API
+      缺签名/签名对不上就 400）。存进消息 ⇒ 随 turn_memory 落盘 ⇒ 签名里带 model 字段，
+      换模型继续玩时自动作废（见 `llm_provider` 里 REPLAY_KEY 的说明）。
+    ★ 不回显、不估算：思考原文照旧只进 replay，不上看海台（2026-09-19 口径）。
+    """
+    out: dict = {"role": "assistant", "content": content}
+    if reasoning:
+        out["reasoning_content"] = reasoning
+    if msg.get(REPLAY_KEY):
+        out[REPLAY_KEY] = msg[REPLAY_KEY]
+    return out
+
+
 def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=None,
                     head=None) -> int:
     """跑一国一回合：反复调 LLM 用工具，直到 end_turn **被引擎回执认可** / 步数上限。
@@ -2926,7 +3040,7 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=No
                       **最后一次调用不回调**——它的尾巴由调用方在回合末兜（`mp_run` 那句
                       `◈ … 行动完毕` 块正是干这个的）⇒ 既不重复回显，也不丢动作。
 
-    提供方差异（OpenAI 兼容 / Anthropic 预留）收口在 llm_provider，循环只见
+    提供方差异（OpenAI 兼容 / Anthropic Messages）收口在 llm_provider，循环只见
     OpenAI 形态消息。三条纪律：
     ① 结束只认 execute 的回执（✅）——模型递个非空 summary 不算收尾（拒绝文案
        会作为 tool 响应回喂，继续逼它补）；
@@ -2974,8 +3088,11 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=No
                 ctxlib.record_hit(name, agg["hit"], agg["miss"])
             # ★ 提供方没报用量时，数字是本地估算 ⇒ **打上 ≈**，别让它看起来像真数
             #   （用户 2026-09-20：「报错误的会导致估价错误」——宁标"估"，不装"准"）
+            #   思考那一格单独判：Anthropic 那路**报了真用量但思考 token 分不出来**（它把
+            #   思考并进 output_tokens），这格是本地估的 ⇒ 也得打 ≈（`reason_estimated`）。
             eq = "≈" if agg.get("estimated") else ""
-            tok = (f"输出{eq}{agg['out_tokens']}tok(思考{eq}{agg['reason_tokens']})"
+            rq = "≈" if (agg.get("estimated") or agg.get("reason_estimated")) else ""
+            tok = (f"输出{eq}{agg['out_tokens']}tok(思考{rq}{agg['reason_tokens']})"
                    + ("（本网关未报用量，此为本地估算）" if agg.get("estimated") else ""))
             world.log(
                 f"📊 {name} 本回合: {agg['calls']}次调用 {agg['wall']:.0f}s｜"
@@ -2990,7 +3107,11 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=No
                      f"（{len(dropped)} 回合）——本回合前缀缓存全段重建")
             if plan.compact and name in world.nations:
                 try:
-                    _compact_block(backend, cfg, world, name, dropped, emit=emit)
+                    # ★ messages/plan/tools 都传进去：压缩调用要接在本回合请求的前缀后面
+                    #   （前缀缓存），tools 必须与主请求同一份（见 `_compact_block`）
+                    _compact_block(backend, cfg, world, name, dropped,
+                                   plan=plan, messages=messages,
+                                   tools=tool_schemas(world, name), emit=emit)
                 except Exception as e:   # 压缩失败不影响主流程：归档退回一行小结
                     if emit:
                         emit(f"⚠ {name} 记忆压缩失败({type(e).__name__})，归档仍用逐回合小结")
@@ -3034,13 +3155,13 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=No
         agg["calls"] = agg.get("calls", 0) + 1
         if stream_stats.get("estimated"):
             agg["estimated"] = True        # 提供方没报用量 ⇒ 这组数是本地估算，显示时要打 ≈
+        if stream_stats.get("reason_estimated"):
+            agg["reason_estimated"] = True  # 报了用量、但思考那一格是本地估的（Anthropic 那路）
         # ★ 不再回显 💭 思考（2026-09-19 用户口径：「我不想知道他们怎么想的」）。思考原文
         #   照样进 replay/记录（那是模型自己的上下文），只是不上看海台。
         if tool_calls:
             stall = 0
-            asst: dict = {"role": "assistant", "content": msg.get("content")}
-            if reasoning:
-                asst["reasoning_content"] = reasoning
+            asst = _asst_msg(msg, msg.get("content"), reasoning)
             asst["tool_calls"] = [
                 {"id": tc["id"], "type": tc["type"],
                  "function": {"name": tc["function"]["name"], "arguments": tc["function"]["arguments"]}}
@@ -3077,9 +3198,7 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=No
         # 没有工具调用：**不构成收尾**——收回合只认 end_turn 的 ✅ 回执或步数上限。
         # 正文照常入 messages（和带 tool_calls 时一个待遇，跨回合记忆靠它），然后催它继续。
         if content:
-            asst = {"role": "assistant", "content": msg.get("content")}
-            if reasoning:
-                asst["reasoning_content"] = reasoning
+            asst = _asst_msg(msg, msg.get("content"), reasoning)
             messages.append(asst)
             stall += 1
             pl = world.plans.get(name)
@@ -3099,7 +3218,7 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=No
         if reasoning:
             # 纯思考轮（无正文无工具）：把思考原文回喂，让模型接着想而不是每次从零大思考
             # （否则每轮重想一遍，又慢又贵——百万上下文模型输出 token 价高且不缓存）。
-            messages.append({"role": "assistant", "content": None, "reasoning_content": reasoning})
+            messages.append(_asst_msg(msg, None, reasoning))
             stall += 1
             if stall >= 8:
                 messages.append({"role": "user",

@@ -192,5 +192,57 @@ class TestAutoPeriod(unittest.TestCase):
         self.assertEqual(p.period, 10)
 
 
+class TestPrivateReplayKey(unittest.TestCase):
+    """★ `reasoning_signature`（Anthropic thinking 签名的落盘位，见 `ctx.REPLAY_KEY`）在
+    **所有会重写消息的地方**都要照顾到：签名与思考正文逐字节绑定，正文一变签名就得作废
+    （凑一个假签名去回放，官方 API 回 400 ＝ 本局终止）；反过来正文原样搬动时签名要跟着走。
+
+    这条键不进 token 预算（`msg_tokens` 只看 content / reasoning_content / tool_calls）。
+    """
+
+    SIG = {ctx.REPLAY_KEY: {"model": "deepseek-flash[1m]", "signature": "SIG-1"}}
+
+    def _asst(self, content="发言", reasoning="想过", **kw):
+        m = {"role": "assistant", "content": content, "reasoning_content": reasoning}
+        m.update(kw)
+        return m
+
+    def test_strip_reasoning_drops_signature(self):
+        r = {"turn": 1, "messages": [self._asst(**self.SIG)]}
+        sr = ctx.shrink_records([r], newest_turn=2, old_reasoning="strip")
+        self.assertNotIn(ctx.REPLAY_KEY, sr[0]["messages"][0],
+                         "思考正文被换成占位 ⇒ 签名必须一起丢")
+        # 最新那一回合思考不动 ⇒ 签名也不许动
+        sr = ctx.shrink_records([r], newest_turn=1, old_reasoning="strip")
+        self.assertEqual(sr[0]["messages"][0][ctx.REPLAY_KEY], self.SIG[ctx.REPLAY_KEY])
+
+    def test_merge_two_reasoning_messages_drops_signature(self):
+        """两条都带思考 ⇒ 拼出来的正文已不是任何一次签名的原文 ⇒ 签名作废。"""
+        out = ctx.merge_same_role([self._asst(content="甲", **self.SIG),
+                                   self._asst(content="乙", reasoning="又想了想")])
+        self.assertEqual(len(out), 1)
+        self.assertIn("甲", out[0]["content"])
+        self.assertIn("又想了想", out[0]["reasoning_content"])
+        self.assertNotIn(ctx.REPLAY_KEY, out[0])
+
+    def test_merge_carries_signature_when_only_new_side_has_reasoning(self):
+        """只有新的那条有思考 ⇒ 正文原样搬过来，签名跟着搬（它仍是这段正文的签名）。"""
+        out = ctx.merge_same_role([{"role": "assistant", "content": "甲"},
+                                   self._asst(content="乙", **self.SIG)])
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["reasoning_content"], "想过")
+        self.assertEqual(out[0][ctx.REPLAY_KEY], self.SIG[ctx.REPLAY_KEY])
+        # 反向（旧的有签名、新的没思考）同理：正文没变，签名留下
+        out = ctx.merge_same_role([self._asst(content="甲", **self.SIG),
+                                   {"role": "assistant", "content": "乙"}])
+        self.assertEqual(out[0][ctx.REPLAY_KEY], self.SIG[ctx.REPLAY_KEY])
+
+    def test_signature_not_counted_in_budget(self):
+        plain = self._asst()
+        with_sig = self._asst(**self.SIG)
+        self.assertEqual(ctx.msg_tokens(plain), ctx.msg_tokens(with_sig),
+                         "签名是回放元数据，不该进上下文预算")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
