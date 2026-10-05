@@ -636,12 +636,19 @@ class World:
         label = UNIT_TYPES[unit_kind(a)]["label"]
         budget = unit_speed(a)
         ter = self.tile_terrain(x, y)
-        cost = unit_move_cost(a, ter)
+        here = self.tile_terrain(a["x"], a["y"])
+        # ★ 一步的代价 = **max(出发格, 目标格)** —— 与 `_reachable` 的桶队列同口径
+        #   （本文件 `ncost = d + (here if here > cj else cj)`）。
+        #   曾经只取**目标格** ⇒ 站在崎岖地上时：① 报出的代价偏小；② "一步就吃满"
+        #   那句该响不响（骑兵站山地→平原：真实 2≥2 吃满，旧算法算出 1<2 不报）。
+        cost = max(unit_move_cost(a, here), unit_move_cost(a, ter))
         acted = "冲不进去" if for_attack else "走不到"
         seen = self.visible_to(a["owner"], x, y)
         if seen:
-            tip = (f"（{label}移动力 {budget}；进{ter}要 {cost}"
-                   f"{'，一步就吃满 ⇒ 只能走 1 格' if cost >= budget else ''}）")
+            # ★ `budget > 1`：步兵移动力天然只有 1，"吃满"对它是恒真的废话
+            #   （任何地形都报同一句）⇒ 只在**多格兵种**上才点破地形吃满。
+            tip = (f"（{label}移动力 {budget}；自{here}进{ter}这一步要 {cost}"
+                   f"{'，吃满 ⇒ 本回合只走得了这 1 格' if budget > 1 and cost >= budget else ''}）")
         else:
             tip = f"（{label}移动力 {budget}；沿路地形/敌情不明——盲推撞墙如实报告，但额度照烧）"
         return f"{a['name']} {acted} ({x + 1},{y + 1}){tip}"
