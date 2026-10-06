@@ -649,5 +649,75 @@ class TestTurnLoopAnthropic(unittest.TestCase):
         self.assertIn("你是国家元首", second["system"][0]["text"])
 
 
+class _NoUsageOpenAI(_ContentOnlyOpenAI):
+    """端点**不带 usage 块**的形态（流里根本没有用量）⇒ 只能本地估算，账本要记 est。"""
+
+    instances: list = []
+
+    def create(self, **kw):
+        self.calls.append(dict(kw, messages=list(kw["messages"])))
+        return iter([_Chunk([_Choice(_Delta(content="先按兵不动，看看局势。"))])])
+
+
+class TestUsageLedger(unittest.TestCase):
+    """★ 全期累计账本（`World.token_usage`）的**真/估口径**。
+
+    病根（2026-10-06 从存档实据发现）：`run_openai_turn` 交给 `World.add_usage` 的 `agg`
+    从**不**带 `usage_reported`，而账本正是拿它分真/估 ⇒ `stats.get("usage_reported")`
+    恒为 None ⇒ **整局每一次都记进 est_calls**，全期累计那行于是永远打 `≈`、永远显示
+    「N/N次为估算」——**把端点真报的数说成估的**。
+
+    实据：存档 `token_usage` 为 calls=784 / real_calls=0 / est_calls=784（784＝112回合×7国），
+    而同一局的逐国回合行里挂的是 `缓存命中98%(735232/749823tok)` 这种真报的整数。
+
+    这里把两条路都钉住：报了用量 ⇒ real；没报 ⇒ est（宁可标估，不装准）。
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def _cfg(self, **kw):
+        cfg = {"base_url": "http://stub", "api_key": "k", "provider": "openai", "model": "m",
+               "max_tokens": 4000, "max_steps": 4, "ctx_window": 200000}
+        cfg.update(kw)
+        return cfg
+
+    def _patch(self, cls):
+        import openai
+        orig = openai.OpenAI
+        openai.OpenAI = cls
+        self.addCleanup(lambda: setattr(openai, "OpenAI", orig))
+
+    def _run(self, cls):
+        self._patch(cls)
+        w = mp.World(size=16, seed=7, nations=["秦", "楚"])
+        w.turn = 1
+        mp_ai.run_openai_turn(w, "秦", self._cfg())
+        return w, w.token_usage["秦"]
+
+    def test_reported_usage_counts_as_real(self):
+        w, slot = self._run(_FakeOpenAI)
+        self.assertEqual((slot["calls"], slot["real_calls"], slot["est_calls"]), (1, 1, 0))
+        self.assertFalse(w.usage_totals()["estimated"])
+        slot["prompt"] += 3_000_000          # 过 100 万门槛，累计那行才会出场
+        self.assertNotIn("≈", mp_ai._usage_running_line(w))
+        self.assertNotIn("次为估算", mp_ai._usage_running_line(w))
+
+    def test_unreported_usage_counts_as_estimated(self):
+        w, slot = self._run(_NoUsageOpenAI)
+        self.assertEqual((slot["calls"], slot["real_calls"], slot["est_calls"]), (1, 0, 1))
+        self.assertTrue(w.usage_totals()["estimated"])
+        slot["prompt"] += 3_000_000
+        self.assertIn("≈", mp_ai._usage_running_line(w))
+        self.assertIn("其中1/1次为估算", mp_ai._usage_running_line(w))
+
+    def test_one_estimated_call_taints_the_whole_turn(self):
+        """一国回合里有**一次**调用没报用量 ⇒ 合并数就掺了估算，整条记 est。"""
+        w, slot = self._run(_NoUsageOpenAI)
+        self.assertEqual(slot["calls"], 1)                  # 账本按国回合记一条
+        self.assertEqual(slot["real_calls"] + slot["est_calls"], slot["calls"])
+
+
 if __name__ == "__main__":
     unittest.main()

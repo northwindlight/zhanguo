@@ -3055,6 +3055,11 @@ def _usage_running_line(world) -> str:
     **满 100 万才显示**：八国 × 几百回合，每条状态行都挂一长串数字会把真正的信息淹掉。
     掺了本地估算就整行打 `≈`（见 `World.usage_totals` 的 `estimated`）——
     绝不把估数当准数报（2026-09-20 那条口径：「报错误的会导致估价错误」）。
+
+    ★ `≈` 的**确切含义**是「这行里掺了**端点没报用量**的调用」（那种调用命中/输出全是本地估的）。
+      本行显示的三样（累计 / 命中% / 输出）在 Anthropic 那路**都是端点真报的**，故不打 ≈；
+      那条路上唯一的估数是**思考 token**（端点不单报），而思考不在这行里 ——
+      逐国回合那行会给它单独打 `≈`（`agg["reason_estimated"]`）。
     """
     try:
         total = world.usage_totals()
@@ -3119,7 +3124,13 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=No
     stall = 0  # 连续"只思考/空转"轮数
     agg: dict = {"calls": 0, "wall": 0.0, "stream": 0.0, "first": 0.0,
                  "maxgap": 0.0, "out_tokens": 0, "reason_tokens": 0,
-                 "hit": 0, "miss": 0}
+                 "hit": 0, "miss": 0,
+                 # ★ 账本（`World.add_usage`）按这个键分"真数/估算"，**必须显式带上**：
+                 #   以前只累加 hit/miss/out 与 estimated/reason_estimated，从不带它 ⇒
+                 #   `stats.get("usage_reported")` 恒为 None ⇒ 整局每次都记成 est_calls，
+                 #   全期累计那行于是永远打 `≈` 并显示「N/N次为估算」——**把端点真报的数
+                 #   说成估的**（2026-10-06 从存档实据发现并修正）。
+                 "usage_reported": True}
 
     def _auto_summary(text) -> None:
         """收尾没带 summary 时，从正文里取一句补进回合小结——否则这一回合在归档里凭空消失。"""
@@ -3217,6 +3228,10 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=No
             agg["estimated"] = True        # 提供方没报用量 ⇒ 这组数是本地估算，显示时要打 ≈
         if stream_stats.get("reason_estimated"):
             agg["reason_estimated"] = True  # 报了用量、但思考那一格是本地估的（Anthropic 那路）
+        if not stream_stats.get("usage_reported"):
+            # 账本按**国回合**记账：这一次调用没报用量，整国回合的合并数就掺了估算
+            # （只要有一次真报，后来的 False 也翻不回来——宁可标估，不装准）
+            agg["usage_reported"] = False
         # ★ 不再回显 💭 思考（2026-09-19 用户口径：「我不想知道他们怎么想的」）。思考原文
         #   照样进 replay/记录（那是模型自己的上下文），只是不上看海台。
         if tool_calls:
