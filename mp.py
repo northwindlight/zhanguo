@@ -8,7 +8,8 @@
   - 移动/攻击受国家关系约束：中立（非同盟非交战）不能入境、不能攻击；
   - 外交：联盟(起名结盟·全体创始成员同意·单方面退盟·共享视野·成员间外交免费·
     进攻战争须投票·议和由盟主投票·同战线自动归还核心领土)/保障独立/共同防御/
-    宣战(对方必须接受，其保障/共同防御/联盟全体按传递闭包自动参战)/求和(可赔款/索款/白和)；
+    宣战(对方必须接受，其**直接**保障国/直接共同防御伙伴自动参战——一对实体只走一跳；
+         唯一不限跳数的是联盟：打盟员=全盟一起上)/求和(可赔款/索款/白和)；
   - 信箱：任何内容，下回合到信。
   - 看海：world.history 记下每个行动/每封信/每场战/每桩外交，Observer 全可见；
     各国 agent 只见「自己该知道」的（自己的面板/信箱/视野内事件）。
@@ -1032,7 +1033,7 @@ class World:
     def _truce_blocks_war_join(self, countries: list[str], opponents: list[str]) -> bool:
         """这批国家里有没有谁与**对面**还在休战期内 ⇒ 不能把它拖进这场战争。
 
-        用在自动参战（联盟/共同防御/保障的传递闭包）上：用户 2026-09-20
+        用在自动参战（联盟/共同防御/保障的守侧一跳）上：用户 2026-09-20
         「有和约时，防御条约和独立保障应该无法执行」——**已有的条约不触发**，
         和约不能因为盟友开战就当场作废。
         """
@@ -3959,7 +3960,9 @@ class World:
         """宣战。**交战方是外交实体**：在盟国家不能擅自开战，调用即转为联盟宣战投票
         （多数决通过后全盟参战）；独立国家直接开战。
 
-        守侧传导 = 保障 / 共同防御 / 联盟 的**传递闭包**（无限跳，以实体为单位）。"""
+        守侧传导 = 保障 / 共同防御 / 联盟，**以实体为单位、只传一跳**（被宣战实体的直接
+        保障国与直接共同防御伙伴参战，它们自己的盟友不再跟着上）；"无限跳"只指**联盟
+        收成一个点**——打盟员 = 打联盟，全盟一起上。"""
         if a == b or a not in self.nations or b not in self.nations:
             return False, "双方必须是两个现存国家"
         if self.war_between(a, b):
@@ -3986,8 +3989,8 @@ class World:
                               proposer: str) -> tuple[bool, str]:
         """实际开战。atk_ent / def_ent 都是**外交实体**（独立国家或联盟）；proposer=发起国名。
 
-        守侧传导：从 def_ent 出发的 保障/共同防御 传递闭包（无限跳，以实体为单位）——
-        联盟成员整体落在守侧（打成员=打联盟）。
+        守侧传导：从 def_ent 出发的 保障/共同防御，**一跳不级联**（援军的盟友不动）——
+        联盟成员整体落在守侧（打成员=打联盟，这是"无限跳"的唯一含义）。
         ★ 战线条目本身仍记为**国家**（atk=进攻主导国=盟主、def=目标实体代表、
         followers=守侧跟随国），作战/结算/遣返/迷雾那一堆既有代码不必换口径。
         """
@@ -4042,37 +4045,40 @@ class World:
                               f"（新增 {'、'.join(added) or '无'}）")
         # 两实体之间的保障/共同防御自动解除（不打自己人）
         self._break_pacts_between(atk_ent, def_ent)
-        # 守侧闭包（无限跳）：保障（谁保障它）+ 共同防御（谁与它互卫）
+        # 守侧传导（**一跳，不级联**）：只有 def_ent 的**直接**保障国与**直接**共同防御
+        # 伙伴被拉进守侧；这些援军**自己身上的条约不再往下传**——A 保 B、B 与 C 共防时，
+        # 打 B 只有 C 上，C 的其它盟友不动。（用户 2026-10-07 定案：「不无限跳，无限跳指
+        # 联盟」。旧实现在这里放了个 `while stack` 做传递闭包，于是"魏被打→韩参战→韩的
+        # 共防伙伴楚也参战"——楚与魏之间根本没有条约。条约的触发条件是**它被打**，
+        # 不是**它被卷进来**。）
+        # ★ 「无限跳」在本作里只剩一个含义：**联盟收成一个点**——打盟员 = 打联盟，
+        #   全盟一起上（`entity_members(def_ent)` 一次取齐），联盟内部没有双边条约、
+        #   因而也不存在"经由某个成员把盟外国家串成一串"的链条。
         def_side = {def_ent}
-        stack = [def_ent]
         skipped: list[str] = []          # 因"和约在身"没被拖进来的援军（事后要通知）
-        while stack:
-            x = stack.pop()
-            cands = set(self.guarantors_of(x)) | set(self.defense_partners_of(x))
-            # ★ 必须 sorted：循环体读**增长中的 def_members**（下面的 war_between 剪枝），
-            #   集合迭代序受 PYTHONHASHSEED 影响 → 同 seed 换进程可能收编不同的跟随方，
-            #   整条历史分叉——"同种子同结果"就毁在这一行裸迭代上。
-            for c in sorted(cands):
-                if c in def_side or c == atk_ent:
-                    continue
-                cm = self.entity_members(c)
-                if not cm:
-                    continue
-                if any(self.war_between(m, x2) for m in cm for x2 in members):
-                    continue        # 已与攻方交战，不并入守侧
-                if any(self.war_between(m, d) for m in cm for d in def_members):
-                    continue        # 已与守侧某员交战，不并入
-                if self._truce_blocks_war_join(cm, members):
-                    # ★ **已有的保障/共同防御在休战期内不触发**（用户 2026-09-20：
-                    #   「有和约时，防御条约和独立保障应该无法执行」）——它正与攻方某国
-                    #   休战中，就不把它拖进这场战争：**和约优先于盟约**，否则盟友一开战
-                    #   和约当场作废（那"和约"就白签了）。不并入 ⇒ 也不从它继续传导
-                    #   （链子在此断），免得它的保障对象再被隔山打牛。
-                    skipped.append(c)
-                    continue
-                def_side.add(c)
-                def_members = def_members + cm
-                stack.append(c)
+        cands = set(self.guarantors_of(def_ent)) | set(self.defense_partners_of(def_ent))
+        # ★ 必须 sorted：循环体读**增长中的 def_members**（下面的 war_between 剪枝），
+        #   集合迭代序受 PYTHONHASHSEED 影响 → 同 seed 换进程可能收编不同的跟随方，
+        #   整条历史分叉——"同种子同结果"就毁在这一行裸迭代上。
+        for c in sorted(cands):
+            if c in def_side or c == atk_ent:
+                continue
+            cm = self.entity_members(c)
+            if not cm:
+                continue
+            if any(self.war_between(m, x2) for m in cm for x2 in members):
+                continue        # 已与攻方交战，不并入守侧
+            if any(self.war_between(m, d) for m in cm for d in def_members):
+                continue        # 已与守侧某员交战，不并入
+            if self._truce_blocks_war_join(cm, members):
+                # ★ **已有的保障/共同防御在休战期内不触发**（用户 2026-09-20：
+                #   「有和约时，防御条约和独立保障应该无法执行」）——它正与攻方某国
+                #   休战中，就不把它拖进这场战争：**和约优先于盟约**，否则盟友一开战
+                #   和约当场作废（那"和约"就白签了）。
+                skipped.append(c)
+                continue
+            def_side.add(c)
+            def_members = def_members + cm
         followers = [c for c in def_members if c != b]
         # 和约拦下的援军：**通知当事人与守方**（"预期中的援军为什么没来"——
         # 不说就成了第三个"结果不告诉当事人"的洞）
