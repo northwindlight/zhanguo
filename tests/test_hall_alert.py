@@ -171,6 +171,27 @@ class TestSafetyAssumptionBroken(unittest.TestCase):
         w.armies.append(g)
         self.assertIsNone(mp_ai._fmt_hall_alert(w, "秦"))
 
+    def test_reach_uses_the_engines_movement_rules_not_adjacency(self):
+        """★ 两格外的**骑兵**够得着、同样位置的**步兵**够不着——判据必须是引擎的
+        `_reachable`（含兵种速度与逐格代价），不是"相邻就算"。
+
+        场地：秦 的厅在 (5,5)，外加一块 (8,5) 只为了照亮 (7,5)；中间 (6,5)/(7,5) 是无主地。
+        """
+        for kind, expect in (("骑", True), ("步", False)):
+            with self.subTest(kind=kind):
+                w = _world()
+                _tile(w, *HALL, "秦", "晴桥", hall=1)
+                _tile(w, 6, 5, None)
+                _tile(w, 7, 5, None)
+                _tile(w, 8, 5, "秦", "哨所")
+                _at_war(w, "楚", "秦")
+                e = _army(w, 7, 5, "楚", 1, kind=kind)
+                self.assertTrue(w.visible_to("秦", 7, 5), "前提：那支军看得见")
+                reached = HALL in w._reachable("楚", e, for_attack=True)
+                self.assertEqual(reached, expect,
+                                 f"前提：{kind}兵的引擎可达性={expect}")
+                self.assertEqual(mp_ai._fmt_hall_alert(w, "秦") is not None, expect)
+
     def test_only_the_reachable_halls_are_listed(self):
         """多座厅：够得着的那座报，够不着的**不报**（别把它变成"逐厅点名"）。"""
         w = self._broken()
