@@ -1881,6 +1881,22 @@ class World:
         for i, u in enumerate(units):
             u["hp"] -= per + (1 if i < rem else 0)
 
+    @staticmethod
+    def faction_atk(units: list[dict]) -> int:
+        """该方**本回合输出基数** = Σ 各军兵种攻击（`unit_atk`，**与 hp 无关**）。
+
+        撤退中的军输出 −`RETREAT_ATK_PENALTY`%（撤离途中无心恋战），下限 1。
+
+        ★ 这是**基数**，不含骰子修正——掷完骰子那一步是 `_round_damage`。
+          面板报"总战力"时必须按它报，并把标签写成「输出基数」，
+          否则 AI 会把基数读成"这一轮会打出的伤害"（那还要乘骰子 ±25%）。
+
+        ★ 结算与面板的**唯一出处**：别在面板里重抄这个 `sum`。
+        """
+        return sum(unit_atk(a) if not a.get("retreat_to")
+                   else max(1, unit_atk(a) * (100 - RETREAT_ATK_PENALTY) // 100)
+                   for a in units)
+
     def defense_breakdown(self, x: int, y: int, def_owner: str | None) -> tuple[int, int, int]:
         """该格对 `def_owner` 的防御**三分量**：`(地形%, 城堡%, 合计%)`。
 
@@ -1957,10 +1973,7 @@ class World:
                     continue
                 _d, mod = self._die()
                 mods[F] = mod
-                # 撤退中的军队输出 -80%（撤离途中无心恋战），按军计入攻击总和
-                atk = sum(unit_atk(a) if not a.get("retreat_to")
-                          else max(1, unit_atk(a) * (100 - RETREAT_ATK_PENALTY) // 100)
-                          for a in forces[F])
+                atk = self.faction_atk(forces[F])   # 撤退中的军 −80% 的输出折扣在这一处
                 power = self._round_damage(self._combat_power(atk, 0), mod)
                 share = power / len(en)  # 均分给各敌人（腹背受敌则兵力分散）
                 for G in en:
