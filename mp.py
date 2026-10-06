@@ -1881,14 +1881,29 @@ class World:
         for i, u in enumerate(units):
             u["hp"] -= per + (1 if i < rem else 0)
 
-    def _defense_pct(self, x: int, y: int, def_owner: str | None) -> int:
-        """地块总防御% = 地形与城堡**相乘**叠加。"""
+    def defense_breakdown(self, x: int, y: int, def_owner: str | None) -> tuple[int, int, int]:
+        """该格对 `def_owner` 的防御**三分量**：`(地形%, 城堡%, 合计%)`。
+
+        合计 = 两者**相乘**叠加（`100 - ((100-td)*(100-cd))//100`），不是相加——
+        所以「沙漠 −10% × 城堡 L2 +20%」的合计是 12% 而不是 10%，可以小于任一分量。
+        负的地形防御（沙漠 −10%）**如实返回**，别夹到 0：那是"守方反而多挨打"。
+
+        城堡分量只在**该格归属就是防御方**时才计（`t["owner"] == def_owner`）——
+        非格主的守军（同格第三方守军）只吃地形。
+
+        ★ 结算与面板的**唯一出处**：`_defense_pct` 就是它的 `[2]`；面板要摊开三分量时读它，
+        不许自己重算（那会让"面板报的减伤"与"结算真吃的减伤"悄悄漂开）。
+        """
         t = self.tiles.get((x, y))
         terrain = t["terrain"] if t else self.tile_terrain(x, y)
         castle = t["buildings"]["城堡"] if (t and t["owner"] == def_owner) else 0
         td = TERRAIN_STATS[terrain]["defense"]
         cd = castle * building_effect("城堡", "defense_per_level")
-        return 100 - ((100 - td) * (100 - cd)) // 100
+        return td, cd, 100 - ((100 - td) * (100 - cd)) // 100
+
+    def _defense_pct(self, x: int, y: int, def_owner: str | None) -> int:
+        """地块总防御% = 地形与城堡**相乘**叠加。见 `defense_breakdown`（本函数＝它的 `[2]`）。"""
+        return self.defense_breakdown(x, y, def_owner)[2]
 
     @staticmethod
     def _modtxt(mods: dict[str, int]) -> str:
