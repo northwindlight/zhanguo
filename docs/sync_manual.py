@@ -41,6 +41,7 @@ import sys
 DOC_PATH = pathlib.Path(__file__).resolve().parent / "游戏说明书.md"
 ECON_DOC_PATH = pathlib.Path(__file__).resolve().parent / "经济学手册.md"
 GUIDE_DOC_PATH = pathlib.Path(__file__).resolve().parent / "开局指南.md"
+WAR_DOC_PATH = pathlib.Path(__file__).resolve().parent / "战争手册.md"
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -548,11 +549,30 @@ def blk_guide() -> str:
 
 GUIDE_BLOCKS: dict[str, object] = {"guide": blk_guide}
 
+
+def _war_source() -> str:
+    """局内《战争手册》原文（`mp_ai.war_manual()`）——本文档正文的唯一来源。"""
+    try:
+        import mp_ai
+    except Exception as e:  # pragma: no cover - 环境缺依赖时的明确报错
+        raise SyncError(f"读不到 mp_ai.war_manual（{type(e).__name__}: {e}）") from e
+    return mp_ai.war_manual()
+
+
+def blk_war() -> str:
+    """《战争手册》正文：逐字取自 `mp_ai.war_manual()`（`rules(战争手册)` 那一份，
+    也是**战时**被每回合强行挂进 system prompt 的那一份）。"""
+    return _sections_block(_war_source(), "战争手册", "mp_ai.war_manual()")
+
+
+WAR_BLOCKS: dict[str, object] = {"war": blk_war}
+
 # 已知的人类侧手册 → 各自的块表（`--doc` 按文件名认领）
 DOCS: dict[pathlib.Path, dict[str, object]] = {
     DOC_PATH: BLOCKS,
     ECON_DOC_PATH: ECON_BLOCKS,
     GUIDE_DOC_PATH: GUIDE_BLOCKS,
+    WAR_DOC_PATH: WAR_BLOCKS,
 }
 
 
