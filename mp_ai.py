@@ -1670,7 +1670,9 @@ def _fmt_battle(world, name) -> str:
             out.append(f"   {tag} {F}：{_side_line(world, F, sides['forces'][F], sides)}")
             for a in sides["forces"][F][:BATTLE_UNIT_CAP]:
                 extra_u = ""
-                if a.get("retreat_to"):
+                # ⚑ 撤退细节（目标格 + 减伤档）**只给自己的军**：`retreat_to` 是引擎内部
+                # 状态（落地时才公开），报了等于把对方下回合的落点提前告诉 AI。
+                if F == name and a.get("retreat_to"):
                     tx, ty = a["retreat_to"]
                     extra_u = (f" ⚑撤退中→({tx+1},{ty+1})｜"
                                f"{retreat_note(a.get('retreat_role') != '攻', a.get('retreat_cover', 100))}")
@@ -1698,13 +1700,12 @@ def _fmt_battle(world, name) -> str:
         else:
             out.append("   敌方：**敌情不明**（该格不在你视野内——守军构成、地形与城堡减伤"
                        "均不可知，结算照常进行）")
-        # 缺粮：断粮**交战中也照扣**，而 AI 现在只在内政日志里看得到一句「缺 N」
-        for F in fs:
-            if F == "野人":
-                continue
-            need, short, per = world.supply_shortfall(F)
+        # 缺粮：**只报己方**——补给是内政底细（与国库/产出同级，引擎只让 spy/买报表看）。
+        # 断粮**交战中也照扣**，而 AI 现在只在内政日志里看得到一句「缺 N」，看不到代价。
+        if name in sides["forces"]:
+            need, short, per = world.supply_shortfall(name)
             if short:
-                out.append(f"   ⚠ {F} 补给断粮：仓不够，缺 {short} ⇒ **全军每军 −{per}HP/回合**"
+                out.append(f"   ⚠ 你补给断粮：仓不够，缺 {short} ⇒ **全军每军 −{per}HP/回合**"
                            "（交战中也照扣）")
         out.append("   · 本格在交战 ⇒ 双方**本回合都不回血**（回血的前提是「不在交战格」）")
         out.append("")

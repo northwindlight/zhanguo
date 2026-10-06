@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import mp  # noqa: E402
+from balance import RETREAT_DEF_COVER  # noqa: E402
 import mp_ai  # noqa: E402
 
 
@@ -134,6 +135,43 @@ class TestBattlePanel(unittest.TestCase):
         self.assertGreater(short, 0)
         self.assertIn(f"每军 −{per}HP/回合", s)
         self.assertIn("交战中也照扣", s)
+
+    def test_starvation_is_never_reported_for_the_enemy(self):
+        """★ 补给是**内政底细**（与国库/产出同级，引擎只让 `spy`/买报表看别国）。
+
+        面板一度把每一方的断粮都打了出来——那等于白送对方的后勤底牌。
+        """
+        w = _world()
+        _tile(w, 6, 6, "楚")
+        _army(w, "步", 6, 6, "秦", 1, engaged=True)
+        _army(w, "步", 6, 6, "楚", 2, hp=60)
+        w.add_res("楚", "补给", -w.res("楚", "补给"))       # 敌方断粮
+        self.assertGreater(w.supply_shortfall("楚")[1], 0, "前提：敌方确实断粮")
+        s = mp_ai._fmt_battle(w, "秦")
+        self.assertNotIn("楚 补给", s)
+        self.assertNotIn("断粮", s)                          # 我不断粮 ⇒ 整行不出现
+        w.add_res("秦", "补给", -w.res("秦", "补给"))        # 我也断粮
+        self.assertIn("你补给断粮", mp_ai._fmt_battle(w, "秦"))
+
+    def test_enemy_retreat_target_is_not_disclosed(self):
+        """★ 敌方的撤退**目标格与减伤档**不能报：`retreat_to` 是引擎内部状态，
+        落地时才公开（报出去等于把对方下回合的落点提前告诉 AI）。"""
+        w = _world()
+        _tile(w, 6, 6, "楚")
+        _army(w, "步", 6, 6, "秦", 1, engaged=True)
+        e = _army(w, "步", 6, 6, "楚", 2, hp=60)
+        e["retreat_to"] = [7, 7]
+        e["retreat_cover"] = 50
+        e["retreat_role"] = "守"
+        s = mp_ai._fmt_battle(w, "秦")
+        self.assertIn("楚·步2军(#2) 60HP", s)                 # 番号与 HP 照给（视野内）
+        self.assertNotIn("⚑", s)
+        self.assertNotIn("(8,8)", s)
+        # 换成自己的军：照给（目标格与减伤档都是我自己的状态）
+        _army(w, "步", 6, 6, "秦", 3, engaged=True)["retreat_to"] = [5, 5]
+        w.armies[-1]["retreat_cover"] = RETREAT_DEF_COVER
+        w.armies[-1]["retreat_role"] = "守"
+        self.assertIn("⚑撤退中→(6,6)", mp_ai._fmt_battle(w, "秦"))
 
     def test_truncation_gives_remaining_coordinates(self):
         w = _world()
