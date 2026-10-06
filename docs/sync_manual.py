@@ -450,8 +450,10 @@ def blk_tools() -> str:
             shown = f"`{name}`" + (f"（{'、'.join(al)}）" if al else "")
             rows.append([label, shown, use])
     body = _table(["类别", "工具名（别名）", "用途"], rows)
+    # ★ 2026-10-06：这一块现在**会被局内 AI 读到**（`rules` 改从本说明书取），
+    #   所以不能点引擎内部符号名（`mp_ai.execute`）——那句话是写给开发者的。
     return (body + "\n\n工具名**中英文等价**（`build` = `建造`、`attack` = `atk` = `进攻`…），"
-            "上表别名一列由 `mp_ai.execute` 的分派表现算。"
+            "上表别名一列由命令分派表**现算**，不手抄。"
             "参数非法或内部异常只记一次失败返回给玩家，不会炸掉整局。")
 
 def _settle_mod():
@@ -479,7 +481,24 @@ def blk_settle() -> str:
     ])
 
 
+def blk_terrain() -> str:
+    """地形表：现读 `balance.TERRAIN_STATS`。
+
+    ★ 为 2026-10-06 换源补的：局内规则改从本说明书取之后，旧手写段里那张「地形防御/建设惩罚」
+    表会**没着落**（本说明书原先刻意外链到《地图生成与资源分布》）。而防御值直接影响
+    「打这一格要吃多少减伤」，是**打架时算得着**的数 ⇒ 收回正文，并做成 AUTO 块跟着 balance 走。
+    """
+    import balance as B
+    rows = ["| 地形 | 防御 | 建设惩罚 |", "|---|---|---|"]
+    for nm, st in B.TERRAIN_STATS.items():
+        rows.append(f"| {nm} | {st['defense']:+d}% | {st['build_penalty']:+d}% |")
+    rows.append("")
+    rows.append("防御与城堡防御**相乘**叠加（叠不到无敌）；建设惩罚只作用于**金价**，木材耗量不变。")
+    return "\n".join(rows)
+
+
 BLOCKS: dict[str, object] = {
+    "terrain": blk_terrain,
     "start": blk_start,
     "buildings": blk_buildings,
     "units": blk_units,

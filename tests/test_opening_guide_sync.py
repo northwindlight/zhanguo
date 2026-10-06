@@ -130,7 +130,9 @@ class TestOpeningGuidePromptSafety(unittest.TestCase):
     def test_挂进rules且能按主题取回(self):
         """过期后靠 `rules(开局指南)` 取回：章节表里要有它，主题词要认得。"""
         import mp_ai
-        labels = [label for label, _ in mp_ai._help_sections()]
+        # ★ 2026-10-06：手写规则段 `_help_sections()` 退役，规则文本改从 doc 目录
+        #   《游戏说明书》取；三本**讲义**改由 `_lectures()` 供给。
+        labels = [label for label, _ in mp_ai._lectures()]
         self.assertIn("开局指南", labels)
         self.assertIn("开局指南", self.text)
 
