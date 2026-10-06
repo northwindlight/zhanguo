@@ -56,11 +56,15 @@ from mp import (BANK_LOAN_GDP_MULT, BANK_LOAN_TURNS, BANK_RATE_MAX, BANK_RATE_MI
                 FALL_TRUCE_TURNS,
                 PLAN_MAX_TURNS, POLITY, REPORT_EVERY, RES_KEYS, RES_LABEL,
                 RETREAT_DEF_COVER, SPY_COST, SPY_TURNS, SUMMARY_MIN_CHARS,
-                build_econ, good_value)
+                build_econ, good_value, retreat_note)
 
 MAIL_BRIEF_FULL = 3      # 状态面板里完整展示的新信数（更旧的只列摘要行）
 MAIL_BRIEF_ROWS = 20     # 状态面板里最多列多少条旧信摘要
 LAND_CAP = 40            # `query panel=land` 一次列几块（可传 cap= 覆盖）
+BATTLE_CELL_CAP = 4      # `query panel=battle` 一次列几处交战（其余只给坐标）
+BATTLE_PARTY_CAP = 3     # 每处交战最多列几方
+BATTLE_UNIT_CAP = 6      # 每方最多列几支军（其余折叠成「…另 N 支」）
+BATTLE_BRIEF_CAP = 2     # 状态行里那行摘要最多展开几处（其余只给个数）
 MAP_MAX_CELLS = 2400     # 常驻地图最多画多少格；视野被远方飞地/盟友撑爆时退回"本土+邻圈"
 # ★ 地图只用**纯 ASCII**：`■`(U+25A0)、`·`(U+00B7) 的 East Asian Width 是 Ambiguous，
 #   在 CJK 等宽字体下按全角渲染 ⇒ 整张格子错位（2026-09-18 修）。
@@ -1090,6 +1094,11 @@ def war_manual() -> str:
         "的厅，先把视野推到它头上**。**占地本身不判生死，拔厅才判。**\n"
         f"  ⚠ 但市政厅**可以重建**（{hall['cost']} 金 + {hall['wood']} 木，需该格已用建筑位 ≥6）"
         "⇒ **你每慢一回合，它就把厅补回来。**\n"
+        "  ★ **落锤前先 `query panel=battle`**：它会摊开这一格每一方的**支数·兵种构成·"
+        "合计 HP·输出基数**，以及**仅防御方**吃的地形/城堡/合计减伤——那几样就是你算"
+        "「这一拳打不打得动」的全部数据（引擎不替你算胜负）。**你的军队站在哪一格，"
+        "那一格就列得出来**；不在你视野内的格标「盲战」，只报我方、减伤不明——\n"
+        "  ⚠ 盲战的代价是**真的**：引擎照收那格地形与城堡的减伤，只是不告诉你。\n"
         "二、**打兵不得分。** 兵是产能的产物。\n"
         f"  一支步兵 = {inf['粮食']} 粮 + {inf['装备']} 装（骑兵 {cav['粮食']} 粮 + {cav['装备']} 装）。"
         "对一个还在运转的工业国，你磨掉它一两支兵，它下回合就补回来 ⇒ **净收益约等于零**；"
@@ -1569,6 +1578,185 @@ def _fmt_threats(world, name) -> str:
             "视野内没有他国军队（野人守军不列在此——它们从不主动进攻，见坐标地图里每格的「，野人」）")
 
 
+def _battle_cells(world, name, cap: int):
+    """**交战格的唯一取数门禁** —— `_fmt_battle` 与 `battle_brief` 都只走这里。
+
+    一格入选当且仅当 **`可见 ∪ 我有活军在场`**：
+      · 纯视野（别国互殴）：看得到就报；**看不到的连计数都不给**——计数本身就是
+        泄漏"别处正在打"；
+      · **我有军在场**：必须出现。`attack` 允许打视野外的格，而军是**站在那格上**的，
+        自己不出现的话 AI 连"我正在盲打"都不知道（2026-10-07 的起因）。
+
+    候选集走 `world.troops`（缓存过的**非野人**名单）而不是 `world.armies`：
+    一局里野人常有 1500+ 支，而野人永不是交战方（`battle_sides` 的 `attacker` 不含野人）。
+
+    返回 `(rows, extra_cells)`；`rows = [(x, y, sides, seen)]`，`seen` = 该格是否在我视野内
+    （决定报不报敌方与减伤——盲战只报我方）；`extra_cells` = 入选但超出 `cap` 的坐标。
+    """
+    vis = _visible_cells(world, name)
+    mine = {(a["x"], a["y"]) for a in world.troops
+            if a["owner"] == name and a["hp"] > 0}
+    cells = sorted({(a["x"], a["y"]) for a in world.troops if a.get("engaged")})
+    rows, extra_cells = [], []
+    for (x, y) in cells:
+        if (x, y) not in vis and (x, y) not in mine:
+            continue                      # 看不见、我也没在场 ⇒ 连存在都不提
+        sides = world.battle_sides(x, y)
+        if sides is None:
+            continue
+        if len(rows) >= cap:
+            extra_cells.append((x, y))
+            continue
+        rows.append((x, y, sides, (x, y) in vis))
+    return rows, extra_cells
+
+
+def _side_line(world, F: str, units: list[dict], sides: dict) -> str:
+    """一方的一行汇总：支数 · 兵种构成 · 合计 HP · 输出基数。"""
+    kinds: dict[str, int] = {}
+    for a in units:
+        k = a.get("type") or "野人"          # 野人**没有 type 键**（与引擎 _spawn_guardian 一致）
+        kinds[k] = kinds.get(k, 0) + 1
+    comp = " ".join(f"{k}{v}" if k != "野人" else "野人" for k, v in sorted(kinds.items()))
+    hp = sum(a["hp"] for a in units)
+    return (f"{len(units)} 支 · {comp} · 合计 {hp}HP · 输出基数 {sides['atk_base'][F]}")
+
+
+def _fmt_battle(world, name) -> str:
+    """当前交战的**事实**面板：谁在攻、谁在守、双方投入多少、吃几档减伤。
+
+    ★ **只给事实，不给判断**——不算胜率、不预判胜负（用户 2026-10-07：接战斗 DP
+      「有点作弊了」；项目元规律「给事实不给判断」）。AI 要算自己算：燕 T121 的原话
+      就是「按伤害模型再打两轮就是全歼」——它缺的是数据，不是求解器。
+
+    ★ **盲战**：该格不在我视野内、但**我有军在场** ⇒ 该格出现（否则不知道自己在盲打），
+      但**只报我方**，敌方与减伤一律「敌情不明」。**尤其不报合计减伤**：它含城堡分量，
+      报出去等于让 AI 用算术把雾里的城防反推出来。
+    """
+    rows, extra_cells = _battle_cells(world, name, BATTLE_CELL_CAP)
+    if not rows:
+        return ("（当前没有交战——你没有军队在打，视野内也没有别国在打。\n"
+                "  要开打：`query panel=army` 选军 → `attack` 目标格；开打后这里会列出各方的\n"
+                "  兵种构成、逐支 HP、输出基数，以及**仅防御方**吃的地形/城堡/合计减伤。）")
+    out = [f"【交战】{len(rows) + len(extra_cells)} 处"
+           "（只列你视野内、或有你军队在场的格；视野外且与你无关的仗不在此列）", ""]
+    order_hint = {"攻": 0, "守": 1, "旁观": 2}
+    for (x, y, sides, seen) in rows:
+        t = world.tiles.get((x, y))
+        hall = world.visible_buildings(name, x, y).get("市政厅", 0)
+        head = (f"⚔ ({x+1},{y+1}){world.ter_char(x, y)}"
+                + (f" 城L{world.visible_buildings(name, x, y).get('城堡', 0)}"
+                   if world.visible_buildings(name, x, y).get("城堡", 0) else "")
+                + ("【市政厅·国祚】" if hall else ""))
+        if not seen:
+            head += " 【**盲战**·该格不在你视野内】"
+        nm = (t or {}).get("name")
+        head += ("｜**无主野地**" if sides["owner"] is None else f"｜{sides['owner']} 的领土")
+        head += f"「{nm}」" if nm else ""
+        out.append(head)
+        fs = sorted(sides["forces"], key=lambda F: (order_hint[sides["role"][F]], F))
+        # ★ 盲战（该格不在我视野内）**只列我方**——别人的番号、兵力、构成一概不给。
+        #   这是本面板唯一的泄漏面：逐方循环天生会把格上所有人都打出来。
+        shown = fs if seen else [F for F in fs if F == name]
+        for F in shown[:BATTLE_PARTY_CAP]:
+            role = sides["role"][F]
+            tag = {"攻": "攻方", "守": "守方", "旁观": "在场未参战"}[role]
+            if F == name:
+                tag += "（你）"
+            if F == "野人":
+                tag += "（野人）"
+            elif role == "攻" and sides["soak_elig"].get(F):
+                tag += "（兼格主，仍吃本格减伤）"
+            out.append(f"   {tag} {F}：{_side_line(world, F, sides['forces'][F], sides)}")
+            for a in sides["forces"][F][:BATTLE_UNIT_CAP]:
+                extra_u = ""
+                if a.get("retreat_to"):
+                    tx, ty = a["retreat_to"]
+                    extra_u = (f" ⚑撤退中→({tx+1},{ty+1})｜"
+                               f"{retreat_note(a.get('retreat_role') != '攻', a.get('retreat_cover', 100))}")
+                out.append(f"     · {a['name']}(#{a['id']}) {a['hp']}HP{extra_u}")
+            if len(sides["forces"][F]) > BATTLE_UNIT_CAP:
+                out.append(f"     …另 {len(sides['forces'][F]) - BATTLE_UNIT_CAP} 支")
+        if len(shown) > BATTLE_PARTY_CAP:
+            out.append(f"   …另 {len(shown) - BATTLE_PARTY_CAP} 方")
+        if seen:
+            terrain = t["terrain"] if t else world.tile_terrain(x, y)
+            per_lv = building_effect("城堡", "defense_per_level") or 1
+            out.append("   减伤（**仅防御方**吃，进攻方恒 0）：")
+            for F in fs:
+                if sides["role"][F] == "攻":
+                    continue
+                td, cd, total = sides["soak_parts"][F]
+                # 城堡档位从 soak_parts 反推（cd = 级数×每级），不再去读地块——
+                # 地块是**惰性物化**的，未物化的格 `tiles.get()` 是 None
+                castle = (f"城堡 L{cd // per_lv} +{cd}%" if cd else "城堡 —")
+                note = "（格主）" if F == sides["owner"] else "（非格主，无城堡加成）"
+                if td < 0:
+                    note += " ★负地形：反而多挨打"
+                out.append(f"     {F}{note}：地形 {terrain} {td:+d}% × {castle}"
+                           f" ⇒ 合计减伤 {total}%")
+        else:
+            out.append("   敌方：**敌情不明**（该格不在你视野内——守军构成、地形与城堡减伤"
+                       "均不可知，结算照常进行）")
+        # 缺粮：断粮**交战中也照扣**，而 AI 现在只在内政日志里看得到一句「缺 N」
+        for F in fs:
+            if F == "野人":
+                continue
+            need, short, per = world.supply_shortfall(F)
+            if short:
+                out.append(f"   ⚠ {F} 补给断粮：仓不够，缺 {short} ⇒ **全军每军 −{per}HP/回合**"
+                           "（交战中也照扣）")
+        out.append("   · 本格在交战 ⇒ 双方**本回合都不回血**（回血的前提是「不在交战格」）")
+        out.append("")
+    out.append("   · 本引擎无「阵营」：攻/守按每方自己的 engaged 与宣战关系**逐方**判定，"
+               "同盟方各打各的。")
+    out.append("   · 输出基数是 Σ兵种攻击的基数，**不含骰子**——实际结果看回合末结算。")
+    if extra_cells:
+        rest = "、".join(f"({x+1},{y+1})" for (x, y) in extra_cells)
+        out.append(f"   …另 {len(extra_cells)} 处：{rest}（用 `query panel=tile x= … y= …` 单看）")
+    return "\n".join(out)
+
+
+def battle_brief(world, name) -> str:
+    """一行交战摘要（每次行动后自动挂）—— 只答"有没有仗、这场仗读起来是不是在赢"。
+
+    ★ 与 `_fmt_battle` **共用同一个门禁**：不可见的别国互殴既不进列表也不计数。
+    ★ 尺寸有界：最多 `BATTLE_BRIEF_CAP` 格，其余只给个数（明细让 AI 自己 `query`）。
+    """
+    rows, extra_cells = _battle_cells(world, name, BATTLE_BRIEF_CAP)
+    if not rows:
+        return ""
+    parts = []
+    for (x, y, sides, seen) in rows:
+        mine = name if name in sides["forces"] else None
+        if mine is None:
+            parts.append(f"别国交战({x+1},{y+1})" if seen else "")
+            continue
+        role = sides["role"][mine]
+        hp_me = sum(a["hp"] for a in sides["forces"][mine])
+        seg = f"你{'攻' if role == '攻' else '守'}({x+1},{y+1}) " \
+              f"你{len(sides['forces'][mine])}支{hp_me}HP"
+        if not seen:
+            parts.append(seg + "/敌情不明【盲战】")
+            continue
+        foes = [F for F in sides["forces"] if F != mine and sides["role"][F] != "旁观"]
+        if foes:
+            F = foes[0]
+            seg += f"/{'守' if role == '攻' else '攻'}{len(sides['forces'][F])}支" \
+                   f"{sum(a['hp'] for a in sides['forces'][F])}HP"
+            if role == "攻" and sides["soak_elig"].get(F):
+                seg += f"·守方减伤{sides['soak_pct'][F]}%"
+            elif role == "守" and sides["soak_elig"].get(mine):
+                seg += f"·你方减伤{sides['soak_pct'][mine]}%"
+        parts.append(seg)
+    parts = [p for p in parts if p]
+    if not parts:
+        return ""
+    n = len(rows) + len(extra_cells)
+    tail = f"＋另{len(extra_cells)}处" if extra_cells else ""
+    return f"⚔交战{n}处：" + "；".join(parts[:BATTLE_BRIEF_CAP]) + tail + "｜明细 query panel=battle"
+
+
 def _fmt_alerts(world, name) -> str | None:
     """**领土警报**——钉在状态面板**最前**（用户 2026-09-21：「领土变更，被侵略是大事，得强调」）。
 
@@ -1925,9 +2113,12 @@ def compact_state(world, name) -> str:
     r = world.nations[name].res
     n_army = len([a for a in world.armies if a["owner"] == name])
     box = world.mailbox.get(name, [])
+    b = battle_brief(world, name)      # 有交战才挂；没有则整段不出现（不白占 token）
     return (
         f"【刷新】你{name} 国库{r['黄金']} 粮{r['粮食']} 木{r['木头']} 矿{r['矿石']} "
-        f"油{r['石油']} 装{r['装备']} 补给仓{r['补给']} | 军队{n_army} | 收信{len(box)} | "
+        f"油{r['石油']} 装{r['装备']} 补给仓{r['补给']} | 军队{n_army}"
+        + (f" | {b}" if b else "") + " | "
+        f"收信{len(box)} | "
         f"关系:{world.rel_desc(name)} | 近讯见 events。继续你的行动，做完了调 end_turn。"
     )
 
@@ -2147,6 +2338,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
             "countries": _fmt_countries(world, actor),
             "news": _fmt_news(world, actor),
             "threats": _fmt_threats(world, actor),
+            "battle": _fmt_battle(world, actor),
             "econ": _fmt_econ(world, actor),
             "intel": _fmt_intel(world, actor),
             "spy": _fmt_spy(world, actor),
@@ -2485,8 +2677,8 @@ def _props(schema: dict) -> dict:
 
 TOOL_SCHEMAS = [
     {"type": "function", "function": {
-        "name": "query", "description": f"查询接口：随时获取你的各面板。★ 你的**国土与视野已作为「坐标地图」常驻**在每回合的状态里（按势力分段：我 / 野人 / 各国；每行一格：`(x,y)归属地形，[L2城][，地名][，番号…]`），所以这里查的是**细节**。land=地皮逐格明细（可翻页/按建筑或资源过滤） / tile=**单格全明细**（x= y= 或 at=地名） / grid=**网格版地图**（ASCII 格子图，适合想一眼看形状时） / res=国库与储备 / plan=国策规划 / army=军队 / market=世界市场(现价/买价/卖价/均衡价+大单试算) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=间谍情报(别国经济底细+外交关系+粗略军情) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内他国军队（野人守军不列，见地图标记） / all=全部。每个行动后状态会变，拿不准就再查一次。",
-        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "plan", "land", "tile", "grid", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats"], "description": "要查询的面板", "required": True},
+        "name": "query", "description": f"查询接口：随时获取你的各面板。★ 你的**国土与视野已作为「坐标地图」常驻**在每回合的状态里（按势力分段：我 / 野人 / 各国；每行一格：`(x,y)归属地形，[L2城][，地名][，番号…]`），所以这里查的是**细节**。land=地皮逐格明细（可翻页/按建筑或资源过滤） / tile=**单格全明细**（x= y= 或 at=地名） / grid=**网格版地图**（ASCII 格子图，适合想一眼看形状时） / res=国库与储备 / plan=国策规划 / army=军队 / market=世界市场(现价/买价/卖价/均衡价+大单试算) / econ=经济核算(各建筑造价毛利回本) / intel=收到的地图情报(全部坐标) / spy=间谍情报(别国经济底细+外交关系+粗略军情) / mail=信箱 / countries=可选外交对象 / diplomacy=外交 / news=近讯 / threats=视野内他国军队（野人守军不列，见地图标记） / battle=**当前交战**（每方的支数·兵种构成·合计HP·输出基数、逐支 HP、地形/城堡/合计减伤——**仅防御方**吃；视野外的格标「盲战」只报我方） / all=全部。每个行动后状态会变，拿不准就再查一次。",
+        "parameters": _props({"panel": {"type": "string", "enum": ["all", "res", "plan", "land", "tile", "grid", "army", "market", "econ", "intel", "spy", "mail", "countries", "diplomacy", "news", "threats", "battle"], "description": "要查询的面板", "required": True},
                               "cap": {"type": "integer", "description": f"panel=land：本次列几块（默认 {LAND_CAP}）"},
                               "offset": {"type": "integer", "description": "panel=land：从第几块开始列（翻页用）"},
                               "filter": {"type": "string", "description": "panel=land：只看含该**建筑**或该**资源**的格（如 兵营 / 耕地 / 军屯）"},
