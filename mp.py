@@ -214,6 +214,19 @@ def ent_key(ent: str) -> str:
     return ent[2:]
 
 
+def retreat_note(defends: bool, cover: int) -> str:
+    """撤退的攻/防档位文案 —— **一处定义，多处消费**（`retreat()` 的命令行回执、
+    结算时三行落地日志、战斗面板上的 `⚑` 标记）。
+
+    `defends`（是不是守方）与 `cover` 都由 `World.battle_sides` 的 `soak_elig`
+    一次导出，不在各处重判。文案只陈述**事实**（这轮吃不吃减伤、输出打不打折），
+    不替 AI 判断该不该撤——给事实不给判断。
+    """
+    if defends:
+        return f"防御撤退，本回合结算减伤 {100 - cover}%"
+    return "进攻撤退，本回合结算无减伤（输出 −80%）"
+
+
 # ---- 游戏层 ROI 原语（原在 mp_ai._gval / _econ_building；提到这里免得规则 AI
 #      反向依赖 LLM 层。LLM 面板与规则 AI v9 从此共用同一份数字，口径逐字一致，
 #      与 feat/rl 的同名实现可互相 cherry-pick）----
@@ -1823,10 +1836,13 @@ class World:
         a = self._army(name, aid)
         if a is None:
             return False, f"军队 {aid} 不存在"
-        in_battle = bool(a.get("engaged")) or any(
-            d["owner"] != a["owner"] and d["owner"] != "野人" and d.get("engaged")
-            and (d["x"], d["y"]) == (a["x"], a["y"]) and self.war_between(a["owner"], d["owner"])
-            for d in self.troops)
+        # ★ 攻守角色一律读唯一口径 `battle_sides`（从前这里与 `_resolve_battles` 各写一遍，
+        #   一处排除 hp≤0、一处不排除，会静默漂开）。
+        sides = self.battle_sides(a["x"], a["y"])
+        # 交战判定：①**本军自己**挂着 engaged（逐军语义——故意不用 "name ∈ attacker"，
+        #   那会新开能力：同格我军 X 军 engaged、Y 军没 engaged 时，今天 Y 撤不了，换掉就能撤）；
+        #   ②本军所在格上我方是**挨打方**（有人打我）。
+        in_battle = bool(a.get("engaged")) or bool(sides and name in sides["defending"])
         if not in_battle:
             return False, f"{a['name']} 未在交战中，无需撤退"
         try:
@@ -1850,16 +1866,18 @@ class World:
         # 结算后自动脱离到目标格（见 resolve_turn 撤退落地）。
         # 防御方减伤：我方在该格「未参战」（不是进攻方）、或本身就是格主 → 守方，撤退减伤
         # RETREAT_DEF_COVER%（谁挨打谁是守方，野地和平驻军同理）；主动进攻方撤退是全额。
-        holder = self.owned_by(a["x"], a["y"])
-        attacking = any(m["owner"] == name and m.get("engaged") and (m["x"], m["y"]) == (a["x"], a["y"])
-                        for m in self.troops)
-        cover = RETREAT_DEF_COVER if (not attacking or holder == name) else 100
+        # ★ 资格读 `battle_sides` 的 `soak_elig`——与结算真正用的减伤**同一个来源**。
+        defends = bool(sides and sides["soak_elig"].get(name))
+        cover = RETREAT_DEF_COVER if defends else 100
         a["retreat_to"] = [x, y]
         a["retreat_cover"] = cover
+        # `retreat_role` 仅供**展示**（日志/面板/摘要）——结算只认 `retreat_cover`。
+        # 不 derive-from-cover：`RETREAT_DEF_COVER` 是可调数值，若被调成 100，
+        # 「cover<100 ⇒ 防御」当场反标签；布尔语义免疫调参。
+        a["retreat_role"] = "守" if defends else "攻"
         a["moved_turn"] = self.turn
-        note = f"（防御方撤退，结算减伤 {100 - cover}%）" if cover < 100 else ""
-        return True, (f"{a['name']} 准备撤到 ({x+1},{y+1}){note}：本回合结束时随战斗结算"
-                      f"（全场分摊）后自动脱离；结算期间仍在战场")
+        return True, (f"{a['name']} 准备撤到 ({x+1},{y+1})（{retreat_note(defends, cover)}）："
+                      f"本回合结束时随战斗结算（全场分摊）后自动脱离；结算期间仍在战场")
 
     # ------------------------------------------------------------- 战斗
     def _die(self):
@@ -1926,6 +1944,70 @@ class World:
         """每方骰修正的简短文本：如「甲+5% 乙-15%」。"""
         return " ".join(f"{F}{m:+d}%" for F, m in sorted(mods.items())) or "—"
 
+    def battle_sides(self, x: int, y: int) -> dict | None:
+        """(x,y) 这一格**当前这一仗**的完整切分 —— 攻守/减伤/输出的**唯一出处**。
+
+        返回 `None` ⟺ 该格没有待结算的战斗（无活军，或没有任何**活着的**进攻方）。
+
+        非 None 时给：
+          owner       格主（None = 无主野地）
+          forces      {势力: [该格活军…]}   列表序 = `self.armies` 序；含野人、含在野第三方
+          attacker    {势力}                有 engaged 军的势力（野人永不在内）
+          defending   {势力}                挨打方 = ⋃ 各攻方的敌人
+          role        {势力: "攻"|"守"|"旁观"}   旁观 = 在场但既不攻也不挨打
+          enemies     {势力: [与之交战的在场势力…]}
+          soak_elig   {势力: bool}          **结算减伤资格**：F ∉ attacker 或 F == owner
+          soak_pct    {势力: int}           结算**真正用的**数（不符合资格者恒 0）
+          soak_parts  {势力: (地形%, 城堡%, 合计%)}  与资格无关的引擎真值
+          atk_base    {势力: int}           本回合输出基数（Σ `unit_atk`，撤退军 −80%）
+
+        ★ `forces` 里装的是**军队对象本身**（不是拷贝）——`_spread` 要就地改 hp。
+
+        ★ 这里是「谁是进攻方」的**唯一**判定处，`_resolve_battles` 与 `retreat()` 都读它。
+          从前这两处各写一遍（一处排除 `hp <= 0`、一处不排除），对"格上还有没有活着的
+          进攻军"可能给出相反答案，而症状是**静默**的：结算按攻方算、撤退却按守方给
+          50% 减伤。统一到 `hp > 0`——0 血军是尸体，既不计入输出、也不参与分摊，
+          更不该替本方要来"防御撤退"的减伤。
+        """
+        owner = self.owned_by(x, y)
+        forces: dict[str, list[dict]] = {}
+        for a in self.armies:
+            if (a["x"], a["y"]) != (x, y) or a["hp"] <= 0:
+                continue
+            if a["owner"] == "野人" and owner is not None:
+                continue                      # 野人只守无主格
+            forces.setdefault(a["owner"], []).append(a)
+        attacker = {F for F in forces if F != "野人"
+                    and any(a.get("engaged") for a in forces[F])}
+        if not forces or not attacker:
+            return None
+
+        def _enemies(F: str) -> list[str]:
+            """敌人关系：非野人 = 格上其他交战方 +（自己是进攻方时）无主格野人；野人 = 只打进攻方。"""
+            if F == "野人":
+                return [G for G in attacker if G != "野人"]
+            en = [G for G in forces if G != F and G != "野人" and self.war_between(F, G)]
+            if F in attacker and "野人" in forces:
+                en.append("野人")
+            return en
+
+        enemies = {F: _enemies(F) for F in forces}
+        defending = {G for F in attacker for G in enemies[F]}
+        # 减伤：未参战的驻军（含野人）挨打时吃本格地形，格主永远算守方
+        # （攻击方不吃加成——谁挨打谁是守方）。
+        soak_parts = {F: self.defense_breakdown(x, y, F) for F in forces}
+        soak_elig = {F: (F not in attacker or F == owner) for F in forces}
+        return {
+            "x": x, "y": y, "owner": owner,
+            "forces": forces, "attacker": attacker, "defending": defending,
+            "role": {F: ("攻" if F in attacker else "守" if F in defending else "旁观")
+                     for F in forces},
+            "enemies": enemies, "soak_elig": soak_elig,
+            "soak_pct": {F: (soak_parts[F][2] if soak_elig[F] else 0) for F in forces},
+            "soak_parts": soak_parts,
+            "atk_base": {F: self.faction_atk(forces[F]) for F in forces},
+        }
+
     def _resolve_battles(self) -> list[str]:
         """每格每回合的多势力交战结算：**进攻方不纯联合**——每方独立只打自己的敌人（互相宣战才互打），
         每方掷自己的骰；野人只守无主格、只打"进攻方"（不打扰和平停驻者）；地形/城堡减伤只给格主/野人；
@@ -1939,36 +2021,20 @@ class World:
             _t_castle = self.tiles.get((x, y))
             _cl = _t_castle["buildings"].get("城堡", 0) if _t_castle else 0
             tag = f"({x+1},{y+1}){self.ter_char(x, y)}" + (f" 城L{_cl}" if _cl else "")
-            owner = self.owned_by(x, y)
-            # 格上活军按势力分组（进攻方 + 守军 + 停驻者 + 无主格野人）
-            forces: dict[str, list[dict]] = {}
-            for a in self.armies:
-                if (a["x"], a["y"]) != (x, y) or a["hp"] <= 0:
-                    continue
-                if a["owner"] == "野人" and owner is not None:
-                    continue  # 野人只守无主格
-                forces.setdefault(a["owner"], []).append(a)
-            attacker = {F for F in forces if F != "野人"
-                        and any(a.get("engaged") for a in forces[F])}
-            if not forces or not attacker:
+            # ★ 攻守/减伤/输出全部来自唯一口径 `battle_sides`（见其 docstring）
+            sides = self.battle_sides(x, y)
+            if sides is None:
                 continue
-            # 敌人关系：非野人势力 = 格上其他交战方 + (自己是进攻方时)无主格野人；野人 = 只打进攻方
-            def _enemies(F: str) -> list[str]:
-                if F == "野人":
-                    return [G for G in attacker if G != "野人"]
-                en = [G for G in forces if G != F and G != "野人" and self.war_between(F, G)]
-                if F in attacker and "野人" in forces:
-                    en.append("野人")
-                return en
-            # 地形/城堡减伤给「守方」：未参战的驻军（含野人）挨打时吃本地地形，格主永远算守方；
-            # 交战中的进攻方不吃加成（谁挨打谁是守方）。
-            soak = {F: (self._defense_pct(x, y, F) if (F not in attacker or F == owner) else 0)
-                    for F in forces}
+            owner = sides["owner"]
+            forces = sides["forces"]
+            attacker = sides["attacker"]
+            enemies = sides["enemies"]
+            soak = sides["soak_pct"]
             # 每方掷自己的骰，同时出手（先算全部伤害再统一施加，允许同归于尽）
             dmg: dict[str, int] = {F: 0 for F in forces}
             mods: dict[str, int] = {}
             for F in forces:
-                en = _enemies(F)
+                en = enemies[F]
                 if not en:
                     continue
                 _d, mod = self._die()
@@ -2006,7 +2072,7 @@ class World:
             for F in alive:
                 if F == "野人":
                     continue
-                if not _enemies(F) or not any(G in alive for G in _enemies(F)):
+                if not enemies[F] or not any(G in alive for G in enemies[F]):
                     for a in alive[F]:
                         a["engaged"] = False
             # 占地 / 战报：归属候选 = 进攻方中「无活敌」者，按索取顺序取最早 atk 的（索取者优先；
@@ -2477,14 +2543,21 @@ class World:
         # 3.5) 撤退落地：撤退军队已随本轮战斗结算（全场分摊），此刻脱离到目标格
         for a in [a for a in self.armies if a.get("retreat_to")]:
             tx, ty = a["retreat_to"]
+            # ★ **先抢存再 pop**：角色/减伤档要在下面三行日志里用，而 pop 与日志之间
+            #   隔着 `hp<=0` 判断和三层分支——本函数曾经就是"先 pop 后写日志"才把
+            #   攻/防角色丢掉的（谁再往里插一个分支就会再犯一次）。数据跟着军走，
+            #   与 pop 的位置无关。
+            role, cover = a.get("retreat_role"), a.get("retreat_cover", 100)
+            note = retreat_note(role != "攻", cover)
             a.pop("retreat_to", None)
             a.pop("retreat_cover", None)
+            a.pop("retreat_role", None)
             if a["hp"] <= 0:
                 continue  # 结算中阵亡，撤不成了（战报已记）
             if self._retreat_legal(a["owner"], tx, ty):
                 a["x"], a["y"] = tx, ty
                 a["engaged"] = False
-                self.log(f"{a['name']} 撤到 ({tx+1},{ty+1})，脱离交战", phase="战报",
+                self.log(f"{a['name']} 撤到 ({tx+1},{ty+1})，脱离交战（{note}）", phase="战报",
                          nation=a["owner"], x=tx, y=ty)
             else:
                 alts = [(nx, ny) for nx, ny in self.neighbors(a["x"], a["y"])
@@ -2492,11 +2565,11 @@ class World:
                 if alts:
                     a["x"], a["y"] = alts[0]
                     a["engaged"] = False
-                    self.log(f"{a['name']} 撤退目标格战局生变，改撤 ({alts[0][0]+1},{alts[0][1]+1})",
+                    self.log(f"{a['name']} 撤退目标格战局生变，改撤 ({alts[0][0]+1},{alts[0][1]+1})（{note}）",
                              phase="战报", nation=a["owner"], x=alts[0][0], y=alts[0][1])
                 else:
-                    self.log(f"{a['name']} 撤退目标格已不合法且四周无可退点，原地留守", phase="战报",
-                             nation=a["owner"], x=a["x"], y=a["y"])
+                    self.log(f"{a['name']} 撤退目标格已不合法且四周无可退点，原地留守（{note}）",
+                             phase="战报", nation=a["owner"], x=a["x"], y=a["y"])
 
         # 4) 军队补给 + 回复（每国吃自己的补给仓）
         famine = {}
