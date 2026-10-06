@@ -2575,16 +2575,16 @@ class World:
         famine = {}
         for n in self.alive():
             ps = self.nation_armies(n)
-            need = self._supply_need(n, ps)  # 步1/骑2；民兵驻自家军屯格免费
+            # ★ 需求/缺口/每军扣血一律走 `supply_shortfall`——面板要报"缺粮会流多少血"
+            #   时读同一个函数，不许自己重抄 `max(1, 35*short//need)`（那又是一处静默漂移源）。
+            need, short, per = self.supply_shortfall(n)
             paid = min(need, self.res(n, "补给"))
             self.add_res(n, "补给", -paid)
             self.flow_out["补给"] += paid   # 世界流量：军队吃补给
             self._ledger(n)["supply_eaten"] += paid
             self._spend(n)["supply"] += self._mval("补给", paid)   # 总消费：军费
-            short = need - paid
             if short:
-                # 缺口按比例分摊：每军扣 35×缺口/需求（交战中也照扣），至少 1
-                per = max(1, ARMY_STARVE_DAMAGE * short // need)
+                # 缺口按比例分摊：每军扣 ARMY_STARVE_DAMAGE×缺口/需求（交战中也照扣），至少 1
                 dead = []
                 for a in ps:
                     a["hp"] -= per
@@ -2731,6 +2731,24 @@ class World:
                         continue
             need += unit_supply(a)
         return need
+
+    @staticmethod
+    def starve_per_army(need: int, short: int) -> int:
+        """缺口 → **每支军**扣多少血：按缺口比例分摊（满额 `ARMY_STARVE_DAMAGE`），至少 1；
+        无缺口为 0。★ 公式只此一处，结算与面板都走它。"""
+        return max(1, ARMY_STARVE_DAMAGE * short // need) if (short and need) else 0
+
+    def supply_shortfall(self, n: str) -> tuple[int, int, int]:
+        """该国本回合的补给账 `(需求, 缺口, 每军扣血)` —— **只看不扣**（供面板/摘要）。
+
+        ★ 三条容易漏的引擎事实，报给 AI 时都要带上：
+          · **交战中也照扣**——断粮的军不会因为"正在打仗"就免于流血；
+          · 扣血是**全军**的（不分在不在交战格）；
+          · 断粮**或**所在格在交战 ⇒ 那格**本回合不回血**（见 `resolve_turn` 第 4 步）。
+        """
+        need = self._supply_need(n, self.nation_armies(n))
+        short = max(0, need - self.res(n, "补给"))
+        return need, short, self.starve_per_army(need, short)
 
     def _clear_disengaged(self) -> int:
         """脱离战斗清扫：格上已无活敌军的 engaged 军队就地解除交战。

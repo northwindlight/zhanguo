@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import balance  # noqa: E402
 import mp  # noqa: E402
 
 
@@ -275,6 +276,38 @@ class TestStarvation(unittest.TestCase):
         self.assertEqual(hps, [100, 100, 100])
         self.assertFalse(any("断粮" in h["text"] for h in w.history))  # 无断粮日志
         self.assertTrue(any("断粮" in h["text"] for h in self._run(0, [100])[0].history))
+
+    def test_shortfall_report_matches_actual_deduction(self):
+        """★ 面板报"缺粮每军 −P HP"时，P 必须**就是**结算真扣的那个数。
+
+        这里在 `resolve_turn` **之前**读 `supply_shortfall`（面板的取数时刻），
+        再与结算后的实际掉血逐支对拍——两处一旦各算各的，这条会红。
+        """
+        w = mp.World(size=16, seed=3, nations=["秦", "楚"])
+        w.armies = [self._army(w, i) for i in (1, 2, 3)]
+        w.add_res("秦", "补给", -w.res("秦", "补给") + 2)
+        need, short, per = w.supply_shortfall("秦")
+        self.assertEqual((need, short), (3, 1))          # 3 步军吃 3，仓 2 ⇒ 缺 1
+        self.assertEqual(per, 35 * 1 // 3)               # 按缺口比例，不是固定 35
+        before = {a["id"]: a["hp"] for a in w.armies}
+        w.resolve_turn()
+        for a in w.armies:
+            self.assertEqual(before[a["id"]] - a["hp"], per, "面板报的扣血与结算不符")
+
+    def test_full_cutoff_reports_full_damage(self):
+        """完全断供 ⇒ 每军满额 `ARMY_STARVE_DAMAGE`（面板要能把最坏情况报出来）。"""
+        w = mp.World(size=16, seed=3, nations=["秦", "楚"])
+        w.armies = [self._army(w, 1)]
+        w.add_res("秦", "补给", -w.res("秦", "补给"))
+        self.assertEqual(w.supply_shortfall("秦"), (1, 1, balance.ARMY_STARVE_DAMAGE))
+
+    def test_no_shortage_reports_zero(self):
+        """没缺口时**不能**报出正的扣血（`per` 的 max(1,…) 只在真有缺口时生效）。"""
+        w = mp.World(size=16, seed=3, nations=["秦", "楚"])
+        w.armies = [self._army(w, 1)]
+        w.add_res("秦", "补给", 99)
+        need, short, per = w.supply_shortfall("秦")
+        self.assertEqual((need, short, per), (1, 0, 0))
 
 
 class TestNewBuildings(unittest.TestCase):
