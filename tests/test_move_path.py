@@ -263,5 +263,49 @@ class TestCostTable(_Base):
         self.assertEqual(r[(6, 6)], 1)         # 对角同样是"一步"
 
 
+class TestMoveNeverClaimsLand(_Base):
+    """★ `mv` 不占地，而且**回执必须当场说清**（用户 2026-10-07，实盘秦）。
+
+    `move` 的描述写着「野地可直接走进/穿过」，`attack` 的描述写着「格上无任何军队则直接
+    进驻占领」——两句长得像、后果相反。秦 把前者读成"走进就是占下"，自称「本回合**实证**
+    mv 直接进驻即可」，两回合铺了 30 多次 mv、**国土一块没多**，小结里却写
+    「魏 48 块无主地已收大部分」。回执原样是「军队1 移防 (6,5)」——**中性**，
+    连发十六条也读不出问题。所以这条既测行为、也测回执。
+    """
+
+    def _wild(self, w, x: int, y: int) -> None:
+        t = w._new_tile(x, y, "秦")
+        t["owner"] = None
+        w.tiles[(x, y)] = t
+
+    def test_walking_into_a_wild_tile_does_not_claim_it(self):
+        w = self._world()
+        self._army(w, "步", 5, 5)
+        self._wild(w, 6, 5)
+        before = len(w.own_tiles("秦"))
+        ok, msg = w.move("秦", 1, 6, 5)
+        self.assertTrue(ok, msg)
+        self.assertIsNone(w.owned_by(6, 5), "mv 竟然把无主地占了")
+        self.assertEqual(len(w.own_tiles("秦")), before, "国土凭 mv 多了一块")
+        self.assertIn("未占地", msg, "落在无主地的回执没把话说死")
+        self.assertIn("atk", msg, "回执没指出唯一的占地动作")
+
+    def test_reply_on_own_or_allied_ground_stays_plain(self):
+        """**阴性对照**：自家格不存在这个误解 ⇒ 回执照旧，不白占 token。"""
+        w = self._world()
+        self._army(w, "步", 5, 5)
+        ok, msg = w.move("秦", 1, 6, 5)
+        self.assertTrue(ok, msg)
+        self.assertNotIn("未占地", msg)
+
+    def test_tool_text_says_walking_in_is_not_claiming(self):
+        """工具描述（AI 做决策时唯一的规则来源）里也得有一句，别只靠回执。"""
+        import mp_ai
+        desc = next(t for t in mp_ai.TOOL_SCHEMAS
+                    if t["function"]["name"] == "move")["function"]["description"]
+        self.assertIn("走进 ≠ 占下", desc)
+        self.assertIn("要占地必须用 atk", desc)
+
+
 if __name__ == "__main__":
     unittest.main()
