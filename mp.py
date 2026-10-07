@@ -2246,20 +2246,39 @@ class World:
         # 军队解散
         self.armies = [a for a in self.armies if a["owner"] != name]
         # 关系与外交清场
-        new_wars = []
-        ended_wars = []
-        for w in self.wars:
-            if name in (w["atk"], w["def"]):
-                ended_wars.append(w)
-                continue  # 主导者亡 → 整场战争结束
-            w["followers"] = [c for c in w["followers"] if c != name]  # 跟随方亡 → 仅剔出
-            w["atk_followers"] = [c for c in w.get("atk_followers", []) if c != name]
-            new_wars.append(w)
-        self.wars = new_wars
+        # ★★ 2026-10-07 口径（用户拍板）：**「全天下强制休战」字面就是停战**——
+        #   一方亡国 ⇒ **现有战线一律当场终止**（不只是与亡国者有关的那几条），
+        #   然后给全体现存国家两两压 `FALL_TRUCE_TURNS` 回合（下面的 truce 块）。
+        #   语义与 `offer_peace` 完全对齐：**战争结束 + 期限内不得再宣战**。
+        #   旧口径只终止与亡国者相关的战线、其余照打，结果是自相矛盾的一幕：
+        #   全世界两两"休战至第 N 回合"的同时，别的战线**照打不误**
+        #   （实盘 T157 魏/周同日亡国 ⇒ 全天下休战至 167，而韩↔燕 照打、连一次宣战都不用）
+        #   ——**"防连环征服"的立意被绕过**：灭国者反而拿到一段"没人能宣战它"的接收窗口，
+        #   正在流血的一方却一分钟都没停。
+        ended_wars = list(self.wars)
+        self.wars = []
         # 因亡国而终结的战争：余方实际持有重算为核心领土
         for w in ended_wars:
             self._snapshot_cores([w["atk"], w["def"]] + list(w["followers"])
                                  + list(w.get("atk_followers", [])))
+        # ★ **战斗也要当场停**（用户 2026-10-07：「包括战斗」）：战线没了 ⇒ 场上不再有
+        #   "进攻方"这个身份。不清的话，滞留在原敌方格上的军队下一回合会被 `_resolve_battles`
+        #   判成"唯一幸存者"，**白占一格、顺手清掉守军**（实测复现过：3 秦军 vs 2 魏军打了一
+        #   回合，第三国亡国停战，再结算一回合 ⇒ 地归秦、魏军消失）。口径与议和一致——
+        #   `_do_accept_peace` 那句「各方军队解除交战」。之后它们是**非法滞留**，
+        #   由 `_withdraw_illegal` 按兵种速度遣返回国。
+        #   ⚠ 只清**站在国有地上**的：打野人的仗不是"战争"（野人只守无主格），
+        #     全天下休战不该把清野地也一并掐掉。
+        for m in self.armies:
+            if m["owner"] != "野人" and self.owned_by(m["x"], m["y"]) is not None:
+                m["engaged"] = False
+        others = [w for w in ended_wars if name not in (w["atk"], w["def"])]
+        if others:
+            names = "、".join(f"{w['atk']}↔{w['def']}" for w in others[:3])
+            more = f" 等 {len(others)} 条" if len(others) > 3 else ""
+            self.proclaim(f"🕊 **全天下强制休战 {FALL_TRUCE_TURNS} 回合**：{name} 亡国，"
+                          f"与它无关的战线也一并终止（{names}{more}）"
+                          "——期满各自是中立，要再打，得重新宣战")
         # 联盟清场：盟主亡 → 顺位继承（最早加入的剩余成员）；成员全亡 → 解散
         for bloc in list(self.blocs):
             if name in bloc["members"]:

@@ -12,6 +12,11 @@
 全天下列国对压一条 10 回合强制休战**（`FALL_TRUCE_TURNS`，防雪球）——用户明确口径：
 **那条也算"和约"**，所以有人亡国后的 10 回合里谁都入不了盟（`TestFallTruceCounts`）。
 
+★★ 2026-10-07 用户拍板：那条休战**字面就是停战**——`_eliminate_if_dead` 现在会把
+**所有战线一并终止**（不只是与亡国者有关的那几条），并解除全军交战；
+判据与护栏见 `TestFallCeasefireActuallyStopsWars`。旧口径只拦"新宣战"，于是出现
+「全天下两两休战至第 N 回合」与「韩↔燕 照打不误」并存的荒谬状态。
+
 跑法：python3 -m unittest discover -s tests -v
 """
 
@@ -109,6 +114,103 @@ class TestFallTruceCounts(unittest.TestCase):
         self.assertTrue(w.truces_of("秦"), "前提：秦 全是对手的休战")
         for other in ("楚", "齐"):
             self.assertTrue(w.truces_of(other)[0][1] >= w.turn + 1, f"{other} 该也在休战期")
+
+
+class TestFallCeasefireActuallyStopsWars(unittest.TestCase):
+    """★★ 2026-10-07 用户拍板：**"全天下强制休战"字面就是停战**。
+
+    旧口径只终止与亡国者有关的那几条战线，其余照打——实盘 T157 魏/周同日亡国，
+    全天下两两"休战至第 167 回合"，而 韩↔燕（自 T128 的老战线）**照打不误、
+    连一次宣战都不用**。用户当场判为 bug：「正在发生的战争必须强制停下」「包括战斗」。
+    """
+
+    def _world(self, n=4):
+        w = mp.World(size=20, seed=7, nations=["秦", "魏", "韩", "赵"][:n],
+                     starts={"秦": (3, 3), "魏": (6, 6), "韩": (9, 9), "赵": (12, 12)})
+        w.armies = []
+        return w
+
+    def _kill(self, w, name):
+        for (x, y) in list(w.own_tiles(name)):
+            t = w.tiles[(x, y)]
+            t["buildings"]["市政厅"] = 0
+        return w._eliminate_if_dead(name)
+
+    def test_unrelated_war_is_ended_too(self):
+        """秦↔魏 在打，第三国（韩）亡国 ⇒ **秦↔魏 那条线也当场停**。"""
+        w = self._world()
+        self.assertTrue(w.declare_war("秦", "魏")[0])
+        self.assertTrue(self._kill(w, "韩"))
+        self.assertEqual(w.wars, [], "与亡国者无关的战线没停")
+        self.assertFalse(w.war_between("秦", "魏"))
+
+    def test_every_pair_gets_the_truce(self):
+        w = self._world()
+        w.turn = 5
+        self.assertTrue(self._kill(w, "韩"))
+        for other in ("秦", "魏", "赵"):
+            got = dict(w.truces_of(other))
+            self.assertTrue(got, f"{other} 没被压上休战")
+            for o, until in got.items():
+                self.assertGreaterEqual(until, 5 + 1, f"{other}↔{o} 的休战期不对")
+
+    def test_world_is_told(self):
+        """这是世界级事件，必须广播（否则各国不知道自己突然停战了）。"""
+        w = self._world()
+        self.assertTrue(w.declare_war("秦", "魏")[0])
+        self.assertTrue(self._kill(w, "韩"))
+        self.assertTrue(any("强制休战" in h.get("text", "") for h in w.history),
+                        "停战的广播没发出去")
+
+    def test_battle_stops_and_nobody_grabs_the_tile(self):
+        """★ 战斗本身也要停：滞留在原敌方格上的攻方**不能白占一格、不能清掉守军**。
+
+        不清 `engaged` 的话，`_resolve_battles` 会把这批人判成"唯一幸存者"
+        （没敌人了）⇒ `_conquer("攻陷")` ⇒ 地归它、守军消失。实测复现过。
+        """
+        w = self._world()
+        self.assertTrue(w.declare_war("秦", "魏")[0])
+        x, y = 6, 6
+        t = w.tiles[(x, y)]
+        t["owner"] = "魏"
+        t["buildings"]["市政厅"] = 0
+        for i in range(3):
+            w.armies.append({"id": 10 + i, "gid": 10 + i, "name": f"秦·步{10 + i}",
+                             "type": "步", "hp": 100, "x": x, "y": y, "owner": "秦",
+                             "moved_turn": -1, "engaged": True})
+        for i in range(2):
+            w.armies.append({"id": 20 + i, "gid": 20 + i, "name": f"魏·步{20 + i}",
+                             "type": "步", "hp": 100, "x": x, "y": y, "owner": "魏",
+                             "moved_turn": -1, "engaged": False})
+        w._die = lambda: (1, 0)
+        w._resolve_battles()
+        self.assertEqual(w.owned_by(x, y), "魏", "前提：第一回合还没分出胜负")
+
+        self.assertTrue(self._kill(w, "韩"))          # 停战
+        self.assertFalse(any(a.get("engaged") for a in w.armies), "军队没解除交战")
+        snap = {a["name"]: a["hp"] for a in w.armies}
+        w._resolve_battles()                       # 再结算一回合
+        self.assertEqual({a["name"]: a["hp"] for a in w.armies}, snap,
+                         "停战之后还在掉血")
+        self.assertEqual(w.owned_by(x, y), "魏",
+                         "停战后攻方白占了这一格（战斗没真的停）")
+        self.assertEqual(len([a for a in w.armies if a["owner"] == "魏"]), 2,
+                         "守军被停战顺手清掉了")
+
+    def test_clearing_barbarians_is_not_a_war_and_keeps_going(self):
+        """**阴性对照**：清野地不是"战争"（野人只守无主格）⇒ 全天下休战不该掐掉它。"""
+        w = self._world()
+        t = w._new_tile(3, 4, "秦")          # 强行做成无主野地（开局生成的归属不可控）
+        t["owner"] = None
+        w.tiles[(3, 4)] = t
+        self.assertIsNone(w.owned_by(3, 4), "前提：那格是无主地")
+        w.armies.append({"id": 1, "gid": 1, "name": "秦·步1", "type": "步", "hp": 100,
+                         "x": 3, "y": 4, "owner": "秦", "moved_turn": -1, "engaged": True})
+        w.armies.append({"id": 99, "gid": 99, "name": "野人99", "hp": 100, "x": 3, "y": 4,
+                         "owner": "野人", "moved_turn": -1, "engaged": False})
+        self.assertTrue(self._kill(w, "韩"))
+        self.assertTrue([a for a in w.armies if a["owner"] == "秦"][0].get("engaged"),
+                        "清野地的军队被天下休战误伤了")
 
 
 class TestTruceBlocksPactCallUp(unittest.TestCase):
