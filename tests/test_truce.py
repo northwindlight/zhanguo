@@ -197,6 +197,39 @@ class TestFallCeasefireActuallyStopsWars(unittest.TestCase):
         self.assertEqual(len([a for a in w.armies if a["owner"] == "魏"]), 2,
                          "守军被停战顺手清掉了")
 
+    def test_battle_stops_on_the_dying_nations_own_tile_too(self):
+        """★ 解除交战必须跑在**"余土变无主"之前**——这条用例的全部内容就是这个顺序。
+
+        反过来（先归无主）：亡国者的地块 `owner` 先变成 None，站在上面正在打它的军队
+        会被"只清国有地"那条过滤器漏掉、带着 `engaged` 留在无主地上 ⇒ 下一回合它就是
+        "唯一幸存者" ⇒ `_conquer("攻陷")`，**白捡一格**。那格的主人刚亡国、谁都能占，
+        但要占得**下命令**——停战不是白捡。
+        """
+        w = self._world()
+        self.assertTrue(w.declare_war("秦", "韩")[0])
+        x, y = 9, 9
+        t = w.tiles[(x, y)]
+        t["owner"] = "韩"
+        t["name"] = "临都"
+        t["buildings"]["市政厅"] = 0
+        for i in range(3):
+            w.armies.append({"id": 10 + i, "gid": 10 + i, "name": f"秦·步{10 + i}",
+                             "type": "步", "hp": 100, "x": x, "y": y, "owner": "秦",
+                             "moved_turn": -1, "engaged": True})
+        for i in range(2):
+            w.armies.append({"id": 20 + i, "gid": 20 + i, "name": f"韩·步{20 + i}",
+                             "type": "步", "hp": 100, "x": x, "y": y, "owner": "韩",
+                             "moved_turn": -1, "engaged": False})
+
+        self.assertTrue(self._kill(w, "韩"))
+        self.assertIsNone(w.owned_by(x, y), "前提：韩 的余土已成无主地")
+        self.assertFalse(any(a.get("engaged") for a in w.armies),
+                         "解除交战跑晚了（那一刻格子已经归无主，过滤掉了这批人）")
+        w._die = lambda: (1, 0)
+        w._resolve_battles()
+        self.assertIsNone(w.owned_by(x, y), "停在原地的人白捡了一格")
+        self.assertEqual([a["hp"] for a in w.armies], [100, 100, 100], "不该掉血")
+
     def test_clearing_barbarians_is_not_a_war_and_keeps_going(self):
         """**阴性对照**：清野地不是"战争"（野人只守无主格）⇒ 全天下休战不该掐掉它。"""
         w = self._world()

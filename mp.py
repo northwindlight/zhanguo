@@ -2230,6 +2230,21 @@ class World:
             return False
         if self.has_townhall(name):
             return False
+        # ★ **战斗也要当场停**（用户 2026-10-07：「正在发生的战争必须强制停下」「包括战斗」）：
+        #   战线马上要没了，场上不再有"进攻方"这个身份。不清 `engaged` 的话，滞留在原敌方
+        #   格上的军队下一回合会被 `_resolve_battles` 判成"唯一幸存者"（没敌人了）⇒
+        #   `_conquer("攻陷")` —— **白占一格、顺手清掉守军**（实测复现过：3 秦军 vs 2 韩军
+        #   打了一回合，第三国亡国停战，再结算一回合 ⇒ 地归秦、守军消失）。
+        #   口径与议和一致（`_do_accept_peace` 那句「各方军队解除交战」）；之后它们是
+        #   **非法滞留**，由 `_withdraw_illegal` 按兵种速度遣返回国。
+        #   ⚠ **必须跑在"余土变无主"之前**：那一步一执行，亡国者的地块 `owner` 就成了 None，
+        #     站在上面的军队会被下面那条"只清国有地"的过滤器漏掉，带着 `engaged` 留在无主地
+        #     上——洞还是那个洞（顺序反了就是同一个 bug 换个地方复发，有用例钉着）。
+        #   ⚠ 只清**站在国有地上**的：打野人的仗不是"战争"（野人只守无主格），
+        #     全天下休战不该把清野地一并掐掉。
+        for a in self.armies:
+            if a["owner"] != "野人" and self.owned_by(a["x"], a["y"]) is not None:
+                a["engaged"] = False
         # 亡国 ⇒ 余土变无主之地（建筑留存）；核心主张随之作废（没有国了，谈何核心）
         orphaned = [t for t in self.tiles.values() if t["owner"] == name]
         for t in orphaned:
@@ -2261,17 +2276,6 @@ class World:
         for w in ended_wars:
             self._snapshot_cores([w["atk"], w["def"]] + list(w["followers"])
                                  + list(w.get("atk_followers", [])))
-        # ★ **战斗也要当场停**（用户 2026-10-07：「包括战斗」）：战线没了 ⇒ 场上不再有
-        #   "进攻方"这个身份。不清的话，滞留在原敌方格上的军队下一回合会被 `_resolve_battles`
-        #   判成"唯一幸存者"，**白占一格、顺手清掉守军**（实测复现过：3 秦军 vs 2 魏军打了一
-        #   回合，第三国亡国停战，再结算一回合 ⇒ 地归秦、魏军消失）。口径与议和一致——
-        #   `_do_accept_peace` 那句「各方军队解除交战」。之后它们是**非法滞留**，
-        #   由 `_withdraw_illegal` 按兵种速度遣返回国。
-        #   ⚠ 只清**站在国有地上**的：打野人的仗不是"战争"（野人只守无主格），
-        #     全天下休战不该把清野地也一并掐掉。
-        for m in self.armies:
-            if m["owner"] != "野人" and self.owned_by(m["x"], m["y"]) is not None:
-                m["engaged"] = False
         others = [w for w in ended_wars if name not in (w["atk"], w["def"])]
         if others:
             names = "、".join(f"{w['atk']}↔{w['def']}" for w in others[:3])
