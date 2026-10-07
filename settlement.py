@@ -351,6 +351,10 @@ def _game_context(save: dict, name: str, rounds: int, ncfg: dict | None = None) 
         cfg=ncfg or {}, mem=mem,
         sums=(save.get("summaries") or {}).get(name) or [],
         blocks=(save.get("summary_blocks") or {}).get(name) or [],
+        # ★ 长期记忆也要带上：亡国之君的 `turn_memory` 已被引擎清掉（逐字缓冲区是在局
+        #   用的），归档 + 长期记忆就是他全部的"这一局"（`ctx._archive_floor` 负责在
+        #   没有 replay 时把归档兜到底，否则一条小结都渲染不出来）。
+        long_memory=(save.get("long_memory") or {}).get(name) or "",
         system_text=system_text, tail_text="")
     return msgs
 
@@ -362,25 +366,48 @@ def _finale_text(save: dict, board: str) -> str:
             "没有工具、不能行动，只能发言。落座吧，等看海人点名。")
 
 
+def hall_roster(save: dict) -> list[str]:
+    """结算厅的**座次**：全体国家（**含已亡国**），按入场顺序。
+
+    ★ 2026-10-08 用户：「结算厅要结算所有国家」——旧口径只请 `save["nations"]`
+    （存活者），一局打到终局，厅里常常只剩冠军一位，其余七位君主的整局得失、
+    终局表态、互相指认全都没有下文；而成绩单里他们明明是上榜的。
+    亡国之君**凭自己的记忆入场**：引擎在亡国时留住了 summaries / summary_blocks /
+    long_memory / polity（见 `World._eliminate_if_dead`），`_game_context` 逐字重建
+    的正是这几样＋它的对话流。
+    """
+    return _roster(save)
+
+
+def _llm_client(nc: dict):
+    """建一位君主的客户端 → `(client, model, temperature, max_tokens, extra_body)`。
+
+    **结算厅唯一一处建连**，单独抽出来是为了让测试能替换它做**无网络**的打桩
+    （2026-10-08：测试里直接 patch `openai.OpenAI` 不可靠也不快——真连上了会走
+    SDK 重试＋退避，一个用例就烧掉两分钟，且"发言失败，缺席"那行同样含国名，
+    断言会**假绿**）。
+    """
+    from openai import OpenAI
+    extra = {}
+    if "thinking" in nc:
+        extra["thinking"] = {"type": nc["thinking"]}
+    if nc.get("reasoning_effort"):
+        extra["reasoning_effort"] = nc["reasoning_effort"]
+    return (OpenAI(base_url=nc["base_url"], api_key=nc["api_key"]),
+            nc.get("model"), nc.get("temperature", 0.7), nc.get("max_tokens", 8192), extra)
+
+
 def run_chat(save: dict, result: dict, cfg: dict, rounds: int, log,
              remarks: dict[str, str] | None = None) -> list[str]:
-    nations = list(save["nations"].keys())
+    nations = hall_roster(save)
     if not nations:
         # 全员同归于尽的档：结算厅无人可坐（轮转取模会除零）——只出成绩单，聊天跳过。
         log("（诸国俱亡，结算厅无人到场——只出成绩单。）")
         return []
-    from openai import OpenAI
     clients = {}
     for nc in cfg.get("nations", []):
         if nc.get("base_url") and nc.get("api_key") and nc["name"] in nations:
-            extra = {}
-            if "thinking" in nc:
-                extra["thinking"] = {"type": nc["thinking"]}
-            if nc.get("reasoning_effort"):
-                extra["reasoning_effort"] = nc["reasoning_effort"]
-            clients[nc["name"]] = (OpenAI(base_url=nc["base_url"], api_key=nc["api_key"]),
-                                   nc.get("model"), nc.get("temperature", 0.7),
-                                   nc.get("max_tokens", 8192), extra)
+            clients[nc["name"]] = _llm_client(nc)
     missing = [n for n in nations if n not in clients]
     if missing:
         log(f"（缺 API 配置，{ '、'.join(missing) } 不参加结算厅）")
@@ -446,7 +473,7 @@ def load_remarks(path: str | None, save: dict, log) -> dict[str, str]:
         return {}
     remarks: dict[str, str] = {}
     log("—— 看海人寄语（公开挂载计分板下，直接回车跳过该国）——")
-    for n in save["nations"]:
+    for n in hall_roster(save):          # 含已亡国：他们也在厅里，也该拿到寄语
         try:
             txt = input(f"  致{n}：").strip()
         except (EOFError, KeyboardInterrupt):

@@ -570,6 +570,28 @@ def replay_head(system_text: str, archive_text: str, records: list[dict]) -> lis
     return merge_same_role(msgs)
 
 
+def _archive_floor(mem: list[dict], sums: list[dict], blocks: list[dict], last_turn: int) -> int:
+    """**没有 replay 时**归档该兜到哪一回合（`before_turn`）。
+
+    有 replay 时答案很直白：`replay 第一条的回合`——它前面的都归归档。
+    但 replay 为空（`mem=[]`）时旧代码给的是 `last_turn + 1 = 1`，于是
+    `render_archive` 认为"全部小结都还在 replay 窗口里"，**一条都不渲染** ——
+    谁走到这条路径谁就彻底失忆。
+
+    ★ 2026-10-08：这条路径正是**结算厅的亡国之君**（引擎在亡国时清掉 `turn_memory`
+    ＝逐字缓冲区，只留 summaries/blocks/long_memory，见 `World._eliminate_if_dead`）。
+    用户报的现象是"结算厅只看活着的国家"，修完座次立刻暴露第二层：请进来了，可他
+    手里什么都没有。⇒ 没有 replay ⇒ 归档**兜到底**（末条小结的回合 + 1）。
+
+    空档（第 1 回合、刚登场的新国：sums/blocks 都还没有）返回 1 —— 与旧行为逐字相同。
+    """
+    if mem:
+        return last_turn + 1
+    tail = [int(s.get("turn", 0)) for s in (sums or [])]
+    tail += [int(b.get("to", 0)) for b in (blocks or [])]
+    return 1 + max(tail or [0])
+
+
 def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
           system_text: str, tail_text: str, tool_tokens: int = 0,
           fallback_turns: int | None = None, long_memory: str = "") -> tuple[list[dict], Plan]:
@@ -584,12 +606,12 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
     overhead = plan.sys_tokens + plan.tail_tokens + int(tool_tokens or 0) + SAFETY_TOKENS
 
     last_turn = int(mem[-1]["turn"]) if mem else 0
-    before = last_turn + 1
+    before = _archive_floor(mem, sums, blocks, last_turn)
 
     if plan.mode == "fixed":
         records = list(mem[-plan.fixed_turns:]) if mem else []
         plan.replay_tokens = sum(record_tokens(r) for r in records)
-        before = int(records[0]["turn"]) if records else last_turn + 1
+        before = int(records[0]["turn"]) if records else _archive_floor(mem, sums, blocks, last_turn)
         archive_text = render_archive(sums, blocks, before, plan.archive_cap, long_memory)
         plan.archive_tokens = est_tokens(archive_text)
     else:
@@ -607,7 +629,8 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
             plan.replay_budget = max(2048, avail - arch)
             records, plan.replay_tokens = select_replay(mem, plan.replay_budget,
                                                         plan.min_turns, size_fn=size_fn)
-            before = int(records[0]["turn"]) if records else last_turn + 1
+            before = int(records[0]["turn"]) if records else _archive_floor(
+                mem, sums, blocks, last_turn)
             archive_text = render_archive(sums, blocks, before, plan.archive_cap, long_memory)
             plan.archive_tokens = est_tokens(archive_text)
         if plan.roll == "period" and not plan.period:   # 自动周期 = 余量 ÷ 实测回合体积

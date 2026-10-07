@@ -2346,9 +2346,12 @@ class World:
         if gone:
             self.proclaim(f"💔 {name} 亡国，其条约随之作废（{'、'.join(gone)}）")
         self.mailbox.pop(name, None)
-        self.summaries.pop(name, None)
-        self.summary_blocks.pop(name, None)
-        self.long_memory.pop(name, None)
+        # ★ 亡国**不清记忆**（2026-10-08 用户：「结算厅要结算所有国家」）——亡国之君要凭
+        #   自己的记忆走进结算厅；删掉就只剩一屋子失忆的君主，整局战绩没有下文。
+        #   留下的三样都是**记忆**（长期记忆 / 每回合小结 / 阶段块总结），逐字增长已停止；
+        #   清掉的是**在局状态**：`turn_memory` 是"活着接着打"用的逐字缓冲区（也是存档里
+        #   最大的一块，单国 ~1.4MB），死了不再需要；`maps`/`plans`/`econ_intel`/`ledger`
+        #   同理。`polity` 留（那是身份：匈奴君主的 system prompt 要靠它）。
         self.turn_memory.pop(name, None)
         self.maps.pop(name, None)
         self.gift_pending = [g for g in self.gift_pending if g["from"] != name and g["to"] != name]
@@ -2357,8 +2360,7 @@ class World:
         self.econ_intel.pop(name, None)
         self.ledger.pop(name, None)          # 账本是本期暂态；已出的 econ_reports 留作历史
         self.plans.pop(name, None)
-        self.polity.pop(name, None)
-        self.extra_prompt.pop(name, None)
+        self.extra_prompt.pop(name, None)     # 在局注入的临时提示；`polity` 留（身份）
         self.mail_pending = [m for m in self.mail_pending if m["to"] != name and m["from"] != name]
         self.peace_offers = [p for p in self.peace_offers if p["a"] != name and p["b"] != name]
         self.proposals = [p for p in self.proposals
@@ -4449,13 +4451,17 @@ class World:
         w.nations = {n: Nation(n, res) for n, res in data["nations"].items()}
         w.order = data["order"]
         w.mailbox = {n: data["mailbox"].get(n, []) for n in w.nations}
+        # ★ 记忆 vs 在局状态的取舍**与 `_eliminate_if_dead` 逐条对齐**（两边不一致就会出现
+        #   "存一次档亡国之君就失忆"这种只在重启后现形的 bug）：
+        #   · **记忆**（summaries / summary_blocks / long_memory / polity）**含已亡国**——
+        #     结算厅要请他们入场（2026-10-08 用户：「结算厅要结算所有国家」）。
+        #   · **在局状态**（turn_memory 逐字缓冲区 / maps / econ_intel / plans / extra_prompt /
+        #     mailbox）只留存活国——死了就不再行动，用不上，且 turn_memory 是存档里最大的一块。
         # summaries 条目恒为 {turn,text}（旧字符串格式随版本锁死一并退休）
         w.summaries = {n: [{"turn": int(it["turn"]), "text": str(it["text"])}
-                           for it in lst] for n, lst in data["summaries"].items()
-                       if n in w.nations}
-        w.summary_blocks = {n: list(v) for n, v in data["summary_blocks"].items()
-                            if n in w.nations}
-        w.long_memory = {n: str(v) for n, v in data["long_memory"].items() if n in w.nations}
+                           for it in lst] for n, lst in data["summaries"].items()}
+        w.summary_blocks = {n: list(v) for n, v in data["summary_blocks"].items()}
+        w.long_memory = {n: str(v) for n, v in data["long_memory"].items()}
         w.turn_memory = {n: list(v) for n, v in data["turn_memory"].items() if n in w.nations}
         w.gift_pending = data["gift_pending"]
         w.map_pending = data["map_pending"]
@@ -4463,7 +4469,7 @@ class World:
         w.spy_pending = data["spy_pending"]
         w.econ_intel = {n: list(v) for n, v in data["econ_intel"].items() if n in w.nations}
         w.plans = {n: dict(v) for n, v in data["plans"].items() if n in w.nations}
-        w.polity = {n: v for n, v in data["polity"].items() if n in w.nations}
+        w.polity = dict(data["polity"])       # 身份：亡国之君的匈奴口吻也靠它（见上）
         w.extra_prompt = {n: dict(v) for n, v in data["extra_prompt"].items() if n in w.nations}
         w.opening_guide = bool(data["opening_guide"])
         w.armies = data["armies"]
