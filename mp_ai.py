@@ -810,10 +810,14 @@ def _fmt_public_affairs(world, me: str) -> str:
     for w in world.wars:
         fls = list(w["followers"]) + list(w.get("atk_followers", []))
         parts.append(f"⚔ {w['atk']} ↔ {w['def']}" + (f"（跟随：{'、'.join(fls)}）" if fls else ""))
-    for pair, until in world.truce.items():
-        if until >= world.turn:
-            a, b = sorted(pair)
-            parts.append(f"🕊 {a} ↔ {b} 休战至第 {until} 回合")
+    for pair, until in list(world.truce.items()):
+        if until < world.turn:
+            continue
+        a, b = sorted(pair)
+        merged = world.entity_of(a) == world.entity_of(b)   # 同盟内部：和约已被联盟合并
+        parts.append(f"🕊 {a} ↔ {b} 休战至第 {until} 回合"
+                     + (f"（已并入 {world.entity_label(world.entity_of(a))}"
+                        "，盟内本就互不攻击；联盟解散则按原到期回合恢复）" if merged else ""))
     head = "  【公开条约与战线】（全世界可见：签了什么、谁打谁——商议过程不公开）"
     return head + "\n" + ("    " + "\n    ".join(parts) if parts else "暂无：全世界还没有联盟/条约/战争")
 
@@ -1235,6 +1239,10 @@ def war_manual() -> str:
         f"③ **全天下强制休战 {FALL_TRUCE_TURNS} 回合**——**所有战线当场终止**"
         "（含与你无关的那些），"+ "期满各自回到中立，要再打就得重新宣战、"
         "**重新触发一遍全部条约传导**（防连环征服）。\n"
+        "  ★ **休战期不是外交冻结期：不得宣战，但条约照签、盟照结。**"
+        "全天下同时停火的这段窗口，**是唯一一段谁都打不了谁、可以放心谈的时候**"
+        "——趁它把盟立起来；一旦那个刚跟你签了和约的对手也进了同一个联盟，"
+        "**那纸和约就并入联盟了**（盟内本就互不攻击，比和约更强）。\n"
         "  ⇒ 如果对方是这条战线的**主导者**，**直取它的厅，比在边境换一百次地都快**。\n"
         "七、**防御条约不是安全网——只有联盟是。**\n"
         "  「保障独立」「共同防御」**不是保险**：\n"
@@ -2894,11 +2902,11 @@ TOOL_SCHEMAS = [
         "name": "plan", "description": f"制定或修订你的国策（长期战略目标），会永久常驻你的上下文（【国策规划】标记），直到你再次修订。⚠ 结束回合(end_turn)前必须已有国策；且每 {PLAN_MAX_TURNS} 回合必须修订一次，否则 end_turn 会被拦。建议按四方面写：经济发展（粮木矿油/建设/卖买）、军事规划（扩军/攻防/结盟）、情报管理（间谍/换图/来信研判）、外交方向（结盟/宣战/求和/馈赠立场）。",
         "parameters": _props({"content": {"type": "string", "description": "国策内容", "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_found", "description": f"发起结盟（多边联盟）：**必须给联盟起名**（1~{BLOC_NAME_MAX} 字、不含空格、全局唯一）并邀请创始成员。全体创始成员 respond_proposal 接受后联盟成立（任一拒绝即流产），**发起方自动成为盟主**。★ 联盟本身就是**外交实体**：此后保障独立/共同防御/宣战/议和都由联盟出面、且须联盟投票通过，成员个人签不了任何条约；**入盟即放弃个人条约**（成员国原有的保障/共同防御一律作废）。盟内效果：互通领土/互不攻击/共享视野；同战线自动归还核心领土。**战争期间不能缔结同盟**。发起扣外交费（基准 {DIPLO_COST} 金；受邀方有外交中心则免费）。",
+        "name": "bloc_found", "description": f"发起结盟（多边联盟）：**必须给联盟起名**（1~{BLOC_NAME_MAX} 字、不含空格、全局唯一）并邀请创始成员。全体创始成员 respond_proposal 接受后联盟成立（任一拒绝即流产），**发起方自动成为盟主**。★ 联盟本身就是**外交实体**：此后保障独立/共同防御/宣战/议和都由联盟出面、且须联盟投票通过，成员个人签不了任何条约；**入盟即放弃个人条约**（成员国原有的保障/共同防御一律作废）。盟内效果：互通领土/互不攻击/共享视野；同战线自动归还核心领土。**战争期间不能缔结同盟**；★ **休战期（和约在身）不拦结盟**——你与盟友之间那纸和约会被联盟**合并**（不再独立成立；联盟解散/退盟则按原到期回合自动恢复）。发起扣外交费（基准 {DIPLO_COST} 金；受邀方有外交中心则免费）。",
         "parameters": _props({"name": {"type": "string", "description": "联盟名（1~{BLOC_NAME_MAX}字，全局唯一）", "required": True},
                               "tos": {"type": "array", "items": {"type": "string"}, "description": "创始成员国名数组（至少1个，须为 countries 里的别国）", "required": True}})}},
     {"type": "function", "function": {
-        "name": "bloc_join", "description": f"申请加入指定联盟：现成员投票，**赞成 > 反对**即通过（盟主投 no 可否决）；一国同时只属一个联盟；与该联盟成员交战、或自己正在交战 → 不能申请。扣外交费（基准 {DIPLO_COST} 金）。",
+        "name": "bloc_join", "description": f"申请加入指定联盟：现成员投票，**赞成 > 反对**即通过（盟主投 no 可否决）；一国同时只属一个联盟；与该联盟成员交战、或自己正在交战 → 不能申请。★ 有和约在身**不拦入盟**（和约会被联盟合并）。扣外交费（基准 {DIPLO_COST} 金）。",
         "parameters": _props({"name": {"type": "string", "description": "联盟名", "required": True}})}},
     {"type": "function", "function": {
         "name": "bloc_leave", "description": f"退出所在联盟：普通成员单方面退出、立即生效（滞留前盟友领土的军队回合末自动遣返）。★ **战争期间一律不准退盟**——任一成员在交战即被拒，盟员在战时被锁死，先议和。**盟主不能退盟**——请先 bloc_transfer 移交，或 bloc_dissolve 解散。扣外交费（基准 {DIPLO_COST} 金）。",

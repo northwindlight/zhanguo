@@ -986,7 +986,21 @@ class World:
         return False
 
     def active_truce(self, a: str, b: str) -> int | None:
-        """a、b 之间**未到期**的休战返回到期回合（已到期的顺手清掉并返回 None）。"""
+        """a、b 之间**未到期且仍然独立成立**的休战 → 到期回合（已到期的顺手清掉，None = 没有）。
+
+        ★ 2026-10-07 用户拍板：「**停战期可以缔结条约；如果是建立联盟，合并和平条约而不是
+        阻止**」。落地就落在这一行上：**同属一个外交实体（联盟）的两国之间不存在独立的和约**
+        ——联盟自带的「盟内互不攻击」比和约更强，那纸休战被联盟**合并**掉了（`entity_of`
+        相等 ⇒ 返回 None）。旧口径（2026-09-20）反过来：有和约就**不许**结盟，于是一旦有人
+        亡国、全天下被压上强制休战，**整整一段休战期里谁都结不了盟**——而休战期恰恰是
+        最该谈条约的时候。
+
+        ★ 表里那条**不删**，只在这里"视而不见"：联盟一旦解散 / 成员退出，两国重新成为两个
+        实体，原来的休战**按原到期回合自动恢复**。删掉就成了一扇后门——「邀对手入盟 →
+        当场解散 → 立刻偷袭」，对方还以为那纸和约在（它确实还在表里，却已经不是约束）。
+        """
+        if self.entity_of(a) == self.entity_of(b):
+            return None                      # 已被联盟合并：同实体只有"盟内互不攻击"
         p = _pair(a, b)
         t = self.truce.get(p)
         if t is None:
@@ -1000,8 +1014,8 @@ class World:
         """该国**还在休战期内**的全部对手 → [(对手, 到期回合)]，按国名排序。
 
         ★ 含**亡国时压给全天下的强制休战**（`FALL_TRUCE_TURNS`）——用户 2026-09-20 口径：
-        那条也算"和约"。所以某国亡国后的 10 回合里，全世界都"有和约在身"，
-        **谁都入不了盟/结不了盟**（口径如此，不是漏判）。
+        那条也算"和约"。它现在只拦**宣战**，不再拦结盟（见 `active_truce`）。
+        走 `active_truce` ⇒ 已被联盟合并的那些（对手是同盟成员）不在此列。
         """
         out: list[tuple[str, int]] = []
         for p in list(self.truce):
@@ -1015,20 +1029,19 @@ class World:
                 out.append((other, t))
         return sorted(out)
 
-    def _bloc_join_block(self, a: str) -> str | None:
-        """**休战期内不得入盟 / 结盟**（用户 2026-09-20：「有和约的国家不能加入联盟」）。
+    def _merged_truces(self, members: list[str]) -> list[str]:
+        """这批国家**内部**那些被联盟合并掉的和约 → 人话（只**读表**报事实，不改表）。
 
-        全局口径：只要还有**未到期休战**，不论对手是谁，都不进任何军事同盟体系
-        （入盟与**发起结盟**都算——否则从"自己开一个盟"就绕过去了）。
-        返回拒绝理由，None = 可以。
+        调它是为了把"合并"这件事说给当事人听——`active_truce` 从此对同盟成员视而不见，
+        但表里那条还在（联盟解散就恢复），不报一句就成了"结果不告诉当事人"。
         """
-        ts = self.truces_of(a)
-        if not ts:
-            return None
-        who = "、".join(f"{o}（至第 {u} 回合）" for o, u in ts[:3])
-        more = f" 等 {len(ts)} 家" if len(ts) > 3 else ""
-        return (f"休战期内不能加入联盟：{a} 与 {who}{more}有和约在身"
-                "（休战期＝中立期，不结新的军事同盟——期满再谈）")
+        out: list[str] = []
+        for i in range(len(members)):
+            for j in range(i + 1, len(members)):
+                u = self.truce.get(_pair(members[i], members[j]))
+                if u is not None and self.turn < u:
+                    out.append(f"{members[i]}↔{members[j]}（原休战至第 {u} 回合）")
+        return out
 
     def _truce_blocks_war_join(self, countries: list[str], opponents: list[str]) -> bool:
         """这批国家里有没有谁与**对面**还在休战期内 ⇒ 不能把它拖进这场战争。
@@ -3562,9 +3575,7 @@ class World:
             return False, "发起方必须是现存国家"
         if self.at_war(a):
             return False, f"战争期间不能缔结同盟：{self._war_brief(a)}（先议和再谈结盟）"
-        bad = self._bloc_join_block(a)          # 发起结盟也算入盟（别从"自己开一个盟"绕过去）
-        if bad:
-            return False, bad
+        # ★ 休战（和约）**不拦**结盟（2026-10-07）：和约只拦"对休战对手宣战"，见 active_truce
         if self.bloc_of(a) is not None:
             return False, f"你已在联盟「{self.bloc_of(a)['name']}」中（一国同时只属一个联盟）"
         name = (name or "").strip()
@@ -3584,9 +3595,6 @@ class World:
                 return False, f"{x} 是游牧政体，不参与结盟（邀它只会让提议悬空）"
             if self.at_war(x):
                 return False, f"创始成员 {x} 正在交战，战争期间不能缔结同盟（先议和）"
-            bad = self._bloc_join_block(x)      # 有和约的创始成员拉不进来：别让提议悬空
-            if bad:
-                return False, f"创始成员 {x} 入不了盟——{bad}"
             inv.append(x)
         if not inv:
             return False, "至少邀请一个创始成员（tos=[国名,…]）；单国无需结盟"
@@ -3609,10 +3617,6 @@ class World:
         p.setdefault("accepted", [])
         if me in p["accepted"]:
             return False, "你已接受过该提议"
-        # 提议到接受之间可能刚议和/刚有人亡国（天下休战）⇒ 接受这一刻**再判一次**休战
-        bad = self._bloc_join_block(me)
-        if bad:
-            return False, bad
         p["accepted"].append(me)
         self.log(f"🕊 {me} 接受加入联盟「{p['name']}」", phase="外交", nation=me)
         pending = [x for x in p["invitees"] if x not in p["accepted"]]
@@ -3634,9 +3638,11 @@ class World:
         #   是"国家级"的，而入盟后这个国家不再是签约主体）。别想带着条约入伙。
         absorbed = self._absorb_personal_pacts(members)
         ab = f"（{'、'.join(absorbed)} 自动作废）" if absorbed else ""
-        self.proclaim(f"🕊 联盟「{p['name']}」成立！成员：{'、'.join(members)}（盟主 {p['a']}）{ab}")
+        merged = self._merged_truces(members)      # 成员之间的和约：并入联盟，不再独立成立
+        mg = f"；{'、'.join(merged)} 的和约并入联盟" if merged else ""
+        self.proclaim(f"🕊 联盟「{p['name']}」成立！成员：{'、'.join(members)}（盟主 {p['a']}）{ab}{mg}")
         return True, (f"联盟「{p['name']}」成立！成员：{'、'.join(members)}，盟主 {p['a']}"
-                      f"（你为创始成员）{ab}")
+                      f"（你为创始成员）{ab}{mg}")
 
     def _absorb_personal_pacts(self, members: list[str]) -> list[str]:
         """入盟清账：把成员手里的**个人**条约全部作废（成员不再是签约主体）。
@@ -3754,9 +3760,6 @@ class World:
             return False, f"你已在联盟「{self.bloc_of(a)['name']}」中（一国同时只属一个联盟）"
         if any(self.war_between(a, m) for m in bloc["members"]):
             return False, "你与该联盟成员正在交战，不能入盟（先议和）"
-        bad = self._bloc_join_block(a)          # 有和约在身 ⇒ 入不了盟（含亡国后的天下休战）
-        if bad:
-            return False, bad
         v = self._new_vote("入盟", bloc["name"], a, {"candidate": a})
         self.log(f"🗳 {a} 申请加入联盟「{bloc_name}」（投票#{v['id']}，赞成>反对通过，盟主可否决）",
                  phase="外交", nation=a)
@@ -3868,14 +3871,13 @@ class World:
                 return False, "入盟条件已变，申请落空"
             if self.bloc_of(cand) is not None or any(self.war_between(cand, m) for m in bloc["members"]):
                 return False, f"{cand} 已入他盟/与成员交战，入盟落空"
-            bad = self._bloc_join_block(cand)   # 投票期间刚议和/刚有人亡国 ⇒ 执行时再判一次
-            if bad:
-                return False, f"入盟落空——{bad}"
             absorbed = self._absorb_personal_pacts([cand])
+            bl = f"（入盟即放弃个人条约：{'、'.join(absorbed)} 作废）" if absorbed else ""
+            merged = self._merged_truces([cand] + list(bloc["members"]))
+            mg = f"；{'、'.join(merged)} 的和约并入联盟" if merged else ""
             bloc["members"].append(cand)
-            ab = f"（入盟即放弃个人条约：{'、'.join(absorbed)} 作废）" if absorbed else ""
-            self.proclaim(f"🕊 {cand} 加入联盟「{bloc['name']}」{ab}")
-            return True, f"{cand} 正式加入「{bloc['name']}」{ab}"
+            self.proclaim(f"🕊 {cand} 加入联盟「{bloc['name']}」{bl}{mg}")
+            return True, f"{cand} 正式加入「{bloc['name']}」{bl}{mg}"
         if v["kind"] == "议和":
             if pl.get("type") == "offer":
                 w = next((x for x in self.wars if x["id"] == pl.get("war_id")), None)
@@ -4015,11 +4017,9 @@ class World:
             return False, "双方必须是两个现存国家"
         if self.war_between(a, b):
             return False, "你们已经在交战"
-        t = self.truce.get(_pair(a, b))
+        t = self.active_truce(a, b)      # 到期的顺手清掉；同属一个实体 ⇒ 和约已被联盟合并
         if t is not None:
-            if self.turn < t:
-                return False, f"休战中：你与 {b} 约定休战至第 {t} 回合（还剩 {t - self.turn} 回合），不得再宣战"
-            self.truce.pop(_pair(a, b), None)  # 到期清除
+            return False, f"休战中：你与 {b} 约定休战至第 {t} 回合（还剩 {t - self.turn} 回合），不得再宣战"
         A, B = self.entity_of(a), self.entity_of(b)
         if A == B:
             return False, (f"{b} 与你同属 {self.entity_label(A)}，不能宣战"

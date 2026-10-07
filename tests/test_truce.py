@@ -1,21 +1,29 @@
 # -*- coding: utf-8 -*-
-"""**和约（休战）优先于盟约**——用户 2026-09-20 新增的两条口径：
+"""**和约（休战）拦宣战、不拦条约**——下面两条口径**都改过一轮**，别看旧笔记。
 
-  ① 「有和约的国家不能加入联盟」——**全局**：只要还有未到期休战，不论对手是谁，
-     都不进军事实体。入盟、**发起结盟**、接受结盟邀约，三处都要拦（漏一处就是后门：
-     "不让我入盟？那我自己开一个"）。
-  ② 「有和约时，防御条约和独立保障应该无法执行」——指**已有的条约不触发**：
-     休战期内不把签约方拖进与休战对手的战争（宣战时守侧那一跳跳过它）。
-     新签不受限（那是另一条口径，没做）。
+  ① ~~「有和约的国家不能加入联盟」~~（2026-09-20 定的，**2026-10-07 推翻**）：
+     当时是**全局**禁令——只要还有未到期休战，不论对手是谁都不进军事实体（入盟 /
+     发起结盟 / 接受邀约三处都拦）。用户 2026-10-07 拍板改成：
+     **「停战期可以缔结条约；如果是建立联盟，合并和平条约而不是阻止」**。
+     旧口径的病灶在**亡国后的天下强制休战**上：全世界两两被压上一条休战，
+     于是整段休战期里**谁都结不了盟**——而全天下同时停火，恰恰是唯一一段
+     谁都打不了谁、最该谈条约的窗口。见 `TestBlocDespiteTruce` / `TestFallTruceCounts`。
+  ② 「有和约时，防御条约和独立保障应该无法执行」（2026-09-20，**仍然有效**）：
+     指**已有的条约不触发**——休战期内不把签约方拖进与休战对手的战争（宣战时守侧那一跳
+     跳过它）。**和约优先于盟约**没变，见 `TestTruceBlocksPactCallUp`。
+
+「合并」落在 `World.active_truce` 上：**同属一个外交实体（联盟）的两国之间不存在独立的
+和约**（联盟自带的"盟内互不攻击"比和约更强）⇒ 返回 None。★ 但**表里那条不删**：
+联盟解散/成员退盟 ⇒ 原来的休战**按原到期回合自动恢复**。删掉就成了一扇后门——
+「邀对手入盟 → 当场解散 → 立刻偷袭」，对方还以为那纸和约在。
 
 两条都住在同一张表上：`World.truce[frozenset{a,b}] = 到期回合`。★ **亡国时引擎会给
 全天下列国对压一条 10 回合强制休战**（`FALL_TRUCE_TURNS`，防雪球）——用户明确口径：
-**那条也算"和约"**，所以有人亡国后的 10 回合里谁都入不了盟（`TestFallTruceCounts`）。
+**那条也算"和约"**（拦宣战、按同一套规则参与合并）。
 
-★★ 2026-10-07 用户拍板：那条休战**字面就是停战**——`_eliminate_if_dead` 现在会把
+★★ 2026-10-07 另一条拍板：那条休战**字面就是停战**——`_eliminate_if_dead` 会把
 **所有战线一并终止**（不只是与亡国者有关的那几条），并解除全军交战；
-判据与护栏见 `TestFallCeasefireActuallyStopsWars`。旧口径只拦"新宣战"，于是出现
-「全天下两两休战至第 N 回合」与「韩↔燕 照打不误」并存的荒谬状态。
+判据与护栏见 `TestFallCeasefireActuallyStopsWars`。
 
 跑法：python3 -m unittest discover -s tests -v
 """
@@ -37,8 +45,8 @@ def _bloc(world, founder: str, name: str, invitee: str) -> None:
     world._accept_bloc_founding(world.proposals[-1], invitee)
 
 
-class TestNoBlocWhileTruce(unittest.TestCase):
-    """① 有和约 ⇒ 入不了盟（入盟 / 发起结盟 / 接受邀约，三处都要拦）。"""
+class TestBlocDespiteTruce(unittest.TestCase):
+    """★ 2026-10-07：**休战期能结盟**，与盟友之间的和约被联盟**合并**（不是拦下来）。"""
 
     def _world(self):
         """秦、燕有和约（至第 20 回合）；楚、齐在「连横」里；**赵干净**（无和约、无盟）。"""
@@ -48,72 +56,151 @@ class TestNoBlocWhileTruce(unittest.TestCase):
         w.truce[mp._pair("秦", "燕")] = 20      # 秦与燕休战至第 20 回合
         return w
 
-    def test_cannot_join_bloc(self):
+    def test_can_join_bloc(self):
         w = self._world()
         ok, msg = w.bloc_join("秦", "连横")
-        self.assertFalse(ok, f"有和约还让入盟了：{msg}")
-        self.assertIn("休战", msg)
+        self.assertTrue(ok, f"有和约就入不了盟（旧口径的残留）：{msg}")
 
-    def test_cannot_found_bloc(self):
-        """★ 发起结盟也算"入盟"——否则从"自己开一个"就绕过去了。"""
+    def test_can_found_bloc(self):
+        """发起结盟同样不受和约阻拦（旧口径"自己开一个也算入盟"的那条已废）。"""
         w = self._world()
         ok, msg = w.propose_bloc("秦", "新盟", ["赵"])
-        self.assertFalse(ok, f"有和约还让发起结盟：{msg}")
-        self.assertIn("休战", msg)
+        self.assertTrue(ok, f"有和约就不让发起结盟：{msg}")
 
-    def test_cannot_accept_founding_invite(self):
-        """发起时还没和约、接受时刚议和了 ⇒ 接受这一刻仍要拦（提议不悬空）。"""
+    def test_can_accept_founding_invite(self):
+        """发起时还没和约、接受时刚议和了 ⇒ 接受这一刻**也**不拦。"""
         w = mp.World(size=20, seed=7, nations=["秦", "楚", "齐"])
         w.turn = 5
         w.propose_bloc("楚", "连横", ["秦"])
         w.truce[mp._pair("秦", "齐")] = 30      # 提议之后、接受之前议和了
         ok, msg = w._accept_bloc_founding(w.proposals[-1], "秦")
-        self.assertFalse(ok, f"有和约还让接受结盟：{msg}")
+        self.assertTrue(ok, f"有和约就不让接受结盟：{msg}")
 
-    def test_invitee_with_truce_blocks_proposal(self):
-        """创始成员里有"和约在身"的 ⇒ 直接拦住提议（别让它悬空挂着）。"""
-        w = self._world()
-        ok, msg = w.propose_bloc("赵", "再盟", ["秦"])       # 发起人赵干净，被邀的秦有和约
-        self.assertFalse(ok, f"被邀方有和约还让提议成立：{msg}")
-        self.assertIn("创始成员 秦", msg)
-
-    def test_join_vote_reexamines_at_execution(self):
-        """入盟投票通过时**再判一次**：投票期间刚议和 ⇒ 落空（不能靠投票绕过）。"""
+    def test_join_vote_executes(self):
         w = self._world()
         v = w._new_vote("入盟", "连横", "秦", {"candidate": "秦"})
-        w.truce[mp._pair("秦", "燕")] = 30
         ok, msg = w._execute_vote(v)
-        self.assertFalse(ok, f"投票期间议和了还让入盟：{msg}")
+        self.assertTrue(ok, f"入盟投票被和约拦下了：{msg}")
+        self.assertIn("秦", w.bloc_of("秦")["members"])
 
-    def test_ok_after_truce_expires(self):
-        """**阴性对照**：和约到期（turn ≥ 到期回合）就能入盟了——禁令不是永久的。"""
+    def test_pact_can_be_signed_during_truce(self):
+        """★ 「停战期**可以缔结条约**」：和约拦宣战，不拦缔约（旧文档只写了"不得入盟"，
+        条约这条其实一直是放行的——钉死它，别哪天被"休战＝外交冻结"的直觉改回去）。"""
         w = self._world()
-        w.turn = 21                             # 休战至第 20 回合 ⇒ 第 21 回合已过期
-        ok, msg = w.bloc_join("秦", "连横")
-        self.assertTrue(ok, f"和约过期后该能入盟：{msg}")
+        ok, msg = w.propose_pact("共同防御", "秦", "燕")
+        self.assertTrue(ok, f"休战期签不了共同防御：{msg}")
+        ok, msg = w.accept_pact("燕", w.proposals[-1]["id"])
+        self.assertTrue(ok, msg)
+        self.assertTrue(w.has_pact("共同防御", w.entity_of("秦"), w.entity_of("燕")),
+                        "休战期的条约没落下来")
+        self.assertEqual(w.active_truce("秦", "燕"), 20, "签条约不该动那纸和约")
 
-    def test_ok_without_truce(self):
-        """**阴性对照**：干净的国家（赵：无和约、无盟）照旧能入盟。"""
+
+class TestTruceMergedIntoBloc(unittest.TestCase):
+    """**合并**的确切含义：盟内那纸和约不再独立成立；联盟一散，它按原到期回合回来。"""
+
+    def _world(self, members=("秦", "燕")):
+        w = mp.World(size=20, seed=7, nations=["秦", "燕", "赵"])
+        w.turn = 5
+        w.truce[mp._pair("秦", "燕")] = 20       # 秦燕休战至第 20 回合
+        w.truce[mp._pair("秦", "赵")] = 20       # 秦与**盟外**的赵也休战至第 20 回合
+        if len(members) > 1:
+            _bloc(w, members[0], "北盟", members[1])
+        return w
+
+    def test_merged_while_allied(self):
         w = self._world()
-        ok, msg = w.bloc_join("赵", "连横")
-        self.assertTrue(ok, f"没和约的国家被误拦了：{msg}")
+        self.assertIsNone(w.active_truce("秦", "燕"), "纳入联盟后和约还独立成立——没被合并")
+        self.assertFalse([o for o, _u in w.truces_of("秦") if o == "燕"],
+                         "truces_of 还列着盟友（面板会显示成「仍在休战中」）")
+        self.assertIsNone(w.active_truce("燕", "秦"), "反方向也该是合并的（对称）")
+
+    def test_outsider_truce_is_untouched(self):
+        """**阴性对照**：与**盟外**国家的和约不受影响——合并只发生在实体内部。"""
+        w = self._world()
+        self.assertEqual(w.active_truce("秦", "赵"), 20, "盟外的和约被顺手清掉了")
+        ok, msg = w.declare_war("秦", "赵")
+        self.assertFalse(ok, f"与盟外国家的休战期内还能宣战：{msg}")
+        self.assertIn("休战", msg)
+
+    def test_ally_cannot_be_attacked_and_says_the_right_thing(self):
+        """同实体本来就打不了——**理由要说"同属联盟"**，不是"休战中"（后者读起来像
+        还有一纸能过期的和约在保它）。"""
+        w = self._world()
+        ok, msg = w.declare_war("秦", "燕")
+        self.assertFalse(ok)
+        self.assertIn("同属", msg)
+        self.assertNotIn("休战", msg)
+
+    def test_truce_comes_back_when_bloc_dissolves(self):
+        """★★ 护栏：联盟解散 ⇒ 原和约**按原到期回合恢复**。
+
+        不恢复的话就是一条后门：秦 邀燕入盟 → 当场解散 → 立刻开战，
+        燕还以为那纸和约在（它确实还在表里，却已经不约束了）。"""
+        w = self._world()
+        ok, msg = w.bloc_dissolve("秦")
+        self.assertTrue(ok, msg)
+        self.assertEqual(w.active_truce("秦", "燕"), 20, "联盟散了，和约没回来")
+        ok, msg = w.declare_war("秦", "燕")
+        self.assertFalse(ok, f"解散联盟就把和约抹了：{msg}")
+        self.assertIn("休战", msg)
+
+    def test_truce_comes_back_when_member_leaves(self):
+        """成员退盟同样恢复（走的是同一个 `entity_of` 判定，不是特判）。"""
+        w = self._world(members=("秦", "燕"))
+        ok, msg = w.bloc_leave("燕")
+        self.assertTrue(ok, msg)
+        self.assertEqual(w.active_truce("秦", "燕"), 20, "退盟后和约没回来")
+
+    def test_proclamation_tells_the_parties(self):
+        """合并要说出来（"结果不告诉当事人"是这套引擎反复踩的洞）。"""
+        w = mp.World(size=20, seed=7, nations=["秦", "燕", "赵"])
+        w.turn = 5
+        w.truce[mp._pair("秦", "燕")] = 20
+        _bloc(w, "秦", "北盟", "燕")
+        self.assertTrue(any("和约并入联盟" in h.get("text", "") for h in w.history),
+                        "结盟时没说和约被合并了")
+        self.assertTrue(any("秦↔燕" in h.get("text", "") for h in w.history),
+                        "没说清是哪两家的和约")
 
 
 class TestFallTruceCounts(unittest.TestCase):
-    """亡国压给全天下的强制休战**也算"和约"**（用户 2026-09-20 拍板）。"""
+    """亡国压给全天下的强制休战**也算"和约"**（用户 2026-09-20 拍板）——
+    它拦宣战、参与合并，但**不再拦结盟**（2026-10-07 改）。"""
 
-    def test_nobody_joins_bloc_after_a_nation_falls(self):
-        w = mp.World(size=20, seed=7, nations=["秦", "楚", "齐", "燕"])
+    def _world(self):
+        """秦楚齐燕赵；楚齐在「连横」；**燕 亡国** ⇒ 全天下两两压上强制休战。
+        **赵 留在盟外**，用来验"盟外的和约一条都不能少"。"""
+        w = mp.World(size=20, seed=7, nations=["秦", "楚", "齐", "燕", "赵"])
         w.turn = 5
         _bloc(w, "楚", "连横", "齐")
         for (x, y) in list(w.own_tiles("燕")):  # 燕 亡国 ⇒ 天下强制休战 10 回合
             w._conquer(x, y, "秦", "攻陷")
         self.assertNotIn("燕", w.nations)
+        return w
+
+    def test_can_join_bloc_after_a_nation_falls(self):
+        """★ 旧口径下这里是**全天下十回合谁也结不了盟**——正是用户要废掉的那条。"""
+        w = self._world()
         ok, msg = w.bloc_join("秦", "连横")
-        self.assertFalse(ok, f"亡国后的天下休战期内还让入盟：{msg}")
-        self.assertTrue(w.truces_of("秦"), "前提：秦 全是对手的休战")
-        for other in ("楚", "齐"):
-            self.assertTrue(w.truces_of(other)[0][1] >= w.turn + 1, f"{other} 该也在休战期")
+        self.assertTrue(ok, f"亡国后的天下休战期内还入不了盟：{msg}")
+        self.assertTrue(w.truces_of("秦"), "前提：秦 还和盟外的对手有休战")
+
+    def test_joining_merges_only_the_internal_truce(self):
+        w = self._world()
+        w.bloc_join("秦", "连横")
+        w._execute_vote(w.votes[-1])
+        self.assertIsNone(w.active_truce("秦", "楚"), "入盟没能把与楚齐的和约合并掉")
+        # 天下休战是**两两**压的：与盟外国家（赵）的那条一条都不能少
+        self.assertEqual({o for o, _u in w.truces_of("秦")}, {"赵"},
+                         "合并越界了——把盟外的和约也吞了")
+
+    def test_world_still_cannot_declare_war(self):
+        """**阴性对照**：休战期内不得宣战这条**没动**。"""
+        w = self._world()
+        ok, msg = w.declare_war("秦", "齐")
+        self.assertFalse(ok, f"天下休战期内还能宣战：{msg}")
+        self.assertIn("休战", msg)
 
 
 class TestFallCeasefireActuallyStopsWars(unittest.TestCase):
