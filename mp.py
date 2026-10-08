@@ -160,6 +160,9 @@ SAVE_DEFAULTS: dict = {
     # 全期累计 token 用量（**纯统计**）。旧档缺 → 空表；load 时按存档里的国家补零起步。
     # 默认必须是**空**的表，不能写成含"秦楚齐"的模板：八国档读进来会多出三个不存在的国家。
     "token_usage": {},
+    # 市场找零余额（不足 1 金的小数，见 `World._settle_gold`）。旧档缺 → 空表，
+    # 从头攒零钱即可：影响仅仅是"跨国界续档时那不到 1 金的零头"，不是语义变更。
+    "gold_carry": {},
 }
 # `World.token_usage` 每国一格的字段清单。**save 与 load 共用这一份**：
 # save 按它补齐国家键，load 按它重建骨架 ⇒ 两边顺序、字段名必然一致，
@@ -174,7 +177,7 @@ SAVE_KEYS = ("version", "size", "seed", "turn", "rng_state", "nations", "order",
              "extra_prompt", "opening_guide", "peace_offers", "proposals", "offer_id", "prices",
              "equilibrium", "flow_in", "flow_out", "grid_short", "energy_report",
              "econ_summary", "econ_reports", "ledger", "spend", "gdp_run", "history",
-             "history_seen", "token_usage")
+             "history_seen", "token_usage", "gold_carry")
 
 
 class SaveFormatError(Exception):
@@ -457,6 +460,10 @@ class World:
         # 生命周期是**行动阶段**（一次结算到下一次结算之间），见 `_record_trade` / `resolve_turn` 末尾。
         # 派生的回合内暂态：**不进存档**（存档永远落在结算之后，那时它本来就是空的）。
         self.churn: dict[str, dict[str, dict[str, int]]] = {}
+        # **市场找零余额**（2026-10-09）：{国: 不足 1 金的小数}——见 `_settle_gold`。
+        # 它让"拆 n 笔单买"与"一笔批量买"的总价**逐分相同**（原先每笔各 `int(round())` 一次，
+        # 便宜货每笔都被进位：实测粮×100 一笔付 171、拆 100 笔付 200）。**进存档**。
+        self.gold_carry: dict[str, float] = {}
         self.armies: list[dict] = []
         # `troops` / `guardians`（非野人名单、野人按格索引）的惰性缓存 —— 派生量，**不进存档**
         self._troops: list[dict] = []
@@ -3065,10 +3072,39 @@ class World:
         unit = avg * (1 + MARKET_SPREAD / 2) if side == "buy" else avg * (1 - MARKET_SPREAD / 2)
         return unit, p1, unit * n
 
-    def market_quote(self, good: str, n: int, side: str) -> tuple[float, int]:
-        """试算：不实际成交，返回 (成交单价, 总额)。供面板显示「卖 N 实收多少」。"""
+    def _settle_gold(self, name: str, exact: float, *, commit: bool = True) -> int:
+        """把**精确**成交额（浮点）结算成**整数金币**：不足 1 金的零头存进余额，下次接着算。
+
+        ★ 为什么要有它（2026-10-09 用户报的真实 bug：「市场截断，每次都舍入，多次单买和
+          一次批量价格不同」）：原先 `buy`/`sell` 各写 `int(round(total))`，**每笔成交各舍一次**
+          ⇒ 拆 n 笔就舍 n 次，而便宜货每笔都被**进位**：实测粮×100 一笔付 171、拆 100 笔付 200
+          （**+17%**）；粮×10 是 16 对 20。玩家的钱被"拆单"偷走了。
+
+        ⇒ 改成**攒零钱**：`Σ 各笔实付 = floor(Σ 各笔精确额)`——**与怎么拆单无关**。
+          （价格曲线是线性的，拆单与批量的精确总额本来就逐分相等；见 `market_walk`。）
+
+        ★ 口径必须是 `floor`（零头留在余额里），不是 `round`：只有 floor 可累加、
+          与切分点无关；`round` 的半整数进位会随切分点漂移，那是同一个 bug 的另一种写法。
+        ★ 余额恒 < 1 金，**进存档**（否则跨存档拆单又对不上）。
+        """
+        w = self.gold_carry.get(name, 0.0) + exact
+        pay = int(math.floor(w + 1e-9))      # 1e-9：抹掉浮点累加的尾差，别让 0.9999999 少付 1
+        if commit:
+            carry = w - pay
+            self.gold_carry[name] = 0.0 if carry < 1e-9 else carry
+        return pay
+
+    def market_quote(self, good: str, n: int, side: str,
+                     name: str | None = None) -> tuple[float, int]:
+        """试算：不实际成交，返回 (成交单价, 总额)。供面板显示「卖 N 实收多少」。
+
+        `name` 给定时**把该国的小数余额算进去** ⇒ 面板报的总额与真成交**分毫不差**
+        （不给只能按 floor 估，可能差 1 金——见 `_settle_gold`）。
+        """
         unit, _p1, total = self.market_walk(good, n, side)
-        return unit, int(round(total))
+        if name is None:
+            return unit, int(math.floor(total + 1e-9))
+        return unit, self._settle_gold(name, total, commit=False)
 
     def buy(self, name: str, good: str, n: int) -> tuple[bool, str]:
         if good not in TRADEABLE:
@@ -3077,10 +3113,13 @@ class World:
             return False, "数量需为正整数"
         p0 = self.prices[good]
         unit, p1, total = self.market_walk(good, n, "buy")
-        cost = int(round(total))
+        # ★ 先"只看不扣"地试算（要含该国的找零余额），**验过国库才落账**——
+        #   买不起就不许动余额（见 `_settle_gold`）。
+        cost = self._settle_gold(name, total, commit=False)
         if self.res(name, "黄金") < cost:
             return False, (f"黄金不足：买 {good}×{n}（均价 {unit:.2f}）需 {cost}，"
                            f"国库 {self.res(name,'黄金')}")
+        self._settle_gold(name, total)          # 成交才落账（余额只在真成交时推进）
         self.add_res(name, "黄金", -cost)
         self.add_res(name, good, n)
         self.prices[good] = p1
@@ -3098,7 +3137,7 @@ class World:
             return False, f"储备不足：{good} 现有 {self.res(name,good)}"
         p0 = self.prices[good]
         unit, p1, total = self.market_walk(good, n, "sell")
-        gold = int(round(total))
+        gold = self._settle_gold(name, total)   # ★ 攒零钱：拆单与批量的总价逐分相同
         self.add_res(name, good, -n)
         self.add_res(name, "黄金", gold)
         self.prices[good] = p1
@@ -4474,6 +4513,7 @@ class World:
             "flow_in": self.flow_in,
             "flow_out": self.flow_out,
             "grid_short": self.grid_short,
+            "gold_carry": self.gold_carry,
             "energy_report": self.energy_report,
             "econ_summary": self.econ_summary,
             "econ_reports": self.econ_reports,
@@ -4597,6 +4637,7 @@ class World:
         w.history_seen = data["history_seen"]
         # 电网/结算摘要也持久化：否则续档后第一回合 all 面板电力 0、上回合结算丢失
         w.grid_short = {n: bool(v) for n, v in data["grid_short"].items() if n in w.nations}
+        w.gold_carry = {n: float(v) for n, v in data["gold_carry"].items() if n in w.nations}
         w.energy_report = {n: tuple(v) for n, v in data["energy_report"].items() if n in w.nations}
         w.econ_summary = {n: s for n, s in data["econ_summary"].items() if n in w.nations}
         w.econ_reports = {n: list(v) for n, v in data["econ_reports"].items() if n in w.nations}

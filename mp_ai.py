@@ -802,8 +802,9 @@ def _fmt_market(world, name) -> str:
         tag = "≈基准" if abs(p - base) <= 0.02 * base else ("贵" if p > base else "贱")
         bp, _ = world.market_quote(g, 1, "buy")
         sp, _ = world.market_quote(g, 1, "sell")
-        _, s50 = world.market_quote(g, 50, "sell")
-        _, b50 = world.market_quote(g, 50, "buy")
+        # ★ 带上国名：试算要把该国的**找零余额**算进去，才能与真成交分毫不差（见 `_settle_gold`）
+        _, s50 = world.market_quote(g, 50, "sell", name)
+        _, b50 = world.market_quote(g, 50, "buy", name)
         lines.append(f"  {g} 现价{p:.2f}(基准{base} 均衡{eq:.2f} {tag}) 买{bp:.2f}/卖{sp:.2f} "
                      f"持有{r.get(g, 0)} ｜ 卖50≈{s50}金 买50≈{b50}金")
     warn = world.churn_brief(name)     # 本回合的空转（成交回执里已当场报过，这里给个汇总）

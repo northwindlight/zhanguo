@@ -810,7 +810,10 @@ class TestMarket(unittest.TestCase):
         gold0 = w.nations["秦"].res["黄金"]
         ok, msg = w.sell("秦", "粮食", n)
         self.assertTrue(ok, msg)
-        expect = int(round((p0 + p1) / 2 * n * (1 - mp.MARKET_SPREAD / 2)))
+        # ★ 2026-10-09：结算从 `int(round(total))` 改成「攒零钱」的 **floor**（见 `World._settle_gold`）
+        #   ——只有 floor 可累加、与切分无关；round 的半整数进位会随切分点漂（那正是用户报的
+        #   「拆单与批量价格不同」）。这里跟着改口径。
+        expect = int((p0 + p1) / 2 * n * (1 - mp.MARKET_SPREAD / 2))
         self.assertEqual(w.nations["秦"].res["黄金"] - gold0, expect)
         self.assertAlmostEqual(w.prices["粮食"], p1, places=3)
         # 同一价差下，均价结算必须优于旧「整笔按清仓价 p1」结算
@@ -1242,6 +1245,101 @@ class TestSeedReproducibility(unittest.TestCase):
         spots = [(x, y) for x in range(6) for y in range(6)]
         self.assertEqual([a._new_tile(*p, "秦")["name"] for p in spots],
                          [b._new_tile(*p, "秦")["name"] for p in spots])
+
+
+class TestMarketSplitInvariance(unittest.TestCase):
+    """★ 拆单与批量必须**总价逐分相同**（2026-10-09 用户报的真实 bug：
+
+    「市场截断，每次都舍入，多次单买和一次批量价格不同」）。
+
+    病根：`buy`/`sell` 原先各写 `int(round(total))`，**每笔成交各舍一次** ⇒ 拆 n 笔舍 n 次，
+    而便宜货每笔都被**进位**（粮均价 1.55 ⇒ 每笔都付 2）。实测：粮×100 一笔付 171、
+    拆 100 笔付 200（**+17%**）；粮×10 是 16 对 20——玩家的钱被"拆单"偷走。
+
+    修法：`World._settle_gold` 攒零钱（`floor` + 余额进存档）⇒ `Σ 各笔实付 = floor(Σ 精确额)`。
+    价格曲线是线性的，拆单与批量的**精确**总额本来就逐分相等 ⇒ 这是恒等式，不是近似。
+    """
+
+    def _delta(self, good: str, n: int, chunks: list, side: str = "buy") -> int:
+        w = mp.World(size=16, seed=13, nations=["秦", "楚"])
+        w.nations["秦"].res["黄金"] = 100000
+        w.nations["秦"].res[good] = 100000
+        left = n
+        for c in chunks:
+            c = min(c, left)
+            if c <= 0:
+                break
+            ok, msg = (w.buy if side == "buy" else w.sell)("秦", good, c)
+            self.assertTrue(ok, msg)
+            left -= c
+        self.assertEqual(left, 0, f"用例自身的问题：切分没凑满 {n}（还差 {left}）——"
+                                  "那样比的是两个不同的数量")
+        delta = 100000 - w.nations["秦"].res["黄金"]
+        return delta if side == "buy" else -delta
+
+    def test_buying_in_any_chunks_costs_the_same(self):
+        cases = (("粮食", 100), ("木头", 10), ("矿石", 10), ("补给", 37))
+        for good, n in cases:
+            bulk = self._delta(good, n, [n])
+            splits = [[1] * n, [n // 2, n - n // 2],
+                      [5] * (n // 5) + ([n % 5] if n % 5 else [])]
+            for chunks in splits:
+                self.assertEqual(self._delta(good, n, chunks), bulk,
+                                 f"{good}×{n} 拆成 {chunks[:3]}… 的总价与一笔不同")
+
+    def test_selling_in_any_chunks_earns_the_same(self):
+        for good, n in (("粮食", 100), ("补给", 37)):
+            bulk = self._delta(good, n, [n], side="sell")
+            self.assertEqual(self._delta(good, n, [1] * n, side="sell"), bulk,
+                             f"{good}×{n} 拆成单笔卖的总收入与一笔不同")
+
+    def test_cheap_goods_are_not_penalised_for_splitting(self):
+        """★ 这条就是那个 bug 的回归钉：便宜货拆单**不许**比批量贵。
+
+        （旧实现下粮×100 拆 100 笔要付 200，而一笔只付 171。）"""
+        bulk = self._delta("粮食", 100, [100])
+        split = self._delta("粮食", 100, [1] * 100)
+        self.assertEqual(split, bulk)
+        self.assertLess(split, 200, "还在按每笔 round 进位（旧 bug 复发）")
+
+    def test_carry_survives_save_and_load(self):
+        """零钱进存档 ⇒ 跨存档拆单也拼得回批量的总价。"""
+        import tempfile
+        from pathlib import Path as _P
+        w = mp.World(size=16, seed=13, nations=["秦", "楚"])
+        w.nations["秦"].res["黄金"] = 100000
+        w.buy("秦", "粮食", 1)                      # 先攒下一笔零头
+        self.assertGreater(w.gold_carry.get("秦", 0.0), 0.0, "前提：这一步该攒出零头")
+        with tempfile.TemporaryDirectory() as d:
+            p = _P(d) / "s.json"
+            w.save(p)
+            w2 = mp.World.load(p)
+        self.assertEqual(w2.gold_carry.get("秦", 0.0), w.gold_carry["秦"], "零钱没过存档")
+        w2.buy("秦", "粮食", 99)
+        bulk = self._delta("粮食", 100, [100])
+        self.assertEqual(100000 - w2.nations["秦"].res["黄金"] + 0, bulk + 0,
+                         "1 笔 + 存档 + 99 笔，总价必须等于一次买 100")
+
+    def test_refused_trade_does_not_move_the_carry(self):
+        """买不起 ⇒ 不许动零钱（否则被拒的空试会白送/白吞零头）。"""
+        w = mp.World(size=16, seed=13, nations=["秦", "楚"])
+        w.nations["秦"].res["黄金"] = 0
+        ok, _ = w.buy("秦", "粮食", 1)
+        self.assertFalse(ok)
+        self.assertEqual(w.gold_carry.get("秦", 0.0), 0.0, "被拒的买单动了找零余额")
+
+    def test_quote_with_name_matches_the_real_charge(self):
+        """面板试算带上国名 ⇒ 报的总额与真成交**分毫不差**（AI 据此决策，不能骗它）。"""
+        w = mp.World(size=16, seed=13, nations=["秦", "楚"])
+        w.nations["秦"].res["黄金"] = 100000
+        w.buy("秦", "粮食", 3)                      # 先弄出一个非零余额
+        for n in (1, 7, 50):
+            _u, quoted = w.market_quote("粮食", n, "buy", "秦")
+            gold0 = w.nations["秦"].res["黄金"]
+            ok, msg = w.buy("秦", "粮食", n)
+            self.assertTrue(ok, msg)
+            self.assertEqual(gold0 - w.nations["秦"].res["黄金"], quoted,
+                             f"买 {n}：试算 {quoted} ≠ 实际扣款")
 
 
 class TestIndustryUpkeep(unittest.TestCase):
