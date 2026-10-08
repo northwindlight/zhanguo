@@ -1519,7 +1519,7 @@ class World:
             cap = min(tile_cap, quota - alive)
             if cap <= 0:
                 return False, (f"民兵总数已达军屯编制上限（{alive}/{quota} 座）："
-                               f"军屯即民兵编制——想扩编先建军屯，阵亡后方可补员")
+                               f"军屯即民兵编制——想扩编先建军屯，阵亡或遣散（disband）后方可补员")
         else:
             if self.grid_short.get(name):
                 return False, "全国电网不足，高级建筑（含兵营）停摆，无法征兵"
