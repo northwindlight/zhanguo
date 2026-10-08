@@ -8,7 +8,7 @@
   + `mp_ai.py` 的工具表、`settlement.py` 的结算口径）现算。
 - `docs/经济学手册.md` —— 讲义（"**为什么**"）：正文逐字取自 `mp_ai._econ_manual()`
   ——**局内 AI 读的就是那一份**，这里只做 Markdown 分节，不复制、不改写。
-- `docs/开局指南.md` —— 讲义（"**开局怎么下手**"）：取自 `mp_ai.opening_guide()`，
+- `docs/基础指南.md` —— 讲义（"**基础功**"）：取自 `mp_ai.opening_guide()`，
   局内**开局前若干回合强行挂载**。
 - `docs/战争手册.md` —— 讲义（"**这仗该怎么打**"）：取自 `mp_ai.war_manual()`，
   局内**只要在交战就每回合强行挂载**。
@@ -46,7 +46,7 @@ import sys
 
 DOC_PATH = pathlib.Path(__file__).resolve().parent / "游戏说明书.md"
 ECON_DOC_PATH = pathlib.Path(__file__).resolve().parent / "经济学手册.md"
-GUIDE_DOC_PATH = pathlib.Path(__file__).resolve().parent / "开局指南.md"
+GUIDE_DOC_PATH = pathlib.Path(__file__).resolve().parent / "基础指南.md"
 WAR_DOC_PATH = pathlib.Path(__file__).resolve().parent / "战争手册.md"
 STRATEGY_DOC_PATH = pathlib.Path(__file__).resolve().parent / "战略手册.md"
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -560,7 +560,7 @@ ECON_BLOCKS: dict[str, object] = {"econ": blk_econ}
 
 
 def _guide_source() -> str:
-    """局内《开局指南》原文（`mp_ai.opening_guide()`）——本文档正文的唯一来源。"""
+    """局内《基础指南》原文（`mp_ai.opening_guide()`）——本文档正文的唯一来源。"""
     try:
         import mp_ai
     except Exception as e:  # pragma: no cover - 环境缺依赖时的明确报错
@@ -569,9 +569,9 @@ def _guide_source() -> str:
 
 
 def blk_guide() -> str:
-    """《开局指南》正文：逐字取自 `mp_ai.opening_guide()`（`rules(开局指南)` 那一份，
+    """《基础指南》正文：逐字取自 `mp_ai.opening_guide()`（`rules(基础指南)` 那一份，
     也是开局前若干回合被**强行挂进 system prompt** 的那一份）。"""
-    return _sections_block(_guide_source(), "开局指南", "mp_ai.opening_guide()")
+    return _sections_block(_guide_source(), "基础指南", "mp_ai.opening_guide()")
 
 
 GUIDE_BLOCKS: dict[str, object] = {"guide": blk_guide}

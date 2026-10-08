@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""《开局指南》（`docs/开局指南.md`）必须与局内那份提示**逐字一致**。
+"""《基础指南》（`docs/基础指南.md`，原名《开局指南》）必须与局内那份提示**逐字一致**。
 
 为什么有这个守卫：这本书同样不是"另写一份给人看的带教"，而是**局内 AI 读的那一份原文**
 （`mp_ai.opening_guide()`）——而且它比《经济学手册》还要紧一层：开局前若干回合它是被
@@ -58,8 +58,8 @@ class TestOpeningGuideSync(unittest.TestCase):
         if new != self.doc:
             diff = "".join(difflib.unified_diff(
                 self.doc.splitlines(True), new.splitlines(True),
-                fromfile="docs/开局指南.md", tofile="opening_guide() 现算"))
-            self.fail("《开局指南》已与局内提示脱钩 —— "
+                fromfile="docs/基础指南.md", tofile="opening_guide() 现算"))
+            self.fail("《基础指南》已与局内提示脱钩 —— "
                       "跑 `python3 docs/sync_manual.py` 刷新：\n" + diff)
 
     def test_body_is_verbatim_from_prompt(self):
@@ -67,7 +67,7 @@ class TestOpeningGuideSync(unittest.TestCase):
         import mp_ai
         src = [ln.strip() for ln in mp_ai.opening_guide().splitlines() if ln.strip()]
         self.assertEqual(_body_lines(self.doc), src,
-                         "《开局指南》正文与 mp_ai.opening_guide() 不再逐字对应 —— "
+                         "《基础指南》正文与 mp_ai.opening_guide() 不再逐字对应 —— "
                          "要改指南请改 opening_guide()，文档随刷新走")
 
     def test_sections_are_rendered_as_headings(self):
@@ -128,13 +128,35 @@ class TestOpeningGuidePromptSafety(unittest.TestCase):
         self.assertEqual(list(inspect.signature(mp_ai.opening_guide).parameters), [])
 
     def test_挂进rules且能按主题取回(self):
-        """过期后靠 `rules(开局指南)` 取回：章节表里要有它，主题词要认得。"""
+        """过期后靠 `rules(基础指南)` 取回：章节表里要有它，主题词要认得。"""
         import mp_ai
         # ★ 2026-10-06：手写规则段 `_help_sections()` 退役，规则文本改从 doc 目录
-        #   《游戏说明书》取；三本**讲义**改由 `_lectures()` 供给。
+        #   《游戏说明书》取；四本**讲义**改由 `_lectures()` 供给。
+        # ★ 2026-10-09：本讲义由《开局指南》改名《基础指南》——名字里不该再暗示"只在开局有用"。
         labels = [label for label, _ in mp_ai._lectures()]
-        self.assertIn("开局指南", labels)
-        self.assertIn("开局指南", self.text)
+        self.assertIn("基础指南", labels)
+        self.assertIn("基础指南", self.text)
+
+    def test_电那一段在(self):
+        """★ 2026-10-09 用户加的第七段（在生产链里）：**木电厂 ROI 低、油电厂高得多且不易断供**。
+        数字一律现读 balance ⇒ 这里只钉"这一段没被删掉、且两边的账都算给自己看了"。"""
+        import mp_ai
+        text = mp_ai.opening_guide()
+        self.assertIn("木电厂是过渡品", text)
+        self.assertIn("石油能源厂", text)
+        self.assertIn("油电的造价只有木电的约", text, "ROI 对比被删了")
+        self.assertIn("不容易被别的用途抢走", text, "断供那半句被删了")
+
+    def test_旧名开局指南仍可查(self):
+        """★ 改名的目的是"随时可查"，**不是让旧说法查不到**——老 AI 的记忆与既有国策里
+        全是「开局指南」这个名字，它必须仍被别名接住。"""
+        import mp
+        import mp_ai
+        w = mp.World(size=16, seed=5, nations=["秦", "楚"])
+        out = mp_ai.rules_text(w, "开局指南")
+        self.assertNotEqual(out, "", "旧名查不到")
+        self.assertFalse(out.startswith("【规则书目录】"), "旧名「开局指南」没被别名接住")
+        self.assertIn("基础指南", out)
 
 
 if __name__ == "__main__":

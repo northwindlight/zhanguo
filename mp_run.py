@@ -241,7 +241,7 @@ def run() -> None:
     if bool(cfg.get("world_bank")) and world.bank_enable():
         emit("（世界央行：本局**已开启**（配置 world_bank=true；开了就不可关闭））")
 
-    # 《开局指南》：**配置只能关、不能强开**（与央行正好相反，因为这条开关的用途是
+    # 《基础指南》（原名《开局指南》）：**配置只能关、不能强开**（与央行正好相反，因为这条开关的用途是
     #   留一条对照臂："有指南 vs 无指南"）。
     # ★ 为什么必须在**这里**、而不是 `make_world` 里：八国剧本的开局存档是
     #   `scenarios/eight_nations.py` 自己 `build()` 出来的，`mp_run --new` 只会建一张
@@ -250,7 +250,7 @@ def run() -> None:
     #   **新局与读档**一律生效（与 world.max_turns / world_bank 同一条口径）。
     if cfg.get("opening_guide") is False and world.opening_guide:
         world.opening_guide = False
-        emit("（开局指南：本局**已关闭**（配置 opening_guide=false））")
+        emit("（基础指南：本局**已关闭**（配置 opening_guide=false））")
 
     if is_new:
         emit(f"新开一局 {world.size}x{world.size}（种子 {world.seed}）："

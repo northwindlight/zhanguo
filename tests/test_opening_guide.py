@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""《开局指南》的**挂载行为**：开局前若干回合在、之后不在、开关能关、存档带着走。
+"""《基础指南》（原名《开局指南》）的**挂载行为**：开局前若干回合在、之后不在、开关能关、存档带着走。
 
 为什么单独钉一组：它是**引擎级带教**（不是某一国的 `extra_prompt`），挂载点有三个容易
 静默失效的地方——
@@ -38,24 +38,24 @@ def _world(size: int = 16, seed: int = 7) -> mp.World:
 class TestOpeningGuideWindow(unittest.TestCase):
     def test_开局前有_到期后没有(self):
         w = _world()
-        self.assertIn("开局指南", mp_ai.system_prompt(w, "秦"),
+        self.assertIn("基础指南", mp_ai.system_prompt(w, "秦"),
                       "开局（第 0 回合）就该挂上")
         w.turn = EXTRA_PROMPT_TURNS - 1
-        self.assertIn("开局指南", mp_ai.system_prompt(w, "秦"), "窗口内最后一回合仍在")
+        self.assertIn("基础指南", mp_ai.system_prompt(w, "秦"), "窗口内最后一回合仍在")
         w.turn = EXTRA_PROMPT_TURNS
-        self.assertNotIn("开局指南", mp_ai.system_prompt(w, "秦"),
+        self.assertNotIn("基础指南", mp_ai.system_prompt(w, "秦"),
                          "过了窗口就该消失（边界是 turn < EXTRA_PROMPT_TURNS）")
 
     def test_开关关掉就没有(self):
         w = _world()
         w.opening_guide = False
-        self.assertNotIn("开局指南", mp_ai.system_prompt(w, "秦"))
+        self.assertNotIn("基础指南", mp_ai.system_prompt(w, "秦"))
 
     def test_不写进extra_prompt(self):
         """它走自己的字段——`extra_prompt` 是"一国一条密谕"，别去占那一格。"""
         w = _world()
         self.assertEqual(w.extra_prompt, {})
-        self.assertIn("开局指南", mp_ai.system_prompt(w, "秦"))
+        self.assertIn("基础指南", mp_ai.system_prompt(w, "秦"))
 
     def test_八国剧本的常驻之志不受影响(self):
         """剧本自带 CHARTER（占着 extra_prompt）——两份提示必须同时在场、互不覆盖。"""
@@ -65,7 +65,7 @@ class TestOpeningGuideWindow(unittest.TestCase):
         for n in S.NATIONS:
             self.assertEqual(w.extra_prompt[n]["text"], S.CHARTER, "之志被动过了")
         text = mp_ai.system_prompt(w, S.ZHOU)
-        self.assertIn("开局指南", text)
+        self.assertIn("基础指南", text)
         self.assertIn("六王毕", text)
 
     def test_shim世界不炸(self):
@@ -76,9 +76,9 @@ class TestOpeningGuideWindow(unittest.TestCase):
         """
         shim = SimpleNamespace(turn=0, polity={}, extra_prompt={},
                                alive=lambda: ["秦"], opening_guide=False)
-        self.assertNotIn("开局指南", mp_ai.system_prompt(shim, "秦"))
+        self.assertNotIn("基础指南", mp_ai.system_prompt(shim, "秦"))
         bare = SimpleNamespace(turn=0, polity={}, extra_prompt={}, alive=lambda: ["秦"])
-        self.assertNotIn("开局指南", mp_ai.system_prompt(bare, "秦"),
+        self.assertNotIn("基础指南", mp_ai.system_prompt(bare, "秦"),
                          "没有这个字段时按「不挂」处理（getattr 兜底，不是抛异常）")
 
 

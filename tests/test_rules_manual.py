@@ -83,7 +83,7 @@ class TestRulesText(unittest.TestCase):
             self.assertIn("遣散", out, f"「{word}」该落到写着遣散条款的【军队与战斗】")
 
     def test_讲义仍可查(self):
-        for name in ("经济手册", "开局指南", "战争手册"):
+        for name in ("经济手册", "基础指南", "战争手册", "战略手册"):
             self.assertIn(name, mp_ai.rules_text(self.w, name))
 
     def test_说明书读不到时不崩(self):
