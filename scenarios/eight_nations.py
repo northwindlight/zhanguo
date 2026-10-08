@@ -103,7 +103,8 @@ SEVEN = ("秦", "魏", "韩", "赵", "燕", "齐", "楚")   # 战国七雄
 ZHOU = "周"                                          # 周王室（单字国名：面板/报表/番号都是按单字排版的）
 NATIONS = SEVEN + (ZHOU,)
 
-# 地图边长。2026-09-26 从 36 缩到 24 —— 依据是八国局第 184 回合的尸检（`摆烂尸检.8国.md`）：
+# 地图边长。2026-09-26 从 36 缩到 24 —— 依据是八国局第 184 回合的尸检
+# （`archive/reports/摆烂尸检.8国.md`；对局产物不入库，下同）：
 # 36×36=1296 格**全是陆地**，八国开局只占 40 格，剩 1256 格无主荒野（每格一支不动的野人）
 # = 每国 157 格 = 开局国土的 **31 倍**；实测清野 2.24 格/回合 ⇒ **填满要 561 回合**，
 # 而一局上限 300 ⇒ **荒野永远用不完，"零风险的免费地"永远比攻城划算**，于是全员摆烂。
@@ -113,9 +114,24 @@ NATIONS = SEVEN + (ZHOU,)
 #   正好抵得上 20 的全地（50 格/国）。再小就没有建设的余地了。
 SIZE = 24
 SEED = 20260921      # 定死：同 seed 同图（确定性，`tests/test_determinism.py` 那条口径）
-SAVE = "mp_save.8国.json"
-JOURNAL = "mp_journal.8国.md"
-CONFIG = "mp_config.8国.json"
+def names(seed: int = SEED) -> dict:
+    """这一把的三个文件名 —— **按种子分家：一局一套，永不覆盖、日志不混**。
+
+    ★ 用户 2026-10-09：「**每把日志独立，别再混了**」。原先三个名字都不带种子，而 journal
+      是**追加**写的（`mp_run` 用 mode="a"）⇒ 换个种子重开一局，新局的战史就**接在旧局
+      后面**，两把混成一份，读的人分不清哪条属于哪一局；存档与配置也会被就地覆盖。
+      现在一局一个三元组：`mp_save.8国.<seed>.json` / `mp_journal.8国.<seed>.md` /
+      `mp_config.8国.<seed>.json`——重开新种子 = 新文件，上一把原样留着，随时可续。
+    """
+    return {"save": f"mp_save.8国.{seed}.json",
+            "journal": f"mp_journal.8国.{seed}.md",
+            "config": f"mp_config.8国.{seed}.json"}
+
+
+# 默认那把（`SEED`）的三个名字。别名保留：外部按老名字 import 也能用。
+SAVE = names()["save"]
+JOURNAL = names()["journal"]
+CONFIG = names()["config"]
 
 # 各家的中心格（x 向东、y 向南）。都留了边界余量（十字要占 ±1 格）。
 # 2026-09-26 缩图时**按 24/36 等比缩放**得来（史地关系原样保留：燕东北、赵正北、齐东、
@@ -252,12 +268,14 @@ SKIP_NATION_KEYS = {"name", "polity", "rule_ai",
                     "start_cavalry", "start_gold", "start_supply"}
 
 
-def build_config(template: dict | None = None) -> dict:
+def build_config(template: dict | None = None, seed: int = SEED) -> dict:
     tpl = template if template is not None else load_template()
     nat_tpl = next((n for n in tpl.get("nations", []) if n.get("base_url")), {})
     llm = {k: v for k, v in nat_tpl.items() if k not in SKIP_NATION_KEYS}
     cfg = {k: v for k, v in tpl.items() if k != "nations"}
-    cfg.update({"map_size": SIZE, "seed": SEED, "save": SAVE, "journal": JOURNAL,
+    nm = names(seed)          # ★ 文件名跟着种子走：一局一套（见 `names`）
+    cfg.update({"map_size": SIZE, "seed": seed,
+                "save": nm["save"], "journal": nm["journal"],
                 "world_bank": True})   # 剧本按"开了央行"设计（利率差 5% 才有意义）
     # 《开局指南》开关：模板没写就默认开（写进生成配置里，看得见、好改）。
     # ★ 用 setdefault 而不是直接赋值：模板/真配置里显式写的 `false` 必须留着——
@@ -267,9 +285,10 @@ def build_config(template: dict | None = None) -> dict:
     return cfg
 
 
-def write_config(path: Path | str = ROOT / CONFIG, template: dict | None = None) -> Path:
-    p = Path(path)
-    p.write_text(json.dumps(build_config(template), ensure_ascii=False, indent=2) + "\n",
+def write_config(path: Path | str | None = None, template: dict | None = None,
+                 seed: int = SEED) -> Path:
+    p = Path(path) if path is not None else ROOT / names(seed)["config"]
+    p.write_text(json.dumps(build_config(template, seed), ensure_ascii=False, indent=2) + "\n",
                  encoding="utf-8")
     return p
 
@@ -279,17 +298,22 @@ def write_config(path: Path | str = ROOT / CONFIG, template: dict | None = None)
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="生成八国剧本（开局存档 + 配套配置）")
-    ap.add_argument("--out", default=str(ROOT / SAVE), help="存档写到哪（默认仓库根）")
-    ap.add_argument("--config", default=str(ROOT / CONFIG), help="配置写到哪")
+    ap.add_argument("--seed", type=int, default=SEED,
+                    help=f"地图种子（默认 {SEED}＝那张定死的图；换一个＝换一张地形，落位不变）")
+    ap.add_argument("--out", default=None,
+                    help="存档写到哪（默认 mp_save.8国.<seed>.json —— 一局一套，不覆盖上一把）")
+    ap.add_argument("--config", default=None, help="配置写到哪（默认 mp_config.8国.<seed>.json）")
     ap.add_argument("--ring", action="store_true", help="改成环状随机开局（默认手摆）")
     ap.add_argument("--config-only", action="store_true", help="只重生成配置，不碰存档")
     ap.add_argument("--force", action="store_true",
                     help="确认丢弃已有进度（目标存档已打过回合时必须显式给）")
     args = ap.parse_args(argv)
+    nm = names(args.seed)                       # ★ 一局一套文件名（见 `names`）
+    out = Path(args.out) if args.out else ROOT / nm["save"]
+    cfg_p = Path(args.config) if args.config else ROOT / nm["config"]
 
-    cfg_path = write_config(args.config)
+    cfg_path = write_config(cfg_p, seed=args.seed)
     if not args.config_only:
-        out = Path(args.out)
         # ★ 生成器是"**重开**"语义（整体覆盖写）——它跟 `mp_run` 的每回合存档不是一回事。
         #   所以绝不许**静默**盖掉一份已经在打的局：先看目标档的回合数，不是 0 就停下要
         #   `--force`（读不出来也算"不干净"，同样要 --force）。这条闸是给未来的人看的：
@@ -304,9 +328,9 @@ def main(argv=None) -> int:
                     f"✗ {out} 已经打到第 {played} 回合（读不出来时会显示 None）——"
                     f"生成剧本＝**重开**，会把它整个覆盖。\n"
                     f"  要丢弃就加 --force；只是想要新档就换个 --out 路径。")
-        w = build(starts=None if args.ring else STARTS)
-        w.save(args.out)   # 整体覆盖写（`World.save` 自己就是覆盖语义）
-        print(f"存档 → {args.out}")
+        w = build(seed=args.seed, starts=None if args.ring else STARTS)
+        w.save(out)        # 整体覆盖写（`World.save` 自己就是覆盖语义）
+        print(f"存档 → {out}")
         print(f"  {w.size}×{w.size} 种子 {w.seed}｜"
               + "、".join(f"{n}{STARTS.get(n, '')}" for n in w.order))
         print("  保障：" + "、".join(f"{w.entity_label(g)}→{ZHOU}"
@@ -315,7 +339,7 @@ def main(argv=None) -> int:
         print(f"  剧本之志（常驻 {len(w.extra_prompt)} 国，**同一份文案**）：六王毕，四海一 ——"
               f" 尊王（入「周天下」）＝次要胜利 ｜ 兼并天下＝终极胜利")
     print(f"配置 → {cfg_path}（{len(NATIONS)} 国，含明文 key，**不入库**）")
-    print(f"开局：./start.sh --config {Path(args.config).name}")
+    print(f"开局：./start.sh --config {cfg_p.name}")
     return 0
 
 
