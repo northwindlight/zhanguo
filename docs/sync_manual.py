@@ -2,12 +2,18 @@
 # -*- coding: utf-8 -*-
 """人类侧手册的 AUTO 块同步器：文档里的数字与正文**一律**现算，不手抄。
 
-管两份文档：
+管五份文档：
 
 - `docs/游戏说明书.md` —— 规则（"**能做什么**"）：各块的数字从 `balance.py`（必要时
   + `mp_ai.py` 的工具表、`settlement.py` 的结算口径）现算。
 - `docs/经济学手册.md` —— 讲义（"**为什么**"）：正文逐字取自 `mp_ai._econ_manual()`
   ——**局内 AI 读的就是那一份**，这里只做 Markdown 分节，不复制、不改写。
+- `docs/开局指南.md` —— 讲义（"**开局怎么下手**"）：取自 `mp_ai.opening_guide()`，
+  局内**开局前若干回合强行挂载**。
+- `docs/战争手册.md` —— 讲义（"**这仗该怎么打**"）：取自 `mp_ai.war_manual()`，
+  局内**只要在交战就每回合强行挂载**。
+- `docs/战略手册.md` —— 讲义（"**盘面怎么看**"）：取自 `mp_ai.strategy_manual()`，
+  与上面几本不同——**不挂进任何 prompt，完全按需取**（只有 AI 自己 `rules(战略手册)`）。
 
 用法::
 
@@ -42,6 +48,7 @@ DOC_PATH = pathlib.Path(__file__).resolve().parent / "游戏说明书.md"
 ECON_DOC_PATH = pathlib.Path(__file__).resolve().parent / "经济学手册.md"
 GUIDE_DOC_PATH = pathlib.Path(__file__).resolve().parent / "开局指南.md"
 WAR_DOC_PATH = pathlib.Path(__file__).resolve().parent / "战争手册.md"
+STRATEGY_DOC_PATH = pathlib.Path(__file__).resolve().parent / "战略手册.md"
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -587,12 +594,34 @@ def blk_war() -> str:
 
 WAR_BLOCKS: dict[str, object] = {"war": blk_war}
 
+
+def _strategy_source() -> str:
+    """局内《战略手册》原文（`mp_ai.strategy_manual()`）——本文档正文的唯一来源。"""
+    try:
+        import mp_ai
+    except Exception as e:  # pragma: no cover - 环境缺依赖时的明确报错
+        raise SyncError(f"读不到 mp_ai.strategy_manual（{type(e).__name__}: {e}）") from e
+    return mp_ai.strategy_manual()
+
+
+def blk_strategy() -> str:
+    """《战略手册》正文：逐字取自 `mp_ai.strategy_manual()`（`rules(战略手册)` 那一份）。
+
+    ★ 与另三本不同：**它不进任何 system prompt**（用户 2026-10-09 选「完全按需取」）——
+    只有 AI 自己查才看得到；《战争手册》里挂了一句"推荐阅读"把人引过来。
+    """
+    return _sections_block(_strategy_source(), "战略手册", "mp_ai.strategy_manual()")
+
+
+STRATEGY_BLOCKS: dict[str, object] = {"strategy": blk_strategy}
+
 # 已知的人类侧手册 → 各自的块表（`--doc` 按文件名认领）
 DOCS: dict[pathlib.Path, dict[str, object]] = {
     DOC_PATH: BLOCKS,
     ECON_DOC_PATH: ECON_BLOCKS,
     GUIDE_DOC_PATH: GUIDE_BLOCKS,
     WAR_DOC_PATH: WAR_BLOCKS,
+    STRATEGY_DOC_PATH: STRATEGY_BLOCKS,
 }
 
 
