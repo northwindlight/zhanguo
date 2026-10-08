@@ -927,5 +927,178 @@ class TestGridIsPureAscii(unittest.TestCase):
                              f"图例里还有宽度歧义的记号 {bad!r}")
 
 
+class TestTownhallReportedEverywhere(unittest.TestCase):
+    """★ 市政厅（国祚）要标在 AI **每回合真正读的那张图**上（2026-10-09 用户：
+
+    「敌厅显示似乎有bug」「燕最后明明到厅跟前还是说找不到厅」）。
+
+    实测（8 国终局 T245-258）：燕在秦最后两座厅的门口围了十几回合，**它每回合读的是常驻的
+    坐标地图 `_fmt_atlas`**，而那张图当时只标 `L2城`、**根本不标厅**；「视野内市政厅」那行
+    只活在按需的 `panel=grid` 里，燕最后一次查 grid 还是 T212 ⇒ 它一直"找不到厅"，
+    到 T253 才从 battle 面板认出「凝屿＝秦的市政厅」，白等十几回合。
+
+    情报本来就在（`visible_buildings` 早已把厅与城堡同档公开）——**只是没送到常驻面板上**。
+    """
+
+    def _setup(self):
+        w = mp.World(size=20, seed=3, nations=["秦", "楚"])
+        own = w.own_tiles("秦")[0]
+        w.tiles[own]["buildings"]["市政厅"] = 1
+        adj = w.neighbors(*own)[:2]
+        for p in adj:                                   # 两座敌厅都紧贴自家地（必然在视野内）
+            t = w._new_tile(*p, "楚")
+            t["owner"] = "楚"
+            t["buildings"]["市政厅"] = 1
+            w.tiles[p] = t
+        w.armies = []
+        return w, own, adj
+
+    @staticmethod
+    def _line_of(atlas: str, p: tuple) -> str:
+        head = f"({p[0] + 1},{p[1] + 1})"
+        return next(l for l in atlas.splitlines() if l.startswith(head))
+
+    def test_atlas_marks_enemy_hall(self):
+        w, _own, adj = self._setup()
+        atlas = mp_ai._fmt_atlas(w, "秦")
+        for p in adj:
+            self.assertIn("厅×1", self._line_of(atlas, p),
+                          f"常驻坐标图没标这座敌厅（国祚就在眼前却看不见）：{self._line_of(atlas, p)}")
+
+    def test_atlas_marks_own_hall(self):
+        w, own, _adj = self._setup()
+        self.assertIn("厅×1", self._line_of(mp_ai._fmt_atlas(w, "秦"), own))
+
+    def test_atlas_matches_visible_buildings(self):
+        """★ 口径必须与 `visible_buildings`（唯一出处）一致——视野外一格都不许标。"""
+        w, _own, _adj = self._setup()
+        atlas = mp_ai._fmt_atlas(w, "秦")
+        for (x, y) in mp_ai._visible_cells(w, "秦"):
+            n = w.visible_buildings("秦", x, y).get("市政厅", 0)
+            line = self._line_of(atlas, (x, y))
+            self.assertEqual("厅×" in line, n > 0,
+                             f"({x + 1},{y + 1}) 的厅标记与 visible_buildings 不一致：{line}")
+
+    def test_atlas_marks_unowned_wreck(self):
+        """无主故土上的厅（前朝废墟）也要标——那是**白捡的**，标不出来就没人去捡。"""
+        w, _own, _adj = self._setup()
+        p = [q for q in mp_ai._visible_cells(w, "秦") if w.owned_by(*q) is None][0]
+        t = w._new_tile(*p, "废")
+        t["owner"] = None
+        t["buildings"]["市政厅"] = 1
+        w.tiles[p] = t
+        self.assertIn("厅×1", self._line_of(mp_ai._fmt_atlas(w, "秦"), p))
+
+    def test_legend_explains_the_marker(self):
+        """图例得说明 `厅×N` 是什么（否则是个没定义的记号）。"""
+        self.assertIn("厅×N", mp_ai.ATLAS_LEGEND)
+
+    def test_grid_line_carries_the_owner(self):
+        """`panel=grid` 那行原来只有无主的标 `[无主]`，有主的什么都不写 ⇒ 看不出是谁的国祚。"""
+        w, own, adj = self._setup()
+        line = [l for l in mp_ai._fmt_map(w, "秦").splitlines() if "视野内市政厅" in l][0]
+        for p in adj:
+            self.assertIn(f"@({p[0] + 1},{p[1] + 1})[楚]", line, f"没写归属：{line}")
+        self.assertNotIn(f"@({own[0] + 1},{own[1] + 1})", line, "自家的厅不该出现在'视野内敌厅'清单里")
+
+
+class TestIndustrialUpkeepLine(unittest.TestCase):
+    """【国力】栏的「工业每回合耗料」——用户 2026-10-09：「提示当前工业需要的常驻消耗，
+
+    低于这个值需要提示」。库存 < 一回合的额定消耗 ⇒ 那一项标 ⚠（＝下回合就断料）。
+    """
+
+    def _line(self, buildings: dict, **stock):
+        w = mp.World(size=12, seed=1, nations=["秦"])
+        for p, t in list(w.tiles.items()):
+            if t["owner"] == "秦":
+                t["buildings"] = dict(buildings)
+                break
+        for k, v in stock.items():
+            w.nations["秦"].res[k] = v
+        w.energy_report["秦"] = (10, 10, False)
+        out = mp_ai._res_line(w, "秦")
+        return next((l for l in out.splitlines() if "工业每回合耗料" in l), "")
+
+    def test_lists_standing_consumption(self):
+        line = self._line({"木材能源厂": 2, "补给厂": 1}, 木头=99, 粮食=99, 矿石=99)
+        self.assertIn("木材2", line, f"没报出电厂烧的木：{line}")
+        self.assertIn("粮食2", line)
+        self.assertIn("矿石1", line)
+        self.assertNotIn("⚠", line, "库存充足时不该报警")
+
+    def test_warns_when_stock_below_one_turn(self):
+        """★ 「低于这个值就提示」：库存 1 粮 < 每回合 2 粮 ⇒ 报警。"""
+        line = self._line({"补给厂": 1}, 木头=99, 粮食=1, 矿石=99)
+        self.assertIn("粮食2⚠", line)
+        self.assertIn("库存已不足一回合", line)
+        self.assertIn("工厂断料", line)
+
+    def test_quiet_without_industry(self):
+        self.assertEqual(self._line({}, 木头=0), "", "没有工业就不该有这一行")
+
+    def test_notes_blackout_stops_factories(self):
+        """电网停摆时工厂根本不投料 —— 这一行要说清，否则"耗料"会误导。"""
+        w = mp.World(size=12, seed=1, nations=["秦"])
+        for p, t in list(w.tiles.items()):
+            if t["owner"] == "秦":
+                t["buildings"] = {"木材能源厂": 1, "补给厂": 1}
+                break
+        w.energy_report["秦"] = (0, 3, True)
+        out = mp_ai._res_line(w, "秦")
+        self.assertIn("工厂此刻根本不投料", out)
+
+
+class TestGridReserveWarning(unittest.TestCase):
+    """电冗余低于 `mp_ai.GRID_RESERVE_WARN`（20%）时，【国力】栏**每回合**都要提示。
+
+    用户 2026-10-09：「低于 20% 的电冗余会一直提示」。为什么值得钉：电网是**全国一口账**
+    （产 < 需 ⇒ 所有耗电建筑一起停摆），所以"刚好够"就是悬崖边——一条提示就是唯一的预警。
+    ★ 阈值必须**现读 `balance`**（唯一权威），别在面板里再写死一个 0.2。
+    """
+
+    def _line(self, et: int, mt: int, short: bool = False) -> str:
+        w = mp.World(size=12, seed=1, nations=["秦"])
+        w.energy_report["秦"] = (et, mt, short)
+        return [l for l in mp_ai._res_line(w, "秦").splitlines() if "电网" in l][0]
+
+    def test_below_threshold_warns(self):
+        """低于 20% ⇒ 报出余量并给一句"为什么危险"。"""
+        out = self._line(14, 12)                      # 余量 16.7%
+        self.assertIn("余量仅", out)
+        self.assertIn("全国耗电建筑一起停摆", out)
+        self.assertIn(f"{mp_ai.GRID_RESERVE_WARN:.0%}", out, "提示里要写出阈值本身")
+
+    def test_exactly_zero_reserve_warns(self):
+        """0% 余量（产刚好等于需）**也算低于 20%** —— 这是最容易漏的边界。"""
+        self.assertIn("余量仅 0%", self._line(12, 12))
+
+    def test_at_threshold_does_not_warn(self):
+        """刚好 20% 不提示（门槛是 `<`，不是 `<=`）。"""
+        self.assertNotIn("余量仅", self._line(12, 10))
+
+    def test_healthy_reserve_is_quiet(self):
+        self.assertNotIn("余量仅", self._line(15, 12))
+
+    def test_no_consumption_is_quiet(self):
+        """需 0（没有耗电建筑）⇒ 谈不上余量，不许除零、也不许提示。"""
+        out = self._line(0, 0)
+        self.assertNotIn("余量仅", out)
+        self.assertIn("正常", out)
+
+    def test_blackout_has_its_own_message(self):
+        """已停摆走另一条文案（"此刻全部没在转"），别与"余量不足"混为一谈。"""
+        out = self._line(9, 12, short=True)
+        self.assertIn("停摆", out)
+        self.assertIn("此刻全部没在转", out)
+        self.assertNotIn("余量仅", out)
+
+    def test_warning_is_in_the_standing_state(self):
+        """★ 它是**常驻**的（每回合的 `full_state` 里都在），不是只在某个面板里出现一次。"""
+        w = mp.World(size=12, seed=1, nations=["秦", "楚"])
+        w.energy_report["秦"] = (14, 12, False)
+        self.assertIn("余量仅", mp_ai.full_state(w, "秦"))
+
+
 if __name__ == "__main__":
     unittest.main()

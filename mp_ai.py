@@ -24,6 +24,7 @@ from game import (
     BUILDINGS,
     building_effect,
     DIPLO_CENTER_MIN_COST,
+    GRID_RESERVE_WARN,
     LETTER_CENTER_DISCOUNT,
     LETTER_CHARS_PER_GOLD,
     LETTER_COST,
@@ -250,13 +251,48 @@ def _res_line(world, name) -> str:
     for k in RES_KEYS:
         parts.append(f"{RES_LABEL.get(k, k)}{r.get(k, 0)}")
     grid = "正常" if not short else "⚠停摆"
+    # ★ 2026-10-09 用户：「低于 20% 的电冗余会一直提示」。电网是**全国一口账**（产 < 需 ⇒
+    #   **所有**耗电建筑一起停摆），所以"刚好够"就是悬崖边——敌人的孤军占掉一格电厂、或燃料
+    #   一停，余量当场变负。阈值取 `balance.GRID_RESERVE_WARN`（唯一权威，别在这儿再写死一个数）；
+    #   `需 0`（没有耗电建筑）时谈不上余量，不提示。**每回合常驻**，直到余量补回来。
+    if short:
+        grid_tail = "（★已停摆：补给厂/装备厂/兵营/市政厅**此刻全部没在转**——立刻补电或停耗电件）"
+    else:
+        reserve = (et - mt) / mt if mt else None
+        if reserve is not None and reserve < GRID_RESERVE_WARN:
+            grid = f"正常·⚠余量仅 {reserve:.0%}"
+            grid_tail = (f"（**低于 {GRID_RESERVE_WARN:.0%} 的安全余量**：敌人一支孤军占掉一格电厂、"
+                         f"或燃料一断，余量立刻变负 ⇒ **全国耗电建筑一起停摆**。"
+                         f"趁现在补电厂，或在电厂那一格留兵）")
+        else:
+            grid_tail = "（不足则补给厂/装备厂/兵营/市政厅全部停摆）"
     summ = world.econ_summary.get(name, "")
+    # ★ 工业常耗（用户 2026-10-09：「提示当前工业需要的常驻消耗，低于这个值需要提示」）：
+    #   工厂/电厂每回合要吃的料是**每回合**的固定支出，断一回合就得停产/停电。
+    #   ★ 取数走引擎的 `industry_upkeep`（额定需求，不是被库存截断后的实际扣料）；
+    #   **库存 < 一回合的量**就把那一项标出来——"下一回合就断"，这是用户要的那条线。
+    upkeep = {k: v for k, v in world.industry_upkeep(name).items() if v}
+    kep = ""
+    if upkeep:
+        short_k = [k for k, v in upkeep.items() if r.get(k, 0) < v]
+        kep = "\n工业每回合耗料: " + " ".join(
+            f"{RES_LABEL.get(k, k)}{v}" + ("⚠" if k in short_k else "") for k, v in upkeep.items())
+        if short_k:
+            kep += ("　⚠ **库存已不足一回合**："
+                    + "、".join(f"{RES_LABEL.get(k, k)}(存 {r.get(k, 0)} < 耗 {upkeep[k]})"
+                                for k in short_k)
+                    + "——下回合就要断料：**电厂断料＝全国停电**（耗电建筑全停），"
+                      "工厂断料＝那批工厂停产（**先 `buy` 补料**；补不上就别再加耗这套料的建筑，"
+                      "断了料的厂就是白盖的）")
+        if short:
+            kep += "　（电网停摆中：工厂此刻根本不投料，只有电厂还在烧燃料）"
     # ★ 国祚（用户 2026-09-21：灭国条件＝市政厅尽失）——**每回合常驻**，因为它就是命：
     #   丢了最后一座就当场亡国，没有第二次机会，所以不许它只藏在 land 面板里。
     halls = world.nation_building_count(name, "市政厅")
     return (
         f"{'  '.join(parts)}\n"
-        f"电网: 产{et}/需{mt} {grid}（不足则补给厂/装备厂/兵营/市政厅全部停摆）\n"
+        f"电网: 产{et}/需{mt} {grid}{grid_tail}"
+        f"{kep}\n"
         f"国祚: 市政厅 {halls} 座（★失去全部即亡国，余土沦为无主之地）"
         + (f"\n上一回合结算: {summ}" if summ else "")
     )
@@ -336,9 +372,10 @@ def _reach_cells(world, name) -> set:
 
 ATLAS_LEGEND = (
     "坐标地图：**按势力分段**（我 / 野人 / 其他各国，空行隔开），每行一格——"
-    "`(x,y)归属地形，[L2城][，地名][，番号…]`（番号垫底）。番号=短兵种+军队番号（`步1、步2、楚骑3`，"
-    "可对上【军队】面板的 `#n`；格主的部队省归属前缀、排前面；无主地的野人守军写作「野人」）。"
-    "**只列你视野内的格**。想要格子图（ASCII 网格）用 query panel=grid。")
+    "`(x,y)归属地形，[L2城][，厅×N][，地名][，番号…]`（番号垫底）。番号=短兵种+军队番号"
+    "（`步1、步2、楚骑3`，可对上【军队】面板的 `#n`；格主的部队省归属前缀、排前面；"
+    "无主地的野人守军写作「野人」）。**`厅×N` = 该格的市政厅座数**（＝国祚：拔光某国全部厅即灭其国；"
+    "无主格上的厅是**白捡的废墟**）。**只列你视野内的格**。想要格子图（ASCII 网格）用 query panel=grid。")
 
 
 def _fmt_atlas(world, name) -> str:
@@ -374,6 +411,15 @@ def _fmt_atlas(world, name) -> str:
         cl = t["buildings"].get("城堡", 0) if t else 0
         if cl:
             line += f"，L{cl}城"
+        # ★ 2026-10-09 修：市政厅（国祚）**必须和城堡同档标在常驻面板上**。
+        #   实测（8 国终局）：燕在秦最后两座厅的门口围了十几回合，**每回合读的都是这张常驻图**，
+        #   而它原来只标 `L2城`、不标厅 ⇒ 燕一直"找不到厅"，到 T253 从 battle 面板才认出
+        #   「凝屿＝秦的市政厅」，白等了十几回合（它最后一次查 `panel=grid` 还是 T212）。
+        #   "视野内市政厅"那行只活在按需的 grid 面板里，而 AI 每回合看的是这里——情报在，
+        #   只是没送到。取数走 `visible_buildings`（唯一口径，与城堡同档公开）。
+        th = world.visible_buildings(name, x, y).get("市政厅", 0)
+        if th:
+            line += f"，厅×{th}"
         if t and t.get("name"):
             line += f"，{t['name']}"
         # ★ 番号段放**最后**（用户 2026-09-19：「先地名后军队，这样美观，军队会扩展」）：
@@ -513,8 +559,10 @@ def _fmt_map(world, name) -> str:
         #   不给这张清单，那条规则就无从瞄准（看不见的东西打不着）。
         #   无主的那种（前朝废墟）显式标出来：它不是谁的国祚，是**白捡的**。
         head = halls[:12]
-        txt = " ".join(f"×{n}@({fx + 1},{fy + 1})"
-                       + ("" if world.owned_by(fx, fy) else "[无主]") for (fx, fy), n in head)
+        # ★ 2026-10-09：补上**归属**——原来只有无主的标 `[无主]`，有主的什么都不写，
+        #   于是"×1@(16,10)"根本看不出是谁的国祚（日志里 AI 得自己去地图上对国别字母）。
+        txt = " ".join(f"×{n}@({fx + 1},{fy + 1})[{world.owned_by(fx, fy) or '无主'}]"
+                       for (fx, fy), n in head)
         more = f" …另 {len(halls) - len(head)} 处" if len(halls) > len(head) else ""
         lines.append(f"视野内市政厅（各家的国祚——拔光即亡国；[无主]=废墟白捡）：{txt}{more}")
     lines.append("国别代码：" + "  ".join(
@@ -1465,7 +1513,8 @@ def opening_guide() -> str:
         f"木材能源厂烧 木头1 → 电 {wood_e}，石油能源厂烧 石油1 → 电 {oil_e}。\n"
         "  ⇒ **木头只去两个地方：建材、发电——它不是任何工厂的原料**。\n"
         f"  耗电建筑（{elec}）在**电网不足时全部停摆**（不是停一部分）"
-        "⇒ 上耗电件之前先算电网余量。\n"
+        f"⇒ 上耗电件之前先算电网余量（= (发电−耗电)/耗电）——**余量低于 {GRID_RESERVE_WARN:.0%} 时，"
+        "国力栏每回合都会提醒你**，因为那时「刚好够」已经等于悬崖边。\n"
         "  ★ **电本身：木电厂是过渡品，油电厂是主力。** 拿到同样多的电，两边差得离谱"
         "（按基准价折金）：\n"
         f"    · 木电 {oil_e} 度 = **{n_w} 座**木材能源厂 = {n_w}×{wp['cost']} 金 + "
@@ -1479,6 +1528,9 @@ def opening_guide() -> str:
         "⇒ **不容易被别的用途抢走**。\n"
         "  ⇒ 结论：**早期用木电把电网顶起来**（便宜、木头近在手边），**一旦有油（占石油位或买油）"
         "就尽快换油电**——省木料、省燃料、还不容易全城停电。\n"
+        "  ★ **你的工业每回合要吃多少料，【国力】栏一直替你算着**：「工业每回合耗料」那一行列出"
+        "电厂燃料与工厂投料，**任何一项库存掉到「不够一回合」就会标 ⚠**——那是「下回合就断」"
+        "的意思，别等它发生：断料的那批厂当回合就白盖了。\n"
         "四、野人是静态的：开局的扩张零风险、不要钱。\n"
         "  全图每一格无主地都站着**一支野人**，它们**永不移动、永不增援、死了不重生**。"
         "实测：**2 支满血步兵**打一格野人**稳拿**，代价随地形递增——平原合计损 ~70 HP、森林 ~79、"

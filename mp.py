@@ -2872,6 +2872,35 @@ class World:
         short = max(0, need - self.res(n, "补给"))
         return need, short, self.starve_per_army(need, short)
 
+    def industry_upkeep(self, name: str) -> dict[str, int]:
+        """该国工业**每回合的额定投料** `{资源: 单位数}`——**只看不扣**（供面板做断料预警）。
+
+        · **能源厂**：`fuel` × 座数（烧 木头 或 石油）；
+        · **工厂**（补给厂 / 装备厂）：`inputs` × 座数。
+        兵营与市政厅只吃电、不吃料，故不在内；城镇/城堡等也不吃料。
+
+        ★ 口径是**额定需求**，不是"实际会扣掉多少"：实际扣料会被仓库存量截断
+          （`resolve_turn` 里那两个 `batches = min(cnt, res//need)`），而这张表要回答的
+          恰恰是"仓里够不够"——拿被截断后的结果做预警是循环论证（永远不报警）。
+        ★ 与 `supply_shortfall` 同类：**派生量、不进存档**，随 `tiles` 现读现算。
+        ★ 使用方（`mp_ai._res_line`）负责说清一件事：**电网停摆时工厂根本不投料**
+          （`resolve_turn` 只在 `not short` 时才跑工厂），那时的实际投料只剩电厂的燃料。
+        """
+        need: dict[str, int] = {}
+        for t in self.tiles.values():
+            if t["owner"] != name:
+                continue
+            for bn, cnt in t["buildings"].items():
+                if not cnt:
+                    continue
+                info = BUILDINGS.get(bn)
+                if info is None:
+                    continue
+                for per_map in (info.get("fuel"), info.get("inputs")):
+                    for f, per in (per_map or {}).items():
+                        need[f] = need.get(f, 0) + per * cnt
+        return need
+
     def _clear_disengaged(self) -> int:
         """脱离战斗清扫：格上已无活敌军的 engaged 军队就地解除交战。
         覆盖两处死角——敌军撤退落地离开原格（留守者傻等下回合结算才解锁）、

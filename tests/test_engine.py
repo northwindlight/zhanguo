@@ -1244,6 +1244,64 @@ class TestSeedReproducibility(unittest.TestCase):
                          [b._new_tile(*p, "秦")["name"] for p in spots])
 
 
+class TestIndustryUpkeep(unittest.TestCase):
+    """`World.industry_upkeep` —— 面板要报的「工业每回合耗料」（电厂燃料 + 工厂投料）。
+
+    ★ 要害是**面板报的数必须等于结算真扣的数**：少报＝骗人（料断了自己不知道），
+      多报＝吓人（白补料）。这里用"只留一块地、只放工业、料给足"的世界把两边对拍。
+    """
+
+    def _world(self, buildings: dict) -> tuple[mp.World, tuple]:
+        w = mp.World(size=16, seed=3, nations=["秦", "楚"])
+        w.armies = []
+        own = w.own_tiles("秦")
+        keep = own[0]
+        for p in own[1:]:                 # 删掉其余自家地：避免采集类产料混进对拍
+            del w.tiles[p]
+        t = w.tiles[keep]
+        t["terrain"] = "平原"
+        t["buildings"] = dict(buildings)
+        for k in ("木头", "矿石", "粮食", "石油", "装备", "补给"):
+            w.nations["秦"].res[k] = 50
+        return w, keep
+
+    def test_counts_fuel_and_inputs(self):
+        w, _ = self._world({"木材能源厂": 2, "补给厂": 3, "装备厂": 1})
+        need = w.industry_upkeep("秦")
+        self.assertEqual(need, {"木头": 2, "粮食": 6, "矿石": 4, "石油": 1},
+                         "电厂燃料（木×座）+ 工厂投料（补给厂粮2矿1、装备厂矿1油1）")
+
+    def test_ignores_non_industrial_and_enemy(self):
+        """兵营/市政厅只吃电不吃料；别国的工业也不是我的账。"""
+        w = mp.World(size=16, seed=3, nations=["秦", "楚"])
+        own = w.own_tiles("秦")[0]
+        w.tiles[own]["buildings"] = {"兵营": 2, "市政厅": 1}
+        foe = w.own_tiles("楚")[0]
+        w.tiles[foe]["buildings"] = {"补给厂": 5}
+        self.assertEqual(w.industry_upkeep("秦"), {})
+
+    def test_reported_upkeep_equals_actual_deduction(self):
+        """★ 面板报的"每回合耗料" == 结算真扣的料（本文件里最重要的一条）。"""
+        w, _ = self._world({"木材能源厂": 2, "补给厂": 1, "装备厂": 1})
+        need = w.industry_upkeep("秦")
+        self.assertTrue(need)
+        before = {k: w.res("秦", k) for k in need}
+        w.resolve_turn()
+        for k, v in need.items():
+            self.assertEqual(before[k] - w.res("秦", k), v,
+                             f"{k}：面板报 {v}/回合，结算实际扣了 {before[k] - w.res('秦', k)}")
+
+    def test_no_double_count_when_factory_is_starved(self):
+        """仓库不够时**实际**扣得少，但**额定需求**不变 —— 面板要报额定（否则永远不报警）。"""
+        w, _ = self._world({"木材能源厂": 2, "补给厂": 2})
+        w.nations["秦"].res["粮食"] = 1          # 补给厂每座吃 2 粮 ⇒ 实际只跑 0 批
+        need = w.industry_upkeep("秦")
+        self.assertEqual(need["粮食"], 4, "额定需求：2 座 × 2 粮")
+        before = w.res("秦", "粮食")
+        w.resolve_turn()
+        self.assertEqual(before - w.res("秦", "粮食"), 0, "仓里只有 1 粮 ⇒ 一批都开不了")
+
+
 class TestDisband(unittest.TestCase):
     """遣散（`World.disband`）：军队**只进不出**的那个出口。
 
