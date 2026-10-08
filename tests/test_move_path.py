@@ -144,6 +144,45 @@ class TestCavalryReach(_Base):
         self.assertEqual((a["x"], a["y"]), (7, 5))
 
 
+    def test_two_diagonal_steps_around_a_mountain(self):
+        """★ 用户 2026-10-09 给的局面（照抄）：骑兵在 (5,5) 平原，正南 (5,6) 是**山地**，
+        (6,6) 也是山地，西侧 (4,6) 是平原，目标 (5,7)（正南两格）是平原。
+
+        · 直线：进山 `max(平原1, 山地2)=2` 吃满预算 ⇒ 出山再 2 ⇒ 合计 4 > 2 ⇒ **穿不过去**；
+        · 斜线：`(5,5)→(4,6)→(5,7)`，两步纯平原各 1 ⇒ 合计 **2**，恰好花完 ⇒ **成立**。
+        引擎实测：`_reachable` 给出 (5,7) 代价 2，`move` 返回 True。
+
+        ★ 为什么专门钉它：这是**两个连续斜步**的绕行（不是"斜一步再直一步"）——很多寻路
+          实现会在这形状上出错：给斜步加权（×1.4）、或加"不许切角"规则（要求斜穿时两侧
+          正交格都空，(5,6) 是山就会误判）。本作**没有**切角规则，八邻是纯几何，
+          所以这步必须成立——**但也仅限于绕得开时**（见下一条对照）。
+        """
+        w = self._world()
+        a = self._army(w, "骑", 5, 5)
+        self._ter(w, 5, 6, "山地")
+        self._ter(w, 6, 6, "山地")
+        reach = w._reachable("秦", a)
+        self.assertEqual(reach.get((5, 7)), 2, "两步斜线绕行该到得了（代价正好 2）")
+        ok, msg = w.move("秦", 1, 5, 7)
+        self.assertTrue(ok, f"斜线绕行该允许：{msg}")
+        self.assertEqual((a["x"], a["y"]), (5, 7))
+
+    def test_two_diagonal_detour_dies_when_the_detour_is_rough_too(self):
+        """对照组：把绕行格 (4,6) 也变成山地 ⇒ **必须走不到**。
+
+        没有这条，"斜线能到"就分不清是"绕得开"还是"斜线免疫地形"——而后者是 bug。
+        """
+        w = self._world()
+        a = self._army(w, "骑", 5, 5)
+        self._ter(w, 5, 6, "山地")
+        self._ter(w, 6, 6, "山地")
+        self._ter(w, 4, 6, "山地")
+        self.assertNotIn((5, 7), w._reachable("秦", a))
+        ok, msg = w.move("秦", 1, 5, 7)
+        self.assertFalse(ok, f"两条路都被崎岖堵死，不该还能走：{msg}")
+        self.assertIn("移动力", msg)
+
+
 class TestInfantryUnchanged(_Base):
     def test_one_tile_any_terrain(self):
         for ter in ("平原", "森林", "山地", "沙漠", "丘陵"):
