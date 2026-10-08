@@ -120,6 +120,61 @@ class TestChief(unittest.TestCase):
         self.assertIn("战争期间", msg)
 
 
+class TestFreeDiplomacyIgnoresTreasury(unittest.TestCase):
+    """★ **免费的外交动作，负国库也做得成**（2026-10-09 用户报的真实 bug：
+
+    「投票免费，但是负资产不能投」）。
+
+    病根在 `mp_ai._charge`：它写成 `if 黄金 < cost`，于是**负国库**时 `-45 < 0` 成立
+    ⇒ 所有 **cost=0** 的动作（投票 / 联盟改名 / 移交盟主 / 解散联盟，以及有外交中心或
+    同盟成员免外交费的那些）全被"国库不足：此操作需 0 金"挡死。
+
+    负国库的代价本来就该是"买不起"（借贷/买报表/派间谍瘫痪，那是设计）——但**穷国尤其
+    需要投票与外交**，那是它仅剩的武器。所以闸门只该在 `cost > 0` 时落下。
+    """
+
+    def _bloc_with_vote(self):
+        w = make_world()
+        make_bloc(w)
+        w.bloc_join("燕", "北盟")                      # 触发入盟投票（免费表决）
+        return w, w.votes[-1]["id"]
+
+    def test_vote_works_with_negative_treasury(self):
+        w, vid = self._bloc_with_vote()
+        w.nations["秦"].res["黄金"] = -45              # 国库为负
+        out = mp_ai.execute(w, "秦", "vote", {"vote_id": vid, "choice": "yes"})
+        self.assertNotIn("国库不足", out, f"免费的投票被钱挡住了：{out}")
+        self.assertTrue(w.votes and w.votes[-1]["votes"].get("秦") is True,
+                        f"票没投进去：{out}")
+
+    def test_dissolve_rename_transfer_with_negative_treasury(self):
+        """联盟那三个免费动作（解散/改名/移交）同样不该被负国库挡住。"""
+        for tool, args in (("bloc_rename", {"name": "新名"}),
+                           ("bloc_transfer", {"to": "楚"}),
+                           ("bloc_dissolve", {})):
+            w = make_world()
+            make_bloc(w)
+            w.nations["秦"].res["黄金"] = -45
+            out = mp_ai.execute(w, "秦", tool, args)
+            self.assertNotIn("国库不足", out, f"{tool} 是免费动作，却被钱挡住：{out}")
+
+    def test_paid_action_still_refused(self):
+        """★ 反过来：**收费**的动作在负国库时照样拒绝（别把闸门整个拆了）。"""
+        w = make_world()
+        make_bloc(w)
+        w.nations["秦"].res["黄金"] = -45
+        out = mp_ai.execute(w, "秦", "declare_war", {"to": "燕"})   # 外交费 > 0
+        self.assertIn("国库不足", out)
+        self.assertEqual(w.wars, [], "国库不够却把仗宣了")
+
+    def test_zero_cost_but_not_affordable_is_still_a_wall_for_real_costs(self):
+        """国库 0、费用 5（写信下限）⇒ 照旧拒绝；这话是"要说清多少钱"，不是"永远放行"。"""
+        w = make_world()
+        w.nations["秦"].res["黄金"] = 0
+        out = mp_ai.execute(w, "秦", "send_letter", {"to": "燕", "content": "你好"})
+        self.assertIn("国库不足", out)
+
+
 class TestVoteRules(unittest.TestCase):
     def _join_vote(self, w, candidate="燕"):
         w.bloc_join(candidate, "北盟")
