@@ -73,6 +73,15 @@ class TestRulesText(unittest.TestCase):
             out = mp_ai.rules_text(self.w, old)
             self.assertFalse(out.startswith("【规则书目录】"), f"「{old}」没被别名接住")
 
+    def test_裁军类主题有别名(self):
+        """★ 实测 AI 反复问的就是这些词（8 国日志里 topic=「解散 裁军 复员 遣散」出现过多次），
+        从前一个都不在别名表里 ⇒ 一律兜底成**全书**，AI 据此把「裁军无机制」写进了国策。
+        现在这些词必须落到含遣散条款的【军队与战斗】。"""
+        for word in ("遣散", "裁军", "复员", "解散军队"):
+            out = mp_ai.rules_text(self.w, word)
+            self.assertFalse(out.startswith("【规则书目录】"), f"「{word}」没被别名接住")
+            self.assertIn("遣散", out, f"「{word}」该落到写着遣散条款的【军队与战斗】")
+
     def test_讲义仍可查(self):
         for name in ("经济手册", "开局指南", "战争手册"):
             self.assertIn(name, mp_ai.rules_text(self.w, name))

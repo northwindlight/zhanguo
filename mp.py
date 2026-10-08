@@ -1618,9 +1618,9 @@ class World:
           `targeting` 要枚举野人驻军，那些地方不许用。
         ★ **失效判据** = `(id(self.armies), len(self.armies), sum(next_army_seq.values()))`：
           军队的 `owner` **一经创建不再改写**（引擎里没有一处写军队的 `["owner"]` ——
-          `["owner"] =` 那两处改的是**地块**），所以名单只在**新建 / 阵亡 / 整表重建**时变，
-          而这三件事必然动到上面三项里的至少一项：新建 ⇒ 序列号 +1；阵亡 ⇒ 长度变；
-          `load()` 与过滤式重建 ⇒ 列表对象换人。
+          `["owner"] =` 那两处改的是**地块**），所以名单只在**新建 / 阵亡 / 遣散 / 整表重建**时变，
+          而这些事必然动到上面三项里的至少一项：新建 ⇒ 序列号 +1；
+          阵亡与**遣散**（`disband`）⇒ 长度变；`load()` 与过滤式重建 ⇒ 列表对象换人。
         ★ 缓存的是**引用**：调用方不许就地改这张表（要改先 `list(...)` 拷一份）。
         ★ 它是**派生量、不进存档** —— 别按"新增字段三步"往 SAVE_KEYS 里写。
         """
@@ -1911,6 +1911,58 @@ class World:
         a["moved_turn"] = self.turn
         return True, (f"{a['name']} 准备撤到 ({x+1},{y+1})（{retreat_note(defends, cover)}）："
                       f"本回合结束时随战斗结算（全场分摊）后自动脱离；结算期间仍在战场")
+
+    def disband(self, name: str, aids: list[int]) -> tuple[bool, str]:
+        """遣散：把本国军队**就地解散**（解甲归田）——军队从表里消失，此后再不吃补给、不计军费。
+
+        ★ 三条口径（用户 2026-10-09 拍板）：
+
+          · **不返还**——人、装备、粮一律不退。这不是抠门，是**评分口径**逼出来的：
+            排名看「总消费 = 建造 + 征兵 + 军费」，而 `_spend` 只有 `+=`、`_mval` 对负数
+            直接返回 0 ⇒ 引擎里**没有任何负向记账入口**。一旦返还装备，就凭空多出一条
+            「征兵（记一笔消费）→ 遣散（拿回装备）→ 卖装备（回本）」的零成本闭环，
+            把黄金直接换成消费分。不返还则无新增刷分路径。
+          · **任意位置**——境内/境外/野地都行。它没有目标格，所以**不用** `_check`
+            （坐标校验）/`_reachable`（可达性）/`_blind_cost`（对视野外滥发命令的罚）——
+            那三个都以坐标为输入，套用会得出错误语义。孤军深陷敌境时的止损出口，
+            代价是整支军队当场没了。
+          · **交战中不得遣散**（含被攻击的守方）——这是**硬闸，不是凑口径**：
+            `battle_sides` 返回 None ⟺ 该格没有活着的进攻方，所以遣散 `engaged` 军会让
+            **整场战斗凭空消失**（比 retreat 更强的免费脱战）；且「弃城即陷」只遍历本回合的
+            `war_lines`，遣散最后一个守方会让格子当回合**不被改旗**——即「遣散守军」比
+            「守军阵亡」更保地。判据逐字复用 `retreat` 的唯一口径（攻方按逐军 `engaged`、
+            守方按逐国 `defending`，那处刻意的不对称别"顺手统一"）。
+
+        ★ 不做的事（与「阵亡/饿毙/亡国清场」那三处删除一致，见 `troops` 文档）：
+          不回退 `next_army_seq`（番号口径是**阵亡不回收**，回收会与 AI 已引用的 `#n` 撞号）、
+          不记 `_spend`/`flow_out` 流水、不动 `engaged`/`retreat_to`/`moved_turn`。
+          亡国只认市政厅 ⇒ 遣散光军队**不亡国**。
+        """
+        if not aids:
+            return False, "没给军队编号。想看自己有哪些军：query panel=army"
+        if name not in self.nations:
+            return False, f"国家 {name} 不存在"
+        # `self.troops` 天然不含野人（野人走 `guardians`）⇒ 野人番号进不了 targets，
+        # 「野人不会被遣散」不需要额外判一次。
+        targets = [a for a in self.troops if a["owner"] == name and a["id"] in aids]
+        if not targets:
+            return False, (f"未找到我方军队 {aids}（番号各国独立从 1 编号、且**阵亡不回收**，"
+                           f"以 query panel=army 为准）")
+        # 先全量校验、再统一动手（同 attack 的两段式）：免得"一半遣散了、一半被拒"的半截状态。
+        for a in targets:
+            sides = self.battle_sides(a["x"], a["y"])
+            if a.get("engaged") or (sides and name in sides["defending"]):
+                return False, (f"{a['name']} 正深陷交战（{a['x']+1},{a['y']+1}），不能就地遣散——"
+                               f"交战中不许处置军队（遣散会让这场战斗凭空消失）。"
+                               f"先用 retreat 撤出战场，下回合再遣散")
+        for a in targets:
+            self.armies.remove(a)   # ★ 删 self.armies：`self.troops` 是派生**缓存列表**（见其文档）
+            self.log(f"⚑ 遣散 {a['name']}（{a['x']+1},{a['y']+1}）：解甲归田，"
+                     f"人甲不返还，本回合起不再吃补给、不计军费", phase="内政", nation=name)
+        names = "、".join(a["name"] for a in targets)
+        return True, (f"已遣散 {len(targets)} 支：{names}——**不返还**任何粮/装备/黄金；"
+                      f"本回合起即不再吃补给、不计军费（民兵的编制名额也当场释放）。"
+                      f"遣散不亡国，但军队没了就是没了，番号不回收")
 
     # ------------------------------------------------------------- 战斗
     def _die(self):

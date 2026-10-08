@@ -155,6 +155,33 @@ class TestInvalidation(_Base):
         self.assertNotIn(dead, w.guardians.values(), "又建又亡之后 `guardians` 里还有阵亡的野人")
         self._check_all(w, "又建又亡后")
 
+    def test_disband(self):
+        """★ **遣散**是「军队消失」的第四种路（阵亡 / 饿毙 / 亡国清场 / 遣散）——
+        它必须删 `self.armies`，而不是就地改 `troops` 那张**缓存列表对象**。
+
+        判据说得很清楚：缓存键含 `len(self.armies)`。如果 `disband` 图省事写成
+        `self.troops.remove(a)`，长度**不变** ⇒ 键不变 ⇒ 下一次读 `troops` 直接命中旧缓存，
+        而 `self.armies` 里那支还在 —— 朴素名单立刻对不上，这条就红。
+        """
+        w = self._world()
+        self._play(w, 2)
+        # 显式造一支（不靠规则 AI"这回合恰好征了兵"），挑一块**没有别军**的自家地放它，
+        # 免得它一落地就身处混战格（那样会被交战闸挡住，用例就测不到过期缓存了）。
+        p = next(pp for pp, t in w.tiles.items()
+                 if t["owner"] == "秦" and not any((a["x"], a["y"]) == pp for a in w.armies))
+        gid, seq = w._new_army("秦")
+        w.armies.append({"id": seq, "gid": gid, "name": f"秦·步军{seq}", "type": "步",
+                         "hp": 100, "x": p[0], "y": p[1], "owner": "秦",
+                         "moved_turn": -1, "engaged": False})
+        before = len(w.armies)
+        self.assertIn(seq, [a["id"] for a in w.troops], "★ 先读一次：把缓存建起来（本用例的要害）")
+        _ = w.guardians
+        ok, msg = w.disband("秦", [seq])
+        self.assertTrue(ok, msg)
+        self.assertEqual(len(w.armies), before - 1, "军队没从 `armies` 里摘掉")
+        self.assertIsNone(w._army("秦", seq))
+        self._check_all(w, "遣散后")
+
     def test_rebuild_and_load(self):
         w = self._world()
         self._play(w, 2)

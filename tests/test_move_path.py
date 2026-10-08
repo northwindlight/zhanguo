@@ -307,5 +307,56 @@ class TestMoveNeverClaimsLand(_Base):
         self.assertIn("要占地必须用 atk", desc)
 
 
+class TestDisbandAnywhere(_Base):
+    """遣散**没有地点门槛**（口径：境内、境外、野地都行）——它只排除「交战中」。
+
+    引擎里 `disband` 不取坐标、也不走 `_check`/`_reachable`/`_blind_cost`（那三个都以坐标
+    为输入，套用会得出错误语义）。这条钉住"三处行为一致"，免得日后有人顺手加上领土限制——
+    孤军深陷敌境时的止损出口正是这个动作存在的理由。
+    """
+
+    def test_own_wild_and_foreign_tiles(self):
+        w = self._world()
+        self.assertIsNone(w.owned_by(2, 2), "本用例假设 (2,2) 是无主野地")
+        chu = next(p for p, t in w.tiles.items() if t["owner"] == "楚")
+        spots = [((5, 5), "自家"), ((2, 2), "野地"), (chu, "他国领土")]
+        for i, (p, _label) in enumerate(spots, 1):
+            self._army(w, "步", p[0], p[1])["id"] = i      # _army() 逐个追加，id 手动改开
+        for i, (p, label) in enumerate(spots, 1):
+            ok, msg = w.disband("秦", [i])
+            self.assertTrue(ok, f"{label}{p} 应当允许就地遣散：{msg}")
+        self.assertEqual([a for a in w.armies if a["owner"] == "秦"], [],
+                         "三处都该遣散干净")
+
+
+class TestDisbandTool(_Base):
+    """工具层：分派别名 + schema 文案（后者是 AI 做决策时**唯一**的规则来源）。"""
+
+    def test_aliases_dispatch_to_disband(self):
+        """★ 这几个词是实测 AI 会用的（8 国日志里 topic=「解散/裁军/复员/遣散」反复出现）。"""
+        import mp_ai
+        for tool in ("disband", "遣散", "裁军", "复员", "解散军队"):
+            w = self._world()
+            self._army(w, "步", 5, 5)
+            out = mp_ai.execute(w, "秦", tool, {"army_ids": [1]})
+            self.assertIn("已遣散", out, f"「{tool}」没落到 disband 分派")
+            self.assertEqual([a for a in w.armies if a["owner"] == "秦"], [],
+                             f"「{tool}」没真的遣散掉军队")
+
+    def test_schema_states_the_three_口径(self):
+        import mp_ai
+        desc = next(t for t in mp_ai.TOOL_SCHEMAS
+                    if t["function"]["name"] == "disband")["function"]["description"]
+        for fact in ("不返还", "交战中", "retreat", "军费"):
+            self.assertIn(fact, desc, f"工具描述里漏了「{fact}」——AI 就看不到这条口径")
+
+    def test_single_id_is_accepted(self):
+        """模型有时发 `army_id`（单数）而不是数组——归一化要兜住（同 attack）。"""
+        import mp_ai
+        w = self._world()
+        self._army(w, "步", 5, 5)
+        self.assertIn("已遣散", mp_ai.execute(w, "秦", "disband", {"army_id": 1}))
+
+
 if __name__ == "__main__":
     unittest.main()

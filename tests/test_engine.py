@@ -1242,3 +1242,139 @@ class TestSeedReproducibility(unittest.TestCase):
         spots = [(x, y) for x in range(6) for y in range(6)]
         self.assertEqual([a._new_tile(*p, "秦")["name"] for p in spots],
                          [b._new_tile(*p, "秦")["name"] for p in spots])
+
+
+class TestDisband(unittest.TestCase):
+    """遣散（`World.disband`）：军队**只进不出**的那个出口。
+
+    三条口径（用户 2026-10-09 定案）：**不返还**、**任意位置**、**交战中不可用**（含被攻击的守方）。
+    最后一条不是凑口径 —— `battle_sides` 返回 None ⟺ 该格没有活着的进攻方，所以遣散 `engaged` 军
+    会让整场战斗凭空消失、并让「弃城即陷」看不到这格（详见 `mp.World.disband` 的文档）。
+    """
+
+    def _world(self) -> mp.World:
+        return mp.World(size=16, seed=99, nations=["秦", "楚"])
+
+    @staticmethod
+    def _army(i: int, x: int, y: int, owner: str = "秦", **kw) -> dict:
+        a = {"id": i, "gid": 900 + i, "name": f"{owner}·步{i}军", "type": "步", "hp": 100,
+             "x": x, "y": y, "owner": owner, "moved_turn": -1, "engaged": False}
+        a.update(kw)
+        return a
+
+    @staticmethod
+    def _home(w) -> tuple[int, int]:
+        return next(p for p, t in w.tiles.items() if t["owner"] == "秦")
+
+    def _battle(self, w) -> tuple[dict, dict]:
+        """在 (5,5) 摆一场「秦攻楚守」：攻方 `engaged`，守方**不** `engaged`（守方按 `defending` 判）。"""
+        w.tiles[(5, 5)] = w._new_tile(5, 5, "楚")
+        w.tiles[(5, 5)]["owner"] = "楚"
+        atk = self._army(1, 5, 5, "秦", engaged=True)
+        dfd = self._army(2, 5, 5, "楚")
+        w.armies = [atk, dfd]
+        w.declare_war("秦", "楚")
+        return atk, dfd
+
+    def test_removes_the_army(self):
+        w = self._world()
+        w.armies = [self._army(1, *self._home(w))]
+        ok, msg = w.disband("秦", [1])
+        self.assertTrue(ok, msg)
+        self.assertEqual(w.armies, [], "军队没被摘掉")
+        self.assertIsNone(w._army("秦", 1))
+        self.assertIn("不返还", msg, "回执必须把「不返还」这个代价说清")
+
+    def test_only_the_listed_armies_go(self):
+        w = self._world()
+        p = self._home(w)
+        w.armies = [self._army(i, *p) for i in (1, 2, 3)]
+        ok, _ = w.disband("秦", [1, 3])
+        self.assertTrue(ok)
+        self.assertEqual([a["id"] for a in w.armies], [2], "遣散的应是点名的那些，且只那些")
+
+    def test_nothing_is_refunded(self):
+        """★ 不返还：资源 / 消费账 / 世界流量账**逐键完全不变**。
+
+        消费账那一项是要害 —— `_spend` 只有 `+=`、`_mval` 对负数返回 0，引擎里没有负向记账入口；
+        一旦遣散去动它（哪怕是"扣回"），就凭空多出「征兵→遣散→卖装备」的零成本刷分闭环。
+        """
+        w = self._world()
+        p = self._home(w)
+        w.armies = [self._army(1, *p), self._army(2, *p)]
+        res0 = dict(w.nations["秦"].res)
+        spend0 = dict(w._spend("秦"))
+        flow0 = dict(w.flow_out)
+        ledger0 = dict(w._ledger("秦"))
+        ok, _ = w.disband("秦", [1])
+        self.assertTrue(ok)
+        self.assertEqual(dict(w.nations["秦"].res), res0, "遣散返还了资源")
+        self.assertEqual(dict(w._spend("秦")), spend0, "遣散动了消费账（＝刷分口）")
+        self.assertEqual(dict(w.flow_out), flow0, "遣散动了世界流量账")
+        self.assertEqual(dict(w._ledger("秦")), ledger0, "遣散动了账本")
+
+    def test_seq_is_not_recycled(self):
+        """番号口径是**阵亡不回收**：遣散也不许回退 `next_army_seq`（否则与 AI 引用的 #n 撞号）。"""
+        w = self._world()
+        w.armies = [self._army(1, *self._home(w))]
+        seq0 = dict(w.next_army_seq)
+        w.disband("秦", [1])
+        self.assertEqual(dict(w.next_army_seq), seq0)
+
+    def test_refuses_engaged_attacker(self):
+        w = self._world()
+        atk, _ = self._battle(w)
+        ok, msg = w.disband("秦", [1])
+        self.assertFalse(ok, "交战中（engaged 攻方）不该允许遣散")
+        self.assertIn("retreat", msg, "被拒时要给出替代动作")
+        self.assertIs(w._army("秦", 1), atk, "被拒就该一支不动")
+
+    def test_refuses_attacked_defender(self):
+        """守方**没有** `engaged`，但它正在挨打 —— 按 `defending` 一样要拦。"""
+        w = self._world()
+        _, dfd = self._battle(w)
+        ok, msg = w.disband("楚", [2])
+        self.assertFalse(ok, "被攻击的守军不该允许遣散（否则这场战斗凭空消失）")
+        self.assertIs(w._army("楚", 2), dfd, "被拒就该一支不动")
+
+    def test_rejection_is_all_or_nothing(self):
+        """一次遣散多支时，只要有一支在交战 ⇒ **整单拒绝**（不留半截状态）。"""
+        w = self._world()
+        self._battle(w)                     # (5,5)：#1（秦·engaged）与 #2（楚）
+        w.armies.append(self._army(3, *self._home(w)))   # 另有一支远离战场的干净军
+        ok, _ = w.disband("秦", [3, 1])
+        self.assertFalse(ok)
+        self.assertIsNotNone(w._army("秦", 3), "整单被拒时，干净的那支也不许动")
+
+    def test_other_nations_wild_and_unknown_ids_are_ignored(self):
+        w = self._world()
+        p = self._home(w)
+        wild = self._army(9, 1, 1, "野人")
+        w.armies = [self._army(1, *p), self._army(2, *p, owner="楚"), wild]
+        ok, msg = w.disband("秦", [2, 9, 404])          # 他国 / 野人 / 不存在
+        self.assertFalse(ok, "点名的都不是自己的军 ⇒ 无军可遣")
+        self.assertEqual(len(w.armies), 3, "一支都不许误删")
+        self.assertIs(w._army("野人", 9), wild, "野人不是国家军队，不该被遣散")
+
+    def test_duplicate_ids_remove_once(self):
+        w = self._world()
+        w.armies = [self._army(1, *self._home(w)), self._army(2, *self._home(w))]
+        ok, _ = w.disband("秦", [1, 1, 1])
+        self.assertTrue(ok)
+        self.assertEqual([a["id"] for a in w.armies], [2])
+
+    def test_empty_or_missing_aids_is_refused_not_a_crash(self):
+        """空单 / `None` 都要**明确拒绝**（`a["id"] in None` 会抛 TypeError，闸门在前）。"""
+        w = self._world()
+        w.armies = [self._army(1, *self._home(w))]
+        for bad in ([], None):
+            ok, msg = w.disband("秦", bad)
+            self.assertFalse(ok, f"aids={bad!r} 该被拒")
+            self.assertIn("army", msg, "被拒时要指路 query panel=army")
+        self.assertEqual(len(w.armies), 1)
+
+    def test_unknown_nation_is_refused(self):
+        w = self._world()
+        ok, msg = w.disband("韩", [1])
+        self.assertFalse(ok)
+        self.assertIn("不存在", msg)

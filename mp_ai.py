@@ -195,7 +195,7 @@ def _recruit_desc(costs: dict[str, dict]) -> str:
                     f"耗补给{info['supply']}/回合、{_move_brief(k)}{extra})")
     return ("在自己有兵营且电网正常的地块征召军队，每兵营每回合1支。兵种 kind："
             + "；".join(rows)
-            + "——民兵是廉价驻守军队，每军屯每回合1支、全国民兵总数≤全国军屯总数（阵亡后才能补员）。"
+            + "——民兵是廉价驻守军队，每军屯每回合1支、全国民兵总数≤全国军屯总数（阵亡或遣散后才能补员）。"
             + "注意补给仓必须跟上：补给不足时全军按缺口比例扣血"
             + f"（满缺 -{ARMY_STARVE_DAMAGE}HP/军/回合，交战中也照扣），饿毙不复活。")
 
@@ -286,7 +286,9 @@ def _fmt_armies(world, name, brief: bool = False) -> str:
     body = "\n".join(lines)
     if brief:
         return body + "\n  （想看「谁在哪儿」的军队位置图：query panel=army）"
-    return body + "\n\n" + _fmt_mil_map(world, name)
+    return (body + "\n\n" + _fmt_mil_map(world, name)
+            + "\n  （军队管理：move 挪位 / attack 进攻 / **disband 遣散**——不打算再用的军"
+              "就地解散，当回合起即不再吃军费与补给；★不返还、交战中不可用）")
 
 
 def _visible_cells(world, name) -> set:
@@ -1046,7 +1048,8 @@ def _econ_manual() -> str:
         "**资本创造复利，军队创造新的资本投资地块、同时保卫资本。** 两条腿缺一条，都走不远。\n"
         "三、军队千万不能榨干现金流。\n"
         "  军费是**每回合**持续的补给支出，吃掉的正是你本该拿去建造、再投资的那笔现金。"
-        "如果你已经被榨干（国库见底、产出全被军费吃掉）：**主动送掉一批军队**——去打一场"
+        "如果你已经被榨干（国库见底、产出全被军费吃掉）：**先遣散（disband）不打算再用的军队**"
+        "——免费、当回合就止损，这是最干净的一刀；没有可遣散的，才主动送掉一批军队——去打一场"
         "明知打不赢的仗，用一次战损把每回合的补给负担甩掉，**换回经济增长**。"
         "**否则你一定会被滚雪球滚死**：别人在复利，你在给军队发口粮。\n"
         "四、同一批货，别先卖后买。\n"
@@ -1563,6 +1566,11 @@ def rules_text(world, topic: str = "") -> str:
         "经济": "经济与能源", "电": "经济与能源", "能源": "经济与能源", "补给": "经济与能源",
         "装备": "经济与能源",
         "军队": "军队与战斗", "战斗": "军队与战斗", "战争": "军队与战斗", "征兵": "军队与战斗",
+        # 军队的「减员」词（实测 AI 反复问 topic=「解散/裁军/复员/遣散」，从前全都兜底成全书）：
+        # ★ **不收裸「解散」**——「最长命中优先」下它会与「联盟」同长同命中，问「解散联盟」
+        #   会同时吐【军队与战斗】和【联盟与核心领土】两节；只收与军队连写的完整说法。
+        "遣散": "军队与战斗", "裁军": "军队与战斗", "复员": "军队与战斗",
+        "解散军队": "军队与战斗", "裁撤": "军队与战斗", "撤编": "军队与战斗",
         "军队移动": "军队与战斗", "攻击": "军队与战斗", "野人": "军队与战斗",
         "移动": "军队与战斗", "速度": "军队与战斗", "移动力": "军队与战斗",
         "射程": "军队与战斗", "距离": "军队与战斗", "路": "军队与战斗",
@@ -2580,6 +2588,15 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
             return "需要撤退目标坐标 x y"
         ok, msg = world.retreat(actor, aid, x, y)
         return msg
+    # ★ 元组字面量不能改成集合/变量：`docs/sync_manual.py` 的别名是**正则**从这行现算的
+    #   （`if tool in \(([^)]*)\):`），写成别的形状命令表里的别名就凭空消失。
+    if tool in ("disband", "遣散", "裁军", "复员", "解散军队"):
+        aids = args.get("army_ids", args.get("army_id"))
+        if isinstance(aids, int):
+            aids = [aids]
+        aids = [int(a) for a in aids] if isinstance(aids, list) else []   # 归一化同 attack
+        ok, msg = world.disband(actor, aids)
+        return msg
 
     # ---- 市场
     # ---- 世界央行：借款（开行才可用）
@@ -2875,6 +2892,10 @@ TOOL_SCHEMAS = [
         "parameters": _props({"army_id": {"type": "integer", "description": "本国军队id（各国独立从1编号，以 query army 面板为准）", "required": True},
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
+    {"type": "function", "function": {
+        "name": "disband", "description": "**遣散军队**（解甲归田）：把本国军队撤编、就地解散——免费、不限次数、**境内境外野地都行**（孤军深陷敌境时用它止损）。**当回合起就不再吃补给、不再计军费**（军费是每回合的持续支出，裁军是治「军费占 GDP 过高」的正当手段之一）；民兵遣散会**当场释放编制名额**（全国民兵总数 ≤ 全国军屯总数）。★ **不返还**：兵员、装备、粮食一概不退——这是明确的代价，别指望靠遣散回血。★ **交战中（含正在挨打的守军）不能遣散**：先用 retreat 撤出战场，下回合再遣散。★ 遣散**不亡国**（亡国只认市政厅全失），但军队没了就是没了——番号不回收、也不能补回来，要兵得重新征兵。",
+        "parameters": _props({"army_ids": {"type": "array", "items": {"type": "integer"},
+                                          "description": "要遣散的本国军队id数组（各国独立从1编号，以 query panel=army 为准）；一次可遣散多支", "required": True}})}},
     {"type": "function", "function": {
         "name": "buy", "description": f"从世界市场买物资花黄金。买=推高市价；成交按「沿曲线均价」结算并含 {MARKET_SPREAD/2:.0%} 买价差，越急买越贵（试算见 query panel=market）。⚠ 同一回合在**同一个商品**上又卖又买＝**空转**（白付两趟价差），回执里会当场报出倒手量与净亏——先想清楚再下单。",
         "parameters": _props({"good": {"type": "string", "description": "物资：粮食/木头/矿石/石油/装备/补给", "required": True},
