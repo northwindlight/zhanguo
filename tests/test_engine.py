@@ -144,11 +144,17 @@ class TestRetreatCover(unittest.TestCase):
         w.tiles[(5, 5)] = t
         t0 = w._new_tile(0, 0, "楚")  # 楚的老家：弃城后不至于亡国
         t0["owner"] = "楚"
-        # ★ 老家上还得有**市政厅**才算"不至于亡国"（2026-09-21 起亡国条件＝市政厅尽失，
+        # ★ 老家上还得有**市政厅**才算"不至于亡国"（亡国条件＝市政厅尽失，
         #   而 `_new_tile` 手工造的地没有开局那份白送的厅）：否则弃城那一刻楚就亡国、
         #   军队被解散，这条测的"守军撤退落地"根本走不到。
         t0["buildings"]["市政厅"] = 1
         w.tiles[(0, 0)] = t0
+        # ★ 2026-10-09：**秦也得有厅** —— 亡国改为回合末统一判定（`_settle_deaths`）后，
+        #   "一块地都没有"的秦会在收尾时亡国、它刚占下的 (5,5) 又会变回无主，断言全反。
+        t1 = w._new_tile(15, 15, "秦")
+        t1["owner"] = "秦"
+        t1["buildings"]["市政厅"] = 1
+        w.tiles[(15, 15)] = t1
         w.armies = [
             {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
              "x": 5, "y": 5, "owner": "秦", "moved_turn": -1, "engaged": True},
@@ -724,10 +730,16 @@ class TestWildernessClaims(unittest.TestCase):
     def _enemy_city(self, w, owner="楚", garrison_hp=1):
         """造一座 (5,5) 敌城（owner 另留 (0,0) 老家免灭国），返回守军 hp。"""
         w.tiles = {}
-        for (x, y) in ((5, 5), (0, 0)):
-            t = w._new_tile(x, y, owner)
-            t["owner"] = owner
-            w.tiles[(x, y)] = t
+        # ★ 2026-10-09：亡国改为**回合末统一判定**（`_settle_deaths`）⇒ 手工造的世界里
+        #   **每一国都得有自己的厅**，否则结算收尾时它会当场亡国、地变无主，测的东西全不对。
+        for i, n in enumerate(w.nations):
+            t = w._new_tile(0, i, n)
+            t["owner"] = n
+            t["buildings"]["市政厅"] = 1
+            w.tiles[(0, i)] = t
+        t = w._new_tile(5, 5, owner)
+        t["owner"] = owner
+        w.tiles[(5, 5)] = t
         w.armies = [self._army(9, owner, 5, 5, hp=garrison_hp)]
         return 5, 5
 
@@ -1358,7 +1370,9 @@ class TestIndustryUpkeep(unittest.TestCase):
             del w.tiles[p]
         t = w.tiles[keep]
         t["terrain"] = "平原"
-        t["buildings"] = dict(buildings)
+        # ★ 2026-10-09：厅也得留着——回合末统一亡国判定下，"零厅"的国家活不过这一回合
+        #   （本文件的用例都要 `resolve_turn` 对拍，没厅就会 KeyError: 秦）。
+        t["buildings"] = {**buildings, "市政厅": 1}
         for k in ("木头", "矿石", "粮食", "石油", "装备", "补给"):
             w.nations["秦"].res[k] = 50
         return w, keep

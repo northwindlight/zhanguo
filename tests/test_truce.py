@@ -176,6 +176,9 @@ class TestFallTruceCounts(unittest.TestCase):
         _bloc(w, "楚", "连横", "齐")
         for (x, y) in list(w.own_tiles("燕")):  # 燕 亡国 ⇒ 天下强制休战 10 回合
             w._conquer(x, y, "秦", "攻陷")
+        # ★ 2026-10-09：亡国改为**回合末统一判定**（`_settle_deaths`）——这里手工收口，
+        #   等价于"这一回合走到了结算收尾"。
+        w._settle_deaths()
         self.assertNotIn("燕", w.nations)
         return w
 

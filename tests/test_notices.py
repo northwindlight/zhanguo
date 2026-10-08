@@ -131,6 +131,7 @@ class TestTerritoryLossNoticesLoser(unittest.TestCase):
         w.turn = 5
         for (x, y) in list(w.own_tiles("楚")):
             w._conquer(x, y, "秦", "攻陷")
+        w._settle_deaths()          # ★ 2026-10-09：亡国改为回合末统一判定，这里手工收口
         self.assertNotIn("楚", w.nations)
         self.assertTrue(seen_by(w, "齐", "亡国"), "第三方该知道谁亡国了")
         self.assertTrue(seen_by(w, "秦", "亡国"), "灭它的那家更该知道")

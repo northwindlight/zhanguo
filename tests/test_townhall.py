@@ -52,6 +52,9 @@ def kill_all_townhalls(world, victim: str, by: str = "秦",
              if world.tiles[p]["buildings"].get("市政厅") and p not in keep]
     for p in halls:
         world._conquer(p[0], p[1], by, "攻陷")
+    # ★ 2026-10-09：亡国改为**回合末统一判定**——`_conquer` 只让地易主，亡国在这里收口
+    #   （等价于"本回合走到了结算收尾"）。只拔一部分厅（`keep`）时收口是无害的：还有厅就不亡。
+    world._settle_deaths()
     return halls
 
 
@@ -133,6 +136,90 @@ class TestStartingTownhall(unittest.TestCase):
             self.assertEqual(w.tiles[c]["terrain"], "平原")
 
 
+class TestEliminationTiming(unittest.TestCase):
+    """★ 亡国与「全天下强制休战」的**插入时刻** = **回合末统一**（用户 2026-10-09 拍板）。
+
+    用户原话就是这一问：「当全球强制和平的结算插入是回合末还是回合中」。
+
+    旧口径是**命令阶段当场**——空厅被 `atk` 进驻的那一刻就除名、全世界战线立刻冻结、
+    余土立刻变无主。后果是**同一个回合里世界被半路改写**：AI 是工具循环、逐条下令的，
+    它刚拔掉一座空厅，同回合计划好的下一刀就变成「中立不可攻击他国领土」了（实测复现）。
+    而且「空厅当场 / 有守军等回合末」是不该有的不对称——同一件事落在两个时刻。
+
+    现在两条路都在 `resolve_turn` 的 `_settle_deaths()` 收口（紧接 `_withdraw_illegal` 之前）。
+    """
+
+    def _setup(self):
+        """秦 两支军停在 A；楚**唯一那座厅**在 A 旁；齐一块地也贴着 A（用来验第二刀）。"""
+        w = mp.World(size=16, seed=3, nations=["秦", "楚", "齐"],
+                     starts={"秦": (5, 5), "楚": (12, 12), "齐": (3, 12)})
+        w.armies = []
+        w.declare_war("秦", "楚")
+        w.declare_war("秦", "齐")
+        hall = [p for p in w.own_tiles("楚") if w.tiles[p]["buildings"].get("市政厅")][0]
+        A = (hall[0] - 1, hall[1])          # 秦 的落脚格（贴着厅）
+        Q = (A[0] - 1, A[1])                # 齐 的地，也贴着 A
+        for p, owner in ((A, "秦"), (Q, "齐")):
+            t = w.tiles.get(p) or w._new_tile(*p, owner)
+            t["owner"] = owner
+            t["terrain"] = "平原"
+            t["buildings"] = {k: 0 for k in t["buildings"]}
+            w.tiles[p] = t
+        w.armies = [{"id": i, "gid": i, "name": f"秦·步{i}军", "type": "步", "hp": 100,
+                     "x": A[0], "y": A[1], "owner": "秦", "moved_turn": -1, "engaged": False}
+                    for i in (1, 2)]
+        return w, hall, Q
+
+    def test_conquest_of_the_last_hall_does_not_kill_mid_turn(self):
+        w, hall, _Q = self._setup()
+        ok, msg = w.attack("秦", [1], *hall)
+        self.assertTrue(ok, msg)
+        self.assertIn("楚", w.nations, "命令阶段就除名了——世界被半路改写")
+        self.assertTrue(w.wars, "战线在命令阶段就被冻结了")
+        self.assertFalse(w.truce, "强制休战在命令阶段就压上了")
+
+    def test_the_next_order_this_turn_is_judged_against_the_same_world(self):
+        """★ 那个 bug 的回归钉：同一回合的**第二刀必须照旧合法**。
+
+        旧口径下：拔掉楚最后一座空厅 ⇒ 秦↔齐 的战线也当场消失 ⇒ 秦接着打齐被拒
+        「中立不可攻击他国领土」——玩家明明没做错任何事，命令却被半路改写挡掉了。
+        """
+        w, hall, Q = self._setup()
+        w.attack("秦", [1], *hall)
+        ok, msg = w.attack("秦", [2], *Q)
+        self.assertTrue(ok, f"同回合的第二刀被半路改写挡掉了：{msg}")
+
+    def test_turn_end_settles_elimination_and_forced_peace(self):
+        w, hall, _Q = self._setup()
+        w.attack("秦", [1], *hall)
+        w.resolve_turn()
+        self.assertNotIn("楚", w.nations, "回合末该统一判定亡国")
+        self.assertEqual(w.wars, [], "全部战线该一并终止")
+        self.assertEqual({o for o, _u in w.truces_of("秦")}, {"齐"}, "该压上全天下强制休战")
+
+    def test_orphan_land_becomes_ownerless_at_turn_end(self):
+        """余土变无主也跟着挪到回合末——命令阶段它还挂在死者名下。"""
+        w, hall, _Q = self._setup()
+        spare = [p for p in w.own_tiles("楚") if p != hall][0]
+        w.attack("秦", [1], *hall)
+        self.assertEqual(w.owned_by(*spare), "楚", "命令阶段余土还不该变无主")
+        w.resolve_turn()
+        self.assertIsNone(w.owned_by(*spare), "回合末该变无主")
+
+    def test_a_hall_rebuilt_in_the_same_turn_saves_you(self):
+        """★ 这是**已接受的代价**（用户 2026-10-09 明确选择）：判定挪到回合末 ⇒
+        厅被拔光的那一国，**在自己这一回合补盖回一座厅就不算亡**。
+
+        这是「一个回合只有一个世界」的必然结果：回合没走完，它就还没死。
+        """
+        w, hall, _Q = self._setup()
+        spare = [p for p in w.own_tiles("楚") if p != hall][0]
+        w.attack("秦", [1], *hall)
+        w.tiles[spare]["buildings"]["市政厅"] = 1     # 它本回合补盖回一座（等价于 build 成功）
+        w.resolve_turn()
+        self.assertIn("楚", w.nations, "补回一座厅就该活下来")
+
+
 class TestDeathByTownhall(unittest.TestCase):
     """② 亡国条件＝市政厅尽失（领土还在也照亡）。"""
 
@@ -165,6 +252,7 @@ class TestDeathByTownhall(unittest.TestCase):
         w = self._world()
         for p in list(w.own_tiles("楚")):
             w._conquer(p[0], p[1], "秦", "攻陷")
+        w._settle_deaths()      # ★ 2026-10-09：亡国改为回合末统一判定，这里手工收口
         self.assertNotIn("楚", w.nations)
 
     def test_pending_townhall_does_not_count(self):

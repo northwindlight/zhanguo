@@ -2290,8 +2290,13 @@ class World:
             self.log(msg, phase="领土", nation=by, x=x, y=y,
                      parties=[old] if old and old != by else None,
                      lost_by=old if old and old != by else None)
-        if old and old != by:
-            self._eliminate_if_dead(old)
+        # ★ 亡国**不在这里当场判**（2026-10-09 用户拍板「统一到回合末」）：这里只把地易主，
+        #   亡国与"全天下强制休战"统一由 `resolve_turn` 收尾的 `_settle_deaths()` 结算。
+        #   旧口径是在命令阶段当场亡国——空厅被 `atk` 进驻的那一刻就除名、全世界战线立刻冻结、
+        #   余土立刻变无主。后果是**同一个回合里世界被半路改写**：AI 是工具循环、一条条下令的，
+        #   它刚拔掉一座空厅，同回合计划好的下一刀就变成"中立不可攻击他国领土"了
+        #   （实测复现：秦拔楚最后一座空厅 ⇒ 秦↔齐 的战线也当场消失 ⇒ 秦接着打齐被拒）。
+        #   而且"空厅当场 / 有守军等回合末"是不该有的不对称：同一件事落在两个时刻。
         return True, msg
 
     def has_townhall(self, name: str) -> bool:
@@ -2315,8 +2320,27 @@ class World:
         self.tiles[pick]["buildings"]["市政厅"] += 1
         return self.tiles[pick]["name"]
 
+    def _settle_deaths(self) -> list[str]:
+        """**回合末统一**判定亡国：厅尽失的国家在此除名（含全世界强制休战、余土变无主）。
+
+        ★ 时序口径（用户 2026-10-09 拍板「统一到回合末」，回答"全球强制和平的结算插在
+          回合末还是回合中"）：`_conquer` 只负责地易主，**不**当场判亡国——旧的当场判定会让
+          同一个回合里世界被半路改写（AI 是工具循环、逐条下令，它刚拔掉一座空厅，
+          同回合计划好的下一刀就"中立不可攻击他国领土"了），而且造成"空厅当场 /
+          有守军等回合末"的不对称。**两条路现在都在这里收口**：
+          空厅由命令阶段的 `atk` 进驻、有守军的由 `_resolve_battles` 在回合末拔掉。
+        返回本回合灭掉的国家名（按 `order` 序；供日志与测试用）。
+        """
+        dead = [n for n in self.order if n in self.nations and not self.has_townhall(n)]
+        for n in dead:
+            self._eliminate_if_dead(n)
+        return dead
+
     def _eliminate_if_dead(self, name: str) -> bool:
         """**亡国条件＝一座市政厅都不剩**（用户 2026-09-21 改版；旧口径是"领土尽失"）。
+
+        ★ 现在**只由 `_settle_deaths()` 在回合末调用**（2026-10-09 用户拍板「统一到回合末」）——
+          命令阶段拔掉最后一座厅只会让地易主，亡国本身等回合末统一判。别在别处直接调它。
 
         领土丢光自然也没有市政厅（市政厅盖在地上），所以旧口径是这一条的特例；
         但反过来不成立：**还握着大片土地、市政厅却被拔光的国家照样亡国**——
@@ -2782,6 +2806,15 @@ class World:
             if ok:
                 self.log(f"⚔ 守军尽撤 @({bx + 1},{by + 1}){self.ter_char(bx, by)}，{msg}",
                          phase="战报", x=bx, y=by)
+
+        # 4.96) ★ 亡国判定（**回合末统一**，2026-10-09 用户拍板：「当全球强制和平的结算插入
+        #   是回合末还是回合中」→ **回合末**）。
+        #   · 放在 `_withdraw_illegal` **之前**：亡国会清掉滞留军的 `engaged` 并把余土变无主，
+        #     紧接着第 5 步就把它们按兵种速度遣返——与旧时序一致（旧版是战斗结算当场亡国、
+        #     然后第 5 步遣返），变的只是**判定时刻**：从"命令阶段当场"挪到"回合末统一"。
+        #   · 战果照旧当场可见：地已经易主、日志已经出（`_conquer` 里那几条），
+        #     亡国只是不再**半路**改写同回合剩余命令所面对的世界。
+        self._settle_deaths()
 
         # 5) 非法滞留 → 自动遣返（断盟/退盟/停战后必须撤出）
         self._withdraw_illegal()
