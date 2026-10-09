@@ -35,7 +35,8 @@ sys.path.insert(0, str(ROOT))
 import sync_manual  # noqa: E402
 
 # 2026-10-09 定稿时是 8 节；加节要连这个数一起改（防"悄悄少了一节"）。
-WANT_SECTIONS = 8
+# ★ 同日加第九节「附：孙子兵法摘抄」（用户要求），故 9。
+WANT_SECTIONS = 9
 
 # 情报边界：这些是**数据字段**名，不是机制名词（"军费"是机制，故不在列）。
 FORBIDDEN_LEAKS = ("国库", "总资产", "GDP", "产出", "储备", "库存")
