@@ -377,25 +377,32 @@ class TestNewBuildings(unittest.TestCase):
         self.assertEqual((mil[0]["x"], mil[0]["y"]), (x, y))
         self.assertEqual(g0 - w.res("秦", "黄金"), 50)  # 50金/支
         self.assertEqual(f0 - w.res("秦", "粮食"), 5)   # +5粮/支
-        # 每军屯每回合 1 支
+        # ★ 2026-10-10 用户「军屯可以生产和驻守两队民兵」：每军屯每回合 **2** 支
         ok2, msg2 = w.recruit("秦", x, y, 1, "民")
-        self.assertFalse(ok2)
-        self.assertIn("产能", msg2)
+        self.assertTrue(ok2, f"每军屯该能出 2 支/回合：{msg2}")
+        ok3, msg3 = w.recruit("秦", x, y, 1, "民")
+        self.assertFalse(ok3, "第 3 支不该出得来（单座军屯每回合上限 2）")
+        self.assertIn("产能", msg3)
 
     def test_militia_total_capped_by_camps(self):
-        """民兵总数 ≤ 全国军屯总数：满编后换回合也征不出，阵亡后才能补员。"""
+        """民兵总数 ≤ **军屯数 × militia_cap**：满编后换回合也征不出，阵亡后才能补员。
+
+        ★ 2026-10-10 起 `militia_cap` = 2（用户「军屯可以生产和驻守两队民兵」）——
+        所以 2 座军屯的全国编制是 **4** 支，且单座每回合也能出满 2 支。
+        """
         w = self._world()
         (x1, y1), (x2, y2) = [p for p, t in w.tiles.items() if t["owner"] == "秦"][:2]
         w.tiles[(x1, y1)]["buildings"]["军屯"] = 1
         w.tiles[(x2, y2)]["buildings"]["军屯"] = 1
         w.add_res("秦", "黄金", 500)
         w.add_res("秦", "粮食", 100)
-        # 全国 2 座军屯 → 满编 2 支
-        ok1, m1 = w.recruit("秦", x1, y1, 1, "民")
-        ok2, m2 = w.recruit("秦", x2, y2, 1, "民")
-        self.assertTrue(ok1 and ok2, m1 + m2)
-        ok3, m3 = w.recruit("秦", x1, y1, 1, "民")
-        self.assertFalse(ok3)
+        cap = balance.BUILDINGS["军屯"]["effects"]["militia_cap"]   # 唯一权威：balance
+        # 全国 2 座军屯 → 满编 2×cap 支
+        for i in range(2):                           # 每座各出 cap 支
+            for (x, y) in ((x1, y1), (x2, y2)):
+                ok, m = w.recruit("秦", x, y, 1, "民")
+                self.assertTrue(ok, f"第 {i + 1} 轮 @({x},{y}) 该能出：{m}")
+        self.assertEqual(len([a for a in w.armies if a.get("type") == "民"]), 2 * cap)
         w.resolve_turn()
         ok4, m4 = w.recruit("秦", x2, y2, 1, "民")
         self.assertFalse(ok4)                        # 编制满：换回合也不行
@@ -465,16 +472,37 @@ class TestNewBuildings(unittest.TestCase):
         w.resolve_turn()
         self.assertEqual(w.armies[0]["hp"], 80)  # 驻屯免补给 → 无断粮（满血 80）
 
-    def test_second_militia_on_camp_eats_supply(self):
+    def test_two_militia_on_camp_need_no_supply(self):
+        """★ 2026-10-10 起每座军屯覆盖本格 **2** 支（用户「驻守两队民兵」）⇒
+        同格两支，补给仓清零也**不缺粮**（旧口径下需求 1，全军都要挨 -35）。"""
         w = self._world()
         x, y = self._own_tile(w)
         w.tiles[(x, y)]["buildings"]["军屯"] = 1
         w.armies = [{"id": i, "gid": 900 + i, "name": f"秦·民{i}军", "type": "民", "hp": 100,
                      "x": x, "y": y, "owner": "秦", "moved_turn": -1, "engaged": False}
                     for i in (1, 2)]
-        w.add_res("秦", "补给", -w.res("秦", "补给"))  # 0 补给：1 免费 1 断供
+        w.add_res("秦", "补给", -w.res("秦", "补给"))
+        self.assertEqual(w.supply_shortfall("秦")[0], 0, "两支都在免供覆盖内 ⇒ 需求为 0")
         w.resolve_turn()
-        self.assertEqual(sorted(a["hp"] for a in w.armies), [65, 65])  # 全军按缺口 -35
+        self.assertEqual([a["hp"] for a in w.armies], [100, 100])
+
+    def test_third_militia_on_camp_starves_only_itself(self):
+        """**超编那支才吃东西，也只有它挨饿**（用户 2026-10-10：「应该是依赖补给的军队一起扣」）。
+
+        2 支免供 + 1 支超编 ⇒ 需求 1、缺口 1 ⇒ 只扣**那一支** −35，免供的两支满血。
+        （旧实现遍历全军 ⇒ 三支一起 -35：豁免让它不占额度、却仍在挨饿名单里，自相矛盾。）
+        """
+        w = self._world()
+        x, y = self._own_tile(w)
+        w.tiles[(x, y)]["buildings"]["军屯"] = 1
+        w.armies = [{"id": i, "gid": 900 + i, "name": f"秦·民{i}军", "type": "民", "hp": 100,
+                     "x": x, "y": y, "owner": "秦", "moved_turn": -1, "engaged": False}
+                    for i in (1, 2, 3)]
+        w.add_res("秦", "补给", -w.res("秦", "补给"))
+        self.assertEqual(w.supply_shortfall("秦")[0], 1, "3 支 - 覆盖 2 ⇒ 需求 1")
+        w.resolve_turn()
+        self.assertEqual(sorted(a["hp"] for a in w.armies), [65, 100, 100],
+                         "只有超编那支该掉血")
 
     def test_militia_off_camp_eats_supply(self):
         w = self._world()
@@ -530,7 +558,9 @@ class TestNewBuildings(unittest.TestCase):
         mil = {"type": "民", "owner": "秦"}
         legacy = {"owner": "野人"}  # 旧档无 type → 按步兵算
         self.assertEqual(unit_atk(step), 50)
-        self.assertEqual(unit_atk(mil), 20)
+        # ★ 2026-10-10 用户「民兵轻微加强，攻击改成 25」：仍是正规军的一半，仍打不过
+        self.assertEqual(unit_atk(mil), 25)
+        self.assertLess(unit_atk(mil), unit_atk(step))
         self.assertEqual(unit_atk(legacy), 50)
         self.assertEqual(mp.unit_max_hp(mil), 80)      # 民兵 80HP（步/骑 100）
         self.assertEqual(mp.unit_max_hp(step), 100)

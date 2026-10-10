@@ -196,8 +196,9 @@ def _recruit_desc(costs: dict[str, dict]) -> str:
                     f"耗补给{info['supply']}/回合、{_move_brief(k)}{extra})")
     return ("在自己有兵营且电网正常的地块征召军队，每兵营每回合1支。兵种 kind："
             + "；".join(rows)
-            + "——民兵是廉价驻守军队，每军屯每回合1支、全国民兵总数≤全国军屯总数（阵亡或遣散后才能补员）。"
-            + "注意补给仓必须跟上：补给不足时全军按缺口比例扣血"
+            + f"——民兵是廉价驻守军队，每军屯每回合{building_effect('军屯', 'militia_cap')}支、"
+            + f"全国民兵总数≤军屯数×{building_effect('军屯', 'militia_cap')}（阵亡或遣散后才能补员）。"
+            + "注意补给仓必须跟上：补给不足时**吃补给的**军队按缺口比例扣血"
             + f"（满缺 -{ARMY_STARVE_DAMAGE}HP/军/回合，交战中也照扣），饿毙不复活。")
 
 
@@ -239,7 +240,7 @@ HUNS_DOCTRINE = (
     "你可以直接去捡（含它没来得及盖完的厅）。\n"
     "· 拿到金/赔款第一件事：立刻 buy 补给备几回合的口粮，别囤黄金。"
     "补给仓的消耗与挨饿规则以 rules 为准（每军按缺口比例扣血，别饿死）。\n"
-    "· **口粮见底前先遣散（disband）**：断粮是**全军按缺口一起扣**，不是先死几支；"
+    "· **口粮见底前先遣散（disband）**：断粮是**吃补给的军队**按缺口一起扣，不是先死几支；"
     "补不上口粮时，留一支精锐、把用不上的骑直接遣散——不返还，换来的是主力活着。"
 )
 
@@ -1290,7 +1291,8 @@ def war_manual() -> str:
         f"    ⚠ 代价：**口粮 ×2、征兵贵**（装备 {cav['装备']} vs {inf['装备']}），"
         "且**崎岖地形吃满移动力**（森林/山地一步花光 2 点）⇒ **在森林/山地里骑兵和步兵没区别，"
         "却还在付双倍口粮**。**骑兵的主场是平地。**\n"
-        f"  ★ **民兵是守备兵，不是野战兵**：攻击 {UNIT_TYPES['民']['atk']} ＝步骑四成。"
+        f"  ★ **民兵是守备兵，不是野战兵**：攻击 {UNIT_TYPES['民']['atk']} ＝步骑**一半**"
+        f"（2026-10-10 从 20 抬到 25）、血 {UNIT_TYPES['民']['hp']}。"
         "它的价值是**零维持**（驻自家军屯格不耗口粮、回血不吃装备）。"
         "**用它钉格子，别用它进攻。**\n"
         "六、**灭国能一夜终结整条战线。**\n"
@@ -1391,7 +1393,8 @@ def strategy_manual() -> str:
         "  ⇒ 条约的价值不在于「它保证和平」，而在于**它让对手多犹豫的那几个回合**"
         "——你要的就是那几个回合。\n"
         "六、**抢地断经济**：好手段，但要算时间。\n"
-        "  占住或拔掉产金地、补给厂，让它的军队**断供**——断供是按缺口比例**全军一起扣血**，"
+        "  占住或拔掉产金地、补给厂，让它的军队**断供**——断供是按缺口比例"
+        "**吃补给的军队一起扣血**（驻自家军屯的免供民兵不在此列），"
         "比硬啃要塞便宜得多。**围而不打是正经战法。**\n"
         "  但它有两个价钱：① 兵钉在那里，**你的后方就空了**；② 时间越长，**别人越可能"
         "对你发动均势战争**（见第四节）。\n"
@@ -1460,7 +1463,7 @@ def strategy_manual() -> str:
         "    ⇒ 后方安全是**假设**，每回合都要验：有厅没驻军、且看得见的敌军本回合够得着"
         " ⇒ 假设已破（战争手册 §一）。\n"
         "  · 「善用兵者，役不再籍，粮不三载。」（作战）\n"
-        "    ⇒ 补给线就是命：断它的补给厂与产金地 ⇒ 它的军队按缺口**全军一起掉血**（第六节）。\n"
+        "    ⇒ 补给线就是命：断它的补给厂与产金地 ⇒ 它**吃补给的军队**按缺口一起掉血（第六节）。\n"
     )
 
 
@@ -1547,8 +1550,11 @@ def opening_guide() -> str:
         "  **黄金矿场**"
         f"（{BUILDINGS['黄金矿场']['cost']} 金 + {BUILDINGS['黄金矿场']['wood']} 木）"
         f"每回合产 1 黄金 = **{gold_mine} 金/回合**，是最肥的金源——见到黄金位就占。\n"
-        "  另记一条容易漏的：**军屯本身不产东西**，它是**民兵编制**——全国民兵总数 ≤ 全国军屯数，"
-        "每屯每回合可征 1 支（民兵比正规军便宜、且驻自家军屯格**不吃补给**），开局的廉价守备就靠它。\n"
+        f"  另记一条容易漏的：**军屯本身不产东西**，它是**民兵编制**——"
+        f"全国民兵总数 ≤ 军屯数×{building_effect('军屯', 'militia_cap')}，"
+        f"每屯每回合可征 {building_effect('军屯', 'militia_cap')} 支，"
+        "且同格这么些支**不吃补给**"
+        "（民兵比正规军便宜、驻自家军屯格免维持），开局的廉价守备就靠它。\n"
         f"  有门槛的建筑：兵营需本格已用 ≥{bar_min} 位、工程院 ≥{eng_min}、外交中心 ≥{dip_min}、"
         f"市政厅 ≥{hall_min}。\n"
         "三、生产链（这条最常被记错）。\n"
@@ -2025,8 +2031,8 @@ def _fmt_battle(world, name) -> str:
         if name in sides["forces"]:
             need, short, per = world.supply_shortfall(name)
             if short:
-                out.append(f"   ⚠ 你补给断粮：仓不够，缺 {short} ⇒ **全军每军 −{per}HP/回合**"
-                           "（交战中也照扣）")
+                out.append(f"   ⚠ 你补给断粮：仓不够，缺 {short} ⇒ **吃补给的每军 "
+                           f"−{per}HP/回合**（交战中也照扣；驻自家军屯的免供民兵不在内）")
         out.append("   · 本格在交战 ⇒ 双方**本回合都不回血**（回血的前提是「不在交战格」）")
         out.append("")
     out.append("   · 本引擎无「阵营」：攻/守按每方自己的 engaged 与宣战关系**逐方**判定，"
@@ -2404,8 +2410,10 @@ def _econ_building(world, building: str) -> str:
                 f"每级+{building_effect('城堡', 'defense_per_level')}%防御，不产金")
     if k == "militia_camp":
         return (f"{building}: 造价折{capex:.0f}金 · **不产粮**（纯民兵编制，无产出）；"
-                f"可征民兵（{_cost_text(UNIT_TYPES['民']['recruit'])}/支，每座{info['effects'].get('militia_cap', 1)}支/回合，"
-                "全国民兵总数≤全国军屯数），民兵驻本格不耗补给"
+                f"可征民兵（{_cost_text(UNIT_TYPES['民']['recruit'])}/支，"
+                f"每座{info['effects'].get('militia_cap', 1)}支/回合，"
+                f"全国民兵总数≤军屯数×{info['effects'].get('militia_cap', 1)}），"
+                "驻本格不耗补给（每座同样覆盖这么多支）"
                 f"（需本地{info['cap_resource']}≥1、每地块限{info.get('limit', 1)}座）")
     if k in ("extract", "gold"):
         net = e["detail"]["net"]
@@ -3108,7 +3116,7 @@ TOOL_SCHEMAS = [
         "name": "econ", "description": "按当前市价核算建设回报：某建筑的 造价(折金)/每回合毛利/回本时间；不带 building 则输出全部建筑经济表。做建设/买卖决策前先算再定。",
         "parameters": _props({"building": {"type": "string", "enum": BUILD_NAMES, "description": "要核算的建筑名（可选；省则输出全部）"}})}},
     {"type": "function", "function": {
-        "name": "build", "description": f"在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅/瞭望塔/外交中心/工程院/军屯。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥{BUILDINGS['兵营']['min_slots']}；瞭望塔=事件视野+{building_effect('瞭望塔', 'vision_radius')}圆；市政厅需本地已用位≥{BUILDINGS['市政厅']['min_slots']}且每地块限{BUILDINGS['市政厅']['limit']}（★**它是国祚：市政厅尽失即亡国**，余土沦为无主之地、建筑留原地；开局核心白送1座）；外交中心=外交费减半可叠加但自建全国限{BUILDINGS['外交中心']['limit_nation']}（第2座只能抢）；工程院=本地建造费-{building_effect('工程院', 'build_discount')}%需本地位≥{BUILDINGS['工程院']['min_slots']}；军屯=**不产粮**的民兵编制、可征民兵({_cost_text(UNIT_TYPES['民']['recruit'])}/支、全国民兵总数≤军屯数)且民兵驻本格不耗补给（需本地{BUILDINGS['军屯']['cap_resource']}≥1、每地块限{BUILDINGS['军屯']['limit']}座）。",
+        "name": "build", "description": f"在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅/瞭望塔/外交中心/工程院/军屯。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥{BUILDINGS['兵营']['min_slots']}；瞭望塔=事件视野+{building_effect('瞭望塔', 'vision_radius')}圆；市政厅需本地已用位≥{BUILDINGS['市政厅']['min_slots']}且每地块限{BUILDINGS['市政厅']['limit']}（★**它是国祚：市政厅尽失即亡国**，余土沦为无主之地、建筑留原地；开局核心白送1座）；外交中心=外交费减半可叠加但自建全国限{BUILDINGS['外交中心']['limit_nation']}（第2座只能抢）；工程院=本地建造费-{building_effect('工程院', 'build_discount')}%需本地位≥{BUILDINGS['工程院']['min_slots']}；军屯=**不产粮**的民兵编制、可征民兵({_cost_text(UNIT_TYPES['民']['recruit'])}/支、每座每回合{building_effect('军屯', 'militia_cap')}支、全国民兵总数≤军屯数×{building_effect('军屯', 'militia_cap')})且民兵驻本格不耗补给（每座覆盖{building_effect('军屯', 'militia_cap')}支；需本地{BUILDINGS['军屯']['cap_resource']}≥1、每地块限{BUILDINGS['军屯']['limit']}座）。",
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标如 '5 6' 或自家地块名（land 面板有）", "required": True},
                               "building": {"type": "string", "enum": BUILD_NAMES, "description": "建筑名", "required": True}})}},
     {"type": "function", "function": {
@@ -3133,7 +3141,7 @@ TOOL_SCHEMAS = [
                               "x": {"type": "integer", "description": "目标x(1-based)", "required": True},
                               "y": {"type": "integer", "description": "目标y(1-based)", "required": True}})}},
     {"type": "function", "function": {
-        "name": "disband", "description": "**遣散军队**（解甲归田）：把本国军队撤编、就地解散——免费、不限次数、**境内境外野地都行**（孤军深陷敌境时用它止损）。**当回合起就不再吃补给、不再计军费**（军费是每回合的持续支出，裁军是治「军费占 GDP 过高」的正当手段之一）；民兵遣散会**当场释放编制名额**（全国民兵总数 ≤ 全国军屯总数）。★ **不返还**：兵员、装备、粮食一概不退——这是明确的代价，别指望靠遣散回血。★ **交战中（含正在挨打的守军）不能遣散**：先用 retreat 撤出战场，下回合再遣散。★ 遣散**不亡国**（亡国只认市政厅全失），但军队没了就是没了——番号不回收、也不能补回来，要兵得重新征兵。",
+        "name": "disband", "description": f"**遣散军队**（解甲归田）：把本国军队撤编、就地解散——免费、不限次数、**境内境外野地都行**（孤军深陷敌境时用它止损）。**当回合起就不再吃补给、不再计军费**（军费是每回合的持续支出，裁军是治「军费占 GDP 过高」的正当手段之一）；民兵遣散会**当场释放编制名额**（全国民兵总数 ≤ 军屯数×{building_effect('军屯', 'militia_cap')}）。★ **不返还**：兵员、装备、粮食一概不退——这是明确的代价，别指望靠遣散回血。★ **交战中（含正在挨打的守军）不能遣散**：先用 retreat 撤出战场，下回合再遣散。★ 遣散**不亡国**（亡国只认市政厅全失），但军队没了就是没了——番号不回收、也不能补回来，要兵得重新征兵。",
         "parameters": _props({"army_ids": {"type": "array", "items": {"type": "integer"},
                                           "description": "要遣散的本国军队id数组（各国独立从1编号，以 query panel=army 为准）；一次可遣散多支", "required": True}})}},
     {"type": "function", "function": {

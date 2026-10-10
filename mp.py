@@ -1514,19 +1514,24 @@ class World:
             return False, "只能在自己有兵营/军屯的地块征兵"
         if kind == "民":
             # 民兵走军屯征召：军屯不耗电，不受全国电网停摆影响。
-            # 双限额：每座军屯每回合 1 支；且**全国民兵总数 ≤ 全国军屯总数**（军屯=民兵编制上限）
-            if t["buildings"]["军屯"] <= 0:
-                return False, "该地块没有军屯（民兵只能在军屯征召：50金+5粮/支，每军屯每回合1支）"
+            # 双限额（2026-10-10 起每座军屯 2 支，用户「军屯可以生产和驻守两队民兵」）：
+            #   ① 每座军屯每回合 `militia_cap` 支；② **全国民兵总数 ≤ 全国军屯总数×militia_cap**。
+            # ★ 三处（这里两处 + `_supply_need` 的免补给覆盖）**都读同一个 effects 值**，
+            #   不许谁再写死一个 1 或 2——数值只有一个权威（`balance.BUILDINGS["军屯"]`）。
             _mcap = building_effect("军屯", "militia_cap")
+            if t["buildings"]["军屯"] <= 0:
+                return False, (f"该地块没有军屯（民兵只能在军屯征召：50金+5粮/支，"
+                               f"每军屯每回合{_mcap}支）")
             tile_cap = t["buildings"]["军屯"] * _mcap - t.get("militia_recruited_this_turn", 0)
             if tile_cap <= 0:
-                return False, "本回合该地块民兵征召产能已用完（每军屯 1 支/回合）"
-            quota = self.nation_building_count(name, "军屯")
+                return False, f"本回合该地块民兵征召产能已用完（每军屯 {_mcap} 支/回合）"
+            quota = self.nation_building_count(name, "军屯") * _mcap
             alive = sum(1 for a in self.troops if a["owner"] == name and unit_kind(a) == "民")
             cap = min(tile_cap, quota - alive)
             if cap <= 0:
-                return False, (f"民兵总数已达军屯编制上限（{alive}/{quota} 座）："
-                               f"军屯即民兵编制——想扩编先建军屯，阵亡或遣散（disband）后方可补员")
+                return False, (f"民兵总数已达军屯编制上限（{alive}/{quota} 支）："
+                               f"军屯即民兵编制（每座 {_mcap} 支）——想扩编先建军屯，"
+                               f"阵亡或遣散（disband）后方可补员")
         else:
             if self.grid_short.get(name):
                 return False, "全国电网不足，高级建筑（含兵营）停摆，无法征兵"
@@ -1978,7 +1983,7 @@ class World:
 
     @staticmethod
     def _combat_power(atk_total: int, def_pct: int) -> int:
-        """atk_total = 该方各军兵种攻击之和（步/骑 50、民兵 20，见 unit_atk）。"""
+        """atk_total = 该方各军兵种攻击之和（步/骑 50、民兵 25，见 unit_atk）。"""
         return max(1, atk_total * (100 - def_pct) // 100)
 
     @staticmethod
@@ -2737,9 +2742,13 @@ class World:
             self._ledger(n)["supply_eaten"] += paid
             self._spend(n)["supply"] += self._mval("补给", paid)   # 总消费：军费
             if short:
-                # 缺口按比例分摊：每军扣 ARMY_STARVE_DAMAGE×缺口/需求（交战中也照扣），至少 1
+                # 缺口按比例分摊：**吃补给的**每军扣 ARMY_STARVE_DAMAGE×缺口/需求（交战中也照扣），
+                # 至少 1。★ 2026-10-10 用户：「应该是**依赖补给的军队**一起扣」——原先这里遍历
+                # `ps`（全军），于是**驻在自家军屯、这一回合根本没吃补给的民兵也跟着挨饿**：
+                # 豁免明明让它不占需求额度，却仍在挨饿名单里，前后自相矛盾。
+                # 名单改从 `_supply_fed` 取——与需求同一份判定。
                 dead = []
-                for a in ps:
+                for a in self._supply_fed(n, ps):
                     a["hp"] -= per
                     if a["hp"] <= 0:
                         dead.append(a)
@@ -2776,7 +2785,8 @@ class World:
                 self.log(f"🩹 {n} 军队回血：正规军吃装备 {heal_equip} 件（民兵免费）",
                          phase="内政", nation=n)
         for n, (short, per, dead) in famine.items():
-            self.log(f"⚠ {n} 补给断粮（缺 {short}，每军 -{per}HP）：{dead} 支军队饿毙", phase="内政", nation=n)
+            self.log(f"⚠ {n} 补给断粮（缺 {short}，吃补给的每军 -{per}HP）："
+                     f"{dead} 支军队饿毙", phase="内政", nation=n)
 
         # 4.9) 脱离清扫：撤退军已落地离开原格，格上留守者不该再背「交战中」
         cleared = self._clear_disengaged()
@@ -2877,21 +2887,34 @@ class World:
         self.churn = {}
         return {"war_lines": flat_lines, "famine": famine}
 
-    def _supply_need(self, n: str, ps: list[dict]) -> int:
-        """全军每回合补给需求：步1/骑2；民兵驻在**自家**军屯格免费——每座军屯覆盖本格 1 支
-        （同格第 2 支起、以及离格/军屯格被夺后的民兵，照常吃补给）。"""
+    def _supply_fed(self, n: str, ps: list[dict]) -> list[dict]:
+        """这批军里**这一回合真要吃补给**的那些（同序）。
+
+        **唯一判定处**——需求（`_supply_need`）与断粮扣血（`resolve_turn` 第 4 步）
+        都从这里取名单，**不许各写一遍**（曾经扣血走的是"全军"、需求走的是"扣掉免供的"，
+        于是免供的军屯民兵也跟着挨饿）。
+
+        豁免只有一条：**民兵驻在自家军屯格**，每座军屯覆盖本格 `militia_cap` 支
+        （2026-10-10 起 2）；同格超出覆盖数的、离格的、军屯被夺的，照常吃。
+        """
         free: dict[tuple[int, int], int] = {}
-        need = 0
+        out: list[dict] = []
         for a in ps:
             if unit_kind(a) == "民":
                 t = self.tiles.get((a["x"], a["y"]))
                 if t is not None and t["owner"] == n:
-                    cap = t["buildings"].get("军屯", 0)
+                    cap = t["buildings"].get("军屯", 0) * building_effect("军屯", "militia_cap")
                     used = free.get((a["x"], a["y"]), 0)
                     if used < cap:
                         free[(a["x"], a["y"])] = used + 1
                         continue
-            need += unit_supply(a)
+            out.append(a)
+        return out
+
+    def _supply_need(self, n: str, ps: list[dict]) -> int:
+        """全军每回合补给需求（单位数）：步1/骑2/民1，**只算真要吃的那些**
+        （免供的军屯民兵不计——判定见 `_supply_fed`）。"""
+        return sum(unit_supply(a) for a in self._supply_fed(n, ps))
         return need
 
     @staticmethod
@@ -2905,7 +2928,8 @@ class World:
 
         ★ 三条容易漏的引擎事实，报给 AI 时都要带上：
           · **交战中也照扣**——断粮的军不会因为"正在打仗"就免于流血；
-          · 扣血是**全军**的（不分在不在交战格）；
+          · 扣血的是**要吃补给的军**（2026-10-10 用户口径：免供——即驻自家军屯的民兵——
+            **不在此列**，它们这一回合根本没吃你的补给）；不分在不在交战格；
           · 断粮**或**所在格在交战 ⇒ 那格**本回合不回血**（见 `resolve_turn` 第 4 步）。
         """
         need = self._supply_need(n, self.nation_armies(n))
