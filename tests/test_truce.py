@@ -153,15 +153,96 @@ class TestTruceMergedIntoBloc(unittest.TestCase):
         self.assertEqual(w.active_truce("秦", "燕"), 20, "退盟后和约没回来")
 
     def test_proclamation_tells_the_parties(self):
-        """合并要说出来（"结果不告诉当事人"是这套引擎反复踩的洞）。"""
+        """暂停要说出来（"结果不告诉当事人"是这套引擎反复踩的洞）。"""
         w = mp.World(size=20, seed=7, nations=["秦", "燕", "赵"])
         w.turn = 5
         w.truce[mp._pair("秦", "燕")] = 20
         _bloc(w, "秦", "北盟", "燕")
-        self.assertTrue(any("和约并入联盟" in h.get("text", "") for h in w.history),
-                        "结盟时没说和约被合并了")
-        self.assertTrue(any("秦↔燕" in h.get("text", "") for h in w.history),
-                        "没说清是哪两家的和约")
+        self.assertTrue(any("在盟内暂停" in h.get("text", "") for h in w.history),
+                        "结盟时没说和约被暂停了")
+        self.assertTrue(any("原休战至第 20 回合" in h.get("text", "") for h in w.history),
+                        "没说清是哪两家的和约、到哪一回合")
+
+
+class TestEntityTruceFollowsTheChief(unittest.TestCase):
+    """★★ 2026-10-11 用户口径：「**联盟和平条约改成由盟主的条约决定，成员和平条约丧失，
+    然后退出自动恢复**」。
+
+    实盘病根（八国局 T76）：**一个成员的和约能给整个联盟挡刀**。韩 与 楚 白和休战到第 94
+    回合，楚 一入「周天下」，韩 连对周宣战都发不出去（`_declare_war_internal` 逐国检查，
+    撞上 韩↔楚 那条直接拒）——四国联盟白得一张免战牌，而盟主 周 跟韩 根本没签过任何东西。
+    韩 因此在回合小结里写下「打不出去 ⇒ 让魏替我扛 ⇒ 等它亡国换 10 回合休战期」。
+    """
+
+    def _world(self):
+        """韩、魏、楚、周；周天下＝周（盟主）＋楚。**不预置任何和约**——各用例自带。"""
+        w = mp.World(size=20, seed=7, nations=["韩", "魏", "楚", "周"])
+        w.turn = 70
+        _bloc(w, "周", "周天下", "楚")
+        return w
+
+    def test_members_truce_no_longer_shields_the_bloc(self):
+        """★ 核心回归：成员的和约**不再**替全盟挡刀——韩 打得出去。"""
+        w = self._world()
+        w.truce[mp._pair("韩", "楚")] = 94          # 韩 与**成员**楚 白和（旧病现场）
+        self.assertIsNone(w.active_truce("韩", "周"), "成员的和约竟然还算在全盟头上")
+        ok, msg = w.declare_war("韩", "周")
+        self.assertTrue(ok, f"成员的私约把整个联盟护住了（旧病）：{msg}")
+        self.assertTrue(w.war_between("韩", "周"))
+        self.assertTrue(w.war_between("韩", "楚"), "打盟员=打全盟，楚 该在守侧")
+
+    def test_chiefs_truce_is_the_entitys(self):
+        """**阴性对照的另一半**：盟主签的约就是全盟的约（这时才该挡住）。"""
+        w = self._world()
+        w.truce[mp._pair("韩", "周")] = 94          # 盟主 周 与韩 签约
+        self.assertEqual(w.active_truce("韩", "楚"), 94, "盟主的约没有变成全盟的约")
+        ok, msg = w.declare_war("韩", "周")
+        self.assertFalse(ok, f"与盟主签约期内还能宣战：{msg}")
+        self.assertIn("休战", msg)
+
+    def test_truces_of_reports_the_entitys(self):
+        """面板口径：在盟国家看到的是**全盟的**和约（盟主那份），不是自己那份。"""
+        w = self._world()
+        w.truce[mp._pair("韩", "楚")] = 94          # 成员私约：不列
+        self.assertEqual(w.truces_of("楚"), [], "成员还列着自己那份暂停中的私约")
+        w.truce[mp._pair("韩", "周")] = 94          # 盟主的约：全盟都该看到
+        self.assertEqual(w.truces_of("楚"), [("韩", 94)], "成员没看到盟主签的那份")
+
+    def test_suspended_truce_comes_back_on_leaving(self):
+        """★「退出自动恢复」：楚 退盟 ⇒ 它自己那份和约按原到期回合回来（表里没删过）。"""
+        w = self._world()
+        w.truce[mp._pair("韩", "楚")] = 94
+        ok, msg = w.bloc_leave("楚")
+        self.assertTrue(ok, msg)
+        self.assertEqual(w.active_truce("韩", "楚"), 94, "退盟后私约没恢复")
+        ok, msg = w.declare_war("楚", "韩")
+        self.assertFalse(ok, f"退盟后还能打自己的休战对手：{msg}")
+        self.assertIn("休战", msg)
+
+    def test_chief_transfer_swaps_the_entitys_truce(self):
+        """移交盟主 ⇒ 实体的和约**随之换成新盟主那一份**（这是"以盟主为准"的必然结果，
+        钉在这里免得日后当成 bug 顺手"修"掉）。"""
+        w = self._world()
+        w.truce[mp._pair("韩", "周")] = 94          # 盟主周 与韩 有约 ⇒ 全盟与韩 休战
+        self.assertEqual(w.active_truce("韩", "楚"), 94)
+        ok, msg = w.bloc_transfer("周", "楚")
+        self.assertTrue(ok, msg)
+        self.assertIsNone(w.active_truce("韩", "周"), "换盟主后旧盟主那份还在生效")
+
+    def test_fall_truce_still_covers_every_entity(self):
+        """**阴性对照**：亡国压给全天下的强制休战是按**每一对国家**压的 ⇒
+        无论谁当盟主，实体之间都还有约（别把这条规则读成"全天下休战对联盟失效"）。"""
+        w = mp.World(size=20, seed=7, nations=["秦", "魏", "韩", "赵"],
+                     starts={"秦": (3, 3), "魏": (6, 6), "韩": (9, 9), "赵": (12, 12)})
+        w.armies = []
+        _bloc(w, "赵", "合纵", "韩")
+        for (x, y) in list(w.own_tiles("魏")):
+            w.tiles[(x, y)]["buildings"]["市政厅"] = 0
+        self.assertTrue(w._eliminate_if_dead("魏"))
+        for other in ("秦", "韩", "赵"):
+            self.assertTrue(w.truces_of(other), f"{other} 没被压上全天下休战")
+        ok, msg = w.declare_war("秦", "赵")
+        self.assertFalse(ok, f"全天下休战期内还能对联盟宣战：{msg}")
 
 
 class TestFallTruceCounts(unittest.TestCase):

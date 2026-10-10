@@ -992,23 +992,33 @@ class World:
                 return True
         return False
 
-    def active_truce(self, a: str, b: str) -> int | None:
-        """a、b 之间**未到期且仍然独立成立**的休战 → 到期回合（已到期的顺手清掉，None = 没有）。
+    def truce_holder(self, name: str) -> str:
+        """`name` 的**条约主体**：它所在外交实体的代表（联盟＝**盟主**，独立国＝自己）。
 
-        ★ 2026-10-07 用户拍板：「**停战期可以缔结条约；如果是建立联盟，合并和平条约而不是
-        阻止**」。落地就落在这一行上：**同属一个外交实体（联盟）的两国之间不存在独立的和约**
-        ——联盟自带的「盟内互不攻击」比和约更强，那纸休战被联盟**合并**掉了（`entity_of`
-        相等 ⇒ 返回 None）。旧口径（2026-09-20）反过来：有和约就**不许**结盟，于是一旦有人
-        亡国、全天下被压上强制休战，**整整一段休战期里谁都结不了盟**——而休战期恰恰是
-        最该谈条约的时候。
-
-        ★ 表里那条**不删**，只在这里"视而不见"：联盟一旦解散 / 成员退出，两国重新成为两个
-        实体，原来的休战**按原到期回合自动恢复**。删掉就成了一扇后门——「邀对手入盟 →
-        当场解散 → 立刻偷袭」，对方还以为那纸和约在（它确实还在表里，却已经不是约束）。
+        ★ 2026-10-11 用户口径：「**联盟和平条约改成由盟主的条约决定，成员和平条约丧失，
+        然后退出自动恢复**」。所以查和约查的不是两个人，是**两个实体**：
+        实体的和约就是盟主身上那一条；成员自己手里的和约在盟内**暂停**（既保护不了它，
+        也挡不住别人打这个联盟）。
         """
-        if self.entity_of(a) == self.entity_of(b):
-            return None                      # 已被联盟合并：同实体只有"盟内互不攻击"
-        p = _pair(a, b)
+        return self.entity_chief(self.entity_of(name)) or name
+
+    def active_truce(self, a: str, b: str) -> int | None:
+        """a、b 之间**有效**的休战 → 到期回合（已到期的顺手清掉，None = 没有）。
+
+        ★ 判据落在 `truce_holder` 上（2026-10-11）：
+        · 同属一个实体（联盟）⇒ None——**盟内互不攻击**比和约更强，那纸约不独立成立；
+        · 否则看**两个实体代表（盟主／自己）之间**那条——**成员的私约不算数**。
+        旧口径（2026-10-07 之前）是"逐国对逐国"，于是**一个成员的和约能给整个联盟挡刀**：
+        韩 与 楚 休战到第 94 回合，楚 一入「周天下」，韩 连宣战都发不出去（引擎直接拒），
+        整个四国联盟白得一张免战牌——那正是实盘 T76 韩 卡住的原因。
+
+        ★ 表里那条**一律不删**，只在这里"视而不见"：**退出/解散即自动恢复**，按原到期回合。
+        删掉就成了后门——「邀对手入盟 → 当场解散 → 立刻偷袭」，对方还以为那纸和约在。
+        """
+        ra, rb = self.truce_holder(a), self.truce_holder(b)
+        if ra == rb:
+            return None                      # 同实体：盟内互不攻击（不再有"合并"一说）
+        p = _pair(ra, rb)
         t = self.truce.get(p)
         if t is None:
             return None
@@ -1018,37 +1028,88 @@ class World:
         return t
 
     def truces_of(self, name: str) -> list[tuple[str, int]]:
-        """该国**还在休战期内**的全部对手 → [(对手, 到期回合)]，按国名排序。
+        """该国（**其所在实体**）还在休战期内的全部对手 → [(对手实体代表, 到期回合)]。
 
         ★ 含**亡国时压给全天下的强制休战**（`FALL_TRUCE_TURNS`）——用户 2026-09-20 口径：
-        那条也算"和约"。它现在只拦**宣战**，不再拦结盟（见 `active_truce`）。
-        走 `active_truce` ⇒ 已被联盟合并的那些（对手是同盟成员）不在此列。
+        那条也算"和约"。它只拦**宣战**，不拦结盟（见 `active_truce`）。
+        ★ 走 `truce_holder` ⇒ 返回的是**实体代表**：在盟国家看到的是全盟的和约（盟主那份），
+        自己那份私约不在此列（暂停中，退盟恢复）。
         """
-        out: list[tuple[str, int]] = []
+        rep = self.truce_holder(name)
+        out: dict[str, int] = {}
         for p in list(self.truce):
-            if name not in p:
+            x, y = sorted(p)          # ★ sorted：p 是 frozenset，裸迭代序受 PYTHONHASHSEED 影响
+            rx, ry = self.truce_holder(x), self.truce_holder(y)
+            if rx == rep:
+                other = ry
+            elif ry == rep:
+                other = rx
+            else:
                 continue
-            other = next((x for x in p if x != name), None)
-            if other is None:
+            if other == rep:
                 continue
-            t = self.active_truce(name, other)
+            t = self.active_truce(x, y)
             if t is not None:
-                out.append((other, t))
-        return sorted(out)
+                out[other] = max(out.get(other, 0), t)
+        return sorted(out.items())
 
-    def _merged_truces(self, members: list[str]) -> list[str]:
-        """这批国家**内部**那些被联盟合并掉的和约 → 人话（只**读表**报事实，不改表）。
+    def _suspended_truces(self, members: list[str]) -> list[str]:
+        """这批国家手里那些**从此暂停**的和约 → 人话（只**读表**报事实，不改表）。
 
-        调它是为了把"合并"这件事说给当事人听——`active_truce` 从此对同盟成员视而不见，
-        但表里那条还在（联盟解散就恢复），不报一句就成了"结果不告诉当事人"。
+        ★ 2026-10-11：实体的和约＝**盟主**的和约 ⇒ 成员自己签的那些一律暂停（对内对外
+        都一样）。表里那条根本没动，所以"退出自动恢复"不需要任何额外机制——
+        但不报一句就成了"结果不告诉当事人"。
         """
         out: list[str] = []
-        for i in range(len(members)):
-            for j in range(i + 1, len(members)):
-                u = self.truce.get(_pair(members[i], members[j]))
-                if u is not None and self.turn < u:
-                    out.append(f"{members[i]}↔{members[j]}（原休战至第 {u} 回合）")
+        seen: set = set()
+        for m in members:
+            for p in sorted(self.truce, key=sorted):
+                if p in seen or m not in p:
+                    continue
+                u = self.truce[p]
+                if self.turn >= u:
+                    continue
+                seen.add(p)
+                out.append(f"{'↔'.join(sorted(p))}（原休战至第 {u} 回合）")
         return out
+
+    def _void_pending_treaties(self, why: str) -> list[str]:
+        """开战 ⇒ **战前还没通过的外交条约一律当场作废**（2026-10-11 用户口径）。
+
+        「战时条约冻结」（缔结与解除都不行，见 `propose_pact` / `break_pact`）早就有，
+        但**在途的表决与邀约是绕过它的后门**：缔约投票、入盟投票、结盟提议、
+        共同防御/保障邀约——统统是"**战前发起、战后再落地**"：发起那一刻还没打仗，
+        通过那一刻已经在打了。开战即清，谁都别想搭这趟车。
+        ★ **宣战与议和投票不动**：那是战争本身的操作，清了等于把出口也堵死。
+        """
+        votes = [v for v in self.votes if v["kind"] in ("缔约", "入盟")]
+        props = list(self.proposals)
+        if not votes and not props:
+            return []
+        killed = [f"{v['kind']}投票#{v['id']}（「{v['bloc']}」）" for v in votes]
+        killed += [f"{p['kind']}提议#{p['id']}" for p in props]
+        parties: list[str] = []
+        for v in votes:
+            b = self.bloc_by_name(v["bloc"])
+            if b:
+                parties += list(b["members"])
+            for ent in (v.get("payload") or {}).values():
+                if isinstance(ent, str):
+                    parties += self.entity_members(ent)   # 认不出的 id 返回 []，不必先判前缀
+        for p in props:
+            for key in ("a", "asker"):
+                if p.get(key) in self.nations:
+                    parties.append(p[key])
+            parties += list(p.get("invitees") or [])
+            for ent in (p.get("A"), p.get("B")):
+                if isinstance(ent, str):
+                    parties += self.entity_members(ent)
+        self.votes = [v for v in self.votes if v["kind"] not in ("缔约", "入盟")]
+        self.proposals = []
+        self.log(f"🕊 {why} ⇒ **战前未通过的外交条约当场作废**：{'、'.join(killed)}"
+                 "（战时条约冻结；停战后可重新提）", phase="外交",
+                 parties=sorted(set(parties)))
+        return killed
 
     def _truce_blocks_war_join(self, countries: list[str], opponents: list[str]) -> bool:
         """这批国家里有没有谁与**对面**还在休战期内 ⇒ 不能把它拖进这场战争。
@@ -3818,11 +3879,15 @@ class World:
         #   是"国家级"的，而入盟后这个国家不再是签约主体）。别想带着条约入伙。
         absorbed = self._absorb_personal_pacts(members)
         ab = f"（{'、'.join(absorbed)} 自动作废）" if absorbed else ""
-        merged = self._merged_truces(members)      # 成员之间的和约：并入联盟，不再独立成立
-        mg = f"；{'、'.join(merged)} 的和约并入联盟" if merged else ""
-        self.proclaim(f"🕊 联盟「{p['name']}」成立！成员：{'、'.join(members)}（盟主 {p['a']}）{ab}{mg}")
+        # ★ 和约随实体走（2026-10-11）：**本盟的对外和约＝盟主那一份**，成员自己的从这一刻
+        #   起暂停（退盟/解散按原到期回合自动恢复）。表里那条一个字没动。
+        sus = self._suspended_truces(members)
+        sg = (f"；本盟的对外和约以**盟主 {p['a']}** 为准，成员自己的以下和约在盟内暂停"
+              f"（退盟即恢复原到期回合）：{'、'.join(sus)}") if sus else \
+             f"；本盟的对外和约以**盟主 {p['a']}** 为准（成员自己的和约在盟内暂停，退盟恢复）"
+        self.proclaim(f"🕊 联盟「{p['name']}」成立！成员：{'、'.join(members)}（盟主 {p['a']}）{ab}{sg}")
         return True, (f"联盟「{p['name']}」成立！成员：{'、'.join(members)}，盟主 {p['a']}"
-                      f"（你为创始成员）{ab}{mg}")
+                      f"（你为创始成员）{ab}{sg}")
 
     def _absorb_personal_pacts(self, members: list[str]) -> list[str]:
         """入盟清账：把成员手里的**个人**条约全部作废（成员不再是签约主体）。
@@ -4053,11 +4118,11 @@ class World:
                 return False, f"{cand} 已入他盟/与成员交战，入盟落空"
             absorbed = self._absorb_personal_pacts([cand])
             bl = f"（入盟即放弃个人条约：{'、'.join(absorbed)} 作废）" if absorbed else ""
-            merged = self._merged_truces([cand] + list(bloc["members"]))
-            mg = f"；{'、'.join(merged)} 的和约并入联盟" if merged else ""
+            sus = self._suspended_truces([cand])
+            sg = (f"；{cand} 自己的和约在盟内暂停（退盟即恢复）：{'、'.join(sus)}") if sus else ""
             bloc["members"].append(cand)
-            self.proclaim(f"🕊 {cand} 加入联盟「{bloc['name']}」{bl}{mg}")
-            return True, f"{cand} 正式加入「{bloc['name']}」{bl}{mg}"
+            self.proclaim(f"🕊 {cand} 加入联盟「{bloc['name']}」{bl}{sg}")
+            return True, f"{cand} 正式加入「{bloc['name']}」{bl}{sg}"
         if v["kind"] == "议和":
             if pl.get("type") == "offer":
                 w = next((x for x in self.wars if x["id"] == pl.get("war_id")), None)
@@ -4229,15 +4294,18 @@ class World:
         if not def_members:
             return False, f"目标 {self.entity_label(def_ent)} 已灭亡，宣战落空"
         b = self.entity_chief(def_ent) or def_members[0]
-        # 休战检查（任一进攻侧成员与任一守侧成员休战中则不能开战；到期的顺手清掉）
-        for m in members:
-            for d in def_members:
-                t = self.truce.get(_pair(m, d))
-                if t is None:
-                    continue
-                if self.turn < t:
-                    return False, f"休战中：{m} 与 {d} 约定休战至第 {t} 回合，不得开战"
-                self.truce.pop(_pair(m, d), None)
+        # 休战检查：**实体对实体**（2026-10-11）——实体的和约＝**盟主**的和约，
+        # 成员的私约在盟内暂停（`truce_holder`）。旧版逐国对逐国，于是**一个成员的和约
+        # 能给整个联盟挡刀**（楚 与 韩 休战 ⇒ 韩 连对「周天下」宣战都发不出去）。
+        t = self.active_truce(b, self.entity_chief(atk_ent) or members[0])
+        if t is not None:
+            return False, (f"休战中：{self.entity_label(atk_ent)} 与 {self.entity_label(def_ent)}"
+                           f"约定休战至第 {t} 回合（{b} 与 "
+                           f"{self.entity_chief(atk_ent) or members[0]} 签的那一份），不得开战")
+        # ★ 过了这一关就是**真的开打**了 ⇒ 战前未通过的外交条约当场作废（用户 2026-10-11）。
+        #   放这里是因为往下三条路（守侧并入 / 随攻并入 / 开新战线）都算"发生战争"。
+        self._void_pending_treaties(
+            f"{self.entity_label(atk_ent)} 对 {self.entity_label(def_ent)} 开战")
         # 并入现有战线（不开平行战争）：目标实体正在攻打我方实体的盟友/共同防御对象 → 守侧并入
         for w in self.wars:
             atk, dfs = self._war_sides(w)

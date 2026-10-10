@@ -591,10 +591,77 @@ class TestWartimeLock(unittest.TestCase):
                if v["kind"] == "缔约" and v["payload"].get("cancel")][0]
         # 战争爆发（赵打北盟 → 燕按共同防御被拖入守侧）
         w.declare_war("赵", "秦")
-        ok, msg = w.cast_vote("楚", cid, True)                  # 凑够 → 立即通过并执行
-        self.assertFalse(ok, "战时不该让解除生效")
-        self.assertIn("冻结", msg)
-        self.assertTrue(w.has_pact("共同防御", mp.ent_bloc("北盟"), mp.ent_nation("燕")))
+        # ★ 2026-10-11 用户加严：「一旦发生战争，战争之前还没有通过的联盟外交条约立刻作废」
+        #   ——不再等它凑齐票再"拒绝生效"，**开战即作废**（在途表决本来就该随战前信息一起废）
+        self.assertFalse([v for v in w.votes if v["id"] == cid], "在途的解除表决没被作废")
+        ok, msg = w.cast_vote("楚", cid, True)
+        self.assertFalse(ok, "作废的表决还能投票")
+        self.assertIn("没有这个投票", msg)
+        self.assertTrue(w.has_pact("共同防御", mp.ent_bloc("北盟"), mp.ent_nation("燕")),
+                        "条约本身该照旧有效")
+
+
+class TestWarVoidsPendingTreaties(unittest.TestCase):
+    """★★ 2026-10-11 用户口径：「**一旦发生战争，战争之前还没有通过的联盟外交条约立刻作废**」。
+
+    这是「战时条约冻结」的补漏：冻结管得住"战时新签"，却管不住**在途**——缔约投票、
+    入盟投票、结盟提议、保障/共同防御邀约，全都是"**战前发起、战后再落地**"：
+    发起那一刻还没打仗，通过那一刻已经在打了。
+    ★ 但**议和与宣战投票不动**——那是战争本身的操作，清了等于把出口也堵死。
+    """
+
+    def _pact_in_flight(self):
+        """秦楚齐结盟（盟主秦）；桌上留一张**在途的共同防御邀约**（秦→燕）。"""
+        w = make_world(nations=("秦", "楚", "齐", "燕", "赵"))
+        make_bloc(w)
+        w.propose_pact("共同防御", "秦", "燕")      # 秦在盟 → 先过联盟表决
+        vid = w.votes[-1]["id"]
+        w.cast_vote("楚", vid, True)
+        w.cast_vote("齐", vid, True)               # 通过 → 向燕发出邀约，躺在 proposals 里
+        return w
+
+    def test_pending_pact_offer_is_voided(self):
+        w = self._pact_in_flight()
+        self.assertTrue([p for p in w.proposals if p["kind"] == "共同防御"], "前提：邀约在桌上")
+        w.declare_war("赵", "秦")                  # 开战
+        self.assertEqual([p for p in w.proposals if p["kind"] == "共同防御"], [],
+                         "战前发出的条约邀约没被作废")
+        # 燕 这时才回信：邀约已经不在桌上了
+        ok, _msg = w.accept_pact("燕", 1)
+        self.assertFalse(ok, "作废的邀约还能接受")
+
+    def test_pending_bloc_founding_is_voided(self):
+        """结盟提议也算"还没通过的"——开战即流产（不悬空挂着）。"""
+        w = make_world(nations=("秦", "楚", "齐", "燕", "赵"))
+        w.propose_bloc("秦", "北盟", ["燕"])
+        pid = w.proposals[-1]["id"]
+        self.assertTrue([p for p in w.proposals if p["kind"] == "联盟"], "前提：提议在桌上")
+        w.declare_war("秦", "赵")
+        self.assertEqual([p for p in w.proposals if p["kind"] == "联盟"], [],
+                         "战前的结盟提议没作废")
+        ok, msg = w.accept_pact("燕", pid)          # 燕 这才回信（真实路径：按 id 查）
+        self.assertFalse(ok, "作废的结盟提议还能接受")
+        self.assertIn("邀约", msg)
+
+    def test_peace_and_war_votes_are_kept(self):
+        """**阴性对照**：议和与宣战投票**不动**——清了就等于把战争的出口也堵死。"""
+        w = make_world(nations=("秦", "楚", "齐", "燕", "赵"))
+        make_bloc(w)
+        w.declare_war("秦", "燕")                  # 全盟对燕开战（投票#1，在途）
+        w.votes.append({"id": 99, "kind": "议和", "bloc": "北盟", "proposer": "秦",
+                        "payload": {"type": "offer", "war_id": 1, "to": "燕", "kind": "白和",
+                                    "gold": 0, "note": "", "truce": 5},
+                        "votes": {}, "turn": w.turn})
+        w.declare_war("秦", "赵")                  # 又开一条战线 ⇒ 触发作废
+        self.assertTrue([v for v in w.votes if v["kind"] == "议和"], "议和表决被误清")
+        self.assertTrue([v for v in w.votes if v["kind"] == "宣战"], "宣战表决被误清")
+
+    def test_the_parties_are_told(self):
+        """作废要通知当事人（"结果不告诉当事人"是这套引擎反复踩的洞）。"""
+        w = self._pact_in_flight()
+        w.declare_war("赵", "秦")
+        self.assertTrue(any("战前未通过的外交条约当场作废" in e
+                            for e in w.events_for("燕", 40)), "燕 不知道自己那张邀约废了")
 
 
 class TestEntityPactTable(unittest.TestCase):
