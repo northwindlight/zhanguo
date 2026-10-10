@@ -196,8 +196,8 @@ def _recruit_desc(costs: dict[str, dict]) -> str:
                     f"耗补给{info['supply']}/回合、{_move_brief(k)}{extra})")
     return ("在自己有兵营且电网正常的地块征召军队，每兵营每回合1支。兵种 kind："
             + "；".join(rows)
-            + f"——民兵是廉价驻守军队，每军屯每回合{building_effect('军屯', 'militia_cap')}支、"
-            + f"全国民兵总数≤军屯数×{building_effect('军屯', 'militia_cap')}（阵亡或遣散后才能补员）。"
+            + f"——民兵是廉价驻守军队，每军屯每回合{building_effect('军屯', 'militia_per_turn')}支、每座可驻{building_effect('军屯', 'militia_cap')}支"
+            + f"（全国民兵总数≤军屯数×{building_effect('军屯', 'militia_cap')}；阵亡或遣散后才能补员）。"
             + "注意补给仓必须跟上：补给不足时**吃补给的**军队按缺口比例扣血"
             + f"（满缺 -{ARMY_STARVE_DAMAGE}HP/军/回合，交战中也照扣），饿毙不复活。")
 
@@ -1551,9 +1551,8 @@ def opening_guide() -> str:
         f"（{BUILDINGS['黄金矿场']['cost']} 金 + {BUILDINGS['黄金矿场']['wood']} 木）"
         f"每回合产 1 黄金 = **{gold_mine} 金/回合**，是最肥的金源——见到黄金位就占。\n"
         f"  另记一条容易漏的：**军屯本身不产东西**，它是**民兵编制**——"
-        f"全国民兵总数 ≤ 军屯数×{building_effect('军屯', 'militia_cap')}，"
-        f"每屯每回合可征 {building_effect('军屯', 'militia_cap')} 支，"
-        "且同格这么些支**不吃补给**"
+        f"每屯每回合可征 {building_effect('军屯', 'militia_per_turn')} 支、可驻 {building_effect('军屯', 'militia_cap')} 支（全国民兵总数 ≤ 军屯数×{building_effect('军屯', 'militia_cap')}），"
+        "且同格那几支**不吃补给**"
         "（民兵比正规军便宜、驻自家军屯格免维持），开局的廉价守备就靠它。\n"
         f"  有门槛的建筑：兵营需本格已用 ≥{bar_min} 位、工程院 ≥{eng_min}、外交中心 ≥{dip_min}、"
         f"市政厅 ≥{hall_min}。\n"
@@ -2411,9 +2410,10 @@ def _econ_building(world, building: str) -> str:
     if k == "militia_camp":
         return (f"{building}: 造价折{capex:.0f}金 · **不产粮**（纯民兵编制，无产出）；"
                 f"可征民兵（{_cost_text(UNIT_TYPES['民']['recruit'])}/支，"
-                f"每座{info['effects'].get('militia_cap', 1)}支/回合，"
+                f"每座{info['effects'].get('militia_per_turn', 1)}支/回合、可驻"
+                f"{info['effects'].get('militia_cap', 1)}支，"
                 f"全国民兵总数≤军屯数×{info['effects'].get('militia_cap', 1)}），"
-                "驻本格不耗补给（每座同样覆盖这么多支）"
+                "驻本格不耗补给（每座覆盖这么多支）"
                 f"（需本地{info['cap_resource']}≥1、每地块限{info.get('limit', 1)}座）")
     if k in ("extract", "gold"):
         net = e["detail"]["net"]
@@ -3116,7 +3116,7 @@ TOOL_SCHEMAS = [
         "name": "econ", "description": "按当前市价核算建设回报：某建筑的 造价(折金)/每回合毛利/回本时间；不带 building 则输出全部建筑经济表。做建设/买卖决策前先算再定。",
         "parameters": _props({"building": {"type": "string", "enum": BUILD_NAMES, "description": "要核算的建筑名（可选；省则输出全部）"}})}},
     {"type": "function", "function": {
-        "name": "build", "description": f"在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅/瞭望塔/外交中心/工程院/军屯。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥{BUILDINGS['兵营']['min_slots']}；瞭望塔=事件视野+{building_effect('瞭望塔', 'vision_radius')}圆；市政厅需本地已用位≥{BUILDINGS['市政厅']['min_slots']}且每地块限{BUILDINGS['市政厅']['limit']}（★**它是国祚：市政厅尽失即亡国**，余土沦为无主之地、建筑留原地；开局核心白送1座）；外交中心=外交费减半可叠加但自建全国限{BUILDINGS['外交中心']['limit_nation']}（第2座只能抢）；工程院=本地建造费-{building_effect('工程院', 'build_discount')}%需本地位≥{BUILDINGS['工程院']['min_slots']}；军屯=**不产粮**的民兵编制、可征民兵({_cost_text(UNIT_TYPES['民']['recruit'])}/支、每座每回合{building_effect('军屯', 'militia_cap')}支、全国民兵总数≤军屯数×{building_effect('军屯', 'militia_cap')})且民兵驻本格不耗补给（每座覆盖{building_effect('军屯', 'militia_cap')}支；需本地{BUILDINGS['军屯']['cap_resource']}≥1、每地块限{BUILDINGS['军屯']['limit']}座）。",
+        "name": "build", "description": f"在自己的一块地上建一座建筑。每地块每回合限建1座。建筑: 城堡/林场/农场/矿场/黄金矿场/石油厂/木材能源厂/石油能源厂/补给厂/装备厂/兵营/市政厅/瞭望塔/外交中心/工程院/军屯。采集类上限=本地资源量；补给厂/装备厂/能源厂任地可建（工业不挑地）；兵营需本地已用建筑位≥{BUILDINGS['兵营']['min_slots']}；瞭望塔=事件视野+{building_effect('瞭望塔', 'vision_radius')}圆；市政厅需本地已用位≥{BUILDINGS['市政厅']['min_slots']}且每地块限{BUILDINGS['市政厅']['limit']}（★**它是国祚：市政厅尽失即亡国**，余土沦为无主之地、建筑留原地；开局核心白送1座）；外交中心=外交费减半可叠加但自建全国限{BUILDINGS['外交中心']['limit_nation']}（第2座只能抢）；工程院=本地建造费-{building_effect('工程院', 'build_discount')}%需本地位≥{BUILDINGS['工程院']['min_slots']}；军屯=**不产粮**的民兵编制、可征民兵({_cost_text(UNIT_TYPES['民']['recruit'])}/支、每座每回合{building_effect('军屯', 'militia_per_turn')}支、可驻{building_effect('军屯', 'militia_cap')}支、全国民兵总数≤军屯数×{building_effect('军屯', 'militia_cap')})且民兵驻本格不耗补给（每座覆盖{building_effect('军屯', 'militia_cap')}支；需本地{BUILDINGS['军屯']['cap_resource']}≥1、每地块限{BUILDINGS['军屯']['limit']}座）。",
         "parameters": _props({"tile": {"type": "string", "description": "地块：坐标如 '5 6' 或自家地块名（land 面板有）", "required": True},
                               "building": {"type": "string", "enum": BUILD_NAMES, "description": "建筑名", "required": True}})}},
     {"type": "function", "function": {

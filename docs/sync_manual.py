@@ -186,6 +186,18 @@ def blk_buildings() -> str:
     return body + note
 
 
+def _mcap() -> int:
+    """军屯**每座能驻几支**（= 免供覆盖数 = 全国编制基数）——**现读 balance**，不手抄。"""
+    from game import building_effect
+    return int(building_effect("军屯", "militia_cap"))
+
+
+def _mturn() -> int:
+    """军屯**每座每回合能征几支**（生产速度）——同样现读 balance。"""
+    from game import building_effect
+    return int(building_effect("军屯", "militia_per_turn"))
+
+
 def blk_units() -> str:
     rows = []
     for kind, u in B.UNIT_TYPES.items():
@@ -204,8 +216,12 @@ def blk_units() -> str:
         note = {
             "步": "兵营征召的常规主力",
             "骑": "兵营征召；平地跑得快，进山林就慢",
-            "民": ("只能在自己军屯征召；驻**本格**军屯不耗补给（每座军屯覆盖本格 1 支，"
-                   "离格/超额照常吃）；全国民兵总数 ≤ 全国军屯总数"),
+            # ★ 军屯三处口径**现读 balance**（2026-10-10 用户：「生产和驻守两队民兵」→
+            #   「每回合征兵 1 支」⇒ 生产 1/回合、驻守 2 支，是两个旋钮）
+            "民": (f"只能在自己军屯征召；驻**本格**军屯不耗补给（每座军屯覆盖本格 "
+                   f"{_mcap()} 支，离格/超额照常吃）；"
+                   f"每座每回合可征 {_mturn()} 支；"
+                   f"全国民兵总数 ≤ 全国军屯总数×{_mcap()}"),
         }.get(kind)
         if note is None:
             raise SyncError(f"未覆盖的兵种：{kind}（{u.get('label')}）—— 请在本文件补一段备注")

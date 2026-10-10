@@ -1518,19 +1518,20 @@ class World:
             #   ① 每座军屯每回合 `militia_cap` 支；② **全国民兵总数 ≤ 全国军屯总数×militia_cap**。
             # ★ 三处（这里两处 + `_supply_need` 的免补给覆盖）**都读同一个 effects 值**，
             #   不许谁再写死一个 1 或 2——数值只有一个权威（`balance.BUILDINGS["军屯"]`）。
-            _mcap = building_effect("军屯", "militia_cap")
+            _mcap = building_effect("军屯", "militia_cap")          # 每座**能驻**几支
+            _mturn = building_effect("军屯", "militia_per_turn")     # 每座**每回合能征**几支
             if t["buildings"]["军屯"] <= 0:
                 return False, (f"该地块没有军屯（民兵只能在军屯征召：50金+5粮/支，"
-                               f"每军屯每回合{_mcap}支）")
-            tile_cap = t["buildings"]["军屯"] * _mcap - t.get("militia_recruited_this_turn", 0)
+                               f"每军屯每回合{_mturn}支）")
+            tile_cap = t["buildings"]["军屯"] * _mturn - t.get("militia_recruited_this_turn", 0)
             if tile_cap <= 0:
-                return False, f"本回合该地块民兵征召产能已用完（每军屯 {_mcap} 支/回合）"
+                return False, f"本回合该地块民兵征召产能已用完（每军屯 {_mturn} 支/回合）"
             quota = self.nation_building_count(name, "军屯") * _mcap
             alive = sum(1 for a in self.troops if a["owner"] == name and unit_kind(a) == "民")
             cap = min(tile_cap, quota - alive)
             if cap <= 0:
                 return False, (f"民兵总数已达军屯编制上限（{alive}/{quota} 支）："
-                               f"军屯即民兵编制（每座 {_mcap} 支）——想扩编先建军屯，"
+                               f"军屯即民兵编制（每座可驻 {_mcap} 支）——想扩编先建军屯，"
                                f"阵亡或遣散（disband）后方可补员")
         else:
             if self.grid_short.get(name):

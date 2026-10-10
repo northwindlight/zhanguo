@@ -377,12 +377,11 @@ class TestNewBuildings(unittest.TestCase):
         self.assertEqual((mil[0]["x"], mil[0]["y"]), (x, y))
         self.assertEqual(g0 - w.res("秦", "黄金"), 50)  # 50金/支
         self.assertEqual(f0 - w.res("秦", "粮食"), 5)   # +5粮/支
-        # ★ 2026-10-10 用户「军屯可以生产和驻守两队民兵」：每军屯每回合 **2** 支
+        # ★ 2026-10-10 用户「军屯可以生产和驻守两队民兵」＋「每回合征兵 1 支」：
+        #   **生产**仍是 1 支/回合/座（「驻守两支」说的是编制与免供覆盖，不是产量）
         ok2, msg2 = w.recruit("秦", x, y, 1, "民")
-        self.assertTrue(ok2, f"每军屯该能出 2 支/回合：{msg2}")
-        ok3, msg3 = w.recruit("秦", x, y, 1, "民")
-        self.assertFalse(ok3, "第 3 支不该出得来（单座军屯每回合上限 2）")
-        self.assertIn("产能", msg3)
+        self.assertFalse(ok2, "单座军屯每回合只该出 1 支")
+        self.assertIn("产能", msg2)
 
     def test_militia_total_capped_by_camps(self):
         """民兵总数 ≤ **军屯数 × militia_cap**：满编后换回合也征不出，阵亡后才能补员。
@@ -396,14 +395,16 @@ class TestNewBuildings(unittest.TestCase):
         w.tiles[(x2, y2)]["buildings"]["军屯"] = 1
         w.add_res("秦", "黄金", 500)
         w.add_res("秦", "粮食", 100)
-        cap = balance.BUILDINGS["军屯"]["effects"]["militia_cap"]   # 唯一权威：balance
-        # 全国 2 座军屯 → 满编 2×cap 支
-        for i in range(2):                           # 每座各出 cap 支
+        eff = balance.BUILDINGS["军屯"]["effects"]                  # 唯一权威：balance
+        cap, per_turn = eff["militia_cap"], eff["militia_per_turn"]
+        # 全国 2 座军屯 → 全国编制 2×cap；**每座每回合只出 per_turn 支** ⇒ 要凑满得跨回合
+        for rnd in range(cap // per_turn):           # 每轮：每座各出 per_turn 支
             for (x, y) in ((x1, y1), (x2, y2)):
-                ok, m = w.recruit("秦", x, y, 1, "民")
-                self.assertTrue(ok, f"第 {i + 1} 轮 @({x},{y}) 该能出：{m}")
+                for _ in range(per_turn):
+                    ok, m = w.recruit("秦", x, y, 1, "民")
+                    self.assertTrue(ok, f"第 {rnd + 1} 轮 @({x},{y}) 该能出：{m}")
+            w.resolve_turn()
         self.assertEqual(len([a for a in w.armies if a.get("type") == "民"]), 2 * cap)
-        w.resolve_turn()
         ok4, m4 = w.recruit("秦", x2, y2, 1, "民")
         self.assertFalse(ok4)                        # 编制满：换回合也不行
         self.assertIn("编制", m4)
