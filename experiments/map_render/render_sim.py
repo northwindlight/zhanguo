@@ -21,6 +21,8 @@ for t in range(1, 61):
     if t in SHOTS:
         for who in ("韩",):
             png = render.render(w, who)
+            if png is None:
+                raise SystemExit("地图渲染失败，请检查 Pillow；render.available()=" + str(render.available()))
             (OUT / f"m_{who}_t{t}.png").write_bytes(png)
 
             print(f"t{t} {who}: {len(png)/1024:.1f} KB  {who} 国土{len(w.own_tiles(who))}块 视野{len(mp_ai._visible_cells(w,who))}格")

@@ -1,50 +1,15 @@
 # -*- coding: utf-8 -*-
-"""把地图渲成 PNG —— 给多模态模型看的**玩家 UI**。
+"""确定性的玩家地图：图给空间，随图文本给图例和精确身份。
 
-## 为什么要有它
-
-默认的【国土/视野】面板是**每格一行的坐标列表**（`mp_ai._fmt_atlas`）：它是数据库导出，
-不是地图——**几何形状（地图唯一不可替代的东西）在列表里没了**。实测（八国局、规则 AI 驱动，
-国土长成斜条时）：
-
-| 回合 | 视野格 | 国土 | 取景框 | 框里无效格 | atlas |
-|---|---|---|---|---|---|
-| 1 | 21 | 5 | 5×5 | 16% | 334 tok |
-| 40 | 102 | 23 | 21×21 | **77%** | 1111 tok |
-| 110 | 202 | 81 | 21×21 | 54% | **2056 tok** |
-
-取景框 = 视野包围盒，领土长成条状时框被撑成大方块、**四分之三是 `?.`**（图像里"看不见"
-本该只是没有像素）；而且它**线性增长**——越强越花钱读自己的地。ASCII 网格版（`panel=grid`）
-同样浪费，还要两行列头 + 图例才能解码。
-
-## 依赖策略：Pillow **可选**
-
-没装 Pillow / 没字体 / 画的时候抛异常 ⇒ 一律 `None` + **大声说一次**，调用方退回文本面板。
-**画图永远不许弄死一局。**（`available()` 只探不抛。）
-
-## 一条实测出来的编码约束
-
-8 国在地图上**任意两国都可能相邻**（等价于 choropleth 的 all-pairs 情形），配色验证器实测：
-3 槽全 PASS、**4 槽就 FAIL**（黄↔橙 CVD ΔE 4.8 / 常视 10.6）。**颜色最多扛 3 个国家。**
-⇒ **身份由「国别字母」承担，颜色只负责找得快**：格心画的是引擎既有的国别代码
-（`mp_ai._nation_letters` 的 A/B/C…），**图文互相对得上，模型不用学新词汇**。
-地形字母（`game.TERRAIN_CHARS` 的 P/F/H/M/D）同理钉在格角——所以这张图**是可解码的**，
-不是"靠猜颜色"。
-
-## 与文本的分工（别再重复）
-
-**图给形状，文给精确。** 文本面板继续给逐格数字与清单；图负责"我的地是什么形状、前线在哪、
-敌人在哪、哪块够得着"。两边都画全 = 最亏。
+Pillow 可选；画图失败返回 None。默认全世界、不裁剪，坐标均为 1-based。
+(snapshot → render_snapshot) 支持 JSON 事实快照重绘；快照只含当时可见信息，
+不存 PNG/base64，不引用可变 World。渲染版本/字体相同的快照逐字节重绘。
 """
 from __future__ import annotations
 
 import io
+import os
 
-# ---------------------------------------------------------------------------
-# 调色
-# ---------------------------------------------------------------------------
-
-#: 底色（深色作战图）：地形**低饱和**——它是静态层，不该跟国家色抢眼
 TERRAIN_FILL = {
     "平原": (63, 70, 54),
     "森林": (44, 58, 46),
@@ -53,34 +18,23 @@ TERRAIN_FILL = {
     "沙漠": (77, 68, 51),
 }
 #: 视野外：近黑（"看不见"在图上就是**没有像素**，不是 `?.`）
-FOG_FILL = (20, 22, 26)
-BG = (15, 17, 20)
-GRID = (32, 35, 40)
+FOG_FILL = (18, 25, 35)
+BG = (12, 19, 29)
+GRID = (34, 43, 55)
 INK = (232, 232, 228)          # 主文字
 INK_DIM = (138, 140, 138)      # 次要文字（地形字母、刻度）
 BARB = (150, 148, 142)         # 野人
 
-#: 8 国国土色 —— 取自**终端 ANSI 16 色**那一系（用户 2026-10-12：「你就用终端支持的 16 个
-#: 颜色都够了」）。四组"同色相 + 明暗两档"，是这套标准色盘本来的组织方式：
-#:   黄 #cdcd00 / 亮黄 #ffff00　青 #00cdcd / 亮青 #00ffff
-#:   品红 #cd00cd / 亮品红 #ff00ff　白 #e5e5e5 ／ 亮蓝 #5c5cff
-#:
-#: ★★ 关于"分不清"这件事，先把尺子说清楚（2026-10-12 实测）：
-#:   · 我先前引的是配色验证器的 **all-pairs ΔE≥15**——那是给**统计图**定的门槛，前提是
-#:     "颜色是唯一识别通道、且每项没有标签"。**终端 16 色自己也过不了**（最差 7.8，
-#:     CVD 1.3），可它用了几十年没人说分不清 ⇒ **那把尺子在这里量错了东西**。
-#:   · 这个场景该用的尺子是：**读图的那个模型认不认得出来**。那是可实测的，
-#:     见 `~/` 那份 read-off 测试（给模型一张图 + 问"某坐标是谁的地"，对答案）。
-#:   · 真正保证兵牌读得出的是它自己的框（黑描边 + 白内框），不是国土色。
+# 国家色沿用现有色盘；国土不加字母，精确国别由随图文本核对。
 NATION_COLORS = [
-    (205, 205, 0),     # 秦 黄     #cdcd00
-    (0, 205, 205),     # 魏 青     #00cdcd
-    (205, 0, 205),     # 韩 品红   #cd00cd
-    (229, 229, 229),   # 赵 白     #e5e5e5
-    (255, 255, 0),     # 燕 亮黄   #ffff00
-    (0, 255, 255),     # 齐 亮青   #00ffff
-    (255, 0, 255),     # 楚 亮品红 #ff00ff
-    (92, 92, 255),     # 周 亮蓝   #5c5cff
+    (218, 185, 66),    # 黄
+    (58, 174, 184),    # 青
+    (188, 84, 170),    # 品红
+    (193, 202, 216),   # 银白
+    (226, 139, 60),    # 橙（不再与黄只差亮度）
+    (116, 94, 184),    # 紫（不再与青只差亮度）
+    (229, 151, 181),   # 粉（避免韩/楚同色相两档亮度）
+    (94, 145, 205),    # 蓝
 ]
 
 #: 兵牌的阵营色 —— **固定四色，不随国家变**（用户 2026-10-12：「不用形状区分，用颜色，
@@ -93,7 +47,7 @@ SIDE_COLORS = {
 }
 
 #: 国土色的**中文色名**（写进 `legend_text` 给模型对号用，不画在图里）
-COLOR_NAMES = ["黄", "青", "品红", "白", "亮黄", "亮青", "亮品红", "亮蓝"]
+COLOR_NAMES = ["黄", "青", "品红", "银白", "橙", "紫", "粉", "蓝"]
 
 RES_COLORS = {
     "矿石": (150, 150, 158),
@@ -103,558 +57,385 @@ RES_COLORS = {
     "木头": (140, 106, 66),
 }
 
+# 图中文字仅用 ASCII，字体不必有中文；国家名和完整图例随文本发送。
 _FONT_CANDIDATES = [
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
 ]
-_FONT_INDEX = 2   # NotoSansCJK-Regular.ttc 里 index 2 = SC
-
-
-# ---------------------------------------------------------------------------
-# 可用性探测（只探不抛）
-# ---------------------------------------------------------------------------
-
+SNAPSHOT_VERSION = 1
 _warned = False
 
 
-def available() -> tuple[bool, str]:
-    """渲染器能不能用。**绝不抛**——调用方按 (False, 原因) 退回文本面板。"""
-    try:
-        from PIL import Image, ImageDraw, ImageFont  # noqa: F401
-    except Exception as e:                       # pragma: no cover - 环境相关
-        return False, f"没装 Pillow（{type(e).__name__}）"
-    for p in _FONT_CANDIDATES:
+def _font(size):
+    from PIL import ImageFont
+    for path in [os.environ.get("ZHANGUO_MAP_FONT", ""), *_FONT_CANDIDATES]:
+        if not path:
+            continue
         try:
-            from PIL import ImageFont
-            ImageFont.truetype(p, 12, index=_FONT_INDEX)
-            return True, ""
-        except Exception:
+            return ImageFont.truetype(path, size)
+        except OSError:
             continue
-    return False, "找不到中日韩字体（Noto Sans CJK）"
+    # Pillow 自带字体仍可画 ASCII，不因为系统没装 CJK 而放弃整个地图。
+    return ImageFont.load_default(size=size)
 
 
-def _warn_once(emit, msg: str) -> None:
-    """**大声说一次**就够——每回合刷屏等于没说。"""
-    global _warned
-    if _warned:
-        return
-    _warned = True
-    if emit:
-        emit(f"🖼 地图图片不可用：{msg}（本局退回文本面板）")
-
-
-# ---------------------------------------------------------------------------
-# 画
-# ---------------------------------------------------------------------------
-
-def render(world, name: str, *, max_px: int = 820, emit=None) -> bytes | None:
-    """画全世界（含迷雾）。成功返回 PNG 字节，失败返回 None 并**大声说一次**。
-
-    ★ 整张图 = **全世界 size×size 一格不落**：线上剧本 `map_size: 24`，34px/格 = 816px，
-      一屏装得下（实测约 650 token）。不裁剪、不取景框 ⇒ 上一版 `?.` 占四分之三、
-      取景框被条状国土撑爆那两个毛病**从根上不存在**。
-
-    ★ **两个轴每一格都标数字**：坐标是工具调用的入参，读错一个数字 = 白烧一个不可逆的动作。
-      所以不做"每 5 格一个刻度"那种要数的设计——每格都写出来。
-    ★ `max_px` = 网格的目标边长（格宽按取景大小反推），用来把**每张图的像素量拉平**。
-    """
-    ok, why = available()
-    if not ok:
-        _warn_once(emit, why)
-        return None
+def available() -> tuple[bool, str]:
     try:
-        return _render(world, name, max_px=max_px)
-    except Exception as e:                       # 画图失败绝不许弄死一局
-        _warn_once(emit, f"{type(e).__name__}: {str(e)[:160]}")
-        return None
+        from PIL import Image, ImageDraw  # noqa: F401
+        _font(12)
+        return True, ""
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
 
 
-def _unit_glyph(d, cx, cy, w, h, kind, col):
-    """北约式的兵种符号（画在兵牌内芯里，用**国家色**）。
-
-    步=X（北约的步兵就是方框里一个叉）、骑=单斜杠（北约的骑兵/侦察）、民=实心点。
-    """
-    if kind == "骑":
-        d.line([cx - w, cy + h, cx + w, cy - h], fill=col, width=3)
-    elif kind == "民":
-        r = max(3, min(w, h) - 1)
-        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=col)
-    else:
-        d.line([cx - w, cy - h, cx + w, cy + h], fill=col, width=3)
-        d.line([cx - w, cy + h, cx + w, cy - h], fill=col, width=3)
+def _warn_once(emit, msg):
+    global _warned
+    if not _warned:
+        _warned = True
+        if emit:
+            emit(f"🖼 地图图片不可用：{msg}（退回文本面板）")
 
 
-def _crop_box(vis, own, n, margin=1):
-    """取景框 = 视野 ∪ 国土 的包围盒 + margin，夹在世界内。
-
-    ★ 为什么裁：实测（24×24、第 60 回合）视野只占 6×6 ⇒ **整屏 75% 是空的黑**。
-      文本面板那份 `_map_frame` 有同样的毛病，但它裁得保守（还要兼顾"行列对齐"），
-      图里裁**没有副作用**——没有 `?.` 噪声，裁到哪儿就画到哪儿。
-    ★ 裁到哪都行得通的前提是旁边有**小地图**：不然模型不知道自己在天下的哪一角。
-    """
-    if not vis and not own:
-        return 0, n - 1, 0, n - 1
-    pts = set(vis) | set(own)
-    x0 = max(0, min(p[0] for p in pts) - margin)
-    x1 = min(n - 1, max(p[0] for p in pts) + margin)
-    y0 = max(0, min(p[1] for p in pts) - margin)
-    y1 = min(n - 1, max(p[1] for p in pts) + margin)
-    if (x1 - x0 + 1) * (y1 - y0 + 1) > 0.55 * n * n:      # 都快画满了就别裁
-        return 0, n - 1, 0, n - 1
-    return x0, x1, y0, y1
+def _sides(world, name):
+    sides = {nm: "neutral" for nm in world.order}
+    if name is None:
+        return sides
+    bloc = world.bloc_of(name)
+    if bloc:
+        for nm in bloc["members"]:
+            sides[nm] = "ally"
+    for war in world.wars:
+        attackers, defenders = world._war_sides(war)
+        opponents = defenders if name in attackers else attackers if name in defenders else ()
+        for nm in opponents:
+            sides[nm] = "enemy"
+    sides[name] = "self"
+    return sides
 
 
-def legend_text(world, name) -> str:
-    """国家↔颜色对照表 —— **放进文本，不要画进图里**。
-
-    ★★ 2026-10-12 实测（同一张图、同一个模型，只换对照表的位置）：
-
-        A 斜纹开 · 对照表**画在图里**  4/12
-        B 斜纹关 · 对照表画在图里      4/12   ← 顺带排除"斜纹冲淡了颜色"这个猜想
-        C 斜纹开 · 对照表**在文本里**  9/12   ← 2.25 倍
-
-      ⇒ 模型读地图上的色块没问题，**它读不出画在图里那排小色卡**。
-        国名↔颜色是张查找表，本来就该是文字（与"图给形状、文给精确"同一条口径）。
-
-    另：颜色名用**中文色名**而不是 hex —— 实测模型对"亮青/品红"这类名字的指认比十六进制稳。
-    """
-    names = COLOR_NAMES
-    parts = []
-    for i, nm in enumerate(world.order):
-        if nm not in world.nations:
-            continue
-        parts.append(f"{nm}={names[i % len(names)]}" + ("（你）" if nm == name else ""))
-    return "国别颜色对照：" + "　".join(parts) + "。地形见格角字母(P平原 F森林 H丘陵 M山地 D沙漠)。"
-
-
-def _legend_lines(world, name, vis, own) -> list:
-    """图例。**词汇与文本面板同一套**（P/F/H/M/D、国别字母）——图文对读时不该出现两套说法。
-
-    ★ 写得**短**：这段每回合都随图重发，长句是白付的 token。
-    ★ 纯文本，**不要写 markdown**——这里是像素，`**` 会原样画出来。
-    ★ 有一条是**行为指令**而不是说明（"要番号去按坐标查"）：这版图**故意不画军队身份**，
-       不写清楚，模型会去格子上找根本不存在的番号。
-    """
-    return [
-        "底=地形 P平原 F森林 H丘陵 M山地 D沙漠（格角小字）　右上小点=该格产资源　国土只见颜色(见下方色块)",
-        "房子=市政厅(国祚，拔光某国全部即灭其国)　城垛楼=城堡(角上数字=等级)",
-        "国土：整格铺满国色；有地标(厅/城)或有军队的=平涂，其余=压在国色上的暗斜纹(意为「就是块地」)",
-        "军队(同阵营合并，一格最多四种)：牌外圈颜色定阵营 —— 绿=你自己、蓝=友军(同盟)、红=敌人(交战方)、灰=中立；牌内符号=兵种(X步 /骑 · 民)，用国家色；牌右数字=几支，牌下血条=该阵营在这格的总血量；空心圆=野人",
-        "★ 图上不写番号：要哪个军，拿坐标去 text 面板查（每格一行、带番号）",
-        "白虚线框=本回合可及（够得着、可直接 atk 入驻）　深黑=视野外（看不到≠没有）",
-    ]
-def _hatch(d, box, color, step=15, width=5):
-    """在矩形里画 45° 斜纹（非核心地块的纹理）。
-
-    ★ 密度是这个函数的全部难点（2026-10-12 实测三轮）：
-      · **交错 + step=6** 在 62px 的格子里是 20 条线 ⇒ 糊成一块实色，跟"核心实色"分不出来；
-      · 改成单向 + step=13 之后能看出是纹理，但**线太细**（用户：「斜纹不能太细」）；
-      · 定稿 **单向 + step=15 + 线宽 5**（约 4 条粗线）。★ 光有粗线还不够：线间留白占了大头，
-        国色只覆盖格子一两成 ⇒ 反而读不出"这是谁的地"。所以**下面还垫一层淡国色底**
-        （见调用点），条纹叠在上面说"这里就是块地"。
-
-    为什么非核心地不涂实色：国土一大片，全实色就成一块色斑，**有内容的格子反而看不出来**。
-    纹理把"就是块地"压下去，国色照样在（线就是国色），注意力让给核心格。
-    """
-    x0, y0, x1, y1 = box
-    for c in range(x0 - y1, x1 - y0 + 1, step):
-            pts = [(c + y0, y0), (c + y1, y1), (x0, x0 - c), (x1, x1 - c)]
-            pts = [(a, b) for (a, b) in pts if x0 <= a <= x1 and y0 <= b <= y1]
-            if len(pts) >= 2:
-                pts.sort()
-                d.line([pts[0], pts[-1]], fill=color, width=width)
-
-
-def _house(d, cx, cy, s):
-    """市政厅（国祚）：简笔画房子——照 🏠 提炼 **三角顶 + 门**（🏙️ 那堆竖条缩到 20px 会糊）。"""
-    d.polygon([(cx - s, cy - s * 0.15), (cx + s, cy - s * 0.15), (cx, cy - s * 1.2)],
-              fill=(246, 244, 236), outline=(18, 18, 18))
-    d.rectangle([cx - s * 0.78, cy - s * 0.15, cx + s * 0.78, cy + s],
-                fill=(246, 244, 236), outline=(18, 18, 18))
-    d.rectangle([cx - s * 0.26, cy + s * 0.34, cx + s * 0.26, cy + s], fill=(24, 26, 30))
-
-
-def _castle(d, cx, cy, s):
-    """城堡：简笔画——照 🏰 提炼 **城垛 + 拱门**（这两个特征是这个 emoji 的辨识点）。"""
-    d.rectangle([cx - s, cy - s * 0.3, cx + s, cy + s],
-                fill=(178, 182, 188), outline=(18, 18, 18))
-    tw = s * 0.34
-    for k in (-1, 0, 1):
-        tx = cx + k * s * 0.64
-        d.rectangle([tx - tw, cy - s * 0.95, tx + tw, cy - s * 0.3],
-                    fill=(178, 182, 188), outline=(18, 18, 18))
-    d.pieslice([cx - s * 0.32, cy - s * 0.02, cx + s * 0.32, cy + s * 0.62], 180, 360,
-               fill=(30, 32, 36))
-    d.rectangle([cx - s * 0.32, cy + s * 0.3, cx + s * 0.32, cy + s], fill=(30, 32, 36))
-
-
-def _render(world, name: str, *, max_px: int) -> bytes:
-    from PIL import Image, ImageDraw, ImageFont
+def snapshot(world, name: str | None) -> dict:
+    """冻结当前玩家可见事实。没有 fog 外格子的归属/军队/资源，也不读邻格秘密画边界。"""
     import mp_ai
+    from balance import ARMY_MAX_HP
 
     n = world.size
     observer = name is None
-    if observer:
-        vis_all = {(x, y) for x in range(n) for y in range(n)}   # 世界地图：无迷雾
-        own_all = set()
-    else:
-        vis_all = mp_ai._visible_cells(world, name)
-        own_all = set(world.own_tiles(name))
-    cx0, cx1, cy0, cy1 = (0, n - 1, 0, n - 1) if observer else _crop_box(vis_all, own_all, n)
-    cw, ch = cx1 - cx0 + 1, cy1 - cy0 + 1
-    # 格宽按取景大小反推，让**每张图的总像素大致恒定**：取景小就画大点（别浪费画布），
-    # 取景大就画小点（别撑爆 token）。夹在 [24, 64]：再小读不出坐标，再大没有收益。
-    cell = max(24, min(64, round(max_px / max(cw, ch))))
-    pad_l, pad_t, pad_r = 46, 66, 14
-    mini_w = 150 if (cw, ch) != (n, n) else 0      # 裁了才需要小地图
-    legend_lines = _legend_lines(world, name, vis_all, own_all)
-    grid_w, grid_h = cw * cell, ch * cell
-
-    def font(sz, bold=False):
-        p = _FONT_CANDIDATES[1 if bold else 0]
-        try:
-            return ImageFont.truetype(p, sz, index=_FONT_INDEX)
-        except Exception:
-            return ImageFont.truetype(_FONT_CANDIDATES[0], sz, index=_FONT_INDEX)
-    f_tick = font(11)
-    f_terr = font(10)
-    f_own = font(15, bold=True)
-    f_title = font(15, bold=True)
-    f_leg = font(12)
-    f_leg_s = font(11)
-    f_badge = font(10, bold=True)
-
-    # ★ 画布要**装得下最长的那行图例**：不然它被右边缘切掉半句，而模型看到的
-    #   是一句残话（比不写更糟——它会把残话当完整说明）。宽度取「网格」与「图例」
-    #   两者的大者。
-    leg_w = max((int(f_leg_s.getlength(s)) for s in legend_lines), default=0)
-    W = max(pad_l + grid_w + pad_r + mini_w, pad_l + leg_w + pad_r)
-    H = pad_t + grid_h + 17 * len(legend_lines) + 62
-    img = Image.new("RGB", (W, H), BG)
-    d = ImageDraw.Draw(img)
-
-    vis, own = vis_all, own_all
-    letters = mp_ai._nation_letters(world)
-    colors = {nm: NATION_COLORS[i % len(NATION_COLORS)]
-              for i, nm in enumerate(world.order)}
-    reach = set() if observer else (mp_ai._reach_cells(world, name) & vis)
-
-    army_at: dict = {}
-    for a in world.armies:
-        army_at.setdefault((a["x"], a["y"]), []).append(a)
-
-    def px(x, y):
-        return pad_l + (x - cx0) * cell, pad_t + (y - cy0) * cell
-
-    xs = range(cx0, cx1 + 1)
-    ys = range(cy0, cy1 + 1)
-
-    f_tick = font(11)
-    f_terr = font(10)
-    f_own = font(14, bold=True)
-    f_title = font(15, bold=True)
-    f_leg = font(12)
-    f_leg_s = font(11)
-    f_badge = font(10, bold=True)
-    f_cnt = font(11, bold=True)
-
-    def px(x, y):
-        return pad_l + (x - cx0) * cell, pad_t + (y - cy0) * cell
-
-    xs = range(cx0, cx1 + 1)
-    ys = range(cy0, cy1 + 1)
-
-    def buildings(x, y):
-        return (world.tiles.get((x, y)) or {}).get("buildings") or {}
-
-    def landmark(x, y):
-        """这格有没有**地标**：市政厅（国祚）或城堡（防御）。
-
-        ★ 为什么不用"有没有建筑"（2026-10-12 试过两轮）：
-          ① `bool(buildings(x,y))` 是错的——那个 dict **16 个键恒在**、没建的值是 0，
-             `bool()` 恒为 True ⇒ 每格都算"核心"、斜纹一次没画过，症状还是"看起来正常"；
-          ② 就算改对，"有任意建筑"也不合用——规则 AI 几乎**每格都盖农场林场**，
-             于是满屏全是核心，纹理照样出不来。
-          ③ 这版图本来就只画 3 类地标（厅 / 城 / 军队），**其余一律退成纹理**才立得住：
-             "图上的实色块 = 有事的地方"。
-        """
-        b = buildings(x, y)
-        return bool(b.get("市政厅") or b.get("城堡"))
-
-    def is_core(x, y):
-        return landmark(x, y) or bool(army_at.get((x, y)))
-
-    # ---- 1. 地形底 / 迷雾 ----
-    for y in ys:
-        for x in xs:
-            x0, y0 = px(x, y)
-            box = [x0, y0, x0 + cell - 1, y0 + cell - 1]
-            if (x, y) not in vis:
-                d.rectangle(box, fill=FOG_FILL)
-            else:
-                d.rectangle(box, fill=TERRAIN_FILL.get(world.tile_terrain(x, y), (60, 60, 60)))
-
-    # ---- 2. 归属：核心地实色、非核心地**交错线**（用户 2026-10-12 的口径） ----
-    # 为什么非核心用交错线：国土一大片，全是实色就成了一块色斑，**有内容的格子反而看不出来**。
-    # 交错线把"就是块地"压成纹理，国色照样在（线是国色），注意力让给核心格。
-    for y in ys:
-        for x in xs:
-            o = world.owned_by(x, y)
-            if not o or (x, y) not in vis:
-                continue
-            col = colors.get(o, (200, 200, 200))
-            x0, y0 = px(x, y)
-            base = TERRAIN_FILL.get(world.tile_terrain(x, y), (60, 60, 60))
-            if is_core(x, y):
-                d.rectangle([x0 + 1, y0 + 1, x0 + cell - 2, y0 + cell - 2], fill=col)
-            else:
-                # ★ 用户 2026-10-12：「国色要完整覆盖格子」——底就是**满格国色**，
-                #   不留地形底色透出来；条纹改成**国色的暗版**，只负责说"这里就是块地"。
-                #   于是：核心格 = 平涂满色，非核心格 = 满色 + 暗条纹。地形改由格角字母承载。
-                d.rectangle([x0 + 1, y0 + 1, x0 + cell - 2, y0 + cell - 2], fill=col)
-                _hatch(d, (x0 + 1, y0 + 1, x0 + cell - 2, y0 + cell - 2),
-                       tuple(int(c * 0.45) for c in col))
-            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
-                nx, ny = x + dx, y + dy
-                if cx0 <= nx <= cx1 and cy0 <= ny <= cy1 and world.owned_by(nx, ny) == o:
-                    continue
-                if dx == 0:
-                    yy = y0 if dy < 0 else y0 + cell - 2
-                    d.rectangle([x0, yy, x0 + cell - 1, yy + 1], fill=col)
-                else:
-                    xx = x0 if dx < 0 else x0 + cell - 2
-                    d.rectangle([xx, y0, xx + 1, y0 + cell - 1], fill=col)
-
-    # ---- 3. 逐格内容：地形字母 / 资源点 / 归属字母 / 建筑简笔画 / 可及虚线 ----
-    for y in ys:
-        for x in xs:
-            if (x, y) not in vis:
-                continue
-            x0, y0 = px(x, y)
-            o = world.owned_by(x, y)
-            t = world.tiles.get((x, y))
-            # ★ 国色满格覆盖之后，原来看得清的浅灰小字在亮底上就糊了 ⇒ 按底色明暗选字色
-            d.text((x0 + 3, y0 + cell - 12), world.ter_char(x, y).upper(), font=f_terr,
-                   fill=(24, 24, 26) if o else INK_DIM)
-            if t:
-                for r in ("黄金", "石油", "耕地", "矿石", "木头"):
-                    if (t.get("res") or {}).get(r, 0) > 0:
-                        d.ellipse([x0 + cell - 9, y0 + 4, x0 + cell - 4, y0 + 9],
-                                  fill=RES_COLORS[r])
-                        break
-            b = buildings(x, y)
-            # 国土**只给颜色，不给字母**（用户 2026-10-12：「国土不用字母，纯颜色」）。
-            # 国别靠 `colors` 那张表 + 图例的色块对照；识别代价见 NATION_COLORS 上那段。
-            # 建筑：简笔画（照 🏰/🏠 的 emoji 提炼：**城垛+拱门** / **三角顶+门**；
-            #   🏙️ 那堆竖条缩到 20px 会糊，所以"厅"按用户口径画成房子）
-            if b.get("市政厅"):
-                _house(d, x0 + cell // 2, y0 + cell // 2 + 2, s=max(9, cell // 5))
-            elif b.get("城堡"):
-                _castle(d, x0 + cell // 2, y0 + cell // 2 + 2, s=max(9, cell // 5))
-                d.text((x0 + cell - 6, y0 + cell - 7), str(b["城堡"]), font=f_badge,
-                       fill=INK, anchor="mm", stroke_width=2, stroke_fill=(12, 13, 15))
-            if (x, y) in reach:
-                for i in range(0, cell - 2, 6):
-                    j = min(i + 3, cell - 1)
-                    d.line([x0 + i, y0 + cell - 1, x0 + j, y0 + cell - 1], fill=(246, 246, 240))
-                    d.line([x0 + i, y0, x0 + j, y0], fill=(246, 246, 240))
-                    d.line([x0, y0 + i, x0, y0 + j], fill=(246, 246, 240))
-                    d.line([x0 + cell - 1, y0 + i, x0 + cell - 1, y0 + j], fill=(246, 246, 240))
-
-    # ---- 4. 军队：**一格最多三张兵牌 = 我 / 敌 / 中立** ----
-    # ★ 用户 2026-10-12 的口径：「一个格子最多三个不同兵牌，相同战线合并，只有交战两方和
-    #   中立方」+「兵牌带颜色，带这格子全部友军的 hp 和敌军的 hp」。
-    #   于是分桶只有三个：**我方 / 敌方 / 中立**——不管一格里堆了几个军、几个国，
-    #   画出来永远 ≤3 张牌，堆叠永远挤不爆。
-    #   框形按北约约定（先于颜色）：矩形=我方、菱形=敌方、正方形=中立；野人是圆（不属阵营）。
-    #   HP = 该阵营在这格的**总血量**（血条 + 数字），所以"这格打不打得动"一眼看得出。
-    def bucket_of(nm):
-        """四档阵营：自己 / 友军(同盟) / 敌人(交战方) / 中立。"""
-        if nm == name:
-            return "self"
-        blk = world.bloc_of(name)
-        if blk and nm in blk["members"]:
-            return "ally"
-        for w in world.wars:
-            try:
-                a, dd = world._war_sides(w)
-            except Exception:
-                continue
-            if (name in a and nm in dd) or (name in dd and nm in a):
-                return "enemy"
-        return "neutral"
-
-    def draw_counter(cx, cy, w, h, ring, ncol, glyph, hp, mx, cnt, tile_x1):
-        """一张兵牌 —— **两层嵌套长方体**（用户 2026-10-12 给的结构，由外到内）：
-
-            黑描边  →  阵营色一圈  →  白色内框  →  暗底 + 兵种符号(国家色)
-
-        阵营由**那圈颜色**定：自己绿 / 友军蓝 / 敌人红 / 中立灰。
-        牌上数字=这格该阵营有几支；牌下血条=该阵营在这格的**总血量**
-        （用户：「带这格子全部友军的 hp，和敌军的 hp」）。
-
-        ★ 这个"框"不是装饰：**符号能在任何底色上读出来，靠的就是这圈框**，
-          而不是靠"国土色跟阵营色不一样"（后者几何上做不到，见 `NATION_COLORS` 上那段）。
-        """
-        hw, hh = w // 2, h // 2
-        side = ring
-        d.rectangle([cx - hw - 3, cy - hh - 3, cx + hw + 3, cy + hh + 3], fill=(8, 9, 11))
-        d.rectangle([cx - hw - 2, cy - hh - 2, cx + hw + 2, cy + hh + 2], fill=side)
-        d.rectangle([cx - hw + 1, cy - hh + 1, cx + hw - 1, cy + hh - 1], fill=(248, 248, 244))
-        iw, ih = hw - 3, hh - 3
-        d.rectangle([cx - iw, cy - ih, cx + iw, cy + ih], fill=(16, 17, 21))
-        _unit_glyph(d, cx, cy, iw - 1, ih - 1, glyph, ncol)
-        if cnt > 1:
-            # ★ 数字必须**夹在格子里**：双牌布局时 cx 在 3/4 处，cx+hw+8 会溢到隔壁格，
-            #   而"隔壁格的数字"是彻底的误导（2026-10-12 真踩到）。
-            d.text((min(cx + hw + 8, tile_x1 - 6), cy), str(cnt), font=f_cnt,
-                   fill=(255, 255, 255), anchor="rm" if cx + hw + 8 > tile_x1 - 6 else "lm",
-                   stroke_width=3, stroke_fill=(8, 9, 11))
-        bar_w = max(8, w + 4)
-        bx = cx - bar_w // 2
-        by = cy + hh + 5
-        d.rectangle([bx, by, bx + bar_w, by + 3], fill=(26, 26, 28))
-        if mx > 0:
-            d.rectangle([bx, by, bx + int(bar_w * max(0.0, min(1.0, hp / mx))), by + 3],
-                        fill=(126, 226, 126) if hp / mx > 0.5 else (238, 176, 62))
-        bar_w = max(6, w - 4)
-        bx = cx - bar_w // 2
-        by = cy + hh + 2
-        d.rectangle([bx, by, bx + bar_w, by + 3], fill=(26, 26, 28))
-        if mx > 0:
-            d.rectangle([bx, by, bx + int(bar_w * max(0.0, min(1.0, hp / mx))), by + 3],
-                        fill=(120, 220, 120) if hp / mx > 0.5 else (235, 170, 60))
-
-    for y in ys:
-        for x in xs:
-            here = army_at.get((x, y))
-            if not here or (x, y) not in vis:
-                continue
-            x0, y0 = px(x, y)
-            groups: dict = {}
-            for a in here:
-                if a["owner"] == "野人":
-                    continue
-                k = ("n:" + a["owner"]) if observer else bucket_of(a["owner"])
-                groups.setdefault(k, []).append(a)
-            if observer:                      # 观察者：按总血量取前 3 个国家
-                seq = sorted(groups, key=lambda k: -sum(a.get("hp", 0) for a in groups[k]))[:3]
-            else:
-                seq = [k for k in ("self", "ally", "enemy", "neutral") if groups.get(k)]
-            if not seq:                            # 只有野人：空心圆，不进阵营体系
-                r = max(3, cell // 9)
-                d.ellipse([x0 + cell // 2 - r, y0 + cell // 2 - r,
-                           x0 + cell // 2 + r, y0 + cell // 2 + r], outline=BARB, width=2)
-                continue
-            ncnt = len(seq)
-            # ★ 别叫 cw/ch —— 上面那个 `cw` 是**网格宽**，这里一覆盖，标题的
-            #   "全世界 vs 取景"判断就跟着错（2026-10-12 真踩到，症状只出现在标题文字上）。
-            kcw = max(14, min(cell // 2 + 2, (cell - 8) // max(1, min(ncnt, 2)) - 4))
-            kch = max(14, min(kcw + 4, cell // 2))
-            for i, k in enumerate(seq):
-                arr = groups[k]
-                if ncnt == 1:
-                    slots = [(cell // 2, cell // 2 - 2)]
-                elif ncnt == 2:
-                    slots = [(cell // 4, cell // 2 - 2), (3 * cell // 4, cell // 2 - 2)]
-                elif ncnt == 3:
-                    slots = [(cell // 4, cell // 4), (3 * cell // 4, cell // 4),
-                             (cell // 2, 3 * cell // 4)]
-                else:
-                    slots = [(cell // 4, cell // 4), (3 * cell // 4, cell // 4),
-                             (cell // 4, 3 * cell // 4 + 2), (3 * cell // 4, 3 * cell // 4 + 2)]
-                ox, oy = slots[i]
-                hp = sum(a.get("hp", 0) for a in arr)
-                top = max(arr, key=lambda z: z.get("hp", 0))
-                ring = (colors.get(top["owner"], (200, 200, 200)) if observer
-                        else SIDE_COLORS.get(k, SIDE_COLORS["neutral"]))
-                draw_counter(x0 + ox, y0 + oy, kcw, kch, ring,
-                             colors.get(top["owner"], (200, 200, 200)),
-                             top.get("type", "步"), hp, 100 * len(arr), len(arr),
-                             x0 + cell - 2)
+    vis = ({(x, y) for y in range(n) for x in range(n)} if observer
+           else mp_ai._visible_cells(world, name))
+    reach = set() if observer else mp_ai._reach_cells(world, name) & vis
+    sides = _sides(world, name)
+    cells = []
+    for x, y in sorted(vis, key=lambda xy: (xy[1], xy[0])):
+        tile = world.tiles.get((x, y)) or {}
+        owner = world.owned_by(x, y)
+        buildings = tile.get("buildings", {})
+        # 他国内政仍未探明；公开地标仅厅/城，资源点只画自己和无主废墟。
+        resources = tile.get("resources", {}) if observer or owner in (None, name) else {}
+        cells.append({"x": x, "y": y, "owner": owner,
+                      "terrain": world.tile_terrain(x, y),
+                      "townhall": buildings.get("市政厅", 0),
+                      "castle": buildings.get("城堡", 0),
+                      "resources": [r for r in RES_COLORS if resources.get(r, 0) > 0],
+                      "reach": (x, y) in reach})
+    armies = [{"x": a["x"], "y": a["y"], "owner": a["owner"],
+               "kind": a.get("type", "步"), "hp": a.get("hp", 0)}
+              for a in world.armies if (a["x"], a["y"]) in vis and a.get("hp", 0) > 0]
+    armies.sort(key=lambda a: (a["y"], a["x"], a["owner"], a["kind"], a["hp"]))
+    return {"version": SNAPSHOT_VERSION, "size": n, "turn": world.turn,
+            "player": name, "order": list(world.order), "sides": sides,
+            "army_max_hp": ARMY_MAX_HP, "cells": cells, "armies": armies}
 
 
-    # ---- 5. 坐标：**四边都标**（用户 2026-10-12：xy 坐标在上下） ----
-    # 为什么四边都要：取景框是竖长条时，底下的格子离顶上的列号很远，读坐标要来回找。
-    for x in xs:
-        x0, _ = px(x, cy0)
-        d.text((x0 + cell // 2, pad_t - 9), str(x + 1), font=f_tick, fill=INK, anchor="ms")
-        d.text((x0 + cell // 2, pad_t + grid_h + 9), str(x + 1), font=f_tick,
-               fill=INK, anchor="mt")
-    for y in ys:
-        _, y0 = px(cx0, y)
-        d.text((pad_l - 8, y0 + cell // 2), str(y + 1), font=f_tick, fill=INK, anchor="rm")
-        d.text((pad_l + grid_w + 8, y0 + cell // 2), str(y + 1), font=f_tick,
-               fill=INK, anchor="lm")
-        d.line([pad_l, y0, pad_l + grid_w, y0], fill=GRID)
-    for x in xs:
-        x0, _ = px(x, cy0)
-        d.line([x0, pad_t, x0, pad_t + grid_h], fill=GRID)
+def legend_text(world, name) -> str:
+    parts = [f"{nm}={COLOR_NAMES[i % len(COLOR_NAMES)]}" + ("（你）" if nm == name else "")
+             for i, nm in enumerate(world.order)]
+    return ("国别颜色对照：" + "　".join(parts) + "。坐标(x,y)从1开始：x向右、y向下。"
+            "深蓝黑格=视野外（不是无主）；草线平原、树森林、圆丘丘陵、尖峰山地、沙纹沙漠。"
+            "国土整格国色；浅斜纹=无厅/城/军队。白线=可见国界；白虚线=本回合可及。"
+            "房子=市政厅；城垛=城堡，数字=等级；两者同时存在时都显示。"
+            "兵牌外圈绿自己/蓝盟友/红敌人/灰中立；内芯X步兵、/骑兵、点民兵，"
+            "混合兵种并列；数字=该阵营支数，血条=合计HP/合计最大HP。"
+            "兵种符号取该阵营最高HP部队的国家色，不代表全组只有该国；确切国别、番号、HP查文本。"
+            "空心圆=野人。资源点只显示自己及可见无主废墟；世界图外圈改用国家色。")
 
-    # ---- 6. 标题 ----
-    scope = f"全世界 {n}×{n}" if (cw, ch) == (n, n) else f"取景 x{cx0 + 1}-{cx1 + 1} y{cy0 + 1}-{cy1 + 1}"
-    who = "观察者(无迷雾)" if observer else name
-    d.text((pad_l, 14), f"{who} · 第 {world.turn} 回合 · {scope}（坐标 1-based）",
-           font=f_title, fill=INK)
 
-    # ---- 7. 小地图（裁过才画） ----
-    if mini_w:
-        mcell = max(2, (mini_w - 12) // n)
-        mw = mh = mcell * n
-        mx0, my0 = W - mini_w + 6, pad_t
-        d.rectangle([mx0 - 3, my0 - 3, mx0 + mw + 2, my0 + mh + 2], fill=(10, 11, 13), outline=GRID)
-        for y in range(n):
-            for x in range(n):
-                o = world.owned_by(x, y)
-                if (x, y) not in vis_all:
-                    col = (26, 28, 32)
-                elif o:
-                    col = colors.get(o, (200, 200, 200))
-                else:
-                    col = (58, 60, 56)
-                d.rectangle([mx0 + x * mcell, my0 + y * mcell,
-                             mx0 + x * mcell + mcell - 1, my0 + y * mcell + mcell - 1], fill=col)
-        d.rectangle([mx0 + cx0 * mcell, my0 + cy0 * mcell,
-                     mx0 + (cx1 + 1) * mcell - 1, my0 + (cy1 + 1) * mcell - 1],
-                    outline=(250, 250, 245), width=2)
-        d.text((mx0, my0 + mh + 8), "全世界/白框=上图取景", font=f_terr, fill=INK_DIM)
+def render(world, name: str, *, max_px: int = 960, emit=None, bounds=None) -> bytes | None:
+    """默认完整世界；bounds=(x0,x1,y0,y1) 可显式请求局部细图（0-based，含端点）。
 
-    # ---- 8. 图例 ----
-    ly = pad_t + grid_h + 26
-    # ★ 这里原本画一排"色卡=国名"，2026-10-12 实测**模型读不出来**（4/12 vs 文本 9/12），
-    #   改成一行指路：对照表走 `legend_text()`，和状态文本一起发。
-    d.text((pad_l, ly), "国别=颜色对照见表外文本；本图只画形状与位置", font=f_leg, fill=INK)
-    for i, line in enumerate(legend_lines):
-        d.text((pad_l, ly + 22 + 17 * i), line, font=f_leg_s, fill=INK_DIM)
-
-    buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
-    return buf.getvalue()
+    max_px 是网格边长预算，不含四边刻度；格宽最小24、最大72。
+    全图不因飞地或联盟改变取景，模型可以跨回合比较同一坐标。
+    """
+    try:
+        return render_snapshot(snapshot(world, name), max_px=max_px, emit=emit, bounds=bounds)
+    except Exception as exc:
+        _warn_once(emit, f"{type(exc).__name__}: {str(exc)[:160]}")
+        return None
 
 
 def render_world(world, *, max_px: int = 1500, emit=None) -> bytes | None:
-    """**世界地图**（观察者视角）：不裁、无迷雾、全部军队。
+    return render(world, None, max_px=max_px, emit=emit)
 
-    给看海/复盘用——玩家视角那张是带迷雾的局部图（`render`），这张是全局事实。
-    `max_px` 默认比玩家图大（1500），因为世界地图本来就该看得全。
-    """
-    ok, why = available()
-    if not ok:
-        _warn_once(emit, why)
-        return None
+
+def render_snapshot(state: dict, *, max_px: int = 960, emit=None, bounds=None) -> bytes | None:
+    """从 JSON 可序列化的可见快照画图；历史重放无需读取当前世界。"""
     try:
-        return _render(world, None, max_px=max_px)
-    except Exception as e:
-        _warn_once(emit, f"{type(e).__name__}: {str(e)[:160]}")
+        return _render_snapshot(state, max_px=max_px, bounds=bounds)
+    except Exception as exc:
+        _warn_once(emit, f"{type(exc).__name__}: {str(exc)[:160]}")
         return None
+
+
+def _hatch(d, box, color, step=15, width=5):
+    x0, y0, x1, y1 = box
+    for c in range(x0 - y1, x1 - y0 + 1, step):
+        points = [(c + y0, y0), (c + y1, y1), (x0, x0 - c), (x1, x1 - c)]
+        points = sorted(set((x, y) for x, y in points if x0 <= x <= x1 and y0 <= y <= y1))
+        if len(points) >= 2:
+            d.line([points[0], points[-1]], fill=color, width=width)
+
+
+def _house(d, cx, cy, s):
+    ink = (248, 246, 238)
+    d.polygon([(cx-s, cy), (cx+s, cy), (cx, cy-s)], fill=ink, outline=BG)
+    d.rectangle((cx-s*.7, cy, cx+s*.7, cy+s), fill=ink, outline=BG)
+    d.rectangle((cx-s*.2, cy+s*.4, cx+s*.2, cy+s), fill=BG)
+
+
+def _castle(d, cx, cy, s):
+    d.rectangle((cx-s, cy-s*.3, cx+s, cy+s), fill=(185, 190, 200), outline=BG)
+    for k in (-1, 0, 1):
+        tx = cx+k*s*.65
+        d.rectangle((tx-s*.23, cy-s, tx+s*.23, cy), fill=(185, 190, 200), outline=BG)
+    d.rectangle((cx-s*.2, cy+s*.3, cx+s*.2, cy+s), fill=BG)
+
+
+def _unit_glyph(d, cx, cy, w, h, kind, col):
+    width = max(1, min(w, h)//2)
+    if kind == "民":
+        r = max(1, min(w, h))
+        d.ellipse((cx-r, cy-r, cx+r, cy+r), fill=col)
+    else:
+        d.line((cx-w, cy+h, cx+w, cy-h), fill=col, width=width)
+        if kind != "骑":
+            d.line((cx-w, cy-h, cx+w, cy+h), fill=col, width=width)
+
+
+def _terrain(d, terrain, cell, base, *, busy=False):
+    """抽象地貌：宽阔而低对比，不与亮色地标和兵牌争注意力。"""
+    ink=tuple(max(10,int(v*.5)) for v in base)
+    cx,cy=cell//2,cell//2
+    radius=max(5,cell//4)
+    if busy:
+        # 军队/地标占中央时，地貌退到左下，仍能看出树/山的轮廓。
+        cx,cy=7,cell-6
+        radius=4
+    if terrain=="森林":
+        for dx,dy in ((-radius//2,1),(radius//2,0),(0,-radius//2)):
+            tx,ty=cx+dx,cy+dy
+            d.polygon(((tx-radius//2,ty+radius//2),(tx+radius//2,ty+radius//2),(tx,ty-radius)),fill=ink)
+            d.line((tx,ty,tx,ty+radius),fill=ink,width=2)
+    elif terrain=="山地":
+        for dx in (-radius//2,radius//2):
+            tx=cx+dx
+            d.polygon(((tx-radius,cy+radius),(tx+radius,cy+radius),(tx,cy-radius)),fill=ink)
+            d.polygon(((tx-radius//3,cy-radius//3),(tx+radius//3,cy-radius//3),(tx,cy-radius)),
+                      fill=tuple(min(255,int(v*.7+60)) for v in base))
+    elif terrain=="丘陵":
+        for dx in (-radius//2,radius//2):
+            d.arc((cx+dx-radius,cy-radius//2,cx+dx+radius,cy+radius),180,355,fill=ink,width=2)
+    elif terrain=="沙漠":
+        for offset in (-radius//2,radius//2):
+            d.arc((cx-radius,cy+offset-radius//2,cx+radius,cy+offset+radius//2),185,355,fill=ink,width=2)
+    else:
+        for dx,dy in ((-radius//2,0),(radius//2,radius//2),(0,-radius//2)):
+            d.line((cx+dx-2,cy+dy,cx+dx+2,cy+dy),fill=ink,width=1)
+
+
+def _counter(d, box, side, nation_color, armies, max_hp):
+    """所有内容在槽位矩形内；四阵营/三位支数也不能溢入隔壁。"""
+    x0, y0, x1, y1 = box
+    if x1-x0 < 12 or y1-y0 < 11:
+        # 极小格密集阵营只画紧凑色框，精确支数交给文本/局部放大图。
+        d.rectangle(box, fill=side, outline=BG)
+        if x1-x0 >= 6 and y1-y0 >= 5:
+            d.rectangle((x0+2,y0+2,x1-2,y1-2),fill=BG)
+            _unit_glyph(d,(x0+x1)//2,(y0+y1)//2,1,1,armies[0]["kind"],nation_color)
+        return
+    d.rectangle(box, fill=BG)
+    d.rectangle((x0+1, y0+1, x1-1, y1-1), fill=side)
+    d.rectangle((x0+3, y0+3, x1-3, y1-4), fill=INK)
+    d.rectangle((x0+4, y0+4, x1-4, y1-5), fill=BG)
+    kinds = [k for k in ("步", "骑", "民") if any(a["kind"] == k for a in armies)]
+    glyph_right = x1-4
+    if len(armies) > 1:
+        size = max(6, min(11, (y1-y0)//2))
+        f = _font(size)
+        count = str(len(armies))
+        while f.getlength(count) > (x1-x0)*.45 and size > 5:
+            size -= 1
+            f = _font(size)
+        d.text((x1-3, (y0+y1)//2-1), count, font=f, anchor="rm", fill=INK,
+               stroke_width=1, stroke_fill=BG)
+        glyph_right -= int(f.getlength(count))+1
+    left = x0+5
+    cy = (y0+y1)//2-1
+    gw = max(1, (glyph_right-left)//max(1,len(kinds)))
+    for i, k in enumerate(kinds):
+        _unit_glyph(d, left+gw*i+gw//2, cy, max(1,gw//2-1), max(1,(y1-y0-10)//2), k, nation_color)
+    hp = sum(a["hp"] for a in armies)
+    ratio = max(0., min(1., hp/(max_hp*len(armies))))
+    d.rectangle((x0+2, y1-2, x1-2, y1-1), fill=(48, 48, 48))
+    if ratio:
+        d.rectangle((x0+2, y1-2, x0+2+int((x1-x0-4)*ratio), y1-1),
+                    fill=(126,226,126) if ratio>.5 else (238,176,62))
+
+
+def _render_snapshot(state, *, max_px, bounds):
+    from PIL import Image, ImageDraw
+
+    if state["version"] != SNAPSHOT_VERSION:
+        raise ValueError("不支持的地图快照版本")
+    n = state["size"]
+    bounds = (0, n-1, 0, n-1) if bounds is None else tuple(bounds)
+    xlo, xhi, ylo, yhi = bounds
+    if not (0 <= xlo <= xhi < n and 0 <= ylo <= yhi < n):
+        raise ValueError("取景坐标越界")
+    if max_px <= 0:
+        raise ValueError("max_px 必须为正")
+    cell = max(24, min(72, int(max_px/max(xhi-xlo+1, yhi-ylo+1))))
+    margin, top, bottom = 38, 54, 36
+    gw, gh = (xhi-xlo+1)*cell, (yhi-ylo+1)*cell
+    img = Image.new("RGB", (gw+2*margin, gh+top+bottom), BG)
+    d = ImageDraw.Draw(img)
+    cells = {(c["x"],c["y"]):c for c in state["cells"]}
+    colors = {nm:NATION_COLORS[i%len(NATION_COLORS)] for i,nm in enumerate(state["order"])}
+    army_at = {}
+    for a in state["armies"]:
+        army_at.setdefault((a["x"],a["y"]), []).append(a)
+    observer = state["player"] is None
+    f_tick = _font(max(11,min(15,cell//3)))
+    f_small = _font(max(8,min(12,cell//4)))
+
+    for y in range(ylo,yhi+1):
+        for x in range(xlo,xhi+1):
+            c = cells.get((x,y))
+            # 逐格独立画层再贴图；线宽、数字、地标都不可能污染相邻格。
+            tile = Image.new("RGB", (cell,cell), FOG_FILL)
+            td = ImageDraw.Draw(tile)
+            if c:
+                owner = c["owner"]
+                col = colors.get(owner, TERRAIN_FILL.get(c["terrain"], (60,60,60)))
+                td.rectangle((1,1,cell-2,cell-2), fill=col)
+                here = army_at.get((x,y),[])
+                has_counter = any(a["owner"] != "野人" for a in here)
+                if owner and not (c["townhall"] or c["castle"] or here):
+                    _hatch(td, (1,1,cell-2,cell-2), tuple(int(v*.84) for v in col), step=20, width=2)
+                # 用地貌图形传达空间，不要求模型逐格解码细小字母/资源点。
+                _terrain(td, c["terrain"], cell, col, busy=bool(has_counter or c["townhall"] or c["castle"]))
+                # 地标留在顶栏，不被中部兵牌遮掉；厅与城并存不再二选一。
+                s = max(3,min(7,cell//8)) if has_counter else max(6,cell//5)
+                cy = s+2 if has_counter else cell//2
+                if c["townhall"]:
+                    _house(td, cell//3 if c["castle"] else cell//2, cy, s)
+                if c["castle"]:
+                    cx = 2*cell//3 if c["townhall"] else cell//2
+                    _castle(td,cx,cy,s)
+                    td.text((cell-3,2),str(c["castle"]),font=f_small,anchor="rt",fill=INK,
+                            stroke_width=1,stroke_fill=BG)
+                groups = {}
+                for a in here:
+                    if a["owner"] == "野人":
+                        continue
+                    key = a["owner"] if observer else state["sides"].get(a["owner"],"neutral")
+                    groups.setdefault(key,[]).append(a)
+                seq = ([nm for nm in state["order"] if nm in groups] if observer else
+                       [k for k in ("self","ally","enemy","neutral") if k in groups])
+                # 观察者若超过四国同格，保留最强三组并显示 +N，绝不静默丢掉其他国家。
+                overflow = max(0,len(seq)-4)
+                if overflow:
+                    seq = sorted(seq,key=lambda k:(-sum(a["hp"] for a in groups[k]),k))[:3]
+                    seq.append(None)
+                cols = 1 if len(seq)==1 else 2
+                rows = (len(seq)+cols-1)//cols
+                if rows:
+                    ya, yb = (2*s+5 if c["townhall"] or c["castle"] else 3), cell-12
+                    # 密集格顶栏图标紧凑，留至少两排兵牌。
+                    ya = min(ya, yb-rows*11)
+                    ya = max(2,ya)
+                    sw = (cell-4)//cols
+                    sh = (yb-ya)//rows
+                    for i,key in enumerate(seq):
+                        bx, by = 2+(i%cols)*sw, ya+(i//cols)*sh
+                        box = (bx,by,bx+sw-2,by+sh-1)
+                        if key is None:
+                            td.rectangle(box, fill=BG, outline=INK_DIM)
+                            td.text(((box[0]+box[2])//2,(box[1]+box[3])//2),
+                                    "+"+str(overflow+1),font=f_small,anchor="mm",fill=INK)
+                            continue
+                        arr = groups[key]
+                        lead = max(arr,key=lambda a:(a["hp"],a["owner"]))
+                        ring = colors[key] if observer else SIDE_COLORS[key]
+                        _counter(td,box,ring,colors.get(lead["owner"],INK),arr,state["army_max_hp"])
+                if any(a["owner"]=="野人" for a in here):
+                    td.ellipse((cell-9,2,cell-3,8),outline=BARB,width=2)
+                if c["reach"]:
+                    for i in range(3,cell-3,7):
+                        j=min(i+3,cell-3)
+                        for line in [(i,2,j,2),(i,cell-3,j,cell-3),(2,i,2,j),(cell-3,i,cell-3,j)]:
+                            td.line(line,fill=INK,width=1)
+            px, py = margin+(x-xlo)*cell, top+(y-ylo)*cell
+            img.paste(tile,(px,py))
+            if c is None:
+                # 迷雾中每五格一条低对比定位线；只有坐标，不含世界事实。
+                if x % 5 == 0:
+                    d.line((px,py,px,py+cell-1),fill=(25,34,45))
+                if y % 5 == 0:
+                    d.line((px,py,px+cell-1,py),fill=(25,34,45))
+
+    # 国界仅比较两边已知格；不可用 fog 外归属决定可见像素。
+    for (x,y),c in cells.items():
+        if not (xlo<=x<=xhi and ylo<=y<=yhi):
+            continue
+        px, py = margin+(x-xlo)*cell, top+(y-ylo)*cell
+        for dx,dy in [(1,0),(0,1)]:
+            neighbor=cells.get((x+dx,y+dy))
+            if neighbor is None or neighbor["owner"]==c["owner"]:
+                continue
+            if dx and x<xhi:
+                line=(px+cell-1,py,px+cell-1,py+cell-1)
+            elif dy and y<yhi:
+                line=(px,py+cell-1,px+cell-1,py+cell-1)
+            else:
+                continue
+            d.line(line,fill=BG,width=3)
+            d.line(line,fill=INK,width=1)
+
+    for x in range(xlo,xhi+1):
+        cx=margin+(x-xlo)*cell+cell//2
+        for cy in (top-14,top+gh+14):
+            d.text((cx,cy),str(x+1),font=f_tick,fill=INK,anchor="mm")
+    for y in range(ylo,yhi+1):
+        cy=top+(y-ylo)*cell+cell//2
+        for cx in (margin-17,margin+gw+17):
+            d.text((cx,cy),str(y+1),font=f_tick,fill=INK,anchor="mm")
+    scope="World" if bounds==(0,n-1,0,n-1) else f"x{xlo+1}-{xhi+1} y{ylo+1}-{yhi+1}"
+    title=f"{'Observer' if observer else 'Player'}  /  Turn {state['turn']}  /  {scope}  {n} x {n}"
+    d.text((margin,9),title,font=_font(16),fill=INK)
+    if not observer:
+        d.rectangle((img.width-30,12,img.width-16,26),fill=colors.get(state["player"],INK))
+    buf=io.BytesIO()
+    img.save(buf,format="PNG",optimize=True)
+    return buf.getvalue()
 
 
 def data_url(png: bytes, *, detail: str | None = None) -> dict:
-    """PNG 字节 → OpenAI/DeepSeek 那套 content 块（`detail` 见 DeepSeek 文档：
-    `low` 会把图缩到 512×512——实测同一张 1024² 图 652 token → 184 token）。"""
+    """PNG → OpenAI 兼容图像块；detail 是否生效取决于提供方。"""
     import base64
-    iu: dict = {"url": "data:image/png;base64," + base64.b64encode(png).decode()}
+    image={"url":"data:image/png;base64,"+base64.b64encode(png).decode("ascii")}
     if detail:
-        iu["detail"] = detail
-    return {"type": "image_url", "image_url": iu}
+        image["detail"]=detail
+    return {"type":"image_url","image_url":image}

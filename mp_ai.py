@@ -2520,7 +2520,7 @@ def _fmt_econ(world, name: str | None = None) -> str:
     return "\n".join(L)
 
 
-def full_state(world, name, replay_since: int | None = None) -> str:
+def full_state(world, name, replay_since: int | None = None, map_text: str | None = None) -> str:
     """本回合的新鲜状态（上下文尾部）。replay_since 见 turn_state。
 
     ★ **【威胁】排最上 + 【领土警报】紧随**（用户 2026-09-21：「威胁排最上」；丢地/被侵略
@@ -2537,7 +2537,7 @@ def full_state(world, name, replay_since: int | None = None) -> str:
         *([alerts] if alerts else []),
         f"【国力】\n{_res_line(world, name)}",
         f"【国策规划】\n{_fmt_plan(world, name)}",
-        f"【国土/视野】\n{_fmt_atlas(world, name)}",
+        f"【国土/视野】\n{_fmt_atlas(world, name) if map_text is None else map_text}",
         f"【军队】\n{_fmt_armies(world, name, brief=True)}",   # 常驻只给列表（图按需查）
         f"【市场】\n{_fmt_market(world, name)}",
         *([f"【央行】\n{_fmt_bank(world, name)}"] if world.bank_on() else []),
@@ -3424,17 +3424,17 @@ def _ctx_parts(world, name) -> tuple[list, list, list]:
 TURN_STATE_HEAD = "以上为过往回合记录"   # 本回合状态消息的抬头（存档/检索靠它认这条）
 
 
-def turn_state(world, name, replay_since: int | None = None) -> str:
+def turn_state(world, name, replay_since: int | None = None, map_text: str | None = None) -> str:
     """本回合的新鲜状态（消息尾部）。replay_since=已进 replay 的最早回合，
     用于把状态面板里重复的内容去掉（见 _fmt_memory/_fmt_news/_fmt_mail）。
 
     ★这条消息**原样进 replay**（见 `_store_turn_memory`）：它是本回合请求的最后一条，
     下回合必须按同一串字节把它摆在 replay 里，请求才是"上一次请求 + 新状态"的纯追加。"""
     return (f"{TURN_STATE_HEAD}，现在开始第 {world.turn} 回合行动。\n"
-            + engine_call(full_state, world, name, replay_since))
+            + engine_call(full_state, world, name, replay_since, map_text))
 
 
-def build_context(world, name, cfg) -> tuple[list[dict], "ctxlib.Plan"]:
+def build_context(world, name, cfg, *, emit=None) -> tuple[list[dict], "ctxlib.Plan"]:
     """构造一国本回合的完整 LLM 上下文（预算分配与缓存布局见 ctx.py）。
 
     顺序：system → 历史归档（已滑出回合的总结）→ replay（窗口内完整回合，含思考）
@@ -3446,16 +3446,36 @@ def build_context(world, name, cfg) -> tuple[list[dict], "ctxlib.Plan"]:
     normalize_cfg(cfg)
     system_text = engine_call(system_prompt, world, name)
     mem, sums, blocks = _ctx_parts(world, name)
+    map_text = None
+    tail_map = None
+    # 开关默认关闭；只有确认当前图能画出来，才移除逐格 atlas。
+    # 说明在游戏上下文直接注入，图里不塞文字图例。
+    if cfg.get("vision") is True:
+        import render as map_render
+        try:
+            facts = engine_call(map_render.snapshot, world, name)
+            max_px = max(240, min(1800, int(cfg.get("map_max_px", 960))))
+            if map_render.render_snapshot(facts, max_px=max_px, emit=emit) is not None:
+                map_text = ("本回合空间地图以图片提供；看形状、前线、地形与军队位置。"
+                            "精确地块/国别/番号/HP用 query panel=tile/land/army/battle。"
+                            "图片是回合开始时的快照；本回合行动后用 query 查最新状态。")
+                tail_map = {"facts": facts, "max_px": max_px,
+                            "estimated_tokens": max(1, int(cfg.get("map_image_tokens", 2048))),
+                            "fallback": engine_call(_fmt_atlas, world, name)}
+                # 放在 system 的稳定后缀，不改变每回合色表、阵营语义。
+                system_text += "\n【图片地图读法】\n" + map_render.legend_text(world, name)
+        except Exception as exc:
+            map_render._warn_once(emit, f"{type(exc).__name__}: {str(exc)[:160]}")
 
     def _build(tail: str):
         return ctxlib.build(cfg=cfg, mem=mem, sums=sums, blocks=blocks,
                             system_text=system_text, tail_text=tail,
                             tool_tokens=TOOL_SCHEMAS_TOKENS,
-                            long_memory=world.long_memory.get(name, ""))
+                            long_memory=world.long_memory.get(name, ""), tail_map=tail_map)
 
-    tail1 = turn_state(world, name, None)
+    tail1 = turn_state(world, name, None, map_text)
     msgs, plan = _build(tail1)
-    tail2 = turn_state(world, name, plan.before_turn)
+    tail2 = turn_state(world, name, plan.before_turn, map_text)
     if tail2 != tail1:
         msgs, plan = _build(tail2)
     return msgs, plan
@@ -3765,7 +3785,7 @@ def run_openai_turn(world, name, cfg, max_steps: int = 16, emit=None, on_call=No
     """
     backend = make_backend(cfg)
     # 上下文：窗口大小由配置 ctx_window 定义，深度/归档/下滑水位由 ctx.py 按预算动态分配
-    messages, plan = build_context(world, name, cfg)
+    messages, plan = build_context(world, name, cfg, emit=emit)
     if emit or head:
         _rl = ctxlib.rolling_hit(name)
         # ★ 这一行是**常驻状态行**（给了 head 就走 head）：它得整回合钉在状态区第 1 行，

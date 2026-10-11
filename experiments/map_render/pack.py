@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, sys, random, zipfile
+import os, sys, random, zipfile, json
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.stdout.reconfigure(encoding="utf-8")
@@ -18,6 +18,8 @@ OUT = Path(__file__).resolve().parent / "out"; OUT.mkdir(exist_ok=True)
 out = str(OUT)
 files = []
 png = render.render_world(w)
+if png is None:
+    raise SystemExit("地图渲染失败：" + str(render.available()))
 open(f"{out}/00_世界地图_全体第{w.turn}回合.png","wb").write(png)
 files.append(f"{out}/00_世界地图_全体第{w.turn}回合.png")
 print(f"世界地图 {len(png)/1024:.0f} KB")
@@ -26,8 +28,12 @@ for i, nm in enumerate(w.alive(), 1):
     if p is None: continue
     fn = f"{out}/{i:02d}_{nm}_视角第{w.turn}回合.png"
     open(fn,"wb").write(p); files.append(fn)
+    stem = Path(fn).with_suffix("")
+    facts = stem.with_suffix(".json")
+    facts.write_text(json.dumps(render.snapshot(w, nm), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    files.append(str(facts))
     print(f"  {nm} {len(p)/1024:.0f} KB")
 zp = str(Path(__file__).resolve().parent / "zhanguo-map-preview.zip")
 with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as z:
     for f in files: z.write(f, os.path.basename(f))
-print("打包:", zp, f"{os.path.getsize(zp)/1024:.0f} KB, {len(files)} 张")
+print("打包:", zp, f"{os.path.getsize(zp)/1024:.0f} KB, {len(files)} 个文件（PNG + 事实快照）")

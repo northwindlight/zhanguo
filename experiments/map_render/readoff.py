@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """对照实验，把"分不清"的病因拆开：
-   A 斜纹开 · 图例在图里      （现状）
-   B 斜纹**关** · 图例在图里   （→ 若 B≫A，凶手是斜纹）
+   A 斜纹开 · 不提供文字色表      （现状）
+   B 斜纹**关** · 不提供文字色表   （→ 若 B≫A，凶手是斜纹）
    C 斜纹开 · 图例在**文字里** （→ 若 C≫A，凶手是图例不好读）
 只考**有主的格子**（真正要问的是"分得清哪个国家"）。"""
 import json, base64, random, re, sys, urllib.request
@@ -25,8 +25,7 @@ owned = [(x, y) for (x, y) in sorted(vis) if w.owned_by(x, y)]
 random.seed(4); sample = random.sample(owned, min(12, len(owned)))
 truth = {(x+1, y+1): w.owned_by(x, y) for (x, y) in sample}
 
-TEXT_LEGEND = ("图例（国→颜色）：秦=黄　魏=青　韩=品红(你在的国家)　赵=白　"
-               "燕=亮黄　齐=亮青　楚=亮品红　周=亮蓝。")
+TEXT_LEGEND = render.legend_text(w, me)
 ROOT = Path(__file__).resolve().parents[2]
 _cfgs = sorted(ROOT.glob("mp_config*.json"))
 key = next((json.load(open(c))["nations"][0].get("api_key") for c in _cfgs
@@ -63,8 +62,8 @@ render._hatch = saved
 (OUT_DIR / "ro_solid.png").write_bytes(png_solid)
 
 print("考题:", "、".join(f"({a},{b})={v}" for (a,b),v in sorted(truth.items())))
-for tag, png, extra in (("A 斜纹开·图例在图里", png_hatch, ""),
-                        ("B 斜纹关·图例在图里", png_solid, ""),
+for tag, png, extra in (("A 斜纹开·不提供文字色表", png_hatch, ""),
+                        ("B 斜纹关·不提供文字色表", png_solid, ""),
                         ("C 斜纹开·图例在文字", png_hatch, TEXT_LEGEND)):
     hit, got = score(ask(png, extra))
     print(f"\n{tag}: {hit}/{len(truth)}")

@@ -122,6 +122,17 @@ python3 mp_run.py --turns 10    # 读档续局；无档则新开
   `ctx_period` / `ctx_slice_keep` / `ctx_old_reasoning`（默认 `full`；**剥旧思考会致短视，不推荐**）/
   `ctx_trim_tool_chars` / `ctx_compact`。实现见 `ctx.py` 与 `mp_ai.py` 的 docstring。
 
+## 图片地图（可选）
+
+支持图片输入的模型可在配置顶层或国家条目设置 `"vision": true`，并安装
+`python -m pip install -r requirements-vision.txt`。国家色、阵营、地貌与坐标读法直接
+注入游戏上下文；图片展示完整世界、迷雾、地形、国界、地标和军队，代替常驻逐格 atlas。
+精确国别、番号、HP仍可用 `query` 查询，图片为本回合开始时的空间快照。
+
+`map_max_px`（默认 960）控制网格尺寸，`map_image_tokens`（默认 2048）是预算估算，
+应按提供方实际用量调整。历史只存可见事实，发送时重绘；图片失败退回文本地图。
+默认关闭，详情见 [地图渲染](experiments/map_render/README.md)。
+
 ## RL 训练线（`feat/rl` 分支）
 
 RL 训练与看海主线**分支维护**：PyTorch 环境、BC / PPO、transformer 主干都在 `feat/rl`。
