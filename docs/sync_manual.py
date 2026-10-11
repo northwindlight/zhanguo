@@ -522,7 +522,7 @@ def blk_terrain() -> str:
     return "\n".join(rows)
 
 
-BLOCKS: dict[str, object] = {
+LEGACY_BLOCKS: dict[str, object] = {
     "terrain": blk_terrain,
     "start": blk_start,
     "buildings": blk_buildings,
@@ -537,6 +537,15 @@ BLOCKS: dict[str, object] = {
     "settle": blk_settle,
     "tools": blk_tools,
 }
+
+
+def _rulebook_block(name: str) -> str:
+    # 延迟导入：规则册复用本模块的表格/参数函数，避免初始化循环。
+    from docs.sync_rulebook import blocks
+    return blocks()[name]
+
+
+BLOCKS = {name: (lambda name=name: _rulebook_block(name)) for name in LEGACY_BLOCKS}
 
 
 # ---- 《经济学手册》：正文不重写，逐字取自局内提示 ----
