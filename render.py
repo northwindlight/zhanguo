@@ -198,25 +198,41 @@ def _hatch(d, box, color, step=15, width=5):
             d.line([points[0], points[-1]], fill=color, width=width)
 
 
+# 地标与兵牌共用冷灰轮廓、深色内芯；亮度由描边承担，不贴白色实心图标。
+SYMBOL_FACE = (27, 38, 51)
+SYMBOL_EDGE = (214, 224, 231)
+
+
 def _house(d, cx, cy, s):
-    ink = (248, 246, 238)
-    d.polygon([(cx-s, cy), (cx+s, cy), (cx, cy-s)], fill=ink, outline=BG)
-    d.rectangle((cx-s*.7, cy, cx+s*.7, cy+s), fill=ink, outline=BG)
-    d.rectangle((cx-s*.2, cy+s*.4, cx+s*.2, cy+s), fill=BG)
+    """市政厅：细线屋顶/门，与兵牌相同的深底浅轮廓。"""
+    roof = [(cx-s, cy), (cx, cy-s), (cx+s, cy)]
+    body = (cx-s*.72, cy, cx+s*.72, cy+s*.9)
+    d.rectangle(body, fill=SYMBOL_FACE, outline=SYMBOL_EDGE, width=1)
+    d.polygon(roof, fill=SYMBOL_FACE)
+    d.line(roof, fill=SYMBOL_EDGE, width=1)
+    d.line((cx-s,cy,cx+s,cy), fill=SYMBOL_EDGE, width=1)
+    d.rectangle((cx-s*.2, cy+s*.34, cx+s*.2, cy+s*.9),
+                fill=SYMBOL_FACE, outline=SYMBOL_EDGE, width=1)
 
 
 def _castle(d, cx, cy, s):
-    d.rectangle((cx-s, cy-s*.3, cx+s, cy+s), fill=(185, 190, 200), outline=BG)
-    for k in (-1, 0, 1):
-        tx = cx+k*s*.65
-        d.rectangle((tx-s*.23, cy-s, tx+s*.23, cy), fill=(185, 190, 200), outline=BG)
-    d.rectangle((cx-s*.2, cy+s*.3, cx+s*.2, cy+s), fill=BG)
+    """城堡：连续城垛轮廓，与厅使用同一套线宽与填色。"""
+    points = [(cx-s,cy+s), (cx-s,cy-s), (cx-s*.6,cy-s),
+              (cx-s*.6,cy-s*.45), (cx-s*.2,cy-s*.45),
+              (cx-s*.2,cy-s), (cx+s*.2,cy-s),
+              (cx+s*.2,cy-s*.45), (cx+s*.6,cy-s*.45),
+              (cx+s*.6,cy-s), (cx+s,cy-s), (cx+s,cy+s)]
+    d.polygon(points, fill=SYMBOL_FACE)
+    d.line(points+[points[0]], fill=SYMBOL_EDGE, width=1)
+    d.rectangle((cx-s*.22,cy+s*.25,cx+s*.22,cy+s),
+                fill=SYMBOL_FACE, outline=SYMBOL_EDGE, width=1)
 
 
 def _unit_glyph(d, cx, cy, w, h, kind, col):
-    width = max(1, min(w, h)//2)
+    # 兵种是线符号，不能随牌宽膨胀成实心大叉。
+    width = 1 if min(w,h)<10 else 2
     if kind == "民":
-        r = max(1, min(w, h))
+        r = max(1, min(3, min(w,h)))
         d.ellipse((cx-r, cy-r, cx+r, cy+r), fill=col)
     else:
         d.line((cx-w, cy+h, cx+w, cy-h), fill=col, width=width)
@@ -256,42 +272,48 @@ def _terrain(d, terrain, cell, base, *, busy=False):
 
 
 def _counter(d, box, side, nation_color, armies, max_hp):
-    """所有内容在槽位矩形内；四阵营/三位支数也不能溢入隔壁。"""
+    """外框 → 阵营色框 → 留白内芯；支数在独立右栏，血条留在底栏。"""
     x0, y0, x1, y1 = box
-    if x1-x0 < 12 or y1-y0 < 11:
-        # 极小格密集阵营只画紧凑色框，精确支数交给文本/局部放大图。
-        d.rectangle(box, fill=side, outline=BG)
-        if x1-x0 >= 6 and y1-y0 >= 5:
-            d.rectangle((x0+2,y0+2,x1-2,y1-2),fill=BG)
+    width, height = x1-x0, y1-y0
+    d.rectangle(box, fill=BG)
+    # 清晰的外框在阵营色之外，与地图底色及国色分离。
+    d.rectangle((x0+1,y0+1,x1-1,y1-1), fill=side, outline=SYMBOL_EDGE, width=1)
+    if width < 12 or height < 11:
+        if width>=7 and height>=7:
+            d.rectangle((x0+3,y0+3,x1-3,y1-3),fill=SYMBOL_FACE)
             _unit_glyph(d,(x0+x1)//2,(y0+y1)//2,1,1,armies[0]["kind"],nation_color)
         return
-    d.rectangle(box, fill=BG)
-    d.rectangle((x0+1, y0+1, x1-1, y1-1), fill=side)
-    d.rectangle((x0+3, y0+3, x1-3, y1-4), fill=INK)
-    d.rectangle((x0+4, y0+4, x1-4, y1-5), fill=BG)
-    kinds = [k for k in ("步", "骑", "民") if any(a["kind"] == k for a in armies)]
-    glyph_right = x1-4
-    if len(armies) > 1:
-        size = max(6, min(11, (y1-y0)//2))
-        f = _font(size)
-        count = str(len(armies))
-        while f.getlength(count) > (x1-x0)*.45 and size > 5:
-            size -= 1
-            f = _font(size)
-        d.text((x1-3, (y0+y1)//2-1), count, font=f, anchor="rm", fill=INK,
-               stroke_width=1, stroke_fill=BG)
-        glyph_right -= int(f.getlength(count))+1
-    left = x0+5
-    cy = (y0+y1)//2-1
-    gw = max(1, (glyph_right-left)//max(1,len(kinds)))
-    for i, k in enumerate(kinds):
-        _unit_glyph(d, left+gw*i+gw//2, cy, max(1,gw//2-1), max(1,(y1-y0-10)//2), k, nation_color)
-    hp = sum(a["hp"] for a in armies)
-    ratio = max(0., min(1., hp/(max_hp*len(armies))))
-    d.rectangle((x0+2, y1-2, x1-2, y1-1), fill=(48, 48, 48))
+    # 两像素阵营色带；内芯与地标保持同色，取消厚白色内环。
+    left, right, top, bottom = x0+4, x1-4, y0+4, y1-5
+    d.rectangle((left,top,right,bottom),fill=SYMBOL_FACE)
+    kinds = [k for k in ("步","骑","民") if any(a["kind"]==k for a in armies)]
+    glyph_right=right
+    cy=(top+bottom)//2
+    if len(armies)>1:
+        size=max(6,min(11,height//2))
+        count=str(len(armies))
+        font=_font(size)
+        while font.getlength(count)>width*.36 and size>5:
+            size-=1
+            font=_font(size)
+        label_width=int(font.getlength(count))+2
+        glyph_right=right-label_width-2
+        if width>=24:
+            d.line((glyph_right+1,top,glyph_right+1,bottom),fill=(73,87,101),width=1)
+        d.text((right,cy),count,font=font,anchor="rm",fill=SYMBOL_EDGE)
+    span=max(1,glyph_right-left)
+    step=span/max(1,len(kinds))
+    for i,kind in enumerate(kinds):
+        cx=round(left+(i+.5)*step)
+        # 四周留白：单兵种也不横跨整个内芯。
+        half_w=max(1,int(step*.32))
+        half_h=max(1,int((bottom-top)*.30))
+        _unit_glyph(d,cx,cy,half_w,half_h,kind,nation_color)
+    ratio=max(0.,min(1.,sum(a["hp"] for a in armies)/(max_hp*len(armies))))
+    d.rectangle((x0+3,y1-3,x1-3,y1-2),fill=(50,63,75))
     if ratio:
-        d.rectangle((x0+2, y1-2, x0+2+int((x1-x0-4)*ratio), y1-1),
-                    fill=(126,226,126) if ratio>.5 else (238,176,62))
+        d.rectangle((x0+3,y1-3,x0+3+int((width-6)*ratio),y1-2),
+                    fill=(126,205,157) if ratio>.5 else (223,176,101))
 
 
 def _render_snapshot(state, *, max_px, bounds):
@@ -370,7 +392,12 @@ def _render_snapshot(state, *, max_px, bounds):
                     sh = (yb-ya)//rows
                     for i,key in enumerate(seq):
                         bx, by = 2+(i%cols)*sw, ya+(i//cols)*sh
-                        box = (bx,by,bx+sw-2,by+sh-1)
+                        # 单牌也留出周围地貌，避免兵种符号/内芯铺满整格。
+                        bw = min(sw-2, max(14, int(cell*.76)))
+                        bh = min(sh-1, max(11, int(cell*.50)))
+                        bx += (sw-2-bw)//2
+                        by += (sh-1-bh)//2
+                        box = (bx,by,bx+bw,by+bh)
                         if key is None:
                             td.rectangle(box, fill=BG, outline=INK_DIM)
                             td.text(((box[0]+box[2])//2,(box[1]+box[3])//2),
