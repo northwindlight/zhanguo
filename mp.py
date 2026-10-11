@@ -2095,9 +2095,31 @@ class World:
 
     @staticmethod
     def _spread(dmg: int, units: list[dict]):
-        per, rem = divmod(dmg, len(units))
-        for i, u in enumerate(units):
-            u["hp"] -= per + (1 if i < rem else 0)
+        """把伤害**均摊**到这一方的各军头上；**有军被打死时，多出来的那部分转嫁给还活着的**
+        ——不浪费在尸体上（用户 2026-10-11：「打架伤害虽然均摊，但是有人提前死了，
+        例如造成 100，对面两个兵，一个 20 一个 90，应该结算为 0、10」）。
+
+        旧写法 `hp -= per` 会让 20 兵吃 50（多吞 30）⇒ 90 兵只掉到 40，伤害**凭空少了三成**；
+        现在按 20 兵吃掉 20、剩下的 80 全砸在 90 兵头上 ⇒ 结算 0、10（总血 110→10）。
+
+        做法＝一轮轮均摊：谁这一轮会被打死就先结算它（只扣到 0），它吃不下的留到下一轮，
+        由**还活着的**重新均摊。没有军被打死时一轮就分完，与旧行为逐字相同。
+        """
+        left = int(dmg)
+        rest = list(units)
+        while left > 0 and rest:
+            per, rem = divmod(left, len(rest))
+            alive: list[dict] = []
+            for i, u in enumerate(rest):
+                take = per + (1 if i < rem else 0)
+                if take >= u["hp"]:
+                    left -= max(0, u["hp"])
+                    u["hp"] = 0
+                else:
+                    u["hp"] -= take
+                    left -= take
+                    alive.append(u)
+            rest = alive
 
     @staticmethod
     def faction_atk(units: list[dict]) -> int:
@@ -2796,44 +2818,8 @@ class World:
                         gold_in[n] += hall_gain
                         self._ledger(n)["gold_in"] += hall_gain
 
-        # 3) 战争结算
-        war_lines = self._resolve_battles()
-        for wx, wy, ln in war_lines:
-            self.log(ln, phase="战报", x=wx, y=wy)  # 带坐标 → 视野内（含瞭望塔圈）才可见
-        flat_lines = [ln for _, _, ln in war_lines]
-
-        # 3.5) 撤退落地：撤退军队已随本轮战斗结算（全场分摊），此刻脱离到目标格
-        for a in [a for a in self.armies if a.get("retreat_to")]:
-            tx, ty = a["retreat_to"]
-            # ★ **先抢存再 pop**：角色/减伤档要在下面三行日志里用，而 pop 与日志之间
-            #   隔着 `hp<=0` 判断和三层分支——本函数曾经就是"先 pop 后写日志"才把
-            #   攻/防角色丢掉的（谁再往里插一个分支就会再犯一次）。数据跟着军走，
-            #   与 pop 的位置无关。
-            role, cover = a.get("retreat_role"), a.get("retreat_cover", 100)
-            note = retreat_note(role != "攻", cover)
-            a.pop("retreat_to", None)
-            a.pop("retreat_cover", None)
-            a.pop("retreat_role", None)
-            if a["hp"] <= 0:
-                continue  # 结算中阵亡，撤不成了（战报已记）
-            if self._retreat_legal(a["owner"], tx, ty):
-                a["x"], a["y"] = tx, ty
-                a["engaged"] = False
-                self.log(f"{a['name']} 撤到 ({tx+1},{ty+1})，脱离交战（{note}）", phase="战报",
-                         nation=a["owner"], x=tx, y=ty)
-            else:
-                alts = [(nx, ny) for nx, ny in self.neighbors(a["x"], a["y"])
-                        if (nx, ny) != (a["x"], a["y"]) and self._retreat_legal(a["owner"], nx, ny)]
-                if alts:
-                    a["x"], a["y"] = alts[0]
-                    a["engaged"] = False
-                    self.log(f"{a['name']} 撤退目标格战局生变，改撤 ({alts[0][0]+1},{alts[0][1]+1})（{note}）",
-                             phase="战报", nation=a["owner"], x=alts[0][0], y=alts[0][1])
-                else:
-                    self.log(f"{a['name']} 撤退目标格已不合法且四周无可退点，原地留守（{note}）",
-                             phase="战报", nation=a["owner"], x=a["x"], y=a["y"])
-
-        # 4) 军队补给 + 回复（每国吃自己的补给仓）
+        # 3) 军队补给 + 回复（**先算补给、再打架**——用户 2026-10-11 钉死的回合末顺序：
+        #    补给了才有血打；饿着肚子打完再回血，等于让『断粮扣血』和『这一拳』互相插队）
         famine = {}
         for n in self.alive():
             ps = self.nation_armies(n)
@@ -2891,6 +2877,43 @@ class World:
         for n, (short, per, dead) in famine.items():
             self.log(f"⚠ {n} 补给断粮（缺 {short}，吃补给的每军 -{per}HP）："
                      f"{dead} 支军队饿毙", phase="内政", nation=n)
+
+        # 4) 战争结算
+        war_lines = self._resolve_battles()
+        for wx, wy, ln in war_lines:
+            self.log(ln, phase="战报", x=wx, y=wy)  # 带坐标 → 视野内（含瞭望塔圈）才可见
+        flat_lines = [ln for _, _, ln in war_lines]
+
+        # 4.5) 撤退落地：撤退军队已随本轮战斗结算（全场分摊），此刻脱离到目标格
+        for a in [a for a in self.armies if a.get("retreat_to")]:
+            tx, ty = a["retreat_to"]
+            # ★ **先抢存再 pop**：角色/减伤档要在下面三行日志里用，而 pop 与日志之间
+            #   隔着 `hp<=0` 判断和三层分支——本函数曾经就是"先 pop 后写日志"才把
+            #   攻/防角色丢掉的（谁再往里插一个分支就会再犯一次）。数据跟着军走，
+            #   与 pop 的位置无关。
+            role, cover = a.get("retreat_role"), a.get("retreat_cover", 100)
+            note = retreat_note(role != "攻", cover)
+            a.pop("retreat_to", None)
+            a.pop("retreat_cover", None)
+            a.pop("retreat_role", None)
+            if a["hp"] <= 0:
+                continue  # 结算中阵亡，撤不成了（战报已记）
+            if self._retreat_legal(a["owner"], tx, ty):
+                a["x"], a["y"] = tx, ty
+                a["engaged"] = False
+                self.log(f"{a['name']} 撤到 ({tx+1},{ty+1})，脱离交战（{note}）", phase="战报",
+                         nation=a["owner"], x=tx, y=ty)
+            else:
+                alts = [(nx, ny) for nx, ny in self.neighbors(a["x"], a["y"])
+                        if (nx, ny) != (a["x"], a["y"]) and self._retreat_legal(a["owner"], nx, ny)]
+                if alts:
+                    a["x"], a["y"] = alts[0]
+                    a["engaged"] = False
+                    self.log(f"{a['name']} 撤退目标格战局生变，改撤 ({alts[0][0]+1},{alts[0][1]+1})（{note}）",
+                             phase="战报", nation=a["owner"], x=alts[0][0], y=alts[0][1])
+                else:
+                    self.log(f"{a['name']} 撤退目标格已不合法且四周无可退点，原地留守（{note}）",
+                             phase="战报", nation=a["owner"], x=a["x"], y=a["y"])
 
         # 4.9) 脱离清扫：撤退军已落地离开原格，格上留守者不该再背「交战中」
         cleared = self._clear_disengaged()

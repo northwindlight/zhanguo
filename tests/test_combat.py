@@ -289,5 +289,65 @@ class TestReadsLive(_Base):
         self.assertLessEqual(d.need, 3, "need_cap 是搜索上限（防长局爆算）")
 
 
+class TestDamageSpillover(unittest.TestCase):
+    """★ 2026-10-11 用户口径：**伤害均摊，但有人先死时，多出来的转嫁给还活着的**。
+
+    「打架伤害虽然均摊，但是有人提前死了，例如造成 100，对面两个兵，
+      一个 20 一个 90，**应该结算为 0、10**」
+
+    旧写法 `hp -= per` 让 20 兵吞下 50（多吞 30，白扔了）⇒ 90 兵只掉到 40，
+    **伤害凭空少三成**；现在 20 兵吃掉 20、剩下 80 全砸在 90 兵头上 ⇒ 0、10。
+    """
+
+    def _spread(self, dmg, hps):
+        us = [{"hp": h} for h in hps]
+        mp.World._spread(dmg, us)
+        return [u["hp"] for u in us]
+
+    def test_the_users_example(self):
+        self.assertEqual(self._spread(100, [20, 90]), [0, 10],
+                         "溢出没有转嫁——多出来的伤害浪费在尸体上了")
+
+    def test_total_damage_is_conserved(self):
+        """不变量：**打出去多少就吃多少**（除非对面全死光）。"""
+        for dmg, hps in ((100, [20, 90]), (50, [20, 90]), (7, [3, 100]),
+                         (300, [100, 100, 100]), (1, [100, 100])):
+            with self.subTest(dmg=dmg, hps=hps):
+                out = self._spread(dmg, hps)
+                eaten = sum(hps) - sum(out)
+                self.assertEqual(eaten, min(dmg, sum(hps)), f"{dmg} 打到 {hps} 上没吃满")
+
+    def test_no_death_is_plain_even_split(self):
+        """**阴性对照**：没人被打死时与旧行为逐字相同（均摊 + 余数给前几支）。"""
+        self.assertEqual(self._spread(50, [100, 100]), [75, 75])
+        self.assertEqual(self._spread(1, [100, 100]), [99, 100])
+
+    def test_hp_never_goes_negative(self):
+        self.assertEqual(self._spread(999, [10, 10]), [0, 0], "HP 打到负数了")
+
+
+class TestTurnEndOrder(unittest.TestCase):
+    """★ 回合末结算顺序**钉死**（用户 2026-10-11：「先钉死回合结束的结算顺序，
+    记录到说明书，先外交再战争…然后先算补给再打架」）。
+
+    顺序是契约，不是实现细节：断一条就换一种战局。用**源码里的阶段标号顺序**卡住它
+    （顺序一旦被谁"顺手"调回去，这条就红）。外交队列落地后，"外交"应插在"战争结算"之前。
+    """
+
+    def test_pipeline_order(self):
+        src = Path(mp.__file__).read_text(encoding="utf-8")
+        body = src[src.index("def resolve_turn"):src.index("def _supply_fed")]
+        marks = ["0) ", "1) 采集", "2) 电网", "3) 军队补给", "4) 战争结算", "4.5) 撤退落地",
+                 "4.96) ★ 亡国判定", "5) 非法滞留", "5.5) 联盟投票逾期", "6) 市场"]
+        pos = []
+        for m in marks:
+            i = body.find("# " + m)
+            self.assertGreaterEqual(i, 0, f"阶段标号「{m}」不见了（被改写过？）")
+            pos.append(i)
+        self.assertEqual(pos, sorted(pos), "回合末结算顺序被改动了——这是钉死的契约")
+        self.assertLess(pos[3], pos[4], "补给必须在战斗结算**之前**（先算补给再打架）")
+        self.assertLess(pos[5], pos[6], "亡国判定必须在战斗结算**之后**")
+
+
 if __name__ == "__main__":
     unittest.main()
