@@ -1696,9 +1696,12 @@ class World:
         self._spend(name)["recruit"] += spent
         for i in range(n):
             gid, seq = self._new_army(name)
+            # ★ 新兵**本回合不能行动**（用户 2026-10-12 定案）：把 `moved_turn` 钉成本回合，
+            #   等于"已经动过"——移动/进攻/撤退共用这条闸（见 `_reachable` 那几处判定），
+            #   下一回合它自然解冻（判据是"== 当前回合"，不是"有没有动过"）。
             self.armies.append({"id": seq, "gid": gid, "name": army_name(name, seq, kind),
                                 "type": kind, "hp": unit_max_hp({"type": kind}), "x": x, "y": y,
-                                "owner": name, "moved_turn": -1, "engaged": False})
+                                "owner": name, "moved_turn": self.turn, "engaged": False})
         if kind == "民":
             t["militia_recruited_this_turn"] = t.get("militia_recruited_this_turn", 0) + n
         else:
