@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
-import sys
-from pathlib import Path, random
+import sys, random
+from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.stdout.reconfigure(encoding="utf-8")
 from scenarios import eight_nations as en
 import mp_ai, render
+
+OUT = Path(__file__).resolve().parent / "out"
+OUT.mkdir(exist_ok=True)
 
 S = 24
 starts = {n: (int(x * S / 36), int(y * S / 36)) for n, (x, y) in en.STARTS.items()}
@@ -18,5 +21,6 @@ for t in range(1, 61):
     if t in SHOTS:
         for who in ("韩",):
             png = render.render(w, who)
-            open(f"/tmp/zgui/m_{who}_t{t}.png", "wb").write(png)
+            (OUT / f"m_{who}_t{t}.png").write_bytes(png)
+
             print(f"t{t} {who}: {len(png)/1024:.1f} KB  {who} 国土{len(w.own_tiles(who))}块 视野{len(mp_ai._visible_cells(w,who))}格")

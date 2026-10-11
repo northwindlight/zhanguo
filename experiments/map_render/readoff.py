@@ -4,12 +4,15 @@
    B 斜纹**关** · 图例在图里   （→ 若 B≫A，凶手是斜纹）
    C 斜纹开 · 图例在**文字里** （→ 若 C≫A，凶手是图例不好读）
 只考**有主的格子**（真正要问的是"分得清哪个国家"）。"""
-import sys
-from pathlib import Path, json, base64, random, re, urllib.request
+import json, base64, random, re, sys, urllib.request
+from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.stdout.reconfigure(encoding="utf-8")
 from scenarios import eight_nations as en
 import mp_ai, render
+
+OUT_DIR = Path(__file__).resolve().parent / "out"
+OUT_DIR.mkdir(exist_ok=True)
 
 S = 24
 starts = {n: (int(x*S/36), int(y*S/36)) for n, (x, y) in en.STARTS.items()}
@@ -24,7 +27,11 @@ truth = {(x+1, y+1): w.owned_by(x, y) for (x, y) in sample}
 
 TEXT_LEGEND = ("图例（国→颜色）：秦=黄　魏=青　韩=品红(你在的国家)　赵=白　"
                "燕=亮黄　齐=亮青　楚=亮品红　周=亮蓝。")
-key = json.load(open(Path(__file__).resolve().parents[2] / "mp_config.json"))["nations"][0]["api_key"]
+ROOT = Path(__file__).resolve().parents[2]
+_cfgs = sorted(ROOT.glob("mp_config*.json"))
+key = next((json.load(open(c))["nations"][0].get("api_key") for c in _cfgs
+            if json.load(open(c)).get("nations") and json.load(open(c))["nations"][0].get("api_key")), None)
+assert key, "找不到带 api_key 的 mp_config*.json（那文件 gitignore，本机才有）"
 qs = "、".join(f"({a},{b})" for (a, b) in truth)
 
 def ask(png, extra=""):
@@ -52,8 +59,8 @@ saved = render._hatch
 render._hatch = lambda *a, **k: None
 png_solid = render.render(w, me)
 render._hatch = saved
-open("/tmp/zgui/ro_hatch.png","wb").write(png_hatch)
-open("/tmp/zgui/ro_solid.png","wb").write(png_solid)
+(OUT_DIR / "ro_hatch.png").write_bytes(png_hatch)
+(OUT_DIR / "ro_solid.png").write_bytes(png_solid)
 
 print("考题:", "、".join(f"({a},{b})={v}" for (a,b),v in sorted(truth.items())))
 for tag, png, extra in (("A 斜纹开·图例在图里", png_hatch, ""),

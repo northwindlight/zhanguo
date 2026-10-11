@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """同一张图连测 3 次：先量清楚模型自己在这个任务上的抖动，再谈 A/B 差异可不可信。"""
-import sys
-from pathlib import Path, json, base64, random, re, urllib.request
+import json, base64, random, re, sys, urllib.request
+from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.stdout.reconfigure(encoding="utf-8")
 from scenarios import eight_nations as en
 import mp_ai, render
+
+OUT_DIR = Path(__file__).resolve().parent / "out"
+OUT_DIR.mkdir(exist_ok=True)
 S=24; starts={n:(int(x*S/36),int(y*S/36)) for n,(x,y) in en.STARTS.items()}
 w=en.build(size=S,starts=starts); rng=random.Random(11)
 for t in range(1,61):
@@ -15,7 +18,11 @@ me="韩"; vis=mp_ai._visible_cells(w,me)
 owned=[(x,y) for (x,y) in sorted(vis) if w.owned_by(x,y)]
 random.seed(4); sample=random.sample(owned,min(12,len(owned)))
 truth={(x+1,y+1):w.owned_by(x,y) for (x,y) in sample}
-key=json.load(open(Path(__file__).resolve().parents[2] / "mp_config.json"))["nations"][0]["api_key"]
+ROOT = Path(__file__).resolve().parents[2]
+_cfgs = sorted(ROOT.glob("mp_config*.json"))
+key = next((json.load(open(c))["nations"][0].get("api_key") for c in _cfgs
+            if json.load(open(c)).get("nations") and json.load(open(c))["nations"][0].get("api_key")), None)
+assert key, "找不到带 api_key 的 mp_config*.json（那文件 gitignore，本机才有）"
 qs="、".join(f"({a},{b})" for (a,b) in truth)
 Q=(f"这是一张战国战略地图。{render.legend_text(w,me)}\n请回答下列坐标各属于哪个国家：\n{qs}\n"
    f"严格按行输出「坐标=国家」，不要解释。")

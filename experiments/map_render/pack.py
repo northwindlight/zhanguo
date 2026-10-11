@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-import sys
-from pathlib import Path, random, zipfile, os
+import os, sys, random, zipfile
+from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.stdout.reconfigure(encoding="utf-8")
 from scenarios import eight_nations as en
@@ -14,7 +14,8 @@ for t in range(1, 61):
     w.resolve_turn(); w.begin_turn()
 print("回合", w.turn, "存活", w.alive())
 
-out = "/tmp/zgui/pkg"; os.makedirs(out, exist_ok=True)
+OUT = Path(__file__).resolve().parent / "out"; OUT.mkdir(exist_ok=True)
+out = str(OUT)
 files = []
 png = render.render_world(w)
 open(f"{out}/00_世界地图_全体第{w.turn}回合.png","wb").write(png)
@@ -26,7 +27,7 @@ for i, nm in enumerate(w.alive(), 1):
     fn = f"{out}/{i:02d}_{nm}_视角第{w.turn}回合.png"
     open(fn,"wb").write(p); files.append(fn)
     print(f"  {nm} {len(p)/1024:.0f} KB")
-zp = "/home/northwind/zhanguo-map-preview.zip"
+zp = str(Path(__file__).resolve().parent / "zhanguo-map-preview.zip")
 with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as z:
     for f in files: z.write(f, os.path.basename(f))
 print("打包:", zp, f"{os.path.getsize(zp)/1024:.0f} KB, {len(files)} 张")
