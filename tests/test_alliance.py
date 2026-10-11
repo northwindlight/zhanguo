@@ -716,6 +716,68 @@ class TestEntityPactTable(unittest.TestCase):
         self.assertTrue(w2.has_pact("保障", mp.ent_bloc("北盟"), mp.ent_nation("燕")))
 
 
+class TestVoteOutcomeNotice(unittest.TestCase):
+    """★ 2026-10-11 用户口径：「**投票是否成功，或者被取消，盟外和盟内都需要通知的**，
+    例如某个国家提请加入结果中途爆发战争，应该被通知」。
+
+    此前这些结局只挂 `nation=proposer`——**申请人恰恰常在盟外**：他提了入盟申请，
+    盟主一票否决／票没过／联盟解散把票清了，他一无所知。
+    ★ 但"通知**结果**"不等于"公开**票数**"——2026-09-19 的"商议过程不公开"仍然有效，
+    所以给盟外的通知里**不许出现票数**（给盟内那条通过播报才带）。
+    """
+
+    def _world_with_application(self):
+        """北盟＝秦(盟主)/楚/齐；**燕在盟外**申请入盟（投票在途）。"""
+        w = make_world(nations=("秦", "楚", "齐", "燕", "赵"))
+        make_bloc(w)
+        ok, msg = w.bloc_join("燕", "北盟")
+        self.assertTrue(ok, msg)
+        return w, w.votes[-1]
+
+    def test_applicant_hears_the_chiefs_veto(self):
+        w, v = self._world_with_application()
+        w.cast_vote("秦", v["id"], False)              # 盟主一票否决
+        feed = w.events_for("燕", limit=20)
+        self.assertTrue(any("作废" in e and "否决" in e for e in feed),
+                        f"申请人（盟外）没收到否决通知：{feed}")
+
+    def test_applicant_hears_a_failed_vote(self):
+        w, v = self._world_with_application()
+        w.cast_vote("楚", v["id"], False)
+        w.cast_vote("齐", v["id"], False)              # 反对已不可能被超过 → 未通过
+        feed = w.events_for("燕", limit=20)
+        cancel = [e for e in feed if "作废" in e]
+        self.assertTrue(cancel, f"申请人没收到未通过通知：{feed}")
+        self.assertFalse(any("赞成" in e or "反对" in e for e in cancel),
+                         f"给盟外的作废通知里带了票数（商议过程不公开）：{cancel}")
+
+    def test_applicant_hears_a_dissolved_bloc(self):
+        """**联盟解散**把在途的入盟申请清了——这正是最该通知的那种"被取消"。"""
+        w, v = self._world_with_application()
+        ok, msg = w.bloc_dissolve("秦")
+        self.assertTrue(ok, msg)
+        feed = w.events_for("燕", limit=20)
+        self.assertTrue(any("作废" in e and "解散" in e for e in feed),
+                        f"联盟解散，申请人没收到通知：{feed}")
+
+    def test_members_also_hear_it(self):
+        """盟内也得通知（此前只有提名人自己看得到）。"""
+        w, v = self._world_with_application()
+        w.cast_vote("秦", v["id"], False)
+        for who in ("楚", "齐"):
+            self.assertTrue(any("作废" in e for e in w.events_for(who, limit=20)),
+                            f"盟员 {who} 没收到通知")
+
+    def test_war_void_also_reaches_the_applicant(self):
+        """用户举的那个例：**提请入盟，中途爆发战争** ⇒ 申请人必须收到。"""
+        w, v = self._world_with_application()
+        w.declare_war("赵", "秦")
+        self.assertFalse([x for x in w.votes if x["id"] == v["id"]], "前提：投票已作废")
+        feed = w.events_for("燕", limit=20)
+        self.assertTrue(any("作废" in e and "战时条约冻结" in e for e in feed),
+                        f"开战作废了入盟申请，申请人没收到：{feed}")
+
+
 class TestPublicAffairs(unittest.TestCase):
     """★ 2026-09-19 用户口径：「**必须知情**」——条约与战争是**公开行为**，第三方有权知道
     （共同防御本来就是冲着第三方设计的，第三方却被蒙在鼓里说不过去）；

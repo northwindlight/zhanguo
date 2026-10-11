@@ -1073,6 +1073,51 @@ class World:
                 out.append(f"{'↔'.join(sorted(p))}（原休战至第 {u} 回合）")
         return out
 
+    def _vote_stakeholders(self, v: dict) -> list[str]:
+        """一条投票的**当事人**：盟内全体成员 + **盟外**相关方（申请人／对方实体／被邀方）。
+
+        ★ 用户 2026-10-11：「**投票是否成功，或者被取消，盟外和盟内都需要通知的**，
+        例如某个国家提请加入结果中途爆发战争，应该被通知」。
+        此前这些结局只挂 `nation=proposer`——**申请人（恰恰常在盟外）什么都收不到**：
+        他提了入盟申请，盟主一票否决／票没过／联盟解散把票清了，他一无所知，
+        只能对着 `diplomacy` 面板里消失的投票号猜。
+        """
+        pl = v.get("payload") or {}
+        out: list[str] = []
+        b = self.bloc_by_name(v.get("bloc") or "")
+        if b:
+            out += list(b["members"])
+        if v.get("proposer") in self.nations:
+            out.append(v["proposer"])
+        for key in ("candidate", "to", "target", "offer_id"):
+            # candidate=入盟申请人（国名）；to=议和对象（国名）；target/A/B=实体 id（下面统一展开）
+            if pl.get(key) in self.nations:
+                out.append(pl[key])
+        for ent in pl.values():
+            # 实体 id（"盟:x"/"国:y"）：认不出的值返回 []，所以"pact"/"cancel"这些也不怕
+            if isinstance(ent, str):
+                out += self.entity_members(ent)
+        out += [x for x in (pl.get("invitees") or []) if x in self.nations]
+        seen: set = set()
+        res: list[str] = []
+        for x in out:
+            if x in self.nations and x not in seen:
+                seen.add(x)
+                res.append(x)
+        return sorted(res)
+
+    def _cancel_vote(self, v: dict, why: str) -> None:
+        """作废一条投票（若还在表里）并**通知盟内盟外全部当事人**。
+
+        ★ **计票数字不进这条**：用户 2026-09-19 的"商议过程不公开"没被推翻——
+        要通知的是**结果**（成没成、废没废），不是票数。票数照旧只在当事国的**回复**里
+        给到发起人（`_tally` 的返回值），盟内其他人的面板里进行中的票本来就带票数。
+        """
+        if v in self.votes:
+            self.votes.remove(v)
+        self.log(f"🗳 「{v['bloc']}」投票#{v['id']}（{v['kind']}）作废：{why}",
+                 phase="外交", parties=self._vote_stakeholders(v))
+
     def _void_pending_treaties(self, why: str) -> list[str]:
         """开战 ⇒ **战前还没通过的外交条约一律当场作废**（2026-10-11 用户口径）。
 
@@ -1086,29 +1131,25 @@ class World:
         props = list(self.proposals)
         if not votes and not props:
             return []
-        killed = [f"{v['kind']}投票#{v['id']}（「{v['bloc']}」）" for v in votes]
-        killed += [f"{p['kind']}提议#{p['id']}" for p in props]
-        parties: list[str] = []
-        for v in votes:
-            b = self.bloc_by_name(v["bloc"])
-            if b:
-                parties += list(b["members"])
-            for ent in (v.get("payload") or {}).values():
-                if isinstance(ent, str):
-                    parties += self.entity_members(ent)   # 认不出的 id 返回 []，不必先判前缀
-        for p in props:
-            for key in ("a", "asker"):
-                if p.get(key) in self.nations:
-                    parties.append(p[key])
-            parties += list(p.get("invitees") or [])
-            for ent in (p.get("A"), p.get("B")):
-                if isinstance(ent, str):
-                    parties += self.entity_members(ent)
-        self.votes = [v for v in self.votes if v["kind"] not in ("缔约", "入盟")]
-        self.proposals = []
-        self.log(f"🕊 {why} ⇒ **战前未通过的外交条约当场作废**：{'、'.join(killed)}"
-                 "（战时条约冻结；停战后可重新提）", phase="外交",
-                 parties=sorted(set(parties)))
+        killed: list[str] = []
+        for v in votes:              # 每条投票**单独通知**它的盟内盟外当事人（含申请人）
+            killed.append(f"{v['kind']}投票#{v['id']}（「{v['bloc']}」）")
+            self._cancel_vote(v, f"{why}——战时条约冻结")
+        if props:
+            killed += [f"{p['kind']}提议#{p['id']}" for p in props]
+            parties: list[str] = []
+            for p in props:
+                for key in ("a", "asker"):
+                    if p.get(key) in self.nations:
+                        parties.append(p[key])
+                parties += [x for x in (p.get("invitees") or []) if x in self.nations]
+                for ent in (p.get("A"), p.get("B")):
+                    if isinstance(ent, str):
+                        parties += self.entity_members(ent)
+            self.proposals = []
+            self.log(f"🕊 {why} ⇒ **战前未通过的外交条约当场作废**：{'、'.join(killed)}"
+                     "（战时条约冻结；停战后可重新提）", phase="外交",
+                     parties=sorted(set(parties)))
         return killed
 
     def _truce_blocks_war_join(self, countries: list[str], opponents: list[str]) -> bool:
@@ -2484,7 +2525,8 @@ class World:
                 else:
                     self.blocs.remove(bloc)
                     self.proclaim(f"💔 联盟「{bloc['name']}」因成员凋零而解散")
-        self.votes = [v for v in self.votes if self.bloc_by_name(v["bloc"]) is not None]
+        for _v in [v for v in self.votes if self.bloc_by_name(v["bloc"]) is None]:
+            self._cancel_vote(_v, "联盟因成员凋零而解散")   # ★ 别静默清票：盟外申请人要收到
         self.truce = {p: u for p, u in self.truce.items() if name not in p}
         # 一方灭亡 → 强制全天下休战 10 回合（防连环征服滚雪球；已有更长休战则保留）
         alive = self.alive()
@@ -3917,7 +3959,8 @@ class World:
         if len(bloc["members"]) < 2:   # 只剩盟主一人 → 联盟自动解散
             chief = self.bloc_chief(bloc)
             self.blocs.remove(bloc)
-            self.votes = [v for v in self.votes if v["bloc"] != bloc["name"]]
+            for _v in [v for v in self.votes if v["bloc"] == bloc["name"]]:
+                self._cancel_vote(_v, "联盟解散")   # ★ 当事人（含盟外申请人）要收到
             self.proclaim(f"💔 联盟「{bloc['name']}」仅剩盟主 {chief}，自动解散")
             return True, f"你已退出「{bloc['name']}」——联盟只剩盟主，随之解散"
         return True, (f"你已单方面退出「{bloc['name']}」。"
@@ -3986,7 +4029,8 @@ class World:
                            "（坚壁到底——先议和停战再谈解散）")
         members = list(bloc["members"])
         self.blocs.remove(bloc)
-        self.votes = [v for v in self.votes if v["bloc"] != bloc["name"]]
+        for _v in [v for v in self.votes if v["bloc"] == bloc["name"]]:
+            self._cancel_vote(_v, "联盟解散")   # ★ 当事人（含盟外申请人）要收到
         self.proclaim(f"💔 盟主 {a} 解散联盟「{bloc['name']}」（原成员：{'、'.join(members)}）")
         return True, (f"已解散联盟「{bloc['name']}」：原成员 {'、'.join(members)} 恢复各自独立"
                       "（他们此后才是各自的外交实体）")
@@ -4034,9 +4078,7 @@ class World:
         if v["kind"] == "入盟" and v["payload"].get("candidate") == me:
             return False, "入盟投票由现成员表决，申请人不投票"
         if choice is False and self.bloc_chief(bloc) == me:
-            self.votes.remove(v)
-            self.log(f"🚫 盟主 {me} 否决了「{v['bloc']}」投票#{v['id']}（{v['kind']}）",
-                     phase="外交", nation=me)
+            self._cancel_vote(v, f"盟主 {me} 一票否决")
             return False, f"你以盟主身份否决了投票#{v['id']}（{v['kind']}）——议案立即作废"
         v["votes"][me] = choice
         label = "赞成" if choice is True else ("反对" if choice is False else "弃权")
@@ -4055,8 +4097,10 @@ class World:
     def _pass_vote(self, v: dict, members: list[str], yes: int, no: int, abst: int) -> tuple[bool, str]:
         """投票通过：移出投票列表、记账、执行。"""
         self.votes.remove(v)
+        # ★ 只给**盟内**（含发起人）：对外那一方由"投票通过后发生的动作"本身通知
+        #   （发出邀约 / 入盟公告 / 宣战），计票不外泄给盟外（商议过程仍不公开）
         self.log(f"🗳 「{v['bloc']}」投票#{v['id']}（{v['kind']}）通过：赞成 {yes}/反对 {no}/弃权 {abst}",
-                 phase="外交", nation=v["proposer"])
+                 phase="外交", parties=sorted(set(members) | {v["proposer"]}))
         ok, msg = self._execute_vote(v)
         return ok, f"投票通过（赞成 {yes}/反对 {no}）——{msg}"
 
@@ -4064,16 +4108,14 @@ class World:
         """计票：赞成 > 反对 → 通过并立即执行（弃权不计入分母）；结果已无悬念时提前定论。"""
         bloc = self.bloc_by_name(v["bloc"])
         if bloc is None:
-            self.votes.remove(v)
+            self._cancel_vote(v, "联盟已不存在")
             return False, "联盟已不存在，投票作废"
         members = [m for m in bloc["members"] if m in self.nations]
         yes, no, abst, pending = self._vote_counts(v, members)
         if yes > no + pending:          # 未投的全投反对也追不上 → 通过
             return self._pass_vote(v, members, yes, no, abst)
         if yes + pending <= no:         # 未投的全赞成也超不过 → 未通过
-            self.votes.remove(v)
-            self.log(f"🗳 「{v['bloc']}」投票#{v['id']}（{v['kind']}）未通过：赞成 {yes}/反对 {no}",
-                     phase="外交", nation=v["proposer"])
+            self._cancel_vote(v, "未通过（票数已无悬念）")
             return False, f"投票未通过（赞成 {yes}/反对 {no}，反对已不可能被超过）"
         return True, (f"已记票（赞成 {yes}/反对 {no}/弃权 {abst}/未投 {pending}，需赞成 > 反对）："
                       f"等其余成员表态")
@@ -4085,16 +4127,14 @@ class World:
                 continue
             bloc = self.bloc_by_name(v["bloc"])
             if bloc is None:
-                self.votes.remove(v)
+                self._cancel_vote(v, "联盟已不存在")
                 continue
             members = [m for m in bloc["members"] if m in self.nations]
             yes, no, abst, pending = self._vote_counts(v, members)
             if yes > no:
                 self._pass_vote(v, members, yes, no, abst + pending)
             else:
-                self.votes.remove(v)
-                self.log(f"🗳 「{v['bloc']}」投票#{v['id']}（{v['kind']}）逾期未通过："
-                         f"赞成 {yes}/反对 {no}/弃权 {abst + pending}", phase="外交", nation=v["proposer"])
+                self._cancel_vote(v, "逾期未通过（未投的算弃权）")
 
     def _execute_vote(self, v: dict) -> tuple[bool, str]:
         """投票通过后的实际执行。"""
