@@ -68,7 +68,7 @@ class PixelTests(unittest.TestCase):
         from PIL import Image
         w = mp.World(size=24, seed=3, nations=["秦","楚"])
         png = render.render(w,"秦",max_px=960)
-        self.assertEqual((1612,1626), Image.open(io.BytesIO(png)).size)
+        self.assertEqual((1996,2010), Image.open(io.BytesIO(png)).size)
         # 最右/最下刻度仍留在画布内。
         self.assertIsNotNone(render.render(w,"秦",bounds=(0,5,0,5)))
 
@@ -81,8 +81,8 @@ class PixelTests(unittest.TestCase):
             for i in range(101):
                 state["armies"].append({"x":0,"y":0,"owner":owner,"kind":("步","骑","民")[i%3],"hp":60})
         from PIL import Image
-        for budget in (24,40,64,96):
-            cell=max(64,budget)
+        for budget in (24,40,80,96):
+            cell=max(80,budget)
             with self.subTest(cell=cell):
                 png = render.render_snapshot(state,max_px=budget*2)
                 self.assertIsNotNone(png)
@@ -105,9 +105,9 @@ class PixelTests(unittest.TestCase):
                 calls.append(box)
                 return counter(d,box,*args)
             with patch.object(render,"_counter",side_effect=capture):
-                img=Image.open(io.BytesIO(render.render_snapshot(state,max_px=64)))
+                img=Image.open(io.BytesIO(render.render_snapshot(state,max_px=80)))
             boxes.append(calls)
-            footer=img.crop((38,54+49,38+64,54+64)).tobytes()
+            footer=img.crop((38,54+62,38+80,54+80)).tobytes()
             if len(boxes)==1:
                 reference=footer
             self.assertEqual(reference,footer)
@@ -116,15 +116,15 @@ class PixelTests(unittest.TestCase):
         self.assertEqual(1,len(dimensions))
         self.assertEqual(3,len(boxes[2]))
 
-    def test_full_health_militia_matches_full_health_infantry_rail(self):
+    def test_hp_label_shows_total_not_health_ratio(self):
         from PIL import Image, ImageDraw
-        rails=[]
-        for kind,hp in (("步",100),("民",80)):
-            im=Image.new("RGB",(44,33),render.BG)
-            render._counter(ImageDraw.Draw(im),(0,0,42,32),render.SIDE_COLORS["self"],
-                            render.NATION_COLORS[0],[{"kind":kind,"hp":hp,"max_hp":hp}],100)
-            rails.append(im.crop((0,29,43,33)).tobytes())
-        self.assertEqual(rails[0],rails[1])
+        for hp_values in ([100],[100]*4,[80],[25,50]):
+            im=Image.new("RGB",(44,34),render.BG)
+            draw=ImageDraw.Draw(im)
+            with patch.object(draw,"text",wraps=draw.text) as labels:
+                render._counter(draw,(0,0,42,32),render.SIDE_COLORS["self"],render.NATION_COLORS[0],
+                                [{"kind":"步","hp":hp} for hp in hp_values],100)
+            self.assertEqual(str(sum(hp_values)),labels.call_args_list[-1].args[1])
 
     def test_failure_emits_once_and_returns_none(self):
         state = {"version":99}

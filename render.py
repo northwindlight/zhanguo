@@ -121,7 +121,6 @@ def snapshot(world, name: str | None) -> dict:
     """冻结当前玩家可见事实。没有 fog 外格子的归属/军队/资源，也不读邻格秘密画边界。"""
     import mp_ai
     from balance import ARMY_MAX_HP
-    from game import unit_max_hp
 
     n = world.size
     observer = name is None
@@ -143,7 +142,7 @@ def snapshot(world, name: str | None) -> dict:
                       "resources": [r for r in RES_COLORS if resources.get(r, 0) > 0],
                       "reach": (x, y) in reach})
     armies = [{"x": a["x"], "y": a["y"], "owner": a["owner"],
-               "kind": a.get("type", "步"), "hp": a.get("hp", 0), "max_hp": unit_max_hp(a)}
+               "kind": a.get("type", "步"), "hp": a.get("hp", 0)}
               for a in world.armies if (a["x"], a["y"]) in vis and a.get("hp", 0) > 0]
     armies.sort(key=lambda a: (a["y"], a["x"], a["owner"], a["kind"], a["hp"]))
     return {"version": SNAPSHOT_VERSION, "size": n, "turn": world.turn,
@@ -159,7 +158,7 @@ def legend_text(world, name) -> str:
             "国土整格国色；浅斜纹=无厅/城/军队。白线=可见国界；白虚线=本回合可及。"
             "格底独立地貌区始终可见；房子=市政厅，城垛=城堡；两者同时存在时都显示，等级查文本。"
             "兵牌统一尺寸、白底，外圈绿自己/蓝盟友/红敌人/灰中立；内芯X步兵、/骑兵、点民兵，"
-            "混合兵种并列；右栏数字=该阵营支数（单支也写1）；独立牌下细槽=合计HP/各兵种合计满血HP，满槽=满血。"
+            "混合兵种并列；右栏数字=该阵营支数（单支也写1）；牌下独立数字栏=该组总HP（不是百分比），可直接比较双方兵力。"
             "兵种符号取该阵营最高HP部队的深国家色，不代表全组只有该国；确切国别、番号、HP查文本。"
             "空心圆=野人。资源与城堡等级查游戏文本；世界图外圈改用国家色。")
 
@@ -167,7 +166,7 @@ def legend_text(world, name) -> str:
 def render(world, name: str, *, max_px: int = 960, emit=None, bounds=None) -> bytes | None:
     """默认完整世界；bounds=(x0,x1,y0,y1) 可显式请求局部细图（0-based，含端点）。
 
-    max_px 是网格边长预算，不含四边刻度；格宽最小64、最大96；预算低于可读下限时优先保证符号尺寸。
+    max_px 是网格边长预算，不含四边刻度；格宽最小80、最大96；预算低于可读下限时优先保证符号尺寸。
     全图不因飞地或联盟改变取景，模型可以跨回合比较同一坐标。
     """
     try:
@@ -284,9 +283,10 @@ def _counter_slots(cell):
 
 
 def _counter(d, box, side, nation_color, armies, max_hp):
-    """固定白底牌面：兵种左栏、支数右栏；HP 单独挂在下方，不挤进内芯。"""
+    """固定白底牌面：兵种左栏、支数右栏；总HP独立下栏，直接比较兵力。"""
     x0,y0,x1,y1=box
-    face_bottom=y1-5
+    hp_height=max(7,(y1-y0+1)//4)
+    face_bottom=y1-hp_height-2
     d.rectangle((x0,y0,x1,face_bottom),fill=side,outline=SYMBOL_EDGE,width=1)
     left,right,top,bottom=x0+3,x1-3,y0+3,face_bottom-3
     d.rectangle((left,top,right,bottom),fill=SYMBOL_FACE)
@@ -312,14 +312,17 @@ def _counter(d, box, side, nation_color, armies, max_hp):
     for i,kind in enumerate(kinds):
         cx=round(left+(i+.5)*step)
         _unit_glyph(d,cx,cy,max(1,int(step*.30)),max(1,int((bottom-top)*.35)),kind,ink)
-    capacity=sum(a.get("max_hp",max_hp) for a in armies)
-    ratio=max(0.,min(1.,sum(a["hp"] for a in armies)/capacity)) if capacity else 0.
-    # 白色托槽 + 单色进度：不会把低血量误认成红色敌军边框。
-    d.rectangle((x0,y1-3,x1,y1),fill=(229,233,230),outline=SYMBOL_EDGE,width=1)
-    length=round((x1-x0-1)*ratio)
-    if length:
-        d.line((x0+1,y1-2,x0+length,y1-2),fill=(55,105,112),width=1)
-        d.line((x0+1,y1-1,x0+length,y1-1),fill=(55,105,112),width=1)
+    # 总量比百分比更有用：100与400必须在图上明确区分。
+    hp_top=face_bottom+2
+    d.rectangle((x0,hp_top,x1,y1),fill=SYMBOL_FACE,outline=SYMBOL_EDGE,width=1)
+    label=str(sum(a["hp"] for a in armies))
+    hp_size=max(7,min(11,hp_height-1))
+    hp_font=_font(hp_size)
+    while hp_font.getlength(label)>x1-x0-3 and hp_size>4:
+        hp_size-=1
+        hp_font=_font(hp_size)
+    d.text(((x0+x1)//2,(hp_top+y1)//2),label,font=hp_font,anchor="mm",fill=SYMBOL_EDGE)
+
 
 
 def _render_snapshot(state, *, max_px, bounds):
@@ -334,7 +337,7 @@ def _render_snapshot(state, *, max_px, bounds):
         raise ValueError("取景坐标越界")
     if max_px <= 0:
         raise ValueError("max_px 必须为正")
-    cell = max(64, min(96, int(max_px/max(xhi-xlo+1, yhi-ylo+1))))
+    cell = max(80, min(96, int(max_px/max(xhi-xlo+1, yhi-ylo+1))))
     margin, top, bottom = 38, 54, 36
     gw, gh = (xhi-xlo+1)*cell, (yhi-ylo+1)*cell
     img = Image.new("RGB", (gw+2*margin, gh+top+bottom), BG)
