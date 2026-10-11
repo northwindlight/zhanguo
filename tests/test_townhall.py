@@ -195,7 +195,8 @@ class TestEliminationTiming(unittest.TestCase):
         w.resolve_turn()
         self.assertNotIn("楚", w.nations, "回合末该统一判定亡国")
         self.assertEqual(w.wars, [], "全部战线该一并终止")
-        self.assertEqual({o for o, _u in w.truces_of("秦")}, {"齐"}, "该压上全天下强制休战")
+        self.assertEqual({o for o, _u in w.truces_of("秦")}, {mp.ent_nation("齐")},
+                         "该压上全天下强制休战（`truces_of` 返回的是**实体 id**）")
 
     def test_orphan_land_becomes_ownerless_at_turn_end(self):
         """余土变无主也跟着挪到回合末——命令阶段它还挂在死者名下。"""

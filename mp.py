@@ -184,6 +184,15 @@ class SaveFormatError(Exception):
     """存档版本/键集合不符：拒载，提示重开（不做任何回溯迁移）。"""
 
 
+def _truce_key_id(x: str) -> str:
+    """休战表键的规范化：裸国名 → 国家实体 id（`国:x`）；已经是实体 id 的原样返回。
+
+    读档迁移用：2026-10-11 之前休战表按**裸国名**存，之后按**实体 id**存
+    （联盟＝`盟:名字`、独立国＝`国:名字`，与条约表 `self.pacts` 同一口径）。
+    """
+    return x if ":" in x else ent_nation(x)
+
+
 def _pair(a: str, b: str) -> frozenset:
     return frozenset((a, b))
 
@@ -992,33 +1001,41 @@ class World:
                 return True
         return False
 
-    def truce_holder(self, name: str) -> str:
-        """`name` 的**条约主体**：它所在外交实体的代表（联盟＝**盟主**，独立国＝自己）。
+    def set_truce(self, a: str, b: str, until: int) -> bool:
+        """写一条休战（**唯一写入口**）。a/b 给**国名**（按它所在的实体存）或**实体 id**。
 
-        ★ 2026-10-11 用户口径：「**联盟和平条约改成由盟主的条约决定，成员和平条约丧失，
-        然后退出自动恢复**」。所以查和约查的不是两个人，是**两个实体**：
-        实体的和约就是盟主身上那一条；成员自己手里的和约在盟内**暂停**（既保护不了它，
-        也挡不住别人打这个联盟）。
+        **只许延长、不许缩短**（`max`）：全天下强制休战是防雪球的地基，不该被一纸短约抹掉。
+        同实体（盟内）不写，返回 False。
         """
-        return self.entity_chief(self.entity_of(name)) or name
+        ea = self.entity_of(a) if a in self.nations else _truce_key_id(a)
+        eb = self.entity_of(b) if b in self.nations else _truce_key_id(b)
+        if ea == eb:
+            return False
+        p = _pair(ea, eb)
+        self.truce[p] = max(self.truce.get(p, 0), int(until))
+        return True
 
     def active_truce(self, a: str, b: str) -> int | None:
         """a、b 之间**有效**的休战 → 到期回合（已到期的顺手清掉，None = 没有）。
 
-        ★ 判据落在 `truce_holder` 上（2026-10-11）：
-        · 同属一个实体（联盟）⇒ None——**盟内互不攻击**比和约更强，那纸约不独立成立；
-        · 否则看**两个实体代表（盟主／自己）之间**那条——**成员的私约不算数**。
-        旧口径（2026-10-07 之前）是"逐国对逐国"，于是**一个成员的和约能给整个联盟挡刀**：
-        韩 与 楚 休战到第 94 回合，楚 一入「周天下」，韩 连宣战都发不出去（引擎直接拒），
-        整个四国联盟白得一张免战牌——那正是实盘 T76 韩 卡住的原因。
+        ★★ 休战表**按外交实体存**（与条约表 `self.pacts` 同一口径，2026-10-11 修）：
+        键是实体 id（独立国＝`国:x`，联盟＝`盟:名字`）。
 
-        ★ 表里那条**一律不删**，只在这里"视而不见"：**退出/解散即自动恢复**，按原到期回合。
-        删掉就成了后门——「邀对手入盟 → 当场解散 → 立刻偷袭」，对方还以为那纸和约在。
+        · 同属一个实体（联盟）⇒ None：**盟内互不攻击**比和约更强，那纸约不独立成立；
+        · 否则查**两个实体之间**那条 ⇒ **成员个人的和约在盟内自动冻结**（它的键是
+          `国:成员`，而此刻这个国家属于 `盟:某盟`，键对不上），**退出即自动恢复**
+          （键又对上了）——表里那条**一个字都不用删**。
+
+        ★★ 为什么不能"查盟主"（我第一版就是这么写的，被用户当场判错）：
+        「移交盟主，没有移交联盟关系，变成了被移交者的个人关系」——把实体的约**派生**自
+        盟主身上那条，等于**换盟主就换掉了全盟的对外关系**：新盟主跟谁有私约，全盟就跟谁
+        有约。**联盟关系是联盟关系，个人关系是个人关系**：前者记在联盟身上、只随投票变，
+        后者冻结在成员自己身上、随进退盟解冻。现在换盟主**动不了**任何一条。
         """
-        ra, rb = self.truce_holder(a), self.truce_holder(b)
-        if ra == rb:
-            return None                      # 同实体：盟内互不攻击（不再有"合并"一说）
-        p = _pair(ra, rb)
+        ea, eb = self.entity_of(a), self.entity_of(b)
+        if ea == eb:
+            return None                      # 同实体：盟内互不攻击
+        p = _pair(ea, eb)
         t = self.truce.get(p)
         if t is None:
             return None
@@ -1028,29 +1045,30 @@ class World:
         return t
 
     def truces_of(self, name: str) -> list[tuple[str, int]]:
-        """该国（**其所在实体**）还在休战期内的全部对手 → [(对手实体代表, 到期回合)]。
+        """该国（**其所在实体**）还在休战期内的全部对手 → [(对手, 到期回合)]，按对手排序。
 
         ★ 含**亡国时压给全天下的强制休战**（`FALL_TRUCE_TURNS`）——用户 2026-09-20 口径：
         那条也算"和约"。它只拦**宣战**，不拦结盟（见 `active_truce`）。
-        ★ 走 `truce_holder` ⇒ 返回的是**实体代表**：在盟国家看到的是全盟的和约（盟主那份），
-        自己那份私约不在此列（暂停中，退盟恢复）。
+        返回的是**实体 id**（"盟:周天下" / "国:燕"）；成员个人冻结中的私约不在此列。
         """
-        rep = self.truce_holder(name)
+        me_ent = self.entity_of(name)
         out: dict[str, int] = {}
         for p in list(self.truce):
             x, y = sorted(p)          # ★ sorted：p 是 frozenset，裸迭代序受 PYTHONHASHSEED 影响
-            rx, ry = self.truce_holder(x), self.truce_holder(y)
-            if rx == rep:
-                other = ry
-            elif ry == rep:
-                other = rx
-            else:
+            if x != me_ent and y != me_ent:
                 continue
-            if other == rep:
+            other = y if x == me_ent else x
+            # 陈旧条目：成员**入盟前**跟这个联盟签的那条（键是 国:成员↔盟:本盟）。
+            # 入盟那一刻它就等于"联盟跟自己"，不该再作为对手出现在面板上。
+            if other == me_ent or (other.startswith("国:")
+                                   and self.entity_of(other[2:]) == me_ent):
                 continue
-            t = self.active_truce(x, y)
-            if t is not None:
-                out[other] = max(out.get(other, 0), t)
+            t = self.truce.get(p)
+            if t is None or self.turn >= t:
+                if t is not None:
+                    self.truce.pop(p, None)
+                continue
+            out[other] = max(out.get(other, 0), t)
         return sorted(out.items())
 
     def _suspended_truces(self, members: list[str]) -> list[str]:
@@ -1064,7 +1082,7 @@ class World:
         seen: set = set()
         for m in members:
             for p in sorted(self.truce, key=sorted):
-                if p in seen or m not in p:
+                if p in seen or ent_nation(m) not in p:
                     continue
                 u = self.truce[p]
                 if self.turn >= u:
@@ -2564,7 +2582,7 @@ class World:
                     self.proclaim(f"💔 联盟「{bloc['name']}」因成员凋零而解散")
         for _v in [v for v in self.votes if self.bloc_by_name(v["bloc"]) is None]:
             self._cancel_vote(_v, "联盟因成员凋零而解散")   # ★ 别静默清票：盟外申请人要收到
-        self.truce = {p: u for p, u in self.truce.items() if name not in p}
+        self.truce = {p: u for p, u in self.truce.items() if ent_nation(name) not in p}
         # ★★ 强制和平 ⇒ **在途的外交事项一律当场作废**（用户 2026-10-11 报的洞：
         #   「强制和平后，还没有敲定的和平条约没有自动作废，可能覆盖风险」）。
         #   这一刀落下时**所有战线已经终止**：在途的求和提议已经无仗可停，留着只会在落地
@@ -2572,11 +2590,15 @@ class World:
         #   宣战/议和投票同理——它们的前提（有战线）也没了。见 `_void_pending_treaties`。
         self._void_pending_treaties(f"{name} 亡国、全天下强制休战", all_kinds=True)
         # 一方灭亡 → 强制全天下休战 10 回合（防连环征服滚雪球；已有更长休战则保留）
+        until_fall = self.turn + FALL_TRUCE_TURNS
+        ents = self.entities()
+        for i in range(len(ents)):                      # 实体 ↔ 实体（联盟也在内）
+            for j in range(i + 1, len(ents)):
+                self.set_truce(ents[i], ents[j], until_fall)
         alive = self.alive()
-        for i in range(len(alive)):
+        for i in range(len(alive)):                     # 国家 ↔ 国家（成员退盟后由它兜底）
             for j in range(i + 1, len(alive)):
-                p = _pair(alive[i], alive[j])
-                self.truce[p] = max(self.truce.get(p, 0), self.turn + FALL_TRUCE_TURNS)
+                self.set_truce(alive[i], alive[j], until_fall)
         gone = self.drop_pacts_of(ent_nation(name))
         if gone:
             self.proclaim(f"💔 {name} 亡国，其条约随之作废（{'、'.join(gone)}）")
@@ -4057,6 +4079,11 @@ class World:
         for v in self.votes:        # 进行中的投票按联盟名索引，一并改掉，免得面板/日志对不上
             if v["bloc"] == old:
                 v["bloc"] = new
+        for k in list(self.truce):  # ★ 休战表也是按实体 id 存的（2026-10-11）：漏这条＝改名即失约
+            if ent_bloc(old) in k:
+                u = self.truce.pop(k)
+                self.truce[_pair(*[ent_bloc(new) if x == ent_bloc(old) else x
+                                   for x in sorted(k)])] = u
 
     def bloc_dissolve(self, a: str) -> tuple[bool, str]:
         """盟主解散联盟（只有盟主能调）。**战争期间一律不准解散**（盟员在战时被锁死），
@@ -4596,8 +4623,8 @@ class World:
                     # ★ **只许延长、不许缩短**（用户 2026-10-11 报的洞：强制和平期间在途的
                     #   和平提议落地，会把「全天下强制休战」覆盖成它自己那条短的）。
                     #   2026-10-07 起"亡国 ⇒ 全天下强制休战"是防雪球的地基，谁都不该用
-                    #   一纸短休战把它抹掉——那条路只能是 `max`。
-                    self.truce[_pair(x, y)] = max(self.truce.get(_pair(x, y), 0), until)
+                    #   一纸短休战把它抹掉——那条路只能是 `max`（收在 `set_truce` 里）。
+                    self.set_truce(x, y, until)
         for m in self.armies:
             if m["owner"] in members and m.get("engaged"):
                 m["engaged"] = False  # 整条战线（含跟随方）一并解除交战
@@ -4824,7 +4851,10 @@ class World:
                            "atk_followers": list(item.get("atk_followers", [])),
                            "turn": int(item["turn"])})
             w._war_id = max(w._war_id, int(item["id"]) + 1)
-        w.truce = {_pair(ab[0], ab[1]): int(ab[2]) for ab in data["truce"]}
+        # ★ 休战表 2026-10-11 起按**实体 id**存（与条约表同口径）；旧档写的是裸国名，
+        #   读进来一律迁成 `国:名字`——不迁的话老档续局时**所有和约凭空消失**。
+        w.truce = {_pair(_truce_key_id(ab[0]), _truce_key_id(ab[1])): int(ab[2])
+                   for ab in data["truce"]}
         # 联盟：members 已过滤亡国，chief 权威
         w.blocs = []
         for b in data["blocs"]:

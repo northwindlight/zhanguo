@@ -53,7 +53,7 @@ class TestBlocDespiteTruce(unittest.TestCase):
         w = mp.World(size=20, seed=7, nations=["秦", "楚", "齐", "燕", "赵"])
         w.turn = 5
         _bloc(w, "楚", "连横", "齐")            # 楚齐先立一个盟，供"申请入盟"用
-        w.truce[mp._pair("秦", "燕")] = 20      # 秦与燕休战至第 20 回合
+        w.set_truce("秦", "燕", 20)      # 秦与燕休战至第 20 回合
         return w
 
     def test_can_join_bloc(self):
@@ -72,7 +72,7 @@ class TestBlocDespiteTruce(unittest.TestCase):
         w = mp.World(size=20, seed=7, nations=["秦", "楚", "齐"])
         w.turn = 5
         w.propose_bloc("楚", "连横", ["秦"])
-        w.truce[mp._pair("秦", "齐")] = 30      # 提议之后、接受之前议和了
+        w.set_truce("秦", "齐", 30)      # 提议之后、接受之前议和了
         ok, msg = w._accept_bloc_founding(w.proposals[-1], "秦")
         self.assertTrue(ok, f"有和约就不让接受结盟：{msg}")
 
@@ -102,8 +102,8 @@ class TestTruceMergedIntoBloc(unittest.TestCase):
     def _world(self, members=("秦", "燕")):
         w = mp.World(size=20, seed=7, nations=["秦", "燕", "赵"])
         w.turn = 5
-        w.truce[mp._pair("秦", "燕")] = 20       # 秦燕休战至第 20 回合
-        w.truce[mp._pair("秦", "赵")] = 20       # 秦与**盟外**的赵也休战至第 20 回合
+        w.set_truce("秦", "燕", 20)       # 秦燕休战至第 20 回合
+        w.set_truce("秦", "赵", 20)       # 秦与**盟外**的赵也休战至第 20 回合
         if len(members) > 1:
             _bloc(w, members[0], "北盟", members[1])
         return w
@@ -115,13 +115,17 @@ class TestTruceMergedIntoBloc(unittest.TestCase):
                          "truces_of 还列着盟友（面板会显示成「仍在休战中」）")
         self.assertIsNone(w.active_truce("燕", "秦"), "反方向也该是合并的（对称）")
 
-    def test_outsider_truce_is_untouched(self):
-        """**阴性对照**：与**盟外**国家的和约不受影响——合并只发生在实体内部。"""
+    def test_members_own_truces_are_frozen_even_against_outsiders(self):
+        """★ 入盟 ⇒ **个人和约一律冻结**（对盟外的也一样）——用户 2026-10-11
+        「成员和平条约丧失，然后退出自动恢复」。
+
+        **阴性对照在下一句**：**盟外两家之间**那份（赵↔燕）一个字不动。"""
         w = self._world()
-        self.assertEqual(w.active_truce("秦", "赵"), 20, "盟外的和约被顺手清掉了")
-        ok, msg = w.declare_war("秦", "赵")
-        self.assertFalse(ok, f"与盟外国家的休战期内还能宣战：{msg}")
-        self.assertIn("休战", msg)
+        self.assertIsNone(w.active_truce("秦", "赵"),
+                          "秦 入盟了，它跟赵 的私约还活着（该冻结）")
+        # 退盟即恢复（键从没删过，只是"当时的实体"对不上）
+        self.assertTrue(w.bloc_leave("燕"))
+        self.assertEqual(w.active_truce("秦", "赵"), 20, "退盟后私约没恢复")
 
     def test_ally_cannot_be_attacked_and_says_the_right_thing(self):
         """同实体本来就打不了——**理由要说"同属联盟"**，不是"休战中"（后者读起来像
@@ -156,7 +160,7 @@ class TestTruceMergedIntoBloc(unittest.TestCase):
         """暂停要说出来（"结果不告诉当事人"是这套引擎反复踩的洞）。"""
         w = mp.World(size=20, seed=7, nations=["秦", "燕", "赵"])
         w.turn = 5
-        w.truce[mp._pair("秦", "燕")] = 20
+        w.set_truce("秦", "燕", 20)
         _bloc(w, "秦", "北盟", "燕")
         self.assertTrue(any("在盟内暂停" in h.get("text", "") for h in w.history),
                         "结盟时没说和约被暂停了")
@@ -174,17 +178,24 @@ class TestEntityTruceFollowsTheChief(unittest.TestCase):
     韩 因此在回合小结里写下「打不出去 ⇒ 让魏替我扛 ⇒ 等它亡国换 10 回合休战期」。
     """
 
-    def _world(self):
-        """韩、魏、楚、周；周天下＝周（盟主）＋楚。**不预置任何和约**——各用例自带。"""
+    def _pre(self, pairs=()):
+        """先造一个**谁都还没入盟**的世界，把私约签好（`set_truce` 按"当时的实体"存——
+        入盟之后签的就不是私约了，那是**联盟**的约）。返回 (world, 立盟回调)。"""
         w = mp.World(size=20, seed=7, nations=["韩", "魏", "楚", "周"])
         w.turn = 70
+        for a, b, u in pairs:
+            w.set_truce(a, b, u)
+        return w
+
+    def _world(self, pairs=()):
+        """韩、魏、楚、周；**先在盟外把私约签好**，再立「周天下」＝周（盟主）＋楚。"""
+        w = self._pre(pairs)
         _bloc(w, "周", "周天下", "楚")
         return w
 
     def test_members_truce_no_longer_shields_the_bloc(self):
         """★ 核心回归：成员的和约**不再**替全盟挡刀——韩 打得出去。"""
-        w = self._world()
-        w.truce[mp._pair("韩", "楚")] = 94          # 韩 与**成员**楚 白和（旧病现场）
+        w = self._world([("韩", "楚", 94)])   # 楚 入盟**之前**跟韩白和（那是私约）
         self.assertIsNone(w.active_truce("韩", "周"), "成员的和约竟然还算在全盟头上")
         ok, msg = w.declare_war("韩", "周")
         self.assertTrue(ok, f"成员的私约把整个联盟护住了（旧病）：{msg}")
@@ -194,24 +205,22 @@ class TestEntityTruceFollowsTheChief(unittest.TestCase):
     def test_chiefs_truce_is_the_entitys(self):
         """**阴性对照的另一半**：盟主签的约就是全盟的约（这时才该挡住）。"""
         w = self._world()
-        w.truce[mp._pair("韩", "周")] = 94          # 盟主 周 与韩 签约
+        w.set_truce("韩", "周", 94)          # 盟主 周 与韩 签约
         self.assertEqual(w.active_truce("韩", "楚"), 94, "盟主的约没有变成全盟的约")
         ok, msg = w.declare_war("韩", "周")
         self.assertFalse(ok, f"与盟主签约期内还能宣战：{msg}")
         self.assertIn("休战", msg)
 
     def test_truces_of_reports_the_entitys(self):
-        """面板口径：在盟国家看到的是**全盟的**和约（盟主那份），不是自己那份。"""
-        w = self._world()
-        w.truce[mp._pair("韩", "楚")] = 94          # 成员私约：不列
-        self.assertEqual(w.truces_of("楚"), [], "成员还列着自己那份暂停中的私约")
-        w.truce[mp._pair("韩", "周")] = 94          # 盟主的约：全盟都该看到
-        self.assertEqual(w.truces_of("楚"), [("韩", 94)], "成员没看到盟主签的那份")
+        """面板口径：在盟国家看到的是**全盟的**和约，不是自己那份（冻结中的不列）。"""
+        w = self._world([("韩", "楚", 94)])   # 楚 入盟前签的私约 ⇒ 冻结，不列
+        self.assertEqual(w.truces_of("楚"), [], "成员还列着自己那份冻结中的私约")
+        w.set_truce("韩", "周", 94)           # 周(盟主)代表周天下 与韩 签 ⇒ 全盟都该看到
+        self.assertEqual(w.truces_of("楚"), [("国:韩", 94)], "成员没看到联盟的那份约")
 
     def test_suspended_truce_comes_back_on_leaving(self):
         """★「退出自动恢复」：楚 退盟 ⇒ 它自己那份和约按原到期回合回来（表里没删过）。"""
-        w = self._world()
-        w.truce[mp._pair("韩", "楚")] = 94
+        w = self._world([("韩", "楚", 94)])
         ok, msg = w.bloc_leave("楚")
         self.assertTrue(ok, msg)
         self.assertEqual(w.active_truce("韩", "楚"), 94, "退盟后私约没恢复")
@@ -219,15 +228,25 @@ class TestEntityTruceFollowsTheChief(unittest.TestCase):
         self.assertFalse(ok, f"退盟后还能打自己的休战对手：{msg}")
         self.assertIn("休战", msg)
 
-    def test_chief_transfer_swaps_the_entitys_truce(self):
-        """移交盟主 ⇒ 实体的和约**随之换成新盟主那一份**（这是"以盟主为准"的必然结果，
-        钉在这里免得日后当成 bug 顺手"修"掉）。"""
+    def test_chief_transfer_does_not_touch_the_entitys_truce(self):
+        """★★ 2026-10-11 用户报的 bug：「移交盟主，没有移交联盟关系，变成了被移交者的
+        个人关系」——**联盟关系是联盟的，个人关系是个人的**：换盟主**动不了**任何一条。
+
+        （第一版把"实体的约"派生自盟主身上那条 ⇒ 换盟主＝换掉全盟的对外关系。）"""
         w = self._world()
-        w.truce[mp._pair("韩", "周")] = 94          # 盟主周 与韩 有约 ⇒ 全盟与韩 休战
-        self.assertEqual(w.active_truce("韩", "楚"), 94)
+        w.set_truce("韩", "周", 94)          # 周(盟主)代表周天下 与韩 签约
+        self.assertEqual(w.active_truce("韩", "楚"), 94, "前提：全盟与韩 休战")
         ok, msg = w.bloc_transfer("周", "楚")
         self.assertTrue(ok, msg)
-        self.assertIsNone(w.active_truce("韩", "周"), "换盟主后旧盟主那份还在生效")
+        self.assertEqual(w.active_truce("韩", "周"), 94, "换盟主把**联盟**的约弄丢了")
+        self.assertEqual(w.active_truce("韩", "楚"), 94, "换盟主后全盟的约变了")
+
+    def test_chiefs_personal_truce_does_not_become_the_entitys(self):
+        """盟主的**私约**（入盟前签的）不进联盟——全盟不会凭空多出一份约，盟主自己也冻结。"""
+        w = self._world([("周", "魏", 94)])   # 周 入盟**之前**跟魏 白和
+        self.assertIsNone(w.active_truce("楚", "魏"),
+                          "盟主的私约变成了全盟的约（个人关系没冻结）")
+        self.assertIsNone(w.active_truce("周", "魏"), "盟主自己的私约也该冻结")
 
     def test_fall_truce_still_covers_every_entity(self):
         """**阴性对照**：亡国压给全天下的强制休战是按**每一对国家**压的 ⇒
@@ -276,8 +295,8 @@ class TestFallTruceCounts(unittest.TestCase):
         w._execute_vote(w.votes[-1])
         self.assertIsNone(w.active_truce("秦", "楚"), "入盟没能把与楚齐的和约合并掉")
         # 天下休战是**两两**压的：与盟外国家（赵）的那条一条都不能少
-        self.assertEqual({o for o, _u in w.truces_of("秦")}, {"赵"},
-                         "合并越界了——把盟外的和约也吞了")
+        self.assertEqual({o for o, _u in w.truces_of("秦")}, {mp.ent_nation("赵")},
+                         "入盟后与盟外的天下休战丢了（冻结的只该是私约）")
 
     def test_world_still_cannot_declare_war(self):
         """**阴性对照**：休战期内不得宣战这条**没动**。"""
@@ -468,7 +487,7 @@ class TestFallCeasefireVoidsPending(unittest.TestCase):
         战争），所以这里**手工构造**那个状态——防雪球的地基不该靠"走不到"来保护。
         """
         w = self._world()
-        w.truce[mp._pair("秦", "魏")] = w.turn + 50      # 手上已有一条更长的休战
+        w.set_truce("秦", "魏", w.turn + 50)      # 手上已有一条更长的休战
         ok, msg = w.offer_peace("秦", "魏", "white", truce=2)
         self.assertTrue(ok, msg)
         _ok, _msg = w.accept_peace("魏", w.peace_offers[-1]["id"])
@@ -484,7 +503,7 @@ class TestTruceBlocksPactCallUp(unittest.TestCase):
         w.turn = 5
         w._add_pact("共同防御", w.entity_of("燕"), w.entity_of("楚"))   # 燕楚互卫
         if truce:
-            w.truce[mp._pair("秦", "燕")] = 30    # 秦燕和约（燕是楚的防御盟友）
+            w.set_truce("秦", "燕", 30)    # 秦燕和约（燕是楚的防御盟友）
         return w
 
     def test_pact_ally_not_dragged_in(self):

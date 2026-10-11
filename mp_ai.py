@@ -871,16 +871,17 @@ def _fmt_public_affairs(world, me: str) -> str:
         #   "我这回合仍受约束"，白白再等一回合。
         if world.turn >= until:
             continue
-        a, b = sorted(pair)
-        ra, rb = world.truce_holder(a), world.truce_holder(b)
-        if ra == rb:
-            note = f"（同属 {world.entity_label(world.entity_of(a))}——盟内互不攻击）"
-        elif {ra, rb} != {a, b}:
-            # 成员自己签的：实体的和约以**盟主**为准，这一条在盟内不生效（退出即恢复）
-            note = "（**成员旧约·盟内暂停**：本盟的对外和约随盟主，退出即恢复）"
+        a, b = sorted(pair)          # 键是**实体 id**（`国:x` / `盟:名字`，2026-10-11 起）
+        if world.entity_of(a) == world.entity_of(b):
+            continue                 # 同实体：盟内互不攻击，那纸约不独立成立
+        if a.startswith("国:") and world.bloc_of(a[2:]) is not None:
+            note = f"（{a[2:]} 的**个人旧约·盟内冻结**：退出即恢复，不随盟主变）"
+        elif b.startswith("国:") and world.bloc_of(b[2:]) is not None:
+            note = f"（{b[2:]} 的**个人旧约·盟内冻结**：退出即恢复，不随盟主变）"
         else:
             note = ""
-        parts.append(f"🕊 {a} ↔ {b} 休战至第 {until} 回合{note}")
+        parts.append(f"🕊 {world.entity_label(a)} ↔ {world.entity_label(b)}"
+                     f" 休战至第 {until} 回合{note}")
     head = "  【公开条约与战线】（全世界可见：签了什么、谁打谁——商议过程不公开）"
     return head + "\n" + ("    " + "\n    ".join(parts) if parts else "暂无：全世界还没有联盟/条约/战争")
 
