@@ -68,7 +68,7 @@ class PixelTests(unittest.TestCase):
         from PIL import Image
         w = mp.World(size=24, seed=3, nations=["秦","楚"])
         png = render.render(w,"秦",max_px=960)
-        self.assertEqual((1036,1050), Image.open(io.BytesIO(png)).size)
+        self.assertEqual((1612,1626), Image.open(io.BytesIO(png)).size)
         # 最右/最下刻度仍留在画布内。
         self.assertIsNotNone(render.render(w,"秦",bounds=(0,5,0,5)))
 
@@ -81,13 +81,50 @@ class PixelTests(unittest.TestCase):
             for i in range(101):
                 state["armies"].append({"x":0,"y":0,"owner":owner,"kind":("步","骑","民")[i%3],"hp":60})
         from PIL import Image
-        for cell in (24,40,72):
+        for budget in (24,40,64,96):
+            cell=max(64,budget)
             with self.subTest(cell=cell):
-                png = render.render_snapshot(state,max_px=cell*2)
+                png = render.render_snapshot(state,max_px=budget*2)
                 self.assertIsNotNone(png)
                 img = Image.open(io.BytesIO(png))
                 # 无论数量/地标，邻格仍是纯迷雾，兵牌没有画过去。
                 self.assertEqual(render.FOG_FILL,img.getpixel((38+cell+cell//2,54+cell//2)))
+
+    def test_three_counters_keep_size_and_leave_terrain_uncovered(self):
+        from PIL import Image
+        state={"version":1,"size":1,"turn":1,"player":"秦","order":["秦","齐","楚"],
+               "sides":{"秦":"self","齐":"ally","楚":"enemy"},"army_max_hp":100,
+               "cells":[{"x":0,"y":0,"owner":"秦","terrain":"森林","townhall":1,
+                         "castle":2,"resources":[],"reach":False}],"armies":[]}
+        boxes=[]
+        counter=render._counter
+        for owners in (["秦"],["秦"]*4,["秦","齐","楚"]):
+            state["armies"]=[{"x":0,"y":0,"owner":o,"kind":"步","hp":100,"max_hp":100} for o in owners]
+            calls=[]
+            def capture(d,box,*args):
+                calls.append(box)
+                return counter(d,box,*args)
+            with patch.object(render,"_counter",side_effect=capture):
+                img=Image.open(io.BytesIO(render.render_snapshot(state,max_px=64)))
+            boxes.append(calls)
+            footer=img.crop((38,54+49,38+64,54+64)).tobytes()
+            if len(boxes)==1:
+                reference=footer
+            self.assertEqual(reference,footer)
+        self.assertEqual(boxes[0],boxes[1])
+        dimensions={(b[2]-b[0],b[3]-b[1]) for calls in boxes for b in calls}
+        self.assertEqual(1,len(dimensions))
+        self.assertEqual(3,len(boxes[2]))
+
+    def test_full_health_militia_matches_full_health_infantry_rail(self):
+        from PIL import Image, ImageDraw
+        rails=[]
+        for kind,hp in (("步",100),("民",80)):
+            im=Image.new("RGB",(44,33),render.BG)
+            render._counter(ImageDraw.Draw(im),(0,0,42,32),render.SIDE_COLORS["self"],
+                            render.NATION_COLORS[0],[{"kind":kind,"hp":hp,"max_hp":hp}],100)
+            rails.append(im.crop((0,29,43,33)).tobytes())
+        self.assertEqual(rails[0],rails[1])
 
     def test_failure_emits_once_and_returns_none(self):
         state = {"version":99}
