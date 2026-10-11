@@ -417,6 +417,65 @@ class TestFallCeasefireActuallyStopsWars(unittest.TestCase):
                         "清野地的军队被天下休战误伤了")
 
 
+class TestFallCeasefireVoidsPending(unittest.TestCase):
+    """★★ 2026-10-11 用户报的洞：「**强制和平后，还没有敲定的和平条约没有自动作废，
+    可能覆盖风险**」。
+
+    强制和平那一刻**所有战线已经终止** ⇒ 在途的求和提议已经没仗可停；留着它，落地那一刻
+    就会把「全天下强制休战」**覆盖**成它自己那条短的——而那条强制休战是防雪球的地基
+    （2026-10-07 立的），不该被一纸短约抹掉。两道闸：① 强制和平即作废在途事项；
+    ② 议和写休战期一律 `max`（只许延长、不许缩短）。
+    """
+
+    def _world(self):
+        """秦、魏、韩、赵；**秦↔魏 交战**（另一条战线，与死者无关）；赵 有厅可拔。"""
+        w = mp.World(size=20, seed=7, nations=["秦", "魏", "韩", "赵"],
+                     starts={"秦": (3, 3), "魏": (6, 6), "韩": (9, 9), "赵": (12, 12)})
+        w.armies = []
+        w.turn = 30
+        self.assertTrue(w.declare_war("秦", "魏")[0])
+        return w
+
+    def _kill(self, w, name):
+        for (x, y) in list(w.own_tiles(name)):
+            w.tiles[(x, y)]["buildings"]["市政厅"] = 0
+        return w._eliminate_if_dead(name)
+
+    def test_inflight_peace_offer_is_voided(self):
+        w = self._world()
+        ok, msg = w.offer_peace("秦", "魏", "white", truce=3)
+        self.assertTrue(ok, msg)
+        self.assertEqual(len(w.peace_offers), 1, "前提：提议在桌上")
+        self.assertTrue(self._kill(w, "韩"))                 # 第三国亡国 ⇒ 全天下强制休战
+        self.assertEqual(w.peace_offers, [], "强制和平后，在途的求和提议还挂着")
+        # 拿着那纸条回来也没用
+        ok, msg = w.accept_peace("魏", 1)
+        self.assertFalse(ok, f"作废的求和提议还能接受：{msg}")
+
+    def test_both_parties_are_told(self):
+        w = self._world()
+        w.offer_peace("秦", "魏", "white", truce=3)
+        self._kill(w, "韩")
+        for who in ("秦", "魏"):
+            self.assertTrue(any("求和提议" in e and "作废" in e
+                                for e in w.events_for(who, limit=30)),
+                            f"{who} 没收到「提议作废」的通知")
+
+    def test_a_short_peace_cannot_shorten_the_fall_truce(self):
+        """★ **覆盖**的正面护栏：议和写休战期必须 `max`。
+
+        正常流程走不到"既在打仗、又已有更长休战"（开战会被休战拦下、强制和平又会清空所有
+        战争），所以这里**手工构造**那个状态——防雪球的地基不该靠"走不到"来保护。
+        """
+        w = self._world()
+        w.truce[mp._pair("秦", "魏")] = w.turn + 50      # 手上已有一条更长的休战
+        ok, msg = w.offer_peace("秦", "魏", "white", truce=2)
+        self.assertTrue(ok, msg)
+        _ok, _msg = w.accept_peace("魏", w.peace_offers[-1]["id"])
+        self.assertEqual(w.active_truce("秦", "魏"), w.turn + 50,
+                         "一纸短休战把原有的长休战覆盖掉了")
+
+
 class TestTruceBlocksPactCallUp(unittest.TestCase):
     """② 已有的共同防御/保障在休战期内**不触发**（和约优先于盟约）。"""
 

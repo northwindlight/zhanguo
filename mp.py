@@ -1118,8 +1118,13 @@ class World:
         self.log(f"🗳 「{v['bloc']}」投票#{v['id']}（{v['kind']}）作废：{why}",
                  phase="外交", parties=self._vote_stakeholders(v))
 
-    def _void_pending_treaties(self, why: str) -> list[str]:
+    def _void_pending_treaties(self, why: str, all_kinds: bool = False) -> list[str]:
         """开战 ⇒ **战前还没通过的外交条约一律当场作废**（2026-10-11 用户口径）。
+
+        `all_kinds=True` 是给**强制和平**用的（用户 2026-10-11 报的洞：「强制和平后，
+        还没有敲定的和平条约没有自动作废」）：亡国那一刻**所有战线当场终止 + 全天下压上
+        强制休战**，在途的一切（宣战/议和投票、求和提议）全都失去前提，一律作废；
+        而开战时只清"缔约/入盟"，**宣战与议和投票要留着**——那是战争本身的操作。
 
         「战时条约冻结」（缔结与解除都不行，见 `propose_pact` / `break_pact`）早就有，
         但**在途的表决与邀约是绕过它的后门**：缔约投票、入盟投票、结盟提议、
@@ -1127,14 +1132,24 @@ class World:
         通过那一刻已经在打了。开战即清，谁都别想搭这趟车。
         ★ **宣战与议和投票不动**：那是战争本身的操作，清了等于把出口也堵死。
         """
-        votes = [v for v in self.votes if v["kind"] in ("缔约", "入盟")]
+        votes = [v for v in self.votes
+                 if all_kinds or v["kind"] in ("缔约", "入盟")]
         props = list(self.proposals)
-        if not votes and not props:
+        offers = list(self.peace_offers) if all_kinds else []
+        if not votes and not props and not offers:
             return []
         killed: list[str] = []
         for v in votes:              # 每条投票**单独通知**它的盟内盟外当事人（含申请人）
             killed.append(f"{v['kind']}投票#{v['id']}（「{v['bloc']}」）")
-            self._cancel_vote(v, f"{why}——战时条约冻结")
+            self._cancel_vote(v, f"{why}——{'战线已全部终止' if all_kinds else '战时条约冻结'}")
+        for o in offers:
+            # 在途的求和提议：强制和平之后它已经**没有战线可停**了，留着只会在落地那一刻
+            # 把全天下强制休战覆盖成它自己的短休战（2026-10-11 报的洞）。
+            killed.append(f"求和提议#{o['id']}（{o['a']}→{o['b']}）")
+            self.peace_offers.remove(o)
+            self.log(f"🕊 {o['a']} 对 {o['b']} 的求和提议#{o['id']}作废：{why}"
+                     "（战线已终止，无须再谈；强制休战期照旧）", phase="外交",
+                     parties=sorted({o["a"], o["b"]} & set(self.nations)))
         if props:
             killed += [f"{p['kind']}提议#{p['id']}" for p in props]
             parties: list[str] = []
@@ -2550,6 +2565,12 @@ class World:
         for _v in [v for v in self.votes if self.bloc_by_name(v["bloc"]) is None]:
             self._cancel_vote(_v, "联盟因成员凋零而解散")   # ★ 别静默清票：盟外申请人要收到
         self.truce = {p: u for p, u in self.truce.items() if name not in p}
+        # ★★ 强制和平 ⇒ **在途的外交事项一律当场作废**（用户 2026-10-11 报的洞：
+        #   「强制和平后，还没有敲定的和平条约没有自动作废，可能覆盖风险」）。
+        #   这一刀落下时**所有战线已经终止**：在途的求和提议已经无仗可停，留着只会在落地
+        #   那一刻把下面的全天下强制休战覆盖成它自己的短休战（防雪球的地基被一纸短约抹掉）；
+        #   宣战/议和投票同理——它们的前提（有战线）也没了。见 `_void_pending_treaties`。
+        self._void_pending_treaties(f"{name} 亡国、全天下强制休战", all_kinds=True)
         # 一方灭亡 → 强制全天下休战 10 回合（防连环征服滚雪球；已有更长休战则保留）
         alive = self.alive()
         for i in range(len(alive)):
@@ -4572,7 +4593,11 @@ class World:
             until = self.turn + truce_n
             for x in [w["atk"]] + list(w.get("atk_followers", [])):
                 for y in [w["def"]] + list(w["followers"]):
-                    self.truce[_pair(x, y)] = until
+                    # ★ **只许延长、不许缩短**（用户 2026-10-11 报的洞：强制和平期间在途的
+                    #   和平提议落地，会把「全天下强制休战」覆盖成它自己那条短的）。
+                    #   2026-10-07 起"亡国 ⇒ 全天下强制休战"是防雪球的地基，谁都不该用
+                    #   一纸短休战把它抹掉——那条路只能是 `max`。
+                    self.truce[_pair(x, y)] = max(self.truce.get(_pair(x, y), 0), until)
         for m in self.armies:
             if m["owner"] in members and m.get("engaged"):
                 m["engaged"] = False  # 整条战线（含跟随方）一并解除交战
