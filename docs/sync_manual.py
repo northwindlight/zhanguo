@@ -154,7 +154,7 @@ def _b_behavior(name: str, info: dict) -> str:
     if k == "townhall":
         return (f"维持 {info['energy']} 电：每座每回合 {eff['gold_base']} 金"
                 f" + 本格其他建筑位数 × {eff['gold_per_slot']} 金入国库（不含自身，地越满越值）。"
-                "**国祚**：厅全部易主/被毁即亡国（不要求领土尽失）")
+                "**国祚**：厅**全部易主**即亡国（不要求领土尽失；没有「拆建筑」这条命令，只能被占地夺走）")
     if k == "tower":
         return (f"不耗电：己方/盟方任一塔半径 {eff['vision_radius']} 圆内的事件可见"
                 "（只扩事件视野，不增加可拓地）")

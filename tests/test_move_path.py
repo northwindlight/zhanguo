@@ -399,3 +399,24 @@ class TestDisbandTool(_Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestFreshRecruitsWait(_Base):
+    """★ 新兵**本回合不能行动**（用户 2026-10-12 定案）。
+
+    征召即满血站好，但 `moved_turn` 被钉成本回合 ⇒ 与"已经动过"走同一条闸；
+    下一回合自动解冻（判据是「== 当前回合」，不是"动没动过"）。
+    """
+
+    def test_recruit_then_move_is_refused(self):
+        w = self._world()
+        for g, n in (("粮食", 200), ("装备", 100), ("黄金", 500)):
+            w.add_res("秦", g, n)
+        w.tiles[(5, 5)]["buildings"]["兵营"] = 1      # 正规军必须在兵营格征兵
+        ok, msg = w.recruit("秦", 5, 5, 1, "步")
+        self.assertTrue(ok, msg)
+        a = [x for x in w.armies if x["owner"] == "秦"][-1]
+        ok, msg = w.move("秦", a["id"], 6, 5)
+        self.assertFalse(ok, f"新兵当回合就能动：{msg}")
+        a["moved_turn"] = -1          # 等价于"到了下回合"
+        ok, msg = w.move("秦", a["id"], 6, 5)
+        self.assertTrue(ok, f"下一回合还动不了：{msg}")
