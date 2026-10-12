@@ -8,6 +8,10 @@
   "save": "mp_save.json",
   "journal": "mp_journal.md",
 
+  "vision": false,
+  "map_max_px": 960,
+  "map_image_tokens": 2048,
+
   "ctx_window": 1000000,
   "ctx_fill": 0.8,
   "ctx_slide_keep": 0.6,
