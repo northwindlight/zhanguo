@@ -24,7 +24,7 @@ import mp_ai  # noqa: E402
 class TestManualSections(unittest.TestCase):
     def test_读得到且非空(self):
         secs = mp_ai.manual_sections()
-        self.assertIsNotNone(secs, "读不到 docs/规则纲要.md —— 局内 rules 会退化成只剩讲义")
+        self.assertIsNotNone(secs, "读不到 mods/native/说明书.md —— 局内 rules 会退化成只剩讲义")
         self.assertGreaterEqual(len(secs), 8, f"章数太少：{[t for t, _ in secs]}")
         for title, body in secs:
             self.assertTrue(title.strip(), "章标题不该为空")

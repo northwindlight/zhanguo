@@ -32,10 +32,10 @@ import mp, rule_ai
 _, fn = rule_ai.resolve({ver!r})          # 走注册表：剧本里不出现版本号字面量
 w = mp.World(size=20, seed=42, nations=["秦", "燕", "齐", "赵", "楚"])
 for g in ("齐", "赵", "楚"):
-    assert w.declare_guarantee(g, "燕")[0]
-assert w.declare_war("齐", "赵")[0]
-assert w.declare_war("齐", "楚")[0]
-ok, msg = w.declare_war("秦", "燕"); assert ok, msg
+    assert w._apply_declare_guarantee(g, "燕")[0]
+assert w._apply_declare_war("齐", "赵")[0]
+assert w._apply_declare_war("齐", "楚")[0]
+ok, msg = w._apply_declare_war("秦", "燕"); assert ok, msg
 assert len(w.wars) == 3, w.wars          # 三场战争都在（秦→燕 的传导不报错）
 _燕战 = next(x for x in w.wars if x["def"] == "燕")
 assert sorted(_燕战["followers"]) == ["楚", "赵"], _燕战   # sorted 修复下：齐被剪，赵楚同收

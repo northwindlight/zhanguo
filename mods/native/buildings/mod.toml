@@ -1,0 +1,87 @@
+ToolNames = ["build"]
+[Mod]
+Id = "buildings"
+Version = "1.0.0"
+Entry = "mods.native.buildings.mod:BuildingsMod"
+Requires = []
+
+[State]
+Requests = ["flow_in", "flow_out", "ledger", "nations", "spend", "tiles"]
+Owns = ["diplo_built", "energy_report", "grid_short"]
+
+[Capabilities]
+Needs = ["method._ledger", "method._ledger_runrate_mark", "method._mval", "method._reachable", "method._spend", "method.add_res", "method.alive", "method.polity_rule", "method.res", "method.troops", "method.visible_to", "method.war_between", "number.EXTRA_PROMPT_TURNS", "number.GRID_RESERVE_WARN", "number.HEAL_EQUIP_COST", "number.MARKET", "number.TERRAIN_STATS", "number.UNIT_TYPES"]
+Provides = ["method._eff", "method._stage_construction", "method._stage_gather", "method._stage_industry", "method.build", "method.industry_upkeep", "number.BUILDINGS", "number.MAX_SLOTS", "number.SITE_BUILDING", "state.diplo_built", "state.energy_report", "state.grid_short"]
+
+[[Stages]]
+Id = "buildings.gather"
+Handler = "_stage_gather"
+Hook = "slot.02"
+Needs = ["decisions.counted"]
+Provides = ["resources.collected"]
+
+[[Stages]]
+Id = "buildings.industry"
+Handler = "_stage_industry"
+Hook = "slot.03"
+Needs = ["resources.collected"]
+Provides = ["resources.transformed"]
+
+[[Stages]]
+Id = "buildings.construction"
+Handler = "_stage_construction"
+Hook = "slot.13"
+Needs = ["exchange.settled"]
+Provides = ["projects.completed"]
+
+[Manual]
+Sources = ["manual-1.md", "manual-2.md"]
+Hidden = ["十、政体：匈奴", "十二、终局结算"]
+
+[Manual.Keywords]
+"建筑" = "建筑"
+"建造" = "建筑"
+"兵营" = "建筑"
+"农场" = "建筑"
+"城堡" = "建筑"
+"瞭望塔" = "建筑"
+"外交中心" = "建筑"
+"工程院" = "建筑"
+"军屯" = "建筑"
+"民兵" = "建筑"
+"工厂" = "建筑"
+"能源" = "经济与能源"
+"电厂" = "基础指南"
+"造价" = "建筑"
+"资源" = "经济与能源"
+"经济" = "经济与能源"
+"电" = "经济与能源"
+"补给" = "经济与能源"
+"装备" = "经济与能源"
+"基础指南" = "基础指南"
+"开局" = "基础指南"
+"指南" = "基础指南"
+"开局指南" = "基础指南"
+"起步" = "基础指南"
+"发电" = "基础指南"
+
+[Manual.Summaries]
+"一局游戏" = "回合制、结算顺序、存亡看市政厅"
+"经济与能源" = "一本账、电网、补给仓、黄金"
+"建筑" = "造价/门槛/每回合行为；地形建设惩罚"
+"军队与战斗" = "兵种、移动、交战、野人、撤退"
+"外交" = "实体、条约、宣战与传导、投票、情报"
+"联盟与核心领土" = "联盟效果、核心领土与自动归还"
+"市场" = "买卖价差、均衡价回归、空转检测"
+"经济报表" = "GDP / 资产 / 军费 / 投资"
+"国策、回合与存档" = "plan、行动纪律、存档兼容"
+"命令表" = "命令表"
+"命令" = "命令表"
+"经济手册" = "讲义：**为什么**该这么搞经济"
+"基础指南" = "讲义：**基础功**——开局怎么下手、电与工业怎么配"
+"战争手册" = "讲义：**这仗该怎么打**（战时必读）"
+"战略手册" = "讲义：**盘面怎么看**——均势、干预、外交、僵持"
+"世界央行" = "利率、贷款、报表买卖（开行才有）"
+
+[Manual.Lectures]
+"基础指南" = "opening_guide"

@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import rule_ai  # noqa: E402
-from balance import MARKET  # noqa: E402
+from mods.native.balance import MARKET  # noqa: E402
 from mp import World  # noqa: E402
 
 # 库存里"非金"的那几样（黄金单独算：国库黄金**就是钱**，按面值，不折市价）

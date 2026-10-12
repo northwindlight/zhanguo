@@ -1,0 +1,110 @@
+ToolNames = ["recruit", "move", "attack", "retreat", "disband"]
+[Mod]
+Id = "army"
+Version = "1.1.0"
+Entry = "mods.native.army.mod:ArmyMod"
+Requires = []
+
+[State]
+Requests = ["blocs", "econ_intel", "extra_prompt", "flow_out", "gift_pending", "grid_short", "ledger", "mail_pending", "mailbox", "map_pending", "maps", "nations", "order", "peace_offers", "plans", "proposals", "rng", "size", "spend", "spy_pending", "tiles", "truce", "turn", "turn_memory", "votes", "wars"]
+Owns = ["units"]
+
+[Capabilities]
+Needs = ["method._cancel_vote", "method._check", "method._ledger", "method._mval", "method._new_tile", "method._return_core", "method._snapshot_cores", "method._spend", "method._void_pending_treaties", "method.add_res", "method.alive", "method.allied_between", "method.bloc_by_name", "method.bloc_chief", "method.broadcast", "method.drop_pacts_of", "method.entities", "method.log", "method.nation_building_count", "method.neighbors", "method.own_tiles", "method.owned_by", "method.polity_rule", "method.proclaim", "method.res", "method.set_truce", "method.ter_char", "method.tile_terrain", "method.visible_buildings", "method.visible_to", "method.war_between", "number.BUILDINGS", "number.FALL_TRUCE_TURNS", "number.TERRAIN_STATS"]
+Provides = ["method._army", "method._army_split", "method._assign_code", "method._atk_target_ok", "method._blind_cost", "method._claim_winner", "method._clear_disengaged", "method._combat_power", "method._conquer", "method._defense_pct", "method._defs_at", "method._die", "method._drop_guardians", "method._eliminate_if_dead", "method._ensure_guardians", "method._enterable_step", "method._modtxt", "method._mv_wall", "method._new_army", "method._next_engage_seq", "method._reachable", "method._resolve_battles", "method._retreat_legal", "method._round_damage", "method._settle_deaths", "method._spawn_guardian", "method._spread", "method._stage_battle", "method._stage_disengage", "method._stage_retreats", "method._stage_supply", "method._stage_withdraw", "method._supply_fed", "method._supply_need", "method._unreachable_msg", "method._withdraw_illegal", "method.attack", "method.battle_sides", "method.defense_breakdown", "method.disband", "method.faction_atk", "method.guardians", "method.has_townhall", "method.move", "method.nation_armies", "method.recruit", "method.recruit_cost", "method.retreat", "method.starve_per_army", "method.supply_shortfall", "method.troops", "number.ARMY_ATTACK_DAMAGE", "number.ARMY_HEAL_PER_TURN", "number.ARMY_MAX_HP", "number.ARMY_STARVE_DAMAGE", "number.COMBAT_DIE_MOD", "number.HEAL_EQUIP_COST", "number.MOVE_COST", "number.RETREAT_ATK_PENALTY", "number.RETREAT_DEF_COVER", "number.RETREAT_RANGE", "number.UNIT_TYPES", "state.units", "army.units", "number.ARMY_GID_BASE"]
+
+[[Stages]]
+Id = "army.supply"
+Handler = "_stage_supply"
+Hook = "slot.05"
+Needs = ["relations.applied"]
+Provides = ["units.maintained"]
+
+[[Stages]]
+Id = "army.battle"
+Handler = "_stage_battle"
+Hook = "slot.06"
+Needs = ["units.maintained"]
+Provides = ["conflicts.resolved"]
+
+[[Stages]]
+Id = "army.retreats"
+Handler = "_stage_retreats"
+Hook = "slot.07"
+Needs = ["conflicts.resolved"]
+Provides = ["units.repositioned"]
+
+[[Stages]]
+Id = "army.disengage"
+Handler = "_stage_disengage"
+Hook = "slot.08"
+Needs = ["units.repositioned"]
+Provides = ["conflicts.cleaned"]
+
+[[Stages]]
+Id = "army.withdraw"
+Handler = "_stage_withdraw"
+Hook = "slot.11"
+Needs = ["actors.eliminated"]
+Provides = ["units.repatriated"]
+
+[Manual]
+Sources = ["manual-1.md"]
+Hidden = ["十、政体：匈奴", "十二、终局结算"]
+
+[Manual.Keywords]
+"地形" = "军队与战斗"
+"拓荒" = "军队与战斗"
+"军队" = "军队与战斗"
+"战斗" = "军队与战斗"
+"战争" = "军队与战斗"
+"征兵" = "军队与战斗"
+"遣散" = "军队与战斗"
+"裁军" = "军队与战斗"
+"复员" = "军队与战斗"
+"解散军队" = "军队与战斗"
+"裁撤" = "军队与战斗"
+"撤编" = "军队与战斗"
+"军队移动" = "军队与战斗"
+"攻击" = "军队与战斗"
+"野人" = "军队与战斗"
+"移动" = "军队与战斗"
+"速度" = "军队与战斗"
+"移动力" = "军队与战斗"
+"射程" = "军队与战斗"
+"距离" = "军队与战斗"
+"路" = "军队与战斗"
+"地形挡路" = "军队与战斗"
+"战争手册" = "战争手册"
+"速战速决" = "战争手册"
+"拔厅" = "战争手册"
+"国祚" = "战争手册"
+"集中兵力" = "战争手册"
+"战果" = "战争手册"
+"歼灭" = "战争手册"
+
+[Manual.Summaries]
+"一局游戏" = "回合制、结算顺序、存亡看市政厅"
+"经济与能源" = "一本账、电网、补给仓、黄金"
+"建筑" = "造价/门槛/每回合行为；地形建设惩罚"
+"军队与战斗" = "兵种、移动、交战、野人、撤退"
+"外交" = "实体、条约、宣战与传导、投票、情报"
+"联盟与核心领土" = "联盟效果、核心领土与自动归还"
+"市场" = "买卖价差、均衡价回归、空转检测"
+"经济报表" = "GDP / 资产 / 军费 / 投资"
+"国策、回合与存档" = "plan、行动纪律、存档兼容"
+"命令表" = "命令表"
+"命令" = "命令表"
+"经济手册" = "讲义：**为什么**该这么搞经济"
+"基础指南" = "讲义：**基础功**——开局怎么下手、电与工业怎么配"
+"战争手册" = "讲义：**这仗该怎么打**（战时必读）"
+"战略手册" = "讲义：**盘面怎么看**——均势、干预、外交、僵持"
+"世界央行" = "利率、贷款、报表买卖（开行才有）"
+
+[Manual.Lectures]
+"战争手册" = "war_manual"
+
+[Panels]
+"army" = "panel_army"
+"threats" = "panel_threats"
+"battle" = "panel_battle"

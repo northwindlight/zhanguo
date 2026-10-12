@@ -103,6 +103,7 @@ import os
 import re
 import signal
 import time
+import sys
 import urllib.error
 import urllib.request
 
@@ -247,20 +248,57 @@ _PRIVATE_MSG_KEYS = (REPLAY_KEY,)
 """
 
 
-def _public_messages(messages: list[dict]) -> list[dict]:
-    """发请求前摘掉提供方私有键，返回**新列表**（绝不动调用方那份——ctx.py 的逐字节契约）。
+def _map_message(message: dict, *, vision=True) -> dict:
+    """发送边界重绘事实快照；内部历史始终只有文字+JSON，绝不落盘 base64。"""
+    import ctx
+    payload = message.get(ctx.MAP_KEY)
+    if not payload:
+        return message
+    import render as map_render
+    result = {k:v for k,v in message.items() if k != ctx.MAP_KEY}
+    png = (map_render.render_snapshot(payload["facts"], max_px=payload["max_px"],
+                                    emit=lambda text: print(text, file=sys.stderr)) if vision else None)
+    text = str(message.get("content") or "")
+    if png is None:
+        result["content"] = text + "\n【地图渲染不可用：文本地图】\n" + payload.get("fallback", "")
+    else:
+        result["content"] = [{"type":"text", "text":text}, map_render.data_url(png)]
+    return result
 
-    只在真有键时才复制（常态零拷贝）。
-    """
+
+def _public_messages(messages: list[dict], *, vision=True) -> list[dict]:
+    """只在请求边界展开图片并剥私有字段，不改调用方/历史记录。"""
     out = None
-    for i, m in enumerate(messages):
-        if isinstance(m, dict) and any(k in m for k in _PRIVATE_MSG_KEYS):
+    for i, original in enumerate(messages):
+        m = _map_message(original, vision=vision)
+        private = any(k in m for k in _PRIVATE_MSG_KEYS)
+        if m is not original or private:
             if out is None:
                 out = list(messages[:i])
-            out.append({k: v for k, v in m.items() if k not in _PRIVATE_MSG_KEYS})
+            out.append({k:v for k,v in m.items() if k not in _PRIVATE_MSG_KEYS})
         elif out is not None:
             out.append(m)
     return messages if out is None else out
+
+
+def _anthropic_user_blocks(content):
+    if not isinstance(content, list):
+        return [{"type":"text", "text":str(content or "")}]
+    blocks=[]
+    for block in content:
+        if block.get("type") == "text":
+            blocks.append(dict(block))
+        elif block.get("type") == "image_url":
+            url = block["image_url"]["url"]
+            if url.startswith("data:"):
+                header, data = url.split(",",1)
+                media = header[5:].split(";")[0]
+                blocks.append({"type":"image", "source":{"type":"base64", "media_type":media, "data":data}})
+            else:
+                blocks.append({"type":"image", "source":{"type":"url", "url":url}})
+        else:
+            raise ValueError("不支持的多模态用户块")
+    return blocks
 
 
 def _cached_tokens(usage) -> int:
@@ -369,7 +407,7 @@ class OpenAICompat:
             stream = self.client.chat.completions.create(
                 # 摘掉提供方私有键（`reasoning_signature` 是 Anthropic 那一路的东西，
                 # 严格端点收到不认识的 message 字段会 400；本路发的是 OpenAI 形态）。
-                model=cfg["model"], messages=_public_messages(messages),
+                model=cfg["model"], messages=_public_messages(messages, vision=cfg.get("vision", False)),
                 tools=tools, tool_choice="auto",
                 temperature=cfg.get("temperature", 0.3),
                 # 默认输出上限 16k（2026-09-20 用户口径：「默认改大一点 16k」）。
@@ -487,7 +525,7 @@ class OpenAICompat:
         #   处理」——和 chat_turn 同源，扩展字段不再按端点能力分化）。
         extra = {"thinking": {"type": "disabled"}}
         limit = float(cfg.get("api_timeout", 900))
-        kw: dict = {"model": cfg["model"], "messages": _public_messages(messages),
+        kw: dict = {"model": cfg["model"], "messages": _public_messages(messages, vision=cfg.get("vision", False)),
                     "max_tokens": int(max_tokens if max_tokens is not None
                                        else cfg.get("ctx_compact_tokens", 1500)),
                     "temperature": 0.3,
@@ -659,7 +697,8 @@ def _anthropic_messages(messages: list[dict], model: str, cfg: dict) -> list[dic
             out.append({"role": "user", "content": list(pending)})
             pending.clear()
 
-    for m in messages:
+    for stored in messages:
+        m = _map_message(stored, vision=cfg.get("vision", False))
         role = m.get("role")
         if role == "system":
             continue
@@ -678,7 +717,7 @@ def _anthropic_messages(messages: list[dict], model: str, cfg: dict) -> list[dic
         else:
             # user（含 role 认不出的）：内容照发，别丢
             out.append({"role": "user",
-                        "content": [{"type": "text", "text": str(m.get("content") or "")}]})
+                        "content": _anthropic_user_blocks(m.get("content"))})
     flush()
     return out
 

@@ -92,14 +92,17 @@ class TestCoreIsReturnedToAllies(unittest.TestCase):
 
     def _same_front_war(self, w):
         """秦（盟主）对燕宣战 ⇒ 全盟落在攻方（楚是盟员，同战线）。"""
-        w.propose_bloc("秦", "北盟", ["楚"])
+        w._apply_propose_bloc("秦", "北盟", ["楚"])
         p = w.proposals[-1]
-        w.accept_pact("楚", p["id"])
+        w._apply_accept_pact("楚", p["id"])
         self.assertIsNotNone(w.bloc_of("秦"))
-        w.declare_war("秦", "燕")                  # 在盟 → 转联盟投票
+        w._apply_declare_war("秦", "燕")                  # 在盟 → 转联盟投票
         v = w.votes[-1]
+        prepare_vote(w, v['id'])
         w.cast_vote("秦", v["id"], True)
+        prepare_vote(w, v['id'])
         w.cast_vote("楚", v["id"], True)
+        settle_votes(w)
         self.assertTrue(w.wars, "前提：开战了")
         atk, dfs = w._war_sides(w.wars[0])
         self.assertIn("秦", atk)
@@ -127,3 +130,15 @@ class TestCoreIsReturnedToAllies(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def prepare_vote(w, vote_id):
+    """机制测试投票夹具：推进到声明的投票回合。公共全阶段时序见 test_regularization。"""
+    vote = next(v for v in w.votes if v['id'] == vote_id)
+    w.turn = max(w.turn, vote['voting_turn'])
+    w.phase = '行动'
+
+
+def settle_votes(w):
+    w._expire_votes()
+    w._stage_diplomacy({})

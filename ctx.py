@@ -131,12 +131,15 @@ REPLAY_KEY = "reasoning_signature"
 
 **它不进 token 预算**：`msg_tokens` 只看 content / reasoning_content / tool_calls。
 """
+MAP_KEY = "_map_snapshot"
 PRIVATE_MSG_KEYS = (REPLAY_KEY,)
 
 
 def msg_tokens(m: dict) -> int:
     """估算一条 OpenAI 消息（含工具调用参数）的 token 数。"""
     t = est_tokens(m.get("content")) + est_tokens(m.get("reasoning_content"))
+    if m.get(MAP_KEY):
+        t += int(m[MAP_KEY].get("estimated_tokens", 2048))
     for tc in (m.get("tool_calls") or []):
         fn = tc.get("function") or {}
         t += est_tokens(fn.get("name")) + est_tokens(fn.get("arguments")) + 8
@@ -258,7 +261,7 @@ CTX_KEYS = ("ctx_window", "ctx_fill", "ctx_slide_keep", "ctx_archive_fill",
 
 def apply_defaults(cfg: dict) -> dict:
     """把配置顶层的 ctx_* 键下沉为每国默认值（国家条目里的同名键优先）。"""
-    defaults = {k: cfg[k] for k in CTX_KEYS if k in cfg}
+    defaults = {k: cfg[k] for k in (*CTX_KEYS, "vision", "map_max_px", "map_image_tokens") if k in cfg}
     for n in cfg.get("nations", []) or []:
         if isinstance(n, dict):
             for k, v in defaults.items():
@@ -513,6 +516,9 @@ def merge_same_role(msgs: list[dict]) -> list[dict]:
             if role == "tool":
                 out.append(dict(m))
                 continue
+            if role == "user" and (last.get(MAP_KEY) or m.get(MAP_KEY)):
+                out.append(dict(m))
+                continue
             if role == "user":
                 last["content"] = _join(last.get("content"), m.get("content"))
                 continue
@@ -538,7 +544,7 @@ def merge_same_role(msgs: list[dict]) -> list[dict]:
 
 
 def assemble(system_text: str, archive_text: str, records: list[dict],
-             tail_text: str) -> list[dict]:
+             tail_text: str, tail_map: dict | None = None) -> list[dict]:
     """按缓存稳定性顺序拼消息：system → 归档 → replay → 本回合状态。"""
     msgs: list[dict] = [{"role": "system", "content": system_text}]
     if archive_text:
@@ -546,7 +552,10 @@ def assemble(system_text: str, archive_text: str, records: list[dict],
     for rec in records:
         msgs.extend(rec.get("messages") or [])
     if tail_text:
-        msgs.append({"role": "user", "content": tail_text})
+        tail = {"role": "user", "content": tail_text}
+        if tail_map:
+            tail[MAP_KEY] = tail_map
+        msgs.append(tail)
     return merge_same_role(msgs)
 
 
@@ -594,7 +603,8 @@ def _archive_floor(mem: list[dict], sums: list[dict], blocks: list[dict], last_t
 
 def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
           system_text: str, tail_text: str, tool_tokens: int = 0,
-          fallback_turns: int | None = None, long_memory: str = "") -> tuple[list[dict], Plan]:
+          fallback_turns: int | None = None, long_memory: str = "",
+          tail_map: dict | None = None) -> tuple[list[dict], Plan]:
     """组装一国本回合的完整上下文，并回填预算/用量统计到 Plan。
 
     两遍选深度：先按归档占满配额估 replay，再按归档实际大小回补——归档通常远小于
@@ -603,6 +613,8 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
     plan = make_plan(cfg, fallback_turns=fallback_turns)
     plan.sys_tokens = est_tokens(system_text) + _MSG_OVERHEAD
     plan.tail_tokens = est_tokens(tail_text) + _MSG_OVERHEAD
+    if tail_map:
+        plan.tail_tokens += int(tail_map.get("estimated_tokens", 2048))
     overhead = plan.sys_tokens + plan.tail_tokens + int(tool_tokens or 0) + SAFETY_TOKENS
 
     last_turn = int(mem[-1]["turn"]) if mem else 0
@@ -655,4 +667,4 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
     last = record_tokens(records[-1]) if records else 0
     plan.stable_tokens = (int(plan.sys_tokens + plan.archive_tokens
                               + max(0, plan.replay_tokens - last)))
-    return assemble(system_text, archive_text, records, tail_text), plan
+    return assemble(system_text, archive_text, records, tail_text, tail_map), plan

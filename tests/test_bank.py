@@ -518,24 +518,17 @@ class TestPanelAndSave(unittest.TestCase):
         self.assertEqual(w2.bank["loans"]["秦"]["due"], 700)
         self.assertEqual(w2.bank["loans"]["秦"]["turns_left"], mp.BANK_LOAN_TURNS)
 
-    def test_v3_save_still_loads_with_bank_off(self):
-        """★ **追加式存档**（2026-09-19 用户：「这个档允许追加，而不是重开，只加银行不能删
-        硬件，就是为了增量更新存档」）：老档缺 `bank` 键 ⇒ 按默认补齐（银行关着），
-        **不用重开**；再存一次就把新键带上（增量更新）。"""
-        self.assertEqual(mp.SAVE_VERSION, 4)
-        self.assertIn("bank", mp.SAVE_DEFAULTS)
+    def test_old_save_without_mod_dependencies_is_rejected(self):
         w = _world()
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "s.json"
             w.save(p)
             data = json.loads(p.read_text(encoding="utf-8"))
-            data.pop("bank")                      # 模拟 v3 档
+            data.pop("mod_dependencies")
             data["version"] = 3
             p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-            w2 = mp.World.load(p)                 # 应能开，不该拒载
-            self.assertFalse(w2.bank_on())
-            w2.save(p)                            # 再存 ⇒ 新键补上
-            self.assertIn("bank", json.loads(p.read_text(encoding="utf-8")))
+            with self.assertRaisesRegex(mp.SaveFormatError, "拒绝加载"):
+                mp.World.load(p)
 
 
 def _world_with_report(nations=("秦", "楚"), on=True):
@@ -545,6 +538,7 @@ def _world_with_report(nations=("秦", "楚"), on=True):
     for _ in range(10):
         w.begin_turn()
         w.resolve_turn()
+    w.begin_turn()
     return w
 
 
@@ -577,6 +571,7 @@ class TestSellReport(unittest.TestCase):
         for _ in range(10):                       # 再跑 10 回合 ⇒ 第 21 回合那期也出来了
             w.begin_turn()
             w.resolve_turn()
+        w.begin_turn()
         out = mp_ai.execute(w, "秦", "buy_report", {"to": "楚", "turn": 11})
         self.assertIn("报表回合 11", out)
         out = mp_ai.execute(w, "秦", "buy_report", {"to": "楚", "turn": 21})

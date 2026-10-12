@@ -80,7 +80,7 @@ class TestGuarantee(unittest.TestCase):
         self.assertTrue(self.w.bank_on(), "剧本自带央行（利差口径要有央行才有意义）")
 
     def test_打周王室_另外六国全体自动参战(self):
-        ok, msg = self.w.declare_war("秦", S.ZHOU)
+        ok, msg = self.w._apply_declare_war("秦", S.ZHOU)
         self.assertTrue(ok, msg)
         self.assertEqual(len(self.w.wars), 1, "只开一条战线")
         war = self.w.wars[0]
@@ -92,7 +92,7 @@ class TestGuarantee(unittest.TestCase):
             self.assertTrue(self.w.war_between("秦", n), f"{n} 该与秦交战")
 
     def test_自己保的约_开打时自动解除(self):
-        self.w.declare_war("秦", S.ZHOU)
+        self.w._apply_declare_war("秦", S.ZHOU)
         self.assertFalse(self.w.has_pact("保障", self.w.entity_of("秦"), self.w.entity_of(S.ZHOU)),
                          "宣战方与守方之间的保障/共同防御要先解除（不打自己人）")
         self.assertEqual(len(self.w.guarantors_of(self.w.entity_of(S.ZHOU))), 6,
@@ -220,7 +220,7 @@ class TestZhouCanWinAndStrike(unittest.TestCase):
 
     def test_周可以主动打别国(self):
         """保障是**单向**的：只保周不被别人动，不禁止周自己动手。"""
-        ok, msg = self.w.declare_war(S.ZHOU, "秦")
+        ok, msg = self.w._apply_declare_war(S.ZHOU, "秦")
         self.assertTrue(ok, msg)
         self.assertEqual((self.w.wars[0]["atk"], self.w.wars[0]["def"]), (S.ZHOU, "秦"))
         self.assertTrue(self.w.war_between(S.ZHOU, "秦"))
@@ -238,10 +238,10 @@ class TestZhouCanWinAndStrike(unittest.TestCase):
     def test_周立盟_七张保障立刻全废(self):
         """「一旦周开始建立周天下，那么所有的独立保障立刻失效」——周当盟主就**不再要人保**。"""
         w = self.w
-        w.propose_bloc(S.ZHOU, "周天下", ["燕", "齐"])
+        w._apply_propose_bloc(S.ZHOU, "周天下", ["燕", "齐"])
         p = w.proposals[-1]
         for m in ("燕", "齐"):
-            w.accept_pact(m, p["id"])
+            w._apply_accept_pact(m, p["id"])
         self.assertIsNotNone(w.bloc_of(S.ZHOU), "「周天下」该立起来了")
         self.assertEqual(w.guarantors_of(w.entity_of(S.ZHOU)), [],
                          "七张保障纸该在立盟那一刻全部作废")
@@ -256,11 +256,11 @@ class TestZhouCanWinAndStrike(unittest.TestCase):
         七张纸换成一张盟约，援军从"全体诸侯"变成"自己拉进来的那几家"。）
         """
         w = self.w
-        w.propose_bloc(S.ZHOU, "周天下", ["燕", "齐"])
+        w._apply_propose_bloc(S.ZHOU, "周天下", ["燕", "齐"])
         p = w.proposals[-1]
         for m in ("燕", "齐"):
-            w.accept_pact(m, p["id"])
-        ok, msg = w.declare_war("秦", S.ZHOU)
+            w._apply_accept_pact(m, p["id"])
+        ok, msg = w._apply_declare_war("秦", S.ZHOU)
         self.assertTrue(ok, msg)
         self.assertEqual(sorted(w.wars[0]["followers"]), ["燕", "齐"],
                          "保障已废：该来的只有联盟成员")
@@ -322,7 +322,7 @@ class TestScenarioSave(unittest.TestCase):
             self.assertEqual(len(w.nations), 8)
             zhou = w.entity_of(S.ZHOU)
             self.assertEqual(len(w.guarantors_of(zhou)), 7, "读档不许把条约读丢")
-            ok, msg = w.declare_war("楚", S.ZHOU)
+            ok, msg = w._apply_declare_war("楚", S.ZHOU)
             self.assertTrue(ok, msg)
             self.assertEqual(sorted(w.wars[0]["followers"]), sorted(set(S.SEVEN) - {"楚"}))
 

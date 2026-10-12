@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import mp  # noqa: E402
-from balance import RETREAT_DEF_COVER  # noqa: E402
+from mods.native.balance import RETREAT_DEF_COVER  # noqa: E402
 import mp_ai  # noqa: E402
 
 
@@ -43,7 +43,7 @@ def _army(w, kind: str, x: int, y: int, owner: str, aid: int,
     if type_ != "none":
         a["type"] = type_ or kind
     w.armies.append(a)
-    return a
+    return w.units[-1]
 
 
 def _tile(w, x: int, y: int, owner: str | None, terrain: str = "平原",

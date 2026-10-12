@@ -13,8 +13,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import balance  # noqa: E402
+from mods.native import balance  # noqa: E402
 import mp  # noqa: E402
+from mods.native.army.objects import Unit
 
 
 class TestRetreatCover(unittest.TestCase):
@@ -25,12 +26,12 @@ class TestRetreatCover(unittest.TestCase):
         w = mp.World(size=16, seed=99, nations=["秦", "楚"])
         w.tiles[(5, 5)] = w._new_tile(5, 5, "楚")
         w.tiles[(5, 5)]["owner"] = "楚"
-        atk = {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
-               "x": 5, "y": 5, "owner": "秦", "moved_turn": -1, "engaged": True}
+        atk = Unit.from_save({"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+               "x": 5, "y": 5, "owner": "秦", "moved_turn": -1, "engaged": True})
         dfd = []
         for i, cv in enumerate(covers, 1):
-            a = {"id": i, "gid": 100 + i, "name": f"楚·步{i}军", "type": "步", "hp": 100,
-                 "x": 5, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": True}
+            a = Unit.from_save({"id": i, "gid": 100 + i, "name": f"楚·步{i}军", "type": "步", "hp": 100,
+                 "x": 5, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": True})
             if cv is not None:
                 a["retreat_cover"] = cv
             dfd.append(a)
@@ -66,10 +67,10 @@ class TestRetreatCover(unittest.TestCase):
         w.tiles[(5, 5)]["owner"] = "秦"
         w.tiles[(6, 5)] = w._new_tile(6, 5, "楚")
         w.tiles[(6, 5)]["owner"] = "楚"
-        foe = {"id": 1, "gid": 1, "name": "楚·步一军", "type": "步", "hp": 100,
-               "x": 5, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": True}
-        newr = {"id": 3, "gid": 3, "name": "秦·步二军", "type": "步", "hp": 100,
-                "x": 5, "y": 6, "owner": "秦", "moved_turn": -1, "engaged": False}
+        foe = Unit.from_save({"id": 1, "gid": 1, "name": "楚·步一军", "type": "步", "hp": 100,
+               "x": 5, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": True})
+        newr = Unit.from_save({"id": 3, "gid": 3, "name": "秦·步二军", "type": "步", "hp": 100,
+                "x": 5, "y": 6, "owner": "秦", "moved_turn": -1, "engaged": False})
         w.armies = [foe, newr]
         w.wars = [{"id": 1, "atk": "楚", "def": "秦", "followers": [], "turn": 1}]
         ok, msg = w.move("秦", 3, 5, 5)
@@ -95,8 +96,8 @@ class TestRetreatCover(unittest.TestCase):
         w3.tiles[(5, 5)]["owner"] = "秦"
         w3.tiles[(6, 5)] = w3._new_tile(6, 5, "楚")
         w3.tiles[(6, 5)]["owner"] = "楚"
-        f3 = {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
-              "x": 5, "y": 6, "owner": "秦", "moved_turn": -1, "engaged": False}
+        f3 = Unit.from_save({"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+              "x": 5, "y": 6, "owner": "秦", "moved_turn": -1, "engaged": False})
         w3.armies = [f3]  # (6,5) 空敌国格
         w3.wars = [{"id": 1, "atk": "秦", "def": "楚", "followers": [], "turn": 1}]
         ok2, msg2 = w3.move("秦", 1, 6, 5)
@@ -104,10 +105,10 @@ class TestRetreatCover(unittest.TestCase):
         self.assertIn("mv 进不去", msg2)   # 2026-09-20 话术改了
         # 野地格被敌军驻守 → 仍拦（脸贴脸必须 atk）
         w4 = mp.World(size=16, seed=5, nations=["秦", "楚"])
-        f4 = {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
-              "x": 5, "y": 6, "owner": "秦", "moved_turn": -1, "engaged": False}
-        g4 = {"id": 2, "gid": 2, "name": "楚·步一军", "type": "步", "hp": 100,
-              "x": 6, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": False}
+        f4 = Unit.from_save({"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+              "x": 5, "y": 6, "owner": "秦", "moved_turn": -1, "engaged": False})
+        g4 = Unit.from_save({"id": 2, "gid": 2, "name": "楚·步一军", "type": "步", "hp": 100,
+              "x": 6, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": False})
         w4.armies = [f4, g4]
         w4.wars = [{"id": 1, "atk": "秦", "def": "楚", "followers": [], "turn": 1}]
         ok3, msg3 = w4.move("秦", 1, 6, 5)
@@ -119,10 +120,10 @@ class TestRetreatCover(unittest.TestCase):
         w = mp.World(size=16, seed=5, nations=["秦", "楚"])
         w.tiles[(5, 5)] = w._new_tile(5, 5, "秦")
         w.tiles[(5, 5)]["owner"] = "秦"
-        stay = {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
-                "x": 5, "y": 5, "owner": "秦", "moved_turn": -1, "engaged": True}
-        fled = {"id": 2, "gid": 2, "name": "楚·步一军", "type": "步", "hp": 100,
-                "x": 6, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": False}
+        stay = Unit.from_save({"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+                "x": 5, "y": 5, "owner": "秦", "moved_turn": -1, "engaged": True})
+        fled = Unit.from_save({"id": 2, "gid": 2, "name": "楚·步一军", "type": "步", "hp": 100,
+                "x": 6, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": False})
         w.armies = [stay, fled]  # 敌军已落地他格、脱离交战；格上只剩我军
         w.wars = [{"id": 1, "atk": "楚", "def": "秦", "followers": [], "turn": 1}]
         n = w._clear_disengaged()
@@ -178,10 +179,10 @@ class TestRetreatCover(unittest.TestCase):
             w = mp.World(size=16, seed=99, nations=["秦", "楚"])
             w.tiles[(5, 5)] = w._new_tile(5, 5, "楚")
             w.tiles[(5, 5)]["owner"] = "楚"
-            atk = {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
-                   "x": 5, "y": 5, "owner": "秦", "moved_turn": -1, "engaged": True}
-            dfd = {"id": 2, "gid": 2, "name": "楚·步一军", "type": "步", "hp": 100,
-                   "x": 5, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": True}
+            atk = Unit.from_save({"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+                   "x": 5, "y": 5, "owner": "秦", "moved_turn": -1, "engaged": True})
+            dfd = Unit.from_save({"id": 2, "gid": 2, "name": "楚·步一军", "type": "步", "hp": 100,
+                   "x": 5, "y": 5, "owner": "楚", "moved_turn": -1, "engaged": True})
             if retreat:
                 dfd["retreat_to"] = (5, 4)  # 宣布撤退（cover 不影响输出）
             w.armies = [atk, dfd]
@@ -211,8 +212,8 @@ class TestForcedWithdrawal(unittest.TestCase):
 
     def test_stranded_army_walks_home_through_neutral_land(self):
         w = self._world()
-        a = {"id": 1, "gid": 1, "name": "秦·骑一军", "type": "骑", "hp": 100,
-             "x": 6, "y": 6, "owner": "秦", "moved_turn": -1, "engaged": False}
+        a = Unit.from_save({"id": 1, "gid": 1, "name": "秦·骑一军", "type": "骑", "hp": 100,
+             "x": 6, "y": 6, "owner": "秦", "moved_turn": -1, "engaged": False})
         w.armies = [a]
 
         def _nearest_home():
@@ -225,8 +226,8 @@ class TestForcedWithdrawal(unittest.TestCase):
 
     def test_legal_position_is_left_alone(self):
         w = self._world()
-        a = {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
-             "x": 0, "y": 0, "owner": "秦", "moved_turn": -1, "engaged": False}
+        a = Unit.from_save({"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+             "x": 0, "y": 0, "owner": "秦", "moved_turn": -1, "engaged": False})
         w.armies = [a]
         w._withdraw_illegal()
         self.assertEqual((a["x"], a["y"]), (0, 0))
@@ -238,14 +239,14 @@ class TestHunsDiplomacy(unittest.TestCase):
     def test_propose_to_huns_is_rejected(self):
         w = mp.World(size=16, seed=3, nations=["秦", "林胡"])
         w.apply_polity("林胡", "huns")
-        ok, msg = w.propose_pact("共同防御", "秦", "林胡")
+        ok, msg = w._apply_propose_pact("共同防御", "秦", "林胡")
         self.assertFalse(ok)
         self.assertIn("游牧", msg)
 
     def test_bloc_founding_with_huns_is_rejected(self):
         w = mp.World(size=16, seed=3, nations=["秦", "楚", "林胡"])
         w.apply_polity("林胡", "huns")
-        ok, msg = w.propose_bloc("秦", "北盟", ["楚", "林胡"])
+        ok, msg = w._apply_propose_bloc("秦", "北盟", ["楚", "林胡"])
         self.assertFalse(ok)
         self.assertIn("游牧", msg)
 
@@ -599,8 +600,8 @@ class TestWildernessClaims(unittest.TestCase):
     WILD = (7, 7)
 
     def _army(self, aid, owner, x, y, engaged=False, hp=100, seq=0):
-        a = {"id": aid, "gid": aid, "name": f"{owner}·步{aid}军", "type": "步", "hp": hp,
-             "x": x, "y": y, "owner": owner, "moved_turn": -1, "engaged": engaged}
+        a = Unit.from_save({"id": aid, "gid": aid, "name": f"{owner}·步{aid}军", "type": "步", "hp": hp,
+             "x": x, "y": y, "owner": owner, "moved_turn": -1, "engaged": engaged})
         if seq:
             a["engage_seq"] = seq
         return a
@@ -1102,7 +1103,7 @@ class TestFogScouting(unittest.TestCase):
 
     def test_blind_mv_wall_burns_move_but_reports_truth(self):
         w = self._w()
-        self.assertTrue(w.declare_war("秦", "楚")[0])         # 先交战，野地驻守的楚军才成"敌军"
+        self.assertTrue(w._apply_declare_war("秦", "楚")[0])         # 先交战，野地驻守的楚军才成"敌军"
         w.armies = [self._army("秦", 1, 13, 13), self._army("楚", 2, 14, 14)]
         self.assertFalse(w.visible_to("秦", 14, 14))
         ok, msg = w.move("秦", 1, 14, 14)
@@ -1115,7 +1116,7 @@ class TestFogScouting(unittest.TestCase):
         w.tiles[(4, 2)] = w._new_tile(4, 2, "楚")           # 楚境一格：与秦都隔 (3,2)，
         #   但 (4,2) 紧邻秦地 (3,2) → 在秦视野内（不踩秦自家十字地）
         w.armies = [self._army("秦", 1, 3, 2), self._army("楚", 2, 4, 2)]
-        self.assertTrue(w.declare_war("秦", "楚")[0])
+        self.assertTrue(w._apply_declare_war("秦", "楚")[0])
         self.assertTrue(w.visible_to("秦", 4, 2))
         ok, msg = w.move("秦", 1, 4, 2)
         self.assertFalse(ok)
@@ -1127,7 +1128,7 @@ class TestRetreatAndClaim(unittest.TestCase):
     def test_retreat_into_hostile_squat_is_illegal(self):
         """无人荒地上有敌军（交战）驻守 → 不能"撤退"过去（与 mv 同口径，防空投进敌脚）。"""
         w = mp.World(size=30, seed=3, nations=["秦", "楚"], starts={"秦": (2, 2), "楚": (20, 20)})
-        self.assertTrue(w.declare_war("秦", "楚")[0])
+        self.assertTrue(w._apply_declare_war("秦", "楚")[0])
         self.assertIsNone(w.owned_by(14, 14))                 # 确认是野地
         w.armies = [{"id": 2, "gid": 2, "name": "楚·步二军", "type": "步", "hp": 100,
                      "x": 14, "y": 14, "owner": "楚", "moved_turn": -1, "engaged": False}]
@@ -1142,9 +1143,9 @@ class TestRetreatAndClaim(unittest.TestCase):
     def test_claim_excludes_retreating_attacker(self):
         """_claim_winner：唯一存活进攻方已下令撤退 → 不索取地块（人都要走不配拿地）。"""
         w = mp.World(size=16, seed=3, nations=["秦", "楚"])
-        w.declare_war("秦", "楚")
-        stay = {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 50,
-                "x": 5, "y": 5, "owner": "秦", "moved_turn": 0, "engaged": True, "engage_seq": 1}
+        w._apply_declare_war("秦", "楚")
+        stay = Unit.from_save({"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 50,
+                "x": 5, "y": 5, "owner": "秦", "moved_turn": 0, "engaged": True, "engage_seq": 1})
         alive = {"秦": [dict(stay)]}
         self.assertEqual(w._claim_winner(alive, attackers={"秦"}), "秦")   # 未撤 → 照常索取
         alive["秦"][0]["retreat_to"] = [4, 4]
@@ -1458,8 +1459,8 @@ class TestDisband(unittest.TestCase):
 
     @staticmethod
     def _army(i: int, x: int, y: int, owner: str = "秦", **kw) -> dict:
-        a = {"id": i, "gid": 900 + i, "name": f"{owner}·步{i}军", "type": "步", "hp": 100,
-             "x": x, "y": y, "owner": owner, "moved_turn": -1, "engaged": False}
+        a = Unit.from_save({"id": i, "gid": 900 + i, "name": f"{owner}·步{i}军", "type": "步", "hp": 100,
+             "x": x, "y": y, "owner": owner, "moved_turn": -1, "engaged": False})
         a.update(kw)
         return a
 
@@ -1474,7 +1475,7 @@ class TestDisband(unittest.TestCase):
         atk = self._army(1, 5, 5, "秦", engaged=True)
         dfd = self._army(2, 5, 5, "楚")
         w.armies = [atk, dfd]
-        w.declare_war("秦", "楚")
+        w._apply_declare_war("秦", "楚")
         return atk, dfd
 
     def test_removes_the_army(self):

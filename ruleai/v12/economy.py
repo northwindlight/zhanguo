@@ -22,7 +22,7 @@
 """
 from __future__ import annotations
 
-from balance import V11_MIL_RESERVE
+from ruleai.v11.parameters import V11_MIL_RESERVE
 from game import BUILDINGS, MAX_SLOTS, TRADEABLE, unit_kind, unit_supply
 from mp import build_econ
 

@@ -74,17 +74,17 @@ class TestDiplomacyRejectionReachesProposer(unittest.TestCase):
     def test_peace_rejection_reaches_proposer(self):
         w = mp.World(size=20, seed=7, nations=["秦", "楚", "齐"])
         w.turn = 5
-        w.declare_war("秦", "楚")
-        w.offer_peace("秦", "楚", "white")
-        self.assertTrue(w.reject_peace("楚", w.peace_offers[0]["id"])[0])
+        w._apply_declare_war("秦", "楚")
+        w._apply_offer_peace("秦", "楚", "white")
+        self.assertTrue(w._apply_reject_peace("楚", w.peace_offers[0]["id"])[0])
         self.assertTrue(seen_by(w, "秦", "拒绝"), f"求和被拒没回到提议方：{w.events_for('秦', 60)}")
         self.assertFalse(seen_by(w, "齐", "拒绝"), "拒绝不该广播给第三方")
 
     def test_pact_rejection_reaches_proposer(self):
         w = mp.World(size=20, seed=7, nations=["秦", "楚", "齐"])
         w.turn = 5
-        w.propose_pact("共同防御", "秦", "楚")
-        self.assertTrue(w.reject_pact("楚", w.proposals[0]["id"])[0])
+        w._apply_propose_pact("共同防御", "秦", "楚")
+        self.assertTrue(w._apply_reject_pact("楚", w.proposals[0]["id"])[0])
         self.assertTrue(seen_by(w, "秦", "拒绝"), f"缔约被拒没回到提议方：{w.events_for('秦', 60)}")
         self.assertFalse(seen_by(w, "齐", "拒绝"))
 
@@ -92,9 +92,9 @@ class TestDiplomacyRejectionReachesProposer(unittest.TestCase):
         """结盟提议流产：**发起人 + 其余创始成员**都该知道（他们也在等）。"""
         w = mp.World(size=20, seed=7, nations=["秦", "楚", "齐", "燕"])
         w.turn = 5
-        w.propose_bloc("秦", "合纵", ["楚", "齐", "燕"])
+        w._apply_propose_bloc("秦", "合纵", ["楚", "齐", "燕"])
         pid = w.proposals[0]["id"]
-        w.reject_pact("齐", pid)
+        w._apply_reject_pact("齐", pid)
         for who in ("秦", "楚", "燕"):
             self.assertTrue(seen_by(w, who, "拒绝"),
                             f"{who} 该知道结盟提议已流产：{w.events_for(who, 60)}")

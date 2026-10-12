@@ -1,0 +1,51 @@
+ToolNames = []
+[Mod]
+Id = "polities.huns"
+Version = "1.0.0"
+Entry = "mods.native.polities.huns.mod:HunsMod"
+Requires = []
+Kind = "actor"
+Aliases = ["huns", "匈奴", "hun"]
+
+[State]
+Requests = ["nations", "polity"]
+Owns = []
+
+[Capabilities]
+Needs = ["army.units"]
+Provides = ["number.POLITY"]
+
+[Manual]
+Sources = ["manual-1.md"]
+Hidden = ["十、政体：匈奴", "十二、终局结算"]
+
+[Manual.Keywords]
+
+[Manual.Summaries]
+"一局游戏" = "回合制、结算顺序、存亡看市政厅"
+"经济与能源" = "一本账、电网、补给仓、黄金"
+"建筑" = "造价/门槛/每回合行为；地形建设惩罚"
+"军队与战斗" = "兵种、移动、交战、野人、撤退"
+"外交" = "实体、条约、宣战与传导、投票、情报"
+"联盟与核心领土" = "联盟效果、核心领土与自动归还"
+"市场" = "买卖价差、均衡价回归、空转检测"
+"经济报表" = "GDP / 资产 / 军费 / 投资"
+"国策、回合与存档" = "plan、行动纪律、存档兼容"
+"命令表" = "命令表"
+"命令" = "命令表"
+"经济手册" = "讲义：**为什么**该这么搞经济"
+"基础指南" = "讲义：**基础功**——开局怎么下手、电与工业怎么配"
+"战争手册" = "讲义：**这仗该怎么打**（战时必读）"
+"战略手册" = "讲义：**盘面怎么看**——均势、干预、外交、僵持"
+"世界央行" = "利率、贷款、报表买卖（开行才有）"
+
+[Policy]
+Tag = "huns"
+Rejection = "匈奴不搞这套外交"
+Enable = ["tool.send_letter", "tool.spy", "tool.declare_war", "tool.offer_peace", "tool.accept_peace", "tool.reject_peace"]
+Disable = ["tool.propose", "tool.respond_proposal", "tool.break_alliance", "tool.break_defense", "tool.guarantee", "tool.cancel_guarantee", "tool.gift", "tool.share_map", "tool.bloc_found", "tool.bloc_join", "tool.bloc_leave", "tool.vote", "tool.bloc_transfer", "tool.bloc_dissolve", "tool.bloc_rename", "accept.treaties", "accept.bloc", "action.bloc_transfer", "action.bloc_rename", "action.bloc_dissolve", "action.bloc_leave", "action.propose_bloc", "action.bloc_join", "action.cancel_guarantee", "action.break_pact", "action.declare_guarantee", "action.propose_pact", "action.reject_pact", "action.accept_pact", "action.gift", "action.share_map"]
+OverrideKeys = ["build_cost_pct", "recruit"]
+Appearance = "scheduled"
+
+[Interfaces]
+"army.units" = ["spawn"]

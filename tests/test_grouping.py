@@ -54,7 +54,7 @@ class _Base(unittest.TestCase):
         a = {"id": aid, "gid": aid, "name": f"秦·{kind}{aid}", "type": kind,
              "hp": hp, "x": x, "y": y, "owner": "秦", "moved_turn": -1, "engaged": False}
         w.armies.append(a)
-        return a
+        return w.units[-1]
 
     def _cand(self, w, cell, need):
         return grouping.Candidate(cell, need, 0, True, True, "平原", ())

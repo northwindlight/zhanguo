@@ -24,7 +24,7 @@
 （"就一行"），再在编组里调一次 `recruit`（"顺手"），两次之后就分不开了。
 `tests/test_ruleai_layers.py` 钉着这条。
 
-两层共享的只有三样：`world`、`Ledger`、以及 `balance.py` 里的数值。
+两层共享的只有三样：`world`、`Ledger`、以及 `mods/native/balance.py` 里的数值。
 
 ## 与 v10 的关系
 

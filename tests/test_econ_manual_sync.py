@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""《经济学手册》（`docs/经济学手册.md`）必须与局内那份提示**逐字一致**。
+"""《经济学手册》（`mods/native/economy/经济学手册.md`）必须与局内那份提示**逐字一致**。
 
 为什么有这个守卫：这本书不是"另写一份给人看的讲义"，而是**局内 AI 读的那一份原文**
 （`mp_ai._econ_manual()`）搬到 Markdown 里。一旦有人图省事在 `blk_econ()` 或文档里
@@ -56,7 +56,7 @@ class TestEconManualSync(unittest.TestCase):
             import difflib
             diff = "".join(difflib.unified_diff(
                 self.doc.splitlines(True), new.splitlines(True),
-                fromfile="docs/经济学手册.md", tofile="_econ_manual() 现算"))
+                fromfile="mods/native/economy/经济学手册.md", tofile="_econ_manual() 现算"))
             self.fail("《经济学手册》已与局内提示脱钩 —— "
                       "跑 `python3 docs/sync_manual.py` 刷新：\n" + diff)
 

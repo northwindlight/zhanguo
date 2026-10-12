@@ -4,15 +4,15 @@
 
 管五份文档：
 
-- `docs/规则纲要.md` —— 规则（"**能做什么**"）：各块的数字从 `balance.py`（必要时
+- `mods/native/说明书.md` —— 规则（"**能做什么**"）：各块的数字从 `mods/native/balance.py`（必要时
   + `mp_ai.py` 的工具表、`settlement.py` 的结算口径）现算。
-- `docs/经济学手册.md` —— 讲义（"**为什么**"）：正文逐字取自 `mp_ai._econ_manual()`
+- `mods/native/economy/经济学手册.md` —— 讲义（"**为什么**"）：正文逐字取自 `mp_ai._econ_manual()`
   ——**局内 AI 读的就是那一份**，这里只做 Markdown 分节，不复制、不改写。
-- `docs/基础指南.md` —— 讲义（"**基础功**"）：取自 `mp_ai.opening_guide()`，
+- `mods/native/buildings/基础指南.md` —— 讲义（"**基础功**"）：取自 `mp_ai.opening_guide()`，
   局内**开局前若干回合强行挂载**。
-- `docs/战争手册.md` —— 讲义（"**这仗该怎么打**"）：取自 `mp_ai.war_manual()`，
+- `mods/native/army/战争手册.md` —— 讲义（"**这仗该怎么打**"）：取自 `mp_ai.war_manual()`，
   局内**只要在交战就每回合强行挂载**。
-- `docs/战略手册.md` —— 讲义（"**盘面怎么看**"）：取自 `mp_ai.strategy_manual()`，
+- `mods/native/government/战略手册.md` —— 讲义（"**盘面怎么看**"）：取自 `mp_ai.strategy_manual()`，
   与上面几本不同——**不挂进任何 prompt，完全按需取**（只有 AI 自己 `rules(战略手册)`）。
 
 用法::
@@ -20,11 +20,11 @@
     python3 docs/sync_manual.py            # 就地刷新两份文档里的 AUTO 块
     python3 docs/sync_manual.py --check     # 只校验：漂移就打印 diff 并以退出码 1 退出
     python3 docs/sync_manual.py --lint      # 顺手提示「AUTO 块外的正文里出现了数字」的行
-    python3 docs/sync_manual.py --doc docs/经济学手册.md    # 只处理其中一份
+    python3 docs/sync_manual.py --doc mods/native/economy/经济学手册.md    # 只处理其中一份
 
-三条纪律（与 `balance.py` 的「唯一权威」一致）：
+三条纪律（与 `mods/native/balance.py` 的「唯一权威」一致）：
 
-1. **数字只住在 AUTO 块里。** 块内容全部由本文件现算（`balance.py` / `mp_ai.py` /
+1. **数字只住在 AUTO 块里。** 块内容全部由本文件现算（`mods/native/balance.py` / `mp_ai.py` /
    `settlement.py`），改平衡或改手册后跑一次刷新即可，不存在"文档抄了一份数字"或
    "文档抄了一份讲义"。
 2. **AUTO 块外的手改会被抓住。** `--check` 把文档里的块与现算结果逐字节比，
@@ -44,16 +44,18 @@ import pathlib
 import re
 import sys
 
-DOC_PATH = pathlib.Path(__file__).resolve().parent / "规则纲要.md"
-ECON_DOC_PATH = pathlib.Path(__file__).resolve().parent / "经济学手册.md"
-GUIDE_DOC_PATH = pathlib.Path(__file__).resolve().parent / "基础指南.md"
-WAR_DOC_PATH = pathlib.Path(__file__).resolve().parent / "战争手册.md"
-STRATEGY_DOC_PATH = pathlib.Path(__file__).resolve().parent / "战略手册.md"
+DOC_PATH = pathlib.Path(__file__).resolve().parent.parent / 'mods/native/说明书.md'
+ECON_DOC_PATH = pathlib.Path(__file__).resolve().parent.parent / 'mods/native/economy/经济学手册.md'
+GUIDE_DOC_PATH = pathlib.Path(__file__).resolve().parent.parent / 'mods/native/buildings/基础指南.md'
+WAR_DOC_PATH = pathlib.Path(__file__).resolve().parent.parent / 'mods/native/army/战争手册.md'
+STRATEGY_DOC_PATH = pathlib.Path(__file__).resolve().parent.parent / 'mods/native/government/战略手册.md'
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import balance as B  # noqa: E402  —— 纯数据模块（不 import 引擎，见 balance.py 的纪律 2）
+from types import SimpleNamespace
+from mp import runtime
+B = SimpleNamespace(**{key: value for values in runtime.enumerate_numbers().values() for key, value in values.items()})
 
 
 class SyncError(RuntimeError):
@@ -450,19 +452,9 @@ def _tool_names() -> list[str]:
 
 
 def _tool_aliases() -> dict[str, list[str]]:
-    """从 `mp_ai.execute` 的分派表里抓别名（`if tool in ("move", "mv", "移动")`）。"""
-    canon = set(_tool_names())
-    src = (ROOT / "mp_ai.py").read_text(encoding="utf-8")
-    out: dict[str, list[str]] = {}
-    for m in re.finditer(r"if tool in \(([^)]*)\):", src):
-        names = re.findall(r'"([^"]+)"', m.group(1))
-        if not names or names[0] not in canon:
-            continue   # 分派表里的历史别名（如 expand/拓荒、break_alliance），不是面向玩家的工具
-        bucket = out.setdefault(names[0], [])
-        for a in names[1:]:
-            if a not in canon and a not in bucket:
-                bucket.append(a)
-    return out
+    """别名与命令转换使用同一份 Mod 注册，不再扫描 LLM 分派源码。"""
+    from mp import runtime
+    return {name: list(runtime.tools[name].aliases) for name in _tool_names()}
 
 
 def blk_tools() -> str:
@@ -490,7 +482,7 @@ def _settle_mod():
 
 
 def blk_settle() -> str:
-    """终局结算口径（`settlement.py`；这几项**刻意**不在 `balance.py` 里，属结算口径非游戏规则）。"""
+    """终局结算口径（`settlement.py`；这几项**刻意**不在 `mods/native/balance.py` 里，属结算口径非游戏规则）。"""
     S = _settle_mod()
     weight = "、".join(f"{k} {v:g}" for k, v in S.UNIT_WEIGHT.items())
     spend = " + ".join(S.SPEND_LABELS.values())
@@ -513,7 +505,6 @@ def blk_terrain() -> str:
     表会**没着落**（本说明书原先刻意外链到《地图生成与资源分布》）。而防御值直接影响
     「打这一格要吃多少减伤」，是**打架时算得着**的数 ⇒ 收回正文，并做成 AUTO 块跟着 balance 走。
     """
-    import balance as B
     rows = ["| 地形 | 防御 | 建设惩罚 |", "|---|---|---|"]
     for nm, st in B.TERRAIN_STATS.items():
         rows.append(f"| {nm} | {st['defense']:+d}% | {st['build_penalty']:+d}% |")
@@ -542,10 +533,13 @@ LEGACY_BLOCKS: dict[str, object] = {
 def _rulebook_block(name: str) -> str:
     # 延迟导入：规则册复用本模块的表格/参数函数，避免初始化循环。
     from docs.sync_rulebook import blocks
+    if name == "stages":
+        from mp import runtime
+        return runtime.settlement_table()
     return blocks()[name]
 
 
-BLOCKS = {name: (lambda name=name: _rulebook_block(name)) for name in LEGACY_BLOCKS}
+BLOCKS = {name: (lambda name=name: _rulebook_block(name)) for name in (*LEGACY_BLOCKS, "stages")}
 
 
 # ---- 《经济学手册》：正文不重写，逐字取自局内提示 ----
@@ -717,6 +711,23 @@ def _sync_one(path: pathlib.Path, *, check: bool, lint: bool) -> int:
         print(f"找不到文档：{path}", file=sys.stderr)
         return 2
     old = path.read_text(encoding="utf-8")
+    if path.resolve() == DOC_PATH.resolve():
+        from docs.sync_rulebook import render as render_native
+        from mp import runtime
+        clean = True
+        for unit in runtime.units.values():
+            mod=unit.mod
+            for filename in getattr(mod,'declaration',{}).get('Manual',{}).get('Sources',()):
+                source=mod.declaration_path.parent/filename
+                previous=source.read_text(encoding='utf-8')
+                current=render_native(previous,partial=True)
+                clean = clean and current == previous
+                if not check: source.write_text(current,encoding='utf-8')
+        generated=runtime.manual()
+        clean = clean and old == generated
+        if not check: path.write_text(generated,encoding='utf-8')
+        print(('✓' if clean or not check else '✗') + ' 规则纲要：Mod 正文、数值与实际结算顺序')
+        return 0 if clean or not check else 1
     try:
         blocks = _blocks_for(path)
         new = render(old, blocks)

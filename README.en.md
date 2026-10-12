@@ -22,7 +22,7 @@
   and configurations compete in identical conditions, and cross-process reproducibility is guarded by tests.
 - 🪶 **Lightweight, runnable with zero API keys** — the only dependency is `openai`. Nations without
   keys are played by a **built-in rule AI**; one command on Linux / macOS / Windows.
-- 🎛 **Tune balance in one file** — `balance.py` is the single point of control. The engine, economy
+- 🎛 **Tune balance in one file** — `mods/native/balance.py` is the single point of control. The engine, economy
   reports, rule AI and the LLM panels all read from the *same objects* — change once, apply everywhere.
 - ⚖️ **A metric designed for AI** — standings are ranked by "total consumption" (the skeleton of
   expenditure-side GDP), backed by **adversarial experiments** proving the metric cannot be gamed.
@@ -77,7 +77,7 @@ python3 mp_run.py --turns 10    # resume from save; start fresh if none exists
   its own territory, the adjacent ring, alliance-shared vision, watchtower range. The truth about
   other nations must be inferred from letters, border activity and espionage. Want their ledger?
   Send a spy and wait a few turns.
-- **Where do the rules live?** — every number is concentrated in `balance.py` (single source of truth);
+- **Where do the rules live?** — every number is concentrated in `mods/native/balance.py` (single source of truth);
   in-game, nations can query rules anytime via the `rules` tool; the authoritative detail is the code
   docstrings (`mp.py` / `game.py` / `mapgen.py`).
 
@@ -147,7 +147,7 @@ byte-identical to main, so rule changes never need cherry-picking. Design docs a
 
 | File / Dir | Purpose |
 |------------|---------|
-| `balance.py` | **Numeric tables · single tuning entry**: buildings / terrain / units / market / diplomacy costs |
+| `mods/native/balance.py` | **Numeric tables · single tuning entry**: buildings / terrain / units / market / diplomacy costs |
 | `game.py` · `mp.py` | Shared rules layer · Multi-nation engine `World` (settlement / combat / diplomacy / alliances / vision / save) |
 | `mapgen.py` | Map generation: `(seed, size)` → full terrain & resource map (blue noise + density modulation) |
 | `mp_ai.py` | AI layer: 35 tools (incl. memory_search), system prompt, panels, provider-agnostic turn loop |
@@ -173,9 +173,9 @@ python3 settlement.py                   # end-game settlement (scoring + chamber
 
 ## Docs
 
-- [Game manual](docs/规则纲要.md) (Chinese) — the full human-side rulebook: turn resolution, start &
+- [Game manual](mods/native/说明书.md) (Chinese) — the full human-side rulebook: turn resolution, start &
   fog of war, buildings, armies & combat, diplomacy, blocs, market, economic reports, command list.
-  Numbers are auto-generated from `balance.py` by `docs/sync_manual.py`; terrain lives in the map doc.
+  Numbers are auto-generated from `mods/native/balance.py` by `docs/sync_manual.py`; terrain lives in the map doc.
 - [On the consumption-based evaluation metric](docs/消费总量评测指标论证.md) — why rank by "total
   consumption": first-principles argument + three deterministic controlled experiments + an adversarial experiment.
 - [Map generation & resource distribution](docs/地图生成与资源分布.md) — human-side reference.

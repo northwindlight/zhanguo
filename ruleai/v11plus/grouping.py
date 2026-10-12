@@ -28,8 +28,14 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from balance import (V11_FIELD_MAX_COST, V11_MAX_CANDIDATES, V11_MAX_GROUP,
-                     V11_NEAR_TARGETS, V11_SHORTFALL_PENALTY, V11_SOLVER_NODE_CAP)
+from ruleai.v11.parameters import (
+    V11_FIELD_MAX_COST,
+    V11_MAX_CANDIDATES,
+    V11_MAX_GROUP,
+    V11_NEAR_TARGETS,
+    V11_SHORTFALL_PENALTY,
+    V11_SOLVER_NODE_CAP
+)
 from game import unit_kind
 
 from .combat import assess

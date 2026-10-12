@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""《战争手册》（`docs/战争手册.md`）必须与局内那份提示**逐字一致**。
+"""《战争手册》（`mods/native/army/战争手册.md`）必须与局内那份提示**逐字一致**。
 
 为什么有这个守卫：这本书不是"另写一份给人看的讲义"，而是**局内 AI 读的那一份原文**
 （`mp_ai.war_manual()`）——而且它比《经济学手册》还紧一层：**只要在交战，每回合都被
@@ -63,7 +63,7 @@ class TestWarManualSync(unittest.TestCase):
         if new != self.doc:
             diff = "".join(difflib.unified_diff(
                 self.doc.splitlines(True), new.splitlines(True),
-                fromfile="docs/战争手册.md", tofile="war_manual() 现算"))
+                fromfile="mods/native/army/战争手册.md", tofile="war_manual() 现算"))
             self.fail("《战争手册》已与局内提示脱钩 —— "
                       "跑 `python3 docs/sync_manual.py` 刷新：\n" + diff)
 

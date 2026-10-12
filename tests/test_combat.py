@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ruleai.v11plus import combat  # noqa: E402
 import mp  # noqa: E402
-from balance import TERRAIN_STATS, UNIT_TYPES  # noqa: E402
+from mods.native.balance import TERRAIN_STATS, UNIT_TYPES  # noqa: E402
 from game import building_effect  # noqa: E402
 
 CAP, RDS = 12, 12
@@ -51,14 +51,15 @@ class _Base(unittest.TestCase):
              "hp": unit_max_hp({"type": kind}) if hp is None else hp,
              "x": x, "y": y, "owner": owner, "moved_turn": -1, "engaged": False}
         w.armies.append(a)
-        return a
+        return w.units[-1]
 
     def _guard(self, w, x: int, y: int, hp: int = 100) -> dict:
         """野人守卫（**没有 `type` 键**，与引擎 `_spawn_guardian` 一致）。"""
         g = {"id": 999, "gid": 999, "name": "野人999", "hp": hp, "x": x, "y": y,
              "owner": "野人", "moved_turn": -1, "engaged": False}
+        w._drop_guardians(x,y)
         w.armies.append(g)
-        return g
+        return w.units[-1]
 
     def _ter(self, w, x, y, terrain: str) -> None:
         w.tiles[(x, y)]["terrain"] = terrain
@@ -206,7 +207,7 @@ class TestAssess(_Base):
         t = w.tiles[(6, 5)]
         t["owner"] = "楚"
         t["buildings"]["城堡"] = 5
-        w.declare_war("秦", "楚")
+        w._apply_declare_war("秦", "楚")
         self._army(w, "步", 6, 5, owner="楚", aid=50)
         with_castle = combat.assess(w, "秦", (6, 5), units, visible=True,
                                     need_cap=CAP, rounds_cap=RDS)
@@ -335,18 +336,11 @@ class TestTurnEndOrder(unittest.TestCase):
     """
 
     def test_pipeline_order(self):
-        src = Path(mp.__file__).read_text(encoding="utf-8")
-        body = src[src.index("def resolve_turn"):src.index("def _supply_fed")]
-        marks = ["0) ", "1) 采集", "2) 电网", "3) 军队补给", "4) 战争结算", "4.5) 撤退落地",
-                 "4.96) ★ 亡国判定", "5) 非法滞留", "5.5) 联盟投票逾期", "6) 市场"]
-        pos = []
-        for m in marks:
-            i = body.find("# " + m)
-            self.assertGreaterEqual(i, 0, f"阶段标号「{m}」不见了（被改写过？）")
-            pos.append(i)
-        self.assertEqual(pos, sorted(pos), "回合末结算顺序被改动了——这是钉死的契约")
-        self.assertLess(pos[3], pos[4], "补给必须在战斗结算**之前**（先算补给再打架）")
-        self.assertLess(pos[5], pos[6], "亡国判定必须在战斗结算**之后**")
+        self.assertEqual([n.split('.')[-1] for n in mp.runtime.stage_order], [
+            'tally', 'gather', 'industry', 'diplomacy', 'supply', 'battle',
+            'retreats', 'disengage', 'claims', 'deaths', 'withdraw',
+            'market', 'construction', 'bank', 'reports'])
+
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import balance  # noqa: E402
+from mods.native import balance  # noqa: E402
 import mp  # noqa: E402
 from game import unit_atk  # noqa: E402
 
@@ -42,7 +42,7 @@ class _Base(unittest.TestCase):
              "hp": hp, "x": x, "y": y, "owner": owner, "moved_turn": -1,
              "engaged": engaged}
         w.armies.append(a)
-        return a
+        return w.units[-1]
 
 
 class TestBattleSides(_Base):

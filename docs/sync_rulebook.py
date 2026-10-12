@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""生成正规化规则册的数值表；数值源为 balance.py。"""
+"""生成正规化规则册的数值表；数值源为 mods/native/balance.py。"""
 from __future__ import annotations
 
 import argparse
@@ -9,10 +9,12 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-import balance as B
+from types import SimpleNamespace
+from mp import runtime
+B = SimpleNamespace(**{key: value for values in runtime.enumerate_numbers().values() for key, value in values.items()})
 from docs import sync_manual as M
 
-PATH = ROOT / "docs" / "规则纲要.md"
+PATH = ROOT / "mods/native/说明书.md"
 
 
 def table(headers, rows):
@@ -153,6 +155,7 @@ def terrain():
 
 def blocks():
     return {
+        "stages": __import__("mp").runtime.settlement_table(),
         "start": opening(), "buildings": buildings(), "units": units(),
         "terrain": terrain(), "move": movement(), "combat": combat(),
         "diplo": M.blk_diplo(), "market": M.blk_market(), "bank": bank(),
@@ -161,12 +164,14 @@ def blocks():
     }
 
 
-def render(text):
+def render(text, *, partial=False):
     values = blocks()
     found = re.findall(r"<!-- AUTO:(\w+) BEGIN -->", text)
-    if len(found) != len(set(found)) or set(found) != set(values):
+    if len(found) != len(set(found)) or (not partial and set(found) != set(values)) or not set(found) <= set(values):
         raise ValueError("数值表标记缺失、重复或未登记")
     for name, value in values.items():
+        if partial and name not in found: continue
+        if partial and name == "stages": value = "{{SETTLEMENT_STAGES}}"
         pattern = rf"(<!-- AUTO:{name} BEGIN -->\n).*?(<!-- AUTO:{name} END -->)"
         text, n = re.subn(pattern, lambda m: m[1] + "\n" + value + "\n" + m[2], text, flags=re.S)
         if n != 1:
@@ -184,7 +189,7 @@ def main():
         if old != new:
             print("规则册数值表漂移；运行 python3 docs/sync_manual.py")
             return 1
-        print("规则册：全部数值表与 balance.py 一致")
+        print("规则册：全部数值表与 mods/native/balance.py 一致")
     else:
         PATH.write_text(new, encoding="utf-8")
         print("规则册数值表已同步")

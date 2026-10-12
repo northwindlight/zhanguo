@@ -154,8 +154,8 @@ class TestEliminationTiming(unittest.TestCase):
         w = mp.World(size=16, seed=3, nations=["秦", "楚", "齐"],
                      starts={"秦": (5, 5), "楚": (12, 12), "齐": (3, 12)})
         w.armies = []
-        w.declare_war("秦", "楚")
-        w.declare_war("秦", "齐")
+        w._apply_declare_war("秦", "楚")
+        w._apply_declare_war("秦", "齐")
         hall = [p for p in w.own_tiles("楚") if w.tiles[p]["buildings"].get("市政厅")][0]
         A = (hall[0] - 1, hall[1])          # 秦 的落脚格（贴着厅）
         Q = (A[0] - 1, A[1])                # 齐 的地，也贴着 A
@@ -165,7 +165,7 @@ class TestEliminationTiming(unittest.TestCase):
             t["terrain"] = "平原"
             t["buildings"] = {k: 0 for k in t["buildings"]}
             w.tiles[p] = t
-        w.armies = [{"id": i, "gid": i, "name": f"秦·步{i}军", "type": "步", "hp": 100,
+        w.armies = [{"id": i, "gid": w.nation_code['秦'] * mp.ARMY_GID_BASE + i, "name": f"秦·步{i}军", "type": "步", "hp": 100,
                      "x": A[0], "y": A[1], "owner": "秦", "moved_turn": -1, "engaged": False}
                     for i in (1, 2)]
         return w, hall, Q
@@ -309,7 +309,7 @@ class TestOrphanedLand(unittest.TestCase):
         res_before = dict(w.tiles[keep]["resources"])
         # 找一格与余土相邻的秦地，把一支军放上去（atk 只认相邻可达）
         spot = next(q for q in w.neighbors(*keep) if w.owned_by(*q) in ("秦", None))
-        w.armies.append({"id": 99, "gid": 99, "name": "秦·步一军", "type": "步", "hp": 100,
+        w.armies.append({"id": 99, "gid": w.nation_code['秦'] * mp.ARMY_GID_BASE + 99, "name": "秦·步一军", "type": "步", "hp": 100,
                          "x": spot[0], "y": spot[1], "owner": "秦",
                          "moved_turn": -1, "engaged": False})
         ok, msg = w.attack("秦", [99], keep[0], keep[1])
@@ -337,7 +337,7 @@ class TestOrphanedLand(unittest.TestCase):
         kill_all_townhalls(w, "楚")
         self.assertIsNone(w.tiles[keep]["owner"], "前提:楚已亡国、余土无主")
         self.assertEqual(w.tiles[keep]["pending"]["市政厅"], 1, "在建的工地该留在原地")
-        w.armies.append({"id": 7, "gid": 7, "name": "秦·步一军", "type": "步", "hp": 100,
+        w.armies.append({"id": 7, "gid": w.nation_code['秦'] * mp.ARMY_GID_BASE + 7, "name": "秦·步一军", "type": "步", "hp": 100,
                          "x": w.neighbors(*keep)[0][0], "y": w.neighbors(*keep)[0][1],
                          "owner": "秦", "moved_turn": -1, "engaged": False})
         ok, msg = w.attack("秦", [7], keep[0], keep[1])
@@ -396,7 +396,7 @@ class TestVisibility(unittest.TestCase):
 class TestOldSaveMigration(unittest.TestCase):
     """老档（改版前存的）里谁都没有厅 ⇒ 读档时补发，否则第一次丢地就当场亡国。"""
 
-    def test_load_backfills_one_per_living_nation(self):
+    def test_load_preserves_missing_halls_until_death_stage(self):
         w = mp.World(size=20, seed=7, nations=["秦", "楚", "齐"])
         w.turn = 3
         w.tiles[cross_center(w, "秦")]["buildings"]["市政厅"] = 0   # 伪装成改版前的档
@@ -410,10 +410,11 @@ class TestOldSaveMigration(unittest.TestCase):
             p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
             w2 = mp.World.load(p)
         for nm in ("秦", "楚", "齐"):
-            self.assertEqual(w2.nation_building_count(nm, "市政厅"), 1, f"{nm} 没补上市政厅")
-            self.assertTrue(w2.has_townhall(nm))
-        c = cross_center(w2, "秦")
-        self.assertEqual(w2.tiles[c]["buildings"]["市政厅"], 1, "该补在核心格上")
+            self.assertEqual(w2.nation_building_count(nm, "市政厅"), 0)
+            self.assertFalse(w2.has_townhall(nm))
+        w2.resolve_turn()
+        self.assertEqual(w2.alive(), [])
+
 
 
 if __name__ == "__main__":

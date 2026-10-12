@@ -33,7 +33,7 @@ sys.path.insert(0, str(ROOT))
 
 import game  # noqa: E402
 import mp  # noqa: E402
-from balance import RESOURCES, TERRAINS, TERRAIN_WEIGHTS  # noqa: E402
+from mods.native.balance import RESOURCES, TERRAINS, TERRAIN_WEIGHTS  # noqa: E402
 from mapgen import MapGen, _quotas  # noqa: E402
 
 SIZES = (16, 30, 45)

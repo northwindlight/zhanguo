@@ -32,19 +32,19 @@ from mp import ent_bloc, ent_nation  # noqa: E402
 
 def _defense(w, a: str, b: str) -> None:
     """a、b 两个独立国缔结共同防御（走正规提议/接受流程）。"""
-    ok, msg = w.propose_pact("共同防御", a, b)
+    ok, msg = w._apply_propose_pact("共同防御", a, b)
     assert ok, msg
-    ok, msg = w.accept_pact(b, w.proposals[-1]["id"])
+    ok, msg = w._apply_accept_pact(b, w.proposals[-1]["id"])
     assert ok, msg
     assert w.has_pact("共同防御", ent_nation(a), ent_nation(b))
 
 
 def _bloc(w, chief: str, others, name: str) -> dict:
     """走正规流程立盟：chief 发起、others 全部接受。"""
-    w.propose_bloc(chief, name, list(others))
+    w._apply_propose_bloc(chief, name, list(others))
     p = w.proposals[-1]
     for m in others:
-        ok, msg = w.accept_pact(m, p["id"])
+        ok, msg = w._apply_accept_pact(m, p["id"])
         assert ok, msg
     return w.bloc_of(chief)
 
@@ -61,7 +61,7 @@ class TestOneHopNoCascade(unittest.TestCase):
         w = mp.World(size=24, seed=17, nations=["秦", "魏", "韩", "楚"])
         _defense(w, "魏", "韩")
         _defense(w, "韩", "楚")
-        ok, msg = w.declare_war("秦", "魏")
+        ok, msg = w._apply_declare_war("秦", "魏")
         self.assertTrue(ok, msg)
         war = w.wars[0]
         self.assertEqual(war["followers"], ["韩"], "只有魏的直接共防伙伴参战")
@@ -71,9 +71,9 @@ class TestOneHopNoCascade(unittest.TestCase):
     def test_保障不级联(self):
         """赵保燕、燕保楚 ⇒ 秦打楚**只有燕上**，赵不动（赵的义务对象是燕，燕没被打）。"""
         w = mp.World(size=24, seed=17, nations=["秦", "赵", "燕", "楚"])
-        self.assertTrue(w.declare_guarantee("赵", "燕")[0])
-        self.assertTrue(w.declare_guarantee("燕", "楚")[0])
-        ok, msg = w.declare_war("秦", "楚")
+        self.assertTrue(w._apply_declare_guarantee("赵", "燕")[0])
+        self.assertTrue(w._apply_declare_guarantee("燕", "楚")[0])
+        ok, msg = w._apply_declare_war("秦", "楚")
         self.assertTrue(ok, msg)
         self.assertEqual(w.wars[0]["followers"], ["燕"])
         self.assertFalse(w.war_between("秦", "赵"), "隔山打牛：赵保的是燕")
@@ -82,13 +82,16 @@ class TestOneHopNoCascade(unittest.TestCase):
         """联盟保燕、燕又保赵 ⇒ 秦打赵**只有燕上**，联盟一兵不动。"""
         w = mp.World(size=24, seed=5, nations=["秦", "楚", "齐", "燕", "赵"])
         _bloc(w, "楚", ("齐",), "南盟")
-        w.declare_guarantee("楚", "燕")                 # 在盟 → 转联盟投票
+        w._apply_declare_guarantee("楚", "燕")                 # 在盟 → 转联盟投票
         vid = w.votes[-1]["id"]
+        prepare_vote(w, vid)
         w.cast_vote("楚", vid, True)
+        prepare_vote(w, vid)
         w.cast_vote("齐", vid, True)
+        settle_votes(w)
         self.assertTrue(w.has_pact("保障", ent_bloc("南盟"), ent_nation("燕")))
-        self.assertTrue(w.declare_guarantee("燕", "赵")[0])
-        ok, msg = w.declare_war("秦", "赵")
+        self.assertTrue(w._apply_declare_guarantee("燕", "赵")[0])
+        ok, msg = w._apply_declare_war("秦", "赵")
         self.assertTrue(ok, msg)
         self.assertEqual(w.wars[0]["followers"], ["燕"])
         for m in ("楚", "齐"):
@@ -102,8 +105,8 @@ class TestOneHopStillBites(unittest.TestCase):
         """魏 的**直接**保障国与**直接**共防伙伴都该上，且各算一次（去重）。"""
         w = mp.World(size=24, seed=17, nations=["秦", "魏", "韩", "赵", "楚"])
         _defense(w, "魏", "韩")
-        self.assertTrue(w.declare_guarantee("赵", "魏")[0])     # 赵保障魏
-        ok, msg = w.declare_war("秦", "魏")
+        self.assertTrue(w._apply_declare_guarantee("赵", "魏")[0])     # 赵保障魏
+        ok, msg = w._apply_declare_war("秦", "魏")
         self.assertTrue(ok, msg)
         self.assertEqual(w.wars[0]["followers"], ["赵", "韩"])
         for n in ("赵", "韩"):
@@ -114,7 +117,7 @@ class TestOneHopStillBites(unittest.TestCase):
         w = mp.World(size=24, seed=17, nations=["秦", "魏", "韩", "赵", "楚"])
         b = _bloc(w, "魏", ("韩", "赵", "楚"), "合纵")
         self.assertEqual(len(b["members"]), 4)
-        ok, msg = w.declare_war("秦", "魏")
+        ok, msg = w._apply_declare_war("秦", "魏")
         self.assertTrue(ok, msg)
         war = w.wars[0]
         self.assertEqual(war["def"], "魏", "防御主导 = 盟主")
@@ -125,3 +128,15 @@ class TestOneHopStillBites(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def prepare_vote(w, vote_id):
+    """机制测试投票夹具：推进到声明的投票回合。公共全阶段时序见 test_regularization。"""
+    vote = next(v for v in w.votes if v['id'] == vote_id)
+    w.turn = max(w.turn, vote['voting_turn'])
+    w.phase = '行动'
+
+
+def settle_votes(w):
+    w._expire_votes()
+    w._stage_diplomacy({})

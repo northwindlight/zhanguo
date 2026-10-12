@@ -68,7 +68,7 @@ def _army(w, x: int, y: int, owner: str, aid: int, kind: str = "步") -> dict:
     a = {"id": aid, "gid": aid, "name": f"{owner}·{kind}{aid}军", "type": kind, "hp": 100,
          "x": x, "y": y, "owner": owner, "moved_turn": -1, "engaged": False}
     w.armies.append(a)
-    return a
+    return w.units[-1]
 
 
 def _at_war(w, a: str, b: str) -> None:

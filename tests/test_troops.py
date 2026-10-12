@@ -66,7 +66,7 @@ class _Base(unittest.TestCase):
         for a in ("秦", "楚", "齐"):           # 开战：把"交战/驻军/夺地"那几条路径逼出来
             for b in ("秦", "楚", "齐"):
                 if a < b:
-                    w.declare_war(a, b)
+                    w._apply_declare_war(a, b)
         return w
 
     def _play(self, w, turns: int = 5) -> None:

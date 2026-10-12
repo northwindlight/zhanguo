@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""《战略手册》（`docs/战略手册.md`）必须与局内那份提示**逐字一致**，且**不挂进任何 prompt**。
+"""《战略手册》（`mods/native/government/战略手册.md`）必须与局内那份提示**逐字一致**，且**不挂进任何 prompt**。
 
 为什么有这个守卫：这本书不是"另写一份给人看的讲义"，而是**局内 AI 读的那一份原文**
 （`mp_ai.strategy_manual()`）。它与另三本的区别只有一条**挂载口径**——用户 2026-10-09
@@ -68,7 +68,7 @@ class TestStrategyManualSync(unittest.TestCase):
         if new != self.doc:
             diff = "".join(difflib.unified_diff(
                 self.doc.splitlines(True), new.splitlines(True),
-                fromfile="docs/战略手册.md", tofile="strategy_manual() 现算"))
+                fromfile="mods/native/government/战略手册.md", tofile="strategy_manual() 现算"))
             self.fail("《战略手册》已与局内提示脱钩 —— "
                       "跑 `python3 docs/sync_manual.py` 刷新：\n" + diff)
 
@@ -120,7 +120,7 @@ class TestStrategyManualMounting(unittest.TestCase):
         """战时也不挂：战争手册挂了（那是它的口径），但战略手册只留一句"推荐阅读"。"""
         import mp_ai
         w = self._world()
-        w.declare_war("秦", "楚")
+        w._apply_declare_war("秦", "楚")
         p = mp_ai.system_prompt(w, "秦")
         self.assertIn("战争手册", p, "战时的《战争手册》该照旧挂上")
         self.assertNotIn(FINGERPRINT, p, "《战略手册》正文不该出现在 system prompt 里")

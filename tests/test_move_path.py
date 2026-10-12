@@ -25,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import mp  # noqa: E402
-from balance import MOVE_COST, TERRAINS  # noqa: E402
+from mods.native.balance import MOVE_COST, TERRAINS  # noqa: E402
 
 WILD = "野地"
 
@@ -45,10 +45,11 @@ class _Base(unittest.TestCase):
         return w
 
     def _army(self, w, kind: str, x: int, y: int, owner: str = "秦") -> dict:
-        a = {"id": 1, "gid": 1, "name": f"{owner}·{kind}一军", "type": kind,
+        gid, aid = w._new_army(owner)
+        a = {"id": aid, "gid": gid, "name": f"{owner}·{kind}一军", "type": kind,
              "hp": 100, "x": x, "y": y, "owner": owner, "moved_turn": -1, "engaged": False}
         w.armies.append(a)
-        return a
+        return w.units[-1]
 
     def _ter(self, w, x, y, terrain: str) -> None:
         w.tiles[(x, y)]["terrain"] = terrain
@@ -66,7 +67,7 @@ class _Base(unittest.TestCase):
         t = w._new_tile(x, y, "楚")
         t["terrain"] = terrain
         w.tiles[(x, y)] = t
-        w.declare_war("秦", "楚")
+        w._apply_declare_war("秦", "楚")
 
     def _back(self, w, a, x: int, y: int) -> None:
         """把军队放回起点并恢复额度（"还能不能再走"的用例必须先回去）。"""
@@ -286,7 +287,7 @@ class TestBlindCost(_Base):
 
 class TestCostTable(_Base):
     def test_balance_table_is_the_source(self):
-        """代价表住在 balance.py（唯一调参入口），且五个地形都得有值。"""
+        """代价表住在 mods/native/balance.py（唯一调参入口），且五个地形都得有值。"""
         for kind in ("步", "骑", "民"):
             for ter in TERRAINS:
                 self.assertIn(ter, MOVE_COST[kind], f"{kind} 缺 {ter} 的代价")
@@ -417,6 +418,6 @@ class TestFreshRecruitsWait(_Base):
         a = [x for x in w.armies if x["owner"] == "秦"][-1]
         ok, msg = w.move("秦", a["id"], 6, 5)
         self.assertFalse(ok, f"新兵当回合就能动：{msg}")
-        a["moved_turn"] = -1          # 等价于"到了下回合"
+        w.begin_turn()  # 真正进入下一回合；出生回合也是对象的行动条件
         ok, msg = w.move("秦", a["id"], 6, 5)
         self.assertTrue(ok, f"下一回合还动不了：{msg}")

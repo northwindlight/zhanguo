@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""《基础指南》（`docs/基础指南.md`，原名《开局指南》）必须与局内那份提示**逐字一致**。
+"""《基础指南》（`mods/native/buildings/基础指南.md`，原名《开局指南》）必须与局内那份提示**逐字一致**。
 
 为什么有这个守卫：这本书同样不是"另写一份给人看的带教"，而是**局内 AI 读的那一份原文**
 （`mp_ai.opening_guide()`）——而且它比《经济学手册》还要紧一层：开局前若干回合它是被
@@ -58,7 +58,7 @@ class TestOpeningGuideSync(unittest.TestCase):
         if new != self.doc:
             diff = "".join(difflib.unified_diff(
                 self.doc.splitlines(True), new.splitlines(True),
-                fromfile="docs/基础指南.md", tofile="opening_guide() 现算"))
+                fromfile="mods/native/buildings/基础指南.md", tofile="opening_guide() 现算"))
             self.fail("《基础指南》已与局内提示脱钩 —— "
                       "跑 `python3 docs/sync_manual.py` 刷新：\n" + diff)
 

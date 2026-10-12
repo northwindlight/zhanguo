@@ -1,0 +1,75 @@
+ReadOnlyTools = ["query", "rules", "memory_search"]
+ToolNames = ["query", "rules", "memory_search", "expand", "plan", "end_turn"]
+[Mod]
+Id = "government"
+Version = "1.0.0"
+Entry = "mods.native.government.mod:GovernmentMod"
+Requires = []
+
+[State]
+Requests = ["_offer_id", "_vote_id", "_war_id", "approved_votes", "bank", "blocs", "command_id", "command_results", "diplo_built", "diplomacy_queue", "econ_intel", "econ_reports", "econ_summary", "energy_report", "equilibrium", "flow_in", "flow_out", "gdp_run", "gift_pending", "gold_carry", "grid_short", "ledger", "mail_pending", "mailbox", "map_pending", "maps", "nations", "order", "pacts", "peace_offers", "phase", "polity", "prices", "proposals", "rng", "seed", "size", "spend", "spy_pending", "tiles", "truce", "votes", "wars"]
+Owns = ["extra_prompt", "history", "history_seen", "long_memory", "opening_guide", "plans", "state_version", "summaries", "summary_blocks", "token_usage", "turn", "turn_memory"]
+
+[Capabilities]
+Needs = ["method._assign_code", "method._delivery_status", "method._econ_snapshot", "method._map_snapshot", "method._new_army", "method._place_crosses", "method._stamp_seen", "method._vote_stakeholders", "method.alive", "method.bank_loan_rate", "method.bank_on", "method.battle_sides", "method.bloc_by_name", "method.bloc_desc", "method.bloc_of", "method.entity_members", "method.market_price", "method.nation_armies", "method.neighbors", "method.own_tiles", "method.owned_by", "method.rel_desc", "method.supply_shortfall", "method.ter_char", "method.visible_to", "number.ARMY_MAX_HP", "number.ARRIVE_ATTEMPTS", "number.ARRIVE_MARGIN_DIV", "number.ARRIVE_MARGIN_MIN", "number.BUY_REPORT_COST", "number.RES_KEYS", "number.SPY_COST", "number.SPY_TURNS", "number.TRADEABLE", "army.units"]
+Provides = ["method.action", "method.add_nation", "method.add_res", "method.add_usage", "method.apply_polity", "method.begin_turn", "method.broadcast", "method.cheat", "method.decision_overview", "method.events_for", "method.fresh_history", "method.load", "method.log", "method.player_state", "method.polity_rule", "method.proclaim", "method.res", "method.save", "method.usage_totals", "number.ACADEMY_AMORT_TURNS", "number.EXTRA_PROMPT_TURNS", "number.PLAN_MAX_TURNS", "number.SUMMARY_MIN_CHARS", "number.TOWNHALL_SLOT_BONUS", "state.extra_prompt", "state.history", "state.history_seen", "state.long_memory", "state.opening_guide", "state.phase", "state.plans", "state.polity", "state.state_version", "state.summaries", "state.summary_blocks", "state.token_usage", "state.turn", "state.turn_memory"]
+
+[Manual]
+Sources = ["manual-1.md", "manual-2.md", "manual-3.md", "manual-4.md"]
+Hidden = ["十、政体：匈奴", "十二、终局结算"]
+
+[Manual.Keywords]
+"命令" = "命令表"
+"命令表" = "命令表"
+"总览" = "一局游戏"
+"回合" = "国策、回合与存档"
+"存档" = "国策、回合与存档"
+"结算" = "国策、回合与存档"
+"战略手册" = "战略手册"
+"均势" = "战略手册"
+"围魏救赵" = "战略手册"
+"坐山观虎斗" = "战略手册"
+"运动战" = "战略手册"
+"僵持" = "战略手册"
+"大国" = "战略手册"
+"霸权" = "战略手册"
+"超级大国" = "战略手册"
+"干预" = "战略手册"
+"该打谁" = "战略手册"
+"大局" = "战略手册"
+
+[Manual.Summaries]
+"一局游戏" = "回合制、结算顺序、存亡看市政厅"
+"经济与能源" = "一本账、电网、补给仓、黄金"
+"建筑" = "造价/门槛/每回合行为；地形建设惩罚"
+"军队与战斗" = "兵种、移动、交战、野人、撤退"
+"外交" = "实体、条约、宣战与传导、投票、情报"
+"联盟与核心领土" = "联盟效果、核心领土与自动归还"
+"市场" = "买卖价差、均衡价回归、空转检测"
+"经济报表" = "GDP / 资产 / 军费 / 投资"
+"国策、回合与存档" = "plan、行动纪律、存档兼容"
+"命令表" = "命令表"
+"命令" = "命令表"
+"经济手册" = "讲义：**为什么**该这么搞经济"
+"基础指南" = "讲义：**基础功**——开局怎么下手、电与工业怎么配"
+"战争手册" = "讲义：**这仗该怎么打**（战时必读）"
+"战略手册" = "讲义：**盘面怎么看**——均势、干预、外交、僵持"
+"世界央行" = "利率、贷款、报表买卖（开行才有）"
+
+[Manual.Lectures]
+"战略手册" = "strategy_manual"
+
+[Panels]
+"all" = "panel_all"
+"plan" = "panel_plan"
+"news" = "panel_news"
+"intel" = "panel_intel"
+"spy" = "panel_spy"
+"overview" = "panel_overview"
+"state" = "panel_state"
+"pending" = "panel_pending"
+"targets" = "panel_targets"
+"results" = "panel_results"
+
+[Interfaces]
+"army.units" = ["spawn", "restore"]

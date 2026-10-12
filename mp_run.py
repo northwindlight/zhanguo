@@ -138,16 +138,8 @@ def standby_schedule(cfg: dict, world: World) -> dict[str, int]:
     改配置（改窗口 / 新增待登场国）**立刻生效**，不再被存档里的旧计划挡住。
     已在局中的国自动排除。
     """
-    out: dict[str, int] = {}
-    for n in cfg.get("nations", []):
-        nm = n.get("name")
-        if not nm or not n.get("polity") or nm in world.nations:
-            continue
-        lo = int(n.get("enable_turn") or 0)
-        hi = int(n.get("enable_turn_max") or lo)
-        r = random.Random(f"{world.seed}:{nm}")
-        out[nm] = r.randint(lo, hi) if hi >= lo else lo
-    return out
+    return world.runtime.actor_schedule(world,cfg.get('nations',[]))
+
 
 
 def _nation_summary(n: dict) -> str | None:
@@ -174,8 +166,11 @@ def make_world(cfg, force_new: bool, save_path: Path) -> tuple[World, bool]:
         except Exception as e:
             print(f"读档失败({e})，重开新局")
     # 带 polity 的条目=待加入国（如匈奴），不作为开局国家；用 `add` 中途加入
-    start_names = [n["name"] for n in cfg["nations"] if not n.get("polity")]
+    start_names = World.runtime.initial_actors(cfg["nations"])
     w = World(size=cfg.get("map_size", 60), seed=cfg.get("seed"), nations=start_names)
+    for item in cfg['nations']:
+        if item['name'] in w.nations and item.get('polity'):
+            w.apply_polity(item['name'],item['polity'],start=item.get('start'))
     w.save(save_path)
     return w, True
 

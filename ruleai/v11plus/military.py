@@ -17,8 +17,12 @@
 """
 from __future__ import annotations
 
-from balance import (V11_FIELD_MAX_COST, V11_NEED_CAP,
-                     V11_ROUNDS_CAP, V11_SCAN_RADIUS)
+from ruleai.v11.parameters import (
+    V11_FIELD_MAX_COST,
+    V11_NEED_CAP,
+    V11_ROUNDS_CAP,
+    V11_SCAN_RADIUS
+)
 from .combat import assess
 from game import unit_kind, unit_max_hp
 

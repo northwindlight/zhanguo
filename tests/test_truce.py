@@ -41,7 +41,7 @@ import mp  # noqa: E402
 
 def _bloc(world, founder: str, name: str, invitee: str) -> None:
     """直接立一个两人联盟（免去投票/往返，测试用）。"""
-    world.propose_bloc(founder, name, [invitee])
+    world._apply_propose_bloc(founder, name, [invitee])
     world._accept_bloc_founding(world.proposals[-1], invitee)
 
 
@@ -58,20 +58,20 @@ class TestBlocDespiteTruce(unittest.TestCase):
 
     def test_can_join_bloc(self):
         w = self._world()
-        ok, msg = w.bloc_join("秦", "连横")
+        ok, msg = w._apply_bloc_join("秦", "连横")
         self.assertTrue(ok, f"有和约就入不了盟（旧口径的残留）：{msg}")
 
     def test_can_found_bloc(self):
         """发起结盟同样不受和约阻拦（旧口径"自己开一个也算入盟"的那条已废）。"""
         w = self._world()
-        ok, msg = w.propose_bloc("秦", "新盟", ["赵"])
+        ok, msg = w._apply_propose_bloc("秦", "新盟", ["赵"])
         self.assertTrue(ok, f"有和约就不让发起结盟：{msg}")
 
     def test_can_accept_founding_invite(self):
         """发起时还没和约、接受时刚议和了 ⇒ 接受这一刻**也**不拦。"""
         w = mp.World(size=20, seed=7, nations=["秦", "楚", "齐"])
         w.turn = 5
-        w.propose_bloc("楚", "连横", ["秦"])
+        w._apply_propose_bloc("楚", "连横", ["秦"])
         w.set_truce("秦", "齐", 30)      # 提议之后、接受之前议和了
         ok, msg = w._accept_bloc_founding(w.proposals[-1], "秦")
         self.assertTrue(ok, f"有和约就不让接受结盟：{msg}")
@@ -87,9 +87,9 @@ class TestBlocDespiteTruce(unittest.TestCase):
         """★ 「停战期**可以缔结条约**」：和约拦宣战，不拦缔约（旧文档只写了"不得入盟"，
         条约这条其实一直是放行的——钉死它，别哪天被"休战＝外交冻结"的直觉改回去）。"""
         w = self._world()
-        ok, msg = w.propose_pact("共同防御", "秦", "燕")
+        ok, msg = w._apply_propose_pact("共同防御", "秦", "燕")
         self.assertTrue(ok, f"休战期签不了共同防御：{msg}")
-        ok, msg = w.accept_pact("燕", w.proposals[-1]["id"])
+        ok, msg = w._apply_accept_pact("燕", w.proposals[-1]["id"])
         self.assertTrue(ok, msg)
         self.assertTrue(w.has_pact("共同防御", w.entity_of("秦"), w.entity_of("燕")),
                         "休战期的条约没落下来")
@@ -124,14 +124,14 @@ class TestTruceMergedIntoBloc(unittest.TestCase):
         self.assertIsNone(w.active_truce("秦", "赵"),
                           "秦 入盟了，它跟赵 的私约还活着（该冻结）")
         # 退盟即恢复（键从没删过，只是"当时的实体"对不上）
-        self.assertTrue(w.bloc_leave("燕"))
+        self.assertTrue(w._apply_bloc_leave("燕"))
         self.assertEqual(w.active_truce("秦", "赵"), 20, "退盟后私约没恢复")
 
     def test_ally_cannot_be_attacked_and_says_the_right_thing(self):
         """同实体本来就打不了——**理由要说"同属联盟"**，不是"休战中"（后者读起来像
         还有一纸能过期的和约在保它）。"""
         w = self._world()
-        ok, msg = w.declare_war("秦", "燕")
+        ok, msg = w._apply_declare_war("秦", "燕")
         self.assertFalse(ok)
         self.assertIn("同属", msg)
         self.assertNotIn("休战", msg)
@@ -142,17 +142,17 @@ class TestTruceMergedIntoBloc(unittest.TestCase):
         不恢复的话就是一条后门：秦 邀燕入盟 → 当场解散 → 立刻开战，
         燕还以为那纸和约在（它确实还在表里，却已经不约束了）。"""
         w = self._world()
-        ok, msg = w.bloc_dissolve("秦")
+        ok, msg = w._apply_bloc_dissolve("秦")
         self.assertTrue(ok, msg)
         self.assertEqual(w.active_truce("秦", "燕"), 20, "联盟散了，和约没回来")
-        ok, msg = w.declare_war("秦", "燕")
+        ok, msg = w._apply_declare_war("秦", "燕")
         self.assertFalse(ok, f"解散联盟就把和约抹了：{msg}")
         self.assertIn("休战", msg)
 
     def test_truce_comes_back_when_member_leaves(self):
         """成员退盟同样恢复（走的是同一个 `entity_of` 判定，不是特判）。"""
         w = self._world(members=("秦", "燕"))
-        ok, msg = w.bloc_leave("燕")
+        ok, msg = w._apply_bloc_leave("燕")
         self.assertTrue(ok, msg)
         self.assertEqual(w.active_truce("秦", "燕"), 20, "退盟后和约没回来")
 
@@ -197,7 +197,7 @@ class TestEntityTruceFollowsTheChief(unittest.TestCase):
         """★ 核心回归：成员的和约**不再**替全盟挡刀——韩 打得出去。"""
         w = self._world([("韩", "楚", 94)])   # 楚 入盟**之前**跟韩白和（那是私约）
         self.assertIsNone(w.active_truce("韩", "周"), "成员的和约竟然还算在全盟头上")
-        ok, msg = w.declare_war("韩", "周")
+        ok, msg = w._apply_declare_war("韩", "周")
         self.assertTrue(ok, f"成员的私约把整个联盟护住了（旧病）：{msg}")
         self.assertTrue(w.war_between("韩", "周"))
         self.assertTrue(w.war_between("韩", "楚"), "打盟员=打全盟，楚 该在守侧")
@@ -207,7 +207,7 @@ class TestEntityTruceFollowsTheChief(unittest.TestCase):
         w = self._world()
         w.set_truce("韩", "周", 94)          # 盟主 周 与韩 签约
         self.assertEqual(w.active_truce("韩", "楚"), 94, "盟主的约没有变成全盟的约")
-        ok, msg = w.declare_war("韩", "周")
+        ok, msg = w._apply_declare_war("韩", "周")
         self.assertFalse(ok, f"与盟主签约期内还能宣战：{msg}")
         self.assertIn("休战", msg)
 
@@ -221,10 +221,10 @@ class TestEntityTruceFollowsTheChief(unittest.TestCase):
     def test_suspended_truce_comes_back_on_leaving(self):
         """★「退出自动恢复」：楚 退盟 ⇒ 它自己那份和约按原到期回合回来（表里没删过）。"""
         w = self._world([("韩", "楚", 94)])
-        ok, msg = w.bloc_leave("楚")
+        ok, msg = w._apply_bloc_leave("楚")
         self.assertTrue(ok, msg)
         self.assertEqual(w.active_truce("韩", "楚"), 94, "退盟后私约没恢复")
-        ok, msg = w.declare_war("楚", "韩")
+        ok, msg = w._apply_declare_war("楚", "韩")
         self.assertFalse(ok, f"退盟后还能打自己的休战对手：{msg}")
         self.assertIn("休战", msg)
 
@@ -236,7 +236,7 @@ class TestEntityTruceFollowsTheChief(unittest.TestCase):
         w = self._world()
         w.set_truce("韩", "周", 94)          # 周(盟主)代表周天下 与韩 签约
         self.assertEqual(w.active_truce("韩", "楚"), 94, "前提：全盟与韩 休战")
-        ok, msg = w.bloc_transfer("周", "楚")
+        ok, msg = w._apply_bloc_transfer("周", "楚")
         self.assertTrue(ok, msg)
         self.assertEqual(w.active_truce("韩", "周"), 94, "换盟主把**联盟**的约弄丢了")
         self.assertEqual(w.active_truce("韩", "楚"), 94, "换盟主后全盟的约变了")
@@ -260,7 +260,7 @@ class TestEntityTruceFollowsTheChief(unittest.TestCase):
         self.assertTrue(w._eliminate_if_dead("魏"))
         for other in ("秦", "韩", "赵"):
             self.assertTrue(w.truces_of(other), f"{other} 没被压上全天下休战")
-        ok, msg = w.declare_war("秦", "赵")
+        ok, msg = w._apply_declare_war("秦", "赵")
         self.assertFalse(ok, f"全天下休战期内还能对联盟宣战：{msg}")
 
 
@@ -285,13 +285,13 @@ class TestFallTruceCounts(unittest.TestCase):
     def test_can_join_bloc_after_a_nation_falls(self):
         """★ 旧口径下这里是**全天下十回合谁也结不了盟**——正是用户要废掉的那条。"""
         w = self._world()
-        ok, msg = w.bloc_join("秦", "连横")
+        ok, msg = w._apply_bloc_join("秦", "连横")
         self.assertTrue(ok, f"亡国后的天下休战期内还入不了盟：{msg}")
         self.assertTrue(w.truces_of("秦"), "前提：秦 还和盟外的对手有休战")
 
     def test_joining_merges_only_the_internal_truce(self):
         w = self._world()
-        w.bloc_join("秦", "连横")
+        w._apply_bloc_join("秦", "连横")
         w._execute_vote(w.votes[-1])
         self.assertIsNone(w.active_truce("秦", "楚"), "入盟没能把与楚齐的和约合并掉")
         # 天下休战是**两两**压的：与盟外国家（赵）的那条一条都不能少
@@ -301,7 +301,7 @@ class TestFallTruceCounts(unittest.TestCase):
     def test_world_still_cannot_declare_war(self):
         """**阴性对照**：休战期内不得宣战这条**没动**。"""
         w = self._world()
-        ok, msg = w.declare_war("秦", "齐")
+        ok, msg = w._apply_declare_war("秦", "齐")
         self.assertFalse(ok, f"天下休战期内还能宣战：{msg}")
         self.assertIn("休战", msg)
 
@@ -329,7 +329,7 @@ class TestFallCeasefireActuallyStopsWars(unittest.TestCase):
     def test_unrelated_war_is_ended_too(self):
         """秦↔魏 在打，第三国（韩）亡国 ⇒ **秦↔魏 那条线也当场停**。"""
         w = self._world()
-        self.assertTrue(w.declare_war("秦", "魏")[0])
+        self.assertTrue(w._apply_declare_war("秦", "魏")[0])
         self.assertTrue(self._kill(w, "韩"))
         self.assertEqual(w.wars, [], "与亡国者无关的战线没停")
         self.assertFalse(w.war_between("秦", "魏"))
@@ -347,7 +347,7 @@ class TestFallCeasefireActuallyStopsWars(unittest.TestCase):
     def test_world_is_told(self):
         """这是世界级事件，必须广播（否则各国不知道自己突然停战了）。"""
         w = self._world()
-        self.assertTrue(w.declare_war("秦", "魏")[0])
+        self.assertTrue(w._apply_declare_war("秦", "魏")[0])
         self.assertTrue(self._kill(w, "韩"))
         self.assertTrue(any("强制休战" in h.get("text", "") for h in w.history),
                         "停战的广播没发出去")
@@ -359,7 +359,7 @@ class TestFallCeasefireActuallyStopsWars(unittest.TestCase):
         （没敌人了）⇒ `_conquer("攻陷")` ⇒ 地归它、守军消失。实测复现过。
         """
         w = self._world()
-        self.assertTrue(w.declare_war("秦", "魏")[0])
+        self.assertTrue(w._apply_declare_war("秦", "魏")[0])
         x, y = 6, 6
         t = w.tiles[(x, y)]
         t["owner"] = "魏"
@@ -396,7 +396,7 @@ class TestFallCeasefireActuallyStopsWars(unittest.TestCase):
         但要占得**下命令**——停战不是白捡。
         """
         w = self._world()
-        self.assertTrue(w.declare_war("秦", "韩")[0])
+        self.assertTrue(w._apply_declare_war("秦", "韩")[0])
         x, y = 9, 9
         t = w.tiles[(x, y)]
         t["owner"] = "韩"
@@ -452,7 +452,7 @@ class TestFallCeasefireVoidsPending(unittest.TestCase):
                      starts={"秦": (3, 3), "魏": (6, 6), "韩": (9, 9), "赵": (12, 12)})
         w.armies = []
         w.turn = 30
-        self.assertTrue(w.declare_war("秦", "魏")[0])
+        self.assertTrue(w._apply_declare_war("秦", "魏")[0])
         return w
 
     def _kill(self, w, name):
@@ -462,18 +462,18 @@ class TestFallCeasefireVoidsPending(unittest.TestCase):
 
     def test_inflight_peace_offer_is_voided(self):
         w = self._world()
-        ok, msg = w.offer_peace("秦", "魏", "white", truce=3)
+        ok, msg = w._apply_offer_peace("秦", "魏", "white", truce=3)
         self.assertTrue(ok, msg)
         self.assertEqual(len(w.peace_offers), 1, "前提：提议在桌上")
         self.assertTrue(self._kill(w, "韩"))                 # 第三国亡国 ⇒ 全天下强制休战
         self.assertEqual(w.peace_offers, [], "强制和平后，在途的求和提议还挂着")
         # 拿着那纸条回来也没用
-        ok, msg = w.accept_peace("魏", 1)
+        ok, msg = w._apply_accept_peace("魏", 1)
         self.assertFalse(ok, f"作废的求和提议还能接受：{msg}")
 
     def test_both_parties_are_told(self):
         w = self._world()
-        w.offer_peace("秦", "魏", "white", truce=3)
+        w._apply_offer_peace("秦", "魏", "white", truce=3)
         self._kill(w, "韩")
         for who in ("秦", "魏"):
             self.assertTrue(any("求和提议" in e and "作废" in e
@@ -488,9 +488,9 @@ class TestFallCeasefireVoidsPending(unittest.TestCase):
         """
         w = self._world()
         w.set_truce("秦", "魏", w.turn + 50)      # 手上已有一条更长的休战
-        ok, msg = w.offer_peace("秦", "魏", "white", truce=2)
+        ok, msg = w._apply_offer_peace("秦", "魏", "white", truce=2)
         self.assertTrue(ok, msg)
-        _ok, _msg = w.accept_peace("魏", w.peace_offers[-1]["id"])
+        _ok, _msg = w._apply_accept_peace("魏", w.peace_offers[-1]["id"])
         self.assertEqual(w.active_truce("秦", "魏"), w.turn + 50,
                          "一纸短休战把原有的长休战覆盖掉了")
 
@@ -508,7 +508,7 @@ class TestTruceBlocksPactCallUp(unittest.TestCase):
 
     def test_pact_ally_not_dragged_in(self):
         w = self._world(truce=True)
-        ok, msg = w.declare_war("秦", "楚")
+        ok, msg = w._apply_declare_war("秦", "楚")
         self.assertTrue(ok, msg)
         atk, dfs = w._war_sides(w.wars[0])
         self.assertNotIn("燕", dfs, "有和约的盟友被拖进战争了（和约当场作废）")
@@ -516,7 +516,7 @@ class TestTruceBlocksPactCallUp(unittest.TestCase):
     def test_without_truce_ally_is_dragged_in(self):
         """**阴性对照**：没有和约时共同防御照旧触发（别把整条机制关掉了）。"""
         w = self._world(truce=False)
-        ok, msg = w.declare_war("秦", "楚")
+        ok, msg = w._apply_declare_war("秦", "楚")
         self.assertTrue(ok, msg)
         _atk, dfs = w._war_sides(w.wars[0])
         self.assertIn("燕", dfs, "没和约时盟友该照旧参战")
@@ -524,7 +524,7 @@ class TestTruceBlocksPactCallUp(unittest.TestCase):
     def test_both_parties_are_told(self):
         """拦下来这件事要**通知当事双方**（否则又是"结果不告诉当事人"）。"""
         w = self._world(truce=True)
-        w.declare_war("秦", "楚")
+        w._apply_declare_war("秦", "楚")
         self.assertTrue([e for e in w.events_for("燕", 40) if "未触发" in e],
                         "被拦下的盟友该知道自己没参战")
         self.assertTrue([e for e in w.events_for("楚", 40) if "未触发" in e],
@@ -533,3 +533,15 @@ class TestTruceBlocksPactCallUp(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def prepare_vote(w, vote_id):
+    """机制测试投票夹具：推进到声明的投票回合。公共全阶段时序见 test_regularization。"""
+    vote = next(v for v in w.votes if v['id'] == vote_id)
+    w.turn = max(w.turn, vote['voting_turn'])
+    w.phase = '行动'
+
+
+def settle_votes(w):
+    w._expire_votes()
+    w._stage_diplomacy({})

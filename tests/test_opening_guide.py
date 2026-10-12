@@ -28,7 +28,7 @@ sys.path.insert(0, str(ROOT))
 
 import mp  # noqa: E402
 import mp_ai  # noqa: E402
-from balance import EXTRA_PROMPT_TURNS  # noqa: E402
+from mods.native.balance import EXTRA_PROMPT_TURNS  # noqa: E402
 
 
 def _world(size: int = 16, seed: int = 7) -> mp.World:

@@ -47,7 +47,7 @@ class _Base(unittest.TestCase):
         a = {"id": aid, "gid": aid, "name": f"{owner}·{kind}军{aid}", "type": kind,
              "hp": 100, "x": x, "y": y, "owner": owner, "moved_turn": -1, "engaged": False}
         w.armies.append(a)
-        return a
+        return w.units[-1]
 
     def _ter(self, w, x, y, terrain: str) -> None:
         if (x, y) not in w.tiles:
@@ -248,7 +248,7 @@ class TestBestStep(_Base):
         w._new_tile(7, 5, "楚")
         w.tiles[(7, 5)] = w._new_tile(7, 5, "楚")
         w.tiles[(7, 5)]["terrain"] = "平原"
-        w.declare_war("秦", "楚")
+        w._apply_declare_war("秦", "楚")
         a = self._army(w, "骑", 5, 5)
         self.assertTrue(pathfind.marchable(w, "秦", a, (7, 5)), "平地 2 格 ⇒ 够得着")
         b = self._army(w, "步", 5, 6, aid=2)

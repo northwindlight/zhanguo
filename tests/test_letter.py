@@ -55,7 +55,7 @@ class TestSendLetterCharge(unittest.TestCase):
         before = w.res("秦", "黄金")
         msg = mp_ai.execute(w, "秦", "send_letter", {"to": "楚", "content": text})
         self.assertEqual(before - w.res("秦", "黄金"), LETTER_COST + 2)
-        self.assertIn("40 字，-22 金", msg)
+        self.assertIn("40 字，预留 22 金", msg)
 
     def test_ally_base_is_ten(self):
         w = self._world()

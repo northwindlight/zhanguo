@@ -1,0 +1,24 @@
+[Distribution]
+ActorCollection = "nations"
+Id = "native"
+Version = "1.0.0"
+Members = ["territory/mod.toml", "buildings/mod.toml", "army/mod.toml", "diplomacy/mod.toml", "economy/mod.toml", "government/mod.toml", "polities/huns/mod.toml"]
+RequiredState = ["_mapgen", "_offer_id", "_terr_grid", "_vote_id", "_war_id", "approved_votes", "bank", "blocs", "churn", "command_id", "command_results", "diplo_built", "diplomacy_queue", "econ_intel", "econ_reports", "econ_summary", "energy_report", "equilibrium", "extra_prompt", "flow_in", "flow_out", "gdp_run", "gift_pending", "gold_carry", "grid_short", "history", "history_seen", "ledger", "long_memory", "mail_pending", "mailbox", "map_pending", "maps", "max_turns", "nations", "opening_guide", "order", "pacts", "peace_offers", "phase", "plans", "polity", "prices", "proposals", "rng", "seed", "size", "spend", "spy_pending", "state_version", "summaries", "summary_blocks", "tiles", "token_usage", "truce", "turn", "turn_memory", "votes", "wars", "units"]
+ManualOrder = ["一、一局游戏", "二、经济与能源", "三、建筑", "四、军队与战斗", "五、外交", "六、联盟与核心领土", "七、市场", "八、经济报表", "九、国策、回合与存档", "十、政体：匈奴", "十一、命令表", "十二、终局结算"]
+
+[Distribution.Hooks]
+"slot.01" = "计票"
+"slot.02" = "配额与采集"
+"slot.03" = "电网与工业"
+"slot.04" = "外交"
+"slot.05" = "补给与回血"
+"slot.06" = "战斗"
+"slot.07" = "撤退落地"
+"slot.08" = "脱离清扫"
+"slot.09" = "弃城接管"
+"slot.10" = "亡国与强制休战"
+"slot.11" = "遣返"
+"slot.12" = "市场"
+"slot.13" = "建筑落成"
+"slot.14" = "世界央行"
+"slot.15" = "摘要与报表"

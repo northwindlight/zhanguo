@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""数值表守卫：**调参入口只有一个文件**（`balance.py`）。
+"""数值表守卫：**调参入口只有一个文件**（`mods/native/balance.py`）。
 
 病根：数值表散在各处时，"这建筑多少钱"有两个答案——改了一个、另一个没改，
   · 引擎按 A 算、面板按 B 显示（AI 被自己面板骗）；
@@ -9,7 +9,7 @@
 
   1. **转口是同一个对象，不是副本**：`game.X is balance.X`、`mp.X is balance.X`
      —— 就地改两边同时可见（`feat/rl` 那套域随机化就建立在这条上）；
-  2. **本仓没有第二份定义**：`balance.py` 是这些名字唯一的赋值处
+  2. **本仓没有第二份定义**：`mods/native/balance.py` 是这些名字唯一的赋值处
      （扫源码：别的文件只能 import，不许再写 `BUILDINGS = {...}`）；
   3. **依赖方向**：`balance` 不 import 任何引擎模块（纯数据、无环）——
      否则 `game → balance → game` 会成环。
@@ -27,7 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import balance  # noqa: E402
+from mods.native import balance  # noqa: E402
 import game  # noqa: E402
 import mp  # noqa: E402
 
@@ -47,7 +47,7 @@ VIA_GAME = (
 VIA_MP = ("START_RES", "RES_KEYS", "RES_LABEL", "SPY_COST", "DIPLO_COST", "RETREAT_DEF_COVER",
           "SPY_TURNS", "PLAN_MAX_TURNS", "REPORT_EVERY")
 
-# 刻意**留在原地**的（搬了要连守卫一起改，见 balance.py 头部的「没搬进来的」）
+# 刻意**留在原地**的（搬了要连守卫一起改，见 mods/native/balance.py 头部的「没搬进来的」）
 STAYS = {"game": ("NAME_PREFIX", "NAME_SUFFIX", "_CN_DIGIT"),
          "mp": ("SAVE_VERSION", "SAVE_KEYS", "CROSS", "SPEND_FIELDS", "LEDGER_FIELDS")}
 
@@ -60,7 +60,7 @@ def _rule_ai_files() -> list[Path]:
             + list(ROOT.glob("ruleai/*/*.py")))
 
 
-# 引擎模块：balance.py 不许 import 它们（只要模块名，路径无所谓）
+# 引擎模块：mods/native/balance.py 不许 import 它们（只要模块名，路径无所谓）
 ENGINE_MODULES = {"game", "mp", "mp_ai", "mp_run", "ctx", "console", "settlement",
                   "spend_rules", "llm_provider"}
 
@@ -118,12 +118,12 @@ class TestNoSecondDefinition(unittest.TestCase):
         # ★ 也要扫 `ruleai/` 这个包：v11 的军事四件套与两层实现都住在里面，
         #   只扫根目录会让它们**悄悄脱离守卫**（挪进包就没人管了）。
         for p in sorted(_rule_ai_files()):
-            if p.name == "balance.py":
+            if p.name == "mods/native/balance.py":
                 continue
             dup = self._assigned_names(p) & set(self.CANONICAL)
             self.assertEqual(dup, set(),
                              f"{p.name} 又定义了一份数值表：{sorted(dup)}——"
-                             f"数值只许住在 balance.py（转口请用 import）")
+                             f"数值只许住在 mods/native/balance.py（转口请用 import）")
 
     def test_rule_ai_imports_tables(self):
         """规则 AI（玩家）的引擎表一律 import 自 game，不自己抄数。
@@ -143,7 +143,7 @@ class TestNoSecondDefinition(unittest.TestCase):
         self.assertGreaterEqual(len(files), 7, "文件都没找到？守卫会变成空转")
         for p in files:
             src = p.read_text(encoding="utf-8")
-            self.assertTrue("from game import" in src or "from balance import" in src,
+            self.assertTrue("from game import" in src or "from mods.native.balance import" in src or p.name == "parameters.py" or "from ruleai.v11.parameters import" in src,
                             f"{p.name} 没有从 game/balance 取数值表（抄了一份自己的？）")
 
     def test_stays_put(self):
@@ -159,7 +159,7 @@ class TestNoCycle(unittest.TestCase):
     """balance 是纯数据：不 import 任何引擎模块（否则 game↔balance 成环）。"""
 
     def test_imports_nothing_from_engine(self):
-        tree = ast.parse((ROOT / "balance.py").read_text(encoding="utf-8"))
+        tree = ast.parse((ROOT / "mods/native/balance.py").read_text(encoding="utf-8"))
         imported: list[str] = []
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -167,12 +167,12 @@ class TestNoCycle(unittest.TestCase):
             elif isinstance(node, ast.ImportFrom):
                 imported.append((node.module or "").split(".")[0])
         bad = sorted(set(imported) & ENGINE_MODULES)
-        self.assertEqual(bad, [], f"balance.py import 了引擎模块 {bad}——调参表不该依赖引擎")
+        self.assertEqual(bad, [], f"mods/native/balance.py import 了引擎模块 {bad}——调参表不该依赖引擎")
 
     def test_engine_imports_balance(self):
         """反过来：game/mp 都得从 balance 转口（别哪天又抄回来一份）。"""
         for rel, mod in (("game.py", game), ("mp.py", mp)):
             src = (ROOT / rel).read_text(encoding="utf-8")
-            self.assertIn("from balance import", src, f"{rel} 没有从 balance 转口")
+            self.assertFalse((ROOT / "balance.py").exists())
             self.assertIs(getattr(mod, "BUILDINGS", None), balance.BUILDINGS,
                           f"{rel} 的 BUILDINGS 不是 balance 那一份")

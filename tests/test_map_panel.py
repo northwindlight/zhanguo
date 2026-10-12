@@ -91,8 +91,8 @@ class TestVisibleCellsEquivalence(unittest.TestCase):
         w = _world()
         _grow(w, "秦", 3)
         _grow(w, "楚", 3)
-        w.propose_bloc("秦", "北盟", ["楚"])
-        w.accept_pact("楚", w.proposals[-1]["id"])
+        w._apply_propose_bloc("秦", "北盟", ["楚"])
+        w._apply_accept_pact("楚", w.proposals[-1]["id"])
         self.assertIsNotNone(w.bloc_of("楚"))
         self._cross_check(w, "秦")
         self._cross_check(w, "楚")
@@ -238,7 +238,7 @@ class TestMapPanel(unittest.TestCase):
         w = _world()
         own = w.own_tiles("秦")
         x, y = own[0]
-        w.armies = [{"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+        w.armies = [{"id": 1, "gid": w.nation_code['秦'] * mp.ARMY_GID_BASE + 1, "name": "秦·步一军", "type": "步", "hp": 100,
                      "x": x, "y": y, "owner": "秦", "moved_turn": -1, "engaged": False}]
         grid = _grid_lines(mp_ai._fmt_map(w, "秦"))
         self.assertNotIn("@", grid)
@@ -530,9 +530,9 @@ class TestMilMap(unittest.TestCase):
         self.own = self.w.own_tiles("秦")
         a, b = self.own[0], self.own[1]
         self.w.armies = [
-            {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+            {"id": 1, "gid": self.w.nation_code['秦'] * mp.ARMY_GID_BASE + 1, "name": "秦·步一军", "type": "步", "hp": 100,
              "x": a[0], "y": a[1], "owner": "秦", "moved_turn": -1, "engaged": False},
-            {"id": 2, "gid": 2, "name": "秦·骑二军", "type": "骑", "hp": 80,
+            {"id": 2, "gid": self.w.nation_code['秦'] * mp.ARMY_GID_BASE + 2, "name": "秦·骑二军", "type": "骑", "hp": 80,
              "x": b[0], "y": b[1], "owner": "秦", "moved_turn": -1, "engaged": False},
         ]
 
@@ -551,7 +551,7 @@ class TestMilMap(unittest.TestCase):
     def test_foreign_army_uses_its_own_code(self):
         vis = mp_ai._visible_cells(self.w, "秦")
         spot = next(p for p in sorted(vis) if self.w.owned_by(*p) is None)
-        self.w.armies.append({"id": 3, "gid": 3, "name": "楚·步三军", "type": "步", "hp": 60,
+        self.w.armies.append({"id": 3, "gid": self.w.nation_code['楚'] * mp.ARMY_GID_BASE + 3, "name": "楚·步三军", "type": "步", "hp": 60,
                               "x": spot[0], "y": spot[1], "owner": "楚",
                               "moved_turn": -1, "engaged": False})
         s = mp_ai._fmt_mil_map(self.w, "秦")
@@ -564,7 +564,7 @@ class TestMilMap(unittest.TestCase):
         vis = mp_ai._visible_cells(self.w, "秦")
         spot = next(p for p in sorted(vis) if self.w.owned_by(*p) is None)
         for i in (3, 4):
-            self.w.armies.append({"id": i, "gid": i, "name": f"楚·步{i}军", "type": "步",
+            self.w.armies.append({"id": i, "gid": self.w.nation_code['楚'] * mp.ARMY_GID_BASE + i, "name": f"楚·步{i}军", "type": "步",
                                   "hp": 60, "x": spot[0], "y": spot[1], "owner": "楚",
                                   "moved_turn": -1, "engaged": False})
         s = mp_ai._fmt_mil_map(self.w, "秦")
@@ -575,10 +575,10 @@ class TestMilMap(unittest.TestCase):
         """跨国的同格重叠要单独指出来（那才是战术信息：敌我挤在一格）。"""
         vis = mp_ai._visible_cells(self.w, "秦")
         spot = next(p for p in sorted(vis) if self.w.owned_by(*p) is None)
-        self.w.armies.append({"id": 3, "gid": 3, "name": "楚·步三军", "type": "步", "hp": 60,
+        self.w.armies.append({"id": 3, "gid": self.w.nation_code['楚'] * mp.ARMY_GID_BASE + 3, "name": "楚·步三军", "type": "步", "hp": 60,
                               "x": spot[0], "y": spot[1], "owner": "楚",
                               "moved_turn": -1, "engaged": False})
-        self.w.armies.append({"id": 4, "gid": 4, "name": "秦·步一军", "type": "步", "hp": 100,
+        self.w.armies.append({"id": 4, "gid": self.w.nation_code['秦'] * mp.ARMY_GID_BASE + 4, "name": "秦·步一军", "type": "步", "hp": 100,
                               "x": spot[0], "y": spot[1], "owner": "秦",
                               "moved_turn": -1, "engaged": False})
         s = mp_ai._fmt_mil_map(self.w, "秦")
@@ -624,9 +624,9 @@ class TestCoordinateAtlas(unittest.TestCase):
         # ★ 用 `+` 追加而不是整体替换：`w.armies = [...]` 会把全图 566 个野人守军一起冲掉，
         #   于是"无主格都有野人"这个真实局面在测试里消失（这正是刚才三条用例失败的原因）。
         w.armies += [
-            {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+            {"id": 1, "gid": w.nation_code['秦'] * mp.ARMY_GID_BASE + 1, "name": "秦·步一军", "type": "步", "hp": 100,
              "x": own[0], "y": own[1], "owner": "秦", "moved_turn": -1, "engaged": False},
-            {"id": 2, "gid": 2, "name": "楚·骑二军", "type": "骑", "hp": 100,
+            {"id": 2, "gid": w.nation_code['楚'] * mp.ARMY_GID_BASE + 2, "name": "楚·骑二军", "type": "骑", "hp": 100,
              "x": adj[0], "y": adj[1], "owner": "楚", "moved_turn": -1, "engaged": False},
         ]
         return w, own, adj
@@ -674,7 +674,7 @@ class TestCoordinateAtlas(unittest.TestCase):
     def test_番号段_格主的排前面且省前缀(self):
         """同格混编：格主的部队省归属前缀、排前面；别人的带国名。"""
         w, own, _adj = self._setup()
-        w.armies.append({"id": 3, "gid": 3, "name": "楚·步三军", "type": "步", "hp": 60,
+        w.armies.append({"id": 3, "gid": w.nation_code['楚'] * mp.ARMY_GID_BASE + 3, "name": "楚·步三军", "type": "步", "hp": 60,
                          "x": own[0], "y": own[1], "owner": "楚",
                          "moved_turn": -1, "engaged": False})
         out = mp_ai._fmt_atlas(w, "秦")
@@ -731,9 +731,9 @@ class TestCastleReportedEverywhere(unittest.TestCase):
         t["buildings"]["城堡"] = 3                     # 敌国城堡（L3）
         w.tiles[adj] = t
         w.armies = [
-            {"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+            {"id": 1, "gid": w.nation_code['秦'] * mp.ARMY_GID_BASE + 1, "name": "秦·步一军", "type": "步", "hp": 100,
              "x": own[0], "y": own[1], "owner": "秦", "moved_turn": -1, "engaged": False},
-            {"id": 2, "gid": 2, "name": "楚·步二军", "type": "步", "hp": 100,
+            {"id": 2, "gid": w.nation_code['楚'] * mp.ARMY_GID_BASE + 2, "name": "楚·步二军", "type": "步", "hp": 100,
              "x": adj[0], "y": adj[1], "owner": "楚", "moved_turn": -1, "engaged": False},
         ]
         return w, own, adj
@@ -812,7 +812,7 @@ class TestCastleReportedEverywhere(unittest.TestCase):
         """没城就不该冒出一个 城L0——那是噪声。"""
         w = mp.World(size=20, seed=3, nations=["秦", "楚"])
         own = w.own_tiles("秦")[0]
-        w.armies = [{"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+        w.armies = [{"id": 1, "gid": w.nation_code['秦'] * mp.ARMY_GID_BASE + 1, "name": "秦·步一军", "type": "步", "hp": 100,
                      "x": own[0], "y": own[1], "owner": "秦", "moved_turn": -1,
                      "engaged": False}]
         self.assertNotIn("城L", mp_ai._fmt_armies(w, "秦"))
@@ -833,9 +833,9 @@ class TestThreatsVisionGate(unittest.TestCase):
         outside = next(p for p in sorted((x, y) for x in range(w.size)
                                          for y in range(w.size)) if p not in vis)
         w.armies += [
-            {"id": 101, "gid": 101, "name": "楚·步101军", "type": "步", "hp": 60,
+            {"id": 101, "gid": w.nation_code['楚'] * mp.ARMY_GID_BASE + 101, "name": "楚·步101军", "type": "步", "hp": 60,
              "x": inside[0], "y": inside[1], "owner": "楚", "moved_turn": -1, "engaged": False},
-            {"id": 102, "gid": 102, "name": "楚·步102军", "type": "步", "hp": 60,
+            {"id": 102, "gid": w.nation_code['楚'] * mp.ARMY_GID_BASE + 102, "name": "楚·步102军", "type": "步", "hp": 60,
              "x": outside[0], "y": outside[1], "owner": "楚", "moved_turn": -1, "engaged": False},
         ]
         return w
@@ -865,9 +865,7 @@ class TestThreatsVisionGate(unittest.TestCase):
         w = self._world()
         vis = mp_ai._visible_cells(w, "秦")
         inside = next(p for p in sorted(vis) if w.owned_by(*p) is None)
-        w.armies.append({"id": 101, "gid": 101, "name": "楚·步101军", "type": "步", "hp": 60,
-                         "x": inside[0], "y": inside[1], "owner": "楚",
-                         "moved_turn": -1, "engaged": False})
+        w.units.by_id(101,"楚").move_to(*inside,-1)
         self.assertTrue(any(a["owner"] == "野人" for a in w.armies), "这个局面本该有野人")
         out = mp_ai._fmt_threats(w, "秦")
         self.assertNotIn("(野人)", out, f"野人不该出现在威胁面板：{out}")
@@ -906,7 +904,7 @@ class TestGridIsPureAscii(unittest.TestCase):
     def test_military_map_grid(self):
         w = _world()
         own = _grow(w, "秦", 4)
-        w.armies = [{"id": 1, "gid": 1, "name": "秦·步一军", "type": "步", "hp": 100,
+        w.armies = [{"id": 1, "gid": w.nation_code['秦'] * mp.ARMY_GID_BASE + 1, "name": "秦·步一军", "type": "步", "hp": 100,
                      "x": own[0][0], "y": own[0][1], "owner": "秦",
                      "moved_turn": -1, "engaged": False}]
         self._assert_ascii_grid(mp_ai._fmt_mil_map(w, "秦"))
