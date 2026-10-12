@@ -608,7 +608,7 @@ class GovernmentLogic:
                         "engaged": bool(a.get("engaged")), "action_available": self.phase == '行动' and a.get("moved_turn") != self.turn
                             and a.get("born_turn") != self.turn and not a.get('engaged')
                             and not a.get('retreat_to'),
-                        "tile_owner": self.tiles[(a['x'], a['y'])]['owner'],
+                        "tile_owner": self.owned_by(a['x'], a['y']),
                         "movement_budget": unit_speed(a),
                         "retreat_to": [v+1 for v in a["retreat_to"]] if a.get("retreat_to") else None}
                         for a in armies], "relations": self.rel_desc(name),

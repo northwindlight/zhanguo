@@ -1,0 +1,121 @@
+# 建筑域对象改造
+
+2026-10-12：建筑作为资源与市场之后的下一个独立域。当前模块为 `native:buildings` 2.0.0，只依赖 `native:resources`，拥有一个 `buildings` 状态对象。可运行验收发行版在 `mods/buildings_acceptance/mod.toml`，不加载旧世界、领土、军队、银行或经济报表。
+
+## 模板、内容与实例
+
+`engine/building.py` 提供 `Building` 实例模板：编号、类型 ID、所在站点、等级、施工进度、只读快照、完成施工和显式存档。它没有 native 建筑名单、中文名称、造价资源或结算阶段表。
+
+建筑域的 `NativeBuilding` 定义本发行版的造价、场地约束、阶段、能源维持、投入/产出和效果合同。`types.py` 的 16 个具体子类对应现有规则：
+
+| 类 | ID | 行为 |
+|---|---|---|
+| Castle | `native:castle` | 5 级逐级金价，每级占一个建筑位。 |
+| LumberCamp | `native:lumber-camp` | 采集木材。 |
+| Farm | `native:farm` | 采集食物，受本地耕地容量限制。 |
+| Mine | `native:mine` | 采集矿石。 |
+| OilWell | `native:oil-well` | 采集石油。 |
+| GoldMine | `native:gold-mine` | 每座直接产出 10 金，不再借用市场参数。 |
+| WoodPowerPlant | `native:wood-power-plant` | 每座消耗 1 木材，发 2 电。 |
+| OilPowerPlant | `native:oil-power-plant` | 每座消耗 1 石油，发 8 电。 |
+| SupplyFactory | `native:supply-factory` | 2 食物 + 1 矿石 → 2 补给，额定维持 1 电。 |
+| EquipmentFactory | `native:equipment-factory` | 1 矿石 + 1 石油 → 2 装备，额定维持 1 电。 |
+| Barracks | `native:barracks` | 征兵能力元数据，额定维持 1 电。 |
+| TownHall | `native:town-hall` | 重写生产周期：5 + 本地其他已落成建筑位数，产金币；额定维持 1 电。 |
+| Watchtower | `native:watchtower` | 视野效果元数据。 |
+| DiplomacyCenter | `native:diplomacy-center` | 本地限 1，自建全国限 1。 |
+| Academy | `native:academy` | 已落成后为本地其他建筑提供 25% 金价折扣。 |
+| MilitiaCamp | `native:militia-camp` | 民兵编制元数据，不产粮。 |
+
+每个建筑位为独立实例，城堡逐级实例记录各自等级。类型由 `content_definitions()` 登记，引擎只登记身份；建筑域枚举注册表中的建筑类并核对合同、数量、阶段与静态配方资源。新建筑继承 `NativeBuilding`，可重写 `cycle()` 或造价计算；不用修改固定数量表、集合或引擎。
+
+内部只接受命名空间 ID。名称键由 `NAME_KEY` 指定；现有 16 种建筑的中英文翻译在 `locales` 中，`building_name(id, locale)` 只影响展示。原中文参数表没有作为新类型的运行时转换器。
+
+## 所有权与显式站点
+
+`Buildings` 拥有站点描述、实例、编号序列、周期、下单配额、自建历史计数和本周期建造回执。站点描述包含：
+
+- 命名空间站点 ID、所有者、坐标。
+- 本地资源容量，如 `native:farmland / native:wood / native:ore`。
+- 总建筑位容量，默认 20；地形施工惩罚百分比。
+
+这些是由调用者提供的建筑上下文，不是引用旧 `tiles` 或国家对象。站点及实例查询返回不可变值。`transfer_site` 显式改变所属账户，实例随站点归属，下单者的自建名额不随转让清除。
+
+主要接口：
+
+- `register_site(...)`：登记站点；`seed(...)`：明确的开局/导入实例，不扣款、不记玩家自建名额。两者只供初始化或获授权管理调用者使用。
+- `build(owner, site, kind, policy_pct=100)`：验证归属、配额、建筑位、本地容量、前置位数、每地块上限及自建上限后下单。
+- `instances / site / count / effects / snapshot`：只读实例及能力事实；`count` 可选择是否包含在建。
+- `produce(external_energy=...)`：一次生产计划及原子资源批量结算，返回不可变生产报告。
+- `complete_construction()`：生产之后落成在建实例，结束周期，恢复下一周期配额。
+- `industry_upkeep(owner)`：已落成电厂和工厂的额定投料需求，不随缺料或缺电压低预警基线。
+
+跨域调用须声明 `native:buildings` 的 `Needs / Interfaces` 并走 `runtime.object_call`。直接写建筑集合或完成其绑定实例会被拒绝。未获授权的调用者不能使用 `seed` 或资源批量结算。
+
+## 建造规则
+
+建造立即从资源账户扣除金木，建筑进入一周期在建，当前生产不会使用它。周期结束落成，从下一周期生效。在建也占位并计入容量/前置位数判断。
+
+金价按现有顺序逐步向下取整：基础金价 → 地形惩罚 → 已落成工程院折扣 → 显式 `policy_pct`。木材不受这些百分比影响。工程院自己不享受本地工程院折扣，在建工程院也不提供折扣。
+
+失败下单不修改资源、编号、配额、自建计数或回执。造价返回结构化 `BuildReceipt`，不直接调用旧经济账本或拼接中文业务消息。
+
+## 生产与能源规则
+
+生产先完整计算计划，再调用资源域批量结算：
+
+1. 已落成采集建筑产出进入候选账户，可供本周期后续电厂和工厂使用。
+2. 电厂依本账户实际燃料逐座运行，生成能源；缺燃料的电厂停产。
+3. 按账户汇总全部已落成建筑的额定能源需求。发电量加显式外部能源不足时，全部耗电工业、市政厅和兵营停摆；电厂已用燃料仍计消费。
+4. 有电时工厂依投料运行。缺任一投入则这一座不扣任何料、不产出，其他具备投入的实例可以运行。市政厅在工厂之后计算收入。
+
+争用有限库存时，保持旧表的顺序口径：站点登记顺序 → 建筑类型登记顺序 → 实例编号；按采集、发电、工业、收入、无产出效果分别执行。新类型的位置由其登记顺序确定，不因实例先后建造改变同一站点原有工厂的优先级。
+
+能源是周期内条件与报告字段，不是可积攒库存。生产结果包含逐实例状态、真实投料、真实产出和能源报告。状态包括 `running / idle / under-construction / missing-input / energy-shortage`。
+
+同一周期只能生产一次；必须随后完成施工才能进入下一周期。保存于生产与落成之间的状态也保留该标记，重新加载不能重复产出。
+
+## 资源批量结算
+
+资源域升级到 1.2.0：
+
+- `exchange(owner, debits, credits)` 支持纯扣款、纯产出以及两腿兑换，至少一腿非空。
+- `exchange_batch(operations)` 支持顺序的跨账户资源操作；后一个操作可使用前一个操作的候选产出。
+- `native:resource-exchange.snapshot(owner)` 提供只读资源快照，供建筑规划实际投料。
+
+完整批次在候选资源对象上执行各具体子类的扣料、补充和数量校验，全部通过后才提交原库存数量。任何账户、资源、数值、余额或子类规则拒绝，原账户全部不变。建筑生产标记也不推进。因此新资源的入库限制即使在最后一个工厂触发，也不会留下前面农场或其他账户的半次生产。原资源对象身份保留。
+
+建筑不直接访问资源内部字段，也不使用 `World.res / add_res / _mval`。市场继续使用原两腿兑换接口，army 的具体资源权限没有扩大。
+
+## 生产记录进入市场供需
+
+独立发行版声明三个有序挂点：`buildings.production → market.settlement → buildings.completion`，引擎不认识这些业务名称。
+
+建筑生产阶段把报告放在 `context['building_production']`，将真实产销累加到 `context['market']['production' / 'consumption']`，保留其他生产者已提交的流量。本周期建造投料也计入消费。市场自行决定哪些资源属于其商品名单；金币虽存在于建筑报告中，仍不作为市场商品。
+
+tea 验收由外域注册 `example:tea` 与 `example:tea-garden`：茶园每周期产 2 tea，资源账户正确入库，记录正确汇入供需。市场未声明 tea 时不生成其行情，也不影响原商品的供需计算。完整模块存档往返后可继续生产，库存与记录一致。
+
+## 存档与未接线边界
+
+显式存档记录周期与生产标记、编号、站点、实例、下单周期、自建计数和当前建造回执。加载先在候选集合验证字段、身份、数量、编号、站点容量、城堡等级、施工状态及回执与下单/计数关系，再替换现场状态。不反射任意类属性，也不保存回调或世界引用。
+
+本轮已把 `buildings/mod.py` 与模块声明切换为新对象域。原 `logic.py / parameters.py / initial.py / tools.py / schemas.py / views.py` 保留为尚未迁移的旧路径；新模块不装载这些 mixin、工具或旧字典。旧整局发行版仍引用旧建筑能力与状态，暂未改接，不宣称整局可运行。
+
+兵营征兵、民兵免供、城堡战斗加成、瞭望塔视野、外交费减免、领土变更、政策来源、旧玩家入口和报表消费者尚未接线。当前提供效果事实与显式站点/政策/外部能源输入，未改造域仍按用户授权暂缓。
+
+## 验收
+
+```bash
+.venv/bin/python -m unittest tests.test_building_objects tests.test_market_objects tests.test_resource_objects tests.test_army_resources tests.test_runtime_content_hooks
+```
+
+建筑新增 20 项测试，与此前独立测试合计 65 项通过；加上 10 项既有通用引擎回归共 75 项。覆盖原 16 类数值核对、独立装配、即时扣款、延迟生效、容量/归属/配额、折扣取整、城堡升级、自建历史、生产链精确流量、部分电厂运行、缺料无投料、全国缺电、外部能源、市政厅与金矿、新茶园、市场忽略 tea、跨账户批次原子性、配方拒绝、权限与快照、在建和生产中途存档续算及损坏存档拒绝。
+
+测试仅使用合成账户、站点及存档，不读写真实 `mp_save.json`。
+
+
+经济批建筑域升级至 2.1.0，新增只读 `replacement_costs(owner)`，汇总当前归属的已落成建筑重置金木材料（城堡每级包含木材），供经济层估值。阶段适配器补读 `Before / After / Requires`；建筑内部生产阶段仍未拆分。资源、建筑、市场及经济联动与最新 94 项验收见 [经济报表说明](../economy_reports/README.md)。
+
+## 正式发行版接线（2026-10-13）
+
+建筑域 2.2.0 提供 `build(site, kind)` 工具，行动者由引擎绑定，建筑类型 schema 从注册表枚举；实际建造继续由 `Buildings.build` 统一裁决。已进入仓库 `mods.toml` 的正式 native 发行版，见 [入口说明](../README.md)。旧中文地块/玩家循环另做适配。

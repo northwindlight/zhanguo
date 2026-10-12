@@ -4,9 +4,10 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from collections.abc import Mapping, MutableMapping
 import math
-from engine.state import active_unit, own
+from engine.state import active_unit, own, freeze
 from engine.runtime import ModError
-from .parameters import UNIT_TYPES, ARMY_GID_BASE
+from .parameters import ARMY_GID_BASE
+from .content import native_unit_definitions
 
 @dataclass(eq=False)
 class Unit(MutableMapping):
@@ -27,6 +28,7 @@ class Unit(MutableMapping):
     retreat_role: str | None = None
     retreat_cover: int | None = None
     _collection: object = field(default=None, repr=False)
+    _definitions: object = field(default=None, repr=False)
     _present: tuple = field(default=(), init=False, repr=False)
     _ready: bool = field(default=False, init=False, repr=False)
 
@@ -35,6 +37,8 @@ class Unit(MutableMapping):
     ATTRS = {'type': 'kind'}
 
     def __post_init__(self):
+        if self._definitions is None:
+            object.__setattr__(self, '_definitions', freeze(native_unit_definitions()))
         self.validate()
         data = {'id':self.id,'gid':self.gid,'name':self.name,'type':self.kind,'hp':self.hp,
                 'x':self.x,'y':self.y,'owner':self.owner,'moved_turn':self.moved_turn,'engaged':self.engaged}
@@ -48,7 +52,7 @@ class Unit(MutableMapping):
         if not isinstance(self.name,str) or not self.name:raise ValueError('部队必须有名称')
         if self.retreat_role not in (None,'攻','守'):raise ValueError('部队撤退角色非法')
         if self.retreat_cover is not None and (type(self.retreat_cover) is not int or not 0<=self.retreat_cover<=100):raise ValueError('部队撤退承伤比例非法')
-        if not isinstance(self.kind,str) or self.kind not in UNIT_TYPES: raise ValueError(f'非法兵种：{self.kind}')
+        if not isinstance(self.kind,str) or self.kind not in (self._definitions if self._definitions is not None else native_unit_definitions()): raise ValueError(f'非法兵种：{self.kind}')
         if not isinstance(self.owner,str) or not self.owner: raise ValueError('部队必须有归属')
         if type(self.id) is not int or self.id < 1 or type(self.gid) is not int or self.gid < 0: raise ValueError('部队编号非法')
         if isinstance(self.hp,bool) or not isinstance(self.hp,(int,float)) or not math.isfinite(self.hp): raise ValueError('部队生命值非法')
@@ -63,22 +67,25 @@ class Unit(MutableMapping):
 
     @property
     def alive(self): return self.hp > 0
+    @property
+    def definition(self): return (self._definitions if self._definitions is not None else native_unit_definitions())[self.kind]
     def can_act(self, turn): return self.alive and self.born_turn != turn and self.moved_turn != turn and not self.engaged
     def can_attack(self, turn, x, y):
         return self.alive and self.born_turn != turn and ((self.x,self.y)==(x,y) or self.can_act(turn))
-    def atk(self, stats=UNIT_TYPES): return stats[self.kind]['atk'] if self.alive else 0
+    def atk(self, stats=None): return (self.definition if stats is None else stats[self.kind])['atk'] if self.alive else 0
     def move_to(self,x,y,turn):
         self._write()
         size=self._collection.size if self._collection is not None else None
         if type(x) is not int or type(y) is not int or x<0 or y<0 or size is not None and (x>=size or y>=size): raise ValueError('部队位置越界')
-        self.x=x; self.y=y; self.moved_turn=turn
+        if type(turn) is not int: raise ValueError('部队行动回合非法')
+        self.update(x=x, y=y, moved_turn=turn)
     def take_damage(self, amount):
         if isinstance(amount,bool) or not isinstance(amount,(int,float)) or not math.isfinite(amount) or amount<0: raise ValueError('伤害非法')
         self.hp=max(0,self.hp-amount)
         return self.alive
     def heal(self, amount):
         if isinstance(amount,bool) or not isinstance(amount,(int,float)) or not math.isfinite(amount) or amount<0: raise ValueError('治疗非法')
-        if self.alive:self.hp=min(UNIT_TYPES[self.kind]['hp'], self.hp+amount)
+        if self.alive:self.hp=min(self.definition['hp'], self.hp+amount)
     def disengage(self): self.engaged=False
 
     def _write(self):
@@ -115,7 +122,22 @@ class Unit(MutableMapping):
             raise KeyError(key)
         value=self[key];del self[key];return value
     def update(self,*args,**kwargs):
-        for key,value in dict(*args,**kwargs).items():self[key]=value
+        self._write()
+        changes=dict(*args,**kwargs)
+        if set(changes)-set(self.FIELDS): raise KeyError('部队记录含未知字段')
+        if self._collection is not None and any(
+                key in changes and changes[key] != getattr(self,self.ATTRS.get(key,key))
+                for key in ('id','gid','owner','type')):
+            raise ValueError('已登记部队的编号、归属与兵种不能直接改写')
+        candidate=self.from_save({**self.to_save(),**changes},
+                                 size=self._collection.size if self._collection is not None else None,
+                                 definitions=self._definitions)
+        for key in changes:
+            attr=self.ATTRS.get(key,key)
+            object.__setattr__(self,attr,getattr(candidate,attr))
+        object.__setattr__(self,'_present',candidate._present)
+        if self._collection is not None and self.owner=='野人' and set(changes)&{'x','y'}:
+            self._collection.invalidate()
     def clear(self):raise ValueError('不能清空部队字段')
     def setdefault(self,key,value=None):
         if key not in self:self[key]=value
@@ -133,23 +155,24 @@ class Unit(MutableMapping):
         # 仅序列化显式协议字段；保留输入的物化顺序，不遍历对象属性。
         return {key:deepcopy(self[key]) for key in self._present}
     @classmethod
-    def from_save(cls,data,*,size=None):
+    def from_save(cls,data,*,size=None,definitions=None):
         if not isinstance(data,Mapping) or set(data)-set(cls.FIELDS):raise ValueError('部队记录含未知字段')
-        u=cls(kind=data.get('type','步'),hp=data['hp'],x=data['x'],y=data['y'],owner=data['owner'],
+        u=cls(kind=data['type'],hp=data['hp'],x=data['x'],y=data['y'],owner=data['owner'],
               id=data['id'],gid=data.get('gid',data['id']),name=data.get('name',str(data['id'])),
               moved_turn=data.get('moved_turn',-1),engaged=data.get('engaged',False),born_turn=data.get('born_turn'),
               engage_seq=data.get('engage_seq'),retreat_to=tuple(data['retreat_to']) if data.get('retreat_to') is not None else None,
-              retreat_role=data.get('retreat_role'),retreat_cover=data.get('retreat_cover'))
+              retreat_role=data.get('retreat_role'),retreat_cover=data.get('retreat_cover'),_definitions=definitions)
         u.validate(size)
         object.__setattr__(u,'_present',tuple(data))
         return u
     def __deepcopy__(self,memo):
-        result=self.from_save(self.to_save());memo[id(self)]=result;return result
+        result=self.from_save(self.to_save(),definitions=self._definitions);memo[id(self)]=result;return result
 
 class Units(list):
     """唯一可写的部队集合；跨域调用声明过的行为，读取返回部队对象。"""
-    def __init__(self,size,world=None):
-        self.size=size;self._world=world;self._owner='army'
+    def __init__(self,size,world=None,*,definitions=None):
+        self.size=size;self._world=world;self._owner='native:army'
+        self._definitions = freeze(dict(definitions if definitions is not None else native_unit_definitions()))
         self._troops=[];self._guards={};self._key=None
         self.nation_code={};self.next_army_seq={};self.guard_once=set()
         self.next_code=1;self.engage_seq=0;self._revision=0;self._ids=set();self._local_ids=set()
@@ -168,9 +191,17 @@ class Units(list):
         for unit in self:object.__setattr__(unit,'_collection',self)
         return self
     def invalidate(self):self._revision+=1;self._key=None
+    @property
+    def definitions(self):
+        from types import MappingProxyType
+        return MappingProxyType(self._definitions)
+    @property
+    def type_ids(self):return tuple(self._definitions)
+    def definition(self,kind):return self._definitions[kind]
     def _adopt(self,unit):
-        if not isinstance(unit,Unit):unit=Unit.from_save(unit,size=self.size)
+        if not isinstance(unit,Unit):unit=Unit.from_save(unit,size=self.size,definitions=self._definitions)
         elif unit._collection is not None and unit._collection is not self:unit=deepcopy(unit)
+        object.__setattr__(unit,'_definitions',self._definitions)
         unit.validate(self.size);object.__setattr__(unit,'_collection',self);return unit
     def append(self,unit):
         self._write();unit=self._adopt(unit)
@@ -231,17 +262,22 @@ class Units(list):
         if name=='野人':self.nation_code.setdefault(name,0)
         elif name not in self.nation_code:self.nation_code[name]=self.next_code;self.next_code+=1
     def allocate(self,owner):
-        self._write();self.assign_code(owner)
-        seq=self.next_army_seq.get(owner,0)+1;self.next_army_seq[owner]=seq
+        self._write()
+        if not isinstance(owner,str) or not owner: raise ValueError('部队必须有归属')
+        seq=self.next_army_seq.get(owner,0)+1
+        if seq >= ARMY_GID_BASE: raise ValueError('部队序号已耗尽')
+        self.assign_code(owner);self.next_army_seq[owner]=seq
         return self.nation_code[owner]*ARMY_GID_BASE+seq,seq
     def next_engagement(self):self._write();self.engage_seq+=1;return self.engage_seq
     def spawn(self,owner,kind,x,y,*,turn=-1,newborn=False):
         self._write()
-        if kind not in UNIT_TYPES or type(x) is not int or type(y) is not int or not (0<=x<self.size and 0<=y<self.size):raise ValueError("部队兵种或位置非法")
+        if kind not in self._definitions or type(x) is not int or type(y) is not int or not (0<=x<self.size and 0<=y<self.size):raise ValueError("部队兵种或位置非法")
+        if not isinstance(owner,str) or not owner: raise ValueError('部队必须有归属')
+        if type(turn) is not int or newborn and turn < -1: raise ValueError('部队行动回合非法')
+        if type(newborn) is not bool: raise ValueError('部队新兵状态非法')
         gid,seq=self.allocate(owner)
-        from ..rules import army_name
-        unit=Unit(kind,UNIT_TYPES[kind]['hp'],x,y,owner,seq,gid,f"野人{seq}" if owner=="野人" else army_name(owner,seq,kind),moved_turn=turn,born_turn=turn if newborn else None)
-        if owner=="野人":object.__setattr__(unit,"_present",tuple(k for k in unit._present if k!="type"))
+        from .rules import army_name
+        unit=Unit(kind,self.definition(kind)['hp'],x,y,owner,seq,gid,f"野人{seq}" if owner=="野人" else army_name(owner,seq,kind),moved_turn=turn,born_turn=turn if newborn else None,_definitions=self._definitions)
         self.append(unit);return unit
     def disengage(self,nations):
         self._write()
@@ -253,21 +289,33 @@ class Units(list):
                 'guard_once':[list(pos) for pos in sorted(self.guard_once)]}
     def restore(self,data):
         self._write()
-        restored=Units.from_save(data,size=self.size)
+        restored=Units.from_save(data,size=self.size,definitions=self._definitions)
         self.replace(restored)
         self.next_army_seq=own(restored.next_army_seq,self._world,'units') if self._world else restored.next_army_seq
         self.nation_code=own(restored.nation_code,self._world,'units') if self._world else restored.nation_code
         self.guard_once=own(restored.guard_once,self._world,'units') if self._world else restored.guard_once
         self.next_code=restored.next_code;self.engage_seq=restored.engage_seq
     @classmethod
-    def from_save(cls,data,*,size):
-        result=cls(size)
-        result.extend(Unit.from_save(u,size=size) for u in data['armies'])
+    def from_save(cls,data,*,size,definitions=None):
+        result=cls(size,definitions=definitions)
+        result.extend(Unit.from_save(u,size=size,definitions=result._definitions) for u in data['armies'])
         for key in ('nation_code','next_army_seq'):
             values=data[key]
             if not isinstance(values,dict) or any(not isinstance(k,str) or type(v) is not int or v<0 for k,v in values.items()):raise ValueError('部队编号表非法')
         result.nation_code=dict(data['nation_code'])
         result.next_army_seq=dict(data['next_army_seq'])
+        if any(not name or (code != 0 if name == '野人' else code < 1)
+               for name,code in result.nation_code.items()): raise ValueError('部队国家编码非法')
+        if len(set(result.nation_code.values())) != len(result.nation_code): raise ValueError('部队国家编码重复')
+        if any(name not in result.nation_code or seq >= ARMY_GID_BASE
+               for name,seq in result.next_army_seq.items()): raise ValueError('部队序号表与国家编码不一致')
+        for u in result:
+            if u.owner not in result.nation_code or not 1 <= u.id < ARMY_GID_BASE:
+                raise ValueError('部队归属或番号非法')
+            if u.gid != result.nation_code[u.owner]*ARMY_GID_BASE+u.id:
+                raise ValueError('部队全局编号与国家编码、番号不一致')
+            if 'nations' in data and u.owner != '野人' and u.owner not in data['nations']:
+                raise ValueError('部队归属国家不存在')
         if any(result.next_army_seq.get(u.owner,0)<u.id for u in result):raise ValueError('部队序号计数器落后于现存部队')
         result.guard_once=set()
         for pos in data['guard_once']:
@@ -277,4 +325,4 @@ class Units(list):
         result.engage_seq=max((u.engage_seq or 0 for u in result),default=0)
         return result
     def __deepcopy__(self,memo):
-        result=self.from_save(self.to_save(),size=self.size);memo[id(self)]=result;return result
+        result=self.from_save(self.to_save(),size=self.size,definitions=self._definitions);memo[id(self)]=result;return result

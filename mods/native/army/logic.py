@@ -1,6 +1,7 @@
 from __future__ import annotations
 from ..core import *
-from ..rules import unit_speed
+from .rules import *
+from ..localization import resource_name
 
 def military_receipt(method):
     """回执报告实际位置和额度变化，失败也不能让调用者靠猜。"""
@@ -11,6 +12,9 @@ def military_receipt(method):
         armies = [a for a in self.armies if a['owner'] == name and a['id'] in requested]
         before = {a['id']: (a['x'], a['y'], a.get('moved_turn')) for a in armies}
         ok, message = method(self, name, ids, *args, **kwargs)
+        if method.__name__ == 'move' and any(
+                (a['x'], a['y'], a.get('moved_turn')) != before[a['id']] for a in armies):
+            self.state_version += 1
         details = []
         for a in armies:
             previous = before[a['id']]
@@ -24,6 +28,16 @@ def military_receipt(method):
     return apply
 
 class ArmyLogic:
+
+    def _resource_balance(self, owner, resource_id):
+        return self.runtime.object_call(self, resource_id, 'balance', owner)
+
+    def _consume_resource(self, owner, resource_id, amount):
+        return self.runtime.object_call(self, resource_id, 'consume', owner, amount)
+
+    def _resource_value(self, resource_id, amount):
+        return self.runtime.object_call(self, resource_id, 'value', amount,
+                                        self.market_price(resource_id))
 
     @property
     def armies(self): return self.units
@@ -119,7 +133,7 @@ class ArmyLogic:
         touched: list = [start]
         terrain = self.tile_terrain
         wall = self._mv_wall
-        move = MOVE_COST.get(unit_kind(a), {})
+        move = a.definition['move_cost']
         for d in range(budget + 1):
             b = buckets[d]
             while b:
@@ -153,7 +167,7 @@ class ArmyLogic:
         曾经两边各写一遍数字，改一处就漂一处。
         """
         return dict(self.polity_rule(name, "recruit", {}).get(kind)
-                    or UNIT_TYPES[kind]["recruit"])
+                    or self.units.definition(kind)["recruit"])
 
 
     def _atk_target_ok(self, name: str, x: int, y: int) -> bool:
@@ -169,7 +183,7 @@ class ArmyLogic:
     def _unreachable_msg(self, a: dict, x: int, y: int, *, for_attack: bool) -> str:
         """走不到目标格时的说法：能教人（平地几格、崎岖几格），但**不替玩家开图**
         ——地形只在视野内才点名（迷雾限眼不限手：盲推撞墙如实报"墙在视野外"）。"""
-        label = UNIT_TYPES[unit_kind(a)]["label"]
+        label = unit_label(unit_kind(a), definition=a.definition)
         budget = unit_speed(a)
         ter = self.tile_terrain(x, y)
         here = self.tile_terrain(a["x"], a["y"])
@@ -204,7 +218,7 @@ class ArmyLogic:
 
 
     def _spawn_guardian(self, x: int, y: int):
-        self.units.spawn("野人","步",x,y)
+        self.units.spawn("野人",'native:infantry',x,y)
         self.guard_once.add((x, y))  # 出生过就算数：这格野人死了不再有
 
 
@@ -213,15 +227,15 @@ class ArmyLogic:
                        if not (a["owner"] == "野人" and (a["x"], a["y"]) == (x, y))]
 
 
-    def recruit(self, name: str, x: int, y: int, n: int = 1, kind: str = "步") -> tuple[bool, str]:
+    def recruit(self, name: str, x: int, y: int, n: int = 1, kind: str = 'native:infantry') -> tuple[bool, str]:
         t = self.tiles.get((x, y))
-        if kind not in UNIT_TYPES:
-            return False, f"未知兵种：{kind}（可选：{'、'.join(UNIT_TYPES)}）"
+        if kind not in self.units.type_ids:
+            return False, f"未知兵种：{kind}（可选：{'、'.join(self.units.type_ids)}）"
         if name not in self.nations:
             return False, f"国家 {name} 不存在"
         if t is None or t["owner"] != name:
             return False, "只能在自己有兵营/军屯的地块征兵"
-        if kind == "民":
+        if kind == 'native:militia':
             # 民兵走军屯征召：军屯不耗电，不受全国电网停摆影响。
             # 双限额（2026-10-10 起每座军屯 2 支，用户「军屯可以生产和驻守两队民兵」）：
             #   ① 每座军屯每回合 `militia_cap` 支；② **全国民兵总数 ≤ 全国军屯总数×militia_cap**。
@@ -236,7 +250,7 @@ class ArmyLogic:
             if tile_cap <= 0:
                 return False, f"本回合该地块民兵征召产能已用完（每军屯 {_mturn} 支/回合）"
             quota = self.nation_building_count(name, "军屯") * _mcap
-            alive = sum(1 for a in self.troops if a["owner"] == name and unit_kind(a) == "民")
+            alive = sum(1 for a in self.troops if a["owner"] == name and unit_kind(a) == 'native:militia')
             cap = min(tile_cap, quota - alive)
             if cap <= 0:
                 return False, (f"民兵总数已达军屯编制上限（{alive}/{quota} 支）："
@@ -252,29 +266,23 @@ class ArmyLogic:
                 return False, "本回合征召产能已用完（每兵营 1 支/回合）"
         n = min(n, cap)
         cost = self.recruit_cost(name, kind)
-        n = min(n, min(self.res(name, f) // amt for f, amt in cost.items()))
+        n = int(min(n, min(self._resource_balance(name, f) // amt for f, amt in cost.items())))
         if n <= 0:
-            return False, "战略储备不足（每支耗 " + "、".join(f"{f}x{a}" for f, a in cost.items()) + "）"
-        spent = 0.0
+            return False, "战略储备不足（每支耗 " + "、".join(f"{resource_name(f)}x{a}" for f, a in cost.items()) + "）"
+        # Resolve all resource capabilities and valuation before spending.
+        spent = sum(self._resource_value(f, amt*n) for f, amt in cost.items())
         for f, amt in cost.items():
-            self.add_res(name, f, -amt * n)
-            # ⚠ 国库的「黄金」**就是钱本身**，按面值 1:1 计；不能走 _mval ——
-            # _mval 里「黄金」是**地块资源单位**的折算率（1 单位 = 10 金，见 MARKET["黄金"]，
-            # 那是给黄金矿场产出用的）。曾经这里一律走 _mval，于是民兵（50 金 + 5 粮）
-            # 被记成 ~510 分消费、虚高 10 倍——RL 的「爆民兵」正是吃这个 10 倍系数。
-            # 对照同文件 `build`：它一直是 `cost + _mval("木头", wood)`，黄金走面值。
-            # 所以这不是两种口径各有道理，是这里跟 build 不一致。
-            spent += (amt * n) if f == "黄金" else self._mval(f, amt * n)
+            self._consume_resource(name, f, amt * n)
             if f in self.flow_out:
                 self.flow_out[f] += amt * n   # 世界流量：征兵吃粮吃装备（黄金是货币，不计）
         self._spend(name)["recruit"] += spent
         for i in range(n):
             self.units.spawn(name,kind,x,y,turn=self.turn,newborn=True)
-        if kind == "民":
+        if kind == 'native:militia':
             t["militia_recruited_this_turn"] = t.get("militia_recruited_this_turn", 0) + n
         else:
             t["recruited_this_turn"] += n
-        return True, f"征召 {n} 支{UNIT_TYPES[kind]['label']} @{t['name']}"
+        return True, f"征召 {n} 支{unit_label(kind, definition=self.units.definition(kind))} @{t['name']}"
 
 
     def _assign_code(self, name):
@@ -375,6 +383,7 @@ class ArmyLogic:
 
     @military_receipt
     def move(self, name: str, aid: int, x: int, y: int) -> tuple[bool, str]:
+        self.runtime.require_tool(self, name, 'move')
         a = self._army(name, aid)
         if a is None:
             return False, f"军队 {aid} 不存在"
@@ -1167,11 +1176,11 @@ class ArmyLogic:
             # ★ 需求/缺口/每军扣血一律走 `supply_shortfall`——面板要报"缺粮会流多少血"
             #   时读同一个函数，不许自己重抄 `max(1, 35*short//need)`（那又是一处静默漂移源）。
             need, short, per = self.supply_shortfall(n)
-            paid = min(need, self.res(n, "补给"))
-            self.add_res(n, "补给", -paid)
-            self.flow_out["补给"] += paid   # 世界流量：军队吃补给
+            paid = min(need, self._resource_balance(n, 'native:supply'))
+            self._consume_resource(n, 'native:supply', paid)
+            self.flow_out['native:supply'] += paid   # 世界流量：军队吃补给
             self._ledger(n)["supply_eaten"] += paid
-            self._spend(n)["supply"] += self._mval("补给", paid)   # 总消费：军费
+            self._spend(n)["supply"] += self._resource_value('native:supply', paid)   # 总消费：军费
             if short:
                 # 缺口按比例分摊：**吃补给的**每军扣 ARMY_STARVE_DAMAGE×缺口/需求（交战中也照扣），
                 # 至少 1。★ 2026-10-10 用户：「应该是**依赖补给的军队**一起扣」——原先这里遍历
@@ -1204,12 +1213,12 @@ class ArmyLogic:
                 # ★ 民兵除外（用户 2026-09-26「民兵除外」）：它**征召就不吃装备**（50金+5粮），
                 #   回血自然也不该吃 ⇒ 免费。用 continue 而不是 break：付不起只卡住正规军，
                 #   别把排在后面的民兵一起连坐（装备只减不增，非民兵之间 break≡continue）。
-                if unit_kind(a) != "民":
-                    if self.res(n, "装备") < HEAL_EQUIP_COST:
+                if unit_kind(a) != 'native:militia':
+                    if self._resource_balance(n, 'native:equipment') < HEAL_EQUIP_COST:
                         continue
-                    self.add_res(n, "装备", -HEAL_EQUIP_COST)
-                    self.flow_out["装备"] += HEAL_EQUIP_COST   # 世界流量：回血吃装备
-                    self._ledger(n)["heal_value"] += self._mval("装备", HEAL_EQUIP_COST)
+                    self._consume_resource(n, 'native:equipment', HEAL_EQUIP_COST)
+                    self.flow_out['native:equipment'] += HEAL_EQUIP_COST   # 世界流量：回血吃装备
+                    self._ledger(n)["heal_value"] += self._resource_value('native:equipment', HEAL_EQUIP_COST)
                     heal_equip += HEAL_EQUIP_COST
                 a.heal(ARMY_HEAL_PER_TURN)
             if heal_equip:
@@ -1291,7 +1300,7 @@ class ArmyLogic:
         free: dict[tuple[int, int], int] = {}
         out: list[dict] = []
         for a in ps:
-            if unit_kind(a) == "民":
+            if unit_kind(a) == 'native:militia':
                 t = self.tiles.get((a["x"], a["y"]))
                 if t is not None and t["owner"] == n:
                     cap = t["buildings"].get("军屯", 0) * building_effect("军屯", "militia_cap")
@@ -1327,7 +1336,7 @@ class ArmyLogic:
           · 断粮**或**所在格在交战 ⇒ 那格**本回合不回血**（见 `resolve_turn` 第 4 步）。
         """
         need = self._supply_need(n, self.nation_armies(n))
-        short = max(0, need - self.res(n, "补给"))
+        short = max(0, need - self._resource_balance(n, 'native:supply'))
         return need, short, self.starve_per_army(need, short)
 
 

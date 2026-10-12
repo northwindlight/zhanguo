@@ -2,7 +2,7 @@ ReadOnlyTools = ["query", "rules", "memory_search"]
 ToolNames = ["query", "rules", "memory_search", "expand", "plan", "end_turn"]
 [Mod]
 Id = "government"
-Version = "1.0.0"
+Version = "1.0.1"
 Entry = "mods.native.government.mod:GovernmentMod"
 Requires = []
 

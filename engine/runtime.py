@@ -12,6 +12,7 @@ import tomllib
 from .state import active_unit, unit_context, own, freeze, Owned, references
 from functools import wraps
 from typing import Any, Callable, get_args, get_origin, get_type_hints
+from .content import ContentRegistry
 
 
 class ModError(ValueError):
@@ -178,6 +179,7 @@ class GameMod(ABC):
     def presentations(self): return {}
     def panels(self): return ()
     def objects(self, world): return {}
+    def content_definitions(self): return {}
 
     def apply_state_change(self, world, key, operation):
         if key not in self.state_keys(): raise ModError(f'无写入所有权：{key}')
@@ -218,12 +220,18 @@ class Unit:
 
 
 class Runtime:
-    # 有序挂点的名字与游戏规则无关；标签由发行版提供。
-    DEFAULT_HOOKS = tuple(f"slot.{i:02}" for i in range(1, 16))
-
     def __init__(self, units, distribution=None):
         self.distribution = distribution or {}
-        self.hooks = self.DEFAULT_HOOKS
+        hooks = self.distribution.get('Hooks', [])
+        if not isinstance(hooks, list): raise ModError('Hooks 必须是发行版的有序列表')
+        self.hook_definitions = {}
+        for hook in hooks:
+            if not isinstance(hook, dict) or not isinstance(hook.get('Id'), str) or not re.fullmatch(r'[a-zA-Z0-9_.:-]+', hook['Id']):
+                raise ModError('挂点 Id 非法')
+            if hook['Id'] in self.hook_definitions: raise ModError(f'重复的挂点 Id：{hook["Id"]}')
+            self.hook_definitions[hook['Id']] = dict(hook)
+        self.hooks = tuple(self.hook_definitions)
+        self.content = ContentRegistry()
         self.presentations, self.state_owners, self.capabilities, self.number_owners = {}, {"polity": "$engine", "phase": "$engine"}, {}, {}
         self.command_actors = {}
         self.panel_map, self.panel_owners = {}, {}
@@ -234,6 +242,11 @@ class Runtime:
         self.order = dependency_order(self.units, requires=lambda n: self.units[n].requires,
                                       after=lambda n: self.units[n].after,
                                       before=lambda n: self.units[n].before)
+        # Collect all domains before any consumer enumerates their content.
+        for name in self.order:
+            self.units[name].mod.runtime = self
+        for name in self.order:
+            self.register_content(name, self.units[name].mod.content_definitions())
         for name in self.order:
             mod = self.units[name].mod
             mod.runtime = self
@@ -289,7 +302,7 @@ class Runtime:
                     raise ModError(f"结算阶段冲突：{stage.name}")
                 self.stage_map[stage.name] = stage
                 self.stage_owners[stage.name] = name
-        if any(stage.hook for stage in self.stage_map.values()):
+        if self.hooks or any(stage.hook for stage in self.stage_map.values()):
             condition_providers = {}
             for name, stage in self.stage_map.items():
                 if stage.hook not in self.hooks:
@@ -301,6 +314,8 @@ class Runtime:
             dependencies = {}
             for name, stage in self.stage_map.items():
                 dependencies[name] = []
+                for required in stage.requires:
+                    if required not in self.stage_map: raise ModError(f'{name} 缺少阶段依赖：{required}')
                 for condition in stage.needs:
                     if condition not in condition_providers:
                         raise ModError(f"{name} 挂点条件无人提供：{condition}")
@@ -308,11 +323,20 @@ class Runtime:
                     if self.hooks.index(self.stage_map[provider].hook) > self.hooks.index(stage.hook):
                         raise ModError(f"条件位于消费挂点之后：{condition}")
                     dependencies[name].append(provider)
+                for provider in stage.after:
+                    if provider not in self.stage_map: raise ModError(f'{name} 缺少阶段依赖：{provider}')
+                    dependencies[name].append(provider)
+            for name, stage in self.stage_map.items():
+                for target in stage.before:
+                    if target not in self.stage_map: raise ModError(f'{name} 缺少阶段依赖：{target}')
+                    dependencies[target].append(name)
+            for name, providers in dependencies.items():
+                for provider in providers:
+                    if self.hooks.index(self.stage_map[provider].hook) > self.hooks.index(self.stage_map[name].hook):
+                        raise ModError(f'阶段依赖违背发行版挂点顺序：{provider} → {name}')
             self.stage_order = []
             for hook in self.hooks:
                 nodes = {n for n, stage in self.stage_map.items() if stage.hook == hook}
-                if self.distribution and not nodes:
-                    raise ModError(f"某挂点没人挂：{hook}")
                 self.stage_order.extend(dependency_order(nodes,
                     requires=lambda n: (), after=lambda n: [p for p in dependencies[n] if p in nodes], before=lambda n: ()))
         else:
@@ -336,7 +360,7 @@ class Runtime:
             data = tomllib.loads(path.read_text(encoding='utf-8'))
             if 'Distribution' in data:
                 if distribution: raise ModError('同时加载多个发行版')
-                distribution = data['Distribution']
+                distribution = {**data['Distribution'], 'Hooks': data.get('Hooks', [])}
                 expanded.extend(path.parent / member for member in distribution['Members'])
             else:
                 expanded.append(path)
@@ -346,16 +370,10 @@ class Runtime:
             declarations.append((path,tomllib.loads(path.read_text(encoding='utf-8'))))
         if distribution:
             declared_states={'polity','phase'}
-            declared_capabilities=set()
-            needs=[]
             for path,data in declarations:
                 declared_states.update(data.get('State',{}).get('Owns',()))
-                declared_capabilities.update(data.get('Capabilities',{}).get('Provides',()))
-                needs.extend(data.get('Capabilities',{}).get('Needs',()))
             missing_states=set(distribution.get('RequiredState',()))-declared_states
-            missing_needs=set(needs)-declared_capabilities
             if missing_states: raise ModError(f'state 无主：{", ".join(sorted(missing_states))}')
-            if missing_needs: raise ModError(f'某挂点能力无人提供：{", ".join(sorted(missing_needs))}')
         for path in expanded:
             declaration = tomllib.loads(path.read_text(encoding='utf-8'))
             data = declaration['Mod']
@@ -370,6 +388,13 @@ class Runtime:
         if not units:
             raise ModError(f"没有 Mod 声明：{directory}")
         return cls(units, distribution)
+
+    def register_content(self, owner, definitions):
+        if owner not in self.units: raise ModError(f'内容注册者未加载：{owner}')
+        try:
+            self.content.register(owner, definitions)
+        except ValueError as exc:
+            raise ModError(str(exc)) from exc
 
     def world_class(self, name="World"):
         runtime = self
@@ -500,7 +525,8 @@ class Runtime:
             "before": sorted(self.stage_map[n].before), "hook": self.stage_map[n].hook,
             "needs": list(self.stage_map[n].needs), "provides": list(self.stage_map[n].provides), "scope": self.stage_map[n].scope} for n in self.stage_order],
             "state_owners": self.state_owners,
-            "tools": self.schemas(), "panels": sorted(self.panel_map)}
+            "tools": self.schemas(), "panels": sorted(self.panel_map),
+            "content": self.content.manifest()}
 
     def check_save_dependencies(self, manifest):
         if manifest != self.dependency_manifest():
@@ -510,7 +536,8 @@ class Runtime:
         lines = ['| 次序 | 阶段 | 内容 |', '|---|---|---|']
         for i, name in enumerate(self.stage_order, 1):
             stage = self.stage_map[name]
-            lines.append(f'| {i} | {self.distribution.get('Hooks', {}).get(stage.hook, stage.title or name)} | {stage.description or self.distribution.get('Hooks', {}).get(stage.hook, '')} |')
+            hook = self.hook_definitions.get(stage.hook, {})
+            lines.append(f'| {i} | {hook.get("Name", stage.title or name)} | {stage.description or hook.get("Description", hook.get("Name", ""))} |')
         return '\n'.join(lines)
 
     def rule_sections(self, world=None, *, player=False):
@@ -605,7 +632,8 @@ class Runtime:
         if not self.permits(world, actor, 'tool.' + name):
             raise ValueError(self.actor_policy(world, actor).declaration.get("Policy",{}).get("Rejection","政体禁用该能力"))
         if self.distribution:
-            if actor not in world.nations: raise ValueError('行动者不存在')
+            collection = getattr(world, self.distribution.get('ActorCollection', 'nations'), {})
+            if actor not in collection: raise ValueError('行动者不存在')
             if world.phase != '行动' and not self.tools[name].read_only:
                 raise ValueError('仅行动阶段可以提交动作')
 

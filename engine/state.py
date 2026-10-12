@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from types import MappingProxyType
 from weakref import WeakValueDictionary
+from collections.abc import Mapping
 
 active_unit = ContextVar('active_unit', default=None)
 
@@ -15,7 +16,7 @@ def unit_context(name):
     finally: active_unit.reset(token)
 
 def freeze(value):
-    if isinstance(value,dict): return MappingProxyType({k:freeze(v) for k,v in value.items()})
+    if isinstance(value,Mapping): return MappingProxyType({k:freeze(v) for k,v in value.items()})
     if isinstance(value,(list,tuple)): return tuple(freeze(v) for v in value)
     if isinstance(value,set): return frozenset(value)
     return deepcopy(value)

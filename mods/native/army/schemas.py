@@ -1,7 +1,8 @@
 from ..core import *
 from ..rules import *
+from .rules import *
 from ..ui_constants import *
-from ..presentation import _cost_text,_move_rule_text,_reach_brief,_recruit_desc
+from .views import _move_rule_text,_reach_brief,_recruit_desc
 
 def _props(schema: dict) -> dict:
     """把每个属性里的 `required: True` 提到顶层（属性内不允许出现 required）。"""
@@ -23,7 +24,7 @@ def definitions():
                 {k: v["recruit"] for k, v in UNIT_TYPES.items()}),
             "parameters": _props({"tile": {"type": "string", "description": "地块：坐标 '5 6' 或名字", "required": True},
                                   "n": {"type": "integer", "description": "征召数量（默认1）"},
-                                  "kind": {"type": "string", "enum": ["步", "骑", "民"], "description": "兵种（默认 步；民=民兵，只能在自家军屯格征召）"}})}},
+                                  "kind": {"type": "string", "enum": ['native:infantry', 'native:cavalry', 'native:militia'], "description": "兵种内容 ID（默认 native:infantry；native:militia 只能在自家军屯格征召）"}})}},
         {"type": "function", "function": {
             "name": "move", "description": "把一支自己的军队挪位置，纯移动不占地。每回合每支限1次。" + _move_rule_text() + " **行军不打野人**：合法移动目标只有三种：**野地（无人荒地）、自家格、盟国格**——野地可直接走进/穿过（行军不打野人，野人只在被 atk 时接战）；★★ **走进 ≠ 占下：mv 走进去不改变归属**，无主地走完**还是无主地**（国土不会多一块）——**要占地必须用 atk**，那是本作唯一的占地动作；自家/盟国格被混战敌军占着也可以 mv 进去（增援，入格即随军参战）。**敌国领土 mv 一律不得进入（空格也是）**：每一步进敌境都是 atk——会交战或直接进占。**野地上有与你交战的敌军驻守（含正在打野的）也不得 mv**——必须 atk 交战；中立/盟友驻守的野地可以 mv 进去（旁观待命，互不干扰）。交战中不能移动，须先 retreat 撤出。",
             "parameters": _props({"army_id": {"type": "integer", "description": "本国军队id（各国独立从1编号，以 query army 面板为准）", "required": True},

@@ -1,0 +1,29 @@
+ReportEvery = 10
+Currency = "native:gold"
+ValuationAt = "report-stage"
+
+[Mod]
+Id = "native:economy"
+Version = "1.1.0"
+Entry = "mods.native.economy_reports.mod:EconomyMod"
+Requires = ["native:resources", "native:buildings", "native:market"]
+After = ["native:resources", "native:buildings", "native:market"]
+
+[State]
+Owns = ["economy"]
+Requests = []
+
+[Capabilities]
+Needs = ["native:resource-inspection", "native:buildings", "economy:valuation"]
+Provides = ["native:economy"]
+
+[Interfaces]
+"native:resource-inspection" = ["owners", "snapshot"]
+"native:buildings" = ["replacement_costs"]
+"economy:valuation" = ["quote"]
+
+[[Stages]]
+Id = "native:economy.reports"
+Hook = "economy.reports"
+Needs = ["buildings.produced", "market.settled"]
+Provides = ["economy.reported"]

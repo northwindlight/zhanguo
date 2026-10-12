@@ -2,8 +2,8 @@
 
 # 兵种：征召耗粮装 / 每回合补给维持 / 每回合移动格数 / 基础攻击 / 满血上限（每军每战斗回合）
 UNIT_TYPES = {
-    "步": {"label": "步兵", "hp": 100, "speed": 1, "supply": 1, "atk": 50, "recruit": {"粮食": 10, "装备": 5}},
-    "骑": {"label": "骑兵", "hp": 100, "speed": 2, "supply": 2, "atk": 50, "recruit": {"粮食": 12, "装备": 12}},
+    'native:infantry': {"name_key": "unit.native:infantry.name", "hp": 100, "speed": 1, "supply": 1, "atk": 50, "recruit": {'native:food': 10, 'native:equipment': 5}},
+    'native:cavalry': {"name_key": "unit.native:cavalry.name", "hp": 100, "speed": 2, "supply": 2, "atk": 50, "recruit": {'native:food': 12, 'native:equipment': 12}},
     # 民兵=廉价驻守军队（80HP/攻25，攻击是步骑的**一半**）：只能在军屯征召（50金+5粮/支；
     # 全国民兵总数 ≤ 全国军屯总数×effects.militia_cap，每军屯每回合 militia_cap 支）；
     # 驻本格（自家军屯格）不耗补给。
@@ -11,8 +11,8 @@ UNIT_TYPES = {
     #   atk 20 → **25**（战力从步骑的四成抬到一半），军屯编制 1 → **2**（见 BUILDINGS["军屯"]）。
     #   两处一起动是**配套**的：编制翻倍而战力也抬 ⇒ 民兵从"纯钉子"变成"能顶一下的守备"，
     #   但仍打不过正规军（25 vs 50，且 80HP vs 100HP）。
-    "民": {"label": "民兵", "hp": 80, "speed": 1, "supply": 1, "atk": 25,
-           "recruit": {"黄金": 50, "粮食": 5}},
+    'native:militia': {"name_key": "unit.native:militia.name", "hp": 80, "speed": 1, "supply": 1, "atk": 25,
+           "recruit": {'native:gold': 50, 'native:food': 5}},
 }
 
 # 军队属性
@@ -59,9 +59,9 @@ COMBAT_DIE_MOD = {1: -25, 2: -15, 3: -5, 4: 5, 5: 15, 6: 25}
 #   不是特判，是代价算出来的。多格移动一律**逐格**判定（路径化），
 #   不再有"5×5 内任意格直接落子、中间格从不检查"的旧漏洞。
 MOVE_COST = {
-    "步": {"平原": 1, "沙漠": 1, "丘陵": 1, "森林": 1, "山地": 1},
-    "民": {"平原": 1, "沙漠": 1, "丘陵": 1, "森林": 1, "山地": 1},
-    "骑": {"平原": 1, "沙漠": 1, "丘陵": 1, "森林": 2, "山地": 2},
+    'native:infantry': {"平原": 1, "沙漠": 1, "丘陵": 1, "森林": 1, "山地": 1},
+    'native:militia': {"平原": 1, "沙漠": 1, "丘陵": 1, "森林": 1, "山地": 1},
+    'native:cavalry': {"平原": 1, "沙漠": 1, "丘陵": 1, "森林": 2, "山地": 2},
 }
 
 RETREAT_DEF_COVER = 50   # 防御方撤退：回合末战斗结算中只受 50% 伤害（进攻方撤退全额；★这个值是「承受比例」：50＝只承受一半、100＝全额承伤、0＝免伤）

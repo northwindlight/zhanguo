@@ -9,6 +9,7 @@ import mp
 from engine.runtime import ModError
 from engine.state import unit_context
 from mods.native.army.objects import Unit, Units
+from mods.native.army.parameters import ARMY_GID_BASE
 
 class TestSoldiers(unittest.TestCase):
     def world(self):
@@ -48,6 +49,34 @@ class TestSoldiers(unittest.TestCase):
             w.runtime.object_call(w,'army.units','disengage',['秦'])
             with self.assertRaises(ModError):w.runtime.object_call(w,'army.units','spawn','秦','步',4,4)
         self.assertEqual(u.hp,100)
+
+    def test_multi_field_changes_validate_before_mutation(self):
+        w=self.world();u=w.units.spawn('野人','步',3,4)
+        self.assertIs(w.units.guardians[(3,4)],u)
+        before=u.to_save()
+        for change in (lambda:u.move_to(4,5,'bad'), lambda:u.move_to(4,5,True),
+                       lambda:u.update(x=4,y=5,moved_turn='bad'),
+                       lambda:u.update(x=4,owner='秦'), lambda:u.update(x=4,ghost=1)):
+            with self.assertRaises((ValueError,KeyError)):change()
+            self.assertEqual(u.to_save(),before)
+            self.assertEqual(w.units.guardians,{(3,4):u})
+        u.move_to(4,5,1)
+        self.assertEqual(w.units.guardians,{(4,5):u})
+
+    def test_failed_spawn_keeps_numbering_and_collection(self):
+        units=Units(16)
+        before=units.to_save()
+        for args in ({'owner':'','turn':1}, {'owner':'新国','turn':'bad'},
+                     {'owner':'新国','turn':-2,'newborn':True},
+                     {'owner':'新国','newborn':'yes'}):
+            with self.assertRaises(ValueError):units.spawn(kind='步',x=3,y=4,**args)
+            self.assertEqual(units.to_save(),before)
+            self.assertEqual(units.next_code,1)
+        units.nation_code={'秦':1};units.next_code=2
+        units.next_army_seq={'秦':ARMY_GID_BASE-1}
+        before=units.to_save()
+        with self.assertRaises(ValueError):units.spawn('秦','步',3,4)
+        self.assertEqual(units.to_save(),before)
 
     def test_domain_interface_initialization_and_numbering(self):
         w=self.world()
@@ -92,6 +121,19 @@ class TestSoldiers(unittest.TestCase):
         self.assertNotIn('_troops',json.dumps(data))
         self.assertEqual(restored[0].retreat_to,(4,4))
 
+    def test_failed_restore_is_atomic_and_removed_numbers_stay_used(self):
+        w=self.world();u=w.units.spawn('秦','步',3,4)
+        data=w.units.to_save();damaged=deepcopy(data)
+        damaged['armies'][0]['gid']+=1
+        with self.assertRaises(ValueError):w.units.restore(damaged)
+        self.assertEqual(w.units.to_save(),data)
+        self.assertIs(w.units.by_id(u.id,'秦'),u)
+        w.units.remove(u)
+        restored=Units.from_save(w.units.to_save(),size=w.size)
+        replacement=restored.spawn('秦','步',3,4)
+        self.assertEqual(replacement.id,u.id+1)
+        self.assertNotEqual(replacement.gid,u.gid)
+
     def test_save_load_save_bytes_equal_after_pending_retreat(self):
         w=self.world();u=w.units.spawn('秦','步',3,4)
         u.engaged=True;u.retreat_to=(4,4);u.retreat_role='攻';u.retreat_cover=100
@@ -107,7 +149,9 @@ class TestSoldiers(unittest.TestCase):
         with TemporaryDirectory() as d:
             path=Path(d)/'synthetic.json';w.save(path)
             base=json.loads(path.read_text())
-            for damage in ('type','coordinate','duplicate','unknown','counter','codes','retreat'):
+            for damage in ('type','coordinate','duplicate','unknown','counter','codes','retreat',
+                           'gid','missing_code','duplicate_code','zero_code','guard_code',
+                           'missing_counter','overflow_counter','unknown_owner','orphan_counter'):
                 data=deepcopy(base)
                 if damage=='type':data['armies'][0]['type']='飞龙'
                 if damage=='coordinate':data['armies'][0]['x']=w.size
@@ -116,5 +160,18 @@ class TestSoldiers(unittest.TestCase):
                 if damage=='counter':data['next_army_seq']['秦']=0
                 if damage=='codes':data['nation_code']['秦']=-1
                 if damage=='retreat':data['armies'][0]['retreat_to']=[999,0]
+                if damage=='gid':data['armies'][0]['gid']+=1
+                if damage=='missing_code':del data['nation_code']['秦']
+                if damage=='duplicate_code':data['nation_code']['楚']=data['nation_code']['秦']
+                if damage=='zero_code':data['nation_code']['秦']=0
+                if damage=='guard_code':data['nation_code']['野人']=9
+                if damage=='missing_counter':del data['next_army_seq']['秦']
+                if damage=='overflow_counter':data['next_army_seq']['秦']=ARMY_GID_BASE
+                if damage=='unknown_owner':
+                    data['armies'][0]['owner']='幽灵'
+                    data['nation_code']['幽灵']=data['nation_code']['秦']
+                    del data['nation_code']['秦']
+                    data['next_army_seq']['幽灵']=data['next_army_seq'].pop('秦')
+                if damage=='orphan_counter':data['next_army_seq']['幽灵']=0
                 path.write_text(json.dumps(data,ensure_ascii=False))
                 with self.subTest(damage=damage),self.assertRaises(mp.SaveFormatError):mp.World.load(path)

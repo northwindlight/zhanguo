@@ -1,0 +1,50 @@
+Currency = "native:gold"
+
+[[Listings]]
+Resource = "native:food"
+BasePrice = 1.5
+Depth = 24
+[[Listings]]
+Resource = "native:wood"
+BasePrice = 2
+Depth = 24
+[[Listings]]
+Resource = "native:ore"
+BasePrice = 2.5
+Depth = 16
+[[Listings]]
+Resource = "native:oil"
+BasePrice = 6
+Depth = 12
+[[Listings]]
+Resource = "native:equipment"
+BasePrice = 8
+Depth = 8
+[[Listings]]
+Resource = "native:supply"
+BasePrice = 6
+Depth = 12
+
+[Mod]
+Id = "native:market"
+Version = "1.1.0"
+Entry = "mods.native.market.mod:MarketMod"
+Requires = ["native:resources"]
+After = ["native:resources"]
+
+[State]
+Owns = ["market"]
+Requests = []
+
+[Capabilities]
+Needs = ["native:resource-exchange", "market:pricing"]
+Provides = ["native:market"]
+
+[Interfaces]
+"native:resource-exchange" = ["exchange"]
+"market:pricing" = ["walk", "settle"]
+
+[[Stages]]
+Id = "native:market.settle"
+Hook = "market.settlement"
+Provides = ["market.settled"]

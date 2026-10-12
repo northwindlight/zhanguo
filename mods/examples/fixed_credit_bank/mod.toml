@@ -1,0 +1,37 @@
+[Bank]
+currency = "native:gold"
+initial_rate = 0.0
+minimum_rate = -0.5
+maximum_rate = 0.5
+loan_spread = 0.02
+credit_multiple = 5.0
+loan_term = 5
+report_fee = 20
+purchase_limit = 10
+
+[Mod]
+Id = "example:fixed-credit-bank"
+Version = "1.0.0"
+Entry = "mods.examples.fixed_credit_bank.mod:FixedCreditBankMod"
+Requires = ["native:resources", "native:economy"]
+After = ["native:resources", "native:economy"]
+
+[State]
+Owns = ["bank"]
+Requests = []
+
+[Capabilities]
+Needs = ["native:resource-inspection", "native:bank-cash", "native:economy"]
+Provides = ["economy:bank"]
+
+[Interfaces]
+"native:resource-inspection" = ["owners", "snapshot"]
+"native:bank-cash" = ["adjust"]
+"native:economy" = ["turns", "reports", "currency_id"]
+
+[[Stages]]
+Id = "example:fixed-credit-bank.settlement"
+Hook = "bank.settlement"
+Needs = ["buildings.produced", "market.settled"]
+Provides = ["bank.settled"]
+Before = ["native:economy.reports"]

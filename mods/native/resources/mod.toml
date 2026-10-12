@@ -1,0 +1,15 @@
+ResourceTypes = ["native:gold", "native:food", "native:wood", "native:ore", "native:oil", "native:equipment", "native:supply"]
+
+[Mod]
+Id = "native:resources"
+Version = "1.4.0"
+Entry = "mods.native.resources.mod:ResourcesMod"
+Requires = []
+
+[State]
+Owns = ["resources"]
+Requests = []
+
+[Capabilities]
+Needs = []
+Provides = ["native:resources", "native:resource-exchange", "native:resource-inspection", "native:bank-cash", "native:gold", "native:food", "native:wood", "native:ore", "native:oil", "native:equipment", "native:supply"]

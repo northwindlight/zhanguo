@@ -9,7 +9,7 @@ def tool_recruit(world, actor, **args):
     xy = _tile_xy(world, actor, ref)
     if xy is None:
         return f'地块引用无效：{ref}'
-    ok, msg = world.recruit(actor, xy[0], xy[1], int(args.get('n', 1)), str(args.get('kind', '步') or '步'))
+    ok, msg = world.recruit(actor, xy[0], xy[1], int(args.get('n', 1)), str(args.get('kind', 'native:infantry') or 'native:infantry'))
     return msg
 
 def tool_move(world, actor, **args):
