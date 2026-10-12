@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""局内 `rules` 的**结构守护**：数据源换成了 doc 目录那本《游戏说明书》。
+"""局内 `rules` 的**结构守护**：数据源换成了 doc 目录那本《规则纲要》。
 
 2026-10-06 用户口径：「别再用旧总则，换成规则说明书（doc 目录的）」「整套手写规则段退役」
 「尽量不要给全文」「剔掉上帝视角章」。
@@ -24,7 +24,7 @@ import mp_ai  # noqa: E402
 class TestManualSections(unittest.TestCase):
     def test_读得到且非空(self):
         secs = mp_ai.manual_sections()
-        self.assertIsNotNone(secs, "读不到 docs/游戏说明书.md —— 局内 rules 会退化成只剩讲义")
+        self.assertIsNotNone(secs, "读不到 docs/规则纲要.md —— 局内 rules 会退化成只剩讲义")
         self.assertGreaterEqual(len(secs), 8, f"章数太少：{[t for t, _ in secs]}")
         for title, body in secs:
             self.assertTrue(title.strip(), "章标题不该为空")
@@ -91,7 +91,7 @@ class TestRulesText(unittest.TestCase):
         import mp
         w = mp.World(size=20, seed=7, nations=["秦", "楚"])
         saved = mp_ai.MANUAL_PATH
-        mp_ai.MANUAL_PATH = pathlib.Path("/nonexistent/游戏说明书.md")
+        mp_ai.MANUAL_PATH = pathlib.Path("/nonexistent/规则纲要.md")
         try:
             out = mp_ai.rules_text(w, "")
             self.assertIn("讲义", out)              # 降级到只剩讲义，且**说清了原因**

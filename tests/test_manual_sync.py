@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""《游戏说明书》的 AUTO 数值块必须与 `balance.py` 现算结果一致。
+"""《规则纲要》的 AUTO 数值块必须与 `balance.py` 现算结果一致。
 
 为什么有这个守卫：旧版 README 背数字，当年靠 `test_readme_sync` 盯着；2026-09-15 起 README
 改成「不背数值」（数值只住 `balance.py`），那份守卫随之退役。现在背数字的是人类侧说明书
-[`docs/游戏说明书.md`](../docs/游戏说明书.md)，守卫就搬到这里 —— 校验逻辑仍是同一份：
+[`docs/规则纲要.md`](../docs/规则纲要.md)，守卫就搬到这里 —— 校验逻辑仍是同一份：
 [`docs/sync_manual.py`](../docs/sync_manual.py) 的 `--check`（`render(doc) == doc`）。
 
 发现失败时的修法：**不要手改文档里的数字**，跑一次::
@@ -36,7 +36,7 @@ class TestManualSync(unittest.TestCase):
             import difflib
             diff = "".join(difflib.unified_diff(
                 self.doc.splitlines(True), new.splitlines(True),
-                fromfile="docs/游戏说明书.md", tofile="balance.py 现算"))
+                fromfile="docs/规则纲要.md", tofile="balance.py 现算"))
             self.fail("说明书里的 AUTO 块已与 balance.py 脱钩 —— "
                       "跑 `python3 docs/sync_manual.py` 刷新：\n" + diff)
 

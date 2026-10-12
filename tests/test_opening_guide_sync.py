@@ -131,7 +131,7 @@ class TestOpeningGuidePromptSafety(unittest.TestCase):
         """过期后靠 `rules(基础指南)` 取回：章节表里要有它，主题词要认得。"""
         import mp_ai
         # ★ 2026-10-06：手写规则段 `_help_sections()` 退役，规则文本改从 doc 目录
-        #   《游戏说明书》取；四本**讲义**改由 `_lectures()` 供给。
+        #   《规则纲要》取；四本**讲义**改由 `_lectures()` 供给。
         # ★ 2026-10-09：本讲义由《开局指南》改名《基础指南》——名字里不该再暗示"只在开局有用"。
         labels = [label for label, _ in mp_ai._lectures()]
         self.assertIn("基础指南", labels)

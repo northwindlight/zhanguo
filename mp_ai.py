@@ -79,7 +79,7 @@ MIL_LEGEND = ("军事图（与地形图同框）：一格只画一个**国别符
               "这张图只管「谁在哪儿」")
 
 # ★ 局内上下文**不注入 README**（2026-09-15）：`rules` 一律返回**doc 目录那本
-#   《游戏说明书》**（2026-10-06 起；此前是 `_help_sections()` 现算的手写规则段），
+#   《规则纲要》**（2026-10-06 起；此前是 `_help_sections()` 现算的手写规则段），
 #   **所有政体同一份**。曾经匈奴的 rules 额外附一份 README 原文全文
 #   （`mp_ai._README_TEXT`）——那份文本是给人类看的（配置项/项目结构/RL 线/结算说明），
 #   对局内玩家大半是噪声，而且把"README 里能写什么"绑成了**规则约束**（分布类数字
@@ -1648,7 +1648,7 @@ def opening_guide() -> str:
     )
 
 # ★ 2026-10-06：手写规则段 `_help_sections()` **已整体退役**——局内 `rules` 改从
-#   doc 目录的《游戏说明书》取（见下面 `manual_sections()`）。三本**讲义**
+#   doc 目录的《规则纲要》取（见下面 `manual_sections()`）。三本**讲义**
 #   （经济手册 / 基础指南 / 战争手册 / 战略手册）仍在代码里，由 `_lectures()` 供给。
 #   用户原话：「别再用旧总则，换成规则说明书」「整套手写规则段退役」。
 
@@ -1705,7 +1705,7 @@ def _fmt_bank(world, name) -> str:
             f"（buy_report to=目标国）；要偷当下的底细仍得 spy。")
 
 
-# ---- 局内规则文本的唯一来源：doc 目录那本《游戏说明书》-----------------------
+# ---- 局内规则文本的唯一来源：doc 目录那本《规则纲要》-----------------------
 #
 # 用户 2026-10-06，四句话定下这个口径：
 #   「别再用旧总则，换成规则说明书」＋「doc 目录的」→ 手写的 `_help_sections()` 退役；
@@ -1715,7 +1715,7 @@ def _fmt_bank(world, name) -> str:
 # ★ 漂移链：这本的数值块由 `docs/sync_manual.py` 从 `balance.py` **现算**
 #   （`tests/test_manual_sync.py` 守漂移）。所以**改了 balance 必须跑一次
 #   `python3 docs/sync_manual.py`**，否则局内 AI 读到的是旧数。
-MANUAL_PATH = Path(__file__).resolve().parent / "docs" / "游戏说明书.md"
+MANUAL_PATH = Path(__file__).resolve().parent / "docs" / "规则纲要.md"
 
 # 不进局内的章/节（**上帝视角**：人类侧操作与设计说明）。按标题前缀匹配。
 MANUAL_SKIP = (
@@ -1767,7 +1767,7 @@ def _clean_manual(text: str) -> str:
 
 
 def manual_sections() -> list[tuple[str, str]] | None:
-    """doc 目录《游戏说明书》→ `[(章标题, 正文)]`（`###` 子节并入所属章）。
+    """doc 目录《规则纲要》→ `[(章标题, 正文)]`（`###` 子节并入所属章）。
 
     读不到文件返回 `None`——调用方负责**优雅降级**，绝不让一次读盘失败崩掉整个回合。
     """
@@ -1810,7 +1810,7 @@ def _lectures() -> list[tuple[str, str]]:
 
 
 def rules_text(world, topic: str = "") -> str:
-    """rules tool：按主题返回 doc 目录《游戏说明书》的对应章节。
+    """rules tool：按主题返回 doc 目录《规则纲要》的对应章节。
 
     识别不出主题（或没给主题）→ 返回**章节目录**，**不倒全文**
     （用户 2026-10-06：「尽量不要给全文」）。
@@ -1915,7 +1915,7 @@ def rules_text(world, topic: str = "") -> str:
     lines = ["【规则书目录】查哪一节就用 topic 点名，例如 rules(建筑) / rules(外交) / "
              "rules(战争手册)；也可以直接问某个词（兵营、宣战、补给、市政厅…）。"]
     if missing:
-        lines.append("⚠ 《游戏说明书》暂时读不到（文件缺失）——以下仅列**讲义**，"
+        lines.append("⚠ 《规则纲要》暂时读不到（文件缺失）——以下仅列**讲义**，"
                      "其余规则请稍后再试。")
     for label, _ in secs:
         blurb = next((v for k, v in _CHAPTER_BLURB.items() if k in label), "")
@@ -2794,7 +2794,7 @@ def _exec(world, actor: str, tool: str, args: dict) -> str:
             "plan": _fmt_plan(world, actor),
         }.get(which, full_state(world, actor))
 
-    # ---- 规则查询：**所有政体同一份**（doc 目录《游戏说明书》+ 三本讲义）
+    # ---- 规则查询：**所有政体同一份**（doc 目录《规则纲要》+ 三本讲义）
     #   政体专属的机制写在各自的 system prompt 里（如匈奴的【教义】），rules 不重复。
     if tool in ("rules", "规则", "help", "帮助"):
         return rules_text(world, str(args.get("topic", "") or ""))

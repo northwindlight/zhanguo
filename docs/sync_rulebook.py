@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 import balance as B
 from docs import sync_manual as M
 
-PATH = ROOT / "docs" / "游戏说明书.md"
+PATH = ROOT / "docs" / "规则纲要.md"
 
 
 def table(headers, rows):

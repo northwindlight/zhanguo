@@ -382,7 +382,7 @@ class TestVisibility(unittest.TestCase):
     def test_rules_and_panel_state_the_condition(self):
         """提示也要改（用户 2026-09-21）：「国祚」这条口径必须出现在 AI 读得到的地方。"""
         w = mp.World(size=20, seed=7, nations=["秦", "楚"])
-        # ★ 2026-10-06：局内规则文本改从 doc 目录《游戏说明书》取（手写规则段退役），
+        # ★ 2026-10-06：局内规则文本改从 doc 目录《规则纲要》取（手写规则段退役），
         #   所以这里跟的是**说明书里的原话**，不再是旧手写段那句。
         self.assertIn("存亡看市政厅", mp_ai.rules_text(w, "一局游戏"),
                       "「国祚＝市政厅」这条口径必须出现在 AI 读得到的规则里")

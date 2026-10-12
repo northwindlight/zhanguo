@@ -4,7 +4,7 @@
 
 管五份文档：
 
-- `docs/游戏说明书.md` —— 规则（"**能做什么**"）：各块的数字从 `balance.py`（必要时
+- `docs/规则纲要.md` —— 规则（"**能做什么**"）：各块的数字从 `balance.py`（必要时
   + `mp_ai.py` 的工具表、`settlement.py` 的结算口径）现算。
 - `docs/经济学手册.md` —— 讲义（"**为什么**"）：正文逐字取自 `mp_ai._econ_manual()`
   ——**局内 AI 读的就是那一份**，这里只做 Markdown 分节，不复制、不改写。
@@ -44,7 +44,7 @@ import pathlib
 import re
 import sys
 
-DOC_PATH = pathlib.Path(__file__).resolve().parent / "游戏说明书.md"
+DOC_PATH = pathlib.Path(__file__).resolve().parent / "规则纲要.md"
 ECON_DOC_PATH = pathlib.Path(__file__).resolve().parent / "经济学手册.md"
 GUIDE_DOC_PATH = pathlib.Path(__file__).resolve().parent / "基础指南.md"
 WAR_DOC_PATH = pathlib.Path(__file__).resolve().parent / "战争手册.md"
@@ -748,7 +748,7 @@ def _sync_one(path: pathlib.Path, *, check: bool, lint: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        description="刷新/校验人类侧手册（游戏说明书 · 经济学手册）里的 AUTO 块")
+        description="刷新/校验人类侧手册（规则纲要 · 经济学手册）里的 AUTO 块")
     ap.add_argument("--check", action="store_true", help="只校验，不写盘；漂移则退出码 1")
     ap.add_argument("--lint", action="store_true", help="额外列出正文里的数字行（建议项）")
     ap.add_argument("--doc", default=None, help="只处理指定文档（默认两份都刷）")
