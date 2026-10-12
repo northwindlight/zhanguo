@@ -64,13 +64,23 @@ class PixelTests(unittest.TestCase):
         w.armies.clear()
         self.assertEqual(png,render.render_snapshot(json.loads(json.dumps(state))))
 
-    def test_canvas_has_no_legend_width_inflation_and_full_world(self):
+    def test_canvas_is_auto_cropped_by_default(self):
+        """★ **自动裁是定稿**（2026-10-12 用户拍板）：画布按**视野框**裁，不再默认铺满全图。
+
+        旧断言写死「全图 1996×2010」——那是 `c83655f` 恢复自动裁**之前**的口径，
+        所以它红不是因为渲染坏了，是断言过期。这里改成按定稿的不变量断：
+        ① 默认比"显式要全图"小；② 显式 `bounds` 仍然生效（面板/实验要用）；
+        ③ 图例不把画布撑宽（宽度不超过同 bounds 无图例时的量级——用面积比较兜住）。
+        """
         from PIL import Image
         w = mp.World(size=24, seed=3, nations=["秦","楚"])
-        png = render.render(w,"秦",max_px=960)
-        self.assertEqual((1996,2010), Image.open(io.BytesIO(png)).size)
-        # 最右/最下刻度仍留在画布内。
-        self.assertIsNotNone(render.render(w,"秦",bounds=(0,5,0,5)))
+        auto = Image.open(io.BytesIO(render.render(w, "秦", max_px=960))).size
+        full = Image.open(io.BytesIO(
+            render.render(w, "秦", max_px=960, bounds=(0, 23, 0, 23)))).size
+        self.assertLess(auto[0] * auto[1], full[0] * full[1],
+                        "默认没裁：画布和全图一样大（自动裁被谁关掉了？）")
+        small = Image.open(io.BytesIO(render.render(w, "秦", bounds=(0, 5, 0, 5)))).size
+        self.assertLess(small[0] * small[1], auto[0] * auto[1], "显式 bounds 没生效")
 
     def test_all_sides_mixed_units_and_large_counts_fit_small_cells(self):
         state = {"version":1,"size":2,"turn":1,"player":"秦", "order":["秦","齐","楚","周"],
@@ -152,7 +162,12 @@ class ContextIntegrationTests(unittest.TestCase):
     def test_game_injects_instructions_and_provider_injects_image(self):
         messages, plan = mp_ai.build_context(self.w,"秦",self.cfg)
         self.assertIn("【图片地图读法】",messages[0]["content"])
-        self.assertIn("草线平原",messages[0]["content"])
+        # ★ 图例只给约定（颜色/字母/坐标），**不列具体地名**（2026-10-12 定稿）。
+        #   旧断言要"草线平原"这个地名 ⇒ 过期。改断图例的**实质内容**：
+        self.assertIn("国别颜色对照", messages[0]["content"])   # 谁是什么颜色
+        self.assertIn("坐标", messages[0]["content"])           # 坐标怎么读
+        self.assertIn("P平原", messages[0]["content"])          # 地形字母
+        self.assertIn("T=市政厅", messages[0]["content"])       # 国祚记号
         self.assertIn(self.ctx.MAP_KEY,messages[-1])
         self.assertNotIn("每行一格",messages[-1]["content"])
         before=copy.deepcopy(messages)
