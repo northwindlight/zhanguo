@@ -1,4 +1,4 @@
-"""Army/resource collaboration, with explicit fixtures for unconverted domains."""
+"""Historical ArmyLogic/resource collaboration; the live army is covered by test_world_domains."""
 from copy import deepcopy
 from pathlib import Path
 import tomllib
@@ -14,13 +14,13 @@ from mods.native.army.content import native_unit_definitions, unit_definitions
 from mods.native.resources.mod import ResourcesMod
 
 ROOT = Path(__file__).resolve().parents[1]
-ARMY_DECLARATION = tomllib.loads((ROOT/'mods/native/army/mod.toml').read_text())
+ARMY_DECLARATION = tomllib.loads((ROOT/'docs/archive/legacy-domain-declarations/army.toml').read_text())
 RESOURCE_IDS = ('native:gold', 'native:food', 'native:equipment', 'native:supply')
 
 
 class ArmyResourceClient(GameMod):
     # This test client exercises the real ArmyLogic resource paths. It uses
-    # army's actual grants and supplies no production adapters to old domains.
+    # the historical isolated sample's grants, separate from the live army module.
     declaration = ARMY_DECLARATION
 
     def mixins(self):return ()

@@ -1,5 +1,7 @@
 # 独立经济报表层
 
+当前进展（2026-10-13）：native 4.0.0 已接入其余领域，详见 [正式发行版](../README.md)。下文早期阶段的“未接线”描述保留为历史记录；旧客户端仍另做。
+
 2026-10-12：`native:economy` 1.1.0 拥有一个 `economy` 对象，只汇总库存、生产、建造、交易和显式支出事实。它不拥有资源、市场、建筑或银行状态，不调用旧 `World.res / add_res / _ledger / _spend / alive`。可运行入口为 `mods/economy_acceptance/mod.toml`。
 
 ## 模块及接口

@@ -1,0 +1,18 @@
+[Mod]
+Id = "native:nations"
+Version = "1.0.0"
+Entry = "mods.native.nations.mod:NationsMod"
+Requires = ["native:resources", "native:buildings"]
+After = ["native:resources", "native:buildings"]
+
+[State]
+Owns = ["nations"]
+Requests = []
+
+[Capabilities]
+Needs = ["native:resources", "native:buildings"]
+Provides = ["native:nations", "native:nation-inspection"]
+
+[Interfaces]
+"native:resources" = ["open", "snapshot"]
+"native:buildings" = ["snapshot"]

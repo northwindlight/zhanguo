@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from engine.identifiers import content_id
 from engine.resource import Resource
 
-CATEGORIES = ('production','construction','import','export','recruit','military')
+CATEGORIES = ('production','construction','import','export','recruit','military','administration')
 
 
 def integer(value, minimum=0):

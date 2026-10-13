@@ -85,7 +85,7 @@ class Economy:
                 continue
             if fact.period!=self.next_period:raise ValueError('New fact belongs to a different accounting period')
             if fact.owner not in owners:raise ValueError('Economic fact owner has no resource account')
-            if fact.category in ('construction','recruit','military') and fact.outputs:
+            if fact.category in ('construction','recruit','military','administration') and fact.outputs:
                 raise ValueError('Expense facts cannot contain output credits')
             if fact.category=='import' and dict(fact.inputs)!={self._currency:fact.cash}:
                 raise ValueError('Import payment must match actual currency settlement')
@@ -101,7 +101,7 @@ class Economy:
         outputs = add(row.outputs for row in production)
         inputs = add(row.inputs for row in production)
         expenses = {category:add(row.inputs for row in rows if row.fact.category==category)
-                    for category in ('construction','recruit','military')}
+                    for category in ('construction','recruit','military','administration')}
         imports = sum(row.fact.cash for row in rows if row.fact.category=='import')
         exports = sum(row.fact.cash for row in rows if row.fact.category=='export')
         cash = sum(dict(row.fact.outputs).get(self._currency,0) for row in production)

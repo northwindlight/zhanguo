@@ -1,17 +1,49 @@
 [Distribution]
 Id = "native"
-Version = "3.0.0"
-Members = ["resources/mod.toml", "buildings/mod.toml", "market_pricing/mod.toml", "market/mod.toml", "economy_valuation/mod.toml", "economy_reports/mod.toml", "bank/mod.toml", "economy_queries/mod.toml"]
-RequiredState = ["resources", "buildings", "market", "economy", "bank"]
-ActorCollection = "economy_actors"
+Version = "4.0.0"
+Members = ["resources/mod.toml", "buildings/mod.toml", "market_pricing/mod.toml", "market/mod.toml", "economy_valuation/mod.toml", "economy_reports/mod.toml", "bank/mod.toml", "economy_queries/mod.toml", "nations/mod.toml", "government/mod.toml", "map_generation/mod.toml", "territory/mod.toml", "diplomacy/mod.toml", "vision/mod.toml", "army/mod.toml", "succession/mod.toml", "intelligence/mod.toml", "polities/huns/mod.toml"]
+RequiredState = ["resources", "buildings", "market", "economy", "bank", "nations", "government", "territory", "diplomacy", "units", "military", "succession", "intelligence"]
+ActorCollection = "nation_actors"
+ActionGate = {Capability = "native:government", Method = "can_act"}
+
+[[Hooks]]
+Id = "cycle.start"
 
 [[Hooks]]
 Id = "buildings.production"
+
+[[Hooks]]
+Id = "relations"
+
+[[Hooks]]
+Id = "military.supply"
+
+[[Hooks]]
+Id = "military.battle"
+
+[[Hooks]]
+Id = "military.withdraw"
+
+[[Hooks]]
+Id = "military.claims"
+
+[[Hooks]]
+Id = "succession"
+
+[[Hooks]]
+Id = "military.repatriate"
+
 [[Hooks]]
 Id = "market.settlement"
+
 [[Hooks]]
 Id = "buildings.completion"
+
 [[Hooks]]
 Id = "bank.settlement"
+
 [[Hooks]]
 Id = "economy.reports"
+
+[[Hooks]]
+Id = "cycle.end"

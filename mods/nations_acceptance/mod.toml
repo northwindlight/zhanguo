@@ -1,0 +1,11 @@
+[Distribution]
+Id = "nations-acceptance"
+Version = "1.0.0"
+Members = ["../native/resources/mod.toml", "../native/buildings/mod.toml", "../native/nations/mod.toml"]
+RequiredState = ["resources", "buildings", "nations"]
+ActorCollection = "nation_actors"
+
+[[Hooks]]
+Id = "buildings.production"
+[[Hooks]]
+Id = "buildings.completion"

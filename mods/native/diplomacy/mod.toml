@@ -1,80 +1,22 @@
-ReadOnlyTools = ["countries"]
-ToolNames = ["countries", "send_letter", "gift", "share_map", "spy", "propose", "respond_proposal", "break_alliance", "bloc_found", "bloc_join", "bloc_leave", "bloc_rename", "bloc_transfer", "bloc_dissolve", "vote", "break_defense", "guarantee", "cancel_guarantee", "declare_war", "offer_peace", "accept_peace", "reject_peace"]
 [Mod]
-Id = "diplomacy"
-Version = "1.0.0"
+Id = "native:diplomacy"
+Version = "2.0.0"
 Entry = "mods.native.diplomacy.mod:DiplomacyMod"
-Requires = []
-
+Requires = ["native:nations", "native:government", "native:resources", "native:buildings"]
+After = ["native:nations", "native:government"]
 [State]
-Requests = ["econ_summary", "energy_report", "history", "nations", "phase", "state_version", "tiles", "turn"]
-Owns = ["_offer_id", "_vote_id", "_war_id", "approved_votes", "blocs", "command_id", "command_results", "diplomacy_queue", "econ_intel", "gift_pending", "mail_pending", "mailbox", "map_pending", "maps", "pacts", "peace_offers", "proposals", "spy_pending", "truce", "votes", "wars"]
-
+Owns = ["diplomacy"]
 [Capabilities]
-Needs = ["method.add_res", "method.alive", "method.frontier_of", "method.log", "method.nation_armies", "method.nation_building_count", "method.neighbors", "method.own_tiles", "method.owned_by", "method.proclaim", "method.res", "method.tile_terrain", "method.visible_to", "number.RES_KEYS", "army.units"]
-Provides = ["method._absorb_personal_pacts", "method._accept_bloc_founding", "method._add_pact", "method._apply_accept_pact", "method._apply_accept_peace", "method._apply_bloc_dissolve", "method._apply_bloc_join", "method._apply_bloc_leave", "method._apply_bloc_rename", "method._apply_bloc_transfer", "method._apply_break_pact", "method._apply_cancel_guarantee", "method._apply_declare_guarantee", "method._apply_declare_war", "method._apply_gift", "method._apply_offer_peace", "method._apply_propose_bloc", "method._apply_propose_pact", "method._apply_reject_pact", "method._apply_reject_peace", "method._apply_send_mail", "method._apply_share_map", "method._apply_spy", "method._break_pacts_between", "method._cancel_vote", "method._command_fork", "method._commit_command_fork", "method._conclude_pact", "method._declare_war_internal", "method._delivery_status", "method._do_accept_peace", "method._drop_pact", "method._econ_snapshot", "method._execute_pact_vote", "method._execute_vote", "method._expire_votes", "method._finish_command", "method._map_snapshot", "method._new_vote", "method._next_offer_id", "method._next_war_id", "method._pact_block", "method._pact_exit_wars", "method._pact_parties", "method._pass_vote", "method._peace_rep", "method._record_peace_offer", "method._refund_command", "method._rename_bloc_refs", "method._return_core", "method._same_camp", "method._same_front", "method._snapshot_cores", "method._stage_diplomacy", "method._stage_tally", "method._submission_cost", "method._suspended_truces", "method._tally", "method._truce_blocks_war_join", "method._void_pending_treaties", "method._vote_counts", "method._vote_stakeholders", "method._war_brief", "method._war_brief_ent", "method._war_of", "method._war_sides", "method.accept_pact", "method.accept_peace", "method.active_truce", "method.allied_between", "method.at_war", "method.bloc_by_name", "method.bloc_chief", "method.bloc_desc", "method.bloc_dissolve", "method.bloc_join", "method.bloc_leave", "method.bloc_of", "method.bloc_rename", "method.bloc_transfer", "method.break_pact", "method.cancel_guarantee", "method.cast_vote", "method.declare_guarantee", "method.declare_war", "method.defense_partners_of", "method.diplomacy_cost", "method.dp_between", "method.drop_pacts_of", "method.entities", "method.entity_at_war", "method.entity_chief", "method.entity_label", "method.entity_members", "method.entity_of", "method.gift", "method.guarantee_of", "method.guaranteed_by", "method.guarantors_of", "method.has_pact", "method.initialize_diplomacy", "method.mystery_letter", "method.offer_peace", "method.pacts_of", "method.propose_bloc", "method.propose_pact", "method.reject_pact", "method.reject_peace", "method.rel_desc", "method.send_mail", "method.set_truce", "method.share_map", "method.spy", "method.submit_diplomacy", "method.truces_of", "method.war_between", "number.BLOC_NAME_MAX", "number.DIPLO_CENTER_MIN_COST", "number.DIPLO_COST", "number.FALL_TRUCE_TURNS", "number.LETTER_CENTER_DISCOUNT", "number.LETTER_CHARS_PER_GOLD", "number.LETTER_COST", "number.LETTER_COST_ALLY", "number.LETTER_COST_MIN", "number.LETTER_FREE_CHARS", "number.SPY_COST", "number.SPY_TURNS", "state._offer_id", "state._vote_id", "state._war_id", "state.approved_votes", "state.blocs", "state.command_id", "state.command_results", "state.diplomacy_queue", "state.econ_intel", "state.gift_pending", "state.mail_pending", "state.mailbox", "state.map_pending", "state.maps", "state.pacts", "state.peace_offers", "state.proposals", "state.spy_pending", "state.truce", "state.votes", "state.wars"]
-
-[[Stages]]
-Id = "diplomacy.tally"
-Handler = "_stage_tally"
-Hook = "slot.01"
-Needs = []
-Provides = ["decisions.counted"]
-
-[[Stages]]
-Id = "diplomacy.diplomacy"
-Handler = "_stage_diplomacy"
-Hook = "slot.04"
-Needs = ["resources.transformed"]
-Provides = ["relations.applied"]
-
-[Manual]
-Sources = ["manual-1.md", "manual-2.md"]
-Hidden = ["十、政体：匈奴", "十二、终局结算"]
-
-[Manual.Keywords]
-"情报" = "外交"
-"领土" = "联盟与核心领土"
-"外交" = "外交"
-"保障" = "外交"
-"宣战" = "外交"
-"求和" = "外交"
-"共同防御" = "外交"
-"休战" = "外交"
-"联盟" = "联盟与核心领土"
-"同盟" = "联盟与核心领土"
-"入盟" = "联盟与核心领土"
-"退盟" = "联盟与核心领土"
-"盟主" = "联盟与核心领土"
-"投票" = "联盟与核心领土"
-"核心" = "联盟与核心领土"
-"归还" = "联盟与核心领土"
-"视野" = "联盟与核心领土"
-"信箱" = "外交"
-"邮件" = "外交"
-
-[Manual.Summaries]
-"一局游戏" = "回合制、结算顺序、存亡看市政厅"
-"经济与能源" = "一本账、电网、补给仓、黄金"
-"建筑" = "造价/门槛/每回合行为；地形建设惩罚"
-"军队与战斗" = "兵种、移动、交战、野人、撤退"
-"外交" = "实体、条约、宣战与传导、投票、情报"
-"联盟与核心领土" = "联盟效果、核心领土与自动归还"
-"市场" = "买卖价差、均衡价回归、空转检测"
-"经济报表" = "GDP / 资产 / 军费 / 投资"
-"国策、回合与存档" = "plan、行动纪律、存档兼容"
-"命令表" = "命令表"
-"命令" = "命令表"
-"经济手册" = "讲义：**为什么**该这么搞经济"
-"基础指南" = "讲义：**基础功**——开局怎么下手、电与工业怎么配"
-"战争手册" = "讲义：**这仗该怎么打**（战时必读）"
-"战略手册" = "讲义：**盘面怎么看**——均势、干预、外交、僵持"
-"世界央行" = "利率、贷款、报表买卖（开行才有）"
-
-[Panels]
-"mail" = "panel_mail"
-"diplomacy" = "panel_diplomacy"
-"countries" = "panel_countries"
-
+Needs = ["native:nation-inspection", "native:government", "native:resource-inspection", "native:resource-exchange", "native:buildings"]
+Provides = ["native:diplomacy"]
 [Interfaces]
-"army.units" = ["disengage", "restore"]
+"native:nation-inspection" = ["ids", "get"]
+"native:government" = ["period"]
+"native:resource-inspection" = ["snapshot"]
+"native:resource-exchange" = ["exchange", "exchange_batch"]
+"native:buildings" = ["snapshot"]
+[Diplomacy]
+Fee = 10
+MinimumFee = 1
+NameMax = 12
+FallTruce = 10

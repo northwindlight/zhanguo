@@ -1,13 +1,13 @@
-# 军队模块：部队对象与具体资源依赖
+# 军队模块
 
-当前模块与部队集合门面 ID：`native:army`；具体兵种使用 `native:infantry / native:cavalry / native:militia`。展示文字来自语言文件，兵种配方中的资源使用 `native:` 内容 ID。
+`native:army` 2.0.0 按 [正式发行版模板](../README.md) 装配。`Unit / Units` 拥有部队、编号、守卫出生与行动状态；`Military` 拥有征召额度、军事经济回执、电网短缺事实、待发布事件和战斗随机状态。
 
-- `Unit` 有明确字段、校验、行动、伤害、回血与脱战行为。多字段修改先校验后提交；编号、归属与兵种登记后不可直接改写。
-- `Units` 拥有部队、编号计数器和守卫出生记录，缓存留在集合内部。跨域写部队使用声明过的 `native:army` 对象接口。
-- `content.py` 将本域的数值表发布到 `runtime.content`，并解释所有域登记的 `category = "unit"` 定义。`Units` 持有只读兵种定义，第四种兵无需修改引擎或原三兵种表；创建、征兵、输出、回血、存档恢复和动态征兵 schema 均读取登记内容。
-- army 的资源读取/消费/计价走具体的 `native:gold / native:food / native:equipment / native:supply` 门面。清单声明各资源及允许的方法，已移除资源相关 `method.res / method.add_res / method._mval` 依赖；黄金面值计价由资源子类重写。
-- `Unit / Units` 显式持久化，只保存状态，不保存缓存或复制兵种定义。恢复时提供当前内容定义，未知兵种拒绝加载。
+兵种从内容注册表读取，原生 `native:infantry / cavalry / militia`，展示名与 ID 分离；动态征召 schema 使用同一注册表和国家政策配方。具体资源读取走 `native:gold / food / equipment / supply` 门面，扣款走原子资源兑换。建筑、地形、外交、视野和周期均通过声明接口获取，不读旧世界字典。
 
-本轮用户明确：未改造区域不要求接线，整局不要求运行。军队仍保留建筑、地形、外交、账户外账本等旧域依赖；旧消费者的 `army.units` 转口未迁移。它们不能作为新对象接口的正确性证据。
+工具 `recruit / move / attack / retreat / disband / army / reachable`，面板 `army`。征召校验本国站点、兵营额度、民兵上限和电网；新兵当期不可行动。移动只变位置，异地进攻与撤退共用移动额度，原地进攻保留额度；联合进攻先整批校验，无效指令无部分修改。不可见阻塞按原规则消耗尝试额度，可见阻塞直接拒绝。
 
-当前验收：`.venv/bin/python -m unittest tests.test_runtime_content_hooks tests.test_resource_objects tests.test_army_resources`。详见 [资源对象与注册表](../resources/README.md)。[阶段 A 改造记录](../../../docs/阶段A改造记录.md) 保留为本轮前的历史基线；其整局测试结果不代表当前未接线分支仍能运行。
+路径使用八方向与来源/目标地形较大代价。野地守卫在查询时为虚拟事实，成功进攻才物化，击杀后不重生。补给先于战斗，营内民兵免供，短缺扣血；回血仍消耗规定装备。战斗同时结伤，使用持久随机状态；撤离部队当期继续参加战斗，战后才移动。占领由实际进攻部队裁决，同盟核心收复归还；和平遣返穿过中立地，不占地。
+
+挂点为 `military.supply / battle / withdraw / claims / repatriate`，由发行版声明顺序。军事消耗发布资源事实供经济域汇总，不修改外域账本。显式保存包括单调交战序号和事件接收者快照，恢复校验国家、兵种、位置、计数器及随机种子。
+
+当前联动验收 `tests.test_world_domains`；原 `tests.test_army_resources` 中历史 `ArmyLogic` 夹具保留早期资源契约，使用归档声明。旧军队逻辑及客户端转口仍待客户端迁移，不参与当前领域装配。

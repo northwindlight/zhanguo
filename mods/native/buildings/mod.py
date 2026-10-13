@@ -29,7 +29,7 @@ class BuildingsMod(GameMod):
 
     @staticmethod
     def _build(world, actor, site: str, kind: str):
-        return world.buildings.build(actor,site,kind)
+        return world.buildings.build(actor,site,kind,policy_pct=world.runtime.parameter(world,actor,'build_cost_pct',100))
 
     def stages(self):
         handlers = {'produce':self._produce,'complete':self._complete}

@@ -44,6 +44,10 @@ mp_config*.bak*
 # 对局产物（报告/寄语/纪要/书信）——**是局的结果，不是仓库的内容**（用户 2026-10-09：
 # 「那几个散文件也别跟踪了」）。以后落在根目录或 archive/ 里都不入库。
 archive/
+!docs/archive/
+docs/archive/*
+!docs/archive/legacy-domain-declarations/
+!docs/archive/legacy-domain-declarations/*.toml
 结算报告*.md
 结算寄语*.json
 摆烂尸检*.md

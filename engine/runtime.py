@@ -239,6 +239,7 @@ class Runtime:
         self.units = {u.name: u for u in units}
         if len(self.units) != len(units):
             raise ModError("重复的 Mod ID")
+        if '$engine' in self.units:raise ModError('保留的运行时状态 ID：$engine')
         self.order = dependency_order(self.units, requires=lambda n: self.units[n].requires,
                                       after=lambda n: self.units[n].after,
                                       before=lambda n: self.units[n].before)
@@ -280,6 +281,9 @@ class Runtime:
         missing = set(self.distribution.get('RequiredState', ())) - self.state_owners.keys()
         if missing:
             raise ModError(f"state 无主：{', '.join(sorted(missing))}")
+        gate=self.distribution.get('ActionGate')
+        if gate and (not isinstance(gate,dict) or set(gate)!={'Capability','Method'} or gate['Capability'] not in self.capabilities or not isinstance(gate['Method'],str) or gate['Method'].startswith('_')):
+            raise ModError('行动门声明缺少公共能力或方法')
         # 发行版的只读转口由模块内容组成，不从界面层取内容。
         for mod in (u.mod for u in units):
             install = getattr(mod, 'install_presentations', None)
@@ -489,13 +493,22 @@ class Runtime:
         with unit_context(owner): return getattr(target,method)(*args,**kwargs)
 
     def save_mod_state(self, world):
-        return {name: self.units[name].mod.save_state(world) for name in self.order}
+        return {'$engine':{'phase':getattr(world,'phase','行动'),'polity':dict(getattr(world,'polity',{}))},
+                **{name: self.units[name].mod.save_state(world) for name in self.order}}
 
     def load_mod_state(self, world, states):
-        if set(states) != set(self.units):
+        if not isinstance(states,dict) or set(states) != set(self.units)|{'$engine'}:
             raise ModError('存档 Mod 状态清单与当前环境不相同')
+        system=states['$engine']
+        if not isinstance(system,dict) or set(system)!={'phase','polity'} or not isinstance(system['polity'],dict):raise ModError('非法运行时存档状态')
+        if system['phase'] not in ('行动','已结算','结算失败',*self.hooks,*self.stage_map):raise ModError('存档阶段不存在')
+        if any(not isinstance(actor,str) or not isinstance(tag,str) or tag and self.find_policy(tag) is None for actor,tag in system['polity'].items()):raise ModError('存档引用未加载的作用域模块')
         for name in self.order:
             with unit_context(name): self.units[name].mod.load_state(world, states[name])
+        collection=getattr(world,self.distribution.get('ActorCollection','actors'),{})
+        if any(actor not in collection for actor in system['polity']):raise ModError('作用域状态引用不存在的行动者')
+        with unit_context(None):
+            world.phase=system['phase'];world.polity=dict(system['polity'])
         for tag in getattr(world, 'polity', {}).values():
             if tag and self.find_policy(tag) is None: raise ModError(f'存档引用未加载的作用域模块：{tag}')
 
@@ -515,7 +528,7 @@ class Runtime:
 
     def dependency_manifest(self):
         """严格匹配 Mod 版本、依赖和阶段契约；实现升级由 Mod 作者提升 Version。"""
-        return {"api": 2, "distribution": self.distribution, "mods": [{"id": n, "version": self.units[n].version,
+        return {"api": 3, "distribution": self.distribution, "mods": [{"id": n, "version": self.units[n].version,
             "requires": sorted(self.units[n].requires), "after": sorted(self.units[n].after),
             "before": sorted(self.units[n].before),
             "declaration": getattr(self.units[n].mod, 'declaration', {}),
@@ -607,7 +620,8 @@ class Runtime:
         world._mod_initialized = True
 
     def enumerate_numbers(self):
-        return {name: dict(self.units[name].mod.numbers()) for name in self.order}
+        from copy import deepcopy
+        return deepcopy({name: dict(self.units[name].mod.numbers()) for name in self.order})
 
     def actor_policy(self, world, actor):
         tag = getattr(world, 'polity', {}).get(actor, '')
@@ -636,6 +650,9 @@ class Runtime:
             if actor not in collection: raise ValueError('行动者不存在')
             if world.phase != '行动' and not self.tools[name].read_only:
                 raise ValueError('仅行动阶段可以提交动作')
+            gate=self.distribution.get('ActionGate')
+            if gate and not self.tools[name].read_only and not self.object_call(world,gate['Capability'],gate['Method'],actor):
+                raise ValueError('行动者已结束本轮行动')
 
     def parameter(self, world, actor, key, default=None):
         if not self.permits(world,actor,'number.'+key): raise ModError('该数值口径被作用域声明禁用')
@@ -655,6 +672,9 @@ class Runtime:
         world.polity[actor] = policy.declaration.get('Policy',{}).get('Tag',policy.declaration['Mod']['Id'])
         return True
 
+    def deactivate_actor(self, world, actor):
+        return self.write_state(world,'polity',lambda:world.polity.pop(actor,None))
+
     def actor_prompt(self, world, actor, default):
         policy = self.actor_policy(world, actor)
         return policy.prompt(world, actor) if policy and hasattr(policy,'prompt') else default(world, actor)
@@ -671,7 +691,7 @@ class Runtime:
             and (not item.get('polity') or self.find_policy(item['polity'])
                  and item.get('appearance')=='initial')]
 
-    def actor_schedule(self, world, declarations):
+    def actor_schedule(self, world, declarations, *, seed=None):
         import random
         collection=getattr(world,self.distribution.get('ActorCollection','actors'),{})
         result={}
@@ -680,7 +700,7 @@ class Runtime:
             if not name or not policy or not item.get('enabled',True) or name in collection or not self.find_policy(policy):continue
             lo=int(item.get('enable_turn') or 0)
             hi=int(item.get('enable_turn_max') or lo)
-            rng=random.Random(f'{world.seed}:{name}')
+            rng=random.Random(f'{getattr(world,"seed",0) if seed is None else seed}:{name}')
             result[name]=rng.randint(lo,hi) if hi>=lo else lo
         return result
 

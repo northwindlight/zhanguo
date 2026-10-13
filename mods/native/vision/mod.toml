@@ -1,0 +1,12 @@
+[Mod]
+Id = "native:vision"
+Version = "1.0.0"
+Entry = "mods.native.vision.mod:VisionMod"
+Requires = ["native:territory", "native:diplomacy", "native:buildings"]
+[Capabilities]
+Needs = ["native:territory", "native:diplomacy", "native:buildings"]
+Provides = ["native:vision"]
+[Interfaces]
+"native:territory" = ["dimensions", "check", "owned", "cell"]
+"native:diplomacy" = ["entity", "members"]
+"native:buildings" = ["effects", "snapshot"]

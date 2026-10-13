@@ -1,0 +1,30 @@
+[Mod]
+Id = "native:intelligence"
+Version = "1.0.0"
+Entry = "mods.native.intelligence.mod:IntelligenceMod"
+Requires = ["native:nations", "native:government", "native:resources", "native:buildings", "native:diplomacy", "native:vision", "native:army"]
+After = ["native:nations", "native:government", "native:army"]
+[State]
+Owns = ["intelligence"]
+[Capabilities]
+Needs = ["native:nation-inspection", "native:government", "native:resource-exchange", "native:resource-inspection", "native:buildings", "native:diplomacy", "native:vision", "native:army"]
+Provides = ["native:intelligence"]
+[Interfaces]
+"native:nation-inspection" = ["ids", "get"]
+"native:government" = ["period"]
+"native:resource-exchange" = ["exchange", "exchange_batch"]
+"native:resource-inspection" = ["snapshot"]
+"native:buildings" = ["snapshot"]
+"native:diplomacy" = ["allied", "snapshot"]
+"native:vision" = ["visible", "tiles"]
+"native:army" = ["snapshot"]
+[Intelligence]
+Fee = 10
+LetterBase = 20
+LetterAlly = 10
+LetterMinimum = 5
+CenterDiscount = 5
+FreeCharacters = 20
+CharactersPerGold = 10
+SpyFee = 100
+SpyDelay = 3

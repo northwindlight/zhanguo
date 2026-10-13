@@ -28,7 +28,7 @@ def amounts(values):
 @dataclass(frozen=True)
 class Site:
     id: str
-    owner: str
+    owner: str | None
     position: tuple
     resources: tuple
     capacity: int
@@ -48,7 +48,7 @@ class BuildReceipt:
 @dataclass(frozen=True)
 class ProductionRecord:
     id: int
-    owner: str
+    owner: str | None
     site: str
     kind: str
     status: str
@@ -122,7 +122,8 @@ class Buildings:
         return self._types[kind]
 
     def register_site(self, site_id, owner, position, *, resources=None, capacity=20, penalty=0):
-        self._action();content_id(site_id);owner_name(owner)
+        self._write();content_id(site_id)
+        if owner is not None:owner_name(owner)
         if site_id in self._sites:raise ValueError('Duplicate building site')
         if not isinstance(position,(tuple,list)) or len(position)!=2:raise ValueError('Invalid position')
         position = tuple(integer(value) for value in position)
@@ -135,7 +136,8 @@ class Buildings:
         return site
 
     def transfer_site(self, site_id, owner):
-        self._action();owner_name(owner)
+        self._write()
+        if owner is not None:owner_name(owner)
         self._sites[site_id] = replace(self._sites[site_id],owner=owner)
         return self._sites[site_id]
 
@@ -235,7 +237,7 @@ class Buildings:
         energy_input = {} if external_energy is None else external_energy
         if not isinstance(energy_input,Mapping):raise ValueError('Expected external energy mapping')
         for owner,value in energy_input.items():owner_name(owner);integer(value)
-        owners = tuple(dict.fromkeys(site.owner for site in self._sites.values()))
+        owners = tuple(dict.fromkeys(site.owner for site in self._sites.values() if site.owner is not None))
         balances = {owner:{stock.id:stock.amount for stock in self._resources('snapshot',owner)} for owner in owners}
         operations,records = [],{}
         generated,demand = {owner:0 for owner in owners},{owner:0 for owner in owners}
@@ -245,6 +247,9 @@ class Buildings:
         simulation = sorted(self._instances.values(),key=lambda item:(site_order[item.site],type_order[item.kind],item.id))
         for item in self._instances.values():
             owner = self._sites[item.site].owner
+            if owner is None:
+                records[item.id] = ProductionRecord(item.id,owner,item.site,item.kind,'unowned',(),(),0)
+                continue
             if not item.completed:
                 records[item.id] = ProductionRecord(item.id,owner,item.site,item.kind,'under-construction',(),(),0)
                 continue
@@ -280,7 +285,7 @@ class Buildings:
 
         for phase in ('gather','power'):
             for item in simulation:
-                if item.completed and item.PHASE==phase:
+                if item.completed and item.id in cycles and item.PHASE==phase:
                     value = run(item)
                     generated[self._sites[item.site].owner] += value
         reports = tuple(EnergyReport(owner,generated[owner],energy_input.get(owner,0),demand[owner],
@@ -288,7 +293,7 @@ class Buildings:
         short = {row.owner:row.short for row in reports}
         for phase in ('industry','income','passive'):
             for item in simulation:
-                if item.completed and item.PHASE==phase:
+                if item.completed and item.id in cycles and item.PHASE==phase:
                     run(item,not (item.ENERGY_USE and short[self._sites[item.site].owner]))
         consumed,produced = {},{}
         for receipt in self._construction:
