@@ -87,10 +87,10 @@ class BuildingsSnapshot:
 
 
 class Buildings:
-    def __init__(self, building_types, resource_call):
+    def __init__(self, building_types, resource_call, place_call=None):
         self._types = MappingProxyType({cls.TYPE_ID:cls for cls in building_types})
         if len(self._types)!=len(building_types):raise ValueError('Duplicate building type')
-        self._resources = resource_call
+        self._resources, self._place = resource_call, place_call
         self._sites, self._instances, self._orders, self._self_built = {}, {}, {}, {}
         self._construction = []
         self._period, self._next_id, self._produced = 0, 1, False
@@ -147,11 +147,16 @@ class Buildings:
         if site is not None:
             if x is not None or y is not None:raise ValueError('站点 ID 与坐标只能选一种')
             if isinstance(site,str) and site not in self._sites:
+                # 玩家地块引用：坐标串（"5 6" / "5,6" / "(5,6)" / "[5,6]"）或地名。
                 import re
                 text=site.strip()
                 if (text.startswith('(') and text.endswith(')')) or (text.startswith('[') and text.endswith(']')):text=text[1:-1]
-                match=re.fullmatch(r'\s*(\d+)\s*,\s*(\d+)\s*',text)
+                match=re.fullmatch(r'\s*(\d+)\s*[,\s]\s*(\d+)\s*',text)
                 if match:site=[int(match[1]),int(match[2])]
+                else:
+                    position=self._place(text) if self._place else None
+                    if position is None:raise ValueError(f'没有这个地名，也没有这个站点 ID：{text}')
+                    site=list(position)
             if isinstance(site,(list,tuple)):
                 if len(site)!=2:raise ValueError('坐标需要两个整数')
                 x,y=map(integer,site)

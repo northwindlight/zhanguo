@@ -40,6 +40,39 @@ class TestMapNames(unittest.TestCase):
         self.assertTrue(rows[0]['name'])
         self.assertEqual(len({row['name'] for row in rows}), len(rows))
 
+    def test_every_coordinate_tool_takes_a_name_or_two_integers(self):
+        host = self.host()
+        player = host.player('scenario:qin')
+        land = player.query('land')
+        tile = land[0]['tile'];x,y = tile['position']
+        # 查询：三种写法指同一格。
+        for args in ({'place': tile['name']}, {'place': f'{x} {y}'}, {'x': x, 'y': y}):
+            row = player.query('tile', args)
+            self.assertEqual((row['position'], row['name']), ([x, y], tile['name']))
+        both = player.submit('tile', {'place': tile['name'], 'x': x, 'y': y})
+        self.assertFalse(both['ok']);self.assertIn('只能选一种', both['message'])
+        unknown = player.submit('tile', {'place': '不存在的地名'})
+        self.assertFalse(unknown['ok']);self.assertIn('没有这个地名', unknown['message'])
+        # 动工：三条路等价（每格每回合一次，所以各用一块地）。
+        refs = [{'site': land[0]['tile']['name']},
+                {'site': f"{land[1]['tile']['position'][0]} {land[1]['tile']['position'][1]}"},
+                {'x': land[2]['tile']['position'][0], 'y': land[2]['tile']['position'][1]}]
+        for ref in refs:
+            receipt = player.submit('build', {'kind': 'native:farm', **ref})
+            self.assertTrue(receipt['ok'], receipt['message'])
+        # 移动：地名与两个整数给出同一份回执。
+        target = land[1]['tile']
+        by_name, by_ints = self.host(), self.host()
+        for world, args in ((by_name, {'place': target['name']}),
+                            (by_ints, {'x': target['position'][0], 'y': target['position'][1]})):
+            world.world.military.seed('scenario:qin', 'native:infantry', x, y)
+            army = [u for u in world.player('scenario:qin').query('army') if u['owner'] == 'scenario:qin']
+            receipt = world.player('scenario:qin').submit('move', {'aid': army[0]['id'], **args})
+            self.assertTrue(receipt['ok'], receipt['message'])
+            self.assertEqual(receipt['data']['units'], [army[0]['id']])
+            moved = [u for u in world.player('scenario:qin').query('army') if u['owner'] == 'scenario:qin'][0]
+            self.assertEqual((moved['x'], moved['y']), tuple(target['position']))
+
     def test_names_survive_save_and_reload(self):
         host = self.host()
         before = {tuple(row['tile']['position']): row['tile']['name'] for row in host.player('scenario:qin').query('land')}

@@ -10,11 +10,12 @@ Owns = ["buildings"]
 Requests = []
 
 [Capabilities]
-Needs = ["native:resource-exchange"]
+Needs = ["native:resource-exchange", "map:generation"]
 Provides = ["native:buildings"]
 
 [Interfaces]
 "native:resource-exchange" = ["snapshot", "exchange", "exchange_batch"]
+"native:territory" = ["resolve"]
 
 [[Stages]]
 Id = "native:buildings.produce"

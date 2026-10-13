@@ -9,11 +9,13 @@ class BuildingsMod(GameMod):
     def content_definitions(self):return {cls.TYPE_ID:cls for cls in BUILDING_TYPES}
     def state_keys(self):return ('buildings',)
     def needs(self):return ('native:resource-exchange',)
+    def optional(self):return ('native:territory',)
     def provides(self):return ('native:buildings',)
 
     def initialize_world(self, world):
         world.buildings = Buildings(building_types(self.runtime.content),
-            lambda method,*args:self.runtime.object_call(world,'native:resource-exchange',method,*args))
+            lambda method,*args:self.runtime.object_call(world,'native:resource-exchange',method,*args),
+            lambda text:self.runtime.object_call(world,'native:territory','resolve',text))
 
     def objects(self, world):return {'native:buildings':world.buildings}
     def save_state(self, world):return world.buildings.to_save()
@@ -22,14 +24,14 @@ class BuildingsMod(GameMod):
     def tools(self):
         kinds = sorted(cls.TYPE_ID for cls in building_types(self.runtime.content))
         parameters = {'type':'object','properties':{
-            'site':{'type':'string','description':'Optional internal site ID; prefer x/y coordinates'},
+            'site':{'type':'string','description':'站点 ID、地名或坐标串（如 "5 6"）'},
             'x':{'type':'integer','minimum':0},'y':{'type':'integer','minimum':0},
             'kind':{'type':'string','enum':kinds}},
             'required':['kind'],'additionalProperties':False,
             'oneOf':[{'required':['site'],'not':{'anyOf':[{'required':['x']},{'required':['y']}]}},
                      {'required':['x','y'],'not':{'required':['site']}}]}
         return (Tool('build',self._build,parameters=parameters,content_parameters=('kind',),
-                     description='在本国坐标 x/y 动工，直接返回实际扣款和施工回执；参数或材料不符时返回原因。每格每回合一次，结算落成。造价、门槛查 building_catalog，全部收益查 building_economics，均无需坐标。'),
+                     description='在本国地块动工：site 传地名或 "x y" 坐标串，或直接传两个整数 x、y。直接返回实际扣款和施工回执；参数或材料不符时返回原因。每格每回合一次，结算落成。造价、门槛查 building_catalog，全部收益查 building_economics。'),
                 Tool('building_sites',self._sites,read_only=True,description='一次查看全部本国站点：坐标、资源容量、建筑位、已建/在建、当期施工与自建计数。无需地块参数。'),
                 Tool('building_catalog',self._catalog,read_only=True,
                      description='一次列齐全部建筑：各级造价、产销配方、能源、效果与门槛。无需地块或坐标。'))

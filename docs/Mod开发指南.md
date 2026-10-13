@@ -240,7 +240,9 @@ actors = world.runtime.object_call(world, 'native:nation-inspection', 'ids')
 world.runtime.object_call(world, 'native:resource-exchange', 'exchange_batch', operations)
 ```
 
-`object_call` 会检查调用方在 `needs()` 里声明了该能力、并在 `[Interfaces]` 里列出了该方法。
+`object_call` 会检查调用方在 `needs()` 或 `optional()` 里声明了该能力、并在 `[Interfaces]` 里列出了该方法。
+
+`optional()` 是可选依赖：能力在时可以调用（同样要在 `[Interfaces]` 列方法），不在时不拦住装载，调用会报"无提供者"。用于"有这东西就更聪明、没有也能跑"的路径，例如建筑按地名解析地块——装了地图就能按地名动工，没装就只能用坐标。
 方法名以下划线开头的不可调用。
 
 ---

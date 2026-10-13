@@ -186,6 +186,8 @@ class MapGen:
         self._res: list[list[dict[str, int]]] = [[None] * size for _ in range(size)]  # type: ignore
         self._build()
         self._names = name_grid(self.seed, self.size, _hash_int)
+        self._where = {name: (x, y) for y, row in enumerate(self._names)
+                       for x, name in enumerate(row)}
 
     # ---- 对外 ----
     def terrain(self, x: int, y: int) -> str:
@@ -193,6 +195,10 @@ class MapGen:
 
     def name(self, x: int, y: int) -> str:
         return self._names[y][x]
+
+    def where(self, name: str):
+        """地名是唯一的，所以反查没有歧义；查不到返回 None。"""
+        return self._where.get(name)
 
     def resources(self, x: int, y: int) -> dict[str, int]:
         return dict(self._res[y][x])      # ★ 返回**副本**：调用方（`_new_tile`）拿到的是

@@ -29,6 +29,14 @@ class MapGenerator:
                        self._grid.name(x,y))
 
 
+    def where(self, seed, size, name):
+        if not isinstance(name,str) or not name:raise ValueError('地名必须是非空字符串')
+        integer(seed);integer(size,1)
+        key = (seed,size)
+        if getattr(self,'_key',None)!=key:self._grid = MapGen(seed,size);self._key=key
+        return self._grid.where(name)
+
+
 class MapGenerationMod(GameMod):
     def mixins(self):return ()
     def provides(self):return ('map:generation',)

@@ -198,6 +198,8 @@ class GameMod(ABC):
 
     def state_keys(self): return ()
     def needs(self): return ()
+    def optional(self): return ()
+    """可选依赖：能力在时可以用（仍需在 Interfaces 里声明方法），不在时不拦住装载。"""
     def provides(self): return ()
     def numbers(self): return {}
     def presentations(self): return {}
@@ -301,7 +303,8 @@ class Runtime:
                     with unit_context(_owner): return _fn(*args,**kwargs)
                 self.presentations[key] = display if callable(value) else value
         for name in self.order:
-            for need in self.units[name].mod.needs():
+            declared = self.units[name].mod
+            for need in declared.needs():
                 if need not in self.capabilities:
                     raise ModError(f"{name} 所需能力无提供者：{need}（state 无主或挂点未装配）")
         missing = set(self.distribution.get('RequiredState', ())) - self.state_owners.keys()
@@ -521,7 +524,8 @@ class Runtime:
         caller = active_unit.get()
         if caller and caller != owner:
             declaration = self.units[caller].mod.declaration
-            if capability not in self.units[caller].mod.needs() or method not in declaration.get('Interfaces',{}).get(capability,()):
+            mod = self.units[caller].mod
+            if capability not in (*mod.needs(), *mod.optional()) or method not in declaration.get('Interfaces',{}).get(capability,()):
                 raise ModError(f'{caller} 未声明对象接口调用：{capability}.{method}')
         objects = getattr(self.units[owner].mod, 'objects', lambda w: {})(world)
         target = objects.get(capability)

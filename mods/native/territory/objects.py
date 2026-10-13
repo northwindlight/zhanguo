@@ -62,6 +62,21 @@ class Territory:
         return tuple((x+dx,y+dy) for dx in (-1,0,1) for dy in (-1,0,1)
                      if (dx or dy) and 0<=x+dx<self._size and 0<=y+dy<self._size)
 
+    def resolve(self, text):
+        """地块引用：坐标串（"4 12"、"4,12"）或地名，两者都行。
+
+        玩家面向的坐标从 0 开始，是内部坐标；地名由地图决定（全图唯一），
+        所以"用地名"和"用坐标"指的是同一格。
+        """
+        if not isinstance(text,str) or not text.strip():
+            raise ValueError('地块引用必须是地名或 "x y" 坐标串')
+        parts = text.replace(',',' ').split()
+        if len(parts)==2 and all(part.lstrip('-').isdigit() for part in parts):
+            x,y = int(parts[0]),int(parts[1]);self.check(x,y);return x,y
+        position = self._call('map:generation','where',self._seed,self._size,text.strip())
+        if position is None:raise ValueError(f'没有这个地名：{text.strip()}')
+        return position
+
     def cell(self, x, y):
         self.check(x,y)
         key = self._positions.get((x,y))

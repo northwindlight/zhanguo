@@ -11,6 +11,11 @@
 - 删除 `market_quote` 工具与 experimental 自带的整套市场实现；experimental 直接用 native 市场。行情面板给出库存与基准库存，实际支出、取整与零头以 buy/sell 回执为准。ruleai、示例脚本与巡览改用行情面板报价。
 - 建筑的生产域不再把产出/投入塞进市场结算上下文；市场规则文本、说明书、手册、示例声明同步新口径。native 发行版 4.2.0，experimental 0.5.0-beta.1。
 
+### 地块引用
+
+- 地块用两条等价的路引用：**一个字符串**（地名，或 `"5 6"` / `"5,6"` / `"(5,6)"` 坐标串）或**两个整数 x、y**。`build` / `recruit` 走 `site`，`move` / `attack` / `retreat` / `tile` 走新增的 `place`；同时给两种会被拒绝，免得猜错意图。地名解析归领土域（`native:territory.resolve`），把名字查成坐标。
+- 引擎补 `optional()`：可选依赖缺失时不拦住装载，只在调用时报"无提供者"。建筑据此可选依赖领土域（装了地图就能按地名动工，没装仍可用坐标）。
+
 ### 其它修正
 
 - 地名表回到地图上：每格一个唯一地名，由 `(seed, size)` 与规范扫描序唯一确定（`mods/native/map_generation/names.py`），未物化的格子也有名字，不随地块物化、存档往返或 PYTHONHASHSEED 变化；`view / land / tile` 与观察者地图都带地名，说明书坐标口径改为与工具一致的 0 起。

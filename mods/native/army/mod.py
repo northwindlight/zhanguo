@@ -1,3 +1,4 @@
+from dataclasses import replace
 from engine.runtime import GameMod, Panel, RuleSection, Stage, Tool
 from copy import deepcopy
 from .content import native_unit_definitions, unit_definitions
@@ -39,29 +40,51 @@ class ArmyMod(GameMod):
         parameters=recruit.schema()['function']['parameters']
         parameters['properties']['kind']['enum']=list(unit_definitions(self.runtime.content))
         parameters['oneOf']=[{'required':['site'],'not':{'anyOf':[{'required':['x']},{'required':['y']}]}},{'required':['x','y'],'not':{'required':['site']}}]
-        return (Tool('recruit',self._recruit,parameters=parameters,content_parameters=('kind',)),Tool('move',self._move,description='移动本国单支军队 aid 至 x/y，纯移动不占地。新兵、已移动或交战部队不能普通移动；与异地进攻和撤退共用额度。敌国领土须 attack，路线按地形与兵种速度校验。'),Tool('attack',self._attack,description='本国军队整数 ids 数组向 x/y 进攻；均须能抵达且有额度。无敌军可直接占领，有守军进入交战并等待结算；不能把提交当战果。他国须已生效战争。新兵不能进攻，原地进攻可保留移动额度。'),
-                Tool('retreat',self._retreat,description='交战部队 aid 退往相邻合法 x/y，与移动共用额度。提交后仍在原地参加本期战斗，结算后才撤离；撤退降低输出，防守撤退有承伤减免。'),Tool('disband',self._disband,parameters={'type':'object','properties':{'aid':{'type':'integer','minimum':1},'ids':{'type':'array','items':{'type':'integer','minimum':1},'minItems':1,'uniqueItems':True}},'oneOf':[{'required':['aid'],'not':{'required':['ids']}},{'required':['ids'],'not':{'required':['aid']}}],'additionalProperties':False},description='免费遣散本国军队，aid 单支或 ids 数组批量（二选一）；交战中不可遣散。立即停止维持并释放编制，不返还粮食、装备或金币。'),
+        def forms(tool):
+            # 坐标类工具：place（地名或坐标串）与 x/y 二选一。
+            params=tool.schema()['function']['parameters']
+            params['oneOf']=[{'required':['place'],'not':{'anyOf':[{'required':['x']},{'required':['y']}]}},
+                             {'required':['x','y'],'not':{'required':['place']}}]
+            return replace(tool,parameters=params)
+        return (Tool('recruit',self._recruit,parameters=parameters,content_parameters=('kind',)),forms(Tool('move',self._move,description='移动本国单支军队 aid 至目标格：place 给地名或 "x y" 坐标串，或两个整数 x、y。纯移动不占地。新兵、已移动或交战部队不能普通移动；与异地进攻和撤退共用额度。敌国领土须 attack，路线按地形与兵种速度校验。')),forms(Tool('attack',self._attack,description='本国军队整数 ids 数组向目标格进攻（place 给地名或 "x y"，或两个整数 x、y）；均须能抵达且有额度。无敌军可直接占领，有守军进入交战并等待结算；不能把提交当战果。他国须已生效战争。新兵不能进攻，原地进攻可保留移动额度。')),
+                forms(Tool('retreat',self._retreat,description='交战部队 aid 退往相邻合法格（place 给地名或 "x y"，或两个整数 x、y），与移动共用额度。提交后仍在原地参加本期战斗，结算后才撤离；撤退降低输出，防守撤退有承伤减免。')),Tool('disband',self._disband,parameters={'type':'object','properties':{'aid':{'type':'integer','minimum':1},'ids':{'type':'array','items':{'type':'integer','minimum':1},'minItems':1,'uniqueItems':True}},'oneOf':[{'required':['aid'],'not':{'required':['ids']}},{'required':['ids'],'not':{'required':['aid']}}],'additionalProperties':False},description='免费遣散本国军队，aid 单支或 ids 数组批量（二选一）；交战中不可遣散。立即停止维持并释放编制，不返还粮食、装备或金币。'),
                 Tool('army',lambda w,a:w.military.visible_units(a),read_only=True,description='一次列出本国及视野内军队：国家、整数编号、兵种、位置、数量和行动/交战/撤退状态；无需坐标。军队编号各国独立。'),Tool('reachable',self._reachable,read_only=True,description='按本国军队 aid 列出可见合法移动目的地和路径代价；attack=true 列攻击可达地。只接军队编号，无需目标坐标，不透露迷雾路径。'),
                 Tool('unit_catalog',self._catalog,read_only=True,description='全部兵种目录：征召材料、数量上限、攻击、速度、地形移动代价与补给；应用本国政策，无需坐标。'),
                 Tool('threats',self._threats,read_only=True,description='全视野内其他国家的军队和当前关系，排除本国与野人；无需坐标。'),
                 Tool('battle',self._battle,read_only=True,description='当前全部可见或本国参与交战：各方兵种/逐支数量、输出基数、地形/城堡减伤与撤退。盲战仅列本国，不泄露敌军；不是按目标预测战果。'),
-                Tool('tile',self._tile,read_only=True,description='唯一按坐标查询的工具：查看可见单格详情（含地名）。本国及物化无主遗址显示资源、容量、施工与建筑；他国仅显示地形、归属、公开城堡和市政厅及可见军队。迷雾不可查。'))
+                forms(Tool('tile',self._tile,read_only=True,description='唯一按单格查询的工具：place 给地名或 "x y"，或两个整数 x、y；返回可见单格详情（含地名）。本国及物化无主遗址显示资源、容量、施工与建筑；他国仅显示地形、归属、公开城堡和市政厅及可见军队。迷雾不可查。')))
     def schema_for_actor(self, world, actor, schema):
         result=deepcopy(schema)
         if result['function']['name']=='recruit':
             result['function']['parameters']['properties']['kind']['enum']=list(world.units.type_ids)
-            result['function']['description']='在本国坐标 x/y 征召，直接返回实际扣款和军队编号。新兵本回合不能行动；兵营与能源门槛查规则，各兵种的征召材料、上限和速度查 unit_catalog。'
+            result['function']['description']='在本国地块征召（site 传地名或 "x y" 坐标串，或传两个整数 x、y），直接返回实际扣款和军队编号。新兵本回合不能行动；兵营与能源门槛查规则，各兵种的征召材料、上限和速度查 unit_catalog。'
         return result
     @staticmethod
     def _recruit(world, actor, site: str | None=None, kind: str='native:infantry', count: int=1, x: int | None=None, y: int | None=None):
         site=world.runtime.object_call(world,'native:buildings','resolve_site',actor,site,x,y)
         return world.military.recruit(actor,site,kind,count,energy_short=world.military.grid_short(actor))
     @staticmethod
-    def _move(world, actor, aid: int, x: int, y: int):return world.military.move(actor,aid,x,y)
+    def _where(world, place, x, y):
+        # 地块引用统一入口：地名或 "x y" 坐标串，或者直接给两个整数 x、y。
+        # 两条路等价（玩家面向坐标从 0 开始）；同时给两种就报错，免得猜错意图。
+        if place is None:
+            if x is None or y is None:raise ValueError('给 place（地名或 "x y"），或者两个整数 x、y')
+            return int(x),int(y)
+        if x is not None or y is not None:raise ValueError('place 与 x、y 只能选一种')
+        return world.runtime.object_call(world,'native:territory','resolve',place)
+
     @staticmethod
-    def _attack(world, actor, ids: list[int], x: int, y: int):return world.military.attack(actor,ids,x,y)
+    def _move(world, actor, aid: int, x: int | None=None, y: int | None=None, place: str | None=None):
+        x,y=ArmyMod._where(world,place,x,y)
+        return world.military.move(actor,aid,x,y)
     @staticmethod
-    def _retreat(world, actor, aid: int, x: int, y: int):return world.military.retreat(actor,aid,x,y)
+    def _attack(world, actor, ids: list[int], x: int | None=None, y: int | None=None, place: str | None=None):
+        x,y=ArmyMod._where(world,place,x,y)
+        return world.military.attack(actor,ids,x,y)
+    @staticmethod
+    def _retreat(world, actor, aid: int, x: int | None=None, y: int | None=None, place: str | None=None):
+        x,y=ArmyMod._where(world,place,x,y)
+        return world.military.retreat(actor,aid,x,y)
     @staticmethod
     def _disband(world, actor, aid: int | None=None, ids: list[int] | None=None):
         if (aid is None)==(ids is None):raise ValueError('aid 与 ids 二选一')
@@ -113,8 +136,9 @@ class ArmyMod(GameMod):
         return result
 
     @staticmethod
-    def _tile(world, actor, x: int, y: int):
+    def _tile(world, actor, x: int | None=None, y: int | None=None, place: str | None=None):
         call=lambda cap,method,*args:world.runtime.object_call(world,cap,method,*args)
+        x,y=ArmyMod._where(world,place,x,y)
         call('native:territory','check',x,y)
         if not call('native:vision','visible',actor,x,y):raise ValueError('该格在迷雾中，无法查询')
         fact=call('native:territory','cell',x,y)
