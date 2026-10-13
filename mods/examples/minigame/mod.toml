@@ -24,3 +24,6 @@ Id = "cycle.end"
 [Distribution.Session]
 Entry = "mods.examples.minigame.session:MiniSession"
 Observer = { Capability = "mini:intelligence", Records = "to_save", Announce = "announce", Send = "send" }
+
+[Distribution.Configuration]
+Entry = "mods.examples.minigame.config:normalize"

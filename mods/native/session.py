@@ -1,8 +1,5 @@
 """Native distribution scenario and administrative APIs. No host game rules."""
-from copy import deepcopy
-import hashlib
 import random
-from engine.identifiers import content_id
 from engine.player import wire
 from engine.session import SaveFormatError
 from engine.scenario import GridSession
@@ -10,33 +7,7 @@ from engine.scenario import GridSession
 START_RES={'native:gold':1500,'native:food':20,'native:wood':60,'native:ore':10,
            'native:oil':0,'native:equipment':5,'native:supply':10}
 
-def nation_id(item):
-    ident=item.get('id')
-    if ident is None:ident='scenario:nation-'+hashlib.sha256(item['name'].encode()).hexdigest()[:12]
-    return content_id(ident)
-
-
-def normalize_config(cfg):
-    cfg=deepcopy(cfg)
-    if not isinstance(cfg.get('nations'),list) or not cfg['nations']:raise ValueError('nations must be a nonempty list')
-    ids=set();names=set()
-    for item in cfg['nations']:
-        if not isinstance(item,dict) or not isinstance(item.get('name'),str) or not item['name'].strip():raise ValueError('Nation requires a display name')
-        item['id']=nation_id(item)
-        if item['id'] in ids or item['name'] in names:raise ValueError('Duplicate configured nation')
-        ids.add(item['id']);names.add(item['name'])
-        kind=item.get('client') or ('llm' if item.get('api_key') else 'rule')
-        item['client']=kind
-        # Context settings and transport defaults are inherited without storing
-        # credentials in the session save.
-        for key,value in cfg.items():
-            if key.startswith('ctx_') or key in ('rule_ai','provider','max_steps','parliament','language','ui_catalog','vision','map_max_px','map_estimated_tokens','ui_mods'):
-                item.setdefault(key,value)
-    return cfg
-
-
 class NativeSession(GridSession):
-    def normalize(self,cfg):return normalize_config(cfg)
     def entries(self):return self.cfg['nations']
     def identities(self):return tuple(n.id for n in self.world.nations.snapshot())
     def configure(self):

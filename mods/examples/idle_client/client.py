@@ -1,7 +1,6 @@
 """提供一个客户端。
 
-`host.normalize_config` 只接受 `client = "llm"` 与 `client = "rule"` 两种取值。
-换实现的途径是在发行版里声明客户端工厂，覆盖其中一种：
+发行版通过客户端工厂声明自有类型，也可以覆盖已有类型：
 
     [Distribution.ClientFactories.llm]
     Entry = "包.模块:类名"

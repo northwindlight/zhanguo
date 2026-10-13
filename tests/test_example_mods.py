@@ -2,6 +2,7 @@
 
 全部使用合成配置与临时存档，不读写真实对局存档。
 """
+from copy import deepcopy
 import json
 import tempfile
 import tomllib
@@ -274,7 +275,10 @@ class TestMinigame(unittest.TestCase):
     def test_own_ids_arrival_and_failed_client_assembly_are_transactional(self):
         host,cfg=self.host([{'id':'mini:alpha','name':'甲','client':'mini'},
                            {'id':'mini:beta','name':'乙','client':'mini','appearance':'manual'},
-                           {'id':'mini:broken','name':'丙','client':'missing','appearance':'manual'}])
+                           {'id':'mini:broken','name':'丙','client':'mini','appearance':'manual'}])
+        invalid=deepcopy(cfg);invalid['nations'][-1]['client']='missing'
+        with self.assertRaises(ValueError):GameHost.prepare(invalid)
+        host.cfg['nations'][-1]['client']='missing'
         player=host.player('mini:alpha');before=host.to_save()
         with self.assertRaises(ValueError):host.add('丙')
         self.assertEqual(host.to_save(),before)

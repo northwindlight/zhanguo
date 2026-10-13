@@ -1,5 +1,9 @@
 # 更新记录
 
+## 未发布
+
+- experimental 0.4.0-beta.1 为规则 AI 启用研究用战斗概率推演，私有注入、不注册为 LLM / 脚本工具。移植 rl-tactics 的 DP 和可选 C 扩展，对齐当前余伤转移、实际 HP 损失和深度限额；预算截断显式保留未决质量。native 保持原实现。
+
 ## 0.2.1 — 2026-10-13
 
 独立 UI Mod 接通 LLM 与终端展示，native 和 experimental 均显式装配。experimental 在 native 基础上替换政权，加入议会审核与君主交替。

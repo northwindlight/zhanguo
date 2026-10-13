@@ -7,10 +7,10 @@ from pathlib import Path
 import queue
 import sys
 
-import ctx
 from console import Console
 from host import GameHost
 from ui import load_ui
+from engine.config import read_config
 
 CONSOLE=None
 
@@ -159,19 +159,23 @@ def run(argv=None):
     parser.add_argument('--language',help='UI language, e.g. zh-CN or en-US')
     parser.add_argument('--small-ctx',action='store_true');parser.add_argument('--ctx-window',type=int)
     args=parser.parse_args(argv)
-    cfg=json.loads(Path(args.config).read_text(encoding='utf-8'));ctx.apply_defaults(cfg)
-    if args.language:
-        cfg['language']=args.language
-        for item in cfg['nations']:item['language']=args.language
-    ui=load_ui(cfg)
-    for item in cfg['nations']:
-        if args.small_ctx:item['ctx_window']=262144
-        if args.ctx_window:item['ctx_window']=args.ctx_window
-    save_path=Path(args.save or cfg.get('save','mp_save.json'))
-    journal_path=Path(cfg.get('journal','mp_journal.md'))
-    try:host,new=make_world(cfg,args.new,save_path)
+    overrides={}
+    if args.language is not None:overrides['language']=args.language
+    if args.small_ctx:overrides['ctx_window']=262144
+    if args.ctx_window is not None:overrides['ctx_window']=args.ctx_window
+    if args.save is not None:overrides['save']=args.save
+    if args.turns is not None:overrides['max_turns']=args.turns
+    ui=None
+    try:
+        prepared=GameHost.prepare(read_config(args.config),overrides=overrides)
+        cfg=prepared.data
+        save_path=Path(cfg.get('save','mp_save.json'))
+        journal_path=Path(cfg.get('journal','mp_journal.md'))
+        ui=load_ui(cfg,runtime=prepared.runtime)
+        host,new=make_world(prepared,args.new,save_path)
     except (ValueError,OSError) as exc:
-        print(ui.text('console.start_failed',error=exc),file=sys.stderr);return 2
+        message=ui.text('console.start_failed',error=exc) if ui else f'配置 / 启动失败：{exc}'
+        print(message,file=sys.stderr);return 2
     ui=host.ui
     try:observer=Observer(host,journal_path,resume=not new)
     except (ValueError,OSError) as exc:
@@ -186,8 +190,7 @@ def run(argv=None):
     observer.line(ui.text('console.new' if new else 'console.resume'))
     observer.line(ui.text('console.banner'))
     observer.events()
-    stop=args.turns if args.turns is not None else cfg.get('max_turns',200)
-    if type(stop) is not int or stop<0:raise ValueError('turns must be nonnegative')
+    stop=cfg.get('max_turns',200)
     try:
         while host.clock()<stop:
             if not _commands(host,observer):break

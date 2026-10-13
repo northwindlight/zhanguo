@@ -30,6 +30,16 @@ def reply(*calls,reasoning=''):
     return {'content':'','reasoning_content':reasoning,'tool_calls':list(calls)}
 
 
+def start_with_plan(host,actor):
+    """Establish a real first plan before exercising revision-only behavior."""
+    player=host.player(actor)
+    for action,args in (('plan',{'text':'INITIAL-BASELINE 按实际库存发展生产'}),
+                        ('end_turn',{'summary':'第一版国策生效，下一期按实际回执修订'})):
+        receipt=player.submit(action,args)
+        if not receipt['ok']:raise AssertionError(receipt)
+    host.cycle()
+
+
 class TestParliament(unittest.TestCase):
     actor='scenario:han'
     def cfg(self):
@@ -37,9 +47,10 @@ class TestParliament(unittest.TestCase):
                 'parliament':{'reviewer':{'model':'synthetic-council','api_key':'review-secret'}},
                 'nations':[{'name':'韩','id':self.actor,'client':'llm','model':'synthetic-monarch',
                             'api_key':'monarch-secret','ctx_full_turns':1,'ctx_compact':'off'}]}
-    def host(self,decisions,responses):
+    def host(self,decisions,responses,*,revision=True):
         h=GameHost.new(self.cfg());c=h.clients[self.actor]
         c._backend=FakeBackend(responses);h.services[self.actor]['council']._review_backend=CouncilBackend(decisions)
+        if revision:start_with_plan(h,self.actor)
         return h,c
     def rejected_turn(self,text):
         return [reply(call('p','plan',text=text),call('e','end_turn',summary='国策尚待解释')),
@@ -71,7 +82,7 @@ class TestParliament(unittest.TestCase):
         self.assertIn('要求君主解释',receipts[0]['message'])
         self.assertEqual(len(h.services[self.actor]['council'].council['dialogue']),5)
         first_dialogue=deepcopy(h.services[self.actor]['council'].council['dialogue'])
-        self.assertIsNone(h.player(self.actor).observe()['facts']['government']['plan'])
+        self.assertIn('INITIAL-BASELINE',h.player(self.actor).observe()['facts']['government']['plan']['text'])
         h.cycle()
         request=h.services[self.actor]['council']._review_backend.requests[2]
         self.assertEqual(request[:len(first_dialogue)],first_dialogue)
@@ -110,7 +121,7 @@ class TestParliament(unittest.TestCase):
         self.assertEqual(len(h.services[self.actor]['council'].council['dialogue']),13) # Survives even succession.
         gov=h.player(self.actor).observe()['facts']['government']
         self.assertEqual(gov['parliament']['reign'],2);self.assertIsNone(gov['plan'])
-        self.assertEqual([s['period'] for s in gov['summaries']],[2])
+        self.assertEqual([s['period'] for s in gov['summaries']],[3])
         self.assertTrue(any('罢免' in text for text in events))
         assert_paired(c.state.replay[0]['messages'])
 
@@ -125,7 +136,7 @@ class TestParliament(unittest.TestCase):
         self.assertEqual(c.state.long_memory,'')
 
     def test_full_archive_survives_monarch_replay_compression(self):
-        h,c=self.host([True]*7,[reply(call('p'+str(i),'plan',text='发展经济'+str(i)),call('e'+str(i),'end_turn',summary='完成本回合经营'+str(i))) for i in range(7)])
+        h,c=self.host([True]*6,[reply(call('p'+str(i),'plan',text='发展经济'+str(i)),call('e'+str(i),'end_turn',summary='完成本回合经营'+str(i))) for i in range(7)],revision=False)
         for _ in range(7):h.cycle()
         self.assertLess(len(c.state.replay),7)
         actions=[r for r in h.services[self.actor]['council'].council['archive'] if r['kind']=='action']
@@ -205,6 +216,55 @@ class TestParliament(unittest.TestCase):
         self.assertEqual(h.services[self.actor]['council']._review_backend.requests[-2][:len(previous)],previous)
         self.assertEqual(h.services[self.actor]['council'].council['dialogue'],[])
         self.assertEqual(h.player(self.actor).observe()['facts']['government']['plan']['text'],'纠正先前事实的新国策')
+
+    def test_first_plan_is_effective_without_creating_or_calling_reviewer(self):
+        h,c=self.host([False],[reply(call('p','plan',text='FIRST-PLAN 工厂已经落成'),
+                                    call('e','end_turn',summary='第一版国策制定完成'))],revision=False)
+        service=h.services[self.actor]['council']
+        def fail():raise AssertionError('The first plan must not invoke a reviewer')
+        service._reviewer=fail
+        results=h.cycle()
+        self.assertTrue(results[0]['ok']);self.assertTrue(results[-1]['ok'])
+        self.assertIn('本国设有议会',results[0]['message'])
+        self.assertIn('从第一次修订起',results[0]['message'])
+        gov=h.player(self.actor).observe()['facts']['government']
+        self.assertEqual(gov['plan']['text'],'FIRST-PLAN 工厂已经落成')
+        self.assertEqual(gov['parliament']['streak'],0)
+        self.assertEqual(service.council['dialogue'],[])
+        self.assertEqual(service.council['usage'],{})
+        self.assertTrue(any(row['kind']=='plan.initial' for row in service.council['archive']))
+
+    def test_initial_exemption_does_not_allow_second_submission_or_invalid_input(self):
+        h,c=self.host([],[],revision=False);p=h.player(self.actor)
+        self.assertFalse(p.submit('plan',{'text':''})['ok'])
+        self.assertIsNone(h.services[self.actor]['council'].council['last_plan'])
+        self.assertTrue(p.submit('plan',{'text':'第一版正常国策'})['ok'])
+        self.assertFalse(p.submit('plan',{'text':'同回合再次提交'})['ok'])
+        self.assertEqual(h.services[self.actor]['council']._review_backend.requests,[])
+
+    def test_first_revision_after_reload_can_be_rejected_and_uses_initial_baseline(self):
+        h,c=self.host([False],[])
+        with TemporaryDirectory() as folder:
+            path=Path(folder)/'first-plan.json';h.save(path)
+            loaded=GameHost.load(path,self.cfg())
+            service=loaded.services[self.actor]['council'];service._review_backend=CouncilBackend([False])
+            receipt=loaded.player(self.actor).submit('plan',{'text':'REVISED-CANDIDATE 工厂已落成'})
+            self.assertFalse(receipt['ok']);self.assertEqual(receipt['data']['streak'],1)
+            self.assertEqual(len(service._review_backend.requests),2)
+            first=json.dumps(service._review_backend.requests[0],ensure_ascii=False)
+            self.assertIn('INITIAL-BASELINE',first)
+            self.assertNotIn('REVISED-CANDIDATE',first)
+            self.assertIn('state_at_submission',first)
+            self.assertTrue(service.council['dialogue'])
+
+    def test_first_plan_exemption_is_per_country(self):
+        cfg=self.cfg();cfg['nations'].append({'name':'秦','id':'scenario:qin','client':'rule'})
+        h=GameHost.new(cfg)
+        for actor in h.actors():
+            service=h.services[actor]['council'];service._review_backend=CouncilBackend([False])
+            self.assertTrue(h.player(actor).submit('plan',{'text':'本国第一版国策'})['ok'])
+            self.assertEqual(service._review_backend.requests,[])
+            self.assertIsNotNone(service.council['last_plan'])
 
 
 if __name__=='__main__':unittest.main()

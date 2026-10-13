@@ -33,6 +33,54 @@ class TestSessionContract(TestCase):
         with patch.object(Intelligence,'announce',42):
             with self.assertRaisesRegex(ModError,'不可调用'):GameHost.new(self.cfg(),runtime=runtime)
 
+    def test_observer_wrong_signatures_fail_during_assembly(self):
+        for binding,method in (('Records','events'),('Records','announce'),
+                               ('Announce','send'),('Send','announce'),('Send','to_save')):
+            with self.subTest(binding=binding,method=method):
+                runtime=Runtime.load('mods.toml')
+                runtime.distribution['Session']['Observer'][binding]=method
+                with self.assertRaisesRegex(ModError,f'Observer.{binding} 参数契约不匹配'):
+                    GameHost.new(self.cfg(),runtime=runtime)
+
+    def test_observer_signature_check_accepts_defaults_without_executing_methods(self):
+        from mods.native.intelligence.objects import Intelligence
+        calls=[]
+        def announce(target,text,extra=None):calls.append(text)
+        def send(target,actor,text,*,extra=None):calls.append((actor,text))
+        with patch.object(Intelligence,'announce',announce),patch.object(Intelligence,'send',send):
+            host=GameHost.new(self.cfg())
+            self.assertEqual(calls,[])
+            host.announce('测试');host.send('probe:left','来信')
+            self.assertEqual(calls,['测试',('probe:left','来信')])
+        def keyword_only(target,*,text):pass
+        with patch.object(Intelligence,'announce',keyword_only):
+            with self.assertRaisesRegex(ModError,'Observer.Announce 参数契约不匹配'):
+                GameHost.new(self.cfg())
+
+    def test_observer_invalid_records_fail_with_contract_error(self):
+        from mods.native.intelligence.objects import Intelligence
+        host=GameHost.new(self.cfg())
+        event={'id':1,'period':0,'kind':'test','text':'测试'}
+        message={'id':1,'sampled':0,'source':'probe:left','target':'probe:right','payload':{}}
+        invalid=[None,[],{}, {'events':{},'messages':[]}, {'events':[],'messages':None},
+                 {'events':[None],'messages':[]}, {'events':[{'id':1}],'messages':[]},
+                 {'events':[{**event,'id':True}],'messages':[]},
+                 {'events':[{**event,'period':-1}],'messages':[]},
+                 {'events':[{**event,'text':42}],'messages':[]},
+                 {'events':[],'messages':[{'id':1}]},
+                 {'events':[],'messages':[{**message,'sampled':'0'}]},
+                 {'events':[],'messages':[{**message,'target':None}]},
+                 {'events':[],'messages':[{**message,'payload':object()}]}]
+        for data in invalid:
+            with self.subTest(data=data),patch.object(Intelligence,'to_save',return_value=data):
+                with self.assertRaisesRegex(ModError,'Session.Observer.Records'):host.records()
+        valid={'events':[event],'messages':[message],'extra':{'allowed':True}}
+        with patch.object(Intelligence,'to_save',return_value=valid):
+            result=host.records()
+            self.assertEqual(result,valid)
+            result['events'][0]['text']='改返回值'
+            self.assertEqual(valid['events'][0]['text'],'测试')
+
     def test_management_is_optional_for_no_map_game(self):
         host,_,_=counter.TestDistributionAPI().host()
         self.assertNotIsInstance(host.session,GridSession)

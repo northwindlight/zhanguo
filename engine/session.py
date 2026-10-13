@@ -6,6 +6,7 @@ scenario hooks; grid-based games can reuse engine.scenario.GridSession.
 """
 from copy import deepcopy
 from importlib import import_module
+import inspect
 import json
 import os
 from pathlib import Path
@@ -32,7 +33,7 @@ def write_json(path,data):
 
 class Session:
     def __init__(self,runtime,cfg,client_factory):
-        self.runtime=runtime;self.cfg=self.normalize(cfg);self.client_factory=client_factory
+        self.runtime=runtime;self.cfg=deepcopy(cfg);self.client_factory=client_factory
         self.world=runtime.world_class()()
         from ui import load_ui
         self.ui=load_ui(self.cfg,runtime=runtime)
@@ -51,7 +52,7 @@ class Session:
         if spec is None:return
         if not isinstance(spec,dict) or not isinstance(spec.get('Capability'),str) or spec['Capability'] not in self.runtime.capabilities:
             raise ModError('Session.Observer 必须引用公共能力')
-        for name in ('Records','Announce','Send'):
+        for name,arity in (('Records',0),('Announce',1),('Send',2)):
             method=spec.get(name)
             if method is not None and (not isinstance(method,str) or not method or method.startswith('_')):
                 raise ModError(f'Session.Observer.{name} 必须是公开方法名')
@@ -60,9 +61,11 @@ class Session:
                 target=self.runtime.units[owner].mod.objects(self.world).get(spec['Capability'])
                 if target is None or not callable(getattr(target,method,None)):
                     raise ModError(f'Session.Observer.{name} 引用不可调用的方法：{spec["Capability"]}.{method}')
+                try:inspect.signature(getattr(target,method)).bind(*([None]*arity))
+                except (TypeError,ValueError) as exc:
+                    raise ModError(f'Session.Observer.{name} 参数契约不匹配：{spec["Capability"]}.{method} 须接受 {arity} 个位置参数') from exc
 
     # 场景策略属于发行版；无地图游戏不需要实现几何钩子。
-    def normalize(self,cfg):raise NotImplementedError
     def entries(self):raise NotImplementedError
     def identities(self):raise NotImplementedError
     def configure(self):raise NotImplementedError
@@ -109,10 +112,29 @@ class Session:
         method=spec.get(name)
         if not method:raise ModError(f'发行版须声明 Session.Observer.{name} 或实现 {caller}()')
         def invoke(*args):
-            with self.lock:return wire(self.runtime.object_call(self.world,spec['Capability'],method,*args))
+            with self.lock:
+                result=self.runtime.object_call(self.world,spec['Capability'],method,*args)
+                try:return wire(result)
+                except (TypeError,ValueError) as exc:
+                    if name!='Records':raise
+                    raise ModError('Session.Observer.Records 返回值必须是有效 JSON 数据') from exc
         return invoke
 
-    def records(self):return self._observer('Records','records')()
+    def records(self):
+        records=self._observer('Records','records')()
+        if not isinstance(records,dict):raise ModError('Session.Observer.Records 必须返回包含 events / messages 的对象')
+        for collection,fields in (('events',{'id':int,'period':int,'kind':str,'text':str}),
+                                  ('messages',{'id':int,'sampled':int,'source':str,'target':str,'payload':object})):
+            rows=records.get(collection)
+            if not isinstance(rows,list):raise ModError(f'Session.Observer.Records.{collection} 必须是列表')
+            for index,row in enumerate(rows):
+                location=f'Session.Observer.Records.{collection}[{index}]'
+                if not isinstance(row,dict):raise ModError(f'{location} 必须是对象')
+                for key,expected in fields.items():
+                    if (key not in row or not isinstance(row[key],expected)
+                        or expected is int and (type(row[key]) is not int or row[key]<(1 if key=='id' else 0))):
+                        raise ModError(f'{location}.{key} 不符合观察者契约')
+        return records
     def announce(self,text):self._observer('Announce','announce')(text)
     def send(self,actor,text):self._observer('Send','send')(actor,text)
 

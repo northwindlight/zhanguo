@@ -57,3 +57,6 @@ docs/archive/*
 结算寄语*.json
 摆烂尸检*.md
 楼烦来投书*.txt
+
+# 本机研究用 CPython 扩展，提交源码与构建入口。
+/mods/experimental/combat_research/*.so

@@ -113,4 +113,4 @@ class ParliamentGovernmentMod(GovernmentMod):
 
     def rule_sections(self,world=None):
         return (*super().rule_sections(world),RuleSection('议会国策审核',
-            '每国每回合只能提交一次国策。议会按旧国策及实际行为审核，再审新版；未通过必须 explain_plan 解释，下回合重提。连续三个回合未通过罢免君主。接任不重置本回合提交次数。'))
+            '每国每回合只能提交一次国策。第一版直接生效，只告知君主存在议会；从第一次修订起，议会按旧国策及实际行为审核，再审新版。未通过必须 explain_plan 解释，下回合重提。连续三个回合未通过罢免君主。续档或接任不恢复第一版豁免，接任不重置本回合提交次数。'))

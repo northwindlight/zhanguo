@@ -127,7 +127,7 @@ class _Budget(Exception):
 
 
 
-def regroup(player,observation,state,armies):
+def regroup(player,observation,state,armies,*,forecast=None):
     cells=targeting.candidates(observation);live={u['id'] for u in armies}
     state.targets={ident:cell for ident,cell in state.targets.items() if ident in live and cell in cells}
     free=[u for u in armies if u['id'] not in state.targets]
@@ -136,7 +136,7 @@ def regroup(player,observation,state,armies):
         candidates=[]
         for cell in near:
             ordered=sorted(armies,key=lambda u:(chebyshev((u['x'],u['y']),cell),u['id']))
-            need,_=combat.needed(player,cell,ordered[:V11_MAX_GROUP])
+            need,_=combat.needed(player,cell,ordered[:V11_MAX_GROUP],forecast=forecast)
             candidates.append(Candidate(cell,need))
         allies,_=targeting.relations(observation)
         knowledge={'view':observation['facts']['view'],'allies':allies,'unit_catalog':player.query('unit_catalog')}

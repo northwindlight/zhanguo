@@ -72,3 +72,9 @@ Id = "cycle.end"
 [Distribution.Session]
 Entry = "mods.native.session:NativeSession"
 Observer = { Capability = "native:intelligence", Records = "to_save", Announce = "announce", Send = "send" }
+
+[Distribution.Configuration]
+Entry = "mods.native.config:normalize"
+
+[Distribution.ClientFactories.rule]
+Configuration = "rule_ai:normalize_config"

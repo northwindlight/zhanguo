@@ -1,27 +1,10 @@
 """Mini owns its scenario, administration and player API assembly."""
-from copy import deepcopy
-import hashlib
-from engine.identifiers import content_id
 from engine.session import SaveFormatError
 from engine.scenario import GridSession
 from .game import GOLD, FOOD, WOOD, PLAIN, TOWN_HALL
 
 
 class MiniSession(GridSession):
-    def normalize(self,cfg):
-        cfg=deepcopy(cfg)
-        if not isinstance(cfg.get('nations'),list) or not cfg['nations']:
-            raise ValueError('Mini requires a nonempty nations list')
-        ids=set();names=set()
-        for item in cfg['nations']:
-            if not isinstance(item,dict) or not isinstance(item.get('name'),str) or not item['name'].strip():
-                raise ValueError('Mini actor requires a display name')
-            item['id']=content_id(item.get('id') or 'mini:actor-'+hashlib.sha256(item['name'].encode()).hexdigest()[:12])
-            if item['id'] in ids or item['name'] in names:raise ValueError('Duplicate mini actor')
-            ids.add(item['id']);names.add(item['name'])
-            item.setdefault('client','mini')
-        return cfg
-
     def entries(self):return self.cfg['nations']
     def identities(self):return tuple(n.id for n in self.world.nations.snapshot())
     def configure(self):self.world.territory.configure(self.cfg.get('map_size',16),self.cfg.get('seed',0))

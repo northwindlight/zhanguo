@@ -176,7 +176,11 @@ class TestSessionHost(unittest.TestCase):
 
     def test_failed_appearance_is_atomic_and_partial_player_actions_cannot_be_saved(self):
         cfg=self.cfg();cfg['nations'].append({'name':'林胡','polity':'huns','appearance':'manual','position':[8,6],'start_cavalry':-1})
+        with self.assertRaises(ValueError):GameHost.prepare(cfg)
+        cfg['nations'][-1]['start_cavalry']=1
         h=GameHost.new(cfg);before=h.to_save()
+        # A runtime fault still rolls back a partially assembled arrival.
+        h.cfg['nations'][-1]['start_cavalry']=-1
         with self.assertRaises(ValueError):h.add('林胡')
         self.assertEqual(h.to_save(),before)
         h.player(Q).submit('plan',{'text':'修改了当前回合'})

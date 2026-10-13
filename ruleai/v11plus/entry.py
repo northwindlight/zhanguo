@@ -21,7 +21,8 @@ class RuleState:
 
 class RuleClient:
     kind='rule';version='v11plus'
-    def __init__(self,state=None):self.state=state or RuleState()
+    plan_text='按当前经济收益建设，维持补给并集中编组扩张'
+    def __init__(self,state=None,*,forecast=None):self.state=state or RuleState();self.forecast=forecast
     def play(self,player,*,max_actions=None,on_action=None,on_result=None):
         if hasattr(player,'action_state'):
             control=player.action_state()
@@ -31,13 +32,13 @@ class RuleClient:
         ledger=Ledger(player,max_actions,on_action,on_result)
         obs=player.observe()
         if not obs['can_act']:return []
-        approved=ledger.do('plan',text='按当前经济收益建设，维持补给并集中编组扩张')
+        approved=ledger.do('plan',text=self.plan_text)
         if hasattr(player,'action_state') and not player.action_state()['active']:return ledger.acts
         if not approved and ledger.acts and ledger.acts[-1]['code']=='plan_not_approved':
             receipt=player.submit('explain_plan',{'text':'已收到议会的事实校核意见，下一回合将按实际回执与库存修订国策'})
             ledger.acts.append(receipt)
             if on_result:on_result('explain_plan',{},receipt)
-        economy.run(ledger);military.run(ledger,self.state)
+        economy.run(ledger);military.run(ledger,self.state,forecast=self.forecast)
         # Ending is a protocol step and is never lost to a strategy action budget.
         receipt=player.submit('end_turn',{'summary':f'本期完成{len(ledger.acts)}项行动，按公共情报继续经营与扩张'})
         if not receipt['ok']:raise RuntimeError(receipt['message'])

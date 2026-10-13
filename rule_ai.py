@@ -18,3 +18,13 @@ def resolve(name=None):
 def create(name=None,state=None):
     resolve(name)
     return RuleClient(RuleState.from_save(state) if state is not None else None)
+
+
+def normalize_config(cfg,*,defaults=None,overrides=None,path='config',runtime=None):
+    from engine.config import Field,Schema
+    result=Schema({'rule_ai':Field((str,),choices=versions()),
+                   'max_actions':Field((int,),minimum=1,nullable=True)}).normalize(
+                       cfg,defaults=defaults,overrides=overrides,path=path)
+    return result
+
+normalize_config.fields=('rule_ai','max_actions')

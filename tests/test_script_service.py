@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from host import GameHost
-from tests.test_parliament import CouncilBackend, FakeBackend, call, reply
+from tests.test_parliament import CouncilBackend, FakeBackend, call, reply, start_with_plan
 
 
 class TestScripts(unittest.TestCase):
@@ -118,12 +118,17 @@ class TestScripts(unittest.TestCase):
         h.clients[self.actor]._backend=FakeBackend([reply(call('s','script_write',source=source),call('r','script_run'))])
         results=h.cycle()
         self.assertTrue(results[-1]['ok'],results)
-        self.assertEqual(len(h.services[self.actor]['council']._review_backend.requests),2)
+        self.assertEqual(len(h.services[self.actor]['council']._review_backend.requests),0)
         self.assertEqual([r['action'] for r in h.audit],['script_write','plan','end_turn','script_run'])
         self.assertEqual(h.clock(),1)
+        h.clients[self.actor]._backend=FakeBackend([reply(call('r2','script_run'))])
+        results=h.cycle()
+        self.assertTrue(results[-1]['ok'],results)
+        self.assertEqual(len(h.services[self.actor]['council']._review_backend.requests),2)
 
     def test_third_rejection_stops_old_script_and_replacement_has_no_extra_attempt(self):
         h,p=self.host(decisions=(False,False,False))
+        start_with_plan(h,self.actor);p=h.player(self.actor)
         for i in range(2):
             self.assertFalse(p.submit('plan',{'text':'需要修正的国策'})['ok'])
             p.submit('explain_plan',{'text':'说明原因，下一期会重新核实并修订'})

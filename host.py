@@ -3,6 +3,7 @@ from importlib import import_module
 import json
 from pathlib import Path
 from engine.runtime import Runtime,ModError
+from engine.config import PreparedConfig,prepare as prepare_config,RUN_SCHEMA
 from engine.session import SaveFormatError,SAVE_FORMAT,write_json
 
 ROOT=Path(__file__).resolve().parent
@@ -24,7 +25,8 @@ def create_client(cfg,record,entry,services):
 
 
 class GameHost:
-    def __init__(self,runtime,cfg):
+    def __init__(self,prepared):
+        runtime,cfg=prepared.runtime,prepared.data
         spec=runtime.distribution.get('Session')
         if not isinstance(spec,dict) or not isinstance(spec.get('Entry'),str):raise ModError('Distribution must declare Session.Entry')
         entry=spec['Entry']
@@ -49,15 +51,25 @@ class GameHost:
     def scenario_text(self,value):self.session.scenario_text=value
 
     @classmethod
-    def new(cls,cfg,*,runtime=None):
+    def prepare(cls,cfg,*,runtime=None,overrides=None):
+        if isinstance(cfg,PreparedConfig):
+            if overrides or runtime is not None and runtime is not cfg.runtime:
+                raise ValueError('Prepared configuration cannot change runtime or overrides')
+            return cfg
+        cfg=RUN_SCHEMA.normalize(cfg,overrides=overrides)
         runtime=runtime or Runtime.load(ROOT/cfg.get('mods','mods.toml'))
-        host=cls(runtime,cfg);host.session.start();return host
+        return prepare_config(cfg,runtime=runtime,overrides=overrides)
+
+    @classmethod
+    def new(cls,cfg,*,runtime=None):
+        prepared=cls.prepare(cfg,runtime=runtime)
+        host=cls(prepared);host.session.start();return host
 
     @classmethod
     def load(cls,path,cfg,*,runtime=None):
-        runtime=runtime or Runtime.load(ROOT/cfg.get('mods','mods.toml'))
+        prepared=cls.prepare(cfg,runtime=runtime)
         data=json.loads(Path(path).read_text(encoding='utf-8'))
-        host=cls(runtime,cfg)
+        host=cls(prepared)
         try:host.session.restore(data)
         except ValueError as exc:raise SaveFormatError(str(exc)) from exc
         return host

@@ -57,10 +57,11 @@ class TestUIMod(unittest.TestCase):
             self.assertEqual(host.to_save(),before)
 
     def test_experimental_monarch_and_reviewer_share_ui_map_and_hide_candidate_in_step_one(self):
-        from tests.test_parliament import TestParliament,CouncilBackend,reply
+        from tests.test_parliament import TestParliament,CouncilBackend,reply,start_with_plan
         from tests.test_player_clients import call
         fixture=TestParliament();cfg=fixture.cfg();cfg['vision']=True
         host=GameHost.new(cfg);client=host.clients[fixture.actor]
+        start_with_plan(host,fixture.actor)
         client._backend=FakeBackend([reply(call('p','plan',text='HIDDEN-CANDIDATE'),call('e','end_turn',summary='完成本期经营行动'))])
         host.services[fixture.actor]['council']._review_backend=CouncilBackend([True]);host.cycle()
         monarch=client._backend.requests[0][-1][ctx.MAP_KEY]['facts']

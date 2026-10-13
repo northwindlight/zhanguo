@@ -1,5 +1,4 @@
 """Distribution-owned API exposure with a game unrelated to native domains."""
-from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -55,7 +54,6 @@ class CounterClient:
 
 
 class CounterSession(Session):
-    def normalize(self,cfg):return deepcopy(cfg)
     def entries(self):return self.cfg['seats']
     def configure(self):pass
     def _positions(self,count):return [None]*count
@@ -193,10 +191,11 @@ class TestDistributionAPI(unittest.TestCase):
 
 
 class TestDirectCouncilAPI(unittest.TestCase):
-    def host(self,decisions,kind='llm'):
+    def host(self,decisions,kind='llm',*,revision=True):
         fixture=parliament.TestParliament();cfg=fixture.cfg();cfg['nations'][0]['client']=kind
         host=GameHost.new(cfg);service=host.services[fixture.actor]['council']
         service._review_backend=parliament.CouncilBackend(decisions)
+        if revision:parliament.start_with_plan(host,fixture.actor)
         return host,host.player(fixture.actor),service
 
     def test_direct_submission_reviews_for_both_llm_and_rule_clients(self):
@@ -212,7 +211,7 @@ class TestDirectCouncilAPI(unittest.TestCase):
     def test_rule_client_obeys_same_review_and_control_changes(self):
         host,player,service=self.host([False]*3,'rule')
         for _ in range(3):host.cycle()
-        self.assertEqual(host.clock(),3)
+        self.assertEqual(host.clock(),4)
         self.assertEqual(host.generations[player.actor],1)
         self.assertEqual(host.clients[player.actor].state.generation,1)
         self.assertFalse(player.action_state()['active'])

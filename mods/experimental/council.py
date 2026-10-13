@@ -9,9 +9,6 @@ from llm_provider import make_backend,REPLAY_KEY
 
 
 DEFAULT_REQUIREMENTS=Path(__file__).with_name('requirements.md').read_text(encoding='utf-8')
-TRANSPORT_KEYS=('provider','base_url','api_key','model','thinking','reasoning_effort',
-                'temperature','max_tokens','api_retries','api_ttft_timeout',
-                'vision','map_max_px','map_estimated_tokens','language','ui_catalog','anthropic_auth','anthropic_beta','anthropic_cache_control','anthropic_thinking_budget')
 
 
 def encode(value):return json.dumps(value,ensure_ascii=False,sort_keys=True,allow_nan=False)
@@ -27,10 +24,12 @@ class CouncilService:
         self._government=services['government'];self._review_backend=review_backend
         settings=cfg.get('parliament',{})
         if not isinstance(settings,dict):raise ValueError('parliament settings must be an object')
-        self.review_cfg={key:deepcopy(cfg[key]) for key in TRANSPORT_KEYS if key in cfg}
         reviewer=settings.get('reviewer',{})
         if not isinstance(reviewer,dict):raise ValueError('parliament.reviewer must be an object')
-        self.review_cfg.update(deepcopy(reviewer))
+        from clients.config import normalize
+        self.review_cfg=normalize(reviewer,defaults=cfg)
+        configure=getattr(self.presentation,'configure',None)
+        if configure:self.review_cfg=configure(self.review_cfg,defaults=cfg)
         self.requirements=settings.get('requirements',DEFAULT_REQUIREMENTS)
         if settings.get('requirements_file'):
             self.requirements=Path(settings['requirements_file']).read_text(encoding='utf-8')
@@ -154,6 +153,19 @@ class CouncilService:
         receipt=next_submit()
         if action!='plan' or not receipt['ok']:return receipt
         obs_period=receipt['period']
+        candidate=receipt['data']['text']
+        # The first national plan establishes the baseline, without a model review.
+        # last_plan persists across saves and monarch replacements.
+        if self.council['last_plan'] is None:
+            decision=self._government('decide',True,'第一版国策直接生效；从第一次修订起接受议会审核')
+            decision['message']=self.ui.text('experimental.first_plan')
+            self.council['archive'].append({'kind':'plan.initial','period':obs_period,
+                                           'text':candidate,'decision':deepcopy(decision)})
+            self.council['last_plan']={'text':candidate,'period':obs_period,'approved':True,
+                                       'state_at_submission':deepcopy(self.council['last_snapshot'])}
+            self.council['trace_start']=len(self.council['archive'])
+            return {**receipt,'ok':True,'status':'effective','code':None,
+                    'message':decision['message'],'data':decision}
         dialogue=self.council['dialogue']
         if not dialogue:
             dialogue.append({'role':'system','content':self.requirements+self.ui.text('experimental.council',name=self.cfg.get('name',player.actor))})
@@ -169,7 +181,6 @@ class CouncilService:
         dialogue[-1]['content']+='\n'+current
         if image:dialogue[-1][MAP_KEY]=image
         assessment=self._council_turn(player,dialogue)
-        candidate=receipt['data']['text']
         dialogue.append({'role':'user','content':self.ui.text('experimental.review_second')+encode({'new_plan':candidate,'period':obs_period})})
         verdict_text=self._council_turn(player,dialogue)
         try:verdict=json.loads(verdict_text)

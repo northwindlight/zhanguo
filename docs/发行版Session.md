@@ -4,7 +4,7 @@ host 加载 `Distribution.Session.Entry`，把运行时、外部配置和客户�
 
 ## 示例先看这里
 
-- [native Session](../mods/native/session.py)：标准国家配置、落位、资源和首都、作用域、定时与手动登场、管理接口。
+- [native Session](../mods/native/session.py)：落位、资源和首都、作用域、定时与手动登场、管理接口。
 - [独立 mini Session](../mods/examples/minigame/session.py)：自有 `mini:` 内容与客户端类型，九个领域模块，无 native 领域依赖或占位市场。
 - [experimental 议会服务](../mods/experimental/council.py)：统一处理国策提交、记录证据、裁决与交接，客户端无需知道审核流程。
 - [独立计数游戏验收](../tests/test_session_api.py)：不使用国家、建筑、地图或资源域，也能通过同一 host 开局、行动、结算和存取。
@@ -36,7 +36,6 @@ host.cycle()
 
 | 方法 | 责任与返回值 |
 | --- | --- |
-| `normalize(cfg)` | 返回独立的配置副本；字段、默认客户端和身份生成归发行版 |
 | `entries()` | 返回已规范化条目，公共装配使用 `id / name / client` |
 | `configure()` | 初始化该游戏的场景参数 |
 | `_positions(count)` | 返回 count 个初始位置，值的结构由 `spawn` 定义 |
@@ -77,7 +76,9 @@ host.cycle()
 
 这组 CLI 契约由发行版实现；其他产品入口可调用发行版自己的管理 API。`management()` 列出当前已实现的可选管理接口，继承的占位方法不计入。CLI 在建立观察者之前检查 `add / records / announce / send / board`；缺失时明确拒绝该终端入口，独立 host 的开局、行动与存取不受影响。基类 `board()` 仅在发行版提供 `board_rows()` 时可用。
 
-`Session.Observer` 可将 `Records / Announce / Send` 映射到声明能力的公开方法。装配时检查能力、对象和方法是否真实存在且可调用；拼错方法名直接报 `ModError`，不会延迟到第一次管理操作。可只声明需要的管理能力，也可以覆盖对应 Session 方法。
+`Session.Observer` 可将 `Records / Announce / Send` 映射到声明能力的公开方法。装配时检查能力、对象、可调用性与参数绑定：Records 无参数、Announce 接收正文、Send 接收身份和正文，均按位置调用；额外参数必须有默认值。方法名或签名不匹配直接报 `ModError`，不执行管理方法来探测签名。可只声明需要的管理能力，也可以覆盖对应 Session 方法。
+
+读取 Records 时校验 JSON 返回结构：顶层包含 `events / messages` 两个列表；事件含 `id / period / kind / text`，来信含 `id / sampled / source / target / payload`。ID 为正整数，period / sampled 为非负整数，kind / text / source / target 为字符串，payload 为 JSON 数据。允许额外字段，返回值与领域状态脱离；结构不符时抛出标明字段位置的 `ModError`。
 
 `world` 留给发行版和剧本的可信行政代码，客户端使用 `player(actor)`。
 
@@ -120,3 +121,5 @@ LLM 和规则 AI 按新代次读取交接上下文，`context.reset_memory=true`
 `zhanguo.session/2` 保存模块依赖与状态、客户端状态、服务状态、roster、场景文案、代次、交接上下文和审计。只保存完整周期边界；失败周期不能覆盖最近完整存档。服务清单、身份或依赖不匹配会拒绝加载。
 
 1.0 前不提供旧档承诺、兼容适配或迁移。当前 UI 对事实布局和地图图例的完整抽象、领域语言键体系仍是后续任务，见 [PLAN](../PLAN.md)。
+
+配置准备独立于 Session 生命周期，通过 `Distribution.Configuration.Entry` 组织组件配置；见 [配置层契约](配置层.md)。Session 接收配置副本，不再负责 native / mini 的场景规范化。
