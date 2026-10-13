@@ -1,0 +1,16 @@
+[Mod]
+Id = "native:government"
+Version = "3.0.0-parliament"
+Entry = "mods.experimental.government:ParliamentGovernmentMod"
+Requires = ["native:nations"]
+After = ["native:nations"]
+[State]
+Owns = ["government"]
+[Capabilities]
+Needs = ["native:nation-inspection"]
+Provides = ["native:government"]
+[Interfaces]
+"native:nation-inspection" = ["ids", "get"]
+[Government]
+PlanSpan = 10
+SummaryMin = 4

@@ -16,6 +16,11 @@ mp_config *.json
 #   模板文件单独放行（它里面是"粘贴你的 key"占位，本来就该入库）
 mp_config.*.json
 !mp_config.example.json
+!mp_config.experimental.example.json
+
+# 议会示例配置的独立新局产物
+experimental_session.json
+experimental_journal.md
 
 # 通用
 .DS_Store

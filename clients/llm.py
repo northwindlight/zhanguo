@@ -4,6 +4,7 @@ from dataclasses import dataclass,field
 import json
 from types import SimpleNamespace
 import ctx
+from ui import load_ui
 from llm_provider import make_backend,REPLAY_KEY
 
 
@@ -49,24 +50,35 @@ def assert_paired(messages):
 
 class LLMClient:
     kind='llm';version='1'
-    def __init__(self,cfg,state=None,backend=None):
+    def __init__(self,cfg,state=None,backend=None,ui=None):
         self.cfg=deepcopy(cfg);self.state=state or LLMState();self._backend=backend
+        self.presentation=ui or load_ui(self.cfg)
+        self.ui=self.presentation.llm(self.cfg)
 
     def _provider(self):
         if self._backend is None:self._backend=make_backend(self.cfg)
         return self._backend
 
+    def _request_config(self):
+        return {**self.cfg,'_ui_expand_message':self.presentation.expand_message}
+
     def _system(self,player):
-        # Stable across turns; rules and action schemas belong to the service.
-        return ('你是战国的一国玩家。只用提供的玩家工具行动；内容使用命名空间 ID，坐标从 0 开始。'
-                '玩家状态已按你的权限过滤。player_rules 查询规则，player_state 查询最新事实。'
-                '外交 submitted 仅表示提交，等待后续结算；不要把提交当作条约已生效。'
-                '结束前发布有效国策，再调用 end_turn 并给出行动小结。'
-                +'\n'+str(self.cfg.get('system_prompt') or '')+'\n'+str(self.cfg.get('extra_summary') or ''))
+        return self.ui.system()
 
     def _usage(self,stats):
         for key,value in stats.items():
             if isinstance(value,(int,float)) and not isinstance(value,bool):self.state.usage[key]=self.state.usage.get(key,0)+value
+
+    def _prepare(self,player):pass
+    def _submit(self,player,action,arguments):return player.submit(action,arguments)
+    def _receipt(self,player,action,arguments,receipt):pass
+    def _exchange(self,player,assistant,replies):pass
+    def _after_batch(self,player,messages,emit):return False
+    def _context(self,player,obs,batch,tools):
+        tail,image=self.ui.state(obs,batch['items'])
+        return ctx.build(cfg=self.cfg,mem=self.state.replay,sums=self.state.summaries,blocks=self.state.blocks,
+                         system_text=self._system(player),tail_text=tail,tail_map=image,archive_messages=self.ui.text,
+                         tool_tokens=ctx.est_tokens(json.dumps(tools,ensure_ascii=False)),long_memory=self.state.long_memory)
 
     def _compact(self,player,messages,plan,tools,emit):
         # ctx.slide operates on a client-owned memory store, never the game world.
@@ -75,9 +87,9 @@ class LLMClient:
         if not dropped:return
         text='\n'.join(json.dumps(row,ensure_ascii=False) for row in dropped)
         if plan.compact:
-            prompt=deepcopy(messages)+[{'role':'user','content':'不要调用工具。以旧长期记忆为基础合并下面的历史，保留国策、盟约、待办和教训，返回新的长期记忆。\n旧记忆：'+self.state.long_memory+'\n历史：'+text}]
+            prompt=deepcopy(messages)+[{'role':'user','content':self.ui.text('llm.compact',memory=self.state.long_memory,history=text)}]
             try:
-                summary,stats=self._provider().complete_text(prompt,self.cfg,tools=tools)
+                summary,stats=self._provider().complete_text(prompt,self._request_config(),tools=tools)
                 if not isinstance(summary,str) or not summary.strip():raise ValueError('Empty memory compression')
             except Exception:
                 # Restore records on provider failure; the host will stop the game.
@@ -87,30 +99,27 @@ class LLMClient:
         else:
             summary='\n'.join(row['text'] for row in self.state.summaries if dropped[0]['turn']<=row['turn']<=dropped[-1]['turn'])
         self.state.blocks.append({'from':dropped[0]['turn'],'to':dropped[-1]['turn'],'at':memory.turn,'text':summary})
-        if emit:emit(f'🧠 {player.actor} 归档 {len(dropped)} 回合')
+        if emit:emit(self.ui.text('llm.archived',actor=player.actor,count=len(dropped)))
 
     def play(self,player,*,max_steps=None,emit=None,head=None,on_call=None,on_result=None):
+        self._prepare(player)
         obs=player.observe()
         if not obs['can_act']:return []
-        tools=player.actions();batch=player.events(self.state.event_cursor)
-        tail=json.dumps({'state':obs,'events':batch['items']},ensure_ascii=False,sort_keys=True)
-        if obs['period']<self.cfg.get('joined_at',0)+20 and self.cfg.get('extra_prompt'):tail+='\n【临时背景】'+self.cfg['extra_prompt']
-        messages,plan=ctx.build(cfg=self.cfg,mem=self.state.replay,sums=self.state.summaries,blocks=self.state.blocks,
-                                system_text=self._system(player),tail_text=tail,
-                                tool_tokens=ctx.est_tokens(json.dumps(tools,ensure_ascii=False)),long_memory=self.state.long_memory)
-        if head:head(f'🧠 {player.actor} 上下文 {plan.describe()}')
-        elif emit:emit(f'🧠 {player.actor} 上下文 {plan.describe()}')
+        tools=self.ui.actions(player.actions());batch=player.events(self.state.event_cursor)
+        messages,plan=self._context(player,obs,batch,tools)
+        if head:head(self.ui.text('llm.context',actor=player.actor,plan=self.ui.context_plan(plan)))
+        elif emit:emit(self.ui.text('llm.context',actor=player.actor,plan=self.ui.context_plan(plan)))
         start=len(messages)-1;receipts=[];ended=False
         limit=int(max_steps if max_steps is not None else self.cfg.get('max_steps',28))
         if limit<1:raise ValueError('max_steps must be positive')
         for step in range(limit):
-            msg,stats=self._provider().chat_turn(messages,tools,self.cfg,on_retry=(lambda attempt,error,wait,total:emit(f'⚠ {player.actor} 重试 {attempt}/{total} {error}，等待 {wait}s')) if emit else None)
+            msg,stats=self._provider().chat_turn(messages,tools,self._request_config(),on_retry=(lambda attempt,error,wait,total:emit(self.ui.text('llm.retry',actor=player.actor,attempt=attempt,total=total,error=error,wait=wait))) if emit else None)
             self._usage(stats)
             calls=msg.get('tool_calls') or []
             assistant={key:deepcopy(msg[key]) for key in ('content','reasoning_content','tool_calls',REPLAY_KEY) if key in msg}
             assistant['role']='assistant';messages.append(assistant)
-            if emit and msg.get('content'):emit(f'🗣 {player.actor} {msg["content"]}')
-            if emit and msg.get('reasoning_content'):emit(f'💭 {player.actor} {msg["reasoning_content"]}')
+            if emit and msg.get('content'):emit(self.ui.text('llm.speech',actor=player.actor,text=msg['content']))
+            if emit and msg.get('reasoning_content'):emit(self.ui.text('llm.thinking',actor=player.actor,text=msg['reasoning_content']))
             # Validate the batch before any action, to avoid malformed provider
             # responses leaving executed commands without replay counterparts.
             ids=[call.get('id') for call in calls]
@@ -120,19 +129,26 @@ class LLMClient:
                 try:arguments=json.loads(fn.get('arguments') or '{}')
                 except (ValueError,TypeError):
                     receipt=player.submit(action,[])
-                else:receipt=player.submit(action,arguments)
+                else:receipt=self._submit(player,action,arguments)
                 receipts.append(receipt)
                 messages.append({'role':'tool','tool_call_id':call['id'],'content':json.dumps(receipt,ensure_ascii=False)})
+                self._receipt(player,action,fn.get('arguments'),receipt)
                 if on_result:on_result(action,fn.get('arguments'),receipt)
                 if action=='end_turn' and receipt['ok']:
                     ended=True
                     self.state.summaries.append({'turn':obs['period'],'text':receipt['data']['text']})
             if on_call:on_call(step,receipts)
             assert_paired(messages[start:])
+            self._exchange(player,assistant,messages[-len(calls):] if calls else [])
+            if self._after_batch(player,messages,emit):
+                obs=player.observe();batch=player.events(self.state.event_cursor)
+                messages,plan=self._context(player,obs,batch,tools)
+                start=len(messages)-1;ended=False
+                continue
             if ended:break
-            if not calls:messages.append({'role':'user','content':'请继续使用工具；本轮需要有效国策和 end_turn 才能结束。'})
+            if not calls:messages.append({'role':'user','content':self.ui.text('llm.continue')})
         # No synthetic end_turn: a provider/step failure must not commit a turn.
-        if not ended:raise RuntimeError('LLM 未在步数上限内完成 end_turn；停止本局，保留最近结算边界存档')
+        if not ended:raise RuntimeError(self.ui.text('llm.limit'))
         self.state.replay.append({'turn':obs['period'],'messages':deepcopy(messages[start:])})
         self.state.event_cursor=batch['cursor']
         self._compact(player,messages,plan,tools,emit)

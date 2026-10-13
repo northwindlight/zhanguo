@@ -4,6 +4,8 @@
 
 ## 开局与续局
 
+1.0 之前不承诺旧档兼容，不提供兼容适配或自动迁移；整局按发行版依赖清单严格校验。
+
 ```bash
 cp mp_config.example.json mp_config.json
 # 修改各国 id、client 和 LLM 接入参数；client=rule 可完全离线运行。
@@ -30,12 +32,16 @@ python -m scenarios.eight_nations --seed 20260921
 
 ## 架构与验证
 
+可选[experimental 实验性发行版](mods/experimental/README.md)提供两步国策审核、事实与承诺校核、连续三回合未通过后的君主罢免和记忆重建。使用独立配置 `mp_config.experimental.example.json`；默认发行版仍为 native。
+
 - [统一玩家接口和客户端接线](docs/客户端接线.md)：方法、回执、权限、状态和迁移边界。
-- [Native 领域模块](mods/native/README.md)：18 个模块、56 个模块工具与结算挂点。
+- [Mod 开发指南](docs/Mod开发指南.md)：按任务分条的配方——加资源、加阶段、加兵种、换实现、提供客户端、组装发行版、一个最小可玩游戏；每条配可运行示例与验收测试。
+- [独立 UI Mod](mods/ui/README.md)：LLM 界面编排、语言键和图形地图；native 与 experimental 均装配。
+- [Native 领域模块](mods/native/README.md)：18 个领域模块和独立 UI Mod、56 个模块工具与结算挂点。
 - [模块化口径](模块化口径.md)：领域所有权与依赖方向。
 
 ```bash
 .venv/bin/python -m unittest discover -s tests
 ```
 
-离线回归覆盖引擎、领域、玩家 API、客户端、八国剧本与临时 CLI 整局，使用模拟后端。DeepSeek 两种协议已真实连通；用户已确认 Claude 完成联网、续档和墙钟验证。旧单体测试与历史策略基准保留作档案，不继续维护。新版 LLM 使用结构化状态，旧 PNG 视觉输入未迁移。
+离线回归覆盖引擎、领域、玩家 API、客户端、八国剧本与临时 CLI 整局，使用模拟后端。DeepSeek 两种协议已真实连通；用户已确认 Claude 完成联网、续档和墙钟验证。旧单体测试与历史策略基准保留作档案，不继续维护。新版 LLM 使用结构化状态；独立 [UI Mod](mods/ui/README.md) 编排提示、语言键和玩家可见地图，设置 `vision=true` 可发送 PNG，终端可导出 PNG/SVG。

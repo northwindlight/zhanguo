@@ -1,5 +1,6 @@
 """Game host: scenario assembly, actor scheduling, clients and boundary saves."""
 from copy import deepcopy
+from importlib import import_module
 import hashlib
 import json
 import math
@@ -47,7 +48,7 @@ def normalize_config(cfg):
         # Context settings and transport defaults are inherited without storing
         # credentials in the session save.
         for key,value in cfg.items():
-            if key.startswith('ctx_') or key in ('rule_ai','provider','max_steps'):
+            if key.startswith('ctx_') or key in ('rule_ai','provider','max_steps','parliament','language','ui_catalog','vision','map_max_px','map_estimated_tokens','ui_mods'):
                 item.setdefault(key,value)
     return cfg
 
@@ -71,12 +72,14 @@ class GameHost:
             policy=runtime.find_policy(item.get('polity')) if item.get('polity') else None
             if item.get('polity') and policy is None:raise ValueError('Configured polity module is not loaded')
             item.setdefault('appearance',policy.declaration.get('Policy',{}).get('Appearance','scheduled') if policy else 'initial')
+        from ui import load_ui
+        self.ui=load_ui(self.cfg,runtime=runtime)
         self.clients={};self.roster={};self.lock=threading.RLock();self.last_results=[]
         self.scenario_text='';self._boundary=True
 
     @classmethod
     def new(cls,cfg,*,runtime=None):
-        runtime=runtime or Runtime.load(ROOT/'mods.toml')
+        runtime=runtime or Runtime.load(ROOT/cfg.get('mods','mods.toml'))
         host=cls(runtime,runtime.world_class()(),cfg)
         seed=cfg.get('seed')
         if seed is None:seed=random.SystemRandom().randrange(2**31)
@@ -120,8 +123,20 @@ class GameHost:
         if kind=='rule':
             if record and record['version']!='v11plus':raise SaveFormatError('Retired rule client state')
             return rule_ai.create(item.get('rule_ai'),record['state'] if record else None)
+        extension=self.runtime.distribution.get('ClientFactories',{}).get(kind)
+        if extension:
+            module,name=extension['Entry'].split(':')
+            services={'ui':self.ui}
+            for alias,spec in extension.get('Services',{}).items():
+                def invoke(method,*args,_spec=spec,**kwargs):
+                    if method not in _spec['Methods']:raise ValueError('Unavailable client service')
+                    with self.lock:
+                        self._dirty()
+                        return wire(self.runtime.object_call(self.world,_spec['Capability'],method,item['id'],*args,**kwargs))
+                services[alias]=invoke
+            return getattr(import_module(module),name)(self._client_cfg(item,joined_at),record=record,services=services)
         if record and record['version']!='1':raise SaveFormatError('Unsupported LLM client state')
-        return LLMClient(self._client_cfg(item,joined_at),LLMState.from_save(record['state']) if record else None)
+        return LLMClient(self._client_cfg(item,joined_at),LLMState.from_save(record['state']) if record else None,ui=self.ui)
 
     def _add(self,item,position):
         actor=item['id'];size,_=self.world.territory.dimensions()
@@ -195,14 +210,18 @@ class GameHost:
             else:
                 callback_call=(lambda step,result,a=actor:on_call(a,step,result)) if on_call else None
                 receipts.extend(client.play(player,emit=emit,head=head,on_call=callback_call,on_result=callback))
-        self.world.resolve_turn();self.world.phase='行动';self.last_results=receipts;self._boundary=True
+        self.world.resolve_turn();self.world.phase='行动'
+        for actor in tuple(self.world.nation_actors):
+            settled=getattr(self.clients[actor],'on_settlement',None)
+            if settled:settled(self.player(actor))
+        self.last_results=receipts;self._boundary=True
         return receipts
 
     def to_save(self):
         # Saves are valid only at whole-cycle boundaries: before anyone acted.
         if not self._boundary or self.world.phase!='行动':raise SaveFormatError('Save only at an action boundary')
         period=self.world.government.period()
-        if any(self.world.government.snapshot(a).ended for a in self.world.nation_actors):raise SaveFormatError('Cannot save a partially played cycle')
+        if any(wire(self.world.government.snapshot(a))['ended'] for a in self.world.nation_actors):raise SaveFormatError('Cannot save a partially played cycle')
         return {'format':SAVE_FORMAT,'dependencies':self.runtime.dependency_manifest(),
                 'modules':self.runtime.save_mod_state(self.world),
                 'host':{'roster':deepcopy(self.roster),'scenario_text':self.scenario_text},
@@ -212,7 +231,7 @@ class GameHost:
 
     @classmethod
     def load(cls,path,cfg,*,runtime=None):
-        runtime=runtime or Runtime.load(ROOT/'mods.toml')
+        runtime=runtime or Runtime.load(ROOT/cfg.get('mods','mods.toml'))
         data=json.loads(Path(path).read_text(encoding='utf-8'))
         if not isinstance(data,dict) or set(data)!={'format','dependencies','modules','host','clients'} or data['format']!=SAVE_FORMAT:raise SaveFormatError('旧整局存档格式不兼容；原档保持原样，使用新路径开局')
         try:runtime.check_save_dependencies(data['dependencies'])
@@ -230,9 +249,13 @@ class GameHost:
         host.to_save()  # Also reject non-boundary saves before returning a host.
         return host
 
-    def board(self):
+    def board_rows(self):
         rows=[]
         for actor in self.world.nation_actors:
             obs=self.player(actor).observe();stocks={s['id']:s['amount'] for s in obs['facts']['econ']['stocks']}
-            rows.append(f'{self.world.nations.get(actor).name}：{len(obs["facts"]["land"])} 地，{sum(u["owner"]==actor for u in obs["facts"]["army"])} 军，国库 {stocks.get("native:gold",0)}')
-        return '\n'.join(rows)
+            rows.append({'name':self.roster[actor]['name'],'land':len(obs['facts']['land']),
+                         'army':sum(u['owner']==actor for u in obs['facts']['army']),'gold':stocks.get('native:gold',0)})
+        return rows
+
+    def board(self):
+        return self.ui.console.board(self.board_rows())

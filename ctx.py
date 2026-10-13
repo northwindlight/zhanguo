@@ -131,7 +131,7 @@ REPLAY_KEY = "reasoning_signature"
 
 **它不进 token 预算**：`msg_tokens` 只看 content / reasoning_content / tool_calls。
 """
-MAP_KEY = "_map_snapshot"
+from ui import MAP_KEY  # UI owns the snapshot envelope; preserve ctx.MAP_KEY for callers.
 PRIVATE_MSG_KEYS = (REPLAY_KEY,)
 
 
@@ -289,22 +289,9 @@ class Plan:
                    + (self.replay_tokens or 0) + (self.tail_tokens or 0))
 
     def describe(self) -> str:
-        """给日志用的一行摘要。"""
-        if self.mode == "fixed":
-            head = f"固定窗口{self.fixed_turns}回合"
-        else:
-            head = (f"窗口{_k(self.window)}·预算{_k(self.budget)}"
-                    f"（{self.window and self.budget / self.window * 100:.0f}%）")
-        if self.roll == "period":
-            # 中文里别漏模式名（`period` 是配置键，不是给看海台看的词）
-            head += (f"·每{self.period}回合压缩（config 指定）"
-                     if self.period else
-                     f"·压缩周期自动≈每{self.effective_period or '?'}回合")
-        total = self.total_tokens or 1
-        hit = f"｜可命中前缀≈{self.stable_tokens / total * 100:.0f}%" if self.stable_tokens else ""
-        return (f"{head}｜replay {self.replay_turns}回合{_k(self.replay_tokens)}"
-                f"｜归档{_k(self.archive_tokens)}｜状态{_k(self.tail_tokens)}"
-                f"｜system{_k(self.sys_tokens)}｜合计{_k(total)}{hit}")
+        """Compatibility entry point; the default UI mod formats context stats."""
+        from ui import load_ui
+        return load_ui().llm({}).context_plan(self)
 
 
 def _k(n) -> str:
@@ -440,7 +427,7 @@ ARCHIVE_HEAD = ("【历史归档 · 已滑出完整记录的旧回合（一行=�
 
 
 def render_archive(sums: list[dict], blocks: list[dict], before_turn: int,
-                   cap: int, long_memory: str = "") -> str:
+                   cap: int, long_memory: str = "", messages=None) -> str:
     """渲染第 <before_turn 回合的总结归档；超配额从最旧截断并标注。
 
     long_memory：各国**递归累积的长期记忆**（酒馆式：压缩回合以旧记忆为基础
@@ -448,6 +435,9 @@ def render_archive(sums: list[dict], blocks: list[dict], before_turn: int,
     并承接长程计划/盟约/教训（解决"丢旧回合后变短视"）。
     两次收缩之间 (sums,blocks,before_turn,cap,long_memory) 输入不变 → 输出字节不变。
     """
+    if messages is None:
+        from ui import load_ui
+        messages=load_ui().text
     if before_turn <= 1 and not long_memory:
         return ""
     blocks = [b for b in (blocks or []) if int(b.get("to", 0)) < before_turn]
@@ -460,10 +450,10 @@ def render_archive(sums: list[dict], blocks: list[dict], before_turn: int,
     items: list[tuple[int, str]] = []
     for b in blocks:
         items.append((int(b["from"]),
-                      f"【第{b['from']}-{b['to']}回合 · 阶段总结】\n{str(b.get('text', '')).strip()}"))
+                      messages("archive.block",start=b["from"],end=b["to"],text=str(b.get("text", "")).strip())))
     for s in sums:
         if int(s["turn"]) not in covered:
-            items.append((int(s["turn"]), f"  第{s['turn']}回合：{s['text']}"))
+            items.append((int(s["turn"]), messages("archive.turn",turn=s["turn"],text=s["text"])))
     items.sort(key=lambda x: x[0])
     kept: list[tuple[int, str]] = []
     used = 0
@@ -480,14 +470,12 @@ def render_archive(sums: list[dict], blocks: list[dict], before_turn: int,
     # 是新归档的前缀 → 下滑那一回合归档本身仍可命中（区间行是唯一失效的几行）。
     lines = []
     if long_memory:
-        lines.append("【长期记忆 · 递归累积（压缩时以旧扩写：长程计划/盟约/教训）】\n" + long_memory)
+        lines.append(messages("archive.memory",text=long_memory))
     if blocks or sums:
-        lines.append(ARCHIVE_HEAD)
+        lines.append(messages("archive.head"))
         lines.extend(t for _, t in kept)
-        tail = f"（归档截至第 {before_turn - 1} 回合"
-        if omitted:
-            tail += f"；更早的 {omitted} 条总结因配额已省略"
-        lines.append(tail + "）")
+        omitted_text=messages("archive.omitted",count=omitted) if omitted else ""
+        lines.append(messages("archive.tail",turn=before_turn-1,omitted=omitted_text))
     return "\n".join(lines)
 
 
@@ -604,7 +592,7 @@ def _archive_floor(mem: list[dict], sums: list[dict], blocks: list[dict], last_t
 def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
           system_text: str, tail_text: str, tool_tokens: int = 0,
           fallback_turns: int | None = None, long_memory: str = "",
-          tail_map: dict | None = None) -> tuple[list[dict], Plan]:
+          tail_map: dict | None = None, archive_messages=None) -> tuple[list[dict], Plan]:
     """组装一国本回合的完整上下文，并回填预算/用量统计到 Plan。
 
     两遍选深度：先按归档占满配额估 replay，再按归档实际大小回补——归档通常远小于
@@ -624,7 +612,7 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
         records = list(mem[-plan.fixed_turns:]) if mem else []
         plan.replay_tokens = sum(record_tokens(r) for r in records)
         before = int(records[0]["turn"]) if records else _archive_floor(mem, sums, blocks, last_turn)
-        archive_text = render_archive(sums, blocks, before, plan.archive_cap, long_memory)
+        archive_text = render_archive(sums, blocks, before, plan.archive_cap, long_memory, archive_messages)
         plan.archive_tokens = est_tokens(archive_text)
     else:
         # 预算模式：slide 与 period **共用同一份预算分配**（replay 顶满请求，别让
@@ -643,7 +631,7 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
                                                         plan.min_turns, size_fn=size_fn)
             before = int(records[0]["turn"]) if records else _archive_floor(
                 mem, sums, blocks, last_turn)
-            archive_text = render_archive(sums, blocks, before, plan.archive_cap, long_memory)
+            archive_text = render_archive(sums, blocks, before, plan.archive_cap, long_memory, archive_messages)
             plan.archive_tokens = est_tokens(archive_text)
         if plan.roll == "period" and not plan.period:   # 自动周期 = 余量 ÷ 实测回合体积
             k = min(4, len(mem))

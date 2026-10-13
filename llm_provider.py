@@ -248,29 +248,21 @@ _PRIVATE_MSG_KEYS = (REPLAY_KEY,)
 """
 
 
-def _map_message(message: dict, *, vision=True) -> dict:
+def _map_message(message: dict, *, vision=True, renderer=None) -> dict:
     """发送边界重绘事实快照；内部历史始终只有文字+JSON，绝不落盘 base64。"""
     import ctx
-    payload = message.get(ctx.MAP_KEY)
-    if not payload:
-        return message
-    import render as map_render
-    result = {k:v for k,v in message.items() if k != ctx.MAP_KEY}
-    png = (map_render.render_snapshot(payload["facts"], max_px=payload["max_px"],
-                                    emit=lambda text: print(text, file=sys.stderr)) if vision else None)
-    text = str(message.get("content") or "")
-    if png is None:
-        result["content"] = text + "\n【地图渲染不可用：文本地图】\n" + payload.get("fallback", "")
-    else:
-        result["content"] = [{"type":"text", "text":text}, map_render.data_url(png)]
-    return result
+    if not message.get(ctx.MAP_KEY):return message
+    if renderer is None:
+        from ui import load_ui
+        renderer=load_ui().expand_message
+    return renderer(message,vision=vision)
 
 
-def _public_messages(messages: list[dict], *, vision=True) -> list[dict]:
+def _public_messages(messages: list[dict], *, vision=True, renderer=None) -> list[dict]:
     """只在请求边界展开图片并剥私有字段，不改调用方/历史记录。"""
     out = None
     for i, original in enumerate(messages):
-        m = _map_message(original, vision=vision)
+        m = _map_message(original, vision=vision, renderer=renderer)
         private = any(k in m for k in _PRIVATE_MSG_KEYS)
         if m is not original or private:
             if out is None:
@@ -407,7 +399,7 @@ class OpenAICompat:
             stream = self.client.chat.completions.create(
                 # 摘掉提供方私有键（`reasoning_signature` 是 Anthropic 那一路的东西，
                 # 严格端点收到不认识的 message 字段会 400；本路发的是 OpenAI 形态）。
-                model=cfg["model"], messages=_public_messages(messages, vision=cfg.get("vision", False)),
+                model=cfg["model"], messages=_public_messages(messages, vision=cfg.get("vision", False), renderer=cfg.get("_ui_expand_message")),
                 tools=tools, tool_choice="auto",
                 temperature=cfg.get("temperature", 0.3),
                 # 默认输出上限 16k（2026-09-20 用户口径：「默认改大一点 16k」）。
@@ -525,7 +517,7 @@ class OpenAICompat:
         #   处理」——和 chat_turn 同源，扩展字段不再按端点能力分化）。
         extra = {"thinking": {"type": "disabled"}}
         limit = float(cfg.get("api_timeout", 900))
-        kw: dict = {"model": cfg["model"], "messages": _public_messages(messages, vision=cfg.get("vision", False)),
+        kw: dict = {"model": cfg["model"], "messages": _public_messages(messages, vision=cfg.get("vision", False), renderer=cfg.get("_ui_expand_message")),
                     "max_tokens": int(max_tokens if max_tokens is not None
                                        else cfg.get("ctx_compact_tokens", 1500)),
                     "temperature": 0.3,
@@ -698,7 +690,7 @@ def _anthropic_messages(messages: list[dict], model: str, cfg: dict) -> list[dic
             pending.clear()
 
     for stored in messages:
-        m = _map_message(stored, vision=cfg.get("vision", False))
+        m = _map_message(stored, vision=cfg.get("vision", False), renderer=cfg.get("_ui_expand_message"))
         role = m.get("role")
         if role == "system":
             continue

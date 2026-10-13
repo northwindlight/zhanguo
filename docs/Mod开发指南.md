@@ -1,7 +1,7 @@
 # Mod 开发指南
 
 本指南面向要给战国添加内容或规则的人：先按任务分成若干条配方，每条给出可运行的示例文件；
-后半部分是声明字段与接口的完整参考。
+后半部分是声明字段与接口参考。
 
 示例全部在 `mods/examples/` 下，每条配方对应一个目录，可单独装载运行。
 一次跑完全部配方：
@@ -20,7 +20,7 @@
 | [mods/native/README.md](../mods/native/README.md) | native 发行版的模块清单与现状 |
 
 `模块化口径.md` 与 `对象化口径.md` 写于改造之前，其中引用的 `mods/nativemod/`、
-`mp_ai.py`、`mod.py` 等路径已不存在于代码中；判断当前实现请以本指南与源码为准。
+`mp_ai.py` 等路径已退役；这些文档中的领域所有权与依赖方向仍是设计口径。当前接口与路径以源码和本指南为准，不能用现状中的限制替代设计目标。
 
 ---
 
@@ -53,7 +53,7 @@ mods/examples/hello/
 
 ## 二、配方一：最小 Mod
 
-一个模块最少需要四样：`mixins()`（必填，多数模块返回空元组）、状态、工具、结算阶段。
+模块必须实现 `mixins()`（多数返回空元组）；状态、工具、结算阶段均按职责选用，不是必填。纯内容模块可以只注册内容，UI Mod 可以只注册展示工厂。
 见 [mods/examples/hello/mod.py](../mods/examples/hello/mod.py)。
 
 `mod.toml`：
@@ -158,7 +158,7 @@ class TeaMod(GameMod):
 ```
 
 资源域会枚举内容表里所有 `Resource` 子类，自动为其建立账户、库存、只读接口与存档，
-`mods/native/resources/` 不需要改动。展示名由本地化文件提供，定义里只存键。
+`mods/native/resources/` 不需要改动。定义用 `NAME_KEY` 保留展示名键；模块须另外提供对应语言文案。当前资源注册不会自动装载本地化文件。
 `TRADEABLE = False` 的资源不能上市，账户与存档不受影响。
 
 **注册不等于上市。** 商品清单由市场模块自己的 `[[Listings]]` 声明决定，
@@ -223,9 +223,9 @@ def stages(self):
 | `name` | 阶段 Id，全局唯一 |
 | `handler` | 可调用对象，或**世界上的方法名**（由某个 mixin 提供） |
 | `hook` | 发行版挂点 Id |
-| `needs` | 本阶段消费的条件；条件名必须已被某个阶段 `provides`，且提供者位于更早的挂点 |
+| `needs` | 本阶段消费的条件；条件名必须已被某个阶段 `provides`，且提供者处于同一或更早的挂点；同一挂点内按该条件排顺序 |
 | `provides` | 本阶段发布的条件，全局唯一 |
-| `requires` | 存在的阶段 Id（保证顺序，不发布条件） |
+| `requires` | 声明必须存在的阶段 Id；有挂点时用 `needs` 或 `after` 声明执行依赖，不发布条件 |
 | `after` / `before` | 相对其他阶段的顺序 |
 | `scope` | `'world'`（默认，处理函数收 `(world, context)`）或 `'actor'`（每个参与者收 `(world, actor, context)`） |
 
@@ -496,7 +496,7 @@ Members = [
 2. 每个状态键只有一个所有者；`RequiredState` 里的键都有主。
 3. 每个能力只有一个提供方；所有 `Needs` 都有提供者。
 4. 工具名与别名全局唯一，且不占用玩家 API 的保留名（`player_state`、`player_rules`、`player_events`）。
-5. 阶段名唯一；每个 `hook` 都在挂点表里；`needs` 的条件都有提供者且位置更早。
+5. 阶段名唯一；每个 `hook` 都在挂点表里；`needs` 的条件都有提供者，位于同一或更早挂点，且阶段依赖无环。
 6. `PlayerState` 里每一项都是存在且只读的工具。
 
 以上任何一条不满足，都在 `Runtime.load()` 或世界构造时抛出 `ModError`，
@@ -707,6 +707,8 @@ runtime.permits(world, actor, capability) # 该能力是否被政体禁用
 
 ## 十三、存档与版本
 
+**1.0 之前不承诺旧档兼容，不提供兼容适配或自动迁移。** 存档按当前发行版声明严格核对，环境不符即拒绝装载。
+
 每个模块显式负责自己的存取：
 
 ```python
@@ -824,7 +826,7 @@ runtime.check_save_dependencies(manifest)
 | `action_failed` | 领域逻辑返回了失败状态 |
 | `inactive_actor` | 行动者不存在或已灭亡 |
 
-模块内部的程序错误（`TypeError` 之外的异常）会向宿主传播并停止运行，便于发现缺陷。
+参数绑定与转换错误由 `ToolArgumentError` 转成 `invalid_arguments` 回执；领域的 `ValueError` / `KeyError` 转成拒绝回执。工具内部的 `TypeError` 等未捕获程序错误会向宿主传播并停止运行。
 
 ---
 
@@ -842,6 +844,7 @@ runtime.check_save_dependencies(manifest)
 | `tools()` | 登记工具 | `Tool(...)` 元组 |
 | `schema_for_actor(world, actor, schema)` | 生成玩家动作表时 | 按行动者调整后的 schema（须自行深拷贝） |
 | `panels()` | 登记面板 | `Panel(...)` 元组 |
+| `presentations()` | 登记只读展示接口 | `{接口名: 值或可调用对象}`；UI Mod 注册 `ui:create(cfg)` |
 | `stages()` | 登记结算阶段 | `Stage(...)` 元组 |
 | `initialize_world(world)` | 世界构造完成后一次 | 无 |
 | `configure(declaration, path)` | 装载时 | 覆写后须调用 `super()` |
@@ -853,7 +856,7 @@ runtime.check_save_dependencies(manifest)
 由引擎按约定查找、但不是基类方法的有：`install_presentations(exports)`、
 `finish_world(world)`、`command_actors()`；政体专用的是 §十二 里的三个。
 
-`presentations()` 与 `command_actors()` 目前只有已归档的旧模板在使用。
+`presentations()` 是现役只读展示注册接口；独立 `ui:standard` 通过它注册 `ui:create`，见 [UI Mod](../mods/ui/README.md)。`command_actors()` 是遗留扩展约定。
 
 ---
 

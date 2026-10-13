@@ -1,0 +1,35 @@
+{
+  "mods": "mods.experimental.toml",
+  "map_size": 16,
+  "seed": 20261013,
+  "save": "experimental_session.json",
+  "journal": "experimental_journal.md",
+  "ctx_window": 1000000,
+  "ctx_compact": "llm",
+  "parliament": {
+    "reviewer": {
+      "provider": "openai",
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key": "填写议长接入密钥",
+      "model": "deepseek-v4-flash",
+      "thinking": "enabled",
+      "max_tokens": 16384,
+      "ctx_window": 1000000,
+      "max_steps": 16
+    }
+  },
+  "nations": [
+    {
+      "id": "scenario:han",
+      "name": "韩",
+      "client": "llm",
+      "provider": "openai",
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key": "填写君主接入密钥",
+      "model": "deepseek-v4-flash",
+      "thinking": "enabled",
+      "max_tokens": 16384,
+      "max_steps": 28
+    }
+  ]
+}
