@@ -259,14 +259,31 @@ class TestShortKeys(unittest.TestCase):
                 self.assertTrue(p.submit('plan',{'text':'继续经营'})['ok'])
                 self.assertTrue(p.submit('end_turn',{'summary':'脚本失败后仍完成了本期经营行动'})['ok'])
 
+    def test_model_keys_follow_the_language(self):
+        """键值随语言走：zh 是金/农场，切 en 才变 gold/farm；入口两种都收。"""
+        from clients.llm import LLMClient
+        for language,building,resource in (('zh-CN','农场','粮食'),('en-US','farm','food')):
+            with self.subTest(language=language):
+                cfg={'map_size':12,'seed':17,'language':language,'nations':[{'id':'s:q','name':'秦','client':'llm'}]}
+                h=GameHost.new(cfg);p=h.player('s:q');ui=h.ui.llm(h.cfg)
+                schemas={s['function']['name']:s['function'] for s in ui.actions(p.actions())}
+                self.assertIn(building,schemas['build']['parameters']['properties']['kind']['enum'])
+                stocks=json.loads(ui.state(p.observe(),[])[0])['state']['facts']['econ']['stocks']
+                self.assertIn(resource,stocks)
+                client=LLMClient(h.cfg,ui=h.ui)
+                self.assertTrue(client._submit(p,'sell',{'resource':resource,'quantity':1})['ok'])
+                # 正文里的同一个词不能被当成键值改掉。
+                self.assertEqual(client._submit(p,'plan',{'text':f'{resource}要攒'})['data']['text'],f'{resource}要攒')
+
     def test_model_compaction_preserves_prose_and_raw_api_facts(self):
         h=GameHost.new({'map_size':12,'seed':17,'nations':[{'id':'s:q','name':'秦'}]})
         obs=h.player('s:q').observe();before=deepcopy(obs);ui=h.ui.llm(h.cfg)
         raw=json.dumps({'state':obs,'events':[]},ensure_ascii=False)
         text,_=ui.state(obs,[]);data=json.loads(text)['state']['facts']
         self.assertLess(len(text),len(raw));self.assertEqual(obs,before)
-        self.assertIsInstance(data['econ']['stocks'],dict);self.assertIn('gold',data['econ']['stocks'])
+        # 键值随语言走：zh 下是"金币"，不是 gold。
+        self.assertIsInstance(data['econ']['stocks'],dict);self.assertIn('金币',data['econ']['stocks'])
         self.assertNotIn('/land-',text);self.assertNotIn('native:gold',text);self.assertNotIn('native:infantry',text)
         receipt={'data':{'kind':'native:farm','text':'native:farm','message':'native:gold'}}
         compact=json.loads(ui.receipt(receipt))
-        self.assertEqual(compact['data'],{'kind':'farm','text':'native:farm','message':'native:gold'})
+        self.assertEqual(compact['data'],{'kind':'农场','text':'native:farm','message':'native:gold'})

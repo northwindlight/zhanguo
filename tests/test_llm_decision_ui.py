@@ -54,7 +54,7 @@ class TestDecisionUI(unittest.TestCase):
         latest=backend.requests[1][-1]
         self.assertEqual(latest['role'],'user');self.assertIn('当前状态更新',latest['content'])
         stocks=json.loads(latest['content'].split('：',1)[1])['facts']['econ']['stocks']
-        self.assertEqual(stocks['wood'],62)
+        self.assertEqual(stocks['木材'],62)
         self.assertNotIn('costs_by_level',latest['content'])
         self.assertIn('公开规则',backend.requests[0][0]['content'])
         assert_paired(client.state.replay[0]['messages'])

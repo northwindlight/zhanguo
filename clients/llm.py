@@ -90,8 +90,25 @@ class LLMClient:
     @staticmethod
     def _dialogue(player,messages):
         if hasattr(player,'record_dialogue'):player.record_dialogue(messages)
+    PROSE={'text','summary','note','old','new','source','content','reason','output','inputs'}
+
+    def _arguments(self,arguments):
+        """入口：模型用本地化键值（金/农场/步兵），翻回引擎认的短键。
+
+        正文参数（text/summary/note/…）不碰：里面出现"木"是文章，不是键值。
+        """
+        values=getattr(self.ui,'localized_values',None)
+        if not isinstance(arguments,dict) or values is None:return arguments
+        table=values()
+        def fix(value):
+            if isinstance(value,str):return table.get(value,value)
+            if isinstance(value,list):return [fix(item) for item in value]
+            if isinstance(value,dict):return {k:fix(v) for k,v in value.items()}
+            return value
+        return {key:(value if key in self.PROSE else fix(value)) for key,value in arguments.items()}
+
     def _submit(self,player,action,arguments):
-        if action!='memory_search':return player.submit(action,arguments)
+        if action!='memory_search':return player.submit(action,self._arguments(arguments))
         base={'api':player.api_version,'actor':player.actor,'action':action,'period':player.observe()['period']}
         try:
             if not isinstance(arguments,dict) or set(arguments)-{'query','limit'}:raise ValueError('memory_search 参数为 query 与可选 limit')

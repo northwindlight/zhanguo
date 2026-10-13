@@ -9,14 +9,30 @@ from .views import player_atlas, player_map
 class LLMUI:
     def __init__(self,cfg):self.cfg=cfg;self.text=Translator.from_config(cfg);self.sites={};self.has_scripts=False;self.catalogs={};self.current=None;self.rulebook=[];self.guide_catalog=[];self.period=0;self.at_war=False
 
+    def values(self):
+        """短键 → 本地化键值（金/木/粮/农场/步兵…）。语言一换，模型看到的键值就换。"""
+        if getattr(self,'_values',None) is None:
+            # 英文就是短键本身（键值即英文），其他语言用本地化名字。
+            english=self.text.language.split('-')[0]=='en'
+            self._values={key:(key if english else self.text.resolve('content.'+ident,key))
+                          for ident,key in self.cfg.get('_content_keys',{}).items()}
+        return self._values
+
+    def localized_values(self):
+        """本地化键值 → 短键：入口把模型给的键值翻回引擎认的短键。"""
+        return {value:key for key,value in self.values().items()}
+
     def _key(self,ident):
-        """模型面向的键值：注册内容用它的短键，未注册的命名空间 ID 至少剥掉命名空间。
+        """模型面向的键值：注册内容用本地化键值，未注册的命名空间 ID 剥掉命名空间再查。
 
         国家 ID（scenario:*）不动：那是模型必须原样传回工具的句柄，不是内容键。
         """
         keys=self.cfg.get('_content_keys',{})
-        if ident in keys:return keys[ident]
-        return ident.split(':',1)[1] if ident.startswith('native:') else ident
+        if ident in keys:return self.values()[keys[ident]]
+        if ident.startswith('native:'):
+            key=ident.split(':',1)[1]
+            return self.values().get(key,self.text.resolve('content.'+ident,key))
+        return ident
 
     def compact(self,value):
         """Short coordinate references for model presentation only; preserve prose."""
@@ -60,9 +76,23 @@ class LLMUI:
         self.rulebook=deepcopy(sections)
 
     def actions(self,schemas):
-        # Translate only annotations; names, argument keys, enums and IDs are API.
+        # 工具名、参数名是 API；enum 与描述里提到的内容键值随语言走（zh=金/农场，en=gold/farm）。
         schemas=deepcopy(schemas)
         self.has_scripts=any(s['function']['name']=='script_run' for s in schemas)
+        import re
+        values=self.values()
+        def localize(node):
+            if isinstance(node,dict):
+                for key,value in list(node.items()):
+                    if key=='enum' and isinstance(value,list):
+                        node[key]=[values.get(item,item) for item in value]
+                    else:localize(value)
+            elif isinstance(node,list):
+                for value in node:localize(value)
+        def rewrite(text):
+            for key in sorted(values,key=len,reverse=True):
+                text=re.sub(r'(?<![\w:-])'+re.escape(key)+r'(?![\w:-])',values[key],text)
+            return text
         def annotations(node,path):
             if isinstance(node,dict):
                 for key,value in list(node.items()):
@@ -75,6 +105,8 @@ class LLMUI:
             fn=schema['function'];annotations(fn,'tools.'+fn['name'])
             for ident,key in self.cfg.get('_content_keys',{}).items():
                 fn['description']=fn.get('description','').replace(ident,key)
+            fn['description']=rewrite(fn.get('description',''))
+            localize(fn.get('parameters') or {})
         return schemas
 
     def dashboard(self,observation):

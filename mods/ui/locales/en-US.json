@@ -333,5 +333,6 @@
   "atlas.terrain.native:forest": "f",
   "atlas.terrain.native:hill": "h",
   "atlas.terrain.native:mountain": "m",
-  "atlas.terrain.native:desert": "d"
+  "atlas.terrain.native:desert": "d",
+  "content.native:lumber-camp": "Lumber Camp"
 }
