@@ -21,7 +21,7 @@ FOOD_DEPTH = 1920
 FOOD_BASE = 1.5
 ELASTICITY = 1.0
 FLOW = 0.25
-REFILL = 0.5
+REFILL = 0.0
 SPREAD = 0.10
 
 
@@ -198,31 +198,35 @@ class TestMarket(unittest.TestCase):
         self.assertEqual(world.market.buy('Chu','native:food',5).quantity,5)
         self.assertEqual(dict(world.market.snapshot().inventory)['native:food'],0)
 
-    def test_period_close_drifts_the_reference_refills_and_reprices(self):
+    def test_period_close_drifts_the_reference_and_reprices(self):
         world = self.world()
         world.market.buy('Qin','native:food',1400)
         self.assertEqual(dict(world.market.snapshot().prices)['native:food'],FOOD_BASE)
         closed = world.market.settle()
         self.assertEqual(len(closed),1)
-        # This period's buying raised the reference, the outside world closed
-        # half of the gap to it, and the survivors are priced against it.
+        # This period's buying raised the reference; nothing restocks the
+        # buffer, so the survivors are priced against the tighter scale.
         reference = drift(FOOD_DEPTH,1400)
-        expected = FOOD_DEPTH-1400
-        expected += math.ceil((reference-expected)*REFILL)
+        stock = FOOD_DEPTH-1400
         state = world.market.snapshot()
         self.assertEqual(dict(state.reference)['native:food'],reference)
-        self.assertEqual(dict(state.inventory)['native:food'],expected)
-        self.assertAlmostEqual(dict(state.prices)['native:food'],level(FOOD_BASE,reference,expected))
+        self.assertEqual(dict(state.inventory)['native:food'],stock)
+        self.assertAlmostEqual(dict(state.prices)['native:food'],level(FOOD_BASE,reference,stock))
         self.assertEqual(state.period,1)
         self.assertEqual(world.market.churn('Qin','native:food').quantity,0)
-        # With no further flow the reference stands still and the refill brings
-        # the buffer back to it, so the price comes back to the base price.
-        for _ in range(40):
-            world.market.settle()
+        # With no trades nothing moves at all: no restocking, no drift.
+        for _ in range(5):world.market.settle()
         state = world.market.snapshot()
-        self.assertEqual(dict(state.reference)['native:food'],reference)
-        self.assertEqual(dict(state.inventory)['native:food'],reference)
-        self.assertAlmostEqual(dict(state.prices)['native:food'],FOOD_BASE,places=6)
+        self.assertEqual((dict(state.reference)['native:food'],dict(state.inventory)['native:food']),
+                         (reference,stock))
+        # Selling the same lot back walks both numbers home to the base price.
+        world.resources.credit('Qin','native:food',1400)
+        world.market.sell('Qin','native:food',1400)
+        world.market.settle()
+        state = world.market.snapshot()
+        self.assertEqual(dict(state.inventory)['native:food'],FOOD_DEPTH)
+        self.assertEqual(dict(state.reference)['native:food'],FOOD_DEPTH)
+        self.assertAlmostEqual(dict(state.prices)['native:food'],FOOD_BASE,places=9)
         before = world.runtime.save_mod_state(world)
         with self.assertRaises(ValueError):world.market.restore({'currency':'native:gold'})
         self.assert_unchanged(world,before)
@@ -236,11 +240,14 @@ class TestMarket(unittest.TestCase):
         grown = buying.market.snapshot()
         self.assertEqual(dict(grown.reference)['native:food'],drift(FOOD_DEPTH,FOOD_DEPTH))
         self.assertGreater(dict(grown.reference)['native:food'],FOOD_DEPTH)
-        self.assertGreater(dict(grown.inventory)['native:food'],FOOD_DEPTH*REFILL)
+        # Nothing restocks it: the market stays empty and dear until somebody
+        # sells, and only selling can walk the reference back down.
         for _ in range(40):buying.market.settle()
-        filled = buying.market.snapshot()
-        self.assertEqual(dict(filled.inventory)['native:food'],dict(filled.reference)['native:food'])
-        self.assertAlmostEqual(dict(filled.prices)['native:food'],FOOD_BASE,places=6)
+        drained = buying.market.snapshot()
+        self.assertEqual(dict(drained.inventory)['native:food'],0)
+        self.assertEqual(dict(drained.reference)['native:food'],drift(FOOD_DEPTH,FOOD_DEPTH))
+        self.assertGreater(dict(drained.prices)['native:food'],FOOD_BASE)
+        self.assertTrue(math.isfinite(dict(drained.prices)['native:food']))
         # 大卖：基准被压低，市场认为自己只需要更少的货，超出的部分长期是积压价。
         selling = self.world()
         selling.resources.credit('Qin','native:food',3000)
@@ -349,15 +356,12 @@ class TestMarket(unittest.TestCase):
                 for _ in range(400):extreme.market.settle()
                 price = dict(extreme.market.snapshot().prices)['native:food']
                 # Extreme inventories stay finite, positive and inside the
-                # declared limits, and a sale is always deliverable again.
+                # declared limits, and nothing drifts while nobody trades.
                 self.assertTrue(math.isfinite(price))
                 self.assertGreater(price,0)
                 self.assertLessEqual(price,1000000000.0)
                 self.assertGreaterEqual(dict(extreme.market.snapshot().inventory)['native:food'],0)
-                # The outside world only ever closes a shortage, so a drained
-                # buffer heals back to base while a glut is left to the players.
-                if side == 'buy':self.assertAlmostEqual(price,FOOD_BASE,places=6)
-                else:self.assertAlmostEqual(price,shock,places=6)
+                self.assertAlmostEqual(price,shock,places=9)
 
     def test_distribution_exposes_the_buffer_and_publishes_the_rules(self):
         runtime = Runtime.load(ROOT/'mods.toml')
@@ -367,7 +371,7 @@ class TestMarket(unittest.TestCase):
         self.assertEqual(dict(row.reference)['native:food'],FOOD_DEPTH)
         rules = runtime.rules(world,'市场')
         for phrase in ('同一期内所有国家拿到同一报价','报价与先后手无关','单笔订单越大均价越高',
-                       '基准库存（每期按本期净流量偏移','库存不足整单拒绝'):
+                       '基准库存（每期按本期净流量偏移','库存不足整单拒绝','外部不回补'):
             self.assertIn(phrase,rules)
 
     def test_resource_exchange_validates_all_legs_and_concrete_subclass_rules(self):
@@ -440,11 +444,9 @@ class TestMarket(unittest.TestCase):
         trade = world.market.buy('Qin','native:food',1)
         result = world.resolve_turn()
         self.assertEqual(result['market_trades'],(trade,))
-        # Only the trade moved the buffer; the period then drifted the
-        # reference by that flow and refilled part of the gap to it.
-        reference = drift(FOOD_DEPTH,1)
-        stock = FOOD_DEPTH-1
-        stock += math.ceil((reference-stock)*REFILL)
+        # Only the trade moved the buffer: production delivers nothing, and
+        # nothing restocks the market either.
+        reference, stock = drift(FOOD_DEPTH,1), FOOD_DEPTH-1
         self.assertEqual(dict(world.market.snapshot().inventory)['native:food'],stock)
         self.assertEqual(dict(world.market.snapshot().reference)['native:food'],reference)
         self.assertAlmostEqual(dict(world.market.snapshot().prices)['native:food'],

@@ -5,7 +5,7 @@ Currency = "native:gold"
 [Buffer]
 Elasticity = 1.0
 Flow = 0.25
-Refill = 0.5
+Refill = 0.0
 Spread = 0.10
 MinPrice = 0.000001
 MaxPrice = 1000000000.0

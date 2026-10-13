@@ -1,12 +1,11 @@
 Currency = "native:gold"
 
-# Depth 是名义市场深度：基准库存从这里起步。基准库存每期按净流量偏移 Flow 倍，
-# 报价以它为尺度，外部再按缺口回补 Refill 比例。InitialInventory 是开局缓冲，
-# 属于外部商品，不代表任何国家的产能。
+# Depth 是名义市场深度：基准库存从这里起步，每期按净流量偏移 Flow 倍，报价以它为尺度。
+# Refill=0：外部不再回补，InitialInventory 是市场唯一一次发货，之后库存只由买卖改变。
 [Buffer]
 Elasticity = 1.0
 Flow = 0.25
-Refill = 0.5
+Refill = 0.0
 Spread = 0.10
 MinPrice = 0.000001
 MaxPrice = 1000000000.0

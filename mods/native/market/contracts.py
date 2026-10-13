@@ -35,9 +35,11 @@ class Listing:
 
 @dataclass(frozen=True)
 class BufferPolicy:
-    """Reference stock is what the price is measured against and what the
-    outside world refills towards. It starts at the declared Depth and drifts
-    with the period's net flow, so demand moves the market's own scale."""
+    """Reference stock is the market's own scale: it starts at the declared
+    Depth and drifts with the period's net flow, so demand moves the price
+    yardstick. Refill is how much of the gap to that reference the outside
+    world closes each period; 0 means the opening buffer is the only delivery
+    the market ever receives."""
     elasticity: float
     flow: float
     refill: float
@@ -51,7 +53,7 @@ class BufferPolicy:
         if self.elasticity <= 0:raise ValueError('Invalid price elasticity')
         if not 0 < self.flow <= 1:raise ValueError('Invalid flow coefficient')
         if not 0 <= self.spread < 2:raise ValueError('Invalid spread')
-        if not 0 < self.refill <= 1:raise ValueError('Invalid refill share')
+        if not 0 <= self.refill <= 1:raise ValueError('Invalid refill share')
         if self.low >= self.high:raise ValueError('Invalid price limits')
 
 
