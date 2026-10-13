@@ -44,6 +44,8 @@ def player_atlas(observation, text, key=lambda value:value):
     rows=facts.get('view') or []
     if not rows:return text('map.empty')
     names={row['id']:row['name'] for row in (facts.get('nations') or []) if isinstance(row,dict)}
+    # 自家格子打国名（秦），不用「我」：地图上每个势力都用名字，一眼对齐。
+    us=names.get(actor,actor)
     army={}
     for unit in facts.get('army') or []:
         if unit.get('hp',1)<=0:continue
@@ -53,7 +55,7 @@ def player_atlas(observation, text, key=lambda value:value):
 
     def line(row):
         x,y=row['position'];owner=row['owner']
-        who='我' if owner==actor else text('atlas.unowned') if owner is None else names.get(owner,owner)
+        who=text('atlas.unowned') if owner is None else names.get(owner,owner)
         out=[f'({x},{y}){who}{terrain(row["terrain"])}']
         kinds=dict(row.get('buildings') or ())
         castle=kinds.get('native:castle',0)
@@ -67,7 +69,7 @@ def player_atlas(observation, text, key=lambda value:value):
             for unit in sorted(here,key=lambda u:(0 if u.get('owner')==owner else 1,0 if u.get('owner')==actor else 1,u.get('id',0))):
                 owner_of=unit.get('owner')
                 if owner_of=='野人':tags.append('野人');continue
-                prefix='' if owner_of==owner else '我' if owner_of==actor else names.get(owner_of,owner_of)
+                prefix='' if owner_of==owner else names.get(owner_of,owner_of)
                 tags.append(f"{prefix}{glyph.get(unit.get('kind'),key(unit.get('kind',''))[:1])}{unit.get('id','')}")
             out.append('、'.join(tags))
         return '，'.join(out)
@@ -75,9 +77,9 @@ def player_atlas(observation, text, key=lambda value:value):
     buckets={}
     for row in rows:
         owner=row['owner']
-        buckets.setdefault('我' if owner==actor else '野人' if owner is None else owner,[]).append(row)
-    order=[k for k in ('我','野人') if k in buckets]
-    order+=sorted((k for k in buckets if k not in ('我','野人')))
+        buckets.setdefault(actor if owner==actor else '野人' if owner is None else owner,[]).append(row)
+    order=[k for k in (actor,'野人') if k in buckets]
+    order+=sorted((k for k in buckets if k not in (actor,'野人')))
     parts=[f'【{names.get(k,k)}】\n'+'\n'.join(line(r) for r in sorted(buckets[k],key=lambda r:r['position']))
            for k in order]
     own=sum(1 for row in rows if row['owner']==actor)
