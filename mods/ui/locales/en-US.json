@@ -1,5 +1,5 @@
 {
-  "llm.system": "You are a nation player in Zhanguo. Act only through the supplied player tools. Use namespaced content IDs and zero-based coordinates. State is filtered by your permissions. Consult player_rules for rules and player_state for current facts. A submitted diplomatic request awaits settlement; it is not an effective treaty. Publish a valid plan, then call end_turn with an action summary. Prefer x/y coordinates for site operations, and integer army id for aid/ids. position is [x,y]; stocks maps resource IDs to amounts.",
+  "llm.system": "You are a nation player in Zhanguo. Act only through the supplied player tools. Use namespaced content IDs and zero-based coordinates. State is filtered by your permissions. Consult player_rules for rules and player_state for current facts. A submitted diplomatic request awaits settlement; it is not an effective treaty. Publish a valid plan, then call end_turn with an action summary. Prefer x/y coordinates for site operations, and integer army id for aid/ids. position is [x,y]; stocks maps resource IDs to amounts. view lists one line per tile: x y name terrain owner [buildings…]; \"我\" is yours, \"野\" is unowned; tile gives one tile in full, land gives your own.",
   "llm.background": "Temporary background: {text}",
   "llm.continue": "Continue using tools; this turn requires a valid plan and end_turn.",
   "llm.limit": "LLM did not complete end_turn within the step limit; stopping with the last settled save.",
@@ -326,5 +326,12 @@
   "content.pay": "Pay Reparations",
   "content.demand": "Demand Reparations",
   "receipt.No militia camp at this site": "No militia camp at this site",
-  "receipt.No barracks at this site": "No barracks at this site"
+  "receipt.No barracks at this site": "No barracks at this site",
+  "atlas.unowned": "wild",
+  "atlas.footer": "{own} owned tiles · {seen} visible ({other} foreign)",
+  "atlas.terrain.native:plain": "p",
+  "atlas.terrain.native:forest": "f",
+  "atlas.terrain.native:hill": "h",
+  "atlas.terrain.native:mountain": "m",
+  "atlas.terrain.native:desert": "d"
 }

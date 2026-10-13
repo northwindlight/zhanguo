@@ -31,3 +31,55 @@ def observer_map(state,text=None):
     legend=' '.join(f'{symbols[a]}={names[a]}' for a in owners)
     lines.append(text('console.world_legend',owners=legend))
     return '\n'.join(lines)
+
+
+def player_atlas(observation, text, key=lambda value:value):
+    """坐标地图：视野内逐格一行，**按势力分段**（我 → 无主 → 各国）。
+
+    格式沿用 0.1：`(x,y)归属地形，[L2城][，厅×N][，地名][，番号…]`——番号垫在最后、
+    不加标签（有数字的就是番号）。行自带语义、零解码；分段让"谁的地盘"一眼分块。
+    单格全明细仍走 tile，本国明细仍走 land；网格图走 view 的原样数据。
+    """
+    facts=observation['facts'];actor=observation['actor']
+    rows=facts.get('view') or []
+    if not rows:return text('map.empty')
+    names={row['id']:row['name'] for row in (facts.get('nations') or []) if isinstance(row,dict)}
+    army={}
+    for unit in facts.get('army') or []:
+        if unit.get('hp',1)<=0:continue
+        army.setdefault((unit['x'],unit['y']),[]).append(unit)
+    terrain=lambda value:text.resolve('atlas.terrain.'+value,key(value))
+    glyph={'native:infantry':'步','native:cavalry':'骑','native:militia':'民'}
+
+    def line(row):
+        x,y=row['position'];owner=row['owner']
+        who='我' if owner==actor else text('atlas.unowned') if owner is None else names.get(owner,owner)
+        out=[f'({x},{y}){who}{terrain(row["terrain"])}']
+        kinds=dict(row.get('buildings') or ())
+        castle=kinds.get('native:castle',0)
+        if castle:out.append(f'L{castle}城')
+        halls=kinds.get('native:town-hall',0)
+        if halls:out.append(f'厅×{halls}')
+        if row.get('name'):out.append(row['name'])
+        here=army.get((x,y),())
+        if here:
+            tags=[]
+            for unit in sorted(here,key=lambda u:(0 if u.get('owner')==owner else 1,0 if u.get('owner')==actor else 1,u.get('id',0))):
+                owner_of=unit.get('owner')
+                if owner_of=='野人':tags.append('野人');continue
+                prefix='' if owner_of==owner else '我' if owner_of==actor else names.get(owner_of,owner_of)
+                tags.append(f"{prefix}{glyph.get(unit.get('kind'),key(unit.get('kind',''))[:1])}{unit.get('id','')}")
+            out.append('、'.join(tags))
+        return '，'.join(out)
+
+    buckets={}
+    for row in rows:
+        owner=row['owner']
+        buckets.setdefault('我' if owner==actor else '野人' if owner is None else owner,[]).append(row)
+    order=[k for k in ('我','野人') if k in buckets]
+    order+=sorted((k for k in buckets if k not in ('我','野人')))
+    parts=[f'【{names.get(k,k)}】\n'+'\n'.join(line(r) for r in sorted(buckets[k],key=lambda r:r['position']))
+           for k in order]
+    own=sum(1 for row in rows if row['owner']==actor)
+    parts.append(text('atlas.footer',own=own,seen=len(rows),other=len(rows)-own))
+    return '\n\n'.join(parts)

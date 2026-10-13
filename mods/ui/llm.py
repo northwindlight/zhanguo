@@ -3,7 +3,7 @@ import json
 from copy import deepcopy
 from .i18n import Translator
 from .maps import snapshot,owner_color
-from .views import player_map
+from .views import player_atlas, player_map
 
 
 class LLMUI:
@@ -129,10 +129,15 @@ class LLMUI:
                 'construction':sites.get('construction',[]),
                 'diplomacy_todo':{key:diplomacy[key] for key in ('offers','votes','pending') if diplomacy.get(key)}}
 
+    def atlas_text(self,observation):
+        """模型看到的地图：老版坐标地图格式（按势力分段、逐格一行）。"""
+        return player_atlas(observation,self.text,self._key).split('\n')
+
     def current_state(self,observation):
         facts={key:value for key,value in observation['facts'].items() if key not in ('building_catalog','unit_catalog','terrain_catalog','handbooks')}
         facts=deepcopy(facts)
         if 'government' in facts:facts['government'].pop('summaries',None)
+        if isinstance(facts.get('view'),list):facts['view']=self.atlas_text(observation)
         return {'period':observation['period'],'can_act':observation['can_act'],'facts':facts,'decision':self.dashboard(observation)}
 
     def refresh(self,observation):
@@ -156,6 +161,8 @@ class LLMUI:
         self.catalogs={key:observation['facts'][key] for key in ('building_catalog','unit_catalog','terrain_catalog','handbooks') if key in observation['facts']}
         presented=deepcopy(observation)
         for key in self.catalogs:presented['facts'].pop(key)
+        if isinstance(presented['facts'].get('view'),list):
+            presented['facts']['view']=self.atlas_text(observation)
         government=presented['facts'].get('government',{})
         if 'summaries' in government:government['summaries']=government['summaries'][-2:]
         tail=json.dumps(self.compact({'state':presented,'events':events,'decision':self.dashboard(observation)}),ensure_ascii=False,sort_keys=True,separators=(',',':'))
