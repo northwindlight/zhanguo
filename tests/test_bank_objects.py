@@ -299,7 +299,7 @@ class TestEconomicSystem(unittest.TestCase):
         before=self.save(w)
         with self.assertRaises(KeyError):self.call(w,'building_economics',kind='农场')
         self.assertEqual(self.save(w),before)
-        self.assertEqual(len(w.runtime.schemas()),11)
+        self.assertEqual(len(w.runtime.schemas()),14)
 
     def test_replacement_modules_load_from_real_distribution_members(self):
         source=(ROOT/'mods/economic_system/mod.toml').read_text()

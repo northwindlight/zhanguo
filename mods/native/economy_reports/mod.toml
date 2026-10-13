@@ -4,7 +4,7 @@ ValuationAt = "report-stage"
 
 [Mod]
 Id = "native:economy"
-Version = "1.2.0"
+Version = "1.2.1"
 Entry = "mods.native.economy_reports.mod:EconomyMod"
 Requires = ["native:resources", "native:buildings", "native:market"]
 After = ["native:resources", "native:buildings", "native:market"]

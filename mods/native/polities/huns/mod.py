@@ -8,8 +8,9 @@ class HunsMod(GameMod):
     def provides(self):return ()
     def parameter_overrides(self):return self.declaration['Policy']['Overrides']
     def numbers(self):return {'huns.start.'+key:value for key,value in self.declaration['Start'].items()}
-    def activate_actor(self, world, actor, *, site=None):
-        cfg=self.declaration['Start']
+    def activate_actor(self, world, actor, *, site=None, start=None):
+        cfg={**self.declaration['Start'],**(start or {})}
+        if set(cfg)!=set(self.declaration['Start']) or any(type(v) is not int or v<0 for v in cfg.values()) or cfg['Cavalry']<1:raise ValueError('Invalid policy start parameters')
         tiles=self.runtime.object_call(world,'native:territory','owned',actor)
         if site is None:
             if not tiles:raise ValueError('Establish a territorial site before activating the policy')

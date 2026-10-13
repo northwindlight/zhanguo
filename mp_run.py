@@ -1,520 +1,181 @@
-# -*- coding: utf-8 -*-
-"""多国自动一局编排器（看海模式）。
-
-读配置 → 开新局或续局 → 无人值守：
-  每回合轮流唤醒各国 agent（各国用工具行动）→ 统一结算 → 投信 → 存 journal；
-  每回合结算后自动存档，手动退出（Ctrl-C）不保存——存档永远是回合边界，载入不跳回合。
-
-Observer（你）能看到：每个国家的每个行动、每封信、每场战、每桩外交——**边发生边打**
-（`echo_call`：每次 LLM 调用刷一段，不攒到整国回合结束一次性砸下来，用户 2026-09-20）。
-通知（🧠 上下文计划/下滑/压缩、⚠ 重试、🛑 故障）钉在终端**底部固定状态区**（`panel_note`）；
-两者都**全量落 mp_journal.md**（状态区只是终端的呈现方式，不替代战史）。
-
-用法：
-    python3 mp_run.py                     # 用 mp_config.json，无档则开新局
-    python3 mp_run.py --config x.json     # 指定配置
-    python3 mp_run.py --new               # 强制重开（覆盖存档）
-    python3 mp_run.py --turns 5           # 只跑 5 回合
-    python3 mp_run.py --save x.json       # 覆盖存档路径（默认 mp_save.json）
-    python3 mp_run.py --small-ctx         # 小上下文模式（256k 级模型跑几百回合）
-"""
-
+"""Session host CLI: clients act through PlayerSession, host settles and saves."""
 from __future__ import annotations
-
 import argparse
-import json
-import os
-import queue
-import random
-import signal
-import time
 from functools import partial
+import json
 from pathlib import Path
+import queue
+import sys
 
-import ctx as ctxlib
-import rule_ai as rule_ai_registry
+import ctx
 from console import Console
-from mp import (BANK_RATE_MAX, BANK_RATE_MIN, SaveFormatError, World)
-from mp_ai import dummy_turn, observer_board, observer_map, run_openai_turn
+from host import GameHost
 
-CONSOLE: Console | None = None      # 命令台（run() 里创建；flush 用它回显）
-
-
-def observer(world, out, header: str):
-    """把 world 新增的历史事件刷给看海端（含每封信/每个行动/战报/外交）。"""
-    lines = world.fresh_history()
-    if not lines:
-        return
-    out.append("")
-    out.append(header)
-    for h in lines:
-        who = h.get("nation") or ""
-        tag = {"信件": "✉", "外交": "🕊", "灭国": "☠", "领土": "🏳"}.get(h["phase"], "")
-        if tag and h["text"].startswith(tag):
-            tag = ""  # 文本自带图标，避免 ✉✉/🕊🕊 之类双打
-        out.append(f"  [{h['turn']}·{h['phase']}]{who} {tag} {h['text']}")
+CONSOLE=None
 
 
-def to_journal(path: Path, text: str) -> None:
-    """往 mp_journal.md 追加一行/一段（**原始 markdown**——它是个 .md 文件）。"""
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(text + "\n")
+def to_journal(path,text):
+    path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
+    with path.open('a',encoding='utf-8') as stream:stream.write(text+'\n')
 
 
-def echo_line(text: str) -> None:
-    """只往**终端**回显一段（不碰日志文件）。"""
-    if CONSOLE is not None:
-        CONSOLE.write(text)           # 终端渲染 markdown（粗体/标题/列表）
-    else:
-        print(text, flush=True)
+def echo_line(text):
+    if CONSOLE is not None:CONSOLE.write(text)
+    else:print(text,flush=True)
 
 
-def panel_note(journal_path: Path, text: str, head: bool = False) -> None:
-    """通知行走**底部固定状态区**（用户 2026-09-20：「这些弄个固定位置」）。
-
-    适用对象就是那几行**要即时看**的通知：🧠 上下文计划（`head=True`，常驻第一行）、
-    🧠 下滑/压缩记忆、⚠ 重试/压缩失败、🛑 故障。它们此前混在日志流里滚，一屏战报刷过去
-    就找不着了（而它们恰恰是"现在到底卡在哪一步"的唯一线索）。
-
-    **日志文件照旧全量记**（`to_journal`）——状态区只是终端的呈现方式，不替代战史；
-    不是真终端（管道/重定向，`Console.panel_on` 为假）时**退回日志流**，
-    否则这些行在那条路上就彻底消失了。
-    """
-    to_journal(journal_path, text)
-    if CONSOLE is not None and CONSOLE.panel_on:
-        CONSOLE.set_panel(head=text if head else None, note=None if head else text)
-    else:
-        echo_line(text)
+def panel_note(journal_path,text,head=False):
+    to_journal(journal_path,text)
+    if CONSOLE is not None and CONSOLE.panel_on:CONSOLE.set_panel(head=text if head else None,note=None if head else text)
+    else:echo_line(text)
 
 
-def flush(out, path: Path | None = None, echo: bool = True):
-    text = "\n".join(out)
-    if path is not None and text:
-        to_journal(path, text)
-    if echo and text:
-        echo_line(text)
-    out.clear()
+def make_world(cfg,force_new,save_path):
+    if not force_new and Path(save_path).exists():return GameHost.load(save_path,cfg),False
+    host=GameHost.new(cfg);host.save(save_path);return host,True
 
 
-def echo_call(world, out, journal_path: Path, name: str, step: int) -> None:
-    """**每次 LLM 调用回显一次**（`run_openai_turn` 的 `on_call` 回调，用户 2026-09-20）。
+class Observer:
+    def __init__(self,host,journal_path,*,resume=False):
+        self.host,self.path=host,Path(journal_path)
+        records=host.world.intelligence.to_save()
+        self.event=max([0,*[row['id'] for row in records['events']]]) if resume else 0
+        self.message=max([0,*[row['id'] for row in records['messages']]]) if resume else 0
+        self.pending={};self.results=[]
+    def line(self,text):to_journal(self.path,text);echo_line(text)
+    def notice(self,text,head=False):panel_note(self.path,text,head)
+    def result(self,actor,action,arguments,receipt):
+        self.pending.setdefault(actor,[]).append((action,arguments,receipt))
+        if self.host.clients[actor].kind=='rule':self.flush(actor)
+    def flush(self,actor):
+        for action,args,receipt in self.pending.pop(actor,[]):
+            self.line(f'[{self.host.world.government.period()}·行动] {self.host.roster[actor]["name"]} ◇ {action} {json.dumps(args,ensure_ascii=False)} → {receipt["status"]} {receipt.get("message","")}')
+            # Full detached receipts belong to the journal, brief text to console.
+            to_journal(self.path,'```json\n'+json.dumps(receipt,ensure_ascii=False)+'\n```')
+    def on_call(self,actor,step,receipts):
+        self.line(f'◈ {self.host.roster[actor]["name"]} 第 {step+1} 次调用');self.flush(actor)
+    def events(self):
+        records=self.host.world.intelligence.to_save()
+        for event in records['events']:
+            if event['id']>self.event:self.line(f'[{event["period"]}·{event["kind"]}] {event["text"]}')
+        self.event=max([self.event,*[row['id'] for row in records['events']]])
+        for message in records['messages']:
+            if message['id']>self.message:self.line(f'[{message["sampled"]}·通信] {message["source"]} → {message["target"]} {json.dumps(message["payload"],ensure_ascii=False)}')
+        self.message=max([self.message,*[row['id'] for row in records['messages']]])
 
-    把这轮调用**已经执行完**的动作从世界纪事里刷出来（`[N·行动]秦 ◇ …`、信件、战报、外交），
-    并给这一批加一行 `◈ 秦 第 k 次调用` 的抬头——看海台因此是**一次调用一段**地长出来，
-    而不是等到整国回合结束（实测一次回合 426s、5 次调用）才一次性砸下来。
 
-    动作本身**不另 emit**（纪事块里原样有，重复两遍是噪音——2026-09-19 口径），这里只是
-    把纪事的消费时机从"回合末"提前到"每次调用后"：`observer` 的游标（`fresh_history`）
-    前进一格，回合末那次 observer 只剩尾巴，不会重复打。
-    """
-    observer(world, out, f"◈ {name} 第 {step + 1} 次调用")
-    flush(out, journal_path)
+def _body(text):
+    return Path(text[1:]).read_text(encoding='utf-8') if text.startswith('@') else text
 
 
-def _nation_extra(n: dict) -> str | None:
-    """待加入国的临时注入上下文：取 extra_prompt 字段，或从 extra_prompt_file 读。"""
-    e = n.get("extra_prompt")
-    if not e and n.get("extra_prompt_file"):
+def command(host,line,observer):
+    line=line.strip()
+    if not line:return True
+    first,_,body=line.partition(' ')
+    if first in ('quit','exit','结束','退出'):return False
+    if first in ('add','加入'):
+        actor=host.add(body.strip());observer.line(f'已加入 {host.roster[actor]["name"]}')
+    elif first in ('say','公告'):
+        text=_body(body)
+        if not text.strip():raise ValueError('公告正文不能为空')
+        host.world.intelligence.emit('announcement',text,public=True);observer.line('已向全世界广播')
+    elif first in ('send','寄信'):
+        target,_,text=body.partition(' ')
+        actor=next((a for a,row in host.roster.items() if target in (a,row['name'])),None)
+        if actor not in host.world.nation_actors:raise ValueError('收件国不存在或已经灭亡')
+        text=_body(text)
+        if not text.strip():raise ValueError('信件正文不能为空')
+        host.world.intelligence.emit('observer-letter',text,parties=(actor,));observer.line(f'已寄信 {target}')
+    elif first in ('board','国力'):observer.line(host.board())
+    elif first in ('map','地图'):
+        from clients.view import player_map
+        actor=next((a for a,row in host.roster.items() if body.strip() in (a,row['name'])),None)
+        if actor is None:raise ValueError('用法：map 国名或国家 ID')
+        observer.line(player_map(host.player(actor).observe()))
+    elif first in ('rate','利率'):
+        # Native credit policy owns its settings. No mutable legacy bank table.
+        observer.line('银行利率由发行版的银行模块声明；请修改该模块配置后用于新局')
+    else:raise ValueError('命令：add / send / say / board / map / quit')
+    return True
+
+
+def _multiline(line):
+    return line.strip() in ('say','公告') or line.strip().startswith(('send ','寄信 ')) and len(line.strip().split())==2
+
+
+def _commands(host,observer):
+    while CONSOLE is not None:
+        try:line=CONSOLE.queue.get_nowait()
+        except queue.Empty:return True
+        # Console preserves multiline bodies; the first newline is a separator.
+        line=line.replace('\n',' ',1) if '\n' in line and line.split('\n',1)[0].strip() in ('say','公告') else line
+        if line.startswith(('send ','寄信 ')) and '\n' in line:
+            first,body=line.split('\n',1);line=first+' '+body
         try:
-            e = Path(n["extra_prompt_file"]).read_text(encoding="utf-8")
-        except Exception:
-            e = None
-    return e or None
+            if not command(host,line,observer):return False
+        except (ValueError,OSError) as exc:observer.notice('⚠ '+str(exc))
+    return True
 
 
-def _nation_start(n: dict) -> dict | None:
-    """待加入国定制开局：start_cavalry / start_gold / start_supply。"""
-    s = {}
-    for k, f in (("骑", "start_cavalry"), ("黄金", "start_gold"), ("补给", "start_supply")):
-        if n.get(f) is not None:
-            s[k] = int(n[f])
-    return s or None
-
-
-def standby_schedule(cfg: dict, world: World) -> dict[str, int]:
-    """待登场国（配置里带 polity 的，如匈奴）的登场回合——**每次读配置现算，不存进存档**。
-
-    登场回合 = 由 (seed, 国名) 决定的纯函数：同一 seed + 同一配置永远同一回合，重启续局不变；
-    改配置（改窗口 / 新增待登场国）**立刻生效**，不再被存档里的旧计划挡住。
-    已在局中的国自动排除。
-    """
-    return world.runtime.actor_schedule(world,cfg.get('nations',[]))
-
-
-
-def _nation_summary(n: dict) -> str | None:
-    """20 回合后常驻的小结：取 extra_summary 字段或 extra_summary_file。"""
-    s = n.get("extra_summary")
-    if not s and n.get("extra_summary_file"):
+def _piped(host,text,observer):
+    pending=[]
+    for line in text.splitlines():
+        if pending:
+            if line.strip()!='END':pending.append(line);continue
+            header,*body=pending;line=header+' '+'\n'.join(body);pending=[]
+        elif _multiline(line):pending=[line];continue
         try:
-            s = Path(n["extra_summary_file"]).read_text(encoding="utf-8")
-        except Exception:
-            s = None
-    return s or None
+            if not command(host,line,observer):return False
+        except (ValueError,OSError) as exc:observer.notice('⚠ '+str(exc))
+    if pending:observer.notice('⚠ 多行命令缺少 END，未执行')
+    return True
 
 
-def make_world(cfg, force_new: bool, save_path: Path) -> tuple[World, bool]:
-    if not force_new and save_path.exists():
-        try:
-            return World.load(save_path), False
-        except SaveFormatError as e:
-            # 版本不符＝代码升级后的旧档：不迁移、更**不静默覆盖**——
-            # 直接重开会把老局连档一起冲掉（取证都没了），所以停下来让人决定。
-            print(f"⚠ {e}")
-            print("  （旧存档原样保留：确认可弃后自行删除，或加 --new 强制新开）")
-            raise SystemExit(2)
-        except Exception as e:
-            print(f"读档失败({e})，重开新局")
-    # 带 polity 的条目=待加入国（如匈奴），不作为开局国家；用 `add` 中途加入
-    start_names = World.runtime.initial_actors(cfg["nations"])
-    w = World(size=cfg.get("map_size", 60), seed=cfg.get("seed"), nations=start_names)
-    for item in cfg['nations']:
-        if item['name'] in w.nations and item.get('polity'):
-            w.apply_polity(item['name'],item['polity'],start=item.get('start'))
-    w.save(save_path)
-    return w, True
-
-
-def run() -> None:
-    ap = argparse.ArgumentParser(description="战国（zhanguo）多国 AI 自动一局")
-    ap.add_argument("--config", default="mp_config.json")
-    ap.add_argument("--new", action="store_true", help="强制开新局")
-    ap.add_argument("--turns", type=int, default=None, help="最多跑多少回合")
-    ap.add_argument("--save", default=None)
-    ap.add_argument("--small-ctx", action="store_true",
-                    help="小上下文模式：全部国家按 256k 窗口标定（等价于配置里写 "
-                         "ctx_window=262144）；窗口深度仍由预算动态分配")
-    ap.add_argument("--ctx-window", type=int, default=None,
-                    help="覆盖所有国家的模型上下文窗口（token），如 1000000 / 262144")
-    args = ap.parse_args()
-
-    cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
-    ctxlib.apply_defaults(cfg)          # 顶层 ctx_* 下沉到各国（国家条目优先）
-    if args.small_ctx:
-        for n in cfg["nations"]:
-            n["ctx_window"] = 262144
-    if args.ctx_window:
-        for n in cfg["nations"]:
-            n["ctx_window"] = int(args.ctx_window)
-    save_path = Path(args.save or cfg.get("save", "mp_save.json"))
-    journal_path = Path(cfg.get("journal", "mp_journal.md"))
-    max_turns = args.turns if args.turns is not None else cfg.get("max_turns", 200)
-    # 无 key 国家的代打规则 AI 版本：顶层给全局，`nations[]` 里可逐国覆盖。
-    # 版本名在这里**不落死**；**开局前就把配置验一遍**（写错了别等下到第一个
-    # 无 key 国家、甚至第 N 回合才发现），认不出来即报错并列出可用版本。
-    rule_ai = cfg.get("rule_ai", rule_ai_registry.DEFAULT_RULE_AI)
-    rule_ai_registry.resolve(rule_ai)
-    for _n in cfg["nations"]:
-        if _n.get("rule_ai"):
-            rule_ai_registry.resolve(_n["rule_ai"])
-    world, is_new = make_world(cfg, args.new, save_path)
-    # ★把**本局总回合数**交给世界：规则 AI 的规划窗口 = 它 + 20（用户 2026-09-15：
-    #   「v10 起，不设默认视野，恒等于回合数加 20」）。`make_world` 建 World 时还不知道
-    #   `--turns`（上面几行才算出来），所以在这里补上；读档续局同样会被纠正到**本局**的长度。
-    world.max_turns = int(max_turns)
-    cfg_by_name = {n["name"]: n for n in cfg["nations"]}
-    # 中途加国的 AI 模板：复用第一个配置了 base_url/api_key 的国家（如 arkcoding+glm-5.3）
-    _template = next((n for n in cfg["nations"] if n.get("base_url") and n.get("api_key")), {})
-    rng = random.Random(2026)
-    out: list[str] = []
-
-    def emit(s=""):
-        # ★ **逐行即时刷**（用户 2026-09-20：「每次调用回显一次，而不是全部操作完毕后一次性
-        #   回显」）。此前 `emit` 只往 `out` 里攒、而 flush 只在整国回合结束（与少数回合边界）
-        #   才发生 ⇒ 一国的整段对话（动辄十几分钟）期间看海台一个字都不出，完了才一次性砸下来：
-        #   上下文计划🧠 / 重试⚠ / 故障🛑 这些**正是要即时看**的通知全被憋到回合末。
-        #   动作不走这里（走 `echo_call`，见上），所以这里一行一刷不会碎。
-        out.append(s)
-        flush(out, journal_path)
-
-    # ⚠ 这段必须在 `emit` 定义**之后**（它是 run() 里的嵌套函数；放前面就是
-    #   UnboundLocalError —— 2026-09-19 真栽过：World 层冒烟全绿，./start.sh 一跑就崩）。
-    # 世界央行：**配置开关**（mp_config.json 的 world_bank，默认关）。
-    # ★ 口径（2026-09-19 用户）：「银行**只能在配置文件开、不能关**，可以中途加」⇒
-    #   `on` **只允许 false → true**（配置说 true 就在本局打开，**中途开也行**；
-    #   配置说 false 也不会把已经开着的关掉——一局里边开边关，账目就对不上了）。
-    if bool(cfg.get("world_bank")) and world.bank_enable():
-        emit("（世界央行：本局**已开启**（配置 world_bank=true；开了就不可关闭））")
-
-    # 《基础指南》（原名《开局指南》）：**配置只能关、不能强开**（与央行正好相反，因为这条开关的用途是
-    #   留一条对照臂："有指南 vs 无指南"）。
-    # ★ 为什么必须在**这里**、而不是 `make_world` 里：八国剧本的开局存档是
-    #   `scenarios/eight_nations.py` 自己 `build()` 出来的，`mp_run --new` 只会建一张
-    #   环状随机图——所以"把配置写进新建的 World"这条路对剧本局**根本走不到**，
-    #   写在 make_world 里会让 `opening_guide: false` 被静默忽略。放在这里对
-    #   **新局与读档**一律生效（与 world.max_turns / world_bank 同一条口径）。
-    if cfg.get("opening_guide") is False and world.opening_guide:
-        world.opening_guide = False
-        emit("（基础指南：本局**已关闭**（配置 opening_guide=false））")
-
-    if is_new:
-        emit(f"新开一局 {world.size}x{world.size}（种子 {world.seed}）："
-             + "、".join(world.alive()) + " 各占 5 块十字，四周是野人。")
-        flush(out, journal_path)
-
-    stop = {"flag": False}
-
-    def _sig(sig=None, frm=None):
-        stop["flag"] = True
-        # 手动退出不保存：磁盘存档保持「上一回合结算完」的干净档，载入永不跳回合
-        emit(f"（Ctrl-C：手动退出不保存，进度保留到第 {world.turn} 回合结算；本回合未结算的行动作废）")
-        flush(out, journal_path, echo=True)
-        if CONSOLE is not None:
-            CONSOLE.close()          # 恢复终端（cbreak 模式）
-        os._exit(0)                  # 从输入线程调用也能真正退出
-
-    signal.signal(signal.SIGINT, _sig)
-
-    # 命令台：带提示符的输入行（汉字退格删整字），日志输出自动让开、不打架
+def run(argv=None):
     global CONSOLE
-    # 多行粘贴的**入口谓词**：单独一行 `send 国家`（两段）与单独一行 `公告`/`say`
-    # 都进"攒到 END"的模式 —— 与 `send` 共用同一套 Console 机制。
-    # （用户 2026-09-19：「是 send，send 正确处理了多段文字问题，而 say 没有」——
-    #   漏的就是这个谓词：`say` 从没进过多行模式。）
-    _ML_ALONE = ("say", "公告", "广播", "宣告", "announce")
-    CONSOLE = Console(on_interrupt=_sig,
-                      is_multiline_start=lambda s: (
-                          ((s.startswith("send ") or s in ("寄", "写信", "神秘信"))
-                           and len(s.split()) == 2)
-                          or s.strip() in _ML_ALONE)).start()
-    cmd_queue = CONSOLE.queue
-
-    CONSOLE.write(f"开始看海。存档 {save_path}（每回合结算后自动保存；Ctrl-C 退出不保存），"
-                  f"日志 {journal_path}。")
-    CONSOLE.write("命令：`add 国名 [匈奴]` 中途加国；`send 国家 内容` 寄神秘来信；"
-                  "`公告 正文`（别名 say/广播/宣告）向**全世界**发公告（进各国【近讯】，面板里就看得到）。"
-                  "后两者**都支持多行**：先敲 `send 国家` / `公告` 再粘贴正文、以 END 收尾；"
-                  "或 `send 国家 @文件路径` / `公告 @文件路径` 从文件读。"
-                  "`rate 5` 调息。↑↓ 翻历史，Ctrl-C 退出。")
-    while not stop["flag"]:
-        cmds = []
-        while True:
-            try:
-                cmds.append(cmd_queue.get_nowait())
-            except queue.Empty:
-                break
-        for cmd in cmds:
-            parts = cmd.split(maxsplit=2)  # send 正文可含换行，只拆前两段
-            if parts[0] in ("add", "加", "加入"):
-                if len(parts) < 2:
-                    emit("用法：add 国名 [匈奴]，如 `add 匈奴` / `add 秦`")
-                else:
-                    nm = parts[1]
-                    polity = parts[2] if len(parts) > 2 else (
-                        "huns" if nm in ("匈奴", "huns", "hun")
-                        else cfg_by_name.get(nm, {}).get("polity", ""))
-                    try:
-                        ok, msg = world.add_nation(nm, polity,
-                                                   extra=_nation_extra(cfg_by_name.get(nm, {})),
-                                                   start=_nation_start(cfg_by_name.get(nm, {})),
-                                                   summary=_nation_summary(cfg_by_name.get(nm, {})))
-                        if ok:
-                            # 中途加的国也走 LLM：复用配置模板（可被 config 里预写的同名项覆盖）
-                            cfg_by_name.setdefault(nm, dict(_template))
-                            cfg_by_name[nm]["name"] = nm
-                    except Exception as e:
-                        ok, msg = False, f"加国失败：{type(e).__name__}: {e}"
-                    emit(msg if ok else f"⚠ {msg}")
-            elif parts[0] in ("send", "寄", "写信", "神秘信"):
-                if len(parts) < 3:
-                    emit("用法：send 国家 内容（同行）；或多行先 `send 国家` 粘贴正文以 END 收尾；"
-                         "或 `send 国家 @文件路径` 从文件读全文")
-                else:
-                    try:
-                        to = parts[1]
-                        text = parts[2]  # 多行正文原样保留换行
-                        if text.startswith("@"):
-                            p = Path(text[1:].strip())
-                            text = p.read_text(encoding="utf-8")
-                        ok, msg = world.mystery_letter(to, text)
-                        emit(msg if ok else f"⚠ {msg}")
-                    except Exception as e:
-                        emit(f"⚠ 神秘来信失败：{type(e).__name__}: {e}")
-            elif parts[0] in ("cheat", "作弊", "补助"):
-                if len(parts) < 3:
-                    emit("用法：cheat 国家 骑N 粮N 金N …（骑=骑兵；金/粮/木/矿/油/装/补=资源）")
-                else:
-                    nm = parts[1]
-                    kw = {}
-                    keymap = {"金": "黄金", "粮": "粮食", "木": "木头", "矿": "矿石",
-                              "油": "石油", "装": "装备", "补": "补给"}
-                    for tok in parts[2].split():
-                        if tok.startswith("骑") and tok[1:].isdigit():
-                            kw["骑"] = int(tok[1:])
-                            continue
-                        for k, v in keymap.items():
-                            if tok.startswith(k) and tok[len(k):].isdigit():
-                                kw[v] = int(tok[len(k):])
-                                break
-                    try:
-                        ok, msg = world.cheat(nm, **kw)
-                        emit(msg if ok else f"⚠ {msg}")
-                    except Exception as e:
-                        emit(f"⚠ cheat 失败：{type(e).__name__}: {e}")
-            elif parts[0] in ("rate", "利率", "央行"):
-                if len(parts) < 2:
-                    emit(f"用法：rate 5（=+5%/回合）｜rate -3（=-3%）｜rate 0"
-                         f"｜当前储蓄利率 {world.bank_rate():+.1%}、"
-                         f"贷款利率 {world.bank_loan_rate():+.1%}"
-                         f"（可设区间 {BANK_RATE_MIN:+.0%} ~ {BANK_RATE_MAX:+.0%}）")
-                else:
-                    try:
-                        ok, msg = world.bank_set_rate(float(parts[1].rstrip("%")) / 100)
-                        emit(msg if ok else f"⚠ {msg}")
-                    except ValueError:
-                        emit("⚠ 利率要写百分数，如 rate 5 / rate -3")
-            elif parts[0] in ("say", "公告", "广播", "宣告", "announce"):
-                # **世界公告**：观察者自己开口，全世界都看得到（走 world.broadcast，
-                # 与"按视野过滤"的纪事不同）。这是**通用机制**——跟开不开世界央行无关
-                # （用户 2026-09-19：「直接说公告就行了，因为有的局没有央行」）。
-                # 用途：解释你为什么降息、天下大势、规则变更预告……正文原样广播。
-                # 三档与 `send` 完全一致：同行正文 / **多行先敲 `公告` 再粘正文以 END 收尾** /
-                # `公告 @文件路径` 从文件读全文（多行正文**原样保留换行**）。
-                text = cmd.split(None, 1)[1] if len(parts) > 1 else ""
-                if text.strip().startswith("@"):
-                    try:
-                        text = Path(text.strip()[1:].strip()).read_text(encoding="utf-8")
-                    except OSError as e:
-                        emit(f"⚠ 读不到文件：{type(e).__name__}: {e}")
-                        text = ""
-                if not text.strip():
-                    emit("用法：say 正文 / 公告 正文（**全世界**都看得见，与开不开央行无关）；"
-                         "多行先敲 `公告` 再粘贴正文、以 END 收尾；或 `公告 @文件路径` 从文件读")
-                else:
-                    text = text.strip()
-                    world.broadcast(f"📢 {text}")
-                    emit(f"（已向全世界广播：📢 {text}）")
-            else:
-                emit(f"未知命令：{cmd}（支持 add 国名 [匈奴] / send 国家 内容 / "
-                     f"cheat 国家 骑N 粮N 金N / rate 5 / say(公告) 正文）")
-        if cmds:
-            flush(out, journal_path)
-            continue
-        if len(world.alive()) < 2:
-            emit("只剩一个国家——终局。")
-            flush(out, journal_path)
-            break
-        if world.turn >= max_turns:
-            emit(f"到达回合上限 {max_turns}，结束。")
-            flush(out, journal_path)
-            break
-
-        delivered = world.begin_turn()
-        # 待加入国到点自动登场：登场回合**每次按配置现算**（不存档）——改配置立刻生效，
-        # 新增待登场国也立刻纳入；已在局中的国自动排除，不会重复登场。
-        _added = False
-        for _nm, _at in standby_schedule(cfg, world).items():
-            if world.turn < _at:
-                continue
-            _st = cfg_by_name.get(_nm, {})
-            _ok, _msg = world.add_nation(_nm, _st.get("polity", ""),
-                                         extra=_nation_extra(_st), start=_nation_start(_st),
-                                         summary=_nation_summary(_st))
-            emit(_msg if _ok else f"⚠ 自动登场失败：{_msg}")
-            _added = True
-        if _added:
-            flush(out, journal_path)
-        if delivered:
-            observer(world, out, f"——— 第 {world.turn} 回合 · 投信 {delivered} 封 ———")
-        else:
-            emit(f"——— 第 {world.turn} 回合 ———")
-        flush(out, journal_path)
-        # Observer 大面板：一屏看各国
-        emit(observer_board(world))
-        flush(out, journal_path)
-
-        alive = world.alive()
-        # 顺序回合制（公平：轮流先手，无人被永久排最后）
-        start = (world.turn - 1) % len(alive)
-        for k in range(len(alive)):
-            name = alive[(start + k) % len(alive)]
-            if name not in world.nations:
-                continue
-            ncfg = cfg_by_name.get(name, {})
-            # 换国：状态区清空——上一个国家的常驻行（它的上下文计划）与通知留在那儿
-            # 就是误导（"现在到底是谁在动"）。本国的常驻行由 `head=` 在回合开始时重新钉上。
-            if CONSOLE is not None:
-                CONSOLE.clear_panel()
-            t0 = time.time()
-            try:
-                if ncfg.get("base_url") and ncfg.get("api_key"):
-                    # 不代打：「每国由一个 LLM agent 治理」是前提，规则 AI 冒充会污染基准数据。
-                    # ★必须传 emit：`run_openai_turn` 里的播报全写成 `if emit:`，不传就是
-                    #   一整条死通道（上下文计划🧠 / 下滑🧠 / 压缩记忆🧠 / 压缩失败⚠ / 重试⚠）。
-                    #   2026-09-19 查出：本行自 8dc7f7f 起就没传过，于是**压缩明明一直在跑**
-                    #   （存档 summary_blocks / long_memory 有据）却从没在看海台和
-                    #   mp_journal.md 里出现过一次；最危险的是「⚠ 记忆压缩失败」也静默。
-                    done = run_openai_turn(world, name, ncfg,
-                                           max_steps=ncfg.get("max_steps", 24),
-                                           # ★ 通知（🧠 上下文/下滑/压缩、⚠ 重试、🛑 故障）走**底部
-                                           #   固定状态区**，不再混在日志流里滚过去（用户 2026-09-20
-                                           #   「这些弄个固定位置」）；日志文件照旧全量记，非 tty 时
-                                           #   自动退回日志流。`head=` 那一行常驻第一行。
-                                           emit=partial(panel_note, journal_path),
-                                           head=partial(panel_note, journal_path, head=True),
-                                           # ★ 每次调用回显一次（用户 2026-09-20）：动作**当场**刷，
-                                           #   不攒到「行动完毕」才一次性砸下来。最后一次调用的
-                                           #   尾巴由下面那句 observer 兜（不重复、不丢）。
-                                           on_call=partial(echo_call, world, out, journal_path, name))
-                else:
-                    done = dummy_turn(world, name, rng,
-                                      # ★缺省**无上限**（用户 2026-09-15：「看海口径的动作
-                                      #   上限是谁设的，给我全删了」）——原缺省 12，看海时
-                                      #   超了直接截断（实测 v10 有 8.6% 的回合被截顶）。
-                                      #   口径见 `rule_ai.UNLIMITED_ACTIONS`；配置里仍可
-                                      #   显式写 `max_actions` 卡住。
-                                      max_actions=ncfg.get("max_actions",
-                                                           rule_ai_registry.UNLIMITED_ACTIONS),
-                                      rule_ai=ncfg.get("rule_ai", rule_ai))
-            except Exception as e:
-                # ★★ 任何未愈错误一律**终止本局**（用户 2026-09-20：「任何错误都应该直接终止
-                #    游戏」）——不兜、不换 bot、不接着往下跑。进度是安全的：每回合结算后存档
-                #    已原子落盘，修好再 ./start.sh 就从上一回合续。
-                #    （2026-09-19 夜里正是这里没做到：429 配额墙被 `run_openai_turn` 吞成
-                #     user 消息接着烧步数，5 国白跑 14 回合、白烧整周额度、存档涨到 1.1 GB。）
-                emit("")
-                emit(f"🛑 本局终止（{name} 回合）：{type(e).__name__}: {str(e)[:300]}")
-                emit(f"（存档停在第 {world.turn} 回合结算后，重启即可续局）")
-                flush(out, journal_path, echo=True)
-                if CONSOLE is not None:
-                    # ★ 恢复终端（cbreak ⇒ 本来 echo/ICANON 是关的）。异常会一路冒出 run()、
-                    #   进程带 traceback 退出——不在这里收尾的话，用户的 shell 会留在
-                    #   **无回显**状态（得手敲 stty sane 才回来）。状态区不清：🛑 那行正
-                    #   留在屏幕上给用户看（这是"为什么停了"的唯一现场）。
-                    CONSOLE.close()
-                raise
-            secs = time.time() - t0
-            observer(world, out, f"◈ {name} 行动完毕（{done} 次工具调用，{secs:.0f}s）")
-            flush(out, journal_path)
-            if stop["flag"]:
-                break
-            if name not in world.nations:
-                emit(f"（{name} 已在行动中被灭）")
-
-        if stop["flag"]:
-            break
-        world.resolve_turn()
-        observer(world, out, f"——— 第 {world.turn} 回合结算 ———")
-        flush(out, journal_path)
-        world.save(save_path)
-        # 全景地图（Observer 看海用）：覆盖写 mp_map.txt
-        Path("mp_map.txt").write_text(observer_map(world), encoding="utf-8")
-        emit("🗺 地图已更新 mp_map.txt（字母=国家占领，小写=无人野地地形）")
-        flush(out, journal_path)
-        time.sleep(0.1)
-
-    # 终局统计
-    if CONSOLE is not None:
-        CONSOLE.clear_panel()        # 收尾：别让最后一国的上下文计划挂在"终局"旁边
-    emit("")
-    emit("## 终局")
-    for n in world.alive():
-        emit(f"- {n}: 国土 {len(world.own_tiles(n))} 块，"
-             f"国库 {world.nations[n].res['黄金']}，军队 {len(world.nation_armies(n))} 支，{world.econ_summary.get(n,'')}")
-    emit("灭国者：" + ("、".join(n for n in world.order if n not in world.nations) or "无"))
-    world.save(save_path)
-    flush(out, journal_path)
+    parser=argparse.ArgumentParser(description='战国统一玩家 API 客户端宿主')
+    parser.add_argument('--config',default='mp_config.json');parser.add_argument('--save')
+    parser.add_argument('--new',action='store_true');parser.add_argument('--turns',type=int)
+    parser.add_argument('--small-ctx',action='store_true');parser.add_argument('--ctx-window',type=int)
+    args=parser.parse_args(argv)
+    cfg=json.loads(Path(args.config).read_text(encoding='utf-8'));ctx.apply_defaults(cfg)
+    for item in cfg['nations']:
+        if args.small_ctx:item['ctx_window']=262144
+        if args.ctx_window:item['ctx_window']=args.ctx_window
+    save_path=Path(args.save or cfg.get('save','mp_save.json'))
+    journal_path=Path(cfg.get('journal','mp_journal.md'))
+    try:host,new=make_world(cfg,args.new,save_path)
+    except (ValueError,OSError) as exc:
+        print(f'启动失败：{exc}',file=sys.stderr);return 2
+    observer=Observer(host,journal_path,resume=not new)
+    if sys.stdin.isatty():CONSOLE=Console(is_multiline_start=_multiline).start()
+    # Piped commands are deterministic and available before the first cycle.
+    elif not sys.stdin.closed:
+        import select
+        if select.select([sys.stdin],[],[],0)[0]:
+            if not _piped(host,sys.stdin.read(),observer):
+                host.save(save_path);return 0
+    observer.line('新开一局' if new else '读档续局')
+    observer.line('玩家 API v1；规则 AI 只维护 v11plus；央行由发行版加载')
+    observer.events()
+    stop=args.turns if args.turns is not None else cfg.get('max_turns',200)
+    if type(stop) is not int or stop<0:raise ValueError('turns must be nonnegative')
+    try:
+        while host.world.government.period()<stop:
+            if not _commands(host,observer):break
+            host.cycle(on_result=observer.result,emit=partial(panel_note,journal_path),
+                       head=partial(panel_note,journal_path,head=True),on_call=observer.on_call)
+            observer.events();observer.line(host.board());host.save(save_path)
+            if CONSOLE is not None:CONSOLE.clear_panel()
+        host.save(save_path)
+        observer.line(f'终局：第 {host.world.government.period()} 周期，存档 {save_path}')
+        return 0
+    except KeyboardInterrupt:
+        observer.notice('🛑 已中断；保留最近完整结算存档');return 130
+    except Exception as exc:
+        observer.notice(f'🛑 {type(exc).__name__}: {exc}；保留最近完整结算存档');return 1
+    finally:
+        if CONSOLE is not None:CONSOLE.close();CONSOLE=None
 
 
-if __name__ == "__main__":
-    run()
+if __name__=='__main__':raise SystemExit(run())

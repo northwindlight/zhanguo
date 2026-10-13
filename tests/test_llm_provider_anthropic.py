@@ -261,6 +261,15 @@ class TestTranslation(unittest.TestCase):
         self.assertEqual(body["thinking"], {"type": "enabled"},
                          "缺省**不发** budget_tokens：发了就是给长思考设上限")
 
+    def test_configured_effort_reaches_anthropic_request(self):
+        body = llm_provider._anthropic_body([{"role":"user","content":"u"}], None,
+                                           _cfg(reasoning_effort="low"), stream=True)
+        self.assertEqual(body["output_config"], {"effort":"low"})
+        disabled = llm_provider._anthropic_body([{"role":"user","content":"u"}], None,
+                                               _cfg(thinking="disabled",reasoning_effort="low"), stream=True)
+        self.assertEqual(disabled["thinking"], {"type":"disabled"})
+        self.assertNotIn("output_config",disabled)
+
 
 class TestUrlAndHeaders(unittest.TestCase):
     def test_messages_url_never_doubles_v1(self):

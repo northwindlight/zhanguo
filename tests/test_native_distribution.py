@@ -32,7 +32,7 @@ class TestNativeDistribution(unittest.TestCase):
         runtime=Runtime.load(ROOT/'mods.toml');direct=Runtime.load(ROOT/'mods/native')
         self.assertEqual(runtime.dependency_manifest(),direct.dependency_manifest())
         self.assertEqual(runtime.distribution['Id'],'native')
-        self.assertEqual(runtime.distribution['Version'],'4.0.0')
+        self.assertEqual(runtime.distribution['Version'],'4.1.0')
         self.assertEqual(set(runtime.units),{'native:resources','native:buildings','native:market',
                          'native:market-pricing','native:economy','native:economy-valuation',
                          'native:bank','native:economy-queries','native:nations','native:government','native:map-generation',
@@ -45,7 +45,7 @@ class TestNativeDistribution(unittest.TestCase):
         self.assertTrue({'build','buy','sell','market','econ','bank','borrow','nation','nations',
             'plan','end_turn','land','view','declare_war','offer_peace','vote','recruit','attack',
             'retreat','army','send_letter','gift','spy','news','intel'} <= set(runtime.tools))
-        self.assertEqual(len(runtime.schemas()),50)
+        self.assertEqual(len(runtime.schemas()),56)
         world=runtime.world_class()()
         self.assertEqual(world.economy_actors,())
         self.assertEqual(world.nation_actors,())

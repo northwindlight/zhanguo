@@ -1,10 +1,10 @@
 # Native 正式发行版
 
-2026-10-13：`native` 4.0.0 已完成当前领域模块装配，入口是仓库 `mods.toml`。按用户确认，本次完成领域模块；`mp_run`、LLM 玩家、规则 AI 和旧看海循环另做客户端接线。
+2026-10-13：`native` 4.1.0 已完成领域模块装配与统一玩家接口接线，入口是仓库 `mods.toml`。`mp_run` 使用 GameHost，LLM 与 v11plus 通过 PlayerSession 行动，详见 [客户端接线](../../docs/客户端接线.md)。
 
 ## 模块与边界
 
-共 18 个模块、50 个工具、17 个结算处理器、14 个发行版挂点。模块继续使用资源、建筑、国家的模板：`mod.toml` 声明身份、依赖、状态与接口，`mod.py` 装配对象、工具、面板和挂点，领域对象拥有业务状态与行为，显式保存与恢复。纯算法、查询和政体模块不虚设持久状态或玩家动作。
+共 18 个模块、56 个模块工具（玩家 API 另提供 3 个通用查询工具）、17 个结算处理器、14 个发行版挂点。模块继续使用资源、建筑、国家的模板：`mod.toml` 声明身份、依赖、状态与接口，`mod.py` 装配对象、工具、面板和挂点，领域对象拥有业务状态与行为，显式保存与恢复。纯算法、查询和政体模块不虚设持久状态或玩家动作。
 
 | 模块 | 负责内容 | 状态所有者 |
 | --- | --- | --- |
@@ -61,14 +61,10 @@ world.phase = '行动'  # 宿主开启下一行动期；周期由 government 自
 
 宿主保存 `{'dependencies':runtime.dependency_manifest(), 'state':runtime.save_mod_state(world)}`。先 `check_save_dependencies`，再向空世界 `load_mod_state`。API 3 保存模块状态以及 `$engine` 的阶段、国家作用域；存档保留待结算动作、预留货物、投票、运输、事件和战斗随机状态。身份、模块版本、接口或挂点不同明确拒绝混载；恢复失败的候选世界由宿主丢弃，不替换当前世界。旧整局存档没有直接迁移器。
 
-## 验收与旧客户端
+## 验收与客户端
 
-```bash
-.venv/bin/python -m unittest tests.test_world_domains tests.test_native_distribution tests.test_nation_objects tests.test_bank_objects tests.test_economy_objects tests.test_building_objects tests.test_market_objects tests.test_resource_objects tests.test_army_resources tests.test_runtime_content_hooks tests.test_mod_runtime.TestRuntime
-```
+运行 `.venv/bin/python -m unittest discover -s tests`。领域测试、统一玩家接口、混合客户端、存读档与 CLI 使用合成数据验证；DeepSeek 两种协议已真实连通；用户确认 Claude 完成联网、续档和墙钟验证。旧单体 World 测试归档在 tests/retired，不再维护。客户端不导入 native 实现。
 
-176 项领域与通用引擎回归通过，其中 39 项覆盖剩余领域联动，13 项覆盖国家。场景包括模块替换、缺失依赖拒绝、私人信息过滤、政策范围、外交退款、表决、直接保障传导、和平付款、军队动作/补给/战斗/占领、亡国清理以及中途存读档后继续结算的一致性。仅使用合成世界与临时 JSON。
+公共查询新增建筑站点、建筑目录、建筑报价、兵种目录、征召报价、可见战斗预估。报价与动作共用成本逻辑；预估与实际战斗共用数值计算，预估仅采用当前可见信息。剧本可用 diplomacy.seed_pact 初始化独立国家条约，此方法不注册为玩家工具。
 
-旧 `logic / schemas / tools / views / initial` 文件保留供客户端迁移参考，当前活动模块不加载它们的旧 mixin 或世界字典。旧声明位于 [历史发行版](../../docs/archive/native-distribution-2026-10-12.toml) 和 [历史领域声明](../../docs/archive/legacy-domain-declarations/)；军队早期夹具显式使用历史声明。旧 `TestDeclaredExtension` 使用旧身份/槽位，在此前发行版上也已失败，不计入当前通过数。旧客户端、旧全量测试和真实对局继续留待另做。
-
-经济细节：[建筑](buildings/README.md)、[市场](market/README.md)、[报表](economy_reports/README.md)、[央行](bank/README.md)、[查询](economy_queries/README.md)。
+完整整局由 GameHost 保存为 zhanguo.session/1；上面的模块状态接口用于宿主底层装配，不替代整局客户端状态。

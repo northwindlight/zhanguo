@@ -159,6 +159,14 @@ class Diplomacy:
         return None
     def _drop_entity_pacts(self, entity):self._pacts=[p for p in self._pacts if entity not in (p.a,p.b)]
 
+    def seed_pact(self, kind, source, target):
+        """Administrative scenario initialization; never a player action."""
+        self._write();a,b=self._pair(source,target);self._peaceful(a,b)
+        if kind not in ('guarantee','defense') or self.alliance(source) or self.alliance(target):raise ValueError('Initial pact requires independent nations')
+        if not self._permits(source,'accept.treaties') or not self._permits(target,'accept.treaties'):raise ValueError('Policy rejects initial treaty')
+        if any(p.kind==kind and ((p.a,p.b)==(a,b) or kind=='defense' and (p.a,p.b)==(b,a)) for p in self._pacts):raise ValueError('Initial pact already exists')
+        pact=Pact(kind,a,b);self._pacts.append(pact);return pact
+
     def _apply_guarantee(self, actor, target, *, approved=False):
         a,b = self._pair(actor,target);self._peaceful(a,b)
         if not self._permits(target,'accept.treaties'):raise ValueError('Target policy rejects treaties')

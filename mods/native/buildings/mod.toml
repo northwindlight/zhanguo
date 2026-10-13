@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:buildings"
-Version = "2.3.0"
+Version = "2.4.0"
 Entry = "mods.native.buildings.mod:BuildingsMod"
 Requires = ["native:resources"]
 After = ["native:resources"]

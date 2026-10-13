@@ -744,6 +744,12 @@ def _anthropic_body(messages: list[dict], tools, cfg: dict, stream: bool) -> dic
     thinking = _anthropic_thinking(cfg)
     if thinking:
         body["thinking"] = thinking
+        effort = cfg.get("reasoning_effort")
+        if effort:
+            body["output_config"] = {"effort": str(effort)}
+    else:
+        # Omission does not disable thinking on DeepSeek's compatible endpoint.
+        body["thinking"] = {"type": "disabled"}
     if cfg.get("temperature") is not None:
         body["temperature"] = min(1.0, max(0.0, float(cfg.get("temperature", 0.3))))
     if stream:

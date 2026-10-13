@@ -1,0 +1,9 @@
+"""Client strategy tuning, independent of game rules and domain modules."""
+V11_MAX_GROUP = 8
+V11_SOLVER_NODE_CAP = 20000
+V11_SHORTFALL_PENALTY = 500.0
+V11_NEAR_TARGETS = 4
+MAX_CANDIDATES = 40
+BARRACKS_CAP = 4
+MIL_SHARE = .30
+SUPPLY_PERIODS = 3

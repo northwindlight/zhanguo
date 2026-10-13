@@ -19,6 +19,11 @@ class ModError(ValueError):
     pass
 
 
+class ToolArgumentError(ValueError):
+    """Invalid transport arguments, before domain behavior is invoked."""
+    pass
+
+
 def dependency_order(nodes, *, requires, after, before):
     """Requires 负责存在性，After/Before 负责顺序；同级按 ID 稳定排序。"""
     edges = {name: set() for name in nodes}
@@ -95,7 +100,7 @@ class Tool:
     argument_types: dict = field(default_factory=dict)
     read_only: bool = False
 
-    def call(self, world, actor, arguments):
+    def prepare(self, world, actor, arguments):
         if isinstance(arguments, str):
             arguments = json.loads(arguments)
         if not isinstance(arguments, dict):
@@ -108,6 +113,13 @@ class Tool:
         hints = get_type_hints(self.handler)
         for name, value in list(bound.arguments.items())[2:]:
             bound.arguments[name] = _convert(value, hints.get(name, sig.parameters[name].annotation))
+        return bound
+
+    def call(self, world, actor, arguments):
+        try:
+            bound=self.prepare(world,actor,arguments)
+        except (ValueError,TypeError) as exc:
+            raise ToolArgumentError(str(exc)) from exc
         return self.handler(*bound.args, **bound.kwargs)
 
     def schema(self):
@@ -168,6 +180,9 @@ class GameMod(ABC):
 
     def tools(self) -> tuple[Tool, ...]:
         return ()
+
+    def schema_for_actor(self, world, actor, schema):
+        return schema
 
     def stages(self) -> tuple[Stage, ...]:
         return ()
@@ -236,6 +251,8 @@ class Runtime:
         self.command_actors = {}
         self.panel_map, self.panel_owners = {}, {}
         units = list(units)
+        import threading
+        self._player_lock=threading.RLock()
         self.units = {u.name: u for u in units}
         if len(self.units) != len(units):
             raise ModError("重复的 Mod ID")
@@ -306,6 +323,16 @@ class Runtime:
                     raise ModError(f"结算阶段冲突：{stage.name}")
                 self.stage_map[stage.name] = stage
                 self.stage_owners[stage.name] = name
+        clock=self.distribution.get('PlayerClock')
+        if clock and (not isinstance(clock,dict) or set(clock)!={'Capability','Method'} or clock['Capability'] not in self.capabilities or not isinstance(clock['Method'],str) or not clock['Method'] or clock['Method'].startswith('_')):
+            raise ModError('玩家时钟必须引用公共能力和方法')
+        player_state=self.distribution.get('PlayerState',())
+        if not isinstance(player_state,(list,tuple)) or any(not isinstance(name,str) or name not in self.tools or not self.tools[name].read_only for name in player_state) or len(set(player_state))!=len(player_state):
+            raise ModError('玩家状态必须声明唯一的只读工具')
+        events=self.distribution.get('PlayerEvents')
+        if events and (not isinstance(events,str) or events not in self.tools or not self.tools[events].read_only):raise ModError('玩家事件必须引用只读工具')
+        from .player import BUILTINS
+        if any(name in self.tools for name in BUILTINS):raise ModError('模块工具不能占用玩家 API 保留名称')
         if self.hooks or any(stage.hook for stage in self.stage_map.values()):
             condition_providers = {}
             for name, stage in self.stage_map.items():
@@ -525,6 +552,10 @@ class Runtime:
 
     def schemas(self):
         return [self.tools[n].schema() for n in sorted(self.tools) if n == self.tools[n].name]
+
+    def player(self, world, actor, *, lock=None, on_write=None):
+        from .player import PlayerSession
+        return PlayerSession(self, world, actor, lock, on_write)
 
     def dependency_manifest(self):
         """严格匹配 Mod 版本、依赖和阶段契约；实现升级由 Mod 作者提升 Version。"""

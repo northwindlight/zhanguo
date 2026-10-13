@@ -1,6 +1,6 @@
 # 军队模块
 
-`native:army` 2.0.0 按 [正式发行版模板](../README.md) 装配。`Unit / Units` 拥有部队、编号、守卫出生与行动状态；`Military` 拥有征召额度、军事经济回执、电网短缺事实、待发布事件和战斗随机状态。
+`native:army` 2.1.0 按 [正式发行版模板](../README.md) 装配。`Unit / Units` 拥有部队、编号、守卫出生与行动状态；`Military` 拥有征召额度、军事经济回执、电网短缺事实、待发布事件和战斗随机状态。
 
 兵种从内容注册表读取，原生 `native:infantry / cavalry / militia`，展示名与 ID 分离；动态征召 schema 使用同一注册表和国家政策配方。具体资源读取走 `native:gold / food / equipment / supply` 门面，扣款走原子资源兑换。建筑、地形、外交、视野和周期均通过声明接口获取，不读旧世界字典。
 
@@ -10,4 +10,6 @@
 
 挂点为 `military.supply / battle / withdraw / claims / repatriate`，由发行版声明顺序。军事消耗发布资源事实供经济域汇总，不修改外域账本。显式保存包括单调交战序号和事件接收者快照，恢复校验国家、兵种、位置、计数器及随机种子。
 
-当前联动验收 `tests.test_world_domains`；原 `tests.test_army_resources` 中历史 `ArmyLogic` 夹具保留早期资源契约，使用归档声明。旧军队逻辑及客户端转口仍待客户端迁移，不参与当前领域装配。
+当前联动验收 `tests.test_world_domains`；原 `tests.test_army_resources` 中历史 `ArmyLogic` 夹具保留早期资源契约，使用归档声明。旧军队逻辑不参与当前装配；当前客户端仅使用 PlayerSession。
+
+玩家查询另提供 unit_catalog、recruit_quote、battle_estimate。征召报价与实际征召共用费用逻辑。战斗预估采用当前可见敌军和期望骰值，不包含补给、治疗或第三方增援；不可见目标返回未知。reachable 玩家工具仅返回可见路径；内部行动裁决仍使用真实地形。

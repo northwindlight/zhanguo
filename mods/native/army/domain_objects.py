@@ -74,8 +74,8 @@ class Military:
         if kind not in self._units.type_ids:raise ValueError('Unknown unit kind')
         if self._units.next_army_seq.get(owner,0)+count>=ARMY_GID_BASE:raise ValueError('Unit sequence exhausted')
         return tuple(deepcopy(self._units.spawn(owner,kind,x,y)) for _ in range(count))
-    def recruit(self, owner, site: str, kind: str, count=1, *, energy_short=False):
-        self._action(owner);integer(count,1)
+    def recruit_quote(self, owner, site: str, kind: str, count=1, *, energy_short=False):
+        self._living(owner);integer(count,1)
         place=self._call('native:buildings','site',site)
         if place.owner!=owner:raise ValueError('Site does not belong to actor')
         if kind not in self._units.type_ids:raise ValueError('Unknown unit kind')
@@ -95,6 +95,13 @@ class Military:
         overrides=self._parameter(owner,'recruit',{})
         recipe=overrides.get(kind,self._units.definition(kind)['recruit'])
         costs={key:integer(value,1)*count for key,value in recipe.items()}
+        return {'site':site,'kind':kind,'count':count,'costs':costs,'position':(x,y),
+                'quota':per-self._recruited.get(key,0),'period':period}
+
+    def recruit(self, owner, site: str, kind: str, count=1, *, energy_short=False):
+        self._action(owner)
+        quote=self.recruit_quote(owner,site,kind,count,energy_short=energy_short)
+        costs=quote['costs'];period=quote['period'];x,y=quote['position'];key=(period,site,kind=='native:militia')
         if any(self._stock(owner,key)<value for key,value in costs.items()):raise ValueError('Insufficient recruitment resources')
         self._call('native:resource-exchange','exchange',owner,costs,{})
         created=tuple(self._units.spawn(owner,kind,x,y,turn=period,newborn=True) for _ in range(count))
@@ -109,7 +116,7 @@ class Military:
         if tile_owner==owner or tile_owner is not None and self._call('native:diplomacy','allied',owner,tile_owner):return True
         if tile_owner is not None and tile_owner!=owner and not self._call('native:diplomacy','allied',owner,tile_owner):return False
         return not any(u.owner!='野人' and u.alive and self._hostile(owner,u.owner) for u in self._units.at(x,y))
-    def reachable(self, owner, aid, attack=False):
+    def reachable(self, owner, aid, attack=False, *, visible_only=False):
         unit=self._own_unit(owner,aid);size,_=self._call('native:territory','dimensions')
         speed=self._parameter(owner,'unit.speed.'+unit.kind,unit.definition['speed'])
         start=(unit.x,unit.y);best={start:0};queue=[(0,start)]
@@ -120,6 +127,7 @@ class Military:
             distance,point=heapq.heappop(queue)
             if distance!=best[point]:continue
             for target in self._call('native:territory','neighbors',*point):
+                if visible_only and not self._call('native:vision','visible',owner,*target):continue
                 next_distance=distance+max(cost(*point),cost(*target))
                 if next_distance>speed or next_distance>=best.get(target,speed+1):continue
                 movable=self._pass(owner,*target)
@@ -256,23 +264,14 @@ class Military:
             if castle:castle*=self._call('native:buildings','count',tile.tile.id,'native:castle')
             for owner in sorted(groups):
                 if not enemies[owner]:continue
-                power=sum(max(1,u.atk()*(100-RETREAT_ATK_PENALTY)//100) if u.retreat_to else u.atk() for u in groups[owner])
+                power=self.faction_power(groups[owner])
                 power=max(1,power*(100+COMBAT_DIE_MOD[self._rng.randint(min(COMBAT_DIE_MOD),max(COMBAT_DIE_MOD))])//100)
                 for enemy in enemies[owner]:
-                    defense=100-((100-terrain.defense)*(100-(castle if enemy==tile.owner else 0)))//100
+                    defense=self.defense_pct(terrain.defense,castle if enemy==tile.owner else 0)
                     cover=defense if enemy==tile.owner or enemy=='野人' or enemy not in active else 0
                     damage[enemy]+=max(1,round(power/len(enemies[owner])*(100-cover)/100))
             for owner,units in groups.items():
-                if all(u.retreat_cover in (None,100) for u in units):
-                    left=damage[owner];rest=list(units)
-                    while left>0 and rest:
-                        quotient,remainder=divmod(left,len(rest))
-                        for index,unit in enumerate(rest):
-                            take=min(unit.hp,quotient+(index<remainder));unit.take_damage(take);left-=take
-                        rest=[u for u in rest if u.alive]
-                else:
-                    quotient,remainder=divmod(damage[owner],len(units))
-                    for index,unit in enumerate(units):unit.take_damage((quotient+(index<remainder))*(unit.retreat_cover if unit.retreat_cover is not None else 100)//100)
+                self.spread_damage(damage[owner],units)
             for u in troops:
                 if not u.alive:self._units.remove(u)
             surviving={owner:[u for u in units if u.alive] for owner,units in groups.items()}
@@ -286,6 +285,57 @@ class Military:
             reports.append((x,y,tuple(sorted(damage.items()))))
             self._events.append({'kind':'battle','text':str(tuple(sorted(damage.items()))),'position':(x,y),'parties':seen,'snapshot_only':True})
         return tuple(reports)
+    def battle_estimate(self, owner, ids, x, y):
+        self._living(owner);self._call('native:territory','check',x,y)
+        if not isinstance(ids,(list,tuple)) or not ids or len(set(ids))!=len(ids):raise ValueError('Unique own unit IDs required')
+        attackers=[deepcopy(self._own_unit(owner,aid)) for aid in ids]
+        if not self._call('native:vision','visible',owner,x,y):
+            return {'known':False,'winnable':None,'rounds':None,'losses':None}
+        defenders=[deepcopy(u) for u in self.visible_units(owner) if (u.x,u.y)==(x,y) and u.alive and self._hostile(owner,u.owner)]
+        fact=self._call('native:territory','cell',x,y);terrain=self._call('native:territory','terrain',x,y)
+        initial=sum(u.hp for u in attackers)
+        for turn in range(101):
+            if not any(u.alive for u in defenders):
+                return {'known':True,'winnable':True,'rounds':turn,'losses':initial-sum(u.hp for u in attackers)}
+            if not any(u.alive for u in attackers):break
+            # Expected die modifier is zero. Each faction fires simultaneously;
+            # the forecast excludes other participants, supply and reinforcements.
+            groups={}
+            for u in defenders:
+                if u.alive:groups.setdefault(u.owner,[]).append(u)
+            outgoing=self.faction_power([u for u in attackers if u.alive])
+            incoming=sum(self.faction_power(group) for group in groups.values())
+            for defender_owner,group in groups.items():
+                castle=0
+                if fact.tile.id and defender_owner==fact.owner:
+                    castle=self._effect(fact.tile.id,'native:castle').get('defense_per_level',0)*self._call('native:buildings','count',fact.tile.id,'native:castle')
+                defense=self.defense_pct(terrain.defense,castle)
+                self.spread_damage(max(1,round(outgoing/len(groups)*(100-defense)/100)),group)
+            self.spread_damage(incoming,[u for u in attackers if u.alive])
+        return {'known':True,'winnable':False,'rounds':None,'losses':initial}
+
+    @staticmethod
+    def faction_power(units):
+        return sum(max(1,u.atk()*(100-RETREAT_ATK_PENALTY)//100) if u.retreat_to else u.atk() for u in units)
+
+    @staticmethod
+    def defense_pct(terrain, castle=0):
+        return 100-((100-terrain)*(100-castle))//100
+
+    @staticmethod
+    def spread_damage(damage, units):
+        if not units:return
+        if all(u.retreat_cover in (None,100) for u in units):
+            left=damage;rest=list(units)
+            while left>0 and rest:
+                quotient,remainder=divmod(left,len(rest))
+                for index,unit in enumerate(rest):
+                    take=min(unit.hp,quotient+(index<remainder));unit.take_damage(take);left-=take
+                rest=[u for u in rest if u.alive]
+        else:
+            quotient,remainder=divmod(damage,len(units))
+            for index,unit in enumerate(units):unit.take_damage((quotient+(index<remainder))*(unit.retreat_cover if unit.retreat_cover is not None else 100)//100)
+
     def drain_events(self):
         self._write();result=tuple(deepcopy(self._events));self._events=[];return result
     def withdrawals(self):

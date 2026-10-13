@@ -40,7 +40,10 @@ class ArmyMod(GameMod):
         parameters['properties']['kind']['enum']=list(unit_definitions(self.runtime.content))
         return (Tool('recruit',self._recruit,parameters=parameters),Tool('move',self._move),Tool('attack',self._attack),
                 Tool('retreat',self._retreat),Tool('disband',self._disband),
-                Tool('army',lambda w,a:w.military.visible_units(a),read_only=True),Tool('reachable',self._reachable,read_only=True))
+                Tool('army',lambda w,a:w.military.visible_units(a),read_only=True),Tool('reachable',self._reachable,read_only=True),
+                Tool('unit_catalog',self._catalog,read_only=True),
+                Tool('recruit_quote',self._recruit_quote,read_only=True),
+                Tool('battle_estimate',self._battle_estimate,read_only=True))
     def schema_for_actor(self, world, actor, schema):
         result=deepcopy(schema)
         if result['function']['name']=='recruit':
@@ -61,7 +64,22 @@ class ArmyMod(GameMod):
     @staticmethod
     def _disband(world, actor, aid: int):return world.military.disband(actor,aid)
     @staticmethod
-    def _reachable(world, actor, aid: int, attack: bool=False):return world.military.reachable(actor,aid,attack)
+    def _reachable(world, actor, aid: int, attack: bool=False):return world.military.reachable(actor,aid,attack,visible_only=True)
+    @staticmethod
+    def _catalog(world, actor):
+        overrides=world.runtime.parameter(world,actor,'recruit',{})
+        return {kind:{**dict(world.units.definition(kind)),
+                      'recruit':dict(overrides.get(kind,world.units.definition(kind)['recruit'])),
+                      'speed':world.runtime.parameter(world,actor,'unit.speed.'+kind,world.units.definition(kind)['speed']),
+                      'supply':world.runtime.parameter(world,actor,'unit.supply.'+kind,world.units.definition(kind)['supply'])}
+                for kind in world.units.type_ids}
+    @staticmethod
+    def _recruit_quote(world, actor, site: str, kind: str='native:infantry', count: int=1):
+        return world.military.recruit_quote(actor,site,kind,count,energy_short=world.military.grid_short(actor))
+    @staticmethod
+    def _battle_estimate(world, actor, ids: list[int], x: int, y: int):
+        return world.military.battle_estimate(actor,ids,x,y)
+
     def panels(self):return (Panel('army',lambda w,a:w.military.visible_units(a)),)
     def stages(self):
         return (Stage('native:army.supply',self._supply,hook='military.supply',needs=('relations.applied','buildings.produced'),provides=('military.supplied',)),

@@ -1,6 +1,6 @@
 # 建筑域对象改造
 
-当前进展（2026-10-13）：native 4.0.0 已接入其余领域，详见 [正式发行版](../README.md)。下文早期阶段的“未接线”描述保留为历史记录；旧客户端仍另做。
+当前进展（2026-10-13）：native 4.1.0 已接入其余领域，详见 [正式发行版](../README.md)。下文早期阶段的“未接线”描述保留为历史记录；统一客户端现已接入 PlayerSession。
 
 2026-10-12：建筑作为资源与市场之后的下一个独立域。当前模块为 `native:buildings` 2.0.0，只依赖 `native:resources`，拥有一个 `buildings` 状态对象。可运行验收发行版在 `mods/buildings_acceptance/mod.toml`，不加载旧世界、领土、军队、银行或经济报表。
 
@@ -121,3 +121,7 @@ tea 验收由外域注册 `example:tea` 与 `example:tea-garden`：茶园每周�
 ## 正式发行版接线（2026-10-13）
 
 建筑域 2.2.0 提供 `build(site, kind)` 工具，行动者由引擎绑定，建筑类型 schema 从注册表枚举；实际建造继续由 `Buildings.build` 统一裁决。已进入仓库 `mods.toml` 的正式 native 发行版，见 [入口说明](../README.md)。旧中文地块/玩家循环另做适配。
+
+## 当前公共查询（2.4.0）
+
+building_sites 只返回本国站点和建筑实例，building_catalog 提供公开注册类型与参数，build_quote 提供按站点等级、槽位和政策计算的真实费用。报价与 build 共用逻辑，查询不占额度、不预留资源；是否买得起仍由动作裁决。

@@ -25,11 +25,33 @@ class BuildingsMod(GameMod):
             'site':{'type':'string'},'kind':{'type':'string','enum':kinds}},
             'required':['site','kind'],'additionalProperties':False}
         return (Tool('build',self._build,parameters=parameters,
-                     description='Construct a registered building on an owned site; completes at settlement'),)
+                     description='Construct a registered building on an owned site; completes at settlement'),
+                Tool('building_sites',self._sites,read_only=True),
+                Tool('building_catalog',self._catalog,read_only=True),
+                Tool('build_quote',self._quote,read_only=True))
 
     @staticmethod
     def _build(world, actor, site: str, kind: str):
         return world.buildings.build(actor,site,kind,policy_pct=world.runtime.parameter(world,actor,'build_cost_pct',100))
+
+    @staticmethod
+    def _sites(world, actor):
+        snap=world.buildings.snapshot();sites=[s for s in snap.sites if s.owner==actor]
+        return {'sites':sites,'instances':[b for b in snap.instances if b.site in {s.id for s in sites}]}
+
+    @staticmethod
+    def _catalog(world, actor):
+        return [{'id':cls.TYPE_ID,'min_slots':cls.MIN_SLOTS,'max_per_site':cls.MAX_PER_SITE,
+                 'self_build_limit':cls.SELF_BUILD_LIMIT,'site_resource':cls.SITE_RESOURCE,
+                 'energy_use':cls.ENERGY_USE,'energy_output':cls.ENERGY_OUTPUT,
+                 'inputs':dict(cls.INPUTS),'outputs':dict(cls.OUTPUTS),
+                 'effects':dict(cls.EFFECTS)} for cls in building_types(world.runtime.content)]
+
+    @staticmethod
+    def _quote(world, actor, site: str, kind: str):
+        # Explicit actor check precedes any site detail returned to players.
+        quote=world.buildings.quote(actor,site,kind,policy_pct=world.runtime.parameter(world,actor,'build_cost_pct',100))
+        return quote
 
     def stages(self):
         handlers = {'produce':self._produce,'complete':self._complete}

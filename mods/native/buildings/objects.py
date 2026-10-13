@@ -177,8 +177,8 @@ class Buildings:
         self._next_id += count
         return tuple(item.snapshot() for item in candidates)
 
-    def build(self, owner, site_id, kind, *, policy_pct=100):
-        self._action();owner_name(owner);integer(policy_pct)
+    def quote(self, owner, site_id, kind, *, policy_pct=100):
+        owner_name(owner);integer(policy_pct)
         site,cls = self._sites[site_id],self._type(kind)
         if site.owner!=owner:raise ValueError('Site does not belong to actor')
         if self._orders[site_id]==self.period:raise ValueError('One construction order per site per period')
@@ -192,6 +192,14 @@ class Buildings:
         costs = amounts(cls.construction_cost(level,penalty=site.penalty,discount=discount,policy_pct=policy_pct))
         # Validate account even for a free custom building.
         self._resources('snapshot',owner)
+        return {'site':site_id,'kind':kind,'level':level,'costs':dict(costs),
+                'other_slots':len(existing),'penalty':site.penalty,'discount':discount,'policy_pct':policy_pct}
+
+    def build(self, owner, site_id, kind, *, policy_pct=100):
+        self._action()
+        quote=self.quote(owner,site_id,kind,policy_pct=policy_pct)
+        cls=self._type(kind);level=quote['level'];costs=quote['costs']
+        built=self._self_built.get((owner,kind),0)
         candidate = cls(self._next_id,site_id,level=level,remaining=1)
         candidate._domain = self._domain
         receipt = BuildReceipt(candidate.id,owner,site_id,kind,self.period,tuple(costs.items()))

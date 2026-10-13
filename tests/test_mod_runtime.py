@@ -60,7 +60,7 @@ class TestRuntime(unittest.TestCase):
 
     def test_no_actor_override(self):
         r = Runtime([Unit('counter', CounterMod())])
-        with self.assertRaises(TypeError):
+        with self.assertRaises(ValueError):
             r.call(SimpleNamespace(count=0), 'me', 'add', {'actor': 'enemy', 'quantity': 1})
 
     def test_conflicting_tools_rejected(self):
@@ -100,7 +100,7 @@ class TestDeclaredExtension(unittest.TestCase):
         import json
         import tempfile
         from pathlib import Path
-        import mp
+        from host import GameHost, SaveFormatError
 
         class Extension(GameMod):
             def mixins(self): return ()
@@ -113,7 +113,7 @@ class TestDeclaredExtension(unittest.TestCase):
                 return (Tool('extension_increment', increment, ('扩展计数',)),)
             def stages(self):
                 return (Stage('extension.stage', lambda w, c: None,
-                    hook='slot.04', needs=('relations.applied',), title='扩展结算'),)
+                    hook='relations', needs=('relations.applied',), title='扩展结算'),)
             def rule_sections(self, world=None):
                 return (RuleSection('扩展说明', '这是扩展 Mod 的规则', ('扩展规则',)),)
             def save_state(self, world): return {'counter': world.extension_counter}
@@ -133,17 +133,19 @@ class TestDeclaredExtension(unittest.TestCase):
             source = re.sub(r'^Members = .*$', 'Members = '+json.dumps(members), source, flags=re.M)
             (directory/'native.toml').write_text(source)
             (directory/'extension.toml').write_text(
-                '[Mod]\nId="extension"\nVersion="1"\nEntry="'+__name__+':DeclaredExtension"\nRequires=["government"]\nAfter=["government"]\n')
+                '[Mod]\nId="extension"\nVersion="1"\nEntry="'+__name__+':DeclaredExtension"\nRequires=["native:government"]\nAfter=["native:government"]\n')
             runtime = Runtime.load(directory)
-            cls = runtime.world_class()
-            w = cls(size=16, seed=3, nations=['秦','楚'])
-            self.assertEqual(w.call_tool('秦','扩展计数', {'amount':'7'}), 7)
+            cfg={'map_size':16,'seed':3,'nations':[{'id':'scenario:qin','name':'秦','client':'rule'}]}
+            host = GameHost.new(cfg,runtime=runtime)
+            w = host.world
+            self.assertEqual(host.player('scenario:qin').submit('extension_increment', {'amount':'7'})['data'], 7)
             self.assertIn('扩展说明', runtime.manual())
             self.assertIn('扩展 Mod', runtime.rules(w,'扩展规则'))
-            self.assertLess(runtime.stage_order.index('extension.stage'), runtime.stage_order.index('army.supply'))
+            self.assertLess(runtime.stage_order.index('extension.stage'), runtime.stage_order.index('native:army.supply'))
             p = directory/'synthetic.json'
-            w.save(p)
-            restored = cls.load(p)
-            self.assertEqual(restored.extension_counter, 7)
-            with self.assertRaisesRegex(mp.SaveFormatError,'拒绝加载'):
-                mp.World.load(p)
+            # Save before player actions, at a complete cycle boundary.
+            host.cycle();host.save(p)
+            restored = GameHost.load(p,cfg,runtime=runtime)
+            self.assertEqual(restored.world.extension_counter, 7)
+            with self.assertRaises(SaveFormatError):
+                GameHost.load(p,cfg)

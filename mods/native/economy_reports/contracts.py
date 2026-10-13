@@ -75,6 +75,9 @@ class Money:
     @property
     def complete(self):return not self.unpriced
 
+    def to_public(self):
+        return {'known':self.known,'unpriced':self.unpriced,'total':self.total,'complete':self.complete}
+
     def plus(self, other, sign=1):
         return Money(self.known+sign*other.known,tuple(dict.fromkeys((*self.unpriced,*other.unpriced))))
 

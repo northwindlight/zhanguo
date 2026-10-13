@@ -21,7 +21,7 @@ class QueriesMod(GameMod):
                        if isinstance(cls,type) and issubclass(cls,NativeBuilding))
         estimate_parameters = {'type':'object','properties':{
             'kind':{'type':'string','enum':kinds},'level':{'type':'integer','minimum':1},
-            'other_slots':{'type':'integer','minimum':0}},'required':['kind'],'additionalProperties':False}
+            'other_slots':{'type':'integer','minimum':0},'site':{'type':'string'}},'required':['kind'],'additionalProperties':False}
         return (Tool('econ',lambda world,actor:self._queries(world).balance(actor),read_only=True,
                      description='Current inventory and replacement assets; unpriced content stays explicit'),
                 Tool('report',lambda world,actor:self._queries(world).report(actor),read_only=True,
@@ -31,8 +31,11 @@ class QueriesMod(GameMod):
                 Tool('market',lambda world,actor:self._queries(world).market(),read_only=True),
                 Tool('market_quote',self._quote,read_only=True),
                 Tool('buy',self._buy),Tool('sell',self._sell))
-    def _estimate(self, world, actor, kind: str, level: int=1, other_slots: int=0):
-        return self._queries(world).estimate(kind,level,other_slots)
+    def _estimate(self, world, actor, kind: str, level: int=1, other_slots: int=0, site: str | None=None):
+        if site is not None:
+            quote=self.runtime.object_call(world,'native:buildings','quote',actor,site,kind,policy_pct=world.runtime.parameter(world,actor,'build_cost_pct',100))
+            return self._queries(world).estimate(kind,quote['level'],quote['other_slots'],quote['penalty'],quote['discount'],quote['policy_pct'])
+        return self._queries(world).estimate(kind,level,other_slots,policy_pct=world.runtime.parameter(world,actor,'build_cost_pct',100))
     def _quote(self, world, actor, resource: str, quantity: int, side: str):
         return self.runtime.object_call(world,'native:market','quote',resource,quantity,side,actor)
     def _buy(self, world, actor, resource: str, quantity: int):

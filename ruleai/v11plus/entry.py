@@ -1,32 +1,40 @@
-# -*- coding: utf-8 -*-
-"""v11plus 入口：**经济层 + 军事层**（两层分离，见 `ruleai/v11plus/__init__.py`）。
-
-    expand_rule_turn_v11plus(world, name, rng=None, max_actions=40, on_action=None, on_result=None)
-
-一个回合 = 建账本 → 跑经济层 → 跑军事层 → 交账。入口**只有这四行**：
-层内的东西（一榜一账、编组状态机、判定式）都不在这里，这是刻意的
-—— 想换掉一层，改那一层就行。
-
-★ 与 v10/v11 的关系：v10 一个字节没动（它仍是缺省基线）；**v11 已冻结**
-  （历史成绩归它，不再改）；本模块 = v11 整包副本 + 2026-09-16 那批修，
-  细节见 `ruleai/v11plus/__init__.py`。配置里写 `"rule_ai": "v11plus"` 用它。
-
-★ RL 线提醒（`feat/rl` 分支）：这条线若要当 BC 老师，那边的 `rl/bc.py`
-  teacher 分派是硬编码 if/elif，得单独加一支；**经济层按"不设回合限制"跑**
-  （ROI 榜不按剩余回合过滤，用户 2026-09-16），不再读 `world.max_turns + 20`。
-"""
-from __future__ import annotations
-
-import random
-
-from . import economy, military
+"""Active rule client; receives a PlayerSession, never a World."""
+from dataclasses import dataclass,field
+from . import economy,military
 from .ledger import Ledger
 
+@dataclass
+class RuleState:
+    targets: dict = field(default_factory=dict)
+    exact: bool = True
+    def to_save(self):return {'targets':{str(k):list(v) for k,v in sorted(self.targets.items())},'exact':self.exact}
+    @classmethod
+    def from_save(cls,data):
+        if not isinstance(data,dict) or set(data)!={'targets','exact'} or type(data['exact']) is not bool or not isinstance(data['targets'],dict):raise ValueError('Invalid rule client state')
+        result={}
+        for ident,point in data['targets'].items():
+            if not isinstance(ident,str) or not ident.isdigit() or int(ident)<1 or str(int(ident))!=ident or not isinstance(point,list) or len(point)!=2 or any(type(v) is not int or v<0 for v in point):raise ValueError('Invalid rule target')
+            result[int(ident)]=tuple(point)
+        return cls(result,data['exact'])
 
-def expand_rule_turn_v11plus(world, name: str, rng: random.Random | None = None,
-                         max_actions: int = 40, on_action=None, on_result=None) -> list:
-    """跑一个回合：**经济层 → 军事层**，共用一个动作账本。"""
-    ledger = Ledger(world, name, max_actions, on_action, on_result)
-    economy.run(ledger, world, name)
-    military.run(ledger, world, name)
-    return ledger.acts
+class RuleClient:
+    kind='rule';version='v11plus'
+    def __init__(self,state=None):self.state=state or RuleState()
+    def play(self,player,*,max_actions=None,on_action=None,on_result=None):
+        ledger=Ledger(player,max_actions,on_action,on_result)
+        obs=player.observe()
+        if not obs['can_act']:return []
+        ledger.do('plan',text='按当前经济收益建设，维持补给并集中编组扩张')
+        economy.run(ledger);military.run(ledger,self.state)
+        # Ending is a protocol step and is never lost to a strategy action budget.
+        receipt=player.submit('end_turn',{'summary':f'本期完成{len(ledger.acts)}项行动，按公共情报继续经营与扩张'})
+        if not receipt['ok']:raise RuntimeError(receipt['message'])
+        ledger.acts.append(receipt)
+        if on_action:on_action('end_turn',{'summary':receipt['data']['text']})
+        if on_result:on_result('end_turn',{},receipt)
+        return ledger.acts
+    def to_save(self):return {'kind':self.kind,'version':self.version,'state':self.state.to_save()}
+
+
+def expand_rule_turn_v11plus(player,*,state=None,max_actions=None,on_action=None,on_result=None):
+    return RuleClient(state).play(player,max_actions=max_actions,on_action=on_action,on_result=on_result)
