@@ -1,48 +1,77 @@
-# zhanguo 战国
+# 战国 · Zhanguo
 
-战国 0.2.0：模块化发行版 native 4.1.0，统一玩家 API v1。引擎管理模块与请求分发，native 提供领域规则，LLM 和规则 AI 通过同一个玩家接口行动。规则 AI 仅维护 v11plus，旧版本全部退役。
+战国是一款面向 LLM 决策的回合制大战略游戏。各国在同一世界中经营经济、组织军队、处理外交并争夺生存空间；人类可以观察、发出公告与来信，也可以研究模型在长局中的决策和失误。
 
-## 开局与续局
+当前 `main` 来自原 `正规化` 分支，采用模块化架构。旧版单体实现保存在 [`legacy`](https://github.com/northwindlight/zhanguo/tree/legacy)。[English](README.en.md)
 
-1.0 之前不承诺旧档兼容，不提供兼容适配或自动迁移；整局按发行版依赖清单严格校验。
+## 真实对局资料
+
+[独立研究目录](research/game-records/README.md) 收录实际游玩的完整存档和原始日志，供研究与参考：
+
+| 对局 | 保存回合 | 使用模型 |
+| --- | --- | --- |
+| 八国终局，种子 20260921 | 258 | `qwen3.8flash`、DeepSeek |
+| 八国快照，种子 20261009 | 158 | `qwen3.8flash` |
+
+资料在 main 和 legacy 中均保留。原始文件逐字节保存，附模型来源说明、文件清单和 SHA-256。两局均来自旧版引擎，不能直接用当前 main 的存档加载器运行；研究旧局请对照 legacy 与相关历史提交。
+
+## 当前架构
+
+发行版定义游戏，host 装配运行，客户端通过统一玩家 API 行动，UI Mod 负责呈现。
+
+- **引擎**：模块依赖、请求分发、发行版 Session、控制权代次、逐动作审计与完整周期存取。
+- **发行版**：`native` 提供资源、建筑、市场、银行、领土、军队、外交、情报和国家生命周期；场景与登场规则归发行版。方格游戏可复用 `GridSession`，无地图游戏可直接使用通用 Session。
+- **玩家客户端**：LLM 与 `v11plus` 规则 AI 使用同一绑定身份的 API，消费结构化事实和行动回执。
+- **界面**：独立 UI Mod 编排提示、语言文案、终端面板和玩家可见的文字、SVG、PNG 地图。
+
+默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.3.0-beta.1`：
+
+- 独立议长分两步审核国策，核对事实、情报和经济、外交、军事承诺；连续三回合未通过后罢免君主并重建记忆。
+- 市场采用实际交付的有限库存，以及库存偏差反馈报价。
+- 保存、修订和手动运行 Python 短脚本，直接操作标准 API；按计算量限制，失败保留已成功动作，每国每回合一次执行机会。
+
+## 开始新局
 
 ```bash
 cp mp_config.example.json mp_config.json
-# 修改各国 id、client 和 LLM 接入参数；client=rule 可完全离线运行。
+# 修改国家、客户端和接入参数，再启动。
 ./start.sh --config mp_config.json --new
-./start.sh --config mp_config.json
 ```
 
-`--new` 明确重开并覆盖指定存档；新旧局使用不同 save 与 journal 路径。运行参数另有 `--save`、`--turns`、`--small-ctx`、`--ctx-window`。`--turns` 指运行到的周期号。模型失败会停止，保留最近完整结算存档。
+Windows 可使用 `start.ps1`。启动脚本建立本地虚拟环境并安装依赖；也可在已准备好的环境中运行 `.venv/bin/python mp_run.py`。
 
-国家配置建议显式填写 `id`（稳定身份）、`name`（显示名）、`client`（llm 或 rule）。默认规则版本为 v11plus，配置退休版本会拒绝启动。政体使用模块作用域，例如 `polity=huns`；支持 initial、scheduled、manual 登场。续局所需 API key 来自外部配置，不存入整局存档。
+每国显式配置 `id`、`name` 和 `client`。`client=rule` 使用确定性的 v11plus；默认 native 可完全离线运行。`client=llm` 需填写模型和接入参数，支持 OpenAI 兼容与 Anthropic 两种协议。凭据保留在本地配置中，不写入整局存档。
 
-旧 World 构造器与旧整局存档已退役，旧存档应在对应历史提交续局；新客户端不构造兼容 World。银行配置由发行版模块拥有，旧 world_bank 与 opening_guide 开关不再使用。
+启用 experimental 时，复制 [实验配置模板](mp_config.experimental.example.json) 为自己的配置，顶层指定 `"mods": "mods.experimental.toml"`，并为议长设置模型接入。各局使用独立 save 与 journal 路径。
 
-终端命令：`add 国名`、`send 国名 正文`、`say 正文`、`board`、`map 国名`、`quit`。say 或 send 国名后可输入多行，以 END 结束；正文也可用 @文件路径。加入的国家需预先在配置声明。
+```bash
+./start.sh --config mp_config.json          # 续局
+./start.sh --config mp_config.json --turns 10
+```
 
-## 八国剧本
+`--new` 会覆盖指定目标存档。`--turns` 表示运行到的周期号。保存只发生在完整结算边界，调用失败时保留最近完整存档。当前格式为 `zhanguo.session/2`；1.0 之前不承诺旧档兼容，不提供自动迁移，模块依赖不一致时拒绝混载。
+
+## 八国剧本与观察者
 
 ```bash
 python -m scenarios.eight_nations --seed 20260921
 ./start.sh --config mp_config.8国.20260921.json
 ```
 
-生成器默认使用示例接入配置，显式 `--template 路径` 才使用其他配置；已有目标需 --force 才覆盖。八国采用 24×24 手摆位置，七雄共保周，常驻目标文案随档保存，观察者手动结束对局。生成的示例 LLM 配置需填入接入参数；离线局把 client 改为 rule。
+剧本采用 24×24 地图、八国手摆开局与七雄共保周的初始安排。生成器遇到已有目标会拒绝覆盖，显式 `--force` 才覆盖；生成后按需要填写模型接入或改用 rule 客户端。
 
-## 架构与验证
+终端提供 `add 国名`、`send 国名 正文`、`say 正文`、`board`、`map 国名 [文件.svg或文件.png]`、`quit`。公告和来信可多行输入，以 `END` 结束；图形视觉可设置 `vision=true`，PNG 依赖见 [UI 说明](mods/ui/README.md)。终端入口检查发行版实际提供的管理能力。
 
-可选[experimental 实验性发行版](mods/experimental/README.md)提供两步国策审核、事实与承诺校核、连续三回合未通过后的君主罢免和记忆重建，并提供有限库存与库存反馈定价市场、按计算量限制的 Python 沙盒。使用独立配置 `mp_config.experimental.example.json`；默认发行版仍为 native。
+## 开发与验证
 
-- [发行版 Session 与 API 暴露](docs/发行版Session.md)：开局、登场和管理能力归发行版，统一提交、审计与控制权机制。
-- [统一玩家接口和客户端接线](docs/客户端接线.md)：方法、回执、权限、状态和迁移边界。
-- [Mod 开发指南](docs/Mod开发指南.md)：按任务分条的配方——加资源、加阶段、加兵种、换实现、提供客户端、组装发行版、一个最小可玩游戏；每条配可运行示例与验收测试。
-- [独立 UI Mod](mods/ui/README.md)：LLM 界面编排、语言键和图形地图；native 与 experimental 均装配。
-- [Native 领域模块](mods/native/README.md)：18 个领域模块和独立 UI Mod、56 个模块工具与结算挂点。
-- [模块化口径](模块化口径.md)：领域所有权与依赖方向。
+- [Mod 开发指南](docs/Mod开发指南.md)：从可运行示例开始，增加内容、替换模块和组装独立游戏。
+- [发行版 Session](docs/发行版Session.md)：场景、可选地图策略、管理能力、服务装配、审计与控制权。
+- [玩家 API 与客户端](docs/客户端接线.md)：绑定身份、事实、请求和回执。
+- [Native 模块](mods/native/README.md)、[UI Mod](mods/ui/README.md)、[experimental](mods/experimental/README.md)、[Python 沙盒](mods/experimental/SCRIPTING.md)。
+- [模块化口径](模块化口径.md)与 [路线计划](PLAN.md)。
 
 ```bash
-.venv/bin/python -m unittest discover -s tests
+.venv/bin/python -m unittest discover -s tests -q
 ```
 
-离线回归覆盖引擎、领域、玩家 API、客户端、八国剧本与临时 CLI 整局，使用模拟后端。DeepSeek 两种协议已真实连通；用户已确认 Claude 完成联网、续档和墙钟验证。旧单体测试与历史策略基准保留作档案，不继续维护。新版 LLM 使用结构化状态；独立 [UI Mod](mods/ui/README.md) 编排提示、语言键和玩家可见地图，设置 `vision=true` 可发送 PNG，终端可导出 PNG/SVG。
+最近代码回归为 405 项离线测试通过，覆盖模块替换、合成对局、存取一致性、API 权限、议会、市场、沙盒与 UI。测试使用模拟模型后端；真实对局资料单独存放，不作为自动化测试输入。
