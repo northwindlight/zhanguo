@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "publication_date": "2026-10-13",
+  "description": "Real human-played games: complete supplied saves and unabridged original journals, for research and reference.",
+  "code_family": "legacy monolithic World v4; not a modular main save",
+  "records": [
+    {
+      "id": "eight-nations-258",
+      "status": "completed",
+      "save_turn": 258,
+      "save_version": 4,
+      "map_size": 24,
+      "seed": 20260921,
+      "initial_nations": [
+        "秦",
+        "魏",
+        "韩",
+        "赵",
+        "燕",
+        "齐",
+        "楚",
+        "周"
+      ],
+      "models": [
+        "qwen3.8flash",
+        "DeepSeek"
+      ],
+      "model_source": "human player statement",
+      "observed_saved_model_identifiers": [
+        "deepseek-flash[1m]"
+      ],
+      "files": {
+        "save": {
+          "path": "eight-nations-258/state.json",
+          "original_filename": "mp_save.8国.终局258回合.json",
+          "bytes": 9871938,
+          "sha256": "39044333a3c66f4ed596f6872c6a33ac3b757f02a7d3cd2a79e2ab6a7f2576ef"
+        },
+        "journal": {
+          "path": "eight-nations-258/journal.md",
+          "original_filename": "mp_journal.8国.终局258回合.md",
+          "bytes": 6716666,
+          "sha256": "ecc30f30fbecaeebaacea212aa23402c126cb678acb4a88f5f2e1b48c412277a"
+        }
+      }
+    },
+    {
+      "id": "eight-nations-158",
+      "status": "snapshot",
+      "save_turn": 158,
+      "save_version": 4,
+      "map_size": 24,
+      "seed": 20261009,
+      "initial_nations": [
+        "秦",
+        "魏",
+        "韩",
+        "赵",
+        "燕",
+        "齐",
+        "楚",
+        "周"
+      ],
+      "models": [
+        "qwen3.8flash"
+      ],
+      "model_source": "human player statement",
+      "observed_saved_model_identifiers": [],
+      "files": {
+        "save": {
+          "path": "eight-nations-158/state.json",
+          "original_filename": "mp_save.8国.20261009.json",
+          "bytes": 16367773,
+          "sha256": "e29b3f46f708609f0840e89e3b36883acc5558f4674918886cd1c819285d0b16"
+        },
+        "journal": {
+          "path": "eight-nations-158/journal.md",
+          "original_filename": "mp_journal.8国.20261009.md",
+          "bytes": 5840867,
+          "sha256": "a747745c5b72908f4ec780853dccfe5dd5ac0f17659bb96aa7fa52964bb4e2dc"
+        }
+      }
+    }
+  ]
+}
