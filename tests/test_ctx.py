@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ctx.py 的单元测试：预算分配、下滑水位、前缀缓存不变量。
+"""clients/context.py 的单元测试：预算分配、下滑水位、前缀缓存不变量。
 
 全部用合成数据，不读写任何真实存档（mp_save.json 是玩家在跑的档）。
 跑法：python3 -m unittest discover -s tests -v
@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import ctx  # noqa: E402
+from clients import context as ctx  # noqa: E402
 
 SYSTEM = "你是国家元首。这里是静态系统提示词。" * 60
 
@@ -220,7 +220,7 @@ class TestCachePrefixInvariant(unittest.TestCase):
 
 class TestReplayHead(unittest.TestCase):
     """`replay_head` + `plan.archive_text`：压缩调用要拿它们求"上一次请求的前缀"切点
-    （见 mp_ai._compact_block）。这两样错了，压缩调用就静默不命中——最难查的那种错。"""
+    （见 clients.llm.LLMClient._compress）。这两样错了，压缩调用就静默不命中——最难查的那种错。"""
 
     def _build(self, turns=6, fixed=4, long_memory=""):
         w = StubWorld()

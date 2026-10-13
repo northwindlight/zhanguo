@@ -7,11 +7,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import ctx
+from clients import context as ctx
 from engine.runtime import Runtime,GameMod
 from host import GameHost,ROOT
 from clients.llm import LLMClient,LLMState
-from llm_provider import _public_messages,_anthropic_messages
+from clients.provider import _public_messages,_anthropic_messages
 from ui import load_ui
 from mods.ui.maps import render_snapshot,side
 from mods.ui.i18n import Translator

@@ -123,11 +123,11 @@ def est_tokens(text: str | None) -> int:
 REPLAY_KEY = "reasoning_signature"
 """Anthropic thinking 签名的落盘位置，值形如 `{"model": …, "signature": …}`。
 
-**为什么定义在 ctx.py**：这个模块是"一条消息长什么样"（`content` / `reasoning_content` /
+**为什么定义在 clients/context.py**：这个模块是"一条消息长什么样"（`content` / `reasoning_content` /
 `tool_calls`）这条契约的拥有者，凡是**会重写消息**的地方都得照顾它——本文件里有两处
 （`_shrink_messages` 换掉思考正文、`merge_same_role` 合并两条 assistant），提供方那边在
-`llm_provider.AnthropicCompat`（用它拼回 thinking block）与 `_public_messages`（OpenAI
-那路发请求前摘掉它）里用。详细理由见 `llm_provider` 模块 docstring「Anthropic 那一路」。
+`clients.provider.AnthropicCompat`（用它拼回 thinking block）与 `_public_messages`（OpenAI
+那路发请求前摘掉它）里用。详细理由见 `clients.provider` 模块 docstring「Anthropic 那一路」。
 
 **它不进 token 预算**：`msg_tokens` 只看 content / reasoning_content / tool_calls。
 """
@@ -551,7 +551,7 @@ def replay_head(system_text: str, archive_text: str, records: list[dict]) -> lis
     """重建「system → 归档 → 这批回合」的消息头，**与 `build()` 同一套合并规则**。
 
     只给一个用处：**求切点**——压缩调用要接着上一次请求的前缀往下发（见
-    `mp_ai._compact_block`），而切点不能按"回合数"硬算：`assemble` 末尾那次
+    `clients.llm.LLMClient._compress`），而切点不能按"回合数"硬算：`assemble` 末尾那次
     `merge_same_role` 会把归档（user）与紧随其后的回合首条（也是 user，本回合状态）
     合成**一条**消息。所以先在这里把同样的头拼一遍、数出它合并后的条数，再去真发出去
     的那份 `messages` 上切片——**字节一律取真发的那份**，别拿本函数的返回值去发
@@ -646,7 +646,7 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
     plan.replay_turns = len(records)
     plan.before_turn = before
     # ★ 归档**这一次真正渲染出来的字节**留在 plan 上：压缩调用要拿它 + 被滑掉的回合原文
-    #   拼出"上一次请求的前缀"（见 `replay_head` / `mp_ai._compact_block`）。重算一遍
+    #   拼出"上一次请求的前缀"（见 `replay_head` / `clients.llm.LLMClient._compress`）。重算一遍
     #   `render_archive(...)` 是错的——`before_turn`、`long_memory` 在压缩那一刻都可能
     #   已经变了，重算出来的就不是发出去的那份字节，命中会在归档处整段断掉。
     plan.archive_text = archive_text

@@ -12,8 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import console  # noqa: E402
-from console import Console, dw, pad, render_md  # noqa: E402
+from ui import terminal as console  # noqa: E402
+from ui.terminal import Console, dw, pad, render_md  # noqa: E402
 
 
 class TestWidth(unittest.TestCase):

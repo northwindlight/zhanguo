@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import unittest
 
 from engine.scripting import Machine, check, DEFAULT_LIMITS
@@ -103,7 +104,7 @@ print(fib(8))
         code="from engine.scripting import Machine; import json; print(json.dumps(Machine(\"print({'秦': 1, '韩': 2})\",lambda *a:None).run(),sort_keys=True))"
         outputs=[]
         for seed in ('1','17'):
-            result=subprocess.run([str(ROOT/'.venv/bin/python'),'-c',code],cwd=ROOT,
+            result=subprocess.run([sys.executable,'-c',code],cwd=ROOT,
                 env={**os.environ,'PYTHONHASHSEED':seed},text=True,capture_output=True,check=True)
             outputs.append(json.loads(result.stdout))
         self.assertEqual(outputs[0],outputs[1])

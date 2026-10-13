@@ -2,7 +2,7 @@
 
 `ui:standard` 是独立、无持久状态的 Mod。native 和 experimental 都在发行版 Members 中装配它；引擎只负责注册，不认识地图或 LLM 提示。UI 不访问 World、native 对象或领域内部接口，只消费 Player API 已过滤的 JSON 观察。
 
-UI Mod 拥有 LLM 提示编排、工具描述展示、上下文统计与归档标题、观察者终端文案、文字/SVG/PNG 地图和语言目录。客户端拥有对话记忆、模型调用和工具执行；`console.py` 保留终端输入输出与 ANSI 处理。`ui/` 是装配入口，实现在本目录；`clients/view.py` 仅保留调用入口。
+UI Mod 拥有 LLM 提示编排、工具描述展示、上下文统计与归档标题、观察者终端文案、文字/SVG/PNG 地图和语言目录。客户端拥有对话记忆、模型调用和工具执行；`ui/terminal.py` 负责终端输入输出与 ANSI 处理。`ui/` 是装配入口，实现在本目录；客户端使用宿主注入的 UI 对象。
 
 ## 配置
 

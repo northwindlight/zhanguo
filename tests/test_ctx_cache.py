@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ctx.py 缓存瘦身（ctx_old_reasoning / ctx_trim_tool_chars）与滚动实测命中的单元测试。"""
+"""clients/context.py 缓存瘦身（ctx_old_reasoning / ctx_trim_tool_chars）与滚动实测命中的单元测试。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import ctx  # noqa: E402
+from clients import context as ctx  # noqa: E402
 
 SYSTEM = "系统提示词。" * 60
 

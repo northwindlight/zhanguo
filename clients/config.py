@@ -1,6 +1,6 @@
 """LLM client owns context and model transport configuration."""
 from engine.config import Field, Schema
-from ctx import CTX_KEYS
+from clients.context import CTX_KEYS
 
 TRANSPORT_FIELDS={key:Field((str,)) for key in (
     'base_url','api_key','model','reasoning_effort','anthropic_version')}

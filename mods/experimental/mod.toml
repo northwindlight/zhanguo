@@ -76,7 +76,7 @@ Entry = "mods.native.config:normalize"
 
 [Distribution.ClientFactories.rule]
 Entry = "mods.experimental.combat_research.client:ResearchRuleClient"
-Configuration = "rule_ai:normalize_config"
+Configuration = "ruleai:normalize_config"
 
 [Distribution.ClientFactories.rule.Services.combat]
 Capability = "research:combat-probabilities"

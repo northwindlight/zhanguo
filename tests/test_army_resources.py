@@ -1,180 +1,136 @@
-"""Historical ArmyLogic/resource collaboration; the live army is covered by test_world_domains."""
+"""Army/resource contracts against the current declared distribution."""
 from copy import deepcopy
 from pathlib import Path
-import tomllib
+from tempfile import TemporaryDirectory
+import json
 import unittest
 
-from engine.runtime import GameMod, ModError, Runtime, Unit as RuntimeUnit
+from engine.runtime import ModError, Runtime
 from engine.state import unit_context
-from mods.native.army.logic import ArmyLogic
 from mods.native.army.objects import Units
-from mods.native.army.parameters import UNIT_TYPES
 from mods.native.army.rules import army_name, unit_label
-from mods.native.army.content import native_unit_definitions, unit_definitions
-from mods.native.resources.mod import ResourcesMod
+from mods.native.army.parameters import UNIT_TYPES
+from tests import test_world_domains as fixtures
 
 ROOT = Path(__file__).resolve().parents[1]
-ARMY_DECLARATION = tomllib.loads((ROOT/'docs/archive/legacy-domain-declarations/army.toml').read_text())
 RESOURCE_IDS = ('native:gold', 'native:food', 'native:equipment', 'native:supply')
-
-
-class ArmyResourceClient(GameMod):
-    # This test client exercises the real ArmyLogic resource paths. It uses
-    # the historical isolated sample's grants, separate from the live army module.
-    declaration = ARMY_DECLARATION
-
-    def mixins(self):return ()
-    def needs(self):return RESOURCE_IDS
-    def state_keys(self):return ('units',)
-    def content_definitions(self):return native_unit_definitions()
-
-
-class ArmyFixture(ArmyLogic):
-    def __init__(self, extra_modules=()):
-        path = ROOT/'mods/native/resources/mod.toml'
-        resources = ResourcesMod();resources.configure(tomllib.loads(path.read_text()), path)
-        self.runtime = Runtime([RuntimeUnit('native:resources',resources),
-                                RuntimeUnit('native:army',ArmyResourceClient()), *extra_modules])
-        self.size = 16;self.turn = 1
-        resources.initialize_world(self)
-        self.resources.bind_state(self,'resources')
-        self.resources.open('Qin',{'native:gold':100,'native:food':40,
-                                  'native:equipment':20,'native:supply':10})
-        self.units = Units(self.size,definitions=unit_definitions(self.runtime.content));self.units.bind_state(self,'units')
-        self.nations = {'Qin':object()}
-        self.tiles = {(3,4): {'owner':'Qin','name':'test tile','buildings':{'兵营':1,'军屯':1},
-                              'recruited_this_turn':0}}
-        self.grid_short = {}
-        self.flow_out = {key:0 for key in RESOURCE_IDS if key!='native:gold'}
-        self.ledger = {'Qin':{'supply_eaten':0,'heal_value':0}}
-        self.spend = {'Qin':{'recruit':0,'supply':0}}
-        self.events = []
-
-    def res(self,*args):raise AssertionError('Legacy account read')
-    def add_res(self,*args):raise AssertionError('Legacy account write')
-    def _mval(self,*args):raise AssertionError('Legacy resource valuation')
-    def market_price(self,key):
-        return {'native:gold':10,'native:food':1.5,'native:equipment':8,'native:supply':6}[key]
-    def polity_rule(self,*args):return {}
-    def nation_building_count(self,*args):return 1
-    def alive(self):return ['Qin']
-    def battle_sides(self,*args):return {}
-    def _ledger(self,owner):return self.ledger[owner]
-    def _spend(self,owner):return self.spend[owner]
-    def log(self,text,**kwargs):self.events.append(text)
+Q = fixtures.Q
 
 
 class TestArmyResources(unittest.TestCase):
-    def test_army_declares_exact_resource_capabilities_and_limited_grants(self):
-        needs = ARMY_DECLARATION['Capabilities']['Needs']
-        self.assertTrue(set(RESOURCE_IDS) <= set(needs))
-        self.assertFalse({'method.res','method.add_res','method._mval','native:resources'} & set(needs))
-        self.assertEqual(ARMY_DECLARATION['Mod']['Id'],'native:army')
-        self.assertEqual(ARMY_DECLARATION['Mod']['Requires'],['native:resources'])
+    def setUp(self):
+        self.fixture = fixtures.TestWorldDomains()
+        self.world = self.fixture.world()
+        self.site = self.fixture.site(self.world, 'scenario:capital', Q, 1, 1)
+        self.world.buildings.seed(self.site, 'native:barracks')
+        self.world.buildings.seed(self.site, 'native:militia-camp')
+
+    def recruit(self, kind):
+        return self.world.call_tool(Q, 'recruit', {'site': self.site, 'kind': kind})[0]
+
+    def test_army_declares_concrete_reads_and_atomic_exchange(self):
+        declaration = self.world.runtime.units['native:army'].mod.declaration
+        self.assertTrue(set(RESOURCE_IDS) <= set(declaration['Capabilities']['Needs']))
+        self.assertFalse({'method.res', 'method.add_res', 'native:resources'} & set(declaration['Capabilities']['Needs']))
+        for resource in RESOURCE_IDS:
+            self.assertEqual(declaration['Interfaces'][resource], ['balance'])
+        self.assertEqual(declaration['Interfaces']['native:resource-exchange'], ['exchange', 'exchange_batch'])
+
+    def test_recruitment_consumes_exact_declared_resources(self):
+        w = self.world
+        before = {key: w.resources.balance(Q, key) for key in RESOURCE_IDS}
+        unit = self.recruit('native:militia')
         for key in RESOURCE_IDS:
-            self.assertEqual(ARMY_DECLARATION['Interfaces'][key],['balance','consume','value'])
-        with self.assertRaisesRegex(ModError,'所需能力无提供者'):
-            Runtime([RuntimeUnit('native:army',ArmyResourceClient())])
+            self.assertEqual(before[key] - w.resources.balance(Q, key), unit.definition['recruit'].get(key, 0))
+        self.assertEqual(unit.kind, 'native:militia')
 
-    def test_recruit_uses_concrete_resources_and_currency_polymorphism(self):
-        w=ArmyFixture()
+    def test_infantry_recruitment_is_atomic_on_insufficient_resources(self):
+        w = self.world
+        w.resources.consume(Q, 'native:equipment', w.resources.balance(Q, 'native:equipment'))
+        before = self.fixture.save(w)
+        with self.assertRaises(ValueError):
+            self.recruit('native:infantry')
+        self.assertEqual(self.fixture.save(w), before)
+
+    def test_supply_and_healing_use_resource_inventory(self):
+        w = self.world
+        unit = w.military.seed(Q, 'native:infantry', 1, 1)[0]
+        w.units.by_id(unit.id, Q).take_damage(60)
+        supply = w.resources.balance(Q, 'native:supply')
+        equipment = w.resources.balance(Q, 'native:equipment')
+        self.fixture.cycle(w)
+        self.assertEqual(w.units.by_id(unit.id, Q).hp, 70)
+        self.assertEqual(w.resources.balance(Q, 'native:supply'), supply - 1)
+        self.assertEqual(w.resources.balance(Q, 'native:equipment'), equipment - 1)
+        self.assertGreater(w.economy.turns(Q)[0].military.total, 0)
+
+    def test_starvation_and_garrison_militia_exemption(self):
+        w = self.world
+        infantry = w.military.seed(Q, 'native:infantry', 1, 1)[0]
+        militia = w.military.seed(Q, 'native:militia', 1, 1)[0]
+        w.units.by_id(militia.id, Q).take_damage(30)
+        w.resources.consume(Q, 'native:supply', w.resources.balance(Q, 'native:supply'))
+        self.fixture.cycle(w)
+        self.assertEqual(w.units.by_id(infantry.id, Q).hp, 65)
+        self.assertEqual(w.units.by_id(militia.id, Q).hp, 50)
+        # Exempt militia avoid starvation; national shortage still stops healing.
+        w.call_tool(Q, 'disband', {'aid': infantry.id})
+        equipment = w.resources.balance(Q, 'native:equipment')
+        self.fixture.cycle(w)
+        self.assertEqual(w.units.by_id(militia.id, Q).hp, 80)
+        self.assertEqual(w.resources.balance(Q, 'native:equipment'), equipment)
+
+    def test_permissions_reject_ungranted_raw_resource_writes(self):
+        w = self.world
+        before = w.resources.to_save()
         with unit_context('native:army'):
-            ok,message=w.recruit('Qin',3,4,1,'native:militia')
-        self.assertTrue(ok,message)
-        self.assertEqual(w.resources.balance('Qin','native:gold'),50)
-        self.assertEqual(w.resources.balance('Qin','native:food'),35)
-        self.assertEqual(w.resources.balance('Qin','native:equipment'),20)
-        self.assertEqual(w.spend['Qin']['recruit'],57.5)
-        self.assertEqual(w.units[0].kind,'native:militia')
-        self.assertIn('民兵',message)
+            with self.assertRaises(ModError):
+                w.resources.consume(Q, 'native:food', 1)
+            with self.assertRaises(ModError):
+                w.runtime.object_call(w, 'native:gold', 'credit', Q, 100)
+            with self.assertRaises(ModError):
+                w.runtime.object_call(w, 'native:wood', 'balance', Q)
+        self.assertEqual(w.resources.to_save(), before)
 
-    def test_infantry_recruit_consumes_food_and_equipment(self):
-        w=ArmyFixture()
-        with unit_context('native:army'):
-            self.assertTrue(w.recruit('Qin',3,4,1,'native:infantry')[0])
-        self.assertEqual(w.resources.balance('Qin','native:food'),30)
-        self.assertEqual(w.resources.balance('Qin','native:equipment'),15)
-        self.assertEqual(w.spend['Qin']['recruit'],55)
+    def test_unit_ids_and_resource_state_survive_roundtrip(self):
+        w = self.world
+        self.recruit('native:infantry')
+        restored = self.fixture.restore(w)
+        self.assertEqual(restored.units.to_save(), w.units.to_save())
+        before = w.units.to_save()
+        for kind in ('步', 'infantry', 'other:infantry'):
+            with self.assertRaises(ValueError):
+                w.units.spawn(Q, kind, 1, 1)
+            self.assertEqual(w.units.to_save(), before)
 
-    def test_supply_and_healing_use_resource_owned_inventory(self):
-        w=ArmyFixture();unit=w.units.spawn('Qin','native:infantry',3,4)
-        unit.take_damage(60)
-        with unit_context('native:army'):w._stage_supply({})
-        self.assertEqual(w.resources.balance('Qin','native:supply'),9)
-        self.assertEqual(w.resources.balance('Qin','native:equipment'),19)
-        self.assertEqual(unit.hp,70)
-        self.assertEqual(w.spend['Qin']['supply'],6)
-        self.assertEqual(w.ledger['Qin']['heal_value'],8)
+    def test_display_locale_does_not_change_unit_identity_or_cost(self):
+        cost = deepcopy(UNIT_TYPES['native:infantry']['recruit'])
+        self.assertEqual(unit_label('native:infantry'), '步兵')
+        self.assertEqual(unit_label('native:infantry', 'en-US'), 'Infantry')
+        self.assertNotEqual(army_name(Q, 1, 'native:infantry'), army_name(Q, 1, 'native:infantry', 'en-US'))
+        self.assertEqual(cost, UNIT_TYPES['native:infantry']['recruit'])
 
-    def test_starvation_and_militia_exemption_preserve_rules(self):
-        w=ArmyFixture();unit=w.units.spawn('Qin','native:infantry',3,4)
-        w.resources.consume('Qin','native:supply',10)
-        with unit_context('native:army'):w._stage_supply({})
-        self.assertEqual(unit.hp,65)
-        self.assertEqual(w.resources.balance('Qin','native:equipment'),20)
-        w=ArmyFixture();unit=w.units.spawn('Qin','native:militia',3,4)
-        unit.take_damage(30)
-        with unit_context('native:army'):w._stage_supply({})
-        self.assertEqual(unit.hp,80)
-        self.assertEqual(w.resources.balance('Qin','native:supply'),10)
-        self.assertEqual(w.resources.balance('Qin','native:equipment'),20)
+    def test_registered_unit_recruits_heals_and_roundtrips(self):
+        with TemporaryDirectory() as folder:
+            edition = Path(folder) / 'mod.toml'
+            edition.write_text(self.fixture.edition().replace(
+                'Members = [', 'Members = [' + json.dumps(str(ROOT / 'mods/examples/elephants/mod.toml')) + ', '))
+            w = self.fixture.world(Runtime.load(edition.parent))
+            site = self.fixture.site(w, 'scenario:elephant-capital', Q, 1, 1)
+            w.buildings.seed(site, 'native:barracks')
+            unit = w.call_tool(Q, 'recruit', {'site': site, 'kind': 'example:war-elephant'})[0]
+            self.assertEqual((unit.kind, unit.hp, unit.atk()), ('example:war-elephant', 200, 90))
+            w.units.by_id(unit.id, Q).take_damage(20)
+            self.fixture.cycle(w)
+            self.assertEqual(w.units.by_id(unit.id, Q).hp, 200)
+            saved = w.units.to_save()
+            restored = Units.from_save(saved, size=8, definitions=w.units.definitions)
+            self.assertEqual(restored.to_save(), saved)
+            with self.assertRaises(ValueError):
+                Units.from_save(saved, size=8)
+            with self.assertRaises(TypeError):
+                unit.definition['hp'] = 999
 
-    def test_permissions_prevent_raw_writes_and_ungranted_operations(self):
-        w=ArmyFixture();before=w.resources.to_save()
-        with unit_context('native:army'):
-            with self.assertRaises(ModError):w.resources.consume('Qin','native:food',1)
-            with self.assertRaises(ModError):w.resources._stock('Qin','native:food').consume(1)
-            with self.assertRaises(ModError):w.runtime.object_call(w,'native:gold','credit','Qin',100)
-            with self.assertRaises(ModError):w.runtime.object_call(w,'native:wood','consume','Qin',1)
-            w._consume_resource('Qin','native:food',1)
-        self.assertEqual(w.resources.balance('Qin','native:food'),39)
-        self.assertEqual(before['accounts'][0]['stocks'][0]['amount'],100)
 
-    def test_stock_and_unit_ids_survive_explicit_roundtrip(self):
-        w=ArmyFixture()
-        with unit_context('native:army'):w.recruit('Qin',3,4,1,'native:infantry')
-        units=Units.from_save(w.units.to_save(),size=w.size)
-        self.assertEqual(units.to_save(),w.units.to_save())
-        self.assertEqual(units[0].kind,'native:infantry')
-        before=deepcopy(w.units.to_save())
-        for kind in ('步','infantry','other:infantry'):
-            with self.assertRaises(ValueError):w.units.spawn('Qin',kind,3,4)
-            self.assertEqual(w.units.to_save(),before)
-
-    def test_display_locale_does_not_change_kind_or_cost(self):
-        cost=deepcopy(UNIT_TYPES['native:infantry']['recruit'])
-        self.assertEqual(unit_label('native:infantry'),'步兵')
-        self.assertEqual(unit_label('native:infantry','en-US'),'Infantry')
-        self.assertNotEqual(army_name('Qin',1,'native:infantry'),army_name('Qin',1,'native:infantry','en-US'))
-        self.assertEqual(cost,UNIT_TYPES['native:infantry']['recruit'])
-
-    def test_registered_fourth_unit_can_recruit_heal_and_roundtrip(self):
-        class Archers(GameMod):
-            def mixins(self):return ()
-            def content_definitions(self):
-                return {'example:archer': {'category':'unit','name_key':'unit.example:archer.name',
-                                          'hp':120,'speed':1,'supply':1,'atk':60,
-                                          'recruit':{'native:food':8,'native:equipment':3},
-                                          'move_cost':{'平原':1}}}
-        w=ArmyFixture((RuntimeUnit('example:archers',Archers()),))
-        self.assertIn('archer',w.runtime.content['example'])
-        with unit_context('native:army'):
-            ok,message=w.recruit('Qin',3,4,1,'example:archer')
-        self.assertTrue(ok,message)
-        unit=w.units[0]
-        self.assertEqual((unit.kind,unit.hp,unit.atk()),('example:archer',120,60))
-        self.assertEqual(w.resources.balance('Qin','native:food'),32)
-        self.assertEqual(w.resources.balance('Qin','native:equipment'),17)
-        unit.take_damage(20)
-        with unit_context('native:army'):w._stage_supply({})
-        self.assertEqual(unit.hp,120)
-        saved=w.units.to_save()
-        restored=Units.from_save(saved,size=w.size,definitions=unit_definitions(w.runtime.content))
-        self.assertEqual(restored.to_save(),saved)
-        self.assertEqual(restored[0].atk(),60)
-        with self.assertRaises(ValueError):Units.from_save(saved,size=w.size)
-        with self.assertRaises(TypeError):unit.definition['hp']=999
-        from mods.native.army.mod import ArmyMod
-        schema={'function':{'name':'recruit','parameters':{'properties':{'kind':{}}}}}
-        adapted=ArmyMod().schema_for_actor(w,'Qin',schema)
-        self.assertIn('example:archer',adapted['function']['parameters']['properties']['kind']['enum'])
+if __name__ == '__main__':
+    unittest.main()

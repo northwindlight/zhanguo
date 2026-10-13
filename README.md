@@ -2,7 +2,7 @@
 
 战国是一款面向 LLM 决策的回合制大战略游戏。各国在同一世界中经营经济、组织军队、处理外交并争夺生存空间；人类可以观察、发出公告与来信，也可以研究模型在长局中的决策和失误。
 
-当前 `main` 来自原 `正规化` 分支，采用模块化架构。旧版单体实现保存在 [`legacy`](https://github.com/northwindlight/zhanguo/tree/legacy)。[English](README.en.md)
+当前版本 **0.2.2**。`main` 来自原 `正规化` 分支，采用模块化架构。旧版单体实现保存在 [`legacy`](https://github.com/northwindlight/zhanguo/tree/legacy)。[English](README.en.md)
 
 ## 真实对局资料
 
@@ -76,4 +76,12 @@ python -m scenarios.eight_nations --seed 20260921
 .venv/bin/python -m unittest discover -s tests -q
 ```
 
-最近代码回归为 405 项离线测试通过，覆盖模块替换、合成对局、存取一致性、API 权限、议会、市场、沙盒与 UI。测试使用模拟模型后端；真实对局资料单独存放，不作为自动化测试输入。
+最近代码回归为 428 项离线测试通过，覆盖模块替换、合成对局、存取一致性、API 权限、议会、市场、沙盒与 UI。测试使用模拟模型后端；真实对局资料单独存放，不作为自动化测试输入。
+
+## 代码入口
+
+根目录 Python 文件仅保留 `host.py`（装配发行版 Session）和 `mp_run.py`（CLI）。上下文与模型接入在 `clients/`，规则客户端在 `ruleai/`，终端传输在 `ui/terminal.py`，显示与地图在 `mods/ui/`，地图生成在 `mods/native/map_generation/`。旧转口、旧领域实现和退役实验使用 legacy 分支及对应历史提交查阅。
+
+[游戏说明书](docs/游戏说明书.md) 直接导出发行版声明：`python -m docs.generate_manual`；检查同步用 `--check`，选择其他发行版用 `--mods` 并指定 `--output`。
+
+Release 的源码 ZIP 不打包真实对局资料；研究资料从仓库的 [独立研究目录](https://github.com/northwindlight/zhanguo/tree/main/research/game-records) 获取。

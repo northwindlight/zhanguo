@@ -1,5 +1,6 @@
 # Zhanguo
 
+Current release: **0.2.2**.
 Zhanguo is a turn-based grand strategy game built around LLM decision-making. Nations manage their economies, armies and diplomacy in a shared world. Human observers can follow long games and study decisions, failures and memory changes.
 
 The current `main` is the modular implementation, formerly the `正规化` branch. The previous monolithic implementation is preserved on [legacy](https://github.com/northwindlight/zhanguo/tree/legacy). [中文](README.md)
@@ -46,4 +47,12 @@ Start with the [Mod guide](docs/Mod开发指南.md), [Session contract](docs/发
 .venv/bin/python -m unittest discover -s tests -q
 ```
 
-The latest code regression passed 405 offline tests using simulated model backends and synthetic worlds. The published real-game records are kept separate from automated test inputs.
+The latest code regression passed 428 offline tests using simulated model backends and synthetic worlds. The published real-game records are kept separate from automated test inputs.
+
+## Code entry points
+
+Only `host.py` (distribution assembly) and `mp_run.py` (CLI) remain as root Python files. Context and model transports live in `clients/`, rule clients in `ruleai/`, terminal transport in `ui/terminal.py`, presentation and maps in `mods/ui/`, and map generation in `mods/native/map_generation/`. Retired implementations and experiments are available in Git history and the legacy branch.
+
+Export the selected distribution’s rules, settlement order and module parameters with `python -m docs.generate_manual`. Use `--check` to verify the [generated manual](docs/游戏说明书.md), or `--mods` and `--output` for another distribution.
+
+Source release ZIPs exclude real-game records. Published records remain available in the [repository research directory](https://github.com/northwindlight/zhanguo/tree/main/research/game-records).

@@ -279,7 +279,7 @@ def _norm(field: list[list[float]]) -> list[list[float]]:
     return [[(v - lo) / span for v in row] for row in field]
 
 
-if __name__ == "__main__":      # 生成一图 + 计时（`python3 mapgen.py [size]`）
+if __name__ == "__main__":      # 生成一图 + 计时（`python -m mods.native.map_generation.algorithm [size]`）
     import sys
     import time
 

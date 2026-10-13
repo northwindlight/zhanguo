@@ -63,8 +63,14 @@ world.phase = '行动'  # 宿主开启下一行动期；周期由 government 自
 
 ## 验收与客户端
 
-运行 `.venv/bin/python -m unittest discover -s tests`。领域测试、统一玩家接口、混合客户端、存读档与 CLI 使用合成数据验证；DeepSeek 两种协议已真实连通；用户确认 Claude 完成联网、续档和墙钟验证。旧单体 World 测试归档在 tests/retired，不再维护。客户端不导入 native 实现。
+运行 `.venv/bin/python -m unittest discover -s tests`。领域测试、统一玩家接口、混合客户端、存读档与 CLI 使用合成数据验证；DeepSeek 两种协议已真实连通；用户确认 Claude 完成联网、续档和墙钟验证。旧单体代码与测试已清理，历史实现见 legacy 分支及对应提交。客户端不导入 native 实现。
 
 公共查询新增建筑站点、建筑目录、建筑报价、兵种目录、征召报价、可见战斗预估。报价与动作共用成本逻辑；预估与实际战斗共用数值计算，预估仅采用当前可见信息。剧本可用 diplomacy.seed_pact 初始化独立国家条约，此方法不注册为玩家工具。
 
-完整整局由 GameHost 保存为 zhanguo.session/1；上面的模块状态接口用于宿主底层装配，不替代整局客户端状态。
+完整整局由 GameHost 保存为 zhanguo.session/2；上面的模块状态接口用于宿主底层装配，不替代整局客户端状态。
+
+## 代码与手册入口
+
+当前领域实现以各模块的对象和声明为入口；旧 core、balance、DomainMod 与兼容展示转口已删除。地图算法只保留 `map_generation/algorithm.py`，不再由领土模块持有副本。
+
+[游戏说明书](../../docs/游戏说明书.md) 从发行版公开规则、结算顺序和模块数值生成：`python -m docs.generate_manual`；`--check` 只核对，`--mods` 可选择独立发行版。

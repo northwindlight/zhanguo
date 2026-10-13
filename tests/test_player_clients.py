@@ -3,6 +3,7 @@ from copy import deepcopy
 import json
 from pathlib import Path
 import subprocess
+import sys
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -12,7 +13,7 @@ from clients.llm import LLMClient,LLMState,assert_paired
 from ruleai.v11plus import RuleClient,RuleState
 from ruleai.v11plus.ledger import Ledger
 from host import GameHost,SaveFormatError,ROOT
-import rule_ai
+import ruleai as rule_ai
 Q,C=fixtures.Q,fixtures.C
 
 
@@ -190,7 +191,7 @@ class TestSessionHost(unittest.TestCase):
         with TemporaryDirectory() as d:
             p=Path(d);cfg=self.cfg();cfg.update(save=str(p/'session.json'),journal=str(p/'journal.md'))
             config=p/'config.json';config.write_text(json.dumps(cfg))
-            command=[str(ROOT/'.venv/bin/python'),str(ROOT/'mp_run.py'),'--config',str(config),'--turns']
+            command=[sys.executable,str(ROOT/'mp_run.py'),'--config',str(config),'--turns']
             first=subprocess.run(command+['2'],input='公告\n第一条\n第二条\nEND\n',text=True,capture_output=True,cwd=ROOT,timeout=60)
             self.assertEqual(first.returncode,0,first.stderr);self.assertIn('终局',first.stdout)
             second=subprocess.run(command+['3'],input='',text=True,capture_output=True,cwd=ROOT,timeout=60)

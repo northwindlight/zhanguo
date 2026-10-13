@@ -32,7 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import llm_provider  # noqa: E402
+from clients import provider as llm_provider  # noqa: E402
 
 
 def _cfg(**kw) -> dict:

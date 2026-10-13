@@ -10,6 +10,6 @@
 
 挂点为 `military.supply / battle / withdraw / claims / repatriate`，由发行版声明顺序。军事消耗发布资源事实供经济域汇总，不修改外域账本。显式保存包括单调交战序号和事件接收者快照，恢复校验国家、兵种、位置、计数器及随机种子。
 
-当前联动验收 `tests.test_world_domains`；原 `tests.test_army_resources` 中历史 `ArmyLogic` 夹具保留早期资源契约，使用归档声明。旧军队逻辑不参与当前装配；当前客户端仅使用 PlayerSession。
+当前联动验收 `tests.test_world_domains`；`tests.test_army_resources` 通过当前发行版验证资源读取权限、原子征召、补给回血、兵种扩展与存取。旧 ArmyLogic 与重复实现已删除；客户端仅使用 PlayerSession。
 
 玩家查询另提供 unit_catalog、recruit_quote、battle_estimate。征召报价与实际征召共用费用逻辑。战斗预估采用当前可见敌军和期望骰值，不包含补给、治疗或第三方增援；不可见目标返回未知。reachable 玩家工具仅返回可见路径；内部行动裁决仍使用真实地形。

@@ -7,7 +7,7 @@ from pathlib import Path
 import queue
 import sys
 
-from console import Console
+from ui.terminal import Console
 from host import GameHost
 from ui import load_ui
 from engine.config import read_config

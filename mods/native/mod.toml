@@ -62,4 +62,4 @@ Entry = "mods.native.config:normalize"
 Configuration = "clients.config:normalize"
 
 [Distribution.ClientFactories.rule]
-Configuration = "rule_ai:normalize_config"
+Configuration = "ruleai:normalize_config"

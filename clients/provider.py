@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """LLM 提供方兼容层：回合循环只认一种消息协议，提供方差异全部收口在这一个文件。
 
-回合循环（mp_ai.run_openai_turn）需要的全部原语：
+回合循环（clients.llm.LLMClient.play）需要的全部原语：
 
     backend.chat_turn(messages, tools, cfg, on_retry=None) -> (msg, stats)
         msg   : OpenAI 形态的 assistant 消息 dict
@@ -9,19 +9,19 @@
         stats : 用量统计 {"wall","stream","first","maxgap","out_tokens","reason_tokens",
                 "hit","miss"}（缺项按 0 计）
         重试全部在提供方内部做完（**配额耗尽这类 429 也照样重试**——重试窗口正是留给"当场续费"的）；
-        **耗尽后原样抛出 ⇒ 上层（`mp_ai.run_openai_turn` → `mp_run`）直接终止本局**
+        **耗尽后原样抛出 ⇒ 上层（`clients.llm.LLMClient.play` → `mp_run`）直接终止本局**
         （2026-09-20 用户口径：「任何错误都应该直接终止游戏」；旧行为是吞成一条 user
         消息接着烧步数，一次配额墙白烧了 14 个回合）。
 
     backend.complete_text(messages, cfg, max_tokens=None, tools=None) -> (text, stats)
         普通**非流式**调用（记忆压缩用）。`tools` 只为**前缀缓存**存在：压缩调用现在
-        接着上一次请求的前缀往下发（`mp_ai._compact_block`），所以必须带上与主请求
+        接着上一次请求的前缀往下发（`clients.llm.LLMClient._compress`），所以必须带上与主请求
         **同一份**工具声明、同一个 `tool_choice`（Anthropic 那路 tools 排在 system
         之前，缺了或改了都是零命中，2026-10-02 真端点实测）。工具调用靠尾随指令里那句
         "不要调用任何工具"约束，**不是**靠 `tool_choice=none`。
         stats 与 chat_turn 同键（"hit"/"miss"/"out_tokens"/"usage_reported"/"estimated"…）。
 
-消息在**存储与回放层一律保持 OpenAI 形态**：ctx.py 的 token 估算与缓存前缀布局、
+消息在**存储与回放层一律保持 OpenAI 形态**：clients/context.py 的 token 估算与缓存前缀布局、
 turn_memory 存档、tests 的 mock 断言都以此为契约；换提供方时只改"调用瞬间"的
 双向翻译，循环与记忆层无感。
 
@@ -107,7 +107,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from ctx import REPLAY_KEY, est_tokens   # 估算（存档校准过的那套，只在"提供方没报用量"时兜底）
+from clients.context import REPLAY_KEY, est_tokens   # 估算（存档校准过的那套，只在"提供方没报用量"时兜底）
                                          # + 提供方私有回填键（定义在 ctx：消息形态的契约归它）
 
 
@@ -232,7 +232,7 @@ class stream_timeout:
 # ---------------------------------------------------------------------------
 _PRIVATE_MSG_KEYS = (REPLAY_KEY,)
 """`REPLAY_KEY`（= `ctx.REPLAY_KEY` = `"reasoning_signature"`）是 Anthropic thinking 签名的
-落盘位置，值形如 `{"model": <产出它的模型>, "signature": <串>}`。**定义在 ctx.py**：那才是
+落盘位置，值形如 `{"model": <产出它的模型>, "signature": <串>}`。**定义在 clients/context.py**：那才是
 "一条消息长什么样"这条契约的拥有者，且它自己有两处会重写消息（`_shrink_messages` /
 `merge_same_role`）必须照顾这个键。
 
@@ -250,7 +250,7 @@ _PRIVATE_MSG_KEYS = (REPLAY_KEY,)
 
 def _map_message(message: dict, *, vision=True, renderer=None) -> dict:
     """发送边界重绘事实快照；内部历史始终只有文字+JSON，绝不落盘 base64。"""
-    import ctx
+    from clients import context as ctx
     if not message.get(ctx.MAP_KEY):return message
     if renderer is None:
         from ui import load_ui
@@ -502,7 +502,7 @@ class OpenAICompat:
         跟流式那两个数不是一个量纲，别混。
 
         `tools`（2026-10-02 加）：**只为前缀缓存**——压缩调用现在接着上一次请求的前缀
-        往下发（`mp_ai._compact_block`），工具声明也在那段前缀里，少发一份就整段不命中。
+        往下发（`clients.llm.LLMClient._compress`），工具声明也在那段前缀里，少发一份就整段不命中。
         ★ **不许改成 `tool_choice="none"`**：真端点实测（`tools/anthropic_prefix_probe.py`，
         冷缓存那一轮）——`none` 会让网关**整个丢掉 tools 段**（prompt 直接少 265 token），
         前缀从 system 之后当场断掉，命中率塌到 40%（只剩 system 那点）；照发
@@ -717,7 +717,7 @@ def _anthropic_messages(messages: list[dict], model: str, cfg: dict) -> list[dic
 def _anthropic_body(messages: list[dict], tools, cfg: dict, stream: bool) -> dict:
     """拼请求体（默认值都收在这里）。
 
-    `max_tokens` 缺省 16384 = OpenAI 那路的同一个数，好让 ctx.py 的 `ctx_reserve_out`
+    `max_tokens` 缺省 16384 = OpenAI 那路的同一个数，好让 clients/context.py 的 `ctx_reserve_out`
     对两条路都成立；`temperature` **夹到 [0,1]**（OpenAI 兼容那路允许 0~2，Anthropic
     只到 1；实测这条网关 1.5 也照收，但官方 API 会 400——夹一下比崩一局便宜）。
     `tools` 空就不发这个字段（`tools: []` 实测也收，但不发更干净）。

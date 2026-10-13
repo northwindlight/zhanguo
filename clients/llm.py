@@ -3,9 +3,9 @@ from copy import deepcopy
 from dataclasses import dataclass,field
 import json
 from types import SimpleNamespace
-import ctx
+from clients import context as ctx
 from ui import load_ui
-from llm_provider import make_backend,REPLAY_KEY
+from clients.provider import make_backend,REPLAY_KEY
 
 
 @dataclass

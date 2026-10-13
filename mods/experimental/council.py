@@ -3,9 +3,9 @@ from copy import deepcopy
 import json
 from pathlib import Path
 
-import ctx
+from clients import context as ctx
 from clients.llm import assert_paired
-from llm_provider import make_backend,REPLAY_KEY
+from clients.provider import make_backend,REPLAY_KEY
 
 
 DEFAULT_REQUIREMENTS=Path(__file__).with_name('requirements.md').read_text(encoding='utf-8')
@@ -175,7 +175,7 @@ class CouncilService:
                   'stage':1,'period':obs_period}
         dialogue.append({'role':'user','content':self.ui.text('experimental.review_first')+encode(evidence)})
         # Reviewer sees the same actor-filtered map through the selected UI mod.
-        from ctx import MAP_KEY
+        from clients.context import MAP_KEY
         view=self.presentation.llm({**self.cfg,**self.review_cfg})
         current,image=view.map_context(self.council['last_snapshot'])
         dialogue[-1]['content']+='\n'+current
