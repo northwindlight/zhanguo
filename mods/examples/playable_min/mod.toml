@@ -71,3 +71,6 @@ Id = "buildings.completion"
 Id = "economy.reports"
 [[Hooks]]
 Id = "cycle.end"
+
+[Distribution.Session]
+Entry = "mods.native.session:NativeSession"

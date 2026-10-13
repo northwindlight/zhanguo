@@ -40,7 +40,7 @@ class Observer:
     def __init__(self,host,journal_path,*,resume=False):
         self.host,self.path=host,Path(journal_path)
         self.ui=host.ui
-        records=host.world.intelligence.to_save()
+        records=host.records()
         self.event=max([0,*[row['id'] for row in records['events']]]) if resume else 0
         self.message=max([0,*[row['id'] for row in records['messages']]]) if resume else 0
         self.pending={};self.results=[]
@@ -51,13 +51,13 @@ class Observer:
         if self.host.clients[actor].kind=='rule':self.flush(actor)
     def flush(self,actor):
         for action,args,receipt in self.pending.pop(actor,[]):
-            self.line(self.ui.text('console.action',period=self.host.world.government.period(),actor=self.host.roster[actor]['name'],action=action,arguments=json.dumps(args,ensure_ascii=False),status=receipt['status'],message=receipt.get('message','')))
+            self.line(self.ui.text('console.action',period=self.host.clock(),actor=self.host.roster[actor]['name'],action=action,arguments=json.dumps(args,ensure_ascii=False),status=receipt['status'],message=receipt.get('message','')))
             # Full detached receipts belong to the journal, brief text to console.
             to_journal(self.path,'```json\n'+json.dumps(receipt,ensure_ascii=False)+'\n```')
     def on_call(self,actor,step,receipts):
         self.line(self.ui.text('console.call',actor=self.host.roster[actor]['name'],count=step+1));self.flush(actor)
     def events(self):
-        records=self.host.world.intelligence.to_save()
+        records=self.host.records()
         for event in records['events']:
             if event['id']>self.event:self.line(f'[{event["period"]}·{event["kind"]}] {event["text"]}')
         self.event=max([self.event,*[row['id'] for row in records['events']]])
@@ -81,21 +81,21 @@ def command(host,line,observer):
     elif first in ('say','公告'):
         text=_body(body)
         if not text.strip():raise ValueError(text_ui('console.empty_announcement'))
-        host.world.intelligence.emit('announcement',text,public=True);observer.line(text_ui('console.broadcast'))
+        host.announce(text);observer.line(text_ui('console.broadcast'))
     elif first in ('send','寄信'):
         target,_,text=body.partition(' ')
         actor=next((a for a,row in host.roster.items() if target in (a,row['name'])),None)
-        if actor not in host.world.nation_actors:raise ValueError(text_ui('console.missing_country'))
+        if actor not in host.actors():raise ValueError(text_ui('console.missing_country'))
         text=_body(text)
         if not text.strip():raise ValueError(text_ui('console.empty_letter'))
-        host.world.intelligence.emit('observer-letter',text,parties=(actor,));observer.line(text_ui('console.sent',target=target))
+        host.send(actor,text);observer.line(text_ui('console.sent',target=target))
     elif first in ('board','国力'):observer.line(host.board())
     elif first in ('map','地图'):
         import shlex
         parts=shlex.split(body)
         if not 1<=len(parts)<=2:raise ValueError(text_ui('console.map_usage'))
         actor=next((a for a,row in host.roster.items() if parts[0] in (a,row['name'])),None)
-        if actor not in host.world.nation_actors:raise ValueError(text_ui('console.map_usage'))
+        if actor not in host.actors():raise ValueError(text_ui('console.map_usage'))
         obs=host.player(actor).observe()
         if len(parts)==1:observer.line(observer.ui.map_text(obs))
         else:
@@ -182,14 +182,14 @@ def run(argv=None):
     stop=args.turns if args.turns is not None else cfg.get('max_turns',200)
     if type(stop) is not int or stop<0:raise ValueError('turns must be nonnegative')
     try:
-        while host.world.government.period()<stop:
+        while host.clock()<stop:
             if not _commands(host,observer):break
             host.cycle(on_result=observer.result,emit=partial(panel_note,journal_path),
                        head=partial(panel_note,journal_path,head=True),on_call=observer.on_call)
             observer.events();observer.line(host.board());host.save(save_path)
             if CONSOLE is not None:CONSOLE.clear_panel()
         host.save(save_path)
-        observer.line(ui.text('console.finish',period=host.world.government.period(),path=save_path))
+        observer.line(ui.text('console.finish',period=host.clock(),path=save_path))
         return 0
     except KeyboardInterrupt:
         observer.notice(ui.text('console.interrupt'));return 130

@@ -1,17 +1,18 @@
 [Distribution]
 Id = "example:minigame"
 Version = "1.0.0"
-# 最小可玩游戏：十个模块，从零写的一套小规则。
+# 最小可玩游戏：九个模块，从零写的一套小规则。
 # 三种资源（钱粮木）、一种地形、五个建筑、一种兵、外交只有宣战与议和。
-Members = ["mods/resources.toml", "mods/territory.toml", "mods/buildings.toml", "mods/nations.toml", "mods/army.toml", "mods/diplomacy.toml", "mods/government.toml", "mods/succession.toml", "mods/market.toml", "mods/intelligence.toml"]
-RequiredState = ["accounts", "territory", "buildings", "nations", "military", "diplomacy", "government", "succession", "market", "intelligence"]
+Members = ["mods/resources.toml", "mods/territory.toml", "mods/buildings.toml", "mods/nations.toml", "mods/army.toml", "mods/diplomacy.toml", "mods/government.toml", "mods/succession.toml", "mods/intelligence.toml"]
+RequiredState = ["accounts", "territory", "buildings", "nations", "military", "diplomacy", "government", "succession", "intelligence"]
 ActorCollection = "nation_actors"
 ActionGate = {Capability = "mini:government", Method = "can_act"}
 PlayerClock = {Capability = "mini:government", Method = "period"}
+PlayerEvents = "news"
 PlayerState = ["nations", "government", "land", "army", "diplomacy", "news"]
 
 # 离线可跑：用最小客户端代替模型客户端。
-[Distribution.ClientFactories.llm]
+[Distribution.ClientFactories.mini]
 Entry = "mods.examples.minigame.client:MinigameClient"
 
 [[Hooks]]
@@ -19,3 +20,6 @@ Id = "cycle.start"
 
 [[Hooks]]
 Id = "cycle.end"
+
+[Distribution.Session]
+Entry = "mods.examples.minigame.session:MiniSession"

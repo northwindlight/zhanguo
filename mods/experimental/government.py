@@ -1,4 +1,4 @@
-"""Parliament government owns drafts and decisions; models live in clients."""
+"""Parliament government owns drafts and decisions; review orchestration belongs to the distribution session."""
 from copy import deepcopy
 from engine.player import wire
 from engine.runtime import Tool,RuleSection
@@ -23,10 +23,7 @@ class ParliamentGovernment(Government):
         if not isinstance(text,str) or not text.strip():raise ValueError('Plan cannot be empty')
         # One submission per country and period, including rule clients.
         row=self._reviews.get(owner)
-        if row is None:
-            previous=self._plans.get(owner)
-            if previous and previous.period==self._period:raise ValueError('每回合只能提交一次国策')
-            return super().plan(owner,text)
+        if row is None:raise ValueError('发行版尚未绑定议会服务，不能直接批准国策')
         if row['submitted']==self._period:raise ValueError('每回合只能提交一次国策；下一回合再提交')
         row.update(submitted=self._period,draft=text,approved=None,reason='',explanation='')
         return {'text':text,'period':self._period,'status':'submitted','message':'国策已提交议会审核'}

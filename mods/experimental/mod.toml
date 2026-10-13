@@ -11,7 +11,9 @@ PlayerEvents = "news"
 
 [Distribution.ClientFactories.llm]
 Entry = "mods.experimental.client:ParliamentClient"
-[Distribution.ClientFactories.llm.Services.government]
+[Distribution.Session.Services.council]
+Entry = "mods.experimental.council:CouncilService"
+[Distribution.Session.Services.council.Services.government]
 Capability = "native:government"
 Methods = ["enroll", "decide", "replace"]
 
@@ -56,3 +58,6 @@ Id = "economy.reports"
 
 [[Hooks]]
 Id = "cycle.end"
+
+[Distribution.Session]
+Entry = "mods.native.session:NativeSession"

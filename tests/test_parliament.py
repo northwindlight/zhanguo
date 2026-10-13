@@ -39,7 +39,7 @@ class TestParliament(unittest.TestCase):
                             'api_key':'monarch-secret','ctx_full_turns':1,'ctx_compact':'off'}]}
     def host(self,decisions,responses):
         h=GameHost.new(self.cfg());c=h.clients[self.actor]
-        c._backend=FakeBackend(responses);c._review_backend=CouncilBackend(decisions)
+        c._backend=FakeBackend(responses);h.services[self.actor]['council']._review_backend=CouncilBackend(decisions)
         return h,c
     def rejected_turn(self,text):
         return [reply(call('p','plan',text=text),call('e','end_turn',summary='国策尚待解释')),
@@ -50,16 +50,16 @@ class TestParliament(unittest.TestCase):
         h,c=self.host([True],[reply(call('b','build',site=site,kind='native:farm'),
                                       call('p','plan',text='NEW-CANDIDATE 农場仍在施工，下一期确认产出'),
                                       call('e','end_turn',summary='动工农场并制定国策'))])
-        results=h.cycle();first,second=c._review_backend.requests
+        results=h.cycle();first,second=h.services[self.actor]['council']._review_backend.requests
         raw=json.dumps(first,ensure_ascii=False)
         self.assertNotIn('NEW-CANDIDATE',raw)
         for token in ('build','receipt','building_sites','land','econ','turn.start'):self.assertIn(token,raw)
         self.assertIn('NEW-CANDIDATE',json.dumps(second,ensure_ascii=False))
         self.assertEqual(second[:len(first)],first)
         self.assertEqual(second[-2]['role'],'assistant')
-        self.assertEqual(c.council['dialogue'],[])
+        self.assertEqual(h.services[self.actor]['council'].council['dialogue'],[])
         self.assertIn('议会通过了国策',results[1]['message'])
-        self.assertTrue(any(row['kind']=='settlement' for row in c.council['archive']))
+        self.assertTrue(any(row['kind']=='settlement' for row in h.services[self.actor]['council'].council['archive']))
         self.assertEqual(h.player(self.actor).observe()['facts']['government']['plan']['text'],'NEW-CANDIDATE 农場仍在施工，下一期确认产出')
 
     def test_rejection_keeps_dialogue_explanation_and_retries_only_next_period(self):
@@ -69,14 +69,14 @@ class TestParliament(unittest.TestCase):
         receipts=h.cycle()
         self.assertFalse(receipts[0]['ok']);self.assertFalse(receipts[1]['ok'])
         self.assertIn('要求君主解释',receipts[0]['message'])
-        self.assertEqual(len(c.council['dialogue']),5)
-        first_dialogue=deepcopy(c.council['dialogue'])
+        self.assertEqual(len(h.services[self.actor]['council'].council['dialogue']),5)
+        first_dialogue=deepcopy(h.services[self.actor]['council'].council['dialogue'])
         self.assertIsNone(h.player(self.actor).observe()['facts']['government']['plan'])
         h.cycle()
-        request=c._review_backend.requests[2]
+        request=h.services[self.actor]['council']._review_backend.requests[2]
         self.assertEqual(request[:len(first_dialogue)],first_dialogue)
         self.assertIn('我将纠正表述',request[-1]['content'])
-        self.assertEqual(c.council['dialogue'],[])
+        self.assertEqual(h.services[self.actor]['council'].council['dialogue'],[])
         self.assertEqual(h.player(self.actor).observe()['facts']['government']['parliament']['streak'],0)
 
     def test_one_submission_per_period_enforced_without_extra_model_review(self):
@@ -84,7 +84,7 @@ class TestParliament(unittest.TestCase):
                                    call('x','explain_plan',text='下一回合按事实重新提交'),call('e','end_turn',summary='已经解释并完成行动'))])
         results=h.cycle()
         self.assertFalse(results[1]['ok']);self.assertIn('每回合只能提交一次',results[1]['message'])
-        self.assertEqual(len(c._review_backend.requests),2)
+        self.assertEqual(len(h.services[self.actor]['council']._review_backend.requests),2)
         names=[row['function']['name'] for row in h.player(self.actor).actions()]
         for privileged in ('decide','replace','enroll'):self.assertNotIn(privileged,names)
         self.assertFalse(h.player(self.actor).submit('decide',{'approved':True})['ok'])
@@ -106,8 +106,8 @@ class TestParliament(unittest.TestCase):
         content=json.dumps(new_request,ensure_ascii=False)
         self.assertIn('上一任君主被愤怒的贵族们罢免',content)
         self.assertNotIn('OLD-MONARCH-TOXIC-REASONING',content)
-        self.assertIn('OLD-MONARCH-TOXIC-REASONING',json.dumps(c._review_backend.requests[-1],ensure_ascii=False))
-        self.assertEqual(len(c.council['dialogue']),13) # Survives even succession.
+        self.assertIn('OLD-MONARCH-TOXIC-REASONING',json.dumps(h.services[self.actor]['council']._review_backend.requests[-1],ensure_ascii=False))
+        self.assertEqual(len(h.services[self.actor]['council'].council['dialogue']),13) # Survives even succession.
         gov=h.player(self.actor).observe()['facts']['government']
         self.assertEqual(gov['parliament']['reign'],2);self.assertIsNone(gov['plan'])
         self.assertEqual([s['period'] for s in gov['summaries']],[2])
@@ -121,17 +121,17 @@ class TestParliament(unittest.TestCase):
         for _ in range(4):h.cycle()
         gov=h.player(self.actor).observe()['facts']['government']['parliament']
         self.assertEqual(gov['streak'],1);self.assertEqual(gov['reign'],1)
-        self.assertEqual(len(c._review_backend.requests[6]),2)
+        self.assertEqual(len(h.services[self.actor]['council']._review_backend.requests[6]),2)
         self.assertEqual(c.state.long_memory,'')
 
     def test_full_archive_survives_monarch_replay_compression(self):
         h,c=self.host([True]*7,[reply(call('p'+str(i),'plan',text='发展经济'+str(i)),call('e'+str(i),'end_turn',summary='完成本回合经营'+str(i))) for i in range(7)])
         for _ in range(7):h.cycle()
         self.assertLess(len(c.state.replay),7)
-        actions=[r for r in c.council['archive'] if r['kind']=='action']
+        actions=[r for r in h.services[self.actor]['council'].council['archive'] if r['kind']=='action']
         self.assertEqual(len(actions),14)
         self.assertEqual(actions[0]['receipt']['period'],0)
-        self.assertEqual(len(c.council['transcript']),14)
+        self.assertEqual(len(h.services[self.actor]['council'].council['transcript']),21)
 
     def test_pending_dialogue_reload_and_succession_match_uninterrupted_run(self):
         rows=self.rejected_turn('a')+self.rejected_turn('b')+[
@@ -141,7 +141,7 @@ class TestParliament(unittest.TestCase):
         with TemporaryDirectory() as d:
             path=Path(d)/'synthetic.json';h.save(path);loaded=GameHost.load(path,self.cfg());other=loaded.clients[self.actor]
             self.assertEqual(h.to_save(),loaded.to_save())
-            other._backend=FakeBackend(deepcopy(c._backend.responses));other._review_backend=CouncilBackend([False]*2)
+            other._backend=FakeBackend(deepcopy(c._backend.responses));loaded.services[self.actor]['council']._review_backend=CouncilBackend([False]*2)
             for _ in range(2):h.cycle();loaded.cycle();self.assertEqual(h.to_save(),loaded.to_save())
             self.assertNotIn('review-secret',json.dumps(h.to_save()))
             self.assertNotIn('monarch-secret',json.dumps(h.to_save()))
@@ -150,13 +150,13 @@ class TestParliament(unittest.TestCase):
     def test_invalid_or_failed_council_stops_and_cannot_replace_boundary_file(self):
         for output in ('not-json','{"approved":"yes","reason":"ok"}',RuntimeError('review transport failure')):
             h,c=self.host([True],[reply(call('p','plan',text='发展'))])
-            original=c._review_backend.complete_text
+            original=h.services[self.actor]['council']._review_backend.complete_text
             def complete(messages,cfg,tools=None):
                 if messages[-1]['content'].startswith('第二步：'):
                     if isinstance(output,Exception):raise output
                     return output,{}
                 return original(messages,cfg,tools)
-            c._review_backend.complete_text=complete
+            h.services[self.actor]['council']._review_backend.complete_text=complete
             with TemporaryDirectory() as d:
                 p=Path(d)/'synthetic.json';h.save(p);before=p.read_bytes()
                 with self.assertRaises((ValueError,RuntimeError)):h.cycle()
@@ -175,24 +175,24 @@ class TestParliament(unittest.TestCase):
                                  call('guide','read_manual',topic='战争手册'),call('forged','buy',resource='native:wood',quantity=1)),{}
                 if messages[-1]['role']=='tool':return {'content':'已经查说明书及战争手册，按施工与结算回执核对。'},{}
                 return super().chat_turn(messages,tools,cfg,on_retry)
-        reviewer=ReadingCouncil();c._review_backend=reviewer
+        reviewer=ReadingCouncil();h.services[self.actor]['council']._review_backend=reviewer
         h.cycle()
         names={s['function']['name'] for s in reviewer.calls[0][1]}
         self.assertEqual(names,{'player_rules','read_manual'})
-        queries=[r for r in c.council['archive'] if r['kind']=='council.query']
+        queries=[r for r in h.services[self.actor]['council'].council['archive'] if r['kind']=='council.query']
         self.assertEqual([r['result']['ok'] for r in queries],[True,True,True,False])
         self.assertIn('buildings',queries[1]['result']['data'])
         assert_paired(reviewer.calls[1][0])
-        self.assertTrue(any('read_manual' in json.dumps(r['dialogue']) for r in c.council['archive'] if r['kind']=='review'))
+        self.assertTrue(any('read_manual' in json.dumps(r['dialogue']) for r in h.services[self.actor]['council'].council['archive'] if r['kind']=='review'))
 
     def test_briefing_consumes_entire_oversized_history_including_final_receipt(self):
         h,c=self.host([],[])
-        c.review_cfg.update(ctx_window=4096,max_tokens=256)
-        c.council['archive']=[{'kind':'large','text':'事实'*12000+'LAST-RECEIPT-MARKER'}]
-        summary=c._briefing(h.player(self.actor),[{'role':'system','content':'完整上下文'}])
+        h.services[self.actor]['council'].review_cfg.update(ctx_window=4096,max_tokens=256)
+        h.services[self.actor]['council'].council['archive']=[{'kind':'large','text':'事实'*12000+'LAST-RECEIPT-MARKER'}]
+        summary=h.services[self.actor]['council']._briefing(h.player(self.actor),[{'role':'system','content':'完整上下文'}])
         self.assertTrue(summary)
-        self.assertGreater(len(c._review_backend.requests),2)
-        self.assertIn('LAST-RECEIPT-MARKER',json.dumps(c._review_backend.requests,ensure_ascii=False))
+        self.assertGreater(len(h.services[self.actor]['council']._review_backend.requests),2)
+        self.assertIn('LAST-RECEIPT-MARKER',json.dumps(h.services[self.actor]['council']._review_backend.requests,ensure_ascii=False))
 
     def test_next_monarch_can_submit_next_turn_and_council_keeps_prior_rejections(self):
         rows=self.rejected_turn('a')+self.rejected_turn('b')+[
@@ -200,10 +200,10 @@ class TestParliament(unittest.TestCase):
             reply(call('new-p','plan',text='纠正先前事实的新国策'),call('new-e','end_turn',summary='新君主的国策已经通过'))]
         h,c=self.host([False,False,False,True],rows)
         for _ in range(3):h.cycle()
-        previous=deepcopy(c.council['dialogue'])
+        previous=deepcopy(h.services[self.actor]['council'].council['dialogue'])
         h.cycle()
-        self.assertEqual(c._review_backend.requests[-2][:len(previous)],previous)
-        self.assertEqual(c.council['dialogue'],[])
+        self.assertEqual(h.services[self.actor]['council']._review_backend.requests[-2][:len(previous)],previous)
+        self.assertEqual(h.services[self.actor]['council'].council['dialogue'],[])
         self.assertEqual(h.player(self.actor).observe()['facts']['government']['plan']['text'],'纠正先前事实的新国策')
 
 

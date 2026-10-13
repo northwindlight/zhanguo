@@ -1,15 +1,14 @@
 """最小可玩游戏的客户端：一个不依赖模型、每次都能做出动作的简易策略。
 
 它做三件事：在自己的一块地上补建筑，有兵营就征兵，然后结束回合。
-写它是因为 `client` 只接受 `llm` 与 `rule`，覆盖 `llm` 工厂即可让整局
-在没有模型、没有 API key 的情况下跑起来。
+发行版声明自己的客户端工厂，整局无需模型或 API key。
 """
 
-WANTED = ('native:barracks', 'native:farm', 'native:lumber-camp', 'native:gold-mine')
+WANTED = ('mini:barracks', 'mini:farm', 'mini:lumber-camp', 'mini:gold-mine')
 
 
 class MinigameClient:
-    kind = 'llm'
+    kind = 'mini'
     version = 'minigame/1'
 
     def __init__(self, cfg, *, record=None, services=None):
@@ -28,7 +27,7 @@ class MinigameClient:
             receipt = player.submit(action, arguments)
             receipts.append(receipt)
             if on_result:
-                on_result(player.actor, action, arguments, receipt)
+                on_result(action, arguments, receipt)
             return receipt
 
         observation = player.observe()
@@ -42,7 +41,7 @@ class MinigameClient:
             target = next((kind for kind in WANTED if kind not in built), None)
             if target:
                 submit('build', x=x, y=y, kind=target)
-            elif home['buildings'].get('native:barracks'):
+            elif home['buildings'].get('mini:barracks'):
                 submit('recruit', x=x, y=y)
         submit('end_turn')
         self.periods += 1

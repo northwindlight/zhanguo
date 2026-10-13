@@ -373,20 +373,14 @@ class NoPowerBuildingsMod(BuildingsMod):
 
 ## 八、配方七：提供一个客户端
 
-配置里的 `client` 只接受 `llm` 与 `rule` 两种取值：
-
-```python
-kind = item.get('client') or ('llm' if item.get('api_key') else 'rule')
-```
-
-因此 Mod 能做的是**覆盖**其中一种，而不是新增一种。覆盖靠发行版声明客户端工厂：
+发行版可声明任意客户端类型，也可覆盖默认的 `llm` / `rule`：
 
 ```toml
 [Distribution.ClientFactories.llm]
 Entry = "mods.examples.idle_client.client:IdleClient"
 ```
 
-配置里仍写 `client = "llm"`，由工厂决定实际使用哪个类。
+此例配置写 `client = "llm"`，客户端的 `kind` 也为 `llm`；独立 mini 示例声明 `ClientFactories.mini`，配置与 `kind` 均为 `mini`。native 的默认客户端选择仍为有 API key 用 llm，否则 rule；mini 默认使用自己声明的 `mini`。
 
 客户端需要实现：
 
@@ -402,18 +396,9 @@ Entry = "mods.examples.idle_client.client:IdleClient"
 `ok` / `status` / `code` / `message` / `data`。返回值经 `wire()` 处理，
 允许的类型见 §十二。
 
-`services` 由发行版声明：
+客户端获得 `services['ui']`，额外的对象能力可由工厂的 `Services` 显式授权。国策裁决属于发行版行为，现通过 `Distribution.Session.Services` 装配，不放在客户端里；直接调用和客户端调用走同一玩家 API。
 
-```toml
-[Distribution.ClientFactories.llm.Services.government]
-Capability = "native:government"
-Methods = ["enroll", "decide", "replace"]
-```
-
-宿主为每个别名生成 `services[别名](方法名, *参数)`，方法名必须在 `Methods` 里，
-否则抛出 `Unavailable client service`。未登记的方法客户端拿不到，
-因而也不会出现在模型的工具列表里。这是把某些决定权从模型手里拿走的途径，
-可选的 parliament 发行版即以此实现"国策由议会裁决"。
+完整 Session、服务、授权与控制权契约见 [发行版 Session API](发行版Session.md)。
 
 示例见 [mods/examples/idle_client/client.py](../mods/examples/idle_client/client.py)。
 
@@ -470,6 +455,7 @@ Members = [
 | `PlayerState` | 否 | 只读工具名列表，`observe()` 逐项取来作为 `facts` |
 | `PlayerEvents` | 否 | 一个只读工具名，提供玩家事件流 |
 | `ManualOrder` | 否 | 规则章节的排序 |
+| `Session` | 整局必需 | `{Entry, Services}`，发行版的场景、管理与玩家 API 提供入口 |
 | `ClientFactories` | 否 | `{<kind>: {Entry, Services}}`，覆盖客户端实现 |
 
 `PlayerState` / `PlayerEvents` / `ActionGate` / `PlayerClock` 引用的工具与能力必须存在，
@@ -512,7 +498,7 @@ Members = [
 ### 从零写一个
 
 [mods/examples/minigame](../mods/examples/minigame) 是一个完整的可玩游戏，
-十个模块、约 700 行，全部规则在一份文件里：
+九个模块，全部规则在一份文件里：
 
 | 内容 | 规模 |
 | --- | --- |
@@ -530,34 +516,23 @@ Members = [
 建筑 mini:buildings      五类建筑与产出        army        部队、征兵、移动、进攻
 国家 mini:nations        身份与存亡标记        diplomacy   交战关系
 政体 mini:government     回合推进              succession  亡国判定
-市场 mini:market         占位（见下）          intelligence 事件流
+情报 mini:intelligence   事件与可见性
 ```
 
 装载与运行：
 
 ```bash
-.venv/bin/python -c "import json,sys;sys.path.insert(0,'.');\
-from host import GameHost;h=GameHost.new(json.load(open('mp_config.minigame.json')));h.cycle()"
+.venv/bin/python -c "from host import GameHost; h=GameHost.new({'mods':'mods.minigame.toml','map_size':12,'seed':3,'nations':[{'name':'甲','client':'mini'}]}); h.cycle(); print(h.clock())"
 ```
 
 发行版入口为 `mods.minigame.toml`，配置顶层写 `"mods": "mods.minigame.toml"`。
-该发行版覆盖了 `llm` 客户端工厂，用自带的简易策略驱动，因此**离线、无需 API key** 即可跑完整局。
+该发行版声明 `mini` 客户端工厂，用自带的简易策略驱动，因此**离线、无需 API key** 即可跑完整局。
 
-### 宿主的三处约定
+### 发行版拥有开局规则
 
-最小的游戏仍要满足宿主对发行版的约定，共三处：
+`Distribution.Session.Entry` 指向 [MiniSession](../mods/examples/minigame/session.py)，由它投放 `mini:gold / mini:food / mini:wood`、`mini:plain` 与 `mini:town-hall`，定义落位、登场与管理 API。未知资源直接拒绝，不再忽略 host 注入的资源。
 
-1. **`ActorCollection`** 必须指向某个 mixin 挂在世界上的属性。示例用
-   `ActorScope.nation_actors`，发行版里写 `ActorCollection = "nation_actors"`。
-2. **开局的市政厅**：宿主在开局时固定执行 `buildings.seed(site, 'native:town-hall')`，
-   因此这个内容 ID 必须存在。
-3. **开局资源**：宿主用自带的默认资源表调用资源域的 `open()`，其中包含本发行版未注册的资源；
-   未注册的键应被忽略而不是报错。
-
-宿主另外固定调用 `territory`（落位与边界）、`government`（周期与结束行动）、
-`nations`（创建国家）、`succession`、`market`（`set_participants`）、
-`intelligence`（`emit`）的接口，发行版里必须有模块提供这些名字。
-示例中的 `mini:market` 只保存参与者数量、不做交易，正是因为宿主会调用它。
+`ActorCollection`、`ActionGate` 与 `PlayerClock` 仍是通用引擎的声明。host 不要求任何固定领域对象名或 native 内容 ID；mini 不再需要占位市场。替换整套规则只改发行版清单和实现。完整契约见 [发行版 Session API](发行版Session.md)。
 
 ### 在 native 上做减法
 
@@ -576,7 +551,7 @@ print(len(runtime.order), runtime.order)"
 
 其余 15 个不能去掉，原因分两类：
 
-**宿主直接使用。** `host.py` 调用以下域的接口，缺一个都无法开局：
+**native 场景使用。** `mods/native/session.py` 调用以下域的接口：
 `territory`（开局落位）、`government`（周期与结束行动）、`nations`（创建国家）、
 `buildings`（开局市政厅）、`succession`、`market`、`intelligence`。
 
@@ -722,7 +697,7 @@ def load_state(self, world, state):
 `save_state` 的返回值必须能被 JSON 序列化。`load_state` 应当校验输入并拒绝不认识的数据；
 基类默认实现对非空状态抛出 `ModError`，因此有状态的模块必须实现它。
 
-整局存档（`zhanguo.session/1`）保存三部分：发行版依赖清单、各模块状态、宿主与客户端状态。
+整局存档（`zhanguo.session/2`）保存发行版依赖、各模块状态、客户端与发行版服务状态、逐动作审计及控制权上下文；完整契约见 [发行版 Session API](发行版Session.md)。
 
 装载时先核对依赖清单：
 

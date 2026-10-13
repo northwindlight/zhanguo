@@ -211,7 +211,7 @@ class TestReplaceExistingContent(unittest.TestCase):
 
 
 class TestMinigame(unittest.TestCase):
-    """从零写的最小可玩游戏：10 个模块、3 种资源、1 种兵、外交只有宣战与议和。"""
+    """从零写的最小可玩游戏：9 个模块、3 种资源、1 种兵、外交只有宣战与议和。"""
 
     entry = ROOT / 'mods.minigame.toml'
 
@@ -221,30 +221,30 @@ class TestMinigame(unittest.TestCase):
 
     def test_declares_exactly_the_intended_content(self):
         runtime = Runtime.load(self.entry)
-        self.assertEqual(len(runtime.order), 10)
+        self.assertEqual(len(runtime.order), 9)
         self.assertEqual(set(runtime.hooks), {'cycle.start', 'cycle.end'})
-        host, _ = self.host([{'id': 'scenario:qin', 'name': '秦', 'client': 'llm'}])
+        host, _ = self.host([{'id': 'scenario:qin', 'name': '秦', 'client': 'mini'}])
         world = host.world
         # 三种资源、一种地形、开局只有一座市政厅、没有部队。
-        self.assertEqual(set(world.accounts.ids()), {'native:gold', 'native:food', 'native:wood'})
-        self.assertEqual({cell.terrain for cell in world.territory.cells()}, {'native:plain'})
+        self.assertEqual(set(world.accounts.ids()), {'mini:gold', 'mini:food', 'mini:wood'})
+        self.assertEqual({cell.terrain for cell in world.territory.cells()}, {'mini:plain'})
         capital = next(cell for cell in world.territory.cells()
-                       if world.buildings.at(*cell.position).get('native:town-hall'))
-        self.assertEqual(world.buildings.at(*capital.position), {'native:town-hall': 1})
+                       if world.buildings.at(*cell.position).get('mini:town-hall'))
+        self.assertEqual(world.buildings.at(*capital.position), {'mini:town-hall': 1})
         self.assertEqual(world.territory.owner(*capital.position), 'scenario:qin')
         self.assertEqual(world.military.snapshot(), ())
 
     def test_plays_several_periods_and_round_trips(self):
-        host, cfg = self.host([{'id': 'scenario:qin', 'name': '秦', 'client': 'llm'},
-                               {'id': 'scenario:chu', 'name': '楚', 'client': 'llm'}])
+        host, cfg = self.host([{'id': 'scenario:qin', 'name': '秦', 'client': 'mini'},
+                               {'id': 'scenario:chu', 'name': '楚', 'client': 'mini'}])
         for _ in range(10):
             host.cycle()
         self.assertEqual(host.world.government.period(), 10)
         player = host.player('scenario:qin')
         built = {kind for cell in player.query('land') if cell['owner'] == 'scenario:qin'
                  for kind in cell['buildings']}
-        self.assertIn('native:barracks', built)
-        self.assertIn('native:farm', built)
+        self.assertIn('mini:barracks', built)
+        self.assertIn('mini:farm', built)
         self.assertTrue(player.query('army'))                 # 客户端已经征到兵
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'minigame.json'
@@ -252,12 +252,12 @@ class TestMinigame(unittest.TestCase):
             self.assertEqual(GameHost.load(path, cfg).to_save(), host.to_save())
 
     def test_war_is_required_before_attacking_and_capture_transfers_land(self):
-        host, _ = self.host([{'id': 'scenario:qin', 'name': '秦', 'client': 'llm', 'position': [2, 5]},
-                             {'id': 'scenario:chu', 'name': '楚', 'client': 'llm', 'position': [5, 5]}])
+        host, _ = self.host([{'id': 'scenario:qin', 'name': '秦', 'client': 'mini', 'position': [2, 5]},
+                             {'id': 'scenario:chu', 'name': '楚', 'client': 'mini', 'position': [5, 5]}])
         world = host.world
         player = host.player('scenario:qin')
         world.runtime.object_call(world, 'mini:army', 'seed', 'scenario:qin',
-                                  'native:infantry', 3, 5, 1)
+                                  'mini:infantry', 3, 5, 1)
         unit = player.query('army')[0]
         before = len([c for c in player.query('land') if c['owner'] == 'scenario:qin'])
         receipt = player.submit('attack', {'unit': unit['id'], 'x': 4, 'y': 5})
@@ -271,13 +271,30 @@ class TestMinigame(unittest.TestCase):
         self.assertTrue(player.submit('make_peace', {'target': 'scenario:chu'})['ok'])
         self.assertEqual(player.query('diplomacy')['wars'], [])
 
+    def test_own_ids_arrival_and_failed_client_assembly_are_transactional(self):
+        host,cfg=self.host([{'id':'mini:alpha','name':'甲','client':'mini'},
+                           {'id':'mini:beta','name':'乙','client':'mini','appearance':'manual'},
+                           {'id':'mini:broken','name':'丙','client':'missing','appearance':'manual'}])
+        player=host.player('mini:alpha');before=host.to_save()
+        with self.assertRaises(ValueError):host.add('丙')
+        self.assertEqual(host.to_save(),before)
+        self.assertEqual(host.add('乙'),'mini:beta')
+        self.assertEqual(player.query('land'),host.player('mini:alpha').query('land'))
+        self.assertEqual(set(host.world.accounts.ids()),{'mini:gold','mini:food','mini:wood'})
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'mini-arrival.json';host.save(path)
+            loaded=GameHost.load(path,cfg)
+            self.assertEqual(loaded.to_save(),host.to_save())
+            host.cycle();loaded.cycle()
+            self.assertEqual(loaded.to_save(),host.to_save())
+
     def test_losing_every_town_hall_extinguishes_the_nation(self):
-        host, _ = self.host([{'id': 'scenario:qin', 'name': '秦', 'client': 'llm'},
-                             {'id': 'scenario:chu', 'name': '楚', 'client': 'llm'}])
+        host, _ = self.host([{'id': 'scenario:qin', 'name': '秦', 'client': 'mini'},
+                             {'id': 'scenario:chu', 'name': '楚', 'client': 'mini'}])
         world = host.world
         capital = next(cell for cell in world.territory.cells()
                        if cell.owner == 'scenario:chu'
-                       and world.buildings.at(*cell.position).get('native:town-hall'))
+                       and world.buildings.at(*cell.position).get('mini:town-hall'))
         world.runtime.object_call(world, 'mini:territory', 'transfer',
                                   *capital.position, 'scenario:qin')
         self.assertEqual(world.nations.ids(), ('scenario:qin', 'scenario:chu'))

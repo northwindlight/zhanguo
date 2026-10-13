@@ -63,3 +63,6 @@ Id = "bank.settlement"
 Id = "economy.reports"
 [[Hooks]]
 Id = "cycle.end"
+
+[Distribution.Session]
+Entry = "mods.native.session:NativeSession"

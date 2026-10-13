@@ -62,13 +62,13 @@ class TestUIMod(unittest.TestCase):
         fixture=TestParliament();cfg=fixture.cfg();cfg['vision']=True
         host=GameHost.new(cfg);client=host.clients[fixture.actor]
         client._backend=FakeBackend([reply(call('p','plan',text='HIDDEN-CANDIDATE'),call('e','end_turn',summary='完成本期经营行动'))])
-        client._review_backend=CouncilBackend([True]);host.cycle()
+        host.services[fixture.actor]['council']._review_backend=CouncilBackend([True]);host.cycle()
         monarch=client._backend.requests[0][-1][ctx.MAP_KEY]['facts']
-        first=client._review_backend.requests[0]
+        first=host.services[fixture.actor]['council']._review_backend.requests[0]
         reviewer=first[-1][ctx.MAP_KEY]['facts']
         self.assertEqual(monarch,reviewer)
         self.assertNotIn('HIDDEN-CANDIDATE',json.dumps(first))
-        self.assertIn('HIDDEN-CANDIDATE',json.dumps(client._review_backend.requests[1]))
+        self.assertIn('HIDDEN-CANDIDATE',json.dumps(host.services[fixture.actor]['council']._review_backend.requests[1]))
 
     def test_catalogs_complete_and_placeholders_checked_and_language_is_per_client(self):
         zh=Translator();en=Translator('en-US')

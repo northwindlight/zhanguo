@@ -1,17 +1,16 @@
 """最小可玩游戏：从零写一套能打完一局的规则。
 
 内容规格：
-    资源 3 种    钱 native:gold、粮 native:food、木 native:wood
-    地形 1 种    native:plain
+    资源 3 种    钱 mini:gold、粮 mini:food、木 mini:wood
+    地形 1 种    mini:plain
     建筑 5 种    市政厅（产金）、林场（产木）、农场（产粮）、金矿（产金）、兵营（解锁征兵）
-    兵种 1 种    native:infantry
+    兵种 1 种    mini:infantry
     外交 2 种    宣战、和平
     规则        失了全部市政厅即亡国；在同格或相邻格可以进攻正在交战的国家
 
 本文件把九个模块写在一起，一个屏幕看得完。每个类的 `mod.toml` 在同目录 `mods/` 下。
 
-内容 ID 沿用 `native:` 前缀，与标准发行版一致 —— 宿主在开局时固定投放
-`native:town-hall` 这一座建筑，ID 必须对得上。
+内容 ID 归本发行版所有；开局由 MiniSession 投放 mini: 资源和建筑。
 """
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -21,19 +20,19 @@ from engine.resource import Resource
 from engine.runtime import GameMod, ModError, RuleSection, Stage, Tool
 from engine.state import active_unit
 
-GOLD, FOOD, WOOD = 'native:gold', 'native:food', 'native:wood'
-PLAIN = 'native:plain'
-TOWN_HALL = 'native:town-hall'
+GOLD, FOOD, WOOD = 'mini:gold', 'mini:food', 'mini:wood'
+PLAIN = 'mini:plain'
+TOWN_HALL = 'mini:town-hall'
 
 # 建筑表：造价（金/木）、每期产出、是否解锁征兵。
 BUILDINGS = MappingProxyType({
-    'native:lumber-camp': {'name': '林场', 'gold': 30, 'wood': 0, 'output': {WOOD: 4}},
-    'native:farm':        {'name': '农场', 'gold': 40, 'wood': 10, 'output': {FOOD: 5}},
-    'native:gold-mine':   {'name': '金矿', 'gold': 50, 'wood': 15, 'output': {GOLD: 8}},
-    'native:town-hall':   {'name': '市政厅', 'gold': 80, 'wood': 20, 'output': {GOLD: 6}},
-    'native:barracks':    {'name': '兵营', 'gold': 60, 'wood': 20, 'output': {}},
+    'mini:lumber-camp': {'name': '林场', 'gold': 30, 'wood': 0, 'output': {WOOD: 4}},
+    'mini:farm':        {'name': '农场', 'gold': 40, 'wood': 10, 'output': {FOOD: 5}},
+    'mini:gold-mine':   {'name': '金矿', 'gold': 50, 'wood': 15, 'output': {GOLD: 8}},
+    'mini:town-hall':   {'name': '市政厅', 'gold': 80, 'wood': 20, 'output': {GOLD: 6}},
+    'mini:barracks':    {'name': '兵营', 'gold': 60, 'wood': 20, 'output': {}},
 })
-BARRACKS = 'native:barracks'
+BARRACKS = 'mini:barracks'
 
 # 兵种表：一个兵种，征兵耗粮与金，属性固定。
 INFANTRY = {'name': '步兵', 'food': 6, 'gold': 4, 'hp': 100, 'atk': 40, 'upkeep': 1}
@@ -78,15 +77,12 @@ class Accounts:
             raise ModError('Use the declared resources interface')
 
     def open(self, owner, amounts=None):
-        """开户并给定初始库存。
-
-        宿主开局时会用它自带的默认资源表调用本方法，其中包含本发行版没有注册的
-        资源；这些键被忽略，不视为错误。
-        """
+        """开户并给定本发行版注册资源的初始库存。"""
         self._write()
         if owner in self._rows:
             raise ValueError('Account already exists')
-        amounts = {key: amount for key, amount in (amounts or {}).items() if key in self._types}
+        amounts = amounts or {}
+        if set(amounts)-set(self._types):raise ValueError('Unknown mini resource')
         self._rows[owner] = {key: cls(owner, amounts.get(key, 0)) for key, cls in self._types.items()}
 
     def ids(self):
@@ -530,7 +526,7 @@ class Military:
             raise ValueError('该地块没有兵营')
         self._call('mini:resource-exchange', 'exchange', owner,
                    {FOOD: INFANTRY['food'], GOLD: INFANTRY['gold']}, {})
-        self.seed(owner, 'native:infantry', x, y)
+        self.seed(owner, 'mini:infantry', x, y)
         return self.snapshot(owner)[-1]
 
     def move(self, owner, unit_id, x, y):
@@ -876,55 +872,6 @@ class SuccessionMod(GameMod):
         world.succession.restore(state)
 
 
-# ── 市场（占位） ──────────────────────────────────────────────────────
-class Market:
-    """最小局不做交易；宿主在开局时会调用 set_participants。"""
-
-    def __init__(self):
-        self._participants = 0
-        self._world = None
-
-    def bind_state(self, world, key):
-        self._world = world
-        return self
-
-    def set_participants(self, count):
-        self._participants = int(count)
-
-    def participants(self):
-        return self._participants
-
-    def to_save(self):
-        return {'participants': self._participants}
-
-    def restore(self, state):
-        self._participants = int(state['participants'])
-
-
-class MarketMod(GameMod):
-    def mixins(self):
-        return ()
-
-    def state_keys(self):
-        return ('market',)
-
-    def provides(self):
-        return ('mini:market',)
-
-    def initialize_world(self, world):
-        world.market = Market()
-
-    def objects(self, world):
-        return {'mini:market': world.market}
-
-    def save_state(self, world):
-        return world.market.to_save()
-
-    def load_state(self, world, state):
-        world.market.restore(state)
-
-
-# ── 情报（事件流） ────────────────────────────────────────────────────
 class Intelligence:
     def __init__(self):
         self._events = []
@@ -935,7 +882,8 @@ class Intelligence:
         return self
 
     def emit(self, kind, text, public=False, parties=()):
-        self._events.append({'id': len(self._events) + 1, 'kind': kind, 'text': text})
+        self._events.append({'id': len(self._events) + 1, 'period': self._world.government.period(),
+                             'kind': kind, 'text': text, 'public': bool(public), 'parties': list(parties)})
 
     def events(self):
         return tuple(self._events)
@@ -964,7 +912,7 @@ class IntelligenceMod(GameMod):
         return {'mini:intelligence': world.intelligence}
 
     def tools(self):
-        return (Tool('news', lambda world, actor: list(world.intelligence.events()),
+        return (Tool('news', lambda world, actor: [dict(row) for row in world.intelligence.events() if row['public'] or actor in row['parties']],
                      read_only=True),)
 
     def save_state(self, world):

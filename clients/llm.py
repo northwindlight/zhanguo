@@ -16,15 +16,17 @@ class LLMState:
     long_memory:str=''
     usage:dict=field(default_factory=dict)
     event_cursor:int=0
+    generation:int=0
 
     def to_save(self):
         return deepcopy({'replay':self.replay,'summaries':self.summaries,'blocks':self.blocks,
-                         'long_memory':self.long_memory,'usage':self.usage,'event_cursor':self.event_cursor})
+                         'long_memory':self.long_memory,'usage':self.usage,'event_cursor':self.event_cursor,'generation':self.generation})
 
     @classmethod
     def from_save(cls,data):
-        if not isinstance(data,dict) or set(data)!={'replay','summaries','blocks','long_memory','usage','event_cursor'}:raise ValueError('Invalid LLM state')
+        if not isinstance(data,dict) or set(data)!={'replay','summaries','blocks','long_memory','usage','event_cursor','generation'}:raise ValueError('Invalid LLM state')
         if any(not isinstance(data[key],list) for key in ('replay','summaries','blocks')) or not isinstance(data['long_memory'],str) or not isinstance(data['usage'],dict) or type(data['event_cursor']) is not int or data['event_cursor']<0:raise ValueError('Invalid LLM state fields')
+        if type(data['generation']) is not int or data['generation']<0:raise ValueError('Invalid control generation')
         for record in data['replay']:
             if not isinstance(record,dict) or type(record.get('turn')) is not int or record['turn']<0 or not isinstance(record.get('messages'),list):raise ValueError('Invalid replay')
             assert_paired(record['messages'])
@@ -63,13 +65,28 @@ class LLMClient:
         return {**self.cfg,'_ui_expand_message':self.presentation.expand_message}
 
     def _system(self,player):
-        return self.ui.system()
+        text=self.ui.system()
+        state=player.action_state() if hasattr(player,'action_state') else {}
+        context=state.get('context',{})
+        if context.get('prompt'):text+='\n'+context['prompt']
+        if context.get('summary'):text+='\n'+context['summary']
+        return text
 
     def _usage(self,stats):
         for key,value in stats.items():
             if isinstance(value,(int,float)) and not isinstance(value,bool):self.state.usage[key]=self.state.usage.get(key,0)+value
 
-    def _prepare(self,player):pass
+    def _prepare(self,player):
+        if hasattr(player,'action_state'):
+            state=player.action_state()
+            if state['generation']!=self.state.generation:
+                if state['context'].get('reset_memory'):
+                    self.state=LLMState(usage=deepcopy(self.state.usage),event_cursor=player.events(0)['cursor'],generation=state['generation'])
+                else:self.state.generation=state['generation']
+
+    @staticmethod
+    def _dialogue(player,messages):
+        if hasattr(player,'record_dialogue'):player.record_dialogue(messages)
     def _submit(self,player,action,arguments):return player.submit(action,arguments)
     def _receipt(self,player,action,arguments,receipt):pass
     def _exchange(self,player,assistant,replies):pass
@@ -107,6 +124,7 @@ class LLMClient:
         if not obs['can_act']:return []
         tools=self.ui.actions(player.actions());batch=player.events(self.state.event_cursor)
         messages,plan=self._context(player,obs,batch,tools)
+        self._dialogue(player,[messages[0],messages[-1]])
         if head:head(self.ui.text('llm.context',actor=player.actor,plan=self.ui.context_plan(plan)))
         elif emit:emit(self.ui.text('llm.context',actor=player.actor,plan=self.ui.context_plan(plan)))
         start=len(messages)-1;receipts=[];ended=False
@@ -124,6 +142,7 @@ class LLMClient:
             # responses leaving executed commands without replay counterparts.
             ids=[call.get('id') for call in calls]
             if any(not isinstance(ident,str) or not ident for ident in ids) or len(set(ids))!=len(ids):raise ValueError('Invalid provider tool IDs')
+            self._dialogue(player,[assistant])
             for call in calls:
                 fn=call.get('function') or {};action=fn.get('name')
                 try:arguments=json.loads(fn.get('arguments') or '{}')
@@ -139,7 +158,12 @@ class LLMClient:
                     self.state.summaries.append({'turn':obs['period'],'text':receipt['data']['text']})
             if on_call:on_call(step,receipts)
             assert_paired(messages[start:])
+            self._dialogue(player,messages[-len(calls):] if calls else [])
             self._exchange(player,assistant,messages[-len(calls):] if calls else [])
+            if hasattr(player,'action_state') and not player.action_state()['active']:
+                if emit:emit(player.action_state()['context'].get('prompt','Actor control changed'))
+                return receipts
+            if not player.observe()['can_act']:ended=True
             if self._after_batch(player,messages,emit):
                 obs=player.observe();batch=player.events(self.state.event_cursor)
                 messages,plan=self._context(player,obs,batch,tools)

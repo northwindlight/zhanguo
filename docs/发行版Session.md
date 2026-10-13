@@ -1,0 +1,111 @@
+# 发行版 Session：场景与 API 提供入口
+
+host 加载 `Distribution.Session.Entry`，把运行时、外部配置和客户端工厂传给发行版。发行版决定场景和 API，通用 Session 提供运行机制。host 不引用 native 的资源表、首都、地形或领域对象。
+
+## 示例先看这里
+
+- [native Session](../mods/native/session.py)：标准国家配置、落位、资源和首都、作用域、定时与手动登场、管理接口。
+- [独立 mini Session](../mods/examples/minigame/session.py)：自有 `mini:` 内容与客户端类型，九个领域模块，无 native 领域依赖或占位市场。
+- [experimental 议会服务](../mods/experimental/council.py)：统一处理国策提交、记录证据、裁决与交接，客户端无需知道审核流程。
+- [独立计数游戏验收](../tests/test_session_api.py)：不使用国家、建筑、地图或资源域，也能通过同一 host 开局、行动、结算和存取。
+
+```toml
+[Distribution.Session]
+Entry = "mods.examples.minigame.session:MiniSession"
+
+[Distribution.ClientFactories.mini]
+Entry = "mods.examples.minigame.client:MinigameClient"
+```
+
+```python
+from host import GameHost
+host = GameHost.new({'mods':'mods.minigame.toml', 'map_size':12, 'seed':3,
+                     'nations':[{'id':'mini:alpha','name':'甲','client':'mini'}]})
+player = host.player('mini:alpha')
+print(player.observe())
+host.cycle()
+# 仅写临时或专门指定的测试存档。
+```
+
+## Session 工厂与通用基类
+
+入口为 `包.模块:工厂名`，签名 `factory(runtime, cfg, client_factory)`。返回对象必须提供 `start / restore / to_save / save / player / cycle`。缺少入口或方法时启动失败。
+
+发行版通常继承 [engine.session.Session](../engine/session.py)，实现以下方法：
+
+| 方法 | 责任与返回值 |
+| --- | --- |
+| `normalize(cfg)` | 返回独立的配置副本；字段、默认客户端和身份生成归发行版 |
+| `entries()` | 返回已规范化条目，公共装配使用 `id / name / client` |
+| `configure()` | 初始化该游戏的场景参数 |
+| `_positions(count)` | 返回 count 个初始位置，值的结构由 `spawn` 定义 |
+| `spawn(item, position)` | 创建玩家的领域状态，返回 actor ID；不创建客户端 |
+| `actors()` | 当前参与轮转的身份序列 |
+| `identities()` | 全部历史身份，包括已经退出的身份，用于存档校验 |
+| `clock()` | 当前整数周期 |
+| `scheduled()` | 处理该游戏的定时登场 |
+| `validate_boundary()` | 检查领域是否处于完整可存取边界，失败抛 `SaveFormatError` |
+| `after_spawn()` | 可选；玩家注册后更新发行版的衍生场景状态 |
+
+基类 `start()` 按 `appearance=initial / scheduled / manual` 和 `enabled` 选择初始玩家；`register(item, position)` 装配服务和客户端。作用域的默认登场方式来自已加载的 Policy 声明。发行版可覆盖生命周期方法来提供不同场景协议。
+
+`join(item, position)` 在候选世界中注册，失败恢复世界、roster、客户端和服务装配、代次、上下文与审计；已有玩家句柄在调用时取得当前世界。发行版的 `add(name)` 决定配置查找与位置选择，再调用 join。完整边界上的行政登场仍可存档，不能把半回合变成完整边界。
+
+`cycle()` 调用发行版的 scheduled，轮转客户端，调用世界的声明结算，通知服务与客户端的 `on_settlement(player)`，最后开放完整边界存档。控制权变化后取得新玩家句柄继续该周期；同一国家超过八次控制权变化会停止本局，防止无界轮转。
+
+## 管理 API
+
+`GameHost` 将调用转给发行版的 Session。当前 CLI 使用以下管理契约：
+
+| 方法 | 返回或行为 |
+| --- | --- |
+| `add(name)` | 配置声明的身份登场，返回 actor ID |
+| `actors()` | 当前活动身份 |
+| `clock()` | 当前周期 |
+| `records()` | 观察者事件 `{events, messages}`，事件含 `id / period / kind / text` |
+| `announce(text)` | 发送公开公告 |
+| `send(actor, text)` | 发送指定玩家可见来信 |
+| `board()` | 返回由 UI Mod 编排的终端面板 |
+| `board_rows()` | 基类 board 使用的公开汇总行：`name / land / army / gold` |
+
+这组 CLI 契约由发行版实现；其他产品入口可调用发行版自己的管理 API。`world` 留给发行版和剧本的可信行政代码，客户端使用 `player(actor)`。
+
+## 玩家 API 与服务
+
+`player(actor)` 返回 [BoundPlayer](../engine/api.py)，公共方法见 [玩家契约](客户端接线.md#玩家契约)。工具和事实继续来自模块声明，服务不会给模型添加内部对象接口。
+
+```toml
+[Distribution.Session.Services.council]
+Entry = "mods.experimental.council:CouncilService"
+[Distribution.Session.Services.council.Services.government]
+Capability = "native:government"
+Methods = ["enroll", "decide", "replace"]
+```
+
+每个 actor 独立创建 `factory(cfg, *, record=None, services)`。`cfg` 是该玩家的外部配置，record 是该服务自己保存的 JSON 状态；接入凭据留在外部配置。服务顺序按发行版声明的顺序，不按动作名称或发行版名称分支。
+
+| 服务成员 | 调用约定 |
+| --- | --- |
+| `submit(player, action, arguments, next_submit)` | 可选；action 为工具的规范名称，arguments 为副本；调用 next_submit 取得下游回执，或直接返回拒绝回执 |
+| `record(player, row)` | 可选；最终行动审计写入后通知，row 为独立副本 |
+| `record_dialogue(player, messages)` | 可选；客户端主动提供的完整上下文或对话片段 |
+| `on_settlement(player)` | 可选；结算后取得最新事实 |
+| `to_save()` | 必需；返回服务自有的 JSON 状态 |
+
+`next_submit()` 不接收替代身份或参数，对同次请求只允许调用一次；末端仍执行引擎的权限、参数和领域校验。服务接收规范工具名，原始别名保留在回执和审计中。错误和拒绝均记录，不用客户端回调补写。
+
+`services['ui']` 为当前 UI；声明的能力别名是 `services[alias](method, *args, **kwargs)`。它只允许 Methods 中列出的公开方法，自动把绑定 actor 作为第一个领域参数，不能指定其他 actor。对象或方法缺失时装配失败。服务还获得 `services['invalidate'](context)`，使该 actor 的旧句柄失效，并保存独立 JSON 交接上下文。
+
+客户端工厂可声明同样形式的能力授权；experimental 已移除客户端的议会权力。发行版服务具备显式授予的权限，应作为可信代码实现。这是进程内接口，Python 对象隔离和不可信脚本执行另属沙盒任务。
+
+## 控制权、审计与存取
+
+`action_state()` 返回 `{generation, current_generation, active, can_act, context}`。旧句柄不会自动升级；控制权变更后其提交返回 `unavailable_action`，不会执行后续工具。查询仍可读取当前公开事实，observe 的 can_act 为 false；新句柄由 Session 重新绑定。
+
+LLM 和规则 AI 按新代次读取交接上下文，`context.reset_memory=true` 时清空自身决策记忆。议会归档仍归服务所有。LLM 同一工具批次的剩余调用补齐失败回执，再结束旧控制者的行动；真实 provider replay 保持配对。
+
+`audit` 每项包含 `id / actor / generation / action / arguments / receipt`；程序异常另存 `error.type / error.message`。每一次绑定 API 的 submit 都写一项，脚本内部多次提交也各自记录。记录最终回执后触发 `cycle(on_result=...)` 观察者回调，客户端不重复发出这份回调。
+
+`zhanguo.session/2` 保存模块依赖与状态、客户端状态、服务状态、roster、场景文案、代次、交接上下文和审计。只保存完整周期边界；失败周期不能覆盖最近完整存档。服务清单、身份或依赖不匹配会拒绝加载。
+
+1.0 前不提供旧档承诺、兼容适配或迁移。当前 UI 对事实布局和地图图例的完整抽象、领域语言键体系仍是后续任务，见 [PLAN](../PLAN.md)。

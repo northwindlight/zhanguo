@@ -2,7 +2,7 @@
 
 `experimental` 是持续更新的实验性发行版，采用 beta 版本号；当前为 `0.1.0-beta.1`。后续实验功能在此发行版继续演进，议会审核是当前加入的一项功能。
 
-在正规化的 native 4.1.0 领域上替换政权模块，增加独立议长客户端。默认 `mods.toml` 仍装配 native；选择 `mods.experimental.toml` 才启用议会。当前不是 main 旧 World v4 存档的迁移器。
+在正规化的 native 4.1.0 领域上替换政权模块，增加独立议会服务。默认 `mods.toml` 仍装配 native；选择 `mods.experimental.toml` 才启用议会。当前不是 main 旧 World v4 存档的迁移器。
 
 配置顶层填写 `"mods":"mods.experimental.toml"`，用新的 save/journal 路径开局。`parliament` 可放在顶层或单国条目；单国配置优先。示例见 [独立配置模板](../../mp_config.experimental.example.json)。用 `.venv/bin/python mp_run.py --config mp_config.experimental.example.json --new` 启动前填好接入参数，示例路径只用于新局。
 
@@ -24,7 +24,7 @@
 
 议长可调用 `player_rules(topic=...)` 查询当前模块规则，或 `read_manual(topic=...)` 查询说明书、经济学手册、基础指南、战争手册、战略手册。说明书从当前发行版公开规则、动作参数和建筑/兵种目录生成；[手册](handbooks/)为本发行版策略参考，具体规则以说明书和回执为准。旧 World 手册不用于裁决当前模块规则。
 
-议长只能查规则与手册，不获得隐藏敌国库存或执行国家行动的权限。批准、否决、罢免由宿主绑定服务写入政权模块，这些服务不在模型工具列表中。
+议长只能查规则与手册，不获得隐藏敌国库存或执行国家行动的权限。批准、否决、罢免由发行版授权服务写入政权模块，这些服务不在模型工具列表中。
 
 `parliament.reviewer` 独立配置模型接入，未指定的传输参数继承本国配置；即使使用同一种模型，它也有独立请求上下文和后端对象。`parliament.requirements` 可替换审核要求正文，或使用 `requirements_file`。路径相对启动目录；接入凭据不写入存档，审核要求随议会对话保存。已经开始、尚未批准的审核保留原要求，下一次清空后采用新要求。
 
@@ -40,3 +40,7 @@
 ## UI 与图形地图
 
 experimental 在 native 的领域与 UI 基础上增加议会审核。与 native 一样装配独立 `ui:standard`，由宿主注入君主和议长客户端。顶层配置 `vision=true` 时，两者使用同一个 UI Mod 的可见地图；审核第一步使用提交新版之前的快照，第二步才展示新版。中英提示编排、语言覆盖与终端地图导出见 [UI Mod](../ui/README.md)。
+
+## 发行版 API 提供层
+
+议会审核与证据记录由 `Distribution.Session.Services.council` 装配，状态随发行版 Session 保存。LLM、规则 AI 与直接调用 `host.player(actor).submit()` 的程序共享该行为；君主客户端只负责模型交互和界面。连续三次否决后，发行版立即更换控制权代次，旧玩家句柄后续动作失效，新句柄取得交接上下文。`enroll / decide / replace` 不开放为玩家工具。见 [发行版 Session API](../../docs/发行版Session.md)。
