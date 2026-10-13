@@ -1,8 +1,8 @@
 from engine.runtime import GameMod
-from .pricing import LinearPricing
+from .pricing import InventoryPricing
 
 
-class LinearPricingMod(GameMod):
+class InventoryPricingMod(GameMod):
     def mixins(self):return ()
     def provides(self):return ('market:pricing',)
-    def objects(self, world):return {'market:pricing': LinearPricing()}
+    def objects(self, world):return {'market:pricing': InventoryPricing()}

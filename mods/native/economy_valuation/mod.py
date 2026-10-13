@@ -14,8 +14,9 @@ class ValuationService:
     def __init__(self, currency, prices, call):
         self._currency,self._prices,self._call = currency,MappingProxyType(dict(prices)),call
 
-    def quote(self, amounts):
+    def quote(self, amounts, side='mid'):
         if not isinstance(amounts,Mapping):raise ValueError('Expected valuation amounts')
+        if side not in ('mid','buy','sell'):raise ValueError('Invalid valuation side')
         market = self._call('native:market','snapshot')
         prices = dict(market.prices)
         if market.currency!=self._currency:raise ValueError('Valuation and market currencies differ')
@@ -25,7 +26,9 @@ class ValuationService:
             # Even an unpriced resource must be a registered concrete type.
             self._call('native:resource-inspection','value',key,0,0)
             if key==self._currency:price,source = 1,'cash'
-            elif key in prices:price,source = prices[key],'market'
+            elif key in prices:
+                price=prices[key] if side=='mid' else self._call('native:market','unit_price',key,side)
+                source='market' if side=='mid' else 'market_'+side
             elif key in self._prices:price,source = self._prices[key],'declared'
             else:price,source = None,'unpriced'
             if price is None:value = 0 if amount==0 else None

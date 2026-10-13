@@ -1,7 +1,7 @@
 [Mod]
 Id = "native:market-pricing"
-Version = "1.0.0"
-Entry = "mods.native.market_pricing.mod:LinearPricingMod"
+Version = "2.0.0"
+Entry = "mods.native.market_pricing.mod:InventoryPricingMod"
 Requires = []
 
 [State]

@@ -27,7 +27,6 @@ class TestWorldDomains(unittest.TestCase):
         world.territory.configure(8,73)
         for ident,name in ((Q,'秦'),(C,'楚'),(Z,'赵'),(Y,'燕')):
             world.nations.create(ident,name,{'native:gold':10000,'native:food':100,'native:wood':1000,'native:equipment':100,'native:supply':1000})
-        world.market.set_participants(4)
         return world
     def site(self, w, ident, owner, x, y, *, hall=True, core=True):
         w.territory.create(ident,owner,x,y,terrain='native:plain',core=owner if core else None)

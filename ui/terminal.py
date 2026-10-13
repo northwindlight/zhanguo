@@ -22,7 +22,7 @@ import unicodedata
 # ───────────────────────── 宽度（汉字占 2 格） ─────────────────────────
 def dw(s: str) -> int:
     """终端显示宽度：CJK/全角字符按 2 计。"""
-    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in str(s))
+    return sum(0 if unicodedata.combining(c) or unicodedata.category(c) in ('Mn','Me','Cf') else 2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in str(s))
 
 
 def _csi_final(ch: str) -> bool:
@@ -41,8 +41,10 @@ def _wrap(s: str, width: int) -> list[str]:
     上下文计划那种行截掉尾巴就只剩半句（用户 2026-09-20 口径：不截断）。"""
     rows: list[str] = []
     cur, w = "", 0
-    for ch in str(s):
-        cw = 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+    for ch in str(s).expandtabs(4):
+        if ch=="\n":
+            rows.append(cur);cur,w="",0;continue
+        cw = dw(ch)
         if cur and w + cw > width:
             rows.append(cur)
             cur, w = "", 0
@@ -56,7 +58,7 @@ def _clip(s: str, width: int) -> str:
     """按显示宽度截断（超出部分丢弃）——只在状态区**封顶**时才用（见 `_panel_content`）。"""
     out, w = "", 0
     for ch in str(s):
-        cw = 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+        cw = dw(ch)
         if w + cw > width:
             break
         out += ch
@@ -178,6 +180,7 @@ class Console:
         self._panel_notes = panel_notes
         self._panel_max = panel_rows + 2      # 折行最多允许多占 2 行，再多就截断
         self._footer_n = 0
+        self._footer_widths=[];self._input_cursor=0;self._draw_width=0
 
     @property
     def panel_on(self) -> bool:
@@ -208,7 +211,7 @@ class Console:
         import shutil
         try:
             sz = shutil.get_terminal_size((100, 24))
-            return max(20, sz.columns - 1), max(4, sz.lines)
+            return max(8, sz.columns - 1), max(4, sz.lines)
         except Exception:
             return 99, 24
 
@@ -218,7 +221,7 @@ class Console:
 
     def _panel_content(self) -> list[str]:
         """状态区**内容**行：常驻行在前，其后是最近通知（不足则补空行，盒子高度稳）。"""
-        avail = max(16, self._term_width() - 4)     # 「│ 」+「 │」各占 2 格
+        avail = max(1, self._term_width() - 4)
         rows: list[str] = _wrap(self._head, avail) if self._head else [""]
         for n in self._notes:
             rows += _wrap(n, avail)
@@ -228,7 +231,7 @@ class Console:
         cap = min(self._panel_max, max(1 + self._panel_notes, self._term_size()[1] // 3))
         if len(rows) > cap:                         # 只在这时才截断
             rows = rows[:cap]
-            rows[-1] = _clip(rows[-1], max(4, avail - 1)) + "…"
+            rows[-1] = _clip(rows[-1], max(0, avail - 1)) + "…"
         return rows
 
     def _footer_lines(self) -> list[str]:
@@ -274,23 +277,22 @@ class Console:
         return self
 
     def close(self) -> None:
-        self._closed = True
-        if self._old_term:
-            import termios
-            fd, old = self._old_term
-            try:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old)
-            except Exception:
-                pass
-            self._old_term = None
-        self._active = False
-        if self._md:
-            with self._lock:
-                sys.stdout.write("\r\033[K")
+        with self._lock:
+            self._closed = True
+            if self._old_term:
+                import termios
+                fd, old = self._old_term
+                try:termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                except Exception:pass
+                self._old_term = None
+            if self._md:
+                sys.stdout.write(self._erase_footer() if self._active else "\r\033[K")
                 sys.stdout.flush()
+            self._active = False
 
     # ---- 输入
     def _reader(self) -> None:
+        if self._closed:return
         try:
             if not self._tty:
                 raise RuntimeError("not a tty")
@@ -314,11 +316,13 @@ class Console:
         import termios
         import tty
         fd = sys.stdin.fileno()
-        old = termios.tcgetattr(fd)
-        self._old_term = (fd, old)
-        tty.setcbreak(fd)              # 关 ICANON/ECHO，保留 ISIG（Ctrl-C 仍发 SIGINT）与 OPOST
-        self._active = True
-        self._redraw()
+        with self._lock:
+            if self._closed:return
+            old = termios.tcgetattr(fd)
+            self._old_term = (fd, old)
+            tty.setcbreak(fd)
+            self._active = True
+            self._redraw()
         dec = codecs.getincrementaldecoder("utf-8")("replace")
         try:
             while not self._closed:
@@ -364,6 +368,7 @@ class Console:
             self._interrupt()
             return False
         elif ch == "\x04":                      # Ctrl-D
+            self.queue.put('quit')
             return False
         elif ch == "\x01":                      # Ctrl-A
             self._pos = 0
@@ -491,8 +496,18 @@ class Console:
     def _prompt_render(self) -> str:
         """输入行的渲染（含光标定位）：光标停在 `_pos` 那一格。"""
         prompt = "… " if self._ml else self.prompt
-        line = prompt + "".join(self._buf)
-        tail = "".join(self._buf[self._pos:])
+        # Keep editing on one physical row. Wrapping the input previously
+        # made cursor-left and footer erasure corrupt adjacent log lines.
+        avail=max(1,self._term_width()-dw(prompt))
+        start=0;prefix_width=dw(''.join(self._buf[:self._pos]))
+        while start<self._pos and prefix_width>=avail:
+            prefix_width-=dw(self._buf[start]);start+=1
+        end=start;shown_width=0
+        while end<len(self._buf) and shown_width+dw(self._buf[end])<=avail:
+            shown_width+=dw(self._buf[end]);end+=1
+        line = prompt + "".join(self._buf[start:end])
+        tail = "".join(self._buf[self._pos:end])
+        self._input_cursor=dw(line)-dw(tail)
         out = "\r\033[K" + line
         if tail:
             out += f"\033[{dw(tail)}D"
@@ -501,8 +516,10 @@ class Console:
     def _erase_footer(self) -> str:
         """擦掉屏幕上当前的页脚（状态方框 + 输入行），光标停在页脚**顶行**。
         只擦**正画着的那几行**（`_footer_n`）——多擦一行就会把日志吃掉。"""
-        out = "\r\033[K"                       # 光标在输入行：先擦输入行
-        for _ in range(self._footer_n):
+        columns=self._term_width()+1
+        wrapped=sum(max(1,(w+columns-1)//columns) for w in self._footer_widths) if self._footer_widths else self._footer_n
+        out = "\r\033[J"
+        for _ in range(wrapped+self._input_cursor//columns):
             out += "\033[1A\r\033[K"           # 再逐行上移擦掉状态方框
         return out
 
@@ -510,6 +527,7 @@ class Console:
         """画出页脚（状态方框 + 输入行），光标停在输入行。"""
         lines = self._footer_lines()
         self._footer_n = len(lines)
+        self._footer_widths=[dw(ln) for ln in lines];self._draw_width=self._term_width()
         sys.stdout.write("".join(ln + "\n" for ln in lines) + self._prompt_render())
         sys.stdout.flush()
 
@@ -518,5 +536,7 @@ class Console:
         if not self._active:
             return
         with self._lock:
+            if self._draw_width and self._draw_width!=self._term_width():
+                self._refresh_footer();return
             sys.stdout.write(self._prompt_render())
             sys.stdout.flush()

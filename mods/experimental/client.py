@@ -3,7 +3,7 @@ from clients.llm import LLMClient, LLMState
 
 
 class ParliamentClient(LLMClient):
-    version='parliament/2'
+    version='parliament/3'
 
     def __init__(self,cfg,*,record=None,services,backend=None):
         state=None

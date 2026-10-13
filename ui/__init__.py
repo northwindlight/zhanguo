@@ -26,6 +26,8 @@ def configuration_provider(cfg,*,runtime=None):
 
 def load_ui(cfg=None,*,runtime=None):
     cfg=cfg or {}
+    if runtime is not None:
+        cfg={**cfg,'_content_keys':{k:runtime.content.key(k) for k in runtime.content.manifest()}}
     if runtime is not None and 'ui_mods' not in cfg and 'ui:create' in runtime.presentations:
         return runtime.presentations['ui:create'](cfg)
     path=Path(cfg.get('ui_mods',ROOT/'ui.toml')).resolve()

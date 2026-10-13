@@ -4,7 +4,7 @@ from .i18n import Translator
 from .llm import LLMUI
 from .console import ConsoleUI
 from .maps import snapshot,render_snapshot,render_svg,expand_message
-from .views import player_map
+from .views import player_map,observer_map
 from .config import normalize
 
 
@@ -13,8 +13,9 @@ class UILayer:
     def __init__(self,cfg):
         self.cfg=cfg;self.text=Translator.from_config(cfg)
         self.console=ConsoleUI(cfg)
-    def llm(self,cfg):return LLMUI(cfg)
+    def llm(self,cfg):return LLMUI({**cfg,'_content_keys':self.cfg.get('_content_keys',{})})
     def translator(self,language='zh-CN',catalog=None):return Translator(language,catalog)
+    def observer_map(self,state):return observer_map(state,self.text)
     def map_text(self,observation):return player_map(observation,self.text)
     def map_snapshot(self,observation):return snapshot(observation)
     def map_image(self,observation):return render_snapshot(snapshot(observation),max_px=self.cfg.get('map_max_px',960))

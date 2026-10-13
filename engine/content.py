@@ -48,6 +48,19 @@ class ContentRegistry(Mapping):
     def manifest(self):
         return dict(self._owners)
 
+    def key(self, identifier):
+        local=identifier.split(':',1)[-1]
+        matches=[k for k in self._owners if k.split(':',1)[-1]==local]
+        return local if matches==[identifier] else identifier
+
+    def resolve(self, key):
+        if not isinstance(key,str):raise ValueError('内容键值须为字符串')
+        if key in self._owners:return key
+        matches=[k for k in self._owners if k.split(':',1)[-1]==key]
+        if len(matches)==1:return matches[0]
+        if len(matches)>1:raise ValueError('键值冲突，请指定命名空间：'+', '.join(sorted(matches)))
+        raise ValueError('未知内容键值：'+str(key))
+
     def __getitem__(self, namespace):
         return MappingProxyType(self._namespaces[namespace])
 

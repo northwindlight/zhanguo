@@ -1,43 +1,49 @@
-"""Default native price curve, extracted from the legacy economy domain."""
-from mods.native.market.contracts import PricingEngine, PricePath, PriceSettlement
+"""Default price curve: a finite buffer that is priced by how full it is."""
+import math
+
+from mods.native.market.contracts import PricingEngine, PricePath, PriceSettlement, integer, number
 
 
-class LinearPricing(PricingEngine):
-    IMPACT = 0.02
-    DEPTH_DIVISOR = 4
-    SPREAD = 0.10
-    RETENTION = 0.9
-    MIN_RATIO = 0.1
-    MIN_ABSOLUTE = 0.5
-    MAX_RATIO = 3.0
-    SENSITIVITY = 0.5
-    EQ_MIN_RATIO = 0.5
-    EQ_MAX_RATIO = 1.5
-    ONE_SIDE_GAP = 0.4
+class InventoryPricing(PricingEngine):
+    """Three statements and no calculus.
 
-    def clamp(self, listing, price):
-        return min(max(price, max(listing.base_price * self.MIN_RATIO, self.MIN_ABSOLUTE)),
-                   listing.base_price * self.MAX_RATIO)
+    Inventory is state: trades and the outside refill move it, nothing else.
 
-    def walk(self, listing, price, quantity, side, participants):
-        p0 = self.clamp(listing, price)
-        depth = max(1, round(listing.depth * max(1, participants) / self.DEPTH_DIVISOR))
-        tick = listing.base_price * self.IMPACT / depth * (1 if side == 'buy' else -1)
-        p1 = self.clamp(listing, p0 + tick * quantity)
-        linear = min(float(quantity), abs((p1-p0)/tick)) if tick else 0.0
-        integral = linear * (p0+p1)/2 + (quantity-linear) * p1
-        total = integral * (1 + self.SPREAD/2 if side == 'buy' else 1 - self.SPREAD/2)
-        return PricePath(p1, total)
+    Reference stock is the market's own scale. It starts at the declared depth
+    and drifts with the period's net flow (the market keeps a bigger book when
+    it is being bought out and a smaller one when it is being dumped), so heavy
+    flow moves the scale instead of only squeezing the surviving stock.
 
-    def settle(self, listing, price, production, consumption):
-        if production and consumption:
-            gap = (consumption-production)/(consumption+production)
-        elif production or consumption:
-            gap = -self.ONE_SIDE_GAP if production else self.ONE_SIDE_GAP
-        else:
-            gap = 0.0
-        base = listing.base_price
-        equilibrium = min(max(base*(1+self.SENSITIVITY*gap), base*self.EQ_MIN_RATIO),
-                          base*self.EQ_MAX_RATIO)
-        return PriceSettlement(round(self.clamp(listing, equilibrium+(price-equilibrium)*self.RETENTION), 3),
-                               round(equilibrium, 3))
+    Level: p = base * exp(elasticity * (reference - inventory) / reference). A
+    buffer that matches its reference trades at the declared base price.
+
+    Order: every unit carries its own price, exp(elasticity * s / reference)
+    times the period's level, where s counts the units this owner has already
+    traded that way this period. The order costs the sum of those unit prices,
+    so a deep order pays more per unit and a large lot sells for less, while
+    nobody's quote depends on what other players did.
+    """
+    def walk(self, listing, price, quantity, side, volume, reference, policy):
+        integer(quantity, 1);integer(volume)
+        elasticity, scale = number(policy.elasticity), number(reference, positive=True)
+        # Sum over the units of exp(+-elasticity * s / depth), the one geometric
+        # series each direction needs, in closed form.
+        up, down = math.expm1(elasticity / scale), -math.expm1(-elasticity / scale)
+        if side == 'buy':
+            # Buying the s-th unit costs exp(+elasticity * s / scale) times the
+            # period's level: the buffer thins, so later units cost more.
+            units = math.exp(elasticity * volume / scale) * math.expm1(elasticity * quantity / scale) / up
+            return PricePath(price, price * units * (1 + policy.spread / 2))
+        # Selling the s-th unit earns exp(-elasticity * s / scale): a deep lot
+        # is what depresses the price, so later units earn less.
+        units = math.exp(-elasticity * volume / scale) * -math.expm1(-elasticity * quantity / scale) / down
+        return PricePath(price, price * units * (1 - policy.spread / 2))
+
+    def level(self, listing, inventory, reference, policy):
+        scale = number(reference, positive=True)
+        gap = (scale - number(inventory)) / scale
+        # Absolute numerical guardrails, unrelated to the opening base price.
+        log_price = math.log(listing.base_price) + number(policy.elasticity) * gap
+        price = (policy.low if log_price <= math.log(policy.low) else
+                 policy.high if log_price >= math.log(policy.high) else math.exp(log_price))
+        return PriceSettlement(price)

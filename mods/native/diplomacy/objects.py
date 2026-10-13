@@ -295,17 +295,18 @@ class Diplomacy:
         self._void_pending(False)
         return war
 
-    def _apply_offer_peace(self, actor, target, kind: str='white', gold: int=0, truce: int=0, *, approved=False):
+    def _apply_offer_peace(self, actor, target, kind: str='white', gold: int=0, truce: int=0, note: str='', *, approved=False):
         integer(gold);integer(truce)
+        if not isinstance(note,str):raise ValueError('Invalid peace note')
         a,b=self._pair(actor,target)
         w=next((w for w in self._wars if actor in w.attackers and target in w.defenders or actor in w.defenders and target in w.attackers),None)
         if w is None:raise ValueError('Nations are not at war')
         original_a,original_b=(w.a,w.b) if actor in w.attackers else (w.b,w.a)
         if a!=original_a or b!=original_b or actor!=self.representative(a) or target!=self.representative(b):raise ValueError('Only war-leading entity representatives may negotiate')
         if kind not in ('white','pay','demand') or (kind!='white' and not gold) or (kind=='white' and gold):raise ValueError('Invalid peace terms')
-        routed=self._route(actor,'offer_peace',{'target':target,'kind':kind,'gold':gold,'truce':truce},approved,w.attackers+w.defenders)
+        routed=self._route(actor,'offer_peace',{'target':target,'kind':kind,'gold':gold,'truce':truce,'note':note},approved,w.attackers+w.defenders)
         if routed:return routed
-        return self._offer('peace',actor,b,{'war':w.id,'kind':kind,'gold':gold,'truce':truce},w.attackers+w.defenders)
+        return self._offer('peace',actor,b,{'war':w.id,'kind':kind,'gold':gold,'truce':truce,'note':note},w.attackers+w.defenders)
 
     def _apply_accept_peace(self, actor, offer: int, *, approved=False):
         integer(offer,1)

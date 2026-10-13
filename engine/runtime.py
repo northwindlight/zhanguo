@@ -80,6 +80,11 @@ def _convert(value, annotation):
 
 
 def _schema(annotation):
+    if annotation is dict or get_origin(annotation) is dict:
+        result={"type":"object"}
+        args=get_args(annotation)
+        if args:result['additionalProperties']=_schema(args[1])
+        return result
     if get_origin(annotation) is list:
         return {"type": "array", "items": _schema(get_args(annotation)[0])}
     if get_origin(annotation) is not None and type(None) in get_args(annotation):
@@ -99,6 +104,7 @@ class Tool:
     parameters: dict | None = None
     argument_types: dict = field(default_factory=dict)
     read_only: bool = False
+    content_parameters: tuple[str, ...] = ()
 
     def prepare(self, world, actor, arguments):
         if isinstance(arguments, str):
@@ -107,6 +113,9 @@ class Tool:
             raise ValueError("工具参数须为对象")
         if self.adapter:
             arguments = self.adapter(world, actor, dict(arguments))
+        arguments=dict(arguments)
+        for key in self.content_parameters:
+            if key in arguments:arguments[key]=world.runtime.content.resolve(arguments[key])
         arguments = {k: _convert(v, self.argument_types.get(k, Any)) for k, v in arguments.items()}
         sig = inspect.signature(self.handler)
         bound = sig.bind(world, actor, **arguments)

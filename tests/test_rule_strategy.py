@@ -27,12 +27,11 @@ class TestRuleStrategy(unittest.TestCase):
             actor='scenario:qin'
             def query(self,name,args=None):
                 if name=='unit_catalog':return catalog
-                if name=='battle_estimate':return {'known':True,'winnable':len(args['ids'])>=2}
                 raise AssertionError(name)
         obs={'actor':'scenario:qin','facts':{'view':view,'army':armies,'diplomacy':{'alliances':[],'wars':[]}}}
         state=RuleState()
         with patch.object(grouping,'V11_SOLVER_NODE_CAP',0):
-            grouping.regroup(PublicPlayer(),obs,state,armies)
+            grouping.regroup(PublicPlayer(),obs,state,armies,forecast=lambda p,c,u: {"known":True,"winnable":len(u)>=2})
         self.assertEqual(set(state.targets),{1,2,3,4});self.assertFalse(state.exact)
         self.assertEqual(RuleState.from_save(state.to_save()),state)
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -27,6 +28,10 @@ class TestWidth(unittest.TestCase):
         self.assertEqual(dw(pad("秦", 5)), 5)
         self.assertEqual(dw(pad("秦", 5, "right")), 5)
         self.assertTrue(pad("秦", 5, "right").startswith(" "))
+
+    def test_combining_and_multiline_width(self):
+        self.assertEqual(dw("e\u0301"), 1)
+        self.assertEqual(console._wrap("秦\n楚\t齐", 6), ["秦", "楚   ", "齐"])
 
 
 class TestRenderMd(unittest.TestCase):
@@ -134,6 +139,31 @@ class TestLineEditor(unittest.TestCase):
         c._feed("\x15")
         self.assertEqual(c._buf, [])
 
+    def test_long_input_scrolls_without_losing_command(self):
+        c = self._c()
+        command = "send 秦 " + "长命令正文" * 20
+        self._type(c, command)
+        with patch.object(c, '_term_width', return_value=19):
+            drawn = c._prompt_render()
+            self.assertLessEqual(dw(drawn.removeprefix('\r\033[K')), 19)
+            self.assertLess(c._input_cursor, 20)
+            c._pos = 0
+            self.assertIn('send 秦', c._prompt_render())
+        c._feed('\r')
+        self.assertEqual(c.queue.get_nowait(), command)
+
+    def test_ctrl_d_requests_saved_exit(self):
+        c = self._c()
+        self.assertFalse(c._feed('\x04'))
+        self.assertEqual(c.queue.get_nowait(), 'quit')
+
+    def test_closed_console_does_not_initialize_terminal(self):
+        c = self._c()
+        c.close()
+        with patch('termios.tcgetattr') as attrs:
+            c._reader()
+        attrs.assert_not_called()
+
 
 class TestPanel(unittest.TestCase):
     """底部固定状态区（用户 2026-09-20「这些弄个固定位置」）：内容、折行、擦除行数。
@@ -210,6 +240,25 @@ class TestPanel(unittest.TestCase):
         c.write("一条日志")
         self.assertEqual(c._footer_n, n, "写日志后方框的行数应保持不变")
         self.assertIn("一条日志", self.buf.getvalue())
+
+    def test_multiline_and_narrow_footer(self):
+        c = Console()
+        with patch.object(c, '_term_size', return_value=(8, 24)):
+            c.set_panel(head='秦\n楚' * 12, note='正在等待模型响应')
+            lines = c._footer_lines()
+            self.assertTrue(all('\n' not in row for row in lines))
+            self.assertEqual({dw(row) for row in lines}, {8})
+
+    def test_resize_erases_reflowed_footer(self):
+        c = Console()
+        c._active = True
+        with patch.object(c, '_term_size', return_value=(39, 24)):
+            c.set_panel(head='等待响应')
+        count = c._footer_n
+        with patch.object(c, '_term_size', return_value=(19, 24)):
+            self.assertEqual(c._erase_footer().count('\033[1A'), count * 2)
+            c._redraw()
+            self.assertEqual({dw(row) for row in c._footer_lines()}, {19})
 
 
 if __name__ == "__main__":

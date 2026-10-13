@@ -21,7 +21,7 @@ class RuleState:
 
 class RuleClient:
     kind='rule';version='v11plus'
-    plan_text='按当前经济收益建设，维持补给并集中编组扩张'
+    plan_text='经济：优先建设有资源容量、回本较快的采集与生产建筑，先补能源与材料缺口，保留征兵及数回合补给预算。军事：建立兵营后集中编组，以可见守军和合法路线选择有胜算的无主地，避免分兵和无补给扩张。情报：依据公开视野、报表和实际回执决策，不把推演当成战果。外交：尊重同盟和通行规则，非交战国不作为进攻目标；当能源、补给或敌情变化时调整扩张速度。'
     def __init__(self,state=None,*,forecast=None):self.state=state or RuleState();self.forecast=forecast
     def play(self,player,*,max_actions=None,on_action=None,on_result=None):
         if hasattr(player,'action_state'):

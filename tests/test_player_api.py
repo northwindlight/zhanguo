@@ -24,7 +24,7 @@ class TestPlayerAPI(unittest.TestCase):
         self.assertFalse(any(u['owner']==C for u in p.observe()['facts']['army']))
         obs['facts']['econ']['stocks'][0]['amount']=999999
         self.assertNotEqual(p.observe()['facts']['econ']['stocks'][0]['amount'],999999)
-        self.assertEqual(len(p.actions()),59)
+        self.assertEqual(len(p.actions()),61)
         self.assertTrue({'player_state','player_rules','player_events'}<={s['function']['name'] for s in p.actions()})
         self.assertFalse(any('_'==key[:1] for u in p.query('army') for key in u))
 
@@ -53,20 +53,22 @@ class TestPlayerAPI(unittest.TestCase):
 
     def test_quotes_are_readonly_exact_and_reject_foreign_sites(self):
         w=self.world();p=w.runtime.player(w,Q);before=w.runtime.save_mod_state(w)
-        quote=p.query('build_quote',{'site':'scenario:qc','kind':'native:farm'})
-        self.assertEqual(quote['costs'],{'native:gold':20,'native:wood':15})
+        farm=next(k for k in p.query('building_catalog') if k['id']=='native:farm')
+        costs=farm['costs_by_level'][0]
+        self.assertEqual(costs,{'native:gold':20,'native:wood':15})
         self.assertEqual(w.runtime.save_mod_state(w),before)
         result=p.submit('build',{'site':'scenario:qc','kind':'native:farm'})
-        self.assertEqual(dict(result['data']['costs']),quote['costs'])
+        self.assertEqual(dict(result['data']['costs']),costs)
         self.assertEqual(p.query('econ')['inventory']['total'],p.query('econ')['inventory']['known'])
-        with self.assertRaises(ValueError):p.query('build_quote',{'site':'scenario:cc','kind':'native:farm'})
+        self.assertFalse(p.submit('build',{'site':'scenario:cc','kind':'native:farm'})['ok'])
 
     def test_policy_quotes_schema_and_scope_are_identical(self):
         w=self.world();w.runtime.activate_actor(w,Q,'native:huns',site='scenario:qc')
         p=w.runtime.player(w,Q)
         self.assertNotIn('bloc_found',{s['function']['name'] for s in p.actions()})
         self.assertEqual(p.query('unit_catalog')['native:cavalry']['recruit'],{'native:food':8,'native:equipment':8})
-        self.assertEqual(p.query('build_quote',{'site':'scenario:qc','kind':'native:farm'})['costs']['native:gold'],26)
+        w.resources.credit(Q,'native:wood',15)
+        self.assertEqual(dict(p.submit('build',{'site':'scenario:qc','kind':'native:farm'})['data']['costs'])['native:gold'],26)
         self.assertFalse(p.submit('bloc_found',{'bloc':'scenario:b','name':'盟','tos':[C]})['ok'])
         self.assertFalse(any(s['title']=='匈奴政体' for s in w.runtime.player(w,C).rules()))
 
@@ -84,8 +86,7 @@ class TestPlayerAPI(unittest.TestCase):
     def test_visible_path_and_forecast_queries_cannot_peek_outside_fog(self):
         w=self.world();a=w.military.seed(Q,'native:infantry',1,1)[0];p=w.runtime.player(w,Q)
         saved=w.runtime.save_mod_state(w)
-        forecast=p.query('battle_estimate',{'ids':[a.id],'x':6,'y':6})
-        self.assertEqual(forecast,{'known':False,'winnable':None,'rounds':None,'losses':None})
+        with self.assertRaisesRegex(ValueError,'迷雾'):p.query('tile',{'x':6,'y':6})
         self.assertNotIn([6,6],[point for point,_ in p.query('reachable',{'aid':a.id,'attack':True})])
         self.assertEqual(w.runtime.save_mod_state(w),saved)
 

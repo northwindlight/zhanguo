@@ -4,7 +4,7 @@
 
 ## 模块与边界
 
-共 18 个领域模块和 1 个独立 [UI Mod](../ui/README.md)、56 个模块工具（玩家 API 另提供 3 个通用查询工具）、17 个结算处理器、14 个发行版挂点。模块继续使用资源、建筑、国家的模板：`mod.toml` 声明身份、依赖、状态与接口，`mod.py` 装配对象、工具、面板和挂点，领域对象拥有业务状态与行为，显式保存与恢复。纯算法、查询和政体模块不虚设持久状态或玩家动作。
+共 19 个领域及资料模块和 1 个独立 [UI Mod](../ui/README.md)、58 个模块工具（玩家 API 另提供 3 个通用查询工具）、17 个结算处理器、14 个发行版挂点。模块继续使用资源、建筑、国家的模板：`mod.toml` 声明身份、依赖、状态与接口，`mod.py` 装配对象、工具、面板和挂点，领域对象拥有业务状态与行为，显式保存与恢复。纯算法、查询和政体模块不虚设持久状态或玩家动作。
 
 | 模块 | 负责内容 | 状态所有者 |
 | --- | --- | --- |
@@ -40,7 +40,6 @@ world.territory.create('scenario:capital', 'scenario:qin', 1, 1,
                        terrain='native:plain', core='scenario:qin')
 world.buildings.seed('scenario:capital', 'native:town-hall')
 world.succession.enroll('scenario:qin')  # 初始化完成后加入市政厅亡国规则
-world.market.set_participants(1)
 world.call_tool('scenario:qin', 'plan', {'text':'发展经济并保持独立'})
 world.call_tool('scenario:qin', 'build',
                 {'site':'scenario:capital', 'kind':'native:farm'})

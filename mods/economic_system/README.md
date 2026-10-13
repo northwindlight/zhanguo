@@ -21,7 +21,7 @@ world.phase = '行动'                         # 宿主进入下一行动阶段
 print(runtime.call(world, 'Qin', 'borrow', {}).principal)  # 50
 ```
 
-默认每 10 周期发布报表，每周期都有经济记录。市场参与者数量仍由宿主通过 `world.market.set_participants(count)` 或显式市场结算输入提供。
+默认每 10 周期发布报表，每周期都有经济记录。市场深度由市场声明给出，外部每期按缺口回补，不依赖参与者数量。
 
 替换市场计价：将成员 `../native/market_pricing/mod.toml` 换成 `../examples/fixed_market_pricing/mod.toml`。替换银行：将 `../native/bank/mod.toml` 换成 `../examples/fixed_credit_bank/mod.toml`。查询、交易、资源和经济报表代码不变。建筑 2.2.0 同时提供正式 `build(site, kind)` 工具。新增资源及建筑通过注册表加入；tea 未上市时市场不创建行情，未估值时经济层明确保留缺失估值。
 

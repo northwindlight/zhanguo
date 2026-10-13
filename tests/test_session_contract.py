@@ -109,13 +109,13 @@ class TestSessionContract(TestCase):
         spec=runtime.distribution['Session']['Observer']
         del spec['Send']
         host=GameHost.new(self.cfg(),runtime=runtime)
-        self.assertEqual(host.management(),('add','records','announce','board'))
+        self.assertEqual(host.management(),('add','records','announce','board','observer_snapshot','set_rate','subsidize'))
         with self.assertRaisesRegex(ValueError,'send'):Observer(host,'unused-journal.md')
 
     def test_grid_distribution_preserves_public_and_private_messages(self):
         host=GameHost.new(self.cfg())
         self.assertIsInstance(host.session,GridSession)
-        self.assertEqual(host.management(),('add','records','announce','send','board'))
+        self.assertEqual(host.management(),('add','records','announce','send','board','observer_snapshot','set_rate','subsidize'))
         host.announce('公开测试')
         host.send('probe:left','仅甲可见')
         left=host.player('probe:left').events()['items']

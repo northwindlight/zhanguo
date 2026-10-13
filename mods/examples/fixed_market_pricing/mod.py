@@ -4,11 +4,12 @@ from mods.native.market.contracts import PricingEngine, PricePath, PriceSettleme
 
 
 class FixedPricing(PricingEngine):
-    def walk(self, listing, price, quantity, side, participants):
+    # A flat reference price: no spread, no premium for size, no scarcity.
+    def walk(self, listing, price, quantity, side, volume, reference, policy):
         return PricePath(listing.base_price, listing.base_price * quantity)
 
-    def settle(self, listing, price, production, consumption):
-        return PriceSettlement(listing.base_price, listing.base_price)
+    def level(self, listing, inventory, reference, policy):
+        return PriceSettlement(listing.base_price)
 
 
 class FixedPricingMod(GameMod):

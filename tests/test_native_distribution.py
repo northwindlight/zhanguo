@@ -17,7 +17,6 @@ class TestNativeDistribution(unittest.TestCase):
         world = runtime.world_class()()
         world.nations.create('native:qin','秦',{'native:gold':1000,'native:wood':100})
         world.nations.create('native:chu','楚',{'native:gold':100})
-        world.market.set_participants(2)
         world.buildings.register_site('native:qin-capital','native:qin',(0,0),resources={'native:gold':10,'native:farmland':10})
         world.buildings.register_site('native:chu-capital','native:chu',(1,0),resources={'native:farmland':10})
         world.buildings.seed('native:qin-capital','native:gold-mine')
@@ -32,8 +31,8 @@ class TestNativeDistribution(unittest.TestCase):
         runtime=Runtime.load(ROOT/'mods.toml');direct=Runtime.load(ROOT/'mods/native')
         self.assertEqual(runtime.dependency_manifest(),direct.dependency_manifest())
         self.assertEqual(runtime.distribution['Id'],'native')
-        self.assertEqual(runtime.distribution['Version'],'4.1.0')
-        self.assertEqual(set(runtime.units),{'ui:standard','native:resources','native:buildings','native:market',
+        self.assertEqual(runtime.distribution['Version'],'4.2.0')
+        self.assertEqual(set(runtime.units),{'ui:standard','native:handbooks','native:resources','native:buildings','native:market',
                          'native:market-pricing','native:economy','native:economy-valuation',
                          'native:bank','native:economy-queries','native:nations','native:government','native:map-generation',
                          'native:territory','native:diplomacy','native:vision','native:army','native:succession','native:intelligence','native:huns'})
@@ -45,15 +44,18 @@ class TestNativeDistribution(unittest.TestCase):
         self.assertTrue({'build','buy','sell','market','econ','bank','borrow','nation','nations',
             'plan','end_turn','land','view','declare_war','offer_peace','vote','recruit','attack',
             'retreat','army','send_letter','gift','spy','news','intel'} <= set(runtime.tools))
-        self.assertEqual(len(runtime.schemas()),56)
+        self.assertEqual(len(runtime.schemas()),58)
         world=runtime.world_class()()
         self.assertEqual(world.economy_actors,())
         self.assertEqual(world.nation_actors,())
 
     def test_tool_build_trade_produce_complete_and_report_share_one_inventory(self):
-        world=self.world();quote=self.call(world,'market_quote',resource='native:wood',quantity=3,side='buy')
+        world=self.world()
+        panel=self.call(world,'market')
         trade=self.call(world,'buy',resource='native:wood',quantity=3)
-        self.assertEqual(trade.gold,quote.gold)
+        # 期内报价对任何国家一样；只有这一单自己的深度带来溢价。
+        self.assertEqual(trade.price_before,dict(panel.prices)['native:wood'])
+        self.assertGreater(trade.exact_total,dict(panel.prices)['native:wood']*3)
         receipt=self.call(world,'build',site='native:qin-capital',kind='native:farm')
         self.assertEqual(dict(receipt.costs),{'native:gold':20,'native:wood':15})
         self.assertEqual(world.resources.balance('native:qin','native:wood'),88)

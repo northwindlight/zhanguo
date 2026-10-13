@@ -34,8 +34,8 @@ class BankMod(GameMod):
         context['bank_entries'] = world.bank.settle(context['building_production'].period)
         context['bank_liabilities'] = world.bank.liabilities()
     def tools(self):
-        return (Tool('borrow',lambda world,actor:world.bank.borrow(actor),description='Borrow the declared GDP credit limit'),
-                Tool('bank',lambda world,actor:world.bank.position(actor),read_only=True,description='Own loan, credit and net assets'),
-                Tool('buy_report',self._buy_report,description='Purchase the latest published report'))
+        return (Tool('borrow',lambda world,actor:world.bank.borrow(actor),description='按发行版声明的 GDP 信用额度借入；期限与应还金额由银行固定，不能自选。'),
+                Tool('bank',lambda world,actor:world.bank.position(actor),read_only=True,description='本国现金、信用额度、负债与贷款剩余；无需参数。'),
+                Tool('buy_report',self._buy_report,description='付费购买目标国家最新已发布的经济报表；不包含未完成收益。'))
     @staticmethod
     def _buy_report(world, actor, target: str):return world.bank.buy_report(actor,target)

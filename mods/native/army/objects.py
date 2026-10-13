@@ -27,6 +27,14 @@ class Unit(MutableMapping):
     retreat_to: tuple[int, int] | None = None
     retreat_role: str | None = None
     retreat_cover: int | None = None
+
+    def to_public(self):
+        # The actor-local integer ID is the action key. Internal global IDs,
+        # generated names and combat tie-break sequences are not player input.
+        result={k:getattr(self,k) for k in ('id','kind','owner','x','y','hp','moved_turn','engaged','born_turn','retreat_to')}
+        if self.retreat_to is not None:
+            result.update(retreat_role=self.retreat_role,retreat_cover=self.retreat_cover)
+        return result
     _collection: object = field(default=None, repr=False)
     _definitions: object = field(default=None, repr=False)
     _present: tuple = field(default=(), init=False, repr=False)

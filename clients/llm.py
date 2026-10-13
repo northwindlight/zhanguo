@@ -4,12 +4,14 @@ from dataclasses import dataclass,field
 import json
 from types import SimpleNamespace
 from clients import context as ctx
+from clients import memory
 from ui import load_ui
 from clients.provider import make_backend,REPLAY_KEY
 
 
 @dataclass
 class LLMState:
+    history:list=field(default_factory=list)
     replay:list=field(default_factory=list)
     summaries:list=field(default_factory=list)
     blocks:list=field(default_factory=list)
@@ -20,13 +22,14 @@ class LLMState:
 
     def to_save(self):
         return deepcopy({'replay':self.replay,'summaries':self.summaries,'blocks':self.blocks,
-                         'long_memory':self.long_memory,'usage':self.usage,'event_cursor':self.event_cursor,'generation':self.generation})
+                         'long_memory':self.long_memory,'usage':self.usage,'event_cursor':self.event_cursor,'generation':self.generation,'history':self.history})
 
     @classmethod
     def from_save(cls,data):
-        if not isinstance(data,dict) or set(data)!={'replay','summaries','blocks','long_memory','usage','event_cursor','generation'}:raise ValueError('Invalid LLM state')
-        if any(not isinstance(data[key],list) for key in ('replay','summaries','blocks')) or not isinstance(data['long_memory'],str) or not isinstance(data['usage'],dict) or type(data['event_cursor']) is not int or data['event_cursor']<0:raise ValueError('Invalid LLM state fields')
+        if not isinstance(data,dict) or set(data)!={'replay','summaries','blocks','long_memory','usage','event_cursor','generation','history'}:raise ValueError('Invalid LLM state')
+        if any(not isinstance(data[key],list) for key in ('replay','summaries','blocks','history')) or not isinstance(data['long_memory'],str) or not isinstance(data['usage'],dict) or type(data['event_cursor']) is not int or data['event_cursor']<0:raise ValueError('Invalid LLM state fields')
         if type(data['generation']) is not int or data['generation']<0:raise ValueError('Invalid control generation')
+        if any(not isinstance(row,dict) or set(row)!={'period','text'} or type(row['period']) is not int or row['period']<0 or not isinstance(row['text'],str) for row in data['history']):raise ValueError('Invalid searchable history')
         for record in data['replay']:
             if not isinstance(record,dict) or type(record.get('turn')) is not int or record['turn']<0 or not isinstance(record.get('messages'),list):raise ValueError('Invalid replay')
             assert_paired(record['messages'])
@@ -51,7 +54,7 @@ def assert_paired(messages):
 
 
 class LLMClient:
-    kind='llm';version='1'
+    kind='llm';version='2'
     def __init__(self,cfg,state=None,backend=None,ui=None):
         self.cfg=deepcopy(cfg);self.state=state or LLMState();self._backend=backend
         self.presentation=ui or load_ui(self.cfg)
@@ -87,7 +90,15 @@ class LLMClient:
     @staticmethod
     def _dialogue(player,messages):
         if hasattr(player,'record_dialogue'):player.record_dialogue(messages)
-    def _submit(self,player,action,arguments):return player.submit(action,arguments)
+    def _submit(self,player,action,arguments):
+        if action!='memory_search':return player.submit(action,arguments)
+        base={'api':player.api_version,'actor':player.actor,'action':action,'period':player.observe()['period']}
+        try:
+            if not isinstance(arguments,dict) or set(arguments)-{'query','limit'}:raise ValueError('memory_search 参数为 query 与可选 limit')
+            data=memory.search(self.state.history,**arguments)
+        except (ValueError,TypeError) as exc:return {**base,'ok':False,'status':'rejected','code':'invalid_arguments','message':str(exc),'data':None}
+        return {**base,'ok':True,'status':'effective','code':None,'message':'','data':data}
+
     def _receipt(self,player,action,arguments,receipt):pass
     def _exchange(self,player,assistant,replies):pass
     def _after_batch(self,player,messages,emit):return False
@@ -120,9 +131,13 @@ class LLMClient:
 
     def play(self,player,*,max_steps=None,emit=None,head=None,on_call=None,on_result=None):
         self._prepare(player)
+        rules=getattr(self.ui,'rules',None)
+        if callable(rules):rules(player.rules('all'))
         obs=player.observe()
         if not obs['can_act']:return []
-        tools=self.ui.actions(player.actions());batch=player.events(self.state.event_cursor)
+        schemas=player.actions()
+        if any(s['function']['name']=='memory_search' for s in schemas):raise ValueError('memory_search 与客户端记忆工具重名')
+        tools=self.ui.actions([*schemas,deepcopy(memory.SCHEMA)]);batch=player.events(self.state.event_cursor)
         messages,plan=self._context(player,obs,batch,tools)
         self._dialogue(player,[messages[0],messages[-1]])
         if head:head(self.ui.text('llm.context',actor=player.actor,plan=self.ui.context_plan(plan)))
@@ -131,6 +146,7 @@ class LLMClient:
         limit=int(max_steps if max_steps is not None else self.cfg.get('max_steps',28))
         if limit<1:raise ValueError('max_steps must be positive')
         for step in range(limit):
+            if emit:emit(self.ui.text('llm.request',actor=player.actor,count=step+1))
             msg,stats=self._provider().chat_turn(messages,tools,self._request_config(),on_retry=(lambda attempt,error,wait,total:emit(self.ui.text('llm.retry',actor=player.actor,attempt=attempt,total=total,error=error,wait=wait))) if emit else None)
             self._usage(stats)
             calls=msg.get('tool_calls') or []
@@ -143,19 +159,22 @@ class LLMClient:
             ids=[call.get('id') for call in calls]
             if any(not isinstance(ident,str) or not ident for ident in ids) or len(set(ids))!=len(ids):raise ValueError('Invalid provider tool IDs')
             self._dialogue(player,[assistant])
+            batch_receipts=[]
             for call in calls:
                 fn=call.get('function') or {};action=fn.get('name')
                 try:arguments=json.loads(fn.get('arguments') or '{}')
                 except (ValueError,TypeError):
-                    receipt=player.submit(action,[])
+                    receipt=self._submit(player,action,[])
                 else:receipt=self._submit(player,action,arguments)
-                receipts.append(receipt)
-                messages.append({'role':'tool','tool_call_id':call['id'],'content':json.dumps(receipt,ensure_ascii=False)})
+                receipts.append(receipt);batch_receipts.append(receipt)
+                render=getattr(self.ui,'receipt',None)
+                messages.append({'role':'tool','tool_call_id':call['id'],'content':render(receipt) if callable(render) else json.dumps(receipt,ensure_ascii=False)})
                 self._receipt(player,action,fn.get('arguments'),receipt)
                 if on_result:on_result(action,fn.get('arguments'),receipt)
                 if action=='end_turn' and receipt['ok']:
                     ended=True
                     self.state.summaries.append({'turn':obs['period'],'text':receipt['data']['text']})
+            memory.record(self.state.history,obs['period'],memory.action_text(assistant,calls,batch_receipts))
             if on_call:on_call(step,receipts)
             assert_paired(messages[start:])
             self._dialogue(player,messages[-len(calls):] if calls else [])
@@ -163,13 +182,20 @@ class LLMClient:
             if hasattr(player,'action_state') and not player.action_state()['active']:
                 if emit:emit(player.action_state()['context'].get('prompt','Actor control changed'))
                 return receipts
-            if not player.observe()['can_act']:ended=True
+            current_observation=player.observe()
+            if not current_observation['can_act']:ended=True
             if self._after_batch(player,messages,emit):
                 obs=player.observe();batch=player.events(self.state.event_cursor)
                 messages,plan=self._context(player,obs,batch,tools)
                 start=len(messages)-1;ended=False
                 continue
             if ended:break
+            refresh=getattr(self.ui,'refresh',None)
+            if calls and callable(refresh):
+                update=refresh(current_observation)
+                if update:
+                    current={'role':'user','content':update}
+                    messages.append(current);self._dialogue(player,[current])
             if not calls:messages.append({'role':'user','content':self.ui.text('llm.continue')})
         # No synthetic end_turn: a provider/step failure must not commit a turn.
         if not ended:raise RuntimeError(self.ui.text('llm.limit'))

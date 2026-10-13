@@ -125,14 +125,17 @@ def step_new_good():
         host = GameHost.new(cfg)
         player = host.player('scenario:qin')
         before = {s['id']: s['amount'] for s in player.query('econ')['stocks']}
-        quote = player.query('market_quote', {'resource': 'example:tea', 'quantity': 5, 'side': 'sell'})
+        panel = player.query('market')
+        sell = dict(panel['sell_prices'])['example:tea']
         print('开局            ', '茶', before['example:tea'], '/ 金', before['native:gold'])
-        print('卖 5 单位的报价 ', quote['gold'], '金（单价', quote['price_before'], '→', quote['price_after'], '）')
-        print('卖出回执        ', player.submit('sell', {'resource': 'example:tea', 'quantity': 5})['status'])
+        print('本期卖出单价    ', sell, '金（库存', dict(panel['inventory'])['example:tea'],
+              '/ 深度', dict(panel['depth'])['example:tea'], '）')
+        receipt = player.submit('sell', {'resource': 'example:tea', 'quantity': 5})
         after = {s['id']: s['amount'] for s in player.query('econ')['stocks']}
-        print('对账            ', '茶 -%d，金 +%d（报价 %d）'
+        print('卖出回执        ', receipt['status'], '实收', receipt['data']['gold'], '金')
+        print('对账            ', '茶 -%d，金 +%d'
               % (before['example:tea'] - after['example:tea'],
-                 after['native:gold'] - before['native:gold'], quote['gold']))
+                 after['native:gold'] - before['native:gold']))
 
 
 def step_stages_and_units():
@@ -178,11 +181,12 @@ def step_replace_existing():
             kinds = [row['id'] for row in player.query('building_catalog')]
             site = player.query('building_sites')['sites'][0]['id']
             try:
-                player.query('recruit_quote', {'site': site, 'kind': 'native:infantry'})
+                receipt=player.submit('recruit', {'site': site, 'kind': 'native:infantry'})
+                if not receipt['ok']:raise ValueError(receipt['message'])
                 verdict = '放行'
             except ValueError as exc:
                 verdict = str(exc)
-            print('%-9s 建筑 %d 种，含电厂 %-5s 征兵报价：%s'
+            print('%-9s 建筑 %d 种，含电厂 %-5s 征兵回执：%s'
                   % (label, len(kinds), 'native:wood-power-plant' in kinds, verdict))
 
 

@@ -19,7 +19,7 @@ def create_client(cfg,record,entry,services):
         return ruleai.create(cfg.get('rule_ai'),record['state'] if record else None)
     if cfg['client']=='llm':
         from clients.llm import LLMClient,LLMState
-        if record and record['version']!='1':raise SaveFormatError('Unsupported LLM client state')
+        if record and record['version']!=LLMClient.version:raise SaveFormatError('Unsupported LLM client state')
         return LLMClient(cfg,LLMState.from_save(record['state']) if record else None,ui=services['ui'])
     raise ValueError('Client factory not declared')
 

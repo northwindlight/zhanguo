@@ -12,4 +12,4 @@
 
 当前联动验收 `tests.test_world_domains`；`tests.test_army_resources` 通过当前发行版验证资源读取权限、原子征召、补给回血、兵种扩展与存取。旧 ArmyLogic 与重复实现已删除；客户端仅使用 PlayerSession。
 
-玩家查询另提供 unit_catalog、recruit_quote、battle_estimate。征召报价与实际征召共用费用逻辑。战斗预估采用当前可见敌军和期望骰值，不包含补给、治疗或第三方增援；不可见目标返回未知。reachable 玩家工具仅返回可见路径；内部行动裁决仍使用真实地形。
+玩家查询提供 unit_catalog、army 和 tile；只有单格详情 tile 接受坐标。征召直接由 recruit 校验并返回成本和军队编号。native 规则 AI 在客户端用公开军队、地形与建筑事实估算战斗；experimental 研究客户端继续使用发行版注入的概率推演。reachable 玩家工具仅返回可见路径；内部行动裁决仍使用真实地形。

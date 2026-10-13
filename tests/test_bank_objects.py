@@ -223,9 +223,10 @@ class TestEconomicSystem(unittest.TestCase):
     def test_player_tools_actor_phase_and_private_queries(self):
         w=self.world();self.assertFalse(hasattr(w,'nations'))
         self.assertEqual(w.economy_actors,('Qin','Chu'))
-        before=self.save(w);quote=self.call(w,'market_quote',resource='native:wood',quantity=2,side='buy')
+        before=self.save(w);panel=self.call(w,'market')
         self.assertEqual(self.save(w),before)
-        trade=self.call(w,'buy',resource='native:wood',quantity=2);self.assertEqual(trade.gold,quote.gold)
+        trade=self.call(w,'buy',resource='native:wood',quantity=2)
+        self.assertEqual(trade.price_before,dict(panel.prices)['native:wood'])
         public=self.call(w,'market');self.assertFalse(hasattr(public,'trades'));self.assertFalse(hasattr(public,'carry'))
         w.resolve_turn()
         for tool,args in [('buy',{'resource':'native:wood','quantity':1}),('borrow',{}),('buy_report',{'target':'Chu'})]:
@@ -237,17 +238,32 @@ class TestEconomicSystem(unittest.TestCase):
     def test_estimates_follow_registered_recipes_and_explicit_energy_assumption(self):
         w=self.world(tea=True)
         farm=self.call(w,'building_economics',kind='native:farm')
-        self.assertEqual(farm.construction.total,50);self.assertEqual(farm.net_per_period.total,1.5)
-        self.assertAlmostEqual(farm.payback_periods,50/1.5)
+        food_sell=w.market.quote('native:food',1,'sell').exact_total
+        buy=lambda r:w.market.quote('native:'+r,1,'buy').exact_total
+        self.assertEqual(farm.construction.total,50);self.assertAlmostEqual(farm.net_per_period.total,food_sell)
+        self.assertAlmostEqual(farm.payback_periods,50/food_sell)
         factory=self.call(w,'building_economics',kind='native:supply-factory')
-        self.assertEqual(factory.energy_unit_cost,.75)
-        self.assertEqual(factory.net_per_period.total,12-3-2.5-.75)
+        self.assertAlmostEqual(factory.energy_unit_cost,buy('wood')/2)
+        self.assertAlmostEqual(factory.net_per_period.total,2*buy('supply')-2*buy('food')-buy('ore')-buy('wood')/2)
         castle=self.call(w,'building_economics',kind='native:castle',level=2)
         self.assertEqual(castle.construction.total,140);self.assertIsNone(castle.payback_periods)
         hall=self.call(w,'building_economics',kind='native:town-hall',other_slots=6)
-        self.assertEqual(hall.net_per_period.total,10.25)
+        self.assertAlmostEqual(hall.net_per_period.total,14-buy('wood')/2)
+        self.assertEqual(hall.projected_slots,3)
         tea=self.call(w,'building_economics',kind='example:tea-garden')
         self.assertEqual(tea.net_per_period.unpriced,('example:tea',));self.assertIsNone(tea.payback_periods)
+
+    def test_academy_public_estimate_does_not_predict_local_savings(self):
+        w=self.world()
+        for _ in range(6):w.buildings.seed('example:qin','native:farm')
+        before=self.save(w)
+        e=self.call(w,'building_economics',kind='native:academy')
+        self.assertEqual(e.academy_saved_per_period,0)
+        self.assertEqual(e.academy_density_per_period,0)
+        self.assertEqual(e.net_per_period.total,0)
+        self.assertIsNone(e.payback_periods)
+        self.assertIn(('build_discount',25),e.effects)
+        self.assertEqual(self.save(w),before)
 
     def test_reversed_bank_and_reports_is_rejected_by_declared_dependency(self):
         loaded=Runtime.load(ROOT/'mods/economic_system');distribution=deepcopy(loaded.distribution)
@@ -297,9 +313,9 @@ class TestEconomicSystem(unittest.TestCase):
         schema=w.runtime.tools['building_economics'].schema()['function']['parameters']
         self.assertIn('example:tea-garden',schema['properties']['kind']['enum'])
         before=self.save(w)
-        with self.assertRaises(KeyError):self.call(w,'building_economics',kind='农场')
+        with self.assertRaisesRegex(ValueError,'未知内容键值'):self.call(w,'building_economics',kind='农场')
         self.assertEqual(self.save(w),before)
-        self.assertEqual(len(w.runtime.schemas()),14)
+        self.assertEqual(len(w.runtime.schemas()),12)
 
     def test_replacement_modules_load_from_real_distribution_members(self):
         source=(ROOT/'mods/economic_system/mod.toml').read_text()

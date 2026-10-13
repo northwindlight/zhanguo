@@ -142,6 +142,27 @@ class Buildings:
         return self._sites[site_id]
 
     def site(self, site_id):return self._sites[site_id]
+
+    def resolve_site(self, actor, site=None, x=None, y=None):
+        if site is not None:
+            if x is not None or y is not None:raise ValueError('站点 ID 与坐标只能选一种')
+            if isinstance(site,str) and site not in self._sites:
+                import re
+                text=site.strip()
+                if (text.startswith('(') and text.endswith(')')) or (text.startswith('[') and text.endswith(']')):text=text[1:-1]
+                match=re.fullmatch(r'\s*(\d+)\s*,\s*(\d+)\s*',text)
+                if match:site=[int(match[1]),int(match[2])]
+            if isinstance(site,(list,tuple)):
+                if len(site)!=2:raise ValueError('坐标需要两个整数')
+                x,y=map(integer,site)
+                candidate=next((s for s in self._sites.values() if s.position==(x,y)),None)
+            else:candidate=self._sites.get(site)
+        else:
+            if x is None or y is None:raise ValueError('请提供 x、y 坐标')
+            integer(x);integer(y)
+            candidate=next((s for s in self._sites.values() if s.position==(x,y)),None)
+        if candidate is None or candidate.owner!=actor:raise ValueError('此位置不是本国建筑站点')
+        return candidate.id
     def instances(self, site_id=None):
         if site_id is not None:self._sites[site_id]
         return tuple(item.snapshot() for item in self._instances.values() if site_id is None or item.site==site_id)

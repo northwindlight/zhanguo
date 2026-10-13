@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import queue
 import sys
+import time
 
 from ui.terminal import Console
 from host import GameHost
@@ -48,26 +49,73 @@ class Observer:
         records=host.records()
         self.event=max([0,*[row['id'] for row in records['events']]]) if resume else 0
         self.message=max([0,*[row['id'] for row in records['messages']]]) if resume else 0
-        self.pending={};self.results=[]
+        self.pending={};self.results=[];self.stop_requested=False;self.paused=False
+        self.current_actor=None;self.started_at=0;self.show_thinking=False;self.last_thinking=''
+    def names(self):return {a:r['name'] for a,r in self.host.roster.items()}
+    def snapshot(self):
+        method=getattr(self.host,'observer_snapshot',None)
+        if not callable(method):raise ValueError(self.ui.text('console.unsupported',name='observer_snapshot'))
+        return method()
+    def board(self):
+        if callable(getattr(self.host,'observer_snapshot',None)):
+            return self.ui.console.overview(self.snapshot())
+        return self.host.board()
+    def model_output(self,text):
+        # Preserve speech and reasoning in the journal; reasoning may be folded on screen.
+        for actor,name in self.names().items():
+            for icon in ('🗣','💭','🧠','⚠','⏳'):
+                text=text.replace(icon+' '+actor+' ',icon+' '+name+' ',1)
+        if text.startswith('💭'):
+            self.last_thinking=text
+            if not self.show_thinking:
+                to_journal(self.path,text)
+                return
+        if text.startswith(('⚠','🧠','⏳')):panel_note(self.path,text)
+        else:self.line(text)
+    def actor_start(self,actor):
+        if actor==self.current_actor:return
+        self.current_actor=actor;self.started_at=time.monotonic()
+        if CONSOLE is not None:CONSOLE.clear_panel()
+        self.line(self.ui.text('console.actor_start',actor=self.names().get(actor,actor),period=self.host.clock()))
+    def actor_finish(self,actor):
+        if self.current_actor!=actor:return
+        self.line(self.ui.text('console.actor_finish',actor=self.names().get(actor,actor),seconds=time.monotonic()-self.started_at))
+        self.current_actor=None
+    def context_head(self,text):
+        for actor,name in self.names().items():
+            if text.startswith('🧠 '+actor+' '):self.actor_start(actor)
+            text=text.replace('🧠 '+actor+' ','🧠 '+name+' ',1)
+        panel_note(self.path,text,head=True)
     def line(self,text):to_journal(self.path,text);echo_line(text)
     def notice(self,text,head=False):panel_note(self.path,text,head)
     def result(self,actor,action,arguments,receipt):
+        self.actor_start(actor)
         self.pending.setdefault(actor,[]).append((action,arguments,receipt))
-        if self.host.clients[actor].kind=='rule':self.flush(actor)
+        if self.host.clients[actor].kind=='rule':
+            self.flush(actor)
+            if action=='end_turn' and receipt['ok']:self.actor_finish(actor)
     def flush(self,actor):
+        remember=getattr(self.ui.console,'remember',None)
+        if callable(remember):remember(self.host.player(actor).observe())
         for action,args,receipt in self.pending.pop(actor,[]):
-            self.line(self.ui.text('console.action',period=self.host.clock(),actor=self.host.roster[actor]['name'],action=action,arguments=json.dumps(args,ensure_ascii=False),status=receipt['status'],message=receipt.get('message','')))
-            # Full detached receipts belong to the journal, brief text to console.
-            to_journal(self.path,'```json\n'+json.dumps(receipt,ensure_ascii=False)+'\n```')
+            full=self.ui.console.action(self.host.clock(),actor,action,args,receipt,self.names())
+            to_journal(self.path,full)
+            preview=getattr(self.ui.console,'preview',None)
+            echo_line(preview(full) if callable(preview) else full)
+            # Archive the original receipt as well as the full translated display.
+            to_journal(self.path,'```json\n'+json.dumps({**receipt,'arguments':args},ensure_ascii=False)+'\n```')
     def on_call(self,actor,step,receipts):
         self.line(self.ui.text('console.call',actor=self.host.roster[actor]['name'],count=step+1));self.flush(actor)
+        self.events()
+        if not _commands(self.host,self):self.stop_requested=True
+        if any(r.get('action')=='end_turn' and r.get('ok') for r in receipts):self.actor_finish(actor)
     def events(self):
         records=self.host.records()
         for event in records['events']:
-            if event['id']>self.event:self.line(f'[{event["period"]}·{event["kind"]}] {event["text"]}')
+            if event['id']>self.event:self.line(self.ui.console.event(event,self.names()))
         self.event=max([self.event,*[row['id'] for row in records['events']]])
         for message in records['messages']:
-            if message['id']>self.message:self.line(self.ui.text('console.message',period=message['sampled'],source=message['source'],target=message['target'],payload=json.dumps(message['payload'],ensure_ascii=False)))
+            if message['id']>self.message:self.line(self.ui.console.message(message,self.names()))
         self.message=max([self.message,*[row['id'] for row in records['messages']]])
 
 
@@ -81,46 +129,91 @@ def command(host,line,observer):
     if not line:return True
     first,_,body=line.partition(' ')
     if first in ('quit','exit','结束','退出'):return False
-    if first in ('add','加入'):
-        actor=host.add(body.strip());observer.line(text_ui('console.joined',name=host.roster[actor]['name']))
-    elif first in ('say','公告'):
+    if first in ('help','帮助','?'):observer.line(text_ui('console.commands'))
+    elif first in ('pause','暂停'):
+        if CONSOLE is None:raise ValueError(text_ui('console.interactive_only'))
+        observer.paused=True;observer.notice(text_ui('console.pause_pending'))
+    elif first in ('resume','继续'):
+        observer.paused=False;observer.notice(text_ui('console.resumed'))
+    elif first in ('thoughts','思考'):
+        if body.strip() in ('on','展开'):observer.show_thinking=True
+        elif body.strip() in ('off','收起'):observer.show_thinking=False
+        elif body.strip():raise ValueError(text_ui('console.thought_usage'))
+        elif observer.last_thinking:echo_line(observer.last_thinking)
+        observer.notice(text_ui('console.thought_mode',mode=text_ui('console.on' if observer.show_thinking else 'console.off')))
+    elif first in ('add','加入','加'):
+        parts=body.split()
+        if not 1<=len(parts)<=2:raise ValueError(text_ui('console.add_usage'))
+        if len(parts)==1:actor=host.add(parts[0])
+        else:actor=host.add(parts[0],polity=parts[1])
+        observer.line(text_ui('console.joined',name=host.roster[actor]['name']))
+    elif first in ('say','公告','广播','宣告','announce'):
         text=_body(body)
         if not text.strip():raise ValueError(text_ui('console.empty_announcement'))
         host.announce(text);observer.line(text_ui('console.broadcast'))
-    elif first in ('send','寄信'):
+    elif first in ('send','寄信','寄','写信','神秘信'):
         target,_,text=body.partition(' ')
         actor=next((a for a,row in host.roster.items() if target in (a,row['name'])),None)
         if actor not in host.actors():raise ValueError(text_ui('console.missing_country'))
         text=_body(text)
         if not text.strip():raise ValueError(text_ui('console.empty_letter'))
         host.send(actor,text);observer.line(text_ui('console.sent',target=target))
-    elif first in ('board','国力'):observer.line(host.board())
+    elif first in ('board','国力'):observer.line(observer.board())
     elif first in ('map','地图'):
         import shlex
         parts=shlex.split(body)
-        if not 1<=len(parts)<=2:raise ValueError(text_ui('console.map_usage'))
-        actor=next((a for a,row in host.roster.items() if parts[0] in (a,row['name'])),None)
-        if actor not in host.actors():raise ValueError(text_ui('console.map_usage'))
-        obs=host.player(actor).observe()
-        if len(parts)==1:observer.line(observer.ui.map_text(obs))
+        if len(parts)>2:raise ValueError(text_ui('console.map_usage'))
+        actor=next((a for a,row in host.roster.items() if parts and parts[0] in (a,row['name'])),None)
+        if actor is None:
+            if len(parts)>1 or parts and Path(parts[0]).suffix.lower() not in ('.txt','.svg','.png'):raise ValueError(text_ui('console.map_usage'))
+            state=observer.snapshot();obs=state['map'];map_text=observer.ui.observer_map(state)
+            path=Path(parts[0]) if parts else None
         else:
-            path=Path(parts[1])
+            if actor not in host.actors():raise ValueError(text_ui('console.map_usage'))
+            obs=host.player(actor).observe();map_text=observer.ui.map_text(obs)
+            path=Path(parts[1]) if len(parts)==2 else None
+        if path is None:observer.line(map_text)
+        else:
             if path.suffix.lower()=='.svg':content=observer.ui.map_svg(obs).encode('utf-8')
             elif path.suffix.lower()=='.png':
                 content=observer.ui.map_image(obs)
                 if content is None:raise ValueError(text_ui('map.empty'))
+            elif path.suffix.lower()=='.txt':content=map_text.encode('utf-8')
             else:raise ValueError(text_ui('console.map_format'))
             path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(content)
             observer.line(text_ui('console.map_saved',path=path))
     elif first in ('rate','利率'):
-        # Native credit policy owns its settings. No mutable legacy bank table.
-        observer.line(text_ui('console.rate'))
+        import math
+        method=getattr(host,'set_rate',None)
+        if not callable(method):raise ValueError(text_ui('console.unsupported',name='set_rate'))
+        rate=None
+        if body.strip():
+            try:rate=float(body.strip().rstrip('%'))/100
+            except ValueError:raise ValueError(text_ui('console.rate_usage')) from None
+            if not math.isfinite(rate):raise ValueError(text_ui('console.rate_usage'))
+        observer.line(text_ui('console.bank',**method(rate)))
+    elif first in ('cheat','作弊','补助'):
+        import re
+        parts=body.split();resources={};cavalry=0
+        keys={'金':'gold','粮':'food','木':'wood','矿':'ore','油':'oil','装':'equipment','补':'supply','骑':'cavalry'}
+        if len(parts)<2:raise ValueError(text_ui('console.cheat_usage'))
+        actor=next((a for a,row in host.roster.items() if parts[0] in (a,row['name'])),None)
+        for value in parts[1:]:
+            match=re.fullmatch(r'(金|粮|木|矿|油|装|补|骑|gold|food|wood|ore|oil|equipment|supply|cavalry)=?(\d+)',value)
+            if not match:raise ValueError(text_ui('console.cheat_usage'))
+            key=keys.get(match[1],match[1]);amount=int(match[2])
+            if key=='cavalry':cavalry+=amount
+            else:resources['native:'+key]=resources.get('native:'+key,0)+amount
+        method=getattr(host,'subsidize',None)
+        if not callable(method):raise ValueError(text_ui('console.unsupported',name='subsidize'))
+        result=method(actor,resources,cavalry)
+        observer.line(text_ui('console.subsidy',actor=observer.names().get(actor,actor),details=json.dumps(observer.ui.console.value(result,observer.names()),ensure_ascii=False)))
     else:raise ValueError(text_ui('console.commands'))
     return True
 
 
 def _multiline(line):
-    return line.strip() in ('say','公告') or line.strip().startswith(('send ','寄信 ')) and len(line.strip().split())==2
+    return line.strip() in ('say','公告','广播','宣告','announce') or line.strip().startswith(('send ','寄信 ','寄 ','写信 ','神秘信 ')) and len(line.strip().split())==2
 
 
 def _commands(host,observer):
@@ -128,11 +221,13 @@ def _commands(host,observer):
         try:line=CONSOLE.queue.get_nowait()
         except queue.Empty:return True
         # Console preserves multiline bodies; the first newline is a separator.
-        line=line.replace('\n',' ',1) if '\n' in line and line.split('\n',1)[0].strip() in ('say','公告') else line
-        if line.startswith(('send ','寄信 ')) and '\n' in line:
+        line=line.replace('\n',' ',1) if '\n' in line and line.split('\n',1)[0].strip() in ('say','公告','广播','宣告','announce') else line
+        if line.startswith(('send ','寄信 ','寄 ','写信 ','神秘信 ')) and '\n' in line:
             first,body=line.split('\n',1);line=first+' '+body
         try:
-            if not command(host,line,observer):return False
+            if not command(host,line,observer):
+                observer.notice(observer.ui.text('console.stop_pending'));return False
+            observer.events()
         except (ValueError,OSError) as exc:observer.notice('⚠ '+str(exc))
     return True
 
@@ -141,7 +236,7 @@ def _piped(host,text,observer):
     pending=[]
     for line in text.splitlines():
         if pending:
-            if line.strip()!='END':pending.append(line);continue
+            if line.strip().upper()!='END':pending.append(line);continue
             header,*body=pending;line=header+' '+'\n'.join(body);pending=[]
         elif _multiline(line):pending=[line];continue
         try:
@@ -180,7 +275,9 @@ def run(argv=None):
     try:observer=Observer(host,journal_path,resume=not new)
     except (ValueError,OSError) as exc:
         print(ui.text('console.start_failed',error=exc),file=sys.stderr);return 2
-    if sys.stdin.isatty():CONSOLE=Console(prompt=ui.text('console.prompt'),is_multiline_start=_multiline).start()
+    if sys.stdin.isatty():
+        from _thread import interrupt_main
+        CONSOLE=Console(prompt=ui.text('console.prompt'),on_interrupt=interrupt_main,is_multiline_start=_multiline).start()
     # Piped commands are deterministic and available before the first cycle.
     elif not sys.stdin.closed:
         import select
@@ -189,15 +286,28 @@ def run(argv=None):
                 host.save(save_path);return 0
     observer.line(ui.text('console.new' if new else 'console.resume'))
     observer.line(ui.text('console.banner'))
+    observer.line(ui.text('console.watch',save=save_path,journal=journal_path))
+    observer.line(ui.text('console.commands'))
     observer.events()
     stop=cfg.get('max_turns',200)
     try:
         while host.clock()<stop:
             if not _commands(host,observer):break
-            host.cycle(on_result=observer.result,emit=partial(panel_note,journal_path),
-                       head=partial(panel_note,journal_path,head=True),on_call=observer.on_call)
-            observer.events();observer.line(host.board());host.save(save_path)
+            while observer.paused:
+                if not _commands(host,observer):observer.stop_requested=True;break
+                time.sleep(.1)
+            if observer.stop_requested:break
+            observer.line(ui.text('console.period',period=host.clock()))
+            observer.line(observer.board())
+            host.cycle(on_result=observer.result,emit=observer.model_output,
+                       head=observer.context_head,on_call=observer.on_call)
+            for actor in list(observer.pending):observer.flush(actor)
+            observer.events();observer.line(observer.board());host.save(save_path)
+            if callable(getattr(host,'observer_snapshot',None)):
+                map_path=journal_path.with_suffix('.map.txt')
+                map_path.write_text(ui.observer_map(observer.snapshot()),encoding='utf-8')
             if CONSOLE is not None:CONSOLE.clear_panel()
+            if observer.stop_requested:break
         host.save(save_path)
         observer.line(ui.text('console.finish',period=host.clock(),path=save_path))
         return 0

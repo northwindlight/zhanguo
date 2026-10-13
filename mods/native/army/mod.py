@@ -38,22 +38,23 @@ class ArmyMod(GameMod):
         recruit=Tool('recruit',self._recruit)
         parameters=recruit.schema()['function']['parameters']
         parameters['properties']['kind']['enum']=list(unit_definitions(self.runtime.content))
-        return (Tool('recruit',self._recruit,parameters=parameters),Tool('move',self._move),Tool('attack',self._attack),
-                Tool('retreat',self._retreat),Tool('disband',self._disband),
-                Tool('army',lambda w,a:w.military.visible_units(a),read_only=True),Tool('reachable',self._reachable,read_only=True),
-                Tool('unit_catalog',self._catalog,read_only=True),
-                Tool('recruit_quote',self._recruit_quote,read_only=True),
-                Tool('battle_estimate',self._battle_estimate,read_only=True))
+        parameters['oneOf']=[{'required':['site'],'not':{'anyOf':[{'required':['x']},{'required':['y']}]}},{'required':['x','y'],'not':{'required':['site']}}]
+        return (Tool('recruit',self._recruit,parameters=parameters,content_parameters=('kind',)),Tool('move',self._move,description='移动本国单支军队 aid 至 x/y，纯移动不占地。新兵、已移动或交战部队不能普通移动；与异地进攻和撤退共用额度。敌国领土须 attack，路线按地形与兵种速度校验。'),Tool('attack',self._attack,description='本国军队整数 ids 数组向 x/y 进攻；均须能抵达且有额度。无敌军可直接占领，有守军进入交战并等待结算；不能把提交当战果。他国须已生效战争。新兵不能进攻，原地进攻可保留移动额度。'),
+                Tool('retreat',self._retreat,description='交战部队 aid 退往相邻合法 x/y，与移动共用额度。提交后仍在原地参加本期战斗，结算后才撤离；撤退降低输出，防守撤退有承伤减免。'),Tool('disband',self._disband,parameters={'type':'object','properties':{'aid':{'type':'integer','minimum':1},'ids':{'type':'array','items':{'type':'integer','minimum':1},'minItems':1,'uniqueItems':True}},'oneOf':[{'required':['aid'],'not':{'required':['ids']}},{'required':['ids'],'not':{'required':['aid']}}],'additionalProperties':False},description='免费遣散本国军队，aid 单支或 ids 数组批量（二选一）；交战中不可遣散。立即停止维持并释放编制，不返还粮食、装备或金币。'),
+                Tool('army',lambda w,a:w.military.visible_units(a),read_only=True,description='一次列出本国及视野内军队：国家、整数编号、兵种、位置、数量和行动/交战/撤退状态；无需坐标。军队编号各国独立。'),Tool('reachable',self._reachable,read_only=True,description='按本国军队 aid 列出可见合法移动目的地和路径代价；attack=true 列攻击可达地。只接军队编号，无需目标坐标，不透露迷雾路径。'),
+                Tool('unit_catalog',self._catalog,read_only=True,description='全部兵种目录：征召材料、数量上限、攻击、速度、地形移动代价与补给；应用本国政策，无需坐标。'),
+                Tool('threats',self._threats,read_only=True,description='全视野内其他国家的军队和当前关系，排除本国与野人；无需坐标。'),
+                Tool('battle',self._battle,read_only=True,description='当前全部可见或本国参与交战：各方兵种/逐支数量、输出基数、地形/城堡减伤与撤退。盲战仅列本国，不泄露敌军；不是按目标预测战果。'),
+                Tool('tile',self._tile,read_only=True,description='唯一按坐标查询的工具：查看可见单格详情。本国及物化无主遗址显示资源、容量、施工与建筑；他国仅显示地形、归属、公开城堡和市政厅及可见军队。迷雾不可查。'))
     def schema_for_actor(self, world, actor, schema):
         result=deepcopy(schema)
         if result['function']['name']=='recruit':
             result['function']['parameters']['properties']['kind']['enum']=list(world.units.type_ids)
-            overrides=world.runtime.parameter(world,actor,'recruit',{})
-            costs={kind:dict(overrides.get(kind,world.units.definition(kind)['recruit'])) for kind in world.units.type_ids}
-            result['function']['description']='Recruit on an owned, powered site. Resource costs per registered kind: '+str(costs)
+            result['function']['description']='在本国坐标 x/y 征召，直接返回实际扣款和军队编号。新兵本回合不能行动；兵营与能源门槛查规则，各兵种的征召材料、上限和速度查 unit_catalog。'
         return result
     @staticmethod
-    def _recruit(world, actor, site: str, kind: str='native:infantry', count: int=1):
+    def _recruit(world, actor, site: str | None=None, kind: str='native:infantry', count: int=1, x: int | None=None, y: int | None=None):
+        site=world.runtime.object_call(world,'native:buildings','resolve_site',actor,site,x,y)
         return world.military.recruit(actor,site,kind,count,energy_short=world.military.grid_short(actor))
     @staticmethod
     def _move(world, actor, aid: int, x: int, y: int):return world.military.move(actor,aid,x,y)
@@ -62,7 +63,13 @@ class ArmyMod(GameMod):
     @staticmethod
     def _retreat(world, actor, aid: int, x: int, y: int):return world.military.retreat(actor,aid,x,y)
     @staticmethod
-    def _disband(world, actor, aid: int):return world.military.disband(actor,aid)
+    def _disband(world, actor, aid: int | None=None, ids: list[int] | None=None):
+        if (aid is None)==(ids is None):raise ValueError('aid 与 ids 二选一')
+        if ids is None:return world.military.disband(actor,aid)
+        if not ids or len(ids)!=len(set(ids)):raise ValueError('ids 须为非空、不重复数组')
+        own={u.id:u for u in world.military.snapshot(actor)}
+        if any(i not in own or own[i].engaged or not own[i].alive for i in ids):raise ValueError('批量遣散包含不存在或交战中的军队')
+        return tuple(world.military.disband(actor,i) for i in ids)
     @staticmethod
     def _reachable(world, actor, aid: int, attack: bool=False):return world.military.reachable(actor,aid,attack,visible_only=True)
     @staticmethod
@@ -71,14 +78,56 @@ class ArmyMod(GameMod):
         return {kind:{**dict(world.units.definition(kind)),
                       'recruit':dict(overrides.get(kind,world.units.definition(kind)['recruit'])),
                       'speed':world.runtime.parameter(world,actor,'unit.speed.'+kind,world.units.definition(kind)['speed']),
-                      'supply':world.runtime.parameter(world,actor,'unit.supply.'+kind,world.units.definition(kind)['supply'])}
+                      'supply':world.runtime.parameter(world,actor,'unit.supply.'+kind,world.units.definition(kind)['supply']),
+                      'retreat_attack_penalty':RETREAT_ATK_PENALTY}
                 for kind in world.units.type_ids}
     @staticmethod
-    def _recruit_quote(world, actor, site: str, kind: str='native:infantry', count: int=1):
-        return world.military.recruit_quote(actor,site,kind,count,energy_short=world.military.grid_short(actor))
+    def _threats(world,actor):
+        call=lambda cap,method,*args:world.runtime.object_call(world,cap,method,*args)
+        return [{'unit':u,'relation':'war' if call('native:diplomacy','war_between',actor,u.owner) else 'ally' if call('native:diplomacy','allied',actor,u.owner) else 'neutral'}
+                for u in world.military.visible_units(actor) if u.owner not in (actor,'野人') and u.alive]
+
     @staticmethod
-    def _battle_estimate(world, actor, ids: list[int], x: int, y: int):
-        return world.military.battle_estimate(actor,ids,x,y)
+    def _battle(world,actor):
+        call=lambda cap,method,*args:world.runtime.object_call(world,cap,method,*args)
+        units=world.military.visible_units(actor)
+        positions=sorted({(u.x,u.y) for u in units if u.engaged and u.alive})
+        result=[]
+        for x,y in positions:
+            visible=call('native:vision','visible',actor,x,y)
+            troops=[u for u in units if (u.x,u.y)==(x,y) and u.alive and (visible or u.owner==actor)]
+            fact=call('native:territory','cell',x,y) if visible else None
+            terrain=call('native:territory','terrain',x,y) if visible else None
+            castle=(call('native:buildings','effects',fact.tile.id,'native:castle').get('defense_per_level',0)*call('native:buildings','count',fact.tile.id,'native:castle')) if fact and fact.tile.id else 0
+            active={u.owner for u in troops if u.engaged and u.owner!='野人'};sides=[]
+            for owner in sorted({u.owner for u in troops}):
+                group=[u for u in troops if u.owner==owner]
+                defending=bool(fact and (owner==fact.owner or owner=='野人' or owner not in active))
+                reduction=world.military.defense_pct(terrain.defense,castle if owner==fact.owner else 0) if defending else 0 if visible else None
+                foes=[other for other in {u.owner for u in troops} if other!=owner and ((owner=='野人' and other in active) or (other=='野人' and owner in active) or owner!='野人' and other!='野人' and call('native:diplomacy','war_between',owner,other))] if visible else None
+                sides.append({'owner':owner,'role':'bystander' if visible and not foes else 'defending' if defending else 'attacking' if visible else 'unknown',
+                              'units':group,'count':len(group),'output_base':world.military.faction_power(group) if foes or not visible else 0,'targets':foes,
+                              'terrain_reduction':terrain.defense if defending else 0 if visible else None,
+                              'castle_reduction':castle if fact and owner==fact.owner else 0 if visible else None,'combined_reduction':reduction})
+            result.append({'position':(x,y),'blind':not visible,'terrain':terrain.id if terrain else None,'sides':sides})
+        return result
+
+    @staticmethod
+    def _tile(world, actor, x: int, y: int):
+        call=lambda cap,method,*args:world.runtime.object_call(world,cap,method,*args)
+        call('native:territory','check',x,y)
+        if not call('native:vision','visible',actor,x,y):raise ValueError('该格在迷雾中，无法查询')
+        fact=call('native:territory','cell',x,y)
+        full=fact.owner==actor or fact.owner is None and bool(fact.tile.id)
+        snap=call('native:buildings','snapshot')
+        buildings=[b for b in snap.instances if b.site==fact.tile.id and (full or b.remaining==0 and b.kind in ('native:castle','native:town-hall'))]
+        result={'position':(x,y),'terrain':fact.tile.terrain,'owner':fact.owner,'buildings':[{'kind':b.kind,'level':b.level,'remaining':b.remaining} for b in buildings],
+                'army':[u for u in world.military.visible_units(actor) if (u.x,u.y)==(x,y)]}
+        if full:
+            site=call('native:buildings','site',fact.tile.id)
+            result.update(resources=dict(fact.resources),capacity=site.capacity,
+                          construction=[r for r in snap.construction if r.site==site.id])
+        return result
 
     def panels(self):return (Panel('army',lambda w,a:w.military.visible_units(a)),)
     def stages(self):
@@ -96,4 +145,4 @@ class ArmyMod(GameMod):
     def _claims(world, context):
         context['claims']=world.military.claims();context.setdefault('domain_events',[]).extend(world.military.drain_events())
     def rule_sections(self, world=None):
-        return (RuleSection('军队','调动只改变位置。移动、异地进攻、撤退共用行动额度，新兵当期不能行动；原地进攻保留额度。外交先于补给与战斗，撤离提交后仍参加本期战斗。军队从资源域扣除征召、补给与回血材料，并发布经济事实。坐标接口使用 0-based。'),)
+        return (RuleSection('军队','调动只改变位置。移动、异地进攻、撤退共用行动额度，新兵当期不能行动；原地进攻保留额度。外交先于补给与战斗，撤离提交后仍参加本期战斗。军队从资源域扣除征召、补给与回血材料，并发布经济事实。坐标接口使用 0-based。',keywords=('army','battle','move','attack','retreat','disband','军队','战斗','撤退','遣散','裁军','移动','攻击','速度','征兵')),)

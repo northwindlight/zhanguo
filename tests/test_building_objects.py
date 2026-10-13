@@ -77,8 +77,9 @@ class TestBuildings(unittest.TestCase):
         report = world.resolve_turn()
         self.assertEqual(dict(report['building_production'].outputs),{'native:food':1})
         self.assertEqual(world.resources.balance('Qin','native:food'),101)
-        self.assertEqual(dict(report['market']['production']),{'native:food':1})
-        self.assertEqual(dict(world.market.snapshot().equilibrium)['native:food'],1.2)
+        # National output is not a delivery: the buffer only moved by trades.
+        self.assertEqual(dict(world.market.snapshot().inventory)['native:food'],
+                         dict(world.market.snapshot().reference)['native:food'])
 
     def test_failed_order_is_atomic_and_does_not_take_quota_or_sequence(self):
         world = self.world(accounts={'Qin':{'native:gold':100,'native:wood':14},'Chu':{}})
@@ -210,9 +211,8 @@ class TestBuildings(unittest.TestCase):
         result = world.resolve_turn()
         self.assertEqual(world.resources.balance('Qin','example:tea'),2)
         self.assertEqual(dict(result['building_production'].outputs),{'example:tea':2})
-        self.assertEqual(result['market']['production']['example:tea'],2)
         self.assertNotIn('example:tea',dict(world.market.snapshot().prices))
-        self.assertNotIn('example:tea',dict(world.market.snapshot().equilibrium))
+        self.assertNotIn('example:tea',dict(world.market.snapshot().inventory))
         self.assertEqual(dict(world.market.snapshot().prices)['native:food'],1.5)
         saved = json.loads(json.dumps(self.state(world)))
         other = self.world((Unit('example:tea-content',TeaContent()),))

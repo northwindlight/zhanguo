@@ -7,9 +7,9 @@ import inspect
 
 API_VERSION = 1
 BUILTINS = {
-    'player_state': ('Current actor-visible facts', {}),
-    'player_rules': ('Rules provided by modules in this actor scope', {'topic': {'type': 'string'}}),
-    'player_events': ('Actor-visible events after a cursor', {'cursor': {'type': 'integer', 'minimum': 0}}),
+    'player_state': ('本国当前可见事实，按权限过滤；等价于 observe() 的 facts。', {}),
+    'player_rules': ('查询本国公开规则和策略指南。缺省或未知 topic 返回目录；传目录标题或主题词查正文，all 查全部。基础指南、经济手册、战争手册、战略手册均可查。', {'topic': {'type': 'string'}}),
+    'player_events': ('按游标取本国可见事件；cursor 缺省取全部，返回值带新游标。', {'cursor': {'type': 'integer', 'minimum': 0}}),
 }
 
 
@@ -73,7 +73,11 @@ class PlayerSession:
                 except ValueError:
                     continue
                 owner = self.__runtime.tool_owners[name]
-                result.append(wire(owner.schema_for_actor(self.__world, self.actor, deepcopy(schema))))
+                presented=wire(owner.schema_for_actor(self.__world, self.actor, deepcopy(schema)))
+                for key in self.__runtime.tools[name].content_parameters:
+                    prop=presented['function']['parameters'].get('properties',{}).get(key,{})
+                    if 'enum' in prop:prop['enum']=[self.__runtime.content.key(k) for k in prop['enum']]
+                result.append(presented)
             return result
 
     def query(self, name, arguments=None):
@@ -155,15 +159,17 @@ class PlayerSession:
         with self.__lock:
             self._validate()
             # Include only public sections from modules in this actor's scope.
-            sections = []
+            sections=[]
+            topic=topic.strip().lower()
             for name in self.__runtime.order:
-                mod = self.__runtime.units[name].mod
-                if not self.__runtime.in_scope(self.__world, self.actor, mod):
-                    continue
-                for section in mod.rule_sections(self.__world):
-                    if not section.player_visible:
-                        continue
-                    if topic and str(topic).lower() not in (section.title + ' ' + ' '.join(section.keywords)).lower():
-                        continue
-                    sections.append({'title': section.title, 'body': section.body})
-            return sections
+                mod=self.__runtime.units[name].mod
+                if not self.__runtime.in_scope(self.__world,self.actor,mod):continue
+                sections.extend(section for section in mod.rule_sections(self.__world) if section.player_visible)
+            if topic in ('all','全部'):selected=sections
+            else:
+                matches=[(len(word),section) for section in sections for word in (section.title,*section.keywords) if word.lower() in topic]
+                longest=max((size for size,_ in matches),default=0)
+                selected=[section for section in sections if any(size==longest and candidate is section for size,candidate in matches)] if longest else []
+            if not selected:
+                return [{'title':'规则目录','body':'\n'.join(section.title+('：'+section.summary if section.summary else '') for section in sections)+'\n传 topic 查看对应主题；all 查看全部。'}]
+            return [{'title':section.title,'body':section.body} for section in selected]

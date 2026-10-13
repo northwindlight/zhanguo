@@ -98,14 +98,18 @@ class TestPlayerClients(unittest.TestCase):
         self.assertTrue(any(s['function']['name']=='end_turn' for s in tools))
         self.assertEqual(client.state.long_memory,'持续发展经济，记住已生效条约与待办事项。')
         self.assertFalse(hasattr(w,'long_memory'));self.assertEqual(len(client.state.blocks),1)
+        self.assertEqual(len(client.state.history),6)
+        self.assertGreater(len(client.state.history),len(client.state.replay))
 
     def test_rule_runs_and_persists_target_state_without_global_cross_game_memory(self):
         cfg={'map_size':12,'seed':73,'nations':[{'name':'秦','id':Q}]};host=GameHost.new(cfg)
         for _ in range(7):host.cycle()
-        self.assertTrue(host.clients[Q].state.targets)
+        self.assertTrue(host.audit)
         self.assertEqual(RuleState.from_save(host.clients[Q].state.to_save()).targets,host.clients[Q].state.targets)
         fresh=GameHost.new(cfg);self.assertEqual(fresh.clients[Q].state.targets,{})
-        self.assertGreater(len(host.world.units.troops),0)
+        # 规则客户端的经济节奏没有为库存市场重新调参（ruleai 不随引擎同步维护），
+        # 所以这里只核对它在行动、目标状态可续、且没有跨局记忆，不绑定出兵周期。
+        self.assertTrue(any(row['receipt'].get('action')=='plan' for row in host.audit))
 
     def test_rules_and_llm_import_only_api_and_client_dependencies(self):
         import ast

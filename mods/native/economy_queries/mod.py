@@ -21,23 +21,30 @@ class QueriesMod(GameMod):
                        if isinstance(cls,type) and issubclass(cls,NativeBuilding))
         estimate_parameters = {'type':'object','properties':{
             'kind':{'type':'string','enum':kinds},'level':{'type':'integer','minimum':1},
-            'other_slots':{'type':'integer','minimum':0},'site':{'type':'string'}},'required':['kind'],'additionalProperties':False}
+            'other_slots':{'type':'integer','minimum':0,'description':'Hypothetical building count for the town hall estimate; not a site lookup'}},'additionalProperties':False}
         return (Tool('econ',lambda world,actor:self._queries(world).balance(actor),read_only=True,
-                     description='Current inventory and replacement assets; unpriced content stays explicit'),
-                Tool('report',lambda world,actor:self._queries(world).report(actor),read_only=True,
-                     description='Own published economic reports'),
-                Tool('building_economics',self._estimate,read_only=True,parameters=estimate_parameters,
-                     description='Estimate full-capacity returns at current valuation; assumes cheapest registered energy'),
-                Tool('market',lambda world,actor:self._queries(world).market(),read_only=True),
-                Tool('market_quote',self._quote,read_only=True),
-                Tool('buy',self._buy),Tool('sell',self._sell))
-    def _estimate(self, world, actor, kind: str, level: int=1, other_slots: int=0, site: str | None=None):
-        if site is not None:
-            quote=self.runtime.object_call(world,'native:buildings','quote',actor,site,kind,policy_pct=world.runtime.parameter(world,actor,'build_cost_pct',100))
-            return self._queries(world).estimate(kind,quote['level'],quote['other_slots'],quote['penalty'],quote['discount'],quote['policy_pct'])
-        return self._queries(world).estimate(kind,level,other_slots,policy_pct=world.runtime.parameter(world,actor,'build_cost_pct',100))
-    def _quote(self, world, actor, resource: str, quantity: int, side: str):
-        return self.runtime.object_call(world,'native:market','quote',resource,quantity,side,actor)
+                     description='本国库存、库存折金、建筑重置值和总资产，无法估值的内容明确列出；不是本期现金收入。'),
+                Tool('report',self._report,read_only=True,description='本国免费已发布经济报表；缺省仅最新一期，period 查以该周期结束的报表，all=true 返回全部跨期。报表自动结算、有日期，不是当前库存或未完成收益。'),
+                Tool('building_economics',self._estimate,read_only=True,parameters=estimate_parameters,content_parameters=('kind',),
+                     description='优先不带参数查询：一次返回全部建筑的完整造价、产销、能源、效果、门槛和收益回本，不必逐个查询。无需坐标，kind 可选用于筛选。采集按卖价、工厂按买价自用替代，电耗按木电燃料成本。满负荷估算，不判定建造资格。'),
+                Tool('market',lambda world,actor:self._queries(world).market(),read_only=True,
+                     description='世界市场的现价与买卖单价、周期；无需参数。本期单价对任何数量和任何国家都一样，买入的实际支出与取整以 buy 回执为准。'),
+                Tool('buy',self._buy,content_parameters=('resource',),description='从市场买入正整数数量的资源，resource 使用短键；成功返回实际支付、成交数量与价格，不把单价当成交。'),Tool('sell',self._sell,content_parameters=('resource',),description='卖出自己持有的正整数数量资源，返回实际收入与成交价格。不能卖不存在的货；成交以回执为准。'))
+    def _report(self,world,actor,period: int | None=None,all: bool=False):
+        rows=self._queries(world).report(actor)
+        if period is not None and all:raise ValueError('period 与 all 不能同时指定')
+        if period is not None:
+            if type(period) is not int or period<0:raise ValueError('period 须为非负整数')
+            selected=tuple(r for r in rows if r.end==period)
+            if not selected:raise ValueError('指定周期没有已发布报表')
+            return selected
+        return rows if all else rows[-1:]
+    def _estimate(self, world, actor, kind: str | None=None, level: int=1, other_slots: int=1):
+        queries=self._queries(world)
+        if kind is None:
+            return tuple(self._estimate(world,actor,key,level,other_slots) for key in sorted(queries.building_types()))
+        policy=world.runtime.parameter(world,actor,'build_cost_pct',100)
+        return queries.estimate(kind,level,other_slots,policy_pct=policy)
     def _buy(self, world, actor, resource: str, quantity: int):
         return self.runtime.object_call(world,'native:market','buy',actor,resource,quantity)
     def _sell(self, world, actor, resource: str, quantity: int):

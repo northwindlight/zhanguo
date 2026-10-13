@@ -2,6 +2,7 @@
 from copy import deepcopy
 from dataclasses import FrozenInstanceError
 import json
+import math
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -13,6 +14,31 @@ from mods.native.resources.objects import ResourceAccounts
 from mods.native.resources.types import RESOURCE_TYPES
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# The acceptance declarations are the shipped ones, so the curve's own numbers
+# are the reference here instead of a second copy of the formula.
+FOOD_DEPTH = 1920
+FOOD_BASE = 1.5
+ELASTICITY = 1.0
+FLOW = 0.25
+REFILL = 0.5
+SPREAD = 0.10
+
+
+def sweep(price, depth, quantity, side, volume=0, elasticity=ELASTICITY, spread=SPREAD):
+    """Independent restatement of the published schedule: one price per unit."""
+    sign = 1 if side == 'buy' else -1
+    units = sum(price*math.exp(sign*elasticity*(volume+step)/depth) for step in range(quantity))
+    return units*(1+sign*spread/2)
+
+
+def level(base, reference, inventory, elasticity=ELASTICITY):
+    return base*math.exp(elasticity*(reference-inventory)/reference)
+
+
+def drift(depth, net_flow, coefficient=FLOW):
+    """Net flow moves the reference stock; nothing else does."""
+    return max(1.0, depth+coefficient*net_flow)
 
 
 class Tea(Resource):
@@ -74,19 +100,74 @@ class TestMarket(unittest.TestCase):
 
     def test_quote_is_pure_and_trade_matches_currency_inventory_and_price(self):
         world = self.world();before = world.runtime.save_mod_state(world)
+        self.assertEqual(dict(world.market.snapshot().prices)['native:food'], FOOD_BASE)
         quote = world.market.quote('native:food', 10, 'buy', 'Qin')
+        self.assertAlmostEqual(quote.exact_total, sweep(FOOD_BASE, FOOD_DEPTH, 10, 'buy'))
         self.assertEqual(quote.gold, 16)
-        self.assertAlmostEqual(quote.exact_total, 16.0125)
-        self.assertEqual(quote.price_after, 1.55)
+        # The period's quote is published, not consumed: nothing moves it.
+        self.assertEqual((quote.price_before, quote.price_after), (FOOD_BASE, FOOD_BASE))
         self.assert_unchanged(world, before)
         trade = world.market.buy('Qin', 'native:food', 10)
         self.assertEqual(trade.gold, quote.gold)
         self.assertEqual(world.resources.balance('Qin', 'native:gold'), 100000-quote.gold)
         self.assertEqual(world.resources.balance('Qin', 'native:food'), 10010)
-        self.assertEqual(dict(world.market.snapshot().prices)['native:food'], 1.55)
+        self.assertEqual(dict(world.market.snapshot().inventory)['native:food'], FOOD_DEPTH-10)
+        self.assertEqual(dict(world.market.snapshot().prices)['native:food'], FOOD_BASE)
         self.assertEqual(trade.period, 0)
         with self.assertRaises(FrozenInstanceError):trade.gold = 100
         with self.assertRaises(FrozenInstanceError):world.market.snapshot().period = 3
+
+    def test_arrival_order_cannot_move_anybodys_quote(self):
+        def play(order):
+            world = self.world();rows = {}
+            for owner, side, quantity in order:
+                rows.setdefault(owner, []).append(getattr(world.market, side)(owner, 'native:food', quantity))
+            return world, rows
+
+        first_world, first = play([('Qin','buy',40), ('Chu','buy',40)])
+        second_world, second = play([('Chu','buy',40), ('Qin','buy',40)])
+        for owner in ('Qin','Chu'):
+            self.assertEqual([row.gold for row in first[owner]], [row.gold for row in second[owner]], owner)
+            self.assertEqual([row.exact_total for row in first[owner]], [row.exact_total for row in second[owner]], owner)
+        self.assertEqual(first_world.market.snapshot().inventory, second_world.market.snapshot().inventory)
+        self.assertEqual(first_world.market.snapshot().prices, second_world.market.snapshot().prices)
+
+    def test_large_orders_pay_a_premium_and_large_lots_sell_at_a_discount(self):
+        world = self.world()
+        for side, order in (('buy', 1), ('sell', -1)):
+            units = [world.market.quote('native:food', quantity, side).exact_total/quantity
+                     for quantity in (1, 10, 100, 900)]
+            self.assertEqual(units, sorted(units, reverse=order == -1), side)
+            self.assertGreater(units[-1]*order, units[0]*order, side)
+        # The premium is a function of the buffer it sweeps: halving the depth
+        # for the same quantity doubles the sweep.
+        shallow = self.world(market_text=self.declaration(food_depth=FOOD_DEPTH//2))
+        deep = self.world()
+        self.assertAlmostEqual(shallow.market.quote('native:food', 100, 'buy').exact_total/100,
+                               sweep(FOOD_BASE, FOOD_DEPTH//2, 100, 'buy')/100)
+        self.assertGreater(shallow.market.quote('native:food', 100, 'buy').exact_total,
+                           deep.market.quote('native:food', 100, 'buy').exact_total)
+
+    def declaration(self, food_depth=FOOD_DEPTH):
+        text = (ROOT/'mods/native/market/mod.toml').read_text()
+        return text.replace('Resource = "native:food"\nBasePrice = 1.5\nDepth = 1920\nInitialInventory = 1920',
+                            f'Resource = "native:food"\nBasePrice = 1.5\nDepth = {food_depth}\nInitialInventory = {food_depth}')
+
+    def test_split_orders_cannot_dodge_the_premium(self):
+        # The sweep starts where this owner's own trading left off, so the only
+        # difference between one order and many is integer currency rounding.
+        for side in ('buy','sell'):
+            for quantity in (10, 100, 700):
+                with self.subTest(side=side,quantity=quantity):
+                    batch, split = self.world(), self.world()
+                    if side == 'sell':batch.resources.credit('Qin','native:food',quantity);split.resources.credit('Qin','native:food',quantity)
+                    one = getattr(batch.market,side)('Qin','native:food',quantity)
+                    rows = [getattr(split.market,side)('Qin','native:food',1) for _ in range(quantity)]
+                    self.assertLessEqual(abs(one.gold-sum(row.gold for row in rows)), 1)
+                    for key in ('native:food','native:gold'):
+                        self.assertLessEqual(abs(batch.resources.balance('Qin',key)-split.resources.balance('Qin',key)), 1)
+                    self.assertEqual(batch.market.snapshot().inventory,split.market.snapshot().inventory)
+                    self.assertAlmostEqual(dict(batch.market.snapshot().carry)['Qin'],dict(split.market.snapshot().carry)['Qin'])
 
     def test_failed_buy_sell_and_invalid_orders_leave_all_state_unchanged(self):
         world = self.world()
@@ -102,52 +183,84 @@ class TestMarket(unittest.TestCase):
             with self.subTest(args=args),self.assertRaises((ValueError,KeyError)):action(*args)
             self.assert_unchanged(world, before)
 
-    def test_split_orders_match_batch_in_both_directions_and_at_price_limits(self):
-        # At 1 participant food reaches its cap after 600 buys and floor
-        # after 200 sales. Compare beyond both boundaries, not just small orders.
-        for side in ('buy','sell'):
-            for quantity in (10,100,700):
-                with self.subTest(side=side,quantity=quantity):
-                    batch, split = self.world(), self.world()
-                    one = getattr(batch.market,side)('Qin','native:food',quantity)
-                    rows = [getattr(split.market,side)('Qin','native:food',1) for _ in range(quantity)]
-                    self.assertEqual(one.gold, sum(row.gold for row in rows))
-                    for key in ('native:food','native:gold'):
-                        self.assertEqual(batch.resources.balance('Qin',key),split.resources.balance('Qin',key))
-                    self.assertAlmostEqual(dict(batch.market.snapshot().prices)['native:food'],dict(split.market.snapshot().prices)['native:food'])
-                    self.assertAlmostEqual(dict(batch.market.snapshot().carry)['Qin'],dict(split.market.snapshot().carry)['Qin'])
-
-    def test_participant_count_changes_depth_and_currency_carry_is_per_owner(self):
+    def test_inventory_is_a_hard_limit_and_carry_is_per_owner(self):
         world = self.world()
-        one = world.market.quote('native:food',10,'buy','Qin')
-        world.market.set_participants(4)
-        four = world.market.quote('native:food',10,'buy','Qin')
-        self.assertLess(four.exact_total, one.exact_total)
         world.market.buy('Qin','native:food',1)
         self.assertEqual(world.market.quote('native:food',1,'buy','Chu').carry_before,0)
         self.assertGreater(world.market.quote('native:food',1,'buy','Qin').carry_before,0)
-        world.market.set_participants(0)
-        self.assertGreater(world.market.quote('native:food',1,'buy').gold,0)
+        world.market.buy('Qin','native:food',FOOD_DEPTH-6)
+        before = world.runtime.save_mod_state(world)
+        with self.assertRaisesRegex(ValueError,'insufficient'):
+            world.market.buy('Chu','native:food',6)
+        self.assert_unchanged(world,before)
+        with self.assertRaisesRegex(ValueError,'insufficient'):
+            world.market.quote('native:food',6,'buy','Chu')
+        self.assertEqual(world.market.buy('Chu','native:food',5).quantity,5)
+        self.assertEqual(dict(world.market.snapshot().inventory)['native:food'],0)
 
-    def test_supply_demand_settlement_and_period_churn(self):
+    def test_period_close_drifts_the_reference_refills_and_reprices(self):
+        world = self.world()
+        world.market.buy('Qin','native:food',1400)
+        self.assertEqual(dict(world.market.snapshot().prices)['native:food'],FOOD_BASE)
+        closed = world.market.settle()
+        self.assertEqual(len(closed),1)
+        # This period's buying raised the reference, the outside world closed
+        # half of the gap to it, and the survivors are priced against it.
+        reference = drift(FOOD_DEPTH,1400)
+        expected = FOOD_DEPTH-1400
+        expected += math.ceil((reference-expected)*REFILL)
+        state = world.market.snapshot()
+        self.assertEqual(dict(state.reference)['native:food'],reference)
+        self.assertEqual(dict(state.inventory)['native:food'],expected)
+        self.assertAlmostEqual(dict(state.prices)['native:food'],level(FOOD_BASE,reference,expected))
+        self.assertEqual(state.period,1)
+        self.assertEqual(world.market.churn('Qin','native:food').quantity,0)
+        # With no further flow the reference stands still and the refill brings
+        # the buffer back to it, so the price comes back to the base price.
+        for _ in range(40):
+            world.market.settle()
+        state = world.market.snapshot()
+        self.assertEqual(dict(state.reference)['native:food'],reference)
+        self.assertEqual(dict(state.inventory)['native:food'],reference)
+        self.assertAlmostEqual(dict(state.prices)['native:food'],FOOD_BASE,places=6)
+        before = world.runtime.save_mod_state(world)
+        with self.assertRaises(ValueError):world.market.restore({'currency':'native:gold'})
+        self.assert_unchanged(world,before)
+
+    def test_heavy_flow_moves_the_reference_stock_both_ways(self):
+        # 大买：基准被推高，外部随后照着更高的基准补货，市场是长大了而不是被抽干。
+        buying = self.world()
+        buying.market.buy('Qin','native:food',FOOD_DEPTH)
+        self.assertEqual(dict(buying.market.snapshot().inventory)['native:food'],0)
+        buying.market.settle()
+        grown = buying.market.snapshot()
+        self.assertEqual(dict(grown.reference)['native:food'],drift(FOOD_DEPTH,FOOD_DEPTH))
+        self.assertGreater(dict(grown.reference)['native:food'],FOOD_DEPTH)
+        self.assertGreater(dict(grown.inventory)['native:food'],FOOD_DEPTH*REFILL)
+        for _ in range(40):buying.market.settle()
+        filled = buying.market.snapshot()
+        self.assertEqual(dict(filled.inventory)['native:food'],dict(filled.reference)['native:food'])
+        self.assertAlmostEqual(dict(filled.prices)['native:food'],FOOD_BASE,places=6)
+        # 大卖：基准被压低，市场认为自己只需要更少的货，超出的部分长期是积压价。
+        selling = self.world()
+        selling.resources.credit('Qin','native:food',3000)
+        selling.market.sell('Qin','native:food',3000)
+        selling.market.settle()
+        shrunk = selling.market.snapshot()
+        self.assertEqual(dict(shrunk.reference)['native:food'],drift(FOOD_DEPTH,-3000))
+        self.assertLess(dict(shrunk.reference)['native:food'],FOOD_DEPTH)
+        self.assertLess(dict(shrunk.prices)['native:food'],FOOD_BASE)
+        self.assertEqual(dict(shrunk.inventory)['native:food'],FOOD_DEPTH+3000)
+
+    def test_period_churn_reports_overlapping_trades(self):
         world = self.world()
         world.market.buy('Qin','native:food',10)
         world.market.sell('Qin','native:food',5)
         churn = world.market.churn('Qin','native:food')
         self.assertEqual(churn.quantity,5)
         self.assertGreater(churn.loss,0)
-        prior = dict(world.market.snapshot().prices)['native:food']
-        closed = world.market.settle({'native:food':10},{'native:food':30},participants=4)
-        self.assertEqual(len(closed),2)
-        state = world.market.snapshot()
-        self.assertEqual(dict(state.equilibrium)['native:food'],1.875)
-        self.assertEqual(dict(state.prices)['native:food'],round(1.875+(prior-1.875)*0.9,3))
+        world.market.settle()
         self.assertEqual(world.market.churn('Qin','native:food').quantity,0)
-        self.assertEqual((state.period,state.participants),(1,4))
-        before = world.runtime.save_mod_state(world)
-        # Fail after an earlier commodity has already been calculated.
-        with self.assertRaises(ValueError):world.market.settle({'native:wood':float('nan')},{},participants=2)
-        self.assert_unchanged(world,before)
 
     def test_replace_pricing_by_changing_only_distribution_member(self):
         native, fixed = self.world(), self.world(fixed=True)
@@ -156,16 +269,20 @@ class TestMarket(unittest.TestCase):
         self.assertEqual(native.market.ids,fixed.market.ids)
         q1 = native.market.quote('native:food',10,'buy','Qin')
         q2 = fixed.market.quote('native:food',10,'buy','Qin')
-        self.assertAlmostEqual(q1.exact_total,16.0125)
+        self.assertAlmostEqual(q1.exact_total,sweep(FOOD_BASE,FOOD_DEPTH,10,'buy'))
         self.assertEqual((q2.exact_total,q2.gold,q2.price_after),(15,15,1.5))
         fixed.market.buy('Qin','native:food',10)
         sold = fixed.market.sell('Qin','native:food',10)
         self.assertEqual(sold.gold,15)
         self.assertEqual(fixed.resources.balance('Qin','native:gold'),100000)
-        fixed.market.settle({}, {'native:food':100})
-        self.assertEqual(dict(fixed.market.snapshot().equilibrium)['native:food'],1.5)
-        native.market.settle({}, {'native:food':100})
-        self.assertEqual(dict(native.market.snapshot().equilibrium)['native:food'],1.8)
+        # A flat provider ignores the buffer entirely, in both directions.
+        fixed.market.settle()
+        self.assertEqual(dict(fixed.market.snapshot().prices)['native:food'],FOOD_BASE)
+        native.market.settle()
+        self.assertEqual(dict(native.market.snapshot().prices)['native:food'],FOOD_BASE)
+        native.market.buy('Qin','native:food',FOOD_DEPTH)
+        native.market.settle()
+        self.assertGreater(dict(native.market.snapshot().prices)['native:food'],FOOD_BASE)
         # Changing provider is an environment change, not implicit save migration.
         with self.assertRaises(ModError):fixed.runtime.check_save_dependencies(native.runtime.dependency_manifest())
 
@@ -188,11 +305,10 @@ class TestMarket(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError,'not listed'):action(*args)
                     self.assert_unchanged(world,before)
                 before = world.resources.to_save()
-                world.market.settle({'example:tea':9999},{'example:tea':8888})
+                world.market.settle()
                 self.assertEqual(world.resources.to_save(),before)
                 self.assertNotIn('example:tea',dict(world.market.snapshot().prices))
-                self.assertNotIn('example:tea',dict(world.market.snapshot().equilibrium))
-                self.assertEqual(dict(world.market.snapshot().prices)['native:food'],1.5)
+                self.assertEqual(dict(world.market.snapshot().prices)['native:food'],FOOD_BASE)
                 saved = world.runtime.save_mod_state(world)
                 world.runtime.load_mod_state(world,saved)
                 self.assertEqual(world.resources.balance('Qin','example:tea'),20)
@@ -200,18 +316,59 @@ class TestMarket(unittest.TestCase):
 
     def test_listing_new_tea_requires_only_market_declaration(self):
         text = (ROOT/'mods/native/market/mod.toml').read_text()
-        text = text.replace('[Mod]', '[[Listings]]\nResource="example:tea"\nBasePrice=3\nDepth=10\n\n[Mod]')
+        text = text.replace('[Mod]', '[[Listings]]\nResource="example:tea"\nBasePrice=3\nDepth=10\nInitialInventory=10\n\n[Mod]')
         world = self.world(tea=True,market_text=text,fixed=True)
         bought = world.market.buy('Qin','example:tea',2)
         self.assertEqual(bought.gold,6)
         self.assertEqual(world.resources.balance('Qin','example:tea'),2)
         self.assertEqual(world.market.sell('Qin','example:tea',1).gold,3)
         self.assertEqual(world.resources.balance('Qin','example:tea'),1)
-        world.market.settle({'example:tea':20},{'example:tea':1})
+        world.market.settle()
         self.assertIn('example:tea',dict(world.market.snapshot().prices))
         with self.assertRaises(ModError):self.world(market_text=text)
         bad = text.replace('Resource="example:tea"','Resource="native:gold"')
         with self.assertRaises(ModError):self.world(market_text=bad)
+
+    def test_roundtrip_cannot_mint_gold_and_extremes_stay_bounded(self):
+        world = self.world()
+        bought = world.market.buy('Qin','native:food',40)
+        sold = world.market.sell('Qin','native:food',40)
+        self.assertLess(sold.gold,bought.gold)
+        self.assertEqual(world.resources.balance('Qin','native:food'),10000)
+        # However extreme the buffer gets, the quote stays finite and inside the
+        # declared limits, and a sale is always deliverable.
+        for side, quantity in (('buy',FOOD_DEPTH),('sell',10000)):
+            with self.subTest(side=side):
+                extreme = self.world()
+                extreme.resources.credit('Qin','native:food',quantity)
+                getattr(extreme.market,side)('Qin','native:food',quantity)
+                extreme.market.settle()
+                shock = dict(extreme.market.snapshot().prices)['native:food']
+                # A glut is cheap, scarcity is dear.
+                self.assertLess(shock,FOOD_BASE) if side == 'sell' else self.assertGreater(shock,FOOD_BASE)
+                for _ in range(400):extreme.market.settle()
+                price = dict(extreme.market.snapshot().prices)['native:food']
+                # Extreme inventories stay finite, positive and inside the
+                # declared limits, and a sale is always deliverable again.
+                self.assertTrue(math.isfinite(price))
+                self.assertGreater(price,0)
+                self.assertLessEqual(price,1000000000.0)
+                self.assertGreaterEqual(dict(extreme.market.snapshot().inventory)['native:food'],0)
+                # The outside world only ever closes a shortage, so a drained
+                # buffer heals back to base while a glut is left to the players.
+                if side == 'buy':self.assertAlmostEqual(price,FOOD_BASE,places=6)
+                else:self.assertAlmostEqual(price,shock,places=6)
+
+    def test_distribution_exposes_the_buffer_and_publishes_the_rules(self):
+        runtime = Runtime.load(ROOT/'mods.toml')
+        world = runtime.world_class()()
+        row = runtime.object_call(world,'economy:queries','market')
+        self.assertEqual(dict(row.inventory)['native:food'],FOOD_DEPTH)
+        self.assertEqual(dict(row.reference)['native:food'],FOOD_DEPTH)
+        rules = runtime.rules(world,'市场')
+        for phrase in ('同一期内所有国家拿到同一报价','报价与先后手无关','单笔订单越大均价越高',
+                       '基准库存（每期按本期净流量偏移','库存不足整单拒绝'):
+            self.assertIn(phrase,rules)
 
     def test_resource_exchange_validates_all_legs_and_concrete_subclass_rules(self):
         accounts = ResourceAccounts((*RESOURCE_TYPES,IntegerTea))
@@ -238,11 +395,11 @@ class TestMarket(unittest.TestCase):
         for side,quantity in (('buy',1),('sell',2),('buy',100)):
             self.assertEqual(getattr(world.market,side)('Qin','native:food',quantity),
                              getattr(other.market,side)('Qin','native:food',quantity))
-        world.market.settle({'native:food':10},{'native:food':20})
-        other.market.settle({'native:food':10},{'native:food':20})
+        world.market.settle()
+        other.market.settle()
         self.assertEqual(world.runtime.save_mod_state(world),other.runtime.save_mod_state(other))
-        for field,value in (('currency','example:cash'),('period',True),('participants',-1),
-                            ('prices',{}),('carry',{'Qin':1}),('trades',[{}])):
+        for field,value in (('currency','example:cash'),('period',True),('inventory',{}),
+                            ('reference',{'native:food':FOOD_DEPTH}),('prices',{}),('carry',{'Qin':1}),('trades',[{}])):
             bad = deepcopy(saved['native:market']);bad[field]=value
             before = world.market.to_save()
             with self.subTest(field=field),self.assertRaises(ValueError):world.market.restore(bad)
@@ -259,66 +416,63 @@ class TestMarket(unittest.TestCase):
         world.resources.open('Qin',{'native:gold':100})
         with unit_context('example:client'):
             with self.assertRaises(ModError):world.market.buy('Qin','native:food',1)
-            with self.assertRaises(ModError):world.market.set_participants(4)
+            with self.assertRaises(ModError):world.market.settle()
             with self.assertRaises(ModError):runtime.object_call(world,'native:market','sell','Qin','native:food',1)
             with self.assertRaises(ModError):runtime.object_call(world,'native:resource-exchange','exchange','Qin',{'native:gold':1},{'native:food':1})
             trade = runtime.object_call(world,'native:market','buy','Qin','native:food',1)
         self.assertEqual(world.resources.balance('Qin','native:food'),1)
         self.assertEqual(world.resources.balance('Qin','native:gold'),100-trade.gold)
 
-    def test_supply_inputs_and_trade_outputs_pass_through_stage_context(self):
-        class FlowInput(GameMod):
+    def test_national_production_is_not_a_delivery_to_the_market(self):
+        class Producer(GameMod):
             def mixins(self):return ()
             def stages(self):
                 def supply(world, context):
-                    context['market'] = {'production':{'native:food':10,'example:tea':100},
-                                         'consumption':{'native:food':30}, 'participants':4}
-                return (Stage('example:flow',supply,hook='market.inputs'),)
-        loaded = self.runtime(tea=True)
+                    # A nation's own output belongs to that nation only.
+                    context['building_production'] = 'no market input here'
+                return (Stage('example.flow',supply,hook='market.inputs'),)
+        loaded = self.runtime()
         distribution = {**loaded.distribution,
                         'Hooks':[{'Id':'market.inputs'},{'Id':'market.settlement'}]}
-        runtime = Runtime([*loaded.units.values(),Unit('example:flows',FlowInput())],distribution)
+        runtime = Runtime([*loaded.units.values(),Unit('example:flows',Producer())],distribution)
         world = runtime.world_class()()
         world.resources.open('Qin',{'native:gold':100})
         trade = world.market.buy('Qin','native:food',1)
         result = world.resolve_turn()
         self.assertEqual(result['market_trades'],(trade,))
-        self.assertEqual(dict(world.market.snapshot().equilibrium)['native:food'],1.875)
-        self.assertEqual(world.market.participants,4)
-        self.assertNotIn('example:tea',world.market.ids)
+        # Only the trade moved the buffer; the period then drifted the
+        # reference by that flow and refilled part of the gap to it.
+        reference = drift(FOOD_DEPTH,1)
+        stock = FOOD_DEPTH-1
+        stock += math.ceil((reference-stock)*REFILL)
+        self.assertEqual(dict(world.market.snapshot().inventory)['native:food'],stock)
+        self.assertEqual(dict(world.market.snapshot().reference)['native:food'],reference)
+        self.assertAlmostEqual(dict(world.market.snapshot().prices)['native:food'],
+                               level(FOOD_BASE,reference,stock))
 
-    def test_rejected_pricing_results_never_commit_inventory_or_partial_prices(self):
-        class BrokenEngine:
-            def walk(self, *args):return {'next_price':2,'exact_total':1}
-            def settle(self, listing, *args):
-                from mods.native.market.contracts import PriceSettlement
-                if listing.resource == 'native:wood':return None
-                return PriceSettlement(2,2)
+    def broken(self, engine):
         class BrokenPricing(GameMod):
             def mixins(self):return ()
             def provides(self):return ('market:pricing',)
-            def objects(self,world):return {'market:pricing':BrokenEngine()}
+            def objects(self,world):return {'market:pricing':engine}
         loaded = self.runtime()
         units = [unit for key,unit in loaded.units.items() if key != 'native:market-pricing']
-        runtime = Runtime([*units,Unit('example:broken-pricing',BrokenPricing())],loaded.distribution)
+        return Runtime([*units,Unit('example:broken-pricing',BrokenPricing())],loaded.distribution)
+
+    def test_rejected_pricing_results_never_commit_inventory_or_partial_prices(self):
+        from mods.native.market.contracts import PriceSettlement
+        class BrokenWalk:
+            def walk(self, *args):return {'next_price':2,'exact_total':1}
+            def level(self, listing, *args):return PriceSettlement(2)
+        class BrokenLevel(BrokenWalk):
+            def level(self, listing, *args):
+                return None if listing.resource == 'native:wood' else PriceSettlement(2)
+        runtime = self.broken(BrokenWalk())
         world = runtime.world_class()()
         world.resources.open('Qin',{'native:gold':100})
         before = runtime.save_mod_state(world)
         with self.assertRaises(ValueError):world.market.buy('Qin','native:food',1)
         self.assert_unchanged(world,before)
-        with self.assertRaises(ValueError):world.market.settle({}, {})
-        self.assert_unchanged(world,before)
-
-    def test_default_floor_cap_and_known_sell_price(self):
-        world = self.world()
-        sell = world.market.quote('native:food',10,'sell')
-        self.assertAlmostEqual(sell.exact_total,14.0125)
-        self.assertEqual(sell.price_after,1.45)
-        floor = world.market.quote('native:food',700,'sell')
-        cap = world.market.quote('native:food',700,'buy')
-        self.assertEqual(floor.price_after,0.5)
-        self.assertEqual(cap.price_after,4.5)
-        # 200 units of descent (average 1), then 500 at the floor.
-        self.assertAlmostEqual(floor.exact_total,(200*1+500*0.5)*0.95)
-        # 600 units of ascent (average 3), then 100 at the cap.
-        self.assertAlmostEqual(cap.exact_total,(600*3+100*4.5)*1.05)
+        # The opening quote is priced from the buffer, so a provider that cannot
+        # price a listing is rejected before the world exists.
+        with self.assertRaises(ValueError):self.broken(BrokenLevel()).world_class()()

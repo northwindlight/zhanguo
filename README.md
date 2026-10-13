@@ -25,7 +25,7 @@
 - **玩家客户端**：LLM 与 `v11plus` 规则 AI 使用同一绑定身份的 API，消费结构化事实和行动回执。
 - **界面**：独立 UI Mod 编排提示、语言文案、终端面板和玩家可见的文字、SVG、PNG 地图。
 
-默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.4.0-beta.1`：
+默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.5.0-beta.1`：
 
 - 独立议长分两步审核国策，核对事实、情报和经济、外交、军事承诺；连续三回合未通过后罢免君主并重建记忆。
 - 市场采用实际交付的有限库存，以及库存偏差反馈报价。
@@ -62,7 +62,9 @@ python -m scenarios.eight_nations --seed 20260921
 
 剧本采用 24×24 地图、八国手摆开局与七雄共保周的初始安排。生成器遇到已有目标会拒绝覆盖，显式 `--force` 才覆盖；生成后按需要填写模型接入或改用 rule 客户端。
 
-终端提供 `add 国名`、`send 国名 正文`、`say 正文`、`board`、`map 国名 [文件.svg或文件.png]`、`quit`。公告和来信可多行输入，以 `END` 结束；图形视觉可设置 `vision=true`，PNG 依赖见 [UI 说明](mods/ui/README.md)。终端入口检查发行版实际提供的管理能力。
+看海控制台提供中文全景国力、市场、经济报告、国策、外交和逐次调用播报。`help` 查看命令；`map` 看世界全图，`map 国名 [文件.txt/.svg/.png]` 看单国视野；`add 国名 [政体]`、`send 国名 正文`、`say 正文`、`rate 5`、`cheat 国名 金100 粮20 骑2` 提供观察者管理。公告和来信支持多行 `END` 和 `@文件`。命令在模型调用间处理，`quit` 完成整回合并保存后退出。每回合自动更新日志同名的 `.map.txt`，详见 [UI 说明](mods/ui/README.md)。
+
+模型优先使用短内容键值，重名时指定命名空间；地块动作使用 `x/y`，军队使用整数 `aid/ids`。experimental 的 Python 工具提供用法示例和批量处理提示；失败消耗脚本执行额度，普通国家行动仍可继续。
 
 ## 开发与验证
 

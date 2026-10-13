@@ -1,27 +1,51 @@
 """v11plus economic layer: shared inventory, ROI construction and recruitment.
 
-Consumes public quotes and observed production. Strategy tuning is local;
+Consumes public catalogs and observed production. Strategy tuning is local;
 construction prerequisites, policy costs and quotas remain native decisions.
+
+库存市场面向多国对局；单机规则局不在它的目标场景里，本层不跟着它调参。
 """
 import math
 from .parameters import BARRACKS_CAP, MIL_SHARE, SUPPLY_PERIODS
 
 def stocks(player):return {s['id']:s['amount'] for s in player.query('econ')['stocks']}
 
+# 市场每期只给一个公开报价，先后手不影响它，行情里的买价就是这期的边际价。
+def buy_prices(player):return dict(player.query('market')['buy_prices'])
+
 def ensure(ledger, recipe, reserve=0):
-    inventory=stocks(ledger.player)
+    inventory=stocks(ledger.player);prices=buy_prices(ledger.player)
     purchases=[];gold=recipe.get('native:gold',0)+reserve
     for resource,amount in recipe.items():
         if resource=='native:gold':continue
         missing=max(0,amount-inventory.get(resource,0))
         if missing:
-            try:quote=ledger.player.query('market_quote',{'resource':resource,'quantity':math.ceil(missing),'side':'buy'})
-            except ValueError:return False
-            gold+=quote['gold'];purchases.append((resource,math.ceil(missing)))
+            price=prices.get(resource)
+            if price is None:return False
+            gold+=math.ceil(price*math.ceil(missing));purchases.append((resource,math.ceil(missing)))
     if inventory.get('native:gold',0)<gold:return False
     for resource,quantity in purchases:
         if not ledger.do('buy',resource=resource,quantity=quantity):return False
     return True
+
+def candidate_cost(site, kind, buildings, catalog, facts):
+    """Client-side planning from public facts; build remains authoritative."""
+    existing=[b for b in buildings if b['site']==site['id']]
+    same=sum(b['kind']==kind['id'] for b in existing)
+    if len(existing)>=site['capacity'] or len(existing)<kind['min_slots']:return None
+    if kind['max_per_site'] is not None and same>=kind['max_per_site']:return None
+    if kind['site_resource'] and same>=dict(site['resources']).get(kind['site_resource'],0):return None
+    if kind['self_build_limit'] is not None and facts.get('self_built',{}).get(kind['id'],0)>=kind['self_build_limit']:return None
+    if any(r['site']==site['id'] for r in facts.get('construction',[])):return None
+    level=same+1 if len(kind['costs_by_level'])>1 else 1
+    if level>len(kind['costs_by_level']):return None
+    discount=0 if kind.get('build_discount',0) else max((catalog[b['kind']].get('build_discount',0) for b in existing if not b['remaining']),default=0)
+    costs=dict(kind['costs_by_level'][level-1])
+    if 'native:gold' in costs:
+        costs['native:gold']=costs['native:gold']*(100+site['penalty'])//100
+        costs['native:gold']=costs['native:gold']*(100-discount)//100
+        costs['native:gold']=costs['native:gold']*kind.get('policy_pct',100)//100
+    return {'level':level,'other_slots':len(existing),'costs':costs}
 
 def run(ledger):
     player=ledger.player;obs=player.observe();facts=obs['facts']
@@ -43,14 +67,10 @@ def run(ledger):
     required['native:supply']=supply_need*SUPPLY_PERIODS
     for resource,amount in units.get('native:infantry',{}).get('recruit',{}).items():
         if resource!='native:gold':required[resource]=required.get(resource,0)+amount
-    recipes=[]
-    for kind in catalog:
-        try:estimate=player.query('building_economics',{'kind':kind['id']})
-        except ValueError:continue
-        recipes.append((kind,estimate))
+    estimates={row['kind']:row for row in player.query('building_economics')}
+    recipes=[(kind,estimates[kind['id']]) for kind in catalog if kind['id'] in estimates]
     for b in buildings:
         if b['remaining']:continue
-        estimate=player.query('building_economics',{'kind':b['kind'],'level':b['level']})
         # Resource amounts are provided separately in the catalog below.
         cls=next(k for k in catalog if k['id']==b['kind'])
         for resource,amount in cls['inputs'].items():required[resource]=required.get(resource,0)+amount
@@ -64,13 +84,12 @@ def run(ledger):
     reserve=0
     if barracks:
         inventory=stocks(player)
-        recruitment_budget=0
+        recruitment_budget=0;prices=buy_prices(player)
         for resource,amount in units.get('native:infantry',{}).get('recruit',{}).items():
             missing=max(0,amount-inventory.get(resource,0))
             if resource=='native:gold':recruitment_budget+=amount
-            elif missing:
-                try:recruitment_budget+=player.query('market_quote',{'resource':resource,'quantity':missing,'side':'buy'})['gold']
-                except ValueError:pass
+            elif missing and prices.get(resource) is not None:
+                recruitment_budget+=math.ceil(prices[resource]*missing)
         reserve=max(recruitment_budget,max(0,income or 0)*MIL_SHARE)
     remaining={site['id']:site for site in sites}
     while remaining and not ledger.full():
@@ -78,10 +97,9 @@ def run(ledger):
         for site in remaining.values():
             for kind,base in recipes:
                 if kind['id']=='native:barracks' and barracks>=BARRACKS_CAP:continue
-                try:
-                    quote=player.query('build_quote',{'site':site['id'],'kind':kind['id']})
-                    estimate=player.query('building_economics',{'kind':kind['id'],'site':site['id']})
-                except ValueError:continue
+                quote=candidate_cost(site,kind,buildings,{k['id']:k for k in catalog},facts['building_sites'])
+                if quote is None:continue
+                estimate=player.query('building_economics',{'kind':kind['id'],'level':quote['level'],'other_slots':quote['other_slots']})
                 payback=estimate['payback_periods'];priority=1
                 if generated<demand and kind['energy_output']>0:priority=0
                 elif not barracks and kind['id']=='native:barracks':priority=0
@@ -101,7 +119,6 @@ def run(ledger):
         if ledger.full():break
         for kind in ('native:infantry','native:cavalry'):
             if kind not in units:continue
-            try:quote=player.query('recruit_quote',{'site':site['id'],'kind':kind})
-            except ValueError:continue
-            if quote['quota'] and ensure(ledger,quote['costs']):ledger.do('recruit',site=site['id'],kind=kind)
+            if not any(b['site']==site['id'] and b['kind']=='native:barracks' and not b['remaining'] for b in buildings):continue
+            if ensure(ledger,units[kind]['recruit']):ledger.do('recruit',site=site['id'],kind=kind)
             break

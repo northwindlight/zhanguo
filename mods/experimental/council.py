@@ -67,13 +67,12 @@ class CouncilService:
 
     def _manual(self,player,topic):
         if topic=='说明书':
-            return {'source':'当前发行版公共规则和公开目录','rules':player.rules(),
+            return {'source':'当前发行版公共规则和公开目录','rules':player.rules('all'),
                     'actions':player.actions(),'buildings':player.query('building_catalog'),
                     'units':player.query('unit_catalog')}
-        titles=('经济学手册','基础指南','战争手册','战略手册')
-        if topic not in titles:raise ValueError('可查：说明书、经济学手册、基础指南、战争手册、战略手册')
-        return {'source':'experimental 发行版策略参考；具体规则以说明书和引擎回执为准',
-                'title':topic,'body':Path(__file__).with_name('handbooks').joinpath(topic+'.md').read_text(encoding='utf-8')}
+        sections=player.rules(topic)
+        if not sections or sections[0]['title']=='规则目录':raise ValueError('未知指南主题')
+        return {'source':'当前发行版公开策略参考；具体规则以目录和实际回执为准','title':topic,'body':'\n\n'.join(r['body'] for r in sections)}
 
     def _council_turn(self,player,dialogue):
         tools=[schema for schema in player.actions() if schema['function']['name']=='player_rules']

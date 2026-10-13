@@ -128,6 +128,7 @@ class _Budget(Exception):
 
 
 def regroup(player,observation,state,armies,*,forecast=None):
+    forecast=forecast or combat.forecaster(player,observation)
     cells=targeting.candidates(observation);live={u['id'] for u in armies}
     state.targets={ident:cell for ident,cell in state.targets.items() if ident in live and cell in cells}
     free=[u for u in armies if u['id'] not in state.targets]

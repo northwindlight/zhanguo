@@ -193,6 +193,10 @@ class TestParliament(unittest.TestCase):
         queries=[r for r in h.services[self.actor]['council'].council['archive'] if r['kind']=='council.query']
         self.assertEqual([r['result']['ok'] for r in queries],[True,True,True,False])
         self.assertIn('buildings',queries[1]['result']['data'])
+        manual_rules=queries[1]['result']['data']['rules']
+        self.assertGreater(len(manual_rules),1)
+        self.assertIn('建筑与能源',{r['title'] for r in manual_rules})
+        self.assertNotIn('规则目录',{r['title'] for r in manual_rules})
         assert_paired(reviewer.calls[1][0])
         self.assertTrue(any('read_manual' in json.dumps(r['dialogue']) for r in h.services[self.actor]['council'].council['archive'] if r['kind']=='review'))
 

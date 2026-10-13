@@ -1,9 +1,10 @@
-"""Use observed routes and native forecasts; production belongs to economy."""
+"""Use observed routes and client forecasts; production belongs to economy."""
 from . import grouping,combat,targeting
 from .pathfind import distance
 
 def run(ledger,state,*,forecast=None):
     player=ledger.player;obs=player.observe();period=obs['period']
+    forecast=forecast or combat.forecaster(player,obs)
     armies=[u for u in obs['facts']['army'] if u['owner']==player.actor]
     groups=grouping.regroup(player,obs,state,armies,forecast=forecast)
     units={u['id']:u for u in armies}

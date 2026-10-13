@@ -10,7 +10,7 @@ Provides = ["economy:queries"]
 
 [Interfaces]
 "native:resource-inspection" = ["owners", "snapshot"]
-"native:buildings" = ["replacement_costs", "quote"]
+"native:buildings" = ["replacement_costs"]
 "native:economy" = ["reports", "turns"]
 "native:market" = ["snapshot", "quote", "buy", "sell"]
 "economy:valuation" = ["quote"]

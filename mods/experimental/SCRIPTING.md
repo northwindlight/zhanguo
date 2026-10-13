@@ -56,3 +56,5 @@ if inputs.get('buy_food', 0) > 0:
 ```bash
 .venv/bin/python -m unittest tests.test_scripting tests.test_script_service -v
 ```
+
+失败只消耗本回合的脚本执行额度，不消耗普通国家行动机会；君主仍可通过其他工具完成本回合。模型工具说明提供 api 用法和保存、免费检查、手动执行流程，只有装配脚本能力的发行版才显示该提示。

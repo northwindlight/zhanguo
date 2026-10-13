@@ -3,11 +3,12 @@ import random
 from engine.player import wire
 from engine.session import SaveFormatError
 from engine.scenario import GridSession
+from .observer import NativeObserver
 
 START_RES={'native:gold':1500,'native:food':20,'native:wood':60,'native:ore':10,
            'native:oil':0,'native:equipment':5,'native:supply':10}
 
-class NativeSession(GridSession):
+class NativeSession(NativeObserver,GridSession):
     def entries(self):return self.cfg['nations']
     def identities(self):return tuple(n.id for n in self.world.nations.snapshot())
     def configure(self):
@@ -16,7 +17,6 @@ class NativeSession(GridSession):
         self.world.territory.configure(self.cfg.get('map_size',60),seed)
     def grid(self):return self.world.territory.dimensions()
     def occupied(self):return [tile.tile.position for tile in self.world.territory.snapshot()]
-    def after_spawn(self):self.world.market.set_participants(len(self.actors()))
     def validate_boundary(self):
         if any(wire(self.world.government.snapshot(a))['ended'] for a in self.actors()):
             raise SaveFormatError('Cannot save a partially played cycle')
@@ -50,6 +50,5 @@ class NativeSession(GridSession):
             start={key:item[field] for key,field in (('Gold','start_gold'),('Supply','start_supply'),('Cavalry','start_cavalry')) if field in item}
             self.runtime.activate_actor(self.world,actor,polity,site=capital,start=start)
         self.world.succession.enroll(actor)
-        self.world.market.set_participants(len(self.world.nation_actors))
         self.world.intelligence.emit('appearance',item['name']+' 登场',public=True)
         return actor

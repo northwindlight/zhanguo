@@ -128,11 +128,11 @@ class ScriptingMod(GameMod):
             lambda:self.runtime.object_call(world,'native:government','period'))
     def objects(self,world):return {'sandbox:programs':world.scripts}
     def tools(self):
-        return (Tool('script_write',self._write,description='Save or replace this country\'s Python script; does not execute'),
-                Tool('script_patch',self._patch,description='Replace one exact occurrence in the saved script; does not execute'),
-                Tool('script_check',self._check,read_only=True,description='Free syntax/safety check only; does not execute or predict game results'),
-                Tool('script_status',self._status,read_only=True,description='Execution allowance, limits and last result; source optional'),
-                Tool('script_run',self._claim,description='Manually run saved script once per country per period; errors consume the allowance; inputs is a JSON object'))
+        return (Tool('script_write',self._write,description='保存本国 Python 短脚本，不执行。运行时可用 api.query/observe/submit、inputs、print；适合整类查询、计算收益、按预算执行重复操作。源码可跨回合复用。例：stocks=api.query("econ")["stocks"]; print({s["id"]:s["amount"] for s in stocks})'),
+                Tool('script_patch',self._patch,description='精确替换已保存源码中的一处内容，不执行'),
+                Tool('script_check',self._check,read_only=True,description='免费检查 Python 语法和安全规则，不执行、不消耗本回合脚本执行额度；保存后先检查'),
+                Tool('script_status',self._status,read_only=True,description='查询本国脚本、剩余脚本执行额度、预算及上次结果；include_source=true 查看源码'),
+                Tool('script_run',self._claim,description='手动执行已保存 Python 脚本，inputs 为本回合 JSON 参数。每国每回合有一次脚本执行额度，计算与只读脚本也消耗该额度；失败只消耗脚本执行额度，不消耗普通行动机会，之后仍可调用国家工具。成功动作保留。返回 print 输出、执行统计及错误位置。api 使用标准事实结构，资源/兵种参数接受唯一短键值；无需每回合重发源码。'))
     @staticmethod
     def _write(world,actor,source: str):return world.scripts.write(actor,source)
     @staticmethod
@@ -152,7 +152,7 @@ class ScriptingMod(GameMod):
     def rule_sections(self,world=None):
         return (RuleSection('Python 沙盒',
             'script_write 保存或重写，script_patch 精确修订，script_check 免费语法/安全检查且不运行。'
-            'script_run(inputs={...}) 每国每回合手动执行一次，失败也消耗机会，修订、罢免不重置次数。'
+            'script_run(inputs={...}) 每国每回合手动执行一次，失败也消耗脚本执行额度，但不阻止普通工具行动；修订、罢免不重置额度。'
             '已成功动作不撤销。api 提供绑定身份的标准 observe/actions/query/submit/events/rules/action_state；'
             '国策同样经过议会。api.submit 拒绝会返回原回执并终止脚本。'
             'inputs 是本次 JSON 参数；变量每次重新创建。支持函数和递归、if/for/while、列表/字典和推导式。'

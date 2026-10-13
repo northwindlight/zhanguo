@@ -1,33 +1,50 @@
 Currency = "native:gold"
 
+# Depth 是名义市场深度：基准库存从这里起步。基准库存每期按净流量偏移 Flow 倍，
+# 报价以它为尺度，外部再按缺口回补 Refill 比例。InitialInventory 是开局缓冲，
+# 属于外部商品，不代表任何国家的产能。
+[Buffer]
+Elasticity = 1.0
+Flow = 0.25
+Refill = 0.5
+Spread = 0.10
+MinPrice = 0.000001
+MaxPrice = 1000000000.0
+
 [[Listings]]
 Resource = "native:food"
 BasePrice = 1.5
-Depth = 24
+Depth = 1920
+InitialInventory = 1920
 [[Listings]]
 Resource = "native:wood"
 BasePrice = 2
-Depth = 24
+Depth = 1920
+InitialInventory = 1920
 [[Listings]]
 Resource = "native:ore"
 BasePrice = 2.5
-Depth = 16
+Depth = 1280
+InitialInventory = 1280
 [[Listings]]
 Resource = "native:oil"
 BasePrice = 6
-Depth = 12
+Depth = 960
+InitialInventory = 960
 [[Listings]]
 Resource = "native:equipment"
 BasePrice = 8
-Depth = 8
+Depth = 640
+InitialInventory = 640
 [[Listings]]
 Resource = "native:supply"
 BasePrice = 6
-Depth = 12
+Depth = 960
+InitialInventory = 960
 
 [Mod]
 Id = "native:market"
-Version = "1.1.0"
+Version = "2.0.0"
 Entry = "mods.native.market.mod:MarketMod"
 Requires = ["native:resources"]
 After = ["native:resources"]
@@ -42,7 +59,7 @@ Provides = ["native:market"]
 
 [Interfaces]
 "native:resource-exchange" = ["exchange"]
-"market:pricing" = ["walk", "settle"]
+"market:pricing" = ["walk", "level"]
 
 [[Stages]]
 Id = "native:market.settle"

@@ -37,7 +37,7 @@ class Vision:
                     if b.site!=fact.tile.id or b.remaining != 0:continue
                     if fact.owner not in (None,actor) and b.kind not in ('native:castle','native:town-hall'):continue
                     kinds[b.kind]=kinds.get(b.kind,0)+1
-                result.append(VisibleTile((x,y),fact.tile.terrain,fact.owner,tuple(kinds.items()),fact.resources if fact.owner in (None,actor) else ()))
+                result.append(VisibleTile((x,y),fact.tile.terrain,fact.owner,tuple(kinds.items()),fact.resources if fact.owner==actor or fact.owner is None and fact.tile.id else ()))
         return tuple(result)
 
 
@@ -46,6 +46,6 @@ class VisionMod(GameMod):
     def needs(self):return ('native:territory','native:diplomacy','native:buildings')
     def provides(self):return ('native:vision',)
     def objects(self, world):return {'native:vision':Vision(lambda cap,method,*args:self.runtime.object_call(world,cap,method,*args))}
-    def tools(self):return (Tool('view',lambda w,a:self.objects(w)['native:vision'].tiles(a),read_only=True),)
+    def tools(self):return (Tool('view',lambda w,a:self.objects(w)['native:vision'].tiles(a),read_only=True,description='本国当前完整可见地图，以坐标数组表示；他国仅公开建筑和归属，不泄露迷雾或资源。单格细节使用 tile，图形与文字地图由 UI 呈现。'),)
     def panels(self):return (Panel('view',lambda w,a:self.objects(w)['native:vision'].tiles(a)),)
     def rule_sections(self, world=None):return (RuleSection('视野','本国和同盟土地周围一格可见，哨塔扩展视野。他国可见地块只显示已落成的市政厅和城堡，不公开库存、资源容量或其他建筑。'),)

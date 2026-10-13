@@ -28,6 +28,6 @@ class NationsMod(GameMod):
 
     def tools(self):
         return (Tool('nations', lambda world, actor: world.nations.snapshot(), read_only=True,
-                     description='Public nation identities and lifecycle records'),
+                     description='全部国家的公开身份与登场/灭亡记录；无需参数。'),
                 Tool('nation', lambda world, actor: world.nations.overview(actor), read_only=True,
-                     description='Own nation identity and currently owned building sites'))
+                     description='本国身份与当前拥有的站点；无需参数，站点明细见 building_sites。'))

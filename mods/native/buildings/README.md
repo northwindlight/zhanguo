@@ -124,4 +124,6 @@ tea 验收由外域注册 `example:tea` 与 `example:tea-garden`：茶园每周�
 
 ## 当前公共查询（2.4.0）
 
-building_sites 只返回本国站点和建筑实例，building_catalog 提供公开注册类型与参数，build_quote 提供按站点等级、槽位和政策计算的真实费用。报价与 build 共用逻辑，查询不占额度、不预留资源；是否买得起仍由动作裁决。
+building_sites 返回本国站点、建筑实例、当期施工和自建计数，building_catalog 提供公开类型、基础造价与政策倍率；实际费用和是否可建由 build 统一裁决并返回扣款回执。
+
+建筑信息默认批量返回：`building_catalog {}` 一次列齐各等级基础造价、产销配方、能源、效果和建造限制，不需要地块。收益与回本通过经济查询模块的 `building_economics {}` 一次获取，同样不接受地块。所有建筑查询均无需地点，不提供按格施工报价工具。`build` 才会按施工位置、工程院优惠和国策扣款；每格每回合一次。建筑与能源规则可以通过 `player_rules` 的 build/energy 主题查询。

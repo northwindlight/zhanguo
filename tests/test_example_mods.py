@@ -94,11 +94,14 @@ class TestNewGood(unittest.TestCase):
         player = host.player('scenario:qin')
         before = stocks(player)
         self.assertEqual(before['example:tea'], 20)
-        quote = player.query('market_quote', {'resource': 'example:tea', 'quantity': 5, 'side': 'sell'})
-        self.assertEqual(player.submit('sell', {'resource': 'example:tea', 'quantity': 5})['ok'], True)
+        panel = player.query('market')
+        receipt = player.submit('sell', {'resource': 'example:tea', 'quantity': 5})
+        self.assertEqual(receipt['ok'], True)
         after = stocks(player)
         self.assertEqual(before['example:tea'] - after['example:tea'], 5)
-        self.assertEqual(after['native:gold'] - before['native:gold'], quote['gold'])
+        self.assertEqual(after['native:gold'] - before['native:gold'], receipt['data']['gold'])
+        self.assertAlmostEqual(dict(panel['prices'])['example:tea'], 3)
+        self.assertEqual(dict(panel['inventory'])['example:tea'], 100)
 
     def test_registered_but_unlisted_resource_is_rejected_by_the_market(self):
         """注册资源不等于上市：市场只认自己那份声明。"""
@@ -121,8 +124,8 @@ class TestNewGood(unittest.TestCase):
             player = host.player('scenario:qin')
             # 账户里有茶（资源域枚举注册表），但市场不认它。
             self.assertEqual(stocks(player)['example:tea'], 20)
-            with self.assertRaisesRegex(ValueError, 'not listed'):
-                player.query('market_quote', {'resource': 'example:tea', 'quantity': 1, 'side': 'sell'})
+            receipt = player.submit('sell', {'resource': 'example:tea', 'quantity': 1})
+            self.assertFalse(receipt['ok']);self.assertIn('not listed', receipt['message'])
 
 
 class TestStagesAndUnits(unittest.TestCase):
@@ -145,7 +148,7 @@ class TestStagesAndUnits(unittest.TestCase):
         player = host.player('scenario:qin')
         self.assertIn('example:war-elephant', str(player.query('unit_catalog')))
         recruit = next(t for t in player.actions() if t['function']['name'] == 'recruit')
-        self.assertIn('example:war-elephant',
+        self.assertIn('war-elephant',
                       recruit['function']['parameters']['properties']['kind']['enum'])
 
     def test_unit_specific_stage_charges_exactly_its_own_declared_upkeep(self):
@@ -198,7 +201,8 @@ class TestReplaceExistingContent(unittest.TestCase):
             kinds = [row['id'] for row in player.query('building_catalog')]
             site = player.query('building_sites')['sites'][0]['id']
             try:
-                player.query('recruit_quote', {'site': site, 'kind': 'native:infantry'})
+                receipt=player.submit('recruit', {'site': site, 'kind': 'native:infantry'})
+                if not receipt['ok']:raise ValueError(receipt['message'])
                 return kinds, None
             except ValueError as exc:
                 return kinds, str(exc)

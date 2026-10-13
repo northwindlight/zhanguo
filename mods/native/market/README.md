@@ -6,14 +6,14 @@
 
 `native:market` 拥有一个 `market` 状态对象。`Market` 管理商品名单、行情、按账户积攒的金币零头、结算周期、参与者数量和结构化成交记录。其公开接口包括：
 
-- `ids / currency / period / participants`：只读身份和周期信息。
+- `ids / currency / period / inventory / reference`：只读身份、周期、缓冲库存与基准库存。
+- `unit_price(resource, side)`：供估值使用的单单位边际买卖价，保留价差和计价提供方规则，不检查缓冲库存，不含账户零头，也不推进交易或行情。
 - `price(resource)`：保留原先一位小数的显示价格；内部成交使用完整价格。
-- `quote(resource, quantity, side, owner=None)`：纯试算；指定账户时包含该账户的零头。
+- `quote(resource, quantity, side, owner=None)`：纯试算；该账户本期已成交量与本单量一起决定均价，指定账户时包含零头。本期报价与基准库存在期界才更新。
 - `buy(owner, resource, quantity) / sell(...)`：成交，返回不可变 `Trade`。
-- `set_participants(count)`：显式设置市场深度使用的参与者数量，允许 0。
-- `settle(production, consumption, participants=...)`：按显式供需输入结算，返回刚结束周期的成交记录。
+- `settle()`：关闭本期三步：本期净流量先偏移基准库存，外部再按到基准的缺口回补，最后按库存与基准定价。返回刚结束周期的成交记录。
 - `churn(owner, resource)`：返回本周期重叠买卖数量与损失，负损失表示获利。
-- `snapshot()`：不可变行情、均衡价、零头和成交记录快照。
+- `snapshot()`：不可变库存、基准库存、报价、零头和成交记录快照。
 
 市场不调用旧 `World.res / add_res / alive / _ledger / log`，不访问其他域的内部字段。它依赖资源兑换能力 `native:resource-exchange.exchange` 和计价能力 `market:pricing.walk / settle`。消费者通过自己的 `Needs / Interfaces` 声明需要的市场方法，由 `runtime.object_call` 调用；跨域直接改市场对象会被拒绝。
 
@@ -21,7 +21,7 @@
 
 市场导入 `contracts.py` 的数据协议，不导入具体计价实现。计价模块提供同一个能力 `market:pricing`，发行版必须选择且只选择一个提供者；缺失或重复由通用引擎拒绝。
 
-- `mods/native/market_pricing/mod.toml`：默认线性价格曲线、深度、价差、上下限和供需回归，保留旧市场数值与计算行为。
+- `mods/native/market_pricing/mod.toml`：默认库存定价曲线。价位由库存与基准库存之比决定，单笔订单按它扫过的深度逐单位计价。
 - `mods/examples/fixed_market_pricing/mod.toml`：独立固定价格实现，按基准价成交，不收价差，不随买卖或供需改变价格。
 
 独立发行版在 `mods/market_acceptance/mod.toml`。只需将其中一项：
@@ -36,7 +36,7 @@
 "../examples/fixed_market_pricing/mod.toml"
 ```
 
-市场模块、商品声明、资源模块和引擎均不需要修改。验收实际通过 `Runtime.load` 加载两套发行版，而非在测试里替换价格函数：买 10 单位食物，默认精确额为 16.0125 金、支付 16 金、成交后价格 1.55；固定引擎精确额与支付均为 15 金、成交后价格 1.5。供需回归也分别由各自模块执行。
+市场模块、商品声明、资源模块和引擎均不需要修改。验收实际通过 `Runtime.load` 加载两套发行版，而非在测试里替换价格函数：默认引擎按该单扫过的深度逐单位计价再加价差，成交后本期报价不变；固定引擎无论库存与基准如何都按基准价成交，精确额与支付相等。
 
 `PricingEngine` 模板规定无状态、纯计算的 `walk / settle`，使用不可变 `Listing / PricePath / PriceSettlement`。市场验证返回类型与有限非负成交额、正价格，不把默认引擎的价格上下限强加给其他实现。带内部订单簿、持久化随机状态的计价实现需要另行声明自己的状态协议，不在本轮无状态合同内。
 
@@ -74,7 +74,7 @@ Depth = 10
 
 参与者数量由调用者显式提供，不在市场里查询国家集合。供需数据也显式提供：生产/消耗与普通资源增减不同，购买、出售、馈赠和贷款不能被当成生产流量。
 
-市场阶段位置由发行版的 `market.settlement` 挂点决定。先行生产域将数据放入结算上下文 `context['market']`，字段为 `production / consumption / participants`；市场阶段发布条件 `market.settled` 并把刚关闭周期的不可变交易记录放入 `context['market_trades']`，供未来报表模块消费。无输入时用空供需并保留参与者数量。这个独立发行版没有真实生产域，验收由明确的合成供需模块提供输入。
+市场阶段位置由发行版的 `market.settlement` 挂点决定。市场阶段发布条件 `market.settled`，并把刚关闭周期的不可变交易记录放入 `context['market_trades']`，供报表模块消费。国家的生产与消费不是对市场的交付，不进入市场结算。
 
 `Trade` 保存账户、资源 ID、方向、数量、整数金币、精确金额、前后行情、前后零头和周期，不在业务层拼中文消息或直接写经济报表。展示可使用资源域已有的本地化名称；新增资源的翻译由其内容提供者负责。
 

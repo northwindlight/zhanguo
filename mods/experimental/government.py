@@ -109,7 +109,7 @@ class ParliamentGovernmentMod(GovernmentMod):
         world.government=ParliamentGovernment(lambda method,*args:self.runtime.object_call(world,'native:nation-inspection',method,*args),cfg['PlanSpan'],cfg['SummaryMin'])
 
     def tools(self):
-        return (*super().tools(),Tool('explain_plan',lambda w,a,text:w.government.explain(a,text)))
+        return (*super().tools(),Tool('explain_plan',lambda w,a,text:w.government.explain(a,text),description='议会拒绝国策后说明原因和修正打算，text 为解释正文。解释后方可结束本期；解释不替代新版国策，不会触发本期第二次审核。'))
 
     def rule_sections(self,world=None):
         return (*super().rule_sections(world),RuleSection('议会国策审核',
