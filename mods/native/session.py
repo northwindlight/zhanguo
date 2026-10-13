@@ -1,11 +1,11 @@
 """Native distribution scenario and administrative APIs. No host game rules."""
 from copy import deepcopy
 import hashlib
-import math
 import random
 from engine.identifiers import content_id
 from engine.player import wire
-from engine.session import Session,SaveFormatError
+from engine.session import SaveFormatError
+from engine.scenario import GridSession
 
 START_RES={'native:gold':1500,'native:food':20,'native:wood':60,'native:ore':10,
            'native:oil':0,'native:equipment':5,'native:supply':10}
@@ -35,60 +35,20 @@ def normalize_config(cfg):
     return cfg
 
 
-class NativeSession(Session):
+class NativeSession(GridSession):
     def normalize(self,cfg):return normalize_config(cfg)
     def entries(self):return self.cfg['nations']
-    def actors(self):return tuple(self.world.nation_actors)
     def identities(self):return tuple(n.id for n in self.world.nations.snapshot())
-    def clock(self):return self.world.government.period()
     def configure(self):
         seed=self.cfg.get('seed')
         if seed is None:seed=random.SystemRandom().randrange(2**31)
         self.world.territory.configure(self.cfg.get('map_size',60),seed)
+    def grid(self):return self.world.territory.dimensions()
+    def occupied(self):return [tile.tile.position for tile in self.world.territory.snapshot()]
     def after_spawn(self):self.world.market.set_participants(len(self.actors()))
     def validate_boundary(self):
         if any(wire(self.world.government.snapshot(a))['ended'] for a in self.actors()):
             raise SaveFormatError('Cannot save a partially played cycle')
-    def records(self):return self.world.intelligence.to_save()
-    def announce(self,text):return self.world.intelligence.emit('announcement',text,public=True)
-    def send(self,actor,text):return self.world.intelligence.emit('observer-letter',text,parties=(actor,))
-
-    def _positions(self,count):
-        size,_=self.world.territory.dimensions()
-        if count==1:return [(size//2,size//2)]
-        points=[]
-        radius=size*.31
-        for i in range(count):
-            angle=2*math.pi*i/count
-            points.append((min(size-2,max(1,round(size/2+radius*math.cos(angle)))),
-                           min(size-2,max(1,round(size/2+radius*math.sin(angle))))))
-        return points
-
-
-    def add(self,name):
-        item=next((n for n in self.entries() if name in (n['id'],n['name'])),None)
-        if item is None:raise ValueError('国家未在配置中声明')
-        if item['id'] in self.roster:raise ValueError('国家已登场，历史身份不能复用')
-        size,seed=self.world.territory.dimensions();rng=random.Random(f'{seed}:{item["id"]}')
-        positions=[(x,y) for x in range(1,size-1) for y in range(1,size-1)]
-        rng.shuffle(positions)
-        occupied=[t.tile.position for t in self.world.territory.snapshot()]
-        position=item.get('position') or next((p for p in positions if all(max(abs(p[0]-x),abs(p[1]-y))>=3 for x,y in occupied)),None)
-        if position is None:raise ValueError('没有足够空间安置新国家')
-        return self.join(item,position)
-
-
-    def scheduled(self):
-        size,seed=self.world.territory.dimensions();period=self.world.government.period()
-        for item in self.entries():
-            if item['id'] in self.roster or not item.get('enabled',True) or item.get('appearance')!='scheduled':continue
-            lo=item.get('enable_turn')
-            if lo is None:continue
-            hi=item.get('enable_turn_max',lo)
-            if type(lo) is not int or type(hi) is not int or lo<0 or hi<lo:raise ValueError('Invalid arrival period')
-            due=random.Random(f'{seed}:{item["id"]}').randint(lo,hi)
-            if period>=due:self.add(item['id'])
-
 
     def board_rows(self):
         rows=[]

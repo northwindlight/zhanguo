@@ -32,7 +32,9 @@ class GameHost:
         module,name=entry.split(':')
         factory=getattr(import_module(module),name)
         self.session=factory(runtime,cfg,create_client)
-        for method in ('start','restore','to_save','save','player','cycle'):
+        # 运行接口为必需契约；终端管理是可选能力，由入口按需检查。
+        for method in ('start','restore','to_save','save','player','cycle',
+                       'actors','clock'):
             if not callable(getattr(self.session,method,None)):
                 raise ModError(f'Distribution session is missing {method}()')
 

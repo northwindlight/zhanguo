@@ -152,6 +152,12 @@ class Intelligence:
                     if self._call('native:vision','visible',n,*position):recipients.add(n)
         event=Event(self._next_event,self._period(),kind,text,position,tuple(n for n in ids if n in recipients))
         self._next_event+=1;self._events.append(event);return event
+    def announce(self, text):
+        """公开公告：进入所有国家的观察者事件。"""
+        return self.emit('announcement', text, public=True)
+    def send(self, owner, text):
+        """来信：只对该国家可见。"""
+        return self.emit('observer-letter', text, parties=(owner,))
     def messages(self, owner):return tuple(freeze(m) for m in self._messages if m.target==owner)
     def events(self, owner):return tuple(e for e in self._events if owner in e.recipients)
     def pending(self, owner):return tuple(d for d in self._pending+self._transit if d.owner==owner)

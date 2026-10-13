@@ -1,0 +1,24 @@
+[Mod]
+Id = "experimental:python"
+Version = "1.0.0-beta.1"
+Entry = "mods.experimental.scripting:ScriptingMod"
+Requires = ["native:government"]
+After = ["native:government"]
+[State]
+Owns = ["scripts"]
+[Capabilities]
+Needs = ["native:government"]
+Provides = ["sandbox:programs"]
+[Interfaces]
+"native:government" = ["period"]
+[Limits]
+steps = 12000
+calls = 24
+source = 16384
+nodes = 2048
+items = 4096
+string = 65536
+value_bytes = 1048576
+output = 4096
+depth = 48
+integer_bits = 256

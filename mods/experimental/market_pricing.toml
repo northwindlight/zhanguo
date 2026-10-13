@@ -1,0 +1,13 @@
+[Mod]
+Id = "native:market-pricing"
+Version = "2.0.0-experimental"
+Entry = "mods.experimental.market:InventoryPricingMod"
+Requires = []
+
+[State]
+Owns = []
+Requests = []
+
+[Capabilities]
+Needs = []
+Provides = ["market:pricing"]

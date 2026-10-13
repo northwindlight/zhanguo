@@ -12,6 +12,7 @@ host 加载 `Distribution.Session.Entry`，把运行时、外部配置和客户�
 ```toml
 [Distribution.Session]
 Entry = "mods.examples.minigame.session:MiniSession"
+Observer = { Capability = "mini:intelligence", Records = "to_save", Announce = "announce", Send = "send" }
 
 [Distribution.ClientFactories.mini]
 Entry = "mods.examples.minigame.client:MinigameClient"
@@ -29,7 +30,7 @@ host.cycle()
 
 ## Session 工厂与通用基类
 
-入口为 `包.模块:工厂名`，签名 `factory(runtime, cfg, client_factory)`。返回对象必须提供 `start / restore / to_save / save / player / cycle`。缺少入口或方法时启动失败。
+入口为 `包.模块:工厂名`，签名 `factory(runtime, cfg, client_factory)`。返回对象必须提供 `start / restore / to_save / save / player / cycle / actors / clock`。缺少入口或方法时启动失败。终端管理能力另行检查，无地图或无终端的游戏可以使用同一个 host。
 
 发行版通常继承 [engine.session.Session](../engine/session.py)，实现以下方法：
 
@@ -40,16 +41,22 @@ host.cycle()
 | `configure()` | 初始化该游戏的场景参数 |
 | `_positions(count)` | 返回 count 个初始位置，值的结构由 `spawn` 定义 |
 | `spawn(item, position)` | 创建玩家的领域状态，返回 actor ID；不创建客户端 |
-| `actors()` | 当前参与轮转的身份序列 |
+| `actors()` | 当前参与轮转的身份序列；默认读取声明的 `ActorCollection` |
 | `identities()` | 全部历史身份，包括已经退出的身份，用于存档校验 |
-| `clock()` | 当前整数周期 |
-| `scheduled()` | 处理该游戏的定时登场 |
+| `clock()` | 当前整数周期；默认调用声明的 `PlayerClock` |
+| `scheduled()` | 处理该游戏的定时登场；无待登场身份时基类无需做任何事 |
 | `validate_boundary()` | 检查领域是否处于完整可存取边界，失败抛 `SaveFormatError` |
 | `after_spawn()` | 可选；玩家注册后更新发行版的衍生场景状态 |
 
 基类 `start()` 按 `appearance=initial / scheduled / manual` 和 `enabled` 选择初始玩家；`register(item, position)` 装配服务和客户端。作用域的默认登场方式来自已加载的 Policy 声明。发行版可覆盖生命周期方法来提供不同场景协议。
 
-`join(item, position)` 在候选世界中注册，失败恢复世界、roster、客户端和服务装配、代次、上下文与审计；已有玩家句柄在调用时取得当前世界。发行版的 `add(name)` 决定配置查找与位置选择，再调用 join。完整边界上的行政登场仍可存档，不能把半回合变成完整边界。
+`join(item, position)` 在候选世界中注册，失败恢复世界、roster、客户端和服务装配、代次、上下文与审计；已有玩家句柄在调用时取得当前世界。发行版的可选 `add(name)` 决定配置查找与位置选择，再调用 join。完整边界上的行政登场仍可存档，不能把半回合变成完整边界。
+
+### 可选方格场景策略
+
+[engine.scenario.GridSession](../engine/scenario.py) 继承通用 Session，提供 native 和 mini 共用的方格场景策略：圆形初始落位、手动登场时的空间搜索，以及按种子确定的定时登场。发行版只需实现 `grid()` 返回 `(size, seed)`，`occupied()` 返回已占用的 `(x, y)` 坐标，并提供自己的 `spawn()`。显式位置交给 `spawn()` 校验；自动落位采用最小切比雪夫距离 3。策略方法均可覆盖。
+
+无地图、六边形地图或采用其他登场规则的发行版直接继承 Session，提供自身场景方法，无需伪造方格地图。通用 Session 不调用 `grid()` 或 `occupied()`。
 
 `cycle()` 调用发行版的 scheduled，轮转客户端，调用世界的声明结算，通知服务与客户端的 `on_settlement(player)`，最后开放完整边界存档。控制权变化后取得新玩家句柄继续该周期；同一国家超过八次控制权变化会停止本局，防止无界轮转。
 
@@ -68,7 +75,11 @@ host.cycle()
 | `board()` | 返回由 UI Mod 编排的终端面板 |
 | `board_rows()` | 基类 board 使用的公开汇总行：`name / land / army / gold` |
 
-这组 CLI 契约由发行版实现；其他产品入口可调用发行版自己的管理 API。`world` 留给发行版和剧本的可信行政代码，客户端使用 `player(actor)`。
+这组 CLI 契约由发行版实现；其他产品入口可调用发行版自己的管理 API。`management()` 列出当前已实现的可选管理接口，继承的占位方法不计入。CLI 在建立观察者之前检查 `add / records / announce / send / board`；缺失时明确拒绝该终端入口，独立 host 的开局、行动与存取不受影响。基类 `board()` 仅在发行版提供 `board_rows()` 时可用。
+
+`Session.Observer` 可将 `Records / Announce / Send` 映射到声明能力的公开方法。装配时检查能力、对象和方法是否真实存在且可调用；拼错方法名直接报 `ModError`，不会延迟到第一次管理操作。可只声明需要的管理能力，也可以覆盖对应 Session 方法。
+
+`world` 留给发行版和剧本的可信行政代码，客户端使用 `player(actor)`。
 
 ## 玩家 API 与服务
 

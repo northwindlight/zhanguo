@@ -32,7 +32,7 @@ python -m scenarios.eight_nations --seed 20260921
 
 ## 架构与验证
 
-可选[experimental 实验性发行版](mods/experimental/README.md)提供两步国策审核、事实与承诺校核、连续三回合未通过后的君主罢免和记忆重建。使用独立配置 `mp_config.experimental.example.json`；默认发行版仍为 native。
+可选[experimental 实验性发行版](mods/experimental/README.md)提供两步国策审核、事实与承诺校核、连续三回合未通过后的君主罢免和记忆重建，并提供有限库存与库存反馈定价市场、按计算量限制的 Python 沙盒。使用独立配置 `mp_config.experimental.example.json`；默认发行版仍为 native。
 
 - [发行版 Session 与 API 暴露](docs/发行版Session.md)：开局、登场和管理能力归发行版，统一提交、审计与控制权机制。
 - [统一玩家接口和客户端接线](docs/客户端接线.md)：方法、回执、权限、状态和迁移边界。

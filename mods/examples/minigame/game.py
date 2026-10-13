@@ -885,6 +885,14 @@ class Intelligence:
         self._events.append({'id': len(self._events) + 1, 'period': self._world.government.period(),
                              'kind': kind, 'text': text, 'public': bool(public), 'parties': list(parties)})
 
+    def announce(self, text):
+        """公开公告：进入所有国家的观察者事件。"""
+        return self.emit('announcement', text, public=True)
+
+    def send(self, owner, text):
+        """来信：只对该国家可见。"""
+        return self.emit('observer-letter', text, parties=(owner,))
+
     def events(self):
         return tuple(self._events)
 

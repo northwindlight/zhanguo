@@ -1,0 +1,70 @@
+Currency = "native:gold"
+
+# Initial stock is an explicit external buffer, never regenerated each turn.
+[Buffer]
+Eta = 0.10
+Spread = 0.10
+MinPrice = 0.000001
+MaxPrice = 1000000000.0
+
+
+[[Listings]]
+Resource = "native:food"
+BasePrice = 1.5
+Depth = 24
+TargetInventory = 192
+InitialInventory = 192
+[[Listings]]
+Resource = "native:wood"
+BasePrice = 2
+Depth = 24
+TargetInventory = 192
+InitialInventory = 192
+[[Listings]]
+Resource = "native:ore"
+BasePrice = 2.5
+Depth = 16
+TargetInventory = 128
+InitialInventory = 128
+[[Listings]]
+Resource = "native:oil"
+BasePrice = 6
+Depth = 12
+TargetInventory = 96
+InitialInventory = 96
+[[Listings]]
+Resource = "native:equipment"
+BasePrice = 8
+Depth = 8
+TargetInventory = 64
+InitialInventory = 64
+[[Listings]]
+Resource = "native:supply"
+BasePrice = 6
+Depth = 12
+TargetInventory = 96
+InitialInventory = 96
+
+[Mod]
+Id = "native:market"
+Version = "1.2.0-experimental"
+Entry = "mods.experimental.market:InventoryMarketMod"
+Requires = ["native:resources"]
+After = ["native:resources"]
+
+[State]
+Owns = ["market"]
+Requests = []
+
+[Capabilities]
+Needs = ["native:resource-exchange", "market:pricing"]
+Provides = ["native:market"]
+
+[Interfaces]
+"native:resource-exchange" = ["exchange"]
+"market:pricing" = ["walk", "settle"]
+
+[[Stages]]
+Id = "native:market.settle"
+Hook = "market.settlement"
+Provides = ["market.settled"]

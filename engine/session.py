@@ -1,7 +1,8 @@
 """Generic distribution session lifecycle and actor-bound API exposure.
 
 Distribution implementations supply scenario and administrative behavior. This
-module never imports clients, UI implementations or domain modules.
+module has no map geometry or game-domain policy. Distributions supply their
+scenario hooks; grid-based games can reuse engine.scenario.GridSession.
 """
 from copy import deepcopy
 from importlib import import_module
@@ -11,7 +12,8 @@ from pathlib import Path
 import tempfile
 import threading
 from .player import wire
-from .api import BoundPlayer
+from .api import BoundPlayer, api_entry
+from .runtime import ModError
 
 SAVE_FORMAT='zhanguo.session/2'
 class SaveFormatError(ValueError):pass
@@ -42,16 +44,77 @@ class Session:
             policy=runtime.find_policy(item.get('polity')) if item.get('polity') else None
             if item.get('polity') and policy is None:raise ValueError('Configured scope module is not loaded')
             item.setdefault('appearance',policy.declaration.get('Policy',{}).get('Appearance','scheduled') if policy else 'initial')
+        self._check_observer()
 
+    def _check_observer(self):
+        spec=self.runtime.distribution.get('Session',{}).get('Observer')
+        if spec is None:return
+        if not isinstance(spec,dict) or not isinstance(spec.get('Capability'),str) or spec['Capability'] not in self.runtime.capabilities:
+            raise ModError('Session.Observer 必须引用公共能力')
+        for name in ('Records','Announce','Send'):
+            method=spec.get(name)
+            if method is not None and (not isinstance(method,str) or not method or method.startswith('_')):
+                raise ModError(f'Session.Observer.{name} 必须是公开方法名')
+            if method is not None:
+                owner=self.runtime.capabilities[spec['Capability']]
+                target=self.runtime.units[owner].mod.objects(self.world).get(spec['Capability'])
+                if target is None or not callable(getattr(target,method,None)):
+                    raise ModError(f'Session.Observer.{name} 引用不可调用的方法：{spec["Capability"]}.{method}')
+
+    # 场景策略属于发行版；无地图游戏不需要实现几何钩子。
     def normalize(self,cfg):raise NotImplementedError
     def entries(self):raise NotImplementedError
-    def actors(self):raise NotImplementedError
     def identities(self):raise NotImplementedError
-    def clock(self):raise NotImplementedError
     def configure(self):raise NotImplementedError
     def spawn(self,item,position):raise NotImplementedError
     def after_spawn(self):pass
     def validate_boundary(self):pass
+
+    @api_entry
+    def actors(self):
+        collection=getattr(self.world,self.runtime.distribution.get('ActorCollection','actors'),())
+        return tuple(collection)
+
+    @api_entry
+    def clock(self):
+        spec=self.runtime.distribution.get('PlayerClock')
+        if not spec:raise ModError('发行版须声明 PlayerClock 或实现 clock()')
+        return self.runtime.object_call(self.world,spec['Capability'],spec['Method'])
+
+    def _positions(self,count):
+        raise ModError('发行版须实现 _positions() 或采用 GridSession')
+
+    def add(self,name):
+        raise ModError('当前发行版不支持手动登场')
+
+    def scheduled(self):
+        if any(item.get('enabled',True) and item.get('appearance')=='scheduled' and item['id'] not in self.roster for item in self.entries()):
+            raise ModError('发行版须实现定时登场策略或采用 GridSession')
+
+    def management(self):
+        """Implemented optional administration APIs; inherited placeholders do not count."""
+        observer=self.runtime.distribution.get('Session',{}).get('Observer') or {}
+        result=[]
+        for name,binding in (('add',None),('records','Records'),('announce','Announce'),('send','Send'),('board',None)):
+            implementation=getattr(type(self),name,None)
+            implemented=callable(getattr(self,name,None)) and implementation is not getattr(Session,name)
+            declared=bool(binding and observer.get(binding))
+            panel=name=='board' and callable(getattr(self,'board_rows',None))
+            if callable(getattr(self,name,None)) and (implemented or declared or panel):
+                result.append(name)
+        return tuple(result)
+
+    def _observer(self,name,caller):
+        spec=self.runtime.distribution.get('Session',{}).get('Observer') or {}
+        method=spec.get(name)
+        if not method:raise ModError(f'发行版须声明 Session.Observer.{name} 或实现 {caller}()')
+        def invoke(*args):
+            with self.lock:return wire(self.runtime.object_call(self.world,spec['Capability'],method,*args))
+        return invoke
+
+    def records(self):return self._observer('Records','records')()
+    def announce(self,text):self._observer('Announce','announce')(text)
+    def send(self,actor,text):self._observer('Send','send')(actor,text)
 
     def start(self):
         self.configure();initial=[]
@@ -259,4 +322,7 @@ class Session:
             self.clients[actor]=self._client(config[actor],clients[actor],row['joined_at'])
         self.to_save()
 
-    def board(self):return self.ui.console.board(self.board_rows())
+    def board(self):
+        rows=getattr(self,'board_rows',None)
+        if not callable(rows):raise ModError('当前发行版不支持终端面板')
+        return self.ui.console.board(rows())

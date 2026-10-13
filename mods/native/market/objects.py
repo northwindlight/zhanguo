@@ -107,6 +107,9 @@ class Market:
         remainder = total - gold
         return gold, 0.0 if remainder < 1e-9 else remainder
 
+    def _settlement_cash(self, exact, carry, side):
+        return self._cash(exact, carry)
+
     def quote(self, resource, quantity, side, owner=None):
         listing = self._listing(resource)
         integer(quantity, 1)
@@ -119,7 +122,7 @@ class Market:
         # Validate even if a provider constructed an object without __init__.
         number(path.next_price, positive=True);number(path.exact_total)
         carry = self._carry.get(owner, 0.0) if owner is not None else 0.0
-        gold, remainder = self._cash(path.exact_total, carry)
+        gold, remainder = self._settlement_cash(path.exact_total, carry, side)
         return Quote(owner, resource, side, quantity, gold, path.exact_total,
                      self._prices[resource], path.next_price, carry, remainder)
 
@@ -220,7 +223,7 @@ class Market:
             for field in ('price_before','price_after'):number(row[field], positive=True)
             for field in ('carry_before','carry_after'):
                 if number(row[field]) >= 1:raise ValueError('Invalid trade carry')
-            expected_gold, expected_carry = self._cash(row['exact_total'], row['carry_before'])
+            expected_gold, expected_carry = self._settlement_cash(row['exact_total'], row['carry_before'], row['side'])
             if row['gold'] != expected_gold or not math.isclose(row['carry_after'], expected_carry, abs_tol=1e-9):
                 raise ValueError('Inconsistent trade settlement')
             trades.append(Trade(**row))

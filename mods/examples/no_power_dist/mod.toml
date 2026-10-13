@@ -71,3 +71,4 @@ Id = "cycle.end"
 
 [Distribution.Session]
 Entry = "mods.native.session:NativeSession"
+Observer = { Capability = "native:intelligence", Records = "to_save", Announce = "announce", Send = "send" }

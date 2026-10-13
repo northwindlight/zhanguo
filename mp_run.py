@@ -38,6 +38,11 @@ def make_world(cfg,force_new,save_path):
 
 class Observer:
     def __init__(self,host,journal_path,*,resume=False):
+        required=('add','records','announce','send','board')
+        describe=getattr(host,'management',None)
+        available=describe() if callable(describe) else tuple(name for name in required if callable(getattr(host,name,None)))
+        missing=[name for name in required if name not in available]
+        if missing:raise ValueError('当前发行版不支持终端管理接口：'+', '.join(missing))
         self.host,self.path=host,Path(journal_path)
         self.ui=host.ui
         records=host.records()
@@ -168,7 +173,9 @@ def run(argv=None):
     except (ValueError,OSError) as exc:
         print(ui.text('console.start_failed',error=exc),file=sys.stderr);return 2
     ui=host.ui
-    observer=Observer(host,journal_path,resume=not new)
+    try:observer=Observer(host,journal_path,resume=not new)
+    except (ValueError,OSError) as exc:
+        print(ui.text('console.start_failed',error=exc),file=sys.stderr);return 2
     if sys.stdin.isatty():CONSOLE=Console(prompt=ui.text('console.prompt'),is_multiline_start=_multiline).start()
     # Piped commands are deterministic and available before the first cycle.
     elif not sys.stdin.closed:
