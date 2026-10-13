@@ -1,0 +1,12 @@
+[Mod]
+Id = "mini:territory"
+Version = "1.0.0"
+Entry = "mods.examples.minigame.game:TerritoryMod"
+Requires = []
+
+[State]
+Owns = ["territory"]
+
+[Capabilities]
+Needs = []
+Provides = ["mini:territory"]

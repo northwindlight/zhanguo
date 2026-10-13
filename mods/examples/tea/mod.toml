@@ -1,0 +1,13 @@
+[Mod]
+Id = "example:tea"
+Version = "1.0.0"
+Entry = "mods.examples.tea.mod:TeaMod"
+# 不依赖任何东西：注册一样内容不需要向别人要权限。
+Requires = []
+
+[State]
+Owns = []
+
+[Capabilities]
+Needs = []
+Provides = []

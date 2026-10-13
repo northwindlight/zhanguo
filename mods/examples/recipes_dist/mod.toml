@@ -1,0 +1,74 @@
+[Distribution]
+Id = "example:recipes"
+Version = "1.0.0"
+# 在 native 之上追加两个模块（秋收、战象）的发行版：
+# 18 条 native 成员照旧引用，末尾追加自己的两条。
+Members = [
+  "../../native/resources/mod.toml",
+  "../../native/buildings/mod.toml",
+  "../../native/market_pricing/mod.toml",
+  "../../native/market/mod.toml",
+  "../../native/economy_valuation/mod.toml",
+  "../../native/economy_reports/mod.toml",
+  "../../native/bank/mod.toml",
+  "../../native/economy_queries/mod.toml",
+  "../../native/nations/mod.toml",
+  "../../native/government/mod.toml",
+  "../../native/map_generation/mod.toml",
+  "../../native/territory/mod.toml",
+  "../../native/diplomacy/mod.toml",
+  "../../native/vision/mod.toml",
+  "../../native/army/mod.toml",
+  "../../native/succession/mod.toml",
+  "../../native/intelligence/mod.toml",
+  "../../native/polities/huns/mod.toml",
+  "../harvest/mod.toml",
+  "../elephants/mod.toml",
+]
+RequiredState = ["resources", "buildings", "market", "economy", "bank", "nations", "government",
+                 "territory", "diplomacy", "units", "military", "succession", "intelligence"]
+ActorCollection = "nation_actors"
+ActionGate = {Capability = "native:government", Method = "can_act"}
+PlayerClock = {Capability = "native:government", Method = "period"}
+PlayerState = ["government", "nation", "nations", "econ", "bank", "land", "building_sites", "view",
+               "army", "diplomacy", "intel", "news", "dispatches", "market"]
+PlayerEvents = "news"
+
+# 离线可跑：把 llm 客户端换成「按兵不动」那个最小客户端（配方六）。
+# 接真模型就把这一段删掉。
+[Distribution.ClientFactories.llm]
+Entry = "mods.examples.idle_client.client:IdleClient"
+
+# 挂点表决定结算骨架的位置。与 native 相同，只在 buildings.production 之后
+# 插入一个 example.harvest。
+# Id 只允许 [a-zA-Z0-9_.:-]，且全局唯一。
+[[Hooks]]
+Id = "cycle.start"
+[[Hooks]]
+Id = "buildings.production"
+[[Hooks]]
+Id = "example.harvest"
+[[Hooks]]
+Id = "relations"
+[[Hooks]]
+Id = "military.supply"
+[[Hooks]]
+Id = "military.battle"
+[[Hooks]]
+Id = "military.withdraw"
+[[Hooks]]
+Id = "military.claims"
+[[Hooks]]
+Id = "succession"
+[[Hooks]]
+Id = "military.repatriate"
+[[Hooks]]
+Id = "market.settlement"
+[[Hooks]]
+Id = "buildings.completion"
+[[Hooks]]
+Id = "bank.settlement"
+[[Hooks]]
+Id = "economy.reports"
+[[Hooks]]
+Id = "cycle.end"

@@ -1,0 +1,73 @@
+[Distribution]
+Id = "example:playable-min"
+Version = "1.0.0"
+# 可运行的最小整局：在 native 的 18 个模块里去掉 economy_queries、bank、polities/huns。
+#
+# 其余 15 个不能去掉，原因有两类：
+#   · 宿主直接使用 —— host.py 调用 territory / government / nations / buildings /
+#     succession / market / intelligence 的接口，缺一个都无法开局；
+#   · 模块之间声明 —— government 的结算阶段需要 economy.reported 条件，
+#     因而需要 economy_reports、economy_valuation、market 与一个计价模块；
+#     vision 需要 diplomacy，army 需要 vision，intelligence 需要 diplomacy 与 army。
+# 把规模压到 15 以下需要替换声明链上的模块，而不是删掉它们
+# （可选的 parliament 发行版替换 government 即为一例）。
+Members = [
+  "../../native/resources/mod.toml",
+  "../../native/buildings/mod.toml",
+  "../../native/market_pricing/mod.toml",
+  "../../native/market/mod.toml",
+  "../../native/economy_valuation/mod.toml",
+  "../../native/economy_reports/mod.toml",
+  "../../native/nations/mod.toml",
+  "../../native/government/mod.toml",
+  "../../native/map_generation/mod.toml",
+  "../../native/territory/mod.toml",
+  "../../native/diplomacy/mod.toml",
+  "../../native/vision/mod.toml",
+  "../../native/army/mod.toml",
+  "../../native/succession/mod.toml",
+  "../../native/intelligence/mod.toml",
+]
+RequiredState = ["resources", "buildings", "market", "economy", "nations", "government",
+                 "territory", "diplomacy", "units", "military", "succession", "intelligence"]
+ActorCollection = "nation_actors"
+ActionGate = {Capability = "native:government", Method = "can_act"}
+PlayerClock = {Capability = "native:government", Method = "period"}
+# PlayerState 里每一项都必须是一个**存在且只读**的模块工具。
+# 这里去掉了 bank（模块未装载）以及 econ、market（属于 economy_queries）。
+PlayerState = ["government", "nation", "nations", "land", "building_sites", "view", "army",
+               "diplomacy", "intel", "news", "dispatches"]
+PlayerEvents = "news"
+
+# 用最小客户端替代模型客户端，本发行版因此可以离线运行。
+[Distribution.ClientFactories.llm]
+Entry = "mods.examples.idle_client.client:IdleClient"
+
+# 挂点表：位置在发行版里声明。这里去掉 native 的 bank.settlement，
+# 因为没有任何阶段挂在它上面。
+[[Hooks]]
+Id = "cycle.start"
+[[Hooks]]
+Id = "buildings.production"
+[[Hooks]]
+Id = "relations"
+[[Hooks]]
+Id = "military.supply"
+[[Hooks]]
+Id = "military.battle"
+[[Hooks]]
+Id = "military.withdraw"
+[[Hooks]]
+Id = "military.claims"
+[[Hooks]]
+Id = "succession"
+[[Hooks]]
+Id = "military.repatriate"
+[[Hooks]]
+Id = "market.settlement"
+[[Hooks]]
+Id = "buildings.completion"
+[[Hooks]]
+Id = "economy.reports"
+[[Hooks]]
+Id = "cycle.end"

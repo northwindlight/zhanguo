@@ -1,0 +1,12 @@
+[Mod]
+Id = "mini:resources"
+Version = "1.0.0"
+Entry = "mods.examples.minigame.game:ResourcesMod"
+Requires = []
+
+[State]
+Owns = ["accounts"]
+
+[Capabilities]
+Needs = []
+Provides = ["mini:resources", "mini:resource-exchange"]

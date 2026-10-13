@@ -1,0 +1,19 @@
+[Mod]
+Id = "mini:army"
+Version = "1.0.0"
+Entry = "mods.examples.minigame.game:ArmyMod"
+Requires = ["mini:resources", "mini:territory", "mini:buildings", "mini:diplomacy"]
+After = ["mini:territory", "mini:buildings", "mini:diplomacy"]
+
+[State]
+Owns = ["military"]
+
+[Capabilities]
+Needs = ["mini:resource-exchange", "mini:territory", "mini:buildings", "mini:diplomacy"]
+Provides = ["mini:army"]
+
+[Interfaces]
+"mini:resource-exchange" = ["exchange"]
+"mini:territory" = ["owner", "transfer"]
+"mini:buildings" = ["at"]
+"mini:diplomacy" = ["at_war"]
