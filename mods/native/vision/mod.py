@@ -5,6 +5,7 @@ from engine.runtime import GameMod, Panel, RuleSection, Tool
 @dataclass(frozen=True)
 class VisibleTile:
     position: tuple
+    name: str
     terrain: str
     owner: str | None
     buildings: tuple
@@ -37,7 +38,7 @@ class Vision:
                     if b.site!=fact.tile.id or b.remaining != 0:continue
                     if fact.owner not in (None,actor) and b.kind not in ('native:castle','native:town-hall'):continue
                     kinds[b.kind]=kinds.get(b.kind,0)+1
-                result.append(VisibleTile((x,y),fact.tile.terrain,fact.owner,tuple(kinds.items()),fact.resources if fact.owner==actor or fact.owner is None and fact.tile.id else ()))
+                result.append(VisibleTile((x,y),fact.tile.name,fact.tile.terrain,fact.owner,tuple(kinds.items()),fact.resources if fact.owner==actor or fact.owner is None and fact.tile.id else ()))
         return tuple(result)
 
 

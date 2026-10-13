@@ -1,4 +1,4 @@
-"""地块持有地形和核心事实；当前归属仅由建筑站点维护。"""
+"""地块持有地形、地名和核心事实；当前归属仅由建筑站点维护。"""
 from dataclasses import dataclass, replace
 from engine.building import integer
 from engine.identifiers import content_id
@@ -20,6 +20,7 @@ class Tile:
     position: tuple
     terrain: str
     core: str | None
+    name: str
 
 
 @dataclass(frozen=True)
@@ -66,7 +67,7 @@ class Territory:
         key = self._positions.get((x,y))
         if key is not None:return self.get(key)
         cell = self._call('map:generation','cell',self._seed,self._size,x,y)
-        return TileFact(Tile('',cell.position,cell.terrain,None),None,cell.resources)
+        return TileFact(Tile('',cell.position,cell.terrain,None,cell.name),None,cell.resources)
 
     def terrain(self, x, y):return self._types[self.cell(x,y).tile.terrain]
     def owner(self, x, y):return self.cell(x,y).owner
@@ -78,7 +79,8 @@ class Territory:
         if core is not None:self._call('native:nation-inspection','get',core)
         if terrain is not None and terrain not in self._types:raise ValueError('Unknown terrain')
         cell = self._call('map:generation','cell',self._seed,self._size,x,y,terrain)
-        tile = Tile(tile_id,(x,y),cell.terrain,core)
+        # 地名是地图的属性（见 map_generation/names.py），不随地块存档走。
+        tile = Tile(tile_id,(x,y),cell.terrain,core,cell.name)
         self._call('native:buildings','register_site',tile_id,owner,cell.position,
                    resources=dict(cell.resources),penalty=self._types[cell.terrain].build_penalty)
         self._tiles[tile_id] = tile;self._positions[cell.position] = tile_id
@@ -110,7 +112,8 @@ class Territory:
 
     def to_save(self):
         return {'size':self._size,'seed':self._seed,'tiles':[
-            {'id':t.id,'position':list(t.position),'terrain':t.terrain,'core':t.core} for t in self._tiles.values()]}
+            {'id':t.id,'position':list(t.position),'terrain':t.terrain,'core':t.core}
+            for t in self._tiles.values()]}
 
     def restore(self, data):
         self._write()
@@ -126,7 +129,10 @@ class Territory:
             site = self._call('native:buildings','site',row['id'])
             if site.position!=pos or site.penalty!=self._types[row['terrain']].build_penalty:raise ValueError('Tile/site facts disagree')
             if site.owner is not None and site.owner not in self._call('native:nation-inspection','ids'):raise ValueError('Unknown tile owner')
-            tiles[row['id']] = Tile(row['id'],pos,row['terrain'],row['core']);positions[pos]=row['id']
+            # Terrain is stored because a start can override it; the name is the
+            # map's own property and is read back from the map.
+            name = self._call('map:generation','cell',seed,size,pos[0],pos[1]).name
+            tiles[row['id']] = Tile(row['id'],pos,row['terrain'],row['core'],name);positions[pos]=row['id']
         self._size,self._seed,self._tiles,self._positions = size,seed,tiles,positions
 
     def __deepcopy__(self,memo):return self.snapshot()

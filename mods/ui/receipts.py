@@ -67,7 +67,7 @@ class ReceiptPresentation:
         return '，'.join(pieces) or '辅助建筑，不直接产出'
 
     def catalog(self,rows):
-        lines=[f'【建筑一览 · {len(rows)}种】造价为基础金价；地形、工程院和国策另计。']
+        lines=[f'【建筑一览 · {len(rows)}种】造价为基础金价；地形、工程院和本国政体系数另计。']
         for row in rows:
             key=row.get('id',row.get('kind'));self._catalog[key]=deepcopy(row)
             costs=row.get('costs_by_level',[])
@@ -82,7 +82,7 @@ class ReceiptPresentation:
 
     def economics(self,data):
         rows=data if isinstance(data,list) else [data]
-        lines=['【完整建筑报告 · 当前市价】基础造价含当前国策，不含地形和工程院优惠；满负荷估算。',
+        lines=['【完整建筑报告 · 当前市价】基础造价含本国政体系数（普通国家 100%，匈奴 +30%），不含地形和工程院优惠；满负荷估算。',
                '采集按卖价，工厂按买价自用替代，耗电按木电燃料成本；收益不是本回合实收。']
         for row in rows:
             name=self.label('content',row['kind']);net=self.money(row['net_per_period']);pb=row['payback_periods']
@@ -111,6 +111,7 @@ class ReceiptPresentation:
         lines=[f'国土 {len(rows)} 块：']
         for row in rows:
             tile=row.get('tile',row);site=self._sites.get(tile.get('id'),{})
+            place=f'「{tile["name"]}」' if tile.get('name') else ''
             completed=Counter(b['kind'] for b in instances or [] if b['site']==tile.get('id') and not b['remaining'])
             pending=Counter(b['kind'] for b in instances or [] if b['site']==tile.get('id') and b['remaining'])
             buildings='、'.join(f'{self.label("content",k)}×{n}' for k,n in completed.items()) or '无'
@@ -118,7 +119,7 @@ class ReceiptPresentation:
             resources=self.resources(row.get('resources',site.get('resources',[])),gold_short=False)
             cap=f'｜建筑位{sum(completed.values())+sum(pending.values())}/{site["capacity"]}' if 'capacity' in site and instances is not None else ''
             terrain=self.label('content',tile.get('terrain') or self._terrain.get(tile.get('id')) or '')
-            lines.append(f'{self.pos(tile)}{terrain}{cap}｜资源 {resources}'+('｜建筑 '+buildings if instances is not None else ''))
+            lines.append(f'{self.pos(tile)}{place}{terrain}{cap}｜资源 {resources}'+('｜建筑 '+buildings if instances is not None else ''))
         return '\n'.join(lines)
 
     def call_caption(self,action,args):
@@ -162,7 +163,7 @@ class ReceiptPresentation:
             self.remember({'building_sites':data})
             return self.land([{'tile':s,'resources':s['resources']} for s in data['sites']],data['instances'])
         if action=='tile' and isinstance(data,dict):
-            title=f'{self.pos(data)} {self.label("content",data["terrain"])} · '+self.name(data.get('owner') or '无主',self._names)
+            title=f'{self.pos(data)}'+(f'「{data["name"]}」' if data.get('name') else '')+f' {self.label("content",data["terrain"])} · '+self.name(data.get('owner') or '无主',self._names)
             details=[]
             if 'resources' in data:details.append('资源容量：'+self.resources(data['resources'])+f'；建筑位{data["capacity"]}')
             counts=Counter(b['kind'] for b in data['buildings'] if not b['remaining'])

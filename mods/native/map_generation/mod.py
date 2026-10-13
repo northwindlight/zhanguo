@@ -13,6 +13,7 @@ class MapCell:
     position: tuple
     terrain: str
     resources: tuple
+    name: str
 
 
 class MapGenerator:
@@ -24,7 +25,8 @@ class MapGenerator:
         old = self._grid.terrain(x,y) if terrain is None else next((k for k,v in TERRAIN_IDS.items() if v==terrain),None)
         if old is None:raise ValueError('Unknown terrain')
         resources = self._grid.resources_as(x,y,old)
-        return MapCell((x,y),TERRAIN_IDS[old],tuple((RESOURCE_IDS[k],v) for k,v in resources.items()))
+        return MapCell((x,y),TERRAIN_IDS[old],tuple((RESOURCE_IDS[k],v) for k,v in resources.items()),
+                       self._grid.name(x,y))
 
 
 class MapGenerationMod(GameMod):

@@ -35,6 +35,7 @@ from __future__ import annotations
 import hashlib
 import math
 
+from .names import name_grid
 from .parameters import (
     MAPGEN_BLUE_RADIUS,
     MAPGEN_DRY,
@@ -184,10 +185,14 @@ class MapGen:
         self._terrain: list[list[str]] = [[None] * size for _ in range(size)]   # type: ignore
         self._res: list[list[dict[str, int]]] = [[None] * size for _ in range(size)]  # type: ignore
         self._build()
+        self._names = name_grid(self.seed, self.size, _hash_int)
 
     # ---- 对外 ----
     def terrain(self, x: int, y: int) -> str:
         return self._terrain[y][x]
+
+    def name(self, x: int, y: int) -> str:
+        return self._names[y][x]
 
     def resources(self, x: int, y: int) -> dict[str, int]:
         return dict(self._res[y][x])      # ★ 返回**副本**：调用方（`_new_tile`）拿到的是

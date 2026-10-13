@@ -200,6 +200,8 @@ class TestReplaceExistingContent(unittest.TestCase):
             host.cycle()                       # 电网状态在结算的补给阶段记录
             kinds = [row['id'] for row in player.query('building_catalog')]
             site = player.query('building_sites')['sites'][0]['id']
+            # 这座门控测的是电网：先给该格补一座已落成兵营，否则先撞上"该地没有兵营"。
+            host.world.buildings.seed(site, 'native:barracks')
             try:
                 receipt=player.submit('recruit', {'site': site, 'kind': 'native:infantry'})
                 if not receipt['ok']:raise ValueError(receipt['message'])

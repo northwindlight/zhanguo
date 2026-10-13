@@ -347,5 +347,7 @@
   "field.bloc": "联盟键",
   "content.white": "白和",
   "content.pay": "本方赔款",
-  "content.demand": "对方赔款"
+  "content.demand": "对方赔款",
+  "receipt.No militia camp at this site": "该地没有军屯，民兵只能在自有已落成军屯征召",
+  "receipt.No barracks at this site": "该地没有兵营，正规军只能在自有已落成兵营征召"
 }

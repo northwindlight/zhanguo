@@ -83,10 +83,13 @@ class Military:
         building='native:militia-camp' if kind=='native:militia' else 'native:barracks'
         effect=self._effect(site,building)
         if kind=='native:militia':
+            # 说明书第十八条：民兵只能在自有已落成军屯征召；第十九条再核全国编制。
+            if not effect.get('militia_cap'):raise ValueError('No militia camp at this site')
             per=effect.get('militia_per_turn',0)
             cap=sum(self._effect(s.id,building).get('militia_cap',0) for s in self._call('native:buildings','snapshot').sites if s.owner==owner)
             if sum(u.kind==kind and u.alive for u in self._units.of(owner))+count>cap:raise ValueError('National militia capacity exceeded')
         else:
+            if not effect.get('recruit_cap'):raise ValueError('No barracks at this site')
             per=effect.get('recruit_cap',0)
             if energy_short:raise ValueError('Recruitment halted by energy shortage')
         if self._recruited.get(key,0)+count>per:raise ValueError('Site recruitment quota exceeded')

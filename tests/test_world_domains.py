@@ -18,7 +18,10 @@ class FixedMap(GameMod):
     def objects(self, world):return {'map:generation':self}
     def cell(self, seed, size, x, y, terrain=None):
         from types import SimpleNamespace
-        return SimpleNamespace(position=(x,y),terrain=terrain or 'native:plain',resources=(('native:farmland',5),('native:gold',2)))
+        # 地图契约包含地名（map_generation/names.py）：替换实现也要给。
+        return SimpleNamespace(position=(x,y),terrain=terrain or 'native:plain',
+                               resources=(('native:farmland',5),('native:gold',2)),
+                               name=f'定{x}-{y}')
 
 
 class TestWorldDomains(unittest.TestCase):

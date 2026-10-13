@@ -324,5 +324,7 @@
   "field.bloc": "Bloc Key",
   "content.white": "White Peace",
   "content.pay": "Pay Reparations",
-  "content.demand": "Demand Reparations"
+  "content.demand": "Demand Reparations",
+  "receipt.No militia camp at this site": "No militia camp at this site",
+  "receipt.No barracks at this site": "No barracks at this site"
 }

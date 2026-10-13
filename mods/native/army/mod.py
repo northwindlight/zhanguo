@@ -45,7 +45,7 @@ class ArmyMod(GameMod):
                 Tool('unit_catalog',self._catalog,read_only=True,description='全部兵种目录：征召材料、数量上限、攻击、速度、地形移动代价与补给；应用本国政策，无需坐标。'),
                 Tool('threats',self._threats,read_only=True,description='全视野内其他国家的军队和当前关系，排除本国与野人；无需坐标。'),
                 Tool('battle',self._battle,read_only=True,description='当前全部可见或本国参与交战：各方兵种/逐支数量、输出基数、地形/城堡减伤与撤退。盲战仅列本国，不泄露敌军；不是按目标预测战果。'),
-                Tool('tile',self._tile,read_only=True,description='唯一按坐标查询的工具：查看可见单格详情。本国及物化无主遗址显示资源、容量、施工与建筑；他国仅显示地形、归属、公开城堡和市政厅及可见军队。迷雾不可查。'))
+                Tool('tile',self._tile,read_only=True,description='唯一按坐标查询的工具：查看可见单格详情（含地名）。本国及物化无主遗址显示资源、容量、施工与建筑；他国仅显示地形、归属、公开城堡和市政厅及可见军队。迷雾不可查。'))
     def schema_for_actor(self, world, actor, schema):
         result=deepcopy(schema)
         if result['function']['name']=='recruit':
@@ -121,7 +121,7 @@ class ArmyMod(GameMod):
         full=fact.owner==actor or fact.owner is None and bool(fact.tile.id)
         snap=call('native:buildings','snapshot')
         buildings=[b for b in snap.instances if b.site==fact.tile.id and (full or b.remaining==0 and b.kind in ('native:castle','native:town-hall'))]
-        result={'position':(x,y),'terrain':fact.tile.terrain,'owner':fact.owner,'buildings':[{'kind':b.kind,'level':b.level,'remaining':b.remaining} for b in buildings],
+        result={'position':(x,y),'name':fact.tile.name,'terrain':fact.tile.terrain,'owner':fact.owner,'buildings':[{'kind':b.kind,'level':b.level,'remaining':b.remaining} for b in buildings],
                 'army':[u for u in world.military.visible_units(actor) if (u.x,u.y)==(x,y)]}
         if full:
             site=call('native:buildings','site',fact.tile.id)
