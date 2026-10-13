@@ -16,6 +16,10 @@
 - 地块用两条等价的路引用：**一个字符串**（地名，或 `"5 6"` / `"5,6"` / `"(5,6)"` 坐标串）或**两个整数 x、y**。`build` / `recruit` 走 `site`，`move` / `attack` / `retreat` / `tile` 走新增的 `place`；同时给两种会被拒绝，免得猜错意图。地名解析归领土域（`native:territory.resolve`），把名字查成坐标。
 - 引擎补 `optional()`：可选依赖缺失时不拦住装载，只在调用时报"无提供者"。建筑据此可选依赖领土域（装了地图就能按地名动工，没装仍可用坐标）。
 
+### 模型面向的键值
+
+- 状态与回执里不再出现 `native:` 命名空间：注册内容一律用短键（`food`、`farm`、`infantry`），未注册的命名空间 ID 至少剥掉前缀（`native:farmland` → `farmland`）。国家 ID（`scenario:*`）保持原样，那是模型要传回工具的句柄。
+
 ### 其它修正
 
 - 地名表回到地图上：每格一个唯一地名，由 `(seed, size)` 与规范扫描序唯一确定（`mods/native/map_generation/names.py`），未物化的格子也有名字，不随地块物化、存档往返或 PYTHONHASHSEED 变化；`view / land / tile` 与观察者地图都带地名，说明书坐标口径改为与工具一致的 0 起。

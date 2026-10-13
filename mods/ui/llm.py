@@ -9,15 +9,24 @@ from .views import player_map
 class LLMUI:
     def __init__(self,cfg):self.cfg=cfg;self.text=Translator.from_config(cfg);self.sites={};self.has_scripts=False;self.catalogs={};self.current=None;self.rulebook=[];self.guide_catalog=[];self.period=0;self.at_war=False
 
+    def _key(self,ident):
+        """模型面向的键值：注册内容用它的短键，未注册的命名空间 ID 至少剥掉命名空间。
+
+        国家 ID（scenario:*）不动：那是模型必须原样传回工具的句柄，不是内容键。
+        """
+        keys=self.cfg.get('_content_keys',{})
+        if ident in keys:return keys[ident]
+        return ident.split(':',1)[1] if ident.startswith('native:') else ident
+
     def compact(self,value):
         """Short coordinate references for model presentation only; preserve prose."""
         if isinstance(value,list):return [self.compact(v) for v in value]
         if not isinstance(value,dict):
-            return self.cfg.get('_content_keys',{}).get(value,value) if isinstance(value,str) else value
+            return self._key(value) if isinstance(value,str) else value
         if isinstance(value.get('id'),str) and isinstance(value.get('position'),(list,tuple)):
             self.sites[value['id']]=list(value['position'])
         prose={'text','summary','message','reason','content','reasoning_content','source','old','new','output'}
-        result={self.cfg.get('_content_keys',{}).get(k,k):v if k in prose else self.compact(v) for k,v in value.items()}
+        result={self._key(k):v if k in prose else self.compact(v) for k,v in value.items()}
         if isinstance(value.get('id'),str) and value['id'] in self.sites:
             result.pop('id');result.setdefault('position',self.sites[value['id']])
         if isinstance(value.get('site'),str) and value['site'] in self.sites:
@@ -26,7 +35,7 @@ class LLMUI:
             tile=result.pop('tile');result.update(tile)
         stocks=value.get('stocks')
         if isinstance(stocks,list) and all(isinstance(s,dict) and 'id' in s and 'amount' in s for s in stocks):
-            result['stocks']={self.cfg.get('_content_keys',{}).get(s['id'],s['id']):s['amount'] for s in stocks}
+            result['stocks']={self._key(s['id']):s['amount'] for s in stocks}
         return result
 
     def receipt(self,receipt):
