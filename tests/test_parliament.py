@@ -23,6 +23,14 @@ class CouncilBackend:
         return '开局以来曾建农场并作出错误的落成判断；议会三次否决。以当前实际地图和库存为准，新君主可以重新规划。',{'calls':1}
     def chat_turn(self,messages,tools,cfg,on_retry=None):
         content,stats=self.complete_text(messages,cfg)
+        if messages[-1]['content'].startswith('第一步：'):
+            return {'content':'','tool_calls':[{'id':'council-next-stage','type':'function','function':{
+                'name':'council_next_stage','arguments':'{}'}}]},stats
+        if messages[-1]['content'].startswith('第二步：'):
+            try:verdict=json.loads(content)
+            except (TypeError,ValueError):return {'content':content},stats
+            return {'content':'','tool_calls':[{'id':'council-verdict','type':'function','function':{
+                'name':'council_verdict','arguments':json.dumps(verdict,ensure_ascii=False)}}]},stats
         return {'content':content},stats
 
 
@@ -67,7 +75,7 @@ class TestParliament(unittest.TestCase):
         for token in ('build','receipt','building_sites','land','econ','turn.start'):self.assertIn(token,raw)
         self.assertIn('NEW-CANDIDATE',json.dumps(second,ensure_ascii=False))
         self.assertEqual(second[:len(first)],first)
-        self.assertEqual(second[-2]['role'],'assistant')
+        self.assertEqual(second[-2]['role'],'tool')
         self.assertEqual(h.services[self.actor]['council'].council['dialogue'],[])
         self.assertIn('议会通过了国策',results[1]['message'])
         self.assertTrue(any(row['kind']=='settlement' for row in h.services[self.actor]['council'].council['archive']))
@@ -80,7 +88,7 @@ class TestParliament(unittest.TestCase):
         receipts=h.cycle()
         self.assertFalse(receipts[0]['ok']);self.assertFalse(receipts[1]['ok'])
         self.assertIn('要求君主解释',receipts[0]['message'])
-        self.assertEqual(len(h.services[self.actor]['council'].council['dialogue']),5)
+        self.assertEqual(len(h.services[self.actor]['council'].council['dialogue']),7)
         first_dialogue=deepcopy(h.services[self.actor]['council'].council['dialogue'])
         self.assertIn('INITIAL-BASELINE',h.player(self.actor).observe()['facts']['government']['plan']['text'])
         h.cycle()
@@ -118,7 +126,7 @@ class TestParliament(unittest.TestCase):
         self.assertIn('上一任君主被愤怒的贵族们罢免',content)
         self.assertNotIn('OLD-MONARCH-TOXIC-REASONING',content)
         self.assertIn('OLD-MONARCH-TOXIC-REASONING',json.dumps(h.services[self.actor]['council']._review_backend.requests[-1],ensure_ascii=False))
-        self.assertEqual(len(h.services[self.actor]['council'].council['dialogue']),13) # Survives even succession.
+        self.assertEqual(len(h.services[self.actor]['council'].council['dialogue']),19) # Survives even succession.
         gov=h.player(self.actor).observe()['facts']['government']
         self.assertEqual(gov['parliament']['reign'],2);self.assertIsNone(gov['plan'])
         self.assertEqual([s['period'] for s in gov['summaries']],[3])
@@ -158,6 +166,53 @@ class TestParliament(unittest.TestCase):
             self.assertNotIn('monarch-secret',json.dumps(h.to_save()))
             with self.assertRaises(SaveFormatError):GameHost.load(path,{**self.cfg(),'mods':'mods.toml'})
 
+    def test_council_can_think_in_plain_text_then_end_with_verdict_tool(self):
+        h,c=self.host([True],[reply(call('p','plan',text='发展')),
+                              reply(call('e','end_turn',summary='审核格式修正后完成行动'))])
+        class RepairingCouncil:
+            def __init__(self):self.calls=[];self.schemas=[];self.turn=0
+            def chat_turn(self,messages,tools,cfg,on_retry=None):
+                self.calls.append(deepcopy(messages));self.schemas.append(deepcopy(tools));self.turn+=1
+                if self.turn==1:return {'content':'先梳理了修订前的完整轨迹。'},{}
+                if self.turn==2:return {'content':'','tool_calls':[{'id':'next-stage','type':'function','function':{
+                    'name':'council_next_stage','arguments':'{}'}}]},{}
+                if self.turn==3:return {'content':'周国已兑现占领与建造承诺；伤兵安排合理。'},{}
+                return {'content':'','tool_calls':[{'id':'final-verdict','type':'function','function':{
+                    'name':'council_verdict','arguments':'{"approved":true,"reason":"已重新核对，国策符合国家战略"}'}}]},{}
+        reviewer=RepairingCouncil();h.services[self.actor]['council']._review_backend=reviewer
+        results=h.cycle()
+        self.assertTrue(results[0]['ok'])
+        self.assertIn('议会通过了国策',results[0]['message'])
+        self.assertEqual(len(reviewer.calls),4)
+        feedback=reviewer.calls[3][-1]['content']
+        self.assertIn('未能正确提交裁决',feedback)
+        self.assertIn('council_verdict',feedback)
+        self.assertEqual(reviewer.calls[3][-1]['role'],'user')
+        self.assertIn('council_next_stage',{tool['function']['name'] for tool in reviewer.schemas[0]})
+        verdict_schema=next(tool['function'] for tool in reviewer.schemas[2] if tool['function']['name']=='council_verdict')
+        self.assertEqual(verdict_schema['parameters']['required'],['approved','reason'])
+        self.assertEqual(verdict_schema['parameters']['properties']['approved']['type'],'boolean')
+        self.assertEqual(verdict_schema['parameters']['properties']['reason']['type'],'string')
+
+    def test_first_stage_warns_after_five_calls_and_auto_approves_at_ten(self):
+        h,c=self.host([True],[reply(call('p','plan',text='发展')),
+                              reply(call('e','end_turn',summary='议会瘫痪后完成本回合'))])
+        class StalledCouncil:
+            def __init__(self):self.calls=[];self.schemas=[]
+            def chat_turn(self,messages,tools,cfg,on_retry=None):
+                self.calls.append(deepcopy(messages));self.schemas.append(deepcopy(tools))
+                return {'content':'我还在核对旧国策与历史回执。'},{}
+        reviewer=StalledCouncil();h.services[self.actor]['council']._review_backend=reviewer
+        results=h.cycle()
+        self.assertIn('议会瘫痪',results[0]['message'])
+        self.assertEqual(len(reviewer.calls),10)
+        self.assertIn('5 轮，还有 5 轮',reviewer.calls[5][-1]['content'])
+        self.assertIn('council_next_stage',{tool['function']['name'] for tool in reviewer.schemas[0]})
+        self.assertEqual(reviewer.schemas[0][-1]['function']['name'],'council_next_stage')
+        self.assertTrue(h.player(self.actor).observe()['facts']['government']['plan']['text']=='发展')
+        review=h.services[self.actor]['council'].council['archive']
+        self.assertTrue(any(row.get('auto_approved_due_to_paralysis') for row in review))
+
     def test_invalid_or_failed_council_stops_and_cannot_replace_boundary_file(self):
         for output in ('not-json','{"approved":"yes","reason":"ok"}',RuntimeError('review transport failure')):
             h,c=self.host([True],[reply(call('p','plan',text='发展'))])
@@ -184,12 +239,12 @@ class TestParliament(unittest.TestCase):
                     self.queried=True
                     return reply(call('rules','player_rules',topic=''),call('manual','read_manual',topic='说明书'),
                                  call('guide','read_manual',topic='战争手册'),call('forged','buy',resource='native:wood',quantity=1)),{}
-                if messages[-1]['role']=='tool':return {'content':'已经查说明书及战争手册，按施工与结算回执核对。'},{}
+                if messages[-1]['role']=='tool':return reply(call('next','council_next_stage')) ,{}
                 return super().chat_turn(messages,tools,cfg,on_retry)
         reviewer=ReadingCouncil();h.services[self.actor]['council']._review_backend=reviewer
         h.cycle()
         names={s['function']['name'] for s in reviewer.calls[0][1]}
-        self.assertEqual(names,{'player_rules','read_manual'})
+        self.assertEqual(names,{'player_rules','read_manual','council_next_stage'})
         queries=[r for r in h.services[self.actor]['council'].council['archive'] if r['kind']=='council.query']
         self.assertEqual([r['result']['ok'] for r in queries],[True,True,True,False])
         self.assertIn('buildings',queries[1]['result']['data'])
