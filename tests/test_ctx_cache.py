@@ -61,8 +61,8 @@ class TestPlanKeys(unittest.TestCase):
         self.assertEqual(p.tool_trim, 400)
         p2 = ctx.make_plan({"ctx_window": 100_000})
         self.assertEqual(p2.old_reasoning, "full")
-        # 未配置时默认早截回执（国策与规则例外，见 KEEP_TOOL_ACTIONS）。
-        self.assertEqual(p2.tool_trim, 600)
+        # 模型上下文默认永不截断（开关仍在，要开得显式配）。
+        self.assertEqual(p2.tool_trim, 0)
 
 
 class TestRolling(unittest.TestCase):

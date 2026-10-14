@@ -327,10 +327,11 @@ def make_plan(cfg: dict, *, fallback_turns: int | None = None) -> Plan:
     """
     compact = str(cfg.get("ctx_compact", "llm")).lower() != "off"
     old_reasoning = "strip" if str(cfg.get("ctx_old_reasoning", "full")).lower() != "full" else "full"
-    # 回执截断阈值：没配置时默认早截（国策/规则不受影响，见 KEEP_TOOL_ACTIONS）；
-    # 显式配 0 = 完全不截——别写成 `or 600`，那会把 0 当假值吞掉。
+    # 模型上下文**永远不截断**：默认 0。留这个开关是给"窗口实在放不下"的极端情形，
+    # 不是常规手段——国策、规则、面板都可能是模型推理的依据，剪掉就是让它猜。
+    # 想开就显式配 ctx_trim_tool_chars；别写成 `or 600`，那会把 0 当假值吞掉。
     raw_trim = cfg.get("ctx_trim_tool_chars")
-    tool_trim = 600 if raw_trim is None else max(0, int(raw_trim))
+    tool_trim = 0 if raw_trim is None else max(0, int(raw_trim))
     roll = "period" if str(cfg.get("ctx_roll", "slide")).lower() in ("period", "periodic", "none") else "slide"
     period = max(0, int(cfg.get("ctx_period") or 0))   # 0=自动（窗口几何+实测回合体积推导）；>0=手动固定周期
     slice_keep = _fnum(cfg.get("ctx_slice_keep"), 0.55, 0.2, 0.9)

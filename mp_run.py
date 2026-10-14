@@ -101,7 +101,7 @@ class Observer:
             full=self.ui.console.action(self.host.clock(),actor,action,args,receipt,self.names())
             to_journal(self.path,full)
             preview=getattr(self.ui.console,'preview',None)
-            echo_line(preview(full) if callable(preview) else full)
+            echo_line(preview(full,action=action) if callable(preview) else full)
             # Archive the original receipt as well as the full translated display.
             to_journal(self.path,'```json\n'+json.dumps({**receipt,'arguments':args},ensure_ascii=False)+'\n```')
     def on_call(self,actor,step,receipts):

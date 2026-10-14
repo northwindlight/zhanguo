@@ -53,8 +53,17 @@ class ConsoleUI(ReceiptPresentation):
         if isinstance(value,bool):return self.text('console.yes' if value else 'console.no')
         if isinstance(value,(int,float)):return f'{value:g}'
         return str(self.name(self.label('content',value),names or {}))
-    def preview(self,text,*,chars=900,lines=14):
-        """Only terminal output is capped; action() and journals retain all facts."""
+    KEEP_ACTIONS=('plan','end_turn','explain_plan')
+    """终端整段照打的回执：国策、回合小结与议会解释——都是模型自己写的正文，
+    剪掉尾巴就没法整段读完；其余回执（规则、面板、战绩流水）在屏幕上早截断，
+    日志里一直是全的。"""
+
+    def preview(self,text,*,action=None,chars=600,lines=10):
+        """终端显示按行数/字数封顶，**但国策与规则不封顶**；其余回执更早截断。
+
+        只在屏幕上截；`action()` 与日志保留完整正文和原始数据。
+        """
+        if action in self.KEEP_ACTIONS:return text
         rows=text.splitlines();shown='\n'.join(rows[:lines])
         if len(rows)<=lines and len(shown)<=chars:return text
         return shown[:chars].rstrip()+'\n'+self.text('console.receipt_truncated')

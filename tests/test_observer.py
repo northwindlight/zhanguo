@@ -102,6 +102,10 @@ class TestObserver(unittest.TestCase):
         receipt['data']={'text':'回执全文'*500}
         full=ui.action(0,'s:q','player_rules',{},receipt,{'s:q':'秦'})
         short=ui.preview(full);self.assertLess(len(short),len(full));self.assertIn('完整内容见日志',short)
+        # 国策与回合小结整段照打；规则这类仍然是屏幕上早截断。
+        for action in ('plan','end_turn','explain_plan'):
+            self.assertEqual(ui.preview(full,action=action),full)
+        self.assertIn('完整内容见日志',ui.preview(full,action='player_rules'))
         with tempfile.TemporaryDirectory() as d,contextlib.redirect_stdout(io.StringIO()) as out:
             obs=Observer(h,Path(d)/'journal.md');obs.model_output('💭 s:q 静默保留思考')
             self.assertEqual(out.getvalue(),'')
