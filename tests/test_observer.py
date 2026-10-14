@@ -75,11 +75,20 @@ class TestObserver(unittest.TestCase):
 
     def test_overview_shows_only_production_and_military_flow_deltas(self):
         h=GameHost.new(self.cfg());snapshot=h.observer_snapshot();actor='s:q'
-        snapshot['resource_flows']={'period':0,'owners':{actor:{'native:gold':10,'native:ore':-3}}}
+        for observation,amount in zip(snapshot['nations'],(1,100)):
+            for row in observation['facts']['econ']['stocks']:
+                if row['id']=='native:gold':row['amount']=amount
+        snapshot['resource_flows']={'period':0,'owners':{actor:{'native:gold':10,'native:ore':-3},
+            's:c':{'native:gold':-2}}}
         text=h.ui.console.overview(snapshot)
         self.assertIn('\033[32m+10',text);self.assertIn('\033[31m-3',text)
         self.assertNotIn('(+10)',text);self.assertNotIn('(-3)',text)
         self.assertIn('不含市场交易和赠礼',text)
+        import re
+        plain=re.sub(r'\033\[[0-9;]*m','',text)
+        qin=next(line for line in plain.splitlines() if line.startswith('秦 '))
+        chu=next(line for line in plain.splitlines() if line.startswith('楚 '))
+        self.assertEqual(qin.index('+10'),chu.index('-2'))
 
     def test_overview_omits_policy_but_submission_receipt_keeps_it(self):
         h=GameHost.new(self.cfg());p=h.player('s:q');policy='保障粮木与能源，集中军队守卫边境。'

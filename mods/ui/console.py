@@ -105,26 +105,34 @@ class ConsoleUI(ReceiptPresentation):
         lines.append(self.text('console.market',values=market));lines.append(self.text('console.bank',**state['bank']))
         zh=self.text.language=='zh-CN'
         headers=['国家','国土','军队','金币','粮食','木材','矿石','石油','装备','补给'] if zh else ['Nation','Land','Units','Gold','Food','Wood','Ore','Oil','Equip','Supply']
-        rows=[]
         flows=state.get('resource_flows',{}).get('owners',{})
         def number(v):
             if abs(v)>=100000000:return f'{v/100000000:.1f}亿' if zh else f'{v/1000000000:.1f}G'
             if abs(v)>=10000:return f'{v/10000:.1f}万' if zh else f'{v/1000:.1f}k'
             return f'{v:g}'
-        def stock(resource,amount,actor):
-            value=number(amount);delta=flows.get(actor,{}).get('native:'+resource,0)
-            if not delta:return value
-            color='32' if delta>0 else '31'
-            return f'{value} \033[{color}m{delta:+g}\033[0m'
-        for obs in state['nations']:
-            f=obs['facts'];actor=obs['actor'];stocks={r['id']:r['amount'] for r in f['econ']['stocks']}
-            rows.append([names[actor],len(f['land']),sum(u['owner']==actor for u in f['army']),*[stock(r,stocks.get('native:'+r,0),actor) for r in ('gold','food','wood','ore','oil','equipment','supply')]])
-        table=[[str(v) if i==0 or isinstance(v,str) else number(v) for i,v in enumerate(row)] for row in rows]
         import re
         ansi=re.compile(r'\033\[[0-9;]*m')
         width=lambda t:sum(2 if unicodedata.east_asian_width(c) in 'WF' else 0 if unicodedata.combining(c) else 1 for c in ansi.sub('',t))
+        resources=('gold','food','wood','ore','oil','equipment','supply')
+        source=[]
+        for obs in state['nations']:
+            f=obs['facts'];actor=obs['actor'];stocks={r['id']:r['amount'] for r in f['econ']['stocks']}
+            source.append((names[actor],len(f['land']),sum(u['owner']==actor for u in f['army']),actor,
+                [stocks.get('native:'+resource,0) for resource in resources]))
+        amount_widths=[max([0,*[width(number(row[4][i])) for row in source]]) for i in range(len(resources))]
+        table=[]
+        for name,land,army,actor,amounts in source:
+            row=[name,number(land),number(army)]
+            for index,(resource,amount) in enumerate(zip(resources,amounts)):
+                value=number(amount);value+=' '*(amount_widths[index]-width(value))
+                delta=flows.get(actor,{}).get('native:'+resource,0)
+                if delta:
+                    color='32' if delta>0 else '31'
+                    value+=' '+f'\033[{color}m{delta:+g}\033[0m'
+                row.append(value)
+            table.append(row)
         sizes=[max([width(headers[i]),*[width(row[i]) for row in table]]) for i in range(len(headers))]
-        def line(row):return '  '.join(v+' '*(sizes[i]-width(v)) if i==0 else ' '*(sizes[i]-width(v))+v for i,v in enumerate(row))
+        def line(row):return '  '.join(v+' '*(sizes[i]-width(v)) for i,v in enumerate(row))
         lines+=['',self.text('console.flow_legend'),line(headers),'  '.join('-'*n for n in sizes),*[line(r) for r in table],'',self.text('console.country_details')]
         for obs in state['nations']:
             actor=obs['actor'];facts=obs['facts'];econ=facts['econ'];units=[u for u in facts['army'] if u['owner']==actor]
