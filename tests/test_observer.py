@@ -58,6 +58,28 @@ class TestObserver(unittest.TestCase):
         self.assertIn('步兵 2',text);self.assertIn('骑兵 1',text)
         self.assertNotIn('999',text);self.assertNotIn('1899',text)
 
+    def test_receipts_show_tile_names_coordinates_and_army_kinds(self):
+        h=GameHost.new(self.cfg());ui=h.ui.console;observation=h.player('s:q').observe();ui.remember(observation)
+        facts=observation['facts'];tile=facts['land'][0]['tile'];x,y=tile['position'];name=tile['name']
+        receipt={'ok':True,'status':'effective','message':'','data':{'site':facts['building_sites']['sites'][0]['id'],
+            'kind':'native:lumber-camp','costs':{'native:gold':20,'native:wood':15}}}
+        text=ui.action(0,'s:q','build',{'kind':'lumber-camp','site':'所选地块'},receipt,{'s:q':'秦'})
+        self.assertIn(f'建造 林场 所选地块 {name}({x}, {y})',text)
+        self.assertIn(f'动工 林场（{name}({x}, {y})',text)
+        position=(x+1,y)
+        ui.remember({'actor':'s:q','facts':{'view':[{'position':position,'name':'试验地'}],
+            'army':[{'owner':'s:q','id':1,'kind':'native:infantry'},{'owner':'s:q','id':2,'kind':'native:militia'}]}})
+        attack={'ok':True,'status':'effective','message':'','data':{'units':[1,2],'engaged':True}}
+        text=ui.action(0,'s:q','attack',{'ids':[1,2],'place':'试验地'},attack,{'s:q':'秦'})
+        self.assertIn('步兵#1、民兵#2 → 试验地('+str(position[0])+', '+str(position[1])+')',text)
+
+    def test_overview_shows_only_production_and_military_flow_deltas(self):
+        h=GameHost.new(self.cfg());snapshot=h.observer_snapshot();actor='s:q'
+        snapshot['resource_flows']={'period':0,'owners':{actor:{'native:gold':10,'native:ore':-3}}}
+        text=h.ui.console.overview(snapshot)
+        self.assertIn('\033[32m(+10)',text);self.assertIn('\033[31m(-3)',text)
+        self.assertIn('不含市场交易和赠礼',text)
+
     def test_overview_omits_policy_but_submission_receipt_keeps_it(self):
         h=GameHost.new(self.cfg());p=h.player('s:q');policy='保障粮木与能源，集中军队守卫边境。'
         receipt=p.submit('plan',{'text':policy})
@@ -106,7 +128,7 @@ class TestObserver(unittest.TestCase):
         h=GameHost.new(self.cfg());ui=h.ui.console
         receipt={'ok':True,'status':'effective','message':'','data':{'kind':'native:farm','costs':{'native:gold':20,'native:wood':15}}}
         text=ui.action(0,'s:q','build','{"kind":"farm","x":4,"y":11}',receipt,{'s:q':'秦'})
-        self.assertIn('建造 农场 (4,11) → 动工 农场',text)
+        self.assertIn('建造 农场 (4, 11) → 动工 农场（(4, 11)',text)
         self.assertIn('−20金 −15木',text)
         self.assertNotIn('native:',text);self.assertNotIn('类型=',text)
         self.assertNotIn('已生效',text)

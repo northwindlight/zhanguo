@@ -15,6 +15,16 @@ class NativeObserver:
         with self.lock:
             names={a:r['name'] for a,r in self.roster.items()}
             nations=[self.player(a).observe() for a in self.actors()]
+            economy=self.world.economy.snapshot()
+            flow_period=economy.next_period-1
+            flows=defaultdict(lambda:defaultdict(float))
+            if flow_period>=0:
+                for valued in economy.events:
+                    fact=valued.fact
+                    if fact.period!=flow_period or fact.category not in ('production','military'):continue
+                    for resource,amount in fact.outputs:
+                        if fact.category=='production':flows[fact.owner][resource]+=amount
+                    for resource,amount in fact.inputs:flows[fact.owner][resource]-=amount
             size,_=self.grid();buildings=defaultdict(list)
             for instance in wire(self.world.buildings.snapshot())['instances']:
                 buildings[instance['site']].append((instance['kind'],instance['level']))
@@ -27,6 +37,8 @@ class NativeObserver:
                         'buildings':buildings[cell['tile']['id']]})
             diplomacy=wire(self.world.diplomacy.to_save())
             return {'period':self.clock(),'names':names,'nations':nations,
+                'resource_flows':{'period':flow_period,'owners':{owner:{resource:amount for resource,amount in values.items() if amount}
+                    for owner,values in flows.items()}},
                 'dead':[a for a in self.roster if a not in self.actors()],
                 'market':wire(self.world.market.snapshot()),'bank':self.bank_status(),
                 'records':self.records(),

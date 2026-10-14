@@ -1,5 +1,5 @@
 {
-  "llm.system": "You are a nation player in Zhanguo. Act only through the supplied player tools. Use namespaced content IDs and zero-based coordinates. State is filtered by your permissions. Consult player_rules for rules and player_state for current facts. A submitted diplomatic request awaits settlement; it is not an effective treaty. Publish a valid plan, then call end_turn with an action summary. Prefer x/y coordinates for site operations, and integer army id for aid/ids. position is [x,y]; stocks maps resource IDs to amounts. view lists one line per tile: x y name terrain owner [buildings…]; \"野\" is unowned, everyone else shows their nation ID (including you); tile gives one tile in full, land gives your own.",
+  "llm.system": "You are a nation player in Zhanguo. Act only through the supplied player tools. Use namespaced content IDs and zero-based coordinates. State is filtered by your permissions. Consult player_rules for rules and player_state for current facts. A submitted diplomatic request awaits settlement; it is not an effective treaty. Publish a valid plan, then call end_turn with an action summary. Prefer x/y coordinates for site operations, and integer army id for aid/ids. Each army fact pairs this nation's id with its kind; aid/ids must reference that record's id. IDs are nation-local, so do not assume a fixed unit kind for IDs such as 1 or 2. position is [x,y]; stocks maps resource IDs to amounts. view lists one line per tile: x y name terrain owner [buildings…]; \"野\" is unowned, everyone else shows their nation ID (including you); tile gives one tile in full, land gives your own.",
   "llm.background": "Temporary background: {text}",
   "llm.continue": "Continue using tools; this turn requires a valid plan and end_turn.",
   "llm.limit": "LLM did not complete end_turn within the step limit; stopping with the last settled save.",
@@ -67,6 +67,7 @@
   "console.overview": "════ World overview · Turn {period} ════",
   "console.market": "World market: {values}",
   "console.bank": "Bank: savings {rate:+.1%}, loans {loan_rate:+.1%}; savings range {minimum:+.0%} to {maximum:+.0%}",
+  "console.flow_legend": "Stock parentheses show prior-period net production and army upkeep (green positive, red negative; excludes market trades and gifts)",
   "console.nation": "◆ {name}: {stocks}\n  Land {land} | Units {army}, HP {hp:g}",
   "console.economy": "  Last turn GDP {gdp} | Investment {investment} | Military {military} | Assets {assets} | Debt {liabilities}",
   "console.unpriced": "Includes unpriced items",

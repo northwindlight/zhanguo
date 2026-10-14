@@ -5,6 +5,7 @@ from functools import partial
 import json
 from pathlib import Path
 import queue
+import re
 import sys
 import time
 
@@ -14,16 +15,17 @@ from ui import load_ui
 from engine.config import read_config
 
 CONSOLE=None
+ANSI_ESCAPE=re.compile(r'\033\[[0-9;]*m')
 
 
 def to_journal(path,text):
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
-    with path.open('a',encoding='utf-8') as stream:stream.write(text+'\n')
+    with path.open('a',encoding='utf-8') as stream:stream.write(ANSI_ESCAPE.sub('',text)+'\n')
 
 
 def echo_line(text):
     if CONSOLE is not None:CONSOLE.write(text)
-    else:print(text,flush=True)
+    else:print(ANSI_ESCAPE.sub('',text),flush=True)
 
 
 def panel_note(journal_path,text,head=False):
