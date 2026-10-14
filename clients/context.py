@@ -155,9 +155,29 @@ def record_tokens(rec: dict) -> int:
     return messages_tokens(rec.get("messages") or [])
 
 
-def _shrink_messages(msgs: list[dict], *, keep_reasoning: bool, tool_trim: int) -> list[dict]:
+KEEP_TOOL_ACTIONS = ("plan", "government", "player_rules", "handbooks")
+"""永不截断的工具回执：国策、国策状态、规则与指南。
+
+国策是跨回合的策略主线，截掉尾巴等于把模型自己写的战略剪掉一半；规则与指南同理。
+其余回执（面板、目录、战绩流水）只留开头，长度阈值为 ct_trim... 见 cfg 的 ctx_trim_tool_chars。
+"""
+
+
+def _tool_actions(msgs: list[dict]) -> dict:
+    """tool_call_id → 工具名：用来判断哪条回执不许截。"""
+    names = {}
+    for m in msgs:
+        if m.get("role") == "assistant":
+            for call in m.get("tool_calls") or []:
+                names[call.get("id")] = (call.get("function") or {}).get("name")
+    return names
+
+
+def _shrink_messages(msgs: list[dict], *, keep_reasoning: bool, tool_trim: int,
+                     keep_actions=KEEP_TOOL_ACTIONS) -> list[dict]:
     """读路径瘦身单条记录的消息列表：只替换 reasoning 占位 / 截 tool 超长内容。"""
     out = []
+    actions = _tool_actions(msgs) if tool_trim else {}
     for m in msgs:
         nm = dict(m)
         if not keep_reasoning and nm.get("role") == "assistant" and nm.get("reasoning_content"):
@@ -169,7 +189,7 @@ def _shrink_messages(msgs: list[dict], *, keep_reasoning: bool, tool_trim: int) 
                 nm.pop(_k, None)
         if tool_trim and nm.get("role") == "tool":
             c = nm.get("content") or ""
-            if len(c) > tool_trim:
+            if len(c) > tool_trim and actions.get(nm.get("tool_call_id")) not in keep_actions:
                 nm["content"] = c[:tool_trim] + f"…[已截断{len(c)}字]"
         out.append(nm)
     return out
@@ -307,7 +327,10 @@ def make_plan(cfg: dict, *, fallback_turns: int | None = None) -> Plan:
     """
     compact = str(cfg.get("ctx_compact", "llm")).lower() != "off"
     old_reasoning = "strip" if str(cfg.get("ctx_old_reasoning", "full")).lower() != "full" else "full"
-    tool_trim = max(0, int(cfg.get("ctx_trim_tool_chars") or 0))
+    # 回执截断阈值：没配置时默认早截（国策/规则不受影响，见 KEEP_TOOL_ACTIONS）；
+    # 显式配 0 = 完全不截——别写成 `or 600`，那会把 0 当假值吞掉。
+    raw_trim = cfg.get("ctx_trim_tool_chars")
+    tool_trim = 600 if raw_trim is None else max(0, int(raw_trim))
     roll = "period" if str(cfg.get("ctx_roll", "slide")).lower() in ("period", "periodic", "none") else "slide"
     period = max(0, int(cfg.get("ctx_period") or 0))   # 0=自动（窗口几何+实测回合体积推导）；>0=手动固定周期
     slice_keep = _fnum(cfg.get("ctx_slice_keep"), 0.55, 0.2, 0.9)

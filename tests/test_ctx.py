@@ -114,7 +114,8 @@ class TestSlide(unittest.TestCase):
         w.turn_memory["秦"] = mem
         per = ctx.record_tokens(mem[0])
         plan = ctx.make_plan({"ctx_window": 1_000_000, "ctx_fill": 0.1,
-                              "ctx_slide_keep": 0.5, "max_tokens": 1000})
+                              "ctx_slide_keep": 0.5, "max_tokens": 1000,
+                              "ctx_trim_tool_chars": 0})
         plan.replay_budget = per * 40          # 手设预算：超了才裁
         dropped = ctx.slide(w, "秦", plan)
         self.assertTrue(dropped)
@@ -225,7 +226,8 @@ class TestReplayHead(unittest.TestCase):
     def _build(self, turns=6, fixed=4, long_memory=""):
         w = StubWorld()
         w.turn_memory["秦"] = [rec(i) for i in range(1, turns + 1)]
-        msgs, plan = ctx.build(cfg={"ctx_full_turns": fixed}, mem=w.turn_memory["秦"],
+        # 这些用例钉的是切点与滑动本身，把回执截断关掉，免得字节被截。
+        msgs, plan = ctx.build(cfg={"ctx_full_turns": fixed, "ctx_trim_tool_chars": 0}, mem=w.turn_memory["秦"],
                                sums=sums_upto(turns), blocks=[], system_text=SYSTEM,
                                tail_text="【本回合状态】", long_memory=long_memory)
         return w, msgs, plan

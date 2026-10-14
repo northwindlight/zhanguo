@@ -80,7 +80,10 @@ class ParliamentGovernment(Government):
 
     def snapshot(self,owner):
         result=wire(super().snapshot(owner))
-        result['parliament']=deepcopy(self._reviews.get(owner))
+        # 议会状态给君主看的是**审核进展**，不是草稿正文：草稿逐字等于生效国策，
+        # 再抄一遍就是让模型每回合读两遍同一篇长文（草稿留在议会自己的状态里）。
+        review=self._reviews.get(owner)
+        result['parliament']=None if review is None else {k:v for k,v in deepcopy(review).items() if k!='draft'}
         review=self._reviews.get(owner)
         if review and review['transition'] is not None:
             result['summaries']=[s for s in result['summaries'] if s['period']>=review['transition']]

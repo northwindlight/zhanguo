@@ -78,6 +78,17 @@ class Session:
         collection=getattr(self.world,self.runtime.distribution.get('ActorCollection','actors'),())
         return tuple(collection)
 
+    def turn_order(self):
+        """本回合的行动顺序：名单不动，先手每回合轮换一格。
+
+        固定名单顺序会让同一个国家每个回合都先动手（买货、抢地、拿无主遗址都占先），
+        所以按回合数把行动顺序转一个身位；国家名单、席位与其它按名单的遍历不受影响。
+        """
+        order=list(self.actors())
+        if not order:return ()
+        shift=self.clock()%len(order)
+        return tuple(order[shift:]+order[:shift])
+
     @api_entry
     def clock(self):
         spec=self.runtime.distribution.get('PlayerClock')
@@ -281,7 +292,7 @@ class Session:
     def cycle(self,*,on_result=None,emit=None,head=None,on_call=None):
         self.scheduled();receipts=[];self._boundary=False;self._callbacks=on_result
         try:
-            for actor in self.actors():
+            for actor in self.turn_order():
                 client=self.clients[actor];transitions=0
                 while True:
                     player=self.player(actor);generation=player.generation
