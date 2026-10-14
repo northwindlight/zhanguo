@@ -77,7 +77,8 @@ class TestObserver(unittest.TestCase):
         h=GameHost.new(self.cfg());snapshot=h.observer_snapshot();actor='s:q'
         snapshot['resource_flows']={'period':0,'owners':{actor:{'native:gold':10,'native:ore':-3}}}
         text=h.ui.console.overview(snapshot)
-        self.assertIn('\033[32m(+10)',text);self.assertIn('\033[31m(-3)',text)
+        self.assertIn('\033[32m+10',text);self.assertIn('\033[31m-3',text)
+        self.assertNotIn('(+10)',text);self.assertNotIn('(-3)',text)
         self.assertIn('不含市场交易和赠礼',text)
 
     def test_overview_omits_policy_but_submission_receipt_keeps_it(self):

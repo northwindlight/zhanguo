@@ -67,7 +67,7 @@
   "console.overview": "════ World overview · Turn {period} ════",
   "console.market": "World market: {values}",
   "console.bank": "Bank: savings {rate:+.1%}, loans {loan_rate:+.1%}; savings range {minimum:+.0%} to {maximum:+.0%}",
-  "console.flow_legend": "Stock parentheses show prior-period net production and army upkeep (green positive, red negative; excludes market trades and gifts)",
+  "console.flow_legend": "Signed values after stocks show prior-period net production and army upkeep (green positive, red negative; excludes market trades and gifts)",
   "console.nation": "◆ {name}: {stocks}\n  Land {land} | Units {army}, HP {hp:g}",
   "console.economy": "  Last turn GDP {gdp} | Investment {investment} | Military {military} | Assets {assets} | Debt {liabilities}",
   "console.unpriced": "Includes unpriced items",

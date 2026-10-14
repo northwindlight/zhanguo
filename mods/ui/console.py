@@ -115,7 +115,7 @@ class ConsoleUI(ReceiptPresentation):
             value=number(amount);delta=flows.get(actor,{}).get('native:'+resource,0)
             if not delta:return value
             color='32' if delta>0 else '31'
-            return f'{value} \033[{color}m({delta:+g})\033[0m'
+            return f'{value} \033[{color}m{delta:+g}\033[0m'
         for obs in state['nations']:
             f=obs['facts'];actor=obs['actor'];stocks={r['id']:r['amount'] for r in f['econ']['stocks']}
             rows.append([names[actor],len(f['land']),sum(u['owner']==actor for u in f['army']),*[stock(r,stocks.get('native:'+r,0),actor) for r in ('gold','food','wood','ore','oil','equipment','supply')]])
