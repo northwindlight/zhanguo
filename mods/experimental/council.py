@@ -10,8 +10,8 @@ from clients.provider import make_backend,REPLAY_KEY
 
 DEFAULT_REQUIREMENTS=Path(__file__).with_name('requirements.md').read_text(encoding='utf-8')
 VERDICT_REPAIR_ATTEMPTS=1
-ASSESSMENT_WARNING_ROUND=5
-ASSESSMENT_MAX_ROUNDS=10
+COUNCIL_WARNING_ROUND=5
+COUNCIL_MAX_ROUNDS=10
 
 
 def encode(value):return json.dumps(value,ensure_ascii=False,sort_keys=True,allow_nan=False)
@@ -77,7 +77,7 @@ class CouncilService:
         if not sections or sections[0]['title']=='规则目录':raise ValueError('未知指南主题')
         return {'source':'当前发行版公开策略参考；具体规则以目录和实际回执为准','title':topic,'body':'\n\n'.join(r['body'] for r in sections)}
 
-    def _council_turn(self,player,dialogue,*,phase_end=False,finalize=False):
+    def _council_turn(self,player,dialogue,*,budget,phase_end=False,finalize=False):
         tools=[schema for schema in player.actions() if schema['function']['name']=='player_rules']
         tools.append({'type':'function','function':{'name':'read_manual','description':'只读查询当前发行版说明书或策略手册；数值以说明书、实际回执为准。',
                       'parameters':{'type':'object','properties':{'topic':{'type':'string','enum':['说明书','经济学手册','基础指南','战争手册','战略手册']}},'required':['topic'],'additionalProperties':False}}})
@@ -87,17 +87,25 @@ class CouncilService:
         if phase_end:
             tools.append({'type':'function','function':{'name':'council_next_stage','description':'结束第一步的历史与旧国策审核，进入第二步读取新版国策。',
                           'parameters':{'type':'object','properties':{},'additionalProperties':False}}})
-        limit=ASSESSMENT_MAX_ROUNDS if phase_end else int(self.review_cfg.get('max_steps',16))
-        if limit<1:raise ValueError('Council max_steps must be positive')
+        limit=COUNCIL_MAX_ROUNDS-budget['rounds']
+        if limit<=0:return ('',True) if phase_end else None
         format_retries=0
         phase_speech=[]
-        def phase_tick(round_index):
-            if not phase_end:return False
-            if round_index+1==ASSESSMENT_WARNING_ROUND:
+        def round_tick():
+            if budget['rounds']==COUNCIL_WARNING_ROUND and not budget['warned']:
                 dialogue.append({'role':'user','content':self.ui.text('experimental.phase_warning')})
-            return round_index+1>=ASSESSMENT_MAX_ROUNDS
+                budget['warned']=True
+            return budget['rounds']>=COUNCIL_MAX_ROUNDS
+        def verdict_feedback(error):
+            nonlocal format_retries
+            if format_retries<VERDICT_REPAIR_ATTEMPTS:
+                prompt=self.ui.text('experimental.review_retry',error=error)
+                format_retries+=1
+            else:prompt=self.ui.text('experimental.verdict_continue')
+            dialogue.append({'role':'user','content':prompt})
         for _ in range(limit):
             msg,stats=self._reviewer().chat_turn(deepcopy(dialogue),self.ui.actions(tools),self._review_config())
+            budget['rounds']+=1
             for key,value in stats.items():
                 if isinstance(value,(int,float)) and not isinstance(value,bool):self.council['usage'][key]=self.council['usage'].get(key,0)+value
             calls=msg.get('tool_calls') or []
@@ -116,11 +124,10 @@ class CouncilService:
                 assert_paired(dialogue)
                 if phase_end:
                     dialogue.append({'role':'user','content':self.ui.text('experimental.phase_continue')})
-                    if phase_tick(_):return '\n'.join(phase_speech),True
+                    if round_tick():return '\n'.join(phase_speech),True
                     continue
-                if format_retries>=VERDICT_REPAIR_ATTEMPTS:raise ValueError('议会在一次格式修正后仍未正确提交裁决；停止本局')
-                dialogue.append({'role':'user','content':self.ui.text('experimental.review_retry',error=f'{ending_tool} 必须是本批次最后一个工具调用')})
-                format_retries+=1
+                if round_tick():return None
+                verdict_feedback(f'{ending_tool} 必须是本批次最后一个工具调用')
                 continue
             retry_reason=None
             submitted_verdict=None
@@ -152,30 +159,27 @@ class CouncilService:
                     retry_reason=result['message']
             assert_paired(dialogue)
             if stage_ended:
-                return '\n'.join(phase_speech),False
+                return '\n'.join(phase_speech),round_tick()
             if submitted_verdict is not None:return submitted_verdict
             if retry_reason is not None:
-                if format_retries>=VERDICT_REPAIR_ATTEMPTS:raise ValueError('议会在一次格式修正后仍未提交有效裁决；停止本局')
-                dialogue.append({'role':'user','content':self.ui.text('experimental.review_retry',error=retry_reason)})
-                format_retries+=1
+                if round_tick():return None
+                verdict_feedback(retry_reason)
                 continue
             if not calls and isinstance(msg.get('content'),str) and msg['content'].strip():
                 if phase_end:
                     dialogue.append({'role':'user','content':self.ui.text('experimental.phase_continue')})
-                    if phase_tick(_):return '\n'.join(phase_speech),True
+                    if round_tick():return '\n'.join(phase_speech),True
                 elif not finalize:return msg['content']
                 else:
-                    if format_retries>=VERDICT_REPAIR_ATTEMPTS:
-                        raise ValueError('议会未调用裁决按钮结束审核；停止本局')
-                    dialogue.append({'role':'user','content':self.ui.text('experimental.review_retry',error='尚未通过 council_verdict 工具提交裁决')})
-                    format_retries+=1
+                    if round_tick():return None
+                    verdict_feedback('尚未通过 council_verdict 工具提交裁决')
                     continue
                 continue
             if not calls:
                 prompt='experimental.phase_continue' if phase_end else 'experimental.continue'
                 dialogue.append({'role':'user','content':self.ui.text(prompt)})
-            if phase_tick(_):return '\n'.join(phase_speech),True
-        raise RuntimeError('议长未在步数上限内完成审核；停止本局')
+            if round_tick():return ('\n'.join(phase_speech),True) if phase_end else None
+        return ('\n'.join(phase_speech),True) if phase_end else None
 
     @staticmethod
     def _parse_verdict(verdict):
@@ -257,8 +261,7 @@ class CouncilService:
         current,image=view.map_context(self.council['last_snapshot'])
         dialogue[-1]['content']+='\n'+current
         if image:dialogue[-1][MAP_KEY]=image
-        assessment,paralyzed=self._council_turn(player,dialogue,phase_end=True)
-        if paralyzed:
+        def paralysis_receipt(assessment):
             reason=self.ui.text('experimental.parliament_paralyzed_reason')
             decision=self._government('decide',True,reason)
             decision['message']=self.ui.text('experimental.parliament_paralyzed')
@@ -271,8 +274,12 @@ class CouncilService:
             dialogue.clear()
             return {**receipt,'ok':True,'status':'effective','code':None,
                     'message':decision['message'],'data':decision}
+        budget={'rounds':0,'warned':False}
+        assessment,paralyzed=self._council_turn(player,dialogue,budget=budget,phase_end=True)
+        if paralyzed:return paralysis_receipt(assessment)
         dialogue.append({'role':'user','content':self.ui.text('experimental.review_second')+encode({'new_plan':candidate,'period':obs_period})})
-        verdict=self._council_turn(player,dialogue,finalize=True)
+        verdict=self._council_turn(player,dialogue,budget=budget,finalize=True)
+        if verdict is None:return paralysis_receipt(assessment)
         decision=self._government('decide',verdict['approved'],verdict['reason'])
         self.council['archive'].append({'kind':'review','period':obs_period,'assessment':assessment,
                                        'decision':deepcopy(decision),'dialogue':deepcopy(dialogue)})

@@ -206,15 +206,53 @@ class TestParliament(unittest.TestCase):
         results=h.cycle()
         self.assertIn('议会瘫痪',results[0]['message'])
         self.assertEqual(len(reviewer.calls),10)
-        self.assertIn('5 轮，还有 5 轮',reviewer.calls[5][-1]['content'])
+        self.assertIn('两阶段累计已调用 5 轮',reviewer.calls[5][-1]['content'])
         self.assertIn('council_next_stage',{tool['function']['name'] for tool in reviewer.schemas[0]})
         self.assertEqual(reviewer.schemas[0][-1]['function']['name'],'council_next_stage')
         self.assertTrue(h.player(self.actor).observe()['facts']['government']['plan']['text']=='发展')
         review=h.services[self.actor]['council'].council['archive']
         self.assertTrue(any(row.get('auto_approved_due_to_paralysis') for row in review))
 
-    def test_invalid_or_failed_council_stops_and_cannot_replace_boundary_file(self):
-        for output in ('not-json','{"approved":"yes","reason":"ok"}',RuntimeError('review transport failure')):
+    def test_five_and_ten_round_limits_count_across_both_stages(self):
+        h,c=self.host([True],[reply(call('p','plan',text='发展')),
+                              reply(call('e','end_turn',summary='议会瘫痪后完成本回合'))])
+        class SplitCouncil:
+            def __init__(self):self.calls=[]
+            def chat_turn(self,messages,tools,cfg,on_retry=None):
+                self.calls.append(deepcopy(messages))
+                if len(self.calls)==5:
+                    return {'content':'','tool_calls':[{'id':'next','type':'function','function':{
+                        'name':'council_next_stage','arguments':'{}'}}]},{}
+                return {'content':'仍在核对国策与证据。'},{}
+        reviewer=SplitCouncil();h.services[self.actor]['council']._review_backend=reviewer
+        results=h.cycle()
+        self.assertEqual(len(reviewer.calls),10)
+        self.assertIn('两阶段累计已调用 5 轮',json.dumps(reviewer.calls[5],ensure_ascii=False))
+        self.assertIn('第二步：',reviewer.calls[5][-1]['content'])
+        self.assertIn('议会瘫痪',results[0]['message'])
+
+    def test_verdict_on_tenth_total_call_is_not_overridden_by_auto_approval(self):
+        h,c=self.host([True],[reply(call('p','plan',text='发展')),
+                              reply(call('e','end_turn',summary='第十轮裁决后完成行动'))])
+        class DeadlineCouncil:
+            def __init__(self):self.calls=[]
+            def chat_turn(self,messages,tools,cfg,on_retry=None):
+                self.calls.append(deepcopy(messages));round_no=len(self.calls)
+                if round_no==5:
+                    return {'content':'','tool_calls':[{'id':'next','type':'function','function':{
+                        'name':'council_next_stage','arguments':'{}'}}]},{}
+                if round_no==10:
+                    return {'content':'','tool_calls':[{'id':'verdict','type':'function','function':{
+                        'name':'council_verdict','arguments':'{"approved":true,"reason":"审核完成并提交"}'}}]},{}
+                return {'content':'继续核对。'},{}
+        reviewer=DeadlineCouncil();h.services[self.actor]['council']._review_backend=reviewer
+        results=h.cycle()
+        self.assertEqual(len(reviewer.calls),10)
+        self.assertTrue(results[0]['ok'])
+        self.assertNotIn('议会瘫痪',results[0]['message'])
+
+    def test_invalid_verdict_reaches_total_cap_and_auto_approves(self):
+        for output in ('not-json','{"approved":"yes","reason":"ok"}'):
             h,c=self.host([True],[reply(call('p','plan',text='发展'))])
             original=h.services[self.actor]['council']._review_backend.complete_text
             def complete(messages,cfg,tools=None):
@@ -223,11 +261,22 @@ class TestParliament(unittest.TestCase):
                     return output,{}
                 return original(messages,cfg,tools)
             h.services[self.actor]['council']._review_backend.complete_text=complete
-            with TemporaryDirectory() as d:
-                p=Path(d)/'synthetic.json';h.save(p);before=p.read_bytes()
-                with self.assertRaises((ValueError,RuntimeError)):h.cycle()
-                self.assertEqual(p.read_bytes(),before)
-                with self.assertRaises(SaveFormatError):h.save(p)
+            results=h.cycle()
+            self.assertIn('议会瘫痪',results[0]['message'])
+            self.assertTrue(results[0]['ok'])
+
+    def test_failed_review_transport_preserves_boundary_file(self):
+        h,c=self.host([True],[reply(call('p','plan',text='发展'))])
+        original=h.services[self.actor]['council']._review_backend.complete_text
+        def complete(messages,cfg,tools=None):
+            if messages[-1]['content'].startswith('第二步：'):raise RuntimeError('review transport failure')
+            return original(messages,cfg,tools)
+        h.services[self.actor]['council']._review_backend.complete_text=complete
+        with TemporaryDirectory() as d:
+            p=Path(d)/'synthetic.json';h.save(p);before=p.read_bytes()
+            with self.assertRaises(RuntimeError):h.cycle()
+            self.assertEqual(p.read_bytes(),before)
+            with self.assertRaises(SaveFormatError):h.save(p)
 
     def test_council_can_read_current_manuals_but_cannot_execute_country_actions(self):
         h,c=self.host([True],[reply(call('p','plan',text='发展经济'),call('e','end_turn',summary='通过审核完成行动'))])
