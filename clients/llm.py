@@ -131,18 +131,22 @@ class LLMClient:
         dropped=ctx.slide(memory,player.actor,plan)
         if not dropped:return
         text='\n'.join(json.dumps(row,ensure_ascii=False) for row in dropped)
+        summary='\n'.join(row['text'] for row in self.state.summaries if dropped[0]['turn']<=row['turn']<=dropped[-1]['turn'])
         if plan.compact:
             prompt=deepcopy(messages)+[{'role':'user','content':self.ui.text('llm.compact',memory=self.state.long_memory,history=text)}]
             try:
-                summary,stats=self._provider().complete_text(prompt,self._request_config(),tools=tools)
-                if not isinstance(summary,str) or not summary.strip():raise ValueError('Empty memory compression')
-            except Exception:
-                # Restore records on provider failure; the host will stop the game.
-                self.state.replay[:0]=dropped
-                raise
-            self._usage(stats);self.state.long_memory=summary
-        else:
-            summary='\n'.join(row['text'] for row in self.state.summaries if dropped[0]['turn']<=row['turn']<=dropped[-1]['turn'])
+                for attempt in range(1,11):
+                    if emit:emit(self.ui.text('llm.compacting',actor=player.actor,attempt=attempt,limit=10))
+                    compressed,stats=self._provider().complete_text(prompt,self._request_config(),tools=tools)
+                    self._usage(stats)
+                    if isinstance(compressed,str) and len(compressed.strip())>=20:break
+                else:raise ValueError('Empty or too short memory compression after 10 attempts')
+            except Exception as exc:
+                # Legacy behavior: compression is optional. Keep the previous
+                # long-term memory and archive these turns using their summaries.
+                if emit:emit(self.ui.text('llm.compact_failed',actor=player.actor,error=type(exc).__name__))
+            else:
+                summary=compressed.strip();self.state.long_memory=summary
         self.state.blocks.append({'from':dropped[0]['turn'],'to':dropped[-1]['turn'],'at':memory.turn,'text':summary})
         if emit:emit(self.ui.text('llm.archived',actor=player.actor,count=len(dropped)))
 

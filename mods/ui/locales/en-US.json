@@ -4,6 +4,8 @@
   "llm.continue": "Continue using tools; this turn requires a valid plan and end_turn.",
   "llm.limit": "LLM did not complete end_turn within the step limit; stopping with the last settled save.",
   "llm.compact": "Do not call tools. Merge this history into the previous long-term memory, preserving plans, treaties, tasks and lessons. Return the new memory.\nPrevious memory: {memory}\nHistory: {history}",
+  "llm.compacting": "🧠 {actor} compressing memory, attempt {attempt}/{limit}",
+  "llm.compact_failed": "⚠ {actor} memory compression failed ({error}); keeping previous long-term memory and archiving turn summaries",
   "llm.context": "🧠 {actor} context {plan}",
   "llm.archived": "🧠 {actor} archived {count} turns",
   "llm.retry": "⚠ {actor} retry {attempt}/{total} {error}, wait {wait}s",

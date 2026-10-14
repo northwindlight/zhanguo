@@ -4,6 +4,8 @@
   "llm.continue": "请继续使用工具；本轮需要有效国策和 end_turn 才能结束。",
   "llm.limit": "LLM 未在步数上限内完成 end_turn；停止本局，保留最近结算边界存档",
   "llm.compact": "不要调用工具。以旧长期记忆为基础合并下面的历史，保留国策、盟约、待办和教训，返回新的长期记忆。\n旧记忆：{memory}\n历史：{history}",
+  "llm.compacting": "🧠 {actor} 正在压缩记忆，第 {attempt}/{limit} 次尝试",
+  "llm.compact_failed": "⚠ {actor} 记忆压缩失败（{error}），保留原长期记忆，归档使用逐回合小结",
   "llm.context": "🧠 {actor} 上下文 {plan}",
   "llm.archived": "🧠 {actor} 归档 {count} 回合",
   "llm.retry": "⚠ {actor} 重试 {attempt}/{total} {error}，等待 {wait}s",

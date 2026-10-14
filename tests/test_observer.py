@@ -58,6 +58,17 @@ class TestObserver(unittest.TestCase):
         self.assertIn('步兵 2',text);self.assertIn('骑兵 1',text)
         self.assertNotIn('999',text);self.assertNotIn('1899',text)
 
+    def test_overview_omits_policy_but_submission_receipt_keeps_it(self):
+        h=GameHost.new(self.cfg());p=h.player('s:q');policy='保障粮木与能源，集中军队守卫边境。'
+        receipt=p.submit('plan',{'text':policy})
+        self.assertTrue(receipt['ok'])
+        for _ in range(2):
+            text=h.ui.console.overview(h.observer_snapshot())
+            self.assertNotIn(policy,text);self.assertNotIn('国策：',text)
+            self.assertIn('世界市场',text);self.assertIn('秦',text)
+        action=h.ui.console.action(0,'s:q','plan',{'text':policy},receipt,{'s:q':'秦'})
+        self.assertIn(policy,action)
+
     def test_commands_process_after_calls_and_quit_waits_for_complete_save(self):
         cfg=self.cfg();cfg['nations']=cfg['nations'][:1];cfg['nations'][0]['client']='llm'
         h=GameHost.new(cfg)

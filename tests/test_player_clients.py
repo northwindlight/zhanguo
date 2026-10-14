@@ -101,6 +101,46 @@ class TestPlayerClients(unittest.TestCase):
         self.assertEqual(len(client.state.history),6)
         self.assertGreater(len(client.state.history),len(client.state.replay))
 
+    def test_failed_compression_uses_turn_summaries_after_bounded_retries(self):
+        for failure in ('empty','short','provider'):
+            with self.subTest(failure=failure):
+                w=self.world();backend=FakeBackend();client=LLMClient({'ctx_full_turns':1,'ctx_compact':'llm'},backend=backend)
+                client.state.long_memory='原有盟约'
+                def complete(messages,cfg,tools=None):
+                    if failure=='provider':raise RuntimeError('provider failed')
+                    return '   ' if failure=='empty' else '不足二十字',{'hit':8,'miss':1}
+                notices=[]
+                with patch.object(backend,'complete_text',side_effect=complete) as mocked:
+                    for _ in range(6):client.play(w.runtime.player(w,Q),emit=notices.append);w.resolve_turn();w.phase='行动'
+                self.assertEqual(mocked.call_count,1 if failure=='provider' else 10);self.assertTrue(mocked.call_args.kwargs['tools'])
+                self.assertEqual(client.state.long_memory,'原有盟约')
+                self.assertEqual(len(client.state.replay),1);self.assertEqual(len(client.state.history),6)
+                block=client.state.blocks[0]
+                self.assertEqual((block['from'],block['to']),(0,4))
+                self.assertEqual(block['text'],'\n'.join(row['text'] for row in client.state.summaries[:5]))
+                self.assertTrue(any('记忆压缩失败' in text for text in notices))
+                self.assertEqual(client.state.usage,{'hit':60 if failure=='provider' else 140,'miss':12 if failure=='provider' else 22})
+                self.assertEqual(LLMState.from_save(client.state.to_save()).to_save(),client.state.to_save())
+                client.play(w.runtime.player(w,Q))
+                prompt=backend.requests[-1]
+                context='\n'.join(m.get('content') or '' for m in prompt)
+                self.assertIn('原有盟约',context);self.assertIn(block['text'],context)
+
+    def test_compression_retries_empty_results_and_stops_at_first_valid_summary(self):
+        w=self.world();backend=FakeBackend();client=LLMClient({'ctx_full_turns':1,'ctx_compact':'llm'},backend=backend)
+        summary='持续发展经济，记住已生效条约与待办事项。'
+        notices=[]
+        with patch.object(backend,'complete_text',side_effect=[('',{'hit':8,'miss':1}),('  ',{'hit':8,'miss':1}),(summary,{'hit':8,'miss':1})]) as mocked:
+            for _ in range(6):client.play(w.runtime.player(w,Q),emit=notices.append);w.resolve_turn();w.phase='行动'
+        self.assertEqual(mocked.call_count,3)
+        self.assertTrue(all(call.kwargs['tools'] for call in mocked.call_args_list))
+        self.assertEqual(mocked.call_args_list[0],mocked.call_args_list[2])
+        self.assertEqual(client.state.long_memory,summary);self.assertEqual(client.state.blocks[0]['text'],summary)
+        self.assertEqual(client.state.usage,{'hit':84,'miss':15})
+        self.assertEqual([text for text in notices if '正在压缩记忆' in text],
+                         [f'🧠 {Q} 正在压缩记忆，第 {n}/10 次尝试' for n in range(1,4)])
+        self.assertFalse(any('记忆压缩失败' in text for text in notices))
+
     def test_rule_runs_and_persists_target_state_without_global_cross_game_memory(self):
         cfg={'map_size':12,'seed':73,'nations':[{'name':'秦','id':Q}]};host=GameHost.new(cfg)
         for _ in range(7):host.cycle()

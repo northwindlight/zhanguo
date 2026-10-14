@@ -130,8 +130,6 @@ class ConsoleUI(ReceiptPresentation):
                 lines.append(self.text('console.economy',gdp=money(turn['gdp']),
                     investment=money(turn['investment']),military=money(turn['military']),
                     assets=money(turn['total_assets']),liabilities=turn['liabilities']))
-            gov=facts.get('government',{});plan=gov.get('plan')
-            if plan:lines.append(self.text('console.policy',text=plan['text']))
             diplomacy=facts.get('diplomacy',{})
             for alliance in diplomacy.get('alliances',[]):
                 if actor in alliance.get('members',[]):lines.append(self.text('console.alliance',name=alliance.get('name',alliance.get('id','')),members=', '.join(names.get(a,a) for a in alliance['members'])))
