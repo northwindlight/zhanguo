@@ -43,9 +43,6 @@ class BuildingEstimate:
     outputs_sell: Money
     output_basis: str
     energy_reference: str | None
-    projected_slots: int
-    academy_saved_per_period: float
-    academy_density_per_period: float
     costs_by_level: tuple
     recipe_inputs: tuple
     recipe_outputs: tuple
@@ -99,12 +96,12 @@ class EconomicQueries:
                 if fuel.complete:return fuel.total/cycle.energy,key
         return None,None
 
-    def estimate(self, kind, level=1, other_slots=1, penalty=0, discount=0, policy_pct=100, existing=()):
+    def estimate(self, kind, level=1, other_slots=0, penalty=0, discount=0, policy_pct=100, existing=()):
         integer(other_slots)
         cls = self.building_types()[kind]
         cost = cls.construction_cost(level,penalty=penalty,discount=discount,policy_pct=policy_pct)
-        projected_slots=3 if cls.EFFECTS.get('gold_per_slot') else 0
-        cycle = cls(1,'native:estimate',level=level).cycle(other_slots=other_slots+projected_slots)
+        # 只按调用方给的实际本格座数算；不预测"以后还会盖几座"。
+        cycle = cls(1,'native:estimate',level=level).cycle(other_slots=other_slots)
         basis='sell' if cls.PHASE=='gather' else 'buy' if cls.PHASE=='industry' else 'mid'
         construction,inputs,outputs = self._value(cost),self._value(cycle.inputs,'buy'),self._value(cycle.outputs,basis)
         outputs_sell=self._value(cycle.outputs,'sell')
@@ -113,22 +110,11 @@ class EconomicQueries:
         # Electricity is not tradable revenue: power plants only spend fuel.
         if cls.ENERGY_USE:
             net = None if energy_cost is None else net.plus(Money(-cls.ENERGY_USE*energy_cost))
-        saved=density=0
-        if cls.BUILD_DISCOUNT:
-            types=self.building_types();n=len(existing)
-            average=sum(types[key].construction_cost(lvl).get('native:gold',0) for key,lvl in existing)/n if n else 0
-            disc=cls.BUILD_DISCOUNT/100
-            saved=disc*n*average/30
-            halls=[c for c in types.values() if c.EFFECTS.get('gold_per_slot')]
-            hall=next(iter(halls),None)
-            hall_ok=hall is not None and (any(key==hall.TYPE_ID for key,_ in existing) or n>=hall.MIN_SLOTS)
-            density=disc*n*hall.EFFECTS['gold_per_slot'] if hall_ok else 0
-            net=net.plus(Money(saved+density))
+        # 工程院的"节省摊销/密度红利"要靠假设未来的建造计划，不属于事实，不算。
         payback = construction.total/net.total if (construction.complete and net is not None and net.complete and net.total>0) else None
         if payback is not None:Resource.finite_number(payback)
         return BuildingEstimate(kind,level,other_slots,construction,inputs,outputs,cls.ENERGY_USE,
                                 cycle.energy,energy_cost,net,payback,outputs_sell,basis,energy_reference,
-                                projected_slots,saved,density,
                                 tuple(cls.construction_cost(l) for l in range(1,len(cls.GOLD_COSTS)+1)),
                                 cycle.inputs,cycle.outputs,cls.MIN_SLOTS,cls.MAX_PER_SITE,cls.SELF_BUILD_LIMIT,
                                 cls.SITE_RESOURCE,tuple(cls.EFFECTS.items()))

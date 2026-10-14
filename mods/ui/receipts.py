@@ -94,9 +94,6 @@ class ReceiptPresentation:
                 if row['energy_used']:details+=f'（已扣{row["energy_used"]}电成本）'
                 if row.get('output_basis')=='buy':details+=f'｜纯外销产值{self.money(row["outputs_sell"])}'
                 details+='｜回本'+(num(pb)+'回合' if pb is not None else '—')
-            if row.get('projected_slots'):details+=f'｜已有{row["other_slots"]}座，乐观再增{row["projected_slots"]}座'
-            if row.get('academy_saved_per_period') or row.get('academy_density_per_period'):
-                details+=f'｜节省摊销{num(row["academy_saved_per_period"])}金/回合（30回合），密度红利{num(row["academy_density_per_period"])}金/回合'
             lines.append(name+'：'+details)
             if row.get('costs_by_level'):
                 definition={**row,'inputs':dict(row.get('recipe_inputs',[])),'outputs':dict(row.get('recipe_outputs',[])),
@@ -169,7 +166,7 @@ class ReceiptPresentation:
             counts=Counter(b['kind'] for b in data['buildings'] if not b['remaining'])
             details.append('建筑：'+('、'.join(self.label('content',k)+'×'+str(n) for k,n in counts.items()) or '无'))
             if data.get('construction'):details.append('在建：'+'、'.join(self.label('content',b['kind']) for b in data['construction']))
-            if data.get('army'):details.append('军队：'+'、'.join(self.name(u['owner'],self._names)+' #'+str(u['id'])+' '+self.label('content',u['kind'])+'×'+num(u['hp']) for u in data['army']))
+            if data.get('army'):details.append('军队：'+'、'.join(self.name(u['owner'],self._names)+' #'+str(u['id'])+' '+self.label('content',u['kind'])+' 兵力'+num(u['hp']) for u in data['army']))
             return title+'\n'+'\n'.join(details)
         if action=='land' and isinstance(data,list):return self.land(data)
         if action in ('buy','sell') and isinstance(data,dict) and 'exact_total' in data:
@@ -185,7 +182,7 @@ class ReceiptPresentation:
             if not data:return '未找到该主题；省略主题可查看全部规则。'
             return '\n\n'.join('【'+r['title']+'】\n'+r['body'] for r in data)
         if action=='unit_catalog' and isinstance(data,dict):
-            return '【兵种一览】\n'+'\n'.join(f'{self.label("content",k)}：征召{self.resources(v["recruit"])}｜满编数量{v["hp"]}，攻击{v["atk"]}，移动{v["speed"]}，每回合补给{v["supply"]}' for k,v in data.items())
+            return '【兵种一览】\n'+'\n'.join(f'{self.label("content",k)}：征召{self.resources(v["recruit"])}｜满编兵力{v["hp"]}，攻击{v["atk"]}，移动{v["speed"]}，每回合补给{v["supply"]}' for k,v in data.items())
         if action in ('army','recruit') and isinstance(data,list):
             if not data:return '暂无可见军队。'
             return ('征召完成；新兵下回合可以行动。\n' if action=='recruit' else f'可见军队 {len(data)} 支：\n')+'\n'.join(self.army_line(u) for u in data)
@@ -238,7 +235,7 @@ class ReceiptPresentation:
     def army_line(self,u):
         status='｜交战中' if u.get('engaged') else ''
         if u.get('retreat_to') is not None:status+='｜待撤至'+self.pos(u['retreat_to'])+'｜撤退承伤比例'+num(u.get('retreat_cover'))+'%'
-        return f'{self.name(u["owner"],self._names)} {self.label("content",u["kind"])}#{u["id"]} {self.pos([u["x"],u["y"]])}｜数量{num(u["hp"])}'+status
+        return f'{self.name(u["owner"],self._names)} {self.label("content",u["kind"])}#{u["id"]} {self.pos([u["x"],u["y"]])}｜兵力{num(u["hp"])}'+status
 
     def battles(self,rows):
         lines=['【当前交战】构成与基础输出，实际伤亡由结算决定。']

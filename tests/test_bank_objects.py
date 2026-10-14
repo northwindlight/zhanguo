@@ -247,9 +247,10 @@ class TestEconomicSystem(unittest.TestCase):
         self.assertAlmostEqual(factory.net_per_period.total,2*buy('supply')-2*buy('food')-buy('ore')-buy('wood')/2)
         castle=self.call(w,'building_economics',kind='native:castle',level=2)
         self.assertEqual(castle.construction.total,140);self.assertIsNone(castle.payback_periods)
+        # 市政厅按调用方给的实际本格座数算，不再凭空"乐观再增"几座。
         hall=self.call(w,'building_economics',kind='native:town-hall',other_slots=6)
-        self.assertAlmostEqual(hall.net_per_period.total,14-buy('wood')/2)
-        self.assertEqual(hall.projected_slots,3)
+        self.assertAlmostEqual(hall.net_per_period.total,11-buy('wood')/2)
+        self.assertFalse(hasattr(hall,'projected_slots'))
         tea=self.call(w,'building_economics',kind='example:tea-garden')
         self.assertEqual(tea.net_per_period.unpriced,('example:tea',));self.assertIsNone(tea.payback_periods)
 
@@ -258,8 +259,9 @@ class TestEconomicSystem(unittest.TestCase):
         for _ in range(6):w.buildings.seed('example:qin','native:farm')
         before=self.save(w)
         e=self.call(w,'building_economics',kind='native:academy')
-        self.assertEqual(e.academy_saved_per_period,0)
-        self.assertEqual(e.academy_density_per_period,0)
+        # 工程院不产出，也不预测"以后建造能省多少"（那要靠假设未来的建造计划）。
+        self.assertFalse(hasattr(e,'academy_saved_per_period'))
+        self.assertFalse(hasattr(e,'academy_density_per_period'))
         self.assertEqual(e.net_per_period.total,0)
         self.assertIsNone(e.payback_periods)
         self.assertIn(('build_discount',25),e.effects)
