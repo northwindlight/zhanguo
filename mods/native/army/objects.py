@@ -105,7 +105,7 @@ class Unit(MutableMapping):
         self[key]=value
     def __setitem__(self,key,value):
         self._write()
-        if key not in self.FIELDS:raise KeyError(f'部队没有字段：{key}')
+        if key not in self.FIELDS:raise ValueError(f'部队没有字段：{key}')
         attr=self.ATTRS.get(key,key)
         old=getattr(self,attr)
         if self._collection is not None and key in ("id","gid","owner","type") and value!=old:
@@ -132,7 +132,7 @@ class Unit(MutableMapping):
     def update(self,*args,**kwargs):
         self._write()
         changes=dict(*args,**kwargs)
-        if set(changes)-set(self.FIELDS): raise KeyError('部队记录含未知字段')
+        if set(changes)-set(self.FIELDS): raise ValueError('部队记录含未知字段')
         if self._collection is not None and any(
                 key in changes and changes[key] != getattr(self,self.ATTRS.get(key,key))
                 for key in ('id','gid','owner','type')):
@@ -181,7 +181,7 @@ class Units(list):
     def __init__(self,size,world=None,*,definitions=None):
         self.size=size;self._world=world;self._owner='native:army'
         self._definitions = freeze(dict(definitions if definitions is not None else native_unit_definitions()))
-        self._troops=[];self._guards={};self._key=None
+        self._troops=[];self._key=None
         self.nation_code={};self.next_army_seq={};self.guard_once=set()
         self.next_code=1;self.engage_seq=0;self._revision=0;self._ids=set();self._local_ids=set()
     def _write(self):
@@ -247,7 +247,6 @@ class Units(list):
     def _index(self):
         if self._key==self._revision:return
         self._troops=[u for u in self if u.owner!='野人']
-        self._guards={(u.x,u.y):u for u in self if u.owner=='野人'}
         groups={}
         for unit in self:groups.setdefault(unit.owner,[]).append(unit)
         self._by_nation={nation:tuple(units) for nation,units in groups.items()}
@@ -256,8 +255,6 @@ class Units(list):
         self._key=self._revision
     @property
     def troops(self):self._index();return list(self._troops)
-    @property
-    def guardians(self):self._index();return dict(self._guards)
     def of(self,nation):
         self._index();return self._by_nation.get(nation,())
     def at(self,x,y):return tuple(u for u in self if (u.x,u.y)==(x,y))
@@ -287,10 +284,6 @@ class Units(list):
         from .rules import army_name
         unit=Unit(kind,self.definition(kind)['hp'],x,y,owner,seq,gid,f"野人{seq}" if owner=="野人" else army_name(owner,seq,kind),moved_turn=turn,born_turn=turn if newborn else None,_definitions=self._definitions)
         self.append(unit);return unit
-    def disengage(self,nations):
-        self._write()
-        for unit in self:
-            if unit.owner in nations:unit.disengage()
     def to_save(self):
         return {'armies':[unit.to_save() for unit in self],
                 'next_army_seq':dict(self.next_army_seq),'nation_code':dict(self.nation_code),

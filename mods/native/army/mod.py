@@ -159,7 +159,7 @@ class ArmyMod(GameMod):
                 Stage('native:army.battle',lambda w,c:c.update(battles=w.military.battle()),hook='military.battle',needs=('military.supplied',),provides=('battles.resolved',)),
                 Stage('native:army.withdraw',lambda w,c:c.update(withdrawals=w.military.withdrawals()),hook='military.withdraw',needs=('battles.resolved',),provides=('withdrawals.resolved',)),
                 Stage('native:army.claims',self._claims,hook='military.claims',needs=('withdrawals.resolved',),provides=('claims.resolved',)),
-                Stage('native:army.repatriate',lambda w,c:c.update(repatriations=w.military.repatriate()),hook='military.repatriate',needs=('actors.eliminated',),provides=('military.repatriated',)))
+                Stage('native:army.repatriate',self._repatriate,hook='military.repatriate',needs=('actors.eliminated',),provides=('military.repatriated',)))
     @staticmethod
     def _supply(world, context):
         world.military.record_grid(context['building_production'].energy)
@@ -168,5 +168,12 @@ class ArmyMod(GameMod):
     @staticmethod
     def _claims(world, context):
         context['claims']=world.military.claims();context.setdefault('domain_events',[]).extend(world.military.drain_events())
+    @staticmethod
+    def _repatriate(world, context):
+        context['repatriations']=world.military.repatriate()
+        # 脱离清扫收在军事序列的末尾：claims 要读 engaged，而 0.2 的 repatriate 没有
+        # 0.1 那条「与交战国之间的滞留是合法的」豁免，清早一步会把合法驻扎在敌国地上的
+        # 军队一并送回国。放这里只差一个回合，不会误伤。
+        context['disengaged']=world.military.clear_disengaged()
     def rule_sections(self, world=None):
         return (RuleSection('军队','调动只改变位置。移动、异地进攻、撤退共用行动额度，新兵当期不能行动；原地进攻保留额度。外交先于补给与战斗，撤离提交后仍参加本期战斗。军队从资源域扣除征召、补给与回血材料，并发布经济事实。坐标接口使用 0-based。',keywords=('army','battle','move','attack','retreat','disband','军队','战斗','撤退','遣散','裁军','移动','攻击','速度','征兵')),)

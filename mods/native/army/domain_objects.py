@@ -210,11 +210,44 @@ class Military:
         self._units.remove(unit);return MilitaryReceipt('effective',(aid,),False,False,message='Disbanded without refund')
 
     def disengage(self, owners):
-        self._write();self._units.disengage(owners)
+        """亡国当场的强制停战（用户 2026-10-07：「正在发生的战争必须强制停下」）。
+
+        ★ 只清**站在国有地上**的军队：打野人的仗不是「战争」（野人只守无主格），
+          全天下休战不该顺手把清野地一并掐掉。0.1 的 `_eliminate_if_dead` 就是这条
+          过滤器，0.2 改写时丢了。它必须先于「余土变无主」跑——那一步一执行，
+          站在上面的军队就没有归属可查，洞会从另一个方向复发。
+        """
+        self._write()
         for unit in self._units:
-            if unit.owner in owners:
-                for key in ('retreat_to','retreat_role','retreat_cover'):
-                    if key in unit:unit.pop(key)
+            if unit.owner not in owners:continue
+            if self._call('native:territory','owner',unit.x,unit.y) is None:continue
+            unit.disengage()
+            for key in ('retreat_to','retreat_role','retreat_cover'):
+                if key in unit:unit.pop(key)
+
+    def clear_disengaged(self):
+        """脱离清扫：格上已无活敌军的 engaged 军队就地解除交战（0.1 结算第 4.9 步）。
+
+        补的是两个死角——敌军**撤退落地离开原格**（留守者否则要白挂一整回合：下回合
+        move 被拒、当回合不回血、次回合还多一条 0 伤害假战报）、以及任何路径留下的
+        空交战标记。必须在 claims 之后跑：占领判定要读 engaged。
+        """
+        self._write();cleared=[]
+        for unit in self._units:
+            if not unit.engaged or self._engaged_foes(unit):continue
+            unit.disengage();cleared.append((unit.owner,unit.id))
+        return tuple(cleared)
+
+    def _engaged_foes(self,unit):
+        """与 0.1 `_clear_disengaged` 同口径：野人只与「交战中的进攻方」为敌，
+        和平停驻在无主格上的军队不算它的敌人。"""
+        near=[u for u in self._units.at(unit.x,unit.y) if u is not unit and u.alive]
+        if unit.owner=='野人':return [u for u in near if u.owner!='野人' and u.engaged]
+        return [u for u in near if u.owner=='野人' or (u.owner!=unit.owner and self._hostile(unit.owner,u.owner))]
+
+    def engaged_without_foes(self):
+        """不变量自检：交战中却找不到活敌军的军队（正常结算后必须为空）。"""
+        return tuple((u.owner,u.id,u.x,u.y) for u in self._units if u.engaged and not self._engaged_foes(u))
     def remove_nation(self, owner):
         self._write()
         for unit in tuple(self._units.of(owner)):self._units.remove(unit)
