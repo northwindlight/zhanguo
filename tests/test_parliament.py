@@ -29,8 +29,12 @@ class CouncilBackend:
         if messages[-1]['content'].startswith('第二步：'):
             try:verdict=json.loads(content)
             except (TypeError,ValueError):return {'content':content},stats
+            if type(verdict.get('approved')) is not bool or not isinstance(verdict.get('reason'),str):
+                return {'content':content},stats
+            name='council_approve' if verdict['approved'] else 'council_reject'
+            args={} if verdict['approved'] else {'reason':verdict['reason']}
             return {'content':'','tool_calls':[{'id':'council-verdict','type':'function','function':{
-                'name':'council_verdict','arguments':json.dumps(verdict,ensure_ascii=False)}}]},stats
+                'name':name,'arguments':json.dumps(args,ensure_ascii=False)}}]},stats
         return {'content':content},stats
 
 
@@ -78,6 +82,8 @@ class TestParliament(unittest.TestCase):
         self.assertEqual(second[-2]['role'],'tool')
         self.assertEqual(h.services[self.actor]['council'].council['dialogue'],[])
         self.assertIn('议会通过了国策',results[1]['message'])
+        self.assertNotIn('reason',results[1]['data'])
+        self.assertNotIn('已核对回执',json.dumps(results[1],ensure_ascii=False))
         self.assertTrue(any(row['kind']=='settlement' for row in h.services[self.actor]['council'].council['archive']))
         self.assertEqual(h.player(self.actor).observe()['facts']['government']['plan']['text'],'NEW-CANDIDATE 农場仍在施工，下一期确认产出')
 
@@ -88,6 +94,7 @@ class TestParliament(unittest.TestCase):
         receipts=h.cycle()
         self.assertFalse(receipts[0]['ok']);self.assertFalse(receipts[1]['ok'])
         self.assertIn('要求君主解释',receipts[0]['message'])
+        self.assertIn('要求纠正事实',receipts[0]['data']['reason'])
         self.assertEqual(len(h.services[self.actor]['council'].council['dialogue']),7)
         first_dialogue=deepcopy(h.services[self.actor]['council'].council['dialogue'])
         self.assertIn('INITIAL-BASELINE',h.player(self.actor).observe()['facts']['government']['plan']['text'])
@@ -178,7 +185,7 @@ class TestParliament(unittest.TestCase):
                     'name':'council_next_stage','arguments':'{}'}}]},{}
                 if self.turn==3:return {'content':'周国已兑现占领与建造承诺；伤兵安排合理。'},{}
                 return {'content':'','tool_calls':[{'id':'final-verdict','type':'function','function':{
-                    'name':'council_verdict','arguments':'{"approved":true,"reason":"已重新核对，国策符合国家战略"}'}}]},{}
+                    'name':'council_approve','arguments':'{}'}}]},{}
         reviewer=RepairingCouncil();h.services[self.actor]['council']._review_backend=reviewer
         results=h.cycle()
         self.assertTrue(results[0]['ok'])
@@ -186,13 +193,14 @@ class TestParliament(unittest.TestCase):
         self.assertEqual(len(reviewer.calls),4)
         feedback=reviewer.calls[3][-1]['content']
         self.assertIn('未能正确提交裁决',feedback)
-        self.assertIn('council_verdict',feedback)
+        self.assertIn('council_approve',feedback)
         self.assertEqual(reviewer.calls[3][-1]['role'],'user')
         self.assertIn('council_next_stage',{tool['function']['name'] for tool in reviewer.schemas[0]})
-        verdict_schema=next(tool['function'] for tool in reviewer.schemas[2] if tool['function']['name']=='council_verdict')
-        self.assertEqual(verdict_schema['parameters']['required'],['approved','reason'])
-        self.assertEqual(verdict_schema['parameters']['properties']['approved']['type'],'boolean')
-        self.assertEqual(verdict_schema['parameters']['properties']['reason']['type'],'string')
+        approve_schema=next(tool['function'] for tool in reviewer.schemas[2] if tool['function']['name']=='council_approve')
+        reject_schema=next(tool['function'] for tool in reviewer.schemas[2] if tool['function']['name']=='council_reject')
+        self.assertEqual(approve_schema['parameters'],{'type':'object','properties':{},'additionalProperties':False})
+        self.assertEqual(reject_schema['parameters']['required'],['reason'])
+        self.assertEqual(reject_schema['parameters']['properties']['reason']['type'],'string')
 
     def test_first_stage_warns_after_five_calls_and_auto_approves_at_ten(self):
         h,c=self.host([True],[reply(call('p','plan',text='发展')),
@@ -243,7 +251,7 @@ class TestParliament(unittest.TestCase):
                         'name':'council_next_stage','arguments':'{}'}}]},{}
                 if round_no==10:
                     return {'content':'','tool_calls':[{'id':'verdict','type':'function','function':{
-                        'name':'council_verdict','arguments':'{"approved":true,"reason":"审核完成并提交"}'}}]},{}
+                        'name':'council_approve','arguments':'{}'}}]},{}
                 return {'content':'继续核对。'},{}
         reviewer=DeadlineCouncil();h.services[self.actor]['council']._review_backend=reviewer
         results=h.cycle()

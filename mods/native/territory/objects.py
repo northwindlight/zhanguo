@@ -101,6 +101,10 @@ class Territory:
         self._tiles[tile_id] = tile;self._positions[cell.position] = tile_id
         return self.get(tile_id)
 
+    def create_claim(self, tile_id, owner, x, y):
+        """创建被占领的无主地块，并将核心设为占领者。"""
+        return self.create(tile_id,owner,x,y,core=owner)
+
     def get(self, tile_id):
         tile = self._tiles[tile_id];site=self._call('native:buildings','site',tile_id)
         return TileFact(tile,site.owner,site.resources)
@@ -109,6 +113,15 @@ class Territory:
         self._write();self._tiles[tile_id]
         if owner is not None and owner not in self._call('native:nation-inspection','ids'):raise ValueError('Unknown living owner')
         self._call('native:buildings','transfer_site',tile_id,owner)
+        return self.get(tile_id)
+
+    def claim(self, tile_id, owner):
+        """占领无主地块，并按旧规则将该地块设为新领主的核心。"""
+        self._write();self._tiles[tile_id]
+        if owner not in self._call('native:nation-inspection','ids'):raise ValueError('Unknown living owner')
+        if self.get(tile_id).owner is not None:raise ValueError('Cannot claim an owned tile')
+        self._call('native:buildings','transfer_site',tile_id,owner)
+        self._tiles[tile_id] = replace(self._tiles[tile_id],core=owner)
         return self.get(tile_id)
 
     def snapshot(self):return tuple(self.get(key) for key in self._tiles)

@@ -207,7 +207,8 @@ class ReceiptPresentation:
             return f'{verb} {label}×{quantity}，{cash}{data["gold"]}金（含价差均价{num(data["exact_total"]/quantity)}；本期市价{num(data["price_before"])}）'
         if action=='plan' and isinstance(data,dict):
             if 'approved' in data:
-                return '✅ 国策已通过：'+data.get('reason',message)+'\n'+str(args.get('text',''))
+                if data['approved']:return '✅ 国策已通过。'
+                return '❌ 议会未批准国策：'+data.get('reason',message)
             return '✅ 国策已制定'+(f'（有效至第{data["valid_until"]}回合）' if 'valid_until' in data else '')+'\n'+data.get('text',args.get('text',''))
         if action=='end_turn' and isinstance(data,dict):return '回合小结：'+data.get('text',args.get('summary',''))
         if action=='player_rules' and isinstance(data,list):

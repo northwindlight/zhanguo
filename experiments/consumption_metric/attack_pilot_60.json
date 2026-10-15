@@ -1,0 +1,81 @@
+{
+  "size": 16,
+  "turns": 60,
+  "rows": [
+    {
+      "strategy": "v11plus",
+      "seed": 0,
+      "size": 16,
+      "turns": 60,
+      "elapsed_seconds": 50.627405233099125,
+      "cumulative_spending": 1646.967608937019,
+      "construction": 1646.9676089370187,
+      "recruitment": 0.0,
+      "military": 0.0,
+      "administration": 2.2737367544323206e-13,
+      "complete_valuation": true,
+      "liabilities": 0,
+      "land": 5
+    },
+    {
+      "strategy": "costly",
+      "seed": 0,
+      "size": 16,
+      "turns": 60,
+      "elapsed_seconds": 13.944430842064321,
+      "cumulative_spending": 360.0,
+      "construction": 360.0,
+      "recruitment": 0.0,
+      "military": 0.0,
+      "administration": 0.0,
+      "complete_valuation": true,
+      "liabilities": 0,
+      "land": 5
+    },
+    {
+      "strategy": "arbitrage",
+      "seed": 0,
+      "size": 16,
+      "turns": 60,
+      "elapsed_seconds": 10.159922498976812,
+      "cumulative_spending": 0,
+      "construction": 0.0,
+      "recruitment": 0.0,
+      "military": 0.0,
+      "administration": 0.0,
+      "complete_valuation": true,
+      "liabilities": 0,
+      "land": 5
+    },
+    {
+      "strategy": "hoard",
+      "seed": 0,
+      "size": 16,
+      "turns": 60,
+      "elapsed_seconds": 10.314825513982214,
+      "cumulative_spending": 0,
+      "construction": 0.0,
+      "recruitment": 0.0,
+      "military": 0.0,
+      "administration": 0.0,
+      "complete_valuation": true,
+      "liabilities": 0,
+      "land": 5
+    },
+    {
+      "strategy": "recruit_spam",
+      "seed": 0,
+      "size": 16,
+      "turns": 60,
+      "elapsed_seconds": 10.495570559985936,
+      "cumulative_spending": 240.0,
+      "construction": 240.0,
+      "recruitment": 0.0,
+      "military": 0.0,
+      "administration": 0.0,
+      "complete_valuation": true,
+      "liabilities": 0,
+      "land": 5
+    }
+  ]
+}

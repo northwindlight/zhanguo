@@ -176,8 +176,10 @@ class Military:
         seen=tuple(n for n in self._call('native:nation-inspection','ids') if self._call('native:vision','visible',n,x,y) or n in (owner,fact.owner))
         by=owner
         if fact.tile.core and fact.tile.core!=owner and fact.tile.core in self._call('native:nation-inspection','ids') and self._call('native:diplomacy','allied',owner,fact.tile.core) and self._call('native:diplomacy','at_war',owner):by=fact.tile.core
-        if fact.tile.id:self._call('native:territory','transfer',fact.tile.id,by)
-        else:self._call('native:territory','create',f'native:tile/{x}-{y}',by,x,y)
+        if fact.tile.id:
+            if fact.owner is None:self._call('native:territory','claim',fact.tile.id,by)
+            else:self._call('native:territory','transfer',fact.tile.id,by)
+        else:self._call('native:territory','create_claim',f'native:tile/{x}-{y}',by,x,y)
         self._events.append({'kind':'occupation','text':f'{by} occupied ({x},{y}); previous owner: {fact.owner}', 'position':(x,y),'parties':seen,'snapshot_only':True})
     def attack(self, owner, ids, x, y):
         result=self._batch(owner,ids,x,y,True)

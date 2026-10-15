@@ -1,0 +1,132 @@
+{
+  "kind": "static_source_review",
+  "checked_date": "2026-10-15",
+  "git_head": "4c5a6cce0eaefe00037319f5f18886060d267e5b",
+  "has_uncommitted_changes": true,
+  "new_experiments_run": false,
+  "scope": "本次仅静态核对源码、参数及已有合成核对结果。未执行价格成对探针或正式长期实验；随包源码为引用片段所在文件，不是完整可运行发行版。",
+  "paper_sha256": "34ec91e63c8359c312b850c9da870114015147c940c6f281e6f84838ad835d02",
+  "valuation_at": "report-stage",
+  "market_buffer": {
+    "Elasticity": 1.0,
+    "Flow": 0.25,
+    "Refill": 0.0,
+    "Spread": 0.1,
+    "MinPrice": 1e-06,
+    "MaxPrice": 1000000000.0
+  },
+  "bank_policy": {
+    "currency": "native:gold",
+    "initial_rate": 0.0,
+    "minimum_rate": -0.5,
+    "maximum_rate": 0.5,
+    "loan_spread": 0.02,
+    "credit_multiple": 5.0,
+    "loan_term": 5,
+    "report_fee": 20,
+    "purchase_limit": 10
+  },
+  "historical_probe": {
+    "path": "experiments/spend_metric_probes.py",
+    "available_at_commit": "717a12f",
+    "deleted_from_current_tree_at": "a2fedd3"
+  },
+  "files": {
+    "engine/resource.py": {
+      "sha256": "395e2ce073f8ebc88c5c27d5fe3064feb7bbb5eb280a8ea49bcbac354131ce6c",
+      "bytes": 3220
+    },
+    "experiments/consumption_metric/audit_checkpoint.py": {
+      "sha256": "b8bcf7b0f5e18c5cac216f8d3e98d78e4d6ad1fb6aecc5b91186bbee86bdfd84",
+      "bytes": 3304
+    },
+    "experiments/consumption_metric/probe.py": {
+      "sha256": "444d9d60c18ae14c80444faf43ea2b628a68bd115942d62e91d85263d1a306a9",
+      "bytes": 9896
+    },
+    "experiments/consumption_metric/results_eight_country.json": {
+      "sha256": "ff6113af6430e676e85fdc9c699fa4d490b5411870588daaabc976cfe0754afa",
+      "bytes": 1757549
+    },
+    "mods/experimental/mod.toml": {
+      "sha256": "be38a386b95181cba4cf5270f57f3de46eb2ac224a5b154ba209371741cda0a9",
+      "bytes": 2995
+    },
+    "mods/native/bank/mod.toml": {
+      "sha256": "6cae08c27b33ca55838089885115e859bec74683d14bed77162b388078a6c9da",
+      "bytes": 856
+    },
+    "mods/native/bank/objects.py": {
+      "sha256": "4f3e742705730da980d56e5e971a996b09d785c2943dd4abf296e47901d131bb",
+      "bytes": 12911
+    },
+    "mods/native/buildings/mod.py": {
+      "sha256": "e2f6529ccc0a3116033284e3665fa31765c72c596fd19618fb025d6cc312cb36",
+      "bytes": 5958
+    },
+    "mods/native/buildings/objects.py": {
+      "sha256": "b66d892889849378adf978912af8163bee7a4eff32f4a2d7a92f6ab3a2c946a1",
+      "bytes": 21586
+    },
+    "mods/native/diplomacy/mod.py": {
+      "sha256": "4d1201873eb5468707b1f493e35a59ab96f783bd4e4536ffdb35383c6a839572",
+      "bytes": 7780
+    },
+    "mods/native/economy_reports/contracts.py": {
+      "sha256": "619d44a2b040c6b0a1e87b26fa7ed9bed6d3beec78dbcb6fa988572be950ac7e",
+      "bytes": 3901
+    },
+    "mods/native/economy_reports/mod.py": {
+      "sha256": "fe7e6c8b7d75a1b1f3f5eca00a6a178eb19f246d6bccef0dc42a870909d7f3d2",
+      "bytes": 3278
+    },
+    "mods/native/economy_reports/mod.toml": {
+      "sha256": "fe9e3fe4e9cfb76a37f7466c8ec923330684d0a13114b2ff658088e2c8b21e08",
+      "bytes": 765
+    },
+    "mods/native/economy_reports/objects.py": {
+      "sha256": "de217cb79254b987a8467b131738bbbb11d4369810f82a0057eaad86243b8bb9",
+      "bytes": 16509
+    },
+    "mods/native/economy_valuation/mod.py": {
+      "sha256": "88ed5c59e323b4da724ac1a9384e2bdf9eaaa70e4fae1d829d09bc7d0608a2ac",
+      "bytes": 3278
+    },
+    "mods/native/intelligence/objects.py": {
+      "sha256": "35f62bc55f3c75cb75935d50d795bb6160e71089d33547c9f801a92e345b2e7a",
+      "bytes": 15941
+    },
+    "mods/native/market/contracts.py": {
+      "sha256": "47aa4a54d7e90ad5c5b6cc2ed9842095d0dfce6b5aedbde6e53c4527df94bea8",
+      "bytes": 3239
+    },
+    "mods/native/market/mod.py": {
+      "sha256": "8078699fab117e9df76b73931267967c3d0f5395e9c570f9c7403ea42c00ab09",
+      "bytes": 5603
+    },
+    "mods/native/market/mod.toml": {
+      "sha256": "426e049c122453098961b7e3f462686d28b6adb3e9ce87ec4400de06b2ccffb4",
+      "bytes": 1392
+    },
+    "mods/native/market/objects.py": {
+      "sha256": "d7377c009850a397f243d1848e1590ed2d3fef68e156d5a9b03f9e5dfa5683f6",
+      "bytes": 14230
+    },
+    "mods/native/market_pricing/pricing.py": {
+      "sha256": "e67048b3397896ac4d10124a05c6514cee3710ca82a87d02f45f03928a52a86b",
+      "bytes": 2831
+    },
+    "mods/native/mod.toml": {
+      "sha256": "8e8621d48d797b0dfb57cd41d93901f6a5bd9f522910461ff799ca493bbdeea5",
+      "bytes": 2022
+    },
+    "mods/native/observer.py": {
+      "sha256": "86d08621295e92ed948efc19d5f338fd6dd99248181608fd91cb7f21d49b4d4c",
+      "bytes": 6188
+    },
+    "mods/native/resources/types.py": {
+      "sha256": "a302a576d6f7cd6f1f0f33c310333e328a2e8bc1bacef82e423f24e45419b847",
+      "bytes": 1400
+    }
+  }
+}

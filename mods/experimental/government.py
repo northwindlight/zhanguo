@@ -28,11 +28,12 @@ class ParliamentGovernment(Government):
         row.update(submitted=self._period,draft=text,approved=None,reason='',explanation='')
         return {'text':text,'period':self._period,'status':'submitted','message':'国策已提交议会审核'}
 
-    def decide(self,owner,approved,reason):
+    def decide(self,owner,approved,reason=''):
         self._write();self._actor(owner)
         row=self._reviews[owner]
-        if type(approved) is not bool or not isinstance(reason,str) or not reason.strip():raise ValueError('Invalid council decision')
+        if type(approved) is not bool or not isinstance(reason,str) or (not approved and not reason.strip()):raise ValueError('Invalid council decision')
         if row['submitted']!=self._period or row['approved'] is not None:raise ValueError('No unreviewed draft')
+        reason=reason.strip() if not approved else ''
         row.update(approved=approved,reason=reason)
         if approved:
             super().plan(owner,row['draft'])
@@ -42,7 +43,9 @@ class ParliamentGovernment(Government):
             row['streak']=row['streak']+1 if row['last_rejection']==self._period-1 else 1
             row.update(last_rejection=self._period,due=self._period+1)
             message='议会没有批准君主的国策，贵族们对这份国策不满：'+reason+'。要求君主解释，并在下回合给出新的国策。'
-        return {'approved':approved,'reason':reason,'streak':row['streak'],'message':message}
+        result={'approved':approved,'streak':row['streak'],'message':message}
+        if not approved:result['reason']=reason
+        return result
 
     def explain(self,owner,text):
         self._write();self._actor(owner)

@@ -210,6 +210,42 @@ class TestWorldDomains(unittest.TestCase):
         for _ in range(3):self.cycle(w)
         self.call(w,Q,'declare_war',target=C)
 
+    def test_unowned_occupation_sets_core_and_peace_rebases_wartime_conquests(self):
+        w=self.world();self.site(w,'scenario:capital',Q,1,1)
+        w.military._guard(2,1)
+        next(u for u in w.units if u.owner=='野人' and (u.x,u.y)==(2,1)).take_damage(999)
+        unit=w.military.seed(Q,'native:infantry',1,1)[0]
+        self.call(w,Q,'attack',ids=[unit.id],x=2,y=1)
+        self.assertEqual(w.territory.cell(2,1).tile.core,Q)
+
+        w=self.world();self.site(w,'scenario:capital',Q,1,1)
+        w.territory.create('scenario:neutral',None,2,1,core=None)
+        unit=w.military.seed(Q,'native:infantry',1,1)[0]
+        self.call(w,Q,'attack',ids=[unit.id],x=2,y=1)
+        self.assertEqual(w.territory.get('scenario:neutral').tile.core,Q)
+
+        w=self.world();self.site(w,'scenario:qin-capital',Q,1,1);self.site(w,'scenario:chu-capital',C,2,1)
+        self.declare(w)
+        w.territory.transfer('scenario:chu-capital',Q)
+        self.assertEqual(w.territory.get('scenario:chu-capital').tile.core,C)
+        self.call(w,Q,'offer_peace',target=C);self.cycle(w)
+        offer=w.diplomacy.snapshot(C).offers[0]
+        self.call(w,C,'accept_peace',offer=offer.id);self.cycle(w)
+        self.assertEqual(w.territory.get('scenario:chu-capital').tile.core,Q)
+
+    def test_wartime_occupation_returns_allied_core_to_ally(self):
+        w=self.world();self.found(w)
+        self.site(w,'scenario:capital',Q,1,1)
+        w.territory.create('scenario:allied-core',C,2,1,core=Z)
+        self.call(w,Q,'declare_war',target=C);self.cycle(w)
+        vote=w.diplomacy.snapshot(Z).votes[0]
+        self.call(w,Z,'vote',vote=vote.id,accept=True);self.cycle(w)
+        self.assertTrue(w.diplomacy.war_between(Q,C))
+        unit=w.military.seed(Q,'native:infantry',1,1)[0]
+        self.call(w,Q,'attack',ids=[unit.id],x=2,y=1)
+        fact=w.territory.get('scenario:allied-core')
+        self.assertEqual((fact.owner,fact.tile.core),(Z,Z))
+
     def test_unaffordable_peace_reverts_whole_transition_and_refunds_acceptance_fee(self):
         w=self.world();self.declare(w)
         self.call(w,Q,'offer_peace',target=C,kind='demand',gold=20000);self.cycle(w)
@@ -413,6 +449,7 @@ class TestWorldDomains(unittest.TestCase):
         result=self.cycle(w)
         self.assertEqual(result['extinct_nations'],(C,))
         self.assertNotIn(C,w.nation_actors);self.assertIsNone(w.territory.owner(3,1))
+        self.assertEqual(w.territory.get('scenario:cc').tile.core,Q)
         self.assertEqual(w.buildings.count('scenario:ruin','native:farm'),1)
         self.assertFalse(w.diplomacy.at_war(Q));self.assertTrue(w.diplomacy.active_truce(Q,Z))
         before=w.resources.balance(C,'native:food');self.cycle(w)

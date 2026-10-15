@@ -1,13 +1,13 @@
 [Mod]
 Id = "native:diplomacy"
-Version = "2.1.0"
+Version = "2.2.0"
 Entry = "mods.native.diplomacy.mod:DiplomacyMod"
-Requires = ["native:nations", "native:government", "native:resources", "native:buildings"]
-After = ["native:nations", "native:government"]
+Requires = ["native:nations", "native:government", "native:resources", "native:buildings", "native:territory"]
+After = ["native:nations", "native:government", "native:territory"]
 [State]
 Owns = ["diplomacy"]
 [Capabilities]
-Needs = ["native:nation-inspection", "native:government", "native:resource-inspection", "native:resource-exchange", "native:buildings"]
+Needs = ["native:nation-inspection", "native:government", "native:resource-inspection", "native:resource-exchange", "native:buildings", "native:territory"]
 Provides = ["native:diplomacy"]
 [Interfaces]
 "native:nation-inspection" = ["ids", "get"]
@@ -15,6 +15,7 @@ Provides = ["native:diplomacy"]
 "native:resource-inspection" = ["snapshot"]
 "native:resource-exchange" = ["exchange", "exchange_batch"]
 "native:buildings" = ["snapshot"]
+"native:territory" = ["snapshot_cores"]
 [Diplomacy]
 Fee = 10
 MinimumFee = 1

@@ -82,8 +82,12 @@ class CouncilService:
         tools.append({'type':'function','function':{'name':'read_manual','description':'只读查询当前发行版说明书或策略手册；数值以说明书、实际回执为准。',
                       'parameters':{'type':'object','properties':{'topic':{'type':'string','enum':['说明书','经济学手册','基础指南','战争手册','战略手册']}},'required':['topic'],'additionalProperties':False}}})
         if finalize:
-            tools.append({'type':'function','function':{'name':'council_verdict','description':'结束本次议会审核并提交最终裁决。符合国家战略时批准；只有核实严重反事实或反承诺时才打回。',
-                          'parameters':{'type':'object','properties':{'approved':{'type':'boolean'},'reason':{'type':'string','minLength':1}},'required':['approved','reason'],'additionalProperties':False}}})
+            tools.extend([
+                {'type':'function','function':{'name':'council_approve','description':'结束审核并通过国策。通过时不要附理由、建议或额外上下文；只在确认可以通过时调用。',
+                              'parameters':{'type':'object','properties':{},'additionalProperties':False}}},
+                {'type':'function','function':{'name':'council_reject','description':'结束审核并拒绝国策。只在核实严重反事实或无解释的反承诺后调用；reason 必须简洁、具体并给出核对依据。',
+                              'parameters':{'type':'object','properties':{'reason':{'type':'string','minLength':1}},'required':['reason'],'additionalProperties':False}}},
+            ])
         if phase_end:
             tools.append({'type':'function','function':{'name':'council_next_stage','description':'结束第一步的历史与旧国策审核，进入第二步读取新版国策。',
                           'parameters':{'type':'object','properties':{},'additionalProperties':False}}})
@@ -115,19 +119,19 @@ class CouncilService:
             if any(not isinstance(i,str) or not i for i in ids) or len(set(ids))!=len(ids):raise ValueError('Invalid council tool IDs')
             assistant={key:deepcopy(msg[key]) for key in ('content','reasoning_content','tool_calls',REPLAY_KEY) if key in msg}
             assistant['role']='assistant';dialogue.append(assistant)
-            ending_tool='council_verdict' if finalize else 'council_next_stage' if phase_end else None
-            ending_positions=[i for i,call in enumerate(calls) if call.get('function',{}).get('name')==ending_tool] if ending_tool else []
+            ending_tools=('council_approve','council_reject') if finalize else ('council_next_stage',) if phase_end else ()
+            ending_positions=[i for i,call in enumerate(calls) if call.get('function',{}).get('name') in ending_tools]
             if ending_positions and (len(ending_positions)>1 or ending_positions[0]!=len(calls)-1):
                 for call in calls:
                     dialogue.append({'role':'tool','tool_call_id':call['id'],
-                                     'content':encode({'ok':False,'message':f'{ending_tool} 必须是本批次最后一个工具调用'})})
+                                     'content':encode({'ok':False,'message':'最终按钮必须是本批次最后一个工具调用'})})
                 assert_paired(dialogue)
                 if phase_end:
                     dialogue.append({'role':'user','content':self.ui.text('experimental.phase_continue')})
                     if round_tick():return '\n'.join(phase_speech),True
                     continue
                 if round_tick():return None
-                verdict_feedback(f'{ending_tool} 必须是本批次最后一个工具调用')
+                verdict_feedback('最终按钮必须是本批次最后一个工具调用')
                 continue
             retry_reason=None
             submitted_verdict=None
@@ -139,10 +143,16 @@ class CouncilService:
                     if not isinstance(args,dict):raise ValueError('Arguments must be an object')
                     if fn.get('name')=='player_rules':data=player.query('player_rules',args)
                     elif fn.get('name')=='read_manual':data=self._manual(player,**args)
-                    elif fn.get('name')=='council_verdict' and finalize:
-                        verdict=self._parse_verdict(args)
-                        dialogue.append({'role':'tool','tool_call_id':call['id'],'content':encode({'ok':True,'message':'裁决已提交'})})
-                        submitted_verdict=verdict
+                    elif fn.get('name')=='council_approve' and finalize:
+                        if args:raise ValueError('council_approve 不接受参数')
+                        dialogue.append({'role':'tool','tool_call_id':call['id'],'content':encode({'ok':True})})
+                        submitted_verdict={'approved':True,'reason':''}
+                        continue
+                    elif fn.get('name')=='council_reject' and finalize:
+                        if set(args)!={'reason'} or not isinstance(args['reason'],str) or not args['reason'].strip():
+                            raise ValueError('council_reject 必须提供非空 reason')
+                        dialogue.append({'role':'tool','tool_call_id':call['id'],'content':encode({'ok':True})})
+                        submitted_verdict={'approved':False,'reason':args['reason'].strip()}
                         continue
                     elif fn.get('name')=='council_next_stage' and phase_end:
                         if args:raise ValueError('council_next_stage 不接受参数')
@@ -155,7 +165,7 @@ class CouncilService:
                 dialogue.append({'role':'tool','tool_call_id':call['id'],'content':encode(result)})
                 self.council['archive'].append({'kind':'council.query','period':player.observe()['period'],
                                                'tool':deepcopy(fn),'result':deepcopy(result)})
-                if finalize and fn.get('name')=='council_verdict' and not result['ok']:
+                if finalize and fn.get('name') in ('council_approve','council_reject') and not result['ok']:
                     retry_reason=result['message']
             assert_paired(dialogue)
             if stage_ended:
@@ -172,7 +182,7 @@ class CouncilService:
                 elif not finalize:return msg['content']
                 else:
                     if round_tick():return None
-                    verdict_feedback('尚未通过 council_verdict 工具提交裁决')
+                    verdict_feedback('尚未通过 council_approve 或 council_reject 工具提交裁决')
                     continue
                 continue
             if not calls:
@@ -180,14 +190,6 @@ class CouncilService:
                 dialogue.append({'role':'user','content':self.ui.text(prompt)})
             if round_tick():return ('\n'.join(phase_speech),True) if phase_end else None
         return ('\n'.join(phase_speech),True) if phase_end else None
-
-    @staticmethod
-    def _parse_verdict(verdict):
-        if not isinstance(verdict,dict) or set(verdict)!={'approved','reason'}:
-            raise ValueError('裁决必须且只能包含 approved 和 reason 字段')
-        if type(verdict['approved']) is not bool or not isinstance(verdict['reason'],str) or not verdict['reason'].strip():
-            raise ValueError('approved 必须是布尔值，reason 必须是非空字符串')
-        return verdict
 
     def _snapshot(self,player,kind):
         try:state=player.observe()

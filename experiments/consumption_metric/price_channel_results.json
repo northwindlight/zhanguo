@@ -1,0 +1,580 @@
+{
+  "method": "成对合成世界：相同禀赋、相同逐期建设与用量，处理组只增加合法市场交易",
+  "cycles": 6,
+  "build": "native:watchtower",
+  "trade_each_cycle": 300,
+  "base_prices": {
+    "native:gold": 1.0,
+    "native:wood": 2.0,
+    "native:food": 1.5,
+    "native:ore": 2.5,
+    "native:oil": 6.0,
+    "native:equipment": 8.0,
+    "native:supply": 6.0
+  },
+  "arms": {
+    "dynamic/control": {
+      "fixed": false,
+      "buy_per_cycle": 0,
+      "sell_per_cycle": 0,
+      "endowment": {
+        "gold": 12000,
+        "wood": 400
+      },
+      "series": [
+        {
+          "cycle": 0,
+          "wood_price": 2.0,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120.0,
+          "cumulative_spending": 120.0,
+          "wood_stock": 370
+        },
+        {
+          "cycle": 1,
+          "wood_price": 2.0,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120.0,
+          "cumulative_spending": 240.0,
+          "wood_stock": 340
+        },
+        {
+          "cycle": 2,
+          "wood_price": 2.0,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120.0,
+          "cumulative_spending": 360.0,
+          "wood_stock": 310
+        },
+        {
+          "cycle": 3,
+          "wood_price": 2.0,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120.0,
+          "cumulative_spending": 480.0,
+          "wood_stock": 280
+        },
+        {
+          "cycle": 4,
+          "wood_price": 2.0,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120.0,
+          "cumulative_spending": 600.0,
+          "wood_stock": 250
+        },
+        {
+          "cycle": 5,
+          "wood_price": 2.0,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120.0,
+          "cumulative_spending": 720.0,
+          "wood_stock": 220
+        }
+      ],
+      "cumulative_spending": 720.0,
+      "period_spending_total": 720.0,
+      "final_use_quantities": {
+        "native:gold": 360.0,
+        "native:wood": 180.0
+      },
+      "final_wood_stock": 220,
+      "final_gold": 11640,
+      "max_wood_price": 2.0,
+      "min_wood_price": 2.0,
+      "facts": 6,
+      "audit_residual": {
+        "Qin": 0.0
+      },
+      "base_value": 720.0,
+      "score_over_base": 1.0
+    },
+    "dynamic/buy": {
+      "fixed": false,
+      "buy_per_cycle": 300,
+      "sell_per_cycle": 0,
+      "endowment": {
+        "gold": 12000,
+        "wood": 400
+      },
+      "series": [
+        {
+          "cycle": 0,
+          "wood_price": 2.4135944403011558,
+          "wood_inventory": 1620,
+          "reference": 1995.0,
+          "period_spending": 132.40783320903466,
+          "cumulative_spending": 132.40783320903466,
+          "wood_stock": 670
+        },
+        {
+          "cycle": 1,
+          "wood_price": 2.8733138669456904,
+          "wood_inventory": 1320,
+          "reference": 2070.0,
+          "period_spending": 146.1994160083707,
+          "cumulative_spending": 278.60724921740535,
+          "wood_stock": 940
+        },
+        {
+          "cycle": 2,
+          "wood_price": 3.379144953096934,
+          "wood_inventory": 1020,
+          "reference": 2145.0,
+          "period_spending": 161.374348592908,
+          "cumulative_spending": 439.98159781031336,
+          "wood_stock": 1210
+        },
+        {
+          "cycle": 3,
+          "wood_price": 3.9307209474127904,
+          "wood_inventory": 720,
+          "reference": 2220.0,
+          "period_spending": 177.92162842238372,
+          "cumulative_spending": 617.9032262326971,
+          "wood_stock": 1480
+        },
+        {
+          "cycle": 4,
+          "wood_price": 4.5273674993850195,
+          "wood_inventory": 420,
+          "reference": 2295.0,
+          "period_spending": 195.82102498155058,
+          "cumulative_spending": 813.7242512142477,
+          "wood_stock": 1750
+        },
+        {
+          "cycle": 5,
+          "wood_price": 5.168147303986923,
+          "wood_inventory": 120,
+          "reference": 2370.0,
+          "period_spending": 215.04441911960768,
+          "cumulative_spending": 1028.7686703338554,
+          "wood_stock": 2020
+        }
+      ],
+      "cumulative_spending": 1028.7686703338554,
+      "period_spending_total": 1028.7686703338554,
+      "final_use_quantities": {
+        "native:gold": 360.0,
+        "native:wood": 180.0
+      },
+      "final_wood_stock": 2020,
+      "final_gold": 5173,
+      "max_wood_price": 5.168147303986923,
+      "min_wood_price": 2.4135944403011558,
+      "facts": 12,
+      "audit_residual": {
+        "Qin": 0.0
+      },
+      "base_value": 720.0,
+      "score_over_base": 1.428845375463688
+    },
+    "fixed/control": {
+      "fixed": true,
+      "buy_per_cycle": 0,
+      "sell_per_cycle": 0,
+      "endowment": {
+        "gold": 12000,
+        "wood": 400
+      },
+      "series": [
+        {
+          "cycle": 0,
+          "wood_price": 2,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120,
+          "cumulative_spending": 120,
+          "wood_stock": 370
+        },
+        {
+          "cycle": 1,
+          "wood_price": 2,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120,
+          "cumulative_spending": 240,
+          "wood_stock": 340
+        },
+        {
+          "cycle": 2,
+          "wood_price": 2,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120,
+          "cumulative_spending": 360,
+          "wood_stock": 310
+        },
+        {
+          "cycle": 3,
+          "wood_price": 2,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120,
+          "cumulative_spending": 480,
+          "wood_stock": 280
+        },
+        {
+          "cycle": 4,
+          "wood_price": 2,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120,
+          "cumulative_spending": 600,
+          "wood_stock": 250
+        },
+        {
+          "cycle": 5,
+          "wood_price": 2,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120,
+          "cumulative_spending": 720,
+          "wood_stock": 220
+        }
+      ],
+      "cumulative_spending": 720,
+      "period_spending_total": 720,
+      "final_use_quantities": {
+        "native:gold": 360.0,
+        "native:wood": 180.0
+      },
+      "final_wood_stock": 220,
+      "final_gold": 11640,
+      "max_wood_price": 2,
+      "min_wood_price": 2,
+      "facts": 6,
+      "audit_residual": {
+        "Qin": 0.0
+      },
+      "base_value": 720.0,
+      "score_over_base": 1.0
+    },
+    "fixed/buy": {
+      "fixed": true,
+      "buy_per_cycle": 300,
+      "sell_per_cycle": 0,
+      "endowment": {
+        "gold": 12000,
+        "wood": 400
+      },
+      "series": [
+        {
+          "cycle": 0,
+          "wood_price": 2,
+          "wood_inventory": 1620,
+          "reference": 1995.0,
+          "period_spending": 120,
+          "cumulative_spending": 120,
+          "wood_stock": 670
+        },
+        {
+          "cycle": 1,
+          "wood_price": 2,
+          "wood_inventory": 1320,
+          "reference": 2070.0,
+          "period_spending": 120,
+          "cumulative_spending": 240,
+          "wood_stock": 940
+        },
+        {
+          "cycle": 2,
+          "wood_price": 2,
+          "wood_inventory": 1020,
+          "reference": 2145.0,
+          "period_spending": 120,
+          "cumulative_spending": 360,
+          "wood_stock": 1210
+        },
+        {
+          "cycle": 3,
+          "wood_price": 2,
+          "wood_inventory": 720,
+          "reference": 2220.0,
+          "period_spending": 120,
+          "cumulative_spending": 480,
+          "wood_stock": 1480
+        },
+        {
+          "cycle": 4,
+          "wood_price": 2,
+          "wood_inventory": 420,
+          "reference": 2295.0,
+          "period_spending": 120,
+          "cumulative_spending": 600,
+          "wood_stock": 1750
+        },
+        {
+          "cycle": 5,
+          "wood_price": 2,
+          "wood_inventory": 120,
+          "reference": 2370.0,
+          "period_spending": 120,
+          "cumulative_spending": 720,
+          "wood_stock": 2020
+        }
+      ],
+      "cumulative_spending": 720,
+      "period_spending_total": 720,
+      "final_use_quantities": {
+        "native:gold": 360.0,
+        "native:wood": 180.0
+      },
+      "final_wood_stock": 2020,
+      "final_gold": 8040,
+      "max_wood_price": 2,
+      "min_wood_price": 2,
+      "facts": 12,
+      "audit_residual": {
+        "Qin": 0.0
+      },
+      "base_value": 720.0,
+      "score_over_base": 1.0
+    },
+    "dynamic/control-sell": {
+      "fixed": false,
+      "buy_per_cycle": 0,
+      "sell_per_cycle": 0,
+      "endowment": {
+        "gold": 12000,
+        "wood": 2600
+      },
+      "series": [
+        {
+          "cycle": 0,
+          "wood_price": 2.0,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120.0,
+          "cumulative_spending": 120.0,
+          "wood_stock": 2570
+        },
+        {
+          "cycle": 1,
+          "wood_price": 2.0,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120.0,
+          "cumulative_spending": 240.0,
+          "wood_stock": 2540
+        },
+        {
+          "cycle": 2,
+          "wood_price": 2.0,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120.0,
+          "cumulative_spending": 360.0,
+          "wood_stock": 2510
+        },
+        {
+          "cycle": 3,
+          "wood_price": 2.0,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120.0,
+          "cumulative_spending": 480.0,
+          "wood_stock": 2480
+        },
+        {
+          "cycle": 4,
+          "wood_price": 2.0,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120.0,
+          "cumulative_spending": 600.0,
+          "wood_stock": 2450
+        },
+        {
+          "cycle": 5,
+          "wood_price": 2.0,
+          "wood_inventory": 1920,
+          "reference": 1920.0,
+          "period_spending": 120.0,
+          "cumulative_spending": 720.0,
+          "wood_stock": 2420
+        }
+      ],
+      "cumulative_spending": 720.0,
+      "period_spending_total": 720.0,
+      "final_use_quantities": {
+        "native:gold": 360.0,
+        "native:wood": 180.0
+      },
+      "final_wood_stock": 2420,
+      "final_gold": 11640,
+      "max_wood_price": 2.0,
+      "min_wood_price": 2.0,
+      "facts": 6,
+      "audit_residual": {
+        "Qin": 0.0
+      },
+      "base_value": 720.0,
+      "score_over_base": 1.0
+    },
+    "dynamic/sell": {
+      "fixed": false,
+      "buy_per_cycle": 0,
+      "sell_per_cycle": 300,
+      "endowment": {
+        "gold": 12000,
+        "wood": 2600
+      },
+      "series": [
+        {
+          "cycle": 0,
+          "wood_price": 1.6321450773722312,
+          "wood_inventory": 2220,
+          "reference": 1845.0,
+          "period_spending": 108.96435232116693,
+          "cumulative_spending": 108.96435232116693,
+          "wood_stock": 2270
+        },
+        {
+          "cycle": 1,
+          "wood_price": 1.309202753716224,
+          "wood_inventory": 2520,
+          "reference": 1770.0,
+          "period_spending": 99.27608261148671,
+          "cumulative_spending": 208.24043493265364,
+          "wood_stock": 1940
+        },
+        {
+          "cycle": 2,
+          "wood_price": 1.0298677195788375,
+          "wood_inventory": 2820,
+          "reference": 1695.0,
+          "period_spending": 90.89603158736513,
+          "cumulative_spending": 299.13646652001876,
+          "wood_stock": 1610
+        },
+        {
+          "cycle": 3,
+          "wood_price": 0.7923288605641311,
+          "wood_inventory": 3120,
+          "reference": 1620.0,
+          "period_spending": 83.76986581692393,
+          "cumulative_spending": 382.9063323369427,
+          "wood_stock": 1280
+        },
+        {
+          "cycle": 4,
+          "wood_price": 0.5942560140139945,
+          "wood_inventory": 3420,
+          "reference": 1545.0,
+          "period_spending": 77.82768042041984,
+          "cumulative_spending": 460.7340127573625,
+          "wood_stock": 950
+        },
+        {
+          "cycle": 5,
+          "wood_price": 0.4328062700674268,
+          "wood_inventory": 3720,
+          "reference": 1470.0,
+          "period_spending": 72.9841881020228,
+          "cumulative_spending": 533.7182008593853,
+          "wood_stock": 620
+        }
+      ],
+      "cumulative_spending": 533.7182008593853,
+      "period_spending_total": 533.7182008593853,
+      "final_use_quantities": {
+        "native:gold": 360.0,
+        "native:wood": 180.0
+      },
+      "final_wood_stock": 620,
+      "final_gold": 13569,
+      "max_wood_price": 1.6321450773722312,
+      "min_wood_price": 0.4328062700674268,
+      "facts": 12,
+      "audit_residual": {
+        "Qin": 0.0
+      },
+      "base_value": 720.0,
+      "score_over_base": 0.7412752789713685
+    }
+  },
+  "checks": {
+    "use_vectors_identical": true,
+    "use_vectors": {
+      "dynamic/control": [
+        [
+          "native:gold",
+          360.0
+        ],
+        [
+          "native:wood",
+          180.0
+        ]
+      ],
+      "dynamic/buy": [
+        [
+          "native:gold",
+          360.0
+        ],
+        [
+          "native:wood",
+          180.0
+        ]
+      ],
+      "fixed/control": [
+        [
+          "native:gold",
+          360.0
+        ],
+        [
+          "native:wood",
+          180.0
+        ]
+      ],
+      "fixed/buy": [
+        [
+          "native:gold",
+          360.0
+        ],
+        [
+          "native:wood",
+          180.0
+        ]
+      ],
+      "dynamic/control-sell": [
+        [
+          "native:gold",
+          360.0
+        ],
+        [
+          "native:wood",
+          180.0
+        ]
+      ],
+      "dynamic/sell": [
+        [
+          "native:gold",
+          360.0
+        ],
+        [
+          "native:wood",
+          180.0
+        ]
+      ]
+    },
+    "dynamic_buy_minus_control": 308.7686703338554,
+    "dynamic_sell_minus_control": -186.28179914061468,
+    "fixed_buy_minus_control": 0,
+    "base_values_equal": true,
+    "base_value": 720.0,
+    "max_price_ratio_to_base": 2.5840736519934615,
+    "e": 2.718281828459045,
+    "H_falsified_for_current_field": true,
+    "invariance_holds_under_fixed_valuation": true,
+    "price_bound_holds": true
+  },
+  "elapsed_seconds": 0.44627633306663483,
+  "probe_sha256": "78caf7289620f306faeef5e90163b4c9ab96439b6788895dd9705219e2d63bc8"
+}

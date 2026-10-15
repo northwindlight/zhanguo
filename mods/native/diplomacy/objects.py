@@ -452,6 +452,10 @@ class Diplomacy:
 
     def eliminate(self, owner):
         self._write()
+        ended_wars=tuple(self._wars)
+        ended_participants=tuple(dict.fromkeys(
+            nation for war in ended_wars for nation in (*war.attackers,*war.defenders)
+            if nation!=owner and nation in self._ids()))
         bloc=self.alliance(owner)
         self._drop_entity_pacts('nation/'+owner)
         if bloc:
@@ -460,6 +464,7 @@ class Diplomacy:
             else:self._alliances[bloc.id]=replace(bloc,members=members,chief=members[0] if bloc.chief==owner else bloc.chief)
         self._wars=[];self._void_pending(True)
         survivors=[n for n in self._ids() if n!=owner]
+        if ended_participants:self._call('native:territory','snapshot_cores',ended_participants)
         for i,a in enumerate(survivors):
             for b in survivors[i+1:]:self._truce(self.entity(a),self.entity(b),self._period()+self._fall_truce)
         return tuple(survivors)

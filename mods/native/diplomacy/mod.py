@@ -36,7 +36,7 @@ DESCRIPTIONS={
 class DiplomacyMod(GameMod):
     def mixins(self):return ()
     def state_keys(self):return ('diplomacy',)
-    def needs(self):return ('native:nation-inspection','native:government','native:resource-inspection','native:resource-exchange','native:buildings')
+    def needs(self):return ('native:nation-inspection','native:government','native:resource-inspection','native:resource-exchange','native:buildings','native:territory')
     def provides(self):return ('native:diplomacy',)
     def numbers(self):return {'diplomacy.'+key:value for key,value in self.declaration['Diplomacy'].items()}
     def initialize_world(self, world):

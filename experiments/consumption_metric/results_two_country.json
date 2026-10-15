@@ -1,0 +1,3235 @@
+{
+  "manifest": {
+    "head": "4c5a6cce0eaefe00037319f5f18886060d267e5b",
+    "working_tree": " M README.md\n M \"docs/\\346\\266\\210\\350\\264\\271\\346\\200\\273\\351\\207\\217\\350\\257\\204\\346\\265\\213\\346\\214\\207\\346\\240\\207\\350\\256\\272\\350\\257\\201.md\"\n M mods/experimental/README.md\n M mods/experimental/council.py\n M mods/experimental/government.py\n M mods/native/army/domain_objects.py\n M mods/native/army/mod.toml\n M mods/native/diplomacy/mod.py\n M mods/native/diplomacy/mod.toml\n M mods/native/diplomacy/objects.py\n M mods/native/territory/README.md\n M mods/native/territory/mod.toml\n M mods/native/territory/objects.py\n M mods/ui/locales/en-US.json\n M mods/ui/locales/zh-CN.json\n M mods/ui/receipts.py\n M tests/test_parliament.py\n M tests/test_world_domains.py\n?? \"docs/GUI\\351\\200\\211\\345\\236\\213\\344\\270\\216\\350\\256\\241\\345\\210\\222.md\"\n?? experiments/consumption_metric/\n",
+    "python": "3.13.5",
+    "files": {
+      "engine/__init__.py": "f6ac2849bc34f51c58c2c5d3c9b1b3434438e713794bed4eb956ca24cca55217",
+      "engine/api.py": "b2356cf92cfa20855133a494b127f67a5be157191332befd5bbe78c82be53029",
+      "engine/building.py": "ac5d577ed9e8c5c6df90e0ff8c565bc0a31db5b67eb776a4e409a5c08959f604",
+      "engine/config.py": "86de746017ef017f9cf4d171e8886e97a835b05731e55195172201fd352a767b",
+      "engine/content.py": "420e810a78795cc2adb4c4b6d5403db091f75d521f7332d9e529cd6d09a10af4",
+      "engine/identifiers.py": "c186fef43c9491d5e5e4e481807697d5972cb537128738f446985167274a34f9",
+      "engine/player.py": "0cae5f36a45919305337a77efd3016d434329f7a0a0edfec3811c5bfa91e91a0",
+      "engine/resource.py": "395e2ce073f8ebc88c5c27d5fe3064feb7bbb5eb280a8ea49bcbac354131ce6c",
+      "engine/runtime.py": "da964eed8df5c1b43a8413470570272db39382607cb3a2a3816d4e701ef8682c",
+      "engine/scenario.py": "0b1fb3e2f69449dd1b1e2509d6d101b2ab28cc1106cd6cbe2a0541783f0a6d0c",
+      "engine/scripting.py": "b47620018fd46d8765b414f4ba0fb2240ada24d38b7e9137ba890982deeb3eba",
+      "engine/session.py": "50cb0d7d4abf926739bb8c04775282ef18571701d35731e584c02d18dfbab1cb",
+      "engine/state.py": "4e392555ed896b2704badc5d7108c11ef2b931dce354237b79af45851e10f5d2",
+      "mods/buildings_acceptance/mod.toml": "b6847cd413d1f12597db1d5394d6566889e3fe50d00fecfe20345b0c2240098d",
+      "mods/economic_system/mod.toml": "e57253b00976573359d66410f762190b5e658d77654effe1884b27d4161c436f",
+      "mods/economy_acceptance/mod.toml": "bd946f93641a26526d58acd756f93e32aad0cfcc05b3810bf09f4c349e9693c4",
+      "mods/examples/elephants/mod.py": "277de459dee29eda11bbb1396c49e2bdd9b94f1a0c2f7dabe643b30727b05ab6",
+      "mods/examples/elephants/mod.toml": "4ac1f76baa6a37ecbcdaa4c829e7129b89cfae618d2459d843ac248ffdf919d6",
+      "mods/examples/fixed_credit_bank/mod.py": "aa0cec07f4a5d811ccc3a8602455b0da52488926d2041e0a7d90d0c08a7bd17e",
+      "mods/examples/fixed_credit_bank/mod.toml": "58a51f8bb2c5810abbc07c15340729b68d3034fd8c72849508d5494c8cccaf69",
+      "mods/examples/fixed_market_pricing/mod.py": "abd13b74800d9e9afa49b6fabd24dba54ab6b6f55fbccd49ba2bd2cc969332f7",
+      "mods/examples/fixed_market_pricing/mod.toml": "30e280a03cac126a1bf0f5bee6ab3b85febaa3056ecaa66be9fab8706edb6141",
+      "mods/examples/harvest/mod.py": "91b9828a188c9b8c495e9b416370ddc38f2f2d468828ea51296a185dd02da8a9",
+      "mods/examples/harvest/mod.toml": "339a2227de7250ec1b0e451a531de0aa27c4bbeec2fb0df6af41255a13390822",
+      "mods/examples/hello/mod.py": "4630728aa039e88426271fe0f79017fc81d59b0e21ba7d681c866681838abc93",
+      "mods/examples/hello/mod.toml": "4d711fe3cd38aa2bd6c9bbd4a40bab36545cad3253bdb9f383f5369b783ec257",
+      "mods/examples/idle_client/client.py": "b941e4ab37ef0c4fbbdfc6682e97e412b9be090c291e956ef6bfe6028ad02060",
+      "mods/examples/minigame/client.py": "619d20d6b3f4aba84a4edc4323173f46aee24d714754609a05b284b506700943",
+      "mods/examples/minigame/config.py": "89e45bf15227192b4fdacc4d443b47f9b7512a5cb38a483175f2ef95207acd98",
+      "mods/examples/minigame/game.py": "a7d1a838c770243f0b18fb1a799489a36a63c5284d8dfaa7260589e9bc990431",
+      "mods/examples/minigame/mod.toml": "66fdc3524c0b33de8dd5fbfe5e5a2d1415a5a54e0e07499b45498f197e1d2e2c",
+      "mods/examples/minigame/mods/army.toml": "353fe7ddadc2ef145114a6e295d7cdec6d3dcc8971d75aee9c46a211ed1852d7",
+      "mods/examples/minigame/mods/buildings.toml": "5418ab704330cb253ecb018bc8446015ea32bb79b6e7144327ef0e622d33c18e",
+      "mods/examples/minigame/mods/diplomacy.toml": "6fa8d30bdf7cba6b9c2956043c4467cf876959e3a1d995ca728b711ab0182322",
+      "mods/examples/minigame/mods/government.toml": "0d09b4f5c8457883a596f68fc6a828ac99ac23465564f7607f2c26c052723567",
+      "mods/examples/minigame/mods/intelligence.toml": "b92c6424279f2eb4ecee6e691ec69ba060726113505373f4a5db3989242b89bb",
+      "mods/examples/minigame/mods/nations.toml": "b7aa3044547110cffcb3acc999c509288666d4908ef0cb8d25643cec1427629a",
+      "mods/examples/minigame/mods/resources.toml": "3a9c85e7262fbc4dad1eaef1edcfeffa08e08f7d030e8a64ecdb25fa09177ced",
+      "mods/examples/minigame/mods/succession.toml": "7b6121c8aa3c9cc34d358fce01f5d766275928e630979f32e1aabc7756e6b63f",
+      "mods/examples/minigame/mods/territory.toml": "c6de5c3f3f3bde52c077eca05d2953873ce4dae5ae290a20392132c5ac8d15c1",
+      "mods/examples/minigame/session.py": "1069c336ad6576ca45e5f1c07b2a993efe305581e6ad0e47138e4f7cbc6c8cad",
+      "mods/examples/no_power/buildings.py": "1afb12cb9437e60faa05ff1e4541a671f55c795d2d98bb18d9d98cea290c508e",
+      "mods/examples/no_power/buildings.toml": "4c7c2db350641fb5eeaa1b71127292093dd0e2617b3ec6135273b4c35350ffad",
+      "mods/examples/no_power_dist/mod.toml": "4349ce8eaddcea57424d5bbe0121bb72246b4e48116542b63b9212308bd194f2",
+      "mods/examples/playable_min/mod.toml": "4e5b208c0402c8ad5b596074b0158d7570f2f7388043f970dc612e6d498bf6f6",
+      "mods/examples/recipes_dist/mod.toml": "17bbb9caf111595c9aac74241ea4209a11c5d4363eff7a488c7157a5fcbb3c11",
+      "mods/examples/tea/market.py": "d65cb651fa3d547c361dc87bc0042d319ab4f04a28f77daca4b99c2b0c52f4d7",
+      "mods/examples/tea/market.toml": "7958b05b61036e9c3781a7a28e2ae7a920dc2aff9acf9178ecf981f6ed8ef482",
+      "mods/examples/tea/mod.py": "0e65f73d5920a134a22bcfc686f12756e0daadb4b95e0c871210f686131c30e9",
+      "mods/examples/tea/mod.toml": "8bb97dd23f739dedcb2d03227d234747175992945ff1d0203e27c01d7adc6df1",
+      "mods/examples/tea_dist/mod.toml": "19eba1ccfd80f8e012e2c5e8cd1d73306f838aac3cf4c3cbb1fc37821eca4236",
+      "mods/examples/tour.py": "11cf01603f50bbafb541b153729d398b518e69f4806a8ed3ed4fa78c7d661688",
+      "mods/experimental/client.py": "bfdcd5c77b2c6b6d01d2cd8afd889017626b7e9536f5d55d4cf4d819519e1297",
+      "mods/experimental/combat_research/build.py": "7e150ce4607b0bb6421de045e212fe6927476b56f2c9d74773601b9e92ceaf59",
+      "mods/experimental/combat_research/client.py": "a6ae59c65435ff227afa6cbdcbcc6da923393d0ab4ba43522336c66991541508",
+      "mods/experimental/combat_research/mod.py": "ce9b52ec2aafe73f59341a9dae499cf4f75846fea54dbdaa0965ca808e2f96af",
+      "mods/experimental/combat_research/mod.toml": "41db593160296e923f6a3d764f75b1701734158cf17650db3bf350b31fa96374",
+      "mods/experimental/combat_research/solver.py": "fb5b35da0129fab9601b4b3f902d8c7d1ce2571689d0eea3bb7761dd899d1473",
+      "mods/experimental/config.py": "c93c702c19254b8c90c47f0bd51303f91dd1cd5daaf67e178182d2ceb36f60fc",
+      "mods/experimental/council.py": "81a1188ae41da1aa58fa60fa7070c6294b501b0981a2bf5e3f275547a938e352",
+      "mods/experimental/examples/logistics.py": "a6f49814e4c10e510cb34ed1c4b7a5173a7b3ca1f807cf1cfa1ed92f555bc17f",
+      "mods/experimental/examples/market_interpolation.py": "ec0055c55dff1c21ad028d482b2dc741f9cb3cc7a428575a31e4dde0b20d6698",
+      "mods/experimental/government.py": "2de432778d082e6c325c8daac8924ea22f8493031ed89dd6f0d9a0e2999ae6e7",
+      "mods/experimental/government.toml": "283ac42a5ae3be3dd4b027ca074b397a58caa1016c6f2859c802aa1fd8e048af",
+      "mods/experimental/handbooks.toml": "a0f8aa066e7d607c6a3ae3e22398a0435bd7c4e7acd2289df79b1b499dd02938",
+      "mods/experimental/mod.toml": "be38a386b95181cba4cf5270f57f3de46eb2ac224a5b154ba209371741cda0a9",
+      "mods/experimental/scripting.py": "3479d60cd2eda93fd9127986ce626ddff21cc08e09840ec43d8eb979682a85be",
+      "mods/experimental/scripting.toml": "3ae8c854a717d7205bf32c0c48efa5c26fe6425d02fe1fb37cc129efb4fd808f",
+      "mods/market_acceptance/mod.toml": "e3ab04bf1e16350101fd72d3499868b3907dc8417c29d7fbd81ce5faf30e2906",
+      "mods/nations_acceptance/mod.toml": "3389f3d9bb86dd31512aeb2b31a2e3a26cd5b9f593643f2f77b56e5f5e535e9d",
+      "mods/native/__init__.py": "1ec505d39b85fd238643fcfce80b6b6b097787b0276a7714b7c0091a9d1edc93",
+      "mods/native/army/__init__.py": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "mods/native/army/content.py": "5afbad7a9e57c3c783818db7642adc7e9bda838a6dfd2c70fe44c93bf267da96",
+      "mods/native/army/domain_objects.py": "6e16072e52f0b916f3bbb65957c6ab6994fb8cf9f7fcdc4468f4637fb6b5f5e2",
+      "mods/native/army/mod.py": "25deb89a229ae940b7959e3efca4b03b10470b654745518283d42ff458d83774",
+      "mods/native/army/mod.toml": "08d9874e75c91b925579f6d009c7e3dbb98a90349999e662cacb641566fc94a0",
+      "mods/native/army/objects.py": "8bc7727d92c9a7f6464736305d77d74e38d831ffedb833042160f72ecd1a782a",
+      "mods/native/army/parameters.py": "39dd6a8dde8b6d23819ccc99530d2cb4dc36ca337a818fe9eb6fcc30f647a8bc",
+      "mods/native/army/rules.py": "103f467d19063bb83b7c66cea50706cdebea922b34c22bb70004bae17fafaae7",
+      "mods/native/bank/mod.py": "14464cfd7d11910b62c380cabaeaa0dd01199af07854bb2ff7424dcfc96af849",
+      "mods/native/bank/mod.toml": "6cae08c27b33ca55838089885115e859bec74683d14bed77162b388078a6c9da",
+      "mods/native/bank/objects.py": "4f3e742705730da980d56e5e971a996b09d785c2943dd4abf296e47901d131bb",
+      "mods/native/buildings/__init__.py": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "mods/native/buildings/content.py": "bcd0cd88737dd2d474286844232adfdd04cbce9e83055998bba915d834097c8b",
+      "mods/native/buildings/mod.py": "e2f6529ccc0a3116033284e3665fa31765c72c596fd19618fb025d6cc312cb36",
+      "mods/native/buildings/mod.toml": "7bf9387e6071731738a408f59aa72488105e33ee6888576505edc3c875229861",
+      "mods/native/buildings/objects.py": "b66d892889849378adf978912af8163bee7a4eff32f4a2d7a92f6ab3a2c946a1",
+      "mods/native/buildings/parameters.py": "d6e5187c5ee0260907b3f2183a4a863e2731a6db2cdaa6de13fbb8141f71a1f4",
+      "mods/native/buildings/types.py": "bb78face14b29bf3fd6e3bd54ac435f2d4ba980f31424f96400108a96763d977",
+      "mods/native/config.py": "1de647ebf00a68a1881e446135188e76ef67d6bc2bd85d39f2718ce943f54892",
+      "mods/native/diplomacy/__init__.py": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "mods/native/diplomacy/mod.py": "4d1201873eb5468707b1f493e35a59ab96f783bd4e4536ffdb35383c6a839572",
+      "mods/native/diplomacy/mod.toml": "330235b407cebfd0e4f37e2f44115e15d17583d4989ac4e213efea84f44d4170",
+      "mods/native/diplomacy/objects.py": "b81dace2eaf9f5530b765f691dee341c6c6ce343740077a8594ead9b7825c1a4",
+      "mods/native/diplomacy/parameters.py": "bb18ca033f39cdd66180ed2a029d802936a6a4ec846cd0fecf915a81eb29a9f3",
+      "mods/native/economy_queries/mod.py": "8b9e489ee8d28f857973220cbd660510c2050cde95368f906dc3d6e3ab2a5486",
+      "mods/native/economy_queries/mod.toml": "4c48c1834234a3e58763ea7d96431b66e3fd78e6e88d1ff91c8358c854d340e5",
+      "mods/native/economy_queries/objects.py": "3afc23fb6e3a08fb88275e043117ca387919ded928965905e2cf792583e22e77",
+      "mods/native/economy_reports/contracts.py": "619d44a2b040c6b0a1e87b26fa7ed9bed6d3beec78dbcb6fa988572be950ac7e",
+      "mods/native/economy_reports/mod.py": "fe7e6c8b7d75a1b1f3f5eca00a6a178eb19f246d6bccef0dc42a870909d7f3d2",
+      "mods/native/economy_reports/mod.toml": "fe9e3fe4e9cfb76a37f7466c8ec923330684d0a13114b2ff658088e2c8b21e08",
+      "mods/native/economy_reports/objects.py": "de217cb79254b987a8467b131738bbbb11d4369810f82a0057eaad86243b8bb9",
+      "mods/native/economy_valuation/mod.py": "88ed5c59e323b4da724ac1a9384e2bdf9eaaa70e4fae1d829d09bc7d0608a2ac",
+      "mods/native/economy_valuation/mod.toml": "b760e444a4325ff914e09b7f79785734345216ba9d5e3dd6d6462e4e2d295073",
+      "mods/native/government/__init__.py": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "mods/native/government/mod.py": "cf63eb15a222bc632f441906b57f1e963d037f970e3c369b6e0edd8608388a50",
+      "mods/native/government/mod.toml": "22ad756f122fb80d96c97bc1f873028c09c2e09d51310b119cc36884b5134fe3",
+      "mods/native/government/objects.py": "064baa22aa6acee37692ccfa9ed55a53c2716d11aece11697a6fa3fdf8f7bdf0",
+      "mods/native/government/parameters.py": "9070f9ca2eed8400e2d96bcc3fd3348fef077d66523599790d2936a35f75b1b7",
+      "mods/native/handbooks/mod.py": "3ca71de323afbee7364194257e6b47d7a95e9708d7ec3c9e3fc8f18e1a2bff0a",
+      "mods/native/handbooks/mod.toml": "875ee066a9301aa674557df9e59a00fc072b8cd1cb4b45cd77a987db91a49dc3",
+      "mods/native/intelligence/mod.py": "e2efff4d5179fb672944f2493f8fd72630d2656941fd70d5683ee416f1b0079d",
+      "mods/native/intelligence/mod.toml": "3399f04e7c60080be11d74533a8dda7a32d25de02f2d15632b7ba1d17d6f0af2",
+      "mods/native/intelligence/objects.py": "35f62bc55f3c75cb75935d50d795bb6160e71089d33547c9f801a92e345b2e7a",
+      "mods/native/locales/en-US.json": "076d7cfd682a59b4f849a81bd270f206da30651143fcb502c6d20ceece962493",
+      "mods/native/locales/zh-CN.json": "52b04a08e6470c3c129b885e386c65f9f68abcf193f1a62368fb2750e48ca0a0",
+      "mods/native/localization.py": "1462e75b7c274f96727f31c8312feff8482b2e196c0789326bf366bea1db69a0",
+      "mods/native/map_generation/__init__.py": "853cf0bf2ac0b51c7c013a1db74bc8545f8bd8744f5164588457ce24e9763937",
+      "mods/native/map_generation/algorithm.py": "339673030a6ba2956463e2a96ac0c61cbd288c1ed7cb4687a7ac57fb175cb15c",
+      "mods/native/map_generation/mod.py": "623478719392648df6f55821bb3204937ae4e08314c81903c9700e9a8ba9c49d",
+      "mods/native/map_generation/mod.toml": "6ee430a2824d740c6dbb0b7ae852a2ff44ca46e901253bd1762194c3d06b50d8",
+      "mods/native/map_generation/names.py": "67e1b0ca085516f27ed47a135e326a5989990f8a97fc9d0b86d93255d2fbf973",
+      "mods/native/map_generation/parameters.py": "8c85c4a104cca1c5cc8b1ade884a2223c3ab8c40b77db13dcd56062d7236f1c1",
+      "mods/native/market/contracts.py": "47aa4a54d7e90ad5c5b6cc2ed9842095d0dfce6b5aedbde6e53c4527df94bea8",
+      "mods/native/market/mod.py": "8078699fab117e9df76b73931267967c3d0f5395e9c570f9c7403ea42c00ab09",
+      "mods/native/market/mod.toml": "426e049c122453098961b7e3f462686d28b6adb3e9ce87ec4400de06b2ccffb4",
+      "mods/native/market/objects.py": "d7377c009850a397f243d1848e1590ed2d3fef68e156d5a9b03f9e5dfa5683f6",
+      "mods/native/market_pricing/mod.py": "4fa906e2a5b781e451623a8e0a2ba54d99bcacd872c1ee698c7ceb2cb4a4dd0d",
+      "mods/native/market_pricing/mod.toml": "1f679727f976176b50182c8e53b558e2898fbd82641653b0a612a558d0be62f6",
+      "mods/native/market_pricing/pricing.py": "e67048b3397896ac4d10124a05c6514cee3710ca82a87d02f45f03928a52a86b",
+      "mods/native/mod.toml": "8e8621d48d797b0dfb57cd41d93901f6a5bd9f522910461ff799ca493bbdeea5",
+      "mods/native/nations/__init__.py": "b2b685715dba064d09e1651801b2729f677d45e1800f7d189dcba74fe383422e",
+      "mods/native/nations/mod.py": "16a5cba7f8e094667e1e96030175928c4d910dd005ce43d1b87d8a83105f0a9c",
+      "mods/native/nations/mod.toml": "ee1b8670b9957fccd252ef947f4141cede0a35a9f095a0618dc8a166c1d2c79b",
+      "mods/native/nations/objects.py": "9fd1cfcacf6516d204be02e6f5f9d54d2745741888bc17649f26f927bb88a816",
+      "mods/native/observer.py": "86d08621295e92ed948efc19d5f338fd6dd99248181608fd91cb7f21d49b4d4c",
+      "mods/native/polities/huns/__init__.py": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "mods/native/polities/huns/mod.py": "c592e0e3a50d027cbbcc13b04386504aeed71ec47616f359494f433ffa8b6327",
+      "mods/native/polities/huns/mod.toml": "b46ca1b92bdd6b47a6e6c654ffc7c9a125478ea98e4fa15f495e546155ceeefb",
+      "mods/native/resources/__init__.py": "95d1b0bf030e6678af4b128874373b78f971ea11ea3da2b958c0050f16af2504",
+      "mods/native/resources/mod.py": "325f44aace29c05079e0ce800eb6a435f1b721c4bb7f5933cc8019cbc763d8dd",
+      "mods/native/resources/mod.toml": "dae5d45209ff56ba34d4a5ff121fd40ef9339c13bebeebf453bd799c4508b972",
+      "mods/native/resources/objects.py": "f67d48f9bd3eb07fa3e43eb4b1cd51b7ff381984721014a99c47a40943fff29f",
+      "mods/native/resources/types.py": "a302a576d6f7cd6f1f0f33c310333e328a2e8bc1bacef82e423f24e45419b847",
+      "mods/native/session.py": "37d6e3c203fc57495362489794f6de602a76c993516f7de4dd350706f1d38a1d",
+      "mods/native/succession/mod.py": "4874ded918ce78dc9983c384b7f56c6f64010e7d13866507b7b18b73026e4f57",
+      "mods/native/succession/mod.toml": "c547f27cbedcbe42ca89efb660920ca62c9fe5d9919d64ccd8972779cc3908b2",
+      "mods/native/territory/__init__.py": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "mods/native/territory/mod.py": "d7760e7547f39682deaa65fbe6fff77e13ddd1e13befe6991a9cc677eb896f82",
+      "mods/native/territory/mod.toml": "7f186c919eac164f583df2f452b006dddb24d1f462a82334bdfff5a56a9e8d1a",
+      "mods/native/territory/objects.py": "bd97c435d165521f26aa3fe143be45e0e74a7c043984b754652e6f8055d85966",
+      "mods/native/vision/mod.py": "21085553184b691db12f75b34a5440cbd917f82c0bf0f4e38fc9053c222fbc04",
+      "mods/native/vision/mod.toml": "195e50ae1504efd736ac447972b545309cc832641bf62361029b31c3bfa809e2",
+      "mods/ui/__init__.py": "68e36025c0361babef9d866afb6ceceec451252db88f17a5f8a48757e1c39a87",
+      "mods/ui/config.py": "a0c2746af1d94f91e962e818e16269da86f891075986ec26cd9bd780ebda59a8",
+      "mods/ui/console.py": "48ba91cec9e8cd2613daf336fc8839f5889772f202c51092fa5fb641cd5bb872",
+      "mods/ui/i18n.py": "db8305846f49e8af9d04edbc5c4206539cd71a455ac61844ca96b3afbe2830a3",
+      "mods/ui/llm.py": "56ed227d7972a3215e384f4049696d4b14c9103db287461a479ef6902b72b66b",
+      "mods/ui/locales/en-US.json": "79eb7668d62f1f6d4483a0620fd63f92ea296a632d153f950bcd85c92feecac3",
+      "mods/ui/locales/zh-CN.json": "c7ac15e6e004bc1955dc70061f42550cd8bdf0d5a05be51ba25d5e9eed44c939",
+      "mods/ui/maps.py": "a81db552e45e55fddf63176bdd1f5ee1b4fb254b45f83dc3c7558e8c6a2d7948",
+      "mods/ui/mod.py": "985e11dd7f02fd8d2faa1badc3a2431789e322f8a98a41049fc69ba8befdba2d",
+      "mods/ui/mod.toml": "042502ceaa6d85c66b71d94ade33d467174de29b79becc6e625495c90f91ae7e",
+      "mods/ui/receipts.py": "c5c9c1a4053bbf13104e79907eaaa72bf9622db20bb1679aa5256216d5270986",
+      "mods/ui/views.py": "b9e1672e6710228943e9c53b30b9f9468fa2496b6ad4705a0545da0d283b6092",
+      "ruleai/__init__.py": "6cf5d767169b157dd75e5b86865d3e7868d59c07caec374cdd0f4754f81db2fd",
+      "ruleai/v11plus/__init__.py": "ffe389ac539e75d6fed5cf7c2f521c468eddf626e85da3dd6c53a14a7fa8cc0c",
+      "ruleai/v11plus/combat.py": "476f5de46f60e208e734ff15b3f2772fb8c527be44760943df6648629330f577",
+      "ruleai/v11plus/economy.py": "f3fcf1b3ff9a4ada0a83ff4107f8a831ac013ce659905ecf26a3547c78646d76",
+      "ruleai/v11plus/entry.py": "2eec2b82755a685efe6403313aa934d401c970812da43b29c26d62609dd48e07",
+      "ruleai/v11plus/grouping.py": "ac7310c15262fe307bd82fdddbf1d8f4e4acad462b37d4e2f19725a8a18877a2",
+      "ruleai/v11plus/ledger.py": "bcfc046093c5003b0352ef1ffe7743d6f1ae6185df6a60ef12d1453236ff8e48",
+      "ruleai/v11plus/military.py": "db18b2a19933bd63c90a58203651348d041f37e740ed70f6b7d6d9acbb4c9e15",
+      "ruleai/v11plus/parameters.py": "cdc99d5b0b97eb2c05fbc6dc29716d6fb353659d19a96f261eba15c538832c85",
+      "ruleai/v11plus/pathfind.py": "49f0b706c0a7b003fc8f0083d37c26af2eeb14c0081543df8443316c9768d710",
+      "ruleai/v11plus/targeting.py": "261f83c68659e921f752003e9de611a0fd14fdc6cab2dc6a34894bc25e5c7ddd",
+      "clients/__init__.py": "d80770f5056832bc6823a80fdd55bd24de30f0c7489a183955a1558939eddfb1",
+      "clients/config.py": "c83ccc916a8f4ad3c8339b3dca13c70358bf78b9016d369f5d7a52aa6335d341",
+      "clients/context.py": "8612b4269e30312fb00dd38d3182261269e42f6935aed1e38228523ff11343f6",
+      "clients/llm.py": "fd1c29aa93cf87ce418f8dc06bad0c4af8d4cf923515f1873521e8f3d6748ceb",
+      "clients/memory.py": "7ad0f41c850d7da996fdc33627de4bdfd073526c226f0d4d9ef6aad3586d3179",
+      "clients/provider.py": "704f875a52de4c8f43b4ada570fb04db29974bb02cb803521fbbb525c0f414a4",
+      "ui/__init__.py": "4e0f6bfb40c564637511aa3c3e23b9c6caaae59ec9a9fe8ceb62f245961927f2",
+      "ui/terminal.py": "2b512503d91b44862ea05fc53e9004e0bc641d49082ee0644f74cbf4f712ba15",
+      "host.py": "c2112bc9b834821042d94f139c21900524b0f0cc8a061d4b88c7061ed75ffa60",
+      "mods.toml": "87cbb3f9b2d6a17178a991c3e4509d309aac0eee4aa0afa9d306526b2a200782"
+    }
+  },
+  "source_unchanged": true,
+  "probes": {
+    "circulation": {
+      "trades": 200,
+      "wood_before": 2020,
+      "wood_after": 2020,
+      "cash_change": -31,
+      "spending": 0,
+      "audit": {
+        "residuals": {
+          "Qin": 0.0,
+          "Chu": 0.0
+        },
+        "final_use_quantities": {},
+        "categories": {
+          "import": 100,
+          "export": 100
+        },
+        "facts": 200
+      }
+    },
+    "source_invariance": [
+      {
+        "source": "initial",
+        "construction": {
+          "id": 1,
+          "owner": "Qin",
+          "site": "example:qin",
+          "kind": "native:watchtower",
+          "period": 0,
+          "costs": [
+            [
+              "native:gold",
+              60
+            ],
+            [
+              "native:wood",
+              30
+            ]
+          ]
+        },
+        "spending": 120,
+        "audit": {
+          "residuals": {
+            "Qin": 0.0,
+            "Chu": 0.0
+          },
+          "final_use_quantities": {
+            "Qin": {
+              "native:gold": 60.0,
+              "native:wood": 30.0
+            }
+          },
+          "categories": {
+            "construction": 1
+          },
+          "facts": 1
+        }
+      },
+      {
+        "source": "market",
+        "construction": {
+          "id": 1,
+          "owner": "Qin",
+          "site": "example:qin",
+          "kind": "native:watchtower",
+          "period": 0,
+          "costs": [
+            [
+              "native:gold",
+              60
+            ],
+            [
+              "native:wood",
+              30
+            ]
+          ]
+        },
+        "spending": 120,
+        "audit": {
+          "residuals": {
+            "Qin": 0.0,
+            "Chu": 0.0
+          },
+          "final_use_quantities": {
+            "Qin": {
+              "native:gold": 60.0,
+              "native:wood": 30.0
+            }
+          },
+          "categories": {
+            "construction": 1,
+            "import": 1
+          },
+          "facts": 2
+        }
+      },
+      {
+        "source": "transfer",
+        "construction": {
+          "id": 1,
+          "owner": "Qin",
+          "site": "example:qin",
+          "kind": "native:watchtower",
+          "period": 0,
+          "costs": [
+            [
+              "native:gold",
+              60
+            ],
+            [
+              "native:wood",
+              30
+            ]
+          ]
+        },
+        "spending": 120,
+        "audit": {
+          "residuals": {
+            "Qin": 0.0,
+            "Chu": 0.0
+          },
+          "final_use_quantities": {
+            "Qin": {
+              "native:gold": 60.0,
+              "native:wood": 30.0
+            }
+          },
+          "categories": {
+            "construction": 1
+          },
+          "facts": 1
+        }
+      }
+    ],
+    "intermediate": {
+      "production": {
+        "known": 16.0,
+        "unpriced": []
+      },
+      "inputs": {
+        "known": 7.5,
+        "unpriced": []
+      },
+      "gdp": {
+        "known": 8.5,
+        "unpriced": []
+      },
+      "spending": 0,
+      "supply_stock": 2,
+      "audit": {
+        "residuals": {
+          "Qin": 0.0,
+          "Chu": 0.0
+        },
+        "final_use_quantities": {},
+        "categories": {
+          "production": 4
+        },
+        "facts": 4
+      }
+    },
+    "bank_cycle": [
+      {
+        "borrow": false,
+        "loan": null,
+        "initial_cash": 10010,
+        "final_cash": 10060,
+        "spending": 0,
+        "positions": [
+          {
+            "owner": "Qin",
+            "period": 2,
+            "cash": 10020,
+            "credit_limit": 50,
+            "loan": null,
+            "liabilities": 0,
+            "purchases": []
+          },
+          {
+            "owner": "Qin",
+            "period": 3,
+            "cash": 10030,
+            "credit_limit": 50,
+            "loan": null,
+            "liabilities": 0,
+            "purchases": []
+          },
+          {
+            "owner": "Qin",
+            "period": 4,
+            "cash": 10040,
+            "credit_limit": 50,
+            "loan": null,
+            "liabilities": 0,
+            "purchases": []
+          },
+          {
+            "owner": "Qin",
+            "period": 5,
+            "cash": 10050,
+            "credit_limit": 50,
+            "loan": null,
+            "liabilities": 0,
+            "purchases": []
+          },
+          {
+            "owner": "Qin",
+            "period": 6,
+            "cash": 10060,
+            "credit_limit": 50,
+            "loan": null,
+            "liabilities": 0,
+            "purchases": []
+          }
+        ],
+        "finance": {
+          "next_period": 6,
+          "rate": 0.0,
+          "loans": [],
+          "entries": [],
+          "purchases": []
+        },
+        "audit": {
+          "residuals": {
+            "Qin": 0.0,
+            "Chu": 0.0
+          },
+          "final_use_quantities": {},
+          "categories": {
+            "production": 6
+          },
+          "facts": 6
+        }
+      },
+      {
+        "borrow": true,
+        "loan": {
+          "owner": "Qin",
+          "principal": 50,
+          "due": 50,
+          "remaining": 5,
+          "taken": 1,
+          "initial_rate": 0.02
+        },
+        "initial_cash": 10010,
+        "final_cash": 10055,
+        "spending": 0,
+        "positions": [
+          {
+            "owner": "Qin",
+            "period": 2,
+            "cash": 10070,
+            "credit_limit": 50,
+            "loan": {
+              "owner": "Qin",
+              "principal": 50,
+              "due": 51,
+              "remaining": 4,
+              "taken": 1,
+              "initial_rate": 0.02
+            },
+            "liabilities": 51,
+            "purchases": []
+          },
+          {
+            "owner": "Qin",
+            "period": 3,
+            "cash": 10080,
+            "credit_limit": 50,
+            "loan": {
+              "owner": "Qin",
+              "principal": 50,
+              "due": 52,
+              "remaining": 3,
+              "taken": 1,
+              "initial_rate": 0.02
+            },
+            "liabilities": 52,
+            "purchases": []
+          },
+          {
+            "owner": "Qin",
+            "period": 4,
+            "cash": 10090,
+            "credit_limit": 50,
+            "loan": {
+              "owner": "Qin",
+              "principal": 50,
+              "due": 53,
+              "remaining": 2,
+              "taken": 1,
+              "initial_rate": 0.02
+            },
+            "liabilities": 53,
+            "purchases": []
+          },
+          {
+            "owner": "Qin",
+            "period": 5,
+            "cash": 10100,
+            "credit_limit": 50,
+            "loan": {
+              "owner": "Qin",
+              "principal": 50,
+              "due": 54,
+              "remaining": 1,
+              "taken": 1,
+              "initial_rate": 0.02
+            },
+            "liabilities": 54,
+            "purchases": []
+          },
+          {
+            "owner": "Qin",
+            "period": 6,
+            "cash": 10055,
+            "credit_limit": 50,
+            "loan": null,
+            "liabilities": 0,
+            "purchases": []
+          }
+        ],
+        "finance": {
+          "next_period": 6,
+          "rate": 0.0,
+          "loans": [],
+          "entries": [
+            {
+              "owner": "Qin",
+              "period": 1,
+              "kind": "loan",
+              "cash": 50,
+              "liability_delta": 50
+            },
+            {
+              "owner": "Qin",
+              "period": 1,
+              "kind": "loan-interest",
+              "cash": 0,
+              "liability_delta": 1
+            },
+            {
+              "owner": "Qin",
+              "period": 2,
+              "kind": "loan-interest",
+              "cash": 0,
+              "liability_delta": 1
+            },
+            {
+              "owner": "Qin",
+              "period": 3,
+              "kind": "loan-interest",
+              "cash": 0,
+              "liability_delta": 1
+            },
+            {
+              "owner": "Qin",
+              "period": 4,
+              "kind": "loan-interest",
+              "cash": 0,
+              "liability_delta": 1
+            },
+            {
+              "owner": "Qin",
+              "period": 5,
+              "kind": "loan-interest",
+              "cash": 0,
+              "liability_delta": 1
+            },
+            {
+              "owner": "Qin",
+              "period": 5,
+              "kind": "repayment",
+              "cash": -55,
+              "liability_delta": -55
+            }
+          ],
+          "purchases": []
+        },
+        "audit": {
+          "residuals": {
+            "Qin": 0.0,
+            "Chu": 0.0
+          },
+          "final_use_quantities": {},
+          "categories": {
+            "production": 6
+          },
+          "facts": 6
+        }
+      }
+    ]
+  },
+  "trajectories": [
+    {
+      "config": {
+        "mods": "mods.toml",
+        "map_size": 12,
+        "seed": 0,
+        "nations": [
+          {
+            "id": "scenario:qin",
+            "name": "秦",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          },
+          {
+            "id": "scenario:chu",
+            "name": "楚",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          }
+        ]
+      },
+      "cycles": 40,
+      "trajectory": [
+        {
+          "cycle": 1,
+          "spending": {
+            "scenario:qin": 965.3471064005612,
+            "scenario:chu": 921.3471064005612
+          }
+        },
+        {
+          "cycle": 2,
+          "spending": {
+            "scenario:qin": 1665.5077120229955,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 3,
+          "spending": {
+            "scenario:qin": 1665.5077120229955,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 4,
+          "spending": {
+            "scenario:qin": 1722.8128152803197,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 5,
+          "spending": {
+            "scenario:qin": 1722.8128152803197,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 6,
+          "spending": {
+            "scenario:qin": 1780.429698668454,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 7,
+          "spending": {
+            "scenario:qin": 1841.359870945778,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 8,
+          "spending": {
+            "scenario:qin": 1841.359870945778,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 9,
+          "spending": {
+            "scenario:qin": 1902.514744800804,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 10,
+          "spending": {
+            "scenario:qin": 1960.9402767875738,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 11,
+          "spending": {
+            "scenario:qin": 1960.9402767875738,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 12,
+          "spending": {
+            "scenario:qin": 2029.5242046720973,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 13,
+          "spending": {
+            "scenario:qin": 2029.5242046720973,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 14,
+          "spending": {
+            "scenario:qin": 2091.244200739914,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 15,
+          "spending": {
+            "scenario:qin": 2091.244200739914,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 16,
+          "spending": {
+            "scenario:qin": 2091.244200739914,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 17,
+          "spending": {
+            "scenario:qin": 2159.964196807731,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 18,
+          "spending": {
+            "scenario:qin": 2159.964196807731,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 19,
+          "spending": {
+            "scenario:qin": 2159.964196807731,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 20,
+          "spending": {
+            "scenario:qin": 2159.964196807731,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 21,
+          "spending": {
+            "scenario:qin": 2159.964196807731,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 22,
+          "spending": {
+            "scenario:qin": 2159.964196807731,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 23,
+          "spending": {
+            "scenario:qin": 2159.964196807731,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 24,
+          "spending": {
+            "scenario:qin": 2159.964196807731,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 25,
+          "spending": {
+            "scenario:qin": 2296.4041889433643,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 26,
+          "spending": {
+            "scenario:qin": 2296.4041889433643,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 27,
+          "spending": {
+            "scenario:qin": 2360.124185011181,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 28,
+          "spending": {
+            "scenario:qin": 2426.8441810789977,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 29,
+          "spending": {
+            "scenario:qin": 2426.8441810789977,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 30,
+          "spending": {
+            "scenario:qin": 2426.8441810789977,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 31,
+          "spending": {
+            "scenario:qin": 2499.5641771468145,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 32,
+          "spending": {
+            "scenario:qin": 2499.5641771468145,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 33,
+          "spending": {
+            "scenario:qin": 2575.284173214631,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 34,
+          "spending": {
+            "scenario:qin": 2575.284173214631,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 35,
+          "spending": {
+            "scenario:qin": 2651.004169282448,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 36,
+          "spending": {
+            "scenario:qin": 2651.004169282448,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 37,
+          "spending": {
+            "scenario:qin": 2734.7241653502647,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 38,
+          "spending": {
+            "scenario:qin": 2734.7241653502647,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 39,
+          "spending": {
+            "scenario:qin": 2818.4441614180814,
+            "scenario:chu": 1654.8319544241763
+          }
+        },
+        {
+          "cycle": 40,
+          "spending": {
+            "scenario:qin": 2894.164157485898,
+            "scenario:chu": 1654.8319544241763
+          }
+        }
+      ],
+      "audit": {
+        "residuals": {
+          "scenario:qin": 0.0,
+          "scenario:chu": 0.0
+        },
+        "final_use_quantities": {
+          "scenario:qin": {
+            "native:gold": 1683.0,
+            "native:wood": 495.0
+          },
+          "scenario:chu": {
+            "native:gold": 1124.0,
+            "native:wood": 230.0
+          }
+        },
+        "categories": {
+          "construction": 36,
+          "export": 67,
+          "import": 75,
+          "production": 615
+        },
+        "facts": 793
+      },
+      "resume_equal": true,
+      "elapsed_seconds": 94.5414668309968,
+      "final_state_sha256": "3d4c56268d0a9f7c76c1285dcd2a0df69f024871a498cc881d7321e5592cf4f9"
+    },
+    {
+      "config": {
+        "mods": "mods.toml",
+        "map_size": 12,
+        "seed": 1,
+        "nations": [
+          {
+            "id": "scenario:qin",
+            "name": "秦",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          },
+          {
+            "id": "scenario:chu",
+            "name": "楚",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          }
+        ]
+      },
+      "cycles": 40,
+      "trajectory": [
+        {
+          "cycle": 1,
+          "spending": {
+            "scenario:qin": 834.553051267882,
+            "scenario:chu": 950.4551733185972
+          }
+        },
+        {
+          "cycle": 2,
+          "spending": {
+            "scenario:qin": 1653.5588429073666,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 3,
+          "spending": {
+            "scenario:qin": 1653.5588429073666,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 4,
+          "spending": {
+            "scenario:qin": 1711.1757262955007,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 5,
+          "spending": {
+            "scenario:qin": 1772.1058985728248,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 6,
+          "spending": {
+            "scenario:qin": 1833.328333025414,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 7,
+          "spending": {
+            "scenario:qin": 1894.821702773247,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 8,
+          "spending": {
+            "scenario:qin": 1956.5644038193077,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 9,
+          "spending": {
+            "scenario:qin": 1956.5644038193077,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 10,
+          "spending": {
+            "scenario:qin": 2032.398001772325,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 11,
+          "spending": {
+            "scenario:qin": 2108.436568184021,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 12,
+          "spending": {
+            "scenario:qin": 2108.436568184021,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 13,
+          "spending": {
+            "scenario:qin": 2192.5435960062914,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 14,
+          "spending": {
+            "scenario:qin": 2256.856423835022,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 15,
+          "spending": {
+            "scenario:qin": 2256.856423835022,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 16,
+          "spending": {
+            "scenario:qin": 2341.237990257508,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 17,
+          "spending": {
+            "scenario:qin": 2405.826188234582,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 18,
+          "spending": {
+            "scenario:qin": 2405.826188234582,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 19,
+          "spending": {
+            "scenario:qin": 2465.483401986892,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 20,
+          "spending": {
+            "scenario:qin": 2525.348078831378,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 21,
+          "spending": {
+            "scenario:qin": 2585.420842407796,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 22,
+          "spending": {
+            "scenario:qin": 2585.420842407796,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 23,
+          "spending": {
+            "scenario:qin": 2645.56310681207,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 24,
+          "spending": {
+            "scenario:qin": 2645.56310681207,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 25,
+          "spending": {
+            "scenario:qin": 2645.56310681207,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 26,
+          "spending": {
+            "scenario:qin": 2802.7376109210286,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 27,
+          "spending": {
+            "scenario:qin": 2802.7376109210286,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 28,
+          "spending": {
+            "scenario:qin": 2802.7376109210286,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 29,
+          "spending": {
+            "scenario:qin": 2802.7376109210286,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 30,
+          "spending": {
+            "scenario:qin": 2981.9508420843295,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 31,
+          "spending": {
+            "scenario:qin": 2981.9508420843295,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 32,
+          "spending": {
+            "scenario:qin": 2981.9508420843295,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 33,
+          "spending": {
+            "scenario:qin": 2981.9508420843295,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 34,
+          "spending": {
+            "scenario:qin": 3137.88587761581,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 35,
+          "spending": {
+            "scenario:qin": 3137.88587761581,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 36,
+          "spending": {
+            "scenario:qin": 3137.88587761581,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 37,
+          "spending": {
+            "scenario:qin": 3137.88587761581,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 38,
+          "spending": {
+            "scenario:qin": 3317.4870850297993,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 39,
+          "spending": {
+            "scenario:qin": 3317.4870850297993,
+            "scenario:chu": 1686.1558617007577
+          }
+        },
+        {
+          "cycle": 40,
+          "spending": {
+            "scenario:qin": 3317.4870850297993,
+            "scenario:chu": 1686.1558617007577
+          }
+        }
+      ],
+      "audit": {
+        "residuals": {
+          "scenario:qin": 0.0,
+          "scenario:chu": 0.0
+        },
+        "final_use_quantities": {
+          "scenario:qin": {
+            "native:gold": 1890.0,
+            "native:wood": 570.0
+          },
+          "scenario:chu": {
+            "native:gold": 1154.0,
+            "native:wood": 230.0
+          }
+        },
+        "categories": {
+          "construction": 38,
+          "export": 77,
+          "import": 108,
+          "production": 841
+        },
+        "facts": 1064
+      },
+      "resume_equal": true,
+      "elapsed_seconds": 98.6300026999088,
+      "final_state_sha256": "9a98b26d87e0c9f19bb12d488b5f22394818b82f76695c28e12cb114e7799de0"
+    },
+    {
+      "config": {
+        "mods": "mods.toml",
+        "map_size": 12,
+        "seed": 2,
+        "nations": [
+          {
+            "id": "scenario:qin",
+            "name": "秦",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          },
+          {
+            "id": "scenario:chu",
+            "name": "楚",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          }
+        ]
+      },
+      "cycles": 40,
+      "trajectory": [
+        {
+          "cycle": 1,
+          "spending": {
+            "scenario:qin": 939.3471064005612,
+            "scenario:chu": 890.3471064005612
+          }
+        },
+        {
+          "cycle": 2,
+          "spending": {
+            "scenario:qin": 1658.549868681613,
+            "scenario:chu": 1630.549868681613
+          }
+        },
+        {
+          "cycle": 3,
+          "spending": {
+            "scenario:qin": 1658.549868681613,
+            "scenario:chu": 1693.4127806060546
+          }
+        },
+        {
+          "cycle": 4,
+          "spending": {
+            "scenario:qin": 1720.0432384294459,
+            "scenario:chu": 1754.9061503538876
+          }
+        },
+        {
+          "cycle": 5,
+          "spending": {
+            "scenario:qin": 1781.8541006065996,
+            "scenario:chu": 1754.9061503538876
+          }
+        },
+        {
+          "cycle": 6,
+          "spending": {
+            "scenario:qin": 1781.8541006065996,
+            "scenario:chu": 1816.9447167655837
+          }
+        },
+        {
+          "cycle": 7,
+          "spending": {
+            "scenario:qin": 1844.3963265640598,
+            "scenario:chu": 1876.486942723044
+          }
+        },
+        {
+          "cycle": 8,
+          "spending": {
+            "scenario:qin": 1844.3963265640598,
+            "scenario:chu": 1936.2823959094776
+          }
+        },
+        {
+          "cycle": 9,
+          "spending": {
+            "scenario:qin": 1904.3765301569015,
+            "scenario:chu": 1936.2823959094776
+          }
+        },
+        {
+          "cycle": 10,
+          "spending": {
+            "scenario:qin": 1904.3765301569015,
+            "scenario:chu": 2001.3783187294932
+          }
+        },
+        {
+          "cycle": 11,
+          "spending": {
+            "scenario:qin": 1904.3765301569015,
+            "scenario:chu": 2001.3783187294932
+          }
+        },
+        {
+          "cycle": 12,
+          "spending": {
+            "scenario:qin": 1964.634783253388,
+            "scenario:chu": 2066.6365718259794
+          }
+        },
+        {
+          "cycle": 13,
+          "spending": {
+            "scenario:qin": 2047.1488889635739,
+            "scenario:chu": 2066.6365718259794
+          }
+        },
+        {
+          "cycle": 14,
+          "spending": {
+            "scenario:qin": 2047.1488889635739,
+            "scenario:chu": 2127.197296274373
+          }
+        },
+        {
+          "cycle": 15,
+          "spending": {
+            "scenario:qin": 2047.1488889635739,
+            "scenario:chu": 2127.197296274373
+          }
+        },
+        {
+          "cycle": 16,
+          "spending": {
+            "scenario:qin": 2107.7795992568867,
+            "scenario:chu": 2127.197296274373
+          }
+        },
+        {
+          "cycle": 17,
+          "spending": {
+            "scenario:qin": 2107.7795992568867,
+            "scenario:chu": 2127.197296274373
+          }
+        },
+        {
+          "cycle": 18,
+          "spending": {
+            "scenario:qin": 2107.7795992568867,
+            "scenario:chu": 2127.197296274373
+          }
+        },
+        {
+          "cycle": 19,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2127.197296274373
+          }
+        },
+        {
+          "cycle": 20,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2127.197296274373
+          }
+        },
+        {
+          "cycle": 21,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2127.197296274373
+          }
+        },
+        {
+          "cycle": 22,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2127.197296274373
+          }
+        },
+        {
+          "cycle": 23,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2256.5988271191036
+          }
+        },
+        {
+          "cycle": 24,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2320.299592541469
+          }
+        },
+        {
+          "cycle": 25,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2384.000357963834
+          }
+        },
+        {
+          "cycle": 26,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2447.7011233861995
+          }
+        },
+        {
+          "cycle": 27,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2525.4018888085648
+          }
+        },
+        {
+          "cycle": 28,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2586.10265423093
+          }
+        },
+        {
+          "cycle": 29,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2656.8034196532954
+          }
+        },
+        {
+          "cycle": 30,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2722.5041850756606
+          }
+        },
+        {
+          "cycle": 31,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2783.2516924080032
+          }
+        },
+        {
+          "cycle": 32,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2783.2516924080032
+          }
+        },
+        {
+          "cycle": 33,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2783.2516924080032
+          }
+        },
+        {
+          "cycle": 34,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2860.999199740346
+          }
+        },
+        {
+          "cycle": 35,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 2935.7467070726884
+          }
+        },
+        {
+          "cycle": 36,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 3010.494214405031
+          }
+        },
+        {
+          "cycle": 37,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 3010.494214405031
+          }
+        },
+        {
+          "cycle": 38,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 3088.2417217373736
+          }
+        },
+        {
+          "cycle": 39,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 3165.989229069716
+          }
+        },
+        {
+          "cycle": 40,
+          "spending": {
+            "scenario:qin": 2193.480364679252,
+            "scenario:chu": 3165.989229069716
+          }
+        }
+      ],
+      "audit": {
+        "residuals": {
+          "scenario:qin": 0.0,
+          "scenario:chu": 0.0
+        },
+        "final_use_quantities": {
+          "scenario:qin": {
+            "native:gold": 1315.0,
+            "native:wood": 360.0
+          },
+          "scenario:chu": {
+            "native:gold": 1680.0,
+            "native:wood": 585.0
+          }
+        },
+        "categories": {
+          "construction": 51,
+          "export": 125,
+          "import": 113,
+          "production": 1265
+        },
+        "facts": 1554
+      },
+      "resume_equal": null,
+      "elapsed_seconds": 65.6346624189755,
+      "final_state_sha256": "615e9d75264bd5c5f40d05a49452d1c98ebd57f89577af66f85676da90177963"
+    },
+    {
+      "config": {
+        "mods": "mods.toml",
+        "map_size": 12,
+        "seed": 3,
+        "nations": [
+          {
+            "id": "scenario:qin",
+            "name": "秦",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          },
+          {
+            "id": "scenario:chu",
+            "name": "楚",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          }
+        ]
+      },
+      "cycles": 40,
+      "trajectory": [
+        {
+          "cycle": 1,
+          "spending": {
+            "scenario:qin": 819.3471064005612,
+            "scenario:chu": 849.3471064005612
+          }
+        },
+        {
+          "cycle": 2,
+          "spending": {
+            "scenario:qin": 1675.805864771227,
+            "scenario:chu": 1625.4891641015736
+          }
+        },
+        {
+          "cycle": 3,
+          "spending": {
+            "scenario:qin": 1675.805864771227,
+            "scenario:chu": 1686.8017871350617
+          }
+        },
+        {
+          "cycle": 4,
+          "spending": {
+            "scenario:qin": 1675.805864771227,
+            "scenario:chu": 1748.4310402834303
+          }
+        },
+        {
+          "cycle": 5,
+          "spending": {
+            "scenario:qin": 1675.805864771227,
+            "scenario:chu": 1748.4310402834303
+          }
+        },
+        {
+          "cycle": 6,
+          "spending": {
+            "scenario:qin": 1675.805864771227,
+            "scenario:chu": 1810.2873817117481
+          }
+        },
+        {
+          "cycle": 7,
+          "spending": {
+            "scenario:qin": 1675.805864771227,
+            "scenario:chu": 1869.4172454032625
+          }
+        },
+        {
+          "cycle": 8,
+          "spending": {
+            "scenario:qin": 1675.805864771227,
+            "scenario:chu": 1928.798811825749
+          }
+        },
+        {
+          "cycle": 9,
+          "spending": {
+            "scenario:qin": 1675.805864771227,
+            "scenario:chu": 1988.4100073618044
+          }
+        },
+        {
+          "cycle": 10,
+          "spending": {
+            "scenario:qin": 1675.805864771227,
+            "scenario:chu": 1988.4100073618044
+          }
+        },
+        {
+          "cycle": 11,
+          "spending": {
+            "scenario:qin": 1675.805864771227,
+            "scenario:chu": 2051.090241771363
+          }
+        },
+        {
+          "cycle": 12,
+          "spending": {
+            "scenario:qin": 1675.805864771227,
+            "scenario:chu": 2113.97800856708
+          }
+        },
+        {
+          "cycle": 13,
+          "spending": {
+            "scenario:qin": 1675.805864771227,
+            "scenario:chu": 2113.97800856708
+          }
+        },
+        {
+          "cycle": 14,
+          "spending": {
+            "scenario:qin": 1675.805864771227,
+            "scenario:chu": 2176.865775362797
+          }
+        },
+        {
+          "cycle": 15,
+          "spending": {
+            "scenario:qin": 1675.805864771227,
+            "scenario:chu": 2239.915387394674
+          }
+        },
+        {
+          "cycle": 16,
+          "spending": {
+            "scenario:qin": 1736.2035583592692,
+            "scenario:chu": 2239.915387394674
+          }
+        },
+        {
+          "cycle": 17,
+          "spending": {
+            "scenario:qin": 1736.2035583592692,
+            "scenario:chu": 2303.313080982716
+          }
+        },
+        {
+          "cycle": 18,
+          "spending": {
+            "scenario:qin": 1736.2035583592692,
+            "scenario:chu": 2303.313080982716
+          }
+        },
+        {
+          "cycle": 19,
+          "spending": {
+            "scenario:qin": 1736.2035583592692,
+            "scenario:chu": 2303.313080982716
+          }
+        },
+        {
+          "cycle": 20,
+          "spending": {
+            "scenario:qin": 1736.2035583592692,
+            "scenario:chu": 2303.313080982716
+          }
+        },
+        {
+          "cycle": 21,
+          "spending": {
+            "scenario:qin": 1736.2035583592692,
+            "scenario:chu": 2303.313080982716
+          }
+        },
+        {
+          "cycle": 22,
+          "spending": {
+            "scenario:qin": 1736.2035583592692,
+            "scenario:chu": 2303.313080982716
+          }
+        },
+        {
+          "cycle": 23,
+          "spending": {
+            "scenario:qin": 1736.2035583592692,
+            "scenario:chu": 2303.313080982716
+          }
+        },
+        {
+          "cycle": 24,
+          "spending": {
+            "scenario:qin": 1736.2035583592692,
+            "scenario:chu": 2448.108468158801
+          }
+        },
+        {
+          "cycle": 25,
+          "spending": {
+            "scenario:qin": 1736.2035583592692,
+            "scenario:chu": 2511.506161746843
+          }
+        },
+        {
+          "cycle": 26,
+          "spending": {
+            "scenario:qin": 1736.2035583592692,
+            "scenario:chu": 2511.506161746843
+          }
+        },
+        {
+          "cycle": 27,
+          "spending": {
+            "scenario:qin": 1736.2035583592692,
+            "scenario:chu": 2574.9038553348855
+          }
+        },
+        {
+          "cycle": 28,
+          "spending": {
+            "scenario:qin": 1736.2035583592692,
+            "scenario:chu": 2635.301548922928
+          }
+        },
+        {
+          "cycle": 29,
+          "spending": {
+            "scenario:qin": 1736.2035583592692,
+            "scenario:chu": 2635.301548922928
+          }
+        },
+        {
+          "cycle": 30,
+          "spending": {
+            "scenario:qin": 1796.6477937005436,
+            "scenario:chu": 2709.745784264202
+          }
+        },
+        {
+          "cycle": 31,
+          "spending": {
+            "scenario:qin": 1796.6477937005436,
+            "scenario:chu": 2773.190019605476
+          }
+        },
+        {
+          "cycle": 32,
+          "spending": {
+            "scenario:qin": 1796.6477937005436,
+            "scenario:chu": 2836.6342549467504
+          }
+        },
+        {
+          "cycle": 33,
+          "spending": {
+            "scenario:qin": 1796.6477937005436,
+            "scenario:chu": 2900.0784902880246
+          }
+        },
+        {
+          "cycle": 34,
+          "spending": {
+            "scenario:qin": 1796.6477937005436,
+            "scenario:chu": 2960.5227256292987
+          }
+        },
+        {
+          "cycle": 35,
+          "spending": {
+            "scenario:qin": 1796.6477937005436,
+            "scenario:chu": 3020.966960970573
+          }
+        },
+        {
+          "cycle": 36,
+          "spending": {
+            "scenario:qin": 1796.6477937005436,
+            "scenario:chu": 3020.966960970573
+          }
+        },
+        {
+          "cycle": 37,
+          "spending": {
+            "scenario:qin": 1796.6477937005436,
+            "scenario:chu": 3020.966960970573
+          }
+        },
+        {
+          "cycle": 38,
+          "spending": {
+            "scenario:qin": 1796.6477937005436,
+            "scenario:chu": 3020.966960970573
+          }
+        },
+        {
+          "cycle": 39,
+          "spending": {
+            "scenario:qin": 1796.6477937005436,
+            "scenario:chu": 3020.966960970573
+          }
+        },
+        {
+          "cycle": 40,
+          "spending": {
+            "scenario:qin": 1857.092029041818,
+            "scenario:chu": 3020.966960970573
+          }
+        }
+      ],
+      "audit": {
+        "residuals": {
+          "scenario:qin": 0.0,
+          "scenario:chu": 0.0
+        },
+        "final_use_quantities": {
+          "scenario:qin": {
+            "native:gold": 1135.0,
+            "native:wood": 300.0
+          },
+          "scenario:chu": {
+            "native:gold": 1567.0,
+            "native:wood": 575.0
+          }
+        },
+        "categories": {
+          "construction": 45,
+          "export": 71,
+          "import": 119,
+          "production": 874
+        },
+        "facts": 1109
+      },
+      "resume_equal": null,
+      "elapsed_seconds": 65.17867873597424,
+      "final_state_sha256": "ec79d61a8ebcc2d1269d5b1cbd73efbaacb83ee8deea99e53ad2ffb8de0b5d54"
+    },
+    {
+      "config": {
+        "mods": "mods.toml",
+        "map_size": 12,
+        "seed": 4,
+        "nations": [
+          {
+            "id": "scenario:qin",
+            "name": "秦",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          },
+          {
+            "id": "scenario:chu",
+            "name": "楚",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          }
+        ]
+      },
+      "cycles": 40,
+      "trajectory": [
+        {
+          "cycle": 1,
+          "spending": {
+            "scenario:qin": 921.3471064005612,
+            "scenario:chu": 854.3471064005612
+          }
+        },
+        {
+          "cycle": 2,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1685.5221390101792
+          }
+        },
+        {
+          "cycle": 3,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1685.5221390101792
+          }
+        },
+        {
+          "cycle": 4,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1685.5221390101792
+          }
+        },
+        {
+          "cycle": 5,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1746.6545080635844
+          }
+        },
+        {
+          "cycle": 6,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1746.6545080635844
+          }
+        },
+        {
+          "cycle": 7,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1746.6545080635844
+          }
+        },
+        {
+          "cycle": 8,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1808.1252575252477
+          }
+        },
+        {
+          "cycle": 9,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1808.1252575252477
+          }
+        },
+        {
+          "cycle": 10,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1869.913391625963
+          }
+        },
+        {
+          "cycle": 11,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1869.913391625963
+          }
+        },
+        {
+          "cycle": 12,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1869.913391625963
+          }
+        },
+        {
+          "cycle": 13,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1869.913391625963
+          }
+        },
+        {
+          "cycle": 14,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1928.8835659227202
+          }
+        },
+        {
+          "cycle": 15,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1928.8835659227202
+          }
+        },
+        {
+          "cycle": 16,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1928.8835659227202
+          }
+        },
+        {
+          "cycle": 17,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1991.0134296142346
+          }
+        },
+        {
+          "cycle": 18,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 1991.0134296142346
+          }
+        },
+        {
+          "cycle": 19,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 20,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 21,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 22,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 23,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 24,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 25,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 26,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 27,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 28,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 29,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 30,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 31,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 32,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 33,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 34,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 35,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 36,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 37,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 38,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 39,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        },
+        {
+          "cycle": 40,
+          "spending": {
+            "scenario:qin": 1671.0202084079597,
+            "scenario:chu": 2050.326257442965
+          }
+        }
+      ],
+      "audit": {
+        "residuals": {
+          "scenario:qin": 0.0,
+          "scenario:chu": 0.0
+        },
+        "final_use_quantities": {
+          "scenario:qin": {
+            "native:gold": 1135.0,
+            "native:wood": 230.0
+          },
+          "scenario:chu": {
+            "native:gold": 1206.0,
+            "native:wood": 350.0
+          }
+        },
+        "categories": {
+          "construction": 25,
+          "export": 21,
+          "import": 62,
+          "production": 359
+        },
+        "facts": 467
+      },
+      "resume_equal": null,
+      "elapsed_seconds": 59.39298288093414,
+      "final_state_sha256": "62b58ce6468e8cd0655fe2d2a283a106523aac6e473c10995dba5c7759fab0f3"
+    },
+    {
+      "config": {
+        "mods": "mods.toml",
+        "map_size": 12,
+        "seed": 5,
+        "nations": [
+          {
+            "id": "scenario:qin",
+            "name": "秦",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          },
+          {
+            "id": "scenario:chu",
+            "name": "楚",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          }
+        ]
+      },
+      "cycles": 40,
+      "trajectory": [
+        {
+          "cycle": 1,
+          "spending": {
+            "scenario:qin": 957.553051267882,
+            "scenario:chu": 823.4551733185972
+          }
+        },
+        {
+          "cycle": 2,
+          "spending": {
+            "scenario:qin": 1638.0507319501896,
+            "scenario:chu": 1687.7296009708189
+          }
+        },
+        {
+          "cycle": 3,
+          "spending": {
+            "scenario:qin": 1696.1381144965037,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 4,
+          "spending": {
+            "scenario:qin": 1696.1381144965037,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 5,
+          "spending": {
+            "scenario:qin": 1764.5636464832735,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 6,
+          "spending": {
+            "scenario:qin": 1823.3290602069624,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 7,
+          "spending": {
+            "scenario:qin": 1823.3290602069624,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 8,
+          "spending": {
+            "scenario:qin": 1907.3904393893276,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 9,
+          "spending": {
+            "scenario:qin": 1907.3904393893276,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 10,
+          "spending": {
+            "scenario:qin": 1976.749085247703,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 11,
+          "spending": {
+            "scenario:qin": 1976.749085247703,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 12,
+          "spending": {
+            "scenario:qin": 2053.4062990000134,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 13,
+          "spending": {
+            "scenario:qin": 2053.4062990000134,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 14,
+          "spending": {
+            "scenario:qin": 2123.363381844787,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 15,
+          "spending": {
+            "scenario:qin": 2123.363381844787,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 16,
+          "spending": {
+            "scenario:qin": 2193.6216349412734,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 17,
+          "spending": {
+            "scenario:qin": 2193.6216349412734,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 18,
+          "spending": {
+            "scenario:qin": 2254.182359389667,
+            "scenario:chu": 1745.816983517133
+          }
+        },
+        {
+          "cycle": 19,
+          "spending": {
+            "scenario:qin": 2254.182359389667,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 20,
+          "spending": {
+            "scenario:qin": 2254.182359389667,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 21,
+          "spending": {
+            "scenario:qin": 2340.0234429177967,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 22,
+          "spending": {
+            "scenario:qin": 2340.0234429177967,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 23,
+          "spending": {
+            "scenario:qin": 2340.0234429177967,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 24,
+          "spending": {
+            "scenario:qin": 2406.1459940118166,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 25,
+          "spending": {
+            "scenario:qin": 2406.1459940118166,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 26,
+          "spending": {
+            "scenario:qin": 2406.1459940118166,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 27,
+          "spending": {
+            "scenario:qin": 2472.5511210670234,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 28,
+          "spending": {
+            "scenario:qin": 2472.5511210670234,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 29,
+          "spending": {
+            "scenario:qin": 2472.5511210670234,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 30,
+          "spending": {
+            "scenario:qin": 2472.5511210670234,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 31,
+          "spending": {
+            "scenario:qin": 2472.5511210670234,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 32,
+          "spending": {
+            "scenario:qin": 2559.192574705464,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 33,
+          "spending": {
+            "scenario:qin": 2559.192574705464,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 34,
+          "spending": {
+            "scenario:qin": 2559.192574705464,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 35,
+          "spending": {
+            "scenario:qin": 2559.192574705464,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 36,
+          "spending": {
+            "scenario:qin": 2559.192574705464,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 37,
+          "spending": {
+            "scenario:qin": 2559.192574705464,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 38,
+          "spending": {
+            "scenario:qin": 2559.192574705464,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 39,
+          "spending": {
+            "scenario:qin": 2559.192574705464,
+            "scenario:chu": 1806.3777079655265
+          }
+        },
+        {
+          "cycle": 40,
+          "spending": {
+            "scenario:qin": 2559.192574705464,
+            "scenario:chu": 1806.3777079655265
+          }
+        }
+      ],
+      "audit": {
+        "residuals": {
+          "scenario:qin": 0.0,
+          "scenario:chu": 0.0
+        },
+        "final_use_quantities": {
+          "scenario:qin": {
+            "native:gold": 1543.0,
+            "native:wood": 410.0
+          },
+          "scenario:chu": {
+            "native:gold": 1120.0,
+            "native:wood": 290.0
+          }
+        },
+        "categories": {
+          "construction": 34,
+          "export": 81,
+          "import": 102,
+          "production": 774
+        },
+        "facts": 991
+      },
+      "resume_equal": null,
+      "elapsed_seconds": 62.29276207101066,
+      "final_state_sha256": "35f96ea9524eb267d38b68a3b083d4d9896ccb50cf926ae7c5a6be6d294d67a6"
+    },
+    {
+      "config": {
+        "mods": "mods.toml",
+        "map_size": 12,
+        "seed": 6,
+        "nations": [
+          {
+            "id": "scenario:qin",
+            "name": "秦",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          },
+          {
+            "id": "scenario:chu",
+            "name": "楚",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          }
+        ]
+      },
+      "cycles": 40,
+      "trajectory": [
+        {
+          "cycle": 1,
+          "spending": {
+            "scenario:qin": 1040.3471064005612,
+            "scenario:chu": 920.3471064005612
+          }
+        },
+        {
+          "cycle": 2,
+          "spending": {
+            "scenario:qin": 1642.0083698020667,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 3,
+          "spending": {
+            "scenario:qin": 1642.0083698020667,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 4,
+          "spending": {
+            "scenario:qin": 1708.8706897986447,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 5,
+          "spending": {
+            "scenario:qin": 1708.8706897986447,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 6,
+          "spending": {
+            "scenario:qin": 1791.0426348279668,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 7,
+          "spending": {
+            "scenario:qin": 1791.0426348279668,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 8,
+          "spending": {
+            "scenario:qin": 1848.5034395647642,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 9,
+          "spending": {
+            "scenario:qin": 1848.5034395647642,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 10,
+          "spending": {
+            "scenario:qin": 1848.5034395647642,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 11,
+          "spending": {
+            "scenario:qin": 1916.232038635533,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 12,
+          "spending": {
+            "scenario:qin": 1916.232038635533,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 13,
+          "spending": {
+            "scenario:qin": 1916.232038635533,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 14,
+          "spending": {
+            "scenario:qin": 1974.2295405512812,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 15,
+          "spending": {
+            "scenario:qin": 1974.2295405512812,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 16,
+          "spending": {
+            "scenario:qin": 1974.2295405512812,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 17,
+          "spending": {
+            "scenario:qin": 1974.2295405512812,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 18,
+          "spending": {
+            "scenario:qin": 1974.2295405512812,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 19,
+          "spending": {
+            "scenario:qin": 1974.2295405512812,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 20,
+          "spending": {
+            "scenario:qin": 1974.2295405512812,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 21,
+          "spending": {
+            "scenario:qin": 1974.2295405512812,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 22,
+          "spending": {
+            "scenario:qin": 1974.2295405512812,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 23,
+          "spending": {
+            "scenario:qin": 1974.2295405512812,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 24,
+          "spending": {
+            "scenario:qin": 2057.339412501794,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 25,
+          "spending": {
+            "scenario:qin": 2057.339412501794,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 26,
+          "spending": {
+            "scenario:qin": 2057.339412501794,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 27,
+          "spending": {
+            "scenario:qin": 2057.339412501794,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 28,
+          "spending": {
+            "scenario:qin": 2057.339412501794,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 29,
+          "spending": {
+            "scenario:qin": 2057.339412501794,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 30,
+          "spending": {
+            "scenario:qin": 2057.339412501794,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 31,
+          "spending": {
+            "scenario:qin": 2057.339412501794,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 32,
+          "spending": {
+            "scenario:qin": 2057.339412501794,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 33,
+          "spending": {
+            "scenario:qin": 2140.5843825512447,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 34,
+          "spending": {
+            "scenario:qin": 2140.5843825512447,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 35,
+          "spending": {
+            "scenario:qin": 2140.5843825512447,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 36,
+          "spending": {
+            "scenario:qin": 2140.5843825512447,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 37,
+          "spending": {
+            "scenario:qin": 2140.5843825512447,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 38,
+          "spending": {
+            "scenario:qin": 2140.5843825512447,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 39,
+          "spending": {
+            "scenario:qin": 2140.5843825512447,
+            "scenario:chu": 1676.8954576025685
+          }
+        },
+        {
+          "cycle": 40,
+          "spending": {
+            "scenario:qin": 2140.5843825512447,
+            "scenario:chu": 1676.8954576025685
+          }
+        }
+      ],
+      "audit": {
+        "residuals": {
+          "scenario:qin": 0.0,
+          "scenario:chu": 0.0
+        },
+        "final_use_quantities": {
+          "scenario:qin": {
+            "native:gold": 1410.0,
+            "native:wood": 310.0
+          },
+          "scenario:chu": {
+            "native:gold": 1149.0,
+            "native:wood": 230.0
+          }
+        },
+        "categories": {
+          "construction": 24,
+          "export": 71,
+          "import": 70,
+          "production": 408
+        },
+        "facts": 573
+      },
+      "resume_equal": null,
+      "elapsed_seconds": 58.935782009968534,
+      "final_state_sha256": "07e0f29aad4a80e8841b9a17a5e81971c52097ebdb41450163e5fac697a71162"
+    },
+    {
+      "config": {
+        "mods": "mods.toml",
+        "map_size": 12,
+        "seed": 7,
+        "nations": [
+          {
+            "id": "scenario:qin",
+            "name": "秦",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          },
+          {
+            "id": "scenario:chu",
+            "name": "楚",
+            "client": "rule",
+            "rule_ai": "v11plus"
+          }
+        ]
+      },
+      "cycles": 40,
+      "trajectory": [
+        {
+          "cycle": 1,
+          "spending": {
+            "scenario:qin": 939.3471064005612,
+            "scenario:chu": 928.3471064005612
+          }
+        },
+        {
+          "cycle": 2,
+          "spending": {
+            "scenario:qin": 1671.9178636209379,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 3,
+          "spending": {
+            "scenario:qin": 1671.9178636209379,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 4,
+          "spending": {
+            "scenario:qin": 1729.5570747498837,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 5,
+          "spending": {
+            "scenario:qin": 1729.5570747498837,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 6,
+          "spending": {
+            "scenario:qin": 1790.5096825415687,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 7,
+          "spending": {
+            "scenario:qin": 1851.7771958867702,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 8,
+          "spending": {
+            "scenario:qin": 1851.7771958867702,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 9,
+          "spending": {
+            "scenario:qin": 1913.2705656346031,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 10,
+          "spending": {
+            "scenario:qin": 1975.035979358292,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 11,
+          "spending": {
+            "scenario:qin": 1975.035979358292,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 12,
+          "spending": {
+            "scenario:qin": 2036.937830835568,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 13,
+          "spending": {
+            "scenario:qin": 2036.937830835568,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 14,
+          "spending": {
+            "scenario:qin": 2095.9307948044666,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 15,
+          "spending": {
+            "scenario:qin": 2095.9307948044666,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 16,
+          "spending": {
+            "scenario:qin": 2164.9693612161627,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 17,
+          "spending": {
+            "scenario:qin": 2164.9693612161627,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 18,
+          "spending": {
+            "scenario:qin": 2224.030740398528,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 19,
+          "spending": {
+            "scenario:qin": 2224.030740398528,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 20,
+          "spending": {
+            "scenario:qin": 2286.114940051083,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 21,
+          "spending": {
+            "scenario:qin": 2286.114940051083,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 22,
+          "spending": {
+            "scenario:qin": 2286.114940051083,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 23,
+          "spending": {
+            "scenario:qin": 2286.114940051083,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 24,
+          "spending": {
+            "scenario:qin": 2286.114940051083,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 25,
+          "spending": {
+            "scenario:qin": 2286.114940051083,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 26,
+          "spending": {
+            "scenario:qin": 2429.283339356193,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 27,
+          "spending": {
+            "scenario:qin": 2488.3675390087483,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 28,
+          "spending": {
+            "scenario:qin": 2488.3675390087483,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 29,
+          "spending": {
+            "scenario:qin": 2550.4517386613034,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 30,
+          "spending": {
+            "scenario:qin": 2612.6501561577506,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 31,
+          "spending": {
+            "scenario:qin": 2612.6501561577506,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 32,
+          "spending": {
+            "scenario:qin": 2681.8714403215818,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 33,
+          "spending": {
+            "scenario:qin": 2681.8714403215818,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 34,
+          "spending": {
+            "scenario:qin": 2681.8714403215818,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 35,
+          "spending": {
+            "scenario:qin": 2681.8714403215818,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 36,
+          "spending": {
+            "scenario:qin": 2681.8714403215818,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 37,
+          "spending": {
+            "scenario:qin": 2681.8714403215818,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 38,
+          "spending": {
+            "scenario:qin": 2751.092724485413,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 39,
+          "spending": {
+            "scenario:qin": 2751.092724485413,
+            "scenario:chu": 1675.0477947827217
+          }
+        },
+        {
+          "cycle": 40,
+          "spending": {
+            "scenario:qin": 2751.092724485413,
+            "scenario:chu": 1675.0477947827217
+          }
+        }
+      ],
+      "audit": {
+        "residuals": {
+          "scenario:qin": 0.0,
+          "scenario:chu": 0.0
+        },
+        "final_use_quantities": {
+          "scenario:qin": {
+            "native:gold": 1533.0,
+            "native:wood": 495.0
+          },
+          "scenario:chu": {
+            "native:gold": 1142.0,
+            "native:wood": 230.0
+          }
+        },
+        "categories": {
+          "construction": 36,
+          "export": 65,
+          "import": 88,
+          "production": 728
+        },
+        "facts": 917
+      },
+      "resume_equal": null,
+      "elapsed_seconds": 62.24222544801887,
+      "final_state_sha256": "cf4788e34d0bfcf3914fee89b2f4f6fa15a7f81a0bf1eaef242bc8c93a6136e8"
+    }
+  ],
+  "probe_script": {
+    "path": "experiments/consumption_metric/probe_two_country.py",
+    "sha256": "15b215fb3695d2082cf50749652c737f35fa5f78a4bb862fdf467a737ee5d9e5"
+  }
+}

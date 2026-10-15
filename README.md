@@ -71,6 +71,7 @@ python -m scenarios.eight_nations --seed 20260921
 - [Mod 开发指南](docs/Mod开发指南.md)：从可运行示例开始，增加内容、替换模块和组装独立游戏。
 - [发行版 Session](docs/发行版Session.md)：场景、可选地图策略、管理能力、服务装配、审计与控制权。
 - [玩家 API 与客户端](docs/客户端接线.md)：绑定身份、事实、请求和回执。
+- [GUI 选型与计划](docs/GUI选型与计划.md)：跨平台桌面、2D/3D 地图与动画素材选型，以及看海优先的接线计划。
 - [Native 模块](mods/native/README.md)、[UI Mod](mods/ui/README.md)、[experimental](mods/experimental/README.md)、[Python 沙盒](mods/experimental/SCRIPTING.md)。
 - [模块化口径](模块化口径.md)与 [路线计划](PLAN.md)。
 
