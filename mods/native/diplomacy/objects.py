@@ -448,7 +448,18 @@ class Diplomacy:
             except (ValueError,KeyError,TypeError) as exc:
                 if c.fee:self._call('native:resource-exchange','exchange',c.actor,{}, {'native:gold':c.fee})
                 results.append(self._result(c,'cancelled' if c.actor not in self._ids() else 'failed',str(exc)))
+        self.expire_truces()
         return tuple(freeze(r) for r in results),tuple(effects)
+
+    def expire_truces(self):
+        """过期休战不再留在状态里。
+
+        报一份「已经放行宣战」的和约比不报更坏（0.1 在面板侧逐条过滤：turn >= until
+        即到期），而留着不管会让面板、观察者快照与存档随局数只增不减。
+        """
+        stale=[key for key,until in self._truces.items() if until<=self._period()]
+        for key in stale:del self._truces[key]
+        return len(stale)
 
     def eliminate(self, owner):
         self._write()
@@ -472,7 +483,7 @@ class Diplomacy:
     def snapshot(self, actor):
         self._living(actor)
         return DiplomaticSnapshot(tuple(self._alliances.values()),tuple(self._pacts),tuple(self._wars),
-            tuple((a,b,until) for (a,b),until in sorted(self._truces.items())),
+            tuple((a,b,until) for (a,b),until in sorted(self._truces.items()) if until>self._period()),
             tuple(freeze(o) for o in self._offers if actor in o.parties),
             tuple(freeze(v) for v in self._votes if actor in v.voters),
             tuple(freeze(c) for c in self._pending if c.actor==actor),

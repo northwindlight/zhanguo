@@ -138,13 +138,22 @@ class Market:
             prices[key] = number(result.price, positive=True)
         return prices
 
+    def _period_trades(self):
+        """本期成交。成交按发生顺序追加，本期永远是列表的**尾段**——不问全史，
+        否则每一期都要为整局的成交记录再付一次钱（6 个商品 × 全部历史）。"""
+        rows=[]
+        for row in reversed(self._trades):
+            if row.period!=self._period:break
+            rows.append(row)
+        return rows
+
     def _drift(self, key):
         # Net flow moves the market's own scale: a market being bought out
         # expects to hold more, one being dumped expects to hold less. The
         # reference only ever moves here, at the period boundary, so it cannot
         # make one player's quote depend on another's timing.
         net = sum(row.quantity if row.side == 'buy' else -row.quantity
-                  for row in self._trades if row.period == self._period and row.resource == key)
+                  for row in self._period_trades() if row.resource == key)
         return max(1.0, self._reference[key] + self._policy.flow * net)
 
     def _refill(self, key):
@@ -208,8 +217,7 @@ class Market:
 
     def churn(self, owner, resource):
         self._owner(owner);self._listing(resource)
-        rows = [row for row in self._trades if row.period == self.period and
-                row.owner == owner and row.resource == resource]
+        rows = [row for row in self._period_trades() if row.owner == owner and row.resource == resource]
         buy_n = sum(row.quantity for row in rows if row.side == 'buy')
         sell_n = sum(row.quantity for row in rows if row.side == 'sell')
         overlap = min(buy_n, sell_n)
@@ -228,7 +236,7 @@ class Market:
             self._inventory[key] = self._refill(key)
         self._volume.clear()
         self._prices = self._levels()
-        closed = tuple(row for row in self._trades if row.period == self._period)
+        closed = tuple(self._period_trades())
         self._period += 1
         return closed
 
