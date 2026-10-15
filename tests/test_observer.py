@@ -73,6 +73,20 @@ class TestObserver(unittest.TestCase):
         text=ui.action(0,'s:q','attack',{'ids':[1,2],'place':'试验地'},attack,{'s:q':'秦'})
         self.assertIn('步兵#1、民兵#2 → 试验地('+str(position[0])+', '+str(position[1])+')',text)
 
+    def test_receipts_resolve_coordinate_strings_the_engine_accepts(self):
+        """place/site 填坐标串（引擎认的那种）时，回执与日志必须照样打出那块地。"""
+        h=GameHost.new(self.cfg());ui=h.ui.console;observation=h.player('s:q').observe();ui.remember(observation)
+        tile=observation['facts']['land'][0]['tile'];x,y=tile['position'];name=tile['name']
+        receipt={'ok':True,'status':'effective','message':'','data':{'units':[1]}}
+        for place in (f'{x} {y}',f'{x},{y}',f'({x},{y})'):
+            text=ui.action(0,'s:q','move',{'aid':1,'place':place},receipt,{'s:q':'秦'})
+            self.assertIn(f'→ {name}({x}, {y})',text)
+            self.assertIn(f'已移动至{name}({x}, {y})',text)
+            self.assertNotIn('所选地块',text)
+        # 认不出来的引用照原样给回去，不拿「所选地块」冒充地块。
+        text=ui.action(0,'s:q','move',{'aid':1,'place':'没这个地方'},receipt,{'s:q':'秦'})
+        self.assertIn('→ 没这个地方',text)
+
     def test_overview_shows_only_production_and_military_flow_deltas(self):
         h=GameHost.new(self.cfg());snapshot=h.observer_snapshot();actor='s:q'
         for observation,amount in zip(snapshot['nations'],(1,100)):

@@ -32,6 +32,18 @@ class ReceiptPresentation:
                 tiles[tuple(position)]=tile['name']
             if 'id' in tile:self._terrain[tile['id']]=tile.get('terrain')
 
+    @staticmethod
+    def _coordinates(text):
+        """坐标串（`4 12` / `4,12` / `(4,12)`）→ (x, y)；不是坐标串就是 None。
+
+        玩家可以拿坐标串填 `place` / `site`（与引擎 `native:territory.resolve` 同一套写法），
+        所以回执这条也得认——否则模型按说明填坐标，日志里那块地只剩「所选地块」四个字。
+        """
+        parts=text.strip().strip('()').replace(',',' ').split()
+        if len(parts)==2 and all(part.lstrip('-').isdigit() for part in parts):
+            return int(parts[0]),int(parts[1])
+        return None
+
     def pos(self,value=None,args=None,actor=None):
         args=args or {}
         if 'x' in args and 'y' in args:value=[args['x'],args['y']]
@@ -46,6 +58,9 @@ class ReceiptPresentation:
             return f'{tile_name}({x}, {y})' if tile_name else f'({x}, {y})'
         if isinstance(value,str) and value in self._sites:return self.pos(self._sites[value]['position'],actor=actor)
         if isinstance(value,str):
+            coordinates=self._coordinates(value)
+            if coordinates is not None:return self.pos(list(coordinates),actor=actor)
+        if isinstance(value,str):
             for position,name in self._tiles.get(actor,{}).items():
                 if name==value:return f'{name}({position[0]}, {position[1]})'
         # Native site identity is a fallback only; observations provide coordinates.
@@ -53,6 +68,8 @@ class ReceiptPresentation:
             import re
             m=re.search(r'/land-(\d+)-(\d+)$',value)
             if m:return self.pos([int(m[1]),int(m[2])],actor=actor)
+        # 认不出来时别拿「所选地块」冒充地块：玩家写的是什么就照原样给回去，日志至少看得见。
+        if isinstance(value,str) and value.strip():return value.strip()
         return '所选地块'
 
     def unit_ref(self,unit_id,actor):
