@@ -3,6 +3,10 @@ import math
 
 from mods.native.market.contracts import PricingEngine, PricePath, PriceSettlement, integer, number
 
+# exp(700) ≈ 1.01e304：离 float 的 1.8e308 还剩一个量级的安全边际。
+_MAX_LOG = 700.0
+_OUT_OF_RANGE = '单笔委托超出市场可定价范围（成本已超出浮点上限），请拆成多笔'
+
 
 class InventoryPricing(PricingEngine):
     """Three statements and no calculus.
@@ -32,12 +36,27 @@ class InventoryPricing(PricingEngine):
         if side == 'buy':
             # Buying the s-th unit costs exp(+elasticity * s / scale) times the
             # period's level: the buffer thins, so later units cost more.
+            self._finite(elasticity, scale, price, volume, quantity)
             units = math.exp(elasticity * volume / scale) * math.expm1(elasticity * quantity / scale) / up
-            return PricePath(price, price * units * (1 + policy.spread / 2))
+            return PricePath(price, self._total(price, units, 1 + policy.spread / 2))
         # Selling the s-th unit earns exp(-elasticity * s / scale): a deep lot
         # is what depresses the price, so later units earn less.
         units = math.exp(-elasticity * volume / scale) * -math.expm1(-elasticity * quantity / scale) / down
-        return PricePath(price, price * units * (1 - policy.spread / 2))
+        return PricePath(price, self._total(price, units, 1 - policy.spread / 2))
+
+    @staticmethod
+    def _finite(elasticity, scale, price, volume, quantity):
+        """指数曲线本身没有上界（这是口径），但 float 有：实参到了这个量级，
+        expm1 会直接抛 OverflowError 掀翻整局。单笔成本到这个量级早已超过任何
+        国库，按「超出可定价范围」拒绝才是对的——这是业务拒绝，不是崩溃。"""
+        if elasticity * max(volume, quantity) / scale > _MAX_LOG:
+            raise ValueError(_OUT_OF_RANGE)
+
+    @staticmethod
+    def _total(price, units, factor):
+        if units > 0 and math.log(price) + math.log(units) + math.log(factor) > _MAX_LOG:
+            raise ValueError(_OUT_OF_RANGE)
+        return price * units * factor
 
     def level(self, listing, inventory, reference, policy):
         scale = number(reference, positive=True)

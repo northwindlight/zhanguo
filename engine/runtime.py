@@ -24,6 +24,16 @@ class ToolArgumentError(ValueError):
     pass
 
 
+class DomainRejection(ValueError):
+    """业务拒绝：动作本身合法、世界状态不允许（钱不够、条约不允许、越界）。
+
+    与 ToolArgumentError 的区别是「错在谁」：ToolArgumentError 是调用方把参数
+    写错了，DomainRejection 是引擎按规则拒绝了这次动作。两者都只让这一个动作
+    作废，游戏继续；调用方异常的异常（模块内部 bug）走 internal_fault。
+    """
+    pass
+
+
 def dependency_order(nodes, *, requires, after, before):
     """Requires 负责存在性，After/Before 负责顺序；同级按 ID 稳定排序。"""
     edges = {name: set() for name in nodes}
@@ -114,6 +124,13 @@ class Tool:
         if self.adapter:
             arguments = self.adapter(world, actor, dict(arguments))
         arguments=dict(arguments)
+        # 声明即契约：schema 写了 additionalProperties=false，运行时就得真的拒收
+        # 多余参数，否则它们会一路渗进 handler 变成未捕获的 TypeError。
+        if self.parameters and self.parameters.get('additionalProperties') is False:
+            allowed = set(self.parameters.get('properties') or ())
+            unknown = sorted(k for k in arguments if k not in allowed)
+            if unknown:
+                raise ValueError('未知参数：' + '、'.join(unknown))
         for key in self.content_parameters:
             if key in arguments:arguments[key]=world.runtime.content.resolve(arguments[key])
         arguments = {k: _convert(v, self.argument_types.get(k, Any)) for k, v in arguments.items()}
@@ -566,9 +583,9 @@ class Runtime:
     def schemas(self):
         return [self.tools[n].schema() for n in sorted(self.tools) if n == self.tools[n].name]
 
-    def player(self, world, actor, *, lock=None, on_write=None):
+    def player(self, world, actor, *, lock=None, on_write=None, on_fault=None):
         from .player import PlayerSession
-        return PlayerSession(self, world, actor, lock, on_write)
+        return PlayerSession(self, world, actor, lock, on_write, on_fault)
 
     def dependency_manifest(self):
         """严格匹配 Mod 版本、依赖和阶段契约；实现升级由 Mod 作者提升 Version。"""

@@ -8,6 +8,7 @@ import queue
 import re
 import sys
 import time
+import traceback
 
 from ui.terminal import Console
 from host import GameHost
@@ -16,6 +17,20 @@ from engine.config import read_config
 
 CONSOLE=None
 ANSI_ESCAPE=re.compile(r'\033\[[0-9;]*m')
+
+
+def report_faults(host,observer,ui,journal_path):
+    """模块内部错误只作废一个动作：在终端与日志里留痕，别让它们无声明地消失。"""
+    faults=getattr(host,'faults',None) or []
+    while len(faults)>report_faults.seen:
+        row=faults[report_faults.seen];report_faults.seen+=1
+        observer.notice(ui.text('console.module_fault',period=row['period'],action=row['action'],
+                                kind=row['type'],error=row['message']))
+        to_journal(journal_path,ui.text('console.failure_detail',period=row['period'],
+                                        kind=row['type'],error=row['message'],detail=row['detail']))
+
+
+report_faults.seen=0
 
 
 def to_journal(path,text):
@@ -303,6 +318,7 @@ def run(argv=None):
             observer.line(observer.board())
             host.cycle(on_result=observer.result,emit=observer.model_output,
                        head=observer.context_head,on_call=observer.on_call)
+            report_faults(host,observer,ui,journal_path)
             for actor in list(observer.pending):observer.flush(actor)
             observer.events();observer.line(observer.board());host.save(save_path)
             if callable(getattr(host,'observer_snapshot',None)):
@@ -316,7 +332,11 @@ def run(argv=None):
     except KeyboardInterrupt:
         observer.notice(ui.text('console.interrupt'));return 130
     except Exception as exc:
-        observer.notice(ui.text('console.failure',kind=type(exc).__name__,error=exc));return 1
+        # 停机是最后手段：留下回合号、完整 traceback 和续局办法，别只留一行被擦掉的字。
+        to_journal(journal_path,ui.text('console.failure_detail',kind=type(exc).__name__,error=exc,
+                                        period=host.clock(),detail=traceback.format_exc()))
+        observer.notice(ui.text('console.failure',kind=type(exc).__name__,error=exc,
+                                period=host.clock(),path=save_path));return 1
     finally:
         if CONSOLE is not None:CONSOLE.close();CONSOLE=None
 

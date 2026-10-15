@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import fields, is_dataclass
 import math
 import inspect
+import traceback
 
 API_VERSION = 1
 BUILTINS = {
@@ -40,11 +41,12 @@ class PlayerSession:
     """
     api_version = API_VERSION
 
-    def __init__(self, runtime, world, actor, lock=None, on_write=None):
+    def __init__(self, runtime, world, actor, lock=None, on_write=None, on_fault=None):
         self.__runtime, self.__world = runtime, world
         self.__actor = actor
         self.__lock = lock or runtime._player_lock
         self.__on_write=on_write
+        self.__on_fault=on_fault
         self._validate()
 
     @property
@@ -134,15 +136,40 @@ class PlayerSession:
                 code = 'domain_rejected'
                 if not self.__runtime.tools[action].read_only and self.__on_write:self.__on_write()
                 result = self.__runtime.call(self.__world, self.actor, action, arguments or {})
-                data = wire(result)
-            except (ValueError, KeyError) as exc:
+            except ValueError as exc:
+                # ValueError 是过渡期的「业务拒绝」通道：模块用它说「钱不够」
+                # 「这一步不允许」。KeyError 不再算这一档——缺一个键几乎总是
+                # 引擎自己的 bug，把它说成「参数错」会替 bug 打掩护。
                 from .runtime import ToolArgumentError
                 if isinstance(exc,ToolArgumentError):code='invalid_arguments'
                 return {**base, 'ok': False, 'status': 'rejected', 'code': code, 'message': str(exc), 'data': None}
+            except Exception as exc:
+                # 模块内部的 bug（OverflowError、AttributeError、TypeError…）只作废
+                # 这一次动作。0.1 的分工是「模型动作不合法 → 回执里说清楚；锦上添花
+                # 的失败 → 降级继续」，停机权只属于结算本身，不属于一次工具调用。
+                return self._fault(base, exc)
+            try:
+                data = wire(result)
+            except Exception as exc:
+                # 序列化失败发生在动作已经生效之后，绝不能报成 rejected——那会让
+                # 模型以为没写成而重做一次（同一笔买卖收两次钱）。
+                return self._fault(base, exc)
             status = data.get('status', 'effective') if isinstance(data, dict) else 'effective'
             return {**base, 'ok': status not in ('failed', 'cancelled'), 'status': status,
                     'code': 'action_failed' if status in ('failed', 'cancelled') else None,
                     'message': data.get('message', '') if isinstance(data, dict) else '', 'data': data}
+
+    def _fault(self, base, exc):
+        """模块内部异常 → 该动作作废、游戏继续；细节交给宿主的故障日志。"""
+        detail = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        if self.__on_fault:
+            try:
+                self.__on_fault(base['action'], exc, detail)
+            except Exception:
+                pass
+        return {**base, 'ok': False, 'status': 'failed', 'code': 'internal_fault',
+                'message': f'模块内部错误（{type(exc).__name__}）：本动作作废，游戏继续，详情已记故障日志。',
+                'data': None}
 
     def events(self, cursor=0):
         if type(cursor) is not int or cursor < 0:

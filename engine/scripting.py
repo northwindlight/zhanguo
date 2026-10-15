@@ -10,6 +10,15 @@ class SandboxSyntaxError(Exception):pass
 class SandboxActionError(Exception):pass
 
 
+class SandboxHostFault(Exception):
+    """宿主能力调用自己炸了（引擎 bug、议会审核失败…），不是脚本写错。
+
+    沙箱把「脚本抛异常」降级成一次失败的脚本运行是对的；但宿主故障是引擎侧的
+    问题，必须原样冒出去，否则会被伪装成「脚本失败」悄悄吞掉。
+    """
+    def __init__(self,exc):self.exc=exc;super().__init__(f'{type(exc).__name__}: {exc}')
+
+
 DEFAULT_LIMITS = dict(steps=12000, calls=24, source=16384, nodes=2048,
                       items=4096, string=65536, value_bytes=1048576,
                       output=4096, depth=48, integer_bits=256)
@@ -427,7 +436,9 @@ class Machine:
             if self.calls>=self.limits['calls']:raise SandboxLimitError('API call budget exceeded')
             self.charge(100)
             self.calls+=1
-            result=self.api(name,args,kwargs)
+            try:result=self.api(name,args,kwargs)
+            except ValueError:raise          # 宿主按业务口径拒绝（如嵌套控制调用）：就是脚本失败
+            except Exception as exc:raise SandboxHostFault(exc) from exc
             # Action receipts survive even if subsequent computation hits a limit.
             if name=='submit':self.receipts.append(result)
             result=self.checked(result)
@@ -508,6 +519,9 @@ class Machine:
             error=None
         except (Return,Break,Continue):
             error=error_info(SandboxSyntaxError('Control flow outside its enclosing block'),self.source,self.line,self.column)
+        except SandboxHostFault:
+            # 宿主故障不是脚本失败：原样冒给调用方（议会审核失败必须致命）。
+            raise
         except Exception as exc:
             error=error_info(exc,self.source,getattr(exc,'line',self.line),getattr(exc,'column',self.column))
         return {'status':'failed' if error else 'effective','output':self.output,

@@ -8,6 +8,8 @@ import io
 COLORS = ('#dab942','#3aaeb8','#bc54aa','#c1cad8','#e28b3c','#745eb8','#e597b5','#5e91cd')
 TERRAIN = {'native:plain':'P','native:forest':'F','native:hill':'H','native:mountain':'M','native:desert':'D'}
 SIDES = {'self':'#3ac460','ally':'#3a84e8','enemy':'#e03e3a','neutral':'#8e908e'}
+# 图幅夹取范围（0.1 的 map_max_px 就是夹到这一段，越界不报错只夹）。
+MAP_MIN_PX, MAP_MAX_PX = 240, 1800
 
 
 def owner_color(owner):
@@ -39,7 +41,9 @@ def side(state,owner):
 def render_snapshot(state, *, max_px=960):
     from PIL import Image, ImageDraw, ImageFont
     if state.get('version')!='zhanguo.ui.map/1':raise ValueError('Unsupported UI map snapshot')
-    if type(max_px) is not int or not 128<=max_px<=4096:raise ValueError('map_max_px must be between 128 and 4096')
+    # 图幅是观感参数，不是玩家动作：越界夹取即可，不该把整局拖下水。
+    if type(max_px) is not int or isinstance(max_px,bool):max_px=960
+    max_px=max(MAP_MIN_PX,min(MAP_MAX_PX,max_px))
     tiles=state['tiles']
     if not tiles:return None
     points={tuple(t['position']):t for t in tiles}
@@ -84,8 +88,9 @@ def expand_message(message, *, vision=True):
     result=deepcopy({k:v for k,v in message.items() if k!=MAP_KEY})
     png=None
     if vision:
+        # 渲染是锦上添花：装不上 Pillow、图幅离谱、画到一半炸了，都退回文本地图。
         try:png=render_snapshot(payload['facts'],max_px=payload['max_px'])
-        except ImportError:pass
+        except Exception:png=None
     text=str(result.get('content') or '')
     result['content']=([{'type':'text','text':text},image_block(png)] if png else text+'\n'+payload.get('fallback',''))
     return result

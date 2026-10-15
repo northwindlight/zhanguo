@@ -40,6 +40,8 @@ class Session:
         self.clients={};self.roster={};self.lock=threading.RLock();self.last_results=[]
         self.scenario_text='';self._boundary=True
         self.audit=[];self.generations={};self.contexts={};self.services={}
+        # 模块内部异常（internal_fault）：本局运行期的故障日志，不进存档。
+        self.faults=[]
         self._callbacks=None
         for item in self.entries():
             policy=runtime.find_policy(item.get('polity')) if item.get('polity') else None
@@ -237,7 +239,10 @@ class Session:
 
 
     def _dirty(self):self._boundary=False
-    def raw_player(self,actor):return self.runtime.player(self.world,actor,lock=self.lock,on_write=self._dirty)
+    def _fault(self,action,exc,detail):
+        self.faults.append({'period':self.clock(),'action':action,'type':type(exc).__name__,
+                            'message':str(exc),'detail':detail})
+    def raw_player(self,actor):return self.runtime.player(self.world,actor,lock=self.lock,on_write=self._dirty,on_fault=self._fault)
     def player(self,actor):
         with self.lock:
             self.raw_player(actor)

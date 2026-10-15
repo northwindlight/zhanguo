@@ -90,10 +90,16 @@ class TestPlayerAPI(unittest.TestCase):
         self.assertNotIn([6,6],[point for point,_ in p.query('reachable',{'aid':a.id,'attack':True})])
         self.assertEqual(w.runtime.save_mod_state(w),saved)
 
-    def test_internal_runtime_faults_stop_instead_of_fake_rejected_receipts(self):
-        w=self.world();p=w.runtime.player(w,Q)
+    def test_internal_runtime_faults_void_the_action_without_faking_a_rejection(self):
+        """模块内部异常只作废这一次动作：回执必须说清楚是 internal_fault，
+        不能伪装成「参数错」，也不能把整场看海带走（停机权只属于结算本身）。"""
+        w=self.world();seen=[];p=w.runtime.player(w,Q,on_fault=lambda action,exc,detail:seen.append((action,exc,detail)))
         with patch.object(w.runtime,'call',side_effect=RuntimeError('broken invariant')):
-            with self.assertRaises(RuntimeError):p.submit('plan',{'text':'发展'})
+            receipt=p.submit('plan',{'text':'发展'})
+        self.assertFalse(receipt['ok']);self.assertEqual(receipt['code'],'internal_fault')
+        self.assertEqual(receipt['status'],'failed');self.assertIsNone(receipt['data'])
+        self.assertEqual(seen[0][0],'plan');self.assertIn('broken invariant',seen[0][2])
+        self.assertIn('RuntimeError',seen[0][2])
 
 
 if __name__=='__main__':unittest.main()
