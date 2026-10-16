@@ -146,11 +146,10 @@ class ReceiptPresentation:
                 for assumption in row.get('assumptions',[]):lines.append('  '+assumption)
         return '\n'.join(lines)
 
-    def land(self,rows,instances=None):
+    def land(self,rows,instances=None,actor=None):
         lines=[f'国土 {len(rows)} 块：']
         for row in rows:
             tile=row.get('tile',row);site=self._sites.get(tile.get('id'),{})
-            place=f'「{tile["name"]}」' if tile.get('name') else ''
             completed=Counter(b['kind'] for b in instances or [] if b['site']==tile.get('id') and not b['remaining'])
             pending=Counter(b['kind'] for b in instances or [] if b['site']==tile.get('id') and b['remaining'])
             buildings='、'.join(f'{self.label("content",k)}×{n}' for k,n in completed.items()) or '无'
@@ -158,7 +157,7 @@ class ReceiptPresentation:
             resources=self.resources(row.get('resources',site.get('resources',[])),gold_short=False)
             cap=f'｜建筑位{sum(completed.values())+sum(pending.values())}/{site["capacity"]}' if 'capacity' in site and instances is not None else ''
             terrain=self.label('content',tile.get('terrain') or self._terrain.get(tile.get('id')) or '')
-            lines.append(f'{self.pos(tile)}{place}{terrain}{cap}｜资源 {resources}'+('｜建筑 '+buildings if instances is not None else ''))
+            lines.append(f'{self.pos(tile,actor=actor)}{terrain}{cap}｜资源 {resources}'+('｜建筑 '+buildings if instances is not None else ''))
         return '\n'.join(lines)
 
     def call_caption(self,action,args,actor=None,receipt=None):
@@ -197,7 +196,7 @@ class ReceiptPresentation:
             return result
         if not receipt['ok']:
             if isinstance(data,dict) and data.get('reason')=='insufficient_resource':return f'❌ {self.label("content",data["resource"])}不足：需要{num(data["required"])}，现有{num(data["available"])}；请先补足资源或缩小数量。'
-            if action=='plan' and isinstance(data,dict) and 'reason' in data:return '❌ 议会未批准国策：'+data['reason']
+            if action=='plan' and isinstance(data,dict) and 'reason' in data:return '❌ 议会未批准国策：'+data['reason']+'\n'+args.get('text','')
             return '❌ '+(message or str(receipt.get('code') or '未完成'))
         if action=='build' and isinstance(data,dict) and 'costs' in data:
             name=self.label('content',data['kind']);pos=self.pos(data,args,actor)
@@ -206,7 +205,7 @@ class ReceiptPresentation:
         if action=='building_economics' and (isinstance(data,list) or isinstance(data,dict) and 'net_per_period' in data):return self.economics(data)
         if action=='building_sites' and isinstance(data,dict):
             self.remember({'building_sites':data})
-            return self.land([{'tile':s,'resources':s['resources']} for s in data['sites']],data['instances'])
+            return self.land([{'tile':s,'resources':s['resources']} for s in data['sites']],data['instances'],actor=actor)
         if action=='tile' and isinstance(data,dict):
             title=f'{self.pos(data)}'+(f'「{data["name"]}」' if data.get('name') else '')+f' {self.label("content",data["terrain"])} · '+self.name(data.get('owner') or '无主',self._names)
             details=[]
@@ -216,15 +215,16 @@ class ReceiptPresentation:
             if data.get('construction'):details.append('在建：'+'、'.join(self.label('content',b['kind']) for b in data['construction']))
             if data.get('army'):details.append('军队：'+'、'.join(self.name(u['owner'],self._names)+' #'+str(u['id'])+' '+self.label('content',u['kind'])+' 兵力'+num(u['hp']) for u in data['army']))
             return title+'\n'+'\n'.join(details)
-        if action=='land' and isinstance(data,list):return self.land(data)
+        if action=='land' and isinstance(data,list):return self.land(data,actor=actor)
         if action in ('buy','sell') and isinstance(data,dict) and 'exact_total' in data:
             quantity=data['quantity'];label=self.label('content',data['resource'])
             verb=self.label('action',action);cash='实付' if data['side']=='buy' else '实收'
             return f'{verb} {label}×{quantity}，{cash}{data["gold"]}金（含价差均价{num(data["exact_total"]/quantity)}；本期市价{num(data["price_before"])}）'
         if action=='plan' and isinstance(data,dict):
             if 'approved' in data:
-                if data['approved']:return '✅ 国策已通过。'
-                return '❌ 议会未批准国策：'+data.get('reason',message)
+                body=data.get('text',args.get('text',''))
+                if data['approved']:return '✅ 国策已通过。\n'+body
+                return '❌ 议会未批准国策：'+data.get('reason',message)+'\n'+body
             return '✅ 国策已制定'+(f'（有效至第{data["valid_until"]}回合）' if 'valid_until' in data else '')+'\n'+data.get('text',args.get('text',''))
         if action=='end_turn' and isinstance(data,dict):return '回合小结：'+data.get('text',args.get('summary',''))
         if action=='player_rules' and isinstance(data,list):

@@ -87,6 +87,41 @@ class TestObserver(unittest.TestCase):
         text=ui.action(0,'s:q','move',{'aid':1,'place':'没这个地方'},receipt,{'s:q':'秦'})
         self.assertIn('→ 没这个地方',text)
 
+    def test_building_sites_use_known_names_without_duplicate_labels(self):
+        h=GameHost.new(self.cfg());actor='s:q';ui=h.ui.console
+        obs=h.player(actor).observe();ui.remember(obs)
+        receipt=h.player(actor).submit('building_sites')
+        text=ui.action(0,actor,'building_sites',{},receipt,{actor:'秦'})
+        for land in obs['facts']['land']:
+            tile=land['tile'];x,y=tile['position'];name=tile['name']
+            self.assertIn(f'{name}({x}, {y})',text)
+            self.assertEqual(text.count(name),1)
+        self.assertEqual(receipt,h.player(actor).submit('building_sites'))
+
+    def test_observer_writes_each_receipt_once_and_keeps_action_history(self):
+        h=GameHost.new({'map_size':12,'seed':17,'nations':[{'id':'s:q','name':'秦','client':'llm'}]})
+        fake=FakeBackend([{'content':'','tool_calls':[
+            call('p','plan',text='完整国策正文：建设生产与维持独立'),
+            call('b1','buy',resource='wood',quantity=1),call('b2','buy',resource='wood',quantity=1),
+            call('e','end_turn',summary='执行生产准备并维持独立')]}])
+        h.clients['s:q']=LLMClient({'ctx_compact':'off'},backend=fake)
+        with tempfile.TemporaryDirectory() as folder,contextlib.redirect_stdout(io.StringIO()) as screen:
+            observer=Observer(h,Path(folder)/'journal.md')
+            h.cycle(on_result=observer.result,on_call=observer.on_call)
+            # Unrelated events must survive even when they have custom details.
+            h.world.intelligence.emit('victory','测试胜利公告',public=True,details={'winners':['s:q']})
+            observer.events();observer.events()
+            text=observer.path.read_text()
+        for output in (text,screen.getvalue()):
+            self.assertEqual(output.count('完整国策正文：建设生产与维持独立'),1)
+            self.assertEqual(output.count('◇ 买入 木头×1'),2)
+            self.assertEqual(output.count('测试胜利公告'),1)
+            self.assertNotIn('[0·action]',output)
+        events=h.records()['events']
+        self.assertEqual(len([e for e in events if e['kind']=='action']),4)
+        visible=h.player('s:q').events()['items']
+        self.assertTrue(any(e['kind']=='action' for e in visible))
+
     def test_overview_shows_only_production_and_military_flow_deltas(self):
         h=GameHost.new(self.cfg());snapshot=h.observer_snapshot();actor='s:q'
         for observation,amount in zip(snapshot['nations'],(1,100)):

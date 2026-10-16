@@ -80,7 +80,7 @@ class ConsoleUI(ReceiptPresentation):
     def event(self,row,names):
         text=self.name(row['text'],names)
         detail=row.get('details')
-        if detail:
+        if isinstance(detail,dict) and {'actor','action','arguments','status','message'}<=detail.keys():
             actor=detail['actor'];self._names=names
             text=self.name(actor,names)+' '+self.call_caption(detail['action'],detail['arguments'],actor)+'｜'+self.label('status',detail['status'])+'｜'+self.label('receipt',detail['message'])
         return self.text('console.event',period=row['period'],

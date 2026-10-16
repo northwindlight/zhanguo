@@ -128,7 +128,11 @@ class Observer:
     def events(self):
         records=self.host.records()
         for event in records['events']:
-            if event['id']>self.event:self.line(self.ui.console.event(event,self.names()))
+            # These remain in player-visible history; the observer already
+            # writes each primary receipt through flush().
+            detail=event.get('details')
+            mirrored=isinstance(detail,dict) and detail.get('source')=='action_receipt'
+            if event['id']>self.event and not mirrored:self.line(self.ui.console.event(event,self.names()))
         self.event=max([self.event,*[row['id'] for row in records['events']]])
         for message in records['messages']:
             if message['id']>self.message:self.line(self.ui.console.message(message,self.names()))

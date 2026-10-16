@@ -2,6 +2,7 @@ from engine.runtime import GameMod, RuleSection, Stage, Tool
 from .content import building_types
 from .objects import Buildings
 from .types import BUILDING_TYPES
+from mods.native.locations import site_arguments,location_parameters
 
 
 class BuildingsMod(GameMod):
@@ -31,7 +32,8 @@ class BuildingsMod(GameMod):
             'required':['kind'],'additionalProperties':False,
             'oneOf':[{'required':['site'],'not':{'anyOf':[{'required':['x']},{'required':['y']}]}},
                      {'required':['x','y'],'not':{'required':['site']}}]}
-        return (Tool('build',self._build,parameters=parameters,content_parameters=('kind',),
+        parameters=location_parameters(parameters)
+        return (Tool('build',self._build,parameters=parameters,adapter=site_arguments,content_parameters=('kind',),
                      description='在本国地块动工：site 传地名或 "x y" 坐标串，或直接传两个整数 x、y。直接返回实际扣款和施工回执；参数或材料不符时返回原因。每格每回合一次，结算落成。造价、门槛查 building_catalog，全部收益查 building_economics。'),
                 Tool('building_sites',self._sites,read_only=True,description='一次查看全部本国站点：坐标、资源容量、建筑位、已建/在建、当期施工与自建计数。无需地块参数。'),
                 Tool('building_catalog',self._catalog,read_only=True,

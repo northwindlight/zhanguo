@@ -1,8 +1,8 @@
 # experimental 实验性发行版
 
-`experimental` 是持续更新的实验性发行版，采用 beta 版本号；当前为 `0.7.0-beta.1`。后续实验功能在此发行版继续演进，目前包括议会审核、库存反馈市场、Python 沙盒，以及仅供规则 AI 研究的战斗概率推演。
+`experimental` 是持续更新的实验性发行版，采用 beta 版本号；当前为 `0.7.1-beta.1`。后续实验功能在此发行版继续演进，目前包括议会审核、库存反馈市场、Python 沙盒，以及仅供规则 AI 研究的战斗概率推演。
 
-在当前 main（原正规化）的 native 4.4.0 领域上替换政权模块，增加独立议会服务。默认 `mods.toml` 仍装配 native；选择 `mods.experimental.toml` 才启用这些实验。旧 World v4 代码保存在 legacy；本发行版不迁移旧存档。
+在当前 main（原正规化）的 native 4.4.1 领域上替换政权模块，增加独立议会服务。默认 `mods.toml` 仍装配 native；选择 `mods.experimental.toml` 才启用这些实验。旧 World v4 代码保存在 legacy；本发行版不迁移旧存档。
 
 配置顶层填写 `"mods":"mods.experimental.toml"`，用新的 save/journal 路径开局。`parliament` 可放在顶层或单国条目；单国配置优先。示例见 [独立配置模板](../../mp_config.experimental.example.json)。用 `.venv/bin/python mp_run.py --config mp_config.experimental.example.json --new` 启动前填好接入参数，示例路径只用于新局。
 

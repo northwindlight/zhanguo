@@ -1,4 +1,5 @@
 from dataclasses import replace
+from mods.native.locations import site_arguments,place_arguments,location_parameters
 from engine.player import wire
 from engine.runtime import GameMod, Panel, RuleSection, Stage, Tool
 from copy import deepcopy
@@ -40,14 +41,12 @@ class ArmyMod(GameMod):
         recruit=Tool('recruit',self._recruit)
         parameters=recruit.schema()['function']['parameters']
         parameters['properties']['kind']['enum']=list(unit_definitions(self.runtime.content))
-        parameters['oneOf']=[{'required':['site'],'not':{'anyOf':[{'required':['x']},{'required':['y']}]}},{'required':['x','y'],'not':{'required':['site']}}]
+        parameters=location_parameters(parameters)
         def forms(tool):
             # 坐标类工具：place（地名或坐标串）与 x/y 二选一。
-            params=tool.schema()['function']['parameters']
-            params['oneOf']=[{'required':['place'],'not':{'anyOf':[{'required':['x']},{'required':['y']}]}},
-                             {'required':['x','y'],'not':{'required':['place']}}]
-            return replace(tool,parameters=params)
-        return (Tool('recruit',self._recruit,parameters=parameters,content_parameters=('kind',)),forms(Tool('move',self._move,description='移动本国单支军队 aid 至目标格：place 给地名或 "x y" 坐标串，或两个整数 x、y。纯移动不占地。新兵、已移动或交战部队不能普通移动；与异地进攻和撤退共用额度。敌国领土须 attack，路线按地形与兵种速度校验。')),forms(Tool('attack',self._attack,description='本国军队整数 ids 数组向目标格进攻（place 给地名或 "x y"，或两个整数 x、y）；均须能抵达且有额度。无敌军可直接占领，有守军进入交战并等待结算；不能把提交当战果。他国须已生效战争。新兵不能进攻，原地进攻可保留移动额度。')),
+            params=location_parameters(tool.schema()['function']['parameters'])
+            return replace(tool,parameters=params,adapter=place_arguments)
+        return (Tool('recruit',self._recruit,parameters=parameters,adapter=site_arguments,content_parameters=('kind',)),forms(Tool('move',self._move,description='移动本国单支军队 aid 至目标格：place 给地名或 "x y" 坐标串，或两个整数 x、y。纯移动不占地。新兵、已移动或交战部队不能普通移动；与异地进攻和撤退共用额度。敌国领土须 attack，路线按地形与兵种速度校验。')),forms(Tool('attack',self._attack,description='本国军队整数 ids 数组向目标格进攻（place 给地名或 "x y"，或两个整数 x、y）；均须能抵达且有额度。无敌军可直接占领，有守军进入交战并等待结算；不能把提交当战果。他国须已生效战争。新兵不能进攻，原地进攻可保留移动额度。')),
                 forms(Tool('retreat',self._retreat,description='交战部队 aid 退往相邻合法格（place 给地名或 "x y"，或两个整数 x、y），与移动共用额度。提交后仍在原地参加本期战斗，结算后才撤离；撤退降低输出，防守撤退有承伤减免。')),Tool('disband',self._disband,parameters={'type':'object','properties':{'aid':{'type':'integer','minimum':1},'ids':{'type':'array','items':{'type':'integer','minimum':1},'minItems':1,'uniqueItems':True}},'oneOf':[{'required':['aid'],'not':{'required':['ids']}},{'required':['ids'],'not':{'required':['aid']}}],'additionalProperties':False},description='免费遣散本国军队，aid 单支或 ids 数组批量（二选一）；交战中不可遣散。立即停止维持并释放编制，不返还粮食、装备或金币。'),
                 Tool('army',lambda w,a:w.military.visible_units(a),read_only=True,description='一次列出本国及视野内军队：国家、整数编号、兵种、位置、数量和行动/交战/撤退状态；无需坐标。军队编号各国独立。'),Tool('reachable',self._reachable,read_only=True,description='按本国军队 aid 列出可见合法移动目的地和路径代价；attack=true 列攻击可达地。只接军队编号，无需目标坐标，不透露迷雾路径。'),
                 Tool('frontier',self._frontier,read_only=True,description='全国可见无主地总数、本回合可行动军队可及目的地与可拓荒地；无需坐标。'),

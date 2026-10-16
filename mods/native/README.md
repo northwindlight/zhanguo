@@ -1,6 +1,6 @@
 # Native 正式发行版
 
-2026-10-16：`native` 4.4.0 已完成领域模块装配与统一玩家接口接线，入口是仓库 `mods.toml`。`mp_run` 使用 GameHost，LLM 与 v11plus 通过 PlayerSession 行动，详见 [客户端接线](../../docs/客户端接线.md)。
+2026-10-16：`native` 4.4.1 已完成领域模块装配与统一玩家接口接线，入口是仓库 `mods.toml`。`mp_run` 使用 GameHost，LLM 与 v11plus 通过 PlayerSession 行动，详见 [客户端接线](../../docs/客户端接线.md)。
 
 发行版在 `Distribution.Scenarios` 下挂载剧本程序；当前八国程序位于 [scenarios/eight_nations.py](scenarios/eight_nations.py)，experimental 显式复用。程序访问 `world`，通过唯一 `trigger_victory(event)` 提交胜利事件，条件不写入引擎。
 

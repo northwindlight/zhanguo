@@ -21,7 +21,10 @@ class CouncilObserverReceiptTests(unittest.TestCase):
                        head=observer.context_head,on_call=observer.on_call)
             journal=observer.path.read_text(encoding='utf-8')
 
-        self.assertIn('修订国策',journal)
+        self.assertIn('修订国策：按最新回执执行',journal)
+        self.assertIn('修订国策：按最新回执执行',screen.getvalue())
+        self.assertEqual(journal.count('✅ 国策已通过。'),1)
+        self.assertEqual(screen.getvalue().count('✅ 国策已通过。'),1)
         self.assertIn('✅ 国策已通过。',journal)
         self.assertIn('✅ 国策已通过。',screen.getvalue())
         self.assertNotIn('国策已提交议会审核',journal)
