@@ -25,6 +25,6 @@ class HunsMod(GameMod):
         x,y=place.tile.position
         self.runtime.object_call(world,'native:army','seed',actor,'native:cavalry',x,y,cfg['Cavalry'])
         if debits or credits:self.runtime.object_call(world,'native:resource-exchange','exchange',actor,debits,credits)
-    def prompt(self, world, actor):return '游牧政体：骑兵征召资源由政体覆盖，建筑成本修正由统一参数入口提供。'
+    def prompt(self, world, actor):return '金矿优先，以战养战；分兵抢无主地，集中夺市政厅，时间不等人。骑兵征召8粮8装、建造130%，补给耗尽前主动缩军。可宣战求和、写信与间谍，不参加联盟、保障、共同防御、送礼或共享地图；只向允许谈判的对象谈条件。'
     def panels(self):return (Panel('polity',lambda w,a:{'id':self.declaration['Mod']['Id'],'overrides':deepcopy(self.parameter_overrides())}),)
-    def rule_sections(self, world=None):return (RuleSection('匈奴政体','匈奴模块以国家作用域加载。开局资源和骑兵、外交禁用项及建造/征召覆盖都由本模块声明；卸载本模块不影响普通国家。'),)
+    def rule_sections(self, world=None):return (RuleSection('匈奴政体',self.prompt(world,None),keywords=('huns','匈奴','游牧')),)

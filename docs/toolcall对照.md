@@ -2,14 +2,14 @@
 
 核对日期：2026-10-14。参照 `v0.1:mp_ai.py` 的实际 `TOOL_SCHEMAS`、派发与面板实现；当前参照运行时生成的玩家 schema、领域处理器、UI 呈现和客户端派发。仅使用合成世界，没有联网或加载真实存档。
 
-原版核心工具 36 个，银行另有 loan、buy_report。当前普通国家 native 有 61 个公开工具（58 个模块工具、3 个玩家 API 查询），experimental 有 67 个；LLM 客户端另添加自己的 `memory_search`，不属于世界领域工具。
+原版核心工具 36 个，银行另有 loan、buy_report。当前普通国家 native 有 64 个公开工具（60 个模块工具、4 个玩家 API 查询），experimental 的君主有 70 个；`memory_search` 已统一进入玩家 API 与行动审计。
 
 ## 已补齐的差异
 
 - 四篇策略指南由 `native:handbooks` 提供公开目录和规则正文；experimental 追加自己的议会与市场参考。君主、脚本和议长均读取标准 `player_rules`。默认 LLM 提示开局前20期提供基础指南，常备经济手册，战时增加战争手册，战略手册按需查询。历史长文保留为资料，不把过期数值当当前规则。
 - 工具补充具体用途、费用、时序、对象和权限说明；规则支持兵营、战斗、撤退、宣战及指南标题等主题。无参或未知主题返回目录，`all` 返回正文。
 - `report {}` 只返回最新已发布报表，`period` 指定结束周期，`all=true` 返回跨期；不查询未完成收益。
-- LLM `memory_search(query,limit)` 检索本客户端历史发言、行动和回执，排除思考正文。历史独立于上下文压缩并随客户端保存；不读取其他国家记忆。
+- 玩家 API `memory_search(query,limit)` 检索本客户端历史发言、行动和回执，排除思考正文。历史独立于上下文压缩并随客户端保存；不读取其他国家记忆。
 - `countries` 整合外交对象、关系、接壤、来信与求和代表；`threats` 列全视野他国军队、排除野人；`battle` 整合当前交战各方构成、逐支数量、基础输出、防御与盲战。盲战仅提供本国事实，未恢复按格预测查询。
 - `disband` 支持 `aid` 或 `ids`，批量先校验整批；build/recruit 明确 site 与成对 x/y 二选一。求和种类有 enum，可附 `note` 正文。
 - `land` 支持地形/资源筛选和 offset/limit 分页；`intel` 按 kind 筛选。仍只有 `tile` 查询接受坐标。
@@ -57,7 +57,7 @@
 | offer_peace(to,kind,gold,truce,note) | offer_peace(target,kind,gold,truce,note) | 类型 enum、附言与战争主导实体代表说明 |
 | accept_peace(offer_id) | accept_peace(offer) | 说明实体代表和联盟投票流程 |
 | reject_peace(offer_id) | reject_peace(offer) | 说明编号、权限与战争继续 |
-| memory_search(query,limit) | LLM 客户端 memory_search | 本国行动历史，排除思考，随档保存 |
+| memory_search(query,limit) | 统一玩家 API memory_search | 本国行动历史，排除思考，随档保存 |
 | end_turn(summary) | end_turn(summary) | 有效国策前置；一两句结果提示已恢复 |
 | loan（银行） | borrow | 额度与期限由银行提供 |
 | buy_report（银行） | buy_report | 买目标最新已发布报表 |

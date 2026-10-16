@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:huns"
-Version = "2.1.0"
+Version = "2.2.0"
 Entry = "mods.native.polities.huns.mod:HunsMod"
 Kind = "actor"
 Aliases = ["huns", "匈奴"]

@@ -11,15 +11,29 @@ class NativeObserver:
     def management(self):
         return (*super().management(),'observer_snapshot','set_rate','subsidize')
 
+    def record(self,player,action,arguments,receipt,error=None):
+        super().record(player,action,arguments,receipt,error)
+        tool=self.runtime.tools.get(action) if isinstance(action,str) else None
+        if not receipt or not receipt.get('ok') or tool is None or tool.read_only:return
+        args=arguments if isinstance(arguments,dict) else {};position=None
+        if type(args.get('x')) is int and type(args.get('y')) is int:position=(args['x'],args['y'])
+        elif isinstance(args.get('site',args.get('place')),str):
+            ref=args.get('site',args.get('place'))
+            try:position=self.world.buildings.site(ref).position
+            except KeyError:
+                try:position=self.world.territory.resolve(ref)
+                except ValueError:pass
+        text=self.ui.console.action(self.clock(),player.actor,action,arguments,receipt,{a:r['name'] for a,r in self.roster.items()})
+        self.world.intelligence.emit('action',text,position=position,parties=(player.actor,))
+
     def observer_snapshot(self):
-        with self.lock:
+        with self.lock, self.runtime.read_scope(self.world):
             names={a:r['name'] for a,r in self.roster.items()}
             nations=[self.player(a).observe() for a in self.actors()]
-            economy=self.world.economy.snapshot()
-            flow_period=economy.next_period-1
+            flow_period=self.world.economy.next_period-1
             flows=defaultdict(lambda:defaultdict(float))
             if flow_period>=0:
-                for valued in economy.events:
+                for valued in self.world.economy.facts(flow_period):
                     fact=valued.fact
                     if fact.period!=flow_period or fact.category not in ('production','military'):continue
                     for resource,amount in fact.outputs:
@@ -40,7 +54,7 @@ class NativeObserver:
                 'resource_flows':{'period':flow_period,'owners':{owner:{resource:amount for resource,amount in values.items() if amount}
                     for owner,values in flows.items()}},
                 'dead':[a for a in self.roster if a not in self.actors()],
-                'market':wire(self.world.market.snapshot()),'bank':self.bank_status(),
+                'market':wire(self.world.market.summary()),'bank':self.bank_status(),
                 'records':self.records(),
                 'map':{'actor':'observer','period':self.clock(),'facts':{'view':tiles,
                     'army':wire(self.world.military.snapshot()),'diplomacy':diplomacy}}}
@@ -100,8 +114,10 @@ class NativeObserver:
 
     def restore(self,data):
         # Added nations reuse current provider settings; credentials never enter saves.
+        from engine.session import SaveFormatError
+        if not isinstance(data,dict) or not isinstance(data.get('host'),dict) or not isinstance(data['host'].get('roster'),dict) or not isinstance(data.get('clients'),dict):raise SaveFormatError('Invalid session envelope')
         known={n['id'] for n in self.entries()}
-        for actor,row in data.get('host',{}).get('roster',{}).items():
+        for actor,row in data['host']['roster'].items():
             if actor not in known and isinstance(row,dict) and isinstance(row.get('name'),str):
                 kind=data.get('clients',{}).get(actor,{}).get('kind')
                 self.cfg['nations'].append(self._observer_entry(row['name'],actor,kind))

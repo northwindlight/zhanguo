@@ -1,5 +1,7 @@
 """Accounting over immutable facts, without writing producer domains."""
 from dataclasses import asdict
+from copy import deepcopy
+from collections import ChainMap
 
 from engine.identifiers import content_id
 from engine.resource import Resource
@@ -30,11 +32,14 @@ def record(value):
 
 
 class Economy:
-    def __init__(self, report_every, currency, valuation, owners, inventory, replacement):
+    def __init__(self, report_every, currency, valuation, owners, inventory, replacement, active=None):
         self._every = integer(report_every,1)
         self._currency = content_id(currency)
         self._valuation,self._owners,self._inventory,self._replacement = valuation,owners,inventory,replacement
         self._next_period = 0
+        self._active=active or owners
+        self._rows={};self._last_turn={}
+        self._cutoff=0;self._checkpoints={};self._archive=[]
         self._events,self._turns,self._reports = {},{},[]
         self._world,self._domain = None,None
 
@@ -93,10 +98,11 @@ class Economy:
                 raise ValueError('Export receipt must match actual currency settlement')
             candidates[fact.id] = ValuedFact(fact,self._value(dict(fact.inputs)),self._value(dict(fact.outputs)))
         self._events.update(candidates)
+        for row in candidates.values():self._rows.setdefault((row.fact.period,row.fact.owner),[]).append(row)
         return len(candidates)
 
     def _flow(self, period, owner):
-        rows = [entry for entry in self._events.values() if entry.fact.period==period and entry.fact.owner==owner]
+        rows = self._rows.get((period,owner),())
         production = [row for row in rows if row.fact.category=='production']
         outputs = add(row.outputs for row in production)
         inputs = add(row.inputs for row in production)
@@ -105,8 +111,10 @@ class Economy:
         imports = sum(row.fact.cash for row in rows if row.fact.category=='import')
         exports = sum(row.fact.cash for row in rows if row.fact.category=='export')
         cash = sum(dict(row.fact.outputs).get(self._currency,0) for row in production)
-        cumulative = add(row.inputs for row in self._events.values()
-                         if row.fact.owner==owner and row.fact.period<=period and row.fact.category in expenses)
+        previous=self._last_turn.get(owner)
+        if previous is not None and previous.period>=period:
+            previous=next((r for (p,n),r in reversed(self._turns.items()) if n==owner and p<period),None)
+        cumulative=(previous.cumulative_spending if previous else self._checkpoints.get(owner,{}).get('cumulative',Money())).plus(add(expenses.values()))
         return outputs,inputs,cash,expenses,imports,exports,cumulative
 
     def _turn(self, period, owner, inventory, buildings, liabilities=0):
@@ -118,7 +126,7 @@ class Economy:
                           inventory.plus(buildings).plus(Money(liabilities),-1))
 
     def _publication(self, owner, period, turns, prior):
-        window = [row for (p,n),row in turns.items() if n==owner and period+1-self._every<=p<=period]
+        window = [turns[(p,owner)] for p in range(max(0,period+1-self._every),period+1) if (p,owner) in turns]
         last = turns[(period,owner)]
         invest = add(row.investment for row in window)
         recruit = add(row.recruitment for row in window)
@@ -146,19 +154,21 @@ class Economy:
             raise ValueError('Invalid liability positions')
         for amount in liabilities.values():integer(amount)
         candidates = {}
-        for owner in self._owners():
+        for owner in self._active():
             owner_name(owner)
             stocks = self._inventory(owner)
             inventory = self._value({row.id:row.amount for row in stocks})
             buildings = self._value(dict(self._replacement(owner)))
             candidates[(period,owner)] = self._turn(period,owner,inventory,buildings,liabilities.get(owner,0))
-        turns = {**self._turns,**candidates}
+        turns = ChainMap(candidates,self._turns)
         publications = []
         if (period+1)%self._every==0:
             publications = [self._publication(owner,period,turns,self._reports) for p,owner in candidates]
         self._turns.update(candidates)
+        self._last_turn.update({row.owner:row for row in candidates.values()})
         self._reports.extend(publications)
         self._next_period += 1
+        self._prune()
         return tuple(candidates.values())
 
     def settle(self, period, facts, liabilities=None):
@@ -167,18 +177,56 @@ class Economy:
         integer(period)
         if not isinstance(facts,(list,tuple)) or any(not isinstance(fact,EconomicFact) or fact.period!=period for fact in facts):
             raise ValueError('Settlement facts must belong to its period')
-        before = dict(self._events)
+        added={fact.id for fact in facts if fact.id not in self._events}
         try:
             self.ingest(facts)
             return self.close(period,liabilities)
         except Exception:
-            self._events = before
+            for ident in added:self._events.pop(ident,None)
+            for key in tuple(self._rows):
+                if key[0]!=period:continue
+                self._rows[key]=[row for row in self._rows[key] if row.fact.id not in added]
+                if not self._rows[key]:del self._rows[key]
             raise
+
+    def spending(self,owner):
+        result={key:self._checkpoints.get(owner,{}).get(key,Money()) for key in ('construction','recruit','military','administration')}
+        for rows in self._rows.values():
+            for row in rows:
+                if row.fact.owner==owner and row.fact.category in result:result[row.fact.category]=result[row.fact.category].plus(row.inputs)
+        return result
+
+    def _prune(self):
+        cutoff=max(0,(self.next_period//self._every-2)*self._every)
+        if cutoff<=self._cutoff:return
+        for ident,row in tuple(self._events.items()):
+            if row.fact.period>=cutoff:continue
+            if row.fact.category in ('construction','recruit','military','administration'):
+                checkpoint=self._checkpoints.setdefault(row.fact.owner,{})
+                checkpoint[row.fact.category]=checkpoint.get(row.fact.category,Money()).plus(row.inputs)
+            self._archive.append({'kind':'fact','period':row.fact.period,'value':record(asdict(row))})
+            del self._events[ident]
+        for key,row in tuple(self._turns.items()):
+            if key[0]>=cutoff:continue
+            # Preserve the exact historical accumulation order. Re-adding the
+            # category checkpoints can differ by a floating point rounding bit.
+            self._checkpoints.setdefault(row.owner,{})['cumulative']=row.cumulative_spending
+            self._archive.append({'kind':'turn','period':row.period,'value':record(asdict(row))});del self._turns[key]
+        self._rows={key:rows for key,rows in self._rows.items() if key[0]>=cutoff}
+        self._last_turn={owner:row for owner,row in self._last_turn.items() if row.period>=cutoff}
+        self._cutoff=cutoff
+
+    def pending_archive(self):return tuple(self._archive)
+    def archive_committed(self):self._write();self._archive=[]
+    def restore_archive(self,rows):self._write();self._archive=deepcopy(list(rows))
 
     def turns(self, owner=None, *, period=None):
         return tuple(row for (p,n),row in self._turns.items() if (owner is None or n==owner) and (period is None or p==period))
 
     def reports(self, owner=None):return tuple(row for row in self._reports if owner is None or row.owner==owner)
+
+    def facts(self,period):
+        return tuple(row for (p,n),rows in self._rows.items() if p==period for row in rows)
 
     def snapshot(self):
         return EconomySnapshot(self.next_period,tuple(self._events.values()),self.turns(),self.reports())
@@ -189,6 +237,7 @@ class Economy:
 
     def to_save(self):
         return {'report_every':self._every,'currency':self._currency,'next_period':self.next_period,
+                'cutoff':self._cutoff,'checkpoints':{owner:{key:record(asdict(value)) for key,value in values.items()} for owner,values in self._checkpoints.items()},
                 'events':[record(asdict(row)) for row in self._events.values()],
                 'turns':[record(asdict(row)) for row in self._turns.values()],
                 'reports':[record(asdict(row)) for row in self._reports]}
@@ -221,7 +270,7 @@ class Economy:
 
     def restore(self, data):
         self._write()
-        expected = {'report_every','currency','next_period','events','turns','reports'}
+        expected = {'report_every','currency','next_period','cutoff','checkpoints','events','turns','reports'}
         if not isinstance(data,dict) or set(data)!=expected:raise ValueError('Invalid economy save')
         if data['report_every']!=self._every or type(data['report_every']) is not int or data['currency']!=self._currency:
             raise ValueError('Economy reporting policy mismatch')
@@ -230,14 +279,22 @@ class Economy:
         candidate = Economy(self._every,self._currency,self._valuation,self._owners,self._inventory,self._replacement)
         resource_ids = set(row.id for owner in self._owners() for row in self._inventory(owner))
         owners = set(self._owners())
+        cutoff=integer(data['cutoff'])
+        if cutoff!=max(0,(period//self._every-2)*self._every) or not isinstance(data['checkpoints'],dict):raise ValueError('Invalid accounting checkpoint boundary')
+        candidate._cutoff=cutoff
+        if not cutoff and data['checkpoints']:raise ValueError('Premature spending checkpoint')
+        for owner,values in data['checkpoints'].items():
+            if owner not in owners or not isinstance(values,dict) or set(values)-{'construction','recruit','military','administration','cumulative'}:raise ValueError('Invalid accounting checkpoint')
+            candidate._checkpoints[owner]={key:self._money(value) for key,value in values.items()}
+            if any(value.known<0 or not set(value.unpriced)<=resource_ids for value in candidate._checkpoints[owner].values()):raise ValueError('Negative spending checkpoint')
         for row in data['events']:
             if not isinstance(row,dict) or set(row)!={'fact','inputs','outputs'}:raise ValueError('Invalid valued fact')
             raw = row['fact']
             if not isinstance(raw,dict) or set(raw)!=set(EconomicFact.__dataclass_fields__):raise ValueError('Invalid fact record')
             fact = EconomicFact(**raw)
-            if fact.id in candidate._events or fact.period>period:raise ValueError('Duplicate/future fact')
+            if fact.id in candidate._events or not cutoff<=fact.period<=period:raise ValueError('Duplicate/future fact')
             if fact.owner not in owners:raise ValueError('Unknown saved fact owner')
-            if fact.category in ('construction','recruit','military') and fact.outputs:raise ValueError('Invalid expense outputs')
+            if fact.category in ('construction','recruit','military','administration') and fact.outputs:raise ValueError('Invalid expense outputs')
             if fact.category=='import' and dict(fact.inputs)!={self._currency:fact.cash}:raise ValueError('Invalid import settlement')
             if fact.category=='export' and dict(fact.outputs)!={self._currency:fact.cash}:raise ValueError('Invalid export settlement')
             if any(key not in resource_ids for key,_ in (*fact.inputs,*fact.outputs)):raise ValueError('Unknown fact resource')
@@ -246,31 +303,39 @@ class Economy:
                 if not set(value.unpriced)<=set(key for key,amount in leg if amount):raise ValueError('Unpriced fact resources do not match leg')
                 if value.known<0:raise ValueError('Negative valued resource flow')
             candidate._events[fact.id] = ValuedFact(fact,inputs,outputs)
-        for raw in data['turns']:
+            candidate._rows.setdefault((fact.period,fact.owner),[]).append(candidate._events[fact.id])
+        for raw in sorted(data['turns'],key=lambda row:(row.get('period',-1),row.get('owner',''))) if all(isinstance(r,dict) for r in data['turns']) else data['turns']:
             row = self._report(TurnReport,raw)
             key = (row.period,row.owner)
-            if key in candidate._turns or row.period>=period:raise ValueError('Duplicate/future turn report')
+            if key in candidate._turns or not cutoff<=row.period<period:raise ValueError('Duplicate/future turn report')
             if row.owner not in owners:raise ValueError('Unknown saved report owner')
             # Rebuild all flow metrics from preserved valued facts; asset values
             # are historical observations, never recomputed at today's prices.
             expected_row = candidate._turn(row.period,row.owner,row.inventory_assets,row.building_assets,row.liabilities)
-            if row!=expected_row:raise ValueError('Inconsistent economic report totals')
+            if row!=expected_row:
+                different=[key for key in row.__dataclass_fields__ if getattr(row,key)!=getattr(expected_row,key)]
+                raise ValueError(f'Inconsistent economic report totals ({row.owner}, {row.period}: {different})')
             candidate._turns[key] = row
+            candidate._last_turn[row.owner]=row
         for raw in data['reports']:
             row = self._report(PeriodReport,raw)
-            if (row.end+1)%self._every or (row.end,row.owner) not in candidate._turns:
+            if (row.end+1)%self._every or row.end>=period or row.owner not in owners or row.end>=cutoff and (row.end,row.owner) not in candidate._turns:
                 raise ValueError('Publication has no completed period')
             if any(previous.end==row.end and previous.owner==row.owner for previous in candidate._reports):raise ValueError('Duplicate publication')
-            expected_row = candidate._publication(row.owner,row.end,candidate._turns,candidate._reports)
-            if row!=expected_row:raise ValueError('Inconsistent period report')
+            if row.end>=cutoff:
+                expected_row = candidate._publication(row.owner,row.end,candidate._turns,candidate._reports)
+                if row!=expected_row:raise ValueError('Inconsistent period report')
             candidate._reports.append(row)
         for row in candidate._events.values():
-            if row.fact.period<period and (row.fact.period,row.fact.owner) not in candidate._turns:
+            if row.fact.period<period and (row.fact.period,row.fact.owner) not in candidate._turns and row.fact.owner in self._active():
                 raise ValueError('Closed fact has no turn report')
         for owner in owners:
             observed = set(p for p,n in candidate._turns if n==owner)
-            if observed and observed!=set(range(min(observed),period)):raise ValueError('Missing owner accounting period')
+            if observed and observed!=set(range(min(observed),period if owner in self._active() else max(observed)+1)):raise ValueError('Missing owner accounting period')
         expected_publications = {(p,n) for p,n in candidate._turns if (p+1)%self._every==0}
-        if {(row.end,row.owner) for row in candidate._reports}!=expected_publications:raise ValueError('Missing publication')
+        if {(row.end,row.owner) for row in candidate._reports if row.end>=cutoff}!=expected_publications:raise ValueError('Missing publication')
         self._events,self._turns,self._reports = candidate._events,candidate._turns,candidate._reports
+        self._turns={(raw['period'],raw['owner']):candidate._turns[(raw['period'],raw['owner'])] for raw in data['turns']}
+        self._rows,self._last_turn=candidate._rows,candidate._last_turn
+        self._cutoff,self._checkpoints,self._archive=cutoff,candidate._checkpoints,[]
         self._next_period = period

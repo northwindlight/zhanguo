@@ -14,39 +14,50 @@ class VisibleTile:
 
 class Vision:
     def __init__(self, call):self._call=call
-    def visible(self, actor, x, y):
-        self._call('native:territory','check',x,y)
+    def positions(self, actor):
+        size,_=self._call('native:territory','dimensions')
         entity=self._call('native:diplomacy','entity',actor)
         allies=self._call('native:diplomacy','members',entity)
-        tiles=[t for owner in allies for t in self._call('native:territory','owned',owner)]
-        if any(max(abs(t.tile.position[0]-x),abs(t.tile.position[1]-y))<=1 for t in tiles):return True
-        for t in tiles:
-            effect=self._call('native:buildings','effects',t.tile.id,'native:watchtower')
-            radius=effect.get('vision_radius',0)
-            tx,ty=t.tile.position
-            if radius and (tx-x)**2+(ty-y)**2<=radius**2:return True
-        return False
+        result=set()
+        for owner in allies:
+            for fact in self._call('native:territory','owned',owner):
+                tx,ty=fact.tile.position
+                radius=self._call('native:buildings','effects',fact.tile.id,'native:watchtower').get('vision_radius',0)
+                reach=max(1,radius)
+                for x in range(max(0,tx-reach),min(size,tx+reach+1)):
+                    for y in range(max(0,ty-reach),min(size,ty+reach+1)):
+                        if max(abs(tx-x),abs(ty-y))<=1 or radius and (tx-x)**2+(ty-y)**2<=radius**2:result.add((x,y))
+        return frozenset(result)
+    def visible(self, actor, x, y):
+        self._call('native:territory','check',x,y)
+        return (x,y) in self._positions(actor)
+    def _positions(self, actor):
+        return self._derive(('vision.positions',actor),lambda:self.positions(actor)) if hasattr(self,'_derive') else self.positions(actor)
     def tiles(self, actor):
-        size,_=self._call('native:territory','dimensions');snapshot=self._call('native:buildings','snapshot')
-        result=[]
-        for x in range(size):
-            for y in range(size):
-                if not self.visible(actor,x,y):continue
-                fact=self._call('native:territory','cell',x,y)
-                kinds={}
-                for b in snapshot.instances:
-                    if b.site!=fact.tile.id or b.remaining != 0:continue
+        def calculate():
+            snapshot=self._call('native:buildings','snapshot');by_site={}
+            for b in snapshot.instances:by_site.setdefault(b.site,[]).append(b)
+            result=[]
+            for x,y in sorted(self._positions(actor)):
+                fact=self._call('native:territory','cell',x,y);kinds={}
+                full=fact.owner==actor or fact.owner is None and bool(by_site.get(fact.tile.id))
+                for b in by_site.get(fact.tile.id,()):
+                    if b.remaining != 0:continue
                     if fact.owner not in (None,actor) and b.kind not in ('native:castle','native:town-hall'):continue
                     kinds[b.kind]=kinds.get(b.kind,0)+1
-                result.append(VisibleTile((x,y),fact.tile.name,fact.tile.terrain,fact.owner,tuple(kinds.items()),fact.resources if fact.owner==actor or fact.owner is None and fact.tile.id else ()))
-        return tuple(result)
+                result.append(VisibleTile((x,y),fact.tile.name if fact.owner is not None else '',fact.tile.terrain,fact.owner,tuple(kinds.items()),fact.resources if full else ()))
+            return tuple(result)
+        return self._derive(('vision.tiles',actor),calculate) if hasattr(self,'_derive') else calculate()
 
 
 class VisionMod(GameMod):
     def mixins(self):return ()
     def needs(self):return ('native:territory','native:diplomacy','native:buildings')
     def provides(self):return ('native:vision',)
-    def objects(self, world):return {'native:vision':Vision(lambda cap,method,*args:self.runtime.object_call(world,cap,method,*args))}
+    def objects(self, world):
+        view=Vision(lambda cap,method,*args:self.runtime.object_call(world,cap,method,*args))
+        view._derive=lambda key,calculate:self.runtime.derived(world,key,calculate)
+        return {'native:vision':view}
     def tools(self):return (Tool('view',lambda w,a:self.objects(w)['native:vision'].tiles(a),read_only=True,description='本国当前完整可见地图，以坐标数组表示；他国仅公开建筑和归属，不泄露迷雾或资源。单格细节使用 tile，图形与文字地图由 UI 呈现。'),)
     def panels(self):return (Panel('view',lambda w,a:self.objects(w)['native:vision'].tiles(a)),)
     def rule_sections(self, world=None):return (RuleSection('视野','本国和同盟土地周围一格可见，哨塔扩展视野。他国可见地块只显示已落成的市政厅和城堡，不公开库存、资源容量或其他建筑。'),)

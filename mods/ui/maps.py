@@ -1,5 +1,6 @@
 """Deterministic PNG/SVG views of player-visible facts. No World access."""
 from copy import deepcopy
+from collections import Counter
 import base64
 import hashlib
 import colorsys
@@ -53,6 +54,7 @@ def render_snapshot(state, *, max_px=960):
     cell=max(1,min(96,(max_px-48)//max(width,height)))
     image=Image.new('RGB',(width*cell+48,height*cell+48),'#121923');draw=ImageDraw.Draw(image)
     font=ImageFont.load_default(size=max(7,min(14,cell//5)))
+    owners=sorted({t['owner'] for t in tiles if t['owner']});symbols={owner:chr(65+i) for i,owner in enumerate(owners)}
     armies={}
     for army in state['armies']:
         if army['hp']>0:armies.setdefault((army['x'],army['y']),[]).append(army)
@@ -60,17 +62,16 @@ def render_snapshot(state, *, max_px=960):
         left,top=24+(x-xlo)*cell,24+(y-ylo)*cell
         color=owner_color(tile['owner']) if tile['owner'] else '#455044'
         draw.rectangle((left,top,left+cell-1,top+cell-1),fill=color,outline='#222b33')
-        if cell<28:continue
-        buildings=dict(tile['buildings']);label=TERRAIN.get(tile['terrain'],'?')
+        buildings=dict(tile['buildings']);label=symbols.get(tile['owner'],'-')+' '+TERRAIN.get(tile['terrain'],'?')
         if buildings.get('native:town-hall'):label+=' T'
         if buildings.get('native:castle'):label+=' C'+str(buildings['native:castle'])
-        draw.text((left+2,top+cell-16),label,font=font,fill='#111111')
+        draw.text((left+1,top+max(0,cell-16)),label,font=font,fill='#111111')
         groups={}
         for army in armies.get((x,y),[]):groups.setdefault(side(state,army['owner']),[]).append(army)
         for i,(kind,units) in enumerate(sorted(groups.items())):
             row,col=divmod(i,2);bx,by=left+3+col*cell//2,top+3+row*cell//3
-            draw.rectangle((bx,by,bx+cell//2-6,by+cell//3-4),fill='#ffffff',outline=SIDES[kind],width=3)
-            label=f'{len(units)}/{sum(a["hp"] for a in units):g}'
+            if cell>=28:draw.rectangle((bx,by,bx+cell//2-6,by+cell//3-4),fill='#ffffff',outline=SIDES[kind],width=3)
+            label=' '.join({'native:infantry':'I','native:cavalry':'C','native:militia':'M'}.get(k,'?')+str(n) for k,n in sorted(Counter(a['kind'] for a in units).items()))
             draw.text((bx+3,by+3),label,font=font,fill='#111111')
     for x in range(xlo,xhi+1):draw.text((24+(x-xlo)*cell+cell//2,4),str(x),font=font,fill='#eeeeee',anchor='mt')
     for y in range(ylo,yhi+1):draw.text((3,24+(y-ylo)*cell+cell//2),str(y),font=font,fill='#eeeeee',anchor='lm')
@@ -121,7 +122,7 @@ def render_svg(state):
         for i,(kind,units) in enumerate(sorted(groups.items())):
             row,col=divmod(i,2);bx,by=left+3+col*cell//2,top+3+row*cell//3
             parts.append(f'<rect x="{bx}" y="{by}" width="42" height="28" fill="white" stroke="{SIDES[kind]}" stroke-width="3"/>')
-            parts.append(text(bx+3,by+17,f'{len(units)}/{sum(a["hp"] for a in units):g}','#111111'))
+            parts.append(text(bx+3,by+17,' '.join({'native:infantry':'I','native:cavalry':'C','native:militia':'M'}.get(k,'?')+str(n) for k,n in sorted(Counter(a['kind'] for a in units).items())),'#111111'))
     for x in range(xlo,xhi+1):parts.append(text(24+(x-xlo)*cell+cell//2,16,x))
     for y in range(ylo,yhi+1):parts.append(text(2,24+(y-ylo)*cell+cell//2,y))
     parts.append('</svg>');return ''.join(parts)

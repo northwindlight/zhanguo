@@ -61,7 +61,7 @@ class TestObserver(unittest.TestCase):
     def test_receipts_show_tile_names_coordinates_and_army_kinds(self):
         h=GameHost.new(self.cfg());ui=h.ui.console;observation=h.player('s:q').observe();ui.remember(observation)
         facts=observation['facts'];tile=facts['land'][0]['tile'];x,y=tile['position'];name=tile['name']
-        receipt={'ok':True,'status':'effective','message':'','data':{'site':facts['building_sites']['sites'][0]['id'],
+        receipt={'ok':True,'status':'effective','message':'','data':{'site':tile['id'],
             'kind':'native:lumber-camp','costs':{'native:gold':20,'native:wood':15}}}
         text=ui.action(0,'s:q','build',{'kind':'lumber-camp','site':'所选地块'},receipt,{'s:q':'秦'})
         self.assertIn(f'建造 林场 所选地块 {name}({x}, {y})',text)
@@ -251,7 +251,7 @@ class TestObserver(unittest.TestCase):
         self.assertTrue(r['ok']);data=r['data']
         self.assertEqual(before-h.world.resources.balance('s:q','native:gold'),data['gold'])
         text=ui.action(0,'s:q','buy',args,r,{'s:q':'秦'})
-        self.assertIn('买入 木材×2',text);self.assertIn(f'实付{data["gold"]}金',text)
+        self.assertIn('买入 木头×2',text);self.assertIn(f'实付{data["gold"]}金',text)
         self.assertNotIn('carry',text);self.assertNotIn('余额',text)
 
     def test_military_and_pending_receipts_preserve_authoritative_status(self):
@@ -343,7 +343,7 @@ class TestShortKeys(unittest.TestCase):
         text,_=ui.state(obs,[]);data=json.loads(text)['state']['facts']
         self.assertLess(len(text),len(raw));self.assertEqual(obs,before)
         # 键值随语言走：zh 下是"金币"，不是 gold。
-        self.assertIsInstance(data['econ']['stocks'],dict);self.assertIn('金币',data['econ']['stocks'])
+        self.assertIsInstance(data['econ']['stocks'],dict);self.assertIn('黄金',data['econ']['stocks'])
         self.assertNotIn('/land-',text);self.assertNotIn('native:gold',text);self.assertNotIn('native:infantry',text)
         receipt={'data':{'kind':'native:farm','text':'native:farm','message':'native:gold'}}
         compact=json.loads(ui.receipt(receipt))

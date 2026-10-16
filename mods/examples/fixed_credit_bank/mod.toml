@@ -22,9 +22,12 @@ Requests = []
 
 [Capabilities]
 Needs = ["native:resource-inspection", "native:bank-cash", "native:economy"]
+Optional = ["native:nation-inspection", "native:diplomacy"]
 Provides = ["economy:bank"]
 
 [Interfaces]
+"native:nation-inspection" = ["ids"]
+"native:diplomacy" = ["fee"]
 "native:resource-inspection" = ["owners", "snapshot"]
 "native:bank-cash" = ["adjust"]
 "native:economy" = ["turns", "reports", "currency_id"]

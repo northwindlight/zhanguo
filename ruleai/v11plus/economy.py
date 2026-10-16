@@ -5,6 +5,7 @@ legal site, reserve materials for the affordable construction plan, trade the
 surplus, then build and recruit. Native modules still validate every action.
 """
 import math
+from copy import deepcopy
 
 from .parameters import BARRACKS_CAP, MIL_SHARE, SUPPLY_PERIODS
 
@@ -78,17 +79,25 @@ def _buy_cost(player, resource, quantity):
 
 
 def _ensure(ledger, recipe, reserve=0):
-    inventory = _stocks(ledger.player)
+    inventory = {row['id']:row['amount'] for row in ledger.query('econ')['stocks']}
     missing = {key: math.ceil(amount - inventory.get(key, 0))
                for key, amount in recipe.items()
                if key != 'native:gold' and amount > inventory.get(key, 0)}
     total = recipe.get('native:gold', 0) + reserve
+    prices=ledger.buy_prices if hasattr(ledger,'buy_prices') else dict(ledger.query('market')['buy_prices'])
     for resource, amount in missing.items():
-        price = _buy_cost(ledger.player, resource, amount)
+        price = math.ceil(prices[resource]*amount) if resource in prices else None
         if price is None:
             return False
         total += price
-    if inventory.get('native:gold', 0) < total:
+    if inventory.get('native:gold',0)<total:
+        cash=max(0,inventory.get('native:gold',0)-recipe.get('native:gold',0)-reserve)
+        for resource,amount in missing.items():
+            price=prices.get(resource,0)
+            quantity=min(amount,int(cash/price)) if price>0 else 0
+            if quantity>0:
+                receipt=ledger.do('buy',resource=resource,quantity=quantity)
+                if receipt:cash-=ledger.acts[-1]['data']['gold']
         return False
     for resource, amount in missing.items():
         receipt = ledger.do('buy', resource=resource, quantity=amount)
@@ -116,14 +125,29 @@ def run(ledger):
     units = player.query('unit_catalog')
     inventory = _stocks(player)
     market = player.query('market')
-    buy_prices = dict(market['buy_prices'])
+    buy_prices = dict(market['buy_prices']);ledger.buy_prices=buy_prices
     sell_prices = dict(market['sell_prices'])
     army = [unit for unit in facts['army'] if unit['owner'] == actor]
     supply_need = sum(units[unit['kind']]['supply'] for unit in army)
-    latest = facts['econ']['latest_turn']
-    income = latest['gdp']['total'] if latest else inventory.get('native:gold', 0)
-    if income is None:
-        income = inventory.get('native:gold', 0)
+    # Budget from runnable production rather than GDP or cash already held.
+    balances=dict(inventory);income=0;generated=0
+    completed=[b for b in buildings if b['remaining']==0]
+    demand=sum(catalog[b['kind']]['energy_use'] for b in completed)
+    by_site={site['id']:[b for b in completed if b['site']==site['id']] for site in sites}
+    for phase in ('gather','power','industry','income'):
+        for b in completed:
+            row=catalog[b['kind']]
+            role='power' if row['energy_output'] else 'industry' if row['inputs'] else 'income' if row['effects'].get('gold_base') is not None else 'gather'
+            if role!=phase or row['energy_use'] and phase!='power' and generated<demand:continue
+            if any(balances.get(k,0)<v for k,v in row['inputs'].items()):continue
+            for k,v in row['inputs'].items():balances[k]-=v
+            outputs=dict(row['outputs'])
+            if role=='income':outputs['native:gold']=row['effects']['gold_base']+row['effects'].get('gold_per_slot',0)*sum(o['kind']!=b['kind'] for o in by_site[b['site']])
+            for k,v in outputs.items():balances[k]=balances.get(k,0)+v
+            generated+=row['energy_output']
+            income+=sum(v*(1 if k=='native:gold' else sell_prices.get(k,0)) for k,v in outputs.items())
+            income-=sum(v*(1 if k=='native:gold' else buy_prices.get(k,0)) for k,v in row['inputs'].items())
+    income=max(0,income)
     supply_buildings = sum(b['kind'] == 'native:supply-factory' and not b['remaining'] for b in buildings)
     supply_cap = supply_buildings * 2
     barracks = sum(b['kind'] == 'native:barracks' and not b['remaining'] for b in buildings)
@@ -143,6 +167,9 @@ def run(ledger):
 
     # Rank legal site/building pairs by their actual site-specific return.
     roi = []
+    estimate_cache={}
+    bulk=player.query('building_economics')
+    estimates={r['kind']:r for r in bulk}
     existing_by_site = {site['id']: [b for b in buildings if b['site'] == site['id']] for site in sites}
     for site in sites:
         existing = existing_by_site[site['id']]
@@ -153,7 +180,19 @@ def run(ledger):
                 continue
             same = sum(b['kind'] == kind for b in existing)
             level = same + 1 if len(row['costs_by_level']) > 1 else 1
-            estimate = _estimate(player, kind, len(existing) - same)
+            estimate_key=(kind,len(existing)-same)
+            if estimate_key not in estimate_cache:
+                estimate=deepcopy(estimates[kind])
+                # Catalog formulas are public; account for local hall density
+                # without issuing one query per (site,building) pair.
+                if kind=='native:town-hall' and estimate.get('net_per_period'):
+                    delta=(estimate_key[1]-estimate['other_slots'])*row['effects'].get('gold_per_slot',0)
+                    for key in ('known','total'):
+                        if estimate['net_per_period'].get(key) is not None:estimate['net_per_period'][key]+=delta
+                    net=estimate['net_per_period']['total']
+                    estimate['payback_periods']=estimate['construction']['total']/net if net and net>0 else None
+                estimate_cache[estimate_key]=estimate
+            estimate=estimate_cache[estimate_key]
             payback = _payback(estimate, kind)
             if payback is None:
                 continue
@@ -206,15 +245,13 @@ def run(ledger):
 
     # Sell only stock above this period's production, construction and recruitment needs.
     for resource in sell_prices:
-        if resource == 'native:wood':
-            continue
         surplus = inventory.get(resource, 0) - need.get(resource, 0)
         if surplus > 0:
             _sell(ledger, resource, surplus)
     for resource, amount in need.items():
         gap = amount - inventory.get(resource, 0)
         if gap > 0:
-            _ensure(ledger, {resource: gap})
+            _ensure(ledger, {resource: amount})
 
     # The old economic layer recruited independently of free building slots.
     if mil_ok and len(army) < army_cap:

@@ -79,16 +79,10 @@ class ConsoleUI(ReceiptPresentation):
             caption=caption,result=result)
     def event(self,row,names):
         text=self.name(row['text'],names)
-        if row['kind']=='occupation':
-            import re
-            match=re.fullmatch(r'(.+) occupied \((\d+),(\d+)\); previous owner: (.+)',row['text'])
-            if match:text=self.text('console.occupation',actor=self.name(match[1],names),x=match[2],y=match[3],previous=self.name(match[4],names) if match[4]!='None' else self.text('map.unowned'))
-        elif row['kind']=='battle':
-            import ast
-            try:
-                damage=ast.literal_eval(row['text'])
-                text=self.text('console.battle_damage',details=', '.join(f'{self.name(a,names)} {v:g}' for a,v in damage))
-            except (ValueError,TypeError,SyntaxError):pass
+        detail=row.get('details')
+        if detail:
+            actor=detail['actor'];self._names=names
+            text=self.name(actor,names)+' '+self.call_caption(detail['action'],detail['arguments'],actor)+'｜'+self.label('status',detail['status'])+'｜'+self.label('receipt',detail['message'])
         return self.text('console.event',period=row['period'],
             kind=self.label('event',row['kind']),text=self.label('receipt',text))
     def message(self,row,names):
@@ -106,10 +100,7 @@ class ConsoleUI(ReceiptPresentation):
         zh=self.text.language=='zh-CN'
         headers=['国家','国土','军队','金币','粮食','木材','矿石','石油','装备','补给'] if zh else ['Nation','Land','Units','Gold','Food','Wood','Ore','Oil','Equip','Supply']
         flows=state.get('resource_flows',{}).get('owners',{})
-        def number(v):
-            if abs(v)>=100000000:return f'{v/100000000:.1f}亿' if zh else f'{v/1000000000:.1f}G'
-            if abs(v)>=10000:return f'{v/10000:.1f}万' if zh else f'{v/1000:.1f}k'
-            return f'{v:g}'
+        def number(v):return str(v) if isinstance(v,int) else f'{v:g}'
         import re
         ansi=re.compile(r'\033\[[0-9;]*m')
         width=lambda t:sum(2 if unicodedata.east_asian_width(c) in 'WF' else 0 if unicodedata.combining(c) else 1 for c in ansi.sub('',t))

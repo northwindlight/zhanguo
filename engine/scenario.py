@@ -16,10 +16,11 @@ class GridSession(Session):
 
     def _positions(self,count):
         size,_=self.grid()
+        if size<3 and count>1:raise ValueError("地图太小，无法安置多个身份")
         if count==1:return [(size//2,size//2)]
         radius=size*.31
-        return [(min(size-2,max(1,round(size/2+radius*math.cos(2*math.pi*i/count)))),
-                 min(size-2,max(1,round(size/2+radius*math.sin(2*math.pi*i/count))))) for i in range(count)]
+        return [(min(size-2,max(1,round(size/2+radius*math.sin(2*math.pi*i/count)))),
+                 min(size-2,max(1,round(size/2+radius*-math.cos(2*math.pi*i/count))))) for i in range(count)]
 
     def add(self,name):
         item=next((n for n in self.entries() if name in (n['id'],n['name'])),None)
@@ -31,7 +32,7 @@ class GridSession(Session):
             positions=[(x,y) for x in range(1,size-1) for y in range(1,size-1)]
             random.Random(f'{seed}:{item["id"]}').shuffle(positions)
             occupied=tuple(self.occupied())
-            position=next((p for p in positions if all(max(abs(p[0]-x),abs(p[1]-y))>=3 for x,y in occupied)),None)
+            position=next((p for p in positions if all(max(abs(p[0]-x),abs(p[1]-y))>=getattr(self,'arrival_distance',3) for x,y in occupied)),None)
         if position is None:raise ValueError('没有足够空间安置新身份')
         return self.join(item,position)
 

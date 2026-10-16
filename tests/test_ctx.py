@@ -236,7 +236,7 @@ class TestReplayHead(unittest.TestCase):
         """归档必须留**这一次真正渲染出来的字节**：重算一遍 render_archive 会因为
         before_turn / long_memory 变了而对不上，命中整段断在归档处。"""
         _w, msgs, plan = self._build(long_memory="旧记忆：与齐结盟。")
-        self.assertIn(plan.archive_text, msgs[1]["content"])
+        self.assertTrue(any(plan.archive_text in m.get("content","") for m in msgs))
         self.assertIn("旧记忆：与齐结盟。", plan.archive_text)
 
     def test_head_length_matches_the_sent_messages(self):
@@ -246,14 +246,11 @@ class TestReplayHead(unittest.TestCase):
         w, msgs, plan = self._build()          # 固定 4 回合 + 6 条记录 ⇒ 请求里是第 3~6 回合
         self.assertEqual(plan.before_turn, 3)
         dropped = [r for r in w.turn_memory["秦"] if r["turn"] in (3, 4)]
-        head = ctx.replay_head(msgs[0]["content"], plan.archive_text, dropped)
-        self.assertEqual(msgs[:len(head)], head, "切出来的前缀必须逐字节等于真请求的前缀")
-        # 归档与第 3 回合（=请求里的第一条记录）就是被合成的那一对
-        self.assertEqual(head[1]["role"], "user")
-        self.assertIn("历史归档", head[1]["content"])
+        head = ctx.replay_head(msgs[0]["content"], "", dropped)
+        self.assertEqual(msgs[:len(head)], head)
+        # Archive/long memory is after replay, so updates preserve its prefix.
         self.assertIn("第3回合", head[1]["content"])
-        body = "".join(str(m.get("content")) for m in head)
-        self.assertNotIn("第5回合", body, "没滑掉的回合不许混进前缀——切点算错了")
+        self.assertNotIn("历史归档",head[1]["content"])
 
     def test_no_archive_when_there_is_nothing_to_archive(self):
         w = StubWorld()

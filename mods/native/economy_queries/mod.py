@@ -21,7 +21,7 @@ class QueriesMod(GameMod):
                        if isinstance(cls,type) and issubclass(cls,NativeBuilding))
         estimate_parameters = {'type':'object','properties':{
             'kind':{'type':'string','enum':kinds},'level':{'type':'integer','minimum':1},
-            'other_slots':{'type':'integer','minimum':0,'description':'该格已落成的其他建筑数（市政厅按每座加成；按实际传，缺省 0＝只算它自己）'}},'additionalProperties':False}
+            'other_slots':{'type':'integer','minimum':0,'description':'该格已落成的其他建筑数（市政厅按每座加成；市政厅另加3座乐观密度假设，非保证收益）'}},'additionalProperties':False}
         return (Tool('econ',lambda world,actor:self._queries(world).balance(actor),read_only=True,
                      description='本国库存、库存折金、建筑重置值和总资产，无法估值的内容明确列出；不是本期现金收入。'),
                 Tool('report',self._report,read_only=True,description='本国免费已发布经济报表；缺省仅最新一期，period 查以该周期结束的报表，all=true 返回全部跨期。报表自动结算、有日期，不是当前库存或未完成收益。'),

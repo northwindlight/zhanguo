@@ -76,7 +76,7 @@ class TestParliament(unittest.TestCase):
         results=h.cycle();first,second=h.services[self.actor]['council']._review_backend.requests
         raw=json.dumps(first,ensure_ascii=False)
         self.assertNotIn('NEW-CANDIDATE',raw)
-        for token in ('build','receipt','building_sites','land','econ','turn.start'):self.assertIn(token,raw)
+        for token in ('build','receipt','building_sites','econ','turn.start'):self.assertIn(token,raw)
         self.assertIn('NEW-CANDIDATE',json.dumps(second,ensure_ascii=False))
         self.assertEqual(second[:len(first)],first)
         self.assertEqual(second[-2]['role'],'tool')

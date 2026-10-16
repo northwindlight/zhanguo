@@ -9,7 +9,7 @@ class Candidate(NamedTuple):
     need:int
 
 
-def _army_cost(knowledge,name,army,cell,mask,cache,memo=None):
+def _army_cost(knowledge,army,cell,memo=None):
     key=(army['id'],cell)
     if memo is not None and key in memo:return memo[key]
     value=distance(knowledge,army['kind'],(army['x'],army['y']),cell)
@@ -25,11 +25,11 @@ def _spread(members,memo=None):
     return value
 
 
-def _atom_cost(knowledge,name,members,cand,mask,cache,penalty,committed=0,ac_memo=None,sp_memo=None):
-    reach=max(_army_cost(knowledge,name,a,cand.cell,mask,cache,ac_memo) for a in members)
+def _atom_cost(knowledge,members,cand,penalty,committed=0,ac_memo=None,sp_memo=None):
+    reach=max(_army_cost(knowledge,a,cand.cell,ac_memo) for a in members)
     return float(_spread(members,sp_memo)+reach)+penalty*max(0,cand.need-len(members)-committed)
 
-def _solve(knowledge, name: str, cands: list, armies: list[dict], mask, cache,
+def _solve(knowledge, cands: list, armies: list[dict],
            node_cap: int, near_targets: int, committed: dict | None = None) -> tuple[dict, bool]:
     """**全局最优指派**：每支军认领一个目标，`min Σ 组代价`。
 
@@ -63,16 +63,14 @@ def _solve(knowledge, name: str, cands: list, armies: list[dict], mask, cache,
         """给军 `i` 的候选方案：`(成员元组, 目标格, 代价)` —— 必然包含 `i`。"""
         me = by_id[i]
         rest = [x for x in unassigned if x != i]
-        near = sorted(cands, key=lambda c: (_army_cost(knowledge, name, me, c.cell, mask,
-                                                       cache, ac_memo), c.cell))[:near_targets]
+        near = sorted(cands, key=lambda c: (_army_cost(knowledge, me, c.cell, ac_memo), c.cell))[:near_targets]
         for c in near:
-            rest.sort(key=lambda aid: (_army_cost(knowledge, name, by_id[aid], c.cell, mask,
-                                                  cache, ac_memo), aid))
+            rest.sort(key=lambda aid: (_army_cost(knowledge, by_id[aid], c.cell, ac_memo), aid))
             top = min(len(unassigned), V11_MAX_GROUP)
             for k in range(1, top + 1):
                 mem = tuple(sorted((i,) + tuple(rest[:k - 1])))
                 mems = [by_id[x] for x in mem]
-                yield mem, c.cell, _atom_cost(knowledge, name, mems, c, mask, cache,
+                yield mem, c.cell, _atom_cost(knowledge, mems, c,
                                               V11_SHORTFALL_PENALTY,
                                               committed.get(c.cell, 0), ac_memo, sp_memo)
 
@@ -142,13 +140,13 @@ def regroup(player,observation,state,armies,*,forecast=None):
         allies,_=targeting.relations(observation)
         knowledge={'view':observation['facts']['view'],'allies':allies,'unit_catalog':player.query('unit_catalog')}
         committed={cell:sum(p==cell for p in state.targets.values()) for cell in cells}
-        assignments,exact=_solve(knowledge,player.actor,candidates,free,None,{},V11_SOLVER_NODE_CAP,V11_NEAR_TARGETS,committed)
+        assignments,exact=_solve(knowledge,candidates,free,V11_SOLVER_NODE_CAP,V11_NEAR_TARGETS,committed)
         state.exact=exact
         if not exact:
             # Complete every assignment when the exact solver exhausts its
             # explicit search budget; the saved flag reports the tradeoff.
             for unit in free:
-                candidate=min(candidates,key=lambda c:(_atom_cost(knowledge,player.actor,[unit],c,None,{},V11_SHORTFALL_PENALTY,committed.get(c.cell,0)),c.cell))
+                candidate=min(candidates,key=lambda c:(_atom_cost(knowledge,[unit],c,V11_SHORTFALL_PENALTY,committed.get(c.cell,0)),c.cell))
                 assignments[unit['id']]=candidate.cell;committed[candidate.cell]=committed.get(candidate.cell,0)+1
         state.targets.update(assignments)
     groups={}

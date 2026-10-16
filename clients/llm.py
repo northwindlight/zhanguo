@@ -27,13 +27,15 @@ class LLMState:
     @classmethod
     def from_save(cls,data):
         if not isinstance(data,dict) or set(data)!={'replay','summaries','blocks','long_memory','usage','event_cursor','generation','history'}:raise ValueError('Invalid LLM state')
+        data=deepcopy(data)
         if any(not isinstance(data[key],list) for key in ('replay','summaries','blocks','history')) or not isinstance(data['long_memory'],str) or not isinstance(data['usage'],dict) or type(data['event_cursor']) is not int or data['event_cursor']<0:raise ValueError('Invalid LLM state fields')
         if type(data['generation']) is not int or data['generation']<0:raise ValueError('Invalid control generation')
         if any(not isinstance(row,dict) or set(row)!={'period','text'} or type(row['period']) is not int or row['period']<0 or not isinstance(row['text'],str) for row in data['history']):raise ValueError('Invalid searchable history')
         for record in data['replay']:
             if not isinstance(record,dict) or type(record.get('turn')) is not int or record['turn']<0 or not isinstance(record.get('messages'),list):raise ValueError('Invalid replay')
             assert_paired(record['messages'])
-        return cls(**deepcopy(data))
+            record['_tokens']=ctx.messages_tokens(record['messages'])
+        return cls(**data)
 
 
 def assert_paired(messages):
@@ -90,7 +92,7 @@ class LLMClient:
     @staticmethod
     def _dialogue(player,messages):
         if hasattr(player,'record_dialogue'):player.record_dialogue(messages)
-    PROSE={'text','summary','note','old','new','source','content','reason','output','inputs'}
+    PROSE={'query','text','summary','note','old','new','source','content','reason','output','inputs'}
 
     def _arguments(self,arguments):
         """入口：模型用本地化键值（金/农场/步兵），翻回引擎认的短键。
@@ -108,7 +110,7 @@ class LLMClient:
         return {key:(value if key in self.PROSE else fix(value)) for key,value in arguments.items()}
 
     def _submit(self,player,action,arguments):
-        if action!='memory_search':return player.submit(action,self._arguments(arguments))
+        if action!='memory_search' or hasattr(player,'action_state'):return player.submit(action,self._arguments(arguments))
         base={'api':player.api_version,'actor':player.actor,'action':action,'period':player.observe()['period']}
         try:
             if not isinstance(arguments,dict) or set(arguments)-{'query','limit'}:raise ValueError('memory_search 参数为 query 与可选 limit')
@@ -130,14 +132,32 @@ class LLMClient:
         memory=SimpleNamespace(turn_memory={player.actor:self.state.replay},summary_blocks={player.actor:self.state.blocks},turn=player.observe()['period'])
         dropped=ctx.slide(memory,player.actor,plan)
         if not dropped:return
-        text='\n'.join(json.dumps(row,ensure_ascii=False) for row in dropped)
-        summary='\n'.join(row['text'] for row in self.state.summaries if dropped[0]['turn']<=row['turn']<=dropped[-1]['turn'])
+        summary='\n'.join(f'第{row["turn"]}期：{row["text"]}' for row in self.state.summaries if dropped[0]['turn']<=row['turn']<=dropped[-1]['turn'])
         if plan.compact:
-            prompt=deepcopy(messages)+[{'role':'user','content':self.ui.text('llm.compact',memory=self.state.long_memory,history=text)}]
+            # Reuse the actual request prefix once, without dumping the same
+            # replay as JSON again. Compression has its own input/output budget.
+            ceiling=min(120000,int(self.cfg.get('ctx_window') or 128000))
+            reserve=int(self.cfg.get('ctx_compact_tokens') or 1500)+ctx.SAFETY_TOKENS
+            instruction={'role':'user','content':self.ui.text('llm.compact',memory=self.state.long_memory,history=summary)}
+            budget=max(0,ceiling-reserve-ctx.msg_tokens(instruction))
+            prefix=[];pending=set();used=0
+            for message in messages:
+                cost=ctx.msg_tokens(message)
+                if used+cost>budget:break
+                prefix.append(deepcopy(message));used+=cost
+                if message.get('role')=='assistant':pending.update(c['id'] for c in message.get('tool_calls',[]))
+                elif message.get('role')=='tool':pending.discard(message.get('tool_call_id'))
+            while pending and prefix:
+                last=prefix.pop()
+                if last.get('role')=='tool':pending.add(last['tool_call_id'])
+                if last.get('role')=='assistant':pending.difference_update(c['id'] for c in last.get('tool_calls',[]))
+            prompt=prefix+[instruction]
             try:
+                if ctx.messages_tokens(prompt)+reserve>ceiling:
+                    raise ValueError('Compression instruction and output cannot fit the configured window')
                 for attempt in range(1,11):
                     if emit:emit(self.ui.text('llm.compacting',actor=player.actor,attempt=attempt,limit=10))
-                    compressed,stats=self._provider().complete_text(prompt,self._request_config(),tools=tools)
+                    compressed,stats=self._provider().complete_text(prompt,{**self._request_config(),'max_tokens':int(self.cfg.get('ctx_compact_tokens') or 1500)},tools=[])
                     self._usage(stats)
                     if isinstance(compressed,str) and len(compressed.strip())>=20:break
                 else:raise ValueError('Empty or too short memory compression after 10 attempts')
@@ -147,7 +167,11 @@ class LLMClient:
                 if emit:emit(self.ui.text('llm.compact_failed',actor=player.actor,error=type(exc).__name__))
             else:
                 summary=compressed.strip();self.state.long_memory=summary
-        self.state.blocks.append({'from':dropped[0]['turn'],'to':dropped[-1]['turn'],'at':memory.turn,'text':summary})
+        if plan.compact and summary:self.state.blocks.append({'from':dropped[0]['turn'],'to':dropped[-1]['turn'],'at':memory.turn,'text':summary})
+        # Long memory subsumes older archive blocks; summaries remain available
+        # through the bounded searchable history.
+        self.state.blocks=self.state.blocks[-20:]
+        self.state.summaries=self.state.summaries[-240:]
         if emit:emit(self.ui.text('llm.archived',actor=player.actor,count=len(dropped)))
 
     def play(self,player,*,max_steps=None,emit=None,head=None,on_call=None,on_result=None):
@@ -157,12 +181,13 @@ class LLMClient:
         obs=player.observe()
         if not obs['can_act']:return []
         schemas=player.actions()
-        if any(s['function']['name']=='memory_search' for s in schemas):raise ValueError('memory_search 与客户端记忆工具重名')
-        tools=self.ui.actions([*schemas,deepcopy(memory.SCHEMA)]);batch=player.events(self.state.event_cursor)
+        tools=self.ui.actions(schemas if any(s['function']['name']=='memory_search' for s in schemas) else [*schemas,deepcopy(memory.SCHEMA)]);batch=player.events(self.state.event_cursor)
         messages,plan=self._context(player,obs,batch,tools)
         self._dialogue(player,[messages[0],messages[-1]])
-        if head:head(self.ui.text('llm.context',actor=player.actor,plan=self.ui.context_plan(plan)))
-        elif emit:emit(self.ui.text('llm.context',actor=player.actor,plan=self.ui.context_plan(plan)))
+        description=self.ui.context_plan(plan);hit=ctx.rolling_hit(player.actor)
+        if hit is not None:description+=self.ui.text('context.observed',ratio=hit)
+        if head:head(self.ui.text('llm.context',actor=player.actor,plan=description))
+        elif emit:emit(self.ui.text('llm.context',actor=player.actor,plan=description))
         start=len(messages)-1;receipts=[];ended=False
         limit=int(max_steps if max_steps is not None else self.cfg.get('max_steps',28))
         if limit<1:raise ValueError('max_steps must be positive')
@@ -170,6 +195,7 @@ class LLMClient:
             if emit:emit(self.ui.text('llm.request',actor=player.actor,count=step+1))
             msg,stats=self._provider().chat_turn(messages,tools,self._request_config(),on_retry=(lambda attempt,error,wait,total:emit(self.ui.text('llm.retry',actor=player.actor,attempt=attempt,total=total,error=error,wait=wait))) if emit else None)
             self._usage(stats)
+            ctx.record_hit(player.actor,stats.get('hit',0),stats.get('miss',0))
             calls=msg.get('tool_calls') or []
             assistant={key:deepcopy(msg[key]) for key in ('content','reasoning_content','tool_calls',REPLAY_KEY) if key in msg}
             assistant['role']='assistant';messages.append(assistant)
@@ -218,11 +244,22 @@ class LLMClient:
                     current={'role':'user','content':update}
                     messages.append(current);self._dialogue(player,[current])
             if not calls:messages.append({'role':'user','content':self.ui.text('llm.continue')})
-        # No synthetic end_turn: a provider/step failure must not commit a turn.
-        if not ended:raise RuntimeError(self.ui.text('llm.limit'))
-        self.state.replay.append({'turn':obs['period'],'messages':deepcopy(messages[start:])})
+        # Only the normal end_turn gate can finish a step-limited turn.
+        if not ended:
+            fallback='达到本回合调用上限；已执行行动以回执为准，其余计划下回合继续。'
+            receipt=self._submit(player,'end_turn',{'summary':fallback})
+            receipts.append(receipt)
+            if not receipt['ok']:raise RuntimeError(self.ui.text('llm.limit')+' '+receipt['message'])
+            self.state.summaries.append({'turn':obs['period'],'text':fallback})
+            messages.append({'role':'user','content':fallback})
+            if emit:emit(fallback)
+            if on_result:on_result('end_turn',{'summary':fallback},receipt)
+        record={'turn':obs['period'],'messages':deepcopy(messages[start:])}
+        record['_tokens']=ctx.messages_tokens(record['messages']);self.state.replay.append(record)
         self.state.event_cursor=batch['cursor']
         self._compact(player,messages,plan,tools,emit)
         return receipts
+
+    def search_memory(self,query,limit=3):return memory.search(self.state.history,query,limit)
 
     def to_save(self):return {'kind':self.kind,'version':self.version,'state':self.state.to_save()}

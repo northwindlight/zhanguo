@@ -2,7 +2,7 @@
 from .i18n import Translator
 from .maps import snapshot,render_svg
 
-TERRAIN={'native:plain':'·','native:forest':'♣','native:hill':'^','native:mountain':'▲','native:desert':'~'}
+TERRAIN={'native:plain':'.','native:forest':'f','native:hill':'^','native:mountain':'M','native:desert':'~'}
 
 
 def player_map(observation,text=None):

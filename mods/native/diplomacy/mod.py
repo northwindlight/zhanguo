@@ -46,6 +46,9 @@ class DiplomacyMod(GameMod):
     def objects(self, world):return {'native:diplomacy':world.diplomacy}
     def save_state(self, world):return world.diplomacy.to_save()
     def load_state(self, world, state):world.diplomacy.restore(state)
+    def pending_archive(self,world):return world.diplomacy.pending_archive()
+    def archive_committed(self,world):world.diplomacy.archive_committed()
+    def restore_archive(self,world,rows):world.diplomacy.restore_archive(rows)
     def _tool(self, action, arguments):
         def submit(world, actor, **args):return world.diplomacy.submit(actor,action,**args)
         properties={key:({'type':'array','items':{'type':'string'}} if value==list[str] else {'type':'integer' if value is int else 'string'}) for key,value in arguments.items()}
@@ -54,16 +57,16 @@ class DiplomacyMod(GameMod):
             elif key=='target':prop['description']='countries 中的别国 id；求和须使用其战争代表'
             elif key=='bloc':prop['description']='联盟键：加入时用现有联盟 id；创建时自定唯一命名空间键'
             elif key in ('gold','truce'):prop['minimum']=0
-        if action=='offer_peace':properties['kind'].update(enum=['white','pay','demand'],default='white')
+        if action=='offer_peace':properties['kind'].update(enum=['white','pay','demand'])
         if action=='offer_peace':properties['note']['description']='可选和平提议正文，不改变赔款或休战规则'
-        required=[key for key in arguments if not (action=='offer_peace' and key in ('kind','gold','truce','note'))]
+        required=[key for key in arguments if not (action=='offer_peace' and key in ('gold','truce','note'))]
         return Tool(action,submit,argument_types=arguments,parameters={'type':'object','properties':properties,'required':required,'additionalProperties':False},
-                    description=DESCRIPTIONS[action]+f' 提交成功仅预留费用并登记待办，等待外交结算或投票；基准费用{self.declaration["Diplomacy"]["Fee"]}金，减免与实际费用看回执。')
+                    description=DESCRIPTIONS[action])
     def tools(self):
         return (*(self._tool(action,args) for action,args in ARGUMENTS.items()),
-                Tool('vote',self._vote,description='对 diplomacy.votes 中本国有资格且当前到期的投票表态：vote 为整数编号，accept=true 赞成、false 反对。每国一票，未投弃权，赞成多于反对通过；投票不等于条约已生效。'),Tool('diplomacy',lambda w,a:w.diplomacy.snapshot(a),read_only=True,description='一次查询本国相关联盟、条约、战争、休战、提议、投票、待结算命令及结果。offers/votes 的 id 用于回应和投票；submitted 不代表关系已改变。'))
+                Tool('vote',self._vote,description='对 diplomacy.votes 中本国有资格且当前开放的投票表态：vote 为整数编号，accept=true 赞成、false 反对。仅发起后的下一周期可投票或改票，accept=null 显式弃权；未投弃权，赞成多于反对通过；投票不等于条约已生效。'),Tool('diplomacy',lambda w,a:w.diplomacy.snapshot(a),read_only=True,description='一次查询本国相关联盟、条约、战争、休战、提议、投票、待结算命令及结果。offers/votes 的 id 用于回应和投票；submitted 不代表关系已改变。'))
     @staticmethod
-    def _vote(world, actor, vote: int, accept: bool):return world.diplomacy.vote(actor,vote,accept)
+    def _vote(world, actor, vote: int, accept: bool | None):return world.diplomacy.vote(actor,vote,accept)
     def panels(self):return (Panel('diplomacy',lambda w,a:w.diplomacy.snapshot(a)),)
     def stages(self):return (Stage('native:diplomacy.tally',self._tally,hook='cycle.start',provides=('votes.counted',)),
                             Stage('native:diplomacy.resolve',self._resolve,hook='relations',needs=('votes.counted',),provides=('relations.applied',)))
@@ -79,4 +82,4 @@ class DiplomacyMod(GameMod):
                     'owner':result.actor,'period':world.runtime.object_call(world,'native:government','period'),
                     'category':'administration','inputs':(('native:gold',result.fee),)})
     def rule_sections(self, world=None):
-        return (RuleSection('外交实体与提交','独立国家、联盟是条约实体。外交在行动期提交并预留费用，在外交挂点重新校验后生效或退款。联盟表决在发起后下一周期末统一计票，未投票弃权，赞成票多于反对票通过；宣战仅传导原防守实体的直接保障与共同防御。',keywords=('diplomacy','外交','保障','共同防御','宣战','求和','休战','联盟','投票','结盟','战争代表')),)
+        return (RuleSection('外交实体与提交','独立国家、联盟是条约实体。外交在行动期提交并预留费用，在外交挂点重新校验后生效或退款。联盟表决在 T 发起、T+1 开放投票并在该周期末统一计票；发起人没有自动赞成票，也无盟主否决或提前结票，未投票弃权，赞成票多于反对票通过；宣战仅传导原防守实体的直接保障与共同防御。',keywords=('diplomacy','外交','保障','共同防御','宣战','求和','休战','联盟','投票','结盟','战争代表')),)

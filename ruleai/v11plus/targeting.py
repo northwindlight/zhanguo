@@ -11,10 +11,13 @@ def relations(observation):
 
 def candidates(observation):
     allies,enemies=relations(observation);facts=observation['facts'];result=[]
+    engaged={}
+    for u in facts['army']:
+        if u['engaged'] and u['owner'] not in allies:engaged.setdefault((u['x'],u['y']),[]).append(u)
     for tile in facts['view']:
         position=tuple(tile['position']);owner=tile['owner']
         if owner is not None and owner not in enemies:continue
-        busy=[u for u in facts['army'] if (u['x'],u['y'])==position and u['engaged'] and u['owner'] not in allies]
+        busy=engaged.get(position,())
         if owner is None and busy and not any(u['owner'] in enemies for u in busy):continue
         result.append(position)
     return sorted(result)

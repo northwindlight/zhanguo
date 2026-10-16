@@ -36,7 +36,7 @@ class CouncilObserverReceiptTests(unittest.TestCase):
                        head=observer.context_head,on_call=observer.on_call)
             journal=observer.path.read_text(encoding='utf-8')
 
-        expected='议会没有批准君主的国策'
+        expected='议会未批准国策'
         self.assertIn(expected,journal)
         self.assertIn('议会未批准国策',screen.getvalue())
         self.assertIn('要求纠正事实',journal)

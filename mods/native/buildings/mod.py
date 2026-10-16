@@ -7,6 +7,7 @@ from .types import BUILDING_TYPES
 class BuildingsMod(GameMod):
     def mixins(self):return ()
     def content_definitions(self):return {cls.TYPE_ID:cls for cls in BUILDING_TYPES}
+    def numbers(self):return {cls.TYPE_ID:{'costs_by_level':[cls.construction_cost(i) for i in range(1,len(cls.GOLD_COSTS)+1)],'inputs':dict(cls.INPUTS),'outputs':dict(cls.OUTPUTS),'energy_use':cls.ENERGY_USE,'energy_output':cls.ENERGY_OUTPUT,'effects':dict(cls.EFFECTS),'min_slots':cls.MIN_SLOTS,'max_per_site':cls.MAX_PER_SITE,'self_build_limit':cls.SELF_BUILD_LIMIT} for cls in building_types(self.runtime.content)}
     def state_keys(self):return ('buildings',)
     def needs(self):return ('native:resource-exchange',)
     def optional(self):return ('native:territory',)
@@ -43,8 +44,8 @@ class BuildingsMod(GameMod):
 
     @staticmethod
     def _sites(world, actor):
-        snap=world.buildings.snapshot();sites=[s for s in snap.sites if s.owner==actor]
-        return {'sites':sites,'instances':[b for b in snap.instances if b.site in {s.id for s in sites}],
+        snap=world.buildings.snapshot();sites=[s for s in snap.sites if s.owner==actor];ids={s.id for s in sites}
+        return {'sites':sites,'instances':[b for b in snap.instances if b.site in ids],
                 'construction':[r for r in snap.construction if r.owner==actor],
                 'self_built':{kind:count for owner,kind,count in snap.self_built if owner==actor}}
 

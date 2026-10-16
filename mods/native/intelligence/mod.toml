@@ -1,15 +1,17 @@
 [Mod]
 Id = "native:intelligence"
-Version = "1.0.0"
+Version = "1.1.0"
 Entry = "mods.native.intelligence.mod:IntelligenceMod"
 Requires = ["native:nations", "native:government", "native:resources", "native:buildings", "native:diplomacy", "native:vision", "native:army"]
 After = ["native:nations", "native:government", "native:army"]
 [State]
 Owns = ["intelligence"]
 [Capabilities]
-Needs = ["native:nation-inspection", "native:government", "native:resource-exchange", "native:resource-inspection", "native:buildings", "native:diplomacy", "native:vision", "native:army"]
+Needs = ["native:territory", "native:nation-inspection", "native:government", "native:resource-exchange", "native:resource-inspection", "native:buildings", "native:diplomacy", "native:vision", "native:army"]
+Optional = ["economy:queries"]
 Provides = ["native:intelligence"]
 [Interfaces]
+"economy:queries" = ["balance"]
 "native:nation-inspection" = ["ids", "get"]
 "native:government" = ["period"]
 "native:resource-exchange" = ["exchange", "exchange_batch"]
@@ -18,6 +20,7 @@ Provides = ["native:intelligence"]
 "native:diplomacy" = ["allied", "snapshot"]
 "native:vision" = ["visible", "tiles"]
 "native:army" = ["snapshot"]
+"native:territory" = ["neighbors", "owner", "cell"]
 [Intelligence]
 Fee = 10
 LetterBase = 20

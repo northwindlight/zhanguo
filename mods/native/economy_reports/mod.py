@@ -1,4 +1,4 @@
-from engine.runtime import GameMod, ModError, Stage
+from engine.runtime import GameMod, ModError, Stage, RuleSection
 from .contracts import EconomicFact
 from .objects import Economy
 
@@ -11,6 +11,7 @@ class EconomyMod(GameMod):
     def mixins(self):return ()
     def state_keys(self):return ('economy',)
     def needs(self):return ('native:resource-inspection','native:buildings','economy:valuation')
+    def optional(self):return ('native:nation-inspection',)
     def provides(self):return ('native:economy',)
 
     def initialize_world(self, world):
@@ -19,11 +20,18 @@ class EconomyMod(GameMod):
             lambda values:call('economy:valuation','quote',values),
             lambda:call('native:resource-inspection','owners'),
             lambda owner:call('native:resource-inspection','snapshot',owner),
-            lambda owner:call('native:buildings','replacement_costs',owner))
+            lambda owner:call('native:buildings','replacement_costs',owner),
+            (lambda:call('native:nation-inspection','ids')) if 'native:nation-inspection' in self.runtime.capabilities else None)
 
     def objects(self, world):return {'native:economy':world.economy}
     def save_state(self, world):return world.economy.to_save()
     def load_state(self, world, state):world.economy.restore(state)
+    def pending_archive(self,world):return world.economy.pending_archive()
+    def archive_committed(self,world):world.economy.archive_committed()
+    def restore_archive(self,world,rows):world.economy.restore_archive(rows)
+
+    def rule_sections(self,world=None):
+        return (RuleSection('消费指标与终局','消费累计建造、征召、军费（含回血装备）与行政四类，以每期报表阶段市价估值，未定价资源单列。终局按各历史国家已记录总消费降序排名，亡国也保留成绩；GDP、军力、领土、建筑资产仅作参考，不重新按终局价格估值。离线成绩单使用 settlement.py --save 路径 --table；结算厅另需外部模型配置。',keywords=('消费','排名','终局','结算','GDP','报表','scoring')), )
 
     def stages(self):
         return tuple(Stage(row['Id'],self._reports,hook=row['Hook'],needs=tuple(row.get('Needs',())),

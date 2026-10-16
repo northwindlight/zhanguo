@@ -113,7 +113,7 @@ def est_tokens(text: str | None) -> int:
     """估算一段文本的 token 数（CJK 1.05/字，其余 0.32/字）。"""
     if not text:
         return 0
-    c = len(_CJK.findall(text))
+    c = sum(1 for _ in _CJK.finditer(text))
     return int(c * _CJK_W + (len(text) - c) * _OTHER_W) + 1
 
 
@@ -152,7 +152,7 @@ def messages_tokens(msgs: list[dict]) -> int:
 
 def record_tokens(rec: dict) -> int:
     """一个完整回合记录（含首条回合标记）的 token 数。"""
-    return messages_tokens(rec.get("messages") or [])
+    return rec["_tokens"] if "_tokens" in rec else messages_tokens(rec.get("messages") or [])
 
 
 KEEP_TOOL_ACTIONS = ("plan", "government", "player_rules", "handbooks")
@@ -337,6 +337,7 @@ def make_plan(cfg: dict, *, fallback_turns: int | None = None) -> Plan:
     slice_keep = _fnum(cfg.get("ctx_slice_keep"), 0.55, 0.2, 0.9)
     fixed = cfg.get("ctx_full_turns")
     window = cfg.get("ctx_window")
+    if cfg.get("small_ctx") and not window and not fixed:window=262144
     if fixed:
         n = max(1, int(fixed))
         return Plan(mode="fixed", window=None, budget=0, replay_budget=0,
@@ -493,13 +494,12 @@ def render_archive(sums: list[dict], blocks: list[dict], before_turn: int,
     # 抬头写死、回合区间与省略说明压到尾部：归档只在下滑时"追加"，这样旧归档的字节
     # 是新归档的前缀 → 下滑那一回合归档本身仍可命中（区间行是唯一失效的几行）。
     lines = []
-    if long_memory:
-        lines.append(messages("archive.memory",text=long_memory))
     if blocks or sums:
         lines.append(messages("archive.head"))
         lines.extend(t for _, t in kept)
         omitted_text=messages("archive.omitted",count=omitted) if omitted else ""
         lines.append(messages("archive.tail",turn=before_turn-1,omitted=omitted_text))
+    if long_memory:lines.append(messages("archive.memory",text=long_memory))
     return "\n".join(lines)
 
 
@@ -559,10 +559,10 @@ def assemble(system_text: str, archive_text: str, records: list[dict],
              tail_text: str, tail_map: dict | None = None) -> list[dict]:
     """按缓存稳定性顺序拼消息：system → 归档 → replay → 本回合状态。"""
     msgs: list[dict] = [{"role": "system", "content": system_text}]
-    if archive_text:
-        msgs.append({"role": "user", "content": archive_text})
     for rec in records:
         msgs.extend(rec.get("messages") or [])
+    if archive_text:
+        msgs.append({"role": "user", "content": archive_text})
     if tail_text:
         tail = {"role": "user", "content": tail_text}
         if tail_map:
@@ -584,10 +584,10 @@ def replay_head(system_text: str, archive_text: str, records: list[dict]) -> lis
     长度可数、内容不必信：本函数只保证"合并后的条数"与真请求的前缀一致。
     """
     msgs: list[dict] = [{"role": "system", "content": system_text}]
-    if archive_text:
-        msgs.append({"role": "user", "content": archive_text})
     for rec in records:
         msgs.extend(dict(m) for m in (rec.get("messages") or []))
+    if archive_text:
+        msgs.append({"role": "user", "content": archive_text})
     return merge_same_role(msgs)
 
 

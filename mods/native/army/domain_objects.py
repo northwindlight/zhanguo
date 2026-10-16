@@ -34,6 +34,9 @@ class Military:
         self._world,self._domain=world,world.runtime.state_owners[key];return self
     def _write(self):
         if active_unit.get() not in (None,self._domain):raise ModError('Use army interface')
+    def _name(self,owner):return owner if owner=='野人' else self._call('native:nation-inspection','get',owner).name
+    def _event(self,kind,text,position=None,parties=()):
+        self._events.append({'kind':kind,'text':text,'position':position,'parties':tuple(parties),'snapshot_only':True})
     def _period(self):return self._call('native:government','period')
     def _living(self, owner):
         if owner not in self._call('native:nation-inspection','ids'):raise ValueError('Nation is not alive')
@@ -60,9 +63,10 @@ class Military:
         return tuple(deepcopy(u) for u in self._units if owner is None or u.owner==owner)
     def visible_units(self, owner):
         self._living(owner)
-        result=[deepcopy(u) for u in self._units if u.owner==owner or self._call('native:vision','visible',owner,u.x,u.y)]
+        tiles=self._call('native:vision','tiles',owner);visible={t.position for t in tiles}
+        result=[deepcopy(u) for u in self._units if u.owner==owner or (u.x,u.y) in visible]
         size,_=self._call('native:territory','dimensions')
-        for cell in self._call('native:vision','tiles',owner):
+        for cell in tiles:
             x,y=cell.position
             if (x,y) in self._units.guard_once or self._call('native:territory','cell',x,y).tile.id:continue
             aid=x*size+y+1
@@ -103,6 +107,15 @@ class Military:
 
     def recruit(self, owner, site: str, kind: str, count=1, *, energy_short=False):
         self._action(owner)
+        integer(count,1)
+        first=self.recruit_quote(owner,site,kind,1,energy_short=energy_short)
+        affordable=min((max(0,self._stock(owner,key))//value for key,value in first['costs'].items()),default=count)
+        actual=min(count,first['quota'],int(affordable))
+        if kind=='native:militia':
+            cap=sum(self._effect(t.tile.id,'native:militia-camp').get('militia_cap',0) for t in self._call('native:territory','owned',owner))
+            actual=min(actual,cap-sum(u.kind==kind and u.alive for u in self._units.of(owner)))
+        if actual<1:raise ValueError('征召材料或本回合额度不足；请补充粮食/装备或等待下回合')
+        count=actual
         quote=self.recruit_quote(owner,site,kind,count,energy_short=energy_short)
         costs=quote['costs'];period=quote['period'];x,y=quote['position'];key=(period,site,kind=='native:militia')
         if any(self._stock(owner,key)<value for key,value in costs.items()):raise ValueError('Insufficient recruitment resources')
@@ -123,14 +136,18 @@ class Military:
         unit=self._own_unit(owner,aid);size,_=self._call('native:territory','dimensions')
         speed=self._parameter(owner,'unit.speed.'+unit.kind,unit.definition['speed'])
         start=(unit.x,unit.y);best={start:0};queue=[(0,start)]
+        visible={t.position for t in self._call('native:vision','tiles',owner)} if visible_only else None
+        terrain_cost={}
         def cost(x,y):
-            terrain=self._call('native:territory','terrain',x,y)
-            return unit.definition['move_cost'][terrain.id]
+            if (x,y) not in terrain_cost:
+                terrain=self._call('native:territory','terrain',x,y)
+                terrain_cost[x,y]=unit.definition['move_cost'][terrain.id]
+            return terrain_cost[x,y]
         while queue:
             distance,point=heapq.heappop(queue)
             if distance!=best[point]:continue
             for target in self._call('native:territory','neighbors',*point):
-                if visible_only and not self._call('native:vision','visible',owner,*target):continue
+                if visible is not None and target not in visible:continue
                 next_distance=distance+max(cost(*point),cost(*target))
                 if next_distance>speed or next_distance>=best.get(target,speed+1):continue
                 movable=self._pass(owner,*target)
@@ -146,7 +163,11 @@ class Military:
         units=[self._own_unit(owner,aid) for aid in ids];period=self._period()
         if any(not (u.can_attack(period,x,y) if attack else u.can_act(period)) for u in units):raise ValueError('A unit has no action available')
         if not attack and any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner) for u in units for v in self._units.at(u.x,u.y)):raise ValueError('Defending unit must retreat after battle')
-        valid=all((x,y) in dict(self.reachable(owner,u.id,attack)) for u in units)
+        paths={}
+        for u in units:
+            key=(u.x,u.y,u.kind,self._parameter(owner,'unit.speed.'+u.kind,u.definition['speed']))
+            if key not in paths:paths[key]=dict(self.reachable(owner,u.id,attack))
+        valid=all((x,y) in paths[(u.x,u.y,u.kind,self._parameter(owner,'unit.speed.'+u.kind,u.definition['speed']))] for u in units)
         target_blocked=not self._pass(owner,x,y) if not attack else False
         tile_owner=self._call('native:territory','owner',x,y)
         if attack and tile_owner is not None and (tile_owner==owner or self._call('native:diplomacy','allied',owner,tile_owner)):target_blocked=True
@@ -158,7 +179,7 @@ class Military:
             if target_blocked and not self._call('native:vision','visible',owner,x,y):
                 for unit in units:unit.update(moved_turn=period)
                 return MilitaryReceipt('failed',tuple(ids),False,True,message='Unseen path or target is blocked')
-            raise ValueError('Visible path or target is blocked')
+            raise ValueError('目标被阻挡：须先宣战、选择合法移动格或改用进攻' if target_blocked else '超出本回合移动范围，或沿途有阻挡；请查询 reachable 并分回合行军')
         return units
     def move(self, owner, aid, x, y):
         result=self._batch(owner,[aid],x,y,False)
@@ -180,7 +201,7 @@ class Military:
             if fact.owner is None:self._call('native:territory','claim',fact.tile.id,by)
             else:self._call('native:territory','transfer',fact.tile.id,by)
         else:self._call('native:territory','create_claim',f'native:tile/{x}-{y}',by,x,y)
-        self._events.append({'kind':'occupation','text':f'{by} occupied ({x},{y}); previous owner: {fact.owner}', 'position':(x,y),'parties':seen,'snapshot_only':True})
+        self._events.append({'kind':'occupation','text':f'{self._name(by)} 占领 ({x},{y})，原属 {self._name(fact.owner) if fact.owner else "无主"}；守军已清除，归属已变更。', 'position':(x,y),'parties':seen,'snapshot_only':True})
     def attack(self, owner, ids, x, y):
         result=self._batch(owner,ids,x,y,True)
         if isinstance(result,MilitaryReceipt):return result
@@ -204,9 +225,13 @@ class Military:
         defender=not any(v.alive and v.engaged and v.owner==owner for v in self._units.at(unit.x,unit.y)) or self._call('native:territory','owner',unit.x,unit.y)==owner
         unit.update(retreat_to=(x,y),retreat_role='守' if defender else '攻',retreat_cover=RETREAT_DEF_COVER if defender else 100,moved_turn=period)
         return MilitaryReceipt('submitted',(aid,),False,True,engaged=True,message='Withdrawal pending; unit remains in battle')
+    def can_disband(self, owner, aid):
+        unit=self._own_unit(owner,aid)
+        return not unit.engaged and not any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner) for v in self._units.at(unit.x,unit.y))
+
     def disband(self, owner, aid):
         self._action(owner);unit=self._own_unit(owner,aid)
-        if unit.engaged:raise ValueError('Cannot disband engaged unit')
+        if not self.can_disband(owner,aid):raise ValueError('正在交战或受到进攻的军队不能遣散；请提交撤退并等待结算')
         self._units.remove(unit);return MilitaryReceipt('effective',(aid,),False,False,message='Disbanded without refund')
 
     def disengage(self, owners):
@@ -251,6 +276,27 @@ class Military:
     def remove_nation(self, owner):
         self._write()
         for unit in tuple(self._units.of(owner)):self._units.remove(unit)
+    def _feeding(self,owner):
+        units=[u for u in self._units.of(owner) if u.alive];exempt=set()
+        for tile in self._call('native:territory','owned',owner):
+            cap=self._effect(tile.tile.id,'native:militia-camp').get('militia_cap',0)
+            eligible=[u for u in units if u.kind=='native:militia' and (u.x,u.y)==tile.tile.position]
+            exempt.update(u.gid for u in eligible[:cap])
+        eaters=[u for u in units if u.gid not in exempt]
+        need=sum(self._parameter(owner,'unit.supply.'+u.kind,u.definition['supply']) for u in eaters)
+        used=min(max(0,self._stock(owner,'native:supply')),need)
+        return units,eaters,need,used
+
+    def supply_preview(self,owner):
+        self._living(owner)
+        units,eaters,need,used=self._feeding(owner);short=need-used
+        loss=max(1,ARMY_STARVE_DAMAGE*short//need) if short else 0
+        return {'period':self._period(),'need':need,'available':self._stock(owner,'native:supply'),
+                'used':used,'shortfall':short,'starvation_damage_per_unit':loss,
+                'starving_units':[u.id for u in eaters] if short else [],
+                'exempt_count':len(units)-len(eaters),
+                'assumptions':'按当前军队与库存只读预演；未计本期后续生产、行动或外交变化，不扣补给。'}
+
     def supply(self, effects=()):
         self._write();self._sync();period=self._period();facts=self._facts;self._facts=[]
         for effect in effects:
@@ -258,18 +304,13 @@ class Military:
                 self.disengage(effect[1]);self._call('native:territory','snapshot_cores',effect[1])
         reports=[]
         for owner in self._call('native:nation-inspection','ids'):
-            units=[u for u in self._units.of(owner) if u.alive];exempt=set()
-            for tile in self._call('native:territory','owned',owner):
-                cap=self._effect(tile.tile.id,'native:militia-camp').get('militia_cap',0)
-                eligible=[u for u in units if u.kind=='native:militia' and (u.x,u.y)==tile.tile.position]
-                exempt.update(u.gid for u in eligible[:cap])
-            eaters=[u for u in units if u.gid not in exempt]
-            need=sum(self._parameter(owner,'unit.supply.'+u.kind,u.definition['supply']) for u in eaters)
-            used=min(max(0,self._stock(owner,'native:supply')),need);short=need-used
+            units,eaters,need,used=self._feeding(owner);short=need-used
             costs={};operations=[]
             if used:costs['native:supply']=used
             if short:
-                for u in eaters:u.take_damage(max(1,ARMY_STARVE_DAMAGE*short//need))
+                loss=max(1,ARMY_STARVE_DAMAGE*short//need)
+                for u in eaters:u.take_damage(loss)
+                self._event('supply',f'{self._name(owner)} 断粮：补给需{need}、实耗{used}、缺{short}；每支掉{loss}兵力，饿毙{sum(not u.alive for u in eaters)}支。',parties=(owner,))
             equipment=self._stock(owner,'native:equipment');healed=[]
             if not short:
                 for u in units:
@@ -280,6 +321,7 @@ class Military:
             costs={key:value for key,value in costs.items() if value}
             if costs:self._call('native:resource-exchange','exchange',owner,costs,{})
             for u in healed:u.heal(ARMY_HEAL_PER_TURN)
+            if healed:self._event('healing',f'{self._name(owner)} {len(healed)}支军队各恢复至多{ARMY_HEAL_PER_TURN}兵力，消耗装备{costs.get("native:equipment",0)}。',parties=(owner,))
             if costs:facts.append({'id':f'native:military/{owner.split(":",1)[1]}/{period}', 'owner':owner,'period':period,'category':'military','inputs':tuple(costs.items())})
             reports.append((owner,need,used,short,len(healed)))
         for u in tuple(self._units):
@@ -300,10 +342,12 @@ class Military:
             terrain=self._call('native:territory','terrain',x,y)
             castle=self._effect(tile.tile.id,'native:castle').get('defense_per_level',0) if tile.tile.id else 0
             if castle:castle*=self._call('native:buildings','count',tile.tile.id,'native:castle')
+            dice={}
             for owner in sorted(groups):
                 if not enemies[owner]:continue
                 power=self.faction_power(groups[owner])
-                power=max(1,power*(100+COMBAT_DIE_MOD[self._rng.randint(min(COMBAT_DIE_MOD),max(COMBAT_DIE_MOD))])//100)
+                dice[owner]=self._rng.randint(min(COMBAT_DIE_MOD),max(COMBAT_DIE_MOD))
+                power=max(1,power*(100+COMBAT_DIE_MOD[dice[owner]])//100)
                 for enemy in enemies[owner]:
                     defense=self.defense_pct(terrain.defense,castle if enemy==tile.owner else 0)
                     cover=defense if enemy==tile.owner or enemy=='野人' or enemy not in active else 0
@@ -321,7 +365,8 @@ class Military:
                 if not any(surviving[e] for e in enemies[owner]):
                     for u in units:u.disengage()
             reports.append((x,y,tuple(sorted(damage.items()))))
-            self._events.append({'kind':'battle','text':str(tuple(sorted(damage.items()))),'position':(x,y),'parties':seen,'snapshot_only':True})
+            detail='；'.join(f'{self._name(owner)}：骰{dice.get(owner,"未参战")}，承伤{damage[owner]}，剩余{sum(u.alive for u in units)}支/{sum(u.hp for u in units)}兵力' for owner,units in groups.items())
+            self._event('battle',f'({x},{y})战报，地形减伤{terrain.defense}%，城堡减伤{castle}%；{detail}。'+('战斗结束。' if not any(u.engaged for u in troops if u.alive) else '交战继续，占领未定。'),(x,y),seen)
         return tuple(reports)
     def battle_estimate(self, owner, ids, x, y):
         self._living(owner);self._call('native:territory','check',x,y)
@@ -380,48 +425,45 @@ class Military:
         self._write();reports=[]
         for unit in tuple(self._units):
             if unit.retreat_to is None:continue
-            target=unit.retreat_to
+            start=(unit.x,unit.y);target=unit.retreat_to;requested=target
             if not self._pass(unit.owner,*target):
                 target=next((p for p in self._call('native:territory','neighbors',unit.x,unit.y) if self._pass(unit.owner,*p)),None)
             if target is not None:
                 unit.update(x=target[0],y=target[1],engaged=False)
                 reports.append((unit.owner,unit.id,target))
+            self._event('withdrawal',f'{self._name(unit.owner)} #{unit.id} 从{start}'+(f'撤至{target}'+('（原落点受阻，已改撤）' if target!=requested else '') if target is not None else '撤退受阻，原地留守')+'。',parties=(unit.owner,))
             for key in ('retreat_to','retreat_role','retreat_cover'):
                 if key in unit:unit.pop(key)
         return tuple(reports)
     def claims(self):
-        self._write();reports=[]
+        self._write();reports=[];by_position={}
+        for unit in self._units:
+            if unit.alive:by_position.setdefault((unit.x,unit.y),[]).append(unit)
         for fact in self._call('native:territory','snapshot'):
-            x,y=fact.tile.position;troops=[u for u in self._units.at(x,y) if u.alive]
+            x,y=fact.tile.position;troops=by_position.get((x,y),())
             claimants=[u for u in troops if u.owner!='野人' and u.engaged and u.engage_seq is not None and u.owner!=fact.owner and (fact.owner is None or self._call('native:diplomacy','war_between',u.owner,fact.owner))]
             eligible=[u for u in claimants if not any(v.alive and self._hostile(u.owner,v.owner) for v in troops)]
             if eligible:
                 winner=min(eligible,key=lambda u:(u.engage_seq,u.owner));self._claim(winner.owner,x,y);reports.append((fact.tile.id,winner.owner))
         return tuple(reports)
     def repatriate(self):
-        self._write();reports=[]
+        self._write();reports=[];homes={}
         for unit in self._units.troops:
             owner=self._call('native:territory','owner',unit.x,unit.y)
             if unit.engaged or owner is None or owner==unit.owner or self._call('native:diplomacy','passage',unit.owner,owner):continue
-            home=[t.tile.position for t in self._call('native:territory','owned',unit.owner)]
+            if unit.owner not in homes:
+                homes[unit.owner]=[t.tile.position for n in self._call('native:nation-inspection','ids') if n==unit.owner or self._call('native:diplomacy','allied',unit.owner,n) for t in self._call('native:territory','owned',n)]
+            home=homes[unit.owner]
             if not home:continue
-            # Forced repatriation may cross neutral land; terrain/speed still apply.
-            start=(unit.x,unit.y);frontier=[start];parent={start:None};goal=None
-            for point in frontier:
-                if point in home:goal=point;break
-                for target in self._call('native:territory','neighbors',*point):
-                    if target in parent or any(o.alive and o.owner!='野人' and self._hostile(unit.owner,o.owner) for o in self._units.at(*target)):continue
-                    parent[target]=point;frontier.append(target)
-            if goal is None:continue
-            route=[]
-            while parent[goal] is not None:route.append(goal);goal=parent[goal]
-            budget=unit.definition['speed'];point=start
-            for target in reversed(route):
-                a=self._call('native:territory','terrain',*point).id;b=self._call('native:territory','terrain',*target).id
-                cost=max(unit.definition['move_cost'][a],unit.definition['move_cost'][b])
-                if cost>budget:break
-                budget-=cost;point=target
-            if point!=start:unit.update(x=point[0],y=point[1]);reports.append((unit.owner,unit.id,point))
+            start=(unit.x,unit.y)
+            goal=min(home,key=lambda p:(max(abs(p[0]-unit.x),abs(p[1]-unit.y)),p))
+            point=start
+            for _ in range(self._parameter(unit.owner,'unit.speed.'+unit.kind,unit.definition['speed'])):
+                if point==goal:break
+                point=(point[0]+(goal[0]>point[0])-(goal[0]<point[0]),point[1]+(goal[1]>point[1])-(goal[1]<point[1]))
+            if point!=start:
+                unit.update(x=point[0],y=point[1]);reports.append((unit.owner,unit.id,point))
+                self._event('repatriation',f'{self._name(unit.owner)} #{unit.id} 从{start}自动遣返至{point}。',parties=(unit.owner,))
         return tuple(reports)
 
     def to_save(self):
@@ -462,9 +504,10 @@ class Military:
                 seen.add(ident)
         for event in data['events']:
             if not isinstance(event,dict) or set(event)!={'kind','text','position','parties','snapshot_only'}:raise ValueError('Invalid military event')
-            if event['kind'] not in ('battle','occupation') or not isinstance(event['text'],str) or event['snapshot_only'] is not True:raise ValueError('Invalid military event fields')
-            if not isinstance(event['position'],(list,tuple)) or len(event['position'])!=2:raise ValueError('Invalid military event position')
-            self._call('native:territory','check',*event['position'])
+            if event['kind'] not in ('battle','occupation','supply','healing','withdrawal','repatriation') or not isinstance(event['text'],str) or event['snapshot_only'] is not True:raise ValueError('Invalid military event fields')
+            if event['position'] is not None:
+                if not isinstance(event['position'],(list,tuple)) or len(event['position'])!=2:raise ValueError('Invalid military event position')
+                self._call('native:territory','check',*event['position'])
             if not isinstance(event['parties'],(list,tuple)) or len(set(event['parties']))!=len(event['parties']):raise ValueError('Invalid military event recipients')
             for owner in event['parties']:self._call('native:nation-inspection','get',owner)
         self._recruited,self._facts,self._seed,self._rng=recruited,deepcopy(data['facts']),data['seed'],rng

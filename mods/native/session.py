@@ -9,6 +9,8 @@ START_RES={'native:gold':1500,'native:food':20,'native:wood':60,'native:ore':10,
            'native:oil':0,'native:equipment':5,'native:supply':10}
 
 class NativeSession(NativeObserver,GridSession):
+    @property
+    def arrival_distance(self):return 8 if self.grid()[0]>=32 else 3
     def entries(self):return self.cfg['nations']
     def identities(self):return tuple(n.id for n in self.world.nations.snapshot())
     def configure(self):
@@ -20,6 +22,10 @@ class NativeSession(NativeObserver,GridSession):
     def validate_boundary(self):
         if any(wire(self.world.government.snapshot(a))['ended'] for a in self.actors()):
             raise SaveFormatError('Cannot save a partially played cycle')
+
+    def finished(self):
+        future=any(n.get('enabled',True) and n['id'] not in self.roster and n.get('appearance')=='scheduled' for n in self.entries())
+        return len(self.actors())<=1 and len(self.roster)>1 and not future
 
     def board_rows(self):
         rows=[]

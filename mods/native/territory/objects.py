@@ -1,5 +1,6 @@
 """地块持有地形、地名和核心事实；当前归属仅由建筑站点维护。"""
 from dataclasses import dataclass, replace
+from engine.coordinates import coordinates
 from engine.building import integer
 from engine.identifiers import content_id
 from engine.runtime import ModError
@@ -34,7 +35,7 @@ class Territory:
     def __init__(self, types, call, size=80, seed=0):
         self._types = {t.id:t for t in types};self._call = call
         self._size,self._seed = integer(size,1),integer(seed)
-        self._tiles = {};self._positions = {}
+        self._tiles = {};self._positions = {};self._cells = {}
         self._world,self._domain = None,None
 
     def bind_state(self, world, key):
@@ -48,7 +49,7 @@ class Territory:
     def configure(self, size, seed):
         self._write();integer(size,1);integer(seed)
         if self._tiles:raise ValueError('Cannot replace map with materialized tiles')
-        self._size,self._seed = size,seed
+        self._size,self._seed = size,seed;self._cells.clear()
 
     def dimensions(self):return self._size,self._seed
 
@@ -70,19 +71,22 @@ class Territory:
         """
         if not isinstance(text,str) or not text.strip():
             raise ValueError('地块引用必须是地名或 "x y" 坐标串')
-        parts = text.replace(',',' ').split()
-        if len(parts)==2 and all(part.lstrip('-').isdigit() for part in parts):
-            x,y = int(parts[0]),int(parts[1]);self.check(x,y);return x,y
+        point = coordinates(text)
+        if point is not None:
+            self.check(*point);return point
         position = self._call('map:generation','where',self._seed,self._size,text.strip())
         if position is None:raise ValueError(f'没有这个地名：{text.strip()}')
+        if self.owner(*position) is None:raise ValueError('无主地块只能用坐标引用')
         return position
 
     def cell(self, x, y):
         self.check(x,y)
         key = self._positions.get((x,y))
         if key is not None:return self.get(key)
-        cell = self._call('map:generation','cell',self._seed,self._size,x,y)
-        return TileFact(Tile('',cell.position,cell.terrain,None,cell.name),None,cell.resources)
+        if (x,y) not in self._cells:
+            cell = self._call('map:generation','cell',self._seed,self._size,x,y)
+            self._cells[x,y] = TileFact(Tile('',cell.position,cell.terrain,None,cell.name),None,cell.resources)
+        return self._cells[x,y]
 
     def terrain(self, x, y):return self._types[self.cell(x,y).tile.terrain]
     def owner(self, x, y):return self.cell(x,y).owner
@@ -125,7 +129,7 @@ class Territory:
         return self.get(tile_id)
 
     def snapshot(self):return tuple(self.get(key) for key in self._tiles)
-    def owned(self, owner):return tuple(t for t in self.snapshot() if t.owner==owner)
+    def owned(self, owner):return tuple(sorted((t for t in self.snapshot() if t.owner==owner),key=lambda t:t.tile.position))
 
     def snapshot_cores(self, owners):
         self._write()
@@ -162,5 +166,6 @@ class Territory:
             name = self._call('map:generation','cell',seed,size,pos[0],pos[1]).name
             tiles[row['id']] = Tile(row['id'],pos,row['terrain'],row['core'],name);positions[pos]=row['id']
         self._size,self._seed,self._tiles,self._positions = size,seed,tiles,positions
+        self._cells.clear()
 
     def __deepcopy__(self,memo):return self.snapshot()

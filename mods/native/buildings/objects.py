@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 
 from engine.building import BuildingCycle, integer, recipe
+from engine.coordinates import coordinates
 from engine.identifiers import content_id
 from engine.resource import Resource
 from engine.runtime import ModError
@@ -93,6 +94,7 @@ class Buildings:
         self._resources, self._place = resource_call, place_call
         self._sites, self._instances, self._orders, self._self_built = {}, {}, {}, {}
         self._construction = []
+        self._by_site = None
         self._period, self._next_id, self._produced = 0, 1, False
         self._world, self._domain = None, None
 
@@ -148,11 +150,9 @@ class Buildings:
             if x is not None or y is not None:raise ValueError('站点 ID 与坐标只能选一种')
             if isinstance(site,str) and site not in self._sites:
                 # 玩家地块引用：坐标串（"5 6" / "5,6" / "(5,6)" / "[5,6]"）或地名。
-                import re
+                point=coordinates(site)
                 text=site.strip()
-                if (text.startswith('(') and text.endswith(')')) or (text.startswith('[') and text.endswith(']')):text=text[1:-1]
-                match=re.fullmatch(r'\s*(\d+)\s*[,\s]\s*(\d+)\s*',text)
-                if match:site=[int(match[1]),int(match[2])]
+                if point is not None:site=list(point)
                 else:
                     position=self._place(text) if self._place else None
                     if position is None:raise ValueError(f'没有这个地名，也没有这个站点 ID：{text}')
@@ -168,20 +168,28 @@ class Buildings:
             candidate=next((s for s in self._sites.values() if s.position==(x,y)),None)
         if candidate is None or candidate.owner!=actor:raise ValueError('此位置不是本国建筑站点')
         return candidate.id
+    def _index(self):
+        if self._by_site is None:
+            self._by_site = {}
+            for item in self._instances.values():self._by_site.setdefault(item.site, []).append(item)
+        return self._by_site
+
     def instances(self, site_id=None):
         if site_id is not None:self._sites[site_id]
-        return tuple(item.snapshot() for item in self._instances.values() if site_id is None or item.site==site_id)
+        return tuple(item.snapshot() for item in (self._instances.values() if site_id is None else self._index().get(site_id, ())))
 
     def count(self, site_id, kind, *, completed_only=True):
         self._sites[site_id];self._type(kind)
         return sum(item.site==site_id and item.kind==kind and (item.completed or not completed_only)
-                   for item in self._instances.values())
+                   for item in self._index().get(site_id, ()))
 
     def effects(self, site_id, kind):
-        return MappingProxyType(dict(self._type(kind).EFFECTS)) if self.count(site_id,kind) else MappingProxyType({})
+        count=self.count(site_id,kind)
+        additive={'recruit_cap','militia_cap','militia_per_turn'}
+        return MappingProxyType({key:value*count if key in additive else value for key,value in self._type(kind).EFFECTS.items()}) if count else MappingProxyType({})
 
     def _check_slots(self, site, cls, count=1):
-        existing = [item for item in self._instances.values() if item.site==site.id]
+        existing = list(self._index().get(site.id, ()))
         same = sum(item.kind==cls.TYPE_ID for item in existing)
         if len(existing)+count>site.capacity:raise ValueError('Building slots full')
         if cls.MAX_PER_SITE is not None and same+count>cls.MAX_PER_SITE:raise ValueError('Per-site building limit')
@@ -200,6 +208,7 @@ class Buildings:
                           remaining=0 if completed else 1) for offset in range(count)]
         for item in candidates:item._domain = self._domain
         self._instances.update((item.id,item) for item in candidates)
+        self._by_site = None
         self._next_id += count
         return tuple(item.snapshot() for item in candidates)
 
@@ -231,6 +240,7 @@ class Buildings:
         receipt = BuildReceipt(candidate.id,owner,site_id,kind,self.period,tuple(costs.items()))
         if costs:self._resources('exchange',owner,costs,{})
         self._instances[candidate.id] = candidate
+        self._by_site = None
         self._next_id += 1
         self._orders[site_id] = self.period
         self._self_built[(owner,kind)] = built+1
@@ -264,7 +274,7 @@ class Buildings:
 
     def _other_slots(self, item):
         return sum(other.completed and other.site==item.site and other.kind!=item.kind
-                   for other in self._instances.values())
+                   for other in self._index().get(item.site, ()))
 
     def produce(self, *, external_energy=None):
         self._action()
@@ -352,8 +362,9 @@ class Buildings:
         return tuple(item.snapshot() for item in pending)
 
     def snapshot(self):
-        return BuildingsSnapshot(self.period,self._produced,tuple(self._sites.values()),self.instances(),
+        def calculate():return BuildingsSnapshot(self.period,self._produced,tuple(self._sites.values()),self.instances(),
                                  tuple(self._construction),tuple((owner,kind,count) for (owner,kind),count in self._self_built.items()))
+        return self._world.runtime.derived(self._world,('buildings.snapshot',),calculate) if self._world else calculate()
 
     def __deepcopy__(self,memo):
         result = self.snapshot();memo[id(self)] = result
@@ -398,6 +409,7 @@ class Buildings:
             if item.level!=expected_level:raise ValueError('Invalid building level')
             item._domain = self._domain
             candidate._instances[item.id] = item
+            candidate._by_site = None
         for row in data['self_built']:
             if not isinstance(row,dict) or set(row)!={'owner','kind','count'}:raise ValueError('Invalid self-build counter')
             owner_name(row['owner']);cls = candidate._type(row['kind']);count = integer(row['count'],1)
@@ -419,5 +431,6 @@ class Buildings:
             seen.add(item.id)
             candidate._construction.append(BuildReceipt(item.id,row['owner'],item.site,item.kind,period,tuple(costs.items())))
         self._sites,self._instances,self._orders,self._self_built = candidate._sites,candidate._instances,candidate._orders,candidate._self_built
+        self._by_site = None
         self._construction = candidate._construction
         self._period,self._next_id,self._produced = period,next_id,data['produced']

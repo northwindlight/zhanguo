@@ -72,10 +72,10 @@ class TestSessionContract(TestCase):
                  {'events':[],'messages':[{**message,'target':None}]},
                  {'events':[],'messages':[{**message,'payload':object()}]}]
         for data in invalid:
-            with self.subTest(data=data),patch.object(Intelligence,'to_save',return_value=data):
+            with self.subTest(data=data),patch.object(Intelligence,'records',return_value=data):
                 with self.assertRaisesRegex(ModError,'Session.Observer.Records'):host.records()
         valid={'events':[event],'messages':[message],'extra':{'allowed':True}}
-        with patch.object(Intelligence,'to_save',return_value=valid):
+        with patch.object(Intelligence,'records',return_value=valid):
             result=host.records()
             self.assertEqual(result,valid)
             result['events'][0]['text']='改返回值'
@@ -122,9 +122,9 @@ class TestSessionContract(TestCase):
         right=host.player('probe:right').events()['items']
         self.assertTrue(any(row['text']=='公开测试' for row in left))
         self.assertTrue(any(row['text']=='公开测试' for row in right))
-        self.assertTrue(any(row['text']=='仅甲可见' for row in left))
-        self.assertFalse(any(row['text']=='仅甲可见' for row in right))
-        self.assertTrue(any(row['text']=='仅甲可见' for row in host.records()['events']))
+        self.assertTrue(any(row['text']=='神秘人来信：仅甲可见' for row in left))
+        self.assertFalse(any(row['text']=='神秘人来信：仅甲可见' for row in right))
+        self.assertTrue(any(row['text']=='神秘人来信：仅甲可见' for row in host.records()['events']))
 
     def test_scheduled_grid_arrival_is_seeded_and_resume_is_identical(self):
         cfg=self.cfg()

@@ -240,6 +240,9 @@ class Market:
         self._period += 1
         return closed
 
+    def summary(self):
+        return MarketSnapshot(self.currency,self.period,tuple(self._inventory.items()),tuple(self._reference.items()),tuple(self._prices.items()),tuple(self._carry.items()),())
+
     def snapshot(self):
         return MarketSnapshot(self.currency, self.period, tuple(self._inventory.items()),
                               tuple(self._reference.items()), tuple(self._prices.items()),

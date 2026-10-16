@@ -17,7 +17,7 @@ class TestRuleStrategy(unittest.TestCase):
     def test_global_groups_use_nearby_pairs(self):
         armies,_,_,knowledge=self.setup()
         targets=[grouping.Candidate((0,1),2),grouping.Candidate((9,1),2)]
-        assignments,exact=grouping._solve(knowledge,'scenario:qin',targets,armies,None,{},20000,2)
+        assignments,exact=grouping._solve(knowledge,targets,armies,20000,2)
         self.assertTrue(exact)
         self.assertEqual(assignments,{1:(0,1),2:(0,1),3:(9,1),4:(9,1)})
 

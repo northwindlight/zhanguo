@@ -10,7 +10,12 @@ import re
 from pathlib import Path
 import tomllib
 from .state import active_unit, unit_context, own, freeze, Owned, references
-from functools import wraps
+from functools import wraps, cached_property
+from contextlib import contextmanager
+from contextvars import ContextVar
+from copy import deepcopy
+
+_read_views = ContextVar("read_views", default=None)
 from typing import Any, Callable, get_args, get_origin, get_type_hints
 from .content import ContentRegistry
 
@@ -31,7 +36,8 @@ class DomainRejection(ValueError):
     写错了，DomainRejection 是引擎按规则拒绝了这次动作。两者都只让这一个动作
     作废，游戏继续；调用方异常的异常（模块内部 bug）走 internal_fault。
     """
-    pass
+    def __init__(self,message,details=None):
+        super().__init__(message);self.details=details
 
 
 def dependency_order(nodes, *, requires, after, before):
@@ -116,6 +122,12 @@ class Tool:
     read_only: bool = False
     content_parameters: tuple[str, ...] = ()
 
+    @cached_property
+    def signature(self):return inspect.signature(self.handler)
+
+    @cached_property
+    def hints(self):return get_type_hints(self.handler)
+
     def prepare(self, world, actor, arguments):
         if isinstance(arguments, str):
             arguments = json.loads(arguments)
@@ -131,12 +143,14 @@ class Tool:
             unknown = sorted(k for k in arguments if k not in allowed)
             if unknown:
                 raise ValueError('未知参数：' + '、'.join(unknown))
+        missing=[key for key in (self.parameters or {}).get('required',()) if key not in arguments]
+        if missing:raise ValueError('缺少参数：'+'、'.join(missing))
         for key in self.content_parameters:
             if key in arguments:arguments[key]=world.runtime.content.resolve(arguments[key])
         arguments = {k: _convert(v, self.argument_types.get(k, Any)) for k, v in arguments.items()}
-        sig = inspect.signature(self.handler)
+        sig = self.signature
         bound = sig.bind(world, actor, **arguments)
-        hints = get_type_hints(self.handler)
+        hints = self.hints
         for name, value in list(bound.arguments.items())[2:]:
             bound.arguments[name] = _convert(value, hints.get(name, sig.parameters[name].annotation))
         return bound
@@ -148,9 +162,12 @@ class Tool:
             raise ToolArgumentError(str(exc)) from exc
         return self.handler(*bound.args, **bound.kwargs)
 
-    def schema(self):
-        sig = inspect.signature(self.handler)
-        hints = get_type_hints(self.handler)
+    def schema(self):return deepcopy(self._schema_value)
+
+    @cached_property
+    def _schema_value(self):
+        sig = self.signature
+        hints = self.hints
         props, required = {}, []
         for p in list(sig.parameters.values())[2:]:
             if p.kind == inspect.Parameter.VAR_KEYWORD:
@@ -533,6 +550,23 @@ class Runtime:
         with unit_context(owner):
             return self.units[owner].mod.apply_state_change(world,key,operation)
 
+    @contextmanager
+    def read_scope(self, world):
+        """Share derived reads only within one immutable observation, never across actions."""
+        current=_read_views.get()
+        if current is not None and current[0] is world:
+            yield
+            return
+        token=_read_views.set((world, {}))
+        try:yield
+        finally:_read_views.reset(token)
+
+    def derived(self, world, key, calculate):
+        current=_read_views.get()
+        if current is None or current[0] is not world:return calculate()
+        if key not in current[1]:current[1][key]=calculate()
+        return current[1][key]
+
     def object_call(self, world, capability, method, *args, **kwargs):
         """调用声明过的对象接口；所有者负责字段变更与校验。"""
         if method.startswith('_'): raise ModError('对象接口不能调用私有方法')
@@ -544,7 +578,7 @@ class Runtime:
             mod = self.units[caller].mod
             if capability not in (*mod.needs(), *mod.optional()) or method not in declaration.get('Interfaces',{}).get(capability,()):
                 raise ModError(f'{caller} 未声明对象接口调用：{capability}.{method}')
-        objects = getattr(self.units[owner].mod, 'objects', lambda w: {})(world)
+        objects = self.derived(world,('objects',owner),lambda:getattr(self.units[owner].mod, 'objects', lambda w: {})(world))
         target = objects.get(capability)
         if target is None: raise ModError(f'对象接口未注册：{capability}')
         with unit_context(owner): return getattr(target,method)(*args,**kwargs)
@@ -583,9 +617,9 @@ class Runtime:
     def schemas(self):
         return [self.tools[n].schema() for n in sorted(self.tools) if n == self.tools[n].name]
 
-    def player(self, world, actor, *, lock=None, on_write=None, on_fault=None):
+    def player(self, world, actor, *, lock=None, on_write=None, on_fault=None, memory_query=None):
         from .player import PlayerSession
-        return PlayerSession(self, world, actor, lock, on_write, on_fault)
+        return PlayerSession(self, world, actor, lock, on_write, on_fault, memory_query)
 
     def dependency_manifest(self):
         """严格匹配 Mod 版本、依赖和阶段契约；实现升级由 Mod 作者提升 Version。"""
@@ -707,7 +741,7 @@ class Runtime:
         if not self.permits(world, actor, 'tool.' + name):
             raise ValueError(self.actor_policy(world, actor).declaration.get("Policy",{}).get("Rejection","政体禁用该能力"))
         if self.distribution:
-            collection = getattr(world, self.distribution.get('ActorCollection', 'nations'), {})
+            collection = getattr(world, self.distribution.get('ActorCollection', 'actors'), {})
             if actor not in collection: raise ValueError('行动者不存在')
             if world.phase != '行动' and not self.tools[name].read_only:
                 raise ValueError('仅行动阶段可以提交动作')

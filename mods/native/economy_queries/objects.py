@@ -51,6 +51,8 @@ class BuildingEstimate:
     self_build_limit: int | None
     site_resource: str | None
     effects: tuple
+    projected_slots: int
+    assumptions: tuple
 
 
 class EconomicQueries:
@@ -64,7 +66,7 @@ class EconomicQueries:
         return Money(known,tuple(missing))
 
     def market(self):
-        row = self._call('native:market','snapshot')
+        row = self._call('native:market','summary')
         amounts={key:1 for key,_ in row.prices}
         buy=tuple((v.resource,v.price) for v in self._call('economy:valuation','quote',amounts,'buy'))
         sell=tuple((v.resource,v.price) for v in self._call('economy:valuation','quote',amounts,'sell'))
@@ -100,8 +102,10 @@ class EconomicQueries:
         integer(other_slots)
         cls = self.building_types()[kind]
         cost = cls.construction_cost(level,penalty=penalty,discount=discount,policy_pct=policy_pct)
-        # 只按调用方给的实际本格座数算；不预测"以后还会盖几座"。
-        cycle = cls(1,'native:estimate',level=level).cycle(other_slots=other_slots)
+        projected_slots=other_slots+3 if kind=='native:town-hall' else other_slots
+        assumptions=[]
+        if kind=='native:town-hall':assumptions.append('市政厅按另增3座建筑的乐观密度估算，实际结算仍按已落成座数')
+        cycle = cls(1,'native:estimate',level=level).cycle(other_slots=projected_slots)
         basis='sell' if cls.PHASE=='gather' else 'buy' if cls.PHASE=='industry' else 'mid'
         construction,inputs,outputs = self._value(cost),self._value(cycle.inputs,'buy'),self._value(cycle.outputs,basis)
         outputs_sell=self._value(cycle.outputs,'sell')
@@ -110,11 +114,21 @@ class EconomicQueries:
         # Electricity is not tradable revenue: power plants only spend fuel.
         if cls.ENERGY_USE:
             net = None if energy_cost is None else net.plus(Money(-cls.ENERGY_USE*energy_cost))
-        # 工程院的"节省摊销/密度红利"要靠假设未来的建造计划，不属于事实，不算。
+        if kind=='native:academy':
+            from mods.native.government.parameters import ACADEMY_AMORT_TURNS
+            types=self.building_types();n=max(other_slots,cls.MIN_SLOTS)
+            values=[types[row.kind].GOLD_COSTS[0] for row in existing if row.kind in types]
+            if not values:values=[c.GOLD_COSTS[0] for k,c in types.items() if k!=kind]
+            average=sum(values)/len(values) if values else 0
+            discount_rate=cls.BUILD_DISCOUNT/100
+            hall=types.get('native:town-hall')
+            density=discount_rate*n*hall.EFFECTS.get('gold_per_slot',0) if hall and n+3>=hall.MIN_SLOTS else 0
+            net=Money(discount_rate*n*average/ACADEMY_AMORT_TURNS+density)
+            assumptions.append(f'工程院按{n}座密度、平均基础金价{average:g}、{ACADEMY_AMORT_TURNS}周期摊销及厅密度联动估算；不是保证收益')
         payback = construction.total/net.total if (construction.complete and net is not None and net.complete and net.total>0) else None
         if payback is not None:Resource.finite_number(payback)
         return BuildingEstimate(kind,level,other_slots,construction,inputs,outputs,cls.ENERGY_USE,
                                 cycle.energy,energy_cost,net,payback,outputs_sell,basis,energy_reference,
                                 tuple(cls.construction_cost(l) for l in range(1,len(cls.GOLD_COSTS)+1)),
                                 cycle.inputs,cycle.outputs,cls.MIN_SLOTS,cls.MAX_PER_SITE,cls.SELF_BUILD_LIMIT,
-                                cls.SITE_RESOURCE,tuple(cls.EFFECTS.items()))
+                                cls.SITE_RESOURCE,tuple(cls.EFFECTS.items()),projected_slots,tuple(assumptions))

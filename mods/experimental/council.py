@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from clients import context as ctx
+from engine.deltas import difference
 from clients.llm import assert_paired
 from clients.provider import make_backend,REPLAY_KEY
 
@@ -17,6 +18,13 @@ COUNCIL_MAX_ROUNDS=10
 def encode(value):return json.dumps(value,ensure_ascii=False,sort_keys=True,allow_nan=False)
 
 
+def evidence_state(state):
+    if state is None:return None
+    result=deepcopy(state)
+    result['facts']['army']=[u for u in result['facts'].get('army',[]) if u['owner']!='野人']
+    return result
+
+
 class CouncilService:
     version='council/1'
 
@@ -24,6 +32,7 @@ class CouncilService:
         self.cfg=deepcopy(cfg)
         self.presentation=services['ui'];self.ui=self.presentation.llm(cfg)
         self._invalidate=services['invalidate'];self._period=None
+        self._notify=services.get('notify',lambda text:None)
         self._government=services['government'];self._review_backend=review_backend
         settings=cfg.get('parliament',{})
         if not isinstance(settings,dict):raise ValueError('parliament settings must be an object')
@@ -108,7 +117,7 @@ class CouncilService:
             else:prompt=self.ui.text('experimental.verdict_continue')
             dialogue.append({'role':'user','content':prompt})
         for _ in range(limit):
-            msg,stats=self._reviewer().chat_turn(deepcopy(dialogue),self.ui.actions(tools),self._review_config())
+            msg,stats=self._reviewer().chat_turn(deepcopy(dialogue),self.ui.actions(tools),self._review_config(),on_retry=lambda attempt,error,wait,total:self._notify(self.ui.text('llm.retry',actor=self.cfg.get('name',player.actor)+'议长',attempt=attempt,error=error,wait=wait,total=total)))
             budget['rounds']+=1
             for key,value in stats.items():
                 if isinstance(value,(int,float)) and not isinstance(value,bool):self.council['usage'][key]=self.council['usage'].get(key,0)+value
@@ -196,17 +205,19 @@ class CouncilService:
         except ValueError:return # The actor may have left the active collection.
         # These are already captured verbatim as event/command records. Avoid
         # copying all old events and monarch summaries after every read query.
-        state['facts'].pop('news',None)
+        for key in ('news','handbooks','building_catalog','unit_catalog','terrain_catalog','land','threats','battle','nations','countries'):
+            state['facts'].pop(key,None)
+        if 'building_sites' in state['facts']:state['facts']['building_sites'].pop('sites',None)
         state['facts']['government'].pop('summaries',None)
+        # Intel payloads are authoritative samples and are added only once.
         events=player.events(self.council['event_cursor'])
         previous=self.council['last_snapshot']
         if previous is None:
-            self.council['archive'].append({'kind':kind,'state':deepcopy(state),'events':events})
+            self.council['archive'].append({'kind':kind,'state':evidence_state(state),'events':events})
         else:
-            changes={key:value for key,value in state['facts'].items() if value!=previous['facts'].get(key)}
+            changes=difference(evidence_state(previous),evidence_state(state))
             if changes or events['items'] or kind in ('turn.start','settlement'):
-                self.council['archive'].append({'kind':kind,'period':state['period'],'can_act':state['can_act'],
-                                               'fact_changes':deepcopy(changes),'events':events})
+                self.council['archive'].append({'kind':kind,'period':state['period'],'changes':changes,'events':events})
         self.council['event_cursor']=events['cursor'];self.council['last_snapshot']=state
 
     def _prepare(self,player):
@@ -223,7 +234,11 @@ class CouncilService:
         self.council['archive'].append({'kind':'action',**deepcopy(row)})
         self._snapshot(player,'after.action')
         if self._takeover:
-            summary=self._briefing(player,[])
+            try:summary=self._briefing(player,[])
+            except Exception as exc:
+                summary='交接摘要生成失败，以下为可核验的最近国策与行动索引：'+encode(self.council['last_plan'])[:4000]
+                self.council['archive'].append({'kind':'briefing.fallback','period':player.observe()['period'],'error':type(exc).__name__})
+                self._notify('议会交接摘要失败，已保留原始证据并使用国策简报继续。')
             replacement=self._government('replace')
             prompt=replacement['message']+self.ui.text('experimental.replacement')
             self.council['succession']={'prompt':prompt,'summary':summary}
@@ -245,7 +260,7 @@ class CouncilService:
             self.council['archive'].append({'kind':'plan.initial','period':obs_period,
                                            'text':candidate,'decision':deepcopy(decision)})
             self.council['last_plan']={'text':candidate,'period':obs_period,'approved':True,
-                                       'state_at_submission':deepcopy(self.council['last_snapshot'])}
+                                       'state_at_submission':evidence_state(self.council['last_snapshot'])}
             self.council['trace_start']=len(self.council['archive'])
             return {**receipt,'ok':True,'status':'effective','code':None,
                     'message':decision['message'],'data':decision}
@@ -253,8 +268,18 @@ class CouncilService:
         if not dialogue:
             dialogue.append({'role':'system','content':self.requirements+self.ui.text('experimental.council',name=self.cfg.get('name',player.actor))})
         # No candidate, monarch reasoning, or post-draft snapshot in step one.
+        read_only={s['function']['name'] for s in player.actions()}-{'build','buy','sell','recruit','move','attack','retreat','disband','plan','end_turn','explain_plan','script_write','script_patch','script_run','send_letter','gift','share_map','spy','borrow','buy_report','vote','declare_war','offer_peace','accept_peace','reject_peace','guarantee','cancel_guarantee','propose_defense','break_defense','accept_proposal','reject_proposal','bloc_found','bloc_join','bloc_leave','bloc_dissolve','bloc_rename','bloc_transfer'}
+        trajectory=[]
+        for row in self.council['archive'][self.council['trace_start']:]:
+            item=deepcopy(row)
+            if item.get('kind')=='action':
+                action=item.get('action');tool=action in read_only
+                if tool:
+                    receipt=item.get('receipt') or {}
+                    item['receipt']={k:receipt.get(k) for k in ('ok','status','code','message')}
+            trajectory.append(item)
         evidence={'previous_plan':self.council['last_plan'],
-                  'trajectory':self.council['archive'][self.council['trace_start']:],
+                  'trajectory':trajectory,
                   'stage':1,'period':obs_period}
         dialogue.append({'role':'user','content':self.ui.text('experimental.review_first')+encode(evidence)})
         # Reviewer sees the same actor-filtered map through the selected UI mod.
@@ -271,7 +296,7 @@ class CouncilService:
                                            'decision':deepcopy(decision),'dialogue':deepcopy(dialogue),
                                            'auto_approved_due_to_paralysis':True})
             self.council['last_plan']={'text':candidate,'period':obs_period,'approved':True,
-                                       'state_at_submission':deepcopy(self.council['last_snapshot'])}
+                                       'state_at_submission':evidence_state(self.council['last_snapshot'])}
             self.council['trace_start']=len(self.council['archive'])
             dialogue.clear()
             return {**receipt,'ok':True,'status':'effective','code':None,
@@ -286,7 +311,7 @@ class CouncilService:
         self.council['archive'].append({'kind':'review','period':obs_period,'assessment':assessment,
                                        'decision':deepcopy(decision),'dialogue':deepcopy(dialogue)})
         self.council['last_plan']={'text':candidate,'period':obs_period,'approved':verdict['approved'],
-                                   'state_at_submission':deepcopy(self.council['last_snapshot'])}
+                                   'state_at_submission':evidence_state(self.council['last_snapshot'])}
         self.council['trace_start']=len(self.council['archive'])
         if verdict['approved']:dialogue.clear()
         elif decision['streak']==3:self._takeover=True

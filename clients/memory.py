@@ -8,6 +8,7 @@ SCHEMA={'type':'function','function':{'name':'memory_search','description':'免�
 
 DATA_LIMIT=600
 HISTORY_LIMIT=240
+PERIOD_TEXT_LIMIT=12000
 
 
 def prose_receipt(receipt):
@@ -40,6 +41,8 @@ def record(history,period,text):
     if not text:return
     if history and history[-1]['period']==period:history[-1]['text']+='\n'+text
     else:history.append({'period':period,'text':text})
+    if len(history[-1]['text'])>PERIOD_TEXT_LIMIT:
+        history[-1]['text']='（本期较早行动超出检索预算，完整记录见行动审计归档）\n'+history[-1]['text'][-PERIOD_TEXT_LIMIT+64:]
     # 记忆可以长，但不能只增不减：存档、观察者快照与每次读档都要为它付钱。
     if len(history)>HISTORY_LIMIT:del history[:-HISTORY_LIMIT]
 

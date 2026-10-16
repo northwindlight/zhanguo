@@ -8,7 +8,7 @@ import math
 
 from .identifiers import content_id
 from .state import active_unit
-from .runtime import ModError
+from .runtime import ModError, DomainRejection
 
 
 @dataclass(frozen=True)
@@ -86,12 +86,12 @@ class Resource:
         self.finite_number(amount)
         if amount < 0:
             raise ValueError('Consumption cannot be negative')
-        return self.amount >= amount
+        return amount == 0 or self.amount >= amount
 
     def consume(self, amount):
         self._write()
         if not self.can_consume(amount):
-            raise ValueError(f'Insufficient {self.id}')
+            raise DomainRejection('资源不足',{'reason':'insufficient_resource','resource':self.id,'required':amount,'available':self.amount})
         self.set_amount(self.amount - amount)
 
     def snapshot(self):

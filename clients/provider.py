@@ -345,7 +345,7 @@ class OpenAICompat:
     def chat_turn(self, messages, tools, cfg, on_retry=None):
         from openai import (APIError, APIConnectionError,
                             APITimeoutError, RateLimitError)
-        retries = int(cfg.get("api_retries", 3))
+        retries = max(1,int(cfg.get("api_retries", 3)))
         backoff = float(cfg.get("api_retry_wait", 2.0))
         last: Exception | None = None
         for attempt in range(1, retries + 1):
@@ -872,7 +872,7 @@ class AnthropicCompat:
         ★ 4xx（鉴权/模型名/参数）直接抛——重试没意义，而抛出去由上层终止本局
           （这是"任何错误都应该直接终止游戏"那条口径，两条提供方一致）。
         """
-        retries = int(cfg.get("api_retries", 3))
+        retries = max(1,int(cfg.get("api_retries", 3)))
         backoff = float(cfg.get("api_retry_wait", 2.0))
         last: Exception | None = None
         for attempt in range(1, retries + 1):

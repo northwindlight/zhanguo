@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:diplomacy"
-Version = "2.2.0"
+Version = "2.3.0"
 Entry = "mods.native.diplomacy.mod:DiplomacyMod"
 Requires = ["native:nations", "native:government", "native:resources", "native:buildings", "native:territory"]
 After = ["native:nations", "native:government", "native:territory"]

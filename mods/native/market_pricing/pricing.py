@@ -28,11 +28,19 @@ class InventoryPricing(PricingEngine):
     nobody's quote depends on what other players did.
     """
     def walk(self, listing, price, quantity, side, volume, reference, policy):
+        try:return self._walk(listing,price,quantity,side,volume,reference,policy)
+        except (OverflowError,ZeroDivisionError):raise ValueError(_OUT_OF_RANGE) from None
+
+    def _walk(self, listing, price, quantity, side, volume, reference, policy):
         integer(quantity, 1);integer(volume)
         elasticity, scale = number(policy.elasticity), number(reference, positive=True)
         # Sum over the units of exp(+-elasticity * s / depth), the one geometric
         # series each direction needs, in closed form.
-        up, down = math.expm1(elasticity / scale), -math.expm1(-elasticity / scale)
+        step=elasticity/scale
+        if step==0:return PricePath(price,self._total(price,quantity,1+policy.spread/2 if side=='buy' else 1-policy.spread/2))
+        if side=='buy':self._finite(elasticity,scale,price,volume,quantity)
+        up = math.expm1(step) if side=='buy' else 0
+        down = -math.expm1(-step)
         if side == 'buy':
             # Buying the s-th unit costs exp(+elasticity * s / scale) times the
             # period's level: the buffer thins, so later units cost more.

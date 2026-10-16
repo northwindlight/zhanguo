@@ -40,7 +40,7 @@ class MapGenerator:
 class MapGenerationMod(GameMod):
     def mixins(self):return ()
     def provides(self):return ('map:generation',)
-    def numbers(self):return VALUES
+    def numbers(self):return {key:value for key,value in VALUES.items() if key!='MAPGEN_SHIFT_MIX'}
     def objects(self, world):
         # Generator cache is derived, scoped to each world, never persisted.
         if not hasattr(world,'_map_generator'):world._map_generator = MapGenerator()

@@ -27,6 +27,7 @@ class MarketMod(GameMod):
             if not self.policy.low <= listing.base_price <= self.policy.high:
                 raise ModError('Opening price outside numerical limits')
 
+    def numbers(self):return {'buffer':dict(self.declaration['Buffer']), 'listings':{r.resource:{'base_price':r.base_price,'depth':r.depth,'initial':r.initial} for r in self.listings}}
     def mixins(self):return ()
     def state_keys(self):return ('market',)
     def needs(self):return ('native:resource-exchange', 'market:pricing')
@@ -84,4 +85,10 @@ class MarketMod(GameMod):
     def _settle(world, context):
         # The buffer alone sets the price: national production and consumption
         # are facts about a nation, not deliveries to the market.
+        churn=[]
+        trades=world.market._period_trades()
+        for owner,resource in sorted({(r.owner,r.resource) for r in trades}):
+            row=world.market.churn(owner,resource)
+            if row.quantity:churn.append((owner,resource,row.quantity,row.loss))
+        context['market_churn']=churn
         context['market_trades'] = world.market.settle()

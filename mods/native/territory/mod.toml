@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:territory"
-Version = "2.1.0"
+Version = "2.2.0"
 Entry = "mods.native.territory.mod:TerritoryMod"
 Requires = ["native:map-generation", "native:nations", "native:buildings"]
 After = ["native:nations", "native:buildings"]

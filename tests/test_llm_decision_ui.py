@@ -34,16 +34,16 @@ class TestDecisionUI(unittest.TestCase):
             ui=h.ui.llm(h.cfg);ui.actions(p.actions());tail,_=ui.state(obs,[]);state=json.loads(tail)
             self.assertEqual(obs,before)
             self.assertNotIn('building_catalog',state['state']['facts'])
-            self.assertIn('costs_by_level',ui.system());self.assertIn('未来',next(s['function']['description'] for s in p.actions() if s['function']['name']=='plan'))
+            self.assertNotIn('costs_by_level',ui.system());self.assertIn('未来',next(s['function']['description'] for s in p.actions() if s['function']['name']=='plan'))
             self.assertIn('一两句',ui.system())
-            self.assertEqual(state['decision']['plan_status'],'须提交国策')
-            self.assertIn('stock_shortfalls_before_production',state['decision'])
-            self.assertIn('army_actions',state['decision']);self.assertIn('diplomacy_todo',state['decision'])
+            self.assertEqual(state['state']['decision']['plan_status'],'须提交国策')
+            self.assertIn('stock_shortfalls_before_production',state['state']['decision'])
+            self.assertIn('army_actions',state['state']['decision']);self.assertIn('diplomacy_todo',state['state']['decision'])
             market=state['state']['facts']['market'];self.assertTrue(market['buy_prices']);self.assertTrue(market['sell_prices'])
             self.assertIsNone(ui.refresh(obs))
             self.assertTrue(p.submit('buy',{'resource':'wood','quantity':2})['ok'])
-            delta=json.loads(ui.refresh(p.observe()).split('：',1)[1]);self.assertIn('econ',delta['facts'])
-            self.assertNotIn('view',delta['facts']);self.assertNotIn('building_catalog',delta['facts'])
+            delta=json.loads(ui.refresh(p.observe()).split('：',1)[1]);self.assertTrue(any(row['path'][:2]==['facts','econ'] for row in delta))
+            self.assertFalse(any(row['path'][:2]==['facts','view'] for row in delta))
 
     def test_llm_receives_fresh_inventory_after_actions_without_extra_queries(self):
         h=self.host();p=h.player(Q)
@@ -52,11 +52,12 @@ class TestDecisionUI(unittest.TestCase):
             {'tool_calls':[call('p','plan',text='经济：保障粮木和能源；军事：集中守边；情报：依据公开事实；外交：维持和平，库存不足时放缓扩张。'),call('e','end_turn',summary='购入木材，完成国策。')]}])
         client=LLMClient(h.cfg,backend=backend,ui=h.ui);client.play(p)
         latest=backend.requests[1][-1]
-        self.assertEqual(latest['role'],'user');self.assertIn('当前状态更新',latest['content'])
-        stocks=json.loads(latest['content'].split('：',1)[1])['facts']['econ']['stocks']
-        self.assertEqual(stocks['木材'],62)
+        self.assertEqual(latest['role'],'user');self.assertIn('状态差分',latest['content'])
+        patches=json.loads(latest['content'].split('：',1)[1])
+        stock=next(row['set'] for row in patches if row['path']==['facts','econ','stocks','木头'])
+        self.assertEqual(stock,62)
         self.assertNotIn('costs_by_level',latest['content'])
-        self.assertIn('公开规则',backend.requests[0][0]['content'])
+        self.assertIn('规则按需',backend.requests[0][0]['content'])
         assert_paired(client.state.replay[0]['messages'])
 
     def test_tile_fog_and_enemy_privacy_and_client_forecast_match_domain(self):

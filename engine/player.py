@@ -8,6 +8,7 @@ import traceback
 
 API_VERSION = 1
 BUILTINS = {
+    'memory_search': ('检索本客户端的历史行动与小结，不包含思考；query 为关键词，limit 默认3。', {'query':{'type':'string','minLength':1},'limit':{'type':'integer','minimum':1,'maximum':8,'default':3}}),
     'player_state': ('本国当前可见事实，按权限过滤；等价于 observe() 的 facts。', {}),
     'player_rules': ('查询本国公开规则和策略指南。缺省或未知 topic 返回目录；传目录标题或主题词查正文，all 查全部。基础指南、经济手册、战争手册、战略手册均可查。', {'topic': {'type': 'string'}}),
     'player_events': ('按游标取本国可见事件；cursor 缺省取全部，返回值带新游标。', {'cursor': {'type': 'integer', 'minimum': 0}}),
@@ -41,12 +42,13 @@ class PlayerSession:
     """
     api_version = API_VERSION
 
-    def __init__(self, runtime, world, actor, lock=None, on_write=None, on_fault=None):
+    def __init__(self, runtime, world, actor, lock=None, on_write=None, on_fault=None, memory_query=None):
         self.__runtime, self.__world = runtime, world
         self.__actor = actor
         self.__lock = lock or runtime._player_lock
         self.__on_write=on_write
         self.__on_fault=on_fault
+        self.__memory_query=memory_query
         self._validate()
 
     @property
@@ -66,7 +68,7 @@ class PlayerSession:
         with self.__lock:
             self._validate()
             result = [{'type':'function','function':{'name':name,'description':description,
-                       'parameters':{'type':'object','properties':properties,'additionalProperties':False}}}
+                       'parameters':{'type':'object','properties':properties,'required':['query'] if name=='memory_search' else [],'additionalProperties':False}}}
                       for name,(description,properties) in BUILTINS.items()]
             for schema in self.__runtime.schemas():
                 name = schema['function']['name']
@@ -87,17 +89,21 @@ class PlayerSession:
             self._validate()
             if arguments is not None and not isinstance(arguments,dict):raise ValueError('Arguments must be an object')
             if name in BUILTINS:
-                methods={'player_state':self.observe,'player_rules':self.rules,'player_events':self.events}
+                methods={'player_state':self.observe,'player_rules':self.rules,'player_events':self.events,'memory_search':self.memory_search}
                 try:inspect.signature(methods[name]).bind(**(arguments or {}))
                 except TypeError as exc:raise ValueError(str(exc)) from exc
                 return wire(methods[name](**(arguments or {})))
             tool = self.__runtime.tools.get(name)
             if tool is None or not tool.read_only:
                 raise ValueError('Query requires a registered read-only action')
-            return wire(self.__runtime.call(self.__world, self.actor, name, arguments or {}))
+            return wire(self.__runtime.call(self.__world,self.actor,name,arguments or {}))
+
+    def memory_search(self,query,limit=3):
+        if not isinstance(query,str) or not query.strip() or type(limit) is not int or not 1<=limit<=8:raise ValueError('需要非空 query，limit 为1—8')
+        return self.__memory_query(query,limit) if self.__memory_query else []
 
     def observe(self):
-        with self.__lock:
+        with self.__lock, self.__runtime.read_scope(self.__world):
             self._validate()
             facts = {}
             for name in self.__runtime.distribution.get('PlayerState', ()):
@@ -135,14 +141,14 @@ class PlayerSession:
                 # programming faults inside a module.
                 code = 'domain_rejected'
                 if not self.__runtime.tools[action].read_only and self.__on_write:self.__on_write()
-                result = self.__runtime.call(self.__world, self.actor, action, arguments or {})
+                result = self.__runtime.call(self.__world,self.actor,action,arguments or {})
             except ValueError as exc:
                 # ValueError 是过渡期的「业务拒绝」通道：模块用它说「钱不够」
                 # 「这一步不允许」。KeyError 不再算这一档——缺一个键几乎总是
                 # 引擎自己的 bug，把它说成「参数错」会替 bug 打掩护。
                 from .runtime import ToolArgumentError
                 if isinstance(exc,ToolArgumentError):code='invalid_arguments'
-                return {**base, 'ok': False, 'status': 'rejected', 'code': code, 'message': str(exc), 'data': None}
+                return {**base, 'ok': False, 'status': 'rejected', 'code': code, 'message': str(exc), 'data': wire(getattr(exc,'details',None))}
             except Exception as exc:
                 # 模块内部的 bug（OverflowError、AttributeError、TypeError…）只作废
                 # 这一次动作。0.1 的分工是「模型动作不合法 → 回执里说清楚；锦上添花
@@ -153,13 +159,13 @@ class PlayerSession:
             except Exception as exc:
                 # 序列化失败发生在动作已经生效之后，绝不能报成 rejected——那会让
                 # 模型以为没写成而重做一次（同一笔买卖收两次钱）。
-                return self._fault(base, exc)
+                return self._fault(base, exc, applied=True)
             status = data.get('status', 'effective') if isinstance(data, dict) else 'effective'
             return {**base, 'ok': status not in ('failed', 'cancelled'), 'status': status,
                     'code': 'action_failed' if status in ('failed', 'cancelled') else None,
                     'message': data.get('message', '') if isinstance(data, dict) else '', 'data': data}
 
-    def _fault(self, base, exc):
+    def _fault(self, base, exc, applied=False):
         """模块内部异常 → 该动作作废、游戏继续；细节交给宿主的故障日志。"""
         detail = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
         if self.__on_fault:
@@ -168,7 +174,7 @@ class PlayerSession:
             except Exception:
                 pass
         return {**base, 'ok': False, 'status': 'failed', 'code': 'internal_fault',
-                'message': f'模块内部错误（{type(exc).__name__}）：本动作作废，游戏继续，详情已记故障日志。',
+                'message': f'模块内部错误（{type(exc).__name__}）：'+('动作已执行，但结果无法编码；不要重复执行。' if applied else '本次执行中断，请先查询状态确认已生效部分。')+'游戏继续，详情已记故障日志。',
                 'data': None}
 
     def events(self, cursor=0):

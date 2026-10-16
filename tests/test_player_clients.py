@@ -95,7 +95,7 @@ class TestPlayerClients(unittest.TestCase):
         self.assertEqual(prefix[:len(backend.requests[5])],backend.requests[5])
         self.assertEqual(prefix[len(backend.requests[5]):],client.state.replay[-1]['messages'][1:])
         self.assertIn('已有长期盟约',compression[-1]['content'])
-        self.assertTrue(any(s['function']['name']=='end_turn' for s in tools))
+        self.assertEqual(tools,[]) # Compression cannot execute tools.
         self.assertEqual(client.state.long_memory,'持续发展经济，记住已生效条约与待办事项。')
         self.assertFalse(hasattr(w,'long_memory'));self.assertEqual(len(client.state.blocks),1)
         self.assertEqual(len(client.state.history),6)
@@ -112,12 +112,12 @@ class TestPlayerClients(unittest.TestCase):
                 notices=[]
                 with patch.object(backend,'complete_text',side_effect=complete) as mocked:
                     for _ in range(6):client.play(w.runtime.player(w,Q),emit=notices.append);w.resolve_turn();w.phase='行动'
-                self.assertEqual(mocked.call_count,1 if failure=='provider' else 10);self.assertTrue(mocked.call_args.kwargs['tools'])
+                self.assertEqual(mocked.call_count,1 if failure=='provider' else 10);self.assertEqual(mocked.call_args.kwargs['tools'],[])
                 self.assertEqual(client.state.long_memory,'原有盟约')
                 self.assertEqual(len(client.state.replay),1);self.assertEqual(len(client.state.history),6)
                 block=client.state.blocks[0]
                 self.assertEqual((block['from'],block['to']),(0,4))
-                self.assertEqual(block['text'],'\n'.join(row['text'] for row in client.state.summaries[:5]))
+                self.assertEqual(block['text'],'\n'.join(f'第{row["turn"]}期：{row["text"]}' for row in client.state.summaries[:5]))
                 self.assertTrue(any('记忆压缩失败' in text for text in notices))
                 self.assertEqual(client.state.usage,{'hit':60 if failure=='provider' else 140,'miss':12 if failure=='provider' else 22})
                 self.assertEqual(LLMState.from_save(client.state.to_save()).to_save(),client.state.to_save())
@@ -133,7 +133,7 @@ class TestPlayerClients(unittest.TestCase):
         with patch.object(backend,'complete_text',side_effect=[('',{'hit':8,'miss':1}),('  ',{'hit':8,'miss':1}),(summary,{'hit':8,'miss':1})]) as mocked:
             for _ in range(6):client.play(w.runtime.player(w,Q),emit=notices.append);w.resolve_turn();w.phase='行动'
         self.assertEqual(mocked.call_count,3)
-        self.assertTrue(all(call.kwargs['tools'] for call in mocked.call_args_list))
+        self.assertTrue(all(call.kwargs['tools']==[] for call in mocked.call_args_list))
         self.assertEqual(mocked.call_args_list[0],mocked.call_args_list[2])
         self.assertEqual(client.state.long_memory,summary);self.assertEqual(client.state.blocks[0]['text'],summary)
         self.assertEqual(client.state.usage,{'hit':84,'miss':15})

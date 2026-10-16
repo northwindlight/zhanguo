@@ -12,11 +12,14 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+import uuid
+import hashlib
 from .player import wire
 from .api import BoundPlayer, api_entry
 from .runtime import ModError
 
-SAVE_FORMAT='zhanguo.session/2'
+SAVE_FORMAT='zhanguo.session/3'
+AUDIT_LIMIT=2048
 class SaveFormatError(ValueError):pass
 
 def write_json(path,data):
@@ -38,11 +41,11 @@ class Session:
         from ui import load_ui
         self.ui=load_ui(self.cfg,runtime=runtime)
         self.clients={};self.roster={};self.lock=threading.RLock();self.last_results=[]
-        self.scenario_text='';self._boundary=True
-        self.audit=[];self.generations={};self.contexts={};self.services={}
+        self.scenario_text='';self.opening_guide=self.cfg.get('opening_guide',True);self._boundary=True
+        self.audit=[];self._audit_next=1;self._audit_stream=uuid.uuid4().hex;self._audit_archived={};self.generations={};self.contexts={};self.services={}
         # 模块内部异常（internal_fault）：本局运行期的故障日志，不进存档。
         self.faults=[]
-        self._callbacks=None
+        self._callbacks=None;self._emit=None
         for item in self.entries():
             policy=runtime.find_policy(item.get('polity')) if item.get('polity') else None
             if item.get('polity') and policy is None:raise ValueError('Configured scope module is not loaded')
@@ -176,8 +179,11 @@ class Session:
     def join(self,item,position):
         previous=self.world;candidate=self.runtime.world_class()()
         self.runtime.load_mod_state(candidate,self.runtime.save_mod_state(previous))
+        for unit in self.runtime.units.values():
+            pending=getattr(unit.mod,'pending_archive',None);restore=getattr(unit.mod,'restore_archive',None)
+            if callable(pending) and callable(restore):restore(candidate,wire(pending(previous)))
         state=(dict(self.roster),dict(self.clients),dict(self.services),
-               deepcopy(self.generations),deepcopy(self.contexts),deepcopy(self.audit),self._boundary)
+               deepcopy(self.generations),deepcopy(self.contexts),deepcopy(self.audit),self._audit_next,self._boundary)
         self.world=candidate
         try:
             actor=self.register(item,position)
@@ -185,11 +191,11 @@ class Session:
             return actor
         except Exception:
             self.world=previous
-            (self.roster,self.clients,self.services,self.generations,self.contexts,self.audit,self._boundary)=state
+            (self.roster,self.clients,self.services,self.generations,self.contexts,self.audit,self._audit_next,self._boundary)=state
             raise
 
     def _grants(self,item,declarations):
-        grants={'ui':self.ui}
+        grants={'ui':self.ui,'notify':lambda text:self._emit(text) if self._emit else None}
         for alias,spec in declarations.items():
             capability=spec['Capability'];methods=tuple(spec['Methods'])
             owner=self.runtime.capabilities.get(capability)
@@ -234,7 +240,8 @@ class Session:
         for key in ('extra_prompt','extra_summary'):
             if not cfg.get(key) and cfg.get(key+'_file'):
                 cfg[key]=Path(cfg[key+'_file']).read_text(encoding='utf-8')
-        if self.scenario_text:cfg['extra_summary']=self.scenario_text+'\n'+str(cfg.get('extra_summary',''))
+        cfg['opening_guide']=self.opening_guide and cfg.get('opening_guide',True)
+        if self.scenario_text:cfg['extra_prompt']=self.scenario_text+'\n'+str(cfg.get('extra_prompt',''))
         return cfg
 
 
@@ -242,7 +249,18 @@ class Session:
     def _fault(self,action,exc,detail):
         self.faults.append({'period':self.clock(),'action':action,'type':type(exc).__name__,
                             'message':str(exc),'detail':detail})
-    def raw_player(self,actor):return self.runtime.player(self.world,actor,lock=self.lock,on_write=self._dirty,on_fault=self._fault)
+    def raw_player(self,actor):return self.runtime.player(self.world,actor,lock=self.lock,on_write=self._dirty,on_fault=self._fault,memory_query=lambda query,limit:self.search_memory(actor,query,limit))
+    def search_memory(self,actor,query,limit=3):
+        search=getattr(self.clients.get(actor),'search_memory',None)
+        if callable(search):return search(query,limit)
+        matches=[]
+        for row in reversed(self.audit):
+            if row['actor']!=actor or row['action']=='memory_search':continue
+            text=json.dumps({'action':row['action'],'arguments':row['arguments'],'message':(row.get('receipt') or {}).get('message','')},ensure_ascii=False)
+            if query.casefold() in text.casefold():matches.append({'period':(row.get('receipt') or {}).get('period',0),'context':text[:600]})
+            if len(matches)>=limit:break
+        return matches
+
     def player(self,actor):
         with self.lock:
             self.raw_player(actor)
@@ -274,10 +292,10 @@ class Session:
         except (TypeError,ValueError):return {'invalid_type':type(value).__name__}
 
     def record(self,player,action,arguments,receipt,error=None):
-        row={'id':len(self.audit)+1,'actor':player.actor,'generation':player.generation,
+        row={'id':self._audit_next,'actor':player.actor,'generation':player.generation,
              'action':self._audit_value(action),'arguments':self._audit_value(arguments),'receipt':wire(receipt)}
         if error:row['error']={'type':type(error).__name__,'message':str(error)}
-        self.audit.append(row)
+        self.audit.append(row);self._audit_next+=1
         try:
             for service in self.services[player.actor].values():
                 handler=getattr(service,'record',None)
@@ -295,13 +313,13 @@ class Session:
             if handler:handler(player,wire(messages))
 
     def cycle(self,*,on_result=None,emit=None,head=None,on_call=None):
-        self.scheduled();receipts=[];self._boundary=False;self._callbacks=on_result
+        self.scheduled();receipts=[];self._boundary=False;self._callbacks=on_result;self._emit=emit
         try:
             for actor in self.turn_order():
                 client=self.clients[actor];transitions=0
                 while True:
                     player=self.player(actor);generation=player.generation
-                    if not player.observe()['can_act']:break
+                    if not player.action_state()['can_act']:break
                     if client.kind=='rule':
                         cfg=next(n for n in self.entries() if n['id']==actor)
                         receipts.extend(client.play(player,max_actions=cfg.get('max_actions')))
@@ -320,44 +338,78 @@ class Session:
                 if settled:settled(self.player(actor))
             self.last_results=receipts;self._boundary=True
             return receipts
-        finally:self._callbacks=None
+        finally:self._callbacks=None;self._emit=None
 
     def to_save(self):
         if not self._boundary or self.world.phase!='行动':raise SaveFormatError('Save only at an action boundary')
         self.validate_boundary()
         return {'format':SAVE_FORMAT,'dependencies':self.runtime.dependency_manifest(),
                 'modules':self.runtime.save_mod_state(self.world),
-                'host':{'roster':deepcopy(self.roster),'scenario_text':self.scenario_text,
-                        'generations':deepcopy(self.generations),'contexts':deepcopy(self.contexts),'audit':deepcopy(self.audit),
+                'host':{'roster':deepcopy(self.roster),'scenario_text':self.scenario_text,'opening_guide':self.opening_guide,
+                        'generations':deepcopy(self.generations),'contexts':deepcopy(self.contexts),'audit':deepcopy(self.audit[-AUDIT_LIMIT:]),'audit_next':self._audit_next,'audit_stream':self._audit_stream,
                         'services':{a:{n:s.to_save() for n,s in services.items()} for a,services in self.services.items()}},
                 'clients':{actor:client.to_save() for actor,client in self.clients.items()}}
 
-    def save(self,path):write_json(path,self.to_save())
+    def save(self,path):
+        data=self.to_save() # Validate the boundary before creating any artifacts.
+        path=Path(path);archive=path.with_suffix(path.suffix+'.audit')/self._audit_stream
+        cursor=self._audit_archived.get(str(path.resolve()),0)
+        pending=[row for row in self.audit if row['id']>cursor]
+        if pending:
+            target=archive/f'{pending[0]["id"]:012d}-{pending[-1]["id"]:012d}.json'
+            payload={'format':'zhanguo.audit/1','records':pending}
+            if target.exists():
+                if json.loads(target.read_text(encoding='utf-8'))!=payload:raise SaveFormatError('Audit archive segment conflicts with this session')
+            else:write_json(target,payload)
+            self._audit_archived[str(path.resolve())]=pending[-1]['id']
+        archives=[]
+        for name in self.runtime.order:
+            mod=self.runtime.units[name].mod;pending=getattr(mod,'pending_archive',None)
+            if not callable(pending):continue
+            rows=wire(pending(self.world))
+            if not rows:continue
+            payload={'format':'zhanguo.domain-history/1','module':name,'records':rows}
+            digest=hashlib.sha256(json.dumps(payload,sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:16]
+            target=archive/name.replace(':','_')/f'{min(r["period"] for r in rows):012d}-{max(r["period"] for r in rows):012d}-{digest}.json'
+            if target.exists():
+                if json.loads(target.read_text(encoding='utf-8'))!=payload:raise SaveFormatError('Domain history segment conflicts with this session')
+            else:write_json(target,payload)
+            archives.append(mod)
+        write_json(path,data)
+        for mod in archives:mod.archive_committed(self.world)
+        self.audit=self.audit[-AUDIT_LIMIT:]
+
 
     def restore(self,data):
         if not isinstance(data,dict) or set(data)!={'format','dependencies','modules','host','clients'} or data['format']!=SAVE_FORMAT:
             raise SaveFormatError('Unsupported session format')
         self.runtime.check_save_dependencies(data['dependencies'])
         self.runtime.load_mod_state(self.world,data['modules'])
-        saved=data['host'];keys={'roster','scenario_text','generations','contexts','audit','services'}
+        saved=data['host'];keys={'roster','scenario_text','opening_guide','generations','contexts','audit','audit_next','audit_stream','services'}
         if not isinstance(saved,dict) or set(saved)!=keys or not isinstance(saved['scenario_text'],str):raise SaveFormatError('Invalid session state')
+        if type(saved['opening_guide']) is not bool:raise SaveFormatError('Invalid opening guide switch')
+        self.opening_guide=saved['opening_guide']
         roster=saved['roster'];clients=data['clients'];actors=set(self.identities())
         if not isinstance(roster,dict) or not isinstance(clients,dict) or set(roster)!=actors or set(clients)!=actors:
             raise SaveFormatError('Client and actor identities disagree')
         for key in ('generations','contexts','services'):
             if not isinstance(saved[key],dict) or set(saved[key])!=actors:raise SaveFormatError('Invalid actor service state')
         if any(type(g) is not int or g<0 for g in saved['generations'].values()):raise SaveFormatError('Invalid actor generation')
-        if not isinstance(saved['audit'],list) or any(not isinstance(r,dict) or r.get('id')!=i+1 or r.get('actor') not in actors for i,r in enumerate(saved['audit'])):
+        if not isinstance(saved['audit_stream'],str) or len(saved['audit_stream'])!=32 or any(c not in '0123456789abcdef' for c in saved['audit_stream']):raise SaveFormatError('Invalid audit stream identity')
+        self._audit_stream=saved['audit_stream']
+        audit_next=saved['audit_next']
+        if type(audit_next) is not int or audit_next<1 or not isinstance(saved['audit'],list) or len(saved['audit'])>AUDIT_LIMIT or len(saved['audit'])>=audit_next or any(not isinstance(r,dict) or r.get('id')!=audit_next-len(saved['audit'])+i or r.get('actor') not in actors for i,r in enumerate(saved['audit'])):
             raise SaveFormatError('Invalid audit trail')
         self.scenario_text=saved['scenario_text'];self.roster=deepcopy(roster)
         if any(not isinstance(context,dict) for context in saved['contexts'].values()):raise SaveFormatError('Invalid actor context')
-        self.generations=deepcopy(saved['generations']);self.contexts=wire(saved['contexts']);self.audit=wire(saved['audit'])
+        self.generations=deepcopy(saved['generations']);self.contexts=wire(saved['contexts']);self.audit=wire(saved['audit']);self._audit_next=audit_next
         config={n['id']:n for n in self.entries()}
         for actor,row in roster.items():
             if actor not in config or not isinstance(row,dict) or set(row)!={'name','joined_at'} or not isinstance(row['name'],str) or type(row['joined_at']) is not int or not 0<=row['joined_at']<=self.clock():
                 raise SaveFormatError('Invalid configured actor or arrival state')
             self.services[actor]=self._services(config[actor],saved['services'][actor])
             self.clients[actor]=self._client(config[actor],clients[actor],row['joined_at'])
+        self._boundary=True
         self.to_save()
 
     def board(self):

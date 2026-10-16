@@ -119,8 +119,7 @@ class Observer:
             to_journal(self.path,full)
             preview=getattr(self.ui.console,'preview',None)
             echo_line(preview(full,action=action) if callable(preview) else full)
-            # Archive the original receipt as well as the full translated display.
-            to_journal(self.path,'```json\n'+json.dumps({**receipt,'arguments':args},ensure_ascii=False)+'\n```')
+
     def on_call(self,actor,step,receipts):
         self.line(self.ui.text('console.call',actor=self.host.roster[actor]['name'],count=step+1));self.flush(actor)
         self.events()
@@ -320,22 +319,27 @@ def run(argv=None):
                        head=observer.context_head,on_call=observer.on_call)
             report_faults(host,observer,ui,journal_path)
             for actor in list(observer.pending):observer.flush(actor)
-            observer.events();observer.line(observer.board());host.save(save_path)
+            observer.events();ending=observer.snapshot() if callable(getattr(host,'observer_snapshot',None)) else None
+            observer.line(ui.console.overview(ending) if ending else observer.board());host.save(save_path)
             if callable(getattr(host,'observer_snapshot',None)):
                 map_path=journal_path.with_suffix('.map.txt')
-                map_path.write_text(ui.observer_map(observer.snapshot()),encoding='utf-8')
+                map_path.write_text(ui.observer_map(ending),encoding='utf-8')
             if CONSOLE is not None:CONSOLE.clear_panel()
             if observer.stop_requested:break
+            finished=getattr(host,'finished',None)
+            if callable(finished) and finished():break
         host.save(save_path)
         observer.line(ui.text('console.finish',period=host.clock(),path=save_path))
         return 0
     except KeyboardInterrupt:
-        observer.notice(ui.text('console.interrupt'));return 130
+        if CONSOLE is not None:CONSOLE.close();CONSOLE=None
+        observer.line(ui.text('console.interrupt'));return 130
     except Exception as exc:
         # 停机是最后手段：留下回合号、完整 traceback 和续局办法，别只留一行被擦掉的字。
         to_journal(journal_path,ui.text('console.failure_detail',kind=type(exc).__name__,error=exc,
                                         period=host.clock(),detail=traceback.format_exc()))
-        observer.notice(ui.text('console.failure',kind=type(exc).__name__,error=exc,
+        if CONSOLE is not None:CONSOLE.close();CONSOLE=None
+        observer.line(ui.text('console.failure',kind=type(exc).__name__,error=exc,
                                 period=host.clock(),path=save_path));return 1
     finally:
         if CONSOLE is not None:CONSOLE.close();CONSOLE=None

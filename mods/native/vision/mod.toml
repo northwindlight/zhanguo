@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:vision"
-Version = "1.0.0"
+Version = "1.1.0"
 Entry = "mods.native.vision.mod:VisionMod"
 Requires = ["native:territory", "native:diplomacy", "native:buildings"]
 [Capabilities]

@@ -33,14 +33,11 @@ class ToolcallParity(unittest.TestCase):
                 service=h.services[Q]['council']
                 self.assertEqual(service._manual(p,'基础指南')['body'],basics)
             ui=h.ui.llm(h.cfg);ui.rules(p.rules('all'));obs=p.observe();ui.state(obs,[])
-            def titles():
-                raw=ui.system().split('公开规则与当前阶段指南',1)[1].split('：',1)[1].split('\n',1)[0]
-                return {r['title'] for r in json.loads(raw)}
-            self.assertTrue({'基础指南','经济手册'}<=titles())
-            self.assertNotIn('战争手册',titles());self.assertNotIn('战略手册',titles())
-            obs['period']=20;obs['facts']['diplomacy']['wars']=[{'attackers':[Q],'defenders':[C]}]
-            ui.state(obs,[])
-            self.assertNotIn('基础指南',titles());self.assertTrue({'经济手册','战争手册'}<=titles())
+            self.assertIn('规则按需',ui.system())
+            self.assertNotIn(basics,ui.system())
+            obs['period']=20;ui.state(obs,[])
+            self.assertNotIn(basics,ui.system())
+            self.assertTrue(p.rules('经济手册'))
 
     def test_tool_descriptions_and_input_constraints(self):
         for experimental in (False,True):
@@ -109,7 +106,7 @@ class ToolcallParity(unittest.TestCase):
         self.assertEqual(p.query('intel',{'kind':'letter'}),[])
         self.assertFalse(p.submit('intel',{'kind':'hidden'})['ok'])
         p.submit('declare_war',{'target':C});w.resolve_turn();w.phase='行动'
-        self.assertTrue(p.submit('offer_peace',{'target':C,'note':'停战建设，互不侵犯。'})['ok'])
+        self.assertTrue(p.submit('offer_peace',{'target':C,'kind':'white','note':'停战建设，互不侵犯。'})['ok'])
         w.resolve_turn();w.phase='行动'
         offer=p.query('diplomacy')['offers'][0]
         self.assertIn(['note','停战建设，互不侵犯。'],offer['arguments'])
@@ -129,16 +126,18 @@ class ToolcallParity(unittest.TestCase):
             'tool_calls':[call('p','plan',text='保障粮食生产，建设农场。')]},
             {'tool_calls':[call('m','memory_search',query='农场'),call('e','end_turn',summary='制定粮食国策。')]}])
         client=LLMClient(h.cfg,backend=backend,ui=h.ui)
+        h.clients[Q]=client
         receipts=client.play(p)
         self.assertIn('memory_search',{s['function']['name'] for s in backend.tools})
-        self.assertNotIn('memory_search',{s['function']['name'] for s in p.actions()})
+        self.assertIn('memory_search',{s['function']['name'] for s in p.actions()})
         self.assertIn('农场',receipts[1]['data'][0]['context'])
         self.assertNotIn('SECRET_PRIVATE_THOUGHT',json.dumps(client.state.history))
         self.assertNotIn('memory_search',json.dumps(client.state.history))
         for args in ({},{'query':' '},{'query':'农场','limit':True},{'query':'农场','limit':9},{'query':'农场','actor':C}):
             self.assertEqual(client._submit(p,'memory_search',args)['code'],'invalid_arguments')
         fresh=LLMClient(h.cfg,ui=h.ui)
-        self.assertEqual(fresh._submit(p,'memory_search',{'query':'农场'})['data'],[])
+        self.assertEqual(fresh.search_memory('农场'),[])
+        self.assertTrue(p.query('memory_search',{'query':'农场'}))
         loaded=LLMState.from_save(client.state.to_save());loaded.replay.clear()
         self.assertTrue(memory.search(loaded.history,'农场'))
         h.clients[Q]=client

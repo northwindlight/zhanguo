@@ -31,7 +31,7 @@ class TestNativeDistribution(unittest.TestCase):
         runtime=Runtime.load(ROOT/'mods.toml');direct=Runtime.load(ROOT/'mods/native')
         self.assertEqual(runtime.dependency_manifest(),direct.dependency_manifest())
         self.assertEqual(runtime.distribution['Id'],'native')
-        self.assertEqual(runtime.distribution['Version'],'4.2.0')
+        self.assertEqual(runtime.distribution['Version'],'4.3.0')
         self.assertEqual(set(runtime.units),{'ui:standard','native:handbooks','native:resources','native:buildings','native:market',
                          'native:market-pricing','native:economy','native:economy-valuation',
                          'native:bank','native:economy-queries','native:nations','native:government','native:map-generation',
@@ -44,7 +44,7 @@ class TestNativeDistribution(unittest.TestCase):
         self.assertTrue({'build','buy','sell','market','econ','bank','borrow','nation','nations',
             'plan','end_turn','land','view','declare_war','offer_peace','vote','recruit','attack',
             'retreat','army','send_letter','gift','spy','news','intel'} <= set(runtime.tools))
-        self.assertEqual(len(runtime.schemas()),58)
+        self.assertEqual(len(runtime.schemas()),60)
         world=runtime.world_class()()
         self.assertEqual(world.economy_actors,())
         self.assertEqual(world.nation_actors,())
@@ -93,7 +93,7 @@ class TestNativeDistribution(unittest.TestCase):
         world.phase='行动';cash=world.resources.balance('native:qin','native:gold')
         loan=self.call(world,'borrow');purchase=self.call(world,'buy_report',target='native:chu')
         self.assertEqual(loan.principal,50)
-        self.assertEqual(world.resources.balance('native:qin','native:gold'),cash+50-20)
+        self.assertEqual(world.resources.balance('native:qin','native:gold'),cash+50-20-10)
         self.assertEqual(purchase.report.owner,'native:chu')
         self.assertEqual(self.call(world,'bank').purchases,(purchase,))
         world.resolve_turn();row=world.economy.turns('native:qin')[-1]
@@ -156,7 +156,7 @@ class TestNativeDistribution(unittest.TestCase):
             self.assertEqual(world.resources.balance('native:qin','example:tea'),2)
             self.assertNotIn('example:tea',dict(self.call(world,'market').prices))
             self.assertEqual(world.economy.turns('native:qin')[-1].gdp.unpriced,('example:tea',))
-            self.assertIsNone(self.call(world,'bank').credit_limit)
+            self.assertIsNotNone(self.call(world,'bank').credit_limit)
             schema=runtime.tools['build'].schema()['function']['parameters']
             self.assertIn('example:tea-garden',schema['properties']['kind']['enum'])
             world.phase='行动';before=self.save(world)

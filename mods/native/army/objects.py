@@ -298,6 +298,7 @@ class Units(list):
         self.next_code=restored.next_code;self.engage_seq=restored.engage_seq
     @classmethod
     def from_save(cls,data,*,size,definitions=None):
+        if not isinstance(data,dict) or not {'armies','next_army_seq','nation_code','guard_once'}<=set(data) or set(data)-{'armies','next_army_seq','nation_code','guard_once','engage_sequence'} or not isinstance(data['armies'],list) or not isinstance(data['guard_once'],list):raise ValueError('Invalid units save fields')
         result=cls(size,definitions=definitions)
         result.extend(Unit.from_save(u,size=size,definitions=result._definitions) for u in data['armies'])
         for key in ('nation_code','next_army_seq'):

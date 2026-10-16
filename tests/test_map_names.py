@@ -18,8 +18,9 @@ class TestMapNames(unittest.TestCase):
     def test_names_are_unique_complete_and_derived_from_the_map(self):
         names = self.grid()
         self.assertTrue(names)
-        self.assertEqual(len(set(names.values())), len(names))
-        self.assertTrue(all(isinstance(name, str) and name for name in names.values()))
+        self.assertEqual(len(set(n for n in names.values() if n)), sum(bool(n) for n in names.values()))
+        self.assertTrue(all(isinstance(name,str) for name in names.values()))
+        self.assertIn('',names.values())
         # Same map, same names; another seed is another map.
         self.assertEqual(self.grid(), names)
         self.assertNotEqual(self.grid(seed=74), names)
@@ -58,7 +59,7 @@ class TestMapNames(unittest.TestCase):
                 {'site': f"{land[1]['tile']['position'][0]} {land[1]['tile']['position'][1]}"},
                 {'x': land[2]['tile']['position'][0], 'y': land[2]['tile']['position'][1]}]
         for ref in refs:
-            receipt = player.submit('build', {'kind': 'native:farm', **ref})
+            receipt = player.submit('build', {'kind': 'native:castle', **ref})
             self.assertTrue(receipt['ok'], receipt['message'])
         # 移动：地名与两个整数给出同一份回执。
         target = land[1]['tile']

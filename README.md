@@ -2,7 +2,7 @@
 
 战国是一款面向 LLM 决策的回合制大战略游戏。各国在同一世界中经营经济、组织军队、处理外交并争夺生存空间；人类可以观察、发出公告与来信，也可以研究模型在长局中的决策和失误。
 
-当前版本 **0.2.2**。`main` 来自原 `正规化` 分支，采用模块化架构。旧版单体实现保存在 [`legacy`](https://github.com/northwindlight/zhanguo/tree/legacy)。[English](README.en.md)
+当前版本 **0.2.3**，包含 [实现审计修复](docs/错误实现-修复验收.md)。`main` 来自原 `正规化` 分支，采用模块化架构。旧版单体实现保存在 [`legacy`](https://github.com/northwindlight/zhanguo/tree/legacy)。[English](README.en.md)
 
 ## 真实对局资料
 
@@ -25,7 +25,7 @@
 - **玩家客户端**：LLM 与 `v11plus` 规则 AI 使用同一绑定身份的 API，消费结构化事实和行动回执。
 - **界面**：独立 UI Mod 编排提示、语言文案、终端面板和玩家可见的文字、SVG、PNG 地图。
 
-默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.5.0-beta.1`：
+默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.6.0-beta.1`：
 
 - 独立议长分两步审核国策，核对事实、情报和经济、外交、军事承诺；连续三回合未通过后罢免君主并重建记忆。
 - 市场采用实际交付的有限库存，以及库存偏差反馈报价。
@@ -51,7 +51,9 @@ Windows 可使用 `start.ps1`。启动脚本建立本地虚拟环境并安装依
 ./start.sh --config mp_config.json --turns 10
 ```
 
-`--new` 会覆盖指定目标存档。`--turns` 表示运行到的周期号。保存只发生在完整结算边界，调用失败时保留最近完整存档。当前格式为 `zhanguo.session/2`；1.0 之前不承诺旧档兼容，不提供自动迁移，模块依赖不一致时拒绝混载。
+`--new` 会覆盖指定目标存档。`--turns` 表示运行到的周期号。保存只发生在完整结算边界，调用失败时保留最近完整存档。当前格式为 `zhanguo.session/3`；1.0 之前不承诺旧档兼容，不提供自动迁移，模块依赖不一致时拒绝混载。
+
+终局成绩单：`python settlement.py --save 专用存档.json --table`；生成报告用 `--no-chat --out 报告.md`，结算厅另需外部模型配置。保存时同目录的 `<存档>.audit/` 留存动作与领域历史，备份整局时一并复制。坐标统一从 **0** 开始。
 
 ## 八国剧本与观察者
 
@@ -79,11 +81,11 @@ python -m scenarios.eight_nations --seed 20260921
 .venv/bin/python -m unittest discover -s tests -q
 ```
 
-最近代码回归为 428 项离线测试通过，覆盖模块替换、合成对局、存取一致性、API 权限、议会、市场、沙盒与 UI。测试使用模拟模型后端；真实对局资料单独存放，不作为自动化测试输入。
+最近代码回归为 524 项离线测试通过，覆盖模块替换、合成对局、存取一致性、API 权限、议会、市场、沙盒与 UI。测试使用模拟模型后端；真实对局资料单独存放，不作为自动化测试输入。
 
 ## 代码入口
 
-根目录 Python 文件仅保留 `host.py`（装配发行版 Session）和 `mp_run.py`（CLI）。上下文与模型接入在 `clients/`，规则客户端在 `ruleai/`，终端传输在 `ui/terminal.py`，显示与地图在 `mods/ui/`，地图生成在 `mods/native/map_generation/`。旧转口、旧领域实现和退役实验使用 legacy 分支及对应历史提交查阅。
+根目录 Python 入口为 `host.py`（装配发行版 Session）、`mp_run.py`（CLI）与 `settlement.py`（终局结算）。上下文与模型接入在 `clients/`，规则客户端在 `ruleai/`，终端传输在 `ui/terminal.py`，显示与地图在 `mods/ui/`，地图生成在 `mods/native/map_generation/`。旧转口、旧领域实现和退役实验使用 legacy 分支及对应历史提交查阅。
 
 [游戏说明书](docs/游戏说明书.md) 直接导出发行版声明：`python -m docs.generate_manual`；检查同步用 `--check`，选择其他发行版用 `--mods` 并指定 `--output`。
 

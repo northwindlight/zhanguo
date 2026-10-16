@@ -17,7 +17,7 @@ class ValuationService:
     def quote(self, amounts, side='mid'):
         if not isinstance(amounts,Mapping):raise ValueError('Expected valuation amounts')
         if side not in ('mid','buy','sell'):raise ValueError('Invalid valuation side')
-        market = self._call('native:market','snapshot')
+        market = self._call('native:market','summary')
         prices = dict(market.prices)
         if market.currency!=self._currency:raise ValueError('Valuation and market currencies differ')
         result = []

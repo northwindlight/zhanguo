@@ -2,12 +2,15 @@
 import json
 from copy import deepcopy
 from .i18n import Translator
+from .console import ConsoleUI
 from .maps import snapshot,owner_color
 from .views import player_atlas, player_map
+from .deltas import difference
+from clients.context import est_tokens
 
 
 class LLMUI:
-    def __init__(self,cfg):self.cfg=cfg;self.text=Translator.from_config(cfg);self.sites={};self.has_scripts=False;self.catalogs={};self.current=None;self.rulebook=[];self.guide_catalog=[];self.period=0;self.at_war=False
+    def __init__(self,cfg):self.cfg=cfg;self.text=Translator.from_config(cfg);self.sites={};self.has_scripts=False;self.catalogs={};self.current=None;self.rulebook=[];self.guide_catalog=[];self.period=0;self.at_war=False;self.polity=None;self.receipts=ConsoleUI(cfg)
 
     def values(self):
         """短键 → 本地化键值（金/木/粮/农场/步兵…）。语言一换，模型看到的键值就换。"""
@@ -55,20 +58,20 @@ class LLMUI:
         return result
 
     def receipt(self,receipt):
-        return json.dumps(self.compact(receipt),ensure_ascii=False,separators=(',',':'))
+        presented=deepcopy(receipt)
+        # Same rejection translator as the observer, retaining structured data
+        # for scripts and subsequent decisions.
+        if not receipt.get('ok'):presented['message']=self.receipts.label('receipt',receipt.get('message',''))
+        return json.dumps(self.compact(presented),ensure_ascii=False,separators=(',',':'))
 
     def system(self):
         text=self.text('llm.system')+'\n'+str(self.cfg.get('system_prompt') or '')+'\n'+str(self.cfg.get('extra_summary') or '')
         text+='\n国策是跨回合战略：经济、军事、情报、外交的目标、优先级、资源约束和调整条件应充分说明。end_turn 的 summary 只用一两句写实际结果，详细流水已有回执。先阅读当前状态和行动简报；已有资料无需重复查询。互不依赖的工具可在同一批调用，依赖前一步结果的行动等待回执。坐标只用于实际动作与 tile 单格详情，其余查询按全国或整类返回。'
-        guides={g['title']:g for g in self.guide_catalog}
-        def include(section):
-            guide=guides.get(section['title'])
-            if not guide:return True
-            when=guide['prompt_when']
-            return when=='always' or when=='opening' and self.period<self.cfg.get('joined_at',0)+guide['opening_periods'] or when=='war' and self.at_war
-        active=[section for section in self.rulebook if include(section)]
-        if active:text+='\n公开规则与当前阶段指南（已提供内容无需重复查询；其他指南可随时按标题查）：'+json.dumps(active,ensure_ascii=False,separators=(',',':'))
-        if self.catalogs:text+='\n常备资料（内容优先使用短键值；发生冲突时才用命名空间）：'+json.dumps(self.compact(self.catalogs),ensure_ascii=False,separators=(',',':'),sort_keys=True)
+        # The model can fetch every rule/catalog by tool. Only explicitly
+        # registered role guidance belongs in the stable prompt.
+        active=[section for section in self.rulebook if section['title'] in ('匈奴政体',)]
+        if active:text+='\n'+json.dumps(active,ensure_ascii=False,separators=(',',':'))
+        text+='\n规则按需用 player_rules(topic)，兵种/建筑/地形用 unit_catalog/building_catalog/terrain_catalog，地块用 land/tile，完整地图用 view，历史近讯用 news，情报用 intel，国策正文用 government，完整经济与资产用 econ，已购报表用 bank。'
         if self.has_scripts:text+='\n'+self.text('llm.scripting')
         return text
 
@@ -89,10 +92,8 @@ class LLMUI:
                     else:localize(value)
             elif isinstance(node,list):
                 for value in node:localize(value)
-        def rewrite(text):
-            for key in sorted(values,key=len,reverse=True):
-                text=re.sub(r'(?<![\w:-])'+re.escape(key)+r'(?![\w:-])',values[key],text)
-            return text
+        pattern=re.compile(r'(?<![\w:-])(?:'+'|'.join(re.escape(k) for k in sorted(values,key=len,reverse=True))+r')(?![\w:-])') if values else None
+        def rewrite(text):return pattern.sub(lambda m:values[m.group()],text) if pattern else text
         def annotations(node,path):
             if isinstance(node,dict):
                 for key,value in list(node.items()):
@@ -151,7 +152,7 @@ class LLMUI:
             if actor in war['defenders']:enemies.update(war['attackers'])
         own_positions=[s['position'] for s in sites.get('sites',[])]
         threats=[{'owner':u['owner'],'kind':u['kind'],'position':[u['x'],u['y']]} for u in facts.get('army',[])
-                 if u['hp']>0 and u['owner'] in enemies and u['owner'] not in allies
+                 if u['hp']>0 and u['owner'] in enemies and u['owner'] not in allies and u['owner']!='野人'
                  and any(max(abs(u['x']-p[0]),abs(u['y']-p[1]))<=1 for p in own_positions)]
         plan=facts.get('government',{}).get('plan')
         return {'plan_status':'须提交国策' if not plan or plan['valid_until']<period else '国策有效',
@@ -159,46 +160,81 @@ class LLMUI:
                 'stock_shortfalls_before_production':shortages,'army_supply_per_period':supply,
                 'army_actions':armies,'border_threats':threats,
                 'construction':sites.get('construction',[]),
+                'frontier':facts.get('frontier',{}),
+                'capital_warning':[{'owner':u['owner'],'aid':u['id'],'position':[u['x'],u['y']]} for u in facts.get('army',[]) if u['owner'] in enemies and u['owner']!='野人' and any(max(abs(u['x']-p[0]),abs(u['y']-p[1]))<=units.get(u['kind'],{}).get('speed',1) for site,p in positions.items() if any(b['site']==site and b['kind']=='native:town-hall' for b in active))],
                 'diplomacy_todo':{key:diplomacy[key] for key in ('offers','votes','pending') if diplomacy.get(key)}}
 
     def atlas_text(self,observation):
         """模型看到的地图：老版坐标地图格式（按势力分段、逐格一行）。"""
         return player_atlas(observation,self.text,self._key).split('\n')
 
+    # Each standing fact has a decision purpose; new module panels never
+    # become permanent model input by accident.
+    STANDING=('government','nation','econ','bank','market','army','diplomacy','dispatches')
+
     def current_state(self,observation):
-        facts={key:value for key,value in observation['facts'].items() if key not in ('building_catalog','unit_catalog','terrain_catalog','handbooks')}
-        facts=deepcopy(facts)
-        if 'government' in facts:facts['government'].pop('summaries',None)
-        if isinstance(facts.get('view'),list):facts['view']=self.atlas_text(observation)
+        facts={key:deepcopy(observation['facts'][key]) for key in self.STANDING if key in observation['facts']}
+        government=facts.get('government',{})
+        government.pop('summaries',None)
+        if 'econ' in facts:facts['econ']={'stocks':facts['econ'].get('stocks',[])}
+        if 'nation' in facts:
+            row=facts['nation'];facts['nation']={**row.get('nation',{}),'land_count':len(row.get('sites',[]))}
+        if government.get('plan'):
+            government['plan']={key:value for key,value in government['plan'].items() if key!='text'}
+        if facts.get('bank',{}).get('purchases'):
+            facts['bank']['purchases']=[{'owner':p['report']['owner'],'end':p['report']['end']} for p in facts['bank']['purchases']]
+        if 'army' in facts:facts['army']=[u for u in facts['army'] if u['owner']!='野人']
+        # Keep structured rows so per-row changes remain addressable.
+        if not self.cfg.get('vision',False):
+            facts['view']=[{key:row[key] for key in ('position','name','terrain','owner','buildings') if key in row} for row in observation['facts'].get('view',[])]
         return {'period':observation['period'],'can_act':observation['can_act'],'facts':facts,'decision':self.dashboard(observation)}
 
+    def _bounded(self,current):
+        # Reserve room for the JSON envelope, indexes and omission notices.
+        cap=self.cfg.get('model_state_tokens',12000)-512;omitted=[]
+        def size():return est_tokens(json.dumps(self.compact(current),ensure_ascii=False,separators=(',',':')))
+        for key,tool in (('view','view'),('army','army'),('diplomacy','diplomacy'),('government','government'),('nation','nation'),('dispatches','dispatches'),('market','market'),('bank','bank')):
+            if size()<=cap:break
+            value=current['facts'].pop(key,None)
+            if value:omitted.append(f'{key} 超出本期载荷预算，完整内容用 {tool} 查询')
+        if size()>cap:
+            current.pop('decision',None)
+            omitted.append('行动简报超出载荷预算；请按需查询当前事实')
+        if size()>cap:
+            current['facts'].pop('econ',None)
+            omitted.append('库存超出载荷预算，完整库存用 econ 查询')
+        if omitted:current['omitted']=omitted
+        return current
+
     def refresh(self,observation):
-        """Send only changed public facts after a batch, with no stale values."""
-        current=self.current_state(observation);previous=self.current or {}
-        changed={key:value for key,value in current.items() if key!='facts' and value!=previous.get(key)}
-        changed_facts={key:value for key,value in current['facts'].items() if value!=previous.get('facts',{}).get(key)}
-        if changed_facts:changed['facts']=changed_facts
+        current=self.compact(self._bounded(self.current_state(observation)))
+        changes=difference(self.current or {},current)
         self.current=current
-        if not changed:return None
-        return '当前状态更新（以此覆盖同名旧值；未列出的事实不变；电力 capacity 是装机上限，燃料不足时实际发电更低）：'+json.dumps(self.compact(changed),ensure_ascii=False,separators=(',',':'))
+        if not changes:return None
+        return '状态差分（path 指向字段；set 覆盖、remove 删除；rows 按 position 或 (owner,id) 合并 upsert/remove，order 非空时重排。未列项保持原值）：'+json.dumps(changes,ensure_ascii=False,separators=(',',':'))
 
     def state(self,observation,events):
-        # Index all owned sites before rendering references, independent of key order.
-        for site in observation['facts'].get('building_sites',{}).get('sites',[]):
-            self.sites[site['id']]=list(site['position'])
+        for site in observation['facts'].get('building_sites',{}).get('sites',[]):self.sites[site['id']]=list(site['position'])
         self.period=observation['period'];self.guide_catalog=observation['facts'].get('handbooks',[])
+        self.polity=self.cfg.get('polity')
         actor=observation['actor']
         self.at_war=any(actor in w['attackers']+w['defenders'] for w in observation['facts'].get('diplomacy',{}).get('wars',[]))
-        self.current=self.current_state(observation)
-        self.catalogs={key:observation['facts'][key] for key in ('building_catalog','unit_catalog','terrain_catalog','handbooks') if key in observation['facts']}
-        presented=deepcopy(observation)
-        for key in self.catalogs:presented['facts'].pop(key)
-        if isinstance(presented['facts'].get('view'),list):
-            presented['facts']['view']=self.atlas_text(observation)
-        government=presented['facts'].get('government',{})
-        if 'summaries' in government:government['summaries']=government['summaries'][-2:]
-        tail=json.dumps(self.compact({'state':presented,'events':events,'decision':self.dashboard(observation)}),ensure_ascii=False,sort_keys=True,separators=(',',':'))
-        if observation['period']<self.cfg.get('joined_at',0)+20 and self.cfg.get('extra_prompt'):
+        self.current=self.compact(self._bounded(self.current_state(observation)))
+        recent=[{k:v for k,v in row.items() if k!='recipients'} for row in events][-10:]
+        names={n['id']:n['name'] for n in observation['facts'].get('nations',[])}
+        for row in recent:
+            if row.get('details'):row['text']=self.receipts.event(row,names);row.pop('details',None)
+            if len(row.get('text',''))>320:row['text']=row['text'][:320]+'…（完整事件用 news 查询）'
+        messages=observation['facts'].get('intel',[])
+        intel=[{k:row[k] for k in ('id','source','kind','sampled') if k in row} for row in messages[-10:]]
+        payload={'state':self.current,'events':recent,'intel_index':intel}
+        encode=lambda:json.dumps(self.compact(payload),ensure_ascii=False,sort_keys=True,separators=(',',':'))
+        cap=self.cfg.get('model_state_tokens',12000)
+        while est_tokens(encode())>cap and recent:recent.pop(0)
+        if len(recent)<min(len(events),10):payload['event_notice']='近讯已按载荷预算裁剪，完整近讯用 news 查询。'
+        while est_tokens(encode())>cap and intel:intel.pop(0)
+        tail=encode()
+        if self.cfg.get('opening_guide',True) and observation['period']<20 and self.cfg.get('extra_prompt'):
             tail+='\n'+self.text('llm.background',text=self.cfg['extra_prompt'])
         legend,image=self.map_context(observation)
         return tail+legend,image
@@ -208,7 +244,8 @@ class LLMUI:
         if self.cfg.get('vision',False) and observation['facts'].get('view'):
             facts=snapshot(observation)
             owners=sorted({t['owner'] for t in facts['tiles'] if t['owner']})
-            legend+='\n'+self.text('map.legend',owners=', '.join(f'{owner}={owner_color(owner)}' for owner in owners))
+            names={n['id']:n['name'] for n in observation['facts'].get('nations',[])}
+            legend+='\n'+self.text('map.legend',owners=', '.join(f'{chr(65+i)}={names.get(owner,owner)}' for i,owner in enumerate(owners)))
             image={'facts':facts,'max_px':self.cfg.get('map_max_px',960),'estimated_tokens':self.cfg.get('map_estimated_tokens',2048),
                    'fallback':self.text('map.fallback')+'\n'+player_map(observation,self.text)}
         return legend,image

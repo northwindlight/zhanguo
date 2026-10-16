@@ -81,8 +81,9 @@ class FinancialPosition:
 
 
 class Bank:
-    def __init__(self, policy, call):
+    def __init__(self, policy, call, active=None):
         self._policy,self._call = policy,call
+        self._active=active
         self._rate,self._next_period = policy.initial_rate,0
         self._loans,self._entries,self._purchases = {},[],[]
         self._world,self._domain = None,None
@@ -122,8 +123,7 @@ class Bank:
         self._stocks(owner)
         turns = self._call('native:economy','turns',owner)
         if not turns:return 0
-        gdp = turns[-1].gdp.total
-        if gdp is None:return None
+        gdp = turns[-1].gdp.known
         value = max(0,gdp*self.policy.credit_multiple)
         Resource.finite_number(value)
         return floor(value)
@@ -145,12 +145,14 @@ class Bank:
         if fee:self._entries.append(FinanceEntry(owner,self.next_period,'loan-fee',-fee))
         return loan
 
-    def buy_report(self, buyer, target):
+    def buy_report(self, buyer, target, turn=None):
         self._write()
         cash = self._cash(buyer);self._stocks(target)
         if buyer==target:raise ValueError('Own reports are already available')
         reports = self._call('native:economy','reports',target)
-        if not reports:raise ValueError('Target has no published report')
+        if turn is not None:
+            integer(turn);reports=tuple(r for r in reports if r.end==turn)
+        if not reports:raise ValueError('指定国家或周期没有已公布报表')
         fee = self.policy.report_fee
         if fee and cash < fee:raise ValueError('Insufficient cash for report')
         receipt = ReportPurchase(buyer,self.next_period,fee,reports[-1])
@@ -161,14 +163,21 @@ class Bank:
         self._entries.append(FinanceEntry(buyer,self.next_period,'report-fee',-fee))
         return receipt
 
+    def fees(self,period):
+        result=[]
+        for row in reversed(self._entries):
+            if row.period<period:break
+            if row.period==period and row.kind in ('loan-fee','report-fee'):result.append(row)
+        return tuple(reversed(result))
+
     def liabilities(self):return {owner:loan.due for owner,loan in self._loans.items()}
 
     def settle(self, period):
         self._write();integer(period)
         if period!=self.next_period:raise ValueError('Bank periods must be consecutive')
-        changes,loans,entries = {},{},[]
-        owners = self._call('native:resource-inspection','owners')
-        if not set(self._loans)<=set(owners):raise ValueError('Loan owner has no account')
+        changes,loans,entries = {},{owner:loan for owner,loan in self._loans.items() if self._active and owner not in self._active()},[]
+        owners = self._active() if self._active else self._call('native:resource-inspection','owners')
+        if not set(self._loans)<=set(self._call('native:resource-inspection','owners')):raise ValueError('Loan owner has no account')
         for owner in owners:
             cash = self._cash(owner)
             interest = int(cash*self.rate) if cash>0 else 0
@@ -224,7 +233,7 @@ class Bank:
             row = Loan(**raw)
             owner_name(row.owner);integer(row.principal,1);integer(row.due);integer(row.remaining,1);integer(row.taken)
             Resource.finite_number(row.initial_rate)
-            if row.owner not in owners or row.owner in loans or row.taken>period or row.remaining!=self.policy.loan_term-(period-row.taken):
+            if row.owner not in owners or row.owner in loans or row.taken>period or (not self._active or row.owner in self._active()) and row.remaining!=self.policy.loan_term-(period-row.taken):
                 raise ValueError('Inconsistent loan clock')
             if not self.policy.minimum_rate+self.policy.loan_spread<=row.initial_rate<=self.policy.maximum_rate+self.policy.loan_spread:
                 raise ValueError('Invalid initial loan rate')

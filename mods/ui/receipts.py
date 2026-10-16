@@ -1,6 +1,7 @@
 """Spectator prose over public JSON, without engine or domain object access."""
 from collections import Counter
 from copy import deepcopy
+from engine.coordinates import coordinates
 import json
 
 
@@ -18,7 +19,7 @@ class ReceiptPresentation:
         for row in facts.get('view',[]):
             tile=row.get('tile',row)
             position=tile.get('position')
-            if isinstance(position,(list,tuple)) and len(position)==2 and tile.get('name'):
+            if isinstance(position,(list,tuple)) and len(position)==2 and tile.get('name') and row.get('owner',actor) is not None:
                 tiles[tuple(position)]=tile['name']
         for row in facts.get('army',[]):
             if 'owner' in row and 'id' in row and 'kind' in row:
@@ -28,7 +29,7 @@ class ReceiptPresentation:
         for row in facts.get('land',[]):
             tile=row.get('tile',row)
             position=tile.get('position')
-            if isinstance(position,(list,tuple)) and len(position)==2 and tile.get('name'):
+            if isinstance(position,(list,tuple)) and len(position)==2 and tile.get('name') and row.get('owner',actor) is not None:
                 tiles[tuple(position)]=tile['name']
             if 'id' in tile:self._terrain[tile['id']]=tile.get('terrain')
 
@@ -39,10 +40,7 @@ class ReceiptPresentation:
         玩家可以拿坐标串填 `place` / `site`（与引擎 `native:territory.resolve` 同一套写法），
         所以回执这条也得认——否则模型按说明填坐标，日志里那块地只剩「所选地块」四个字。
         """
-        parts=text.strip().strip('()').replace(',',' ').split()
-        if len(parts)==2 and all(part.lstrip('-').isdigit() for part in parts):
-            return int(parts[0]),int(parts[1])
-        return None
+        return coordinates(text)
 
     def pos(self,value=None,args=None,actor=None):
         args=args or {}
@@ -145,7 +143,7 @@ class ReceiptPresentation:
                 costs=row['costs_by_level']
                 cost='各级基础造价 '+('→'.join(num(c.get('native:gold',0)) for c in costs)+'金 '+self.resources({k:v for k,v in costs[0].items() if k!='native:gold'}) if len(costs)>1 else self.resources(costs[0]))
                 lines.append('  '+cost+'；'+self.behavior(definition)+('；'+self.constraints(row) if self.constraints(row) else ''))
-                if definition['effects'].get('build_discount'):lines.append('  工程院节省取决于后续建设计划，不预测固定现金收益。')
+                for assumption in row.get('assumptions',[]):lines.append('  '+assumption)
         return '\n'.join(lines)
 
     def land(self,rows,instances=None):
@@ -198,6 +196,7 @@ class ReceiptPresentation:
             if data.get('output'):result+='\n'+data['output']
             return result
         if not receipt['ok']:
+            if isinstance(data,dict) and data.get('reason')=='insufficient_resource':return f'❌ {self.label("content",data["resource"])}不足：需要{num(data["required"])}，现有{num(data["available"])}；请先补足资源或缩小数量。'
             if action=='plan' and isinstance(data,dict) and 'reason' in data:return '❌ 议会未批准国策：'+data['reason']
             return '❌ '+(message or str(receipt.get('code') or '未完成'))
         if action=='build' and isinstance(data,dict) and 'costs' in data:
@@ -257,7 +256,7 @@ class ReceiptPresentation:
         if action in ('send_letter','spy','gift','share_map') and isinstance(data,dict):
             target=self.name(data['target'],self._names);fee=data['fee']
             what={'send_letter':'信件','spy':'间谍','gift':'赠送物资','share_map':'共享地图'}[action]
-            result=f'已提交向{target}派送{what}，−{fee}金；等待结算派发。'
+            result=f'已提交向{target}派送{what}'+(f'，−{fee}金' if fee else '，免费')+f'；预计第{data["arrive"]}期送达。'
             if data.get('text'):result+='\n'+data['text']
             if data.get('resource'):result+=' '+self.resources({data['resource']:data['quantity']})
             return result
@@ -326,7 +325,7 @@ class ReceiptPresentation:
                     action={'found':'联盟创始邀请','defense':'共同防御提议','peace':'和平提议'}.get(row['action'],self.label('action',row['action']))
                     head=f'#{row["id"]} {name(row["actor"])}｜{action}'
                     if key=='offers':head+=' → '+name(row['target'])+'｜已接受 '+(names(row['accepted']) or '无')
-                    elif key=='votes':head+=f'｜截止第{row["deadline"]}期｜有票{names(row["voters"])}｜'+('、'.join(name(n)+('赞成' if choice else '反对') for n,choice in row['ballots']) or '尚未投票')
+                    elif key=='votes':head+=f'｜截止第{row["deadline"]}期｜有票{names(row["voters"])}｜'+('、'.join(name(n)+('弃权' if choice is None else '赞成' if choice else '反对') for n,choice in row['ballots']) or '尚未投票')
                     else:head+='｜'+self.label('status',row['status'])+f'｜费用{row["fee"]}金'
                     lines.append(head)
                     if args:lines.append('  '+self.format(args,self._names).replace('\n','；'))

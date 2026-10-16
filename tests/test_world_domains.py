@@ -228,7 +228,7 @@ class TestWorldDomains(unittest.TestCase):
         self.declare(w)
         w.territory.transfer('scenario:chu-capital',Q)
         self.assertEqual(w.territory.get('scenario:chu-capital').tile.core,C)
-        self.call(w,Q,'offer_peace',target=C);self.cycle(w)
+        self.call(w,Q,'offer_peace',target=C,kind='white');self.cycle(w)
         offer=w.diplomacy.snapshot(C).offers[0]
         self.call(w,C,'accept_peace',offer=offer.id);self.cycle(w)
         self.assertEqual(w.territory.get('scenario:chu-capital').tile.core,Q)
@@ -268,8 +268,6 @@ class TestWorldDomains(unittest.TestCase):
         self.call(w,Q,'spy',target=C)
         self.assertEqual(self.call(w,C,'intel'),())
         before=w.resources.balance(C,'native:food');self.cycle(w)
-        self.assertEqual(self.call(w,C,'intel'),())
-        self.cycle(w)
         self.assertEqual(w.resources.balance(C,'native:food'),before+5)
         self.assertEqual({m.kind for m in self.call(w,C,'intel')},{'letter','gift'})
         w.resources.credit(C,'native:food',7)
@@ -284,8 +282,8 @@ class TestWorldDomains(unittest.TestCase):
     def test_dispatch_escrow_deduplication_and_target_death_refund(self):
         w=self.world();cash=w.resources.balance(Q,'native:gold');food=w.resources.balance(Q,'native:food')
         d=self.call(w,Q,'gift',target=C,resource='native:food',quantity=4)
-        self.assertEqual(self.call(w,Q,'gift',target=C,resource='native:food',quantity=4).id,d.id)
-        self.assertEqual(w.resources.balance(Q,'native:food'),food-4)
+        self.assertNotEqual(self.call(w,Q,'gift',target=C,resource='native:food',quantity=4).id,d.id)
+        self.assertEqual(w.resources.balance(Q,'native:food'),food-8)
         w.nations.extinguish(C,'synthetic')
         self.cycle(w)
         self.assertEqual(w.resources.balance(Q,'native:food'),food)
@@ -306,7 +304,8 @@ class TestWorldDomains(unittest.TestCase):
         self.assertNotIn(Y,event.recipients)
         w.territory.transfer('scenario:qc',Y)
         self.assertEqual(w.intelligence.events(Y),())
-        self.assertEqual(w.intelligence.events(Q)[0],event)
+        self.assertEqual(w.intelligence.events(Q)[0].id,event.id)
+        self.assertFalse(w.intelligence.events(Q)[0].recipients)
 
     def test_alliance_shared_view_and_watchtower_radius(self):
         w=self.world();self.site(w,'scenario:qc',Q,1,1);self.site(w,'scenario:zc',Z,6,6)
@@ -381,7 +380,7 @@ class TestWorldDomains(unittest.TestCase):
     def test_peace_effect_prevents_current_period_battle(self):
         w=self.world();self.site(w,'scenario:qc',Q,1,1);self.site(w,'scenario:cc',C,2,1)
         a=w.military.seed(Q,'native:infantry',1,1)[0];w.military.seed(C,'native:infantry',2,1)
-        self.declare(w);self.call(w,Q,'offer_peace',target=C);self.cycle(w)
+        self.declare(w);self.call(w,Q,'offer_peace',target=C,kind='white');self.cycle(w)
         offer=w.diplomacy.snapshot(C).offers[0]
         self.call(w,Q,'attack',ids=[a.id],x=2,y=1)
         self.call(w,C,'accept_peace',offer=offer.id)
@@ -524,7 +523,7 @@ class TestWorldDomains(unittest.TestCase):
         w=self.world();self.site(w,'scenario:qc',Q,1,1)
         self.call(w,Q,'share_map',target=C)
         sent_period=w.government.period();self.cycle(w)
-        dispatched={t.position for t in w.runtime.object_call(w,'native:vision','tiles',Q)}
+        dispatched={tuple(t['position']) for t in w.intelligence._map(Q)}
         self.site(w,'scenario:remote',Q,6,6)
         other=self.restore(w)
         self.cycle(w);self.cycle(other)

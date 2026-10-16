@@ -31,7 +31,7 @@ def forecaster(player, observation):
         attackers=deepcopy(army)
         defenders=deepcopy([u for u in facts['army'] if (u['x'],u['y'])==tuple(cell) and u['hp']>0 and (u['owner']=='野人' or u['owner'] in enemies)])
         initial=sum(u['hp'] for u in attackers)
-        for turn in range(101):
+        for turn in range(13):
             if not any(u['hp']>0 for u in defenders):return {'known':True,'winnable':True,'rounds':turn,'losses':initial-sum(u['hp'] for u in attackers)}
             if not any(u['hp']>0 for u in attackers):break
             groups={}

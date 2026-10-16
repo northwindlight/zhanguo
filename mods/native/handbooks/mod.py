@@ -2,9 +2,9 @@
 from pathlib import Path
 from engine.runtime import GameMod,RuleSection,Tool
 
-BOOKS=(('basics','基础指南','opening',('开局指南','开局','入门')),
-       ('economics','经济手册','always',('经济学手册','现金流','复利','滚雪球')),
-       ('war','战争手册','war',('军事手册','战术','攻城','战争规划')),
+BOOKS=(('basics','基础指南','on_demand',('开局指南','开局','入门')),
+       ('economics','经济手册','on_demand',('经济学手册','现金流','复利','滚雪球')),
+       ('war','战争手册','on_demand',('军事手册','战术','攻城','战争规划')),
        ('strategy','战略手册','on_demand',('均势','战略规划','僵局')))
 
 class HandbooksMod(GameMod):
@@ -19,6 +19,6 @@ class HandbooksMod(GameMod):
                 supplement=(Path(path).parent/overlay/(('经济学手册' if key=='economics' else title)+'.md')).read_text(encoding='utf-8')
                 body+='\n\n'+supplement
             self.books.append((key,title,prompt,aliases,body))
-    def tools(self):return (Tool('handbooks',lambda w,a:[{'id':key,'title':title,'prompt_when':prompt,'opening_periods':20} for key,title,prompt,_,_ in self.books],read_only=True,description='策略指南目录。正文用 player_rules(topic=标题) 查询；基础指南开局自动提供，经济手册常备，战争手册战时提供，战略手册按需查询。'),)
+    def tools(self):return (Tool('handbooks',lambda w,a:[{'id':key,'title':title,'prompt_when':prompt} for key,title,prompt,_,_ in self.books],read_only=True,description='策略指南目录。正文用 player_rules(topic=标题) 查询；所有指南正文均按需查询，不自动加入常驻上下文。'),)
     def rule_sections(self,world=None):
         return tuple(RuleSection(title,body,keywords=(key,*aliases),summary='策略参考，具体数值以公开目录和实际回执为准') for key,title,_,aliases,body in self.books)
