@@ -18,7 +18,7 @@ from .player import wire
 from .api import BoundPlayer, api_entry
 from .runtime import ModError
 
-SAVE_FORMAT='zhanguo.session/3'
+SAVE_FORMAT='zhanguo.session/4'
 AUDIT_LIMIT=2048
 class SaveFormatError(ValueError):pass
 
@@ -42,6 +42,25 @@ class Session:
         self.ui=load_ui(self.cfg,runtime=runtime)
         self.clients={};self.roster={};self.lock=threading.RLock();self.last_results=[]
         self.scenario_text='';self.opening_guide=self.cfg.get('opening_guide',True);self._boundary=True
+        self.victory_event=None
+        self.scenario_id=self.cfg.get('scenario')
+        self._scenario=None
+        if self.scenario_id is not None:
+            from .config import entrypoint
+            scenarios=runtime.distribution.get('Scenarios',{})
+            if not isinstance(self.scenario_id,str) or not self.scenario_id or not isinstance(scenarios,dict):
+                raise ModError('Invalid distribution scenario selection')
+            spec=scenarios.get(self.scenario_id)
+            if not isinstance(spec,dict):raise ModError('Scenario is not declared by this distribution')
+            factory=entrypoint(spec.get('Entry'))
+            try:inspect.signature(factory).bind(self.world,self.trigger_victory)
+            except (TypeError,ValueError) as exc:raise ModError('Scenario program must accept (world, trigger_victory)') from exc
+            self._scenario=factory(self.world,self.trigger_victory)
+            self._scenario_factory=factory
+            self._scenario_world=self.world
+            if not callable(self._scenario):raise ModError('Scenario program must be callable')
+            self.scenario_text=getattr(self._scenario,'text','')
+            if not isinstance(self.scenario_text,str):raise ModError('Scenario text must be a string')
         self.audit=[];self._audit_next=1;self._audit_stream=uuid.uuid4().hex;self._audit_archived={};self.generations={};self.contexts={};self.services={}
         # 模块内部异常（internal_fault）：本局运行期的故障日志，不进存档。
         self.faults=[]
@@ -77,6 +96,18 @@ class Session:
     def spawn(self,item,position):raise NotImplementedError
     def after_spawn(self):pass
     def validate_boundary(self):pass
+
+    def trigger_victory(self,event):
+        """The sole victory hook. Scenario programs own all conditions and awards."""
+        if not isinstance(event,dict) or not event:raise ValueError('Victory event must be a nonempty JSON object')
+        # Copy through JSON so neither the program nor callers retain a mutable
+        # reference, and reject NaN / arbitrary Python objects before latching.
+        event=json.loads(json.dumps(event,ensure_ascii=False,allow_nan=False))
+        with self.lock:
+            if self.victory_event is None:self.victory_event=event
+            return deepcopy(self.victory_event)
+
+    def finished(self):return self.victory_event is not None
 
     @api_entry
     def actors(self):
@@ -177,6 +208,7 @@ class Session:
         return actor
 
     def join(self,item,position):
+        if self.victory_event is not None:raise ValueError('Cannot join an ended game')
         previous=self.world;candidate=self.runtime.world_class()()
         self.runtime.load_mod_state(candidate,self.runtime.save_mod_state(previous))
         for unit in self.runtime.units.values():
@@ -241,7 +273,8 @@ class Session:
             if not cfg.get(key) and cfg.get(key+'_file'):
                 cfg[key]=Path(cfg[key+'_file']).read_text(encoding='utf-8')
         cfg['opening_guide']=self.opening_guide and cfg.get('opening_guide',True)
-        if self.scenario_text:cfg['extra_prompt']=self.scenario_text+'\n'+str(cfg.get('extra_prompt',''))
+        # Scenario objectives remain visible after the opening guide expires.
+        if self.scenario_text:cfg['extra_summary']=self.scenario_text+'\n'+str(cfg.get('extra_summary',''))
         return cfg
 
 
@@ -313,6 +346,7 @@ class Session:
             if handler:handler(player,wire(messages))
 
     def cycle(self,*,on_result=None,emit=None,head=None,on_call=None):
+        if self.victory_event is not None:raise ValueError('Game has ended with a victory event')
         self.scheduled();receipts=[];self._boundary=False;self._callbacks=on_result;self._emit=emit
         try:
             for actor in self.turn_order():
@@ -330,6 +364,13 @@ class Session:
                     transitions+=1
                     if transitions>8:raise RuntimeError('Too many actor control transitions in one cycle')
             self.world.resolve_turn();self.world.phase='行动'
+            if self._scenario:
+                # Administrative/scheduled joins can atomically replace world.
+                # The program must always inspect the current committed world.
+                if self._scenario_world is not self.world:
+                    self._scenario=self._scenario_factory(self.world,self.trigger_victory)
+                    self._scenario_world=self.world
+                self._scenario()
             for actor in self.actors():
                 for service in self.services[actor].values():
                     settled=getattr(service,'on_settlement',None)
@@ -346,6 +387,7 @@ class Session:
         return {'format':SAVE_FORMAT,'dependencies':self.runtime.dependency_manifest(),
                 'modules':self.runtime.save_mod_state(self.world),
                 'host':{'roster':deepcopy(self.roster),'scenario_text':self.scenario_text,'opening_guide':self.opening_guide,
+                        'scenario':self.scenario_id,'victory_event':deepcopy(self.victory_event),
                         'generations':deepcopy(self.generations),'contexts':deepcopy(self.contexts),'audit':deepcopy(self.audit[-AUDIT_LIMIT:]),'audit_next':self._audit_next,'audit_stream':self._audit_stream,
                         'services':{a:{n:s.to_save() for n,s in services.items()} for a,services in self.services.items()}},
                 'clients':{actor:client.to_save() for actor,client in self.clients.items()}}
@@ -385,8 +427,15 @@ class Session:
             raise SaveFormatError('Unsupported session format')
         self.runtime.check_save_dependencies(data['dependencies'])
         self.runtime.load_mod_state(self.world,data['modules'])
-        saved=data['host'];keys={'roster','scenario_text','opening_guide','generations','contexts','audit','audit_next','audit_stream','services'}
+        saved=data['host'];keys={'roster','scenario_text','opening_guide','scenario','victory_event','generations','contexts','audit','audit_next','audit_stream','services'}
         if not isinstance(saved,dict) or set(saved)!=keys or not isinstance(saved['scenario_text'],str):raise SaveFormatError('Invalid session state')
+        # Executable code comes from the distribution declaration, never an
+        # import path in a save. Resume must select the same scenario.
+        if saved['scenario']!=self.scenario_id:raise SaveFormatError('Scenario differs from saved scenario')
+        self.victory_event=None
+        if saved['victory_event'] is not None:
+            try:self.trigger_victory(saved['victory_event'])
+            except (TypeError,ValueError) as exc:raise SaveFormatError('Invalid victory event') from exc
         if type(saved['opening_guide']) is not bool:raise SaveFormatError('Invalid opening guide switch')
         self.opening_guide=saved['opening_guide']
         roster=saved['roster'];clients=data['clients'];actors=set(self.identities())

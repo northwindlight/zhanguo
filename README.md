@@ -2,7 +2,9 @@
 
 战国是一款面向 LLM 决策的回合制大战略游戏。各国在同一世界中经营经济、组织军队、处理外交并争夺生存空间；人类可以观察、发出公告与来信，也可以研究模型在长局中的决策和失误。
 
-当前版本 **0.2.3**，包含 [实现审计修复](docs/错误实现-修复验收.md)。`main` 来自原 `正规化` 分支，采用模块化架构。旧版单体实现保存在 [`legacy`](https://github.com/northwindlight/zhanguo/tree/legacy)。[English](README.en.md)
+当前版本 **0.2.4**，包含 [实现审计修复](docs/reviews/错误实现-修复验收.md)。`main` 来自原 `正规化` 分支，采用模块化架构。旧版单体实现保存在 [`legacy`](https://github.com/northwindlight/zhanguo/tree/legacy)。[English](README.en.md)
+
+本版加入剧本胜利钩子、联盟规则说明修复和文档归类，见 [更新记录](CHANGELOG.md)。
 
 ## 真实对局资料
 
@@ -25,7 +27,7 @@
 - **玩家客户端**：LLM 与 `v11plus` 规则 AI 使用同一绑定身份的 API，消费结构化事实和行动回执。
 - **界面**：独立 UI Mod 编排提示、语言文案、终端面板和玩家可见的文字、SVG、PNG 地图。
 
-默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.6.0-beta.1`：
+默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.7.0-beta.1`：
 
 - 独立议长分两步审核国策，核对事实、情报和经济、外交、军事承诺；连续三回合未通过后罢免君主并重建记忆。
 - 市场采用实际交付的有限库存，以及库存偏差反馈报价。
@@ -51,7 +53,7 @@ Windows 可使用 `start.ps1`。启动脚本建立本地虚拟环境并安装依
 ./start.sh --config mp_config.json --turns 10
 ```
 
-`--new` 会覆盖指定目标存档。`--turns` 表示运行到的周期号。保存只发生在完整结算边界，调用失败时保留最近完整存档。当前格式为 `zhanguo.session/3`；1.0 之前不承诺旧档兼容，不提供自动迁移，模块依赖不一致时拒绝混载。
+`--new` 会覆盖指定目标存档。`--turns` 表示运行到的周期号。保存只发生在完整结算边界，调用失败时保留最近完整存档。当前格式为 `zhanguo.session/4`；1.0 之前不承诺旧档兼容，不提供自动迁移，模块依赖不一致时拒绝混载。
 
 终局成绩单：`python settlement.py --save 专用存档.json --table`；生成报告用 `--no-chat --out 报告.md`，结算厅另需外部模型配置。保存时同目录的 `<存档>.audit/` 留存动作与领域历史，备份整局时一并复制。坐标统一从 **0** 开始。
 
@@ -64,18 +66,22 @@ python -m scenarios.eight_nations --seed 20260921
 
 剧本采用 24×24 地图、八国手摆开局与七雄共保周的初始安排。生成器遇到已有目标会拒绝覆盖，显式 `--force` 才覆盖；生成后按需要填写模型接入或改用 rule 客户端。
 
+八国程序由发行版的 `Distribution.Scenarios.eight_nations` 挂载，配置选择 `"scenario": "eight_nations"`。周任盟主的「周天下」覆盖全部存续国家且总成员至少5国（含周），完整回合结算后触发周胜利、其他成员次要胜利；兼并至唯一国家是终极胜利。接受邀请本身不判胜。引擎仅提供 `trigger_victory(event)`，剧本可访问 `world` 自行触发任意胜利事件，详见 [剧本钩子](docs/发行版Session.md)。
+
 看海控制台提供中文全景国力、市场、经济报告、国策、外交和逐次调用播报。`help` 查看命令；`map` 看世界全图，`map 国名 [文件.txt/.svg/.png]` 看单国视野；`add 国名 [政体]`、`send 国名 正文`、`say 正文`、`rate 5`、`cheat 国名 金100 粮20 骑2` 提供观察者管理。公告和来信支持多行 `END` 和 `@文件`。命令在模型调用间处理，`quit` 完成整回合并保存后退出。每回合自动更新日志同名的 `.map.txt`，详见 [UI 说明](mods/ui/README.md)。
 
 模型优先使用短内容键值，重名时指定命名空间；地块动作使用 `x/y`，军队使用整数 `aid/ids`。experimental 的 Python 工具提供用法示例和批量处理提示；失败消耗脚本执行额度，普通国家行动仍可继续。
 
 ## 开发与验证
 
+全部资料见[文档索引](docs/README.md)。
+
 - [Mod 开发指南](docs/Mod开发指南.md)：从可运行示例开始，增加内容、替换模块和组装独立游戏。
 - [发行版 Session](docs/发行版Session.md)：场景、可选地图策略、管理能力、服务装配、审计与控制权。
 - [玩家 API 与客户端](docs/客户端接线.md)：绑定身份、事实、请求和回执。
-- [GUI 选型与计划](docs/GUI选型与计划.md)：跨平台桌面、2D/3D 地图与动画素材选型，以及看海优先的接线计划。
+- [GUI 选型与计划](docs/design/GUI选型与计划.md)：跨平台桌面、2D/3D 地图与动画素材选型，以及看海优先的接线计划。
 - [Native 模块](mods/native/README.md)、[UI Mod](mods/ui/README.md)、[experimental](mods/experimental/README.md)、[Python 沙盒](mods/experimental/SCRIPTING.md)。
-- [模块化口径](模块化口径.md)与 [路线计划](PLAN.md)。
+- [模块化口径](docs/design/模块化口径.md)与 [路线计划](docs/plans/PLAN.md)。
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -q

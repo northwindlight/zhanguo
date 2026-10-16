@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:handbooks"
-Version = "1.1.0-experimental"
+Version = "1.1.1-experimental"
 Entry = "mods.native.handbooks.mod:HandbooksMod"
 Requires = ["native:buildings", "native:army", "native:government"]
 [Handbooks]

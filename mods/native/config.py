@@ -3,7 +3,8 @@ import hashlib
 from engine.config import ConfigError, Field, Schema, configure_components
 from engine.identifiers import content_id
 
-SCENARIO=Schema({'map_size':Field((int,),minimum=1),'seed':Field((int,),nullable=True)})
+SCENARIO=Schema({'map_size':Field((int,),minimum=1),'seed':Field((int,),nullable=True),
+                 'scenario':Field((str,))})
 ACTOR=Schema({'name':Field((str,)), 'client':Field((str,)),
               'enabled':Field((bool,)), 'appearance':Field((str,),choices=('initial','scheduled','manual')),
               'enable_turn':Field((int,),minimum=0), 'enable_turn_max':Field((int,),minimum=0),

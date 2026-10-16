@@ -25,7 +25,7 @@ class NativeSession(NativeObserver,GridSession):
 
     def finished(self):
         future=any(n.get('enabled',True) and n['id'] not in self.roster and n.get('appearance')=='scheduled' for n in self.entries())
-        return len(self.actors())<=1 and len(self.roster)>1 and not future
+        return super().finished() or (len(self.actors())<=1 and len(self.roster)>1 and not future)
 
     def board_rows(self):
         rows=[]

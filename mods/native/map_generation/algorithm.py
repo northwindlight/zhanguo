@@ -23,7 +23,7 @@
 2. **全局分布 = 权重表**：地形各类**全局占比**按 `TERRAIN_WEIGHTS` 配额精确落位
    （`_quotas` + "稀有类型先挑"，挑满即停，总数恰好 = size²），资源的**每格边缘分布**
    按 `TERRAINS[terrain]` 逐字保持（抖动阈值法，见 `_dither`）
-   ⇒ `docs/地图生成与资源分布.md` 的期望/档位数字仍然成立。
+   ⇒ `docs/design/地图生成与资源分布.md` 的期望/档位数字仍然成立。
 3. **契约**：地图现在是 `(seed, size)` 的函数（**不再是 `seed:x:y` 的逐格纯函数**）——
    同 seed 换 size 会是另一张图。`World.tile_terrain` / `World.tile_resources` 的
    签名与返回值都没变，调用点不用改。

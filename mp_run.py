@@ -308,6 +308,8 @@ def run(argv=None):
     stop=cfg.get('max_turns',200)
     try:
         while host.clock()<stop:
+            finished=getattr(host,'finished',None)
+            if callable(finished) and finished():break
             if not _commands(host,observer):break
             while observer.paused:
                 if not _commands(host,observer):observer.stop_requested=True;break
@@ -329,6 +331,8 @@ def run(argv=None):
             finished=getattr(host,'finished',None)
             if callable(finished) and finished():break
         host.save(save_path)
+        if getattr(host,'victory_event',None) is not None:
+            observer.line(ui.text('console.victory',event=json.dumps(host.victory_event,ensure_ascii=False)))
         observer.line(ui.text('console.finish',period=host.clock(),path=save_path))
         return 0
     except KeyboardInterrupt:

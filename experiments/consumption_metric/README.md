@@ -2,7 +2,7 @@
 
 正式经济实验已按用户要求后置。现有短程记录只检查程序事件、累计账本及部分状态一致性，不用于证明指标正确、评估 v11plus 能力、判断经济长期稳定或认定地理差异已经消退。
 
-论文在 [消费总量评测指标论证.md](../../docs/消费总量评测指标论证.md)。详细数值及边界说明在 [implementation_record.md](implementation_record.md)。
+论文在 [消费总量评测指标论证.md](../../docs/research/消费总量评测指标论证.md)。详细数值及边界说明在 [implementation_record.md](implementation_record.md)。
 
 ## 已完成范围
 

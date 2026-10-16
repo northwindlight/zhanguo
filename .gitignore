@@ -53,6 +53,10 @@ archive/
 docs/archive/*
 !docs/archive/legacy-domain-declarations/
 !docs/archive/legacy-domain-declarations/*.toml
+!docs/archive/strategy/
+!docs/archive/strategy/*.md
+!docs/archive/legacy-rules/
+!docs/archive/legacy-rules/**
 结算报告*.md
 结算寄语*.json
 摆烂尸检*.md

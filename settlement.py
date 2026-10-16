@@ -60,6 +60,13 @@ def scoreboard_text(rows):
     return '\n'.join(lines)
 
 
+def victory_text(data):
+    event=data['host'].get('victory_event')
+    if event is None:return ''
+    message=event.get('message')
+    return '剧本胜利：'+message if isinstance(message,str) and message else '胜利事件：'+json.dumps(event,ensure_ascii=False)
+
+
 def run_chat(data,rows,cfg,rounds,log=print,remarks=None,backend_factory=None):
     """Discussion is opt-in at invocation; no tools or game mutations are granted.
 
@@ -73,6 +80,8 @@ def run_chat(data,rows,cfg,rounds,log=print,remarks=None,backend_factory=None):
     backend_factory=backend_factory or make_backend
     config={n['id']:normalize(n,defaults=cfg) for n in cfg.get('nations',[])}
     board=scoreboard_text(rows);transcript=[];histories={};seen={}
+    victory=victory_text(data)
+    if victory:board=victory+'\n\n'+board
     for round_number in range(1,rounds+1):
         for row in rows:
             actor=row['actor'];item=config.get(actor)
@@ -106,7 +115,9 @@ def main(argv=None):
     try:
         data,world=load_save(args.save,args.mods);rows=settle(data,world)
     except (OSError,ValueError) as exc:parser.error(str(exc))
-    board=scoreboard_text(rows);print(board)
+    board=scoreboard_text(rows);victory=victory_text(data)
+    if victory:print(victory)
+    print(board)
     if args.table:return 0
     transcript=[]
     if not args.no_chat:
@@ -116,7 +127,7 @@ def main(argv=None):
             remarks=json.loads(Path(args.remarks).read_text(encoding='utf-8')) if args.remarks else {}
             transcript=run_chat(data,rows,cfg,args.rounds,remarks=remarks)
         else:print('未找到模型配置，跳过结算厅。')
-    lines=['# 战国终局结算报告',board,
+    lines=['# 战国终局结算报告',*([victory] if victory else []),board,
            '排名按已记录的建造、征召、军费（含回血装备）、行政消费；沿用报表阶段估值，不按现价重算。GDP与资产显示最后已结算事实。']
     for row in rows:lines.append(row['name']+'：'+json.dumps(row['spending'],ensure_ascii=False))
     if transcript:lines.extend(['## 结算厅对话录',*transcript])

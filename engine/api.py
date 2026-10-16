@@ -2,7 +2,7 @@
 from copy import deepcopy
 from functools import wraps
 from .state import unit_context
-from .player import API_VERSION, wire
+from .player import API_VERSION, BUILTINS, wire
 
 
 def api_entry(method):
@@ -31,7 +31,7 @@ class BoundPlayer:
         with self.__session.lock:
             current = self.__session.generations[self.actor]
             active = current == self.generation and self.actor in self.__session.actors()
-            can_act = active and self.__session.world.phase == '行动'
+            can_act = active and self.__session.world.phase == '行动' and self.__session.victory_event is None
             gate = self.__session.runtime.distribution.get('ActionGate')
             if can_act and gate:
                 can_act = bool(self.__session.runtime.object_call(self.__session.world,gate['Capability'],gate['Method'],self.actor))
@@ -45,6 +45,8 @@ class BoundPlayer:
             observation = self.__session.raw_player(self.actor).observe()
             observation['action_state'] = self.action_state()
             observation['can_act'] = observation['action_state']['can_act']
+            if self.__session.victory_event is not None:
+                observation['victory_event']=deepcopy(self.__session.victory_event)
             return observation
 
     @api_entry
@@ -83,10 +85,15 @@ class BoundPlayer:
                     if action=='player_state' and receipt['ok']:receipt['data']=self.observe()
                 return wire(receipt)
             try:
-                if not self.action_state()['active']:
+                tool = session.runtime.tools.get(action) if isinstance(action,str) else None
+                read_only=bool(tool and tool.read_only) or isinstance(action,str) and action in BUILTINS
+                if session.victory_event is not None and not read_only:
+                    receipt={'api':API_VERSION,'actor':self.actor,'action':action,'period':session.clock(),
+                             'ok':False,'status':'rejected','code':'unavailable_action',
+                             'message':'对局已结束，胜利事件已记录；不能继续行动。','data':deepcopy(session.victory_event)}
+                elif not self.action_state()['active']:
                     receipt = stale_receipt()
                 else:
-                    tool = session.runtime.tools.get(action) if isinstance(action,str) else None
                     canonical = tool.name if tool else action
                     receipt = wire(session.submit(self, canonical, detached, execute))
                     if not isinstance(receipt,dict) or receipt.get('actor')!=self.actor or receipt.get('action')!=action:

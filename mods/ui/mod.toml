@@ -1,6 +1,6 @@
 [Mod]
 Id = "ui:standard"
-Version = "1.1.0"
+Version = "1.1.1"
 Entry = "mods.ui.mod:UIMod"
 
 [Capabilities]

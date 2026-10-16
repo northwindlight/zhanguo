@@ -88,31 +88,14 @@ COVENANT = ("🕊 七雄共誓：{who} 共保 周王室 独立"
 #   就是两句话打架、模型自己挑一句听）；② 点破"不扩张=替别人攒家当"（本作经济是复利型
 #   的，苟安在数值上确实吃亏）；③ 撤回保障提醒的**如实**口径：**战时条约冻结**，
 #   所以是"只要不在战时随时可撤"——写成"随时"，它战时去撤被拒就会开始不信提示词。
-CHARTER = (
-    "【本剧本之志：六王毕，四海一】\n"
-    "天下定于一 —— 八国并立只是暂局，本剧本要求**一统天下**；这一句**覆盖**前面那句"
-    "「这局没有预设目标」。这不是看海种田局：苟安者终被吞并，富国而不扩土等于替别人攒家当。\n"
-    "★ **赢的两条路**（自己挑）：\n"
-    "  · **次要胜利 —— 尊王**：加入**周王室**主导的联盟「**周天下**」，做尊王的一路诸侯。\n"
-    "  · **终极胜利 —— 兼并天下**：把另外七家全灭，自己当那个唯一的主人。\n"
-    "★ **周王室的志向**（各家都该知道）：**复振王纲** —— 它不靠杀，靠**诸侯来朝**，会四处"
-    "拉人入「周天下」。别以为它只会尊王：**周也一样能走「兼并天下」那条终极胜利的路**，"
-    "也一样能**先动手打别国**。它的护身符是手上那七张**保障**纸——**单向保护**："
-    "只有别人**宣战**它时才生效；共同防御才是双向的。\n"
-    "★★★ **大字 · 反击无罪**（每家都给我记住）：那七张纸**只在「宣战」那一刻响一次** —— "
-    "**宣战**周 ⇒ 另外六国按保障自动参战，**在那一刻一次结算完，此后这条战线的参战名单就冻结了**。"
-    "已经在和周打的人，再 atk 夺它的地、砸它的军、一路推进、直捣王城，"
-    "**一个外国都不会因此参战**：引擎里**没有**「谁动周谁挨打」这种隐藏机制，一个字都没有。"
-    "反向也不成立——周自己去打别国，六国一动不动（**那是盾，不是矛**）。"
-    "**所以：打得过就打。反击不花钱、不惹人、不触条约；在战线上缩手缩脚才是真亏。**\n"
-    "★ 但那七张纸**会烧**：保障**只要不在战时，随时可以撤回**（`cancel_guarantee`，付外交费；"
-    "战时条约冻结，撤不了）；而周一旦**开始建立「周天下」**（自己立盟、当盟主），"
-    "**七张保障纸立刻全部作废** —— 它选择了当盟主，就不再要人保。想动周，看准那一刻。"
-)
+# 2026-10-16：用户明确加入可执行胜利钩子，覆盖上文历史上的“只写志向、手动结束”。
+# 条件归本剧本程序；引擎只接收 trigger_victory(event)，不识别周、联盟名或胜利等级。
+from mods.native.scenarios.eight_nations import CHARTER
 
 
 IDS=dict(zip(NATIONS,('scenario:qin','scenario:wei','scenario:han','scenario:zhao',
                       'scenario:yan','scenario:qi','scenario:chu','scenario:zhou')))
+
 
 
 def load_template():
@@ -129,7 +112,8 @@ def build_config(template=None, seed=SEED):
     client={k:v for k,v in nat_tpl.items() if k not in excluded}
     client.setdefault('client','rule');client['rule_ai']='v11plus'
     cfg={k:v for k,v in tpl.items() if k not in ('nations','world_bank')}
-    cfg.update(map_size=SIZE,seed=seed,rule_ai='v11plus',save=names(seed)['save'],journal=names(seed)['journal'])
+    cfg.update(map_size=SIZE,seed=seed,rule_ai='v11plus',save=names(seed)['save'],journal=names(seed)['journal'],
+               scenario="eight_nations")
     cfg['nations']=[dict(client,id=IDS[name],name=name,position=list(STARTS[name]),appearance='initial') for name in NATIONS]
     return cfg
 
@@ -138,6 +122,7 @@ def build(size=SIZE, seed=SEED, starts=STARTS, nations=NATIONS, *, announce=True
           charter=True, config=None):
     cfg=build_config({'nations':[{'client':'rule'}]},seed) if config is None else json.loads(json.dumps(config))
     cfg.update(map_size=size,seed=seed)
+    cfg['scenario']='eight_nations'
     by_name={item['name']:item for item in cfg['nations']}
     cfg['nations']=[dict(by_name[name]) for name in nations]
     for item in cfg['nations']:

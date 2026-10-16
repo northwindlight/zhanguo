@@ -1,0 +1,35 @@
+# 文档索引
+
+运行入口见[项目 README](../README.md)。现行接口与生成规则列在本页前面；设计稿、阶段复核和历史资料分别归类。旧报告记录的是当时的版本，不能用其中的待办覆盖当前实现或后续定案。
+
+## 当前使用与开发
+
+- [游戏说明书](游戏说明书.md)：由当前发行版声明生成；`python -m docs.generate_manual --check` 检查同步。
+- [Mod 开发指南](Mod开发指南.md)：示例、模块声明与开发接口。
+- [发行版 Session 与剧本胜利钩子](发行版Session.md)：宿主、服务、剧本挂载及存取契约。
+- [配置层](配置层.md)、[客户端接线](客户端接线.md)：配置提供者与绑定玩家 API。
+- [native](../mods/native/README.md)、[experimental](../mods/experimental/README.md)、[UI](../mods/ui/README.md)：发行版和界面入口。
+
+## 设计与规划
+
+- [模块化口径](design/模块化口径.md)、[对象化口径](design/对象化口径.md)、[正规化口径定稿](design/正规化口径定稿.md)：设计要求与历史裁决；最新行为仍须结合当前说明书及后续明确修订。
+- [路线计划](plans/PLAN.md)、[后续改造大纲](plans/后续改造大纲.md)：现行路线与保留的阶段计划。
+- [GUI 选型与计划](design/GUI选型与计划.md)、[地图生成与资源分布](design/地图生成与资源分布.md)。
+- [v11 编组模型](design/v11编组模型.md)：规则 AI 的编组设计记录。
+
+## 实现复核
+
+- [错误实现总表](错误实现.md)：保留原入口及审计证据。
+- [0.2.3 修复验收](reviews/错误实现-修复验收.md)、[结盟意愿差异复核](reviews/结盟意愿差异复核.md)。
+- [toolcall 对照](reviews/toolcall对照.md)、[正规化语义审查](reviews/正规化语义审查.md)、[说明书核对](reviews/正规化说明书核对.md)、[阶段 A 记录](plans/阶段A改造记录.md)：对应阶段的历史工程记录。
+- [审计实验](../experiments/implementation_audit/README.md)：合成基准和离线续算材料。
+
+## 研究与历史资料
+
+- [消费总量指标论文](research/消费总量评测指标论证.md)、[实现核对数据](research/消费指标实现核对.json)、[消费指标实验](../experiments/consumption_metric/README.md)。
+- [公开真实对局资料](../research/game-records/README.md)：历史原始资料，独立于源码发行包和自动测试。
+- [历史匈奴教义](archive/strategy/匈奴教义.md)：旧版人类侧策略资料；当前政体入口见 [huns](../mods/native/polities/huns/README.md)。
+- [旧领域声明](archive/legacy-domain-declarations/)：保留作历史对照。
+- [旧规则和讲义](archive/legacy-rules/README.md)：退役说明书、四篇旧手册和原领域规则片段。
+
+本机对局、预览与配置按 `.gitignore` 管理；生成图片归本机 `archive/previews/`，不会混入源码发行包。

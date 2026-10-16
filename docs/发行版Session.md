@@ -110,6 +110,37 @@ Methods = ["enroll", "decide", "replace"]
 
 客户端工厂可声明同样形式的能力授权；experimental 已移除客户端的议会权力。发行版服务具备显式授予的权限，应作为可信代码实现。这是进程内接口，Python 对象隔离和不可信脚本执行另属沙盒任务。
 
+## 发行版挂载剧本与唯一胜利钩子
+
+剧本属于发行版，不能在玩家配置或存档中提供任意 Python 导入路径。发行版显式挂载程序，例如：
+
+```toml
+[Distribution.Scenarios.eight_nations]
+Entry = "mods.native.scenarios.eight_nations:EightNations"
+```
+
+外部配置用 `"scenario": "eight_nations"` 选择，未选择时保持发行版原有行为；未挂载的名称拒绝启动。native 和 experimental 显式挂载同一个八国程序。
+
+```python
+class MyScenario:
+    text = '本剧本公开目标，君主和议长持续可见。'
+
+    def __init__(self, world, trigger_victory):
+        self.world = world
+        self.trigger_victory = trigger_victory
+
+    def __call__(self):
+        if self.my_condition(self.world):
+            self.trigger_victory({'type': 'my_game.special', 'message': '自定义胜利',
+                                  'awards': {'player_a': '任意剧本奖项'}})
+```
+
+程序在每个完整回合的全部领域结算之后、客户端结算通知与保存之前调用，可以访问当前 `world`。只暴露一个胜利钩子 `trigger_victory(event)`；事件是非空、有限数值的 JSON 对象，字段与条件完全归剧本定义。引擎只保留第一次事件，复制数据并据此停止后续回合、拒绝玩家写动作，仍允许只读查询。需要持久化的程序状态应由 world 的模块状态保存，不依赖程序实例临时变量；登场替换 world 后程序重新绑定。
+
+存档保存剧本选择和完整胜利事件，所用入口由发行版依赖声明锁定；恢复时不得更换剧本，也不从存档执行导入路径。终局档恢复后直接报告事件，不再运行一次回合。引擎不识别「周」「周天下」「5国」或主次胜利；这些条件仅在八国剧本程序内。
+
+八国判定采用结算后的全部存续国家：周任盟主、联盟名为「周天下」、成员覆盖全部存续国家且总数至少5国（含周），周胜利、其他成员次要胜利。邀请、部分接受、未入盟国家、错误盟主/盟名、只剩4国均不满足尊王终局；只剩唯一国家则为兼并终极胜利。公开事件、终局存档和结算报告保留实际获胜身份，消费排名仍按原口径独立展示。
+
 ## 控制权、审计与存取
 
 `action_state()` 返回 `{generation, current_generation, active, can_act, context}`。旧句柄不会自动升级；控制权变更后其提交返回 `unavailable_action`，不会执行后续工具。查询仍可读取当前公开事实，observe 的 can_act 为 false；新句柄由 Session 重新绑定。
@@ -118,16 +149,16 @@ LLM 和规则 AI 按新代次读取交接上下文，`context.reset_memory=true`
 
 `audit` 每项包含 `id / actor / generation / action / arguments / receipt`；程序异常另存 `error.type / error.message`。每一次绑定 API 的 submit 都写一项，脚本内部多次提交也各自记录。记录最终回执后触发 `cycle(on_result=...)` 观察者回调，客户端不重复发出这份回调。
 
-`zhanguo.session/3` 保存模块依赖与状态、客户端状态、服务状态、roster、场景文案、代次、交接上下文和审计。只保存完整周期边界；失败周期不能覆盖最近完整存档。服务清单、身份或依赖不匹配会拒绝加载。
+`zhanguo.session/4` 保存模块依赖与状态、客户端状态、服务状态、roster、场景文案、代次、交接上下文和审计。只保存完整周期边界；失败周期不能覆盖最近完整存档。服务清单、身份或依赖不匹配会拒绝加载。
 
-1.0 前不提供旧档承诺、兼容适配或迁移。当前 UI 对事实布局和地图图例的完整抽象、领域语言键体系仍是后续任务，见 [PLAN](../PLAN.md)。
+1.0 前不提供旧档承诺、兼容适配或迁移。当前 UI 对事实布局和地图图例的完整抽象、领域语言键体系仍是后续任务，见 [PLAN](plans/PLAN.md)。
 
 配置准备独立于 Session 生命周期，通过 `Distribution.Configuration.Entry` 组织组件配置；见 [配置层契约](配置层.md)。Session 接收配置副本，不再负责 native / mini 的场景规范化。
 
 ## 历史归档与当前格式
 
-当前整局格式为 `zhanguo.session/3`。`save(path)` 先校验完整边界，再写 `<path>.audit/<stream>/` 的不可变审计与领域历史分段，最后原子写 Session 文件；成功后才清空待归档领域缓冲。主档保留最近 2048 条审计和下个编号；经济累计检查点保留全部消费，过期逐期明细离线归档。已发布报表、市场成交仍保留，存档总体不承诺常量大小。备份主档时一并复制归档目录，续局本身只需要主档与匹配的发行版。
+当前整局格式为 `zhanguo.session/4`。`save(path)` 先校验完整边界，再写 `<path>.audit/<stream>/` 的不可变审计与领域历史分段，最后原子写 Session 文件；成功后才清空待归档领域缓冲。主档保留最近 2048 条审计和下个编号；经济累计检查点保留全部消费，过期逐期明细离线归档。已发布报表、市场成交仍保留，存档总体不承诺常量大小。备份主档时一并复制归档目录，续局本身只需要主档与匹配的发行版。
 
-native 的自动登场距离在尺寸至少 32 时为 8，小图为 3。`finished()` 在曾有多个国家、现只剩一个且没有待定时登场国家时成立。
+native 的自动登场距离在尺寸至少 32 时为 8，小图为 3。`finished()` 在收到剧本胜利事件时成立；未触发事件时，仍保留曾有多个国家、现只剩一个且没有待定时登场国家的终局判断。
 
 领域模块可选实现 `pending_archive(world)`、`archive_committed(world)`、`restore_archive(world, rows)`。记录须为 JSON 数据并带非负整数 period；Session 对内容哈希命名的分段落盘，主档成功写入后才确认清理缓冲。join 的候选世界复制待归档缓冲，避免中途登场吞历史。`to_save()` 仅生成可续局状态；需要历史分段时应调用 `save(path)`。
