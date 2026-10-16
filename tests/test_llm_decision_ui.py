@@ -60,6 +60,38 @@ class TestDecisionUI(unittest.TestCase):
         self.assertIn('规则按需',backend.requests[0][0]['content'])
         assert_paired(client.state.replay[0]['messages'])
 
+    def test_player_state_is_hidden_and_stale_calls_are_rejected_without_querying(self):
+        for experimental in (False,True):
+            h=self.host(experimental);p=h.player(Q)
+            self.assertIn('player_state',{s['function']['name'] for s in p.actions()})
+            backend=FakeBackend([{'tool_calls':[call('s','player_state')]},
+                {'tool_calls':[call('p','plan',text='经营经济并保持独立的国策'),
+                               call('e','end_turn',summary='制定有效国策并结束行动')]}])
+            client=LLMClient(h.cfg,backend=backend,ui=h.ui);receipts=client.play(p)
+            self.assertFalse(receipts[0]['ok']);self.assertEqual(receipts[0]['code'],'tool_not_exposed')
+            self.assertIsNone(receipts[0]['data'])
+            names={s['function']['name'] for s in client.ui.actions(p.actions())}
+            self.assertNotIn('player_state',names);self.assertIn('government',names)
+            self.assertNotIn('player_state',client.ui.system())
+            self.assertFalse(any(row['action']=='player_state' for row in h.audit))
+            # Automatic facts and subsequent patches still reach the model.
+            first=backend.requests[0][-1]['content']
+            self.assertIn('facts',first);self.assertIn('state',first)
+            self.assertTrue(p.query('player_state')['facts'])
+            assert_paired(client.state.replay[0]['messages'])
+
+    def test_government_model_receipt_omits_history_without_mutating_api_or_save(self):
+        for experimental in (False,True):
+            h=self.host(experimental);p=h.player(Q)
+            self.assertTrue(p.submit('plan',{'text':'持续经营并维持和平的有效国策'})['ok'])
+            self.assertTrue(p.submit('end_turn',{'summary':'UNIQUE-HISTORY-小结应由客户端记忆保管'})['ok'])
+            receipt=p.submit('government');before=deepcopy(receipt);saved=h.runtime.save_mod_state(h.world)
+            self.assertTrue(receipt['data']['summaries'])
+            ui=h.ui.llm(h.cfg);presented=json.loads(ui.receipt(receipt))
+            self.assertNotIn('summaries',presented['data'])
+            self.assertNotIn('UNIQUE-HISTORY',json.dumps(presented,ensure_ascii=False))
+            self.assertEqual(receipt,before);self.assertEqual(h.runtime.save_mod_state(h.world),saved)
+
     def test_tile_fog_and_enemy_privacy_and_client_forecast_match_domain(self):
         w=fixtures.TestPlayerAPI().world();p=w.runtime.player(w,Q)
         w.territory.create('scenario:near',C,2,1,terrain='native:plain')

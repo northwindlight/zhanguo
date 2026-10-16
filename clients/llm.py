@@ -61,6 +61,7 @@ class LLMClient:
         self.cfg=deepcopy(cfg);self.state=state or LLMState();self._backend=backend
         self.presentation=ui or load_ui(self.cfg)
         self.ui=self.presentation.llm(self.cfg)
+        self._allowed_actions=None
 
     def _provider(self):
         if self._backend is None:self._backend=make_backend(self.cfg)
@@ -110,6 +111,10 @@ class LLMClient:
         return {key:(value if key in self.PROSE else fix(value)) for key,value in arguments.items()}
 
     def _submit(self,player,action,arguments):
+        if self._allowed_actions is not None and (not isinstance(action,str) or action not in self._allowed_actions):
+            return {'api':player.api_version,'actor':player.actor,'action':action,'period':self._observed_period,
+                    'ok':False,'status':'rejected','code':'tool_not_exposed',
+                    'message':self.ui.text('llm.tool_not_exposed'),'data':None}
         if action!='memory_search' or hasattr(player,'action_state'):return player.submit(action,self._arguments(arguments))
         base={'api':player.api_version,'actor':player.actor,'action':action,'period':player.observe()['period']}
         try:
@@ -182,6 +187,8 @@ class LLMClient:
         if not obs['can_act']:return []
         schemas=player.actions()
         tools=self.ui.actions(schemas if any(s['function']['name']=='memory_search' for s in schemas) else [*schemas,deepcopy(memory.SCHEMA)]);batch=player.events(self.state.event_cursor)
+        self._allowed_actions={tool['function']['name'] for tool in tools}
+        self._observed_period=obs['period']
         messages,plan=self._context(player,obs,batch,tools)
         self._dialogue(player,[messages[0],messages[-1]])
         description=self.ui.context_plan(plan);hit=ctx.rolling_hit(player.actor)
@@ -214,6 +221,7 @@ class LLMClient:
                     receipt=self._submit(player,action,[])
                 else:receipt=self._submit(player,action,arguments)
                 receipts.append(receipt);batch_receipts.append(receipt)
+                if receipt.get('code')=='tool_not_exposed' and emit:emit('⚠ '+receipt['message'])
                 render=getattr(self.ui,'receipt',None)
                 messages.append({'role':'tool','tool_call_id':call['id'],'content':render(receipt) if callable(render) else json.dumps(receipt,ensure_ascii=False)})
                 self._receipt(player,action,fn.get('arguments'),receipt)
