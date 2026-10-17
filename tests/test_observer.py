@@ -277,7 +277,7 @@ class TestObserver(unittest.TestCase):
             def clear_panel(self):pass
         console=Console();console.queue.put('say 中途公告');console.queue.put('board');console.queue.put('quit')
         with tempfile.TemporaryDirectory() as d,patch('mp_run.CONSOLE',console):
-            obs=Observer(h,Path(d)/'journal.md');obs.show_thinking=True
+            obs=Observer(h,Path(d)/'journal.md');obs.show_thinking='full'
             h.cycle(on_result=obs.result,emit=obs.model_output,on_call=obs.on_call)
             self.assertTrue(obs.stop_requested);self.assertEqual(h.clock(),1)
             self.assertIn('完整思考正文'*80,'\n'.join(console.lines))
@@ -313,8 +313,10 @@ class TestObserver(unittest.TestCase):
             self.assertEqual(ui.preview(full,action=action),full)
         self.assertIn('完整内容见日志',ui.preview(full,action='player_rules'))
         with tempfile.TemporaryDirectory() as d,contextlib.redirect_stdout(io.StringIO()) as out:
-            obs=Observer(h,Path(d)/'journal.md');obs.model_output('💭 s:q 静默保留思考')
-            self.assertEqual(out.getvalue(),'')
+            # 默认摘要模式：终端只留思考第一行，全文仍然进日志。
+            obs=Observer(h,Path(d)/'journal.md');obs.model_output('💭 s:q 静默保留思考\n第二行细节')
+            self.assertIn('静默保留思考',out.getvalue())
+            self.assertNotIn('第二行细节',out.getvalue())
             obs.pending={'s:q':[('player_rules',{},receipt)]};obs.flush('s:q')
             log=obs.path.read_text();self.assertIn(full,log);self.assertIn('静默保留思考',log)
             self.assertLess(out.getvalue().count('回执全文'),500)

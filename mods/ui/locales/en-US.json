@@ -334,7 +334,7 @@
   "console.resumed": "Automatic play resumed.",
   "console.thought_folded": "  [Reasoning folded · {count} chars · thoughts shows the last reply; thoughts on unfolds future replies]",
   "console.thought_mode": "Reasoning display: {mode}; the full journal is always preserved.",
-  "console.thought_usage": "Usage: thoughts shows the last full reply; thoughts on/off controls future display",
+  "console.thought_usage": "Usage: thoughts shows the last full text; thoughts brief/on/off controls later display (brief = first line only)",
   "console.on": "on",
   "console.off": "off",
   "llm.request": "⏳ {actor} awaiting model call {count}",
@@ -555,5 +555,6 @@
   "experimental.review_log": "📜 {actor} council log | Turn {period} | [{count}/10] | Stage {phase} | {kind}\n{payload}",
   "receipt.news_more": "Older news not expanded: {count} entries (turns {first}-{last}); use player_events(cursor) for items after a cursor, or the archive beside the save for full text.",
   "console.auto_rejected_offers": "End of turn: unanswered offers {ids} automatically rejected at no charge.",
-  "console.auto_rejected_votes": "End of turn: unanswered votes {ids} automatically voted against."
+  "console.auto_rejected_votes": "End of turn: unanswered votes {ids} automatically voted against.",
+  "console.brief": "brief"
 }

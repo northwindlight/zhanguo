@@ -34,7 +34,8 @@ class ToolcallParity(unittest.TestCase):
                 self.assertEqual(service._manual(p,'基础指南')['body'],basics)
             ui=h.ui.llm(h.cfg);ui.rules(p.rules('all'));obs=p.observe();ui.state(obs,[])
             self.assertIn('规则按需',ui.system())
-            self.assertNotIn(basics,ui.system())
+            # 旧版口径：开局指南常驻前 20 回合的 system 前缀，过期后只能按需查。
+            self.assertIn(basics,ui.system())
             obs['period']=20;ui.state(obs,[])
             self.assertNotIn(basics,ui.system())
             self.assertTrue(p.rules('经济手册'))

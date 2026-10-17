@@ -70,7 +70,9 @@ class Observer:
         self.messages_seen={row['id'] for row in records['messages']} if resume else set()
         self.overview_period=None
         self.pending={};self.results=[];self.stop_requested=False;self.paused=False
-        self.current_actor=None;self.started_at=0;self.show_thinking=False;self.last_thinking=''
+        # 看海时最常问的两件事：现在是谁在行动、他为什么这么做。
+        # (period,actor) 作键：同一国跨回合连续行动时也要重新打抬头。
+        self.current_actor=None;self.started_at=0;self.show_thinking='brief';self.last_thinking=''
     def names(self):return {a:r['name'] for a,r in self.host.roster.items()}
     def snapshot(self):
         method=getattr(self.host,'observer_snapshot',None)
@@ -96,18 +98,28 @@ class Observer:
                 text=text.replace(icon+' '+actor+' ',icon+' '+name+' ',1)
         if text.startswith('💭'):
             self.last_thinking=text
-            if not self.show_thinking:
+            if self.show_thinking=='off':
                 to_journal(self.path,text)
+                return
+            if self.show_thinking!='full':
+                # 摘要模式：终端只留思考的第一行，全文照旧进日志。
+                to_journal(self.path,text)
+                first=next((row for row in text.splitlines() if row.strip()),'')
+                if len(first)>160:first=first[:160]+'…'
+                # 进滚动区（不是状态面板）：看海时要能往回翻“当时为什么这么做”。
+                echo_line(first)
                 return
         if text.startswith(('⚠','🧠','⏳')):panel_note(self.path,text)
         else:self.line(text)
     def actor_start(self,actor):
-        if actor==self.current_actor:return
-        self.current_actor=actor;self.started_at=time.monotonic()
-        if CONSOLE is not None:CONSOLE.clear_panel()
+        key=(self.host.clock(),actor)
+        if key==self.current_actor:return
+        self.current_actor=key;self.started_at=time.monotonic()
+        clear=getattr(CONSOLE,'clear_panel',None)
+        if callable(clear):clear()
         self.line(self.ui.text('console.actor_start',actor=self.names().get(actor,actor),period=self.host.clock()))
     def actor_finish(self,actor):
-        if self.current_actor!=actor:return
+        if not self.current_actor or self.current_actor[1]!=actor:return
         self.line(self.ui.text('console.actor_finish',actor=self.names().get(actor,actor),seconds=time.monotonic()-self.started_at))
         self.current_actor=None
     def context_head(self,text):
@@ -123,6 +135,11 @@ class Observer:
         if self.host.clients[actor].kind=='rule':
             self.flush(actor)
             if action=='end_turn' and receipt['ok']:self.actor_finish(actor)
+        # 模型侧不一定会以 end_turn 收尾（议会转换、步数耗尽）；只看行动权是否还在，
+        # 否则下一轮同一个国家再行动时抬头不会重打，看海就分不清谁在做。
+        try:
+            if not self.host.player(actor).action_state().get('can_act'):self.actor_finish(actor)
+        except Exception:pass
     def flush(self,actor):
         remember=getattr(self.ui.console,'remember',None)
         if callable(remember):remember(self.host.player(actor).observe())
@@ -133,6 +150,7 @@ class Observer:
             echo_line(preview(full,action=action) if callable(preview) else full)
 
     def on_call(self,actor,step,receipts):
+        self.actor_start(actor)
         self.line(self.ui.text('console.call',actor=self.host.roster[actor]['name'],count=step+1));self.flush(actor)
         if not _commands(self.host,self):self.stop_requested=True
         if any(r.get('action')=='end_turn' and r.get('ok') for r in receipts):self.actor_finish(actor)
@@ -175,11 +193,14 @@ def command(host,line,observer):
     elif first in ('resume','继续'):
         observer.paused=False;observer.notice(text_ui('console.resumed'))
     elif first in ('thoughts','思考'):
-        if body.strip() in ('on','展开'):observer.show_thinking=True
-        elif body.strip() in ('off','收起'):observer.show_thinking=False
-        elif body.strip():raise ValueError(text_ui('console.thought_usage'))
+        mode=body.strip()
+        if mode in ('on','展开'):observer.show_thinking='full'
+        elif mode in ('off','收起'):observer.show_thinking='off'
+        elif mode in ('brief','摘要'):observer.show_thinking='brief'
+        elif mode:raise ValueError(text_ui('console.thought_usage'))
         elif observer.last_thinking:echo_line(observer.last_thinking)
-        observer.notice(text_ui('console.thought_mode',mode=text_ui('console.on' if observer.show_thinking else 'console.off')))
+        label={'full':'console.on','off':'console.off','brief':'console.brief'}[observer.show_thinking]
+        observer.notice(text_ui('console.thought_mode',mode=text_ui(label)))
     elif first in ('add','加入','加'):
         parts=body.split()
         if not 1<=len(parts)<=2:raise ValueError(text_ui('console.add_usage'))

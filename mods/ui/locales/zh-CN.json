@@ -334,7 +334,7 @@
   "console.resumed": "已恢复自动运行。",
   "console.thought_folded": "  [思考已收起 · {count} 字 · thoughts 查看上次全文，thoughts on 展开后续思考]",
   "console.thought_mode": "思考正文显示：{mode}；日志始终保留全文。",
-  "console.thought_usage": "用法：thoughts 查看上次全文；thoughts on/off 控制后续显示",
+  "console.thought_usage": "用法：thoughts 查看上次全文；thoughts brief/on/off 控制后续显示（brief=只显示第一行）",
   "console.on": "展开",
   "console.off": "收起",
   "llm.request": "⏳ {actor} 正在等待模型，第 {count} 次调用",
@@ -577,5 +577,6 @@
   "experimental.review_log": "📜 {actor} 议会记录·第{period}回合·[{count}/10]·阶段{phase}·{kind}\n{payload}",
   "receipt.news_more": "另有 {count} 条更早近讯（第{first}—{last}回合）未展开；按游标取新增用 player_events(cursor)，存档旁的历史归档保留全文。",
   "console.auto_rejected_offers": "回合结束：未回应提议{ids}已免费自动拒绝。",
-  "console.auto_rejected_votes": "回合结束：未回应表决{ids}已自动投反对票。"
+  "console.auto_rejected_votes": "回合结束：未回应表决{ids}已自动投反对票。",
+  "console.brief": "摘要"
 }

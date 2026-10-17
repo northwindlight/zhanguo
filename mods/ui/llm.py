@@ -78,6 +78,10 @@ class LLMUI:
         # registered role guidance belongs in the stable prompt.
         active=[section for section in self.rulebook if section['title'] in ('匈奴政体',)]
         if active:text+='\n'+json.dumps(active,ensure_ascii=False,separators=(',',':'))
+        # 旧版把开局指南直接挂在前 20 回合的 system 前缀里（过期后仍可 player_rules 取回）：
+        # 开局最贵的几个坑，模型不一定会主动去查手册。
+        guide=next((section for section in self.rulebook if section['title']=='基础指南'),None)
+        if guide and self.cfg.get('opening_guide',True) and self.period<20:text+='\n'+str(guide['body'])
         text+='\n规则按需用 player_rules(topic)，兵种/建筑/地形用 unit_catalog/building_catalog/terrain_catalog，地块用 land/tile，历史近讯用 news，情报用 intel，完整经济与资产用 econ，已购报表用 bank。'
         if self.has_scripts:text+='\n'+self.text('llm.scripting')
         return text
