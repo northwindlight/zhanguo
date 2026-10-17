@@ -409,10 +409,10 @@ class TestObserver(unittest.TestCase):
         text=ui.action(3,'s:q','attack',{'ids':[7],'x':2,'y':3},r,{'s:q':'秦'})
         self.assertIn('#7',text);self.assertIn('已占领',text);self.assertNotIn('待结算',text)
         r['data'].update(occupied=False,engaged=True)
-        self.assertIn('伤亡在结算时计算',ui.action(3,'s:q','attack',{'ids':[7],'x':2,'y':3},r,{}))
+        self.assertIn('每回合结算一轮',ui.action(3,'s:q','attack',{'ids':[7],'x':2,'y':3},r,{}))
         r={'ok':True,'status':'submitted','message':'','data':{'fee':5}}
         text=ui.action(3,'s:q','declare_war',{'target':'s:c'},r,{'s:q':'秦','s:c':'楚'})
-        self.assertIn('等待外交结算',text);self.assertNotIn('已生效',text)
+        self.assertIn('已提交',text);self.assertIn('宣战',text);self.assertNotIn('已生效',text)
 
     def test_failed_script_preserves_prior_output_and_successful_action_count(self):
         h=GameHost.new(self.cfg(True));p=h.player('s:q');ui=h.ui.console

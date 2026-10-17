@@ -12,6 +12,12 @@ def num(value):
     return str(value)
 
 
+# 外交动作原先共用一句「已提交，等待外交结算；预留X金」——分不出宣战、共防还是保障。
+DIPLOMACY_ACTIONS=frozenset(('guarantee','cancel_guarantee','propose_defense','break_defense',
+    'declare_war','offer_peace','accept_peace','reject_peace','accept_proposal','reject_proposal',
+    'bloc_found','bloc_join','bloc_leave','bloc_dissolve','bloc_rename','bloc_transfer','vote'))
+
+
 class ReceiptPresentation(QueryPresentation):
     def remember(self,observation):
         facts=observation.get('facts',observation)
@@ -220,6 +226,9 @@ class ReceiptPresentation(QueryPresentation):
         if action in ('plan','end_turn','script_write','script_patch','script_run','explain_plan'):return title
         if action in ('move','retreat','attack'):return title+' '+('、'.join(self.unit_ref(n,actor) for n in args['ids']) if 'ids' in args else self.unit_ref(args.get('aid','?'),actor))+' → '+self.pos(args=args,actor=actor)
         if action=='disband':return title+' '+('、'.join(self.unit_ref(n,actor) for n in args['ids']) if 'ids' in args else self.unit_ref(args.get('aid','?'),actor))
+        # 外交正文已经把对象、金额和下一步讲全；抬头只留动作名，免得把
+        # native:he / scenario:chu 这类引擎键和坐标数组漏到屏幕上。
+        if action in DIPLOMACY_ACTIONS:return title
         parts=[]
         for key,value in args.items():
             if key in ('text','summary','source','old','new','content'):continue
@@ -333,14 +342,32 @@ class ReceiptPresentation(QueryPresentation):
         if action in ('move','retreat','attack','disband') and isinstance(data,dict):
             if data.get('status')=='failed':return '❌ '+self.label('receipt',data.get('message','行动失败'))
             units='、'.join(self.unit_ref(i,actor) for i in data.get('units',[]))
-            if action=='disband':return f'已遣散 {units}，不退还资源。'
-            if action=='retreat':return f'{units} 已申请撤至{self.pos(args=args,actor=actor)}；本期仍参加战斗。'
-            if action=='attack':return f'{units} 已进攻{self.pos(args=args,actor=actor)}；'+('已占领该地块。' if data.get('occupied') else '进入交战，伤亡在结算时计算。' if data.get('engaged') else '未发生交战。')
-            return f'{units} 已移动至{self.pos(args=args,actor=actor)}。'
+            if action=='disband':
+                # 旧版逐条讲清代价：不退料、当回合起不再吃补给与军费、民兵编制当场释放。
+                return (f'已遣散 {units}：不返还任何粮/装备/黄金；本回合起即不再吃补给、不计军费'
+                        f'（民兵的编制名额当场释放）。遣散不亡国，但军队没了就是没了，番号不回收。')
+            if action=='retreat':
+                return f'{units} 已申请撤至{self.pos(args=args,actor=actor)}；本期仍参加战斗，结算后才脱离。'
+            if action=='attack':
+                where=self.pos(args=args,actor=actor)
+                if data.get('occupied'):return f'{units} 已进攻{where}：无守军，已占领该地块。'
+                if data.get('engaged'):return f'{units} 已进攻{where}，进入交战；之后每回合结算一轮，可用 retreat 撤出。'
+                return f'{units} 已进攻{where}，未发生交战。'
+            # 旧版明确提醒「走进去不等于占下来」——这是最容易踩的一条。
+            return (f'{units} 已移动至{self.pos(args=args,actor=actor)}（未占地：移动只挪位置，'
+                    f'无主地走完还是无主地；要占地必须用 attack）。')
         if action in ('send_letter','spy','gift','share_map') and isinstance(data,dict):
             target=self.name(data['target'],self._names);fee=data['fee']
-            what={'send_letter':'信件','spy':'间谍','gift':'赠送物资','share_map':'共享地图'}[action]
-            result=f'已提交向{target}派送{what}'+(f'，−{fee}金' if fee else '，免费')+f'；预计第{data["arrive"]}期送达。'
+            cost=f'−{fee}金' if fee else '免费'
+            if action=='spy':
+                # 旧版讲清回报内容（经济底细+外交+粗略军情+地图），否则花 100 金不知道买什么。
+                return (f'已派间谍前往{target}（{cost}），预计第{data["arrive"]}期拿回其情报：'
+                        f'国库与储备、上期收入、各格建筑、外交关系、粗略军情与对方已知地图（不含军队位置与编号）。')
+            if action=='send_letter':
+                chars=len(str(data.get('text') or args.get('text') or ''))
+                return f'信已发出，{target}将于第{data["arrive"]}期收到（{chars} 字，{cost}）。'
+            what={'gift':'赠送物资','share_map':'共享地图'}[action]
+            result=f'已提交向{target}派送{what}（{cost}）；预计第{data["arrive"]}期送达。'
             if data.get('text'):result+='\n'+data['text']
             if data.get('resource'):result+=' '+self.resources({data['resource']:data['quantity']})
             return result
@@ -362,6 +389,13 @@ class ReceiptPresentation(QueryPresentation):
             return '\n'.join(lines)
         if action=='script_write' and isinstance(data,dict):return f'脚本已保存（第{data["revision"]}版）；尚未运行。\n'+args.get('source','')
         if action=='script_patch' and isinstance(data,dict):return f'脚本已修订（第{data["revision"]}版）；尚未运行。'
+        if action in DIPLOMACY_ACTIONS and isinstance(data,dict):
+            rendered=self.diplomacy_receipt(action,data,args)
+            if rendered:return rendered
+        if action=='player_events' and isinstance(data,dict) and 'items' in data:
+            rows=data.get('items') or []
+            return (f'【事件】共 {len(rows)} 条，游标 {num(data.get("cursor",0))}：\n'+
+                    ('\n'.join(self.event(row,self._names) for row in rows) or '无'))
         if isinstance(data,dict) and receipt.get('status')=='submitted':
             return '已提交，等待外交结算；预留'+num(data.get('fee',0))+'金。'+('\n'+self.label('receipt',data['message']) if data.get('message') else '')
         # Unknown mods retain all their public data in readable compact form.
@@ -369,6 +403,55 @@ class ReceiptPresentation(QueryPresentation):
 
     @staticmethod
     def relation(value):return {'war':'交战','ally':'同盟','neutral':'中立'}.get(value,value)
+
+    def alliance_name(self,key):
+        facts=(self._facts.get(self._actor) or {})
+        for row in (facts.get('diplomacy') or {}).get('alliances',[]):
+            if key in ('bloc/'+row['id'],row['id']):return row['name']
+        return str(key)
+
+    def diplomacy_receipt(self,action,data,args=None):
+        """外交提交回执：说清提交了什么、预留多少金、下一步等谁。
+
+        外交是「提交 → 结算」两步，提交这一刻拿不到最终结果（是否转投票、守侧谁传导参战
+        都由结算决定），所以这里不编造结果，只把提交内容讲明白；结果用 diplomacy 查。
+        参数以回执里的规范化 arguments 为准，缺失时回落到调用参数。
+        """
+        args={**(args or {}),**dict(data.get('arguments') or ())}
+        fee=num(data.get('fee',0))
+        target=self.name(args.get('target',''),self._names)
+        if action=='vote':
+            choice=args.get('accept')
+            word='弃权' if choice is None else '赞成' if choice else '反对'
+            return f'已对投票 #{data.get("id",args.get("vote","?"))} 表态：{word}。'
+        if action=='guarantee':return f'已提交：保障 {target} 独立，预留 {fee} 金。'
+        if action=='cancel_guarantee':return f'已提交：撤销对 {target} 的保障，预留 {fee} 金。'
+        if action=='propose_defense':return f'已提交：向 {target} 提议共同防御，预留 {fee} 金；等对方接受。'
+        if action=='break_defense':return f'已提交：解除与 {target} 的共同防御，预留 {fee} 金。'
+        if action=='declare_war':return f'已提交：对 {target} 宣战，预留 {fee} 金；结算后开战，别把提交当已开战。'
+        if action=='bloc_found':
+            tos=[self.name(t,self._names) for t in (args.get('tos') or [])]
+            return (f'已发起结盟「{args.get("name","")}」：等 {"、".join(tos) or "受邀方"} 全部接受后成立，'
+                    f'任一拒绝即流产；预留 {fee} 金。')
+        if action=='bloc_join':return f'已向「{self.alliance_name(args.get("bloc",""))}」申请入盟，预留 {fee} 金；等成员表决。'
+        if action=='bloc_leave':return f'已提交退出联盟，预留 {fee} 金。'
+        if action=='bloc_dissolve':return f'已提交解散联盟，预留 {fee} 金。'
+        if action=='bloc_rename':return f'已提交把联盟改名为「{args.get("name","")}」，预留 {fee} 金。'
+        if action=='bloc_transfer':return f'已提交把盟主转给 {target}，预留 {fee} 金。'
+        if action=='accept_proposal':return f'已回应提议 #{args.get("offer","?")}：接受，免费；约定内容按条款执行。'
+        if action=='reject_proposal':return f'已回应提议 #{args.get("offer","?")}：拒绝，免费。'
+        if action=='accept_peace':return f'已回应议和 #{args.get("offer","?")}：接受，免费；赔款按条款执行。'
+        if action=='reject_peace':return f'已回应议和 #{args.get("offer","?")}：拒绝，免费。'
+        if action=='offer_peace':
+            kind=args.get('kind','white')
+            gold=num(args.get('gold',0))
+            terms={'white':'白和（不赔不索）','pay':f'我方赔款 {gold} 金','demand':f'索要赔款 {gold} 金'}.get(kind,str(kind))
+            line=f'已向 {target} 提出：{terms}'
+            if args.get('truce') is not None:line+=f'，约定休战 {num(args["truce"])} 回合'
+            line+=f'，等对方下一回合回应；预留 {fee} 金。'
+            if args.get('note'):line+='\n'+args['note']
+            return line
+        return None
 
     def churn_warning(self,data):
         """空转当场点名：同商品又买又卖＝白付两趟价差，还得算自己推价。
