@@ -78,6 +78,13 @@ class FinancialPosition:
     loan: Loan | None
     liabilities: int
     purchases: tuple
+    # 授信口径：旧版把「GDP×5、利率、期限、最多一笔」写在央行行里，
+    # 只给一个额度数字，模型不知道这笔钱是按什么算的、什么时候到期。
+    gdp: float | None = None
+    credit_multiple: float = 5.0
+    savings_rate: float = 0.0
+    loan_rate: float = 0.0
+    loan_term: int = 5
 
 
 class Bank:
@@ -204,8 +211,11 @@ class Bank:
     def position(self, owner):
         cash = self._cash(owner)
         loan = self._loans.get(owner);due = 0 if loan is None else loan.due
+        turns = self._call('native:economy','turns',owner)
+        gdp = turns[-1].gdp.known if turns else None
         return FinancialPosition(owner,self.next_period,cash,self.credit_limit(owner),loan,due,
-                                 tuple(row for row in self._purchases if row.buyer==owner))
+                                 tuple(row for row in self._purchases if row.buyer==owner),
+                                 gdp,self.policy.credit_multiple,self.rate,self.loan_rate,self.policy.loan_term)
 
     def snapshot(self):return BankSnapshot(self.next_period,self.rate,tuple(self._loans.values()),tuple(self._entries),tuple(self._purchases))
     def __deepcopy__(self,memo):

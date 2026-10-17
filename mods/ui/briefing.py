@@ -58,9 +58,17 @@ def _power(ui, facts, cues, observation, key):
     # 上一回合结算：旧版挂在【国力】末尾，让模型一眼看到钱粮是涨是跌。
     settled = _turn_report(facts)
     if settled:
-        lines.append(ui.text('brief.settled', gold=ui.money(settled['production']),
-                             cash=num(settled.get('cash_production', 0)), inputs=ui.money(settled['inputs']),
-                             gdp=ui.money(settled['gdp'])))
+        flows = (facts.get('econ') or {}).get('latest_flows') or {}
+        outputs = dict(flows.get('outputs') or ())
+        if outputs:
+            lines.append(ui.text('brief.settled_flows', period=flows.get('period', settled.get('period', 0)),
+                                 values=resources_line(ui, outputs, key), gold=ui.money(settled['production']),
+                                 cash=num(settled.get('cash_production', 0)), inputs=ui.money(settled['inputs']),
+                                 gdp=ui.money(settled['gdp'])))
+        else:
+            lines.append(ui.text('brief.settled', gold=ui.money(settled['production']),
+                                 cash=num(settled.get('cash_production', 0)), inputs=ui.money(settled['inputs']),
+                                 gdp=ui.money(settled['gdp'])))
     return '\n'.join(lines)
 
 

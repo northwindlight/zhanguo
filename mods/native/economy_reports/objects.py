@@ -225,6 +225,27 @@ class Economy:
 
     def reports(self, owner=None):return tuple(row for row in self._reports if owner is None or row.owner==owner)
 
+    def production(self, owner):
+        """最近一期的逐资源产出与投入。
+
+        `turns()` 只给折成货币的合计；旧版那行「上一回合结算：产出 粮食+19 木头+22…」
+        要的是每种资源各多少，模型据此判断木粮是不是在涨。
+        """
+        turns = self.turns(owner)
+        if not turns:
+            return {'period': 0, 'outputs': (), 'inputs': ()}
+        period = max(row.period for row in turns)
+        outputs, inputs = {}, {}
+        for row in self._rows.get((period, owner), ()):
+            if row.fact.category != 'production':
+                continue
+            for key, value in row.fact.outputs:
+                outputs[key] = outputs.get(key, 0) + value
+            for key, value in row.fact.inputs:
+                inputs[key] = inputs.get(key, 0) + value
+        return {'period': period, 'outputs': tuple(sorted(outputs.items())),
+                'inputs': tuple(sorted(inputs.items()))}
+
     def facts(self,period):
         return tuple(row for (p,n),rows in self._rows.items() if p==period for row in rows)
 

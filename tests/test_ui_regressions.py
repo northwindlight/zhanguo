@@ -19,6 +19,35 @@ class TestUIRegressions(unittest.TestCase):
         player=h.player(Q);h.ui.console.remember(player.observe())
         return h.ui.console.action(h.clock(),Q,action,args or {},player.submit(action,args or {}),{Q:'秦',C:'楚'})
 
+    def test_market_receipt_gives_equilibrium_tone_and_large_order_trial(self):
+        """旧版行情行：现价/均衡/贵贱 + 大单试算；只给现价，模型只能猜贵贱。"""
+        h=self.host();text=self.present(h,'market')
+        self.assertIn('均衡',text)
+        self.assertIn('卖50≈',text)
+        self.assertTrue(any(word in text for word in ('贵','贱','平')))
+
+    def test_bank_receipt_states_the_credit_formula_rates_and_term(self):
+        """借贷欲望低不是模型笨：状态里只有一个额度数字，没有 GDP×5、利率和期限。"""
+        h=self.host();text=self.present(h,'bank')
+        self.assertIn('信用额度',text)
+        self.assertIn('期限5回合',text)
+        self.assertIn('贷款',text)
+
+    def test_army_line_reports_per_unit_reach(self):
+        h=self.host();x,y=h.player(Q).query('land')[0]['tile']['position']
+        h.world.units.spawn(Q,'native:infantry',x,y)
+        self.assertIn('本回合可及',self.present(h,'army'))
+
+    def test_state_facts_carry_flows_reach_and_bank_terms(self):
+        h=self.host();x,y=h.player(Q).query('land')[0]['tile']['position']
+        h.world.units.spawn(Q,'native:infantry',x,y)
+        for _ in range(2):h.cycle()
+        facts=h.player(Q).observe()['facts']
+        self.assertTrue(facts['frontier']['units'])
+        self.assertIn('outputs',facts['econ']['latest_flows'])
+        self.assertIn('gdp',facts['bank'])
+        self.assertIn('loan_rate',facts['bank'])
+
     def test_news_receipt_keeps_latest_and_counts_the_rest(self):
         """十期近讯一次七十多条——旧版只给最近十条，多的收成一行计数。"""
         ui=ConsoleUI({})

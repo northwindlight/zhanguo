@@ -381,7 +381,15 @@ class ReceiptPresentation(QueryPresentation):
             return result
         if action=='borrow' and isinstance(data,dict):return f'借入{data["principal"]}金，期限{data["remaining"]}回合，当前应还{data["due"]}金；借款利率{data["initial_rate"]:.1%}。'
         if action=='bank' and isinstance(data,dict):
-            loan=data.get('loan');result=f'现金{num(data["cash"])}金｜信用额度{num(data["credit_limit"])}金｜负债{num(data["liabilities"])}金'
+            loan=data.get('loan');result=f'现金{num(data["cash"])}金｜信用额度{num(data["credit_limit"])}金'
+            # 旧版央行行会写清额度怎么来的、利率和期限；只给一个额度数字，模型不知道能不能、该不该借。
+            if data.get('gdp') is not None:
+                result+=f'（=最近已结算 GDP {num(data["gdp"])}×{num(data.get("credit_multiple",5))}）'
+            result+=f'｜负债{num(data["liabilities"])}金'
+            if 'loan_rate' in data:
+                result+=(f'\n利率：储蓄{num(data.get("savings_rate",0)*100)}%｜贷款{num(data["loan_rate"]*100)}%'
+                         f'（=储蓄+{num((data["loan_rate"]-data.get("savings_rate",0))*100)}%）'
+                         f'｜每国最多一笔，期限{num(data.get("loan_term",5))}回合，到期强制扣款（可使现金为负）｜不能自选金额')
             if loan:result+=f'｜贷款剩余{loan["remaining"]}回合，应还{loan["due"]}金'
             for purchase in reversed(data.get('purchases',[])):
                 report=purchase['report']
@@ -393,7 +401,21 @@ class ReceiptPresentation(QueryPresentation):
         if action=='market' and isinstance(data,dict):
             lines=['【世界市场】本期公开报价，同期内先后手同价；价格由库存与基准库存决定，大单均价随扫过的深度上升、大额抛压价。']
             inventory=dict(data.get('inventory',[]));reference=dict(data.get('reference',[]));buy=dict(data.get('buy_prices',[]));sell=dict(data.get('sell_prices',[]))
-            for k,p in data['prices']:lines.append(f'{self.label("content",k)}｜本期价{num(p)}金｜买{num(buy.get(k))}金／卖{num(sell.get(k))}金'+(f'｜库存{num(inventory[k])}/基准{num(reference.get(k))}' if k in inventory else ''))
+            equilibrium=dict(data.get('equilibrium',[]));trials={row[0]:row[1:] for row in data.get('trials',[]) if len(row)==3}
+            units=data.get('trial_units',50)
+            for k,p in data['prices']:
+                line=f'{self.label("content",k)}｜本期价{num(p)}金'
+                # 旧版行情行带「基准/均衡」，模型据此判贵贱；只给现价等于让它猜。
+                if k in equilibrium:
+                    gap=p-equilibrium[k]
+                    tone='query.market_high' if gap>1e-9 else 'query.market_low' if gap<-1e-9 else 'query.market_fair'
+                    line+=f'（均衡{num(equilibrium[k])}金，{self.text(tone)}）'
+                line+=f'｜买{num(buy.get(k))}金／卖{num(sell.get(k))}金'
+                if k in trials:
+                    trial_buy,trial_sell=trials[k]
+                    line+=f'｜卖{units}≈{num(trial_sell)}金'+(f' 买{units}≈{num(trial_buy)}金' if trial_buy is not None else '')
+                if k in inventory:line+=f'｜库存{num(inventory[k])}/基准{num(reference.get(k))}'
+                lines.append(line)
             return '\n'.join(lines)
         if action=='script_write' and isinstance(data,dict):return f'脚本已保存（第{data["revision"]}版）；尚未运行。\n'+args.get('source','')
         if action=='script_patch' and isinstance(data,dict):return f'脚本已修订（第{data["revision"]}版）；尚未运行。'
@@ -479,6 +501,9 @@ class ReceiptPresentation(QueryPresentation):
         status='｜'+self.text('query.army_'+state)
         catalog=self._facts.get(self._actor,{}).get('unit_catalog',{})
         if u['owner']==self._actor and u['kind'] in catalog:status+='｜'+self.text('query.speed',speed=catalog[u['kind']]['speed'])
+        # 旧版逐军给「本回合可及 N 格」：同一兵种在不同位置可及数不同，聚合数帮不上忙。
+        reach={row['id']:row.get('reach',0) for row in (self._facts.get(self._actor,{}).get('frontier') or {}).get('units',[])}
+        if u['owner']==self._actor and state=='ready' and u['id'] in reach:status+='｜'+self.text('query.army_reach',count=reach[u['id']])
         if u.get('retreat_to') is not None:status+='｜待撤至'+self.pos(u['retreat_to'])+'｜撤退承伤比例'+num(u.get('retreat_cover'))+'%'
         return f'{self.name(u["owner"],self._names)} {self.label("content",u["kind"])}#{u["id"]} {self.pos([u["x"],u["y"]],actor=u["owner"])}｜HP{num(u["hp"])}'+status
 

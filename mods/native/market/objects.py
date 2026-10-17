@@ -206,6 +206,27 @@ class Market:
         return Quote(owner, resource, side, quantity, gold, path.exact_total,
                      price, path.next_price, carry, remainder)
 
+    def equilibrium(self):
+        """库存回到基准库存时的价格：现价与它比才知道贵贱。"""
+        result = {}
+        for key, listing in self._listings.items():
+            settled = self._pricing('level', listing, self._reference[key], self._reference[key], self._policy)
+            if not isinstance(settled, PriceSettlement):
+                raise ValueError('Invalid pricing engine result')
+            result[key] = round(number(settled.price, positive=True), 2)
+        return result
+
+    def trials(self, quantity=50):
+        """固定数量大单的实际成交总额（买入/卖出各一），让模型不必自己沿曲线试算。"""
+        integer(quantity, 1)
+        rows = []
+        for key in self._listings:
+            affordable = min(quantity, self._inventory[key])
+            buy = self.quote(key, affordable, 'buy').exact_total if affordable > 0 else None
+            sell = self.quote(key, quantity, 'sell').exact_total
+            rows.append((key, None if buy is None else round(buy, 2), round(sell, 2)))
+        return tuple(rows)
+
     def unit_price(self, resource, side):
         """Marginal valuation price for the period quote, independent of carry."""
         listing=self._listing(resource)

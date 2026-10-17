@@ -1,9 +1,12 @@
 """Economic queries and explicit estimates over current registered content."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from engine.resource import Resource
 from mods.native.buildings.types import NativeBuilding
 from mods.native.economy_reports.contracts import Money, TurnReport, integer
+
+# 旧版市场行给的是「卖50≈79金 买50≈89金」——固定 50 单位的大单试算。
+MARKET_TRIAL_UNITS = 50
 
 
 @dataclass(frozen=True)
@@ -15,6 +18,10 @@ class PublicMarket:
     reference: tuple
     buy_prices: tuple
     sell_prices: tuple
+    # 均衡价 = 库存回到基准库存时的价格；trial = 50 单位大单的成交总额（买/卖）。
+    equilibrium: tuple = ()
+    trials: tuple = ()
+    trial_units: int = 50
 
 
 @dataclass(frozen=True)
@@ -25,6 +32,7 @@ class BalanceSheet:
     gross_assets: Money
     stocks: tuple
     latest_turn: TurnReport | None
+    latest_flows: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -70,14 +78,20 @@ class EconomicQueries:
         amounts={key:1 for key,_ in row.prices}
         buy=tuple((v.resource,v.price) for v in self._call('economy:valuation','quote',amounts,'buy'))
         sell=tuple((v.resource,v.price) for v in self._call('economy:valuation','quote',amounts,'sell'))
-        return PublicMarket(row.currency,row.period,row.prices,row.inventory,row.reference,buy,sell)
+        # 旧版市场行是「现价/均衡/买/卖 + 大单试算」；没有均衡价，模型无法判断贵贱。
+        equilibrium=self._call('native:market','equilibrium')
+        trials=self._call('native:market','trials',MARKET_TRIAL_UNITS)
+        return PublicMarket(row.currency,row.period,row.prices,row.inventory,row.reference,buy,sell,
+                            tuple(sorted(equilibrium.items())),tuple(trials),MARKET_TRIAL_UNITS)
 
     def balance(self, owner):
         stocks = self._call('native:resource-inspection','snapshot',owner)
         inventory = self._value({row.id:row.amount for row in stocks})
         buildings = self._value(self._call('native:buildings','replacement_costs',owner))
         turns = self._call('native:economy','turns',owner)
-        return BalanceSheet(owner,inventory,buildings,inventory.plus(buildings),stocks,turns[-1] if turns else None)
+        flows = self._call('native:economy','production',owner)
+        return BalanceSheet(owner,inventory,buildings,inventory.plus(buildings),stocks,
+                            turns[-1] if turns else None,flows)
 
     def report(self, owner):
         self._call('native:resource-inspection','snapshot',owner)

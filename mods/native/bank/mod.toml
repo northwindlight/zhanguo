@@ -11,7 +11,7 @@ purchase_limit = 10
 
 [Mod]
 Id = "native:bank"
-Version = "1.1.0"
+Version = "1.2.0"
 Entry = "mods.native.bank.mod:BankMod"
 Requires = ["native:resources", "native:economy"]
 After = ["native:resources", "native:economy"]
