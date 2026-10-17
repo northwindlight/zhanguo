@@ -11,7 +11,7 @@ from clients.context import est_tokens
 
 # 简报分节越界时按此序从后往前丢弃；同键给出「去哪查全文」的工具名。
 FALLBACK={'capital':'frontier','threats':'threats','battle':'battle','territory':'news','power':'econ','plan':'government',
-          'map':'view','army':'army','report':'report','diplomacy':'diplomacy','market':'market','bank':'bank',
+          'map':'view','army':'army','report':'report','diplomacy':'foreign','market':'market','bank':'bank',
           'intel':'intel','dispatches':'dispatches'}
 
 
@@ -82,7 +82,7 @@ class LLMUI:
         # 开局最贵的几个坑，模型不一定会主动去查手册。
         guide=next((section for section in self.rulebook if section['title']=='基础指南'),None)
         if guide and self.cfg.get('opening_guide',True) and self.period<20:text+='\n'+str(guide['body'])
-        text+='\n只读查询统一用 query(panel=…)：land/tile/map、army/reachable/frontier/threats/battle/logistics、market/econ/bank/report、government/diplomacy/intel/news/dispatches、countries/nation/nations、unit_catalog/building_catalog/terrain_catalog/building_economics、handbooks。规则用 player_rules(topic)，按游标取事件用 player_events(cursor)。'
+        text+='\n只读查询统一用 query(panel=…)：land/tile/map、army/reachable/frontier/threats/battle/logistics、market/econ/bank/report、government/intel/news/dispatches、foreign（本国与全部对外关系）、unit_catalog/building_catalog/terrain_catalog/building_economics、handbooks。动作类工具按命令分：military（征召/移动/进攻/撤退/遣散）、economy（买卖/借款/购报表）、relations（外交与投票）、intelligence（写信/赠礼/共享地图/间谍），各自用 action 参数选动作。规则用 player_rules(topic)，按游标取事件用 player_events(cursor)。'
         if self.has_scripts:text+='\n'+self.text('llm.scripting')
         return text
 
@@ -92,7 +92,7 @@ class LLMUI:
     def actions(self,schemas):
         # 工具名、参数名是 API；enum 与描述里提到的内容键值随语言走（zh=金/农场，en=gold/farm）。
         schemas=deepcopy([schema for schema in schemas if schema['function']['name']!='player_state'])
-        self.has_scripts=any(s['function']['name']=='script_run' for s in schemas)
+        self.has_scripts=any(s['function']['name'] in ('script_run','script') for s in schemas)
         import re
         values=self.values()
         def localize(node):

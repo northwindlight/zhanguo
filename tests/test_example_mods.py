@@ -147,9 +147,9 @@ class TestStagesAndUnits(unittest.TestCase):
         host = GameHost.new(config(self.dist, [{'id': 'scenario:qin', 'name': '秦', 'client': 'llm'}]))
         player = host.player('scenario:qin')
         self.assertIn('example:war-elephant', str(player.query('unit_catalog')))
-        recruit = next(t for t in player.actions() if t['function']['name'] == 'recruit')
+        military = next(t for t in player.actions() if t['function']['name'] == 'military')
         self.assertIn('war-elephant',
-                      recruit['function']['parameters']['properties']['kind']['enum'])
+                      military['function']['parameters']['properties']['kind']['enum'])
 
     def test_unit_specific_stage_charges_exactly_its_own_declared_upkeep(self):
         host = GameHost.new(config(self.dist, [{'id': 'scenario:qin', 'name': '秦', 'client': 'llm'}]))

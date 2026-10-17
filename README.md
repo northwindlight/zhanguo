@@ -2,7 +2,7 @@
 
 战国是一款面向 LLM 决策的回合制大战略游戏。各国在同一世界中经营经济、组织军队、处理外交并争夺生存空间；人类可以观察、发出公告与来信，也可以研究模型在长局中的决策和失误。
 
-当前版本 **0.2.4**，包含 [实现审计修复](docs/reviews/错误实现-修复验收.md)。`main` 来自原 `正规化` 分支，采用模块化架构。旧版单体实现保存在 [`legacy`](https://github.com/northwindlight/zhanguo/tree/legacy)。[English](README.en.md)
+当前版本 **0.3.0**：全部 toolcall 收进发行版 tool 层，模型可见工具 12 个（native 8 + 4 个内置玩家 API），旧动作名仍可按名调用。详见 [更新记录](CHANGELOG.md)。`main` 来自原 `正规化` 分支，采用模块化架构。旧版单体实现保存在 [`legacy`](https://github.com/northwindlight/zhanguo/tree/legacy)。[English](README.en.md)
 
 本版加入剧本胜利钩子、联盟规则说明修复和文档归类，见 [更新记录](CHANGELOG.md)。
 

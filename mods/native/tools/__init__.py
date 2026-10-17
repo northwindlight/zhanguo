@@ -11,7 +11,7 @@ from pathlib import Path
 
 from engine.runtime import ModError
 
-from . import army, bank, buildings, diplomacy, economy, government, handbooks, intelligence, nations, query, territory, vision
+from . import army, bank, buildings, commands, diplomacy, economy, government, handbooks, intelligence, nations, query, territory, vision
 
 
 def _merge(target, source, label):
@@ -32,13 +32,14 @@ def _catalogs():
 
 
 class ToolLayer:
-    def __init__(self, runtime, tools, receipts, captions, panels, catalogs):
+    def __init__(self, runtime, tools, receipts, captions, panels, catalogs, commands=None):
         self.runtime = runtime
         self._tools = tuple(tools)
         self._receipts = receipts
         self._captions = captions
         self._panels = panels
         self._catalogs = catalogs
+        self._commands = dict(commands or {})
 
     def tools(self):
         return self._tools
@@ -46,22 +47,32 @@ class ToolLayer:
     def catalogs(self):
         return self._catalogs
 
-    def extend(self, *, tools=(), receipts=None, captions=None, panels=None):
+    def extend(self, *, tools=(), receipts=None, captions=None, panels=None, commands=None):
         merged_receipts = dict(self._receipts)
         merged_captions = dict(self._captions)
         merged_panels = dict(self._panels)
+        merged_commands = dict(self._commands)
         _merge(merged_receipts, receipts or {}, '回执')
         _merge(merged_captions, captions or {}, '抬头')
         _merge(merged_panels, panels or {}, '面板')
+        _merge(merged_commands, commands or {}, '命令')
         return ToolLayer(self.runtime, (*self._tools, *tools),
-                         merged_receipts, merged_captions, merged_panels, self._catalogs)
+                         merged_receipts, merged_captions, merged_panels, self._catalogs,
+                         merged_commands)
 
     def _canonical(self, action):
         tool = self.runtime.tools.get(action) if isinstance(action, str) else None
         return tool.name if tool is not None else action
 
+    def _render_name(self, action, args):
+        """Umbrella tools render the receipt/caption of the chosen inner action."""
+        canonical = self._canonical(action)
+        inner = (args or {}).get('action') if canonical in self._commands else None
+        target = self._commands.get(canonical, {}).get(inner) if isinstance(inner, str) else None
+        return self._canonical(target) if target else canonical
+
     def caption(self, action, args, actor, receipt, ctx):
-        render = self._captions.get(self._canonical(action))
+        render = self._captions.get(self._render_name(action, args))
         if render is None:
             return None
         try:
@@ -70,7 +81,7 @@ class ToolLayer:
             return None
 
     def receipt(self, action, args, receipt, actor, ctx):
-        render = self._receipts.get(self._canonical(action))
+        render = self._receipts.get(self._render_name(action, args))
         if render is None:
             return None
         try:
@@ -99,4 +110,5 @@ def build(runtime):
         _merge(panels, module.PANELS, '面板')
     if 'native:query' in runtime.capabilities:
         tools.append(query.build(runtime, tools))
-    return ToolLayer(runtime, tools, receipts, captions, panels, _catalogs())
+    tools, command_map = commands.wrap(runtime, tools)
+    return ToolLayer(runtime, tools, receipts, captions, panels, _catalogs(), command_map)

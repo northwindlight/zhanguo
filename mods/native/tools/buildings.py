@@ -112,7 +112,7 @@ def _build_receipt(args, receipt, actor, ctx):
                     costs=ctx.resources(data['costs'], sign='−'))
 
 
-def _build_caption(args, receipt, actor, ctx):
+def _build_caption(args, actor, receipt, ctx):
     parts = [ctx.text('tool.caption.build'), ctx.label('content', args.get('kind', ''))]
     if args.get('count', 1) != 1:
         parts.append('×' + _num(args['count']))
@@ -131,8 +131,8 @@ def _sites(data, args, actor, ctx):
     return _land_panel([{'tile': s, 'resources': s['resources']} for s in data['sites']], {}, actor, ctx)
 
 
-PANELS = {'building_catalog': _catalog}
-RECEIPTS = {'build': _build_receipt, 'building_sites': _sites}
+PANELS = {'building_catalog': _catalog, 'building_sites': _sites}
+RECEIPTS = {'build': _build_receipt}
 CAPTIONS = {
     'build': _build_caption,
     'building_sites': lambda args, actor, receipt, ctx: ctx.text('tool.caption.building_sites'),

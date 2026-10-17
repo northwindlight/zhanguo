@@ -141,7 +141,7 @@ class TestParliament(unittest.TestCase):
 
     def test_third_consecutive_rejection_replaces_monarch_without_second_submission(self):
         rows=self.rejected_turn('一版')+self.rejected_turn('二版')+[
-            reply(call('p3','plan',text='三版'),call('cancel','buy',resource='native:wood',quantity=1),
+            reply(call('p3','plan',text='三版'),call('cancel','economy',action='buy',resource='native:wood',quantity=1),
                   call('old-end','end_turn',summary='旧君主想直接结束'),reasoning='OLD-MONARCH-TOXIC-REASONING'),
             reply(call('new-p','plan',text='新君主本回合不可重提'),call('new-e','end_turn',summary='新君主接管并完成本回合行动'))]
         h,c=self.host([False,False,False],rows)
@@ -339,7 +339,7 @@ class TestParliament(unittest.TestCase):
                 if not self.queried:
                     self.queried=True
                     return reply(call('rules','player_rules',topic=''),call('manual','read_manual',topic='说明书'),
-                                 call('guide','read_manual',topic='战争手册'),call('forged','buy',resource='native:wood',quantity=1)),{}
+                                 call('guide','read_manual',topic='战争手册'),call('forged','economy',action='buy',resource='native:wood',quantity=1)),{}
                 if any(m['role']=='tool' for m in messages[-2:]) and any(t['function']['name']=='council_next_stage' for t in tools):
                     return reply(call('next','council_next_stage')) ,{}
                 return super().chat_turn(messages,tools,cfg,on_retry)

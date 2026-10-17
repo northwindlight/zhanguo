@@ -217,9 +217,9 @@ class VictoryHooks(TestCase):
         self.assertIn(CHARTER,ui.system())
         self.assertIn(CHARTER,h.services[actor]['council'].cfg['extra_summary'])
         schemas={s['function']['name']:s['function'] for s in ui.actions(h.player(actor).actions())}
-        for action in ('bloc_found','bloc_join','accept_proposal'):
-            self.assertIn('原个人保障',schemas[action]['description'])
-            self.assertIn('任一成员交战',schemas[action]['description'])
+        actions=schemas['relations']['parameters']['properties']['action']['description']
+        self.assertIn('原个人保障',actions)
+        self.assertIn('任一成员交战',actions)
         for topic in ('入盟','退盟','宣战','求和','保障'):
             self.assertNotEqual(h.player(actor).rules(topic)[0]['title'],'规则目录')
         self.assertEqual(len(h.player(actor).rules('外交')),3)

@@ -37,31 +37,3 @@ class QueryPresentation:
         lines.extend(self.army_line(u) for u in foreign)
         if guards:lines.append(self.text('query.guard_hint',count=len(guards)))
         return '\n'.join(lines)
-
-    def country_list(self,rows):
-        lines=[self.text('query.countries_head')]
-        for row in rows:
-            tags=[self.relation(row['relation'])]
-            for pact in row.get('treaties',[]):
-                tags.append(self.text('query.defense' if pact['kind']=='defense' else 'query.guarantee_'+pact['direction']))
-            if row['border']:tags.append(self.text('query.border'))
-            if row.get('letter_count'):tags.append(self.text('query.letters',count=row['letter_count']))
-            elif row['has_letter']:tags.append(self.text('query.has_letter'))
-            if row.get('entity','').startswith('bloc/'):
-                bloc=next((b['name'] for b in self._facts.get(self._actor,{}).get('diplomacy',{}).get('alliances',[]) if 'bloc/'+b['id']==row['entity']),row['entity'])
-                tags.append(self.text('query.bloc',name=bloc,chief=self.name(row['chief'],self._names)))
-            if row.get('war_representative'):tags.append(self.text('query.peace_rep',name=self.name(row['war_representative'],self._names)))
-            lines.append(row['name']+'（'+row['id']+'）｜'+'｜'.join(tags))
-        return '\n'.join(lines) if rows else self.text('query.no_countries')
-
-    def intel_history(self,rows):
-        if not rows:return self.text('console.no_intel')
-        # 以到达顺序倒排，而非派遣 ID；迟到的低编号报告也应排在新近讯。
-        ordered=list(reversed(rows))
-        lines=[self.text('query.intel_head',count=len(rows)),self.message(ordered[0],self._names)]
-        for row in ordered[1:]:
-            kind=self.text.resolve('query.dispatch.'+row['kind'],row['kind'])
-            lines.append(self.text('query.intel_index',identity=row['id'],period=row['sampled'],kind=kind,
-                                   source=self.name(row['source'],self._names)))
-        lines.extend(self.message(row,self._names) for row in ordered[1:])
-        return '\n'.join(lines)

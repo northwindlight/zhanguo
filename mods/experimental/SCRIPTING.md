@@ -2,7 +2,7 @@
 
 君主决定目标与预算，把重复的查询、计算和操作交给保存的短脚本。experimental 装配 `experimental:python` 和独立 Session 脚本服务；native 默认发行版不启用。脚本使用真正的绑定玩家 API，国策审核、权限、费用、回执和控制权变化沿用标准入口。
 
-先调用 `script_write(source=...)` 保存程序，`script_check()` 免费检查，再在想运行的回合手动调用 `script_run(inputs={...})`。以后不用重发源码，只发送本回合的决策参数。示例 [后勤采购](examples/logistics.py) 接受 `food_target` 和 `budget`，只在资源、市场库存和预算允许时采购；[市场插值](examples/market_interpolation.py) 接受公开的 `history=[[回合,价格],...]` 与 `target`，完成短序列插值或线性外推，不进行搜索。
+模型侧统一用 `script` 伞工具：`script(action=write, source=...)` 保存程序，`script(action=check)` 免费检查，再在想运行的回合手动 `script(action=run, inputs={...})`。旧名 `script_write/script_check/script_run` 仍按名注册、可被脚本与规则 AI 调用，只是不进模型工具表。以后不用重发源码，只发送本回合的决策参数。示例 [后勤采购](examples/logistics.py) 接受 `food_target` 和 `budget`，只在资源、市场库存和预算允许时采购；[市场插值](examples/market_interpolation.py) 接受公开的 `history=[[回合,价格],...]` 与 `target`，完成短序列插值或线性外推，不进行搜索。
 
 ```python
 # 一次保存的脚本；每回合由君主手动决定是否执行。

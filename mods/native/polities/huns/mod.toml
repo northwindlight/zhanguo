@@ -16,7 +16,9 @@ Needs = ["native:resource-inspection", "native:resource-exchange", "native:terri
 Tag = "native:huns"
 Rejection = "该政体不允许此外交动作"
 Appearance = "scheduled"
-Disable = ["tool.guarantee", "tool.cancel_guarantee", "tool.propose_defense", "tool.break_defense", "tool.accept_proposal", "tool.reject_proposal", "tool.bloc_found", "tool.bloc_join", "tool.bloc_leave", "tool.bloc_transfer", "tool.bloc_rename", "tool.bloc_dissolve", "tool.vote", "tool.gift", "tool.share_map", "accept.treaties", "accept.bloc", "action.guarantee", "action.cancel_guarantee", "action.propose_defense", "action.break_defense", "action.accept_proposal", "action.reject_proposal", "action.bloc_found", "action.bloc_join", "action.bloc_leave", "action.bloc_transfer", "action.bloc_rename", "action.bloc_dissolve", "communication.gift", "communication.map"]
+# 组由工具自己的 groups 声明；组内新增动作自动沿用同一禁令。
+Disable = ["group.diplomacy.treaty", "group.diplomacy.alliance", "group.diplomacy.vote",
+           "group.communication.gift", "group.communication.map"]
 [Policy.Overrides]
 build_cost_pct = 130
 [Policy.Overrides.recruit."native:cavalry"]

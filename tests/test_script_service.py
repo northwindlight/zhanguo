@@ -115,16 +115,16 @@ class TestScripts(unittest.TestCase):
     def test_script_plan_uses_same_council_and_end_turn_stops_llm_normally(self):
         h,p=self.host(kind='llm')
         source='api.submit("plan", {"text":"按真实库存发展生产"})\napi.submit("end_turn", {"summary":"已提交国策并结束本期行动"})'
-        h.clients[self.actor]._backend=FakeBackend([reply(call('s','script_write',source=source),call('r','script_run'))])
+        h.clients[self.actor]._backend=FakeBackend([reply(call('s','script',action='write',source=source),call('r','script',action='run'))])
         results=h.cycle()
         self.assertTrue(results[-1]['ok'],results)
         self.assertEqual(len(h.services[self.actor]['council']._review_backend.requests),0)
-        self.assertEqual([r['action'] for r in h.audit],['script_write','plan','end_turn','script_run'])
+        self.assertEqual([r['action'] for r in h.audit],['script','plan','end_turn','script'])
         self.assertEqual(h.clock(),1)
         # 第二回合换一份新国策（同一份正文不再重复送审，见 plan 幂等规则）。
         changed=source.replace('按真实库存发展生产','按真实库存发展生产并补兵营')
         h.player(self.actor).submit('script_write',{'source':changed})
-        h.clients[self.actor]._backend=FakeBackend([reply(call('r2','script_run'))])
+        h.clients[self.actor]._backend=FakeBackend([reply(call('r2','script',action='run'))])
         results=h.cycle()
         self.assertTrue(results[-1]['ok'],results)
         self.assertEqual(len(h.services[self.actor]['council']._review_backend.requests),2)

@@ -216,7 +216,7 @@ class TestObserver(unittest.TestCase):
         h=GameHost.new({'map_size':12,'seed':17,'nations':[{'id':'s:q','name':'秦','client':'llm'}]})
         fake=FakeBackend([{'content':'','tool_calls':[
             call('p','plan',text='完整国策正文：建设生产与维持独立'),
-            call('b1','buy',resource='wood',quantity=1),call('b2','buy',resource='wood',quantity=1),
+            call('b1','economy',action='buy',resource='wood',quantity=1),call('b2','economy',action='buy',resource='wood',quantity=1),
             call('e','end_turn',summary='执行生产准备并维持独立')]}])
         h.clients['s:q']=LLMClient({'ctx_compact':'off'},backend=fake)
         with tempfile.TemporaryDirectory() as folder,contextlib.redirect_stdout(io.StringIO()) as screen:
@@ -464,7 +464,7 @@ class TestShortKeys(unittest.TestCase):
             ui.actions(p.actions())
             self.assertEqual('【内置 Python】' in ui.system(),experimental)
             if experimental:
-                schema=next(t for t in p.actions() if t['function']['name']=='script_run')
+                schema=next(t for t in p.actions() if t['function']['name']=='script')
                 self.assertIn({'type':'object'},schema['function']['parameters']['properties']['inputs']['anyOf'])
                 self.assertTrue(p.submit('script_write',{'source':'1 / 0'})['ok'])
                 self.assertFalse(p.submit('script_run',{})['ok'])

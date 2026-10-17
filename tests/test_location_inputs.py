@@ -73,10 +73,11 @@ class LocationInputs(TestCase):
     def test_public_schemas_advertise_both_inputs(self):
         _,w,p=self.world()
         schemas={s['function']['name']:s['function']['parameters'] for s in p.actions()}
-        for action in ('build','recruit','move','attack','retreat'):
-            props=schemas[action]['properties']
-            self.assertIn('site',props);self.assertIn('place',props)
-            self.assertIn('oneOf',schemas[action])
+        self.assertIn('oneOf',schemas['build'])
+        # 征召/移动/进攻/撤退并入 military；地点写法两种都要认。
+        props=schemas['military']['properties']
+        for key in ('site','place','x','y','aid','ids'):self.assertIn(key,props)
+        for action in ('build',):self.assertIn('site',schemas[action]['properties'])
         # 单格查询并入 query(panel=tile)：两种地点写法都要认。
         props=schemas['query']['properties']
         for key in ('site','place','x','y'):self.assertIn(key,props)

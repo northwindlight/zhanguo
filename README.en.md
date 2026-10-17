@@ -1,6 +1,6 @@
 # Zhanguo
 
-Current release: **0.2.4**.
+Current release: **0.3.0**.
 Zhanguo is a turn-based grand strategy game built around LLM decision-making. Nations manage their economies, armies and diplomacy in a shared world. Human observers can follow long games and study decisions, failures and memory changes.
 
 The current `main` is the modular implementation, formerly the `正规化` branch. The previous monolithic implementation is preserved on [legacy](https://github.com/northwindlight/zhanguo/tree/legacy). [中文](README.md)

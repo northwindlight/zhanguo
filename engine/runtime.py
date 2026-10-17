@@ -371,6 +371,7 @@ class Runtime:
         for mod in (u.mod for u in units):
             self.command_actors.update(getattr(mod, 'command_actors', lambda: {})())
         self.tools, self.stage_map, self.tool_owners, self.stage_owners = {}, {}, {}, {}
+        self.tool_groups = {}
         self.tool_layer = None
         self._tool_apis = WeakKeyDictionary()
         for name in self.order:
@@ -383,6 +384,13 @@ class Runtime:
                 self.stage_map[stage.name] = stage
                 self.stage_owners[stage.name] = name
         self._load_tool_layer()
+        # 策略组由工具自己的 groups 派生：政体声明 group.<组名> 即整组禁用，
+        # 新增一个成员工具不需要再改政体名单。
+        for key, tool in self.tools.items():
+            if key != tool.name:
+                continue
+            for group in tool.groups:
+                self.tool_groups.setdefault(group, []).append(tool)
         # 只读面板收敛：发行版声明一个分发器后，其余只读工具照旧注册（玩家状态与脚本
         # 仍按名调用），但不再出现在模型工具表里。
         panel = self.distribution.get('ReadOnlyPanel')
@@ -870,7 +878,36 @@ class Runtime:
     def permits(self, world, actor, capability):
         policy = self.actor_policy(world, actor)
         cfg = policy.declaration.get('Policy', {}) if policy else {}
-        return capability in cfg.get('Enable', ()) or capability not in cfg.get('Disable', ())
+        return (capability in self._policy_capabilities(policy, cfg, 'Enable')
+                or capability not in self._policy_capabilities(policy, cfg, 'Disable'))
+
+    def _policy_capabilities(self, policy, cfg, kind):
+        """把 Policy.Enable/Disable 的 group.<名> 展开成具体能力键。
+
+        group.diplomacy.alliance 会展开为组内每个工具的 tool.<名>、action.<名>，
+        以及工具声明的其他组名（如 accept.bloc / communication.gift）——后者正是
+        模块对象自己做能力检查时用的键，所以一套组声明同时覆盖工具门与领域门。
+        发行版子集里可能没有组内工具（模块未装载），此时该组是空集，不报错。
+        """
+        cache = self.__dict__.setdefault('_policy_groups_cache', {})
+        key = (id(policy), kind)
+        if key in cache:
+            return cache[key]
+        raw = cfg.get(kind, ())
+        if not any(isinstance(entry, str) and entry.startswith('group.') for entry in raw):
+            cache[key] = raw
+            return raw
+        result = set(raw)
+        for entry in raw:
+            if not (isinstance(entry, str) and entry.startswith('group.')):
+                continue
+            result.discard(entry)
+            for tool in self.tool_groups.get(entry[len('group.'):], ()):
+                result.add('tool.' + tool.name)
+                result.add('action.' + tool.name)
+                result.update(tool.groups)
+        cache[key] = frozenset(result)
+        return cache[key]
 
     def in_scope(self, world, actor, unit):
         mod = self.units[unit].mod if isinstance(unit, str) else unit

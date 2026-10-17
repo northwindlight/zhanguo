@@ -7,7 +7,7 @@ from engine.state import active_unit
 from engine.scripting import DEFAULT_LIMITS, Machine, check
 from .scripting_api import ScriptingAPI
 
-CONTROLS=frozenset(('script_write','script_patch','script_check','script_status','script_run'))
+CONTROLS=frozenset(('script','script_write','script_patch','script_check','script_status','script_run'))
 
 
 class Programs:
@@ -152,8 +152,10 @@ class ScriptService:
         if record is not None and record!={'version':self.version,'state':{}}:raise ValueError('Invalid script service state')
     def to_save(self):return {'version':self.version,'state':{}}
     def submit(self,player,action,arguments,next_submit):
+        # 模型侧走 script(action=run) 伞工具；旧名 script_run 仍可被脚本/规则 AI 调用。
+        inner=arguments.get('action') if action=='script' and isinstance(arguments,dict) else None
         receipt=next_submit()
-        if action!='script_run' or not receipt['ok']:return receipt
+        if not (action=='script_run' or (action=='script' and inner=='run')) or not receipt['ok']:return receipt
         claim=receipt['data']
         def invoke(name,args,kwargs):
             if not player.action_state()['active']:raise ValueError('Actor control changed; script handle is no longer active')

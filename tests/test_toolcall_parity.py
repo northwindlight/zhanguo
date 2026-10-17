@@ -45,15 +45,27 @@ class ToolcallParity(unittest.TestCase):
             p=self.host(experimental).player(Q)
             schemas={s['function']['name']:s['function'] for s in p.actions()}
             self.assertFalse([n for n,s in schemas.items() if s.get('description')==n])
-            for action in ('build','recruit'):self.assertIn('oneOf',schemas[action]['parameters'])
-            for action in ('move','attack','retreat','disband'):self.assertIn('anyOf',schemas[action]['parameters'])
+            # 动作工具按命令收口：模型只看到 umbrella，action 参数选具体动作。
+            self.assertIn('oneOf',schemas['build']['parameters'])
+            military=schemas['military']['parameters']
+            self.assertEqual(military['required'],['action'])
+            self.assertEqual(military['properties']['action']['enum'],
+                             ['recruit','move','attack','retreat','disband'])
+            self.assertEqual({'aid','ids','site','kind','count'}<=set(military['properties']),True)
+            relations=schemas['relations']['parameters']
+            self.assertIn('vote',relations['properties']['action']['enum'])
+            self.assertEqual(relations['properties']['kind']['enum'],['white','pay','demand'])
+            self.assertEqual(relations['required'],['action'])
             self.assertEqual({'aid','ids','attack'}<=set(schemas['query']['parameters']['properties']),True)
-            self.assertEqual(schemas['offer_peace']['parameters']['properties']['kind']['enum'],['white','pay','demand'])
-            self.assertNotIn('note',schemas['offer_peace']['parameters']['required'])
             # 市场上不再有单独的查价工具：报价就在行情里，且与数量无关。
             self.assertNotIn('market_quote',schemas)
             self.assertEqual(schemas['query']['parameters']['required'],['panel'])
-            self.assertEqual(schemas['buy']['parameters']['required'],['resource','quantity'])
+            economy=schemas['economy']['parameters']
+            self.assertEqual(economy['properties']['action']['enum'],['buy','sell','borrow','buy_report'])
+            self.assertEqual({'resource','quantity','target','turn'}<=set(economy['properties']),True)
+            # 外交与情报的散装动作不再暴露给模型；按名调用由其余用例覆盖。
+            for name in ('recruit','declare_war','send_letter','buy'):
+                self.assertNotIn(name,schemas)
 
     def test_report_latest_selected_and_all_are_readonly(self):
         w=fixtures.TestPlayerAPI().world();p=w.runtime.player(w,Q)
@@ -66,7 +78,7 @@ class ToolcallParity(unittest.TestCase):
             self.assertFalse(p.submit('report',args)['ok'])
         self.assertEqual(w.runtime.save_mod_state(w),before)
         from mods.ui.console import ConsoleUI
-        ui=ConsoleUI({});text=ui.action(20,Q,'report',{},p.submit('report'),{Q:'秦'})
+        ui=ConsoleUI({},tool_layer=w.runtime.tool_layer);text=ui.action(20,Q,'report',{},p.submit('report'),{Q:'秦'})
         self.assertIn('GDP增长',text);self.assertIn('第10—19期',text)
 
     def test_country_threats_battle_privacy_and_batch_atomicity(self):
@@ -114,8 +126,8 @@ class ToolcallParity(unittest.TestCase):
         offer=p.query('diplomacy')['offers'][0]
         self.assertIn(['note','停战建设，互不侵犯。'],offer['arguments'])
         from mods.ui.console import ConsoleUI
-        text=ConsoleUI({}).action(p.observe()['period'],Q,'diplomacy',{},p.submit('diplomacy'),{Q:'秦',C:'楚'})
-        self.assertIn('和平提议',text);self.assertIn('停战建设，互不侵犯。',text);self.assertIn('战争#',text)
+        text=ConsoleUI({},tool_layer=w.runtime.tool_layer).action(p.observe()['period'],Q,'diplomacy',{},p.submit('diplomacy'),{Q:'秦',C:'楚'})
+        self.assertIn('提议和平',text);self.assertIn('停战建设，互不侵犯。',text);self.assertIn('战争#',text)
         saved=w.runtime.save_mod_state(w);w.runtime.load_mod_state(w,saved)
         self.assertEqual(p.query('diplomacy')['offers'][0],offer)
 

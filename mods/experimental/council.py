@@ -360,7 +360,8 @@ class CouncilService:
             dialogue.append({'role':'system','content':self.requirements+self.ui.text('experimental.council',name=self.cfg.get('name',player.actor))+
                              ('\n当前剧本：\n'+self.cfg['extra_summary'] if self.cfg.get('extra_summary') else '')})
         # No candidate, monarch reasoning, or post-draft snapshot in step one.
-        read_only={s['function']['name'] for s in player.actions()}-{'build','buy','sell','recruit','move','attack','retreat','disband','plan','end_turn','explain_plan','script_write','script_patch','script_run','send_letter','gift','share_map','spy','borrow','buy_report','vote','declare_war','offer_peace','accept_peace','reject_peace','guarantee','cancel_guarantee','propose_defense','break_defense','accept_proposal','reject_proposal','bloc_found','bloc_join','bloc_leave','bloc_dissolve','bloc_rename','bloc_transfer'}
+        # 模型可见的写工具就是命令伞加上几个单动作工具；其余只读。
+        read_only={s['function']['name'] for s in player.actions()}-{'build','economy','military','relations','intelligence','plan','end_turn','explain_plan','script'}
         trajectory=[]
         for row in self.council['archive'][self.council['trace_start']:]:
             item=deepcopy(row)

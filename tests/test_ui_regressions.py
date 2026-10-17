@@ -59,7 +59,7 @@ class TestUIRegressions(unittest.TestCase):
 
     def test_news_does_not_replay_this_turns_own_action_receipts(self):
         """模型手里已有本回合回执；news 再抄一遍国策全文就是白付一次长文。"""
-        ui=ConsoleUI({});ui._period=5
+        ui=self.host().ui.console;ui._period=5
         rows=[{'id':1,'period':5,'kind':'action','position':None,'text':'提交国策：全文','details':{'source':'action_receipt'}},
               {'id':2,'period':4,'kind':'action','position':None,'text':'售出 木头×1','details':{'source':'action_receipt'}}]
         text=ui.receipt_body('news',{}, {'ok':True,'data':rows,'message':'','action':'news'}, None)
@@ -67,12 +67,12 @@ class TestUIRegressions(unittest.TestCase):
 
     def test_news_receipt_keeps_latest_and_counts_the_rest(self):
         """十期近讯一次七十多条——旧版只给最近十条，多的收成一行计数。"""
-        ui=ConsoleUI({})
+        ui=self.host().ui.console
         rows=[{'id':i,'period':i,'kind':'action','position':None,'text':f'事件{i}'} for i in range(30)]
         text=ui.receipt_body('news',{}, {'ok':True,'data':rows,'message':'','action':'news'}, None)
         self.assertIn('事件29',text)
         self.assertNotIn('事件0',text)
-        self.assertIn('另有 18 条',text)
+        self.assertIn('更早 18 条',text)
 
     def test_public_queries_use_prose_without_changing_public_data(self):
         h=self.host();before=h.runtime.save_mod_state(h.world)
@@ -159,7 +159,7 @@ class TestUIRegressions(unittest.TestCase):
         self.assertIn('共同防御',self.present(h,'countries'))
 
     def test_latest_arrival_precedes_old_long_report_even_with_lower_dispatch_id(self):
-        ui=ConsoleUI({});names={Q:'秦',C:'楚'}
+        ui=ConsoleUI({},tool_layer=self.host().ui.console.tool_layer);names={Q:'秦',C:'楚'}
         old={'id':10,'source':C,'target':Q,'kind':'letter','sampled':0,'payload':{'text':'旧信\n'*40}}
         new={**old,'id':2,'sampled':1,'payload':{'text':'迟到但刚收到的重要新信'}}
         rows=[old,new];before=deepcopy(rows)
@@ -175,11 +175,11 @@ class TestUIRegressions(unittest.TestCase):
         for _ in range(21):f.cycle(w)
         p=w.runtime.player(w,Q);purchase=p.submit('buy_report',{'target':C})
         self.assertTrue(purchase['ok'],purchase)
-        ui=ConsoleUI({});ui.remember(p.observe());names={Q:'秦',C:'楚'}
+        ui=ConsoleUI({},tool_layer=w.runtime.tool_layer);ui.remember(p.observe());names={Q:'秦',C:'楚'}
         bank=ui.action(21,Q,'bank',{},p.submit('bank'),names)
-        self.assertIn('已购报表·楚',bank);self.assertIn('GDP',bank)
+        self.assertIn('已购买楚第21期报表',bank);self.assertIn('GDP',bank)
         bought=ui.action(21,Q,'buy_report',{'target':C},purchase,names)
-        self.assertIn('已购报表·楚',bought);self.assertIn('GDP',bought)
+        self.assertIn('已购买楚第21期报表',bought);self.assertIn('GDP',bought)
         report=p.submit('report',{'all':True});text=ui.action(21,Q,'report',{'all':True},report,names)
         rows=report['data'];self.assertGreaterEqual(len(rows),2)
         self.assertEqual(len(text.splitlines()),len(rows)+1)
@@ -214,10 +214,10 @@ class TestUIRegressions(unittest.TestCase):
 
     def test_truce_rows_render_from_the_engine_snapshot_shape(self):
         """引擎快照的 truces 是 {'a','b','until'}；按元组取值会抛错并掉进字段倾倒。"""
-        ui=ConsoleUI({});ui._names={Q:'秦',C:'楚'}
+        ui=self.host().ui.console;ui._names={Q:'秦',C:'楚'}
         snap={'alliances':[],'pacts':[],'wars':[],'truces':[{'a':'nation/'+Q,'b':'nation/'+C,'until':101}],
               'offers':[],'votes':[],'pending':[],'results':[]}
-        text=ui.diplomacy(snap)
+        text=ui.receipt_body('diplomacy',{}, {'ok':True,'data':snap,'message':'','action':'diplomacy'}, Q)
         self.assertIn('秦 与 楚｜休战至第101期',text)
         self.assertNotIn('甲方：',text)
 

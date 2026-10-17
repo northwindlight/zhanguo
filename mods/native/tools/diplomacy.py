@@ -21,18 +21,40 @@ DESCRIPTIONS = {
     'cancel_guarantee': '取消本方对目标实体的保障，战时条约冻结；联盟须先表决。',
     'propose_defense': '提出共同防御邀约；双方实体须和平。联盟先表决，接受后才缔结，主动进攻不因此召来伙伴。',
     'break_defense': '解除与目标实体的共同防御，战时不能解除；联盟须先表决。',
-    'accept_proposal': '接受 diplomacy.offers 的共同防御或创始邀约，offer 为整数编号；创始须所有受邀国接受，共同防御可能先转联盟表决。',
-    'reject_proposal': '拒绝收到的共同防御或创始邀约，offer 为 diplomacy.offers 的整数编号。',
+    'accept_proposal': '接受 query(panel=foreign) 待回应提议中的共同防御或创始邀约，offer 为整数编号；创始须所有受邀国接受，共同防御可能先转联盟表决。',
+    'reject_proposal': '拒绝收到的共同防御或创始邀约，offer 为 query(panel=foreign) 待回应提议的整数编号。',
     'bloc_found': '邀请独立、和平国家创立联盟；bloc 是自定且唯一的命名空间键（如 scenario:union），name 是无空白显示名，tos 是别国国家键数组，不能含自己。全体接受后成立，邀请本身不改条约；发起人为盟主。',
-    'bloc_join': '申请加入 diplomacy.alliances 中的联盟，bloc 使用该联盟 id；双方须和平，现成员投票通过后才入盟。',
+    'bloc_join': '申请加入 query(panel=foreign) 中的联盟，bloc 使用该联盟 id；双方须和平，现成员投票通过后才入盟。',
     'bloc_leave': '退出当前联盟；任一成员交战就禁止退盟，不能靠退盟脱战；盟主须先转让或解散。原个人保障/共同防御不恢复。退出后若向原盟任何成员宣战，仍与其整个联盟交战。',
     'bloc_dissolve': '盟主解散和平时期的联盟；战时不能解散。',
     'bloc_transfer': '盟主把领导权转交给现有其他成员，target 使用成员的国家键。',
     'bloc_rename': '盟主修改联盟显示名；不能有空白或与其他联盟重名。',
     'declare_war': '向另一外交实体宣战；休战期间不能宣战，本方联盟先表决。攻击联盟任一成员即与全盟交战，防守全盟无需另投票；原防守实体的直接保障/共同防御再传导一跳，不递归。保障不协助主动进攻；之后 attack 不重复传播宣战。',
     'offer_peace': '向敌方战争主导实体代表求和，双方主导者都可发起；普通跟随方不能代谈。kind=white 白和、pay 本方赔款、demand 对方赔款；后两种 gold>0，白和 gold=0；truce 为休战周期数。联盟先表决，接受后整条战线停战。',
-    'accept_peace': '由收到提议的战争代表接受 diplomacy.offers 中的和平提议，offer 为整数编号；联盟可能先表决。',
-    'reject_peace': '由收到提议的战争代表拒绝和平提议，offer 为 diplomacy.offers 中的整数编号，战争继续；普通跟随方不能代拒。',
+    'accept_peace': '由收到提议的战争代表接受 query(panel=foreign) 待回应提议中的和平提议，offer 为整数编号；联盟可能先表决。',
+    'reject_peace': '由收到提议的战争代表拒绝和平提议，offer 为 query(panel=foreign) 待回应提议中的整数编号，战争继续；普通跟随方不能代拒。',
+}
+
+
+# 策略组：政体可用 group.<名> 整组禁用；组名同时是领域对象做能力检查时用的键。
+GROUPS = {
+    'guarantee': ('diplomacy.treaty', 'accept.treaties'),
+    'cancel_guarantee': ('diplomacy.treaty', 'accept.treaties'),
+    'propose_defense': ('diplomacy.treaty', 'accept.treaties'),
+    'break_defense': ('diplomacy.treaty', 'accept.treaties'),
+    'accept_proposal': ('diplomacy.treaty', 'accept.treaties'),
+    'reject_proposal': ('diplomacy.treaty', 'accept.treaties'),
+    'bloc_found': ('diplomacy.alliance', 'accept.bloc'),
+    'bloc_join': ('diplomacy.alliance', 'accept.bloc'),
+    'bloc_leave': ('diplomacy.alliance', 'accept.bloc'),
+    'bloc_dissolve': ('diplomacy.alliance', 'accept.bloc'),
+    'bloc_transfer': ('diplomacy.alliance', 'accept.bloc'),
+    'bloc_rename': ('diplomacy.alliance', 'accept.bloc'),
+    'vote': ('diplomacy.vote',),
+    'declare_war': ('diplomacy.war',),
+    'offer_peace': ('diplomacy.war',),
+    'accept_peace': ('diplomacy.war',),
+    'reject_peace': ('diplomacy.war',),
 }
 
 
@@ -53,9 +75,9 @@ def tools(runtime):
                       for key, value in arguments.items()}
         for key, prop in properties.items():
             if key in ('offer',):
-                prop.update(minimum=1, description='diplomacy.offers 中的提议编号')
+                prop.update(minimum=1, description='query(panel=foreign) 待回应提议的编号')
             elif key == 'target':
-                prop['description'] = 'countries 中的别国 id；求和须使用其战争代表'
+                prop['description'] = 'query(panel=foreign) 中的别国 id；求和须使用其战争代表'
             elif key == 'bloc':
                 prop['description'] = '联盟键：加入时用现有联盟 id；创建时自定唯一命名空间键'
             elif key in ('gold', 'truce'):
@@ -76,7 +98,7 @@ def tools(runtime):
                 description += f' 发起固定预留{fee}金，不受双方外交中心减免；成功发布邀约即收费，后续被拒不退；发布时失效则退款。'
         result.append(Tool(action, submit, owner='native:diplomacy', api=('submit',), argument_types=arguments,
                            parameters={'type': 'object', 'properties': properties, 'required': required, 'additionalProperties': False},
-                           description=description))
+                           groups=GROUPS.get(action, ()), description=description))
 
     def vote(world, actor, vote: int, accept: bool | None):
         return runtime.player_api(world, 'native:diplomacy').vote(actor, vote, accept)
@@ -85,10 +107,10 @@ def tools(runtime):
         return runtime.player_api(world, 'native:diplomacy').snapshot(actor)
 
     result.extend((
-        Tool('vote', vote, owner='native:diplomacy', api=('vote',),
-             description='对 diplomacy.votes 中本国有资格且当前开放的投票表态：vote 为整数编号，accept=true 赞成、false 反对。仅发起后的下一周期可投票或改票，accept=null 显式弃权；结束回合仍未投票则自动反对；显式弃权保留，赞成多于反对通过；投票不等于条约已生效。'),
-        Tool('diplomacy', diplomacy, owner='native:diplomacy', api=('snapshot',), read_only=True, fact=True, panel=True,
-             description='一次查询本国相关联盟、条约、战争、休战、提议、投票、待结算命令及结果。offers/votes 的 id 用于回应和投票；submitted 不代表关系已改变。'),
+        Tool('vote', vote, owner='native:diplomacy', api=('vote',), groups=GROUPS['vote'],
+             description='对 query(panel=foreign) 投票中本国有资格且当前开放的投票表态：vote 为整数编号，accept=true 赞成、false 反对。仅发起后的下一周期可投票或改票，accept=null 显式弃权；结束回合仍未投票则自动反对；显式弃权保留，赞成多于反对通过；投票不等于条约已生效。'),
+        Tool('diplomacy', diplomacy, owner='native:diplomacy', api=('snapshot',), read_only=True, fact=True,
+             description='本国相关联盟、条约、战争、休战、提议、投票、待结算命令及结果；模型统一查 query(panel=foreign)。offers/votes 的 id 用于回应和投票；submitted 不代表关系已改变。'),
     ))
     return tuple(result)
 
@@ -115,7 +137,7 @@ def _diplomacy(data, args, actor, ctx):
                 lines.append(ctx.text('tool.diplomacy.truce', a=name(a), b=name(b), until=until))
             else:
                 args_in = dict(row['arguments'])
-                action = {'found': 'diplomacy.bloc_found', 'defense': 'diplomacy.propose_defense', 'peace': 'diplomacy.offer_peace'}.get(row['action'], row['action'])
+                action = {'found': 'bloc_found', 'defense': 'propose_defense', 'peace': 'offer_peace'}.get(row['action'], row['action'])
                 head = ctx.text('tool.diplomacy.offer', id=row['id'], actor=name(row['actor']), action=ctx.label('action', action))
                 if key == 'offers':
                     head += ctx.text('tool.diplomacy.offer_target', target=name(row['target']), accepted=names(row['accepted']) or ctx.text('tool.diplomacy.none'))

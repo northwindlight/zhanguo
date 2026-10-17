@@ -62,7 +62,7 @@ class TestDecisionUI(unittest.TestCase):
     def test_llm_receives_fresh_inventory_from_the_receipt_without_extra_queries(self):
         h=self.host();p=h.player(Q)
         backend=FakeBackend([
-            {'tool_calls':[call('b','buy',resource='wood',quantity=2)]},
+            {'tool_calls':[call('b','economy',action='buy',resource='wood',quantity=2)]},
             {'tool_calls':[call('p','plan',text='经济：保障粮木和能源；军事：集中守边；情报：依据公开事实；外交：维持和平，库存不足时放缓扩张。'),call('e','end_turn',summary='购入木材，完成国策。')]}])
         client=LLMClient(h.cfg,backend=backend,ui=h.ui);client.play(p)
         latest=backend.requests[1][-1]

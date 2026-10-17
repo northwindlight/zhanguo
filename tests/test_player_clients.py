@@ -70,14 +70,14 @@ class TestPlayerClients(unittest.TestCase):
         self.assertEqual(state.replay[0]['messages'][1]['reasoning_signature']['signature'],'signed')
 
     def test_every_tool_in_a_batch_gets_a_reply_even_after_end_turn(self):
-        w=self.world();backend=FakeBackend([{'content':'','tool_calls':[call('a','plan',text='发展'),call('b','end_turn',summary='本期已经完成'),call('c','buy',resource='native:wood',quantity=1)]}])
+        w=self.world();backend=FakeBackend([{'content':'','tool_calls':[call('a','plan',text='发展'),call('b','end_turn',summary='本期已经完成'),call('c','economy',action='buy',resource='native:wood',quantity=1)]}])
         client=LLMClient({},backend=backend);receipts=client.play(w.runtime.player(w,Q))
         self.assertFalse(receipts[-1]['ok']);self.assertEqual(receipts[-1]['code'],'unavailable_action')
         assert_paired(client.state.replay[0]['messages'])
         self.assertEqual(sum(m['role']=='tool' for m in client.state.replay[0]['messages']),3)
 
     def test_bad_arguments_retry_body_and_expired_plan_need_real_end_turn(self):
-        w=self.world();bad=call('bad','buy');bad['function']['arguments']='not json'
+        w=self.world();bad=call('bad','economy');bad['function']['arguments']='not json'
         backend=FakeBackend([{'content':'正文不能代替结束','tool_calls':[bad]},
                              {'content':'','tool_calls':[call('end','end_turn',summary='尚未写国策')]},
                              {'content':'','tool_calls':[call('p','plan',text='更新国策'),call('e','end_turn',summary='本期已经完成经营')]}])

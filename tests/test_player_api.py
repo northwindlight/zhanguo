@@ -24,8 +24,9 @@ class TestPlayerAPI(unittest.TestCase):
         self.assertFalse(any(u['owner']==C for u in p.observe()['facts']['army']))
         obs['facts']['econ']['stocks'][0]['amount']=999999
         self.assertNotEqual(p.observe()['facts']['econ']['stocks'][0]['amount'],999999)
-        self.assertEqual(len(p.actions()),38)
-        self.assertTrue({'player_state','player_rules','player_events'}<={s['function']['name'] for s in p.actions()})
+        self.assertEqual(len(p.actions()),12)
+        self.assertTrue({'player_state','player_rules','player_events','military','economy','relations','intelligence'}
+                        <={s['function']['name'] for s in p.actions()})
         self.assertFalse(any('_'==key[:1] for u in p.query('army') for key in u))
 
     def test_bound_actor_cannot_forge_identity_query_mutation_or_read_other_inventory(self):

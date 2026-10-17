@@ -1,5 +1,15 @@
 # 更新记录
 
+## 0.3.0 — 2026-10-18（工具面收敛与策略组，需新档）
+
+模型可见工具从 38 收到 **12**（native：8 个发行版工具 + 4 个内置玩家 API；experimental 14）。旧动作名不再进模型工具表，但仍按名注册、可按名调用——脚本、规则 AI 和既有测试不受影响。
+
+- **命令伞工具**：`military`（recruit/move/attack/retreat/disband）、`economy`（buy/sell/borrow/buy_report）、`relations`（保障、共防、联盟、宣战、议和、回应、投票共 18 个动作）、`intelligence`（写信/赠礼/共享地图/间谍）各用一个 `action` 参数选动作，其余参数取各动作的并集。伞工具经 `Runtime.call` 转发，策略门、owner、回执仍按内层动作走，回执与抬头自动用该动作的成文。experimental 的 5 个脚本工具同样收成 `script(action=write/patch/check/status/run)`。
+- **对外关系合并**：新增 `query(panel=foreign)`，一次给出本国身份与站点、各国身份与存续、关系/条约/接壤/来信、联盟/战争/休战、待回应提议与投票；`nation`/`nations`/`countries`/`diplomacy` 不再作为独立面板出现（仍按名可查）。在世国家不再逐行标「在世」，只有亡国才写亡国与原因。
+- **策略组**：`Tool.groups` 进入引擎，`Policy.Enable/Disable` 支持 `group.<名>`；展开时同时覆盖组内工具的 `tool.<名>`、`action.<名>` 及工具声明的语义键（`accept.treaties`、`accept.bloc`、`communication.gift/map` 等）。匈奴的 31 条禁令缩成 5 个组（treaty/alliance/vote/communication.gift/communication.map），新加入同组的动作自动被禁；伞工具的 `action` 枚举按行动者过滤，被禁动作不会出现在模型工具表里。
+- **旧 UI 动作分支删除**：`receipts.py` 不再按动作名写回执，统一由 tool 层成文；直接构造 `ConsoleUI` 且没有 tool layer 时只剩协议兜底与四个内置工具（`player_rules`/`player_events`/`memory_search`）的渲染。`queries.py` 删除已并入 tool 层的 `country_list`/`intel_history`。
+- 回归：全量离线 630 项通过；`docs/游戏说明书.md` 已重新生成。工具名、schema 与 `query` 面板枚举都变了，**需新档**。
+
 ## 未发行 — 2026-10-18（Tool 层，需新档）
 
 把散在各模块 `tools()` 里的 toolcall 收进发行版级 tool 层：模块只暴露一个 `player_api(world)`（动作与只读事实的唯一清单），工具名、schema、描述、别名、参数适配、`owner/api/fact/panel/groups` 与回执成文全部集中在 `mods/native/tools/`，一个领域一个文件。tool 层手工封装，不做自动扫描；装载期按 `[PlayerAPI] Methods` 检查每个方法是否被 Tool 覆盖，漏封装、`fact/panel` 标在写工具上、owner 能力无提供者都会直接报错。`Tool.owner` 用**能力名**而不是模块 ID，替换模块（如 `fixed_credit_bank` 换成 `example:fixed-credit-bank`）仍复用同一份 tool 表。

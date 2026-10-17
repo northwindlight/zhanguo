@@ -44,7 +44,9 @@ class TestNativeDistribution(unittest.TestCase):
         self.assertTrue({'build','buy','sell','market','econ','bank','borrow','nation','nations',
             'plan','end_turn','land','view','declare_war','offer_peace','vote','recruit','attack',
             'retreat','army','send_letter','gift','spy','news','intel'} <= set(runtime.tools))
-        self.assertEqual(len(runtime.schemas()),34)
+        self.assertEqual(len(runtime.schemas()),8)
+        self.assertEqual({s['function']['name'] for s in runtime.schemas()},
+                         {'build','economy','end_turn','intelligence','military','plan','query','relations'})
         world=runtime.world_class()()
         self.assertEqual(world.economy_actors,())
         self.assertEqual(world.nation_actors,())
