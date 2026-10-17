@@ -182,10 +182,13 @@ class Military:
             raise ValueError('目标被阻挡：须先宣战、选择合法移动格或改用进攻' if target_blocked else '超出本回合移动范围，或沿途有阻挡；请查询 reachable 并分回合行军')
         return units
     def move(self, owner, aid, x, y):
-        result=self._batch(owner,[aid],x,y,False)
+        return self.move_many(owner,[aid],x,y)
+    def move_many(self, owner, ids, x, y):
+        result=self._batch(owner,ids,x,y,False)
         if isinstance(result,MilitaryReceipt):return result
-        unit=result[0];changed=(unit.x,unit.y)!=(x,y);unit.move_to(x,y,self._period())
-        return MilitaryReceipt('effective',(aid,),changed,True)
+        changed=any((unit.x,unit.y)!=(x,y) for unit in result)
+        for unit in result:unit.move_to(x,y,self._period())
+        return MilitaryReceipt('effective',tuple(ids),changed,True)
     def _guard(self, x, y):
         fact=self._call('native:territory','cell',x,y)
         if fact.tile.id or (x,y) in self._units.guard_once:return
@@ -194,14 +197,20 @@ class Military:
         self._units.assign_code('野人');self._units.append(unit);self._units.guard_once.add((x,y))
     def _claim(self, owner, x, y):
         fact=self._call('native:territory','cell',x,y)
+        halls=self._call('native:buildings','count',fact.tile.id,'native:town-hall') if fact.tile.id else 0
         seen=tuple(n for n in self._call('native:nation-inspection','ids') if self._call('native:vision','visible',n,x,y) or n in (owner,fact.owner))
         by=owner
         if fact.tile.core and fact.tile.core!=owner and fact.tile.core in self._call('native:nation-inspection','ids') and self._call('native:diplomacy','allied',owner,fact.tile.core) and self._call('native:diplomacy','at_war',owner):by=fact.tile.core
+        if fact.owner==by:return
         if fact.tile.id:
             if fact.owner is None:self._call('native:territory','claim',fact.tile.id,by)
             else:self._call('native:territory','transfer',fact.tile.id,by)
         else:self._call('native:territory','create_claim',f'native:tile/{x}-{y}',by,x,y)
-        self._events.append({'kind':'occupation','text':f'{self._name(by)} 占领 ({x},{y})，原属 {self._name(fact.owner) if fact.owner else "无主"}；守军已清除，归属已变更。', 'position':(x,y),'parties':seen,'snapshot_only':True})
+        claimed=self._call('native:territory','cell',x,y)
+        self._events.append({'kind':'occupation','text':f'{self._name(by)} 占领 ({x},{y})，原属 {self._name(fact.owner) if fact.owner else "无主"}；守军已清除，归属已变更。',
+            'position':(x,y),'parties':seen,'snapshot_only':True,
+            'details':{'importance':'major','previous_owner':fact.owner,'owner':by,'core':claimed.tile.core,
+                       'name':claimed.tile.name,'town_halls':halls}})
     def attack(self, owner, ids, x, y):
         result=self._batch(owner,ids,x,y,True)
         if isinstance(result,MilitaryReceipt):return result
@@ -218,13 +227,20 @@ class Military:
         return MilitaryReceipt('effective',tuple(ids),changed,changed,not defenders,defenders,
                                'Entered battle; occupation pending' if defenders else 'Occupied')
     def retreat(self, owner, aid, x, y):
-        self._action(owner);unit=self._own_unit(owner,aid);period=self._period()
-        attacked=any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner) for v in self._units.at(unit.x,unit.y))
-        if unit.born_turn==period or unit.moved_turn==period or not (unit.engaged or attacked):raise ValueError('Retreat action unavailable')
-        if (x,y) not in self._call('native:territory','neighbors',unit.x,unit.y) or not self._pass(owner,x,y):raise ValueError('Illegal retreat position')
-        defender=not any(v.alive and v.engaged and v.owner==owner for v in self._units.at(unit.x,unit.y)) or self._call('native:territory','owner',unit.x,unit.y)==owner
-        unit.update(retreat_to=(x,y),retreat_role='守' if defender else '攻',retreat_cover=RETREAT_DEF_COVER if defender else 100,moved_turn=period)
-        return MilitaryReceipt('submitted',(aid,),False,True,engaged=True,message='Withdrawal pending; unit remains in battle')
+        return self.retreat_many(owner,[aid],x,y)
+    def retreat_many(self, owner, ids, x, y):
+        self._action(owner);self._call('native:territory','check',x,y);period=self._period()
+        if not isinstance(ids,(list,tuple)) or not ids or len(set(ids))!=len(ids):raise ValueError('Unit IDs must be a nonempty unique list')
+        units=[self._own_unit(owner,aid) for aid in ids];plans=[]
+        for unit in units:
+            attacked=any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner) for v in self._units.at(unit.x,unit.y))
+            if unit.born_turn==period or unit.moved_turn==period or not (unit.engaged or attacked):raise ValueError('Retreat action unavailable')
+            if (x,y) not in self._call('native:territory','neighbors',unit.x,unit.y) or not self._pass(owner,x,y):raise ValueError('Illegal retreat position')
+            defender=not any(v.alive and v.engaged and v.owner==owner for v in self._units.at(unit.x,unit.y)) or self._call('native:territory','owner',unit.x,unit.y)==owner
+            plans.append((unit,defender))
+        for unit,defender in plans:
+            unit.update(retreat_to=(x,y),retreat_role='守' if defender else '攻',retreat_cover=RETREAT_DEF_COVER if defender else 100,moved_turn=period)
+        return MilitaryReceipt('submitted',tuple(ids),False,True,engaged=True,message='Withdrawal pending; unit remains in battle')
     def can_disband(self, owner, aid):
         unit=self._own_unit(owner,aid)
         return not unit.engaged and not any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner) for v in self._units.at(unit.x,unit.y))
@@ -310,7 +326,7 @@ class Military:
             if short:
                 loss=max(1,ARMY_STARVE_DAMAGE*short//need)
                 for u in eaters:u.take_damage(loss)
-                self._event('supply',f'{self._name(owner)} 断粮：补给需{need}、实耗{used}、缺{short}；每支掉{loss}兵力，饿毙{sum(not u.alive for u in eaters)}支。',parties=(owner,))
+                self._event('supply',f'{self._name(owner)} 断粮：补给需{need}、实耗{used}、缺{short}；每支掉{loss}HP，饿毙{sum(not u.alive for u in eaters)}支。',parties=(owner,))
             equipment=self._stock(owner,'native:equipment');healed=[]
             if not short:
                 for u in units:
@@ -321,7 +337,7 @@ class Military:
             costs={key:value for key,value in costs.items() if value}
             if costs:self._call('native:resource-exchange','exchange',owner,costs,{})
             for u in healed:u.heal(ARMY_HEAL_PER_TURN)
-            if healed:self._event('healing',f'{self._name(owner)} {len(healed)}支军队各恢复至多{ARMY_HEAL_PER_TURN}兵力，消耗装备{costs.get("native:equipment",0)}。',parties=(owner,))
+            if healed:self._event('healing',f'{self._name(owner)} {len(healed)}支军队各恢复至多{ARMY_HEAL_PER_TURN}HP，消耗装备{costs.get("native:equipment",0)}。',parties=(owner,))
             if costs:facts.append({'id':f'native:military/{owner.split(":",1)[1]}/{period}', 'owner':owner,'period':period,'category':'military','inputs':tuple(costs.items())})
             reports.append((owner,need,used,short,len(healed)))
         for u in tuple(self._units):
@@ -365,7 +381,7 @@ class Military:
                 if not any(surviving[e] for e in enemies[owner]):
                     for u in units:u.disengage()
             reports.append((x,y,tuple(sorted(damage.items()))))
-            detail='；'.join(f'{self._name(owner)}：骰{dice.get(owner,"未参战")}，承伤{damage[owner]}，剩余{sum(u.alive for u in units)}支/{sum(u.hp for u in units)}兵力' for owner,units in groups.items())
+            detail='；'.join(f'{self._name(owner)}：骰{dice.get(owner,"未参战")}，承伤{damage[owner]}，剩余{sum(u.alive for u in units)}支/{sum(u.hp for u in units)}HP' for owner,units in groups.items())
             self._event('battle',f'({x},{y})战报，地形减伤{terrain.defense}%，城堡减伤{castle}%；{detail}。'+('战斗结束。' if not any(u.engaged for u in troops if u.alive) else '交战继续，占领未定。'),(x,y),seen)
         return tuple(reports)
     def battle_estimate(self, owner, ids, x, y):

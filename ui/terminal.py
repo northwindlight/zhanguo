@@ -223,12 +223,21 @@ class Console:
         """状态区**内容**行：常驻行在前，其后是最近通知（不足则补空行，盒子高度稳）。"""
         avail = max(1, self._term_width() - 4)
         rows: list[str] = _wrap(self._head, avail) if self._head else [""]
-        for n in self._notes:
-            rows += _wrap(n, avail)
+        notes = [_wrap(n, avail) for n in self._notes]
+        cap = min(self._panel_max, max(1 + self._panel_notes, self._term_size()[1] // 3))
+        # Keep the current status visible when context text and old notices overflow.
+        if notes and len(rows) + sum(map(len, notes)) > cap:
+            while len(notes) > 1 and len(rows) + sum(map(len, notes)) > cap:
+                notes.pop(0)
+            head_limit = max(1, cap - min(len(notes[-1]), cap - 1))
+            if len(rows) > head_limit:
+                rows = rows[:head_limit]
+                rows[-1] = _clip(rows[-1], max(0, avail - 1)) + "…"
+        for note in notes:
+            rows += note
         while len(rows) < 1 + self._panel_notes:
             rows.append("")
         # 封顶：按配置，且**不许超过屏幕高度的 1/3**（矮终端里 5 行页脚会把日志挤没）
-        cap = min(self._panel_max, max(1 + self._panel_notes, self._term_size()[1] // 3))
         if len(rows) > cap:                         # 只在这时才截断
             rows = rows[:cap]
             rows[-1] = _clip(rows[-1], max(0, avail - 1)) + "…"

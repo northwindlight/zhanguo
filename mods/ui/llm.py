@@ -164,8 +164,8 @@ class LLMUI:
                 'stock_shortfalls_before_production':shortages,'army_supply_per_period':supply,
                 'army_actions':armies,'border_threats':threats,
                 'construction':sites.get('construction',[]),
-                'frontier':facts.get('frontier',{}),
-                'capital_warning':[{'owner':u['owner'],'aid':u['id'],'position':[u['x'],u['y']]} for u in facts.get('army',[]) if u['owner'] in enemies and u['owner']!='野人' and any(max(abs(u['x']-p[0]),abs(u['y']-p[1]))<=units.get(u['kind'],{}).get('speed',1) for site,p in positions.items() if any(b['site']==site and b['kind']=='native:town-hall' for b in active))],
+                'frontier':{key:value for key,value in facts.get('frontier',{}).items() if key!='capital_warning'},
+                'capital_warning':deepcopy(facts.get('frontier',{}).get('capital_warning',[])),
                 'diplomacy_todo':{key:diplomacy[key] for key in ('offers','votes','pending') if diplomacy.get(key)}}
 
     def atlas_text(self,observation):
@@ -224,7 +224,10 @@ class LLMUI:
         actor=observation['actor']
         self.at_war=any(actor in w['attackers']+w['defenders'] for w in observation['facts'].get('diplomacy',{}).get('wars',[]))
         self.current=self.compact(self._bounded(self.current_state(observation)))
-        recent=[{k:v for k,v in row.items() if k!='recipients'} for row in events][-10:]
+        major_ids={row['id'] for row in events if row.get('kind') in ('extinction','victory') or
+                   isinstance(row.get('details'),dict) and row['details'].get('importance')=='major'}
+        selected=major_ids|{row['id'] for row in events[-10:]}
+        recent=[{k:v for k,v in row.items() if k!='recipients'} for row in events if row['id'] in selected]
         names={n['id']:n['name'] for n in observation['facts'].get('nations',[])}
         for row in recent:
             if row.get('details'):row['text']=self.receipts.event(row,names);row.pop('details',None)
@@ -234,8 +237,10 @@ class LLMUI:
         payload={'state':self.current,'events':recent,'intel_index':intel}
         encode=lambda:json.dumps(self.compact(payload),ensure_ascii=False,sort_keys=True,separators=(',',':'))
         cap=self.cfg.get('model_state_tokens',12000)
-        while est_tokens(encode())>cap and recent:recent.pop(0)
-        if len(recent)<min(len(events),10):payload['event_notice']='近讯已按载荷预算裁剪，完整近讯用 news 查询。'
+        while est_tokens(encode())>cap and recent:
+            ordinary=next((i for i,row in enumerate(recent) if row['id'] not in major_ids),0)
+            recent.pop(ordinary)
+        if len(recent)<len(events):payload['event_notice']='近讯已按载荷预算裁剪，完整近讯用 news 查询。'
         while est_tokens(encode())>cap and intel:intel.pop(0)
         tail=encode()
         if self.cfg.get('opening_guide',True) and observation['period']<20 and self.cfg.get('extra_prompt'):

@@ -204,7 +204,7 @@ class TestWorldDomains(unittest.TestCase):
         offer=w.diplomacy.snapshot(C).offers[0]
         cash=w.resources.balance(C,'native:gold');self.call(w,C,'accept_peace',offer=offer.id)
         self.cycle(w)
-        self.assertEqual(w.resources.balance(C,'native:gold'),cash-10+100)
+        self.assertEqual(w.resources.balance(C,'native:gold'),cash+100)
         self.assertFalse(w.diplomacy.war_between(Q,C));self.assertTrue(w.diplomacy.active_truce(Q,C))
         with self.assertRaises(ValueError):self.call(w,Q,'declare_war',target=C)
         for _ in range(3):self.cycle(w)
@@ -246,7 +246,7 @@ class TestWorldDomains(unittest.TestCase):
         fact=w.territory.get('scenario:allied-core')
         self.assertEqual((fact.owner,fact.tile.core),(Z,Z))
 
-    def test_unaffordable_peace_reverts_whole_transition_and_refunds_acceptance_fee(self):
+    def test_unaffordable_peace_reverts_whole_transition_with_free_response(self):
         w=self.world();self.declare(w)
         self.call(w,Q,'offer_peace',target=C,kind='demand',gold=20000);self.cycle(w)
         offer=w.diplomacy.snapshot(C).offers[0];cash=w.resources.balance(C,'native:gold')
@@ -571,6 +571,86 @@ class TestWorldDomains(unittest.TestCase):
         for _ in range(4):
             self.cycle(w);self.cycle(other)
             self.assertEqual(self.save(w),self.save(other))
+
+
+    def test_diplomatic_results_distinguish_rejection_and_partial_founding_acceptance(self):
+        w=self.world()
+        self.call(w,Q,'bloc_found',bloc=B,name='合纵',tos=[C,Z]);self.cycle(w)
+        offer=w.diplomacy.snapshot(C).offers[0]
+        self.call(w,C,'accept_proposal',offer=offer.id)
+        results=self.cycle(w)['diplomacy_results']
+        self.assertEqual(results[0].message,'Founding acceptance recorded; other invitees pending')
+        self.assertIsNone(w.diplomacy.alliance(Q))
+        self.call(w,Z,'reject_proposal',offer=offer.id)
+        results=self.cycle(w)['diplomacy_results']
+        self.assertEqual(results[0].message,'Offer rejected')
+        self.assertFalse(w.diplomacy.snapshot(Q).offers)
+        self.assertIsNone(w.diplomacy.alliance(Q))
+        for actor in (Q,C,Z,Y):
+            notices=[event.text for event in w.intelligence.events(actor) if '创建失败' in event.text]
+            self.assertEqual(len(notices),1)
+            self.assertIn('合纵',notices[0]);self.assertIn('赵拒绝',notices[0]);self.assertIn('联盟未成立',notices[0])
+
+        self.call(w,Q,'bloc_found',bloc=B,name='合纵',tos=[C,Z]);self.cycle(w)
+        offer=w.diplomacy.snapshot(C).offers[0]
+        self.call(w,C,'accept_proposal',offer=offer.id);self.cycle(w)
+        self.call(w,Z,'accept_proposal',offer=offer.id)
+        results=self.cycle(w)['diplomacy_results']
+        self.assertEqual(results[0].message,'Diplomatic action applied')
+        self.assertIsNotNone(w.diplomacy.alliance(Q))
+
+    def test_founding_failure_is_public_when_war_or_membership_invalidates_it(self):
+        for invalidation in ('war','membership'):
+            with self.subTest(invalidation=invalidation):
+                w=self.world()
+                self.call(w,Q,'bloc_found',bloc=B,name='原拟联盟',tos=[C,Z]);self.cycle(w)
+                if invalidation=='war':
+                    self.call(w,Y,'declare_war',target=Q);self.cycle(w)
+                else:
+                    self.call(w,C,'bloc_found',bloc='scenario:other',name='另盟',tos=[Y]);self.cycle(w)
+                    other=next(o for o in w.diplomacy.snapshot(Y).offers if dict(o.arguments).get('name')=='另盟')
+                    self.call(w,Y,'accept_proposal',offer=other.id);self.cycle(w)
+                self.assertFalse(any(dict(o.arguments).get('name')=='原拟联盟' for o in w.diplomacy.snapshot(Q).offers))
+                for actor in (Q,C,Z,Y):
+                    notices=[e.text for e in w.intelligence.events(actor) if '原拟联盟' in e.text and '创建失败' in e.text]
+                    self.assertEqual(len(notices),1)
+
+    def test_later_rejection_of_the_same_founding_offer_reports_closed_not_wrong_recipient(self):
+        w=self.world()
+        self.call(w,Q,'bloc_found',bloc=B,name='合纵',tos=[C,Z]);self.cycle(w)
+        offer=w.diplomacy.snapshot(C).offers[0]
+        self.call(w,C,'reject_proposal',offer=offer.id)
+        self.call(w,Z,'reject_proposal',offer=offer.id)
+        results=self.cycle(w)['diplomacy_results']
+        self.assertEqual(results[0].message,'Offer rejected')
+        self.assertEqual(results[1].message,'Offer does not exist')
+        for actor in (Q,C,Z,Y):
+            self.assertEqual(sum('创建失败' in e.text for e in w.intelligence.events(actor)),1)
+
+    def test_rejected_peace_is_closed_without_claiming_acceptance_pending(self):
+        w=self.world();self.declare(w)
+        self.call(w,Q,'offer_peace',target=C,kind='white');self.cycle(w)
+        offer=w.diplomacy.snapshot(C).offers[0]
+        self.call(w,C,'reject_peace',offer=offer.id)
+        result=self.cycle(w)['diplomacy_results'][0]
+        self.assertEqual(result.message,'Offer rejected')
+        self.assertFalse(w.diplomacy.snapshot(C).offers)
+        self.assertTrue(w.diplomacy.war_between(Q,C))
+
+    def test_healing_and_supply_rules_are_available_by_the_actual_player_topics(self):
+        from mods.native.army.parameters import ARMY_HEAL_PER_TURN,HEAL_EQUIP_COST,ARMY_STARVE_DAMAGE
+        w=self.world();player=w.runtime.player(w,Q);before=self.save(w)
+        for topic in ('回血','伤兵','补给','军屯','兵营'):
+            receipt=player.submit('player_rules',{'topic':topic})
+            self.assertTrue(receipt['ok'])
+            body='\n'.join(row['body'] for row in receipt['data'])
+            self.assertIn(f'恢复至多{ARMY_HEAL_PER_TURN}',body)
+            self.assertIn(f'消耗{HEAL_EQUIP_COST}装备',body)
+            self.assertIn('民兵恢复不消耗装备',body)
+            self.assertIn(f'完全断供每支损失{ARMY_STARVE_DAMAGE}',body)
+            self.assertIn('先补给与回血、再战斗',body)
+            self.assertIn('HP线性折算',body)
+        self.assertEqual(self.save(w),before)
 
 
 if __name__=='__main__':unittest.main()

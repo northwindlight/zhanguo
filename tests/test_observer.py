@@ -12,7 +12,7 @@ from host import GameHost
 from engine.content import ContentRegistry
 from clients.llm import LLMClient
 from tests.test_player_clients import FakeBackend,call
-from mp_run import Observer,command
+from mp_run import Observer,command,run
 
 
 class TestObserver(unittest.TestCase):
@@ -20,6 +20,120 @@ class TestObserver(unittest.TestCase):
         cfg={'map_size':12,'seed':17,'nations':[{'id':'s:q','name':'秦'},{'id':'s:c','name':'楚'}]}
         if experimental:cfg['mods']='mods.experimental.toml'
         return cfg
+
+    def test_overview_contains_current_state_without_replaying_messages_or_reports(self):
+        h=GameHost.new(self.cfg());state=h.observer_snapshot();state['period']=5
+        for sampled in (3,4,5):
+            state['records']['messages'].append({'id':sampled,'source':'s:q','target':'s:c',
+                'kind':'letter','sampled':sampled,'payload':{'text':f'通信正文只应增量播报{sampled}'}})
+        state['nations'][0]['facts']['econ']['latest_turn']={'gdp':{'total':987654},'investment':{'total':0},
+            'military':{'total':0},'total_assets':{'total':0},'liabilities':0}
+        before=deepcopy(state)
+        text=h.ui.console.overview(state)
+        self.assertIn('各国现状',text)
+        self.assertNotIn('通信正文只应增量播报',text)
+        self.assertNotIn('987654',text)
+        self.assertNotIn('上期 GDP',text)
+        self.assertEqual(state,before)
+
+    def test_delayed_lower_id_message_is_announced_once_and_resume_skips_history(self):
+        h=GameHost.new(self.cfg())
+        def message(ident,text):
+            return {'id':ident,'source':'s:q','target':'s:c','kind':'letter','sampled':1,'payload':{'text':text}}
+        records={'events':[],'messages':[]}
+        with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()),patch.object(h,'records',return_value=records):
+            observer=Observer(h,Path(directory)/'journal.md')
+            records['messages'].append(message(5,'先到的新编号信件'))
+            observer.events()
+            records['messages'].append(message(2,'迟到的旧编号消息'))
+            observer.events();observer.events()
+            resumed=Observer(h,observer.path,resume=True)
+            resumed.events()
+            records['messages'].append(message(3,'续局后新到的旧编号消息'))
+            resumed.events();resumed.events()
+            text=observer.path.read_text()
+        for body in ('先到的新编号信件','迟到的旧编号消息','续局后新到的旧编号消息'):
+            self.assertEqual(text.count(body),1)
+
+    def test_intelligence_is_readable_and_screen_is_bounded_while_log_keeps_details(self):
+        h=GameHost.new(self.cfg());ui=h.ui.console
+        money={'known':100,'unpriced':[],'total':100,'complete':True}
+        payload={'inventory':{'native:gold':221,'native:food':30},'unit_counts':{'native:infantry':1},
+            'economy':{'period':3,'gdp':money,'total_assets':money,'liabilities':0},
+            'buildings_total':12,'tiles':[{'position':[x,1],'terrain':'native:plain','owner':'s:c',
+                'buildings':{'native:farm':1},'resources':{'native:farmland':3},'construction':{'native:mine':1}} for x in range(25)]}
+        message={'id':2,'source':'s:c','target':'s:q','kind':'spy','sampled':4,'payload':payload}
+        before=deepcopy(message);full=ui.message(message,{'s:q':'秦','s:c':'楚'})
+        self.assertIn('秦 获得对 楚 的间谍报告',full)
+        self.assertIn('库存：',full);self.assertIn('步兵×1',full)
+        self.assertIn('(24, 1)',full);self.assertIn('在建 矿场×1',full)
+        self.assertNotIn('native:',full);self.assertNotIn('"inventory"',full)
+        self.assertNotIn('市场库存',full);self.assertNotIn('建造投入',full)
+        self.assertIn('第3回合经济报告',full);self.assertNotIn('已落成',full)
+        self.assertEqual(before,message)
+        with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()) as screen,patch.object(h,'records',return_value={'events':[],'messages':[message]}):
+            observer=Observer(h,Path(directory)/'journal.md');observer.events();observer.events()
+            journal=observer.path.read_text()
+        self.assertEqual(journal.count('间谍报告 #2'),1)
+        self.assertEqual(screen.getvalue().count('间谍报告 #2'),1)
+        self.assertIn('(24, 1)',journal);self.assertNotIn('(24, 1)',screen.getvalue())
+        self.assertIn('完整内容见日志',screen.getvalue())
+
+    def test_map_gift_and_letter_have_distinct_presentations_and_preserve_prose(self):
+        ui=GameHost.new(self.cfg()).ui.console;names={'s:q':'秦','s:c':'楚'}
+        base={'id':1,'source':'s:q','target':'s:c','sampled':2}
+        letter={**base,'kind':'letter','payload':{'text':'正文原样保留：{"inventory":"native:gold"}'}}
+        self.assertIn(letter['payload']['text'],ui.message(letter,names))
+        gift={**base,'kind':'gift','payload':{'resource':'native:gold','quantity':10}}
+        self.assertIn('收到赠送物资',ui.message(gift,names));self.assertIn('10黄金',ui.message(gift,names))
+        shared={**base,'kind':'map','payload':{'tiles':[{'position':[1,2],'terrain':'native:plain','owner':None,
+                'buildings':{},'construction':{},'resources':{'native:farmland':3}}]}}
+        full=ui.message(shared,names)
+        self.assertIn('共享地图',full);self.assertIn('(1, 2)',full);self.assertIn('无主',full)
+        self.assertNotIn('native:',full)
+
+    def test_cli_prints_each_period_overview_once(self):
+        cfg=self.cfg();cfg['max_turns']=2
+        for nation in cfg['nations']:nation['client']='rule'
+        with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()) as screen,patch('sys.stdin',io.StringIO('')):
+            root=Path(directory);cfg.update(save=str(root/'save.json'),journal=str(root/'journal.md'))
+            path=root/'config.json';path.write_text(json.dumps(cfg,ensure_ascii=False))
+            with patch('select.select',return_value=([],[],[])):
+                self.assertEqual(run(['--config',str(path)]),0)
+            journal=(root/'journal.md').read_text()
+            self.assertEqual(json.loads((root/'save.json').read_text())['modules']['native:government']['period'],2)
+        for output in (journal,screen.getvalue()):
+            for period in range(2):self.assertEqual(output.count(f'世界全景 · 第 {period} 回合'),1)
+            self.assertNotIn('世界全景 · 第 2 回合',output)
+
+    def test_major_events_wait_until_the_settlement_boundary(self):
+        h=GameHost.new(self.cfg())
+        class Console:
+            panel_on=False
+            def __init__(self):self.queue=queue.Queue()
+            def write(self,text):pass
+        console=Console();console.queue.put('say 重要事件只在回合间播报')
+        with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()),patch('mp_run.CONSOLE',console):
+            observer=Observer(h,Path(directory)/'journal.md',resume=True)
+            observer.on_call('s:q',0,[])
+            self.assertNotIn('重要事件只在回合间播报',observer.path.read_text())
+            observer.events(period=0);observer.events(period=0)
+            text=observer.path.read_text()
+        self.assertEqual(text.count('重要事件只在回合间播报'),1)
+        self.assertEqual(text.count('第 0 回合结算动态'),1)
+        self.assertLess(text.index('◈ 秦 第 1 次调用'),text.index('第 0 回合结算动态'))
+
+    def test_major_announcement_survives_the_models_recent_action_window(self):
+        h=GameHost.new(self.cfg());observation=h.player('s:q').observe()
+        events=[{'id':1,'period':0,'kind':'diplomacy','text':'联盟创建失败，已向全体公告',
+                 'details':{'importance':'major'}}]
+        events.extend({'id':i,'period':0,'kind':'action','text':f'普通行动{i}'} for i in range(2,32))
+        before=deepcopy(events)
+        text,_=h.ui.llm({'model_state_tokens':12000}).state(observation,events)
+        presented=json.loads(text.splitlines()[0])
+        self.assertTrue(any('联盟创建失败' in row['text'] for row in presented['events']))
+        self.assertLessEqual(sum(row['kind']=='action' for row in presented['events']),10)
+        self.assertEqual(events,before)
 
     def test_world_observer_is_detached_and_never_exposed_to_players(self):
         for experimental in (False,True):

@@ -65,7 +65,10 @@ class Observer:
         self.ui=host.ui
         records=host.records()
         self.event=max([0,*[row['id'] for row in records['events']]]) if resume else 0
-        self.message=max([0,*[row['id'] for row in records['messages']]]) if resume else 0
+        # Dispatch IDs are allocated before delivery; a delayed spy can arrive
+        # after a newer letter. A maximum ID would silently skip that report.
+        self.messages_seen={row['id'] for row in records['messages']} if resume else set()
+        self.overview_period=None
         self.pending={};self.results=[];self.stop_requested=False;self.paused=False
         self.current_actor=None;self.started_at=0;self.show_thinking=False;self.last_thinking=''
     def names(self):return {a:r['name'] for a,r in self.host.roster.items()}
@@ -77,7 +80,16 @@ class Observer:
         if callable(getattr(self.host,'observer_snapshot',None)):
             return self.ui.console.overview(self.snapshot())
         return self.host.board()
+    def show_overview(self):
+        period=self.host.clock()
+        if self.overview_period==period:return
+        self.line(self.ui.text('console.period',period=period))
+        self.line(self.board())
+        self.overview_period=period
     def model_output(self,text):
+        if text.startswith('📜'):
+            to_journal(self.path,text)
+            return
         # Preserve speech and reasoning in the journal; reasoning may be folded on screen.
         for actor,name in self.names().items():
             for icon in ('🗣','💭','🧠','⚠','⏳'):
@@ -122,21 +134,28 @@ class Observer:
 
     def on_call(self,actor,step,receipts):
         self.line(self.ui.text('console.call',actor=self.host.roster[actor]['name'],count=step+1));self.flush(actor)
-        self.events()
         if not _commands(self.host,self):self.stop_requested=True
         if any(r.get('action')=='end_turn' and r.get('ok') for r in receipts):self.actor_finish(actor)
-    def events(self):
+    def events(self,*,period=None):
         records=self.host.records()
+        fresh_events=[]
         for event in records['events']:
             # These remain in player-visible history; the observer already
             # writes each primary receipt through flush().
             detail=event.get('details')
             mirrored=isinstance(detail,dict) and detail.get('source')=='action_receipt'
-            if event['id']>self.event and not mirrored:self.line(self.ui.console.event(event,self.names()))
+            if event['id']>self.event and not mirrored:fresh_events.append(event)
+        messages=[message for message in records['messages'] if message['id'] not in self.messages_seen]
+        if period is not None and (fresh_events or messages):
+            self.line(self.ui.text('console.round_events',period=period))
+        for event in fresh_events:self.line(self.ui.console.event(event,self.names()))
         self.event=max([self.event,*[row['id'] for row in records['events']]])
-        for message in records['messages']:
-            if message['id']>self.message:self.line(self.ui.console.message(message,self.names()))
-        self.message=max([self.message,*[row['id'] for row in records['messages']]])
+        for message in messages:
+            full=self.ui.console.message(message,self.names())
+            to_journal(self.path,full)
+            preview=getattr(self.ui.console,'preview',None)
+            echo_line(preview(full) if callable(preview) else full)
+        self.messages_seen={row['id'] for row in records['messages']}
 
 
 def _body(text):
@@ -247,7 +266,6 @@ def _commands(host,observer):
         try:
             if not command(host,line,observer):
                 observer.notice(observer.ui.text('console.stop_pending'));return False
-            observer.events()
         except (ValueError,OSError) as exc:observer.notice('⚠ '+str(exc))
     return True
 
@@ -319,14 +337,13 @@ def run(argv=None):
                 if not _commands(host,observer):observer.stop_requested=True;break
                 time.sleep(.1)
             if observer.stop_requested:break
-            observer.line(ui.text('console.period',period=host.clock()))
-            observer.line(observer.board())
+            observer.show_overview()
             host.cycle(on_result=observer.result,emit=observer.model_output,
                        head=observer.context_head,on_call=observer.on_call)
             report_faults(host,observer,ui,journal_path)
             for actor in list(observer.pending):observer.flush(actor)
-            observer.events();ending=observer.snapshot() if callable(getattr(host,'observer_snapshot',None)) else None
-            observer.line(ui.console.overview(ending) if ending else observer.board());host.save(save_path)
+            observer.events(period=host.clock()-1);ending=observer.snapshot() if callable(getattr(host,'observer_snapshot',None)) else None
+            host.save(save_path)
             if callable(getattr(host,'observer_snapshot',None)):
                 map_path=journal_path.with_suffix('.map.txt')
                 map_path.write_text(ui.observer_map(ending),encoding='utf-8')

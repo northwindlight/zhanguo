@@ -1,7 +1,8 @@
 """地名：一张图的每格一个唯一名字。
 
-名字是**地图的属性**，不是地块存档里的字段：由 `(seed, size, x, y)` 决定，规范扫描序
-（y 升序、x 升序）里撞名就加序号，因此同 seed 同 size 两次生成逐格相同，也不受
+名字是**地图的属性**，不是地块存档里的字段：由 `(seed, size, x, y)` 决定。先按种子
+将整个词库排列，再按规范扫描序（y 升序、x 升序）不放回分配，词库耗尽才加序号。
+因此同 seed 同 size 两次生成逐格相同，也不受
 PYTHONHASHSEED 影响（走 `_hash_int`）。未物化的格子同样有名字——"有名字没守军"这才
 是可读的侦查信号。
 """
@@ -32,15 +33,21 @@ NAME_SUFFIX = [
 
 
 def name_grid(seed, size, hash_int):
-    """整张图的地名表：`grid[y][x]`，规范序去重，纯 `(seed,size)` 的函数。"""
-    grid, used = [[None] * size for _ in range(size)], set()
+    """整张图的地名表：`grid[y][x]`，整池不放回分配，纯 `(seed,size)` 的函数。"""
+    # 原词库98×82共8036种组合；不要逐格抽签、撞名就编号，尚未用到的名字应先分完。
+    # 按稳定哈希排序等价于一副由种子确定的牌，名字本身作为同哈希时的固定次序。
+    # 不用Python内置hash或依赖set的遍历顺序，避免跨进程的PYTHONHASHSEED改变地图。
+    pool = sorted(
+        {prefix + suffix for prefix in NAME_PREFIX for suffix in NAME_SUFFIX},
+        key=lambda name: (hash_int(seed, "name-order", size, name), name),
+    )
+    count = len(pool)
+    grid = []
     for y in range(size):
+        row = []
         for x in range(size):
-            prefix = NAME_PREFIX[hash_int(seed, "name-prefix", x, y) % len(NAME_PREFIX)]
-            suffix = NAME_SUFFIX[hash_int(seed, "name-suffix", x, y) % len(NAME_SUFFIX)]
-            base = prefix + suffix
-            name, index = base, 2
-            while name in used:
-                name = f"{base}{index}";index += 1
-            used.add(name);grid[y][x] = name
+            cycle, index = divmod(y * size + x, count)
+            # 只有超出整个词库的大图才进入第二轮：北川、北川2、北川3……
+            row.append(pool[index] if cycle == 0 else f"{pool[index]}{cycle + 1}")
+        grid.append(row)
     return grid

@@ -44,8 +44,11 @@ class IntelligenceMod(GameMod):
             war=next((w for w in relation.wars if actor in w.attackers and target in w.defenders or actor in w.defenders and target in w.attackers),None)
             lead=(war.b if actor in war.attackers else war.a) if war else None
             representative=next((b.chief for b in relation.alliances if 'bloc/'+b.id==lead),lead[7:] if lead and lead.startswith('nation/') else None)
+            treaties=[{'kind':p.kind,'direction':'outgoing' if p.a==my_entity else 'incoming'} for p in relation.pacts
+                      if {p.a,p.b}=={my_entity,other} and my_entity!=other]
             result.append({'id':target,'name':nation.name,'relation':'war' if war else 'ally' if my_entity==other else 'neutral',
                            'entity':other,'chief':chief,'war_representative':representative,
+                           'treaties':treaties,'letter_count':sum(m.source==target and m.kind=='letter' for m in messages),
                            'border':any(t.owner==target and any(max(abs(t.position[0]-x),abs(t.position[1]-y))<=1 for x,y in owned) for t in visible),
                            'has_letter':any(m.source==target and m.kind=='letter' for m in messages)})
         return result
@@ -68,11 +71,14 @@ class IntelligenceMod(GameMod):
     def _events(world, context):
         for c in context.get('vote_results',()):world.intelligence.emit('diplomacy',c.message,parties=tuple(n for n,_ in c.entities)+(c.actor,))
         for c in context.get('diplomacy_results',()):
+            public=c.status=='effective' and c.message=='Diplomatic action applied' and c.action in ('declare_war','accept_peace','accept_proposal','guarantee','cancel_guarantee','break_defense','bloc_leave','bloc_dissolve','bloc_rename','bloc_transfer')
+            details={'actor':c.actor,'action':c.action,'arguments':dict(c.arguments),'status':c.status,'message':c.message}
+            if public:details['importance']='major'
             world.intelligence.emit('diplomacy',c.message,parties=tuple(n for n,_ in c.entities)+(c.actor,),
-                public=c.status=='effective' and c.message=='Diplomatic action applied' and c.action in ('declare_war','accept_peace','accept_proposal','guarantee','cancel_guarantee','break_defense','bloc_leave','bloc_dissolve','bloc_rename','bloc_transfer'),
-                details={'actor':c.actor,'action':c.action,'arguments':dict(c.arguments),'status':c.status,'message':c.message})
+                public=public,details=details)
         for effect in context.get('diplomacy_effects',()):
-            if effect[0]=='notice':world.intelligence.emit('diplomacy',effect[1],parties=effect[2],public=effect[3])
+            if effect[0]=='notice':world.intelligence.emit('diplomacy',effect[1],parties=effect[2],public=effect[3],
+                details={'importance':'major'} if effect[3] else None)
         for owner,resource,quantity,loss in context.get('market_churn',()):world.intelligence.emit('market',f'{resource} 本期买卖重叠空转{quantity}单位，按成交均价折算净亏{loss:g}金（负值为获利）。',parties=(owner,))
         for report in context.get('economy_publications',()):world.intelligence.emit('economy',f'第{report.start}—{report.end}期经济报表已公布，可用 report 查询本国、buy_report 购买别国。',parties=(report.owner,))
         for event in context.get('domain_events',()):world.intelligence.emit(**event)

@@ -3,6 +3,7 @@ from collections import Counter
 from copy import deepcopy
 from engine.coordinates import coordinates
 import json
+from .queries import QueryPresentation
 
 
 def num(value):
@@ -11,10 +12,14 @@ def num(value):
     return str(value)
 
 
-class ReceiptPresentation:
+class ReceiptPresentation(QueryPresentation):
     def remember(self,observation):
         facts=observation.get('facts',observation)
         actor=observation.get('actor','')
+        if actor:
+            self._facts[actor]={key:deepcopy(facts[key]) for key in
+                ('land','building_sites','army','unit_catalog','nations','diplomacy','view','frontier') if key in facts}
+            self._period=observation.get('period',self._period)
         tiles=self._tiles.setdefault(actor,{})
         for row in facts.get('view',[]):
             tile=row.get('tile',row)
@@ -146,22 +151,60 @@ class ReceiptPresentation:
                 for assumption in row.get('assumptions',[]):lines.append('  '+assumption)
         return '\n'.join(lines)
 
-    def land(self,rows,instances=None,actor=None):
-        lines=[f'国土 {len(rows)} 块：']
+    def land(self,rows,instances=None,actor=None,args=None):
+        facts=self._facts.get(actor,{})
+        sites=facts.get('building_sites',{})
+        if instances is None and 'instances' in sites:instances=sites['instances']
+        args=args or {}
+        if args:
+            lines=[self.text('query.land_page',count=len(rows),offset=args.get('offset',0))]
+            if 'land' in facts:lines[0]+='｜'+self.text('query.land_total',count=len(facts['land']))
+            if args.get('terrain'):lines[0]+='｜'+self.label('content',args['terrain'])
+            if args.get('resource'):lines[0]+='｜'+self.label('content',args['resource'])
+            more=any(args.get(key) for key in ('terrain','resource')) or 'land' not in facts or args.get('offset',0)+len(rows)<len(facts['land'])
+            if args.get('limit') and len(rows)==args['limit'] and more:
+                lines.append(self.text('query.land_next',offset=args.get('offset',0)+len(rows)))
+        else:lines=[f'国土 {len(rows)} 块：']
+        cores={tuple(r['tile']['position']):r['tile'].get('core') for r in facts.get('land',[])}
         for row in rows:
             tile=row.get('tile',row);site=self._sites.get(tile.get('id'),{})
-            completed=Counter(b['kind'] for b in instances or [] if b['site']==tile.get('id') and not b['remaining'])
-            pending=Counter(b['kind'] for b in instances or [] if b['site']==tile.get('id') and b['remaining'])
-            buildings='、'.join(f'{self.label("content",k)}×{n}' for k,n in completed.items()) or '无'
-            if pending:buildings+='；在建 '+ '、'.join(f'{self.label("content",k)}×{n}' for k,n in pending.items())
+            completed=[b for b in instances or [] if b['site']==tile.get('id') and not b['remaining']]
+            pending=[b for b in instances or [] if b['site']==tile.get('id') and b['remaining']]
+            buildings=self.building_names(completed)
+            if pending:buildings+='；在建 '+self.building_names(pending)
             resources=self.resources(row.get('resources',site.get('resources',[])),gold_short=False)
-            cap=f'｜建筑位{sum(completed.values())+sum(pending.values())}/{site["capacity"]}' if 'capacity' in site and instances is not None else ''
+            cap=f'｜建筑位{len(completed)+len(pending)}/{site["capacity"]}' if 'capacity' in site and instances is not None else ''
             terrain=self.label('content',tile.get('terrain') or self._terrain.get(tile.get('id')) or '')
-            lines.append(f'{self.pos(tile,actor=actor)}{terrain}{cap}｜资源 {resources}'+('｜建筑 '+buildings if instances is not None else ''))
+            position=tuple(tile.get('position',()))
+            core=tile.get('core',cores.get(position))
+            details=[]
+            if core:details.append(self.text('query.core',name=self.name(core,self._names)))
+            if 'construction' in sites:
+                ordered=any(r['site']==tile.get('id') and r['period']==self._period for r in sites['construction'])
+                details.append(self.text('query.ordered' if ordered else 'query.can_build'))
+            guards=[u for u in facts.get('army',[]) if u['owner']==actor and (u['x'],u['y'])==position and u['hp']>0]
+            if guards:details.append(self.text('query.garrison',units='、'.join(self.unit_ref(u['id'],actor)+' '+num(u['hp'])+'HP' for u in guards)))
+            lines.append(f'{self.pos(tile,actor=actor)}{terrain}{cap}｜资源 {resources}'+('｜建筑 '+buildings if instances is not None else '')+
+                         ('｜'+'｜'.join(details) if details else ''))
         return '\n'.join(lines)
+
+    def intelligence_tiles(self,tiles,names):
+        lines=['  '+self.text('console.intel_tiles',count=len(tiles))]
+        for tile in tiles:
+            owner=names.get(tile.get('owner'),tile.get('owner')) or self.label('relation','unowned')
+            buildings='、'.join(self.label('content',kind)+'×'+str(count) for kind,count in tile.get('buildings',{}).items()) or '—'
+            construction='、'.join(self.label('content',kind)+'×'+str(count) for kind,count in tile.get('construction',{}).items()) or '—'
+            lines.append('  '+self.pos(tile.get('position'))+' '+self.label('content',tile['terrain'])+' · '+owner+
+                '｜'+self.label('field','buildings')+' '+buildings+'｜'+self.label('field','construction')+' '+construction+
+                '｜'+self.label('field','resources')+' '+self.resources(tile.get('resources',{}),gold_short=False))
+        return lines
 
     def call_caption(self,action,args,actor=None,receipt=None):
         title=self.label('action',action)
+        if action=='reachable':
+            ids=args.get('ids',[args.get('aid','?')])
+            return self.text('console.reachable_caption',title=title,unit='、'.join(self.unit_ref(aid,actor) for aid in ids),
+                             mode=self.text('console.reachable_attack' if args.get('attack',False) else 'console.reachable_move'))
         if action in ('build','recruit'):
             parts=[title,self.label('content',args.get('kind',''))]
             if args.get('count',1)!=1:parts.append('×'+num(args['count']))
@@ -198,6 +241,8 @@ class ReceiptPresentation:
             if isinstance(data,dict) and data.get('reason')=='insufficient_resource':return f'❌ {self.label("content",data["resource"])}不足：需要{num(data["required"])}，现有{num(data["available"])}；请先补足资源或缩小数量。'
             if action=='plan' and isinstance(data,dict) and 'reason' in data:return '❌ 议会未批准国策：'+data['reason']+'\n'+args.get('text','')
             return '❌ '+(message or str(receipt.get('code') or '未完成'))
+        query=self.query_body(action,args,data,actor)
+        if query is not None:return query
         if action=='build' and isinstance(data,dict) and 'costs' in data:
             name=self.label('content',data['kind']);pos=self.pos(data,args,actor)
             return f'动工 {name}（{pos}，本回合在建、结算后落成），'+self.resources(data['costs'],sign='−')
@@ -207,15 +252,15 @@ class ReceiptPresentation:
             self.remember({'building_sites':data})
             return self.land([{'tile':s,'resources':s['resources']} for s in data['sites']],data['instances'],actor=actor)
         if action=='tile' and isinstance(data,dict):
-            title=f'{self.pos(data)}'+(f'「{data["name"]}」' if data.get('name') else '')+f' {self.label("content",data["terrain"])} · '+self.name(data.get('owner') or '无主',self._names)
+            title=f'{self.pos(data,actor=actor)} {self.label("content",data["terrain"])} · '+self.name(data.get('owner') or '无主',self._names)
             details=[]
             if 'resources' in data:details.append('资源容量：'+self.resources(data['resources'])+f'；建筑位{data["capacity"]}')
-            counts=Counter(b['kind'] for b in data['buildings'] if not b['remaining'])
-            details.append('建筑：'+('、'.join(self.label('content',k)+'×'+str(n) for k,n in counts.items()) or '无'))
-            if data.get('construction'):details.append('在建：'+'、'.join(self.label('content',b['kind']) for b in data['construction']))
-            if data.get('army'):details.append('军队：'+'、'.join(self.name(u['owner'],self._names)+' #'+str(u['id'])+' '+self.label('content',u['kind'])+' 兵力'+num(u['hp']) for u in data['army']))
+            details.append('建筑：'+self.building_names([b for b in data['buildings'] if not b['remaining']]))
+            pending=[b for b in data['buildings'] if b['remaining']]
+            if pending:details.append('在建：'+self.building_names(pending))
+            if data.get('army'):details.append('军队：'+'、'.join(self.name(u['owner'],self._names)+' #'+str(u['id'])+' '+self.label('content',u['kind'])+' HP'+num(u['hp']) for u in data['army']))
             return title+'\n'+'\n'.join(details)
-        if action=='land' and isinstance(data,list):return self.land(data,actor=actor)
+        if action=='land' and isinstance(data,list):return self.land(data,actor=actor,args=args)
         if action in ('buy','sell') and isinstance(data,dict) and 'exact_total' in data:
             quantity=data['quantity'];label=self.label('content',data['resource'])
             verb=self.label('action',action);cash='实付' if data['side']=='buy' else '实收'
@@ -226,24 +271,59 @@ class ReceiptPresentation:
                 if data['approved']:return '✅ 国策已通过。\n'+body
                 return '❌ 议会未批准国策：'+data.get('reason',message)+'\n'+body
             return '✅ 国策已制定'+(f'（有效至第{data["valid_until"]}回合）' if 'valid_until' in data else '')+'\n'+data.get('text',args.get('text',''))
-        if action=='end_turn' and isinstance(data,dict):return '回合小结：'+data.get('text',args.get('summary',''))
+        if action=='end_turn' and isinstance(data,dict):
+            text='回合小结：'+data.get('text',args.get('summary',''))
+            rejected=data.get('auto_rejected',{})
+            for kind in ('offers','votes'):
+                if rejected.get(kind):text+='\n'+self.text('console.auto_rejected_'+kind,ids='、'.join('#'+str(i) for i in rejected[kind]))
+            return text
         if action=='player_rules' and isinstance(data,list):
             if not data:return '未找到该主题；省略主题可查看全部规则。'
             return '\n\n'.join('【'+r['title']+'】\n'+r['body'] for r in data)
         if action=='unit_catalog' and isinstance(data,dict):
-            return '【兵种一览】\n'+'\n'.join(f'{self.label("content",k)}：征召{self.resources(v["recruit"])}｜满编兵力{v["hp"]}，攻击{v["atk"]}，移动{v["speed"]}，每回合补给{v["supply"]}' for k,v in data.items())
+            return '【兵种一览】\n'+'\n'.join(f'{self.label("content",k)}：征召{self.resources(v["recruit"])}｜满编HP{v["hp"]}，攻击{v["atk"]}，移动{v["speed"]}，每回合补给{v["supply"]}'+
+                ('｜'+self.text('query.move_costs',values='、'.join(self.label('content',terrain)+' '+num(cost) for terrain,cost in v['move_cost'].items())) if v.get('move_cost') else '') for k,v in data.items())
         if action in ('army','recruit') and isinstance(data,list):
             if not data:return '暂无可见军队。'
-            return ('征召完成；新兵下回合可以行动。\n' if action=='recruit' else f'可见军队 {len(data)} 支：\n')+'\n'.join(self.army_line(u) for u in data)
+            if action=='army':return self.army_list(data,actor)
+            return '征召完成；新兵下回合可以行动。\n'+'\n'.join(self.army_line(u) for u in data)
         if action=='disband' and isinstance(data,list):
             return '\n'.join(self.receipt_body(action,args,{**receipt,'data':row},actor) for row in data)
         if action=='threats' and isinstance(data,list):
             return '【视野内他国军队】\n'+('\n'.join(self.relation(row['relation'])+'｜'+self.army_line(row['unit']) for row in data) or '暂无。')
         if action=='countries' and isinstance(data,list):
-            return '【外交对象】\n'+('\n'.join(f'{row["name"]}（{row["id"]}）｜{self.relation(row["relation"])}'+('｜接壤' if row['border'] else '')+('｜有来信' if row['has_letter'] else '')+('｜求和代表 '+self.name(row['war_representative'],self._names) if row['war_representative'] else '') for row in data) or '暂无别国。')
+            return self.country_list(data)
         if action=='battle' and isinstance(data,list):return self.battles(data)
+        if action=='reachable' and isinstance(data,list):
+            if not data:return self.text('console.reachable_empty')
+            if isinstance(data[0],dict) and 'destinations' in data[0]:
+                return '\n\n'.join(self.unit_ref(row['aid'],actor)+'\n'+self.receipt_body(action,args,
+                    {**receipt,'data':row['destinations']},actor) for row in data)
+            lines=[self.text('console.reachable_header',count=len(data))]
+            visible={tuple(tile['position']):tile for tile in self._facts.get(actor,{}).get('view',[])}
+            for position,cost in data:
+                tile=visible.get(tuple(position),{})
+                line=self.text('console.reachable_destination',place=self.pos(position,actor=actor),cost=num(cost),
+                               terrain=self.label('content',tile.get('terrain','—')))
+                buildings=dict(tile.get('buildings',[]))
+                for kind in ('native:town-hall','native:castle'):
+                    if buildings.get(kind):
+                        line+='｜'+self.label('content',kind)+(' L' if kind=='native:castle' else '×')+str(buildings[kind])
+                if cost==0:line+='｜'+self.text('console.reachable_current')
+                lines.append(line)
+            lines.append(self.text('console.reachable_assumptions'))
+            return '\n'.join(lines)
+        if action=='logistics' and isinstance(data,dict):
+            lines=[self.text('console.logistics_supply',**{key:num(data[key]) for key in ('period','need','available','used','shortfall')}),
+                   self.text('console.logistics_damage',damage=num(data['starvation_damage_per_unit']),exempt=num(data['exempt_count']))]
+            if data['starving_units']:
+                lines.append(self.text('console.logistics_units',units='、'.join(self.unit_ref(uid,actor) for uid in data['starving_units'])))
+            lines.append(self.text('console.logistics_assumptions'))
+            return '\n'.join(lines)
         if action=='diplomacy' and isinstance(data,dict):return self.diplomacy(data)
-        if action=='report' and isinstance(data,list):return self.reports(data)
+        if action=='intel' and isinstance(data,list):return self.intel_history(data)
+        if action=='news' and isinstance(data,list):return '\n'.join(self.event(row,self._names) for row in reversed(data)) or self.text('console.no_news')
+        if action=='report' and isinstance(data,list):return self.report_trend(data) if args.get('all') else self.reports(data)
         if action=='handbooks' and isinstance(data,list):return '【指南目录】\n'+'\n'.join(row['title']+'：player_rules(topic="'+row['title']+'")' for row in data)
         if action=='memory_search' and isinstance(data,list):return '【历史记忆】\n'+('\n\n'.join('第'+str(row['period'])+'期：\n'+row['context'] for row in data) or '没有匹配记录。')
         if action in ('move','retreat','attack','disband') and isinstance(data,dict):
@@ -264,7 +344,12 @@ class ReceiptPresentation:
         if action=='bank' and isinstance(data,dict):
             loan=data.get('loan');result=f'现金{num(data["cash"])}金｜信用额度{num(data["credit_limit"])}金｜负债{num(data["liabilities"])}金'
             if loan:result+=f'｜贷款剩余{loan["remaining"]}回合，应还{loan["due"]}金'
+            for purchase in reversed(data.get('purchases',[])):
+                report=purchase['report']
+                result+='\n'+self.text('query.purchased_report',name=self.name(report['owner'],self._names),period=purchase['period'],fee=purchase['fee'])+'\n'+self.reports([report])
             return result
+        if action=='buy_report' and isinstance(data,dict) and 'report' in data:
+            return self.text('query.purchased_report',name=self.name(data['report']['owner'],self._names),period=data['period'],fee=data['fee'])+'\n'+self.reports([data['report']])
         if action=='econ' and isinstance(data,dict):return '【经济概况】\n库存：'+self.resources({r['id']:r['amount'] for r in data['stocks']},gold_short=False)+'\n库存折'+self.money(data['inventory'])+'，建筑重置值'+self.money(data['buildings'])+'，总资产'+self.money(data['gross_assets'])
         if action=='market' and isinstance(data,dict):
             lines=['【世界市场】本期公开报价，同期内先后手同价；价格由库存与基准库存决定，大单均价随扫过的深度上升、大额抛压价。']
@@ -282,9 +367,20 @@ class ReceiptPresentation:
     def relation(value):return {'war':'交战','ally':'同盟','neutral':'中立'}.get(value,value)
 
     def army_line(self,u):
-        status='｜交战中' if u.get('engaged') else ''
+        state='newborn' if u.get('born_turn')==self._period else 'engaged' if u.get('engaged') else 'moved' if u.get('moved_turn')==self._period else 'ready'
+        status='｜'+self.text('query.army_'+state)
+        catalog=self._facts.get(self._actor,{}).get('unit_catalog',{})
+        if u['owner']==self._actor and u['kind'] in catalog:status+='｜'+self.text('query.speed',speed=catalog[u['kind']]['speed'])
         if u.get('retreat_to') is not None:status+='｜待撤至'+self.pos(u['retreat_to'])+'｜撤退承伤比例'+num(u.get('retreat_cover'))+'%'
-        return f'{self.name(u["owner"],self._names)} {self.label("content",u["kind"])}#{u["id"]} {self.pos([u["x"],u["y"]],actor=u["owner"])}｜兵力{num(u["hp"])}'+status
+        return f'{self.name(u["owner"],self._names)} {self.label("content",u["kind"])}#{u["id"]} {self.pos([u["x"],u["y"]],actor=u["owner"])}｜HP{num(u["hp"])}'+status
+
+    def report_trend(self,rows):
+        lines=[self.text('query.trend_head',count=len(rows))]
+        for row in sorted(rows,key=lambda r:r['end'],reverse=True):
+            percent='—' if row['gdp_growth'] is None else num(row['gdp_growth']*100)+'%'
+            lines.append(self.text('query.trend_row',start=row['start'],end=row['end'],gdp=self.money(row['gdp']),growth=percent,
+                military=self.money(row['military']),assets=self.money(row['total_assets']),investment=self.money(row['investment'])))
+        return '\n'.join(lines)
 
     def battles(self,rows):
         lines=['【当前交战】构成与基础输出，实际伤亡由结算决定。']

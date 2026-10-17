@@ -18,10 +18,46 @@ COUNCIL_MAX_ROUNDS=10
 def encode(value):return json.dumps(value,ensure_ascii=False,sort_keys=True,allow_nan=False)
 
 
+def review_government(government):
+    # 国策由 previous_plan 指定；否决及解释由保留的对话/区间行动提供。
+    # 提交前快照中残留的更早正文不能成为另一份审核基线。
+    for key in ('plan','summaries'):government.pop(key,None)
+    parliament=government.get('parliament')
+    if isinstance(parliament,dict):
+        for key in ('draft','reason','explanation'):parliament.pop(key,None)
+
+
 def evidence_state(state):
     if state is None:return None
     result=deepcopy(state)
     result['facts']['army']=[u for u in result['facts'].get('army',[]) if u['owner']!='野人']
+    review_government(result['facts'].get('government',{}))
+    return result
+
+
+def review_evidence(value):
+    """快照提供当时事实，待核对的国策只由外层 previous_plan.text 指定。"""
+    result=deepcopy(value)
+    def snapshot(state):
+        if isinstance(state,dict):review_government(state.get('facts',{}).get('government',{}))
+    hidden=[['facts','government',key] for key in ('plan','summaries')]
+    hidden.extend(['facts','government','parliament',key] for key in ('draft','reason','explanation'))
+    snapshot(result.get('previous_plan',{}).get('state_at_submission'))
+    for item in result.get('trajectory',[]):
+        snapshot(item.get('state'))
+        if isinstance(item.get('changes'),list):
+            kept=[]
+            for change in item['changes']:
+                path=change.get('path',[])
+                if any(path[:len(prefix)]==prefix for prefix in hidden):continue
+                # 少见的整体替换也只清除快照国策；行动参数/脚本输入保持原文。
+                if path==[]:snapshot(change.get('set'))
+                elif path==['facts'] and isinstance(change.get('set'),dict):review_government(change['set'].get('government',{}))
+                elif path==['facts','government'] and isinstance(change.get('set'),dict):review_government(change['set'])
+                elif path==['facts','government','parliament'] and isinstance(change.get('set'),dict):
+                    for key in ('draft','reason','explanation'):change['set'].pop(key,None)
+                kept.append(change)
+            item['changes']=kept
     return result
 
 
@@ -71,7 +107,10 @@ class CouncilService:
         return {**self.review_cfg,'_ui_expand_message':self.presentation.expand_message}
 
     def _complete(self,messages):
+        budget={'period':self._period,'_log_round':'—','_log_phase':'交接'}
+        self._review_log('request',{'messages':messages},budget)
         text,stats=self._reviewer().complete_text(deepcopy(messages),self._review_config())
+        self._review_log('response',{'content':text,'usage':stats},budget)
         if not isinstance(text,str) or not text.strip():raise ValueError('议会返回空结果；停止本局')
         for key,value in stats.items():
             if isinstance(value,(int,float)) and not isinstance(value,bool):self.council['usage'][key]=self.council['usage'].get(key,0)+value
@@ -86,7 +125,36 @@ class CouncilService:
         if not sections or sections[0]['title']=='规则目录':raise ValueError('未知指南主题')
         return {'source':'当前发行版公开策略参考；具体规则以目录和实际回执为准','title':topic,'body':'\n\n'.join(r['body'] for r in sections)}
 
+    def _review_log(self,kind,payload,budget):
+        # 议会完整输入/思考/工具往返只写观察者日志，不进入玩家近讯或滚屏。
+        body=encode(payload)
+        if kind=='response' and isinstance(payload.get('message'),dict):
+            message=payload['message'];parts=[]
+            for key in ('reasoning_content','content'):
+                if message.get(key):parts.append('【'+key+'】\n'+message[key])
+            parts.append(encode({**payload,'message':{k:v for k,v in message.items() if k not in ('reasoning_content','content')}}))
+            body='\n\n'.join(parts)
+        elif kind in ('system','user','tool') and isinstance(payload.get('content'),str):
+            body=payload['content']+'\n'+encode({k:v for k,v in payload.items() if k!='content'})
+        self._notify(self.ui.text('experimental.review_log',actor=self.cfg.get('name','议长'),
+            period=budget.get('period',self._period),count=budget.get('_log_round','—'),
+            phase=budget.get('_log_phase','—'),kind=kind,payload=body))
+
+    def _log_dialogue(self,dialogue,budget):
+        cursor=budget.get('_logged',0)
+        for message in dialogue[cursor:]:self._review_log(message['role'],message,budget)
+        budget['_logged']=len(dialogue)
+
     def _council_turn(self,player,dialogue,*,budget,phase_end=False,finalize=False):
+        budget['_log_phase']=1 if phase_end else 2
+        budget['_log_round']=budget['rounds']+1
+        try:return self._council_exchange(player,dialogue,budget=budget,phase_end=phase_end,finalize=finalize)
+        except Exception as exc:
+            self._review_log('error',{'type':type(exc).__name__},budget)
+            raise
+        finally:self._log_dialogue(dialogue,budget)
+
+    def _council_exchange(self,player,dialogue,*,budget,phase_end=False,finalize=False):
         tools=[schema for schema in player.actions() if schema['function']['name']=='player_rules']
         tools.append({'type':'function','function':{'name':'read_manual','description':'只读查询当前发行版说明书或策略手册；数值以说明书、实际回执为准。',
                       'parameters':{'type':'object','properties':{'topic':{'type':'string','enum':['说明书','经济学手册','基础指南','战争手册','战略手册']}},'required':['topic'],'additionalProperties':False}}})
@@ -100,6 +168,7 @@ class CouncilService:
         if phase_end:
             tools.append({'type':'function','function':{'name':'council_next_stage','description':'结束第一步的历史与旧国策审核，进入第二步读取新版国策。',
                           'parameters':{'type':'object','properties':{},'additionalProperties':False}}})
+        self._review_log('tools',self.ui.actions(tools),budget)
         limit=COUNCIL_MAX_ROUNDS-budget['rounds']
         if limit<=0:return ('',True) if phase_end else None
         format_retries=0
@@ -117,8 +186,22 @@ class CouncilService:
             else:prompt=self.ui.text('experimental.verdict_continue')
             dialogue.append({'role':'user','content':prompt})
         for _ in range(limit):
+            number=budget['rounds']+1
+            budget['_log_round']=number
+            notice=self.ui.text('experimental.review_round',count=number,total=COUNCIL_MAX_ROUNDS,phase=budget['_log_phase'])
+            if number>COUNCIL_WARNING_ROUND:
+                notice+='\n'+self.ui.text('experimental.review_urge',remaining=COUNCIL_MAX_ROUNDS-number+1)
+            # 保留新证据/反馈的段首与地图块；每次请求都告诉模型真实轮次。
+            if dialogue and dialogue[-1]['role']=='user' and budget.get('_logged',0)<len(dialogue):
+                dialogue[-1]['content']+='\n'+notice
+            else:dialogue.append({'role':'user','content':notice})
+            self._log_dialogue(dialogue,budget)
+            status='experimental.review_history_status' if phase_end else 'experimental.review_candidate_status'
+            self._notify(self.ui.text(status,actor=self.cfg.get('name',player.actor),
+                                      count=budget['rounds']+1,total=COUNCIL_MAX_ROUNDS))
             msg,stats=self._reviewer().chat_turn(deepcopy(dialogue),self.ui.actions(tools),self._review_config(),on_retry=lambda attempt,error,wait,total:self._notify(self.ui.text('llm.retry',actor=self.cfg.get('name',player.actor)+'议长',attempt=attempt,error=error,wait=wait,total=total)))
             budget['rounds']+=1
+            self._review_log('response',{'message':msg,'usage':stats},budget)
             for key,value in stats.items():
                 if isinstance(value,(int,float)) and not isinstance(value,bool):self.council['usage'][key]=self.council['usage'].get(key,0)+value
             calls=msg.get('tool_calls') or []
@@ -128,6 +211,7 @@ class CouncilService:
             if any(not isinstance(i,str) or not i for i in ids) or len(set(ids))!=len(ids):raise ValueError('Invalid council tool IDs')
             assistant={key:deepcopy(msg[key]) for key in ('content','reasoning_content','tool_calls',REPLAY_KEY) if key in msg}
             assistant['role']='assistant';dialogue.append(assistant)
+            budget['_logged']=len(dialogue) # 此响应已按原始 message/usage 记录，不再重复。
             ending_tools=('council_approve','council_reject') if finalize else ('council_next_stage',) if phase_end else ()
             ending_positions=[i for i,call in enumerate(calls) if call.get('function',{}).get('name') in ending_tools]
             if ending_positions and (len(ending_positions)>1 or ending_positions[0]!=len(calls)-1):
@@ -264,6 +348,8 @@ class CouncilService:
             self.council['trace_start']=len(self.council['archive'])
             return {**receipt,'ok':True,'status':'effective','code':None,
                     'message':decision['message'],'data':decision}
+        self._notify(self.ui.text('experimental.review_preparing_status',actor=self.cfg.get('name',player.actor)))
+        # 只延续尚未通过的审核。通过即清空；档案存在不代表向议长开放全历史。
         dialogue=self.council['dialogue']
         if not dialogue:
             dialogue.append({'role':'system','content':self.requirements+self.ui.text('experimental.council',name=self.cfg.get('name',player.actor))+
@@ -273,15 +359,14 @@ class CouncilService:
         trajectory=[]
         for row in self.council['archive'][self.council['trace_start']:]:
             item=deepcopy(row)
-            if item.get('kind')=='action':
-                action=item.get('action');tool=action in read_only
-                if tool:
-                    receipt=item.get('receipt') or {}
-                    item['receipt']={k:receipt.get(k) for k in ('ok','status','code','message')}
+            if item.get('kind')=='action' and item.get('action') in read_only:
+                # Historical queries must not replace the current plan receipt.
+                query_receipt=item.get('receipt') or {}
+                item['receipt']={k:query_receipt.get(k) for k in ('ok','status','code','message')}
             trajectory.append(item)
-        evidence={'previous_plan':self.council['last_plan'],
+        evidence=review_evidence({'previous_plan':self.council['last_plan'],
                   'trajectory':trajectory,
-                  'stage':1,'period':obs_period}
+                  'stage':1,'period':obs_period})
         dialogue.append({'role':'user','content':self.ui.text('experimental.review_first')+encode(evidence)})
         # Reviewer sees the same actor-filtered map through the selected UI mod.
         from clients.context import MAP_KEY
@@ -293,6 +378,7 @@ class CouncilService:
             reason=self.ui.text('experimental.parliament_paralyzed_reason')
             decision=self._government('decide',True,reason)
             decision['message']=self.ui.text('experimental.parliament_paralyzed')
+            self._review_log('decision',decision,budget)
             self.council['archive'].append({'kind':'review','period':obs_period,'assessment':assessment,
                                            'decision':deepcopy(decision),'dialogue':deepcopy(dialogue),
                                            'auto_approved_due_to_paralysis':True})
@@ -300,15 +386,17 @@ class CouncilService:
                                        'state_at_submission':evidence_state(self.council['last_snapshot'])}
             self.council['trace_start']=len(self.council['archive'])
             dialogue.clear()
+            self._notify(self.ui.text('experimental.review_autoapproved_status',actor=self.cfg.get('name',player.actor)))
             return {**receipt,'ok':True,'status':'effective','code':None,
                     'message':decision['message'],'data':decision}
-        budget={'rounds':0,'warned':False}
+        budget={'rounds':0,'warned':False,'period':obs_period}
         assessment,paralyzed=self._council_turn(player,dialogue,budget=budget,phase_end=True)
         if paralyzed:return paralysis_receipt(assessment)
         dialogue.append({'role':'user','content':self.ui.text('experimental.review_second')+encode({'new_plan':candidate,'period':obs_period})})
         verdict=self._council_turn(player,dialogue,budget=budget,finalize=True)
         if verdict is None:return paralysis_receipt(assessment)
         decision=self._government('decide',verdict['approved'],verdict['reason'])
+        self._review_log('decision',decision,budget)
         self.council['archive'].append({'kind':'review','period':obs_period,'assessment':assessment,
                                        'decision':deepcopy(decision),'dialogue':deepcopy(dialogue)})
         self.council['last_plan']={'text':candidate,'period':obs_period,'approved':verdict['approved'],
@@ -316,6 +404,8 @@ class CouncilService:
         self.council['trace_start']=len(self.council['archive'])
         if verdict['approved']:dialogue.clear()
         elif decision['streak']==3:self._takeover=True
+        status='experimental.review_approved_status' if verdict['approved'] else 'experimental.review_rejected_status'
+        self._notify(self.ui.text(status,actor=self.cfg.get('name',player.actor)))
         return {**receipt,'ok':verdict['approved'],'status':'effective' if verdict['approved'] else 'rejected',
                 'code':None if verdict['approved'] else 'plan_not_approved','message':decision['message'],'data':decision}
 

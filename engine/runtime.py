@@ -138,12 +138,13 @@ class Tool:
         arguments=dict(arguments)
         # 声明即契约：schema 写了 additionalProperties=false，运行时就得真的拒收
         # 多余参数，否则它们会一路渗进 handler 变成未捕获的 TypeError。
-        if self.parameters and self.parameters.get('additionalProperties') is False:
-            allowed = set(self.parameters.get('properties') or ())
+        parameters=self._schema_value['function']['parameters']
+        if parameters.get('additionalProperties') is False:
+            allowed = set(parameters.get('properties') or ())
             unknown = sorted(k for k in arguments if k not in allowed)
             if unknown:
                 raise ValueError('未知参数：' + '、'.join(unknown))
-        missing=[key for key in (self.parameters or {}).get('required',()) if key not in arguments]
+        missing=[key for key in parameters.get('required',()) if key not in arguments]
         if missing:raise ValueError('缺少参数：'+'、'.join(missing))
         for key in self.content_parameters:
             if key in arguments:arguments[key]=world.runtime.content.resolve(arguments[key])

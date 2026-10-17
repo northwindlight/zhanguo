@@ -249,6 +249,17 @@ class TestPanel(unittest.TestCase):
             self.assertTrue(all('\n' not in row for row in lines))
             self.assertEqual({dw(row) for row in lines}, {8})
 
+    def test_latest_status_remains_visible_beside_long_context(self):
+        c = Console()
+        with patch.object(c, '_term_size', return_value=(39, 24)):
+            c.set_panel(head='上下文计划与预算' * 20, note='旧的等待提示')
+            c.set_panel(note='议会审查2/2：审查新版国策（2/10）')
+            text = ''.join(c._panel_content())
+            self.assertIn('议会审查2/2', text)
+            self.assertIn('2/10', text)
+            self.assertNotIn('旧的等待提示', text)
+            self.assertEqual({dw(row) for row in c._footer_lines()}, {39})
+
     def test_resize_erases_reflowed_footer(self):
         c = Console()
         c._active = True

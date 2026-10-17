@@ -9,6 +9,7 @@ class ConsoleUI(ReceiptPresentation):
     def __init__(self,cfg):
         self.text=Translator.from_config(cfg)
         self._sites={};self._terrain={};self._catalog={};self._names={};self._tiles={};self._army_kinds={}
+        self._facts={};self._period=0;self._actor=None
     def label(self,category,value):
         fallback=self.text.resolve('content.native:'+str(value),str(value)) if category=='content' else str(value)
         return self.text.resolve(category+'.'+str(value),fallback)
@@ -72,6 +73,7 @@ class ConsoleUI(ReceiptPresentation):
             try:arguments=json.loads(arguments)
             except (ValueError,TypeError):pass
         self._names=names
+        self._period=period;self._actor=actor
         args=arguments if isinstance(arguments,dict) else {}
         caption=self.call_caption(action,args,actor,receipt)
         result=self.receipt_body(action,args,receipt,actor)
@@ -80,6 +82,13 @@ class ConsoleUI(ReceiptPresentation):
     def event(self,row,names):
         text=self.name(row['text'],names)
         detail=row.get('details')
+        if row.get('kind')=='occupation' and isinstance(detail,dict) and 'previous_owner' in detail:
+            previous=names.get(detail['previous_owner'],detail['previous_owner']) or self.label('relation','unowned')
+            owner=names.get(detail['owner'],detail['owner'])
+            place=self.pos({'position':row['position'],'name':detail.get('name')})
+            text=self.text('query.territory_change',place=place,previous=previous,owner=owner)
+            if detail.get('core'):text+='｜'+self.text('query.core',name=names.get(detail['core'],detail['core']))
+            if detail.get('town_halls'):text+='｜'+self.text('query.town_halls',count=detail['town_halls'])
         if isinstance(detail,dict) and {'actor','action','arguments','status','message'}<=detail.keys():
             actor=detail['actor'];self._names=names
             text=self.name(actor,names)+' '+self.call_caption(detail['action'],detail['arguments'],actor)+'｜'+self.label('status',detail['status'])+'｜'+self.label('receipt',detail['message'])
@@ -87,8 +96,29 @@ class ConsoleUI(ReceiptPresentation):
             kind=self.label('event',row['kind']),text=self.label('receipt',text))
     def message(self,row,names):
         payload=row['payload']
-        body=payload.get('text') if isinstance(payload,dict) else payload
-        if body is None:body=json.dumps(self.value(payload,names),ensure_ascii=False)
+        if row.get('kind')=='spy' and isinstance(payload,dict):
+            title=self.text('console.spy_message',period=row['sampled'],id=row['id'],
+                            source=names.get(row['source'],row['source']),target=names.get(row['target'],row['target']))
+            counts='、'.join(self.label('content',kind)+'×'+str(count) for kind,count in payload.get('unit_counts',{}).items()) or self.text('console.no_units')
+            lines=[title,'  '+self.text('console.intel_inventory',values=self.resources(payload.get('inventory',{}),gold_short=False)),
+                   '  '+self.text('console.intel_armies',values=counts)]
+            if 'buildings_total' in payload:lines.append('  '+self.text('console.intel_buildings',count=payload['buildings_total']))
+            economy=payload.get('economy')
+            if isinstance(economy,dict):
+                lines.append('  '+self.text('console.intel_economy',period=economy['period'],
+                    gdp=self.money(economy['gdp']),assets=self.money(economy['total_assets']),liabilities=economy['liabilities']))
+            lines.extend(self.intelligence_tiles(payload.get('tiles',[]),names))
+            for key in ('alliances','wars'):
+                if payload.get(key):lines.append('  '+self.label('field',key)+'：'+self.format(payload[key],names))
+            return '\n'.join(lines)
+        if row.get('kind')=='map' and isinstance(payload,dict):
+            title=self.text('console.map_message',period=row['sampled'],id=row['id'],
+                            source=names.get(row['source'],row['source']),target=names.get(row['target'],row['target']))
+            return '\n'.join([title,*self.intelligence_tiles(payload.get('tiles',[]),names)])
+        if row.get('kind')=='gift' and isinstance(payload,dict):
+            body=self.text('console.gift_received',values=self.resources({payload['resource']:payload['quantity']},gold_short=False))
+        else:body=payload.get('text') if isinstance(payload,dict) else payload
+        if body is None:body=self.format(payload,names)
         return self.text('console.message',period=row['sampled'],source=names.get(row['source'],row['source']),
             target=names.get(row['target'],row['target']),payload=body)
     def board(self,rows):return '\n'.join(self.text('console.board',**row) for row in rows)
@@ -131,12 +161,8 @@ class ConsoleUI(ReceiptPresentation):
             for unit in units:counts[unit['kind']]=counts.get(unit['kind'],0)+1
             military='、'.join(f'{self.label("content",kind)} {count}' for kind,count in sorted(counts.items())) or self.text('console.no_units')
             lines.append(self.text('console.country_head',name=names[actor],military=military))
-            turn=econ.get('latest_turn')
-            if turn:
-                def money(v):return self.text('console.unpriced') if v.get('total') is None else f'{v["total"]:g}'
-                lines.append(self.text('console.economy',gdp=money(turn['gdp']),
-                    investment=money(turn['investment']),military=money(turn['military']),
-                    assets=money(turn['total_assets']),liabilities=turn['liabilities']))
+            lines.append(self.text('console.assets',assets=self.money(econ['gross_assets']),
+                                   liabilities=facts.get('bank',{}).get('liabilities',0)))
             diplomacy=facts.get('diplomacy',{})
             for alliance in diplomacy.get('alliances',[]):
                 if actor in alliance.get('members',[]):lines.append(self.text('console.alliance',name=alliance.get('name',alliance.get('id','')),members=', '.join(names.get(a,a) for a in alliance['members'])))
@@ -146,7 +172,5 @@ class ConsoleUI(ReceiptPresentation):
             for pact in diplomacy.get('pacts',[]):
                 if 'nation/'+actor in (pact.get('a'),pact.get('b')):
                     lines.append(self.text('console.pact',details=self.label('pact',pact['kind'])+' '+str(self.name(pact['a'],names))+' → '+str(self.name(pact['b'],names))))
-            for msg in state['records']['messages']:
-                if msg['sampled']>=state['period']-1 and actor in (msg['source'],msg['target']):lines.append('  '+self.message(msg,names))
         if state['dead']:lines.append(self.text('console.dead',names=', '.join(names[a] for a in state['dead'])))
         return '\n'.join(lines)

@@ -87,6 +87,30 @@ class TestParliament(unittest.TestCase):
         self.assertTrue(any(row['kind']=='settlement' for row in h.services[self.actor]['council'].council['archive']))
         self.assertEqual(h.player(self.actor).observe()['facts']['government']['plan']['text'],'NEW-CANDIDATE 农場仍在施工，下一期确认产出')
 
+    def test_review_has_one_authoritative_previous_plan_without_older_snapshot_prose(self):
+        h,c=self.host([True],[reply(call('p','plan',text='新国策按最新事实纠正'),call('e','end_turn',summary='完成修订并结束本期'))])
+        service=h.services[self.actor]['council'];prior=service.council['last_plan']
+        prior['text']='AUTHORITATIVE-PREVIOUS-PLAN'
+        prior['state_at_submission']['facts']['government']['plan']={'text':'OLDER-SNAPSHOT-PLAN','period':0}
+        prior['state_at_submission']['facts']['government']['parliament'].update(
+            reason='OLDER-SNAPSHOT-REJECTION',explanation='OLDER-SNAPSHOT-EXPLANATION')
+        service.council['archive'].append({'kind':'after.action','state':deepcopy(prior['state_at_submission']),
+            'changes':[{'path':['facts','government','plan','text'],'set':'OLDER-DELTA-PLAN'},
+                       {'path':['facts','government','parliament','explanation'],'set':'OLDER-DELTA-EXPLANATION'}]})
+        old_record=deepcopy(service.council['archive'][-1]);old_index=len(service.council['archive'])-1
+        service.council['archive'].append({'kind':'action','action':'script_run',
+            'arguments':{'inputs':{'facts':'SCRIPT-INPUT-MUST-STAY','changes':[1,2]}}})
+        h.cycle()
+        first=json.dumps(service._review_backend.requests[0],ensure_ascii=False)
+        self.assertIn('AUTHORITATIVE-PREVIOUS-PLAN',first)
+        self.assertNotIn('OLDER-SNAPSHOT-PLAN',first);self.assertNotIn('OLDER-DELTA-PLAN',first)
+        for token in ('OLDER-SNAPSHOT-REJECTION','OLDER-SNAPSHOT-EXPLANATION','OLDER-DELTA-EXPLANATION'):
+            self.assertNotIn(token,first)
+        self.assertIn('SCRIPT-INPUT-MUST-STAY',first)
+        self.assertNotIn('新国策按最新事实纠正',first)
+        self.assertEqual(prior['state_at_submission']['facts']['government']['plan']['text'],'OLDER-SNAPSHOT-PLAN')
+        self.assertEqual(service.council['archive'][old_index],old_record)
+
     def test_rejection_keeps_dialogue_explanation_and_retries_only_next_period(self):
         rows=self.rejected_turn('第一版错误事实')+[
             reply(call('p2','plan',text='第二版已纠正事实'),call('e3','end_turn',summary='修订国策并完成经营'))]
@@ -141,13 +165,21 @@ class TestParliament(unittest.TestCase):
         assert_paired(c.state.replay[0]['messages'])
 
     def test_approval_breaks_rejection_streak_and_council_restarts_clean(self):
-        rows=self.rejected_turn('a')+self.rejected_turn('b')+[
-            reply(call('p','plan',text='c'),call('e','end_turn',summary='国策已纠正通过审核'))]+self.rejected_turn('d')
+        rows=self.rejected_turn('OLDER-REJECTED-A')+self.rejected_turn('OLDER-REJECTED-B')+[
+            reply(call('p','plan',text='LATEST-APPROVED-C'),call('e','end_turn',summary='国策已纠正通过审核'))]+self.rejected_turn('NEXT-CANDIDATE-D')
         h,c=self.host([False,False,True,False],rows)
         for _ in range(4):h.cycle()
         gov=h.player(self.actor).observe()['facts']['government']['parliament']
         self.assertEqual(gov['streak'],1);self.assertEqual(gov['reign'],1)
-        self.assertEqual(len(h.services[self.actor]['council']._review_backend.requests[6]),2)
+        service=h.services[self.actor]['council'];request=service._review_backend.requests[6]
+        self.assertEqual(len(request),2)
+        raw=json.dumps(request,ensure_ascii=False)
+        self.assertIn('LATEST-APPROVED-C',raw)
+        for token in ('INITIAL-BASELINE','OLDER-REJECTED-A','OLDER-REJECTED-B','NEXT-CANDIDATE-D'):
+            self.assertNotIn(token,raw)
+        self.assertIn('NEXT-CANDIDATE-D',json.dumps(service._review_backend.requests[7],ensure_ascii=False))
+        # 独立档案仍完整，但已通过前的审核不回灌给下一次议长。
+        self.assertIn('OLDER-REJECTED-A',json.dumps(service.council['archive'],ensure_ascii=False))
         self.assertEqual(c.state.long_memory,'')
 
     def test_full_archive_survives_monarch_replay_compression(self):
@@ -211,9 +243,18 @@ class TestParliament(unittest.TestCase):
                 self.calls.append(deepcopy(messages));self.schemas.append(deepcopy(tools))
                 return {'content':'我还在核对旧国策与历史回执。'},{}
         reviewer=StalledCouncil();h.services[self.actor]['council']._review_backend=reviewer
-        results=h.cycle()
+        emitted=[]
+        results=h.cycle(emit=emitted.append)
         self.assertIn('议会瘫痪',results[0]['message'])
         self.assertEqual(len(reviewer.calls),10)
+        for number,request in enumerate(reviewer.calls,1):
+            self.assertIn(f'[{number}/10]',request[-1]['content'])
+            self.assertEqual('催办：' in request[-1]['content'],number>5)
+        progress=[line for line in emitted if '议会审查 1/2' in line]
+        self.assertEqual(len(progress),10)
+        for index,line in enumerate(progress,1):
+            self.assertIn(f'第 {index}/10 次调用',line)
+        self.assertTrue(any('国策已自动通过' in line for line in emitted))
         self.assertIn('两阶段累计已调用 5 轮',reviewer.calls[5][-1]['content'])
         self.assertIn('council_next_stage',{tool['function']['name'] for tool in reviewer.schemas[0]})
         self.assertEqual(reviewer.schemas[0][-1]['function']['name'],'council_next_stage')
@@ -236,6 +277,9 @@ class TestParliament(unittest.TestCase):
         results=h.cycle()
         self.assertEqual(len(reviewer.calls),10)
         self.assertIn('两阶段累计已调用 5 轮',json.dumps(reviewer.calls[5],ensure_ascii=False))
+        for number,request in enumerate(reviewer.calls,1):
+            self.assertIn(f'[{number}/10]',request[-1]['content'])
+            self.assertEqual('催办：' in request[-1]['content'],number>5)
         self.assertIn('第二步：',reviewer.calls[5][-1]['content'])
         self.assertIn('议会瘫痪',results[0]['message'])
 
@@ -296,7 +340,8 @@ class TestParliament(unittest.TestCase):
                     self.queried=True
                     return reply(call('rules','player_rules',topic=''),call('manual','read_manual',topic='说明书'),
                                  call('guide','read_manual',topic='战争手册'),call('forged','buy',resource='native:wood',quantity=1)),{}
-                if messages[-1]['role']=='tool':return reply(call('next','council_next_stage')) ,{}
+                if any(m['role']=='tool' for m in messages[-2:]) and any(t['function']['name']=='council_next_stage' for t in tools):
+                    return reply(call('next','council_next_stage')) ,{}
                 return super().chat_turn(messages,tools,cfg,on_retry)
         reviewer=ReadingCouncil();h.services[self.actor]['council']._review_backend=reviewer
         h.cycle()

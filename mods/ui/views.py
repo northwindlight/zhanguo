@@ -2,7 +2,7 @@
 from .i18n import Translator
 from .maps import snapshot,render_svg
 
-TERRAIN={'native:plain':'.','native:forest':'f','native:hill':'^','native:mountain':'M','native:desert':'~'}
+TERRAIN={'native:plain':'P','native:forest':'F','native:hill':'H','native:mountain':'M','native:desert':'D'}
 
 
 def player_map(observation,text=None):
@@ -11,7 +11,22 @@ def player_map(observation,text=None):
     points={tuple(t['position']):t for t in tiles}
     lo_x=min(x for x,y in points);hi_x=max(x for x,y in points)
     lo_y=min(y for x,y in points);hi_y=max(y for x,y in points)
-    return '\n'.join(''.join(TERRAIN.get(points[(x,y)]['terrain'],'?') if (x,y) in points else ' ' for x in range(lo_x,hi_x+1)) for y in range(lo_y,hi_y+1))
+    owners=sorted({t['owner'] for t in tiles if t['owner'] is not None})
+    symbols={owner:chr(65+i) if i<26 else str(i) for i,owner in enumerate(owners)}
+    names={n['id']:n['name'] for n in observation['facts'].get('nations',[])}
+    width=max(3,len(str(hi_x))+1,max((len(s)+2 for s in symbols.values()),default=3))
+    lines=[text('query.map_head',period=observation['period']),
+           'y\\x '.ljust(width+1)+''.join(str(x).rjust(width) for x in range(lo_x,hi_x+1))]
+    for y in range(lo_y,hi_y+1):
+        cells=[]
+        for x in range(lo_x,hi_x+1):
+            tile=points.get((x,y))
+            cells.append((symbols.get(tile['owner'],'-')+TERRAIN.get(tile['terrain'],'?') if tile else '?').rjust(width))
+        lines.append(str(y).rjust(width)+' '+''.join(cells))
+    lines.append(text('query.map_legend',owners='、'.join(symbols[a]+'='+names.get(a,a) for a in owners)))
+    # 文字回退必须仍能定位军队与国祚；按势力逐格明细复用同一个公开观察。
+    lines+=['',player_atlas(observation,text)]
+    return '\n'.join(lines)
 
 
 def player_svg(observation,text=None):

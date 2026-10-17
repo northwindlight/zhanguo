@@ -53,6 +53,15 @@ class TestToolContract(unittest.TestCase):
             self.assertEqual(faults[0][0], 'plan')
             self.assertIn('Traceback', faults[0][2])
 
+    def test_inferred_schema_rejects_extra_end_turn_argument_before_writes(self):
+        w=self.world();p=w.runtime.player(w,Q)
+        self.assertTrue(p.submit('plan',{'text':'按实际库存发展生产'})['ok'])
+        before=fixtures.TestWorldDomains().save(w)
+        receipt=p.submit('end_turn',{'summary':'完成本期经营与部署','source':'unwanted'})
+        self.assertEqual(receipt['code'],'invalid_arguments')
+        self.assertIn('未知参数：source',receipt['message'])
+        self.assertEqual(fixtures.TestWorldDomains().save(w),before)
+
     def test_serialization_failure_after_a_write_is_not_reported_as_rejected(self):
         """动作已经生效之后才炸的序列化失败，报成 rejected 会让模型重做一次。"""
         w = self.world(); p = w.runtime.player(w, Q)

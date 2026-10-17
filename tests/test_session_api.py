@@ -2,6 +2,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from engine.runtime import Runtime, Unit, GameMod, Tool, Stage, ModError
 from engine.session import Session
@@ -197,6 +198,42 @@ class TestDirectCouncilAPI(unittest.TestCase):
         service._review_backend=parliament.CouncilBackend(decisions)
         if revision:parliament.start_with_plan(host,fixture.actor)
         return host,host.player(fixture.actor),service
+
+    def test_revision_after_queries_and_build_keeps_its_own_receipt(self):
+        for approved in (True,False):
+            with self.subTest(approved=approved):
+                host,player,service=self.host([approved])
+                query=player.submit('market')
+                self.assertTrue(query['ok'])
+                self.assertTrue(player.submit('build',{'site':player.actor+'/land-6-6',
+                                                      'kind':'native:farm'})['ok'])
+                receipt=player.submit('plan',{'text':'农场仍在施工，按实际库存修订国策'})
+                self.assertEqual((receipt['actor'],receipt['action'],receipt['period']),
+                                 (player.actor,'plan',1))
+                self.assertEqual(receipt['ok'],approved)
+                self.assertEqual(receipt['status'],'effective' if approved else 'rejected')
+                self.assertEqual(receipt['code'],None if approved else 'plan_not_approved')
+                self.assertEqual(host.audit[-1]['receipt'],receipt)
+                self.assertNotIn('error',host.audit[-1])
+                self.assertEqual(next(row['receipt'] for row in host.audit if row['action']=='market'),query)
+                self.assertEqual(len(service._review_backend.requests),2)
+                if not approved:
+                    self.assertTrue(player.submit('explain_plan',{'text':'按要求纠正事实，下期重提'})['ok'])
+                self.assertTrue(player.submit('end_turn',{'summary':'完成查询、动工和国策修订处理'})['ok'])
+                host.cycle()
+                self.assertEqual(host.clock(),2)
+
+    def test_revision_after_query_keeps_receipt_on_automatic_approval(self):
+        host,player,service=self.host([])
+        self.assertTrue(player.submit('market')['ok'])
+        with patch.object(service,'_council_turn',return_value=('核对旧国策',True)):
+            receipt=player.submit('plan',{'text':'按实际库存修订国策'})
+        self.assertEqual((receipt['actor'],receipt['action'],receipt['period']),
+                         (player.actor,'plan',1))
+        self.assertTrue(receipt['ok'])
+        self.assertIn('议会瘫痪',receipt['message'])
+        self.assertEqual(host.audit[-1]['receipt'],receipt)
+        self.assertEqual(player.observe()['facts']['government']['plan']['text'],'按实际库存修订国策')
 
     def test_direct_submission_reviews_for_both_llm_and_rule_clients(self):
         for kind in ('llm','rule'):

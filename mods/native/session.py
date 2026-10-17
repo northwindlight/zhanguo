@@ -9,6 +9,14 @@ START_RES={'native:gold':1500,'native:food':20,'native:wood':60,'native:ore':10,
            'native:oil':0,'native:equipment':5,'native:supply':10}
 
 class NativeSession(NativeObserver,GridSession):
+    def submit(self,player,action,arguments,next_submit):
+        receipt=super().submit(player,action,arguments,next_submit)
+        if action=='end_turn' and receipt['ok']:
+            rejected=self.runtime.object_call(self.world,'native:diplomacy','finish',player.actor)
+            if rejected['offers'] or rejected['votes']:
+                receipt={**receipt,'data':{**receipt['data'],'auto_rejected':rejected}}
+        return receipt
+
     @property
     def arrival_distance(self):return 8 if self.grid()[0]>=32 else 3
     def entries(self):return self.cfg['nations']

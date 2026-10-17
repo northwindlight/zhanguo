@@ -1,11 +1,39 @@
 """地名表：地图的属性，全图唯一且只由 (seed, size) 决定。"""
 import json
 import unittest
+from unittest.mock import patch
 
 from host import GameHost
+from mods.native.map_generation.algorithm import _hash_int
+from mods.native.map_generation.names import NAME_PREFIX, NAME_SUFFIX, name_grid
 
 
 class TestMapNames(unittest.TestCase):
+    def test_entire_name_pool_is_used_before_numbering(self):
+        pool = {prefix + suffix for prefix in NAME_PREFIX for suffix in NAME_SUFFIX}
+        size = 90  # 8100格，跨过8036名字的完整一轮，验证真正耗尽才启用编号。
+        grid = name_grid(20261016, size, _hash_int)
+        names = [name for row in grid for name in row]
+        self.assertEqual(set(names[:len(pool)]), pool)
+        self.assertEqual(len(set(names)), size * size)
+        self.assertEqual(names[len(pool):], [name + '2' for name in names[:size * size-len(pool)]])
+        self.assertEqual(grid, name_grid(20261016, size, _hash_int))
+        self.assertNotEqual(grid, name_grid(20261017, size, _hash_int))
+
+    def test_normal_map_has_no_numbered_names(self):
+        for seed in range(20261000, 20261040):
+            with self.subTest(seed=seed):
+                names = [name for row in name_grid(seed, 24, _hash_int) for name in row]
+                self.assertEqual(len(set(names)), 576)
+                self.assertTrue(all(not name[-1].isdigit() for name in names))
+
+    def test_hash_ties_have_a_stable_order(self):
+        # 刻意令哈希全部相同，仍须唯一、稳定；不依赖集合的迭代顺序。
+        with patch('mods.native.map_generation.names.NAME_PREFIX', ['南', '北']), \
+             patch('mods.native.map_generation.names.NAME_SUFFIX', ['川', '山']):
+            self.assertEqual(name_grid(73, 2, lambda *args: 0),
+                             [['北山', '北川'], ['南山', '南川']])
+
     def host(self, seed=73, size=12):
         return GameHost.new({'map_size': size, 'seed': seed,
                              'nations': [{'id': 'scenario:qin', 'name': '秦', 'client': 'llm'}]})

@@ -27,7 +27,7 @@ Description = "重验外交命令，生效或退费；派出信使。"
 [[Hooks]]
 Id = "military.supply"
 Name = "补给与恢复"
-Description = "补给不足先扣兵力；无战斗且补给满足时消耗装备恢复。"
+Description = "补给不足先扣HP；无战斗且补给满足时消耗装备恢复。"
 
 [[Hooks]]
 Id = "military.battle"

@@ -44,7 +44,8 @@ class ToolcallParity(unittest.TestCase):
             p=self.host(experimental).player(Q)
             schemas={s['function']['name']:s['function'] for s in p.actions()}
             self.assertFalse([n for n,s in schemas.items() if s.get('description')==n])
-            for action in ('build','recruit','disband'):self.assertIn('oneOf',schemas[action]['parameters'])
+            for action in ('build','recruit'):self.assertIn('oneOf',schemas[action]['parameters'])
+            for action in ('move','attack','retreat','disband','reachable'):self.assertIn('anyOf',schemas[action]['parameters'])
             self.assertEqual(schemas['offer_peace']['parameters']['properties']['kind']['enum'],['white','pay','demand'])
             self.assertNotIn('note',schemas['offer_peace']['parameters']['required'])
             # 市场上不再有单独的查价工具：报价就在行情里，且与数量无关。

@@ -89,9 +89,10 @@ PRIORITIES = {'accept_peace':10,'reject_peace':11,'offer_peace':12,
 
 
 class Diplomacy:
-    def __init__(self, call, permits, fee=10, minimum_fee=1, name_max=12, fall_truce=10):
+    def __init__(self, call, permits, fee=10, minimum_fee=1, name_max=12, fall_truce=10, *, found_fee=100):
         self._call,self._permits = call,permits
         self._fee,self._minimum,self._name_max,self._fall_truce = fee,minimum_fee,name_max,fall_truce
+        self._found_fee=found_fee
         self._alliances,self._pacts,self._wars,self._truces = {},[],[],{}
         self._offers,self._votes,self._approved,self._pending,self._results = [],[],[],[],[]
         self._next_command,self._next_offer,self._next_vote,self._next_war = 1,1,1,1
@@ -110,9 +111,25 @@ class Diplomacy:
         if entity.startswith('bloc/') and entity[5:] in self._alliances:return self._alliances[entity[5:]].name
         name=entity.removeprefix('nation/')
         return self._call('native:nation-inspection','get',name).name if name in self._ids() else name
-    def _membership_notice(self,bloc):
+    def _membership_notice(self,bloc,*,formed=False):
         names='、'.join(self._call('native:nation-inspection','get',n).name for n in bloc.members)
-        self._effects.append(('notice',f'联盟「{bloc.name}」成员：{names}。入盟成员的原个人保障/共同防御作废；个人休战在盟内暂停，退出后按原到期日恢复。',bloc.members,True))
+        change='成立' if formed else '成员变更'
+        self._effects.append(('notice',f'联盟「{bloc.name}」{change}，成员：{names}。入盟成员的原个人保障/共同防御作废；个人休战在盟内暂停，退出后按原到期日恢复。',bloc.members,True))
+    def _cancel_founding(self,offer,reason):
+        if offer not in self._offers:return
+        self._offers.remove(offer)
+        name=dict(offer.arguments)['name']
+        self._effects.append(('notice',f'联盟「{name}」创建失败：{reason}。创盟提议#{offer.id}已关闭，联盟未成立；此前接受邀请不视为入盟。',offer.parties,True))
+    def _cancel_invalid_foundings(self):
+        for offer in tuple(self._offers):
+            if offer.action!='found':continue
+            args=dict(offer.arguments)
+            if any(n not in self._ids() or self.alliance(n) or not self._permits(n,'accept.bloc') for n in offer.parties):
+                self._cancel_founding(offer,'受邀国家的存续、联盟归属或入盟资格发生变化')
+            elif any(self.at_war(n) for n in offer.parties):
+                self._cancel_founding(offer,'参与国家已处于战争中')
+            elif args['bloc'] in self._alliances or any(b.name==args['name'] for b in self._alliances.values()):
+                self._cancel_founding(offer,'联盟编号或名称已被其他联盟使用')
     def _ids(self):return self._call('native:nation-inspection','ids')
     def _period(self):return self._call('native:government','period')
     def _living(self, actor):
@@ -217,7 +234,7 @@ class Diplomacy:
                 self._name(args['name']);bloc=Alliance(args['bloc'],args['name'],tuple(args['members']),o.actor)
                 if bloc.id in self._alliances:raise ValueError('Alliance ID already exists')
                 for n in bloc.members:self._drop_entity_pacts(self.entity(n))
-                self._alliances[bloc.id]=bloc;self._offers.remove(o);self._membership_notice(bloc);return bloc
+                self._alliances[bloc.id]=bloc;self._offers.remove(o);self._membership_notice(bloc,formed=True);return bloc
             self._offers[self._offers.index(o)]=replace(o,accepted=accepted);return o
         if self.entity(actor)!=o.target or self.entity(o.actor)!=args['a']:raise ValueError('Offer entity has changed')
         self._peaceful(args['a'],args['b'])
@@ -233,8 +250,13 @@ class Diplomacy:
     def _apply_reject_proposal(self, actor, offer: int, *, approved=False):
         integer(offer,1)
         o=next((o for o in self._offers if o.id==offer and o.action in ('defense','found')),None)
-        if o is None or (actor not in o.parties if o.action=='found' else self.entity(actor)!=o.target):raise ValueError('Not a recipient of this offer')
-        self._offers.remove(o);return o
+        if o is None:raise ValueError('Offer does not exist')
+        if (actor not in o.parties if o.action=='found' else self.entity(actor)!=o.target):raise ValueError('Not a recipient of this offer')
+        if o.action=='found':
+            reason=f'发起国{self._label("nation/"+actor)}撤回了创盟提议' if actor==o.actor else f'{self._label("nation/"+actor)}拒绝了创盟邀请'
+            self._cancel_founding(o,reason)
+        else:self._offers.remove(o)
+        return o
 
     def _apply_break_defense(self, actor, target, *, approved=False):
         a,b=self._pair(actor,target);self._peaceful(a,b)
@@ -388,6 +410,8 @@ class Diplomacy:
         return method(actor,**arguments,approved=approved)
 
     def _cost(self, actor, action, arguments):
+        if action in ('accept_proposal','reject_proposal','accept_peace','reject_peace'):return 0
+        if action=='bloc_found':return self._found_fee
         if action in ('bloc_rename','bloc_transfer','bloc_dissolve'):return 0
         target=arguments.get('target')
         if target and self.allied(actor,target):return 0
@@ -395,7 +419,6 @@ class Diplomacy:
         sites={s.id:s.owner for s in snapshot.sites}
         count=sum(b.kind=='native:diplomacy-center' and b.remaining == 0 and sites[b.site]==actor for b in snapshot.instances)
         if target and action in ('propose_defense','offer_peace') and any(b.kind=='native:diplomacy-center' and b.remaining == 0 and sites[b.site]==target for b in snapshot.instances):return 0
-        if action=='bloc_found' and any(b.kind=='native:diplomacy-center' and b.remaining==0 and sites[b.site] in arguments.get('tos',()) for b in snapshot.instances):return 0
         fee=self._fee
         for _ in range(count):fee=max(self._minimum,fee//2)
         return fee
@@ -433,6 +456,41 @@ class Diplomacy:
         ballots[actor]=accept;self._votes[self._votes.index(v)]=replace(v,voters=bloc.members,ballots=tuple(ballots.items()))
         return freeze(self._votes[self._votes.index(v)]) if v in self._votes else freeze(replace(v,voters=bloc.members,ballots=tuple(ballots.items())))
 
+    def finish(self, actor):
+        """结束本国行动：未回应的已送达邀约拒绝，开放表决默认反对。"""
+        self._write();self._living(actor);period=self._period();offers=[];votes=[]
+        responses={'accept_proposal','reject_proposal','accept_peace','reject_peace'}
+        for offer in tuple(self._offers):
+            if offer.action=='found':
+                recipient=actor in offer.parties and actor!=offer.actor and actor not in offer.accepted
+            else:
+                # 对外邀约由目标外交实体的代表处理，普通成员只处理联盟内部表决。
+                recipient=offer.target==self.entity(actor) and actor==self.representative(offer.target)
+            if not recipient:continue
+            answered=any(c.action in responses and dict(c.arguments).get('offer')==offer.id
+                and (c.actor==actor if offer.action=='found' else self.entity(c.actor)==offer.target)
+                for c in self._pending)
+            # 外部邀约已提交接受并转入内部表决后，不重复要求代表再次接受。
+            answered=answered or any(v.action in responses and dict(v.arguments).get('offer')==offer.id
+                and 'bloc/'+v.alliance==offer.target for v in (*self._votes,*self._approved))
+            if answered:continue
+            action='reject_peace' if offer.action=='peace' else 'reject_proposal'
+            reason=f'{self._label(self.entity(actor))}回合结束时未回应提议#{offer.id}，自动拒绝'
+            if offer.action=='found':self._cancel_founding(offer,reason)
+            else:
+                self._offers.remove(offer)
+                self._effects.append(('notice',reason+'。',offer.parties,False))
+            command=Command(self._next_command,actor,action,(('offer',offer.id),),period,0,
+                tuple((n,self.entity(n)) for n in offer.parties))
+            self._next_command+=1;self._result(command,'effective',reason)
+            offers.append(offer.id)
+        for vote in tuple(self._votes):
+            bloc=self._alliances.get(vote.alliance)
+            if vote.deadline!=period or not bloc or actor not in bloc.members or actor in dict(vote.ballots):continue
+            self.vote(actor,vote.id,False);votes.append(vote.id)
+            self._effects.append(('notice',f'{self._label("nation/"+actor)}回合结束时未回应表决#{vote.id}，自动投反对票。',bloc.members,False))
+        return {'offers':offers,'votes':votes}
+
     def _result(self, c, status, message):
         result=replace(c,status=status,message=message);self._results.append(result);return result
 
@@ -443,9 +501,11 @@ class Diplomacy:
     def _void_pending(self, all_kinds):
         # Offers and votes become invalid at war onset; queue commands are
         # revalidated separately and receive their own result/refund.
-        for o in self._offers:
+        for o in tuple(self._offers):
             if o.action!='peace' or all_kinds:
-                self._effects.append(('notice',f'提议#{o.id}（{o.action}）因开战或强制和平作废。',o.parties,False))
+                if o.action=='found':
+                    self._cancel_founding(o,'开战或强制和平使创盟条件失效')
+                else:self._effects.append(('notice',f'提议#{o.id}（{o.action}）因开战或强制和平作废。',o.parties,False))
         self._offers=[o for o in self._offers if o.action=='peace' and not all_kinds]
         kept=[]
         for v in self._votes+self._approved:
@@ -485,6 +545,7 @@ class Diplomacy:
                     if c.action!='bloc_join':c=replace(c,actor=bloc.chief)
                 if not approved and any(n not in self._ids() or self.entity(n)!=entity for n,entity in c.entities):raise ValueError('Party or diplomatic entity changed')
                 draft=self._fork();outcome=draft._dispatch(c.actor,c.action,dict(c.arguments),approved=approved)
+                draft._cancel_invalid_foundings()
                 operations=[]
                 for effect in draft._effects:
                     if effect[0]=='transfer':
@@ -497,11 +558,20 @@ class Diplomacy:
                 for name in ('_alliances','_pacts','_wars','_truces','_offers','_votes','_approved','_results','_next_command','_next_offer','_next_vote','_next_war'):
                     setattr(self,name,getattr(draft,name))
                 effects.extend(draft._effects)
-                message='Vote opened; treaty pending' if isinstance(outcome,Vote) else 'Offer opened; acceptance pending' if isinstance(outcome,Offer) else 'Diplomatic action applied'
+                if isinstance(outcome,Vote):message='Vote opened; treaty pending'
+                elif c.action in ('reject_proposal','reject_peace'):message='Offer rejected'
+                elif isinstance(outcome,Offer) and c.action=='accept_proposal':message='Founding acceptance recorded; other invitees pending'
+                elif isinstance(outcome,Offer):message='Offer opened; acceptance pending'
+                else:message='Diplomatic action applied'
                 results.append(self._result(c,'effective',message))
             except (ValueError,KeyError,TypeError) as exc:
                 if c.fee:self._call('native:resource-exchange','exchange',c.actor,{}, {'native:gold':c.fee})
                 results.append(self._result(c,'cancelled' if c.actor not in self._ids() else 'failed',str(exc)))
+                if c.action=='bloc_found':
+                    args=dict(c.arguments)
+                    effects.append(('notice',f'联盟「{args["name"]}」创建失败：创盟请求在结算时失效（{exc}）；联盟未成立。',tuple(n for n,_ in c.entities),True))
+        self._cancel_invalid_foundings()
+        effects.extend(self._effects);self._effects=[]
         self.expire_truces()
         cutoff=max(0,self._period()-10)
         self._archive.extend({'kind':'command','period':c.period,'value':asdict(c)} for c in self._results if c.period<cutoff)
