@@ -55,7 +55,30 @@ def _power(ui, facts, cues, observation, key):
         lines.append(ui.text('brief.shortfall', values=ui.resources(shortfalls, gold_short=False)))
     own = [u for u in facts.get('army', []) if u.get('owner') == actor and u.get('hp', 0) > 0]
     lines.append(ui.text('brief.army_count', count=len(own)))
+    # 上一回合结算：旧版挂在【国力】末尾，让模型一眼看到钱粮是涨是跌。
+    settled = _turn_report(facts)
+    if settled:
+        lines.append(ui.text('brief.settled', gold=ui.money(settled['production']),
+                             cash=num(settled.get('cash_production', 0)), inputs=ui.money(settled['inputs']),
+                             gdp=ui.money(settled['gdp'])))
     return '\n'.join(lines)
+
+
+def _turn_report(facts):
+    """最近一期结算/报表事实；econ 快照自带，不必另开查询。"""
+    report = (facts.get('econ') or {}).get('latest_turn')
+    return report if isinstance(report, dict) else None
+
+
+def _report(ui, facts):
+    report = _turn_report(facts)
+    if not report:
+        return None
+    return ui.text('brief.report_head') + '\n' + ui.text('brief.report_row',
+        period=report.get('period', 0), gdp=ui.money(report.get('gdp')),
+        military=ui.money(report.get('military')), investment=ui.money(report.get('investment')),
+        assets=ui.money(report.get('total_assets')), liabilities=num(report.get('liabilities', 0)),
+        net=ui.money(report.get('net_assets')))
 
 
 def _capital(ui, cues, actor):
@@ -171,8 +194,16 @@ def sections(ui, observation, events, cues, key=lambda value: value, vision=Fals
         ('map', _map(ui, observation, key, vision)),
         ('army', _army(ui, facts, actor)),
     ]
+    out.append(('report', _report(ui, facts)))
     for key, title in PANELS:
         body = panel(ui, key, facts.get(key), actor)
         if body:
+            if key == 'intel':
+                rows = facts.get('intel') or []
+                if rows:
+                    latest = max(rows, key=lambda row: row.get('sampled', 0))
+                    body = (ui.text('brief.intel_count', count=len(rows),
+                                    source=ui.name(latest.get('source', ''), ui._names),
+                                    period=latest.get('sampled', 0)) + '\n' + body)
             out.append((key, ui.text(title) + '\n' + body))
     return [(key, text) for key, text in out if text]

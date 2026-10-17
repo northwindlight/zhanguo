@@ -515,7 +515,10 @@ class ReceiptPresentation(QueryPresentation):
                 if key=='alliances':lines.append(f'{row["name"]}（{row["id"]}）｜盟主{name(row["chief"])}｜成员{names(row["members"])}')
                 elif key=='pacts':lines.append({'guarantee':'保障','defense':'共同防御'}.get(row['kind'],row['kind'])+f'｜{name(row["a"])} → {name(row["b"])}')
                 elif key=='wars':lines.append(f'战争#{row["id"]}｜主导{name(row["a"])} 对 {name(row["b"])}｜攻方{names(row["attackers"])}｜守方{names(row["defenders"])}')
-                elif key=='truces':lines.append(f'{name(row[0])} 与 {name(row[1])}｜休战至第{row[2]}期')
+                elif key=='truces':
+                    # 引擎快照给的是 {'a','b','until'}；按元组取值会抛错，被简报兜底成字段倾倒。
+                    a,b,until=(row['a'],row['b'],row['until']) if isinstance(row,dict) else (row[0],row[1],row[2])
+                    lines.append(f'{name(a)} 与 {name(b)}｜休战至第{until}期')
                 else:
                     args=dict(row['arguments'])
                     action={'found':'联盟创始邀请','defense':'共同防御提议','peace':'和平提议'}.get(row['action'],self.label('action',row['action']))

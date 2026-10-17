@@ -157,6 +157,15 @@ class TestUIRegressions(unittest.TestCase):
         p=w.runtime.player(w,Q)
         self.assertEqual(p.query('frontier')['capital_warning'],[])
 
+    def test_truce_rows_render_from_the_engine_snapshot_shape(self):
+        """引擎快照的 truces 是 {'a','b','until'}；按元组取值会抛错并掉进字段倾倒。"""
+        ui=ConsoleUI({});ui._names={Q:'秦',C:'楚'}
+        snap={'alliances':[],'pacts':[],'wars':[],'truces':[{'a':'nation/'+Q,'b':'nation/'+C,'until':101}],
+              'offers':[],'votes':[],'pending':[],'results':[]}
+        text=ui.diplomacy(snap)
+        self.assertIn('秦 与 楚｜休战至第101期',text)
+        self.assertNotIn('甲方：',text)
+
     def test_dashboard_uses_exact_public_alerts_without_geometry_fallback(self):
         h=self.host();obs=h.player(Q).observe()
         supplied=[{'position':[1,1],'name':'守城验收','enemies':[]}]

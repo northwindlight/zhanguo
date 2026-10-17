@@ -11,7 +11,7 @@ from clients.context import est_tokens
 
 # 简报分节越界时按此序从后往前丢弃；同键给出「去哪查全文」的工具名。
 FALLBACK={'capital':'frontier','threats':'threats','battle':'battle','territory':'news','power':'econ','plan':'government',
-          'map':'view','army':'army','diplomacy':'diplomacy','market':'market','bank':'bank',
+          'map':'view','army':'army','report':'report','diplomacy':'diplomacy','market':'market','bank':'bank',
           'intel':'intel','dispatches':'dispatches'}
 
 
