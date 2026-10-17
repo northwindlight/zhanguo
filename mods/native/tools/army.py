@@ -3,7 +3,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import replace
 
-from engine.runtime import Tool
+from engine.runtime import Action, Tool
 from mods.native.locations import location_parameters, place_arguments, site_arguments
 
 
@@ -74,7 +74,7 @@ def tools(runtime):
     def tile(world, actor, x: int | None = None, y: int | None = None, place: str | None = None):
         return _api(runtime, world).tile(actor, x=x, y=y, place=place)
 
-    recruit_tool = Tool('recruit', recruit, owner='native:army', api=('recruit',),
+    recruit_tool = Action('recruit', recruit, owner='native:army', api=('recruit',),
                         content_parameters=('kind',),
                         description='在本国地块征召（site 传地名或 "x y" 坐标串，或传两个整数 x、y），直接返回实际扣款和军队编号。新兵本回合不能行动；兵营与能源门槛查规则，各兵种的征召材料、上限和速度查 unit_catalog。')
     parameters = location_parameters(recruit_tool.schema()['function']['parameters'])
@@ -91,16 +91,16 @@ def tools(runtime):
 
     recruit_tool = replace(recruit_tool, schema_for_actor=schema_for_actor)
 
-    move_tool = _movement(Tool('move', move, owner='native:army', api=('move',),
+    move_tool = _movement(Action('move', move, owner='native:army', api=('move',),
                                description='移动本国军队至同一目标格：place 给地名或 "x y" 坐标串，或两个整数 x、y。纯移动不占地。新兵、已移动或交战部队不能普通移动；与异地进攻和撤退共用额度。敌国领土须 attack，路线按地形与兵种速度校验。'),
                           '移动本国军队至同一目标格：place 给地名或 "x y" 坐标串，或两个整数 x、y。纯移动不占地。新兵、已移动或交战部队不能普通移动；与异地进攻和撤退共用额度。敌国领土须 attack，路线按地形与兵种速度校验。')
-    attack_tool = _movement(Tool('attack', attack, owner='native:army', api=('attack',),
+    attack_tool = _movement(Action('attack', attack, owner='native:army', api=('attack',),
                                  description='本国军队向同一目标格进攻（place 给地名或 "x y"，或两个整数 x、y）；均须能抵达且有额度。无敌军可直接占领，有守军进入交战并等待结算；不能把提交当战果。他国须已生效战争。新兵不能进攻，原地进攻可保留移动额度。'),
                             '本国军队向同一目标格进攻（place 给地名或 "x y"，或两个整数 x、y）；均须能抵达且有额度。无敌军可直接占领，有守军进入交战并等待结算；不能把提交当战果。他国须已生效战争。新兵不能进攻，原地进攻可保留移动额度。')
-    retreat_tool = _movement(Tool('retreat', retreat, owner='native:army', api=('retreat',),
+    retreat_tool = _movement(Action('retreat', retreat, owner='native:army', api=('retreat',),
                                   description='交战部队 aid 退往相邻合法格（place 给地名或 "x y"，或两个整数 x、y），与移动共用额度。提交后仍在原地参加本期战斗，结算后才撤离；撤退降低输出，防守撤退有承伤减免。'),
                              '交战部队 aid 退往相邻合法格（place 给地名或 "x y"，或两个整数 x、y），与移动共用额度。提交后仍在原地参加本期战斗，结算后才撤离；撤退降低输出，防守撤退有承伤减免。')
-    disband_tool = Tool('disband', disband, owner='native:army', api=('disband',),
+    disband_tool = Action('disband', disband, owner='native:army', api=('disband',),
                         parameters={'type': 'object', 'properties': {
                             'aid': {'type': 'integer', 'minimum': 1},
                             'ids': {'type': 'array', 'items': {'type': 'integer', 'minimum': 1}, 'minItems': 1, 'uniqueItems': True}},

@@ -1,5 +1,5 @@
 """Bank toolcalls: credit, position and report purchases."""
-from engine.runtime import Tool
+from engine.runtime import Action, Tool
 
 from .economy import _reports
 
@@ -23,11 +23,11 @@ def tools(runtime):
         return runtime.player_api(world, 'economy:bank').buy_report(actor, target, turn)
 
     return (
-        Tool('borrow', borrow, owner='economy:bank', api=('borrow',),
+        Action('borrow', borrow, owner='economy:bank', api=('borrow',),
              description='借入最近已结算 GDP×5 的额度，借款期限5周期，利率为储蓄利率+2%。成功时收外交费（基准10金、外交中心逐座减半）；不能自选金额。'),
         Tool('bank', bank, owner='economy:bank', api=('position',), read_only=True, fact=True, panel=True,
              description='本国现金、信用额度、负债与贷款剩余；无需参数。'),
-        Tool('buy_report', buy_report, owner='economy:bank', api=('buy_report',),
+        Action('buy_report', buy_report, owner='economy:bank', api=('buy_report',),
              description='付费购买目标国家已公布经济报表；turn 指定结束周期，省略取最新。不包含未完成收益。'),
     )
 

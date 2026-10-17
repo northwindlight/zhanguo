@@ -59,7 +59,7 @@ experimental 在 native 的领域与 UI 基础上增加议会审核与库存市�
 
 ## 发行版 API 提供层
 
-议会审核与证据记录由 `Distribution.Session.Services.council` 装配，状态随发行版 Session 保存。LLM、规则 AI 与直接调用 `host.player(actor).submit()` 的程序共享该行为；君主客户端只负责模型交互和界面。连续三次否决后，发行版立即更换控制权代次，旧玩家句柄后续动作失效，新句柄取得交接上下文。`enroll / decide / replace` 不开放为玩家工具。见 [发行版 Session API](../../docs/发行版Session.md)。
+议会审核与证据记录由 `Distribution.Session.Services.council` 装配，状态随发行版 Session 保存。LLM 走模型工具与 `submit()`，规则 AI 和脚本走 `call_api(capability, method)`，两者共享议会与审计行为；君主客户端只负责模型交互和界面。连续三次否决后，发行版立即更换控制权代次，旧玩家句柄后续动作失效，新句柄取得交接上下文。`enroll / decide / replace` 不开放为玩家工具。见 [发行版 Session API](../../docs/发行版Session.md)。
 
 ## 规则 AI 战斗概率研究
 

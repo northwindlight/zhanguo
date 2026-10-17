@@ -130,7 +130,7 @@ def step_new_good():
         print('开局            ', '茶', before['example:tea'], '/ 金', before['native:gold'])
         print('本期卖出单价    ', sell, '金（库存', dict(panel['inventory'])['example:tea'],
               '/ 深度', dict(panel['depth'])['example:tea'], '）')
-        receipt = player.submit('sell', {'resource': 'example:tea', 'quantity': 5})
+        receipt = player.submit('economy', {'action': 'sell', 'resource': 'example:tea', 'quantity': 5})
         after = {s['id']: s['amount'] for s in player.query('econ')['stocks']}
         print('卖出回执        ', receipt['status'], '实收', receipt['data']['gold'], '金')
         print('对账            ', '茶 -%d，金 +%d'
@@ -152,7 +152,7 @@ def step_stages_and_units():
         world = host.world
         player = host.player('scenario:qin')
         schemas = {t['function']['name']: t for t in player.actions()}
-        kinds = schemas['recruit']['function']['parameters']['properties']['kind']['enum']
+        kinds = schemas['military']['function']['parameters']['properties']['kind']['enum']
         print('新兵种进入征兵枚举 ', 'example:war-elephant' in kinds)
         site = player.query('building_sites')['sites'][0]['id']
         x, y = (int(v) for v in site.split('land-')[1].split('-'))
@@ -181,7 +181,7 @@ def step_replace_existing():
             kinds = [row['id'] for row in player.query('building_catalog')]
             site = player.query('building_sites')['sites'][0]['id']
             try:
-                receipt=player.submit('recruit', {'site': site, 'kind': 'native:infantry'})
+                receipt=player.submit('military', {'action':'recruit','site': site, 'kind': 'native:infantry'})
                 if not receipt['ok']:raise ValueError(receipt['message'])
                 verdict = '放行'
             except ValueError as exc:

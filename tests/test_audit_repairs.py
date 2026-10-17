@@ -122,9 +122,9 @@ class AuditRepairs(unittest.TestCase):
         h=GameHost.new({'map_size':12,'seed':73,'nations':[{'id':Q,'name':'秦','client':'rule'}]})
         p=h.player(Q)
         ui=h.ui.llm(h.cfg)
-        receipt=p.submit('buy',{'resource':'wood','quantity':2});self.assertTrue(receipt['ok'])
+        receipt=p.submit('economy', {'action': 'buy', 'resource':'wood','quantity':2});self.assertTrue(receipt['ok'])
         stocks={s['id']:s['amount'] for s in p.observe()['facts']['econ']['stocks']}
-        self.assertIn(f"余{stocks['native:wood']}",ui.receipt(receipt,{'resource':'wood','quantity':2}))
+        self.assertIn(f"余{stocks['native:wood']}",ui.receipt(receipt,{'action':'buy','resource':'wood','quantity':2}))
         # 批次之间不再追加上下文：模型靠自己的对话历史与回执。
         self.assertFalse(hasattr(ui,'refresh'))
 

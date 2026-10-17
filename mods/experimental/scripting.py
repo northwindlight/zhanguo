@@ -149,10 +149,10 @@ class ScriptService:
         if record is not None and record!={'version':self.version,'state':{}}:raise ValueError('Invalid script service state')
     def to_save(self):return {'version':self.version,'state':{}}
     def submit(self,player,action,arguments,next_submit):
-        # 模型侧走 script(action=run) 伞工具；按名调用只留给既有测试与发行版内部。
+        # 模型侧走 script(action=run) 伞工具；动作执行本身走 ActionSpec/API。
         inner=arguments.get('action') if action=='script' and isinstance(arguments,dict) else None
         receipt=next_submit()
-        if not (action=='script_run' or (action=='script' and inner=='run')) or not receipt['ok']:return receipt
+        if action!='script' or inner!='run' or not receipt['ok']:return receipt
         claim=receipt['data']
         def invoke(name,args,kwargs):
             if not player.action_state()['active']:raise ValueError('Actor control changed; script handle is no longer active')

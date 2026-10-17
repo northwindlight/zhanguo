@@ -119,8 +119,9 @@ class CouncilService:
     def _manual(self,player,topic):
         if topic=='说明书':
             return {'source':'当前发行版公共规则和公开目录','rules':player.rules('all'),
-                    'actions':player.actions(),'buildings':player.query('building_catalog'),
-                    'units':player.query('unit_catalog')}
+                    'actions':player.actions(),
+                    'buildings':player.call_api('native:buildings','catalog'),
+                    'units':player.call_api('native:army','unit_catalog')}
         sections=player.rules(topic)
         if not sections or sections[0]['title']=='规则目录':raise ValueError('未知指南主题')
         return {'source':'当前发行版公开策略参考；具体规则以目录和实际回执为准','title':topic,'body':'\n\n'.join(r['body'] for r in sections)}

@@ -1,5 +1,5 @@
 """Intelligence toolcalls: letters, gifts, spies, intel, news, dispatches and countries."""
-from engine.runtime import Tool
+from engine.runtime import Action, Tool
 
 
 def _num(value):
@@ -41,13 +41,13 @@ def tools(runtime):
         return runtime.player_api(world, 'native:intelligence').countries(actor)
 
     return (
-        Tool('send_letter', send_letter, owner='native:intelligence', api=('letter',), groups=('communication.letter',),
+        Action('send_letter', send_letter, owner='native:intelligence', api=('letter',), groups=('communication.letter',),
              description=f'向 query(panel=foreign) 中的别国发送正文；提交时扣费，结算派发，下一周期送达 intel。起步价非盟友{cfg["LetterBase"]}金、盟友{cfg["LetterAlly"]}金，外交中心可减免；前{cfg["FreeCharacters"]}字免费，超出每{cfg["CharactersPerGold"]}字加1金，下限{cfg["LetterMinimum"]}金，实际费用看回执。'),
-        Tool('gift', gift, owner='native:intelligence', api=('gift',), content_parameters=('resource',), groups=('communication.gift',),
+        Action('gift', gift, owner='native:intelligence', api=('gift',), content_parameters=('resource',), groups=('communication.gift',),
              description='向别国赠送正整数数量的本国资源；先预留物资和费用，结算派发，下周期到账。不能向自己赠送，submitted 不等于对方已收到。'),
-        Tool('share_map', share_map, owner='native:intelligence', api=('map',), groups=('communication.map',),
+        Action('share_map', share_map, owner='native:intelligence', api=('map',), groups=('communication.map',),
              description='把本国可见地图发给别国；结算采样，下一周期对方在 intel 收到带日期情报。盟友免基础费用，不能给自己发图。'),
-        Tool('spy', spy, owner='native:intelligence', api=('spy',), groups=('communication.spy',),
+        Action('spy', spy, owner='native:intelligence', api=('spy',), groups=('communication.spy',),
              description=f'派间谍刺探别国，费用{cfg["SpyFee"]}金，延迟{cfg["SpyDelay"]}周期在 intel 返回有日期的库存、已知地图、外交和兵种数量，不泄露军队位置与编号。'),
         Tool('intel', intel, owner='native:intelligence', api=('intel',), read_only=True, fact=True, panel=True,
              parameters={'type': 'object', 'properties': {'kind': {'type': 'string', 'enum': ['letter', 'gift', 'map', 'spy', 'observer-letter']}}, 'additionalProperties': False},

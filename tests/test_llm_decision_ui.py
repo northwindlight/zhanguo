@@ -52,7 +52,7 @@ class TestDecisionUI(unittest.TestCase):
             self.assertIn('一两句',ui.system())
             self.assertIn('【国策规划】',tail);self.assertIn('尚无国策',tail)
             self.assertIn('【军队】',tail);self.assertIn('【世界市场】',tail)
-            self.assertTrue(p.submit('buy',{'resource':'wood','quantity':2})['ok'])
+            self.assertTrue(p.submit('economy', {'action': 'buy', 'resource':'wood','quantity':2})['ok'])
             tail,_=ui.state(p.observe(),[])
             stocks={s['id']:s['amount'] for s in p.observe()['facts']['econ']['stocks']}
             self.assertIn(f"{stocks['native:wood']}木头",tail)
@@ -117,7 +117,7 @@ class TestDecisionUI(unittest.TestCase):
         self.assertNotIn('resources',foreign);self.assertNotIn('capacity',foreign)
         self.assertEqual({b['kind'] for b in foreign['buildings']},{'native:castle'})
         with self.assertRaisesRegex(ValueError,'迷雾'):p.query('tile',{'x':6,'y':6})
-        p.submit('declare_war',{'target':C});w.resolve_turn();w.phase='行动'
+        p.submit('relations', {'action': 'declare_war', 'target':C});w.resolve_turn();w.phase='行动'
         obs=p.observe();own=[u for u in obs['facts']['army'] if u['owner']==Q]
         before=w.runtime.save_mod_state(w);forecast=combat.forecaster(p,obs)
         for n in (1,2,3):

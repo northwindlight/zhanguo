@@ -11,6 +11,10 @@ class LocationInputs(TestCase):
         f.site(w,'scenario:enemy',C,2,1)
         return f,w,w.runtime.player(w,Q)
 
+    def submit(self,p,action,args):
+        umbrella={'recruit':'military','move':'military','attack':'military','retreat':'military'}.get(action)
+        return p.submit(umbrella,{'action':action,**args}) if umbrella else p.submit(action,args)
+
     def forms(self,w,x,y):
         name=w.territory.cell(x,y).tile.name
         return ({'site':name},{'place':name},{'site':name,'place':f'({x},{y})'},
@@ -23,7 +27,7 @@ class LocationInputs(TestCase):
                     f,w,p=self.world();args=self.forms(w,1,1)[index]
                     if action=='recruit':w.buildings.seed('scenario:home','native:militia-camp')
                     before=w.resources.balance(Q,'native:gold')
-                    receipt=p.submit(action,{**args,'kind':'militia' if action=='recruit' else 'castle'})
+                    receipt=self.submit(p,action,{**args,'kind':'militia' if action=='recruit' else 'castle'})
                     self.assertTrue(receipt['ok'],receipt)
                     self.assertLess(w.resources.balance(Q,'native:gold'),before)
                     if action=='recruit':
@@ -46,18 +50,18 @@ class LocationInputs(TestCase):
                         foe=w.military.seed(C,'native:infantry',2,1)[0]
                         f.call(w,C,'attack',ids=[foe.id],x=1,y=1);args['aid']=unit.id
                     elif action=='move':args['aid']=unit.id
-                    receipt=p.submit(action,args);self.assertTrue(receipt['ok'],receipt)
+                    receipt=self.submit(p,action,args);self.assertTrue(receipt['ok'],receipt)
                     if action=='tile':self.assertEqual(receipt['data']['position'],[1,2])
 
     def test_aliases_preserve_recruitment_and_ownership_rules(self):
         for alias in ('site','place'):
             f,w,p=self.world();name=w.territory.cell(1,1).tile.name
             before=f.save(w)
-            receipt=p.submit('recruit',{alias:name,'kind':'militia'})
+            receipt=p.submit('military', {'action': 'recruit', alias:name,'kind':'militia'})
             self.assertFalse(receipt['ok']);self.assertIn('军屯',receipt['message'])
             enemy=w.territory.cell(2,1).tile.name
             for action in ('recruit','build'):
-                receipt=p.submit(action,{alias:enemy,'kind':'militia' if action=='recruit' else 'castle'})
+                receipt=self.submit(p,action,{alias:enemy,'kind':'militia' if action=='recruit' else 'castle'})
                 self.assertFalse(receipt['ok']);self.assertNotIn('未知参数',receipt['message'])
             self.assertEqual(f.save(w),before)
 
@@ -66,7 +70,7 @@ class LocationInputs(TestCase):
         for action in ('build','recruit','move','attack','retreat','tile'):
             base={'kind':'castle'} if action=='build' else {'kind':'militia'} if action=='recruit' else {'aid':unit.id} if action in ('move','retreat') else {'ids':[unit.id]} if action=='attack' else {}
             for location in ({'site':'1 1','place':'1 2'},{'place':'1 1','x':1,'y':1},{'site':'1 1','place':'1 1','x':1,'y':1}):
-                before=f.save(w);receipt=p.submit(action,{**base,**location})
+                before=f.save(w);receipt=self.submit(p,action,{**base,**location})
                 self.assertFalse(receipt['ok']);self.assertEqual(receipt['code'],'invalid_arguments')
                 self.assertEqual(f.save(w),before)
 

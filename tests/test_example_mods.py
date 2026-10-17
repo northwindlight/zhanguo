@@ -95,7 +95,7 @@ class TestNewGood(unittest.TestCase):
         before = stocks(player)
         self.assertEqual(before['example:tea'], 20)
         panel = player.query('market')
-        receipt = player.submit('sell', {'resource': 'example:tea', 'quantity': 5})
+        receipt = player.submit('economy', {'action': 'sell', 'resource': 'example:tea', 'quantity': 5})
         self.assertEqual(receipt['ok'], True)
         after = stocks(player)
         self.assertEqual(before['example:tea'] - after['example:tea'], 5)
@@ -124,7 +124,7 @@ class TestNewGood(unittest.TestCase):
             player = host.player('scenario:qin')
             # 账户里有茶（资源域枚举注册表），但市场不认它。
             self.assertEqual(stocks(player)['example:tea'], 20)
-            receipt = player.submit('sell', {'resource': 'example:tea', 'quantity': 1})
+            receipt = player.submit('economy', {'action': 'sell', 'resource': 'example:tea', 'quantity': 1})
             self.assertFalse(receipt['ok']);self.assertIn('not listed', receipt['message'])
 
 
@@ -203,7 +203,7 @@ class TestReplaceExistingContent(unittest.TestCase):
             # 这座门控测的是电网：先给该格补一座已落成兵营，否则先撞上"该地没有兵营"。
             host.world.buildings.seed(site, 'native:barracks')
             try:
-                receipt=player.submit('recruit', {'site': site, 'kind': 'native:infantry'})
+                receipt=player.submit('military', {'action': 'recruit', 'site': site, 'kind': 'native:infantry'})
                 if not receipt['ok']:raise ValueError(receipt['message'])
                 return kinds, None
             except ValueError as exc:

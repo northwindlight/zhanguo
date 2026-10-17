@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from engine.runtime import ModError
+from engine.runtime import ModError, Tool
 
 from . import army, bank, buildings, commands, diplomacy, economy, government, handbooks, intelligence, nations, query, territory, vision
 
@@ -32,9 +32,11 @@ def _catalogs():
 
 
 class ToolLayer:
-    def __init__(self, runtime, tools, receipts, captions, panels, catalogs, commands=None):
+    def __init__(self, runtime, tools, receipts, captions, panels, catalogs, commands=None,
+                 actions=()):
         self.runtime = runtime
         self._tools = tuple(tools)
+        self._actions = tuple(actions)
         self._receipts = receipts
         self._captions = captions
         self._panels = panels
@@ -44,10 +46,13 @@ class ToolLayer:
     def tools(self):
         return self._tools
 
+    def actions(self):
+        return self._actions
+
     def catalogs(self):
         return self._catalogs
 
-    def extend(self, *, tools=(), receipts=None, captions=None, panels=None, commands=None):
+    def extend(self, *, tools=(), actions=(), receipts=None, captions=None, panels=None, commands=None):
         merged_receipts = dict(self._receipts)
         merged_captions = dict(self._captions)
         merged_panels = dict(self._panels)
@@ -58,7 +63,7 @@ class ToolLayer:
         _merge(merged_commands, commands or {}, '命令')
         return ToolLayer(self.runtime, (*self._tools, *tools),
                          merged_receipts, merged_captions, merged_panels, self._catalogs,
-                         merged_commands)
+                         merged_commands, (*self._actions, *actions))
 
     def _canonical(self, action):
         tool = self.runtime.tools.get(action) if isinstance(action, str) else None
@@ -109,6 +114,6 @@ def build(runtime):
         _merge(captions, module.CAPTIONS, '抬头')
         _merge(panels, module.PANELS, '面板')
     if 'native:query' in runtime.capabilities:
-        tools.append(query.build(runtime, tools))
-    tools, command_map = commands.wrap(runtime, tools)
-    return ToolLayer(runtime, tools, receipts, captions, panels, _catalogs(), command_map)
+        tools.append(query.build(runtime, [tool for tool in tools if isinstance(tool, Tool)]))
+    tools, actions, command_map = commands.wrap(runtime, tools)
+    return ToolLayer(runtime, tools, receipts, captions, panels, _catalogs(), command_map, actions)

@@ -8,7 +8,7 @@ API 是 API，tool 是 tool：tool 只给 LLM 用；脚本与规则 AI 不再按
 - 规则 AI 新增 `ruleai/v11plus/apimap.py`，把自身动作词表显式映射到能力+方法；`Ledger` 与全部直接查询/提交改走 API。
 - 实验沙盒的 `api` 只保留 `observe/call/events/rules/action_state`；`api.submit/query/actions` 移除，示例、文档与测试改用 `api.call('economy:queries','buy', resource=…)`。API 参数使用带命名空间的 ID（`native:food`），沙盒不再替它解析短键。
 - 议会服务新增 `api()` 钩子：脚本或规则 AI 通过 `native:government.plan` 提交国策同样进入审核。
-- 旧动作名仍是 tool 层内部适配器（`hidden`），但不再是非 LLM 调用方的接口。
+- 动作已从引擎工具表拆出：tool 层用 `ActionSpec`，`runtime.actions` 只登记名称、capability/method、read_only 与 groups；`runtime.tools` 只剩模型可见工具与只读面板（native 36 个，模型可见 8 个）。伞工具转发 `Runtime.call_action`；`Runtime.call`/`world.call_tool` 保留动作名分发，`PlayerSession.submit` 只接受模型工具名。
 - 回归：634 项通过；说明书同步。脚本 API 与工具面变化使旧档继续不可读，需新档。
 
 ## 0.3.0 — 2026-10-18（工具面收敛与策略组，需新档）

@@ -7,6 +7,18 @@
 - T4：模型可见工具 38 → 12（native 8 + 4 内置；experimental 14）。`military`/`economy`/`relations`/`intelligence` 四把命令伞用 `action` 选动作，内层动作保持独立 Tool 与回执；`query(panel=foreign)` 合并国家与外交面板；`Tool.groups` 接入 `Runtime.permits`，匈奴 31 条禁令缩成 5 个组，伞工具的 `action` 枚举按行动者过滤。
 - 旧动作名仍注册为 `hidden`，但只是 tool 层内部适配器；脚本与规则 AI 已改走 `call_api(capability, method)`（2026-10-18，API 与 tool 分离：`Runtime.api_call` / `BoundPlayer.call_api`，服务链见 `Session.api_call`）。
 
+### T6 API/tool 收尾（2026-10-18，已落地）
+
+目标：**引擎的工具表里只有给 LLM 的 Tool**。hidden 动作适配器不再注册为 Tool，改成 tool 层自己的 `ActionSpec`；执行统一走 `Runtime.call_action` → `Runtime.api_call`。
+
+- `ActionSpec` 保留动作名、capability、method、schema/schema_for_actor、adapter、content_parameters、read_only、groups；它不实现 `Tool` 的玩家工具协议，也不进 `runtime.tools`。
+- `Runtime.actions`（name → ActionSpec 元数据）由 tool 层在装配时登记；`Runtime.call_action(world, actor, name, args)` 用 `api_call` 执行，保留阶段、行动门、政体组与审计语义。
+- 伞工具从 `ActionSpec` 生成；`action` 枚举的可用性改问 `Runtime.action_available`（`action.<name>` / `tool.<name>` 与 scope），不再依赖隐藏 Tool。
+- 覆盖检查、策略组展开、只读/写分类同时读取 tools 与 actions：`[PlayerAPI] Methods` 仍必须全部被覆盖，`fact/panel` 仍只能出现在只读 Tool 上。
+- `world.call_tool` 保留为宿主/测试的兼容入口：名字是 Tool 就调 Tool，是 Action 就调 action；`PlayerSession.submit` 只接受模型工具名。
+- 测试里按写动作名调 `p.submit('recruit')` 的地方迁到伞工具（`p.submit('military', {'action':'recruit',...})`）或 `call_api`；只读面板仍可按 Tool 名查询。
+- 验收：`runtime.tools` 的 canonical 名称只剩模型可见 Tool + 只读面板（native 36 个，其中模型可见 8 个）；动作 30 个只在 `runtime.actions`。`grep "hidden=True"` 只剩 `ReadOnlyPanel` 对只读面板的收敛。634 项回归通过；说明书同步。
+
 ## 一、目标
 
 用户口径：**做一个 tool 层，接管全部可用 API，手工封装全部 toolcall。**

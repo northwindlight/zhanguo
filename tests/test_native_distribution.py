@@ -41,9 +41,11 @@ class TestNativeDistribution(unittest.TestCase):
             'military.battle','military.withdraw','military.claims','succession','military.repatriate',
             'market.settlement','buildings.completion','bank.settlement','economy.reports','cycle.end'))
         self.assertEqual(len(runtime.stage_order),17)
-        self.assertTrue({'build','buy','sell','market','econ','bank','borrow','nation','nations',
-            'plan','end_turn','land','view','declare_war','offer_peace','vote','recruit','attack',
-            'retreat','army','send_letter','gift','spy','news','intel'} <= set(runtime.tools))
+        self.assertTrue({'build','market','econ','bank','nation','nations','plan','end_turn',
+            'land','view','army','news','intel','query','military','economy','relations',
+            'intelligence'} <= set(runtime.tools))
+        self.assertTrue({'buy','sell','borrow','recruit','attack','retreat','declare_war',
+            'offer_peace','vote','send_letter','gift','spy'} <= set(runtime.actions))
         self.assertEqual(len(runtime.schemas()),8)
         self.assertEqual({s['function']['name'] for s in runtime.schemas()},
                          {'build','economy','end_turn','intelligence','military','plan','query','relations'})

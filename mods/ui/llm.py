@@ -92,7 +92,7 @@ class LLMUI:
     def actions(self,schemas):
         # 工具名、参数名是 API；enum 与描述里提到的内容键值随语言走（zh=金/农场，en=gold/farm）。
         schemas=deepcopy([schema for schema in schemas if schema['function']['name']!='player_state'])
-        self.has_scripts=any(s['function']['name'] in ('script_run','script') for s in schemas)
+        self.has_scripts=any(s['function']['name']=='script' for s in schemas)
         import re
         values=self.values()
         def localize(node):

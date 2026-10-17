@@ -96,7 +96,7 @@ class TestMapNames(unittest.TestCase):
                             (by_ints, {'x': target['position'][0], 'y': target['position'][1]})):
             world.world.military.seed('scenario:qin', 'native:infantry', x, y)
             army = [u for u in world.player('scenario:qin').query('army') if u['owner'] == 'scenario:qin']
-            receipt = world.player('scenario:qin').submit('move', {'aid': army[0]['id'], **args})
+            receipt = world.player('scenario:qin').submit('military', {'action':'move','aid': army[0]['id'], **args})
             self.assertTrue(receipt['ok'], receipt['message'])
             self.assertEqual(receipt['data']['units'], [army[0]['id']])
             moved = [u for u in world.player('scenario:qin').query('army') if u['owner'] == 'scenario:qin'][0]

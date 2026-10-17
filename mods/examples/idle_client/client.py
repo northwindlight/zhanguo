@@ -45,10 +45,10 @@ class IdleClient:
         receipts = []
 
         def submit(action, arguments):
-            receipt = player.submit(action, arguments)
+            receipt = player.call_api('native:government', action, arguments, action_label=action)
             receipts.append(receipt)
             if on_result:
-                on_result(player.actor, action, arguments, receipt)
+                on_result(action, arguments, receipt)
             return receipt
 
         observation = player.observe()

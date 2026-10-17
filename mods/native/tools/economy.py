@@ -1,6 +1,6 @@
 """Economy toolcalls: stocks, market, reports and building economics."""
 from engine.building import Building
-from engine.runtime import Tool
+from engine.runtime import Action, Tool
 
 from .buildings import _behavior, _constraints
 
@@ -49,9 +49,9 @@ def tools(runtime):
              description='优先不带参数查询：一次返回全部建筑的造价、产销、能源、效果、门槛与按当前市价算的净收益和回本，不必逐个查询。无需坐标，kind 可选筛选。收益口径写在报告首行（采集按卖价、工厂按买价替代、电耗按木电燃料）；满负荷口径，不代表本回合实收，也不判定建造资格。'),
         Tool('market', market, owner='economy:queries', api=('market',), read_only=True, fact=True, panel=True,
              description='世界市场的现价与买卖单价、周期；无需参数。本期单价对任何数量和任何国家都一样，买入的实际支出与取整以 buy 回执为准。'),
-        Tool('buy', buy, owner='economy:queries', api=('buy',), content_parameters=('resource',),
+        Action('buy', buy, owner='economy:queries', api=('buy',), content_parameters=('resource',),
              description='从市场买入正整数数量的资源，resource 使用短键；成功返回实际支付、成交数量与价格，不把单价当成交。'),
-        Tool('sell', sell, owner='economy:queries', api=('sell',), content_parameters=('resource',),
+        Action('sell', sell, owner='economy:queries', api=('sell',), content_parameters=('resource',),
              description='卖出自己持有的正整数数量资源，返回实际收入与成交价格。不能卖不存在的货；成交以回执为准。'),
     )
 

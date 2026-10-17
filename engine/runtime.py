@@ -121,7 +121,7 @@ class Tool:
     parameters: dict | None = None
     argument_types: dict = field(default_factory=dict)
     read_only: bool = False
-    # 不出现在工具表里，但仍可按名调用（玩家状态扇出、脚本、规则 AI 都用得到）。
+    # 只读面板等内部工具不出现在模型工具表；脚本/规则 AI 不走工具名。
     hidden: bool = False
     content_parameters: tuple[str, ...] = ()
     # tool 层字段：owner 是提供玩家 API 的能力名；None 表示沿用「哪个模块返回」。
@@ -148,6 +148,88 @@ class Tool:
         arguments=dict(arguments)
         # 声明即契约：schema 写了 additionalProperties=false，运行时就得真的拒收
         # 多余参数，否则它们会一路渗进 handler 变成未捕获的 TypeError。
+        parameters=self._schema_value['function']['parameters']
+        if parameters.get('additionalProperties') is False:
+            allowed = set(parameters.get('properties') or ())
+            unknown = sorted(k for k in arguments if k not in allowed)
+            if unknown:
+                raise ValueError('未知参数：' + '、'.join(unknown))
+        missing=[key for key in parameters.get('required',()) if key not in arguments]
+        if missing:raise ValueError('缺少参数：'+'、'.join(missing))
+        for key in self.content_parameters:
+            if key in arguments:arguments[key]=world.runtime.content.resolve(arguments[key])
+        arguments = {k: _convert(v, self.argument_types.get(k, Any)) for k, v in arguments.items()}
+        sig = self.signature
+        bound = sig.bind(world, actor, **arguments)
+        hints = self.hints
+        for name, value in list(bound.arguments.items())[2:]:
+            bound.arguments[name] = _convert(value, hints.get(name, sig.parameters[name].annotation))
+        return bound
+
+    def call(self, world, actor, arguments):
+        try:
+            bound=self.prepare(world,actor,arguments)
+        except (ValueError,TypeError) as exc:
+            raise ToolArgumentError(str(exc)) from exc
+        return self.handler(*bound.args, **bound.kwargs)
+
+    def schema(self):return deepcopy(self._schema_value)
+
+    @cached_property
+    def _schema_value(self):
+        sig = self.signature
+        hints = self.hints
+        props, required = {}, []
+        for p in list(sig.parameters.values())[2:]:
+            if p.kind == inspect.Parameter.VAR_KEYWORD:
+                for key, annotation in self.argument_types.items():
+                    props[key] = _schema(annotation)
+                continue
+            props[p.name] = _schema(hints.get(p.name, p.annotation))
+            if p.default is inspect.Parameter.empty:
+                required.append(p.name)
+        params = self.parameters or {"type": "object", "properties": props,
+                                     "required": required, "additionalProperties": False}
+        return {"type": "function", "function": {"name": self.name,
+                "description": self.description or inspect.getdoc(self.handler) or self.name,
+                "parameters": params}}
+
+
+@dataclass(frozen=True)
+class Action:
+    """A domain action adapter inside the tool layer; never a model-facing Tool.
+
+    The engine registers only its name/capability/method/read_only/groups so the
+    umbrella can dispatch through ``Runtime.call_action``. The schema and handler
+    stay in the tool layer for argument adaptation and legacy host calls.
+    """
+    name: str
+    handler: Callable
+    owner: str = ''
+    api: tuple[str, ...] = ()
+    description: str = ""
+    adapter: Callable | None = None
+    parameters: dict | None = None
+    argument_types: dict = field(default_factory=dict)
+    read_only: bool = False
+    content_parameters: tuple[str, ...] = ()
+    groups: tuple[str, ...] = ()
+    schema_for_actor: Callable | None = None
+
+    @cached_property
+    def signature(self):return inspect.signature(self.handler)
+
+    @cached_property
+    def hints(self):return get_type_hints(self.handler)
+
+    def prepare(self, world, actor, arguments):
+        if isinstance(arguments, str):
+            arguments = json.loads(arguments)
+        if not isinstance(arguments, dict):
+            raise ValueError("动作参数须为对象")
+        if self.adapter:
+            arguments = self.adapter(world, actor, dict(arguments))
+        arguments=dict(arguments)
         parameters=self._schema_value['function']['parameters']
         if parameters.get('additionalProperties') is False:
             allowed = set(parameters.get('properties') or ())
@@ -372,6 +454,7 @@ class Runtime:
             self.command_actors.update(getattr(mod, 'command_actors', lambda: {})())
         self.tools, self.stage_map, self.tool_owners, self.stage_owners = {}, {}, {}, {}
         self.tool_groups = {}
+        self.actions, self.action_groups = {}, {}
         self.api_readonly, self.api_writes = {}, {}
         self.tool_layer = None
         self._tool_apis = WeakKeyDictionary()
@@ -397,13 +480,18 @@ class Runtime:
             bucket = self.api_readonly if tool.read_only else self.api_writes
             for method in tool.api:
                 bucket.setdefault(tool.owner, set()).add(method)
+        for action in self.actions.values():
+            for group in action.groups:
+                self.action_groups.setdefault(group, []).append(action)
+            bucket = self.api_readonly if action.read_only else self.api_writes
+            bucket.setdefault(action.owner, set()).add(action.api[0])
         both = {(cap, method) for cap, methods in self.api_readonly.items()
                 for method in methods if method in self.api_writes.get(cap, ())}
         if both:
             capability, method = sorted(both)[0]
             raise ModError(f'API 方法既被只读工具又被写工具覆盖：{capability}.{method}')
-        # 只读面板收敛：发行版声明一个分发器后，其余只读工具照旧注册（玩家状态与脚本
-        # 仍按名调用），但不再出现在模型工具表里。
+        # 只读面板收敛：发行版声明一个分发器后，其余只读工具照旧注册（事实扇出与
+        # query 分发仍按名调用），但不再出现在模型工具表里。
         panel = self.distribution.get('ReadOnlyPanel')
         if panel:
             if not isinstance(panel, str) or panel not in self.tools or not self.tools[panel].read_only:
@@ -505,6 +593,24 @@ class Runtime:
             if tool.owner is None:
                 raise ModError(f'tool 层工具缺少 owner 能力：{tool.name}')
             self._register_tool(tool, self._owner_for_capability(tool.owner, tool.name))
+        actions = getattr(layer, 'actions', None)
+        for action in (actions() if callable(actions) else ()):
+            self._register_action(action)
+
+    def _register_action(self, action):
+        if not isinstance(action, Action):
+            raise ModError('Distribution.Tools.actions() 必须返回 Action')
+        if action.owner not in self.capabilities:
+            raise ModError(f'动作 {action.name} 的 owner 能力无提供者：{action.owner}')
+        if not action.api or len(action.api) != 1:
+            raise ModError(f'动作 {action.name} 必须声明恰好一个 API 方法')
+        module_id = self.capabilities[action.owner]
+        methods = self.units[module_id].mod.declaration.get('PlayerAPI', {}).get('Methods', ())
+        if action.api[0] not in methods:
+            raise ModError(f'动作 {action.name} 引用了未声明的方法：{module_id}.{action.api[0]}')
+        if action.name in self.tools or action.name in self.actions:
+            raise ModError(f'动作/工具名称冲突：{action.name}')
+        self.actions[action.name] = action
 
     def _owner_for_capability(self, capability, tool_name):
         if capability not in self.capabilities:
@@ -577,6 +683,13 @@ class Runtime:
                 if method not in declarations[module_id]:
                     raise ModError(f'工具 {tool.name} 引用了未声明的方法：{module_id}.{method}')
                 covered[module_id].add(method)
+        for action in self.actions.values():
+            module_id = self.capabilities.get(action.owner)
+            if module_id is None:
+                raise ModError(f'动作 {action.name} 的 owner 能力无提供者：{action.owner}')
+            if module_id not in declarations:
+                raise ModError(f'动作 {action.name} 的 owner 模块未声明 [PlayerAPI]：{module_id}')
+            covered[module_id].add(action.api[0])
         for name, methods in declarations.items():
             missing = methods - covered[name]
             if missing:
@@ -764,7 +877,10 @@ class Runtime:
             if tag and self.find_policy(tag) is None: raise ModError(f'存档引用未加载的作用域模块：{tag}')
 
     def call(self, world, actor, name, arguments):
+        """Host/internal dispatch: Tools keep their protocol, actions go to the API."""
         if name not in self.tools:
+            if name in self.actions:
+                return self.call_action(world, actor, name, arguments)
             raise ValueError(f"未知工具：{name}")
         owner = self.tool_owners[name]
         self.require_tool(world, actor, self.tools[name].name)
@@ -913,10 +1029,14 @@ class Runtime:
             if not (isinstance(entry, str) and entry.startswith('group.')):
                 continue
             result.discard(entry)
-            for tool in self.tool_groups.get(entry[len('group.'):], ()):
+            group = entry[len('group.'):]
+            for tool in self.tool_groups.get(group, ()):
                 result.add('tool.' + tool.name)
                 result.add('action.' + tool.name)
                 result.update(tool.groups)
+            for action in self.action_groups.get(group, ()):
+                result.add('action.' + action.name)
+                result.update(action.groups)
         cache[key] = frozenset(result)
         return cache[key]
 
@@ -926,6 +1046,38 @@ class Runtime:
 
     def tool_available(self, world, actor, name):
         return self.in_scope(world, actor, self.tool_owners[name]) and self.permits(world, actor, 'tool.' + self.tools[name].name)
+
+    def action_available(self, world, actor, name):
+        action = self.actions.get(name)
+        if action is None:
+            return False
+        module_id = self.capabilities[action.owner]
+        return (self.in_scope(world, actor, self.units[module_id].mod)
+                and self.permits(world, actor, 'action.' + name)
+                and self.permits(world, actor, 'tool.' + name))
+
+    def call_action(self, world, actor, name, arguments):
+        """Execute a tool-layer action spec by name (umbrella / host helper)."""
+        action = self.actions.get(name)
+        if action is None:
+            raise ValueError(f'未知动作：{name}')
+        module_id = self.capabilities[action.owner]
+        if not self.in_scope(world, actor, self.units[module_id].mod):
+            raise ValueError('该动作不属于行动者的作用域')
+        if not action.read_only:
+            collection = getattr(world, self.distribution.get('ActorCollection', 'actors'), {})
+            if actor not in collection:
+                raise ValueError('行动者不存在')
+            if world.phase != '行动':
+                raise ValueError('仅行动阶段可以提交动作')
+            gate = self.distribution.get('ActionGate')
+            if gate and not self.object_call(world, gate['Capability'], gate['Method'], actor):
+                raise ValueError('行动者已结束本轮行动')
+            if not self.permits(world, actor, 'action.' + name):
+                policy = self.actor_policy(world, actor)
+                raise ValueError(policy.declaration.get('Policy', {}).get('Rejection', '政体禁用该能力'))
+        with unit_context(module_id):
+            return action.call(world, actor, arguments)
 
     def require_tool(self, world, actor, name):
         if not self.in_scope(world, actor, self.tool_owners[name]):

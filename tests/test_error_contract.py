@@ -35,7 +35,7 @@ class TestToolContract(unittest.TestCase):
         否则多余参数会一路渗进 **args 的 handler，变成未捕获的 TypeError。"""
         p = self.world().runtime.player(self.world(), Q)
         w = self.world(); p = w.runtime.player(w, Q)
-        receipt = p.submit('offer_peace', {'target': C, 'kind': 'white', 'bogus': 1})
+        receipt = p.submit('relations', {'action': 'offer_peace', 'target': C, 'kind': 'white', 'bogus': 1})
         self.assertFalse(receipt['ok']); self.assertEqual(receipt['code'], 'invalid_arguments')
         self.assertIn('bogus', receipt['message'])
 

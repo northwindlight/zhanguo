@@ -1,7 +1,5 @@
 """Experimental tool layer: native tools plus the parliament-only plan explanation."""
-from dataclasses import replace
-
-from engine.runtime import Tool
+from engine.runtime import Action, Tool
 from mods.native.tools import build as native_build
 from mods.native.tools import commands as command_layer
 
@@ -38,15 +36,15 @@ def build(runtime):
             return runtime.player_api(world, 'sandbox:programs').claim(actor, inputs)
 
         script_specs = (
-            Tool('script_write', script_write, owner='sandbox:programs', api=('write',),
+            Action('script_write', script_write, owner='sandbox:programs', api=('write',),
                  description='保存本国 Python 短脚本，不执行。运行时可用 api.call(capability, method, ...)/observe、inputs、print；适合整类查询、计算收益、按预算执行重复操作。源码可跨回合复用。例：stocks=api.call("economy:queries","balance")["stocks"]; print({s["id"]:s["amount"] for s in stocks})'),
-            Tool('script_patch', script_patch, owner='sandbox:programs', api=('patch',),
+            Action('script_patch', script_patch, owner='sandbox:programs', api=('patch',),
                  description='精确替换已保存源码中的一处内容，不执行'),
-            Tool('script_check', script_check, owner='sandbox:programs', api=('check',), read_only=True,
+            Action('script_check', script_check, owner='sandbox:programs', api=('check',), read_only=True,
                  description='免费检查 Python 语法和安全规则，不执行、不消耗本回合脚本执行额度；保存后先检查'),
             Tool('script_status', script_status, owner='sandbox:programs', api=('status',), read_only=True, fact=True,
                  description='查询本国脚本、剩余脚本执行额度、预算及上次结果；include_source=true 查看源码'),
-            Tool('script_run', script_run, owner='sandbox:programs', api=('claim',),
+            Action('script_run', script_run, owner='sandbox:programs', api=('claim',),
                  description='手动执行已保存 Python 脚本，inputs 为本回合 JSON 参数。每国每回合有一次脚本执行额度，计算与只读脚本也消耗该额度；失败只消耗脚本执行额度，不消耗普通行动机会，之后仍可调用国家工具。成功动作保留。返回 print 输出、执行统计及错误位置。api 使用标准事实结构，资源/兵种参数接受唯一短键值；无需每回合重发源码。'),
         )
         umbrella = command_layer.action_tool(
@@ -57,7 +55,8 @@ def build(runtime):
         command_map = {'script': {'write': 'script_write', 'patch': 'script_patch',
                                   'check': 'script_check', 'status': 'script_status', 'run': 'script_run'}}
         tools.append(umbrella)
-        tools.extend(replace(spec, hidden=True) for spec in script_specs)
+        tools.extend(spec for spec in script_specs if isinstance(spec, Tool))
+        script_actions = [spec for spec in script_specs if isinstance(spec, Action)]
         receipts.update({
             'script_write': _write_receipt,
             'script_patch': _patch_receipt,
@@ -69,7 +68,9 @@ def build(runtime):
                          for name in ('script_write', 'script_patch', 'script_check', 'script_status', 'script_run')})
     else:
         command_map = {}
-    return layer.extend(tools=tools, receipts=receipts, captions=captions, commands=command_map)
+        script_actions = []
+    return layer.extend(tools=tools, actions=script_actions, receipts=receipts,
+                        captions=captions, commands=command_map)
 
 
 def _write_receipt(args, receipt, actor, ctx):

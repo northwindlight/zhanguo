@@ -19,7 +19,14 @@ class TestDiplomacyFinish(unittest.TestCase):
         return h
 
     def submit(self,h,actor,action,**args):
-        result=h.player(actor).submit(action,args)
+        umbrella={'guarantee':'relations','cancel_guarantee':'relations','propose_defense':'relations',
+                  'break_defense':'relations','accept_proposal':'relations','reject_proposal':'relations',
+                  'bloc_found':'relations','bloc_join':'relations','bloc_leave':'relations',
+                  'bloc_dissolve':'relations','bloc_transfer':'relations','bloc_rename':'relations',
+                  'declare_war':'relations','offer_peace':'relations','accept_peace':'relations',
+                  'reject_peace':'relations','vote':'relations'}.get(action)
+        result=(h.player(actor).submit(umbrella,{'action':action,**args}) if umbrella
+                else h.player(actor).submit(action,args))
         self.assertTrue(result['ok'],result)
         return result
 

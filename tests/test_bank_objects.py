@@ -60,11 +60,11 @@ class TestEconomicSystem(unittest.TestCase):
     def test_loading_module_supplies_bank_without_enable_switch(self):
         w=self.world()
         self.assertNotIn('on',w.bank.to_save());self.assertNotIn('enabled',w.bank.to_save())
-        self.assertIn('borrow',w.runtime.tools)
+        self.assertIn('borrow',w.runtime.actions)
         w=self.world(bank=False)
         self.assertNotIn('economy:bank',w.runtime.capabilities)
         self.assertFalse(hasattr(w,'bank'))
-        self.assertNotIn('borrow',w.runtime.tools)
+        self.assertNotIn('borrow',w.runtime.actions)
         self.assertIsNotNone(self.call(w,'econ'))
         w.resolve_turn();self.assertEqual(self.row(w).liabilities,0)
         self.assertEqual(self.row(w).net_assets,self.row(w).total_assets)

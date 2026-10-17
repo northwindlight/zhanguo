@@ -1,5 +1,5 @@
 """Diplomacy toolcalls: one explicit action table plus vote and the diplomacy panel."""
-from engine.runtime import Tool
+from engine.runtime import Action, Tool
 
 
 ARGUMENTS = {
@@ -96,7 +96,7 @@ def tools(runtime):
             if unit is not None:
                 fee = unit.mod.declaration['Diplomacy']['FoundFee']
                 description += f' 发起固定预留{fee}金，不受双方外交中心减免；成功发布邀约即收费，后续被拒不退；发布时失效则退款。'
-        result.append(Tool(action, submit, owner='native:diplomacy', api=('submit',), argument_types=arguments,
+        result.append(Action(action, submit, owner='native:diplomacy', api=('submit',), argument_types=arguments,
                            parameters={'type': 'object', 'properties': properties, 'required': required, 'additionalProperties': False},
                            groups=GROUPS.get(action, ()), description=description))
 
@@ -107,7 +107,7 @@ def tools(runtime):
         return runtime.player_api(world, 'native:diplomacy').snapshot(actor)
 
     result.extend((
-        Tool('vote', vote, owner='native:diplomacy', api=('vote',), groups=GROUPS['vote'],
+        Action('vote', vote, owner='native:diplomacy', api=('vote',), groups=GROUPS['vote'],
              description='对 query(panel=foreign) 投票中本国有资格且当前开放的投票表态：vote 为整数编号，accept=true 赞成、false 反对。仅发起后的下一周期可投票或改票，accept=null 显式弃权；结束回合仍未投票则自动反对；显式弃权保留，赞成多于反对通过；投票不等于条约已生效。'),
         Tool('diplomacy', diplomacy, owner='native:diplomacy', api=('snapshot',), read_only=True, fact=True,
              description='本国相关联盟、条约、战争、休战、提议、投票、待结算命令及结果；模型统一查 query(panel=foreign)。offers/votes 的 id 用于回应和投票；submitted 不代表关系已改变。'),

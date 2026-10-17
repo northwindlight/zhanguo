@@ -276,7 +276,7 @@ class TestDirectCouncilAPI(unittest.TestCase):
                 host.cycle() # Already ended: no monarch backend call.
         before=player.query('econ')
         self.assertFalse(player.action_state()['active'])
-        self.assertFalse(player.submit('buy',{'resource':'native:wood','quantity':1})['ok'])
+        self.assertFalse(player.submit('economy', {'action': 'buy', 'resource':'native:wood','quantity':1})['ok'])
         self.assertFalse(player.submit('end_turn',{'summary':'旧君主后续指令应失效'})['ok'])
         self.assertEqual(player.query('econ'),before)
         fresh=host.player(player.actor)

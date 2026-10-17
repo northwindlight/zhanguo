@@ -144,7 +144,7 @@ class TestUIRegressions(unittest.TestCase):
 
     def test_pending_dispatch_is_readable_before_and_after_dispatch(self):
         h=self.host();p=h.player(Q)
-        self.assertTrue(p.submit('send_letter',{'target':C,'text':'会盟请回复'})['ok'])
+        self.assertTrue(p.submit('intelligence', {'action': 'send_letter', 'target':C,'text':'会盟请回复'})['ok'])
         text=self.present(h,'dispatches')
         for value in ('信件 → 楚','会盟请回复','送达','费用'):self.assertIn(value,text)
         for value in ('submitted：','arrive：','fee：'):self.assertNotIn(value,text)
@@ -173,7 +173,7 @@ class TestUIRegressions(unittest.TestCase):
         f=fixtures.TestWorldDomains();w=f.world();f.site(w,'scenario:q-site',Q,1,1);f.site(w,'scenario:c-site',C,6,6)
         # Produce enough real periods to publish reports, without any model backend.
         for _ in range(21):f.cycle(w)
-        p=w.runtime.player(w,Q);purchase=p.submit('buy_report',{'target':C})
+        p=w.runtime.player(w,Q);purchase=p.submit('economy', {'action': 'buy_report', 'target':C})
         self.assertTrue(purchase['ok'],purchase)
         ui=ConsoleUI({},tool_layer=w.runtime.tool_layer);ui.remember(p.observe());names={Q:'秦',C:'楚'}
         bank=ui.action(21,Q,'bank',{},p.submit('bank'),names)
@@ -240,7 +240,7 @@ class TestUIRegressions(unittest.TestCase):
 
     def test_occupation_contains_major_structured_facts_and_survives_routine_news(self):
         f,w=self.threat_world();w.units.spawn(Q,'native:infantry',2,1)
-        p=w.runtime.player(w,Q);receipt=p.submit('attack',{'ids':[1],'x':2,'y':1});self.assertTrue(receipt['ok'],receipt)
+        p=w.runtime.player(w,Q);receipt=p.submit('military', {'action': 'attack', 'ids':[1],'x':2,'y':1});self.assertTrue(receipt['ok'],receipt)
         f.cycle(w)
         occupation=next(e for e in p.events()['items'] if e['kind']=='occupation')
         details=occupation['details']

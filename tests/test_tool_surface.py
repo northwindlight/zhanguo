@@ -27,9 +27,8 @@ class TestToolSurface(unittest.TestCase):
         world = self.world()
         player = world.runtime.player(world, Q)
         self.assertEqual({s['function']['name'] for s in player.actions()}, BUILTINS | NATIVE)
-        # 旧动作名仍可按名调用（脚本、规则 AI 与旧测试），只是不进模型工具表。
+        # 动作不在工具表里：模型只能经伞工具，脚本/规则 AI 走 API。
         self.assertNotIn('buy', {s['function']['name'] for s in player.actions()})
-        self.assertTrue(player.submit('buy', {'resource': 'native:wood', 'quantity': 1})['ok'])
         self.assertTrue(player.submit('economy', {'action': 'buy', 'resource': 'native:wood', 'quantity': 1})['ok'])
 
     def test_umbrella_receipts_and_captions_use_the_inner_action_prose(self):

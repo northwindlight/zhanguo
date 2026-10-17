@@ -43,7 +43,7 @@ class TestPlayerAPI(unittest.TestCase):
         w=self.world();p=w.runtime.player(w,Q)
         self.assertTrue(p.submit('plan',{'text':'发展经济'})['ok'])
         self.assertTrue(p.submit('end_turn',{'summary':'本期已经完成'})['ok'])
-        receipt=p.submit('buy',{'resource':'native:wood','quantity':1})
+        receipt=p.submit('economy', {'action': 'buy', 'resource':'native:wood','quantity':1})
         self.assertEqual(receipt['code'],'unavailable_action');self.assertFalse(p.observe()['can_act'])
         self.assertNotIn('buy',{s['function']['name'] for s in p.actions()})
         self.assertTrue(p.submit('player_state')['ok'])
@@ -70,12 +70,12 @@ class TestPlayerAPI(unittest.TestCase):
         self.assertEqual(p.query('unit_catalog')['native:cavalry']['recruit'],{'native:food':8,'native:equipment':8})
         w.resources.credit(Q,'native:wood',15)
         self.assertEqual(dict(p.submit('build',{'site':'scenario:qc','kind':'native:farm'})['data']['costs'])['native:gold'],26)
-        self.assertFalse(p.submit('bloc_found',{'bloc':'scenario:b','name':'盟','tos':[C]})['ok'])
+        self.assertFalse(p.submit('relations', {'action': 'bloc_found', 'bloc':'scenario:b','name':'盟','tos':[C]})['ok'])
         self.assertFalse(any(s['title']=='匈奴政体' for s in w.runtime.player(w,C).rules()))
 
     def test_pending_receipts_and_event_cursor_do_not_confuse_execution(self):
         w=self.world();p=w.runtime.player(w,Q)
-        result=p.submit('guarantee',{'target':C})
+        result=p.submit('relations', {'action': 'guarantee', 'target':C})
         self.assertEqual(result['status'],'submitted');self.assertEqual(p.query('diplomacy')['pacts'],[])
         w.resolve_turn();w.phase='行动'
         self.assertEqual(len(p.query('diplomacy')['pacts']),1)

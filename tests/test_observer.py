@@ -400,7 +400,7 @@ class TestObserver(unittest.TestCase):
     def test_trade_receipt_uses_actual_cash_and_no_invented_balance(self):
         h=GameHost.new(self.cfg());p=h.player('s:q');ui=h.ui.console
         before=h.world.resources.balance('s:q','native:gold')
-        args={'resource':'wood','quantity':2};r=p.submit('buy',args)
+        args={'action':'buy','resource':'wood','quantity':2};r=p.submit('economy',args)
         self.assertTrue(r['ok']);data=r['data']
         self.assertEqual(before-h.world.resources.balance('s:q','native:gold'),data['gold'])
         text=ui.action(0,'s:q','buy',args,r,{'s:q':'秦'})
@@ -421,8 +421,8 @@ class TestObserver(unittest.TestCase):
     def test_failed_script_preserves_prior_output_and_successful_action_count(self):
         h=GameHost.new(self.cfg(True));p=h.player('s:q');ui=h.ui.console
         source='print("脚本已开始")\napi.call("economy:queries","buy", resource="native:wood", quantity=1)\n1 / 0'
-        self.assertTrue(p.submit('script_write',{'source':source})['ok'])
-        r=p.submit('script_run',{})
+        self.assertTrue(p.submit('script', {'action': 'write', 'source':source})['ok'])
+        r=p.submit('script', {'action': 'run'})
         self.assertFalse(r['ok']);self.assertEqual(r['data']['actions'],1)
         text=ui.action(0,'s:q','script_run',{},r,{'s:q':'秦'})
         self.assertIn('已成功动作1',text);self.assertIn('脚本已开始',text);self.assertIn('第3行',text)
@@ -452,7 +452,7 @@ class TestShortKeys(unittest.TestCase):
         self.assertFalse(p.submit('build',{'kind':'farm','site':site['id'],'x':x,'y':y})['ok'])
         h.subsidize('s:q',{},1);units=p.query('army');own=next(u for u in units if u['owner']=='s:q')
         self.assertIsInstance(own['id'],int);self.assertNotIn('gid',own);self.assertNotIn('name',own)
-        self.assertTrue(p.submit('disband',{'aid':own['id']})['ok'])
+        self.assertTrue(p.submit('military', {'action': 'disband', 'aid':own['id']})['ok'])
         schema=next(s for s in p.actions() if s['function']['name']=='build')
         self.assertIn('farm',schema['function']['parameters']['properties']['kind']['enum'])
 
@@ -466,8 +466,8 @@ class TestShortKeys(unittest.TestCase):
             if experimental:
                 schema=next(t for t in p.actions() if t['function']['name']=='script')
                 self.assertIn({'type':'object'},schema['function']['parameters']['properties']['inputs']['anyOf'])
-                self.assertTrue(p.submit('script_write',{'source':'1 / 0'})['ok'])
-                self.assertFalse(p.submit('script_run',{})['ok'])
+                self.assertTrue(p.submit('script', {'action': 'write', 'source':'1 / 0'})['ok'])
+                self.assertFalse(p.submit('script', {'action': 'run'})['ok'])
                 self.assertFalse(p.query('script_status')['available'])
                 self.assertTrue(p.observe()['can_act'])
                 self.assertTrue(p.submit('plan',{'text':'继续经营'})['ok'])
@@ -484,7 +484,7 @@ class TestShortKeys(unittest.TestCase):
                 self.assertIn(building,schemas['build']['parameters']['properties']['kind']['enum'])
                 self.assertIn(resource,ui.state(p.observe(),[])[0])
                 client=LLMClient(h.cfg,ui=h.ui)
-                self.assertTrue(client._submit(p,'sell',{'resource':resource,'quantity':1})['ok'])
+                self.assertTrue(client._submit(p,'economy',{'action':'sell','resource':resource,'quantity':1})['ok'])
                 # 正文里的同一个词不能被当成键值改掉。
                 self.assertEqual(client._submit(p,'plan',{'text':f'{resource}要攒'})['data']['text'],f'{resource}要攒')
 

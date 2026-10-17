@@ -35,7 +35,14 @@ class VictoryHooks(TestCase):
         return h
 
     def submit(self,h,actor,action,**args):
-        receipt=h.player(actor).submit(action,args)
+        umbrella={'guarantee':'relations','cancel_guarantee':'relations','propose_defense':'relations',
+                  'break_defense':'relations','accept_proposal':'relations','reject_proposal':'relations',
+                  'bloc_found':'relations','bloc_join':'relations','bloc_leave':'relations',
+                  'bloc_dissolve':'relations','bloc_transfer':'relations','bloc_rename':'relations',
+                  'declare_war':'relations','offer_peace':'relations','accept_peace':'relations',
+                  'reject_peace':'relations','vote':'relations'}.get(action)
+        receipt=(h.player(actor).submit(umbrella,{'action':action,**args}) if umbrella
+                 else h.player(actor).submit(action,args))
         self.assertTrue(receipt['ok'],receipt)
         return receipt
 
@@ -94,7 +101,9 @@ class VictoryHooks(TestCase):
                     self.assertEqual(path.read_bytes(),before)
 
     def submit_rejected(self,player,action):
-        receipt=player.submit(action)
+        umbrella={'buy':'economy','sell':'economy','recruit':'military','build':None}.get(action)
+        receipt=(player.submit(umbrella,{'action':action}) if umbrella
+                 else player.submit(action))
         self.assertEqual(receipt['code'],'unavailable_action');return receipt
 
     def test_five_includes_zhou_but_four_does_not_win(self):

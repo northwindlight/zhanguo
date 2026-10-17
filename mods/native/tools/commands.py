@@ -1,16 +1,15 @@
-"""Model-facing command umbrellas.
+"""Model-facing command umbrellas over tool-layer ActionSpec records.
 
-Each action keeps its own registered tool — schema, policy gate, owner, receipt
-and hidden name. The umbrella is only the model's entry point: it exposes
-`action` plus the union of every action's arguments and forwards to the action
-tool through ``Runtime.call``, so gating and receipts stay per action.
-
-Hidden action names remain callable by name (scripts, rule AI, tests); they are
-simply not part of the model tool table.
+Actions are not engine Tools: the engine registers only their name/capability/
+method/read_only/groups so the umbrella can dispatch through
+``Runtime.call_action``. Each Action keeps its own schema, policy gate, adapter
+and receipt; the umbrella exposes ``action`` plus the union of every action's
+arguments. Scripts and the rule AI never use these names — they call the player
+API (``call_api``).
 """
 from copy import deepcopy
 
-from engine.runtime import Tool, unit_context
+from engine.runtime import Action, Tool, unit_context
 
 
 COMMANDS = (
@@ -39,8 +38,18 @@ def _python_type(prop):
     if not isinstance(prop, dict):
         return object
     if 'anyOf' in prop:
-        branch = next((row for row in prop['anyOf'] if row.get('type') not in (None, 'null')), None)
-        return _python_type(branch) if branch else object
+        types = []
+        for branch in prop['anyOf']:
+            types.append(type(None) if branch.get('type') == 'null' else _python_type(branch))
+        if not types:
+            return object
+        result = types[0]
+        for extra in types[1:]:
+            try:
+                result = result | extra
+            except TypeError:
+                return object
+        return result
     return {'array': list, 'integer': int, 'number': float, 'boolean': bool,
             'string': str, 'object': dict}.get(prop.get('type'), object)
 
@@ -81,6 +90,7 @@ def action_tool(runtime, name, summary, actions):
     properties['action'] = {'type': 'string', 'enum': [label for label, _ in actions],
                             'description': '\n'.join(lines)}
     mapping = {label: spec.name for label, spec in actions}
+    specs = {spec.name: spec for _, spec in actions}
 
     def handler(world, actor, **arguments):
         label = arguments.pop('action', None)
@@ -90,12 +100,17 @@ def action_tool(runtime, name, summary, actions):
         # Leave the umbrella's owner context: Runtime.call re-checks the inner
         # action's gate before entering its own unit context, and that gate may
         # legitimately belong to another module.
+        spec = specs[target]
         with unit_context(None):
+            if isinstance(spec, Action):
+                return runtime.call_action(world, actor, spec.name, arguments)
             return runtime.call(world, actor, target, arguments)
 
     def schema_for_actor(world, actor, schema):
         params = schema['function']['parameters']
-        allowed = [label for label, spec in actions if runtime.tool_available(world, actor, spec.name)]
+        allowed = [label for label, spec in actions
+                   if (runtime.action_available(world, actor, spec.name)
+                       if isinstance(spec, Action) else runtime.tool_available(world, actor, spec.name))]
         params['properties']['action']['enum'] = allowed
         for _, spec in actions:
             if spec.schema_for_actor is None:
@@ -107,14 +122,7 @@ def action_tool(runtime, name, summary, actions):
         return schema
 
     owner = actions[0][1].owner
-    # Coverage is checked per owning module; the hidden action tools already
-    # cover their own module, so the umbrella only claims its owner's methods.
-    # 只读动作的方法由各自的只读工具覆盖；伞工具只声明写方法，避免同一
-    # 方法既算只读又算写。
-    api = tuple(dict.fromkeys(method for _, spec in actions
-                              if spec.owner == owner and not spec.read_only
-                              for method in spec.api))
-    return Tool(name, handler, owner=owner, api=api,
+    return Tool(name, handler, owner=owner,
                 parameters={'type': 'object', 'properties': properties,
                             'required': ['action'], 'additionalProperties': False},
                 argument_types=types, content_parameters=tuple(sorted(content)),
@@ -122,14 +130,15 @@ def action_tool(runtime, name, summary, actions):
 
 
 def wrap(runtime, tools):
-    """Hide the listed action tools and prepend one umbrella per family.
+    """Split ActionSpec records out of the engine tool table and add umbrellas.
 
-    Returns ``(tools, commands)`` where ``commands`` maps umbrella name to
-    ``{action label: tool name}``, so the tool layer can render the inner
-    action's receipt (script labels differ from their tool names).
+    Returns ``(visible_tools, actions, commands)``. Actions are registered by
+    the runtime as API methods, not Tools; read-only Tools named by an umbrella
+    (e.g. script_status) stay registered as facts/panels and are dispatched
+    through ``Runtime.call``.
     """
-    specs = {tool.name: tool for tool in tools if not tool.read_only}
-    replaced = {}
+    specs = {tool.name: tool for tool in tools
+             if isinstance(tool, Action) or not tool.read_only}
     umbrellas = []
     commands = {}
     for name, summary, labels in COMMANDS:
@@ -138,14 +147,8 @@ def wrap(runtime, tools):
         if umbrella is None:
             continue
         umbrellas.append(umbrella)
-        for label, _ in actions:
-            replaced[label] = True
         commands[name] = {label: spec.name for label, spec in actions}
-    result = [umbrella for umbrella in umbrellas]
-    result.extend(spec if spec.name not in replaced else _hidden(spec) for spec in tools)
-    return result, commands
-
-
-def _hidden(tool):
-    from dataclasses import replace
-    return replace(tool, hidden=True)
+    visible = [umbrella for umbrella in umbrellas]
+    visible.extend(tool for tool in tools if not isinstance(tool, Action))
+    actions = [tool for tool in tools if isinstance(tool, Action)]
+    return visible, actions, commands
