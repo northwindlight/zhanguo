@@ -171,18 +171,24 @@ class Military:
             key=(u.x,u.y,u.kind,self._parameter(owner,'unit.speed.'+u.kind,u.definition['speed']))
             if key not in paths:paths[key]=dict(self.reachable(owner,u.id,attack))
         valid=all((x,y) in paths[(u.x,u.y,u.kind,self._parameter(owner,'unit.speed.'+u.kind,u.definition['speed']))] for u in units)
+        # 被挡的原因各不相同，回执要说出是哪一种，否则模型只能靠猜（打了自家地却被告知「须先宣战」）。
+        reason=''
         target_blocked=not self._pass(owner,x,y) if not attack else False
+        if target_blocked:reason='移动目标不合法：只能是野地、自家或盟国格；敌国领土要用 attack'
         tile_owner=self._call('native:territory','owner',x,y)
-        if attack and tile_owner is not None and (tile_owner==owner or self._call('native:diplomacy','allied',owner,tile_owner)):target_blocked=True
-        if attack and tile_owner not in (None,owner) and not self._call('native:diplomacy','allied',owner,tile_owner) and not self._call('native:diplomacy','war_between',owner,tile_owner):target_blocked=True
+        if attack and tile_owner is not None and (tile_owner==owner or self._call('native:diplomacy','allied',owner,tile_owner)):
+            target_blocked=True;reason='那是你自己（或盟国）的地块：不能进攻自家领土，占地请选无主地或敌国领土'
+        if attack and tile_owner not in (None,owner) and not self._call('native:diplomacy','allied',owner,tile_owner) and not self._call('native:diplomacy','war_between',owner,tile_owner):
+            target_blocked=True;reason=f'你和{tile_owner.split(":",1)[-1]}之间没有生效的战争：先 declare_war，或改打无主地/已在交战的目标'
         busy=[u for u in self._units.at(x,y) if u.alive and u.engaged and u.owner not in ('野人',owner)]
-        if attack and tile_owner is None and busy and not any(self._hostile(owner,u.owner) or self._call('native:diplomacy','allied',owner,u.owner) for u in busy):target_blocked=True
+        if attack and tile_owner is None and busy and not any(self._hostile(owner,u.owner) or self._call('native:diplomacy','allied',owner,u.owner) for u in busy):
+            target_blocked=True;reason='该无主地上有与你非敌非盟的一方正在打野：不能抢别人的战斗（可先旁观），换一格或等它打完'
         valid=valid and not target_blocked
         if not valid:
             if target_blocked and not self._call('native:vision','visible',owner,x,y):
                 for unit in units:unit.update(moved_turn=period)
                 return MilitaryReceipt('failed',tuple(ids),False,True,message='未探明路线或目标位置受阻（盲推）：沿路地形与敌情不明，撞墙照实报告，但移动额度照烧。可先用 tile 探明单格')
-            raise ValueError('目标被阻挡：须先宣战、选择合法移动格或改用进攻' if target_blocked else '超出本回合移动范围，或沿途有阻挡；请查询 reachable 并分回合行军')
+            raise ValueError(reason or '超出本回合移动范围，或沿途有阻挡；先查 reachable 看本回合够得着哪些格，分回合行军')
         return units
     def move(self, owner, aid, x, y):
         return self.move_many(owner,[aid],x,y)
