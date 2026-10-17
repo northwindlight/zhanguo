@@ -109,7 +109,10 @@ def action_tool(runtime, name, summary, actions):
     owner = actions[0][1].owner
     # Coverage is checked per owning module; the hidden action tools already
     # cover their own module, so the umbrella only claims its owner's methods.
-    api = tuple(dict.fromkeys(method for _, spec in actions if spec.owner == owner
+    # 只读动作的方法由各自的只读工具覆盖；伞工具只声明写方法，避免同一
+    # 方法既算只读又算写。
+    api = tuple(dict.fromkeys(method for _, spec in actions
+                              if spec.owner == owner and not spec.read_only
                               for method in spec.api))
     return Tool(name, handler, owner=owner, api=api,
                 parameters={'type': 'object', 'properties': properties,

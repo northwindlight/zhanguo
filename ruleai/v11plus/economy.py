@@ -4,6 +4,7 @@ The planner keeps the old one-turn ledger: calculate real needs, value each
 legal site, reserve materials for the affordable construction plan, trade the
 surplus, then build and recruit. Native modules still validate every action.
 """
+from . import apimap
 import math
 from copy import deepcopy
 
@@ -15,7 +16,7 @@ SKIP_BUILDINGS = {'native:militia-camp'}
 
 
 def _stocks(player):
-    return {row['id']: row['amount'] for row in player.query('econ')['stocks']}
+    return {row['id']: row['amount'] for row in apimap.query(player,'econ')['stocks']}
 
 
 def _amounts(value):
@@ -59,7 +60,7 @@ def _legal(site, kind, row, existing, facts):
 
 
 def _estimate(player, kind, other_slots):
-    return player.query('building_economics', {'kind': kind, 'other_slots': other_slots})
+    return apimap.query(player,'building_economics', {'kind': kind, 'other_slots': other_slots})
 
 
 def _payback(estimate, kind):
@@ -74,7 +75,7 @@ def _payback(estimate, kind):
 
 
 def _buy_cost(player, resource, quantity):
-    price = dict(player.query('market')['buy_prices']).get(resource)
+    price = dict(apimap.query(player,'market')['buy_prices']).get(resource)
     return None if price is None else math.ceil(price * math.ceil(quantity))
 
 
@@ -117,14 +118,14 @@ def run(ledger):
     actor = player.actor
     obs = player.observe()
     facts = obs['facts']
-    site_data = player.query('building_sites')
+    site_data = apimap.query(player,'building_sites')
     sites = sorted(site_data['sites'], key=lambda row: tuple(row['position']))
     buildings = site_data['instances']
-    catalog_rows = player.query('building_catalog')
+    catalog_rows = apimap.query(player,'building_catalog')
     catalog = {row['id']: row for row in catalog_rows}
-    units = player.query('unit_catalog')
+    units = apimap.query(player,'unit_catalog')
     inventory = _stocks(player)
-    market = player.query('market')
+    market = apimap.query(player,'market')
     buy_prices = dict(market['buy_prices']);ledger.buy_prices=buy_prices
     sell_prices = dict(market['sell_prices'])
     army = [unit for unit in facts['army'] if unit['owner'] == actor]
@@ -168,7 +169,7 @@ def run(ledger):
     # Rank legal site/building pairs by their actual site-specific return.
     roi = []
     estimate_cache={}
-    bulk=player.query('building_economics')
+    bulk=apimap.query(player,'building_economics')
     estimates={r['kind']:r for r in bulk}
     existing_by_site = {site['id']: [b for b in buildings if b['site'] == site['id']] for site in sites}
     for site in sites:

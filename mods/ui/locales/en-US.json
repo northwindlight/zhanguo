@@ -327,7 +327,7 @@
   "receipt.Offer opened; acceptance pending": "Offer opened; acceptance pending",
   "receipt.Offer rejected": "Offer rejected and closed",
   "receipt.Founding acceptance recorded; other invitees pending": "Founding invitation accepted; awaiting other invitees. The alliance has not formed.",
-  "llm.scripting": "Built-in Python scripts support batched queries, calculations and repeated actions through api.observe/query/submit, inputs and print. Save with script(action=write), check for free with script(action=check), then run once per turn with script(action=run, inputs={{...}}). Failed execution consumes only the script execution allowance; ordinary tools remain available and successful actions remain. Scripts use standard API facts, not the compact model presentation; econ.stocks is a list of id/amount records. Reuse saved source with new inputs, and decide end_turn yourself.",
+  "llm.scripting": "Built-in Python scripts support batched queries, calculations and repeated actions through api.observe/call, inputs and print. Save with script(action=write), check for free with script(action=check), then run once per turn with script(action=run, inputs={{...}}). Failed execution consumes only the script execution allowance; ordinary tools remain available and successful actions remain. Scripts use standard API facts, not the compact model presentation; econ.stocks is a list of id/amount records. Reuse saved source with new inputs, and decide end_turn yourself.",
   "console.country_details": "### Nation details",
   "console.country_head": "**{name}** · {military}",
   "console.pause_pending": "Pause requested after the current turn is saved. Use resume to continue or board/map to inspect.",

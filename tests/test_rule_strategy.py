@@ -25,9 +25,9 @@ class TestRuleStrategy(unittest.TestCase):
         armies,view,catalog,_=self.setup()
         class PublicPlayer:
             actor='scenario:qin'
-            def query(self,name,args=None):
-                if name=='unit_catalog':return catalog
-                raise AssertionError(name)
+            def call_api(self,capability=None,method=None,arguments=None,action_label=None,**extra):
+                if (capability,method)==('native:army','unit_catalog'):return catalog
+                raise AssertionError((capability,method))
         obs={'actor':'scenario:qin','facts':{'view':view,'army':armies,'diplomacy':{'alliances':[],'wars':[]}}}
         state=RuleState()
         with patch.object(grouping,'V11_SOLVER_NODE_CAP',0):

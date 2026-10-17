@@ -167,6 +167,59 @@ class PlayerSession:
                     'code': 'action_failed' if status in ('failed', 'cancelled') else None,
                     'message': data.get('message', '') if isinstance(data, dict) else '', 'data': data}
 
+    def call_api(self, capability=None, method=None, arguments=None, action_label=None, **extra):
+        """PlayerSession-level API entry; BoundPlayer adds services and audit."""
+        if not isinstance(capability, str) or not isinstance(method, str):
+            raise ValueError('API 需要 capability 与 method 字符串')
+        if arguments is not None and not isinstance(arguments, dict):
+            raise ValueError('参数必须是一个对象：{参数名: 值}')
+        if extra:
+            arguments = {**(arguments or {}), **extra}
+        return self.api_call(capability, method, arguments, action=action_label)
+
+    def api_call(self, capability, method, arguments=None, *, action=None):
+        """Trusted API call by capability + declared method (no tool name).
+
+        Read methods return detached data. Write methods return the same receipt
+        shape as submit() so scripts and the rule AI keep one failure contract.
+        """
+        with self.__lock:
+            label = action if isinstance(action, str) and action else (
+                arguments.get('action') if isinstance(arguments, dict)
+                and isinstance(arguments.get('action'), str) else method)
+            base = {'api': API_VERSION, 'actor': self.__actor, 'action': label, 'period': self._period()}
+            write = self.__runtime.api_is_write(capability, method)
+            if arguments is not None and not isinstance(arguments, dict):
+                raise ValueError('参数必须是一个对象：{参数名: 值}')
+            if isinstance(arguments, dict) and 'actor' in arguments:
+                raise ValueError('API 参数不能覆盖行动者')
+            code = 'invalid_arguments'
+            try:
+                self._validate()
+                if not write:
+                    return wire(self.__runtime.api_call(self.__world, self.__actor, capability, method, arguments or {}))
+                code = 'domain_rejected'
+                if self.__on_write:
+                    self.__on_write()
+                result = self.__runtime.api_call(self.__world, self.__actor, capability, method, arguments or {})
+            except ValueError as exc:
+                if not write:
+                    raise
+                from .runtime import ToolArgumentError
+                if isinstance(exc, ToolArgumentError):
+                    code = 'invalid_arguments'
+                return {**base, 'ok': False, 'status': 'rejected', 'code': code,
+                        'message': str(exc), 'data': wire(getattr(exc, 'details', None))}
+            except Exception as exc:
+                if not write:
+                    raise
+                return self._fault(base, exc)
+            data = wire(result)
+            status = data.get('status', 'effective') if isinstance(data, dict) else 'effective'
+            return {**base, 'ok': status not in ('failed', 'cancelled'), 'status': status,
+                    'code': 'action_failed' if status in ('failed', 'cancelled') else None,
+                    'message': data.get('message', '') if isinstance(data, dict) else '', 'data': data}
+
     def _fault(self, base, exc, applied=False):
         """模块内部异常 → 该动作作废、游戏继续；细节交给宿主的故障日志。"""
         detail = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))

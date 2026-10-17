@@ -1,4 +1,5 @@
 """Persistent client assignments, retaining v11plus's global grouping objective."""
+from . import apimap
 from typing import NamedTuple
 from .parameters import V11_MAX_GROUP,V11_SOLVER_NODE_CAP,V11_SHORTFALL_PENALTY,V11_NEAR_TARGETS,MAX_CANDIDATES
 from .pathfind import chebyshev,distance
@@ -138,7 +139,7 @@ def regroup(player,observation,state,armies,*,forecast=None):
             need,_=combat.needed(player,cell,ordered[:V11_MAX_GROUP],forecast=forecast)
             candidates.append(Candidate(cell,need))
         allies,_=targeting.relations(observation)
-        knowledge={'view':observation['facts']['view'],'allies':allies,'unit_catalog':player.query('unit_catalog')}
+        knowledge={'view':observation['facts']['view'],'allies':allies,'unit_catalog':apimap.query(player,'unit_catalog')}
         committed={cell:sum(p==cell for p in state.targets.values()) for cell in cells}
         assignments,exact=_solve(knowledge,candidates,free,V11_SOLVER_NODE_CAP,V11_NEAR_TARGETS,committed)
         state.exact=exact

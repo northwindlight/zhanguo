@@ -5,7 +5,7 @@
 **实施状态（2026-10-18）**：T0–T4 全部落地；T5 未做。
 - T0–T3：native 66 个注册工具全部由 `mods/native/tools/` 产生，模块只留 `player_api`；tool 层自带 zh-CN/en-US 文案目录；UI 动作分支已删除。
 - T4：模型可见工具 38 → 12（native 8 + 4 内置；experimental 14）。`military`/`economy`/`relations`/`intelligence` 四把命令伞用 `action` 选动作，内层动作保持独立 Tool 与回执；`query(panel=foreign)` 合并国家与外交面板；`Tool.groups` 接入 `Runtime.permits`，匈奴 31 条禁令缩成 5 个组，伞工具的 `action` 枚举按行动者过滤。
-- 旧动作名仍注册为 `hidden`，脚本、规则 AI 与按名调用不受影响。
+- 旧动作名仍注册为 `hidden`，但只是 tool 层内部适配器；脚本与规则 AI 已改走 `call_api(capability, method)`（2026-10-18，API 与 tool 分离：`Runtime.api_call` / `BoundPlayer.call_api`，服务链见 `Session.api_call`）。
 
 ## 一、目标
 

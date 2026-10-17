@@ -32,7 +32,7 @@ class TestScripts(unittest.TestCase):
 
     def test_free_check_never_executes_or_consumes_slot_and_source_patch_is_exact(self):
         h,p=self.host()
-        self.write(p,'api.submit("buy", {"resource":"native:food", "quantity":2})')
+        self.write(p,'api.call("economy:queries","buy", resource="native:food", quantity=2)')
         saved=h.runtime.save_mod_state(h.world)
         for _ in range(3):self.assertTrue(p.query('script_check')['valid'])
         self.assertTrue(p.query('script_check',{'source':'print(1 / 0)'})['valid'])
@@ -40,15 +40,15 @@ class TestScripts(unittest.TestCase):
         self.assertEqual(h.runtime.save_mod_state(h.world),saved)
         self.assertTrue(p.query('script_status')['available'])
         self.assertNotIn('source',p.query('script_status'))
-        self.assertTrue(p.submit('script_patch',{'old':'quantity":2','new':'quantity":3'})['ok'])
-        self.assertIn('quantity":3',p.query('script_status',{'include_source':True})['source'])
+        self.assertTrue(p.submit('script_patch',{'old':'quantity=2','new':'quantity=3'})['ok'])
+        self.assertIn('quantity=3',p.query('script_status',{'include_source':True})['source'])
         before=p.query('script_status',{'include_source':True})
         self.assertFalse(p.submit('script_patch',{'old':'absent','new':'x'})['ok'])
         self.assertEqual(p.query('script_status',{'include_source':True}),before)
 
     def test_success_and_every_inner_action_audited_with_compact_return(self):
         h,p=self.host()
-        self.write(p,'api.submit("buy", {"resource":"native:food", "quantity":2})\napi.submit("sell", {"resource":"native:food", "quantity":1})\nprint("采购完成")')
+        self.write(p,'api.call("economy:queries","buy", resource="native:food", quantity=2)\napi.call("economy:queries","sell", resource="native:food", quantity=1)\nprint("采购完成")')
         before=h.world.resources.balance(self.actor,'native:food')
         result=p.submit('script_run')
         self.assertTrue(result['ok'],result)
@@ -62,7 +62,7 @@ class TestScripts(unittest.TestCase):
 
     def test_failed_script_keeps_prior_action_and_rewrite_does_not_allow_retry(self):
         h,p=self.host()
-        self.write(p,'api.submit("buy", {"resource":"native:food", "quantity":2})\nx = 1 / 0')
+        self.write(p,'api.call("economy:queries","buy", resource="native:food", quantity=2)\nx = 1 / 0')
         before=h.world.resources.balance(self.actor,'native:food')
         result=p.submit('script_run')
         self.assertFalse(result['ok'])
@@ -77,7 +77,7 @@ class TestScripts(unittest.TestCase):
 
     def test_syntax_error_computation_timeout_and_domain_failure_consume_allowance(self):
         for source,error in (('if :','SyntaxError'),('while True:\n    pass','SandboxLimitError'),
-                             ('api.submit("buy", {"resource":"native:food", "quantity":99999})','SandboxActionError')):
+                             ('api.call("economy:queries","buy", resource="native:food", quantity=99999)','SandboxActionError')):
             with self.subTest(source=source):
                 h,p=self.host();self.write(p,source)
                 result=p.submit('script_run')
@@ -91,10 +91,10 @@ class TestScripts(unittest.TestCase):
                     self.assertEqual(next(r['receipt'] for r in h.audit if r['action']=='buy'),failed)
 
     def test_nested_script_controls_and_foreign_identity_are_rejected(self):
-        for source in ('api.submit("script_run")','api.submit("script_write", {"source":"pass"})',
-                       'api.query("script_check", {"source":"pass"})',
-                       'api.submit(1)', 'api.submit([])',
-                       'api.submit("buy", {"actor":"scenario:qin", "resource":"native:food", "quantity":1})'):
+        for source in ('api.call("sandbox:programs","claim")','api.call("sandbox:programs","write", source="pass")',
+                       'api.call("sandbox:programs","check", source="pass")',
+                       'api.call(1)', 'api.call([])',
+                       'api.call("economy:queries","buy", actor="scenario:qin", resource="native:food", quantity=1)'):
             h,p=self.host();self.write(p,source)
             result=p.submit('script_run')
             self.assertFalse(result['ok'])
@@ -114,7 +114,7 @@ class TestScripts(unittest.TestCase):
 
     def test_script_plan_uses_same_council_and_end_turn_stops_llm_normally(self):
         h,p=self.host(kind='llm')
-        source='api.submit("plan", {"text":"按真实库存发展生产"})\napi.submit("end_turn", {"summary":"已提交国策并结束本期行动"})'
+        source='api.call("native:government","plan", text="按真实库存发展生产")\napi.call("native:government","end_turn", summary="已提交国策并结束本期行动")'
         h.clients[self.actor]._backend=FakeBackend([reply(call('s','script',action='write',source=source),call('r','script',action='run'))])
         results=h.cycle()
         self.assertTrue(results[-1]['ok'],results)
@@ -137,7 +137,7 @@ class TestScripts(unittest.TestCase):
             p.submit('explain_plan',{'text':'说明原因，下一期会重新核实并修订'})
             p.submit('end_turn',{'summary':'完成说明，等待下回合修订国策'})
             h.cycle();p=h.player(self.actor)
-        self.write(p,'api.submit("plan", {"text":"第三份需要审核的国策"})\napi.submit("buy", {"resource":"native:food", "quantity":1})')
+        self.write(p,'api.call("native:government","plan", text="第三份需要审核的国策")\napi.call("economy:queries","buy", resource="native:food", quantity=1)')
         before=h.world.resources.balance(self.actor,'native:food')
         result=p.submit('script_run')
         self.assertFalse(result['ok'])

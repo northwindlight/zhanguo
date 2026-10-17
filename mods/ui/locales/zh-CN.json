@@ -327,7 +327,7 @@
   "receipt.Offer opened; acceptance pending": "已提出提议，等待对方接受",
   "receipt.Offer rejected": "已拒绝提议，该提议已关闭",
   "receipt.Founding acceptance recorded; other invitees pending": "已接受创盟邀请，等待其余受邀国；联盟尚未成立",
-  "llm.scripting": "【内置 Python】本国可保存并执行短脚本。需要批量查询、收益比较、预算分配或重复操作时，优先考虑脚本合并处理，减少逐条模型调用；简单行动可直接用工具。script(action=write) 保存 → script(action=check) 免费检查 → script(action=run, inputs={{...}}) 手动执行；源码跨回合复用。脚本能用 api.observe/query/submit、inputs、print，没有导入、文件、网络。每回合有一次脚本执行额度，失败也消耗这个脚本额度，普通行动机会不受影响，之后仍可继续调用国家工具；成功动作保留，先检查并设置明确预算。脚本 API 使用标准事实结构，例如 stocks=api.query(\"econ\")[\"stocks\"]; print({{s[\"id\"]:s[\"amount\"] for s in stocks}})；它不是模型展示中精简后的 stocks 键值表。结束回合由你统一决定。",
+  "llm.scripting": "【内置 Python】本国可保存并执行短脚本。需要批量查询、收益比较、预算分配或重复操作时，优先考虑脚本合并处理，减少逐条模型调用；简单行动可直接用工具。script(action=write) 保存 → script(action=check) 免费检查 → script(action=run, inputs={{...}}) 手动执行；源码跨回合复用。脚本能用 api.observe/call、inputs、print，没有导入、文件、网络。每回合有一次脚本执行额度，失败也消耗这个脚本额度，普通行动机会不受影响，之后仍可继续调用国家工具；成功动作保留，先检查并设置明确预算。脚本 API 使用标准事实结构，例如 stocks=api.call(\"economy:queries\",\"balance\")[\"stocks\"]; print({{s[\"id\"]:s[\"amount\"] for s in stocks}})；它不是模型展示中精简后的 stocks 键值表。结束回合由你统一决定。",
   "console.country_details": "### 各国现状",
   "console.country_head": "**{name}** · {military}",
   "console.pause_pending": "暂停已请求：当前回合结算并保存后暂停。输入 resume 继续，board/map 可查看。",

@@ -6,7 +6,7 @@
 
 ## 模块与边界
 
-共 20 个领域及资料模块和 1 个独立 [UI Mod](../ui/README.md)、66 个注册工具（模型可见 8 个：`build`/`economy`/`end_turn`/`intelligence`/`military`/`plan`/`query`/`relations`；其余动作以隐藏名保留，脚本与规则 AI 仍可按名调用）、17 个结算处理器、14 个发行版挂点。模块继续使用资源、建筑、国家的模板：`mod.toml` 声明身份、依赖、状态、接口与 `[PlayerAPI]`，`mod.py` 只装配对象和玩家 API，领域对象拥有业务状态与行为，显式保存与恢复。纯算法、查询和政体模块不虚设持久状态或玩家动作。
+共 20 个领域及资料模块和 1 个独立 [UI Mod](../ui/README.md)、66 个注册工具（模型可见 8 个：`build`/`economy`/`end_turn`/`intelligence`/`military`/`plan`/`query`/`relations`；其余动作是 tool 层内部适配器，脚本与规则 AI 走 `call_api(capability, method)`，不用工具名）、17 个结算处理器、14 个发行版挂点。模块继续使用资源、建筑、国家的模板：`mod.toml` 声明身份、依赖、状态、接口与 `[PlayerAPI]`，`mod.py` 只装配对象和玩家 API，领域对象拥有业务状态与行为，显式保存与恢复。纯算法、查询和政体模块不虚设持久状态或玩家动作。
 
 工具名、schema、描述、别名、参数适配与回执成文集中在发行版级 [tool 层](tools/)，一个领域一个文件，模块不再返回 `Tool`。tool 层通过 `runtime.player_api(world, capability)` 调用模块 API；`[PlayerAPI] Methods` 必须被覆盖，漏封装在装载期报错。动作工具按命令收成伞工具（`military`/`economy`/`relations`/`intelligence`），模型用 `action` 选动作；只读入口统一为 `query(panel=…)`，对外关系用 `foreign` 一块查完。tool 层自带 `zh-CN` / `en-US` 文案目录，不依赖 UI 的动作文案。
 

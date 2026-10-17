@@ -39,7 +39,7 @@ def build(runtime):
 
         script_specs = (
             Tool('script_write', script_write, owner='sandbox:programs', api=('write',),
-                 description='保存本国 Python 短脚本，不执行。运行时可用 api.query/observe/submit、inputs、print；适合整类查询、计算收益、按预算执行重复操作。源码可跨回合复用。例：stocks=api.query("econ")["stocks"]; print({s["id"]:s["amount"] for s in stocks})'),
+                 description='保存本国 Python 短脚本，不执行。运行时可用 api.call(capability, method, ...)/observe、inputs、print；适合整类查询、计算收益、按预算执行重复操作。源码可跨回合复用。例：stocks=api.call("economy:queries","balance")["stocks"]; print({s["id"]:s["amount"] for s in stocks})'),
             Tool('script_patch', script_patch, owner='sandbox:programs', api=('patch',),
                  description='精确替换已保存源码中的一处内容，不执行'),
             Tool('script_check', script_check, owner='sandbox:programs', api=('check',), read_only=True,
@@ -51,7 +51,7 @@ def build(runtime):
         )
         umbrella = command_layer.action_tool(
             runtime, 'script',
-            '本国脚本：action=write 保存源码、patch 精确替换一处、check 免费查语法、status 查状态、run 执行。脚本在沙盒内用 api.query/observe/submit、inputs、print；每回合一次执行额度。',
+            '本国脚本：action=write 保存源码、patch 精确替换一处、check 免费查语法、status 查状态、run 执行。脚本在沙盒内用 api.call(capability, method, ...)/observe、inputs、print；每回合一次执行额度。',
             (('write', script_specs[0]), ('patch', script_specs[1]), ('check', script_specs[2]),
              ('status', script_specs[3]), ('run', script_specs[4])))
         command_map = {'script': {'write': 'script_write', 'patch': 'script_patch',

@@ -28,7 +28,7 @@ BUILTINS = frozenset(('abs','all','any','bool','dict','enumerate','float','int',
 METHODS = frozenset(('get','items','keys','values','append','extend','pop','copy',
                      'count','index','sort','reverse','lower','upper','strip',
                      'split','join','startswith','endswith','replace'))
-API_METHODS = frozenset(('observe','actions','query','submit','events','rules','action_state'))
+API_METHODS = frozenset(('observe','call','events','rules','action_state'))
 ALLOWED = (ast.Module,ast.Expr,ast.Assign,ast.AugAssign,ast.If,ast.For,ast.While,
            ast.Break,ast.Continue,ast.Pass,ast.FunctionDef,ast.Return,
            ast.Name,ast.Constant,ast.List,ast.Tuple,ast.Dict,ast.Subscript,ast.Slice,
@@ -439,11 +439,14 @@ class Machine:
             try:result=self.api(name,args,kwargs)
             except ValueError:raise          # 宿主按业务口径拒绝（如嵌套控制调用）：就是脚本失败
             except Exception as exc:raise SandboxHostFault(exc) from exc
-            # Action receipts survive even if subsequent computation hits a limit.
-            if name=='submit':self.receipts.append(result)
-            result=self.checked(result)
-            if name=='submit' and not result['ok']:raise SandboxActionError(result['message'])
-            return result
+            # Write receipts survive even if subsequent computation hits a limit;
+            # reads return plain data and are not receipts.
+            if isinstance(result,dict) and 'ok' in result:
+                self.receipts.append(result)
+                result=self.checked(result)
+                if not result['ok']:raise SandboxActionError(result['message'])
+                return result
+            return self.checked(result)
         self.value(obj)
         for v in args:self.value(v)
         for v in kwargs.values():self.value(v)

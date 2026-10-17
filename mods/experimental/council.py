@@ -334,6 +334,16 @@ class CouncilService:
         self._prepare(player)
         receipt=next_submit()
         if action!='plan' or not receipt['ok']:return receipt
+        return self._plan_review(player,receipt)
+
+    def api(self,player,capability,method,arguments,next_call):
+        """Trusted API callers (scripts, rule AI) reach plan as government.plan."""
+        self._prepare(player)
+        receipt=next_call()
+        if (capability,method)!=('native:government','plan') or not receipt['ok']:return receipt
+        return self._plan_review(player,receipt)
+
+    def _plan_review(self,player,receipt):
         obs_period=receipt['period']
         candidate=receipt['data']['text']
         # The first national plan establishes the baseline, without a model review.

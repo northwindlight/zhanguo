@@ -372,6 +372,7 @@ class Runtime:
             self.command_actors.update(getattr(mod, 'command_actors', lambda: {})())
         self.tools, self.stage_map, self.tool_owners, self.stage_owners = {}, {}, {}, {}
         self.tool_groups = {}
+        self.api_readonly, self.api_writes = {}, {}
         self.tool_layer = None
         self._tool_apis = WeakKeyDictionary()
         for name in self.order:
@@ -391,6 +392,16 @@ class Runtime:
                 continue
             for group in tool.groups:
                 self.tool_groups.setdefault(group, []).append(tool)
+            if tool.owner is None:
+                continue
+            bucket = self.api_readonly if tool.read_only else self.api_writes
+            for method in tool.api:
+                bucket.setdefault(tool.owner, set()).add(method)
+        both = {(cap, method) for cap, methods in self.api_readonly.items()
+                for method in methods if method in self.api_writes.get(cap, ())}
+        if both:
+            capability, method = sorted(both)[0]
+            raise ModError(f'API 方法既被只读工具又被写工具覆盖：{capability}.{method}')
         # 只读面板收敛：发行版声明一个分发器后，其余只读工具照旧注册（玩家状态与脚本
         # 仍按名调用），但不再出现在模型工具表里。
         panel = self.distribution.get('ReadOnlyPanel')
@@ -929,6 +940,53 @@ class Runtime:
             gate=self.distribution.get('ActionGate')
             if gate and not self.tools[name].read_only and not self.object_call(world,gate['Capability'],gate['Method'],actor):
                 raise ValueError('行动者已结束本轮行动')
+
+    def api_is_write(self, capability, method):
+        if capability not in self.capabilities:
+            raise ValueError(f'未知 API 能力：{capability}')
+        unit = self.units[self.capabilities[capability]]
+        methods = unit.mod.declaration.get('PlayerAPI', {}).get('Methods', ())
+        if method not in methods:
+            raise ValueError(f'{capability} 未声明方法：{method}')
+        return method not in self.api_readonly.get(capability, ())
+
+    def api_call(self, world, actor, capability, method, arguments=None):
+        """Trusted in-process API call: capability + declared method, never a tool name.
+
+        Tools are the LLM-facing schemas; scripts and the rule AI call this path.
+        Read methods stay available after ending actions; writes run the same
+        actor/phase/action-gate/policy checks as a tool call.
+        """
+        module_id = self.capabilities.get(capability)
+        if module_id is None:
+            raise ValueError(f'未知 API 能力：{capability}')
+        unit = self.units[module_id]
+        methods = unit.mod.declaration.get('PlayerAPI', {}).get('Methods', ())
+        if method not in methods:
+            raise ValueError(f'{capability} 未声明方法：{method}')
+        if method.startswith('_'):
+            raise ValueError('API 方法不能以下划线开头')
+        if not self.in_scope(world, actor, unit.mod):
+            raise ValueError('该 API 不属于行动者的作用域')
+        arguments = {} if arguments is None else dict(arguments)
+        if 'actor' in arguments:
+            raise ValueError('API 参数不能覆盖行动者')
+        if self.api_is_write(capability, method):
+            collection = getattr(world, self.distribution.get('ActorCollection', 'actors'), {})
+            if actor not in collection:
+                raise ValueError('行动者不存在')
+            if world.phase != '行动':
+                raise ValueError('仅行动阶段可以提交动作')
+            gate = self.distribution.get('ActionGate')
+            if gate and not self.object_call(world, gate['Capability'], gate['Method'], actor):
+                raise ValueError('行动者已结束本轮行动')
+            key = arguments.get('action') if isinstance(arguments.get('action'), str) else method
+            if not self.permits(world, actor, 'action.' + key):
+                policy = self.actor_policy(world, actor)
+                raise ValueError(policy.declaration.get('Policy', {}).get('Rejection', '政体禁用该能力'))
+        with unit_context(module_id):
+            api = self.player_api(world, capability)
+            return getattr(api, method)(actor, **arguments)
 
     def parameter(self, world, actor, key, default=None):
         if not self.permits(world,actor,'number.'+key): raise ModError('该数值口径被作用域声明禁用')

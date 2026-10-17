@@ -1,4 +1,5 @@
 """Use observed routes and client forecasts; production belongs to economy."""
+from . import apimap
 from . import grouping,combat,targeting
 from .pathfind import distance
 
@@ -9,16 +10,16 @@ def run(ledger,state,*,forecast=None):
     groups=grouping.regroup(player,obs,state,armies,forecast=forecast)
     units={u['id']:u for u in armies}
     allies,_=targeting.relations(obs)
-    knowledge={'view':obs['facts']['view'],'allies':allies,'unit_catalog':player.query('unit_catalog')}
+    knowledge={'view':obs['facts']['view'],'allies':allies,'unit_catalog':apimap.query(player,'unit_catalog')}
     for cell,ids in groups:
         if ledger.full():break
         ready=[units[i] for i in ids if i in units and units[i]['born_turn']!=period and (not units[i]['engaged'] and units[i]['moved_turn']!=period or (units[i]['x'],units[i]['y'])==cell)]
-        able=[u for u in ready if cell in {tuple(point) for point,_ in player.query('reachable',{'aid':u['id'],'attack':True})}]
+        able=[u for u in ready if cell in {tuple(point) for point,_ in apimap.query(player,'reachable',{'aid':u['id'],'attack':True})}]
         if able and combat.assess(player,cell,able,forecast=forecast)['winnable']:
             if ledger.do('attack',ids=[u['id'] for u in able],x=cell[0],y=cell[1]):continue
         for unit in ready:
             if unit['engaged'] or ledger.full():continue
-            reach=player.query('reachable',{'aid':unit['id']})
+            reach=apimap.query(player,'reachable',{'aid':unit['id']})
             start=(unit['x'],unit['y'])
             options=[tuple(point) for point,_ in reach if tuple(point)!=start]
             if not options:continue

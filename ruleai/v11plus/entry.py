@@ -1,4 +1,5 @@
 """Active rule client; receives a PlayerSession, never a World."""
+from . import apimap
 from dataclasses import dataclass,field
 from . import economy,military
 from .ledger import Ledger
@@ -35,12 +36,12 @@ class RuleClient:
         approved=ledger.do('plan',text=self.plan_text)
         if hasattr(player,'action_state') and not player.action_state()['active']:return ledger.acts
         if not approved and ledger.acts and ledger.acts[-1]['code']=='plan_not_approved':
-            receipt=player.submit('explain_plan',{'text':'已收到议会的事实校核意见，下一回合将按实际回执与库存修订国策'})
+            receipt=apimap.submit(player,'explain_plan',{'text':'已收到议会的事实校核意见，下一回合将按实际回执与库存修订国策'})
             ledger.acts.append(receipt)
             if on_result:on_result('explain_plan',{},receipt)
         economy.run(ledger);military.run(ledger,self.state,forecast=self.forecast)
         # Ending is a protocol step and is never lost to a strategy action budget.
-        receipt=player.submit('end_turn',{'summary':f'本期完成{len(ledger.acts)}项行动，按公共情报继续经营与扩张'})
+        receipt=apimap.submit(player,'end_turn',{'summary':f'本期完成{len(ledger.acts)}项行动，按公共情报继续经营与扩张'})
         if not receipt['ok']:raise RuntimeError(receipt['message'])
         ledger.acts.append(receipt)
         if on_action:on_action('end_turn',{'summary':receipt['data']['text']})

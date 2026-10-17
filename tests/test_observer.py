@@ -420,7 +420,7 @@ class TestObserver(unittest.TestCase):
 
     def test_failed_script_preserves_prior_output_and_successful_action_count(self):
         h=GameHost.new(self.cfg(True));p=h.player('s:q');ui=h.ui.console
-        source='print("脚本已开始")\napi.submit("buy", {"resource": "wood", "quantity": 1})\n1 / 0'
+        source='print("脚本已开始")\napi.call("economy:queries","buy", resource="native:wood", quantity=1)\n1 / 0'
         self.assertTrue(p.submit('script_write',{'source':source})['ok'])
         r=p.submit('script_run',{})
         self.assertFalse(r['ok']);self.assertEqual(r['data']['actions'],1)

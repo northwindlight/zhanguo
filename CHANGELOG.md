@@ -1,5 +1,16 @@
 # 更新记录
 
+## 未发行 — 2026-10-18（API 与 tool 分离）
+
+API 是 API，tool 是 tool：tool 只给 LLM 用；脚本与规则 AI 不再按工具名调用，统一走 `call_api(capability, method, arguments)` 直接调用模块 `[PlayerAPI]`。
+
+- 引擎新增 `Runtime.api_call` / `Runtime.api_is_write`、`PlayerSession.call_api`、`BoundPlayer.call_api` 与 `Session.api_call` 服务链。读方法返回数据；写方法返回与 `submit` 同形的回执，并经过行动者、阶段、行动门与政体检查。
+- 规则 AI 新增 `ruleai/v11plus/apimap.py`，把自身动作词表显式映射到能力+方法；`Ledger` 与全部直接查询/提交改走 API。
+- 实验沙盒的 `api` 只保留 `observe/call/events/rules/action_state`；`api.submit/query/actions` 移除，示例、文档与测试改用 `api.call('economy:queries','buy', resource=…)`。API 参数使用带命名空间的 ID（`native:food`），沙盒不再替它解析短键。
+- 议会服务新增 `api()` 钩子：脚本或规则 AI 通过 `native:government.plan` 提交国策同样进入审核。
+- 旧动作名仍是 tool 层内部适配器（`hidden`），但不再是非 LLM 调用方的接口。
+- 回归：634 项通过；说明书同步。脚本 API 与工具面变化使旧档继续不可读，需新档。
+
 ## 0.3.0 — 2026-10-18（工具面收敛与策略组，需新档）
 
 模型可见工具从 38 收到 **12**（native：8 个发行版工具 + 4 个内置玩家 API；experimental 14）。旧动作名不再进模型工具表，但仍按名注册、可按名调用——脚本、规则 AI 和既有测试不受影响。

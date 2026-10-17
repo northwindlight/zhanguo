@@ -301,6 +301,29 @@ class Session:
     def invalidate(self,actor,context):
         self._dirty();self.generations[actor]+=1;self.contexts[actor]=wire(context)
 
+    def api_call(self,player,capability,method,arguments,next_call):
+        """Write API calls pass through services that declare api(), not submit().
+
+        Services keep hooking submit() for the LLM tool path (plan/end_turn are
+        still individual tools); scripts and the rule AI reach plan through this
+        chain, so the council reviews it regardless of the caller.
+        """
+        chain=next_call
+        for service in reversed(tuple(self.services[player.actor].values())):
+            handler=getattr(service,'api',None)
+            if handler:
+                downstream=chain
+                def wrap(h,n):
+                    used=False
+                    def once():
+                        nonlocal used
+                        if used:raise RuntimeError('An API call continuation can execute only once')
+                        used=True
+                        return n()
+                    return lambda:h(player,capability,method,deepcopy(arguments),once)
+                chain=wrap(handler,downstream)
+        return chain()
+
     def submit(self,player,action,arguments,next_submit):
         # These are arbitrary distribution services; no review/action names here.
         chain=next_submit

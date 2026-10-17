@@ -2,32 +2,32 @@
 
 君主决定目标与预算，把重复的查询、计算和操作交给保存的短脚本。experimental 装配 `experimental:python` 和独立 Session 脚本服务；native 默认发行版不启用。脚本使用真正的绑定玩家 API，国策审核、权限、费用、回执和控制权变化沿用标准入口。
 
-模型侧统一用 `script` 伞工具：`script(action=write, source=...)` 保存程序，`script(action=check)` 免费检查，再在想运行的回合手动 `script(action=run, inputs={...})`。旧名 `script_write/script_check/script_run` 仍按名注册、可被脚本与规则 AI 调用，只是不进模型工具表。以后不用重发源码，只发送本回合的决策参数。示例 [后勤采购](examples/logistics.py) 接受 `food_target` 和 `budget`，只在资源、市场库存和预算允许时采购；[市场插值](examples/market_interpolation.py) 接受公开的 `history=[[回合,价格],...]` 与 `target`，完成短序列插值或线性外推，不进行搜索。
+模型侧统一用 `script` 伞工具：`script(action=write, source=...)` 保存程序，`script(action=check)` 免费检查，再在想运行的回合手动 `script(action=run, inputs={...})`。旧动作名仅作为内部注册名保留，脚本与规则 AI 走 API，不用工具名。以后不用重发源码，只发送本回合的决策参数。示例 [后勤采购](examples/logistics.py) 接受 `food_target` 和 `budget`，只在资源、市场库存和预算允许时采购；[市场插值](examples/market_interpolation.py) 接受公开的 `history=[[回合,价格],...]` 与 `target`，完成短序列插值或线性外推，不进行搜索。
 
 ```python
 # 一次保存的脚本；每回合由君主手动决定是否执行。
-m = api.query('market')
+m = api.call('economy:queries','market')
 print('粮价', dict(m['prices'])['native:food'])
 if inputs.get('buy_food', 0) > 0:
-    api.submit('buy', {'resource': 'native:food',
-                       'quantity': inputs['buy_food']})
+    api.call('economy:queries', 'buy',
+             resource='native:food', quantity=inputs['buy_food'])
 ```
 
 ## 编辑、检查与执行
 
 | 工具 | 行为 |
 | --- | --- |
-| `script_write(source)` | 保存或完全重写本国唯一脚本，修订号递增；不执行 |
-| `script_patch(old, new)` | 精确替换源码中唯一一次出现的 old，避免重发全文；找不到或有歧义则拒绝 |
-| `script_check(source=None)` | 检查提供的源码或已存脚本；不执行任何计算或游戏 API，不扣游戏资源、不使用执行额度 |
-| `script_status(include_source=False)` | 查看额度、修订号、预算和上次结果；默认不重复返回源码 |
-| `script_run(inputs=None)` | 执行已存脚本，inputs 为 JSON 参数对象；每国每回合一次 |
+| `script(action=write, source=…)` | 保存或完全重写本国唯一脚本，修订号递增；不执行 |
+| `script(action=patch, old=…, new=…)` | 精确替换源码中唯一一次出现的 old，避免重发全文；找不到或有歧义则拒绝 |
+| `script(action=check, source=…)` | 检查提供的源码或已存脚本；不执行任何计算或游戏 API，不扣游戏资源、不使用执行额度 |
+| `script(action=status, include_source=…)` | 查看额度、修订号、预算和上次结果；默认不重复返回源码 |
+| `script(action=run, inputs=…)` | 执行已存脚本，inputs 为 JSON 参数对象；每国每回合一次 |
 
 检查覆盖语法、受支持构造与结构安全限制，不预测库存、费用、报价或运行结果；`1 / 0` 可以通过语法检查，执行时仍会失败。没有免费的试运行或结果预演。
 
 额度在正式执行开始、解析源码之前占用。语法错误、运行错误、预算超限、失败的游戏动作都消耗本回合额度；修改源码、换君主或再次调用不会恢复额度，下一回合才可以再执行。没有定时器、自动执行、自动重试或回合后台任务。工作变量每次新建；跨回合保存的是源码、修订号和最近执行结果，输入按本次调用提供。
 
-已成功的游戏动作始终保留，不因之后的错误撤销。`api.submit` 得到失败回执时终止脚本，保留原始失败回执。脚本结束不自动结束国家行动；可以显式提交标准 `end_turn`，也可以交回君主继续决策。国策被打回或罢免同样遵守标准 API，旧控制权句柄不能继续行动，也不能在同回合多运行一次脚本。
+已成功的游戏动作始终保留，不因之后的错误撤销。`api.call` 得到失败回执时终止脚本，保留原始失败回执。脚本结束不自动结束国家行动；可以显式提交标准 `end_turn`，也可以交回君主继续决策。国策被打回或罢免同样遵守标准 API，旧控制权句柄不能继续行动，也不能在同回合多运行一次脚本。
 
 ## 支持的 Python 基础子集
 

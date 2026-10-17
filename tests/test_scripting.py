@@ -81,7 +81,7 @@ print(fib(8))
     def test_import_reflection_dynamic_execution_files_and_timers_are_unavailable(self):
         for source in ('import os','from time import perf_counter','api.__class__',
                        '(1).__class__.__mro__','class X: pass','try:\n pass\nexcept:\n pass',
-                       'async def f(): pass','__builtins__','lambda: 1','api.submit = print'):
+                       'async def f(): pass','__builtins__','lambda: 1','api.call = print'):
             with self.subTest(source=source):self.assertFalse(check(source)['valid'])
         for source in ('open("/etc/passwd")','eval("1+1")','exec("pass")','getattr(api,"__dict__")',
                        'time()','perf_counter()','hash("x")','id(api)','globals()','random()','socket()'):
@@ -110,7 +110,7 @@ print(fib(8))
         self.assertEqual(outputs[0],outputs[1])
 
     def test_api_calls_and_output_have_independent_limits(self):
-        machine=Machine('for i in range(30):\n    api.query("x")',lambda *a:0)
+        machine=Machine('for i in range(30):\n    api.call("x","y")',lambda *a:0)
         result=machine.run()
         self.assertEqual(result['error']['message'],'API call budget exceeded')
         self.assertEqual(result['calls'],24)

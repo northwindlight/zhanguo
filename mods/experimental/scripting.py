@@ -7,9 +7,6 @@ from engine.state import active_unit
 from engine.scripting import DEFAULT_LIMITS, Machine, check
 from .scripting_api import ScriptingAPI
 
-CONTROLS=frozenset(('script','script_write','script_patch','script_check','script_status','script_run'))
-
-
 class Programs:
     def __init__(self,limits,actor_check,clock):
         self.limits=dict(limits);self.rows={}
@@ -133,10 +130,10 @@ class ScriptingMod(GameMod):
     def load_state(self,world,data):world.scripts.restore(data)
     def rule_sections(self,world=None):
         return (RuleSection('Python 沙盒',
-            'script_write 保存或重写，script_patch 精确修订，script_check 免费语法/安全检查且不运行。'
-            'script_run(inputs={...}) 每国每回合手动执行一次，失败也消耗脚本执行额度，但不阻止普通工具行动；修订、罢免不重置额度。'
-            '已成功动作不撤销。api 提供绑定身份的标准 observe/actions/query/submit/events/rules/action_state；'
-            '国策同样经过议会。api.submit 拒绝会返回原回执并终止脚本。'
+            'script(action=write) 保存或重写，script(action=patch) 精确修订，script(action=check) 免费语法/安全检查且不运行。'
+            'script(action=run, inputs={...}) 每国每回合手动执行一次，失败也消耗脚本执行额度，但不阻止普通工具行动；修订、罢免不重置额度。'
+            '已成功动作不撤销。api 提供绑定身份的标准 observe/call/events/rules/action_state；call(capability, method, ...) 只调模块 [PlayerAPI]，不用工具名；'
+            '国策同样经过议会。api.call 拒绝会返回原回执并终止脚本。'
             'inputs 是本次 JSON 参数；变量每次重新创建。支持函数和递归、if/for/while、列表/字典和推导式。'
             f'总预算 {self.limits["steps"]} 计算单位，{self.limits["calls"]} 次 API 调用；计费按语法、数据长度与算法规模，'
             '不用墙钟或高精度计时器。禁止导入、安装库、文件、网络、反射、随机、动态执行和脚本控制工具嵌套。'
@@ -152,21 +149,21 @@ class ScriptService:
         if record is not None and record!={'version':self.version,'state':{}}:raise ValueError('Invalid script service state')
     def to_save(self):return {'version':self.version,'state':{}}
     def submit(self,player,action,arguments,next_submit):
-        # 模型侧走 script(action=run) 伞工具；旧名 script_run 仍可被脚本/规则 AI 调用。
+        # 模型侧走 script(action=run) 伞工具；按名调用只留给既有测试与发行版内部。
         inner=arguments.get('action') if action=='script' and isinstance(arguments,dict) else None
         receipt=next_submit()
         if not (action=='script_run' or (action=='script' and inner=='run')) or not receipt['ok']:return receipt
         claim=receipt['data']
         def invoke(name,args,kwargs):
             if not player.action_state()['active']:raise ValueError('Actor control changed; script handle is no longer active')
-            if name in ('query','submit'):
-                target=args[0] if args else kwargs.get('name',kwargs.get('action'))
-                if isinstance(target,str) and target in CONTROLS:raise ValueError('Nested script control calls are forbidden')
-            methods={'observe':player.observe,'actions':player.actions,'query':player.query,
-                     'submit':player.submit,'events':player.events,'rules':player.rules,
-                     'action_state':player.action_state}
+            # 脚本只走 API（capability + method），不看见、也不调用 LLM 工具名。
+            methods={'observe':player.observe,'call':player.call_api,'events':player.events,
+                     'rules':player.rules,'action_state':player.action_state}
+            if name=='call':
+                capability=args[0] if args else kwargs.get('capability')
+                if capability=='sandbox:programs':
+                    raise ValueError('Nested script control calls are forbidden')
             result=methods[name](*args,**kwargs)
-            if name=='actions':result=[r for r in result if r['function']['name'] not in CONTROLS]
             return wire(result)
         machine=Machine(claim['source'],invoke,claim['limits'])
         # Inputs are ordinary detached data; invalid or oversized inputs are

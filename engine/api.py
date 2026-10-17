@@ -106,6 +106,51 @@ class BoundPlayer:
             return receipt
 
     @api_entry
+    def call_api(self, capability=None, method=None, arguments=None, action_label=None, **extra):
+        """Trusted in-process API: capability + declared method, never a tool name.
+
+        Scripts and the rule AI use this path. LLM tool calls still go through
+        submit(), where the model-facing names, schemas and receipts live.
+        """
+        session = self.__session
+        if not isinstance(capability, str) or not isinstance(method, str):
+            raise ValueError('API 需要 capability 与 method 字符串')
+        if arguments is not None and not isinstance(arguments, dict):
+            raise ValueError('参数必须是一个对象：{参数名: 值}')
+        if extra:
+            arguments = {**(arguments or {}), **extra}
+        with session.lock:
+            write = session.runtime.api_is_write(capability, method)
+            detached = deepcopy(arguments) or {}
+            if not self.action_state()['active']:
+                if not write:
+                    raise ValueError('行动控制权已变更；旧句柄不能再读取或行动。')
+                return {'api': API_VERSION, 'actor': self.actor, 'action': action_label or method,
+                        'period': session.clock(), 'ok': False, 'status': 'rejected',
+                        'code': 'unavailable_action',
+                        'message': '行动控制权已变更，旧句柄的后续命令未执行。',
+                        'data': self.action_state()}
+            if write and session.victory_event is not None:
+                return {'api': API_VERSION, 'actor': self.actor, 'action': action_label or method,
+                        'period': session.clock(), 'ok': False, 'status': 'rejected',
+                        'code': 'unavailable_action',
+                        'message': '对局已结束，胜利事件已记录；不能继续行动。',
+                        'data': deepcopy(session.victory_event)}
+            if not write:
+                return session.raw_player(self.actor).api_call(
+                    capability, method, detached, action=action_label)
+            receipt = None
+            def execute():
+                nonlocal receipt
+                receipt = session.raw_player(self.actor).api_call(
+                    capability, method, detached, action=action_label)
+                return wire(receipt)
+            receipt = wire(session.api_call(self, capability, method, detached, execute))
+            label = action_label if isinstance(action_label, str) and action_label else detached.get('action', method)
+            session.record(self, label, detached, receipt)
+            return receipt
+
+    @api_entry
     def record_dialogue(self, messages):
         with self.__session.lock:
             if self.action_state()['active']:

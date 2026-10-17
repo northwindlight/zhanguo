@@ -1,4 +1,5 @@
 """Client forecasts over public facts; optional research service is injected."""
+from . import apimap
 from copy import deepcopy
 from .targeting import relations
 
@@ -6,9 +7,9 @@ from .targeting import relations
 def forecaster(player, observation):
     facts=observation['facts'];_,enemies=relations(observation)
     tiles={tuple(t['position']):t for t in facts['view']}
-    units=facts.get('unit_catalog') or player.query('unit_catalog')
-    terrains={t['id']:t for t in facts.get('terrain_catalog') or player.query('terrain_catalog')}
-    buildings={b['id']:b for b in facts.get('building_catalog') or player.query('building_catalog')}
+    units=facts.get('unit_catalog') or apimap.query(player,'unit_catalog')
+    terrains={t['id']:t for t in facts.get('terrain_catalog') or apimap.query(player,'terrain_catalog')}
+    buildings={b['id']:b for b in facts.get('building_catalog') or apimap.query(player,'building_catalog')}
     # These modifiers are published by the army catalog, rather than imported
     # from a domain module; the forecasting client owns only its approximation.
     def power(group):
