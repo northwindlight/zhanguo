@@ -55,7 +55,7 @@ class Territory:
 
     def check(self, x, y):
         integer(x);integer(y)
-        if x>=self._size or y>=self._size:raise ValueError('Position outside map')
+        if x>=self._size or y>=self._size:raise ValueError(f'坐标超出地图范围：地图是 {self._size}×{self._size}，坐标从 0 开始')
         return x,y
 
     def neighbors(self, x, y):

@@ -131,13 +131,13 @@ class Bank:
     def borrow(self, owner, fee=0):
         """Take the declared credit limit; diplomatic fees are supplied explicitly."""
         self._write();integer(fee)
-        if owner in self._loans:raise ValueError('Account already has a loan')
+        if owner in self._loans:raise ValueError('你已有一笔贷款未还清：还清前不能再向央行借款')
         cash = self._cash(owner)
-        if fee and cash < fee:raise ValueError('Insufficient cash for loan fee')
+        if fee and cash < fee:raise ValueError(f'现金不足以支付借款手续费：需 {fee} 金，现有 {cash} 金')
         principal = self.credit_limit(owner)
-        if principal is None:raise ValueError('GDP is not fully valued')
+        if principal is None:raise ValueError('最近一期报表的 GDP 未能全额估值，授信额度算不出来：先补齐缺项（见 report 与 econ）再借')
         integer(principal)
-        if principal <= 0:raise ValueError('No positive credit limit')
+        if principal <= 0:raise ValueError('当前授信额度为 0：额度按最近一期已结 GDP×5 计算，先做出 GDP 才有钱可借')
         loan = Loan(owner,principal,principal,self.policy.loan_term,self.next_period,self.loan_rate)
         self._call('native:bank-cash','adjust',self.policy.currency,{owner:principal-fee})
         self._loans[owner] = loan
@@ -148,13 +148,13 @@ class Bank:
     def buy_report(self, buyer, target, turn=None):
         self._write()
         cash = self._cash(buyer);self._stocks(target)
-        if buyer==target:raise ValueError('Own reports are already available')
+        if buyer==target:raise ValueError('本国报表本来就免费，不用买：用 report 查询即可')
         reports = self._call('native:economy','reports',target)
         if turn is not None:
             integer(turn);reports=tuple(r for r in reports if r.end==turn)
         if not reports:raise ValueError('指定国家或周期没有已公布报表')
         fee = self.policy.report_fee
-        if fee and cash < fee:raise ValueError('Insufficient cash for report')
+        if fee and cash < fee:raise ValueError(f'现金不足以购买报表：需 {fee} 金，现有 {cash} 金')
         receipt = ReportPurchase(buyer,self.next_period,fee,reports[-1])
         self._call('native:bank-cash','adjust',self.policy.currency,{buyer:-fee})
         # Each buyer has its own bounded history; repeated purchases still cost money.

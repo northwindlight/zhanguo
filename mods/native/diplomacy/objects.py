@@ -133,7 +133,7 @@ class Diplomacy:
     def _ids(self):return self._call('native:nation-inspection','ids')
     def _period(self):return self._call('native:government','period')
     def _living(self, actor):
-        if actor not in self._ids():raise ValueError('Nation is not alive')
+        if actor not in self._ids():raise ValueError('该国已亡国或不存在')
     def alliance(self, actor):return next((b for b in self._alliances.values() if actor in b.members),None)
     def entity(self, actor):
         self._living(actor);bloc=self.alliance(actor)
@@ -143,7 +143,7 @@ class Diplomacy:
         bloc = self._alliances.get(entity[5:]) if entity.startswith('bloc/') else None
         return bloc.members if bloc else ()
     def representative(self, entity):
-        if not self.members(entity):raise ValueError('Diplomatic entity no longer exists')
+        if not self.members(entity):raise ValueError('这个外交实体已不存在（联盟可能已解散）：用 diplomacy 查询当前实体')
         return self._alliances[entity[5:]].chief if entity.startswith('bloc/') else entity[7:]
     def entities(self):return tuple(sorted({self.entity(n) for n in self._ids()}))
     def allied(self, a, b):return a in self._ids() and b in self._ids() and self.entity(a)==self.entity(b)
@@ -157,23 +157,23 @@ class Diplomacy:
             key = tuple(sorted((a,b)));self._truces[key]=max(self._truces.get(key,-1),until)
 
     def _peaceful(self, *entities):
-        if any(self._entity_war(e) for e in entities):raise ValueError('Treaties and membership are frozen during war')
+        if any(self._entity_war(e) for e in entities):raise ValueError('战争期间条约与联盟成员冻结：解约、退盟、改名都要等休战或议和')
     def _pair(self, actor, target):
         self._living(actor);self._living(target);a,b=self.entity(actor),self.entity(target)
-        if a==b:raise ValueError('Both nations belong to the same diplomatic entity')
+        if a==b:raise ValueError('这两国同属一个外交实体：联盟内部不能宣战')
         return a,b
     def _name(self, name):
-        if not isinstance(name,str) or not 1<=len(name)<=self._name_max or any(c.isspace() for c in name):raise ValueError('Invalid alliance display name')
-        if any(b.name==name for b in self._alliances.values()):raise ValueError('Alliance display name already exists')
+        if not isinstance(name,str) or not 1<=len(name)<=self._name_max or any(c.isspace() for c in name):raise ValueError(f'联盟名非法：须为 1—{self._name_max} 个不含空白的字符')
+        if any(b.name==name for b in self._alliances.values()):raise ValueError(f'联盟名「{name}」已被占用，换一个')
     def _policy(self, actor, action):
-        if not self._permits(actor,'action.'+action):raise ValueError('Actor policy disables this action')
+        if not self._permits(actor,'action.'+action):raise ValueError(f'本国政体禁用动作 {action}：见 player_rules 的政体章节')
     def _offer(self, action, actor, target, arguments, parties):
-        if any(o.action==action and o.actor==actor and o.target==target and o.arguments==tuple(arguments.items()) for o in self._offers):raise ValueError('Offer already exists')
+        if any(o.action==action and o.actor==actor and o.target==target and o.arguments==tuple(arguments.items()) for o in self._offers):raise ValueError('你已经发过一模一样的提议且尚未结算，不必重复提交')
         offer = Offer(self._next_offer,action,actor,target,tuple(arguments.items()),tuple(sorted(set(parties))))
         self._next_offer += 1;self._offers.append(offer)
         return offer
     def _vote(self, actor, action, arguments, bloc, parties):
-        if any(v.alliance==bloc.id and v.action==action and v.arguments==tuple(arguments.items()) and v.actor==actor for v in self._votes+self._approved):raise ValueError('Vote already exists')
+        if any(v.alliance==bloc.id and v.action==action and v.arguments==tuple(arguments.items()) and v.actor==actor for v in self._votes+self._approved):raise ValueError('你已经投过这个联盟表决，不能重复投票')
         vote = Vote(self._next_vote,bloc.id,actor,action,tuple(arguments.items()),bloc.members,(),self._period()+1,tuple(sorted(set(parties)|set(bloc.members))))
         self._next_vote += 1;self._votes.append(vote)
         return vote
@@ -189,15 +189,15 @@ class Diplomacy:
     def seed_pact(self, kind, source, target):
         """Administrative scenario initialization; never a player action."""
         self._write();a,b=self._pair(source,target);self._peaceful(a,b)
-        if kind not in ('guarantee','defense') or self.alliance(source) or self.alliance(target):raise ValueError('Initial pact requires independent nations')
-        if not self._permits(source,'accept.treaties') or not self._permits(target,'accept.treaties'):raise ValueError('Policy rejects initial treaty')
-        if any(p.kind==kind and ((p.a,p.b)==(a,b) or kind=='defense' and (p.a,p.b)==(b,a)) for p in self._pacts):raise ValueError('Initial pact already exists')
+        if kind not in ('guarantee','defense') or self.alliance(source) or self.alliance(target):raise ValueError('创盟要求双方都是独立国家：任何一方已在别的联盟里都不能另立新盟')
+        if not self._permits(source,'accept.treaties') or not self._permits(target,'accept.treaties'):raise ValueError('双方政体中至少有一方不接受该初始条约')
+        if any(p.kind==kind and ((p.a,p.b)==(a,b) or kind=='defense' and (p.a,p.b)==(b,a)) for p in self._pacts):raise ValueError('这份初始条约已经存在，不必重复缔结')
         pact=Pact(kind,*(sorted((a,b)) if kind=='defense' else (a,b)));self._pacts.append(pact);return pact
 
     def _apply_guarantee(self, actor, target, *, approved=False):
         a,b = self._pair(actor,target);self._peaceful(a,b)
-        if not self._permits(target,'accept.treaties'):raise ValueError('Target policy rejects treaties')
-        if any(p.kind=='defense' and {p.a,p.b}=={a,b} or p.kind=='guarantee' and (p.a,p.b)==(a,b) for p in self._pacts):raise ValueError('Treaty already exists')
+        if not self._permits(target,'accept.treaties'):raise ValueError('对方政体不接受条约：换对象或改用其他外交手段')
+        if any(p.kind=='defense' and {p.a,p.b}=={a,b} or p.kind=='guarantee' and (p.a,p.b)==(a,b) for p in self._pacts):raise ValueError('这份条约已经存在')
         routed=self._route(actor,'guarantee',{'target':target},approved,self.members(b))
         if routed:return routed
         pact=Pact('guarantee',a,b);self._pacts.append(pact);return pact
@@ -212,7 +212,7 @@ class Diplomacy:
 
     def _apply_propose_defense(self, actor, target, *, approved=False):
         a,b=self._pair(actor,target);self._peaceful(a,b)
-        if not self._permits(target,'accept.treaties'):raise ValueError('Target policy rejects treaties')
+        if not self._permits(target,'accept.treaties'):raise ValueError('对方政体不接受条约：换对象或改用其他外交手段')
         if any(p.kind=='defense' and {p.a,p.b}=={a,b} for p in self._pacts):raise ValueError('Defense pact already exists')
         routed=self._route(actor,'propose_defense',{'target':target},approved,self.members(b))
         if routed:return routed

@@ -212,7 +212,7 @@ class TestReplaceExistingContent(unittest.TestCase):
         native_kinds, native_error = verdict(EXAMPLES / 'recipes_dist')
         plain_kinds, plain_error = verdict(EXAMPLES / 'no_power_dist')
         self.assertIn('native:wood-power-plant', native_kinds)
-        self.assertIn('energy shortage', native_error)
+        self.assertIn('电网不足', native_error)
         self.assertNotIn('native:wood-power-plant', plain_kinds)
         self.assertTrue(plain_error is None or 'energy' not in plain_error)
 

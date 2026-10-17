@@ -66,12 +66,12 @@ class Intelligence:
     def submit(self, owner, target, kind, *, text='', resource=None, quantity=0):
         self._write()
         if self._world is not None and self._world.phase!='行动':raise ValueError('Submit only during action phase')
-        if owner not in self._ids() or target not in self._ids() or owner==target:raise ValueError('Two distinct living nations required')
-        if kind not in ('letter','gift','map','spy') or not self._permits(owner,'communication.'+kind):raise ValueError('Communication disabled or unknown')
+        if owner not in self._ids() or target not in self._ids() or owner==target:raise ValueError('收信方须是另一个存活国家：不能发给自己，也不能发给已亡国')
+        if kind not in ('letter','gift','map','spy') or not self._permits(owner,'communication.'+kind):raise ValueError('这种通信不可用：kind 须为 letter/gift/map/spy 之一，且须为政体未禁用的动作')
         integer(quantity)
         fee=self._rules['Fee']
         if kind=='letter':
-            if not isinstance(text,str) or not text.strip():raise ValueError('Letter cannot be empty')
+            if not isinstance(text,str) or not text.strip():raise ValueError('信件正文不能为空：写清诉求与预期收益再发，按字数计费')
             base=self._rules['LetterAlly'] if self._call('native:diplomacy','allied',owner,target) else self._rules['LetterBase']
             fee=max(self._rules['LetterMinimum'],base-self._centers(owner)*self._rules['CenterDiscount'])
             fee+=math.ceil(max(0,len(text)-self._rules['FreeCharacters'])/self._rules['CharactersPerGold'])
@@ -83,7 +83,7 @@ class Intelligence:
         reserved={'native:gold':fee} if fee else {}
         if kind=='gift':
             content_id(resource);integer(quantity,1);reserved[resource]=reserved.get(resource,0)+quantity
-        elif resource is not None or quantity:raise ValueError('Only gifts carry resource quantities')
+        elif resource is not None or quantity:raise ValueError('只有 gift 能随信附物资：letter/map/spy 不接受 resource 与 quantity')
         stocks={s.id:s.amount for s in self._call('native:resource-inspection','snapshot',owner)}
         for key,value in reserved.items():
             if key not in stocks or stocks[key]<value:raise DomainRejection('通信资源不足',{'reason':'insufficient_resource','resource':key,'required':value,'available':stocks.get(key,0)})
@@ -185,7 +185,7 @@ class Intelligence:
     def send(self, owner, text):
         """来信：只对该国家可见。"""
         self._write();self._call('native:nation-inspection','get',owner)
-        if not isinstance(text,str) or not text.strip():raise ValueError('Letter cannot be empty')
+        if not isinstance(text,str) or not text.strip():raise ValueError('信件正文不能为空：写清诉求与预期收益再发，按字数计费')
         message=Message(self._next_dispatch,'observer',owner,'observer-letter',self._period(),{'sender':'神秘人','text':text})
         self._next_dispatch+=1;self._remember(message)
         return self.emit('observer-letter', '神秘人来信：'+text, parties=(owner,))

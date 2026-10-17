@@ -143,6 +143,16 @@ class TestArchive(unittest.TestCase):
         self.assertNotIn("  第5回合：", text)     # 已被块总结覆盖，不再重复列
         self.assertIn("  第25回合：", text)
 
+    def test_long_memory_identical_to_newest_block_is_not_sent_twice(self):
+        """压缩当回合把同一段正文既写进 long_memory 又追加成一个块；归档只留一处。"""
+        blocks = [{"from": 0, "to": 6, "text": "同一段长期记忆", "turn": 7}]
+        text = ctx.render_archive([], blocks, 15, 99999, long_memory="同一段长期记忆")
+        self.assertEqual(text.count("同一段长期记忆"), 1)
+        # 两者确实不同时，块与长期记忆都必须保留。
+        other = ctx.render_archive([], blocks, 15, 99999, long_memory="累积扩写后的新记忆")
+        self.assertIn("同一段长期记忆", other)
+        self.assertIn("累积扩写后的新记忆", other)
+
     def test_cap_truncates_oldest(self):
         text = ctx.render_archive(sums_upto(200), [], 201, cap=2000)
         self.assertIn("已省略", text)

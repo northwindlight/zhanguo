@@ -58,7 +58,7 @@ class PlayerSession:
     def _validate(self):
         collection = getattr(self.__world, self.__runtime.distribution.get('ActorCollection', 'actors'), ())
         if self.actor not in collection:
-            raise ValueError('Actor is not active')
+            raise ValueError('该国当前不能行动：已亡国，或不在行动阶段')
 
     def _period(self):
         clock = self.__runtime.distribution.get('PlayerClock')
@@ -87,7 +87,7 @@ class PlayerSession:
     def query(self, name, arguments=None):
         with self.__lock:
             self._validate()
-            if arguments is not None and not isinstance(arguments,dict):raise ValueError('Arguments must be an object')
+            if arguments is not None and not isinstance(arguments,dict):raise ValueError('参数必须是一个对象：{参数名: 值}')
             if name in BUILTINS:
                 methods={'player_state':self.observe,'player_rules':self.rules,'player_events':self.events,'memory_search':self.memory_search}
                 try:inspect.signature(methods[name]).bind(**(arguments or {}))
@@ -95,7 +95,7 @@ class PlayerSession:
                 return wire(methods[name](**(arguments or {})))
             tool = self.__runtime.tools.get(name)
             if tool is None or not tool.read_only:
-                raise ValueError('Query requires a registered read-only action')
+                raise ValueError('query 只能查已注册的只读动作；会改状态的动作请用 submit')
             return wire(self.__runtime.call(self.__world,self.actor,name,arguments or {}))
 
     def memory_search(self,query,limit=3):
@@ -123,20 +123,20 @@ class PlayerSession:
             try:
                 if self.actor not in collection:
                     code = 'inactive_actor'
-                    raise ValueError('Actor is not active')
+                    raise ValueError('该国当前不能行动：已亡国，或不在行动阶段')
                 if not isinstance(action,str):
-                    code='unknown_action';raise ValueError('Action name must be a string')
+                    code='unknown_action';raise ValueError('动作名必须是字符串')
                 if action in BUILTINS:
                     data=self.query(action,arguments)
                     return {**base,'ok':True,'status':'effective','code':None,'message':'','data':data}
                 if action not in self.__runtime.tools:
                     code = 'unknown_action'
-                    raise ValueError('Unknown action')
+                    raise ValueError(f'未知动作：{action}；动作名以当前工具表为准')
                 code = 'unavailable_action'
                 self.__runtime.require_tool(self.__world, self.actor, action)
                 code = 'invalid_arguments'
                 if arguments is not None and not isinstance(arguments, dict):
-                    raise ValueError('Arguments must be an object')
+                    raise ValueError('参数必须是一个对象：{参数名: 值}')
                 # ToolArgumentError distinguishes transport mistakes from
                 # programming faults inside a module.
                 code = 'domain_rejected'
@@ -188,7 +188,7 @@ class PlayerSession:
             return {'cursor': max([cursor, *(e['id'] for e in records)]), 'items': records}
 
     def rules(self, topic=''):
-        if not isinstance(topic,str):raise ValueError('Topic must be a string')
+        if not isinstance(topic,str):raise ValueError('topic 必须是字符串；省略 topic 可查看全部规则目录')
         with self.__lock:
             self._validate()
             # Include only public sections from modules in this actor's scope.

@@ -473,9 +473,14 @@ def render_archive(sums: list[dict], blocks: list[dict], before_turn: int,
     for b in blocks:
         covered.update(range(int(b["from"]), int(b["to"]) + 1))
     items: list[tuple[int, str]] = []
+    memory = str(long_memory or "").strip()
     for b in blocks:
-        items.append((int(b["from"]),
-                      messages("archive.block",start=b["from"],end=b["to"],text=str(b.get("text", "")).strip())))
+        text = str(b.get("text", "")).strip()
+        # 压缩当回合同一段正文既写进 long_memory 又追加成一个 block；归档里只留一处，
+        # 否则每回合都把同一份长期记忆发两遍（模型还会看到两个都叫「长期记忆」的块）。
+        if memory and text == memory:
+            continue
+        items.append((int(b["from"]), messages("archive.block", start=b["from"], end=b["to"], text=text)))
     for s in sums:
         if int(s["turn"]) not in covered:
             items.append((int(s["turn"]), messages("archive.turn",turn=s["turn"],text=s["text"])))

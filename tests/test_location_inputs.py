@@ -54,7 +54,7 @@ class LocationInputs(TestCase):
             f,w,p=self.world();name=w.territory.cell(1,1).tile.name
             before=f.save(w)
             receipt=p.submit('recruit',{alias:name,'kind':'militia'})
-            self.assertFalse(receipt['ok']);self.assertEqual(receipt['message'],'No militia camp at this site')
+            self.assertFalse(receipt['ok']);self.assertIn('军屯',receipt['message'])
             enemy=w.territory.cell(2,1).tile.name
             for action in ('recruit','build'):
                 receipt=p.submit(action,{alias:enemy,'kind':'militia' if action=='recruit' else 'castle'})

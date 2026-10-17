@@ -115,7 +115,8 @@ class ArmyMod(GameMod):
     def _disband(world, actor, aid: int | None=None, ids: list[int] | None=None):
         ids=ArmyMod._selection(aid,ids)
         own={u.id:u for u in world.military.snapshot(actor)}
-        if any(i not in own or not world.military.can_disband(actor,i) or not own[i].alive for i in ids):raise ValueError('批量遣散包含不存在或交战中的军队')
+        bad=[i for i in ids if i not in own or not world.military.can_disband(actor,i) or not own[i].alive]
+        if bad:raise ValueError('这些军队不能遣散：'+'、'.join(f'#{i}' for i in bad)+'。不存在、已阵亡，或正在交战/受到进攻的军队都不能遣散（交战中先用 retreat 撤出，下回合再遣散）')
         receipts=tuple(world.military.disband(actor,i) for i in ids)
         return receipts[0] if len(receipts)==1 else receipts
     @staticmethod

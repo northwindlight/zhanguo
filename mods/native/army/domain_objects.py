@@ -57,7 +57,7 @@ class Military:
         self._write();self._grid_short={row.owner:row.short for row in reports}
     def _own_unit(self, owner, aid):
         integer(aid,1);unit=self._units.by_id(aid,owner)
-        if unit is None or not unit.alive:raise ValueError('Unknown living unit')
+        if unit is None or not unit.alive:raise ValueError(f'没有这支军队：#{aid} 不存在或已阵亡。编号用 army 查询里本国军队的 id（不是固定兵种号）')
         return unit
     def snapshot(self, owner=None):
         return tuple(deepcopy(u) for u in self._units if owner is None or u.owner==owner)
@@ -75,30 +75,32 @@ class Military:
     def seed(self, owner, kind, x, y, count=1):
         self._write();self._living(owner);integer(count,1);self._sync()
         self._call('native:territory','check',x,y)
-        if kind not in self._units.type_ids:raise ValueError('Unknown unit kind')
-        if self._units.next_army_seq.get(owner,0)+count>=ARMY_GID_BASE:raise ValueError('Unit sequence exhausted')
+        if kind not in self._units.type_ids:raise ValueError(f'未知兵种：{kind}。可用兵种与短键见 unit_catalog')
+        if self._units.next_army_seq.get(owner,0)+count>=ARMY_GID_BASE:raise ValueError('本国军队编号已用尽，无法再新增军队')
         return tuple(deepcopy(self._units.spawn(owner,kind,x,y)) for _ in range(count))
     def recruit_quote(self, owner, site: str, kind: str, count=1, *, energy_short=False):
         self._living(owner);integer(count,1)
         place=self._call('native:buildings','site',site)
-        if place.owner!=owner:raise ValueError('Site does not belong to actor')
-        if kind not in self._units.type_ids:raise ValueError('Unknown unit kind')
+        if place.owner!=owner:raise ValueError('只能在本国地块征召：该地块不属于你。用 land 查本国国土与坐标')
+        if kind not in self._units.type_ids:raise ValueError(f'未知兵种：{kind}。可用兵种与短键见 unit_catalog')
         period=self._period();key=(period,site,kind=='native:militia')
         building='native:militia-camp' if kind=='native:militia' else 'native:barracks'
         effect=self._effect(site,building)
         if kind=='native:militia':
             # 说明书第十八条：民兵只能在自有已落成军屯征召；第十九条再核全国编制。
-            if not effect.get('militia_cap'):raise ValueError('No militia camp at this site')
+            if not effect.get('militia_cap'):raise ValueError('该地没有军屯：民兵只能在自有已落成的军屯征召（每座军屯可驻 2 支，驻本格免补给）')
             per=effect.get('militia_per_turn',0)
             cap=sum(self._effect(s.id,building).get('militia_cap',0) for s in self._call('native:buildings','snapshot').sites if s.owner==owner)
-            if sum(u.kind==kind and u.alive for u in self._units.of(owner))+count>cap:raise ValueError('National militia capacity exceeded')
+            have=sum(u.kind==kind and u.alive for u in self._units.of(owner))
+            if have+count>cap:raise ValueError(f'全国民兵编制已满：军屯每座可驻 2 支，上限 {cap} 支，现有 {have} 支，本次还要再加 {count} 支。先增建军屯，或裁撤旧民兵')
         else:
-            if not effect.get('recruit_cap'):raise ValueError('No barracks at this site')
+            if not effect.get('recruit_cap'):raise ValueError('该地没有兵营：步兵与骑兵只能在自有已落成的兵营征召，每兵营每回合 1 支')
             per=effect.get('recruit_cap',0)
-            if energy_short:raise ValueError('Recruitment halted by energy shortage')
-        if self._recruited.get(key,0)+count>per:raise ValueError('Site recruitment quota exceeded')
+            if energy_short:raise ValueError('上期电网不足，征兵停摆：电网不足时补给厂/装备厂/兵营/市政厅全部停摆。先补燃料与电厂，结算后再征')
+        used=self._recruited.get(key,0)
+        if used+count>per:raise ValueError(f'该地本回合征兵额度已用尽：每地每回合 {per} 支，本回合已用 {used} 支，本次要 {count} 支。下回合再征，或换另一座兵营')
         x,y=place.position;self._call('native:territory','check',x,y)
-        if self._units.next_army_seq.get(owner,0)+count>=ARMY_GID_BASE:raise ValueError('Unit sequence exhausted')
+        if self._units.next_army_seq.get(owner,0)+count>=ARMY_GID_BASE:raise ValueError('本国军队编号已用尽，无法再新增军队')
         overrides=self._parameter(owner,'recruit',{})
         recipe=overrides.get(kind,self._units.definition(kind)['recruit'])
         costs={key:integer(value,1)*count for key,value in recipe.items()}
@@ -118,7 +120,8 @@ class Military:
         count=actual
         quote=self.recruit_quote(owner,site,kind,count,energy_short=energy_short)
         costs=quote['costs'];period=quote['period'];x,y=quote['position'];key=(period,site,kind=='native:militia')
-        if any(self._stock(owner,key)<value for key,value in costs.items()):raise ValueError('Insufficient recruitment resources')
+        short={key:value-self._stock(owner,key) for key,value in costs.items() if self._stock(owner,key)<value}
+        if short:raise ValueError('征兵材料不足：'+'、'.join(f'{key.split(":",1)[-1]} 缺 {value}' for key,value in short.items())+'。先补料、减少数量，或等下回合产出')
         self._call('native:resource-exchange','exchange',owner,costs,{})
         created=tuple(self._units.spawn(owner,kind,x,y,turn=period,newborn=True) for _ in range(count))
         self._recruited[key]=self._recruited.get(key,0)+count
@@ -159,10 +162,10 @@ class Military:
         return tuple(sorted(best.items()))
     def _batch(self, owner, ids, x, y, attack):
         self._action(owner);self._call('native:territory','check',x,y)
-        if not isinstance(ids,(list,tuple)) or not ids or len(set(ids))!=len(ids):raise ValueError('Unit IDs must be a nonempty unique list')
+        if not isinstance(ids,(list,tuple)) or not ids or len(set(ids))!=len(ids):raise ValueError('ids 须为非空且不重复的军队编号数组；单支军队用 aid')
         units=[self._own_unit(owner,aid) for aid in ids];period=self._period()
-        if any(not (u.can_attack(period,x,y) if attack else u.can_act(period)) for u in units):raise ValueError('A unit has no action available')
-        if not attack and any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner) for u in units for v in self._units.at(u.x,u.y)):raise ValueError('Defending unit must retreat after battle')
+        if any(not (u.can_attack(period,x,y) if attack else u.can_act(period)) for u in units):raise ValueError('这支军队本回合不能行动：新兵当回合不能动、每军每回合只能行动一次、交战中的须先撤退。逐军状态见 army 回执')
+        if not attack and any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner) for u in units for v in self._units.at(u.x,u.y)):raise ValueError('交战中不能普通移动：先用 retreat 撤出战场，下回合再移动')
         paths={}
         for u in units:
             key=(u.x,u.y,u.kind,self._parameter(owner,'unit.speed.'+u.kind,u.definition['speed']))
@@ -178,7 +181,7 @@ class Military:
         if not valid:
             if target_blocked and not self._call('native:vision','visible',owner,x,y):
                 for unit in units:unit.update(moved_turn=period)
-                return MilitaryReceipt('failed',tuple(ids),False,True,message='Unseen path or target is blocked')
+                return MilitaryReceipt('failed',tuple(ids),False,True,message='未探明路线或目标位置受阻（盲推）：沿路地形与敌情不明，撞墙照实报告，但移动额度照烧。可先用 tile 探明单格')
             raise ValueError('目标被阻挡：须先宣战、选择合法移动格或改用进攻' if target_blocked else '超出本回合移动范围，或沿途有阻挡；请查询 reachable 并分回合行军')
         return units
     def move(self, owner, aid, x, y):
@@ -225,22 +228,22 @@ class Military:
             self._claim(owner,x,y)
             for unit in units:unit.disengage()
         return MilitaryReceipt('effective',tuple(ids),changed,changed,not defenders,defenders,
-                               'Entered battle; occupation pending' if defenders else 'Occupied')
+                               '已进入交战，占地等结算——别把提交当战果' if defenders else '已占领该地')
     def retreat(self, owner, aid, x, y):
         return self.retreat_many(owner,[aid],x,y)
     def retreat_many(self, owner, ids, x, y):
         self._action(owner);self._call('native:territory','check',x,y);period=self._period()
-        if not isinstance(ids,(list,tuple)) or not ids or len(set(ids))!=len(ids):raise ValueError('Unit IDs must be a nonempty unique list')
+        if not isinstance(ids,(list,tuple)) or not ids or len(set(ids))!=len(ids):raise ValueError('ids 须为非空且不重复的军队编号数组；单支军队用 aid')
         units=[self._own_unit(owner,aid) for aid in ids];plans=[]
         for unit in units:
             attacked=any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner) for v in self._units.at(unit.x,unit.y))
-            if unit.born_turn==period or unit.moved_turn==period or not (unit.engaged or attacked):raise ValueError('Retreat action unavailable')
-            if (x,y) not in self._call('native:territory','neighbors',unit.x,unit.y) or not self._pass(owner,x,y):raise ValueError('Illegal retreat position')
+            if unit.born_turn==period or unit.moved_turn==period or not (unit.engaged or attacked):raise ValueError('这支军队不能撤退：须正在交战或本格正被进攻，且本回合未行动、不是新兵')
+            if (x,y) not in self._call('native:territory','neighbors',unit.x,unit.y) or not self._pass(owner,x,y):raise ValueError('撤退目标非法：只能退到相邻格，且须是野地、自家或盟国格；敌国领土不能撤进去')
             defender=not any(v.alive and v.engaged and v.owner==owner for v in self._units.at(unit.x,unit.y)) or self._call('native:territory','owner',unit.x,unit.y)==owner
             plans.append((unit,defender))
         for unit,defender in plans:
             unit.update(retreat_to=(x,y),retreat_role='守' if defender else '攻',retreat_cover=RETREAT_DEF_COVER if defender else 100,moved_turn=period)
-        return MilitaryReceipt('submitted',tuple(ids),False,True,engaged=True,message='Withdrawal pending; unit remains in battle')
+        return MilitaryReceipt('submitted',tuple(ids),False,True,engaged=True,message='撤退已提交，本回合仍参加战斗，结算后才退出')
     def can_disband(self, owner, aid):
         unit=self._own_unit(owner,aid)
         return not unit.engaged and not any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner) for v in self._units.at(unit.x,unit.y))
@@ -248,7 +251,7 @@ class Military:
     def disband(self, owner, aid):
         self._action(owner);unit=self._own_unit(owner,aid)
         if not self.can_disband(owner,aid):raise ValueError('正在交战或受到进攻的军队不能遣散；请提交撤退并等待结算')
-        self._units.remove(unit);return MilitaryReceipt('effective',(aid,),False,False,message='Disbanded without refund')
+        self._units.remove(unit);return MilitaryReceipt('effective',(aid,),False,False,message='已遣散，不退还任何粮/装备/黄金')
 
     def disengage(self, owners):
         """亡国当场的强制停战（用户 2026-10-07：「正在发生的战争必须强制停下」）。
