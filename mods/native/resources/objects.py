@@ -40,6 +40,17 @@ class ResourceAccounts:
     def ids(self):
         return tuple(self._types)
 
+    def role_ids(self, role):
+        if not isinstance(role, str):raise ValueError('Invalid resource role')
+        result=tuple(key for key, cls in self._types.items() if role in (getattr(cls,'ROLES',()) or ()))
+        if not result:raise ValueError(f'没有资源声明角色：{role}')
+        return result
+
+    def currency(self):
+        ids=self.role_ids('currency')
+        if len(ids)!=1:raise ValueError(f'货币资源必须恰好有一个：{ids}')
+        return ids[0]
+
     def open(self, owner, amounts=None):
         self._write()
         if not isinstance(owner, str) or not owner:

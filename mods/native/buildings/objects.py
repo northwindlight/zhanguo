@@ -188,6 +188,39 @@ class Buildings:
         additive={'recruit_cap','militia_cap','militia_per_turn'}
         return MappingProxyType({key:value*count if key in additive else value for key,value in self._type(kind).EFFECTS.items()}) if count else MappingProxyType({})
 
+    def roles_of(self, kind):
+        return tuple(getattr(self._type(kind), 'ROLES', ()) or ())
+
+    def kinds_with_role(self, role):
+        if not isinstance(role, str):raise ValueError('Invalid building role')
+        result=tuple(kind for kind, cls in self._types.items() if role in (getattr(cls,'ROLES',()) or ()))
+        if not result:raise ValueError(f'没有建筑声明角色：{role}')
+        return result
+
+    def kind_with_role(self, role):
+        """The single building kind for a role that must be unique (e.g. recruiter)."""
+        kinds=self.kinds_with_role(role)
+        if len(kinds)!=1:raise ValueError(f'角色 {role} 必须恰好有一个建筑：{kinds}')
+        return kinds[0]
+
+    def has_role(self, site_id, role, *, completed_only=True):
+        self._sites[site_id]
+        kinds=set(self.kinds_with_role(role))
+        return any(item.site==site_id and (item.completed or not completed_only) and item.kind in kinds
+                   for item in self._index().get(site_id,()))
+
+    def count_role(self, site_id, role, *, completed_only=True):
+        kinds=set(self.kinds_with_role(role))
+        return sum(item.site==site_id and (item.completed or not completed_only) and item.kind in kinds
+                   for item in self._index().get(site_id,()))
+
+    def effect_role(self, site_id, role, key, default=0):
+        """Aggregate a per-instance effect across every kind declaring the role."""
+        total=0
+        for kind in self.kinds_with_role(role):
+            total+=(self._type(kind).EFFECTS.get(key,0) or 0)*self.count(site_id,kind)
+        return total if total else default
+
     def _check_slots(self, site, cls, count=1):
         existing = list(self._index().get(site.id, ()))
         same = sum(item.kind==cls.TYPE_ID for item in existing)

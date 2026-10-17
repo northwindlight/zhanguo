@@ -1,6 +1,10 @@
 # 更新记录
 
-## 未发行 — 2026-10-18（面板与事实收口，需新档）
+## 0.4.0 — 2026-10-18（API/tool 分层、面板与事实收口、内容角色，需新档）
+
+本版把 API 与 tool 分开、只读面板与事实收口、补齐内容角色与同源数值。工具名、schema、事实形状、内容角色与模块版本都变了，**旧档一律读不进来，需新档**。native 4.8.0 / experimental 0.8.0。
+
+### 面板与事实收口
 
 - **面板只有一个来源**：删除 `GameMod.panels()` 与 `Panel`。`Tool(panel=True)` 的只读工具同时是 `query(panel=…)` 与 `Runtime.panel(name)` 的数据源，`Runtime.panel` 只做作用域/策略分发；依赖清单的 `panels` 改为派生清单（8 → 23）。匈奴的 `polity` 调试面板随模块面板一并删除，政体参数仍走 `runtime.parameter`。
 - **事实层合并**：`observe()` 的 22 个事实收成 19 个。`nation`/`nations`/`countries`/`diplomacy` 不再各自扇出，合并为 `foreign`（payload 仍是这四块）；只读工具照旧注册、仍可按名查询。发行版 `PlayerState` 名单同步改成 `foreign`。终端、地图与模型呈现入口把 `foreign` 一次展开，渲染口径不变；规则 AI 读合并后的事实。
@@ -8,7 +12,18 @@
 - **伞工具英文文案**：摘要与 `action` 说明进入 tool 层语言目录，`en-US` 局不再看到中文工具说明。
 - 工具面与事实形状都变了，**旧档读不进来，需新档**。回归：全量离线 638 项通过；说明书同步。
 
-## 未发行 — 2026-10-18（API 与 tool 分离）
+### 内容角色、同源数值与跨模块契约
+
+- **内容角色**：注册期校验并索引定义上的 `ROLES`。建筑声明 `capital`/`recruiter`/`militia`/`castle`/`vision`/`academy`/`power`，资源声明 `currency`/`supply`/`construction`。succession、vision、army、economy_queries、diplomacy、intelligence 改按角色查询（`kinds_with_role`/`kind_with_role`/`has_role`/`count_role`/`effect_role`、`role_ids`/`currency`），不再写建筑或货币的内容 ID；加一座「也算首都/也能征兵」的建筑只改属主模块。
+- **地形单一登记**：单位 `move_cost` 直接用地形 ID，删除 army 的中文→ID 映射；中文地形名只留在 map_generation 边界。
+- **字形进目录**：地形定义与兵种映射带 `glyph`，地图 PNG/SVG 与文字地图从公开目录取字形和建筑角色，UI 不再维护地形/建筑/兵种常量；议会评审裁剪目录后仍与君主看到同一张图。
+- **数值同源**：新增 `Runtime.number(key)`；规则正文支持 `{{number:key}}`，`rule_sections()` 与 `player.rules()` 统一替换。战争/基础手册的掉血、回血、装备消耗改占位符，`generate_manual --check` 覆盖手册数字。
+- **跨模块契约**：研究模块读 `runtime.number('army.combat-die')`；经济估算从建筑定义读摊销/密度参数，不再 import government 参数；`economy_queries` 只依赖 engine `Building` 契约；bank 读报表改走 `native:economy.report_from_save`；研究规则客户端移到 `ruleai/v11plus/research.py`，`mods/` 内不再 import ruleai。`observer.add` 按政体 `Aliases` 识别匈奴，不再写死名字。
+- native README 不再手抄模块/工具/阶段计数，指向运行时表。
+- 模块版本：native 4.8.0、resources 1.5.0、buildings 2.7.0、economy-reports 1.5.0、economy-queries 1.5.0、government 2.2.0、handbooks 1.3.0、territory 2.4.0、vision 1.3.0、army 2.7.0、succession 1.1.0、diplomacy 2.6.0、intelligence 1.3.0、bank 1.4.0、huns 2.3.0；experimental 0.8.0、combat-research 1.1.0。
+- 回归：全量离线 643 项通过；说明书重新生成。
+
+### API 与 tool 分离
 
 API 是 API，tool 是 tool：tool 只给 LLM 用；脚本与规则 AI 不再按工具名调用，统一走 `call_api(capability, method, arguments)` 直接调用模块 `[PlayerAPI]`。
 

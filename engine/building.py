@@ -53,6 +53,7 @@ class BuildingSnapshot:
 class Building:
     TYPE_ID = ''
     NAME_KEY = ''
+    ROLES = ()
 
     def __init__(self, identity, site, *, level=1, remaining=0):
         content_id(self.TYPE_ID);content_id(site)

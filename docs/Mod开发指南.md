@@ -115,6 +115,11 @@ class HelloMod(GameMod):
         world.hello = dict(state)
 ```
 
+规则正文里的数字写成 `{{number:army.starvation}}`：`Runtime.rule_sections()` 与
+`PlayerSession.rules()` 会把它替换成对应模块 `numbers()` 登记的值，手册不再手抄参数。
+值不存在时装载/查询直接报错（键名拼错不会静默留占位符）。`{{SETTLEMENT_STAGES}}`
+仍展开为结算顺序表。
+
 装载一个模块有两种方式：
 
 ```python
@@ -160,6 +165,10 @@ class TeaMod(GameMod):
 资源域会枚举内容表里所有 `Resource` 子类，自动为其建立账户、库存、只读接口与存档，
 `mods/native/resources/` 不需要改动。定义用 `NAME_KEY` 保留展示名键；模块须另外提供对应语言文案。当前资源注册不会自动装载本地化文件。
 `TRADEABLE = False` 的资源不能上市，账户与存档不受影响。
+
+资源可以声明**角色**（`ROLES`）：`currency`（货币）、`supply`（补给）、`construction`（建材）。
+跨模块规则按角色取 ID（`native:resource-inspection` 的 `role_ids/currency`），不写死内容 ID；
+换一种货币资源只改资源模块。角色名必须小写，同一 ID 内不得重复。
 
 **注册不等于上市。** 商品清单由市场模块自己的 `[[Listings]]` 声明决定，
 引擎不合并来自别处的商品。要让新资源可以买卖，需要一份包含它的市场声明，
@@ -283,6 +292,7 @@ class ElephantsMod(GameMod):
 | `supply` / `atk` | 整数，`≥ 0` |
 | `recruit` | 非空映射：资源 ID → 正整数（征兵消耗） |
 | `move_cost` | 非空映射：**地形 ID** → 整数 `≥ 1`（进入该地形的移动力消耗） |
+| `glyph` | 可选：地图上的单字字形（如 `'E'`）；缺省取 ID 首字母 |
 
 `move_cost` 的键是地形内容 ID（`native:plain`、`native:forest`、`native:hill`、
 `native:mountain`、`native:desert`），不是地形中文名。运行期以
@@ -365,6 +375,24 @@ class NoPowerBuildingsMod(BuildingsMod):
 配套的 `buildings.toml` 与 native 的逐字相同，只改 `Version` 与 `Entry` 两行，
 `Id` 与 `[Capabilities] Provides` 保持不变 —— 别的模块按 Id 与能力名引用它。
 发行版里把 `native/buildings/mod.toml` 换成这一份即可。
+
+### 建筑角色
+
+建筑类除 `TYPE_ID` / `GOLD_COSTS` / `EFFECTS` 外可声明 `ROLES`：
+
+| 角色 | 含义 | 消费方 |
+| --- | --- | --- |
+| `capital` | 失去全部即亡国 | succession、army 驻守/占领事件、地图 |
+| `recruiter` | 征兵建筑（每座每回合 1 支） | army |
+| `militia` | 民兵驻屯（编制与免补给） | army |
+| `castle` | 防守减伤 | army、地图 |
+| `vision` | 开阔视野 | vision |
+| `academy` | 建造折价 | 经济估算 |
+| `power` | 电网基准燃料 | 经济估算 |
+
+消费方按角色查询 `native:buildings` 的 `kinds_with_role` / `kind_with_role` /
+`has_role` / `count_role` / `effect_role`，不写建筑 ID；新增一座同类建筑只改属主模块。
+地形定义带 `glyph`，兵种映射可带 `glyph`，地图字形来自公开目录而不是 UI 常量。
 
 关于电力：单个建筑只在自身 `ENERGY_USE` 非零、且所在国电网短缺时停摆；
 而**征兵**看的是全国电网口径（`army.grid_short`），只要国内任何一个耗电建筑

@@ -90,7 +90,8 @@ class ArmyAPI:
             reachable.update(p for p, cost in paths[key] if p != (u.x, u.y))
             counts.append({'id': u.id, 'kind': u.kind, 'reach': max(0, len(paths[key]) - 1)})
         snap = call(world, 'native:buildings', 'snapshot')
-        hall_sites = {b.site for b in snap.instances if b.kind == 'native:town-hall' and b.remaining == 0}
+        capital = set(call(world, 'native:buildings', 'kinds_with_role', 'capital'))
+        hall_sites = {b.site for b in snap.instances if b.kind in capital and b.remaining == 0}
         halls = {s.position: s for s in snap.sites if s.owner == actor and s.id in hall_sites}
         units = self.military.visible_units(actor)
         halls = {p: s for p, s in halls.items() if not any(
@@ -146,8 +147,8 @@ class ArmyAPI:
             troops = [u for u in units if (u.x, u.y) == (x, y) and u.alive and (visible or u.owner == actor)]
             fact = call(world, 'native:territory', 'cell', x, y) if visible else None
             terrain = call(world, 'native:territory', 'terrain', x, y) if visible else None
-            castle = (call(world, 'native:buildings', 'effects', fact.tile.id, 'native:castle').get('defense_per_level', 0) *
-                      call(world, 'native:buildings', 'count', fact.tile.id, 'native:castle')) if fact and fact.tile.id else 0
+            castle = call(world, 'native:buildings', 'effect_role', fact.tile.id, 'castle',
+                          'defense_per_level') if fact and fact.tile.id else 0
             active = {u.owner for u in troops if u.engaged and u.owner != '野人'}
             sides = []
             for owner in sorted({u.owner for u in troops}):
@@ -174,7 +175,9 @@ class ArmyAPI:
         fact = call(world, 'native:territory', 'cell', x, y)
         snap = call(world, 'native:buildings', 'snapshot')
         full = fact.owner == actor or fact.owner is None and any(b.site == fact.tile.id for b in snap.instances)
-        buildings = [b for b in snap.instances if b.site == fact.tile.id and (full or b.remaining == 0 and b.kind in ('native:castle', 'native:town-hall'))]
+        public = set(call(world, 'native:buildings', 'kinds_with_role', 'castle')) | set(
+            call(world, 'native:buildings', 'kinds_with_role', 'capital'))
+        buildings = [b for b in snap.instances if b.site == fact.tile.id and (full or b.remaining == 0 and b.kind in public)]
         result = {'position': (x, y), 'name': fact.tile.name if fact.owner is not None else '', 'terrain': fact.tile.terrain, 'owner': fact.owner,
                   'buildings': [{'kind': b.kind, 'level': b.level, 'remaining': b.remaining} for b in buildings],
                   'army': [u for u in self.military.visible_units(actor) if (u.x, u.y) == (x, y)]}

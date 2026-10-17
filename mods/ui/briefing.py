@@ -48,8 +48,9 @@ def _power(ui, facts, cues, observation, key):
     if inputs:
         lines.append(ui.text('brief.industry', inputs=ui.resources(inputs, gold_short=False)))
     actor = observation['actor']
+    capitals = [row['id'] for row in facts.get('building_catalog') or [] if 'capital' in (row.get('roles') or ())]
     halls = sum(1 for row in facts.get('view', []) if row.get('owner') == actor
-                and dict(row.get('buildings') or ()).get('native:town-hall'))
+                and any(dict(row.get('buildings') or ()).get(kind) for kind in capitals))
     lines.append(ui.text('brief.halls', count=halls))
     shortfalls = cues.get('stock_shortfalls_before_production') or {}
     if shortfalls:

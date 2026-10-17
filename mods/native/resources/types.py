@@ -5,6 +5,7 @@ from engine.resource import Resource
 class Gold(Resource):
     TYPE_ID = 'native:gold'
     NAME_KEY = 'resource.native:gold.name'
+    ROLES = ('currency',)
     TRADEABLE = False
 
     @classmethod
@@ -30,6 +31,7 @@ class Food(Resource):
 class Wood(Resource):
     TYPE_ID = 'native:wood'
     NAME_KEY = 'resource.native:wood.name'
+    ROLES = ('construction',)
 
 
 class Ore(Resource):
@@ -50,6 +52,7 @@ class Equipment(Resource):
 class Supply(Resource):
     TYPE_ID = 'native:supply'
     NAME_KEY = 'resource.native:supply.name'
+    ROLES = ('supply',)
 
 
 RESOURCE_TYPES = (Gold, Food, Wood, Ore, Oil, Equipment, Supply)

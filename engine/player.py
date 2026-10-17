@@ -6,6 +6,8 @@ import math
 import inspect
 import traceback
 
+from .runtime import RuleSection
+
 API_VERSION = 1
 BUILTINS = {
     'memory_search': ('检索本客户端的历史行动与小结，不包含思考；query 为关键词，limit 默认3。', {'query':{'type':'string','minLength':1},'limit':{'type':'integer','minimum':1,'maximum':8,'default':3}}),
@@ -252,7 +254,9 @@ class PlayerSession:
             for name in self.__runtime.order:
                 mod=self.__runtime.units[name].mod
                 if not self.__runtime.in_scope(self.__world,self.actor,mod):continue
-                sections.extend(section for section in mod.rule_sections(self.__world) if section.player_visible)
+                sections.extend(RuleSection(section.title, self.__runtime.rule_text(section.body),
+                                            section.keywords, section.summary, section.player_visible)
+                                for section in mod.rule_sections(self.__world) if section.player_visible)
             if topic in ('all','全部'):selected=sections
             else:
                 matches=[(len(word),section) for section in sections for word in (section.title,*section.keywords) if word.lower() in topic]

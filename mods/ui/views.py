@@ -3,11 +3,9 @@ from .i18n import Translator
 from .maps import snapshot,render_svg
 from .facts import flatten
 
-TERRAIN={'native:plain':'P','native:forest':'F','native:hill':'H','native:mountain':'M','native:desert':'D'}
-
-
 def player_map(observation,text=None):
     text=text or Translator();facts=flatten(observation['facts']);tiles=facts.get('view',[])
+    glyphs={row['id']:row.get('glyph') for row in facts.get('terrain_catalog') or []}
     if not tiles:return text('map.empty')
     points={tuple(t['position']):t for t in tiles}
     lo_x=min(x for x,y in points);hi_x=max(x for x,y in points)
@@ -22,7 +20,7 @@ def player_map(observation,text=None):
         cells=[]
         for x in range(lo_x,hi_x+1):
             tile=points.get((x,y))
-            cells.append((symbols.get(tile['owner'],'-')+TERRAIN.get(tile['terrain'],'?') if tile else '?').rjust(width))
+            cells.append((symbols.get(tile['owner'],'-')+glyphs.get(tile['terrain'],'?') if tile else '?').rjust(width))
         lines.append(str(y).rjust(width)+' '+''.join(cells))
     lines.append(text('query.map_legend',owners='、'.join(symbols[a]+'='+names.get(a,a) for a in owners)))
     # 文字回退必须仍能定位军队与国祚；按势力逐格明细复用同一个公开观察。

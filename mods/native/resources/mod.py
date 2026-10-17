@@ -66,6 +66,8 @@ class ResourceInspection:
     def __init__(self, accounts):self._accounts = accounts
     def owners(self):return self._accounts.owners()
     def snapshot(self, owner):return self._accounts.snapshot(owner)
+    def role_ids(self, role):return self._accounts.role_ids(role)
+    def currency(self):return self._accounts.currency()
     def value(self, resource_id, amount, unit_price):
         return self._accounts.value(resource_id,amount,unit_price)
 

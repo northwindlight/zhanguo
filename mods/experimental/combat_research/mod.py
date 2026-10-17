@@ -1,12 +1,11 @@
 """Private research capability. No player tools or model-facing schema."""
 from copy import deepcopy
 from engine.runtime import GameMod
-from mods.native.army.parameters import COMBAT_DIE_MOD
 from .solver import solve
 
 
 class Forecast:
-    def __init__(self,call,settings):self.call=call;self.settings=settings
+    def __init__(self,call,settings,die):self.call=call;self.settings=settings;self.die=die
     def assess(self,actor,ids,x,y):
         self.call('native:territory','check',x,y)
         if not isinstance(ids,(list,tuple)) or not ids or any(type(i) is not int for i in ids) or len(set(ids))!=len(ids):
@@ -46,7 +45,7 @@ class Forecast:
             return tuple((row[i][0],u.hp,row[i][2],row[i][3]) for i,u in enumerate(units) if u.alive)
         def power(sig):
             total=sum(token for token,retreat in sig)
-            return tuple(max(1,total*(100+COMBAT_DIE_MOD[face])//100) for face in sorted(COMBAT_DIE_MOD))
+            return tuple(max(1,total*(100+self.die[face])//100) for face in sorted(self.die))
         odds=solve(order,enemies,tuple(initial),power,spread,
                    max_states=self.settings['MaxStates'],max_rounds=self.settings['MaxRounds'])
         return {'research':True,'known':True,'winnable':odds['p_win'][actor]>=self.settings['WinThreshold'],
@@ -69,4 +68,5 @@ class CombatResearchMod(GameMod):
     def provides(self):return ('research:combat-probabilities',)
     def objects(self,world):
         return {'research:combat-probabilities':Forecast(
-            lambda cap,method,*args:self.runtime.object_call(world,cap,method,*args),self.declaration['Research'])}
+            lambda cap,method,*args:self.runtime.object_call(world,cap,method,*args),self.declaration['Research'],
+            self.runtime.number('army.combat-die'))}

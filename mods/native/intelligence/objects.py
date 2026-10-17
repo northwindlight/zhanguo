@@ -59,6 +59,12 @@ class Intelligence:
     def _write(self):
         if active_unit.get() not in (None,self._domain):raise ModError('Use intelligence interface')
     def _ids(self):return self._call('native:nation-inspection','ids')
+    def _currency(self):
+        if not hasattr(self,'_currency_id'):
+            ids=self._call('native:resource-inspection','role_ids','currency')
+            if len(ids)!=1:raise ValueError(f'货币资源必须恰好有一个：{ids}')
+            self._currency_id=ids[0]
+        return self._currency_id
     def _period(self):return self._call('native:government','period')
     def _centers(self, owner):
         snap=self._call('native:buildings','snapshot');sites={s.id:s.owner for s in snap.sites}
@@ -80,7 +86,7 @@ class Intelligence:
             if self._call('native:diplomacy','allied',owner,target):fee=0
             else:
                 for _ in range(self._centers(owner)):fee=max(1,fee//2)
-        reserved={'native:gold':fee} if fee else {}
+        reserved={self._currency():fee} if fee else {}
         if kind=='gift':
             content_id(resource);integer(quantity,1);reserved[resource]=reserved.get(resource,0)+quantity
         elif resource is not None or quantity:raise ValueError('只有 gift 能随信附物资：letter/map/spy 不接受 resource 与 quantity')
@@ -92,7 +98,7 @@ class Intelligence:
         self._next_dispatch+=1;self._pending.append(record);return record
     def _refund(self, d, fee=True):
         credits={}
-        if fee and d.fee:credits['native:gold']=d.fee
+        if fee and d.fee:credits[self._currency()]=d.fee
         if d.kind=='gift':credits[d.resource]=credits.get(d.resource,0)+d.quantity
         if credits:self._call('native:resource-exchange','exchange',d.owner,{},credits)
     def resolve(self):
@@ -104,7 +110,7 @@ class Intelligence:
                 delay=self._rules['SpyDelay'] if d.kind=='spy' else 1
                 if d.kind=='map':self._maps[d.id]={'sampled':self._period(),'tiles':self._map(d.owner)}
                 result=replace(d,status='in-transit');self._transit.append(result)
-                if d.fee:facts.append({'id':f'native:communication-fee/{d.id}', 'owner':d.owner,'period':self._period(),'category':'administration','inputs':(('native:gold',d.fee),)})
+                if d.fee:facts.append({'id':f'native:communication-fee/{d.id}', 'owner':d.owner,'period':self._period(),'category':'administration','inputs':((self._currency(),d.fee),)})
             self._results.append(result);results.append(result)
         self._pending=[];return tuple(results),tuple(facts)
     def deliver(self):

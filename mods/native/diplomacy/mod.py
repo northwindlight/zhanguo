@@ -38,7 +38,7 @@ class DiplomacyMod(GameMod):
             if result.status=='effective' and result.fee:
                 context.setdefault('economic_records',[]).append({'id':f'native:diplomatic-fee/{result.id}',
                     'owner':result.actor,'period':world.runtime.object_call(world,'native:government','period'),
-                    'category':'administration','inputs':(('native:gold',result.fee),)})
+                    'category':'administration','inputs':((world.runtime.object_call(world,'native:resource-inspection','currency'),result.fee),)})
     def rule_sections(self, world=None):
         return (
             RuleSection('外交实体与提交','独立国家、联盟是条约实体。外交在行动期提交并预留费用，在外交挂点重新校验后生效或退款。'

@@ -21,6 +21,7 @@ class ResourceSnapshot:
 class Resource:
     TYPE_ID = ''
     NAME_KEY = ''
+    ROLES = ()
     TRADEABLE = True
 
     def __init__(self, owner: str, amount: int | float = 0):

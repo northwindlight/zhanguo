@@ -1,8 +1,8 @@
 """Economic queries and explicit estimates over current registered content."""
 from dataclasses import dataclass, field
 
+from engine.building import Building
 from engine.resource import Resource
-from mods.native.buildings.types import NativeBuilding
 from mods.native.economy_reports.contracts import Money, TurnReport, integer
 
 # 旧版市场行给的是「卖50≈79金 买50≈89金」——固定 50 单位的大单试算。
@@ -98,13 +98,22 @@ class EconomicQueries:
         return self._call('native:economy','reports',owner)
 
     def building_types(self):
-        return {key:cls for key,cls in self._runtime.content.definitions()
-                if isinstance(cls,type) and issubclass(cls,NativeBuilding)}
+        # 只依赖建造契约（engine Building + 建造属性），不 import native 实现类。
+        required=('TYPE_ID','NAME_KEY','GOLD_COSTS','WOOD_COST','MIN_SLOTS','MAX_PER_SITE',
+                  'PHASE','EFFECTS','ENERGY_USE','ENERGY_OUTPUT','BUILD_DISCOUNT','SELF_BUILD_LIMIT')
+        result={}
+        for key,cls in self._runtime.content.definitions():
+            if not isinstance(cls,type) or not issubclass(cls,Building) or getattr(cls,'TYPE_ID',None)!=key:
+                continue
+            if any(not hasattr(cls,attr) for attr in required) or not callable(getattr(cls,'construction_cost',None)):
+                raise ValueError(f'建筑缺少经济估算契约：{key}')
+            result[key]=cls
+        return result
 
     def _energy_cost(self):
         types=self.building_types()
         # Preserve the native ROI benchmark: one wood powers two energy units.
-        candidates=[('native:wood-power-plant',types['native:wood-power-plant'])] if 'native:wood-power-plant' in types else sorted(types.items())
+        candidates=[(key,types[key]) for key in self._runtime.content.role('power') if key in types] or sorted(types.items())
         for key,cls in candidates:
             cycle = cls(1,'native:estimate').cycle()
             if cycle.energy:
@@ -116,9 +125,12 @@ class EconomicQueries:
         integer(other_slots)
         cls = self.building_types()[kind]
         cost = cls.construction_cost(level,penalty=penalty,discount=discount,policy_pct=policy_pct)
-        projected_slots=other_slots+3 if kind=='native:town-hall' else other_slots
+        roles=self._runtime.content.roles_of(kind)
+        slot_bonus=getattr(cls,'SLOT_BONUS',0)
+        projected_slots=other_slots+slot_bonus if 'capital' in roles else other_slots
         assumptions=[]
-        if kind=='native:town-hall':assumptions.append('市政厅按另增3座建筑的乐观密度估算，实际结算仍按已落成座数')
+        if 'capital' in roles and slot_bonus:
+            assumptions.append(f'首都类建筑按另增{slot_bonus}座建筑的乐观密度估算，实际结算仍按已落成座数')
         cycle = cls(1,'native:estimate',level=level).cycle(other_slots=projected_slots)
         basis='sell' if cls.PHASE=='gather' else 'buy' if cls.PHASE=='industry' else 'mid'
         construction,inputs,outputs = self._value(cost),self._value(cycle.inputs,'buy'),self._value(cycle.outputs,basis)
@@ -128,17 +140,19 @@ class EconomicQueries:
         # Electricity is not tradable revenue: power plants only spend fuel.
         if cls.ENERGY_USE:
             net = None if energy_cost is None else net.plus(Money(-cls.ENERGY_USE*energy_cost))
-        if kind=='native:academy':
-            from mods.native.government.parameters import ACADEMY_AMORT_TURNS
+        if 'academy' in roles:
+            amort=getattr(cls,'AMORT_TURNS')
             types=self.building_types();n=max(other_slots,cls.MIN_SLOTS)
             values=[types[row.kind].GOLD_COSTS[0] for row in existing if row.kind in types]
             if not values:values=[c.GOLD_COSTS[0] for k,c in types.items() if k!=kind]
             average=sum(values)/len(values) if values else 0
             discount_rate=cls.BUILD_DISCOUNT/100
-            hall=types.get('native:town-hall')
-            density=discount_rate*n*hall.EFFECTS.get('gold_per_slot',0) if hall and n+3>=hall.MIN_SLOTS else 0
-            net=Money(discount_rate*n*average/ACADEMY_AMORT_TURNS+density)
-            assumptions.append(f'工程院按{n}座密度、平均基础金价{average:g}、{ACADEMY_AMORT_TURNS}周期摊销及厅密度联动估算；不是保证收益')
+            capitals=self._runtime.content.role('capital')
+            hall=types.get(capitals[0]) if len(capitals)==1 else None
+            hall_bonus=getattr(hall,'SLOT_BONUS',0)
+            density=discount_rate*n*hall.EFFECTS.get('gold_per_slot',0) if hall and n+hall_bonus>=hall.MIN_SLOTS else 0
+            net=Money(discount_rate*n*average/amort+density)
+            assumptions.append(f'工程院按{n}座密度、平均基础金价{average:g}、{amort}周期摊销及厅密度联动估算；不是保证收益')
         payback = construction.total/net.total if (construction.complete and net is not None and net.complete and net.total>0) else None
         if payback is not None:Resource.finite_number(payback)
         return BuildingEstimate(kind,level,other_slots,construction,inputs,outputs,cls.ENERGY_USE,

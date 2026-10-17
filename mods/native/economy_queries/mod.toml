@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:economy-queries"
-Version = "1.4.0"
+Version = "1.5.0"
 Entry = "mods.native.economy_queries.mod:QueriesMod"
 Requires = ["native:resources", "native:buildings", "native:market", "native:economy"]
 

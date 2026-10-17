@@ -926,7 +926,7 @@ class Runtime:
             for section in self.units[name].mod.rule_sections(world):
                 if player and not section.player_visible:
                     continue
-                body = section.body.replace('{{SETTLEMENT_STAGES}}', self.settlement_table())
+                body = self.rule_text(section.body)
                 result.append(RuleSection(section.title, body, section.keywords,
                                           section.summary, section.player_visible))
         order = self.distribution.get('ManualOrder', ())
@@ -936,6 +936,13 @@ class Runtime:
     def manual(self):
         return '# 规则纲要\n\n由已加载 Mod 提供规则内容；结算顺序由阶段依赖自动生成。\n\n' + '\n\n'.join(
             '## ' + s.title + '\n\n' + s.body.strip() for s in self.rule_sections()) + '\n'
+
+    def rule_text(self, body):
+        """Resolve rule-text placeholders against declared numbers."""
+        body = body.replace('{{SETTLEMENT_STAGES}}', self.settlement_table())
+        # 手册数字与模块 numbers() 同源：改参数就会改手册与生成说明。
+        return re.sub(r'\{\{number:([a-zA-Z0-9_.:-]+)\}\}',
+                      lambda match: str(self.number(match.group(1))), body)
 
     def rules(self, world, topic=''):
         sections = self.rule_sections(world, player=True)
@@ -989,6 +996,24 @@ class Runtime:
     def enumerate_numbers(self):
         from copy import deepcopy
         return deepcopy({name: dict(self.units[name].mod.numbers()) for name in self.order})
+
+    def number(self, key, default=None):
+        """Read a declared numeric constant from its owning module.
+
+        Cross-module rule text and manuals use this instead of importing another
+        module's ``parameters``. Unknown keys are load-order bugs, not defaults.
+        """
+        owner = self.number_owners.get(key)
+        if owner is None:
+            if default is not None:
+                return default
+            raise ModError(f'未知数值：{key}')
+        values = self.units[owner].mod.numbers()
+        if key not in values:
+            if default is not None:
+                return default
+            raise ModError(f'{owner} 未登记数值：{key}')
+        return values[key]
 
     def actor_policy(self, world, actor):
         tag = getattr(world, 'polity', {}).get(actor, '')

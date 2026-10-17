@@ -288,6 +288,9 @@ class CouncilService:
     def _snapshot(self,player,kind):
         try:state=player.observe()
         except ValueError:return # The actor may have left the active collection.
+        # 地图只需要字形与角色；先把它们压成小字典，再丢掉大目录。
+        glyphs,role_kinds=ctx.map_presentation(state['facts'])
+        state['facts']['glyphs']=glyphs;state['facts']['role_kinds']=role_kinds
         # These are already captured verbatim as event/command records. Avoid
         # copying all old events and monarch summaries after every read query.
         for key in ('news','handbooks','building_catalog','unit_catalog','terrain_catalog','land','threats','battle','nations','countries'):

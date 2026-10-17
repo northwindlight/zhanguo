@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:vision"
-Version = "1.2.0"
+Version = "1.3.0"
 Entry = "mods.native.vision.mod:VisionMod"
 Requires = ["native:territory", "native:diplomacy", "native:buildings"]
 [Capabilities]
@@ -9,7 +9,7 @@ Provides = ["native:vision"]
 [Interfaces]
 "native:territory" = ["dimensions", "check", "owned", "cell"]
 "native:diplomacy" = ["entity", "members"]
-"native:buildings" = ["effects", "snapshot"]
+"native:buildings" = ["effects", "kinds_with_role", "snapshot"]
 
 [PlayerAPI]
 Methods = ["tiles"]

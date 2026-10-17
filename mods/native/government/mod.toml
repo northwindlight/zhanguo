@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:government"
-Version = "2.1.0"
+Version = "2.2.0"
 Entry = "mods.native.government.mod:GovernmentMod"
 Requires = ["native:nations"]
 After = ["native:nations"]

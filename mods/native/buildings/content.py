@@ -30,6 +30,7 @@ def building_types(content):
         for leg in (cls.INPUTS,cls.OUTPUTS):
             for resource in recipe(leg):
                 if resource not in resources:raise ModError(f'Unknown building recipe resource: {resource}')
-        if not {'native:gold','native:wood'}<=resources:raise ModError('Missing native construction resources')
+        required=set(content.role('currency'))|set(content.role('construction'))
+        if not required<=resources:raise ModError('Missing construction resources')
         result.append(cls)
     return tuple(result)

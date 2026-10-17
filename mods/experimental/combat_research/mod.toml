@@ -1,6 +1,6 @@
 [Mod]
 Id = "experimental:combat-research"
-Version = "1.0.0"
+Version = "1.1.0"
 Entry = "mods.experimental.combat_research.mod:CombatResearchMod"
 Requires = ["native:army", "native:vision", "native:territory", "native:diplomacy", "native:buildings"]
 [State]

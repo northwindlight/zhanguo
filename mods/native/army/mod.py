@@ -7,17 +7,15 @@ from .domain_objects import Military
 from .parameters import ARMY_STARVE_DAMAGE, ARMY_HEAL_PER_TURN, HEAL_EQUIP_COST, COMBAT_DIE_MOD, RETREAT_ATK_PENALTY, RETREAT_DEF_COVER
 
 
-TERRAIN_IDS={'平原':'native:plain','森林':'native:forest','丘陵':'native:hill','山地':'native:mountain','沙漠':'native:desert'}
-
-
 class ArmyMod(GameMod):
     def mixins(self):return ()
     def state_keys(self):return ('units','military')
     def needs(self):return ('native:nation-inspection','native:government','native:territory','native:vision','native:diplomacy','native:buildings','native:resource-exchange','native:gold','native:food','native:equipment','native:supply')
     def provides(self):return ('native:army',)
-    def numbers(self):return {'units':wire(unit_definitions(self.runtime.content)),'army.starvation':ARMY_STARVE_DAMAGE,'army.heal':ARMY_HEAL_PER_TURN,'army.retreat.attack-penalty':RETREAT_ATK_PENALTY,'army.retreat.defender-cover':RETREAT_DEF_COVER}
+    def numbers(self):return {'units':wire(unit_definitions(self.runtime.content)),'army.starvation':ARMY_STARVE_DAMAGE,'army.heal':ARMY_HEAL_PER_TURN,'army.heal-equipment':HEAL_EQUIP_COST,'army.combat-die':dict(COMBAT_DIE_MOD),'army.retreat.attack-penalty':RETREAT_ATK_PENALTY,'army.retreat.defender-cover':RETREAT_DEF_COVER}
     def content_definitions(self):
-        return {key:{**value,'move_cost':{TERRAIN_IDS[k]:v for k,v in value['move_cost'].items()}} for key,value in native_unit_definitions().items()}
+        # 地形在单位定义里直接用内容 ID；中文地形名只留在 map_generation 边界。
+        return native_unit_definitions()
     def initialize_world(self, world):
         size,_=self.runtime.object_call(world,'native:territory','dimensions')
         world.units=Units(size,definitions=unit_definitions(self.runtime.content))

@@ -1,5 +1,4 @@
 from engine.runtime import GameMod, ModError, Stage, RuleSection
-from mods.native.resources.types import Gold
 from .api import BankAPI
 from .objects import Bank, BankPolicy
 
@@ -18,10 +17,10 @@ class BankMod(GameMod):
         world.bank = Bank(self.policy,lambda cap,method,*args:self.runtime.object_call(world,cap,method,*args),
             (lambda:self.runtime.object_call(world,'native:nation-inspection','ids')) if 'native:nation-inspection' in self.runtime.capabilities else None)
     def validate_currency(self, world):
-        try:definition = self.runtime.content.definition(self.policy.currency)
+        try:self.runtime.content.definition(self.policy.currency)
         except KeyError as exc:raise ModError('Bank currency is not registered') from exc
-        if not isinstance(definition,type) or not issubclass(definition,Gold):
-            raise ModError('Bank currency must be a cash resource')
+        if 'currency' not in self.runtime.content.roles_of(self.policy.currency):
+            raise ModError('Bank currency must declare the currency role')
         if self.runtime.object_call(world,'native:economy','currency_id')!=self.policy.currency:
             raise ModError('Bank credit and accounting currencies differ')
     def objects(self, world):return {'economy:bank':world.bank}

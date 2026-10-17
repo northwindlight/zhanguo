@@ -132,6 +132,13 @@ class Diplomacy:
                 self._cancel_founding(offer,'联盟编号或名称已被其他联盟使用')
     def _ids(self):return self._call('native:nation-inspection','ids')
     def _period(self):return self._call('native:government','period')
+    def _currency(self):
+        # 货币是资源角色，不是内容 ID：换一种货币资源只改资源模块声明。
+        if not hasattr(self,'_currency_id'):
+            ids=self._call('native:resource-inspection','role_ids','currency')
+            if len(ids)!=1:raise ValueError(f'货币资源必须恰好有一个：{ids}')
+            self._currency_id=ids[0]
+        return self._currency_id
     def _living(self, actor):
         if actor not in self._ids():raise ValueError('该国已亡国或不存在')
     def alliance(self, actor):return next((b for b in self._alliances.values() if actor in b.members),None)
@@ -434,7 +441,8 @@ class Diplomacy:
         draft=self._fork();draft._dispatch(actor,action,arguments)
         fee=self._cost(actor,action,arguments)
         stocks={s.id:s.amount for s in self._call('native:resource-inspection','snapshot',actor)}
-        if fee>0 and stocks['native:gold']<fee:raise ValueError('Insufficient cash for diplomatic fee')
+        currency=self._currency()
+        if fee>0 and stocks.get(currency,0)<fee:raise ValueError('Insufficient cash for diplomatic fee')
         targets=[actor]+([arguments['target']] if arguments.get('target') else [])
         if action=='bloc_found':targets.extend(arguments['tos'])
         if arguments.get('offer'):
@@ -442,7 +450,7 @@ class Diplomacy:
         if action=='bloc_join':targets.extend(self._alliances[arguments['bloc']].members)
         entities=tuple((n,self.entity(n)) for n in dict.fromkeys(targets))
         command=Command(self._next_command,actor,action,tuple(deepcopy(arguments).items()),self._period(),fee,entities)
-        if fee:self._call('native:resource-exchange','exchange',actor,{'native:gold':fee},{})
+        if fee:self._call('native:resource-exchange','exchange',actor,{currency:fee},{})
         self._next_command+=1;self._pending.append(command)
         return freeze(command)
 
@@ -550,10 +558,10 @@ class Diplomacy:
                 for effect in draft._effects:
                     if effect[0]=='transfer':
                         _,source,target,amount=effect
-                        cash={s.id:s.amount for s in self._call('native:resource-inspection','snapshot',source)}['native:gold']
+                        cash={s.id:s.amount for s in self._call('native:resource-inspection','snapshot',source)}.get(self._currency(),0)
                         if cash<amount:raise ValueError('Cannot afford peace payment')
-                        operations.extend(({'owner':source,'debits':{'native:gold':amount},'credits':{}},
-                                           {'owner':target,'debits':{},'credits':{'native:gold':amount}}))
+                        operations.extend(({'owner':source,'debits':{self._currency():amount},'credits':{}},
+                                           {'owner':target,'debits':{},'credits':{self._currency():amount}}))
                 if operations:self._call('native:resource-exchange','exchange_batch',operations)
                 for name in ('_alliances','_pacts','_wars','_truces','_offers','_votes','_approved','_results','_next_command','_next_offer','_next_vote','_next_war'):
                     setattr(self,name,getattr(draft,name))
@@ -565,7 +573,7 @@ class Diplomacy:
                 else:message='Diplomatic action applied'
                 results.append(self._result(c,'effective',message))
             except (ValueError,KeyError,TypeError) as exc:
-                if c.fee:self._call('native:resource-exchange','exchange',c.actor,{}, {'native:gold':c.fee})
+                if c.fee:self._call('native:resource-exchange','exchange',c.actor,{}, {self._currency():c.fee})
                 results.append(self._result(c,'cancelled' if c.actor not in self._ids() else 'failed',str(exc)))
                 if c.action=='bloc_found':
                     args=dict(c.arguments)

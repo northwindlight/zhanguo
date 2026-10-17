@@ -2,7 +2,7 @@ ResourceTypes = ["native:gold", "native:food", "native:wood", "native:ore", "nat
 
 [Mod]
 Id = "native:resources"
-Version = "1.4.0"
+Version = "1.5.0"
 Entry = "mods.native.resources.mod:ResourcesMod"
 Requires = []
 

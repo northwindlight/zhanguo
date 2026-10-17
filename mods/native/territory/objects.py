@@ -13,6 +13,7 @@ class Terrain:
     defense: int
     build_penalty: int
     cavalry_cost: int
+    glyph: str = '?'
 
 
 @dataclass(frozen=True)

@@ -7,7 +7,7 @@ from engine.resource import Resource
 from engine.runtime import ModError
 from engine.state import active_unit
 from mods.native.economy_reports.contracts import integer, owner_name, PeriodReport
-from mods.native.economy_reports.objects import Economy, record
+from mods.native.economy_reports.objects import record
 
 
 @dataclass(frozen=True)
@@ -266,7 +266,7 @@ class Bank:
             entries.append(row)
         for raw in data['purchases']:
             if not isinstance(raw,dict) or set(raw)!=set(ReportPurchase.__dataclass_fields__):raise ValueError('Invalid purchase record')
-            report = Economy._report(PeriodReport,raw['report'])
+            report = self._call('native:economy','report_from_save',raw['report'])
             row = ReportPurchase(raw['buyer'],integer(raw['period']),integer(raw['fee']),report)
             owner_name(row.buyer)
             if row.buyer not in owners or report.owner not in owners or row.buyer==report.owner or row.period>period or report.end>=row.period or row.fee!=self.policy.report_fee:

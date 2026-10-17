@@ -2,7 +2,7 @@
 
 日期：2026-10-17。前置：[架构复核](../reviews/架构复核-20261017.md)。本文只定边界与结构，不改规则。
 
-**实施状态（2026-10-18）**：T0–T4、T6、T7 全部落地；T5 未做。
+**实施状态（2026-10-18）**：T0–T7 全部落地。
 - T0–T3：native 66 个注册工具全部由 `mods/native/tools/` 产生，模块只留 `player_api`；tool 层自带 zh-CN/en-US 文案目录；UI 动作分支已删除。
 - T4：模型可见工具 38 → 12（native 8 + 4 内置；experimental 14）。`military`/`economy`/`relations`/`intelligence` 四把命令伞用 `action` 选动作，内层动作保持独立 Tool 与回执；`query(panel=foreign)` 合并国家与外交面板；`Tool.groups` 接入 `Runtime.permits`，匈奴 31 条禁令缩成 5 个组，伞工具的 `action` 枚举按行动者过滤。
 - 旧动作名仍注册为 `hidden`，但只是 tool 层内部适配器；脚本与规则 AI 已改走 `call_api(capability, method)`（2026-10-18，API 与 tool 分离：`Runtime.api_call` / `BoundPlayer.call_api`，服务链见 `Session.api_call`）。
@@ -26,6 +26,18 @@
 - **伞工具 schema**：每个动作生成一个 `oneOf` 分支，分支固定 `action` 并携带该动作的 `required` 与 `oneOf/anyOf`（地点三选一、aid/ids、投票弃权）；`schema_for_actor` 收窄枚举时同步过滤分支。
 - **英文文案**：四把伞的摘要与 `action` 说明补进 `locales/en-US.json`；`zh-CN` 继续用源码中文作回退。
 - 验收：面板表与依赖清单的 `panels` 一致；`observe()` 只出现 `foreign` 而无四块旧事实；伞工具分支与内层动作 schema 的必填一致；`en-US` 的伞工具说明不含中文。工具面与事实形状变化使旧档不可读，需新档。
+
+### T5 内容角色、同源数值与跨模块契约（2026-10-18，已落地）
+
+- **内容角色**：`ContentRegistry` 在注册期校验并索引定义上的 `ROLES`（`role()` / `roles_of()` / `roles()`）；`Building`/`Resource` 带默认空角色。native 声明 `capital`/`recruiter`/`militia`/`castle`/`vision`/`academy`/`power`（建筑）与 `currency`/`supply`/`construction`（资源）。
+- **消费方按角色**：succession（首都）、vision（对外公开建筑）、army（征兵建筑、民兵军屯、首都驻守、城堡减伤、占领事件）、economy_queries（首都密度、工程院摊销、电网基准）、diplomacy/intelligence（外交与通信费货币）改问角色，不再写内容 ID；建筑接口新增 `kinds_with_role/kind_with_role/has_role/count_role/effect_role`，资源接口新增 `role_ids/currency`。
+- **地形单一登记**：单位 `move_cost` 改用地形 ID，删除 army 的中文→ID 映射；中文地形名只留在 map_generation 边界。
+- **字形进目录**：地形定义带 `glyph`，兵种映射带 `glyph`；地图 PNG/SVG 与文字地图从公开目录取字形与角色，UI 不再维护地形/建筑/兵种的 ID 常量。议会评审裁剪目录事实时保留压缩后的 `glyphs/role_kinds`，评审席与君主看到同一张图。
+- **数值同源**：新增 `Runtime.number(key)`；手册正文支持 `{{number:key}}`，由 `Runtime.rule_sections()` 与 `PlayerSession.rules()` 统一替换。战争/基础手册的掉血、回血、装备消耗改为占位符；`generate_manual --check` 因此覆盖手册数字。
+- **跨模块契约**：实验研究模块改读 `runtime.number('army.combat-die')`；经济估算改从建筑定义读取摊销/密度参数，不再 import government 参数；`economy_queries` 只用 engine `Building` 契约，不 import native 建筑实现；bank 读报表改走 `native:economy.report_from_save`；研究规则客户端移到 `ruleai/v11plus/research.py`，`mods/` 内不再 import ruleai。
+- **观察者**：`observer.add` 不再写死匈奴名，按政体 `Aliases` 匹配（`hun` 补进匈奴别名）。
+- **README**：native README 不再手抄模块/工具/阶段计数，改为指向运行时表。
+- 验收：新增角色/数值/字形测试；全量离线 643 项通过；说明书重新生成。
 
 ## 一、目标
 

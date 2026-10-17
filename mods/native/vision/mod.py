@@ -36,6 +36,9 @@ class Vision:
         return self._derive(('vision.positions',actor),lambda:self.positions(actor)) if hasattr(self,'_derive') else self.positions(actor)
     def tiles(self, actor):
         def calculate():
+            # 对外公开的建筑按角色取：加一种“也算城堡/首都”的建筑只改属主模块。
+            public=set(self._call('native:buildings','kinds_with_role','castle'))
+            public.update(self._call('native:buildings','kinds_with_role','capital'))
             snapshot=self._call('native:buildings','snapshot');by_site={}
             for b in snapshot.instances:by_site.setdefault(b.site,[]).append(b)
             result=[]
@@ -44,7 +47,7 @@ class Vision:
                 full=fact.owner==actor or fact.owner is None and bool(by_site.get(fact.tile.id))
                 for b in by_site.get(fact.tile.id,()):
                     if b.remaining != 0:continue
-                    if fact.owner not in (None,actor) and b.kind not in ('native:castle','native:town-hall'):continue
+                    if fact.owner not in (None,actor) and b.kind not in public:continue
                     kinds[b.kind]=kinds.get(b.kind,0)+1
                 result.append(VisibleTile((x,y),fact.tile.name if fact.owner is not None else '',fact.tile.terrain,fact.owner,tuple(kinds.items()),fact.resources if full else ()))
             return tuple(result)

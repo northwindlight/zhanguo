@@ -51,14 +51,18 @@ class NativeObserver:
                         'owner':cell['owner'],'resources':cell['resources'],
                         'buildings':buildings[cell['tile']['id']]})
             diplomacy=wire(self.world.diplomacy.to_save())
+            glyphs={key:(value.get('glyph') if isinstance(value,dict) else getattr(value,'glyph',None))
+                    for key,value in self.runtime.content.definitions()}
+            glyphs={key:glyph for key,glyph in glyphs.items() if glyph}
+            roles={role:list(ids) for role,ids in self.runtime.content.roles().items()}
             return {'period':self.clock(),'names':names,'nations':nations,
                 'resource_flows':{'period':flow_period,'owners':{owner:{resource:amount for resource,amount in values.items() if amount}
                     for owner,values in flows.items()}},
                 'dead':[a for a in self.roster if a not in self.actors()],
                 'market':wire(self.world.market.summary()),'bank':self.bank_status(),
                 'records':self.records(),
-                'map':{'actor':'observer','period':self.clock(),'facts':{'view':tiles,
-                    'army':wire(self.world.military.snapshot()),'diplomacy':diplomacy}}}
+                'map':{'actor':'observer','period':self.clock(),'glyphs':glyphs,'role_kinds':roles,
+                    'facts':{'view':tiles,'army':wire(self.world.military.snapshot()),'diplomacy':diplomacy}}}
 
     def bank_status(self):
         b=self.world.bank
@@ -100,7 +104,11 @@ class NativeObserver:
 
     def add(self,name,polity=None):
         with self.lock:
-            if polity is None and name in ('匈奴','huns','hun'):polity='native:huns'
+            if polity is None:
+                # 政体名字面量只住在政体模块的 Aliases 里，观察者不认具体政体。
+                matches=[key for key,mod in self.runtime.policies.items()
+                         if name in mod.declaration.get('Mod',{}).get('Aliases',())]
+                polity=matches[0] if len(matches)==1 else None
             existing=next((n for n in self.entries() if name in (n['id'],n['name'])),None)
             created=existing is None
             if created:

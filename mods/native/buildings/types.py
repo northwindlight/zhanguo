@@ -34,7 +34,7 @@ class NativeBuilding(Building):
 
 
 class Castle(NativeBuilding):
-    TYPE_ID='native:castle';NAME_KEY='building.native:castle.name'
+    TYPE_ID='native:castle';NAME_KEY='building.native:castle.name';ROLES=('castle',)
     GOLD_COSTS=(50,100,200,400,800);WOOD_COST=20;MAX_PER_SITE=5
     EFFECTS=MappingProxyType({'defense_per_level':10})
 
@@ -70,13 +70,13 @@ class GoldMine(NativeBuilding):
 
 
 class WoodPowerPlant(NativeBuilding):
-    TYPE_ID='native:wood-power-plant';NAME_KEY='building.native:wood-power-plant.name'
+    TYPE_ID='native:wood-power-plant';NAME_KEY='building.native:wood-power-plant.name';ROLES=('power',)
     PHASE='power';GOLD_COSTS=(60,);WOOD_COST=30
     INPUTS=recipe({'native:wood':1});ENERGY_OUTPUT=2
 
 
 class OilPowerPlant(NativeBuilding):
-    TYPE_ID='native:oil-power-plant';NAME_KEY='building.native:oil-power-plant.name'
+    TYPE_ID='native:oil-power-plant';NAME_KEY='building.native:oil-power-plant.name';ROLES=('power',)
     PHASE='power';GOLD_COSTS=(120,);WOOD_COST=30
     INPUTS=recipe({'native:oil':1});ENERGY_OUTPUT=8
 
@@ -94,13 +94,14 @@ class EquipmentFactory(NativeBuilding):
 
 
 class Barracks(NativeBuilding):
-    TYPE_ID='native:barracks';NAME_KEY='building.native:barracks.name'
+    TYPE_ID='native:barracks';NAME_KEY='building.native:barracks.name';ROLES=('recruiter',)
     GOLD_COSTS=(175,);WOOD_COST=40;MIN_SLOTS=3;ENERGY_USE=1
     EFFECTS=MappingProxyType({'recruit_cap':1,'recruit_food':10,'recruit_equipment':5})
 
 
 class TownHall(NativeBuilding):
-    TYPE_ID='native:town-hall';NAME_KEY='building.native:town-hall.name'
+    TYPE_ID='native:town-hall';NAME_KEY='building.native:town-hall.name';ROLES=('capital',)
+    SLOT_BONUS=3  # 经济估算的密度假设：厅按另增 3 座建筑算
     PHASE='income';GOLD_COSTS=(250,);WOOD_COST=80;MIN_SLOTS=6;MAX_PER_SITE=1;ENERGY_USE=1
     EFFECTS=MappingProxyType({'gold_base':5,'gold_per_slot':1})
 
@@ -110,7 +111,7 @@ class TownHall(NativeBuilding):
 
 
 class Watchtower(NativeBuilding):
-    TYPE_ID='native:watchtower';NAME_KEY='building.native:watchtower.name'
+    TYPE_ID='native:watchtower';NAME_KEY='building.native:watchtower.name';ROLES=('vision',)
     GOLD_COSTS=(60,);WOOD_COST=30;EFFECTS=MappingProxyType({'vision_radius':4})
 
 
@@ -120,13 +121,14 @@ class DiplomacyCenter(NativeBuilding):
 
 
 class Academy(NativeBuilding):
-    TYPE_ID='native:academy';NAME_KEY='building.native:academy.name'
+    TYPE_ID='native:academy';NAME_KEY='building.native:academy.name';ROLES=('academy',)
+    AMORT_TURNS=30  # 一次省下的建造金折成每回合收益时的摊销期
     GOLD_COSTS=(150,);WOOD_COST=60;MIN_SLOTS=4;MAX_PER_SITE=1;BUILD_DISCOUNT=25
     EFFECTS=MappingProxyType({'build_discount':25})
 
 
 class MilitiaCamp(NativeBuilding):
-    TYPE_ID='native:militia-camp';NAME_KEY='building.native:militia-camp.name'
+    TYPE_ID='native:militia-camp';NAME_KEY='building.native:militia-camp.name';ROLES=('militia',)
     GOLD_COSTS=(110,);WOOD_COST=30;SITE_RESOURCE='native:farmland';MAX_PER_SITE=1
     EFFECTS=MappingProxyType({'militia_cap':2,'militia_per_turn':1})
 

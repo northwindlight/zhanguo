@@ -1,8 +1,24 @@
 """Enumerable, additive namespaced content. The engine does not interpret definitions."""
 from collections.abc import Mapping
+import re
 from types import MappingProxyType
 
 from .identifiers import content_id
+
+ROLE = re.compile(r'[a-z][a-z0-9_.-]*')
+
+
+def _roles(key, definition):
+    """Declared roles are opaque labels; the engine only indexes and validates them."""
+    values = getattr(definition, 'ROLES', ()) or ()
+    if isinstance(values, str) or not isinstance(values, (list, tuple)):
+        raise ValueError(f'Content roles must be a tuple: {key}')
+    if len(set(values)) != len(values):
+        raise ValueError(f'Duplicate content role: {key}')
+    for role in values:
+        if not isinstance(role, str) or not ROLE.fullmatch(role):
+            raise ValueError(f'Invalid content role: {key}')
+    return tuple(values)
 
 
 def _readonly(value):
@@ -20,6 +36,7 @@ class ContentRegistry(Mapping):
     def __init__(self):
         self._namespaces = {}
         self._owners = {}
+        self._roles = {}
 
     def register(self, owner, definitions):
         if not isinstance(definitions, Mapping):
@@ -30,11 +47,13 @@ class ContentRegistry(Mapping):
             if key in self._owners:
                 raise ValueError(f'Duplicate content ID: {key}')
             namespace, local_id = key.split(':', 1)
-            pending.append((key, namespace, local_id, _readonly(definition)))
+            pending.append((key, namespace, local_id, _readonly(definition), _roles(key, definition)))
         # Validation/freezing completes before any part of this batch is added.
-        for key, namespace, local_id, definition in pending:
+        for key, namespace, local_id, definition, roles in pending:
             self._namespaces.setdefault(namespace, {})[local_id] = definition
             self._owners[key] = owner
+            for role in roles:
+                self._roles.setdefault(role, []).append(key)
 
     def definition(self, key):
         namespace, local_id = content_id(key).split(':', 1)
@@ -47,6 +66,18 @@ class ContentRegistry(Mapping):
 
     def manifest(self):
         return dict(self._owners)
+
+    def role(self, role):
+        """Content ids declaring a role, in registration order."""
+        if not isinstance(role, str) or not ROLE.fullmatch(role):
+            raise ValueError(f'Invalid role: {role}')
+        return tuple(self._roles.get(role, ()))
+
+    def roles_of(self, key):
+        return _roles(key, self.definition(key))
+
+    def roles(self):
+        return {role: tuple(ids) for role, ids in self._roles.items()}
 
     def key(self, identifier):
         local=identifier.split(':',1)[-1]

@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:intelligence"
-Version = "1.2.0"
+Version = "1.3.0"
 Entry = "mods.native.intelligence.mod:IntelligenceMod"
 Requires = ["native:nations", "native:government", "native:resources", "native:buildings", "native:diplomacy", "native:vision", "native:army"]
 After = ["native:nations", "native:government", "native:army"]
@@ -15,7 +15,7 @@ Provides = ["native:intelligence"]
 "native:nation-inspection" = ["ids", "get"]
 "native:government" = ["period"]
 "native:resource-exchange" = ["exchange", "exchange_batch"]
-"native:resource-inspection" = ["snapshot"]
+"native:resource-inspection" = ["snapshot", "role_ids"]
 "native:buildings" = ["snapshot"]
 "native:diplomacy" = ["allied", "snapshot"]
 "native:vision" = ["visible", "tiles"]

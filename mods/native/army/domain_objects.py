@@ -84,7 +84,7 @@ class Military:
         if place.owner!=owner:raise ValueError('只能在本国地块征召：该地块不属于你。用 land 查本国国土与坐标')
         if kind not in self._units.type_ids:raise ValueError(f'未知兵种：{kind}。可用兵种与短键见 unit_catalog')
         period=self._period();key=(period,site,kind=='native:militia')
-        building='native:militia-camp' if kind=='native:militia' else 'native:barracks'
+        building=self._call('native:buildings','kind_with_role','militia' if kind=='native:militia' else 'recruiter')
         effect=self._effect(site,building)
         if kind=='native:militia':
             # 说明书第十八条：民兵只能在自有已落成军屯征召；第十九条再核全国编制。
@@ -206,7 +206,7 @@ class Military:
         self._units.assign_code('野人');self._units.append(unit);self._units.guard_once.add((x,y))
     def _claim(self, owner, x, y):
         fact=self._call('native:territory','cell',x,y)
-        halls=self._call('native:buildings','count',fact.tile.id,'native:town-hall') if fact.tile.id else 0
+        halls=self._call('native:buildings','count_role',fact.tile.id,'capital') if fact.tile.id else 0
         seen=tuple(n for n in self._call('native:nation-inspection','ids') if self._call('native:vision','visible',n,x,y) or n in (owner,fact.owner))
         by=owner
         if fact.tile.core and fact.tile.core!=owner and fact.tile.core in self._call('native:nation-inspection','ids') and self._call('native:diplomacy','allied',owner,fact.tile.core) and self._call('native:diplomacy','at_war',owner):by=fact.tile.core
@@ -365,8 +365,7 @@ class Military:
             enemies={owner:[other for other in groups if other!=owner and ((owner=='野人' and other in active) or (other=='野人' and owner in active) or owner!='野人' and other!='野人' and self._hostile(owner,other))] for owner in groups}
             damage={owner:0 for owner in groups};tile=self._call('native:territory','cell',x,y)
             terrain=self._call('native:territory','terrain',x,y)
-            castle=self._effect(tile.tile.id,'native:castle').get('defense_per_level',0) if tile.tile.id else 0
-            if castle:castle*=self._call('native:buildings','count',tile.tile.id,'native:castle')
+            castle=self._call('native:buildings','effect_role',tile.tile.id,'castle','defense_per_level') if tile.tile.id else 0
             dice={}
             for owner in sorted(groups):
                 if not enemies[owner]:continue
@@ -416,7 +415,7 @@ class Military:
             for defender_owner,group in groups.items():
                 castle=0
                 if fact.tile.id and defender_owner==fact.owner:
-                    castle=self._effect(fact.tile.id,'native:castle').get('defense_per_level',0)*self._call('native:buildings','count',fact.tile.id,'native:castle')
+                    castle=self._call('native:buildings','effect_role',fact.tile.id,'castle','defense_per_level')
                 defense=self.defense_pct(terrain.defense,castle)
                 self.spread_damage(max(1,round(outgoing/len(groups)*(100-defense)/100)),group)
             self.spread_damage(incoming,[u for u in attackers if u.alive])

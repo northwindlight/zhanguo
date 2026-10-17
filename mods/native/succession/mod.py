@@ -17,11 +17,11 @@ class Succession:
         for owner in self._call('native:nation-inspection','ids'):
             if owner not in self._enrolled:continue
             sites=self._call('native:nation-inspection','overview',owner).sites
-            if any(self._call('native:buildings','count',site.id,'native:town-hall') for site in sites):continue
+            if any(self._call('native:buildings','has_role',site.id,'capital') for site in sites):continue
             for site in sites:self._call('native:buildings','transfer_site',site.id,None)
             survivors=self._call('native:diplomacy','eliminate',owner)
             self._call('native:army','remove_nation',owner);self._call('native:army','disengage',survivors)
-            self._call('native:nations','extinguish',owner,'No completed town hall remains')
+            self._call('native:nations','extinguish',owner,'No completed capital remains')
             self._world.runtime.deactivate_actor(self._world,owner)
             dead.append(owner)
         return tuple(dead)

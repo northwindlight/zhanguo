@@ -270,6 +270,11 @@ class Economy:
         return Money(data['known'],tuple(data['unpriced']))
 
     @classmethod
+    def report_from_save(cls, data):
+        """Public contract for consumers that persist a purchased report."""
+        return cls._report(PeriodReport, data)
+
+    @classmethod
     def _report(cls, kind, data):
         if not isinstance(data,dict) or set(data)!=set(kind.__dataclass_fields__):raise ValueError('Invalid saved report')
         values = dict(data)

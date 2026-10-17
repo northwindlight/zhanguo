@@ -3,8 +3,8 @@ from .api import TerritoryAPI
 from .objects import Territory, Terrain
 
 
-TERRAINS = (Terrain('native:plain',0,0,1),Terrain('native:forest',10,15,2),
-            Terrain('native:hill',25,25,1),Terrain('native:mountain',50,50,2),Terrain('native:desert',-10,40,1))
+TERRAINS = (Terrain('native:plain',0,0,1,'P'),Terrain('native:forest',10,15,2,'F'),
+            Terrain('native:hill',25,25,1,'H'),Terrain('native:mountain',50,50,2,'M'),Terrain('native:desert',-10,40,1,'D'))
 
 
 class TerritoryMod(GameMod):

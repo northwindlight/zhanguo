@@ -692,3 +692,25 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
     plan.stable_tokens = (int(plan.sys_tokens + plan.archive_tokens
                               + max(0, plan.replay_tokens - last)))
     return assemble(system_text, archive_text, records, tail_text, tail_map), plan
+
+
+def map_presentation(facts: dict) -> tuple[dict, dict]:
+    """Map glyphs and role→kinds from detached public facts.
+
+    Shared by the spectator map, the model map image and the council reviewer,
+    so a redacted observation keeps the same picture without the catalogs.
+    """
+    glyphs = {}
+    for row in facts.get('terrain_catalog') or []:
+        if isinstance(row, dict) and row.get('glyph'):
+            glyphs[row['id']] = row['glyph']
+    for key, value in (facts.get('unit_catalog') or {}).items():
+        if isinstance(value, dict) and value.get('glyph'):
+            glyphs[key] = value['glyph']
+    role_kinds = {}
+    for row in facts.get('building_catalog') or []:
+        if not isinstance(row, dict):
+            continue
+        for role in row.get('roles') or ():
+            role_kinds.setdefault(role, []).append(row['id'])
+    return glyphs, role_kinds

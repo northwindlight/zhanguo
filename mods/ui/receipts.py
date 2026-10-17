@@ -25,7 +25,7 @@ class ReceiptPresentation(QueryPresentation):
         actor=observation.get('actor','')
         if actor:
             self._facts[actor]={key:deepcopy(facts[key]) for key in
-                ('land','building_sites','army','unit_catalog','nations','diplomacy','view','frontier') if key in facts}
+                ('land','building_sites','building_catalog','army','unit_catalog','nations','diplomacy','view','frontier') if key in facts}
             self._period=observation.get('period',self._period)
         tiles=self._tiles.setdefault(actor,{})
         for row in facts.get('view',[]):

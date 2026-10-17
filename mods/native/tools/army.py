@@ -200,15 +200,20 @@ def _reachable(data, args, actor, ctx):
     if isinstance(data[0], dict) and 'destinations' in data[0]:
         return '\n\n'.join(ctx.unit_ref(row['aid'], actor) + '\n' + _reachable(row['destinations'], args, actor, ctx) for row in data)
     lines = [ctx.text('tool.reachable.header', count=len(data))]
-    visible = {tuple(tile['position']): tile for tile in ctx._facts.get(actor, {}).get('view', [])}
+    facts = ctx._facts.get(actor, {})
+    visible = {tuple(tile['position']): tile for tile in facts.get('view', [])}
+    # 重要建筑按目录里的角色挑，工具层不认具体建筑 ID。
+    catalog = facts.get('building_catalog') or []
+    highlights = [(row['id'], '×') for row in catalog if 'capital' in (row.get('roles') or ())]
+    highlights += [(row['id'], ' L') for row in catalog if 'castle' in (row.get('roles') or ())]
     for position, cost in data:
         tile = visible.get(tuple(position), {})
         line = ctx.text('tool.reachable.destination', place=ctx.pos(position, actor=actor), cost=_num(cost),
                         terrain=ctx.label('content', tile.get('terrain', '—')))
         buildings = dict(tile.get('buildings', []))
-        for kind in ('native:town-hall', 'native:castle'):
+        for kind, mark in highlights:
             if buildings.get(kind):
-                line += '｜' + ctx.label('content', kind) + (' L' if kind == 'native:castle' else '×') + str(buildings[kind])
+                line += '｜' + ctx.label('content', kind) + mark + str(buildings[kind])
         if cost == 0:
             line += '｜' + ctx.text('tool.reachable.current')
         lines.append(line)
