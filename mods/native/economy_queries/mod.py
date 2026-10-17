@@ -1,3 +1,4 @@
+from dataclasses import replace
 from engine.runtime import GameMod, Tool
 from .objects import EconomicQueries
 from mods.native.buildings.types import NativeBuilding
@@ -46,6 +47,15 @@ class QueriesMod(GameMod):
         policy=world.runtime.parameter(world,actor,'build_cost_pct',100)
         return queries.estimate(kind,level,other_slots,policy_pct=policy)
     def _buy(self, world, actor, resource: str, quantity: int):
-        return self.runtime.object_call(world,'native:market','buy',actor,resource,quantity)
+        return self._trade(world,actor,resource,quantity,'buy')
     def _sell(self, world, actor, resource: str, quantity: int):
-        return self.runtime.object_call(world,'native:market','sell',actor,resource,quantity)
+        return self._trade(world,actor,resource,quantity,'sell')
+    def _trade(self, world, actor, resource, quantity, side):
+        """成交回执附上成交后本国该资源的剩余量。
+
+        旧版回执末尾就是「余N」——模型看完这一单立刻知道还剩多少，不必再查一次 econ。
+        """
+        trade=self.runtime.object_call(world,'native:market',side,actor,resource,quantity)
+        stocks=self.runtime.object_call(world,'native:resource-inspection','snapshot',actor)
+        remaining=next((row.amount for row in stocks if getattr(row,'id',None)==resource),0)
+        return replace(trade,remaining=remaining)

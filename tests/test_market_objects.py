@@ -446,7 +446,7 @@ class TestMarket(unittest.TestCase):
         # 结算交回的是市场状态里的成交记录；回执另外带的倒手量不属于市场状态。
         settled = result['market_trades']
         self.assertEqual(len(settled), 1)
-        self.assertEqual(asdict(settled[0]), {k: v for k, v in asdict(trade).items() if k != 'churn'})
+        self.assertEqual(asdict(settled[0]), {k: v for k, v in asdict(trade).items() if k not in ('churn', 'remaining')})
         # Only the trade moved the buffer: production delivers nothing, and
         # nothing restocks the market either.
         reference, stock = drift(FOOD_DEPTH,1), FOOD_DEPTH-1

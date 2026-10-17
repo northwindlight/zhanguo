@@ -66,8 +66,12 @@ class Churn:
 
 @dataclass(frozen=True)
 class TradeReceipt(Trade):
-    """成交回执 = 成交本身 + 本期倒手量；`Trade` 本身仍是存档里的那条记录。"""
+    """成交回执 = 成交本身 + 本期倒手量 + 成交后余量；`Trade` 本身仍是存档里的那条记录。
+
+    倒手量由市场自己算；余量是本国库存，查询层拿到后回填（市场不持有资源账户）。
+    """
     churn: Churn = Churn(0, 0.0)
+    remaining: int = 0
 
 
 class Market:

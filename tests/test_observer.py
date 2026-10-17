@@ -228,7 +228,7 @@ class TestObserver(unittest.TestCase):
             text=observer.path.read_text()
         for output in (text,screen.getvalue()):
             self.assertEqual(output.count('完整国策正文：建设生产与维持独立'),1)
-            self.assertEqual(output.count('◇ 买入 木头×1'),2)
+            self.assertEqual(output.count('◇ 购入 木头×1'),2)
             self.assertEqual(output.count('测试胜利公告'),1)
             self.assertNotIn('[0·action]',output)
         events=h.records()['events']
@@ -400,7 +400,7 @@ class TestObserver(unittest.TestCase):
         self.assertTrue(r['ok']);data=r['data']
         self.assertEqual(before-h.world.resources.balance('s:q','native:gold'),data['gold'])
         text=ui.action(0,'s:q','buy',args,r,{'s:q':'秦'})
-        self.assertIn('买入 木头×2',text);self.assertIn(f'实付{data["gold"]}金',text)
+        self.assertIn('购入 木头×2',text);self.assertIn(f'实付 {data["gold"]}',text)
         self.assertNotIn('carry',text);self.assertNotIn('余额',text)
 
     def test_military_and_pending_receipts_preserve_authoritative_status(self):

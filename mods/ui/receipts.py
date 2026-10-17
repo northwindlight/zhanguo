@@ -264,7 +264,11 @@ class ReceiptPresentation(QueryPresentation):
         if action in ('buy','sell') and isinstance(data,dict) and 'exact_total' in data:
             quantity=data['quantity'];label=self.label('content',data['resource'])
             verb=self.label('action',action);cash='实付' if data['side']=='buy' else '实收'
-            return f'{verb} {label}×{quantity}，{cash}{data["gold"]}金（含价差均价{num(data["exact_total"]/quantity)}；本期市价{num(data["price_before"])}）'+self.churn_warning(data)
+            # 沿用旧版口径：中间价走了多少、含价差均价多少、实付/实收多少，末尾报成交后的余量。
+            line=(f'{verb} {label}×{quantity}（中间价 {num(data["price_before"])}→{num(data["price_after"])}，'
+                  f'含价差均价 {num(data["exact_total"]/quantity)}，{cash} {num(data["gold"])}）')
+            if 'remaining' in data:line+=f'，余{num(data["remaining"])}'
+            return line+self.churn_warning(data)
         if action=='plan' and isinstance(data,dict):
             if 'approved' in data:
                 body=data.get('text',args.get('text',''))
