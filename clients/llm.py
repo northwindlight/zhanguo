@@ -245,12 +245,8 @@ class LLMClient:
                 start=len(messages)-1;ended=False
                 continue
             if ended:break
-            refresh=getattr(self.ui,'refresh',None)
-            if calls and callable(refresh):
-                update=refresh(current_observation)
-                if update:
-                    current={'role':'user','content':update}
-                    messages.append(current);self._dialogue(player,[current])
+            # 不再在批次之间追加上下文：模型本来就带着自己的对话历史与全部工具回执，
+            # 要看最新状态就再调一次专门工具。回合开局的战情总纲负责给全景。
             if not calls:messages.append({'role':'user','content':self.ui.text('llm.continue')})
         # Only the normal end_turn gate can finish a step-limited turn.
         if not ended:

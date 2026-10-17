@@ -40,20 +40,23 @@ class TestDecisionUI(unittest.TestCase):
             self.assertIn('【国策规划】',tail);self.assertIn('尚无国策',tail)
             self.assertIn('【军队】',tail);self.assertIn('【世界市场】',tail)
             self.assertTrue(p.submit('buy',{'resource':'wood','quantity':2})['ok'])
-            line=ui.refresh(p.observe())
+            tail,_=ui.state(p.observe(),[])
             stocks={s['id']:s['amount'] for s in p.observe()['facts']['econ']['stocks']}
-            self.assertIn(f"{stocks['native:wood']}木头",line)
+            self.assertIn(f"{stocks['native:wood']}木头",tail)
+            # 批次之间不再追加上下文：模型靠自己的对话历史与回执。
+            self.assertFalse(hasattr(ui,'refresh'))
 
-    def test_llm_receives_fresh_inventory_after_actions_without_extra_queries(self):
+    def test_llm_receives_fresh_inventory_from_the_receipt_without_extra_queries(self):
         h=self.host();p=h.player(Q)
         backend=FakeBackend([
             {'tool_calls':[call('b','buy',resource='wood',quantity=2)]},
             {'tool_calls':[call('p','plan',text='经济：保障粮木和能源；军事：集中守边；情报：依据公开事实；外交：维持和平，库存不足时放缓扩张。'),call('e','end_turn',summary='购入木材，完成国策。')]}])
         client=LLMClient(h.cfg,backend=backend,ui=h.ui);client.play(p)
         latest=backend.requests[1][-1]
-        self.assertEqual(latest['role'],'user');self.assertIn('【刷新】',latest['content'])
-        # 买入 2 木后刷新行立刻反映新库存，模型不必再查一次。
-        self.assertIn('62木头',latest['content'])
+        # 回执自己带「余N」：模型看完这一单就知道还剩多少；批次之间不再追加刷新消息。
+        self.assertEqual(latest['role'],'tool')
+        self.assertIn('购入 木头×2',latest['content'])
+        self.assertIn('余62',latest['content'])
         self.assertNotIn('costs_by_level',latest['content'])
         self.assertIn('规则按需',backend.requests[0][0]['content'])
         assert_paired(client.state.replay[0]['messages'])

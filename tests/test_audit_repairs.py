@@ -118,17 +118,15 @@ class AuditRepairs(unittest.TestCase):
         self.assertEqual(apply(before,changes),after)
         self.assertLess(len(json.dumps(changes)),len(json.dumps(after))//10)
 
-    def test_refresh_line_reports_localized_stocks_and_unit_removal(self):
+    def test_trade_receipt_reports_remaining_stock_and_no_batch_message_is_appended(self):
         h=GameHost.new({'map_size':12,'seed':73,'nations':[{'id':Q,'name':'秦','client':'rule'}]})
-        p=h.player(Q);site=h.world.territory.owned(Q)[0].tile.position
-        unit=h.world.military.seed(Q,'native:infantry',*site)[0]
+        p=h.player(Q)
         ui=h.ui.llm(h.cfg)
-        self.assertTrue(p.submit('buy',{'resource':'wood','quantity':2})['ok'])
-        self.assertTrue(p.submit('disband',{'aid':unit.id})['ok'])
-        line=ui.refresh(p.observe())
+        receipt=p.submit('buy',{'resource':'wood','quantity':2});self.assertTrue(receipt['ok'])
         stocks={s['id']:s['amount'] for s in p.observe()['facts']['econ']['stocks']}
-        self.assertIn(f"{stocks['native:wood']}木头",line)
-        self.assertIn('军队0',line)
+        self.assertIn(f"余{stocks['native:wood']}",ui.receipt(receipt,{'resource':'wood','quantity':2}))
+        # 批次之间不再追加上下文：模型靠自己的对话历史与回执。
+        self.assertFalse(hasattr(ui,'refresh'))
 
     def test_visibility_scan_is_shared_within_observation_and_invalidates_after_actions(self):
         f,w=self.world();p=w.runtime.player(w,Q)

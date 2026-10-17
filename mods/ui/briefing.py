@@ -79,6 +79,29 @@ def _threats(ui, facts):
         ui.relation(row['relation']) + '｜' + ui.army_line(row['unit']) for row in rows)
 
 
+def _battle(ui, facts, actor):
+    """当前交战：够判断该不该继续打；逐支明细仍留给 battle 面板。
+
+    旧版挂在批间刷新里，现在没有批间消息了，交战属于「正在发生的战况」，
+    随战情总纲一起在回合开局给全。
+    """
+    rows = facts.get('battle') or []
+    if not rows:
+        return None
+    pieces = []
+    for row in rows:
+        sides = []
+        for side in row.get('sides', []):
+            who = '你' if side['owner'] == actor else ui._names.get(side['owner'], side['owner'])
+            sides.append(f"{who}{side['count']}支{num(sum(u.get('hp', 0) for u in side.get('units', [])))}HP")
+        detail = '/'.join(sides)
+        defence = next((s for s in row.get('sides', []) if s.get('role') == 'defending'), None)
+        if defence is not None and not row.get('blind'):
+            detail += f"·守方减伤{num(defence.get('combined_reduction', 0))}%"
+        pieces.append(ui.pos(row.get('position'), actor=actor) + detail)
+    return ui.text('brief.battle', count=len(rows), detail='；'.join(pieces))
+
+
 def _territory(ui, events, names):
     """领土得失是大事：只列本回合真实的归属变更，不重播旧事。"""
     rows = [row for row in events if row.get('kind') == 'occupation' and isinstance(row.get('details'), dict)
@@ -141,6 +164,7 @@ def sections(ui, observation, events, cues, key=lambda value: value, vision=Fals
     out = [
         ('capital', _capital(ui, cues, actor)),
         ('threats', _threats(ui, facts)),
+        ('battle', _battle(ui, facts, actor)),
         ('territory', _territory(ui, events, names)),
         ('power', _power(ui, facts, cues, observation, key)),
         ('plan', _plan(ui, facts)),

@@ -5,12 +5,12 @@ from .i18n import Translator
 from .console import ConsoleUI
 from .maps import snapshot,owner_color
 from .views import player_map
-from .briefing import resources_line,sections,stocks_of
+from .briefing import sections
 from .receipts import num
 from clients.context import est_tokens
 
 # 简报分节越界时按此序从后往前丢弃；同键给出「去哪查全文」的工具名。
-FALLBACK={'capital':'frontier','threats':'threats','territory':'news','power':'econ','plan':'government',
+FALLBACK={'capital':'frontier','threats':'threats','battle':'battle','territory':'news','power':'econ','plan':'government',
           'map':'view','army':'army','diplomacy':'diplomacy','market':'market','bank':'bank',
           'intel':'intel','dispatches':'dispatches'}
 
@@ -170,39 +170,6 @@ class LLMUI:
                 'frontier':{key:value for key,value in facts.get('frontier',{}).items() if key!='capital_warning'},
                 'capital_warning':deepcopy(facts.get('frontier',{}).get('capital_warning',[])),
                 'diplomacy_todo':{key:diplomacy[key] for key in ('offers','votes','pending') if diplomacy.get(key)}}
-
-    def battle_brief(self,facts,actor):
-        """交战摘要：够模型判断该不该继续打，逐支明细仍留给 battle 面板。"""
-        rows=facts.get('battle') or []
-        if not rows:return ''
-        pieces=[]
-        for row in rows:
-            sides=[]
-            for side in row.get('sides',[]):
-                who='你' if side['owner']==actor else self.names.get(side['owner'],side['owner'])
-                sides.append(f"{who}{side['count']}支{num(sum(u.get('hp',0) for u in side.get('units',[])))}HP")
-            detail='/'.join(sides)
-            defence=next((s for s in row.get('sides',[]) if s.get('role')=='defending'),None)
-            if defence is not None and not row.get('blind'):
-                detail+=f"·守方减伤{num(defence.get('combined_reduction',0))}%"
-            pieces.append(self.receipts.pos(row.get('position'),actor=actor)+detail)
-        return self.text('brief.battle',count=len(rows),detail='；'.join(pieces))
-
-    def refresh(self,observation):
-        """每批行动后一行的中文刷新。
-
-        不再发结构化差分：模型不该在没有解释器的前提下脑内合并 JSON Patch。
-        批间的完整同步交给回合开局的战情总纲与常驻坐标地图；拿不准再查专门工具。
-        """
-        facts=self._remember(observation);actor=observation['actor']
-        own=[u for u in facts.get('army',[]) if u.get('owner')==actor and u.get('hp',0)>0]
-        battle=self.battle_brief(facts,actor)
-        relations='  '.join(f"{row['name']}={self.receipts.relation(row['relation'])}"
-                            for row in (facts.get('countries') or []))
-        return self.text('brief.refresh',actor=self.names.get(actor,actor),
-                         resources=resources_line(self.receipts,stocks_of(facts),self._key),army=len(own),
-                         mail=len(facts.get('intel') or []),extra=(battle+'｜') if battle else '',
-                         relations=relations or self.text('query.none'))
 
     def event_lines(self,facts,events):
         """近讯：重大事件全留，其余按最近十条取；正文过长时指路 news。"""

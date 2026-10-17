@@ -28,7 +28,4 @@ for row in view:
 canonical={'view':view,'army':obs['facts']['army'],'econ':obs['facts']['econ']}
 from clients.context import est_tokens
 ui=h.ui.llm(h.cfg);ui.rules(p.rules('all'));schemas=ui.actions(p.actions());tail,_=ui.state(obs,p.events()['items'])
-actor=h.actors()[0];unit=h.world.military.snapshot(actor)[0]
-p.submit('move',{'aid':unit.id,'x':4,'y':5})
-delta=ui.refresh(p.observe()) or ''
-print(json.dumps({'state_tokens':est_tokens(tail),'system_tokens':est_tokens(ui.system()),'tools_tokens':est_tokens(json.dumps(schemas,ensure_ascii=False)),'update_tokens':est_tokens(delta),'root':str(root),'observations':3,'elapsed_seconds':elapsed,'object_calls':sum(observation_counts.values()),'counts':dict(sorted(observation_counts.items())),'facts_sha256':hashlib.sha256(json.dumps(canonical,sort_keys=True,ensure_ascii=False).encode()).hexdigest()},ensure_ascii=False))
+print(json.dumps({'state_tokens':est_tokens(tail),'system_tokens':est_tokens(ui.system()),'tools_tokens':est_tokens(json.dumps(schemas,ensure_ascii=False)),'root':str(root),'observations':3,'elapsed_seconds':elapsed,'object_calls':sum(observation_counts.values()),'counts':dict(sorted(observation_counts.items())),'facts_sha256':hashlib.sha256(json.dumps(canonical,sort_keys=True,ensure_ascii=False).encode()).hexdigest()},ensure_ascii=False))
