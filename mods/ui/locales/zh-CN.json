@@ -542,6 +542,8 @@
   "query.can_build": "本回合尚未下单（材料与门槛另检）",
   "query.garrison": "驻军{units}",
   "query.move_costs": "地形移动代价：{values}；每步取起终两格较大值",
+  "query.market_churn": "⚠ 市场空转：本回合你在 {resource} 上又买又卖（买 {buy} 均价 {buy_price}、卖 {sell} 均价 {sell_price}）——重叠的 {overlap} 单位是纯倒手，净亏 {loss} 金（一进一出＝白付两趟买卖价差，外加自己推价）。要买就直接买、要卖就直接卖，别拿市场当仓库周转。",
+  "query.market_churn_gain": "⚠ 市场空转：本回合你在 {resource} 上又买又卖（买 {buy} 均价 {buy_price}、卖 {sell} 均价 {sell_price}）——重叠的 {overlap} 单位是纯倒手，这回反倒赚了 {loss} 金（市价在你两笔之间被动过）。别把它当生意：价差照付，长期必亏。要买就直接买、要卖就直接卖。",
   "query.purchased_report": "【已购报表·{name}】第{period}回合购买，费用{fee}金",
   "query.army_newborn": "新兵，本回合不可行动",
   "query.army_engaged": "交战中",

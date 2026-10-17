@@ -8,7 +8,7 @@ arrival order can never move anybody's price; order size is priced by the curve
 itself, because a deeper order sweeps further into the buffer.
 """
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 import math
 from types import MappingProxyType
 
@@ -50,8 +50,24 @@ class MarketSnapshot:
 
 @dataclass(frozen=True)
 class Churn:
+    """本期同商品双向成交里的纯倒手部分。
+
+    `quantity` 是重叠量，`loss` 是重叠量按两边成交均价折算的净亏（负值＝反倒赚了）。
+    另外带上两侧各自的量与均价，回执才能把「买多少均价多少、卖多少均价多少」讲清楚，
+    而不是只丢一个净亏数字。
+    """
     quantity: int
     loss: float
+    buy_quantity: int = 0
+    buy_average: float = 0.0
+    sell_quantity: int = 0
+    sell_average: float = 0.0
+
+
+@dataclass(frozen=True)
+class TradeReceipt(Trade):
+    """成交回执 = 成交本身 + 本期倒手量；`Trade` 本身仍是存档里的那条记录。"""
+    churn: Churn = Churn(0, 0.0)
 
 
 class Market:
@@ -212,8 +228,18 @@ class Market:
         self._trades.append(trade)
         return trade
 
-    def buy(self, owner, resource, quantity):return self._trade(owner, resource, quantity, 'buy')
-    def sell(self, owner, resource, quantity):return self._trade(owner, resource, quantity, 'sell')
+    def _receipt(self, trade):
+        """成交回执：内部只存纯 Trade，回执另外带本期同商品的倒手量。
+
+        空转只有在本回合内被告知才有用——等到结算再播报，这一单已经改不了了。
+        倒手量是回执而不是市场状态，因此不进 `_trades`，存档格式不变。
+        """
+        if trade.owner is None:return trade
+        return TradeReceipt(**{f.name: getattr(trade, f.name) for f in fields(trade)},
+                            churn=self.churn(trade.owner, trade.resource))
+
+    def buy(self, owner, resource, quantity):return self._receipt(self._trade(owner, resource, quantity, 'buy'))
+    def sell(self, owner, resource, quantity):return self._receipt(self._trade(owner, resource, quantity, 'sell'))
 
     def churn(self, owner, resource):
         self._owner(owner);self._listing(resource)
@@ -224,7 +250,9 @@ class Market:
         if not overlap:return Churn(0, 0.0)
         buy_gold = sum(row.gold for row in rows if row.side == 'buy')
         sell_gold = sum(row.gold for row in rows if row.side == 'sell')
-        return Churn(overlap, overlap*(buy_gold/buy_n - sell_gold/sell_n))
+        buy_average, sell_average = buy_gold/buy_n, sell_gold/sell_n
+        return Churn(overlap, overlap*(buy_average - sell_average),
+                     buy_n, buy_average, sell_n, sell_average)
 
     def settle(self):
         """Close the period in three steps: this period's net flow moves the

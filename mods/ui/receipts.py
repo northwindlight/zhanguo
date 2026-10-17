@@ -264,7 +264,7 @@ class ReceiptPresentation(QueryPresentation):
         if action in ('buy','sell') and isinstance(data,dict) and 'exact_total' in data:
             quantity=data['quantity'];label=self.label('content',data['resource'])
             verb=self.label('action',action);cash='实付' if data['side']=='buy' else '实收'
-            return f'{verb} {label}×{quantity}，{cash}{data["gold"]}金（含价差均价{num(data["exact_total"]/quantity)}；本期市价{num(data["price_before"])}）'
+            return f'{verb} {label}×{quantity}，{cash}{data["gold"]}金（含价差均价{num(data["exact_total"]/quantity)}；本期市价{num(data["price_before"])}）'+self.churn_warning(data)
         if action=='plan' and isinstance(data,dict):
             if 'approved' in data:
                 body=data.get('text',args.get('text',''))
@@ -365,6 +365,19 @@ class ReceiptPresentation(QueryPresentation):
 
     @staticmethod
     def relation(value):return {'war':'交战','ally':'同盟','neutral':'中立'}.get(value,value)
+
+    def churn_warning(self,data):
+        """空转当场点名：同商品又买又卖＝白付两趟价差，还得算自己推价。
+
+        只在真有重叠时出现；赚了也照报（照付的价差是真的，别把它当生意）。
+        """
+        churn=data.get('churn') or {}
+        if not churn.get('quantity'):return ''
+        return '\n'+self.text('query.market_churn_gain' if churn['loss']<0 else 'query.market_churn',
+            resource=self.label('content',data['resource']),
+            buy=num(churn['buy_quantity']),buy_price=num(churn['buy_average']),
+            sell=num(churn['sell_quantity']),sell_price=num(churn['sell_average']),
+            overlap=num(churn['quantity']),loss=num(abs(churn['loss'])))
 
     def army_line(self,u):
         state='newborn' if u.get('born_turn')==self._period else 'engaged' if u.get('engaged') else 'moved' if u.get('moved_turn')==self._period else 'ready'

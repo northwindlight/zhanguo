@@ -520,6 +520,8 @@
   "query.can_build": "No order this turn; costs and prerequisites still apply",
   "query.garrison": "Garrison: {units}",
   "query.move_costs": "Terrain movement costs: {values}; each step uses the higher cost of its two tiles",
+  "query.market_churn": "! Market churn: this turn you both bought and sold {resource} (bought {buy} at avg {buy_price}, sold {sell} at avg {sell_price}) - the overlapping {overlap} units were pure round-tripping, a net loss of {loss} gold (in and out pays the spread twice, plus your own price impact). If you want to buy, just buy; if you want to sell, just sell - do not use the market as a warehouse.",
+  "query.market_churn_gain": "! Market churn: this turn you both bought and sold {resource} (bought {buy} at avg {buy_price}, sold {sell} at avg {sell_price}) - the overlapping {overlap} units were pure round-tripping and happened to gain {loss} gold (the price moved between your two orders). Do not treat it as a business: the spread is still paid. If you want to buy, just buy; if you want to sell, just sell.",
   "query.purchased_report": "Purchased report: {name} | Bought turn {period}, fee {fee} gold",
   "query.army_newborn": "New unit; cannot act this turn",
   "query.army_engaged": "Engaged",

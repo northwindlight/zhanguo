@@ -79,7 +79,7 @@ class IntelligenceMod(GameMod):
         for effect in context.get('diplomacy_effects',()):
             if effect[0]=='notice':world.intelligence.emit('diplomacy',effect[1],parties=effect[2],public=effect[3],
                 details={'importance':'major'} if effect[3] else None)
-        for owner,resource,quantity,loss in context.get('market_churn',()):world.intelligence.emit('market',f'{resource} 本期买卖重叠空转{quantity}单位，按成交均价折算净亏{loss:g}金（负值为获利）。',parties=(owner,))
+        for owner,resource,quantity,loss in context.get('market_churn',()):world.intelligence.emit('market',f'{resource} 本期买卖重叠空转{quantity}单位，按成交均价折算净亏{loss:g}金（负值为获利）——同商品又买又卖＝白付两趟价差并自己推价，要买就直接买、要卖就直接卖。',parties=(owner,))
         for report in context.get('economy_publications',()):world.intelligence.emit('economy',f'第{report.start}—{report.end}期经济报表已公布，可用 report 查询本国、buy_report 购买别国。',parties=(report.owner,))
         for event in context.get('domain_events',()):world.intelligence.emit(**event)
         for owner in context.get('extinct_nations',()):world.intelligence.emit('extinction',owner,public=True)

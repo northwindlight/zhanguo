@@ -1,6 +1,6 @@
 """Synthetic market acceptance: real manifests, interchangeable modules, tea."""
 from copy import deepcopy
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, asdict
 import json
 import math
 from pathlib import Path
@@ -443,7 +443,10 @@ class TestMarket(unittest.TestCase):
         world.resources.open('Qin',{'native:gold':100})
         trade = world.market.buy('Qin','native:food',1)
         result = world.resolve_turn()
-        self.assertEqual(result['market_trades'],(trade,))
+        # 结算交回的是市场状态里的成交记录；回执另外带的倒手量不属于市场状态。
+        settled = result['market_trades']
+        self.assertEqual(len(settled), 1)
+        self.assertEqual(asdict(settled[0]), {k: v for k, v in asdict(trade).items() if k != 'churn'})
         # Only the trade moved the buffer: production delivers nothing, and
         # nothing restocks the market either.
         reference, stock = drift(FOOD_DEPTH,1), FOOD_DEPTH-1
