@@ -77,11 +77,18 @@ class ConsoleUI(ReceiptPresentation):
         args=arguments if isinstance(arguments,dict) else {}
         caption=self.call_caption(action,args,actor,receipt)
         result=self.receipt_body(action,args,receipt,actor)
-        return self.text('console.action_line',period=period,actor=names.get(actor,actor),
+        actor_name=names.get(actor,actor)
+        # 回执正文已经以同样的措辞开头时不再重复一遍（原先会出现「◇ 卖出 石油×1 → 卖出 石油×1，实收…」）。
+        if caption and result.startswith(caption):
+            return self.text('console.action_line_bare',period=period,actor=actor_name,result=result)
+        return self.text('console.action_line',period=period,actor=actor_name,
             caption=caption,result=result)
     def event(self,row,names):
-        text=self.name(row['text'],names)
+        # 行动回执的正文自带「[回合·行动] 国 ◇ …」抬头，再套一层事件前缀会写成
+        # 「[26·action] [26·行动] 燕 ◇ …」——前缀重复，kind 还漏回英文。
         detail=row.get('details')
+        if isinstance(detail,dict) and detail.get('source')=='action_receipt':return row['text']
+        text=self.name(row['text'],names)
         if row.get('kind')=='occupation' and isinstance(detail,dict) and 'previous_owner' in detail:
             previous=names.get(detail['previous_owner'],detail['previous_owner']) or self.label('relation','unowned')
             owner=names.get(detail['owner'],detail['owner'])
