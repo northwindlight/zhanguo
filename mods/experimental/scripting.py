@@ -2,9 +2,10 @@
 from copy import deepcopy
 
 from engine.player import wire
-from engine.runtime import GameMod, ModError, RuleSection, Tool
+from engine.runtime import GameMod, ModError, RuleSection
 from engine.state import active_unit
 from engine.scripting import DEFAULT_LIMITS, Machine, check
+from .scripting_api import ScriptingAPI
 
 CONTROLS=frozenset(('script_write','script_patch','script_check','script_status','script_run'))
 
@@ -127,26 +128,7 @@ class ScriptingMod(GameMod):
             lambda actor:actor in getattr(world,self.runtime.distribution.get('ActorCollection','actors')),
             lambda:self.runtime.object_call(world,'native:government','period'))
     def objects(self,world):return {'sandbox:programs':world.scripts}
-    def tools(self):
-        return (Tool('script_write',self._write,description='保存本国 Python 短脚本，不执行。运行时可用 api.query/observe/submit、inputs、print；适合整类查询、计算收益、按预算执行重复操作。源码可跨回合复用。例：stocks=api.query("econ")["stocks"]; print({s["id"]:s["amount"] for s in stocks})'),
-                Tool('script_patch',self._patch,description='精确替换已保存源码中的一处内容，不执行'),
-                Tool('script_check',self._check,read_only=True,description='免费检查 Python 语法和安全规则，不执行、不消耗本回合脚本执行额度；保存后先检查'),
-                Tool('script_status',self._status,read_only=True,description='查询本国脚本、剩余脚本执行额度、预算及上次结果；include_source=true 查看源码'),
-                Tool('script_run',self._claim,description='手动执行已保存 Python 脚本，inputs 为本回合 JSON 参数。每国每回合有一次脚本执行额度，计算与只读脚本也消耗该额度；失败只消耗脚本执行额度，不消耗普通行动机会，之后仍可调用国家工具。成功动作保留。返回 print 输出、执行统计及错误位置。api 使用标准事实结构，资源/兵种参数接受唯一短键值；无需每回合重发源码。'))
-    @staticmethod
-    def _write(world,actor,source: str):return world.scripts.write(actor,source)
-    @staticmethod
-    def _patch(world,actor,old: str,new: str):return world.scripts.patch(actor,old,new)
-    @staticmethod
-    def _check(world,actor,source: str | None=None):return world.scripts.check(actor,source)
-    @staticmethod
-    def _status(world,actor,include_source: bool=False):return world.scripts.status(actor,include_source)
-    @staticmethod
-    def _claim(world,actor,inputs: dict | None=None):
-        if inputs is not None and not isinstance(inputs,dict):raise ValueError('inputs must be a JSON object')
-        # Claim before parsing/execution. The distribution service executes via
-        # its bound player, never a raw runtime transport or replacement actor.
-        return world.scripts.claim(actor)
+    def player_api(self, world):return ScriptingAPI(world)
     def save_state(self,world):return world.scripts.to_save()
     def load_state(self,world,data):world.scripts.restore(data)
     def rule_sections(self,world=None):

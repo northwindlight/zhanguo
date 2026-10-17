@@ -1,6 +1,7 @@
 """Public strategy references, shared by players and distribution reviewers."""
 from pathlib import Path
-from engine.runtime import GameMod,RuleSection,Tool
+from engine.runtime import GameMod,RuleSection
+from .api import HandbooksAPI
 
 BOOKS=(('basics','基础指南','opening',('开局指南','开局','入门')),
        ('economics','经济手册','on_demand',('经济学手册','现金流','复利','滚雪球')),
@@ -19,6 +20,7 @@ class HandbooksMod(GameMod):
                 supplement=(Path(path).parent/overlay/(('经济学手册' if key=='economics' else title)+'.md')).read_text(encoding='utf-8')
                 body+='\n\n'+supplement
             self.books.append((key,title,prompt,aliases,body))
-    def tools(self):return (Tool('handbooks',lambda w,a:[{'id':key,'title':title,'prompt_when':prompt} for key,title,prompt,_,_ in self.books],read_only=True,description='策略指南目录。正文用 player_rules(topic=标题) 查询；「基础指南」在前 20 回合常驻提示里，其余按需查询。'),)
+    def provides(self):return ('native:handbooks',)
+    def player_api(self, world):return HandbooksAPI(self)
     def rule_sections(self,world=None):
         return tuple(RuleSection(title,body,keywords=(key,*aliases),summary='策略参考，具体数值以公开目录和实际回执为准') for key,title,_,aliases,body in self.books)

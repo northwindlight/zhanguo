@@ -14,6 +14,7 @@ from functools import wraps, cached_property
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
+from weakref import WeakKeyDictionary
 
 _read_views = ContextVar("read_views", default=None)
 from typing import Any, Callable, get_args, get_origin, get_type_hints
@@ -123,6 +124,13 @@ class Tool:
     # 不出现在工具表里，但仍可按名调用（玩家状态扇出、脚本、规则 AI 都用得到）。
     hidden: bool = False
     content_parameters: tuple[str, ...] = ()
+    # tool 层字段：owner 是提供玩家 API 的能力名；None 表示沿用「哪个模块返回」。
+    owner: str | None = None
+    api: tuple[str, ...] = ()
+    fact: bool = False
+    panel: bool = False
+    groups: tuple[str, ...] = ()
+    schema_for_actor: Callable | None = None
 
     @cached_property
     def signature(self):return inspect.signature(self.handler)
@@ -227,6 +235,10 @@ class GameMod(ABC):
     def tools(self) -> tuple[Tool, ...]:
         return ()
 
+    def player_api(self, world):
+        """玩家 API 对象；tool 层通过它调用动作与只读事实。"""
+        return None
+
     def schema_for_actor(self, world, actor, schema):
         return schema
 
@@ -283,7 +295,7 @@ class Unit:
 
 
 class Runtime:
-    def __init__(self, units, distribution=None):
+    def __init__(self, units, distribution=None, *, enforce_player_apis=True):
         self.distribution = distribution or {}
         hooks = self.distribution.get('Hooks', [])
         if not isinstance(hooks, list): raise ModError('Hooks 必须是发行版的有序列表')
@@ -359,19 +371,18 @@ class Runtime:
         for mod in (u.mod for u in units):
             self.command_actors.update(getattr(mod, 'command_actors', lambda: {})())
         self.tools, self.stage_map, self.tool_owners, self.stage_owners = {}, {}, {}, {}
+        self.tool_layer = None
+        self._tool_apis = WeakKeyDictionary()
         for name in self.order:
             mod = self.units[name].mod
             for tool in mod.tools():
-                for key in (tool.name, *tool.aliases):
-                    if key in self.tools:
-                        raise ModError(f"工具名称/别名冲突：{key}")
-                    self.tools[key] = tool
-                    self.tool_owners[key] = mod
+                self._register_tool(tool, mod)
             for stage in mod.stages():
                 if stage.name in self.stage_map:
                     raise ModError(f"结算阶段冲突：{stage.name}")
                 self.stage_map[stage.name] = stage
                 self.stage_owners[stage.name] = name
+        self._load_tool_layer()
         # 只读面板收敛：发行版声明一个分发器后，其余只读工具照旧注册（玩家状态与脚本
         # 仍按名调用），但不再出现在模型工具表里。
         panel = self.distribution.get('ReadOnlyPanel')
@@ -434,6 +445,123 @@ class Runtime:
                 requires=lambda n: self.stage_map[n].requires,
                 after=lambda n: self.stage_map[n].after,
                 before=lambda n: self.stage_map[n].before)
+        if enforce_player_apis:
+            self._validate_player_apis()
+
+    def _register_tool(self, tool, owner):
+        for key in (tool.name, *tool.aliases):
+            if key in self.tools:
+                raise ModError(f"工具名称/别名冲突：{key}")
+            self.tools[key] = tool
+            self.tool_owners[key] = owner
+
+    def _load_tool_layer(self):
+        spec = self.distribution.get('Tools')
+        if spec is None:
+            return
+        if not isinstance(spec, dict) or set(spec) - {'Entry', 'Version'} or not isinstance(spec.get('Entry'), str):
+            raise ModError('Distribution.Tools 必须声明 Entry')
+        entry = spec['Entry']
+        if entry.count(':') != 1:
+            raise ModError('Distribution.Tools.Entry 非法')
+        module_name, attribute = entry.split(':')
+        try:
+            factory = getattr(import_module(module_name), attribute)
+        except (ImportError, AttributeError) as exc:
+            raise ModError(f'无法加载 Distribution.Tools.Entry：{entry}') from exc
+        if not callable(factory):
+            raise ModError('Distribution.Tools.Entry 必须可调用')
+        try:
+            layer = factory(self)
+        except ModError:
+            raise
+        except Exception as exc:
+            raise ModError(f'Distribution.Tools 装配失败：{type(exc).__name__}') from exc
+        if not callable(getattr(layer, 'tools', None)):
+            raise ModError('Distribution.Tools 必须提供 tools()')
+        self.tool_layer = layer
+        for tool in layer.tools():
+            if not isinstance(tool, Tool):
+                raise ModError('Distribution.Tools 必须返回 Tool')
+            if tool.owner is None:
+                raise ModError(f'tool 层工具缺少 owner 能力：{tool.name}')
+            self._register_tool(tool, self._owner_for_capability(tool.owner, tool.name))
+
+    def _owner_for_capability(self, capability, tool_name):
+        if capability not in self.capabilities:
+            raise ModError(f'工具 {tool_name} 的 owner 能力无提供者：{capability}')
+        module_id = self.capabilities[capability]
+        if module_id not in self.units:
+            raise ModError(f'工具 {tool_name} 的 owner 模块未加载：{module_id}')
+        return self.units[module_id].mod
+
+    def player_api(self, world, capability):
+        """Resolve a player API object through its capability, cached per world."""
+        if capability not in self.capabilities:
+            raise ModError(f'玩家 API 能力无提供者：{capability}')
+        module_id = self.capabilities[capability]
+        cache = self._tool_apis.get(world)
+        if cache is None:
+            cache = {}
+            self._tool_apis[world] = cache
+        if module_id not in cache:
+            mod = self.units[module_id].mod
+            with unit_context(module_id):
+                api = mod.player_api(world)
+            if api is None:
+                raise ModError(f'模块未提供玩家 API：{module_id}')
+            cache[module_id] = api
+        return cache[module_id]
+
+    def player_facts(self):
+        declared = self.distribution.get('PlayerState')
+        if declared is not None:
+            return tuple(declared)
+        exclude = set(self.distribution.get('PlayerStateExclude') or ())
+        include = set(self.distribution.get('PlayerStateInclude') or ())
+        names = [tool.name for key, tool in self.tools.items()
+                 if key == tool.name and tool.fact and tool.name not in exclude]
+        if include:
+            names = [name for name in names if name in include]
+        return tuple(names)
+
+    def _validate_player_apis(self):
+        declarations = {}
+        for name in self.order:
+            mod = self.units[name].mod
+            methods = getattr(mod, 'declaration', {}).get('PlayerAPI', {}).get('Methods', ())
+            if not isinstance(methods, (list, tuple)) or any(not isinstance(m, str) or not m for m in methods) or len(set(methods)) != len(methods):
+                raise ModError(f'{name} 的 [PlayerAPI] Methods 非法')
+            if not methods:
+                continue
+            if type(mod).player_api is GameMod.player_api:
+                raise ModError(f'{name} 声明了 [PlayerAPI] 但未实现 player_api')
+            if mod.tools():
+                raise ModError(f'{name} 声明了 [PlayerAPI] 但仍在 tools() 返回工具')
+            declarations[name] = set(methods)
+        covered = {name: set() for name in declarations}
+        for key, tool in self.tools.items():
+            if key != tool.name:
+                continue
+            if (tool.fact or tool.panel) and not tool.read_only:
+                raise ModError(f'工具 {tool.name} 的 fact/panel 必须只读')
+            if not tool.api:
+                continue
+            if tool.owner is None:
+                raise ModError(f'工具 {tool.name} 声明了 api 但没有 owner')
+            module_id = self.capabilities.get(tool.owner)
+            if module_id is None:
+                raise ModError(f'工具 {tool.name} 的 owner 能力无提供者：{tool.owner}')
+            if module_id not in declarations:
+                raise ModError(f'工具 {tool.name} 的 owner 模块未声明 [PlayerAPI]：{module_id}')
+            for method in tool.api:
+                if method not in declarations[module_id]:
+                    raise ModError(f'工具 {tool.name} 引用了未声明的方法：{module_id}.{method}')
+                covered[module_id].add(method)
+        for name, methods in declarations.items():
+            missing = methods - covered[name]
+            if missing:
+                raise ModError(f'{name} 的 [PlayerAPI] 方法未封装：' + '、'.join(sorted(missing)))
 
     @classmethod
     def load(cls, directory):
@@ -637,7 +765,9 @@ class Runtime:
 
     def dependency_manifest(self):
         """严格匹配 Mod 版本、依赖和阶段契约；实现升级由 Mod 作者提升 Version。"""
-        return {"api": 3, "distribution": self.distribution, "mods": [{"id": n, "version": self.units[n].version,
+        distribution = dict(self.distribution)
+        distribution.pop('Tools', None)
+        return {"api": 3, "distribution": distribution, "mods": [{"id": n, "version": self.units[n].version,
             "requires": sorted(self.units[n].requires), "after": sorted(self.units[n].after),
             "before": sorted(self.units[n].before),
             "declaration": getattr(self.units[n].mod, 'declaration', {}),

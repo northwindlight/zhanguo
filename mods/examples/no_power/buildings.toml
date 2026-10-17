@@ -2,7 +2,7 @@
 # 「换实现」的标准形状：声明照抄，实现换掉，Id 与能力名一律不动。
 [Mod]
 Id = "native:buildings"
-Version = "2.4.0-no-power"
+Version = "2.6.0-no-power"
 Entry = "mods.examples.no_power.buildings:NoPowerBuildingsMod"
 Requires = ["native:resources"]
 After = ["native:resources"]
@@ -30,3 +30,6 @@ Handler = "complete"
 Hook = "buildings.completion"
 Needs = ["buildings.produced"]
 Provides = ["buildings.completed"]
+
+[PlayerAPI]
+Methods = ["build", "sites", "catalog"]

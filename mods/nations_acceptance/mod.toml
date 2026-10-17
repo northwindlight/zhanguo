@@ -9,3 +9,6 @@ ActorCollection = "nation_actors"
 Id = "buildings.production"
 [[Hooks]]
 Id = "buildings.completion"
+
+[Distribution.Tools]
+Entry = "mods.native.tools:build"

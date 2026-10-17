@@ -29,8 +29,23 @@ class Translator:
         message=self.messages.get(key,fallback)
         return message.format(**values) if values else message
 
+    def extend(self, messages):
+        """Merge a component-owned catalog after validating placeholders."""
+        for key,value in messages.items():
+            if not isinstance(value,str):
+                raise ValueError(f'Invalid UI message: {key}')
+            fields=lambda s:{name for _,name,_,_ in Formatter().parse(s) if name is not None}
+            if key in self.messages and fields(value)!=fields(self.messages[key]):
+                raise ValueError(f'UI placeholders differ: {key}')
+        self.messages.update(messages)
+        return self
+
     @classmethod
-    def from_config(cls,cfg):
+    def from_config(cls,cfg,tool_layer=None):
         catalog=cfg.get('ui_catalog')
         if isinstance(catalog,str):catalog=json.loads(Path(catalog).read_text(encoding='utf-8'))
-        return cls(cfg.get('language','zh-CN'),catalog)
+        result=cls(cfg.get('language','zh-CN'),catalog)
+        if tool_layer is not None:
+            extra=tool_layer.catalogs().get(result.language,{})
+            if extra:result.extend(extra)
+        return result

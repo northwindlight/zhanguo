@@ -16,11 +16,11 @@ FALLBACK={'capital':'frontier','threats':'threats','battle':'battle','territory'
 
 
 class LLMUI:
-    def __init__(self,cfg):
-        self.cfg=cfg;self.text=Translator.from_config(cfg);self.sites={};self.has_scripts=False
+    def __init__(self,cfg,tool_layer=None):
+        self.cfg=cfg;self.text=Translator.from_config(cfg,tool_layer=tool_layer);self.sites={};self.has_scripts=False
         self.catalogs={};self.rulebook=[];self.guide_catalog=[];self.period=0;self.at_war=False;self.polity=None
         # 模型与观察者共用同一套中文渲染器；差别只在成文后的排序与裁剪。
-        self.receipts=ConsoleUI(cfg);self.actor=None;self.names={};self.facts={}
+        self.receipts=ConsoleUI(cfg,tool_layer=tool_layer);self.actor=None;self.names={};self.facts={}
 
     def values(self):
         """短键 → 本地化键值（金/木/粮/农场/步兵…）。语言一换，模型看到的键值就换。"""

@@ -81,3 +81,6 @@ Entry = "mods.native.config:normalize"
 
 [Distribution.ClientFactories.rule]
 Configuration = "ruleai:normalize_config"
+
+[Distribution.Tools]
+Entry = "mods.native.tools:build"

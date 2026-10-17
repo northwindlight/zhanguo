@@ -1,8 +1,8 @@
-from engine.runtime import GameMod, RuleSection, Stage, Tool
+from engine.runtime import GameMod, RuleSection, Stage
+from .api import BuildingsAPI
 from .content import building_types
 from .objects import Buildings
 from .types import BUILDING_TYPES
-from mods.native.locations import site_arguments,location_parameters
 
 
 class BuildingsMod(GameMod):
@@ -22,45 +22,7 @@ class BuildingsMod(GameMod):
     def objects(self, world):return {'native:buildings':world.buildings}
     def save_state(self, world):return world.buildings.to_save()
     def load_state(self, world, state):world.buildings.restore(state)
-
-    def tools(self):
-        kinds = sorted(cls.TYPE_ID for cls in building_types(self.runtime.content))
-        parameters = {'type':'object','properties':{
-            'site':{'type':'string','description':'站点 ID、地名或坐标串（如 "5 6"）'},
-            'x':{'type':'integer','minimum':0},'y':{'type':'integer','minimum':0},
-            'kind':{'type':'string','enum':kinds}},
-            'required':['kind'],'additionalProperties':False,
-            'oneOf':[{'required':['site'],'not':{'anyOf':[{'required':['x']},{'required':['y']}]}},
-                     {'required':['x','y'],'not':{'required':['site']}}]}
-        parameters=location_parameters(parameters)
-        return (Tool('build',self._build,parameters=parameters,adapter=site_arguments,content_parameters=('kind',),
-                     description='在本国地块动工：site 传地名或 "x y" 坐标串，或直接传两个整数 x、y。直接返回实际扣款和施工回执；参数或材料不符时返回原因。每格每回合一次，结算落成。造价、门槛查 building_catalog，全部收益查 building_economics。'),
-                Tool('building_sites',self._sites,read_only=True,description='一次查看全部本国站点：坐标、资源容量、建筑位、已建/在建、当期施工与自建计数。无需地块参数。'),
-                Tool('building_catalog',self._catalog,read_only=True,
-                     description='一次列齐全部建筑：各级造价、产销配方、能源、效果与门槛。无需地块或坐标。'))
-
-    @staticmethod
-    def _build(world, actor, kind: str, site: str | None=None, x: int | None=None, y: int | None=None):
-        site=world.buildings.resolve_site(actor,site,x,y)
-        return world.buildings.build(actor,site,kind,policy_pct=world.runtime.parameter(world,actor,'build_cost_pct',100))
-
-    @staticmethod
-    def _sites(world, actor):
-        snap=world.buildings.snapshot();sites=[s for s in snap.sites if s.owner==actor];ids={s.id for s in sites}
-        return {'sites':sites,'instances':[b for b in snap.instances if b.site in ids],
-                'construction':[r for r in snap.construction if r.owner==actor],
-                'self_built':{kind:count for owner,kind,count in snap.self_built if owner==actor}}
-
-    @staticmethod
-    def _catalog(world, actor):
-        return [{'id':cls.TYPE_ID,'min_slots':cls.MIN_SLOTS,'max_per_site':cls.MAX_PER_SITE,
-                 'self_build_limit':cls.SELF_BUILD_LIMIT,'site_resource':cls.SITE_RESOURCE,
-                 'energy_use':cls.ENERGY_USE,'energy_output':cls.ENERGY_OUTPUT,
-                 'inputs':dict(cls.INPUTS),'outputs':dict(cls.OUTPUTS),
-                 'effects':dict(cls.EFFECTS),'build_discount':cls.BUILD_DISCOUNT,
-                 'policy_pct':world.runtime.parameter(world,actor,'build_cost_pct',100),
-                 'costs_by_level':[cls.construction_cost(level) for level in range(1,len(cls.GOLD_COSTS)+1)]}
-                for cls in building_types(world.runtime.content)]
+    def player_api(self, world):return BuildingsAPI(world)
 
     def rule_sections(self, world=None):
         return (RuleSection('建筑与能源',

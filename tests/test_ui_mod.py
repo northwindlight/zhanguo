@@ -23,7 +23,7 @@ class AlternateUIMod(GameMod):
     def provides(self):return ('ui:presentation',)
     def presentations(self):return {'ui:create':self.create}
     @staticmethod
-    def create(cfg):
+    def create(cfg,runtime=None):
         layer=load_ui({'ui_catalog':{'console.new':'alternate UI'}})
         layer.map_svg=lambda obs:'<svg>alternate renderer</svg>'
         return layer

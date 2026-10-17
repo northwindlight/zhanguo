@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:intelligence"
-Version = "1.1.0"
+Version = "1.2.0"
 Entry = "mods.native.intelligence.mod:IntelligenceMod"
 Requires = ["native:nations", "native:government", "native:resources", "native:buildings", "native:diplomacy", "native:vision", "native:army"]
 After = ["native:nations", "native:government", "native:army"]
@@ -31,3 +31,6 @@ FreeCharacters = 20
 CharactersPerGold = 10
 SpyFee = 100
 SpyDelay = 3
+
+[PlayerAPI]
+Methods = ["letter", "gift", "map", "spy", "intel", "news", "dispatches", "countries"]

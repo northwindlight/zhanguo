@@ -306,7 +306,7 @@ class TestBuildings(unittest.TestCase):
     def test_buildings_module_runs_without_market_or_legacy_domains(self):
         loaded = self.runtime()
         selected = [unit for name,unit in loaded.units.items() if name in ('native:resources','native:buildings')]
-        runtime = Runtime(selected,{'Hooks':[{'Id':'buildings.production'},{'Id':'buildings.completion'}]})
+        runtime = Runtime(selected,{'Hooks':[{'Id':'buildings.production'},{'Id':'buildings.completion'}]},enforce_player_apis=False)
         world = runtime.world_class()()
         world.resources.open('Qin',{})
         world.buildings.register_site('example:only','Qin',(0,0),resources={'native:farmland':1})

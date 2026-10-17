@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:army"
-Version = "2.5.0"
+Version = "2.6.0"
 Entry = "mods.native.army.mod:ArmyMod"
 Requires = ["native:resources", "native:government", "native:nations", "native:territory", "native:vision", "native:diplomacy", "native:buildings"]
 After = ["native:territory", "native:nations", "native:government"]
@@ -21,3 +21,7 @@ Provides = ["native:army"]
 "native:food" = ["balance"]
 "native:equipment" = ["balance"]
 "native:supply" = ["balance"]
+
+[PlayerAPI]
+Methods = ["recruit", "move", "attack", "retreat", "disband", "view",
+           "reachable", "frontier", "unit_catalog", "threats", "battle", "tile", "logistics"]

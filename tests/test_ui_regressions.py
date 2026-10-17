@@ -230,7 +230,7 @@ class TestUIRegressions(unittest.TestCase):
         self.assertEqual(ui.dashboard(obs)['capital_warning'],[])
 
     def test_hall_alert_is_visible_before_long_destination_tables(self):
-        ui=ConsoleUI({});destinations=[[x,y] for x in range(20) for y in range(20)]
+        ui=self.host().ui.console;destinations=[[x,y] for x in range(20) for y in range(20)]
         data={'visible_unowned':400,'reachable':destinations,'frontier':destinations,
               'capital_warning':[{'position':[1,1],'name':'险城',
                   'enemies':[{'owner':C,'id':2,'kind':'native:cavalry','position':[2,1]}]}]}

@@ -1,6 +1,6 @@
 [Mod]
 Id = "experimental:python"
-Version = "1.0.0-beta.1"
+Version = "1.1.0-beta.1"
 Entry = "mods.experimental.scripting:ScriptingMod"
 Requires = ["native:government"]
 After = ["native:government"]
@@ -22,3 +22,6 @@ value_bytes = 1048576
 output = 4096
 depth = 48
 integer_bits = 256
+
+[PlayerAPI]
+Methods = ["write", "patch", "check", "status", "claim"]

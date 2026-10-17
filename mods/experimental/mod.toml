@@ -6,11 +6,13 @@ RequiredState = ["resources", "buildings", "market", "economy", "bank", "nations
 ActorCollection = "nation_actors"
 ActionGate = {Capability = "native:government", Method = "can_act"}
 PlayerClock = {Capability = "native:government", Method = "period"}
-PlayerState = ["government", "handbooks", "nation", "nations", "countries", "econ", "bank", "land", "building_sites", "building_catalog", "unit_catalog", "terrain_catalog", "view", "army", "frontier", "threats", "battle", "diplomacy", "intel", "news", "dispatches", "market", "script_status"]
 PlayerEvents = "news"
 # 只读面板收敛到 query；脚本状态是实验模组自己的工具，保留在工具表里。
 ReadOnlyPanel = "query"
 ReadOnlyPanelKeep = ["script_status"]
+
+[Distribution.Tools]
+Entry = "mods.experimental.tools:build"
 
 [Distribution.Scenarios.eight_nations]
 Entry = "mods.native.scenarios.eight_nations:EightNations"

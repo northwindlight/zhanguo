@@ -77,7 +77,9 @@ class PlayerSession:
                 except ValueError:
                     continue
                 owner = self.__runtime.tool_owners[name]
-                presented=wire(owner.schema_for_actor(self.__world, self.actor, deepcopy(schema)))
+                tool = self.__runtime.tools[name]
+                customize = tool.schema_for_actor or owner.schema_for_actor
+                presented=wire(customize(self.__world, self.actor, deepcopy(schema)))
                 for key in self.__runtime.tools[name].content_parameters:
                     prop=presented['function']['parameters'].get('properties',{}).get(key,{})
                     if 'enum' in prop:prop['enum']=[self.__runtime.content.key(k) for k in prop['enum']]
@@ -106,7 +108,7 @@ class PlayerSession:
         with self.__lock, self.__runtime.read_scope(self.__world):
             self._validate()
             facts = {}
-            for name in self.__runtime.distribution.get('PlayerState', ()):
+            for name in self.__runtime.player_facts():
                 if self.__runtime.tool_available(self.__world, self.actor, name):
                     facts[name] = self.query(name)
             gate = self.__runtime.distribution.get('ActionGate')

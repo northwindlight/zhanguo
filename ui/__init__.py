@@ -29,6 +29,6 @@ def load_ui(cfg=None,*,runtime=None):
     if runtime is not None:
         cfg={**cfg,'_content_keys':{k:runtime.content.key(k) for k in runtime.content.manifest()}}
     if runtime is not None and 'ui_mods' not in cfg and 'ui:create' in runtime.presentations:
-        return runtime.presentations['ui:create'](cfg)
+        return runtime.presentations['ui:create'](cfg,runtime=runtime)
     path=Path(cfg.get('ui_mods',ROOT/'ui.toml')).resolve()
-    return _runtime(str(path)).presentations['ui:create'](cfg)
+    return _runtime(str(path)).presentations['ui:create'](cfg,runtime=runtime)

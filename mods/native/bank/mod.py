@@ -1,5 +1,6 @@
-from engine.runtime import GameMod, ModError, Stage, Tool, RuleSection
+from engine.runtime import GameMod, ModError, Stage, RuleSection
 from mods.native.resources.types import Gold
+from .api import BankAPI
 from .objects import Bank, BankPolicy
 
 
@@ -26,6 +27,7 @@ class BankMod(GameMod):
     def objects(self, world):return {'economy:bank':world.bank}
     def save_state(self, world):return world.bank.to_save()
     def load_state(self, world, state):world.bank.restore(state)
+    def player_api(self, world):return BankAPI(world)
     def stages(self):
         return tuple(Stage(row['Id'],self._settle,hook=row['Hook'],needs=tuple(row.get('Needs',())),
                            provides=tuple(row.get('Provides',())),after=tuple(row.get('After',())),
@@ -37,17 +39,6 @@ class BankMod(GameMod):
         context['bank_liabilities'] = world.bank.liabilities()
         for index,row in enumerate(world.bank.fees(context['building_production'].period)):
             if row.cash:context.setdefault('economic_records',[]).append({'id':f'native:bank-fee/{row.period}/{index}', 'owner':row.owner,'period':row.period,'category':'administration','inputs':(('native:gold',-row.cash),)})
-    def tools(self):
-        return (Tool('borrow',self._borrow,description='借入最近已结算 GDP×5 的额度，借款期限5周期，利率为储蓄利率+2%。成功时收外交费（基准10金、外交中心逐座减半）；不能自选金额。'),
-                Tool('bank',lambda world,actor:world.bank.position(actor),read_only=True,description='本国现金、信用额度、负债与贷款剩余；无需参数。'),
-                Tool('buy_report',self._buy_report,description='付费购买目标国家已公布经济报表；turn 指定结束周期，省略取最新。不包含未完成收益。'))
-    @staticmethod
-    def _buy_report(world, actor, target: str, turn: int | None=None):return world.bank.buy_report(actor,target,turn)
-    @staticmethod
-    def _borrow(world, actor):
-        runtime=world.runtime
-        fee=runtime.object_call(world,'native:diplomacy','fee',actor) if 'native:diplomacy' in runtime.capabilities else 0
-        return world.bank.borrow(actor,fee)
     def numbers(self):return {'bank.'+key:value for key,value in self.declaration['Bank'].items()}
     def rule_sections(self,world=None):
         p=self.policy

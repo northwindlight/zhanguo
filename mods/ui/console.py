@@ -6,8 +6,9 @@ from .receipts import ReceiptPresentation
 
 
 class ConsoleUI(ReceiptPresentation):
-    def __init__(self,cfg):
-        self.text=Translator.from_config(cfg)
+    def __init__(self,cfg,tool_layer=None):
+        self.tool_layer=tool_layer
+        self.text=Translator.from_config(cfg,tool_layer=tool_layer)
         self._sites={};self._terrain={};self._catalog={};self._names={};self._tiles={};self._army_kinds={}
         self._facts={};self._period=0;self._actor=None
     def label(self,category,value):

@@ -10,10 +10,11 @@ from .config import normalize
 
 class UILayer:
     configure=staticmethod(normalize)
-    def __init__(self,cfg):
-        self.cfg=cfg;self.text=Translator.from_config(cfg)
-        self.console=ConsoleUI(cfg)
-    def llm(self,cfg):return LLMUI({**cfg,'_content_keys':self.cfg.get('_content_keys',{})})
+    def __init__(self,cfg,runtime=None):
+        self.cfg=cfg;self.runtime=runtime;self.tool_layer=getattr(runtime,'tool_layer',None)
+        self.text=Translator.from_config(cfg,tool_layer=self.tool_layer)
+        self.console=ConsoleUI(cfg,tool_layer=self.tool_layer)
+    def llm(self,cfg):return LLMUI({**cfg,'_content_keys':self.cfg.get('_content_keys',{})},tool_layer=self.tool_layer)
     def translator(self,language='zh-CN',catalog=None):return Translator(language,catalog)
     def observer_map(self,state):return observer_map(state,self.text)
     def map_text(self,observation):return player_map(observation,self.text)

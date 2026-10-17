@@ -15,3 +15,6 @@ Id = "buildings.completion"
 Id = "bank.settlement"
 [[Hooks]]
 Id = "economy.reports"
+
+[Distribution.Tools]
+Entry = "mods.native.tools:build"

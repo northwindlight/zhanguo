@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:government"
-Version = "3.0.1-parliament"
+Version = "3.0.2-parliament"
 Entry = "mods.experimental.government:ParliamentGovernmentMod"
 Requires = ["native:nations"]
 After = ["native:nations"]
@@ -11,6 +11,9 @@ Needs = ["native:nation-inspection"]
 Provides = ["native:government"]
 [Interfaces]
 "native:nation-inspection" = ["ids", "get"]
+
+[PlayerAPI]
+Methods = ["plan", "end_turn", "snapshot", "explain"]
 [Government]
 PlanSpan = 10
 SummaryMin = 4

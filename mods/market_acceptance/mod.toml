@@ -7,3 +7,6 @@ RequiredState = ["resources", "market"]
 [[Hooks]]
 Id = "market.settlement"
 Name = "Market settlement"
+
+[Distribution.Tools]
+Entry = "mods.native.tools:build"

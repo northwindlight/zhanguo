@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:economy-queries"
-Version = "1.3.0"
+Version = "1.4.0"
 Entry = "mods.native.economy_queries.mod:QueriesMod"
 Requires = ["native:resources", "native:buildings", "native:market", "native:economy"]
 
@@ -14,3 +14,6 @@ Provides = ["economy:queries"]
 "native:economy" = ["reports", "turns", "production"]
 "native:market" = ["summary", "quote", "buy", "sell", "equilibrium", "trials"]
 "economy:valuation" = ["quote"]
+
+[PlayerAPI]
+Methods = ["balance", "report", "estimate", "market", "buy", "sell"]

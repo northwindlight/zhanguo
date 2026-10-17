@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:diplomacy"
-Version = "2.4.0"
+Version = "2.5.0"
 Entry = "mods.native.diplomacy.mod:DiplomacyMod"
 Requires = ["native:nations", "native:government", "native:resources", "native:buildings", "native:territory"]
 After = ["native:nations", "native:government", "native:territory"]
@@ -22,3 +22,6 @@ FoundFee = 100
 MinimumFee = 1
 NameMax = 12
 FallTruce = 10
+
+[PlayerAPI]
+Methods = ["submit", "vote", "snapshot"]

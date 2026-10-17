@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:buildings"
-Version = "2.5.1"
+Version = "2.6.0"
 Entry = "mods.native.buildings.mod:BuildingsMod"
 Requires = ["native:resources"]
 After = ["native:resources"]
@@ -29,3 +29,6 @@ Handler = "complete"
 Hook = "buildings.completion"
 Needs = ["buildings.produced"]
 Provides = ["buildings.completed"]
+
+[PlayerAPI]
+Methods = ["build", "sites", "catalog"]

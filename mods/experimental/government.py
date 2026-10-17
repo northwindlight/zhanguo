@@ -1,9 +1,15 @@
 """Parliament government owns drafts and decisions; review orchestration belongs to the distribution session."""
 from copy import deepcopy
 from engine.player import wire
-from engine.runtime import Tool,RuleSection
+from engine.runtime import RuleSection
+from mods.native.government.api import GovernmentAPI
 from mods.native.government.mod import GovernmentMod
 from mods.native.government.objects import Government,Summary
+
+
+class ParliamentGovernmentAPI(GovernmentAPI):
+    def explain(self, actor, text):
+        return self.world.government.explain(actor, text)
 
 
 class ParliamentGovernment(Government):
@@ -118,8 +124,8 @@ class ParliamentGovernmentMod(GovernmentMod):
         cfg=self.declaration['Government']
         world.government=ParliamentGovernment(lambda method,*args:self.runtime.object_call(world,'native:nation-inspection',method,*args),cfg['PlanSpan'],cfg['SummaryMin'])
 
-    def tools(self):
-        return (*super().tools(),Tool('explain_plan',lambda w,a,text:w.government.explain(a,text),description='议会拒绝国策后说明原因和修正打算，text 为解释正文。解释后方可结束本期；解释不替代新版国策，不会触发本期第二次审核。'))
+    def player_api(self, world):
+        return ParliamentGovernmentAPI(world)
 
     def rule_sections(self,world=None):
         return (*super().rule_sections(world),RuleSection('议会国策审核',

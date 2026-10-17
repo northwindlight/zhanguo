@@ -1,7 +1,11 @@
 [Mod]
 Id = "native:handbooks"
-Version = "1.1.1-experimental"
+Version = "1.2.0-experimental"
 Entry = "mods.native.handbooks.mod:HandbooksMod"
 Requires = ["native:buildings", "native:army", "native:government"]
+[Capabilities]
+Provides = ["native:handbooks"]
+[PlayerAPI]
+Methods = ["books"]
 [Handbooks]
 Overlay = "handbooks"

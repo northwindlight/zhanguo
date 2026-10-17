@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from engine.runtime import GameMod, Panel, RuleSection, Tool
+from engine.runtime import GameMod, Panel, RuleSection
+from .api import VisionAPI
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,6 @@ class VisionMod(GameMod):
         view=Vision(lambda cap,method,*args:self.runtime.object_call(world,cap,method,*args))
         view._derive=lambda key,calculate:self.runtime.derived(world,key,calculate)
         return {'native:vision':view}
-    def tools(self):return (Tool('view',lambda w,a:self.objects(w)['native:vision'].tiles(a),read_only=True,description='本国当前完整可见地图，以坐标数组表示；他国仅公开建筑和归属，不泄露迷雾或资源。单格细节使用 tile，图形与文字地图由 UI 呈现。'),)
+    def player_api(self, world):return VisionAPI(world)
     def panels(self):return (Panel('view',lambda w,a:self.objects(w)['native:vision'].tiles(a)),)
     def rule_sections(self, world=None):return (RuleSection('视野','本国和同盟土地周围一格可见，哨塔扩展视野。他国可见地块只显示已落成的市政厅和城堡，不公开库存、资源容量或其他建筑。'),)

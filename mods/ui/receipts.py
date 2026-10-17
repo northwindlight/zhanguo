@@ -206,6 +206,10 @@ class ReceiptPresentation(QueryPresentation):
         return lines
 
     def call_caption(self,action,args,actor=None,receipt=None):
+        layer=getattr(self,'tool_layer',None)
+        if layer is not None:
+            rendered=layer.caption(action,args,actor,receipt,self)
+            if rendered is not None:return rendered
         title=self.label('action',action)
         if action=='reachable':
             ids=args.get('ids',[args.get('aid','?')])
@@ -254,6 +258,10 @@ class ReceiptPresentation(QueryPresentation):
             if isinstance(data,dict) and data.get('reason')=='insufficient_resource':return f'❌ {self.label("content",data["resource"])}不足：需要{num(data["required"])}，现有{num(data["available"])}；请先补足资源或缩小数量。'
             if action=='plan' and isinstance(data,dict) and 'reason' in data:return '❌ 议会未批准国策：'+data['reason']+'\n'+args.get('text','')
             return '❌ '+(message or str(receipt.get('code') or '未完成'))
+        layer=getattr(self,'tool_layer',None)
+        if layer is not None:
+            rendered=layer.receipt(action,args,receipt,actor,self)
+            if rendered is not None:return rendered
         query=self.query_body(action,args,data,actor)
         if query is not None:return query
         if action=='build' and isinstance(data,dict) and 'costs' in data:
