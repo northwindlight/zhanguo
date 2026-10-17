@@ -1,19 +1,20 @@
 """Text and vector views, sharing the public observation snapshot with PNG."""
 from .i18n import Translator
 from .maps import snapshot,render_svg
+from .facts import flatten
 
 TERRAIN={'native:plain':'P','native:forest':'F','native:hill':'H','native:mountain':'M','native:desert':'D'}
 
 
 def player_map(observation,text=None):
-    text=text or Translator();tiles=observation['facts'].get('view',[])
+    text=text or Translator();facts=flatten(observation['facts']);tiles=facts.get('view',[])
     if not tiles:return text('map.empty')
     points={tuple(t['position']):t for t in tiles}
     lo_x=min(x for x,y in points);hi_x=max(x for x,y in points)
     lo_y=min(y for x,y in points);hi_y=max(y for x,y in points)
     owners=sorted({t['owner'] for t in tiles if t['owner'] is not None})
     symbols={owner:chr(65+i) if i<26 else str(i) for i,owner in enumerate(owners)}
-    names={n['id']:n['name'] for n in observation['facts'].get('nations',[])}
+    names={n['id']:n['name'] for n in facts.get('nations',[])}
     width=max(3,len(str(hi_x))+1,max((len(s)+2 for s in symbols.values()),default=3))
     lines=[text('query.map_head',period=observation['period']),
            'y\\x '.ljust(width+1)+''.join(str(x).rjust(width) for x in range(lo_x,hi_x+1))]
@@ -55,7 +56,7 @@ def player_atlas(observation, text, key=lambda value:value):
     不加标签（有数字的就是番号）。行自带语义、零解码；分段让"谁的地盘"一眼分块。
     单格全明细仍走 tile，本国明细仍走 land；网格图走 view 的原样数据。
     """
-    facts=observation['facts'];actor=observation['actor']
+    facts=flatten(observation['facts']);actor=observation['actor']
     rows=facts.get('view') or []
     if not rows:return text('map.empty')
     names={row['id']:row['name'] for row in (facts.get('nations') or []) if isinstance(row,dict)}

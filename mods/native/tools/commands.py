@@ -74,7 +74,8 @@ def action_tool(runtime, name, summary, actions):
     if not actions:
         return None
     properties, types, content, shared = {}, {'action': str}, set(), set()
-    for _, spec in actions:
+    lines, branches = [], []
+    for label, spec in actions:
         params = spec.schema()['function']['parameters']
         for key, prop in params.get('properties', {}).items():
             if key == 'action':
@@ -82,11 +83,17 @@ def action_tool(runtime, name, summary, actions):
             _merge_properties(properties, prop, shared, key)
             types.setdefault(key, _python_type(prop))
         content.update(spec.content_parameters)
-    lines = []
-    for label, spec in actions:
-        required = spec.schema()['function']['parameters'].get('required') or ()
+        required = list(params.get('required') or ())
         suffix = '（需 ' + '、'.join(required) + '）' if required else ''
         lines.append(label + suffix + '：' + spec.description)
+        # 伞工具只有一个 action 必填；每个动作真正需要的参数放在分支里，
+        # 让模型在第一次调用时就看到必填项，而不是等内层拒绝再补。
+        branch = {'properties': {'action': {'enum': [label]}},
+                  'required': list(dict.fromkeys(('action', *required)))}
+        for key in ('oneOf', 'anyOf', 'allOf'):
+            if key in params:
+                branch[key] = deepcopy(params[key])
+        branches.append(branch)
     properties['action'] = {'type': 'string', 'enum': [label for label, _ in actions],
                             'description': '\n'.join(lines)}
     mapping = {label: spec.name for label, spec in actions}
@@ -112,6 +119,8 @@ def action_tool(runtime, name, summary, actions):
                    if (runtime.action_available(world, actor, spec.name)
                        if isinstance(spec, Action) else runtime.tool_available(world, actor, spec.name))]
         params['properties']['action']['enum'] = allowed
+        params['oneOf'] = [branch for branch in params.get('oneOf', ())
+                           if branch['properties']['action']['enum'][0] in allowed]
         for _, spec in actions:
             if spec.schema_for_actor is None:
                 continue
@@ -124,7 +133,8 @@ def action_tool(runtime, name, summary, actions):
     owner = actions[0][1].owner
     return Tool(name, handler, owner=owner,
                 parameters={'type': 'object', 'properties': properties,
-                            'required': ['action'], 'additionalProperties': False},
+                            'required': ['action'], 'oneOf': branches,
+                            'additionalProperties': False},
                 argument_types=types, content_parameters=tuple(sorted(content)),
                 description=summary, schema_for_actor=schema_for_actor)
 

@@ -480,7 +480,6 @@ class TestWorldDomains(unittest.TestCase):
         self.assertEqual(dict(receipt.costs)['native:gold'],26)
         other=self.restore(w);self.assertEqual(other.polity[Q],'native:huns')
         with self.assertRaises(ValueError):self.call(other,Q,'gift',target=C,resource='native:food',quantity=1)
-        panel=w.runtime.panel(w,Q,'polity');panel['overrides']['build_cost_pct']=999
         self.assertEqual(w.runtime.parameter(w,Q,'build_cost_pct',100),130)
 
     def test_policy_schedule_is_seeded_and_scope_appears_only_with_loaded_policy(self):

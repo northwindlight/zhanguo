@@ -1,4 +1,4 @@
-from engine.runtime import GameMod, Panel, RuleSection
+from engine.runtime import GameMod, RuleSection
 from .api import TerritoryAPI
 from .objects import Territory, Terrain
 
@@ -20,5 +20,4 @@ class TerritoryMod(GameMod):
     def save_state(self, world):return world.territory.to_save()
     def load_state(self, world, state):world.territory.restore(state)
     def player_api(self, world):return TerritoryAPI(world)
-    def panels(self):return (Panel('land',lambda w,a:w.territory.owned(a)),)
     def rule_sections(self, world=None):return (RuleSection('领土','地块保存地形和核心，当前归属由建筑站点维护。查询未物化地块不改变世界；部队调动不改变土地归属。所有坐标统一 0-based。',keywords=('地形','terrain','领土')),)

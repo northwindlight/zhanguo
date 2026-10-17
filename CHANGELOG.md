@@ -1,5 +1,13 @@
 # 更新记录
 
+## 未发行 — 2026-10-18（面板与事实收口，需新档）
+
+- **面板只有一个来源**：删除 `GameMod.panels()` 与 `Panel`。`Tool(panel=True)` 的只读工具同时是 `query(panel=…)` 与 `Runtime.panel(name)` 的数据源，`Runtime.panel` 只做作用域/策略分发；依赖清单的 `panels` 改为派生清单（8 → 23）。匈奴的 `polity` 调试面板随模块面板一并删除，政体参数仍走 `runtime.parameter`。
+- **事实层合并**：`observe()` 的 22 个事实收成 19 个。`nation`/`nations`/`countries`/`diplomacy` 不再各自扇出，合并为 `foreign`（payload 仍是这四块）；只读工具照旧注册、仍可按名查询。发行版 `PlayerState` 名单同步改成 `foreign`。终端、地图与模型呈现入口把 `foreign` 一次展开，渲染口径不变；规则 AI 读合并后的事实。
+- **伞工具按动作给出必填**：`military`/`economy`/`relations`/`intelligence` 的 schema 增加 `oneOf` 分支，每支固定 `action` 并带该动作的 `required`、地点写法、`aid/ids` 与投票弃权约束；`schema_for_actor` 收窄动作枚举时同步收窄分支，政体禁用不会在 schema 里留下可用分支。
+- **伞工具英文文案**：摘要与 `action` 说明进入 tool 层语言目录，`en-US` 局不再看到中文工具说明。
+- 工具面与事实形状都变了，**旧档读不进来，需新档**。回归：全量离线 638 项通过；说明书同步。
+
 ## 未发行 — 2026-10-18（API 与 tool 分离）
 
 API 是 API，tool 是 tool：tool 只给 LLM 用；脚本与规则 AI 不再按工具名调用，统一走 `call_api(capability, method, arguments)` 直接调用模块 `[PlayerAPI]`。

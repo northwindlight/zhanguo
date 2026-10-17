@@ -1,5 +1,5 @@
 from engine.player import wire
-from engine.runtime import GameMod, Panel, RuleSection, Stage
+from engine.runtime import GameMod, RuleSection, Stage
 from .api import ArmyAPI
 from .content import native_unit_definitions, unit_definitions
 from .objects import Units
@@ -36,7 +36,6 @@ class ArmyMod(GameMod):
         owners=self.runtime.object_call(world,'native:nation-inspection','ids')
         if any(u.owner!='野人' and u.owner not in owners for u in candidate):raise ValueError('Unit owner is not a living nation')
         world.military.restore(state['military']);world.units.size=size;world.units.restore(state['units']);world.units.engage_seq=sequence
-    def panels(self):return (Panel('army',lambda w,a:w.military.visible_units(a)),)
     def stages(self):
         return (Stage('native:army.supply',self._supply,hook='military.supply',needs=('relations.applied','buildings.produced'),provides=('military.supplied',)),
                 Stage('native:army.battle',lambda w,c:c.update(battles=w.military.battle()),hook='military.battle',needs=('military.supplied',),provides=('battles.resolved',)),

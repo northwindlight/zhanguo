@@ -2,7 +2,7 @@
 
 日期：2026-10-17。前置：[架构复核](../reviews/架构复核-20261017.md)。本文只定边界与结构，不改规则。
 
-**实施状态（2026-10-18）**：T0–T4 全部落地；T5 未做。
+**实施状态（2026-10-18）**：T0–T4、T6、T7 全部落地；T5 未做。
 - T0–T3：native 66 个注册工具全部由 `mods/native/tools/` 产生，模块只留 `player_api`；tool 层自带 zh-CN/en-US 文案目录；UI 动作分支已删除。
 - T4：模型可见工具 38 → 12（native 8 + 4 内置；experimental 14）。`military`/`economy`/`relations`/`intelligence` 四把命令伞用 `action` 选动作，内层动作保持独立 Tool 与回执；`query(panel=foreign)` 合并国家与外交面板；`Tool.groups` 接入 `Runtime.permits`，匈奴 31 条禁令缩成 5 个组，伞工具的 `action` 枚举按行动者过滤。
 - 旧动作名仍注册为 `hidden`，但只是 tool 层内部适配器；脚本与规则 AI 已改走 `call_api(capability, method)`（2026-10-18，API 与 tool 分离：`Runtime.api_call` / `BoundPlayer.call_api`，服务链见 `Session.api_call`）。
@@ -18,6 +18,14 @@
 - `world.call_tool` 保留为宿主/测试的兼容入口：名字是 Tool 就调 Tool，是 Action 就调 action；`PlayerSession.submit` 只接受模型工具名。
 - 测试里按写动作名调 `p.submit('recruit')` 的地方迁到伞工具（`p.submit('military', {'action':'recruit',...})`）或 `call_api`；只读面板仍可按 Tool 名查询。
 - 验收：`runtime.tools` 的 canonical 名称只剩模型可见 Tool + 只读面板（native 36 个，其中模型可见 8 个）；动作 30 个只在 `runtime.actions`。`grep "hidden=True"` 只剩 `ReadOnlyPanel` 对只读面板的收敛。634 项回归通过；说明书同步。
+
+### T7 面板、事实与伞工具 schema 收口（2026-10-18，已落地）
+
+- **面板单一来源**：删除 `GameMod.panels()` 与 `Panel`；`Runtime.panel_map` 由 `Tool(panel=True)` 派生，`Runtime.panel(name)` 分发到对应只读工具，仍做作用域与 `panel.<名>` 策略检查。模块不再登记第二份面板处理器。
+- **事实合并**：`nation`/`nations`/`countries`/`diplomacy` 四个 `fact=True` 收成一个 `foreign`，`observe()` 从 22 项减到 19 项；呈现层（终端、地图、模型简报）在入口用 `mods/ui/facts.py:flatten` 展开，渲染代码不改键名；规则 AI 读 `foreign`。发行版 `PlayerState` 同步改成 `foreign`。
+- **伞工具 schema**：每个动作生成一个 `oneOf` 分支，分支固定 `action` 并携带该动作的 `required` 与 `oneOf/anyOf`（地点三选一、aid/ids、投票弃权）；`schema_for_actor` 收窄枚举时同步过滤分支。
+- **英文文案**：四把伞的摘要与 `action` 说明补进 `locales/en-US.json`；`zh-CN` 继续用源码中文作回退。
+- 验收：面板表与依赖清单的 `panels` 一致；`observe()` 只出现 `foreign` 而无四块旧事实；伞工具分支与内层动作 schema 的必填一致；`en-US` 的伞工具说明不含中文。工具面与事实形状变化使旧档不可读，需新档。
 
 ## 一、目标
 

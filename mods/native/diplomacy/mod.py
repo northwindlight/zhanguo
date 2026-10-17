@@ -1,4 +1,4 @@
-from engine.runtime import GameMod, Panel, RuleSection, Stage
+from engine.runtime import GameMod, RuleSection, Stage
 from .api import DiplomacyAPI
 from .objects import Diplomacy
 
@@ -26,7 +26,6 @@ class DiplomacyMod(GameMod):
     def archive_committed(self,world):world.diplomacy.archive_committed()
     def restore_archive(self,world,rows):world.diplomacy.restore_archive(rows)
     def player_api(self, world):return DiplomacyAPI(world)
-    def panels(self):return (Panel('diplomacy',lambda w,a:w.diplomacy.snapshot(a)),)
     def stages(self):return (Stage('native:diplomacy.tally',self._tally,hook='cycle.start',provides=('votes.counted',)),
                             Stage('native:diplomacy.resolve',self._resolve,hook='relations',needs=('votes.counted',),provides=('relations.applied',)))
     @staticmethod

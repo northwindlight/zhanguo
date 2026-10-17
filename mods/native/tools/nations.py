@@ -24,13 +24,13 @@ def tools(runtime):
         return {key: value for key, value in data.items() if value is not None}
 
     return (
-        Tool('nations', nations, read_only=True, fact=True,
+        Tool('nations', nations, read_only=True,
              owner='native:nations', api=('snapshot',),
              description='全部国家的公开身份与登场/灭亡记录；无需参数。'),
-        Tool('nation', nation, read_only=True, fact=True,
+        Tool('nation', nation, read_only=True,
              owner='native:nations', api=('overview',),
              description='本国身份与当前拥有的站点；无需参数，站点明细见 building_sites。'),
-        Tool('foreign', foreign, read_only=True, fact=False, panel=True,
+        Tool('foreign', foreign, read_only=True, fact=True, panel=True,
              owner='native:nations', api=('snapshot', 'overview'),
              description='本国与全部对外关系一次查完：本国身份与站点、各国身份与存续、关系/条约/接壤/来信、联盟与战争、待回应提议、投票与待结算命令。无需参数；代价是比单独查一块长。'),
     )

@@ -31,8 +31,8 @@ RequiredState = ["resources", "buildings", "market", "economy", "bank", "nations
 ActorCollection = "nation_actors"
 ActionGate = {Capability = "native:government", Method = "can_act"}
 PlayerClock = {Capability = "native:government", Method = "period"}
-PlayerState = ["government", "nation", "nations", "econ", "bank", "land", "building_sites", "view",
-               "army", "diplomacy", "intel", "news", "dispatches", "market"]
+PlayerState = ["government", "econ", "bank", "land", "building_sites", "view",
+               "army", "foreign", "intel", "news", "dispatches", "market"]
 PlayerEvents = "news"
 
 [[Hooks]]

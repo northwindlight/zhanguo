@@ -41,6 +41,31 @@ class TestToolSurface(unittest.TestCase):
         self.assertEqual(ui.call_caption('economy', args, Q, receipt), '购入 木头×1')
         self.assertIn('实付', ui.receipt_body('economy', args, receipt, Q))
 
+    def test_panels_are_derived_from_read_only_tools(self):
+        world = self.world()
+        runtime = world.runtime
+        expected = {name for name, tool in runtime.tools.items()
+                    if name == tool.name and tool.panel}
+        self.assertEqual(set(runtime.panel_map), expected)
+        self.assertTrue(expected)
+        # 模块不再登记第二份面板处理器；Runtime.panel 与按名调用同一只读工具等价。
+        from engine.player import wire
+        self.assertFalse(any(hasattr(unit.mod, 'panels') for unit in runtime.units.values()))
+        self.assertEqual(wire(runtime.panel(world, Q, 'land')), wire(runtime.call(world, Q, 'land', {})))
+        from engine.runtime import ModError
+        with self.assertRaises(ModError):
+            runtime.panel(world, Q, 'buy')
+
+    def test_observation_merges_the_four_foreign_facts(self):
+        world = self.world()
+        facts = world.runtime.player(world, Q).observe()['facts']
+        self.assertFalse(set(facts) & {'nation', 'nations', 'countries', 'diplomacy'})
+        self.assertEqual(set(facts['foreign']), {'nation', 'nations', 'countries', 'diplomacy'})
+        # 按名查询仍然可用：合并的是事实面，不是只读工具。
+        player = world.runtime.player(world, Q)
+        self.assertTrue(player.query('nations'))
+        self.assertTrue(player.query('diplomacy'))
+
     def test_foreign_panel_merges_nations_relations_and_diplomacy(self):
         world = self.world()
         player = world.runtime.player(world, Q)
@@ -54,6 +79,34 @@ class TestToolSurface(unittest.TestCase):
         # 在世是常态，不逐行标「在世」；只有亡国才写。
         self.assertNotIn('在世', text)
 
+    def test_umbrella_branches_carry_per_action_required_fields(self):
+        world = self.world()
+        player = world.runtime.player(world, Q)
+        schemas = {s['function']['name']: s['function']['parameters'] for s in player.actions()}
+        military = schemas['military']
+        self.assertEqual(military['required'], ['action'])
+        branches = {b['properties']['action']['enum'][0]: b for b in military['oneOf']}
+        self.assertEqual(set(branches), {'recruit', 'move', 'attack', 'retreat', 'disband'})
+        self.assertEqual(branches['disband']['required'], ['action'])
+        self.assertIn({'required': ['aid']}, branches['disband']['anyOf'])
+        # 地点写法约束随动作分支带出：recruit 分支仍要求 site/place/x,y 三选一。
+        self.assertTrue(any('site' in branch.get('required', ()) for branch in branches['recruit']['oneOf']))
+        relations = {b['properties']['action']['enum'][0]: b for b in schemas['relations']['oneOf']}
+        self.assertEqual(relations['guarantee']['required'], ['action', 'target'])
+        self.assertEqual(relations['offer_peace']['required'], ['action', 'target', 'kind'])
+        self.assertEqual(relations['vote']['required'], ['action', 'vote', 'accept'])
+
+    def test_umbrella_english_catalog_replaces_the_chinese_source_text(self):
+        world = self.world()
+        player = world.runtime.player(world, Q)
+        from mods.ui.llm import LLMUI
+        ui = LLMUI({'language': 'en-US'}, tool_layer=world.runtime.tool_layer)
+        schemas = {s['function']['name']: s['function'] for s in ui.actions(player.actions())}
+        for name in ('military', 'economy', 'relations', 'intelligence'):
+            text = schemas[name]['description'] + schemas[name]['parameters']['properties']['action']['description']
+            self.assertFalse(any('一' <= char <= '鿿' for char in text), name)
+            self.assertIn('action', text)
+
     def test_group_policy_filters_the_action_enum_and_blocks_submission(self):
         world = self.world()
         world.runtime.activate_actor(world, Q, 'native:huns', site='scenario:qc')
@@ -63,6 +116,10 @@ class TestToolSurface(unittest.TestCase):
         self.assertIn('declare_war', relations)
         for blocked in ('guarantee', 'propose_defense', 'bloc_found', 'bloc_join', 'vote'):
             self.assertNotIn(blocked, relations)
+        # 分支随枚举一起收窄，否则 schema 会告诉模型一个它不能选的动作是合法的。
+        full = {s['function']['name']: s['function']['parameters'] for s in player.actions()}
+        branches = {b['properties']['action']['enum'][0] for b in full['relations']['oneOf']}
+        self.assertEqual(branches, set(relations))
         self.assertEqual(schemas['intelligence']['action']['enum'], ['send_letter', 'spy'])
         self.assertFalse(player.submit('relations', {'action': 'guarantee', 'target': C})['ok'])
         self.assertTrue(player.submit('relations', {'action': 'declare_war', 'target': C})['ok'])

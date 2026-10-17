@@ -4,6 +4,7 @@ from copy import deepcopy
 from engine.coordinates import coordinates
 import json
 from .queries import QueryPresentation
+from .facts import flatten
 
 
 def num(value):
@@ -20,7 +21,7 @@ DIPLOMACY_ACTIONS=frozenset(('guarantee','cancel_guarantee','propose_defense','b
 
 class ReceiptPresentation(QueryPresentation):
     def remember(self,observation):
-        facts=observation.get('facts',observation)
+        facts=flatten(observation.get('facts',observation))
         actor=observation.get('actor','')
         if actor:
             self._facts[actor]={key:deepcopy(facts[key]) for key in

@@ -1,6 +1,7 @@
 """Candidates derive exclusively from the current player observation."""
 def relations(observation):
-    actor=observation['actor'];relation=observation['facts']['diplomacy']
+    facts=observation['facts'];actor=observation['actor']
+    relation=(facts.get('foreign') or facts)['diplomacy']
     allies={actor};enemies=set()
     for bloc in relation['alliances']:
         if actor in bloc['members']:allies.update(bloc['members'])

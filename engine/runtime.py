@@ -278,13 +278,6 @@ class Action:
 
 
 @dataclass(frozen=True)
-class Panel:
-    name: str
-    handler: Callable
-    title: str = ''
-
-
-@dataclass(frozen=True)
 class Stage:
     name: str
     handler: str | Callable
@@ -334,7 +327,6 @@ class GameMod(ABC):
     def provides(self): return ()
     def numbers(self): return {}
     def presentations(self): return {}
-    def panels(self): return ()
     def objects(self, world): return {}
     def content_definitions(self): return {}
 
@@ -410,10 +402,6 @@ class Runtime:
         for name in self.order:
             mod = self.units[name].mod
             mod.runtime = self
-            for panel in mod.panels():
-                if panel.name in self.panel_map: raise ModError(f"面板名称冲突：{panel.name}")
-                self.panel_map[panel.name] = panel
-                self.panel_owners[panel.name] = name
             for key in mod.state_keys():
                 if key in self.state_owners:
                     raise ModError(f"state 有多个写入所有者：{key}")
@@ -500,6 +488,11 @@ class Runtime:
             for key, tool in list(self.tools.items()):
                 if tool.read_only and tool.name not in keep and tool.name != panel:
                     self.tools[key] = replace(tool, hidden=True)
+        # 只读面板就是只读工具：Tool(panel=True) 登记进面板表，不再由模块另报一份
+        # Panel 处理器。Runtime.panel 只负责作用域/策略分发，数据仍走 Tool.call。
+        self.panel_map = {tool.name: tool for key, tool in self.tools.items()
+                          if key == tool.name and tool.panel}
+        self.panel_owners = {name: self.tool_owners[name] for name in self.panel_map}
         clock=self.distribution.get('PlayerClock')
         if clock and (not isinstance(clock,dict) or set(clock)!={'Capability','Method'} or clock['Capability'] not in self.capabilities or not isinstance(clock['Method'],str) or not clock['Method'] or clock['Method'].startswith('_')):
             raise ModError('玩家时钟必须引用公共能力和方法')
@@ -1191,8 +1184,8 @@ class Runtime:
         return result
 
     def panel(self,world,actor,name,arguments=None):
-        if name not in self.panel_map: raise ModError(f'未知面板：{name}')
+        tool = self.panel_map.get(name)
+        if tool is None: raise ModError(f'未知面板：{name}')
         if not self.in_scope(world,actor,self.panel_owners[name]): raise ModError('该面板不属于行动者的作用域')
         if not self.permits(world,actor,'panel.'+name): raise ModError('该面板被作用域声明禁用')
-        with unit_context(self.panel_owners[name]):
-            return self.panel_map[name].handler(world,actor,**(arguments or {}))
+        return self.call(world,actor,tool.name,arguments or {})

@@ -1,4 +1,4 @@
-from engine.runtime import GameMod, Panel, Stage
+from engine.runtime import GameMod, Stage
 from .api import IntelligenceAPI
 from .objects import Intelligence
 
@@ -20,7 +20,6 @@ class IntelligenceMod(GameMod):
     def archive_committed(self,world):world.intelligence.archive_committed()
     def restore_archive(self,world,rows):world.intelligence.restore_archive(rows)
     def player_api(self, world):return IntelligenceAPI(world)
-    def panels(self):return (Panel('intel',lambda w,a:w.intelligence.messages(a)),Panel('news',lambda w,a:w.intelligence.events(a)))
     def stages(self):return (Stage('native:intelligence.deliver',lambda w,c:c.update(deliveries=w.intelligence.deliver()),hook='cycle.end',before=('native:government.advance',)),
         Stage('native:intelligence.dispatch',self._dispatch,hook='relations',needs=('relations.applied',),provides=('dispatches.started',)),
         Stage('native:intelligence.events',self._events,hook='cycle.end',needs=('actors.eliminated',),before=('native:government.advance',)))

@@ -6,6 +6,7 @@
 → 军队 → 市场 → 央行 → 外交 → 信箱 → 在途。
 """
 from .receipts import num
+from .facts import flatten
 from .views import player_atlas
 
 # 观察者已有的专用面板渲染，直接复用；键是面板名，值是事实里的字段。
@@ -187,7 +188,7 @@ def _army(ui, facts, actor):
 
 def sections(ui, observation, events, cues, key=lambda value: value, vision=False):
     """有序 `(键, 正文)` 列表；正文为空的节整节不出现，越界时按此序从后往前丢弃。"""
-    facts = observation.get('facts', {})
+    facts = flatten(observation.get('facts', {}))
     actor = observation['actor']
     names = {n['id']: n['name'] for n in facts.get('nations', []) if isinstance(n, dict)}
     ui._names = names

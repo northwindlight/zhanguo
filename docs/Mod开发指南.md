@@ -820,7 +820,6 @@ runtime.check_save_dependencies(manifest)
 | `objects(world)` | 调用对象接口时 | `{能力名: 对象}` |
 | `tools()` | 登记工具 | `Tool(...)` 元组 |
 | `schema_for_actor(world, actor, schema)` | 生成玩家动作表时 | 按行动者调整后的 schema（须自行深拷贝） |
-| `panels()` | 登记面板 | `Panel(...)` 元组 |
 | `presentations()` | 登记只读展示接口 | `{接口名: 值或可调用对象}`；UI Mod 注册 `ui:create(cfg)` |
 | `stages()` | 登记结算阶段 | `Stage(...)` 元组 |
 | `initialize_world(world)` | 世界构造完成后一次 | 无 |
@@ -832,6 +831,9 @@ runtime.check_save_dependencies(manifest)
 
 由引擎按约定查找、但不是基类方法的有：`install_presentations(exports)`、
 `finish_world(world)`、`command_actors()`；政体专用的是 §十二 里的三个。
+
+面板不单独登记：tool 层 `Tool(panel=True)` 的只读工具同时是 `query(panel=…)`
+与 `Runtime.panel(name)` 的数据源，模块只提供玩家 API。
 
 `presentations()` 是现役只读展示注册接口；独立 `ui:standard` 通过它注册 `ui:create`，见 [UI Mod](../mods/ui/README.md)。`command_actors()` 是遗留扩展约定。
 

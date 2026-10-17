@@ -35,8 +35,8 @@ ActionGate = {Capability = "native:government", Method = "can_act"}
 PlayerClock = {Capability = "native:government", Method = "period"}
 # PlayerState 里每一项都必须是一个**存在且只读**的模块工具。
 # 这里去掉了 bank（模块未装载）以及 econ、market（属于 economy_queries）。
-PlayerState = ["government", "nation", "nations", "land", "building_sites", "view", "army",
-               "diplomacy", "intel", "news", "dispatches"]
+PlayerState = ["government", "land", "building_sites", "view", "army",
+               "foreign", "intel", "news", "dispatches"]
 PlayerEvents = "news"
 
 # 用最小客户端替代模型客户端，本发行版因此可以离线运行。

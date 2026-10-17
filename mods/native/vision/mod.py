@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from engine.runtime import GameMod, Panel, RuleSection
+from engine.runtime import GameMod, RuleSection
 from .api import VisionAPI
 
 
@@ -60,5 +60,4 @@ class VisionMod(GameMod):
         view._derive=lambda key,calculate:self.runtime.derived(world,key,calculate)
         return {'native:vision':view}
     def player_api(self, world):return VisionAPI(world)
-    def panels(self):return (Panel('view',lambda w,a:self.objects(w)['native:vision'].tiles(a)),)
     def rule_sections(self, world=None):return (RuleSection('视野','本国和同盟土地周围一格可见，哨塔扩展视野。他国可见地块只显示已落成的市政厅和城堡，不公开库存、资源容量或其他建筑。'),)

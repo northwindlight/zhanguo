@@ -7,6 +7,7 @@
 - `owner` 是**提供玩家 API 的能力名**（如 `native:army`、`economy:bank`），不是模块 ID。替换模块（`fixed_credit_bank`、`no_power`、`tea` 市场）沿用同一份声明。
 - 每个 Tool 显式写 `api`（覆盖的 `<Module>API` 方法）；模块 `[PlayerAPI] Methods` 必须被至少一个 Tool 覆盖，漏封装在 `Runtime.load` 时直接报错。
 - `fact=True` 进入 `observe()`，`panel=True` 进入统一 `query(panel=…)`；两者都必须 `read_only`。
+- 面板没有第二份登记：`panel=True` 的 Tool 就是面板，`Runtime.panel(name)` 直接分发到它；模块的 `panels()` 已删除，`PANELS` 只是面板成文函数表（数据仍来自只读 Tool）。
 - 写动作按命令收进 `commands.py` 的伞工具（`military`/`economy`/`relations`/`intelligence`）：内层是 tool 层自己的 `ActionSpec`（含 schema、策略门、adapter 与回执），**不进引擎工具表**；引擎只登记名称、capability/method、read_only 与 groups。伞工具暴露 `action` 参数并转发 `Runtime.call_action`。**脚本与规则 AI 不用这些名字**：它们走 `Runtime.api_call` / `BoundPlayer.call_api(capability, method, ...)`，能力与方法由模块 `[PlayerAPI]` 提供。
 - `groups` 是策略组：政体 `Disable = ["group.<名>"]` 会展开成组内工具/动作的 `tool.<名>`、`action.<名>` 和声明的语义键（如 `accept.treaties`、`communication.gift`）；同组新增动作自动被禁。伞工具的 `action` 枚举由 `action_available` 过滤。
 - 回执函数接收 UI 传入的 `ctx`（`ConsoleUI`/`ReceiptPresentation` 实例），只做协议与成文，不读领域内部对象、不做规则判断。

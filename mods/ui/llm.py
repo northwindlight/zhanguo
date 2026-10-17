@@ -6,6 +6,7 @@ from .console import ConsoleUI
 from .maps import snapshot,owner_color
 from .views import player_map
 from .briefing import sections
+from .facts import flatten
 from .receipts import num
 from clients.context import est_tokens
 
@@ -53,7 +54,7 @@ class LLMUI:
         观察者侧由 mp_run 每回合喂；模型侧原先从来不喂，于是专用渲染器永远走不到。
         """
         self.receipts.remember(observation)
-        facts=observation.get('facts',{})
+        facts=flatten(observation.get('facts',{}))
         self.actor=observation.get('actor');self.facts=facts
         self.names={n['id']:n['name'] for n in facts.get('nations',[]) if isinstance(n,dict)}
         self.receipts._names=self.names;self.receipts._actor=self.actor
@@ -123,7 +124,7 @@ class LLMUI:
 
     def dashboard(self,observation):
         """Decision cues derived exclusively from detached public facts."""
-        facts=observation['facts'];actor=observation['actor'];period=observation['period']
+        facts=flatten(observation['facts']);actor=observation['actor'];period=observation['period']
         stocks={s['id']:s['amount'] for s in facts.get('econ',{}).get('stocks',[])}
         catalog={b['id']:b for b in facts.get('building_catalog',[])}
         units=facts.get('unit_catalog',{});sites=facts.get('building_sites',{})
@@ -234,7 +235,7 @@ class LLMUI:
         if self.cfg.get('vision',False) and observation['facts'].get('view'):
             facts=snapshot(observation)
             owners=sorted({t['owner'] for t in facts['tiles'] if t['owner']})
-            names={n['id']:n['name'] for n in observation['facts'].get('nations',[])}
+            names={n['id']:n['name'] for n in flatten(observation['facts']).get('nations',[])}
             legend+='\n'+self.text('map.legend',owners=', '.join(f'{chr(65+i)}={names.get(owner,owner)}' for i,owner in enumerate(owners)))
             image={'facts':facts,'max_px':self.cfg.get('map_max_px',960),'estimated_tokens':self.cfg.get('map_estimated_tokens',2048),
                    'fallback':self.text('map.fallback')+'\n'+player_map(observation,self.text)}

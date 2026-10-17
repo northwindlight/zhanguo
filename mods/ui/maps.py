@@ -6,6 +6,8 @@ import hashlib
 import colorsys
 import io
 
+from .facts import flatten
+
 COLORS = ('#dab942','#3aaeb8','#bc54aa','#c1cad8','#e28b3c','#745eb8','#e597b5','#5e91cd')
 TERRAIN = {'native:plain':'P','native:forest':'F','native:hill':'H','native:mountain':'M','native:desert':'D'}
 SIDES = {'self':'#3ac460','ally':'#3a84e8','enemy':'#e03e3a','neutral':'#8e908e'}
@@ -21,7 +23,7 @@ def owner_color(owner):
 
 
 def snapshot(observation):
-    facts=observation['facts'];tiles=deepcopy(facts.get('view',[]))
+    facts=flatten(observation['facts']);tiles=deepcopy(facts.get('view',[]))
     visible={tuple(t['position']) for t in tiles}
     armies=[deepcopy(a) for a in facts.get('army',[]) if (a['x'],a['y']) in visible]
     diplomacy=facts.get('diplomacy',{})

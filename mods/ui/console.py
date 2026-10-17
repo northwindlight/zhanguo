@@ -3,6 +3,7 @@ import json
 import unicodedata
 from .i18n import Translator
 from .receipts import ReceiptPresentation
+from .facts import flatten
 
 
 class ConsoleUI(ReceiptPresentation):
@@ -164,7 +165,7 @@ class ConsoleUI(ReceiptPresentation):
         def line(row):return '  '.join(v+' '*(sizes[i]-width(v)) for i,v in enumerate(row))
         lines+=['',self.text('console.flow_legend'),line(headers),'  '.join('-'*n for n in sizes),*[line(r) for r in table],'',self.text('console.country_details')]
         for obs in state['nations']:
-            actor=obs['actor'];facts=obs['facts'];econ=facts['econ'];units=[u for u in facts['army'] if u['owner']==actor]
+            actor=obs['actor'];facts=flatten(obs['facts']);econ=facts['econ'];units=[u for u in facts['army'] if u['owner']==actor]
             counts={}
             for unit in units:counts[unit['kind']]=counts.get(unit['kind'],0)+1
             military='、'.join(f'{self.label("content",kind)} {count}' for kind,count in sorted(counts.items())) or self.text('console.no_units')

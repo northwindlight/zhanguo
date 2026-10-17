@@ -66,9 +66,8 @@ class TestMinimalPlayableGame(unittest.TestCase):
         host = GameHost.new(cfg)
         # PlayerState 里每一项都必须存在且只读；不存在的会在这里就报错。
         facts = host.player('scenario:qin').observe()['facts']
-        self.assertEqual(sorted(facts), ['army', 'building_sites', 'diplomacy', 'dispatches',
-                                         'government', 'intel', 'land', 'nation', 'nations',
-                                         'news', 'view'])
+        self.assertEqual(sorted(facts), ['army', 'building_sites', 'dispatches', 'foreign',
+                                         'government', 'intel', 'land', 'news', 'view'])
         host.cycle(); host.cycle()
         self.assertEqual(host.world.government.period(), 2)
         with tempfile.TemporaryDirectory() as tmp:
