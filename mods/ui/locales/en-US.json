@@ -548,6 +548,7 @@
   "experimental.review_round": "Review round [{count}/{total}], stage {phase}/2. Both stages share these 10 rounds; finish checking and use the appropriate stage or verdict tool promptly.",
   "experimental.review_urge": "Reminder: beyond round 5; only {remaining} calls remain including this one. Conclude checks and finish the current stage promptly; stage one must leave calls for reviewing the new plan.",
   "experimental.review_log": "📜 {actor} council log | Turn {period} | [{count}/10] | Stage {phase} | {kind}\n{payload}",
+  "receipt.news_more": "Older news not expanded: {count} entries (turns {first}-{last}); use player_events(cursor) for items after a cursor, or the archive beside the save for full text.",
   "console.auto_rejected_offers": "End of turn: unanswered offers {ids} automatically rejected at no charge.",
   "console.auto_rejected_votes": "End of turn: unanswered votes {ids} automatically voted against."
 }

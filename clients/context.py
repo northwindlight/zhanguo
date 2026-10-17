@@ -480,6 +480,13 @@ def render_archive(sums: list[dict], blocks: list[dict], before_turn: int,
         # 否则每回合都把同一份长期记忆发两遍（模型还会看到两个都叫「长期记忆」的块）。
         if memory and text == memory:
             continue
+        # 成功压缩写下的块只是**当时那份长期记忆的快照**，会被下一次压缩整体取代；
+        # 全部重播会让归档越滚越大（实测楚国 12 块 = 27 KB，其中 24 KB 是旧快照），
+        # 上下文因此更快撑满、更频繁压缩，形成正反馈。只保留当前 long_memory。
+        # 旧档的块没有这个标记，按快照处理（现网存档里全部块都是成功压缩的快照）；
+        # 压缩失败时写下的逐期小结块由 _compact 明确标记 memory=False，照常重播。
+        if memory and b.get("memory", True):
+            continue
         items.append((int(b["from"]), messages("archive.block", start=b["from"], end=b["to"], text=text)))
     for s in sums:
         if int(s["turn"]) not in covered:

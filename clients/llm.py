@@ -138,6 +138,9 @@ class LLMClient:
         dropped=ctx.slide(memory,player.actor,plan)
         if not dropped:return
         summary='\n'.join(f'第{row["turn"]}期：{row["text"]}' for row in self.state.summaries if dropped[0]['turn']<=row['turn']<=dropped[-1]['turn'])
+        # 压缩成功后块里存的是「当时那份长期记忆」，会被下一次压缩整体取代；压缩失败时
+        # 存的是逐期小结，不能被取代——归档渲染据此决定要不要重播这个块。
+        snapshot=False
         if plan.compact:
             # Reuse the actual request prefix once, without dumping the same
             # replay as JSON again. Compression has its own input/output budget.
@@ -171,8 +174,8 @@ class LLMClient:
                 # long-term memory and archive these turns using their summaries.
                 if emit:emit(self.ui.text('llm.compact_failed',actor=player.actor,error=type(exc).__name__))
             else:
-                summary=compressed.strip();self.state.long_memory=summary
-        if plan.compact and summary:self.state.blocks.append({'from':dropped[0]['turn'],'to':dropped[-1]['turn'],'at':memory.turn,'text':summary})
+                summary=compressed.strip();self.state.long_memory=summary;snapshot=True
+        if plan.compact and summary:self.state.blocks.append({'from':dropped[0]['turn'],'to':dropped[-1]['turn'],'at':memory.turn,'text':summary,'memory':snapshot})
         # Long memory subsumes older archive blocks; summaries remain available
         # through the bounded searchable history.
         self.state.blocks=self.state.blocks[-20:]

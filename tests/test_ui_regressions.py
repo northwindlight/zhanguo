@@ -19,6 +19,15 @@ class TestUIRegressions(unittest.TestCase):
         player=h.player(Q);h.ui.console.remember(player.observe())
         return h.ui.console.action(h.clock(),Q,action,args or {},player.submit(action,args or {}),{Q:'秦',C:'楚'})
 
+    def test_news_receipt_keeps_latest_and_counts_the_rest(self):
+        """十期近讯一次七十多条——旧版只给最近十条，多的收成一行计数。"""
+        ui=ConsoleUI({})
+        rows=[{'id':i,'period':i,'kind':'action','position':None,'text':f'事件{i}'} for i in range(30)]
+        text=ui.receipt_body('news',{}, {'ok':True,'data':rows,'message':'','action':'news'}, None)
+        self.assertIn('事件29',text)
+        self.assertNotIn('事件0',text)
+        self.assertIn('另有 18 条',text)
+
     def test_public_queries_use_prose_without_changing_public_data(self):
         h=self.host();before=h.runtime.save_mod_state(h.world)
         for action in ('view','nation','nations','government','terrain_catalog','frontier','dispatches'):

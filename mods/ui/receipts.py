@@ -335,7 +335,15 @@ class ReceiptPresentation(QueryPresentation):
             return '\n'.join(lines)
         if action=='diplomacy' and isinstance(data,dict):return self.diplomacy(data)
         if action=='intel' and isinstance(data,list):return self.intel_history(data)
-        if action=='news' and isinstance(data,list):return '\n'.join(self.event(row,self._names) for row in reversed(data)) or self.text('console.no_news')
+        if action=='news' and isinstance(data,list):
+            # 旧版近讯面板只给最近十条；整段十期近讯对模型是十几 KB 的一次回执。
+            # 最新几条给全文，更早的收成一行计数（全文仍在存档旁的历史归档里）。
+            recent=data[-12:];older=data[:-12] if len(data)>12 else []
+            lines=[self.event(row,self._names) for row in reversed(recent)]
+            if older:
+                lines.append(self.text('receipt.news_more',count=len(older),
+                                       first=older[0].get('period',0),last=older[-1].get('period',0)))
+            return '\n'.join(lines) or self.text('console.no_news')
         if action=='report' and isinstance(data,list):return self.report_trend(data) if args.get('all') else self.reports(data)
         if action=='handbooks' and isinstance(data,list):return '【指南目录】\n'+'\n'.join(row['title']+'：player_rules(topic="'+row['title']+'")' for row in data)
         if action=='memory_search' and isinstance(data,list):return '【历史记忆】\n'+('\n\n'.join('第'+str(row['period'])+'期：\n'+row['context'] for row in data) or '没有匹配记录。')

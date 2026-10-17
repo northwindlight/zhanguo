@@ -570,6 +570,7 @@
   "experimental.review_round": "当前审查 [{count}/{total}] 轮，阶段 {phase}/2。两阶段共用这 10 轮，请及时完成核对并调用对应的阶段或裁决按钮。",
   "experimental.review_urge": "催办：已超过第 5 轮，连同本轮只剩 {remaining} 次调用。请收束核对，尽快完成当前阶段；第一阶段还须为新版国策审查留出轮次。",
   "experimental.review_log": "📜 {actor} 议会记录·第{period}回合·[{count}/10]·阶段{phase}·{kind}\n{payload}",
+  "receipt.news_more": "另有 {count} 条更早近讯（第{first}—{last}回合）未展开；按游标取新增用 player_events(cursor)，存档旁的历史归档保留全文。",
   "console.auto_rejected_offers": "回合结束：未回应提议{ids}已免费自动拒绝。",
   "console.auto_rejected_votes": "回合结束：未回应表决{ids}已自动投反对票。"
 }

@@ -148,10 +148,25 @@ class TestArchive(unittest.TestCase):
         blocks = [{"from": 0, "to": 6, "text": "同一段长期记忆", "turn": 7}]
         text = ctx.render_archive([], blocks, 15, 99999, long_memory="同一段长期记忆")
         self.assertEqual(text.count("同一段长期记忆"), 1)
-        # 两者确实不同时，块与长期记忆都必须保留。
+        # 旧档的块没有 memory 标记，按快照处理：long_memory 已取代它，不再重播。
         other = ctx.render_archive([], blocks, 15, 99999, long_memory="累积扩写后的新记忆")
-        self.assertIn("同一段长期记忆", other)
+        self.assertNotIn("同一段长期记忆", other)
         self.assertIn("累积扩写后的新记忆", other)
+
+    def test_superseded_memory_snapshots_are_not_resent(self):
+        """成功压缩写下的块只是当时那份长期记忆的快照，已被 long_memory 取代。"""
+        blocks = [{"from": 0, "to": 6, "text": "早期快照·扩地", "memory": True},
+                  {"from": 7, "to": 14, "text": "中期快照·结盟", "memory": True}]
+        text = ctx.render_archive([], blocks, 15, 99999, long_memory="当前记忆·已结盟并扩地")
+        self.assertIn("当前记忆", text)
+        self.assertNotIn("早期快照", text)
+        self.assertNotIn("中期快照", text)
+
+    def test_failed_compression_block_still_renders(self):
+        """压缩失败时写进块的是逐期小结，没有替代品，必须照常发。"""
+        blocks = [{"from": 0, "to": 6, "text": "压缩失败时写下的逐期小结", "memory": False}]
+        text = ctx.render_archive([], blocks, 15, 99999, long_memory="最新记忆")
+        self.assertIn("压缩失败时写下的逐期小结", text)
 
     def test_cap_truncates_oldest(self):
         text = ctx.render_archive(sums_upto(200), [], 201, cap=2000)
