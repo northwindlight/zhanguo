@@ -5,7 +5,8 @@ from engine.session import SaveFormatError
 from engine.scenario import GridSession
 from .observer import NativeObserver
 
-START_RES={'native:gold':1500,'native:food':20,'native:wood':60,'native:ore':10,
+# 开局木料 60 → 200（用户 2026-10-17：前期木是硬瓶颈，开局先给够一批建材）。
+START_RES={'native:gold':1500,'native:food':20,'native:wood':200,'native:ore':10,
            'native:oil':0,'native:equipment':5,'native:supply':10}
 
 class NativeSession(NativeObserver,GridSession):

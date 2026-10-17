@@ -66,7 +66,7 @@ class TestDecisionUI(unittest.TestCase):
         # 回执自己带「余N」：模型看完这一单就知道还剩多少；批次之间不再追加刷新消息。
         self.assertEqual(latest['role'],'tool')
         self.assertIn('购入 木头×2',latest['content'])
-        self.assertIn('余62',latest['content'])
+        self.assertIn('余202',latest['content'])
         self.assertNotIn('costs_by_level',latest['content'])
         self.assertIn('规则按需',backend.requests[0][0]['content'])
         assert_paired(client.state.replay[0]['messages'])
