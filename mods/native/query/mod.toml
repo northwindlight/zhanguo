@@ -1,0 +1,7 @@
+[Mod]
+Id = "native:query"
+Version = "1.0.0"
+Entry = "mods.native.query.mod:QueryMod"
+
+[Capabilities]
+Provides = ["native:query"]

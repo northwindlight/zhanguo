@@ -326,9 +326,11 @@ class TestObserver(unittest.TestCase):
             h=GameHost.new(self.cfg(experimental));p=h.player('s:q')
             before=h.to_save();rows=p.query('building_economics',{})
             self.assertEqual(len(rows),16);self.assertEqual(h.to_save(),before)
-            schema=next(s['function']['parameters'] for s in p.actions() if s['function']['name']=='building_economics')
-            for key in ('site','x','y'):self.assertNotIn(key,schema['properties'])
-            self.assertFalse(schema.get('required'))
+            # 建筑收益并入 query(panel=building_economics)：它自己不接地块参数，
+            # 真正的门槛由下面那次带 site 的提交被拒来钉。
+            schema=next(s['function']['parameters'] for s in p.actions() if s['function']['name']=='query')
+            self.assertIn('kind',schema['properties'])
+            self.assertEqual(schema.get('required'),['panel'])
             site=p.query('building_sites')['sites'][0]
             args={'kind':'barracks'}
             self.assertTrue(p.submit('building_economics',args)['ok'])

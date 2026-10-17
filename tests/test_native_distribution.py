@@ -31,11 +31,11 @@ class TestNativeDistribution(unittest.TestCase):
         runtime=Runtime.load(ROOT/'mods.toml');direct=Runtime.load(ROOT/'mods/native')
         self.assertEqual(runtime.dependency_manifest(),direct.dependency_manifest())
         self.assertEqual(runtime.distribution['Id'],'native')
-        self.assertEqual(runtime.distribution['Version'],'4.5.0')
+        self.assertEqual(runtime.distribution['Version'],'4.6.0')
         self.assertEqual(set(runtime.units),{'ui:standard','native:handbooks','native:resources','native:buildings','native:market',
                          'native:market-pricing','native:economy','native:economy-valuation',
                          'native:bank','native:economy-queries','native:nations','native:government','native:map-generation',
-                         'native:territory','native:diplomacy','native:vision','native:army','native:succession','native:intelligence','native:huns'})
+                         'native:territory','native:diplomacy','native:vision','native:army','native:succession','native:intelligence','native:query','native:huns'})
         self.assertEqual(set(runtime.state_owners),{'resources','buildings','market','economy','bank','phase','polity','nations','government','territory','diplomacy','units','military','succession','intelligence'})
         self.assertEqual(runtime.hooks,('cycle.start','buildings.production','relations','military.supply',
             'military.battle','military.withdraw','military.claims','succession','military.repatriate',
@@ -44,7 +44,7 @@ class TestNativeDistribution(unittest.TestCase):
         self.assertTrue({'build','buy','sell','market','econ','bank','borrow','nation','nations',
             'plan','end_turn','land','view','declare_war','offer_peace','vote','recruit','attack',
             'retreat','army','send_letter','gift','spy','news','intel'} <= set(runtime.tools))
-        self.assertEqual(len(runtime.schemas()),60)
+        self.assertEqual(len(runtime.schemas()),34)
         world=runtime.world_class()()
         self.assertEqual(world.economy_actors,())
         self.assertEqual(world.nation_actors,())

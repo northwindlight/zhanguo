@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from importlib import import_module
 import inspect
 import json
@@ -120,6 +120,8 @@ class Tool:
     parameters: dict | None = None
     argument_types: dict = field(default_factory=dict)
     read_only: bool = False
+    # 不出现在工具表里，但仍可按名调用（玩家状态扇出、脚本、规则 AI 都用得到）。
+    hidden: bool = False
     content_parameters: tuple[str, ...] = ()
 
     @cached_property
@@ -370,6 +372,16 @@ class Runtime:
                     raise ModError(f"结算阶段冲突：{stage.name}")
                 self.stage_map[stage.name] = stage
                 self.stage_owners[stage.name] = name
+        # 只读面板收敛：发行版声明一个分发器后，其余只读工具照旧注册（玩家状态与脚本
+        # 仍按名调用），但不再出现在模型工具表里。
+        panel = self.distribution.get('ReadOnlyPanel')
+        if panel:
+            if not isinstance(panel, str) or panel not in self.tools or not self.tools[panel].read_only:
+                raise ModError('ReadOnlyPanel must reference a registered read-only tool')
+            keep = set(self.distribution.get('ReadOnlyPanelKeep') or ())
+            for key, tool in list(self.tools.items()):
+                if tool.read_only and tool.name not in keep and tool.name != panel:
+                    self.tools[key] = replace(tool, hidden=True)
         clock=self.distribution.get('PlayerClock')
         if clock and (not isinstance(clock,dict) or set(clock)!={'Capability','Method'} or clock['Capability'] not in self.capabilities or not isinstance(clock['Method'],str) or not clock['Method'] or clock['Method'].startswith('_')):
             raise ModError('玩家时钟必须引用公共能力和方法')
@@ -616,7 +628,8 @@ class Runtime:
             return owner.after_tool(world,actor,self.tools[name].name,result)
 
     def schemas(self):
-        return [self.tools[n].schema() for n in sorted(self.tools) if n == self.tools[n].name]
+        return [self.tools[n].schema() for n in sorted(self.tools)
+                if n == self.tools[n].name and not self.tools[n].hidden]
 
     def player(self, world, actor, *, lock=None, on_write=None, on_fault=None, memory_query=None):
         from .player import PlayerSession

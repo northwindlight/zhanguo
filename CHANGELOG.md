@@ -11,11 +11,13 @@
 
 顺带修掉归档重播旧长期记忆的问题：成功压缩写下的块只是当时那份记忆的快照，归档却每块都发；楚国 12 块 27,491 字里 24,100 字是重复副本，单回合开局状态因此 35,357 字。现在块带 `memory` 标记，归档只保留当前 `long_memory`；压缩失败写下的逐期小结块照常重播。另把 `news` 回执收回旧版口径：最新 12 条展开，其余一行计数并指路 `player_events(cursor)`（原先一次 75–85 条、1.4–2.3 万字）。
 
+工具面收敛：新增 `query(panel=…)` 只读分发器，模型可见工具 64 → 38（去掉 `player_state` 后 37）。27 个只读工具（land/tile/map/army/reachable/frontier/threats/battle/logistics/market/econ/bank/report/government/diplomacy/intel/news/dispatches/countries/nation/nations/unit_catalog/building_catalog/terrain_catalog/building_economics/handbooks）照旧注册、仍可按名调用（玩家状态扇出、脚本、规则 AI 不受影响），但不再进模型工具表；`building_sites` 并入 `land`（国土行本来就带建筑位、已建/在建、能否下单）。实验发行版同样收敛，`script_status` 作为实验自有工具保留。引擎新增 `Tool.hidden` 与发行版字段 `ReadOnlyPanel` / `ReadOnlyPanelKeep`。
+
 四本手册按旧版密度重写：基础指南恢复「核心格密度、资源位 vs 建筑位、生产链、野人静态、攻城代价、前 20 回合次序」六节，并重新挂回**前 20 回合的 system 前缀**（过期后 `player_rules(topic="基础指南")` 取回）；经济手册恢复「扩张＝修正的期权、兵钱互为前提、军费不能榨干现金流、别先卖后买、市场循环、战争是最快的获取资源方式」并补借款口径；战争与战略手册删去套话、改成可执行的判断。手册正文里的建筑数值（市政厅 5+位×1 金、兵营/工程院/外交中心/市政厅 3/4/5/6 位门槛、补给厂与装备厂配方、地形减伤表）与当前目录一致。
 
 看海控制台补两处：行动抬头改为按「回合＋国家」判定，每次调用前都重打——原先只比较国家，同一国跨回合连续行动、或经过议会转换时会漏掉抬头，分不清谁在行动；行动权结束时补「✓ 行动结束」。思考默认改为摘要模式：终端只留第一行，日志仍保留全文，`thoughts brief|on|off` 可切换。
 
-模块版本：native 4.5.0、native:army 2.5.0、native:economy 1.4.0、native:economy-queries 1.3.0、native:bank 1.2.0、native:market 2.1.0。全量离线回归 620 项通过，说明书已按新发行版重新生成。
+模块版本：native 4.6.0、native:army 2.5.0、native:economy 1.4.0、native:economy-queries 1.3.0、native:bank 1.2.0、native:market 2.1.0。全量离线回归 620 项通过，说明书已按新发行版重新生成。
 
 ## 未发行 — 2026-10-17
 

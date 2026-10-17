@@ -73,7 +73,7 @@ class LLMUI:
 
     def system(self):
         text=self.text('llm.system')+'\n'+str(self.cfg.get('system_prompt') or '')+'\n'+str(self.cfg.get('extra_summary') or '')
-        text+='\n国策是跨回合战略：经济、军事、情报、外交的目标、优先级、资源约束和调整条件应充分说明。end_turn 的 summary 只用一两句写实际结果，详细流水已有回执。先阅读当前状态和行动简报；已有资料无需重复查询。互不依赖的工具可在同一批调用，依赖前一步结果的行动等待回执。坐标只用于实际动作与 tile 单格详情，其余查询按全国或整类返回。'
+        text+='\n国策是跨回合战略：经济、军事、情报、外交的目标、优先级、资源约束和调整条件应充分说明。end_turn 的 summary 只用一两句写实际结果，详细流水已有回执。先阅读当前状态和行动简报；已有资料无需重复查询。互不依赖的工具可在同一批调用，依赖前一步结果的行动等待回执。坐标只用于实际动作与 query(panel=tile) 的单格详情，其余查询按全国或整类返回。'
         # The model can fetch every rule/catalog by tool. Only explicitly
         # registered role guidance belongs in the stable prompt.
         active=[section for section in self.rulebook if section['title'] in ('匈奴政体',)]
@@ -82,7 +82,7 @@ class LLMUI:
         # 开局最贵的几个坑，模型不一定会主动去查手册。
         guide=next((section for section in self.rulebook if section['title']=='基础指南'),None)
         if guide and self.cfg.get('opening_guide',True) and self.period<20:text+='\n'+str(guide['body'])
-        text+='\n规则按需用 player_rules(topic)，兵种/建筑/地形用 unit_catalog/building_catalog/terrain_catalog，地块用 land/tile，历史近讯用 news，情报用 intel，完整经济与资产用 econ，已购报表用 bank。'
+        text+='\n只读查询统一用 query(panel=…)：land/tile/map、army/reachable/frontier/threats/battle/logistics、market/econ/bank/report、government/diplomacy/intel/news/dispatches、countries/nation/nations、unit_catalog/building_catalog/terrain_catalog/building_economics、handbooks。规则用 player_rules(topic)，按游标取事件用 player_events(cursor)。'
         if self.has_scripts:text+='\n'+self.text('llm.scripting')
         return text
 

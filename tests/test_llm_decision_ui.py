@@ -21,11 +21,14 @@ class TestDecisionUI(unittest.TestCase):
         for experimental in (False,True):
             h=self.host(experimental)
             tools=h.runtime.tools
-            spatial={name for name,tool in tools.items() if tool.read_only and
+            spatial={name for name,tool in tools.items() if tool.read_only and not tool.hidden and
                      {'x','y','site','tile','position','at'} & set(tool.schema()['function']['parameters']['properties'])}
-            self.assertEqual(spatial,{'tile'})
+            self.assertEqual(spatial,{'query'})
+            p=h.player(Q)
+            panels=next(s['function']['parameters']['properties']['panel']['enum'] for s in p.actions() if s['function']['name']=='query')
+            self.assertIn('tile',panels);self.assertIn('land',panels);self.assertNotIn('building_sites',panels)
             self.assertTrue({'build_quote','recruit_quote','battle_estimate'}.isdisjoint(tools))
-            p=h.player(Q);before=h.to_save();p.query('building_catalog');p.query('building_economics');p.query('terrain_catalog')
+            before=h.to_save();p.query('building_catalog');p.query('building_economics');p.query('terrain_catalog')
             self.assertEqual(h.to_save(),before)
 
     def test_opening_guide_is_injected_for_the_first_twenty_turns(self):
@@ -68,7 +71,7 @@ class TestDecisionUI(unittest.TestCase):
         self.assertIn('购入 木头×2',latest['content'])
         self.assertIn('余202',latest['content'])
         self.assertNotIn('costs_by_level',latest['content'])
-        self.assertIn('规则按需',backend.requests[0][0]['content'])
+        self.assertIn('query(panel=',backend.requests[0][0]['content'])
         assert_paired(client.state.replay[0]['messages'])
 
     def test_player_state_is_hidden_and_stale_calls_are_rejected_without_querying(self):
@@ -82,7 +85,7 @@ class TestDecisionUI(unittest.TestCase):
             self.assertFalse(receipts[0]['ok']);self.assertEqual(receipts[0]['code'],'tool_not_exposed')
             self.assertIsNone(receipts[0]['data'])
             names={s['function']['name'] for s in client.ui.actions(p.actions())}
-            self.assertNotIn('player_state',names);self.assertIn('government',names)
+            self.assertNotIn('player_state',names);self.assertNotIn('government',names);self.assertIn('query',names)
             self.assertNotIn('player_state',client.ui.system())
             self.assertFalse(any(row['action']=='player_state' for row in h.audit))
             # Automatic facts and subsequent patches still reach the model.

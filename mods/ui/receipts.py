@@ -239,6 +239,10 @@ class ReceiptPresentation(QueryPresentation):
         return title+(' '+' '.join(parts) if parts else '')
 
     def receipt_body(self,action,args,receipt,actor):
+        # 只读面板统一走 query：正文仍交给原面板的渲染器，模型看到的措辞不变。
+        if action=='query' and isinstance((args or {}).get('panel'),str):
+            target='view' if args['panel']=='map' else args['panel']
+            if target!='query':return self.receipt_body(target,args,receipt,actor)
         data=receipt.get('data');message=self.label('receipt',receipt.get('message',''))
         if action=='script_run' and isinstance(data,dict) and 'steps' in data:
             result=f'脚本{self.label("status",data["status"])}；计算{data["steps"]}，API调用{data["calls"]}，已成功动作{data["actions"]}。'

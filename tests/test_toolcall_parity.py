@@ -33,7 +33,7 @@ class ToolcallParity(unittest.TestCase):
                 service=h.services[Q]['council']
                 self.assertEqual(service._manual(p,'基础指南')['body'],basics)
             ui=h.ui.llm(h.cfg);ui.rules(p.rules('all'));obs=p.observe();ui.state(obs,[])
-            self.assertIn('规则按需',ui.system())
+            self.assertIn('query(panel=',ui.system())
             # 旧版口径：开局指南常驻前 20 回合的 system 前缀，过期后只能按需查。
             self.assertIn(basics,ui.system())
             obs['period']=20;ui.state(obs,[])
@@ -46,12 +46,13 @@ class ToolcallParity(unittest.TestCase):
             schemas={s['function']['name']:s['function'] for s in p.actions()}
             self.assertFalse([n for n,s in schemas.items() if s.get('description')==n])
             for action in ('build','recruit'):self.assertIn('oneOf',schemas[action]['parameters'])
-            for action in ('move','attack','retreat','disband','reachable'):self.assertIn('anyOf',schemas[action]['parameters'])
+            for action in ('move','attack','retreat','disband'):self.assertIn('anyOf',schemas[action]['parameters'])
+            self.assertEqual({'aid','ids','attack'}<=set(schemas['query']['parameters']['properties']),True)
             self.assertEqual(schemas['offer_peace']['parameters']['properties']['kind']['enum'],['white','pay','demand'])
             self.assertNotIn('note',schemas['offer_peace']['parameters']['required'])
             # 市场上不再有单独的查价工具：报价就在行情里，且与数量无关。
             self.assertNotIn('market_quote',schemas)
-            self.assertEqual(schemas['market']['parameters']['required'],[])
+            self.assertEqual(schemas['query']['parameters']['required'],['panel'])
             self.assertEqual(schemas['buy']['parameters']['required'],['resource','quantity'])
 
     def test_report_latest_selected_and_all_are_readonly(self):
