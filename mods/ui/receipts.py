@@ -342,6 +342,9 @@ class ReceiptPresentation(QueryPresentation):
         if action=='news' and isinstance(data,list):
             # 旧版近讯面板只给最近十条；整段十期近讯对模型是十几 KB 的一次回执。
             # 最新几条给全文，更早的收成一行计数（全文仍在存档旁的历史归档里）。
+            # 本回合自己的行动回执不再重播：模型手里已经有那条回执（国策全文尤其贵）。
+            data=[row for row in data if not (row.get('period',0)>=self._period and
+                  isinstance(row.get('details'),dict) and row['details'].get('source')=='action_receipt')]
             recent=data[-12:];older=data[:-12] if len(data)>12 else []
             lines=[self.event(row,self._names) for row in reversed(recent)]
             if older:

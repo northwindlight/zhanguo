@@ -48,6 +48,23 @@ class TestUIRegressions(unittest.TestCase):
         self.assertIn('gdp',facts['bank'])
         self.assertIn('loan_rate',facts['bank'])
 
+    def test_same_plan_text_does_not_renew_itself(self):
+        """同一份国策再交一遍不该重置「制定于」与到期日（模型常为保险重复提交）。"""
+        h=self.host();text='经济：先铺采集与能源；军事：守土；情报：按需；外交：中立。'
+        first=h.world.government.plan(Q,text)
+        h.world.government.advance()
+        second=h.world.government.plan(Q,text)
+        self.assertEqual(first.period,second.period)
+        self.assertEqual(first.valid_until,second.valid_until)
+
+    def test_news_does_not_replay_this_turns_own_action_receipts(self):
+        """模型手里已有本回合回执；news 再抄一遍国策全文就是白付一次长文。"""
+        ui=ConsoleUI({});ui._period=5
+        rows=[{'id':1,'period':5,'kind':'action','position':None,'text':'提交国策：全文','details':{'source':'action_receipt'}},
+              {'id':2,'period':4,'kind':'action','position':None,'text':'售出 木头×1','details':{'source':'action_receipt'}}]
+        text=ui.receipt_body('news',{}, {'ok':True,'data':rows,'message':'','action':'news'}, None)
+        self.assertNotIn('提交国策',text);self.assertIn('售出 木头×1',text)
+
     def test_news_receipt_keeps_latest_and_counts_the_rest(self):
         """十期近讯一次七十多条——旧版只给最近十条，多的收成一行计数。"""
         ui=ConsoleUI({})

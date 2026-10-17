@@ -21,6 +21,10 @@ class ParliamentGovernment(Government):
         self._write();self._actor(owner)
         if owner in self._ended:raise ValueError('Nation already ended its action')
         if not isinstance(text,str) or not text.strip():raise ValueError('Plan cannot be empty')
+        # 同一份正文再交一遍：不新建待审草稿，也不重置生效期。
+        current=self._plans.get(owner)
+        if current is not None and current.text.strip()==text.strip() and current.valid_until>=self._period:
+            return {'text':current.text,'period':current.period,'status':'approved','message':'国策未变化'}
         # One submission per country and period, including rule clients.
         row=self._reviews.get(owner)
         if row is None:raise ValueError('发行版尚未绑定议会服务，不能直接批准国策')

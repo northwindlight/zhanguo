@@ -348,6 +348,11 @@ class CouncilService:
             self.council['trace_start']=len(self.council['archive'])
             return {**receipt,'ok':True,'status':'effective','code':None,
                     'message':decision['message'],'data':decision}
+        # 同一份国策重复提交：不重开议会（每轮审核要花十次模型调用），
+        # 也不把「制定于」和到期日往后推。
+        if self.council['last_plan'].get('approved') and candidate.strip()==str(self.council['last_plan'].get('text','')).strip():
+            return {**receipt,'ok':True,'status':'effective','code':None,
+                    'message':self.ui.text('experimental.plan_unchanged')}
         self._notify(self.ui.text('experimental.review_preparing_status',actor=self.cfg.get('name',player.actor)))
         # 只延续尚未通过的审核。通过即清空；档案存在不代表向议长开放全历史。
         dialogue=self.council['dialogue']

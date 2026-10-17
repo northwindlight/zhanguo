@@ -121,6 +121,9 @@ class TestScripts(unittest.TestCase):
         self.assertEqual(len(h.services[self.actor]['council']._review_backend.requests),0)
         self.assertEqual([r['action'] for r in h.audit],['script_write','plan','end_turn','script_run'])
         self.assertEqual(h.clock(),1)
+        # 第二回合换一份新国策（同一份正文不再重复送审，见 plan 幂等规则）。
+        changed=source.replace('按真实库存发展生产','按真实库存发展生产并补兵营')
+        h.player(self.actor).submit('script_write',{'source':changed})
         h.clients[self.actor]._backend=FakeBackend([reply(call('r2','script_run'))])
         results=h.cycle()
         self.assertTrue(results[-1]['ok'],results)

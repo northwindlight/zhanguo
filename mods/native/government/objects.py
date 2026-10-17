@@ -52,6 +52,11 @@ class Government:
         self._write();self._actor(owner)
         if not isinstance(text,str) or not text.strip():raise ValueError('Plan cannot be empty')
         if owner in self._ended:raise ValueError('Nation already ended its action')
+        current=self._plans.get(owner)
+        # 同样的正文再交一遍不该重置「第 N 回合制定」与到期日：模型偶尔会为了
+        # 「确保国策有效」重复提交，原实现会白白续期，还会（实验版）再开一轮议会审核。
+        if current is not None and current.text.strip()==text.strip() and current.valid_until>=self._period:
+            return current
         record = Plan(owner,text,self._period,self._period+self._span-1)
         self._plans[owner] = record
         return record
