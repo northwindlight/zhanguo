@@ -1,5 +1,3 @@
-# 基础指南
-
 这一份讲「开局怎么下手」，不新增规则；数值以 `building_catalog`、`unit_catalog` 与当前回执为准。
 前 20 回合它会直接挂在常驻提示里，过期后用 `player_rules(topic="基础指南")` 取回。
 
