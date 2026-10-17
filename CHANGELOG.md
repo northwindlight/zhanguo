@@ -9,7 +9,7 @@
 - UI：`ConsoleUI`/`LLMUI` 接入 `runtime.tool_layer`；回执在失败兜底之后、面板分发之前先问 tool 层，动作名（含别名）统一归一。tool 层自带 `locales/`（zh-CN/en-US），不再复用 UI 的动作文案键；旧 UI 动作分支暂留作回退，后续统一删除。
 - 发行版：native 4.7.0；各模块版本随迁移提升；`mods/nations_acceptance`、`mods/economic_system`、`mods/buildings_acceptance`、`mods/market_acceptance`、`mods/economy_acceptance`、`playable_min`、`no_power_dist`、`recipes_dist`、`tea_dist`、`mods/experimental` 均声明 `[Distribution.Tools]`；替换模块 `no_power/buildings.toml`、`fixed_credit_bank/mod.toml`、`experimental/government.toml`、`experimental/handbooks.toml` 镜像 `[PlayerAPI]`。
 - 存档：`[PlayerAPI]`、模块版本与工具 schema 变化，**旧档读不进来，需新档**。`Runtime(..., enforce_player_apis=False)` 仅供合成/局部装配的单元测试跳过覆盖检查。
-- 回归：全量离线 622 项通过；`docs/游戏说明书.md` 已重新生成。
+- 回归：全量离线 626 项通过；`docs/游戏说明书.md` 已重新生成。
 
 ## 未发行 — 2026-10-17（事实层接口，需新档）
 
