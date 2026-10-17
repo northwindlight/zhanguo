@@ -118,16 +118,17 @@ class AuditRepairs(unittest.TestCase):
         self.assertEqual(apply(before,changes),after)
         self.assertLess(len(json.dumps(changes)),len(json.dumps(after))//10)
 
-    def test_presented_delta_reconstructs_localized_stocks_and_unit_removal(self):
+    def test_refresh_line_reports_localized_stocks_and_unit_removal(self):
         h=GameHost.new({'map_size':12,'seed':73,'nations':[{'id':Q,'name':'秦','client':'rule'}]})
         p=h.player(Q);site=h.world.territory.owned(Q)[0].tile.position
         unit=h.world.military.seed(Q,'native:infantry',*site)[0]
-        ui=h.ui.llm(h.cfg);initial=json.loads(ui.state(p.observe(),[])[0])['state']
+        ui=h.ui.llm(h.cfg)
         self.assertTrue(p.submit('buy',{'resource':'wood','quantity':2})['ok'])
         self.assertTrue(p.submit('disband',{'aid':unit.id})['ok'])
-        delta=json.loads(ui.refresh(p.observe()).split('：',1)[1])
-        expected=json.loads(h.ui.llm(h.cfg).state(p.observe(),[])[0])['state']
-        self.assertEqual(apply(initial,delta),expected)
+        line=ui.refresh(p.observe())
+        stocks={s['id']:s['amount'] for s in p.observe()['facts']['econ']['stocks']}
+        self.assertIn(f"{stocks['native:wood']}木头",line)
+        self.assertIn('军队0',line)
 
     def test_visibility_scan_is_shared_within_observation_and_invalidates_after_actions(self):
         f,w=self.world();p=w.runtime.player(w,Q)
@@ -143,9 +144,9 @@ class AuditRepairs(unittest.TestCase):
         f,w=self.world();p=w.runtime.player(w,Q);obs=p.observe();obs['facts']['accidental_new_panel']='NEVER_AUTO_INJECT'
         ui=GameHost.new({'map_size':8,'nations':[{'id':Q,'name':'秦','client':'llm'}]}).ui.llm({})
         ui.rules(p.rules('all'));text,_=ui.state(obs,[])
+        # 新增面板不会自动变成常驻载荷；规则正文也不进 system。
         self.assertNotIn('NEVER_AUTO_INJECT',text);self.assertNotIn('costs_by_level',ui.system())
-        data=json.loads(text)
-        self.assertTrue(all(u['owner']!='野人' for u in data['state']['facts']['army']))
+        self.assertIn('【国力】',text)
         self.assertTrue(p.query('building_catalog'));self.assertTrue(p.query('land'))
         self.assertLess(context.est_tokens(text),12000)
 
@@ -243,7 +244,7 @@ class AuditRepairs(unittest.TestCase):
         events=[{'id':i,'text':'近讯'*300,'period':0,'kind':'test'} for i in range(50)]
         text,_=ui.state(obs,events)
         self.assertLessEqual(context.est_tokens(text),1024)
-        self.assertTrue(json.loads(text)['state']['omitted'])
+        self.assertIn('载荷预算',text)
 
     def test_step_limit_ends_through_normal_gate_and_preserves_replay(self):
         from clients.llm import assert_paired

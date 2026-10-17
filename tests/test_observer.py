@@ -130,9 +130,9 @@ class TestObserver(unittest.TestCase):
         events.extend({'id':i,'period':0,'kind':'action','text':f'普通行动{i}'} for i in range(2,32))
         before=deepcopy(events)
         text,_=h.ui.llm({'model_state_tokens':12000}).state(observation,events)
-        presented=json.loads(text.splitlines()[0])
-        self.assertTrue(any('联盟创建失败' in row['text'] for row in presented['events']))
-        self.assertLessEqual(sum(row['kind']=='action' for row in presented['events']),10)
+        # 重大公告必须进简报；普通行动按最近十条取，不能把大事挤出窗口。
+        self.assertIn('联盟创建失败',text)
+        self.assertLessEqual(text.count('普通行动'),10)
         self.assertEqual(events,before)
 
     def test_world_observer_is_detached_and_never_exposed_to_players(self):
@@ -478,22 +478,22 @@ class TestShortKeys(unittest.TestCase):
                 h=GameHost.new(cfg);p=h.player('s:q');ui=h.ui.llm(h.cfg)
                 schemas={s['function']['name']:s['function'] for s in ui.actions(p.actions())}
                 self.assertIn(building,schemas['build']['parameters']['properties']['kind']['enum'])
-                stocks=json.loads(ui.state(p.observe(),[])[0])['state']['facts']['econ']['stocks']
-                self.assertIn(resource,stocks)
+                self.assertIn(resource,ui.state(p.observe(),[])[0])
                 client=LLMClient(h.cfg,ui=h.ui)
                 self.assertTrue(client._submit(p,'sell',{'resource':resource,'quantity':1})['ok'])
                 # 正文里的同一个词不能被当成键值改掉。
                 self.assertEqual(client._submit(p,'plan',{'text':f'{resource}要攒'})['data']['text'],f'{resource}要攒')
 
     def test_model_compaction_preserves_prose_and_raw_api_facts(self):
+        """简报比原始事实短，键值随语言走，内部 ID 不外泄，正文不被改词。"""
         h=GameHost.new({'map_size':12,'seed':17,'nations':[{'id':'s:q','name':'秦'}]})
         obs=h.player('s:q').observe();before=deepcopy(obs);ui=h.ui.llm(h.cfg)
         raw=json.dumps({'state':obs,'events':[]},ensure_ascii=False)
-        text,_=ui.state(obs,[]);data=json.loads(text)['state']['facts']
+        text,_=ui.state(obs,[])
         self.assertLess(len(text),len(raw));self.assertEqual(obs,before)
-        # 键值随语言走：zh 下是"金币"，不是 gold。
-        self.assertIsInstance(data['econ']['stocks'],dict);self.assertIn('黄金',data['econ']['stocks'])
+        # 键值随语言走：zh 下是"黄金"，不是 native:gold。
+        self.assertIn('黄金',text)
         self.assertNotIn('/land-',text);self.assertNotIn('native:gold',text);self.assertNotIn('native:infantry',text)
-        receipt={'data':{'kind':'native:farm','text':'native:farm','message':'native:gold'}}
-        compact=json.loads(ui.receipt(receipt))
-        self.assertEqual(compact['data'],{'kind':'农场','text':'native:farm','message':'native:gold'})
+        # 正文里的同一个词不能被当成键值改掉。
+        receipt={'ok':True,'action':'plan','message':'','data':{'text':'粮食要攒','valid_until':9}}
+        self.assertIn('粮食要攒',ui.receipt(receipt,{}))

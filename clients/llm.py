@@ -215,7 +215,7 @@ class LLMClient:
             self._dialogue(player,[assistant])
             batch_receipts=[]
             for call in calls:
-                fn=call.get('function') or {};action=fn.get('name')
+                fn=call.get('function') or {};action=fn.get('name');arguments={}
                 try:arguments=json.loads(fn.get('arguments') or '{}')
                 except (ValueError,TypeError):
                     receipt=self._submit(player,action,[])
@@ -223,7 +223,7 @@ class LLMClient:
                 receipts.append(receipt);batch_receipts.append(receipt)
                 if receipt.get('code')=='tool_not_exposed' and emit:emit('⚠ '+receipt['message'])
                 render=getattr(self.ui,'receipt',None)
-                messages.append({'role':'tool','tool_call_id':call['id'],'content':render(receipt) if callable(render) else json.dumps(receipt,ensure_ascii=False)})
+                messages.append({'role':'tool','tool_call_id':call['id'],'content':render(receipt,arguments) if callable(render) else json.dumps(receipt,ensure_ascii=False)})
                 self._receipt(player,action,fn.get('arguments'),receipt)
                 if on_result:on_result(action,fn.get('arguments'),receipt)
                 if action=='end_turn' and receipt['ok']:

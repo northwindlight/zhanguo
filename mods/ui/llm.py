@@ -1,16 +1,26 @@
-"""Compose model-facing text and image snapshots without owning client memory."""
+"""Compose model-facing prose and image snapshots without owning client memory."""
 import json
 from copy import deepcopy
 from .i18n import Translator
 from .console import ConsoleUI
 from .maps import snapshot,owner_color
-from .views import player_atlas, player_map
-from .deltas import difference
+from .views import player_map
+from .briefing import resources_line,sections,stocks_of
+from .receipts import num
 from clients.context import est_tokens
+
+# 简报分节越界时按此序从后往前丢弃；同键给出「去哪查全文」的工具名。
+FALLBACK={'capital':'frontier','threats':'threats','territory':'news','power':'econ','plan':'government',
+          'map':'view','army':'army','diplomacy':'diplomacy','market':'market','bank':'bank',
+          'intel':'intel','dispatches':'dispatches'}
 
 
 class LLMUI:
-    def __init__(self,cfg):self.cfg=cfg;self.text=Translator.from_config(cfg);self.sites={};self.has_scripts=False;self.catalogs={};self.current=None;self.rulebook=[];self.guide_catalog=[];self.period=0;self.at_war=False;self.polity=None;self.receipts=ConsoleUI(cfg)
+    def __init__(self,cfg):
+        self.cfg=cfg;self.text=Translator.from_config(cfg);self.sites={};self.has_scripts=False
+        self.catalogs={};self.rulebook=[];self.guide_catalog=[];self.period=0;self.at_war=False;self.polity=None
+        # 模型与观察者共用同一套中文渲染器；差别只在成文后的排序与裁剪。
+        self.receipts=ConsoleUI(cfg);self.actor=None;self.names={};self.facts={}
 
     def values(self):
         """短键 → 本地化键值（金/木/粮/农场/步兵…）。语言一换，模型看到的键值就换。"""
@@ -37,36 +47,29 @@ class LLMUI:
             return self.values().get(key,self.text.resolve('content.'+ident,key))
         return ident
 
-    def compact(self,value):
-        """Short coordinate references for model presentation only; preserve prose."""
-        if isinstance(value,list):return [self.compact(v) for v in value]
-        if not isinstance(value,dict):
-            return self._key(value) if isinstance(value,str) else value
-        if isinstance(value.get('id'),str) and isinstance(value.get('position'),(list,tuple)):
-            self.sites[value['id']]=list(value['position'])
-        prose={'text','summary','message','reason','content','reasoning_content','source','old','new','output'}
-        result={self._key(k):v if k in prose else self.compact(v) for k,v in value.items()}
-        if isinstance(value.get('id'),str) and value['id'] in self.sites:
-            result.pop('id');result.setdefault('position',self.sites[value['id']])
-        if isinstance(value.get('site'),str) and value['site'] in self.sites:
-            result.pop('site');result['position']=self.sites[value['site']]
-        if isinstance(value.get('tile'),dict):
-            tile=result.pop('tile');result.update(tile)
-        stocks=value.get('stocks')
-        if isinstance(stocks,list) and all(isinstance(s,dict) and 'id' in s and 'amount' in s for s in stocks):
-            result['stocks']={self._key(s['id']):s['amount'] for s in stocks}
-        return result
+    def _remember(self,observation):
+        """把这次观察交给共用渲染器：地点索引、兵种、当前回合都从这里来。
 
-    def receipt(self,receipt):
+        观察者侧由 mp_run 每回合喂；模型侧原先从来不喂，于是专用渲染器永远走不到。
+        """
+        self.receipts.remember(observation)
+        facts=observation.get('facts',{})
+        self.actor=observation.get('actor');self.facts=facts
+        self.names={n['id']:n['name'] for n in facts.get('nations',[]) if isinstance(n,dict)}
+        self.receipts._names=self.names;self.receipts._actor=self.actor
+        return facts
+
+    def receipt(self,receipt,arguments=None):
+        """模型侧回执走观察者同一套中文渲染。
+
+        工具名与参数已经写在 tool_calls 里，这里只给结果正文，不重复抬头。
+        """
         presented=deepcopy(receipt)
-        # History belongs to client memory, not a full replay embedded in a
-        # current-government query. Keep the underlying player API detached.
-        if receipt.get('action')=='government' and isinstance(presented.get('data'),dict):
+        # 国策历史小结归客户端记忆与日志保管，模型回执不重播（既有口径，勿改）。
+        if presented.get('action')=='government' and isinstance(presented.get('data'),dict):
             presented['data'].pop('summaries',None)
-        # Same rejection translator as the observer, retaining structured data
-        # for scripts and subsequent decisions.
-        if not receipt.get('ok'):presented['message']=self.receipts.label('receipt',receipt.get('message',''))
-        return json.dumps(self.compact(presented),ensure_ascii=False,separators=(',',':'))
+        args=arguments if isinstance(arguments,dict) else {}
+        return self.receipts.receipt_body(presented.get('action'),args,presented,self.actor)
 
     def system(self):
         text=self.text('llm.system')+'\n'+str(self.cfg.get('system_prompt') or '')+'\n'+str(self.cfg.get('extra_summary') or '')
@@ -75,7 +78,7 @@ class LLMUI:
         # registered role guidance belongs in the stable prompt.
         active=[section for section in self.rulebook if section['title'] in ('匈奴政体',)]
         if active:text+='\n'+json.dumps(active,ensure_ascii=False,separators=(',',':'))
-        text+='\n规则按需用 player_rules(topic)，兵种/建筑/地形用 unit_catalog/building_catalog/terrain_catalog，地块用 land/tile，完整地图用 view，历史近讯用 news，情报用 intel，国策正文用 government，完整经济与资产用 econ，已购报表用 bank。'
+        text+='\n规则按需用 player_rules(topic)，兵种/建筑/地形用 unit_catalog/building_catalog/terrain_catalog，地块用 land/tile，历史近讯用 news，情报用 intel，完整经济与资产用 econ，已购报表用 bank。'
         if self.has_scripts:text+='\n'+self.text('llm.scripting')
         return text
 
@@ -168,81 +171,88 @@ class LLMUI:
                 'capital_warning':deepcopy(facts.get('frontier',{}).get('capital_warning',[])),
                 'diplomacy_todo':{key:diplomacy[key] for key in ('offers','votes','pending') if diplomacy.get(key)}}
 
-    def atlas_text(self,observation):
-        """模型看到的地图：老版坐标地图格式（按势力分段、逐格一行）。"""
-        return player_atlas(observation,self.text,self._key).split('\n')
-
-    # Each standing fact has a decision purpose; new module panels never
-    # become permanent model input by accident.
-    STANDING=('government','nation','econ','bank','market','army','diplomacy','dispatches')
-
-    def current_state(self,observation):
-        facts={key:deepcopy(observation['facts'][key]) for key in self.STANDING if key in observation['facts']}
-        government=facts.get('government',{})
-        government.pop('summaries',None)
-        if 'econ' in facts:facts['econ']={'stocks':facts['econ'].get('stocks',[])}
-        if 'nation' in facts:
-            row=facts['nation'];facts['nation']={**row.get('nation',{}),'land_count':len(row.get('sites',[]))}
-        if government.get('plan'):
-            government['plan']={key:value for key,value in government['plan'].items() if key!='text'}
-        if facts.get('bank',{}).get('purchases'):
-            facts['bank']['purchases']=[{'owner':p['report']['owner'],'end':p['report']['end']} for p in facts['bank']['purchases']]
-        if 'army' in facts:facts['army']=[u for u in facts['army'] if u['owner']!='野人']
-        # Keep structured rows so per-row changes remain addressable.
-        if not self.cfg.get('vision',False):
-            facts['view']=[{key:row[key] for key in ('position','name','terrain','owner','buildings') if key in row} for row in observation['facts'].get('view',[])]
-        return {'period':observation['period'],'can_act':observation['can_act'],'facts':facts,'decision':self.dashboard(observation)}
-
-    def _bounded(self,current):
-        # Reserve room for the JSON envelope, indexes and omission notices.
-        cap=self.cfg.get('model_state_tokens',12000)-512;omitted=[]
-        def size():return est_tokens(json.dumps(self.compact(current),ensure_ascii=False,separators=(',',':')))
-        for key,tool in (('view','view'),('army','army'),('diplomacy','diplomacy'),('government','government'),('nation','nation'),('dispatches','dispatches'),('market','market'),('bank','bank')):
-            if size()<=cap:break
-            value=current['facts'].pop(key,None)
-            if value:omitted.append(f'{key} 超出本期载荷预算，完整内容用 {tool} 查询')
-        if size()>cap:
-            current.pop('decision',None)
-            omitted.append('行动简报超出载荷预算；请按需查询当前事实')
-        if size()>cap:
-            current['facts'].pop('econ',None)
-            omitted.append('库存超出载荷预算，完整库存用 econ 查询')
-        if omitted:current['omitted']=omitted
-        return current
+    def battle_brief(self,facts,actor):
+        """交战摘要：够模型判断该不该继续打，逐支明细仍留给 battle 面板。"""
+        rows=facts.get('battle') or []
+        if not rows:return ''
+        pieces=[]
+        for row in rows:
+            sides=[]
+            for side in row.get('sides',[]):
+                who='你' if side['owner']==actor else self.names.get(side['owner'],side['owner'])
+                sides.append(f"{who}{side['count']}支{num(sum(u.get('hp',0) for u in side.get('units',[])))}HP")
+            detail='/'.join(sides)
+            defence=next((s for s in row.get('sides',[]) if s.get('role')=='defending'),None)
+            if defence is not None and not row.get('blind'):
+                detail+=f"·守方减伤{num(defence.get('combined_reduction',0))}%"
+            pieces.append(self.receipts.pos(row.get('position'),actor=actor)+detail)
+        return self.text('brief.battle',count=len(rows),detail='；'.join(pieces))
 
     def refresh(self,observation):
-        current=self.compact(self._bounded(self.current_state(observation)))
-        changes=difference(self.current or {},current)
-        self.current=current
-        if not changes:return None
-        return '状态差分（path 指向字段；set 覆盖、remove 删除；rows 按 position 或 (owner,id) 合并 upsert/remove，order 非空时重排。未列项保持原值）：'+json.dumps(changes,ensure_ascii=False,separators=(',',':'))
+        """每批行动后一行的中文刷新。
+
+        不再发结构化差分：模型不该在没有解释器的前提下脑内合并 JSON Patch。
+        批间的完整同步交给回合开局的战情总纲与常驻坐标地图；拿不准再查专门工具。
+        """
+        facts=self._remember(observation);actor=observation['actor']
+        own=[u for u in facts.get('army',[]) if u.get('owner')==actor and u.get('hp',0)>0]
+        battle=self.battle_brief(facts,actor)
+        relations='  '.join(f"{row['name']}={self.receipts.relation(row['relation'])}"
+                            for row in (facts.get('countries') or []))
+        return self.text('brief.refresh',actor=self.names.get(actor,actor),
+                         resources=resources_line(self.receipts,stocks_of(facts),self._key),army=len(own),
+                         mail=len(facts.get('intel') or []),extra=(battle+'｜') if battle else '',
+                         relations=relations or self.text('query.none'))
+
+    def event_lines(self,facts,events):
+        """近讯：重大事件全留，其余按最近十条取；正文过长时指路 news。"""
+        major={row['id'] for row in events if row.get('kind') in ('extinction','victory') or
+               isinstance(row.get('details'),dict) and row['details'].get('importance')=='major'}
+        selected=major|{row['id'] for row in events[-10:]}
+        rows=[]
+        for row in events:
+            if row['id'] not in selected:continue
+            kept={k:v for k,v in row.items() if k!='recipients'}
+            if kept.get('details'):
+                kept['text']=self.receipts.event(row,self.names);kept.pop('details',None)
+            text=kept.get('text','')
+            if len(text)>320:text=text[:320]+'…（完整事件用 news 查询）'
+            rows.append((row['id'],text))
+        return rows,major
+
+    def briefing_text(self,observation,events,cues,fit):
+        """分节战情总纲；越界时从最不紧迫的节开始整节丢弃，并写明去哪查。"""
+        items=sections(self.receipts,observation,events,cues,self._key)
+        rows,major=self.event_lines(self.facts,events)
+        head=self.text('brief.head',period=observation['period'],
+                       status=self.text('query.acting' if observation['can_act'] else 'query.ended'))
+        def assemble():
+            parts=[head]+[text for _,text in items]
+            if rows:parts.append(self.text('brief.news_head')+'\n'+'\n'.join(text for _,text in rows))
+            return '\n\n'.join(parts)
+        dropped=[];trimmed=False
+        while not fit(assemble()) and len(items)>1:
+            dropped.append(items.pop()[0])
+        while not fit(assemble()) and rows:
+            # 先裁普通事件；灭国/胜利/领土变更这些大事留到最后。
+            index=next((i for i,(ident,_) in enumerate(rows) if ident not in major),0)
+            rows.pop(index);trimmed=True
+        text=assemble()
+        if trimmed:text+='\n'+self.text('brief.news_trimmed')
+        if dropped:
+            text+='\n\n'+'；'.join(self.text('brief.omitted',tool=FALLBACK.get(key,key)) for key in dropped)
+        return text
 
     def state(self,observation,events):
-        for site in observation['facts'].get('building_sites',{}).get('sites',[]):self.sites[site['id']]=list(site['position'])
-        self.period=observation['period'];self.guide_catalog=observation['facts'].get('handbooks',[])
+        facts=self._remember(observation)
+        for site in facts.get('building_sites',{}).get('sites',[]):self.sites[site['id']]=list(site['position'])
+        self.period=observation['period'];self.guide_catalog=facts.get('handbooks',[])
         self.polity=self.cfg.get('polity')
         actor=observation['actor']
-        self.at_war=any(actor in w['attackers']+w['defenders'] for w in observation['facts'].get('diplomacy',{}).get('wars',[]))
-        self.current=self.compact(self._bounded(self.current_state(observation)))
-        major_ids={row['id'] for row in events if row.get('kind') in ('extinction','victory') or
-                   isinstance(row.get('details'),dict) and row['details'].get('importance')=='major'}
-        selected=major_ids|{row['id'] for row in events[-10:]}
-        recent=[{k:v for k,v in row.items() if k!='recipients'} for row in events if row['id'] in selected]
-        names={n['id']:n['name'] for n in observation['facts'].get('nations',[])}
-        for row in recent:
-            if row.get('details'):row['text']=self.receipts.event(row,names);row.pop('details',None)
-            if len(row.get('text',''))>320:row['text']=row['text'][:320]+'…（完整事件用 news 查询）'
-        messages=observation['facts'].get('intel',[])
-        intel=[{k:row[k] for k in ('id','source','kind','sampled') if k in row} for row in messages[-10:]]
-        payload={'state':self.current,'events':recent,'intel_index':intel}
-        encode=lambda:json.dumps(self.compact(payload),ensure_ascii=False,sort_keys=True,separators=(',',':'))
+        self.at_war=any(actor in w['attackers']+w['defenders'] for w in facts.get('diplomacy',{}).get('wars',[]))
+        cues=self.dashboard(observation)
         cap=self.cfg.get('model_state_tokens',12000)
-        while est_tokens(encode())>cap and recent:
-            ordinary=next((i for i,row in enumerate(recent) if row['id'] not in major_ids),0)
-            recent.pop(ordinary)
-        if len(recent)<len(events):payload['event_notice']='近讯已按载荷预算裁剪，完整近讯用 news 查询。'
-        while est_tokens(encode())>cap and intel:intel.pop(0)
-        tail=encode()
+        tail=self.briefing_text(observation,events,cues,lambda text:est_tokens(text)<=cap)
         if self.cfg.get('opening_guide',True) and observation['period']<20 and self.cfg.get('extra_prompt'):
             tail+='\n'+self.text('llm.background',text=self.cfg['extra_prompt'])
         legend,image=self.map_context(observation)

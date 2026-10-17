@@ -1,0 +1,140 @@
+"""模型侧战情总纲：按紧迫度分节的中文简报。
+
+与观察者共用 ConsoleUI / ReceiptPresentation 的全部渲染器，差别只在排序与裁剪口径：
+模型拿到的是**分节文本**（越界可整节丢弃，并写明去哪查），不是字段字典。
+排序沿用旧版 `full_state` 的紧迫度：威胁 → 国祚 → 领土 → 国力 → 国策 → 国土/视野
+→ 军队 → 市场 → 央行 → 外交 → 信箱 → 在途。
+"""
+from .receipts import num
+from .views import player_atlas
+
+# 观察者已有的专用面板渲染，直接复用；键是面板名，值是事实里的字段。
+PANELS = (('diplomacy', 'brief.diplomacy_head'), ('market', 'brief.market_head'),
+          ('bank', 'brief.bank_head'), ('intel', 'brief.intel_head'),
+          ('dispatches', 'brief.dispatch_head'))
+
+
+def stocks_of(facts):
+    return {s['id']: s['amount'] for s in facts.get('econ', {}).get('stocks', [])}
+
+
+def resources_line(ui, stocks, key):
+    """模型侧物资行：键值走模型口径（zh=粮食，en=food），与工具 enum 同一套。"""
+    return ' '.join(f'{num(amount)}{key(ident)}' for ident, amount in stocks.items() if amount) or ui.text('query.none')
+
+
+def panel(ui, action, data, actor):
+    """把一个公开事实交给同一套观察者渲染器成文；没有专用格式就返回 None。
+
+    专用渲染器只认完整事实，缺字段时退回通用可读格式：简报里少一节可以忍，
+    整回合因为一个可选面板缺字段而崩掉不行。
+    """
+    if data is None:
+        return None
+    try:
+        return ui.receipt_body(action, {}, {'ok': True, 'data': data, 'message': '', 'action': action}, actor)
+    except (KeyError, TypeError, ValueError, AttributeError, IndexError):
+        return ui.format(data, ui._names)
+
+
+def _power(ui, facts, cues, observation, key):
+    stocks = stocks_of(facts)
+    lines = [ui.text('brief.power_head') + ' ' + resources_line(ui, stocks, key)]
+    energy = cues.get('energy_capacity') or {}
+    lines.append(ui.text('brief.energy', capacity=energy.get('capacity', 0), demand=energy.get('demand', 0),
+                         status=ui.text('brief.energy_short') if energy.get('capacity_gap') else ui.text('brief.energy_ok')))
+    inputs = cues.get('planned_regular_inputs') or {}
+    if inputs:
+        lines.append(ui.text('brief.industry', inputs=ui.resources(inputs, gold_short=False)))
+    actor = observation['actor']
+    halls = sum(1 for row in facts.get('view', []) if row.get('owner') == actor
+                and dict(row.get('buildings') or ()).get('native:town-hall'))
+    lines.append(ui.text('brief.halls', count=halls))
+    shortfalls = cues.get('stock_shortfalls_before_production') or {}
+    if shortfalls:
+        lines.append(ui.text('brief.shortfall', values=ui.resources(shortfalls, gold_short=False)))
+    own = [u for u in facts.get('army', []) if u.get('owner') == actor and u.get('hp', 0) > 0]
+    lines.append(ui.text('brief.army_count', count=len(own)))
+    return '\n'.join(lines)
+
+
+def _capital(ui, cues, actor):
+    """国祚警报：真实路径与行动资格由发行版 frontier 事实判定，UI 不复制规则。"""
+    warnings = cues.get('capital_warning') or []
+    if not warnings:
+        return None
+    lines = [ui.text('brief.capital_head')]
+    for warning in warnings:
+        enemies = '、'.join(f"{ui.name(u['owner'], ui._names)} {ui.label('content', u['kind'])}#{u['id']}"
+                            for u in warning['enemies'])
+        lines.append(ui.text('query.capital_warning', place=ui.pos(warning, actor=actor), enemies=enemies))
+    return '\n'.join(lines)
+
+
+def _threats(ui, facts):
+    rows = facts.get('threats') or []
+    if not rows:
+        return None
+    return ui.text('brief.threats_head') + '\n' + '\n'.join(
+        ui.relation(row['relation']) + '｜' + ui.army_line(row['unit']) for row in rows)
+
+
+def _territory(ui, events, names):
+    """领土得失是大事：只列本回合真实的归属变更，不重播旧事。"""
+    rows = [row for row in events if row.get('kind') == 'occupation' and isinstance(row.get('details'), dict)
+            and 'previous_owner' in row['details']]
+    if not rows:
+        return None
+    return ui.text('brief.territory_head') + '\n' + '\n'.join(ui.event(row, names) for row in rows)
+
+
+def _plan(ui, facts):
+    government = facts.get('government') or {}
+    plan = government.get('plan')
+    lines = [ui.text('brief.plan_head')]
+    if not plan:
+        lines.append(ui.text('query.no_plan'))
+        return '\n'.join(lines)
+    lines.append(ui.text('query.plan_head', start=plan['period'], end=plan['valid_until'],
+                         status=ui.text('query.expired' if plan['valid_until'] < government.get('period', 0)
+                                        else 'query.valid')))
+    if plan.get('text'):
+        lines.append(plan['text'])
+    return '\n'.join(lines)
+
+
+def _army(ui, facts, actor):
+    rows = [u for u in facts.get('army', []) if u.get('hp', 0) > 0]
+    lines = [ui.text('brief.army_head'), ui.army_list(rows, actor)]
+    # 问路并进军事面板：可及格数与可拓荒地一次给全，省掉单独一次路径查询。
+    frontier = facts.get('frontier') or {}
+    if frontier:
+        lines.append(ui.text('query.frontier_head', seen=frontier.get('visible_unowned', 0),
+                             reachable=len(frontier.get('reachable', [])), frontier=len(frontier.get('frontier', []))))
+        for key in ('reachable', 'frontier'):
+            places = '、'.join(ui.pos(p, actor=actor) for p in frontier.get(key, []))
+            lines.append(ui.text('query.' + key, places=places or ui.text('query.none')))
+    return '\n'.join(lines)
+
+
+def sections(ui, observation, events, cues, key=lambda value: value):
+    """有序 `(键, 正文)` 列表；正文为空的节整节不出现，越界时按此序从后往前丢弃。"""
+    facts = observation.get('facts', {})
+    actor = observation['actor']
+    names = {n['id']: n['name'] for n in facts.get('nations', []) if isinstance(n, dict)}
+    ui._names = names
+    ui._actor = actor
+    out = [
+        ('capital', _capital(ui, cues, actor)),
+        ('threats', _threats(ui, facts)),
+        ('territory', _territory(ui, events, names)),
+        ('power', _power(ui, facts, cues, observation, key)),
+        ('plan', _plan(ui, facts)),
+        ('map', ui.text('brief.map_head') + '\n' + player_atlas(observation, ui.text, key)),
+        ('army', _army(ui, facts, actor)),
+    ]
+    for key, title in PANELS:
+        body = panel(ui, key, facts.get(key), actor)
+        if body:
+            out.append((key, ui.text(title) + '\n' + body))
+    return [(key, text) for key, text in out if text]

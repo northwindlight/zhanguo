@@ -31,19 +31,18 @@ class TestDecisionUI(unittest.TestCase):
     def test_default_state_has_catalogs_prices_shortfalls_and_plan_purpose(self):
         for experimental in (False,True):
             h=self.host(experimental);p=h.player(Q);obs=p.observe();before=deepcopy(obs)
-            ui=h.ui.llm(h.cfg);ui.actions(p.actions());tail,_=ui.state(obs,[]);state=json.loads(tail)
+            ui=h.ui.llm(h.cfg);ui.actions(p.actions());tail,_=ui.state(obs,[])
             self.assertEqual(obs,before)
-            self.assertNotIn('building_catalog',state['state']['facts'])
-            self.assertNotIn('costs_by_level',ui.system());self.assertIn('未来',next(s['function']['description'] for s in p.actions() if s['function']['name']=='plan'))
+            # 目录与规则不进常驻载荷，按需查询。
+            self.assertNotIn('costs_by_level',ui.system())
+            self.assertIn('未来',next(s['function']['description'] for s in p.actions() if s['function']['name']=='plan'))
             self.assertIn('一两句',ui.system())
-            self.assertEqual(state['state']['decision']['plan_status'],'须提交国策')
-            self.assertIn('stock_shortfalls_before_production',state['state']['decision'])
-            self.assertIn('army_actions',state['state']['decision']);self.assertIn('diplomacy_todo',state['state']['decision'])
-            market=state['state']['facts']['market'];self.assertTrue(market['buy_prices']);self.assertTrue(market['sell_prices'])
-            self.assertIsNone(ui.refresh(obs))
+            self.assertIn('【国策规划】',tail);self.assertIn('尚无国策',tail)
+            self.assertIn('【军队】',tail);self.assertIn('【世界市场】',tail)
             self.assertTrue(p.submit('buy',{'resource':'wood','quantity':2})['ok'])
-            delta=json.loads(ui.refresh(p.observe()).split('：',1)[1]);self.assertTrue(any(row['path'][:2]==['facts','econ'] for row in delta))
-            self.assertFalse(any(row['path'][:2]==['facts','view'] for row in delta))
+            line=ui.refresh(p.observe())
+            stocks={s['id']:s['amount'] for s in p.observe()['facts']['econ']['stocks']}
+            self.assertIn(f"{stocks['native:wood']}木头",line)
 
     def test_llm_receives_fresh_inventory_after_actions_without_extra_queries(self):
         h=self.host();p=h.player(Q)
@@ -52,10 +51,9 @@ class TestDecisionUI(unittest.TestCase):
             {'tool_calls':[call('p','plan',text='经济：保障粮木和能源；军事：集中守边；情报：依据公开事实；外交：维持和平，库存不足时放缓扩张。'),call('e','end_turn',summary='购入木材，完成国策。')]}])
         client=LLMClient(h.cfg,backend=backend,ui=h.ui);client.play(p)
         latest=backend.requests[1][-1]
-        self.assertEqual(latest['role'],'user');self.assertIn('状态差分',latest['content'])
-        patches=json.loads(latest['content'].split('：',1)[1])
-        stock=next(row['set'] for row in patches if row['path']==['facts','econ','stocks','木头'])
-        self.assertEqual(stock,62)
+        self.assertEqual(latest['role'],'user');self.assertIn('【刷新】',latest['content'])
+        # 买入 2 木后刷新行立刻反映新库存，模型不必再查一次。
+        self.assertIn('62木头',latest['content'])
         self.assertNotIn('costs_by_level',latest['content'])
         self.assertIn('规则按需',backend.requests[0][0]['content'])
         assert_paired(client.state.replay[0]['messages'])
@@ -76,7 +74,7 @@ class TestDecisionUI(unittest.TestCase):
             self.assertFalse(any(row['action']=='player_state' for row in h.audit))
             # Automatic facts and subsequent patches still reach the model.
             first=backend.requests[0][-1]['content']
-            self.assertIn('facts',first);self.assertIn('state',first)
+            self.assertIn('【国力】',first);self.assertIn('【国策规划】',first)
             self.assertTrue(p.query('player_state')['facts'])
             assert_paired(client.state.replay[0]['messages'])
 
@@ -87,9 +85,9 @@ class TestDecisionUI(unittest.TestCase):
             self.assertTrue(p.submit('end_turn',{'summary':'UNIQUE-HISTORY-小结应由客户端记忆保管'})['ok'])
             receipt=p.submit('government');before=deepcopy(receipt);saved=h.runtime.save_mod_state(h.world)
             self.assertTrue(receipt['data']['summaries'])
-            ui=h.ui.llm(h.cfg);presented=json.loads(ui.receipt(receipt))
-            self.assertNotIn('summaries',presented['data'])
-            self.assertNotIn('UNIQUE-HISTORY',json.dumps(presented,ensure_ascii=False))
+            ui=h.ui.llm(h.cfg);presented=ui.receipt(receipt,{})
+            self.assertNotIn('UNIQUE-HISTORY',presented)
+            self.assertIn('持续经营并维持和平的有效国策',presented)
             self.assertEqual(receipt,before);self.assertEqual(h.runtime.save_mod_state(h.world),saved)
 
     def test_tile_fog_and_enemy_privacy_and_client_forecast_match_domain(self):

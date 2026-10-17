@@ -186,8 +186,8 @@ class TestUIRegressions(unittest.TestCase):
         ui=ConsoleUI({});text=ui.event(occupation,{Q:'秦',C:'楚'})
         for value in ('楚失地','秦得地','核心属楚','市政厅×1'):self.assertIn(value,text)
         h=self.host();obs=h.player(Q).observe();noise=[{'id':occupation['id']+i+1,'period':2,'kind':'action','text':'普通动作'} for i in range(30)]
-        payload=json.loads(h.ui.llm({}).state(obs,[occupation,*noise])[0])
-        self.assertTrue(any(e['kind']=='occupation' for e in payload['events']))
+        text=h.ui.llm({}).state(obs,[occupation,*noise])[0]
+        self.assertIn('秦得地',text)
 
     def test_same_version_save_resumes_identically_after_new_public_queries(self):
         h=self.host();before=h.runtime.save_mod_state(h.world)
