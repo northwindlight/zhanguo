@@ -35,6 +35,23 @@ class TestUIMod(unittest.TestCase):
         if experimental:cfg['mods']='mods.experimental.toml'
         return GameHost.new(cfg)
 
+    def test_vision_image_replaces_the_per_tile_atlas_instead_of_doubling_it(self):
+        """G6.15：开 vision 时图片已经带地形与归属，逐格 atlas 必须让位。
+
+        同一张地图付两遍（文本数千 token + 图片 estimated_tokens）会更快填满窗口、
+        更频繁触发压缩，且每条 replay 记录里都存一份。
+        """
+        from tests.test_world_domains import Q,C
+        for vision,doubled in ((True,False),(False,True)):
+            with self.subTest(vision=vision):
+                h=GameHost.new({'map_size':12,'seed':73,'vision':vision,
+                                'nations':[{'id':Q,'name':'秦','client':'llm'},{'id':C,'name':'楚','client':'llm'}]})
+                ui=h.ui.llm(h.cfg);tail,image=ui.state(h.player(Q).observe(),[])
+                tiles=[line for line in tail.splitlines() if line.startswith('(')]
+                self.assertEqual(bool(tiles),doubled)
+                self.assertEqual(image is not None,vision)
+                self.assertIn('国土',tail)
+
     def test_ui_is_independent_stateless_mod_and_both_distributions_load_it(self):
         runtime=Runtime.load(ROOT/'ui.toml')
         self.assertEqual(set(runtime.units),{'ui:standard'})

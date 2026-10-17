@@ -103,6 +103,20 @@ def _plan(ui, facts):
     return '\n'.join(lines)
 
 
+def _map(ui, observation, key, vision):
+    """国土视野：默认给逐格坐标地图。
+
+    vision 打开时图片已经带地形与归属，逐格 atlas 必须让位——同一张地图不能付两遍
+    （G6.15：0.1 就是图片顶掉 atlas），只留一行计数。
+    """
+    rows = observation['facts'].get('view') or []
+    if vision:
+        own = sum(1 for row in rows if row.get('owner') == observation['actor'])
+        return ui.text('brief.map_head') + '\n' + ui.text('atlas.footer', own=own,
+                                                          seen=len(rows), other=len(rows) - own)
+    return ui.text('brief.map_head') + '\n' + player_atlas(observation, ui.text, key)
+
+
 def _army(ui, facts, actor):
     rows = [u for u in facts.get('army', []) if u.get('hp', 0) > 0]
     lines = [ui.text('brief.army_head'), ui.army_list(rows, actor)]
@@ -117,7 +131,7 @@ def _army(ui, facts, actor):
     return '\n'.join(lines)
 
 
-def sections(ui, observation, events, cues, key=lambda value: value):
+def sections(ui, observation, events, cues, key=lambda value: value, vision=False):
     """有序 `(键, 正文)` 列表；正文为空的节整节不出现，越界时按此序从后往前丢弃。"""
     facts = observation.get('facts', {})
     actor = observation['actor']
@@ -130,7 +144,7 @@ def sections(ui, observation, events, cues, key=lambda value: value):
         ('territory', _territory(ui, events, names)),
         ('power', _power(ui, facts, cues, observation, key)),
         ('plan', _plan(ui, facts)),
-        ('map', ui.text('brief.map_head') + '\n' + player_atlas(observation, ui.text, key)),
+        ('map', _map(ui, observation, key, vision)),
         ('army', _army(ui, facts, actor)),
     ]
     for key, title in PANELS:

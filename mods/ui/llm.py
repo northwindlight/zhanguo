@@ -222,7 +222,7 @@ class LLMUI:
 
     def briefing_text(self,observation,events,cues,fit):
         """分节战情总纲；越界时从最不紧迫的节开始整节丢弃，并写明去哪查。"""
-        items=sections(self.receipts,observation,events,cues,self._key)
+        items=sections(self.receipts,observation,events,cues,self._key,bool(self.cfg.get('vision',False)))
         rows,major=self.event_lines(self.facts,events)
         head=self.text('brief.head',period=observation['period'],
                        status=self.text('query.acting' if observation['can_act'] else 'query.ended'))
