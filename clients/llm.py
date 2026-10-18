@@ -119,9 +119,16 @@ class LLMClient:
         base={'api':player.api_version,'actor':player.actor,'action':action,'period':player.observe()['period']}
         try:
             if not isinstance(arguments,dict) or set(arguments)-{'query','limit'}:raise ValueError('memory_search 参数为 query 与可选 limit')
-            data=memory.search(self.state.history,**arguments)
+            data=memory.search(self.state.history,render=self._memory_render,**arguments)
         except (ValueError,TypeError) as exc:return {**base,'ok':False,'status':'rejected','code':'invalid_arguments','message':str(exc),'data':None}
         return {**base,'ok':True,'status':'effective','code':None,'message':'','data':data}
+
+    def _memory_render(self,action,arguments,receipt):
+        """Render an old JSON history line through the same UI the model sees."""
+        render=getattr(self.ui,'receipt',None)
+        if not callable(render):return ''
+        try:return render({**receipt,'action':action},arguments)
+        except (KeyError,TypeError,ValueError,AttributeError,IndexError):return ''
 
     def _receipt(self,player,action,arguments,receipt):pass
     def _exchange(self,player,assistant,replies):pass
@@ -216,7 +223,7 @@ class LLMClient:
             ids=[call.get('id') for call in calls]
             if any(not isinstance(ident,str) or not ident for ident in ids) or len(set(ids))!=len(ids):raise ValueError('Invalid provider tool IDs')
             self._dialogue(player,[assistant])
-            batch_receipts=[]
+            batch_receipts=[];batch_contents=[]
             for call in calls:
                 fn=call.get('function') or {};action=fn.get('name');arguments={}
                 try:arguments=json.loads(fn.get('arguments') or '{}')
@@ -226,13 +233,15 @@ class LLMClient:
                 receipts.append(receipt);batch_receipts.append(receipt)
                 if receipt.get('code')=='tool_not_exposed' and emit:emit('⚠ '+receipt['message'])
                 render=getattr(self.ui,'receipt',None)
-                messages.append({'role':'tool','tool_call_id':call['id'],'content':render(receipt,arguments) if callable(render) else json.dumps(receipt,ensure_ascii=False)})
+                content=render(receipt,arguments) if callable(render) else json.dumps(receipt,ensure_ascii=False)
+                messages.append({'role':'tool','tool_call_id':call['id'],'content':content})
+                batch_contents.append(content if callable(render) and isinstance(content,str) else '')
                 self._receipt(player,action,fn.get('arguments'),receipt)
                 if on_result:on_result(action,fn.get('arguments'),receipt)
                 if action=='end_turn' and receipt['ok']:
                     ended=True
                     self.state.summaries.append({'turn':obs['period'],'text':receipt['data']['text']})
-            memory.record(self.state.history,obs['period'],memory.action_text(assistant,calls,batch_receipts))
+            memory.record(self.state.history,obs['period'],memory.action_text(assistant,calls,batch_receipts,batch_contents))
             if on_call:on_call(step,receipts)
             assert_paired(messages[start:])
             self._dialogue(player,messages[-len(calls):] if calls else [])
@@ -267,6 +276,6 @@ class LLMClient:
         self._compact(player,messages,plan,tools,emit)
         return receipts
 
-    def search_memory(self,query,limit=3):return memory.search(self.state.history,query,limit)
+    def search_memory(self,query,limit=3):return memory.search(self.state.history,query,limit,render=self._memory_render)
 
     def to_save(self):return {'kind':self.kind,'version':self.version,'state':self.state.to_save()}

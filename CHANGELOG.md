@@ -1,5 +1,13 @@
 # 更新记录
 
+## 未发行 — 2026-10-18（记忆检索去 JSON）
+
+`memory_search` 的检索索引不再存工具调用/回执的 JSON 副本，改为存模型实际看到的 UI 回执散文（动作名 + 回执正文）。旧档的历史行在检索时用同一套 UI 渲染器惰性转成散文；没有 UI 的兜底只留消息与状态，不抄观察数据。存档格式不变，旧档可继续读，新回合起写入新格式。
+
+- `clients/memory.py`：`action_text` 接收同批发给模型的 tool message 原文；`search` 新增 `render` 回调，旧 JSON 行匹配后先转散文再返回。
+- `clients/llm.py`：记录每批 `content`，`memory_search` 与 `search_memory` 传入 UI 渲染器。
+- 回归：644 项通过。
+
 ## 0.4.0 — 2026-10-18（API/tool 分层、面板与事实收口、内容角色，需新档）
 
 本版把 API 与 tool 分开、只读面板与事实收口、补齐内容角色与同源数值。工具名、schema、事实形状、内容角色与模块版本都变了，**旧档一律读不进来，需新档**。native 4.8.0 / experimental 0.8.0。
