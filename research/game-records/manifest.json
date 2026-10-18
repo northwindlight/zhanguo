@@ -101,12 +101,12 @@
         "周"
       ],
       "models": [
-        "gemini-3.8-flash-tiered",
-        "deepseek-v4.1-flash-free",
-        "qwen3.8-flash"
+        "Gemini 3.8 Flash",
+        "DeepSeek V4.1 Flash",
+        "Qwen 3.8 Flash"
       ],
-      "model_source": "game config.json (not included); 秦/赵/楚 Gemini, 魏/燕/周 DeepSeek, 韩/齐 Qwen; reviewer qwen3.8-flash",
-      "parameter_warning": "Not a controlled comparison. Gemini: reasoning_effort=high, max_tokens=32768; DeepSeek/Qwen: reasoning_effort=low, max_tokens=16384. Cross-group differences are not attributable to model capability.",
+      "model_source": "Model families confirmed by the game provider; historical identifiers preserved in original artifacts; reviewer Qwen 3.8 Flash.",
+      "parameter_warning": "Not a controlled comparison; user discarded the run for formal model comparison after unauthorized effort reduction. Gemini: high/32768; DeepSeek and Qwen: low/16384. Actual behavior can be compared conditionally, not generalized to equal-setting capability rankings.",
       "files": {
         "save": {
           "path": "eight-nations-20261018/state.json.gz",
@@ -130,10 +130,98 @@
         },
         "report": {
           "path": "eight-nations-20261018/report.md",
-          "bytes": 100361,
-          "sha256": "542740a666b855198cfa0c60aeb09afe03967ea2fa3fec5bcc7b74281ef05944",
-          "chars": 51764,
-          "cjk_chars": 20039
+          "bytes": 22537,
+          "sha256": "fa4a22ff49b77b754125ef91c6480dd1852e82b1331c20b97eab9a080fa665b0",
+          "chars": 12478,
+          "cjk_chars": 4490
+        },
+        "afterword": {
+          "path": "eight-nations-20261018/afterword-model-behavior.md",
+          "bytes": 16868,
+          "sha256": "ed90f4c6633e75172e34ed05a9df4e1988331dfd275cf79b539c86ea15e44c3a",
+          "kind": "subjective interpretation; separate from the empirical report"
+        },
+        "count_audit": {
+          "path": "eight-nations-20261018/report-count-audit.json",
+          "bytes": 9877,
+          "sha256": "b4e069c13169fe0e665da5ca7c64a6f71da82c6abe76f594f46d0e2fa0085b3d"
+        },
+        "count_reproducer": {
+          "path": "eight-nations-20261018/recompute_counts.py",
+          "bytes": 5085,
+          "sha256": "532646d69f0755f6e186e61bc13e15a4f252dbddc51f2662b7554993745c5ef7"
+        },
+        "probe_README_md": {
+          "path": "eight-nations-20261018/speed-probe/README.md",
+          "bytes": 8552,
+          "sha256": "65ca8f46e5624f4b3eb03a0c3296866dbbb3381473233d1bfc52f549216864c0",
+          "kind": "post-game local measurement or reproducibility artifact; not original game history"
+        },
+        "probe_deepseek_effort_calibration_json": {
+          "path": "eight-nations-20261018/speed-probe/deepseek-effort-calibration.json",
+          "bytes": 513289,
+          "sha256": "e3c776b790dd5b798a6202cb568552a0c9a82ca69359d4ac9e03cf1a2c3ca730",
+          "kind": "post-game local measurement or reproducibility artifact; not original game history"
+        },
+        "probe_deepseek_effort_json": {
+          "path": "eight-nations-20261018/speed-probe/deepseek-effort.json",
+          "bytes": 3447778,
+          "sha256": "768a045b3d426159c735799943112477714bffdc1c6cc2866d03ad60131cc857",
+          "kind": "post-game local measurement or reproducibility artifact; not original game history"
+        },
+        "probe_measure_py": {
+          "path": "eight-nations-20261018/speed-probe/measure.py",
+          "bytes": 6958,
+          "sha256": "8a0d7cb592a3139bcac50f97b9891b1a18cd450688da50aa422d0b2b0b53b19c",
+          "kind": "post-game local measurement or reproducibility artifact; not original game history"
+        },
+        "probe_prompt_effort_txt": {
+          "path": "eight-nations-20261018/speed-probe/prompt-effort.txt",
+          "bytes": 2384,
+          "sha256": "211ef79e48a3edacbd8d3b2792b4547c4b5bfffacc58d237c11c7e6f4403f1b1",
+          "kind": "post-game local measurement or reproducibility artifact; not original game history"
+        },
+        "probe_prompt_pattern_txt": {
+          "path": "eight-nations-20261018/speed-probe/prompt-pattern.txt",
+          "bytes": 328,
+          "sha256": "73f0676bd2534c2c28bca19b6a781653a063615c30b3b7b5f678fdcd9d6548b7",
+          "kind": "post-game local measurement or reproducibility artifact; not original game history"
+        },
+        "probe_prompt_prose_txt": {
+          "path": "eight-nations-20261018/speed-probe/prompt-prose.txt",
+          "bytes": 614,
+          "sha256": "f67c2be7c14f4db1d69eb11cf975c6443ff092104176240854170d57468edfe1",
+          "kind": "post-game local measurement or reproducibility artifact; not original game history"
+        },
+        "probe_results_prose_deepseek_extended_json": {
+          "path": "eight-nations-20261018/speed-probe/results-prose-deepseek-extended.json",
+          "bytes": 339672,
+          "sha256": "ddd80254ed71847c738981bba72b99912cfd8a89078ef1fe10bfd07fad2bffae",
+          "kind": "post-game local measurement or reproducibility artifact; not original game history"
+        },
+        "probe_results_prose_qwen_extended_json": {
+          "path": "eight-nations-20261018/speed-probe/results-prose-qwen-extended.json",
+          "bytes": 62294,
+          "sha256": "6d14614a64d63a957d819533e76cce1f7f85e95ce2b3c268dc6289e21b7262cf",
+          "kind": "post-game local measurement or reproducibility artifact; not original game history"
+        },
+        "probe_results_prose_json": {
+          "path": "eight-nations-20261018/speed-probe/results-prose.json",
+          "bytes": 803091,
+          "sha256": "5e12c8f281d318d8f829817f8cbbf5d0774a6917d883e4245438a065ee227b95",
+          "kind": "post-game local measurement or reproducibility artifact; not original game history"
+        },
+        "probe_results_json": {
+          "path": "eight-nations-20261018/speed-probe/results.json",
+          "bytes": 944196,
+          "sha256": "c5662ccf7ae5bd0029a1e26b4ef1dbc443b5144bd1c88e28c537b6e6355640c3",
+          "kind": "post-game local measurement or reproducibility artifact; not original game history"
+        },
+        "probe_validate_effort_py": {
+          "path": "eight-nations-20261018/speed-probe/validate_effort.py",
+          "bytes": 5049,
+          "sha256": "583a4593f6c062374241b1a74912e1e5ec5fb07c2fc7c6bbf532647d0ac2afae",
+          "kind": "post-game local measurement or reproducibility artifact; not original game history"
         }
       }
     }

@@ -10,7 +10,7 @@
 
 三局均为 24×24 地图，初始国家为秦、魏、韩、赵、燕、齐、楚、周。模型名称由对局提供者说明。258 局确实使用过 DeepSeek，原始存档中部分 `reasoning_signature.model` 为 `deepseek-flash[1m]`；这些字段原样保留。没有整理或推断各国、各回合的完整模型切换表，不能把该局当作单一模型的受控实验。
 
-`20261018` 局是 3 Gemini / 3 DeepSeek / 2 Qwen 的混合阵容，且 Gemini 为 `high`、其余为 `low`（`max_tokens` 也不同）；该局的跨组差异**不能**用于模型能力排序，详见其 `report.md` 第 1、8 节。
+`20261018` 局是 3 Gemini / 3 DeepSeek / 2 Qwen 的混合阵容，且 Gemini 为 `high`、其余为 `low`（`max_tokens` 也不同）；可以描述本局实际表现差异，但不能直接推出相同条件下的总体能力排序。其修订[报告](eight-nations-20261018/report.md)与独立[主观附文](eight-nations-20261018/afterword-model-behavior.md)分开阅读；本地输出及思考档位测量另记于[speed-probe](eight-nations-20261018/speed-probe/README.md)。
 
 ## 文件与完整性
 

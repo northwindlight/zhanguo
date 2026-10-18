@@ -1,0 +1,12 @@
+Solve this one-turn resource planning problem without external tools. The rules below are complete; do not import rules from other games.
+
+Initial state: 180 gold, 40 timber, 2 supplies, 10 equipment. Existing electricity capacity 4 and existing load 4.
+The final state must retain at least 95 gold as an untouchable debt reserve, at least 3 supplies for the army, and nonnegative timber and equipment. Supplies will be consumed only after this final-state check. There is no income or production during this planning turn.
+Market: sell equipment for 6 gold each, sell timber for 3 gold each, buy timber for 5 gold each, buy supplies for 8 gold each. All quantities are nonnegative integers. No other trades or loans. Trading back and forth has no benefit and no fees beyond these prices.
+Construction: each project can be built at most once. Each generator costs 15 gold and 8 timber and adds 2 electricity capacity immediately. At most 2 generators. A project consumes its listed gold/timber, adds its listed load immediately, and earns its listed objective value. Capacity must cover load throughout the sequence, not only at the end. Prerequisite projects must be completed earlier in the same turn. Generators and projects share a total construction limit of 5. Trades do not consume construction slots. Sites impose no additional restrictions. No resale or demolition of projects. Market trades may precede construction.
+Choose the plan with the largest total project value. Among equal values, maximize final gold, then final timber. Existing assets have no objective value except these final-state constraints. Equipment may all be sold. The debt reserve may be temporarily used but must be present in the final state.
+
+Projects (id, gold, timber, power_load, value, prerequisite_ids):
+[["A", 38, 12, 1, 82, []], ["B", 33, 10, 1, 73, []], ["C", 27, 9, 1, 64, []], ["F", 29, 11, 0, 60, []], ["G", 21, 7, 0, 44, []], ["L", 19, 4, 0, 39, []]]
+
+Return only a JSON object with keys selected_projects (array of ids), generators, sell_equipment, buy_timber, sell_timber, buy_supplies, construction_order (array of project ids or the string GENERATOR), final_gold, final_timber, final_supplies, final_equipment, final_capacity, final_load, total_value, explanation. The explanation should be at most two sentences. Ensure that the selected set is globally optimal, not just feasible.
