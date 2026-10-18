@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:nations"
-Version = "1.1.0"
+Version = "1.1.1"
 Entry = "mods.native.nations.mod:NationsMod"
 Requires = ["native:resources", "native:buildings"]
 After = ["native:resources", "native:buildings"]
@@ -19,3 +19,4 @@ Provides = ["native:nations", "native:nation-inspection"]
 
 [PlayerAPI]
 Methods = ["snapshot", "overview"]
+ReadOnly = ["overview", "snapshot"]

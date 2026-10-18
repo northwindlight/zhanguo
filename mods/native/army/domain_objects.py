@@ -304,7 +304,7 @@ class Military:
     def _feeding(self,owner):
         units=[u for u in self._units.of(owner) if u.alive];exempt=set()
         for tile in self._call('native:territory','owned',owner):
-            cap=self._effect(tile.tile.id,'native:militia-camp').get('militia_cap',0)
+            cap=self._call('native:buildings','effect_role',tile.tile.id,'militia','militia_cap')
             eligible=[u for u in units if u.kind=='native:militia' and (u.x,u.y)==tile.tile.position]
             exempt.update(u.gid for u in eligible[:cap])
         eaters=[u for u in units if u.gid not in exempt]
@@ -316,11 +316,23 @@ class Military:
         self._living(owner)
         units,eaters,need,used=self._feeding(owner);short=need-used
         loss=max(1,ARMY_STARVE_DAMAGE*short//need) if short else 0
+        healed, equipment = self._healing(owner, units) if not short else ([], 0)
         return {'period':self._period(),'need':need,'available':self._stock(owner,'native:supply'),
                 'used':used,'shortfall':short,'starvation_damage_per_unit':loss,
                 'starving_units':[u.id for u in eaters] if short else [],
                 'exempt_count':len(units)-len(eaters),
+                'healing_units':[u.id for u in healed], 'healing_equipment':equipment,
                 'assumptions':'按当前军队与库存只读预演；未计本期后续生产、行动或外交变化，不扣补给。'}
+
+    def _healing(self, owner, units):
+        """预演与结算共用：同格交战、满血、装备不足均不进入恢复名单。"""
+        equipment=self._stock(owner,'native:equipment');healed=[];used=0
+        for u in units:
+            if not u.alive or u.hp>=u.definition['hp'] or any(o.engaged for o in self._units.at(u.x,u.y)):continue
+            fee=0 if u.kind=='native:militia' else HEAL_EQUIP_COST
+            if equipment<fee:continue
+            equipment-=fee;used+=fee;healed.append(u)
+        return healed,used
 
     def supply(self, effects=()):
         self._write();self._sync();period=self._period();facts=self._facts;self._facts=[]
@@ -336,13 +348,8 @@ class Military:
                 loss=max(1,ARMY_STARVE_DAMAGE*short//need)
                 for u in eaters:u.take_damage(loss)
                 self._event('supply',f'{self._name(owner)} 断粮：补给需{need}、实耗{used}、缺{short}；每支掉{loss}HP，饿毙{sum(not u.alive for u in eaters)}支。',parties=(owner,))
-            equipment=self._stock(owner,'native:equipment');healed=[]
-            if not short:
-                for u in units:
-                    if not u.alive or u.hp>=u.definition['hp'] or any(o.engaged for o in self._units.at(u.x,u.y)):continue
-                    fee=0 if u.kind=='native:militia' else HEAL_EQUIP_COST
-                    if equipment<fee:continue
-                    equipment-=fee;costs['native:equipment']=costs.get('native:equipment',0)+fee;healed.append(u)
+            healed,equipment=self._healing(owner,units) if not short else ([],0)
+            if equipment:costs['native:equipment']=equipment
             costs={key:value for key,value in costs.items() if value}
             if costs:self._call('native:resource-exchange','exchange',owner,costs,{})
             for u in healed:u.heal(ARMY_HEAL_PER_TURN)

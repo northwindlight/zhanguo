@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:government"
-Version = "2.2.0"
+Version = "2.2.1"
 Entry = "mods.native.government.mod:GovernmentMod"
 Requires = ["native:nations"]
 After = ["native:nations"]
@@ -14,6 +14,8 @@ Provides = ["native:government"]
 
 [PlayerAPI]
 Methods = ["plan", "end_turn", "snapshot"]
+ReadOnly = ["snapshot"]
+
 [Government]
 PlanSpan = 10
 SummaryMin = 4

@@ -26,11 +26,10 @@ class ResourcesMod(GameMod):
                 result.append(definition)
         return tuple(result)
 
-    def state_keys(self):
-        return ('resources',)
 
     def provides(self):
-        return ('native:resources', 'native:resource-exchange', 'native:resource-inspection', 'native:bank-cash', *(cls.TYPE_ID for cls in self.resource_types()))
+        # 固定能力来自声明；新增内容继续自动获得逐资源能力，不抄原生资源名单。
+        return tuple(dict.fromkeys((*super().provides(), *(cls.TYPE_ID for cls in self.resource_types()))))
 
     def initialize_world(self, world):
         world.resources = ResourceAccounts(self.resource_types())

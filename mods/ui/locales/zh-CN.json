@@ -579,5 +579,5 @@
   "console.auto_rejected_offers": "回合结束：未回应提议{ids}已免费自动拒绝。",
   "console.auto_rejected_votes": "回合结束：未回应表决{ids}已自动投反对票。",
   "console.brief": "摘要",
-  "experimental.plan_unchanged": "国策正文与上次一致，未重复提交议会，也未续期。"
+  "experimental.plan_unchanged": "正文与当前有效国策一致，未创建新草稿，也未续期；已有否决或解释要求仍须处理。"
 }

@@ -35,9 +35,6 @@ class Succession:
 
 class SuccessionMod(GameMod):
     def mixins(self):return ()
-    def state_keys(self):return ('succession',)
-    def needs(self):return ('native:nation-inspection','native:nations','native:buildings','native:diplomacy','native:army')
-    def provides(self):return ('native:succession',)
     def initialize_world(self, world):world.succession=Succession(lambda cap,method,*args:self.runtime.object_call(world,cap,method,*args))
     def objects(self, world):return {'native:succession':world.succession}
     def save_state(self, world):return world.succession.to_save()

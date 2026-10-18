@@ -117,9 +117,6 @@ class ScriptingMod(GameMod):
         if self.limits['depth']>64 or self.limits['source']>65536 or self.limits['nodes']>8192 or self.limits['integer_bits']>1024:
             raise ValueError('Interpreter structural limits are too large')
     def mixins(self):return ()
-    def state_keys(self):return ('scripts',)
-    def needs(self):return ('native:government',)
-    def provides(self):return ('sandbox:programs',)
     def initialize_world(self,world):
         world.scripts=Programs(self.limits,
             lambda actor:actor in getattr(world,self.runtime.distribution.get('ActorCollection','actors')),

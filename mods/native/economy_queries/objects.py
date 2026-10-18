@@ -33,6 +33,7 @@ class BalanceSheet:
     stocks: tuple
     latest_turn: TurnReport | None
     latest_flows: dict = field(default_factory=dict)
+    preview: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -90,8 +91,18 @@ class EconomicQueries:
         buildings = self._value(self._call('native:buildings','replacement_costs',owner))
         turns = self._call('native:economy','turns',owner)
         flows = self._call('native:economy','production',owner)
+        preview = dict(self._call('native:buildings', 'demand_preview', owner))
+        inputs = dict(preview['inputs'])
+        military = (self._call('native:army', 'supply_preview', owner)
+                    if 'native:army' in self._runtime.capabilities else {})
+        if military:
+            inputs['native:supply'] = inputs.get('native:supply', 0) + military['need']
+            inputs['native:equipment'] = inputs.get('native:equipment', 0) + military['healing_equipment']
+        balances = {row.id: row.amount for row in stocks}
+        preview.update(inputs=inputs, military=military,
+                       shortfalls={key:amount-balances.get(key,0) for key,amount in inputs.items() if amount>balances.get(key,0)})
         return BalanceSheet(owner,inventory,buildings,inventory.plus(buildings),stocks,
-                            turns[-1] if turns else None,flows)
+                            turns[-1] if turns else None,flows,preview)
 
     def report(self, owner):
         self._call('native:resource-inspection','snapshot',owner)

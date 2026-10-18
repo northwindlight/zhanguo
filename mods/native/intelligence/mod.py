@@ -5,10 +5,6 @@ from .objects import Intelligence
 
 class IntelligenceMod(GameMod):
     def mixins(self):return ()
-    def state_keys(self):return ('intelligence',)
-    def needs(self):return ('native:territory','native:nation-inspection','native:government','native:resource-exchange','native:resource-inspection','native:buildings','native:diplomacy','native:vision','native:army')
-    def optional(self):return ('economy:queries',)
-    def provides(self):return ('native:intelligence',)
     def numbers(self):return {'intelligence.'+key:value for key,value in self.declaration['Intelligence'].items()}
     def initialize_world(self, world):
         world.intelligence=Intelligence(lambda cap,method,*args:self.runtime.object_call(world,cap,method,*args),

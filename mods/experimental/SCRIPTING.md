@@ -35,7 +35,7 @@ if inputs.get('buy_food', 0) > 0:
 
 内置函数：`abs / all / any / bool / dict / enumerate / float / int / len / list / max / min / print / range / reversed / round / sorted / str / sum / tuple / zip`。sorted/min/max 支持已定义函数作为 key；sort 支持 key 与 reverse。字符串和容器只开放有限方法，具体清单在 [解释器](../../engine/scripting.py)。没有 Python 解释器的导入机制和完整标准库；不支持 class、lambda、生成器、装饰器、异常捕获、f-string 或字符串 `%` 格式化，输出可用 `print` 和 `str`。幂运算只接受有界整数指数。
 
-`api.observe/actions/query/submit/events/rules/action_state` 对应宿主标准 API。返回的是独立数据，可以本地修改；不能改宿主对象、指定其他行动者或获得隐藏情报。脚本不能嵌套调用任何 `script_*` 控制工具，也不能获取新一代控制权句柄。
+`api.observe/call/events/rules/action_state` 对应宿主标准 API。`call(capability, method, ...)` 只调用模块声明的玩家 API，支持唯一短内容键（如 `wood`），重名时须给完整 ID（如 `native:wood`）；动作不使用模型工具名。返回的是独立数据，可以本地修改；不能改宿主对象、指定其他行动者或获得隐藏情报。脚本不能嵌套调用 `sandbox:programs`，也不能获取新一代控制权句柄。
 
 ## 计算预算与边界
 

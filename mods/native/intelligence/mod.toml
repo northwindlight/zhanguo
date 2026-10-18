@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:intelligence"
-Version = "1.3.0"
+Version = "1.3.1"
 Entry = "mods.native.intelligence.mod:IntelligenceMod"
 Requires = ["native:nations", "native:government", "native:resources", "native:buildings", "native:diplomacy", "native:vision", "native:army"]
 After = ["native:nations", "native:government", "native:army"]
@@ -34,3 +34,11 @@ SpyDelay = 3
 
 [PlayerAPI]
 Methods = ["letter", "gift", "map", "spy", "intel", "news", "dispatches", "countries"]
+ReadOnly = ["countries", "dispatches", "intel", "news"]
+
+[PlayerAPI.ContentParameters]
+gift = ["resource"]
+
+[PlayerAPI.Actions]
+letter = "send_letter"
+map = "share_map"

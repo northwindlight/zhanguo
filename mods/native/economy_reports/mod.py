@@ -9,10 +9,6 @@ class EconomyMod(GameMod):
         if declaration['ValuationAt']!='report-stage':raise ModError('Unsupported accounting valuation timing')
 
     def mixins(self):return ()
-    def state_keys(self):return ('economy',)
-    def needs(self):return ('native:resource-inspection','native:buildings','economy:valuation')
-    def optional(self):return ('native:nation-inspection',)
-    def provides(self):return ('native:economy',)
 
     def initialize_world(self, world):
         def call(capability,method,*args):return self.runtime.object_call(world,capability,method,*args)

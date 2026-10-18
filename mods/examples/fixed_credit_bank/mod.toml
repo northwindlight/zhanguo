@@ -11,7 +11,7 @@ purchase_limit = 10
 
 [Mod]
 Id = "example:fixed-credit-bank"
-Version = "1.3.0"
+Version = "1.3.1"
 Entry = "mods.examples.fixed_credit_bank.mod:FixedCreditBankMod"
 Requires = ["native:resources", "native:economy"]
 After = ["native:resources", "native:economy"]
@@ -41,3 +41,4 @@ Before = ["native:economy.reports"]
 
 [PlayerAPI]
 Methods = ["borrow", "position", "buy_report"]
+ReadOnly = ["position"]

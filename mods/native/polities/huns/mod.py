@@ -3,8 +3,6 @@ from engine.runtime import GameMod, RuleSection
 
 class HunsMod(GameMod):
     def mixins(self):return ()
-    def needs(self):return ('native:resource-inspection','native:resource-exchange','native:territory','native:army')
-    def provides(self):return ()
     def parameter_overrides(self):return self.declaration['Policy']['Overrides']
     def numbers(self):return {'huns.start.'+key:value for key,value in self.declaration['Start'].items()}
     def activate_actor(self, world, actor, *, site=None, start=None):

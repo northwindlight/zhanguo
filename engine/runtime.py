@@ -128,7 +128,7 @@ class Tool:
     owner: str | None = None
     api: tuple[str, ...] = ()
     # 组合工具额外覆盖的其他能力方法（如 foreign 组合 intelligence/diplomacy）：
-    # 只用于装载期覆盖检查与只读分类，工具本身仍由 owner 的上下文执行。
+    # 只用于装载期覆盖与读写一致性检查，工具仍由 owner 的上下文执行。
     covers: tuple[tuple[str, str], ...] = ()
     fact: bool = False
     panel: bool = False
@@ -323,11 +323,11 @@ class GameMod(ABC):
     def stages(self) -> tuple[Stage, ...]:
         return ()
 
-    def state_keys(self): return ()
-    def needs(self): return ()
-    def optional(self): return ()
+    def state_keys(self): return tuple(getattr(self, 'declaration', {}).get('State', {}).get('Owns', ()))
+    def needs(self): return tuple(getattr(self, 'declaration', {}).get('Capabilities', {}).get('Needs', ()))
+    def optional(self): return tuple(getattr(self, 'declaration', {}).get('Capabilities', {}).get('Optional', ()))
     """可选依赖：能力在时可以用（仍需在 Interfaces 里声明方法），不在时不拦住装载。"""
-    def provides(self): return ()
+    def provides(self): return tuple(getattr(self, 'declaration', {}).get('Capabilities', {}).get('Provides', ()))
     def numbers(self): return {}
     def presentations(self): return {}
     def objects(self, world): return {}
@@ -405,6 +405,18 @@ class Runtime:
         for name in self.order:
             mod = self.units[name].mod
             mod.runtime = self
+            declaration = getattr(mod, 'declaration', {})
+            for section, key, values in (('State', 'Owns', mod.state_keys()),
+                    ('Capabilities', 'Needs', mod.needs()), ('Capabilities', 'Optional', mod.optional()),
+                    ('Capabilities', 'Provides', mod.provides())):
+                declared = declaration.get(section, {}).get(key)
+                if declared is None:continue
+                if (not isinstance(declared, (list, tuple)) or any(not isinstance(v, str) or not v for v in declared)
+                        or len(set(declared)) != len(declared)):
+                    raise ModError(f'{name} 的 {section}.{key} 声明非法')
+                # 资源提供者可随新增内容增加能力；已声明的能力仍不能凭空消失。
+                matches = set(declared) <= set(values) if key == 'Provides' else set(declared) == set(values)
+                if not matches:raise ModError(f'{name} 的 {section}.{key} 声明与实现漂移')
             for key in mod.state_keys():
                 if key in self.state_owners:
                     raise ModError(f"state 有多个写入所有者：{key}")
@@ -461,28 +473,43 @@ class Runtime:
         self._load_tool_layer()
         # 策略组由工具自己的 groups 派生：政体声明 group.<组名> 即整组禁用，
         # 新增一个成员工具不需要再改政体名单。
+        # API 的读写契约属于模块，不从模型工具反推。工具只校验是否与它一致。
+        for capability, module_id in self.capabilities.items():
+            cfg = getattr(self.units[module_id].mod, 'declaration', {}).get('PlayerAPI', {})
+            methods, reads = cfg.get('Methods', ()), cfg.get('ReadOnly', ())
+            if (not isinstance(methods, (list, tuple)) or not isinstance(reads, (list, tuple))
+                    or any(not isinstance(m, str) or not m or m.startswith('_') for m in (*methods, *reads))
+                    or len(set(methods)) != len(methods) or len(set(reads)) != len(reads)
+                    or not set(reads) <= set(methods)):
+                raise ModError(f'{module_id} 的 [PlayerAPI] Methods/ReadOnly 非法')
+            for field in ('ContentParameters', 'Actions'):
+                values = cfg.get(field, {})
+                if not isinstance(values, dict) or not set(values) <= set(methods):
+                    raise ModError(f'{module_id} 的 [PlayerAPI] {field} 非法')
+                for value in values.values():
+                    if field == 'Actions':
+                        valid = isinstance(value, str) and bool(value)
+                    else:
+                        valid = (isinstance(value, list) and all(isinstance(v, str) and v and v != 'actor' for v in value)
+                                 and len(set(value)) == len(value))
+                    if not valid:raise ModError(f'{module_id} 的 [PlayerAPI] {field} 非法')
+            self.api_readonly[capability] = set(reads)
+            self.api_writes[capability] = set(methods) - set(reads)
         for key, tool in self.tools.items():
             if key != tool.name:
                 continue
             for group in tool.groups:
                 self.tool_groups.setdefault(group, []).append(tool)
-            if tool.owner is None:
-                continue
-            bucket = self.api_readonly if tool.read_only else self.api_writes
-            for method in tool.api:
-                bucket.setdefault(tool.owner, set()).add(method)
-            for capability, method in tool.covers:
-                bucket.setdefault(capability, set()).add(method)
+            for capability, method in (*((tool.owner, m) for m in tool.api), *tool.covers):
+                if method not in self.api_readonly.get(capability, ()) and tool.read_only:
+                    raise ModError(f'只读工具 {tool.name} 覆盖了写 API：{capability}.{method}')
+                if method in self.api_readonly.get(capability, ()) and not tool.read_only:
+                    raise ModError(f'写工具 {tool.name} 覆盖了只读 API：{capability}.{method}')
         for action in self.actions.values():
             for group in action.groups:
                 self.action_groups.setdefault(group, []).append(action)
-            bucket = self.api_readonly if action.read_only else self.api_writes
-            bucket.setdefault(action.owner, set()).add(action.api[0])
-        both = {(cap, method) for cap, methods in self.api_readonly.items()
-                for method in methods if method in self.api_writes.get(cap, ())}
-        if both:
-            capability, method = sorted(both)[0]
-            raise ModError(f'API 方法既被只读工具又被写工具覆盖：{capability}.{method}')
+            if action.read_only != (action.api[0] in self.api_readonly.get(action.owner, ())):
+                raise ModError(f'动作 {action.name} 与 API 读写声明不一致')
         # 只读面板收敛：发行版声明一个分发器后，其余只读工具照旧注册（事实扇出与
         # query 分发仍按名调用），但不再出现在模型工具表里。
         panel = self.distribution.get('ReadOnlyPanel')
@@ -1096,34 +1123,30 @@ class Runtime:
         module_id = self.capabilities[action.owner]
         if not self.in_scope(world, actor, self.units[module_id].mod):
             raise ValueError('该动作不属于行动者的作用域')
-        if not action.read_only:
-            collection = getattr(world, self.distribution.get('ActorCollection', 'actors'), {})
-            if actor not in collection:
-                raise ValueError('行动者不存在')
-            if world.phase != '行动':
-                raise ValueError('仅行动阶段可以提交动作')
-            gate = self.distribution.get('ActionGate')
-            if gate and not self.object_call(world, gate['Capability'], gate['Method'], actor):
-                raise ValueError('行动者已结束本轮行动')
-            if not self.permits(world, actor, 'action.' + name):
-                policy = self.actor_policy(world, actor)
-                raise ValueError(policy.declaration.get('Policy', {}).get('Rejection', '政体禁用该能力'))
+        self._require_request(world, actor, name, read_only=action.read_only)
         with unit_context(module_id):
             return action.call(world, actor, arguments)
+
+    def _require_request(self, world, actor, name, *, read_only):
+        """模型工具、动作适配器和 API 共用实际执行的权限门。"""
+        if any(not self.permits(world, actor, key + name) for key in ('tool.', 'action.')):
+            policy = self.actor_policy(world, actor)
+            raise ValueError(policy.declaration.get('Policy', {}).get('Rejection', '政体禁用该能力'))
+        if self.distribution:
+            collection = getattr(world, self.distribution.get('ActorCollection', 'actors'), {})
+            if actor not in collection:raise ValueError('行动者不存在')
+            if not read_only:
+                if world.phase != '行动':raise ValueError('仅行动阶段可以提交动作')
+                gate = self.distribution.get('ActionGate')
+                # 权限门不是当前调用模块的跨域业务请求。
+                with unit_context(None):
+                    if gate and not self.object_call(world, gate['Capability'], gate['Method'], actor):
+                        raise ValueError('行动者已结束本轮行动')
 
     def require_tool(self, world, actor, name):
         if not self.in_scope(world, actor, self.tool_owners[name]):
             raise ValueError('该工具不属于行动者的作用域')
-        if not self.permits(world, actor, 'tool.' + name):
-            raise ValueError(self.actor_policy(world, actor).declaration.get("Policy",{}).get("Rejection","政体禁用该能力"))
-        if self.distribution:
-            collection = getattr(world, self.distribution.get('ActorCollection', 'actors'), {})
-            if actor not in collection: raise ValueError('行动者不存在')
-            if world.phase != '行动' and not self.tools[name].read_only:
-                raise ValueError('仅行动阶段可以提交动作')
-            gate=self.distribution.get('ActionGate')
-            if gate and not self.tools[name].read_only and not self.object_call(world,gate['Capability'],gate['Method'],actor):
-                raise ValueError('行动者已结束本轮行动')
+        self._require_request(world, actor, name, read_only=self.tools[name].read_only)
 
     def api_is_write(self, capability, method):
         if capability not in self.capabilities:
@@ -1132,7 +1155,7 @@ class Runtime:
         methods = unit.mod.declaration.get('PlayerAPI', {}).get('Methods', ())
         if method not in methods:
             raise ValueError(f'{capability} 未声明方法：{method}')
-        return method not in self.api_readonly.get(capability, ())
+        return method not in unit.mod.declaration.get('PlayerAPI', {}).get('ReadOnly', ())
 
     def api_call(self, world, actor, capability, method, arguments=None):
         """Trusted in-process API call: capability + declared method, never a tool name.
@@ -1155,22 +1178,22 @@ class Runtime:
         arguments = {} if arguments is None else dict(arguments)
         if 'actor' in arguments:
             raise ValueError('API 参数不能覆盖行动者')
-        if self.api_is_write(capability, method):
-            collection = getattr(world, self.distribution.get('ActorCollection', 'actors'), {})
-            if actor not in collection:
-                raise ValueError('行动者不存在')
-            if world.phase != '行动':
-                raise ValueError('仅行动阶段可以提交动作')
-            gate = self.distribution.get('ActionGate')
-            if gate and not self.object_call(world, gate['Capability'], gate['Method'], actor):
-                raise ValueError('行动者已结束本轮行动')
-            key = arguments.get('action') if isinstance(arguments.get('action'), str) else method
-            if not self.permits(world, actor, 'action.' + key):
-                policy = self.actor_policy(world, actor)
-                raise ValueError(policy.declaration.get('Policy', {}).get('Rejection', '政体禁用该能力'))
+        cfg = unit.mod.declaration['PlayerAPI']
         with unit_context(module_id):
             api = self.player_api(world, capability)
-            return getattr(api, method)(actor, **arguments)
+            handler = getattr(api, method)
+            try:
+                for key in cfg.get('ContentParameters', {}).get(method, ()):
+                    if arguments.get(key) is not None:
+                        arguments[key] = self.content.resolve(arguments[key])
+                bound = inspect.signature(handler).bind(actor, **arguments)
+            except (ValueError, TypeError) as exc:
+                raise ToolArgumentError(str(exc)) from exc
+        key = cfg.get('Actions', {}).get(method, method)
+        if method == 'submit' and isinstance(arguments.get('action'), str):key = arguments['action']
+        self._require_request(world, actor, key, read_only=not self.api_is_write(capability, method))
+        with unit_context(module_id):
+            return handler(*bound.args, **bound.kwargs)
 
     def parameter(self, world, actor, key, default=None):
         if not self.permits(world,actor,'number.'+key): raise ModError('该数值口径被作用域声明禁用')

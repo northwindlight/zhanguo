@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:diplomacy"
-Version = "2.6.0"
+Version = "2.6.1"
 Entry = "mods.native.diplomacy.mod:DiplomacyMod"
 Requires = ["native:nations", "native:government", "native:resources", "native:buildings", "native:territory"]
 After = ["native:nations", "native:government", "native:territory"]
@@ -25,3 +25,4 @@ FallTruce = 10
 
 [PlayerAPI]
 Methods = ["submit", "vote", "snapshot"]
+ReadOnly = ["snapshot"]

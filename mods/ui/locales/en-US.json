@@ -557,5 +557,5 @@
   "console.auto_rejected_offers": "End of turn: unanswered offers {ids} automatically rejected at no charge.",
   "console.auto_rejected_votes": "End of turn: unanswered votes {ids} automatically voted against.",
   "console.brief": "brief",
-  "experimental.plan_unchanged": "The plan text is unchanged; the council was not re-run."
+  "experimental.plan_unchanged": "The text matches the current effective plan; no new draft or renewal was created. Any existing rejection or explanation requirement still applies."
 }

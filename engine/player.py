@@ -158,16 +158,7 @@ class PlayerSession:
                 # 这一次动作。0.1 的分工是「模型动作不合法 → 回执里说清楚；锦上添花
                 # 的失败 → 降级继续」，停机权只属于结算本身，不属于一次工具调用。
                 return self._fault(base, exc)
-            try:
-                data = wire(result)
-            except Exception as exc:
-                # 序列化失败发生在动作已经生效之后，绝不能报成 rejected——那会让
-                # 模型以为没写成而重做一次（同一笔买卖收两次钱）。
-                return self._fault(base, exc, applied=True)
-            status = data.get('status', 'effective') if isinstance(data, dict) else 'effective'
-            return {**base, 'ok': status not in ('failed', 'cancelled'), 'status': status,
-                    'code': 'action_failed' if status in ('failed', 'cancelled') else None,
-                    'message': data.get('message', '') if isinstance(data, dict) else '', 'data': data}
+            return self._result_receipt(base, result)
 
     def call_api(self, capability=None, method=None, arguments=None, action_label=None, **extra):
         """PlayerSession-level API entry; BoundPlayer adds services and audit."""
@@ -216,11 +207,20 @@ class PlayerSession:
                 if not write:
                     raise
                 return self._fault(base, exc)
+            return self._result_receipt(base, result)
+
+    def _result_receipt(self, base, result):
+        """两种入口共用已执行结果的编码与故障语义，避免重复执行。"""
+        try:
             data = wire(result)
-            status = data.get('status', 'effective') if isinstance(data, dict) else 'effective'
-            return {**base, 'ok': status not in ('failed', 'cancelled'), 'status': status,
-                    'code': 'action_failed' if status in ('failed', 'cancelled') else None,
-                    'message': data.get('message', '') if isinstance(data, dict) else '', 'data': data}
+        except Exception as exc:
+            # 序列化失败发生在动作已经生效之后，不能报成 rejected：
+            # 否则调用者可能把同一笔买卖重做一次，再付一次钱。
+            return self._fault(base, exc, applied=True)
+        status = data.get('status', 'effective') if isinstance(data, dict) else 'effective'
+        return {**base, 'ok': status not in ('failed', 'cancelled'), 'status': status,
+                'code': 'action_failed' if status in ('failed', 'cancelled') else None,
+                'message': data.get('message', '') if isinstance(data, dict) else '', 'data': data}
 
     def _fault(self, base, exc, applied=False):
         """模块内部异常 → 该动作作废、游戏继续；细节交给宿主的故障日志。"""

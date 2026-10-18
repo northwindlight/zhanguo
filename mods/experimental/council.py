@@ -366,7 +366,9 @@ class CouncilService:
                     'message':decision['message'],'data':decision}
         # 同一份国策重复提交：不重开议会（每轮审核要花十次模型调用），
         # 也不把「制定于」和到期日往后推。
-        if self.council['last_plan'].get('approved') and candidate.strip()==str(self.council['last_plan'].get('text','')).strip():
+        # 只有领域层确认「有效期内未变化」才可跳过。到期原文重交已是新草稿，
+        # 必须走完审核，否则会留下 approved=None、永远不能结束回合。
+        if receipt['data'].get('status') == 'approved':
             return {**receipt,'ok':True,'status':'effective','code':None,
                     'message':self.ui.text('experimental.plan_unchanged')}
         self._notify(self.ui.text('experimental.review_preparing_status',actor=self.cfg.get('name',player.actor)))

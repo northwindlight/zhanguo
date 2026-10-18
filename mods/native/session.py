@@ -21,8 +21,8 @@ class NativeSession(NativeObserver,GridSession):
         receipt=super().submit(player,action,arguments,next_submit)
         return self._finish(player,receipt) if action=='end_turn' else receipt
 
-    def api(self,player,capability,method,arguments,next_call):
-        receipt=next_call()
+    def api_call(self,player,capability,method,arguments,next_call):
+        receipt=super().api_call(player,capability,method,arguments,next_call)
         return (self._finish(player,receipt)
                 if (capability,method)==('native:government','end_turn') else receipt)
 

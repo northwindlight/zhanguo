@@ -305,6 +305,20 @@ class Buildings:
             for key,amount in cycle.inputs:need[key] = need.get(key,0)+amount
         return MappingProxyType(need)
 
+    def demand_preview(self, owner):
+        """已落成建筑按真实 cycle 配方汇总的满负荷需求，不执行生产。"""
+        owner_name(owner)
+        inputs, outputs, capacity, demand = {}, {}, 0, 0
+        for item in self._instances.values():
+            if not item.completed or self._sites[item.site].owner != owner:continue
+            cycle = item.cycle(other_slots=self._other_slots(item))
+            for key, amount in cycle.inputs:inputs[key] = inputs.get(key, 0) + amount
+            for key, amount in cycle.outputs:outputs[key] = outputs.get(key, 0) + amount
+            capacity += cycle.energy
+            demand += item.ENERGY_USE
+        return {'inputs': inputs, 'outputs': outputs,
+                'energy': {'capacity': capacity, 'demand': demand, 'capacity_gap': max(0, demand-capacity)}}
+
     def _other_slots(self, item):
         return sum(other.completed and other.site==item.site and other.kind!=item.kind
                    for other in self._index().get(item.site, ()))

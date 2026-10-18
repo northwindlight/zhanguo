@@ -8,10 +8,6 @@ class BankMod(GameMod):
         super().configure(declaration,path)
         self.policy = BankPolicy(**declaration['Bank'])
     def mixins(self):return ()
-    def state_keys(self):return ('bank',)
-    def needs(self):return ('native:resource-inspection','native:bank-cash','native:economy')
-    def optional(self):return ('native:nation-inspection','native:diplomacy')
-    def provides(self):return ('economy:bank',)
     def initialize_world(self, world):
         self.validate_currency(world)
         world.bank = Bank(self.policy,lambda cap,method,*args:self.runtime.object_call(world,cap,method,*args),

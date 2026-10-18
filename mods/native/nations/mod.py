@@ -11,9 +11,6 @@ class NationActors:
 
 class NationsMod(GameMod):
     def mixins(self):return (NationActors,)
-    def state_keys(self):return ('nations',)
-    def needs(self):return ('native:resources', 'native:buildings')
-    def provides(self):return ('native:nations', 'native:nation-inspection')
 
     def initialize_world(self, world):
         world.nations = Nations(

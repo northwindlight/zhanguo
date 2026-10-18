@@ -9,5 +9,3 @@ from engine.runtime import GameMod
 
 class QueryMod(GameMod):
     def mixins(self): return ()
-
-    def provides(self): return ('native:query',)

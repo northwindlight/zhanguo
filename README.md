@@ -2,9 +2,9 @@
 
 战国是一款面向 LLM 决策的回合制大战略游戏。各国在同一世界中经营经济、组织军队、处理外交并争夺生存空间；人类可以观察、发出公告与来信，也可以研究模型在长局中的决策和失误。
 
-当前版本 **0.4.0**：API 与 tool 分层，模型可见工具 12 个（native 8 + 4 个内置玩家 API）；面板与对外关系事实收口；建筑/资源按角色声明，手册数值与模块参数同源。详见 [更新记录](CHANGELOG.md)。`main` 来自原 `正规化` 分支，采用模块化架构。旧版单体实现保存在 [`legacy`](https://github.com/northwindlight/zhanguo/tree/legacy)。[English](README.en.md)
+当前发行版本 **0.4.1**，详见 [更新记录](CHANGELOG.md)。API 与 tool 分层，面板与对外关系事实收口，建筑/资源按角色声明，手册数值与模块参数同源。模型工具由发行版 tool 层与客户端按权限提供。`main` 来自原 `正规化` 分支，采用模块化架构。旧版单体实现保存在 [`legacy`](https://github.com/northwindlight/zhanguo/tree/legacy)。[English](README.en.md)
 
-本版加入剧本胜利钩子、联盟规则说明修复和文档归类，见 [更新记录](CHANGELOG.md)。
+本版修复 API/tool 入口不一致、国策到期审核和外交收尾，收口 API 声明、查询参数与领域预演，见 [更新记录](CHANGELOG.md)。
 
 ## 真实对局资料
 
@@ -27,7 +27,7 @@
 - **玩家客户端**：LLM 与 `v11plus` 规则 AI 使用同一绑定身份的 API，消费结构化事实和行动回执。
 - **界面**：独立 UI Mod 编排提示、语言文案、终端面板和玩家可见的文字、SVG、PNG 地图。
 
-默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.8.1`：
+默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.9.0`：
 
 - 独立议长分两步审核国策，核对事实、情报和经济、外交、军事承诺；连续三回合未通过后罢免君主并重建记忆。
 - 市场采用实际交付的有限库存，以及库存偏差反馈报价。
@@ -87,7 +87,7 @@ python -m scenarios.eight_nations --seed 20260921
 .venv/bin/python -m unittest discover -s tests -q
 ```
 
-最近代码回归为 524 项离线测试通过，覆盖模块替换、合成对局、存取一致性、API 权限、议会、市场、沙盒与 UI。测试使用模拟模型后端；真实对局资料单独存放，不作为自动化测试输入。
+离线回归覆盖模块替换、合成对局、存取一致性、API 权限、议会、市场、沙盒与 UI。测试使用模拟模型后端；真实对局资料单独存放，不作为自动化测试输入。各批次验收结果见更新记录与复核报告。
 
 ## 代码入口
 

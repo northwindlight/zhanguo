@@ -20,7 +20,6 @@ class HandbooksMod(GameMod):
                 supplement=(Path(path).parent/overlay/(('经济学手册' if key=='economics' else title)+'.md')).read_text(encoding='utf-8')
                 body+='\n\n'+supplement
             self.books.append((key,title,prompt,aliases,body))
-    def provides(self):return ('native:handbooks',)
     def player_api(self, world):return HandbooksAPI(self)
     def rule_sections(self,world=None):
         return tuple(RuleSection(title,body,keywords=(key,*aliases),summary='策略参考，具体数值以公开目录和实际回执为准') for key,title,_,aliases,body in self.books)

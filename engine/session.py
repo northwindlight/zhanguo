@@ -308,37 +308,27 @@ class Session:
         still individual tools); scripts and the rule AI reach plan through this
         chain, so the council reviews it regardless of the caller.
         """
-        chain=next_call
-        for service in reversed(tuple(self.services[player.actor].values())):
-            handler=getattr(service,'api',None)
-            if handler:
-                downstream=chain
-                def wrap(h,n):
-                    used=False
-                    def once():
-                        nonlocal used
-                        if used:raise RuntimeError('An API call continuation can execute only once')
-                        used=True
-                        return n()
-                    return lambda:h(player,capability,method,deepcopy(arguments),once)
-                chain=wrap(handler,downstream)
-        return chain()
+        return self._service_call(player,'api',(capability,method),arguments,next_call)
 
     def submit(self,player,action,arguments,next_submit):
         # These are arbitrary distribution services; no review/action names here.
-        chain=next_submit
+        return self._service_call(player,'submit',(action,),arguments,next_submit)
+
+    def _service_call(self,player,hook,request,arguments,next_call):
+        """两种入口共用服务排序、参数隔离和 continuation 一次性约束。"""
+        chain=next_call
         for service in reversed(tuple(self.services[player.actor].values())):
-            handler=getattr(service,'submit',None)
+            handler=getattr(service,hook,None)
             if handler:
                 downstream=chain
                 def wrap(h,n):
                     used=False
                     def once():
                         nonlocal used
-                        if used:raise RuntimeError('A submission continuation can execute only once')
+                        if used:raise RuntimeError('A request continuation can execute only once')
                         used=True
                         return n()
-                    return lambda:h(player,action,deepcopy(arguments),once)
+                    return lambda:h(player,*request,deepcopy(arguments),once)
                 chain=wrap(handler,downstream)
         return chain()
 

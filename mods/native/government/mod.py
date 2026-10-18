@@ -5,9 +5,6 @@ from .objects import Government
 
 class GovernmentMod(GameMod):
     def mixins(self):return ()
-    def needs(self):return ('native:nation-inspection',)
-    def provides(self):return ('native:government',)
-    def state_keys(self):return ('government',)
     def numbers(self):return {'government.'+key:value for key,value in self.declaration['Government'].items()}
     def initialize_world(self, world):
         cfg = self.declaration['Government']

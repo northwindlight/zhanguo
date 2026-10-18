@@ -56,8 +56,6 @@ class Vision:
 
 class VisionMod(GameMod):
     def mixins(self):return ()
-    def needs(self):return ('native:territory','native:diplomacy','native:buildings')
-    def provides(self):return ('native:vision',)
     def objects(self, world):
         view=Vision(lambda cap,method,*args:self.runtime.object_call(world,cap,method,*args))
         view._derive=lambda key,calculate:self.runtime.derived(world,key,calculate)

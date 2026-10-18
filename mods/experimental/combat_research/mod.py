@@ -64,8 +64,6 @@ class CombatResearchMod(GameMod):
         Schema(fields).normalize(settings,path='Research')
 
     def mixins(self):return ()
-    def needs(self):return ('native:army','native:vision','native:territory','native:diplomacy','native:buildings')
-    def provides(self):return ('research:combat-probabilities',)
     def objects(self,world):
         return {'research:combat-probabilities':Forecast(
             lambda cap,method,*args:self.runtime.object_call(world,cap,method,*args),self.declaration['Research'],

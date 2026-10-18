@@ -44,8 +44,24 @@ def action_text(assistant,calls,receipts,contents=None):
         if name=='memory_search':continue
         rendered=contents[index] if contents and index<len(contents) else None
         text=rendered if isinstance(rendered,str) and rendered.strip() else prose_receipt(receipt)
+        # 回执可能只说「信已发出，共 N 字」，承诺正文只存在于调用参数。
+        # 参数也是玩家自己的行动记忆；写成散文，不能只存回执或抄观察 JSON。
+        arguments=fn.get('arguments') or {}
+        if isinstance(arguments,str):
+            try:arguments=json.loads(arguments)
+            except ValueError:arguments={}
+        if isinstance(arguments,dict) and arguments:
+            text='参数：'+_argument_prose(arguments)+'\n'+text
         parts.append(f'{name}：{text}' if text else str(name))
     return '\n'.join(parts)
+
+
+def _argument_prose(value):
+    if isinstance(value,dict):
+        return '；'.join(str(key)+'＝'+_argument_prose(item) for key,item in value.items())
+    if isinstance(value,(list,tuple)):
+        return '、'.join(_argument_prose(item) for item in value)
+    return str(value)
 
 
 def _render_legacy(text,render):
@@ -69,8 +85,11 @@ def _render_legacy(text,render):
 
 def _render_record(record,render):
     action=record.get('action')
-    try:arguments=json.loads(record.get('arguments') or '{}')
-    except (TypeError,ValueError):arguments={}
+    arguments=record.get('arguments') or {}
+    if isinstance(arguments,str):
+        try:arguments=json.loads(arguments)
+        except ValueError:arguments={}
+    if not isinstance(arguments,dict):arguments={}
     receipt=record.get('receipt') if isinstance(record.get('receipt'),dict) else {}
     data=receipt.get('data')
     if isinstance(data,str):
@@ -81,6 +100,7 @@ def _render_record(record,render):
     try:prose=render(action,arguments,rebuilt)
     except (KeyError,TypeError,ValueError,AttributeError,IndexError):prose=None
     if not isinstance(prose,str) or not prose.strip():prose=prose_receipt(rebuilt)
+    if arguments:prose='参数：'+_argument_prose(arguments)+'\n'+prose
     return f'{action}：{prose}' if prose else str(action)
 
 

@@ -9,12 +9,12 @@ from .intelligence import _countries
 def tools(runtime):
     def foreign(world, actor):
         # 组合面板直接读各模块的玩家 API，不再为四块数据各注册一个工具。
-        # 每块都在自己的模块上下文里读，跨模块接口声明仍按各模块校验。
+        # 经正式 API 分发进入各自上下文，保留作用域、策略及跨域接口检查。
         def read(capability, method):
             if capability not in runtime.capabilities:
                 return None
             with unit_context(None):
-                return getattr(runtime.player_api(world, capability), method)(actor)
+                return runtime.api_call(world, actor, capability, method)
         data = {'nation': read('native:nations', 'overview'),
                 'nations': read('native:nations', 'snapshot'),
                 'countries': read('native:intelligence', 'countries'),

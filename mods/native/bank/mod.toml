@@ -11,7 +11,7 @@ purchase_limit = 10
 
 [Mod]
 Id = "native:bank"
-Version = "1.4.0"
+Version = "1.4.1"
 Entry = "mods.native.bank.mod:BankMod"
 Requires = ["native:resources", "native:economy"]
 After = ["native:resources", "native:economy"]
@@ -41,3 +41,4 @@ Before = ["native:economy.reports"]
 
 [PlayerAPI]
 Methods = ["borrow", "position", "buy_report"]
+ReadOnly = ["position"]

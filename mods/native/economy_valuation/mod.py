@@ -51,8 +51,6 @@ class ValuationMod(GameMod):
         if self.currency in self.prices:raise ModError('Currency uses face value, not a declared commodity price')
 
     def mixins(self):return ()
-    def needs(self):return ('native:resource-inspection','native:market')
-    def provides(self):return ('economy:valuation',)
 
     def initialize_world(self, world):
         for key in (self.currency,*self.prices):

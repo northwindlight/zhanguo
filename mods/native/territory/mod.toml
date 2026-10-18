@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:territory"
-Version = "2.4.0"
+Version = "2.4.1"
 Entry = "mods.native.territory.mod:TerritoryMod"
 Requires = ["native:map-generation", "native:nations", "native:buildings"]
 After = ["native:nations", "native:buildings"]
@@ -16,3 +16,7 @@ Provides = ["native:territory"]
 
 [PlayerAPI]
 Methods = ["land", "terrain_catalog"]
+ReadOnly = ["land", "terrain_catalog"]
+
+[PlayerAPI.ContentParameters]
+land = ["terrain", "resource"]

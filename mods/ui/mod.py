@@ -26,5 +26,4 @@ class UILayer:
 
 class UIMod(GameMod):
     def mixins(self):return ()
-    def provides(self):return ('ui:presentation',)
     def presentations(self):return {'ui:create':UILayer,'ui:configure':normalize}

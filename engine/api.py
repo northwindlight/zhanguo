@@ -140,13 +140,23 @@ class BoundPlayer:
                 return session.raw_player(self.actor).api_call(
                     capability, method, detached, action=action_label)
             receipt = None
+            invoked = False
             def execute():
-                nonlocal receipt
+                nonlocal receipt, invoked
+                if invoked:raise RuntimeError('An API call can execute only once')
+                invoked = True
                 receipt = session.raw_player(self.actor).api_call(
                     capability, method, detached, action=action_label)
                 return wire(receipt)
-            receipt = wire(session.api_call(self, capability, method, detached, execute))
             label = action_label if isinstance(action_label, str) and action_label else detached.get('action', method)
+            try:
+                receipt = wire(session.api_call(self, capability, method, detached, execute))
+                if not isinstance(receipt, dict) or receipt.get('actor') != self.actor or receipt.get('action') != label:
+                    raise ValueError('Invalid distribution API receipt')
+            except Exception as exc:
+                session._dirty()
+                session.record(self, label, detached, receipt, error=exc)
+                raise
             session.record(self, label, detached, receipt)
             return receipt
 

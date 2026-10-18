@@ -9,10 +9,6 @@ class BuildingsMod(GameMod):
     def mixins(self):return ()
     def content_definitions(self):return {cls.TYPE_ID:cls for cls in BUILDING_TYPES}
     def numbers(self):return {cls.TYPE_ID:{'roles':list(cls.ROLES),'costs_by_level':[cls.construction_cost(i) for i in range(1,len(cls.GOLD_COSTS)+1)],'inputs':dict(cls.INPUTS),'outputs':dict(cls.OUTPUTS),'energy_use':cls.ENERGY_USE,'energy_output':cls.ENERGY_OUTPUT,'effects':dict(cls.EFFECTS),'min_slots':cls.MIN_SLOTS,'max_per_site':cls.MAX_PER_SITE,'self_build_limit':cls.SELF_BUILD_LIMIT} for cls in building_types(self.runtime.content)}
-    def state_keys(self):return ('buildings',)
-    def needs(self):return ('native:resource-exchange',)
-    def optional(self):return ('native:territory',)
-    def provides(self):return ('native:buildings',)
 
     def initialize_world(self, world):
         world.buildings = Buildings(building_types(self.runtime.content),

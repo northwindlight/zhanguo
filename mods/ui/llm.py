@@ -127,34 +127,12 @@ class LLMUI:
     def dashboard(self,observation):
         """Decision cues derived exclusively from detached public facts."""
         facts=flatten(observation['facts']);actor=observation['actor'];period=observation['period']
-        stocks={s['id']:s['amount'] for s in facts.get('econ',{}).get('stocks',[])}
-        catalog={b['id']:b for b in facts.get('building_catalog',[])}
-        units=facts.get('unit_catalog',{});sites=facts.get('building_sites',{})
-        active=[b for b in sites.get('instances',[]) if b['remaining']==0]
-        inputs={};outputs={};generation=0;demand=0
-        for b in active:
-            kind=catalog.get(b['kind'],{})
-            generation+=kind.get('energy_output',0);demand+=kind.get('energy_use',0)
-            for resource,amount in kind.get('inputs',{}).items():inputs[resource]=inputs.get(resource,0)+amount
-            for resource,amount in kind.get('outputs',{}).items():outputs[resource]=outputs.get(resource,0)+amount
+        preview=facts.get('econ',{}).get('preview',{})
+        inputs=preview.get('inputs',{});outputs=preview.get('outputs',{})
+        energy=preview.get('energy',{});shortages=preview.get('shortfalls',{})
+        supply=preview.get('military',{}).get('need',0)
+        sites=facts.get('building_sites',{})
         own=[u for u in facts.get('army',[]) if u['owner']==actor and u['hp']>0]
-        camp_capacity={}
-        positions={s['id']:tuple(s['position']) for s in sites.get('sites',[])}
-        for b in active:
-            cap=catalog.get(b['kind'],{}).get('effects',{}).get('militia_cap',0)
-            if cap and b['site'] in positions:
-                pos=positions[b['site']];camp_capacity[pos]=camp_capacity.get(pos,0)+cap
-        supply=0
-        for u in own:
-            pos=(u['x'],u['y'])
-            if u['kind']=='native:militia' and camp_capacity.get(pos,0):camp_capacity[pos]-=1
-            else:supply+=units.get(u['kind'],{}).get('supply',0)
-        inputs['native:supply']=inputs.get('native:supply',0)+supply
-        for u in own:
-            if not u['engaged'] and u['kind']!='native:militia' and u['hp']<units.get(u['kind'],{}).get('hp',u['hp']):inputs['native:equipment']=inputs.get('native:equipment',0)+1
-        # Capacity is an upper bound, not a claim that every plant can run.
-        energy={'capacity':generation,'demand':demand,'capacity_gap':max(0,demand-generation)}
-        shortages={r:max(0,n-stocks.get(r,0)) for r,n in inputs.items() if n>stocks.get(r,0)}
         armies=[{'id':u['id'],'kind':u['kind'],'position':[u['x'],u['y']],
                  'status':'新兵' if u['born_turn']==period else '交战中' if u['engaged'] else '已行动' if u['moved_turn']==period else '可行动'} for u in own]
         allies={actor};enemies={'野人'}
@@ -170,7 +148,7 @@ class LLMUI:
                  and any(max(abs(u['x']-p[0]),abs(u['y']-p[1]))<=1 for p in own_positions)]
         plan=facts.get('government',{}).get('plan')
         return {'plan_status':'须提交国策' if not plan or plan['valid_until']<period else '国策有效',
-                'energy_capacity':energy,'planned_regular_inputs':inputs,'recipe_outputs_before_dynamic_effects':outputs,
+                'energy_capacity':energy,'planned_regular_inputs':inputs,'full_load_outputs':outputs,
                 'stock_shortfalls_before_production':shortages,'army_supply_per_period':supply,
                 'army_actions':armies,'border_threats':threats,
                 'construction':sites.get('construction',[]),

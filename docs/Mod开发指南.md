@@ -56,6 +56,10 @@ mods/examples/hello/
 模块必须实现 `mixins()`（多数返回空元组）；状态、工具、结算阶段均按职责选用，不是必填。纯内容模块可以只注册内容，UI Mod 可以只注册展示工厂。
 见 [mods/examples/hello/mod.py](../mods/examples/hello/mod.py)。
 
+固定状态与能力在 TOML 的 `State.Owns / Capabilities.Needs / Optional / Provides` 声明，`GameMod` 默认读取它们，无需在 Python 重写相同名单。下方示例保留显式方法以演示接口；若同时提供 TOML 和覆写方法，装载期检查一致性。动态内容模块可以在声明能力之外追加资源能力。
+
+领域玩家 API 由 `[PlayerAPI] Methods` 列出，`ReadOnly` 明确哪些方法只读；`ContentParameters` 按方法列出内容参数，`Actions` 可映射不同的语义动作名。tool 层显式包装并校验覆盖及读写一致性，详见 [tool 契约](../mods/native/tools/README.md)。
+
 `mod.toml`：
 
 ```toml

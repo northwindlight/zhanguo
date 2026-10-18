@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:buildings"
-Version = "2.7.0"
+Version = "2.8.0"
 Entry = "mods.native.buildings.mod:BuildingsMod"
 Requires = ["native:resources"]
 After = ["native:resources"]
@@ -10,7 +10,8 @@ Owns = ["buildings"]
 Requests = []
 
 [Capabilities]
-Needs = ["native:resource-exchange", "map:generation"]
+Needs = ["native:resource-exchange"]
+Optional = ["native:territory"]
 Provides = ["native:buildings"]
 
 [Interfaces]
@@ -32,3 +33,7 @@ Provides = ["buildings.completed"]
 
 [PlayerAPI]
 Methods = ["build", "sites", "catalog"]
+ReadOnly = ["catalog", "sites"]
+
+[PlayerAPI.ContentParameters]
+build = ["kind"]

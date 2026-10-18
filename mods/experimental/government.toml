@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:government"
-Version = "3.0.2-parliament"
+Version = "3.0.3-parliament"
 Entry = "mods.experimental.government:ParliamentGovernmentMod"
 Requires = ["native:nations"]
 After = ["native:nations"]
@@ -14,6 +14,11 @@ Provides = ["native:government"]
 
 [PlayerAPI]
 Methods = ["plan", "end_turn", "snapshot", "explain"]
+ReadOnly = ["snapshot"]
+
+[PlayerAPI.Actions]
+explain = "explain_plan"
+
 [Government]
 PlanSpan = 10
 SummaryMin = 4

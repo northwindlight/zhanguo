@@ -9,9 +9,6 @@ from .parameters import ARMY_STARVE_DAMAGE, ARMY_HEAL_PER_TURN, HEAL_EQUIP_COST,
 
 class ArmyMod(GameMod):
     def mixins(self):return ()
-    def state_keys(self):return ('units','military')
-    def needs(self):return ('native:nation-inspection','native:government','native:territory','native:vision','native:diplomacy','native:buildings','native:resource-exchange','native:gold','native:food','native:equipment','native:supply')
-    def provides(self):return ('native:army',)
     def numbers(self):return {'units':wire(unit_definitions(self.runtime.content)),'army.starvation':ARMY_STARVE_DAMAGE,'army.heal':ARMY_HEAL_PER_TURN,'army.heal-equipment':HEAL_EQUIP_COST,'army.combat-die':dict(COMBAT_DIE_MOD),'army.retreat.attack-penalty':RETREAT_ATK_PENALTY,'army.retreat.defender-cover':RETREAT_DEF_COVER}
     def content_definitions(self):
         # 地形在单位定义里直接用内容 ID；中文地形名只留在 map_generation 边界。

@@ -29,9 +29,6 @@ class MarketMod(GameMod):
 
     def numbers(self):return {'buffer':dict(self.declaration['Buffer']), 'listings':{r.resource:{'base_price':r.base_price,'depth':r.depth,'initial':r.initial} for r in self.listings}}
     def mixins(self):return ()
-    def state_keys(self):return ('market',)
-    def needs(self):return ('native:resource-exchange', 'market:pricing')
-    def provides(self):return ('native:market',)
 
     def initialize_world(self, world):
         for key in (self.currency, *(item.resource for item in self.listings)):

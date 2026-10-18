@@ -9,9 +9,6 @@ TERRAINS = (Terrain('native:plain',0,0,1,'P'),Terrain('native:forest',10,15,2,'F
 
 class TerritoryMod(GameMod):
     def mixins(self):return ()
-    def state_keys(self):return ('territory',)
-    def needs(self):return ('map:generation','native:nation-inspection','native:buildings')
-    def provides(self):return ('native:territory',)
     def content_definitions(self):return {t.id:t for t in TERRAINS}
     def initialize_world(self, world):
         types = tuple(t for _,t in self.runtime.content.definitions() if isinstance(t,Terrain))
