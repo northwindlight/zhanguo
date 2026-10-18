@@ -347,8 +347,18 @@ class Session:
         try:return wire(value)
         except (TypeError,ValueError):return {'invalid_type':type(value).__name__}
 
+    def actor_model(self,actor):
+        """Model that issued this actor's operation; rule clients report their kind."""
+        client=self.clients.get(actor)
+        cfg=getattr(client,'cfg',None)
+        if isinstance(cfg,dict) and isinstance(cfg.get('model'),str) and cfg['model'].strip():
+            return cfg['model']
+        kind=getattr(client,'kind',None)
+        return kind if isinstance(kind,str) and kind else None
+
     def record(self,player,action,arguments,receipt,error=None):
         row={'id':self._audit_next,'actor':player.actor,'generation':player.generation,
+             'model':self.actor_model(player.actor),
              'action':self._audit_value(action),'arguments':self._audit_value(arguments),'receipt':wire(receipt)}
         if error:row['error']={'type':type(error).__name__,'message':str(error)}
         self.audit.append(row);self._audit_next+=1

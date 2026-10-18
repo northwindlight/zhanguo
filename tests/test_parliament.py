@@ -378,6 +378,13 @@ class TestParliament(unittest.TestCase):
         self.assertEqual(h.services[self.actor]['council'].council['dialogue'],[])
         self.assertEqual(h.player(self.actor).observe()['facts']['government']['plan']['text'],'纠正先前事实的新国策')
 
+    def test_review_requirements_check_dereliction_only_when_actionable(self):
+        text=(Path(__file__).resolve().parents[1]/'mods/experimental/requirements.md').read_text(encoding='utf-8')
+        for phrase in ('失职检查','GDP 停滞','总兵力占优','情报严重失真','丢失首都',
+                       '没有有效动员','可被君主改变','实力不对称','被迫卷入防守战争','不可预见'):
+            self.assertIn(phrase,text)
+        self.assertIn('写明失职类别、证据和下一期可执行的纠正',text)
+
     def test_first_plan_is_effective_without_creating_or_calling_reviewer(self):
         h,c=self.host([False],[reply(call('p','plan',text='FIRST-PLAN 工厂已经落成'),
                                     call('e','end_turn',summary='第一版国策制定完成'))],revision=False)

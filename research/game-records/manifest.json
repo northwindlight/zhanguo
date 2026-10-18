@@ -130,9 +130,9 @@
         },
         "report": {
           "path": "eight-nations-20261018/report.md",
-          "bytes": 100365,
-          "sha256": "d355979d73e7733a5a9c421ae2cbca729619badf7be4fc6a1a7301b2f40f3e75",
-          "chars": 51768,
+          "bytes": 100361,
+          "sha256": "542740a666b855198cfa0c60aeb09afe03967ea2fa3fec5bcc7b74281ef05944",
+          "chars": 51764,
           "cjk_chars": 20039
         }
       }

@@ -45,6 +45,16 @@ class TestApiToolBoundary(unittest.TestCase):
         self.assertEqual(host.audit[-1]['action'], 'plan')
         self.assertTrue(host.audit[-1]['receipt']['ok'])
 
+    def test_audit_records_the_issuing_model(self):
+        host = GameHost.new({'map_size': 12, 'seed': 73,
+                             'nations': [{'id': Q, 'name': '秦', 'client': 'llm', 'model': 'audit-model'}]})
+        host.player(Q).submit('plan', {'text': '发展经济'})
+        self.assertEqual(host.audit[-1]['model'], 'audit-model')
+        rule = GameHost.new({'map_size': 12, 'seed': 73,
+                             'nations': [{'id': Q, 'name': '秦', 'client': 'rule'}]})
+        rule.player(Q).call_api('native:government', 'plan', {'text': '发展经济'}, action_label='plan')
+        self.assertEqual(rule.audit[-1]['model'], 'rule')
+
     def test_rule_client_never_uses_the_tool_submit_path(self):
         host = GameHost.new({'map_size': 12, 'seed': 73,
                              'nations': [{'id': Q, 'name': '秦', 'client': 'rule'}]})

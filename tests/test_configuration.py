@@ -88,19 +88,24 @@ class TestConfiguration(unittest.TestCase):
             self.assertEqual(prepared.data['ui_mods'],directory)
             self.assertEqual([n['ui_mods'] for n in prepared.data['nations']],[directory,directory])
 
-    def test_context_and_reviewer_own_transport_defaults(self):
+    def test_reviewer_defaults_to_the_player_model_and_can_be_overridden_per_player(self):
         cfg=self.cfg();cfg.update(api_timeout=9,api_chunk_timeout=3,
-                                 parliament={'reviewer':{'model':'council','ctx_window':6000}})
+                                 parliament={'reviewer':{'model':'council'}})
         prepared=GameHost.prepare(cfg,runtime=self.experimental)
         actor=prepared.data['nations'][0];reviewer=actor['parliament']['reviewer']
-        self.assertEqual((reviewer['model'],reviewer['ctx_window']),('council',6000))
+        # 顶层 reviewer 不再覆盖 LLM 玩家：默认与玩家自己的模型/接入一致。
+        self.assertEqual(reviewer['model'],'fake')
         self.assertEqual((reviewer['api_timeout'],reviewer['api_chunk_timeout']),(9,3))
         self.assertEqual(reviewer['provider'],'anthropic')
+        explicit=deepcopy(cfg)
+        explicit['nations'][0]['parliament']={'reviewer':{'model':'council','ctx_window':6000}}
+        override=GameHost.prepare(explicit,runtime=self.experimental).data['nations'][0]['parliament']['reviewer']
+        self.assertEqual((override['model'],override['ctx_window']),('council',6000))
         rules=deepcopy(cfg);rules['nations'][0]['client']='rule'
         rule_review=GameHost.prepare(rules,runtime=self.experimental).data['nations'][0]['parliament']['reviewer']
         self.assertEqual(rule_review['api_timeout'],9)
         self.assertEqual(rule_review['api_key'],'synthetic-secret')
-        forced=GameHost.prepare(cfg,runtime=self.experimental,overrides={'ctx_window':16000})
+        forced=GameHost.prepare(explicit,runtime=self.experimental,overrides={'ctx_window':16000})
         self.assertEqual(forced.data['nations'][0]['parliament']['reviewer']['ctx_window'],16000)
 
     def test_errors_have_paths_and_never_echo_supplied_values(self):
@@ -111,7 +116,7 @@ class TestConfiguration(unittest.TestCase):
                 with self.assertRaises(ConfigError) as caught:GameHost.prepare(cfg,runtime=self.native)
                 self.assertIn('config.nations[0].'+key,str(caught.exception))
                 self.assertNotIn('synthetic-secret',str(caught.exception))
-        cfg=self.cfg();cfg['parliament']={'reviewer':{'max_steps':0}}
+        cfg=self.cfg();cfg['nations'][0]['parliament']={'reviewer':{'max_steps':0}}
         with self.assertRaisesRegex(ConfigError,r'parliament.reviewer.max_steps'):
             GameHost.prepare(cfg,runtime=self.experimental)
 

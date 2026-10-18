@@ -78,6 +78,8 @@ class CouncilService:
         self.review_cfg=normalize(reviewer,defaults=cfg)
         configure=getattr(self.presentation,'configure',None)
         if configure:self.review_cfg=configure(self.review_cfg,defaults=cfg)
+        # 失职检查的边界写在 requirements.md：只对本期可改变、君主可控的失误追责；
+        # 小国被大国吞并、被迫防守战争、实力不对称且不可预见的失败不得作为打回理由。
         self.requirements=settings.get('requirements',DEFAULT_REQUIREMENTS)
         if settings.get('requirements_file'):
             self.requirements=Path(settings['requirements_file']).read_text(encoding='utf-8')
@@ -399,9 +401,9 @@ class CouncilService:
             decision=self._government('decide',True,reason)
             decision['message']=self.ui.text('experimental.parliament_paralyzed')
             self._review_log('decision',decision,budget)
-            self.council['archive'].append({'kind':'review','period':obs_period,'assessment':assessment,
-                                           'decision':deepcopy(decision),'dialogue':deepcopy(dialogue),
-                                           'auto_approved_due_to_paralysis':True})
+            self.council['archive'].append({'kind':'review','period':obs_period,'model':self.review_cfg.get('model'),
+                                           'assessment':assessment,'decision':deepcopy(decision),
+                                           'dialogue':deepcopy(dialogue),'auto_approved_due_to_paralysis':True})
             self.council['last_plan']={'text':candidate,'period':obs_period,'approved':True,
                                        'state_at_submission':evidence_state(self.council['last_snapshot'])}
             self.council['trace_start']=len(self.council['archive'])
@@ -417,8 +419,8 @@ class CouncilService:
         if verdict is None:return paralysis_receipt(assessment)
         decision=self._government('decide',verdict['approved'],verdict['reason'])
         self._review_log('decision',decision,budget)
-        self.council['archive'].append({'kind':'review','period':obs_period,'assessment':assessment,
-                                       'decision':deepcopy(decision),'dialogue':deepcopy(dialogue)})
+        self.council['archive'].append({'kind':'review','period':obs_period,'model':self.review_cfg.get('model'),
+                                           'assessment':assessment,'decision':deepcopy(decision),'dialogue':deepcopy(dialogue)})
         self.council['last_plan']={'text':candidate,'period':obs_period,'approved':verdict['approved'],
                                    'state_at_submission':evidence_state(self.council['last_snapshot'])}
         self.council['trace_start']=len(self.council['archive'])
