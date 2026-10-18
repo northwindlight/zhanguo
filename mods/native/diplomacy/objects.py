@@ -7,6 +7,7 @@ from engine.building import integer
 from engine.identifiers import content_id
 from engine.runtime import ModError
 from engine.state import active_unit, freeze
+from .vassalage import Vassal, Vassalage
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,15 @@ class Offer:
 
 
 @dataclass(frozen=True)
+class OfferView(Offer):
+    response_actor: str | None = None
+    can_accept: bool = False
+    can_reject: bool = False
+    vote_ids: tuple = ()
+
+
+
+@dataclass(frozen=True)
 class Vote:
     id: int
     alliance: str
@@ -80,16 +90,22 @@ class DiplomaticSnapshot:
     votes: tuple
     pending: tuple
     results: tuple
+    vassals: tuple = ()
+    entity_members: tuple = ()
 
 
 PRIORITIES = {'accept_peace':10,'reject_peace':11,'offer_peace':12,
               'bloc_dissolve':20,'bloc_leave':21,'bloc_transfer':22,'bloc_rename':23,
               'bloc_found':24,'bloc_join':25,'cancel_guarantee':30,'break_defense':31,
-              'guarantee':32,'propose_defense':33,'reject_proposal':34,'accept_proposal':35,'declare_war':40}
+              'guarantee':32,'propose_defense':33,'reject_proposal':34,'accept_proposal':35,
+              'propose_vassalage':26,'submit_vassalage':27,'release_vassal':20,'independence_war':90,'declare_war':100}
 
 
-class Diplomacy:
-    def __init__(self, call, permits, fee=10, minimum_fee=1, name_max=12, fall_truce=10, *, found_fee=100):
+ENTITY_TARGET_ACTIONS=frozenset(('guarantee','cancel_guarantee','propose_defense','break_defense','declare_war','offer_peace'))
+
+class Diplomacy(Vassalage):
+    def __init__(self, call, permits, fee=10, minimum_fee=1, name_max=12, fall_truce=10, *, found_fee=100,
+                 ordinary_tribute=15):
         self._call,self._permits = call,permits
         self._fee,self._minimum,self._name_max,self._fall_truce = fee,minimum_fee,name_max,fall_truce
         self._found_fee=found_fee
@@ -97,6 +113,8 @@ class Diplomacy:
         self._offers,self._votes,self._approved,self._pending,self._results = [],[],[],[],[]
         self._next_command,self._next_offer,self._next_vote,self._next_war = 1,1,1,1
         self._effects = [];self._archive=[]
+        self._vassals={};self._subject_alliance=None
+        self._tribute_rates={'ordinary':ordinary_tribute}
         self._world,self._domain = None,None
 
     def bind_state(self, world, key):
@@ -114,7 +132,9 @@ class Diplomacy:
     def _membership_notice(self,bloc,*,formed=False):
         names='、'.join(self._call('native:nation-inspection','get',n).name for n in bloc.members)
         change='成立' if formed else '成员变更'
-        self._effects.append(('notice',f'联盟「{bloc.name}」{change}，成员：{names}。入盟成员的原个人保障/共同防御作废；个人休战在盟内暂停，退出后按原到期日恢复。',bloc.members,True))
+        tribute=(f' 剧本宗主联盟：其他成员自动成为特殊附庸，每期强制上交实际生产的{self._subject_alliance["tribute_percent"]}%，保留正常盟友权力。'
+                 if self._subject_alliance and bloc.chief==self._subject_alliance['overlord'] else '')
+        self._effects.append(('notice',f'联盟「{bloc.name}」{change}，成员：{names}。入盟成员的原个人保障/共同防御作废；个人休战在盟内暂停，退出后按原到期日恢复。'+tribute,bloc.members,True))
     def _cancel_founding(self,offer,reason):
         if offer not in self._offers:return
         self._offers.remove(offer)
@@ -124,7 +144,7 @@ class Diplomacy:
         for offer in tuple(self._offers):
             if offer.action!='found':continue
             args=dict(offer.arguments)
-            if any(n not in self._ids() or self.alliance(n) or not self._permits(n,'accept.bloc') for n in offer.parties):
+            if any(n not in self._ids() or self.alliance(n) or self.vassal(n) or not self._permits(n,'accept.bloc') for n in offer.parties):
                 self._cancel_founding(offer,'受邀国家的存续、联盟归属或入盟资格发生变化')
             elif any(self.at_war(n) for n in offer.parties):
                 self._cancel_founding(offer,'参与国家已处于战争中')
@@ -143,12 +163,14 @@ class Diplomacy:
         if actor not in self._ids():raise ValueError('该国已亡国或不存在')
     def alliance(self, actor):return next((b for b in self._alliances.values() if actor in b.members),None)
     def entity(self, actor):
-        self._living(actor);bloc=self.alliance(actor)
-        return 'bloc/'+bloc.id if bloc else 'nation/'+actor
+        self._living(actor);sovereign=self._sovereign(actor);bloc=self.alliance(sovereign)
+        return 'bloc/'+bloc.id if bloc else 'nation/'+sovereign
     def members(self, entity):
-        if entity.startswith('nation/'):return (entity[7:],) if entity[7:] in self._ids() else ()
+        if entity.startswith('nation/'):
+            actor=entity[7:]
+            return self._dependent_members((actor,)) if actor in self._ids() and self._sovereign(actor)==actor else ()
         bloc = self._alliances.get(entity[5:]) if entity.startswith('bloc/') else None
-        return bloc.members if bloc else ()
+        return self._dependent_members(bloc.members) if bloc else ()
     def representative(self, entity):
         if not self.members(entity):raise ValueError('这个外交实体已不存在（联盟可能已解散）：用 diplomacy 查询当前实体')
         return self._alliances[entity[5:]].chief if entity.startswith('bloc/') else entity[7:]
@@ -173,6 +195,8 @@ class Diplomacy:
         if not isinstance(name,str) or not 1<=len(name)<=self._name_max or any(c.isspace() for c in name):raise ValueError(f'联盟名非法：须为 1—{self._name_max} 个不含空白的字符')
         if any(b.name==name for b in self._alliances.values()):raise ValueError(f'联盟名「{name}」已被占用，换一个')
     def _policy(self, actor, action):
+        if not self.diplomatic_authority(actor) and action!='independence_war':
+            raise ValueError('普通附庸没有外交权；只能由宗主处理外交，或发动 independence_war 独立战争')
         if not self._permits(actor,'action.'+action):raise ValueError(f'本国政体禁用动作 {action}：见 player_rules 的政体章节')
     def _offer(self, action, actor, target, arguments, parties):
         if any(o.action==action and o.actor==actor and o.target==target and o.arguments==tuple(arguments.items()) for o in self._offers):raise ValueError('你已经发过一模一样的提议且尚未结算，不必重复提交')
@@ -186,7 +210,7 @@ class Diplomacy:
         return vote
     def _route(self, actor, action, arguments, approved, parties):
         bloc = self.alliance(actor)
-        if bloc and not approved:return self._vote(actor,action,arguments,bloc,parties)
+        if bloc and not approved:return self._vote(actor,action,self._target_arguments(action,arguments),bloc,parties)
         return None
     def _drop_entity_pacts(self, entity):
         dropped=[p for p in self._pacts if entity in (p.a,p.b)]
@@ -227,14 +251,23 @@ class Diplomacy:
 
     def _apply_accept_proposal(self, actor, offer: int, *, approved=False):
         integer(offer,1)
-        o=next((o for o in self._offers if o.id==offer and o.action in ('defense','found')),None)
+        o=next((o for o in self._offers if o.id==offer and o.action in ('defense','found','vassal','submission')),None)
         if o is None:raise ValueError('Offer does not exist')
         args=dict(o.arguments)
+        if o.action in ('vassal','submission'):
+            if self.entity(actor)!=o.target or actor!=self.representative(o.target):raise ValueError('不是附庸邀约的受邀国')
+            self._peaceful(self.entity(o.actor),self.entity(actor))
+            if o.action=='submission':
+                if self.entity(args['overlord'])!=o.target:raise ValueError('拟任宗主的外交实体已变化，请重新称臣')
+                routed=self._route(actor,'accept_proposal',{'offer':offer},approved,o.parties)
+                if routed:return routed
+            overlord,subject=(args['overlord'],o.actor) if o.action=='submission' else (o.actor,actor)
+            relation=self._establish_vassal(overlord,subject);self._offers.remove(o);return relation
         if o.action=='found':
             if actor not in o.parties or actor==o.actor or self.alliance(actor):raise ValueError('Not an eligible founding invitee')
             for n in o.parties:
                 self._living(n)
-                if self.alliance(n) or not self._permits(n,'accept.bloc'):raise ValueError('Founding party is no longer eligible')
+                if self.alliance(n) or self.vassal(n) or not self._permits(n,'accept.bloc'):raise ValueError('Founding party is no longer eligible')
             self._peaceful(*(self.entity(n) for n in o.parties))
             accepted=tuple(dict.fromkeys((*o.accepted,actor)))
             if set(accepted)|{o.actor}==set(o.parties):
@@ -256,7 +289,7 @@ class Diplomacy:
 
     def _apply_reject_proposal(self, actor, offer: int, *, approved=False):
         integer(offer,1)
-        o=next((o for o in self._offers if o.id==offer and o.action in ('defense','found')),None)
+        o=next((o for o in self._offers if o.id==offer and o.action in ('defense','found','vassal','submission')),None)
         if o is None:raise ValueError('Offer does not exist')
         if (actor not in o.parties if o.action=='found' else self.entity(actor)!=o.target):raise ValueError('Not a recipient of this offer')
         if o.action=='found':
@@ -280,11 +313,13 @@ class Diplomacy:
         if bloc in self._alliances or any(o.action=='found' and dict(o.arguments)['bloc']==bloc for o in self._offers):raise ValueError('Alliance ID already exists')
         for n in members:
             self._living(n)
+            if self.vassal(n):raise ValueError('附庸不能独立创盟；宗主可以带普通附庸加入联盟')
             if self.alliance(n) or not self._permits(n,'accept.bloc'):raise ValueError('Nation cannot found alliance')
         self._peaceful(*(self.entity(n) for n in members))
         return self._offer('found',actor,bloc,{'bloc':bloc,'name':name,'members':members},members)
 
     def _apply_bloc_join(self, actor, bloc: str, *, approved=False):
+        if self.vassal(actor):raise ValueError('附庸不能独立加入其他联盟，应由宗主加入')
         b=self._alliances.get(bloc)
         if b is None or self.alliance(actor) or not self._permits(actor,'accept.bloc'):raise ValueError('Cannot join alliance')
         self._peaceful(self.entity(actor),'bloc/'+bloc)
@@ -311,11 +346,15 @@ class Diplomacy:
 
     def _apply_bloc_transfer(self, actor, target, *, approved=False):
         b=self._chief(actor)
+        if self._subject_alliance and self._subject_alliance['lock_chief'] and actor==self._subject_alliance['overlord']:
+            raise ValueError('剧本指定宗主在世时不能移交特殊联盟盟主权力')
         if target not in b.members or target==actor:raise ValueError('Invalid successor')
         self._alliances[b.id]=replace(b,chief=target);return self._alliances[b.id]
 
     def _apply_bloc_rename(self, actor, name, *, approved=False):
         b=self._chief(actor);self._name(name)
+        if self._subject_alliance and actor==self._subject_alliance['overlord'] and name!=self._subject_alliance['name']:
+            raise ValueError('剧本宗主联盟名称固定，其盟友自动成为特殊附庸')
         self._alliances[b.id]=replace(b,name=name);return self._alliances[b.id]
 
     def _apply_bloc_dissolve(self, actor, *, approved=False):
@@ -373,7 +412,13 @@ class Diplomacy:
         original_a,original_b=(w.a,w.b) if actor in w.attackers else (w.b,w.a)
         if a!=original_a or b!=original_b or actor!=self.representative(a) or target!=self.representative(b):raise ValueError('Only war-leading entity representatives may negotiate')
         if kind=='white':gold=0
-        if kind not in ('white','pay','demand') or (kind!='white' and not gold) or (kind=='white' and gold):raise ValueError('Invalid peace terms')
+        if kind in ('submit','subjugate'):
+            if gold:raise ValueError('附庸和平不附带金钱赔款')
+            overlord,subject=(target,actor) if kind=='submit' else (actor,target)
+            self._validate_submission(overlord,subject,peace=True)
+            if any(old.id!=w.id and set(old.attackers+old.defenders)&set(self.members(a)+self.members(b)) for old in self._wars):
+                raise ValueError('须先结束其他战线，才能通过和约建立附庸关系')
+        elif kind not in ('white','pay','demand') or (kind!='white' and not gold) or (kind=='white' and gold):raise ValueError('Invalid peace terms')
         routed=self._route(actor,'offer_peace',{'target':target,'kind':kind,'gold':gold,'truce':truce,'note':note},approved,w.attackers+w.defenders)
         if routed:return routed
         return self._offer('peace',actor,b,{'war':w.id,'kind':kind,'gold':gold,'truce':truce,'note':note},w.attackers+w.defenders)
@@ -381,7 +426,9 @@ class Diplomacy:
     def _apply_accept_peace(self, actor, offer: int, *, approved=False):
         integer(offer,1)
         o=next((o for o in self._offers if o.id==offer and o.action=='peace'),None)
-        if o is None or self.entity(actor)!=o.target or actor!=self.representative(o.target):raise ValueError('Not the peace representative')
+        if o is None:raise ValueError('Offer does not exist')
+        if self.entity(actor)!=o.target or actor!=self.representative(o.target):
+            raise ValueError('只有受邀的战争代表可接受和谈；请查 foreign 中的 response_actor 与 vote_ids，联盟成员应通过 vote 表态')
         args=dict(o.arguments);w=next((w for w in self._wars if w.id==args['war']),None)
         if w is None:raise ValueError('War already ended')
         routed=self._route(actor,'accept_peace',{'offer':offer},approved,o.parties)
@@ -390,6 +437,11 @@ class Diplomacy:
             source,target=(o.actor,actor) if args['kind']=='pay' else (actor,o.actor)
             self._effects.append(('transfer',source,target,args['gold']))
         self._wars.remove(w);self._offers=[p for p in self._offers if not (p.action=='peace' and dict(p.arguments)['war']==w.id)]
+        if args['kind'] in ('submit','subjugate'):
+            overlord,subject=(actor,o.actor) if args['kind']=='submit' else (o.actor,actor)
+            self._peaceful(self.entity(overlord),self.entity(subject))
+            self._secede_for_submission(subject)
+            self._establish_vassal(overlord,subject)
         if args['truce']:
             for x in w.attackers:
                 for y in w.defenders:self._truce(self.entity(x),self.entity(y),self._period()+args['truce'])
@@ -399,28 +451,62 @@ class Diplomacy:
     def _apply_reject_peace(self, actor, offer: int, *, approved=False):
         integer(offer,1)
         o=next((o for o in self._offers if o.id==offer and o.action=='peace' and o.target==self.entity(actor)),None)
-        if o is None or actor!=self.representative(o.target):raise ValueError('Only the peace representative may reject this offer')
+        if o is None:raise ValueError('Offer does not exist')
+        if actor!=self.representative(o.target):
+            raise ValueError('只有受邀的战争代表可拒绝和谈；请查 foreign 中的 response_actor 与 vote_ids，联盟成员应通过 vote 表态')
         self._offers.remove(o);return o
 
     def _fork(self):
         draft=copy(self)
-        for name in ('_alliances','_pacts','_wars','_truces','_offers','_votes','_approved','_pending','_results'):
+        for name in ('_alliances','_vassals','_pacts','_wars','_truces','_offers','_votes','_approved','_pending','_results'):
             setattr(draft,name,deepcopy(getattr(self,name)))
         draft._effects=[];draft._archive=list(self._archive)
         return draft
 
+    def _target_entity(self, target):
+        if not isinstance(target,str) or not target:raise ValueError('外交目标须为国家键或外交实体键')
+        if target.startswith('bloc/'):
+            if target[5:] not in self._alliances:raise ValueError('联盟不存在或已解散；请用 foreign 查询当前外交实体')
+            return target
+        if target.startswith('nation/'):
+            nation=target[7:]
+            self._living(nation)
+            return self.entity(nation)
+        if target in self._alliances:
+            if target in self._ids():raise ValueError('目标键同时指向国家和联盟；请使用 bloc/联盟键 或 nation/国家键')
+            return 'bloc/'+target
+        if target in self._ids():return self.entity(target)
+        raise ValueError('外交目标不存在：请使用 foreign 中的国家键、联盟键或外交实体键')
+
+    def _target_arguments(self, action, arguments):
+        arguments=dict(arguments)
+        if 'target' not in arguments:return arguments
+        target=arguments['target']
+        if action in ENTITY_TARGET_ACTIONS:arguments['target']=self._target_entity(target)
+        else:
+            if isinstance(target,str) and (target.startswith('bloc/') or target in self._alliances and target not in self._ids()):
+                raise ValueError('此动作须指定具体国家键，不能使用联盟或其他外交实体键')
+            if isinstance(target,str) and target.startswith('nation/'):arguments['target']=target[7:]
+        return arguments
+
     def _dispatch(self, actor, action, arguments, *, approved=False):
         self._living(actor);self._policy(actor,action)
         if action not in PRIORITIES:raise ValueError('Unknown diplomatic action')
+        arguments=self._target_arguments(action,arguments)
+        if action in ENTITY_TARGET_ACTIONS and 'target' in arguments:
+            arguments['target']=self.representative(arguments['target'])
         method=getattr(self,'_apply_'+action)
         inspect.signature(method).bind(actor,**arguments,approved=approved)
-        return method(actor,**arguments,approved=approved)
+        result=method(actor,**arguments,approved=approved)
+        self._sync_subject_alliance()
+        return result
 
     def _cost(self, actor, action, arguments):
         if action in ('accept_proposal','reject_proposal','accept_peace','reject_peace'):return 0
         if action=='bloc_found':return self._found_fee
         if action in ('bloc_rename','bloc_transfer','bloc_dissolve'):return 0
         target=arguments.get('target')
+        if target and action in ENTITY_TARGET_ACTIONS:target=self.representative(self._target_entity(target))
         if target and self.allied(actor,target):return 0
         snapshot=self._call('native:buildings','snapshot')
         sites={s.id:s.owner for s in snapshot.sites}
@@ -436,6 +522,7 @@ class Diplomacy:
         self._write()
         if self._world is not None and self._world.phase!='行动':raise ValueError('Submit only during action phase')
         self._living(actor)
+        arguments=self._target_arguments(action,arguments)
         for c in self._pending:
             if (c.actor,c.action,c.arguments)==(actor,action,tuple(arguments.items())):return freeze(c)
         draft=self._fork();draft._dispatch(actor,action,arguments)
@@ -443,7 +530,9 @@ class Diplomacy:
         stocks={s.id:s.amount for s in self._call('native:resource-inspection','snapshot',actor)}
         currency=self._currency()
         if fee>0 and stocks.get(currency,0)<fee:raise ValueError('Insufficient cash for diplomatic fee')
-        targets=[actor]+([arguments['target']] if arguments.get('target') else [])
+        target=arguments.get('target')
+        if target and action in ENTITY_TARGET_ACTIONS:target=self.representative(target)
+        targets=[actor]+([target] if target else [])
         if action=='bloc_found':targets.extend(arguments['tos'])
         if arguments.get('offer'):
             targets.extend(n for o in self._offers if o.id==arguments['offer'] for n in o.parties)
@@ -454,15 +543,24 @@ class Diplomacy:
         self._next_command+=1;self._pending.append(command)
         return freeze(command)
 
+    def _private_vote(self, vote, actor):
+        """Only the viewer's ballot is visible until the scheduled tally."""
+        bloc=self._alliances[vote.alliance]
+        return freeze(replace(vote,voters=bloc.members,
+                              ballots=tuple((n,choice) for n,choice in vote.ballots if n==actor)))
+
     def vote(self, actor, vote: int, accept: bool):
         self._write();self._living(actor);integer(vote,1)
+        self._policy(actor,'vote')
         if accept is not None and type(accept) is not bool:raise ValueError('Vote requires true, false or null (abstain)')
         v=next((v for v in self._votes if v.id==vote),None)
         bloc=self._alliances.get(v.alliance) if v else None
         if v is None or bloc is None or actor not in bloc.members or self._period()!=v.deadline:raise ValueError('Vote is unavailable this period')
         ballots={n:choice for n,choice in v.ballots if n in bloc.members}
-        ballots[actor]=accept;self._votes[self._votes.index(v)]=replace(v,voters=bloc.members,ballots=tuple(ballots.items()))
-        return freeze(self._votes[self._votes.index(v)]) if v in self._votes else freeze(replace(v,voters=bloc.members,ballots=tuple(ballots.items())))
+        ballots[actor]=accept
+        updated=replace(v,voters=bloc.members,ballots=tuple(ballots.items()))
+        self._votes[self._votes.index(v)]=updated
+        return self._private_vote(updated,actor)
 
     def finish(self, actor):
         """结束本国行动：未回应的已送达邀约拒绝，开放表决默认反对。"""
@@ -484,23 +582,28 @@ class Diplomacy:
             if answered:continue
             action='reject_peace' if offer.action=='peace' else 'reject_proposal'
             reason=f'{self._label(self.entity(actor))}回合结束时未回应提议#{offer.id}，自动拒绝'
-            if offer.action=='found':self._cancel_founding(offer,reason)
-            else:
-                self._offers.remove(offer)
-                self._effects.append(('notice',reason+'。',offer.parties,False))
-            command=Command(self._next_command,actor,action,(('offer',offer.id),),period,0,
-                tuple((n,self.entity(n)) for n in offer.parties))
-            self._next_command+=1;self._result(command,'effective',reason)
+            command=self.submit(actor,action,offer=offer.id)
+            for index,pending in enumerate(self._pending):
+                if pending.id==command.id:self._pending[index]=replace(pending,message=reason)
             offers.append(offer.id)
         for vote in tuple(self._votes):
             bloc=self._alliances.get(vote.alliance)
             if vote.deadline!=period or not bloc or actor not in bloc.members or actor in dict(vote.ballots):continue
             self.vote(actor,vote.id,False);votes.append(vote.id)
-            self._effects.append(('notice',f'{self._label("nation/"+actor)}回合结束时未回应表决#{vote.id}，自动投反对票。',bloc.members,False))
         return {'offers':offers,'votes':votes}
 
     def _result(self, c, status, message):
+        # An internal proposal or failed declaration is not a notice to its target.
+        if message=='Vote opened; treaty pending' or c.action=='declare_war' and status!='effective':
+            bloc=self.alliance(c.actor)
+            audience=bloc.members if bloc else (c.actor,)
+            c=replace(c,entities=tuple((n,self.entity(n)) for n in audience if n in self._ids()))
         result=replace(c,status=status,message=message);self._results.append(result);return result
+
+    def _vote_audience(self, vote):
+        bloc=self._alliances.get(vote.alliance)
+        voters=bloc.members if bloc else vote.voters
+        return tuple((n,self.entity(n) if n in self._ids() else 'nation/'+n) for n in voters)
 
     def _vote_entities(self, vote):
         bloc=self._alliances.get(vote.alliance)
@@ -519,9 +622,29 @@ class Diplomacy:
         for v in self._votes+self._approved:
             if not all_kinds and v.action in ('declare_war','offer_peace','accept_peace'):kept.append(v)
             else:
-                c=Command(self._next_command,v.actor,'vote:'+v.action,v.arguments,self._period(),0,self._vote_entities(v))
+                c=Command(self._next_command,v.actor,'vote:'+v.action,v.arguments,self._period(),0,self._vote_audience(v))
                 self._next_command+=1;self._result(c,'cancelled','Vote invalidated by war or forced peace')
         self._votes=[v for v in kept if v in self._votes];self._approved=[v for v in kept if v in self._approved]
+
+    def _reject_external_request(self, vote, bloc):
+        """Reply to an existing inter-entity request, without publishing the ballot."""
+        if bloc is None:return None
+        if vote.action in ('accept_proposal','accept_peace'):
+            offer=next((o for o in self._offers if o.id==dict(vote.arguments).get('offer')),None)
+            if offer is None:return None
+            action='reject_peace' if vote.action=='accept_peace' else 'reject_proposal'
+            actor=bloc.chief
+            participants=tuple(dict.fromkeys((*self.members(self.entity(offer.actor)),*self.members('bloc/'+bloc.id))))
+            command=Command(self._next_command,actor,action,(('offer',offer.id),),self._period(),0,
+                            tuple((n,self.entity(n)) for n in participants))
+            self._next_command+=1;self._pending.append(command)
+        elif vote.action in ('bloc_join','submit_vassalage') and vote.actor not in bloc.members:
+            participants=tuple(dict.fromkeys((*self.members(self.entity(vote.actor)),*self.members('bloc/'+bloc.id))))
+            command=Command(self._next_command,vote.actor,vote.action,vote.arguments,self._period(),0,
+                            tuple((n,self.entity(n)) for n in participants))
+            self._next_command+=1
+            return self._result(command,'failed',f'{self._label("bloc/"+bloc.id)}拒绝了{self._label(self.entity(vote.actor))}的入盟申请。')
+        return None
 
     def tally(self):
         self._write();results=[]
@@ -529,19 +652,35 @@ class Diplomacy:
             if v.deadline>self._period():continue
             self._votes.remove(v);bloc=self._alliances.get(v.alliance)
             valid=bloc is not None and v.actor in self._ids()
-            yes=sum(value is True and n in bloc.members for n,value in v.ballots) if bloc else 0
-            no=sum(value is False and n in bloc.members for n,value in v.ballots) if bloc else 0
+            voters=bloc.members if bloc else v.voters
+            submitted=dict(v.ballots)
+            ballots={n:submitted[n] for n in voters if n in submitted}
+            yes=sum(choice is True for choice in ballots.values())
+            no=sum(choice is False for choice in ballots.values())
+            abstain=sum(choice is None for choice in ballots.values())
+            details={'type':'alliance_vote','id':v.id,'alliance':v.alliance,'actor':v.actor,
+                     'action':v.action,'arguments':dict(v.arguments),'voters':list(voters),
+                     'ballots':ballots,'yes':yes,'no':no,'abstain':abstain,
+                     'status':'passed' if valid and yes>no else 'rejected' if valid else 'cancelled'}
+            self._effects.append(('vote_result',details,tuple(voters)))
             if valid and yes>no:self._approved.append(v)
             else:
-                c=Command(self._next_command,v.actor,'vote:'+v.action,v.arguments,self._period(),0,self._vote_entities(v))
+                c=Command(self._next_command,v.actor,'vote:'+v.action,v.arguments,self._period(),0,self._vote_audience(v))
                 self._next_command+=1;results.append(self._result(c,'failed' if valid else 'cancelled','Vote rejected or invalidated'))
+                if valid:
+                    reply=self._reject_external_request(v,bloc)
+                    if reply is not None:results.append(reply)
         return tuple(freeze(r) for r in results)
 
     def resolve(self):
         self._write();effects=list(self._effects);self._effects=[];results=[]
+        rule=self._subject_alliance
+        # Simultaneous applications to a previously independent scenario
+        # overlord are co-founders, not late applicants to the first one's bloc.
+        founding_target=(rule['overlord'] if rule and rule['auto_accept'] and not self.alliance(rule['overlord']) else None)
         tasks=[(PRIORITIES[c.action],c.actor,c.id,c,False,None) for c in self._pending]
         for v in self._approved:
-            actor=v.actor if v.action=='bloc_join' else self._alliances[v.alliance].chief if v.alliance in self._alliances else v.actor
+            actor=v.actor if v.action in ('bloc_join','submit_vassalage','propose_vassalage','release_vassal') else self._alliances[v.alliance].chief if v.alliance in self._alliances else v.actor
             c=Command(self._next_command,actor,v.action,v.arguments,self._period(),0,self._vote_entities(v))
             self._next_command+=1;tasks.append((PRIORITIES[v.action],v.actor,c.id,c,True,v.alliance))
         self._pending=[];self._approved=[]
@@ -550,12 +689,26 @@ class Diplomacy:
                 if approved:
                     bloc=self._alliances.get(bloc_id)
                     if bloc is None:raise ValueError('Alliance dissolved before approved action could execute')
-                    if c.action!='bloc_join':c=replace(c,actor=bloc.chief)
-                if not approved and any(n not in self._ids() or self.entity(n)!=entity for n,entity in c.entities):raise ValueError('Party or diplomatic entity changed')
-                draft=self._fork();outcome=draft._dispatch(c.actor,c.action,dict(c.arguments),approved=approved)
+                    if c.action in ('propose_vassalage','release_vassal') and c.actor not in bloc.members:raise ValueError('提案宗主已退出联盟')
+                    if c.action not in ('bloc_join','submit_vassalage','propose_vassalage','release_vassal'):c=replace(c,actor=bloc.chief)
+                cofounder=(c.action=='submit_vassalage' and dict(c.arguments).get('target')==founding_target
+                    and dict(c.entities).get(founding_target)=='nation/'+str(founding_target))
+                target_entity=dict(c.arguments).get('target') if c.action in ENTITY_TARGET_ACTIONS else None
+                # Entity targets follow their current representative, even if the old chief left.
+                if not approved and any((n not in self._ids() or self.entity(n)!=entity)
+                    and not (target_entity==entity and n!=c.actor)
+                    and c.action!='declare_war'
+                    and not (cofounder and n==founding_target and self.representative(self.entity(n))==n)
+                    for n,entity in c.entities):raise ValueError('Party or diplomatic entity changed')
+                draft=self._fork();outcome=draft._dispatch(c.actor,c.action,dict(c.arguments),approved=approved or cofounder)
+                if isinstance(outcome,War):
+                    c=replace(c,entities=tuple((n,draft.entity(n)) for n in dict.fromkeys(outcome.attackers+outcome.defenders)))
                 draft._cancel_invalid_foundings()
                 operations=[]
                 for effect in draft._effects:
+                    if effect[0]=='charge':
+                        _,source,amount=effect
+                        operations.append({'owner':source,'debits':{self._currency():amount},'credits':{}})
                     if effect[0]=='transfer':
                         _,source,target,amount=effect
                         cash={s.id:s.amount for s in self._call('native:resource-inspection','snapshot',source)}.get(self._currency(),0)
@@ -563,7 +716,7 @@ class Diplomacy:
                         operations.extend(({'owner':source,'debits':{self._currency():amount},'credits':{}},
                                            {'owner':target,'debits':{},'credits':{self._currency():amount}}))
                 if operations:self._call('native:resource-exchange','exchange_batch',operations)
-                for name in ('_alliances','_pacts','_wars','_truces','_offers','_votes','_approved','_results','_next_command','_next_offer','_next_vote','_next_war'):
+                for name in ('_alliances','_vassals','_pacts','_wars','_truces','_offers','_votes','_approved','_results','_next_command','_next_offer','_next_vote','_next_war'):
                     setattr(self,name,getattr(draft,name))
                 effects.extend(draft._effects)
                 if isinstance(outcome,Vote):message='Vote opened; treaty pending'
@@ -571,6 +724,9 @@ class Diplomacy:
                 elif isinstance(outcome,Offer) and c.action=='accept_proposal':message='Founding acceptance recorded; other invitees pending'
                 elif isinstance(outcome,Offer):message='Offer opened; acceptance pending'
                 else:message='Diplomatic action applied'
+                if c.message:
+                    message=c.message
+                    effects.append(('notice',message+'。',tuple(n for n,_ in c.entities),False))
                 results.append(self._result(c,'effective',message))
             except (ValueError,KeyError,TypeError) as exc:
                 if c.fee:self._call('native:resource-exchange','exchange',c.actor,{}, {self._currency():c.fee})
@@ -612,6 +768,8 @@ class Diplomacy:
             members=tuple(n for n in bloc.members if n!=owner)
             if len(members)<2:self._drop_entity_pacts('bloc/'+bloc.id);del self._alliances[bloc.id]
             else:self._alliances[bloc.id]=replace(bloc,members=members,chief=members[0] if bloc.chief==owner else bloc.chief)
+        self._vassals={n:s for n,s in self._vassals.items() if owner not in (s.subject,s.overlord)}
+        self._sync_subject_alliance()
         self._wars=[];self._void_pending(True)
         survivors=[n for n in self._ids() if n!=owner]
         if ended_participants:self._call('native:territory','snapshot_cores',ended_participants)
@@ -619,14 +777,32 @@ class Diplomacy:
             for b in survivors[i+1:]:self._truce(self.entity(a),self.entity(b),self._period()+self._fall_truce)
         return tuple(survivors)
 
+    def _offer_view(self, offer, actor):
+        recipient=self.representative(offer.target) if self.members(offer.target) else None
+        authority=self.diplomatic_authority(actor)
+        received=recipient is not None and self.entity(actor)==offer.target
+        if offer.action=='peace':received=received and actor==recipient
+        if offer.action=='found':
+            recipient=actor if actor in offer.parties and actor!=offer.actor else None
+            accept=recipient is not None and actor not in offer.accepted
+            reject=actor in offer.parties
+        else:accept=reject=received
+        votes=tuple(v.id for v in self._votes if actor in v.voters
+                    and dict(v.arguments).get('offer')==offer.id
+                    and v.action in ('accept_proposal','accept_peace'))
+        if votes:accept=False
+        return freeze(OfferView(**asdict(offer),response_actor=recipient,
+                               can_accept=bool(accept and authority),can_reject=bool(reject and authority),vote_ids=votes))
+
     def snapshot(self, actor):
         self._living(actor)
         return DiplomaticSnapshot(tuple(self._alliances.values()),tuple(self._pacts),tuple(self._wars),
             tuple((a,b,until) for (a,b),until in sorted(self._truces.items()) if until>self._period() and a in self.entities() and b in self.entities()),
-            tuple(freeze(o) for o in self._offers if actor in o.parties),
-            tuple(freeze(replace(v,voters=self._alliances[v.alliance].members)) for v in self._votes if v.alliance in self._alliances and actor in self._alliances[v.alliance].members),
+            tuple(self._offer_view(o,actor) for o in self._offers if actor in o.parties),
+            tuple(self._private_vote(v,actor) for v in self._votes if v.alliance in self._alliances and actor in self._alliances[v.alliance].members),
             tuple(freeze(c) for c in self._pending if c.actor==actor),
-            tuple(freeze(c) for c in self._results if c.actor==actor or actor in dict(c.entities)))
+            tuple(freeze(c) for c in self._results if c.actor==actor or actor in dict(c.entities)),tuple(self._vassals.values()),
+            tuple((entity,self.members(entity)) for entity in self.entities()))
 
     def to_save(self):
         def command(c):return {'id':c.id,'actor':c.actor,'action':c.action,'arguments':dict(c.arguments),
@@ -634,6 +810,7 @@ class Diplomacy:
         def vote(v):return {'id':v.id,'alliance':v.alliance,'actor':v.actor,'action':v.action,'arguments':dict(v.arguments),
             'voters':list(v.voters),'ballots':dict(v.ballots),'deadline':v.deadline,'parties':list(v.parties)}
         return {'alliances':[{'id':b.id,'name':b.name,'members':list(b.members),'chief':b.chief} for b in self._alliances.values()],
+            'vassals':[asdict(s) for s in self._vassals.values()],'subject_alliance':deepcopy(self._subject_alliance),
             'pacts':[{'kind':p.kind,'a':p.a,'b':p.b} for p in self._pacts],
             'wars':[{'id':w.id,'a':w.a,'b':w.b,'attackers':list(w.attackers),'defenders':list(w.defenders)} for w in self._wars],
             'truces':[{'a':a,'b':b,'until':until} for (a,b),until in sorted(self._truces.items())],
@@ -645,10 +822,10 @@ class Diplomacy:
 
     def restore(self, data):
         self._write()
-        expected={'alliances','pacts','wars','truces','offers','votes','approved','pending','results','next_command','next_offer','next_vote','next_war'}
+        expected={'alliances','vassals','subject_alliance','pacts','wars','truces','offers','votes','approved','pending','results','next_command','next_offer','next_vote','next_war'}
         if not isinstance(data,dict) or set(data)!=expected:raise ValueError('Invalid diplomacy save')
         draft=self._fork()
-        for key in expected-{'next_command','next_offer','next_vote','next_war'}:
+        for key in expected-{'next_command','next_offer','next_vote','next_war','subject_alliance'}:
             if not isinstance(data[key],list):raise ValueError('Invalid diplomacy records')
         def fields(row, expected):
             if not isinstance(row,dict) or set(row)!=set(expected):raise ValueError('Invalid diplomacy record fields')
@@ -662,6 +839,31 @@ class Diplomacy:
             members=nations(row['members']);draft._name(row['name'])
             if row['id'] in draft._alliances or row['chief'] not in members or occupied.intersection(members):raise ValueError('Invalid alliance membership')
             occupied.update(members);draft._alliances[row['id']]=Alliance(row['id'],row['name'],members,row['chief'])
+        rule=data['subject_alliance']
+        if rule is not None:
+            fields(rule,('overlord','bloc','name','tribute_percent','found_fee','auto_accept','forbid_subjection','lock_chief'));content_id(rule['overlord']);content_id(rule['bloc'])
+            if (not isinstance(rule['name'],str) or not rule['name'] or type(rule['tribute_percent']) is not int
+                or not 0<=rule['tribute_percent']<=100 or type(rule['found_fee']) is not int or rule['found_fee']<0
+                or any(type(rule[k]) is not bool for k in ('auto_accept','forbid_subjection','lock_chief'))):raise ValueError('Invalid subject alliance')
+        if self._subject_alliance is not None and rule!=self._subject_alliance:raise ValueError('Subject alliance policy differs')
+        draft._subject_alliance=deepcopy(rule);draft._vassals={}
+        for row in data['vassals']:
+            fields(row,('subject','overlord','kind','tribute_percent'));relation=Vassal(**row)
+            self._living(relation.subject);self._living(relation.overlord)
+            if rule and rule['forbid_subjection'] and relation.subject==rule['overlord']:raise ValueError('Protected scenario overlord cannot become a vassal')
+            if (relation.subject==relation.overlord or relation.subject in draft._vassals
+                or relation.kind not in ('ordinary','tributary') or type(relation.tribute_percent) is not int
+                or relation.tribute_percent!=(self._tribute_rates['ordinary'] if relation.kind=='ordinary' else rule['tribute_percent'] if rule else None)):raise ValueError('Invalid vassal relation')
+            draft._vassals[relation.subject]=relation
+        for relation in draft._vassals.values():
+            seen={relation.subject};cursor=relation.overlord
+            while cursor in draft._vassals:
+                if cursor in seen:raise ValueError('Cyclic vassalage is forbidden')
+                seen.add(cursor);cursor=draft._vassals[cursor].overlord
+            if relation.overlord in draft._vassals:raise ValueError('A vassal cannot retain its own vassals')
+            if relation.kind=='ordinary' and draft.alliance(relation.subject):raise ValueError('Ordinary vassals cannot vote as direct alliance members')
+        before=dict(draft._vassals);before_blocs=dict(draft._alliances);draft._sync_subject_alliance()
+        if draft._vassals!=before or draft._alliances!=before_blocs:raise ValueError('Subject alliance membership differs from its tributaries')
         draft._pacts=[]
         for row in data['pacts']:
             fields(row,('kind','a','b'));p=Pact(**row)
@@ -683,7 +885,7 @@ class Diplomacy:
         draft._offers=[]
         for row in data['offers']:
             fields(row,('id','action','actor','target','arguments','parties','accepted'));integer(row['id'],1);self._living(row['actor'])
-            if row['action'] not in ('found','defense','peace') or not isinstance(row['arguments'],dict):raise ValueError('Invalid offer action')
+            if row['action'] not in ('found','defense','peace','vassal','submission') or not isinstance(row['arguments'],dict):raise ValueError('Invalid offer action')
             parties=nations(row['parties'])
             if not isinstance(row['accepted'],list) or len(set(row['accepted']))!=len(row['accepted']) or set(row['accepted'])-set(parties):raise ValueError('Invalid accepted members')
             args=deepcopy(row['arguments'])
@@ -712,7 +914,7 @@ class Diplomacy:
             integer(data[next_key],1)
             if len({r.id for r in group})!=len(group) or any(r.id>=data[next_key] for r in group):raise ValueError('Invalid diplomacy sequence')
             setattr(draft,'_'+next_key,data[next_key])
-        for name in ('_alliances','_pacts','_wars','_truces','_offers','_votes','_approved','_pending','_results','_next_command','_next_offer','_next_vote','_next_war'):
+        for name in ('_alliances','_vassals','_subject_alliance','_pacts','_wars','_truces','_offers','_votes','_approved','_pending','_results','_next_command','_next_offer','_next_vote','_next_war'):
             setattr(self,name,getattr(draft,name))
 
         self._archive=[]

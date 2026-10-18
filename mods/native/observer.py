@@ -36,9 +36,9 @@ class NativeObserver:
             if flow_period>=0:
                 for valued in self.world.economy.facts(flow_period):
                     fact=valued.fact
-                    if fact.period!=flow_period or fact.category not in ('production','military'):continue
+                    if fact.period!=flow_period or fact.category not in ('production','military','tribute'):continue
                     for resource,amount in fact.outputs:
-                        if fact.category=='production':flows[fact.owner][resource]+=amount
+                        if fact.category in ('production','tribute'):flows[fact.owner][resource]+=amount
                     for resource,amount in fact.inputs:flows[fact.owner][resource]-=amount
             size,_=self.grid();buildings=defaultdict(list)
             for instance in wire(self.world.buildings.snapshot())['instances']:
@@ -51,6 +51,7 @@ class NativeObserver:
                         'owner':cell['owner'],'resources':cell['resources'],
                         'buildings':buildings[cell['tile']['id']]})
             diplomacy=wire(self.world.diplomacy.to_save())
+            diplomacy['entity_members']=wire(tuple((entity,self.world.diplomacy.members(entity)) for entity in self.world.diplomacy.entities()))
             glyphs={key:(value.get('glyph') if isinstance(value,dict) else getattr(value,'glyph',None))
                     for key,value in self.runtime.content.definitions()}
             glyphs={key:glyph for key,glyph in glyphs.items() if glyph}

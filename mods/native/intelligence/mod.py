@@ -24,6 +24,12 @@ class IntelligenceMod(GameMod):
         results,facts=world.intelligence.resolve();context['dispatch_results']=results;context.setdefault('economic_records',[]).extend(facts)
     @staticmethod
     def _events(world, context):
+        tribute={}
+        for source,target,resource,amount in getattr(context.get('building_production'),'transfers',()):
+            tribute.setdefault((source,target),{})[resource]=amount
+        for (source,target),resources in tribute.items():
+            world.intelligence.emit('tribute',f'{source} 向 {target} 上贡，已强制结算。',
+                parties=(source,target),details={'source':source,'target':target,'resources':resources})
         for c in context.get('vote_results',()):world.intelligence.emit('diplomacy',c.message,parties=tuple(n for n,_ in c.entities)+(c.actor,))
         for c in context.get('diplomacy_results',()):
             public=c.status=='effective' and c.message=='Diplomatic action applied' and c.action in ('declare_war','accept_peace','accept_proposal','guarantee','cancel_guarantee','break_defense','bloc_leave','bloc_dissolve','bloc_rename','bloc_transfer')
@@ -32,6 +38,14 @@ class IntelligenceMod(GameMod):
             world.intelligence.emit('diplomacy',c.message,parties=tuple(n for n,_ in c.entities)+(c.actor,),
                 public=public,details=details)
         for effect in context.get('diplomacy_effects',()):
+            if effect[0]=='vote_result':
+                details=effect[1]
+                choices='、'.join(f'{actor}：'+('弃权' if choice is None else '赞成' if choice else '反对')
+                                 for actor,choice in details['ballots'].items())
+                outcome={'passed':'通过','rejected':'否决','cancelled':'作废'}[details['status']]
+                world.intelligence.emit('diplomacy',
+                    f'联盟表决#{details["id"]}开票：{choices}；赞成{details["yes"]}、反对{details["no"]}、弃权{details["abstain"]}，{outcome}。',
+                    parties=effect[2],details=details)
             if effect[0]=='notice':world.intelligence.emit('diplomacy',effect[1],parties=effect[2],public=effect[3],
                 details={'importance':'major'} if effect[3] else None)
         for owner,resource,quantity,loss in context.get('market_churn',()):world.intelligence.emit('market',f'{resource} 本期买卖重叠空转{quantity}单位，按成交均价折算净亏{loss:g}金（负值为获利）——同商品又买又卖＝白付两趟价差并自己推价，要买就直接买、要卖就直接卖。',parties=(owner,))

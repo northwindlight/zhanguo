@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from engine.identifiers import content_id
 from engine.resource import Resource
 
-CATEGORIES = ('production','construction','import','export','recruit','military','administration')
+CATEGORIES = ('production','construction','import','export','recruit','military','administration','tribute')
 
 
 def integer(value, minimum=0):
@@ -109,6 +109,8 @@ class TurnReport:
     cumulative_spending: Money
     liabilities: int = 0
     net_assets: Money = Money()
+    tribute_paid: Money = Money()
+    tribute_received: Money = Money()
 
 
 @dataclass(frozen=True)
@@ -133,6 +135,8 @@ class PeriodReport:
     military_ratio: float | None
     liabilities: int = 0
     net_assets: Money = Money()
+    tribute_paid: Money = Money()
+    tribute_received: Money = Money()
 
 
 @dataclass(frozen=True)

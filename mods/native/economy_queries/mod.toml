@@ -1,18 +1,19 @@
 [Mod]
 Id = "native:economy-queries"
-Version = "1.6.0"
+Version = "1.7.0"
 Entry = "mods.native.economy_queries.mod:QueriesMod"
 Requires = ["native:resources", "native:buildings", "native:market", "native:economy"]
 
 [Capabilities]
 Needs = ["native:resource-inspection", "native:buildings", "native:market", "native:economy", "economy:valuation"]
-Optional = ["native:army"]
+Optional = ["native:army", "native:diplomacy"]
 Provides = ["economy:queries"]
 
 [Interfaces]
 "native:resource-inspection" = ["owners", "snapshot"]
 "native:buildings" = ["replacement_costs", "demand_preview"]
 "native:army" = ["supply_preview"]
+"native:diplomacy" = ["snapshot"]
 "native:economy" = ["reports", "turns", "production"]
 "native:market" = ["summary", "quote", "buy", "sell", "equilibrium", "trials"]
 "economy:valuation" = ["quote"]

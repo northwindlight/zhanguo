@@ -31,6 +31,8 @@ def snapshot(observation):
     glyphs=facts.get('glyphs') or glyphs;role_kinds=facts.get('role_kinds') or role_kinds
     return {'version':'zhanguo.ui.map/1','actor':observation['actor'],'period':observation['period'],
             'tiles':tiles,'armies':armies,'alliances':deepcopy(diplomacy.get('alliances',[])),
+            'vassals':deepcopy(diplomacy.get('vassals',[])),
+            'entity_members':deepcopy(diplomacy.get('entity_members',[])),
             'wars':deepcopy(diplomacy.get('wars',[])),'glyphs':glyphs,'role_kinds':role_kinds}
 
 
@@ -40,6 +42,7 @@ def side(state,owner):
     for war in state['wars']:
         if (actor in war['attackers'] and owner in war['defenders']) or (actor in war['defenders'] and owner in war['attackers']):return 'enemy'
     if any(actor in a['members'] and owner in a['members'] for a in state['alliances']):return 'ally'
+    if any(actor in members and owner in members for _,members in state.get('entity_members',[])):return 'ally'
     return 'neutral'
 
 

@@ -212,6 +212,29 @@ class TestObserver(unittest.TestCase):
             self.assertEqual(text.count(name),1)
         self.assertEqual(receipt,h.player(actor).submit('building_sites'))
 
+    def test_llm_finish_reports_full_elapsed_time_once_after_final_batch(self):
+        h=GameHost.new({'map_size':12,'seed':17,'nations':[{'id':'s:q','name':'秦','client':'llm'}]})
+        clock=[100.0]
+        class TimedBackend(FakeBackend):
+            def chat_turn(self,*args,**kwargs):
+                clock[0]+=12.0
+                return super().chat_turn(*args,**kwargs)
+        backend=TimedBackend([
+            {'content':'','tool_calls':[call('p','plan',text='经营实际生产并保持国家独立')]},
+            {'content':'','tool_calls':[call('e','end_turn',summary='完成本期行动')]}])
+        h.clients['s:q']=LLMClient({'ctx_compact':'off'},backend=backend)
+        with tempfile.TemporaryDirectory() as folder,contextlib.redirect_stdout(io.StringIO()) as screen,patch('mp_run.time.monotonic',side_effect=lambda:clock[0]):
+            observer=Observer(h,Path(folder)/'journal.md')
+            h.cycle(on_result=observer.result,head=observer.context_head,on_call=observer.on_call)
+            journal=observer.path.read_text()
+        for output in (journal,screen.getvalue()):
+            self.assertEqual(output.count('第 0 回合 · 秦 行动'),1)
+            self.assertEqual(output.count('秦 行动结束'),1)
+            self.assertIn('用时 24.0 秒',output)
+            self.assertNotIn('用时 0.0 秒',output)
+            self.assertLess(output.index('第 2 次调用'),output.index('◇ 结束回合'))
+            self.assertLess(output.index('◇ 结束回合'),output.index('秦 行动结束'))
+
     def test_observer_writes_each_receipt_once_and_keeps_action_history(self):
         h=GameHost.new({'map_size':12,'seed':17,'nations':[{'id':'s:q','name':'秦','client':'llm'}]})
         fake=FakeBackend([{'content':'','tool_calls':[

@@ -43,6 +43,8 @@ class TestReviewRepairs(unittest.TestCase):
                     result = h.player(C).call_api('native:government', 'end_turn', summary='完成本期实际经营')
                     self.assertTrue(result['ok'], result)
                     self.assertEqual(result['data']['auto_rejected']['offers'], [offer])
+                    self.assertTrue(h.player(C).call_api('native:diplomacy', 'snapshot')['offers'])
+                    h.cycle()
                     self.assertFalse(h.player(C).call_api('native:diplomacy', 'snapshot')['offers'])
 
     def test_echoing_effective_plan_after_rejection_does_not_review_again(self):
@@ -65,6 +67,8 @@ class TestReviewRepairs(unittest.TestCase):
         self.assertTrue(p.submit('script', {'action': 'write', 'source': source})['ok'])
         result = p.submit('script', {'action': 'run'})
         self.assertTrue(result['ok'], result)
+        self.assertTrue(p.call_api('native:diplomacy', 'snapshot')['offers'])
+        h.cycle()
         self.assertFalse(p.call_api('native:diplomacy', 'snapshot')['offers'])
         ends = [r for r in h.audit if r['actor'] == C and r['action'] == 'end_turn']
         self.assertEqual(ends[-1]['receipt']['data']['auto_rejected']['offers'], [offer])

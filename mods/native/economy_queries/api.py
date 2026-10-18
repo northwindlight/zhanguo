@@ -29,7 +29,9 @@ class EconomyAPI:
         if kind is None:
             return tuple(self.estimate(actor, key, level, other_slots) for key in sorted(self.queries.building_types()))
         policy = self.world.runtime.parameter(self.world, actor, 'build_cost_pct', 100)
-        return self.queries.estimate(kind, level, other_slots, policy_pct=policy)
+        relation=(next((s for s in self.world.runtime.object_call(self.world,'native:diplomacy','snapshot',actor).vassals if s.subject==actor),None)
+                  if 'native:diplomacy' in self.world.runtime.capabilities else None)
+        return self.queries.estimate(kind, level, other_slots, policy_pct=policy,tribute_pct=relation.tribute_percent if relation else 0)
 
     def market(self, actor):
         return self.queries.market()

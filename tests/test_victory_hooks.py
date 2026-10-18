@@ -8,6 +8,8 @@ import io
 import json
 
 from engine.runtime import ModError
+from engine.runtime import Runtime, Unit
+from engine.scenario_mod import ScenarioMod
 from host import GameHost,SaveFormatError
 from scenarios.eight_nations import build,build_config,IDS,NATIONS,CHARTER
 from tests import test_session_api as counter
@@ -23,6 +25,14 @@ class CounterVictory:
         if self.world.counter.period==2:
             self.trigger({'festival':'计数庆典','awards':{'counter:left':{'stars':7}},
                           'totals':dict(self.world.counter.rows)})
+
+
+class CounterScenarioMod(ScenarioMod):
+    text='轻量计数剧本：第二期触发奖项。'
+
+    def on_settlement(self,world,trigger_victory):
+        period=self.runtime.object_call(world,'example:counter','clock')
+        if period==2:trigger_victory({'type':'counter.hook','period':period})
 
 
 class VictoryHooks(TestCase):
@@ -67,8 +77,8 @@ class VictoryHooks(TestCase):
                 h.cycle();event=h.victory_event
                 self.assertEqual(event['type'],'eight_nations.zhou_tianxia')
                 self.assertEqual(event['period'],1)
-                self.assertEqual(event['winners'],[IDS['周']])
-                self.assertEqual(set(event['secondary_winners']),set(h.actors())-{IDS['周']})
+                self.assertEqual(set(event['winners']),set(h.actors()))
+                self.assertEqual(event['secondary_winners'],[])
                 self.assertEqual(h.world.diplomacy.to_save()['pacts'],[])
                 self.assertTrue(h.finished())
                 public=[e for e in h.records()['events'] if e['kind']=='victory']
@@ -96,8 +106,8 @@ class VictoryHooks(TestCase):
                     report=Path(folder)/'report.md';before=path.read_bytes()
                     with patch('sys.stdout',new=io.StringIO()):
                         self.assertEqual(settle(['--save',str(path),'--no-chat','--out',str(report)]),0)
-                    self.assertIn('周胜利',report.read_text())
-                    self.assertIn('次要胜利',report.read_text())
+                    self.assertIn('共同胜利',report.read_text())
+                    self.assertNotIn('次要胜利',report.read_text())
                     self.assertEqual(path.read_bytes(),before)
 
     def submit_rejected(self,player,action):
@@ -111,8 +121,8 @@ class VictoryHooks(TestCase):
             h=self.host(names);offer=self.invite(h);self.accept(h,offer);h.cycle()
             self.assertEqual(h.victory_event is not None,expected)
 
-    def test_missing_nation_wrong_chief_or_name_do_not_win(self):
-        for chief,name,omit in (('周','周天下','秦'),('秦','周天下',None),('周','合纵',None)):
+    def test_missing_nation_or_wrong_chief_do_not_win(self):
+        for chief,name,omit in (('周','周天下','秦'),('秦','周天下',None)):
             with self.subTest(chief=chief,name=name,omit=omit):
                 h=self.host();members=[a for a in h.actors() if a!=IDS.get(omit)]
                 offer=self.invite(h,members,chief=chief,name=name);self.accept(h,offer);h.cycle()
@@ -133,17 +143,22 @@ class VictoryHooks(TestCase):
             path=Path(folder)/'pending.json';h.save(path);h=GameHost.load(path,h.cfg)
         for client in h.clients.values():client.play=lambda player,**kwargs:[]
         self.submit(h,last,'accept_proposal',offer=offer.id);h.cycle()
-        self.assertEqual(h.victory_event['winners'],[IDS['周']])
+        self.assertEqual(set(h.victory_event['winners']),set(h.actors()))
 
-    def test_chief_transfer_and_rename_can_complete_actual_conditions(self):
+    def test_chief_transfer_can_complete_actual_conditions(self):
         for chief,name,action,args in (
             ('秦','周天下','bloc_transfer',{'target':IDS['周']}),
-            ('周','合纵','bloc_rename',{'name':'周天下'}),
         ):
             h=self.host();offer=self.invite(h,chief=chief,name=name);self.accept(h,offer);h.cycle()
             self.assertIsNone(h.victory_event)
             self.submit(h,IDS[chief],action,**args);h.cycle()
-            self.assertEqual(h.victory_event['winners'],[IDS['周']])
+            self.assertEqual(set(h.victory_event['winners']),set(h.actors()))
+
+    def test_zhou_leading_any_named_alliance_automatically_makes_tributaries(self):
+        h=self.host();offer=self.invite(h,name='合纵');self.accept(h,offer);h.cycle()
+        self.assertEqual(h.world.diplomacy.alliance(IDS['周']).name,'周天下')
+        self.assertEqual(len(h.world.diplomacy.snapshot(IDS['周']).vassals),7)
+        self.assertEqual(set(h.victory_event['winners']),set(h.actors()))
 
     def test_extinction_is_resolved_before_five_nation_threshold(self):
         names=NATIONS[:5]+('周',);h=self.host(names);outside=IDS[names[0]]
@@ -151,7 +166,7 @@ class VictoryHooks(TestCase):
         self.assertIsNone(h.victory_event)
         for site in h.world.territory.owned(outside):h.world.territory.transfer(site.tile.id,None)
         h.cycle()
-        self.assertEqual(len(h.actors()),5);self.assertEqual(len(h.victory_event['secondary_winners']),4)
+        self.assertEqual(len(h.actors()),5);self.assertEqual(len(h.victory_event['winners']),5);self.assertEqual(h.victory_event['secondary_winners'],[])
 
         h=self.host(NATIONS[:4]+('周',));offer=self.invite(h);self.accept(h,offer)
         doomed=IDS['秦']
@@ -197,6 +212,26 @@ class VictoryHooks(TestCase):
             path=Path(folder)/'counter.json';h.save(path)
             loaded=GameHost.load(path,cfg,runtime=runtime)
             self.assertEqual(loaded.to_save(),h.to_save())
+            with self.assertRaises(SaveFormatError):GameHost.load(path,{k:v for k,v in cfg.items() if k!='scenario'},runtime=runtime)
+
+    def test_lightweight_scenario_mod_has_no_native_dependency_or_persistent_instance_state(self):
+        _,cfg,base=counter.TestDistributionAPI().host()
+        mod=CounterScenarioMod()
+        mod.configure({'Mod':{'Id':'scenario:counter'},'Capabilities':{'Needs':['example:counter']},
+                       'Interfaces':{'example:counter':['clock']}},Path(__file__))
+        distribution=deepcopy(base.distribution)
+        distribution['Scenarios']={'festival':{'Mod':'scenario:counter'}}
+        runtime=Runtime([*base.units.values(),Unit('scenario:counter',mod,version='1')],distribution)
+        cfg['scenario']='festival';a=GameHost.new(cfg,runtime=runtime);b=GameHost.new(cfg,runtime=runtime)
+        a.cycle();self.assertIsNone(a.victory_event)
+        a.cycle();self.assertEqual(a.victory_event,{'type':'counter.hook','period':2})
+        self.assertIsNone(b.victory_event);self.assertEqual(b.clock(),0)
+        self.assertEqual(a.to_save()['modules']['scenario:counter'],{})
+        self.assertNotIn('native:diplomacy',runtime.units)
+        with TemporaryDirectory() as folder:
+            path=Path(folder)/'counter.json';a.save(path)
+            loaded=GameHost.load(path,cfg,runtime=runtime)
+            self.assertEqual(loaded.to_save(),a.to_save())
             with self.assertRaises(SaveFormatError):GameHost.load(path,{k:v for k,v in cfg.items() if k!='scenario'},runtime=runtime)
 
     def test_unmounted_scenarios_and_invalid_events_are_rejected(self):

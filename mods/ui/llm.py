@@ -137,6 +137,8 @@ class LLMUI:
                  'status':'新兵' if u['born_turn']==period else '交战中' if u['engaged'] else '已行动' if u['moved_turn']==period else '可行动'} for u in own]
         allies={actor};enemies={'野人'}
         diplomacy=facts.get('diplomacy',{})
+        for _,members in diplomacy.get('entity_members',[]):
+            if actor in members:allies.update(members)
         for bloc in diplomacy.get('alliances',[]):
             if actor in bloc['members']:allies.update(bloc['members'])
         for war in diplomacy.get('wars',[]):
@@ -148,13 +150,16 @@ class LLMUI:
                  and any(max(abs(u['x']-p[0]),abs(u['y']-p[1]))<=1 for p in own_positions)]
         plan=facts.get('government',{}).get('plan')
         return {'plan_status':'须提交国策' if not plan or plan['valid_until']<period else '国策有效',
+                'production_tribute':preview.get('tribute'),
                 'energy_capacity':energy,'planned_regular_inputs':inputs,'full_load_outputs':outputs,
                 'stock_shortfalls_before_production':shortages,'army_supply_per_period':supply,
                 'army_actions':armies,'border_threats':threats,
                 'construction':sites.get('construction',[]),
                 'frontier':{key:value for key,value in facts.get('frontier',{}).items() if key!='capital_warning'},
                 'capital_warning':deepcopy(facts.get('frontier',{}).get('capital_warning',[])),
-                'diplomacy_todo':{key:diplomacy[key] for key in ('offers','votes','pending') if diplomacy.get(key)}}
+                'diplomacy_todo':{key:([o for o in diplomacy[key] if o.get('can_accept',True) or o.get('can_reject',True)] if key=='offers' else diplomacy[key])
+                                  for key in ('offers','votes','pending') if diplomacy.get(key)},
+                'diplomacy_waiting_offers':[o for o in diplomacy.get('offers',[]) if not o.get('can_accept',True) and not o.get('can_reject',True)]}
 
     def event_lines(self,facts,events):
         """近讯：重大事件全留，其余按最近十条取；正文过长时指路 news。"""

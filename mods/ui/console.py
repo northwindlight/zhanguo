@@ -91,8 +91,20 @@ class ConsoleUI(ReceiptPresentation):
         detail=row.get('details')
         if isinstance(detail,dict) and detail.get('source')=='action_receipt':return row['text']
         text=self.name(row['text'],names)
+        if isinstance(detail,dict) and detail.get('type')=='alliance_vote':
+            choices='、'.join(names.get(actor,actor)+'：'+self.text('console.ballot_'+('abstain' if choice is None else 'yes' if choice else 'no'))
+                             for actor,choice in detail['ballots'].items())
+            text=self.text('console.vote_tally',id=detail['id'],ballots=choices,yes=detail['yes'],no=detail['no'],
+                           abstain=detail['abstain'],status=self.text('console.vote_'+detail['status']))
+        if row.get('kind')=='tribute' and isinstance(detail,dict):
+            text=self.text('console.tribute',source=names.get(detail['source'],detail['source']),
+                target=names.get(detail['target'],detail['target']),resources=self.resources(detail['resources'],gold_short=False))
         if row.get('kind')=='occupation' and isinstance(detail,dict) and 'previous_owner' in detail:
-            previous=names.get(detail['previous_owner'],detail['previous_owner']) or self.label('relation','unowned')
+            if detail['previous_owner'] is not None:
+                previous=self.text('query.territory_lost',name=names.get(detail['previous_owner'],detail['previous_owner']))
+            elif 'previous_core' in detail:
+                previous=self.text('query.vacated_land' if detail['previous_core'] is not None else 'query.wild_land')
+            else:previous=self.label('relation','unowned')
             owner=names.get(detail['owner'],detail['owner'])
             place=self.pos({'position':row['position'],'name':detail.get('name')})
             text=self.text('query.territory_change',place=place,previous=previous,owner=owner)
@@ -173,6 +185,11 @@ class ConsoleUI(ReceiptPresentation):
             lines.append(self.text('console.assets',assets=self.money(econ['gross_assets']),
                                    liabilities=facts.get('bank',{}).get('liabilities',0)))
             diplomacy=facts.get('diplomacy',{})
+            for relation in diplomacy.get('vassals',[]):
+                if actor in (relation['subject'],relation['overlord']):
+                    lines.append(self.text('console.vassal',subject=names.get(relation['subject'],relation['subject']),
+                        overlord=names.get(relation['overlord'],relation['overlord']),
+                        kind=self.text('console.vassal_'+relation['kind']),percent=relation['tribute_percent']))
             for alliance in diplomacy.get('alliances',[]):
                 if actor in alliance.get('members',[]):lines.append(self.text('console.alliance',name=alliance.get('name',alliance.get('id','')),members=', '.join(names.get(a,a) for a in alliance['members'])))
             for war in diplomacy.get('wars',[]):

@@ -21,7 +21,7 @@ COMMANDS = (
      ('guarantee', 'cancel_guarantee', 'propose_defense', 'break_defense',
       'accept_proposal', 'reject_proposal', 'bloc_found', 'bloc_join', 'bloc_leave',
       'bloc_dissolve', 'bloc_transfer', 'bloc_rename', 'declare_war', 'offer_peace',
-      'accept_peace', 'reject_peace', 'vote')),
+      'accept_peace', 'reject_peace', 'vote', 'propose_vassalage','release_vassal','independence_war','submit_vassalage')),
     ('intelligence', '对外通信与谍报',
      ('send_letter', 'gift', 'share_map', 'spy')),
 )

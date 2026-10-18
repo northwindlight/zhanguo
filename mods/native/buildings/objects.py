@@ -75,6 +75,7 @@ class ProductionReport:
     inputs: tuple
     outputs: tuple
     construction: tuple
+    transfers: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -323,13 +324,26 @@ class Buildings:
         return sum(other.completed and other.site==item.site and other.kind!=item.kind
                    for other in self._index().get(item.site, ()))
 
-    def produce(self, *, external_energy=None):
+    def produce(self, *, external_energy=None, production_shares=None):
         self._action()
         energy_input = {} if external_energy is None else external_energy
         if not isinstance(energy_input,Mapping):raise ValueError('Expected external energy mapping')
         for owner,value in energy_input.items():owner_name(owner);integer(value)
         owners = tuple(dict.fromkeys(site.owner for site in self._sites.values() if site.owner is not None))
         balances = {owner:{stock.id:stock.amount for stock in self._resources('snapshot',owner)} for owner in owners}
+        shares={} if production_shares is None else production_shares
+        if not isinstance(shares,Mapping):raise ValueError('Expected production shares mapping')
+        for owner,share in shares.items():
+            if not isinstance(share,Mapping) or set(share)!={'recipient','percent'}:
+                raise ValueError('Invalid production allocation')
+            if share['recipient']==owner:raise ValueError('Invalid production recipient')
+            for account in (owner,share['recipient']):
+                if account not in balances:
+                    balances[account]={stock.id:stock.amount for stock in self._resources('snapshot',account)}
+            integer(share['percent'])
+            if share['percent']>100:raise ValueError('Production allocation exceeds output')
+        transfers={}
+        gross_outputs={}
         operations,records = [],{}
         generated,demand = {owner:0 for owner in owners},{owner:0 for owner in owners}
         cycles = {}
@@ -365,12 +379,24 @@ class Buildings:
             inputs,outputs,energy = (),(),0
             if status in ('running','idle'):
                 inputs,outputs,energy = cycle.inputs,cycle.outputs,cycle.energy
-                for key,amount in inputs:balances[owner][key] -= amount
+                for key,amount in inputs:balances[owner][key] = balances[owner][key]-amount
+                credits={}
                 for key,amount in outputs:
-                    balances[owner][key] += amount
+                    share=shares.get(owner)
+                    tribute=0
+                    if share:
+                        identity=(owner,share['recipient'],key)
+                        gross_outputs[identity]=gross_outputs.get(identity,0)+amount
+                        due=gross_outputs[identity]*share['percent']//100
+                        tribute=due-transfers.get(identity,0)
+                    credits[key]=amount-tribute
+                    if tribute:
+                        identity=(owner,share['recipient'],key)
+                        transfers[identity]=transfers.get(identity,0)+tribute
+                    balances[owner][key] = balances[owner][key]+credits[key]
                     Resource.finite_number(balances[owner][key])
                 if inputs or outputs:
-                    operations.append({'owner':owner,'debits':dict(inputs),'credits':dict(outputs)})
+                    operations.append({'owner':owner,'debits':dict(inputs),'credits':credits})
             records[item.id] = ProductionRecord(item.id,owner,item.site,item.kind,status,inputs,outputs,energy)
             return energy
 
@@ -393,7 +419,12 @@ class Buildings:
         for row in ordered:
             for key,value in row.inputs:consumed[key] = consumed.get(key,0)+value
             for key,value in row.outputs:produced[key] = produced.get(key,0)+value
-        report = ProductionReport(self.period,ordered,reports,tuple(consumed.items()),tuple(produced.items()),tuple(self._construction))
+        # Credit receipts only after every producer has completed its own
+        # production: tribute cannot itself produce output or be taxed again.
+        for (_,recipient,key),amount in sorted(transfers.items()):
+            operations.append({'owner':recipient,'debits':{},'credits':{key:amount}})
+        report = ProductionReport(self.period,ordered,reports,tuple(consumed.items()),tuple(produced.items()),tuple(self._construction),
+                                  tuple((source,target,key,amount) for (source,target,key),amount in sorted(transfers.items())))
         if operations:self._resources('exchange_batch',operations)
         self._produced = True
         return report

@@ -71,6 +71,10 @@ def _power(ui, facts, cues, observation, key):
             lines.append(ui.text('brief.settled', gold=ui.money(settled['production']),
                                  cash=num(settled.get('cash_production', 0)), inputs=ui.money(settled['inputs']),
                                  gdp=ui.money(settled['gdp'])))
+        paid=dict(flows.get('tribute_paid') or ());received=dict(flows.get('tribute_received') or ())
+        if paid or received:
+            lines.append(ui.text('brief.tribute_flows',paid=ui.resources(paid,gold_short=False),
+                                 received=ui.resources(received,gold_short=False)))
     return '\n'.join(lines)
 
 

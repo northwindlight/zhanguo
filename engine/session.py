@@ -52,7 +52,13 @@ class Session:
                 raise ModError('Invalid distribution scenario selection')
             spec=scenarios.get(self.scenario_id)
             if not isinstance(spec,dict):raise ModError('Scenario is not declared by this distribution')
-            factory=entrypoint(spec.get('Entry'))
+            if 'Mod' in spec:
+                from .scenario_mod import ScenarioMod
+                if not isinstance(spec['Mod'],str) or 'Entry' in spec:raise ModError('Scenario must select one Mod or Entry')
+                unit=runtime.units.get(spec['Mod'])
+                if unit is None or not isinstance(unit.mod,ScenarioMod):raise ModError('Scenario Mod must be a loaded ScenarioMod')
+                factory=unit.mod.bind
+            else:factory=entrypoint(spec.get('Entry'))
             try:inspect.signature(factory).bind(self.world,self.trigger_victory)
             except (TypeError,ValueError) as exc:raise ModError('Scenario program must accept (world, trigger_victory)') from exc
             self._scenario=factory(self.world,self.trigger_victory)

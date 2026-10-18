@@ -49,11 +49,13 @@ class TestDiplomacyFinish(unittest.TestCase):
                     before=h.world.resources.balance(C,'native:gold')
                     result=self.end(h,C)
                     self.assertEqual(result['data']['auto_rejected'],{'offers':[offer],'votes':[]})
-                    self.assertFalse(h.player(C).call_api('native:diplomacy','snapshot')['offers'])
+                    self.assertTrue(h.player(C).call_api('native:diplomacy','snapshot')['offers'])
+                    self.assertTrue(any(c['action'].startswith('reject_') for c in h.player(C).call_api('native:diplomacy','snapshot')['pending']))
                     self.assertEqual(h.world.resources.balance(C,'native:gold'),before)
                     rendered=h.ui.console.action(h.clock(),C,'end_turn',{},result,{C:'楚'})
                     self.assertIn('免费自动拒绝',rendered)
                     h.cycle()
+                    self.assertFalse(h.player(C).call_api('native:diplomacy','snapshot')['offers'])
                     self.assertTrue(any('自动拒绝' in e['text'] for e in h.player(Q).events()['items']))
                     if kind=='peace':self.assertTrue(h.world.diplomacy.war_between(Q,C))
                     if kind=='found':
@@ -104,6 +106,110 @@ class TestDiplomacyFinish(unittest.TestCase):
         offer=h.player(Z).call_api('native:diplomacy','snapshot')['offers'][0]['id']
         self.submit(h,Z,'accept_proposal',offer=offer);h.cycle()
 
+    def test_secret_ballots_hide_other_votes_in_queries_and_api_receipts_until_tally(self):
+        for experimental in (False,True):
+            with self.subTest(experimental=experimental):
+                h=self.host(experimental);self.bloc(h)
+                self.submit(h,Q,'guarantee',target=C);h.cycle()
+                snapshot=lambda actor:h.player(actor).call_api('native:diplomacy','snapshot')
+                vote=snapshot(Q)['votes'][0]['id']
+                before=snapshot(Z)['votes']
+                receipt=self.submit(h,Q,'vote',vote=vote,accept=True)
+                self.assertEqual(dict(receipt['data']['ballots']),{Q:True})
+                self.assertEqual(snapshot(Z)['votes'],before)
+                receipt=h.player(Z).call_api('native:diplomacy','vote',vote=vote,accept=None)
+                self.assertEqual(dict(receipt['data']['ballots']),{Z:None})
+                self.assertEqual(dict(snapshot(Q)['votes'][0]['ballots']),{Q:True})
+                self.assertEqual(dict(snapshot(Z)['votes'][0]['ballots']),{Z:None})
+                # Changing a sealed ballot must not alter a peer's view either.
+                peer=snapshot(Z)['votes']
+                self.submit(h,Q,'vote',vote=vote,accept=False)
+                self.assertEqual(snapshot(Z)['votes'],peer)
+                self.assertFalse(snapshot(C)['votes'])
+                for actor in (Q,Z,C):
+                    self.assertFalse([e for e in h.player(actor).query('news') if (e.get('details') or {}).get('type')=='alliance_vote'])
+                # Domain serialization retains real ballots while snapshots remain private.
+                saved=h.world.diplomacy.to_save()
+                h.world.diplomacy.restore(saved)
+                self.assertEqual(dict(snapshot(Z)['votes'][0]['ballots']),{Z:None})
+                self.assertEqual(dict(snapshot(Q)['votes'][0]['ballots']),{Q:False})
+                self.end(h,Q);self.end(h,Z);h.cycle()
+                for actor in (Q,Z):
+                    events=[e for e in h.player(actor).query('news') if (e.get('details') or {}).get('type')=='alliance_vote']
+                    self.assertEqual(len(events),1)
+                    result=events[0]['details']
+                    self.assertEqual(result['ballots'],{Q:False,Z:None})
+                    self.assertEqual((result['yes'],result['no'],result['abstain'],result['status']),(0,1,1,'rejected'))
+                    rendered=h.ui.console.event(events[0],{Q:'秦',Z:'赵'})
+                    self.assertIn('秦：反对',rendered);self.assertIn('赵：弃权',rendered)
+                    self.assertFalse(snapshot(actor)['votes'])
+                self.assertFalse([e for e in h.player(C).query('news') if (e.get('details') or {}).get('type')=='alliance_vote'])
+                with TemporaryDirectory() as folder:
+                    path=Path(folder)/'opened.json';h.save(path)
+                    restored=GameHost.load(path,h.cfg)
+                    for actor in (Q,Z,C):
+                        self.assertEqual(restored.player(actor).query('news'),h.player(actor).query('news'))
+
+    def test_internal_declaration_does_not_warn_target_until_war_is_effective(self):
+        for passed in (False,True):
+            with self.subTest(passed=passed):
+                h=self.host();self.bloc(h)
+                self.submit(h,Q,'declare_war',target=C);h.cycle()
+                snapshot=lambda actor:h.player(actor).call_api('native:diplomacy','snapshot')
+                vote=snapshot(Q)['votes'][0]['id']
+                self.assertTrue(any(r['message']=='Vote opened; treaty pending' for r in snapshot(Z)['results']))
+                def target_not_warned():
+                    self.assertFalse(snapshot(C)['votes']);self.assertFalse(snapshot(C)['wars'])
+                    self.assertFalse([r for r in snapshot(C)['results'] if r['action'] in ('declare_war','vote:declare_war')])
+                    self.assertFalse([e for e in h.player(C).query('news')
+                        if (e.get('details') or {}).get('action') in ('declare_war','vote:declare_war')])
+                target_not_warned()
+                self.submit(h,Q,'vote',vote=vote,accept=True)
+                self.submit(h,Z,'vote',vote=vote,accept=passed)
+                target_not_warned();h.cycle()
+                if passed:
+                    self.assertTrue(snapshot(C)['wars'])
+                    events=[e for e in h.player(C).query('news') if (e.get('details') or {}).get('action')=='declare_war']
+                    self.assertEqual(len(events),1)
+                    self.assertEqual(events[0]['details']['message'],'Diplomatic action applied')
+                else:target_not_warned()
+
+    def test_rejected_external_admission_gets_a_reply_without_internal_ballots(self):
+        h=self.host();self.bloc(h)
+        self.submit(h,C,'bloc_join',bloc='scenario:union');h.cycle()
+        vote=h.player(Q).call_api('native:diplomacy','snapshot')['votes'][0]['id']
+        for actor in (Q,Z):self.submit(h,actor,'vote',vote=vote,accept=False)
+        h.cycle()
+        results=h.player(C).call_api('native:diplomacy','snapshot')['results']
+        self.assertTrue(any(r['action']=='bloc_join' and '拒绝' in r['message'] for r in results))
+        news=h.player(C).query('news')
+        self.assertTrue(any('拒绝' in e['text'] for e in news))
+        self.assertFalse([e for e in news if (e.get('details') or {}).get('type')=='alliance_vote'])
+        self.assertIsNone(h.world.diplomacy.alliance(C))
+
+    def test_rejected_received_treaty_closes_offer_and_replies_to_foreign_entity(self):
+        for peace in (False,True):
+            with self.subTest(peace=peace):
+                h=self.host();self.bloc(h)
+                if peace:
+                    self.submit(h,C,'declare_war',target=Q);h.cycle()
+                    self.submit(h,C,'offer_peace',target=Q,kind='white')
+                else:self.submit(h,C,'propose_defense',target=Q)
+                h.cycle()
+                offer=h.player(Q).call_api('native:diplomacy','snapshot')['offers'][0]['id']
+                self.submit(h,Q,'accept_peace' if peace else 'accept_proposal',offer=offer);h.cycle()
+                vote=h.player(Q).call_api('native:diplomacy','snapshot')['votes'][0]['id']
+                for actor in (Q,Z):self.submit(h,actor,'vote',vote=vote,accept=False)
+                h.cycle()
+                self.assertFalse(h.player(Q).call_api('native:diplomacy','snapshot')['offers'])
+                results=h.player(C).call_api('native:diplomacy','snapshot')['results']
+                self.assertTrue(any(r['action']==('reject_peace' if peace else 'reject_proposal')
+                                    and r['message']=='Offer rejected' for r in results))
+                news=h.player(C).query('news')
+                self.assertTrue(any((e.get('details') or {}).get('message')=='Offer rejected' for e in news))
+                self.assertFalse([e for e in news if (e.get('details') or {}).get('type')=='alliance_vote'])
+                self.assertEqual(bool(h.world.diplomacy.snapshot(Q).wars),peace)
+
     def test_unanswered_votes_default_no_but_explicit_abstention_is_preserved(self):
         for abstain in (False,True):
             with self.subTest(abstain=abstain):
@@ -117,6 +223,12 @@ class TestDiplomacyFinish(unittest.TestCase):
                 else:self.assertEqual(result['data']['auto_rejected']['votes'],[vote])
                 h.cycle()
                 self.assertEqual(bool(h.player(Q).call_api('native:diplomacy','snapshot')['pacts']),abstain)
+                events=[e for e in h.player(Q).query('news') if (e.get('details') or {}).get('type')=='alliance_vote']
+                self.assertEqual(len(events),1)
+                result=events[0]['details']
+                self.assertEqual(result['ballots'],{Q:True,Z:None if abstain else False})
+                self.assertEqual(result['status'],'passed' if abstain else 'rejected')
+                self.assertEqual((result['yes'],result['no'],result['abstain']),(1,0,1) if abstain else (1,1,0))
 
     def test_alliance_external_offer_is_responsibility_of_representative(self):
         h=self.host();self.bloc(h)

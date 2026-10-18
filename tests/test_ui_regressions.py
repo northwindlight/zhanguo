@@ -259,6 +259,23 @@ class TestUIRegressions(unittest.TestCase):
         text=h.ui.llm({}).state(obs,[occupation,*noise])[0]
         self.assertIn('秦得地',text)
 
+    def test_occupation_distinguishes_wilderness_from_vacated_former_territory(self):
+        for former in (False,True):
+            with self.subTest(former=former):
+                f,w=self.threat_world()
+                if former:
+                    f.site(w,'scenario:former',C,5,5)
+                    w.territory.transfer('scenario:former',None)
+                # Exercise real occupation so pre-claim core isn't replaced by the new core.
+                w.military._claim(Q,5,5)
+                event=next(e for e in w.military.to_save()['events'] if e['kind']=='occupation')
+                self.assertIsNone(event['details']['previous_owner'])
+                self.assertEqual(event['details']['previous_core'],C if former else None)
+                rendered=ConsoleUI({}).event({**event,'period':0},{Q:'秦',C:'楚'})
+                self.assertIn('无主失地' if former else '野地',rendered)
+                self.assertNotIn('野地' if former else '无主失地',rendered)
+                self.assertIn('秦得地',rendered)
+
     def test_same_version_save_resumes_identically_after_new_public_queries(self):
         h=self.host();before=h.runtime.save_mod_state(h.world)
         for name in ('frontier','countries','land','view'):self.present(h,name)

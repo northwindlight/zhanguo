@@ -39,7 +39,8 @@ class BuildingsMod(GameMod):
 
     @staticmethod
     def _produce(world, context):
-        report = world.buildings.produce(external_energy=context.get('building_energy',{}))
+        report = world.buildings.produce(external_energy=context.get('building_energy',{}),
+                                        production_shares=context.get('production_shares',{}))
         context['building_production'] = report
 
     @staticmethod

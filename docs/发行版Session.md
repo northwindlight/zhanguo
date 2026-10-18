@@ -110,36 +110,39 @@ Methods = ["enroll", "decide", "replace"]
 
 客户端工厂可声明同样形式的能力授权；experimental 已移除客户端的议会权力。发行版服务具备显式授予的权限，应作为可信代码实现。这是进程内接口，Python 对象隔离和不可信脚本执行另属沙盒任务。
 
-## 发行版挂载剧本与唯一胜利钩子
+## 轻量剧本 Mod 与唯一胜利钩子
 
-剧本属于发行版，不能在玩家配置或存档中提供任意 Python 导入路径。发行版显式挂载程序，例如：
+剧本是无自有世界状态的轻量钩子 Mod，继承 `engine.scenario_mod.ScenarioMod`，通过声明过的领域接口安装特效。发行版的 Members 装载其 mod.toml，再显式挂载可选剧本：
 
 ```toml
 [Distribution.Scenarios.eight_nations]
-Entry = "mods.native.scenarios.eight_nations:EightNations"
+Mod = "scenario:eight-nations"
 ```
 
-外部配置用 `"scenario": "eight_nations"` 选择，未选择时保持发行版原有行为；未挂载的名称拒绝启动。native 和 experimental 显式挂载同一个八国程序。
+外部配置用 `"scenario": "eight_nations"` 选择；未选择时不执行剧本钩子。未挂载的名称或非 ScenarioMod 拒绝启动。native 和 experimental 挂载 [同一个八国剧本 Mod](../mods/scenarios/eight_nations/mod.toml)。入口不能由玩家配置或存档传入任意 Python 路径。旧的发行版 `Entry` 程序仍可用于其他游戏，但同一声明不能同时使用 Mod 和 Entry。
 
 ```python
-class MyScenario:
+from engine.scenario_mod import ScenarioMod
+
+class MyScenarioMod(ScenarioMod):
     text = '本剧本公开目标，君主和议长持续可见。'
 
-    def __init__(self, world, trigger_victory):
-        self.world = world
-        self.trigger_victory = trigger_victory
+    def on_start(self, world):
+        # 经声明的领域接口配置本剧本特效；不要在共享 Mod 实例保存 world。
+        pass
 
-    def __call__(self):
-        if self.my_condition(self.world):
-            self.trigger_victory({'type': 'my_game.special', 'message': '自定义胜利',
-                                  'awards': {'player_a': '任意剧本奖项'}})
+    def on_settlement(self, world, trigger_victory):
+        if self.my_condition(world):
+            trigger_victory({'type': 'my_game.special', 'message': '自定义胜利'})
 ```
 
-程序在每个完整回合的全部领域结算之后、客户端结算通知与保存之前调用，可以访问当前 `world`。只暴露一个胜利钩子 `trigger_victory(event)`；事件是非空、有限数值的 JSON 对象，字段与条件完全归剧本定义。引擎只保留第一次事件，复制数据并据此停止后续回合、拒绝玩家写动作，仍允许只读查询。需要持久化的程序状态应由 world 的模块状态保存，不依赖程序实例临时变量；登场替换 world 后程序重新绑定。
+`on_start(world)` 绑定每个新会话的世界，在新局、恢复和行政登场替换世界时重新绑定；这不是每回合重跑的开局赠送钩子。配置效果应幂等，不能在此无条件扣费或发物资。`on_settlement(world, trigger_victory)` 在每个完整回合的领域结算之后、客户端结算通知与保存之前运行。两个钩子都在所属 Mod 的接口权限上下文执行；需要的能力和方法必须在 TOML 声明。Mod 不保存会话实例引用，因此共享 Runtime 的多局互不串状态；真正需要持久化的领域效果归对应领域存档。
 
-存档保存剧本选择和完整胜利事件，所用入口由发行版依赖声明锁定；恢复时不得更换剧本，也不从存档执行导入路径。终局档恢复后直接报告事件，不再运行一次回合。引擎不识别「周」「周天下」「5国」或主次胜利；这些条件仅在八国剧本程序内。
+唯一胜利入口 `trigger_victory(event)` 接收非空、有限数值的 JSON 对象，条件、奖项和文本完全归剧本。引擎只保留首次事件，复制数据并停止后续回合和玩家写动作，保留只读查询。存档保存剧本选择和事件；恢复不更换剧本、不从存档导入代码，终局恢复不额外运行回合。
 
-八国判定采用结算后的全部存续国家：周任盟主、联盟名为「周天下」、成员覆盖全部存续国家且总数至少5国（含周），周胜利、其他成员次要胜利。邀请、部分接受、未入盟国家、错误盟主/盟名、只剩4国均不满足尊王终局；只剩唯一国家则为兼并终极胜利。公开事件、终局存档和结算报告保留实际获胜身份，消费排名仍按原口径独立展示。
+八国剧本负责周的专属特效：周任盟主时，其他盟友自动成为10%生产上贡、保留正常盟友权力的周天下附庸；向周主动称臣在回合末触发自动建盟，首次成功创建扣周100金、周任盟主，后续不再收建盟费。周不足100金则失败，不透支；已有联盟的称臣申请保留成员表决。同回合向独立周称臣的国家作为共同创始者结算，只扣一次建盟费。原宗主加入周天下时，原附庸一并移交周，均成为周的直接10%特殊附庸；原宗主不保留双层附属关系。通用外交只实现可配置的特殊宗主联盟，不识别周的身份、10%贡率或胜利规则。朝贡按每国每期各类资源的全国实际总产出乘贡率后向下取整，不足1不收，余数不跨期累计。
+
+周及其特殊附庸覆盖全部存续国家、总数至少5国（含周）时，当回合完整结算即判周与其他成员共同胜利，不增加上贡等待期；普通附庸不计入。周不能成为附庸、周在位时盟主权不可移交；周灭国后正常继任盟主并保留联盟，但贡赋与特殊附庸移交机制消失。只剩唯一国家则为兼并终极胜利。公开事件、终局档和结算报告保留实际获胜身份，消费排名独立展示。
 
 ## 控制权、审计与存取
 

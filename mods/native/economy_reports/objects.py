@@ -120,10 +120,11 @@ class Economy:
     def _turn(self, period, owner, inventory, buildings, liabilities=0):
         output,inputs,cash,expenses,imports,exports,cumulative = self._flow(period,owner)
         spending = add(expenses.values())
+        tribute=[row for row in self._rows.get((period,owner),()) if row.fact.category=='tribute']
         return TurnReport(owner,period,output,inputs,cash,output.plus(inputs,-1),expenses['construction'],
                           expenses['recruit'],expenses['military'],imports,exports,inventory,buildings,
                           inventory.plus(buildings),spending,cumulative,liabilities,
-                          inventory.plus(buildings).plus(Money(liabilities),-1))
+                          inventory.plus(buildings).plus(Money(liabilities),-1),add(row.inputs for row in tribute),add(row.outputs for row in tribute))
 
     def _publication(self, owner, period, turns, prior):
         window = [turns[(p,owner)] for p in range(max(0,period+1-self._every),period+1) if (p,owner) in turns]
@@ -143,7 +144,8 @@ class Economy:
                             last.military,imports,exports,ratio,last.inventory_assets,last.building_assets,last.total_assets,
                             growth(last.gdp.total,previous.gdp.total if previous else None),
                             growth(invest.total,previous.investment.total if previous else None),
-                            growth(last.total_assets.total,previous.total_assets.total if previous else None),military_ratio,last.liabilities,last.net_assets)
+                            growth(last.total_assets.total,previous.total_assets.total if previous else None),military_ratio,last.liabilities,last.net_assets,
+                            add(row.tribute_paid for row in window),add(row.tribute_received for row in window))
 
     def close(self, period, liabilities=None):
         self._write();integer(period)
@@ -235,8 +237,11 @@ class Economy:
         if not turns:
             return {'period': 0, 'outputs': (), 'inputs': ()}
         period = max(row.period for row in turns)
-        outputs, inputs = {}, {}
+        outputs, inputs, paid, received = {}, {}, {}, {}
         for row in self._rows.get((period, owner), ()):
+            if row.fact.category=='tribute':
+                for key,value in row.fact.inputs:paid[key]=paid.get(key,0)+value
+                for key,value in row.fact.outputs:received[key]=received.get(key,0)+value
             if row.fact.category != 'production':
                 continue
             for key, value in row.fact.outputs:
@@ -244,7 +249,8 @@ class Economy:
             for key, value in row.fact.inputs:
                 inputs[key] = inputs.get(key, 0) + value
         return {'period': period, 'outputs': tuple(sorted(outputs.items())),
-                'inputs': tuple(sorted(inputs.items()))}
+                'inputs': tuple(sorted(inputs.items())), 'tribute_paid':tuple(sorted(paid.items())),
+                'tribute_received':tuple(sorted(received.items()))}
 
     def facts(self,period):
         return tuple(row for (p,n),rows in self._rows.items() if p==period for row in rows)
@@ -281,7 +287,7 @@ class Economy:
         fields = ('production','inputs','gdp','investment','recruitment','military','inventory_assets',
                   'building_assets','total_assets','spending','cumulative_spending','net_assets') if kind is TurnReport else (
                   'gdp','investment','recruitment','military','inventory_assets','building_assets','total_assets','net_assets')
-        for field in fields:values[field] = cls._money(values[field])
+        for field in (*fields,'tribute_paid','tribute_received'):values[field] = cls._money(values[field])
         owner_name(values['owner']);integer(values['liabilities'])
         for field in ('imports','exports'):
             Resource.finite_number(values[field])

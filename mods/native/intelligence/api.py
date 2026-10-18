@@ -38,8 +38,8 @@ class IntelligenceAPI:
         messages = world.intelligence.messages(actor)
 
         def entity(n):
-            bloc = next((b for b in relation.alliances if n in b.members), None)
-            return ('bloc/' + bloc.id, bloc.chief) if bloc else ('nation/' + n, n)
+            key=call('native:diplomacy','entity',n)
+            return key,call('native:diplomacy','representative',key)
 
         my_entity, _ = entity(actor)
         result = []
@@ -55,6 +55,8 @@ class IntelligenceAPI:
                         if {p.a, p.b} == {my_entity, other} and my_entity != other]
             result.append({'id': target, 'name': nation.name, 'relation': 'war' if war else 'ally' if my_entity == other else 'neutral',
                            'entity': other, 'chief': chief, 'war_representative': representative,
+                           'vassal':next(({'overlord':s.overlord,'kind':s.kind,'tribute_percent':s.tribute_percent}
+                                          for s in relation.vassals if s.subject==target),None),
                            'treaties': treaties, 'letter_count': sum(m.source == target and m.kind == 'letter' for m in messages),
                            'border': any(t.owner == target and any(max(abs(t.position[0] - x), abs(t.position[1] - y)) <= 1 for x, y in owned) for t in visible),
                            'has_letter': any(m.source == target and m.kind == 'letter' for m in messages)})

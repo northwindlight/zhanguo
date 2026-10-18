@@ -216,9 +216,9 @@ class Military:
             else:self._call('native:territory','transfer',fact.tile.id,by)
         else:self._call('native:territory','create_claim',f'native:tile/{x}-{y}',by,x,y)
         claimed=self._call('native:territory','cell',x,y)
-        self._events.append({'kind':'occupation','text':f'{self._name(by)} 占领 ({x},{y})，原属 {self._name(fact.owner) if fact.owner else "无主"}；守军已清除，归属已变更。',
+        self._events.append({'kind':'occupation','text':f'{self._name(by)} 占领 ({x},{y})，原属 {self._name(fact.owner) if fact.owner else "无主失地" if fact.tile.core is not None else "野地"}；守军已清除，归属已变更。',
             'position':(x,y),'parties':seen,'snapshot_only':True,
-            'details':{'importance':'major','previous_owner':fact.owner,'owner':by,'core':claimed.tile.core,
+            'details':{'importance':'major','previous_owner':fact.owner,'previous_core':fact.tile.core,'owner':by,'core':claimed.tile.core,
                        'name':claimed.tile.name,'town_halls':halls}})
     def attack(self, owner, ids, x, y):
         result=self._batch(owner,ids,x,y,True)

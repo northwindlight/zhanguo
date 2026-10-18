@@ -53,6 +53,10 @@ class EconomyMod(GameMod):
             facts.append(EconomicFact(f'native:market-trade/{row.period}/{index}',row.owner,row.period,
                                       'import' if row.side=='buy' else 'export',inputs,outputs,row.gold))
         facts.extend(context.get('economic_facts',()))
+        for index,(source,target,resource,amount) in enumerate(production.transfers):
+            key=f'native:tribute/{production.period}/{index}'
+            facts.extend((EconomicFact(key+'/paid',source,production.period,'tribute',inputs=((resource,amount),)),
+                          EconomicFact(key+'/received',target,production.period,'tribute',outputs=((resource,amount),))))
         facts.extend(EconomicFact(**row) for row in context.get('economic_records',()))
         context['economy_turns'] = world.economy.settle(production.period,tuple(facts),context.get('bank_liabilities'))
         context['economy_publications'] = tuple(row for row in world.economy.reports() if row.end==production.period)

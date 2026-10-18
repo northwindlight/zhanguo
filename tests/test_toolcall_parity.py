@@ -54,7 +54,7 @@ class ToolcallParity(unittest.TestCase):
             self.assertEqual({'aid','ids','site','kind','count'}<=set(military['properties']),True)
             relations=schemas['relations']['parameters']
             self.assertIn('vote',relations['properties']['action']['enum'])
-            self.assertEqual(relations['properties']['kind']['enum'],['white','pay','demand'])
+            self.assertEqual(relations['properties']['kind']['enum'],['white','pay','demand','submit','subjugate'])
             self.assertEqual(relations['required'],['action'])
             self.assertEqual({'aid','ids','attack'}<=set(schemas['query']['parameters']['properties']),True)
             # 市场上不再有单独的查价工具：报价就在行情里，且与数量无关。

@@ -303,7 +303,7 @@ class AuditRepairs(unittest.TestCase):
         runtime=Runtime.load('mods.toml')
         self.assertEqual(DEFAULT_OUTPUT.read_text(),render(runtime))
         self.assertEqual(runtime.stage_order,[
-            'native:diplomacy.tally','native:buildings.produce','native:diplomacy.resolve',
+            'native:diplomacy.tally','native:diplomacy.production-shares','native:buildings.produce','native:diplomacy.resolve',
             'native:intelligence.dispatch','native:army.supply','native:army.battle',
             'native:army.withdraw','native:army.claims','native:succession.settle',
             'native:army.repatriate','native:market.settle','native:buildings.complete',

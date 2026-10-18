@@ -92,6 +92,12 @@ class EconomicQueries:
         turns = self._call('native:economy','turns',owner)
         flows = self._call('native:economy','production',owner)
         preview = dict(self._call('native:buildings', 'demand_preview', owner))
+        if 'native:diplomacy' in self._runtime.capabilities:
+            relation=next((s for s in self._call('native:diplomacy','snapshot',owner).vassals if s.subject==owner),None)
+            if relation:
+                preview['tribute']={'overlord':relation.overlord,'percent':relation.tribute_percent,
+                    'full_load_outgoing':{k:v*relation.tribute_percent//100 for k,v in preview['outputs'].items()},
+                    'retained_outputs':{k:v-v*relation.tribute_percent//100 for k,v in preview['outputs'].items()}}
         inputs = dict(preview['inputs'])
         military = (self._call('native:army', 'supply_preview', owner)
                     if 'native:army' in self._runtime.capabilities else {})
@@ -132,7 +138,7 @@ class EconomicQueries:
                 if fuel.complete:return fuel.total/cycle.energy,key
         return None,None
 
-    def estimate(self, kind, level=1, other_slots=0, penalty=0, discount=0, policy_pct=100, existing=()):
+    def estimate(self, kind, level=1, other_slots=0, penalty=0, discount=0, policy_pct=100, existing=(), tribute_pct=0):
         integer(other_slots)
         cls = self.building_types()[kind]
         cost = cls.construction_cost(level,penalty=penalty,discount=discount,policy_pct=policy_pct)
@@ -144,8 +150,10 @@ class EconomicQueries:
             assumptions.append(f'首都类建筑按另增{slot_bonus}座建筑的乐观密度估算，实际结算仍按已落成座数')
         cycle = cls(1,'native:estimate',level=level).cycle(other_slots=projected_slots)
         basis='sell' if cls.PHASE=='gather' else 'buy' if cls.PHASE=='industry' else 'mid'
-        construction,inputs,outputs = self._value(cost),self._value(cycle.inputs,'buy'),self._value(cycle.outputs,basis)
-        outputs_sell=self._value(cycle.outputs,'sell')
+        retained={key:round(amount*(100-tribute_pct)/100,10) for key,amount in cycle.outputs}
+        construction,inputs,outputs = self._value(cost),self._value(cycle.inputs,'buy'),self._value(retained,basis)
+        outputs_sell=self._value(retained,'sell')
+        if tribute_pct:assumptions.append(f'按上贡{tribute_pct}%估算长期产出估值与净收益；实际每期全国同类资源产出合计后向下取整，不足1不收；建筑原始配方仍列毛产出')
         energy_cost,energy_reference = self._energy_cost()
         net = outputs.plus(inputs,-1)
         # Electricity is not tradable revenue: power plants only spend fuel.
@@ -162,6 +170,7 @@ class EconomicQueries:
             hall=types.get(capitals[0]) if len(capitals)==1 else None
             hall_bonus=getattr(hall,'SLOT_BONUS',0)
             density=discount_rate*n*hall.EFFECTS.get('gold_per_slot',0) if hall and n+hall_bonus>=hall.MIN_SLOTS else 0
+            density*=1-tribute_pct/100
             net=Money(discount_rate*n*average/amort+density)
             assumptions.append(f'工程院按{n}座密度、平均基础金价{average:g}、{amort}周期摊销及厅密度联动估算；不是保证收益')
         payback = construction.total/net.total if (construction.complete and net is not None and net.complete and net.total>0) else None

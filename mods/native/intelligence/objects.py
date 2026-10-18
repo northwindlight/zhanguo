@@ -73,6 +73,9 @@ class Intelligence:
         self._write()
         if self._world is not None and self._world.phase!='行动':raise ValueError('Submit only during action phase')
         if owner not in self._ids() or target not in self._ids() or owner==target:raise ValueError('收信方须是另一个存活国家：不能发给自己，也不能发给已亡国')
+        if (not self._call('native:diplomacy','diplomatic_authority',owner)
+            and not self._call('native:diplomacy','allied',owner,target)):
+            raise ValueError('普通附庸没有对外外交权，只能在宗主外交实体内部通信')
         if kind not in ('letter','gift','map','spy') or not self._permits(owner,'communication.'+kind):raise ValueError('这种通信不可用：kind 须为 letter/gift/map/spy 之一，且须为政体未禁用的动作')
         integer(quantity)
         fee=self._rules['Fee']
@@ -104,7 +107,9 @@ class Intelligence:
     def resolve(self):
         self._write();facts=[];results=[]
         for d in sorted(self._pending,key=lambda d:(d.kind,d.owner,d.id)):
-            if d.owner not in self._ids() or d.target not in self._ids() or not self._permits(d.owner,'communication.'+d.kind):
+            if (d.owner not in self._ids() or d.target not in self._ids() or not self._permits(d.owner,'communication.'+d.kind)
+                or not self._call('native:diplomacy','diplomatic_authority',d.owner)
+                and not self._call('native:diplomacy','allied',d.owner,d.target)):
                 self._refund(d);result=replace(d,status='cancelled')
             else:
                 delay=self._rules['SpyDelay'] if d.kind=='spy' else 1

@@ -97,6 +97,8 @@ def _reports(data, args, actor, ctx):
         lines.append(ctx.text('tool.report.row2', inventory=ctx.money(row['inventory_assets']), buildings=ctx.money(row['building_assets']),
                               total=ctx.money(row['total_assets']), liabilities=_num(row['liabilities']),
                               net=ctx.money(row['net_assets']), imports=_num(row['imports']), exports=_num(row['exports'])))
+        if row.get('tribute_paid') or row.get('tribute_received'):
+            lines.append(ctx.text('tool.report.tribute',paid=ctx.money(row['tribute_paid']),received=ctx.money(row['tribute_received'])))
         percent = lambda value: '—' if value is None else _num(value * 100) + '%'
         lines.append(ctx.text('tool.report.row3', gdp=percent(row['gdp_growth']), investment=percent(row['investment_growth']),
                               assets=percent(row['assets_growth']), military=percent(row['military_ratio']), trade=percent(row['trade_ratio'])))

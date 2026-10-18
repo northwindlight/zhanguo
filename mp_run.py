@@ -135,11 +135,11 @@ class Observer:
         if self.host.clients[actor].kind=='rule':
             self.flush(actor)
             if action=='end_turn' and receipt['ok']:self.actor_finish(actor)
-        # 模型侧不一定会以 end_turn 收尾（议会转换、步数耗尽）；只看行动权是否还在，
-        # 否则下一轮同一个国家再行动时抬头不会重打，看海就分不清谁在做。
-        try:
-            if not self.host.player(actor).action_state().get('can_act'):self.actor_finish(actor)
-        except Exception:pass
+            try:
+                if not self.host.player(actor).action_state().get('can_act'):self.actor_finish(actor)
+            except Exception:pass
+        # LLM batches finish in on_call, after their receipts have been flushed.
+        # Closing here would make on_call restart the clock and report 0.0s.
     def flush(self,actor):
         remember=getattr(self.ui.console,'remember',None)
         if callable(remember):remember(self.host.player(actor).observe())
@@ -154,6 +154,11 @@ class Observer:
         self.line(self.ui.text('console.call',actor=self.host.roster[actor]['name'],count=step+1));self.flush(actor)
         if not _commands(self.host,self):self.stop_requested=True
         if any(r.get('action')=='end_turn' and r.get('ok') for r in receipts):self.actor_finish(actor)
+        else:
+            # Control can end without an explicit end_turn, e.g. a council transition.
+            try:
+                if not self.host.player(actor).action_state().get('can_act'):self.actor_finish(actor)
+            except Exception:pass
     def events(self,*,period=None):
         records=self.host.records()
         fresh_events=[]
