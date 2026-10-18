@@ -37,9 +37,6 @@ def tools(runtime):
     def dispatches(world, actor):
         return runtime.player_api(world, 'native:intelligence').dispatches(actor)
 
-    def countries(world, actor):
-        return runtime.player_api(world, 'native:intelligence').countries(actor)
-
     return (
         Action('send_letter', send_letter, owner='native:intelligence', api=('letter',), groups=('communication.letter',),
              description=f'向 query(panel=foreign) 中的别国发送正文；提交时扣费，结算派发，下一周期送达 intel。起步价非盟友{cfg["LetterBase"]}金、盟友{cfg["LetterAlly"]}金，外交中心可减免；前{cfg["FreeCharacters"]}字免费，超出每{cfg["CharactersPerGold"]}字加1金，下限{cfg["LetterMinimum"]}金，实际费用看回执。'),
@@ -56,8 +53,6 @@ def tools(runtime):
              description='本国可见的最近10周期近讯、外交、战况和观察者公告；旧事件保存于存档旁的历史归档；player_events(cursor) 可只取游标后的新增事件。'),
         Tool('dispatches', dispatches, owner='native:intelligence', api=('dispatches',), read_only=True, fact=True, panel=True,
              description='本国所有待结算和在途通信/馈赠/间谍，包含状态与预计送达周期；无需目标或坐标。'),
-        Tool('countries', countries, owner='native:intelligence', api=('countries',), read_only=True,
-             description='一次列出除本国外的全部在世外交对象：国家 id、名称、关系、接壤、来信和战争主导实体代表。target 使用国家 id，不能对自己做外交。'),
     )
 
 
@@ -159,5 +154,4 @@ CAPTIONS = {
     'intel': lambda args, actor, receipt, ctx: ctx.text('tool.caption.intel'),
     'news': lambda args, actor, receipt, ctx: ctx.text('tool.caption.news'),
     'dispatches': lambda args, actor, receipt, ctx: ctx.text('tool.caption.dispatches'),
-    'countries': lambda args, actor, receipt, ctx: ctx.text('tool.caption.countries'),
 }

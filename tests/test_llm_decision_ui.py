@@ -85,8 +85,10 @@ class TestDecisionUI(unittest.TestCase):
             self.assertFalse(receipts[0]['ok']);self.assertEqual(receipts[0]['code'],'tool_not_exposed')
             self.assertIsNone(receipts[0]['data'])
             names={s['function']['name'] for s in client.ui.actions(p.actions())}
-            self.assertNotIn('player_state',names);self.assertNotIn('government',names);self.assertIn('query',names)
+            self.assertNotIn('player_state',names);self.assertNotIn('player_events',names)
+            self.assertNotIn('government',names);self.assertIn('query',names)
             self.assertNotIn('player_state',client.ui.system())
+            self.assertIn('player_events',{s['function']['name'] for s in p.actions()})
             self.assertFalse(any(row['action']=='player_state' for row in h.audit))
             # Automatic facts and subsequent patches still reach the model.
             first=backend.requests[0][-1]['content']

@@ -76,9 +76,9 @@ class TestPlayerAPI(unittest.TestCase):
     def test_pending_receipts_and_event_cursor_do_not_confuse_execution(self):
         w=self.world();p=w.runtime.player(w,Q)
         result=p.submit('relations', {'action': 'guarantee', 'target':C})
-        self.assertEqual(result['status'],'submitted');self.assertEqual(p.query('diplomacy')['pacts'],[])
+        self.assertEqual(result['status'],'submitted');self.assertEqual(p.call_api('native:diplomacy','snapshot')['pacts'],[])
         w.resolve_turn();w.phase='行动'
-        self.assertEqual(len(p.query('diplomacy')['pacts']),1)
+        self.assertEqual(len(p.call_api('native:diplomacy','snapshot')['pacts']),1)
         w.intelligence.emit('private','仅楚',parties=(C,))
         visible=p.events();self.assertNotIn('仅楚',[e['text'] for e in visible['items']])
         self.assertEqual(p.events(visible['cursor'])['items'],[])

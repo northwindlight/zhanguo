@@ -76,7 +76,7 @@ class VictoryHooks(TestCase):
                 player=h.player(IDS['秦']);before=h.runtime.save_mod_state(h.world)
                 self.assertFalse(player.action_state()['can_act'])
                 self.assertFalse(self.submit_rejected(player,'bloc_leave')['ok'])
-                self.assertTrue(player.submit('diplomacy')['ok'])
+                self.assertTrue(player.query('foreign'))
                 self.assertTrue(player.submit('memory_search',{'query':'周天下'})['ok'])
                 self.assertEqual(player.query('player_state')['victory_event'],event)
                 self.assertEqual(h.runtime.save_mod_state(h.world),before)

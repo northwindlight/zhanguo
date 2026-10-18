@@ -61,10 +61,12 @@ class TestToolSurface(unittest.TestCase):
         facts = world.runtime.player(world, Q).observe()['facts']
         self.assertFalse(set(facts) & {'nation', 'nations', 'countries', 'diplomacy'})
         self.assertEqual(set(facts['foreign']), {'nation', 'nations', 'countries', 'diplomacy'})
-        # 按名查询仍然可用：合并的是事实面，不是只读工具。
+        # 四块只由 foreign 一次取出；不再各注册一个工具，按名查询已不存在。
         player = world.runtime.player(world, Q)
-        self.assertTrue(player.query('nations'))
-        self.assertTrue(player.query('diplomacy'))
+        data = player.query('foreign')
+        self.assertTrue(data['nations'] and data['diplomacy'])
+        with self.assertRaises(ValueError):
+            player.query('nations')
 
     def test_foreign_panel_merges_nations_relations_and_diplomacy(self):
         world = self.world()

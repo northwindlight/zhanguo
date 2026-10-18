@@ -88,7 +88,7 @@ class ToolcallParity(unittest.TestCase):
         w.military.seed(C,'native:infantry',2,1)
         w.military.seed(C,'native:cavalry',6,6)
         w.military.seed(Q,'native:infantry',1,1,count=3)
-        self.assertTrue(next(n for n in p.query('countries') if n['id']==C)['border'])
+        self.assertTrue(next(n for n in p.call_api('native:intelligence','countries') if n['id']==C)['border'])
         threats=p.query('threats');self.assertEqual(len(threats),1)
         self.assertEqual((threats[0]['unit']['owner'],threats[0]['unit']['x']),(C,2))
         own=p.query('army');ids=[u['id'] for u in own if u['owner']==Q]
@@ -96,7 +96,7 @@ class ToolcallParity(unittest.TestCase):
         self.assertFalse(p.submit('military', {'action': 'disband', 'ids':[ids[0],999999]})['ok'])
         self.assertEqual(w.runtime.save_mod_state(w),before)
         self.assertTrue(p.submit('relations', {'action': 'declare_war', 'target':C})['ok']);w.resolve_turn();w.phase='行动'
-        country=next(n for n in p.query('countries') if n['id']==C)
+        country=next(n for n in p.call_api('native:intelligence','countries') if n['id']==C)
         self.assertEqual((country['relation'],country['war_representative']),('war',C))
         self.assertTrue(p.submit('military', {'action': 'attack', 'ids':[ids[0]],'x':2,'y':1})['ok'])
         before=w.runtime.save_mod_state(w);battle=p.query('battle')[0]
@@ -123,13 +123,15 @@ class ToolcallParity(unittest.TestCase):
         p.submit('relations', {'action': 'declare_war', 'target':C});w.resolve_turn();w.phase='行动'
         self.assertTrue(p.submit('relations', {'action': 'offer_peace', 'target':C,'kind':'white','note':'停战建设，互不侵犯。'})['ok'])
         w.resolve_turn();w.phase='行动'
-        offer=p.query('diplomacy')['offers'][0]
+        offer=p.call_api('native:diplomacy','snapshot')['offers'][0]
         self.assertIn(['note','停战建设，互不侵犯。'],offer['arguments'])
         from mods.ui.console import ConsoleUI
-        text=ConsoleUI({},tool_layer=w.runtime.tool_layer).action(p.observe()['period'],Q,'diplomacy',{},p.submit('diplomacy'),{Q:'秦',C:'楚'})
+        receipt={'ok':True,'status':'effective','code':None,'message':'','action':'diplomacy',
+                 'data':p.call_api('native:diplomacy','snapshot')}
+        text=ConsoleUI({},tool_layer=w.runtime.tool_layer).action(p.observe()['period'],Q,'diplomacy',{},receipt,{Q:'秦',C:'楚'})
         self.assertIn('提议和平',text);self.assertIn('停战建设，互不侵犯。',text);self.assertIn('战争#',text)
         saved=w.runtime.save_mod_state(w);w.runtime.load_mod_state(w,saved)
-        self.assertEqual(p.query('diplomacy')['offers'][0],offer)
+        self.assertEqual(p.call_api('native:diplomacy','snapshot')['offers'][0],offer)
 
     def test_memory_tool_client_scope_validation_and_searchable_history(self):
         h=self.host();p=h.player(Q)
@@ -171,7 +173,7 @@ class ToolcallParity(unittest.TestCase):
     def test_chinese_console_panels_show_prices_army_counts_and_full_reports(self):
         h=self.host();p=h.player(Q);ui=h.ui.console
         names={Q:'秦'}
-        for action in ('market','army','report','countries','battle','threats','diplomacy','handbooks'):
+        for action in ('market','army','report','battle','threats'):
             args={};receipt=p.submit(action,args)
             text=ui.action(0,Q,action,args,receipt,names)
             self.assertNotIn('→ 已生效',text)

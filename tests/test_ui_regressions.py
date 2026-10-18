@@ -17,7 +17,13 @@ class TestUIRegressions(unittest.TestCase):
 
     def present(self,h,action,args=None):
         player=h.player(Q);h.ui.console.remember(player.observe())
-        return h.ui.console.action(h.clock(),Q,action,args or {},player.submit(action,args or {}),{Q:'秦',C:'楚'})
+        if action=='countries':
+            # 组合工具 foreign 已接管国家列表，面板成文仍按 countries 渲染。
+            receipt={'ok':True,'status':'effective','code':None,'message':'','action':action,
+                     'data':player.call_api('native:intelligence','countries')}
+        else:
+            receipt=player.submit(action,args or {})
+        return h.ui.console.action(h.clock(),Q,action,args or {},receipt,{Q:'秦',C:'楚'})
 
     def test_market_receipt_gives_equilibrium_tone_and_large_order_trial(self):
         """旧版行情行：现价/均衡/贵贱 + 大单试算；只给现价，模型只能猜贵贱。"""
@@ -153,7 +159,7 @@ class TestUIRegressions(unittest.TestCase):
         h=self.host();w=h.world
         w.diplomacy.seed_pact('guarantee',Q,C)
         text=self.present(h,'countries');self.assertIn('本实体保障它',text)
-        row=h.player(C).query('countries')[0]
+        row=h.player(C).call_api('native:intelligence','countries')[0]
         self.assertIn({'kind':'guarantee','direction':'incoming'},row['treaties'])
         w.diplomacy.seed_pact('defense',Q,C)
         self.assertIn('共同防御',self.present(h,'countries'))

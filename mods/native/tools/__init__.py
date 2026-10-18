@@ -11,7 +11,7 @@ from pathlib import Path
 
 from engine.runtime import ModError, Tool
 
-from . import army, bank, buildings, commands, diplomacy, economy, government, handbooks, intelligence, nations, query, territory, vision
+from . import army, bank, buildings, commands, diplomacy, economy, government, intelligence, nations, query, territory, vision
 
 
 def _merge(target, source, label):
@@ -106,7 +106,7 @@ class ToolLayer:
 
 def build(runtime):
     tools, receipts, captions, panels = [], {}, {}, {}
-    for module in (nations, government, army, territory, vision, buildings, economy, bank, diplomacy, intelligence, handbooks):
+    for module in (nations, government, army, territory, vision, buildings, economy, bank, diplomacy, intelligence):
         for spec in module.tools(runtime):
             if spec.owner in runtime.capabilities:
                 tools.append(spec)

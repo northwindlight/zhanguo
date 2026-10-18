@@ -39,6 +39,12 @@
 - **README**：native README 不再手抄模块/工具/阶段计数，改为指向运行时表。
 - 验收：新增角色/数值/字形测试；全量离线 643 项通过；说明书重新生成。
 
+### T8 工具去重（2026-10-18，已落地）
+
+- `foreign` 直接读 `native:nations`/`native:intelligence`/`native:diplomacy` 的玩家 API，删除 `nation`/`nations`/`countries`/`diplomacy` 四个重复只读工具；新增 `Tool.covers` 供组合工具在装载期覆盖别家 API 方法。
+- 删除 `handbooks` 目录工具（`player_rules` 已返回目录）；`player_events` 与 `script_status` 退出 LLM 工具表，分别由 `query(panel=news)` 与 `script(action="status")` 覆盖。
+- 结果：native 31 个注册工具（模型可见 10）、隐藏只读 23、事实 18、面板 22；experimental 34（模型可见 12）、隐藏 24、事实 19。tools schema 变化使旧档不可读，native 4.8.1 / experimental 0.8.1。
+
 ## 一、目标
 
 用户口径：**做一个 tool 层，接管全部可用 API，手工封装全部 toolcall。**

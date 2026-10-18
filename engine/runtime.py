@@ -127,6 +127,9 @@ class Tool:
     # tool 层字段：owner 是提供玩家 API 的能力名；None 表示沿用「哪个模块返回」。
     owner: str | None = None
     api: tuple[str, ...] = ()
+    # 组合工具额外覆盖的其他能力方法（如 foreign 组合 intelligence/diplomacy）：
+    # 只用于装载期覆盖检查与只读分类，工具本身仍由 owner 的上下文执行。
+    covers: tuple[tuple[str, str], ...] = ()
     fact: bool = False
     panel: bool = False
     groups: tuple[str, ...] = ()
@@ -468,6 +471,8 @@ class Runtime:
             bucket = self.api_readonly if tool.read_only else self.api_writes
             for method in tool.api:
                 bucket.setdefault(tool.owner, set()).add(method)
+            for capability, method in tool.covers:
+                bucket.setdefault(capability, set()).add(method)
         for action in self.actions.values():
             for group in action.groups:
                 self.action_groups.setdefault(group, []).append(action)
@@ -676,6 +681,15 @@ class Runtime:
                 if method not in declarations[module_id]:
                     raise ModError(f'工具 {tool.name} 引用了未声明的方法：{module_id}.{method}')
                 covered[module_id].add(method)
+            for capability, method in tool.covers:
+                cover_owner = self.capabilities.get(capability)
+                if cover_owner is None:
+                    raise ModError(f'工具 {tool.name} 的 covers 能力无提供者：{capability}')
+                if cover_owner not in declarations:
+                    raise ModError(f'工具 {tool.name} 的 covers 模块未声明 [PlayerAPI]：{cover_owner}')
+                if method not in declarations[cover_owner]:
+                    raise ModError(f'工具 {tool.name} 的 covers 引用了未声明的方法：{cover_owner}.{method}')
+                covered[cover_owner].add(method)
         for action in self.actions.values():
             module_id = self.capabilities.get(action.owner)
             if module_id is None:

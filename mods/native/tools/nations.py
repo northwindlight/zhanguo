@@ -1,37 +1,32 @@
 """Nation toolcalls: public identities, the current nation's sites, and the one
 combined foreign-affairs panel (own nation + all nations + relations + treaties)."""
-from engine.runtime import Tool
+from engine.runtime import Tool, unit_context
 
 from .diplomacy import _diplomacy
 from .intelligence import _countries
 
 
 def tools(runtime):
-    def nations(world, actor):
-        return runtime.player_api(world, 'native:nations').snapshot(actor)
-
-    def nation(world, actor):
-        return runtime.player_api(world, 'native:nations').overview(actor)
-
     def foreign(world, actor):
-        # 组合面板走已注册的只读工具，而不是在 nations 的上下文里直接调别家 API：
-        # Runtime.call 会把每个子工具放进它自己的 owner 上下文，跨模块接口声明
-        # 因此仍按各自模块校验。
-        def read(name):
-            return runtime.call(world, actor, name, {}) if name in runtime.tools else None
-        data = {'nation': read('nation'), 'nations': read('nations'),
-                'countries': read('countries'), 'diplomacy': read('diplomacy')}
+        # 组合面板直接读各模块的玩家 API，不再为四块数据各注册一个工具。
+        # 每块都在自己的模块上下文里读，跨模块接口声明仍按各模块校验。
+        def read(capability, method):
+            if capability not in runtime.capabilities:
+                return None
+            with unit_context(None):
+                return getattr(runtime.player_api(world, capability), method)(actor)
+        data = {'nation': read('native:nations', 'overview'),
+                'nations': read('native:nations', 'snapshot'),
+                'countries': read('native:intelligence', 'countries'),
+                'diplomacy': read('native:diplomacy', 'snapshot')}
         return {key: value for key, value in data.items() if value is not None}
 
     return (
-        Tool('nations', nations, read_only=True,
-             owner='native:nations', api=('snapshot',),
-             description='全部国家的公开身份与登场/灭亡记录；无需参数。'),
-        Tool('nation', nation, read_only=True,
-             owner='native:nations', api=('overview',),
-             description='本国身份与当前拥有的站点；无需参数，站点明细见 building_sites。'),
         Tool('foreign', foreign, read_only=True, fact=True, panel=True,
              owner='native:nations', api=('snapshot', 'overview'),
+             covers=tuple((capability, method) for capability, method in
+                          (('native:intelligence', 'countries'), ('native:diplomacy', 'snapshot'))
+                          if capability in runtime.capabilities),
              description='本国与全部对外关系一次查完：本国身份与站点、各国身份与存续、关系/条约/接壤/来信、联盟与战争、待回应提议、投票与待结算命令。无需参数；代价是比单独查一块长。'),
     )
 
@@ -72,7 +67,5 @@ def _foreign(data, args, actor, ctx):
 PANELS = {'nations': _nations, 'nation': _nation, 'foreign': _foreign}
 RECEIPTS = {}
 CAPTIONS = {
-    'nations': lambda args, actor, receipt, ctx: ctx.text('tool.caption.nations'),
-    'nation': lambda args, actor, receipt, ctx: ctx.text('tool.caption.nation'),
     'foreign': lambda args, actor, receipt, ctx: ctx.text('tool.caption.foreign'),
 }

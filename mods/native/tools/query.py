@@ -25,8 +25,7 @@ DESCRIPTION = (
     'battle=当前交战、logistics=补给预演；market/econ/bank/report=市场、库存与资产、央行、经济报表；'
     'government/intel/news/dispatches=国策、情报、近讯、在途；'
     'foreign=本国与全部对外关系（各国身份、关系、条约、联盟、战争、提议与投票）；'
-    'unit_catalog/building_catalog/terrain_catalog/building_economics=兵种、建筑、地形、建筑收益；'
-    'handbooks=策略指南目录（正文用 player_rules）。'
+    'unit_catalog/building_catalog/terrain_catalog/building_economics=兵种、建筑、地形、建筑收益。'
     '同一回合内可一次查询多块面板；已有资料不必重复查询。'
 )
 

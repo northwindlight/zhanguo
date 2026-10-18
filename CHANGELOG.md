@@ -1,5 +1,16 @@
 # 更新记录
 
+## 未发行 — 2026-10-18（工具去重）
+
+按旧版 `mp_ai.py` 的口径收敛纯重复查询：默认简报已给的数据不再各注册一个工具，组合数据只留一个入口。
+
+- `foreign` 不再为 `nation`/`nations`/`countries`/`diplomacy` 各注册工具，直接读各模块玩家 API；`Tool.covers` 让组合工具在装载期声明它覆盖的别家 API 方法，覆盖检查与只读分类照旧。
+- `handbooks` 目录工具删除：`player_rules` 已返回同一份目录；`native:handbooks` 不再声明 `[PlayerAPI] Methods`。
+- `player_events` 退出 LLM 工具表（内置 API 保留）：默认近讯与 `query(panel=news)` 覆盖同一事件源。
+- `script_status` 不再单独可见，只保留 `script(action="status")`。
+- 计数：native 31 个注册工具（模型可见 10：8 个发行版工具 + `memory_search`/`player_rules`）、隐藏只读 23、事实 18、面板 22；experimental 34 个注册工具（模型可见 12）、隐藏 24、事实 19。native 4.8.1 / experimental 0.8.1。
+- 工具 schema 变化，**旧档读不进来，需新档**。回归：644 项通过；说明书同步。
+
 ## 未发行 — 2026-10-18（记忆检索去 JSON）
 
 `memory_search` 的检索索引不再存工具调用/回执的 JSON 副本，改为存模型实际看到的 UI 回执散文（动作名 + 回执正文）。旧档的历史行在检索时用同一套 UI 渲染器惰性转成散文；没有 UI 的兜底只留消息与状态，不抄观察数据。存档格式不变，旧档可继续读，新回合起写入新格式。

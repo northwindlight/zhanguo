@@ -17,7 +17,7 @@
 
 - `__init__.py`：`build(runtime)` 汇总各领域 spec，按 `owner in runtime.capabilities` 过滤，追加统一 `query` 入口，再交给 `commands.wrap` 收伞。
 - `commands.py`：伞工具表与生成器；`COMMANDS` 是一张显式动作清单。
-- `nations.py` / `government.py` / `army.py` / `territory.py` / `vision.py` / `buildings.py` / `economy.py` / `bank.py` / `diplomacy.py` / `intelligence.py` / `handbooks.py`：领域 Tool 表 + `RECEIPTS` / `CAPTIONS` / `PANELS`。`nations.py` 的 `foreign` 面板组合本国/各国/关系/外交四块。
+- `nations.py` / `government.py` / `army.py` / `territory.py` / `vision.py` / `buildings.py` / `economy.py` / `bank.py` / `diplomacy.py` / `intelligence.py`：领域 Tool 表 + `RECEIPTS` / `CAPTIONS` / `PANELS`。`nations.py` 的 `foreign` 面板直接读四个模块的玩家 API，不再为每块注册工具；`Tool.covers` 声明组合覆盖的别家 API。
 - `query.py`：从 `panel=True` 的工具生成只读分发器。
 - `common` 逻辑暂复用 `mods/native/locations.py`。
 

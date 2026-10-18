@@ -39,8 +39,8 @@ class TestNations(unittest.TestCase):
         self.assertEqual((nation.id, nation.name, nation.account), ('scenario:qin','秦','scenario:qin'))
         self.assertEqual(world.nation_actors, ('scenario:qin','scenario:chu'))
         self.assertEqual(world.resources.owners(), world.nation_actors)
-        self.assertEqual(world.call_tool('scenario:qin','nation',{}).sites[0].owner, nation.id)
-        self.assertEqual([n.name for n in world.call_tool(nation.id,'nations',{})], ['秦','楚'])
+        self.assertEqual(world.call_tool('scenario:qin','foreign',{})['nation'].sites[0].owner, nation.id)
+        self.assertEqual([n.name for n in world.call_tool(nation.id,'foreign',{})['nations']], ['秦','楚'])
         world.buildings.transfer_site('scenario:capital', 'scenario:chu')
         self.assertEqual(world.nations.sites(nation.id), ())
         self.assertEqual(world.nations.sites('scenario:chu')[0].id, 'scenario:capital')
@@ -54,7 +54,7 @@ class TestNations(unittest.TestCase):
         self.assertEqual(receipt.owner, 'scenario:qin')
         self.assertEqual(world.resources.balance('scenario:qin','native:gold'), 980)
         self.assertEqual(world.resources.balance('scenario:chu','native:gold'), 100)
-        with self.assertRaises(ValueError):world.call_tool('秦国','nation',{})
+        with self.assertRaises(ValueError):world.call_tool('秦国','foreign',{})
 
     def test_invalid_creation_and_account_collision_leave_both_domains_unchanged(self):
         world = self.populate(self.world())
@@ -79,7 +79,7 @@ class TestNations(unittest.TestCase):
         world = self.populate(self.world(official=True))
         world.resources.open('scenario:treasury',{'native:gold':100})
         before = self.save(world)
-        for tool, args in [('nation',{}), ('econ',{}), ('buy',{'resource':'native:wood','quantity':1}),
+        for tool, args in [('foreign',{}), ('econ',{}), ('buy',{'resource':'native:wood','quantity':1}),
                            ('borrow',{})]:
             with self.assertRaises(ValueError):world.call_tool('scenario:treasury',tool,args)
         self.assertEqual(self.save(world), before)
@@ -97,12 +97,12 @@ class TestNations(unittest.TestCase):
         self.assertEqual(world.nation_actors, ('scenario:chu',))
         self.assertEqual(world.nations.ids(alive_only=False), ('scenario:qin','scenario:chu'))
         self.assertEqual(world.resources.balance(nation.account,'native:gold'), 1000)
-        self.assertEqual(len(world.call_tool('scenario:chu','nations',{})), 2)
+        self.assertEqual(len(world.call_tool('scenario:chu','foreign',{})['nations']), 2)
         before = self.save(world)
         for operation in (lambda:world.nations.create(nation.id,'新秦'),
                           lambda:world.nations.rename(nation.id,'新秦'),
                           lambda:world.nations.extinguish(nation.id,'再次灭亡'),
-                          lambda:world.call_tool(nation.id,'nation',{})):
+                          lambda:world.call_tool(nation.id,'foreign',{})):
             with self.assertRaises(ValueError):operation()
             self.assertEqual(self.save(world), before)
 
@@ -197,8 +197,8 @@ class TestNations(unittest.TestCase):
         world = self.populate(self.world())
         world.resolve_turn()
         before = self.save(world)
-        self.assertEqual(world.call_tool('scenario:qin','nation',{}).nation.name, '秦')
-        self.assertEqual(len(world.call_tool('scenario:qin','nations',{})), 2)
+        self.assertEqual(world.call_tool('scenario:qin','foreign',{})['nation'].nation.name, '秦')
+        self.assertEqual(len(world.call_tool('scenario:qin','foreign',{})['nations']), 2)
         self.assertEqual(self.save(world), before)
 
 

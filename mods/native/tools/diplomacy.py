@@ -103,14 +103,9 @@ def tools(runtime):
     def vote(world, actor, vote: int, accept: bool | None):
         return runtime.player_api(world, 'native:diplomacy').vote(actor, vote, accept)
 
-    def diplomacy(world, actor):
-        return runtime.player_api(world, 'native:diplomacy').snapshot(actor)
-
     result.extend((
         Action('vote', vote, owner='native:diplomacy', api=('vote',), groups=GROUPS['vote'],
              description='对 query(panel=foreign) 投票中本国有资格且当前开放的投票表态：vote 为整数编号，accept=true 赞成、false 反对。仅发起后的下一周期可投票或改票，accept=null 显式弃权；结束回合仍未投票则自动反对；显式弃权保留，赞成多于反对通过；投票不等于条约已生效。'),
-        Tool('diplomacy', diplomacy, owner='native:diplomacy', api=('snapshot',), read_only=True,
-             description='本国相关联盟、条约、战争、休战、提议、投票、待结算命令及结果；模型统一查 query(panel=foreign)。offers/votes 的 id 用于回应和投票；submitted 不代表关系已改变。'),
     ))
     return tuple(result)
 

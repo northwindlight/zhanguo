@@ -31,7 +31,7 @@ class TestNativeDistribution(unittest.TestCase):
         runtime=Runtime.load(ROOT/'mods.toml');direct=Runtime.load(ROOT/'mods/native')
         self.assertEqual(runtime.dependency_manifest(),direct.dependency_manifest())
         self.assertEqual(runtime.distribution['Id'],'native')
-        self.assertEqual(runtime.distribution['Version'],'4.8.0')
+        self.assertEqual(runtime.distribution['Version'],'4.8.1')
         self.assertEqual(set(runtime.units),{'ui:standard','native:handbooks','native:resources','native:buildings','native:market',
                          'native:market-pricing','native:economy','native:economy-valuation',
                          'native:bank','native:economy-queries','native:nations','native:government','native:map-generation',
@@ -41,7 +41,7 @@ class TestNativeDistribution(unittest.TestCase):
             'military.battle','military.withdraw','military.claims','succession','military.repatriate',
             'market.settlement','buildings.completion','bank.settlement','economy.reports','cycle.end'))
         self.assertEqual(len(runtime.stage_order),17)
-        self.assertTrue({'build','market','econ','bank','nation','nations','plan','end_turn',
+        self.assertTrue({'build','market','econ','bank','foreign','plan','end_turn',
             'land','view','army','news','intel','query','military','economy','relations',
             'intelligence'} <= set(runtime.tools))
         self.assertTrue({'buy','sell','borrow','recruit','attack','retreat','declare_war',

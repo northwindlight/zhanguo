@@ -19,7 +19,7 @@ FALLBACK={'capital':'frontier','threats':'threats','battle':'battle','territory'
 class LLMUI:
     def __init__(self,cfg,tool_layer=None):
         self.cfg=cfg;self.text=Translator.from_config(cfg,tool_layer=tool_layer);self.sites={};self.has_scripts=False
-        self.catalogs={};self.rulebook=[];self.guide_catalog=[];self.period=0;self.at_war=False;self.polity=None
+        self.catalogs={};self.rulebook=[];self.period=0;self.at_war=False;self.polity=None
         # 模型与观察者共用同一套中文渲染器；差别只在成文后的排序与裁剪。
         self.receipts=ConsoleUI(cfg,tool_layer=tool_layer);self.actor=None;self.names={};self.facts={}
 
@@ -83,7 +83,7 @@ class LLMUI:
         # 开局最贵的几个坑，模型不一定会主动去查手册。
         guide=next((section for section in self.rulebook if section['title']=='基础指南'),None)
         if guide and self.cfg.get('opening_guide',True) and self.period<20:text+='\n'+str(guide['body'])
-        text+='\n只读查询统一用 query(panel=…)：land/tile/map、army/reachable/frontier/threats/battle/logistics、market/econ/bank/report、government/intel/news/dispatches、foreign（本国与全部对外关系）、unit_catalog/building_catalog/terrain_catalog/building_economics、handbooks。动作类工具按命令分：military（征召/移动/进攻/撤退/遣散）、economy（买卖/借款/购报表）、relations（外交与投票）、intelligence（写信/赠礼/共享地图/间谍），各自用 action 参数选动作。规则用 player_rules(topic)，按游标取事件用 player_events(cursor)。'
+        text+='\n只读查询统一用 query(panel=…)：land/tile/map、army/reachable/frontier/threats/battle/logistics、market/econ/bank/report、government/intel/news/dispatches、foreign（本国与全部对外关系）、unit_catalog/building_catalog/terrain_catalog/building_economics。动作类工具按命令分：military（征召/移动/进攻/撤退/遣散）、economy（买卖/借款/购报表）、relations（外交与投票）、intelligence（写信/赠礼/共享地图/间谍），各自用 action 参数选动作。规则用 player_rules(topic)；近讯在状态末尾，完整事件用 query(panel=news)。'
         if self.has_scripts:text+='\n'+self.text('llm.scripting')
         return text
 
@@ -92,7 +92,9 @@ class LLMUI:
 
     def actions(self,schemas):
         # 工具名、参数名是 API；enum 与描述里提到的内容键值随语言走（zh=金/农场，en=gold/farm）。
-        schemas=deepcopy([schema for schema in schemas if schema['function']['name']!='player_state'])
+        # 每回合自动 facts / 近讯已经覆盖这两个内置读法；模型不再单独调用。
+        schemas=deepcopy([schema for schema in schemas
+                          if schema['function']['name'] not in ('player_state','player_events')])
         self.has_scripts=any(s['function']['name']=='script' for s in schemas)
         import re
         values=self.values()
@@ -218,7 +220,7 @@ class LLMUI:
     def state(self,observation,events):
         facts=self._remember(observation)
         for site in facts.get('building_sites',{}).get('sites',[]):self.sites[site['id']]=list(site['position'])
-        self.period=observation['period'];self.guide_catalog=facts.get('handbooks',[])
+        self.period=observation['period']
         self.polity=self.cfg.get('polity')
         actor=observation['actor']
         self.at_war=any(actor in w['attackers']+w['defenders'] for w in facts.get('diplomacy',{}).get('wars',[]))
