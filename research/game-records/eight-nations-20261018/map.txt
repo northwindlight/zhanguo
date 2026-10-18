@@ -1,0 +1,27 @@
+全景地图 · 第 51 回合
+   012345678901234567890123
+ 0 BBBmffffffffpfppppdddddd
+ 1 BBBBBffffmfDmEEmdddddddm
+ 2 hpBBBmffpfDDDEEEEEdpfpdp
+ 3 mhpfBffmhpDDDEEEEEEppppf
+ 4 mmppBfffmhDDDDEEHEEmhhhh
+ 5 mmpfBBmfhhhDhDEHHfEmhhmh
+ 6 hmmfmBBfmhhhpmHHHphhhhpf
+ 7 hffppBBBBBdpppHHpmhmmmpp
+ 8 mhpmpBBBBBhppppHHhmmFhhh
+ 9 hhppddBBBBhhppmHHdmFFFhh
+10 hdfAfAmpBpmhpmHHHddmFFhm
+11 pfAAAAffpppppHHHhdddFFhh
+12 mffAAAfffpffCCCCCCCChhFF
+13 mhffffffmpfCCCmppdpCdFFF
+14 pffmffffffffCfpppppCdFFF
+15 hhhfffGGGGffpfmpppfCmhFF
+16 mmhfffGffGfppfffhphChhFF
+17 hmhfpfGGmGGmhmhhffmCfhmf
+18 hhppmpGGdGGGhhhhhffCfhhm
+19 hhhmpmGGpmGGGhhmmffCCmhh
+20 mhhhfffmpffGmhhfffhmhhpm
+21 mhhhmffffffhhhpfmphhddpp
+22 mhhhmffffffhhhhfppdddddd
+23 mmhhfffmfffmhmhpmpdddddd
+图例：A=秦 B=魏 C=韩 D=赵 E=燕 F=齐 G=楚 H=周 | p平原 f森林 h丘陵 m山地 d沙漠；大写为国土，坐标从0开始

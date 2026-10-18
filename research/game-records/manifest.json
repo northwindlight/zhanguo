@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "publication_date": "2026-10-13",
-  "description": "Real human-played games: complete supplied saves and unabridged original journals, for research and reference.",
-  "code_family": "legacy monolithic World v4; not a modular main save",
+  "description": "Real human-played games: complete supplied saves and unabridged original journals, for research and reference. Includes legacy v4 records and a modular main 0.4.0 experimental snapshot.",
+  "code_family": "legacy monolithic World v4 (258/158); modular main @ ec5946c, experimental 0.8.0, zhanguo.session/4 (20261018)",
   "records": [
     {
       "id": "eight-nations-258",
@@ -80,6 +80,63 @@
           "sha256": "a747745c5b72908f4ec780853dccfe5dd5ac0f17659bb96aa7fa52964bb4e2dc"
         }
       }
+    },
+    {
+      "id": "eight-nations-20261018",
+      "status": "snapshot",
+      "save_turn": 50,
+      "save_version": 4,
+      "save_format": "zhanguo.session/4",
+      "code_version": "main @ ec5946c (0.4.0); experimental distribution 0.8.0",
+      "map_size": 24,
+      "seed": 20261018,
+      "initial_nations": [
+        "秦",
+        "魏",
+        "韩",
+        "赵",
+        "燕",
+        "齐",
+        "楚",
+        "周"
+      ],
+      "models": [
+        "gemini-3.8-flash-tiered",
+        "deepseek-v4.1-flash-free",
+        "qwen3.8-flash"
+      ],
+      "model_source": "game config.json (not included); 秦/赵/楚 Gemini, 魏/燕/周 DeepSeek, 韩/齐 Qwen; reviewer qwen3.8-flash",
+      "parameter_warning": "Not a controlled comparison. Gemini: reasoning_effort=high, max_tokens=32768; DeepSeek/Qwen: reasoning_effort=low, max_tokens=16384. Cross-group differences are not attributable to model capability.",
+      "files": {
+        "save": {
+          "path": "eight-nations-20261018/state.json.gz",
+          "original_filename": "session.json",
+          "bytes": 14183770,
+          "sha256": "605346f32a67ba1ecafac18fa1c23220d4f5eabfda807290de56ea1165be8dbc",
+          "compression": "gzip",
+          "uncompressed_bytes": 107275643,
+          "uncompressed_sha256": "c56b3659c4a8d5e46c67af7787d3f3d55f5583d8fbf6bc29d6e478c93c41da42"
+        },
+        "journal": {
+          "path": "eight-nations-20261018/journal.md",
+          "original_filename": "journal.md",
+          "bytes": 12421349,
+          "sha256": "74337c59091eafe8b0479f329e884ef887feb2126685383924ef8ca77ce1cae4"
+        },
+        "map": {
+          "path": "eight-nations-20261018/map.txt",
+          "bytes": 865,
+          "sha256": "043481a015ff57be9a9c2e0473e5d15c9a0a3ee7c7715e0f59e018992038a3a8"
+        },
+        "report": {
+          "path": "eight-nations-20261018/report.md",
+          "bytes": 100365,
+          "sha256": "d355979d73e7733a5a9c421ae2cbca729619badf7be4fc6a1a7301b2f40f3e75",
+          "chars": 51768,
+          "cjk_chars": 20039
+        }
+      }
     }
-  ]
+  ],
+  "last_updated": "2026-10-18"
 }
