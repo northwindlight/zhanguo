@@ -66,17 +66,17 @@ class TestMarket(unittest.TestCase):
         with TemporaryDirectory() as directory:
             base = Path(directory)
             (base/'members').mkdir()
-            members = [str(ROOT/'mods/native/resources/mod.toml')]
-            if pricing:members.append(str(ROOT/('mods/examples/fixed_market_pricing/mod.toml' if fixed else 'mods/native/market_pricing/mod.toml')))
-            if both:members.append(str(ROOT/'mods/examples/fixed_market_pricing/mod.toml'))
-            if market_text is None:members.append(str(ROOT/'mods/native/market/mod.toml'))
+            members = [(ROOT/'mods/native/resources/mod.toml').as_posix()]
+            if pricing:members.append((ROOT/('mods/examples/fixed_market_pricing/mod.toml' if fixed else 'mods/native/market_pricing/mod.toml')).as_posix())
+            if both:members.append((ROOT/'mods/examples/fixed_market_pricing/mod.toml').as_posix())
+            if market_text is None:members.append((ROOT/'mods/native/market/mod.toml').as_posix())
             else:
-                (base/'members/market.toml').write_text(market_text)
-                members.append(str(base/'members/market.toml'))
+                (base/'members/market.toml').write_text(market_text, encoding='utf-8')
+                members.append((base/'members/market.toml').as_posix())
             if tea:
-                (base/'members/tea.toml').write_text('[Mod]\nId="example:tea-content"\nVersion="1"\nEntry="tests.test_market_objects:TeaMod"\nRequires=[]\n[State]\nOwns=[]\n[Capabilities]\nNeeds=[]\nProvides=[]\n')
-                members.append(str(base/'members/tea.toml'))
-            (base/'mod.toml').write_text('[Distribution]\nId="market-test"\nVersion="1"\nMembers='+json.dumps(members)+'\nRequiredState=["resources","market"]\n[[Hooks]]\nId="market.settlement"\n')
+                (base/'members/tea.toml').write_text('[Mod]\nId="example:tea-content"\nVersion="1"\nEntry="tests.test_market_objects:TeaMod"\nRequires=[]\n[State]\nOwns=[]\n[Capabilities]\nNeeds=[]\nProvides=[]\n', encoding='utf-8')
+                members.append((base/'members/tea.toml').as_posix())
+            (base/'mod.toml').write_text('[Distribution]\nId="market-test"\nVersion="1"\nMembers='+json.dumps(members)+'\nRequiredState=["resources","market"]\n[[Hooks]]\nId="market.settlement"\n', encoding='utf-8')
             return Runtime.load(directory)
 
     def world(self, **kwargs):
@@ -149,7 +149,7 @@ class TestMarket(unittest.TestCase):
                            deep.market.quote('native:food', 100, 'buy').exact_total)
 
     def declaration(self, food_depth=FOOD_DEPTH):
-        text = (ROOT/'mods/native/market/mod.toml').read_text()
+        text = (ROOT/'mods/native/market/mod.toml').read_text(encoding='utf-8')
         return text.replace('Resource = "native:food"\nBasePrice = 1.5\nDepth = 1920\nInitialInventory = 1920',
                             f'Resource = "native:food"\nBasePrice = 1.5\nDepth = {food_depth}\nInitialInventory = {food_depth}')
 
@@ -322,7 +322,7 @@ class TestMarket(unittest.TestCase):
                 self.assertEqual(world.runtime.save_mod_state(world),saved)
 
     def test_listing_new_tea_requires_only_market_declaration(self):
-        text = (ROOT/'mods/native/market/mod.toml').read_text()
+        text = (ROOT/'mods/native/market/mod.toml').read_text(encoding='utf-8')
         text = text.replace('[Mod]', '[[Listings]]\nResource="example:tea"\nBasePrice=3\nDepth=10\nInitialInventory=10\n\n[Mod]')
         world = self.world(tea=True,market_text=text,fixed=True)
         bought = world.market.buy('Qin','example:tea',2)

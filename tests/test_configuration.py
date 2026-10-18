@@ -82,7 +82,7 @@ class TestConfiguration(unittest.TestCase):
     def test_ui_module_override_selects_provider_before_validation(self):
         with TemporaryDirectory() as directory:
             entry=Path(directory)/'mod.toml'
-            entry.write_text('[Mod]\nId="ui:alternate"\nVersion="1.0.0"\nEntry="tests.test_ui_mod:AlternateUIMod"\n[Capabilities]\nProvides=["ui:presentation"]\n')
+            entry.write_text('[Mod]\nId="ui:alternate"\nVersion="1.0.0"\nEntry="tests.test_ui_mod:AlternateUIMod"\n[Capabilities]\nProvides=["ui:presentation"]\n', encoding='utf-8')
             cfg=self.cfg();cfg['language']='language-owned-by-alternate'
             prepared=GameHost.prepare(cfg,runtime=self.native,overrides={'ui_mods':directory})
             self.assertEqual(prepared.data['ui_mods'],directory)
@@ -142,7 +142,7 @@ class TestConfiguration(unittest.TestCase):
         self.assertNotIn('nations',normalized.data)
         with TemporaryDirectory() as folder:
             root=Path(folder);cfg.update(save=str(root/'session.json'),journal=str(root/'journal.md'))
-            source=root/'cfg.json';source.write_text(json.dumps(cfg))
+            source=root/'cfg.json';source.write_text(json.dumps(cfg), encoding='utf-8')
             # No terminal stdin reads, no network, no real session files.
             stdin=Mock(closed=True);stdin.isatty.return_value=False
             with patch('host.Runtime.load',return_value=runtime),patch('sys.stdin',stdin),patch('sys.stdout',io.StringIO()):
@@ -155,14 +155,14 @@ class TestConfiguration(unittest.TestCase):
     def test_cli_invalid_overrides_fail_before_writing_save_or_journal(self):
         with TemporaryDirectory() as folder:
             root=Path(folder);source=root/'cfg.json';save=root/'session.json';journal=root/'journal.md'
-            cfg=self.cfg();cfg.update(save=str(save),journal=str(journal));source.write_text(json.dumps(cfg))
-            save.write_text('synthetic existing save');original=save.read_bytes()
+            cfg=self.cfg();cfg.update(save=str(save),journal=str(journal));source.write_text(json.dumps(cfg), encoding='utf-8')
+            save.write_text('synthetic existing save', encoding='utf-8');original=save.read_bytes()
             for flag in (['--turns','-1'],['--ctx-window','0']):
                 with self.subTest(flag=flag),patch('sys.stderr',io.StringIO()),patch('host.Runtime.load',return_value=self.native):
                     self.assertEqual(mp_run.run(['--config',str(source),'--new',*flag]),2)
                     self.assertEqual(save.read_bytes(),original)
                     self.assertFalse(journal.exists())
-            source.write_text('{"api_key": "synthetic-secret", BROKEN}')
+            source.write_text('{"api_key": "synthetic-secret", BROKEN}', encoding='utf-8')
             with self.assertRaises(ConfigError) as caught:read_config(source)
             self.assertNotIn('synthetic-secret',str(caught.exception))
 

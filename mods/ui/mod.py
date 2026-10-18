@@ -1,10 +1,10 @@
 """A stateless, independently assembled presentation mod."""
 from engine.runtime import GameMod
-from .i18n import Translator
-from .llm import LLMUI
-from .console import ConsoleUI
-from .maps import snapshot,render_snapshot,render_svg,expand_message
-from .views import player_map,observer_map
+from clients.model_view import ModelView
+from presentation.i18n import Translator
+from presentation.console import ConsoleUI
+from presentation.maps import snapshot,render_snapshot,render_svg,expand_message
+from presentation.views import player_map,observer_map
 from .config import normalize
 
 
@@ -14,7 +14,7 @@ class UILayer:
         self.cfg=cfg;self.runtime=runtime;self.tool_layer=getattr(runtime,'tool_layer',None)
         self.text=Translator.from_config(cfg,tool_layer=self.tool_layer)
         self.console=ConsoleUI(cfg,tool_layer=self.tool_layer)
-    def llm(self,cfg):return LLMUI({**cfg,'_content_keys':self.cfg.get('_content_keys',{})},tool_layer=self.tool_layer)
+    def llm(self,cfg):return ModelView({**cfg,'_content_keys':self.cfg.get('_content_keys',{})},tool_layer=self.tool_layer)
     def translator(self,language='zh-CN',catalog=None):return Translator(language,catalog)
     def observer_map(self,state):return observer_map(state,self.text)
     def map_text(self,observation):return player_map(observation,self.text)

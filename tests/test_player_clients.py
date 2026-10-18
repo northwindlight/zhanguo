@@ -1,6 +1,7 @@
 """Client/host behavior over synthetic worlds and disposable session files."""
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -155,12 +156,12 @@ class TestPlayerClients(unittest.TestCase):
         import ast
         for base in (ROOT/'ruleai/v11plus',ROOT/'clients'):
             for path in base.glob('*.py'):
-                tree=ast.parse(path.read_text())
+                tree=ast.parse(path.read_text(encoding='utf-8'))
                 for node in ast.walk(tree):
                     names=[a.name for a in node.names] if isinstance(node,ast.Import) else [node.module or ''] if isinstance(node,ast.ImportFrom) else []
                     self.assertFalse(any(name=='mp' or name=='game' or name.startswith('mods.') for name in names),path)
         for path in (ROOT/'engine').glob('*.py'):
-            self.assertNotIn('from ruleai',path.read_text());self.assertNotIn('from clients',path.read_text())
+            self.assertNotIn('from ruleai',path.read_text(encoding='utf-8'));self.assertNotIn('from clients',path.read_text(encoding='utf-8'))
 
 
 class TestSessionHost(unittest.TestCase):
@@ -200,11 +201,11 @@ class TestSessionHost(unittest.TestCase):
     def test_old_save_invalid_dependencies_retired_config_never_overwrite(self):
         cfg=self.cfg()
         with TemporaryDirectory() as d:
-            path=Path(d)/'session.json';path.write_text('{"nations": ["秦"]}');before=path.read_bytes()
+            path=Path(d)/'session.json';path.write_text('{"nations": ["秦"]}', encoding='utf-8');before=path.read_bytes()
             with self.assertRaises(SaveFormatError):GameHost.load(path,cfg)
             self.assertEqual(path.read_bytes(),before)
-            h=GameHost.new(cfg);h.save(path);bad=json.loads(path.read_text());bad['dependencies']['api']=0
-            path.write_text(json.dumps(bad));before=path.read_bytes()
+            h=GameHost.new(cfg);h.save(path);bad=json.loads(path.read_text(encoding='utf-8'));bad['dependencies']['api']=0
+            path.write_text(json.dumps(bad), encoding='utf-8');before=path.read_bytes()
             with self.assertRaises(SaveFormatError):GameHost.load(path,cfg)
             self.assertEqual(path.read_bytes(),before)
         cfg['rule_ai']='v10'
@@ -234,13 +235,14 @@ class TestSessionHost(unittest.TestCase):
     def test_real_cli_new_resume_and_observer_announcement_use_disposable_paths(self):
         with TemporaryDirectory() as d:
             p=Path(d);cfg=self.cfg();cfg.update(save=str(p/'session.json'),journal=str(p/'journal.md'))
-            config=p/'config.json';config.write_text(json.dumps(cfg))
+            config=p/'config.json';config.write_text(json.dumps(cfg), encoding='utf-8')
             command=[sys.executable,str(ROOT/'mp_run.py'),'--config',str(config),'--turns']
-            first=subprocess.run(command+['2'],input='公告\n第一条\n第二条\nEND\n',text=True,capture_output=True,cwd=ROOT,timeout=60)
+            env={**os.environ,'PYTHONUTF8':'1','PYTHONIOENCODING':'utf-8'}
+            first=subprocess.run(command+['2'],input='公告\n第一条\n第二条\nEND\n',text=True,encoding='utf-8',capture_output=True,cwd=ROOT,timeout=60,env=env)
             self.assertEqual(first.returncode,0,first.stderr);self.assertIn('终局',first.stdout)
-            second=subprocess.run(command+['3'],input='',text=True,capture_output=True,cwd=ROOT,timeout=60)
+            second=subprocess.run(command+['3'],input='',text=True,encoding='utf-8',capture_output=True,cwd=ROOT,timeout=60,env=env)
             self.assertEqual(second.returncode,0,second.stderr);self.assertIn('读档续局',second.stdout)
-            saved=json.loads((p/'session.json').read_text())
+            saved=json.loads((p/'session.json').read_text(encoding='utf-8'))
             self.assertEqual(saved['modules']['native:government']['period'],3)
             self.assertTrue(any(e['text']=='第一条\n第二条' for e in saved['modules']['native:intelligence']['events']))
 

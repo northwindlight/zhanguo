@@ -7,6 +7,7 @@ from clients import context as ctx
 from engine.deltas import difference
 from clients.llm import assert_paired
 from clients.provider import make_backend,REPLAY_KEY
+from presentation.facts import map_presentation
 
 
 DEFAULT_REQUIREMENTS=Path(__file__).with_name('requirements.md').read_text(encoding='utf-8')
@@ -126,7 +127,7 @@ class CouncilService:
                     'units':player.call_api('native:army','unit_catalog')}
         sections=player.rules(topic)
         if not sections or sections[0]['title']=='规则目录':raise ValueError('未知指南主题')
-        return {'source':'当前发行版公开策略参考；具体规则以目录和实际回执为准','title':topic,'body':'\n\n'.join(r['body'] for r in sections)}
+        return {'source':'当前发行版公开规则；具体数值以目录和实际回执为准','title':topic,'body':'\n\n'.join(r['body'] for r in sections)}
 
     def _review_log(self,kind,payload,budget):
         # 议会完整输入/思考/工具往返只写观察者日志，不进入玩家近讯或滚屏。
@@ -159,8 +160,9 @@ class CouncilService:
 
     def _council_exchange(self,player,dialogue,*,budget,phase_end=False,finalize=False):
         tools=[schema for schema in player.actions() if schema['function']['name']=='player_rules']
-        tools.append({'type':'function','function':{'name':'read_manual','description':'只读查询当前发行版说明书或策略手册；数值以说明书、实际回执为准。',
-                      'parameters':{'type':'object','properties':{'topic':{'type':'string','enum':['说明书','经济学手册','基础指南','战争手册','战略手册']}},'required':['topic'],'additionalProperties':False}}})
+        topics=['说明书']+[section['title'] for section in player.rules('all')]
+        tools.append({'type':'function','function':{'name':'read_manual','description':'只读查询当前发行版说明书或任一规则章节；数值以说明书、实际回执为准。',
+                      'parameters':{'type':'object','properties':{'topic':{'type':'string','enum':topics}},'required':['topic'],'additionalProperties':False}}})
         if finalize:
             tools.extend([
                 {'type':'function','function':{'name':'council_approve','description':'结束审核并通过国策。通过时不要附理由、建议或额外上下文；只在确认可以通过时调用。',
@@ -291,11 +293,11 @@ class CouncilService:
         try:state=player.observe()
         except ValueError:return # The actor may have left the active collection.
         # 地图只需要字形与角色；先把它们压成小字典，再丢掉大目录。
-        glyphs,role_kinds=ctx.map_presentation(state['facts'])
+        glyphs,role_kinds=map_presentation(state['facts'])
         state['facts']['glyphs']=glyphs;state['facts']['role_kinds']=role_kinds
         # These are already captured verbatim as event/command records. Avoid
         # copying all old events and monarch summaries after every read query.
-        for key in ('news','handbooks','building_catalog','unit_catalog','terrain_catalog','land','threats','battle','nations','countries'):
+        for key in ('news','building_catalog','unit_catalog','terrain_catalog','land','threats','battle','nations','countries'):
             state['facts'].pop(key,None)
         if 'building_sites' in state['facts']:state['facts']['building_sites'].pop('sites',None)
         state['facts']['government'].pop('summaries',None)

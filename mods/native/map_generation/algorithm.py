@@ -236,15 +236,15 @@ class MapGen:
             for x in range(size):
                 e, m = elev[y][x], moist[y][x]
                 r_mtn = _ramp(e, MAPGEN_MTN)
-                nu[y][x] = {"山地": r_mtn,
-                            "丘陵": _ramp(e, MAPGEN_HILL) * (1 - r_mtn),
-                            "森林": _ramp(m, MAPGEN_WET),
-                            "沙漠": _ramp_down(m, MAPGEN_DRY),
-                            "平原": 0.0}                    # 平原是兜底，分在 ④ 现算
+                nu[y][x] = {"native:mountain": r_mtn,
+                            "native:hill": _ramp(e, MAPGEN_HILL) * (1 - r_mtn),
+                            "native:forest": _ramp(m, MAPGEN_WET),
+                            "native:desert": _ramp_down(m, MAPGEN_DRY),
+                            "native:plain": 0.0}                    # 平原是兜底，分在 ④ 现算
         for y in range(size):
             for x in range(size):
                 d = nu[y][x]
-                d["平原"] = 1.0 - max(d["山地"], d["丘陵"], d["森林"], d["沙漠"])
+                d["native:plain"] = 1.0 - max(d["native:mountain"], d["native:hill"], d["native:forest"], d["native:desert"])
 
         # ④ 按分落位：**稀有类型先挑**（山地→沙漠→森林→丘陵→平原兜底），
         #    ★ 无论分多低都取够配额（"最高的那一批"就是该类型）——
@@ -255,7 +255,7 @@ class MapGen:
         types = list(TERRAIN_WEIGHTS)
         cells = [(x, y) for y in range(size) for x in range(size)]
         for t in sorted(types, key=lambda t: TERRAIN_WEIGHTS[t]):     # 最稀的先挑
-            if t == "平原":
+            if t == "native:plain":
                 continue                                      # 兜底，最后填剩下的
             keyed = []
             for (x, y) in cells:
@@ -267,7 +267,7 @@ class MapGen:
                 assign[y][x] = t
         for (x, y) in cells:                                  # 剩下的全给平原
             if assign[y][x] is None:
-                assign[y][x] = "平原"
+                assign[y][x] = "native:plain"
         self._terrain = [[assign[y][x] for x in range(size)] for y in range(size)]
 
         # ⑤ 资源：**每类一张独立的蓝噪声掩码**，再按该地形的权重表抖动

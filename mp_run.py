@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from functools import partial
 import json
+import os
 from pathlib import Path
 import queue
 import re
@@ -185,6 +186,24 @@ def _body(text):
     return Path(text[1:]).read_text(encoding='utf-8') if text.startswith('@') else text
 
 
+def split_args(text):
+    """Split a command body without eating Windows path separators."""
+    if os.name != 'nt':
+        import shlex
+        return shlex.split(text)
+    result, buf, quote = [], [], None
+    for char in text:
+        if quote:
+            if char == quote:quote = None
+            else:buf.append(char)
+        elif char in ('"', "'"):quote = char
+        elif char.isspace():
+            if buf:result.append(''.join(buf));buf = []
+        else:buf.append(char)
+    if buf:result.append(''.join(buf))
+    return result
+
+
 def command(host,line,observer):
     text_ui=observer.ui.text
     line=line.strip()
@@ -225,8 +244,7 @@ def command(host,line,observer):
         host.send(actor,text);observer.line(text_ui('console.sent',target=target))
     elif first in ('board','国力'):observer.line(observer.board())
     elif first in ('map','地图'):
-        import shlex
-        parts=shlex.split(body)
+        parts=split_args(body)
         if len(parts)>2:raise ValueError(text_ui('console.map_usage'))
         actor=next((a for a,row in host.roster.items() if parts and parts[0] in (a,row['name'])),None)
         if actor is None:
@@ -343,11 +361,12 @@ def run(argv=None):
         from _thread import interrupt_main
         CONSOLE=Console(prompt=ui.text('console.prompt'),on_interrupt=interrupt_main,is_multiline_start=_multiline).start()
     # Piped commands are deterministic and available before the first cycle.
+    # A non-tty stdin is a batch stream: read it to EOF instead of racing on
+    # readiness (Windows pipes report zero available bytes before the writer).
     elif not sys.stdin.closed:
-        import select
-        if select.select([sys.stdin],[],[],0)[0]:
-            if not _piped(host,sys.stdin.read(),observer):
-                host.save(save_path);return 0
+        piped=sys.stdin.read()
+        if piped.strip() and not _piped(host,piped,observer):
+            host.save(save_path);return 0
     observer.line(ui.text('console.new' if new else 'console.resume'))
     observer.line(ui.text('console.banner'))
     observer.line(ui.text('console.watch',save=save_path,journal=journal_path))

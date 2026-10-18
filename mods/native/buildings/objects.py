@@ -10,6 +10,9 @@ from engine.resource import Resource
 from engine.runtime import ModError
 from engine.state import active_unit
 
+# Building slots per site; the only source for this limit.
+SITE_CAPACITY = 20
+
 
 def owner_name(value):
     if not isinstance(value,str) or not value:raise ValueError('Owner must be nonempty')
@@ -124,7 +127,7 @@ class Buildings:
         if kind not in self._types:raise ValueError(f'Unknown building type: {kind}')
         return self._types[kind]
 
-    def register_site(self, site_id, owner, position, *, resources=None, capacity=20, penalty=0):
+    def register_site(self, site_id, owner, position, *, resources=None, capacity=SITE_CAPACITY, penalty=0):
         self._write();content_id(site_id)
         if owner is not None:owner_name(owner)
         if site_id in self._sites:raise ValueError('Duplicate building site')

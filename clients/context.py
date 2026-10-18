@@ -131,7 +131,7 @@ REPLAY_KEY = "reasoning_signature"
 
 **它不进 token 预算**：`msg_tokens` 只看 content / reasoning_content / tool_calls。
 """
-from ui import MAP_KEY  # UI owns the snapshot envelope; preserve ctx.MAP_KEY for callers.
+from engine.player import MAP_KEY  # the envelope key belongs to the wire format
 PRIVATE_MSG_KEYS = (REPLAY_KEY,)
 
 
@@ -155,7 +155,7 @@ def record_tokens(rec: dict) -> int:
     return rec["_tokens"] if "_tokens" in rec else messages_tokens(rec.get("messages") or [])
 
 
-KEEP_TOOL_ACTIONS = ("plan", "government", "player_rules", "handbooks")
+KEEP_TOOL_ACTIONS = ("plan", "government", "player_rules")
 """永不截断的工具回执：国策、国策状态、规则与指南。
 
 国策是跨回合的策略主线，截掉尾巴等于把模型自己写的战略剪掉一半；规则与指南同理。
@@ -309,14 +309,10 @@ class Plan:
                    + (self.replay_tokens or 0) + (self.tail_tokens or 0))
 
     def describe(self) -> str:
-        """Compatibility entry point; the default UI mod formats context stats."""
-        from ui import load_ui
-        return load_ui().llm({}).context_plan(self)
-
-
-def _k(n) -> str:
-    n = int(n or 0)
-    return f"{n / 1000:.1f}k" if n < 1_000_000 else f"{n / 1_000_000:.2f}M"
+        """Console-facing summary; composition lives in presentation."""
+        from presentation.i18n import Translator
+        from presentation.context_stats import context_plan
+        return context_plan(Translator('zh-CN'), self)
 
 
 def make_plan(cfg: dict, *, fallback_turns: int | None = None) -> Plan:
@@ -461,8 +457,8 @@ def render_archive(sums: list[dict], blocks: list[dict], before_turn: int,
     两次收缩之间 (sums,blocks,before_turn,cap,long_memory) 输入不变 → 输出字节不变。
     """
     if messages is None:
-        from ui import load_ui
-        messages=load_ui().text
+        from presentation.i18n import Translator
+        messages=Translator('zh-CN')
     if before_turn <= 1 and not long_memory:
         return ""
     blocks = [b for b in (blocks or []) if int(b.get("to", 0)) < before_turn]
@@ -692,25 +688,3 @@ def build(*, cfg: dict, mem: list[dict], sums: list[dict], blocks: list[dict],
     plan.stable_tokens = (int(plan.sys_tokens + plan.archive_tokens
                               + max(0, plan.replay_tokens - last)))
     return assemble(system_text, archive_text, records, tail_text, tail_map), plan
-
-
-def map_presentation(facts: dict) -> tuple[dict, dict]:
-    """Map glyphs and role→kinds from detached public facts.
-
-    Shared by the spectator map, the model map image and the council reviewer,
-    so a redacted observation keeps the same picture without the catalogs.
-    """
-    glyphs = {}
-    for row in facts.get('terrain_catalog') or []:
-        if isinstance(row, dict) and row.get('glyph'):
-            glyphs[row['id']] = row['glyph']
-    for key, value in (facts.get('unit_catalog') or {}).items():
-        if isinstance(value, dict) and value.get('glyph'):
-            glyphs[key] = value['glyph']
-    role_kinds = {}
-    for row in facts.get('building_catalog') or []:
-        if not isinstance(row, dict):
-            continue
-        for role in row.get('roles') or ():
-            role_kinds.setdefault(role, []).append(row['id'])
-    return glyphs, role_kinds

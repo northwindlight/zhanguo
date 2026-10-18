@@ -199,85 +199,14 @@ class Tool:
 
 
 @dataclass(frozen=True)
-class Action:
+class Action(Tool):
     """A domain action adapter inside the tool layer; never a model-facing Tool.
 
     The engine registers only its name/capability/method/read_only/groups so the
-    umbrella can dispatch through ``Runtime.call_action``. The schema and handler
-    stay in the tool layer for argument adaptation and legacy host calls.
+    umbrella can dispatch through ``Runtime.call_action``. The schema, argument
+    adaptation and handler are the same contract as :class:`Tool` and are
+    inherited rather than copied.
     """
-    name: str
-    handler: Callable
-    owner: str = ''
-    api: tuple[str, ...] = ()
-    description: str = ""
-    adapter: Callable | None = None
-    parameters: dict | None = None
-    argument_types: dict = field(default_factory=dict)
-    read_only: bool = False
-    content_parameters: tuple[str, ...] = ()
-    groups: tuple[str, ...] = ()
-    schema_for_actor: Callable | None = None
-
-    @cached_property
-    def signature(self):return inspect.signature(self.handler)
-
-    @cached_property
-    def hints(self):return get_type_hints(self.handler)
-
-    def prepare(self, world, actor, arguments):
-        if isinstance(arguments, str):
-            arguments = json.loads(arguments)
-        if not isinstance(arguments, dict):
-            raise ValueError("动作参数须为对象")
-        if self.adapter:
-            arguments = self.adapter(world, actor, dict(arguments))
-        arguments=dict(arguments)
-        parameters=self._schema_value['function']['parameters']
-        if parameters.get('additionalProperties') is False:
-            allowed = set(parameters.get('properties') or ())
-            unknown = sorted(k for k in arguments if k not in allowed)
-            if unknown:
-                raise ValueError('未知参数：' + '、'.join(unknown))
-        missing=[key for key in parameters.get('required',()) if key not in arguments]
-        if missing:raise ValueError('缺少参数：'+'、'.join(missing))
-        for key in self.content_parameters:
-            if key in arguments:arguments[key]=world.runtime.content.resolve(arguments[key])
-        arguments = {k: _convert(v, self.argument_types.get(k, Any)) for k, v in arguments.items()}
-        sig = self.signature
-        bound = sig.bind(world, actor, **arguments)
-        hints = self.hints
-        for name, value in list(bound.arguments.items())[2:]:
-            bound.arguments[name] = _convert(value, hints.get(name, sig.parameters[name].annotation))
-        return bound
-
-    def call(self, world, actor, arguments):
-        try:
-            bound=self.prepare(world,actor,arguments)
-        except (ValueError,TypeError) as exc:
-            raise ToolArgumentError(str(exc)) from exc
-        return self.handler(*bound.args, **bound.kwargs)
-
-    def schema(self):return deepcopy(self._schema_value)
-
-    @cached_property
-    def _schema_value(self):
-        sig = self.signature
-        hints = self.hints
-        props, required = {}, []
-        for p in list(sig.parameters.values())[2:]:
-            if p.kind == inspect.Parameter.VAR_KEYWORD:
-                for key, annotation in self.argument_types.items():
-                    props[key] = _schema(annotation)
-                continue
-            props[p.name] = _schema(hints.get(p.name, p.annotation))
-            if p.default is inspect.Parameter.empty:
-                required.append(p.name)
-        params = self.parameters or {"type": "object", "properties": props,
-                                     "required": required, "additionalProperties": False}
-        return {"type": "function", "function": {"name": self.name,
-                "description": self.description or inspect.getdoc(self.handler) or self.name,
-                "parameters": params}}
 
 
 @dataclass(frozen=True)
@@ -729,6 +658,33 @@ class Runtime:
             if missing:
                 raise ModError(f'{name} 的 [PlayerAPI] 方法未封装：' + '、'.join(sorted(missing)))
 
+    def check_interfaces(self, world):
+        """Validate every declared ``[Interfaces]`` method against the built objects.
+
+        Runs once after world initialization so a renamed or missing domain
+        method fails at startup rather than during a later settlement stage.
+        """
+        problems = []
+        for name in self.order:
+            mod = self.units[name].mod
+            declaration = getattr(mod, 'declaration', {})
+            for capability, methods in declaration.get('Interfaces', {}).items():
+                owner = self.capabilities.get(capability)
+                if owner is None:
+                    if capability in mod.optional():
+                        continue
+                    problems.append(f'{name} 的接口无提供者：{capability}')
+                    continue
+                target = self.units[owner].mod.objects(world).get(capability)
+                if target is None:
+                    problems.append(f'{name} 的接口目标未注册：{capability}')
+                    continue
+                missing = [method for method in methods if not callable(getattr(target, method, None))]
+                if missing:
+                    problems.append(f'{name} 的接口方法不存在：{capability} → ' + '、'.join(missing))
+        if problems:
+            raise ModError('；'.join(problems))
+
     @classmethod
     def load(cls, directory):
         units = []
@@ -806,6 +762,10 @@ class Runtime:
                 if finish: finish(world)
         def assign(world, key, value):
             if key in runtime.state_owners:
+                if active_unit.get() is None and runtime.state_owners[key] != '$engine':
+                    # Replacing a domain state object needs a module identity; engine
+                    # phase/polity stay writable from host and settlement code.
+                    raise ModError(f'缺少模块上下文，拒绝替换 state：{key}')
                 return runtime.write_state(world,key,lambda:object.__setattr__(world,key,own(references(value),world,key)))
             descriptor = getattr(type(world), key, None)
             if isinstance(descriptor, property) and descriptor.fset:
@@ -961,18 +921,38 @@ class Runtime:
             lines.append(f'| {i} | {hook.get("Name", stage.title or name)} | {stage.description or hook.get("Description", hook.get("Name", ""))} |')
         return '\n'.join(lines)
 
-    def rule_sections(self, world=None, *, player=False):
+    def rule_sections(self, world=None, *, player=False, actor=None):
+        """Single assembly path for manuals and ``player_rules``.
+
+        Collects every module's sections, resolves rule-text placeholders and
+        applies ``ManualOrder``; player views additionally filter by visibility
+        and actor scope.
+        """
         result = []
         for name in self.order:
-            for section in self.units[name].mod.rule_sections(world):
+            mod = self.units[name].mod
+            if player and actor is not None and not self.in_scope(world, actor, mod):
+                continue
+            for section in mod.rule_sections(world):
                 if player and not section.player_visible:
                     continue
-                body = self.rule_text(section.body)
-                result.append(RuleSection(section.title, body, section.keywords,
-                                          section.summary, section.player_visible))
+                result.append(RuleSection(section.title, self.rule_text(section.body),
+                                          section.keywords, section.summary, section.player_visible))
         order = self.distribution.get('ManualOrder', ())
         result.sort(key=lambda section: order.index(section.title) if section.title in order else len(order))
         return result
+
+    def select_rules(self, sections, topic):
+        """Longest-keyword match shared by the manual and the player API."""
+        topic = str(topic or '').strip().lower()
+        if topic in ('all', '全部'):
+            return list(sections)
+        matches = [(len(word), index) for index, section in enumerate(sections)
+                   for word in (section.title, *section.keywords) if word.lower() in topic]
+        if not matches:
+            return []
+        best = max(size for size, _ in matches)
+        return [sections[index] for size, index in matches if size == best]
 
     def manual(self):
         return '# 规则纲要\n\n由已加载 Mod 提供规则内容；结算顺序由阶段依赖自动生成。\n\n' + '\n\n'.join(
@@ -981,22 +961,15 @@ class Runtime:
     def rule_text(self, body):
         """Resolve rule-text placeholders against declared numbers."""
         body = body.replace('{{SETTLEMENT_STAGES}}', self.settlement_table())
-        # 手册数字与模块 numbers() 同源：改参数就会改手册与生成说明。
+        # 模块规则数字与 numbers() 同源：改参数就会改规则正文与生成说明。
         return re.sub(r'\{\{number:([a-zA-Z0-9_.:-]+)\}\}',
                       lambda match: str(self.number(match.group(1))), body)
 
     def rules(self, world, topic=''):
         sections = self.rule_sections(world, player=True)
-        topic = str(topic or '').strip().lower()
-        matches = []
-        for i, section in enumerate(sections):
-            for keyword in (section.title, *section.keywords):
-                if topic and keyword.lower() in topic:
-                    matches.append((len(keyword), i))
-        if matches:
-            best = max(length for length, _ in matches)
-            indices = sorted({i for length, i in matches if length == best})
-            return '\n\n'.join('【' + sections[i].title + '】\n' + sections[i].body for i in indices)
+        selected = self.select_rules(sections, topic)
+        if selected:
+            return '\n\n'.join('【' + section.title + '】\n' + section.body for section in selected)
         return '【规则书目录】（rules(topic=主题)）：\n' + '\n'.join(
             f'- {s.title}' + (f'：{s.summary}' if s.summary else '') for s in sections)
 

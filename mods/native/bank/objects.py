@@ -6,7 +6,7 @@ from engine.identifiers import content_id
 from engine.resource import Resource
 from engine.runtime import ModError
 from engine.state import active_unit
-from mods.native.economy_reports.contracts import integer, owner_name, PeriodReport
+from mods.native.contracts.economy import integer, owner_name, PeriodReport
 from mods.native.economy_reports.objects import record
 
 

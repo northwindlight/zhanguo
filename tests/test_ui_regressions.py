@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from host import GameHost
-from mods.ui.console import ConsoleUI
+from presentation.console import ConsoleUI
 from tests import test_world_domains as fixtures
 Q,C,Z=fixtures.Q,fixtures.C,fixtures.Z
 

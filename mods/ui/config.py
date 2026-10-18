@@ -1,8 +1,8 @@
 """Standard UI owns language, catalogs and map presentation options."""
 from engine.config import ConfigError,Field,Schema
-from .i18n import Translator
+from presentation.i18n import Translator
 
-SCHEMA=Schema({'model_state_tokens':Field((int,),minimum=1024), 'opening_guide':Field((bool,)), 'language':Field((str,)), 'ui_catalog':Field((str,dict)),
+SCHEMA=Schema({'model_state_tokens':Field((int,),minimum=1024), 'language':Field((str,)), 'ui_catalog':Field((str,dict)),
                'ui_mods':Field((str,)), 'vision':Field((bool,)),
                'map_max_px':Field((int,),minimum=1),
                'map_estimated_tokens':Field((int,),minimum=0),

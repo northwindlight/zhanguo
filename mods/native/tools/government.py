@@ -16,7 +16,7 @@ def tools(runtime):
         Tool('plan', plan, owner='native:government', api=('plan',),
              description='提交持久国策：写未来多回合的经济、军事、情报与外交战略，明确目标、优先级、资源约束和调整条件，依据事实而非编造。不是本回合流水账。到期或战略变化时修订，已有有效国策无需反复提交。'),
         Tool('end_turn', end_turn, owner='native:government', api=('end_turn',),
-             description='结束本国行动。summary 只用一两句概括本回合实际执行的结果与关键待结算事项；详细行动已有回执，不重复国策、逐格清单或下回合战略。必须先有有效国策。结束成功后，未回应的已收到外交提议自动拒绝，开放的联盟投票未表态则自动反对。'),
+             description='结束本国行动。summary 只用一两句概括本回合实际执行的结果与关键待结算事项；详细行动已有回执，不重复国策、逐格清单或下回合战略。必须先有有效国策。结束成功后，未回应的已收到外交提议提交自动拒绝、回合末生效，开放的联盟投票未表态则自动反对。'),
         Tool('government', government, read_only=True, fact=True, panel=True,
              owner='native:government', api=('snapshot',),
              description='查看本国有效国策、到期周期、结束状态与回合小结；无需参数。'),

@@ -104,7 +104,7 @@ class CouncilObserverReceiptTests(unittest.TestCase):
         with TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()) as screen:
             observer=Observer(host,Path(directory)/'journal.md')
             host.cycle(on_result=observer.result,emit=observer.model_output,head=observer.context_head,on_call=observer.on_call)
-            journal=observer.path.read_text()
+            journal=observer.path.read_text(encoding='utf-8')
         for value in ('议长独有思考','议长独有正文','player_rules','[1/10]','[2/10]','[3/10]',
                       'council_approve','建筑与能源','out_tokens','decision'):
             self.assertIn(value,journal)
@@ -125,7 +125,7 @@ class CouncilObserverReceiptTests(unittest.TestCase):
             observer=Observer(host,Path(directory)/'journal.md')
             with self.assertRaisesRegex(RuntimeError,'synthetic failure'):
                 host.cycle(emit=observer.model_output)
-            journal=observer.path.read_text()
+            journal=observer.path.read_text(encoding='utf-8')
         self.assertIn('previous_plan',journal);self.assertIn('RuntimeError',journal)
         self.assertIn('[1/10]',journal);self.assertNotIn('📜',screen.getvalue())
 

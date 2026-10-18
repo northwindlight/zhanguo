@@ -1,14 +1,20 @@
-"""Compose model-facing prose and image snapshots without owning client memory."""
+"""Compose model-facing prose and image snapshots without owning client memory.
+
+This is the model's view: system prompt, per-turn state, briefing trimming,
+tool localisation and receipts. The UI mod supplies presentation primitives and
+the default catalog, but the composition belongs to the client.
+"""
 import json
 from copy import deepcopy
-from .i18n import Translator
-from .console import ConsoleUI
-from .maps import snapshot,owner_color
-from .views import player_map
-from .briefing import sections
-from .facts import flatten
-from .receipts import num
-from clients.context import est_tokens
+from presentation.i18n import Translator
+from presentation.console import ConsoleUI
+from presentation.maps import snapshot,owner_color
+from presentation.views import player_map
+from presentation.briefing import sections
+from presentation.facts import flatten, army_state
+from presentation.receipts import num
+from presentation.context_stats import context_plan
+from .context import est_tokens
 
 # 简报分节越界时按此序从后往前丢弃；同键给出「去哪查全文」的工具名。
 FALLBACK={'capital':'frontier','threats':'threats','battle':'battle','territory':'news','power':'econ','plan':'government',
@@ -16,7 +22,7 @@ FALLBACK={'capital':'frontier','threats':'threats','battle':'battle','territory'
           'intel':'intel','dispatches':'dispatches'}
 
 
-class LLMUI:
+class ModelView:
     def __init__(self,cfg,tool_layer=None):
         self.cfg=cfg;self.text=Translator.from_config(cfg,tool_layer=tool_layer);self.sites={};self.has_scripts=False
         self.catalogs={};self.rulebook=[];self.period=0;self.at_war=False;self.polity=None
@@ -79,10 +85,6 @@ class LLMUI:
         # registered role guidance belongs in the stable prompt.
         active=[section for section in self.rulebook if section['title'] in ('匈奴政体',)]
         if active:text+='\n'+json.dumps(active,ensure_ascii=False,separators=(',',':'))
-        # 旧版把开局指南直接挂在前 20 回合的 system 前缀里（过期后仍可 player_rules 取回）：
-        # 开局最贵的几个坑，模型不一定会主动去查手册。
-        guide=next((section for section in self.rulebook if section['title']=='基础指南'),None)
-        if guide and self.cfg.get('opening_guide',True) and self.period<20:text+='\n'+str(guide['body'])
         text+='\n只读查询统一用 query(panel=…)：land/tile/map、army/reachable/frontier/threats/battle/logistics、market/econ/bank/report、government/intel/news/dispatches、foreign（本国与全部对外关系）、unit_catalog/building_catalog/terrain_catalog/building_economics。动作类工具按命令分：military（征召/移动/进攻/撤退/遣散）、economy（买卖/借款/购报表）、relations（外交与投票）、intelligence（写信/赠礼/共享地图/间谍），各自用 action 参数选动作。规则用 player_rules(topic)；近讯在状态末尾，完整事件用 query(panel=news)。'
         if self.has_scripts:text+='\n'+self.text('llm.scripting')
         return text
@@ -134,7 +136,7 @@ class LLMUI:
         sites=facts.get('building_sites',{})
         own=[u for u in facts.get('army',[]) if u['owner']==actor and u['hp']>0]
         armies=[{'id':u['id'],'kind':u['kind'],'position':[u['x'],u['y']],
-                 'status':'新兵' if u['born_turn']==period else '交战中' if u['engaged'] else '已行动' if u['moved_turn']==period else '可行动'} for u in own]
+                 'status':{'newborn':'新兵','engaged':'交战中','moved':'已行动','ready':'可行动'}[army_state(u,period)]} for u in own]
         allies={actor};enemies={'野人'}
         diplomacy=facts.get('diplomacy',{})
         for _,members in diplomacy.get('entity_members',[]):
@@ -210,7 +212,7 @@ class LLMUI:
         cues=self.dashboard(observation)
         cap=self.cfg.get('model_state_tokens',12000)
         tail=self.briefing_text(observation,events,cues,lambda text:est_tokens(text)<=cap)
-        if self.cfg.get('opening_guide',True) and observation['period']<20 and self.cfg.get('extra_prompt'):
+        if observation['period']<20 and self.cfg.get('extra_prompt'):
             tail+='\n'+self.text('llm.background',text=self.cfg['extra_prompt'])
         legend,image=self.map_context(observation)
         return tail+legend,image
@@ -227,9 +229,4 @@ class LLMUI:
         return legend,image
 
     def context_plan(self,p):
-        k=lambda n:f'{int(n or 0)/1000:.1f}k' if int(n or 0)<1000000 else f'{int(n)/1000000:.2f}M'
-        t=self.text
-        head=t('context.fixed',turns=p.fixed_turns) if p.mode=='fixed' else t('context.budget',window=k(p.window),budget=k(p.budget),ratio=(p.budget/p.window*100 if p.window else 0))
-        if p.roll=='period':head+=t('context.period',turns=p.period) if p.period else t('context.auto',turns=p.effective_period or '?')
-        total=p.total_tokens or 1;hit=t('context.hit',ratio=p.stable_tokens/total*100) if p.stable_tokens else ''
-        return t('context.detail',head=head,turns=p.replay_turns,replay=k(p.replay_tokens),archive=k(p.archive_tokens),state=k(p.tail_tokens),system=k(p.sys_tokens),total=k(total),hit=hit)
+        return context_plan(self.text,p)

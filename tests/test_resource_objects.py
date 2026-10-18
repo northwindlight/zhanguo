@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def resource_runtime():
     path = ROOT/'mods/native/resources/mod.toml'
     mod = ResourcesMod()
-    mod.configure(tomllib.loads(path.read_text()), path)
+    mod.configure(tomllib.loads(path.read_text(encoding='utf-8')), path)
     return Runtime([RuntimeUnit('native:resources', mod)])
 
 
@@ -116,8 +116,8 @@ class TestResources(unittest.TestCase):
         data = account.to_save()
         with TemporaryDirectory() as directory:
             path = Path(directory)/'synthetic-resources.json'
-            path.write_text(json.dumps(data, ensure_ascii=False))
-            restored = ResourceAccounts.from_save(json.loads(path.read_text()), resource_types=RESOURCE_TYPES)
+            path.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+            restored = ResourceAccounts.from_save(json.loads(path.read_text(encoding='utf-8')), resource_types=RESOURCE_TYPES)
             self.assertEqual(json.dumps(data), json.dumps(restored.to_save()))
         for damage in ('unknown_type', 'duplicate_stock', 'missing_stock', 'duplicate_owner', 'nan', 'extra_field'):
             bad = deepcopy(data)
@@ -149,14 +149,14 @@ class TestResources(unittest.TestCase):
 
     def test_declaration_must_match_concrete_types(self):
         path = ROOT/'mods/native/resources/mod.toml'
-        declaration = tomllib.loads(path.read_text())
+        declaration = tomllib.loads(path.read_text(encoding='utf-8'))
         declaration['ResourceTypes'] = ['native:gold']
         with self.assertRaises(ModError):ResourcesMod().configure(declaration, path)
 
     def test_resource_module_loads_in_isolation_from_its_declaration(self):
         with TemporaryDirectory() as directory:
             path = Path(directory)/'resources.toml'
-            path.write_text((ROOT/'mods/native/resources/mod.toml').read_text())
+            path.write_text((ROOT/'mods/native/resources/mod.toml').read_text(encoding='utf-8'))
             runtime = Runtime.load(directory)
             world = runtime.world_class()()
             world.resources.open('Qin', {'native:gold': 100})
@@ -176,7 +176,7 @@ class TestResources(unittest.TestCase):
             def content_definitions(self):return {'example:mana':Mana}
 
         path=ROOT/'mods/native/resources/mod.toml'
-        native=ResourcesMod();native.configure(tomllib.loads(path.read_text()),path)
+        native=ResourcesMod();native.configure(tomllib.loads(path.read_text(encoding='utf-8')),path)
         runtime=Runtime([RuntimeUnit('native:resources',native),RuntimeUnit('example:extras',Extension())])
         self.assertIs(runtime.content['native']['gold'],Gold)
         self.assertIs(runtime.content['example']['mana'],Mana)

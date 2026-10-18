@@ -13,9 +13,15 @@ from host import GameHost,ROOT
 from clients.llm import LLMClient,LLMState
 from clients.provider import _public_messages,_anthropic_messages
 from ui import load_ui
-from mods.ui.maps import render_snapshot,side
-from mods.ui.i18n import Translator
+from presentation.maps import render_snapshot,side
+from presentation.i18n import Translator
 from tests.test_player_clients import FakeBackend
+
+try:
+    import PIL  # noqa: F401
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 
 
 class AlternateUIMod(GameMod):
@@ -66,7 +72,7 @@ class TestUIMod(unittest.TestCase):
     def test_ui_mod_is_replaceable_without_changing_native_or_player_api(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'mod.toml'
-            path.write_text('[Mod]\nId="ui:alternate"\nVersion="1.0.0"\nEntry="tests.test_ui_mod:AlternateUIMod"\n[Capabilities]\nProvides=["ui:presentation"]\n')
+            path.write_text('[Mod]\nId="ui:alternate"\nVersion="1.0.0"\nEntry="tests.test_ui_mod:AlternateUIMod"\n[Capabilities]\nProvides=["ui:presentation"]\n', encoding='utf-8')
             host=self.host();before=host.to_save();ui=load_ui({'ui_mods':directory})
             obs=host.player('scenario:qin').observe()
             self.assertEqual(ui.text('console.new'),'alternate UI')
@@ -114,6 +120,7 @@ class TestUIMod(unittest.TestCase):
         obs['facts']['view'][0]['owner']='changed'
         self.assertEqual(state['tiles'],original['facts']['view'])
 
+    @unittest.skipUnless(PIL_AVAILABLE, 'Pillow is not installed')
     def test_png_is_deterministic_bounded_and_fog_pixels_are_dark(self):
         from PIL import Image
         observation={'actor':'Q','period':0,'facts':{'view':[
@@ -131,6 +138,7 @@ class TestUIMod(unittest.TestCase):
                'wars':[{'attackers':['Q','A'],'defenders':['E']}]}
         self.assertEqual([side(state,a) for a in ('Q','A','E','N')],['self','ally','enemy','neutral'])
 
+    @unittest.skipUnless(PIL_AVAILABLE, 'Pillow is not installed')
     def test_openai_and_anthropic_receive_same_png_without_mutating_history(self):
         host=self.host();obs=host.player('scenario:qin').observe();view=host.ui.llm(host.cfg)
         tail,image=view.state(obs,[]);message={'role':'user','content':tail,ctx.MAP_KEY:image}
@@ -141,7 +149,7 @@ class TestUIMod(unittest.TestCase):
         self.assertEqual(url.split(',',1)[1],anthropic[0]['content'][1]['source']['data'])
         self.assertEqual(message,original)
         self.assertNotIn(ctx.MAP_KEY,openai[0]);self.assertNotIn('base64',json.dumps(message))
-        with patch('mods.ui.maps.render_snapshot',side_effect=ImportError('no Pillow')):
+        with patch('presentation.maps.render_snapshot',side_effect=ImportError('no Pillow')):
             text=_public_messages([message],renderer=host.ui.expand_message)
         self.assertIsInstance(text[0]['content'],str);self.assertIn('文本地图',text[0]['content'])
 
@@ -168,6 +176,7 @@ class TestUIMod(unittest.TestCase):
         self.assertIn('Turn 1: opaque original',archive)
         self.assertEqual(host.to_save(),before)
 
+    @unittest.skipUnless(PIL_AVAILABLE, 'Pillow is not installed')
     def test_console_graphical_exports_use_ui_mod(self):
         from mp_run import command
         host=self.host()

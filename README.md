@@ -2,7 +2,7 @@
 
 战国是一款面向 LLM 决策的回合制大战略游戏。各国在同一世界中经营经济、组织军队、处理外交并争夺生存空间；人类可以观察、发出公告与来信，也可以研究模型在长局中的决策和失误。
 
-当前发行版本 **0.4.1**，详见 [更新记录](CHANGELOG.md)。API 与 tool 分层，面板与对外关系事实收口，建筑/资源按角色声明，手册数值与模块参数同源。模型工具由发行版 tool 层与客户端按权限提供。`main` 来自原 `正规化` 分支，采用模块化架构。旧版单体实现保存在 [`legacy`](https://github.com/northwindlight/zhanguo/tree/legacy)。[English](README.en.md)
+当前发行版本 **0.4.1**，详见 [更新记录](CHANGELOG.md)。API 与 tool 分层，面板与对外关系事实收口，建筑/资源按角色声明，说明书与四本讲义在 `mods/native/docs/` 手写维护。模型工具由发行版 tool 层与客户端按权限提供。`main` 来自原 `正规化` 分支，采用模块化架构。旧版单体实现保存在 [`legacy`](https://github.com/northwindlight/zhanguo/tree/legacy)。[English](README.en.md)
 
 本版修复 API/tool 入口不一致、国策到期审核和外交收尾，收口 API 声明、查询参数与领域预演，见 [更新记录](CHANGELOG.md)。
 
@@ -19,15 +19,15 @@
 
 ## 当前架构
 
-发行版定义游戏，host 装配运行，客户端通过统一玩家 API 行动，UI Mod 负责呈现。
+发行版定义游戏，host 装配运行，客户端通过统一玩家 API 行动；模型视图由客户端组装，UI Mod 提供呈现原语。
 
 - **引擎**：模块依赖、请求分发、发行版 Session、控制权代次、逐动作审计与完整周期存取。
 - **配置**：组件声明字段语义，发行版组合，CLI 和程序调用共用准备入口；见 [配置层契约](docs/配置层.md)。
 - **发行版**：`native` 提供资源、建筑、市场、银行、领土、军队、外交、情报和国家生命周期；场景与登场规则归发行版。方格游戏可复用 `GridSession`，无地图游戏可直接使用通用 Session。
 - **玩家客户端**：LLM 与 `v11plus` 规则 AI 使用同一绑定身份的 API，消费结构化事实和行动回执。
-- **界面**：独立 UI Mod 编排提示、语言文案、终端面板和玩家可见的文字、SVG、PNG 地图。
+- **界面**：独立 UI Mod 装配语言文案、终端面板和玩家可见的文字、SVG、PNG 地图；渲染原语在 `presentation/`，模型视图在 `clients/model_view.py`。
 
-默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.10.0`：
+默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.10.1`：
 
 - 独立议长分两步审核国策，核对事实、情报和经济、外交、军事承诺；连续三回合未通过后罢免君主并重建记忆。
 - 市场采用实际交付的有限库存，以及库存偏差反馈报价。
@@ -91,8 +91,8 @@ python -m scenarios.eight_nations --seed 20260921
 
 ## 代码入口
 
-根目录 Python 入口为 `host.py`（装配发行版 Session）、`mp_run.py`（CLI）与 `settlement.py`（终局结算）。上下文与模型接入在 `clients/`，规则客户端在 `ruleai/`，终端传输在 `ui/terminal.py`，显示与地图在 `mods/ui/`，地图生成在 `mods/native/map_generation/`。旧转口、旧领域实现和退役实验使用 legacy 分支及对应历史提交查阅。
+根目录 Python 入口为 `host.py`（装配发行版 Session）、`mp_run.py`（CLI）与 `settlement.py`（终局结算）。上下文与模型接入在 `clients/`（模型视图 `clients/model_view.py`），规则客户端在 `ruleai/`，终端传输在 `ui/terminal.py`，呈现原语在 `presentation/`，UI Mod 装配在 `mods/ui/`，地图生成在 `mods/native/map_generation/`。旧转口、旧领域实现和退役实验使用 legacy 分支及对应历史提交查阅。
 
-[游戏说明书](docs/游戏说明书.md) 直接导出发行版声明：`python -m docs.generate_manual`；检查同步用 `--check`，选择其他发行版用 `--mods` 并指定 `--output`。
+[游戏说明书](mods/native/docs/游戏说明书.md) 与四本策略讲义在 `mods/native/docs/` 手写维护，不由代码生成，也不参与运行时装配。
 
 Release 的源码 ZIP 不打包真实对局资料；研究资料从仓库的 [独立研究目录](https://github.com/northwindlight/zhanguo/tree/main/research/game-records) 获取。

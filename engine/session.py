@@ -38,10 +38,11 @@ class Session:
     def __init__(self,runtime,cfg,client_factory):
         self.runtime=runtime;self.cfg=deepcopy(cfg);self.client_factory=client_factory
         self.world=runtime.world_class()()
+        runtime.check_interfaces(self.world)
         from ui import load_ui
         self.ui=load_ui(self.cfg,runtime=runtime)
         self.clients={};self.roster={};self.lock=threading.RLock();self.last_results=[]
-        self.scenario_text='';self.opening_guide=self.cfg.get('opening_guide',True);self._boundary=True
+        self.scenario_text='';self._boundary=True
         self.victory_event=None
         self.scenario_id=self.cfg.get('scenario')
         self._scenario=None
@@ -278,8 +279,7 @@ class Session:
         for key in ('extra_prompt','extra_summary'):
             if not cfg.get(key) and cfg.get(key+'_file'):
                 cfg[key]=Path(cfg[key+'_file']).read_text(encoding='utf-8')
-        cfg['opening_guide']=self.opening_guide and cfg.get('opening_guide',True)
-        # Scenario objectives remain visible after the opening guide expires.
+        # Scenario objectives stay in the player prompt for the whole game.
         if self.scenario_text:cfg['extra_summary']=self.scenario_text+'\n'+str(cfg.get('extra_summary',''))
         return cfg
 
@@ -415,7 +415,7 @@ class Session:
         self.validate_boundary()
         return {'format':SAVE_FORMAT,'dependencies':self.runtime.dependency_manifest(),
                 'modules':self.runtime.save_mod_state(self.world),
-                'host':{'roster':deepcopy(self.roster),'scenario_text':self.scenario_text,'opening_guide':self.opening_guide,
+                'host':{'roster':deepcopy(self.roster),'scenario_text':self.scenario_text,
                         'scenario':self.scenario_id,'victory_event':deepcopy(self.victory_event),
                         'generations':deepcopy(self.generations),'contexts':deepcopy(self.contexts),'audit':deepcopy(self.audit[-AUDIT_LIMIT:]),'audit_next':self._audit_next,'audit_stream':self._audit_stream,
                         'services':{a:{n:s.to_save() for n,s in services.items()} for a,services in self.services.items()}},
@@ -456,7 +456,7 @@ class Session:
             raise SaveFormatError('Unsupported session format')
         self.runtime.check_save_dependencies(data['dependencies'])
         self.runtime.load_mod_state(self.world,data['modules'])
-        saved=data['host'];keys={'roster','scenario_text','opening_guide','scenario','victory_event','generations','contexts','audit','audit_next','audit_stream','services'}
+        saved=data['host'];keys={'roster','scenario_text','scenario','victory_event','generations','contexts','audit','audit_next','audit_stream','services'}
         if not isinstance(saved,dict) or set(saved)!=keys or not isinstance(saved['scenario_text'],str):raise SaveFormatError('Invalid session state')
         # Executable code comes from the distribution declaration, never an
         # import path in a save. Resume must select the same scenario.
@@ -465,8 +465,6 @@ class Session:
         if saved['victory_event'] is not None:
             try:self.trigger_victory(saved['victory_event'])
             except (TypeError,ValueError) as exc:raise SaveFormatError('Invalid victory event') from exc
-        if type(saved['opening_guide']) is not bool:raise SaveFormatError('Invalid opening guide switch')
-        self.opening_guide=saved['opening_guide']
         roster=saved['roster'];clients=data['clients'];actors=set(self.identities())
         if not isinstance(roster,dict) or not isinstance(clients,dict) or set(roster)!=actors or set(clients)!=actors:
             raise SaveFormatError('Client and actor identities disagree')

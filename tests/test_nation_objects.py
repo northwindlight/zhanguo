@@ -146,15 +146,15 @@ class TestNations(unittest.TestCase):
     def test_declared_consumer_can_read_without_lifecycle_write_access(self):
         with TemporaryDirectory() as directory:
             path = Path(directory)
-            source = (ROOT/'mods/nations_acceptance/mod.toml').read_text()
-            source = source.replace('../native/', str(ROOT/'mods/native') + '/')
+            source = (ROOT/'mods/nations_acceptance/mod.toml').read_text(encoding='utf-8')
+            source = source.replace('../native/', (ROOT/'mods/native').as_posix() + '/')
             source = source.replace('Members = [', 'Members = ["reader/mod.toml", ', 1)
-            (path/'mod.toml').write_text(source)
+            (path/'mod.toml').write_text(source, encoding='utf-8')
             (path/'reader').mkdir()
             (path/'reader/mod.toml').write_text(
                 '[Mod]\nId="example:reader"\nVersion="1"\n'
                 'Entry="tests.test_nation_objects:NationReader"\nRequires=["native:nations"]\n'
-                '[Interfaces]\n"native:nation-inspection"=["snapshot"]\n')
+                '[Interfaces]\n"native:nation-inspection"=["snapshot"]\n', encoding='utf-8')
             world = self.populate(Runtime.load(path).world_class()())
             with unit_context('example:reader'):
                 records = world.runtime.object_call(world,'native:nation-inspection','snapshot')
@@ -179,8 +179,8 @@ class TestNations(unittest.TestCase):
         bundle = {'dependencies':world.runtime.dependency_manifest(), 'state':self.save(world)}
         with TemporaryDirectory() as directory:
             path = Path(directory)/'synthetic-nations.json'
-            path.write_text(json.dumps(bundle))
-            loaded = json.loads(path.read_text())
+            path.write_text(json.dumps(bundle), encoding='utf-8')
+            loaded = json.loads(path.read_text(encoding='utf-8'))
             restored = self.world(official=True)
             restored.runtime.check_save_dependencies(loaded['dependencies'])
             restored.runtime.load_mod_state(restored,loaded['state'])

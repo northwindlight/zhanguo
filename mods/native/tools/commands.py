@@ -161,4 +161,8 @@ def wrap(runtime, tools):
     visible = [umbrella for umbrella in umbrellas]
     visible.extend(tool for tool in tools if not isinstance(tool, Action))
     actions = [tool for tool in tools if isinstance(tool, Action)]
+    covered = {label for _, _, labels in COMMANDS for label in labels if label in specs}
+    missing = sorted(spec.name for spec in actions if spec.name not in covered)
+    if missing:
+        raise ValueError('动作未归入任何伞工具：' + '、'.join(missing))
     return visible, actions, commands

@@ -126,14 +126,14 @@ class TestDeclaredExtension(unittest.TestCase):
             directory = Path(d)
             import tomllib
             manifest = Path('mods/native/mod.toml').resolve()
-            source = manifest.read_text()
+            source = manifest.read_text(encoding='utf-8')
             cfg = tomllib.loads(source)
-            members = [str(manifest.parent / member) for member in cfg['Distribution']['Members']]
+            members = [(manifest.parent / member).as_posix() for member in cfg['Distribution']['Members']]
             import re
             source = re.sub(r'^Members = .*$', 'Members = '+json.dumps(members), source, flags=re.M)
-            (directory/'native.toml').write_text(source)
+            (directory/'native.toml').write_text(source, encoding='utf-8')
             (directory/'extension.toml').write_text(
-                '[Mod]\nId="extension"\nVersion="1"\nEntry="'+__name__+':DeclaredExtension"\nRequires=["native:government"]\nAfter=["native:government"]\n')
+                '[Mod]\nId="extension"\nVersion="1"\nEntry="'+__name__+':DeclaredExtension"\nRequires=["native:government"]\nAfter=["native:government"]\n', encoding='utf-8')
             runtime = Runtime.load(directory)
             cfg={'map_size':16,'seed':3,'nations':[{'id':'scenario:qin','name':'秦','client':'rule'}]}
             host = GameHost.new(cfg,runtime=runtime)

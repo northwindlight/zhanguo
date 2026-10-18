@@ -14,6 +14,12 @@ from clients.llm import LLMClient
 from tests.test_player_clients import FakeBackend,call
 from mp_run import Observer,command,run
 
+try:
+    import PIL  # noqa: F401
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
 
 class TestObserver(unittest.TestCase):
     def cfg(self,experimental=False):
@@ -51,7 +57,7 @@ class TestObserver(unittest.TestCase):
             resumed.events()
             records['messages'].append(message(3,'续局后新到的旧编号消息'))
             resumed.events();resumed.events()
-            text=observer.path.read_text()
+            text=observer.path.read_text(encoding='utf-8')
         for body in ('先到的新编号信件','迟到的旧编号消息','续局后新到的旧编号消息'):
             self.assertEqual(text.count(body),1)
 
@@ -73,7 +79,7 @@ class TestObserver(unittest.TestCase):
         self.assertEqual(before,message)
         with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()) as screen,patch.object(h,'records',return_value={'events':[],'messages':[message]}):
             observer=Observer(h,Path(directory)/'journal.md');observer.events();observer.events()
-            journal=observer.path.read_text()
+            journal=observer.path.read_text(encoding='utf-8')
         self.assertEqual(journal.count('间谍报告 #2'),1)
         self.assertEqual(screen.getvalue().count('间谍报告 #2'),1)
         self.assertIn('(24, 1)',journal);self.assertNotIn('(24, 1)',screen.getvalue())
@@ -97,11 +103,11 @@ class TestObserver(unittest.TestCase):
         for nation in cfg['nations']:nation['client']='rule'
         with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()) as screen,patch('sys.stdin',io.StringIO('')):
             root=Path(directory);cfg.update(save=str(root/'save.json'),journal=str(root/'journal.md'))
-            path=root/'config.json';path.write_text(json.dumps(cfg,ensure_ascii=False))
+            path=root/'config.json';path.write_text(json.dumps(cfg,ensure_ascii=False), encoding='utf-8')
             with patch('select.select',return_value=([],[],[])):
                 self.assertEqual(run(['--config',str(path)]),0)
-            journal=(root/'journal.md').read_text()
-            self.assertEqual(json.loads((root/'save.json').read_text())['modules']['native:government']['period'],2)
+            journal=(root/'journal.md').read_text(encoding='utf-8')
+            self.assertEqual(json.loads((root/'save.json').read_text(encoding='utf-8'))['modules']['native:government']['period'],2)
         for output in (journal,screen.getvalue()):
             for period in range(2):self.assertEqual(output.count(f'世界全景 · 第 {period} 回合'),1)
             self.assertNotIn('世界全景 · 第 2 回合',output)
@@ -116,9 +122,9 @@ class TestObserver(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()),patch('mp_run.CONSOLE',console):
             observer=Observer(h,Path(directory)/'journal.md',resume=True)
             observer.on_call('s:q',0,[])
-            self.assertNotIn('重要事件只在回合间播报',observer.path.read_text())
+            self.assertNotIn('重要事件只在回合间播报',observer.path.read_text(encoding='utf-8'))
             observer.events(period=0);observer.events(period=0)
-            text=observer.path.read_text()
+            text=observer.path.read_text(encoding='utf-8')
         self.assertEqual(text.count('重要事件只在回合间播报'),1)
         self.assertEqual(text.count('第 0 回合结算动态'),1)
         self.assertLess(text.index('◈ 秦 第 1 次调用'),text.index('第 0 回合结算动态'))
@@ -226,7 +232,7 @@ class TestObserver(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder,contextlib.redirect_stdout(io.StringIO()) as screen,patch('mp_run.time.monotonic',side_effect=lambda:clock[0]):
             observer=Observer(h,Path(folder)/'journal.md')
             h.cycle(on_result=observer.result,head=observer.context_head,on_call=observer.on_call)
-            journal=observer.path.read_text()
+            journal=observer.path.read_text(encoding='utf-8')
         for output in (journal,screen.getvalue()):
             self.assertEqual(output.count('第 0 回合 · 秦 行动'),1)
             self.assertEqual(output.count('秦 行动结束'),1)
@@ -248,7 +254,7 @@ class TestObserver(unittest.TestCase):
             # Unrelated events must survive even when they have custom details.
             h.world.intelligence.emit('victory','测试胜利公告',public=True,details={'winners':['s:q']})
             observer.events();observer.events()
-            text=observer.path.read_text()
+            text=observer.path.read_text(encoding='utf-8')
         for output in (text,screen.getvalue()):
             self.assertEqual(output.count('完整国策正文：建设生产与维持独立'),1)
             self.assertEqual(output.count('◇ 购入 木头×1'),2)
@@ -313,7 +319,8 @@ class TestObserver(unittest.TestCase):
         h=GameHost.new(self.cfg())
         with tempfile.TemporaryDirectory() as d,contextlib.redirect_stdout(io.StringIO()):
             obs=Observer(h,Path(d)/'journal.md')
-            for suffix in ('txt','svg','png'):
+            suffixes=('txt','svg')+(('png',) if PIL_AVAILABLE else ())
+            for suffix in suffixes:
                 p=Path(d)/('world.'+suffix);self.assertTrue(command(h,f'map {p}',obs));self.assertGreater(p.stat().st_size,20)
             p=Path(d)/'qin.txt';command(h,f'map 秦 {p}',obs);self.assertTrue(p.exists())
             self.assertTrue(command(h,'利率 5',obs));self.assertEqual(h.world.bank.rate,.05)
@@ -341,7 +348,7 @@ class TestObserver(unittest.TestCase):
             self.assertIn('静默保留思考',out.getvalue())
             self.assertNotIn('第二行细节',out.getvalue())
             obs.pending={'s:q':[('player_rules',{},receipt)]};obs.flush('s:q')
-            log=obs.path.read_text();self.assertIn(full,log);self.assertIn('静默保留思考',log)
+            log=obs.path.read_text(encoding='utf-8');self.assertIn(full,log);self.assertIn('静默保留思考',log)
             self.assertLess(out.getvalue().count('回执全文'),500)
 
     def test_complete_building_returns_have_no_site_parameter_or_construction_eligibility(self):

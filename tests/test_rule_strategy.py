@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 from ruleai.v11plus import RuleState
 from ruleai.v11plus import grouping
+from ruleai.v11plus.economy import supply_capacity
 
 
 class TestRuleStrategy(unittest.TestCase):
@@ -34,6 +35,16 @@ class TestRuleStrategy(unittest.TestCase):
             grouping.regroup(PublicPlayer(),obs,state,armies,forecast=lambda p,c,u: {"known":True,"winnable":len(u)>=2})
         self.assertEqual(set(state.targets),{1,2,3,4});self.assertFalse(state.exact)
         self.assertEqual(RuleState.from_save(state.to_save()),state)
+
+    def test_supply_capacity_comes_from_the_published_building_catalog(self):
+        catalog={'native:supply-factory':{'outputs':{'native:supply':3}},
+                 'native:farm':{'outputs':{'native:food':1}}}
+        buildings=[{'kind':'native:supply-factory','remaining':0},
+                   {'kind':'native:supply-factory','remaining':0},
+                   {'kind':'native:supply-factory','remaining':1},
+                   {'kind':'native:farm','remaining':0}]
+        self.assertEqual(supply_capacity(catalog,buildings),6)
+        self.assertEqual(supply_capacity({},buildings),0)
 
 
 if __name__=='__main__':unittest.main()

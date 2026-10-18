@@ -31,11 +31,11 @@ class TestNativeDistribution(unittest.TestCase):
         runtime=Runtime.load(ROOT/'mods.toml');direct=Runtime.load(ROOT/'mods/native')
         self.assertEqual(runtime.dependency_manifest(),direct.dependency_manifest())
         self.assertEqual(runtime.distribution['Id'],'native')
-        self.assertEqual(runtime.distribution['Version'],'4.10.0')
-        self.assertEqual(set(runtime.units),{'ui:standard','native:handbooks','native:resources','native:buildings','native:market',
+        self.assertEqual(runtime.distribution['Version'],'4.12.0')
+        self.assertEqual(set(runtime.units),{'ui:standard','native:resources','native:buildings','native:market',
                          'native:market-pricing','native:economy','native:economy-valuation',
                          'native:bank','native:economy-queries','native:nations','native:government','native:map-generation',
-                         'native:territory','native:diplomacy','native:vision','native:army','native:succession','native:intelligence','native:query','native:huns','scenario:eight-nations'})
+                         'native:territory','native:diplomacy','native:vision','native:army','native:succession','native:intelligence','native:query','native:manuals','native:huns','scenario:eight-nations'})
         self.assertEqual(set(runtime.state_owners),{'resources','buildings','market','economy','bank','phase','polity','nations','government','territory','diplomacy','units','military','succession','intelligence'})
         self.assertEqual(runtime.hooks,('cycle.start','buildings.production','relations','military.supply',
             'military.battle','military.withdraw','military.claims','succession','military.repatriate',
@@ -110,8 +110,8 @@ class TestNativeDistribution(unittest.TestCase):
         self.call(world,'borrow');self.call(world,'build',site='native:qin-capital',kind='native:farm')
         bundle=self.save(world)
         with TemporaryDirectory() as directory:
-            path=Path(directory)/'synthetic-native.json';path.write_text(json.dumps(bundle))
-            loaded=json.loads(path.read_text())
+            path=Path(directory)/'synthetic-native.json';path.write_text(json.dumps(bundle), encoding='utf-8')
+            loaded=json.loads(path.read_text(encoding='utf-8'))
             runtime=Runtime.load(ROOT/'mods.toml')
             runtime.check_save_dependencies(loaded['dependencies'])
             restored=runtime.world_class()();runtime.load_mod_state(restored,loaded['state'])
@@ -124,12 +124,12 @@ class TestNativeDistribution(unittest.TestCase):
         with self.assertRaises(ModError):runtime.check_save_dependencies(bad)
 
     def manifest(self, *, pricing=None, bank=None, tea=False):
-        source=(ROOT/'mods/native/mod.toml').read_text()
+        source=(ROOT/'mods/native/mod.toml').read_text(encoding='utf-8')
         for member in tomllib.loads(source)['Distribution']['Members']:
             resolved=ROOT/'mods/native'/member
             if pricing and member=='market_pricing/mod.toml':resolved=ROOT/pricing
             if bank and member=='bank/mod.toml':resolved=ROOT/bank
-            source=source.replace('"'+member+'"','"'+str(resolved)+'"')
+            source=source.replace('"'+member+'"','"'+resolved.as_posix()+'"')
         if tea:
             source=source.replace('Members = [','Members = ["tea/mod.toml", ',1)
         return source
@@ -138,7 +138,7 @@ class TestNativeDistribution(unittest.TestCase):
         with TemporaryDirectory() as directory:
             path=Path(directory)
             (path/'mod.toml').write_text(self.manifest(pricing='mods/examples/fixed_market_pricing/mod.toml',
-                                                     bank='mods/examples/fixed_credit_bank/mod.toml'))
+                                                     bank='mods/examples/fixed_credit_bank/mod.toml'), encoding='utf-8')
             runtime=Runtime.load(path);world=self.world(runtime)
             self.assertEqual(self.call(world,'borrow').principal,7)
             trade=self.call(world,'buy',resource='native:wood',quantity=3)
@@ -150,10 +150,10 @@ class TestNativeDistribution(unittest.TestCase):
     def test_formal_distribution_registers_tea_and_build_tool_without_listing_it(self):
         with TemporaryDirectory() as directory:
             path=Path(directory)
-            (path/'mod.toml').write_text(self.manifest(tea=True))
+            (path/'mod.toml').write_text(self.manifest(tea=True), encoding='utf-8')
             (path/'tea').mkdir()
             (path/'tea/mod.toml').write_text('[Mod]\nId="example:tea-content"\nVersion="1"\n'
-                                       'Entry="tests.test_building_objects:TeaContent"\n')
+                                       'Entry="tests.test_building_objects:TeaContent"\n', encoding='utf-8')
             runtime=Runtime.load(path);world=self.world(runtime)
             self.call(world,'build',site='native:qin-capital',kind='example:tea-garden')
             world.resolve_turn();world.resolve_turn()

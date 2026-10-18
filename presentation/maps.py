@@ -6,9 +6,7 @@ import hashlib
 import colorsys
 import io
 
-from clients.context import map_presentation
-
-from .facts import flatten
+from .facts import flatten, map_presentation
 
 COLORS = ('#dab942','#3aaeb8','#bc54aa','#c1cad8','#e28b3c','#745eb8','#e597b5','#5e91cd')
 SIDES = {'self':'#3ac460','ally':'#3a84e8','enemy':'#e03e3a','neutral':'#8e908e'}

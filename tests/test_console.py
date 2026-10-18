@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -157,6 +158,7 @@ class TestLineEditor(unittest.TestCase):
         self.assertFalse(c._feed('\x04'))
         self.assertEqual(c.queue.get_nowait(), 'quit')
 
+    @unittest.skipIf(os.name == 'nt', 'termios is POSIX-only')
     def test_closed_console_does_not_initialize_terminal(self):
         c = self._c()
         c.close()

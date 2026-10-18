@@ -115,7 +115,7 @@ class TestNewGood(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'mod.toml'
             path.write_text(body.replace(span, 'Members = '
-                                         + json.dumps([str(row) for row in members])), encoding='utf-8')
+                                         + json.dumps([row.as_posix() for row in members])), encoding='utf-8')
             runtime = Runtime.load(Path(tmp))
             cfg = config(Path(tmp), [{'id': 'scenario:qin', 'name': '秦', 'client': 'llm',
                                       'resources': {'example:tea': 20}}])
@@ -319,13 +319,13 @@ class TestAssemblyErrors(unittest.TestCase):
     def _load_without(self, drop):
         body = (EXAMPLES / 'recipes_dist' / 'mod.toml').read_text(encoding='utf-8')
         declaration = tomllib.loads(body)
-        members = [str((EXAMPLES / 'recipes_dist' / row).resolve())
+        members = [(EXAMPLES / 'recipes_dist' / row).resolve()
                    for row in declaration['Distribution']['Members']]
-        kept = [row for row in members if not row.endswith(drop + '/mod.toml')]
+        kept = [row for row in members if row.parent.name != drop]
         span = body[body.index('Members = ['):body.index(']\nRequiredState') + 1]
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / 'mod.toml').write_text(
-                body.replace(span, 'Members = ' + json.dumps(kept)), encoding='utf-8')
+                body.replace(span, 'Members = ' + json.dumps([row.as_posix() for row in kept])), encoding='utf-8')
             Runtime.load(Path(tmp))
 
     def test_missing_state_owner(self):

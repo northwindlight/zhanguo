@@ -59,6 +59,6 @@ Implementation audit results and offline checks are recorded in [the repair repo
 
 The root entry points are `host.py` (distribution assembly), `mp_run.py` (CLI), and `settlement.py` (read-only finale). Context and model transports live in `clients/`, rule clients in `ruleai/`, terminal transport in `ui/terminal.py`, presentation and maps in `mods/ui/`, and map generation in `mods/native/map_generation/`. Retired implementations and experiments are available in Git history and the legacy branch.
 
-Export the selected distribution’s rules, settlement order and module parameters with `python -m docs.generate_manual`. Use `--check` to verify the [generated manual](docs/游戏说明书.md), or `--mods` and `--output` for another distribution.
+The [game manual](mods/native/docs/游戏说明书.md) and the four strategy handbooks are hand-maintained under `mods/native/docs/`; they are not generated from code and are not assembled at runtime.
 
 Source release ZIPs exclude real-game records. Published records remain available in the [repository research directory](https://github.com/northwindlight/zhanguo/tree/main/research/game-records).

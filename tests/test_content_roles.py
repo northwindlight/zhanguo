@@ -1,7 +1,7 @@
 """Content roles, declared numbers and the facts-driven map presentation."""
 import unittest
 
-from clients.context import map_presentation
+from presentation.facts import map_presentation
 from engine.content import ContentRegistry
 from engine.runtime import Runtime
 from tests import test_world_domains as fixtures
@@ -53,7 +53,7 @@ class TestContentRoles(unittest.TestCase):
         with self.assertRaises(Exception):
             runtime.number('army.no-such-number')
         text = '\n'.join(section.body for section in runtime.rule_sections())
-        self.assertIn('35HP', text)
+        self.assertIn('完全断供每支损失35', text)
         self.assertNotIn('{{number:', text)
 
     def test_map_glyphs_come_from_public_catalogs(self):

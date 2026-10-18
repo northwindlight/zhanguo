@@ -339,7 +339,7 @@ class TestParliament(unittest.TestCase):
                 if not self.queried:
                     self.queried=True
                     return reply(call('rules','player_rules',topic=''),call('manual','read_manual',topic='说明书'),
-                                 call('guide','read_manual',topic='战争手册'),call('forged','economy',action='buy',resource='native:wood',quantity=1)),{}
+                                 call('guide','read_manual',topic='军队'),call('forged','economy',action='buy',resource='native:wood',quantity=1)),{}
                 if any(m['role']=='tool' for m in messages[-2:]) and any(t['function']['name']=='council_next_stage' for t in tools):
                     return reply(call('next','council_next_stage')) ,{}
                 return super().chat_turn(messages,tools,cfg,on_retry)

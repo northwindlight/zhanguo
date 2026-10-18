@@ -7,7 +7,7 @@ from engine.resource import Resource
 from engine.runtime import GameMod, ModError
 
 
-from mods.native.economy_reports.contracts import Valuation
+from mods.native.contracts.economy import Valuation
 
 
 class ValuationService:

@@ -3,6 +3,12 @@ from engine.scenario_mod import ScenarioMod
 
 ZHOU="周"
 IDS={ZHOU:"scenario:zhou"}
+# Executable scenario constants: one source for the hook and the victory check.
+BLOC_ID='scenario:zhou-tianxia'
+BLOC_NAME='周天下'
+TRIBUTE_PERCENT=10
+FOUND_FEE=100
+MIN_MEMBERS=5
 
 CHARTER = (
     "【本剧本之志：六王毕，四海一】\n"
@@ -68,7 +74,7 @@ def check_victory(world, trigger_victory):
         bloc=call('native:diplomacy','alliance',zhou) if zhou in living else None
         subjects={s.subject for s in call('native:diplomacy','snapshot',zhou).vassals
                   if s.overlord==zhou and s.kind=='tributary'} if zhou in living else set()
-        if (bloc and bloc.chief==zhou and bloc.name=='周天下' and len(subjects)+1>=5
+        if (bloc and bloc.chief==zhou and bloc.name==BLOC_NAME and len(subjects)+1>=MIN_MEMBERS
             and subjects|{zhou}==living and set(bloc.members)==living):
             others=sorted(living-{zhou})
             names='、'.join(call('native:nation-inspection','get',n).name for n in others)
@@ -86,7 +92,7 @@ class EightNationsMod(ScenarioMod):
 
     def on_start(self,world):
         self.runtime.object_call(world,'native:diplomacy','configure_subject_alliance',
-                                 IDS[ZHOU],'scenario:zhou-tianxia','周天下',10,100,True,True,True)
+                                 IDS[ZHOU],BLOC_ID,BLOC_NAME,TRIBUTE_PERCENT,FOUND_FEE,True,True,True)
 
     def on_settlement(self,world,trigger_victory):
         check_victory(world,trigger_victory)

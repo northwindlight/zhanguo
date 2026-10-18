@@ -152,7 +152,7 @@ class TestScripts(unittest.TestCase):
         p=self.next_period(h,p)
         with TemporaryDirectory() as folder:
             path=Path(folder)/'synthetic.json';h.save(path)
-            self.assertNotIn('synthetic-secret',path.read_text())
+            self.assertNotIn('synthetic-secret',path.read_text(encoding='utf-8'))
             loaded=GameHost.load(path,self.cfg())
             loaded.services[self.actor]['council']._review_backend=CouncilBackend([True])
             other=loaded.player(self.actor)
@@ -182,12 +182,12 @@ class TestScripts(unittest.TestCase):
 
     def test_shipped_examples_make_bounded_decisions_and_calculations(self):
         folder=Path(__file__).resolve().parents[1]/'mods/experimental/examples'
-        h,p=self.host();self.write(p,(folder/'logistics.py').read_text())
+        h,p=self.host();self.write(p,(folder/'logistics.py').read_text(encoding='utf-8'))
         result=p.submit('script', {'action': 'run', 'inputs':{'food_target':24,'budget':20}})
         self.assertTrue(result['ok'],result)
         self.assertEqual(h.world.resources.balance(self.actor,'native:food'),24)
         self.assertEqual(result['data']['actions'],1)
-        h,p=self.host();self.write(p,(folder/'market_interpolation.py').read_text())
+        h,p=self.host();self.write(p,(folder/'market_interpolation.py').read_text(encoding='utf-8'))
         result=p.submit('script', {'action': 'run', 'inputs':{'history':[[0,1.5],[2,1.7],[4,1.8]],'target':3}})
         self.assertTrue(result['ok'],result)
         self.assertEqual(result['data']['output'],'线性估计 1.75\n')

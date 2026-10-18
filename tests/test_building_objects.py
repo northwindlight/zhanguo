@@ -344,26 +344,3 @@ class TestBuildings(unittest.TestCase):
         self.assertEqual(self.state(other),self.state(world))
         self.assertEqual(other.resources.balance('Qin','native:food'),101)
         self.assertEqual(other.buildings.count('example:qin','native:farm'),2)
-
-    def test_native_definitions_preserve_legacy_building_numbers(self):
-        # Legacy vocabulary exists only in this audit fixture. New definitions
-        # do not translate IDs or import the legacy parameter table.
-        from mods.native.buildings.parameters import BUILDINGS
-        names=('城堡','林场','农场','矿场','石油厂','黄金矿场','木材能源厂','石油能源厂',
-               '补给厂','装备厂','兵营','市政厅','瞭望塔','外交中心','工程院','军屯')
-        resources={'黄金':'native:gold','木头':'native:wood','粮食':'native:food','矿石':'native:ore',
-                   '石油':'native:oil','装备':'native:equipment','补给':'native:supply','耕地':'native:farmland'}
-        for cls,name in zip(BUILDING_TYPES,names):
-            with self.subTest(kind=cls.TYPE_ID):
-                old=BUILDINGS[name]
-                self.assertEqual(cls.GOLD_COSTS,tuple(old['cost']) if isinstance(old['cost'],list) else (old['cost'],))
-                self.assertEqual(cls.WOOD_COST,old['wood'])
-                self.assertEqual(cls.SITE_RESOURCE,resources.get(old['cap_resource']))
-                self.assertEqual(cls.MIN_SLOTS,old.get('min_slots',0))
-                self.assertEqual(cls.MAX_PER_SITE,old.get('max_level',old.get('limit')))
-                self.assertEqual(cls.SELF_BUILD_LIMIT,old.get('limit_nation'))
-                self.assertEqual(cls.ENERGY_USE,old.get('energy',0))
-                self.assertEqual(dict(cls.INPUTS),{resources[key]:value for key,value in old.get('fuel',old.get('inputs',{})).items()})
-                expected={resources[key]:value*(10 if old['kind']=='gold' else 1) for key,value in old.get('outputs',{}).items()}
-                self.assertEqual(dict(cls.OUTPUTS),expected)
-                self.assertEqual(cls.ENERGY_OUTPUT,old.get('energy_out',0))

@@ -55,7 +55,7 @@ def build(runtime):
         command_map = {'script': {'write': 'script_write', 'patch': 'script_patch',
                                   'check': 'script_check', 'status': 'script_status', 'run': 'script_run'}}
         tools.append(umbrella)
-        tools.extend(spec for spec in script_specs if isinstance(spec, Tool))
+        tools.extend(spec for spec in script_specs if isinstance(spec, Tool) and not isinstance(spec, Action))
         script_actions = [spec for spec in script_specs if isinstance(spec, Action)]
         receipts.update({
             'script_write': _write_receipt,

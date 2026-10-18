@@ -26,6 +26,7 @@
 | [army](army/README.md) | 部队、路径、征召、补给、战斗 | units / military |
 | [succession](succession/README.md) | 市政厅亡国及跨域清理 | succession |
 | [intelligence](intelligence/README.md) | 通信、运输、间谍、事件快照 | intelligence |
+| [manuals](manuals/mod.py) | 只读手册面板：按需读取 `docs/` 下四本讲义与游戏说明书 | 无独立状态 |
 | [polities/huns](polities/huns/README.md) | 国家作用域、开局配置和政策覆盖 | 引擎 polity 作用域 |
 
 跨域协作只调用声明过的公共能力及方法。静态资源、兵种、建筑、地形使用英文命名空间 ID；国家、联盟实例也有稳定 ID，展示名可变。当前土地归属只由建筑站点保存，领土与国家查询即时读取，避免重复所有者状态。
@@ -76,4 +77,4 @@ world.phase = '行动'  # 宿主开启下一行动期；周期由 government 自
 
 当前领域实现以各模块的对象和声明为入口；旧 core、balance、DomainMod 与兼容展示转口已删除。地图算法只保留 `map_generation/algorithm.py`，不再由领土模块持有副本。
 
-[游戏说明书](../../docs/游戏说明书.md) 从发行版公开规则、结算顺序和模块数值生成：`python -m docs.generate_manual`；`--check` 只核对，`--mods` 可选择独立发行版。
+[游戏说明书](docs/游戏说明书.md) 与四本策略讲义（[基础指南](docs/基础指南.md)、[经济学手册](docs/经济学手册.md)、[战争手册](docs/战争手册.md)、[战略手册](docs/战略手册.md)）都在 `mods/native/docs/` 手写维护。它们不注册为模块、不进入 `rule_sections()`、不拼接、不参与运行时装配；`native:manuals` 只提供只读 `query(panel=manual, doc=…)` 面板按需读取。数值以 `building_catalog`、`unit_catalog` 和实际回执为准。

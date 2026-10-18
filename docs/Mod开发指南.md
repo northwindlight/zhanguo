@@ -120,9 +120,10 @@ class HelloMod(GameMod):
 ```
 
 规则正文里的数字写成 `{{number:army.starvation}}`：`Runtime.rule_sections()` 与
-`PlayerSession.rules()` 会把它替换成对应模块 `numbers()` 登记的值，手册不再手抄参数。
+`PlayerSession.rules()` 会把它替换成对应模块 `numbers()` 登记的值，模块规则不再手抄参数。
 值不存在时装载/查询直接报错（键名拼错不会静默留占位符）。`{{SETTLEMENT_STAGES}}`
-仍展开为结算顺序表。
+仍展开为结算顺序表。战略讲义与游戏说明书不在此机制内：它们是 `mods/native/docs/` 下的
+手写文档，不进入运行时。
 
 装载一个模块有两种方式：
 

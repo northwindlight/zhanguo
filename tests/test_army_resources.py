@@ -114,7 +114,7 @@ class TestArmyResources(unittest.TestCase):
         with TemporaryDirectory() as folder:
             edition = Path(folder) / 'mod.toml'
             edition.write_text(self.fixture.edition().replace(
-                'Members = [', 'Members = [' + json.dumps(str(ROOT / 'mods/examples/elephants/mod.toml')) + ', '))
+                'Members = [', 'Members = [' + json.dumps((ROOT / 'mods/examples/elephants/mod.toml').as_posix()) + ', '), encoding='utf-8')
             w = self.fixture.world(Runtime.load(edition.parent))
             site = self.fixture.site(w, 'scenario:elephant-capital', Q, 1, 1)
             w.buildings.seed(site, 'native:barracks')

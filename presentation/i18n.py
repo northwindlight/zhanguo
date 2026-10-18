@@ -1,9 +1,40 @@
-"""Per-client keyed catalogs. No process-global locale or state translation."""
+"""Per-client keyed catalogs. No process-global locale or state translation.
+
+Some messages are shared with the distribution tool layer. Instead of keeping a
+second copy of the text, ``aliases.json`` maps a UI key to its tool-layer key;
+the alias is resolved only after the tool catalog has been merged.
+"""
 import json
 from pathlib import Path
 from string import Formatter
 
 ROOT = Path(__file__).with_name('locales')
+
+
+def _fields(text):
+    return {name for _, name, _, _ in Formatter().parse(text) if name is not None}
+
+
+def _load_aliases():
+    path = ROOT / 'aliases.json'
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding='utf-8'))
+    if not isinstance(data, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in data.items()):
+        raise ValueError('Invalid UI alias catalog')
+    return data
+
+
+ALIASES = _load_aliases()
+
+
+def _tool_catalog(language):
+    """Alias targets live in the tool layer; load them when no layer is mounted."""
+    path = ROOT.parents[1] / 'mods' / 'native' / 'tools' / 'locales' / f'{language}.json'
+    if not path.is_file():
+        return {}
+    return json.loads(path.read_text(encoding='utf-8'))
+
 
 class Translator:
     def __init__(self, language='zh-CN', catalog=None):
@@ -18,9 +49,22 @@ class Translator:
             selected.update(catalog)
         for key,value in selected.items():
             if not isinstance(value,str):raise ValueError(f'Invalid UI message: {key}')
-            fields=lambda s:{name for _,name,_,_ in Formatter().parse(s) if name is not None}
-            if key in base and fields(value)!=fields(base[key]):raise ValueError(f'UI placeholders differ: {key}')
+            if key in base and _fields(value)!=_fields(base[key]):raise ValueError(f'UI placeholders differ: {key}')
         self.messages = {**base, **selected}
+        self._apply_aliases()
+
+    def _apply_aliases(self):
+        missing = {target for alias, target in ALIASES.items()
+                   if alias not in self.messages and target not in self.messages}
+        if missing:
+            fallback = _tool_catalog(self.language)
+            for target in missing:
+                if target in fallback:
+                    self.messages[target] = fallback[target]
+        for alias, target in ALIASES.items():
+            if alias in self.messages or target not in self.messages:
+                continue
+            self.messages[alias] = self.messages[target]
 
     def __call__(self, key, **values):
         return self.messages[key].format(**values)
@@ -34,10 +78,10 @@ class Translator:
         for key,value in messages.items():
             if not isinstance(value,str):
                 raise ValueError(f'Invalid UI message: {key}')
-            fields=lambda s:{name for _,name,_,_ in Formatter().parse(s) if name is not None}
-            if key in self.messages and fields(value)!=fields(self.messages[key]):
+            if key in self.messages and _fields(value)!=_fields(self.messages[key]):
                 raise ValueError(f'UI placeholders differ: {key}')
         self.messages.update(messages)
+        self._apply_aliases()
         return self
 
     @classmethod
@@ -48,4 +92,6 @@ class Translator:
         if tool_layer is not None:
             extra=tool_layer.catalogs().get(result.language,{})
             if extra:result.extend(extra)
+        else:
+            result._apply_aliases()
         return result

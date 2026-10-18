@@ -253,8 +253,8 @@ def _map_message(message: dict, *, vision=True, renderer=None) -> dict:
     from clients import context as ctx
     if not message.get(ctx.MAP_KEY):return message
     if renderer is None:
-        from ui import load_ui
-        renderer=load_ui().expand_message
+        from presentation.maps import expand_message
+        renderer=expand_message
     return renderer(message,vision=vision)
 
 

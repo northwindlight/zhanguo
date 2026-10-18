@@ -23,6 +23,15 @@ def _amounts(value):
     return dict(value or {})
 
 
+def supply_capacity(catalog, buildings):
+    """Completed supply factories × their published output, never a hardcoded 2."""
+    row = catalog.get('native:supply-factory') or {}
+    per = int(_amounts(row.get('outputs')).get('native:supply', 0))
+    count = sum(1 for building in buildings
+                if building.get('kind') == 'native:supply-factory' and not building.get('remaining'))
+    return count * per
+
+
 def _cost(kind, level, site, existing, catalog):
     """Reproduce native construction cost rounding for a public site quote."""
     row = catalog[kind]
@@ -149,13 +158,13 @@ def run(ledger):
             income+=sum(v*(1 if k=='native:gold' else sell_prices.get(k,0)) for k,v in outputs.items())
             income-=sum(v*(1 if k=='native:gold' else buy_prices.get(k,0)) for k,v in row['inputs'].items())
     income=max(0,income)
-    supply_buildings = sum(b['kind'] == 'native:supply-factory' and not b['remaining'] for b in buildings)
-    supply_cap = supply_buildings * 2
+    supply_cap = supply_capacity(catalog, buildings)
     barracks = sum(b['kind'] == 'native:barracks' and not b['remaining'] for b in buildings)
-    want_barracks = max(2, min(supply_cap // 2 + 2, BARRACKS_CAP))
+    per_army = max(1, min(int(row.get('supply', 1)) for row in units.values()))
+    want_barracks = max(2, min(supply_cap // per_army + 2, BARRACKS_CAP))
     upkeep = supply_need * buy_prices.get('native:supply', 0)
     mil_ok = income <= 0.5 or upkeep / income < MIL_SHARE
-    army_cap = max(len(army) + 1, supply_cap) if mil_ok else len(army)
+    army_cap = max(len(army) + 1, supply_cap // per_army) if mil_ok else len(army)
 
     completed = [b for b in buildings if b['remaining'] == 0]
     power = sum(catalog[b['kind']]['energy_output'] for b in completed)

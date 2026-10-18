@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 from engine.building import Building
 from engine.resource import Resource
-from mods.native.economy_reports.contracts import Money, TurnReport, integer
+from mods.native.contracts.economy import Money, TurnReport, integer
 
 # 旧版市场行给的是「卖50≈79金 买50≈89金」——固定 50 单位的大单试算。
 MARKET_TRIAL_UNITS = 50

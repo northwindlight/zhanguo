@@ -29,7 +29,6 @@ QUERIES = {
     'news': ('native:intelligence', 'news'),
     'dispatches': ('native:intelligence', 'dispatches'),
     'government': ('native:government', 'snapshot'),
-    'handbooks': ('native:handbooks', 'books'),
 }
 
 ACTIONS = {

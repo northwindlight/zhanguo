@@ -4,7 +4,7 @@ from copy import deepcopy
 from engine.coordinates import coordinates
 import json
 from .queries import QueryPresentation
-from .facts import flatten
+from .facts import flatten, army_state
 
 
 def num(value):
@@ -98,103 +98,6 @@ class ReceiptPresentation(QueryPresentation):
             return num(value['total'])+'金'
         return num(value)+'金'
 
-    def constraints(self,row):
-        pieces=[]
-        if row.get('min_slots'):pieces.append(f'需已有{row["min_slots"]}座建筑')
-        if row.get('site_resource'):pieces.append('受本地'+self.label('content',row['site_resource'])+'容量限制')
-        if row.get('max_per_site') is not None:pieces.append(f'每格限{row["max_per_site"]}座/级')
-        if row.get('self_build_limit') is not None:pieces.append(f'全国自建限{row["self_build_limit"]}座')
-        return '；'.join(pieces)
-
-    def behavior(self,row):
-        effects=row.get('effects',{});pieces=[]
-        if effects.get('gold_base') is not None:pieces.append(f'产{effects["gold_base"]}金+本格每座其他建筑×{effects.get("gold_per_slot",0)}金')
-        elif row.get('outputs'):pieces.append('产'+self.resources(row['outputs']))
-        if row.get('inputs'):pieces.insert(0,'耗'+self.resources(row['inputs']))
-        if row.get('energy_output'):pieces.append(f'发{row["energy_output"]}电')
-        if row.get('energy_use'):pieces.append(f'耗{row["energy_use"]}电')
-        if effects.get('defense_per_level'):pieces.append(f'每级防御+{effects["defense_per_level"]}%')
-        if effects.get('build_discount'):pieces.append(f'本格后续建造金价−{effects["build_discount"]}%')
-        if effects.get('vision_radius'):pieces.append(f'视野半径{effects["vision_radius"]}')
-        if effects.get('recruit_cap'):pieces.append(f'每回合可征{effects["recruit_cap"]}军')
-        if effects.get('militia_cap'):pieces.append(f'可驻{effects["militia_cap"]}支民兵，每回合可征{effects.get("militia_per_turn",1)}支')
-        return '，'.join(pieces) or '辅助建筑，不直接产出'
-
-    def catalog(self,rows):
-        lines=[f'【建筑一览 · {len(rows)}种】造价为基础金价；地形、工程院和本国政体系数另计。']
-        for row in rows:
-            key=row.get('id',row.get('kind'));self._catalog[key]=deepcopy(row)
-            costs=row.get('costs_by_level',[])
-            if costs and len(costs)>1:
-                cost='→'.join(num(c.get('native:gold',0)) for c in costs)+'金'
-                rest={k:v for k,v in costs[0].items() if k!='native:gold'}
-                if rest:cost+=' '+self.resources(rest)
-            else:cost=self.resources(costs[0] if costs else row['costs']) if costs or 'costs' in row else '造价未提供'
-            rule=self.constraints(row)
-            lines.append(f'{self.label("content",key)}：{cost}｜{self.behavior(row)}'+('｜'+rule if rule else ''))
-        return '\n'.join(lines)
-
-    def economics(self,data):
-        rows=data if isinstance(data,list) else [data]
-        lines=['【完整建筑报告 · 当前市价】基础造价含本国政体系数（普通国家 100%，匈奴 +30%），不含地形和工程院优惠；满负荷估算。',
-               '采集按卖价，工厂按买价自用替代，耗电按木电燃料成本；收益不是本回合实收。']
-        for row in rows:
-            name=self.label('content',row['kind']);net=self.money(row['net_per_period']);pb=row['payback_periods']
-            details=f'造价折{self.money(row["construction"])}'
-            if row['energy_produced']:
-                details+=f'｜每回合燃料{self.money(row["inputs"])}→{row["energy_produced"]}电（电不出售）'
-            else:
-                details+=f'｜每回合净收益{net}'
-                if row['energy_used']:details+=f'（已扣{row["energy_used"]}电成本）'
-                if row.get('output_basis')=='buy':details+=f'｜纯外销产值{self.money(row["outputs_sell"])}'
-                details+='｜回本'+(num(pb)+'回合' if pb is not None else '—')
-            lines.append(name+'：'+details)
-            if row.get('costs_by_level'):
-                definition={**row,'inputs':dict(row.get('recipe_inputs',[])),'outputs':dict(row.get('recipe_outputs',[])),
-                            'energy_use':row['energy_used'],'energy_output':row['energy_produced'],'effects':dict(row.get('effects',[]))}
-                costs=row['costs_by_level']
-                cost='各级基础造价 '+('→'.join(num(c.get('native:gold',0)) for c in costs)+'金 '+self.resources({k:v for k,v in costs[0].items() if k!='native:gold'}) if len(costs)>1 else self.resources(costs[0]))
-                lines.append('  '+cost+'；'+self.behavior(definition)+('；'+self.constraints(row) if self.constraints(row) else ''))
-                for assumption in row.get('assumptions',[]):lines.append('  '+assumption)
-        return '\n'.join(lines)
-
-    def land(self,rows,instances=None,actor=None,args=None):
-        facts=self._facts.get(actor,{})
-        sites=facts.get('building_sites',{})
-        if instances is None and 'instances' in sites:instances=sites['instances']
-        args=args or {}
-        if args:
-            lines=[self.text('query.land_page',count=len(rows),offset=args.get('offset',0))]
-            if 'land' in facts:lines[0]+='｜'+self.text('query.land_total',count=len(facts['land']))
-            if args.get('terrain'):lines[0]+='｜'+self.label('content',args['terrain'])
-            if args.get('resource'):lines[0]+='｜'+self.label('content',args['resource'])
-            more=any(args.get(key) for key in ('terrain','resource')) or 'land' not in facts or args.get('offset',0)+len(rows)<len(facts['land'])
-            if args.get('limit') and len(rows)==args['limit'] and more:
-                lines.append(self.text('query.land_next',offset=args.get('offset',0)+len(rows)))
-        else:lines=[f'国土 {len(rows)} 块：']
-        cores={tuple(r['tile']['position']):r['tile'].get('core') for r in facts.get('land',[])}
-        for row in rows:
-            tile=row.get('tile',row);site=self._sites.get(tile.get('id'),{})
-            completed=[b for b in instances or [] if b['site']==tile.get('id') and not b['remaining']]
-            pending=[b for b in instances or [] if b['site']==tile.get('id') and b['remaining']]
-            buildings=self.building_names(completed)
-            if pending:buildings+='；在建 '+self.building_names(pending)
-            resources=self.resources(row.get('resources',site.get('resources',[])),gold_short=False)
-            cap=f'｜建筑位{len(completed)+len(pending)}/{site["capacity"]}' if 'capacity' in site and instances is not None else ''
-            terrain=self.label('content',tile.get('terrain') or self._terrain.get(tile.get('id')) or '')
-            position=tuple(tile.get('position',()))
-            core=tile.get('core',cores.get(position))
-            details=[]
-            if core:details.append(self.text('query.core',name=self.name(core,self._names)))
-            if 'construction' in sites:
-                ordered=any(r['site']==tile.get('id') and r['period']==self._period for r in sites['construction'])
-                details.append(self.text('query.ordered' if ordered else 'query.can_build'))
-            guards=[u for u in facts.get('army',[]) if u['owner']==actor and (u['x'],u['y'])==position and u['hp']>0]
-            if guards:details.append(self.text('query.garrison',units='、'.join(self.unit_ref(u['id'],actor)+' '+num(u['hp'])+'HP' for u in guards)))
-            lines.append(f'{self.pos(tile,actor=actor)}{terrain}{cap}｜资源 {resources}'+('｜建筑 '+buildings if instances is not None else '')+
-                         ('｜'+'｜'.join(details) if details else ''))
-        return '\n'.join(lines)
-
     def intelligence_tiles(self,tiles,names):
         lines=['  '+self.text('console.intel_tiles',count=len(tiles))]
         for tile in tiles:
@@ -265,7 +168,7 @@ class ReceiptPresentation(QueryPresentation):
     def relation(value):return {'war':'交战','ally':'同盟','neutral':'中立'}.get(value,value)
 
     def army_line(self,u):
-        state='newborn' if u.get('born_turn')==self._period else 'engaged' if u.get('engaged') else 'moved' if u.get('moved_turn')==self._period else 'ready'
+        state=army_state(u,self._period)
         status='｜'+self.text('query.army_'+state)
         catalog=self._facts.get(self._actor,{}).get('unit_catalog',{})
         if u['owner']==self._actor and u['kind'] in catalog:status+='｜'+self.text('query.speed',speed=catalog[u['kind']]['speed'])

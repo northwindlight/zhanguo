@@ -4,11 +4,12 @@
 
 ## 当前使用与开发
 
-- [游戏说明书](游戏说明书.md)：由当前发行版声明生成；`python -m docs.generate_manual --check` 检查同步。
+- [游戏说明书](../mods/native/docs/游戏说明书.md)：手写维护的规则与口径；与四本讲义同在 `mods/native/docs/`，不参与运行时装配。
 - [Mod 开发指南](Mod开发指南.md)：示例、模块声明与开发接口。
 - [发行版 Session 与剧本胜利钩子](发行版Session.md)：宿主、服务、剧本挂载及存取契约。
 - [配置层](配置层.md)、[客户端接线](客户端接线.md)：配置提供者与绑定玩家 API。
 - [native](../mods/native/README.md)、[experimental](../mods/experimental/README.md)、[UI](../mods/ui/README.md)：发行版和界面入口。
+- [presentation](../presentation/)：中立的呈现原语（语言目录、终端渲染、回执、简报、地图），UI Mod 与模型客户端共用。
 
 ## 设计与规划
 

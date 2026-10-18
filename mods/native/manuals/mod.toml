@@ -1,0 +1,12 @@
+[Mod]
+Id = "native:manuals"
+Version = "1.0.0"
+Entry = "mods.native.manuals.mod:ManualsMod"
+Requires = []
+
+[Capabilities]
+Provides = ["native:manuals"]
+
+[PlayerAPI]
+Methods = ["read"]
+ReadOnly = ["read"]

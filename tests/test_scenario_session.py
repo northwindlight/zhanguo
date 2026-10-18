@@ -29,10 +29,10 @@ class TestScenarioSession(unittest.TestCase):
         self.assertTrue(all(n['client']=='rule' and 'polity' not in n for n in cfg['nations']))
         self.assertEqual({n['name']:tuple(n['position']) for n in cfg['nations']},STARTS)
         with tempfile.TemporaryDirectory() as directory:
-            out=Path(directory)/'saved.json';out.write_text('keep')
+            out=Path(directory)/'saved.json';out.write_text('keep', encoding='utf-8')
             config=Path(directory)/'cfg.json'
             with self.assertRaises(SystemExit):main(['--out',str(out),'--config',str(config)])
-            self.assertEqual(out.read_text(),'keep');self.assertFalse(config.exists())
+            self.assertEqual(out.read_text(encoding='utf-8'),'keep');self.assertFalse(config.exists())
 
     def test_pact_is_admin_only_and_validates(self):
         host=build();player=host.player(IDS['秦'])

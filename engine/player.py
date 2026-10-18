@@ -6,13 +6,14 @@ import math
 import inspect
 import traceback
 
-from .runtime import RuleSection
-
 API_VERSION = 1
+# Envelope key for an attached map snapshot. It is part of the persisted
+# message contract, so it lives with the wire format rather than in a UI mod.
+MAP_KEY = '_map_snapshot'
 BUILTINS = {
     'memory_search': ('检索本客户端的历史行动与小结，不包含思考；query 为关键词，limit 默认3。', {'query':{'type':'string','minLength':1},'limit':{'type':'integer','minimum':1,'maximum':8,'default':3}}),
     'player_state': ('本国当前可见事实，按权限过滤；等价于 observe() 的 facts。', {}),
-    'player_rules': ('查询本国公开规则和策略指南。缺省或未知 topic 返回目录；传目录标题或主题词查正文，all 查全部。基础指南、经济手册、战争手册、战略手册均可查。', {'topic': {'type': 'string'}}),
+    'player_rules': ('查询本国公开规则。缺省或未知 topic 返回目录；传目录标题或主题词查正文，all 查全部。', {'topic': {'type': 'string'}}),
     'player_events': ('按游标取本国可见事件；cursor 缺省取全部，返回值带新游标。', {'cursor': {'type': 'integer', 'minimum': 0}}),
 }
 
@@ -248,20 +249,10 @@ class PlayerSession:
         if not isinstance(topic,str):raise ValueError('topic 必须是字符串；省略 topic 可查看全部规则目录')
         with self.__lock:
             self._validate()
-            # Include only public sections from modules in this actor's scope.
-            sections=[]
-            topic=topic.strip().lower()
-            for name in self.__runtime.order:
-                mod=self.__runtime.units[name].mod
-                if not self.__runtime.in_scope(self.__world,self.actor,mod):continue
-                sections.extend(RuleSection(section.title, self.__runtime.rule_text(section.body),
-                                            section.keywords, section.summary, section.player_visible)
-                                for section in mod.rule_sections(self.__world) if section.player_visible)
-            if topic in ('all','全部'):selected=sections
-            else:
-                matches=[(len(word),section) for section in sections for word in (section.title,*section.keywords) if word.lower() in topic]
-                longest=max((size for size,_ in matches),default=0)
-                selected=[section for section in sections if any(size==longest and candidate is section for size,candidate in matches)] if longest else []
+            # One assembly path: scope/visibility filtering, ManualOrder and
+            # placeholder substitution live in Runtime.rule_sections().
+            sections=self.__runtime.rule_sections(self.__world, player=True, actor=self.actor)
+            selected=self.__runtime.select_rules(sections, topic)
             if not selected:
                 return [{'title':'规则目录','body':'\n'.join(section.title+('：'+section.summary if section.summary else '') for section in sections)+'\n传 topic 查看对应主题；all 查看全部。'}]
             return [{'title':section.title,'body':section.body} for section in selected]

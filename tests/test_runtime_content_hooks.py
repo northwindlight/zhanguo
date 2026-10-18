@@ -115,14 +115,14 @@ class TestHooks(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root=Path(directory);edition=root/'edition';edition.mkdir()
             domain=edition/'domain';domain.mkdir()
-            (root/'mods.toml').write_text('[Load]\nPackages=["edition"]\n')
+            (root/'mods.toml').write_text('[Load]\nPackages=["edition"]\n', encoding='utf-8')
             (edition/'mod.toml').write_text('[Distribution]\nId="example"\nMembers=["domain/mod.toml"]\n'
-                                           '[[Hooks]]\nId="example-first"\nName="First"\n')
+                                           '[[Hooks]]\nId="example-first"\nName="First"\n', encoding='utf-8')
             (domain/'mod.toml').write_text('[Mod]\nId="example:hooks"\nVersion="1"\n'
-                                          f'Entry="{__name__}:LoadedHooks"\n')
+                                          f'Entry="{__name__}:LoadedHooks"\n', encoding='utf-8')
             runtime=Runtime.load(root/'mods.toml')
             self.assertEqual(runtime.hooks,('example-first',))
-        native=tomllib.loads((Path(__file__).resolve().parents[1]/'mods/native/mod.toml').read_text())
+        native=tomllib.loads((Path(__file__).resolve().parents[1]/'mods/native/mod.toml').read_text(encoding='utf-8'))
         self.assertTrue(native['Hooks'])
         self.assertEqual(len({row['Id'] for row in native['Hooks']}),len(native['Hooks']))
         self.assertNotIn('Hooks',native['Distribution'])

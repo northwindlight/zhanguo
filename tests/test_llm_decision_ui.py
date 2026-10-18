@@ -31,16 +31,6 @@ class TestDecisionUI(unittest.TestCase):
             before=h.to_save();p.query('building_catalog');p.query('building_economics');p.query('terrain_catalog')
             self.assertEqual(h.to_save(),before)
 
-    def test_opening_guide_is_injected_for_the_first_twenty_turns(self):
-        """旧版把开局指南挂在前 20 回合的 system 前缀里；过期后仍可按需取回。"""
-        h=self.host();p=h.player(Q)
-        ui=h.ui.llm(h.cfg);ui.actions(p.actions());ui.rules(p.rules('all'))
-        ui.period=1
-        self.assertIn('你脚下那一格',ui.system())
-        ui.period=20
-        self.assertNotIn('你脚下那一格',ui.system())
-        self.assertTrue(any(section['title']=='基础指南' for section in p.rules('基础指南')))
-
     def test_default_state_has_catalogs_prices_shortfalls_and_plan_purpose(self):
         for experimental in (False,True):
             h=self.host(experimental);p=h.player(Q);obs=p.observe();before=deepcopy(obs)

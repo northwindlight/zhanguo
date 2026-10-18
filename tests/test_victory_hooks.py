@@ -97,7 +97,7 @@ class VictoryHooks(TestCase):
                     self.assertTrue(restored.finished());self.assertEqual(restored.to_save(),h.to_save())
                     with patch('mp_run.sys.stdin',io.StringIO('')),patch('select.select',return_value=([],[],[])),patch('sys.stdout',new=io.StringIO()) as out:
                         cfg=Path(folder)/'cfg.json'
-                        cfg.write_text(json.dumps({**h.cfg,'save':str(path),'journal':str(Path(folder)/'journal.md')}))
+                        cfg.write_text(json.dumps({**h.cfg,'save':str(path),'journal':str(Path(folder)/'journal.md')}), encoding='utf-8')
                         from mp_run import run
                         self.assertEqual(run(['--config',str(cfg),'--turns','10']),0)
                     self.assertIn('胜利事件',out.getvalue())
@@ -106,8 +106,8 @@ class VictoryHooks(TestCase):
                     report=Path(folder)/'report.md';before=path.read_bytes()
                     with patch('sys.stdout',new=io.StringIO()):
                         self.assertEqual(settle(['--save',str(path),'--no-chat','--out',str(report)]),0)
-                    self.assertIn('共同胜利',report.read_text())
-                    self.assertNotIn('次要胜利',report.read_text())
+                    self.assertIn('共同胜利',report.read_text(encoding='utf-8'))
+                    self.assertNotIn('次要胜利',report.read_text(encoding='utf-8'))
                     self.assertEqual(path.read_bytes(),before)
 
     def submit_rejected(self,player,action):

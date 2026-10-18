@@ -33,7 +33,7 @@ class TestEconomicSystem(unittest.TestCase):
         if fixed_bank:
             from mods.examples.fixed_credit_bank.mod import FixedCreditBankMod
             path = ROOT/'mods/examples/fixed_credit_bank/mod.toml'
-            declaration = tomllib.loads(path.read_text())
+            declaration = tomllib.loads(path.read_text(encoding='utf-8'))
             module = FixedCreditBankMod();module.configure(declaration,path)
             meta=declaration['Mod']
             replacement=Unit(meta['Id'],module,tuple(meta['Requires']),tuple(meta['After']))
@@ -320,14 +320,14 @@ class TestEconomicSystem(unittest.TestCase):
         self.assertEqual(len(w.runtime.schemas()),9)
 
     def test_replacement_modules_load_from_real_distribution_members(self):
-        source=(ROOT/'mods/economic_system/mod.toml').read_text()
+        source=(ROOT/'mods/economic_system/mod.toml').read_text(encoding='utf-8')
         for member in tomllib.loads(source)['Distribution']['Members']:
             resolved=(ROOT/'mods/economic_system'/member).resolve()
             if resolved==ROOT/'mods/native/bank/mod.toml':resolved=ROOT/'mods/examples/fixed_credit_bank/mod.toml'
             if resolved==ROOT/'mods/native/market_pricing/mod.toml':resolved=ROOT/'mods/examples/fixed_market_pricing/mod.toml'
-            source=source.replace('"'+member+'"','"'+str(resolved)+'"')
+            source=source.replace('"'+member+'"','"'+resolved.as_posix()+'"')
         with TemporaryDirectory() as directory:
-            path=Path(directory)/'mod.toml';path.write_text(source)
+            path=Path(directory)/'mod.toml';path.write_text(source, encoding='utf-8')
             runtime=Runtime.load(directory);world=runtime.world_class()()
             world.resources.open('Qin',{'native:gold':100})
             self.assertEqual(runtime.call(world,'Qin','borrow',{}).principal,7)

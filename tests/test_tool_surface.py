@@ -1,7 +1,7 @@
 """Model-facing tool surface: command umbrellas, merged foreign panel, policy groups."""
 import unittest
 
-from mods.ui.console import ConsoleUI
+from presentation.console import ConsoleUI
 from tests import test_world_domains as fixtures
 
 Q, C = fixtures.Q, fixtures.C
@@ -101,8 +101,8 @@ class TestToolSurface(unittest.TestCase):
     def test_umbrella_english_catalog_replaces_the_chinese_source_text(self):
         world = self.world()
         player = world.runtime.player(world, Q)
-        from mods.ui.llm import LLMUI
-        ui = LLMUI({'language': 'en-US'}, tool_layer=world.runtime.tool_layer)
+        from clients.model_view import ModelView
+        ui = ModelView({'language': 'en-US'}, tool_layer=world.runtime.tool_layer)
         schemas = {s['function']['name']: s['function'] for s in ui.actions(player.actions())}
         for name in ('military', 'economy', 'relations', 'intelligence'):
             text = schemas[name]['description'] + schemas[name]['parameters']['properties']['action']['description']

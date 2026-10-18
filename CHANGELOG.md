@@ -1,5 +1,21 @@
 # 更新记录
 
+## 未发布 — 手册出域与耦合收敛（需新档）
+
+- **手册出域**：四本策略讲义与游戏说明书迁到 `mods/native/docs/`，改为手写维护；删除 `native:handbooks` 模块、experimental 的 handbooks overlay 与 `docs/generate_manual`。运行时不再把讲义拼进 `rule_sections()`，`player_rules` 只返回各模块规则章节；`opening_guide` 开关随之删除。
+- **规则组装收敛**：`Runtime.rule_sections(player=..., actor=...)` 成为唯一组装路径；`PlayerSession.rules()` 与 `Runtime.rules()` 共用 `select_rules()` 的关键词匹配，`ManualOrder`、可见性与占位符替换对两处一致。
+- **装载校验**：`Runtime.check_interfaces(world)` 在开局前核对每条 `[Interfaces]` 方法确实存在于目标对象，方法改名不再等到结算中途报错。
+- **契约上提**：`Money / Valuation / EconomicFact` 等移入 `mods/native/contracts/economy.py`，`economy_reports.contracts` 保留兼容转口；`MAP_KEY` 移到 `engine.player`，`clients` 不再依赖 `ui` 包。
+- **去重**：删除 `buildings/parameters.py` 死表，建筑位上限只保留 `objects.SITE_CAPACITY`；`Action` 复用 `Tool` 的 prepare/schema；部队状态派生统一为 `facts.army_state()`；伞工具装载期拒绝未归组的动作；工具描述与其 zh-CN 目录增加一致性守卫；剧本的贡率、建盟费与胜利门槛收成常量。
+- **手册面板**：新增只读 `native:manuals`，通过 `query(panel=manual)` 按 `doc` 读取 `mods/native/docs/` 下四本讲义与游戏说明书；文档只读、不进入 `rule_sections()`，也不参与拼接。
+- **呈现层拆分**：渲染原语（语言目录、终端、回执、简报、地图）移到中立包 `presentation/`；模型视图（system、回合状态、简报裁剪、工具本地化）移到 `clients/model_view.py`。UI Mod 只装配，UI 不再依赖 clients；UI 与 tool 目录逐字重复的 116 条文案改为 `presentation/locales/aliases.json` 别名，值重复归零。
+- **回执去重**：删除 UI 侧 `catalog/economics/land` 三份平行成文，查询回执统一走 tool 层面板渲染器。
+- **状态写入**：无模块上下文时禁止替换领域 state 对象（`world.<domain> = ...`），引擎的 `phase/polity` 仍可由宿主写。
+- **地图内容 ID**：`map_generation` 的地形与资源声明改用 `native:*` 内容 ID，删除 `TERRAIN_IDS/RESOURCE_IDS` 中文映射副本；同一 seed/size 的分布不变。
+- **规则 AI**：v11 的补给产能改为按 `building_catalog` 的产出计算，不再硬编码“每座补给厂 2 补给”。
+- **测试平台一致性**：测试读写统一 UTF-8，TOML 成员路径统一 `/`；Windows 下 CLI 不再用 `select` 探测管道输入，地图命令保留反斜杠路径；缺 Pillow/termios 的用例显式跳过。全量 708 项在 Windows 默认编码下通过（11 个平台相关跳过），Linux 走同一代码路径。
+- **版本**：native 4.12.0 / experimental 0.10.1；模块清单与存档字段改变，需新档。
+
 ## 未发布 — 附庸与轻量剧本 Mod（需新档）
 
 - 外交实体动作支持国家键、联盟 id 与 `bloc/`、`nation/` 实体键，领域层统一定位代表；盟主变更仍对原实体办理，联盟解散清晰报错并退款。称臣、附庸和移交盟主仍指定国家；和平邀约显示回应代表、本国可操作权限和内部票号，避免普通盟员被误导直接拒和。

@@ -19,26 +19,20 @@ class ToolcallParity(unittest.TestCase):
         if experimental:cfg['mods']='mods.experimental.toml'
         return GameHost.new(cfg)
 
-    def test_shared_guides_aliases_and_default_prompt_lifecycle(self):
+    def test_shared_rule_topics_and_prompt_lifecycle(self):
         for experimental in (False,True):
             h=self.host(experimental);p=h.player(Q);before=h.to_save()
-            for topic in ('基础指南','经济学手册','战争手册','战略手册','兵营','战斗','撤退','宣战'):
+            for topic in ('兵营','战斗','撤退','宣战'):
                 sections=p.rules(topic)
                 self.assertTrue(sections,topic);self.assertNotEqual(sections[0]['title'],'规则目录',topic)
-            basics=p.rules('基础指南')[0]['body']
-            self.assertGreater(len(basics),1400);self.assertIn('move',basics)
             self.assertEqual(p.rules('不存在')[0]['title'],'规则目录')
             self.assertEqual(h.to_save(),before)
             if experimental:
                 service=h.services[Q]['council']
-                self.assertEqual(service._manual(p,'基础指南')['body'],basics)
+                self.assertEqual(service._manual(p,'兵营')['title'],'兵营')
             ui=h.ui.llm(h.cfg);ui.rules(p.rules('all'));obs=p.observe();ui.state(obs,[])
             self.assertIn('query(panel=',ui.system())
-            # 旧版口径：开局指南常驻前 20 回合的 system 前缀，过期后只能按需查。
-            self.assertIn(basics,ui.system())
-            obs['period']=20;ui.state(obs,[])
-            self.assertNotIn(basics,ui.system())
-            self.assertTrue(p.rules('经济手册'))
+            self.assertTrue(p.rules('建筑与能源'))
 
     def test_tool_descriptions_and_input_constraints(self):
         for experimental in (False,True):
@@ -77,7 +71,7 @@ class ToolcallParity(unittest.TestCase):
         for args in ({'period':3},{'period':9,'all':True},{'period':-1}):
             self.assertFalse(p.submit('report',args)['ok'])
         self.assertEqual(w.runtime.save_mod_state(w),before)
-        from mods.ui.console import ConsoleUI
+        from presentation.console import ConsoleUI
         ui=ConsoleUI({},tool_layer=w.runtime.tool_layer);text=ui.action(20,Q,'report',{},p.submit('report'),{Q:'秦'})
         self.assertIn('GDP增长',text);self.assertIn('第10—19期',text)
 
@@ -125,7 +119,7 @@ class ToolcallParity(unittest.TestCase):
         w.resolve_turn();w.phase='行动'
         offer=p.call_api('native:diplomacy','snapshot')['offers'][0]
         self.assertIn(['note','停战建设，互不侵犯。'],offer['arguments'])
-        from mods.ui.console import ConsoleUI
+        from presentation.console import ConsoleUI
         receipt={'ok':True,'status':'effective','code':None,'message':'','action':'diplomacy',
                  'data':p.call_api('native:diplomacy','snapshot')}
         text=ConsoleUI({},tool_layer=w.runtime.tool_layer).action(p.observe()['period'],Q,'diplomacy',{},receipt,{Q:'秦',C:'楚'})

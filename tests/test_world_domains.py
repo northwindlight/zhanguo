@@ -53,13 +53,13 @@ class TestWorldDomains(unittest.TestCase):
         saved=self.save(w);other=w.runtime.world_class()();w.runtime.load_mod_state(other,saved)
         self.assertEqual(self.save(other),saved);return other
     def edition(self, *, omit=(), map_entry=None):
-        source=(ROOT/'mods/native/mod.toml').read_text()
+        source=(ROOT/'mods/native/mod.toml').read_text(encoding='utf-8')
         import tomllib
         members=tomllib.loads(source)['Distribution']['Members']
         absolute=[]
         for member in members:
             if member in omit:continue
-            absolute.append(str(ROOT/'mods/native'/member))
+            absolute.append((ROOT/'mods/native'/member).as_posix())
         source=source.replace('Members = '+json.dumps(members),'Members = '+json.dumps(absolute))
         return source
 
@@ -77,9 +77,9 @@ class TestWorldDomains(unittest.TestCase):
     def test_replace_map_member_without_changing_territory(self):
         with TemporaryDirectory() as directory:
             path=Path(directory);(path/'map').mkdir()
-            source=self.edition().replace(str(ROOT/'mods/native/map_generation/mod.toml'),'map/mod.toml')
-            (path/'mod.toml').write_text(source)
-            (path/'map/mod.toml').write_text('[Mod]\nId="native:map-generation"\nVersion="fixed"\nEntry="tests.test_world_domains:FixedMap"\n')
+            source=self.edition().replace((ROOT/'mods/native/map_generation/mod.toml').as_posix(),'map/mod.toml')
+            (path/'mod.toml').write_text(source, encoding='utf-8')
+            (path/'map/mod.toml').write_text('[Mod]\nId="native:map-generation"\nVersion="fixed"\nEntry="tests.test_world_domains:FixedMap"\n', encoding='utf-8')
             w=self.world(Runtime.load(path));self.site(w,'scenario:capital',Q,1,1)
             self.assertEqual(dict(w.territory.get('scenario:capital').resources),{'native:farmland':5,'native:gold':2})
             self.assertEqual(w.territory.cell(7,7).tile.terrain,'native:plain')
@@ -88,9 +88,9 @@ class TestWorldDomains(unittest.TestCase):
     def test_missing_domain_fails_during_loading_and_optional_policy_can_be_removed(self):
         with TemporaryDirectory() as directory:
             path=Path(directory)
-            (path/'mod.toml').write_text(self.edition(omit=('map_generation/mod.toml',)))
+            (path/'mod.toml').write_text(self.edition(omit=('map_generation/mod.toml',)), encoding='utf-8')
             with self.assertRaises(ModError):Runtime.load(path)
-            (path/'mod.toml').write_text(self.edition(omit=('polities/huns/mod.toml',)))
+            (path/'mod.toml').write_text(self.edition(omit=('polities/huns/mod.toml',)), encoding='utf-8')
             w=self.world(Runtime.load(path));self.site(w,'scenario:capital',Q,1,1)
             self.assertIsNone(w.runtime.find_policy('native:huns'));self.cycle(w)
             self.assertEqual(w.nation_actors,(Q,C,Z,Y))
@@ -500,8 +500,8 @@ class TestWorldDomains(unittest.TestCase):
             with self.assertRaises(ModError):w.intelligence.emit('bad','bad')
             with self.assertRaises(ModError):w.runtime.object_call(w,'native:territory','transfer','scenario:qc',C)
         self.assertEqual(self.save(w),before)
-        numbers=w.runtime.enumerate_numbers();numbers['native:map-generation']['TERRAINS']['平原']['木头'][0]=999
-        self.assertNotEqual(w.runtime.enumerate_numbers()['native:map-generation']['TERRAINS']['平原']['木头'][0],999)
+        numbers=w.runtime.enumerate_numbers();numbers['native:map-generation']['TERRAINS']['native:plain']['native:wood'][0]=999
+        self.assertNotEqual(w.runtime.enumerate_numbers()['native:map-generation']['TERRAINS']['native:plain']['native:wood'][0],999)
 
     def test_invalid_loaded_domain_state_is_rejected(self):
         w=self.world();self.site(w,'scenario:qc',Q,1,1);self.found(w)

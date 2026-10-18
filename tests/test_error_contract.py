@@ -10,9 +10,15 @@ from unittest.mock import patch
 
 from mods.native.market.contracts import BufferPolicy, Listing
 from mods.native.market_pricing.pricing import InventoryPricing
-from mods.ui.maps import MAP_MAX_PX, MAP_MIN_PX, expand_message, render_snapshot
+from presentation.maps import MAP_MAX_PX, MAP_MIN_PX, expand_message, render_snapshot
 from tests import test_world_domains as fixtures
 from ui import MAP_KEY
+
+try:
+    import PIL  # noqa: F401
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 
 Q, C = fixtures.Q, fixtures.C
 POLICY = BufferPolicy(elasticity=1.0, flow=0.25, refill=0.0, spread=0.10, low=1e-6, high=1e9)
@@ -101,6 +107,7 @@ class TestPriceCurveBounds(unittest.TestCase):
 
 
 class TestNonModelPathsDegrade(unittest.TestCase):
+    @unittest.skipUnless(PIL_AVAILABLE, 'Pillow is not installed')
     def test_map_size_is_clamped_not_fatal(self):
         tiles = [{'position': [1, 1], 'owner': Q, 'terrain': 'native:plain',
                   'buildings': [], 'resources': []}]
