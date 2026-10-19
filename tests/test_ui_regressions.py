@@ -72,6 +72,9 @@ class TestUIRegressions(unittest.TestCase):
         self.assertIn(full_report,text)
         self.assertIn('GDP增长',text)
         self.assertIn('投资增长',text)
+        # 即使其他章节超预算，正式财政报告也不能被整节裁掉。
+        constrained=view.briefing_text(observation,[],view.dashboard(observation),lambda text:False)
+        self.assertIn(full_report,constrained)
 
     def test_evaluation_ranking_is_absent_from_player_rules_and_manual(self):
         h=self.host();player=h.player(Q)

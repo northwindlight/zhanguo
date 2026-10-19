@@ -192,7 +192,10 @@ class ModelView:
             return '\n\n'.join(parts)
         dropped=[];trimmed=False
         while not fit(assemble()) and len(items)>1:
-            dropped.append(items.pop()[0])
+            # 财政报告是每回合必显事实，不能再次因简报预算丢失。
+            index=next((i for i in range(len(items)-1,-1,-1) if items[i][0]!='report'),None)
+            if index is None:break
+            dropped.append(items.pop(index)[0])
         while not fit(assemble()) and rows:
             # 先裁普通事件；灭国/胜利/领土变更这些大事留到最后。
             index=next((i for i,(ident,_) in enumerate(rows) if ident not in major),0)
