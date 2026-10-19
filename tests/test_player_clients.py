@@ -103,12 +103,13 @@ class TestPlayerClients(unittest.TestCase):
         self.assertGreater(len(client.state.history),len(client.state.replay))
 
     def test_failed_compression_uses_turn_summaries_after_bounded_retries(self):
-        for failure in ('empty','short','provider'):
+        for failure in ('empty','short','truncated','provider'):
             with self.subTest(failure=failure):
                 w=self.world();backend=FakeBackend();client=LLMClient({'ctx_full_turns':1,'ctx_compact':'llm'},backend=backend)
                 client.state.long_memory='原有盟约'
                 def complete(messages,cfg,tools=None):
                     if failure=='provider':raise RuntimeError('provider failed')
+                    if failure=='truncated':return '这段摘要虽然超过二十字但输出上限已经截断，不能作为长期记忆。',{'hit':8,'miss':1,'stop_reason':'length'}
                     return '   ' if failure=='empty' else '不足二十字',{'hit':8,'miss':1}
                 notices=[]
                 with patch.object(backend,'complete_text',side_effect=complete) as mocked:
@@ -141,6 +142,18 @@ class TestPlayerClients(unittest.TestCase):
         self.assertEqual([text for text in notices if '正在压缩记忆' in text],
                          [f'🧠 {Q} 正在压缩记忆，第 {n}/10 次尝试' for n in range(1,4)])
         self.assertFalse(any('记忆压缩失败' in text for text in notices))
+
+    def test_compression_retries_truncated_summary_before_replacing_long_memory(self):
+        w=self.world();backend=FakeBackend();client=LLMClient({'ctx_full_turns':1,'ctx_compact':'llm'},backend=backend)
+        client.state.long_memory='原有盟约与长期规划'
+        summary='完整摘要：持续发展经济，保留已生效条约与长期规划。'
+        with patch.object(backend,'complete_text',side_effect=[
+            ('超过二十字但被截断的摘要不能覆盖原记忆，后面还未写完',{'stop_reason':'max_tokens'}),
+            (summary,{'stop_reason':'stop'})]) as mocked:
+            for _ in range(6):client.play(w.runtime.player(w,Q));w.resolve_turn();w.phase='行动'
+        self.assertEqual(mocked.call_count,2)
+        self.assertEqual(client.state.long_memory,summary)
+        self.assertEqual(client.state.blocks[-1]['text'],summary)
 
     def test_rule_runs_and_persists_target_state_without_global_cross_game_memory(self):
         cfg={'map_size':12,'seed':73,'nations':[{'name':'秦','id':Q}]};host=GameHost.new(cfg)

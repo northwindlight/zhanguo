@@ -179,8 +179,9 @@ class LLMClient:
                     if emit:emit(self.ui.text('llm.compacting',actor=player.actor,attempt=attempt,limit=10))
                     compressed,stats=self._provider().complete_text(prompt,{**self._request_config(),'max_tokens':int(self.cfg.get('ctx_compact_tokens') or 1500)},tools=[])
                     self._usage(stats)
-                    if isinstance(compressed,str) and len(compressed.strip())>=20:break
-                else:raise ValueError('Empty or too short memory compression after 10 attempts')
+                    if (isinstance(compressed,str) and len(compressed.strip())>=20
+                        and stats.get('stop_reason') not in ('length','max_tokens')):break
+                else:raise ValueError('Empty, too short, or truncated memory compression after 10 attempts')
             except Exception as exc:
                 # Legacy behavior: compression is optional. Keep the previous
                 # long-term memory and archive these turns using their summaries.

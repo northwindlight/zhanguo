@@ -530,8 +530,10 @@ class OpenAICompat:
         with hard_timeout(limit, "非流式调用超时"):
             resp = self.client.chat.completions.create(**kw)
         text = (resp.choices[0].message.content or "").strip()
-        return text, _nonstream_stats(getattr(resp, "usage", None), text,
-                                      time.time() - wall0)
+        stats = _nonstream_stats(getattr(resp, "usage", None), text,
+                                 time.time() - wall0)
+        stats['stop_reason'] = getattr(resp.choices[0], 'finish_reason', None)
+        return text, stats
 
 
 # ---------------------------------------------------------------------------
@@ -1093,6 +1095,7 @@ class AnthropicCompat:
         if not stats["usage_reported"]:
             stats["estimated"] = True               # 同 chat_turn：没报就当没报，别装成 0
             stats["out_tokens"] = est_tokens(text)
+        stats['stop_reason'] = payload.get('stop_reason')
         return text, stats
 
 

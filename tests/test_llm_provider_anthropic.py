@@ -468,6 +468,11 @@ class TestRetryAndTail(unittest.TestCase):
 # 非流式（记忆压缩）
 # ---------------------------------------------------------------------------
 class TestCompleteText(unittest.TestCase):
+    def test_compression_preserves_truncation_reason(self):
+        _,stats,_=self._run({'content':[{'type':'text','text':'截断摘要'}],
+                            'stop_reason':'max_tokens','usage':_usage()})
+        self.assertEqual(stats['stop_reason'],'max_tokens')
+
     def _run(self, payload, tools=None, **cfgkw):
         captured: dict = {}
         orig = llm_provider._anthropic_open

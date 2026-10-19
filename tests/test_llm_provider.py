@@ -170,9 +170,10 @@ class TestUsageReporting(unittest.TestCase):
 class _FakeNonStreamClient:
     """冒充非流式端点：`usage` 由用例指定（`None` = 不报用量）。"""
 
-    def __init__(self, text="长期记忆摘要", usage=None):
+    def __init__(self, text="长期记忆摘要", usage=None, finish_reason=None):
         self.text = text
         self.usage = usage
+        self.finish_reason = finish_reason
         self.calls: list[dict] = []
         self.chat = types.SimpleNamespace(completions=self)
 
@@ -180,7 +181,7 @@ class _FakeNonStreamClient:
         self.calls.append(kw)
         return types.SimpleNamespace(
             choices=[types.SimpleNamespace(
-                message=types.SimpleNamespace(content=self.text))],
+                message=types.SimpleNamespace(content=self.text),finish_reason=self.finish_reason)],
             usage=self.usage)
 
 
@@ -218,6 +219,11 @@ class TestCompleteText(unittest.TestCase):
         self._backend(c).complete_text([{"role": "user", "content": "U"}], self._cfg())
         self.assertNotIn("tools", c.calls[0])
         self.assertNotIn("tool_choice", c.calls[0])
+
+    def test_compression_preserves_truncation_reason(self):
+        _,stats=self._backend(_FakeNonStreamClient(finish_reason='length')).complete_text(
+            [{'role':'user','content':'U'}],self._cfg())
+        self.assertEqual(stats['stop_reason'],'length')
 
     def test_usage_becomes_stats(self):
         u = types.SimpleNamespace(completion_tokens=30, prompt_tokens=1000,
