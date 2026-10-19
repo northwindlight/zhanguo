@@ -201,7 +201,10 @@ class VictoryHooks(TestCase):
         self.assertEqual(event['winners'],[IDS['周']]);self.assertNotIn(doomed,event['preserved'])
         from settlement import settle,scoreboard_text,outcome_text
         rows=settle(h.to_save(),h.world)
-        self.assertEqual([r['total'] for r in rows],sorted((r['total'] for r in rows),reverse=True))
+        self.assertEqual([r['consumption'] for r in rows],sorted((r['consumption'] for r in rows),reverse=True))
+        for r in rows:
+            self.assertAlmostEqual(r['consumption'],sum(r['spending'].get(c,0.0) for c in ('recruit','military','administration')))
+            self.assertAlmostEqual(r['investment'],r['spending'].get('construction',0.0))
         row=next(r for r in rows if r['actor']==doomed)
         self.assertIsNone(row['outcome']);self.assertEqual(outcome_text(row),'已亡国')
         self.assertIn('臣属保全（未胜未败）',scoreboard_text(rows))

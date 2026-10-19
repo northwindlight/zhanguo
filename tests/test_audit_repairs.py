@@ -156,7 +156,10 @@ class AuditRepairs(unittest.TestCase):
         with TemporaryDirectory() as directory:
             save=Path(directory)/'synthetic.json';h.save(save);before=save.read_bytes()
             data,world=load_save(save);rows=settle(data,world)
-            self.assertEqual([r['total'] for r in rows],sorted([r['total'] for r in rows],reverse=True))
+            self.assertEqual([r['consumption'] for r in rows],sorted([r['consumption'] for r in rows],reverse=True))
+            for r in rows:
+                self.assertAlmostEqual(r['consumption'],sum(r['spending'].get(c,0.0) for c in ('recruit','military','administration')))
+                self.assertAlmostEqual(r['investment'],r['spending'].get('construction',0.0))
             self.assertEqual(save.read_bytes(),before)
             old=Path(directory)/'old.json';old.write_text('{"version":1}', encoding='utf-8')
             with self.assertRaises(ValueError):load_save(old)

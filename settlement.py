@@ -1,4 +1,8 @@
-"""Read-only finale for current session saves; ranking uses recorded consumption."""
+"""Read-only finale for current session saves; ranking uses recorded consumption.
+
+Consumption is final use: recruit, military and administration. Construction is
+capital formation, not consumption; it is reported separately and never ranked.
+"""
 import argparse
 import json
 from pathlib import Path
@@ -8,6 +12,8 @@ from engine.session import SAVE_FORMAT, SaveFormatError
 from engine.player import wire
 
 ROOT=Path(__file__).resolve().parent
+CONSUMPTION_CATEGORIES=('recruit','military','administration')
+INVESTMENT_CATEGORIES=('construction',)
 
 
 def load_save(path, mods=None):
@@ -32,13 +38,15 @@ def load_save(path, mods=None):
 
 
 def settle(data,world):
-    """All participants rank, including fallen nations. No price recomputation."""
+    """All participants rank by consumption; construction is reported apart. No price recomputation."""
     alive=set(world.nation_actors);rows=[]
     event=data['host'].get('victory_event') or {}
     weights={'native:infantry':1.0,'native:cavalry':1.5,'native:militia':.4}
     for actor,entry in data['host']['roster'].items():
         spending=world.economy.spending(actor)
         expenses={category:value.known for category,value in spending.items()}
+        consumption=sum(expenses.get(category,0.0) for category in CONSUMPTION_CATEGORIES)
+        investment=sum(expenses.get(category,0.0) for category in INVESTMENT_CATEGORIES)
         unpriced=sorted({key for value in spending.values() for key in value.unpriced})
         turns=world.economy.turns(actor);latest=turns[-1] if turns else None
         units=world.military.snapshot(actor) if actor in alive else ()
@@ -46,12 +54,12 @@ def settle(data,world):
                  'secondary_winner' if actor in event.get('secondary_winners',()) else
                  'preserved' if actor in event.get('preserved',()) else None)
         rows.append({'actor':actor,'name':entry['name'],'alive':actor in alive,'outcome':outcome,
-                     'spending':expenses,'total':sum(expenses.values()),'unpriced':unpriced,
+                     'spending':expenses,'consumption':consumption,'investment':investment,'unpriced':unpriced,
                      'gdp':wire(latest.gdp) if latest and actor in alive else {'known':0,'total':0,'unpriced':[]},
                      'land':len(world.territory.owned(actor)) if actor in alive else 0,
                      'units':len(units),'army':sum(u.hp/u.definition['hp']*weights.get(u.kind,u.definition['atk']/50) for u in units),
                      'building_assets':wire(latest.building_assets) if latest and actor in alive else {'known':0,'total':0,'unpriced':[]}})
-    return sorted(rows,key=lambda r:(-r['total'],r['actor']))
+    return sorted(rows,key=lambda r:(-r['consumption'],r['actor']))
 
 
 def outcome_text(row):
@@ -60,12 +68,13 @@ def outcome_text(row):
 
 
 def scoreboard_text(rows):
-    lines=['|名次|国家|总消费（金）|GDP（金/期）|军力|领土|建筑资产（金）|状态|',
-           '|---:|---|---:|---:|---:|---:|---:|---|']
+    lines=['|名次|国家|消费（金）|投资（金）|GDP（金/期）|军力|领土|建筑资产（金）|状态|',
+           '|---:|---|---:|---:|---:|---:|---:|---:|---|']
     for rank,row in enumerate(rows,1):
         value=lambda key: f'{row[key]["known"]:g}'+('（部分未估值）' if row[key].get('unpriced') else '')
-        total=f'{row["total"]:g}'+('（部分未估值）' if row['unpriced'] else '')
-        lines.append(f'|{rank}|{row["name"]}|{total}|{value("gdp")}|{row["army"]:g}|{row["land"]}|{value("building_assets")}|'+outcome_text(row)+'|')
+        consumption=f'{row["consumption"]:g}'+('（部分未估值）' if row['unpriced'] else '')
+        investment=f'{row["investment"]:g}'
+        lines.append(f'|{rank}|{row["name"]}|{consumption}|{investment}|{value("gdp")}|{row["army"]:g}|{row["land"]}|{value("building_assets")}|'+outcome_text(row)+'|')
     return '\n'.join(lines)
 
 
@@ -103,7 +112,7 @@ def run_chat(data,rows,cfg,rounds,log=print,remarks=None,backend_factory=None):
                     ui=ModelView(item,presentation=presentation)
                     history,_=build(cfg=item,mem=state.get('replay',[]),sums=state.get('summaries',[]),blocks=state.get('blocks',[]),
                         long_memory=state.get('long_memory',''),system_text=f'你是{row["name"]}的君主，游戏已结束。你在结算厅复盘，不能行动。',
-                        tail_text='本国结局：'+outcome_text(row)+'。最终成绩单按累计四类消费排名，消费名次不等同剧本胜负；GDP/军力/领土/建筑只供参考：\n'+board,
+                        tail_text='本国结局：'+outcome_text(row)+'。最终成绩单按累计消费（征召、军需、行政，不含建造）排名，消费名次不等同剧本胜负；GDP/军力/领土/建筑只供参考：\n'+board,
                         archive_messages=ui.text)
                     histories[actor]=history;seen[actor]=0
                 news='\n'.join(transcript[seen[actor]:])
@@ -139,7 +148,7 @@ def main(argv=None):
             transcript=run_chat(data,rows,cfg,args.rounds,remarks=remarks)
         else:print('未找到模型配置，跳过结算厅。')
     lines=['# 战国终局结算报告',*([victory] if victory else []),board,
-           '排名按已记录的建造、征召、军费（含回血装备）、行政消费；沿用报表阶段估值，不按现价重算。GDP与资产显示最后已结算事实。']
+           '排名按已记录的征召、军需（含回血装备）和行政消费；建造是投资，单列不计入排名。沿用报表阶段估值，不按现价重算。GDP与资产显示最后已结算事实。']
     for row in rows:lines.append(row['name']+'：'+json.dumps(row['spending'],ensure_ascii=False))
     if transcript:lines.extend(['## 结算厅对话录',*transcript])
     Path(args.out).write_text('\n\n'.join(lines)+'\n',encoding='utf-8')
