@@ -47,7 +47,9 @@ native/experimental 新增 UI 成员后，整局存档的严格模块依赖清�
 
 ## 语言键
 
-`locales/zh-CN.json` 与 `en-US.json` 按相同键提供文案。`language=en-US` 或 CLI `--language en-US` 切换新生成的界面文字。`ui_catalog` 可为 JSON 对象或 JSON 文件路径，覆盖指定键；自定义语言目录未提供的键回退中文。已有界面键的替换须保留占位参数，否则启动时拒绝。
+[`presentation/locales/zh-CN.json`](../../presentation/locales/zh-CN.json) 与 [`en-US.json`](../../presentation/locales/en-US.json) 按相同键提供文案。`language=en-US` 或 CLI `--language en-US` 切换新生成的界面文字。`ui_catalog` 可为 JSON 对象或 JSON 文件路径，覆盖指定键；自定义语言目录未提供的键回退中文。已有界面键的替换须保留占位参数，否则启动时拒绝。
+
+升级呈现层源码后，应重启运行进程，使其加载新的模块路径；旧进程仍可能引用已经移走的 `mods/ui/locales/`。若存档依赖也已变化，需先按本局授权单独升级存档，再从完整回合边界续跑。
 
 例如：
 
