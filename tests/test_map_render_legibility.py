@@ -4,15 +4,21 @@ import json
 import unittest
 from pathlib import Path
 
-from PIL import Image
-
 from presentation.maps import _army_label, render_snapshot
+
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    # 没装 Pillow 时只跳过读图那几条：其余断言仍要跑。
+    PIL_AVAILABLE = False
 
 
 class MapRenderLegibility(unittest.TestCase):
     def test_army_label(self):
         self.assertEqual(_army_label([{'kind': 'native:infantry'}], {'native:infantry': 'I'}), 'I1')
 
+    @unittest.skipUnless(PIL_AVAILABLE, 'Pillow is not installed')
     def test_default_map_is_larger_than_960(self):
         tiles = []
         for y in range(24):

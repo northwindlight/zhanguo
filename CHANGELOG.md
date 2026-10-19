@@ -5,7 +5,7 @@
 - **配置体检**：`mp_run.py --check-config` 逐国打印客户端、端点、模型与就绪状态，缺字段时说明缺什么、怎么补；模板里的占位文字（「粘贴你的 api key」）也算没填。开局前就查清模型接入的必填项（`base_url` / `api_key` / `model`），不再等第一次请求时抛 `KeyError`。
 - **一键启动**：`start.sh` 默认跑 native 发行版；新增 `--check`（配置体检）与 `--offline`（零依赖的 minigame 开发模式）。只有配置里出现 `"client": "llm"` 才建虚拟环境、装依赖；纯规则/发行版自带客户端的对局拿系统 `python3` 直接跑，不装任何东西。
 - **零依赖离线配置**：新增 `mp_config.minigame.example.json`，`./start.sh --offline --new --turns 5` 不需要任何 API key。
-- **GitHub 自动 CI**：新增 `.github/workflows/ci.yml`——全量离线回归、示例巡礼冒烟、API 参考页与代码同步核对、文档站生成与站内链接自检；推 main 与 PR 都跑，全程不联网调用模型。
+- **GitHub 自动 CI**：新增 `.github/workflows/ci.yml`——全量离线回归、示例巡礼冒烟、API 参考页与代码同步核对、文档站生成与站内链接自检；推 main 与 PR 都跑，全程不联网调用模型。首次跑就抓出 `requirements.txt` 漏了地图 PNG 用的 Pillow（`tests/test_map_render_legibility.py` 在无 Pillow 环境下直接 ImportError）：该测试改为按仓库既有惯例优雅跳过，CI 改装 `requirements-vision.txt` 让它真跑。
 - **示例巡礼修复**：`mods/examples/tour.py` 此前已腐化（发行版把客户端改名后脚本没跟上、残留 native 的资源 id、市场面板换了键），现在完全离线跑通；新增 `tests/test_examples_tour.py` 把它锁成冒烟测试，并禁止脚本里出现接入参数。
 - **改造说明**：新增 `docs/design/模型面向层与发行版解耦.md`，记录六处耦合的根因、模型面向契约的正典、兼容性与遗留。
 - 文档站新增「配置与启动」页；README 与 `docs/README.md` 接入站点与体检入口。

@@ -28,7 +28,9 @@ jobs:
       - name: 装依赖
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          # 装全量（含地图 PNG 用的 Pillow）：地图渲染测试在 CI 里要真跑，
+          # 不靠"没装 Pillow 就跳过"蒙过去。核心回归本身不依赖 Pillow。
+          python -m pip install -r requirements-vision.txt
       - name: 全量离线回归
         run: python -m unittest discover -s tests -q
       - name: 示例巡礼（离线冒烟）
