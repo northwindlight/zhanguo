@@ -77,8 +77,16 @@ class VictoryHooks(TestCase):
                 h.cycle();event=h.victory_event
                 self.assertEqual(event['type'],'eight_nations.zhou_tianxia')
                 self.assertEqual(event['period'],1)
-                self.assertEqual(set(event['winners']),set(h.actors()))
+                self.assertEqual(event['winners'],[IDS['周']])
+                self.assertEqual(set(event['preserved']),set(h.actors())-{IDS['周']})
                 self.assertEqual(event['secondary_winners'],[])
+                from settlement import settle as rank,outcome_text
+                rows={row['actor']:row for row in rank(h.to_save(),h.world)}
+                self.assertEqual(rows[IDS['周']]['outcome'],'winner')
+                for actor in set(h.actors())-{IDS['周']}:
+                    self.assertEqual(rows[actor]['outcome'],'preserved')
+                    self.assertEqual(outcome_text(rows[actor]),'臣属保全（未胜未败）')
+                self.assertEqual(len([r for r in rows.values() if r['outcome']=='winner']),1)
                 self.assertEqual(h.world.diplomacy.to_save()['pacts'],[])
                 self.assertTrue(h.finished())
                 public=[e for e in h.records()['events'] if e['kind']=='victory']
@@ -106,7 +114,8 @@ class VictoryHooks(TestCase):
                     report=Path(folder)/'report.md';before=path.read_bytes()
                     with patch('sys.stdout',new=io.StringIO()):
                         self.assertEqual(settle(['--save',str(path),'--no-chat','--out',str(report)]),0)
-                    self.assertIn('共同胜利',report.read_text(encoding='utf-8'))
+                    self.assertIn('臣属保全（未胜未败）',report.read_text(encoding='utf-8'))
+                    self.assertNotIn('共同胜利',report.read_text(encoding='utf-8'))
                     self.assertNotIn('次要胜利',report.read_text(encoding='utf-8'))
                     self.assertEqual(path.read_bytes(),before)
 
@@ -143,7 +152,7 @@ class VictoryHooks(TestCase):
             path=Path(folder)/'pending.json';h.save(path);h=GameHost.load(path,h.cfg)
         for client in h.clients.values():client.play=lambda player,**kwargs:[]
         self.submit(h,last,'accept_proposal',offer=offer.id);h.cycle()
-        self.assertEqual(set(h.victory_event['winners']),set(h.actors()))
+        self.assertEqual(h.victory_event['winners'],[IDS['周']])
 
     def test_chief_transfer_can_complete_actual_conditions(self):
         for chief,name,action,args in (
@@ -152,13 +161,13 @@ class VictoryHooks(TestCase):
             h=self.host();offer=self.invite(h,chief=chief,name=name);self.accept(h,offer);h.cycle()
             self.assertIsNone(h.victory_event)
             self.submit(h,IDS[chief],action,**args);h.cycle()
-            self.assertEqual(set(h.victory_event['winners']),set(h.actors()))
+            self.assertEqual(h.victory_event['winners'],[IDS['周']])
 
     def test_zhou_leading_any_named_alliance_automatically_makes_tributaries(self):
         h=self.host();offer=self.invite(h,name='合纵');self.accept(h,offer);h.cycle()
         self.assertEqual(h.world.diplomacy.alliance(IDS['周']).name,'周天下')
         self.assertEqual(len(h.world.diplomacy.snapshot(IDS['周']).vassals),7)
-        self.assertEqual(set(h.victory_event['winners']),set(h.actors()))
+        self.assertEqual(h.victory_event['winners'],[IDS['周']])
 
     def test_extinction_is_resolved_before_five_nation_threshold(self):
         names=NATIONS[:5]+('周',);h=self.host(names);outside=IDS[names[0]]
@@ -166,7 +175,7 @@ class VictoryHooks(TestCase):
         self.assertIsNone(h.victory_event)
         for site in h.world.territory.owned(outside):h.world.territory.transfer(site.tile.id,None)
         h.cycle()
-        self.assertEqual(len(h.actors()),5);self.assertEqual(len(h.victory_event['winners']),5);self.assertEqual(h.victory_event['secondary_winners'],[])
+        self.assertEqual(len(h.actors()),5);self.assertEqual(h.victory_event['winners'],[IDS['周']]);self.assertEqual(len(h.victory_event['preserved']),4);self.assertNotIn(outside,h.victory_event['preserved']);self.assertEqual(h.victory_event['secondary_winners'],[])
 
         h=self.host(NATIONS[:4]+('周',));offer=self.invite(h);self.accept(h,offer)
         doomed=IDS['秦']
@@ -181,6 +190,20 @@ class VictoryHooks(TestCase):
         self.assertEqual(h.victory_event['type'],'eight_nations.conquest')
         self.assertEqual(h.victory_event['winners'],[IDS['秦']])
         self.assertEqual(h.victory_event['secondary_winners'],[])
+
+    def test_preservation_does_not_change_consumption_ranking_or_grant_dead_nations_protection(self):
+        h=self.host();doomed=IDS['秦']
+        for site in h.world.territory.owned(doomed):h.world.territory.transfer(site.tile.id,None)
+        h.cycle()
+        offer=self.invite(h);self.accept(h,offer);h.cycle()
+        event=h.victory_event
+        self.assertEqual(event['winners'],[IDS['周']]);self.assertNotIn(doomed,event['preserved'])
+        from settlement import settle,scoreboard_text,outcome_text
+        rows=settle(h.to_save(),h.world)
+        self.assertEqual([r['total'] for r in rows],sorted((r['total'] for r in rows),reverse=True))
+        row=next(r for r in rows if r['actor']==doomed)
+        self.assertIsNone(row['outcome']);self.assertEqual(outcome_text(row),'已亡国')
+        self.assertIn('臣属保全（未胜未败）',scoreboard_text(rows))
 
     def test_admission_and_other_member_exit_same_cycle_does_not_win(self):
         h=self.host();outsider=IDS['秦'];members=[a for a in h.actors() if a!=outsider]

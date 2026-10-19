@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:army"
-Version = "2.8.1"
+Version = "2.9.0"
 Entry = "mods.native.army.mod:ArmyMod"
 Requires = ["native:resources", "native:government", "native:nations", "native:territory", "native:vision", "native:diplomacy", "native:buildings"]
 After = ["native:territory", "native:nations", "native:government"]

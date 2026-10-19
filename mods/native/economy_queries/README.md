@@ -27,3 +27,6 @@
 当前版本 1.2.0：LLM 和规则 AI 通过同一玩家接口查询。收益查询已移除地块参数，默认返回完整建筑报告；真实施工报价与建造仍由建筑模块裁决。
 
 `report {}` 默认只返回最近已发布一期；`report {period:9}` 查询以第9周期结束的报表，`report {all:true}` 返回全部跨期。period 与 all 不能同时指定；指定尚未发布的周期会拒绝，不把未完成收益当作报表。
+
+
+贡赋面板（1.8.0）：balance.preview.tribute 包含 carried_remainders、full_load_outgoing、retained_outputs 和 full_load_remainders，直接调用建筑域只读累计预演，查询不推进余额。宗主的 tribute_receivables 仅列当前附庸的历史应收小数，不暴露其当前产能或库存；应收未入库，不可用于生产或消费。工具 econ 与 AI 每回合国力简报使用同一视图；满负荷是预演，实际停工、缺料或贡赋先扣导致的后续生产变化仍以结算为准。

@@ -1,6 +1,7 @@
 """Owned building sites/instances and explicit production facts."""
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from decimal import Decimal, InvalidOperation
 from types import MappingProxyType
 
 from engine.building import BuildingCycle, integer, recipe
@@ -98,6 +99,7 @@ class Buildings:
         self._resources, self._place = resource_call, place_call
         self._sites, self._instances, self._orders, self._self_built = {}, {}, {}, {}
         self._construction = []
+        self._tribute_remainders = {}
         self._by_site = None
         self._period, self._next_id, self._produced = 0, 1, False
         self._world, self._domain = None, None
@@ -327,6 +329,35 @@ class Buildings:
         return sum(other.completed and other.site==item.site and other.kind!=item.kind
                    for other in self._index().get(item.site, ()))
 
+    @staticmethod
+    def _tribute_due(amount, percent, remainder):
+        # 十进制累计，避免 0.1 连加十次落在 1 的下方而少扣一期。
+        accrued=remainder+Decimal(str(amount))*percent/100
+        due=int(accrued)
+        return due,accrued-due
+
+    def tribute_balances(self, owner, recipient):
+        owner_name(owner);owner_name(recipient)
+        return {key:float(value) for (source,target,key),value in sorted(self._tribute_remainders.items())
+                if source==owner and target==recipient}
+
+    def tribute_preview(self, owner, recipient, percent):
+        """下一次生产的满负荷预演；与结算共用累计取整，不改变余额。"""
+        owner_name(owner);owner_name(recipient);integer(percent)
+        if owner==recipient or percent>100:raise ValueError('Invalid production allocation')
+        outputs=self.demand_preview(owner)['outputs']
+        carried={key:value for (source,target,key),value in self._tribute_remainders.items()
+                 if source==owner and target==recipient}
+        outgoing,remaining={},{}
+        for key in sorted(outputs.keys()|carried.keys()):
+            outgoing[key],balance=self._tribute_due(outputs.get(key,0),percent,carried.get(key,Decimal(0)))
+            remaining[key]=float(balance)
+        return {'overlord':recipient,'percent':percent,
+                'carried_remainders':{key:float(value) for key,value in sorted(carried.items())},
+                'full_load_outgoing':outgoing,
+                'retained_outputs':{key:value-outgoing[key] for key,value in outputs.items()},
+                'full_load_remainders':remaining}
+
     def produce(self, *, external_energy=None, production_shares=None):
         self._action()
         energy_input = {} if external_energy is None else external_energy
@@ -346,7 +377,7 @@ class Buildings:
             integer(share['percent'])
             if share['percent']>100:raise ValueError('Production allocation exceeds output')
         transfers={}
-        gross_outputs={}
+        remainders=dict(self._tribute_remainders)
         operations,records = [],{}
         generated,demand = {owner:0 for owner in owners},{owner:0 for owner in owners}
         cycles = {}
@@ -389,9 +420,9 @@ class Buildings:
                     tribute=0
                     if share:
                         identity=(owner,share['recipient'],key)
-                        gross_outputs[identity]=gross_outputs.get(identity,0)+amount
-                        due=gross_outputs[identity]*share['percent']//100
-                        tribute=due-transfers.get(identity,0)
+                        tribute,remainder=self._tribute_due(amount,share['percent'],remainders.get(identity,Decimal(0)))
+                        if remainder:remainders[identity]=remainder
+                        else:remainders.pop(identity,None)
                     credits[key]=amount-tribute
                     if tribute:
                         identity=(owner,share['recipient'],key)
@@ -429,6 +460,8 @@ class Buildings:
         report = ProductionReport(self.period,ordered,reports,tuple(consumed.items()),tuple(produced.items()),tuple(self._construction),
                                   tuple((source,target,key,amount) for (source,target,key),amount in sorted(transfers.items())))
         if operations:self._resources('exchange_batch',operations)
+        # 资源批次成功才提交小数账；失败不能消耗或重复增加累计额。
+        self._tribute_remainders=remainders
         self._produced = True
         return report
 
@@ -458,18 +491,32 @@ class Buildings:
                           'last_order':self._orders[site.id]} for site in self._sites.values()],
                 'instances':[item.to_save() for item in self._instances.values()],
                 'self_built':[{'owner':owner,'kind':kind,'count':count} for (owner,kind),count in self._self_built.items()],
+                'tribute_remainders':[{'source':source,'recipient':recipient,'resource':key,'remainder':str(value)}
+                                      for (source,recipient,key),value in sorted(self._tribute_remainders.items())],
                 'construction':[{'id':row.id,'owner':row.owner,'site':row.site,'kind':row.kind,
                                  'period':row.period,'costs':dict(row.costs)} for row in self._construction]}
 
     def restore(self, data):
         self._write()
-        expected = {'period','produced','next_id','sites','instances','self_built','construction'}
+        expected = {'period','produced','next_id','sites','instances','self_built','construction','tribute_remainders'}
         if not isinstance(data,dict) or set(data)!=expected:raise ValueError('Invalid buildings save')
         if type(data['produced']) is not bool:raise ValueError('Invalid production marker')
         period,next_id = integer(data['period']),integer(data['next_id'],1)
-        for field in ('sites','instances','self_built','construction'):
+        for field in ('sites','instances','self_built','construction','tribute_remainders'):
             if not isinstance(data[field],list):raise ValueError('Invalid building records')
         candidate = Buildings(tuple(self._types.values()),self._resources)
+        for row in data['tribute_remainders']:
+            if not isinstance(row,dict) or set(row)!={'source','recipient','resource','remainder'}:
+                raise ValueError('Invalid tribute remainder record')
+            source,recipient=owner_name(row['source']),owner_name(row['recipient'])
+            content_id(row['resource'])
+            if source==recipient or not isinstance(row['remainder'],str):raise ValueError('Invalid tribute remainder')
+            try:value=Decimal(row['remainder'])
+            except InvalidOperation as exc:raise ValueError('Invalid tribute remainder') from exc
+            if not value.is_finite() or not 0<value<1:raise ValueError('Invalid tribute remainder')
+            identity=(source,recipient,row['resource'])
+            if identity in candidate._tribute_remainders:raise ValueError('Duplicate tribute remainder')
+            candidate._tribute_remainders[identity]=value
         for row in data['sites']:
             if not isinstance(row,dict) or set(row)!={'id','owner','position','resources','capacity','penalty','last_order'}:
                 raise ValueError('Invalid building site record')
@@ -514,4 +561,5 @@ class Buildings:
         self._sites,self._instances,self._orders,self._self_built = candidate._sites,candidate._instances,candidate._orders,candidate._self_built
         self._by_site = None
         self._construction = candidate._construction
+        self._tribute_remainders = candidate._tribute_remainders
         self._period,self._next_id,self._produced = period,next_id,data['produced']

@@ -202,6 +202,8 @@ class Session:
         for item,position in zip(initial,self._positions(len(initial))):
             self.register(item,item.get('position',position))
         self.after_spawn()
+        initialize=getattr(self._scenario,'new_game',None)
+        if initialize:initialize()
         self._boundary=True
 
     def register(self,item,position):

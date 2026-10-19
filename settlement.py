@@ -34,6 +34,7 @@ def load_save(path, mods=None):
 def settle(data,world):
     """All participants rank, including fallen nations. No price recomputation."""
     alive=set(world.nation_actors);rows=[]
+    event=data['host'].get('victory_event') or {}
     weights={'native:infantry':1.0,'native:cavalry':1.5,'native:militia':.4}
     for actor,entry in data['host']['roster'].items():
         spending=world.economy.spending(actor)
@@ -41,7 +42,10 @@ def settle(data,world):
         unpriced=sorted({key for value in spending.values() for key in value.unpriced})
         turns=world.economy.turns(actor);latest=turns[-1] if turns else None
         units=world.military.snapshot(actor) if actor in alive else ()
-        rows.append({'actor':actor,'name':entry['name'],'alive':actor in alive,
+        outcome=('winner' if actor in event.get('winners',()) else
+                 'secondary_winner' if actor in event.get('secondary_winners',()) else
+                 'preserved' if actor in event.get('preserved',()) else None)
+        rows.append({'actor':actor,'name':entry['name'],'alive':actor in alive,'outcome':outcome,
                      'spending':expenses,'total':sum(expenses.values()),'unpriced':unpriced,
                      'gdp':wire(latest.gdp) if latest and actor in alive else {'known':0,'total':0,'unpriced':[]},
                      'land':len(world.territory.owned(actor)) if actor in alive else 0,
@@ -50,13 +54,18 @@ def settle(data,world):
     return sorted(rows,key=lambda r:(-r['total'],r['actor']))
 
 
+def outcome_text(row):
+    return {'winner':'胜利','secondary_winner':'次要胜利','preserved':'臣属保全（未胜未败）'}.get(
+        row.get('outcome'),'在世' if row['alive'] else '已亡国')
+
+
 def scoreboard_text(rows):
     lines=['|名次|国家|总消费（金）|GDP（金/期）|军力|领土|建筑资产（金）|状态|',
            '|---:|---|---:|---:|---:|---:|---:|---|']
     for rank,row in enumerate(rows,1):
         value=lambda key: f'{row[key]["known"]:g}'+('（部分未估值）' if row[key].get('unpriced') else '')
         total=f'{row["total"]:g}'+('（部分未估值）' if row['unpriced'] else '')
-        lines.append(f'|{rank}|{row["name"]}|{total}|{value("gdp")}|{row["army"]:g}|{row["land"]}|{value("building_assets")}|'+('在世' if row['alive'] else '已亡国')+'|')
+        lines.append(f'|{rank}|{row["name"]}|{total}|{value("gdp")}|{row["army"]:g}|{row["land"]}|{value("building_assets")}|'+outcome_text(row)+'|')
     return '\n'.join(lines)
 
 
@@ -92,7 +101,7 @@ def run_chat(data,rows,cfg,rounds,log=print,remarks=None,backend_factory=None):
                     ui=load_ui(item).llm(item)
                     history,_=build(cfg=item,mem=state.get('replay',[]),sums=state.get('summaries',[]),blocks=state.get('blocks',[]),
                         long_memory=state.get('long_memory',''),system_text=f'你是{row["name"]}的君主，游戏已结束。你在结算厅复盘，不能行动。',
-                        tail_text='最终成绩单（按累计四类消费排名，GDP/军力/领土/建筑只供参考）：\n'+board,
+                        tail_text='本国结局：'+outcome_text(row)+'。最终成绩单按累计四类消费排名，消费名次不等同剧本胜负；GDP/军力/领土/建筑只供参考：\n'+board,
                         archive_messages=ui.text)
                     histories[actor]=history;seen[actor]=0
                 news='\n'.join(transcript[seen[actor]:])

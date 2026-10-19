@@ -5,7 +5,7 @@ import inspect
 
 from engine.building import integer
 from engine.identifiers import content_id
-from engine.runtime import ModError
+from engine.runtime import DomainRejection, ModError
 from engine.state import active_unit, freeze
 from .vassalage import Vassal, Vassalage
 
@@ -308,14 +308,26 @@ class Diplomacy(Vassalage):
 
     def _apply_bloc_found(self, actor, bloc: str, name: str, tos: list[str], *, approved=False):
         content_id(bloc);self._name(name)
-        if not isinstance(tos,(list,tuple)) or not tos or actor in tos or len(set(tos))!=len(tos):raise ValueError('Invalid founding members')
+        if not isinstance(tos,(list,tuple)) or not tos or any(not isinstance(n,str) for n in tos):raise ValueError('tos 须为非空国家键数组')
+        if actor in tos or len(set(tos))!=len(tos):raise ValueError('创盟邀请整批未提交：tos 不能含自己或重复国家键')
         members=(actor,*tos)
         if bloc in self._alliances or any(o.action=='found' and dict(o.arguments)['bloc']==bloc for o in self._offers):raise ValueError('Alliance ID already exists')
+        items=[]
         for n in members:
-            self._living(n)
-            if self.vassal(n):raise ValueError('附庸不能独立创盟；宗主可以带普通附庸加入联盟')
-            if self.alliance(n) or not self._permits(n,'accept.bloc'):raise ValueError('Nation cannot found alliance')
-        self._peaceful(*(self.entity(n) for n in members))
+            reasons=[]
+            try:
+                self._living(n)
+                if self.vassal(n):reasons.append('附庸不能独立创盟')
+                if self.alliance(n):reasons.append('已在联盟中')
+                if not self._permits(n,'accept.bloc'):reasons.append('当前政策不允许结盟')
+                if self._entity_war(self.entity(n)):reasons.append('正在战争中，不能创盟')
+            except ValueError as exc:reasons.append(str(exc))
+            items.append({'target':n,'reason':'；'.join(reasons)})
+        if any(row['reason'] for row in items):
+            rows=[{**row,'status':'rejected' if row['reason'] else 'not_submitted',
+                   'message':row['reason'] or '校验通过，但本批邀请未提交'} for row in items]
+            raise DomainRejection('创盟邀请整批未提交，未扣费：\n'+'\n'.join(f"{r['target']}：{r['message']}" for r in rows),
+                                  {'reason':'batch_rejected','atomic':True,'items':rows})
         return self._offer('found',actor,bloc,{'bloc':bloc,'name':name,'members':members},members)
 
     def _apply_bloc_join(self, actor, bloc: str, *, approved=False):

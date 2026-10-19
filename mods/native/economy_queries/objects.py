@@ -93,17 +93,20 @@ class EconomicQueries:
         flows = self._call('native:economy','production',owner)
         preview = dict(self._call('native:buildings', 'demand_preview', owner))
         if 'native:diplomacy' in self._runtime.capabilities:
-            relation=next((s for s in self._call('native:diplomacy','snapshot',owner).vassals if s.subject==owner),None)
+            relations=self._call('native:diplomacy','snapshot',owner).vassals
+            relation=next((s for s in relations if s.subject==owner),None)
             if relation:
-                preview['tribute']={'overlord':relation.overlord,'percent':relation.tribute_percent,
-                    'full_load_outgoing':{k:v*relation.tribute_percent//100 for k,v in preview['outputs'].items()},
-                    'retained_outputs':{k:v-v*relation.tribute_percent//100 for k,v in preview['outputs'].items()}}
+                preview['tribute']=self._call('native:buildings','tribute_preview',owner,relation.overlord,relation.tribute_percent)
+            receivables=[{'subject':s.subject,'percent':s.tribute_percent,
+                          'remainders':self._call('native:buildings','tribute_balances',s.subject,owner)}
+                         for s in relations if s.overlord==owner]
+            if receivables:preview['tribute_receivables']=receivables
         inputs = dict(preview['inputs'])
         military = (self._call('native:army', 'supply_preview', owner)
                     if 'native:army' in self._runtime.capabilities else {})
         if military:
             inputs['native:supply'] = inputs.get('native:supply', 0) + military['need']
-            inputs['native:equipment'] = inputs.get('native:equipment', 0) + military['healing_equipment']
+            inputs['native:equipment'] = inputs.get('native:equipment', 0) + military['equipment_need']
         balances = {row.id: row.amount for row in stocks}
         preview.update(inputs=inputs, military=military,
                        shortfalls={key:amount-balances.get(key,0) for key,amount in inputs.items() if amount>balances.get(key,0)})
@@ -153,7 +156,7 @@ class EconomicQueries:
         retained={key:round(amount*(100-tribute_pct)/100,10) for key,amount in cycle.outputs}
         construction,inputs,outputs = self._value(cost),self._value(cycle.inputs,'buy'),self._value(retained,basis)
         outputs_sell=self._value(retained,'sell')
-        if tribute_pct:assumptions.append(f'按上贡{tribute_pct}%估算长期产出估值与净收益；实际每期全国同类资源产出合计后向下取整，不足1不收；建筑原始配方仍列毛产出')
+        if tribute_pct:assumptions.append(f'按上贡{tribute_pct}%估算长期产出估值与净收益；实际贡赋小数按双方及资源跨期累计，满1向下取整扣取，余数结转；建筑原始配方仍列毛产出')
         energy_cost,energy_reference = self._energy_cost()
         net = outputs.plus(inputs,-1)
         # Electricity is not tradable revenue: power plants only spend fuel.

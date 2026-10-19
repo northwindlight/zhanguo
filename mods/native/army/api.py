@@ -17,8 +17,12 @@ class ArmyAPI:
     def selection(aid, ids):
         if aid is not None and (type(aid) is not int or aid < 1):
             raise ValueError('aid 须为正整数军队编号')
-        if ids is not None and (not isinstance(ids, list) or not ids or any(type(i) is not int or i < 1 for i in ids) or len(set(ids)) != len(ids)):
-            raise ValueError('ids 须为非空、不重复的正整数军队编号数组')
+        if ids is not None:
+            if not isinstance(ids,list) or not ids:raise ValueError('ids 须为非空军队编号数组')
+            invalid=[f'第{index+1}项={value!r}' for index,value in enumerate(ids) if type(value) is not int or value<1]
+            if invalid:raise ValueError('ids 中这些项不是正整数军队编号：'+'、'.join(invalid))
+            repeated=list(dict.fromkeys(i for index,i in enumerate(ids) if i in ids[:index]))
+            if repeated:raise ValueError('ids 重复军队编号：'+'、'.join(f'#{i}' for i in repeated)+'；整批未执行')
         if aid is None and ids is None:
             raise ValueError('请提供 aid 或 ids 选择本国军队')
         if aid is not None and ids is not None and ids != [aid]:
@@ -55,12 +59,7 @@ class ArmyAPI:
 
     def disband(self, actor, aid=None, ids=None):
         ids = self.selection(aid, ids)
-        own = {u.id: u for u in self.military.snapshot(actor)}
-        bad = [i for i in ids if i not in own or not self.military.can_disband(actor, i) or not own[i].alive]
-        if bad:
-            raise ValueError('这些军队不能遣散：' + '、'.join(f'#{i}' for i in bad) +
-                             '。不存在、已阵亡，或正在交战/受到进攻的军队都不能遣散（交战中先用 retreat 撤出，下回合再遣散）')
-        receipts = tuple(self.military.disband(actor, i) for i in ids)
+        receipts = self.military.disband_many(actor, ids)
         return receipts[0] if len(receipts) == 1 else receipts
 
     def view(self, actor):
@@ -68,7 +67,7 @@ class ArmyAPI:
 
     def reachable(self, actor, aid=None, attack=False, ids=None):
         ids = self.selection(aid, ids)
-        paths = [{'aid': i, 'destinations': self.military.reachable(actor, i, attack, visible_only=True)} for i in ids]
+        paths = self.military.reachable_many(actor, ids, attack)
         return paths[0]['destinations'] if len(paths) == 1 else paths
 
     def frontier(self, actor):
@@ -126,6 +125,7 @@ class ArmyAPI:
                        'recruit': dict(overrides.get(kind, world.units.definition(kind)['recruit'])),
                        'speed': world.runtime.parameter(world, actor, 'unit.speed.' + kind, world.units.definition(kind)['speed']),
                        'supply': world.runtime.parameter(world, actor, 'unit.supply.' + kind, world.units.definition(kind)['supply']),
+                       'healing': self.military.healing_policy(kind),
                        'retreat_attack_penalty': RETREAT_ATK_PENALTY}
                 for kind in world.units.type_ids}
 

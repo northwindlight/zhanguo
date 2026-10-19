@@ -44,7 +44,11 @@ def solve(order,enemies,initial,power,spread,*,max_states=4000,max_rounds=64,use
     state0=tuple(tuple(unit[:4] for unit in row) for row in initial)
     backend='python';fallback=FAST_ERROR if use_fast else None
     numeric=all(type(u[1]) is int and 0<u[1]<=65535 for row in state0 for u in row)
-    supported=len(order)<=8 and all(len(row)<=8 for row in state0) and numeric
+    # The C state table stores integer HP and distributes remainder by index;
+    # equal fractional shares can arise with multiple units or retreat cover.
+    # Keep acceleration only where every hit remains an exact integer.
+    supported=(len(order)<=8 and all(len(row)<=1 for row in state0) and numeric and
+               all(unit[3] in (None,100) for row in state0 for unit in row))
     accelerate=use_fast and FAST is not None and supported
     if use_fast and FAST is not None and supported:
         kinds=[];indexes={};rows=[]
@@ -61,7 +65,7 @@ def solve(order,enemies,initial,power,spread,*,max_states=4000,max_rounds=64,use
         except Exception as exc:
             fallback=f'{type(exc).__name__}: {exc}'
             accelerate=False
-    elif use_fast and FAST is not None:fallback='C limits: at most 8 factions, 8 units per faction, integer hp in 1..65535'
+    elif use_fast and FAST is not None:fallback='C requires integer-only one-unit factions; equal multi-unit shares use Python'
     if backend!='c':
         memo={};n_states=0
         def visit(state,depth):

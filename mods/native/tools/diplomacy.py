@@ -20,7 +20,7 @@ ALLIANCE_COMMITMENT = ('入盟后联盟是一个外交实体：保障、共同�
                        '任一成员交战，全盟不能退盟或解散；盟主须先转让才能退出。')
 
 DESCRIPTIONS = {
-    'guarantee': '保障对方外交实体：对方被宣战时承担直接防守参战义务；双方须和平，联盟须先表决。',
+    'guarantee': '本方承诺保障 target：本方是保障人，target 是受保护实体。第三方宣战 target 时，本方承担防守参战义务；target 不因此反向保卫本方，也不替本方主动进攻。双方须和平，联盟须先表决。',
     'cancel_guarantee': '取消本方对目标实体的保障，战时条约冻结；联盟须先表决。',
     'propose_defense': '提出共同防御邀约；双方实体须和平。联盟先表决，接受后才缔结，主动进攻不因此召来伙伴。',
     'break_defense': '解除与目标实体的共同防御，战时不能解除；联盟须先表决。',
@@ -82,7 +82,7 @@ def tools(runtime):
     for action, arguments in ARGUMENTS.items():
         def submit(world, actor, _action=action, **args):
             return runtime.player_api(world, 'native:diplomacy').submit(actor, _action, **args)
-        properties = {key: ({'type': 'array', 'items': {'type': 'string'}} if value == list[str] else {'type': 'integer' if value is int else 'string'})
+        properties = {key: ({'type': 'array', 'items': {'type': 'string'}, 'minItems':1, 'uniqueItems':True} if value == list[str] else {'type': 'integer' if value is int else 'string'})
                       for key, value in arguments.items()}
         for key, prop in properties.items():
             if key in ('offer',):
@@ -140,7 +140,10 @@ def _diplomacy(data, args, actor, ctx):
             if key == 'alliances':
                 lines.append(ctx.text('tool.diplomacy.alliance', name=row['name'], id=row['id'], chief=name(row['chief']), members=names(row['members'])))
             elif key == 'pacts':
-                lines.append(ctx.text('tool.diplomacy.pact', kind=ctx.text('tool.diplomacy.pact_' + row['kind']), a=name(row['a']), b=name(row['b'])))
+                if row['kind']=='guarantee':
+                    lines.append(ctx.text('tool.diplomacy.guarantee_direction', protector=name(row['a']), protected=name(row['b'])))
+                else:
+                    lines.append(ctx.text('tool.diplomacy.pact', kind=ctx.text('tool.diplomacy.pact_' + row['kind']), a=name(row['a']), b=name(row['b'])))
             elif key == 'wars':
                 lines.append(ctx.text('tool.diplomacy.war', id=row['id'], a=name(row['a']), b=name(row['b']),
                                       attackers=names(row['attackers']), defenders=names(row['defenders'])))
@@ -178,6 +181,11 @@ def _action_receipt(action, args, receipt, actor, ctx):
     data = receipt.get('data')
     if not isinstance(data, dict):
         return None
+    if not receipt.get('ok',True):
+        if data.get('reason')=='batch_rejected':
+            return '❌ '+ctx.text('tool.batch.rejected')+'\n'+'\n'.join(
+                ctx.name(row['target'],ctx._names)+'：'+row['message'] for row in data['items'])
+        return None
     args = {**(args or {}), **dict(data.get('arguments') or ())}
     fee = _num(data.get('fee', 0))
     target_key=args.get('target','')
@@ -194,7 +202,8 @@ def _action_receipt(action, args, receipt, actor, ctx):
         return ctx.text('tool.diplomacy.' + action, target=target, fee=fee, name=args.get('name', ''))
     if action == 'bloc_found':
         tos = '、'.join(ctx.name(t, ctx._names) for t in (args.get('tos') or []))
-        return ctx.text('tool.diplomacy.bloc_found', name=args.get('name', ''), tos=tos or ctx.text('tool.diplomacy.invitees'), fee=fee)
+        return ctx.text('tool.diplomacy.bloc_found', name=args.get('name', ''), tos=tos or ctx.text('tool.diplomacy.invitees'), fee=fee)+'\n'+'\n'.join(
+            ctx.text('tool.diplomacy.invitee_submitted',target=ctx.name(n,ctx._names)) for n in args.get('tos',[]))
     if action == 'bloc_join':
         return ctx.text('tool.diplomacy.bloc_join', bloc=args.get('bloc', ''), fee=fee)
     if action in ('accept_proposal', 'reject_proposal', 'accept_peace', 'reject_peace'):

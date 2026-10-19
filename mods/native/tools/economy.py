@@ -41,7 +41,7 @@ def tools(runtime):
 
     return (
         Tool('econ', econ, owner='economy:queries', api=('balance',), read_only=True, fact=True, panel=True,
-             description='本国库存、库存折金、建筑重置值和总资产，无法估值的内容明确列出；不是本期现金收入。'),
+             description='本国库存、库存折金、建筑重置值和总资产；附庸还显示贡赋小数累计余额、下一次满负荷生产预计上贡/自留及结转额。不是本期现金收入，预演不保证实际产出。'),
         Tool('report', report, owner='economy:queries', api=('report',), read_only=True, panel=True,
              description='本国免费已发布经济报表；缺省仅最新一期，period 查以该周期结束的报表，all=true 返回全部跨期。报表自动结算、有日期，不是当前库存或未完成收益。'),
         Tool('building_economics', building_economics, owner='economy:queries', api=('estimate',), read_only=True, panel=True,
@@ -57,8 +57,37 @@ def tools(runtime):
 
 
 def _econ(data, args, actor, ctx):
-    return ctx.text('tool.econ.head') + '\n' + ctx.text('tool.econ.stocks', values=ctx.resources({r['id']: r['amount'] for r in data['stocks']}, gold_short=False)) + '\n' + \
-        ctx.text('tool.econ.assets', inventory=ctx.money(data['inventory']), buildings=ctx.money(data['buildings']), total=ctx.money(data['gross_assets']))
+    lines=[ctx.text('tool.econ.head'),ctx.text('tool.econ.stocks',values=ctx.resources({r['id']:r['amount'] for r in data['stocks']},gold_short=False)),
+           ctx.text('tool.econ.assets',inventory=ctx.money(data['inventory']),buildings=ctx.money(data['buildings']),total=ctx.money(data['gross_assets']))]
+    tribute=data.get('preview',{}).get('tribute')
+    if tribute:lines.append(_tribute(tribute,{},actor,ctx))
+    receivables=data.get('preview',{}).get('tribute_receivables')
+    if receivables:lines.append(_tribute_receivables(receivables,{},actor,ctx))
+    military=data.get('preview',{}).get('military')
+    if military:
+        from .army import _logistics
+        lines.append(_logistics(military,{},actor,ctx))
+    return '\n'.join(lines)
+
+
+def _tribute(data, args, actor, ctx):
+    lines=[ctx.text('tool.econ.tribute_head',overlord=ctx.name(data['overlord'],ctx._names),percent=data['percent'])]
+    carried=data['carried_remainders'];outgoing=data['full_load_outgoing']
+    retained=data['retained_outputs'];remaining=data['full_load_remainders']
+    for key in sorted(outgoing):
+        lines.append(ctx.text('tool.econ.tribute_row',resource=ctx.label('content',key),
+                              carried=_num(carried.get(key,0)),paid=_num(outgoing[key]),
+                              retained=_num(retained.get(key,0)),remaining=_num(remaining[key])))
+    lines.append(ctx.text('tool.econ.tribute_assumptions'))
+    return '\n'.join(lines)
+
+
+def _tribute_receivables(data, args, actor, ctx):
+    lines=[ctx.text('tool.econ.tribute_receivables_head')]
+    for row in data:
+        lines.append(ctx.text('tool.econ.tribute_receivable',subject=ctx.name(row['subject'],ctx._names),
+                              percent=row['percent'],values=ctx.resources(row['remainders'],gold_short=False) if row['remainders'] else '0'))
+    return '\n'.join(lines)
 
 
 def _market(data, args, actor, ctx):
@@ -188,7 +217,9 @@ def _churn(data, ctx):
                            overlap=_num(churn['quantity']), loss=_num(abs(churn['loss'])))
 
 
-PANELS = {'econ': _econ, 'market': _market}
+# 同一贡赋视图也供模型开回合的资源简报使用，不另暴露查询工具。
+PANELS = {'econ': _econ, 'market': _market, 'production_tribute': _tribute,
+          'production_tribute_receivables': _tribute_receivables}
 RECEIPTS = {'buy': _trade('buy'), 'sell': _trade('sell'), 'report': _report, 'building_economics': _economics_receipt}
 CAPTIONS = {
     'econ': lambda args, actor, receipt, ctx: ctx.text('tool.caption.econ'),

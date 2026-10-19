@@ -55,6 +55,10 @@ def _power(ui, facts, cues, observation, key):
     shortfalls = cues.get('stock_shortfalls_before_production') or {}
     if shortfalls:
         lines.append(ui.text('brief.shortfall', values=ui.resources(shortfalls, gold_short=False)))
+    tribute=panel(ui,'production_tribute',cues.get('production_tribute'),actor)
+    if tribute:lines.append(tribute)
+    receivables=panel(ui,'production_tribute_receivables',cues.get('production_tribute_receivables'),actor)
+    if receivables:lines.append(receivables)
     own = [u for u in facts.get('army', []) if u.get('owner') == actor and u.get('hp', 0) > 0]
     lines.append(ui.text('brief.army_count', count=len(own)))
     # 上一回合结算：旧版挂在【国力】末尾，让模型一眼看到钱粮是涨是跌。
@@ -204,6 +208,7 @@ def sections(ui, observation, events, cues, key=lambda value: value, vision=Fals
         ('battle', _battle(ui, facts, actor)),
         ('territory', _territory(ui, events, names)),
         ('power', _power(ui, facts, cues, observation, key)),
+        ('logistics', panel(ui,'logistics',(facts.get('econ') or {}).get('preview',{}).get('military'),actor)),
         ('plan', _plan(ui, facts)),
         ('map', _map(ui, observation, key, vision)),
         ('army', _army(ui, facts, actor)),

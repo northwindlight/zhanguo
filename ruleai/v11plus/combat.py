@@ -17,15 +17,20 @@ def forecaster(player, observation):
                    if u.get('retreat_to') else units[u['kind']]['atk'] for u in group if u['hp']>0)
     def damage(amount, group):
         live=[u for u in group if u['hp']>0]
-        if any(u.get('retreat_cover') not in (None,100) for u in live):
-            q,r=divmod(amount,len(live))
-            for i,u in enumerate(live):u['hp']=max(0,u['hp']-(q+(i<r))*(u.get('retreat_cover') if u.get('retreat_cover') is not None else 100)//100)
-        else:
-            while amount>0 and live:
-                q,r=divmod(amount,len(live))
-                for i,u in enumerate(live):
-                    take=min(u['hp'],q+(i<r));u['hp']-=take;amount-=take
-                live=[u for u in live if u['hp']>0]
+        if not live:return
+        ratios=[(u.get('retreat_cover') if u.get('retreat_cover') is not None else 100)/100 for u in live]
+        limits=[float('inf') if ratio==0 else u['hp']/ratio for u,ratio in zip(live,ratios)]
+        shares=[0.0]*len(live);active={i for i,limit in enumerate(limits) if limit>0};remaining=float(amount)
+        while active and remaining>1e-12:
+            share=remaining/len(active);capped=[i for i in active if limits[i]-shares[i]<=share+1e-12]
+            if not capped:
+                for i in active:shares[i]+=share
+                break
+            spent=0.0
+            for i in capped:
+                take=min(share,max(0.0,limits[i]-shares[i]));shares[i]+=take;spent+=take;active.remove(i)
+            remaining=max(0.0,remaining-spent)
+        for u,share,ratio in zip(live,shares,ratios):u['hp']=max(0,u['hp']-share*ratio)
     def forecast(_player, cell, army):
         tile=tiles.get(tuple(cell))
         if tile is None:return {'known':False,'winnable':None,'rounds':None,'losses':None}

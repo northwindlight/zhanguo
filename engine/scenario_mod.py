@@ -14,6 +14,8 @@ class ScenarioMod(GameMod):
 
     def on_start(self, world):pass
 
+    def on_new_game(self, world):pass
+
     def on_settlement(self, world, trigger_victory):pass
 
     def bind(self, world, trigger_victory):
@@ -25,6 +27,11 @@ class ScenarioHooks:
     def __init__(self, mod, world, trigger_victory):
         self.mod,self.world,self.trigger_victory=mod,world,trigger_victory
         self.text=mod.text
+
+    def new_game(self):
+        # 与绑定/续档分开：初始国家已全部登场，只在创建新局时执行。
+        with unit_context(self.mod.declaration['Mod']['Id']):
+            self.mod.on_new_game(self.world)
 
     def __call__(self):
         with unit_context(self.mod.declaration['Mod']['Id']):

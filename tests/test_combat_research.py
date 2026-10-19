@@ -41,19 +41,26 @@ class TestCombatResearch(unittest.TestCase):
         self.assertLessEqual(odds['expected_losses_partial']['left'],105)
         self.assertAlmostEqual(odds['p_win']['left']+odds['p_lose']['left']+odds['p_draw']+odds['unresolved'],1)
 
-    def test_c_and_python_have_identical_complete_distributions_and_budgets(self):
+    def test_c_and_python_have_identical_complete_single_unit_integer_distributions(self):
         if solver.FAST is None:self.skipTest('Optional C extension not built')
-        for hp,cover,states,rounds in [(((5,100),(100,)),100,4000,64),
-                                      (((100,100),(80,80)),100,4000,64),
-                                      (((25,50),(100,)),50,4000,64),
+        for hp,cover,states,rounds in [(((5,),(100,)),100,4000,64),
+                                      (((100,),(80,)),100,4000,64),
                                       (((100,),(100,)),100,1,1),
-                                      (((100,),(100,)),0,4000,4)]:
+                                      (((100,),(100,)),100,4000,4)]:
             with self.subTest(hp=hp,cover=cover,states=states):
                 args=example(hp,cover);py=solver.solve(*args,max_states=states,max_rounds=rounds,use_fast=False)
                 native=solver.solve(*args,max_states=states,max_rounds=rounds)
                 self.assertEqual(native['backend'],'c')
                 for key in py:
                     if key not in ('backend','fallback'):self.assertEqual(native[key],py[key],key)
+
+    def test_multi_unit_and_partial_retreat_cover_use_fractional_python_fallback(self):
+        if solver.FAST is None:self.skipTest('Optional C extension not built')
+        for hp,cover in [(((100,100),(80,)),100),(((100,),(100,)),50)]:
+            with self.subTest(hp=hp,cover=cover):
+                result=solver.solve(*example(hp,cover),max_states=1,max_rounds=1)
+                self.assertEqual(result['backend'],'python')
+                self.assertIn('equal',result['fallback'])
 
     def test_symmetric_one_round_matches_exhaustive_dice_enumeration(self):
         odds=solver.solve(*example(((50,),(50,))),max_rounds=1,use_fast=False)

@@ -18,7 +18,7 @@ from .context import est_tokens
 
 # 简报分节越界时按此序从后往前丢弃；同键给出「去哪查全文」的工具名。
 FALLBACK={'capital':'frontier','threats':'threats','battle':'battle','territory':'news','power':'econ','plan':'government',
-          'map':'view','army':'army','report':'report','diplomacy':'foreign','market':'market','bank':'bank',
+          'map':'view','army':'army','logistics':'logistics','report':'report','diplomacy':'foreign','market':'market','bank':'bank',
           'intel':'intel','dispatches':'dispatches'}
 
 
@@ -153,6 +153,7 @@ class ModelView:
         plan=facts.get('government',{}).get('plan')
         return {'plan_status':'须提交国策' if not plan or plan['valid_until']<period else '国策有效',
                 'production_tribute':preview.get('tribute'),
+                'production_tribute_receivables':preview.get('tribute_receivables'),
                 'energy_capacity':energy,'planned_regular_inputs':inputs,'full_load_outputs':outputs,
                 'stock_shortfalls_before_production':shortages,'army_supply_per_period':supply,
                 'army_actions':armies,'border_threats':threats,

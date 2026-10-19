@@ -3,10 +3,11 @@ from copy import deepcopy
 from dataclasses import dataclass
 import heapq
 import random
+from math import ceil
 
 from engine.building import integer
 from engine.identifiers import content_id
-from engine.runtime import ModError
+from engine.runtime import DomainRejection, ModError
 from engine.state import active_unit
 from .objects import Unit
 from .parameters import ARMY_GID_BASE, ARMY_STARVE_DAMAGE, ARMY_HEAL_PER_TURN, HEAL_EQUIP_COST, COMBAT_DIE_MOD, RETREAT_ATK_PENALTY, RETREAT_DEF_COVER
@@ -21,6 +22,7 @@ class MilitaryReceipt:
     occupied: bool = False
     engaged: bool = False
     message: str = ''
+    items: tuple = ()
 
 
 class Military:
@@ -59,6 +61,37 @@ class Military:
         integer(aid,1);unit=self._units.by_id(aid,owner)
         if unit is None or not unit.alive:raise ValueError(f'没有这支军队：#{aid} 不存在或已阵亡。编号用 army 查询里本国军队的 id（不是固定兵种号）')
         return unit
+
+    @staticmethod
+    def _reject_batch(items):
+        """整批预验失败不执行任何一支，但保留逐支原因，不能把通过者写成已行动。"""
+        if not any(row.get('reason') for row in items):return
+        rows=[{**row,'status':'rejected' if row.get('reason') else 'not_executed',
+               'message':row.get('reason') or '校验通过，但本批未执行',
+               'position_changed':False,'consumed_action':False} for row in items]
+        message='整批未执行：\n'+'\n'.join(f"#{row['aid']}：{row['message']}" for row in rows)
+        raise DomainRejection(message,{'reason':'batch_rejected','atomic':True,'items':rows})
+
+    def _selection(self, owner, ids):
+        if not isinstance(ids,(list,tuple)) or not ids or any(type(i) is not int or i<1 for i in ids) or len(set(ids))!=len(ids):
+            raise ValueError('ids 须为非空且不重复的正整数军队编号数组；单支军队用 aid')
+        units=[];items=[]
+        for aid in ids:
+            try:units.append(self._own_unit(owner,aid));items.append({'aid':aid})
+            except ValueError as exc:units.append(None);items.append({'aid':aid,'reason':str(exc)})
+        return units,items
+
+    def action_reason(self, owner, unit, attack=False, target=None):
+        period=self._period()
+        if unit.born_turn==period:return '新兵本回合不能行动'
+        # 原地进攻允许已用过移动额度的部队；沿用 Unit.can_attack 的规则。
+        if attack and target==(unit.x,unit.y):
+            return ''
+        if unit.moved_turn==period:return '本回合已移动或已消耗行动额度'
+        if unit.engaged:return '正在交战，须先撤退'
+        if not attack and any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner) for v in self._units.at(unit.x,unit.y)):
+            return '本格正受进攻，须用 retreat 撤出'
+        return ''
     def snapshot(self, owner=None):
         return tuple(deepcopy(u) for u in self._units if owner is None or u.owner==owner)
     def visible_units(self, owner):
@@ -160,17 +193,27 @@ class Military:
                 best[target]=next_distance
                 if movable:heapq.heappush(queue,(next_distance,target))
         return tuple(sorted(best.items()))
+
+    def reachable_many(self, owner, ids, attack=False):
+        units,items=self._selection(owner,ids);self._reject_batch(items)
+        rows=[]
+        for u in units:
+            reason=self.action_reason(owner,u,attack)
+            if attack and reason and u.can_attack(self._period(),u.x,u.y):reason+='；异地进攻不可用，原地进攻仍可提交'
+            rows.append({'aid':u.id,'action_available':not reason,'action_reason':reason,
+                         'can_attack_current_tile':u.can_attack(self._period(),u.x,u.y),
+                         'destinations':self.reachable(owner,u.id,attack,visible_only=True)})
+        return tuple(rows)
     def _batch(self, owner, ids, x, y, attack):
         self._action(owner);self._call('native:territory','check',x,y)
-        if not isinstance(ids,(list,tuple)) or not ids or len(set(ids))!=len(ids):raise ValueError('ids 须为非空且不重复的军队编号数组；单支军队用 aid')
-        units=[self._own_unit(owner,aid) for aid in ids];period=self._period()
-        if any(not (u.can_attack(period,x,y) if attack else u.can_act(period)) for u in units):raise ValueError('这支军队本回合不能行动：新兵当回合不能动、每军每回合只能行动一次、交战中的须先撤退。逐军状态见 army 回执')
-        if not attack and any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner) for u in units for v in self._units.at(u.x,u.y)):raise ValueError('交战中不能普通移动：先用 retreat 撤出战场，下回合再移动')
+        units,items=self._selection(owner,ids);period=self._period()
+        for u,row in zip(units,items):
+            if u is not None:row['reason']=self.action_reason(owner,u,attack,(x,y))
         paths={}
         for u in units:
+            if u is None:continue
             key=(u.x,u.y,u.kind,self._parameter(owner,'unit.speed.'+u.kind,u.definition['speed']))
             if key not in paths:paths[key]=dict(self.reachable(owner,u.id,attack))
-        valid=all((x,y) in paths[(u.x,u.y,u.kind,self._parameter(owner,'unit.speed.'+u.kind,u.definition['speed']))] for u in units)
         # 被挡的原因各不相同，回执要说出是哪一种，否则模型只能靠猜（打了自家地却被告知「须先宣战」）。
         reason=''
         target_blocked=not self._pass(owner,x,y) if not attack else False
@@ -183,12 +226,19 @@ class Military:
         busy=[u for u in self._units.at(x,y) if u.alive and u.engaged and u.owner not in ('野人',owner)]
         if attack and tile_owner is None and busy and not any(self._hostile(owner,u.owner) or self._call('native:diplomacy','allied',owner,u.owner) for u in busy):
             target_blocked=True;reason='该无主地上有与你非敌非盟的一方正在打野：不能抢别人的战斗（可先旁观），换一格或等它打完'
-        valid=valid and not target_blocked
-        if not valid:
-            if target_blocked and not self._call('native:vision','visible',owner,x,y):
-                for unit in units:unit.update(moved_turn=period)
-                return MilitaryReceipt('failed',tuple(ids),False,True,message='未探明路线或目标位置受阻（盲推）：沿路地形与敌情不明，撞墙照实报告，但移动额度照烧。可先用 tile 探明单格')
-            raise ValueError(reason or '超出本回合移动范围，或沿途有阻挡；先查 reachable 看本回合够得着哪些格，分回合行军')
+        # 先排除不能行动的部队，再处理盲推。盲推不得向玩家泄露真实目标阻挡原因。
+        if target_blocked and not self._call('native:vision','visible',owner,x,y):
+            self._reject_batch(items)
+            for unit in units:unit.update(moved_turn=period)
+            message='未探明路线或目标位置受阻（盲推）：未移动到目标，行动额度已消耗'
+            details=tuple({'aid':u.id,'status':'failed','message':message,'position_changed':False,'consumed_action':True} for u in units)
+            return MilitaryReceipt('failed',tuple(ids),False,True,message=message,items=details)
+        for u,row in zip(units,items):
+            if u is None or row.get('reason'):continue
+            if target_blocked:row['reason']=reason
+            elif (x,y) not in paths[(u.x,u.y,u.kind,self._parameter(owner,'unit.speed.'+u.kind,u.definition['speed']))]:
+                row['reason']='超出移动范围或沿途有阻挡；先查 reachable'
+        self._reject_batch(items)
         return units
     def move(self, owner, aid, x, y):
         return self.move_many(owner,[aid],x,y)
@@ -196,8 +246,10 @@ class Military:
         result=self._batch(owner,ids,x,y,False)
         if isinstance(result,MilitaryReceipt):return result
         changed=any((unit.x,unit.y)!=(x,y) for unit in result)
+        items=tuple({'aid':u.id,'status':'effective','position_changed':(u.x,u.y)!=(x,y),'consumed_action':True,
+                     'message':'已移动到目标' if (u.x,u.y)!=(x,y) else '原地调动；已消耗行动额度'} for u in result)
         for unit in result:unit.move_to(x,y,self._period())
-        return MilitaryReceipt('effective',tuple(ids),changed,True)
+        return MilitaryReceipt('effective',tuple(ids),changed,True,items=items)
     def _guard(self, x, y):
         fact=self._call('native:territory','cell',x,y)
         if fact.tile.id or (x,y) in self._units.guard_once:return
@@ -225,6 +277,8 @@ class Military:
         if isinstance(result,MilitaryReceipt):return result
         units=result;self._guard(x,y)
         changed=any((u.x,u.y)!=(x,y) for u in units);sequence=self._units.next_engagement()
+        items=tuple({'aid':u.id,'status':'effective','position_changed':(u.x,u.y)!=(x,y),'consumed_action':(u.x,u.y)!=(x,y),
+                     'message':'异地进攻；已消耗行动额度' if (u.x,u.y)!=(x,y) else '原地进攻；未额外消耗移动额度'} for u in units)
         for unit in units:
             values={'x':x,'y':y,'engaged':True,'engage_seq':sequence}
             if (unit.x,unit.y)!=(x,y):values['moved_turn']=self._period()
@@ -234,22 +288,35 @@ class Military:
             self._claim(owner,x,y)
             for unit in units:unit.disengage()
         return MilitaryReceipt('effective',tuple(ids),changed,changed,not defenders,defenders,
-                               '已进入交战，占地等结算——别把提交当战果' if defenders else '已占领该地')
+                               '已进入交战，占地等结算——别把提交当战果' if defenders else '已占领该地',items)
     def retreat(self, owner, aid, x, y):
         return self.retreat_many(owner,[aid],x,y)
     def retreat_many(self, owner, ids, x, y):
         self._action(owner);self._call('native:territory','check',x,y);period=self._period()
-        if not isinstance(ids,(list,tuple)) or not ids or len(set(ids))!=len(ids):raise ValueError('ids 须为非空且不重复的军队编号数组；单支军队用 aid')
-        units=[self._own_unit(owner,aid) for aid in ids];plans=[]
-        for unit in units:
+        units,items=self._selection(owner,ids);plans=[]
+        for unit,row in zip(units,items):
+            if unit is None:continue
             attacked=any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner) for v in self._units.at(unit.x,unit.y))
-            if unit.born_turn==period or unit.moved_turn==period or not (unit.engaged or attacked):raise ValueError('这支军队不能撤退：须正在交战或本格正被进攻，且本回合未行动、不是新兵')
-            if (x,y) not in self._call('native:territory','neighbors',unit.x,unit.y) or not self._pass(owner,x,y):raise ValueError('撤退目标非法：只能退到相邻格，且须是野地、自家或盟国格；敌国领土不能撤进去')
+            if unit.born_turn==period:row['reason']='新兵本回合不能撤退'
+            elif unit.moved_turn==period:row['reason']='本回合已移动或已提交撤退'
+            elif not (unit.engaged or attacked):row['reason']='未交战、未受进攻，无需撤退；请用 move 调动'
+            elif (x,y) not in self._call('native:territory','neighbors',unit.x,unit.y) or not self._pass(owner,x,y):row['reason']='撤退目标非法：只能退到相邻的野地、自家或盟国格'
             defender=not any(v.alive and v.engaged and v.owner==owner for v in self._units.at(unit.x,unit.y)) or self._call('native:territory','owner',unit.x,unit.y)==owner
             plans.append((unit,defender))
+        self._reject_batch(items)
         for unit,defender in plans:
             unit.update(retreat_to=(x,y),retreat_role='守' if defender else '攻',retreat_cover=RETREAT_DEF_COVER if defender else 100,moved_turn=period)
-        return MilitaryReceipt('submitted',tuple(ids),False,True,engaged=True,message='撤退已提交，本回合仍参加战斗，结算后才退出')
+        details=tuple({'aid':u.id,'status':'submitted','position_changed':False,'consumed_action':True,
+                       'retreat_role':'守' if defender else '攻','retreat_cover':RETREAT_DEF_COVER if defender else 100,
+                       'message':('守方' if defender else '攻方')+'撤退已提交；仍在原格参战，结算后才退出'} for u,defender in plans)
+        return MilitaryReceipt('submitted',tuple(ids),False,True,engaged=True,message='撤退已提交，本回合仍参加战斗，结算后才退出',items=details)
+
+    def disband_many(self, owner, ids):
+        self._action(owner);units,items=self._selection(owner,ids)
+        for u,row in zip(units,items):
+            if u is not None and not self.can_disband(owner,u.id):row['reason']='正在交战或受到进攻，须先撤退并等待结算'
+        self._reject_batch(items)
+        return tuple(self.disband(owner,u.id) for u in units)
     def can_disband(self, owner, aid):
         unit=self._own_unit(owner,aid)
         return not unit.engaged and not any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner) for v in self._units.at(unit.x,unit.y))
@@ -316,23 +383,59 @@ class Military:
         self._living(owner)
         units,eaters,need,used=self._feeding(owner);short=need-used
         loss=max(1,ARMY_STARVE_DAMAGE*short//need) if short else 0
-        healed, equipment = self._healing(owner, units) if not short else ([], 0)
+        plan=self._healing_plan(owner,units,bool(short))
+        eaters_ids={u.gid for u in eaters}
+        rows=[{**row,'position':(u.x,u.y),'kind':u.kind,'hp':u.hp,'max_hp':u.definition['hp'],
+               'supply_need':self._parameter(owner,'unit.supply.'+u.kind,u.definition['supply']) if u.gid in eaters_ids else 0,
+               'supply_exempt':u.gid not in eaters_ids,'starvation_damage':loss if u.gid in eaters_ids else 0}
+              for u,row in zip(units,plan)]
+        equipment_need=ceil(sum(row['equipment_need'] for row in rows))
+        equipment=sum(row['equipment_used'] for row in rows)
+        charge=ceil(equipment-1e-12)
         return {'period':self._period(),'need':need,'available':self._stock(owner,'native:supply'),
                 'used':used,'shortfall':short,'starvation_damage_per_unit':loss,
                 'starving_units':[u.id for u in eaters] if short else [],
                 'exempt_count':len(units)-len(eaters),
-                'healing_units':[u.id for u in healed], 'healing_equipment':equipment,
-                'assumptions':'按当前军队与库存只读预演；未计本期后续生产、行动或外交变化，不扣补给。'}
+                'healing_units':[row['aid'] for row in rows if row['healing_hp']], 'healing_equipment':charge,
+                'units':rows,'equipment_need':equipment_need,'equipment_available':self._stock(owner,'native:equipment'),
+                'equipment_shortfall':max(0,equipment_need-self._stock(owner,'native:equipment')),
+                'healing_hp':sum(row['healing_hp'] for row in rows),
+                'equipment_rounding':max(0.0,round(charge-equipment,12)),
+                'assumptions':'按当前军队与库存只读预演；未计本期后续生产、行动或外交变化，不扣资源。补给统一从全国库存扣除，缺口导致所有非免供军队受损，不按军队先后分粮。每件装备提供30HP总恢复量，合格正规军平均分配、满血余量再分，单支每期最多恢复30HP；全军按总恢复量向上取整扣装备，分摊份额可带小数。民兵独立免费恢复。'}
+
+    @staticmethod
+    def healing_policy(kind):
+        return {'hp_per_turn':ARMY_HEAL_PER_TURN,'equipment_per_30hp':0 if kind=='native:militia' else HEAL_EQUIP_COST}
+
+    def _healing_plan(self, owner, units, supply_short=False):
+        """逐军队列恢复条件与等分装备容量；查询和结算共用，不改变库存。"""
+        equipment=max(0,self._stock(owner,'native:equipment'));rows=[];regular=[]
+        for u in units:
+            fee=self.healing_policy(u.kind)['equipment_per_30hp'];need=0;used=0;hp=0
+            if not u.alive:status='dead'
+            elif u.hp>=u.definition['hp']:status='full'
+            elif any(o.engaged for o in self._units.at(u.x,u.y)):status='engaged'
+            else:
+                hp=min(ARMY_HEAL_PER_TURN,u.definition['hp']-u.hp)
+                need=hp/ARMY_HEAL_PER_TURN if fee else 0
+                if supply_short:status='supply_shortage';hp=0
+                elif fee:status='ready';regular.append((len(rows),hp))
+                else:status='ready'
+            rows.append({'aid':u.id,'equipment_per_heal':fee,'equipment_need':need,
+                         'equipment_used':used,'healing_hp':hp,'healing_status':status})
+        if regular:
+            shares=self.equal_allocation(equipment*ARMY_HEAL_PER_TURN,[need for _,need in regular])
+            for (index,demand),amount in zip(regular,shares):
+                rows[index]['healing_hp']=amount
+                rows[index]['equipment_used']=amount/ARMY_HEAL_PER_TURN
+                if amount+1e-12<demand:rows[index]['healing_status']='equipment_shortage'
+        return rows
 
     def _healing(self, owner, units):
         """预演与结算共用：同格交战、满血、装备不足均不进入恢复名单。"""
-        equipment=self._stock(owner,'native:equipment');healed=[];used=0
-        for u in units:
-            if not u.alive or u.hp>=u.definition['hp'] or any(o.engaged for o in self._units.at(u.x,u.y)):continue
-            fee=0 if u.kind=='native:militia' else HEAL_EQUIP_COST
-            if equipment<fee:continue
-            equipment-=fee;used+=fee;healed.append(u)
-        return healed,used
+        plan=self._healing_plan(owner,units)
+        share=sum(row['equipment_used'] for row in plan)
+        return [(u,row['healing_hp']) for u,row in zip(units,plan) if row['healing_hp']],ceil(share-1e-12)
 
     def supply(self, effects=()):
         self._write();self._sync();period=self._period();facts=self._facts;self._facts=[]
@@ -352,7 +455,7 @@ class Military:
             if equipment:costs['native:equipment']=equipment
             costs={key:value for key,value in costs.items() if value}
             if costs:self._call('native:resource-exchange','exchange',owner,costs,{})
-            for u in healed:u.heal(ARMY_HEAL_PER_TURN)
+            for u,amount in healed:u.heal(amount)
             if healed:self._event('healing',f'{self._name(owner)} {len(healed)}支军队各恢复至多{ARMY_HEAL_PER_TURN}HP，消耗装备{costs.get("native:equipment",0)}。',parties=(owner,))
             if costs:facts.append({'id':f'native:military/{owner.split(":",1)[1]}/{period}', 'owner':owner,'period':period,'category':'military','inputs':tuple(costs.items())})
             reports.append((owner,need,used,short,len(healed)))
@@ -439,16 +542,30 @@ class Military:
     @staticmethod
     def spread_damage(damage, units):
         if not units:return
-        if all(u.retreat_cover in (None,100) for u in units):
-            left=damage;rest=list(units)
-            while left>0 and rest:
-                quotient,remainder=divmod(left,len(rest))
-                for index,unit in enumerate(rest):
-                    take=min(unit.hp,quotient+(index<remainder));unit.take_damage(take);left-=take
-                rest=[u for u in rest if u.alive]
-        else:
-            quotient,remainder=divmod(damage,len(units))
-            for index,unit in enumerate(units):unit.take_damage((quotient+(index<remainder))*(unit.retreat_cover if unit.retreat_cover is not None else 100)//100)
+        ratios=[(u.retreat_cover if u.retreat_cover is not None else 100)/100 for u in units]
+        # Divide incoming damage equally. If a unit dies, its capped share is
+        # redistributed over survivors; protection remains individual.
+        caps=[float('inf') if ratio==0 else u.hp/ratio for u,ratio in zip(units,ratios)]
+        shares=Military.equal_allocation(damage,caps)
+        for unit,share,ratio in zip(units,shares,ratios):unit.take_damage(share*ratio)
+
+    @staticmethod
+    def equal_allocation(amount, limits):
+        """Water-fill equally, redistributing a capped member's unused share."""
+        allocated=[0.0]*len(limits);active={i for i,limit in enumerate(limits) if limit>0}
+        remaining=max(0.0,float(amount))
+        while active and remaining>1e-12:
+            share=remaining/len(active)
+            capped=[i for i in active if limits[i]-allocated[i]<=share+1e-12]
+            if not capped:
+                for i in active:allocated[i]+=share
+                break
+            spent=0.0
+            for i in capped:
+                amount=min(share,max(0.0,limits[i]-allocated[i]));allocated[i]+=amount
+                spent+=amount;active.remove(i)
+            remaining=max(0.0,remaining-spent)
+        return allocated
 
     def drain_events(self):
         self._write();result=tuple(deepcopy(self._events));self._events=[];return result

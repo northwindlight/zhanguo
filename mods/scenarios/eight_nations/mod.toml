@@ -1,6 +1,6 @@
 [Mod]
 Id = "scenario:eight-nations"
-Version = "1.0.0"
+Version = "1.2.0"
 Entry = "mods.scenarios.eight_nations.mod:EightNationsMod"
 Requires = ["native:diplomacy", "native:nations", "native:government", "native:intelligence"]
 After = ["native:diplomacy", "native:intelligence"]
@@ -9,7 +9,7 @@ After = ["native:diplomacy", "native:intelligence"]
 Needs = ["native:diplomacy", "native:nation-inspection", "native:government", "native:intelligence"]
 
 [Interfaces]
-"native:diplomacy" = ["configure_subject_alliance", "alliance", "snapshot"]
+"native:diplomacy" = ["configure_subject_alliance", "alliance", "snapshot", "seed_pact"]
 "native:nation-inspection" = ["ids", "snapshot", "get"]
 "native:government" = ["period"]
 "native:intelligence" = ["emit"]

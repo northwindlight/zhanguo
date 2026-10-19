@@ -107,7 +107,7 @@ def tools(runtime):
                             'required': [], 'anyOf': [{'required': ['aid']}, {'required': ['ids']}], 'additionalProperties': False},
                         description='免费遣散本国军队，aid 单支或 ids 数组批量；交战中不可遣散。立即停止维持并释放编制，不返还粮食、装备或金币。 军队选择统一为 aid 单个正整数或 ids 非空、不重复的正整数数组；双填仅允许 ids=[aid]。批量行动先校验整批，批量可达查询按 aid 分组返回。')
     reachable_tool = Tool('reachable', reachable, owner='native:army', api=('reachable',), read_only=True, panel=True,
-                          description='按本国军队 aid 列出可见合法移动目的地和路径代价；attack=true 列攻击可达地。只接军队编号，无需目标坐标，不透露迷雾路径。')
+                          description='按本国军队 aid 列出可见移动路线和路径代价；attack=true 列攻击路线。路线按地形与速度计算，不代表本回合尚有行动额度；批量逐军队给出行动状态。只接军队编号，无需目标坐标，不透露迷雾路径。')
     params = reachable_tool.schema()['function']['parameters']
     params['properties'].update(aid={'type': 'integer', 'minimum': 1},
                                 ids={'type': 'array', 'items': {'type': 'integer', 'minimum': 1}, 'minItems': 1, 'uniqueItems': True})
@@ -133,9 +133,9 @@ def tools(runtime):
         Tool('frontier', frontier, owner='native:army', api=('frontier',), read_only=True, fact=True, panel=True,
              description='全国可见无主地总数、本回合可行动军队逐支可及格数（units）、并集目的地与可拓荒地；无需坐标。'),
         Tool('logistics', logistics, owner='native:army', api=('logistics',), read_only=True, panel=True,
-             description='按本国当前军队、军屯与库存只读预演补给：需求、可用、缺口、免供支数和断粮损伤；不扣资源，不含后续生产与行动，无需参数。'),
+             description='军需面板：逐军队列补给需求、军屯免供、断粮损伤、回血装备需求/预计消耗和预计恢复HP，再汇总补给与装备库存、总需求、消耗和缺口。民兵回血不耗装备。只读预演，不扣资源，不含后续生产与行动，无需参数。'),
         Tool('unit_catalog', unit_catalog, owner='native:army', api=('unit_catalog',), read_only=True, fact=True, panel=True,
-             description='全部兵种目录：征召材料、满编HP、攻击、速度、地形移动代价与补给；应用本国政策，无需坐标。'),
+             description='全部兵种目录：征召材料、满编HP、攻击、速度、地形移动代价与补给；应用本国政策，无需坐标。 含每种兵种的恢复上限及装备规则；每件装备提供30HP总恢复量，由合格正规军平均分配，民兵免费恢复。'),
         Tool('threats', threats, owner='native:army', api=('threats',), read_only=True, fact=True, panel=True,
              description='全视野内其他国家的军队和当前关系，排除本国与野人；无需坐标。'),
         Tool('battle', battle, owner='native:army', api=('battle',), read_only=True, fact=True, panel=True,
@@ -152,6 +152,9 @@ def _army_line(ctx, unit):
     catalog = ctx._facts.get(ctx._actor, {}).get('unit_catalog', {})
     if unit['owner'] == ctx._actor and unit['kind'] in catalog:
         status += '｜' + ctx.text('tool.army.speed', speed=catalog[unit['kind']]['speed'])
+        healing=catalog[unit['kind']].get('healing')
+        if healing and unit['hp']<catalog[unit['kind']]['hp']:
+            status += '｜' + ctx.text('tool.army.healing_militia' if healing['equipment_per_30hp']==0 else 'tool.army.healing_regular',hp=healing['hp_per_turn'])
     reach = {row['id']: row.get('reach', 0) for row in (ctx._facts.get(ctx._actor, {}).get('frontier') or {}).get('units', [])}
     if unit['owner'] == ctx._actor and state == 'ready' and unit['id'] in reach:
         status += '｜' + ctx.text('tool.army.reach', count=reach[unit['id']])
@@ -198,7 +201,9 @@ def _reachable(data, args, actor, ctx):
     if not data:
         return ctx.text('tool.reachable.empty')
     if isinstance(data[0], dict) and 'destinations' in data[0]:
-        return '\n\n'.join(ctx.unit_ref(row['aid'], actor) + '\n' + _reachable(row['destinations'], args, actor, ctx) for row in data)
+        return '\n\n'.join(ctx.unit_ref(row['aid'], actor) + '｜' +
+            (ctx.text('tool.army.ready') if row.get('action_available',True) else row['action_reason']) + '\n' +
+            _reachable(row['destinations'], args, actor, ctx) for row in data)
     lines = [ctx.text('tool.reachable.header', count=len(data))]
     facts = ctx._facts.get(actor, {})
     visible = {tuple(tile['position']): tile for tile in facts.get('view', [])}
@@ -222,10 +227,21 @@ def _reachable(data, args, actor, ctx):
 
 
 def _logistics(data, args, actor, ctx):
-    lines = [ctx.text('tool.logistics.supply', **{key: _num(data[key]) for key in ('period', 'need', 'available', 'used', 'shortfall')}),
-             ctx.text('tool.logistics.damage', damage=_num(data['starvation_damage_per_unit']), exempt=_num(data['exempt_count']))]
-    if data['starving_units']:
-        lines.append(ctx.text('tool.logistics.units', units='、'.join(ctx.unit_ref(uid, actor) for uid in data['starving_units'])))
+    lines = [ctx.text('tool.logistics.head',period=data['period'])]
+    for row in data['units']:
+        lines.append(ctx.text('tool.logistics.row',unit=ctx.label('content',row['kind'])+'#'+str(row['aid']),
+                              place=ctx.pos(row['position'],actor=actor),hp=_num(row['hp']),max_hp=_num(row['max_hp']),
+                              supply=_num(row['supply_need']),exempt=ctx.text('tool.logistics.exempt') if row['supply_exempt'] else '',
+                              equipment=_num(row['equipment_need']),used=_num(row['equipment_used']),
+                              heal=_num(row['healing_hp']),damage=_num(row['starvation_damage']),
+                              status=ctx.text('tool.logistics.heal_'+row['healing_status'])))
+    if not data['units']:lines.append(ctx.text('tool.army.empty'))
+    lines += [ctx.text('tool.logistics.supply', **{key: _num(data[key]) for key in ('period', 'need', 'available', 'used', 'shortfall')}),
+              ctx.text('tool.logistics.equipment',need=_num(data['equipment_need']),available=_num(data['equipment_available']),
+                       used=_num(data['healing_equipment']),
+                       shares=_num(sum(row['equipment_used'] for row in data['units'])),
+                       shortfall=_num(data['equipment_shortfall']),hp=_num(data['healing_hp'])),
+              ctx.text('tool.logistics.damage', damage=_num(data['starvation_damage_per_unit']), exempt=_num(data['exempt_count']))]
     lines.append(ctx.text('tool.logistics.assumptions'))
     return '\n'.join(lines)
 
@@ -258,6 +274,7 @@ def _unit_catalog(data, args, actor, ctx):
     return ctx.text('tool.unit_catalog.head') + '\n' + '\n'.join(
         ctx.text('tool.unit_catalog.row', name=ctx.label('content', key), recruit=ctx.resources(value['recruit']),
                  hp=value['hp'], atk=value['atk'], speed=value['speed'], supply=value['supply']) +
+        ('｜' + ctx.text('tool.army.healing_militia' if value['healing']['equipment_per_30hp']==0 else 'tool.army.healing_regular',hp=value['healing']['hp_per_turn']) if value.get('healing') else '') +
         ('｜' + ctx.text('tool.move_costs', values='、'.join(ctx.label('content', terrain) + ' ' + _num(cost) for terrain, cost in value['move_cost'].items())) if value.get('move_cost') else '')
         for key, value in data.items())
 
@@ -278,23 +295,31 @@ def _recruit(args, receipt, actor, ctx):
 def _movement_receipt(action):
     def render(args, receipt, actor, ctx):
         data = receipt.get('data')
+        if isinstance(data, list) and action == 'disband':
+            return '\n'.join(render(args,{**receipt,'data':row},actor,ctx) for row in data)
         if not isinstance(data, dict):
             return None
+        if data.get('reason') == 'batch_rejected':
+            return '❌ ' + ctx.text('tool.batch.rejected') + '\n' + '\n'.join(
+                ctx.unit_ref(row['aid'],actor)+'：'+row['message'] for row in data['items'])
+        if not receipt.get('ok',True) and data.get('status')!='failed':return None
+        details='\n'.join(ctx.unit_ref(row['aid'],actor)+'：'+row['message'] for row in data.get('items',[]))
+        def detailed(text):return text+('\n'+details if details else '')
         if data.get('status') == 'failed':
-            return '❌ ' + data.get('message', '')
+            return detailed('❌ ' + data.get('message', ''))
         units = '、'.join(ctx.unit_ref(i, actor) for i in data.get('units', []))
         where = ctx.pos(args=args, actor=actor)
         if action == 'disband':
             return ctx.text('tool.disband.done', units=units)
         if action == 'retreat':
-            return ctx.text('tool.retreat.done', units=units, place=where)
+            return detailed(ctx.text('tool.retreat.done', units=units, place=where))
         if action == 'attack':
             if data.get('occupied'):
-                return ctx.text('tool.attack.occupied', units=units, place=where)
+                return detailed(ctx.text('tool.attack.occupied', units=units, place=where))
             if data.get('engaged'):
-                return ctx.text('tool.attack.engaged', units=units, place=where)
+                return detailed(ctx.text('tool.attack.engaged', units=units, place=where))
             return ctx.text('tool.attack.none', units=units, place=where)
-        return ctx.text('tool.move.done', units=units, place=where)
+        return detailed(ctx.text('tool.move.done', units=units, place=where))
     return render
 
 
@@ -314,6 +339,7 @@ RECEIPTS = {
     'attack': _movement_receipt('attack'),
     'retreat': _movement_receipt('retreat'),
     'disband': _movement_receipt('disband'),
+    'reachable': _movement_receipt('reachable'),
 }
 
 

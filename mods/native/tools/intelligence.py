@@ -123,7 +123,12 @@ def _countries(data, args, actor, ctx):
     for row in data:
         tags = [ctx.text('tool.relation.' + row['relation'])]
         for pact in row.get('treaties', []):
-            tags.append(ctx.text('tool.intel.defense' if pact['kind'] == 'defense' else 'tool.intel.guarantee_' + pact['direction']))
+            if pact['kind']=='defense':tags.append(ctx.text('tool.intel.defense'))
+            else:
+                own=ctx.name(actor,ctx._names);other=row['name']
+                outgoing=pact['direction']=='outgoing'
+                tags.append(ctx.text('tool.diplomacy.guarantee_direction',
+                                     protector=own if outgoing else other, protected=other if outgoing else own))
         if row['border']:
             tags.append(ctx.text('tool.intel.border'))
         if row.get('letter_count'):

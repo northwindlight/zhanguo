@@ -61,8 +61,9 @@ STARTS = {
     "楚": (11, 19),   # 江南
 }
 
-COVENANT = ("🕊 七雄共誓：{who} 共保 周王室 独立"
-            "——谁**宣战**周，七雄按保障自动参战（周王室自己不出一兵，靠的是这七张纸）。"
+COVENANT = ("🕊 七雄共誓：{who} 各自保障周王室独立。保障人是七雄，受保护国是周；周没有反向保障七雄。"
+            "第三方宣战周时，仍有有效保障义务且未受休战阻挡的保障国加入周的防守方。"
+            "赵宣战燕不会因这七条初始保障召来周；新增条约与联盟另看当前外交事实。"
             "★★ 大字：这张纸**只在「宣战」那一刻响一次**，此后已在战线上的人再打它、夺它的地，"
             "**不再触发任何条约**——**反击无罪，敢打就打**")
 
@@ -71,7 +72,7 @@ COVENANT = ("🕊 七雄共誓：{who} 共保 周王室 独立"
 #
 # ★ **八国同一份文案**（用户 2026-09-21：「改成相同的文案，让他们知道周的目标」）——
 #   不再给周王室单写一段：所有人都该知道别人要什么，这才叫"大势"。
-# 尊王路线由轻量剧本钩子在完整周期末判定，周与全部周天下成员共同胜利。
+# 尊王路线由轻量剧本钩子在完整周期末判定，仅周获胜，其他成员臣属保全（未胜未败，不列入主胜或次胜）。
 # ★ 2026-09-22 用户补的一条（原话）：「**周一样可以完成最终胜利，且周可以打别国，别国不能
 #   打周，独立保障是单项保护，防御条约才双向，一旦周开始建立周天下，那么所有的独立保障
 #   立刻失效**」——**这不是新机制，是现有机制**（用户明说「这不是机制，是现有机制就这样，
@@ -135,8 +136,6 @@ def build(size=SIZE, seed=SEED, starts=STARTS, nations=NATIONS, *, announce=True
                 client.cfg=host._client_cfg(item)
     ids={item['name']:item['id'] for item in host.cfg['nations']}
     if ZHOU in ids:
-        for name in nations:
-            if name!=ZHOU:host.world.diplomacy.seed_pact('guarantee',ids[name],ids[ZHOU])
         if announce:host.world.intelligence.emit('announcement',COVENANT.format(who='、'.join(n for n in nations if n!=ZHOU)),public=True)
     return host
 

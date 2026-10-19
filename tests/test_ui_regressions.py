@@ -158,7 +158,7 @@ class TestUIRegressions(unittest.TestCase):
     def test_treaty_direction_is_public_and_rendered(self):
         h=self.host();w=h.world
         w.diplomacy.seed_pact('guarantee',Q,C)
-        text=self.present(h,'countries');self.assertIn('本实体保障它',text)
+        text=self.present(h,'countries');self.assertIn('保障人：秦；受保护方：楚',text)
         row=h.player(C).call_api('native:intelligence','countries')[0]
         self.assertIn({'kind':'guarantee','direction':'incoming'},row['treaties'])
         w.diplomacy.seed_pact('defense',Q,C)
