@@ -51,6 +51,8 @@ def _plan(args, receipt, actor, ctx):
 
 
 def _end_turn(args, receipt, actor, ctx):
+    if not receipt.get('ok'):
+        return None  # 失败交给通用错误渲染，不能把提交的小结当作成功回执。
     data = receipt.get('data')
     text = data.get('text', args.get('summary', '')) if isinstance(data, dict) else args.get('summary', '')
     result = ctx.text('tool.end_turn.summary', text=text)

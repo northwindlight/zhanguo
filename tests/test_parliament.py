@@ -68,6 +68,32 @@ class TestParliament(unittest.TestCase):
         return [reply(call('p','plan',text=text),call('e','end_turn',summary='国策尚待解释')),
                 reply(call('x','explain_plan',text='确实仍在施工，我将纠正表述并于下回合重提'),call('e2','end_turn',summary='完成解释等待下回合修订'))]
 
+    def test_rejected_end_turn_shows_required_explanation_and_then_really_ends(self):
+        h,c=self.host([False],self.rejected_turn('修订国策时错误声称工厂已经落成'))
+        p=h.player(self.actor);states=[]
+        receipts=c.play(p,on_call=lambda *args:states.append(p.action_state()['can_act']))
+        failed=receipts[1];finished=receipts[-1]
+        self.assertFalse(failed['ok'])
+        self.assertIn('explain_plan',failed['message'])
+        request=c._backend.requests[1]
+        failed_text=next(m['content'] for m in request if m.get('role')=='tool' and m.get('tool_call_id')=='e')
+        self.assertTrue(failed_text.startswith('❌'),failed_text)
+        self.assertIn('explain_plan',failed_text)
+        self.assertNotIn('回合小结',failed_text)
+        self.assertNotIn('国策尚待解释',failed_text)
+        h.ui.console.remember(p.observe())
+        displayed=h.ui.console.action(h.clock(),self.actor,'end_turn',{'summary':'国策尚待解释'},failed,{self.actor:'韩'})
+        self.assertIn('❌',displayed)
+        self.assertIn('explain_plan',displayed)
+        self.assertNotIn('回合小结',displayed)
+        self.assertEqual(states,[True,False])
+        self.assertTrue(finished['ok'])
+        self.assertFalse(p.observe()['can_act'])
+        self.assertEqual(len(c._backend.requests),2)
+        self.assertEqual(len(c.state.summaries),1)
+        self.assertEqual(c.state.summaries[0]['text'],'完成解释等待下回合修订')
+        assert_paired(c.state.replay[-1]['messages'])
+
     def test_two_steps_use_actual_receipts_maps_economy_and_hide_new_plan_from_first(self):
         site=self.actor+'/land-6-6'
         h,c=self.host([True],[reply(call('b','build',site=site,kind='native:farm'),

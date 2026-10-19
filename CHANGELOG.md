@@ -1,5 +1,10 @@
 # 更新记录
 
+## 未发布 — 结束回合失败回执
+
+- 修复 `end_turn` 被拒绝时仍显示“回合小结”的问题。缺少有效国策、国策被否决但尚未解释等失败，现在向模型和看海端显示真实错误，不能把提交的小结误当作结束成功。
+- 合成议会回归覆盖“修订被否决 → 结束被拒绝并收到 explain_plan 要求 → 提交解释 → 成功结束”：失败不写成功小结、不停止行动，最终只保存一次成功小结，工具调用与回执配对完整。
+
 ## 未发布 — 组合根与呈现层解耦
 
 - 引擎不再导入 UI：`Session` 接收宿主注入的 `presentation`，`GameHost` 装配时创建 `UILayer` 并传入；`Session.board` 与 `NativeObserver` 改用注入对象。`configure_components` 移到 UI 网关（选择 UI Mod、组合呈现字段），`engine/config.py` 不再引用 UI。
