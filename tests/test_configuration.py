@@ -7,7 +7,8 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock,patch
 
-from engine.config import ConfigError,Field,Schema,configure_components,read_config
+from engine.config import ConfigError,Field,Schema,read_config
+from ui import configure_components
 from engine.runtime import Runtime
 from host import GameHost,ROOT
 from tests import test_session_api as counter

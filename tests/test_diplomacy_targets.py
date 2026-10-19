@@ -1,5 +1,6 @@
 """Diplomatic entity addressing and actionable offer views; synthetic games only."""
 from pathlib import Path
+from clients.model_view import model_view_for
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -27,7 +28,7 @@ class DiplomaticTargets(unittest.TestCase):
                 self.assertFalse(z['can_accept']);self.assertFalse(z['can_reject'])
                 self.assertEqual(z['response_actor'],Q)
                 observation=h.player(Z).observe()
-                dashboard=h.ui.llm({}).dashboard(observation)
+                dashboard=model_view_for(h.ui, {}).dashboard(observation)
                 self.assertFalse(dashboard['diplomacy_todo'].get('offers'))
                 self.assertEqual(dashboard['diplomacy_waiting_offers'][0]['id'],q['id'])
                 h.ui.console.remember(observation)

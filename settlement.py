@@ -85,6 +85,7 @@ def run_chat(data,rows,cfg,rounds,log=print,remarks=None,backend_factory=None):
     from clients.provider import make_backend
     from clients.config import normalize
     from clients.context import build
+    from clients.model_view import ModelView
     from ui import load_ui
     backend_factory=backend_factory or make_backend
     config={n['id']:normalize(n,defaults=cfg) for n in cfg.get('nations',[])}
@@ -98,7 +99,8 @@ def run_chat(data,rows,cfg,rounds,log=print,remarks=None,backend_factory=None):
             try:
                 if actor not in histories:
                     state=data['clients'][actor].get('state',{})
-                    ui=load_ui(item).llm(item)
+                    presentation=load_ui(item)
+                    ui=ModelView(item,presentation=presentation)
                     history,_=build(cfg=item,mem=state.get('replay',[]),sums=state.get('summaries',[]),blocks=state.get('blocks',[]),
                         long_memory=state.get('long_memory',''),system_text=f'你是{row["name"]}的君主，游戏已结束。你在结算厅复盘，不能行动。',
                         tail_text='本国结局：'+outcome_text(row)+'。最终成绩单按累计四类消费排名，消费名次不等同剧本胜负；GDP/军力/领土/建筑只供参考：\n'+board,

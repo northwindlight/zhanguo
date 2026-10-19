@@ -174,7 +174,14 @@ class TestPlayerClients(unittest.TestCase):
                     names=[a.name for a in node.names] if isinstance(node,ast.Import) else [node.module or ''] if isinstance(node,ast.ImportFrom) else []
                     self.assertFalse(any(name=='mp' or name=='game' or name.startswith('mods.') for name in names),path)
         for path in (ROOT/'engine').glob('*.py'):
-            self.assertNotIn('from ruleai',path.read_text(encoding='utf-8'));self.assertNotIn('from clients',path.read_text(encoding='utf-8'))
+            text=path.read_text(encoding='utf-8')
+            self.assertNotIn('from ruleai',text);self.assertNotIn('from clients',text)
+            self.assertNotIn('from ui',text);self.assertNotIn('import ui',text)
+
+    def test_ui_mod_does_not_import_client_code(self):
+        for path in (ROOT/'mods/ui').glob('*.py'):
+            text=path.read_text(encoding='utf-8')
+            self.assertNotIn('from clients',text);self.assertNotIn('import clients',text)
 
 
 class TestSessionHost(unittest.TestCase):

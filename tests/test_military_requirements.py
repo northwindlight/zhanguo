@@ -1,5 +1,6 @@
 """逐军军需和批量回执：只使用合成世界，逐项核对实际副作用。"""
 from copy import deepcopy
+from clients.model_view import model_view_for
 import unittest
 
 from engine.player import wire
@@ -72,7 +73,7 @@ class TestMilitaryRequirements(unittest.TestCase):
         self.assertEqual(econ['preview']['military'],data)
         self.assertEqual(econ['preview']['inputs']['native:equipment'],0)
         for language in ('zh-CN','en-US'):
-            view=h.ui.llm({'language':language});state,_=view.state(obs,[])
+            view=model_view_for(h.ui, {'language':language});state,_=view.state(obs,[])
             from presentation.console import ConsoleUI
             console=ConsoleUI({'language':language},tool_layer=w.runtime.tool_layer)
             rendered=w.runtime.tool_layer.panel('logistics',data,{},Q,console)

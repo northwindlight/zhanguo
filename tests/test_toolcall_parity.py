@@ -1,5 +1,6 @@
 """Public guides, national panels and client memory over synthetic games."""
 from copy import deepcopy
+from clients.model_view import model_view_for
 import json
 from tempfile import TemporaryDirectory
 from pathlib import Path
@@ -30,7 +31,7 @@ class ToolcallParity(unittest.TestCase):
             if experimental:
                 service=h.services[Q]['council']
                 self.assertEqual(service._manual(p,'兵营')['title'],'兵营')
-            ui=h.ui.llm(h.cfg);ui.rules(p.rules('all'));obs=p.observe();ui.state(obs,[])
+            ui=model_view_for(h.ui, h.cfg);ui.rules(p.rules('all'));obs=p.observe();ui.state(obs,[])
             self.assertIn('query(panel=',ui.system())
             self.assertTrue(p.rules('建筑与能源'))
 

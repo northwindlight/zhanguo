@@ -1,5 +1,6 @@
 """Player query boundary and model state usability, without network calls."""
 from copy import deepcopy
+from clients.model_view import model_view_for
 import json
 import unittest
 
@@ -34,7 +35,7 @@ class TestDecisionUI(unittest.TestCase):
     def test_default_state_has_catalogs_prices_shortfalls_and_plan_purpose(self):
         for experimental in (False,True):
             h=self.host(experimental);p=h.player(Q);obs=p.observe();before=deepcopy(obs)
-            ui=h.ui.llm(h.cfg);ui.actions(p.actions());tail,_=ui.state(obs,[])
+            ui=model_view_for(h.ui, h.cfg);ui.actions(p.actions());tail,_=ui.state(obs,[])
             self.assertEqual(obs,before)
             # 目录与规则不进常驻载荷，按需查询。
             self.assertNotIn('costs_by_level',ui.system())
@@ -93,7 +94,7 @@ class TestDecisionUI(unittest.TestCase):
             self.assertTrue(p.submit('end_turn',{'summary':'UNIQUE-HISTORY-小结应由客户端记忆保管'})['ok'])
             receipt=p.submit('government');before=deepcopy(receipt);saved=h.runtime.save_mod_state(h.world)
             self.assertTrue(receipt['data']['summaries'])
-            ui=h.ui.llm(h.cfg);presented=ui.receipt(receipt,{})
+            ui=model_view_for(h.ui, h.cfg);presented=ui.receipt(receipt,{})
             self.assertNotIn('UNIQUE-HISTORY',presented)
             self.assertIn('持续经营并维持和平的有效国策',presented)
             self.assertEqual(receipt,before);self.assertEqual(h.runtime.save_mod_state(h.world),saved)

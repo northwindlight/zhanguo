@@ -1,5 +1,6 @@
 """Observer and compact action contracts, using synthetic games and fake models."""
 from copy import deepcopy
+from clients.model_view import model_view_for
 import contextlib
 import io
 import json
@@ -135,7 +136,7 @@ class TestObserver(unittest.TestCase):
                  'details':{'importance':'major'}}]
         events.extend({'id':i,'period':0,'kind':'action','text':f'普通行动{i}'} for i in range(2,32))
         before=deepcopy(events)
-        text,_=h.ui.llm({'model_state_tokens':12000}).state(observation,events)
+        text,_=model_view_for(h.ui, {'model_state_tokens':12000}).state(observation,events)
         # 重大公告必须进简报；普通行动按最近十条取，不能把大事挤出窗口。
         self.assertIn('联盟创建失败',text)
         self.assertLessEqual(text.count('普通行动'),10)
@@ -490,7 +491,7 @@ class TestShortKeys(unittest.TestCase):
         for experimental in (False,True):
             cfg={'map_size':12,'seed':17,'nations':[{'id':'s:q','name':'秦'}]}
             if experimental:cfg['mods']='mods.experimental.toml'
-            h=GameHost.new(cfg);p=h.player('s:q');ui=h.ui.llm(h.cfg)
+            h=GameHost.new(cfg);p=h.player('s:q');ui=model_view_for(h.ui, h.cfg)
             ui.actions(p.actions())
             self.assertEqual('【内置 Python】' in ui.system(),experimental)
             if experimental:
@@ -509,7 +510,7 @@ class TestShortKeys(unittest.TestCase):
         for language,building,resource in (('zh-CN','农场','粮食'),('en-US','farm','food')):
             with self.subTest(language=language):
                 cfg={'map_size':12,'seed':17,'language':language,'nations':[{'id':'s:q','name':'秦','client':'llm'}]}
-                h=GameHost.new(cfg);p=h.player('s:q');ui=h.ui.llm(h.cfg)
+                h=GameHost.new(cfg);p=h.player('s:q');ui=model_view_for(h.ui, h.cfg)
                 schemas={s['function']['name']:s['function'] for s in ui.actions(p.actions())}
                 self.assertIn(building,schemas['build']['parameters']['properties']['kind']['enum'])
                 self.assertIn(resource,ui.state(p.observe(),[])[0])
@@ -521,7 +522,7 @@ class TestShortKeys(unittest.TestCase):
     def test_model_compaction_preserves_prose_and_raw_api_facts(self):
         """简报比原始事实短，键值随语言走，内部 ID 不外泄，正文不被改词。"""
         h=GameHost.new({'map_size':12,'seed':17,'nations':[{'id':'s:q','name':'秦'}]})
-        obs=h.player('s:q').observe();before=deepcopy(obs);ui=h.ui.llm(h.cfg)
+        obs=h.player('s:q').observe();before=deepcopy(obs);ui=model_view_for(h.ui, h.cfg)
         raw=json.dumps({'state':obs,'events':[]},ensure_ascii=False)
         text,_=ui.state(obs,[])
         self.assertLess(len(text),len(raw));self.assertEqual(obs,before)

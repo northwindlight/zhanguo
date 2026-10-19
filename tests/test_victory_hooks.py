@@ -1,5 +1,6 @@
 """Distribution-mounted programs and diplomacy consequences, entirely offline."""
 from copy import deepcopy
+from clients.model_view import model_view_for
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
@@ -279,7 +280,7 @@ class VictoryHooks(TestCase):
     def test_rules_reach_monarch_after_opening_and_council_from_start(self):
         cfg=build_config({'mods':'mods.experimental.toml','nations':[{'client':'llm','model':'fake'}]})
         h=build(config=cfg);actor=IDS['秦'];client=h.clients[actor]
-        ui=h.ui.llm(client.cfg);obs=h.player(actor).observe();obs['period']=25
+        ui=model_view_for(h.ui, client.cfg);obs=h.player(actor).observe();obs['period']=25
         ui.state(obs,[])
         self.assertIn(CHARTER,ui.system())
         self.assertIn(CHARTER,h.services[actor]['council'].cfg['extra_summary'])

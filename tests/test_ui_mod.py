@@ -1,5 +1,6 @@
 """UI mod assembly, public map safety, language keys and offline wire formats."""
 from copy import deepcopy
+from clients.model_view import model_view_for
 import io
 import json
 from pathlib import Path
@@ -52,7 +53,7 @@ class TestUIMod(unittest.TestCase):
             with self.subTest(vision=vision):
                 h=GameHost.new({'map_size':12,'seed':73,'vision':vision,
                                 'nations':[{'id':Q,'name':'秦','client':'llm'},{'id':C,'name':'楚','client':'llm'}]})
-                ui=h.ui.llm(h.cfg);tail,image=ui.state(h.player(Q).observe(),[])
+                ui=model_view_for(h.ui, h.cfg);tail,image=ui.state(h.player(Q).observe(),[])
                 tiles=[line for line in tail.splitlines() if line.startswith('(')]
                 self.assertEqual(bool(tiles),doubled)
                 self.assertEqual(image is not None,vision)
@@ -107,7 +108,7 @@ class TestUIMod(unittest.TestCase):
             'parameters':{'type':'object','properties':{'kind':{'type':'string','enum':['native:gold'],'description':'old'}}}}}]
         original=deepcopy(schemas)
         ui=load_ui({'ui_catalog':{'tools.custom.description':'new','tools.custom.parameters.properties.kind.description':'kind'}})
-        result=ui.llm({**ui.cfg}).actions(schemas)
+        result=model_view_for(ui, {**ui.cfg}).actions(schemas)
         self.assertEqual(result[0]['function']['description'],'new')
         self.assertEqual(result[0]['function']['parameters']['properties']['kind']['enum'],['native:gold'])
         self.assertEqual(schemas,original)
@@ -140,7 +141,7 @@ class TestUIMod(unittest.TestCase):
 
     @unittest.skipUnless(PIL_AVAILABLE, 'Pillow is not installed')
     def test_openai_and_anthropic_receive_same_png_without_mutating_history(self):
-        host=self.host();obs=host.player('scenario:qin').observe();view=host.ui.llm(host.cfg)
+        host=self.host();obs=host.player('scenario:qin').observe();view=model_view_for(host.ui, host.cfg)
         tail,image=view.state(obs,[]);message={'role':'user','content':tail,ctx.MAP_KEY:image}
         original=deepcopy(message)
         openai=_public_messages([message],renderer=host.ui.expand_message)

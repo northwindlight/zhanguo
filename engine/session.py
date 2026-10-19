@@ -35,12 +35,12 @@ def write_json(path,data):
 
 
 class Session:
-    def __init__(self,runtime,cfg,client_factory):
+    def __init__(self,runtime,cfg,client_factory,presentation=None):
         self.runtime=runtime;self.cfg=deepcopy(cfg);self.client_factory=client_factory
         self.world=runtime.world_class()()
         runtime.check_interfaces(self.world)
-        from ui import load_ui
-        self.ui=load_ui(self.cfg,runtime=runtime)
+        # The composition root injects presentation; the engine never imports a UI.
+        self.presentation=presentation
         self.clients={};self.roster={};self.lock=threading.RLock();self.last_results=[]
         self.scenario_text='';self._boundary=True
         self.victory_event=None
@@ -236,7 +236,7 @@ class Session:
             raise
 
     def _grants(self,item,declarations):
-        grants={'ui':self.ui,'notify':lambda text:self._emit(text) if self._emit else None}
+        grants={'ui':self.presentation,'notify':lambda text:self._emit(text) if self._emit else None}
         for alias,spec in declarations.items():
             capability=spec['Capability'];methods=tuple(spec['Methods'])
             owner=self.runtime.capabilities.get(capability)
@@ -493,4 +493,5 @@ class Session:
     def board(self):
         rows=getattr(self,'board_rows',None)
         if not callable(rows):raise ModError('当前发行版不支持终端面板')
-        return self.ui.console.board(rows())
+        if self.presentation is None:raise ModError('当前会话没有装配呈现层')
+        return self.presentation.console.board(rows())

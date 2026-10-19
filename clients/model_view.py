@@ -23,7 +23,12 @@ FALLBACK={'capital':'frontier','threats':'threats','battle':'battle','territory'
 
 
 class ModelView:
-    def __init__(self,cfg,tool_layer=None):
+    def __init__(self,cfg,tool_layer=None,presentation=None):
+        if presentation is not None:
+            if tool_layer is None:
+                tool_layer=getattr(presentation,'tool_layer',None)
+            keys=getattr(getattr(presentation,'cfg',None),'get',lambda *_:None)('_content_keys',{})
+            cfg={**cfg,'_content_keys':keys or {}}
         self.cfg=cfg;self.text=Translator.from_config(cfg,tool_layer=tool_layer);self.sites={};self.has_scripts=False
         self.catalogs={};self.rulebook=[];self.period=0;self.at_war=False;self.polity=None
         # 模型与观察者共用同一套中文渲染器；差别只在成文后的排序与裁剪。
@@ -234,3 +239,8 @@ class ModelView:
 
     def context_plan(self,p):
         return context_plan(self.text,p)
+
+
+def model_view_for(presentation, cfg):
+    """Build the model view for a mounted presentation adapter."""
+    return ModelView(cfg, presentation=presentation)

@@ -1,5 +1,6 @@
 """Restore legacy design constraints through public facts, without real saves/models."""
 from copy import deepcopy
+from clients.model_view import model_view_for
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -55,7 +56,7 @@ class TestUIRegressions(unittest.TestCase):
         self.assertIn('loan_rate',facts['bank'])
 
     def test_model_briefing_shows_published_report_with_window_and_growth(self):
-        h=self.host();player=h.player(Q);view=h.ui.llm({})
+        h=self.host();player=h.player(Q);view=model_view_for(h.ui, {})
         observation=player.observe()
         self.assertIsNone(observation['facts']['econ']['latest_report'])
         text,_=view.state(observation,[])
@@ -145,7 +146,7 @@ class TestUIRegressions(unittest.TestCase):
         for value in ('y\\x','A=秦','厅×1','步1',f'({x},{y})'):self.assertIn(value,text)
         self.assertNotIn('secret:',text);self.assertNotIn('888',text)
         self.assertEqual(before,obs)
-        ui=h.ui.llm({'vision':True});_,image=ui.map_context(obs)
+        ui=model_view_for(h.ui, {'vision':True});_,image=ui.map_context(obs)
         self.assertIn('步1',image['fallback'])
         self.assertIn('y\\x',image['fallback'])
 
@@ -262,7 +263,7 @@ class TestUIRegressions(unittest.TestCase):
         h=self.host();obs=h.player(Q).observe()
         supplied=[{'position':[1,1],'name':'守城验收','enemies':[]}]
         obs['facts']['frontier']['capital_warning']=supplied
-        ui=h.ui.llm({});self.assertEqual(ui.dashboard(obs)['capital_warning'],supplied)
+        ui=model_view_for(h.ui, {});self.assertEqual(ui.dashboard(obs)['capital_warning'],supplied)
         del obs['facts']['frontier']['capital_warning']
         self.assertEqual(ui.dashboard(obs)['capital_warning'],[])
 
@@ -287,7 +288,7 @@ class TestUIRegressions(unittest.TestCase):
         ui=ConsoleUI({});text=ui.event(occupation,{Q:'秦',C:'楚'})
         for value in ('楚失地','秦得地','核心属楚','市政厅×1'):self.assertIn(value,text)
         h=self.host();obs=h.player(Q).observe();noise=[{'id':occupation['id']+i+1,'period':2,'kind':'action','text':'普通动作'} for i in range(30)]
-        text=h.ui.llm({}).state(obs,[occupation,*noise])[0]
+        text=model_view_for(h.ui, {}).state(obs,[occupation,*noise])[0]
         self.assertIn('秦得地',text)
 
     def test_occupation_distinguishes_wilderness_from_vacated_former_territory(self):

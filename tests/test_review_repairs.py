@@ -1,5 +1,6 @@
 """API/tool 审查缺口的行为回归；只用合成世界与模拟后端。"""
 from copy import deepcopy
+from clients.model_view import model_view_for
 import json
 import unittest
 from unittest.mock import patch
@@ -78,7 +79,7 @@ class TestReviewRepairs(unittest.TestCase):
         text = '我承诺下回合赠送五十木料以换取共同防御'
         args = {'action': 'send_letter', 'target': C, 'text': text}
         receipt = p.submit('intelligence', args)
-        ui = h.ui.llm({}); ui._remember(p.observe())
+        ui = model_view_for(h.ui, {}); ui._remember(p.observe())
         rendered = ui.receipt(receipt, args)
         self.assertNotIn(text, rendered)  # 成功回执本来只报告字数与费用。
         calls = [{'function': {'name': 'intelligence', 'arguments': json.dumps(args, ensure_ascii=False)}}]
@@ -205,13 +206,13 @@ class TestReviewRepairs(unittest.TestCase):
         obs = h.player(Q).observe(); preview = obs['facts']['econ']['preview']
         self.assertEqual(before, w.runtime.save_mod_state(w))
         self.assertEqual(preview['military']['healing_equipment'], 1)
-        cues = h.ui.llm({}).dashboard(obs)
+        cues = model_view_for(h.ui, {}).dashboard(obs)
         self.assertEqual(cues['energy_capacity'], preview['energy'])
         self.assertEqual(cues['planned_regular_inputs'], preview['inputs'])
         # 即使呈现目录缺失，公开预演仍是唯一事实来源，UI 不重新实施规则。
         slim = deepcopy(obs)
         for key in ('unit_catalog', 'building_catalog', 'army'):slim['facts'].pop(key, None)
-        self.assertEqual(h.ui.llm({}).dashboard(slim)['planned_regular_inputs'], preview['inputs'])
+        self.assertEqual(model_view_for(h.ui, {}).dashboard(slim)['planned_regular_inputs'], preview['inputs'])
         equipment = w.resources.balance(Q, 'native:equipment')
         w.military.supply()
         self.assertEqual(equipment-w.resources.balance(Q, 'native:equipment'), preview['military']['healing_equipment'])

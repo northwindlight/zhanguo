@@ -1,6 +1,7 @@
 """Mini's independent configuration contract, without native dependencies."""
 import hashlib
-from engine.config import ConfigError, Field, Schema, configure_components
+from engine.config import ConfigError, Field, Schema
+from ui import configure_components
 from engine.identifiers import content_id
 
 

@@ -1,5 +1,6 @@
 """Real production, persistence and AI presentation of carried tribute fractions."""
 from copy import deepcopy
+from clients.model_view import model_view_for
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -125,7 +126,7 @@ class TributeAccumulation(TestCase):
                             self.assertEqual(row['subject'],C)
                             self.assertEqual(row['remainders']['native:food'],0.9)
                             self.assertNotIn('outputs',row)
-                        ui=h.ui.llm({'language':language});ui.state(obs,[])
+                        ui=model_view_for(h.ui, {'language':language});ui.state(obs,[])
                         receipt=ui.receipts.receipt_body('econ',{},result,actor)
                         briefing=ui.state(obs,[])[0]
                         for text in (receipt,briefing):

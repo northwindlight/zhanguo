@@ -1,6 +1,7 @@
 """Native owns national scenarios; components own their inherited settings."""
 import hashlib
-from engine.config import ConfigError, Field, Schema, configure_components
+from engine.config import ConfigError, Field, Schema
+from ui import configure_components
 from engine.identifiers import content_id
 
 SCENARIO=Schema({'map_size':Field((int,),minimum=1),'seed':Field((int,),nullable=True),

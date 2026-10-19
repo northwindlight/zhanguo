@@ -6,6 +6,7 @@ from pathlib import Path
 from clients import context as ctx
 from engine.deltas import difference
 from clients.llm import assert_paired
+from clients.model_view import ModelView
 from clients.provider import make_backend,REPLAY_KEY
 from presentation.facts import map_presentation
 
@@ -67,7 +68,7 @@ class CouncilService:
 
     def __init__(self,cfg,*,record=None,services,review_backend=None):
         self.cfg=deepcopy(cfg)
-        self.presentation=services['ui'];self.ui=self.presentation.llm(cfg)
+        self.presentation=services['ui'];self.ui=ModelView(cfg,presentation=self.presentation)
         self._invalidate=services['invalidate'];self._period=None
         self._notify=services.get('notify',lambda text:None)
         self._government=services['government'];self._review_backend=review_backend
@@ -396,7 +397,7 @@ class CouncilService:
         dialogue.append({'role':'user','content':self.ui.text('experimental.review_first')+encode(evidence)})
         # Reviewer sees the same actor-filtered map through the selected UI mod.
         from clients.context import MAP_KEY
-        view=self.presentation.llm({**self.cfg,**self.review_cfg})
+        view=ModelView({**self.cfg,**self.review_cfg},presentation=self.presentation)
         current,image=view.map_context(self.council['last_snapshot'])
         dialogue[-1]['content']+='\n'+current
         if image:dialogue[-1][MAP_KEY]=image

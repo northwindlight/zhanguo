@@ -5,6 +5,7 @@ import json
 from types import SimpleNamespace
 from clients import context as ctx
 from clients import memory
+from clients.model_view import ModelView
 from clients.provider import make_backend,REPLAY_KEY
 
 
@@ -59,13 +60,12 @@ class LLMClient:
     def __init__(self,cfg,state=None,backend=None,ui=None):
         self.cfg=deepcopy(cfg);self.state=state or LLMState();self._backend=backend
         if ui is None:
-            # Standalone construction (tests, embedding): no mounted UI mod, so
-            # compose the model view directly from presentation primitives.
-            from .model_view import ModelView
+            # Standalone construction (tests, embedding): no mounted UI mod; the
+            # model view composes its own translator/renderer from presentation.
             from presentation.maps import expand_message
-            ui=SimpleNamespace(llm=lambda cfg: ModelView(cfg),expand_message=expand_message)
+            ui=SimpleNamespace(cfg=self.cfg,tool_layer=None,expand_message=expand_message)
         self.presentation=ui
-        self.ui=self.presentation.llm(self.cfg)
+        self.ui=ModelView(self.cfg,presentation=ui)
         self._allowed_actions=None
 
     def _provider(self):

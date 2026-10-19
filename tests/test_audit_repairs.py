@@ -1,5 +1,6 @@
 """Behavioral closure of the implementation audit, using synthetic worlds only."""
 from copy import deepcopy
+from clients.model_view import model_view_for
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -121,7 +122,7 @@ class AuditRepairs(unittest.TestCase):
     def test_trade_receipt_reports_remaining_stock_and_no_batch_message_is_appended(self):
         h=GameHost.new({'map_size':12,'seed':73,'nations':[{'id':Q,'name':'秦','client':'rule'}]})
         p=h.player(Q)
-        ui=h.ui.llm(h.cfg)
+        ui=model_view_for(h.ui, h.cfg)
         receipt=p.submit('economy', {'action': 'buy', 'resource':'wood','quantity':2});self.assertTrue(receipt['ok'])
         stocks={s['id']:s['amount'] for s in p.observe()['facts']['econ']['stocks']}
         self.assertIn(f"余{stocks['native:wood']}",ui.receipt(receipt,{'action':'buy','resource':'wood','quantity':2}))
@@ -140,7 +141,7 @@ class AuditRepairs(unittest.TestCase):
 
     def test_state_payload_is_allowlisted_and_queries_recover_omitted_details(self):
         f,w=self.world();p=w.runtime.player(w,Q);obs=p.observe();obs['facts']['accidental_new_panel']='NEVER_AUTO_INJECT'
-        ui=GameHost.new({'map_size':8,'nations':[{'id':Q,'name':'秦','client':'llm'}]}).ui.llm({})
+        h=GameHost.new({'map_size':8,'nations':[{'id':Q,'name':'秦','client':'llm'}]});ui=model_view_for(h.ui,{})
         ui.rules(p.rules('all'));text,_=ui.state(obs,[])
         # 新增面板不会自动变成常驻载荷；规则正文也不进 system。
         self.assertNotIn('NEVER_AUTO_INJECT',text);self.assertNotIn('costs_by_level',ui.system())
@@ -238,7 +239,7 @@ class AuditRepairs(unittest.TestCase):
         f,w=self.world();p=w.runtime.player(w,Q);obs=p.observe()
         obs['facts']['army']*=600
         obs['facts']['intel']=[{'id':i,'source':C,'kind':'letter','sampled':0} for i in range(300)]
-        ui=GameHost.new({'map_size':8,'nations':[{'id':Q,'name':'秦','client':'llm'}]}).ui.llm({'model_state_tokens':1024})
+        h=GameHost.new({'map_size':8,'nations':[{'id':Q,'name':'秦','client':'llm'}]});ui=model_view_for(h.ui,{'model_state_tokens':1024})
         events=[{'id':i,'text':'近讯'*300,'period':0,'kind':'test'} for i in range(50)]
         text,_=ui.state(obs,events)
         self.assertLessEqual(context.est_tokens(text),1024)

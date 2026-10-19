@@ -33,7 +33,9 @@ class GameHost:
         if entry.count(':')!=1:raise ModError('Invalid Distribution.Session.Entry')
         module,name=entry.split(':')
         factory=getattr(import_module(module),name)
-        self.session=factory(runtime,cfg,create_client)
+        from ui import load_ui
+        self.presentation=load_ui(cfg,runtime=runtime)
+        self.session=factory(runtime,cfg,create_client,presentation=self.presentation)
         # 运行接口为必需契约；终端管理是可选能力，由入口按需检查。
         for method in ('start','restore','to_save','save','player','cycle',
                        'actors','clock'):
@@ -41,6 +43,8 @@ class GameHost:
                 raise ModError(f'Distribution session is missing {method}()')
 
     def __getattr__(self,name):return getattr(self.session,name)
+    @property
+    def ui(self):return self.presentation
     @property
     def world(self):return self.session.world
     @world.setter

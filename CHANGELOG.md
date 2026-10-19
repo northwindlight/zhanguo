@@ -1,5 +1,11 @@
 # 更新记录
 
+## 未发布 — 组合根与呈现层解耦
+
+- 引擎不再导入 UI：`Session` 接收宿主注入的 `presentation`，`GameHost` 装配时创建 `UILayer` 并传入；`Session.board` 与 `NativeObserver` 改用注入对象。`configure_components` 移到 UI 网关（选择 UI Mod、组合呈现字段），`engine/config.py` 不再引用 UI。
+- UI Mod 不再依赖客户端：删除 `UILayer.llm()`；模型视图由 `LLMClient` 与议会服务用 `ModelView(cfg, presentation=…)` 自行构造。边界测试钉住 engine 不 import `ui`/`clients`/`ruleai`，`mods/ui` 不 import `clients`。
+- 无存档影响：发行版声明、工具面与存档字段未变；全量 741 项通过（12 项平台相关跳过）。
+
 ## 未发布 — 记忆压缩截断检查
 
 - OpenAI兼容与Anthropic非流式压缩保留终止原因；达到输出上限的摘要不再仅因正文超过20字就覆盖长期记忆。继续按既有最多10次规则尝试，耗尽后保留旧长期记忆与逐期小结。
