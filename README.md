@@ -80,6 +80,17 @@ python -m scenarios.eight_nations --seed 20260921
 （API 参考页由 `scripts/api_doc.py` 从源码生成，与代码同步；教程页手写，在 `docs/site/content/`）。
 本地预览：`python3 docs/site/build.py --serve`。
 
+一键启动（默认跑 native 发行版）：
+
+```bash
+./start.sh --check        # 配置体检：逐国核对模型接入，缺什么说清楚
+./start.sh                # 续局（无档则新开）
+./start.sh --offline      # 零依赖的 minigame 开发模式，不需要任何 API key
+```
+
+配置模板见 `mp_config.example.json`（密钥只写进 `mp_config.json`，该文件不入库）。
+配置与启动的完整说明见文档站的[配置与启动](https://northwindlight.github.io/zhanguo/开始/03-配置与启动.html)页。
+
 - [Mod 开发指南](docs/Mod开发指南.md)：从可运行示例开始，增加内容、替换模块和组装独立游戏。
 - [发行版 Session](docs/发行版Session.md)：场景、可选地图策略、管理能力、服务装配、审计与控制权。
 - [玩家 API 与客户端](docs/客户端接线.md)：绑定身份、事实、请求和回执。

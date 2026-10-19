@@ -15,6 +15,7 @@ from ui.terminal import Console
 from host import GameHost
 from ui import load_ui
 from engine.config import read_config
+from clients.config import require_model_fields, model_issues
 
 CONSOLE=None
 ANSI_ESCAPE=re.compile(r'\033\[[0-9;]*m')
@@ -328,6 +329,47 @@ def _piped(host,text,observer):
     return True
 
 
+def report_config(cfg,runtime=None):
+    """配置体检：逐国说明用什么客户端、连到哪、缺什么。返回进程退出码。"""
+    issues=dict((location,missing) for location,_,missing in model_issues(cfg))
+    declared=(runtime.distribution.get('ClientFactories',{}) if runtime else {})
+    print('配置体检')
+    name=(runtime.distribution.get('Id') if runtime else None) or '（未声明）'
+    version=(runtime.distribution.get('Version') if runtime else None) or ''
+    print(f'  发行版：{name}{" " + str(version) if version else ""}  （入口 {cfg.get("mods","mods.toml")}）')
+    print(f'  地图：{cfg.get("map_size","—")}×{cfg.get("map_size","—")}  种子：{cfg.get("seed","—")}')
+    print(f'  存档：{cfg.get("save","mp_save.json")}  日志：{cfg.get("journal","mp_journal.md")}')
+    nations=cfg.get('nations') or []
+    for index,nation in enumerate(nations):
+        if not isinstance(nation,dict):continue
+        client=str(nation.get('client') or '').strip()
+        name=nation.get('name') or nation.get('id') or f'#{index}'
+        print(f'  · {name}（{nation.get("id","—")}）')
+        print(f'      客户端：{client or "（未声明）"}')
+        if client=='llm':
+            missing=issues.get(f'config.nations[{index}]',[])
+            endpoint=nation.get('base_url') or '（缺）'
+            model=nation.get('model') or '（缺）'
+            print(f'      端点：{endpoint}    模型：{model}')
+            print('      状态：' + ('缺 ' + '、'.join(missing) if missing else '就绪'))
+        elif client=='rule':
+            print('      状态：就绪（内置规则 AI，不需要密钥）')
+        elif client and client in declared:
+            print(f'      状态：就绪（发行版自带的 {client} 客户端，不需要密钥）')
+        else:
+            print(f'      状态：{client or "（未声明）"} 不是本发行版声明的客户端'
+                  + (f'（可用：{"、".join(sorted(declared)) or "无"}）' if declared else ''))
+    if issues:
+        print('\n配置不完整，缺上面列出的字段。')
+        try:
+            require_model_fields(cfg,clients=declared)
+        except ValueError as exc:
+            print(str(exc))
+        return 2
+    print('\n配置就绪。')
+    return 0
+
+
 def run(argv=None):
     global CONSOLE
     parser=argparse.ArgumentParser(description='战国统一玩家 API 客户端宿主')
@@ -335,6 +377,8 @@ def run(argv=None):
     parser.add_argument('--new',action='store_true');parser.add_argument('--turns',type=int)
     parser.add_argument('--language',help='UI language, e.g. zh-CN or en-US')
     parser.add_argument('--small-ctx',action='store_true');parser.add_argument('--ctx-window',type=int)
+    parser.add_argument('--check-config',action='store_true',
+                        help='体检配置：逐国核对模型接入是否齐全，打印结果后退出（不开局）')
     args=parser.parse_args(argv)
     overrides={}
     if args.language is not None:overrides['language']=args.language
@@ -346,6 +390,10 @@ def run(argv=None):
     try:
         prepared=GameHost.prepare(read_config(args.config),overrides=overrides)
         cfg=prepared.data
+        if args.check_config:
+            return report_config(cfg,prepared.runtime)
+        # 模型接入的必填项在这里就查清楚：开局前报，别等第一次请求时抛 KeyError。
+        require_model_fields(cfg,clients=prepared.runtime.distribution.get('ClientFactories',{}))
         save_path=Path(cfg.get('save','mp_save.json'))
         journal_path=Path(cfg.get('journal','mp_journal.md'))
         ui=load_ui(cfg,runtime=prepared.runtime)

@@ -4,6 +4,7 @@
 
 ## 当前使用与开发
 
+- **[Mod 开发文档站](https://northwindlight.github.io/zhanguo/)**：按开发流程组织，带可搜索的 API 参考（API 参考页由 `scripts/api_doc.py` 从源码生成）。本地预览：`python3 docs/site/build.py --serve`。
 - [游戏说明书](../mods/native/docs/游戏说明书.md)：手写维护的规则与口径；与四本讲义同在 `mods/native/docs/`，不参与运行时装配。
 - [Mod 开发指南](Mod开发指南.md)：示例、模块声明与开发接口。
 - [发行版 Session 与剧本胜利钩子](发行版Session.md)：宿主、服务、剧本挂载及存取契约。
@@ -13,6 +14,7 @@
 
 ## 设计与规划
 
+- [模型面向层与发行版解耦](design/模型面向层与发行版解耦.md)：模型客户端与发行版耦合的六处根因、契约正典与改造说明。
 - [模块化口径](design/模块化口径.md)、[对象化口径](design/对象化口径.md)、[正规化口径定稿](design/正规化口径定稿.md)：设计要求与历史裁决；最新行为仍须结合当前说明书及后续明确修订。
 - [路线计划](plans/PLAN.md)、[后续改造大纲](plans/后续改造大纲.md)：现行路线与保留的阶段计划。
 - [GUI 选型与计划](design/GUI选型与计划.md)、[地图生成与资源分布](design/地图生成与资源分布.md)。

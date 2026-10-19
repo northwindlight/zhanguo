@@ -70,13 +70,13 @@ def step_minimal_game():
 
 
 def step_minigame():
-    title('配方三 · 从零写的最小可玩游戏（10 个模块，离线跑完整局）')
+    title('配方三 · 从零写的最小可玩游戏（九个模块，离线跑完整局）')
     entry = ROOT / 'mods.minigame.toml'
     runtime = Runtime.load(entry)
     print('模块            ', len(runtime.order), '个；挂点', runtime.hooks)
     cfg = {'mods': str(entry), 'map_size': 12, 'seed': 3,
-           'nations': [{'id': 'scenario:qin', 'name': '秦', 'client': 'llm', 'position': [2, 5]},
-                       {'id': 'scenario:chu', 'name': '楚', 'client': 'llm', 'position': [5, 5]}]}
+           'nations': [{'id': 'scenario:qin', 'name': '秦', 'client': 'mini', 'position': [2, 5]},
+                       {'id': 'scenario:chu', 'name': '楚', 'client': 'mini', 'position': [5, 5]}]}
     host = GameHost.new(cfg)
     world = host.world
     player = host.player('scenario:qin')
@@ -90,7 +90,7 @@ def step_minigame():
     print('六期之后本国建筑', sorted(built))
     print('本国部队        ', len(player.query('army')), '支')
     world.runtime.object_call(world, 'mini:army', 'seed', 'scenario:qin',
-                              'native:infantry', 3, 5, 1)
+                              'mini:infantry', 3, 5, 1)
     unit = [row for row in player.query('army') if row['x'] == 3][0]
     before = len([c for c in player.query('land') if c['owner'] == 'scenario:qin'])
     print('未宣战就进攻    ', player.submit('attack', {'unit': unit['id'], 'x': 4, 'y': 5})['message'])
@@ -106,7 +106,7 @@ def step_minigame():
           '目标格无守军时进攻才占领，见 tests/test_example_mods.py）' % (before, after))
     capital = next(cell for cell in world.territory.cells()
                    if cell.owner == 'scenario:chu'
-                   and world.buildings.at(*cell.position).get('native:town-hall'))
+                   and world.buildings.at(*cell.position).get('mini:town-hall'))
     world.runtime.object_call(world, 'mini:territory', 'transfer', *capital.position, 'scenario:qin')
     context = world.resolve_turn()
     print('失去全部市政厅  ', context['extinct'], '→ 存活', world.nations.ids())
@@ -129,7 +129,7 @@ def step_new_good():
         sell = dict(panel['sell_prices'])['example:tea']
         print('开局            ', '茶', before['example:tea'], '/ 金', before['native:gold'])
         print('本期卖出单价    ', sell, '金（库存', dict(panel['inventory'])['example:tea'],
-              '/ 深度', dict(panel['depth'])['example:tea'], '）')
+              '/ 基准', dict(panel['reference'])['example:tea'], '）')
         receipt = player.submit('economy', {'action': 'sell', 'resource': 'example:tea', 'quantity': 5})
         after = {s['id']: s['amount'] for s in player.query('econ')['stocks']}
         print('卖出回执        ', receipt['status'], '实收', receipt['data']['gold'], '金')
@@ -153,7 +153,9 @@ def step_stages_and_units():
         player = host.player('scenario:qin')
         schemas = {t['function']['name']: t for t in player.actions()}
         kinds = schemas['military']['function']['parameters']['properties']['kind']['enum']
-        print('新兵种进入征兵枚举 ', 'example:war-elephant' in kinds)
+        # 工具表里的枚举是**短键值**（内容键的短名），不是内容全 ID。
+        print('新兵种进入征兵枚举 ', 'war-elephant' in kinds,
+              '（短键；内容 ID 是 example:war-elephant）')
         site = player.query('building_sites')['sites'][0]['id']
         x, y = (int(v) for v in site.split('land-')[1].split('-'))
         runtime.object_call(world, 'native:army', 'seed', 'scenario:qin',

@@ -1,0 +1,55 @@
+name: CI
+
+# 离线全流程：装依赖 → 跑全量回归 → 跑示例巡礼 → 核对文档与代码同步。
+# 全程不联网调用模型、不读写真实存档。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: 离线回归
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: 装依赖
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: 全量离线回归
+        run: python -m unittest discover -s tests -q
+      - name: 示例巡礼（离线冒烟）
+        run: python -m unittest tests.test_examples_tour -v
+
+  docs:
+    name: 文档与代码同步
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      # API 参考页是生成的：与代码不同步就说明有人改了接口却没重新生成。
+      - name: 核对 API 参考页
+        run: python3 scripts/api_doc.py --check
+      # build.py 自带站内链接自检：有断链就以非零码退出。
+      - name: 生成文档站并自检链接
+        run: python3 docs/site/build.py
+      - name: 配置体检（示例配置应当报出缺密钥，而不是崩）
+        run: |
+          python3 mp_run.py --config mp_config.example.json --check-config || true
+          python3 mp_run.py --config mp_config.minigame.example.json --check-config

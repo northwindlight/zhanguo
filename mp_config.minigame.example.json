@@ -1,0 +1,27 @@
+{
+  "mods": "mods.minigame.toml",
+  "map_size": 12,
+  "seed": 20261020,
+  "save": "minigame_save.json",
+  "journal": "minigame_journal.md",
+  "nations": [
+    {
+      "id": "scenario:qin",
+      "name": "秦",
+      "client": "mini",
+      "position": [3, 3]
+    },
+    {
+      "id": "scenario:chu",
+      "name": "楚",
+      "client": "mini",
+      "position": [8, 8]
+    },
+    {
+      "id": "scenario:qi",
+      "name": "齐",
+      "client": "mini",
+      "position": [3, 9]
+    }
+  ]
+}
