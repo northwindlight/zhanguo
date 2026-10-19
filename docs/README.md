@@ -32,7 +32,7 @@
 
 ## 研究与历史资料
 
-- [消费总量评测口径论文](research/消费总量评测指标论证.md)（2026-10-19 重写，独立于具体对局）、[实现核对数据](research/消费指标实现核对.json)、[消费指标实验](../experiments/consumption_metric/README.md)。
+- [消费总量评测口径论文](research/消费总量评测指标论证.md)：消费与投资、资本积累、有效需求与内生价格、评测有效性；[实现与复现附录](research/消费指标实现与复现.md)、[消费指标实验](../experiments/consumption_metric/README.md)。2026-10-15 的[静态核对快照](research/消费指标实现核对.json)保留其各自口径与源码指纹。
 - [公开真实对局资料](../research/game-records/README.md)：历史原始资料，独立于源码发行包和自动测试。
 - [历史匈奴教义](archive/strategy/匈奴教义.md)：旧版人类侧策略资料；当前政体入口见 [huns](../mods/native/polities/huns/README.md)。
 - [旧领域声明](archive/legacy-domain-declarations/)：保留作历史对照。
