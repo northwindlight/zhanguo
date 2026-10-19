@@ -27,7 +27,7 @@ class EconomyMod(GameMod):
     def restore_archive(self,world,rows):world.economy.restore_archive(rows)
 
     def rule_sections(self,world=None):
-        return (RuleSection('消费指标与终局','消费累计建造、征召、军费（含回血装备）与行政四类，以每期报表阶段市价估值，未定价资源单列。终局按各历史国家已记录总消费降序排名，亡国也保留成绩；GDP、军力、领土、建筑资产仅作参考，不重新按终局价格估值。离线成绩单使用 settlement.py --save 路径 --table；结算厅另需外部模型配置。',keywords=('消费','排名','终局','结算','GDP','报表','scoring')), )
+        return (RuleSection('经济报表','每10期发布本国经济报表，列明覆盖期、GDP、建设、征兵、军需折价、进出口、资产、负债及增长率。GDP是产出扣除生产投入后的增加值，不等于现金收入；军需折价是已消耗材料的估值，不额外扣同额金币。query(panel=report)免费查本国最新已发布报表，period选择报表结束期，all=true查看历期；尚未发布时没有正式报表。',keywords=('GDP','报表','财政','报告','report')), )
 
     def stages(self):
         return tuple(Stage(row['Id'],self._reports,hook=row['Hook'],needs=tuple(row.get('Needs',())),

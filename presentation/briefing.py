@@ -89,14 +89,10 @@ def _turn_report(facts):
 
 
 def _report(ui, facts):
-    report = _turn_report(facts)
-    if not report:
-        return None
-    return ui.text('brief.report_head') + '\n' + ui.text('brief.report_row',
-        period=report.get('period', 0), gdp=ui.money(report.get('gdp')),
-        military=ui.money(report.get('military')), investment=ui.money(report.get('investment')),
-        assets=ui.money(report.get('total_assets')), liabilities=num(report.get('liabilities', 0)),
-        net=ui.money(report.get('net_assets')))
+    # 正式报表按发布窗口记录增长率；上一回合流量已在国力节展示。
+    # 使用 report 查询的同一渲染器，避免把单期流量冒充正式报表。
+    report = (facts.get('econ') or {}).get('latest_report')
+    return panel(ui, 'report', [report] if isinstance(report, dict) else [], ui._actor)
 
 
 def _capital(ui, cues, actor):

@@ -54,6 +54,34 @@ class TestUIRegressions(unittest.TestCase):
         self.assertIn('gdp',facts['bank'])
         self.assertIn('loan_rate',facts['bank'])
 
+    def test_model_briefing_shows_published_report_with_window_and_growth(self):
+        h=self.host();player=h.player(Q);view=h.ui.llm({})
+        observation=player.observe()
+        self.assertIsNone(observation['facts']['econ']['latest_report'])
+        text,_=view.state(observation,[])
+        self.assertIn('尚无已发布报表',text)
+        for _ in range(21):h.world.resolve_turn()
+        observation=player.observe()
+        report=observation['facts']['econ']['latest_report']
+        self.assertEqual((report['start'],report['end']),(10,19))
+        self.assertEqual(observation['facts']['econ']['latest_turn']['period'],20)
+        receipt=player.submit('query',{'panel':'report'})
+        self.assertEqual(receipt['data'],[report])
+        full_report=view.receipt(receipt,{'panel':'report'})
+        text,_=view.state(observation,[])
+        self.assertIn(full_report,text)
+        self.assertIn('GDP增长',text)
+        self.assertIn('投资增长',text)
+
+    def test_evaluation_ranking_is_absent_from_player_rules_and_manual(self):
+        h=self.host();player=h.player(Q)
+        rules=player.rules('all')
+        manual=player.submit('query',{'panel':'manual','doc':'manual'})
+        self.assertTrue(manual['ok'],manual)
+        text=json.dumps([rules,manual],ensure_ascii=False)
+        for phrase in ('消费指标与终局','总消费降序排名','settlement.py'):
+            self.assertNotIn(phrase,text)
+
     def test_same_plan_text_does_not_renew_itself(self):
         """同一份国策再交一遍不该重置「制定于」与到期日（模型常为保险重复提交）。"""
         h=self.host();text='经济：先铺采集与能源；军事：守土；情报：按需；外交：中立。'

@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 from engine.building import Building
 from engine.resource import Resource
-from mods.native.contracts.economy import Money, TurnReport, integer
+from mods.native.contracts.economy import Money, TurnReport, PeriodReport, integer
 
 # 旧版市场行给的是「卖50≈79金 买50≈89金」——固定 50 单位的大单试算。
 MARKET_TRIAL_UNITS = 50
@@ -34,6 +34,7 @@ class BalanceSheet:
     latest_turn: TurnReport | None
     latest_flows: dict = field(default_factory=dict)
     preview: dict = field(default_factory=dict)
+    latest_report: PeriodReport | None = None
 
 
 @dataclass(frozen=True)
@@ -110,8 +111,10 @@ class EconomicQueries:
         balances = {row.id: row.amount for row in stocks}
         preview.update(inputs=inputs, military=military,
                        shortfalls={key:amount-balances.get(key,0) for key,amount in inputs.items() if amount>balances.get(key,0)})
+        reports = self.report(owner)
         return BalanceSheet(owner,inventory,buildings,inventory.plus(buildings),stocks,
-                            turns[-1] if turns else None,flows,preview)
+                            turns[-1] if turns else None,flows,preview,
+                            reports[-1] if reports else None)
 
     def report(self, owner):
         self._call('native:resource-inspection','snapshot',owner)
