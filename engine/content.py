@@ -37,6 +37,7 @@ class ContentRegistry(Mapping):
         self._namespaces = {}
         self._owners = {}
         self._roles = {}
+        self._aliases = {}
 
     def register(self, owner, definitions):
         if not isinstance(definitions, Mapping):
@@ -84,13 +85,54 @@ class ContentRegistry(Mapping):
         matches=[k for k in self._owners if k.split(':',1)[-1]==local]
         return local if matches==[identifier] else identifier
 
+    def _target(self, value):
+        if value in self._owners:
+            return value
+        matches=[k for k in self._owners if k.split(':',1)[-1]==value]
+        if len(matches)==1:
+            return matches[0]
+        if len(matches)>1:
+            raise ValueError('键值冲突，请指定命名空间：'+', '.join(sorted(matches)))
+        raise ValueError('未知内容键值：'+str(value))
+
+    def register_aliases(self, owner, aliases):
+        """Register model-facing synonyms; aliases never enter the save manifest."""
+        if not isinstance(aliases, Mapping):
+            raise ValueError('Content aliases must be a mapping')
+        pending = []
+        for alias, target in aliases.items():
+            if not isinstance(alias, str) or not alias:
+                raise ValueError('Content alias must be a non-empty string')
+            try:
+                canonical = self._target(target)
+            except ValueError:
+                # Acceptance distributions load only a subset of content.
+                continue
+            local=[k for k in self._owners if k.split(':',1)[-1]==alias]
+            if local and local!=[canonical]:
+                raise ValueError(f'内容别名冲突：{alias} 已是 {local[0]} 的短键')
+            if alias in self._owners and alias!=canonical:
+                raise ValueError(f'内容别名冲突：{alias} 已是内容 ID')
+            previous=self._aliases.get(alias)
+            if previous is not None and previous!=canonical:
+                raise ValueError(f'内容别名冲突：{alias} -> {previous} / {canonical}')
+            pending.append((alias, canonical))
+        for alias, canonical in pending:
+            self._aliases[alias]=canonical
+
+    def _choices(self):
+        values=set(self._aliases) | {k.split(':',1)[-1] for k in self._owners}
+        values=sorted(value for value in values if value)
+        return '、'.join(values[:40]) + ('…' if len(values)>40 else '')
+
     def resolve(self, key):
         if not isinstance(key,str):raise ValueError('内容键值须为字符串')
         if key in self._owners:return key
         matches=[k for k in self._owners if k.split(':',1)[-1]==key]
         if len(matches)==1:return matches[0]
         if len(matches)>1:raise ValueError('键值冲突，请指定命名空间：'+', '.join(sorted(matches)))
-        raise ValueError('未知内容键值：'+str(key))
+        if key in self._aliases:return self._aliases[key]
+        raise ValueError(f'未知内容键值：{key}；可用短键/别名：{self._choices()}')
 
     def __getitem__(self, namespace):
         return MappingProxyType(self._namespaces[namespace])

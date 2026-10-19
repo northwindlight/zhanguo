@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:intelligence"
-Version = "1.4.0"
+Version = "1.5.0"
 Entry = "mods.native.intelligence.mod:IntelligenceMod"
 Requires = ["native:nations", "native:government", "native:resources", "native:buildings", "native:diplomacy", "native:vision", "native:army"]
 After = ["native:nations", "native:government", "native:army"]

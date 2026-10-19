@@ -7,7 +7,7 @@ from .intelligence import _countries
 
 
 def tools(runtime):
-    def foreign(world, actor):
+    def foreign(world, actor, limit: int | None = None):
         # 组合面板直接读各模块的玩家 API，不再为四块数据各注册一个工具。
         # 经正式 API 分发进入各自上下文，保留作用域、策略及跨域接口检查。
         def read(capability, method):
@@ -19,6 +19,10 @@ def tools(runtime):
                 'nations': read('native:nations', 'snapshot'),
                 'countries': read('native:intelligence', 'countries'),
                 'diplomacy': read('native:diplomacy', 'snapshot')}
+        if isinstance(limit, int) and limit > 0:
+            for key in ('nations', 'countries'):
+                if isinstance(data.get(key), (list, tuple)):
+                    data[key] = data[key][:limit]
         return {key: value for key, value in data.items() if value is not None}
 
     return (
@@ -27,7 +31,7 @@ def tools(runtime):
              covers=tuple((capability, method) for capability, method in
                           (('native:intelligence', 'countries'), ('native:diplomacy', 'snapshot'))
                           if capability in runtime.capabilities),
-             description='本国与全部对外关系一次查完：本国身份与站点、各国身份与存续、关系/条约/接壤/来信、联盟与战争、待回应提议、投票与待结算命令。无需参数；代价是比单独查一块长。'),
+             description='本国与全部对外关系一次查完：本国身份与站点、各国身份与存续、关系/条约/接壤/来信、联盟与战争、待回应提议、投票与待结算命令。无需参数；limit 可限制各国/对外关系行数；代价是比单独查一块长。'),
     )
 
 
@@ -52,6 +56,12 @@ def _nation(data, args, actor, ctx):
 
 
 def _foreign(data, args, actor, ctx):
+    limit = args.get('limit')
+    if isinstance(limit, int) and limit > 0:
+        data = dict(data)
+        for key in ('nations', 'countries'):
+            if isinstance(data.get(key), (list, tuple)):
+                data[key] = data[key][:limit]
     parts = []
     if data.get('nation'):
         parts.append(_nation(data['nation'], args, actor, ctx))

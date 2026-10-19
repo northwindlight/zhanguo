@@ -35,5 +35,8 @@ class QueryPresentation:
         lines=[self.text('query.army_head',own=len(own),foreign=len(foreign),guards=len(guards))]
         lines.extend(self.army_line(u) for u in own)
         lines.extend(self.army_line(u) for u in foreign)
-        if guards:lines.append(self.text('query.guard_hint',count=len(guards)))
+        if guards:
+            places='、'.join(self.pos([u['x'],u['y']],actor=actor) for u in guards[:12])
+            if len(guards)>12:places+=f'…另{len(guards)-12}处'
+            lines.append(self.text('query.guard_hint',count=len(guards),places=places))
         return '\n'.join(lines)

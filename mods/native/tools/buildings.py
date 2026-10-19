@@ -24,8 +24,9 @@ def tools(runtime):
     def sites(world, actor):
         return runtime.player_api(world, 'native:buildings').sites(actor)
 
-    def catalog(world, actor):
-        return runtime.player_api(world, 'native:buildings').catalog(actor)
+    def catalog(world, actor, kind: str | None = None):
+        rows = runtime.player_api(world, 'native:buildings').catalog(actor)
+        return [row for row in rows if kind is None or row['id'] == kind]
 
     parameters = {'type': 'object', 'properties': {
         'site': {'type': 'string', 'description': '站点 ID、地名或坐标串（如 "5 6"）'},
@@ -42,7 +43,12 @@ def tools(runtime):
         Tool('building_sites', sites, owner='native:buildings', api=('sites',), read_only=True, fact=True,
              description='一次查看全部本国站点：坐标、资源容量、建筑位、已建/在建、当期施工与自建计数。无需地块参数。'),
         Tool('building_catalog', catalog, owner='native:buildings', api=('catalog',), read_only=True, fact=True, panel=True,
-             description='一次列齐全部建筑：各级造价、产销配方、能源、效果与门槛。无需地块或坐标。'),
+             content_parameters=('kind',),
+             parameters={'type': 'object', 'properties': {
+                 'kind': {'type': 'string', 'enum': kinds,
+                          'description': '建筑短键/中文显示名（可选）；省略列全部建筑'}},
+                 'additionalProperties': False},
+             description='一次列齐全部建筑：各级造价、产销配方、能源、效果与门槛。可选 kind 只看一种建筑（短键或中文显示名均可）。无需地块或坐标。'),
     )
 
 

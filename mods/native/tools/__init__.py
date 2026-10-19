@@ -7,11 +7,14 @@ It never contains rule logic or domain state.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from engine.runtime import ModError, Tool
 
-from . import army, bank, buildings, commands, diplomacy, economy, government, intelligence, manuals, nations, query, territory, vision
+from . import army, bank, buildings, commands, diplomacy, economy, government, intelligence, manuals, nations, query, quote, territory, vision
+from .aliases import CONTENT_ALIASES
+from .arguments import DEFAULT_NORMALIZERS
 
 
 def _merge(target, source, label):
@@ -105,11 +108,12 @@ class ToolLayer:
 
 
 def build(runtime):
+    runtime.content.register_aliases('native:tools', CONTENT_ALIASES)
     tools, receipts, captions, panels = [], {}, {}, {}
-    for module in (nations, government, army, territory, vision, buildings, economy, bank, diplomacy, intelligence, manuals):
+    for module in (nations, government, army, territory, vision, buildings, economy, bank, diplomacy, intelligence, manuals, quote):
         for spec in module.tools(runtime):
             if spec.owner in runtime.capabilities:
-                tools.append(spec)
+                tools.append(replace(spec, normalizers={**DEFAULT_NORMALIZERS, **spec.normalizers}))
         _merge(receipts, module.RECEIPTS, '回执')
         _merge(captions, module.CAPTIONS, '抬头')
         _merge(panels, module.PANELS, '面板')

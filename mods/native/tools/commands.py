@@ -98,12 +98,17 @@ def action_tool(runtime, name, summary, actions):
                             'description': '\n'.join(lines)}
     mapping = {label: spec.name for label, spec in actions}
     specs = {spec.name: spec for _, spec in actions}
+    accepted = {label: set(spec.schema()['function']['parameters'].get('properties') or ())
+                for label, spec in actions}
 
     def handler(world, actor, **arguments):
         label = arguments.pop('action', None)
         target = mapping.get(label)
         if target is None:
             raise ValueError('未知动作：' + str(label) + '；可用：' + '、'.join(mapping))
+        # 伞的 schema 是各动作参数的并集；选中动作后按它自己的属性集过滤，
+        # 避免另一动作的参数渗进 inner prepare 被 additionalProperties 拒绝。
+        arguments = {key: value for key, value in arguments.items() if key in accepted[label]}
         # Leave the umbrella's owner context: Runtime.call re-checks the inner
         # action's gate before entering its own unit context, and that gate may
         # legitimately belong to another module.

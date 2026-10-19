@@ -44,11 +44,16 @@ def side(state,owner):
     return 'neutral'
 
 
-def render_snapshot(state, *, max_px=960):
+def _army_label(units, glyphs):
+    return ' '.join(glyphs.get(k, k.split(':')[-1][:1].upper()) + str(n)
+                    for k, n in sorted(Counter(a['kind'] for a in units).items()))
+
+
+def render_snapshot(state, *, max_px=1440):
     from PIL import Image, ImageDraw, ImageFont
     if state.get('version')!='zhanguo.ui.map/1':raise ValueError('Unsupported UI map snapshot')
     # 图幅是观感参数，不是玩家动作：越界夹取即可，不该把整局拖下水。
-    if type(max_px) is not int or isinstance(max_px,bool):max_px=960
+    if type(max_px) is not int or isinstance(max_px,bool):max_px=1440
     max_px=max(MAP_MIN_PX,min(MAP_MAX_PX,max_px))
     tiles=state['tiles']
     if not tiles:return None
@@ -58,7 +63,7 @@ def render_snapshot(state, *, max_px=960):
     width,height=xhi-xlo+1,yhi-ylo+1
     cell=max(1,min(96,(max_px-48)//max(width,height)))
     image=Image.new('RGB',(width*cell+48,height*cell+48),'#121923');draw=ImageDraw.Draw(image)
-    font=ImageFont.load_default(size=max(7,min(14,cell//5)))
+    font=ImageFont.load_default(size=max(9,min(16,cell//4)))
     owners=sorted({t['owner'] for t in tiles if t['owner']});symbols={owner:chr(65+i) for i,owner in enumerate(owners)}
     glyphs=state.get('glyphs') or {};roles=state.get('role_kinds') or {}
     capitals=roles.get('capital') or [];castles=roles.get('castle') or []
@@ -73,13 +78,17 @@ def render_snapshot(state, *, max_px=960):
         if any(buildings.get(kind) for kind in capitals):label+=' T'
         towers=sum(buildings.get(kind,0) for kind in castles)
         if towers:label+=' C'+str(towers)
-        draw.text((left+1,top+max(0,cell-16)),label,font=font,fill='#111111')
+        draw.text((left+1,top+max(0,cell-20)),label,font=font,fill='#111111')
         groups={}
-        for army in armies.get((x,y),[]):groups.setdefault(side(state,army['owner']),[]).append(army)
+        for army in armies.get((x,y),[]):
+            key='野' if army['owner']=='野人' else side(state,army['owner'])
+            groups.setdefault(key,[]).append(army)
         for i,(kind,units) in enumerate(sorted(groups.items())):
-            row,col=divmod(i,2);bx,by=left+3+col*cell//2,top+3+row*cell//3
-            if cell>=28:draw.rectangle((bx,by,bx+cell//2-6,by+cell//3-4),fill='#ffffff',outline=SIDES[kind],width=3)
-            label=' '.join(glyphs.get(k,k.split(':')[-1][:1].upper())+str(n) for k,n in sorted(Counter(a['kind'] for a in units).items()))
+            row,col=divmod(i,2);bx,by=left+3+col*cell//2,top+3+row*cell//2
+            if cell>=28:
+                draw.rectangle((bx,by,bx+cell//2-4,by+cell//2-5),fill='#ffffff',
+                               outline='#5f646b' if kind=='野' else SIDES[kind],width=4 if kind=='野' else 3)
+            label='野'+str(len(units)) if kind=='野' else _army_label(units,glyphs)
             draw.text((bx+3,by+3),label,font=font,fill='#111111')
     for x in range(xlo,xhi+1):draw.text((24+(x-xlo)*cell+cell//2,4),str(x),font=font,fill='#eeeeee',anchor='mt')
     for y in range(ylo,yhi+1):draw.text((3,24+(y-ylo)*cell+cell//2),str(y),font=font,fill='#eeeeee',anchor='lm')

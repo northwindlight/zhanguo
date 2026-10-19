@@ -315,7 +315,7 @@ class TestEconomicSystem(unittest.TestCase):
         schema=w.runtime.tools['building_economics'].schema()['function']['parameters']
         self.assertIn('example:tea-garden',schema['properties']['kind']['enum'])
         before=self.save(w)
-        with self.assertRaisesRegex(ValueError,'未知内容键值'):self.call(w,'building_economics',kind='农场')
+        with self.assertRaisesRegex(ValueError,'未知内容键值'):self.call(w,'building_economics',kind='不存在')
         self.assertEqual(self.save(w),before)
         self.assertEqual(len(w.runtime.schemas()),9)
 

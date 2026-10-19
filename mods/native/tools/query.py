@@ -22,6 +22,9 @@ def _parameters(runtime, panels, world=None, actor=None):
                 if prop not in variants:properties[key] = {'anyOf': [*variants, deepcopy(prop)]}
         branch.setdefault('properties', {})['panel'] = {'enum': [name]}
         branch['required'] = list(dict.fromkeys(('panel', *branch.get('required', ()))))
+        # 顶层是 panel 参数的并集；分支不再用更严的 additionalProperties
+        # 与顶层自相矛盾。运行时只校验顶层，query() 再按目标 panel 过滤。
+        branch.pop('additionalProperties', None)
         branches.append(branch)
         names.append(name)
     properties['panel'] = {'type': 'string', 'enum': names,
@@ -38,7 +41,14 @@ def build(runtime, specs):
         target = panels.get(panel)
         if target is None:
             raise ValueError('未知面板：' + str(panel) + '；可用：' + '、'.join(sorted(panels)))
-        return runtime.call(world, actor, target.name, arguments)
+        schema = target.schema()
+        if target.schema_for_actor:
+            schema = target.schema_for_actor(world, actor, schema)
+        accepted = set(schema['function']['parameters'].get('properties') or ())
+        # 并集广告、按选中 panel 过滤：不是该 panel 的参数静默丢弃；
+        # 顶层 truly unknown 参数仍由 query 自己的 schema 拒绝。
+        forwarded = {key: value for key, value in arguments.items() if key in accepted}
+        return runtime.call(world, actor, target.name, forwarded)
 
     def schema_for_actor(world, actor, schema):
         schema['function']['parameters'] = _parameters(runtime, panels, world, actor)

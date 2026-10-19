@@ -27,7 +27,9 @@ class ModError(ValueError):
 
 class ToolArgumentError(ValueError):
     """Invalid transport arguments, before domain behavior is invoked."""
-    pass
+    def __init__(self, message, details=None):
+        super().__init__(message)
+        self.details = details
 
 
 class DomainRejection(ValueError):
@@ -118,6 +120,8 @@ class Tool:
     description: str = ""
     # adapter 是 Mod 自己的坐标/旧参数转换，不属于通用引擎。
     adapter: Callable | None = None
+    # normalizers 在 adapter 之后、schema 校验之前把显示词汇归一化成动作词汇。
+    normalizers: dict = field(default_factory=dict)
     parameters: dict | None = None
     argument_types: dict = field(default_factory=dict)
     read_only: bool = False
@@ -149,6 +153,10 @@ class Tool:
         if self.adapter:
             arguments = self.adapter(world, actor, dict(arguments))
         arguments=dict(arguments)
+        # 归一化发生在 schema 校验之前：模型照抄 UI 的显示名/混合串也能进入后续流程。
+        for key, normalizer in self.normalizers.items():
+            if key in arguments:
+                arguments[key] = normalizer(world, actor, arguments[key])
         # 声明即契约：schema 写了 additionalProperties=false，运行时就得真的拒收
         # 多余参数，否则它们会一路渗进 handler 变成未捕获的 TypeError。
         parameters=self._schema_value['function']['parameters']
@@ -156,11 +164,20 @@ class Tool:
             allowed = set(parameters.get('properties') or ())
             unknown = sorted(k for k in arguments if k not in allowed)
             if unknown:
-                raise ValueError('未知参数：' + '、'.join(unknown))
+                raise ToolArgumentError('未知参数：' + '、'.join(unknown),
+                                        {'reason': 'bad_argument', 'unknown': unknown,
+                                         'available': sorted(allowed)})
         missing=[key for key in parameters.get('required',()) if key not in arguments]
-        if missing:raise ValueError('缺少参数：'+'、'.join(missing))
+        if missing:raise ToolArgumentError('缺少参数：'+'、'.join(missing),
+                                           {'reason': 'bad_argument', 'missing': missing,
+                                            'available': sorted(parameters.get('properties') or ())})
         for key in self.content_parameters:
-            if key in arguments:arguments[key]=world.runtime.content.resolve(arguments[key])
+            if key in arguments:
+                try:
+                    arguments[key]=world.runtime.content.resolve(arguments[key])
+                except ValueError as exc:
+                    raise ToolArgumentError(str(exc), {'reason': 'unknown_content',
+                                                       'value': arguments[key]}) from exc
         arguments = {k: _convert(v, self.argument_types.get(k, Any)) for k, v in arguments.items()}
         sig = self.signature
         bound = sig.bind(world, actor, **arguments)
@@ -172,8 +189,10 @@ class Tool:
     def call(self, world, actor, arguments):
         try:
             bound=self.prepare(world,actor,arguments)
+        except ToolArgumentError:
+            raise
         except (ValueError,TypeError) as exc:
-            raise ToolArgumentError(str(exc)) from exc
+            raise ToolArgumentError(str(exc), getattr(exc, 'details', None)) from exc
         return self.handler(*bound.args, **bound.kwargs)
 
     def schema(self):return deepcopy(self._schema_value)
@@ -911,7 +930,8 @@ class Runtime:
 
     def check_save_dependencies(self, manifest):
         if manifest != self.dependency_manifest():
-            raise ModError("存档 Mod 依赖/版本/接口与当前加载环境不相同，拒绝加载")
+            raise ModError("存档 Mod 依赖/版本/工具契约与当前加载环境不相同，拒绝加载；"
+                           "本版本升级了 toolcall 契约，旧档不兼容，请开新局（旧档升级另行提供）")
 
     def settlement_table(self):
         lines = ['| 次序 | 阶段 | 内容 |', '|---|---|---|']

@@ -32,7 +32,8 @@ def _land(data, args, actor, ctx):
     sites = facts.get('building_sites', {})
     instances = sites.get('instances')
     args = args or {}
-    if args:
+    paged = any(key in args for key in ('terrain', 'resource', 'offset', 'limit'))
+    if paged:
         lines = [ctx.text('tool.land.page', count=len(data), offset=args.get('offset', 0))]
         if 'land' in facts:
             lines[0] += '｜' + ctx.text('tool.land.total', count=len(facts['land']))

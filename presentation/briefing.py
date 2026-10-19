@@ -180,6 +180,12 @@ def _map(ui, observation, key, vision):
 def _army(ui, facts, actor):
     rows = [u for u in facts.get('army', []) if u.get('hp', 0) > 0]
     lines = [ui.text('brief.army_head'), ui.army_list(rows, actor)]
+    guards = [u for u in rows if u.get('owner') == '野人']
+    if guards:
+        places = '、'.join(ui.pos([u['x'], u['y']], actor=actor) for u in guards[:12])
+        if len(guards) > 12:
+            places += f'…另{len(guards) - 12}处'
+        lines.append(ui.text('brief.guards', count=len(guards), places=places))
     # 问路并进军事面板：可及格数与可拓荒地一次给全，省掉单独一次路径查询。
     frontier = facts.get('frontier') or {}
     if frontier:

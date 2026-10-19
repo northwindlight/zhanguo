@@ -17,7 +17,7 @@ class UILayer:
     def observer_map(self,state):return observer_map(state,self.text)
     def map_text(self,observation):return player_map(observation,self.text)
     def map_snapshot(self,observation):return snapshot(observation)
-    def map_image(self,observation):return render_snapshot(snapshot(observation),max_px=self.cfg.get('map_max_px',960))
+    def map_image(self,observation):return render_snapshot(snapshot(observation),max_px=self.cfg.get('map_max_px',1440))
     def map_svg(self,observation):return render_svg(snapshot(observation))
     def expand_message(self,message,*,vision=True):return expand_message(message,vision=vision)
 

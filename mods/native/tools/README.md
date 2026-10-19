@@ -8,6 +8,7 @@
 - 每个 Tool 显式写 `api`（覆盖的 `<Module>API` 方法）；模块 `[PlayerAPI] Methods` 必须被至少一个 Tool 覆盖，漏封装在 `Runtime.load` 时直接报错。
 - API 自己用 `[PlayerAPI] ReadOnly` 声明读方法、`ContentParameters` 声明内容键参数、`Actions` 声明与方法名不同的语义动作。工具的 `read_only` 只做一致性校验，不能反向决定 API 的权限或读写属性；脚本同样接受唯一短内容键。
 - `fact=True` 进入 `observe()`，`panel=True` 进入统一 `query(panel=…)`；两者都必须 `read_only`。
+- `Tool.normalizers` 是模型入口的显示词汇归一化：地点接受 `名字(x,y)`/全角坐标，国家目标接受显示名/短 ID/`nation/<id>`；内容键别名由 `ContentRegistry.register_aliases`（表在 `aliases.py`）统一接住。normalizer 在 schema 校验之前运行，正文键不碰。
 - 面板没有第二份登记：`panel=True` 的 Tool 就是面板，`Runtime.panel(name)` 直接分发到它；模块的 `panels()` 已删除，`PANELS` 只是面板成文函数表（数据仍来自只读 Tool）。
 - 写动作按命令收进 `commands.py` 的伞工具（`military`/`economy`/`relations`/`intelligence`）：内层是 tool 层自己的 `ActionSpec`（含 schema、策略门、adapter 与回执），**不进引擎工具表**；引擎只登记名称、capability/method、read_only 与 groups。伞工具暴露 `action` 参数并转发 `Runtime.call_action`。**脚本与规则 AI 不用这些名字**：它们走 `Runtime.api_call` / `BoundPlayer.call_api(capability, method, ...)`，能力与方法由模块 `[PlayerAPI]` 提供。
 - `groups` 是策略组：政体 `Disable = ["group.<名>"]` 会展开成组内工具/动作的 `tool.<名>`、`action.<名>` 和声明的语义键（如 `accept.treaties`、`communication.gift`）；同组新增动作自动被禁。伞工具的 `action` 枚举由 `action_available` 过滤。
@@ -19,7 +20,8 @@
 - `__init__.py`：`build(runtime)` 汇总各领域 spec，按 `owner in runtime.capabilities` 过滤，追加统一 `query` 入口，再交给 `commands.wrap` 收伞。
 - `commands.py`：伞工具表与生成器；`COMMANDS` 是一张显式动作清单。
 - `nations.py` / `government.py` / `army.py` / `territory.py` / `vision.py` / `buildings.py` / `economy.py` / `bank.py` / `diplomacy.py` / `intelligence.py`：领域 Tool 表 + `RECEIPTS` / `CAPTIONS` / `PANELS`。`nations.py` 的 `foreign` 面板直接读四个模块的玩家 API，不再为每块注册工具；`Tool.covers` 声明组合覆盖的别家 API。
-- `query.py`：从 `panel=True` 的工具生成只读分发器，连同各面板参数、必填项和约束一起派生，不另列全局参数表。
+- `query.py`：从 `panel=True` 的工具生成只读分发器，连同各面板参数、必填项和约束一起派生，不另列全局参数表；顶层保留并集，分发前按选中 panel 过滤参数。
+- `arguments.py`：`DEFAULT_NORMALIZERS`（site/place/target/to/tos）与 `place_ref`；`aliases.py`：内容显示名/短键/常用英文别名表；`targets.py`（上层目录）：国家名→ID。`quote.py`：`query(panel=quote)` 的 build/recruit/letter/borrow 只读预览。
 - `common` 逻辑暂复用 `mods/native/locations.py`。
 
 新增一个动作：在模块 `api.py` 加方法 → 模块 `mod.toml` 的 `[PlayerAPI] Methods` 加名字 → 在对应 `tools/*.py` 加 `Tool` 与回执 → 补两份文案。发行版清单不需要再加工具名。

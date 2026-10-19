@@ -131,7 +131,7 @@ def tools(runtime):
              description='一次列出本国及视野内军队：国家、整数编号、兵种、位置、HP和行动/交战/撤退状态；无需坐标。军队编号各国独立。'),
         reachable_tool,
         Tool('frontier', frontier, owner='native:army', api=('frontier',), read_only=True, fact=True, panel=True,
-             description='全国可见无主地总数、本回合可行动军队逐支可及格数（units）、并集目的地与可拓荒地；无需坐标。'),
+             description='全国可见无主地总数、本回合可行动军队逐支可及格数（units）、并集目的地与可达无主地（可能有野人守军，进攻前用 tile 复核）；无需坐标。'),
         Tool('logistics', logistics, owner='native:army', api=('logistics',), read_only=True, panel=True,
              description='军需面板：逐军队列补给需求、军屯免供、断粮损伤、回血装备需求/预计消耗和预计恢复HP，再汇总补给与装备库存、总需求、消耗和缺口。民兵回血不耗装备。只读预演，不扣资源，不含后续生产与行动，无需参数。'),
         Tool('unit_catalog', unit_catalog, owner='native:army', api=('unit_catalog',), read_only=True, fact=True, panel=True,
@@ -177,7 +177,10 @@ def _army_list(data, args, actor, ctx):
     lines.extend(_army_line(ctx, u) for u in own)
     lines.extend(_army_line(ctx, u) for u in foreign)
     if guards:
-        lines.append(ctx.text('tool.army.guard_hint', count=len(guards)))
+        places = '、'.join(ctx.pos([u['x'], u['y']], actor=actor) for u in guards[:12])
+        if len(guards) > 12:
+            places += f'…另{len(guards) - 12}处'
+        lines.append(ctx.text('tool.army.guard_hint', count=len(guards), places=places))
     return '\n'.join(lines)
 
 

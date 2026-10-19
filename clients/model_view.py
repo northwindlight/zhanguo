@@ -233,7 +233,7 @@ class ModelView:
             owners=sorted({t['owner'] for t in facts['tiles'] if t['owner']})
             names={n['id']:n['name'] for n in flatten(observation['facts']).get('nations',[])}
             legend+='\n'+self.text('map.legend',owners=', '.join(f'{chr(65+i)}={names.get(owner,owner)}' for i,owner in enumerate(owners)))
-            image={'facts':facts,'max_px':self.cfg.get('map_max_px',960),'estimated_tokens':self.cfg.get('map_estimated_tokens',2048),
+            image={'facts':facts,'max_px':self.cfg.get('map_max_px',1440),'estimated_tokens':self.cfg.get('map_estimated_tokens',2600),
                    'fallback':self.text('map.fallback')+'\n'+player_map(observation,self.text)}
         return legend,image
 

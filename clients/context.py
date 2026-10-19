@@ -281,7 +281,8 @@ CTX_KEYS = ("ctx_window", "ctx_fill", "ctx_slide_keep", "ctx_archive_fill",
 
 def apply_defaults(cfg: dict) -> dict:
     """把配置顶层的 ctx_* 键下沉为每国默认值（国家条目里的同名键优先）。"""
-    defaults = {k: cfg[k] for k in (*CTX_KEYS, "vision", "map_max_px", "map_image_tokens") if k in cfg}
+    defaults = {k: cfg[k] for k in (*CTX_KEYS, "vision", "map_max_px",
+                                    "map_image_tokens", "map_estimated_tokens") if k in cfg}
     for n in cfg.get("nations", []) or []:
         if isinstance(n, dict):
             for k, v in defaults.items():

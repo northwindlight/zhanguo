@@ -76,7 +76,8 @@ class Territory:
         if point is not None:
             self.check(*point);return point
         position = self._call('map:generation','where',self._seed,self._size,text.strip())
-        if position is None:raise ValueError(f'没有这个地名：{text.strip()}')
+        if position is None:raise ValueError(
+            f'没有这个地名：{text.strip()}；可用写法：裸地名、坐标 "x y"、或 "地名(x, y)"')
         if self.owner(*position) is None:raise ValueError('无主地块只能用坐标引用')
         return position
 

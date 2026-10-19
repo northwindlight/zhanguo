@@ -24,8 +24,8 @@ native 的 `build/recruit/move/attack/retreat/tile` 都接受 `site` 或 `place`
 {
   "language": "zh-CN",
   "vision": true,
-  "map_max_px": 960,
-  "map_estimated_tokens": 2048
+  "map_max_px": 1440,
+  "map_estimated_tokens": 2600
 }
 ```
 

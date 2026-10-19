@@ -31,7 +31,7 @@ class TestNativeDistribution(unittest.TestCase):
         runtime=Runtime.load(ROOT/'mods.toml');direct=Runtime.load(ROOT/'mods/native')
         self.assertEqual(runtime.dependency_manifest(),direct.dependency_manifest())
         self.assertEqual(runtime.distribution['Id'],'native')
-        self.assertEqual(runtime.distribution['Version'],'4.13.0')
+        self.assertEqual(runtime.distribution['Version'],'4.14.0')
         self.assertEqual(set(runtime.units),{'ui:standard','native:resources','native:buildings','native:market',
                          'native:market-pricing','native:economy','native:economy-valuation',
                          'native:bank','native:economy-queries','native:nations','native:government','native:map-generation',
@@ -79,7 +79,7 @@ class TestNativeDistribution(unittest.TestCase):
     def test_construction_owner_ids_and_phase_are_enforced_without_partial_changes(self):
         world=self.world();before=self.save(world)
         for args in ({'site':'native:chu-capital','kind':'native:farm'},
-                     {'site':'native:qin-capital','kind':'农场'},
+                     {'site':'native:qin-capital','kind':'not-a-building'},
                      {'site':'native:missing','kind':'native:farm'}):
             with self.assertRaises((ValueError,KeyError)):self.call(world,'build',**args)
             self.assertEqual(self.save(world),before)

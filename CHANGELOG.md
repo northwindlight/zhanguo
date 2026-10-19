@@ -1,5 +1,15 @@
 # 更新记录
 
+## 未发布 — toolcall 契约归一化（需新档）
+
+- 模型入口新增共享 `Tool.normalizers`，在 schema 校验前把观测词汇归一化成动作词汇：地点接受 `名字(x, y)`/全角括号/`名字 x y`（仍为 0-based），国家目标接受显示名/短 ID/`nation/<id>`，内容键接受中文显示名、金木粮矿油装补、`supplies`/`equip`/`petroleum` 等别名。
+- 所有工具/动作在 tool 层装配时默认挂同一套 normalizer；伞工具 dispatch 前按选中 action 的属性集过滤，避免 union/intersection 参数互相误伤。
+- `query` 顶层保留 panel 参数并集，但分支不再用更严的 `additionalProperties`；运行时按选中 panel 过滤参数。新增 `building_catalog.kind` 筛选与 `foreign.limit`。
+- 新增只读 `query(panel=quote)` 预览：build 实付造价/地形惩罚/折扣，recruit 可征站点/材料/额度，letter 费用，borrow 授信/手续费/是否可借；不改变世界。
+- 错误文案改为 corrective：未知国家列现存 `名字=ID`，未知地点列接受写法，借款手续费/征兵点/同格二次动工指向下一步。
+- 地图放大默认到 1440px，兵牌字号/框放大；野人兵牌显示 `野N`；状态与 `army` 面板直接列野人守军坐标；图例补 ASCII 读法；`可拓荒` 改为“可达无主地（可能有守军）”。
+- 依赖清单与工具 schema 变化，**旧档不兼容**：需新档；旧档升级另行提供。native 4.14.0 / experimental 0.14.0，buildings 2.11.0 / army 2.10.0 / intelligence 1.5.0 / bank 1.4.2 / nations 1.1.2 / query 1.2.0 / territory 2.4.2 / ui 1.5.1。
+
 ## 未发布 — 消费金额的宏观价值证明
 
 - 论文新增完整证明：充分市场下竞争价格支持既定分配的宏观边际用途价值；竞争性投入产出模型中，消费金额等于直接与间接再生产所需资源的社会机会成本。进一步连接累计消费、给出非均衡残差界，并说明劳动价值联系的附加条件。

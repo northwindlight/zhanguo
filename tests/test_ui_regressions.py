@@ -129,7 +129,9 @@ class TestUIRegressions(unittest.TestCase):
         self.assertIn('秦 步兵#1',preview);self.assertIn('新兵，本回合不可行动',preview)
         self.assertLess(full.index('秦 步兵#1'),full.index('楚 步兵#1'))
         self.assertNotIn('野人 步兵#',full)
-        self.assertIn('位置见文字地图',full)
+        self.assertIn('另有野人守军',full)
+        self.assertIn('位置：',full)
+        self.assertNotIn('位置见文字地图',full)
 
     def test_army_ready_and_moved_are_distinct(self):
         h=self.host();x,y=h.player(Q).query('land')[0]['tile']['position']

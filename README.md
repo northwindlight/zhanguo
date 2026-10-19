@@ -27,7 +27,7 @@
 - **玩家客户端**：LLM 与 `v11plus` 规则 AI 使用同一绑定身份的 API，消费结构化事实和行动回执。
 - **界面**：独立 UI Mod 装配语言文案、终端面板和玩家可见的文字、SVG、PNG 地图；渲染原语在 `presentation/`，模型视图在 `clients/model_view.py`。
 
-默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.13.0`：
+默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.14.0`：
 
 - 独立议长分两步审核国策，核对事实、情报和经济、外交、军事承诺；连续三回合未通过后罢免君主并重建记忆。
 - 市场采用实际交付的有限库存，以及库存偏差反馈报价。

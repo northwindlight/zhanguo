@@ -59,6 +59,24 @@ class Intelligence:
     def _write(self):
         if active_unit.get() not in (None,self._domain):raise ModError('Use intelligence interface')
     def _ids(self):return self._call('native:nation-inspection','ids')
+    def _targets(self):
+        rows=(self._call('native:nation-inspection','get',ident) for ident in self._ids())
+        return '、'.join(f'{row.name}={row.id}' for row in rows)
+    def letter_fee(self, owner, target, text, *, length=None):
+        """Read-only letter quote; the send path uses the same formula."""
+        if owner not in self._ids():raise ValueError('发信方不是存活国家')
+        if target not in self._ids():
+            raise DomainRejection(f'未识别的国家或已亡国：{target}；可用：'+self._targets(),
+                                  {'reason':'unknown_nation','value':target,'candidates':self._targets()})
+        if target == owner:raise DomainRejection('不能给自己发信；请选另一个存活国家：'+self._targets(),
+                                                  {'reason':'unknown_nation','value':target})
+        if length is None:length=len(text or '')
+        if length<=0:raise ValueError('信件正文不能为空：写清诉求与预期收益再发，按字数计费')
+        base=self._rules['LetterAlly'] if self._call('native:diplomacy','allied',owner,target) else self._rules['LetterBase']
+        fee=max(self._rules['LetterMinimum'],base-self._centers(owner)*self._rules['CenterDiscount'])
+        fee+=math.ceil(max(0,length-self._rules['FreeCharacters'])/self._rules['CharactersPerGold'])
+        return {'target':target,'length':length,'fee':fee,'currency':self._currency(),
+                'budget':{s.id:s.amount for s in self._call('native:resource-inspection','snapshot',owner)}}
     def _currency(self):
         if not hasattr(self,'_currency_id'):
             ids=self._call('native:resource-inspection','role_ids','currency')
@@ -72,7 +90,17 @@ class Intelligence:
     def submit(self, owner, target, kind, *, text='', resource=None, quantity=0):
         self._write()
         if self._world is not None and self._world.phase!='行动':raise ValueError('Submit only during action phase')
-        if owner not in self._ids() or target not in self._ids() or owner==target:raise ValueError('收信方须是另一个存活国家：不能发给自己，也不能发给已亡国')
+        if owner not in self._ids():raise ValueError('发信方不是存活国家')
+        if target == owner:raise DomainRejection('不能给自己发信；请选另一个存活国家：'+self._targets(),
+                                                  {'reason':'unknown_nation','value':target})
+        if target not in self._ids():
+            try:
+                self._call('native:nation-inspection','get',target)
+                message=f'{target} 已亡国；可用：'+self._targets()
+            except Exception:
+                message=f'未识别的国家：{target}；可用：'+self._targets()
+            raise DomainRejection(message, {'reason':'unknown_nation','value':target,
+                                            'candidates':self._targets()})
         if (not self._call('native:diplomacy','diplomatic_authority',owner)
             and not self._call('native:diplomacy','allied',owner,target)):
             raise ValueError('普通附庸没有对外外交权，只能在宗主外交实体内部通信')
@@ -81,9 +109,7 @@ class Intelligence:
         fee=self._rules['Fee']
         if kind=='letter':
             if not isinstance(text,str) or not text.strip():raise ValueError('信件正文不能为空：写清诉求与预期收益再发，按字数计费')
-            base=self._rules['LetterAlly'] if self._call('native:diplomacy','allied',owner,target) else self._rules['LetterBase']
-            fee=max(self._rules['LetterMinimum'],base-self._centers(owner)*self._rules['CenterDiscount'])
-            fee+=math.ceil(max(0,len(text)-self._rules['FreeCharacters'])/self._rules['CharactersPerGold'])
+            fee=self.letter_fee(owner,target,text)['fee']
         elif kind=='spy':fee=self._rules['SpyFee']
         else:
             if self._call('native:diplomacy','allied',owner,target):fee=0
