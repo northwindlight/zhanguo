@@ -76,6 +76,10 @@ python -m scenarios.eight_nations --seed 20260921
 
 全部资料见[文档索引](docs/README.md)。
 
+**Mod 开发文档站**：<https://northwindlight.github.io/zhanguo/> ——按开发流程组织，带可搜索的 API 参考
+（API 参考页由 `scripts/api_doc.py` 从源码生成，与代码同步；教程页手写，在 `docs/site/content/`）。
+本地预览：`python3 docs/site/build.py --serve`。
+
 - [Mod 开发指南](docs/Mod开发指南.md)：从可运行示例开始，增加内容、替换模块和组装独立游戏。
 - [发行版 Session](docs/发行版Session.md)：场景、可选地图策略、管理能力、服务装配、审计与控制权。
 - [玩家 API 与客户端](docs/客户端接线.md)：绑定身份、事实、请求和回执。

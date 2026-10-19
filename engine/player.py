@@ -255,4 +255,5 @@ class PlayerSession:
             selected=self.__runtime.select_rules(sections, topic)
             if not selected:
                 return [{'title':'规则目录','body':'\n'.join(section.title+('：'+section.summary if section.summary else '') for section in sections)+'\n传 topic 查看对应主题；all 查看全部。'}]
-            return [{'title':section.title,'body':section.body} for section in selected]
+            return [{'title':section.title,'body':section.body,'system':section.system}
+                    for section in selected]

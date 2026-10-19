@@ -16,7 +16,12 @@ PANELS = (('diplomacy', 'brief.diplomacy_head'), ('market', 'brief.market_head')
 
 
 def stocks_of(facts):
-    return {s['id']: s['amount'] for s in facts.get('econ', {}).get('stocks', [])}
+    """资源存量：完整经济快照（econ.stocks）或简化发行版的 stock 列表都认。"""
+    stocks=(facts.get('econ') or {}).get('stocks')
+    if isinstance(stocks,list) and stocks:return {s['id']: s['amount'] for s in stocks if isinstance(s,dict) and 'id' in s}
+    stock=facts.get('stock')
+    if isinstance(stock,list):return {s['id']: s['amount'] for s in stock if isinstance(s,dict) and 'id' in s}
+    return {}
 
 
 def resources_line(ui, stocks, key):
@@ -40,18 +45,26 @@ def panel(ui, action, data, actor):
 
 def _power(ui, facts, cues, observation, key):
     stocks = stocks_of(facts)
+    # 国力节要的是经济事实：发行版没有经济概念就不出这一节，
+    # 也不该拿「无」冒充「一贫如洗」。
+    if not stocks and not (facts.get('econ') or {}).get('latest_turn') and 'econ' not in facts:
+        return None
     lines = [ui.text('brief.power_head') + ' ' + resources_line(ui, stocks, key)]
     energy = cues.get('energy_capacity') or {}
-    lines.append(ui.text('brief.energy', capacity=energy.get('capacity', 0), demand=energy.get('demand', 0),
-                         status=ui.text('brief.energy_short') if energy.get('capacity_gap') else ui.text('brief.energy_ok')))
+    # 能源、输入、市政厅都是完整经济发行版才有的概念：
+    # 没有这些事实就不写这些行，不拿 0 冒充「没有能源」。
+    if energy or (facts.get('econ') or {}).get('preview', {}).get('energy'):
+        lines.append(ui.text('brief.energy', capacity=energy.get('capacity', 0), demand=energy.get('demand', 0),
+                             status=ui.text('brief.energy_short') if energy.get('capacity_gap') else ui.text('brief.energy_ok')))
     inputs = cues.get('planned_regular_inputs') or {}
     if inputs:
         lines.append(ui.text('brief.industry', inputs=ui.resources(inputs, gold_short=False)))
     actor = observation['actor']
     capitals = [row['id'] for row in facts.get('building_catalog') or [] if 'capital' in (row.get('roles') or ())]
-    halls = sum(1 for row in facts.get('view', []) if row.get('owner') == actor
-                and any(dict(row.get('buildings') or ()).get(kind) for kind in capitals))
-    lines.append(ui.text('brief.halls', count=halls))
+    if capitals:
+        halls = sum(1 for row in facts.get('view', []) if row.get('owner') == actor
+                    and any(dict(row.get('buildings') or ()).get(kind) for kind in capitals))
+        lines.append(ui.text('brief.halls', count=halls))
     shortfalls = cues.get('stock_shortfalls_before_production') or {}
     if shortfalls:
         lines.append(ui.text('brief.shortfall', values=ui.resources(shortfalls, gold_short=False)))
@@ -91,6 +104,7 @@ def _turn_report(facts):
 def _report(ui, facts):
     # 正式报表按发布窗口记录增长率；上一回合流量已在国力节展示。
     # 使用 report 查询的同一渲染器，避免把单期流量冒充正式报表。
+    if 'econ' not in facts:return None
     report = (facts.get('econ') or {}).get('latest_report')
     return panel(ui, 'report', [report] if isinstance(report, dict) else [], ui._actor)
 
@@ -150,6 +164,8 @@ def _territory(ui, events, names):
 
 def _plan(ui, facts):
     government = facts.get('government') or {}
+    # government 事实里没有 plan 键 = 这个发行版没有国策概念，整节不出现。
+    if 'plan' not in government:return None
     plan = government.get('plan')
     lines = [ui.text('brief.plan_head')]
     if not plan:
@@ -170,6 +186,8 @@ def _map(ui, observation, key, vision):
     （G6.15：0.1 就是图片顶掉 atlas），只留一行计数。
     """
     rows = observation['facts'].get('view') or []
+    # 没有视野事实就没有地图可画：空地图不如不画。
+    if not rows:return None
     if vision:
         own = sum(1 for row in rows if row.get('owner') == observation['actor'])
         return ui.text('brief.map_head') + '\n' + ui.text('atlas.footer', own=own,

@@ -32,6 +32,26 @@ def army_state(unit, period):
     return 'ready'
 
 
+def war_sides(war):
+    """交战双方：兼容 ``{'attackers','defenders'}``、``{'parties':[…]}`` 与 ``[a, b]`` 三种形状。
+
+    发行版对外暴露的战争事实写法不一，模型面向的简报与仪表盘
+    都不该假定其中一种：认不出就当没有交战，绝不抛异常。
+    """
+    if isinstance(war, dict):
+        attackers = list(war.get('attackers') or [])
+        defenders = list(war.get('defenders') or [])
+        if attackers or defenders:
+            return attackers, defenders
+        parties = list(war.get('parties') or [])
+        if len(parties) >= 2:
+            return parties[:1], parties[1:2]
+        return [], []
+    if isinstance(war, (list, tuple)) and len(war) >= 2:
+        return [war[0]], [war[1]]
+    return [], []
+
+
 def map_presentation(facts):
     """Map glyphs and role→kinds from detached public facts.
 

@@ -1,10 +1,10 @@
 {
   "console.victory": "Scenario victory event: {event}",
-  "llm.system": "You are a nation player in Zhanguo. Act only through the supplied player tools. Use namespaced content IDs and zero-based coordinates. State is filtered by your permissions. Consult player_rules for rules. Current state is supplied in full at the start of each turn; nothing is appended between batches, so query the specific tool for the latest state. A submitted diplomatic request awaits settlement; it is not an effective treaty. Publish a valid plan, then call end_turn with an action summary. Prefer x/y coordinates for site operations, and integer army id for aid/ids. Each army fact pairs this nation's id with its kind; aid/ids must reference that record's id. IDs are nation-local, so do not assume a fixed unit kind for IDs such as 1 or 2. position is [x,y]; stocks maps resource IDs to amounts. query(panel=map) returns structured rows with position/name/terrain/owner/buildings; owner=null is unowned and has no public name. query(panel=tile) gives one tile in full, query(panel=land) your own. For build/recruit/move/attack/retreat, site and place are interchangeable names for a location name or coordinate string. If both are supplied, they must identify the same tile. Alternatively use integer x and y without a location reference. Army tools move/attack/retreat/disband and query(panel=reachable) accept aid for one unit or ids for a batch; when both are supplied ids must equal [aid]. Movement, attack and retreat validate the entire batch first. Multi-unit reachable results are grouped by aid. Ending your turn automatically rejects unanswered received diplomatic offers at no charge and casts no votes for open unanswered alliance ballots. Explicit replies and abstentions are preserved; newly sent offers await the recipient's next action turn.",
+  "llm.system": "You are a player nation in a turn-based strategy game. Act only through the supplied player tools. Prefer unique short content keys; coordinates are zero-based. State is filtered by your permissions. Consult player_rules for rules. Current state is supplied in full at the start of each turn; nothing is appended between batches, so query the specific tool for the latest state. Write action summaries and external messages in Chinese.",
   "llm.background": "Temporary background: {text}",
-  "llm.continue": "Continue using tools; this turn requires a valid plan and end_turn.",
+  "llm.continue": "Continue using tools; finish this turn's actions and call end_turn to end it.",
   "llm.limit": "LLM did not complete end_turn within the step limit; stopping with the last settled save.",
-  "llm.compact": "Do not call tools. Merge this history into the previous long-term memory, preserving plans, treaties, tasks and lessons. Return the new memory.\nPrevious memory: {memory}\nHistory: {history}",
+  "llm.compact": "Do not call tools. Merge the history below on top of the old long-term memory, keeping long-term goals, commitments, open items and lessons, and return the new long-term memory.\nOld memory: {memory}\nHistory: {history}",
   "llm.compacting": "🧠 {actor} compressing memory, attempt {attempt}/{limit}",
   "llm.compact_failed": "⚠ {actor} memory compression failed ({error}); keeping previous long-term memory and archiving turn summaries",
   "llm.context": "🧠 {actor} context {plan}",
@@ -462,5 +462,15 @@
   "console.vote_cancelled": "cancelled",
   "query.territory_lost": "{name} lost it",
   "query.vacated_land": "Vacated former territory",
-  "query.wild_land": "Wilderness"
+  "query.wild_land": "Wilderness",
+  "content.mini:gold": "Gold",
+  "content.mini:food": "Food",
+  "content.mini:wood": "Wood",
+  "content.mini:plain": "Plain",
+  "content.mini:infantry": "Infantry",
+  "content.mini:town-hall": "Town Hall",
+  "content.mini:lumber-camp": "Lumber Camp",
+  "content.mini:farm": "Farm",
+  "content.mini:gold-mine": "Gold Mine",
+  "content.mini:barracks": "Barracks"
 }

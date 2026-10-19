@@ -11,7 +11,7 @@ from presentation.console import ConsoleUI
 from presentation.maps import snapshot,owner_color
 from presentation.views import player_map
 from presentation.briefing import sections
-from presentation.facts import flatten, army_state
+from presentation.facts import flatten, army_state, war_sides
 from presentation.receipts import num
 from presentation.context_stats import context_plan
 from .context import est_tokens
@@ -31,6 +31,9 @@ class ModelView:
             cfg={**cfg,'_content_keys':keys or {}}
         self.cfg=cfg;self.text=Translator.from_config(cfg,tool_layer=tool_layer);self.sites={};self.has_scripts=False
         self.catalogs={};self.rulebook=[];self.period=0;self.at_war=False;self.polity=None
+        # 工具表由 actions() 落进来：系统提示按发行版**实际暴露**的工具说话，
+        # 不在这里写死任何发行版的面板名或命令名。
+        self.tool_names=set();self.tool_schemas=[]
         # 模型与观察者共用同一套中文渲染器；差别只在成文后的排序与裁剪。
         self.receipts=ConsoleUI(cfg,tool_layer=tool_layer);self.actor=None;self.names={};self.facts={}
 
@@ -85,14 +88,63 @@ class ModelView:
 
     def system(self):
         text=self.text('llm.system')+'\n'+str(self.cfg.get('system_prompt') or '')+'\n'+str(self.cfg.get('extra_summary') or '')
-        text+='\n国策是跨回合战略：经济、军事、情报、外交的目标、优先级、资源约束和调整条件应充分说明。end_turn 的 summary 只用一两句写实际结果，详细流水已有回执。先阅读当前状态和行动简报；已有资料无需重复查询。互不依赖的工具可在同一批调用，依赖前一步结果的行动等待回执。坐标只用于实际动作与 query(panel=tile) 的单格详情，其余查询按全国或整类返回。'
-        # The model can fetch every rule/catalog by tool. Only explicitly
-        # registered role guidance belongs in the stable prompt.
-        active=[section for section in self.rulebook if section['title'] in ('匈奴政体',)]
+        text+='\n'+self._tool_guidance()
+        if 'plan' in self.tool_names:
+            text+='国策是跨回合战略：经济、军事、情报、外交的目标、优先级、资源约束和调整条件应充分说明。'
+        text+='end_turn 的 summary 只用一两句写实际结果，详细流水已有回执。先阅读当前状态和行动简报；已有资料无需重复查询。互不依赖的工具可在同一批调用，依赖前一步结果的行动等待回执。坐标只用于实际动作与单格详情查询，其余查询按全国或整类返回。'
+        # 规则正文默认靠 player_rules 按需查；发行版自己标记要进系统提示的节
+        # （system=True）才在这里出现——宿主不认得任何发行版的专有名词。
+        active=[section for section in self.rulebook if section.get('system')]
         if active:text+='\n'+json.dumps(active,ensure_ascii=False,separators=(',',':'))
-        text+='\n只读查询统一用 query(panel=…)：land/tile/map、army/reachable/frontier/threats/battle/logistics、market/econ/bank/report、government/intel/news/dispatches、foreign（本国与全部对外关系）、unit_catalog/building_catalog/terrain_catalog/building_economics。动作类工具按命令分：military（征召/移动/进攻/撤退/遣散）、economy（买卖/借款/购报表）、relations（外交与投票）、intelligence（写信/赠礼/共享地图/间谍），各自用 action 参数选动作。规则用 player_rules(topic)；近讯在状态末尾，完整事件用 query(panel=news)。'
         if self.has_scripts:text+='\n'+self.text('llm.scripting')
         return text
+
+    def _tool_guidance(self):
+        """按**实际工具表**生成用法说明：发行版给什么就说什么。
+
+        面板清单取自 query 工具的 panel 枚举，命令清单取自带 action 参数的工具；
+        没有这些形状的发行版只得到通用说明，不会被塞进别人的词汇。
+        """
+        if not self.tool_schemas:
+            return '工具用法见工具表：每个工具的说明写明参数与用途。'
+        parts=[]
+        panels=self._panel_names()
+        if panels:
+            parts.append('只读查询统一用 query(panel=…)：'+'、'.join(panels)+'。')
+        else:
+            parts.append('只读查询用工具表里标着「只读」的工具；每个工具的说明写明参数与用途。')
+        commands=self._command_tools()
+        if commands:
+            parts.append('动作类工具按命令分：'+'、'.join(commands)+'，各自用 action 参数选动作；'
+                         '可选动作与各自参数见工具说明。')
+        parts.append('规则用 player_rules(topic)；近讯在状态末尾。')
+        if 'news' in panels:parts.append('完整事件用 query(panel=news)。')
+        return ''.join(parts)
+
+    def _panel_names(self):
+        """query 工具的 panel 枚举；没有枚举就只说面板用法，不猜具体名字。"""
+        for schema in self.tool_schemas:
+            fn=schema['function']
+            if fn['name']!='query':continue
+            prop=((fn.get('parameters') or {}).get('properties') or {}).get('panel') or {}
+            enum=prop.get('enum')
+            return [str(value) for value in enum] if isinstance(enum,list) else []
+        return []
+
+    def _command_tools(self):
+        """带 action 参数的工具名（query 自身不计）。
+
+        只列工具名：每个动作的中文说明已经写在工具 schema 里，
+        提示里再抄一遍枚举既冗余又丢掉了那些说明。
+        """
+        commands=[]
+        for schema in self.tool_schemas:
+            fn=schema['function']
+            if fn['name']=='query':continue
+            prop=((fn.get('parameters') or {}).get('properties') or {}).get('action') or {}
+            if isinstance(prop.get('enum'),list) and prop['enum']:
+                commands.append(fn['name'])
+        return commands
 
     def rules(self,sections):
         self.rulebook=deepcopy(sections)
@@ -102,6 +154,8 @@ class ModelView:
         # 每回合自动 facts / 近讯已经覆盖这两个内置读法；模型不再单独调用。
         schemas=deepcopy([schema for schema in schemas
                           if schema['function']['name'] not in ('player_state','player_events')])
+        self.tool_schemas=schemas
+        self.tool_names={schema['function']['name'] for schema in schemas}
         self.has_scripts=any(s['function']['name']=='script' for s in schemas)
         import re
         values=self.values()
@@ -149,14 +203,18 @@ class ModelView:
         for bloc in diplomacy.get('alliances',[]):
             if actor in bloc['members']:allies.update(bloc['members'])
         for war in diplomacy.get('wars',[]):
-            if actor in war['attackers']:enemies.update(war['defenders'])
-            if actor in war['defenders']:enemies.update(war['attackers'])
+            attackers,defenders=war_sides(war)
+            if actor in attackers:enemies.update(defenders)
+            if actor in defenders:enemies.update(attackers)
         own_positions=[s['position'] for s in sites.get('sites',[])]
         threats=[{'owner':u['owner'],'kind':u['kind'],'position':[u['x'],u['y']]} for u in facts.get('army',[])
                  if u['hp']>0 and u['owner'] in enemies and u['owner'] not in allies and u['owner']!='野人'
                  and any(max(abs(u['x']-p[0]),abs(u['y']-p[1]))<=1 for p in own_positions)]
         plan=facts.get('government',{}).get('plan')
-        return {'plan_status':'须提交国策' if not plan or plan['valid_until']<period else '国策有效',
+        # 国策是这个发行版的概念吗？government 事实里没有 plan 键就没有这个概念，
+        # 不该对没有国策的发行版说「须提交国策」。
+        has_plan='plan' in (facts.get('government') or {})
+        return {'plan_status':('须提交国策' if not plan or plan['valid_until']<period else '国策有效') if has_plan else None,
                 'production_tribute':preview.get('tribute'),
                 'production_tribute_receivables':preview.get('tribute_receivables'),
                 'energy_capacity':energy,'planned_regular_inputs':inputs,'full_load_outputs':outputs,
@@ -217,7 +275,7 @@ class ModelView:
         self.period=observation['period']
         self.polity=self.cfg.get('polity')
         actor=observation['actor']
-        self.at_war=any(actor in w['attackers']+w['defenders'] for w in facts.get('diplomacy',{}).get('wars',[]))
+        self.at_war=any(actor in sum(war_sides(w),[]) for w in facts.get('diplomacy',{}).get('wars',[]))
         cues=self.dashboard(observation)
         cap=self.cfg.get('model_state_tokens',12000)
         tail=self.briefing_text(observation,events,cues,lambda text:est_tokens(text)<=cap)

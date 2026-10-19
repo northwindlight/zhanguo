@@ -23,4 +23,4 @@ class HunsMod(GameMod):
         self.runtime.object_call(world,'native:army','seed',actor,'native:cavalry',x,y,cfg['Cavalry'])
         if debits or credits:self.runtime.object_call(world,'native:resource-exchange','exchange',actor,debits,credits)
     def prompt(self, world, actor):return '金矿优先，以战养战；分兵抢无主地，集中夺市政厅，时间不等人。骑兵征召8粮8装、建造130%，补给耗尽前主动缩军。可宣战求和、写信与间谍，不参加联盟、保障、共同防御、送礼或共享地图；只向允许谈判的对象谈条件。'
-    def rule_sections(self, world=None):return (RuleSection('匈奴政体',self.prompt(world,None),keywords=('huns','匈奴','游牧')),)
+    def rule_sections(self, world=None):return (RuleSection('匈奴政体',self.prompt(world,None),keywords=('huns','匈奴','游牧'),system=True),)

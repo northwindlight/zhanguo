@@ -9,11 +9,17 @@ ActorCollection = "nation_actors"
 ActionGate = {Capability = "mini:government", Method = "can_act"}
 PlayerClock = {Capability = "mini:government", Method = "period"}
 PlayerEvents = "news"
-PlayerState = ["nations", "government", "land", "army", "diplomacy", "news"]
+PlayerState = ["nations", "government", "land", "view", "army", "diplomacy", "stock", "catalog", "news"]
 
 # 离线可跑：用最小客户端代替模型客户端。
 [Distribution.ClientFactories.mini]
 Entry = "mods.examples.minigame.client:MinigameClient"
+
+# 同一个发行版也能交给真实模型玩：模型客户端与发行版无关，
+# 只要工具面与事实形状符合模型面向的契约。
+[Distribution.ClientFactories.llm]
+Entry = "clients.llm:LLMClient"
+Configuration = "clients.config:normalize"
 
 [[Hooks]]
 Id = "cycle.start"

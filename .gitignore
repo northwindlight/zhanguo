@@ -3,6 +3,7 @@ save.json
 mp_save.json
 mp_journal.md
 mp_journal*.md
+mp_journal*.txt
 mp_map.txt
 mp_map*.txt
 __pycache__/
@@ -21,6 +22,9 @@ mp_config.*.json
 # 议会示例配置的独立新局产物
 experimental_session.json
 experimental_journal.md
+
+# 文档站构建产物（docs/site/build.py 生成，CI 里现建）
+docs/site/_build/
 
 # 通用
 .DS_Store

@@ -57,8 +57,20 @@ def assert_paired(messages):
 
 class LLMClient:
     kind='llm';version='2'
-    def __init__(self,cfg,state=None,backend=None,ui=None):
+    def __init__(self,cfg,state=None,backend=None,ui=None,record=None,services=None):
+        """接受宿主的客户端工厂契约（cfg / record / services）。
+
+        发行版可以在 ``[Distribution.ClientFactories.llm]`` 里写
+        ``Entry = "clients.llm:LLMClient"``，把模型客户端装到自己的发行版上；
+        这时 record 是本客户端的存档状态，services 是宿主授予的能力（ui 在内）。
+        """
+        if state is None and isinstance(record,dict):
+            from engine.session import SaveFormatError
+            if record.get('kind') not in (None,self.kind):raise SaveFormatError('Client state kind mismatch')
+            if record.get('version') not in (None,self.version):raise SaveFormatError('Unsupported LLM client state')
+            state=LLMState.from_save(record['state']) if isinstance(record.get('state'),dict) else None
         self.cfg=deepcopy(cfg);self.state=state or LLMState();self._backend=backend
+        if ui is None and isinstance(services,dict):ui=services.get('ui')
         if ui is None:
             # Standalone construction (tests, embedding): no mounted UI mod; the
             # model view composes its own translator/renderer from presentation.

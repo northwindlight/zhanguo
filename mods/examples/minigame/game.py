@@ -33,6 +33,16 @@ BUILDINGS = MappingProxyType({
     'mini:barracks':    {'name': '兵营', 'gold': 60, 'wood': 20, 'output': {}},
 })
 BARRACKS = 'mini:barracks'
+INFANTRY_ID = 'mini:infantry'
+
+# 模型面向的同义词：模型照抄面板与回执里的中文名，也能直接提交。
+RESOURCE_ALIASES = {'黄金': GOLD, '金': GOLD, 'money': GOLD,
+                     '粮食': FOOD, '粮': FOOD, 'grain': FOOD,
+                     '木头': WOOD, '木': WOOD, 'lumber': WOOD}
+BUILDING_ALIASES = {'林场': 'mini:lumber-camp', '伐木场': 'mini:lumber-camp',
+                    '农场': 'mini:farm', '金矿': 'mini:gold-mine',
+                    '黄金矿场': 'mini:gold-mine', '市政厅': TOWN_HALL, '兵营': BARRACKS}
+UNIT_ALIASES = {'步兵': INFANTRY_ID, '步': INFANTRY_ID}
 
 # 兵种表：一个兵种，征兵耗粮与金，属性固定。
 INFANTRY = {'name': '步兵', 'food': 6, 'gold': 4, 'hp': 100, 'atk': 40, 'upkeep': 1}
@@ -144,10 +154,17 @@ class ResourcesMod(GameMod):
         return ('mini:resources', 'mini:resource-exchange')
 
     def initialize_world(self, world):
+        self.runtime.content.register_aliases('mini:resources', RESOURCE_ALIASES)
         world.accounts = Accounts(RESOURCES)
 
     def objects(self, world):
         return {'mini:resources': world.accounts, 'mini:resource-exchange': world.accounts}
+
+    def tools(self):
+        return (Tool('stock', lambda world, actor: [{'id': key, 'amount': amount}
+                                                   for key, amount in world.accounts.totals(actor).items()],
+                     read_only=True,
+                     description='只读资源存量：返回本国当前的钱、粮、木各有多少。建造与征兵都从这些存量里扣。'),)
 
     def save_state(self, world):
         return world.accounts.to_save()
@@ -254,6 +271,10 @@ class TerritoryMod(GameMod):
     def provides(self):
         return ('mini:territory',)
 
+    def content_definitions(self):
+        # 地形也要注册成内容：模型看到的是「平原」，不是 mini:plain。
+        return {PLAIN: {'name': '平原'}}
+
     def initialize_world(self, world):
         world.territory = Territory()
 
@@ -262,7 +283,14 @@ class TerritoryMod(GameMod):
 
     def tools(self):
         return (Tool('land', lambda world, actor: [{'site': cell.site, **self._fact(world, cell)}
-                                                   for cell in world.territory.cells()], read_only=True),)
+                                                   for cell in world.territory.owned(actor)],
+                     read_only=True,
+                     description='只读本国地块：本国每块地的位置、地形与已建建筑。'),
+                Tool('view', lambda world, actor: [{'site': cell.site, **self._fact(world, cell)}
+                                                  for cell in world.territory.cells()],
+                     read_only=True,
+                     description='只读地图：逐格列出全图地块（坐标、归属、地形、建筑）。本作没有视野限制，全图皆可见；'
+                                 '进攻只能落在交战国的地块上。'))
 
     @staticmethod
     def _fact(world, cell):
@@ -351,10 +379,15 @@ class BuildingsMod(GameMod):
     def provides(self):
         return ('mini:buildings',)
 
+    def content_definitions(self):
+        # 建筑注册成内容：短键与显示名都走同一套内容表。
+        return {kind: dict(table) for kind, table in BUILDINGS.items()}
+
     def needs(self):
         return ('mini:resource-exchange',)
 
     def initialize_world(self, world):
+        self.runtime.content.register_aliases('mini:buildings', BUILDING_ALIASES)
         world.buildings = Buildings(lambda capability, method, *args:
                                     self.runtime.object_call(world, capability, method, *args))
 
@@ -362,7 +395,26 @@ class BuildingsMod(GameMod):
         return {'mini:buildings': world.buildings}
 
     def tools(self):
-        return (Tool('build', self._build),)
+        kinds=[kind.split(':',1)[1] for kind in BUILDINGS]
+        return (Tool('build', self._build,
+                     parameters={'type': 'object', 'properties': {
+                         'x': {'type': 'integer', 'minimum': 0},
+                         'y': {'type': 'integer', 'minimum': 0},
+                         'kind': {'type': 'string', 'enum': kinds}},
+                         'required': ['x', 'y', 'kind'], 'additionalProperties': False},
+                     content_parameters=('kind',),
+                     description='在本国地块上动工：x、y 是地块坐标，kind 是建筑种类（查 catalog）。'
+                                 '只能建在本国地块上，材料不足会返回原因。'),
+                Tool('catalog', lambda world, actor: {
+                    'buildings': [{'id': kind, 'name': table['name'], 'gold': table['gold'],
+                                   'wood': table['wood'], 'output': dict(table['output'])}
+                                  for kind, table in BUILDINGS.items()],
+                    'units': [{'id': INFANTRY_ID, 'name': INFANTRY['name'], 'hp': INFANTRY['hp'],
+                               'food': INFANTRY['food'], 'gold': INFANTRY['gold'],
+                               'atk': INFANTRY['atk']}],
+                    'terrain': [{'id': PLAIN, 'name': '平原'}]},
+                     read_only=True,
+                     description='只读图鉴：建筑种类与造价产出、兵种属性、地形种类。建造与征兵前先查这里。'))
 
     @staticmethod
     def _build(world, actor, x: int, y: int, kind: str):
@@ -466,7 +518,9 @@ class NationsMod(GameMod):
         return {'mini:nations': world.nations, 'mini:nation-inspection': world.nations}
 
     def tools(self):
-        return (Tool('nations', lambda world, actor: world.nations.snapshot(), read_only=True),)
+        return (Tool('nations', lambda world, actor: world.nations.snapshot(), read_only=True,
+                     description='只读各国：所有国家的 id、名称与是否存续。'
+                                 '宣战、议和的 target 用这里的 id。'),)
 
     def save_state(self, world):
         return world.nations.to_save()
@@ -518,6 +572,11 @@ class Military:
     def of(self, owner):
         return self.snapshot(owner)
 
+    def all_units(self, actor):
+        """本国部队在前、其余按编号：模型要看得见对手，才知道该防谁。"""
+        own=self.snapshot(actor);others=self.snapshot()
+        return tuple(own)+tuple(unit for unit in others if unit.owner != actor)
+
     def recruit(self, owner, x, y):
         self._write()
         if self._world.territory.owner(x, y) != owner:
@@ -526,7 +585,7 @@ class Military:
             raise ValueError('该地块没有兵营')
         self._call('mini:resource-exchange', 'exchange', owner,
                    {FOOD: INFANTRY['food'], GOLD: INFANTRY['gold']}, {})
-        self.seed(owner, 'mini:infantry', x, y)
+        self.seed(owner, INFANTRY_ID, x, y)
         return self.snapshot(owner)[-1]
 
     def move(self, owner, unit_id, x, y):
@@ -590,10 +649,15 @@ class ArmyMod(GameMod):
     def provides(self):
         return ('mini:army',)
 
+    def content_definitions(self):
+        # 兵种注册成内容：模型看到的是「步兵」。
+        return {INFANTRY_ID: dict(INFANTRY)}
+
     def needs(self):
         return ('mini:resource-exchange', 'mini:territory', 'mini:buildings', 'mini:diplomacy')
 
     def initialize_world(self, world):
+        self.runtime.content.register_aliases('mini:army', UNIT_ALIASES)
         world.military = Military(lambda capability, method, *args:
                                   self.runtime.object_call(world, capability, method, *args))
 
@@ -601,10 +665,17 @@ class ArmyMod(GameMod):
         return {'mini:army': world.military}
 
     def tools(self):
-        return (Tool('recruit', self._recruit),
-                Tool('move_army', self._move),
-                Tool('attack', self._attack),
-                Tool('army', lambda world, actor: world.military.of(actor), read_only=True))
+        return (Tool('recruit', self._recruit,
+                     description='在本国地块上征一个步兵：x、y 是地块坐标，该地块必须有兵营。'
+                                 '征兵耗粮与金（查 catalog），资源不足会返回原因。'),
+                Tool('move_army', self._move,
+                     description='调动本国部队：unit 是部队编号，x、y 是目标格，只能移到相邻格。'),
+                Tool('attack', self._attack,
+                     description='进攻：unit 是本国部队编号，x、y 是目标格。只能攻击交战国的地块，'
+                                 '且目标格须与该部队相邻；守军被歼灭即占领该格。'),
+                Tool('army', lambda world, actor: world.military.all_units(actor), read_only=True,
+                     description='只读部队：列出本国与各国现役部队（编号、兵种、HP、所在格），'
+                                 '本国部队排在前面。'))
 
     @staticmethod
     def _recruit(world, actor, x: int, y: int):
@@ -635,7 +706,7 @@ class ArmyMod(GameMod):
 # ── 外交 ──────────────────────────────────────────────────────────────
 class Diplomacy:
     def __init__(self):
-        self._wars = set()
+        self._wars = {}
         self._world = None
 
     def bind_state(self, world, key):
@@ -658,23 +729,38 @@ class Diplomacy:
         self._world.nations.get(target)
         if actor == target:
             raise ValueError('不能对自己宣战')
-        self._wars.add(self._pair(actor, target))
+        # 记录宣战方：交战事实里的进攻方/防守方要有真实含义。
+        self._wars.setdefault(self._pair(actor, target), actor)
         return {'war': True, 'with': target}
 
     def make_peace(self, actor, target):
         self._write()
         self._world.nations.get(target)
-        self._wars.discard(self._pair(actor, target))
+        self._wars.pop(self._pair(actor, target), None)
         return {'war': False, 'with': target}
 
     def wars(self):
         return tuple(sorted(self._wars))
 
+    def sides(self):
+        """交战双方：宣战方是进攻方，模型面向的外交事实用这个形状。"""
+        rows = []
+        for index, pair in enumerate(sorted(self._wars), 1):
+            attacker = self._wars[pair]
+            defender = pair[1] if attacker == pair[0] else pair[0]
+            rows.append({'id': index, 'a': attacker, 'b': defender,
+                         'attackers': [attacker], 'defenders': [defender]})
+        return rows
+
     def to_save(self):
-        return {'wars': [list(pair) for pair in sorted(self._wars)]}
+        return {'wars': [[a, b, declarer] for (a, b), declarer in sorted(self._wars.items())]}
 
     def restore(self, state):
-        self._wars = {tuple(pair) for pair in state['wars']}
+        rows = {}
+        for entry in state['wars']:
+            pair = tuple(entry[:2])
+            rows[pair] = entry[2] if len(entry) > 2 else pair[0]
+        self._wars = rows
 
 
 class DiplomacyMod(GameMod):
@@ -697,9 +783,18 @@ class DiplomacyMod(GameMod):
         return {'mini:diplomacy': world.diplomacy}
 
     def tools(self):
-        return (Tool('declare_war', self._war), Tool('make_peace', self._peace),
-                Tool('diplomacy', lambda world, actor: {'wars': world.diplomacy.wars()},
-                     read_only=True))
+        return (Tool('declare_war', self._war,
+                     description='向另一国宣战：target 是对方国家 id（查 nations）。'
+                                 '只有交战国之间才能进攻对方地块，议和后方可再战。'),
+                Tool('make_peace', self._peace,
+                     description='与另一国议和：target 是对方国家 id（查 nations）。议和立即生效。'),
+                Tool('diplomacy', lambda world, actor: {
+                    'alliances': [], 'pacts': [], 'wars': world.diplomacy.sides(), 'truces': [],
+                    'offers': [], 'votes': [], 'pending': [], 'results': [], 'vassals': [],
+                    'entity_members': [[f'nation/{nation.id}', [nation.id]] for nation in world.nations.snapshot()]},
+                     read_only=True,
+                     description='只读外交：当前与哪些国家交战。本作没有同盟、条约、提议与投票；'
+                                 'wars 里 attackers 是宣战方，defenders 是被宣战方。'))
 
     @staticmethod
     def _war(world, actor, target: str):
@@ -786,9 +881,17 @@ class GovernmentMod(GameMod):
         return {'mini:government': world.government}
 
     def tools(self):
-        return (Tool('end_turn', lambda world, actor: world.government.end_turn(actor)),
+        return (Tool('end_turn', self._end_turn,
+                     description='结束本国行动。summary 只用一两句概括本回合实际做了什么，'
+                                 '不要重复逐条流水账；细节已有回执。'),
                 Tool('government', lambda world, actor: world.government.snapshot(actor),
-                     read_only=True))
+                     read_only=True,
+                     description='只读回合状态：当前是第几期、本国本回合是否已经结束行动。'))
+
+    @staticmethod
+    def _end_turn(world, actor, summary: str = ''):
+        result=world.government.end_turn(actor)
+        return {**result,'text':summary or f'第 {result["period"]} 期行动结束。'}
 
     def stages(self):
         return (Stage('mini:government.advance',
@@ -921,7 +1024,8 @@ class IntelligenceMod(GameMod):
 
     def tools(self):
         return (Tool('news', lambda world, actor: [dict(row) for row in world.intelligence.events() if row['public'] or actor in row['parties']],
-                     read_only=True),)
+                     read_only=True,
+                     description='只读近讯：按时间倒序的事件流（亡国、宣战、占地等），只含公开事件与涉己事件。'),)
 
     def save_state(self, world):
         return world.intelligence.to_save()

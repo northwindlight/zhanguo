@@ -273,7 +273,9 @@ class TestMinigame(unittest.TestCase):
         self.assertTrue(player.submit('attack', {'unit': unit['id'], 'x': 4, 'y': 5})['ok'])
         after = len([c for c in player.query('land') if c['owner'] == 'scenario:qin'])
         self.assertEqual(after, before + 1)
-        self.assertEqual(player.query('diplomacy')['wars'], [['scenario:chu', 'scenario:qin']])
+        self.assertEqual(player.query('diplomacy')['wars'],
+                         [{'id': 1, 'a': 'scenario:qin', 'b': 'scenario:chu',
+                           'attackers': ['scenario:qin'], 'defenders': ['scenario:chu']}])
         self.assertTrue(player.submit('make_peace', {'target': 'scenario:chu'})['ok'])
         self.assertEqual(player.query('diplomacy')['wars'], [])
 

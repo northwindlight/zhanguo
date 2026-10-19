@@ -250,6 +250,8 @@ class RuleSection:
     keywords: tuple[str, ...] = ()
     summary: str = ""
     player_visible: bool = True
+    # 声明这一节要进模型系统提示：发行版自己说自己的玩法，不写在宿主里。
+    system: bool = False
 
 
 class GameMod(ABC):
@@ -957,7 +959,8 @@ class Runtime:
                 if player and not section.player_visible:
                     continue
                 result.append(RuleSection(section.title, self.rule_text(section.body),
-                                          section.keywords, section.summary, section.player_visible))
+                                          section.keywords, section.summary, section.player_visible,
+                                          section.system))
         order = self.distribution.get('ManualOrder', ())
         result.sort(key=lambda section: order.index(section.title) if section.title in order else len(order))
         return result

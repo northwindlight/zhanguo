@@ -1,0 +1,54 @@
+name: 文档站
+
+# Mod 开发文档站：从源码生成 API 参考，再渲染成静态站，发布到 GitHub Pages。
+# 站点地址： https://northwindlight.github.io/zhanguo/
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/site/**'
+      - 'scripts/api_doc.py'
+      - 'engine/**'
+      - 'clients/**'
+      - 'presentation/**'
+      - 'mods/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      # 引擎与站点生成器都是纯标准库，这里不需要装依赖。
+      - name: 生成 API 参考
+        run: python3 scripts/api_doc.py
+      - name: 生成站点
+        run: python3 docs/site/build.py
+      - name: 上传产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/site/_build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 发布
+        id: deployment
+        uses: actions/deploy-pages@v4
