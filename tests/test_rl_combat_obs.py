@@ -61,8 +61,10 @@ def place(w, cell, sides, engaged=("甲",), moved=-1, hp=100):
             a = {"id": seq + i, "gid": gid, "name": f"{name}{seq}x{i}", "type": k,
                  "hp": hp, "x": x, "y": y, "owner": name,
                  "moved_turn": moved, "engaged": name in engaged}
-            w.armies.append(a)
-            out.append(a)
+            # ★ 用**返回值**（引擎里那支军的 dict）——门面按 gid 缓存，
+            #   身份稳定；自己造的那个 `a` 是**另一个对象**，
+            #   按身份（`is`）认军队会认错（`row_of_token` 会 StopIteration）。
+            out.append(w.armies.append(a))
     return out
 
 

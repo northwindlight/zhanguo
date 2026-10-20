@@ -34,12 +34,22 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import torch                                          # noqa: E402
+from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
 
-from rl import train as T                             # noqa: E402
-from rl import vocab as V                             # noqa: E402
-from rl.model import _rms_to, build_model             # noqa: E402
-from rl.sandbox import Sandbox                        # noqa: E402
+if has_torch():
+    from rl import train as T                             # noqa: E402
+    from rl import vocab as V                             # noqa: E402
+    from rl.model import _rms_to, build_model             # noqa: E402
+    from rl.sandbox import Sandbox                        # noqa: E402
+else:
+    Sandbox = _rms_to = train = vocab = None
+
+
+def load_tests(loader, tests, pattern):
+    """★ 官方"整份跳过"入口（见上面的说明）。"""
+    if not has_torch():
+        raise unittest.SkipTest(torch_or_skip())
+    return tests
 
 N_FEED = 300          # 喂多少步（要够久才看得出"无界"）
 

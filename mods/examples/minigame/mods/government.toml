@@ -1,0 +1,15 @@
+[Mod]
+Id = "mini:government"
+Version = "1.0.0"
+Entry = "mods.examples.minigame.game:GovernmentMod"
+Requires = ["mini:nations"]
+
+[State]
+Owns = ["government"]
+
+[Capabilities]
+Needs = ["mini:nations"]
+Provides = ["mini:government"]
+
+[Interfaces]
+"mini:nations" = ["ids"]

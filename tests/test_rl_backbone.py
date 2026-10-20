@@ -27,12 +27,22 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np                                  # noqa: E402
-import torch                                        # noqa: E402
+from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
 
-from mp import World                                # noqa: E402
-from rl import encode, model, train                 # noqa: E402
-from rl import vocab as V                            # noqa: E402
-from rl.sandbox import Sandbox                       # noqa: E402
+from rl.engine import SandboxWorld                  # noqa: E402
+if has_torch():
+    from rl import encode, model, train                 # noqa: E402
+    from rl import vocab as V                            # noqa: E402
+    from rl.sandbox import Sandbox                       # noqa: E402
+else:
+    Sandbox = encode = vocab = None
+
+
+def load_tests(loader, tests, pattern):
+    """★ 官方"整份跳过"入口（见上面的说明）。"""
+    if not has_torch():
+        raise unittest.SkipTest(torch_or_skip())
+    return tests
 
 
 def three_nation_world(size=14, seed=5, ally=True, war=True):
@@ -42,7 +52,7 @@ def three_nation_world(size=14, seed=5, ally=True, war=True):
     开局直接指定，而不是让模型发起和接受」）—— 所以这里直接摆 `blocs` / `declare_war`，
     **不走** propose/accept 那套流程。
     """
-    w = World(size=size, seed=seed, nations=["甲", "乙", "丙", "丁"])
+    w = SandboxWorld(size=size, seed=seed, nations=["甲", "乙", "丙", "丁"])
     # ★★ **顺序有讲究：先宣战、后结盟。**
     #   `declare_war` 对**在盟国**会转成"联盟宣战投票"（多数决），并且**照样返回
     #   `(True, …)`** —— 但 `w.wars` 是空的，**仗根本没打起来**。这是"工具骗人"那一类：

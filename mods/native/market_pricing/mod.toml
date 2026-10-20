@@ -1,0 +1,13 @@
+[Mod]
+Id = "native:market-pricing"
+Version = "2.1.0"
+Entry = "mods.native.market_pricing.mod:InventoryPricingMod"
+Requires = []
+
+[State]
+Owns = []
+Requests = []
+
+[Capabilities]
+Needs = []
+Provides = ["market:pricing"]

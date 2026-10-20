@@ -64,7 +64,7 @@ def _defense_of(world, x: int, y: int, owner) -> int:
 
 def _move_cost_of(world, x: int, y: int) -> int:
     """骑兵进这一格的**移动代价**（用户点名的"移动属性（对应骑兵）"）。"""
-    from game import unit_move_cost
+    from .rules import unit_move_cost
     try:
         return int(unit_move_cost({"type": "骑"}, world.tile_terrain(x, y)))
     except Exception:                              # noqa: BLE001
@@ -716,7 +716,7 @@ def _by_cell(world) -> dict:
 
 
 def _vision(world, name: str) -> set:
-    from ruleai.v11plus import pathfind
+    from .teacher import pathfind
     return pathfind.vision_mask(world, name)
 
 

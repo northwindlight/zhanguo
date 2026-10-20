@@ -1,0 +1,15 @@
+[Mod]
+Id = "mini:diplomacy"
+Version = "1.0.0"
+Entry = "mods.examples.minigame.game:DiplomacyMod"
+Requires = ["mini:nations"]
+
+[State]
+Owns = ["diplomacy"]
+
+[Capabilities]
+Needs = ["mini:nations"]
+Provides = ["mini:diplomacy"]
+
+[Interfaces]
+"mini:nations" = ["get"]

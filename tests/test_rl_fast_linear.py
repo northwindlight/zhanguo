@@ -19,15 +19,25 @@ import sys
 import unittest
 from pathlib import Path
 
-import torch
-import torch.nn as nn
+from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rl.model import FastLinear, build_model           # noqa: E402
-from rl.train import collate                           # noqa: E402
-from rl.encode import obs_of                           # noqa: E402
-from rl.sandbox import Sandbox                         # noqa: E402
+if has_torch():
+    import torch.nn as nn                               # noqa: E402
+    from rl.model import FastLinear, build_model           # noqa: E402
+    from rl.train import collate                           # noqa: E402
+    from rl.encode import obs_of                           # noqa: E402
+    from rl.sandbox import Sandbox                         # noqa: E402
+else:
+    FastLinear = Sandbox = collate = obs_of = None
+
+
+def load_tests(loader, tests, pattern):
+    """★ 官方"整份跳过"入口（见上面的说明）。"""
+    if not has_torch():
+        raise unittest.SkipTest(torch_or_skip())
+    return tests
 
 
 def _batch(seed=3, size=8, t_max=10):

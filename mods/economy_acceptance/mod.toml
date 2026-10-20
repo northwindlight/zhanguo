@@ -1,0 +1,17 @@
+[Distribution]
+Id = "economy-acceptance"
+Version = "1.0.0"
+Members = ["../native/resources/mod.toml", "../native/buildings/mod.toml", "../native/market_pricing/mod.toml", "../native/market/mod.toml", "../native/economy_valuation/mod.toml", "../native/economy_reports/mod.toml"]
+RequiredState = ["resources", "buildings", "market", "economy"]
+
+[[Hooks]]
+Id = "buildings.production"
+[[Hooks]]
+Id = "market.settlement"
+[[Hooks]]
+Id = "buildings.completion"
+[[Hooks]]
+Id = "economy.reports"
+
+[Distribution.Tools]
+Entry = "mods.native.tools:build"

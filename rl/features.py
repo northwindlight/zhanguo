@@ -17,8 +17,10 @@
 两条纪律（承自旧线，都踩过）
 ----------------------------
 1. ★ **每次现算，不许做模块级缓存**。域随机化会在每局开始时**就地改**
-   `game.UNIT_TYPES` / `balance.TERRAIN_STATS`（`mp.py` 是 `from game import …`，
-   同一个 dict 对象）—— 缓存会把"上一局的数值"烤进这一局，而那种错**不报错**。
+   引擎的规则表（`mods/native/army/parameters.py` 的 `UNIT_TYPES` 等）——
+   缓存会把"上一局的数值"烤进这一局，而那种错**不报错**。
+   ★ 2026-10 起这些表**住在主线引擎里**（旧 `game.py`/`balance.py` 已随主线重构删除），
+   取用口是 `rl/rules.py`（它只做"定位表 + 翻译键"，**不复制数值**）。
 2. ★ **归一化尺度只写在这个文件里**。调用点不许再除一次、也不许"看着办"：
    训练分布与模型输入的可比性全依赖它。
 
@@ -30,9 +32,8 @@ from __future__ import annotations
 
 import numpy as np
 
-import balance
-import game
 from rl import vocab as V
+from rl import rules
 
 # ===========================================================================
 # 1. 冻结的宽度（改这些 = 改模型输入宽度 = 旧 ckpt 全废）
@@ -67,11 +68,9 @@ _PCT_DIV = 100.0             # 撤退/续战那几个百分比
 # ===========================================================================
 def unit_vector(kind: str) -> np.ndarray:
     """兵种 → `(F_U,)`。表里没有的 kind（野人等无 `type` 的旧军）按步兵兜底。"""
-    t = game.UNIT_TYPES.get(kind)
-    if t is None:
-        t = game.UNIT_TYPES["步"]
-    return np.array([t.get("hp", game.ARMY_MAX_HP) / _HP_DIV,
-                     t.get("atk", game.ARMY_ATTACK_DAMAGE) / _ATK_DIV,
+    t = rules.unit_entry(kind)
+    return np.array([t.get("hp", rules.army_max_hp()) / _HP_DIV,
+                     t.get("atk", rules.army_attack_damage()) / _ATK_DIV,
                      t.get("speed", 1) / _SPEED_DIV,
                      t.get("supply", 1) / _SUPPLY_DIV], dtype=np.float32)
 
@@ -82,28 +81,29 @@ def terrain_vector(terrain: str) -> np.ndarray:
     ★ 三列移动代价**都留着**（步/民 现在同值 ⇒ 两列冗余）：用户改 `MOVE_COST` 时
       「让民兵也怕森林」这类改动必须**看得见**，宁可现在多一列常数。
     """
-    d = balance.TERRAIN_STATS.get(terrain, {}).get("defense", 0)
-    mv = [balance.MOVE_COST.get(k, {}).get(terrain, 1) for k in V.UNIT]
+    d = rules.terrain_defense(terrain)
+    mv = [rules.unit_move_cost(k, terrain) for k in V.UNIT]
     return np.array([d / _DEF_DIV] + [m / _MOVE_DIV for m in mv], dtype=np.float32)
 
 
 def die_vector() -> np.ndarray:
     """骰子表 → `(F_D,)`，按**骰面 1..6 的顺序**（不是 dict 迭代顺序）。"""
-    return np.array([balance.COMBAT_DIE_MOD[d] / _DIE_DIV
+    die = rules.combat_die_mod()
+    return np.array([die[d] / _DIE_DIV
                      for d in range(1, F_D + 1)], dtype=np.float32)
 
 
 def retreat_vector() -> np.ndarray:
     """撤退经济 → `(F_R,)` = (输出惩罚, 守方减伤)。"""
-    return np.array([balance.RETREAT_ATK_PENALTY / _PCT_DIV,
-                     balance.RETREAT_DEF_COVER / _PCT_DIV], dtype=np.float32)
+    return np.array([rules.retreat_atk_penalty() / _PCT_DIV,
+                     rules.retreat_def_cover() / _PCT_DIV], dtype=np.float32)
 
 
 def sustain_vector() -> np.ndarray:
     """续战 → `(F_S,)` = (满血, 每回合回复, 断粮扣血)。"""
-    return np.array([game.ARMY_MAX_HP / _HP_DIV,
-                     game.ARMY_HEAL_PER_TURN / _HP_DIV,
-                     game.ARMY_STARVE_DAMAGE / _HP_DIV], dtype=np.float32)
+    return np.array([rules.army_max_hp() / _HP_DIV,
+                     rules.army_heal_per_turn() / _HP_DIV,
+                     rules.army_starve_damage() / _HP_DIV], dtype=np.float32)
 
 
 def glob_rule_vector() -> np.ndarray:

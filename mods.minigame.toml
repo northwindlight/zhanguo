@@ -1,0 +1,3 @@
+# 最小可玩游戏的玩家入口。用法：配置顶层写 "mods": "mods.minigame.toml"
+[Load]
+Packages = ["mods/examples/minigame"]

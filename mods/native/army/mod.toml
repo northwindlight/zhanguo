@@ -1,0 +1,34 @@
+[Mod]
+Id = "native:army"
+Version = "2.10.0"
+Entry = "mods.native.army.mod:ArmyMod"
+Requires = ["native:resources", "native:government", "native:nations", "native:territory", "native:vision", "native:diplomacy", "native:buildings"]
+After = ["native:territory", "native:nations", "native:government"]
+[State]
+Owns = ["units", "military"]
+[Capabilities]
+Needs = ["native:nation-inspection", "native:government", "native:territory", "native:vision", "native:diplomacy", "native:buildings", "native:resource-exchange", "native:gold", "native:food", "native:equipment", "native:supply"]
+Provides = ["native:army"]
+[Interfaces]
+"native:nation-inspection" = ["ids", "get"]
+"native:government" = ["period"]
+"native:territory" = ["dimensions", "check", "neighbors", "terrain", "cell", "resolve", "owner", "owned", "snapshot", "create_claim", "transfer", "claim", "snapshot_cores"]
+"native:vision" = ["visible", "tiles"]
+"native:diplomacy" = ["war_between", "allied", "at_war", "passage"]
+"native:buildings" = ["resolve_site", "site", "effects", "snapshot", "count", "kinds_with_role", "kind_with_role", "count_role", "effect_role"]
+"native:resource-exchange" = ["exchange", "exchange_batch"]
+"native:gold" = ["balance"]
+"native:food" = ["balance"]
+"native:equipment" = ["balance"]
+"native:supply" = ["balance"]
+
+[PlayerAPI]
+Methods = ["recruit", "move", "attack", "retreat", "disband", "view",
+           "reachable", "frontier", "unit_catalog", "threats", "battle", "tile", "logistics"]
+ReadOnly = ["battle", "frontier", "logistics", "reachable", "threats", "tile", "unit_catalog", "view"]
+
+[PlayerAPI.ContentParameters]
+recruit = ["kind"]
+
+[PlayerAPI.Actions]
+view = "army"

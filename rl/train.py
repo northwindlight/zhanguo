@@ -535,7 +535,7 @@ def _score(sb: Sandbox, me: str) -> float:
     不给 mask 的话打分器就是**上帝视角**（能点名视野外的敌军位置/数量/国土），
     那是作弊，模型会照着它学出"朝看不见的敌人去"的策略。
     """
-    from ruleai.v11plus import pathfind
+    from .teacher import pathfind
     mask = pathfind.vision_mask(sb.world, me)
     # ★ 已知的厅 = **视野 ∪ 永久记忆**（`known_halls` 顺手把本帧看见的记下来）。
     #   用户 2026-09-24：「**发现厅了就应该永久标记，因为厅是拆不掉也不能移动的**」

@@ -1,0 +1,300 @@
+{
+  "kind": "independent_numerical_formula_checks",
+  "ak_checks": 33,
+  "ak_examples": {
+    "T=10,s=0": 2.6052862396000003,
+    "T=10,s=0.5": 3.1874849202000015,
+    "T=20,s=0": 3.513693381637724,
+    "T=20,s=0.5": 11.454999898651213
+  },
+  "investment_pulse": {
+    "1": {
+      "actual_change": -0.0010000000000000009,
+      "formula_change": -0.001
+    },
+    "2": {
+      "actual_change": -0.0005999999999999339,
+      "formula_change": -0.0006
+    },
+    "10": {
+      "actual_change": 0.0014503180439997543,
+      "formula_change": 0.0014503180440000004
+    }
+  },
+  "finite_horizon_optimization": [
+    {
+      "a": 0.4,
+      "delta": 0.1,
+      "T": 1,
+      "value": 0.4,
+      "enumerated_value": 0.4
+    },
+    {
+      "a": 0.4,
+      "delta": 0.1,
+      "T": 2,
+      "value": 0.76,
+      "enumerated_value": 0.76
+    },
+    {
+      "a": 0.4,
+      "delta": 0.1,
+      "T": 3,
+      "value": 1.084,
+      "enumerated_value": 1.084
+    },
+    {
+      "a": 0.4,
+      "delta": 0.1,
+      "T": 4,
+      "value": 1.4092000000000002,
+      "enumerated_value": 1.4092000000000002
+    },
+    {
+      "a": 0.4,
+      "delta": 0.1,
+      "T": 5,
+      "value": 1.8319600000000005,
+      "enumerated_value": 1.8319600000000005
+    },
+    {
+      "a": 0.4,
+      "delta": 0.1,
+      "T": 6,
+      "value": 2.381548000000001,
+      "enumerated_value": 2.3815480000000004
+    },
+    {
+      "a": 0.4,
+      "delta": 0.1,
+      "T": 7,
+      "value": 3.096012400000001,
+      "enumerated_value": 3.0960124
+    },
+    {
+      "a": 0.4,
+      "delta": 0.1,
+      "T": 8,
+      "value": 4.024816120000001,
+      "enumerated_value": 4.0248161200000006
+    },
+    {
+      "a": 0.4,
+      "delta": 0.1,
+      "T": 9,
+      "value": 5.232260956000002,
+      "enumerated_value": 5.232260956
+    },
+    {
+      "a": 0.4,
+      "delta": 0.1,
+      "T": 10,
+      "value": 6.801939242800003,
+      "enumerated_value": 6.801939242800001
+    },
+    {
+      "a": 0.8,
+      "delta": 0.0,
+      "T": 1,
+      "value": 0.8,
+      "enumerated_value": 0.8
+    },
+    {
+      "a": 0.8,
+      "delta": 0.0,
+      "T": 2,
+      "value": 1.6,
+      "enumerated_value": 1.6
+    },
+    {
+      "a": 0.8,
+      "delta": 0.0,
+      "T": 3,
+      "value": 2.8800000000000003,
+      "enumerated_value": 2.8800000000000003
+    },
+    {
+      "a": 0.8,
+      "delta": 0.0,
+      "T": 4,
+      "value": 5.184000000000001,
+      "enumerated_value": 5.184000000000001
+    },
+    {
+      "a": 0.8,
+      "delta": 0.0,
+      "T": 5,
+      "value": 9.331200000000003,
+      "enumerated_value": 9.3312
+    },
+    {
+      "a": 0.8,
+      "delta": 0.0,
+      "T": 6,
+      "value": 16.796160000000004,
+      "enumerated_value": 16.796160000000004
+    },
+    {
+      "a": 0.8,
+      "delta": 0.0,
+      "T": 7,
+      "value": 30.23308800000001,
+      "enumerated_value": 30.23308800000001
+    },
+    {
+      "a": 0.8,
+      "delta": 0.0,
+      "T": 8,
+      "value": 54.419558400000014,
+      "enumerated_value": 54.41955840000002
+    },
+    {
+      "a": 0.8,
+      "delta": 0.0,
+      "T": 9,
+      "value": 97.95520512000003,
+      "enumerated_value": 97.95520512000003
+    },
+    {
+      "a": 0.8,
+      "delta": 0.0,
+      "T": 10,
+      "value": 176.31936921600004,
+      "enumerated_value": 176.31936921600004
+    },
+    {
+      "a": 0.1,
+      "delta": 0.5,
+      "T": 1,
+      "value": 0.1,
+      "enumerated_value": 0.1
+    },
+    {
+      "a": 0.1,
+      "delta": 0.5,
+      "T": 2,
+      "value": 0.15000000000000002,
+      "enumerated_value": 0.15000000000000002
+    },
+    {
+      "a": 0.1,
+      "delta": 0.5,
+      "T": 3,
+      "value": 0.17500000000000002,
+      "enumerated_value": 0.17500000000000002
+    },
+    {
+      "a": 0.1,
+      "delta": 0.5,
+      "T": 4,
+      "value": 0.1875,
+      "enumerated_value": 0.1875
+    },
+    {
+      "a": 0.1,
+      "delta": 0.5,
+      "T": 5,
+      "value": 0.19375,
+      "enumerated_value": 0.19375
+    },
+    {
+      "a": 0.1,
+      "delta": 0.5,
+      "T": 6,
+      "value": 0.19687500000000002,
+      "enumerated_value": 0.19687500000000002
+    },
+    {
+      "a": 0.1,
+      "delta": 0.5,
+      "T": 7,
+      "value": 0.19843750000000002,
+      "enumerated_value": 0.19843750000000002
+    },
+    {
+      "a": 0.1,
+      "delta": 0.5,
+      "T": 8,
+      "value": 0.19921875,
+      "enumerated_value": 0.19921875
+    },
+    {
+      "a": 0.1,
+      "delta": 0.5,
+      "T": 9,
+      "value": 0.199609375,
+      "enumerated_value": 0.199609375
+    },
+    {
+      "a": 0.1,
+      "delta": 0.5,
+      "T": 10,
+      "value": 0.19980468750000002,
+      "enumerated_value": 0.19980468750000002
+    }
+  ],
+  "sqrt_decay": {
+    "finite_sum": 2.5606601717798214,
+    "correct_finite_formula": 2.560660171779822,
+    "linear_formula": 1.875,
+    "infinite_sum": 3.414213562373096
+  },
+  "resource_balance": {
+    "initial": [
+      20,
+      30
+    ],
+    "final": [
+      21,
+      24
+    ],
+    "consumption": [
+      5,
+      8
+    ]
+  },
+  "demand_price_examples": [
+    {
+      "elasticity": 0.5,
+      "quantity": 10.0,
+      "price": 100.0,
+      "amount": 1000.0
+    },
+    {
+      "elasticity": 0.5,
+      "quantity": 20.0,
+      "price": 25.0,
+      "amount": 500.0
+    },
+    {
+      "elasticity": 1.0,
+      "quantity": 10.0,
+      "price": 10.0,
+      "amount": 100.0
+    },
+    {
+      "elasticity": 1.0,
+      "quantity": 20.0,
+      "price": 5.0,
+      "amount": 100.0
+    },
+    {
+      "elasticity": 2.0,
+      "quantity": 10.0,
+      "price": 3.1622776601683795,
+      "amount": 31.622776601683796
+    },
+    {
+      "elasticity": 2.0,
+      "quantity": 20.0,
+      "price": 2.23606797749979,
+      "amount": 44.721359549995796
+    }
+  ],
+  "nominal_decomposition": {
+    "amount_delta": 18.0,
+    "quantity_effect": 22.0,
+    "price_effect": -4.0
+  },
+  "script_sha256": "a8b337eaf6ec47a0f40fbd66ed3146d6bfb6680b4c42dc4652d693a5a40dbb63"
+}

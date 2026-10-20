@@ -1,0 +1,18 @@
+[Mod]
+Id = "native:succession"
+Version = "1.1.0"
+Entry = "mods.native.succession.mod:SuccessionMod"
+Requires = ["native:nations", "native:army", "native:diplomacy", "native:buildings"]
+After = ["native:nations", "native:army", "native:diplomacy"]
+[State]
+Owns = ["succession"]
+Requests = ["polity"]
+[Capabilities]
+Needs = ["native:nation-inspection", "native:nations", "native:buildings", "native:diplomacy", "native:army"]
+Provides = ["native:succession"]
+[Interfaces]
+"native:nation-inspection" = ["ids", "get", "overview"]
+"native:nations" = ["extinguish"]
+"native:buildings" = ["count", "has_role", "transfer_site"]
+"native:diplomacy" = ["eliminate"]
+"native:army" = ["remove_nation", "disengage"]

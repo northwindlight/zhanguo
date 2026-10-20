@@ -1,0 +1,15 @@
+[Mod]
+Id = "mini:buildings"
+Version = "1.0.0"
+Entry = "mods.examples.minigame.game:BuildingsMod"
+Requires = ["mini:resources"]
+
+[State]
+Owns = ["buildings"]
+
+[Capabilities]
+Needs = ["mini:resource-exchange"]
+Provides = ["mini:buildings"]
+
+[Interfaces]
+"mini:resource-exchange" = ["exchange"]

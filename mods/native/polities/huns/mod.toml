@@ -1,0 +1,30 @@
+[Mod]
+Id = "native:huns"
+Version = "2.3.0"
+Entry = "mods.native.polities.huns.mod:HunsMod"
+Kind = "actor"
+Aliases = ["huns", "hun", "匈奴"]
+Requires = ["native:resources", "native:territory", "native:army"]
+[Capabilities]
+Needs = ["native:resource-inspection", "native:resource-exchange", "native:territory", "native:army"]
+[Interfaces]
+"native:resource-inspection" = ["snapshot"]
+"native:resource-exchange" = ["exchange"]
+"native:territory" = ["owned"]
+"native:army" = ["seed"]
+[Policy]
+Tag = "native:huns"
+Rejection = "该政体不允许此外交动作"
+Appearance = "scheduled"
+# 组由工具自己的 groups 声明；组内新增动作自动沿用同一禁令。
+Disable = ["group.diplomacy.treaty", "group.diplomacy.alliance", "group.diplomacy.vote",
+           "group.communication.gift", "group.communication.map"]
+[Policy.Overrides]
+build_cost_pct = 130
+[Policy.Overrides.recruit."native:cavalry"]
+"native:food" = 8
+"native:equipment" = 8
+[Start]
+Gold = 1000
+Supply = 200
+Cavalry = 6

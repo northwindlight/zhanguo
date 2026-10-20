@@ -1,0 +1,23 @@
+# 本模块自己的参数：每头战象每期额外吃掉的粮食。
+[Elephants]
+Upkeep = 2
+
+[Mod]
+Id = "example:elephants"
+Version = "1.0.0"
+Entry = "mods.examples.elephants.mod:ElephantsMod"
+Requires = ["native:resources", "native:army"]
+After = ["native:army"]
+
+[State]
+Owns = []
+
+[Capabilities]
+# 要读部队就走 native:army 这个能力；要扣粮食就走资源兑换。
+# 不能反过来直接摸 world.units —— 那是 army 域的私产。
+Needs = ["native:army", "native:resource-exchange"]
+Provides = []
+
+[Interfaces]
+"native:army" = ["snapshot"]
+"native:resource-exchange" = ["exchange"]

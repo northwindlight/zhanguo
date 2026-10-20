@@ -1,0 +1,3 @@
+# UI is assembled independently of world rules and save dependencies.
+[Load]
+Packages = ["mods/ui"]

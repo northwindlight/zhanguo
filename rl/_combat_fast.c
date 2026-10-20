@@ -1,39 +1,8 @@
-/* `rl/combat_probs.py` 里战斗 DP 的 **可选加速扩展**（CPython C API）。
- *
- * 编译（可选，编不出来就回落纯 Python，仓库仍能用）：
- *     bash rl/build_combat_fast.sh
- *
- * ------------------------------------------------------------------ 为什么是它
- * 实测（`rl/dp_internals_probe.py`）：战斗 DP 占采集回路墙钟 **58.8%**，
- * 而它几乎全是 CPython 的解释器开销 —— 一次转移 **4.5 µs**、约 20 个解释器级
- * 操作（225 ns/操作），cProfile 里**一个数值计算函数都没有**。
- * 换语言能拿到 1~2 个数量级：原型实测 **DP ×12**（对原始 Python ×20）
- * ⇒ 整体推算 **2.27×**，而 Amdahl 上限是 2.43×（DP 占 58.8%）⇒ 吃掉 93.5%。
- *
- * --------------------------------------------------------- 三条不可动摇的约束
- * ① **照抄引擎的那半边，永远只在 Python。** 伤害**基数**（`unit_atk` 查兵种表、
- *    `COMBAT_DIE_MOD` 骰面修正、撤退 −80% 罚）全部由 Python 的 `_power_by_die`
- *    算好后**传进来**（M2 之后是 `powers` 参数）。
- *    ★ M2（2026-09-28）把 `agg` 的**纯算术展开**（6^方数 枚举 + 均分 + 减伤取整 +
- *      归并）挪进了 C —— 那部分不碰任何引擎口径，实测一次 cache miss
- *      **0.294 ms、占整个 DP 的 41.8%**（`size12/t40`，PLAN §12.25）。
- *      展开式在 CPython 里只有一份，但**逐位相同由 `tests/test_agg_damage_fast.py`
- *      钉死**（金色表 = 同一批签名的 C/Python 两张表按键序+`repr(float)` 比对），
- *      所以"第二次重写"的代价被换成了"有守卫的第二份"。想退回：`_agg_damage`
- *      里那句 `if _FAST is not None` 改成 `if False` 即可，行为不变。
- * ② **逐位相同。** 这是**观测特征**的来源，漂一点点会让训练静默学错。
- *    所以这里**复刻 Python 的浮点求和顺序**：
- *      · `agg` 按 Python dict 的**插入序**迭代（`PyDict_Next` 就是插入序）；
- *      · `dist` / `rh` 各自记**首次触达序**（`dorder` / `rorder`），
- *        因为 `sum(dist.values())`、`for s, p in dist.items()` 都按这个序走。
- *    ★ 顺带的好处：稀疏有序**正好比稠密数组快** —— 实测稠密数组在 Python 里
- *      慢 1.4~1.5×（见 PLAN §12.20 第六节），C 这边同一个道理。
- * ③ **可选。** `combat_probs` 里 `import` 失败就整条回落纯 Python，行为不变。
- *
- * --------------------------------------------------------- 一处必须小心的坑
- * 递归时**父层的临时缓冲会被子层覆盖**。Python 那版每个结果都新建 `nxt` 列表，
- * 这里为了不每次 malloc 而复用缓冲 ⇒ 必须**按递归深度分层**
- * （`scratch[depth]`）。深度上限就是 `max_rounds`。
+/* Research DP port from origin/feat/rl-tactics:rl/_combat_fast.c.
+ * Build: python -m mods.experimental.combat_research.build
+ * Current rules: redistribute overflow in ordinary damage; clamp hp loss.
+ * Memo keys include depth so a round limit cannot reuse a deeper result.
+ * Combat power and defense are supplied by the Python domain adapter.
  */
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
@@ -633,8 +602,10 @@ done:
 }
 
 static Res *rec(Ctx *c, const Side *st, int depth) {
-    char key[8 * 8 * 7 + 8];
+    char key[8 * 8 * 7 + 8 + 2];
     int klen = encode_state(st, c->n, key);
+    key[klen++] = (char)(depth & 0xFF);
+    key[klen++] = (char)((depth >> 8) & 0xFF);
     Res *hit = memo_get(&c->memo, key, klen);
     if (hit) return hit;
 
@@ -702,20 +673,37 @@ static Res *rec(Ctx *c, const Side *st, int depth) {
                 continue;
             }
             int cnt = units->n;
-            long per = d / cnt, rem = d % cnt;
             int lost = 0, kn = 0;
             Unit *keep = sc->unitbuf + (size_t)i * (size_t)c->maxunits;
+            int hp[8];
+            for (int k = 0; k < cnt; ++k) hp[k] = units->units[k].hp;
+            if (flat[i]) {
+                long left = d;
+                while (left > 0) {
+                    int live = 0;
+                    for (int k = 0; k < cnt; ++k) if (hp[k] > 0) ++live;
+                    if (!live) break;
+                    long per = left / live, rem = left % live;
+                    int index = 0;
+                    for (int k = 0; k < cnt; ++k) if (hp[k] > 0) {
+                        long take = per + (index++ < rem);
+                        if (take > hp[k]) take = hp[k];
+                        hp[k] -= (int)take;
+                        left -= take;
+                    }
+                }
+            } else {
+                long per = d / cnt, rem = d % cnt;
+                for (int k = 0; k < cnt; ++k) {
+                    long take = (per + (k < rem)) * units->units[k].soak / 100;
+                    hp[k] = take >= hp[k] ? 0 : hp[k] - (int)take;
+                }
+            }
             for (int k = 0; k < cnt; ++k) {
-                const Unit *u = &units->units[k];
-                long sh = per + (k < rem ? 1 : 0);
-                long nh = u->hp - (flat[i] ? sh : sh * u->soak / 100);
-                lost += (int)(u->hp - nh); /* ★ 含阵亡者"消失的血" */
-                if (nh > 0) {
-                    keep[kn].kind = u->kind;
-                    keep[kn].hp = (int)nh;
-                    keep[kn].retreat = u->retreat;
-                    keep[kn].soak = u->soak;
-                    ++kn;
+                lost += units->units[k].hp - hp[k];
+                if (hp[k] > 0) {
+                    keep[kn] = units->units[k];
+                    keep[kn++].hp = hp[k];
                 }
             }
             sc->nxt[i].units = keep;

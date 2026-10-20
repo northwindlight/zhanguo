@@ -1,0 +1,18 @@
+[Distribution]
+Id = "buildings-acceptance"
+Version = "1.0.0"
+Members = ["../native/resources/mod.toml", "../native/buildings/mod.toml", "../native/market_pricing/mod.toml", "../native/market/mod.toml"]
+RequiredState = ["resources", "buildings", "market"]
+
+[[Hooks]]
+Id = "buildings.production"
+Name = "Building production"
+[[Hooks]]
+Id = "market.settlement"
+Name = "Market settlement"
+[[Hooks]]
+Id = "buildings.completion"
+Name = "Construction completion"
+
+[Distribution.Tools]
+Entry = "mods.native.tools:build"

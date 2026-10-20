@@ -1,0 +1,21 @@
+[Mod]
+Id = "native:government"
+Version = "2.2.1"
+Entry = "mods.native.government.mod:GovernmentMod"
+Requires = ["native:nations"]
+After = ["native:nations"]
+[State]
+Owns = ["government"]
+[Capabilities]
+Needs = ["native:nation-inspection"]
+Provides = ["native:government"]
+[Interfaces]
+"native:nation-inspection" = ["ids", "get"]
+
+[PlayerAPI]
+Methods = ["plan", "end_turn", "snapshot"]
+ReadOnly = ["snapshot"]
+
+[Government]
+PlanSpan = 10
+SummaryMin = 4

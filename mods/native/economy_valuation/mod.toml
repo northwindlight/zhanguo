@@ -1,0 +1,21 @@
+Currency = "native:gold"
+# Explicit prices apply only to resources absent from the market price table.
+[Prices]
+
+[Mod]
+Id = "native:economy-valuation"
+Version = "1.0.0"
+Entry = "mods.native.economy_valuation.mod:ValuationMod"
+Requires = ["native:resources", "native:market"]
+
+[State]
+Owns = []
+Requests = []
+
+[Capabilities]
+Needs = ["native:resource-inspection", "native:market"]
+Provides = ["economy:valuation"]
+
+[Interfaces]
+"native:resource-inspection" = ["value"]
+"native:market" = ["summary", "unit_price"]

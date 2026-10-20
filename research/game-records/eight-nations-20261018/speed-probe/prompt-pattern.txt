@@ -1,0 +1,1 @@
+Output exactly 240 lines of plain English text. Each line must have this form: "Record N: amber river silver forest quiet morning." Replace N with consecutive integers from 1 through 240. Do not add an introduction, explanation, code fence, or conclusion. This is a text generation throughput measurement, not a reasoning task.

@@ -1,0 +1,83 @@
+[Distribution]
+Id = "example:no-power"
+Version = "1.0.0"
+# 去掉电力系统的发行版：把 native 的建筑模块换成 no_power 那一份。
+# 这是「替换实现」的形状 —— 成员表里换一条，模块 Id 与能力名都不动。
+Members = [
+  "../../native/resources/mod.toml",
+  "../no_power/buildings.toml",
+  "../../native/market_pricing/mod.toml",
+  "../../native/market/mod.toml",
+  "../../native/economy_valuation/mod.toml",
+  "../../native/economy_reports/mod.toml",
+  "../../native/bank/mod.toml",
+  "../../native/economy_queries/mod.toml",
+  "../../native/nations/mod.toml",
+  "../../native/government/mod.toml",
+  "../../native/map_generation/mod.toml",
+  "../../native/territory/mod.toml",
+  "../../native/diplomacy/mod.toml",
+  "../../native/vision/mod.toml",
+  "../../native/army/mod.toml",
+  "../../native/succession/mod.toml",
+  "../../native/intelligence/mod.toml",
+  "../../native/polities/huns/mod.toml",
+]
+RequiredState = ["resources", "buildings", "market", "economy", "bank", "nations", "government",
+                 "territory", "diplomacy", "units", "military", "succession", "intelligence"]
+ActorCollection = "nation_actors"
+ActionGate = {Capability = "native:government", Method = "can_act"}
+PlayerClock = {Capability = "native:government", Method = "period"}
+PlayerState = ["government", "econ", "bank", "land", "building_sites", "view",
+               "army", "foreign", "intel", "news", "dispatches", "market"]
+PlayerEvents = "news"
+
+# 离线可跑：把 llm 客户端换成「按兵不动」那个最小客户端（配方六）。
+# 接真模型就把这一段删掉。
+[Distribution.ClientFactories.llm]
+Entry = "mods.examples.idle_client.client:IdleClient"
+
+# 挂点表决定结算骨架的位置。与 native 相同，只在 buildings.production 之后
+# 插入一个 example.harvest。
+# Id 只允许 [a-zA-Z0-9_.:-]，且全局唯一。
+[[Hooks]]
+Id = "cycle.start"
+[[Hooks]]
+Id = "buildings.production"
+[[Hooks]]
+Id = "relations"
+[[Hooks]]
+Id = "military.supply"
+[[Hooks]]
+Id = "military.battle"
+[[Hooks]]
+Id = "military.withdraw"
+[[Hooks]]
+Id = "military.claims"
+[[Hooks]]
+Id = "succession"
+[[Hooks]]
+Id = "military.repatriate"
+[[Hooks]]
+Id = "market.settlement"
+[[Hooks]]
+Id = "buildings.completion"
+[[Hooks]]
+Id = "bank.settlement"
+[[Hooks]]
+Id = "economy.reports"
+[[Hooks]]
+Id = "cycle.end"
+
+[Distribution.Session]
+Entry = "mods.native.session:NativeSession"
+Observer = { Capability = "native:intelligence", Records = "to_save", Announce = "announce", Send = "send" }
+
+[Distribution.Configuration]
+Entry = "mods.native.config:normalize"
+
+[Distribution.ClientFactories.rule]
+Configuration = "ruleai:normalize_config"
+
+[Distribution.Tools]
+Entry = "mods.native.tools:build"

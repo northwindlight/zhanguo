@@ -1,43 +1,30 @@
-# -*- coding: utf-8 -*-
-"""规则 AI 全家（历代扩张流）——**每一代一个文件，v11/v11plus/v12 是三个目录**。
+"""Maintained rule-client registry. Retired strategies are available in Git history."""
+from ruleai.v11plus import RuleClient, RuleState, expand_rule_turn_v11plus
 
-    ruleai/
-      __init__.py   你在这里：各代一览（注册表在根目录的 `rule_ai.py`）
-      v4.py         ┐
-      v5.py         │ 历代扩张流，一代一个文件（口径各异，成绩**不可混用**）
-      v6.py         │ v6 是 `experiments/` 探针的论文基线
-      v7.py         │ ★ 反面教材（"四套互不知道的账"），自带 best_build，仅供对照
-      v8.py         │ v7 的重写：一账、串行判定
-      v9.py         │ v8 + 视野门控（信息集 = 引擎给玩家的 visible_to）
-      v10.py        ┘ v9 + 抗抖（引擎数值现读）+ 不绕山地 —— **缺省基线**、BC 老师
-      ai_legacy.py  最早的那支"扩张流"（注册名 `ai`），留着对照
-      v11/          ○ **已冻结**：经济层与军事层分离（历史成绩归它，别再改）
-      v12/          ○ v11 + 拿掉 4 处 `int()` 截断（浮点价格被截成整数 → 预算算错 → 不排楼）；
-                      按 **v11** 迭代，**不含** v11plus 的提速修 —— 见 v12/__init__.py
-      v11plus/      ★ **现役**：v11 整包 + 2026-09-16 那批修，结构同 v11/，
-                      详见 v11plus/__init__.py
-        __init__.py   分层说明 + 入口转口
-        entry.py      expand_rule_turn_v11plus = 经济层 + 军事层（四行胶水）
-        ledger.py     两层共享的动作账本
-        economy.py    经济层：钱/料/建造/征兵（产兵权在这里）
-        military.py   军事层：编组 → 判定式 → 寻路 → 出手
-        grouping.py   军事层部件：编组状态机 + 全局求解器
-        combat.py     军事层部件：难度判定式
-        pathfind.py   军事层部件：视野掩码 + 代价场 + 落点
-        targeting.py  军事层部件：候选池
+DEFAULT_RULE_AI = 'v11plus'
+UNLIMITED_ACTIONS = None
 
-## 三条纪律
 
-1. **注册表在 `rule_ai.py`**（根目录）：版本名 → 模块路径的映射在那一处，
-   引擎侧不许出现版本号（`tests/test_rule_ai.py` 钉着）。加新代 = 写一个文件 + 注册一行。
-2. **每代一个文件、互不 import**：各代的差异是**策略**差异，不是继承关系。
-   v10 是 BC 老师，所以它**一个字节都不许动**（改它 = 作废全部历史标签；
-   BC 那条线在 `feat/rl` 分支）。
-   **冻结的版本不再改**：要继续演进就在新名下做（`v11` → `v11plus` 就是这么来的）。
-3. **数值表只从 `balance` / `game` 取**（`tests/test_balance.py` 扫这个包），
-   自家策略旋钮才写在自己文件里。
+def versions():return (DEFAULT_RULE_AI,)
 
-★ **v1 / v2 / v3 已遗失**（`expand_rule_v3.py` 只在历史里出现过、v1/v2 从未入库）——
-  不去追；v4 起是现存的完整家谱。
-★ 各代成绩**不可混用**：v8 之前有偷看、v10 改了山地与征召口径、v11 改了补给口径与编组。
-"""
+
+def resolve(name=None):
+    version=str(name or DEFAULT_RULE_AI).strip().lower()
+    if version!=DEFAULT_RULE_AI:
+        raise ValueError(f'规则 AI {version!r} 已退役或不存在；当前只维护 v11plus')
+    return version,expand_rule_turn_v11plus
+
+
+def create(name=None,state=None):
+    resolve(name)
+    return RuleClient(RuleState.from_save(state) if state is not None else None)
+
+
+def normalize_config(cfg,*,defaults=None,overrides=None,path='config',runtime=None):
+    from engine.config import Field,Schema
+    result=Schema({'rule_ai':Field((str,),choices=versions()),
+                   'max_actions':Field((int,),minimum=1,nullable=True)}).normalize(
+                       cfg,defaults=defaults,overrides=overrides,path=path)
+    return result
+
+normalize_config.fields=('rule_ai','max_actions')

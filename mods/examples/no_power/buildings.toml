@@ -1,0 +1,40 @@
+# 与 mods/native/buildings/mod.toml 逐字相同，只改了 Version 和 Entry ——
+# 「换实现」的标准形状：声明照抄，实现换掉，Id 与能力名一律不动。
+[Mod]
+Id = "native:buildings"
+Version = "2.6.1-no-power"
+Entry = "mods.examples.no_power.buildings:NoPowerBuildingsMod"
+Requires = ["native:resources"]
+After = ["native:resources"]
+
+[State]
+Owns = ["buildings"]
+Requests = []
+
+[Capabilities]
+Needs = ["native:resource-exchange"]
+Optional = ["native:territory"]
+Provides = ["native:buildings"]
+
+[Interfaces]
+"native:resource-exchange" = ["snapshot", "exchange", "exchange_batch"]
+
+[[Stages]]
+Id = "native:buildings.produce"
+Handler = "produce"
+Hook = "buildings.production"
+Provides = ["buildings.produced"]
+
+[[Stages]]
+Id = "native:buildings.complete"
+Handler = "complete"
+Hook = "buildings.completion"
+Needs = ["buildings.produced"]
+Provides = ["buildings.completed"]
+
+[PlayerAPI]
+Methods = ["build", "sites", "catalog"]
+ReadOnly = ["catalog", "sites"]
+
+[PlayerAPI.ContentParameters]
+build = ["kind"]

@@ -123,24 +123,47 @@ class TestBarbariansAreRemoved(unittest.TestCase):
                                      f"{size}×{size} seed={seed}：{n} 的国土上有野人 {sorted(bad)} "
                                      f"⇒ 引擎里「野人只守无主格」，这是矛盾格")
 
-    def test_exactly_the_claimed_tiles_lost_their_guardian(self):
-        """撤走的野人**正好**是新增的那些国土（不多不少）。
+    def _barbarian_cells(self, sb, nation: str) -> set:
+        """引擎认为"这个国家看得见的野人"在哪些格（**虚拟野人**的落点）。
 
-        ★ 多撤了 = 无主地上的野人被误删（那格以后没守卫了）；少撤了 = 上面那条。
-          两条一起才钉住"只影响新占的格"。
+        ★★ **口径变了（2026-10 适配新引擎）**：旧引擎的野人是**真军队**
+          （开局在**全图**每个无主格放一支 ⇒ `world.armies` 里能直接看到它们）。
+          新引擎的野人是**按需合成的虚拟单位**（`military.visible_units` 对
+          **无主格**现场造一个）⇒ `world.armies` 里**看不到野人**了。
+        ⇒ 守卫的**判据**从"列表里有没有野人"改成**引擎自己的那条规则**：
+          「**野人只守无主格**」—— 直接问引擎"它给我看的那批野人在哪些格"，
+          再断言那些格**没有主人**。守的仍是**同一条不变量**。
+        """
+        ident = sb.world._id(nation)
+        units = sb.world.native.military.visible_units(ident)
+        return {(u.x, u.y) for u in units if u.owner == "野人"}
+
+    def test_exactly_the_claimed_tiles_lost_their_guardian(self):
+        """★ 占了地 ⇒ 那格的野人**没了**（不多不少：只影响新占的格）。
+
+        ★ 判据：同一局的"开国土 / 不开国土"两版对比 ——
+          开了之后**新增国土**的那些格上，野人**必须已经不在**。
+          （旧引擎是"真军队被撤掉"；新引擎是"那格有主了 ⇒ 野人不合成"。）
         """
         for size in TRAIN_SIZES:
             sb_on, sb_off = _sb(2024, size), _sb(2024, size, territory=False)
             won = {c for n in sb_on.players for c in _own(sb_on, n)}
             woff = {c for n in sb_off.players for c in _own(sb_off, n)}
             claimed = won - woff
-            g_on = {(a["x"], a["y"]) for a in sb_on.world.armies if a["owner"] == "野人"}
-            g_off = {(a["x"], a["y"]) for a in sb_off.world.armies if a["owner"] == "野人"}
-            self.assertEqual(g_off - g_on, claimed,
-                             f"{size}×{size}：撤掉的野人 {len(g_off - g_on)} 格 ≠ "
-                             f"新占的国土 {len(claimed)} 格")
-            self.assertEqual(g_on - g_off, set(),
-                             "开了国土之后**多出来**野人了（只该少、不该多）")
+            for n in sb_on.players:
+                guards = self._barbarian_cells(sb_on, n)
+                bad = claimed & guards
+                self.assertEqual(bad, set(),
+                                 f"{size}×{size}：新占的国土 {len(claimed)} 格上还有野人 "
+                                 f"{sorted(bad)[:5]} ⇒ 占地没撤野人")
+            # ★ 少撤了 = 上面那条（多撤了 = 无主地上的野人被误删）——
+            #   新引擎里"误删"表现为**无主格上不该有野人**。
+            for n in sb_off.players:
+                owned_off = {c for m in sb_off.players for c in _own(sb_off, m)}
+                bad = owned_off & self._barbarian_cells(sb_off, n)
+                self.assertEqual(bad, set(),
+                                 f"{size}×{size}：不开国土的版本里，国土上也有野人 "
+                                 f"{sorted(bad)[:5]}")
 
 
 class TestTheMapIsNotPerturbed(unittest.TestCase):
@@ -184,7 +207,7 @@ class TestTheOffSwitchIsReal(unittest.TestCase):
     """④ `--no-territory` = **老行为**（正好十字 5 格）——不然版间对照的开关是假的。"""
 
     def test_off_gives_exactly_the_cross(self):
-        from mp import CROSS
+        from rl.tokens import CROSS
         for size in TRAIN_SIZES:
             sb = _sb(7, size, territory=False)
             self.assertEqual(sb.territory_target, len(CROSS))
@@ -270,7 +293,7 @@ class TestClaimedTilesAreComplete(unittest.TestCase):
     """⑧ 占下来的格必须是**物化的完整地块**（走引擎的 `_new_tile`）。"""
 
     def test_tiles_have_the_full_shape(self):
-        from mp import BUILDINGS
+        from rl.tokens import BUILDINGS
         sb = _sb(4242, 16)
         for n in sb.players:
             for c in _own(sb, n):

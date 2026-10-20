@@ -1,0 +1,610 @@
+{
+  "kind": "synthetic_strict_consumption_price_pairs",
+  "base_commit": "e5cecebb23c38c05a4eb3b5e35f896c8fa38f610",
+  "initial_conditions": {
+    "gold": 20000,
+    "supply": 2000,
+    "full_health_infantry": 10
+  },
+  "periods": 6,
+  "trade_each_period": 100,
+  "arms": {
+    "dynamic/control": {
+      "fixed_prices": false,
+      "direction": "control",
+      "series": [
+        {
+          "period": 0,
+          "stock_before_trade": 2000,
+          "stock_after_trade": 2000,
+          "stock_after_supply": 1990,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60.0,
+          "market_price": 6.0
+        },
+        {
+          "period": 1,
+          "stock_before_trade": 1990,
+          "stock_after_trade": 1990,
+          "stock_after_supply": 1980,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60.0,
+          "market_price": 6.0
+        },
+        {
+          "period": 2,
+          "stock_before_trade": 1980,
+          "stock_after_trade": 1980,
+          "stock_after_supply": 1970,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60.0,
+          "market_price": 6.0
+        },
+        {
+          "period": 3,
+          "stock_before_trade": 1970,
+          "stock_after_trade": 1970,
+          "stock_after_supply": 1960,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60.0,
+          "market_price": 6.0
+        },
+        {
+          "period": 4,
+          "stock_before_trade": 1960,
+          "stock_after_trade": 1960,
+          "stock_after_supply": 1950,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60.0,
+          "market_price": 6.0
+        },
+        {
+          "period": 5,
+          "stock_before_trade": 1950,
+          "stock_after_trade": 1950,
+          "stock_after_supply": 1940,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60.0,
+          "market_price": 6.0
+        }
+      ],
+      "consumption": 360.0,
+      "investment": 0,
+      "quantity": 60,
+      "fixed_reference_value": 360,
+      "relative_to_dynamic_control": 0.0
+    },
+    "dynamic/buy": {
+      "fixed_prices": false,
+      "direction": "buy",
+      "series": [
+        {
+          "period": 0,
+          "stock_before_trade": 2000,
+          "stock_after_trade": 2100,
+          "stock_after_supply": 2090,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 68.1184509502234,
+          "market_price": 6.81184509502234
+        },
+        {
+          "period": 1,
+          "stock_before_trade": 2090,
+          "stock_after_trade": 2190,
+          "stock_after_supply": 2180,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 76.8510639735395,
+          "market_price": 7.685106397353949
+        },
+        {
+          "period": 2,
+          "stock_before_trade": 2180,
+          "stock_after_trade": 2280,
+          "stock_after_supply": 2270,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 86.19941600837069,
+          "market_price": 8.61994160083707
+        },
+        {
+          "period": 3,
+          "stock_before_trade": 2270,
+          "stock_after_trade": 2370,
+          "stock_after_supply": 2360,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 96.16280835945525,
+          "market_price": 9.616280835945526
+        },
+        {
+          "period": 4,
+          "stock_before_trade": 2360,
+          "stock_after_trade": 2460,
+          "stock_after_supply": 2450,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 106.73844776359603,
+          "market_price": 10.673844776359603
+        },
+        {
+          "period": 5,
+          "stock_before_trade": 2450,
+          "stock_after_trade": 2550,
+          "stock_after_supply": 2540,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 117.92162842238376,
+          "market_price": 11.792162842238376
+        }
+      ],
+      "consumption": 551.9918154775686,
+      "investment": 0,
+      "quantity": 60,
+      "fixed_reference_value": 360,
+      "relative_to_dynamic_control": 0.5333105985488016
+    },
+    "dynamic/sell": {
+      "fixed_prices": false,
+      "direction": "sell",
+      "series": [
+        {
+          "period": 0,
+          "stock_before_trade": 2000,
+          "stock_after_trade": 1900,
+          "stock_after_supply": 1890,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 52.491682194230194,
+          "market_price": 5.249168219423019
+        },
+        {
+          "period": 1,
+          "stock_before_trade": 1890,
+          "stock_after_trade": 1790,
+          "stock_after_supply": 1780,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 45.58684953310707,
+          "market_price": 4.558684953310707
+        },
+        {
+          "period": 2,
+          "stock_before_trade": 1780,
+          "stock_after_trade": 1680,
+          "stock_after_supply": 1670,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 39.27608261148672,
+          "market_price": 3.9276082611486722
+        },
+        {
+          "period": 3,
+          "stock_before_trade": 1670,
+          "stock_after_trade": 1570,
+          "stock_after_supply": 1560,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 33.54705947027022,
+          "market_price": 3.3547059470270217
+        },
+        {
+          "period": 4,
+          "stock_before_trade": 1560,
+          "stock_after_trade": 1460,
+          "stock_after_supply": 1450,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 28.384453071378584,
+          "market_price": 2.8384453071378584
+        },
+        {
+          "period": 5,
+          "stock_before_trade": 1450,
+          "stock_after_trade": 1350,
+          "stock_after_supply": 1340,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 23.769865816923932,
+          "market_price": 2.3769865816923934
+        }
+      ],
+      "consumption": 223.0559926973967,
+      "investment": 0,
+      "quantity": 60,
+      "fixed_reference_value": 360,
+      "relative_to_dynamic_control": -0.3804000202850092
+    },
+    "fixed/control": {
+      "fixed_prices": true,
+      "direction": "control",
+      "series": [
+        {
+          "period": 0,
+          "stock_before_trade": 2000,
+          "stock_after_trade": 2000,
+          "stock_after_supply": 1990,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        },
+        {
+          "period": 1,
+          "stock_before_trade": 1990,
+          "stock_after_trade": 1990,
+          "stock_after_supply": 1980,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        },
+        {
+          "period": 2,
+          "stock_before_trade": 1980,
+          "stock_after_trade": 1980,
+          "stock_after_supply": 1970,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        },
+        {
+          "period": 3,
+          "stock_before_trade": 1970,
+          "stock_after_trade": 1970,
+          "stock_after_supply": 1960,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        },
+        {
+          "period": 4,
+          "stock_before_trade": 1960,
+          "stock_after_trade": 1960,
+          "stock_after_supply": 1950,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        },
+        {
+          "period": 5,
+          "stock_before_trade": 1950,
+          "stock_after_trade": 1950,
+          "stock_after_supply": 1940,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        }
+      ],
+      "consumption": 360,
+      "investment": 0,
+      "quantity": 60,
+      "fixed_reference_value": 360,
+      "relative_to_dynamic_control": 0.0
+    },
+    "fixed/buy": {
+      "fixed_prices": true,
+      "direction": "buy",
+      "series": [
+        {
+          "period": 0,
+          "stock_before_trade": 2000,
+          "stock_after_trade": 2100,
+          "stock_after_supply": 2090,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        },
+        {
+          "period": 1,
+          "stock_before_trade": 2090,
+          "stock_after_trade": 2190,
+          "stock_after_supply": 2180,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        },
+        {
+          "period": 2,
+          "stock_before_trade": 2180,
+          "stock_after_trade": 2280,
+          "stock_after_supply": 2270,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        },
+        {
+          "period": 3,
+          "stock_before_trade": 2270,
+          "stock_after_trade": 2370,
+          "stock_after_supply": 2360,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        },
+        {
+          "period": 4,
+          "stock_before_trade": 2360,
+          "stock_after_trade": 2460,
+          "stock_after_supply": 2450,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        },
+        {
+          "period": 5,
+          "stock_before_trade": 2450,
+          "stock_after_trade": 2550,
+          "stock_after_supply": 2540,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        }
+      ],
+      "consumption": 360,
+      "investment": 0,
+      "quantity": 60,
+      "fixed_reference_value": 360,
+      "relative_to_dynamic_control": 0.0
+    },
+    "fixed/sell": {
+      "fixed_prices": true,
+      "direction": "sell",
+      "series": [
+        {
+          "period": 0,
+          "stock_before_trade": 2000,
+          "stock_after_trade": 1900,
+          "stock_after_supply": 1890,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        },
+        {
+          "period": 1,
+          "stock_before_trade": 1890,
+          "stock_after_trade": 1790,
+          "stock_after_supply": 1780,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        },
+        {
+          "period": 2,
+          "stock_before_trade": 1780,
+          "stock_after_trade": 1680,
+          "stock_after_supply": 1670,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        },
+        {
+          "period": 3,
+          "stock_before_trade": 1670,
+          "stock_after_trade": 1570,
+          "stock_after_supply": 1560,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        },
+        {
+          "period": 4,
+          "stock_before_trade": 1560,
+          "stock_after_trade": 1460,
+          "stock_after_supply": 1450,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        },
+        {
+          "period": 5,
+          "stock_before_trade": 1450,
+          "stock_after_trade": 1350,
+          "stock_after_supply": 1340,
+          "consumption_quantities": {
+            "native:supply": 10
+          },
+          "military_value": 60,
+          "market_price": 6
+        }
+      ],
+      "consumption": 360,
+      "investment": 0,
+      "quantity": 60,
+      "fixed_reference_value": 360,
+      "relative_to_dynamic_control": 0.0
+    }
+  },
+  "source_sha256": {
+    "experiments/consumption_metric/strict_consumption_probe.py": "dcb5ce98e64e16e3621af44a8939232313de4d4763037353b3a13d593a1b9b3b",
+    "settlement.py": "b8e9f3d4195681303dc9b13bb0783cd89b6d60e61e8f9e882f17b6811952f5ca",
+    "engine/__init__.py": "f6ac2849bc34f51c58c2c5d3c9b1b3434438e713794bed4eb956ca24cca55217",
+    "engine/api.py": "9d2094cf07fbba6eae40ada8fa45cdac09624d958284cfbb876058229c52264c",
+    "engine/building.py": "1304dd16901457820440285a59ff7e10efe6fb04a4a6fb6e5cc8db1b257dd949",
+    "engine/config.py": "685f5eb97e302c665b6da1da4eec2d0933b19f194c77936634d16e1fc794599b",
+    "engine/content.py": "743d9387aad899b385343c3fe8eb614fa2a427749a0502aba282a63adb6e9909",
+    "engine/coordinates.py": "c8ca0f14d94bf742cbe16013fd969d7371b9e43cc8c90e3e6f6e7bcea783eeca",
+    "engine/deltas.py": "8779a845d4770d23a47d9084f201641952d7fe323ee8b0ee08487da3a1557da2",
+    "engine/identifiers.py": "c186fef43c9491d5e5e4e481807697d5972cb537128738f446985167274a34f9",
+    "engine/player.py": "74f9a8bff3cbf30c8fb913897fae8d9923238d03242bef28fa6d2aebd4beafa3",
+    "engine/resource.py": "eaa2bfe42eac07e365dd7ff880d3e5c9809bc2de0e9da48a8f073318cb407282",
+    "engine/runtime.py": "cde03990fe82585e53c48318fccad543124bf77a2e2a98bf9797262e622cc345",
+    "engine/scenario.py": "5bdf0ae0a7af3586804fe59cb32cbc3d5b54e09dec5de07be798f6e91c7faea7",
+    "engine/scenario_mod.py": "f61d906677dd062b6a78b9fb8a894ded9bdf9ccdb2c549e9e211b40cc474cfc7",
+    "engine/scripting.py": "4054c28b72ceecd62692af0e5d4c7491b03d9b6633c0bac28f50013bc0cfc9ef",
+    "engine/session.py": "3312318a04c147d699fb74efd3f646fecc03e1a6a8d390bb67e601c89b006566",
+    "engine/state.py": "4e392555ed896b2704badc5d7108c11ef2b931dce354237b79af45851e10f5d2",
+    "mods/native/__init__.py": "1ec505d39b85fd238643fcfce80b6b6b097787b0276a7714b7c0091a9d1edc93",
+    "mods/native/army/__init__.py": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "mods/native/army/api.py": "696f8cee4da57f13ffd7ff5e81bfd860a4f1442a250002cd15a645e6dd32abee",
+    "mods/native/army/content.py": "5afbad7a9e57c3c783818db7642adc7e9bda838a6dfd2c70fe44c93bf267da96",
+    "mods/native/army/domain_objects.py": "f82035edca65b6f0ae3c617b852fe3ae235758a426ad280a962120674c94638f",
+    "mods/native/army/mod.py": "71cdc30a197448eea274d995278739f28fb3c57a52a8e335e2941777d0da2188",
+    "mods/native/army/mod.toml": "9b0b0ea411277f16b5e310ce1a004223fd824ae2ac6e3c163ab085fc3085dde3",
+    "mods/native/army/objects.py": "c6684fb49bc286e64038afd49533fe5a7921545dced4e0985976f7d9bccba4b1",
+    "mods/native/army/parameters.py": "dddce4651473fa6989529da75528428bc29f15898a306700ca5999d509206337",
+    "mods/native/army/rules.py": "103f467d19063bb83b7c66cea50706cdebea922b34c22bb70004bae17fafaae7",
+    "mods/native/bank/api.py": "6f8f463f4d14128bad763cd47d372081f80d6615d6ca3f96b422a9d240ef121a",
+    "mods/native/bank/mod.py": "cc0105a7b0cad25d005773333694f93fb6d3107b88cb27ee2a041ae61d3e466e",
+    "mods/native/bank/mod.toml": "f619fbbe1d382468643ad6baf8c95e71a8014eb2e7759847357e4edf3b221872",
+    "mods/native/bank/objects.py": "5bd9da1ab45810377145c7c19c12f448fc70fd5f2ced7470e9b8556804b0d32e",
+    "mods/native/buildings/__init__.py": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "mods/native/buildings/api.py": "5855f691b9f51459cd532c303a7d82f2834dc0db88809fe0f59b21d739978e7d",
+    "mods/native/buildings/content.py": "c8a56d2bab4d214ff0649010e7af5a9c422ea2f031fdb64b873b82a693e1a64b",
+    "mods/native/buildings/mod.py": "6b15f80da862e3d36ff469930d7fe80040cef6c0275bd3d6de9e2a5ee90e3e56",
+    "mods/native/buildings/mod.toml": "6db704677ef9593a9b9b870dc72e8c93f730b7d849cd4599e3550d1889f14668",
+    "mods/native/buildings/objects.py": "58bff4d2bf5564f5f973112d8009162dfe42d10245a28a263b6d58ce0d5a70e0",
+    "mods/native/buildings/types.py": "132783718c09e687f62a5047ab253a950b01bce2f3185015433e9d267b93df8f",
+    "mods/native/config.py": "18df55d9c6da621ddc6f01f3177bd15b190d3ae11a45c4cbae28bf9e513ed12b",
+    "mods/native/contracts/__init__.py": "f8a5878acfc94b93e363d17b2c26173edbb630bd550dea514a228786e0084a35",
+    "mods/native/contracts/economy.py": "8b2561bc6321f9f33ae95c8724c222f472ce4f3175f44dbca56c2b57b80486a2",
+    "mods/native/diplomacy/__init__.py": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "mods/native/diplomacy/api.py": "3dcce5f26fe8bd060bc6f7ea658e622d3f43d69c5e76db2d33502d9ac6c61303",
+    "mods/native/diplomacy/mod.py": "3998e24e7350357a462e6c02853c25a4193367a55ba5a046226b9765231aa914",
+    "mods/native/diplomacy/mod.toml": "89b447a66d832e80b74adee9532f3263afc1cf6ad0af22b70bba29b69b2c4ba9",
+    "mods/native/diplomacy/objects.py": "32e31e6cc536f2ea9f25f696132b9dd320422fc287731bb47d4021e1fd3f61ac",
+    "mods/native/diplomacy/parameters.py": "bb18ca033f39cdd66180ed2a029d802936a6a4ec846cd0fecf915a81eb29a9f3",
+    "mods/native/diplomacy/vassalage.py": "c5d4a592885a5608fd5babc2a65fe42c7e20a18af4cc95c1fb613d7879f86eb8",
+    "mods/native/economy_queries/api.py": "bf320a041d50b60d3baa70a70c515ba872e53e6acbaad21c416a76915d5d71a6",
+    "mods/native/economy_queries/mod.py": "a8f9819500120b210ef7b450bc88aa7f8241cc6641c4127f7482d71052401ceb",
+    "mods/native/economy_queries/mod.toml": "068c094bc56d85eaf20a034ece0a2fd7fbd2bb70a043a01537075b14a01c7560",
+    "mods/native/economy_queries/objects.py": "defe9a6b55075c8c35c7400f6071ef1a94d44e7f01a88960cf0da4a5a10e6f01",
+    "mods/native/economy_reports/contracts.py": "d6ebc12a2ff53227ef5a9d1e528f62e49550cfe4b54b65b2da8272b150ca685f",
+    "mods/native/economy_reports/mod.py": "5e3b797078d12d87d23056698f1bdb3a50079ff8a9f91efcc29930cc02753de2",
+    "mods/native/economy_reports/mod.toml": "8ce2b4bfb70e611fba4c2d25ae826bf7d178ee58368e59d77d7bfd76ac9833df",
+    "mods/native/economy_reports/objects.py": "2b2d01ff6a6245828828df80ad9af8c28fbab501c9ec631f2decb1a6aad54f9a",
+    "mods/native/economy_valuation/mod.py": "ae899693317ad3e5cfe16ccf73c30cb5c738465c31ef84d2b54a44ccc7fc0437",
+    "mods/native/economy_valuation/mod.toml": "d5bf84c8a35fdd8f9a1a7f7a6489dbd3c799f70f11141e7904fbac0829a4462e",
+    "mods/native/government/__init__.py": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "mods/native/government/api.py": "ecb8aa8051bd1d44c91dc15af1bdf1d62fc1f52e0e8352026cb30710f5580a0a",
+    "mods/native/government/mod.py": "353e02c9336c0ef84129037cad75f45482170581502f51daf2f39bc39b60a169",
+    "mods/native/government/mod.toml": "754a3a6fb9e0fed9fc2f38cf200a8ff575aaefc31a0f0c489f99e0037626152b",
+    "mods/native/government/objects.py": "6b51e7dfd34c9d93e912df48bac8ed6c0a2a56f3a947a8c1776ed8e919a4979c",
+    "mods/native/government/parameters.py": "628a09a9f80aa1dde9d05190c59948b157c390ac61e709ae4d28bd238fe2b860",
+    "mods/native/intelligence/api.py": "a809aa7a2650541da721838c2fd1262877adb6fe69f57faf85fcd0e11e09da12",
+    "mods/native/intelligence/mod.py": "f3883cde85971b02325ff91153a1cc555420a6026a83bf7cc8c60206ec759787",
+    "mods/native/intelligence/mod.toml": "7cddc48923ddc02b76ce83994caaa078eabccccb26a615a657fc45f3d81d1f5f",
+    "mods/native/intelligence/objects.py": "a730da05f75dae0b3a467be1f04adbc8b27f43e9b6623dedeb1411dd9c266b43",
+    "mods/native/localization.py": "1462e75b7c274f96727f31c8312feff8482b2e196c0789326bf366bea1db69a0",
+    "mods/native/locations.py": "355913466193937f46930676ceb6c28b5abefd859252c408678062ae1c8f41b2",
+    "mods/native/manuals/api.py": "820d17b7a76446b34e98d6c3f9a881a712f1ec189da8c2bb3c805c66298c1e68",
+    "mods/native/manuals/mod.py": "a34df4108e07c4b0ebcc78ce6e7816a4814d6e52d8b452a376c81a66fd6a1484",
+    "mods/native/manuals/mod.toml": "622762c220f79d6c3915d25df868265524ce926d7a3e1e9fb83a5d06517d394c",
+    "mods/native/map_generation/__init__.py": "853cf0bf2ac0b51c7c013a1db74bc8545f8bd8744f5164588457ce24e9763937",
+    "mods/native/map_generation/algorithm.py": "36a1fe0935bcfdffcd380c424ccda27853ad68c8e42572f42c7ca65e79dcd360",
+    "mods/native/map_generation/mod.py": "693a85e0af4ac42008aa716658d1b2b107a870d6c1195ffa6df62a039b55282b",
+    "mods/native/map_generation/mod.toml": "03e974c5cbdf93a01d9c9c78a868fca894f29d6f7ce72cdd1154ff0cac99874a",
+    "mods/native/map_generation/names.py": "3e9f527f51ac45de57ab545c46da8a6e098b4a58132debe8222fd1d4d350ae94",
+    "mods/native/map_generation/parameters.py": "156f2a77fb5a9000b392f1667efb7968b12719b9bb78351292c886c0067d8ae7",
+    "mods/native/market/contracts.py": "47aa4a54d7e90ad5c5b6cc2ed9842095d0dfce6b5aedbde6e53c4527df94bea8",
+    "mods/native/market/mod.py": "6bbf98ef21699ca099d0cfc50c8e84167ab449bc359dbe238b364bfc757d5b59",
+    "mods/native/market/mod.toml": "935d57f00b956107f37b131b5fa6e63253e1b1e0a34a310d4d5d3009cbfdd3df",
+    "mods/native/market/objects.py": "8b2841618b87d2de3444d991b6c120df85c22f2c43bbf5bc4d116e4e448069e9",
+    "mods/native/market_pricing/mod.py": "8b51310ca38dcc5434ecebaa52e657566d8906dfb262551a2b8ec1b5534f1b71",
+    "mods/native/market_pricing/mod.toml": "1d75549f275aa63d45e9e95c9f2950e206fa18ae86eafbe3e1e094c09e916810",
+    "mods/native/market_pricing/pricing.py": "65c7bf878fd8d2e6dc9cb974465d2bb50f9729bc14eba5f2df006bba3665cb0d",
+    "mods/native/mod.toml": "5a2a738aa39f7e48916dd198925961cdcbf359dd514570f08d5da83b69316704",
+    "mods/native/nations/__init__.py": "b2b685715dba064d09e1651801b2729f677d45e1800f7d189dcba74fe383422e",
+    "mods/native/nations/api.py": "a36a2599767ab2343541fd7dcd3c8674072f107bac9300f38a36455f94f89b90",
+    "mods/native/nations/mod.py": "6b6ead8ff492dbe578e56f292b5ba6cb67ced5dbc9e6bf3f29e1d0a9948d7947",
+    "mods/native/nations/mod.toml": "6aceb931dd22d3131bdf9a3dcd09d6c70a9aa1d7616038c63b6662a24c05f44d",
+    "mods/native/nations/objects.py": "9fd1cfcacf6516d204be02e6f5f9d54d2745741888bc17649f26f927bb88a816",
+    "mods/native/observer.py": "657081a2b7dca960fa0271dd0372e572b291a43c1c026ec69bc619f491753ab0",
+    "mods/native/polities/huns/__init__.py": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "mods/native/polities/huns/mod.py": "4c72f16204862d2c2792b308385f274c3d76f1ead32bec25bb12dcf1149bc0d0",
+    "mods/native/polities/huns/mod.toml": "59e7b90b73523d39378760515fa10e79dff85b9b2c82801ec6c39966fc9c4be1",
+    "mods/native/query/mod.py": "0843c09258fd1d052ffeb0f670f8f6200d522ec398fee2470061265279ee8755",
+    "mods/native/query/mod.toml": "cb73089618b3caed9e5240e50cd101f739c5f5d62cb19c932d0e470d72768265",
+    "mods/native/resources/__init__.py": "95d1b0bf030e6678af4b128874373b78f971ea11ea3da2b958c0050f16af2504",
+    "mods/native/resources/mod.py": "24ca36fb4e6c2ba95fc84bd90f4cc77c80816f17d9e8dda213b2c1087202c9a0",
+    "mods/native/resources/mod.toml": "9fd5321313669ffda5deedefd2864ce406b9230d83a6b3c0d61222ff8e638ba8",
+    "mods/native/resources/objects.py": "874bdc583b6881c40a468cbf2ef5a30e95e43b0722c47083f6bb8de2c7981bda",
+    "mods/native/resources/types.py": "9f736d565ccb750dff27c1e9227e2aa378f0c82acd6ecc7e67ef04fc026f837d",
+    "mods/native/scenarios/__init__.py": "e88baadb9da2b14a2e9970e72fb89db6cd2267f085565cc13eb870b2b02992e6",
+    "mods/native/session.py": "e08216141635acf8edd4d1789f1fd379445a8c081e1f40295818317f6ab69f05",
+    "mods/native/succession/mod.py": "bfe70ff599ea32704ff29664c83e698ef95f7cd664020b9f824fc0aa18e1c6b1",
+    "mods/native/succession/mod.toml": "d8e32c046282263dbdde2fc6ae3fa5a9dd9e8be159e01fe0f983de6fb9e0120f",
+    "mods/native/territory/__init__.py": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "mods/native/territory/api.py": "b3dfbe0627be724e477a4bbb0dcd6c34131d940ec20126a2cf4c7c6f2ea45294",
+    "mods/native/territory/mod.py": "fb5caab61c093520baf5a2c71dba81fa62e20bcb50002834bfe48e4171fea7a5",
+    "mods/native/territory/mod.toml": "2c6d9a1ed5164db855543f9fc27ef33e6204e2c511a5fdd9643a95364320de6f",
+    "mods/native/territory/objects.py": "84140a1f59ff3b1d0fa935bb826e5b5e5b554ba977600def81d3672b833fabb1",
+    "mods/native/tools/__init__.py": "796bfc050d994108ecf0cd1111891a388b28afd73d9c880dc9a5370b1f92a76e",
+    "mods/native/tools/army.py": "4125deaa5300ba322b76a042f54e946a37dc417a1861639b9f9216dad2e95a3d",
+    "mods/native/tools/bank.py": "66c5161e6b9fb7cedd4697993530d709672b75e488ca3fc3a1d940892c601ff0",
+    "mods/native/tools/buildings.py": "e86c397caa645180cc1138aced38eacb4a98148fa55982f0ade74a1f77543993",
+    "mods/native/tools/commands.py": "0f877d15786bdf22b297a01a770c2b15385a78fe66797609822b0bc8c8a33f46",
+    "mods/native/tools/diplomacy.py": "f426e861ef0491e7a42ccd6102779e80af2dd9d508c9155c6807c43c265c8f3b",
+    "mods/native/tools/economy.py": "8ab91ae98782edc3c38030fb58f2cd0d9f681d19e3e829c07c2eb7a43da61f7c",
+    "mods/native/tools/government.py": "a07b9aefb57327f5806a09d56534b69ebbd956a0ad4d0afdd17058c1d0d74044",
+    "mods/native/tools/intelligence.py": "d205d46d5e43f2f750d7cb26e0ccac640a1186c3df158641f962795743fc1d44",
+    "mods/native/tools/manuals.py": "e6ec2393f851955af260b13e94db89021fd46884fb6b822c9b429b414127e5e6",
+    "mods/native/tools/nations.py": "573e976a4a50dd469bee661761b73b5945602ef3bda1be5d0d4058fc4d5525ec",
+    "mods/native/tools/query.py": "48b889118bb3d0b8a805505ceef832ae78d18c6170de6b1ea4b47ec7f8ffc9d0",
+    "mods/native/tools/territory.py": "384cad14e6f525b367ca52a1b9aff42713c23636d557ec6cd23565285852065e",
+    "mods/native/tools/vision.py": "78382f28c161dad983c9f6e9f54ea6d3db4d6a8da60a9820161c8125e291d229",
+    "mods/native/vision/api.py": "34ffb5bd7a82ac8f80e6c253d756ec6ae668459409f489f622e2416ce5f1acb2",
+    "mods/native/vision/mod.py": "15216a7e59f419f1ba20b3631fb724c8a0fce7dd26e4fbfc371451dbf27dbcc3",
+    "mods/native/vision/mod.toml": "68e8ef585eff2058f5dcfc23f0d7b37f4cc74f57d8f355f5f2d0a084337af6aa",
+    "mods/examples/fixed_market_pricing/mod.py": "abd13b74800d9e9afa49b6fabd24dba54ab6b6f55fbccd49ba2bd2cc969332f7",
+    "mods/examples/fixed_market_pricing/mod.toml": "30e280a03cac126a1bf0f5bee6ab3b85febaa3056ecaa66be9fab8706edb6141",
+    "mods.toml": "87cbb3f9b2d6a17178a991c3e4509d309aac0eee4aa0afa9d306526b2a200782"
+  }
+}

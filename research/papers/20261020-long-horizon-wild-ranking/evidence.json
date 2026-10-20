@@ -1,0 +1,888 @@
+{
+  "scope": "completed periods 0..8; saved boundary=9",
+  "metrics": {
+    "minimax": {
+      "completed_periods": [
+        0,
+        8
+      ],
+      "audit_count": 1265,
+      "unsuccessful": 84,
+      "queries": 498,
+      "plan_submissions": 39,
+      "reviews": 24,
+      "reviews_rejected": 11,
+      "king_calls": 497,
+      "actor_wall_seconds": 26623.0,
+      "actor_median_seconds": 154.55,
+      "gdp_period8": 405.98288860201603,
+      "net_assets_period8": 21648.14603212385,
+      "cash_production_period8": 105,
+      "debt_period8": 749,
+      "churn_groups": 14,
+      "churn_loss_sum": 61.229920634920646,
+      "per_nation": [
+        {
+          "name": "秦",
+          "calls": 32,
+          "seconds": 1444.6,
+          "audit": 93,
+          "unsuccessful": 7,
+          "gdp_period8": 50.984092233541475,
+          "initial_local_capacities": {
+            "native:ore": 2,
+            "native:gold": 0,
+            "native:farmland": 11,
+            "native:oil": 0,
+            "native:wood": 8
+          }
+        },
+        {
+          "name": "魏",
+          "calls": 166,
+          "seconds": 12108.9,
+          "audit": 368,
+          "unsuccessful": 40,
+          "gdp_period8": 46.745524619204026,
+          "initial_local_capacities": {
+            "native:ore": 7,
+            "native:gold": 0,
+            "native:farmland": 7,
+            "native:oil": 0,
+            "native:wood": 9
+          }
+        },
+        {
+          "name": "韩",
+          "calls": 96,
+          "seconds": 6906.8,
+          "audit": 241,
+          "unsuccessful": 18,
+          "gdp_period8": 51.69249524530758,
+          "initial_local_capacities": {
+            "native:ore": 1,
+            "native:gold": 0,
+            "native:farmland": 5,
+            "native:oil": 3,
+            "native:wood": 5
+          }
+        },
+        {
+          "name": "赵",
+          "calls": 38,
+          "seconds": 1325.6,
+          "audit": 115,
+          "unsuccessful": 2,
+          "gdp_period8": 55.04507676601955,
+          "initial_local_capacities": {
+            "native:ore": 8,
+            "native:gold": 0,
+            "native:farmland": 8,
+            "native:oil": 1,
+            "native:wood": 6
+          }
+        },
+        {
+          "name": "燕",
+          "calls": 50,
+          "seconds": 1857.1,
+          "audit": 123,
+          "unsuccessful": 5,
+          "gdp_period8": 49.56224366412587,
+          "initial_local_capacities": {
+            "native:ore": 2,
+            "native:gold": 1,
+            "native:farmland": 11,
+            "native:oil": 0,
+            "native:wood": 11
+          }
+        },
+        {
+          "name": "齐",
+          "calls": 50,
+          "seconds": 1115.9,
+          "audit": 102,
+          "unsuccessful": 4,
+          "gdp_period8": 56.00602667978502,
+          "initial_local_capacities": {
+            "native:ore": 0,
+            "native:gold": 0,
+            "native:farmland": 6,
+            "native:oil": 5,
+            "native:wood": 5
+          }
+        },
+        {
+          "name": "楚",
+          "calls": 35,
+          "seconds": 978.5,
+          "audit": 93,
+          "unsuccessful": 4,
+          "gdp_period8": 44.98689188732776,
+          "initial_local_capacities": {
+            "native:ore": 3,
+            "native:gold": 1,
+            "native:farmland": 4,
+            "native:oil": 1,
+            "native:wood": 9
+          }
+        },
+        {
+          "name": "周",
+          "calls": 30,
+          "seconds": 885.6,
+          "audit": 130,
+          "unsuccessful": 4,
+          "gdp_period8": 50.96053750670477,
+          "initial_local_capacities": {
+            "native:ore": 6,
+            "native:gold": 0,
+            "native:farmland": 10,
+            "native:oil": 1,
+            "native:wood": 3
+          }
+        }
+      ]
+    },
+    "dq": {
+      "completed_periods": [
+        0,
+        8
+      ],
+      "audit_count": 640,
+      "unsuccessful": 21,
+      "queries": 149,
+      "plan_submissions": 9,
+      "reviews": 1,
+      "reviews_rejected": 0,
+      "king_calls": 303,
+      "actor_wall_seconds": 6842.5,
+      "actor_median_seconds": 84.69999999999999,
+      "gdp_period8": 405.48221261127765,
+      "net_assets_period8": 23516.775742764265,
+      "cash_production_period8": 88,
+      "debt_period8": 957,
+      "churn_groups": 3,
+      "churn_loss_sum": 8.375,
+      "per_nation": [
+        {
+          "name": "秦",
+          "calls": 29,
+          "seconds": 783.0,
+          "audit": 65,
+          "unsuccessful": 1,
+          "gdp_period8": 49.824267576848925,
+          "initial_local_capacities": {
+            "native:ore": 3,
+            "native:gold": 0,
+            "native:farmland": 11,
+            "native:oil": 0,
+            "native:wood": 7
+          }
+        },
+        {
+          "name": "魏",
+          "calls": 32,
+          "seconds": 812.2,
+          "audit": 64,
+          "unsuccessful": 2,
+          "gdp_period8": 60.92488757982005,
+          "initial_local_capacities": {
+            "native:ore": 1,
+            "native:gold": 0,
+            "native:farmland": 8,
+            "native:oil": 4,
+            "native:wood": 7
+          }
+        },
+        {
+          "name": "韩",
+          "calls": 39,
+          "seconds": 630.3,
+          "audit": 76,
+          "unsuccessful": 5,
+          "gdp_period8": 50.229644503629224,
+          "initial_local_capacities": {
+            "native:ore": 2,
+            "native:gold": 0,
+            "native:farmland": 8,
+            "native:oil": 1,
+            "native:wood": 10
+          }
+        },
+        {
+          "name": "赵",
+          "calls": 68,
+          "seconds": 1296.6,
+          "audit": 129,
+          "unsuccessful": 9,
+          "gdp_period8": 39.33876480069897,
+          "initial_local_capacities": {
+            "native:ore": 5,
+            "native:gold": 0,
+            "native:farmland": 10,
+            "native:oil": 0,
+            "native:wood": 8
+          }
+        },
+        {
+          "name": "燕",
+          "calls": 28,
+          "seconds": 666.1,
+          "audit": 75,
+          "unsuccessful": 1,
+          "gdp_period8": 54.347047715918045,
+          "initial_local_capacities": {
+            "native:ore": 4,
+            "native:gold": 0,
+            "native:farmland": 10,
+            "native:oil": 0,
+            "native:wood": 8
+          }
+        },
+        {
+          "name": "齐",
+          "calls": 47,
+          "seconds": 1163.1,
+          "audit": 89,
+          "unsuccessful": 1,
+          "gdp_period8": 57.744418769659944,
+          "initial_local_capacities": {
+            "native:ore": 11,
+            "native:gold": 0,
+            "native:farmland": 8,
+            "native:oil": 1,
+            "native:wood": 11
+          }
+        },
+        {
+          "name": "楚",
+          "calls": 31,
+          "seconds": 629.2,
+          "audit": 59,
+          "unsuccessful": 2,
+          "gdp_period8": 46.09249062490641,
+          "initial_local_capacities": {
+            "native:ore": 2,
+            "native:gold": 0,
+            "native:farmland": 8,
+            "native:oil": 1,
+            "native:wood": 7
+          }
+        },
+        {
+          "name": "周",
+          "calls": 29,
+          "seconds": 862.0,
+          "audit": 83,
+          "unsuccessful": 0,
+          "gdp_period8": 46.98069103979607,
+          "initial_local_capacities": {
+            "native:ore": 0,
+            "native:gold": 1,
+            "native:farmland": 9,
+            "native:oil": 0,
+            "native:wood": 7
+          }
+        }
+      ]
+    }
+  },
+  "selected_receipts": [
+    {
+      "id": 762,
+      "actor": "scenario:wei",
+      "generation": 0,
+      "model": "MiniMax-M3.1-Flash",
+      "action": "military",
+      "arguments": {
+        "kind": "militia",
+        "action": "recruit",
+        "x": 8,
+        "y": 10
+      },
+      "receipt": {
+        "api": 1,
+        "actor": "scenario:wei",
+        "action": "military",
+        "period": 4,
+        "ok": true,
+        "status": "effective",
+        "code": null,
+        "message": "",
+        "data": [
+          {
+            "id": 4,
+            "kind": "native:militia",
+            "owner": "scenario:wei",
+            "x": 8,
+            "y": 10,
+            "hp": 80,
+            "moved_turn": 4,
+            "engaged": false,
+            "born_turn": 4,
+            "retreat_to": null
+          }
+        ]
+      }
+    },
+    {
+      "id": 763,
+      "actor": "scenario:wei",
+      "generation": 0,
+      "model": "MiniMax-M3.1-Flash",
+      "action": "military",
+      "arguments": {
+        "aid": 2,
+        "place": "安岭",
+        "action": "move"
+      },
+      "receipt": {
+        "api": 1,
+        "actor": "scenario:wei",
+        "action": "military",
+        "period": 4,
+        "ok": true,
+        "status": "effective",
+        "code": null,
+        "message": "",
+        "data": {
+          "status": "effective",
+          "units": [
+            2
+          ],
+          "position_changed": true,
+          "consumed_action": true,
+          "occupied": false,
+          "engaged": false,
+          "message": "",
+          "items": [
+            {
+              "aid": 2,
+              "status": "effective",
+              "position_changed": true,
+              "consumed_action": true,
+              "message": "已移动到目标"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": 764,
+      "actor": "scenario:wei",
+      "generation": 0,
+      "model": "MiniMax-M3.1-Flash",
+      "action": "military",
+      "arguments": {
+        "aid": 3,
+        "place": "玄渡",
+        "action": "move"
+      },
+      "receipt": {
+        "api": 1,
+        "actor": "scenario:wei",
+        "action": "military",
+        "period": 4,
+        "ok": true,
+        "status": "effective",
+        "code": null,
+        "message": "",
+        "data": {
+          "status": "effective",
+          "units": [
+            3
+          ],
+          "position_changed": true,
+          "consumed_action": true,
+          "occupied": false,
+          "engaged": false,
+          "message": "",
+          "items": [
+            {
+              "aid": 3,
+              "status": "effective",
+              "position_changed": true,
+              "consumed_action": true,
+              "message": "已移动到目标"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": 765,
+      "actor": "scenario:wei",
+      "generation": 0,
+      "model": "MiniMax-M3.1-Flash",
+      "action": "military",
+      "arguments": {
+        "ids": [
+          1,
+          3
+        ],
+        "place": "7 8",
+        "action": "attack"
+      },
+      "receipt": {
+        "api": 1,
+        "actor": "scenario:wei",
+        "action": "military",
+        "period": 4,
+        "ok": false,
+        "status": "rejected",
+        "code": "domain_rejected",
+        "message": "整批未执行：\n#1：校验通过，但本批未执行\n#3：本回合已移动或已消耗行动额度",
+        "data": {
+          "reason": "batch_rejected",
+          "atomic": true,
+          "items": [
+            {
+              "aid": 1,
+              "reason": "",
+              "status": "not_executed",
+              "message": "校验通过，但本批未执行",
+              "position_changed": false,
+              "consumed_action": false
+            },
+            {
+              "aid": 3,
+              "reason": "本回合已移动或已消耗行动额度",
+              "status": "rejected",
+              "message": "本回合已移动或已消耗行动额度",
+              "position_changed": false,
+              "consumed_action": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": 766,
+      "actor": "scenario:wei",
+      "generation": 0,
+      "model": "MiniMax-M3.1-Flash",
+      "action": "military",
+      "arguments": {
+        "ids": [
+          2,
+          4
+        ],
+        "place": "7 10",
+        "action": "attack"
+      },
+      "receipt": {
+        "api": 1,
+        "actor": "scenario:wei",
+        "action": "military",
+        "period": 4,
+        "ok": false,
+        "status": "rejected",
+        "code": "domain_rejected",
+        "message": "整批未执行：\n#2：本回合已移动或已消耗行动额度\n#4：新兵本回合不能行动",
+        "data": {
+          "reason": "batch_rejected",
+          "atomic": true,
+          "items": [
+            {
+              "aid": 2,
+              "reason": "本回合已移动或已消耗行动额度",
+              "status": "rejected",
+              "message": "本回合已移动或已消耗行动额度",
+              "position_changed": false,
+              "consumed_action": false
+            },
+            {
+              "aid": 4,
+              "reason": "新兵本回合不能行动",
+              "status": "rejected",
+              "message": "新兵本回合不能行动",
+              "position_changed": false,
+              "consumed_action": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": 966,
+      "actor": "scenario:wei",
+      "generation": 0,
+      "model": "MiniMax-M3.1-Flash",
+      "action": "economy",
+      "arguments": {
+        "resource": "food",
+        "quantity": 15,
+        "action": "sell"
+      },
+      "receipt": {
+        "api": 1,
+        "actor": "scenario:wei",
+        "action": "economy",
+        "period": 6,
+        "ok": true,
+        "status": "effective",
+        "code": null,
+        "message": "",
+        "data": {
+          "owner": "scenario:wei",
+          "resource": "native:food",
+          "side": "sell",
+          "quantity": 15,
+          "gold": 20,
+          "exact_total": 20.63748896653042,
+          "price_before": 1.4535641388625882,
+          "price_after": 1.4535641388625882,
+          "carry_before": 0.01787941141680527,
+          "carry_after": 0.6553683779472266,
+          "period": 6,
+          "churn": {
+            "quantity": 0,
+            "loss": 0.0,
+            "buy_quantity": 0,
+            "buy_average": 0.0,
+            "sell_quantity": 0,
+            "sell_average": 0.0
+          },
+          "remaining": 0
+        }
+      }
+    },
+    {
+      "id": 974,
+      "actor": "scenario:wei",
+      "generation": 0,
+      "model": "MiniMax-M3.1-Flash",
+      "action": "economy",
+      "arguments": {
+        "resource": "food",
+        "quantity": 20,
+        "action": "buy"
+      },
+      "receipt": {
+        "api": 1,
+        "actor": "scenario:wei",
+        "action": "economy",
+        "period": 6,
+        "ok": true,
+        "status": "effective",
+        "code": null,
+        "message": "",
+        "data": {
+          "owner": "scenario:wei",
+          "resource": "native:food",
+          "side": "buy",
+          "quantity": 20,
+          "gold": 30,
+          "exact_total": 30.67735030776454,
+          "price_before": 1.4535641388625882,
+          "price_after": 1.4535641388625882,
+          "carry_before": 0.983960662122719,
+          "carry_after": 0.3066103543581775,
+          "period": 6,
+          "churn": {
+            "quantity": 15,
+            "loss": 2.500000000000001,
+            "buy_quantity": 20,
+            "buy_average": 1.5,
+            "sell_quantity": 15,
+            "sell_average": 1.3333333333333333
+          },
+          "remaining": 20
+        }
+      }
+    },
+    {
+      "id": 976,
+      "actor": "scenario:wei",
+      "generation": 0,
+      "model": "MiniMax-M3.1-Flash",
+      "action": "economy",
+      "arguments": {
+        "resource": "food",
+        "quantity": 10,
+        "action": "sell"
+      },
+      "receipt": {
+        "api": 1,
+        "actor": "scenario:wei",
+        "action": "economy",
+        "period": 6,
+        "ok": true,
+        "status": "effective",
+        "code": null,
+        "message": "",
+        "data": {
+          "owner": "scenario:wei",
+          "resource": "native:food",
+          "side": "sell",
+          "quantity": 10,
+          "gold": 13,
+          "exact_total": 13.668465251494199,
+          "price_before": 1.4535641388625882,
+          "price_after": 1.4535641388625882,
+          "carry_before": 0.3066103543581775,
+          "carry_after": 0.9750756058523766,
+          "period": 6,
+          "churn": {
+            "quantity": 20,
+            "loss": 3.5999999999999988,
+            "buy_quantity": 20,
+            "buy_average": 1.5,
+            "sell_quantity": 25,
+            "sell_average": 1.32
+          },
+          "remaining": 10
+        }
+      }
+    },
+    {
+      "id": 983,
+      "actor": "scenario:wei",
+      "generation": 0,
+      "model": "MiniMax-M3.1-Flash",
+      "action": "economy",
+      "arguments": {
+        "resource": "food",
+        "quantity": 10,
+        "action": "buy"
+      },
+      "receipt": {
+        "api": 1,
+        "actor": "scenario:wei",
+        "action": "economy",
+        "period": 6,
+        "ok": true,
+        "status": "effective",
+        "code": null,
+        "message": "",
+        "data": {
+          "owner": "scenario:wei",
+          "resource": "native:food",
+          "side": "buy",
+          "quantity": 10,
+          "gold": 16,
+          "exact_total": 15.459684390235148,
+          "price_before": 1.4535641388625882,
+          "price_after": 1.4535641388625882,
+          "carry_before": 0.23899325806978577,
+          "carry_after": 0.7793088678346365,
+          "period": 6,
+          "churn": {
+            "quantity": 25,
+            "loss": 5.333333333333334,
+            "buy_quantity": 30,
+            "buy_average": 1.5333333333333334,
+            "sell_quantity": 25,
+            "sell_average": 1.32
+          },
+          "remaining": 20
+        }
+      }
+    },
+    {
+      "id": 984,
+      "actor": "scenario:wei",
+      "generation": 0,
+      "model": "MiniMax-M3.1-Flash",
+      "action": "economy",
+      "arguments": {
+        "resource": "food",
+        "quantity": 5,
+        "action": "sell"
+      },
+      "receipt": {
+        "api": 1,
+        "actor": "scenario:wei",
+        "action": "economy",
+        "period": 6,
+        "ok": true,
+        "status": "effective",
+        "code": null,
+        "message": "",
+        "data": {
+          "owner": "scenario:wei",
+          "resource": "native:food",
+          "side": "sell",
+          "quantity": 5,
+          "gold": 7,
+          "exact_total": 6.807415390124987,
+          "price_before": 1.4535641388625882,
+          "price_after": 1.4535641388625882,
+          "carry_before": 0.7793088678346365,
+          "carry_after": 0.5867242579596237,
+          "period": 6,
+          "churn": {
+            "quantity": 30,
+            "loss": 6.000000000000005,
+            "buy_quantity": 30,
+            "buy_average": 1.5333333333333334,
+            "sell_quantity": 30,
+            "sell_average": 1.3333333333333333
+          },
+          "remaining": 15
+        }
+      }
+    },
+    {
+      "id": 989,
+      "actor": "scenario:wei",
+      "generation": 0,
+      "model": "MiniMax-M3.1-Flash",
+      "action": "economy",
+      "arguments": {
+        "resource": "food",
+        "quantity": 5,
+        "action": "sell"
+      },
+      "receipt": {
+        "api": 1,
+        "actor": "scenario:wei",
+        "action": "economy",
+        "period": 6,
+        "ok": true,
+        "status": "effective",
+        "code": null,
+        "message": "",
+        "data": {
+          "owner": "scenario:wei",
+          "resource": "native:food",
+          "side": "sell",
+          "quantity": 5,
+          "gold": 7,
+          "exact_total": 6.789599604991419,
+          "price_before": 1.4535641388625882,
+          "price_after": 1.4535641388625882,
+          "carry_before": 0.5867242579596237,
+          "carry_after": 0.37632386295104236,
+          "period": 6,
+          "churn": {
+            "quantity": 30,
+            "loss": 5.714285714285721,
+            "buy_quantity": 30,
+            "buy_average": 1.5333333333333334,
+            "sell_quantity": 35,
+            "sell_average": 1.3428571428571427
+          },
+          "remaining": 10
+        }
+      }
+    },
+    {
+      "id": 990,
+      "actor": "scenario:wei",
+      "generation": 0,
+      "model": "MiniMax-M3.1-Flash",
+      "action": "economy",
+      "arguments": {
+        "resource": "food",
+        "quantity": 5,
+        "action": "sell"
+      },
+      "receipt": {
+        "api": 1,
+        "actor": "scenario:wei",
+        "action": "economy",
+        "period": 6,
+        "ok": true,
+        "status": "effective",
+        "code": null,
+        "message": "",
+        "data": {
+          "owner": "scenario:wei",
+          "resource": "native:food",
+          "side": "sell",
+          "quantity": 5,
+          "gold": 7,
+          "exact_total": 6.771830445806427,
+          "price_before": 1.4535641388625882,
+          "price_after": 1.4535641388625882,
+          "carry_before": 0.37632386295104236,
+          "carry_after": 0.14815430875746927,
+          "period": 6,
+          "churn": {
+            "quantity": 30,
+            "loss": 5.5,
+            "buy_quantity": 30,
+            "buy_average": 1.5333333333333334,
+            "sell_quantity": 40,
+            "sell_average": 1.35
+          },
+          "remaining": 5
+        }
+      }
+    },
+    {
+      "id": 1192,
+      "actor": "scenario:wei",
+      "generation": 1,
+      "model": "MiniMax-M3.1-Flash",
+      "action": "relations",
+      "arguments": {
+        "target": "scenario:zhou",
+        "action": "submit_vassalage"
+      },
+      "receipt": {
+        "api": 1,
+        "actor": "scenario:wei",
+        "action": "relations",
+        "period": 8,
+        "ok": false,
+        "status": "rejected",
+        "code": "domain_rejected",
+        "message": "Insufficient cash for diplomatic fee",
+        "data": null
+      }
+    },
+    {
+      "id": 1201,
+      "actor": "scenario:wei",
+      "generation": 1,
+      "model": "MiniMax-M3.1-Flash",
+      "action": "military",
+      "arguments": {
+        "ids": [
+          1,
+          3
+        ],
+        "action": "disband"
+      },
+      "receipt": {
+        "api": 1,
+        "actor": "scenario:wei",
+        "action": "military",
+        "period": 8,
+        "ok": true,
+        "status": "effective",
+        "code": null,
+        "message": "",
+        "data": [
+          {
+            "status": "effective",
+            "units": [
+              1
+            ],
+            "position_changed": false,
+            "consumed_action": false,
+            "occupied": false,
+            "engaged": false,
+            "message": "已遣散，不退还任何粮/装备/黄金",
+            "items": []
+          },
+          {
+            "status": "effective",
+            "units": [
+              3
+            ],
+            "position_changed": false,
+            "consumed_action": false,
+            "occupied": false,
+            "engaged": false,
+            "message": "已遣散，不退还任何粮/装备/黄金",
+            "items": []
+          }
+        ]
+      }
+    }
+  ]
+}

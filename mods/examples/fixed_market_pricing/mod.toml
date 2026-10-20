@@ -1,0 +1,13 @@
+[Mod]
+Id = "example:fixed-market-pricing"
+Version = "1.0.0"
+Entry = "mods.examples.fixed_market_pricing.mod:FixedPricingMod"
+Requires = []
+
+[State]
+Owns = []
+Requests = []
+
+[Capabilities]
+Needs = []
+Provides = ["market:pricing"]

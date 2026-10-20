@@ -1,0 +1,18 @@
+[Mod]
+Id = "mini:succession"
+Version = "1.0.0"
+Entry = "mods.examples.minigame.game:SuccessionMod"
+Requires = ["mini:nations", "mini:buildings", "mini:intelligence"]
+After = ["mini:nations", "mini:buildings"]
+
+[State]
+Owns = ["succession"]
+
+[Capabilities]
+Needs = ["mini:nations", "mini:buildings", "mini:intelligence"]
+Provides = ["mini:succession"]
+
+[Interfaces]
+"mini:nations" = ["ids", "extinguish"]
+"mini:buildings" = ["count"]
+"mini:intelligence" = ["emit"]

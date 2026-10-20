@@ -1,0 +1,477 @@
+{
+  "kind": "independent_market_value_formula_checks",
+  "equilibrium_and_shadow": {
+    "prices": [
+      2.0,
+      3.0
+    ],
+    "resources": [
+      8.25,
+      4.5
+    ],
+    "equilibrium_bundles": [
+      [
+        1.5,
+        3.0
+      ],
+      [
+        6.75,
+        1.5
+      ]
+    ],
+    "fixed_weights": [
+      12.0,
+      18.0
+    ],
+    "envelope_checks": [
+      {
+        "resource": 0,
+        "derivative": 2.000000000279556,
+        "price": 2.0
+      },
+      {
+        "resource": 1,
+        "derivative": 2.9999999998864264,
+        "price": 3.0
+      }
+    ],
+    "supporting_inequality_checks": 15
+  },
+  "reproduction_cases": [
+    {
+      "parameter": 1,
+      "level": 1,
+      "price": [
+        3.875,
+        4.9375
+      ],
+      "consumption": [
+        4.0,
+        4.0
+      ],
+      "gross_output_for_consumption": [
+        4.75,
+        5.5
+      ],
+      "consumption_value": 35.25,
+      "resource_value": 35.25,
+      "price_deviation": 0.2077922077922078,
+      "error_bound": 1.5042207792207791
+    },
+    {
+      "parameter": 1,
+      "level": 2,
+      "price": [
+        3.875,
+        4.9375
+      ],
+      "consumption": [
+        5.0,
+        5.0
+      ],
+      "gross_output_for_consumption": [
+        5.9375,
+        6.875
+      ],
+      "consumption_value": 44.0625,
+      "resource_value": 44.0625,
+      "price_deviation": 0.2597402597402597,
+      "error_bound": 1.880275974025974
+    },
+    {
+      "parameter": 1,
+      "level": 3,
+      "price": [
+        3.875,
+        4.9375
+      ],
+      "consumption": [
+        6.0,
+        6.0
+      ],
+      "gross_output_for_consumption": [
+        7.125,
+        8.25
+      ],
+      "consumption_value": 52.875,
+      "resource_value": 52.875,
+      "price_deviation": 0.3116883116883117,
+      "error_bound": 2.256331168831169
+    },
+    {
+      "parameter": 1,
+      "level": 4,
+      "price": [
+        3.875,
+        4.9375
+      ],
+      "consumption": [
+        7.0,
+        7.0
+      ],
+      "gross_output_for_consumption": [
+        8.3125,
+        9.625
+      ],
+      "consumption_value": 61.6875,
+      "resource_value": 61.6875,
+      "price_deviation": 0.36363636363636365,
+      "error_bound": 2.6323863636363636
+    },
+    {
+      "parameter": 2,
+      "level": 1,
+      "price": [
+        4.6835443037974684,
+        6.075949367088608
+      ],
+      "consumption": [
+        4.0,
+        4.0
+      ],
+      "gross_output_for_consumption": [
+        5.063291139240507,
+        5.569620253164557
+      ],
+      "consumption_value": 43.037974683544306,
+      "resource_value": 43.037974683544306,
+      "price_deviation": 0.2077922077922078,
+      "error_bound": 1.5604142692750287
+    },
+    {
+      "parameter": 2,
+      "level": 2,
+      "price": [
+        4.6835443037974684,
+        6.075949367088608
+      ],
+      "consumption": [
+        5.0,
+        5.0
+      ],
+      "gross_output_for_consumption": [
+        6.329113924050633,
+        6.962025316455696
+      ],
+      "consumption_value": 53.79746835443038,
+      "resource_value": 53.79746835443038,
+      "price_deviation": 0.2597402597402597,
+      "error_bound": 1.9505178365937859
+    },
+    {
+      "parameter": 2,
+      "level": 3,
+      "price": [
+        4.6835443037974684,
+        6.075949367088608
+      ],
+      "consumption": [
+        6.0,
+        6.0
+      ],
+      "gross_output_for_consumption": [
+        7.594936708860759,
+        8.354430379746836
+      ],
+      "consumption_value": 64.55696202531645,
+      "resource_value": 64.55696202531645,
+      "price_deviation": 0.3116883116883117,
+      "error_bound": 2.340621403912543
+    },
+    {
+      "parameter": 2,
+      "level": 4,
+      "price": [
+        4.6835443037974684,
+        6.075949367088608
+      ],
+      "consumption": [
+        7.0,
+        7.0
+      ],
+      "gross_output_for_consumption": [
+        8.860759493670885,
+        9.746835443037975
+      ],
+      "consumption_value": 75.31645569620254,
+      "resource_value": 75.31645569620254,
+      "price_deviation": 0.36363636363636365,
+      "error_bound": 2.7307249712313
+    },
+    {
+      "parameter": 3,
+      "level": 1,
+      "price": [
+        5.641025641025641,
+        7.884615384615385
+      ],
+      "consumption": [
+        4.0,
+        4.0
+      ],
+      "gross_output_for_consumption": [
+        5.384615384615385,
+        5.641025641025641
+      ],
+      "consumption_value": 54.1025641025641,
+      "resource_value": 54.1025641025641,
+      "price_deviation": 0.2077922077922078,
+      "error_bound": 1.618048618048618
+    },
+    {
+      "parameter": 3,
+      "level": 2,
+      "price": [
+        5.641025641025641,
+        7.884615384615385
+      ],
+      "consumption": [
+        5.0,
+        5.0
+      ],
+      "gross_output_for_consumption": [
+        6.730769230769231,
+        7.051282051282051
+      ],
+      "consumption_value": 67.62820512820512,
+      "resource_value": 67.62820512820512,
+      "price_deviation": 0.2597402597402597,
+      "error_bound": 2.0225607725607726
+    },
+    {
+      "parameter": 3,
+      "level": 3,
+      "price": [
+        5.641025641025641,
+        7.884615384615385
+      ],
+      "consumption": [
+        6.0,
+        6.0
+      ],
+      "gross_output_for_consumption": [
+        8.076923076923077,
+        8.461538461538462
+      ],
+      "consumption_value": 81.15384615384616,
+      "resource_value": 81.15384615384616,
+      "price_deviation": 0.3116883116883117,
+      "error_bound": 2.427072927072927
+    },
+    {
+      "parameter": 3,
+      "level": 4,
+      "price": [
+        5.641025641025641,
+        7.884615384615385
+      ],
+      "consumption": [
+        7.0,
+        7.0
+      ],
+      "gross_output_for_consumption": [
+        9.423076923076923,
+        9.871794871794872
+      ],
+      "consumption_value": 94.67948717948718,
+      "resource_value": 94.67948717948718,
+      "price_deviation": 0.36363636363636365,
+      "error_bound": 2.8315850815850814
+    },
+    {
+      "parameter": 4,
+      "level": 1,
+      "price": [
+        6.753246753246753,
+        10.38961038961039
+      ],
+      "consumption": [
+        4.0,
+        4.0
+      ],
+      "gross_output_for_consumption": [
+        5.714285714285714,
+        5.714285714285714
+      ],
+      "consumption_value": 68.57142857142857,
+      "resource_value": 68.57142857142857,
+      "price_deviation": 0.2077922077922078,
+      "error_bound": 1.6771799628942485
+    },
+    {
+      "parameter": 4,
+      "level": 2,
+      "price": [
+        6.753246753246753,
+        10.38961038961039
+      ],
+      "consumption": [
+        5.0,
+        5.0
+      ],
+      "gross_output_for_consumption": [
+        7.142857142857143,
+        7.142857142857143
+      ],
+      "consumption_value": 85.71428571428571,
+      "resource_value": 85.71428571428571,
+      "price_deviation": 0.2597402597402597,
+      "error_bound": 2.0964749536178107
+    },
+    {
+      "parameter": 4,
+      "level": 3,
+      "price": [
+        6.753246753246753,
+        10.38961038961039
+      ],
+      "consumption": [
+        6.0,
+        6.0
+      ],
+      "gross_output_for_consumption": [
+        8.571428571428571,
+        8.571428571428571
+      ],
+      "consumption_value": 102.85714285714286,
+      "resource_value": 102.85714285714286,
+      "price_deviation": 0.3116883116883117,
+      "error_bound": 2.515769944341373
+    },
+    {
+      "parameter": 4,
+      "level": 4,
+      "price": [
+        6.753246753246753,
+        10.38961038961039
+      ],
+      "consumption": [
+        7.0,
+        7.0
+      ],
+      "gross_output_for_consumption": [
+        10.0,
+        10.0
+      ],
+      "consumption_value": 120.0,
+      "resource_value": 120.0,
+      "price_deviation": 0.36363636363636365,
+      "error_bound": 2.935064935064935
+    },
+    {
+      "parameter": 5,
+      "level": 1,
+      "price": [
+        8.026315789473685,
+        13.618421052631579
+      ],
+      "consumption": [
+        4.0,
+        4.0
+      ],
+      "gross_output_for_consumption": [
+        6.052631578947368,
+        5.7894736842105265
+      ],
+      "consumption_value": 86.57894736842105,
+      "resource_value": 86.57894736842105,
+      "price_deviation": 0.2077922077922078,
+      "error_bound": 1.7378673957621327
+    },
+    {
+      "parameter": 5,
+      "level": 2,
+      "price": [
+        8.026315789473685,
+        13.618421052631579
+      ],
+      "consumption": [
+        5.0,
+        5.0
+      ],
+      "gross_output_for_consumption": [
+        7.565789473684211,
+        7.2368421052631575
+      ],
+      "consumption_value": 108.22368421052632,
+      "resource_value": 108.22368421052632,
+      "price_deviation": 0.2597402597402597,
+      "error_bound": 2.172334244702666
+    },
+    {
+      "parameter": 5,
+      "level": 3,
+      "price": [
+        8.026315789473685,
+        13.618421052631579
+      ],
+      "consumption": [
+        6.0,
+        6.0
+      ],
+      "gross_output_for_consumption": [
+        9.078947368421053,
+        8.68421052631579
+      ],
+      "consumption_value": 129.8684210526316,
+      "resource_value": 129.8684210526316,
+      "price_deviation": 0.3116883116883117,
+      "error_bound": 2.606801093643199
+    },
+    {
+      "parameter": 5,
+      "level": 4,
+      "price": [
+        8.026315789473685,
+        13.618421052631579
+      ],
+      "consumption": [
+        7.0,
+        7.0
+      ],
+      "gross_output_for_consumption": [
+        10.592105263157896,
+        10.131578947368421
+      ],
+      "consumption_value": 151.51315789473685,
+      "resource_value": 151.51315789473685,
+      "price_deviation": 0.36363636363636365,
+      "error_bound": 3.041267942583732
+    }
+  ],
+  "labour_cases": {
+    "labour_values": [
+      1.0,
+      2.0
+    ],
+    "wage_only_prices": [
+      1.5,
+      3.0
+    ],
+    "wage": 1.5,
+    "interest_rate": 0.2,
+    "postpaid_wage_one_production_prices": [
+      1.0,
+      2.5
+    ]
+  },
+  "integrated_demand_and_reproduction": {
+    "primary_resource_limit": 40.0,
+    "shadow_from_demand": 0.025,
+    "full_resource_requirement": [
+      2.0,
+      2.6666666666666665
+    ],
+    "final_consumption": [
+      8.0,
+      9.0
+    ],
+    "market_prices": [
+      0.05,
+      0.06666666666666667
+    ],
+    "consumption_value": 1.0,
+    "full_primary_resource_use": 40.0
+  },
+  "script_sha256": "4d781e8f6455d6c3f03ca5a4370d5c58a1dd6fd87313fdc097b20c6c4877c3b8"
+}

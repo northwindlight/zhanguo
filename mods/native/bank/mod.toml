@@ -1,0 +1,44 @@
+[Bank]
+currency = "native:gold"
+initial_rate = 0.0
+minimum_rate = -0.5
+maximum_rate = 0.5
+loan_spread = 0.02
+credit_multiple = 5.0
+loan_term = 5
+report_fee = 20
+purchase_limit = 10
+
+[Mod]
+Id = "native:bank"
+Version = "1.4.2"
+Entry = "mods.native.bank.mod:BankMod"
+Requires = ["native:resources", "native:economy"]
+After = ["native:resources", "native:economy"]
+
+[State]
+Owns = ["bank"]
+Requests = []
+
+[Capabilities]
+Needs = ["native:resource-inspection", "native:bank-cash", "native:economy"]
+Optional = ["native:nation-inspection", "native:diplomacy"]
+Provides = ["economy:bank"]
+
+[Interfaces]
+"native:resource-inspection" = ["owners", "snapshot"]
+"native:bank-cash" = ["adjust"]
+"native:economy" = ["turns", "reports", "currency_id", "report_from_save"]
+"native:nation-inspection" = ["ids"]
+"native:diplomacy" = ["fee"]
+
+[[Stages]]
+Id = "native:bank.settlement"
+Hook = "bank.settlement"
+Needs = ["buildings.produced", "market.settled"]
+Provides = ["bank.settled"]
+Before = ["native:economy.reports"]
+
+[PlayerAPI]
+Methods = ["borrow", "position", "buy_report"]
+ReadOnly = ["position"]

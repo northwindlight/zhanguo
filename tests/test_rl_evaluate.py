@@ -23,16 +23,29 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mp import World                                # noqa: E402
+from rl.engine import SandboxWorld                  # noqa: E402
 from rl import evaluate as E                        # noqa: E402
-from ruleai.v11plus.pathfind import vision_mask      # noqa: E402
+from rl.teacher.pathfind import vision_mask          # noqa: E402
 from rl import scoring as S                         # noqa: E402
 
 
-def mk_world(nations=("甲", "乙", "丙"), size=16, seed=5, war=("甲", "丙")):
-    """造局并**摆上军队**（不摆军队的话所有项都是 0，测试会假绿）。"""
-    w = World(size=size, seed=seed, nations=list(nations))
-    w.declare_war(*war)                    # ★ 先宣战再结盟（在盟国宣战会变成投票）
+def mk_world(nations=("甲", "乙", "丙"), size=16, seed=5, war=("甲", "丙"),
+             alliance=None, wars=()):
+    """造局并**摆上军队**（不摆军队的话所有项都是 0，测试会假绿）。
+
+    ★ **顺序：先结盟、后宣战**（2026-10 适配新引擎）——
+      新引擎的联盟是**真实体**，且**明文禁止**「正在战争中，不能创盟」
+      ⇒ 旧线"先宣战再结盟"的写法在新引擎下会**建盟失败**。
+      ⇒ `alliance=("甲", "乙")` 先把这两家结上，再宣战（宣战走联盟表决，
+        门面代投赞成）。
+    """
+    w = SandboxWorld(size=size, seed=seed, nations=list(nations))
+    if alliance:
+        w.blocs.append({"name": "L", "chief": alliance[0],
+                        "members": list(alliance)})
+    w.declare_war(*war)
+    for a, b in wars:                # ★ 额外的宣战对
+        w.declare_war(a, b)
     for nm in nations:
         core = next((c for c, t in sorted(w.tiles.items()) if t["owner"] == nm), None)
         if core is None:
@@ -75,11 +88,14 @@ class TestAllyShare(unittest.TestCase):
           ⇒ 总额外变化 `1.5·W_HALL`。这不是 bug —— 把敌人的厅变成盟友的厅，本来就
           是巨大的改善。断言里必须把这一项算进来，否则会误判成"盟友那份算错了"。
         """
-        w = mk_world()
-        solo = E.score(w, "甲", "丙")
+        # ★★ **两个局**（不是一个局改两遍）：新引擎**明文禁止**"交战中的实体创盟"
+        #   ⇒ 没法"先宣战、再在同一局里结盟"（旧引擎可以）。
+        #   ⇒ 「无联盟」与「有联盟」各造一局，比分数。
+        w_solo = mk_world()
+        solo = E.score(w_solo, "甲", "丙")
         self.assertNotEqual(solo, 0.0, "★ 分数是 0 —— 这个场景证不了任何事，先把它摆出非零")
+        w = mk_world(alliance=("甲", "乙"))
         self.assertEqual(E.halls_of(w, "乙"), 1, "乙该有一座厅，这条才有意义")
-        w.blocs.append({"name": "L", "chief": "甲", "members": ["甲", "乙"]})
         both = E.score(w, "甲", "丙")
         part = E._one(w, "乙", "丙", None, with_tiles=False)     # ★ 不含国土差
         self.assertNotEqual(part, 0.0, "盟友那一份是 0 —— 同上，场景无效")
@@ -93,8 +109,8 @@ class TestAllyShare(unittest.TestCase):
 
     def test_ally_part_excludes_tiles(self):
         """① 盟友那一份**不含地皮分** —— 给盟友加地，它那一份必须**不动**。"""
-        w = mk_world()
-        w.blocs.append({"name": "L", "chief": "甲", "members": ["甲", "乙"]})
+        w = mk_world(alliance=("甲", "乙"), )
+        # ★ 联盟已在 `mk_world(alliance=…)` 里建好（先结盟、后宣战）。
         before = E._one(w, "乙", "丙", None, with_tiles=False)
         # 给盟友凭空加三格（直接改归属）
         free = [(x, y) for x in range(w.size) for y in range(w.size)
@@ -116,8 +132,8 @@ class TestAllyShare(unittest.TestCase):
 
         防的是"盟友分是另写一份简化公式"—— 那样将来改 `_one` 的构成，盟友就漂开了。
         """
-        w = mk_world()
-        w.blocs.append({"name": "L", "chief": "甲", "members": ["甲", "乙"]})
+        w = mk_world(alliance=("甲", "乙"), )
+        # ★ 联盟已在 `mk_world(alliance=…)` 里建好（先结盟、后宣战）。
         before = E.score(w, "甲", "丙")
         old = S.W_ARMY
         try:
@@ -134,8 +150,8 @@ class TestAllyShare(unittest.TestCase):
 
     def test_ally_term_respects_vision(self):
         """★ 盟友那一份也**只对可见视野打分** —— 别让它变成偷看敌军的后门。"""
-        w = mk_world(size=24)
-        w.blocs.append({"name": "L", "chief": "甲", "members": ["甲", "乙"]})
+        w = mk_world(alliance=("甲", "乙"), size=24)
+        # ★ 联盟已在 `mk_world(alliance=…)` 里建好（先结盟、后宣战）。
         w.tiles[(0, 0)] = {"owner": "丙", "terrain": "平原", "buildings": {}, "core": None}
         gid, seq = w._new_army("丙")
         w.armies.append({"id": seq, "gid": gid, "name": "丙X", "type": "步", "hp": 100,
@@ -181,7 +197,10 @@ class TestHallScore(unittest.TestCase):
     """★ 用户 2026-09-24 的四条口径：拿下一座厅/多国不结束/拿下≠灭国/赚丢都记分。"""
 
     def _world(self):
-        w = mk_world(nations=("甲", "乙", "丙", "丁"), war=("甲", "丙"))
+        # ★ 甲 也要与 丁 交战：**新引擎的"占地"要求"与格主在交战"**
+        #   （旧引擎只要"格上没活敌"就能占）⇒ 夺丁的厅必须先宣战。
+        w = mk_world(nations=("甲", "乙", "丙", "丁"), war=("甲", "丙"),
+                     alliance=("甲", "乙"), wars=(("甲", "丁"),))
         return w
 
     def test_capturing_a_rival_hall_scores_very_high(self):
@@ -246,7 +265,7 @@ class TestHallScore(unittest.TestCase):
     def test_ally_hall_scores_at_half(self):
         """盟友的厅按 50% 记（与盟友那一份同折扣）；盟友亡**不是**进账。"""
         w = self._world()
-        w.blocs.append({"name": "L", "chief": "甲", "members": ["甲", "乙"]})
+        # ★ 联盟已在 `mk_world(alliance=…)` 里建好（先结盟、后宣战）。
         before = E.score(w, "甲", "丙")
         fx, fy = _far_own_tile(w, "乙", core(w, "丙"))
         w.tiles[(fx, fy)]["buildings"]["市政厅"] = 1          # 盟友多一座厅
@@ -268,8 +287,8 @@ class TestHallScore(unittest.TestCase):
 
     def test_alliance_victory_counts_as_my_win(self):
         """★ 「应该是**联盟胜利**或者单国胜利」—— 盟友还活着也算我赢。"""
-        w = mk_world(nations=("甲", "乙", "丙"), war=("甲", "丙"))
-        w.blocs.append({"name": "L", "chief": "甲", "members": ["甲", "乙"]})
+        w = mk_world(nations=("甲", "乙", "丙"), war=("甲", "丙"),
+                     alliance=("甲", "乙"))
         self.assertEqual(E.terminal(w, "甲"), None, "两家实体 ⇒ 还没定局")
         cx, cy = core(w, "丙")
         w.tiles[(cx, cy)]["buildings"]["市政厅"] = 0
@@ -320,8 +339,8 @@ class TestScoringTableIsLive(unittest.TestCase):
 
     def test_hall_weight_and_ally_share_are_tunable(self):
         """厅那一项也要能调（`W_HALL` / `ALLY_SHARE`），且派生量是**乘出来的**。"""
-        w = mk_world(nations=("甲", "乙", "丙", "丁"), war=("甲", "丙"))
-        w.blocs.append({"name": "L", "chief": "甲", "members": ["甲", "乙"]})
+        w = mk_world(nations=("甲", "乙", "丙", "丁"), war=("甲", "丙"),
+                     alliance=("甲", "乙"))
         fx, fy = _far_own_tile(w, "乙", core(w, "丙"))
         # ★ `before`/`after` 必须**在同一个 override 里**取 —— 否则差里混进了
         #   "权重变了"这一项（第一版就是栽在这：250 vs 50，因为 before 用的是 500 那版）。

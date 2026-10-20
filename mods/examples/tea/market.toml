@@ -1,0 +1,75 @@
+# 配方二（下半）：一份「多上市了一样东西」的市场声明。
+# 前六条与 mods/native/market/mod.toml 逐字相同，第七条是新增的茶。
+Currency = "native:gold"
+
+[Buffer]
+Elasticity = 1.0
+Flow = 0.25
+Refill = 0.0
+Spread = 0.10
+MinPrice = 0.000001
+MaxPrice = 1000000000.0
+
+[[Listings]]
+Resource = "native:food"
+BasePrice = 1.5
+Depth = 1920
+InitialInventory = 1920
+[[Listings]]
+Resource = "native:wood"
+BasePrice = 2
+Depth = 1920
+InitialInventory = 1920
+[[Listings]]
+Resource = "native:ore"
+BasePrice = 2.5
+Depth = 1280
+InitialInventory = 1280
+[[Listings]]
+Resource = "native:oil"
+BasePrice = 6
+Depth = 960
+InitialInventory = 960
+[[Listings]]
+Resource = "native:equipment"
+BasePrice = 8
+Depth = 640
+InitialInventory = 640
+[[Listings]]
+Resource = "native:supply"
+BasePrice = 6
+Depth = 960
+InitialInventory = 960
+
+# ↓ 就是这一条。Resource 必须已经是注册过的 Resource 子类、TRADEABLE、且不等于 Currency。
+[[Listings]]
+Resource = "example:tea"
+BasePrice = 3
+Depth = 100
+InitialInventory = 100
+
+[Mod]
+# ★ Id 与能力名都保持 native：换成别的名字，Requires / Needs 认人的地方就断了。
+Id = "native:market"
+# 版本与 native 不同，用来演示「改声明要升版本」：旧存档的依赖清单对不上会被拒载。
+Version = "2.0.0-tea"
+Entry = "mods.examples.tea.market:TeaMarketMod"
+Requires = ["native:resources"]
+After = ["native:resources"]
+
+[State]
+Owns = ["market"]
+Requests = []
+
+[Capabilities]
+Needs = ["native:resource-exchange", "market:pricing"]
+Provides = ["native:market"]
+
+[Interfaces]
+"native:resource-exchange" = ["exchange"]
+"market:pricing" = ["walk", "level"]
+
+[[Stages]]
+Id = "native:market.settle"
+Hook = "market.settlement"
+Provides = ["market.settled"]

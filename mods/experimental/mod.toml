@@ -1,0 +1,118 @@
+[Distribution]
+Id = "experimental"
+Version = "0.14.0"
+Members = ["combat_research/mod.toml", "../ui/mod.toml", "../native/resources/mod.toml", "../native/buildings/mod.toml", "../native/market_pricing/mod.toml", "../native/market/mod.toml", "../native/economy_valuation/mod.toml", "../native/economy_reports/mod.toml", "../native/bank/mod.toml", "../native/economy_queries/mod.toml", "../native/nations/mod.toml", "government.toml", "scripting.toml", "../native/map_generation/mod.toml", "../native/territory/mod.toml", "../native/diplomacy/mod.toml", "../native/vision/mod.toml", "../native/army/mod.toml", "../native/succession/mod.toml", "../native/intelligence/mod.toml", "../native/query/mod.toml", "../native/polities/huns/mod.toml", "../scenarios/eight_nations/mod.toml"]
+RequiredState = ["resources", "buildings", "market", "economy", "bank", "nations", "government", "territory", "diplomacy", "units", "military", "succession", "intelligence", "scripts"]
+ActorCollection = "nation_actors"
+ActionGate = {Capability = "native:government", Method = "can_act"}
+PlayerClock = {Capability = "native:government", Method = "period"}
+PlayerEvents = "news"
+# 只读面板收敛到 query；脚本状态由 script(action=status) 暴露，不再单独留工具。
+ReadOnlyPanel = "query"
+
+[Distribution.Tools]
+Entry = "mods.experimental.tools:build"
+
+[Distribution.Scenarios.eight_nations]
+Mod = "scenario:eight-nations"
+
+[Distribution.ClientFactories.llm]
+Configuration = "clients.config:normalize"
+Entry = "mods.experimental.client:ParliamentClient"
+[Distribution.Session.Services.council]
+Configuration = "mods.experimental.config:normalize"
+Entry = "mods.experimental.council:CouncilService"
+[Distribution.Session.Services.council.Services.government]
+Capability = "native:government"
+Methods = ["enroll", "decide", "replace"]
+
+[Distribution.Session.Services.scripts]
+Entry = "mods.experimental.scripting:ScriptService"
+[Distribution.Session.Services.scripts.Services.programs]
+Capability = "sandbox:programs"
+Methods = ["finish"]
+
+[[Hooks]]
+Id = "cycle.start"
+Name = "计票"
+Description = "开放两周期的联盟投票按当前成员名单统一计票。"
+
+[[Hooks]]
+Id = "buildings.production"
+Name = "建筑生产"
+Description = "采集、燃料发电、电网和工业按实际投入结算。"
+
+[[Hooks]]
+Id = "relations"
+Name = "外交与派发"
+Description = "重验外交命令，生效或退费；派出信使。"
+
+[[Hooks]]
+Id = "military.supply"
+Name = "补给与恢复"
+Description = "补给不足先扣HP；无战斗且补给满足时消耗装备恢复。"
+
+[[Hooks]]
+Id = "military.battle"
+Name = "战斗"
+Description = "各方掷骰，同时承伤并裁决即时占领。"
+
+[[Hooks]]
+Id = "military.withdraw"
+Name = "撤退落地"
+Description = "幸存的待撤军队落地，受阻时改撤或留守。"
+
+[[Hooks]]
+Id = "military.claims"
+Name = "弃城与占领"
+Description = "按进场顺序占领守军尽撤的地块。"
+
+[[Hooks]]
+Id = "succession"
+Name = "国祚与强制和平"
+Description = "市政厅尽失者亡国，清国有地交战并建立强制休战。"
+
+[[Hooks]]
+Id = "military.repatriate"
+Name = "遣返与脱离清扫"
+Description = "非法滞留军向本国或盟国返还；清理空交战标记并检查不变量。"
+
+[[Hooks]]
+Id = "market.settlement"
+Name = "市场结算"
+Description = "只结算本期成交，更新库存基准与下一期开盘报价。"
+
+[[Hooks]]
+Id = "buildings.completion"
+Name = "施工完成"
+Description = "本期在建落成，下期开始生产。"
+
+[[Hooks]]
+Id = "bank.settlement"
+Name = "央行结算"
+Description = "存款利息、贷款复利和到期扣款；亡国账户不再结息。"
+
+[[Hooks]]
+Id = "economy.reports"
+Name = "经济报表"
+Description = "按此时行情记录事实、累计四类消费并公布周期报表。"
+
+[[Hooks]]
+Id = "cycle.end"
+Name = "事件与送达"
+Description = "落下公开/私有事件并送达已到期信使，然后进入下一周期。"
+
+[Distribution.Session]
+Entry = "mods.native.session:NativeSession"
+Observer = { Capability = "native:intelligence", Records = "records", Announce = "announce", Send = "send" }
+
+[Distribution.Configuration]
+Entry = "mods.native.config:normalize"
+
+[Distribution.ClientFactories.rule]
+Entry = "ruleai.v11plus.research:ResearchRuleClient"
+Configuration = "ruleai:normalize_config"
+
+[Distribution.ClientFactories.rule.Services.combat]
+Capability = "research:combat-probabilities"
+Methods = ["assess"]

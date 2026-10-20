@@ -1,0 +1,20 @@
+[Mod]
+Id = "experimental:combat-research"
+Version = "1.1.0"
+Entry = "mods.experimental.combat_research.mod:CombatResearchMod"
+Requires = ["native:army", "native:vision", "native:territory", "native:diplomacy", "native:buildings"]
+[State]
+Owns = []
+[Capabilities]
+Needs = ["native:army", "native:vision", "native:territory", "native:diplomacy", "native:buildings"]
+Provides = ["research:combat-probabilities"]
+[Interfaces]
+"native:army" = ["visible_units", "faction_power", "spread_damage", "defense_pct"]
+"native:vision" = ["visible"]
+"native:territory" = ["check", "cell", "terrain"]
+"native:diplomacy" = ["war_between"]
+"native:buildings" = ["effects", "count"]
+[Research]
+MaxStates = 4000
+MaxRounds = 64
+WinThreshold = 0.6

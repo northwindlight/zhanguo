@@ -34,7 +34,7 @@
 """
 from __future__ import annotations
 
-from game import unit_max_hp
+from .rules import unit_max_hp
 
 from . import vocab as V
 from .hall_memory import HallMemory
@@ -273,7 +273,7 @@ def territory_range(size: int, n_nations: int) -> tuple[int, int]:
     ★ 两个比例是**份额**的比例 ⇒ 全国加起来最多占地图的 `frac_hi = 35%`，
       其余 65% 还是野地（= 扩张成本，那是这条线的既有口径）。
     """
-    from mp import CROSS
+    from .tokens import CROSS
     floor = len(CROSS)                                  # ② 十字那 5 格
     share = (size * size) / max(1, n_nations)           # ① 每国摊到的格数
     # ★ 1v1（`n<=2`）走**加码**的比例，见 `TERRITORY_FRAC_2P` 那段
@@ -364,11 +364,11 @@ class Sandbox:
         随机 + 足够距离才逼它学"相对位置"而不是"记住坐标"。
         `random_starts=False` ⇒ 退回固定的 `STARTS`（对照/复现用）。
         """
-        from mp import World
-        from ruleai.v11plus import grouping
+        from .engine import SandboxWorld
+        from .teacher import grouping
         starts = self._random_starts() if random_starts else self._fixed_starts()
-        w = World(size=self.size, seed=self.seed, nations=list(self.players),
-                  starts=starts)
+        w = SandboxWorld(size=self.size, seed=self.seed,
+                         nations=list(self.players), starts=starts)
         w.max_turns = self.t_max
         self.world = w
         self.turn = 0
@@ -397,6 +397,17 @@ class Sandbox:
         #     而它不会自己消失（`age` 只在同一局的时间轴上算）⇒ 忘了重置 =
         #     模型带着上一局的幽灵开局，而且**不报错**。
         self.kills = KillLedger()                             # ★ 每局重开击杀账本
+        # ★★ **顺序变了：先结盟，再宣战**（2026-10 适配新引擎）。
+        #   旧引擎的"联盟"只是往 `world.blocs` 里塞一条记录（**没有校验**），
+        #   所以旧线可以"先全对宣战、再结盟"。
+        #   新引擎的联盟是**真实体**（`diplomacy` 域），且**明文禁止**
+        #   「**正在战争中，不能创盟**」⇒ 顺序反了就会建盟失败。
+        # ⇒ 这里的顺序与**语义**都保持一致：结盟后，盟友之间"可 mv 不可 atk"
+        #   （`allied_between` 优先判定），非盟友之间照旧交战。
+        #
+        # ★★ **随机结盟（只限 2v2）** —— 用户 2026-09-26。
+        #   放在宣战**之前**（新引擎的硬约束，见上面那段）。
+        self._make_alliances(w)
         if self.wars is not None:
             # ★ 显式给了战争对 ⇒ **只**宣这些（其余国家互为中立国：mv/atk 都不行）
             for a, b in self.wars:
@@ -408,22 +419,18 @@ class Sandbox:
             #   ⚠ 原来只宣战 `(甲, 乙)` 一对 ⇒ 三国局里第三个国家**谁都不打**，
             #     而 `_owner_class` 会把它当 `OWN_NEUTRAL_NATION`（mv/atk **都不行**）
             #     ⇒ 它一步也走不出去、也不挨打，成一块"冻住的石头"。
-            #   引擎的 `declare_war` 本来就建的是**一对多**的战争记录（`_war_sides`
-            #   带 followers）⇒ 逐对调用即可，语义与"全体交战"一致。
-            #   ★ 与联盟并存是**安全**的：引擎两处判定都是"**联盟优先**"
+            #   ★ 与联盟并存是**安全**的：判定是"**联盟优先**"
             #     （`_atk_target_ok` 要 `not allied_between` **且** `war_between`；
-            #      `_mv_wall` 也放行盟国地）⇒ 先全对宣战、再 `set_alliance` 结盟，
-            #      盟友之间照样"可 mv 不可 atk"。所以**造中立国要用 `wars=[...]`**，
-            #      不能靠"不结盟"（缺省已经是全体交战了）。
+            #      `_mv_wall` 也放行盟国地）⇒ 盟友之间照样"可 mv 不可 atk"。
+            #     所以**造中立国要用 `wars=[...]`**，不能靠"不结盟"
+            #     （缺省已经是全体交战了）。
+            #   ★ **跳过同盟对**：盟友之间本来就不该宣战（新引擎也会拒：同实体
+            #     不能互相宣战），逐对宣战时把它们滤掉。
             for i, a in enumerate(self.players):
                 for b in self.players[i + 1:]:
+                    if w.allied_between(a, b):
+                        continue
                     w.declare_war(a, b)
-        # ★★ **随机结盟（只限 2v2）** —— 用户 2026-09-26。
-        #   放在宣战**之后**：引擎两处判定都是「**联盟优先**」（`_atk_target_ok` 要
-        #   `not allied_between` **且** `war_between`；`_mv_wall` 也放行盟国地）
-        #   ⇒ 先全对宣战、再结盟，盟友之间照样"可 mv 不可 atk" ✓
-        #   （口径同 `set_alliance` 那段注释）。
-        self._make_alliances(w)
         for name in self.players:
             # ★ 沙盒**不管经济** ⇒ 补给必须管够：引擎每回合收军粮（步1/骑2），
             #   断粮则**每军扣 HP**、扣到 0 饿毙。资源给 0 的话军队是**饿死**的不是战死的
@@ -568,7 +575,7 @@ class Sandbox:
 
         返回**实际达成**的格数（可能 < 目标：被挡死了 —— 但各国仍是同一个数）。
         """
-        from mp import CROSS
+        from .tokens import CROSS
         w = self.world
         cross = len(CROSS)                                  # 十字自带 5 格
         if not self.territory:
@@ -697,7 +704,11 @@ class Sandbox:
             return
         x, y = core
         for _ in range(n):
-            gid, seq = self.world._new_army(name)
+            # ★ 兵种要**在造的时候就定**（新引擎不许改已登记军队的兵种：
+            #   "已登记部队的编号、归属与兵种不能直接改写"）⇒ 传给 `_new_army`。
+            #   旧引擎的 `_new_army` 也不管兵种（军队 dict 后面才填），
+            #   但旧线靠"往列表里塞 dict"覆盖了它 ⇒ 口径上以新引擎为准。
+            gid, seq = self.world._new_army(name, kind=kind, x=x, y=y)
             self.world.armies.append({
                 "id": seq, "gid": gid, "name": f"{name}{seq}", "type": kind,
                 "hp": unit_max_hp({"type": kind}), "x": x, "y": y,
@@ -797,7 +808,7 @@ class Sandbox:
         if w is None:
             return {}
         if mask is None:
-            from ruleai.v11plus import pathfind
+            from .teacher import pathfind
             mask = pathfind.vision_mask(w, name)
         self.halls.observe(w, name, mask)
         return self.halls.known(w, name)
@@ -814,7 +825,7 @@ class Sandbox:
         if w is None:
             return []
         if mask is None:
-            from ruleai.v11plus import pathfind
+            from .teacher import pathfind
             mask = pathfind.vision_mask(w, me)
         self.war_mem.observe(w, me, mask, self.turn)
         if armies is None:
@@ -871,7 +882,7 @@ class Sandbox:
         if w is None:
             return {}
         if mask is None:
-            from ruleai.v11plus import pathfind
+            from .teacher import pathfind
             mask = pathfind.vision_mask(w, me)
         from .war_memory import visible_foes
         return visible_foes(w, me, mask)
@@ -946,7 +957,7 @@ class Sandbox:
             #   **进攻请用 atk（会交战）**」）当成**侦察的情报来源**。
             if mask is None:
                 # ★ 局部 import（本模块各处都这么写，见 `known_halls` 等）
-                from ruleai.v11plus import pathfind
+                from .teacher import pathfind
                 mask = pathfind.vision_mask(self.world, name)   # ★ 整次 legal() 只此一次
             for (x, y) in self._probe_cells(a, walk, mask):
                 out.append((a["id"], "move", x, y))
@@ -1065,8 +1076,8 @@ class Sandbox:
         #     别拿它的成绩当多玩家的基准。
         enemy = self._nearest_rival(name)
         if teacher == "v11plus":
-            from ruleai.v11plus import military as v11
-            from ruleai.v11plus.ledger import Ledger
+            from .teacher import military as v11
+            from .teacher.ledger import Ledger
             ledger = Ledger(self.world, name, UNLIMITED)
             v11.run(ledger, self.world, name)
             return ledger.acts

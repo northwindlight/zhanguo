@@ -29,13 +29,13 @@
 """
 from __future__ import annotations
 
-from balance import (V11_FIELD_MAX_COST, V11_MAX_CANDIDATES, V11_NEAR_TARGETS,
+from .rules import (V11_FIELD_MAX_COST, V11_MAX_CANDIDATES, V11_NEAR_TARGETS,
                      V11_NEED_CAP, V11_ROUNDS_CAP, V11_SCAN_RADIUS,
-                     V11_SHORTFALL_PENALTY, V11_SOLVER_NODE_CAP)
-from game import unit_kind, unit_max_hp
+                     V11_SHORTFALL_PENALTY, V11_SOLVER_NODE_CAP,
+                     unit_kind, unit_max_hp)
 
-from ruleai.v11plus import grouping, pathfind
-from ruleai.v11plus.combat import assess
+from .teacher import grouping, pathfind
+from .teacher.combat import assess
 
 
 # ★★ **守家判定半径**（"敌军离我家几格才算告急"）。

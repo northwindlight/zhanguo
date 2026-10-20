@@ -1,0 +1,29 @@
+[Mod]
+Id = "native:diplomacy"
+Version = "3.2.0"
+Entry = "mods.native.diplomacy.mod:DiplomacyMod"
+Requires = ["native:nations", "native:government", "native:resources", "native:buildings", "native:territory"]
+After = ["native:nations", "native:government", "native:territory"]
+[State]
+Owns = ["diplomacy"]
+[Capabilities]
+Needs = ["native:nation-inspection", "native:government", "native:resource-inspection", "native:resource-exchange", "native:buildings", "native:territory"]
+Provides = ["native:diplomacy"]
+[Interfaces]
+"native:nation-inspection" = ["ids", "get"]
+"native:government" = ["period"]
+"native:resource-inspection" = ["snapshot", "role_ids", "currency"]
+"native:resource-exchange" = ["exchange", "exchange_batch"]
+"native:buildings" = ["snapshot"]
+"native:territory" = ["snapshot_cores"]
+[Diplomacy]
+Fee = 10
+FoundFee = 100
+MinimumFee = 1
+NameMax = 12
+FallTruce = 10
+OrdinaryTribute = 15
+
+[PlayerAPI]
+Methods = ["submit", "vote", "snapshot", "war_preview"]
+ReadOnly = ["snapshot", "war_preview"]

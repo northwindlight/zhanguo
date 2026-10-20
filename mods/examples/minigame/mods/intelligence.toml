@@ -1,0 +1,12 @@
+[Mod]
+Id = "mini:intelligence"
+Version = "1.0.0"
+Entry = "mods.examples.minigame.game:IntelligenceMod"
+Requires = []
+
+[State]
+Owns = ["intelligence"]
+
+[Capabilities]
+Needs = []
+Provides = ["mini:intelligence"]

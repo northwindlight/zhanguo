@@ -1,0 +1,7 @@
+[Mod]
+Id = "ui:standard"
+Version = "1.5.1"
+Entry = "mods.ui.mod:UIMod"
+
+[Capabilities]
+Provides = ["ui:presentation"]

@@ -1,0 +1,24 @@
+# 模块自己的参数。给个 [Section] 就好 —— 领域数值跟着模块走，
+# 而不是躺在一张全局表里（见 模块化口径.md 第五节）。
+[Harvest]
+Yield = 4
+
+[Mod]
+Id = "example:harvest"
+Version = "1.0.0"
+Entry = "mods.examples.harvest.mod:HarvestMod"
+Requires = ["native:resources", "native:nations"]
+After = ["native:nations"]
+
+[State]
+Owns = []
+
+[Capabilities]
+Needs = ["native:nation-inspection", "native:resource-exchange"]
+Provides = []
+
+# 用到别人的哪个能力，就要把**具体方法名**列出来。
+# 少写一个方法、或者没写 Needs，调用时都会被 object_call 拒掉。
+[Interfaces]
+"native:nation-inspection" = ["ids"]
+"native:resource-exchange" = ["exchange_batch"]

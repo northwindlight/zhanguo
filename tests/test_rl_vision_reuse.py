@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rl.sandbox import Sandbox                        # noqa: E402
-from ruleai.v11plus import pathfind                   # noqa: E402
+from rl.teacher import pathfind                      # noqa: E402  ★ RL 线自己的老师
 
 
 def _sandbox_with_several_armies():

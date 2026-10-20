@@ -22,8 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np                          # noqa: E402
 
-import balance                              # noqa: E402
-import game                                 # noqa: E402
+from mods.native.army import parameters as _army   # noqa: E402
+from rl import rules                                # noqa: E402
 from rl import features as F                # noqa: E402
 from rl import vocab as V                   # noqa: E402
 
@@ -55,7 +55,8 @@ class TestValuesMatchEngine(unittest.TestCase):
         # （`np.float32(0.8) == 0.8` 是 **False**）—— 别拿这个当"数值不对"。
         np.testing.assert_allclose(F.unit_vector("步"), [1.0, 0.5, 0.5, 0.5])
         np.testing.assert_allclose(F.unit_vector("骑"), [1.0, 0.5, 1.0, 1.0])
-        np.testing.assert_allclose(F.unit_vector("民"), [0.8, 0.2, 0.5, 0.5])
+        # ★ 民 的 atk：旧引擎 20，**主线现值 25**（0.25）—— 跟随主线，不写死旧数
+        np.testing.assert_allclose(F.unit_vector("民"), [0.8, 0.25, 0.5, 0.5])
         # 表里没有的 kind（野人）按步兵兜底，不是崩、也不是全 0
         self.assertTrue((F.unit_vector("野人") == F.unit_vector("步")).all())
 
@@ -89,10 +90,10 @@ class TestLiveNotCached(unittest.TestCase):
     def test_unit_change_is_visible(self):
         before = F.unit_vector("民").copy()
         try:
-            game.UNIT_TYPES["民"]["atk"] = 30          # 就地改（与域随机化同一手法）
+            _army.UNIT_TYPES["native:militia"]["atk"] = 30          # 就地改（与域随机化同一手法）
             after = F.unit_vector("民")
         finally:
-            game.UNIT_TYPES["民"]["atk"] = 20
+            _army.UNIT_TYPES["native:militia"]["atk"] = 25   # 复原（主线现值）
         self.assertNotEqual(after[1], before[1],
                             "★ 改了 `UNIT_TYPES['民']['atk']` 向量却没变 ⇒ 有缓存烤进去了")
         self.assertAlmostEqual(after[1], 0.30, places=6)
@@ -101,29 +102,29 @@ class TestLiveNotCached(unittest.TestCase):
     def test_terrain_change_is_visible(self):
         before = F.terrain_vector("丘陵").copy()
         try:
-            balance.TERRAIN_STATS["丘陵"]["defense"] = 40
+            rules.set_terrain_defense("丘陵", 40)
             after = F.terrain_vector("丘陵")
         finally:
-            balance.TERRAIN_STATS["丘陵"]["defense"] = 25
+            rules.set_terrain_defense("丘陵", 25)
         self.assertAlmostEqual(after[0], 0.40, places=6)
         self.assertNotEqual(after[0], before[0])
 
     def test_move_cost_change_is_visible(self):
         """★ "让民兵也怕森林" 这类改动必须看得见（现在 步/民 同值 ⇒ 两列冗余是**故意**的）。"""
         try:
-            balance.MOVE_COST["民"]["森林"] = 2
+            _army.MOVE_COST["native:militia"]["native:forest"] = 2
             v = F.terrain_vector("森林")
         finally:
-            balance.MOVE_COST["民"]["森林"] = 1
+            _army.MOVE_COST["native:militia"]["native:forest"] = 1
         self.assertEqual(v[3], 1.0, "民 的移动代价改了却没进向量第 4 列")
 
     def test_die_change_is_visible(self):
         before = F.die_vector().copy()
         try:
-            balance.COMBAT_DIE_MOD[6] = 50
+            _army.COMBAT_DIE_MOD[6] = 50
             after = F.die_vector()
         finally:
-            balance.COMBAT_DIE_MOD[6] = 25
+            _army.COMBAT_DIE_MOD[6] = 25
         self.assertAlmostEqual(after[5], 2.0, places=6)
         self.assertNotEqual(after[5], before[5])
 
@@ -131,10 +132,10 @@ class TestLiveNotCached(unittest.TestCase):
         """批量表也得现算 —— 只让单条现算、批量走缓存，是最容易漏的那种半吊子。"""
         before = F.unit_table()[V.UNIT.index("骑")].copy()
         try:
-            game.UNIT_TYPES["骑"]["atk"] = 60
+            _army.UNIT_TYPES["native:cavalry"]["atk"] = 60
             after = F.unit_table()[V.UNIT.index("骑")]
         finally:
-            game.UNIT_TYPES["骑"]["atk"] = 50
+            _army.UNIT_TYPES["native:cavalry"]["atk"] = 50
         self.assertNotEqual(after[1], before[1], "★ 批量表被缓存了")
 
 

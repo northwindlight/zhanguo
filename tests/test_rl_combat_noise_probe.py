@@ -112,7 +112,11 @@ class TestRawDamageHook(unittest.TestCase):
 
     def test_hook_is_installed_and_does_not_change_the_engine(self):
         """猴补只**多记一笔**，引擎行为逐位不变（同一 rng 下 hp 轨迹一致）。"""
-        self.assertTrue(getattr(P.mp.World, "_raw_hooked", False), "计量钩子没装上")
+        # ★ 猴补点：旧引擎是 `mp.World._spread`，新引擎是
+        #   `native:army.Military.spread_damage`（见 `rl/combat_noise_probe.py`）。
+        from mods.native.army import domain_objects as _army_mod
+        self.assertTrue(getattr(_army_mod.Military, "_raw_hooked", False),
+                        "计量钩子没装上")
         P._RAW.clear()
         sb = Sandbox(seed=5, size=12).reset()
         w = sb.world

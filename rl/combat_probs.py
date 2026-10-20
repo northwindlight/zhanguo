@@ -45,8 +45,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from balance import COMBAT_DIE_MOD, RETREAT_ATK_PENALTY, RETREAT_DEF_COVER
-from game import unit_atk, unit_kind
+# ★★ 规则表（骰面修正 / 撤退罚 / 兵种攻力）**现取主线的表**
+#   （旧 `balance.py` / `game.py` 已随主线重构删除 ⇒ 走 `rl/rules.py`）。
+#   ⚠ **`DIE_FACES` 是模块级常量**（导入时绑死）—— 骰面**集合**（1..6）本身
+#     **不会变**（改的是每个骰面的**修正值**），而修正值走 `rules.combat_die_mod()`
+#     **现取** ⇒ 不违反"表变了要立刻生效"的纪律。
+from . import rules
+from .rules import unit_atk, unit_kind
 
 # ★★ 本模块里的**尺度与上限**全部读先验表（用户 2026-09-24：「搜索引擎是不是也是
 #   硬编码的，**改成从 `balance` 抽**」）—— 引擎口径（骰子/撤退/兵种攻击）本来就已经
@@ -72,7 +77,12 @@ except Exception as _e:                                 # noqa: BLE001
     _FAST = None
     _FAST_ERR = repr(_e)
 
-DIE_FACES = tuple(sorted(COMBAT_DIE_MOD))          # (1,2,3,4,5,6)
+DIE_FACES = tuple(sorted(rules.combat_die_mod()))   # (1,2,3,4,5,6)
+
+
+def _die_mod() -> dict:
+    """★ 骰面修正表（**现取**，不缓存）—— 域随机化改了就立刻生效。"""
+    return rules.combat_die_mod()
 BARBARIAN = "野人"
 
 
@@ -173,10 +183,10 @@ def _power_by_die(b: Battle, sig: tuple) -> tuple[float, ...]:
         for kind, retreat in sig:
             base = unit_atk({"type": kind})
             # 撤退中的军队输出 −80%（撤离途中无心恋战），**按军**计入攻击总和
-            atk += base if not retreat else max(1, base * (100 - RETREAT_ATK_PENALTY) // 100)
+            atk += base if not retreat else max(1, base * (100 - rules.retreat_atk_penalty()) // 100)
         # _combat_power(atk, 0) = max(1, atk)；再 _round_damage(·, mod) = max(1, p*(100+mod)//100)
         _POWER_CACHE[key] = tuple(
-            max(1, max(1, atk) * (100 + COMBAT_DIE_MOD[d]) // 100) for d in DIE_FACES)
+            max(1, max(1, atk) * (100 + _die_mod()[d]) // 100) for d in DIE_FACES)
     return _POWER_CACHE[key]
 
 
@@ -251,7 +261,20 @@ def _damage(b: Battle, state: tuple, dies: tuple[int, ...]) -> tuple[int, ...]:
 
 
 def _apply(b: Battle, state: tuple, dmg: tuple[int, ...]) -> tuple:
-    """把伤害摊到各单位 —— `_spread` + 撤退减伤那半边（`mp.py:1876-1888`）。
+    """把伤害摊到各单位 —— ★ **按引擎当前的摊分规则**（`native:army.spread_damage`）。
+
+    ★★ **2026-10：摊分规则变了**（跟随主线引擎）：
+      · **旧**：`_spread` = `divmod(dmg, n)`，**余数给前排**（`per + (1 if i < rem else 0)`）。
+      · **新**：`spread_damage` = **注水式均分**（`Military.equal_allocation`）——
+        先**平分**，谁先被打死（份额超过其剩余 hp）就把**没打出去的那份**
+        **重新分给还活着的人**。
+      ⇒ 差别在"打死了一个人、伤害还有富余"的场合：新规则**不会浪费**伤害，
+        旧规则会把富余的伤害**打空**（分给已死的人）。
+      例：2 人、伤害 10、hp=[3,100] ⇒ 旧：3 死、另一个掉 5；新：3 死、另一个掉 7。
+
+    ★ **撤退减伤**（`u[3]` = cover，50 = 只承受一半）：引擎是**按人算**的
+      （`ratio = cover/100`，`caps = hp/ratio`，实际掉血 `share*ratio`），
+      不是"先均分再乘" ⇒ 这里照做。
 
     ★ **不丢阵亡者**（hp ≤ 0 原样留着）：调用方有时要按**下标**找某一支军
       （撤退保命），丢了下标就错位。丢弃交给 `_drop`。
@@ -262,14 +285,44 @@ def _apply(b: Battle, state: tuple, dmg: tuple[int, ...]) -> tuple:
         if not units or not d:
             out.append(units)
             continue
-        flat = all(u[3] == 100 for u in units)   # 全员无撤退减伤 ⇒ 引擎走 `_spread`
-        per, rem = divmod(d, len(units))
+        # ★ 引擎口径：`ratio` = 承伤比例（cover/100）；`caps` = 该人能吃多少
+        #   （hp/ratio；ratio=0 ⇒ 不限）。
+        ratios = [(u[3] if u[3] is not None else 100) / 100.0 for u in units]
+        caps = [float("inf") if r == 0 else u[1] / r for u, r in zip(units, ratios)]
+        shares = _equal_allocation(d, caps)
         keep = []
         for k, u in enumerate(units):
-            share = per + (1 if k < rem else 0)
-            keep.append((u[0], u[1] - (share if flat else share * u[3] // 100), u[2], u[3]))
+            # ★ 引擎是浮点份额（`share*ratio`），掉血后 `max(0, hp-…)`。
+            hp = u[1] - shares[k] * ratios[k]
+            keep.append((u[0], int(hp) if hp == int(hp) else hp, u[2], u[3]))
         out.append(tuple(keep))
     return tuple(out)
+
+
+def _equal_allocation(amount: float, limits: list[float]) -> list[float]:
+    """★ **注水式均分**（逐字照搬引擎的 `Military.equal_allocation`）。
+
+    先平分；谁份额超过其上限（`limits`）就**只吃那么多**，
+    **没打出去的那份重新分给还活着的人**，直到分完。
+    """
+    allocated = [0.0] * len(limits)
+    active = {i for i, limit in enumerate(limits) if limit > 0}
+    remaining = max(0.0, float(amount))
+    while active and remaining > 1e-12:
+        share = remaining / len(active)
+        capped = [i for i in active if limits[i] - allocated[i] <= share + 1e-12]
+        if not capped:
+            for i in active:
+                allocated[i] += share
+            break
+        spent = 0.0
+        for i in capped:
+            amt = min(share, max(0.0, limits[i] - allocated[i]))
+            allocated[i] += amt
+            spent += amt
+            active.remove(i)
+        remaining = max(0.0, remaining - spent)
+    return allocated
 
 
 def _drop(state: tuple) -> tuple:
@@ -399,6 +452,26 @@ def _fast_dp(b: Battle, state0: tuple, max_states: int, max_rounds: int):
                 kinds.append(k)
             row.append((i, int(h), bool(r), int(c)))
         init_units.append(row)
+    # ★★ **C 扩展只在"主线上也允许"的那几种局上跑**（口径与
+    #   `mods/experimental/combat_research/solver.py` **逐条一致**）：
+    #     ① 方数 ≤ 8；② **每方只有一支军**（★ 关键！）；③ HP 是整数且非零；
+    #     ④ **无人带撤退减伤**（cover 是 None 或 100）。
+    #   为什么要 ②：摊分在**多方**时，C 用的是**整数**注水（`left/live` 的
+    #   整数商 + 余数），而**引擎**（与纯 Python 路径）用的是**浮点**注水
+    #   （`Military.equal_allocation`）—— 两者在多方时**会差 1 点血**
+    #   （实测 20000 组随机局面里 **35%** 有差）⇒ DP 会算偏。
+    #   ⇒ 一方一支军时摊分退化成"全打在那支军身上"，整数与浮点**逐位相同**。
+    #   ★ 这正是 `tests/test_rl_dp_identity.py` 那条"纯 Python 与 C 逐位一致"
+    #     守卫抓的东西（**不满足条件就必须回落 Python**，不能硬用 C）。
+    if len(b.order) > 8:
+        return None
+    if any(len(units) > 1 for units in state0):
+        return None
+    if not all(type(u[1]) is int and 0 < u[1] <= 65535
+               for units in state0 for u in units):
+        return None
+    if not all(c in (None, 100) for units in state0 for (_, _, _, c) in units):
+        return None
     try:
         dlist, rlist, er, ehp, n_exp = _FAST.assess(
             n, [list(b.enemy_idx[i]) for i in range(n)], init_units, kinds,
@@ -616,7 +689,7 @@ def retreat_odds(world, x: int, y: int, army: dict, b: Battle | None = None) -> 
     # 撤退的减伤档位由引擎决定：我方在该格"未参战"、或本身就是格主 ⇒ 守方档
     attacking = any(m["owner"] == side and m.get("engaged")
                     and (m["x"], m["y"]) == (x, y) for m in world.armies)
-    cover = RETREAT_DEF_COVER if (not attacking or b.owner == side) else 100
+    cover = rules.retreat_def_cover() if (not attacking or b.owner == side) else 100
 
     i = b.order.index(side)
     state = tuple(b.init[F] for F in b.order)

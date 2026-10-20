@@ -1,0 +1,25 @@
+{
+  "files": {
+    "minimax-session.json": {
+      "bytes": 53942729,
+      "sha256": "e0ede11fb7e18a43733a2fdcecbf59489d3b17add973d30b27178e21997578c1"
+    },
+    "minimax-journal.md": {
+      "bytes": 25462177,
+      "sha256": "e7b7d502184b9e550e4748e32b0835d82a604e56bcd4e95784577b0d93ea30b6"
+    },
+    "dq-opening-session.json": {
+      "bytes": 44074374,
+      "sha256": "5add6f0cea2e55c48df2aa35c8df60ac3e07fc3387b93f9752f4b24df485e664"
+    },
+    "dq-opening-journal.md": {
+      "bytes": 7988423,
+      "sha256": "66e8333015735ba980b716d3d8b76dcf81006e22946c25f697205b1f2ed819fa"
+    },
+    "dq-session.json": {
+      "bytes": 157686273,
+      "sha256": "9a2ea5f4da6b8b4f24b454a60e8781407b98d455bbaa5be7e7d3badc84eb35fc"
+    }
+  },
+  "note": "Hashes identify locally frozen source files. Full source files are not included in this article; excerpts and aggregates permit partial verification, not independent end-to-end reconstruction."
+}

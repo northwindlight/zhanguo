@@ -56,9 +56,9 @@ def world3(seed=1, size=16):
       「盟友的厅也纳入标记」那几条在沙盒上**测不了**（写了也是空测试）。
       引擎侧多国本来就是现成的（`World(nations=[…])`）。
     """
-    from mp import World
-    w = World(size=size, seed=seed, nations=["甲", "乙", "丙"],
-              starts={"甲": (1, 1), "乙": (13, 13), "丙": (1, 13)})
+    from rl.engine import SandboxWorld
+    w = SandboxWorld(size=size, seed=seed, nations=["甲", "乙", "丙"],
+                    starts={"甲": (1, 1), "乙": (13, 13), "丙": (1, 13)})
     # 联盟 = 场景条件（`sandbox.set_alliance` 就是往这里放一条记录）
     w.blocs.append({"name": "同盟", "chief": "甲", "members": ["甲", "乙"]})
     return w

@@ -60,7 +60,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import mp                                              # noqa: E402  引擎本体（只猴补）
+from mods.native.army import domain_objects as _army_mod  # noqa: E402  引擎本体（只猴补）
 from rl import combat_probs as CP                      # noqa: E402
 from rl import evaluate as EV                          # noqa: E402
 from rl import scoring as S                            # noqa: E402
@@ -89,19 +89,34 @@ _RAW: dict = {}
 
 
 def _install_raw_hook():
-    if getattr(mp.World, "_raw_hooked", False):
-        return
-    _orig = mp.World._spread
+    """★ 猴补**伤害摊分**那一步，记下**未夹 0 的伤害总量**。
 
-    def _spread_raw(dmg, units):
+    ⚠ **2026-10 适配新引擎**：旧引擎的 `World._spread`（静态方法）没了，
+      新引擎对应的是 `native:army.spread_damage`（同样是静态方法，
+      在 `mods/native/army/domain_objects.py` 的 `Military` 上）。
+      ⇒ 猴补点从 `mp.World._spread` 挪到 `Military.spread_damage`。
+    ★ 口径不变：记的是**分摊之前**的总伤害（DP `e_loss` 的口径）。
+    """
+    military = _army_mod.Military
+    if getattr(military, "_raw_hooked", False):
+        return
+    _orig = military.spread_damage
+
+    def _spread_raw(damage, units):
         if units:
             a0 = units[0]
-            k = ((a0["x"], a0["y"]), a0["owner"])
-            _RAW[k] = _RAW.get(k, 0) + dmg
-        return _orig(dmg, units)
+            # ★ 记**短名**（`甲`/`乙`）—— 引擎里的 owner 是**内容 ID**（`rl:n0`），
+            #   而 DP 那边按短名记账 ⇒ 口径必须一致，否则两边对不上（还不报错）。
+            owner = a0.owner
+            if isinstance(owner, str) and owner.startswith("rl:"):
+                from rl.engine import _REGISTRY
+                owner = _REGISTRY.name(owner)
+            k = ((a0.x, a0.y), owner)
+            _RAW[k] = _RAW.get(k, 0) + damage
+        return _orig(damage, units)
 
-    mp.World._spread = staticmethod(_spread_raw)
-    mp.World._raw_hooked = True
+    military.spread_damage = staticmethod(_spread_raw)
+    military._raw_hooked = True
 
 
 _install_raw_hook()
@@ -151,7 +166,8 @@ class Hook:
         self._rng = random.Random(seed)
         self._seen = 0
         self._prev: set = set()
-        self._orig = mp.World._resolve_battles
+        # ★ 新引擎的"结算所有交战格"是 `Military.battle()`（实例方法）。
+        self._orig = _army_mod.Military.battle
         self._game = -1
 
     def new_game(self) -> None:
@@ -175,7 +191,9 @@ class Hook:
                         self.recs[j] = self._grab(world, b, c)
             self._prev = now
             return self._orig(world)
-        mp.World._resolve_battles = patched
+        # ★ 猴补点：旧引擎是 `World._resolve_battles`（世界级方法），
+        #   新引擎是 `Military.battle`（**实例**方法，多一个 `self`）。
+        _army_mod.Military.battle = patched
 
     def _grab(self, world, b, c) -> dict:
         return {"game": self._game, "cell": c,

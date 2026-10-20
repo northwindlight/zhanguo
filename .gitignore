@@ -3,7 +3,9 @@ save.json
 mp_save.json
 mp_journal.md
 mp_journal*.md
+mp_journal*.txt
 mp_map.txt
+mp_map*.txt
 __pycache__/
 *.pyc
 
@@ -15,6 +17,19 @@ mp_config *.json
 #   模板文件单独放行（它里面是"粘贴你的 key"占位，本来就该入库）
 mp_config.*.json
 !mp_config.example.json
+!mp_config.experimental.example.json
+!mp_config.minigame.example.json
+
+# minigame 开发模式的独立新局产物
+minigame_save*
+minigame_journal*
+
+# 议会示例配置的独立新局产物
+experimental_session.json
+experimental_journal.md
+
+# 文档站构建产物（docs/site/build.py 生成，CI 里现建）
+docs/site/_build/
 
 # 通用
 .DS_Store
@@ -40,6 +55,21 @@ mp_save*
 mp_config.json.bak*
 mp_config*.bak*
 
-# 可选加速扩展的编译产物（按架构各编各的，绝不入库 —— 源码是 rl/_combat_fast.c）
-rl/_combat_fast*.so
-rl/*.so
+# 对局产物（报告/寄语/纪要/书信）——**是局的结果，不是仓库的内容**（用户 2026-10-09：
+# 「那几个散文件也别跟踪了」）。以后落在根目录或 archive/ 里都不入库。
+archive/
+!docs/archive/
+docs/archive/*
+!docs/archive/legacy-domain-declarations/
+!docs/archive/legacy-domain-declarations/*.toml
+!docs/archive/strategy/
+!docs/archive/strategy/*.md
+!docs/archive/legacy-rules/
+!docs/archive/legacy-rules/**
+结算报告*.md
+结算寄语*.json
+摆烂尸检*.md
+楼烦来投书*.txt
+
+# 本机研究用 CPython 扩展，提交源码与构建入口。
+/mods/experimental/combat_research/*.so

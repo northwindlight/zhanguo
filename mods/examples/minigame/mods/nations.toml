@@ -1,0 +1,15 @@
+[Mod]
+Id = "mini:nations"
+Version = "1.0.0"
+Entry = "mods.examples.minigame.game:NationsMod"
+Requires = ["mini:resources"]
+
+[State]
+Owns = ["nations"]
+
+[Capabilities]
+Needs = ["mini:resources"]
+Provides = ["mini:nations", "mini:nation-inspection"]
+
+[Interfaces]
+"mini:resources" = ["open"]

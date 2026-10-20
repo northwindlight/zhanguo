@@ -1,0 +1,39 @@
+[Mod]
+Id = "native:buildings"
+Version = "2.11.0"
+Entry = "mods.native.buildings.mod:BuildingsMod"
+Requires = ["native:resources"]
+After = ["native:resources"]
+
+[State]
+Owns = ["buildings"]
+Requests = []
+
+[Capabilities]
+Needs = ["native:resource-exchange"]
+Optional = ["native:territory"]
+Provides = ["native:buildings"]
+
+[Interfaces]
+"native:resource-exchange" = ["snapshot", "exchange", "exchange_batch"]
+"native:territory" = ["resolve"]
+
+[[Stages]]
+Id = "native:buildings.produce"
+Handler = "produce"
+Hook = "buildings.production"
+Provides = ["buildings.produced"]
+
+[[Stages]]
+Id = "native:buildings.complete"
+Handler = "complete"
+Hook = "buildings.completion"
+Needs = ["buildings.produced"]
+Provides = ["buildings.completed"]
+
+[PlayerAPI]
+Methods = ["build", "sites", "catalog"]
+ReadOnly = ["catalog", "sites"]
+
+[PlayerAPI.ContentParameters]
+build = ["kind"]

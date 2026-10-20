@@ -1,0 +1,10 @@
+[Mod]
+Id = "example:hello"
+Version = "1.0.0"
+Entry = "mods.examples.hello.mod:HelloMod"
+
+[State]
+Owns = ["hello"]
+
+[Capabilities]
+Provides = ["example:hello"]

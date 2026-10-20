@@ -26,15 +26,25 @@ import unittest
 from pathlib import Path
 
 import numpy as np
-import torch
+from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rl import train as train_mod                # noqa: E402
-from rl.league import League                     # noqa: E402
-from rl.model import build_model                 # noqa: E402
-from rl.sandbox import Sandbox                   # noqa: E402
-from rl.train import collect_episode             # noqa: E402
+if has_torch():
+    from rl import train as train_mod                # noqa: E402
+    from rl.league import League                     # noqa: E402
+    from rl.model import build_model                 # noqa: E402
+    from rl.sandbox import Sandbox                   # noqa: E402
+    from rl.train import collect_episode             # noqa: E402
+else:
+    League = Sandbox = build_model = collect_episode = train = None
+
+
+def load_tests(loader, tests, pattern):
+    """★ 官方"整份跳过"入口（见上面的说明）。"""
+    if not has_torch():
+        raise unittest.SkipTest(torch_or_skip())
+    return tests
 
 QUIET = staticmethod(lambda *a, **k: None)
 FP = {"glob_size": 21, "grid_channels": 27}      # 假的形状指纹（不建真网也够用）

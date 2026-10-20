@@ -39,14 +39,24 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np                                    # noqa: E402
-import torch                                          # noqa: E402
+from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
 
-from rl import encode as E                            # noqa: E402
-from rl import scoring as S                           # noqa: E402
-from rl import train as T                             # noqa: E402
-from rl import vocab as V                             # noqa: E402
-from rl.model import build_model                      # noqa: E402
-from rl.sandbox import Sandbox                        # noqa: E402
+if has_torch():
+    from rl import encode as E                            # noqa: E402
+    from rl import scoring as S                           # noqa: E402
+    from rl import train as T                             # noqa: E402
+    from rl import vocab as V                             # noqa: E402
+    from rl.model import build_model                      # noqa: E402
+    from rl.sandbox import Sandbox                        # noqa: E402
+else:
+    Sandbox = build_model = encode = scoring = train = vocab = None
+
+
+def load_tests(loader, tests, pattern):
+    """★ 官方"整份跳过"入口（见上面的说明）。"""
+    if not has_torch():
+        raise unittest.SkipTest(torch_or_skip())
+    return tests
 
 # ★ 无记忆模型的参数量**黄金值**。它变了 ⇒ 主干被动了 ⇒ 老 ckpt 全废。
 #   （这个数不是"规格"，是**看门狗**：故意改主干时请一并更新。）

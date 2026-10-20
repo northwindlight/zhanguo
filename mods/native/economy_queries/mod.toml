@@ -1,0 +1,28 @@
+[Mod]
+Id = "native:economy-queries"
+Version = "1.9.0"
+Entry = "mods.native.economy_queries.mod:QueriesMod"
+Requires = ["native:resources", "native:buildings", "native:market", "native:economy"]
+
+[Capabilities]
+Needs = ["native:resource-inspection", "native:buildings", "native:market", "native:economy", "economy:valuation"]
+Optional = ["native:army", "native:diplomacy"]
+Provides = ["economy:queries"]
+
+[Interfaces]
+"native:resource-inspection" = ["owners", "snapshot"]
+"native:buildings" = ["replacement_costs", "demand_preview", "tribute_preview", "tribute_balances"]
+"native:army" = ["supply_preview"]
+"native:diplomacy" = ["snapshot"]
+"native:economy" = ["reports", "turns", "production"]
+"native:market" = ["summary", "quote", "buy", "sell", "equilibrium", "trials"]
+"economy:valuation" = ["quote"]
+
+[PlayerAPI]
+Methods = ["balance", "report", "estimate", "market", "buy", "sell"]
+ReadOnly = ["balance", "estimate", "market", "report"]
+
+[PlayerAPI.ContentParameters]
+buy = ["resource"]
+sell = ["resource"]
+estimate = ["kind"]

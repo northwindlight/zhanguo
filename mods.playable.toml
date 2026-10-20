@@ -1,0 +1,6 @@
+# 「最小可玩游戏」的玩家入口。与根目录 mods.toml（= native）、
+# mods.parliament.toml（= 可选议会发行版）同构：
+#   Packages 里每条是一个**含 mod.toml 的目录**，而那个 mod.toml 才是发行版清单。
+# 用法：配置顶层写 "mods": "mods.playable.toml"，然后 ./start.sh --config <你的配置> --new
+[Load]
+Packages = ["mods/examples/playable_min"]

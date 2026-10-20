@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ctx.py 的单元测试：预算分配、下滑水位、前缀缓存不变量。
+"""clients/context.py 的单元测试：预算分配、下滑水位、前缀缓存不变量。
 
 全部用合成数据，不读写任何真实存档（mp_save.json 是玩家在跑的档）。
 跑法：python3 -m unittest discover -s tests -v
@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import ctx  # noqa: E402
+from clients import context as ctx  # noqa: E402
 
 SYSTEM = "你是国家元首。这里是静态系统提示词。" * 60
 
@@ -114,7 +114,8 @@ class TestSlide(unittest.TestCase):
         w.turn_memory["秦"] = mem
         per = ctx.record_tokens(mem[0])
         plan = ctx.make_plan({"ctx_window": 1_000_000, "ctx_fill": 0.1,
-                              "ctx_slide_keep": 0.5, "max_tokens": 1000})
+                              "ctx_slide_keep": 0.5, "max_tokens": 1000,
+                              "ctx_trim_tool_chars": 0})
         plan.replay_budget = per * 40          # 手设预算：超了才裁
         dropped = ctx.slide(w, "秦", plan)
         self.assertTrue(dropped)
@@ -141,6 +142,31 @@ class TestArchive(unittest.TestCase):
         self.assertIn("阶段总结", text)
         self.assertNotIn("  第5回合：", text)     # 已被块总结覆盖，不再重复列
         self.assertIn("  第25回合：", text)
+
+    def test_long_memory_identical_to_newest_block_is_not_sent_twice(self):
+        """压缩当回合把同一段正文既写进 long_memory 又追加成一个块；归档只留一处。"""
+        blocks = [{"from": 0, "to": 6, "text": "同一段长期记忆", "turn": 7}]
+        text = ctx.render_archive([], blocks, 15, 99999, long_memory="同一段长期记忆")
+        self.assertEqual(text.count("同一段长期记忆"), 1)
+        # 旧档的块没有 memory 标记，按快照处理：long_memory 已取代它，不再重播。
+        other = ctx.render_archive([], blocks, 15, 99999, long_memory="累积扩写后的新记忆")
+        self.assertNotIn("同一段长期记忆", other)
+        self.assertIn("累积扩写后的新记忆", other)
+
+    def test_superseded_memory_snapshots_are_not_resent(self):
+        """成功压缩写下的块只是当时那份长期记忆的快照，已被 long_memory 取代。"""
+        blocks = [{"from": 0, "to": 6, "text": "早期快照·扩地", "memory": True},
+                  {"from": 7, "to": 14, "text": "中期快照·结盟", "memory": True}]
+        text = ctx.render_archive([], blocks, 15, 99999, long_memory="当前记忆·已结盟并扩地")
+        self.assertIn("当前记忆", text)
+        self.assertNotIn("早期快照", text)
+        self.assertNotIn("中期快照", text)
+
+    def test_failed_compression_block_still_renders(self):
+        """压缩失败时写进块的是逐期小结，没有替代品，必须照常发。"""
+        blocks = [{"from": 0, "to": 6, "text": "压缩失败时写下的逐期小结", "memory": False}]
+        text = ctx.render_archive([], blocks, 15, 99999, long_memory="最新记忆")
+        self.assertIn("压缩失败时写下的逐期小结", text)
 
     def test_cap_truncates_oldest(self):
         text = ctx.render_archive(sums_upto(200), [], 201, cap=2000)
@@ -216,6 +242,49 @@ class TestCachePrefixInvariant(unittest.TestCase):
                                 "ctx_period": 13}).describe()
         self.assertIn("每13回合压缩（config 指定）", manual)
         self.assertNotIn("period", manual)
+
+
+class TestReplayHead(unittest.TestCase):
+    """`replay_head` + `plan.archive_text`：压缩调用要拿它们求"上一次请求的前缀"切点
+    （见 clients.llm.LLMClient._compress）。这两样错了，压缩调用就静默不命中——最难查的那种错。"""
+
+    def _build(self, turns=6, fixed=4, long_memory=""):
+        w = StubWorld()
+        w.turn_memory["秦"] = [rec(i) for i in range(1, turns + 1)]
+        # 这些用例钉的是切点与滑动本身，把回执截断关掉，免得字节被截。
+        msgs, plan = ctx.build(cfg={"ctx_full_turns": fixed, "ctx_trim_tool_chars": 0}, mem=w.turn_memory["秦"],
+                               sums=sums_upto(turns), blocks=[], system_text=SYSTEM,
+                               tail_text="【本回合状态】", long_memory=long_memory)
+        return w, msgs, plan
+
+    def test_archive_text_is_exactly_what_was_sent(self):
+        """归档必须留**这一次真正渲染出来的字节**：重算一遍 render_archive 会因为
+        before_turn / long_memory 变了而对不上，命中整段断在归档处。"""
+        _w, msgs, plan = self._build(long_memory="旧记忆：与齐结盟。")
+        self.assertTrue(any(plan.archive_text in m.get("content","") for m in msgs))
+        self.assertIn("旧记忆：与齐结盟。", plan.archive_text)
+
+    def test_head_length_matches_the_sent_messages(self):
+        """切点必须落在真请求的那条合并消息之后：归档(user) 与请求里第一条回合记录的
+        首条(user) 会被 assemble 合成**一条**，所以"从请求的第一条记录数到要回放的
+        最后一条"的**合并后条数**才是真请求里的下标（不是 1+1+回合数）。"""
+        w, msgs, plan = self._build()          # 固定 4 回合 + 6 条记录 ⇒ 请求里是第 3~6 回合
+        self.assertEqual(plan.before_turn, 3)
+        dropped = [r for r in w.turn_memory["秦"] if r["turn"] in (3, 4)]
+        head = ctx.replay_head(msgs[0]["content"], "", dropped)
+        self.assertEqual(msgs[:len(head)], head)
+        # Archive/long memory is after replay, so updates preserve its prefix.
+        self.assertIn("第3回合", head[1]["content"])
+        self.assertNotIn("历史归档",head[1]["content"])
+
+    def test_no_archive_when_there_is_nothing_to_archive(self):
+        w = StubWorld()
+        w.turn_memory["秦"] = [rec(1)]
+        _msgs, plan = ctx.build(cfg={"ctx_full_turns": 1}, mem=w.turn_memory["秦"],
+                                sums=[], blocks=[], system_text=SYSTEM, tail_text="状态")
+        self.assertEqual(plan.archive_text, "")
+        head = ctx.replay_head(SYSTEM, plan.archive_text, [])
+        self.assertEqual(head, [{"role": "system", "content": SYSTEM}])
 
 
 if __name__ == "__main__":

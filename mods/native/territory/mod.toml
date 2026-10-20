@@ -1,0 +1,22 @@
+[Mod]
+Id = "native:territory"
+Version = "2.4.2"
+Entry = "mods.native.territory.mod:TerritoryMod"
+Requires = ["native:map-generation", "native:nations", "native:buildings"]
+After = ["native:nations", "native:buildings"]
+[State]
+Owns = ["territory"]
+[Capabilities]
+Needs = ["map:generation", "native:nation-inspection", "native:buildings"]
+Provides = ["native:territory"]
+[Interfaces]
+"map:generation" = ["cell", "where"]
+"native:nation-inspection" = ["ids", "get"]
+"native:buildings" = ["register_site", "site", "transfer_site"]
+
+[PlayerAPI]
+Methods = ["land", "terrain_catalog"]
+ReadOnly = ["land", "terrain_catalog"]
+
+[PlayerAPI.ContentParameters]
+land = ["terrain", "resource"]

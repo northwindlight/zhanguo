@@ -1,148 +1,115 @@
 # 战国 · Zhanguo
 
-> **每个国家都由一个 LLM 治理，人类只负责泡茶看海。** —— 这是一款为 AI 而生的纯文本大战略游戏，
-> 也是一份专门考**长程能力**的 LLM 基准。
+战国是一款面向 LLM 决策的回合制大战略游戏。各国在同一世界中经营经济、组织军队、处理外交并争夺生存空间；人类可以观察、发出公告与来信，也可以研究模型在长局中的决策和失误。
 
-**简体中文** · [English](README.en.md)
+当前发行版本 **0.4.1**，详见 [更新记录](CHANGELOG.md)。API 与 tool 分层，面板与对外关系事实收口，建筑/资源按角色声明，说明书与四本讲义在 `mods/native/docs/` 手写维护。模型工具由发行版 tool 层与客户端按权限提供。`main` 来自原 `正规化` 分支，采用模块化架构。旧版单体实现保存在 [`legacy`](https://github.com/northwindlight/zhanguo/tree/legacy)。[English](README.en.md)
 
----
+本版修复 API/tool 入口不一致、国策到期审核和外交收尾，收口 API 声明、查询参数与领域预演，见 [更新记录](CHANGELOG.md)。
 
-## 亮点
+## 真实对局资料
 
-- 🎮 **AI 治国，人类观海** — N 个 LLM agent 各治一国、在同一张地图上互相竞争。每国能用
-  的工具与人类玩家**完全一致**，没有谁被开后门：建城、征兵、行商、结盟、背刺、求和，全凭模型自己决定。
-  你只需旁观，看它们从 5 块地起家、滚到三分天下。
-- 🧪 **不只是一场游戏，是一份考长程的基准** — 资源生产链、能源门控、旷日持久的战争、工具调用纪律、
-  跨回合记忆、外交博弈与欺骗……比"一问一答"的题库更接近真实长程决策。思路类似 CivRealm，
-  但纯文本、更轻、**零强化学习依赖**。
-- 🔁 **完全可复现** — 整张地图由 `(seed, size)` 决定（蓝噪声 + 密度图调制），**同种子 + 同一开局序列 →
-  同图同史**。不同模型、不同配置可以在完全相同的条件下公平对照，跨进程复现还有测试看门。
-- 🪶 **轻量，零密钥也能跑** — 唯一依赖是 `openai`。没有 API key 的国家由**内置规则 AI** 代打，
-  Linux / macOS / Windows 一行命令开跑。
-- 🎛 **调平衡只改一个文件** — `balance.py` 是唯一调参入口，引擎、经济报表、规则 AI、AI 面板
-  读的都是**同一份对象**，改完全局生效。
-- ⚖️ **为 AI 设计的测评指标** — 按"总消费"排名（支出法 GDP 的骨架），并配套**对抗性实验**证明
-  这个指标没法被刷分。
-- 🚀 **可以进化的世界观** — `feat/rl` 分支维护完整的 RL 训练线（BC / PPO），规则 AI 兼任 BC 老师。
-- 🛰 **长局不烧上下文成本** — 上下文按「长期记忆 → 归档 → 近期完整回放」布局，前缀缓存命中经专门调优
-  （递归长期记忆 + 非滑动周期压缩 + 实测命中日志），300 回合看海只在压缩回合重建一次前缀。
+[研究文章与长任务野榜](research/papers/README.md)：DeepSeek、Qwen、MiniMax与Gemini在大战略游戏中的行为观察和主观评分，明确区分实测、假说与不对称历史样本。
 
-## 快速开始
+[独立研究目录](research/game-records/README.md) 收录实际游玩的完整存档和原始日志，供研究与参考：
 
-```bash
-./start.sh --turns 10        # Linux / macOS
-.\start.ps1 --turns 10       # Windows
-```
+| 对局 | 保存回合 | 使用模型 |
+| --- | --- | --- |
+| 八国终局，种子 20260921 | 258 | `qwen3.8flash`、DeepSeek |
+| 八国快照，种子 20261009 | 158 | `qwen3.8flash` |
 
-首次运行自动：创建虚拟环境 → 装依赖（仅 `openai`）→ 从模板生成 `mp_config.json`。填好各国
-API 配置即可开看；**某项留空 = 该国由内置规则 AI 代打**，没 key 一样能玩。
+资料在 main 和 legacy 中均保留。原始文件逐字节保存，附模型来源说明、文件清单和 SHA-256。两局均来自旧版引擎，不能直接用当前 main 的存档加载器运行；研究旧局请对照 legacy 与相关历史提交。
 
-```bash
-# 已有环境，直接跑：
-pip install -r requirements.txt
-python3 mp_run.py --turns 10    # 读档续局；无档则新开
-```
+## 当前架构
 
-- `Ctrl-C` 随时中断并自动存档（永远落在回合边界），下次直接 `./start.sh` 续局。
-- 常用参数 `--new`（强制开新局）、`--config F` / `--save F`、`--ctx-window N` 原样透传 `mp_run.py`。
-- 配置模板见 `mp_config.example.json`，每个键的用途与默认值以源码注释为准。
+发行版定义游戏，host 装配运行，客户端通过统一玩家 API 行动；模型视图由客户端组装，UI Mod 提供呈现原语。
 
-## 一局游戏是怎样的
+- **引擎**：模块依赖、请求分发、发行版 Session、控制权代次、逐动作审计与完整周期存取；不导入 UI，呈现层由 host 注入 Session。
+- **配置**：组件声明字段语义，发行版组合，CLI 和程序调用共用准备入口；见 [配置层契约](docs/配置层.md)。
+- **发行版**：`native` 提供资源、建筑、市场、银行、领土、军队、外交、情报和国家生命周期；场景与登场规则归发行版。方格游戏可复用 `GridSession`，无地图游戏可直接使用通用 Session。
+- **玩家客户端**：LLM 与 `v11plus` 规则 AI 使用同一绑定身份的 API，消费结构化事实和行动回执。
+- **界面**：独立 UI Mod 装配语言文案、终端面板和玩家可见的文字、SVG、PNG 地图；渲染原语在 `presentation/`，模型视图在 `clients/model_view.py`。
 
-- **回合制**：各国轮流行动、全部行动完统一结算。结算顺序固定：采集 → 电网 → 战争 → 补给 →
-  市场 → 建造落地 → 经济报表。
-- **经济**：金 / 粮 / 木 / 矿 / 油 / 装备 / 补给**全国一本账**；电网全国且不可存储，
-  电能不足时高耗电建筑整回合停摆。建什么、卖什么，全看模型自己算账。
-- **军事**：步兵 / 骑兵 / 民兵三种兵；**逐格移动按地形扣移动力**，山地、森林不可穿越；战斗按回合掷骰，
-  地形与城堡提供减伤。扩张靠打——没有"凭空拓荒"这个命令。
-- **存亡看市政厅**：**国祚是市政厅**（开局核心自带 1 座，视野内公开可见）——
-  **一座都不剩即亡国**，不是"领土尽失"。亡国时剩下的领地全成**无主之地**，
-  地上的建筑原样留在原地，谁进驻归谁：灭国留下的是一片能捡的废墟。
-- **外交**：写信、宣战、议和、共同防御、保障独立、间谍、结盟与背刺。**签约主体是「外交实体」**
-  （独立国家 或 联盟）：在盟的国家没有外交权——条约一律由联盟出面、且须联盟投票，入盟即作废个人条约；
-  盟员战时被锁死（不退盟、不解散）。战争可无穷传导（A 保 B、B 盟 C → 打 B 则 C 也上）。灭国后全天下
-  强制休战，防止连坐征服。
-- **迷雾与情报纪律**：每国只看得见自己该知道的——自家地盘、邻圈、联盟共享视野、瞭望塔范围；
-  他国真相只能靠来信、边界动静和侦察去推断。想摸对方底细？派间谍，几回合后来报告。
-- **规则从哪来**：所有数值统一收在 `balance.py`（唯一权威）；游戏内各国可用 `rules` 工具随时查询
-  ——除各条规则外还有一本讲「**为什么**」的**《经济学手册》**（扩张＝买建设的期权、军费不能榨干
-  现金流、没人消费市场就崩、战争是最快的获取资源方式…，`rules(经济手册)`）；
-  玩法细节以代码 docstring（`mp.py` / `game.py` / `mapgen.py`）为准。
+默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.14.0`：
 
-## AI 玩家层
+- 独立议长分两步审核国策，核对事实、情报和经济、外交、军事承诺；连续三回合未通过后罢免君主并重建记忆。
+- 市场采用实际交付的有限库存，以及库存偏差反馈报价。
+- 保存、修订和手动运行 Python 短脚本，直接操作标准 API；按计算量限制，失败保留已成功动作，每国每回合一次执行机会。
+- 为规则 AI 启用[研究用战斗概率推演](mods/experimental/combat_research/README.md)，可选 C 加速；概率能力不注册为 LLM 工具。
 
-每国一个 LLM agent，通过 function calling 与游戏交互：
-
-- **35 个工具**覆盖查询 / 内政 / 军事 / 外交 / 联盟 / 记忆 / 收尾，接受中英文别名（`build`/`建造`…）。
-- 📇 **记忆检索**：`memory_search`（别名 检索记忆 / 翻旧账）按关键词搜本国历史**正文**（不含思考），
-  返回**回合号与相邻上下文**——配上常驻的「国策」与递归长期记忆，长局也记得住承诺与恩怨。
-- 事件按**落盘时刻的视野快照**过滤——你后来夺下的地上发生的旧战报，不会事后凭空显形。
-- 无 key 的国家由内置规则 AI（`dummy_turn`）代打，版本可配（缺省 `v10`，另有现役 `v11plus`），
-  同样遵守视野纪律、不开图偷看——和 LLM 玩家在同一层信息下竞争。
-  `v11plus` 把军事段换成**全局编组**（每支军认领一个目标，够判定式算出的兵力才开打；
-  模型与推导见 `docs/v11编组模型.md`），实测同局同种子比 v10 多拿约四成地。
-
-## 上下文与记忆（长局的成本与连续性）
-
-上下文按"稳定性从高到低"排布，尽量让前缀缓存命中：
-
-```
-[system] → [递归长期记忆] → [历史归档] → [近期完整回合回放] → [本回合状态]
-```
-
-- **递归长期记忆**：滑出回放的旧回合由一次 LLM 调用**以旧记忆为基础扩写**（不丢旧事实），
-  作为归档最前的稳定头块，承载长程计划 / 盟约 / 教训——只在压缩回合变，字节稳定利于缓存。
-- **非滑动周期压缩**（`ctx_roll="period"`）：两次压缩之间回放**纯追加、前缀一个字节不动**；
-  `ctx_period` 不配时**按窗口几何 + 实测回合体积自动推导**压缩周期（配数字则手动固定）；
-  冷回合从"每几回合一次"摊薄到"每周期一次"。
-- **实测指标**：`🧠` 行显示近 20 次请求的**实测前缀缓存命中率**（provider 返回值），而非纸面估算；
-  下滑 / 压缩回合会标注"前缀缓存全段重建"。
-- **记忆三件套**：常驻**国策**（`plan`）＋ **递归长期记忆**（`long_memory`）＋
-  **`memory_search` 翻旧账**（正文检索、返回回合与相邻上下文）。
-- 相关配置（`mp_config.json`）：`ctx_window` / `ctx_fill` / `ctx_slide_keep` / `ctx_roll`（`"period"` 非滑动）/
-  `ctx_period` / `ctx_slice_keep` / `ctx_old_reasoning`（默认 `full`；**剥旧思考会致短视，不推荐**）/
-  `ctx_trim_tool_chars` / `ctx_compact`。实现见 `ctx.py` 与 `mp_ai.py` 的 docstring。
-
-## RL 训练线（`feat/rl` 分支）
-
-RL 训练与看海主线**分支维护**：PyTorch 环境、BC / PPO、transformer 主干都在 `feat/rl`。
-该分支已**变基到 main**，引擎文件与主线逐字节相同——规则改动无需再 cherry-pick。
-设计文档见该分支的 `rl/README.md` 与 `rl/PLAN.md`。
-
-## 项目结构
-
-| 文件 / 目录 | 作用 |
-|-------------|------|
-| `balance.py` | **数值表 · 唯一调参入口**：建筑 / 地形 / 兵种 / 市场 / 外交费 / 世界央行 |
-| `game.py` · `mp.py` | 共享规则层 · 多国引擎 `World`（结算 / 战斗 / 外交 / 联盟 / 视野 / 存档） |
-| `mapgen.py` | 地图生成：`(seed, size)` → 整张地形 / 资源图（蓝噪声 + 密度图调制） |
-| `mp_ai.py` | AI 层：35 个工具（含 memory_search 记忆检索）、system prompt、面板、回合循环（提供方无关） |
-| `llm_provider.py` | LLM 提供方兼容层（OpenAI 兼容端点 + Anthropic 预留位） |
-| `ctx.py` | 上下文窗口管理：token 估算、预算分配、缓存友好组装（瘦身 / 非滑动周期压缩 / 递归长期记忆） |
-| `mp_run.py` · `console.py` | 编排器 · 看海终端（Markdown 渲染、汉字宽度感知） |
-| `settlement.py` | 终局结算：按总消费排名 + 结算厅 |
-| `rule_ai.py` · `ruleai/` | 规则 AI 注册表 · **各代扩张流（一代一个文件，v11 单独目录）** |
-| `ruleai/` | **v11 规则 AI（经济层与军事层分离）**：`economy.py` 管钱料建造征兵 · `military.py` 管编组与出手 · 部件 `grouping`/`combat`/`pathfind`/`targeting` |
-| `scenarios/` | **剧本 · 预置开局**（`eight_nations.py` = 战国七雄 + 周王室：36×36 手摆落位、七雄共保周王室独立、八国常驻「六王毕，四海一」之志）——剧本就是**一份开局存档**（配置塞不进条约表），`python3 -m scenarios.eight_nations` 生成，`./start.sh --config mp_config.8国.json` 开局 |
-| `experiments/` · `docs/` | 指标对照实验 · 人类侧资料 |
-| `tests/` | 单元测试 + 跨进程确定性看门狗 |
-
-## 看海
-
-终端实时流 + 两份产物：**`mp_journal.md`**（全量战史）与 **`mp_map.txt`**（世界地图，按国别着色）。
-对局结束用 `settlement.py` 结算——各国 AI 会带着**原样的游戏记忆**进"结算厅"自由总结、互评这一局。
+## 开始新局
 
 ```bash
-python3 -m unittest discover -s tests   # 跑测试
-python3 settlement.py                   # 终局结算（打分 + 结算厅）
+cp mp_config.example.json mp_config.json
+# 修改国家、客户端和接入参数，再启动。
+./start.sh --config mp_config.json --new
 ```
 
-## 文档
+Windows 可使用 `start.ps1`。启动脚本建立本地虚拟环境并安装依赖；也可在已准备好的环境中运行 `.venv/bin/python mp_run.py`。
 
-- [游戏说明书](docs/游戏说明书.md) — 人类侧规则全文：回合与结算顺序、开局与视野、建筑、军队与战斗、外交、联盟、市场、经济报表、命令表；**数值随 `balance.py` 自动同步**（`docs/sync_manual.py`），地形不在此重复。
-- [消费总量评测指标论证](docs/消费总量评测指标论证.md) — 为什么按"总消费"排名：第一性论证 + 三组确定性对照实验 + 对抗性实验。
-- [地图生成与资源分布](docs/地图生成与资源分布.md) — 人类侧资料。
+每国显式配置 `id`、`name` 和 `client`。`client=rule` 使用确定性的 v11plus；默认 native 可完全离线运行。`client=llm` 需填写模型和接入参数，支持 OpenAI 兼容与 Anthropic 两种协议。凭据保留在本地配置中，不写入整局存档。
 
-## 许可证
+启用 experimental 时，复制 [实验配置模板](mp_config.experimental.example.json) 为自己的配置，顶层指定 `"mods": "mods.experimental.toml"`，并为议长设置模型接入。各局使用独立 save 与 journal 路径。
 
-[MPL-2.0](LICENSE) · Copyright (c) 2026 zhang feng
+```bash
+./start.sh --config mp_config.json          # 续局
+./start.sh --config mp_config.json --turns 10
+```
+
+`--new` 会覆盖指定目标存档。`--turns` 表示运行到的周期号。保存只发生在完整结算边界，调用失败时保留最近完整存档。当前格式为 `zhanguo.session/4`；1.0 之前不承诺旧档兼容，不提供自动迁移，模块依赖不一致时拒绝混载。
+
+终局成绩单：`python settlement.py --save 专用存档.json --table`；生成报告用 `--no-chat --out 报告.md`，结算厅另需外部模型配置。保存时同目录的 `<存档>.audit/` 留存动作与领域历史，备份整局时一并复制。坐标统一从 **0** 开始。
+
+## 八国剧本与观察者
+
+```bash
+python -m scenarios.eight_nations --seed 20260921
+./start.sh --config mp_config.8国.20260921.json
+```
+
+剧本采用 24×24 地图、八国手摆开局与七雄共保周的初始安排。生成器遇到已有目标会拒绝覆盖，显式 `--force` 才覆盖；生成后按需要填写模型接入或改用 rule 客户端。
+
+八国是发行版挂载的轻量钩子 Mod，配置选择 `"scenario": "eight_nations"`。周任盟主时盟友自动成为「周天下附庸」，保留正常盟友权力、强制上交实际生产的10%；普通附庸上交15%、外交由宗主控制，只能由宗主释放或发动独立战争脱离。向周 `submit_vassalage` 主动称臣，回合末可自动创建周天下、首次扣周100金并由周任盟主；已有联盟按入盟表决、不再收费。周及其特殊附庸覆盖全部存续国家且至少5国（含周），完整回合结算即触发仅周获胜，其他成员臣属保全（未胜未败，不列入主胜或次胜）；兼并至唯一国家为终极胜利。外交请求在全体行动结束后结算，宣战最后处理。详见 [剧本 Mod 与钩子](docs/发行版Session.md)。朝贡按每国每期各类资源的全国实际总产出乘贡率，小数按附庸、宗主及资源跨期累计，累计额向下取整扣取，余数继续结转。
+
+看海控制台提供中文全景国力、市场、经济报告、国策、外交和逐次调用播报。`help` 查看命令；`map` 看世界全图，`map 国名 [文件.txt/.svg/.png]` 看单国视野；`add 国名 [政体]`、`send 国名 正文`、`say 正文`、`rate 5`、`cheat 国名 金100 粮20 骑2` 提供观察者管理。公告和来信支持多行 `END` 和 `@文件`。命令在模型调用间处理，`quit` 完成整回合并保存后退出。每回合自动更新日志同名的 `.map.txt`，详见 [UI 说明](mods/ui/README.md)。
+
+模型优先使用短内容键值，重名时指定命名空间；地块动作使用 `x/y`，军队使用整数 `aid/ids`。experimental 的 Python 工具提供用法示例和批量处理提示；失败消耗脚本执行额度，普通国家行动仍可继续。
+
+## 开发与验证
+
+全部资料见[文档索引](docs/README.md)。
+
+**Mod 开发文档站**：<https://northwindlight.github.io/zhanguo/> ——按开发流程组织，带可搜索的 API 参考
+（API 参考页由 `scripts/api_doc.py` 从源码生成，与代码同步；教程页手写，在 `docs/site/content/`）。
+本地预览：`python3 docs/site/build.py --serve`。
+
+一键启动（默认跑 native 发行版）：
+
+```bash
+./start.sh --check        # 配置体检：逐国核对模型接入，缺什么说清楚
+./start.sh                # 续局（无档则新开）
+./start.sh --offline      # 零依赖的 minigame 开发模式，不需要任何 API key
+```
+
+配置模板见 `mp_config.example.json`（密钥只写进 `mp_config.json`，该文件不入库）。
+配置与启动的完整说明见文档站的[配置与启动](https://northwindlight.github.io/zhanguo/开始/03-配置与启动.html)页。
+
+- [Mod 开发指南](docs/Mod开发指南.md)：从可运行示例开始，增加内容、替换模块和组装独立游戏。
+- [发行版 Session](docs/发行版Session.md)：场景、可选地图策略、管理能力、服务装配、审计与控制权。
+- [玩家 API 与客户端](docs/客户端接线.md)：绑定身份、事实、请求和回执。
+- [GUI 选型与计划](docs/design/GUI选型与计划.md)：跨平台桌面、2D/3D 地图与动画素材选型，以及看海优先的接线计划。
+- [Native 模块](mods/native/README.md)、[UI Mod](mods/ui/README.md)、[experimental](mods/experimental/README.md)、[Python 沙盒](mods/experimental/SCRIPTING.md)。
+- [模块化口径](docs/design/模块化口径.md)与 [路线计划](docs/plans/PLAN.md)。
+
+```bash
+.venv/bin/python -m unittest discover -s tests -q
+```
+
+离线回归覆盖模块替换、合成对局、存取一致性、API 权限、议会、市场、沙盒与 UI。测试使用模拟模型后端；真实对局资料单独存放，不作为自动化测试输入。各批次验收结果见更新记录与复核报告。
+
+## 代码入口
+
+根目录 Python 入口为 `host.py`（装配发行版 Session）、`mp_run.py`（CLI）与 `settlement.py`（终局结算）。上下文与模型接入在 `clients/`（模型视图 `clients/model_view.py`），规则客户端在 `ruleai/`，终端传输在 `ui/terminal.py`，呈现原语在 `presentation/`，UI Mod 装配在 `mods/ui/`，地图生成在 `mods/native/map_generation/`。旧转口、旧领域实现和退役实验使用 legacy 分支及对应历史提交查阅。
+
+[游戏说明书](mods/native/docs/游戏说明书.md) 与四本策略讲义在 `mods/native/docs/` 手写维护，不由代码生成，也不参与运行时装配。
+
+Release 的源码 ZIP 不打包真实对局资料；研究资料从仓库的 [独立研究目录](https://github.com/northwindlight/zhanguo/tree/main/research/game-records) 获取。

@@ -1,0 +1,12 @@
+[Distribution]
+Id = "market-acceptance"
+Version = "1.0.0"
+Members = ["../native/resources/mod.toml", "../native/market_pricing/mod.toml", "../native/market/mod.toml"]
+RequiredState = ["resources", "market"]
+
+[[Hooks]]
+Id = "market.settlement"
+Name = "Market settlement"
+
+[Distribution.Tools]
+Entry = "mods.native.tools:build"
