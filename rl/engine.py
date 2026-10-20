@@ -163,7 +163,8 @@ class _UnitDict(dict):
     """
 
     # ★ 这些字段能写穿透到引擎（其余是"身份"，改不了）。
-    _WRITABLE = ("hp", "x", "y", "moved_turn", "engaged")
+    _WRITABLE = ("hp", "x", "y", "moved_turn", "engaged",
+                 "retreat_to", "retreat_cover")
 
     def __init__(self, world: "SandboxWorld", unit):
         super().__init__()
@@ -185,6 +186,11 @@ class _UnitDict(dict):
         dict.__setitem__(self, "y", unit.y)
         dict.__setitem__(self, "moved_turn", unit.moved_turn)
         dict.__setitem__(self, "engaged", unit.engaged)
+        # ★ 撤退相关：引擎的 Unit 有 `retreat_to` / `retreat_cover` 两个字段
+        #   （"撤退中"与"减伤档"）—— RL 的战斗概率层要读它们（`retreat_odds`）。
+        #   ⚠ 漏掉的话，DP 会把撤退当成"cover=100 全额"，而引擎是 50 ⇒ **对不上**。
+        dict.__setitem__(self, "retreat_to", unit.retreat_to)
+        dict.__setitem__(self, "retreat_cover", unit.retreat_cover)
 
     def __setitem__(self, key, value):
         if key in self._WRITABLE:
@@ -293,6 +299,15 @@ class _ArmyList(list):
                 live.moved_turn = int(item["moved_turn"])
             except Exception:
                 pass
+        # ★ 撤退标记（`retreat_to` / `retreat_cover`）也要带过去 ——
+        #   `seed` 造出来的是**干净军队**，撤退信息会**丢** ⇒ 战斗概率层
+        #   把"撤退中（只吃一半）"当成普通军队 ⇒ **与引擎对不上**。
+        for field in ("retreat_to", "retreat_cover"):
+            if item.get(field) is not None:
+                try:
+                    live[field] = item[field]
+                except Exception:
+                    pass
         # ★ 队名：引擎会自己生成（`rl:n1·步7军`），但调用方可能给了**自己的**名字
         #   （测试里 `"乙rein"` 这种）⇒ 按调用方的来（引擎允许改 `name`）。
         if item.get("name"):

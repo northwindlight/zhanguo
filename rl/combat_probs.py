@@ -155,7 +155,9 @@ def build(world, x: int, y: int, *, extra: dict[str, list[dict]] | None = None
         soak=soak,
         init={F: tuple((unit_kind(a), int(a["hp"]),
                         bool(a.get("retreat_to")),
-                        int(a.get("retreat_cover", 100)))
+                        # ★ 引擎的 `retreat_cover` 缺省是 **None**（不是 100）——
+                        #   None = "没在撤退" ⇒ 减伤档按 100（全额）算。
+                        int(a["retreat_cover"] if a.get("retreat_cover") is not None else 100))
                        for a in forces[F]) for F in order},
         enemy_idx=tuple(tuple(idx[G] for G in enemies[F]) for F in order),
         soak_list=tuple(soak[F] for F in order))
