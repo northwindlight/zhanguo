@@ -25,9 +25,11 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from rl import encode, evaluate as E, vocab as V    # noqa: E402
 from rl.sandbox import Sandbox, n_nations_for       # noqa: E402
+from rl_deps import has_torch, torch_or_skip        # noqa: E402
 
 BLIND = frozenset()
 
@@ -463,6 +465,7 @@ class TestNationsFlagReachesTheSandbox(unittest.TestCase):
       ⇒ 本条当场红（`KeyError: '丙'`）。
     """
 
+    @unittest.skipUnless(has_torch(), torch_or_skip())
     def test_two_nation_train_does_not_crash(self):
         import tempfile
         from pathlib import Path

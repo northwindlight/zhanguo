@@ -227,7 +227,11 @@ class TestNoLeak(unittest.TestCase):
         self.assertNotIn((rein["x"], rein["y"]), encode.vision_of(sb, "甲"),
                          "前提：这支增援也看不见")
         b = CP.build(w, *cell)
-        self.assertIn(rein, CP.reachable_reinforcements(w, b, "乙"),
+        # ★ 按 **gid** 比对（不按 dict 相等）：快照里的军队 dict 还带着
+        #   `retreat_to` / `retreat_cover` 等字段 ⇒ 直接比 dict 会因为
+        #   "多两个键"而误判成"不是同一支军"（**测试自己被字段变化绊倒**）。
+        self.assertIn(rein["gid"],
+                      {a["gid"] for a in CP.reachable_reinforcements(w, b, "乙")},
                       "前提：它**真的够得着**（否则这条测试是空的）")
 
         frame, mask, _ = frame_of(sb, "甲")
