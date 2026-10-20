@@ -24,10 +24,44 @@ BUILD = HERE / '_build'
 ASSETS = HERE / 'assets'
 
 SITE_TITLE = '战国 Mod 开发文档'
-FOOTER = '内容由 docs/site/content/ 生成 · API 参考由 scripts/api_doc.py 生成'
+FOOTER = '内容来自 docs/site/content/ 与 research/papers/ · API 参考由 scripts/api_doc.py 生成'
 
 # 章节顺序：目录按这个分组排；没列出的排在后面，按名字排。
-SECTION_ORDER = ['开始', '开发流程', 'API 参考', '附录']
+SECTION_ORDER = ['开始', '开发流程', 'API 参考', '研究与评测', '附录']
+
+
+def research_pages() -> list[dict]:
+    """直接发布研究正文，避免另存一份后逐渐失去同步。"""
+    root = HERE.parent.parent
+    source = root / 'research/papers/20261020-long-horizon-wild-ranking'
+    specs = [
+        ('README.md', '01-长任务野榜', '四模型长任务野榜', '评分规则、暂定排名、接入来源与行为解释。'),
+        ('observations.md', '02-MiniMax对局观察', 'MiniMax 对局观察', '与 DeepSeek、Qwen 同阶段轨迹的统计及具体案例。'),
+        ('excerpts.md', '03-审核原文摘录', '审核原文摘录', '累计指标误读与君主接受错误数字的直接证据。'),
+    ]
+    urls = {(source / name).resolve(): f'研究与评测/{slug}.html'
+            for name, slug, _, _ in specs}
+    pages = []
+    for order, (name, slug, title, summary) in enumerate(specs, 1):
+        path = source / name
+
+        def link(match: re.Match) -> str:
+            label, target = match.groups()
+            if target.startswith(('http://', 'https://', '#', 'mailto:', '/')):
+                return match.group(0)
+            relative, marker, anchor = target.partition('#')
+            resolved = (path.parent / relative).resolve()
+            url = urls.get(resolved)
+            if url is None:
+                url = 'https://github.com/northwindlight/zhanguo/blob/main/' + resolved.relative_to(root).as_posix()
+            return f'[{label}]({url}{marker}{anchor})'
+
+        body = re.sub(r'\[([^\]]+)\]\(([^)\s]+)\)', link, path.read_text(encoding='utf-8'))
+        body += f'\n\n[GitHub 正文与版本记录](https://github.com/northwindlight/zhanguo/blob/main/{path.relative_to(root).as_posix()})\n'
+        url = urls[path.resolve()]
+        pages.append({'title': title, 'section': '研究与评测', 'summary': summary,
+                      'order': order, 'path': Path(url), 'body': body, 'url': url})
+    return pages
 
 
 # ── 前言 ──────────────────────────────────────────────────────────────
@@ -237,6 +271,7 @@ def collect() -> list[dict]:
             'body': body,
             'url': str(relative.with_suffix('.html')).replace('\\', '/'),
         })
+    pages.extend(research_pages())
     pages.sort(key=lambda row: (SECTION_ORDER.index(row['section'])
                                  if row['section'] in SECTION_ORDER else len(SECTION_ORDER),
                                  row['order'], row['title']))

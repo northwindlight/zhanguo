@@ -2,6 +2,8 @@
 
 这里收录研究论证、真实对局观察与明确标注的主观评价。每篇文章的证据范围、评分口径和限制以正文为准。
 
+[网页版：研究与评测](https://northwindlight.github.io/zhanguo/研究与评测/01-长任务野榜.html)采用文档站的导航、搜索与表格样式，构建时直接读取这里的正文。
+
 | 日期 | 文章 | 性质 |
 | --- | --- | --- |
 | 2026-10-20 | [智能不是均匀的：大战略游戏长任务野榜与MiniMax的一次落差](20261020-long-horizon-wild-ranking/README.md) | DeepSeek、Qwen、MiniMax暂定评分，Gemini长期行为轨迹评分；非标准化能力榜 |
