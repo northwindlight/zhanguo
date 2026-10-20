@@ -1,0 +1,114 @@
+{
+  "date": "2026-10-20",
+  "status": "subjective provisional wild ranking; no full score out of 100",
+  "scale_max": 5,
+  "rubric": [
+    {
+      "id": "within_run_consistency",
+      "name": "局内长期一致性",
+      "weight": 20
+    },
+    {
+      "id": "cross_game_consistency",
+      "name": "跨独立对局一致性",
+      "weight": 15
+    },
+    {
+      "id": "strategy",
+      "name": "战略能力",
+      "weight": 25
+    },
+    {
+      "id": "error_control",
+      "name": "错误控制",
+      "weight": 15
+    },
+    {
+      "id": "speed",
+      "name": "单回合速度",
+      "weight": 10
+    },
+    {
+      "id": "token_efficiency",
+      "name": "token效率",
+      "weight": 5
+    },
+    {
+      "id": "economy",
+      "name": "经济表现",
+      "weight": 5
+    },
+    {
+      "id": "war",
+      "name": "战争表现",
+      "weight": 5
+    }
+  ],
+  "models": [
+    {
+      "model": "DeepSeek V4.1 Flash high",
+      "ratings": {
+        "within_run_consistency": 4,
+        "cross_game_consistency": null,
+        "strategy": 3.5,
+        "error_control": 4,
+        "speed": 4,
+        "token_efficiency": null,
+        "economy": null,
+        "war": null
+      },
+      "observed_weight": 70,
+      "observed_points": 53.5,
+      "access_source": "OpenCode"
+    },
+    {
+      "model": "Qwen3.8 Flash high",
+      "ratings": {
+        "within_run_consistency": 3.5,
+        "cross_game_consistency": null,
+        "strategy": 3.5,
+        "error_control": 3.5,
+        "speed": 3.5,
+        "token_efficiency": null,
+        "economy": null,
+        "war": null
+      },
+      "observed_weight": 70,
+      "observed_points": 49.0,
+      "access_source": "Qoder"
+    },
+    {
+      "model": "MiniMax M3.1 Flash high",
+      "ratings": {
+        "within_run_consistency": 2,
+        "cross_game_consistency": null,
+        "strategy": 3,
+        "error_control": 2.5,
+        "speed": 2,
+        "token_efficiency": null,
+        "economy": null,
+        "war": null
+      },
+      "observed_weight": 70,
+      "observed_points": 34.5,
+      "access_source": "MCode"
+    },
+    {
+      "model": "Gemini 3.8 Flash high",
+      "cohort": "historical asymmetric-effort game; periods 0..50; provisional reference rank 4, low confidence",
+      "ratings": {
+        "within_run_consistency": 1.5,
+        "cross_game_consistency": null,
+        "strategy": 2,
+        "error_control": 2,
+        "speed": null,
+        "token_efficiency": null,
+        "economy": null,
+        "war": null
+      },
+      "observed_weight": 60,
+      "observed_points": 22.0,
+      "access_source": "反重力（Antigravity）"
+    }
+  ]
+}

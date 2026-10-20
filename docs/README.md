@@ -34,6 +34,8 @@
 
 ## 研究与历史资料
 
+- [研究文章与长任务野榜](../research/papers/README.md)：四模型的主观观察、评分规则、来源与局限。
+
 - [消费总量评测口径论文](research/消费总量评测指标论证.md)：消费与投资、资本积累、有效需求、充分市场下的消费价值证明、内生价格的跨局比较与探针识别边界；[实现与复现附录](research/消费指标实现与复现.md)、[消费指标实验](../experiments/consumption_metric/README.md)。2026-10-15 的[静态核对快照](research/消费指标实现核对.json)保留其各自口径与源码指纹。
 - [公开真实对局资料](../research/game-records/README.md)：历史原始资料，独立于源码发行包和自动测试。
 - [历史匈奴教义](archive/strategy/匈奴教义.md)：旧版人类侧策略资料；当前政体入口见 [huns](../mods/native/polities/huns/README.md)。

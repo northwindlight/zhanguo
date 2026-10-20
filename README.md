@@ -8,6 +8,8 @@
 
 ## 真实对局资料
 
+[研究文章与长任务野榜](research/papers/README.md)：DeepSeek、Qwen、MiniMax与Gemini在大战略游戏中的行为观察和主观评分，明确区分实测、假说与不对称历史样本。
+
 [独立研究目录](research/game-records/README.md) 收录实际游玩的完整存档和原始日志，供研究与参考：
 
 | 对局 | 保存回合 | 使用模型 |
