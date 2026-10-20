@@ -32,7 +32,7 @@ DESCRIPTIONS = {
     'bloc_dissolve': '盟主解散和平时期的联盟；战时不能解散。',
     'bloc_transfer': '盟主把领导权转交给现有其他成员，target 使用成员的国家键；剧本锁定特殊宗主盟主权时不可移交。',
     'bloc_rename': '盟主修改联盟显示名；不能有空白或与其他联盟重名。',
-    'declare_war': '向另一外交实体宣战；休战期间不能宣战，本方联盟先表决。攻击联盟任一成员即与全盟交战，防守全盟无需另投票；原防守实体的直接保障/共同防御再传导一跳，不递归。保障不协助主动进攻；之后 attack 不重复传播宣战。',
+    'declare_war': '向另一外交实体宣战；休战期间不能宣战，本方联盟先表决。攻击联盟任一成员即与全盟交战，防守全盟无需另投票；原防守实体的直接保障/共同防御再传导一跳，不递归。保障不协助主动进攻；宣战一刻战线冻结，此后对同一战线的 attack 不重复触发条约、也不追加参战方，只有新的合法宣战可增援既有战线。',
     'offer_peace': '向敌方战争主导实体代表求和，双方主导者都可发起；普通跟随方不能代谈。kind=white 白和、pay 本方赔款、demand 对方赔款；赔款须 gold>0。kind=submit 本国称臣、subjugate 要求对方称臣，须 gold=0，附庸接受持续上贡和权力限制，其他战线须已结束，不能成环；联盟依正常表决，称臣代表在和平生效后退出原联盟，其他盟友不随之成为附庸。truce 为休战周期数。联盟先表决，接受后整条战线停战；剧本可将指定宗主的附庸自动转为特殊附庸联盟。',
     'accept_peace': '仅 foreign 邀约中 can_accept=true 的战争代表可接受，普通联盟成员应查 vote_ids 后使用 vote 表态。由收到提议的战争代表接受 query(panel=foreign) 待回应提议中的和平提议，offer 为整数编号；联盟可能先表决。',
     'reject_peace': '仅 foreign 邀约中 can_reject=true 的战争代表可拒绝，普通联盟成员应查 vote_ids 后使用 vote 表态。由收到提议的战争代表拒绝和平提议，offer 为 query(panel=foreign) 待回应提议中的整数编号，战争继续；普通跟随方不能代拒。',
@@ -117,9 +117,15 @@ def tools(runtime):
     def vote(world, actor, vote: int, accept: bool | None):
         return runtime.player_api(world, 'native:diplomacy').vote(actor, vote, accept)
 
+    def war_preview(world, actor, target: str):
+        return runtime.player_api(world, 'native:diplomacy').war_preview(actor, target)
+
     result.extend((
         Action('vote', vote, owner='native:diplomacy', api=('vote',), groups=GROUPS['vote'],
              description='对 query(panel=foreign) 投票中本国有资格且当前开放的投票表态：vote 为整数编号，accept=true 赞成、false 反对。仅发起后的下一周期可投票或改票，accept=null 显式弃权；结束回合仍未投票则自动反对；显式弃权保留，赞成多于反对通过；开票前仅自己选票可见，不公开他国是否已投或票数；周期末向全体选民公开记名开票结果，投票通过仍须外交执行生效。'),
+        Tool('war', war_preview, owner='native:diplomacy', api=('war_preview',),
+             read_only=True, panel=True,
+             description='宣战推演：不改变任何状态，按当前条约与战线模拟本国向 target 宣战的结果——最终攻守双方、谁会因直接条约参战、谁因休战或已在交战而未能参战、哪些条约会作废、是否并入既有战线。target 用国家键、联盟 id 或外交实体键。条款只触发原防守实体的直接保障/共同防御一跳：被卷入的防守方不再触发它自己的条约，第二跳国家一定不参战；保障与共同防御也都不会替主动进攻方召来援军。宣战一刻战线冻结，此后对同一战线的 attack 不会再追加参战方。'),
     ))
     return tuple(result)
 
@@ -221,8 +227,48 @@ def _action_receipt(action, args, receipt, actor, ctx):
     return None
 
 
+def _war(data, args, actor, ctx):
+    name = lambda value: ctx.name(value, ctx._names)
+    names = lambda values: '、'.join(name(v) for v in values) or ctx.text('tool.diplomacy.none')
+    labels = lambda values: '、'.join(values) or ctx.text('tool.diplomacy.none')
+    pact = lambda kind: ctx.text('tool.diplomacy.pact_' + kind)
+    lines = [ctx.text('tool.war.head', attacker=data['actor_label'], target=data['target_label'])]
+    if not data.get('legal', True):
+        reason = data.get('reason', 'blocked')
+        if reason == 'truce':
+            truce = data['truce']
+            detail = ctx.text('tool.war.reason.truce', a=truce['a_label'], b=truce['b_label'], until=truce['until'])
+        elif reason == 'blocked':
+            detail = ctx.text('tool.war.reason.blocked', message=data.get('message', ''))
+        else:
+            detail = ctx.text('tool.war.reason.' + reason)
+        lines.append(ctx.text('tool.war.illegal', reason=detail))
+        return '\n'.join(lines)
+    if data.get('front'):
+        front = data['front']
+        lines.append(ctx.text('tool.war.front', war=front['war'], side=ctx.text('tool.war.side.' + front['side']),
+                              added=labels(front['added'])))
+    lines.append(ctx.text('tool.war.attackers', names=names(data['attackers'])))
+    lines.append(ctx.text('tool.war.defenders', names=names(data['defenders'])))
+    for row in data.get('joined', ()):
+        lines.append(ctx.text('tool.war.joined.' + row['pact'], entity=row['label'], partner=data['target_label']))
+    for row in data.get('skipped', ()):
+        lines.append(ctx.text('tool.war.skipped.' + row['reason'], entity=row['label']))
+    for row in data.get('not_pulled', ()):
+        lines.append(ctx.text('tool.war.not_pulled', entity=row['label'], via=labels(row['via_labels']),
+                              kinds='、'.join(pact(kind) for kind in row['kinds'])))
+    if data.get('voided'):
+        lines.append(ctx.text('tool.war.voided', rows='、'.join(
+            f'{row["a_label"]}—{row["b_label"]} {pact(row["kind"])}' for row in data['voided'])))
+    if data.get('requires_vote'):
+        lines.append(ctx.text('tool.war.vote'))
+    lines.append(ctx.text('tool.war.frozen'))
+    lines.append(ctx.text('tool.war.note'))
+    return '\n'.join(lines)
+
+
 RECEIPTS = {action: (lambda args, receipt, actor, ctx, action=action: _action_receipt(action, args, receipt, actor, ctx))
             for action in (*ARGUMENTS, 'vote')}
-PANELS = {'diplomacy': _diplomacy}
+PANELS = {'diplomacy': _diplomacy, 'war': _war}
 CAPTIONS = {action: (lambda args, actor, receipt, ctx, action=action: ctx.text('tool.caption.' + action))
             for action in (*ARGUMENTS, 'vote', 'diplomacy')}

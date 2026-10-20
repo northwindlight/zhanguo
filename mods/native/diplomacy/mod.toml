@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:diplomacy"
-Version = "3.1.0"
+Version = "3.2.0"
 Entry = "mods.native.diplomacy.mod:DiplomacyMod"
 Requires = ["native:nations", "native:government", "native:resources", "native:buildings", "native:territory"]
 After = ["native:nations", "native:government", "native:territory"]
@@ -25,5 +25,5 @@ FallTruce = 10
 OrdinaryTribute = 15
 
 [PlayerAPI]
-Methods = ["submit", "vote", "snapshot"]
-ReadOnly = ["snapshot"]
+Methods = ["submit", "vote", "snapshot", "war_preview"]
+ReadOnly = ["snapshot", "war_preview"]

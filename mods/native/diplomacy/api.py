@@ -13,3 +13,6 @@ class DiplomacyAPI:
 
     def snapshot(self, actor):
         return self.world.diplomacy.snapshot(actor)
+
+    def war_preview(self, actor, target):
+        return self.world.diplomacy.war_preview(actor, target)

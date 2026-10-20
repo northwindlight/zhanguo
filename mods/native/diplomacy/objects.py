@@ -116,6 +116,8 @@ class Diplomacy(Vassalage):
         self._vassals={};self._subject_alliance=None
         self._tribute_rates={'ordinary':ordinary_tribute}
         self._world,self._domain = None,None
+        # Last declaration plan, for the read-only preview; never persisted.
+        self._last_war_plan=None
 
     def bind_state(self, world, key):
         if self._world is not None and self._world is not world:raise ModError('Diplomacy already bound')
@@ -177,6 +179,17 @@ class Diplomacy(Vassalage):
     def entities(self):return tuple(sorted({self.entity(n) for n in self._ids()}))
     def allied(self, a, b):return a in self._ids() and b in self._ids() and self.entity(a)==self.entity(b)
     def war_between(self, a, b):return any((a in w.attackers and b in w.defenders) or (b in w.attackers and a in w.defenders) for w in self._wars)
+    def _obligation(self, entity, defender):
+        """Defensive duty toward the original defender entity: first hop only.
+
+        Guarantee points from guarantor to protected; defense is symmetric.
+        A pact with a defender that was itself dragged in never matches, which
+        is exactly why a second hop cannot happen.
+        """
+        for p in self._pacts:
+            if p.kind=='guarantee' and (p.a,p.b)==(entity,defender):return p
+            if p.kind=='defense' and {p.a,p.b}=={entity,defender}:return p
+        return None
     def at_war(self, actor):return any(actor in w.attackers+w.defenders for w in self._wars)
     def _entity_war(self, entity):return any(self.at_war(n) for n in self.members(entity))
     def passage(self, actor, owner):return owner is None or self.allied(actor,owner) or self.war_between(actor,owner)
@@ -392,28 +405,108 @@ class Diplomacy(Vassalage):
                 if not any(same_camp(x,y) for x in attackers for y in getattr(old,side)):continue
                 foes=getattr(old,other)
                 added=tuple(x for x in attackers if x not in getattr(old,side) and not any(self.war_between(x,y) or self.active_truce(x,y) for y in foes))
-                if not added:raise ValueError('无法加入既有战线：已交战或与该战线对方有休战')
+                if not added:
+                    self._last_war_plan={'mode':'reinforce_blocked','war':old.id,'side':side}
+                    raise ValueError('无法加入既有战线：已交战或与该战线对方有休战')
                 war=replace(old,**{side:tuple(dict.fromkeys((*getattr(old,side),*added)))})
                 self._wars[self._wars.index(old)]=war
                 self._pacts=[p for p in self._pacts if not any({p.a,p.b}=={self.entity(x),self.entity(y)} for x in added for y in foes)]
+                self._last_war_plan={'mode':'reinforce','war':old.id,'side':side,'added':list(added)}
                 self._void_pending(False)
                 return war
-        skipped=[]
+        skipped=[];notes=[]
         for entity in self.entities():
             if entity in (a,b):continue
-            obliged=any(p.kind=='guarantee' and (p.a,p.b)==(entity,b) or p.kind=='defense' and {p.a,p.b}=={entity,b} for p in self._pacts)
-            if not obliged:continue
+            obligation=self._obligation(entity,b)
+            if obligation is None:continue
             members=self.members(entity)
-            if any(self.war_between(x,y) for x in members for y in (*attackers,*defenders)):continue
+            if any(self.war_between(x,y) for x in members for y in (*attackers,*defenders)):
+                notes.append({'entity':entity,'status':'skipped','reason':'already_at_war','pact':obligation.kind});continue
             if any(self.active_truce(x,y) for x in members for y in attackers):
-                skipped.extend(members);continue
+                skipped.extend(members)
+                notes.append({'entity':entity,'status':'skipped','reason':'truce','pact':obligation.kind});continue
             defenders.extend(members)
+            notes.append({'entity':entity,'status':'joined','pact':obligation.kind})
         war=War(self._next_war,a,b,tuple(attackers),tuple(dict.fromkeys(defenders)))
         self._next_war+=1;self._wars.append(war)
         self._pacts=[p for p in self._pacts if not any({p.a,p.b}=={self.entity(x),self.entity(y)} for x in attackers for y in defenders)]
         if skipped:self._effects.append(('notice','保障/共同防御义务未触发：援军与攻方有休战，和约优先；未参战。',tuple((*skipped,*self.members(b))),False))
+        self._last_war_plan={'mode':'new','notes':notes,
+                             'attackers':list(attackers),'defenders':list(dict.fromkeys(defenders))}
         self._void_pending(False)
         return war
+
+    def war_preview(self, actor, target):
+        """Read-only declaration preview: run the real declaration on a fork.
+
+        The camps are whatever ``_apply_declare_war`` actually produces, so the
+        preview cannot drift from the engine. Everything else is explanation:
+        which direct pacts fired, which were blocked, and which pacts do *not*
+        fire because they belong to a defender that was merely dragged in.
+        """
+        self._living(actor)
+        # Same target resolution as the submit path: alliance/entity keys follow
+        # their current representative.
+        target=self.representative(self._target_entity(target))
+        a,b=self._pair(actor,target)
+        data={'actor':actor,'target':b,'actor_label':self._label('nation/'+actor),
+              'target_label':self._label(b),'attacker_entity':a,'defender_entity':b,
+              'legal':True,'reason':'','message':'','truce':None,
+              'requires_vote':self.alliance(actor) is not None,
+              'attackers':[],'defenders':[],'joined':[],'skipped':[],
+              'not_pulled':[],'voided':[],'front':None}
+        if not self.diplomatic_authority(actor):
+            return {**data,'legal':False,'reason':'vassal'}
+        if not self._permits(actor,'action.declare_war'):
+            return {**data,'legal':False,'reason':'policy'}
+        if self.war_between(actor,target):
+            return {**data,'legal':False,'reason':'already_at_war'}
+        for x in self.members(a):
+            for y in self.members(b):
+                if not self.active_truce(x,y):continue
+                until=self._truces.get(tuple(sorted((self.entity(x),self.entity(y)))),0)
+                return {**data,'legal':False,'reason':'truce',
+                        'truce':{'a':self.entity(x),'b':self.entity(y),
+                                 'a_label':self._label(self.entity(x)),
+                                 'b_label':self._label(self.entity(y)),'until':until}}
+        draft=self._fork();draft._last_war_plan=None
+        try:draft._apply_declare_war(actor,target,approved=True)
+        except ValueError as exc:
+            return {**data,'legal':False,'reason':'blocked','message':str(exc)}
+        plan=getattr(draft,'_last_war_plan',None) or {'mode':'new','notes':[]}
+        data['attackers']=list(plan.get('attackers',()))
+        data['defenders']=list(plan.get('defenders',()))
+        if plan.get('mode')=='reinforce':
+            new=next((w for w in draft._wars if w.id==plan['war']),None)
+            if new is not None:
+                data['front']={'war':new.id,'side':plan['side'],
+                               'added':[self._label(n) for n in plan.get('added',())],
+                               'attackers':list(new.attackers),'defenders':list(new.defenders)}
+                data['attackers']=list(new.attackers);data['defenders']=list(new.defenders)
+        data['voided']=[{'kind':p.kind,'a':p.a,'b':p.b,
+                         'a_label':self._label(p.a),'b_label':self._label(p.b)}
+                        for p in self._pacts if p not in draft._pacts]
+        for note in plan.get('notes',()):
+            row={'entity':note['entity'],'label':self._label(note['entity']),
+                 'pact':note['pact'],'members':list(self.members(note['entity']))}
+            (data['joined'] if note['status']=='joined' else data['skipped']).append(row)
+        if plan.get('mode')=='new':
+            engaged={b}|{self.entity(n) for n in data['defenders']}
+            considered={row['entity'] for row in (*data['joined'],*data['skipped'])}
+            for entity in self.entities():
+                if entity in (a,b) or entity in engaged or entity in considered:continue
+                # Only duties that point *from* this entity to a dragged-in
+                # defender could be mistaken for a second hop; a defender's
+                # guarantee on this entity protects it and is irrelevant here.
+                relevant=[p for p in self._pacts if entity in (p.a,p.b)
+                          and ({p.a,p.b}-{entity})&engaged
+                          and (p.kind=='defense' or p.kind=='guarantee' and p.a==entity)]
+                if not relevant:continue
+                via=sorted({other for p in relevant for other in (p.a,p.b) if other!=entity and other in engaged})
+                data['not_pulled'].append({'entity':entity,'label':self._label(entity),
+                                           'via':via,'via_labels':[self._label(v) for v in via],
+                                           'kinds':sorted({p.kind for p in relevant})})
+        return data
 
     def _apply_offer_peace(self, actor, target, kind: str, gold: int=0, truce: int=0, note: str='', *, approved=False):
         integer(gold);integer(truce)
