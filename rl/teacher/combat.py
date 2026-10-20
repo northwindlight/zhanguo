@@ -16,7 +16,7 @@ v10 有同款计算的**内联线性版**（`expand_rule_v10.py:_fight_cost`）�
   · 伤害在该方各军之间**按序分摊**（引擎 `_spread` 口径：余数给靠前的军）。
 
 ★ 迷雾：**看不见的守军不许猜具体数字** —— 按"一支满血野人"估，而且野人的攻击力
-也必须**现读** `UNIT_TYPES["步"]["atk"]`，**不能写 `hp // 2`**（真值下 100/2=50 恰好
+也必须**现读** `UNIT_TYPES["native:infantry"]["atk"]`，**不能写 `hp // 2`**（真值下 100/2=50 恰好
 等于 atk，看着对；一抖动 hp 与 atk 各走各的，这个估值就偏了——v10 的注释里记着这笔账）。
 
 用法：
@@ -50,7 +50,7 @@ def defense_pct(world, x: int, y: int, def_owner: str | None, *, visible: bool) 
     保守 = 宁可把敌人估强一点：估弱的代价是送死，估强的代价只是晚一回合动手。
     """
     if not visible:
-        return max(rules.terrain_defense(t) for t in rules.TERRAIN_NAMES)
+        return max(rules.terrain_defense(t) for t in rules.terrain_names())
     return world._defense_pct(x, y, def_owner)
 
 
@@ -71,11 +71,11 @@ def _guardian_profile() -> tuple[int, int]:
 
     野人是引擎 `_spawn_guardian`（`mp.py:668`）造出来的，**没有 `type` 键**
     （只有 `hp: ARMY_MAX_HP`）⇒ `game.unit_kind` 按步兵兜底 ⇒ 一个合成体
-    `{"type": "步"}` 经 `unit_max_hp`/`unit_atk` 读出来的值与真野人**逐字相同**，
+    `{"type": "native:infantry"}` 经 `unit_max_hp`/`unit_atk` 读出来的值与真野人**逐字相同**，
     而且**现读**（抖动/调平衡都跟得上）、**不扫全图**（`assess` 每个目标都要调一次，
     在 `world.armies` 里 `next(...)` 一遍就是 O(目标数 × 军队数)）。
     """
-    return unit_max_hp({"type": "步"}), unit_atk({"type": "步"})
+    return unit_max_hp({"type": "native:infantry"}), unit_atk({"type": "native:infantry"})
 
 
 def _spread(dmg: int, units: list[list[int]]) -> None:

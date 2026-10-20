@@ -78,7 +78,7 @@ class TestNoiseFloor(unittest.TestCase):
         sb = Sandbox(seed=7, size=12).reset()
         w = sb.world
         cell = next(c for c, t in sorted(w.tiles.items()) if t["owner"] == "乙")
-        w.tiles[cell]["terrain"] = "平原"
+        w.tiles[cell]["terrain"] = "native:plain"
         w.armies.clear()
         for name, kinds in sides.items():
             for i, k in enumerate(kinds):
@@ -91,7 +91,7 @@ class TestNoiseFloor(unittest.TestCase):
 
     def test_deterministic_battle_has_zero_floor(self):
         """一边倒（p 是 0/1）⇒ 抽样抖动为 0 ⇒ 噪声底必须是 0。"""
-        w, cell = self._battle({"甲": ["步"] * 6, "乙": ["民"]})
+        w, cell = self._battle({"甲": ["native:infantry"] * 6, "乙": ["native:militia"]})
         b = CP.build(w, *cell)
         o = CP.assess(b)
         self.assertGreater(o.p_win["甲"], 0.999, "用例前提：这仗必须是一边倒")
@@ -99,7 +99,7 @@ class TestNoiseFloor(unittest.TestCase):
 
     def test_floor_shrinks_as_sqrt_of_trials(self):
         """★ 噪声底 ∝ 1/√M —— 这条不成立就说明公式写错了（会把 MC 抖动当信号）。"""
-        w, cell = self._battle({"甲": ["步"], "乙": ["步"]})
+        w, cell = self._battle({"甲": ["native:infantry"], "乙": ["native:infantry"]})
         b = CP.build(w, *cell)
         o = CP.assess(b)
         f1, f16 = P.tv_floor(b, o, 1000), P.tv_floor(b, o, 16000)
@@ -124,7 +124,7 @@ class TestRawDamageHook(unittest.TestCase):
         w.armies.clear()
         for name, hp in (("甲", 100), ("乙", 100)):
             gid, seq = w._new_army(name)
-            w.armies.append({"id": seq, "gid": gid, "name": name, "type": "步", "hp": hp,
+            w.armies.append({"id": seq, "gid": gid, "name": name, "type": "native:infantry", "hp": hp,
                              "x": cell[0], "y": cell[1], "owner": name,
                              "moved_turn": -1, "engaged": name == "甲"})
         w.rng.seed(3)
@@ -144,7 +144,7 @@ class TestRawDamageHook(unittest.TestCase):
         w.armies.clear()
         for name, hp in (("甲", 100), ("乙", 1)):
             gid, seq = w._new_army(name)
-            w.armies.append({"id": seq, "gid": gid, "name": name, "type": "步", "hp": hp,
+            w.armies.append({"id": seq, "gid": gid, "name": name, "type": "native:infantry", "hp": hp,
                              "x": cell[0], "y": cell[1], "owner": name,
                              "moved_turn": -1, "engaged": name == "甲"})
         w.rng.seed(11)

@@ -114,7 +114,7 @@ class TestEngineActuallySeesTheAlliance(unittest.TestCase):
         for name in b:
             for cell, t in list(sb.world.tiles.items()):
                 if t["owner"] == name:
-                    t["buildings"]["市政厅"] = 0
+                    t["buildings"]["native:town-hall"] = 0
             if name in sb.world.nations:
                 sb.world.nations.pop(name)          # 模拟被灭国
         ent = sb.winning_entity()

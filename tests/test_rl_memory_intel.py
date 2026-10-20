@@ -53,7 +53,7 @@ def _intel(glob_row) -> dict:
 
 def _an_enemy_hall(sb, me):
     return next(c for c, t in sorted(sb.world.tiles.items())
-                if t["owner"] != me and t["buildings"].get("市政厅", 0) > 0)
+                if t["owner"] != me and t["buildings"].get("native:town-hall", 0) > 0)
 
 
 class TestOwnershipIsOnlyWrittenWhenVisible(unittest.TestCase):
@@ -179,7 +179,7 @@ class TestIntelInjection(unittest.TestCase):
         sb = _sb()
         me, other = sb.players[0], sb.players[1]
         self.assertTrue(sb.world.war_between(me, other), "这一对应当是敌对（缺省全对宣战）")
-        sb.tell_armies(me, {other: {"步": 3, "骑": 1, "民": 4}}, turn=sb.turn)
+        sb.tell_armies(me, {other: {"native:infantry": 3, "native:cavalry": 1, "native:militia": 4}}, turn=sb.turn)
         v = _intel(E.encode_glob(sb, me))
         self.assertGreater(v["intel_rival_步"], 0.0, "军情没进「对手」那一档")
         self.assertEqual(v["intel_ally_步"], 0.0, "注到对手身上的军情漏进了盟友档")
@@ -189,7 +189,7 @@ class TestIntelInjection(unittest.TestCase):
         sb = _sb()
         me, other = sb.players[0], sb.players[1]
         sb.turn = 2                                   # ★ 情报只能来自"当前或过去"
-        sb.tell_armies(me, {other: {"步": 3}}, turn=2)
+        sb.tell_armies(me, {other: {"native:infantry": 3}}, turn=2)
         self.assertEqual(_intel(E.encode_glob(sb, me))["intel_rival_age"], 0.0)
         sb.turn = 12
         self.assertGreater(_intel(E.encode_glob(sb, me))["intel_rival_age"], 0.0,
@@ -214,9 +214,9 @@ class TestIntelInjection(unittest.TestCase):
         for extra in ({"x": 9}, {"gid": "g9"}, {"no": 77}, {"hp": 100}):
             with self.assertRaises(ValueError,
                                    msg=f"情报塞了 {extra} 却没报错 ⇒ 偷看通道留了门"):
-                sb.tell_armies(me, {other: {"步": 3, **extra}})
+                sb.tell_armies(me, {other: {"native:infantry": 3, **extra}})
         # ★ 合法的数量照收，且观测里**只有** 12 个情报列
-        sb.tell_armies(me, {other: {"步": 3, "骑": 1}})
+        sb.tell_armies(me, {other: {"native:infantry": 3, "native:cavalry": 1}})
         v = _intel(E.encode_glob(sb, me))
         self.assertGreater(v["intel_rival_步"], 0.0, "数量该进去")
         self.assertEqual(len(v), 12, f"情报列不止 12 个了：{sorted(v)}")
@@ -226,12 +226,12 @@ class TestIntelInjection(unittest.TestCase):
         sb = _sb()
         me, a, b = sb.players[0], sb.players[1], sb.players[2]
         sb.turn = 3
-        sb.tell_armies(me, {a: {"步": 1}, b: {"步": 7}}, turn=3)
+        sb.tell_armies(me, {a: {"native:infantry": 1}, b: {"native:infantry": 7}}, turn=3)
         self.assertAlmostEqual(_intel(E.encode_glob(sb, me))["intel_rival_步"],
                                min(1.0, 7 / S.INTEL_ARMY_SCALE), places=6,
                                msg="同回合应取国名靠前的那份（确定性）")
         sb.turn = 9
-        sb.tell_armies(me, {a: {"步": 5}}, turn=9)      # a 的更新
+        sb.tell_armies(me, {a: {"native:infantry": 5}}, turn=9)      # a 的更新
         self.assertAlmostEqual(_intel(E.encode_glob(sb, me))["intel_rival_步"],
                                min(1.0, 5 / S.INTEL_ARMY_SCALE), places=6,
                                msg="后到的那份不算「最新」")
@@ -241,7 +241,7 @@ class TestIntelInjection(unittest.TestCase):
         sb = _sb()
         me, other = sb.players[0], sb.players[1]
         with self.assertRaises(ValueError, msg="未来回合的情报被静默收下了"):
-            sb.tell_armies(me, {other: {"步": 3}}, turn=5)
+            sb.tell_armies(me, {other: {"native:infantry": 3}}, turn=5)
 
     def test_no_intel_means_all_zeros(self):
         sb = _sb()
@@ -253,7 +253,7 @@ class TestIntelInjection(unittest.TestCase):
         """★ 给甲的情报不许出现在乙的观测里（同 `tell_halls`）。"""
         sb = _sb()
         me, other = sb.players[0], sb.players[1]
-        sb.tell_armies(me, {other: {"步": 6}})
+        sb.tell_armies(me, {other: {"native:infantry": 6}})
         self.assertEqual(_intel(E.encode_glob(sb, other))["intel_rival_步"], 0.0,
                          "给甲的军情漏进了乙的观测")
 
@@ -261,7 +261,7 @@ class TestIntelInjection(unittest.TestCase):
         """★ 每局重开情报账本（上一局的战报对新一局是纯噪声）。"""
         sb = _sb()
         me, other = sb.players[0], sb.players[1]
-        sb.tell_armies(me, {other: {"步": 6}})
+        sb.tell_armies(me, {other: {"native:infantry": 6}})
         self.assertGreater(len(sb.intel), 0)
         sb2 = sb.reset()
         self.assertEqual(len(sb2.intel), 0, "新一局带着上一局的情报开局")
@@ -269,7 +269,7 @@ class TestIntelInjection(unittest.TestCase):
     def test_intel_clone_is_independent(self):
         sb = _sb()
         me, other = sb.players[0], sb.players[1]
-        sb.tell_armies(me, {other: {"步": 6}})
+        sb.tell_armies(me, {other: {"native:infantry": 6}})
         c = sb.clone()
         c.intel._by.clear()
         self.assertGreater(len(sb.intel), 0, "副本改情报改到了本体")

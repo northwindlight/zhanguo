@@ -74,7 +74,7 @@ def targets(world, name: str, mask, *, enemy: str | None,
     out: set = set()
 
     for cell, t in sorted(world.tiles.items()):
-        if enemy and t["owner"] == enemy and t["buildings"].get("市政厅", 0) > 0:
+        if enemy and t["owner"] == enemy and t["buildings"].get("native:town-hall", 0) > 0:
             out.add(cell)                              # ★ 国祚：公开，不看视野
     for cell, t in sorted(world.tiles.items()):
         if cell in mask and t["owner"] not in (name, None) \
@@ -86,7 +86,7 @@ def targets(world, name: str, mask, *, enemy: str | None,
 
     if defend:
         for cell, t in sorted(world.tiles.items()):
-            if t["owner"] == name and t["buildings"].get("市政厅", 0) > 0:
+            if t["owner"] == name and t["buildings"].get("native:town-hall", 0) > 0:
                 out.add(cell)                          # ★ 守家目标
 
     if scout:
@@ -105,7 +105,7 @@ def _scout_cells(world, name: str, mask, enemy: str | None, *, push: int) -> set
         return set()
     ecore = None
     for cell, t in sorted(world.tiles.items()):
-        if t["owner"] == enemy and t["buildings"].get("市政厅", 0) > 0:
+        if t["owner"] == enemy and t["buildings"].get("native:town-hall", 0) > 0:
             ecore = cell
             break
     if ecore is None:
@@ -129,7 +129,7 @@ def _scout_cells(world, name: str, mask, enemy: str | None, *, push: int) -> set
 
 def _home_of(world, name: str) -> tuple[int, int] | None:
     for cell, t in sorted(world.tiles.items()):
-        if t["owner"] == name and t["buildings"].get("市政厅", 0) > 0:
+        if t["owner"] == name and t["buildings"].get("native:town-hall", 0) > 0:
             return cell
     return None
 

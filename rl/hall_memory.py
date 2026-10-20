@@ -47,7 +47,7 @@
 """
 from __future__ import annotations
 
-HALL = "市政厅"
+HALL = "native:town-hall"
 
 
 def owner_seen(world, cell, mask, known) -> str | None:
@@ -87,7 +87,7 @@ def cells_of_seen(world, name: str | None, mask, known) -> list:
         return []
     out = []
     for cell, t in sorted(world.tiles.items()):
-        if t["buildings"].get("市政厅", 0) <= 0:
+        if t["buildings"].get("native:town-hall", 0) <= 0:
             continue
         # ★ 记忆只放行"哪一格有厅"；`mask=None`（自家/盟友，全知）⇒ 一律放行
         if mask is not None and cell not in mask \

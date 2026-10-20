@@ -42,18 +42,18 @@ def _fill_foot(sb, me):
       这里只是把它写实（免得将来 BASE_CAP/cap_of 一改，用例悄悄变成空跑）。
     """
     foot = sb.cap_of(me)
-    have = sb.count_of(me, "步")
+    have = sb.count_of(me, "native:infantry")
     if have < foot:
-        sb.spawn(me, foot - have, kind="步")
+        sb.spawn(me, foot - have, kind="native:infantry")
     sb.turn = SB.RESUPPLY_EVERY          # ★ 必须落在补员回合上，否则 `resupply` 直接返回
-    assert sb.count_of(me, "步") == foot, f"步兵没拉满：{sb.count_of(me, '步')} vs {foot}"
+    assert sb.count_of(me, "native:infantry") == foot, f"步兵没拉满：{sb.count_of(me, '步')} vs {foot}"
     return foot
 
 
 def _kill_foot(sb, me, n):
     """打掉 `n` 支步兵（直接改 `world`，形状等价于战损）—— 用来造"缺员"。"""
     ids = [id(a) for a in sb.world.armies
-           if a["owner"] == me and a.get("type", "步") == "步"][:n]
+           if a["owner"] == me and a.get("type", "native:infantry") == "native:infantry"][:n]
     sb.world.armies = [a for a in sb.world.armies if id(a) not in set(ids)]
 
 
@@ -65,9 +65,9 @@ class TestMilitiaCap(unittest.TestCase):
         over = 0
         for _ in range(20):                       # 每轮 厅×1=2 支，20 轮足够撞上限
             sb.resupply()
-            over += max(0, sb.count_of(me, "民") - SB.MILITIA_PER_FOOT * foot)
+            over += max(0, sb.count_of(me, "native:militia") - SB.MILITIA_PER_FOOT * foot)
         self.assertEqual(over, 0, "中途越过上限了")
-        self.assertEqual(sb.count_of(me, "民"), SB.MILITIA_PER_FOOT * foot,
+        self.assertEqual(sb.count_of(me, "native:militia"), SB.MILITIA_PER_FOOT * foot,
                          "跑够多轮后应当**恰好**停在 步兵×2 上")
 
     def test_constant_is_what_binds(self):
@@ -81,7 +81,7 @@ class TestMilitiaCap(unittest.TestCase):
         with mock.patch.object(SB, "MILITIA_PER_FOOT", 5):
             for _ in range(20):
                 sb.resupply()
-        self.assertEqual(sb.count_of(me, "民"), 5 * foot,
+        self.assertEqual(sb.count_of(me, "native:militia"), 5 * foot,
                          "常量调大后上限**必须**跟着动 —— 否则被别的东西卡住了")
 
     def test_full_roster_spawns_nothing(self):
@@ -91,10 +91,10 @@ class TestMilitiaCap(unittest.TestCase):
         foot = _fill_foot(sb, me)
         for _ in range(20):
             sb.resupply()
-        n_at_cap = sb.count_of(me, "民")
+        n_at_cap = sb.count_of(me, "native:militia")
         mine_before = len(sb.armies_of(me))
         notes = sb.resupply()
-        self.assertEqual(sb.count_of(me, "民"), n_at_cap, "满编后还在出民兵")
+        self.assertEqual(sb.count_of(me, "native:militia"), n_at_cap, "满编后还在出民兵")
         self.assertEqual(len(sb.armies_of(me)), mine_before, "满编后我这国的军队还在涨")
         mine = [t for t in notes if t.startswith(me)]
         self.assertTrue(any("满编" in t for t in mine),
@@ -107,12 +107,12 @@ class TestMilitiaCap(unittest.TestCase):
         foot = _fill_foot(sb, me)
         for _ in range(20):
             sb.resupply()
-        mil = sb.count_of(me, "民")
+        mil = sb.count_of(me, "native:militia")
         _kill_foot(sb, me, foot // 2)             # 打掉一半步兵
-        now_foot = sb.count_of(me, "步")
+        now_foot = sb.count_of(me, "native:infantry")
         self.assertLess(now_foot, foot, "减员没生效，这个用例是空跑的")
         sb.resupply()
-        self.assertEqual(sb.count_of(me, "民"), mil,
+        self.assertEqual(sb.count_of(me, "native:militia"), mil,
                          "现役民兵**不许**因为步兵死了就被裁掉（只限增长）")
 
     def test_understrength_still_gets_infantry(self):
@@ -123,11 +123,11 @@ class TestMilitiaCap(unittest.TestCase):
         #   才谈得上"缺员"。不这么做，这个用例会**静默走成民兵分支**（假绿）。
         _kill_foot(sb, me, 2)
         sb.turn = SB.RESUPPLY_EVERY
-        before = sb.count_of(me, "步")
+        before = sb.count_of(me, "native:infantry")
         self.assertLess(before, sb.cap_of(me), "没造出缺口，这个用例是空跑的")
         notes = sb.resupply()
-        self.assertEqual(sb.count_of(me, "民"), 0, "缺员时不该出民兵")
-        self.assertGreater(sb.count_of(me, "步"), before, "缺员时该补步兵")
+        self.assertEqual(sb.count_of(me, "native:militia"), 0, "缺员时不该出民兵")
+        self.assertGreater(sb.count_of(me, "native:infantry"), before, "缺员时该补步兵")
         self.assertTrue(any("缺员" in t for t in notes if t.startswith(me)))
 
 

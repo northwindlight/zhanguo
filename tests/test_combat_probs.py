@@ -40,7 +40,7 @@ from rl.sandbox import Sandbox                        # noqa: E402
 TRIALS = 2000
 
 
-def stage(seed=3, size=14, owner="乙", sides=None, castle=0, terrain="丘陵",
+def stage(seed=3, size=14, owner="乙", sides=None, castle=0, terrain="native:hill",
           retreat=None, engaged=("甲",)):
     """摆一格战斗：`sides = {"甲": [兵种,…], "乙": […]}`。
 
@@ -51,13 +51,13 @@ def stage(seed=3, size=14, owner="乙", sides=None, castle=0, terrain="丘陵",
     cell = next(c for c, t in sorted(w.tiles.items()) if t["owner"] == owner)
     x, y = cell
     w.tiles[cell]["terrain"] = terrain
-    w.tiles[cell]["buildings"]["城堡"] = castle
+    w.tiles[cell]["buildings"]["native:castle"] = castle
     w.armies.clear()
     for name, kinds in (sides or {}).items():
         for i, k in enumerate(kinds):
             gid, seq = w._new_army(name)
             a = {"id": seq + i, "gid": gid, "name": f"{name}{seq}x{i}", "type": k,
-                 "hp": 100 if k != "民" else 80, "x": x, "y": y, "owner": name,
+                 "hp": 100 if k != "native:militia" else 80, "x": x, "y": y, "owner": name,
                  "moved_turn": -1, "engaged": name in engaged}
             if retreat and retreat[0] == name and retreat[1] == i:
                 a["retreat_to"] = [x, y]
@@ -106,12 +106,12 @@ class TestOddsVsEngine(unittest.TestCase):
     """① 结局分布 + ② 轮数分布，逐案与引擎对拍。"""
 
     CASES = [
-        ("2v1 步", dict(sides={"甲": ["步", "步"], "乙": ["步"]})),
-        ("2v2 步", dict(sides={"甲": ["步", "步"], "乙": ["步", "步"]})),
-        ("3v2 步 + L3城", dict(sides={"甲": ["步"] * 3, "乙": ["步"] * 2}, castle=3)),
-        ("2步 vs 3民", dict(sides={"甲": ["步", "步"], "乙": ["民"] * 3})),
-        ("2步1骑 vs 2步1民", dict(sides={"甲": ["步", "步", "骑"],
-                                       "乙": ["步", "步", "民"]})),
+        ("2v1 步", dict(sides={"甲": ["native:infantry", "native:infantry"], "乙": ["native:infantry"]})),
+        ("2v2 步", dict(sides={"甲": ["native:infantry", "native:infantry"], "乙": ["native:infantry", "native:infantry"]})),
+        ("3v2 步 + L3城", dict(sides={"甲": ["native:infantry"] * 3, "乙": ["native:infantry"] * 2}, castle=3)),
+        ("2步 vs 3民", dict(sides={"甲": ["native:infantry", "native:infantry"], "乙": ["native:militia"] * 3})),
+        ("2步1骑 vs 2步1民", dict(sides={"甲": ["native:infantry", "native:infantry", "native:cavalry"],
+                                       "乙": ["native:infantry", "native:infantry", "native:militia"]})),
     ]
 
     def test_outcome_and_rounds(self):
@@ -197,19 +197,19 @@ class TestRetreat(unittest.TestCase):
         """★ 局面必须选成"**真会死**"的：伤害被 `_spread` 摊平，一堆满血兵一轮打不死
         （不是 bug，是引擎事实）⇒ 只有己方快被打光时"撤退保命"才有非平凡答案。"""
         # 守方(cover=50) 2 支里撤 1：摊平后两支都只吃一半 ⇒ 必活
-        w, cell = stage(sides={"甲": ["步"] * 6, "乙": ["步", "步"]},
+        w, cell = stage(sides={"甲": ["native:infantry"] * 6, "乙": ["native:infantry", "native:infantry"]},
                         retreat=("乙", 0, 50))
         a = [x for x in w.armies if x["owner"] == "乙"][0]
         self.assertAlmostEqual(CP.retreat_odds(w, *cell, a),
                                self._one_round(w, cell, "乙", 0), delta=0.04)
         # 守方只剩 1 支：≥3 点骰子必死 ⇒ P≈1/3，**有鉴别力**的一档
-        w, cell = stage(sides={"甲": ["步"] * 6, "乙": ["步"]}, retreat=("乙", 0, 50))
+        w, cell = stage(sides={"甲": ["native:infantry"] * 6, "乙": ["native:infantry"]}, retreat=("乙", 0, 50))
         a = [x for x in w.armies if x["owner"] == "乙"][0]
         p = CP.retreat_odds(w, *cell, a)
         self.assertLess(p, 0.9, "1 支守军撤退不该必活 —— 这个案子失去鉴别力了")
         self.assertAlmostEqual(p, self._one_round(w, cell, "乙", 0), delta=0.04)
         # 进攻方撤退 ⇒ cover=100（吃全额）。若误用 50，这里会算成 ~1.0 而引擎是 0.0
-        w, cell = stage(sides={"甲": ["步", "步"], "乙": ["步"] * 6},
+        w, cell = stage(sides={"甲": ["native:infantry", "native:infantry"], "乙": ["native:infantry"] * 6},
                         retreat=("甲", 0, 100))
         a = [x for x in w.armies if x["owner"] == "甲"][0]
         p = CP.retreat_odds(w, *cell, a)
@@ -218,7 +218,7 @@ class TestRetreat(unittest.TestCase):
 
     def test_cover_enters_the_formula(self):
         """④ 同一份伤害，cover=50 只吃一半 —— 防"读了 cover 却没乘"。"""
-        w, cell = stage(sides={"甲": ["步"] * 6, "乙": ["步", "步"]})
+        w, cell = stage(sides={"甲": ["native:infantry"] * 6, "乙": ["native:infantry", "native:infantry"]})
         b = CP.build(w, *cell)
         i = b.order.index("乙")
         base_hp = [u[1] for u in b.init["乙"]]
@@ -250,14 +250,14 @@ class TestReinforcements(unittest.TestCase):
         w.armies.clear()
         for name, eng in (("甲", True), ("乙", False)):
             gid, seq = w._new_army(name)
-            w.armies.append({"id": seq, "gid": gid, "name": f"{name}{seq}", "type": "步",
+            w.armies.append({"id": seq, "gid": gid, "name": f"{name}{seq}", "type": "native:infantry",
                              "hp": 100, "x": x, "y": y, "owner": name,
                              "moved_turn": -1, "engaged": eng})
         # 旁边再放一支甲军（相邻格）：对**敌国领土**的终点，atk 可达而 mv 不可达
         nx, ny = next((a, b) for a, b in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
                       if 0 <= a < w.size and 0 <= b < w.size)
         gid, seq = w._new_army("甲")
-        w.armies.append({"id": seq, "gid": gid, "name": f"甲{seq}", "type": "步",
+        w.armies.append({"id": seq, "gid": gid, "name": f"甲{seq}", "type": "native:infantry",
                          "hp": 100, "x": nx, "y": ny, "owner": "甲",
                          "moved_turn": -1, "engaged": False})
         mover = w.armies[-1]
@@ -276,10 +276,10 @@ class TestReinforcements(unittest.TestCase):
 
     def test_reinforcement_shifts_the_odds(self):
         """★ 加增援必须**真的改变**概率；否则这特征是死的（防静默失效）。"""
-        w, cell = stage(sides={"甲": ["步", "步"], "乙": ["步", "步"]})
+        w, cell = stage(sides={"甲": ["native:infantry", "native:infantry"], "乙": ["native:infantry", "native:infantry"]})
         b = CP.build(w, *cell)
         base = CP.assess(b)
-        b2 = CP.build(w, *cell, extra={"甲": [{"type": "步", "hp": 100, "owner": "甲",
+        b2 = CP.build(w, *cell, extra={"甲": [{"type": "native:infantry", "hp": 100, "owner": "甲",
                                                "engaged": True}]})
         with_r = CP.assess(b2)
         self.assertGreater(with_r.p_win["甲"], base.p_win["甲"] + 0.05,
@@ -289,7 +289,7 @@ class TestReinforcements(unittest.TestCase):
     def test_snapshot_is_per_frame(self):
         """★ 用户：「**每个回合都要按照当前状态重算概率**」——
         同一个 `Battle` 对象在两帧 hp 不同时**不许**给同一答案。"""
-        w, cell = stage(sides={"甲": ["步", "步"], "乙": ["步", "步"]})
+        w, cell = stage(sides={"甲": ["native:infantry", "native:infantry"], "乙": ["native:infantry", "native:infantry"]})
         first = CP.snapshot(w)[cell]
         for a in w.armies:                    # 把一方打残 ⇒ 局面变了
             if a["owner"] == "乙":
@@ -308,7 +308,7 @@ class TestPriorsAreLive(unittest.TestCase):
     """
 
     def _battle(self):
-        w, cell = stage(sides={"甲": ["步", "步", "步"], "乙": ["步", "步", "步"]})
+        w, cell = stage(sides={"甲": ["native:infantry", "native:infantry", "native:infantry"], "乙": ["native:infantry", "native:infantry", "native:infantry"]})
         return CP.build(w, *cell)
 
     def test_round_bins_read_the_table(self):

@@ -92,7 +92,7 @@ class TestAggDamageBitExact(unittest.TestCase):
 
     def test_dead_side_shapes(self):
         """**死方**这两类形状要单独够到 —— DP 后半程全是它。"""
-        w, cell = stage(sides={"甲": ["步", "骑", "民"], "乙": ["步", "骑"], "丙": ["骑"]},
+        w, cell = stage(sides={"甲": ["native:infantry", "native:cavalry", "native:militia"], "乙": ["native:infantry", "native:cavalry"], "丙": ["native:cavalry"]},
                         retreat=("甲", 2, 50), engaged=("甲", "乙"))
         b = CP.build(w, *cell)
         st = [b.init[f] for f in b.order]
@@ -125,13 +125,13 @@ class TestTiesRoundToEven(unittest.TestCase):
             attacker=frozenset(sides),
             enemies={f: tuple(g for g in sides if g != f) for f in sides},
             soak={f: 0 for f in sides},
-            init={f: (("步", 100, False, 100),) for f in sides},
+            init={f: (("native:infantry", 100, False, 100),) for f in sides},
             enemy_idx=tuple(tuple(j for j in range(n) if j != i) for i in range(n)),
             soak_list=tuple(0 for _ in sides))
 
     def test_bankers_value_is_pinned(self):
         b = self._hand_battle()
-        sig = tuple((("步", False),) for _ in b.order)
+        sig = tuple((("native:infantry", False),) for _ in b.order)
         tab = CP._agg_damage(b, sig)
         self.assertIn((36, 36, 36), tab, "1 号骰面三方互殴应各吃 36 ⇒ 舍入口径变了？")
         self.assertNotIn((38, 38, 38), tab, "出现 38 = 按「四舍五入」进了位，"
@@ -141,7 +141,7 @@ class TestTiesRoundToEven(unittest.TestCase):
         if CP._FAST is None:
             self.skipTest(f"扩展没编译（可选）：{CP._FAST_ERR}")
         b = self._hand_battle()
-        sig = tuple((("步", False),) for _ in b.order)
+        sig = tuple((("native:infantry", False),) for _ in b.order)
         keep_fast, keep_err = CP._FAST, CP._FAST_ERR
         CP._FAST = None
         want = _spec(CP._agg_damage(b, sig))

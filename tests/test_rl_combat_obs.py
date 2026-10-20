@@ -48,7 +48,7 @@ from rl.sandbox import Sandbox                       # noqa: E402
 # 场景脚手架
 # ===========================================================================
 def place(w, cell, sides, engaged=("甲",), moved=-1, hp=100):
-    """把 `sides = {"甲": ["步",…], "乙": […]} 摆到 `cell` 上（**清掉原有军队**）。
+    """把 `sides = {"甲": ["native:infantry",…], "乙": […]} 摆到 `cell` 上（**清掉原有军队**）。
 
     `engaged` 里的势力挂 `engaged=True`（= 进攻方，`_resolve_battles` 的入口条件）。
     """
@@ -136,7 +136,7 @@ class TestGridChannels(unittest.TestCase):
     def test_grid_matches_combat_probs(self):
         sb = sb_of()
         cell = home_cell(sb)
-        place(sb.world, cell, {"甲": ["步", "步"], "乙": ["步"]})
+        place(sb.world, cell, {"甲": ["native:infantry", "native:infantry"], "乙": ["native:infantry"]})
         o = oracle(sb.world, cell)
         mask = encode.vision_of(sb, "甲")
         g = encode.encode_grid(sb, "甲", mask, frame=encode.combat_of(
@@ -170,7 +170,7 @@ class TestContactVision(unittest.TestCase):
     def setUp(self):
         self.sb = sb_of()
         self.cell = remote_cell(self.sb)
-        self.armies = place(self.sb.world, self.cell, {"甲": ["步"], "乙": ["步", "步"]})
+        self.armies = place(self.sb.world, self.cell, {"甲": ["native:infantry"], "乙": ["native:infantry", "native:infantry"]})
         self.mine = next(a for a in self.armies if a["owner"] == "甲")
         self.mask = encode.vision_of(self.sb, "甲")
         self.assertNotIn(self.cell, self.mask,
@@ -209,13 +209,13 @@ class TestNoLeak(unittest.TestCase):
         sb = sb_of()
         cell = deep_cell(sb)                       # 乙 的深处：它和八邻都看不见
         # 战斗格：甲 1 步（进攻）打 乙 1 步（守）
-        place(sb.world, cell, {"甲": ["步"], "乙": ["步"]})
+        place(sb.world, cell, {"甲": ["native:infantry"], "乙": ["native:infantry"]})
         self.assertTrue((cell[0], cell[1]) not in encode.vision_of(sb, "甲"))
         # 增援：乙 的一支军，摆在**紧挨战斗格**的另一格上（一步就能到）——
         #   `deep_cell` 保证了这一格**也不在视野里**（否则它就该被算进去）
         near = next(c for c in sorted(sb.world.tiles) if c != cell and adj(c, cell))
         gid, seq = sb.world._new_army("乙")
-        rein = {"id": seq, "gid": gid, "name": "乙rein", "type": "步", "hp": 100,
+        rein = {"id": seq, "gid": gid, "name": "乙rein", "type": "native:infantry", "hp": 100,
                 "x": near[0], "y": near[1], "owner": "乙", "moved_turn": -1,
                 "engaged": False}
         sb.world.armies.append(rein)
@@ -246,11 +246,11 @@ class TestNoLeak(unittest.TestCase):
         """我方自己的军**不**过滤（我本来就知道自己的军在哪）——增援通道是活的。"""
         sb = sb_of()
         cell = remote_cell(sb)
-        place(sb.world, cell, {"甲": ["步"], "乙": ["步", "步"]})
+        place(sb.world, cell, {"甲": ["native:infantry"], "乙": ["native:infantry", "native:infantry"]})
         near = next(c for c in sorted(sb.world.tiles)
                     if c != cell and adj(c, cell))
         gid, seq = sb.world._new_army("甲")
-        sb.world.armies.append({"id": seq, "gid": gid, "name": "甲rein", "type": "步",
+        sb.world.armies.append({"id": seq, "gid": gid, "name": "甲rein", "type": "native:infantry",
                                 "hp": 100, "x": near[0], "y": near[1], "owner": "甲",
                                 "moved_turn": -1, "engaged": False})
         frame, _, _ = frame_of(sb, "甲")
@@ -266,7 +266,7 @@ class TestRecomputeEveryFrame(unittest.TestCase):
     def test_hp_change_changes_channels(self):
         sb = sb_of()
         cell = home_cell(sb)
-        armies = place(sb.world, cell, {"甲": ["步"], "乙": ["步"]})
+        armies = place(sb.world, cell, {"甲": ["native:infantry"], "乙": ["native:infantry"]})
         foe = next(a for a in armies if a["owner"] == "乙")
         win0, _, arm0 = encode.encode_window(sb, "甲")
         p0 = float(row_of_token(win0, arm0, armies[0])[T + V.A_CB_PWIN])
@@ -280,7 +280,7 @@ class TestRecomputeEveryFrame(unittest.TestCase):
         """`frame_odds` 每次调用都重算（不返回同一个对象/同一份答案）。"""
         sb = sb_of()
         cell = home_cell(sb)
-        place(sb.world, cell, {"甲": ["步"], "乙": ["步"]})
+        place(sb.world, cell, {"甲": ["native:infantry"], "乙": ["native:infantry"]})
         f1, _, _ = frame_of(sb)
         sb.world.armies[1]["hp"] = 5
         f2, _, _ = frame_of(sb)
@@ -294,7 +294,7 @@ class TestRoundBins(unittest.TestCase):
     def test_bins_monotone_and_match(self):
         sb = sb_of()
         cell = home_cell(sb)
-        place(sb.world, cell, {"甲": ["步"], "乙": ["步", "步"]})
+        place(sb.world, cell, {"甲": ["native:infantry"], "乙": ["native:infantry", "native:infantry"]})
         o = oracle(sb.world, cell)
         win, _, armies = encode.encode_window(sb, "甲")
         row = row_of_token(win, armies, armies[0])
@@ -314,7 +314,7 @@ class TestRetreatColumn(unittest.TestCase):
         sb.world.armies.clear()
         cell = home_cell(sb)
         gid, seq = sb.world._new_army("甲")
-        sb.world.armies.append({"id": seq, "gid": gid, "name": "甲0", "type": "步",
+        sb.world.armies.append({"id": seq, "gid": gid, "name": "甲0", "type": "native:infantry",
                                 "hp": 100, "x": cell[0], "y": cell[1], "owner": "甲",
                                 "moved_turn": -1, "engaged": False})
         win, _, armies = encode.encode_window(sb, "甲")
@@ -325,7 +325,7 @@ class TestRetreatColumn(unittest.TestCase):
     def test_engaged_matches_retreat_odds(self):
         sb = sb_of()
         cell = home_cell(sb)
-        armies = place(sb.world, cell, {"甲": ["步"], "乙": ["步", "骑"]})
+        armies = place(sb.world, cell, {"甲": ["native:infantry"], "乙": ["native:infantry", "native:cavalry"]})
         mine = next(a for a in armies if a["owner"] == "甲")
         mine["hp"] = 20          # ★ 残血 ⇒ 撤了**不一定**活（满血时一轮死不掉，撤了必活）
         win, _, arm = encode.encode_window(sb, "甲")
@@ -338,7 +338,7 @@ class TestRetreatColumn(unittest.TestCase):
         """同一格上两支军撤了活下来的概率**不一样** ⇒ 这个量只能挂在军队 token 上。"""
         sb = sb_of()
         cell = home_cell(sb)
-        armies = place(sb.world, cell, {"甲": ["步", "步"], "乙": ["步", "骑"]})
+        armies = place(sb.world, cell, {"甲": ["native:infantry", "native:infantry"], "乙": ["native:infantry", "native:cavalry"]})
         sb.world.armies[0]["hp"] = 8                # 一支残血
         win, _, arm = encode.encode_window(sb, "甲")
         vals = [float(row_of_token(win, arm, a)[T + V.A_RETREAT])
@@ -354,7 +354,7 @@ class TestPerSideToken(unittest.TestCase):
     def test_each_token_carries_its_own_side(self):
         sb = sb_of()
         cell = home_cell(sb)
-        place(sb.world, cell, {"甲": ["步", "步"], "乙": ["步"]})
+        place(sb.world, cell, {"甲": ["native:infantry", "native:infantry"], "乙": ["native:infantry"]})
         o = oracle(sb.world, cell)
         win, _, armies = encode.encode_window(sb, "甲")
         mine = next(a for a in armies if a["owner"] == "甲")
@@ -375,7 +375,7 @@ class TestPriorsAreLive(unittest.TestCase):
     def _row(self, **kw):
         sb = sb_of()
         cell = home_cell(sb)
-        place(sb.world, cell, {"甲": ["步"], "乙": ["步"]})
+        place(sb.world, cell, {"甲": ["native:infantry"], "乙": ["native:infantry"]})
         with S.override(**kw):
             win, _, armies = encode.encode_window(sb, "甲")
         return row_of_token(win, armies, armies[0])

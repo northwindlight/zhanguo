@@ -35,17 +35,17 @@ from test_combat_probs import stage                   # noqa: E402
 
 # 每个标签 -> `stage()` 的参数
 KWARGS = {
-    '2v1 单兵种': dict(sides={"甲": ["步", "步"], "乙": ["步"]}),
-    '2v2 混编': dict(sides={"甲": ["步", "骑"], "乙": ["步", "骑"]}),
-    '3v3 混编': dict(sides={"甲": ["步", "步", "骑"], "乙": ["骑", "步", "民"]}),
-    '2v2 城堡3': dict(sides={"甲": ["步", "骑"], "乙": ["步", "骑"]}, castle=3),
-    '2v2 平原': dict(sides={"甲": ["步", "骑"], "乙": ["步", "骑"]}, terrain="平原"),
-    '3v2 带撤退': dict(sides={"甲": ["步", "骑", "民"], "乙": ["步", "骑"]},
+    '2v1 单兵种': dict(sides={"甲": ["native:infantry", "native:infantry"], "乙": ["native:infantry"]}),
+    '2v2 混编': dict(sides={"甲": ["native:infantry", "native:cavalry"], "乙": ["native:infantry", "native:cavalry"]}),
+    '3v3 混编': dict(sides={"甲": ["native:infantry", "native:infantry", "native:cavalry"], "乙": ["native:cavalry", "native:infantry", "native:militia"]}),
+    '2v2 城堡3': dict(sides={"甲": ["native:infantry", "native:cavalry"], "乙": ["native:infantry", "native:cavalry"]}, castle=3),
+    '2v2 平原': dict(sides={"甲": ["native:infantry", "native:cavalry"], "乙": ["native:infantry", "native:cavalry"]}, terrain="native:plain"),
+    '3v2 带撤退': dict(sides={"甲": ["native:infantry", "native:cavalry", "native:militia"], "乙": ["native:infantry", "native:cavalry"]},
                        retreat=("甲", 1, 50)),
-    '4v4 大仗': dict(sides={"甲": ["步", "步", "骑", "民"],
-                            "乙": ["步", "骑", "民", "民"]}),
-    '5 方混战': dict(sides={"甲": ["步", "骑"], "乙": ["步", "骑"],
-                            "丙": ["步", "民"], "丁": ["骑"], "戊": ["步"]}),
+    '4v4 大仗': dict(sides={"甲": ["native:infantry", "native:infantry", "native:cavalry", "native:militia"],
+                            "乙": ["native:infantry", "native:cavalry", "native:militia", "native:militia"]}),
+    '5 方混战': dict(sides={"甲": ["native:infantry", "native:cavalry"], "乙": ["native:infantry", "native:cavalry"],
+                            "丙": ["native:infantry", "native:militia"], "丁": ["native:cavalry"], "戊": ["native:infantry"]}),
 }
 
 
@@ -147,7 +147,7 @@ class TestAbsorbedMemoIsLive(unittest.TestCase):
     MIN_ABSORBED = 10
 
     def test_no_absorbed_state_is_recomputed(self):
-        w, cell = stage(sides={"甲": ["步", "骑"], "乙": ["步", "骑"]})
+        w, cell = stage(sides={"甲": ["native:infantry", "native:cavalry"], "乙": ["native:infantry", "native:cavalry"]})
         b = CP.build(w, *cell)
         seen = []
         real = CP._survivors

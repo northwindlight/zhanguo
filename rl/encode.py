@@ -66,7 +66,7 @@ def _move_cost_of(world, x: int, y: int) -> int:
     """骑兵进这一格的**移动代价**（用户点名的"移动属性（对应骑兵）"）。"""
     from .rules import unit_move_cost
     try:
-        return int(unit_move_cost({"type": "骑"}, world.tile_terrain(x, y)))
+        return int(unit_move_cost({"type": "native:cavalry"}, world.tile_terrain(x, y)))
     except Exception:                              # noqa: BLE001
         return 1
 
@@ -288,7 +288,7 @@ def encode_grid(sb, me: str, mask=None, known=None,
             #   ★ 只抬**厅**这一段：军队/hp 仍然死守 `mask`（"知道厅在哪" ≠ "看得见守军"，
             #     两件情报 —— 见 `hall_memory.py` 的文件头）。
             #   ★ 归属仍以**当前** `t["owner"]` 为准（记忆只放宽**可见性**，取保守那侧）。
-            if (t is not None and t["buildings"].get("市政厅", 0) > 0
+            if (t is not None and t["buildings"].get("native:town-hall", 0) > 0
                     and (visible or (x, y) in known)):
                 # ★★ **归属取"我认知里的主人"**（用户 2026-09-25：「厅的归属会变的」）：
                 #   看得见 ⇒ 当前真值；看不见 ⇒ 记忆里"最后看见时的"。
@@ -496,7 +496,7 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
         #    ① **国家数不进观测形状**（多玩家落地时宽度不变，基座不用重炼）；
         #    ② 盟友的军与敌国的军**从此分得开**（引擎对这两类判定相反）。
         row[V.A_OWNER0 + _owner_class(w, me, a["x"], a["y"], by_cell_w)] = 1.0
-        kind = a.get("type", "步")
+        kind = a.get("type", "native:infantry")
         if kind in V.UNIT:
             row[V.A_UNIT0 + V.UNIT.index(kind)] = 1.0
         # ★ 相对家的偏移 ÷ **地图边长**（不是绝对坐标）
@@ -622,7 +622,7 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
         t = w.tiles.get((x, y))
         # ★ 陷阱候选也要走 `known`："我知道那格是敌厅"，哪怕它此刻不在视野里
         #   —— 这正是"记忆/间谍"要买到的东西（厅拆不掉 ⇒ 见过就永远算数）。
-        if t is not None and t["buildings"].get("市政厅", 0) > 0 \
+        if t is not None and t["buildings"].get("native:town-hall", 0) > 0 \
                 and ((x, y) in mask or (x, y) in known):
             hall_owner = t["owner"]
             if hall_owner == me:
@@ -633,7 +633,7 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
         m[V.CAND_VISIBLE] = 1.0 if (x, y) in mask else 0.0
         m[V.CAND_DIST] = max(abs(x - hx), abs(y - hy)) / ps
         out["cand_content"][i] = F.cand_content(
-            a.get("type", "步") if a else "步", w.tile_terrain(x, y))
+            a.get("type", "native:infantry") if a else "native:infantry", w.tile_terrain(x, y))
     return out
 
 

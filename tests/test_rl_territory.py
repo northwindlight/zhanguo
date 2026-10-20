@@ -293,7 +293,11 @@ class TestClaimedTilesAreComplete(unittest.TestCase):
     """⑧ 占下来的格必须是**物化的完整地块**（走引擎的 `_new_tile`）。"""
 
     def test_tiles_have_the_full_shape(self):
-        from rl.tokens import BUILDINGS
+        # ★ 建筑键是**内容 ID**（`native:town-hall`…）—— 引擎的建筑目录
+        #   （`mods/native/buildings/types.py` 里每个类的 `TYPE_ID`）。
+        from mods.native.buildings.types import __dict__ as _btypes
+        BUILDINGS = tuple(v.TYPE_ID for v in _btypes.values()
+                          if isinstance(v, type) and getattr(v, "TYPE_ID", None))
         sb = _sb(4242, 16)
         for n in sb.players:
             for c in _own(sb, n):
@@ -304,7 +308,7 @@ class TestClaimedTilesAreComplete(unittest.TestCase):
                 self.assertEqual(set(t["buildings"]), set(BUILDINGS),
                                  f"{c} 的 buildings 不全 ⇒ 不是 `_new_tile` 造的")
                 self.assertTrue(t.get("name"), f"{c} 没有地名")
-                self.assertIn(t.get("terrain"), ("平原", "森林", "丘陵", "山地", "沙漠"))
+                self.assertIn(t.get("terrain"), ("native:plain", "native:forest", "native:hill", "native:mountain", "native:desert"))
 
     def test_hall_still_stands_and_is_the_only_one(self):
         """长国土**不许**多出市政厅（那是国祚，不是普通地块）。
@@ -321,7 +325,7 @@ class TestClaimedTilesAreComplete(unittest.TestCase):
                              f"该正好 {len(sb.players)} 座（每家一座）")
             for n in sb.players:
                 halls = [c for c, t in sb.world.tiles.items()
-                         if t["owner"] == n and t["buildings"].get("市政厅", 0) > 0]
+                         if t["owner"] == n and t["buildings"].get("native:town-hall", 0) > 0]
                 self.assertEqual(len(halls), 1, f"{n} 有 {len(halls)} 座厅")
 
 

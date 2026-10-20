@@ -438,12 +438,12 @@ class Sandbox:
             w.nations[name].res["补给"] = 10 ** 6
             self.spawn(name, BASE_CAP)
         # ★ 主城默认 **L2 城堡**（用户 2026-09-24：「顺便 rl 线给主城加一个默认 l2 的城堡」）：
-        #   引擎里 `t["buildings"]["城堡"]` 的**计数就是等级**（`_defense_pct` 按它算减伤）
+        #   引擎里 `t["buildings"]["native:castle"]` 的**计数就是等级**（`_defense_pct` 按它算减伤）
         #   ⇒ 主城更难打、防守更站得住，攻守才有真正的取舍。
         for name in self.players:
             core = self.core_of(name)
             if core is not None:
-                w.tiles[core]["buildings"]["城堡"] = 2
+                w.tiles[core]["buildings"]["native:castle"] = 2
         # ★ 编组状态是**模块内存**：每局开始必须清，否则上一局的编组漏进来
         #   （`ruleai/v11plus/__init__.py` 明文要求）
         grouping.clear()
@@ -692,9 +692,9 @@ class Sandbox:
 
     def count_of(self, name: str, kind: str) -> int:
         """该国某兵种的支数（`民` = 民兵）。"""
-        return sum(1 for a in self.armies_of(name) if a.get("type", "步") == kind)
+        return sum(1 for a in self.armies_of(name) if a.get("type", "native:infantry") == kind)
 
-    def spawn(self, name: str, n: int, kind: str = "步") -> None:
+    def spawn(self, name: str, n: int, kind: str = "native:infantry") -> None:
         """在**核心格**摆 `n` 支步兵。
 
         ★ 别用 `own_tiles[0]` —— 那是字典序第一格（实测 (3,2) 之类），**不是核心**。
@@ -719,7 +719,7 @@ class Sandbox:
     def core_of(self, name: str) -> tuple[int, int] | None:
         """该国的**市政厅格**（= 核心 = 国祚）。`None` ⇒ 已亡。"""
         for cell, t in sorted(self.world.tiles.items()):
-            if t["owner"] == name and t["buildings"].get("市政厅", 0) > 0:
+            if t["owner"] == name and t["buildings"].get("native:town-hall", 0) > 0:
                 return cell
         return None
 
@@ -851,7 +851,7 @@ class Sandbox:
         return self.halls.tell(name, items)
 
     def tell_armies(self, name: str, items: dict, turn: int | None = None) -> int:
-        """**外部告知某国的军情** `{来源国: {"步": n, "骑": n, "民": n}}`（见 `rl/intel.py`）。
+        """**外部告知某国的军情** `{来源国: {"native:infantry": n, "native:cavalry": n, "native:militia": n}}`（见 `rl/intel.py`）。
 
         ★★ 口径**照抄引擎的间谍**（`mp.World._econ_snapshot` 的注释）：
           「粗略军情：**只有各兵种数量 —— 位置/血量/番号不外泄**」
@@ -1101,7 +1101,7 @@ class Sandbox:
 
     def halls_of(self, name: str) -> int:
         """该国**已落成**的市政厅数（= 国祚，也是补员的"产能"）。"""
-        return sum(t["buildings"].get("市政厅", 0) for t in self.world.tiles.values()
+        return sum(t["buildings"].get("native:town-hall", 0) for t in self.world.tiles.values()
                    if t["owner"] == name)
 
     # ============================================================ 回合推进
@@ -1131,11 +1131,11 @@ class Sandbox:
             hall = self.halls_of(name)
             quota = 1 + hall                     # ★ 基础 1 + 每座厅 1
             cap = self.cap_of(name)
-            foot = self.count_of(name, "步")     # ★ 只数**步兵** —— 上限是给步兵设的
+            foot = self.count_of(name, "native:infantry")     # ★ 只数**步兵** —— 上限是给步兵设的
             gap = cap - foot
             if gap > 0:
                 n = min(quota, gap)              # ★ 不能超上限
-                self.spawn(name, n, kind="步")
+                self.spawn(name, n, kind="native:infantry")
                 notes.append(f"{name} **缺员** ⇒ 补步兵 +{n}"
                              f"（厅×{hall} 配额{quota}，步兵 {foot}/{cap}）")
             else:
@@ -1150,12 +1150,12 @@ class Sandbox:
                 #   分支每 5 回合白送 `厅×1` 支、**永远收支为正** ⇒ 只要不打仗，民兵就能
                 #   一路堆到几十支。那不是"守家增益"，是**一台不需要对手配合的印钞机**：
                 #   势函数里 `W_ARMY` 那一项会一路涨，模型学到的将是"别打仗、苟着刷民兵"。
-                mil = self.count_of(name, "民")
+                mil = self.count_of(name, "native:militia")
                 mcap = MILITIA_PER_FOOT * foot    # ★ 上限 = 步兵 × 2（现役步兵数，非上限）
                 room = mcap - mil
                 if room > 0:
                     n = min(quota, room)
-                    self.spawn(name, n, kind="民")
+                    self.spawn(name, n, kind="native:militia")
                     notes.append(f"{name} **不缺员** ⇒ 民兵 +{n}"
                                  f"（厅×{hall} 配额{quota}，民兵 {mil}/{mcap}=步兵×2）")
                 else:

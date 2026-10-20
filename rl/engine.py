@@ -103,18 +103,10 @@ _REGISTRY = _NationRegistry()
 #   与 `mods/native/territory/mod.py`），这里只做**一一对应**，不新增规则。
 #   ★ 翻译表住在 `rl/tokens.py`（`rl/rules.py` 也要用 ⇒ 不能塞这里，否则成环）。
 from . import rules
-from .tokens import (BUILDING_NAME, BUILDINGS, CASTLE, CROSS, KIND_OF,
-                     KIND_OF_NAME, TERRAIN_OF, TOWN_HALL, UNIT_KINDS)
+from .tokens import BARBARIAN, CASTLE, CROSS, TOWN_HALL
 
 
-def _kind_of(unit: Any) -> str:
-    """单位 → **中文短名**（`步`/`骑`/`民`）。未知兵种回落到"步"。"""
-    kind = unit.kind if hasattr(unit, "kind") else unit.get("kind", "native:infantry")
-    return KIND_OF.get(kind, "步")
-
-
-def _terrain_of(terrain_id: str) -> str:
-    return TERRAIN_OF.get(terrain_id, terrain_id)
+# ★ 兵种/地形一律**内容 ID**（引擎的标准命名空间）—— 门面不做翻译。
 
 
 class _BlocList(list):
@@ -185,8 +177,8 @@ class _UnitDict(dict):
         dict.__setitem__(self, "id", unit.id)
         dict.__setitem__(self, "gid", unit.gid)
         dict.__setitem__(self, "owner",
-                         self._world._name(unit.owner) if unit.owner != "野人" else "野人")
-        dict.__setitem__(self, "type", _kind_of(unit))
+                         self._world._name(unit.owner) if unit.owner != BARBARIAN else BARBARIAN)
+        dict.__setitem__(self, "type", unit.kind)
         dict.__setitem__(self, "name", unit.name)
         dict.__setitem__(self, "hp", unit.hp)
         dict.__setitem__(self, "x", unit.x)
@@ -263,9 +255,9 @@ class _ArmyList(list):
           ⇒ 想改字段（`hp` / `engaged`）**必须回表里找那支军**，
           否则改的是副本、世界上的真军没动（而且**不报错**）。
         """
-        kind = item.get("type", "步")
+        kind = item.get("type", "native:infantry")
         x, y = int(item.get("x", 0)), int(item.get("y", 0))
-        owner = item.get("owner", "野人")
+        owner = item.get("owner", BARBARIAN)
         ident = self._world._id_of(owner)
         native = self._world.native
         # ★★ **别重复造**：调用方常常是「先 `_new_army` 造一支（拿 gid），
@@ -276,7 +268,7 @@ class _ArmyList(list):
         gid = item.get("gid")
         live = native.units.by_id(gid) if gid else None
         if live is None:
-            seeded = native.military.seed(ident, UNIT_KINDS.get(kind, kind), x, y, count=1)
+            seeded = native.military.seed(ident, kind, x, y, count=1)
             live = native.units.by_id(seeded[0].gid)
         if live is None:
             return
@@ -366,7 +358,7 @@ class _TileDict(dict):
         fact = self._fact
         dict.__setitem__(self, "owner",
                          self._world._name(fact.owner) if fact.owner else None)
-        dict.__setitem__(self, "terrain", _terrain_of(fact.tile.terrain))
+        dict.__setitem__(self, "terrain", fact.tile.terrain)
         dict.__setitem__(self, "buildings", self._counts)
         dict.__setitem__(self, "core", self._world._core_owner(fact.tile.position,
                                                                 fact.owner))
@@ -394,8 +386,8 @@ class _TileDict(dict):
 class _BuildingCounts(dict):
     """★ 一格上的建筑**计数表**（旧口径：`tile["buildings"]`）—— **写穿透**。
 
-    旧引擎的 `tile["buildings"]` 是**真字典**：`{"市政厅": 1, "城堡": 0, …}`，
-    RL 线（与测试）会**就地改**它（`t["buildings"]["市政厅"] = 0` = "拔掉这座厅"）。
+    旧引擎的 `tile["buildings"]` 是**真字典**：`{"native:town-hall": 1, "native:castle": 0, …}`，
+    RL 线（与测试）会**就地改**它（`t["buildings"]["native:town-hall"] = 0` = "拔掉这座厅"）。
     ⇒ 这里改计数会**同步到引擎**：
       · 改成 0 ⇒ **拆掉**该格所有这一类建筑（`buildings` 域里删实例）；
       · 改成 N>0 ⇒ 拆到 N 座为止（不够就补种）。
@@ -409,24 +401,26 @@ class _BuildingCounts(dict):
         self._refresh()
 
     def _refresh(self) -> None:
-        """按引擎的**当下真值**刷新这张表（**再套上门面的"被拆掉"覆盖**）。"""
+        """按引擎的**当下真值**刷新这张表（**再套上门面的"被拆掉"覆盖**）。
+
+        ★ 键是**内容 ID**（`native:town-hall` 等）—— 引擎的建筑本来就是内容 ID，
+          门面上**不再翻译**（显示名是 locale 的事，不该进键）。
+        """
         buildings = self._world.native.buildings
-        for name in BUILDINGS:
-            dict.__setitem__(self, name, 0)
+        for kind in buildings.ids:           # 引擎的建筑目录（内容 ID 全集）
+            dict.__setitem__(self, kind, 0)
         for inst in buildings.instances(self._site):
             if inst.remaining:
                 continue
-            name = BUILDING_NAME.get(inst.kind, inst.kind)
-            dict.__setitem__(self, name, dict.get(self, name, 0) + 1)
+            dict.__setitem__(self, inst.kind, dict.get(self, inst.kind, 0) + 1)
         # ★ 套覆盖（"门面这边被拆掉了几座"）。
         for kind, want in (self._world._building_override.get(self._site) or {}).items():
-            name = BUILDING_NAME.get(kind, kind)
-            dict.__setitem__(self, name, min(dict.get(self, name, 0), want))
+            dict.__setitem__(self, kind, min(dict.get(self, kind, 0), want))
 
     def __setitem__(self, key, value):
         want = int(value)
         buildings = self._world.native.buildings
-        kind = KIND_OF_NAME.get(key, key)
+        kind = key
         have = buildings.count(self._site, kind)
         if want > have:
             for _ in range(want - have):
@@ -438,7 +432,7 @@ class _BuildingCounts(dict):
             #   ⇒ 门面**自己记一张"被拆掉多少"的覆盖表**，
             #   并让 `has_townhall` / 建筑计数**都按覆盖后的数算**。
             #   ★ 为什么需要这个：旧引擎的 `tile["buildings"]` 是**真字典**，
-            #     RL 线（与测试）会**就地改**它（`t["buildings"]["市政厅"] = 0`
+            #     RL 线（与测试）会**就地改**它（`t["buildings"]["native:town-hall"] = 0`
             #     = "拔掉这座厅"）⇒ 那个动作**必须真的生效**，
             #     否则"拔了厅却还判有厅" ⇒ 亡国判据失灵、而**不报错**。
             #   ⇒ 覆盖表是**门面自己的账**，与引擎的实例列表对账：
@@ -689,7 +683,7 @@ class SandboxWorld:
         self._tile_cache: dict[tuple[int, int], dict] | None = None
         # ★ "被拆掉的建筑"覆盖表（`{站点: {建筑种类: 剩余座数}}`）——
         #   新引擎**没有拆建筑的口**，而旧线的 `tile["buildings"]` 是**真字典**
-        #   （`t["buildings"]["市政厅"] = 0` = "拔掉这座厅"）⇒ 门面自己记这笔账。
+        #   （`t["buildings"]["native:town-hall"] = 0` = "拔掉这座厅"）⇒ 门面自己记这笔账。
         self._building_override: dict[str, dict[str, int]] = {}
         # ★ 资源给足：沙盒**不走经济层**（补员自己算），但引擎的补给阶段
         #   每回合收军粮，断粮会扣 HP —— 资源给 0 ⇒ 军队是"饿死"的不是战死的。
@@ -923,7 +917,7 @@ class SandboxWorld:
     # ------------------------------------------------------------ 地块
     def tile_terrain(self, x: int, y: int) -> str:
         """这一格的地形（**中文短名**）。"""
-        return _terrain_of(self._world.territory.terrain(x, y).id)
+        return self._world.territory.terrain(x, y).id
 
     def owned_by(self, x: int, y: int) -> str | None:
         """这一格属于谁（**短名**；无主 = `None`）。"""
@@ -1005,7 +999,7 @@ class SandboxWorld:
             pos = fact.tile.position
             # ★ 旧口径：每个地块的 `buildings` **预置全部键**（没建就是 0）——
             #   新引擎是实例列表 ⇒ 这里补成"全键零值 + 实有的"。
-            # ★ **写穿透**：改 `t["buildings"]["市政厅"] = 0`（"拔掉这座厅"）
+            # ★ **写穿透**：改 `t["buildings"]["native:town-hall"] = 0`（"拔掉这座厅"）
             #   必须**真的**改到引擎（否则只是改了张快照 ⇒ 世界没变，且**不报错**）。
             counts = _BuildingCounts(self, fact.tile.id)
             out[pos] = _TileDict(self, fact, counts)
@@ -1182,7 +1176,7 @@ class SandboxWorld:
         ok = status not in ("rejected", "failed", "")
         return ok, message
 
-    def _new_army(self, owner: str, kind: str = "步", x: int | None = None,
+    def _new_army(self, owner: str, kind: str = "native:infantry", x: int | None = None,
                   y: int | None = None) -> tuple[int, int]:
         """新建一支军。返回 `(gid, seq)`（旧口径）。
 
@@ -1201,10 +1195,10 @@ class SandboxWorld:
           引擎会自己在"看得见的无主格"上补出来。
         """
         ident = self._id(owner)
-        kind_id = UNIT_KINDS.get(kind, kind)
+        kind_id = kind
         # ★ 这国还没**建**出来？⇒ **当场建**（旧引擎的 `_new_army` 不查在册，
         #   给个名字就能造军）—— 新引擎要求"活着的国家"才准造 ⇒ 这里补建。
-        if ident not in self._alive_ids() and owner != "野人":
+        if ident not in self._alive_ids() and owner != BARBARIAN:
             self._add_nation(owner)
         if x is None or y is None:
             core = self.core_of(owner)
@@ -1261,14 +1255,14 @@ class SandboxWorld:
         self._invalidate_tiles()
 
     def _seed_building(self, x: int, y: int, name: str, count: int) -> None:
-        """★ 在一格上**种下**建筑（旧口径：`tile["buildings"]["市政厅"] = 1`）。
+        """★ 在一格上**种下**建筑（内容 ID，如 `native:town-hall`）。
 
         ★ 新引擎的建筑是**实例**（`buildings.seed(site, kind, count)`），
           一格一座 ⇒ 这里按座数逐个种。
         ⚠ 座数上限：引擎的站点容量（`SITE_CAPACITY`）有限 ⇒ 种不下就**少种**
           （不抛错 —— 观测层不该因为"多一座厅"就崩）。
         """
-        kind = KIND_OF_NAME.get(name, name)
+        kind = name
         fact = self._world.territory.cell(x, y)
         site = fact.tile.id
         for _ in range(max(0, int(count))):
@@ -1464,13 +1458,13 @@ class SandboxWorld:
         cell_owner = self._world.territory.owner(x, y)
         if cell_owner is None:
             # 无主格 ⇒ 野人守军（引擎的野人没有兵种键 ⇒ 按步兵兜底）。
-            out.append({"id": 0, "owner": "野人", "type": "步",
+            out.append({"id": 0, "owner": BARBARIAN, "type": "native:infantry",
                         "hp": rules.unit_max_hp(), "x": x, "y": y,
                         "moved_turn": -1, "engaged": False})
         for unit in self._world.units:
             if (unit.x, unit.y) != (x, y) or unit.owner == owner:
                 continue
-            if unit.owner == "野人":
+            if unit.owner == BARBARIAN:
                 continue
             if self._world.diplomacy.war_between(owner, unit.owner):
                 out.append(self._as_dict(unit))
@@ -1495,7 +1489,7 @@ class SandboxWorld:
                     and not self._world.diplomacy.allied(ident, owner)
                     and self._world.diplomacy.war_between(ident, owner))
         return any(u.owner != ident and (u.x, u.y) == (x, y)
-                   for u in self._world.units if u.owner != "野人")
+                   for u in self._world.units if u.owner != BARBARIAN)
 
     def _mv_wall(self, name: str, x: int, y: int) -> str | None:
         """mv 走一步进这格的"墙"：`None` = 可通行。
@@ -1509,7 +1503,7 @@ class SandboxWorld:
                 and not self._world.diplomacy.allied(ident, owner):
             return (f"({x + 1},{y + 1}) 是「{self._name(owner)}」的领土，**mv 进不去**"
                     f"（mv 只走自己地/盟国地/无主地）")
-        if owner is None and any(u.owner not in (ident, "野人")
+        if owner is None and any(u.owner not in (ident, BARBARIAN)
                                  and (u.x, u.y) == (x, y)
                                  and self._world.diplomacy.war_between(ident, u.owner)
                                  for u in self._world.units):

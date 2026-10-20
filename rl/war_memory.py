@@ -98,7 +98,7 @@ def visible_foes(world, name: str | None, mask) -> dict:
         if (a["x"], a["y"]) not in mask:
             continue
         out[a["gid"]] = {"x": int(a["x"]), "y": int(a["y"]),
-                         "kind": a.get("type", "步"), "hp": int(a.get("hp", 0)),
+                         "kind": a.get("type", "native:infantry"), "hp": int(a.get("hp", 0)),
                          "no": int(a.get("id", 0)), "owner": a["owner"]}
     return out
 

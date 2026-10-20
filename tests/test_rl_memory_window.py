@@ -46,7 +46,7 @@ def _mem(name: str = "甲", gid: int = 7, turn: int = 100) -> W.WarMemory:
     """
     m = W.WarMemory()
     m._by.setdefault(name, {})[gid] = {
-        "turn": int(turn), "x": 3, "y": 4, "kind": "步", "hp": 100, "no": 1}
+        "turn": int(turn), "x": 3, "y": 4, "kind": "native:infantry", "hp": 100, "no": 1}
     return m
 
 
@@ -97,7 +97,7 @@ class TestKWindowHasNoCliff(unittest.TestCase):
         for gid in range(n):
             # gid 越大越**新**（turn 越大）
             m._by.setdefault("甲", {})[gid] = {
-                "turn": 1000 + gid, "x": 1, "y": 1, "kind": "步", "hp": 100, "no": gid}
+                "turn": 1000 + gid, "x": 1, "y": 1, "kind": "native:infantry", "hp": 100, "no": gid}
         got = m.known("甲", 1000 + n - 1)          # 以最新那回合为"现在"
         self.assertEqual(len(got), m.cap, f"没按 cap={m.cap} 截断（拿到 {len(got)} 条）")
         ages = sorted(r["age"] for r in got)

@@ -129,7 +129,7 @@ class TestNoGarrisonLeak(unittest.TestCase):
         foe_hall = hall_of(sb, "乙")
         # 在敌厅上摆一支敌军（若不摆，"看不见守军"就是空的：本来就没守军）
         gid, seq = sb.world._new_army("乙")
-        sb.world.armies.append({"id": seq, "gid": gid, "name": "乙守", "type": "步",
+        sb.world.armies.append({"id": seq, "gid": gid, "name": "乙守", "type": "native:infantry",
                                 "hp": 100, "x": foe_hall[0], "y": foe_hall[1],
                                 "owner": "乙", "moved_turn": -1, "engaged": False})
         sb.known_halls("甲", frozenset(sb.world.tiles))     # 曾经全看见（含那支军）
@@ -298,7 +298,7 @@ class TestGridHallDoesNotFlicker(unittest.TestCase):
         t = dict(next(iter(w.tiles.values())))
         t["buildings"] = {k: 0 for k in t["buildings"]}
         t["owner"], t["core"] = "乙", None
-        t["buildings"]["市政厅"] = 1
+        t["buildings"]["native:town-hall"] = 1
         w.tiles[cell] = t
         sb.known_halls("甲", frozenset(w.tiles))       # 曾经全看见
         known = sb.known_halls("甲", frozenset())      # 这一帧什么都看不见

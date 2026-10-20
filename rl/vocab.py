@@ -32,8 +32,16 @@ from . import scoring as _S
 # 1. 实体枚举（下标即身份）
 # ===========================================================================
 
-# 地形：前 5 项顺序取自引擎的 `game.TERRAINS`（**不许改序**）。
-TERRAIN = ("平原", "森林", "丘陵", "山地", "沙漠")
+# 地形：**直接用引擎的内容 ID**（标准命名空间），顺序取自引擎的
+# `mods/native/territory/mod.py:TERRAINS`（**不许改序** —— 下标即观测列位）。
+#
+# ★★ **为什么用内容 ID 而不是中文短名**（2026-10 改）：
+#   短名是**显示名**，而显示名**随 locale 变**（`native:infantry` 在 zh-CN 是
+#   "步兵"、在 en-US 是 "Infantry"）⇒ 拿显示名当键，换语言就会**静默**错位
+#   （一列 one-hot 悄悄换了含义，而且**不报错**）。
+#   内容 ID 才是**稳定标识符**，也正是主线用来根治这一类问题的办法。
+TERRAIN = ("native:plain", "native:forest", "native:hill",
+           "native:mountain", "native:desert")
 
 # 兵种：3 项（沙盒只有步兵上场，骑/民留着不废下标）。
 # ★★ **型号名** —— 用户 2026-09-25：
@@ -43,7 +51,8 @@ TERRAIN = ("平原", "森林", "丘陵", "山地", "沙漠")
 #   ⇒ 名字**跟着权重走**（写进存档元数据）+ 每次起炉打在横幅上，别只活在对话里。
 MODEL_NAME = "战争v1"
 
-UNIT = ("步", "骑", "民")
+# 兵种：3 项（沙盒只有步兵上场，骑/民留着不废下标）。**同样用内容 ID**。
+UNIT = ("native:infantry", "native:cavalry", "native:militia")
 
 # 国家槽 —— ★★ **不再是"两国"**（原来写死 2，甲/乙）。
 #
@@ -275,9 +284,12 @@ GLOB = (
     #   ★ 每类 4 列：三个兵种的数量 + **这份情报多旧**（间谍 3 回合才回报，
     #     拿到手就已经旧了；不带 age 就等于教模型**相信幽灵**）。
     #   ★ 没收到过情报 ⇒ 全 0（"我没派人去探/还没回来"，读得出来）。
-    "intel_ally_步", "intel_ally_骑", "intel_ally_民", "intel_ally_age",
-    "intel_rival_步", "intel_rival_骑", "intel_rival_民", "intel_rival_age",
-    "intel_neutral_步", "intel_neutral_骑", "intel_neutral_民", "intel_neutral_age",
+    "intel_ally_native:infantry", "intel_ally_native:cavalry",
+    "intel_ally_native:militia", "intel_ally_age",
+    "intel_rival_native:infantry", "intel_rival_native:cavalry",
+    "intel_rival_native:militia", "intel_rival_age",
+    "intel_neutral_native:infantry", "intel_neutral_native:cavalry",
+    "intel_neutral_native:militia", "intel_neutral_age",
 
     # ★ 下面这段是**留档**：绝对 `turn` 曾经"加了又撤"，现在是**带着随机偏移回来了**。
     #   ⇒ **要的是相对量**：见 `"k"` 组的 `K_AGE`（"这份情报多旧"）——

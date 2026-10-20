@@ -89,7 +89,7 @@ def owner_scenario():
     cells[V.OWN_UNOWNED], cells[V.OWN_BARBARIAN] = un, bar
     if not any(a["owner"] == "野人" and (a["x"], a["y"]) == bar for a in w.armies):
         gid, seq = w._new_army("野人")                  # 该格若本来没野人，补一支
-        w.armies.append({"id": seq, "gid": gid, "name": f"野人{seq}", "type": "步",
+        w.armies.append({"id": seq, "gid": gid, "name": f"野人{seq}", "type": "native:infantry",
                          "hp": 100, "x": bar[0], "y": bar[1], "owner": "野人",
                          "moved_turn": -1, "engaged": False})
     return w, cells
@@ -160,7 +160,7 @@ class TestCandidateMarks(unittest.TestCase):
         me, ally = "甲", "乙"
         w.blocs.append({"name": "联盟", "chief": me, "members": [me, ally]})
         ax, ay = next(c for c, t in sorted(w.tiles.items()) if t["owner"] == ally)
-        w.tiles[(ax, ay)]["buildings"]["市政厅"] = 1      # 盟友的厅
+        w.tiles[(ax, ay)]["buildings"]["native:town-hall"] = 1      # 盟友的厅
 
         acts = [(1, "attack", ax, ay)]                    # 单候选：盟友格
         c = encode.candidate_batch(sb, me, acts=acts, armies=[])
@@ -207,10 +207,10 @@ class TestCandidateMarks(unittest.TestCase):
         sb = self._sb()
         win, _, armies = encode.encode_window(sb, sb.current_player())
         self.assertEqual(win["a"].shape[1], V.A_WIDTH_RAW + F.F_U + V.A_EXTRA)
-        i = next(i for i, a in enumerate(armies) if a.get("type") == "步")
+        i = next(i for i, a in enumerate(armies) if a.get("type") == "native:infantry")
         off = V.A_WIDTH_RAW
         # ★ 兵种数值在**中间**那 4 列（尾部还有 `A_EXTRA` 的战斗明细段，见 5' 段）
-        np.testing.assert_allclose(win["a"][i, off:off + F.F_U], F.unit_vector("步"))
+        np.testing.assert_allclose(win["a"][i, off:off + F.F_U], F.unit_vector("native:infantry"))
 
 
 # ===========================================================================
@@ -378,7 +378,7 @@ class TestHallsKnownMode(unittest.TestCase):
             w = sb.world
             fx, fy = sb.core_of("乙")
             gid, seq = w._new_army("乙")
-            w.armies.append({"id": seq, "gid": gid, "name": f"乙{seq}", "type": "步",
+            w.armies.append({"id": seq, "gid": gid, "name": f"乙{seq}", "type": "native:infantry",
                              "hp": 100, "x": fx, "y": fy, "owner": "乙",
                              "moved_turn": -1, "engaged": False})
             mask = encode.vision_of(sb, "甲")

@@ -44,7 +44,7 @@ class TestNoStall(unittest.TestCase):
             sb = _sb(seed=seed)
             _disarm(sb, sb.players[0])           # ★ 造出"有厅但没兵"的那个国家
             self.assertTrue(sb.alive(sb.players[0]), "用例前提：它还有厅")
-            self.assertEqual(sb.count_of(sb.players[0], "步"), 0, "用例前提：它没兵")
+            self.assertEqual(sb.count_of(sb.players[0], "native:infantry"), 0, "用例前提：它没兵")
             # ★ 状态被我改了 ⇒ 让它追平一次（真实流程里这一步由 `step`/`end_turn`
             #   内部触发；这里手工改 world，所以要自己叫一次）。
             sb._auto_advance()

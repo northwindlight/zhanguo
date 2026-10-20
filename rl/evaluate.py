@@ -375,7 +375,7 @@ def core_of(world, name: str, mask=None):
     """该国的市政厅格 = 核心 = 国祚。★ 看不见 ⇒ `None`（**厅也要在视野内才知道在哪**，
     引擎 `_public_buildings` 原话："看不见就打不着"）。"""
     for cell, t in sorted(world.tiles.items()):
-        if t["owner"] == name and t["buildings"].get("市政厅", 0) > 0 and _vis(cell, mask):
+        if t["owner"] == name and t["buildings"].get("native:town-hall", 0) > 0 and _vis(cell, mask):
             return cell
     return None
 

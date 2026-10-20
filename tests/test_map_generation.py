@@ -55,11 +55,11 @@ SEEDS = (3, 20260905, 987654321)
 
 # 地形 ID → 中文名（只给**断言消息**用；生成过程一律用内容 ID）。
 _TERRAIN_LABEL = {
-    "native:plain": "平原",
-    "native:forest": "森林",
-    "native:hill": "丘陵",
-    "native:mountain": "山地",
-    "native:desert": "沙漠",
+    "native:plain": "native:plain",
+    "native:forest": "native:forest",
+    "native:hill": "native:hill",
+    "native:mountain": "native:mountain",
+    "native:desert": "native:desert",
 }
 _RESOURCE_LABEL = {
     "native:ore": "矿石",

@@ -39,7 +39,7 @@ _UNSEEN_COST = 1        # 视野外一律按平原估（用户 2026-09-15 口径
 def _watchtower_radius(world) -> int:
     """瞭望塔的视野半径（**现取**，不缓存）。
 
-    ⚠ **口径**：旧引擎是 `building_effect("瞭望塔", "vision_radius")`（读建筑效果表），
+    ⚠ **口径**：旧引擎是 `building_effect("native:watchtower", "vision_radius")`（读建筑效果表），
     新引擎把效果挂在**内容定义**上（`mods/native/buildings/types.py` 的
     `native:watchtower.EFFECTS`）。⇒ 这里从内容定义取，效果改了立刻跟着改。
     """
@@ -77,7 +77,7 @@ def vision_mask(world, name: str) -> frozenset:
         out.add((x, y))
         for nb in world.neighbors(x, y):
             out.add(nb)
-        if t["buildings"].get("瞭望塔"):
+        if t["buildings"].get("native:watchtower"):
             towers.append((x, y))
     radius = _watchtower_radius(world)
     if radius and towers:

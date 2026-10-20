@@ -24,6 +24,21 @@ import numpy as np                          # noqa: E402
 
 from mods.native.army import parameters as _army   # noqa: E402
 from rl import rules                                # noqa: E402
+
+
+def _set_terrain_defense(terrain_id: str, defense: int) -> None:
+    """**就地改**引擎的地形减伤（域随机化用）。
+
+    ⚠ 引擎的 `Terrain` 是 **frozen dataclass**（改不动）⇒ 这里改**内容定义表**
+      里的那一条（`mods/native/territory/mod.py:TERRAINS`）——
+      引擎每次读的都是这张表 ⇒ 改了就立刻生效（"现取"纪律的兑现）。
+    """
+    from mods.native.territory import mod as _terr
+    patched = tuple(type(t)(t.id, defense, t.build_penalty, t.cavalry_cost, t.glyph)
+                    if t.id == terrain_id else t
+                    for t in _terr.TERRAINS)
+    _terr.TERRAINS = patched
+    return
 from rl import features as F                # noqa: E402
 from rl import vocab as V                   # noqa: E402
 
@@ -53,22 +68,22 @@ class TestValuesMatchEngine(unittest.TestCase):
     def test_unit(self):
         # 用 `allclose` 不用 `==`：向量是 **float32**，0.8/0.2 在 float32 里不是精确值
         # （`np.float32(0.8) == 0.8` 是 **False**）—— 别拿这个当"数值不对"。
-        np.testing.assert_allclose(F.unit_vector("步"), [1.0, 0.5, 0.5, 0.5])
-        np.testing.assert_allclose(F.unit_vector("骑"), [1.0, 0.5, 1.0, 1.0])
+        np.testing.assert_allclose(F.unit_vector("native:infantry"), [1.0, 0.5, 0.5, 0.5])
+        np.testing.assert_allclose(F.unit_vector("native:cavalry"), [1.0, 0.5, 1.0, 1.0])
         # ★ 民 的 atk：旧引擎 20，**主线现值 25**（0.25）—— 跟随主线，不写死旧数
-        np.testing.assert_allclose(F.unit_vector("民"), [0.8, 0.25, 0.5, 0.5])
+        np.testing.assert_allclose(F.unit_vector("native:militia"), [0.8, 0.25, 0.5, 0.5])
         # 表里没有的 kind（野人）按步兵兜底，不是崩、也不是全 0
-        self.assertTrue((F.unit_vector("野人") == F.unit_vector("步")).all())
+        self.assertTrue((F.unit_vector("野人") == F.unit_vector("native:infantry")).all())
 
     def test_terrain(self):
         # 丘陵 defense 25 ⇒ 0.25；移动代价 步1/骑1/民1 ⇒ 0.5
-        np.testing.assert_allclose(F.terrain_vector("丘陵"), [0.25, 0.5, 0.5, 0.5])
+        np.testing.assert_allclose(F.terrain_vector("native:hill"), [0.25, 0.5, 0.5, 0.5])
         # 沙漠 defense −10 ⇒ **负值要如实传**（"无险可守"是信息，别夹到 0）
-        self.assertAlmostEqual(float(F.terrain_vector("沙漠")[0]), -0.10, places=6)
+        self.assertAlmostEqual(float(F.terrain_vector("native:desert")[0]), -0.10, places=6)
         # 森林/山地：骑兵移动代价 2 ⇒ 1.0（吃满）—— 这是"骑兵怕崎岖"的唯一来源
-        self.assertEqual(F.terrain_vector("森林")[2], 1.0)
-        self.assertEqual(F.terrain_vector("山地")[2], 1.0)
-        self.assertEqual(F.terrain_vector("平原")[2], 0.5)
+        self.assertEqual(F.terrain_vector("native:forest")[2], 1.0)
+        self.assertEqual(F.terrain_vector("native:mountain")[2], 1.0)
+        self.assertEqual(F.terrain_vector("native:plain")[2], 0.5)
 
     def test_die_and_retreat(self):
         dv = F.die_vector()
@@ -77,10 +92,10 @@ class TestValuesMatchEngine(unittest.TestCase):
         self.assertEqual(list(rv), [0.8, 0.5])                          # 惩罚80% / 减伤50%
 
     def test_cand_and_glob_compose(self):
-        c = F.cand_content("民", "山地")
+        c = F.cand_content("native:militia", "native:mountain")
         self.assertEqual(c.shape, (F.F_CAND,))
-        self.assertTrue((c[:F.F_U] == F.unit_vector("民")).all())
-        self.assertTrue((c[F.F_U:] == F.terrain_vector("山地")).all())
+        self.assertTrue((c[:F.F_U] == F.unit_vector("native:militia")).all())
+        self.assertTrue((c[F.F_U:] == F.terrain_vector("native:mountain")).all())
         self.assertEqual(F.glob_rule_vector().shape, (F.F_GLOB,))
 
 
@@ -88,24 +103,24 @@ class TestLiveNotCached(unittest.TestCase):
     """★★ 本模块存在理由的那条测试：**表一变，向量必须立刻变**。"""
 
     def test_unit_change_is_visible(self):
-        before = F.unit_vector("民").copy()
+        before = F.unit_vector("native:militia").copy()
         try:
             _army.UNIT_TYPES["native:militia"]["atk"] = 30          # 就地改（与域随机化同一手法）
-            after = F.unit_vector("民")
+            after = F.unit_vector("native:militia")
         finally:
             _army.UNIT_TYPES["native:militia"]["atk"] = 25   # 复原（主线现值）
         self.assertNotEqual(after[1], before[1],
                             "★ 改了 `UNIT_TYPES['民']['atk']` 向量却没变 ⇒ 有缓存烤进去了")
         self.assertAlmostEqual(after[1], 0.30, places=6)
-        self.assertTrue((F.unit_vector("民") == before).all(), "改回去之后没复原")
+        self.assertTrue((F.unit_vector("native:militia") == before).all(), "改回去之后没复原")
 
     def test_terrain_change_is_visible(self):
-        before = F.terrain_vector("丘陵").copy()
+        before = F.terrain_vector("native:hill").copy()
         try:
-            rules.set_terrain_defense("丘陵", 40)
-            after = F.terrain_vector("丘陵")
+            _set_terrain_defense("native:hill", 40)
+            after = F.terrain_vector("native:hill")
         finally:
-            rules.set_terrain_defense("丘陵", 25)
+            _set_terrain_defense("native:hill", 25)
         self.assertAlmostEqual(after[0], 0.40, places=6)
         self.assertNotEqual(after[0], before[0])
 
@@ -113,7 +128,7 @@ class TestLiveNotCached(unittest.TestCase):
         """★ "让民兵也怕森林" 这类改动必须看得见（现在 步/民 同值 ⇒ 两列冗余是**故意**的）。"""
         try:
             _army.MOVE_COST["native:militia"]["native:forest"] = 2
-            v = F.terrain_vector("森林")
+            v = F.terrain_vector("native:forest")
         finally:
             _army.MOVE_COST["native:militia"]["native:forest"] = 1
         self.assertEqual(v[3], 1.0, "民 的移动代价改了却没进向量第 4 列")
@@ -130,10 +145,10 @@ class TestLiveNotCached(unittest.TestCase):
 
     def test_batch_tables_are_live_too(self):
         """批量表也得现算 —— 只让单条现算、批量走缓存，是最容易漏的那种半吊子。"""
-        before = F.unit_table()[V.UNIT.index("骑")].copy()
+        before = F.unit_table()[V.UNIT.index("native:cavalry")].copy()
         try:
             _army.UNIT_TYPES["native:cavalry"]["atk"] = 60
-            after = F.unit_table()[V.UNIT.index("骑")]
+            after = F.unit_table()[V.UNIT.index("native:cavalry")]
         finally:
             _army.UNIT_TYPES["native:cavalry"]["atk"] = 50
         self.assertNotEqual(after[1], before[1], "★ 批量表被缓存了")
