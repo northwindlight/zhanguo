@@ -52,7 +52,7 @@ for field, expected in {"actions": 1561, "failed": 103, "query": 654, "建造": 
 print("OK: weights, four provisional scores, 144 completed turns, aggregates, selected receipts, Gemini historical counts")
 
 # Core behavior points are subjective; this checks sums, not the judgment itself.
-assert scores["version"] == "0.3"
+assert scores["version"] == "0.4"
 assert sum(weights[k] for k in ["planning_delivery", "feedback_change", "goal_continuity"]) == 70
 followup = read("followup-evidence.json")
 for key, blocks in read("followup-turns.json").items():
@@ -76,7 +76,7 @@ for key, blocks in read("followup-turns.json").items():
         close(sum(row["categories"].values()), row["consumption_0_13"])
     close(sum(r["attempts"] for r in group["audit"]["per_nation"]), group["audit"]["attempts"])
     close(sum(r["unsuccessful"] for r in group["audit"]["per_nation"]), group["audit"]["unsuccessful"])
-assert [m["score"] for m in scores["models"]] == [72, 64, 36, 36]
+assert [m["score"] for m in scores["models"]] == [72, 70, 47, 40]
 behavior = read("behavior-evidence.json")
 by_id = {r["id"]: r for r in behavior["minimax_receipts"]}
 assert "不再同回合既买又卖" in str(by_id[907]["arguments"])
@@ -86,5 +86,20 @@ for ident, action in [(1073, "sell"), (1076, "buy"), (1085, "sell")]:
     row = by_id[ident]
     assert row["receipt"]["period"] == 7 and row["receipt"]["ok"]
     assert row["arguments"]["action"] == action and row["arguments"]["resource"] == "wood"
-assert all(m["rank"] == 3 for m in scores["models"][2:])
-print("OK: v0.3 core score sums, aligned accounting and the period5->6->7 commitment/feedback/action chain")
+assert [m["rank"] for m in scores["models"]] == [1, 2, 3, 4]
+print("OK: v0.4 core score sums, aligned accounting and the period5->6->7 commitment/feedback/action chain")
+
+# Every DeepSeek/Qwen component names concrete evidence, including contrary cases.
+goals = read("goal-revision-evidence.json")
+record_ids = {r["id"] for r in goals["records"]}
+for model in scores["models"][:2]:
+    assert set(model["component_evidence_ids"]) == set(weights)
+    for refs in model["component_evidence_ids"].values():
+        assert refs and set(refs) <= record_ids
+assert "bloc_join" in next(r["text"] for r in goals["records"] if r["id"] == "OLD_YAN_JOIN86")
+for period in [21,28,33,46,51,58,68,72,74]:
+    text = next(r["text"] for r in goals["records"] if r["id"] == f"Q_ZHAO_STABLE{period}")
+    assert "不入" in text or "不称臣" in text
+assert {r["id"] for r in goals["deepseek_plan_records"]} == {37,780,823}
+assert "250" in str(goals["deepseek_plan_records"][0]["arguments"])
+print("OK: five component evidence lists per D/Q model, legacy join action, stable Zhao policy nodes")

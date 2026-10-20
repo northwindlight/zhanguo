@@ -1,7 +1,7 @@
 {
   "date": "2026-10-20",
-  "version": "0.3",
-  "status": "subjective behavior ranking; scores are editorial judgments backed by trace evidence, not a formula from local metrics",
+  "version": "0.4",
+  "status": "superseded: goal consistency had over-penalized choosing submission; v0.4 evaluates reasons and subsequent stability",
   "score_type": "sum of awarded component points; maximum 100",
   "rubric": [
     {
@@ -16,7 +16,7 @@
     },
     {
       "id": "goal_continuity",
-      "name": "目标保持",
+      "name": "目标与解释的一致性",
       "weight": 20
     },
     {
@@ -44,22 +44,93 @@
       "score": 72,
       "rank": 1,
       "coverage": "single-game trajectories; cross-game reliability unverified",
-      "scope": "completed action periods 0..13, selected partial14 behavior; no future rounds inferred"
+      "scope": "completed action periods 0..13, selected partial14 behavior; no future rounds inferred",
+      "rationale": "behavior-review.md; goal-revision-cases.md",
+      "component_evidence_ids": {
+        "planning_delivery": [
+          "D_YAN_PROMISE",
+          "D_YAN_BARRACKS",
+          "D_YAN_RECRUIT",
+          "D_WEI_REJECT10"
+        ],
+        "feedback_change": [
+          "D_QIN_KEY_FAIL",
+          "D_QIN_KEY_FIX",
+          "D_WEI_REJECT10",
+          "D_WEI_REJECT11"
+        ],
+        "goal_continuity": [
+          "D_YAN_PROMISE",
+          "D_YAN_DEPLOY",
+          "D_WEI_REJECT10"
+        ],
+        "strategic_revision": [
+          "D_YAN_DEPLOY",
+          "D_YAN_REGROUP",
+          "D_WEI_REJECT11",
+          "D_WEI_LOAN13"
+        ],
+        "execution_control": [
+          "D_QIN_KEY_FIX",
+          "D_WEI_BAD_ORDER8",
+          "D_WEI_LOAN13",
+          "D_WEI_STOCK13"
+        ]
+      }
     },
     {
       "model": "Qwen3.8 Flash high",
       "access_source": "Qoder",
       "components": {
         "planning_delivery": 17,
-        "feedback_change": 13,
-        "goal_continuity": 15,
-        "strategic_revision": 13,
+        "feedback_change": 16,
+        "goal_continuity": 17,
+        "strategic_revision": 14,
         "execution_control": 6
       },
-      "score": 64,
+      "score": 70,
       "rank": 2,
       "coverage": "single-game trajectories; cross-game reliability unverified",
-      "scope": "completed action periods 0..13, selected partial14 behavior; no future rounds inferred"
+      "scope": "0..13 plus selected current-game goal and feedback chains through saved boundary74; historical158 only calibrates interpretation, not current checkpoint score",
+      "rationale": "behavior-review.md; goal-revision-cases.md",
+      "component_evidence_ids": {
+        "planning_delivery": [
+          "Q_CHU_PLAN",
+          "Q_CHU_BARRACKS",
+          "Q_CHU_RECRUIT",
+          "Q_ZHAO_ARMY_TARGET",
+          "Q_ZHAO_END8",
+          "Q_ZHAO_DEMOB13"
+        ],
+        "feedback_change": [
+          "Q_ZHAO_COUNCIL_REMINDER",
+          "Q_ZHAO_REVIEW57",
+          "Q_ZHAO_ATTACK58",
+          "Q_ZHAO_RECRUIT58",
+          "Q_ZHAO_END59",
+          "Q_ZHAO_END60"
+        ],
+        "goal_continuity": [
+          "Q_ZHAO_SWITCH1",
+          "Q_ZHAO_SWITCH7",
+          "Q_ZHAO_STABLE21",
+          "Q_ZHAO_STABLE74",
+          "Q_ZHAO_REVIEW57"
+        ],
+        "strategic_revision": [
+          "Q_ZHAO_COUNCIL_CONTINGENCY",
+          "Q_ZHAO_REVIEW57",
+          "Q_ZHAO_END60",
+          "Q_HAN_TREATY_ERROR"
+        ],
+        "execution_control": [
+          "Q_CHU_RECRUIT",
+          "Q_ZHAO_RANGE4",
+          "Q_ZHAO_RANGE9",
+          "Q_QI_WOOD_ERROR",
+          "Q_HAN_RETREAT7"
+        ]
+      }
     },
     {
       "model": "MiniMax M3.1 Flash high",
@@ -67,14 +138,15 @@
       "components": {
         "planning_delivery": 10,
         "feedback_change": 7,
-        "goal_continuity": 5,
+        "goal_continuity": 16,
         "strategic_revision": 9,
         "execution_control": 5
       },
-      "score": 36,
+      "score": 47,
       "rank": 3,
       "coverage": "single-game trajectories; cross-game reliability unverified",
-      "scope": "completed action periods 0..13, selected partial14 behavior; no future rounds inferred"
+      "scope": "completed action periods 0..13, selected partial14 behavior; no future rounds inferred",
+      "rationale": "behavior-review.md; goal-revision-cases.md"
     },
     {
       "model": "Gemini 3.8 Flash high",
@@ -82,14 +154,15 @@
       "components": {
         "planning_delivery": 8,
         "feedback_change": 5,
-        "goal_continuity": 12,
+        "goal_continuity": 16,
         "strategic_revision": 7,
         "execution_control": 4
       },
-      "score": 36,
-      "rank": 3,
+      "score": 40,
+      "rank": 4,
       "coverage": "single-game trajectories; cross-game reliability unverified",
-      "scope": "historical action periods 0..50"
+      "scope": "historical action periods 0..50",
+      "rationale": "behavior-review.md; goal-revision-cases.md"
     }
   ]
 }

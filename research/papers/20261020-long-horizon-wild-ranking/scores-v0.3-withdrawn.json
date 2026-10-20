@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-20",
+  "version": "0.3",
+  "status": "superseded: goal consistency had over-penalized choosing submission; v0.4 evaluates reasons and subsequent stability",
+  "score_type": "sum of awarded component points; maximum 100",
+  "rubric": [
+    {
+      "id": "planning_delivery",
+      "name": "规划兑现",
+      "weight": 25
+    },
+    {
+      "id": "feedback_change",
+      "name": "反省后的实际改变",
+      "weight": 25
+    },
+    {
+      "id": "goal_continuity",
+      "name": "目标保持",
+      "weight": 20
+    },
+    {
+      "id": "strategic_revision",
+      "name": "战略调整质量",
+      "weight": 20
+    },
+    {
+      "id": "execution_control",
+      "name": "执行错误控制",
+      "weight": 10
+    }
+  ],
+  "models": [
+    {
+      "model": "DeepSeek V4.1 Flash high",
+      "access_source": "OpenCode",
+      "components": {
+        "planning_delivery": 19,
+        "feedback_change": 15,
+        "goal_continuity": 17,
+        "strategic_revision": 14,
+        "execution_control": 7
+      },
+      "score": 72,
+      "rank": 1,
+      "coverage": "single-game trajectories; cross-game reliability unverified",
+      "scope": "completed action periods 0..13, selected partial14 behavior; no future rounds inferred"
+    },
+    {
+      "model": "Qwen3.8 Flash high",
+      "access_source": "Qoder",
+      "components": {
+        "planning_delivery": 17,
+        "feedback_change": 13,
+        "goal_continuity": 15,
+        "strategic_revision": 13,
+        "execution_control": 6
+      },
+      "score": 64,
+      "rank": 2,
+      "coverage": "single-game trajectories; cross-game reliability unverified",
+      "scope": "completed action periods 0..13, selected partial14 behavior; no future rounds inferred"
+    },
+    {
+      "model": "MiniMax M3.1 Flash high",
+      "access_source": "MCode",
+      "components": {
+        "planning_delivery": 10,
+        "feedback_change": 7,
+        "goal_continuity": 5,
+        "strategic_revision": 9,
+        "execution_control": 5
+      },
+      "score": 36,
+      "rank": 3,
+      "coverage": "single-game trajectories; cross-game reliability unverified",
+      "scope": "completed action periods 0..13, selected partial14 behavior; no future rounds inferred"
+    },
+    {
+      "model": "Gemini 3.8 Flash high",
+      "access_source": "反重力（Antigravity）",
+      "components": {
+        "planning_delivery": 8,
+        "feedback_change": 5,
+        "goal_continuity": 12,
+        "strategic_revision": 7,
+        "execution_control": 4
+      },
+      "score": 36,
+      "rank": 3,
+      "coverage": "single-game trajectories; cross-game reliability unverified",
+      "scope": "historical action periods 0..50"
+    }
+  ]
+}

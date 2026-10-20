@@ -36,7 +36,8 @@ def research_pages() -> list[dict]:
     source = root / 'research/papers/20261020-long-horizon-wild-ranking'
     specs = [
         ('README.md', '01-长任务野榜', '四模型长任务野榜', '直接评价规划兑现、反省后的改变与目标保持。'),
-        ('behavior-review.md', '06-行为一致性评分', '核心行为评分与证据链', 'DeepSeek72、Qwen64、MiniMax36、Gemini36，逐项公开判分理由。'),
+        ('behavior-review.md', '06-行为一致性评分', '核心行为评分与证据链', 'DeepSeek72、Qwen70、MiniMax47、Gemini40，逐项公开加分、扣分与后续变化。'),
+        ('goal-revision-cases.md', '07-目标修订与称臣案例', '目标修订与称臣案例', '158局燕与本局赵：称臣不是扣分项，理由、条件与后续是否摇摆才是。'),
         ('minimax-retrospective.md', '04-MiniMax停局报告', 'MiniMax 第14回合停局报告', '目标让渡、审核循环、同窗对照与一次失望的游戏体验。'),
         ('normalization.md', '05-评测归一化', '评测归一化与宏观口径', '共同时间节点、短期贷款消费、早晚终局与人工停止。'),
         ('observations.md', '02-MiniMax对局观察', 'MiniMax 前9期观察', '保留最初的同阶段统计与案例，后续见第14回合停局报告。'),

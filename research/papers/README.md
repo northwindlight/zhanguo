@@ -6,7 +6,9 @@
 
 | 日期 | 文章 | 性质 |
 | --- | --- | --- |
-| 2026-10-20 | [智能不是均匀的：大战略游戏长任务野榜 v0.3](20261020-long-horizon-wild-ranking/README.md) | 核心行为直接评分：规划兑现、纠错改变与目标保持；消费另按宏观尺度 |
+| 2026-10-20 | [智能不是均匀的：大战略游戏长任务野榜 v0.4](20261020-long-horizon-wild-ranking/README.md) | 核心行为直接评分：规划兑现、纠错改变及目标与解释的一致性；消费另按宏观尺度 |
+
+目标校准：[158局燕与本局赵的转向案例](20261020-long-horizon-wild-ranking/goal-revision-cases.md)。
 
 核心判分：[行为一致性评分与证据链](20261020-long-horizon-wild-ranking/behavior-review.md)。
 
