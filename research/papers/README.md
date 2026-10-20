@@ -4,6 +4,6 @@
 
 | 日期 | 文章 | 性质 |
 | --- | --- | --- |
-| 2026-10-20 | [智能不是均匀的：大战略游戏长任务野榜与MiniMax的一次落差](20261020-long-horizon-wild-ranking/README.md) | DeepSeek、Qwen、MiniMax暂定评分，Gemini历史参考；非标准化能力榜 |
+| 2026-10-20 | [智能不是均匀的：大战略游戏长任务野榜与MiniMax的一次落差](20261020-long-horizon-wild-ranking/README.md) | DeepSeek、Qwen、MiniMax暂定评分，Gemini长期行为轨迹评分；非标准化能力榜 |
 
 原始历史材料见[真实对局资料](../game-records/README.md)，经济学论证见[消费总量评测指标论文](../../docs/research/消费总量评测指标论证.md)。

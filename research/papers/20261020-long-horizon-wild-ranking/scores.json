@@ -95,7 +95,7 @@
     },
     {
       "model": "Gemini 3.8 Flash high",
-      "cohort": "historical asymmetric-effort game; periods 0..50; provisional reference rank 4, low confidence",
+      "cohort": "historical game, Gemini high, periods 0..50; own-trajectory evaluation; other players low limits causal cross-model comparison, not behavior validity",
       "ratings": {
         "within_run_consistency": 1.5,
         "cross_game_consistency": null,
