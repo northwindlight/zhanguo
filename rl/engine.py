@@ -333,19 +333,41 @@ class _ArmyList(list):
         self._sync([])
 
     def _sync(self, keep: list) -> None:
-        """★ 让引擎里的军队与 `keep` 一致（**多出来的解散掉**）。"""
+        """★ 让引擎里的军队与 `keep` 一致（**多出来的解散掉**）。
+
+        ⚠⚠ **不能只调 `disband_many`** —— 引擎的遣散规则是**给玩家的**：
+          「正在交战或受到进攻的军队不能遣散」⇒ 一旦在交火，`disband_many`
+          **整批拒绝**（`DomainRejection`）⇒ **一支都没删**。
+          而旧引擎的 `w.armies.clear()` 是**真删** ⇒ RL 线"摆个干净局面"
+          会**静默失败**：军队越攒越多（实测一局 30 次试验后每方 10 支），
+          战斗概率对拍测的其实是**污染过的世界**——这条坑掉了撤退对拍。
+          ⇒ ① 先走正规口（解除交战 → 遣散）；② **剩下的硬删**
+          （RL 线是台架，要能摆任意局面；引擎的遣散规则是给玩家的）。
+        """
         keep_gids = {a.get("gid") for a in keep if a.get("gid") is not None}
-        by_owner: dict[str, list[int]] = {}
         native = self._world.native
-        for unit in native.units:
-            if unit.gid in keep_gids:
-                continue
+        doomed = [u for u in native.units if u.gid not in keep_gids]
+        if not doomed:
+            return
+        # ① 正规口：先解除交战（引擎不许遣散"正在交战"的军队），再遣散
+        for unit in doomed:
+            try:
+                if unit.engaged:
+                    unit.disengage()
+            except Exception:
+                pass
+        by_owner: dict[str, list[int]] = {}
+        for unit in doomed:
             by_owner.setdefault(unit.owner, []).append(unit.id)
         for owner, ids in by_owner.items():
             try:
                 native.military.disband_many(owner, ids)
             except Exception:
-                pass
+                pass        # 引擎不批（亡国 / 阶段不对 / 野人…）→ 走 ② 的硬删
+        # ② 剩下的**硬删**（RL 线要能摆任意局面）
+        for unit in list(native.units):
+            if unit.gid not in keep_gids:
+                native.units.remove(unit)
 
     def __repr__(self):
         return repr(self._world._army_snapshot())
@@ -623,7 +645,8 @@ class _TileMap:
 
     # -- MutableMapping 协议 --
     def __getitem__(self, key):
-        return self._world._tile_snapshot()[key]
+        # ★ **单格读**（不重建全表）—— 见 `SandboxWorld._tile_cell`。
+        return self._world._tile_cell(tuple(key))
 
     def __setitem__(self, key, value):
         cell = tuple(key)
@@ -694,8 +717,9 @@ class SandboxWorld:
         self._core_owners: dict[tuple[int, int], str | None] = {}
         # ★ 每支军的**稳定 dict 身份**（按 gid 缓存）—— 见 `_as_dict`。
         self._unit_dicts: dict[int, dict] = {}
-        # ★ 地块快照缓存（见 `_tile_snapshot`）。
-        self._tile_cache: dict[tuple[int, int], dict] | None = None
+        # ★ 地块快照缓存（见 `_tile_snapshot` / `_tile_cell`）。
+        self._tile_cache: dict[tuple[int, int], dict] = {}
+        self._tile_full: bool = False
         # ★ "被拆掉的建筑"覆盖表（`{站点: {建筑种类: 剩余座数}}`）——
         #   新引擎**没有拆建筑的口**，而旧线的 `tile["buildings"]` 是**真字典**
         #   （`t["buildings"]["native:town-hall"] = 0` = "拔掉这座厅"）⇒ 门面自己记这笔账。
@@ -788,7 +812,8 @@ class SandboxWorld:
         clone._starts = dict(self._starts)
         clone._core_owners = dict(self._core_owners)
         clone._building_override = {k: dict(v) for k, v in self._building_override.items()}
-        clone._tile_cache = None
+        clone._tile_cache = {}
+        clone._tile_full = False
         clone._unit_dicts = {}
         # ★ 世界本体：同一个 `Runtime`（**无世界状态**，可安全共用）⇒ 新世界 + 读档。
         clone._runtime = self._runtime
@@ -997,14 +1022,43 @@ class SandboxWorld:
         ★ 失效点**全在门面的写路径上**（`_invalidate_tiles`）：建格 / 转归属 /
           种建筑 / 结算（战斗会占地）—— RL 线对世界的写**全走门面**，
           所以这三处 + 结算就是**完备**的失效集合。
+        ★★ **单格读走另一条路**（`_tile_cell`）：全表重建是 O(地块数 × 引擎调用)，
+          "写一格、读一格"交替时（对拍循环把 200 格复原一遍）会变成
+          **每读一次重建 4000 格** ⇒ 实测对拍循环 **50 ms/轮**。
         """
-        if self._tile_cache is None:
+        if not self._tile_full:
             self._tile_cache = self._build_tile_snapshot()
+            self._tile_full = True
         return self._tile_cache
+
+    def _tile_cell(self, cell) -> dict:
+        """★ **单格**快照（带缓存）—— 读一格**只重建那一格**。
+
+        ⚠ 为什么单列一条路：写一格会让**整张表**失效（归属/建筑都可能变），
+          而"写一格、读一格"交替是 RL 线的常见写法 ⇒ 全表重建会慢 100 倍。
+        ⚠ **不存在的一格仍抛 `KeyError`**（旧口径）：`territory.cell` 对
+          "无主/没建"的格会**现场造**一个 `id=''` 的事实 ⇒ 用它判"这格不存在"。
+        """
+        key = tuple(cell)
+        cached = self._tile_cache.get(key)
+        if cached is not None:
+            return cached
+        x, y = key
+        try:
+            fact = self._world.territory.cell(x, y)
+        except Exception as exc:                    # 越界等
+            raise KeyError(key) from exc
+        if not fact.tile.id:                        # ★ 没建的地块（无主格）⇒ 不存在
+            raise KeyError(key)
+        counts = _BuildingCounts(self, fact.tile.id)
+        value = _TileDict(self, fact, counts)
+        self._tile_cache[key] = value
+        return value
 
     def _invalidate_tiles(self) -> None:
         """★ 地块快照**失效**（状态变了 ⇒ 下次访问重建）。"""
-        self._tile_cache = None
+        self._tile_cache = {}
+        self._tile_full = False
 
     def _build_tile_snapshot(self) -> dict[tuple[int, int], dict]:
         """当前所有地块的**只读快照**（内部用；门面每次现拼）。"""
@@ -1534,8 +1588,13 @@ class SandboxWorld:
         ⇒ 门面把它**单独拎出来**调（只结算战斗，不跑经济/外交/补给），
         这样"对拍台"（`rl/combat_noise_probe.py`）能**只重打战斗**，
         不会把经济层的随机数也搅进来。
+
+        ★ 战斗**会占地**（打赢的一方拿下那格）⇒ 地块快照**必须失效**
+        （否则"打完仗再看那格归谁"读到的是**战前**的归属 —— 不报错，只是不对）。
         """
-        return list(self._world.military.battle())
+        reports = list(self._world.military.battle())
+        self._invalidate_tiles()      # ★ 战斗可能占地 ⇒ 快照失效
+        return reports
 
     def resolve_turn(self) -> dict:
         """★ **结算一个回合**（新引擎的 `runtime.settle`）。
