@@ -60,7 +60,8 @@ from .rules import unit_atk, unit_kind
 #     之后改表**不生效且不报错**）。
 from . import scoring as S
 
-# ★★ **可选加速扩展**（源码 `rl/_combat_fast.c`）。编译：`bash rl/build_combat_fast.sh`
+# ★★ **可选加速扩展**（源码在主线 `mods/experimental/combat_research/_combat_fast.c`）。
+#   编译：`python3 mods/experimental/combat_research/build.py`
 #
 #   为什么：战斗 DP 占采集回路墙钟 **58.8%**，而它几乎全是 CPython 的**解释器开销**
 #   —— 实测一次转移 **4.5 µs**、约 20 个解释器级操作（225 ns/操作），
@@ -71,7 +72,11 @@ from . import scoring as S
 #   ★ 但**不静默**：失败原因留在 `_FAST_ERR` 里（仓库纪律：静默失效最贵）。
 #   ★ 扩展存在时结果**逐位相同**：它复刻了这里的浮点求和顺序（见 C 文件头部）。
 try:                                                    # pragma: no cover
-    from . import _combat_fast as _FAST
+    # ★★ **直接用主线那份 C 扩展**（`mods/experimental/combat_research/`）——
+    #   它是主线**已经按新摊分规则移植过**的版本（旧的 `rl/_combat_fast.c`
+    #   还带着 `divmod` 那套 ⇒ 与引擎对不上）。
+    #   ⇒ 两条线**只留一份** C 代码，规则改动不会只改一边。
+    from mods.experimental.combat_research import _combat_fast as _FAST
     _FAST_ERR = None
 except Exception as _e:                                 # noqa: BLE001
     _FAST = None
@@ -566,13 +571,20 @@ def assess(b: Battle, *, max_states: int | None = None,
                     nxt.append(units)
                     lost_all.append(0)
                     continue
-                flat = flat_by_side[i]
-                per, rem = divmod(d, len(units))
+                # ★★★ **摊分规则 = 引擎当前的 `spread_damage`（注水式均分）**。
+                #   ⚠ 这里**曾经**内联着**旧规则**（`divmod` + 余数给前排）——
+                #     引擎改了规则而这行没跟着改 ⇒ **DP 与引擎对不上**
+                #     （实测 2v2 局面：DP 说"2 轮结束"占 66%，引擎占 82%）。
+                #   ★ 与 `_apply()` **同一套算法**（那边是参考实现，这边是热路径内联；
+                #     两边必须一起改 —— 曾经只改了一边，就是这个坑）。
+                ratios = [(u[3] if u[3] is not None else 100) / 100.0 for u in units]
+                caps = [(float("inf") if r == 0 else u[1] / r)
+                        for u, r in zip(units, ratios)]
+                shares = _equal_allocation(d, caps)
                 keep = []
                 lost = 0
                 for k, u in enumerate(units):
-                    sh = per + (1 if k < rem else 0)
-                    nh = u[1] - (sh if flat else sh * u[3] // 100)
+                    nh = u[1] - shares[k] * ratios[k]
                     lost += u[1] - nh          # ★ 含阵亡者"消失的血"（用 nh，不夹到 0）
                     if nh > 0:
                         keep.append((u[0], nh, u[2], u[3]))
