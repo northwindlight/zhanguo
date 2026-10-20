@@ -139,3 +139,83 @@ class TestDpBitIdentity(unittest.TestCase):
             tot = sum(float(x) for x in d["p_rounds"])
             self.assertAlmostEqual(tot, 1.0, delta=1e-9,
                                    msg=f"{label} 轮数分布没归一（基准本身坏了）")
+
+
+class TestTheCPathIsReallyUsed(unittest.TestCase):
+    """★★ 上一组测试**可能是假绿**：C 不可用、或**不适用**时，
+    `_fast_dp` 会**自动回落纯 Python** ⇒ "C 路径与基准逐位一致"其实
+    是**纯 Python 跟自己比** ⇒ 扩展坏成什么样都不会红。
+
+    ⇒ 这里直接量两件事：
+      ① **C 路径真的被走到了**（`_fast_dp` 返回非 None）；
+      ② C 的结果与**纯 Python 的结果逐位相同**（不是与基准比，是**两条路互比**）。
+    """
+
+    def _both(self, label, kw):
+        w, cell = stage(**kw)
+        b = CP.build(w, *cell)
+        state0 = tuple(b.init[F] for F in b.order)
+        keep = CP._FAST
+        CP._FAST = None                       # 先量纯 Python
+        try:
+            o_py = CP.assess(b)
+        finally:
+            CP._FAST = keep
+        got = CP._fast_dp(b, state0, CP.S.ASSESS_MAX_STATES, CP.S.ASSESS_MAX_ROUNDS)
+        return b, got, o_py
+
+    def test_c_path_is_taken_and_agrees_bit_for_bit(self):
+        if CP._FAST is None:
+            self.assertIsNotNone(CP._FAST_ERR, "扩展不可用却连原因都没有")
+            self.skipTest(f"扩展没编译（可选）：{CP._FAST_ERR}")
+        for label, kw in KWARGS.items():
+            with self.subTest(label):
+                b, got, o_py = self._both(label, kw)
+                self.assertIsNotNone(
+                    got, f"{label}：★ C 路径**没被使用**（回落纯 Python 了）—— "
+                         f"这组测试就成了自己跟自己比")
+                dist, rh, er, ehp, n_exp = got
+                o_c = CP._finish(b, dist, rh, er, ehp, n_exp, CP.S.ASSESS_MAX_ROUNDS)
+                self.assertEqual(dump(o_c), dump(o_py),
+                                 f"{label}：C 路径与纯 Python **不逐位相同** —— "
+                                 f"观测特征会跟着变，这不是「差不多」的事")
+
+
+class TestAbsorbedMemoIsLive(unittest.TestCase):
+    """★ 非空泛性：**吸收态不许被反复重算**。
+
+    这是提速那一条改动的守卫。光有基准不够 —— 把 memo 整个删掉基准照样绿
+    （结果没变，只是变慢），所以这里直接量"同一个 `state` 有没有被送给
+    `_survivors` 两次"。改了 memo 而它失效 ⇒ 这里红。
+
+    ★ 只管**纯 Python 路径**：C 扩展里没有 `_survivors`（它用位掩码），
+      那条路由 `test_fast_path_matches_the_frozen_reference` 管。
+    """
+
+    # ★ 大于这个数才说明用例够大、量得动（别拿一个只有两三个状态的局自欺）
+    MIN_ABSORBED = 10
+
+    def test_no_absorbed_state_is_recomputed(self):
+        w, cell = stage(sides={"甲": ["native:infantry", "native:cavalry"], "乙": ["native:infantry", "native:cavalry"]})
+        b = CP.build(w, *cell)
+        seen = []
+        real = CP._survivors
+        keep_fast = CP._FAST
+        CP._FAST = None                    # ★ 强制走纯 Python（否则 _survivors 不会被调）
+
+        def spy(bb, state):
+            seen.append(state)               # state 是嵌套 tuple ⇒ 可哈希可比
+            return real(bb, state)
+
+        CP._survivors = spy
+        try:
+            CP.assess(b)
+        finally:
+            CP._survivors = real
+            CP._FAST = keep_fast
+
+        self.assertGreaterEqual(len(seen), self.MIN_ABSORBED,
+                                "用例太小、量不出东西 —— 换个更大的局面")
+        dup = len(seen) - len(set(seen))
+        self.assertEqual(dup, 0,
+                         f"同一个吸收态被重算了 {dup} 次 —— 吸收态 memo 没生效")

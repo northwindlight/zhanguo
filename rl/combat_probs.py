@@ -60,23 +60,25 @@ from .rules import unit_atk, unit_kind
 #     之后改表**不生效且不报错**）。
 from . import scoring as S
 
-# ★★ **可选加速扩展**（源码在主线 `mods/experimental/combat_research/_combat_fast.c`）。
-#   编译：`python3 mods/experimental/combat_research/build.py`
+# ★★ **可选加速扩展**（源码在 **`rl/_combat_fast.c`**，本线自带一份）。
+#   编译：`python3 rl/build_combat_fast.py`
 #
 #   为什么：战斗 DP 占采集回路墙钟 **58.8%**，而它几乎全是 CPython 的**解释器开销**
 #   —— 实测一次转移 **4.5 µs**、约 20 个解释器级操作（225 ns/操作），
 #   cProfile 里**一个数值计算函数都没有**（`rl/dp_internals_probe.py`）。
 #   换语言能拿 1~2 个数量级：原型实测 **DP ×12**（对原始 Python ×20）⇒ 整体 **2.27×**。
 #
+#   ★ **为什么是本线自带的那份**（而不是主线 `mods/experimental/combat_research/`）：
+#     主线那份是**从本分支移植过去的**，但**还带着旧的整数摊分**
+#     ⇒ 多方局与引擎**差 1 点血**⇒ 本线不能直接用它。
+#     而本线的纪律是**引擎文件与 main 逐字一致** ⇒ 修好的那份放 `rl/`，
+#     `mods/` 一个字不动（主线继续用它自己那份，行为不变）。见 `rl/PLAN.md` §0.7。
+#
 #   ★ **编不出来就整条回落纯 Python** —— 仓库仍然纯 Python 可用、行为不变。
 #   ★ 但**不静默**：失败原因留在 `_FAST_ERR` 里（仓库纪律：静默失效最贵）。
 #   ★ 扩展存在时结果**逐位相同**：它复刻了这里的浮点求和顺序（见 C 文件头部）。
 try:                                                    # pragma: no cover
-    # ★★ **直接用主线那份 C 扩展**（`mods/experimental/combat_research/`）——
-    #   它是主线**已经按新摊分规则移植过**的版本（旧的 `rl/_combat_fast.c`
-    #   还带着 `divmod` 那套 ⇒ 与引擎对不上）。
-    #   ⇒ 两条线**只留一份** C 代码，规则改动不会只改一边。
-    from mods.experimental.combat_research import _combat_fast as _FAST
+    from . import _combat_fast as _FAST
     _FAST_ERR = None
 except Exception as _e:                                 # noqa: BLE001
     _FAST = None
@@ -457,27 +459,26 @@ def _fast_dp(b: Battle, state0: tuple, max_states: int, max_rounds: int):
                 i = len(kinds)
                 kidx[k] = i
                 kinds.append(k)
-            row.append((i, int(h), bool(r), int(c)))
+            # ★ `cover` 缺省是 **None**（引擎口径：没在撤退）⇒ C 那边按 100 算。
+            row.append((i, float(h), bool(r), 100 if c is None else int(c)))
         init_units.append(row)
-    # ★★ **C 扩展只在"主线上也允许"的那几种局上跑**（口径与
-    #   `mods/experimental/combat_research/solver.py` **逐条一致**）：
-    #     ① 方数 ≤ 8；② **每方只有一支军**（★ 关键！）；③ HP 是整数且非零；
-    #     ④ **无人带撤退减伤**（cover 是 None 或 100）。
-    #   为什么要 ②：摊分在**多方**时，C 用的是**整数**注水（`left/live` 的
-    #   整数商 + 余数），而**引擎**（与纯 Python 路径）用的是**浮点**注水
-    #   （`Military.equal_allocation`）—— 两者在多方时**会差 1 点血**
-    #   （实测 20000 组随机局面里 **35%** 有差）⇒ DP 会算偏。
-    #   ⇒ 一方一支军时摊分退化成"全打在那支军身上"，整数与浮点**逐位相同**。
-    #   ★ 这正是 `tests/test_rl_dp_identity.py` 那条"纯 Python 与 C 逐位一致"
-    #     守卫抓的东西（**不满足条件就必须回落 Python**，不能硬用 C）。
+    # ★★ **C 扩展的适用条件**（`rl/_combat_fast.c` 的能力边界）：
+    #     ① 方数 ≤ 8；② **每方军队数 ≤ 8**（摊分用的定长缓冲）；
+    #     ③ HP 是**正的有限数**（C 那边是 double）。
+    #   ★★ **不再要求"每方只有一支军"、也不再要求"无人带撤退减伤"** ——
+    #     以前要，是因为**主线那份 C 用的是旧的整数摊分**（`left/live` 的整数商
+    #     + 余数给前排），与引擎的**浮点注水**在多方局**差 1 点血**
+    #     （实测 20000 组随机局面里 35% 有差）⇒ 只能限死在"一方一支军"。
+    #     ⇒ 现在 `rl/_combat_fast.c` **自己那份**已经改成浮点注水（与引擎同构）
+    #     ⇒ 多方、带撤退减伤都能走 C 了（**快 12 倍**）。
+    #   ★ 逐位一致性仍由 `tests/test_rl_dp_identity.py` 那份**冻结基准**钉死
+    #     （C 路径与纯 Python 路径**逐位**对同一份基准）——不满足条件就回落 Python。
     if len(b.order) > 8:
         return None
-    if any(len(units) > 1 for units in state0):
+    if any(len(units) > 8 for units in state0):
         return None
-    if not all(type(u[1]) is int and 0 < u[1] <= 65535
-               for units in state0 for u in units):
-        return None
-    if not all(c in (None, 100) for units in state0 for (_, _, _, c) in units):
+    if not all(h > 0 and h == h and h != float("inf")
+               for units in state0 for u in units for h in (u[1],)):
         return None
     try:
         dlist, rlist, er, ehp, n_exp = _FAST.assess(

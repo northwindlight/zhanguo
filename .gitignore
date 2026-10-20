@@ -73,3 +73,6 @@ docs/archive/*
 
 # 本机研究用 CPython 扩展，提交源码与构建入口。
 /mods/experimental/combat_research/*.so
+# ★ RL 线**自带**的那份（修好了摊分，见 rl/_combat_fast.c 的文件头）——
+#   同样只提交源码与构建入口（rl/build_combat_fast.py），二进制不入库。
+/rl/_combat_fast*.so
