@@ -1,124 +1,95 @@
 {
   "date": "2026-10-20",
-  "version": "0.2",
-  "status": "stage-specific subjective diagnostics; no long-horizon overall ranking",
-  "scale_max": 5,
+  "version": "0.3",
+  "status": "subjective behavior ranking; scores are editorial judgments backed by trace evidence, not a formula from local metrics",
+  "score_type": "sum of awarded component points; maximum 100",
   "rubric": [
     {
-      "id": "within_run_consistency",
-      "name": "局内长期一致性",
-      "weight": 20
-    },
-    {
-      "id": "cross_game_consistency",
-      "name": "跨独立对局一致性",
-      "weight": 15
-    },
-    {
-      "id": "strategy",
-      "name": "战略能力",
+      "id": "planning_delivery",
+      "name": "规划兑现",
       "weight": 25
     },
     {
-      "id": "error_control",
-      "name": "错误控制",
-      "weight": 15
+      "id": "feedback_change",
+      "name": "反省后的实际改变",
+      "weight": 25
     },
     {
-      "id": "speed",
-      "name": "单回合速度",
+      "id": "goal_continuity",
+      "name": "目标保持",
+      "weight": 20
+    },
+    {
+      "id": "strategic_revision",
+      "name": "战略调整质量",
+      "weight": 20
+    },
+    {
+      "id": "execution_control",
+      "name": "执行错误控制",
       "weight": 10
-    },
-    {
-      "id": "token_efficiency",
-      "name": "token效率",
-      "weight": 5
-    },
-    {
-      "id": "economy",
-      "name": "经济表现",
-      "weight": 5
-    },
-    {
-      "id": "war",
-      "name": "战争表现",
-      "weight": 5
     }
   ],
   "models": [
     {
       "model": "DeepSeek V4.1 Flash high",
       "access_source": "OpenCode",
-      "cohort": "early execution diagnostic, completed periods 0..13; long-horizon consistency and strategy unscored",
-      "ratings": {
-        "within_run_consistency": null,
-        "cross_game_consistency": null,
-        "strategy": null,
-        "error_control": 4,
-        "speed": 4,
-        "token_efficiency": null,
-        "economy": null,
-        "war": null
+      "components": {
+        "planning_delivery": 19,
+        "feedback_change": 15,
+        "goal_continuity": 17,
+        "strategic_revision": 14,
+        "execution_control": 7
       },
-      "observed_weight": 25,
-      "observed_points": 20.0
+      "score": 72,
+      "rank": 1,
+      "coverage": "single-game trajectories; cross-game reliability unverified",
+      "scope": "completed action periods 0..13, selected partial14 behavior; no future rounds inferred"
     },
     {
       "model": "Qwen3.8 Flash high",
       "access_source": "Qoder",
-      "cohort": "early execution diagnostic, completed periods 0..13; long-horizon consistency and strategy unscored",
-      "ratings": {
-        "within_run_consistency": null,
-        "cross_game_consistency": null,
-        "strategy": null,
-        "error_control": 3.5,
-        "speed": 4,
-        "token_efficiency": null,
-        "economy": null,
-        "war": null
+      "components": {
+        "planning_delivery": 17,
+        "feedback_change": 13,
+        "goal_continuity": 15,
+        "strategic_revision": 13,
+        "execution_control": 6
       },
-      "observed_weight": 25,
-      "observed_points": 18.5
+      "score": 64,
+      "rank": 2,
+      "coverage": "single-game trajectories; cross-game reliability unverified",
+      "scope": "completed action periods 0..13, selected partial14 behavior; no future rounds inferred"
     },
     {
       "model": "MiniMax M3.1 Flash high",
       "access_source": "MCode",
-      "cohort": "early execution diagnostic, completed periods 0..13; long-horizon consistency and strategy unscored",
-      "ratings": {
-        "within_run_consistency": null,
-        "cross_game_consistency": null,
-        "strategy": null,
-        "error_control": 2.5,
-        "speed": 2,
-        "token_efficiency": null,
-        "economy": null,
-        "war": null
+      "components": {
+        "planning_delivery": 10,
+        "feedback_change": 7,
+        "goal_continuity": 5,
+        "strategic_revision": 9,
+        "execution_control": 5
       },
-      "observed_weight": 25,
-      "observed_points": 11.5
+      "score": 36,
+      "rank": 3,
+      "coverage": "single-game trajectories; cross-game reliability unverified",
+      "scope": "completed action periods 0..13, selected partial14 behavior; no future rounds inferred"
     },
     {
       "model": "Gemini 3.8 Flash high",
       "access_source": "反重力（Antigravity）",
-      "cohort": "historical own-trajectory diagnostic, UI action periods 0..50; not aligned with the 14-period early cohort",
-      "ratings": {
-        "within_run_consistency": null,
-        "cross_game_consistency": null,
-        "strategy": null,
-        "error_control": null,
-        "speed": null,
-        "token_efficiency": null,
-        "economy": null,
-        "war": null
+      "components": {
+        "planning_delivery": 8,
+        "feedback_change": 5,
+        "goal_continuity": 12,
+        "strategic_revision": 7,
+        "execution_control": 4
       },
-      "observed_weight": 0,
-      "observed_points": 0,
-      "diagnostic_findings": [
-        "long stagnation despite available expansion",
-        "known joint resource constraints not maintained in execution",
-        "supply collapse and loss of all Zhao units"
-      ],
-      "note": "No comparable stage score assigned; concrete failures remain valid regardless of other players effort."
+      "score": 36,
+      "rank": 3,
+      "coverage": "single-game trajectories; cross-game reliability unverified",
+      "scope": "historical action periods 0..50"
     }
   ]
 }

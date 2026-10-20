@@ -16,11 +16,10 @@ scores = read("scores.json")
 weights = {row["id"]: row["weight"] for row in scores["rubric"]}
 assert sum(weights.values()) == 100
 for model in scores["models"]:
-    ratings = model["ratings"]
-    assert set(ratings) == set(weights)
-    assert all(v is None or 0 <= v <= 5 for v in ratings.values())
-    close(sum(weights[k] for k, v in ratings.items() if v is not None), model["observed_weight"])
-    close(sum(weights[k] * v / 5 for k, v in ratings.items() if v is not None), model["observed_points"])
+    components = model["components"]
+    assert set(components) == set(weights)
+    assert all(0 <= v <= weights[k] for k, v in components.items())
+    close(sum(components.values()), model["score"])
 
 metrics = read("evidence.json")["metrics"]
 turns = read("turns.json")
@@ -52,10 +51,9 @@ for field, expected in {"actions": 1561, "failed": 103, "query": 654, "建造": 
     assert sum(row[field] for row in gemini) == expected
 print("OK: weights, four provisional scores, 144 completed turns, aggregates, selected receipts, Gemini historical counts")
 
-# v0.2 uses a shared 14-period window and leaves all macro-economic ratings empty.
-assert scores["version"] == "0.2"
-assert all(m["ratings"]["economy"] is None for m in scores["models"])
-assert all(m["ratings"]["strategy"] is None for m in scores["models"])
+# Core behavior points are subjective; this checks sums, not the judgment itself.
+assert scores["version"] == "0.3"
+assert sum(weights[k] for k in ["planning_delivery", "feedback_change", "goal_continuity"]) == 70
 followup = read("followup-evidence.json")
 for key, blocks in read("followup-turns.json").items():
     group = followup["groups"][key]
@@ -78,5 +76,15 @@ for key, blocks in read("followup-turns.json").items():
         close(sum(row["categories"].values()), row["consumption_0_13"])
     close(sum(r["attempts"] for r in group["audit"]["per_nation"]), group["audit"]["attempts"])
     close(sum(r["unsuccessful"] for r in group["audit"]["per_nation"]), group["audit"]["unsuccessful"])
-assert [m["observed_points"] for m in scores["models"]] == [20, 18.5, 11.5, 0]
-print("OK: v0.2 scores, 224 aligned completed turns, consumption categories and audit totals; no short-horizon economic score")
+assert [m["score"] for m in scores["models"]] == [72, 64, 36, 36]
+behavior = read("behavior-evidence.json")
+by_id = {r["id"]: r for r in behavior["minimax_receipts"]}
+assert "不再同回合既买又卖" in str(by_id[907]["arguments"])
+assert by_id[907]["receipt"]["period"] == 5
+assert by_id[1000]["receipt"]["period"] == 6
+for ident, action in [(1073, "sell"), (1076, "buy"), (1085, "sell")]:
+    row = by_id[ident]
+    assert row["receipt"]["period"] == 7 and row["receipt"]["ok"]
+    assert row["arguments"]["action"] == action and row["arguments"]["resource"] == "wood"
+assert all(m["rank"] == 3 for m in scores["models"][2:])
+print("OK: v0.3 core score sums, aligned accounting and the period5->6->7 commitment/feedback/action chain")

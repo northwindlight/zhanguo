@@ -1,0 +1,124 @@
+{
+  "date": "2026-10-20",
+  "version": "0.2",
+  "status": "withdrawn: v0.2 replaced behavior consistency assessment with a local error/speed ranking",
+  "scale_max": 5,
+  "rubric": [
+    {
+      "id": "within_run_consistency",
+      "name": "局内长期一致性",
+      "weight": 20
+    },
+    {
+      "id": "cross_game_consistency",
+      "name": "跨独立对局一致性",
+      "weight": 15
+    },
+    {
+      "id": "strategy",
+      "name": "战略能力",
+      "weight": 25
+    },
+    {
+      "id": "error_control",
+      "name": "错误控制",
+      "weight": 15
+    },
+    {
+      "id": "speed",
+      "name": "单回合速度",
+      "weight": 10
+    },
+    {
+      "id": "token_efficiency",
+      "name": "token效率",
+      "weight": 5
+    },
+    {
+      "id": "economy",
+      "name": "经济表现",
+      "weight": 5
+    },
+    {
+      "id": "war",
+      "name": "战争表现",
+      "weight": 5
+    }
+  ],
+  "models": [
+    {
+      "model": "DeepSeek V4.1 Flash high",
+      "access_source": "OpenCode",
+      "cohort": "early execution diagnostic, completed periods 0..13; long-horizon consistency and strategy unscored",
+      "ratings": {
+        "within_run_consistency": null,
+        "cross_game_consistency": null,
+        "strategy": null,
+        "error_control": 4,
+        "speed": 4,
+        "token_efficiency": null,
+        "economy": null,
+        "war": null
+      },
+      "observed_weight": 25,
+      "observed_points": 20.0
+    },
+    {
+      "model": "Qwen3.8 Flash high",
+      "access_source": "Qoder",
+      "cohort": "early execution diagnostic, completed periods 0..13; long-horizon consistency and strategy unscored",
+      "ratings": {
+        "within_run_consistency": null,
+        "cross_game_consistency": null,
+        "strategy": null,
+        "error_control": 3.5,
+        "speed": 4,
+        "token_efficiency": null,
+        "economy": null,
+        "war": null
+      },
+      "observed_weight": 25,
+      "observed_points": 18.5
+    },
+    {
+      "model": "MiniMax M3.1 Flash high",
+      "access_source": "MCode",
+      "cohort": "early execution diagnostic, completed periods 0..13; long-horizon consistency and strategy unscored",
+      "ratings": {
+        "within_run_consistency": null,
+        "cross_game_consistency": null,
+        "strategy": null,
+        "error_control": 2.5,
+        "speed": 2,
+        "token_efficiency": null,
+        "economy": null,
+        "war": null
+      },
+      "observed_weight": 25,
+      "observed_points": 11.5
+    },
+    {
+      "model": "Gemini 3.8 Flash high",
+      "access_source": "反重力（Antigravity）",
+      "cohort": "historical own-trajectory diagnostic, UI action periods 0..50; not aligned with the 14-period early cohort",
+      "ratings": {
+        "within_run_consistency": null,
+        "cross_game_consistency": null,
+        "strategy": null,
+        "error_control": null,
+        "speed": null,
+        "token_efficiency": null,
+        "economy": null,
+        "war": null
+      },
+      "observed_weight": 0,
+      "observed_points": 0,
+      "diagnostic_findings": [
+        "long stagnation despite available expansion",
+        "known joint resource constraints not maintained in execution",
+        "supply collapse and loss of all Zhao units"
+      ],
+      "note": "No comparable stage score assigned; concrete failures remain valid regardless of other players effort."
+    }
+  ]
+}
