@@ -1,0 +1,1574 @@
+{
+  "minimax": [
+    {
+      "period": 0,
+      "nation": "秦",
+      "calls": 7,
+      "duration": 140.5,
+      "line": 77
+    },
+    {
+      "period": 0,
+      "nation": "魏",
+      "calls": 14,
+      "duration": 395.7,
+      "line": 688
+    },
+    {
+      "period": 0,
+      "nation": "韩",
+      "calls": 14,
+      "duration": 459.2,
+      "line": 2171
+    },
+    {
+      "period": 0,
+      "nation": "赵",
+      "calls": 6,
+      "duration": 216.5,
+      "line": 4073
+    },
+    {
+      "period": 0,
+      "nation": "燕",
+      "calls": 11,
+      "duration": 171.6,
+      "line": 5116
+    },
+    {
+      "period": 0,
+      "nation": "齐",
+      "calls": 12,
+      "duration": 125.7,
+      "line": 5908
+    },
+    {
+      "period": 0,
+      "nation": "楚",
+      "calls": 9,
+      "duration": 125.2,
+      "line": 6554
+    },
+    {
+      "period": 0,
+      "nation": "周",
+      "calls": 6,
+      "duration": 109.0,
+      "line": 7177
+    },
+    {
+      "period": 1,
+      "nation": "魏",
+      "calls": 21,
+      "duration": 1303.3,
+      "line": 7804
+    },
+    {
+      "period": 1,
+      "nation": "韩",
+      "calls": 10,
+      "duration": 517.8,
+      "line": 11480
+    },
+    {
+      "period": 1,
+      "nation": "赵",
+      "calls": 5,
+      "duration": 107.6,
+      "line": 13152
+    },
+    {
+      "period": 1,
+      "nation": "燕",
+      "calls": 5,
+      "duration": 161.0,
+      "line": 13556
+    },
+    {
+      "period": 1,
+      "nation": "齐",
+      "calls": 5,
+      "duration": 63.3,
+      "line": 13897
+    },
+    {
+      "period": 1,
+      "nation": "楚",
+      "calls": 3,
+      "duration": 61.1,
+      "line": 14113
+    },
+    {
+      "period": 1,
+      "nation": "周",
+      "calls": 4,
+      "duration": 85.8,
+      "line": 14333
+    },
+    {
+      "period": 1,
+      "nation": "秦",
+      "calls": 4,
+      "duration": 280.4,
+      "line": 14666
+    },
+    {
+      "period": 2,
+      "nation": "韩",
+      "calls": 17,
+      "duration": 1069.7,
+      "line": 15635
+    },
+    {
+      "period": 2,
+      "nation": "赵",
+      "calls": 5,
+      "duration": 210.0,
+      "line": 18740
+    },
+    {
+      "period": 2,
+      "nation": "燕",
+      "calls": 7,
+      "duration": 330.4,
+      "line": 19378
+    },
+    {
+      "period": 2,
+      "nation": "齐",
+      "calls": 5,
+      "duration": 118.0,
+      "line": 20339
+    },
+    {
+      "period": 2,
+      "nation": "楚",
+      "calls": 3,
+      "duration": 49.9,
+      "line": 20702
+    },
+    {
+      "period": 2,
+      "nation": "周",
+      "calls": 4,
+      "duration": 102.5,
+      "line": 20871
+    },
+    {
+      "period": 2,
+      "nation": "秦",
+      "calls": 3,
+      "duration": 83.5,
+      "line": 21187
+    },
+    {
+      "period": 2,
+      "nation": "魏",
+      "calls": 9,
+      "duration": 505.1,
+      "line": 21451
+    },
+    {
+      "period": 3,
+      "nation": "赵",
+      "calls": 3,
+      "duration": 80.2,
+      "line": 23089
+    },
+    {
+      "period": 3,
+      "nation": "燕",
+      "calls": 3,
+      "duration": 96.8,
+      "line": 23328
+    },
+    {
+      "period": 3,
+      "nation": "齐",
+      "calls": 5,
+      "duration": 75.3,
+      "line": 23652
+    },
+    {
+      "period": 3,
+      "nation": "楚",
+      "calls": 2,
+      "duration": 108.6,
+      "line": 23871
+    },
+    {
+      "period": 3,
+      "nation": "周",
+      "calls": 4,
+      "duration": 193.9,
+      "line": 24228
+    },
+    {
+      "period": 3,
+      "nation": "秦",
+      "calls": 4,
+      "duration": 289.5,
+      "line": 24816
+    },
+    {
+      "period": 3,
+      "nation": "魏",
+      "calls": 21,
+      "duration": 1365.4,
+      "line": 25620
+    },
+    {
+      "period": 3,
+      "nation": "韩",
+      "calls": 4,
+      "duration": 270.7,
+      "line": 29310
+    },
+    {
+      "period": 4,
+      "nation": "燕",
+      "calls": 3,
+      "duration": 124.5,
+      "line": 30063
+    },
+    {
+      "period": 4,
+      "nation": "齐",
+      "calls": 3,
+      "duration": 150.0,
+      "line": 30501
+    },
+    {
+      "period": 4,
+      "nation": "楚",
+      "calls": 2,
+      "duration": 59.9,
+      "line": 30997
+    },
+    {
+      "period": 4,
+      "nation": "周",
+      "calls": 2,
+      "duration": 59.8,
+      "line": 31178
+    },
+    {
+      "period": 4,
+      "nation": "秦",
+      "calls": 2,
+      "duration": 141.0,
+      "line": 31394
+    },
+    {
+      "period": 4,
+      "nation": "魏",
+      "calls": 18,
+      "duration": 1326.1,
+      "line": 31761
+    },
+    {
+      "period": 4,
+      "nation": "韩",
+      "calls": 23,
+      "duration": 1814.0,
+      "line": 35290
+    },
+    {
+      "period": 4,
+      "nation": "赵",
+      "calls": 3,
+      "duration": 87.5,
+      "line": 39893
+    },
+    {
+      "period": 5,
+      "nation": "齐",
+      "calls": 4,
+      "duration": 109.7,
+      "line": 40225
+    },
+    {
+      "period": 5,
+      "nation": "楚",
+      "calls": 2,
+      "duration": 24.5,
+      "line": 40584
+    },
+    {
+      "period": 5,
+      "nation": "周",
+      "calls": 3,
+      "duration": 97.9,
+      "line": 40664
+    },
+    {
+      "period": 5,
+      "nation": "秦",
+      "calls": 4,
+      "duration": 108.5,
+      "line": 40992
+    },
+    {
+      "period": 5,
+      "nation": "魏",
+      "calls": 19,
+      "duration": 1474.2,
+      "line": 41360
+    },
+    {
+      "period": 5,
+      "nation": "韩",
+      "calls": 7,
+      "duration": 627.2,
+      "line": 45425
+    },
+    {
+      "period": 5,
+      "nation": "赵",
+      "calls": 6,
+      "duration": 169.5,
+      "line": 46931
+    },
+    {
+      "period": 5,
+      "nation": "燕",
+      "calls": 3,
+      "duration": 95.0,
+      "line": 47537
+    },
+    {
+      "period": 6,
+      "nation": "楚",
+      "calls": 7,
+      "duration": 264.7,
+      "line": 47922
+    },
+    {
+      "period": 6,
+      "nation": "周",
+      "calls": 2,
+      "duration": 36.8,
+      "line": 48635
+    },
+    {
+      "period": 6,
+      "nation": "秦",
+      "calls": 3,
+      "duration": 204.1,
+      "line": 48755
+    },
+    {
+      "period": 6,
+      "nation": "魏",
+      "calls": 21,
+      "duration": 1933.8,
+      "line": 49418
+    },
+    {
+      "period": 6,
+      "nation": "韩",
+      "calls": 6,
+      "duration": 694.7,
+      "line": 54516
+    },
+    {
+      "period": 6,
+      "nation": "赵",
+      "calls": 4,
+      "duration": 297.5,
+      "line": 56129
+    },
+    {
+      "period": 6,
+      "nation": "燕",
+      "calls": 6,
+      "duration": 304.1,
+      "line": 57071
+    },
+    {
+      "period": 6,
+      "nation": "齐",
+      "calls": 4,
+      "duration": 69.3,
+      "line": 57903
+    },
+    {
+      "period": 7,
+      "nation": "周",
+      "calls": 3,
+      "duration": 159.1,
+      "line": 58222
+    },
+    {
+      "period": 7,
+      "nation": "秦",
+      "calls": 3,
+      "duration": 104.6,
+      "line": 58693
+    },
+    {
+      "period": 7,
+      "nation": "魏",
+      "calls": 21,
+      "duration": 2026.6,
+      "line": 59034
+    },
+    {
+      "period": 7,
+      "nation": "韩",
+      "calls": 9,
+      "duration": 920.4,
+      "line": 64624
+    },
+    {
+      "period": 7,
+      "nation": "赵",
+      "calls": 3,
+      "duration": 90.7,
+      "line": 66870
+    },
+    {
+      "period": 7,
+      "nation": "燕",
+      "calls": 7,
+      "duration": 330.4,
+      "line": 67104
+    },
+    {
+      "period": 7,
+      "nation": "齐",
+      "calls": 3,
+      "duration": 51.5,
+      "line": 68065
+    },
+    {
+      "period": 7,
+      "nation": "楚",
+      "calls": 5,
+      "duration": 171.0,
+      "line": 68266
+    },
+    {
+      "period": 8,
+      "nation": "秦",
+      "calls": 2,
+      "duration": 92.5,
+      "line": 68946
+    },
+    {
+      "period": 8,
+      "nation": "魏",
+      "calls": 22,
+      "duration": 1778.7,
+      "line": 69251
+    },
+    {
+      "period": 8,
+      "nation": "韩",
+      "calls": 6,
+      "duration": 533.1,
+      "line": 73553
+    },
+    {
+      "period": 8,
+      "nation": "赵",
+      "calls": 3,
+      "duration": 66.1,
+      "line": 74890
+    },
+    {
+      "period": 8,
+      "nation": "燕",
+      "calls": 5,
+      "duration": 243.3,
+      "line": 75103
+    },
+    {
+      "period": 8,
+      "nation": "齐",
+      "calls": 9,
+      "duration": 353.1,
+      "line": 75885
+    },
+    {
+      "period": 8,
+      "nation": "楚",
+      "calls": 2,
+      "duration": 113.6,
+      "line": 76936
+    },
+    {
+      "period": 8,
+      "nation": "周",
+      "calls": 2,
+      "duration": 40.8,
+      "line": 77199
+    },
+    {
+      "period": 9,
+      "nation": "魏",
+      "calls": 8,
+      "duration": 479.6,
+      "line": 77369
+    },
+    {
+      "period": 9,
+      "nation": "韩",
+      "calls": 9,
+      "duration": 842.7,
+      "line": 78642
+    },
+    {
+      "period": 9,
+      "nation": "赵",
+      "calls": 4,
+      "duration": 59.7,
+      "line": 80575
+    },
+    {
+      "period": 9,
+      "nation": "燕",
+      "calls": 2,
+      "duration": 38.0,
+      "line": 80703
+    },
+    {
+      "period": 9,
+      "nation": "齐",
+      "calls": 7,
+      "duration": 315.4,
+      "line": 80793
+    },
+    {
+      "period": 9,
+      "nation": "楚",
+      "calls": 2,
+      "duration": 169.9,
+      "line": 81627
+    },
+    {
+      "period": 9,
+      "nation": "周",
+      "calls": 5,
+      "duration": 257.3,
+      "line": 82071
+    },
+    {
+      "period": 9,
+      "nation": "秦",
+      "calls": 3,
+      "duration": 83.2,
+      "line": 82730
+    },
+    {
+      "period": 10,
+      "nation": "韩",
+      "calls": 5,
+      "duration": 441.9,
+      "line": 82990
+    },
+    {
+      "period": 10,
+      "nation": "赵",
+      "calls": 2,
+      "duration": 499.5,
+      "line": 83904
+    },
+    {
+      "period": 10,
+      "nation": "燕",
+      "calls": 2,
+      "duration": 93.0,
+      "line": 84823
+    },
+    {
+      "period": 10,
+      "nation": "齐",
+      "calls": 3,
+      "duration": 112.1,
+      "line": 85016
+    },
+    {
+      "period": 10,
+      "nation": "楚",
+      "calls": 2,
+      "duration": 42.2,
+      "line": 85322
+    },
+    {
+      "period": 10,
+      "nation": "周",
+      "calls": 5,
+      "duration": 227.7,
+      "line": 85407
+    },
+    {
+      "period": 10,
+      "nation": "秦",
+      "calls": 5,
+      "duration": 358.3,
+      "line": 86100
+    },
+    {
+      "period": 10,
+      "nation": "魏",
+      "calls": 4,
+      "duration": 213.9,
+      "line": 86791
+    },
+    {
+      "period": 11,
+      "nation": "赵",
+      "calls": 3,
+      "duration": 52.3,
+      "line": 87539
+    },
+    {
+      "period": 11,
+      "nation": "燕",
+      "calls": 3,
+      "duration": 258.6,
+      "line": 87725
+    },
+    {
+      "period": 11,
+      "nation": "齐",
+      "calls": 3,
+      "duration": 245.0,
+      "line": 88409
+    },
+    {
+      "period": 11,
+      "nation": "楚",
+      "calls": 2,
+      "duration": 44.6,
+      "line": 89000
+    },
+    {
+      "period": 11,
+      "nation": "周",
+      "calls": 3,
+      "duration": 66.2,
+      "line": 89134
+    },
+    {
+      "period": 11,
+      "nation": "秦",
+      "calls": 4,
+      "duration": 348.1,
+      "line": 89336
+    },
+    {
+      "period": 11,
+      "nation": "魏",
+      "calls": 5,
+      "duration": 312.3,
+      "line": 90224
+    },
+    {
+      "period": 11,
+      "nation": "韩",
+      "calls": 5,
+      "duration": 472.7,
+      "line": 90998
+    },
+    {
+      "period": 12,
+      "nation": "燕",
+      "calls": 2,
+      "duration": 27.6,
+      "line": 92057
+    },
+    {
+      "period": 12,
+      "nation": "齐",
+      "calls": 3,
+      "duration": 40.9,
+      "line": 92125
+    },
+    {
+      "period": 12,
+      "nation": "楚",
+      "calls": 3,
+      "duration": 135.6,
+      "line": 92217
+    },
+    {
+      "period": 12,
+      "nation": "周",
+      "calls": 2,
+      "duration": 44.5,
+      "line": 92563
+    },
+    {
+      "period": 12,
+      "nation": "秦",
+      "calls": 3,
+      "duration": 107.3,
+      "line": 92684
+    },
+    {
+      "period": 12,
+      "nation": "魏",
+      "calls": 5,
+      "duration": 234.6,
+      "line": 92862
+    },
+    {
+      "period": 12,
+      "nation": "韩",
+      "calls": 6,
+      "duration": 669.0,
+      "line": 93478
+    },
+    {
+      "period": 12,
+      "nation": "赵",
+      "calls": 2,
+      "duration": 32.1,
+      "line": 94784
+    },
+    {
+      "period": 13,
+      "nation": "齐",
+      "calls": 4,
+      "duration": 243.5,
+      "line": 94933
+    },
+    {
+      "period": 13,
+      "nation": "楚",
+      "calls": 2,
+      "duration": 27.7,
+      "line": 95532
+    },
+    {
+      "period": 13,
+      "nation": "周",
+      "calls": 4,
+      "duration": 57.5,
+      "line": 95593
+    },
+    {
+      "period": 13,
+      "nation": "秦",
+      "calls": 4,
+      "duration": 415.8,
+      "line": 95728
+    },
+    {
+      "period": 13,
+      "nation": "魏",
+      "calls": 4,
+      "duration": 299.3,
+      "line": 96513
+    },
+    {
+      "period": 13,
+      "nation": "韩",
+      "calls": 5,
+      "duration": 508.7,
+      "line": 97302
+    },
+    {
+      "period": 13,
+      "nation": "赵",
+      "calls": 3,
+      "duration": 55.8,
+      "line": 98460
+    },
+    {
+      "period": 13,
+      "nation": "燕",
+      "calls": 3,
+      "duration": 149.1,
+      "line": 98578
+    }
+  ],
+  "dq": [
+    {
+      "period": 0,
+      "nation": "秦",
+      "calls": 6,
+      "duration": 200.7,
+      "line": 69
+    },
+    {
+      "period": 0,
+      "nation": "魏",
+      "calls": 4,
+      "duration": 145.0,
+      "line": 1112
+    },
+    {
+      "period": 0,
+      "nation": "韩",
+      "calls": 4,
+      "duration": 64.0,
+      "line": 1818
+    },
+    {
+      "period": 0,
+      "nation": "赵",
+      "calls": 9,
+      "duration": 121.8,
+      "line": 2056
+    },
+    {
+      "period": 0,
+      "nation": "燕",
+      "calls": 7,
+      "duration": 170.4,
+      "line": 2452
+    },
+    {
+      "period": 0,
+      "nation": "齐",
+      "calls": 6,
+      "duration": 226.1,
+      "line": 3315
+    },
+    {
+      "period": 0,
+      "nation": "楚",
+      "calls": 6,
+      "duration": 145.1,
+      "line": 3865
+    },
+    {
+      "period": 0,
+      "nation": "周",
+      "calls": 6,
+      "duration": 165.8,
+      "line": 4250
+    },
+    {
+      "period": 1,
+      "nation": "魏",
+      "calls": 2,
+      "duration": 102.2,
+      "line": 5102
+    },
+    {
+      "period": 1,
+      "nation": "韩",
+      "calls": 5,
+      "duration": 146.7,
+      "line": 5551
+    },
+    {
+      "period": 1,
+      "nation": "赵",
+      "calls": 8,
+      "duration": 263.6,
+      "line": 5836
+    },
+    {
+      "period": 1,
+      "nation": "燕",
+      "calls": 4,
+      "duration": 84.3,
+      "line": 6604
+    },
+    {
+      "period": 1,
+      "nation": "齐",
+      "calls": 4,
+      "duration": 120.4,
+      "line": 6983
+    },
+    {
+      "period": 1,
+      "nation": "楚",
+      "calls": 3,
+      "duration": 46.0,
+      "line": 7205
+    },
+    {
+      "period": 1,
+      "nation": "周",
+      "calls": 4,
+      "duration": 116.8,
+      "line": 7319
+    },
+    {
+      "period": 1,
+      "nation": "秦",
+      "calls": 2,
+      "duration": 66.2,
+      "line": 7892
+    },
+    {
+      "period": 2,
+      "nation": "韩",
+      "calls": 4,
+      "duration": 33.8,
+      "line": 8216
+    },
+    {
+      "period": 2,
+      "nation": "赵",
+      "calls": 8,
+      "duration": 138.2,
+      "line": 8326
+    },
+    {
+      "period": 2,
+      "nation": "燕",
+      "calls": 3,
+      "duration": 72.3,
+      "line": 8712
+    },
+    {
+      "period": 2,
+      "nation": "齐",
+      "calls": 2,
+      "duration": 19.5,
+      "line": 8994
+    },
+    {
+      "period": 2,
+      "nation": "楚",
+      "calls": 2,
+      "duration": 16.4,
+      "line": 9056
+    },
+    {
+      "period": 2,
+      "nation": "周",
+      "calls": 3,
+      "duration": 92.4,
+      "line": 9167
+    },
+    {
+      "period": 2,
+      "nation": "秦",
+      "calls": 3,
+      "duration": 81.1,
+      "line": 9615
+    },
+    {
+      "period": 2,
+      "nation": "魏",
+      "calls": 3,
+      "duration": 52.6,
+      "line": 10005
+    },
+    {
+      "period": 3,
+      "nation": "赵",
+      "calls": 11,
+      "duration": 185.5,
+      "line": 10294
+    },
+    {
+      "period": 3,
+      "nation": "燕",
+      "calls": 2,
+      "duration": 88.7,
+      "line": 10664
+    },
+    {
+      "period": 3,
+      "nation": "齐",
+      "calls": 3,
+      "duration": 75.8,
+      "line": 11144
+    },
+    {
+      "period": 3,
+      "nation": "楚",
+      "calls": 3,
+      "duration": 47.3,
+      "line": 11304
+    },
+    {
+      "period": 3,
+      "nation": "周",
+      "calls": 4,
+      "duration": 121.5,
+      "line": 11433
+    },
+    {
+      "period": 3,
+      "nation": "秦",
+      "calls": 4,
+      "duration": 87.2,
+      "line": 12135
+    },
+    {
+      "period": 3,
+      "nation": "魏",
+      "calls": 2,
+      "duration": 63.1,
+      "line": 12526
+    },
+    {
+      "period": 3,
+      "nation": "韩",
+      "calls": 3,
+      "duration": 54.2,
+      "line": 12738
+    },
+    {
+      "period": 4,
+      "nation": "燕",
+      "calls": 2,
+      "duration": 54.8,
+      "line": 12920
+    },
+    {
+      "period": 4,
+      "nation": "齐",
+      "calls": 7,
+      "duration": 214.8,
+      "line": 13182
+    },
+    {
+      "period": 4,
+      "nation": "楚",
+      "calls": 3,
+      "duration": 110.3,
+      "line": 13681
+    },
+    {
+      "period": 4,
+      "nation": "周",
+      "calls": 2,
+      "duration": 68.8,
+      "line": 13887
+    },
+    {
+      "period": 4,
+      "nation": "秦",
+      "calls": 3,
+      "duration": 80.2,
+      "line": 14248
+    },
+    {
+      "period": 4,
+      "nation": "魏",
+      "calls": 3,
+      "duration": 34.0,
+      "line": 14653
+    },
+    {
+      "period": 4,
+      "nation": "韩",
+      "calls": 5,
+      "duration": 57.2,
+      "line": 14807
+    },
+    {
+      "period": 4,
+      "nation": "赵",
+      "calls": 6,
+      "duration": 156.0,
+      "line": 14947
+    },
+    {
+      "period": 5,
+      "nation": "齐",
+      "calls": 5,
+      "duration": 173.9,
+      "line": 15452
+    },
+    {
+      "period": 5,
+      "nation": "楚",
+      "calls": 2,
+      "duration": 41.4,
+      "line": 15869
+    },
+    {
+      "period": 5,
+      "nation": "周",
+      "calls": 3,
+      "duration": 58.5,
+      "line": 15967
+    },
+    {
+      "period": 5,
+      "nation": "秦",
+      "calls": 2,
+      "duration": 78.8,
+      "line": 16271
+    },
+    {
+      "period": 5,
+      "nation": "魏",
+      "calls": 4,
+      "duration": 68.8,
+      "line": 16720
+    },
+    {
+      "period": 5,
+      "nation": "韩",
+      "calls": 4,
+      "duration": 47.1,
+      "line": 16940
+    },
+    {
+      "period": 5,
+      "nation": "赵",
+      "calls": 7,
+      "duration": 138.6,
+      "line": 17075
+    },
+    {
+      "period": 5,
+      "nation": "燕",
+      "calls": 2,
+      "duration": 66.7,
+      "line": 17451
+    },
+    {
+      "period": 6,
+      "nation": "楚",
+      "calls": 3,
+      "duration": 87.3,
+      "line": 17895
+    },
+    {
+      "period": 6,
+      "nation": "周",
+      "calls": 2,
+      "duration": 88.8,
+      "line": 18172
+    },
+    {
+      "period": 6,
+      "nation": "秦",
+      "calls": 3,
+      "duration": 98.7,
+      "line": 18784
+    },
+    {
+      "period": 6,
+      "nation": "魏",
+      "calls": 3,
+      "duration": 106.3,
+      "line": 19115
+    },
+    {
+      "period": 6,
+      "nation": "韩",
+      "calls": 4,
+      "duration": 85.1,
+      "line": 19395
+    },
+    {
+      "period": 6,
+      "nation": "赵",
+      "calls": 5,
+      "duration": 86.9,
+      "line": 19611
+    },
+    {
+      "period": 6,
+      "nation": "燕",
+      "calls": 3,
+      "duration": 45.4,
+      "line": 19843
+    },
+    {
+      "period": 6,
+      "nation": "齐",
+      "calls": 6,
+      "duration": 118.3,
+      "line": 20030
+    },
+    {
+      "period": 7,
+      "nation": "周",
+      "calls": 3,
+      "duration": 63.9,
+      "line": 22297
+    },
+    {
+      "period": 7,
+      "nation": "秦",
+      "calls": 3,
+      "duration": 50.7,
+      "line": 22827
+    },
+    {
+      "period": 7,
+      "nation": "魏",
+      "calls": 4,
+      "duration": 56.7,
+      "line": 23282
+    },
+    {
+      "period": 7,
+      "nation": "韩",
+      "calls": 4,
+      "duration": 48.9,
+      "line": 23695
+    },
+    {
+      "period": 7,
+      "nation": "赵",
+      "calls": 6,
+      "duration": 104.4,
+      "line": 23780
+    },
+    {
+      "period": 7,
+      "nation": "燕",
+      "calls": 2,
+      "duration": 23.3,
+      "line": 24023
+    },
+    {
+      "period": 7,
+      "nation": "齐",
+      "calls": 8,
+      "duration": 164.1,
+      "line": 24156
+    },
+    {
+      "period": 7,
+      "nation": "楚",
+      "calls": 4,
+      "duration": 62.5,
+      "line": 24518
+    },
+    {
+      "period": 8,
+      "nation": "秦",
+      "calls": 3,
+      "duration": 39.4,
+      "line": 24776
+    },
+    {
+      "period": 8,
+      "nation": "魏",
+      "calls": 7,
+      "duration": 183.5,
+      "line": 25079
+    },
+    {
+      "period": 8,
+      "nation": "韩",
+      "calls": 6,
+      "duration": 93.3,
+      "line": 25845
+    },
+    {
+      "period": 8,
+      "nation": "赵",
+      "calls": 8,
+      "duration": 101.6,
+      "line": 26042
+    },
+    {
+      "period": 8,
+      "nation": "燕",
+      "calls": 3,
+      "duration": 60.2,
+      "line": 26284
+    },
+    {
+      "period": 8,
+      "nation": "齐",
+      "calls": 6,
+      "duration": 50.2,
+      "line": 26694
+    },
+    {
+      "period": 8,
+      "nation": "楚",
+      "calls": 5,
+      "duration": 72.9,
+      "line": 26775
+    },
+    {
+      "period": 8,
+      "nation": "周",
+      "calls": 2,
+      "duration": 85.5,
+      "line": 27028
+    },
+    {
+      "period": 9,
+      "nation": "魏",
+      "calls": 4,
+      "duration": 177.6,
+      "line": 27470
+    },
+    {
+      "period": 9,
+      "nation": "韩",
+      "calls": 8,
+      "duration": 249.0,
+      "line": 27993
+    },
+    {
+      "period": 9,
+      "nation": "赵",
+      "calls": 6,
+      "duration": 88.7,
+      "line": 28576
+    },
+    {
+      "period": 9,
+      "nation": "燕",
+      "calls": 3,
+      "duration": 158.4,
+      "line": 28771
+    },
+    {
+      "period": 9,
+      "nation": "齐",
+      "calls": 2,
+      "duration": 47.5,
+      "line": 29561
+    },
+    {
+      "period": 9,
+      "nation": "楚",
+      "calls": 3,
+      "duration": 201.0,
+      "line": 29642
+    },
+    {
+      "period": 9,
+      "nation": "周",
+      "calls": 3,
+      "duration": 875.3,
+      "line": 30067
+    },
+    {
+      "period": 9,
+      "nation": "秦",
+      "calls": 4,
+      "duration": 71.7,
+      "line": 31439
+    },
+    {
+      "period": 10,
+      "nation": "韩",
+      "calls": 4,
+      "duration": 150.8,
+      "line": 31952
+    },
+    {
+      "period": 10,
+      "nation": "赵",
+      "calls": 6,
+      "duration": 57.2,
+      "line": 32330
+    },
+    {
+      "period": 10,
+      "nation": "燕",
+      "calls": 3,
+      "duration": 30.6,
+      "line": 32524
+    },
+    {
+      "period": 10,
+      "nation": "齐",
+      "calls": 9,
+      "duration": 434.4,
+      "line": 32754
+    },
+    {
+      "period": 10,
+      "nation": "楚",
+      "calls": 4,
+      "duration": 97.9,
+      "line": 33629
+    },
+    {
+      "period": 10,
+      "nation": "周",
+      "calls": 3,
+      "duration": 120.6,
+      "line": 33855
+    },
+    {
+      "period": 10,
+      "nation": "秦",
+      "calls": 4,
+      "duration": 279.6,
+      "line": 34258
+    },
+    {
+      "period": 10,
+      "nation": "魏",
+      "calls": 5,
+      "duration": 350.3,
+      "line": 35141
+    },
+    {
+      "period": 11,
+      "nation": "赵",
+      "calls": 5,
+      "duration": 280.6,
+      "line": 36310
+    },
+    {
+      "period": 11,
+      "nation": "燕",
+      "calls": 3,
+      "duration": 38.1,
+      "line": 36888
+    },
+    {
+      "period": 11,
+      "nation": "齐",
+      "calls": 3,
+      "duration": 27.8,
+      "line": 37200
+    },
+    {
+      "period": 11,
+      "nation": "楚",
+      "calls": 4,
+      "duration": 48.6,
+      "line": 37258
+    },
+    {
+      "period": 11,
+      "nation": "周",
+      "calls": 3,
+      "duration": 52.8,
+      "line": 37351
+    },
+    {
+      "period": 11,
+      "nation": "秦",
+      "calls": 3,
+      "duration": 154.9,
+      "line": 37668
+    },
+    {
+      "period": 11,
+      "nation": "魏",
+      "calls": 3,
+      "duration": 238.2,
+      "line": 37816
+    },
+    {
+      "period": 11,
+      "nation": "韩",
+      "calls": 4,
+      "duration": 43.6,
+      "line": 38510
+    },
+    {
+      "period": 12,
+      "nation": "燕",
+      "calls": 2,
+      "duration": 30.3,
+      "line": 38683
+    },
+    {
+      "period": 12,
+      "nation": "齐",
+      "calls": 5,
+      "duration": 94.3,
+      "line": 38864
+    },
+    {
+      "period": 12,
+      "nation": "楚",
+      "calls": 9,
+      "duration": 117.0,
+      "line": 39127
+    },
+    {
+      "period": 12,
+      "nation": "周",
+      "calls": 2,
+      "duration": 86.7,
+      "line": 39379
+    },
+    {
+      "period": 12,
+      "nation": "秦",
+      "calls": 2,
+      "duration": 30.2,
+      "line": 39563
+    },
+    {
+      "period": 12,
+      "nation": "魏",
+      "calls": 3,
+      "duration": 186.8,
+      "line": 39892
+    },
+    {
+      "period": 12,
+      "nation": "韩",
+      "calls": 4,
+      "duration": 85.8,
+      "line": 40595
+    },
+    {
+      "period": 12,
+      "nation": "赵",
+      "calls": 5,
+      "duration": 89.8,
+      "line": 40769
+    },
+    {
+      "period": 13,
+      "nation": "齐",
+      "calls": 5,
+      "duration": 70.6,
+      "line": 41024
+    },
+    {
+      "period": 13,
+      "nation": "楚",
+      "calls": 8,
+      "duration": 101.7,
+      "line": 41225
+    },
+    {
+      "period": 13,
+      "nation": "周",
+      "calls": 2,
+      "duration": 50.2,
+      "line": 41504
+    },
+    {
+      "period": 13,
+      "nation": "秦",
+      "calls": 5,
+      "duration": 49.6,
+      "line": 41595
+    },
+    {
+      "period": 13,
+      "nation": "魏",
+      "calls": 3,
+      "duration": 296.1,
+      "line": 41937
+    },
+    {
+      "period": 13,
+      "nation": "韩",
+      "calls": 4,
+      "duration": 55.8,
+      "line": 42815
+    },
+    {
+      "period": 13,
+      "nation": "赵",
+      "calls": 5,
+      "duration": 305.1,
+      "line": 42906
+    },
+    {
+      "period": 13,
+      "nation": "燕",
+      "calls": 2,
+      "duration": 25.3,
+      "line": 43623
+    }
+  ]
+}

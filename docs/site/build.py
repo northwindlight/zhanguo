@@ -35,8 +35,10 @@ def research_pages() -> list[dict]:
     root = HERE.parent.parent
     source = root / 'research/papers/20261020-long-horizon-wild-ranking'
     specs = [
-        ('README.md', '01-长任务野榜', '四模型长任务野榜', '评分规则、暂定排名、接入来源与行为解释。'),
-        ('observations.md', '02-MiniMax对局观察', 'MiniMax 对局观察', '与 DeepSeek、Qwen 同阶段轨迹的统计及具体案例。'),
+        ('README.md', '01-长任务野榜', '四模型长任务野榜', '分阶段执行诊断、长期观察覆盖与宏观评价口径。'),
+        ('minimax-retrospective.md', '04-MiniMax停局报告', 'MiniMax 第14回合停局报告', '目标让渡、审核循环、同窗对照与一次失望的游戏体验。'),
+        ('normalization.md', '05-评测归一化', '评测归一化与宏观口径', '共同时间节点、短期贷款消费、早晚终局与人工停止。'),
+        ('observations.md', '02-MiniMax对局观察', 'MiniMax 前9期观察', '保留最初的同阶段统计与案例，后续见第14回合停局报告。'),
         ('excerpts.md', '03-审核原文摘录', '审核原文摘录', '累计指标误读与君主接受错误数字的直接证据。'),
     ]
     urls = {(source / name).resolve(): f'研究与评测/{slug}.html'

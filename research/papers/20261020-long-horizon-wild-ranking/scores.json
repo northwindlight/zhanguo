@@ -1,6 +1,7 @@
 {
   "date": "2026-10-20",
-  "status": "subjective provisional wild ranking; no full score out of 100",
+  "version": "0.2",
+  "status": "stage-specific subjective diagnostics; no long-horizon overall ranking",
   "scale_max": 5,
   "rubric": [
     {
@@ -47,68 +48,77 @@
   "models": [
     {
       "model": "DeepSeek V4.1 Flash high",
+      "access_source": "OpenCode",
+      "cohort": "early execution diagnostic, completed periods 0..13; long-horizon consistency and strategy unscored",
       "ratings": {
-        "within_run_consistency": 4,
+        "within_run_consistency": null,
         "cross_game_consistency": null,
-        "strategy": 3.5,
+        "strategy": null,
         "error_control": 4,
         "speed": 4,
         "token_efficiency": null,
         "economy": null,
         "war": null
       },
-      "observed_weight": 70,
-      "observed_points": 53.5,
-      "access_source": "OpenCode"
+      "observed_weight": 25,
+      "observed_points": 20.0
     },
     {
       "model": "Qwen3.8 Flash high",
+      "access_source": "Qoder",
+      "cohort": "early execution diagnostic, completed periods 0..13; long-horizon consistency and strategy unscored",
       "ratings": {
-        "within_run_consistency": 3.5,
+        "within_run_consistency": null,
         "cross_game_consistency": null,
-        "strategy": 3.5,
+        "strategy": null,
         "error_control": 3.5,
-        "speed": 3.5,
+        "speed": 4,
         "token_efficiency": null,
         "economy": null,
         "war": null
       },
-      "observed_weight": 70,
-      "observed_points": 49.0,
-      "access_source": "Qoder"
+      "observed_weight": 25,
+      "observed_points": 18.5
     },
     {
       "model": "MiniMax M3.1 Flash high",
+      "access_source": "MCode",
+      "cohort": "early execution diagnostic, completed periods 0..13; long-horizon consistency and strategy unscored",
       "ratings": {
-        "within_run_consistency": 2,
+        "within_run_consistency": null,
         "cross_game_consistency": null,
-        "strategy": 3,
+        "strategy": null,
         "error_control": 2.5,
         "speed": 2,
         "token_efficiency": null,
         "economy": null,
         "war": null
       },
-      "observed_weight": 70,
-      "observed_points": 34.5,
-      "access_source": "MCode"
+      "observed_weight": 25,
+      "observed_points": 11.5
     },
     {
       "model": "Gemini 3.8 Flash high",
-      "cohort": "historical game, Gemini high, periods 0..50; own-trajectory evaluation; other players low limits causal cross-model comparison, not behavior validity",
+      "access_source": "反重力（Antigravity）",
+      "cohort": "historical own-trajectory diagnostic, UI action periods 0..50; not aligned with the 14-period early cohort",
       "ratings": {
-        "within_run_consistency": 1.5,
+        "within_run_consistency": null,
         "cross_game_consistency": null,
-        "strategy": 2,
-        "error_control": 2,
+        "strategy": null,
+        "error_control": null,
         "speed": null,
         "token_efficiency": null,
         "economy": null,
         "war": null
       },
-      "observed_weight": 60,
-      "observed_points": 22.0,
-      "access_source": "反重力（Antigravity）"
+      "observed_weight": 0,
+      "observed_points": 0,
+      "diagnostic_findings": [
+        "long stagnation despite available expansion",
+        "known joint resource constraints not maintained in execution",
+        "supply collapse and loss of all Zhao units"
+      ],
+      "note": "No comparable stage score assigned; concrete failures remain valid regardless of other players effort."
     }
   ]
 }

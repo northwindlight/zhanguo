@@ -1,0 +1,957 @@
+{
+  "scope": "completed action periods 0..13, 112 nation-turns per game; snapshots at opening of UI turn 14; partial UI turn 14 excluded",
+  "groups": {
+    "minimax": {
+      "audit": {
+        "attempts": 1547,
+        "unsuccessful": 96,
+        "per_nation": [
+          {
+            "nation": "秦",
+            "attempts": 124,
+            "unsuccessful": 9
+          },
+          {
+            "nation": "魏",
+            "attempts": 408,
+            "unsuccessful": 43
+          },
+          {
+            "nation": "韩",
+            "attempts": 296,
+            "unsuccessful": 18
+          },
+          {
+            "nation": "赵",
+            "attempts": 147,
+            "unsuccessful": 3
+          },
+          {
+            "nation": "燕",
+            "attempts": 143,
+            "unsuccessful": 5
+          },
+          {
+            "nation": "齐",
+            "attempts": 137,
+            "unsuccessful": 4
+          },
+          {
+            "nation": "楚",
+            "attempts": 112,
+            "unsuccessful": 4
+          },
+          {
+            "nation": "周",
+            "attempts": 180,
+            "unsuccessful": 10
+          }
+        ]
+      },
+      "completed_nation_turns": 112,
+      "calls": 648,
+      "seconds": 35706.2,
+      "p50_seconds": 160.05,
+      "p90_seconds": 694.7,
+      "per_nation": [
+        {
+          "nation": "秦",
+          "model": "MiniMax",
+          "calls": 51,
+          "seconds": 2757.3
+        },
+        {
+          "nation": "魏",
+          "model": "MiniMax",
+          "calls": 192,
+          "seconds": 13648.6
+        },
+        {
+          "nation": "韩",
+          "model": "MiniMax",
+          "calls": 126,
+          "seconds": 9841.8
+        },
+        {
+          "nation": "赵",
+          "model": "MiniMax",
+          "calls": 52,
+          "seconds": 2025.0
+        },
+        {
+          "nation": "燕",
+          "model": "MiniMax",
+          "calls": 62,
+          "seconds": 2423.4
+        },
+        {
+          "nation": "齐",
+          "model": "MiniMax",
+          "calls": 70,
+          "seconds": 2072.8
+        },
+        {
+          "nation": "楚",
+          "model": "MiniMax",
+          "calls": 46,
+          "seconds": 1398.5
+        },
+        {
+          "nation": "周",
+          "model": "MiniMax",
+          "calls": 49,
+          "seconds": 1538.8
+        }
+      ],
+      "economy": [
+        {
+          "nation": "秦",
+          "consumption_0_13": 725.65612139633,
+          "categories": {
+            "recruit": 403.39670084809427,
+            "military": 145.2594205482357,
+            "administration": 177
+          },
+          "investment_0_13": 1879.9972924711983,
+          "gdp_period13": 56.46023703328912
+        },
+        {
+          "nation": "魏",
+          "consumption_0_13": 680.722325452311,
+          "categories": {
+            "recruit": 287.5571385411824,
+            "military": 107.16518691112857,
+            "administration": 286
+          },
+          "investment_0_13": 1988.5288420500008,
+          "gdp_period13": 48.36790243806811
+        },
+        {
+          "nation": "韩",
+          "consumption_0_13": 767.0050337874927,
+          "categories": {
+            "recruit": 286.36799232103965,
+            "military": 108.63704146645304,
+            "administration": 372
+          },
+          "investment_0_13": 1885.3336817033369,
+          "gdp_period13": 49.15879560700195
+        },
+        {
+          "nation": "赵",
+          "consumption_0_13": 427.3384301737283,
+          "categories": {
+            "recruit": 231.55888431998704,
+            "military": 81.77954585374121,
+            "administration": 114
+          },
+          "investment_0_13": 2432.0806052537678,
+          "gdp_period13": 56.58042711973477
+        },
+        {
+          "nation": "燕",
+          "consumption_0_13": 854.3892545631979,
+          "categories": {
+            "recruit": 338.2357394167734,
+            "military": 286.1535151464246,
+            "administration": 230
+          },
+          "investment_0_13": 1820.0204236878717,
+          "gdp_period13": 51.68728132724438
+        },
+        {
+          "nation": "齐",
+          "consumption_0_13": 518.8136022966921,
+          "categories": {
+            "recruit": 221.12237822793273,
+            "military": 220.69122406875937,
+            "administration": 77
+          },
+          "investment_0_13": 2358.853873091268,
+          "gdp_period13": 65.02092789359457
+        },
+        {
+          "nation": "楚",
+          "consumption_0_13": 422.6662527779025,
+          "categories": {
+            "recruit": 171.237411589614,
+            "military": 89.42884118828854,
+            "administration": 162
+          },
+          "investment_0_13": 2118.7389395073938,
+          "gdp_period13": 43.07571009188023
+        },
+        {
+          "nation": "周",
+          "consumption_0_13": 1038,
+          "categories": {
+            "recruit": 0,
+            "military": 0,
+            "administration": 1038
+          },
+          "investment_0_13": 1876.0177548645408,
+          "gdp_period13": 49.05107482477067
+        }
+      ],
+      "board14": [
+        {
+          "nation": "秦",
+          "land": 7,
+          "units": 1,
+          "cash": 29
+        },
+        {
+          "nation": "魏",
+          "land": 7,
+          "units": 3,
+          "cash": 9
+        },
+        {
+          "nation": "韩",
+          "land": 6,
+          "units": 2,
+          "cash": 12
+        },
+        {
+          "nation": "赵",
+          "land": 7,
+          "units": 1,
+          "cash": 4
+        },
+        {
+          "nation": "燕",
+          "land": 9,
+          "units": 3,
+          "cash": -15
+        },
+        {
+          "nation": "齐",
+          "land": 10,
+          "units": 2,
+          "cash": -93
+        },
+        {
+          "nation": "楚",
+          "land": 6,
+          "units": 1,
+          "cash": 57
+        },
+        {
+          "nation": "周",
+          "land": 5,
+          "units": 0,
+          "cash": 17
+        }
+      ],
+      "public_alliance_events": [
+        {
+          "line": 7746,
+          "text": "[0·外交] 联盟「周天下」成立，成员：周、赵。入盟成员的原个人保障/共同防御作废；个人休战在盟内暂停，退出后按原到期日恢复。 剧本宗主联盟：其他成员自动成为特殊附庸，每期强制上交实际生产的10%，保留正常盟友权力。"
+        },
+        {
+          "line": 68877,
+          "text": "[7·外交] 联盟「周天下」成员变更，成员：周、赵、楚。入盟成员的原个人保障/共同防御作废；个人休战在盟内暂停，退出后按原到期日恢复。 剧本宗主联盟：其他成员自动成为特殊附庸，每期强制上交实际生产的10%，保留正常盟友权力。"
+        },
+        {
+          "line": 68880,
+          "text": "[7·外交] 联盟「周天下」成员变更，成员：周、赵、楚、秦。入盟成员的原个人保障/共同防御作废；个人休战在盟内暂停，退出后按原到期日恢复。 剧本宗主联盟：其他成员自动成为特殊附庸，每期强制上交实际生产的10%，保留正常盟友权力。"
+        },
+        {
+          "line": 87472,
+          "text": "[10·外交] 联盟「周天下」成员变更，成员：周、赵、楚、秦、魏。入盟成员的原个人保障/共同防御作废；个人休战在盟内暂停，退出后按原到期日恢复。 剧本宗主联盟：其他成员自动成为特殊附庸，每期强制上交实际生产的10%，保留正常盟友权力。"
+        },
+        {
+          "line": 87475,
+          "text": "[10·外交] 联盟「周天下」成员变更，成员：周、赵、楚、秦、魏、燕。入盟成员的原个人保障/共同防御作废；个人休战在盟内暂停，退出后按原到期日恢复。 剧本宗主联盟：其他成员自动成为特殊附庸，每期强制上交实际生产的10%，保留正常盟友权力。"
+        },
+        {
+          "line": 94866,
+          "text": "[12·外交] 联盟「周天下」成员变更，成员：周、赵、楚、秦、魏、燕、齐。入盟成员的原个人保障/共同防御作废；个人休战在盟内暂停，退出后按原到期日恢复。 剧本宗主联盟：其他成员自动成为特殊附庸，每期强制上交实际生产的10%，保留正常盟友权力。"
+        }
+      ],
+      "saved_usage": {
+        "monarch_seconds": 27634.541017770767,
+        "council_seconds": 7978.418790578842
+      },
+      "submission_receipts": [
+        {
+          "id": 146,
+          "actor": "scenario:zhao",
+          "generation": 0,
+          "model": "MiniMax-M3.1-Flash",
+          "action": "relations",
+          "arguments": {
+            "target": "scenario:zhou",
+            "action": "submit_vassalage"
+          },
+          "receipt": {
+            "api": 1,
+            "actor": "scenario:zhao",
+            "action": "relations",
+            "period": 0,
+            "ok": true,
+            "status": "submitted",
+            "code": null,
+            "message": "",
+            "data": {
+              "id": 1,
+              "actor": "scenario:zhao",
+              "action": "submit_vassalage",
+              "arguments": [
+                [
+                  "target",
+                  "scenario:zhou"
+                ]
+              ],
+              "period": 0,
+              "fee": 10,
+              "entities": [
+                [
+                  "scenario:zhao",
+                  "nation/scenario:zhao"
+                ],
+                [
+                  "scenario:zhou",
+                  "nation/scenario:zhou"
+                ]
+              ],
+              "status": "submitted",
+              "message": ""
+            }
+          }
+        },
+        {
+          "id": 944,
+          "actor": "scenario:chu",
+          "generation": 0,
+          "model": "MiniMax-M3.1-Flash",
+          "action": "relations",
+          "arguments": {
+            "target": "周",
+            "action": "submit_vassalage"
+          },
+          "receipt": {
+            "api": 1,
+            "actor": "scenario:chu",
+            "action": "relations",
+            "period": 6,
+            "ok": true,
+            "status": "submitted",
+            "code": null,
+            "message": "",
+            "data": {
+              "id": 11,
+              "actor": "scenario:chu",
+              "action": "submit_vassalage",
+              "arguments": [
+                [
+                  "target",
+                  "scenario:zhou"
+                ]
+              ],
+              "period": 6,
+              "fee": 10,
+              "entities": [
+                [
+                  "scenario:chu",
+                  "nation/scenario:chu"
+                ],
+                [
+                  "scenario:zhou",
+                  "bloc/scenario:zhou-tianxia"
+                ]
+              ],
+              "status": "submitted",
+              "message": ""
+            }
+          }
+        },
+        {
+          "id": 962,
+          "actor": "scenario:qin",
+          "generation": 0,
+          "model": "MiniMax-M3.1-Flash",
+          "action": "relations",
+          "arguments": {
+            "target": "scenario:zhou",
+            "action": "submit_vassalage"
+          },
+          "receipt": {
+            "api": 1,
+            "actor": "scenario:qin",
+            "action": "relations",
+            "period": 6,
+            "ok": true,
+            "status": "submitted",
+            "code": null,
+            "message": "",
+            "data": {
+              "id": 12,
+              "actor": "scenario:qin",
+              "action": "submit_vassalage",
+              "arguments": [
+                [
+                  "target",
+                  "scenario:zhou"
+                ]
+              ],
+              "period": 6,
+              "fee": 10,
+              "entities": [
+                [
+                  "scenario:qin",
+                  "nation/scenario:qin"
+                ],
+                [
+                  "scenario:zhou",
+                  "bloc/scenario:zhou-tianxia"
+                ]
+              ],
+              "status": "submitted",
+              "message": ""
+            }
+          }
+        },
+        {
+          "id": 1192,
+          "actor": "scenario:wei",
+          "generation": 1,
+          "model": "MiniMax-M3.1-Flash",
+          "action": "relations",
+          "arguments": {
+            "target": "scenario:zhou",
+            "action": "submit_vassalage"
+          },
+          "receipt": {
+            "api": 1,
+            "actor": "scenario:wei",
+            "action": "relations",
+            "period": 8,
+            "ok": false,
+            "status": "rejected",
+            "code": "domain_rejected",
+            "message": "Insufficient cash for diplomatic fee",
+            "data": null
+          }
+        },
+        {
+          "id": 1269,
+          "actor": "scenario:wei",
+          "generation": 1,
+          "model": "MiniMax-M3.1-Flash",
+          "action": "relations",
+          "arguments": {
+            "target": "scenario:zhou",
+            "action": "submit_vassalage"
+          },
+          "receipt": {
+            "api": 1,
+            "actor": "scenario:wei",
+            "action": "relations",
+            "period": 9,
+            "ok": true,
+            "status": "submitted",
+            "code": null,
+            "message": "",
+            "data": {
+              "id": 15,
+              "actor": "scenario:wei",
+              "action": "submit_vassalage",
+              "arguments": [
+                [
+                  "target",
+                  "scenario:zhou"
+                ]
+              ],
+              "period": 9,
+              "fee": 10,
+              "entities": [
+                [
+                  "scenario:wei",
+                  "nation/scenario:wei"
+                ],
+                [
+                  "scenario:zhou",
+                  "bloc/scenario:zhou-tianxia"
+                ]
+              ],
+              "status": "submitted",
+              "message": ""
+            }
+          }
+        },
+        {
+          "id": 1305,
+          "actor": "scenario:yan",
+          "generation": 0,
+          "model": "MiniMax-M3.1-Flash",
+          "action": "relations",
+          "arguments": {
+            "target": "scenario:zhou",
+            "action": "submit_vassalage"
+          },
+          "receipt": {
+            "api": 1,
+            "actor": "scenario:yan",
+            "action": "relations",
+            "period": 9,
+            "ok": true,
+            "status": "submitted",
+            "code": null,
+            "message": "",
+            "data": {
+              "id": 16,
+              "actor": "scenario:yan",
+              "action": "submit_vassalage",
+              "arguments": [
+                [
+                  "target",
+                  "scenario:zhou"
+                ]
+              ],
+              "period": 9,
+              "fee": 10,
+              "entities": [
+                [
+                  "scenario:yan",
+                  "nation/scenario:yan"
+                ],
+                [
+                  "scenario:zhou",
+                  "bloc/scenario:zhou-tianxia"
+                ]
+              ],
+              "status": "submitted",
+              "message": ""
+            }
+          }
+        },
+        {
+          "id": 1402,
+          "actor": "scenario:qi",
+          "generation": 0,
+          "model": "MiniMax-M3.1-Flash",
+          "action": "relations",
+          "arguments": {
+            "target": "周",
+            "action": "submit_vassalage"
+          },
+          "receipt": {
+            "api": 1,
+            "actor": "scenario:qi",
+            "action": "relations",
+            "period": 11,
+            "ok": true,
+            "status": "submitted",
+            "code": null,
+            "message": "",
+            "data": {
+              "id": 19,
+              "actor": "scenario:qi",
+              "action": "submit_vassalage",
+              "arguments": [
+                [
+                  "target",
+                  "scenario:zhou"
+                ]
+              ],
+              "period": 11,
+              "fee": 10,
+              "entities": [
+                [
+                  "scenario:qi",
+                  "nation/scenario:qi"
+                ],
+                [
+                  "scenario:zhou",
+                  "bloc/scenario:zhou-tianxia"
+                ]
+              ],
+              "status": "submitted",
+              "message": ""
+            }
+          }
+        }
+      ]
+    },
+    "dq": {
+      "audit": {
+        "attempts": 951,
+        "unsuccessful": 37,
+        "per_nation": [
+          {
+            "nation": "秦",
+            "attempts": 96,
+            "unsuccessful": 2
+          },
+          {
+            "nation": "魏",
+            "attempts": 102,
+            "unsuccessful": 8
+          },
+          {
+            "nation": "韩",
+            "attempts": 122,
+            "unsuccessful": 6
+          },
+          {
+            "nation": "赵",
+            "attempts": 177,
+            "unsuccessful": 11
+          },
+          {
+            "nation": "燕",
+            "attempts": 105,
+            "unsuccessful": 1
+          },
+          {
+            "nation": "齐",
+            "attempts": 136,
+            "unsuccessful": 5
+          },
+          {
+            "nation": "楚",
+            "attempts": 105,
+            "unsuccessful": 4
+          },
+          {
+            "nation": "周",
+            "attempts": 108,
+            "unsuccessful": 0
+          }
+        ]
+      },
+      "completed_nation_turns": 112,
+      "calls": 468,
+      "seconds": 12793.0,
+      "p50_seconds": 86.80000000000001,
+      "p90_seconds": 214.8,
+      "per_nation": [
+        {
+          "nation": "秦",
+          "model": "DeepSeek",
+          "calls": 47,
+          "seconds": 1369.0
+        },
+        {
+          "nation": "魏",
+          "model": "DeepSeek",
+          "calls": 50,
+          "seconds": 2061.2
+        },
+        {
+          "nation": "韩",
+          "model": "Qwen",
+          "calls": 63,
+          "seconds": 1215.3
+        },
+        {
+          "nation": "赵",
+          "model": "Qwen",
+          "calls": 95,
+          "seconds": 2118.0
+        },
+        {
+          "nation": "燕",
+          "model": "DeepSeek",
+          "calls": 41,
+          "seconds": 948.8000000000001
+        },
+        {
+          "nation": "齐",
+          "model": "Qwen",
+          "calls": 71,
+          "seconds": 1837.7
+        },
+        {
+          "nation": "楚",
+          "model": "Qwen",
+          "calls": 59,
+          "seconds": 1195.4
+        },
+        {
+          "nation": "周",
+          "model": "DeepSeek",
+          "calls": 42,
+          "seconds": 2047.6
+        }
+      ],
+      "economy": [
+        {
+          "nation": "秦",
+          "consumption_0_13": 442.2043877938736,
+          "categories": {
+            "recruit": 185.80418810154427,
+            "military": 256.4001996923293,
+            "administration": 0
+          },
+          "investment_0_13": 2096.3764700797196,
+          "gdp_period13": 57.92256970805855
+        },
+        {
+          "nation": "魏",
+          "consumption_0_13": 618.4979783707176,
+          "categories": {
+            "recruit": 249.10602952860697,
+            "military": 289.39194884211065,
+            "administration": 80
+          },
+          "investment_0_13": 2235.548091623796,
+          "gdp_period13": 73.21609285509716
+        },
+        {
+          "nation": "韩",
+          "consumption_0_13": 739.7518627904619,
+          "categories": {
+            "recruit": 311.4900111217462,
+            "military": 260.2618516687157,
+            "administration": 168
+          },
+          "investment_0_13": 1984.4623420552489,
+          "gdp_period13": 52.12345491039401
+        },
+        {
+          "nation": "赵",
+          "consumption_0_13": 768.5981566277732,
+          "categories": {
+            "recruit": 239.72281143991688,
+            "military": 195.8753451878563,
+            "administration": 333
+          },
+          "investment_0_13": 1888.54520601403,
+          "gdp_period13": 40.08553680632508
+        },
+        {
+          "nation": "燕",
+          "consumption_0_13": 649.9373477036363,
+          "categories": {
+            "recruit": 248.2371255161167,
+            "military": 317.70022218751956,
+            "administration": 84
+          },
+          "investment_0_13": 1983.5819622945828,
+          "gdp_period13": 63.94033060070598
+        },
+        {
+          "nation": "齐",
+          "consumption_0_13": 647.2109755565531,
+          "categories": {
+            "recruit": 185.63760797075815,
+            "military": 252.57336758579495,
+            "administration": 209
+          },
+          "investment_0_13": 2229.6248572767167,
+          "gdp_period13": 63.972573965024985
+        },
+        {
+          "nation": "楚",
+          "consumption_0_13": 481.3196613821599,
+          "categories": {
+            "recruit": 186.5065119832484,
+            "military": 233.81314939891146,
+            "administration": 61
+          },
+          "investment_0_13": 2301.0188920711025,
+          "gdp_period13": 55.62640649492931
+        },
+        {
+          "nation": "周",
+          "consumption_0_13": 934.2773481620021,
+          "categories": {
+            "recruit": 244.87593787694146,
+            "military": 233.40141028506065,
+            "administration": 456
+          },
+          "investment_0_13": 1659.3372606884823,
+          "gdp_period13": 45.40220001586193
+        }
+      ],
+      "board14": [
+        {
+          "nation": "秦",
+          "land": 10,
+          "units": 3,
+          "cash": 101
+        },
+        {
+          "nation": "魏",
+          "land": 11,
+          "units": 4,
+          "cash": -16
+        },
+        {
+          "nation": "韩",
+          "land": 8,
+          "units": 2,
+          "cash": -31
+        },
+        {
+          "nation": "赵",
+          "land": 9,
+          "units": 0,
+          "cash": -5
+        },
+        {
+          "nation": "燕",
+          "land": 11,
+          "units": 4,
+          "cash": 87
+        },
+        {
+          "nation": "齐",
+          "land": 9,
+          "units": 3,
+          "cash": 124
+        },
+        {
+          "nation": "楚",
+          "land": 9,
+          "units": 3,
+          "cash": 58
+        },
+        {
+          "nation": "周",
+          "land": 8,
+          "units": 4,
+          "cash": 78
+        }
+      ],
+      "public_alliance_events": [
+        {
+          "line": 8161,
+          "text": "[1·外交] 联盟「周天下」创建失败：楚拒绝了创盟邀请。创盟提议#1已关闭，联盟未成立；此前接受邀请不视为入盟。"
+        }
+      ]
+    }
+  },
+  "sources": {
+    "minimax_save": {
+      "bytes": 89218390,
+      "sha256": "7cc9dcf51ed23bebd0402405e9868d20fcaad21b70e1b0e992221242461371d9"
+    },
+    "minimax_log": {
+      "bytes": 33852669,
+      "sha256": "1cb87d69e6ca515adcbd2ec13cea6e53eefde322a4cbffbb52d4e83e7e8d9732"
+    },
+    "dq_save": {
+      "bytes": 44074374,
+      "sha256": "5add6f0cea2e55c48df2aa35c8df60ac3e07fc3387b93f9752f4b24df485e664"
+    },
+    "dq_log": {
+      "bytes": 7988423,
+      "sha256": "66e8333015735ba980b716d3d8b76dcf81006e22946c25f697205b1f2ed819fa"
+    }
+  },
+  "excerpts": [
+    {
+      "period": 0,
+      "nation": "赵",
+      "line": 4601,
+      "text": "OK so realistically our best outcome is 臣属保全. Accept it, but keep military growing to deter."
+    },
+    {
+      "period": 0,
+      "nation": "赵",
+      "line": 4603,
+      "text": "Hmm, hmm. Let me reconsider once more whether conquest could work: We have a 1500 gold start and others similar. Actually do we know others' gold? Probably similar ~1500. So no edge. Conquest: we'd need to attack 7 nations, each with 5+ tiles, army, and they'd fight back (and possibly call 野人? no). Not feasible. Also AI may be scripted to cooperate via 周."
+    },
+    {
+      "period": 3,
+      "nation": "秦",
+      "line": 25617,
+      "text": "[3·行动] 秦 ◇ 结束回合 → 回合小结：第3期建成逸峰、玄渠林场（林场累计6座、木产6/期），祥轩再征民兵1支（民兵#4），并以民兵#1、#2进攻(5,12)无主地与野人步兵进入交战；期末现金约73金、木0、粮46、补给20。已得周之间谍报告（周仅5块地、GDP34金、无军队），并据此提交国策第二版：木价暴涨下以林场为现金引擎、主攻沙漠荒地寻金矿，第6期前若周天下成形则以称臣入周天下锁定臣属保全，若出现游离邻国且兵足则转独立兼并。"
+    },
+    {
+      "period": 6,
+      "nation": "秦",
+      "line": 48920,
+      "text": "- 目标: 秦已入周天下（臣属），国号国祚俱存，岁贡一成；本期起最高目标为「在周天下之内把秦做成最富庶、最强、疆土最大的附庸」，并保住国祚；同时长期保留一条观察线：若周天下内部出现裂痕（成员退出、周与赵燕交战、楚齐魏韩始终游离），则借机脱离或独立兼并，谋求终极胜利。"
+    },
+    {
+      "period": 9,
+      "nation": "燕",
+      "line": 80716,
+      "text": "Economics check: submit_vassalage — does it cost anything? \"已有周天下时不再收这100金，申请称臣仍由现有成员表决\" → no cost. Our own 100金 is not paid (the 宗主 pays when creating the bloc; here the bloc exists) ✓. So no cost. "
+    },
+    {
+      "period": 11,
+      "nation": "齐",
+      "line": 88505,
+      "text": "Final sanity check on the 终极胜利 feasibility: 齐 would need to conquer 周, 赵, 楚, 秦, 魏, 燕, 韩 = 7 nations, each with a 市政厅 and armies, while 6 nations are allied. Our army: 2 units. Our economy: ~50/期, debt 299. Our land: 9 tiles of 20+ unowned. No. 0% chance. Joining = ~100% chance of 保全 (if 周 completes). Clear."
+    },
+    {
+      "period": 12,
+      "nation": "魏",
+      "line": 93475,
+      "text": "[12·行动] 魏 ◇ 结束回合 → 回合小结：关键动作：对联盟投票#8（齐主动称臣）投赞成，周天下覆盖推至7/8，天下只余韩未入——我即以成员身份推动最后一国：致韩劝其入盟（22金）、致周请其正式遣使招韩（12金），均第13期送达，以促成“覆盖全境→周胜、成员臣属保全”这条唯一现实终局路径。本期经济：卖粮6、矿3、木3回笼24金，两信付出后现金6、粮5、木4、矿0；两支民兵在军屯格免补给、免费回血至满血。修订版国策已获议会通过，明确终局三路径（韩自愿入盟／联盟表决后随盟征服韩／周天下分裂则先核实再退盟）与固定经济节奏（每2期1座廉价产能建筑＋1支民兵，优先林场矿场农场，其次石油厂＋装备厂，取地以搜含金地块为首要目的）。"
+    },
+    {
+      "period": 13,
+      "nation": "楚",
+      "line": 95590,
+      "text": "[13·行动] 楚 ◇ 结束回合 → 回合小结：第13回合：周天下已扩为周、赵、楚、秦、魏、燕、齐七国（齐已称臣入盟），距\"覆盖全部存续国\"仅余韩一国；本期对\"周提议与韩订共同防御\"（票#9）投赞成，以稳住韩并促其归附。期内上贡1装备2金1木，民兵#1仍驻金观军屯免供守备，无兵事、无扩张，现金留存40以备不时（负债为零，信用额度217未动用）。楚之既定方针不变：对齐表决一律赞成入盟与防御类提案、反对进攻类提案，修书韩、齐劝其入盟，坐等尊王终局触发、楚得臣属保全。"
+    },
+    {
+      "period": 14,
+      "nation": "韩",
+      "line": 100451,
+      "text": "Let me reconsider: is there a plausible scenario where the trigger fires only when ALL 8 are members/附庸 (i.e., 覆盖 = 成员覆盖)? \"周及其周天下附庸覆盖全部存续国家\" — the phrase \"周及其周天下附庸\" enumerates 周 plus 周天下's 附庸; coverage of all surviving countries means every surviving country is either 周 itself or a 周天下附庸 (or member). Since 附庸 include all bloc members (per 剧本: 其他成员自动成为特殊附庸), coverage = all 8 countries inside the bloc. Our common-defense pact wouldn't make us a 附庸. So most likely the trigger does NOT fire on accepting. Also \"入盟时原个人保障/共同防御作废\" hints that common defense is a lesser relation than membership. Also the earlier note \"燕 的原保障/共同防御条约因实体变更作废\" — 燕 was covered by common defense before joining, and my v5 plan called that \"covered\" (4国). That was my inference, and in the 5th version I wrote \"周天下已覆盖周、赵、燕、秦4国\" — but that counted 4 countries as \"covered\" (周、赵、燕、秦) while members were only 周、赵. If coverage = treaties+成员, then right now with 7 members covering 7 countries + common defense partners... hmm, currently 7 bloc members cover 周赵楚秦魏燕齐 = 7 countries, and we're the 8th. If we accept a common defense, coverage (under a treaty-inclusive definition) = 8 → trigger."
+    },
+    {
+      "source": "dq",
+      "period": 1,
+      "nation": "魏",
+      "line": 5548,
+      "text": "[1·行动] 魏 ◇ 结束回合 → 回合小结：拒绝了周「周天下」创盟邀约并致书周王维持保障之约；远渡续建城堡（第3建筑位，为兵营解锁），朝屿、玄岭各补林场，凤澳补农场，并购入60木备料。下回合核心格动工兵营、朝屿动工矿场。"
+    },
+    {
+      "source": "dq",
+      "period": 1,
+      "nation": "韩",
+      "line": 5833,
+      "text": "[1·行动] 韩 ◇ 结束回合 → 回合小结：拒绝周天下盟书（保留自主权），珍原落矿场、西轩落石油能源厂（8电主力）、新峡加林场；囤装备15件（132金）备下回合征步兵，并复信赵约定互不先动干戈。现金约717金、木头145。"
+    },
+    {
+      "source": "dq",
+      "period": 1,
+      "nation": "赵",
+      "line": 6601,
+      "text": "[1·行动] 赵 ◇ 结束回合 → 回合小结：五格全部动工（珍庐城堡L1、吉溪农场、靖京林场、灵寨矿场、静仓农场），军屯征出民兵#1；高价卖60木得145金，已接受周「周天下」创始邀约（待全体结算生效）并复信燕提议互不侵犯共拓荒地。现金余703。"
+    },
+    {
+      "source": "dq",
+      "period": 1,
+      "nation": "燕",
+      "line": 6980,
+      "text": "[1·行动] 燕 ◇ 结束回合 → 回合小结：第1回合：上馆加建农场凑足3位备兵营，古郡再起林场，润原/泰渡各加农场，通台耕地已满改起矿场；正式拒绝周「周天下」创始邀约以保留外交自主。"
+    },
+    {
+      "source": "dq",
+      "period": 1,
+      "nation": "齐",
+      "line": 7202,
+      "text": "[1·行动] 齐 ◇ 结束回合 → 回合小结：第1回合：核心黑集落补给厂、望垒加第二座木电（电网将达产4/需2）、沃澳第二林场；外交上明确拒绝周「周天下」创盟邀约（不当臣属），复信燕提议互不侵犯，并派间谍探秦（第4期出报）。现金余862，木头100、粮20，下一回合按计划在黑集起兵营、在望垒/沃澳补农场以解粮缺。"
+    },
+    {
+      "source": "dq",
+      "period": 1,
+      "nation": "楚",
+      "line": 7316,
+      "text": "[1·行动] 楚 ◇ 结束回合 → 回合小结：明确拒绝周「周天下」盟书（避免10%持续贡赋与外交权让渡）。动工4处：龙仓补给厂、珀坊木材能源厂（为兵营/市政厅备电）、云渚第二农场、落垛石油厂；另补进40木备兵营造价。结算后龙仓满3位，下回合可落兵营。"
+    },
+    {
+      "source": "dq",
+      "period": 1,
+      "nation": "周",
+      "line": 7889,
+      "text": "[1·行动] 周 ◇ 结束回合 → 回合小结：第1期：市购木50（−137金）解木料之困；王畿续建——曦渠城堡（累计3位，下期可起兵营）、秀邑/远澳/宁畦各增林场、兴丘增农场，木料净产约+3/期。周天下创始邀约仍待七雄回应。"
+    },
+    {
+      "source": "dq",
+      "period": 1,
+      "nation": "秦",
+      "line": 8151,
+      "text": "[1·行动] 秦 ◇ 结束回合 → 回合小结：第1期：核心安洲落补给厂(本格第3座)，广栅、丰关各补第2座林场，暮麓补第2座农场，康山补第2座矿场；已拒绝周「周天下」创盟邀约(offer#1)。结算后每期得金约8、木4(耗1发电)、粮2、矿2、补给2，电力2/2平衡。"
+    }
+  ]
+}
