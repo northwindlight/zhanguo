@@ -110,6 +110,102 @@ class CouncilService:
     def _review_config(self):
         return {**self.review_cfg,'_ui_expand_message':self.presentation.expand_message}
 
+    # ------------------------------------------------------------------
+    # 议长请求预算
+    # ------------------------------------------------------------------
+    # ★ 议会这条路径原先对请求体积**完全没有闸**：证据 = 上次批准以来的整段轨迹，
+    #   随回合线性增长。2026-10-21 第 95 回魏的审核首请求证据单条 1,046,455 字符
+    #   （≈50 万 token），reviewer 真的吐 400 context_length_exceeded，整局终止。
+    #   玩家侧有 ctx.build 管预算，议长侧没有——这里补同一套口径：每次调用前按
+    #   reviewer 的 ctx_window 算输入预算，超了就把**轨迹证据按档降级**（只动本次
+    #   请求里的副本，议会档案原文一行不删），降到底还超就明确报错而不是让提供方打回。
+    EVIDENCE_KEEP_FULL_ROWS = 12   # 降档时仍保留完整事件/回执的最近行数
+    EVIDENCE_MIN_ROWS = 4          # 降到底保留的最近行数，更早的记为 omitted
+
+    def _review_input_budget(self):
+        """议长一次请求的输入预算（token）；未配 ctx_window 时返回 0＝不设闸。"""
+        plan = ctx.make_plan(self.review_cfg)
+        return plan.budget if plan.mode == 'budget' else 0
+
+    @staticmethod
+    def _request_tokens(dialogue, tools):
+        return (ctx.messages_tokens(dialogue)
+                + ctx.est_tokens(json.dumps(tools, ensure_ascii=False))
+                + ctx.SAFETY_TOKENS)
+
+    def _fit_request(self, dialogue, tools, budget):
+        """每次议长调用前核对输入预算；超了逐档降级证据直到装得下。"""
+        fit = budget.get('_evidence')
+        limit = self._review_input_budget()
+        if not fit or not limit:
+            return
+        for _ in range(16):
+            if self._request_tokens(dialogue, tools) <= limit:
+                return
+            if not self._degrade_evidence(fit, dialogue, budget, tools):
+                break
+        tokens = self._request_tokens(dialogue, tools)
+        if tokens > limit:
+            raise ValueError(self.ui.text('experimental.review_budget_overflow',
+                                          tokens=tokens, limit=limit))
+
+    def _degrade_evidence(self, fit, dialogue, budget, tools):
+        """把证据降一档；返回是否真的变了。
+
+        降级顺序（越早的轨迹越先失去细节，最近行永远保留最全）：
+          1. 去掉快照行的 `changes`（状态差分，占证据 6~8 成，事件与回执仍在）；
+          2. 旧行再去掉 `events`；
+          3. 旧行动回执只留 ok/status/code/message，议会查询只留 ok/message；
+          4. 反复砍掉最旧的一半行，被砍范围写进 `omitted`（原文仍在档案里）；
+          5. 最后才放弃 `previous_plan.state_at_submission`。
+        """
+        evidence = fit['evidence']
+        rows = evidence.get('trajectory') or []
+        step = fit['step']
+        fit['step'] = step + 1
+        changed = False
+        if step == 0:
+            for row in rows:
+                if isinstance(row, dict) and row.pop('changes', None) is not None:
+                    changed = True
+        elif step == 1:
+            for row in rows[:-self.EVIDENCE_KEEP_FULL_ROWS]:
+                if isinstance(row, dict) and row.pop('events', None) is not None:
+                    changed = True
+        elif step == 2:
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                for key, keep in (('receipt', ('ok', 'status', 'code', 'message')),
+                                  ('result', ('ok', 'message'))):
+                    value = row.get(key)
+                    if isinstance(value, dict) and set(value) - set(keep):
+                        row[key] = {k: value.get(k) for k in keep}
+                        changed = True
+        elif step >= 3:
+            if len(rows) > self.EVIDENCE_MIN_ROWS:
+                keep = max(self.EVIDENCE_MIN_ROWS, len(rows) // 2)
+                removed = rows[:len(rows) - keep]
+                evidence['trajectory'] = rows[len(rows) - keep:]
+                fit.setdefault('omitted', []).extend(removed)
+                periods = [int(r.get('period') or 0) for r in fit['omitted'] if isinstance(r, dict)]
+                evidence['omitted'] = {
+                    'rows': len(fit['omitted']),
+                    'periods': [min(periods), max(periods)] if periods else [],
+                    'note': '更早的轨迹超出议长输入预算，本次请求未附原文（仍完整保存在议会档案中）；只能就其余证据核对。',
+                }
+                changed = True
+            elif 'state_at_submission' in (evidence.get('previous_plan') or {}):
+                evidence['previous_plan'].pop('state_at_submission', None)
+                changed = True
+        if changed:
+            dialogue[fit['index']]['content'] = fit['prefix'] + encode(evidence) + fit['suffix']
+            self._review_log('budget', {'step': fit['step'], 'rows': len(evidence.get('trajectory') or []),
+                                        'omitted': (evidence.get('omitted') or {}).get('rows', 0),
+                                        'tokens': self._request_tokens(dialogue, tools),
+                                        'limit': self._review_input_budget()}, budget)
+        return changed
+
     def _complete(self,messages):
         budget={'period':self._period,'_log_round':'—','_log_phase':'交接'}
         self._review_log('request',{'messages':messages},budget)
@@ -205,7 +301,9 @@ class CouncilService:
             status='experimental.review_history_status' if phase_end else 'experimental.review_candidate_status'
             self._notify(self.ui.text(status,actor=self.cfg.get('name',player.actor),
                                       count=budget['rounds']+1,total=COUNCIL_MAX_ROUNDS))
-            msg,stats=self._reviewer().chat_turn(deepcopy(dialogue),self.ui.actions(tools),self._review_config(),on_retry=lambda attempt,error,wait,total:self._notify(self.ui.text('llm.retry',actor=self.cfg.get('name',player.actor)+'议长',attempt=attempt,error=error,wait=wait,total=total)))
+            payload_tools=self.ui.actions(tools)
+            self._fit_request(dialogue,payload_tools,budget)
+            msg,stats=self._reviewer().chat_turn(deepcopy(dialogue),payload_tools,self._review_config(),on_retry=lambda attempt,error,wait,total:self._notify(self.ui.text('llm.retry',actor=self.cfg.get('name',player.actor)+'议长',attempt=attempt,error=error,wait=wait,total=total)))
             budget['rounds']+=1
             self._review_log('response',{'message':msg,'usage':stats},budget)
             for key,value in stats.items():
@@ -394,13 +492,18 @@ class CouncilService:
         evidence=review_evidence({'previous_plan':self.council['last_plan'],
                   'trajectory':trajectory,
                   'stage':1,'period':obs_period})
-        dialogue.append({'role':'user','content':self.ui.text('experimental.review_first')+encode(evidence)})
+        prefix=self.ui.text('experimental.review_first')
+        dialogue.append({'role':'user','content':prefix+encode(evidence)})
         # Reviewer sees the same actor-filtered map through the selected UI mod.
         from clients.context import MAP_KEY
         view=ModelView({**self.cfg,**self.review_cfg},presentation=self.presentation)
         current,image=view.map_context(self.council['last_snapshot'])
-        dialogue[-1]['content']+='\n'+current
+        suffix='\n'+current
+        dialogue[-1]['content']+=suffix
         if image:dialogue[-1][MAP_KEY]=image
+        # 证据随回合增长：每次调用前按议长预算降级（见 _fit_request）。
+        evidence_fit={'index':len(dialogue)-1,'prefix':prefix,'suffix':suffix,
+                      'evidence':evidence,'step':0,'omitted':[]}
         def paralysis_receipt(assessment):
             reason=self.ui.text('experimental.parliament_paralyzed_reason')
             decision=self._government('decide',True,reason)
@@ -416,7 +519,7 @@ class CouncilService:
             self._notify(self.ui.text('experimental.review_autoapproved_status',actor=self.cfg.get('name',player.actor)))
             return {**receipt,'ok':True,'status':'effective','code':None,
                     'message':decision['message'],'data':decision}
-        budget={'rounds':0,'warned':False,'period':obs_period}
+        budget={'rounds':0,'warned':False,'period':obs_period,'_evidence':evidence_fit}
         assessment,paralyzed=self._council_turn(player,dialogue,budget=budget,phase_end=True)
         if paralyzed:return paralysis_receipt(assessment)
         dialogue.append({'role':'user','content':self.ui.text('experimental.review_second')+encode({'new_plan':candidate,'period':obs_period})})
