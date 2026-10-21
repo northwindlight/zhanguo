@@ -570,9 +570,9 @@ class CouncilService:
         tools.extend(self._tracking_tools())
         if finalize:
             tools.extend([
-                {'type':'function','function':{'name':'council_approve','description':'仅在已检查游戏目标推进、战略依据、必要评估、可执行承诺及追踪事项后批准。无事实矛盾、无战损或遵守自设中立不等于达标；长期停滞而缺少目标相关成果、期限或结束等待办法时不得放行。合理备战与有依据的进攻均可通过。通过不自动关闭事项。',
+                {'type':'function','function':{'name':'council_approve','description':'检查目标推进、依据、评估及追踪事项后批准。任何新增或沿用承诺缺明确条件或期限均不得通过；无条件须明示。无战损或履行中立承诺不等于达标，长期停滞须有目标相关成果、期限及突破办法。合理备战与有据进攻可通过；批准不关闭事项。',
                               'parameters':{'type':'object','properties':{},'additionalProperties':False}}},
-                {'type':'function','function':{'name':'council_reject','description':'严重反事实、依据不足、遗漏必要评估与承诺，或长期停滞而缺少目标相关成果、期限或突破办法时，直接打回要求解释和下期补正。无需证明隐藏事实相反或某场战争必胜；不能以局部可见推断全国。reason列停滞或缺项证据与可执行纠正；不强制特定战争或购报派谍。',
+                {'type':'function','function':{'name':'council_reject','description':'任何承诺缺明确条件或期限即打回要求解释补齐；严重失实、依据或评估缺失、长期停滞而缺成果/期限/突破办法亦须打回。无需证明隐藏事实相反或战争必胜，不能以局部可见推断全国。reason列缺项证据及下期纠正，不强制特定战争或购报派谍。',
                               'parameters':{'type':'object','properties':{'reason':{'type':'string','minLength':1}},'required':['reason'],'additionalProperties':False}}},
             ])
         if phase_end:
