@@ -133,16 +133,48 @@ class CouncilService:
                 + ctx.est_tokens(json.dumps(tools, ensure_ascii=False))
                 + ctx.SAFETY_TOKENS)
 
+    def _evidence_fit(self, dialogue, index):
+        """把对话里既有的证据消息还原成可降级的 fit（被打回后重提时它仍留在上下文里）。"""
+        message = dialogue[index]
+        if not isinstance(message, dict) or message.get('role') != 'user':
+            return None
+        content = message.get('content')
+        if not isinstance(content, str):
+            return None
+        prefix = self.ui.text('experimental.review_first')
+        if not content.startswith(prefix):
+            return None
+        try:
+            evidence, end = json.JSONDecoder().raw_decode(content[len(prefix):])
+        except ValueError:
+            return None
+        if not isinstance(evidence, dict) or 'previous_plan' not in evidence:
+            return None
+        return {'index': index, 'prefix': prefix, 'suffix': content[len(prefix) + end:],
+                'evidence': evidence, 'step': 0, 'omitted': []}
+
     def _fit_request(self, dialogue, tools, budget):
-        """每次议长调用前核对输入预算；超了逐档降级证据直到装得下。"""
-        fit = budget.get('_evidence')
+        """每次议长调用前核对输入预算；超了从**最旧的证据**开始逐档降级，直到装得下。
+
+        被打回的审核对话会连同上一轮的证据一起留下来（设计如此）。那时只压新证据
+        不够——旧证据也要按同样的档位继续降，否则重提一次就又超窗。
+        """
         limit = self._review_input_budget()
-        if not fit or not limit:
+        if not limit:
             return
-        for _ in range(16):
+        current = budget.get('_evidence')
+        current_index = current.get('index') if current else None
+        fits = [self._evidence_fit(dialogue, index) for index in range(len(dialogue))
+                if index != current_index]
+        fits = [fit for fit in fits if fit]
+        if current:
+            fits.append(current)
+        if not fits:
+            return
+        for _ in range(64):
             if self._request_tokens(dialogue, tools) <= limit:
                 return
-            if not self._degrade_evidence(fit, dialogue, budget, tools):
+            if not any(self._degrade_evidence(fit, dialogue, budget, tools) for fit in fits):
                 break
         tokens = self._request_tokens(dialogue, tools)
         if tokens > limit:

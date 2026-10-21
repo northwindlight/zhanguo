@@ -61,6 +61,36 @@ class TestCouncilBudget(unittest.TestCase):
         self.assertTrue(all('changes' in row for row in service.council['archive']
                             if row.get('kind') == 'after.action' and 'changes' in row))
 
+    def test_retained_rejected_evidence_is_degraded_before_the_new_request(self):
+        h = GameHost.new(self.cfg()); c = h.clients[self.actor]
+        c._backend = FakeBackend([reply(call('p', 'plan', text='NEW-PLAN 修订国策'),
+                                        call('e', 'end_turn', summary='完成修订'))])
+        service = h.services[self.actor]['council']
+        service._review_backend = RecordingCouncilBackend([True])
+        start_with_plan(h, self.actor)
+        # 模拟「上一轮被打回、对话连同证据留下来」：旧证据里同样有大量 changes。
+        from mods.experimental.council import encode
+        filler = '旧审核证据' * 40
+        old = {'previous_plan': {'approved': False, 'period': 90, 'text': 'OLD-PLAN'},
+               'stage': 1, 'period': 91,
+               'trajectory': [{'kind': 'after.action', 'period': i,
+                               'changes': [{'path': ['facts', 'army'], 'set': [{'note': filler}]}],
+                               'events': {'items': [{'text': filler}]}} for i in range(80)]}
+        prefix = service.ui.text('experimental.review_first')
+        service.council['dialogue'] = [
+            {'role': 'system', 'content': '旧审核系统提示'},
+            {'role': 'user', 'content': prefix + encode(old) + '\n旧地图'}]
+        self.fill(service)
+        p = h.player(self.actor)
+        self.assertTrue(p.submit('plan', {'text': 'NEW-PLAN 修订国策'})['ok'])
+        limit = service._review_input_budget()
+        for messages, tools in service._review_backend.calls:
+            self.assertLessEqual(service._request_tokens(messages, tools), limit)
+            assert_paired(messages)
+        retained = service._review_backend.calls[0][0][1]['content']
+        self.assertNotIn('"changes"', retained)
+        self.assertIn('旧地图', retained)
+
     def test_small_review_keeps_full_evidence(self):
         h = GameHost.new(self.cfg()); c = h.clients[self.actor]
         c._backend = FakeBackend([reply(call('p', 'plan', text='NEW-PLAN 修订国策'),
