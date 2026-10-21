@@ -119,7 +119,22 @@ class ModelView:
                          '可选动作与各自参数见工具说明。')
         parts.append('规则用 player_rules(topic)；近讯在状态末尾。')
         if 'news' in panels:parts.append('完整事件用 query(panel=news)。')
+        if 'manual' in panels:
+            parts.append('策略讲义独立于规则：query(panel=manual, doc=strategy/war/basics/economics)；择敌、开战或长期僵持时可查相应讲义。')
         return ''.join(parts)
+
+    def information_guidance(self):
+        """Describe only acquisition routes actually present in the tool schema."""
+        lines=[]
+        for schema in self.tool_schemas:
+            fn=schema['function']
+            prop=((fn.get('parameters') or {}).get('properties') or {}).get('action') or {}
+            for name in ('buy_report','spy'):
+                if name not in prop.get('enum',[]):continue
+                line=next((line for line in prop.get('description','').splitlines()
+                           if line.startswith((name+'（',name+'：',name+' '))),None)
+                if line:lines.append(fn['name']+' action='+name+'：'+line.split('：',1)[-1])
+        return '\n'.join(lines)
 
     def _panel_names(self):
         """query 工具的 panel 枚举；没有枚举就只说面板用法，不猜具体名字。"""
@@ -246,6 +261,9 @@ class ModelView:
     def briefing_text(self,observation,events,cues,fit):
         """分节战情总纲；越界时从最不紧迫的节开始整节丢弃，并写明去哪查。"""
         items=sections(self.receipts,observation,events,cues,self._key,bool(self.cfg.get('vision',False)))
+        information=self.information_guidance()
+        if information:
+            items.insert(0,('information',self.text('brief.information_head')+'\n'+information))
         rows,major=self.event_lines(self.facts,events)
         head=self.text('brief.head',period=observation['period'],
                        status=self.text('query.acting' if observation['can_act'] else 'query.ended'))

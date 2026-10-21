@@ -125,7 +125,8 @@ class TestCouncilBudget(unittest.TestCase):
         self.assertIn('旧地图', retained)
 
     def test_small_review_keeps_full_evidence(self):
-        h = GameHost.new(self.cfg()); c = h.clients[self.actor]
+        cfg=self.cfg();cfg['nations'][0]['ctx_window']=64000
+        h = GameHost.new(cfg); c = h.clients[self.actor]
         c._backend = FakeBackend([reply(call('p', 'plan', text='NEW-PLAN 修订国策'),
                                         call('e', 'end_turn', summary='完成修订'))])
         service = h.services[self.actor]['council']

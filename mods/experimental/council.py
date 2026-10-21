@@ -9,6 +9,8 @@ from clients.llm import assert_paired
 from clients.model_view import ModelView
 from clients.provider import make_backend,REPLAY_KEY
 from presentation.facts import map_presentation
+from .council_records import (archive_record, current_summary, trajectory_overview, coalesce_overview,
+                              tracking_view, update_tracking, validate_tracking, MAX_OPEN)
 
 
 DEFAULT_REQUIREMENTS=Path(__file__).with_name('requirements.md').read_text(encoding='utf-8')
@@ -94,6 +96,7 @@ def review_evidence(value):
     hidden=[['facts','government',key] for key in ('plan','summaries')]
     hidden.extend(['facts','government','parliament',key] for key in ('draft','reason','explanation'))
     snapshot(result.get('previous_plan',{}).get('state_at_submission'))
+    snapshot(result.get('current_state'))
     for item in result.get('trajectory',[]):
         snapshot(item.get('state'))
         if isinstance(item.get('changes'),list):
@@ -113,7 +116,7 @@ def review_evidence(value):
 
 
 class CouncilService:
-    version='council/1'
+    version='council/2'
 
     def __init__(self,cfg,*,record=None,services,review_backend=None):
         self.cfg=deepcopy(cfg)
@@ -136,8 +139,10 @@ class CouncilService:
             self.requirements=Path(settings['requirements_file']).read_text(encoding='utf-8')
         if not isinstance(self.requirements,str) or not self.requirements.strip():raise ValueError('Council requirements cannot be empty')
         self.council={'archive':[],'transcript':[],'dialogue':[],'last_plan':None,
-                      'trace_start':0,'succession':None,'usage':{},'event_cursor':0,'last_snapshot':None}
+                      'trace_start':0,'succession':None,'usage':{},'event_cursor':0,'last_snapshot':None,
+                      'tracking':{'next_id':1,'items':[]}}
         self._takeover=False
+        self._sources={}
         if record is not None:
             if set(record)!={'version','state'} or record['version']!=self.version:raise ValueError('Unsupported council state')
             data=record.get('state')
@@ -147,6 +152,9 @@ class CouncilService:
             if type(council['trace_start']) is not int or not 0<=council['trace_start']<=len(council['archive']):raise ValueError('Invalid review trace cursor')
             if council['last_plan'] is not None and not isinstance(council['last_plan'],dict):raise ValueError('Invalid previous plan')
             if type(council['event_cursor']) is not int or council['event_cursor']<0 or (council['last_snapshot'] is not None and not isinstance(council['last_snapshot'],dict)):raise ValueError('Invalid evidence snapshot')
+            validate_tracking(council['tracking'])
+            if any(int(ref[4:])>=len(council['archive']) for row in council['tracking']['items'] for ref in row['references']):
+                raise ValueError('Missing council tracking evidence')
             assert_paired(council['dialogue'])
             if council['succession'] is not None and (not isinstance(council['succession'],dict) or set(council['succession'])!={'prompt','summary'}):raise ValueError('Invalid succession briefing')
             self.council=deepcopy(council)
@@ -169,12 +177,15 @@ class CouncilService:
     #   reviewer 的 ctx_window 算输入预算，超了就把**轨迹证据按档降级**（只动本次
     #   请求里的副本，议会档案原文一行不删），降到底还超就明确报错而不是让提供方打回。
     EVIDENCE_KEEP_FULL_ROWS = 12   # 降档时仍保留完整事件/回执的最近行数
-    EVIDENCE_MIN_ROWS = 4          # 降到底保留的最近行数，更早的记为 omitted
+    EVIDENCE_MIN_ROWS = 4          # 初步缩轨迹时保留的最近行数，之后可整段转为按需读取
 
     def _review_input_budget(self):
-        """议长一次请求的输入预算（token）；未配 ctx_window 时返回 0＝不设闸。"""
-        plan = ctx.make_plan(self.review_cfg)
-        return plan.budget if plan.mode == 'budget' else 0
+        """Every request has an input ceiling, including fixed-turn configs."""
+        cfg={**self.review_cfg,'ctx_window':self.review_cfg.get('ctx_window') or 200000}
+        cfg.pop('ctx_full_turns',None)
+        plan=ctx.make_plan(cfg)
+        reserve=int(cfg.get('ctx_reserve_out') or (int(cfg.get('max_tokens',16384))+2048))
+        return min(plan.budget,int(cfg['ctx_window'])-reserve)
 
     @staticmethod
     def _request_tokens(dialogue, tools):
@@ -209,22 +220,23 @@ class CouncilService:
         不够——旧证据也要按同样的档位继续降，否则重提一次就又超窗。
         """
         limit = self._review_input_budget()
-        if not limit:
-            return
-        current = budget.get('_evidence')
-        current_index = current.get('index') if current else None
-        fits = [self._evidence_fit(dialogue, index) for index in range(len(dialogue))
-                if index != current_index]
-        fits = [fit for fit in fits if fit]
-        if current:
-            fits.append(current)
-        if not fits:
-            return
-        for _ in range(64):
+        if limit <= 0:
+            raise ValueError('议长窗口不足以预留输出；请增大 ctx_window 或减少输出预留')
+        fits=[fit for index in range(len(dialogue)) if (fit:=self._evidence_fit(dialogue,index))]
+        for _ in range(128):
             if self._request_tokens(dialogue, tools) <= limit:
                 return
-            if not any(self._degrade_evidence(fit, dialogue, budget, tools) for fit in fits):
-                break
+            changed=False
+            for fit in fits:
+                if fit['step']<=8:
+                    changed=self._degrade_evidence(fit,dialogue,budget,tools) or changed
+                    if self._request_tokens(dialogue,tools)<=limit:return
+            if not changed and all(fit['step']>8 for fit in fits):break
+        # Large manuals, retained rejection conversations, and assistant/tool
+        # exchanges can outgrow the window too. Archive whole paired exchanges;
+        # retain the current evidence, candidate and bounded working ledger.
+        while self._request_tokens(dialogue,tools)>limit and self._offload_dialogue(dialogue,budget):
+            pass
         tokens = self._request_tokens(dialogue, tools)
         if tokens > limit:
             raise ValueError(self.ui.text('experimental.review_budget_overflow',
@@ -233,12 +245,12 @@ class CouncilService:
     def _degrade_evidence(self, fit, dialogue, budget, tools):
         """把证据降一档；返回是否真的变了。
 
-        降级顺序（越早的轨迹越先失去细节，最近行永远保留最全）：
+        降级顺序（所有原文保留在档案中）：
           1. 去掉快照行的 `changes`（状态差分，占证据 6~8 成，事件与回执仍在）；
           2. 旧行再去掉 `events`；
           3. 旧行动回执只留 ok/status/code/message，议会查询只留 ok/message；
-          4. 反复砍掉最旧的一半行，被砍范围写进 `omitted`（原文仍在档案里）；
-          5. 最后才放弃 `previous_plan.state_at_submission`。
+          4. 减少旧轨迹；此前及当前快照转为摘要和分页引用；
+          5. 轨迹明细转为按需读取，未结事项缩为清单，区间统计合并。
         """
         evidence = fit['evidence']
         rows = evidence.get('trajectory') or []
@@ -263,7 +275,7 @@ class CouncilService:
                     if isinstance(value, dict) and set(value) - set(keep):
                         row[key] = {k: value.get(k) for k in keep}
                         changed = True
-        elif step >= 3:
+        elif step == 3:
             if len(rows) > self.EVIDENCE_MIN_ROWS:
                 keep = max(self.EVIDENCE_MIN_ROWS, len(rows) // 2)
                 removed = rows[:len(rows) - keep]
@@ -276,16 +288,120 @@ class CouncilService:
                     'note': '更早的轨迹超出议长输入预算，本次请求未附原文（仍完整保存在议会档案中）；只能就其余证据核对。',
                 }
                 changed = True
-            elif 'state_at_submission' in (evidence.get('previous_plan') or {}):
-                evidence['previous_plan'].pop('state_at_submission', None)
-                changed = True
+        elif step == 4:
+            previous=evidence.get('previous_plan') or {}
+            if 'state_at_submission' in previous:
+                previous.setdefault('details_ref','previous')
+                previous['submission_summary']=current_summary(previous.pop('state_at_submission'),ref=previous['details_ref'])
+                changed=True
+        elif step == 5:
+            if 'current_state' in evidence:
+                evidence.setdefault('current_details_ref','current')
+                evidence['current_summary']=current_summary(evidence.pop('current_state'),ref=evidence['current_details_ref'])
+                changed=True
+        elif step == 6:
+            rows=evidence.get('trajectory') or []
+            if rows:
+                evidence['trajectory']=[]
+                evidence['omitted']={'rows':len(rows),'note':'轨迹原文转为按需读取；trajectory_overview保留全区间统计，current_summary保留本次事实。用council_search与council_read核实具体回执。'}
+                changed=True
+        elif step == 7:
+            previous=evidence.get('previous_plan') or {}
+            if 'submission_summary' in previous:
+                previous.pop('submission_summary')
+                previous.setdefault('details_ref','previous')
+                changed=True
+            tracking=evidence.get('tracking')
+            if tracking:
+                for row in tracking.get('open',[]):
+                    if len(row['text'])>160:
+                        row['text']=row['text'][:160]+'…（完整事项用council_read(ref=tracking)）'
+                        changed=True
+                if tracking.get('recent_closed'):
+                    tracking['recent_closed']=[]
+                    changed=True
+        elif step == 8:
+            tracking=evidence.get('tracking')
+            if tracking:
+                tracking['open']=[{key:(row[key][:48]+'…' if key=='text' and len(row[key])>48 else row[key])
+                                   for key in ('id','kind','text','due')} for row in tracking.get('open',[])]
+                tracking['details']='全部未解决事项仍列出；长正文、引用和关闭说明用council_read(ref=tracking)分页查。'
+                changed=True
+            if evidence.get('trajectory_overview'):
+                evidence['trajectory_overview']=coalesce_overview(evidence['trajectory_overview'],limit=6)
+                changed=True
         if changed:
+            evidence['evidence_coverage']={'historical_detail_reduced':True,
+                'note':'历史细节已按预算减少，未附不代表未发生；current_state或current_summary是本次独立事实。原文用council_read分页读取，不能用新版自述代替核验。'}
             dialogue[fit['index']]['content'] = fit['prefix'] + encode(evidence) + fit['suffix']
             self._review_log('budget', {'step': fit['step'], 'rows': len(evidence.get('trajectory') or []),
                                         'omitted': (evidence.get('omitted') or {}).get('rows', 0),
                                         'tokens': self._request_tokens(dialogue, tools),
                                         'limit': self._review_input_budget()}, budget)
         return changed
+
+    def _offload_dialogue(self,dialogue,budget):
+        """Move complete old exchanges to the persistent archive, preserving pairing."""
+        # A completed assistant batch and all its replies are one indivisible
+        # unit, including signed reasoning. Never leave an orphan tool reply.
+        for index,message in enumerate(dialogue):
+            if message.get('role')!='assistant':continue
+            end=index+1
+            while end<len(dialogue) and dialogue[end].get('role')=='tool':end+=1
+            group=dialogue[index:end]
+            if not any(m.get('content') or m.get('reasoning_content') or m.get('tool_calls') for m in group):continue
+            row={'kind':'council.context','period':budget.get('period',self._period),
+                 'messages':deepcopy(group)}
+            ref=f"row/{len(self.council['archive'])}"
+            self.council['archive'].append(row)
+            speech='\n'.join(str(m.get('content') or '') for m in group if m['role']=='assistant')
+            note={'role':'user','content':f'议会较早完整往返已归档 {ref}，可council_read分页追查。核对意见摘录：'+speech[:600]}
+            dialogue[index:end]=[note]
+            budget['_logged']=0
+            assert_paired(dialogue)
+            return True
+        # Older evidence messages already have been reduced. Current facts and
+        # the new candidate are protected; replace only older review inputs.
+        indices=[i for i,m in enumerate(dialogue) if self._evidence_fit(dialogue,i)]
+        if len(indices)>1:
+            index=indices[0]
+            ref=f"row/{len(self.council['archive'])}"
+            self.council['archive'].append({'kind':'council.context','period':budget.get('period'),
+                                           'messages':[deepcopy(dialogue[index])]})
+            dialogue[index]={'role':'user','content':f'上次未通过审核的输入归档于{ref}；未解决事项仍在tracking，需定点查证而非重新加载全部对话。'}
+            budget['_logged']=0
+            return True
+        first=indices[-1] if indices else None
+        candidates=[i for i,m in enumerate(dialogue) if m.get('role')=='user'
+                    and m.get('content','').startswith(self.ui.text('experimental.review_second'))]
+        latest_candidate=candidates[-1] if candidates else None
+        note_prefixes=('议会较早完整往返已归档 ','上次未通过审核的输入归档于',
+                       '此前审核材料归档','多段较早审核材料及其原文引用已归档')
+        notes=[]
+        for index,message in enumerate(dialogue):
+            if index in (first,latest_candidate,len(dialogue)-1) or message.get('role')!='user':continue
+            if message.get('content','').startswith(note_prefixes):
+                notes.append(index)
+                continue
+            ref=f"row/{len(self.council['archive'])}"
+            self.council['archive'].append({'kind':'council.context','period':budget.get('period'),
+                                           'messages':[deepcopy(message)]})
+            dialogue[index]={'role':'user','content':f'此前审核材料归档{ref}，未解决问题须结合tracking定点复核。'}
+            budget['_logged']=0
+            return True
+        # References themselves must not grow forever across failed reviews.
+        # Coalesce older notices into a transitive archive reference without
+        # touching the protected current evidence or candidate.
+        if len(notes)>1:
+            selected=notes[:8]
+            ref=f"row/{len(self.council['archive'])}"
+            self.council['archive'].append({'kind':'council.context','period':budget.get('period'),
+                                           'messages':[deepcopy(dialogue[i]) for i in selected]})
+            for index in reversed(selected[1:]):dialogue.pop(index)
+            dialogue[selected[0]]={'role':'user','content':f'多段较早审核材料及其原文引用已归档{ref}，可分页追溯。当前待核事项以tracking为索引。'}
+            budget['_logged']=0
+            return True
+        return False
 
     def _complete(self,messages):
         budget={'period':self._period,'_log_round':'—','_log_phase':'交接'}
@@ -298,6 +414,10 @@ class CouncilService:
         return text
 
     def _manual(self,player,topic):
+        documents={'基础指南':'basics','经济手册':'economics','经济学手册':'economics',
+                   '战争手册':'war','战略手册':'strategy','游戏说明书':'manual'}
+        if topic in documents:
+            return player.call_api('native:manuals','read',{'doc':documents[topic]})
         if topic=='说明书':
             return {'source':'当前发行版公共规则和公开目录','rules':player.rules('all'),
                     'actions':player.actions(),
@@ -306,6 +426,112 @@ class CouncilService:
         sections=player.rules(topic)
         if not sections or sections[0]['title']=='规则目录':raise ValueError('未知指南主题')
         return {'source':'当前发行版公开规则；具体数值以目录和实际回执为准','title':topic,'body':'\n\n'.join(r['body'] for r in sections)}
+
+    def _page(self,value,*,ref,offset=0):
+        if type(offset) is not int or offset<0:raise ValueError('offset须为非负字符偏移')
+        text=encode(value)
+        if offset>len(text):raise ValueError('offset超出原文长度')
+        cap=max(128,min(2048,self._review_input_budget()//10))
+        lo,hi=0,min(12000,len(text)-offset)
+        while lo<hi:
+            middle=(lo+hi+1)//2
+            if ctx.est_tokens(text[offset:offset+middle])<=cap:lo=middle
+            else:hi=middle-1
+        end=offset+lo
+        return {'ref':ref,'format':'json-text','offset':offset,'text':text[offset:end],
+                'total_characters':len(text),'next_offset':end if end<len(text) else None,
+                'note':'分页片段；next_offset非空表示未读完，未附内容不能当作不存在。'}
+
+    def _read(self,ref,section=None,offset=0):
+        if not isinstance(ref,str):raise ValueError('ref须为current、previous、tracking或row/整数')
+        if ref=='tracking':value=deepcopy(self.council['tracking'])
+        elif ref in ('current','previous'):
+            value=deepcopy(self._sources.get(ref))
+            if value is None:raise ValueError('该快照不存在')
+        elif ref.startswith('row/') and ref[4:].isdigit():
+            index=int(ref[4:])
+            if not 0<=index<len(self.council['archive']):raise ValueError('档案引用不存在')
+            value=archive_record(self.council['archive'][index],index)
+        else:raise ValueError('未知证据引用')
+        if section:
+            if section not in ('army','view','econ','bank','diplomacy','intel','building_sites','foreign','government'):
+                raise ValueError('未知事实分节')
+            state=value.get('state') if ref.startswith('row/') else value
+            if not isinstance(state,dict) or 'facts' not in state:raise ValueError('只有快照支持section；其他档案请分页读原文')
+            from presentation.facts import flatten
+            value={'actor':state.get('actor'),'period':state.get('period'),
+                   'section':section,'data':flatten(state['facts']).get(section),
+                   'scope':'仅该国家当时可见的事实；他国可见子集不等于全国总量。'}
+        return self._page(value,ref=ref,offset=offset)
+
+    def _search(self,query='',since=None,until=None,cursor=0,limit=6):
+        if not isinstance(query,str) or len(query)>160:raise ValueError('query最长160字')
+        if type(cursor) is not int or cursor<0 or type(limit) is not int or not 1<=limit<=12:
+            raise ValueError('cursor须非负，limit须在1—12之间')
+        if any(x is not None and (type(x) is not int or x<0) for x in (since,until)):
+            raise ValueError('since/until须为非负周期')
+        rows=self.council['archive'];hits=[];index=cursor
+        allowed={'action','turn.start','settlement','after.action','review','plan.initial','council.tracking','council.snapshot'}
+        while index<len(rows) and len(hits)<limit:
+            row=rows[index];reference=f'row/{index}';index+=1
+            from .council_records import period_of
+            period=period_of(row)
+            if row.get('kind') not in allowed:continue
+            if since is not None and (period is None or period<since):continue
+            if until is not None and (period is None or period>until):continue
+            searchable=encode(archive_record(row,index-1))
+            if query and query.casefold() not in searchable.casefold():continue
+            args=row.get('arguments') or {}
+            receipt=row.get('receipt') or {}
+            position=searchable.casefold().find(query.casefold()) if query else 0
+            hits.append({'ref':reference,'kind':row.get('kind'),'period':period,
+                         'action':args.get('action',row.get('action')),'ok':receipt.get('ok'),
+                         'excerpt':searchable[max(0,position-60):position+220]})
+        return {'items':hits,'next_cursor':index if index<len(rows) else None,
+                'scope':'本国议会档案；只读已有事实与记录，不扩大当时情报权限。'}
+
+    def _track(self,*,kind,text,references,item_id=None,status='open',due=None,resolution=''):
+        if not isinstance(references,list) or not 0<len(references)<=8:raise ValueError('须提供1—8个证据引用')
+        normalized=[];snapshots={}
+        for ref in references:
+            self._read(ref) # Validate identity without trusting model-supplied IDs.
+            if ref in ('current','previous'):
+                key=ref+'_ref'
+                if key not in self._sources:
+                    if key not in snapshots:
+                        snapshots[key]=(f"row/{len(self.council['archive'])+len(snapshots)}",
+                                        deepcopy(self._sources[ref]))
+                    ref=snapshots[key][0]
+                else:ref=self._sources[key]
+            if ref=='tracking':raise ValueError('追踪事项不能以自身代替原始证据')
+            normalized.append(ref)
+        candidate=deepcopy(self.council['tracking'])
+        result=update_tracking(candidate,period=self._period,kind=kind,text=text,
+                               references=normalized,item_id=item_id,status=status,due=due,resolution=resolution)
+        for key,(ref,state) in snapshots.items():
+            self.council['archive'].append({'kind':'council.snapshot','period':state.get('period'),
+                                           'recorded':self._period,'state':state})
+            self._sources[key]=ref
+        self.council['tracking']=candidate
+        self.council['archive'].append({'kind':'council.tracking','period':self._period,'item':deepcopy(result)})
+        return result
+
+    def _tracking_tools(self):
+        def schema(name,description,properties,required=()):
+            return {'type':'function','function':{'name':name,'description':description,
+                    'parameters':{'type':'object','properties':properties,'required':list(required),'additionalProperties':False}}}
+        return [
+            schema('council_search','按关键词和周期检索本国原始证据。返回稳定row/编号及分页游标；编号只属于议会档案，不是军队或外交编号。',
+                   {'query':{'type':'string','maxLength':160},'since':{'type':'integer','minimum':0},
+                    'until':{'type':'integer','minimum':0},'cursor':{'type':'integer','minimum':0},'limit':{'type':'integer','minimum':1,'maximum':12}}),
+            schema('council_read','分页读取已有证据：ref=current本次独立快照、previous上版提交快照、tracking事项表、row/编号原始档案。当前army/view均仅玩家可见子集；offset按返回的next_offset续读。',
+                   {'ref':{'type':'string'},'section':{'type':'string','enum':['army','view','econ','bank','diplomacy','intel','building_sites','foreign','government']},
+                    'offset':{'type':'integer','minimum':0}},('ref',)),
+            schema('council_track','新增或更新跨审核追踪事项：战略前提premise、承诺commitment、风险risk、问题issue。只记实质事项；引用current/previous/row证据。批准不自动关闭。关闭或替代须填resolution和证据；只记录议长判断，不改变国家行动。',
+                   {'item_id':{'type':'integer','minimum':1},'kind':{'type':'string','enum':['premise','commitment','risk','issue']},
+                    'text':{'type':'string','minLength':1,'maxLength':600},'references':{'type':'array','items':{'type':'string'},'minItems':1,'maxItems':8},
+                    'status':{'type':'string','enum':['open','resolved','superseded']},'due':{'type':'integer','minimum':0},
+                    'resolution':{'type':'string','maxLength':600}},('kind','text','references'))]
 
     def _review_log(self,kind,payload,budget):
         # 议会完整输入/思考/工具往返只写观察者日志，不进入玩家近讯或滚屏。
@@ -338,14 +564,15 @@ class CouncilService:
 
     def _council_exchange(self,player,dialogue,*,budget,phase_end=False,finalize=False):
         tools=[schema for schema in player.actions() if schema['function']['name']=='player_rules']
-        topics=['说明书']+[section['title'] for section in player.rules('all')]
-        tools.append({'type':'function','function':{'name':'read_manual','description':'只读查询当前发行版说明书或任一规则章节；数值以说明书、实际回执为准。',
+        topics=['说明书','游戏说明书','基础指南','经济学手册','战争手册','战略手册']+[section['title'] for section in player.rules('all')]
+        tools.append({'type':'function','function':{'name':'read_manual','description':'只读查询当前发行版说明书、策略讲义或规则章节；数值以当前规则、实际回执为准。',
                       'parameters':{'type':'object','properties':{'topic':{'type':'string','enum':topics}},'required':['topic'],'additionalProperties':False}}})
+        tools.extend(self._tracking_tools())
         if finalize:
             tools.extend([
-                {'type':'function','function':{'name':'council_approve','description':'结束审核并通过国策。通过时不要附理由、建议或额外上下文；只在确认可以通过时调用。',
+                {'type':'function','function':{'name':'council_approve','description':'仅在已主动检查战略依据、必要评估、可执行承诺及未解决追踪事项，确认足以承担国家决策时批准。不能把未发现矛盾当成已充分论证；省略必要内容或关键前提未知且未处置时不得放行。通过不自动关闭追踪事项。',
                               'parameters':{'type':'object','properties':{},'additionalProperties':False}}},
-                {'type':'function','function':{'name':'council_reject','description':'结束审核并拒绝国策。只在核实严重反事实或无解释的反承诺后调用；reason 必须简洁、具体并给出核对依据。',
+                {'type':'function','function':{'name':'council_reject','description':'审慎打回：严重反事实、关键战略依据不足、遗漏必要承诺与评估、未纠正或反复违背可执行承诺均须指出。无需先证明隐藏事实相反，便可拒绝以局部可见推断全国的无依据结论。reason列证据、缺项和下期可执行纠正；不强制选某条战略或购买情报。',
                               'parameters':{'type':'object','properties':{'reason':{'type':'string','minLength':1}},'required':['reason'],'additionalProperties':False}}},
             ])
         if phase_end:
@@ -421,6 +648,9 @@ class CouncilService:
                     if not isinstance(args,dict):raise ValueError('Arguments must be an object')
                     if fn.get('name')=='player_rules':data=player.query('player_rules',args)
                     elif fn.get('name')=='read_manual':data=self._manual(player,**args)
+                    elif fn.get('name')=='council_search':data=self._search(**args)
+                    elif fn.get('name')=='council_read':data=self._read(**args)
+                    elif fn.get('name')=='council_track':data=self._track(**args)
                     elif fn.get('name')=='council_approve' and finalize:
                         if args:raise ValueError('council_approve 不接受参数')
                         dialogue.append({'role':'tool','tool_call_id':call['id'],'content':encode({'ok':True})})
@@ -437,7 +667,7 @@ class CouncilService:
                         dialogue.append({'role':'tool','tool_call_id':call['id'],'content':encode({'ok':True,'message':'第一步结束，进入第二步审核'})})
                         stage_ended=True
                         continue
-                    else:raise ValueError('议长只能查说明书和手册，不能提交国家行动')
+                    else:raise ValueError('议长只能查询规则、手册、已有证据及维护追踪事项，不能提交国家行动')
                     result={'ok':True,'data':data}
                 except (ValueError,TypeError,KeyError) as exc:result={'ok':False,'message':str(exc)}
                 dialogue.append({'role':'tool','tool_call_id':call['id'],'content':encode(result)})
@@ -540,9 +770,11 @@ class CouncilService:
             decision=self._government('decide',True,'第一版国策直接生效；从第一次修订起接受议会审核')
             decision['message']=self.ui.text('experimental.first_plan')
             self.council['archive'].append({'kind':'plan.initial','period':obs_period,
-                                           'text':candidate,'decision':deepcopy(decision)})
+                                           'text':candidate,'decision':deepcopy(decision),
+                                           'state':evidence_state(self.council['last_snapshot'])})
             self.council['last_plan']={'text':candidate,'period':obs_period,'approved':True,
-                                       'state_at_submission':evidence_state(self.council['last_snapshot'])}
+                                       'state_at_submission':evidence_state(self.council['last_snapshot']),
+                                       'details_ref':f"row/{len(self.council['archive'])-1}"}
             self.council['trace_start']=len(self.council['archive'])
             return {**receipt,'ok':True,'status':'effective','code':None,
                     'message':decision['message'],'data':decision}
@@ -570,9 +802,29 @@ class CouncilService:
                 query_receipt=item.get('receipt') or {}
                 item['receipt']={k:query_receipt.get(k) for k in ('ok','status','code','message')}
             trajectory.append(item)
+        current_state=evidence_state(self.council['last_snapshot'])
+        self._sources={'current':deepcopy(current_state),
+                       'previous':deepcopy((self.council['last_plan'] or {}).get('state_at_submission'))}
+        # These aliases change on the next review. Evidence messages survive
+        # rejections, so give every snapshot an immutable reference now.
+        for name in ('current','previous'):
+            state=self._sources[name]
+            if state is None:continue
+            ref=(self.council['last_plan'] or {}).get('details_ref') if name=='previous' else None
+            if ref is None:
+                ref=f"row/{len(self.council['archive'])}"
+                self.council['archive'].append({'kind':'council.snapshot','period':state.get('period'),
+                                               'recorded':obs_period,'state':deepcopy(state)})
+            self._sources[name+'_ref']=ref
         evidence=review_evidence({'previous_plan':self.council['last_plan'],
                   'trajectory':trajectory,
+                  'trajectory_overview':trajectory_overview(self.council['archive'][self.council['trace_start']:],self.council['trace_start']),
+                  'current_state':current_state,
+                  'current_details_ref':self._sources['current_ref'],
+                  'tracking':tracking_view(self.council['tracking']),
+                  'archive_range':{'first':self.council['trace_start'],'last':len(self.council['archive'])-1},
                   'stage':1,'period':obs_period})
+        for index,item in enumerate(evidence['trajectory'],self.council['trace_start']):item['ref']=f'row/{index}'
         prefix=self.ui.text('experimental.review_first')
         dialogue.append({'role':'user','content':prefix+encode(evidence)})
         # Reviewer sees the same actor-filtered map through the selected UI mod.
@@ -587,18 +839,20 @@ class CouncilService:
                       'evidence':evidence,'step':0,'omitted':[]}
         def paralysis_receipt(assessment):
             reason=self.ui.text('experimental.parliament_paralyzed_reason')
-            decision=self._government('decide',True,reason)
+            decision=self._government('decide',False,reason)
             decision['message']=self.ui.text('experimental.parliament_paralyzed')
             self._review_log('decision',decision,budget)
             self.council['archive'].append({'kind':'review','period':obs_period,'model':self.review_cfg.get('model'),
                                            'assessment':assessment,'decision':deepcopy(decision),
-                                           'dialogue':deepcopy(dialogue),'auto_approved_due_to_paralysis':True})
-            self.council['last_plan']={'text':candidate,'period':obs_period,'approved':True,
-                                       'state_at_submission':evidence_state(self.council['last_snapshot'])}
+                                           'dialogue':deepcopy(dialogue),'auto_rejected_due_to_paralysis':True})
+            self._remember_rejection(reason,obs_period,len(self.council['archive'])-1)
+            self.council['last_plan']={'text':candidate,'period':obs_period,'approved':False,
+                                       'state_at_submission':evidence_state(self.council['last_snapshot']),
+                                       'details_ref':self._sources['current_ref']}
             self.council['trace_start']=len(self.council['archive'])
-            dialogue.clear()
-            self._notify(self.ui.text('experimental.review_autoapproved_status',actor=self.cfg.get('name',player.actor)))
-            return {**receipt,'ok':True,'status':'effective','code':None,
+            if decision['streak']==3:self._takeover=True
+            self._notify(self.ui.text('experimental.review_autorejected_status',actor=self.cfg.get('name',player.actor)))
+            return {**receipt,'ok':False,'status':'rejected','code':'plan_not_approved',
                     'message':decision['message'],'data':decision}
         budget={'rounds':0,'warned':False,'period':obs_period,'_evidence':evidence_fit}
         assessment,paralyzed=self._council_turn(player,dialogue,budget=budget,phase_end=True)
@@ -610,8 +864,10 @@ class CouncilService:
         self._review_log('decision',decision,budget)
         self.council['archive'].append({'kind':'review','period':obs_period,'model':self.review_cfg.get('model'),
                                            'assessment':assessment,'decision':deepcopy(decision),'dialogue':deepcopy(dialogue)})
+        if not verdict['approved']:self._remember_rejection(verdict['reason'],obs_period,len(self.council['archive'])-1)
         self.council['last_plan']={'text':candidate,'period':obs_period,'approved':verdict['approved'],
-                                   'state_at_submission':evidence_state(self.council['last_snapshot'])}
+                                   'state_at_submission':evidence_state(self.council['last_snapshot']),
+                                   'details_ref':self._sources['current_ref']}
         self.council['trace_start']=len(self.council['archive'])
         if verdict['approved']:dialogue.clear()
         elif decision['streak']==3:self._takeover=True
@@ -619,6 +875,18 @@ class CouncilService:
         self._notify(self.ui.text(status,actor=self.cfg.get('name',player.actor)))
         return {**receipt,'ok':verdict['approved'],'status':'effective' if verdict['approved'] else 'rejected',
                 'code':None if verdict['approved'] else 'plan_not_approved','message':decision['message'],'data':decision}
+
+    def _remember_rejection(self,reason,period,index):
+        """An unresolved rejection cannot disappear merely because chat clears."""
+        text=reason[:600]
+        tracking=self.council['tracking']
+        existing=next((r for r in tracking['items'] if r['status']=='open' and r['text']==text),None)
+        if existing is None and sum(r['status']=='open' for r in tracking['items'])>=MAX_OPEN:
+            # The rejection itself remains in the archive and next review's
+            # previous plan; never evict an unresolved item to make room.
+            return
+        update_tracking(tracking,period=period,kind='issue',text=text,references=[f'row/{index}'],
+                        item_id=existing['id'] if existing else None,due=period+1)
 
     def _briefing(self,player,messages):
         # Each input character is consumed. Oversized history is summarized in
