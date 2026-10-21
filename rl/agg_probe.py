@@ -13,6 +13,7 @@
 ★ 与 `real_phase.py` 同一口径：**不抄任何逻辑**，跑真的 `collect_episode`。
   数字只在这台机、这副配置下有效；换配置（尤其换 `t_max`）要重跑。
 """
+import os
 import sys
 import time
 
