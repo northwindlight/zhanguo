@@ -873,6 +873,33 @@ class SandboxWorld:
         """
         self._world.units.guard_once.add((x, y))
 
+    def barbarian_cells(self) -> set[tuple[int, int]]:
+        """★ 哪些格子**有野人驻守**（旧口径：`world.armies` 里的野人军队）。
+
+        ⚠⚠ **新引擎的野人是"虚拟"的** —— 这是迁到新引擎时**漏掉的一处**：
+          引擎的 `Military.visible_units` 对**地块没物化**（`territory` 里没这一格）
+          **且没驻过军**（`guard_once`）的格子**现场合成**一支野人。
+          ⇒ "有野人驻守"的格 = ① 引擎里**已物化**的真野人
+                            ＋ ② 引擎**会现场合成**的那些格。
+          ⇒ 只看 ① 的话，观测里「无主 + 有野人驻守」那一档**永远不亮**
+          （实测 16×16 上 188 个无主格全被标成"无主无驻军"，
+            而引擎会给它们**各合成一支野人**）⇒ 观测与引擎对不上。
+
+        ★ 代价：O(地图格数)（地块快照是**带缓存**的 ⇒ 不额外问引擎）。
+        """
+        out = {(u.x, u.y) for u in self._world.units
+               if u.owner == BARBARIAN and u.alive}
+        materialized = self._tile_snapshot()              # ★ 已物化的地块（有 tile.id）
+        guard = self._world.units.guard_once
+        size = self.size
+        for x in range(size):
+            for y in range(size):
+                cell = (x, y)
+                if cell in materialized or cell in guard:
+                    continue
+                out.add(cell)
+        return out
+
     # ------------------------------------------------------------ 基础读
     @property
     def native(self):

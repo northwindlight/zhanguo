@@ -76,9 +76,13 @@ def candidates(world, name: str, mask, *, radius: int, limit: int) -> list[tuple
     for cell in sorted(world.frontier_of(name)):          # ★ frontier 是裸 set ⇒ 必须排序
         if cell in mask:
             out.add(cell)
-    for a in sorted(world.armies, key=lambda a: a["id"]):
-        if a["owner"] == "野人" and a.get("hp", 0) > 0 and (a["x"], a["y"]) in mask:
-            out.add((a["x"], a["y"]))
+    # ★★ "看得见的**野人驻军**格" = **引擎会合成野人的那些格** ∩ 视野
+    #   （新引擎的野人是**虚拟**的：没有真野人军队可扫 ⇒ 只能问门面
+    #    `barbarian_cells()`，它照引擎 `Military.visible_units` 的原条件算）。
+    #   ⇒ 旧写法"扫 `world.armies` 找 owner=='野人'"在��引擎上**永远扫不到**
+    #   （引擎里没有真野人）⇒ 守卫格**从不出现在候选里** ⇒ 模型学不会打它们。
+    for cell in sorted(world.barbarian_cells() & mask):
+        out.add(cell)
     for cell, t in sorted(world.tiles.items()):
         if cell in mask and world.war_between(name, t["owner"]):
             out.add(cell)

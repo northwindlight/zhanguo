@@ -71,7 +71,8 @@ def _move_cost_of(world, x: int, y: int) -> int:
         return 1
 
 
-def _owner_class(world, name: str, x: int, y: int, by_cell: dict | None = None) -> int:
+def _owner_class(world, name: str, x: int, y: int, by_cell: dict | None = None,
+                  barb: set | None = None) -> int:
     """归属类别下标（`vocab.OWN_*`，**六类**）—— 逐条对齐引擎 `_mv_wall` / `_atk_target_ok`：
 
     | 类别 | 引擎怎么判 | 能不能 mv | 能不能 atk |
@@ -87,11 +88,11 @@ def _owner_class(world, name: str, x: int, y: int, by_cell: dict | None = None) 
       并进了 `RIVAL`（只判"不是我的、不是盟友的"），而这两类的**可行动作完全不同**：
       敌国能打，中立国**既不能走也不能打**（得先宣战/结盟）。混成一类就分不出。
     """
-    return _owner_class_of(world, name, world.owned_by(x, y), x, y, by_cell)
+    return _owner_class_of(world, name, world.owned_by(x, y), x, y, by_cell, barb)
 
 
 def _owner_class_of(world, name: str, o: str | None, x: int, y: int,
-                    by_cell: dict | None = None) -> int:
+                    by_cell: dict | None = None, barb: set | None = None) -> int:
     """★ **显式给主人**的那一版 —— `o` = "我**认知里**的主人"（见 `hall_memory.owner_seen`）。
 
     ★ 拆这一版是为了**厅**：一座**记得的、看不见的**厅，认知里的主人是"最后看见时的"，
@@ -110,9 +111,14 @@ def _owner_class_of(world, name: str, o: str | None, x: int, y: int,
         except Exception:                      # noqa: BLE001
             return V.OWN_RIVAL                 # 查不动就保守当敌国（宁可不敢走）
         return V.OWN_NEUTRAL_NATION            # ★ 有主但非盟非敌：mv/atk 都不行
-    for a in (by_cell.get((x, y), world.armies) if by_cell is not None else world.armies):
-        if a["owner"] == "野人" and a.get("hp", 0) > 0 and (a["x"], a["y"]) == (x, y):
-            return V.OWN_BARBARIAN
+    # ★★ "有野人驻守"：**不能只看 `world.armies`** —— 新引擎的野人是
+    #   **虚拟合成**的（`Military.visible_units` 对"没物化、没驻过军"的格
+    #   现场合成一支）⇒ 引擎里根本没有真野人军队可查。
+    #   ⇒ 用门面的 `barbarian_cells()`（★ 一次算好传进来，别每格重算）。
+    if barb is None:
+        barb = world.barbarian_cells()
+    if (x, y) in barb:
+        return V.OWN_BARBARIAN
     return V.OWN_UNOWNED                       # 无主、无驻军
 
 
@@ -221,6 +227,9 @@ def encode_grid(sb, me: str, mask=None, known=None,
     for a in w.armies:
         if a.get("hp", 0) > 0:
             by_cell.setdefault((a["x"], a["y"]), []).append(a)
+    # ★★ "有野人驻守"的格（**含引擎的虚拟野人**）—— 一次算好，逐格查
+    #   （别每格重算：那是 O(格数²)）。
+    barb = w.barbarian_cells()
     for i in range(h):
         for j in range(ww):
             x, y = x0 + j, y0 + i
@@ -244,7 +253,7 @@ def encode_grid(sb, me: str, mask=None, known=None,
             #     且走「视野 ∪ 永久记忆」—— 那是**独立的一次情报**（厅不能动/拆不掉）。
             #     归属**会**易主 ⇒ 不能靠记忆放宽，**取保守那侧**（只信当帧视野）。
             if visible:
-                g[V.GRID_OWNER0 + _owner_class(w, me, x, y, by_cell), i, j] = 1.0
+                g[V.GRID_OWNER0 + _owner_class(w, me, x, y, by_cell, barb), i, j] = 1.0
             g[V.GRID_VISIBLE, i, j] = 1.0 if visible else 0.0
             # ★★ **记忆**两列（与 `"k"` 组同源、同一次观测，两种读法）——
             #   "这格我上次看见有敌军（多旧）"。★ 它让候选能**直接 gather** 到
@@ -302,7 +311,7 @@ def encode_grid(sb, me: str, mask=None, known=None,
                 else:
                     # ★ 走**六类**判定（不再是 `== foe`）⇒ 多玩家下"打谁能亡国"不再漏人；
                     #   中立国的厅既不进"我的"也不进"对手的"（它不可攻），与候选侧同口径。
-                    hc = _owner_class_of(w, me, _ho, x, y, by_cell)
+                    hc = _owner_class_of(w, me, _ho, x, y, by_cell, barb)
                     if hc == V.OWN_RIVAL:
                         g[V.GRID_HALL_RIVAL, i, j] = 1.0
                     elif hc == V.OWN_ALLY:
@@ -490,12 +499,13 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
 
     rows = []
     by_cell_w = _by_cell(w)
+    barb_w = w.barbarian_cells()          # ★ 一次算好（"有野人驻守"，含虚拟野人）
     for a in armies:
         row = [0.0] * wfull
         # ★★ 归属 **六类**（与网格/候选同一套 `_owner_class`）—— 不再是"甲/乙"两位：
         #    ① **国家数不进观测形状**（多玩家落地时宽度不变，基座不用重炼）；
         #    ② 盟友的军与敌国的军**从此分得开**（引擎对这两类判定相反）。
-        row[V.A_OWNER0 + _owner_class(w, me, a["x"], a["y"], by_cell_w)] = 1.0
+        row[V.A_OWNER0 + _owner_class(w, me, a["x"], a["y"], by_cell_w, barb_w)] = 1.0
         kind = a.get("type", "native:infantry")
         if kind in V.UNIT:
             row[V.A_UNIT0 + V.UNIT.index(kind)] = 1.0
@@ -533,7 +543,7 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
     k_rows = []
     for r in sb.known_enemies(me, mask, armies):
         row = [0.0] * V.K_WIDTH
-        row[V.K_OWNER0 + _owner_class(w, me, r["x"], r["y"], by_cell_w)] = 1.0
+        row[V.K_OWNER0 + _owner_class(w, me, r["x"], r["y"], by_cell_w, barb_w)] = 1.0
         if r["kind"] in V.UNIT:
             row[V.K_UNIT0 + V.UNIT.index(r["kind"])] = 1.0
         row[V.K_X] = (r["x"] - hx) / ps
@@ -583,6 +593,7 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
         for _a in w.armies:
             if _a.get("hp", 0) > 0:
                 by_cell.setdefault((_a["x"], _a["y"]), []).append(_a)
+    barb = w.barbarian_cells()              # ★ 一次算好（"有野人驻守"，含虚拟野人）
     if armies is None:
         armies = encode_window(sb, me, mask)[2]
     row_of = {a["id"]: i for i, a in enumerate(armies)}
@@ -613,7 +624,7 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
         fi, fj = int(y) - y0, int(x) - x0
         if 0 <= fi < fh and 0 <= fj < fw:
             out["tile_xy"][i] = (fi, fj)
-        cls = _owner_class(w, me, x, y, by_cell)
+        cls = _owner_class(w, me, x, y, by_cell, barb)
         m = out["cand_marks"][i]
         # ★ 归属 one-hot **六类**（与网格同一套 `vocab.OWN_*`）
         m[V.CAND_OWN0 + cls] = 1.0
@@ -628,7 +639,7 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
             if hall_owner == me:
                 m[V.CAND_HALL0 + V.OWN_SELF] = 1.0
             elif hall_owner is not None:
-                hc = _owner_class(w, me, x, y, by_cell)   # 复用同一判定（盟友/敌国/中立国）
+                hc = _owner_class(w, me, x, y, by_cell, barb)   # 复用同一判定（盟友/敌国/中立国）
                 m[V.CAND_HALL0 + hc] = 1.0
         m[V.CAND_VISIBLE] = 1.0 if (x, y) in mask else 0.0
         m[V.CAND_DIST] = max(abs(x - hx), abs(y - hy)) / ps

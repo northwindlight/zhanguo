@@ -129,6 +129,14 @@ def build(world, x: int, y: int, *, extra: dict[str, list[dict]] | None = None
         if a["owner"] == BARBARIAN and owner is not None:
             continue                            # 野人只守无主格
         forces.setdefault(a["owner"], []).append(a)
+    # ★★ **虚拟野人也要进战斗模型**（新引擎的野人是"合成"的 ⇒ `world.armies` 里
+    #   **没有**它们）。不打这一条 ⇒ 打守卫格时 DP 以为**无人守**
+    #   ⇒ 胜率与掉血全偏（而引擎是会合成一支野人守军的）。
+    #   口径与门面 `_defs_at` **逐字相同**：满血步兵（野人没有兵种键 ⇒ 按步兵兜底）。
+    if owner is None and BARBARIAN not in forces and (x, y) in world.barbarian_cells():
+        forces[BARBARIAN] = [{"id": 0, "owner": BARBARIAN, "type": "native:infantry",
+                              "hp": rules.unit_max_hp(), "x": x, "y": y,
+                              "moved_turn": -1, "engaged": False}]
     for F, ms in (extra or {}).items():
         forces.setdefault(F, []).extend(ms)
     attacker = frozenset(F for F in forces if F != BARBARIAN
