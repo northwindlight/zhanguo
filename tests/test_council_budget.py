@@ -19,6 +19,39 @@ class RecordingCouncilBackend(CouncilBackend):
         return super().chat_turn(messages, tools, cfg, on_retry=on_retry)
 
 
+class TestEvidenceFactsOnly(unittest.TestCase):
+    def test_previews_and_reachability_are_filtered_but_the_map_is_kept(self):
+        from mods.experimental.council import evidence_state, prune_changes
+        state = {'facts': {'army': [], 'government': {},
+                           'view': [{'position': [0, 0], 'owner': 'scenario:han'}],
+                           'frontier': {'reachable': [[1, 1]]},
+                           'econ': {'preview': {'military': {'units': []}}, 'stocks': [1]}}}
+        out = evidence_state(state)
+        self.assertNotIn('frontier', out['facts'])
+        self.assertNotIn('preview', out['facts']['econ'])
+        self.assertEqual(out['facts']['view'], state['facts']['view'])
+        self.assertEqual(out['facts']['econ']['stocks'], [1])
+        # 原状态不动：快照只裁剪议会证据的副本。
+        self.assertIn('frontier', state['facts'])
+        self.assertIn('preview', state['facts']['econ'])
+        changes = [{'path': ['facts', 'frontier', 'reachable'], 'set': []},
+                   {'path': ['facts', 'econ', 'preview', 'military'], 'set': {}},
+                   {'path': ['facts', 'econ', 'stocks'], 'rows': {}},
+                   {'path': ['facts', 'army'], 'rows': {}}]
+        self.assertEqual([c['path'] for c in prune_changes(changes)],
+                         [['facts', 'econ', 'stocks'], ['facts', 'army']])
+
+    def test_after_action_diffs_are_dropped_but_turn_boundaries_keep_facts(self):
+        from mods.experimental.council import prune_row
+        row = {'kind': 'after.action', 'period': 3, 'changes': [{'path': ['facts', 'army'], 'rows': {}}],
+               'events': {'items': [{'text': '事件'}]}}
+        kept = {'kind': 'settlement', 'period': 3, 'changes': [{'path': ['facts', 'econ', 'stocks'], 'rows': {}}]}
+        self.assertNotIn('changes', prune_row(row))
+        self.assertEqual(prune_row(row)['events'], row['events'])
+        self.assertIn('changes', prune_row(kept))
+        self.assertIn('changes', row, '原行不被修改')
+
+
 class TestCouncilBudget(unittest.TestCase):
     actor = 'scenario:han'
 

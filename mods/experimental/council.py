@@ -29,11 +29,54 @@ def review_government(government):
         for key in ('draft','reason','explanation'):parliament.pop(key,None)
 
 
+TRANSIENT_PATHS = (('facts', 'frontier'), ('facts', 'econ', 'preview'))
+"""议会证据里不算「事实」的派生/瞬时路径。
+
+  · ``facts.econ.preview`` 是**预估**（补给、回血、折算），每次资源变化就重算；
+  · ``facts.frontier`` 是玩家视口的可达/边境格，纯派生。
+两者在轨迹里占七成以上体积（2026-10-21 实测：魏一次审核 `preview` 单项 11.9 万
+token），却不构成可核对的既有事实。``facts.view`` 是**地图**，保留。
+"""
+
+PRUNED_FACTS = tuple(path[1] for path in TRANSIENT_PATHS if len(path) == 2)
+PRUNED_ECON = tuple(path[2] for path in TRANSIENT_PATHS if len(path) == 3 and path[1] == 'econ')
+
+
+def prune_changes(changes):
+    """按 TRANSIENT_PATHS 过滤一条 changes 列表（旧档里的行也走这里）。"""
+    if not isinstance(changes, list):
+        return changes
+    return [change for change in changes
+            if not any((change.get('path') or [])[:len(prefix)] == list(prefix)
+                       for prefix in TRANSIENT_PATHS)]
+
+
+def prune_row(row):
+    """议会证据里的单行轨迹：去掉瞬时/派生路径，动作后的差分只留事件。
+
+    动作后的 `changes` 只是同一批事实的增量重复：动作本身有回执与事件，回合边界
+    （settlement/turn.start）的差分已给出净变化与地图。
+    """
+    item=dict(row)
+    if 'changes' in item:
+        item['changes']=prune_changes(item['changes'])
+    if item.get('kind')=='after.action':
+        item.pop('changes',None)
+    return item
+
+
 def evidence_state(state):
     if state is None:return None
     result=deepcopy(state)
-    result['facts']['army']=[u for u in result['facts'].get('army',[]) if u['owner']!='野人']
-    review_government(result['facts'].get('government',{}))
+    facts=result['facts']
+    facts['army']=[u for u in facts.get('army',[]) if u['owner']!='野人']
+    for key in PRUNED_FACTS:
+        facts.pop(key,None)
+    econ=facts.get('econ')
+    if isinstance(econ,dict):
+        for key in PRUNED_ECON:
+            econ.pop(key,None)
+    review_government(facts.get('government',{}))
     return result
 
 
@@ -41,7 +84,13 @@ def review_evidence(value):
     """快照提供当时事实，待核对的国策只由外层 previous_plan.text 指定。"""
     result=deepcopy(value)
     def snapshot(state):
-        if isinstance(state,dict):review_government(state.get('facts',{}).get('government',{}))
+        if not isinstance(state,dict):return
+        facts=state.get('facts') if isinstance(state.get('facts'),dict) else {}
+        for key in PRUNED_FACTS:facts.pop(key,None)
+        econ=facts.get('econ')
+        if isinstance(econ,dict):
+            for key in PRUNED_ECON:econ.pop(key,None)
+        review_government(facts.get('government',{}))
     hidden=[['facts','government',key] for key in ('plan','summaries')]
     hidden.extend(['facts','government','parliament',key] for key in ('draft','reason','explanation'))
     snapshot(result.get('previous_plan',{}).get('state_at_submission'))
@@ -515,7 +564,7 @@ class CouncilService:
         read_only={s['function']['name'] for s in player.actions()}-{'build','economy','military','relations','intelligence','plan','end_turn','explain_plan','script'}
         trajectory=[]
         for row in self.council['archive'][self.council['trace_start']:]:
-            item=deepcopy(row)
+            item=prune_row(deepcopy(row))
             if item.get('kind')=='action' and item.get('action') in read_only:
                 # Historical queries must not replace the current plan receipt.
                 query_receipt=item.get('receipt') or {}
