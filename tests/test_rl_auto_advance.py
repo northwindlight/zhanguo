@@ -89,5 +89,44 @@ class TestNoStall(unittest.TestCase):
                 sb.step(sb.legal()[0])
 
 
+class TestDeadNationDoesNotBlockTheTurnQueue(unittest.TestCase):
+    """★★ **亡国但残兵还在**的国家不许占着行动位（2026-10-21 修的真 bug）。
+
+    ★ 病灶：`can_act()` 原来**只看兵、不看死活** ⇒ 一个**厅没了、但残兵还在动**的
+      亡国，`can_act` 照样返回 True ⇒ `_auto_advance` 以为"它还能动"就**停在它身上**
+      ⇒ `current_player()` 指着这个**死人** ⇒ `legal()` 空（`legal()` 里
+      `not self.alive(name)` 直接返回 `[]`）⇒ 采集循环只能中断
+      ⇒ **那一局既不终局、也没胜方**（`truncated=True`），而且**全程不报错**。
+      实测（3 国 8×8 第 6 回合）：乙的厅被拔但还剩 5 支军 ⇒ 死锁，
+      `tests/test_rl_rollout_budget.py::test_untruncated_episode_finishes` 当场红。
+
+    ★ 契约（本文件头那条）：**没终局 ⇒ `current_player()` 有值 且 `legal()` 非空**。
+      上面那个用例本来就在守这条，只是**没走到这条路径** —— 这条专门把它钉死。
+    """
+
+    def test_dead_nation_with_surviving_armies_is_skipped(self):
+        sb = _sb(seed=3, size=8, n=3, t_max=20)
+        dead = sb.players[1]
+        # ★ 先让它**站在行动位上**（`pending` 的队首）—— 真实流程里它是在自己那步
+        #   之后才死的，`pending` 没被重建 ⇒ 死国留在队首。
+        sb.pending = [dead] + [p for p in sb.players if p != dead]
+        # ★ 拔掉它的厅 ⇒ 亡国；但**兵留着**（军不会跟着厅一起消失）。
+        core = next(c for c, t in sorted(sb.world.tiles.items())
+                    if t["owner"] == dead and t["buildings"].get("native:town-hall", 0) > 0)
+        sb.world.tiles[core]["buildings"]["native:town-hall"] = 0
+        self.assertFalse(sb.alive(dead), "用例前提：它已经亡国")
+        self.assertTrue(sb.armies_of(dead), "用例前提：它还有残兵（这才是那个坑的前提）")
+        self.assertTrue(sb.can_act(dead) is False,
+                        "★ 亡国的国家不该算「还能动」—— 这条判据就是病灶")
+
+        sb._auto_advance()
+
+        self.assertNotEqual(sb.current_player(), dead,
+                             "★ 亡国的人还占着行动位 ⇒ 这一局会死锁")
+        if not sb.is_terminal():
+            self.assertTrue(sb.legal(),
+                            "★ 跳过亡国的人之后还是没人能动 ⇒ 契约破了")
+
+
 if __name__ == "__main__":
     unittest.main()

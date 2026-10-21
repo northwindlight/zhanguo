@@ -1022,7 +1022,25 @@ class Sandbox:
         """该国**还有能动的军**吗（都 mask 过 / 交战中 ⇒ 没有）。
 
         ★ `_auto_advance` 的判据 —— "全部军队 mask 后自动结束"落在这条上。
+
+        ★★★ **2026-10-21 修的真 bug：亡国但残兵还在的国也算"能动"。**
+          `alive(name)` 判的是**还有没有市政厅**（`world.has_townhall`）⇒
+          **厅没了但军还在场上**是常态（军不会跟着厅一起消失）。
+          原来这里**只看兵、不看死活** ⇒ 一个**已亡国、但残兵还在动**的国家，
+          `can_act` 照样返回 True ⇒ `_auto_advance` 以为"它还能动"就**停在它身上**
+          ⇒ `current_player()` 指着这个死人 ⇒ `legal()` 空
+          （`legal()` 里 `not self.alive(name)` 直接返回 `[]`）
+          ⇒ 采集循环只能 `break` 出去 ⇒ **这一局既不终局、也没胜方**，
+          `truncated=True`，而且**全程不报错**。
+          实测（`tests/test_rl_rollout_budget.py::test_untruncated_episode_finishes`）：
+          3 国 8×8 第 6 回合，乙的厅被拔但还剩 5 支军 ⇒ **死锁**。
+          ★ 这条本来就写在 `tests/test_rl_auto_advance.py` 的契约里
+          （「沙盒任何可达状态都不许卡」）—— 那个用例只是没走到这条路径。
+          ⇒ **判据要加一条"这个国家还活着"**：亡国的国家不占行动位，
+          `_auto_advance` 会把它从队列里跳过（`pending.pop(0)`）继续往下走。
         """
+        if not self.alive(name):
+            return False
         return any(not a.get("engaged") and a.get("moved_turn") != self.world.turn
                    for a in self.armies_of(name))
 
