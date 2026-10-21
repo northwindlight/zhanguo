@@ -53,15 +53,17 @@ def three_nation_world(size=14, seed=5, ally=True, war=True):
     **不走** propose/accept 那套流程。
     """
     w = SandboxWorld(size=size, seed=seed, nations=["甲", "乙", "丙", "丁"])
-    # ★★ **顺序有讲究：先宣战、后结盟。**
-    #   `declare_war` 对**在盟国**会转成"联盟宣战投票"（多数决），并且**照样返回
-    #   `(True, …)`** —— 但 `w.wars` 是空的，**仗根本没打起来**。这是"工具骗人"那一类：
-    #   返回值说成功、状态没变，静默。实测：先加 bloc 再 `declare_war("甲","丙")`
-    #   ⇒ `war_between("甲","丙")` 仍是 False。所以场景脚本文档化这条顺序。
-    if war:
-        w.declare_war("甲", "丙")          # 此刻甲还是独立国家 ⇒ 直接开战
+    # ★★ **顺序有讲究：先结盟、后宣战**（2026-10 随新引擎改了）。
+    #   新引擎**明文禁止**「正在战争中创盟」（`正在战争中，不能创盟`）
+    #   ⇒ 旧口径的"先宣战、后结盟"现在**直接报错**（整批未提交）。
+    #   而"先结盟、后宣战"是**通的**：在盟国宣战会转成"联盟表决"，
+    #   门面在 `declare_war` 里**代投赞成**（`_auto_approve_votes`）⇒ 仗真的打起来。
+    #   ⚠ 旧注释里那句"先加 bloc 再 declare_war ⇒ 仗没打起来"是**旧门面**的行为
+    #     （那时没人代投表决），现在**不成立**了 —— 别照着旧注释改回去。
     if ally:
         w.blocs.append({"name": "测试联盟", "chief": "甲", "members": ["甲", "乙"]})
+    if war:
+        w.declare_war("甲", "丙")          # 甲在盟里 ⇒ 走联盟表决（门面代投赞成）
     assert (not war) or w.war_between("甲", "丙"), "宣战没生效（见上面那条注释）"
     return w
 
@@ -81,17 +83,22 @@ def owner_scenario():
     free = [(x, y) for x in range(w.size) for y in range(w.size)
             if (x, y) not in w.tiles]
     assert len(free) >= 2, f"无主格不够（{len(free)}）—— size 太小"
-    # ⚠ `_ensure_guardians()` 在**几乎每个**无主格上都摆了野人 ⇒ 想要一格的
-    #   `OWN_UNOWNED`（无主 + **无**驻军）得自己把那格的野人清掉，不能指望地图上天然有。
+    # ★★ **新引擎的野人是"虚拟"的**（`Military.visible_units`）：它对
+    #   **地块没物化**（`territory` 里没这一格）**且没驻过军**（`guard_once`）的格
+    #   **现场合成**一支野人 ⇒
+    #     · "无主 + **有**野人驻守" = **没物化**的无主格（引擎会给它合成一支）；
+    #     · "无主 + **无**驻军"   = **已物化但无主**的格（失地：引擎不再合成）。
+    #   ⇒ 旧口径"清空那格的野人军队"在新引擎上**做不到**（引擎里压根没有真野人可清），
+    #     得**换一种摆法**：把一格**转成无主**（`owner=None` ⇒ 地块仍在 `territory` 里）。
     free.sort(key=lambda p: (p[0] * 31 + p[1]) % 7)     # 固定但不单调的取法
-    un, bar = free[0], free[1]
-    w.armies[:] = [a for a in w.armies if (a["x"], a["y"]) != un]   # 清空 un 格
+    bar = free[0]
+    # `un` ＝ **失地**：拿丁的一格转成无主（地块已物化 ⇒ 引擎不再合成野人）。
+    #   ⚠ 挑的是**丁的另一格**（不是下面用作"中立国"的那格）—— 中立国还得有一格。
+    ding = [c for c, t in sorted(w.tiles.items()) if t["owner"] == "丁"]
+    un = ding[-1]
+    w.tiles[un]["owner"] = None                       # ★ 转成无主（地块仍在 ⇒ 无野人）
     cells[V.OWN_UNOWNED], cells[V.OWN_BARBARIAN] = un, bar
-    if not any(a["owner"] == "野人" and (a["x"], a["y"]) == bar for a in w.armies):
-        gid, seq = w._new_army("野人")                  # 该格若本来没野人，补一支
-        w.armies.append({"id": seq, "gid": gid, "name": f"野人{seq}", "type": "native:infantry",
-                         "hp": 100, "x": bar[0], "y": bar[1], "owner": "野人",
-                         "moved_turn": -1, "engaged": False})
+    # ★ `bar` 不用摆野人：它**没物化** ⇒ 引擎会**现场合成**一支 ⇒ 就是"有野人驻守"。
     return w, cells
 
 
@@ -148,14 +155,16 @@ class TestOwnerClasses(unittest.TestCase):
 class TestCandidateMarks(unittest.TestCase):
     """③④ 候选标记里盟友/中立国/**盟友市政厅**都在，且 `hold ≠ attack`。"""
 
-    def _sb(self):
-        sb = Sandbox(seed=7, size=16).reset()
+    def _sb(self, war=True):
+        # ★ `war=False` 只给"要**结盟**"的那条用：新引擎**禁止**在交战中的实体之间
+        #   创盟（「正在战争中，不能创盟」）⇒ 盟友必须在**开战之前**结好。
+        sb = Sandbox(seed=7, size=16, war=war).reset()
         sb.world.nations["丙"] = None                     # 只为让 tile owner 有个"中立国"
         return sb
 
     def test_ally_tile_and_ally_hall_are_marked(self):
         """★ 用户点名的那条：盟友的格与**盟友的市政厅**都必须能被候选看见。"""
-        sb = self._sb()
+        sb = self._sb(war=False)                          # ★ 结盟要在宣战**之前**（新引擎硬约束）
         w = sb.world
         me, ally = "甲", "乙"
         w.blocs.append({"name": "联盟", "chief": me, "members": [me, ally]})

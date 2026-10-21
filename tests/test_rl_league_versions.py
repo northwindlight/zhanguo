@@ -37,12 +37,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rl import train as T                                  # noqa: E402
+from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
+if has_torch():
+    from rl import train as T                          # noqa: E402
+    from rl.league import League                           # noqa: E402
+    from rl.model import build_model                       # noqa: E402
+    FP = T._shape_fingerprint(0)
+else:
+    T = League = build_model = None
+    FP = None
 from rl import vocab as V                                  # noqa: E402
-from rl.league import League                               # noqa: E402
-from rl.model import build_model                           # noqa: E402
-
-FP = T._shape_fingerprint(0)
 
 
 def _league(d, *, net_cap=24):
@@ -53,6 +57,13 @@ def _league(d, *, net_cap=24):
 def _fhash(p) -> str:
     return hashlib.sha1(Path(p).read_bytes()).hexdigest()
 
+
+
+def load_tests(loader, tests, pattern):
+    """★ 官方"整份跳过"入口（主线 CI 不装 torch ⇒ 这份必须**跳过**而不是**报错**）。"""
+    if not has_torch():
+        raise unittest.SkipTest(torch_or_skip())
+    return tests
 
 class TestFreezeTrainedCreatesANewVersion(unittest.TestCase):
     """① ② 父本不动、新生儿 0 战绩。"""

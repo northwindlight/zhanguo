@@ -23,8 +23,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
+
 ROOT = Path(__file__).resolve().parent.parent
 
+
+
+def load_tests(loader, tests, pattern):
+    """★ 官方"整份跳过"入口（主线 CI 不装 torch ⇒ 这份必须**跳过**而不是**报错**）。"""
+    if not has_torch():
+        raise unittest.SkipTest(torch_or_skip())
+    return tests
 
 class TestCliHelp(unittest.TestCase):
     def _help(self, mod: str) -> subprocess.CompletedProcess:

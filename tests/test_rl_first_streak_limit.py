@@ -32,7 +32,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rl import train as T                              # noqa: E402
+from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
+if has_torch():
+    from rl import train as T                          # noqa: E402
+else:
+    T = None
 
 # ★ 500 局（≈ 一炉受控实验的规模）上，期望误报次数不许超过这个数。
 #   按 `先手胜` 实测 0.45 算 —— 这是"闸门响了值不值得信"的唯一判据。
@@ -40,6 +44,13 @@ MAX_FALSE_ALARMS = 2.0
 FIRST_WIN_P = 0.45
 GAMES = 500
 
+
+
+def load_tests(loader, tests, pattern):
+    """★ 官方"整份跳过"入口（主线 CI 不装 torch ⇒ 这份必须**跳过**而不是**报错**）。"""
+    if not has_torch():
+        raise unittest.SkipTest(torch_or_skip())
+    return tests
 
 class TestFirstStreakLimitIsCalibrated(unittest.TestCase):
 

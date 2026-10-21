@@ -181,8 +181,8 @@ class TestIntelInjection(unittest.TestCase):
         self.assertTrue(sb.world.war_between(me, other), "这一对应当是敌对（缺省全对宣战）")
         sb.tell_armies(me, {other: {"native:infantry": 3, "native:cavalry": 1, "native:militia": 4}}, turn=sb.turn)
         v = _intel(E.encode_glob(sb, me))
-        self.assertGreater(v["intel_rival_步"], 0.0, "军情没进「对手」那一档")
-        self.assertEqual(v["intel_ally_步"], 0.0, "注到对手身上的军情漏进了盟友档")
+        self.assertGreater(v["intel_rival_native:infantry"], 0.0, "军情没进「对手」那一档")
+        self.assertEqual(v["intel_ally_native:infantry"], 0.0, "注到对手身上的军情漏进了盟友档")
 
     def test_army_intel_carries_its_own_age(self):
         """★ 情报带"是什么时候的" ⇒ `age` 必须随回合涨（间谍 3 回合才回报）。"""
@@ -218,7 +218,7 @@ class TestIntelInjection(unittest.TestCase):
         # ★ 合法的数量照收，且观测里**只有** 12 个情报列
         sb.tell_armies(me, {other: {"native:infantry": 3, "native:cavalry": 1}})
         v = _intel(E.encode_glob(sb, me))
-        self.assertGreater(v["intel_rival_步"], 0.0, "数量该进去")
+        self.assertGreater(v["intel_rival_native:infantry"], 0.0, "数量该进去")
         self.assertEqual(len(v), 12, f"情报列不止 12 个了：{sorted(v)}")
 
     def test_multiple_sources_take_the_newest_deterministically(self):
@@ -227,12 +227,12 @@ class TestIntelInjection(unittest.TestCase):
         me, a, b = sb.players[0], sb.players[1], sb.players[2]
         sb.turn = 3
         sb.tell_armies(me, {a: {"native:infantry": 1}, b: {"native:infantry": 7}}, turn=3)
-        self.assertAlmostEqual(_intel(E.encode_glob(sb, me))["intel_rival_步"],
+        self.assertAlmostEqual(_intel(E.encode_glob(sb, me))["intel_rival_native:infantry"],
                                min(1.0, 7 / S.INTEL_ARMY_SCALE), places=6,
                                msg="同回合应取国名靠前的那份（确定性）")
         sb.turn = 9
         sb.tell_armies(me, {a: {"native:infantry": 5}}, turn=9)      # a 的更新
-        self.assertAlmostEqual(_intel(E.encode_glob(sb, me))["intel_rival_步"],
+        self.assertAlmostEqual(_intel(E.encode_glob(sb, me))["intel_rival_native:infantry"],
                                min(1.0, 5 / S.INTEL_ARMY_SCALE), places=6,
                                msg="后到的那份不算「最新」")
 
@@ -254,7 +254,7 @@ class TestIntelInjection(unittest.TestCase):
         sb = _sb()
         me, other = sb.players[0], sb.players[1]
         sb.tell_armies(me, {other: {"native:infantry": 6}})
-        self.assertEqual(_intel(E.encode_glob(sb, other))["intel_rival_步"], 0.0,
+        self.assertEqual(_intel(E.encode_glob(sb, other))["intel_rival_native:infantry"], 0.0,
                          "给甲的军情漏进了乙的观测")
 
     def test_intel_survives_reset_being_fresh(self):

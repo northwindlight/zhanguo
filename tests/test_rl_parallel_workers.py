@@ -36,11 +36,15 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rl import train as T                                  # noqa: E402
-from rl.league import League                               # noqa: E402
-from rl.model import build_model                           # noqa: E402
-
-FP = T._shape_fingerprint(0)
+from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
+if has_torch():
+    from rl import train as T                          # noqa: E402
+    from rl.league import League                           # noqa: E402
+    from rl.model import build_model                       # noqa: E402
+    FP = T._shape_fingerprint(0)
+else:
+    T = League = build_model = None
+    FP = None
 QUIET = lambda *_: None                                    # noqa: E731
 _OPEN: list = []
 
@@ -101,6 +105,13 @@ def _rows(lg):
 
 
 # ============================================================ ① 不并账
+
+def load_tests(loader, tests, pattern):
+    """★ 官方"整份跳过"入口（主线 CI 不装 torch ⇒ 这份必须**跳过**而不是**报错**）。"""
+    if not has_torch():
+        raise unittest.SkipTest(torch_or_skip())
+    return tests
+
 class TestTwoWorkersOwnDifferentRows(unittest.TestCase):
     def test_in_train_rows_do_not_merge(self):
         """① 两 worker 各 3 份 ⇒ **6 行**；各自的 `active()` 只含自己的。

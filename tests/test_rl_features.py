@@ -110,7 +110,7 @@ class TestLiveNotCached(unittest.TestCase):
         finally:
             _army.UNIT_TYPES["native:militia"]["atk"] = 25   # 复原（主线现值）
         self.assertNotEqual(after[1], before[1],
-                            "★ 改了 `UNIT_TYPES['民']['atk']` 向量却没变 ⇒ 有缓存烤进去了")
+                            "★ 改了 `UNIT_TYPES['native:militia']['atk']` 向量却没变 ⇒ 有缓存烤进去了")
         self.assertAlmostEqual(after[1], 0.30, places=6)
         self.assertTrue((F.unit_vector("native:militia") == before).all(), "改回去之后没复原")
 

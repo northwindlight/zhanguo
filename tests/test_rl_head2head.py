@@ -33,9 +33,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from rl import head2head as H                              # noqa: E402
+from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
+if has_torch():
+    from rl import head2head as H                      # noqa: E402
+else:
+    H = None
 from rl import vocab as V                                  # noqa: E402
 
+
+
+def load_tests(loader, tests, pattern):
+    """★ 官方"整份跳过"入口（主线 CI 不装 torch ⇒ 这份必须**跳过**而不是**报错**）。"""
+    if not has_torch():
+        raise unittest.SkipTest(torch_or_skip())
+    return tests
 
 class TestSeatSplitIsFair(unittest.TestCase):
     """①② 座位怎么分。"""
