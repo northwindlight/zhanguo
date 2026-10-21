@@ -570,9 +570,9 @@ class CouncilService:
         tools.extend(self._tracking_tools())
         if finalize:
             tools.extend([
-                {'type':'function','function':{'name':'council_approve','description':'仅在已主动检查战略依据、必要评估、可执行承诺及未解决追踪事项，确认足以承担国家决策时批准。不能把未发现矛盾当成已充分论证；省略必要内容或关键前提未知且未处置时不得放行。通过不自动关闭追踪事项。',
+                {'type':'function','function':{'name':'council_approve','description':'仅在已检查游戏目标推进、战略依据、必要评估、可执行承诺及追踪事项后批准。无事实矛盾、无战损或遵守自设中立不等于达标；长期停滞而缺少目标相关成果、期限或结束等待办法时不得放行。合理备战与有依据的进攻均可通过。通过不自动关闭事项。',
                               'parameters':{'type':'object','properties':{},'additionalProperties':False}}},
-                {'type':'function','function':{'name':'council_reject','description':'审慎打回：严重反事实、关键战略依据不足、遗漏必要承诺与评估、未纠正或反复违背可执行承诺均须指出。无需先证明隐藏事实相反，便可拒绝以局部可见推断全国的无依据结论。reason列证据、缺项和下期可执行纠正；不强制选某条战略或购买情报。',
+                {'type':'function','function':{'name':'council_reject','description':'严重反事实、依据不足、遗漏必要评估与承诺，或长期停滞而缺少目标相关成果、期限或突破办法时，直接打回要求解释和下期补正。无需证明隐藏事实相反或某场战争必胜；不能以局部可见推断全国。reason列停滞或缺项证据与可执行纠正；不强制特定战争或购报派谍。',
                               'parameters':{'type':'object','properties':{'reason':{'type':'string','minLength':1}},'required':['reason'],'additionalProperties':False}}},
             ])
         if phase_end:
