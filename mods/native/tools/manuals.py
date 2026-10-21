@@ -13,7 +13,7 @@ def tools(runtime):
              parameters={'type': 'object',
                          'properties': {'doc': {'type': 'string', 'enum': list(DOCS)}},
                          'required': ['doc'], 'additionalProperties': False},
-             description='只读手册：doc 选一本文档（基础指南/经济学手册/战争手册/战略手册/游戏说明书），返回全文。文档为手写维护，不在规则目录里。'),
+             description='只读策略讲义与说明书：doc=basics基础指南、economics经济学手册、war战争手册（开战前评估目标与成本）、strategy战略手册（比较各国、择敌、均势与外交）、manual游戏说明书；返回全文。讲义不在player_rules规则目录里。'),
     )
 
 

@@ -13,6 +13,10 @@ def _num(value):
 
 
 def tools(runtime):
+    unit=runtime.units.get(runtime.capabilities.get('economy:bank'))
+    if unit is None:return ()
+    fee=getattr(getattr(unit.mod,'policy',None),'report_fee',None)
+    price=f'{fee}金' if fee is not None else '按当前银行规则付费'
     def borrow(world, actor):
         return runtime.player_api(world, 'economy:bank').borrow(actor)
 
@@ -28,7 +32,7 @@ def tools(runtime):
         Tool('bank', bank, owner='economy:bank', api=('position',), read_only=True, fact=True, panel=True,
              description='本国现金、信用额度、负债与贷款剩余；无需参数。'),
         Action('buy_report', buy_report, owner='economy:bank', api=('buy_report',),
-             description='付费购买目标国家已公布经济报表；turn 指定结束周期，省略取最新。不包含未完成收益。'),
+             description=f'{price}购买目标国家已公布经济报表，当场返回GDP及增长、投资、征兵、军需、资产、负债和贸易，可用于比较各国实力与增长。turn 指定结束周期，省略取最新。报表只证明覆盖期的经济情况，不提供当前军队位置或完整军力；当下兵种数量、库存和地图需另用spy或其他情报核实。'),
     )
 
 

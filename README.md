@@ -29,9 +29,9 @@
 - **玩家客户端**：LLM 与 `v11plus` 规则 AI 使用同一绑定身份的 API，消费结构化事实和行动回执。
 - **界面**：独立 UI Mod 装配语言文案、终端面板和玩家可见的文字、SVG、PNG 地图；渲染原语在 `presentation/`，模型视图在 `clients/model_view.py`。
 
-默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.14.0`：
+默认 [mods.toml](mods.toml) 装配 native。可选 [experimental](mods/experimental/README.md) 是持续更新的实验性发行版，目前为 `0.15.0`：
 
-- 独立议长分两步审核国策，核对事实、情报和经济、外交、军事承诺；连续三回合未通过后罢免君主并重建记忆。
+- 独立议长分两步审核国策，核对事实、必要评估与承诺；未解决事项跨审核追踪，原始证据按需分页，输入逐次受预算限制。审慎审核同时要求推进游戏目标，允许有依据的冒险；连续三回合未通过后罢免君主并重建记忆。
 - 市场采用实际交付的有限库存，以及库存偏差反馈报价。
 - 保存、修订和手动运行 Python 短脚本，直接操作标准 API；按计算量限制，失败保留已成功动作，每国每回合一次执行机会。
 - 为规则 AI 启用[研究用战斗概率推演](mods/experimental/combat_research/README.md)，可选 C 加速；概率能力不注册为 LLM 工具。

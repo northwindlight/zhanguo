@@ -24,13 +24,25 @@ def _merge(target, source, label):
         target[key] = value
 
 
-def _catalogs():
+def _catalogs(runtime=None):
     directory = Path(__file__).with_name('locales')
     result = {}
     for language in ('zh-CN', 'en-US'):
         path = directory / f'{language}.json'
         if path.exists():
             result[language] = json.loads(path.read_text(encoding='utf-8'))
+            bank_unit=runtime.units.get(runtime.capabilities.get('economy:bank')) if runtime is not None else None
+            if bank_unit:
+                key='tools.economy.parameters.properties.action.description'
+                if key in result[language]:
+                    fee=getattr(getattr(bank_unit.mod,'policy',None),'report_fee','see current bank rules')
+                    result[language][key]=result[language][key].replace('{report_fee}',str(fee))
+            intel_unit=runtime.units.get(runtime.capabilities.get('native:intelligence')) if runtime is not None else None
+            if intel_unit:
+                key='tools.intelligence.parameters.properties.action.description'
+                settings=intel_unit.mod.declaration.get('Intelligence',{})
+                if key in result[language]:
+                    result[language][key]=result[language][key].replace('{spy_fee}',str(settings.get('SpyFee','see current rules'))).replace('{spy_delay}',str(settings.get('SpyDelay','see current rules')))
     return result
 
 
@@ -120,4 +132,4 @@ def build(runtime):
     if 'native:query' in runtime.capabilities:
         tools.append(query.build(runtime, [tool for tool in tools if isinstance(tool, Tool)]))
     tools, actions, command_map = commands.wrap(runtime, tools)
-    return ToolLayer(runtime, tools, receipts, captions, panels, _catalogs(), command_map, actions)
+    return ToolLayer(runtime, tools, receipts, captions, panels, _catalogs(runtime), command_map, actions)

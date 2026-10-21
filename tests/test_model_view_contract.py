@@ -9,7 +9,7 @@ import json
 import unittest
 
 from host import GameHost
-from clients.model_view import model_view_for
+from clients.model_view import ModelView, model_view_for
 from presentation.facts import war_sides
 
 ROOT = 'mods.minigame.toml'
@@ -103,6 +103,33 @@ class TestModelFacingContract(unittest.TestCase):
         # native 的专属说明来自它自己的语言包，不靠宿主硬编码。
         self.assertIn('你是战国的一国玩家', text)
         self.assertIn('query(panel=map)', text)
+
+    def test_information_routes_show_actual_prices_and_purposes_each_turn(self):
+        host=self.native();player=host.player('scenario:qin')
+        for language in ('zh-CN','en-US'):
+            view=model_view_for(host.ui,{**host.cfg,'language':language})
+            view.actions(player.actions())
+            guidance=view.information_guidance()
+            for expected in ('buy_report','20','GDP','spy','100','3'):
+                self.assertIn(expected,guidance)
+            state,_=view.state(player.observe(),[])
+            self.assertIn(guidance,state)
+            self.assertIn('manual',view.system())
+        mini=self.mini();view=model_view_for(mini.ui,mini.cfg)
+        view.actions(mini.player('scenario:qin').actions())
+        self.assertEqual(view.information_guidance(),'')
+
+    def test_report_price_tracks_bank_policy_in_both_languages_and_replacement_modules(self):
+        from tests.test_bank_objects import TestEconomicSystem
+        for replaced in (False,True):
+            runtime=TestEconomicSystem().runtime(bank_policy={'report_fee':37},fixed_bank=replaced)
+            expected='20' if replaced else '37'
+            for language in ('zh-CN','en-US'):
+                view=ModelView({'language':language},tool_layer=runtime.tool_layer)
+                view.actions(runtime.schemas())
+                guidance=view.information_guidance()
+                self.assertIn(expected,guidance)
+                self.assertNotIn('{report_fee}',guidance)
 
     def test_minigame_is_driven_by_the_model_client_end_to_end(self):
         host = self.mini()

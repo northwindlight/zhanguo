@@ -260,9 +260,9 @@ class TestParliament(unittest.TestCase):
         self.assertEqual(reject_schema['parameters']['required'],['reason'])
         self.assertEqual(reject_schema['parameters']['properties']['reason']['type'],'string')
 
-    def test_first_stage_warns_after_five_calls_and_auto_approves_at_ten(self):
+    def test_first_stage_warns_after_five_calls_and_rejects_incomplete_at_ten(self):
         h,c=self.host([True],[reply(call('p','plan',text='发展')),
-                              reply(call('e','end_turn',summary='议会瘫痪后完成本回合'))])
+                              reply(call('x','explain_plan',text='下期补充未核验的战略依据与承诺'),call('e','end_turn',summary='说明未解决问题后完成本回合'))])
         class StalledCouncil:
             def __init__(self):self.calls=[];self.schemas=[]
             def chat_turn(self,messages,tools,cfg,on_retry=None):
@@ -271,7 +271,8 @@ class TestParliament(unittest.TestCase):
         reviewer=StalledCouncil();h.services[self.actor]['council']._review_backend=reviewer
         emitted=[]
         results=h.cycle(emit=emitted.append)
-        self.assertIn('议会瘫痪',results[0]['message'])
+        self.assertIn('保守打回',results[0]['message'])
+        self.assertFalse(results[0]['ok'])
         self.assertEqual(len(reviewer.calls),10)
         for number,request in enumerate(reviewer.calls,1):
             self.assertIn(f'[{number}/10]',request[-1]['content'])
@@ -280,17 +281,17 @@ class TestParliament(unittest.TestCase):
         self.assertEqual(len(progress),10)
         for index,line in enumerate(progress,1):
             self.assertIn(f'第 {index}/10 次调用',line)
-        self.assertTrue(any('国策已自动通过' in line for line in emitted))
+        self.assertTrue(any('国策保守打回' in line for line in emitted))
         self.assertIn('两阶段累计已调用 5 轮',reviewer.calls[5][-1]['content'])
         self.assertIn('council_next_stage',{tool['function']['name'] for tool in reviewer.schemas[0]})
         self.assertEqual(reviewer.schemas[0][-1]['function']['name'],'council_next_stage')
-        self.assertTrue(h.player(self.actor).observe()['facts']['government']['plan']['text']=='发展')
+        self.assertNotEqual(h.player(self.actor).observe()['facts']['government']['plan']['text'],'发展')
         review=h.services[self.actor]['council'].council['archive']
-        self.assertTrue(any(row.get('auto_approved_due_to_paralysis') for row in review))
+        self.assertTrue(any(row.get('auto_rejected_due_to_paralysis') for row in review))
 
     def test_five_and_ten_round_limits_count_across_both_stages(self):
         h,c=self.host([True],[reply(call('p','plan',text='发展')),
-                              reply(call('e','end_turn',summary='议会瘫痪后完成本回合'))])
+                              reply(call('x','explain_plan',text='下期补齐必要评估并提交新国策'),call('e','end_turn',summary='说明后完成本回合'))])
         class SplitCouncil:
             def __init__(self):self.calls=[]
             def chat_turn(self,messages,tools,cfg,on_retry=None):
@@ -307,7 +308,8 @@ class TestParliament(unittest.TestCase):
             self.assertIn(f'[{number}/10]',request[-1]['content'])
             self.assertEqual('催办：' in request[-1]['content'],number>5)
         self.assertIn('第二步：',reviewer.calls[5][-1]['content'])
-        self.assertIn('议会瘫痪',results[0]['message'])
+        self.assertIn('保守打回',results[0]['message'])
+        self.assertFalse(results[0]['ok'])
 
     def test_verdict_on_tenth_total_call_is_not_overridden_by_auto_approval(self):
         h,c=self.host([True],[reply(call('p','plan',text='发展')),
@@ -329,9 +331,10 @@ class TestParliament(unittest.TestCase):
         self.assertTrue(results[0]['ok'])
         self.assertNotIn('议会瘫痪',results[0]['message'])
 
-    def test_invalid_verdict_reaches_total_cap_and_auto_approves(self):
+    def test_invalid_verdict_reaches_total_cap_and_rejects(self):
         for output in ('not-json','{"approved":"yes","reason":"ok"}'):
-            h,c=self.host([True],[reply(call('p','plan',text='发展'))])
+            h,c=self.host([True],[reply(call('p','plan',text='发展')),
+                                  reply(call('x','explain_plan',text='下期补齐必要评估并提交新国策'),call('e','end_turn',summary='说明后完成本回合'))])
             original=h.services[self.actor]['council']._review_backend.complete_text
             def complete(messages,cfg,tools=None):
                 if messages[-1]['content'].startswith('第二步：'):
@@ -340,8 +343,8 @@ class TestParliament(unittest.TestCase):
                 return original(messages,cfg,tools)
             h.services[self.actor]['council']._review_backend.complete_text=complete
             results=h.cycle()
-            self.assertIn('议会瘫痪',results[0]['message'])
-            self.assertTrue(results[0]['ok'])
+            self.assertIn('保守打回',results[0]['message'])
+            self.assertFalse(results[0]['ok'])
 
     def test_failed_review_transport_preserves_boundary_file(self):
         h,c=self.host([True],[reply(call('p','plan',text='发展'))])
@@ -372,7 +375,7 @@ class TestParliament(unittest.TestCase):
         reviewer=ReadingCouncil();h.services[self.actor]['council']._review_backend=reviewer
         h.cycle()
         names={s['function']['name'] for s in reviewer.calls[0][1]}
-        self.assertEqual(names,{'player_rules','read_manual','council_next_stage'})
+        self.assertEqual(names,{'player_rules','read_manual','council_search','council_read','council_track','council_next_stage'})
         queries=[r for r in h.services[self.actor]['council'].council['archive'] if r['kind']=='council.query']
         self.assertEqual([r['result']['ok'] for r in queries],[True,True,True,False])
         self.assertIn('buildings',queries[1]['result']['data'])

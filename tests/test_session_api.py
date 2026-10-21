@@ -223,17 +223,18 @@ class TestDirectCouncilAPI(unittest.TestCase):
                 host.cycle()
                 self.assertEqual(host.clock(),2)
 
-    def test_revision_after_query_keeps_receipt_on_automatic_approval(self):
+    def test_revision_after_query_keeps_receipt_on_timeout_rejection(self):
         host,player,service=self.host([])
         self.assertTrue(player.submit('market')['ok'])
         with patch.object(service,'_council_turn',return_value=('核对旧国策',True)):
             receipt=player.submit('plan',{'text':'按实际库存修订国策'})
         self.assertEqual((receipt['actor'],receipt['action'],receipt['period']),
                          (player.actor,'plan',1))
-        self.assertTrue(receipt['ok'])
-        self.assertIn('议会瘫痪',receipt['message'])
+        self.assertFalse(receipt['ok'])
+        self.assertEqual(receipt['code'],'plan_not_approved')
+        self.assertIn('保守打回',receipt['message'])
         self.assertEqual(host.audit[-1]['receipt'],receipt)
-        self.assertEqual(player.observe()['facts']['government']['plan']['text'],'按实际库存修订国策')
+        self.assertNotEqual(player.observe()['facts']['government']['plan']['text'],'按实际库存修订国策')
 
     def test_direct_submission_reviews_for_both_llm_and_rule_clients(self):
         for kind in ('llm','rule'):
