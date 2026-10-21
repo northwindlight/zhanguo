@@ -29,11 +29,54 @@ def review_government(government):
         for key in ('draft','reason','explanation'):parliament.pop(key,None)
 
 
+TRANSIENT_PATHS = (('facts', 'frontier'), ('facts', 'econ', 'preview'))
+"""议会证据里不算「事实」的派生/瞬时路径。
+
+  · ``facts.econ.preview`` 是**预估**（补给、回血、折算），每次资源变化就重算；
+  · ``facts.frontier`` 是玩家视口的可达/边境格，纯派生。
+两者在轨迹里占七成以上体积（2026-10-21 实测：魏一次审核 `preview` 单项 11.9 万
+token），却不构成可核对的既有事实。``facts.view`` 是**地图**，保留。
+"""
+
+PRUNED_FACTS = tuple(path[1] for path in TRANSIENT_PATHS if len(path) == 2)
+PRUNED_ECON = tuple(path[2] for path in TRANSIENT_PATHS if len(path) == 3 and path[1] == 'econ')
+
+
+def prune_changes(changes):
+    """按 TRANSIENT_PATHS 过滤一条 changes 列表（旧档里的行也走这里）。"""
+    if not isinstance(changes, list):
+        return changes
+    return [change for change in changes
+            if not any((change.get('path') or [])[:len(prefix)] == list(prefix)
+                       for prefix in TRANSIENT_PATHS)]
+
+
+def prune_row(row):
+    """议会证据里的单行轨迹：去掉瞬时/派生路径，动作后的差分只留事件。
+
+    动作后的 `changes` 只是同一批事实的增量重复：动作本身有回执与事件，回合边界
+    （settlement/turn.start）的差分已给出净变化与地图。
+    """
+    item=dict(row)
+    if 'changes' in item:
+        item['changes']=prune_changes(item['changes'])
+    if item.get('kind')=='after.action':
+        item.pop('changes',None)
+    return item
+
+
 def evidence_state(state):
     if state is None:return None
     result=deepcopy(state)
-    result['facts']['army']=[u for u in result['facts'].get('army',[]) if u['owner']!='野人']
-    review_government(result['facts'].get('government',{}))
+    facts=result['facts']
+    facts['army']=[u for u in facts.get('army',[]) if u['owner']!='野人']
+    for key in PRUNED_FACTS:
+        facts.pop(key,None)
+    econ=facts.get('econ')
+    if isinstance(econ,dict):
+        for key in PRUNED_ECON:
+            econ.pop(key,None)
+    review_government(facts.get('government',{}))
     return result
 
 
@@ -41,7 +84,13 @@ def review_evidence(value):
     """快照提供当时事实，待核对的国策只由外层 previous_plan.text 指定。"""
     result=deepcopy(value)
     def snapshot(state):
-        if isinstance(state,dict):review_government(state.get('facts',{}).get('government',{}))
+        if not isinstance(state,dict):return
+        facts=state.get('facts') if isinstance(state.get('facts'),dict) else {}
+        for key in PRUNED_FACTS:facts.pop(key,None)
+        econ=facts.get('econ')
+        if isinstance(econ,dict):
+            for key in PRUNED_ECON:econ.pop(key,None)
+        review_government(facts.get('government',{}))
     hidden=[['facts','government',key] for key in ('plan','summaries')]
     hidden.extend(['facts','government','parliament',key] for key in ('draft','reason','explanation'))
     snapshot(result.get('previous_plan',{}).get('state_at_submission'))
@@ -109,6 +158,134 @@ class CouncilService:
 
     def _review_config(self):
         return {**self.review_cfg,'_ui_expand_message':self.presentation.expand_message}
+
+    # ------------------------------------------------------------------
+    # 议长请求预算
+    # ------------------------------------------------------------------
+    # ★ 议会这条路径原先对请求体积**完全没有闸**：证据 = 上次批准以来的整段轨迹，
+    #   随回合线性增长。2026-10-21 第 95 回魏的审核首请求证据单条 1,046,455 字符
+    #   （≈50 万 token），reviewer 真的吐 400 context_length_exceeded，整局终止。
+    #   玩家侧有 ctx.build 管预算，议长侧没有——这里补同一套口径：每次调用前按
+    #   reviewer 的 ctx_window 算输入预算，超了就把**轨迹证据按档降级**（只动本次
+    #   请求里的副本，议会档案原文一行不删），降到底还超就明确报错而不是让提供方打回。
+    EVIDENCE_KEEP_FULL_ROWS = 12   # 降档时仍保留完整事件/回执的最近行数
+    EVIDENCE_MIN_ROWS = 4          # 降到底保留的最近行数，更早的记为 omitted
+
+    def _review_input_budget(self):
+        """议长一次请求的输入预算（token）；未配 ctx_window 时返回 0＝不设闸。"""
+        plan = ctx.make_plan(self.review_cfg)
+        return plan.budget if plan.mode == 'budget' else 0
+
+    @staticmethod
+    def _request_tokens(dialogue, tools):
+        return (ctx.messages_tokens(dialogue)
+                + ctx.est_tokens(json.dumps(tools, ensure_ascii=False))
+                + ctx.SAFETY_TOKENS)
+
+    def _evidence_fit(self, dialogue, index):
+        """把对话里既有的证据消息还原成可降级的 fit（被打回后重提时它仍留在上下文里）。"""
+        message = dialogue[index]
+        if not isinstance(message, dict) or message.get('role') != 'user':
+            return None
+        content = message.get('content')
+        if not isinstance(content, str):
+            return None
+        prefix = self.ui.text('experimental.review_first')
+        if not content.startswith(prefix):
+            return None
+        try:
+            evidence, end = json.JSONDecoder().raw_decode(content[len(prefix):])
+        except ValueError:
+            return None
+        if not isinstance(evidence, dict) or 'previous_plan' not in evidence:
+            return None
+        return {'index': index, 'prefix': prefix, 'suffix': content[len(prefix) + end:],
+                'evidence': evidence, 'step': 0, 'omitted': []}
+
+    def _fit_request(self, dialogue, tools, budget):
+        """每次议长调用前核对输入预算；超了从**最旧的证据**开始逐档降级，直到装得下。
+
+        被打回的审核对话会连同上一轮的证据一起留下来（设计如此）。那时只压新证据
+        不够——旧证据也要按同样的档位继续降，否则重提一次就又超窗。
+        """
+        limit = self._review_input_budget()
+        if not limit:
+            return
+        current = budget.get('_evidence')
+        current_index = current.get('index') if current else None
+        fits = [self._evidence_fit(dialogue, index) for index in range(len(dialogue))
+                if index != current_index]
+        fits = [fit for fit in fits if fit]
+        if current:
+            fits.append(current)
+        if not fits:
+            return
+        for _ in range(64):
+            if self._request_tokens(dialogue, tools) <= limit:
+                return
+            if not any(self._degrade_evidence(fit, dialogue, budget, tools) for fit in fits):
+                break
+        tokens = self._request_tokens(dialogue, tools)
+        if tokens > limit:
+            raise ValueError(self.ui.text('experimental.review_budget_overflow',
+                                          tokens=tokens, limit=limit))
+
+    def _degrade_evidence(self, fit, dialogue, budget, tools):
+        """把证据降一档；返回是否真的变了。
+
+        降级顺序（越早的轨迹越先失去细节，最近行永远保留最全）：
+          1. 去掉快照行的 `changes`（状态差分，占证据 6~8 成，事件与回执仍在）；
+          2. 旧行再去掉 `events`；
+          3. 旧行动回执只留 ok/status/code/message，议会查询只留 ok/message；
+          4. 反复砍掉最旧的一半行，被砍范围写进 `omitted`（原文仍在档案里）；
+          5. 最后才放弃 `previous_plan.state_at_submission`。
+        """
+        evidence = fit['evidence']
+        rows = evidence.get('trajectory') or []
+        step = fit['step']
+        fit['step'] = step + 1
+        changed = False
+        if step == 0:
+            for row in rows:
+                if isinstance(row, dict) and row.pop('changes', None) is not None:
+                    changed = True
+        elif step == 1:
+            for row in rows[:-self.EVIDENCE_KEEP_FULL_ROWS]:
+                if isinstance(row, dict) and row.pop('events', None) is not None:
+                    changed = True
+        elif step == 2:
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                for key, keep in (('receipt', ('ok', 'status', 'code', 'message')),
+                                  ('result', ('ok', 'message'))):
+                    value = row.get(key)
+                    if isinstance(value, dict) and set(value) - set(keep):
+                        row[key] = {k: value.get(k) for k in keep}
+                        changed = True
+        elif step >= 3:
+            if len(rows) > self.EVIDENCE_MIN_ROWS:
+                keep = max(self.EVIDENCE_MIN_ROWS, len(rows) // 2)
+                removed = rows[:len(rows) - keep]
+                evidence['trajectory'] = rows[len(rows) - keep:]
+                fit.setdefault('omitted', []).extend(removed)
+                periods = [int(r.get('period') or 0) for r in fit['omitted'] if isinstance(r, dict)]
+                evidence['omitted'] = {
+                    'rows': len(fit['omitted']),
+                    'periods': [min(periods), max(periods)] if periods else [],
+                    'note': '更早的轨迹超出议长输入预算，本次请求未附原文（仍完整保存在议会档案中）；只能就其余证据核对。',
+                }
+                changed = True
+            elif 'state_at_submission' in (evidence.get('previous_plan') or {}):
+                evidence['previous_plan'].pop('state_at_submission', None)
+                changed = True
+        if changed:
+            dialogue[fit['index']]['content'] = fit['prefix'] + encode(evidence) + fit['suffix']
+            self._review_log('budget', {'step': fit['step'], 'rows': len(evidence.get('trajectory') or []),
+                                        'omitted': (evidence.get('omitted') or {}).get('rows', 0),
+                                        'tokens': self._request_tokens(dialogue, tools),
+                                        'limit': self._review_input_budget()}, budget)
+        return changed
 
     def _complete(self,messages):
         budget={'period':self._period,'_log_round':'—','_log_phase':'交接'}
@@ -205,7 +382,9 @@ class CouncilService:
             status='experimental.review_history_status' if phase_end else 'experimental.review_candidate_status'
             self._notify(self.ui.text(status,actor=self.cfg.get('name',player.actor),
                                       count=budget['rounds']+1,total=COUNCIL_MAX_ROUNDS))
-            msg,stats=self._reviewer().chat_turn(deepcopy(dialogue),self.ui.actions(tools),self._review_config(),on_retry=lambda attempt,error,wait,total:self._notify(self.ui.text('llm.retry',actor=self.cfg.get('name',player.actor)+'议长',attempt=attempt,error=error,wait=wait,total=total)))
+            payload_tools=self.ui.actions(tools)
+            self._fit_request(dialogue,payload_tools,budget)
+            msg,stats=self._reviewer().chat_turn(deepcopy(dialogue),payload_tools,self._review_config(),on_retry=lambda attempt,error,wait,total:self._notify(self.ui.text('llm.retry',actor=self.cfg.get('name',player.actor)+'议长',attempt=attempt,error=error,wait=wait,total=total)))
             budget['rounds']+=1
             self._review_log('response',{'message':msg,'usage':stats},budget)
             for key,value in stats.items():
@@ -385,7 +564,7 @@ class CouncilService:
         read_only={s['function']['name'] for s in player.actions()}-{'build','economy','military','relations','intelligence','plan','end_turn','explain_plan','script'}
         trajectory=[]
         for row in self.council['archive'][self.council['trace_start']:]:
-            item=deepcopy(row)
+            item=prune_row(deepcopy(row))
             if item.get('kind')=='action' and item.get('action') in read_only:
                 # Historical queries must not replace the current plan receipt.
                 query_receipt=item.get('receipt') or {}
@@ -394,13 +573,18 @@ class CouncilService:
         evidence=review_evidence({'previous_plan':self.council['last_plan'],
                   'trajectory':trajectory,
                   'stage':1,'period':obs_period})
-        dialogue.append({'role':'user','content':self.ui.text('experimental.review_first')+encode(evidence)})
+        prefix=self.ui.text('experimental.review_first')
+        dialogue.append({'role':'user','content':prefix+encode(evidence)})
         # Reviewer sees the same actor-filtered map through the selected UI mod.
         from clients.context import MAP_KEY
         view=ModelView({**self.cfg,**self.review_cfg},presentation=self.presentation)
         current,image=view.map_context(self.council['last_snapshot'])
-        dialogue[-1]['content']+='\n'+current
+        suffix='\n'+current
+        dialogue[-1]['content']+=suffix
         if image:dialogue[-1][MAP_KEY]=image
+        # 证据随回合增长：每次调用前按议长预算降级（见 _fit_request）。
+        evidence_fit={'index':len(dialogue)-1,'prefix':prefix,'suffix':suffix,
+                      'evidence':evidence,'step':0,'omitted':[]}
         def paralysis_receipt(assessment):
             reason=self.ui.text('experimental.parliament_paralyzed_reason')
             decision=self._government('decide',True,reason)
@@ -416,7 +600,7 @@ class CouncilService:
             self._notify(self.ui.text('experimental.review_autoapproved_status',actor=self.cfg.get('name',player.actor)))
             return {**receipt,'ok':True,'status':'effective','code':None,
                     'message':decision['message'],'data':decision}
-        budget={'rounds':0,'warned':False,'period':obs_period}
+        budget={'rounds':0,'warned':False,'period':obs_period,'_evidence':evidence_fit}
         assessment,paralyzed=self._council_turn(player,dialogue,budget=budget,phase_end=True)
         if paralyzed:return paralysis_receipt(assessment)
         dialogue.append({'role':'user','content':self.ui.text('experimental.review_second')+encode({'new_plan':candidate,'period':obs_period})})

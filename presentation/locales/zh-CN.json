@@ -115,6 +115,7 @@
   "experimental.phase_warning": "轮次提醒：议会两阶段累计已调用 5 轮，还有 5 轮。请尽快完成审核并提交裁决。",
   "experimental.parliament_paralyzed_reason": "议会两阶段累计调用达到 10 轮上限仍未提交裁决，议会瘫痪；按规则自动批准本次国策。",
   "experimental.parliament_paralyzed": "议会瘫痪：两阶段累计审核达到 10 轮上限，本次国策自动通过。",
+  "experimental.review_budget_overflow": "议会证据已降到最小仍超出议长输入预算：{tokens} > {limit} token；请提高 parliament.reviewer 的 ctx_window，或缩短上次批准以来的审核范围。",
   "experimental.historian": "你是本国独立的历史交接记录者。总结开局以来全部行为和回执、地图与经济变化、外交和军事承诺、所有君主/议会对话及失败教训。以引擎结果核对预测，保留未了结承诺、当前事实和不确定性；旧君主的禁令不是新君主的永久政策。不要虚构或省略不利结果。输入可能分块，均需处理。",
   "experimental.merge": "合并以下全部分段摘要为国家完整交接摘要，保留事实、承诺和未决事项：\n",
   "experimental.replacement": "\n本回合已提交过一次国策，次数不重置。继续决定剩余行动，下回合提交你自己的新国策。",
