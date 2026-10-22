@@ -307,6 +307,11 @@ class Sandbox:
         self.alliances = str(alliances)
         # 本局抽到的**两个同盟**（`((甲,丙),(乙,丁))`；没结盟 ⇒ `()`）—— 测试/报表要看
         self.alliance_pairs: tuple = ()
+        # ★★ **对账计数器**（2026-10-22，报告 §7.3）：训练日志要能回答
+        #   "重复候选有几个""动作被引擎拒了几个" ⇒ 这两个数**在产生它们的地方**记，
+        #   不在别处**另算一遍**（另算的口径迟早对不上）。
+        self.n_dup_candidates = 0        # ★ `legal()` 去重时**丢掉**的重复动作数
+        self.n_rejected = 0              # ★ 引擎**拒收**的动作数
         # ★ 显式战争对：给了就**只**宣这些（用来造**中立国**/局部战争场景）。
         #   没给 ⇒ `war=True` 时**全对宣战**（多玩家的缺省：默认全体敌对）。
         self.wars = wars
@@ -962,7 +967,24 @@ class Sandbox:
             for (x, y) in self._probe_cells(a, walk, mask):
                 out.append((a["id"], "move", x, y))
                 out.append((a["id"], "attack", x, y))
-        return out
+        # ★★★ **按完整动作元组稳定去重**（2026-10-22，报告 §6.3）。
+        #   ★ 重复从哪来：`attack` 那条路（`_reachable(for_attack=True)`）与
+        #     `_probe_cells` 那条路**可能给出同一个格子** —— 既是"够得着但走不通"，
+        #     又是"视野外的试探格" ⇒ `(军, 'attack', 格)` 被加了**两次**。
+        #     实测（8×8、探 `(6,5)`）：`legal()` 返回 `attack、move、attack`。
+        #   ★ 后果不是"显示重复"：模型是**对候选行采样**的 ⇒
+        #     同一个引擎动作**多拿一份概率质量** ⇒ 候选分布被偏置，**且不报错**。
+        #   ⇒ **按完整元组**去重（`move` 与 `attack` 是不同动作，**都留着**），
+        #     保序（**首次出现**的次序不变）⇒ **合法动作的集合不变**。
+        seen: set = set()
+        uniq: list[tuple] = []
+        for act in out:
+            if act in seen:
+                self.n_dup_candidates += 1      # ★ 记下来（对账用）
+                continue
+            seen.add(act)
+            uniq.append(act)
+        return uniq
 
     def _probe_cells(self, a: dict, walk, mask) -> list[tuple]:
         """★ **允许撞墙的试探格**：该军周围（1 格移动力）里**视野外**的格（边界除外）。
@@ -1015,6 +1037,8 @@ class Sandbox:
         else:
             ok, msg = False, f"未知动作 {action!r}"
         self.last_ok = bool(ok)
+        if not ok:
+            self.n_rejected += 1               # ★ 引擎拒收（对账用）
         self._auto_advance()
         return ok, msg
 

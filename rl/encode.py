@@ -505,7 +505,15 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
         # ★★ 归属 **六类**（与网格/候选同一套 `_owner_class`）—— 不再是"甲/乙"两位：
         #    ① **国家数不进观测形状**（多玩家落地时宽度不变，基座不用重炼）；
         #    ② 盟友的军与敌国的军**从此分得开**（引擎对这两类判定相反）。
-        row[V.A_OWNER0 + _owner_class(w, me, a["x"], a["y"], by_cell_w, barb_w)] = 1.0
+        # ★★★ **所属方 = `army["owner"]`**（2026-10-22，报告 §6.1）。
+        #   ★ 原来算的是**脚下那格的格主** ⇒ **敌军站在我方领土上时，
+        #     它被编码成"我的军"**（真值：owner=敌、格主=我）。
+        #     那是**归属与位置混为一谈**：军队属于谁**只由它自己决定**，
+        #     跟它站在哪上面无关（验收：「改变脚下格主，不应改变军队所属方」）。
+        #   ⇒ `_owner_class_of`（**显式给主人**那一版）：按军队自己的主人判，
+        #     再按**公开的外交关系**映射成 self/ally/rival/neutral。
+        row[V.A_OWNER0 + _owner_class_of(w, me, a["owner"], a["x"], a["y"],
+                                         by_cell_w, barb_w)] = 1.0
         kind = a.get("type", "native:infantry")
         if kind in V.UNIT:
             row[V.A_UNIT0 + V.UNIT.index(kind)] = 1.0
@@ -543,7 +551,15 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
     k_rows = []
     for r in sb.known_enemies(me, mask, armies):
         row = [0.0] * V.K_WIDTH
-        row[V.K_OWNER0 + _owner_class(w, me, r["x"], r["y"], by_cell_w, barb_w)] = 1.0
+        # ★★★ **记忆军队的所属方 = 记录里的 `owner`**（2026-10-22，报告 §6.1）。
+        #   ★ 原来算的是**它记忆里的那个坐标的格主** ⇒ 敌军的**旧位置**现在
+        #     归了别人（或无主）时，它会被记成"我的军"/"无主" ⇒
+        #     **情报自己改了主人**，而且不报错。
+        #   ⇒ 用记录里的主人（`war_memory.observe` 存了 `owner`）⇒
+        #     「这支队**是谁的**」是**看见时就知道的事实**，不该随时间漂。
+        #   ★ 陈旧度由 `K_AGE` 那一列表达（见 `war_memory.known`）。
+        row[V.K_OWNER0 + _owner_class_of(w, me, r.get("owner"), r["x"], r["y"],
+                                         by_cell_w, barb_w)] = 1.0
         if r["kind"] in V.UNIT:
             row[V.K_UNIT0 + V.UNIT.index(r["kind"])] = 1.0
         row[V.K_X] = (r["x"] - hx) / ps
@@ -588,6 +604,15 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
     mask = ((_vision(w, me) if mask is None else mask) if me else set())
     known = sb.known_halls(me, mask) if known is None else known
     acts = sb.legal() if acts is None else acts
+    # ★★ **候选唯一性守卫**（2026-10-22，报告 §6.3）：
+    #   同一个动作出现两次 ⇒ 它在候选分布里**多拿一份概率质量** ⇒ 静默偏置。
+    #   `Sandbox.legal()` 已经去重；这里**再挡一道**，
+    #   因为 `acts` 也可能由调用方直接传进来（探针/测试）。
+    #   ★ 宁可在这里炸：偏置是"训练照跑、loss 照降"那一类，最难查。
+    if len(set(acts)) != len(acts):
+        seen_a: set = set()
+        dup = [a for a in acts if a in seen_a or seen_a.add(a)]
+        raise ValueError(f"候选动作重复（{len(dup)} 个）：{dup[:6]}")
     if by_cell is None:                     # ★ 格→军索引（`_owner_class` 查它，不扫全表）
         by_cell = {}
         for _a in w.armies:
@@ -624,22 +649,45 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
         fi, fj = int(y) - y0, int(x) - x0
         if 0 <= fi < fh and 0 <= fj < fw:
             out["tile_xy"][i] = (fi, fj)
-        cls = _owner_class(w, me, x, y, by_cell, barb)
         m = out["cand_marks"][i]
-        # ★ 归属 one-hot **六类**（与网格同一套 `vocab.OWN_*`）
-        m[V.CAND_OWN0 + cls] = 1.0
+        # ★★★ **信息来源：这一格的归属**（2026-10-22，报告 §6.2）。
+        #   ★ 原来**无条件**用 `_owner_class` 填**当前格主** ⇒
+        #     **看不见的格子把真值直接喂进了网络**（`CAND_VISIBLE=0` 只是另一个标志，
+        #     **挡不住**真值进去）—— 那是**在动作选择之前就泄���**，
+        #     和"允许盲探、事后按引擎回执拿情报"**完全是两回事**。
+        #   ⇒ 现在按**来源**分三种：
+        #     · **可见** ⇒ 真值（`CAND_OWN_KNOWN=1`）；
+        #     · **记得的厅** ⇒ 见下面那段（用**记忆里的主人**，不是当前真值）；
+        #     · **不可见且没记住** ⇒ **未知**：one-hot **整块留空**，
+        #       `CAND_OWN_KNOWN=0`。
+        #       ★ 留空而不是写"无主"：那是**把"不知道"说成"没人要"** ⇒ 撒谎。
+        visible = (x, y) in mask
+        if visible:
+            cls = _owner_class(w, me, x, y, by_cell, barb)
+            m[V.CAND_OWN0 + cls] = 1.0
+            m[V.CAND_OWN_KNOWN] = 1.0
+        # ★ 归属 one-hot **六类**（与网格同一套 `vocab.OWN_*`）—— 未知时**不写任何一类**。
         # ★ 市政厅归属 one-hot（同一套六类）—— 单列一组，让"这格的厅是谁的"直接可读：
         #   打谁能亡国、谁亡了我就危险，是国祚层的核心判断，不指望它从两个 one-hot 里凑。
         t = w.tiles.get((x, y))
         # ★ 陷阱候选也要走 `known`："我知道那格是敌厅"，哪怕它此刻不在视野里
         #   —— 这正是"记忆/间谍"要买到的东西（厅拆不掉 ⇒ 见过就永远算数）。
         if t is not None and t["buildings"].get("native:town-hall", 0) > 0 \
-                and ((x, y) in mask or (x, y) in known):
-            hall_owner = t["owner"]
+                and (visible or (x, y) in known):
+            # ★★ **厅的主人按来源取**（2026-10-22）：
+            #   · 看得见 ⇒ 当前真值；
+            #   · 只记得 ⇒ **记忆里的主人**（`known[格]` = 最后看见时的主人），
+            #     **不是当前真值** —— 厅的归属**会变**（见 `hall_memory.owner_seen`），
+            #     用当前真值等于**把没看见的变化泄露给观察者**。
+            #   ★ 走 `HM.owner_seen`：**单一出处**（网格那边也是它）⇒ 两边口径不会漂。
+            hall_owner = HM.owner_seen(w, (x, y), mask, known)
             if hall_owner == me:
                 m[V.CAND_HALL0 + V.OWN_SELF] = 1.0
             elif hall_owner is not None:
-                hc = _owner_class(w, me, x, y, by_cell, barb)   # 复用同一判定（盟友/敌国/中立国）
+                # ★ **按"记忆里的主人"判类别**（不是当前格主）——
+                #   `_owner_class_of` 是**显式给主人**那一版（盟友/敌国/中立国
+                #   按**公开的外交关系**判，不靠格主）。
+                hc = _owner_class_of(w, me, hall_owner, x, y, by_cell, barb)
                 m[V.CAND_HALL0 + hc] = 1.0
         m[V.CAND_VISIBLE] = 1.0 if (x, y) in mask else 0.0
         m[V.CAND_DIST] = max(abs(x - hx), abs(y - hy)) / ps
