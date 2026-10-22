@@ -537,6 +537,8 @@ def build_model(n_grid_ch: int = V.GRID_CHANNELS, mem_slots: int = 0,
         "k": V.K_WIDTH,
         # ★ "s" = **空间摘要**（报告 §8.2）：有界的多尺度空间摘要
         "s": V.SPATIAL_WIDTH,
+        # ★ "h" = **重要地点**（报告 §8.3）：每一座已知的厅一条
+        "h": V.HALL_WIDTH,
     }
     return PolicyNet(win_widths={g: widths[g] for g in V.TOKEN_GROUPS},
                      n_grid_ch=n_grid_ch, mem_slots=mem_slots, **kw)

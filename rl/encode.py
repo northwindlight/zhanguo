@@ -639,6 +639,90 @@ def spatial_summary(sb, me: str, grid, mask=None) -> np.ndarray:
     return np.asarray(rows, np.float32)
 
 
+def important_places(sb, me: str, mask=None, known=None) -> tuple[np.ndarray, int]:
+    """★ **重要地点的完整集合**（报告 §8.3「重要地点成为完整的目标集合」）。
+
+    → `(rows, dropped)`：`rows` = `(HALL_SLOTS, HALL_WIDTH)`，`dropped` = **被截断掉几个**。
+
+    ★★ 为什么需要（报告 §8.3 的原话）：
+      「目前**全局摘要主要给出我方、盟友、敌方相对我家最近一座厅**的位置及数量摘要。
+        **其余厅依赖网格局部读取**，不利于**多核心攻防**。」
+      ⇒ 现在**每一座已知的厅**都成一条 token ⇒
+        「**第二座己方核心受威胁**、**两个敌方核心价值不同**、**盟友核心需要支援**」
+        这些**非最近目标**上的变化，**输入与决策通路都能识别**。
+
+    ★ 三条口径：
+      · **只给"我知道的"** —— 我/盟友的厅**全知**；敌国的厅按
+        **视野 ∪ 永久记忆**（见过就永远算数，见 `hall_memory`）⇒ 不偷看。
+      · **关系按公开的外交关系**判（`_owner_class_of`），不看格主。
+      · ★ **数量有预算，截取策略显式**：按「**关系优先级（我 → 盟友 → 敌方）
+        → 离我家核心的距离**」排序，取前 `V.HALL_SLOTS` 个；
+        **被截掉几个**由 `dropped` 返回（调用方可以上报）⇒ 截断**不静默**。
+    """
+    w = sb.world
+    mask = _vision(w, me) if mask is None else mask
+    known = sb.known_halls(me, mask) if known is None else known
+    hx, hy = _home_cell(sb, me)
+    ps = float(sb.size)
+    foes = enemies_of(w, me)
+    allies = _allies_of(sb, me)
+    items: list[tuple] = []
+    for tag, who in (("my", (me,)), ("ally", allies), ("foe", tuple(foes))):
+        for n in who:
+            for cell in _hall_cells_of(w, n, mask, known):
+                items.append((tag, n, cell))
+    # ★ 规范排序：**关系优先级 → 距离**（都**不含名字/编号** ⇒ 置换一致）
+    rank = {"my": 0, "ally": 1, "foe": 2}
+    def key(it):
+        tag, _n, (x, y) = it
+        return (rank[tag], max(abs(x - hx), abs(y - hy)), x, y)
+    items.sort(key=key)
+    kept = items[:V.HALL_SLOTS]
+    dropped = max(0, len(items) - len(kept))
+    # ★★ **所属实体的规范槽号**（报告 §8.3 明写「所属实体引用」）：
+    #   光有"关系类别"**不够** —— 两个互相交战的敌国**关系类别相同**，
+    #   却**不是同一个实体** ⇒ 少了这一列，"两个敌方核心价值不同"就分不出来。
+    #   ★ 排序与军队那边**同一套口径**（关系 → 几何 → 数量），**不含名字/编号**。
+    ent_of: dict[str, str] = {}
+    for _tag, n, _cell in kept:
+        try:
+            ent_of[n] = w.entity_of(n)
+        except Exception:                          # noqa: BLE001
+            ent_of[n] = n
+    by_ent: dict[str, list] = {}
+    for tag, n, cell in kept:
+        by_ent.setdefault(ent_of.get(n, n), []).append((tag, n, cell))
+
+    def ent_key(ent):
+        tag, n, cell = by_ent[ent][0]
+        rel = _owner_class_of(w, me, n, cell[0], cell[1], None, None)
+        pos = tuple(sorted((c[0] - hx, c[1] - hy) for _t, _n, c in by_ent[ent]))
+        return (rel, pos, len(by_ent[ent]))
+
+    ent_slot = {ent: i for i, ent in
+                enumerate(sorted(by_ent, key=ent_key)[:V.ENT_SLOTS])}
+    rows = []
+    for tag, n, (x, y) in kept:
+        rel = _owner_class_of(w, me, n, x, y, None, None)
+        row = [0.0] * V.HALL_WIDTH
+        row[0] = (x - hx) / ps
+        row[1] = (y - hy) / ps
+        row[2] = max(abs(x - hx), abs(y - hy)) / ps
+        row[3 + rel] = 1.0                       # ★ 关系 one-hot（同一套六类）
+        visible = (x, y) in mask
+        row[V.HALL_VISIBLE] = 1.0 if visible else 0.0
+        # ★ **陈旧度**：看得见 = 新鲜（0）；只记得 = 可能是旧情报（1）。
+        #   ★ 厅记忆**目前不记回合**（`{格: 主人}`）⇒ 这里给的是**二值陈旧标志**，
+        #     真正的"情报年龄"要等厅记忆记下回合（见 `rl/PLAN.md` §十三 的待办）。
+        row[V.HALL_STALE] = 0.0 if visible else 1.0
+        row[V.HALL_ENT] = min(1.0, ent_slot.get(ent_of.get(n, n), V.ENT_SLOTS)
+                              / float(V.ENT_SLOTS))
+        rows.append(row)
+    while len(rows) < V.HALL_SLOTS:
+        rows.append([0.0] * V.HALL_WIDTH)
+    return np.asarray(rows, np.float32), dropped
+
+
 def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
                   armies: list[dict] | None = None,
                   known=None, grid=None) -> tuple[dict, dict, list[dict]]:
@@ -762,12 +846,20 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
     assert s_rows.shape == (V.SPATIAL_CELLS, V.SPATIAL_WIDTH), \
         f"空间摘要行数/宽度 {s_rows.shape} ≠ 约定的 {(V.SPATIAL_CELLS, V.SPATIAL_WIDTH)}"
 
+    # ★★ **重要地点组 `"h"`**（报告 §8.3）：**每一座已知的厅**一条 token
+    #   ⇒ 变化发生在**非最近目标**上时，输入与决策通路**都能识别**。
+    #   ★ 放在窗口的**最后** ⇒ 军队段的稳定下标 `x[:, 1:1+n_a]` **原样成立**。
+    h_rows, h_dropped = important_places(sb, me, mask, known)
+    assert h_rows.shape == (V.HALL_SLOTS, V.HALL_WIDTH), \
+        f"重要地点行数/宽度 {h_rows.shape} ≠ 约定的 {(V.HALL_SLOTS, V.HALL_WIDTH)}"
+
     win = {"g": g_row[None, :].astype(np.float32), "a": arr, "k": karr,
-           "s": s_rows.astype(np.float32)}
+           "s": s_rows.astype(np.float32), "h": h_rows.astype(np.float32)}
     win_mask = {"g": np.ones(1, bool),
                 "a": np.ones(len(rows), bool),
                 "k": np.ones(len(k_rows), bool),
-                "s": np.ones(len(s_rows), bool)}
+                "s": np.ones(len(s_rows), bool),
+                "h": np.ones(len(h_rows), bool)}
     return win, win_mask, armies
 
 
