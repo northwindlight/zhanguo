@@ -128,8 +128,10 @@ class TestShapeIsNationIndependent(unittest.TestCase):
 
     def test_army_owner_is_six_class_ownership(self):
         """归属段是**六类**（与网格同一套），不是「甲/乙」两位 one-hot。"""
+        # ★ 军队 token 的列构成（冻结）：归属 6 + 兵种 3 + 位置 2 + hp 1 + moved 1
+        #   + engaged 1 + **实体引用 2**（`A_ENT_N` / `A_ENT_SLOT`，报告 §8.4）
         self.assertEqual(V.A_WIDTH_RAW,
-                         V.A_OWNER0 + len(V.OWNER_CHANNELS) + len(V.UNIT) + 2 + 1 + 1 + 1)
+                         V.A_OWNER0 + len(V.OWNER_CHANNELS) + len(V.UNIT) + 2 + 1 + 1 + 1 + 2)
         self.assertEqual(V.A_OWNER0, 0)
 
 

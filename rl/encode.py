@@ -469,6 +469,97 @@ def window_armies(sb, me: str, mask=None) -> list[dict]:
     return out
 
 
+def _entity_relation(w, me: str, ent: str) -> int:
+    """某个**外交实体**相对 `me` 的关系类别（`vocab.OWN_*`）。
+
+    ★ 实体是"盟"（`entity_of`）⇒ 关系要按**它的成员国家**判：
+      任一成员是我 ⇒ `SELF`；任一成员与我结盟 ⇒ `ALLY`；任一成员与我交战 ⇒ `RIVAL`；
+      否则（有主但非盟非敌）⇒ `NEUTRAL_NATION`。
+    ★ **只用公开的外交关系**（`allied_between` / `war_between`）—— 玩家可知的事实。
+    """
+    try:
+        members = w.entity_members(ent)
+    except Exception:                              # noqa: BLE001
+        members = []
+    if not members:
+        return V.OWN_NEUTRAL_NATION
+    if me in members:
+        return V.OWN_SELF
+    for m in members:
+        try:
+            if w.allied_between(me, m):
+                return V.OWN_ALLY
+        except Exception:                          # noqa: BLE001
+            continue
+    for m in members:
+        try:
+            if w.war_between(me, m):
+                return V.OWN_RIVAL
+        except Exception:                          # noqa: BLE001
+            continue
+    return V.OWN_NEUTRAL_NATION
+
+
+def _entity_slots(sb, me: str, armies: list[dict]) -> tuple[dict, dict]:
+    """★ **实体引用**（报告 §8.4「多国身份与关系」）。
+
+    → `(slot_of_army, n_of_class)`：
+      · `slot_of_army[army_id]` = 该军所属实体的**规范槽号**（`0..ENT_SLOTS-1`，
+        超出 ⇒ `ENT_SLOTS`，即"其它"）；
+      · `n_of_class[rel]` = **视野里**与该关系类别的**不同实体**有几个。
+
+    ★★ 为什么需要（§6.1 修完之后的残留问题）：归属 one-hot 只说"是敌国"，
+      **说不清两支敌军来自同一国家、还是两个互相交战的敌国**。
+      ⇒ `A_ENT_N`（同类实体数）直接给出这个信号（1 vs 2），
+        `A_ENT_SLOT`（同实体同槽）给出"谁和谁是一伙的"。
+
+    ★★★ 三条口径（报告 §8.4 的验收）：
+      · **只用玩家可知的事实** —— 槽号由**观察到的军队的相对位置**排序得出，
+        **不用国家名、不用真值** ⇒ 换局重新编号**不影响**（置换一致），
+        也不把真实字符串名字当战略先验。
+      · **有界** —— 最多 `V.ENT_SLOTS` 个槽；超出的实体归"其它"槽 ⇒
+        未知国家再多也**不越界**。
+      · **同实体同槽** —— 同一外交实体的军队拿同一个槽。
+    """
+    w = sb.world
+    hx, hy = _home_cell(sb, me)
+    by_ent: dict[str, list[dict]] = {}
+    ent_of: dict[int, str] = {}
+    for a in armies:
+        try:
+            ent = w.entity_of(a["owner"])
+        except Exception:                          # noqa: BLE001
+            ent = a.get("owner") or ""
+        if not ent:
+            continue
+        by_ent.setdefault(ent, []).append(a)
+        # ★★ **键必须是 `gid`（全局唯一），不是 `id`** ——
+        #   `id` 是**本国序号**（甲的第 1 支与乙的第 1 支都是 `id=1`）⇒
+        #   用 `id` 做键会让**不同国家的同号军队互相覆盖** ⇒ 槽号串了
+        #   （表现为"所有军队拿到同一个槽"，而且**不报错**）。
+        ent_of[a.get("gid", id(a))] = ent
+    if not by_ent:
+        return {}, {}
+
+    def sort_key(ent: str):
+        """★ **规范键**（**不含任何名字/编号**）：关系类别 → 相对位置集合 → 军队数。
+        ⇒ 国家的**改名/重编号**完全不进这个键 ⇒ 置换一致。"""
+        rel = _entity_relation(w, me, ent)
+        pos = tuple(sorted((a["x"] - hx, a["y"] - hy) for a in by_ent[ent]))
+        return (rel, pos, len(by_ent[ent]))
+
+    ordered = sorted(by_ent, key=sort_key)
+    slot_of_ent = {ent: i for i, ent in enumerate(ordered[:V.ENT_SLOTS])}
+    n_of_class: dict[int, int] = {}
+    for ent in ordered:
+        rel = _entity_relation(w, me, ent)
+        n_of_class[rel] = n_of_class.get(rel, 0) + 1
+    slot_of_army = {a.get("gid", id(a)): slot_of_ent.get(ent_of[a.get("gid", id(a))],
+                                                      V.ENT_SLOTS)
+                    for a in armies if a.get("gid", id(a)) in ent_of}
+    return slot_of_army, n_of_class
+
+
 def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
                   armies: list[dict] | None = None,
                   known=None) -> tuple[dict, dict, list[dict]]:
@@ -500,6 +591,8 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
     rows = []
     by_cell_w = _by_cell(w)
     barb_w = w.barbarian_cells()          # ★ 一次算好（"有野人驻守"，含虚拟野人）
+    # ★★ **实体引用**（报告 §8.4）：算一次，全窗口共用。
+    ent_slot, ent_n = _entity_slots(sb, me, armies)
     for a in armies:
         row = [0.0] * wfull
         # ★★ 归属 **六类**（与网格/候选同一套 `_owner_class`）—— 不再是"甲/乙"两位：
@@ -514,6 +607,14 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
         #     再按**公开的外交关系**映射成 self/ally/rival/neutral。
         row[V.A_OWNER0 + _owner_class_of(w, me, a["owner"], a["x"], a["y"],
                                          by_cell_w, barb_w)] = 1.0
+        # ★★ **实体引用**（报告 §8.4）：这一支属于**哪个外交实体**、那个实体在
+        #   **同一关系类别**里**是第几个**。
+        #   ★ 归属 one-hot 只说"是敌国" ⇒ **说不清两支敌军来自同一敌国、
+        #     还是两个互相交战的敌国** —— 这两列就是补这个缺口的。
+        _rel = _owner_class_of(w, me, a["owner"], a["x"], a["y"], by_cell_w, barb_w)
+        row[V.A_ENT_N] = min(1.0, ent_n.get(_rel, 0) / float(V.ENT_SLOTS))
+        row[V.A_ENT_SLOT] = min(1.0, ent_slot.get(a.get("gid", id(a)), V.ENT_SLOTS)
+                            / float(V.ENT_SLOTS))
         kind = a.get("type", "native:infantry")
         if kind in V.UNIT:
             row[V.A_UNIT0 + V.UNIT.index(kind)] = 1.0
