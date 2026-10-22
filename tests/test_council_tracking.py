@@ -282,9 +282,12 @@ class TestCouncilTracking(unittest.TestCase):
 
     def test_prompt_requires_substantive_assessment_even_without_explicit_promises(self):
         host,service=self.host()
-        for text in ('宁愿打回','君主缩短国策','不作承诺','可见0支不证明全国0支','有钱却反复不兑现','批准本身不代表问题解决',
-                     '诚实与有据是两件事','20 金已公布报表','已如实承认未知'):
+        for text in ('宁愿打回','君主缩短国策','不作承诺','可见0支不证明全国0支','有钱却反复不兑现','批准不代表问题解决',
+                     '诚实与有据是两件事','20 金已公布报表','已如实承认未知','裁决按 R0—R3 评级','无 R0 即批准'):
             self.assertIn(text,DEFAULT_REQUIREMENTS)
+        rating=(Path(__file__).resolve().parents[1]/'mods/experimental/council_rating.md').read_text(encoding='utf-8')
+        for text in ('R0 阻断','R1 须改','R2 记录','R3 建议','改变哪个结论','只有 R0 能否决'):
+            self.assertIn(text,rating)
         self.assertIn('完整性',service.ui.text('experimental.review_second'))
         self.assertIn('反复延期',service.ui.text('experimental.review_first'))
 
