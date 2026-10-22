@@ -282,10 +282,38 @@ class TestCouncilTracking(unittest.TestCase):
 
     def test_prompt_requires_substantive_assessment_even_without_explicit_promises(self):
         host,service=self.host()
-        for text in ('宁愿打回','君主缩短国策','不作承诺','可见0支不证明全国0支','有钱却反复不兑现','批准本身不代表问题解决'):
+        for text in ('宁愿打回','君主缩短国策','不作承诺','可见0支不证明全国0支','有钱却反复不兑现','批准本身不代表问题解决',
+                     '诚实与有据是两件事','20 金已公布报表','已如实承认未知'):
             self.assertIn(text,DEFAULT_REQUIREMENTS)
         self.assertIn('完整性',service.ui.text('experimental.review_second'))
         self.assertIn('反复延期',service.ui.text('experimental.review_first'))
+
+    def test_war_declared_without_target_intel_cannot_be_approved(self):
+        host,service=self.host();player=host.player(self.actor)
+        period=player.observe()['period']
+        service.council['archive'].append({'kind':'action','action':'relations',
+            'arguments':{'action':'declare_war','target':'scenario:qin'},
+            'receipt':{'ok':True},'period':period})
+        self.assertEqual(service._war_intel_gaps(period),['scenario:qin'])
+        reviewer=ScriptedCouncil([
+            reply(call('next','council_next_stage')),
+            reply(call('approve','council_approve')),
+            reply(call('reject','council_reject',reason='宣战前未取得秦国的报表或谍报，先花20金买报表或派谍再交。'))])
+        service._review_backend=reviewer
+        receipt=player.submit('plan',{'text':'本期已向秦宣战，主力北上夺取北坊。'})
+        self.assertFalse(receipt['ok'])
+        self.assertEqual(receipt['data']['streak'],1)
+        self.assertIn('缺少宣战前情报',json.dumps(reviewer.requests,ensure_ascii=False))
+
+    def test_target_report_before_war_clears_the_gate(self):
+        host,service=self.host();player=host.player(self.actor)
+        period=player.observe()['period']
+        service.council['archive'].extend([
+            {'kind':'action','action':'buy_report','arguments':{'target':'scenario:qin'},
+             'receipt':{'ok':True},'period':period},
+            {'kind':'action','action':'relations','arguments':{'action':'declare_war','target':'scenario:qin'},
+             'receipt':{'ok':True},'period':period}])
+        self.assertEqual(service._war_intel_gaps(period),[])
 
     def test_unresolved_intelligence_risk_does_not_mechanically_veto_a_reasoned_offensive(self):
         host,service=self.host()
@@ -301,7 +329,7 @@ class TestCouncilTracking(unittest.TestCase):
         self.assertTrue(host.player(self.actor).submit('plan',{'text':plan})['ok'])
         self.assertEqual(service.council['tracking']['items'][0]['id'],risk['id'])
         self.assertEqual(service.council['tracking']['items'][0]['status'],'open')
-        for text in ('审核不得降低合理开战','信息不完整的进攻','对不行动使用同样严格的标准','放弃游戏目标'):
+        for text in ('审核不得降低合理开战','有界机会战','对不行动使用同样严格的标准','放弃游戏目标'):
             self.assertIn(text,DEFAULT_REQUIREMENTS)
         self.assertIn('不准借审核无限延期',service.ui.text('experimental.review_second'))
 

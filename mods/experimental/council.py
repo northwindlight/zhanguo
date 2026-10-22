@@ -10,7 +10,7 @@ from clients.model_view import ModelView
 from clients.provider import make_backend,REPLAY_KEY
 from presentation.facts import map_presentation
 from .council_records import (archive_record, current_summary, trajectory_overview, coalesce_overview,
-                              tracking_view, update_tracking, validate_tracking, MAX_OPEN)
+                              period_of, tracking_view, update_tracking, validate_tracking, MAX_OPEN)
 
 
 DEFAULT_REQUIREMENTS=Path(__file__).with_name('requirements.md').read_text(encoding='utf-8')
@@ -143,6 +143,7 @@ class CouncilService:
                       'tracking':{'next_id':1,'items':[]}}
         self._takeover=False
         self._sources={}
+        self._intel_gaps=[]
         if record is not None:
             if set(record)!={'version','state'} or record['version']!=self.version:raise ValueError('Unsupported council state')
             data=record.get('state')
@@ -570,9 +571,9 @@ class CouncilService:
         tools.extend(self._tracking_tools())
         if finalize:
             tools.extend([
-                {'type':'function','function':{'name':'council_approve','description':'核实目标推进、情报来源范围时效、攻守判断及追踪事项后批准。无支撑的地图/他国结论不作依据，不替原文补限定圆场。任何承诺缺条件或期限不得过，无条件须明示。无战损或守中立不等于进展；合理备战与有据进攻可过，批准不关闭事项。',
+                {'type':'function','function':{'name':'council_approve','description':'核实目标推进、情报来源、攻守判断及追踪事项后批准。措辞精确、条件齐全、标注未知都不算依据；须从证据推出能打/能守及最坏情形。宣战目标在宣战前没有报表或谍报时不能批准；总量未知且无上界的重大进攻、没买目标国20金报表的不打过。无支撑结论不作依据；批准不关闭事项。',
                               'parameters':{'type':'object','properties':{},'additionalProperties':False}}},
-                {'type':'function','function':{'name':'council_reject','description':'承诺缺条件/期限、战略依据无支撑、攻守判断严重失准或长期停滞缺突破办法，直接打回。能打与不能打同标准，国力总数/固定倍数不代替可投入兵力与规则核算。无需反证隐藏事实、证明故意撒谎或强制开战；reason列原话、证据缺口与下期纠正。',
+                {'type':'function','function':{'name':'council_reject','description':'承诺缺条件/期限、战略依据无支撑、攻守判断严重失准或长期停滞缺突破办法，直接打回。诚实标注未知不等于推出能打；未取得可负担目标国情报（20金报表/谍报）即打回。能打与不能打同标准，国力总数/固定倍数不代替兵力与规则核算。无需反证隐藏事实、证明故意撒谎或强制开战；reason列原话、证据缺口与下期纠正。',
                               'parameters':{'type':'object','properties':{'reason':{'type':'string','minLength':1}},'required':['reason'],'additionalProperties':False}}},
             ])
         if phase_end:
@@ -653,6 +654,10 @@ class CouncilService:
                     elif fn.get('name')=='council_track':data=self._track(**args)
                     elif fn.get('name')=='council_approve' and finalize:
                         if args:raise ValueError('council_approve 不接受参数')
+                        if self._intel_gaps:
+                            raise ValueError('宣战目标缺少宣战前情报：'+'、'.join(self._intel_gaps)+
+                                             '。须先取得该国已公布报表（20金）或已送达谍报；存在该缺口时不能批准，'
+                                             '请改用 council_reject 并在原因中写明补齐要求。')
                         dialogue.append({'role':'tool','tool_call_id':call['id'],'content':encode({'ok':True})})
                         submitted_verdict={'approved':True,'reason':''}
                         continue
@@ -761,6 +766,38 @@ class CouncilService:
         if (capability,method)!=('native:government','plan') or not receipt['ok']:return receipt
         return self._plan_review(player,receipt)
 
+    def _war_intel_gaps(self,period):
+        """本回合宣战目标在宣战前没有取得任何情报的缺口。
+
+        审批不能只靠正文写「未知」「已提交宣战」：这是可由动作记录核验的缺口，
+        引擎据此拒绝批准，迫使议长打回，而不是用措辞放行。
+        """
+        intel={};wars=[]
+        for index,row in enumerate(self.council['archive']):
+            if row.get('kind')!='action':continue
+            receipt=row.get('receipt') or {}
+            if receipt.get('ok') is False:continue
+            action=row.get('action');args=row.get('arguments') or {}
+            target=args.get('target')
+            if not isinstance(target,str) or not target:continue
+            if action in ('buy_report','spy'):
+                intel.setdefault(target,index)
+            elif action=='relations' and args.get('action')=='declare_war':
+                wars.append((index,target,period_of(row)))
+        # 已送达的谍报和更早买过的报表也算已取得：迁移档案可能缺少旧动作行。
+        state=self.council['last_snapshot'] or {}
+        facts=state.get('facts') or {}
+        delivered={message.get('source') for message in facts.get('intel',[])
+                   if isinstance(message,dict) and message.get('kind')=='spy'}
+        earlier={purchase.get('report',{}).get('owner')
+                 for purchase in (facts.get('bank') or {}).get('purchases',[])
+                 if isinstance(purchase,dict) and isinstance(purchase.get('report'),dict)
+                 and isinstance(purchase.get('period'),int) and purchase['period']<period}
+        gaps=[target for index,target,war_period in wars
+              if war_period==period and intel.get(target,index)>=index
+              and target not in delivered and target not in earlier]
+        return sorted(set(gaps))
+
     def _plan_review(self,player,receipt):
         obs_period=receipt['period']
         candidate=receipt['data']['text']
@@ -803,6 +840,7 @@ class CouncilService:
                 item['receipt']={k:query_receipt.get(k) for k in ('ok','status','code','message')}
             trajectory.append(item)
         current_state=evidence_state(self.council['last_snapshot'])
+        self._intel_gaps=self._war_intel_gaps(obs_period)
         self._sources={'current':deepcopy(current_state),
                        'previous':deepcopy((self.council['last_plan'] or {}).get('state_at_submission'))}
         # These aliases change on the next review. Evidence messages survive
@@ -823,6 +861,7 @@ class CouncilService:
                   'current_details_ref':self._sources['current_ref'],
                   'tracking':tracking_view(self.council['tracking']),
                   'archive_range':{'first':self.council['trace_start'],'last':len(self.council['archive'])-1},
+                  'war_intel_gaps':self._intel_gaps,
                   'stage':1,'period':obs_period})
         for index,item in enumerate(evidence['trajectory'],self.council['trace_start']):item['ref']=f'row/{index}'
         prefix=self.ui.text('experimental.review_first')
