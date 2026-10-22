@@ -560,9 +560,88 @@ def _entity_slots(sb, me: str, armies: list[dict]) -> tuple[dict, dict]:
     return slot_of_army, n_of_class
 
 
+def spatial_summary(sb, me: str, grid, mask=None) -> np.ndarray:
+    """★ **有界的空间摘要**（报告 §8.2「地图进入全局推理和价值头」）。
+
+    → `(V.SPATIAL_CELLS, V.SPATIAL_WIDTH)`
+
+    ★★ 为什么需要（报告 §8.2 的原话）：
+      「当前网格只在**候选落点** gather 特征。1×1+3×3 的空间感受野为 3×3；
+        候选互看能整合各候选的局部信息，但**没有可靠通路读取远离所有候选的已知地形**。
+        价值头完全从**实体窗口均值池化**取值，**没有读网格卷积结果**。」
+
+    ★★★ 三条纪律（报告 §8.2 的要求，逐条对着做）：
+      · **数量有界** —— 固定 `K×K` 个格子（**两档尺度**），**与地图大小无关**
+        ⇒ 不是"把整张地图每格塞进全自注意力"（那会把成本变成**地图面积的平方**）；
+      · **带相对位置与可见性标记** —— 每格带它相对**我家核心**的偏移，
+        以及**这一格有多少是看得见的**；
+      · **降采样不许把语义混成"均匀可走"** ——
+        地形那些量**只在看得见的那部分上取平均**（按可见比例加权），
+        看不见的部分**权重为 0** ⇒ 未知区域不会被混进"好走/平"的均值里；
+        而 `vis_frac` 本身就说清了"这一格有多少是未知的"。
+
+    ★ **格子是按世界坐标切的**（不是按视野框）⇒ 同一格**永远是同一片地方**
+      ⇒ 模型能学到"我家东北那一格是山"；而且**尺度固定** ⇒ 语义跨地图大小可比。
+    """
+    w = sb.world
+    n = sb.size
+    mask = _vision(w, me) if mask is None else mask
+    vis = np.zeros((n, n), np.float32)
+    defc = np.zeros((n, n), np.float32)
+    mvc = np.zeros((n, n), np.float32)
+    myhp = np.zeros((n, n), np.float32)
+    foehp = np.zeros((n, n), np.float32)
+    hall = np.zeros((n, n), np.float32)
+    # ★ 把网格的通道**摊回整张地图**（网格只覆盖视野外接框 ⇒ 框外是"未知"）
+    x0, y0, fh, fw = frame_of(sb, me, mask)
+    for i in range(fh):
+        for j in range(fw):
+            x, y = x0 + j, y0 + i
+            if not (0 <= x < n and 0 <= y < n):
+                continue
+            vis[y, x] = grid[V.GRID_VISIBLE, i, j]
+            defc[y, x] = grid[V.GRID_DEFENSE, i, j]
+            mvc[y, x] = grid[V.GRID_MOVE, i, j]
+            myhp[y, x] = grid[V.GRID_MY_HP, i, j]
+            foehp[y, x] = grid[V.GRID_FOE_HP, i, j]
+            hall[y, x] = max(grid[V.GRID_HALL_MINE, i, j],
+                             grid[V.GRID_HALL_ALLY, i, j],
+                             grid[V.GRID_HALL_RIVAL, i, j])
+    hx, hy = _home_cell(sb, me)
+    rows = []
+    for K in V.SPATIAL_SCALES:
+        for ci in range(K):                     # y 方向
+            for cj in range(K):                 # x 方向
+                ya = int(ci * n / K)
+                yb = max(ya + 1, int((ci + 1) * n / K))
+                xa = int(cj * n / K)
+                xb = max(xa + 1, int((cj + 1) * n / K))
+                v = vis[ya:yb, xa:xb]
+                sv = float(v.sum())
+                cnt = float(v.size)
+                cx = (cj + 0.5) * n / K
+                cy = (ci + 0.5) * n / K
+
+                def wmean(arr):
+                    """★ **只对看得见的那部分**加权平均（看不见的权重 0）。"""
+                    return (float((arr[ya:yb, xa:xb] * v).sum()) / sv) if sv > 0 else 0.0
+
+                rows.append([
+                    sv / cnt,                            # ① 看得见的比例（"未知"不许混成"可走"）
+                    wmean(defc),                         # ② 地形减伤（可见部分）
+                    wmean(mvc),                          # ③ 移动代价
+                    wmean(myhp),                         # ④ 我方 hp
+                    wmean(foehp),                        # ⑤ 敌方 hp
+                    float(hall[ya:yb, xa:xb].max()) if v.size else 0.0,   # ⑥ 有没有厅
+                    (cx - hx) / float(n),               # ⑦ 相对位置 dx
+                    (cy - hy) / float(n),               # ⑧ 相对位置 dy
+                ])
+    return np.asarray(rows, np.float32)
+
+
 def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
                   armies: list[dict] | None = None,
-                  known=None) -> tuple[dict, dict, list[dict]]:
+                  known=None, grid=None) -> tuple[dict, dict, list[dict]]:
     """→ `(win, win_mask, armies)`：窗口 token 组 + 掩码 + 军队清单（候选要按行号引用）。
 
     `win["g"]`（1 条，恒亮）= `encode_glob`(14) ⊕ `features.glob_rule_vector()`(11)
@@ -673,10 +752,22 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
             else np.zeros((0, V.K_WIDTH), np.float32))
     assert karr.shape[1] == V.K_WIDTH, f"k token 行宽 {karr.shape[1]} ≠ {V.K_WIDTH}"
 
-    win = {"g": g_row[None, :].astype(np.float32), "a": arr, "k": karr}
+    # ★★ **空间摘要组 `"s"`**（报告 §8.2）：让**价值头**与**候选**都读得到"远处的地形"。
+    #   ★ 放在窗口的**最后** ⇒ 军队段的稳定下标 `x[:, 1:1+n_a]` **原样成立**。
+    #   ★ 网格是**帧**（视野外接框），摘要把它的通道**摊回整张地图**再按世界坐标分格
+    #     ⇒ 框外是"未知"（`vis=0`）⇒ 不会被混成"好走"。
+    s_rows = spatial_summary(sb, me, grid, mask) if grid is not None else None
+    if s_rows is None:
+        s_rows = np.zeros((V.SPATIAL_CELLS, V.SPATIAL_WIDTH), np.float32)
+    assert s_rows.shape == (V.SPATIAL_CELLS, V.SPATIAL_WIDTH), \
+        f"空间摘要行数/宽度 {s_rows.shape} ≠ 约定的 {(V.SPATIAL_CELLS, V.SPATIAL_WIDTH)}"
+
+    win = {"g": g_row[None, :].astype(np.float32), "a": arr, "k": karr,
+           "s": s_rows.astype(np.float32)}
     win_mask = {"g": np.ones(1, bool),
                 "a": np.ones(len(rows), bool),
-                "k": np.ones(len(k_rows), bool)}
+                "k": np.ones(len(k_rows), bool),
+                "s": np.ones(len(s_rows), bool)}
     return win, win_mask, armies
 
 
@@ -812,10 +903,12 @@ def obs_of(sb, me: str, acts=None) -> dict:
     known = sb.known_halls(me, mask)          # ★ 顺带把本帧看见的厅并进记忆（一次）
     armies = window_armies(sb, me, mask)
     frame = combat_of(sb, me, mask, armies)
+    # ★ 网格**先算**（空间摘要要从它摊回整张地图 —— 见 `spatial_summary`）
+    grid = encode_grid(sb, me, mask, known=known, frame=frame)
     win, win_mask, _ = encode_window(sb, me, mask, frame=frame, armies=armies,
-                                     known=known)
+                                     known=known, grid=grid)
     return {
-        "grid": encode_grid(sb, me, mask, known=known, frame=frame),
+        "grid": grid,
         "win": win,
         "win_mask": win_mask,
         "cand": candidate_batch(sb, me, acts, mask, armies=armies, known=known),

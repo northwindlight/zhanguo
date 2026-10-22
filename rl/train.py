@@ -1626,6 +1626,13 @@ def _shape_fingerprint(mem_slots: int = 0) -> dict:
         #   决定它的份量与排名。改它**不改形状**（`K_WIDTH`/`cap` 都没动）
         #   ⇒ 不写进指纹就是**静默**换了输入。
         "k_half_life": int(_wm.HALF_LIFE),
+        # ★★ 2026-10-22（报告 §8.2）：**观测的 token 组**（`"g"/"a"/"k"/"s"`）。
+        #   ★ 加了一组 `"s"`（空间摘要）⇒ **网络结构变了**（多一组投影）⇒
+        #     旧档的 `proj.s` 权重**根本不存在** ⇒ `load_state_dict` 会报
+        #     "unexpected/missing key"（那还算好的，但难懂）。
+        #   ⇒ 写进指纹 ⇒ `_fp_mismatch`（**双向**比对：旧档缺这个键 ⇒ 算对不上）
+        #     ⇒ 给出**可读**的拒绝理由，而不是一个形状错误。
+        "token_groups": "|".join(V.TOKEN_GROUPS),
     }
 
 

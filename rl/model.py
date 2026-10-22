@@ -535,6 +535,8 @@ def build_model(n_grid_ch: int = V.GRID_CHANNELS, mem_slots: int = 0,
         # ★★ `"k"` = **记忆中的敌军**（按番号，见 `vocab.TOKEN_GROUPS` 的注释）。
         #   将来的 `"m"`（潜槽）加在这里一行即可 —— 主干不动（§11「结构留位」）。
         "k": V.K_WIDTH,
+        # ★ "s" = **空间摘要**（报告 §8.2）：有界的多尺度空间摘要
+        "s": V.SPATIAL_WIDTH,
     }
     return PolicyNet(win_widths={g: widths[g] for g in V.TOKEN_GROUPS},
                      n_grid_ch=n_grid_ch, mem_slots=mem_slots, **kw)
