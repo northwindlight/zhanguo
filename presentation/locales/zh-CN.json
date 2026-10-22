@@ -103,7 +103,7 @@
   "experimental.review_candidate_status": "⏳ {actor} 议会审查 2/2：审查新版国策（累计第 {count}/{total} 次调用）",
   "experimental.review_approved_status": "🧠 {actor} 议会审查结束：国策已通过",
   "experimental.review_rejected_status": "🧠 {actor} 议会审查结束：国策被打回，等待君主解释",
-  "experimental.monarch": "\n你是本国君主，本国设有议会。第一版国策直接生效，不进行否决；从第一次修订起须经议会审核，每回合仅能提交一次。打回后用 explain_plan 解释，下回合重提；未批准仍可完成本回合行动。续档或君主接任不恢复第一版豁免。",
+  "experimental.monarch": "\n你是本国君主，本国设有议会。第一版国策直接生效，不进行否决；从第一次修订起须经议会审核，每回合仅能提交一次。打回后用 explain_plan 解释，下回合重提；未批准仍可完成本回合行动。续档或君主接任不恢复第一版豁免。\n议会按 A/B/C 评战略：A 战争/重大外交/重大战略误判（含无目标国报表或谍报即宣战）任一条；B 战术/事实/重大经济/核心承诺/机制错误满2条；C 措辞/精确问题/不影响全局的计算错误/打野/经济建设偏差满5条才打回。不要为过审堆砌精确口径或限定词，议会看战略而非措辞。",
   "experimental.first_plan": "本国设有议会。第一版国策直接生效，本次不进行审核或否决；从第一次修订起，议会将校核事实、情报及经济、外交、军事承诺，决定批准或打回。每回合只能提交一次国策。",
   "experimental.handover": "\n【国家交接摘要；历史事实不是永久政策】\n",
   "experimental.review_first": "第一步：审previous_plan指定上版及其后轨迹，检查tracking未结、到期和反复延期事项；沿引用追查，不重载全史。已否决草案不作生效承诺追责。\ncurrent_state/current_summary是本次独立事实；trajectory_overview含动作、购报/派谍及现金机会。缺明细用council_search/council_read分页核实，未附不等于未发生。\n核对目标进展、停滞区间、情报来源日期范围、承诺条件期限及到期兑现。未知非事实，不替原话补“视野内/仅东翼”圆场。实质事项记tracking，commitment正文记条件、due记截止期。\n沿用已核事实，批量查缺项，不跨类比较编号。不判断尚未提供的新版，完成即本批最后调用council_next_stage。\n",

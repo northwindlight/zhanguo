@@ -286,8 +286,11 @@ class TestCouncilTracking(unittest.TestCase):
                      '诚实与有据是两件事','20 金已公布报表','已如实承认未知','裁决按 A/B/C 评级','满2条打回','满5条打回','未达阈值不得打回'):
             self.assertIn(text,DEFAULT_REQUIREMENTS)
         rating=(Path(__file__).resolve().parents[1]/'mods/experimental/council_rating.md').read_text(encoding='utf-8')
-        for text in ('战争和重大外交误判','重大战略误判','战术错误','核心承诺','机制错误','两条以上（≥2）','至少五条（≥5）','只有达到阈值才能打回'):
+        for text in ('战争和重大外交误判','重大战略误判','战术错误','核心承诺','机制错误','两条以上（≥2）','至少五条（≥5）','只有达到阈值才能打回','没有目标国报表或已送达谍报就直接宣战'):
             self.assertIn(text,rating)
+        self.assertIn('议会看战略',service.ui.text('experimental.monarch'))
+        plan=next(s for s in host.player(self.actor).actions() if s['function']['name']=='plan')
+        self.assertIn('议会按 A/B/C 评级看战略',plan['function']['description'])
         self.assertIn('完整性',service.ui.text('experimental.review_second'))
         self.assertIn('反复延期',service.ui.text('experimental.review_first'))
 
