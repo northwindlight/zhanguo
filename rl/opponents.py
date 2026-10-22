@@ -40,6 +40,10 @@ class Opponent:
 
     kind = "?"
     frozen = True
+    # ★★ **口径版本号**（2026-10-22，报告 §7.2）：
+    #   口径一改，这个对手的**行为就变了** ⇒ 旧胜率曲线 / 旧 checkpoint
+    #   **不能**与新的混用（"不得改得更强还沿用旧名字"）⇒ 版本号进训练日志。
+    version = 1
 
     # ★★★ 2026-09-29：**统一签名** —— `train()` 一律用 `make(kind, k=..., seed=...)` 调。
     #   我第一版没统一（`ScorerGreedy` 收 `k`、`RandomOpp` 只收 `seed`）
@@ -63,9 +67,21 @@ class ScorerGreedy(Opponent):
 
     ★ 骨架由调用方给（用户 2026-09-29：「就正常的 L0，但是不学」）——
       本类**只管怎么挑动作**，不管权重从哪来。
+
+    ★★ **口径版本 2**（2026-10-22，报告 §7.2）：
+      版本 1 把 `hold` 记成 **0**，其余候选记**绝对分** `_score(trial, me)` ——
+      ⇒ **两个量纲混着比**：当前局面分 100、某个 move 之后 99 时，
+      `hold`(0) 与 `move`(99) 比 ⇒ **选了那个让局面变差的 move**。
+      （注释里写的"相对基准"是**假的**：别的是绝对分，不是增量。）
+      ⇒ 版本 2 统一成「**动作后的绝对评分**」：
+        · `hold`（不改局面）⇒ 动作后的分 = **现在的分**；
+        · 其余候选 ⇒ 动作后的分 = `_score(trial, me)`。
+      ⇒ 两个量纲一致，"不动"与"动"才可比。
+      ⇒ **行为变了** ⇒ 旧的胜率曲线 / checkpoint **不再可比**（版本号进日志）。
     """
 
     kind = "scorer_greedy"
+    version = 2
 
     def act(self, sb, me: str, acts: list, probs: np.ndarray) -> int:
         # ★ 局部 import：`train` 会 import 本模块 ⇒ 顶层 import 会成环。
@@ -75,13 +91,17 @@ class ScorerGreedy(Opponent):
         k = max(1, min(self.k, len(acts)))
         order = np.argsort(-np.asarray(probs, dtype=float))[:k]
         best_i = int(order[0])
-        # ★ `hold` 不改局面 ⇒ `Δscore ≡ 0`，**不用克隆**（省一次 deepcopy）。
-        #   其余候选各克隆一次算"走完之后打多少分"。
+        # ★ `hold` 不改局面 ⇒ 它的"动作后绝对评分" = **现在的分**。
+        #   ★ 懒算：短名单里若一个 `hold` 都没有，就不必算（省一次 `_score`）。
+        #   ★ 其余候选各克隆一次算"走完之后打多少分"。
         best_v = None
+        base = None
         for i in order:
             i = int(i)
             if acts[i][1] == "hold":
-                v = 0.0                              # 相对基准：不动 = 0，够比较了
+                if base is None:
+                    base = float(_score(sb, me))
+                v = base                          # ★ 与其余候选**同一个量纲**
             else:
                 trial = sb.clone()
                 ok, _msg = trial.step(acts[i])

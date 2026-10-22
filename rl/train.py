@@ -93,6 +93,12 @@ class Step:
     # ★★ 该玩家本局的**最终结果**（+1 / −1 / −0.5）；**只在** `terminal` 那一步上有值。
     #   ★ 没有结果 ⇒ `None`（还没定：局没打完，且他的实体还没出局）。
     outcome: float | None = None
+    # ★★ **采样时的有效温度**（2026-10-22，报告 §7.1）。
+    #   ★ 温度会改变**行为分布** ⇒ 它是**样本的一部分**（不只是运行参数）：
+    #     别的进程/别的 iter 拿这批样本时，必须知道它是用什么温度采的。
+    #   ★ 同时保证「采样、保存的 logp、PPO 重算」三处**同一口径**
+    #     （`_tempered_probs` / `_ppo_logprobs`）。
+    temperature: float = 1.0
 
 
 def obs_of(sb, me: str, acts=None) -> dict:
@@ -102,6 +108,39 @@ def obs_of(sb, me: str, acts=None) -> dict:
       （旧版这里有一份复刻，shape 一改就得改两处）。
     """
     return encode.obs_of(sb, me, acts)
+
+
+# ================================================================ ★ 温度口径
+def _tempered_probs(logits, temperature: float = 1.0):
+    """**温度后的行为分布**（= `softmax(logits / T)`）。
+
+    ★★★ 2026-10-22（报告 §7.1）：真正的病灶**不是**"温度公式不对"，而是
+      **三处口径不一致**：
+        · 采样用的是**温度后**的分布（`probs ** (1/T)` 归一化）；
+        · **存下来的 logp** 却来自**原始** `softmax(logits)`；
+        · PPO 更新时又按**未除温度**的 logits 重算。
+      ⇒ `ratio = exp(new_logp - old_logp)` 比的是**两个不同分布** ⇒ 比值无意义。
+    ★ 顺带记一条**容易搞混的事实**（我第一版也搞错了）：
+      `softmax(logits) ** (1/T)` 归一化后 **≡** `softmax(logits / T)`
+      （都 ∝ `exp(x_i / T)`）⇒ 旧采样式子**本身没错**，
+      错的是**拿原始 softmax 的 logp 去当行为分布的 logp**。
+    ★ 现在这一个函数是**唯一定义**（`_ppo_logprobs` 也走它）⇒ 三处必然一致。
+    """
+    t = max(1e-6, float(temperature))
+    if abs(t - 1.0) < 1e-12:
+        return torch.softmax(logits, -1)
+    return torch.softmax(logits / t, -1)
+
+
+def _ppo_logprobs(logits, temperature: float = 1.0):
+    """PPO 重算的 `log_softmax`（**与收集时同一份温度口径**）。
+
+    ★ 熵那条也用同一份分布（`softmax(logits/T)`）—— 混用会让"熵"变成
+      另一个分布的熵，而 `ent_coef` 是按**策略分布**调的。
+    """
+    t = max(1e-6, float(temperature))
+    lg = logits if abs(t - 1.0) < 1e-12 else logits / t
+    return torch.log_softmax(lg, -1)
 
 
 # ================================================================ 批次拼装
@@ -329,7 +368,7 @@ def collect_episode(nets: dict, sb: Sandbox, *,
         #   ★ 关键：**采样、保存的 logp、PPO 重算的 logp 必须用同一个分布**，
         #     否则 `ratio = exp(new_logp - old_logp)` 比的是两个不同分布 ⇒ 比值无意义。
         #   ⇒ 这里统一走 `_tempered_probs`，PPO 那侧走同一个函数（见 `_ppo_logprobs`）。
-        probs = torch.softmax(logits, -1)
+        probs = _tempered_probs(logits, temperature)
         # ★ GPU 上必须 `.detach().cpu()` 再 `.numpy()`（直接 `.numpy()` 会抛
         #   "can't convert cuda tensor to numpy"）；CPU 上这两步是白给。
         probs = probs.detach().cpu().numpy()
@@ -343,9 +382,7 @@ def collect_episode(nets: dict, sb: Sandbox, *,
         elif greedy:
             aidx = int(np.argmax(probs))
         else:
-            p = np.power(probs, 1.0 / max(1e-6, temperature))
-            p = p / p.sum()
-            aidx = int(rng.choice(len(p), p=p))
+            aidx = int(rng.choice(len(probs), p=probs))
         logp = float(np.log(max(1e-12, probs[aidx])))
 
         act = actions[aidx]
@@ -363,7 +400,8 @@ def collect_episode(nets: dict, sb: Sandbox, *,
                            frozen=_opp is not None,
                            mem_in=mem_in,
                            episode_id=episode_id,
-                           member=(member_of or {}).get(me)))
+                           member=(member_of or {}).get(me),
+                           temperature=temperature))
         if max_steps is not None and len(steps) >= max_steps:
             break
     # ★★★ **逐玩家收尾**（2026-10-22）：给每一位有轨迹的玩家落下边界与最终结果。
@@ -497,13 +535,11 @@ def collect_episodes_batched(nets: dict, sandboxes: list, *,
                 if memory_on:
                     mem[keys[k]] = outs[k].detach().clone()   # ★ 出来再 clone（同原版）
                 lg = logits[k]
-                probs = torch.softmax(lg, -1).detach().cpu().numpy()
+                probs = _tempered_probs(lg, temperature).detach().cpu().numpy()
                 if greedy:
                     aidx = int(np.argmax(probs))
                 else:
-                    p = np.power(probs, 1.0 / max(1e-6, temperature))
-                    p = p / p.sum()
-                    aidx = int(rngs[i].choice(len(p), p=p))
+                    aidx = int(rngs[i].choice(len(probs), p=probs))
                 logp = float(np.log(max(1e-12, probs[aidx])))
                 sb = sandboxes[i]
                 act = actions[aidx]
@@ -514,7 +550,8 @@ def collect_episodes_batched(nets: dict, sandboxes: list, *,
                 stepss[i].append(Step(obs, aidx, logp, float(value[k]), rew, done,
                                       me, mem_in=mem_ins[k],
                                       episode_id=(episode_ids[i] if episode_ids else 0),
-                                      member=(member_of or {}).get(me)))
+                                      member=(member_of or {}).get(me),
+                                      temperature=temperature))
                 if max_steps is not None and len(stepss[i]) >= max_steps:
                     finished[i] = True
 
@@ -705,6 +742,94 @@ def _settle_episode(sb: Sandbox, steps: list[Step], *,
             "terminal": terminal, "truncated": truncated}
 
 
+# ================================================================ ★ 对账
+def _reconcile(buf: dict, infos: list[dict], cut_infos: list[dict],
+                *, sb_stats: dict | None = None) -> dict:
+    """★ **日志与真实数据对账**（2026-10-22，报告 §7.3）。
+
+    ★ 每一项都**从训练样本直接汇总** ⇒ 日志不是"另算一遍"，而是"同一份数据"
+      —— 否则"日志说赢了多少"与"样本里真的有什么"就会慢慢分家，而**不报错**。
+
+    汇总的口径：
+      · **逐玩家**：样本数、轨迹段数、自然结束/采集截断的段数、终局分量之和、奖励之和；
+      · **非零奖励比例**（`SHAPING=False` 时，奖励只可能来自终局 ⇒ 这条能直接
+        看出"有多少局真的把结果送进了样本"）；
+      · **episode 边界完整性**：每一段轨迹的**最后一步**必须带 `done`（否则 GAE 会串）；
+      · **截断自举**：来源、范围（最小/最大）、对应玩家；
+      · **候选数分布**（每个决策点的候选行数）。
+    """
+    out: dict = {"games": len(infos) + len(cut_infos),
+                 "finished": len(infos), "cut": len(cut_infos),
+                 "per_member": {}, "samples": 0, "segments": 0,
+                 "nonzero_reward": 0, "boundary_missing": 0,
+                 "boots": [], "cand_n": []}
+    for mi, ss in buf.items():
+        d = out["per_member"].setdefault(
+            mi, {"samples": 0, "segments": 0, "natural_ends": 0, "cut_ends": 0,
+                 "outcome_sum": 0.0, "reward_sum": 0.0})
+        d["samples"] += len(ss)
+        out["samples"] += len(ss)
+        segs: dict = {}
+        for s in ss:
+            if s.reward != 0.0:
+                out["nonzero_reward"] += 1
+            d["reward_sum"] += s.reward
+            if s.outcome is not None:
+                d["outcome_sum"] += s.outcome
+            segs.setdefault((s.episode_id, s.player, s.member), []).append(s)
+            if s.boot is not None:
+                out["boots"].append((mi, s.player, float(s.boot)))
+            try:
+                out["cand_n"].append(int(s.obs["cand"]["type_idx"].shape[0]))
+            except Exception:                              # noqa: BLE001
+                pass
+        d["segments"] += len(segs)
+        out["segments"] += len(segs)
+        for _k, seg in segs.items():
+            if not seg[-1].done:
+                out["boundary_missing"] += 1
+            if seg[-1].boot is None:
+                d["natural_ends"] += 1
+            else:
+                d["cut_ends"] += 1
+    # ---- 逐席位的胜负（**分母要一起报**，否则高平局率会被藏起来）----
+    seat: dict = {}
+    for info in infos:
+        for p, oc in (info.get("outcomes") or {}).items():
+            s = seat.setdefault(p, {"win": 0, "loss": 0, "draw": 0, "undecided": 0})
+            if oc is None:
+                s["undecided"] += 1
+            elif oc > 0:
+                s["win"] += 1
+            elif oc < 0:
+                s["loss"] += 1
+            else:
+                s["draw"] += 1
+    out["seat"] = seat
+    if sb_stats:
+        out.update(sb_stats)
+    return out
+
+
+def _reconcile_line(rc: dict) -> str:
+    """把对账结果压成**一行**（训练日志用）。"""
+    n = max(1, rc["samples"])
+    bs = [b[2] for b in rc["boots"]]
+    cn = rc["cand_n"]
+    seat = rc.get("seat") or {}
+    seat_s = " ".join(
+        f"{p}:{v['win']}胜{v['loss']}负{v['draw']}平" for p, v in sorted(seat.items()))
+    return (f"局{rc['games']}(完{rc['finished']}/截{rc['cut']}) "
+            f"样本{rc['samples']} 段{rc['segments']} "
+            f"非零奖励{rc['nonzero_reward']}/{n}({rc['nonzero_reward'] / n:.0%}) "
+            f"边界缺{rc['boundary_missing']} "
+            f"自举{len(bs)}"
+            + (f"[{min(bs):.3g},{max(bs):.3g}]" if bs else "")
+            + (f" 候选{sum(cn) / max(1, len(cn)):.1f}" if cn else "")
+            + (f" 重复候选{rc.get('dup_candidates', 0)}" if "dup_candidates" in rc else "")
+            + (f" 动作被拒{rc.get('rejected', 0)}" if "rejected" in rc else "")
+            + (f" | {seat_s}" if seat_s else ""))
+
 
 # ================================================================ ② PPO
 def gae(rewards: list[float], values: list[float], dones: list[bool],
@@ -840,7 +965,8 @@ def _adam_for(net, lr: float) -> "torch.optim.Adam":
 
 def _ppo_update_mem(net: PolicyNet, steps: list[Step], *, epochs: int, clip: float,
                     vf_coef: float, ent_coef: float, lr: float, minibatch: int,
-                    device: str, tbptt: int, log=print) -> dict:
+                    device: str, tbptt: int, temperature: float = 1.0,
+                    log=print) -> dict:
     """**带潜槽**的 PPO 更新（TBPTT）—— `ppo_update` 在 `mem_in` 非空时走这里。
 
     与无记忆版的三处**根本差别**（都是"记忆"这件事逼出来的）：
@@ -879,7 +1005,9 @@ def _ppo_update_mem(net: PolicyNet, steps: list[Step], *, epochs: int, clip: flo
     d = None if device in (None, "cpu") else device
     # ★ 一次并行几个窗（每个窗占一行）⇒ 一次前向的 batch ≈ minibatch
     nwin = max(1, int(minibatch) // max(1, int(tbptt)))
-    stats: dict = {}
+    # ★★ 统计**按明确范围汇总**（同 `ppo_update`：不是"最后一个 minibatch"的快照）
+    acc: dict[str, float] = {}
+    cnt = 0
     for _ in range(max(1, int(epochs))):
         perm = np.random.permutation(len(wins))
         for lo in range(0, len(wins), nwin):
@@ -902,12 +1030,12 @@ def _ppo_update_mem(net: PolicyNet, steps: list[Step], *, epochs: int, clip: flo
                 old_logp = torch.as_tensor(old_logp_all[idx], device=d)
                 adv_t = torch.as_tensor(adv_all[idx], device=d)
                 ret_t = torch.as_tensor(ret_all[idx], device=d)
-                logp_all = torch.log_softmax(logits, -1)
+                logp_all = _ppo_logprobs(logits, temperature)
                 logp = logp_all.gather(1, aidx.unsqueeze(1)).squeeze(1)
                 ratio = torch.exp(logp - old_logp)
                 surr = torch.min(ratio * adv_t,
                                  torch.clamp(ratio, 1 - clip, 1 + clip) * adv_t)
-                p = torch.softmax(logits, -1)
+                p = _tempered_probs(logits, temperature)
                 ent = -(p * logp_all).sum(-1).mean()
                 loss = (-surr.mean() + vf_coef * nn.functional.mse_loss(value, ret_t)
                         - ent_coef * ent)
@@ -920,22 +1048,30 @@ def _ppo_update_mem(net: PolicyNet, steps: list[Step], *, epochs: int, clip: flo
                     loss = loss + S.MEM_AUX_COEF * net.mem_aux_loss(
                         newmem[[k for k, _ in ar]], tgt)
                 total = loss if total is None else total + loss
-                stats = {"loss": float(loss.detach()), "pg": float(-surr.mean().detach()),
-                         "vf": float(nn.functional.mse_loss(value, ret_t).detach()),
-                         "ent": float(ent.detach()),
-                         "kl": float((old_logp - logp).mean().detach())}
+                cnt += 1
+                for k, v in (("loss", float(loss.detach())),
+                             ("pg", float(-surr.mean().detach())),
+                             ("vf", float(nn.functional.mse_loss(value, ret_t).detach())),
+                             ("ent", float(ent.detach())),
+                             ("kl", float((old_logp - logp).mean().detach()))):
+                    acc[k] = acc.get(k, 0.0) + v
             if total is None:
                 continue
             total.backward()
             nn.utils.clip_grad_norm_(net.parameters(), 0.5)
             opt.step()
+    if not cnt:
+        return {}
+    stats = {k: v / cnt for k, v in acc.items()}
+    stats["minibatches"] = cnt
     return stats
 
 
 def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
                clip: float = 0.2, vf_coef: float = 0.5, ent_coef: float = 0.01,
                lr: float = 3e-4, minibatch: int | None = None,
-               device: str = "cpu", tbptt: int = S.MEM_TBPTT) -> dict:
+               device: str = "cpu", tbptt: int = S.MEM_TBPTT,
+               temperature: float = 1.0) -> dict:
     """标准 PPO clip 更新（**只喂这一方的步**）。
 
     ★★ **必须分 minibatch**（`scoring.PPO_MINIBATCH`，缺省 128）—— 这是踩出来的：
@@ -951,7 +1087,8 @@ def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
     if any(s.mem_in is not None for s in steps):
         return _ppo_update_mem(net, steps, epochs=epochs, clip=clip,
                                vf_coef=vf_coef, ent_coef=ent_coef, lr=lr,
-                               minibatch=minibatch, device=device, tbptt=tbptt)
+                               minibatch=minibatch, device=device, tbptt=tbptt,
+                               temperature=temperature)
     n = len(steps)
     aidx_all = np.array([s.aidx for s in steps], dtype=np.int64)
     old_logp_all = np.array([s.logp for s in steps], dtype=np.float32)
@@ -964,26 +1101,36 @@ def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
     ret_all = np.asarray(ret, dtype=np.float32)
 
     opt = _adam_for(net, lr)
-    stats: dict = {}
+    # ★★ **统计按明确范围汇总**（2026-10-22，报告 §7.3）：
+    #   原来 `stats` 是**循环末次**的快照 ⇒ 报出来的是"最后一个 minibatch"的值，
+    #   却被当成"整个 iter 的均值"看 ⇒ **跨 iter 比较会骗人**（噪声一大一小）。
+    #   ⇒ 现在累计**全部 minibatch × 全部 epoch** 的和与计数，最后取均值。
+    acc: dict[str, float] = {}
+    cnt = 0
     order = np.arange(n)
     for _ in range(epochs):
         np.random.shuffle(order)
         for lo in range(0, n, minibatch):
             sel = order[lo:lo + minibatch]
+            # ★ **按 minibatch collate**（不是先 collate 全部再切）—— 大 batch 的补零
+            #   张量本身就是一笔大分配，切完再切就白付了
             obs = [steps[i].obs for i in sel]
             batch = to_dev(collate(obs), device)
+            # ★ 标签也要上同一台设备 —— 只在 GPU 上才有区别，CPU 上是空操作
             d = None if device in (None, "cpu") else device
             aidx = torch.as_tensor(aidx_all[sel], device=d)
             old_logp = torch.as_tensor(old_logp_all[sel], device=d)
             adv_t = torch.as_tensor(adv_all[sel], device=d)
             ret_t = torch.as_tensor(ret_all[sel], device=d)
             logits, value = net(batch)
-            logp_all = torch.log_softmax(logits, -1)
+            # ★★ **同一份温度口径**（与收集时一致）—— 不一致的话
+            #   `ratio = exp(new_logp - old_logp)` 比的是两个不同分布。
+            logp_all = _ppo_logprobs(logits, temperature)
             logp = logp_all.gather(1, aidx.unsqueeze(1)).squeeze(1)
             ratio = torch.exp(logp - old_logp)
             surr = torch.min(ratio * adv_t,
                              torch.clamp(ratio, 1 - clip, 1 + clip) * adv_t)
-            p = torch.softmax(logits, -1)
+            p = _tempered_probs(logits, temperature)
             ent = -(p * logp_all).sum(-1).mean()
             loss = (-surr.mean() + vf_coef * nn.functional.mse_loss(value, ret_t)
                     - ent_coef * ent)
@@ -991,10 +1138,17 @@ def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
             loss.backward()
             nn.utils.clip_grad_norm_(net.parameters(), 0.5)
             opt.step()
-            stats = {"loss": float(loss.detach()), "pg": float(-surr.mean().detach()),
-                     "vf": float(nn.functional.mse_loss(value, ret_t).detach()),
-                     "ent": float(ent.detach()),
-                     "kl": float((old_logp - logp).mean().detach())}
+            cnt += 1
+            for k, v in (("loss", float(loss.detach())),
+                         ("pg", float(-surr.mean().detach())),
+                         ("vf", float(nn.functional.mse_loss(value, ret_t).detach())),
+                         ("ent", float(ent.detach())),
+                         ("kl", float((old_logp - logp).mean().detach()))):
+                acc[k] = acc.get(k, 0.0) + v
+    if not cnt:
+        return {}
+    stats = {k: v / cnt for k, v in acc.items()}
+    stats["minibatches"] = cnt
     return stats
 
 
@@ -1106,6 +1260,13 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         f"{'＋库已读回' if had else '（新库）'}"
         f" —— 每局按 `n_nations_for(边长)` **随机抽 k 份不重复**上场"
         + (f"；库 → {league_db}（SQLite/WAL）" if league_db else "；★ **库不落盘**"))
+    # ★★ **有效温度**（2026-10-22，报告 §7.1）：它决定**行为分布** ⇒ 是配置的一部分，
+    #   必须打出来（否则"非 1 温度下的曲线"没法与别的 iter 比较）。
+    #   ★ 采样、保存的 logp、PPO 重算的 logp **三处同一口径**（`_tempered_probs` /
+    #     `_ppo_logprobs`）⇒ 更新前 `ratio == 1`。
+    log(f"★ 温度 **{temperature:g}**"
+        + ("（= 1，行为分布 = 原始 softmax）" if abs(temperature - 1.0) < 1e-12
+           else "（★ 非 1：**采样/存 logp/PPO 重算**三处同一分布）"))
     if worker_tag:
         log(f"★ 在训成员的 mid 带 worker 身份：**{mids[0]} … {mids[-1]}**"
             f"（★ 多 worker 共用一个库时，这就是「谁是谁」的唯一依据 —— 见 `_worker_tag`）")
@@ -1160,7 +1321,9 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         opp = _OPP.make(opponent, k=opponent_k)
         log(f"★ 差生权重指纹（训前）= **{_param_digest(opp_net)}**")
         mid_opp = f"<{opponent}>"
-        log(f"★★ **对手池模式**：{opponent}（k={opponent_k}）· 骨架 = {_src} 的第 {_k0} 份"
+        log(f"★★ **对手池模式**：{opponent}（k={opponent_k}）"
+            f"**口径 v{_OPP.make(opponent, k=opponent_k).version}**"
+            f"· 骨架 = {_src} 的第 {_k0} 份"
             f"（mem_slots={_ms}）· **冻结不学**（不进梯度/不进 buf/不记战绩）")
         log(f"★ 席位：**每局 1 个我方 + 1 个差生**；我方**按局号交替**"
             f"（{mids}）⇒ 每个成员拿正好一半")
@@ -1184,6 +1347,9 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         #   会把没上场的也算进去，而日志/守卫都靠这个集合对账。
         played: set[str] = set()
         infos = []
+        cut_infos: list[dict] = []        # ★ 截断局也要留着（对账用，报告 §7.3）
+        sb_dup = 0                        # ★ 沙盒侧的对账计数（重复候选 / 动作被拒）
+        sb_rej = 0
         budget = int(max_steps) if max_steps else 0     # ★ 本 iter 的**步数预算**（内存闸）
         n_cut = 0
         for e in range(episodes_per_iter):
@@ -1241,6 +1407,9 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                                           opponents=opp_of,
                                           episode_id=it * episodes_per_iter + e,
                                           member_of=mid_of)
+            # ★ 对账计数（报告 §7.3）：**在产生它们的地方**收，不在别处另算
+            sb_dup += int(getattr(sb, "n_dup_candidates", 0))
+            sb_rej += int(getattr(sb, "n_rejected", 0))
             if max_steps:
                 budget -= len(steps)
             if info.get("truncated"):
@@ -1249,6 +1418,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                 #   ★ 但要**数出来**并进日志：大图早期局局截断会变成常态，
                 #     不报的话"池子一直没有战绩"这件事会**静默**。
                 n_cut += 1
+                cut_infos.append(info)         # ★ 截断局也要能对账
             else:
                 infos.append(info)
                 # ★ 战绩记到**每个上场的成员**头上（用户：「标记每个 pt 的胜率」）——
@@ -1305,7 +1475,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                     q.requires_grad_(True)
             lg.mark_hot(mi)                  # ★ 学之前就钉住：冻之前不许被逐出
             st[mi] = ppo_update(net_obj, ss, lr=lr, device=device,
-                                minibatch=mb, **pk)
+                                minibatch=mb, temperature=temperature, **pk)
             if league_snapshot_every and it % league_snapshot_every == 0:
                 lg.freeze_trained(net_obj, mi, it)      # ★ 学一个增一个
             if not live:                     # 归位（下次抽到它仍是"当对手"的推理态）
@@ -1342,6 +1512,16 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         played_s = sorted(played)
         log(f"[{it:4d}] 局数{len(infos)}{cut} 胜场{win_by} 先手胜{nf} 平均回合{tstr} "
             f"| 上场 {played_s} | 网络 {live}")
+        # ★★ **对账行**（2026-10-22，报告 §7.3）：日志里的数**从训练样本直接汇总**，
+        #   不是另算一遍 ⇒ 两者分家时这里立刻能看出来。
+        #   ★ 胜率的**分母**一并报出（局数/完/截断 + 逐席位胜负）——
+        #     只报"有胜负的局"里的胜率会把**高平局率**藏起来。
+        try:
+            _rc = _reconcile(buf, infos, cut_infos,
+                              sb_stats={"dup_candidates": sb_dup, "rejected": sb_rej})
+            log(f"  · 对账 {_reconcile_line(_rc)}")
+        except Exception as _e:                          # noqa: BLE001
+            log(f"  · 对账失败（**不影响训练**）：{_e!r}")
         # ---- ★ 联赛池：淘汰 / 账本落盘 ----
         #  ★ 淘汰**每 iter 都做**，不是"每 N iter 做一次" —— 淘汰规则靠的是
         #    战绩累积，漏做一次不会有症状，但账本会慢慢和现实对不上。
