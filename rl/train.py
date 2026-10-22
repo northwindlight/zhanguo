@@ -78,6 +78,21 @@ class Step:
     #     用在**损失的目标**上；但它**一个字都不许进观测**（那是真玩家不可能有的情报）。
     #   ★ `None` ⇒ 这一方在这局里**没机会**再观测一次（最后一步）⇒ 这项跳过。
     aux: "np.ndarray | None" = None
+    # ★★★ **轨迹身份**（2026-10-22）：`(episode_id, player, member)` 三件套。
+    #   ★ 以前"一段轨迹"是靠**扁平数组里恰好相邻** + `done` 标志推出来的 ——
+    #     而 `done` 以前只标在"**触发终局的那一步**"上 ⇒ 别的一方的最后一步
+    #     **没有边界** ⇒ GAE 会把上一段（或下一段）的优势带过来（`rl/PLAN.md` 没记过）。
+    #   ⇒ 现在**显式**标出"同一局、同一玩家、同一控制者"，
+    #     GAE 与 TBPTT 窗口都按它切段（`gae_segments` / `_mem_windows`）。
+    episode_id: int = 0
+    member: str | None = None
+    # ★★ 这一步是不是**该玩家本局的最后一步**（= 他自己那条轨迹的边界）。
+    #   ★ 与 `done` 的区别：`done` 是**段边界**（递归到此为止），
+    #     `terminal` 是"这一步带最终结果"。
+    terminal: bool = False
+    # ★★ 该玩家本局的**最终结果**（+1 / −1 / −0.5）；**只在** `terminal` 那一步上有值。
+    #   ★ 没有结果 ⇒ `None`（还没定：局没打完，且他的实体还没出局）。
+    outcome: float | None = None
 
 
 def obs_of(sb, me: str, acts=None) -> dict:
@@ -232,7 +247,9 @@ def collect_episode(nets: dict, sb: Sandbox, *,
                     temperature: float = 1.0, rng: np.random.Generator | None = None,
                     greedy: bool = False, max_steps: int | None = None,
                     device: str = "cpu",
-                    opponents: dict | None = None) -> tuple[list[Step], dict]:
+                    opponents: dict | None = None,
+                    episode_id: int = 0,
+                    member_of: dict | None = None) -> tuple[list[Step], dict]:
     """一局自对弈。返回 `(步列表, 概要)`。步列表里每步记着**是哪一方的**。
 
     ★★ `nets` 是**按槽位编号**的网络表 `{槽位: PolicyNet}`（用户 2026-09-25：
@@ -307,9 +324,15 @@ def collect_episode(nets: dict, sb: Sandbox, *,
             with torch.inference_mode():
                 logits, value = net(batch)
         logits = logits[0]
+        # ★★ **温度作用在 logits 上**（2026-10-22）：以前是"先 softmax、再对**概率**开方"
+        #   （`probs ** (1/T)`）—— 那是**另一个分布**，和"对 logits 除以 T"不等价。
+        #   ★ 关键：**采样、保存的 logp、PPO 重算的 logp 必须用同一个分布**，
+        #     否则 `ratio = exp(new_logp - old_logp)` 比的是两个不同分布 ⇒ 比值无意义。
+        #   ⇒ 这里统一走 `_tempered_probs`，PPO 那侧走同一个函数（见 `_ppo_logprobs`）。
+        probs = torch.softmax(logits, -1)
         # ★ GPU 上必须 `.detach().cpu()` 再 `.numpy()`（直接 `.numpy()` 会抛
         #   "can't convert cuda tensor to numpy"）；CPU 上这两步是白给。
-        probs = torch.softmax(logits, -1).detach().cpu().numpy()
+        probs = probs.detach().cpu().numpy()
         # ★★ **对手席位**（`rl/opponents.py`）：拦在采样之前 —— 它拿 `probs` 当短名单，
         #   再**用打分器**在短名单里挑（用户 2026-09-29：「贪心稻草人」）。
         #   ★ 为什么必须在前向之后：短名单来自**它自己的网**，而挑选用**沙盒 + 候选表**
@@ -326,38 +349,40 @@ def collect_episode(nets: dict, sb: Sandbox, *,
         logp = float(np.log(max(1e-12, probs[aidx])))
 
         act = actions[aidx]
-        prev_score = _score(sb, me)
+        # ★★ **`SHAPING=False` 时根本不调 `_score`**（2026-10-22）：
+        #   势函数差分关着 ⇒ `prev_score` 没人用 ⇒ 调它**纯属浪费**
+        #   （`_score` 要算视野掩码 + 整幅打分，**每步一次**，是大头之一）。
+        #   ★ 而且这让「截断自举不许碰势函数」这条**可以被机器验证**
+        #     （把 `_score` 打成禁止调用，截断仍然正确跑完 —— 见
+        #     `tests/test_rl_truncate_bootstrap.py::test_score_does_not_affect_the_bootstrap`）。
+        prev_score = _score(sb, me) if S.SHAPING else 0.0
         sb.step(act)
         done = sb.is_terminal()
         rew = _reward(sb, me, prev_score, done)
         steps.append(Step(obs, aidx, logp, float(value[0]), rew, done, me,
                            frozen=_opp is not None,
-                          mem_in=mem_in))
+                           mem_in=mem_in,
+                           episode_id=episode_id,
+                           member=(member_of or {}).get(me)))
         if max_steps is not None and len(steps) >= max_steps:
             break
-    truncated = not sb.is_terminal()
-    if truncated and steps:
-        # ★★ 截断 ⇒ 最后一步**当成边界**（`done=True`）—— 见上面 docstring 里那条。
-        # ★★ 并且给它一个**自举值**：**不能用 0** —— 0 等于宣称"这个局面一文不值"，
-        #   而 `Φ` 明明说它值那么多；截断在这套配置下是常态 ⇒ critic 会被持续教成
-        #   V≈0 ⇒ 优势退化成"当步的势函数差分" ⇒ **策略变近视**。
-        #
-        # ★★★ **但必须跟奖励同一个单位**（2026-09-25 二次修；用户拍"只做 1"）：
-        #   每步奖励是 `tanh(ΔΦ / REWARD_TANH_SCALE)`，小 ΔΦ 下 `r ≈ ΔΦ / 200`
-        #   ⇒ **奖励的单位是 `Φ/200`** ⇒ 势函数整形下 `V ≈ Φ/200`（几十的量级）。
-        #   ★ 而自举灌进去的是**原始 Φ**（10³）⇒ 比奖励单位**大 200 倍**。
-        #     实测：`vf` 常年上千（`+7269` / `+8898`），而同时刻别的网络的 `vf` 是
-        #     `+0.01` —— 那 200 倍就是"critic 从 ~0 起步去够 10³ 的目标"。
-        #   ⇒ 现在按奖励单位自举。★ 不变的是**意图**（"用当时的势，不用 0"），
-        #     变的只是**单位** —— 这两个是不同的错，别混。
-        boot = float(_score(sb, steps[-1].player)) / S.REWARD_TANH_SCALE
-        steps[-1] = replace(steps[-1], done=True, boot=boot)
+    # ★★★ **逐玩家收尾**（2026-10-22）：给每一位有轨迹的玩家落下边界与最终结果。
+    #   ★ 以前只有"触发终局的那一步"带着 ±1 ⇒ 别的人**没拿到结果**，
+    #     而且他们的最后一步**没有边界** ⇒ GAE 跨段串味。
+    settled = _settle_episode(sb, steps, nets=nets, mem=mem, device=device)
+    truncated = settled["truncated"]
     info = {"turns": sb.turn, "winner": sb.winner(),          # ★ **实体标签**（联盟/单国）
             "winner_members": sb.winner_members(),        # ★ 胜方实体里的国家名单
             "truncated": truncated,                       # ★ 没打完（步数预算截断）
             "first": sb.first,
             "players": tuple(sb.players),                 # ★ 这一局有几个国家（统计用）
-            "reward": {n: sb.reward(n) for n in sb.players}}
+            "reward": {n: sb.reward(n) for n in sb.players},
+            # ★ **逐玩家的最终结果**（与 `reward` 同一口径，但只给"已定"的）：
+            #   `None` = 还没定（局被截断，且他的实体还没出局）。
+            "outcomes": settled["outcomes"],
+            # ★ 这一局里**没有动作轨迹**的玩家（记原因，不捏造样本）。
+            "no_traj": tuple(settled["no_traj"]),
+            "episode_id": episode_id}
     return steps, info
 
 
@@ -366,7 +391,9 @@ def collect_episodes_batched(nets: dict, sandboxes: list, *,
                              temperature: float = 1.0, rngs: list | None = None,
                              greedy: bool = False, max_steps: int | None = None,
                              device: str = "cpu",
-                             opponents: dict | None = None
+                             opponents: dict | None = None,
+                             episode_ids: list | None = None,
+                             member_of: dict | None = None,
                              ) -> tuple[list[list[Step]], list[dict]]:
     """**N 局并排推进**：把 N 个沙盒的前向**合成一批**发出去。返回 `([每局步表], [每局概要])`。
 
@@ -480,28 +507,32 @@ def collect_episodes_batched(nets: dict, sandboxes: list, *,
                 logp = float(np.log(max(1e-12, probs[aidx])))
                 sb = sandboxes[i]
                 act = actions[aidx]
-                prev_score = _score(sb, me)
+                prev_score = _score(sb, me) if S.SHAPING else 0.0
                 sb.step(act)
                 done = sb.is_terminal()
                 rew = _reward(sb, me, prev_score, done)
                 stepss[i].append(Step(obs, aidx, logp, float(value[k]), rew, done,
-                                      me, mem_in=mem_ins[k]))
+                                      me, mem_in=mem_ins[k],
+                                      episode_id=(episode_ids[i] if episode_ids else 0),
+                                      member=(member_of or {}).get(me)))
                 if max_steps is not None and len(stepss[i]) >= max_steps:
                     finished[i] = True
 
-    # ---- ④ 收尾：截断处置 + 概要（**逐局**，与 `collect_episode` 同口径）----
+    # ---- ④ 收尾：**逐玩家**结算 + 概要（**逐局**，与 `collect_episode` 同口径）----
     infos: list[dict] = []
     for i, sb in enumerate(sandboxes):
         steps = stepss[i]
-        truncated = not sb.is_terminal()
-        if truncated and steps:
-            boot = float(_score(sb, steps[-1].player)) / S.REWARD_TANH_SCALE
-            steps[-1] = replace(steps[-1], done=True, boot=boot)
+        # ★ 记忆表是按 `(沙盒下标, 国名)` 存的 ⇒ 这里拆出**这一局**那一份
+        mem_i = {p: mem[(i, p)] for (ii, p) in list(mem.keys()) if ii == i}
+        settled = _settle_episode(sb, steps, nets=nets, mem=mem_i, device=device)
         infos.append({"turns": sb.turn, "winner": sb.winner(),
                       "winner_members": sb.winner_members(),
-                      "truncated": truncated, "first": sb.first,
+                      "truncated": settled["truncated"], "first": sb.first,
                       "players": tuple(sb.players),
-                      "reward": {n: sb.reward(n) for n in sb.players}})
+                      "reward": {n: sb.reward(n) for n in sb.players},
+                      "outcomes": settled["outcomes"],
+                      "no_traj": tuple(settled["no_traj"]),
+                      "episode_id": (episode_ids[i] if episode_ids else 0)})
     return stepss, infos
 
 
@@ -554,17 +585,125 @@ def _score(sb: Sandbox, me: str) -> float:
 
 
 def _reward(sb: Sandbox, me: str, prev: float, done: bool) -> float:
-    """★ **打分器差分**；终局换成 ±1（丢家直接输，别让 ±INF 进梯度）。"""
-    t = evaluate.terminal(sb.world, me)      # ★ 终局判据是**实体**，与"某个敌人"无关
-    if t is not None:
-        # ★ 2026-09-29：口径取自 `scoring`（**单一出处**）——
-        #   平局 **−0.5**、赢 **+1**（不带时间项）、输 **−1**。见 `scoring` 那段。
-        return S.REWARD_WIN if t > 0 else (S.REWARD_LOSS if t < 0 else S.REWARD_DRAW)
+    """★ **势函数差分**（**终局结果不在这里给** —— 见 `_settle_episode`）。
+
+    ★★★ 2026-10-22 改口径：以前这里按 `evaluate.terminal` 给终局 ±1/−0.5，
+      ⇒ **只有"触发终局的那一方"拿到结果**，别的一方**一个子儿都没拿到**：
+      他们的奖励总和是 0，而 `info["reward"]` 却说他们输了 ⇒ **两处对不上，且不报错**
+      （`rl/PLAN.md` 一直记着"终局奖励没进实际样本"这件事，这里把它落下来）。
+      ⇒ 现在这一步**只管塑形**（`SHAPING=False` 时恒 0），
+      终局结果由 `_settle_episode` **按玩家**统一结算（联盟友好）。
+    """
     if done:
         return 0.0
     if not S.SHAPING:
         return 0.0                            # ★ 势函数差分**关**（用户 2026-09-29）
     return float(np.tanh((_score(sb, me) - prev) / S.REWARD_TANH_SCALE))
+
+
+# ================================================================ ★ 逐玩家收尾
+def _outcome_for(sb: Sandbox, p: str, *, global_terminal: bool) -> float | None:
+    """该玩家本局的**最终结果**（+1 / −1 / −0.5）；`None` = **还没定**。
+
+    ★ **联盟口径**（单一出处 = `Sandbox.reward`）：成员**本国已亡但联盟仍可能赢**时，
+      不能仅凭"本国没厅了"就提前封成负 —— 只有**我的外交实体**出局了才算输。
+      这正是 `evaluate.terminal` 的口径（它按**实体**判，不按国名）。
+    ★ `global_terminal=False`（被步数预算截断）时**全局结果还不存在** ⇒
+      只有"我的实体已经出局"这一种情况是**已定**的（输），其余一律 `None`
+      —— **不伪造 outcome**（`t_max` 判平 −0.5 只在真终局时给）。
+    """
+    if global_terminal:
+        return sb.reward(p)                   # ★ 全局口径（`winner_members` ⇒ 联盟友好）
+    t = evaluate.terminal(sb.world, p)        # 未完局 ⇒ 只有"实体出局"才是已定的结果
+    if t is None:
+        return None
+    if t > 0:
+        return S.REWARD_WIN
+    if t < 0:
+        return S.REWARD_LOSS
+    return S.REWARD_DRAW                       # 同归于尽
+
+
+def _value_at(sb: Sandbox, p: str, nets: dict, mem: dict | None,
+              device: str = "cpu") -> float | None:
+    """**边界观测**上的价值预测（**当前策略 + 该玩家当前的记忆状态**）。
+
+    ★ 截断时的自举值必须来自**网络的判断**，不是 `_score`：
+      `_score` 是**势函数**（另一个量纲、另一个口径），拿它自举 ⇒
+      critic 被教成"截断处的局面值 Φ/200"，而收益的量纲是 ±1 ⇒ 静默学错。
+    ★ **只用此刻沙盒里这一方合法可见的那一帧**：
+      不读视野外真值、不模拟尚未发生的对手动作、不把下一局初始状态当本局后继。
+    ★ 记忆模式用**该玩家此刻的槽**（与训练时同一条链上的下一步输入）。
+    """
+    acts = sb.legal()
+    net = nets.get(p)
+    if not acts or net is None:
+        return None
+    obs = obs_of(sb, p, acts)
+    batch = to_dev(collate([obs]), device)
+    if getattr(net, "mem_slots", 0):
+        m = (mem or {}).get(p)
+        if m is None:
+            return None
+        with torch.inference_mode():
+            _, value, _ = net.forward_state(batch, m)
+    else:
+        with torch.inference_mode():
+            _, value = net(batch)
+    return float(value[0])
+
+
+def _settle_episode(sb: Sandbox, steps: list[Step], *,
+                    nets: dict | None = None, mem: dict | None = None,
+                    device: str = "cpu") -> dict:
+    """**逐玩家收尾**：给每位有轨迹的玩家落下**边界**与**最终结果**。
+
+    ★★★ 这是 §3 的核心（以前完全没有的一步）：
+      以前终局 ±1 只落在"**触发终局的那一步**"上 ⇒
+        · 亡国早于终局的一方 ⇒ **从头到尾没拿到结果**（奖励总和 0）；
+        · 别的一方的最后一步**没有边界标志** ⇒ GAE 跨段串味。
+      ⇒ 现在**每一位有轨迹的玩家**都在**自己那一步**上拿到**恰好一次**结果，
+        且那一步就是他的**段边界**（`done=True`）。
+
+    ★ 两种边界的后继价值**完全不同**（`gae` 靠 `boot` 区分）：
+        · **真终局** ⇒ `boot=None` ⇒ 后继价值 **0**（局结束了）✓
+        · **采集截断** ⇒ `boot=<价值预测>` ⇒ 用**网络**对**合法边界观测**的判断
+          —— **不是 `_score`**（量纲不对，见 `_value_at`）。
+    ★ **没有轨迹的玩家**（一局里没轮到过/没有合法动作）：**记录原因，不捏造样本**。
+    """
+    terminal = sb.is_terminal()
+    truncated = not terminal
+    # ---- 谁的最后一步是哪一步 ----
+    last_idx: dict[str, int] = {}
+    for i, st in enumerate(steps):
+        last_idx[st.player] = i
+    # ---- 逐玩家的结果 ----
+    outcomes = {p: _outcome_for(sb, p, global_terminal=terminal) for p in sb.players}
+    # ---- 截断时的边界自举值 ----
+    boots: dict[str, float | None] = {}
+    last_player = steps[-1].player if steps else None
+    for p, i in last_idx.items():
+        if not truncated:
+            boots[p] = None                     # ★ 真终局 ⇒ 后继价值就是 0
+            continue
+        if outcomes.get(p) is not None:
+            boots[p] = None                     # ★ 结果已定 ⇒ 后面不会再有回报
+            continue
+        v = None
+        if p == last_player and nets is not None:
+            v = _value_at(sb, p, nets, mem, device)
+        boots[p] = v if v is not None else steps[i].value
+    # ---- 落盘：每人的最后一步 = 边界 + 结果 ----
+    for p, i in last_idx.items():
+        st = steps[i]
+        oc = outcomes.get(p)
+        steps[i] = replace(st, done=True, boot=boots.get(p),
+                           terminal=oc is not None, outcome=oc,
+                           reward=st.reward + (oc or 0.0))
+    no_traj = [p for p in sb.players if p not in last_idx]
+    return {"outcomes": outcomes, "no_traj": no_traj,
+            "terminal": terminal, "truncated": truncated}
+
 
 
 # ================================================================ ② PPO
@@ -598,23 +737,73 @@ def gae(rewards: list[float], values: list[float], dones: list[bool],
     return adv, adv + np.array(values, np.float32)
 
 
+def _segment_key(st: Step) -> tuple:
+    """一条轨迹的身份：**同一局、同一玩家、同一控制者**。
+
+    ★ 三件套缺一不可：局号防"跨局"，玩家防"同局不同方"，成员防"同一个方换控制者"。
+    """
+    return (st.episode_id, st.player, st.member)
+
+
+def gae_segments(steps: list[Step], *, gamma: float = S.GAMMA,
+                 lam: float = S.GAE_LAMBDA) -> tuple[np.ndarray, np.ndarray]:
+    """按**轨迹段**算 GAE，再拼回原顺序（`gae` 的**段安全**版本）。
+
+    ★★★ 为什么不能只靠扁平数组 + `dones`（2026-10-22 查出来的）：
+      扁平 `gae` 反向递推时，`last` 只在**遇到 `dones[t]`** 的那一步被清零。
+      ⇒ 只要一段轨迹的**最后一步**没有 `done=True`，**上一段的尾巴就会带进来**
+      （实测 `rl/PLAN.md` 记的那个"缺边界"症状：优势尾巴串味）。
+      ⇒ 现在**先按 `_segment_key` 分段**，段内各算各的 ⇒
+        **不同成员不混算、同一成员跨局不混算**，
+        而且**不依赖"扁平数组里恰好相邻"**。
+    ★ 与扁平版**逐位相同**（在同一段内算法一致）—— 变的只是"段怎么切"。
+    """
+    n = len(steps)
+    adv = np.zeros(n, np.float32)
+    ret = np.zeros(n, np.float32)
+    idx_by_seg: dict[tuple, list[int]] = {}
+    for i, st in enumerate(steps):
+        idx_by_seg.setdefault(_segment_key(st), []).append(i)
+    for _key, idxs in idx_by_seg.items():
+        seg = [steps[i] for i in idxs]
+        a, r = gae([s.reward for s in seg], [s.value for s in seg],
+                   [s.done for s in seg], boots=[s.boot for s in seg],
+                   gamma=gamma, lam=lam)
+        for j, i in enumerate(idxs):
+            adv[i] = a[j]
+            ret[i] = r[j]
+    return adv, ret
+
+
 def _mem_windows(steps: list[Step], tbptt: int) -> list[list[int]]:
     """把**这一方的步**切成 TBPTT 窗口（下标列表）。→ 见 `ppo_update_mem`。
 
-    ★★ 两条**必须**同时成立，缺一条就是静默学错：
+    ★★ 三条**必须**同时成立，缺一条就是静默学错：
 
       ① **顺序不许打乱**（记忆是**有向**的：t+1 的槽依赖 t 的槽）；
       ② ★★ **窗口绝不许跨过"一局的结束"**（`done=True`）。跨了的话，下一局的
          第一步会**接着上一局的槽**往下算 —— 那等于**把两局焊成一局**，
          记忆跨局泄漏，而**不报错**（loss 照降）。
          所以窗口在 `done` 处**强制断开**（`done` 本来就是终局或截断的边界）。
+      ③ ★★ **窗口绝不许跨过"另一方的轨迹"**（2026-10-22 补）：
+         扁平 buffer 里一个成员的步是**按局、按玩家**分段的；
+         跨段接槽 = 把**另一个玩家**的潜槽接上来 ⇒ 记忆串味，
+         而 `done` 标志只在**每个玩家自己的最后一步**上 ⇒ 光看 `done` 不够，
+         ⇒ 现在**显式**按 `_segment_key`（局 + 玩家 + 成员）切。
     """
     wins, cur = [], []
+    cur_key = None
     for i, st in enumerate(steps):
+        k = _segment_key(st)
+        if cur and k != cur_key:               # ★ ③ 换段 ⇒ 断开（不许接槽）
+            wins.append(cur)
+            cur = []
+        cur_key = k
         cur.append(i)
         if st.done or len(cur) >= max(1, int(tbptt)):
             wins.append(cur)
             cur = []
+            cur_key = None
     if cur:
         wins.append(cur)
     return wins
@@ -680,9 +869,8 @@ def _ppo_update_mem(net: PolicyNet, steps: list[Step], *, epochs: int, clip: flo
     old_logp_all = np.array([s.logp for s in steps], dtype=np.float32)
     # ★ 折扣/平滑**读先验表**（`S.GAMMA`/`S.GAE_LAMBDA`）—— 原先是签名里的硬编码
     #   默认值、从没被传过、也没有开关。为什么必须可调见 `scoring.GAMMA` 那段。
-    adv, ret = gae([s.reward for s in steps], [s.value for s in steps],
-                   [s.done for s in steps], boots=[s.boot for s in steps],
-                   gamma=S.GAMMA, lam=S.GAE_LAMBDA)
+    # ★★ **按轨迹段算**（`gae_segments`）：段 = 同一局、同一玩家、同一控制者。
+    adv, ret = gae_segments(steps, gamma=S.GAMMA, lam=S.GAE_LAMBDA)
     adv_all = (adv - adv.mean()) / (adv.std() + 1e-8)
     ret_all = np.asarray(ret, dtype=np.float32)
 
@@ -769,9 +957,9 @@ def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
     old_logp_all = np.array([s.logp for s in steps], dtype=np.float32)
     # ★ 折扣/平滑**读先验表**（`S.GAMMA`/`S.GAE_LAMBDA`）—— 原先是签名里的硬编码
     #   默认值、从没被传过、也没有开关。为什么必须可调见 `scoring.GAMMA` 那段。
-    adv, ret = gae([s.reward for s in steps], [s.value for s in steps],
-                   [s.done for s in steps], boots=[s.boot for s in steps],
-                   gamma=S.GAMMA, lam=S.GAE_LAMBDA)
+    # ★★ **按轨迹段算**（`gae_segments`）：不同成员不混算、同一成员跨局不混算
+    #   —— 扁平的 `gae` 只靠 `done` 断段，段尾少一个 `done` 就会串味。
+    adv, ret = gae_segments(steps, gamma=S.GAMMA, lam=S.GAE_LAMBDA)
     adv_all = (adv - adv.mean()) / (adv.std() + 1e-8)
     ret_all = np.asarray(ret, dtype=np.float32)
 
@@ -782,11 +970,8 @@ def ppo_update(net: PolicyNet, steps: list[Step], *, epochs: int = 4,
         np.random.shuffle(order)
         for lo in range(0, n, minibatch):
             sel = order[lo:lo + minibatch]
-            # ★ **按 minibatch collate**（不是先 collate 全部再切）—— 大 batch 的补零
-            #   张量本身就是一笔大分配，切完再切就白付了
             obs = [steps[i].obs for i in sel]
             batch = to_dev(collate(obs), device)
-            # ★ 标签也要上同一台设备 —— 只在 GPU 上才有区别，CPU 上是空操作
             d = None if device in (None, "cpu") else device
             aidx = torch.as_tensor(aidx_all[sel], device=d)
             old_logp = torch.as_tensor(old_logp_all[sel], device=d)
@@ -1047,10 +1232,15 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                 net_of = {p: lg.net_of(draw[i]) for i, p in enumerate(players)}
                 mid_of = {p: draw[i] for i, p in enumerate(players)}
                 opp_of = None
+            # ★★ **局号 + 成员表**（2026-10-22）：每一步都带上自己的轨迹身份，
+            #   GAE 与 TBPTT 窗口按它切段（`_segment_key`）。
+            #   局号用**全局局号**（`it * episodes_per_iter + e`），与上面交替学习者那条同口径。
             steps, info = collect_episode(net_of, sb, temperature=temperature,
                                           rng=rng, device=device,
                                           max_steps=(budget if max_steps else None),
-                                          opponents=opp_of)
+                                          opponents=opp_of,
+                                          episode_id=it * episodes_per_iter + e,
+                                          member_of=mid_of)
             if max_steps:
                 budget -= len(steps)
             if info.get("truncated"):

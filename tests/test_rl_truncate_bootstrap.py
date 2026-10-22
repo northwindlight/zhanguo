@@ -7,26 +7,35 @@
     —— 对**真终局**是对的（局结束了，价值就是 0），
        但**截断**（超步数上限）**不是终局**，那个局面照样有值。
 
-★ 后果不是"少学一点"，是**学错**：这套奖励是**势函数差分**，
-  返回值近似 `Φ(s_T) − Φ(s_0)` ⇒ 用 0 自举等于宣称那个局面**一文不值**。
-  而截断在这套配置下是**常态** ⇒ critic 被持续教成 `V≈0`
-  ⇒ 优势退化成"当步的势函数差分" ⇒ **策略变近视，白扔 critic 的前瞻**。
+★ 后果不是"少学一点"，是**学错** ⇒ 截断在这套配置下是常态
+  ⇒ critic 被持续教成 `V≈0` ⇒ 优势退化成"当步的势函数差分"
+  ⇒ **策略变近视，白扔 critic 的前瞻**。
   ★ 而 loss 会照常下降、日志上**什么异常都没有** —— 典型的静默学错。
 
-⇒ 修法：截断处用 **`Φ(s_T)`（当时的分数）** 自举；真终局仍然是 0。
+★★★ **2026-10-22 改口径（这一版把上一版钉错的东西改回来了）。**
+  上一版（本文件的老内容）写的是「截断处用 **`Φ(s_T)`（当时的分数）** 自举」，
+  还专门加了一条"单位守卫"（`boot` 必须等于 `Φ / REWARD_TANH_SCALE`）——
+  **那一条把错误钉成了"正确"** ⇒ 后人照着它写代码只会继续错。
 
-★★ **2026-09-25 二次修（用户拍"只做 1"）：自举必须与奖励同单位。**
-  每步奖励是 `tanh(ΔΦ / REWARD_TANH_SCALE)`，小 ΔΦ 下 `r ≈ ΔΦ/200`
-  ⇒ **奖励的单位是 `Φ/200`** ⇒ 势函数整形下 `V ≈ Φ/200`（几十的量级）。
-  而第一版自举灌的是**原始 Φ**（10³）⇒ 比奖励单位**大 200 倍**。
-  实测症状：`vf` 常年上千（`+7269`/`+8898`），同时刻别的网络却是 `+0.01`
-  —— 那 200 倍就是"critic 从 ~0 起步去够 10³ 的目标"。
-  ★ 意图没变（"用当时的势、不用 0"），**单位**变了 —— 这是两个不同的错。
+  为什么 `Φ/200` 是错的：
+    · `Φ` 是**势函数**（打分器给的"局面分"），**不是价值**（"从这里往后能拿多少"）。
+      两者量纲不同、口径不同 ⇒ 拿势函数当价值灌进 critic，
+      critic 学的是"这局面分多高"，而策略梯度要的是"这局面能赚多少"。
+    · 势函数**可以被人为抬**（`scoring` 里那些权重就是可调的）⇒
+      自举值跟着权重漂 ⇒ **同一个截断点，不同权重下有不同的 boot** ⇒
+      价值目标与真实回报脱钩，而且**不报错**。
+    · 还有更硬的：**截断的那一刻，对手还没动的那些回合**根本不在 `Φ` 里，
+      而它们照样会影响最终结果 ⇒ `Φ` 对"后继状态"是**不完整**的估计。
 
-★ 钉四件事：
-  1. 截断局的最后一步 `boot` **非空、且等于 `Φ / REWARD_TANH_SCALE`**（不是 0、不是 None）；
-  1b. ★ **单位守卫**：`|boot|` 必须在**奖励量级**（几十以内），
-      不是原始 Φ 的 10³ —— 这条正是"少除一个 200"会响的那一声；
+  ⇒ 现在的口径：**截断处的自举值 = 网络对「合法边界观测」的价值预测**
+    （当前策略 + 该玩家当前的记忆状态），见 `rl/train.py::_value_at`。
+    真终局仍然是 `boot=None`（后继价值 0）。
+
+★★ 钉四件事：
+  1. 截断局的最后一步 `boot` **非空**，且**等于网络的价值预测**
+     （用**可控价值函数**返回 0.25 ⇒ 就该是 0.25 —— 不是 `Φ/200`、不是 0、不是 None）；
+  1b. ★ **`_score` 不参与**：把它打成很大值（甚至禁止调用），
+      截断处的 `boot` **一点不变** ⇒ 势函数与价值彻底解耦；
   2. `gae` **真的用了它**（拿两个不同的 boot 算出不同的 return —— 反向对照）；
   3. 真终局那一步 `boot` 是 `None`（⇒ 按 0 自举，不能被我顺手改成别的）。
 """
@@ -35,6 +44,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
@@ -44,10 +54,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 if has_torch():
     from rl.model import build_model                      # noqa: E402
     from rl.sandbox import Sandbox                        # noqa: E402
-    from rl.train import _score, collect_episode, gae     # noqa: E402
+    from rl.train import collect_episode, gae             # noqa: E402
     from rl import scoring as SC                          # noqa: E402
 else:
-    Sandbox = _score = build_model = scoring = None
+    Sandbox = build_model = scoring = None
 
 
 def load_tests(loader, tests, pattern):
@@ -67,8 +77,35 @@ def _nets(sb):
     return {p: build_model() for p in sb.players}
 
 
+class _FixedValueNet:
+    """★ **可控价值函数**：把 value 钉成固定值（其余照常走真网络）。
+
+    ★ 报告 §5.3 的验收口径就是这个：「用可控价值函数返回 0.25 ⇒
+      截断样本使用对应的 0.25」—— 断言的是**网络说了算**，
+      而不是"某个势函数除以某个常数"。
+    """
+
+    VALUE = 0.25
+
+    def __init__(self, net):
+        self._net = net
+        self.mem_slots = getattr(net, "mem_slots", 0)
+
+    def mem_init(self, *a, **kw):
+        return self._net.mem_init(*a, **kw)
+
+    def __call__(self, batch):
+        logits, v = self._net(batch)
+        return logits, torch.full_like(v, self.VALUE)
+
+    def forward_state(self, batch, mem):
+        logits, v, mo = self._net.forward_state(batch, mem)
+        return logits, torch.full_like(v, self.VALUE), mo
+
+
 class TestTruncateBootstrap(unittest.TestCase):
-    def test_truncated_tail_carries_the_score(self):
+    def test_truncated_tail_carries_the_value_estimate(self):
+        """★ 截断处的 `boot` = **网络对边界观测的价值预测**（不是 `Φ/200`）。"""
         sb = _sb()
         steps, info = collect_episode(_nets(sb), sb, max_steps=10,
                                       rng=np.random.default_rng(0))
@@ -76,20 +113,51 @@ class TestTruncateBootstrap(unittest.TestCase):
         boot = steps[-1].boot
         self.assertIsNotNone(boot, "截断处没有自举值 ⇒ 会按 0 算")
         self.assertNotEqual(boot, 0.0, "自举值恰好是 0 —— 那正是要避免的那个值")
-        # ★ 它必须**就是当时的分数、且按奖励单位**（不是随便一个数）
-        phi = _score(sb, steps[-1].player)
-        self.assertAlmostEqual(boot, phi / SC.REWARD_TANH_SCALE, places=6,
-                               msg="自举值不等于 `Φ(s_T) / REWARD_TANH_SCALE`")
-        # ★★ **单位守卫** —— 这条就是"少除了一个 200"会响的那一声：
-        #   奖励是 `tanh(ΔΦ/200)` ⇒ 每步 ±1、`V ≈ Φ/200`（几十的量级）。
-        #   自举若用**原始 Φ**（10³），critic 就得从 ~0 起步去够 1000 倍的目标。
-        self.assertLess(abs(boot), 100.0,
-                        f"自举值是 {boot:.1f} —— 那是**原始 Φ** 的量级（10³），"
-                        f"而奖励单位是 Φ/{SC.REWARD_TANH_SCALE:.0f}"
-                        f"（实测症状：`vf` 常年上千）")
-        # ★ 反向对照：原始 Φ 确实**大得多**（否则上一条是空的 ⇒ 假绿）
-        self.assertGreater(abs(boot), 1e-6, "这局的势函数恰好为 0 ⇒ 用例测不出东西")
-        self.assertGreater(abs(phi), abs(boot), "`Φ` 该比 `Φ/200` 大（不然守卫没意义）")
+
+    def test_boot_is_the_network_value_not_the_score(self):
+        """★★ **可控价值函数**：返回 0.25 ⇒ 截断样本就必须是 0.25。
+
+        ★ 这一条是本文件存在的理由：**自举值由网络说了算**，
+          不是由势函数（`_score`）说了算 —— 量纲与口径都对不上。
+        """
+        sb = _sb()
+        raw = _nets(sb)
+        nets = {p: _FixedValueNet(n) for p, n in raw.items()}
+        steps, info = collect_episode(nets, sb, max_steps=10,
+                                      rng=np.random.default_rng(0))
+        self.assertTrue(info["truncated"], "用例前提：这局该被截断")
+        self.assertAlmostEqual(float(steps[-1].boot), _FixedValueNet.VALUE, places=5,
+                               msg="截断处的自举值不是网络的价值预测")
+
+    def test_score_does_not_affect_the_bootstrap(self):
+        """★★ **`_score` 不参与自举**：把它打成巨大值，结果一点不变。
+
+        ★ 老口径（`Φ/200`）下这一条必然红 —— 那正是它把错误钉成"正确"的地方。
+        """
+        sb = _sb()
+        raw = _nets(sb)
+        nets = {p: _FixedValueNet(n) for p, n in raw.items()}
+        with mock.patch("rl.train._score", side_effect=AssertionError(
+                "截断自举不许调用 `_score`（势函数 ≠ 价值）")):
+            steps, info = collect_episode(nets, sb, max_steps=10,
+                                          rng=np.random.default_rng(0))
+        self.assertTrue(info["truncated"], "用例前提：这局该被截断")
+        self.assertAlmostEqual(float(steps[-1].boot), _FixedValueNet.VALUE, places=5,
+                               msg="`_score` 一变，自举值就变了 ⇒ 它还在参与")
+
+    def test_unfinished_episode_has_no_fabricated_outcome(self):
+        """★ **未完局不伪造 outcome**：`t_max` 判平才是 −0.5，截断不是。
+
+        ★ 截断时局没打完 ⇒ 谁赢谁输**还不知道** ⇒ 不得凭空给 ±1/−0.5。
+        """
+        sb = _sb()
+        steps, info = collect_episode(_nets(sb), sb, max_steps=10,
+                                      rng=np.random.default_rng(0))
+        self.assertTrue(info["truncated"], "用例前提：这局该被截断")
+        for st in steps:
+            if st.terminal:
+                self.fail("截断局里出现了带最终结果的步 ⇒ 伪造了 outcome")
+            self.assertIsNone(st.outcome, "截断局里出现了 outcome")
 
     def test_gae_actually_uses_the_bootstrap(self):
         """★★ **反向对照**：同一个 step，换一个 boot ⇒ return 必须跟着变。
