@@ -570,9 +570,9 @@ class CouncilService:
         tools.extend(self._tracking_tools())
         if finalize:
             tools.extend([
-                {'type':'function','function':{'name':'council_approve','description':'检查目标推进、依据、评估及追踪事项后批准。任何新增或沿用承诺缺明确条件或期限均不得通过；无条件须明示。无战损或履行中立承诺不等于达标，长期停滞须有目标相关成果、期限及突破办法。合理备战与有据进攻可通过；批准不关闭事项。',
+                {'type':'function','function':{'name':'council_approve','description':'核实目标推进、情报来源范围时效、攻守判断及追踪事项后批准。无支撑的地图/他国结论不作依据，不替原文补限定圆场。任何承诺缺条件或期限不得过，无条件须明示。无战损或守中立不等于进展；合理备战与有据进攻可过，批准不关闭事项。',
                               'parameters':{'type':'object','properties':{},'additionalProperties':False}}},
-                {'type':'function','function':{'name':'council_reject','description':'任何承诺缺明确条件或期限即打回要求解释补齐；严重失实、依据或评估缺失、长期停滞而缺成果/期限/突破办法亦须打回。无需证明隐藏事实相反或战争必胜，不能以局部可见推断全国。reason列缺项证据及下期纠正，不强制特定战争或购报派谍。',
+                {'type':'function','function':{'name':'council_reject','description':'承诺缺条件/期限、战略依据无支撑、攻守判断严重失准或长期停滞缺突破办法，直接打回。能打与不能打同标准，国力总数/固定倍数不代替可投入兵力与规则核算。无需反证隐藏事实、证明故意撒谎或强制开战；reason列原话、证据缺口与下期纠正。',
                               'parameters':{'type':'object','properties':{'reason':{'type':'string','minLength':1}},'required':['reason'],'additionalProperties':False}}},
             ])
         if phase_end:
