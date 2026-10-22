@@ -32,7 +32,8 @@ class CouncilBackend:
             if type(verdict.get('approved')) is not bool or not isinstance(verdict.get('reason'),str):
                 return {'content':content},stats
             name='council_approve' if verdict['approved'] else 'council_reject'
-            args={} if verdict['approved'] else {'reason':verdict['reason']}
+            args={} if verdict['approved'] else {'reason':verdict['reason'],'a':[],
+                                                 'b':[verdict['reason'],'国策未解释该事实偏差与下期纠正'],'c':[]}
             return {'content':'','tool_calls':[{'id':'council-verdict','type':'function','function':{
                 'name':name,'arguments':json.dumps(args,ensure_ascii=False)}}]},stats
         return {'content':content},stats
@@ -257,8 +258,10 @@ class TestParliament(unittest.TestCase):
         approve_schema=next(tool['function'] for tool in reviewer.schemas[2] if tool['function']['name']=='council_approve')
         reject_schema=next(tool['function'] for tool in reviewer.schemas[2] if tool['function']['name']=='council_reject')
         self.assertEqual(approve_schema['parameters'],{'type':'object','properties':{},'additionalProperties':False})
-        self.assertEqual(reject_schema['parameters']['required'],['reason'])
+        self.assertEqual(reject_schema['parameters']['required'],['reason','a','b','c'])
         self.assertEqual(reject_schema['parameters']['properties']['reason']['type'],'string')
+        for key in ('a','b','c'):
+            self.assertEqual(reject_schema['parameters']['properties'][key]['type'],'array')
 
     def test_first_stage_warns_after_five_calls_and_rejects_incomplete_at_ten(self):
         h,c=self.host([True],[reply(call('p','plan',text='发展')),

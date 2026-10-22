@@ -7,7 +7,7 @@ import unittest
 
 from clients.llm import assert_paired
 from host import GameHost
-from mods.experimental.council import CouncilService, DEFAULT_REQUIREMENTS
+from mods.experimental.council import CouncilService, DEFAULT_REQUIREMENTS, rejection_blocks
 from mods.experimental.council_records import trajectory_overview, update_tracking, tracking_view
 from tests.test_parliament import CouncilBackend, reply, start_with_plan
 from tests.test_player_clients import call
@@ -283,10 +283,10 @@ class TestCouncilTracking(unittest.TestCase):
     def test_prompt_requires_substantive_assessment_even_without_explicit_promises(self):
         host,service=self.host()
         for text in ('宁愿打回','君主缩短国策','不作承诺','可见0支不证明全国0支','有钱却反复不兑现','批准不代表问题解决',
-                     '诚实与有据是两件事','20 金已公布报表','已如实承认未知','裁决按 R0—R3 评级','无 R0 即批准'):
+                     '诚实与有据是两件事','20 金已公布报表','已如实承认未知','裁决按 A/B/C 评级','满2条打回','满5条打回','未达阈值不得打回'):
             self.assertIn(text,DEFAULT_REQUIREMENTS)
         rating=(Path(__file__).resolve().parents[1]/'mods/experimental/council_rating.md').read_text(encoding='utf-8')
-        for text in ('R0 阻断','R1 须改','R2 记录','R3 建议','改变哪个结论','只有 R0 能否决'):
+        for text in ('战争和重大外交误判','重大战略误判','战术错误','核心承诺','机制错误','两条以上（≥2）','至少五条（≥5）','只有达到阈值才能打回'):
             self.assertIn(text,rating)
         self.assertIn('完整性',service.ui.text('experimental.review_second'))
         self.assertIn('反复延期',service.ui.text('experimental.review_first'))
@@ -301,12 +301,31 @@ class TestCouncilTracking(unittest.TestCase):
         reviewer=ScriptedCouncil([
             reply(call('next','council_next_stage')),
             reply(call('approve','council_approve')),
-            reply(call('reject','council_reject',reason='宣战前未取得秦国的报表或谍报，先花20金买报表或派谍再交。'))])
+            reply(call('reject','council_reject',reason='宣战前未取得秦国的报表或谍报，先花20金买报表或派谍再交。',
+                       a=['对秦宣战前无任何目标国情报'],b=[],c=[]))])
         service._review_backend=reviewer
         receipt=player.submit('plan',{'text':'本期已向秦宣战，主力北上夺取北坊。'})
         self.assertFalse(receipt['ok'])
         self.assertEqual(receipt['data']['streak'],1)
         self.assertIn('缺少宣战前情报',json.dumps(reviewer.requests,ensure_ascii=False))
+
+    def test_rejection_thresholds_match_rating_standard(self):
+        self.assertFalse(rejection_blocks(0,1,0))
+        self.assertTrue(rejection_blocks(1,0,0))
+        self.assertTrue(rejection_blocks(0,2,0))
+        self.assertFalse(rejection_blocks(0,0,4))
+        self.assertTrue(rejection_blocks(0,0,5))
+
+    def test_single_b_class_error_cannot_reject_the_plan(self):
+        host,service=self.host();player=host.player(self.actor)
+        reviewer=ScriptedCouncil([
+            reply(call('next','council_next_stage')),
+            reply(call('reject','council_reject',reason='只有一条战术错误，未达B类阈值。',
+                       a=[],b=['一条战术错误'],c=[])),
+            reply(call('approve','council_approve'))])
+        service._review_backend=reviewer
+        self.assertTrue(player.submit('plan',{'text':'守势经营，按现有后勤执行，下期复核。'})['ok'])
+        self.assertIn('未达到打回阈值',json.dumps(reviewer.requests,ensure_ascii=False))
 
     def test_target_report_before_war_clears_the_gate(self):
         host,service=self.host();player=host.player(self.actor)

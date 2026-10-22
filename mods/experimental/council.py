@@ -22,6 +22,11 @@ COUNCIL_MAX_ROUNDS=10
 def encode(value):return json.dumps(value,ensure_ascii=False,sort_keys=True,allow_nan=False)
 
 
+def rejection_blocks(a,b,c):
+    """评级标准：A 任一条、B 满两条、C 满五条才能打回。"""
+    return a>=1 or b>=2 or c>=5
+
+
 def review_government(government):
     # 国策由 previous_plan 指定；否决及解释由保留的对话/区间行动提供。
     # 提交前快照中残留的更早正文不能成为另一份审核基线。
@@ -573,8 +578,13 @@ class CouncilService:
             tools.extend([
                 {'type':'function','function':{'name':'council_approve','description':'核实目标推进、情报来源、攻守判断及追踪事项后批准。措辞精确、条件齐全、标注未知都不算依据；须从证据推出能打/能守及最坏情形。宣战目标在宣战前没有报表或谍报时不能批准；总量未知且无上界的重大进攻、没买目标国20金报表的不打过。无支撑结论不作依据；批准不关闭事项。',
                               'parameters':{'type':'object','properties':{},'additionalProperties':False}}},
-                {'type':'function','function':{'name':'council_reject','description':'承诺缺条件/期限、战略依据无支撑、攻守判断严重失准或长期停滞缺突破办法，直接打回。诚实标注未知不等于推出能打；未取得可负担目标国情报（20金报表/谍报）即打回。能打与不能打同标准，国力总数/固定倍数不代替兵力与规则核算。无需反证隐藏事实、证明故意撒谎或强制开战；reason列原话、证据缺口与下期纠正。',
-                              'parameters':{'type':'object','properties':{'reason':{'type':'string','minLength':1}},'required':['reason'],'additionalProperties':False}}},
+                {'type':'function','function':{'name':'council_reject','description':'按 A/B/C 分类并把逐条问题原文分列 a/b/c：A 满1条、B 满2条、C 满5条才可打回；未达阈值引擎拒绝，应记tracking并批准。类别定义见评级标准。reason写实质后果；同一问题只计一次。',
+                              'parameters':{'type':'object','properties':{
+                                  'reason':{'type':'string','minLength':1},
+                                  'a':{'type':'array','items':{'type':'string','minLength':1}},
+                                  'b':{'type':'array','items':{'type':'string','minLength':1}},
+                                  'c':{'type':'array','items':{'type':'string','minLength':1}}},
+                                  'required':['reason','a','b','c'],'additionalProperties':False}}},
             ])
         if phase_end:
             tools.append({'type':'function','function':{'name':'council_next_stage','description':'结束第一步的历史与旧国策审核，进入第二步读取新版国策。',
@@ -662,10 +672,23 @@ class CouncilService:
                         submitted_verdict={'approved':True,'reason':''}
                         continue
                     elif fn.get('name')=='council_reject' and finalize:
-                        if set(args)!={'reason'} or not isinstance(args['reason'],str) or not args['reason'].strip():
-                            raise ValueError('council_reject 必须提供非空 reason')
+                        if set(args)!={'reason','a','b','c'} or not isinstance(args['reason'],str) or not args['reason'].strip():
+                            raise ValueError('council_reject 必须提供非空 reason 及 a/b/c 三组条目')
+                        groups={}
+                        for key in ('a','b','c'):
+                            items=args[key]
+                            if not isinstance(items,list) or any(not isinstance(item,str) or not item.strip() for item in items):
+                                raise ValueError('a/b/c 必须是问题原文数组')
+                            groups[key]=[item.strip() for item in items]
+                        counts={key:len(value) for key,value in groups.items()}
+                        if not rejection_blocks(counts['a'],counts['b'],counts['c']):
+                            raise ValueError(f'未达到打回阈值：A{counts["a"]}/1、B{counts["b"]}/2、C{counts["c"]}/5；'
+                                             '应记tracking并批准，不得打回')
+                        detail='；'.join([f'A类：{item}' for item in groups['a']]+
+                                        [f'B类：{item}' for item in groups['b']]+
+                                        [f'C类：{item}' for item in groups['c']])
                         dialogue.append({'role':'tool','tool_call_id':call['id'],'content':encode({'ok':True})})
-                        submitted_verdict={'approved':False,'reason':args['reason'].strip()}
+                        submitted_verdict={'approved':False,'reason':(args['reason'].strip()+'｜'+detail).strip()}
                         continue
                     elif fn.get('name')=='council_next_stage' and phase_end:
                         if args:raise ValueError('council_next_stage 不接受参数')
