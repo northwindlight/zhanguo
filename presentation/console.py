@@ -142,8 +142,34 @@ class ConsoleUI(ReceiptPresentation):
         if body is None:body=self.format(payload,names)
         return self.text('console.message',period=row['sampled'],source=names.get(row['source'],row['source']),
             target=names.get(row['target'],row['target']),payload=body)
-    def board(self,rows):return '\n'.join(self.text('console.board',**row) for row in rows)
+    def board(self,rows):
+        return '\n'.join(self.text('console.board',**row) if 'land' in row
+                           else self.generic_row(row) for row in rows)
+    def generic_row(self,row):
+        """通用面板行：发行版自己给键值对，这里只负责排版。"""
+        return '  '.join(f'{key}={value}' for key,value in row.items() if key!='actor')
+    def native_state(self,state):
+        """这条全景是原生口径的：国土、军队、国库。没有这些事实的发行版走通用全景。"""
+        for obs in state.get('nations',()):
+            facts=obs.get('facts') or {}
+            if 'land' in facts and 'army' in facts and 'econ' in facts:return True
+        return False
+    def generic_overview(self,state):
+        lines=['',self.text('console.overview',period=state.get('period',0))]
+        prices=state.get('market',{}).get('prices',{})
+        if prices:
+            values='  '.join(f'{key} {value:g}' for key,value in prices.items())
+            lines.append(self.text('console.market',values=values))
+        bank=state.get('bank')
+        if isinstance(bank,dict) and set(bank)=={'rate','loan_rate','minimum','maximum'}:
+            lines.append(self.text('console.bank',**bank))
+        rows=state.get('board',())
+        if rows:
+            lines.append('')
+            lines.extend(self.generic_row(row) for row in rows)
+        return '\n'.join(lines)
     def overview(self,state):
+        if not self.native_state(state):return self.generic_overview(state)
         names=state['names'];lines=['',self.text('console.overview',period=state['period'])]
         for observation in state['nations']:self.remember(observation)
         market='  '.join(f'{self.label("content",k)} {v:g}' for k,v in state['market']['prices'])

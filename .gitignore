@@ -25,6 +25,10 @@ mp_config.*.json
 # minigame 开发模式的独立新局产物
 minigame_save*
 minigame_journal*
+stock_save.json
+stock_save.json.audit/
+stock_journal*
+stock_journal*.map.txt
 
 # 议会示例配置的独立新局产物
 experimental_session.json

@@ -60,6 +60,7 @@ class Brokerage:
             'debt': 0.0,
             'positions': {},
             'equity': [],
+            'realized_pnl': 0.0,
             'interest_paid': 0.0,
             'liquidations': [],
             'alive': True,
@@ -123,6 +124,7 @@ class Brokerage:
             'credit_limit': self.credit_limit(account),
             'margin_limit': round(self.margin_ratio * holdings_value, 2),
             'interest_paid': account['interest_paid'],
+            'realized_pnl': account.get('realized_pnl', 0.0),
             'liquidations': account['liquidations'][-5:],
             'alive': account['alive'],
             'retired_round': account['retired_round'],
@@ -187,8 +189,14 @@ class Brokerage:
                 position = account['positions'].get(symbol)
                 if position is None:
                     continue
-                position['quantity'] -= fill['quantity']
+                sold = min(fill['quantity'], position['quantity'])
+                ratio = sold / position['quantity'] if position['quantity'] else 0.0
+                cost_out = round(position['cost'] * ratio, 2)
+                position['quantity'] -= sold
+                position['cost'] = round(position['cost'] - cost_out, 2)
                 account['cash'] = round(account['cash'] + fill['amount'] - fill['fee'], 2)
+                account['realized_pnl'] = round(
+                    account['realized_pnl'] + fill['amount'] - fill['fee'] - cost_out, 2)
                 if position['quantity'] <= 0:
                     account['positions'].pop(symbol, None)
         liquidations = []
@@ -196,8 +204,9 @@ class Brokerage:
             if not account['alive']:
                 continue
             if account['debt'] > 0:
+                # 利息只记一次：从现金里付，负债本金不膨胀。
+                # （原来既扣现金又加负债，利息被算了两遍，净值凭空少一块。）
                 interest = round(account['debt'] * self.interest_rate, 2)
-                account['debt'] = round(account['debt'] + interest, 2)
                 account['cash'] = round(account['cash'] - interest, 2)
                 account['interest_paid'] = round(account['interest_paid'] + interest, 2)
             liquidations.extend(self.force_liquidate(world, round_number, actor, account))
@@ -230,11 +239,16 @@ class Brokerage:
             price = quote['price']
             amount = quote['amount']
             fee = quote['fee']
+            # 一、卖出：持仓换成现金，净值不变（只掉手续费）。
             account['cash'] = round(account['cash'] + amount - fee, 2)
-            account['debt'] = round(max(0.0, account['debt'] - amount), 2)
             account['positions'].pop(symbol, None)
+            # 二、拿这笔现金去还债：现金真的减少，负债才减少。
+            #    （原来只加现金又减负债，净值凭空多出一笔。）
+            repaid = min(amount, account['debt'])
+            account['cash'] = round(account['cash'] - repaid, 2)
+            account['debt'] = round(account['debt'] - repaid, 2)
             records.append({'round': round_number, 'symbol': symbol, 'quantity': quantity,
-                            'price': price, 'amount': amount, 'fee': fee})
+                            'price': price, 'amount': amount, 'fee': fee, 'repaid': repaid})
         account['liquidations'].extend(records)
         return records
 
@@ -252,6 +266,7 @@ class Brokerage:
                 'debt': account['debt'],
                 'positions': {symbol: dict(position) for symbol, position in account['positions'].items()},
                 'equity': [dict(point) for point in account['equity']],
+                'realized_pnl': account.get('realized_pnl', 0.0),
                 'interest_paid': account.get('interest_paid', 0.0),
                 'liquidations': [dict(record) for record in account.get('liquidations', ())],
                 'alive': account.get('alive', True),

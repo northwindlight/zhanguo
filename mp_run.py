@@ -250,7 +250,9 @@ def command(host,line,observer):
         actor=next((a for a,row in host.roster.items() if parts and parts[0] in (a,row['name'])),None)
         if actor is None:
             if len(parts)>1 or parts and Path(parts[0]).suffix.lower() not in ('.txt','.svg','.png'):raise ValueError(text_ui('console.map_usage'))
-            state=observer.snapshot();obs=state['map'];map_text=observer.ui.observer_map(state)
+            state=observer.snapshot();obs=state.get('map')
+            if obs is None:raise ValueError(text_ui('console.map_usage'))
+            map_text=observer.ui.observer_map(state)
             path=Path(parts[0]) if parts else None
         else:
             if actor not in host.actors():raise ValueError(text_ui('console.map_usage'))
@@ -437,7 +439,7 @@ def run(argv=None):
             for actor in list(observer.pending):observer.flush(actor)
             observer.events(period=host.clock()-1);ending=observer.snapshot() if callable(getattr(host,'observer_snapshot',None)) else None
             host.save(save_path)
-            if callable(getattr(host,'observer_snapshot',None)):
+            if isinstance(ending,dict) and ending.get('map'):
                 map_path=journal_path.with_suffix('.map.txt')
                 map_path.write_text(ui.observer_map(ending),encoding='utf-8')
             if CONSOLE is not None:CONSOLE.clear_panel()

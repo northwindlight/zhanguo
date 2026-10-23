@@ -118,11 +118,6 @@ class Market:
         self.state = self.SESSION
         return self.state
 
-    def reopen(self):
-        """下一回合的盘前：回到只看昨收的状态。"""
-        self.state = self.PRE
-        return self.state
-
     # ── 价格 ────────────────────────────────────────────────────
     def price_of(self, symbol, actor=None, tick=None):
         """某个时间片上的价格。
@@ -140,23 +135,32 @@ class Market:
         ratio = self.daily.get(symbol, 0.0) * (tick / slices)
         return round(self.opening.get(symbol, stock['anchor']) * math.exp(ratio), 2)
 
-    def session_path(self, symbol, samples=21):
-        """本次开盘窗口的价格路径（从开盘到收盘），对外给采样点。"""
+    def session_path(self, symbol, samples=21, upto=None):
+        """本次开盘窗口的价格路径（从开盘到 upto 这个时间片），对外给采样点。
+
+        ``upto`` 缺省是整段窗口；公开给脚本时必须传当前时间片，
+        否则就会把还没走到的收盘价泄露出去。
+        """
         stock = self.stocks.get(symbol)
         if stock is None:
             raise ValueError(f'没有这只股票：{symbol}')
         slices = self._slices()
         base = self.opening.get(symbol, stock['anchor'])
         daily = self.daily.get(symbol, 0.0)
-        count = max(2, min(int(samples), slices + 1))
-        step = slices / (count - 1)
+        end = slices if upto is None else max(0, min(int(upto), slices))
+        count = max(2, min(int(samples), end + 1))
+        step = end / (count - 1)
         return [round(base * math.exp(daily * (index * step) / slices), 2)
                 for index in range(count)]
 
-    def visible_path(self, symbol):
-        """当前看得见的那条路径：盘前是上一次的，开盘后是今天的。"""
+    def visible_path(self, symbol, actor=None):
+        """当前看得见的那条路径。
+
+        盘前是上一次开盘的整段（历史，可以看）；开盘后只到当前时间片为止，
+        还没走到的收盘价不能出现在公开数据里。
+        """
         if self.state == self.SESSION:
-            return self.session_path(symbol)
+            return self.session_path(symbol, upto=self._tick(actor))
         return list(self.last_path.get(symbol, ()))
 
     def catalog(self):
@@ -284,7 +288,7 @@ class Market:
             'amount': amount,
             'fee': fee,
             'impact_pct': round(self.impact_of(quantity) * 100, 4),
-            'status': 'pending',
+            'status': 'accepted',
             'reason': '',
             'placed_round': round_number,
             'placed_tick': self._tick(actor),
@@ -299,7 +303,7 @@ class Market:
         """撤回本玩家还没成交的挂单。"""
         for order in self.orders.get(actor, ()):
             if order['id'] == order_id:
-                if order['status'] != 'pending':
+                if order['status'] != 'accepted':
                     raise ValueError('这笔挂单已经成交或被拒，撤不了。')
                 order['status'] = 'cancelled'
                 order['reason'] = '玩家撤单。'
@@ -329,6 +333,8 @@ class Market:
         flow = {}
         for actor in sorted(self.orders):
             for order in sorted(self.orders[actor], key=lambda item: item['id']):
+                if order['status'] != 'accepted':
+                    continue  # 已撤、已拒、已成交的单不再参与撮合
                 symbol = order['symbol']
                 quantity = order['quantity']
                 price = order['price']
@@ -351,17 +357,23 @@ class Market:
                     shares[actor][symbol] = held - quantity
                 order['status'] = 'filled'
                 order['reason'] = ''
+                order['filled_quantity'] = quantity
+                order['fill_price'] = price
                 fills.append({'actor': actor, 'side': order['side'], 'symbol': symbol,
                               'name': order['name'], 'quantity': quantity, 'price': price,
                               'amount': amount, 'fee': fee})
                 flow[symbol] = flow.get(symbol, 0) + (quantity if order['side'] == 'buy' else -quantity)
         self.last_fills = fills
         self.orders = {}
-        self._close_round(world, round_number, flow, trading_day)
+        self._freeze_close(world, round_number)
         return fills
 
-    def _close_round(self, world, round_number, flow, trading_day):
-        """闭市：窗口走完，收盘价定下来；再按订单流推出下一回合的开盘与日内路径。"""
+    def _freeze_close(self, world, round_number):
+        """闭市：窗口走完，今天的收盘价定下来并冻结。
+
+        这一步只冻结今天；备下一日（开盘价与日内路径）要等账户记完账再做，
+        否则盘后估值会用到下一日的路径。
+        """
         world.runtime.object_call(world, 'stock:clock', 'close_session')
         closing_tick = self._slices()
         for symbol in self.stocks:
@@ -370,6 +382,13 @@ class Market:
             self.history[symbol].append(close)
             self.last_path[symbol] = self.session_path(symbol)
             self.last_open[symbol] = self.opening.get(symbol, close)
+        self.state = self.CLOSED
+
+    def prepare_next_day(self, world, round_number, flow, trading_day=True):
+        """备下一日：订单流推开开盘价，再算出下一回合的日内路径。
+
+        账户已经按今天的收盘价记完账，这里才动下一日的数据。
+        """
         for symbol in self.stocks:
             flow_ratio = flow.get(symbol, 0) / self.float_shares
             self.opening[symbol] = round(self.close[symbol] * (1 + self.flow_impact * flow_ratio), 2)
@@ -378,7 +397,7 @@ class Market:
         else:
             for symbol in self.stocks:
                 self.daily[symbol] = 0.0
-        self.state = self.CLOSED
+        self.state = self.PRE
 
     def _daily_return(self, round_number):
         """算下一回合的日内涨跌：大盘情绪 + 板块情绪 + 个股波动 + 动量 + 均值回归。"""
@@ -398,6 +417,7 @@ class Market:
             opening = self.opening[symbol]
             self.daily[symbol] = (stock['beta'] * market_ret
                                    + stock['gamma'] * sector_ret[stock['sector']]
+                                   + idio
                                    + stock['drift']
                                    + self.momentum_weight * momentum
                                    + self.reversion_weight * (stock['anchor'] / opening - 1))
@@ -425,6 +445,7 @@ class Market:
 
     def to_save(self):
         return {
+            'seed': self.seed,
             'stocks': {symbol: dict(stock) for symbol, stock in self.stocks.items()},
             'history': {symbol: list(series) for symbol, series in self.history.items()},
             'opening': dict(self.opening),
@@ -439,6 +460,7 @@ class Market:
         }
 
     def restore(self, state):
+        self.seed = state.get('seed', self.seed)
         self.stocks = {symbol: dict(stock) for symbol, stock in state['stocks'].items()}
         self.history = {symbol: list(series) for symbol, series in state['history'].items()}
         self.opening = dict(state.get('opening', {}))
@@ -514,11 +536,8 @@ class MarketMod(GameMod):
     def stages(self):
         return (Stage('stock.market.settle', self._settle, hook='market.settlement',
                        after=('stock.python.run',)),
-                Stage('stock.market.reopen', self._reopen, hook='cycle.end'),)
-
-    def _reopen(self, world, changes):
-        """下一回合的盘前：回到只看昨收的状态。"""
-        world.market.reopen()
+                Stage('stock.market.next_day', self._next_day, hook='market.settlement',
+                       after=('stock.portfolio.settle',)),)
 
     def _settle(self, world, changes):
         runtime = self.runtime
@@ -526,6 +545,17 @@ class MarketMod(GameMod):
         trading = runtime.object_call(world, 'stock:clock', 'trading_day')
         fills = world.market.settle(world, round_number, trading)
         changes.update(fills=fills)
+
+    def _next_day(self, world, changes):
+        """账户记完账之后再备下一日：盘后估值不会用到下一日的价格。"""
+        runtime = self.runtime
+        round_number = runtime.object_call(world, 'stock:clock', 'period')
+        trading = runtime.object_call(world, 'stock:clock', 'trading_day')
+        flow = {}
+        for fill in world.market.fills():
+            symbol = fill['symbol']
+            flow[symbol] = flow.get(symbol, 0) + (fill['quantity'] if fill['side'] == 'buy' else -fill['quantity'])
+        world.market.prepare_next_day(world, round_number, flow, trading)
 
     def rule_sections(self, world=None):
         cfg = self.declaration['Parameters']

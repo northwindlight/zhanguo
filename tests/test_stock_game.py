@@ -334,15 +334,17 @@ class StockGameTest(unittest.TestCase):
         self.assertFalse(receipt['ok'])
         self.assertIn('授信', receipt['message'])
 
-    def test_interest_is_charged_each_round(self):
+    def test_interest_is_charged_once(self):
+        """利息是成本：只从现金里付一次，负债本金不膨胀。"""
         host = self.host()
         player = host.session.player('stock:player0')
         player.submit('bank', {'action': 'borrow', 'amount': 10000})
         host.cycle()
         book = host.world.portfolio.holdings('stock:player0')
-        self.assertEqual(book['debt'], 10200.0)
+        self.assertEqual(book['debt'], 10000.0, '负债本金不该被利息顶起来')
         self.assertEqual(book['interest_paid'], 200.0)
         self.assertEqual(book['cash'], 109800.0)
+        self.assertEqual(book['wealth'], 99800.0, '净值只该降一次利息')
 
     def test_bank_forces_liquidation_when_margin_is_broken(self):
         host = self.host(BUY_SCRIPT)
@@ -537,6 +539,92 @@ print('tick=' + str(cal['tick']) + ' ' + cal['market_time'])
         self.assertIn('tick=20000', result['output'])
         self.assertIn('17:30', result['output'], '20000 个 tick 走完就是 8 小时后的收盘')
         self.assertTrue(host.world.market.fills(), '循环途中应当下过单')
+
+    # ── 记账恒等式与资金边界 ──────────────────────────────────────
+    def test_equity_identity_holds_after_every_round(self):
+        """净值 = 现金 + 持仓市值 − 负债，每回合都成立。"""
+        buy = "api.call('stock:market','buy',symbol='shanhai',quantity=200)\n"
+        host = self.host(rounds={1: buy}, actors=1)
+        player = host.session.player('stock:player0')
+        player.submit('bank', {'action': 'borrow', 'amount': 5000})
+        for _ in range(4):
+            host.cycle()
+            book = host.world.portfolio.holdings('stock:player0')
+            self.assertAlmostEqual(book['wealth'],
+                                   book['cash'] + book['holdings_value'] - book['debt'],
+                                   places=2, msg='净值恒等式被破坏了')
+
+    def test_selling_realizes_pnl_consistently(self):
+        buy = "api.call('stock:market','buy',symbol='shanhai',quantity=100)\n"
+        sell = "api.call('stock:market','sell',symbol='shanhai',quantity=40)\n"
+        host = self.host(rounds={1: buy, 2: sell}, actors=1)
+        host.cycle()
+        host.cycle()
+        book = host.world.portfolio.holdings('stock:player0')
+        position = book['positions'][0]
+        self.assertEqual(position['quantity'], 60)
+        self.assertLess(position['avg_cost'], 60,
+                        '卖一半后均价应当基本不变（原来会翻倍）')
+        fill = [f for f in host.world.market.fills() if f['side'] == 'sell'][0]
+        expected = fill['amount'] - fill['fee'] - position['avg_cost'] * 40
+        self.assertAlmostEqual(book['realized_pnl'], expected, places=1)
+
+    def test_forced_liquidation_does_not_create_money(self):
+        buy = "api.call('stock:market','buy',symbol='shanhai',quantity=100)\n"
+        host = self.host(rounds={1: buy}, actors=1)
+        player = host.session.player('stock:player0')
+        player.submit('bank', {'action': 'borrow', 'amount': 20000})
+        host.cycle()
+        before = host.world.portfolio.holdings('stock:player0')
+        host.cycle()
+        after = host.world.portfolio.holdings('stock:player0')
+        self.assertLessEqual(after['wealth'], before['wealth'] + 0.01,
+                             '强平不该凭空生出钱来')
+        self.assertTrue(after['liquidations'])
+
+    def test_cancelled_order_does_not_fill(self):
+        source = ("""
+order = api.call('stock:market', 'buy', symbol='shanhai', quantity=100)
+api.call('stock:market', 'cancel', order_id=order['data']['id'])
+""")
+        host = self.host(rounds={1: source}, actors=1)
+        host.cycle()
+        self.assertEqual(host.world.market.fills(), [], '撤掉的单不该成交')
+        self.assertEqual(host.world.portfolio.holdings('stock:player0')['positions'], [])
+
+    def test_future_path_is_not_leaked(self):
+        source = """
+quotes = api.call('stock:market', 'quotes')
+print(str(quotes[0]['path'][-1]))
+"""
+        host = self.host(rounds={1: source}, actors=1)
+        host.cycle()
+        result = host.world.scripts.status('stock:player0')['result']
+        self.assertEqual(result['status'], 'effective', result.get('error'))
+        leaked = float(result['output'].strip())
+        close = host.world.market.close['shanhai']
+        self.assertNotAlmostEqual(leaked, close, places=2,
+                                   msg='公开路径不能提前泄露当天收盘价')
+
+    def test_save_and_load_continue_identically(self):
+        host = self.host(seed=99, actors=1)
+        for _ in range(3):
+            host.cycle()
+        path = ROOT / '.tmp-stock-continuity.json'
+        try:
+            host.save(str(path))
+            restored = GameHost.load(str(path), {
+                'mods': 'mods.stock.toml', 'seed': 99,
+                'nations': [{'id': 'stock:player0', 'name': '量化0', 'client': 'replay'}]})
+            for _ in range(3):
+                host.cycle()
+                restored.cycle()
+            self.assertAlmostEqual(host.world.market.close['shanhai'],
+                                   restored.world.market.close['shanhai'], places=2,
+                                   msg='读档后行情应当与连续运行一致')
+        finally:
+            path.unlink(missing_ok=True)
+            shutil.rmtree(path.with_suffix(path.suffix + '.audit'), ignore_errors=True)
 
     # ── 沙盒预算 ──────────────────────────────────────────────────
     def test_sandbox_budget_is_raised(self):
