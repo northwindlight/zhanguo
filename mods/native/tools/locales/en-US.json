@@ -10,7 +10,7 @@
   "tool.caption.nations": "Nations",
   "tool.caption.nation": "Nation",
   "tool.caption.foreign": "Foreign relations",
-  "tools.plan.description": "Submit a persistent plan covering the next several turns of economy, military, intelligence and diplomacy: goals, priorities, resource constraints and adjustment conditions, grounded in facts. Not a log of this turn. Revise when it expires or the strategy changes; no need to resubmit a valid plan. The council grades strategy, not wording (A any one, B two, C five to reject); do not pad precise qualifiers to pass review.",
+  "tools.plan.description": "Submit a persistent plan covering the next several turns of economy, military, intelligence and diplomacy: goals, priorities, resource constraints and adjustment conditions, grounded in facts. Not a log of this turn. Revise when it expires or the strategy changes; no need to resubmit a valid plan.",
   "tools.end_turn.description": "End this nation's actions. summary must be one or two sentences on what was actually done this turn and key pending items; detailed actions already have receipts. Do not repeat the plan, per-tile lists or next-turn strategy. A valid plan is required. Unanswered offers are rejected and open votes are voted against automatically.",
   "tools.government.description": "Show this nation's valid plan, expiry, ended state and turn summaries; no arguments.",
   "tool.government.head": "Turn {period} | {status}",

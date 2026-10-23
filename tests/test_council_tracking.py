@@ -289,8 +289,6 @@ class TestCouncilTracking(unittest.TestCase):
         for text in ('战争和重大外交误判','重大战略误判','战术错误','核心承诺','机制错误','两条以上（≥2）','至少五条（≥5）','只有达到阈值才能打回','对目标完全无情报'):
             self.assertIn(text,rating)
         self.assertIn('议会看战略',service.ui.text('experimental.monarch'))
-        plan=next(s for s in host.player(self.actor).actions() if s['function']['name']=='plan')
-        self.assertIn('议会按 A/B/C 评级看战略',plan['function']['description'])
         self.assertIn('完整性',service.ui.text('experimental.review_second'))
         self.assertIn('反复延期',service.ui.text('experimental.review_first'))
 
