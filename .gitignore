@@ -19,10 +19,16 @@ mp_config.*.json
 !mp_config.example.json
 !mp_config.experimental.example.json
 !mp_config.minigame.example.json
+!mp_config.stock.example.json
+!mp_config.stock.offline.example.json
 
 # minigame 开发模式的独立新局产物
 minigame_save*
 minigame_journal*
+stock_save.json
+stock_save.json.audit/
+stock_journal*
+stock_journal*.map.txt
 
 # 议会示例配置的独立新局产物
 experimental_session.json
