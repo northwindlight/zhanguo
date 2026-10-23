@@ -790,11 +790,64 @@ class Sandbox:
         before = {u.gid: (N.name(u.owner), u.x, u.y, u.hp) for u in self.env.armies()}
         self.env.resolve()
         self.kills.observe(self.env, before)
+        # ★★★ **亡国之后的衔接**（2026-10-23 修，review P1-2）—— 必须在
+        #   **算回合号之前**做：重新宣战要走 native 的"提交 → 结算 → 代投 → 再结算"
+        #   ⇒ **会推进 2 个期号** ⇒ 回合号要把它算进去。
+        note = self._resume_wars()
         # ★ 与引擎同步（别自己数，免得漂）；减去建局基线 ⇒ 走的是"玩家回合数"
         self.turn = self.env.period() - self.turn_base
+        if note:
+            self.log.append(f"[T{self.turn}] {note}")
         self.held = set()                  # ★ 新回合 ⇒ "不动"的 mask 清空
         for note in self.resupply():
             self.log.append(f"[T{self.turn}] {note}")
+
+    # ------------------------------------------------------------ 亡国衔接
+    def _war_pairs(self) -> list[tuple[str, str]]:
+        """本局**应该在打**的两两组合（**只算还活着的国家**）。
+
+        ★ 口径与开局**完全一致**（`reset()` 里那一套）：
+          · 显式 `wars` ⇒ 就那些对；
+          · 否则 `war=True` ⇒ **所有非同盟的对**。
+        ⇒ 亡国之后重新宣战时，**结构不变**（2v2 的局里死了一边，剩下两边继续打）。
+        """
+        alive = [n for n in self.players if self.alive(n)]
+        if self.wars is not None:
+            return [(a, b) for a, b in self.wars if a in alive and b in alive]
+        if self.war:
+            return [(a, b) for i, a in enumerate(alive)
+                    for b in alive[i + 1:] if not self.env.allied(a, b)]
+        return []
+
+    def _resume_wars(self) -> str | None:
+        """★ **亡国之后让幸存者继续打**（2026-10-23 修，review P1-2）。
+
+        ★★ 病灶：引擎的 `Diplomacy.eliminate`（国家亡国时）会
+          · **清空全部战争**（`self._wars = []`）；
+          · 给**所有幸存者**两两**停战**，直到 `期号 + FallTruce`（native 默认 10 期）。
+          ⇒ 引擎的设计是"亡国 ⇒ 战争结束 ⇒ 幸存者冷静一段，之后**可以**再宣战"。
+        ★★ 但 **RL 的动作空间里没有"宣战"**（只有 hold/move/attack）⇒
+          停战一过，战争**永远不会自动恢复** ⇒ 多国局在第一次灭国后
+          **谁也打不了谁** ⇒ 后续"争胜/统一"的目标彻底落空，**而且不报错**
+          （实测：甲灭乙后，甲丙都活着、游戏没结束，但战争已经没了）。
+        ⇒ 这里补上那一环：**该宣的宣**（`rl:sandbox.declare_wars` → native 的
+          宣战流程：提交 → 结算 → 代投 → 再结算）。
+        ★ **不绕过引擎规则**：停战期内**不**宣战（引擎会拒："Active truce blocks
+          war"）—— 那一层判断在 `rl/mods/train/mod.py::declare_wars` 里
+          （它问引擎 `active_truce` 再决定要不要宣）。
+        ★ **不产生副作用**：一对都不需要宣时（都在打 / 都在停战）⇒
+          `declare_wars` **一次结算都不做** ⇒ 不白推进期号。
+        """
+        if len([n for n in self.players if self.alive(n)]) < 2:
+            return None
+        todo = [(a, b) for a, b in self._war_pairs()
+                if not self.env.war_between(a, b)]
+        if not todo:
+            return None
+        self.env.declare_wars(todo)
+        return (f"★ 亡国后**重新宣战**：{todo}"
+                f"（引擎的亡国处理会清空战争并给幸存者停战；"
+                f"RL 的动作空间没有'宣战' ⇒ 这里替它走一遍 native 的流程）")
 
     # ============================================================ 整局
     def rollout(self, verbose: bool = False) -> dict:

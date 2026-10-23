@@ -210,6 +210,29 @@ class TestWorldDomains(unittest.TestCase):
         for _ in range(3):self.cycle(w)
         self.call(w,Q,'declare_war',target=C)
 
+    def test_occupation_event_survives_save_restore(self):
+        """★★ **占领之后存档能读回来**（2026-10-23 修的引擎 bug）。
+
+        ★ `occupation` 事件带一个 `details` 段（前后归属/核心/名称/厅数 ——
+          主线的战报与 UI 都在读它，见 `tests/test_ui_regressions.py`），
+          而 `Military.restore` 的校验原来写的是 `set(event) != {...}`
+          —— **不允许任何多余键** ⇒ **引擎自己 `to_save()` 出来的事件，
+          自己 `restore()` 不回去** ⇒ 任何"打过一仗、占过地"的世界
+          **克隆不了**（`Env.clone()` 抛 `Invalid military event`）。
+        ★ 这条用例把那件事钉在**主线**（不是钉在 RL 线上）。
+        """
+        w=self.world();self.site(w,'scenario:capital',Q,1,1)
+        w.military._guard(2,1)
+        next(u for u in w.units if u.owner=='野人' and (u.x,u.y)==(2,1)).take_damage(999)
+        unit=w.military.seed(Q,'native:infantry',1,1)[0]
+        self.call(w,Q,'attack',ids=[unit.id],x=2,y=1)
+        events=[e for e in w.military.to_save()['events'] if e['kind']=='occupation']
+        self.assertTrue(events,'这一仗没有留下占领事件')
+        self.assertIn('details',events[0],'占领事件没有 details 段（那就测不到那条路）')
+        other=self.restore(w)        # ★ 读回来（原来在这一行抛 Invalid military event）
+        self.assertTrue([e for e in other.military.to_save()['events']
+                         if e['kind']=='occupation'],'读回来之后占领事件没了')
+
     def test_unowned_occupation_sets_core_and_peace_rebases_wartime_conquests(self):
         w=self.world();self.site(w,'scenario:capital',Q,1,1)
         w.military._guard(2,1)

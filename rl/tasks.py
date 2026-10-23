@@ -98,13 +98,13 @@ def route_fixture(variant: str = "east_blocked", seed: int = 0, size: int = 8):
     """「**绕山**」：**远处**一道山墙把直路堵住 ⇒ 正确第一步是**另一个方向**。
 
     ★ 构造（**确定性**）：
-      · 我核心在 (1,1)，**我的一支军**在 (2,2) ⇒ 它有两个方向可走：
-        `+x`（(3,2)）与 `+y`（(2,3)）；
+      · 我核心在 (1,1)，**我的一支军**在 (1,1)（**核心上**）⇒ 它有两个方向可走：
+        `+x`（(2,1)）与 `+y`（(1,2)）；
       · **山墙**（`native:mountain`）摆在**远处**（**不是**一步够得着的格）：
-        · `"east_blocked"` ⇒ 墙在 `x=4`（y=1..3）⇒ **+x 那条路被堵** ⇒
-          正确第一步 = **+y**（(2,3)，绕过去）；
-        · `"north_blocked"` ⇒ 墙在 `y=4`（x=1..3）⇒ **+y 那条路被堵** ⇒
-          正确第一步 = **+x**（(3,2)）。
+        · `"east_blocked"` ⇒ 墙在 `x=3`（y=0..3）⇒ **+x 那条路被堵** ⇒
+          正确第一步 = **+y**（(1,2)，绕过去）；
+        · `"north_blocked"` ⇒ 墙在 `y=3`（x=0..3）⇒ **+y 那条路被堵** ⇒
+          正确第一步 = **+x**（(2,1)）。
 
     ★★ 为什么这道题**只有读了地图**才能答对：
       山墙在**两三格之外** ⇒ 它**不在任何候选的落点**上 ⇒
@@ -112,18 +112,28 @@ def route_fixture(variant: str = "east_blocked", seed: int = 0, size: int = 8):
       只有**空间摘要**（`"s"` 组，报告 §8.2）带着它 ⇒
       ⇒ 答对 ⇒ **价值路径真的读到了远处的地形**。
 
-    → `(sb, me, correct_aidx)`
+    ★★★ 2026-10-23 改：军从 (2,2) 挪到**核心 (1,1)**。
+      原因：**上一轮把"地形对象/内容 ID 混用"修掉之后**，**可见格**的候选
+      **真的带着地形**（以前地形是"恒 0/1"的假值 ⇒ 墙在候选内容里**看不见**）。
+      ⇒ 军放在 (2,2) 时，墙的可见格 (3,1) **正好是它的候选落点**
+      ⇒ 候选内容**带上了墙的地形** ⇒ 这道题就不再是"**只能**从空间摘要读"
+      （虽然它仍然只测"读地图"这件事）。
+      ⇒ 军挪到 (1,1) 后：候选落点 = (1,1) 的八邻 = (0..2)×(0..2) 去掉 (1,1)，
+      而墙的可见格 (3,1) / (1,3) **在两格之外** ⇒ **既看得见、又不在候选落点上**
+      ⇒ 候选内容**逐位相同**、摘要不同 ⇒ **空间摘要那条路被真正隔离出来**。
+
+    → `(sb, me, east_cell, north_cell)`
     """
     sb = Sandbox(seed=seed, size=size, n_nations=2, t_max=20, war=True,
                  territory=False,
                  starts={"甲": (1, 1), "乙": (6, 6)}).reset(random_starts=False)
     env = sb.env
-    # ★ 只留一支我的军（放在 (2,2) ⇒ 它有两个方向可走：+x 与 +y），
+    # ★ 只留一支我的军（放在**核心 (1,1)** ⇒ 它有两个方向可走：+x 与 +y），
     #   敌国留一支在**远处**（它的核心 (6,6)，不打扰）。
     #   ★ 全程用 native 的**公开**能力（`disband` 真删、`seed` 初始化）。
     for unit in list(env.armies()):
         env.call("native:army", "disband", unit.owner, unit.id)
-    env.call("native:army", "seed", env.id_of("甲"), "native:infantry", 2, 2, 1)
+    env.call("native:army", "seed", env.id_of("甲"), "native:infantry", 1, 1, 1)
     env.call("native:army", "seed", env.id_of("乙"), "native:infantry", 6, 6, 1)
     # ★ 山墙（**远处**、非候选落点）—— 用 native 的 `territory.create` 建**无主**山地
     #   （旧写法是改引擎的私有 `_tiles` 表 ⇒ 与引擎分叉，**且不报错**）。
@@ -132,7 +142,7 @@ def route_fixture(variant: str = "east_blocked", seed: int = 0, size: int = 8):
     #   （摘要只对**看得见**的格取均值）⇒ 那样两个变体的摘要一模一样，
     #   这道题就**测不到"读地图"**。
     #   ⇒ 墙就贴在视野边缘：**看得见**（摘要读得到），
-    #   但**不在候选落点上**（候选特征不受影响）。
+    #     但**不在候选落点上**（候选特征不受影响）—— ★ 军挪到核心才成立（见上）。
     if variant == "east_blocked":
         cells = [(3, 0), (3, 1), (3, 3)]
     elif variant == "north_blocked":
@@ -142,7 +152,7 @@ def route_fixture(variant: str = "east_blocked", seed: int = 0, size: int = 8):
     for x, y in cells:
         env.call("native:territory", "create", f"rl:wall-{x}-{y}", None, x, y,
                  terrain="native:mountain")
-    return sb, "甲", (3, 2), (2, 3)
+    return sb, "甲", (2, 1), (1, 2)
 
 
 def route_correct(sb: Sandbox, me: str, east_cell, north_cell,

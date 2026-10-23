@@ -655,8 +655,18 @@ class Military:
                 if ident in seen:raise ValueError('Duplicate military fact resource')
                 seen.add(ident)
         for event in data['events']:
-            if not isinstance(event,dict) or set(event)!={'kind','text','position','parties','snapshot_only'}:raise ValueError('Invalid military event')
+            # ★★ 2026-10-23 修：`occupation` 事件**带一个 `details` 段**
+            #   （占领的前后归属/核心/名称/厅数 —— 主线的 UI 与战报都在读它，
+            #   见 `tests/test_ui_regressions.py`）。
+            #   原来的校验是 `set(event) != {...}`（**不允许任何多余键**）
+            #   ⇒ **引擎自己 `to_save()` 出来的事件自己 `restore()` 不回去**
+            #   ⇒ 任何"打过一仗、占过地"的世界都**克隆不了**（`Env.clone()` 抛
+            #   `Invalid military event`）—— 潜伏的引擎 bug，被 RL 线"野地也能进攻"
+            #   那一改**引爆**（占领事件从此天天出现）。
+            #   ⇒ 这里改成"**必需键一个都不能少，多余键只允许 `details`**"。
+            if not isinstance(event,dict) or not {'kind','text','position','parties','snapshot_only'}<=set(event) or set(event)-{'kind','text','position','parties','snapshot_only','details'}:raise ValueError('Invalid military event')
             if event['kind'] not in ('battle','occupation','supply','healing','withdrawal','repatriation') or not isinstance(event['text'],str) or event['snapshot_only'] is not True:raise ValueError('Invalid military event fields')
+            if 'details' in event and not isinstance(event['details'],dict):raise ValueError('Invalid military event details')
             if event['position'] is not None:
                 if not isinstance(event['position'],(list,tuple)) or len(event['position'])!=2:raise ValueError('Invalid military event position')
                 self._call('native:territory','check',*event['position'])

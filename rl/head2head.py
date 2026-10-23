@@ -122,11 +122,15 @@ def main() -> None:
     rng = np.random.default_rng(0)
     _t0 = time.perf_counter()
     for i, s in enumerate(range(a.seed0, a.seed0 + a.seeds)):
-        sb = Sandbox(seed=s, size=a.size, n_nations=k, t_max=a.t_max,
-                     halls_known=a.halls_known).reset()
-        nations = list(sb.players)
+        # ★★★ 2026-10-23 修（review P2-10）：**`first` 必须在 `reset()` 之前定下来**。
+        #   `Sandbox.reset()` 会按 `self.first` **建好本局的行动队列**
+        #   ⇒ 事后再改 `sb.first` 对**这一局**没有任何影响
+        #   （实测：配置先手为乙，实际当前行动者仍是甲 ⇒ 先手这条口径整个是空的）。
+        # ⇒ 现在：先抽座位与先手，再**带着 `first` 建沙盒**。
+        nations = list(V.PLAYER_NAMES[:k])
         a_side, first = game_setup(nations, i, a.seed0)
-        sb.first = first
+        sb = Sandbox(seed=s, size=a.size, n_nations=k, t_max=a.t_max,
+                     halls_known=a.halls_known, first=first).reset()
         net_of = nets_for(nations, a_side, pool_a, pool_b, i, a.seed0)
         # ★ 座位 → 身份标签（`A2` = 甲臂第 2 份）：跨臂流水用**合成 mid**，
         #   因为 `load_pool` 只给回权重、没有池子里的 mid ⇒ 这一层命名是本工具自己的口径。

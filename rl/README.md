@@ -150,6 +150,33 @@ git checkout rl/mods/train/mod.toml
 3. **轮数分档用真边界** —— `Odds.round_bins` 的每一档是 `sum(p_rounds[0..边])`
    （旧口径把整个分布累加进每一档 ⇒ 无论边界是几都返回同一个值）。
 
+### 评测口径的三条（2026-10-23 下午修）
+
+`rl/eval_fixed.py` 是这条线**唯一的裁判**（"有没有学到策略"就问它）⇒
+它自己的口径错一点，**所有结论都跟着错**：
+
+1. **采样臂按策略概率抽** —— 旧口径是 `rng.permutation(len(p))`（**均匀随机**）
+   ⇒ 把策略从"强烈偏好 hold"换成"强烈偏好 attack"，同种子的行动**一模一样**
+   ⇒ `--sample`（用户定的**唯一判据**）**测不出任何东西**。
+   ⇒ 现在按 `p` 抽，被引擎拒了就在**剩下的里按剩下的概率重抽**。
+2. **评估要带记忆** —— 旧口径每步都走 `net(batch)` ⇒ 潜槽**反复用初值**
+   （= 记忆等于没带，而且**不报错**）⇒ 记忆臂的评测**量不到记忆的收益**。
+   ⇒ 现在走 `forward_state` + **逐国**的 `mem_in`/`mem_out`（与训练同一条链）。
+3. **评测池不许混随机网** —— 旧口径按 `--pool` 建满网，**只灌存档里有的那几份**
+   ⇒ 缺的槽**保持随机初始化** ⇒ 一份 2 份网子的存档按默认 5 份加载，
+   **3 份随机网直接进了评测池** ⇒ 分数里掺着没训过的策略。
+   ⇒ 现在：存档有几份就用几份，**并且把这件事说出来**。
+
+### 续训口径的两条（2026-10-23 下午修）
+
+1. **Adam 的动量要存也要取** —— 旧口径只存权重 ⇒ 续训时优化器**根本不存在**
+   ⇒ 下一步就**新建一个 Adam** ⇒ `m`/`v` 归零 ⇒ **周期重启反复丢动量**
+   （Adam 的头几步偏差修正占主导 ⇒ 等于每轮都用"刚起步的 Adam"跑几十步）。
+   ⇒ 现在 `opts` 一起存/取（**命令行的 `--lr` 仍然说话**）。
+2. **"学过但还没冻结"的快照要随存档走** —— 旧口径里它们的权重**只在本进程内存里**
+   ⇒ 重启就**静默回到旧指纹**（`--league-snapshot-every 3` + `--restart-after 5`
+   这种组合必踩）⇒ 现在 `league_hot` 一起存，续训时灌回池子。
+
 ---
 
 ## 4. 怎么验
@@ -163,12 +190,14 @@ git checkout rl/mods/train/mod.toml
 | `tests/test_rl_train_truncation.py` | 截断**不产生伪终局**；终局口径单一；亡国方在平局按 −1 |
 | `tests/test_rl_stats_weighting.py` | 权重单一出处；击杀账本按 `gid` 记（不同国的同号军不撞车） |
 | `tests/test_rl_battle_odds.py` | 战斗概率**逐位等于**引擎能力；看不见的目标不编数；RL 侧不再有 DP 实现 |
-| `tests/test_rl_review_fixes.py` | **复审十条**（2026-10-23）：野地进攻候选 / 亡国落引擎 / 迷雾战斗不崩 / 地形类型边界 / 增援按观测方 / 推不出来标"未知" / 老师的未知守军 / 轮数分档 / MCTS 可导入 / `with_reinf=False` 不崩 |
+| `tests/test_rl_review_fixes.py` | **复审十条**（2026-10-23 上午）：野地进攻候选 / 亡国落引擎 / 迷雾战斗不崩 / 地形类型边界 / 增援按观测方 / 推不出来标"未知" / 老师的未知守军 / 轮数分档 / MCTS 可导入 / `with_reinf=False` 不崩 |
+| `tests/test_rl_review2_fixes.py` | **复审十一条**（2026-10-23 下午）：采样臂按策略概率 / 亡国后战争能恢复 / 评估带记忆 / 迷雾不漏地形城防 / 续训恢复 Adam / 热快照随存档走 / 学习者轮转不饿死人 / 截断自举用新价值 / 评测池不混随机网 / 跨臂先手生效 / 对手网同设备 |
 
 ```bash
 .venv/bin/python -m unittest \
   tests.test_rl_sandbox tests.test_rl_obs_engine_truth tests.test_rl_train_truncation \
-  tests.test_rl_stats_weighting tests.test_rl_battle_odds tests.test_rl_review_fixes -q
+  tests.test_rl_stats_weighting tests.test_rl_battle_odds \
+  tests.test_rl_review_fixes tests.test_rl_review2_fixes -q
 ```
 
 ### CI 口径（`python -m unittest discover -s tests -q`）
@@ -211,7 +240,7 @@ grep -rn "except.*:$" -A1 rl/*.py rl/teacher/*.py | grep -w pass && echo "有吞
 ls rl/PLAN.md rl/REPAIR-2026-10-22.md 2>&1 | grep -q "No such" && echo "旧文档已删 ✔"
 ```
 
-### 已知缺口（2026-10-22 收尾时）
+### 已知缺口（2026-10-23 两轮复审后）
 
 - **旧 RL 测试套件（`tests/test_rl_*.py`）还在迁移中**。
   造局助手已备齐（`tests/rl_deps.py`：`make_world` / `set_owner` / `set_hall` /
@@ -255,13 +284,25 @@ ls rl/PLAN.md rl/REPAIR-2026-10-22.md 2>&1 | grep -q "No such" && echo "旧文�
   **不要求视野**的推演口（那是主线的能力，不是 RL 线该自己造的）。
 - ★★ **观测宽度变了**（2026-10-23）：网格 **27 → 28** 列（多了"推不出来"标记）、
   军队 token 尾部 **14 → 15** 列 ⇒ **旧 ckpt 一律作废**（宽度对不上）。
-- ★ **网格里"看不见的格"仍会写防御%与移动代价**（2026-10-23 实测：
-  8×8 三国局里框内有 2 格看不见，却写出了 `defense=25%`（= 山地）与骑兵代价）
-  ⇒ **地形/城堡信息从迷雾里漏了一点**。归属 one-hot 是严格按视野的（没漏），
-  漏的只有这两列。
-  **为什么没直接改**：看不见的格该写"未知"（0）还是"中性先验"（按平原算）
-  是个**建模口径**，两者的训练含义不同 ⇒ 留给口径裁定，没顺手改掉。
-  （**不在本次复审的十条之内**。）
+- ★★ **迷雾里的地形/城防不再泄漏**（2026-10-23 修）：网格的 `GRID_DEFENSE` /
+  `GRID_MOVE` 与**候选的地形段**，对**看不见的格**一律走"**按平原估**"
+  （与 `rl/teacher/pathfind.py` 的 `_UNSEEN_COST` 同一条口径）⇒
+  只改**不可见格**的地形，**合法动作、网格、候选输入三者全都不变**
+  （`tests/test_rl_review2_fixes.py::TestFogLeak` 钉住）。
+  ★ 这条原来是**真泄漏**：模型能靠"不可见格的地形"偷看，而且**合法动作一模一样**
+    ⇒ 训练存在一条利用隐藏信息的通道。
+- ★★ **亡国之后的"停战期"是真代价**（2026-10-23 修）：引擎的亡国处理
+  （`Diplomacy.eliminate`）会**清空全部战争**并给幸存者两两**停战**
+  （native 的 `FallTruce = 10` 期）⇒ RL 的动作空间里**没有"宣战"**，
+  所以**沙盒替幸存者把宣战走一遍**（停战期内**不**宣 ⇒ 不绕过引擎规则）。
+  ⇒ **代价**：灭国之后有 **10 期的停战**（那段时间谁也打不了谁，只能扩地），
+    再加宣战本身要走的"提交 → 结算 → 代投 → 再结算"（**2 个期号**）。
+  ⇒ 这是**引擎的规则**（"亡国 ⇒ 战争结束 ⇒ 冷静一段"），不是 RL 侧能绕开的。
+- ★ **本地跑全量 RL 回归仍然跑不完**（2026-10-23）：带 torch 的用例里有几个
+  跑**真训练/真 rollout**（`test_rl_rollout_budget` 180 s 超时、
+  `test_rl_league_versions` ~100 s）⇒ 本地要**按文件分批**跑，
+  CI（不装 torch）整份跳过 ⇒ CI 侧不受影响。
+  ⇒ **本机没有 GPU** ⇒ `--device cuda` 那条路**只做过静态核对**（P2-11）。
 
 ### 目录
 

@@ -152,10 +152,22 @@ class TestBatchAlignment(unittest.TestCase):
             batch = T.to_dev(T.collate([r[3] for r in rows]), "cpu")
             lg_b, _v, _mo = net.forward_state(batch, torch.cat(mems, 0))
         for k in range(len(rows)):
+            n = singles[k].shape[0]
+            # ★★ **只比有效段**（2026-10-23 修）：批里的候选会**补零到批内最大**
+            #   （`collate`），单独跑的那份**不补零** ⇒ 形状本来就不同
+            #   （补零那截在模型里被 `masked_fill(-1e9)` 掩掉）。
+            #   ★ 这条用例以前"碰巧"能过：那时**每行的候选数都一样**
+            #     （`hold + 8 邻` × 军数 ⇒ 45），补零长度恰好相同。
+            #   ★ 上一轮修"**野地也能进攻**"之后，候选数**逐行不同**
+            #     （攻不攻野地取决于地形与邻居）⇒ 老写法直接形状对不上而红。
             self.assertTrue(
-                torch.allclose(lg_b[k], singles[k], rtol=self.TOL, atol=self.TOL),
+                torch.allclose(lg_b[k][:n], singles[k], rtol=self.TOL, atol=self.TOL),
                 f"第 {k} 行与单独跑的结果差太多 —— 批次错位了"
-                f"（max|Δ|={(lg_b[k] - singles[k]).abs().max().item():.3g}）")
+                f"（max|Δ|={(lg_b[k][:n] - singles[k]).abs().max().item():.3g}）")
+            if lg_b[k].shape[0] > n:
+                # ★ 补零那段必须**被掩掉** ⇒ 不进 softmax、不产生梯度。
+                self.assertTrue(bool((lg_b[k][n:] <= -1e8).all()),
+                                "补零的候选没有被掩掉 ⇒ 会进 softmax")
 
     def test_row_permutation_follows_the_rows(self):
         """★ 把行序换一下，输出必须**跟着行走**（不是跟着位置）。
@@ -173,8 +185,11 @@ class TestBatchAlignment(unittest.TestCase):
             b2 = T.to_dev(T.collate([obs[i] for i in order]), "cpu")
             lg2, _v, _m = net.forward_state(b2, torch.cat([mems[i] for i in order], 0))
         for pos, i in enumerate(order):
+            # ★ 只比**有效段**（候选数逐行不同 ⇒ 两批的补零长度可能不同，
+            #   见上面那条用例的注释）。
+            n = int(obs[i]["cand"]["type_idx"].shape[0])
             self.assertTrue(
-                torch.allclose(lg2[pos], lg1[i], rtol=self.TOL, atol=self.TOL),
+                torch.allclose(lg2[pos][:n], lg1[i][:n], rtol=self.TOL, atol=self.TOL),
                 f"换行序后第 {pos} 位没有跟着第 {i} 行走 —— 对应关系错了")
 
 

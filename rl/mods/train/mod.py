@@ -215,12 +215,29 @@ class SandboxService:
         pairs = [(a, b) for a, b in pairs if a != b]
         if not pairs:
             return
+        # ★★★ 2026-10-23 修（review P1-2）：**跳过"停战期内"的那几对**。
+        #   引擎的 `Diplomacy.eliminate`（**国家亡国时**）会：
+        #     · **清空全部战争**（`self._wars = []`）；
+        #     · 给**所有幸存者**两两停战，直到 `期号 + FallTruce`（native 默认 10 期）。
+        #   ⇒ 引擎的设计是"亡国 ⇒ 战争结束 ⇒ 幸存者冷静一段，之后**可以**再宣战"。
+        #   ★ 但**停战期内宣战会被引擎拒**（`Active truce blocks war`）⇒
+        #     这里**先问引擎**（`active_truce`）再决定要不要宣 ⇒
+        #     **不吞异常、也不绕过引擎的停战规则**。
+        #   ⇒ 一对都不需要宣（都在打 / 都在停战）⇒ **一次结算都不做**
+        #     （否则每回合白推进 2 个期号）。
+        todo = []
         for a, b in pairs:
             if self.call('native:diplomacy', 'war_between', a, b):
                 continue                        # ★ 已经在打了 ⇒ 幂等
+            if self.call('native:diplomacy', 'active_truce', a, b):
+                continue                        # ★ 停战期没过 ⇒ 现在不能宣
+            todo.append((a, b))
+        if not todo:
+            return
+        for a, b in todo:
             self.call('native:diplomacy', 'submit', a, 'declare_war', target=b)
         self.resolve()                          # ① 一次结算：生成全部表决
-        for a, b in pairs:
+        for a, b in todo:
             self._approve_votes(a)
         self.resolve()                          # ② 一次结算：全部落地
 

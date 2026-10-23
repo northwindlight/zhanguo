@@ -723,7 +723,6 @@ def _settle_episode(sb: Sandbox, steps: list[Step], *,
     outcomes = {p: _outcome_for(sb, p, global_terminal=terminal) for p in sb.players}
     # ---- 截断时的边界自举值 ----
     boots: dict[str, float | None] = {}
-    last_player = steps[-1].player if steps else None
     for p, i in last_idx.items():
         if not truncated:
             boots[p] = None                     # ★ 真终局 ⇒ 后继价值就是 0
@@ -732,7 +731,14 @@ def _settle_episode(sb: Sandbox, steps: list[Step], *,
             boots[p] = None                     # ★ 结果已定 ⇒ 后面不会再有回报
             continue
         v = None
-        if p == last_player and nets is not None:
+        # ★★★ 2026-10-23 修（review P2-8）：**每个玩家都算自己的边界价值**。
+        #   原来只给"**最后一个行动者**"算，其余玩家直接复用 `steps[i].value`
+        #   —— 那是**他最后一次行动之前**的价值（**另一个时刻的量**）
+        #   ⇒ 多玩家截断时，GAE 的自举目标**彼此不一致**（实测：该值与当前的
+        #     边界价值不同）⇒ 截断的那几段被教成了"别的时刻的估值"。
+        #   ⇒ 现在统一：**每个结果未定的玩家**都在**当前边界观测**上问一次网络。
+        #   ★ 代价：截断那一局多几次前向（每个玩家一次）—— 截断本来就是例外路径。
+        if nets is not None:
             v = _value_at(sb, p, nets, mem, device)
         boots[p] = v if v is not None else steps[i].value
     # ---- 落盘：每人的最后一步 = 边界 + 结果 ----
@@ -966,6 +972,22 @@ def _adam_for(net, lr: float) -> "torch.optim.Adam":
         for g in opt.param_groups:
             g["lr"] = lr
     return opt
+
+
+def _learner_slot(mids: list[str], games_played: int) -> str:
+    """★ 第 `games_played` 局（**从 0 起**）该由**谁**学 —— **按实际开展的局数**轮转。
+
+    ★★★ 2026-10-23 修（review P1-7）：原来按"**计划局号**"
+      （`it * 每iter局数 + e`）算 ⇒ 两条坑：
+      ① **步数预算吃紧** ⇒ 循环 `break` 掉后面的局 ⇒ 计划局号与实际局号**对不上**
+        ⇒ **靠后的学习者永远轮不到**（实测：pool=2、episodes=2、max-steps=16
+        ⇒ 连续三轮只有 L0 拿到样本，L1 一次都没上场）；
+      ② `每iter局数 % 池子大小 == 0` 时，`it*每iter局数 % 池子大小 == 0`
+        ⇒ **每个 iter 的第 0 局永远是同一个学习者**（同一个坑，换个算法）。
+    ⇒ 改成"**实际开展了第几局**"⇒ 谁都轮得到，且**跨重启接着轮**
+      （计数器存在存档里，见 `meta["games_played"]`）。
+    """
+    return mids[int(games_played) % len(mids)]
 
 
 def _ppo_update_mem(net: PolicyNet, steps: list[Step], *, epochs: int, clip: float,
@@ -1276,7 +1298,19 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         log(f"★ 在训成员的 mid 带 worker 身份：**{mids[0]} … {mids[-1]}**"
             f"（★ 多 worker 共用一个库时，这就是「谁是谁」的唯一依据 —— 见 `_worker_tag`）")
     state: dict = {}
-    it0 = _load_ckpt(resume, nets, mem_slots=mem_slots, log=log) if resume else 0
+    # ★★★ **真正开展过的局数**（2026-10-23 修，review P1-7）——
+    #   学习者轮转 / 局号 / 先后手轮转**都按它算**。
+    #   ★ 原来按"**计划局号**"（`it * 每iter局数 + e`）分配学习者：
+    #     ① 步数预算吃紧 ⇒ `break` 掉后面的局 ⇒ **靠后的学习者永远轮不到**
+    #        （实测：pool=2、episodes=2、max-steps=16 ⇒ 连续三轮只有 L0 拿到样本，
+    #          L1 一次都没上场）；
+    #     ② `每iter局数` 是 `池子大小` 的整数倍时，`it*每iter局数 % 池子大小 == 0`
+    #        ⇒ **每个 iter 的第 0 局永远是同一个学习者**（同一个坑，换个算法）。
+    #   ⇒ 改成"**实际开展了第几局**"⇒ 谁都轮得到，且**跨重启接着轮**（存进存档）。
+    _resume_meta: dict = {}
+    it0 = (_load_ckpt(resume, nets, mem_slots=mem_slots, log=log,
+                      meta_out=_resume_meta, league=lg) if resume else 0)
+    games_played = int(_resume_meta.get("games_played", 0) or 0)
     # ★★「联赛池从**最新快照**开始分化」（用户原话）：所有在训成员**从同一份起跑**，
     #   ⇒ 起点相同、每局抽到的对手组合不同 ⇒ **风格自己漂开**。
     #   （原来是各随机初始化 —— 大部分生下来就是废的，谈不上"分化"。）
@@ -1299,7 +1333,8 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         # ★ 起炉前先落一份"第 0 代"存档：跑挂了也还有东西可续，且形状元数据在册
         _save_ckpt(out, nets, it0,
                    meta=_ckpt_meta(lo, hi, halls_known, nations, n_slots, t_max,
-                                   mem_slots=mem_slots))
+                                   mem_slots=mem_slots, games_played=games_played),
+                   league=lg)
         log(f"★ 起始存档 → {out}（第 {it0} iter）")
     # ★★★ 2026-09-29 **对手池模式**（用户：「这次就打固定稻草人好好学」）：
     #   · 对手**冻结不学**（`rl/opponents.py` 的 `frozen=True`）；
@@ -1323,6 +1358,13 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         opp_net.load_state_dict(_nets[_k0])
         opp_net.eval()
         opp_net.requires_grad_(False)
+        # ★★★ 2026-10-23 修（review P2-11，静态确认）：**对手网也要上设备**。
+        #   采样时 `batch` 会被 `to_dev(..., device)` **搬到配置设备**（CUDA 时是 GPU），
+        #   而 `opp_net` 原来**留在 CPU** ⇒ CUDA 模式下对手前向**设备不一致**
+        #   （CPU tensor vs CUDA tensor ⇒ 报错；或在某些后端上**静默回落**）。
+        #   ⇒ 这里跟主网一样搬过去（`device` 是同一个配置值）。
+        if device and device != "cpu":
+            opp_net = opp_net.to(device)
         opp = _OPP.make(opponent, k=opponent_k)
         log(f"★ 差生权重指纹（训前）= **{_param_digest(opp_net)}**")
         mid_opp = f"<{opponent}>"
@@ -1369,7 +1411,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
             # ★ **≥3 轮流手**：先手在**每局**之间轮换（不只是每 iter）
             #   ⇒ 一个 iter 内 k 个国家都当过一次先手，"先手胜率"这个统计才有意义
             #   （健康值 = 1/k，不再是 0.5）。
-            first = players[(it + e) % k]
+            first = players[games_played % k]
             # ★★★ **必须把 `k` 传给沙盒**（2026-09-27 修的真 bug）：
             #   原来这里**没传 `n_nations`** ⇒ 沙盒按 `n_nations_for(size)` 自己算国家数，
             #   而 `players = V.PLAYER_NAMES[:k]` / `net_of` 是按 `k` 建的
@@ -1390,10 +1432,14 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
             if opp is not None:
                 # ★★ 一个我方 + 一个差生。我方**按局号交替** ⇒ 正好各一半
                 #   （随机抽签会抽成 103/97 —— 用户要的是"l0/l1 各 100 局"）。
-                # ★★ 必须用**全局局号**（`it * 每iter局数 + e`），**不是** `e`！
-                #   `e` 每个 iter 都从 0 开始 ⇒ 用它交替的话**永远是同一个成员当学习者**
-                #   （另一个一次都轮不到、白跑一炉）。我第一版就是这么写的。
-                _learner = mids[(it * episodes_per_iter + e) % len(mids)]
+                # ★★★ 必须用**实际开展的局数**（2026-10-23 修，review P1-7）：
+                #   原来用"**计划局号**"（`it * 每iter局数 + e`）⇒
+                #   ① 预算吃紧、`break` 掉后面的局 ⇒ **靠后的学习者永远轮不到**
+                #      （实测：pool=2、episodes=2、max-steps=16 ⇒ 连续三轮只有 L0
+                #        拿到样本，L1 一次都没上场）；
+                #   ② `每iter局数 % 池子大小 == 0` 时，`it*每iter局数 % 池子大小 == 0`
+                #      ⇒ **每个 iter 的第 0 局永远是同一个学习者**。
+                _learner = _learner_slot(mids, games_played)
                 draw = [_learner]
                 net_of = {players[0]: lg.net_of(_learner), players[1]: opp_net}
                 mid_of = {players[0]: _learner, players[1]: mid_opp}
@@ -1405,13 +1451,16 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                 opp_of = None
             # ★★ **局号 + 成员表**（2026-10-22）：每一步都带上自己的轨迹身份，
             #   GAE 与 TBPTT 窗口按它切段（`_segment_key`）。
-            #   局号用**全局局号**（`it * episodes_per_iter + e`），与上面交替学习者那条同口径。
+            #   局号用**实际开展的局数**（`games_played`）—— 与上面交替学习者那条同口径，
+            #   而且**跨重启唯一**（不会两局撞号）。
             steps, info = collect_episode(net_of, sb, temperature=temperature,
                                           rng=rng, device=device,
                                           max_steps=(budget if max_steps else None),
                                           opponents=opp_of,
-                                          episode_id=it * episodes_per_iter + e,
+                                          episode_id=games_played,
                                           member_of=mid_of)
+            # ★★ **这一局真的开了** ⇒ 计数器 +1（学习者轮转、先后手轮转都按它算）。
+            games_played += 1
             # ★ 对账计数（报告 §7.3）：**在产生它们的地方**收，不在别处另算
             sb_dup += int(getattr(sb, "n_dup_candidates", 0))
             sb_rej += int(getattr(sb, "n_rejected", 0))
@@ -1556,7 +1605,9 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         if out and it % max(1, ckpt_every) == 0:
             _save_ckpt(out, nets, it, meta=_ckpt_meta(lo, hi, halls_known,
                                                       nations, n_slots, t_max,
-                                                      mem_slots=mem_slots))
+                                                      mem_slots=mem_slots,
+                                                      games_played=games_played),
+                       league=lg)
             log(f"  ★ 存档 → {out}（第 {it} iter）")
     if out:
         if opp_net is not None:
@@ -1564,12 +1615,15 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                 f"  —— 必须与训前**逐位相同**（它就是不来学的）")
         _save_ckpt(out, nets, it0 + iters, meta=_ckpt_meta(lo, hi, halls_known,
                                                      nations, n_slots, t_max,
-                                                     mem_slots=mem_slots))
+                                                     mem_slots=mem_slots,
+                                                     games_played=games_played),
+                   league=lg)
     return nets
 
 
 def _ckpt_meta(lo: int, hi: int, halls_known: bool, nations: int | None,
-               n_slots: int, t_max: int = 200, *, mem_slots: int) -> dict:
+               n_slots: int, t_max: int = 200, *, mem_slots: int,
+               games_played: int = 0) -> dict:
     """★★ 存档的**形状元数据** —— 只为了一件事：将来加载时能**判定它过期了**。
 
     用户定过的铁律：**「ckpt 会被新代码加载就必须重炼」**（旧线 `feat/rl` 的教训）。
@@ -1591,6 +1645,13 @@ def _ckpt_meta(lo: int, hi: int, halls_known: bool, nations: int | None,
     """
     return {"size": [lo, hi], "halls_known": bool(halls_known),
             "nations": nations, "pool": n_slots, "t_max": int(t_max),
+            # ★★ **训练进度**（2026-10-23 修，review P1-7）：
+            #   `games_played` = **真正开展过的局数**（不是"计划要打的局数"）。
+            #   学习者的轮转、局号、先后手轮转**都按它算** ⇒
+            #   ① 步数预算吃紧、提前收工时，**后面的局不会被人跳过**
+            #      （原来按"计划局号"分配 ⇒ 预算一断，**靠后的学习者永远轮不到**）；
+            #   ② 跨重启**接着轮转**（重启不再从头开始）。
+            "games_played": int(games_played),
             # ★ **型号名跟着权重走**（用户 2026-09-25：「这一型号的模型叫**战争v1**…
             #   是各个特化的**基座**，未来也作为**基线**」）⇒ 存档里记下来，
             #   以后各特化（打野/占地形/防御/斩首/消耗战/混战/情报/探索…）都从它分出去，
@@ -1704,7 +1765,8 @@ def _resume_point(explicit: str | None, out: str | None, log=print) -> str | Non
     return None
 
 
-def _load_ckpt(path: str, nets: dict, *, mem_slots: int = 0, log=print) -> int:
+def _load_ckpt(path: str, nets: dict, *, mem_slots: int = 0, log=print,
+               meta_out: dict | None = None, league=None) -> int:
     """★ **续跑读档**：把权重灌回 `nets`，返回**已经跑过的 iter 数**。
 
     ★★ 先校**形状指纹**：对不上就**直接拒**（不是警告）——
@@ -1731,14 +1793,48 @@ def _load_ckpt(path: str, nets: dict, *, mem_slots: int = 0, log=print) -> int:
     for i, net in nets.items():
         if i in got:
             net.load_state_dict(got[i]); hit += 1
+    # ★★★ **Adam 状态读回**（2026-10-23 修，review P1-5）：挂在网对象上
+    #   （与 `_adam_for` 同一处），下一次 `_adam_for(net, lr)` 直接复用（只同步 lr）
+    #   ⇒ 动量不丢。★ 原来只读权重 ⇒ 续训时优化器**根本不存在** ⇒ 下一步就
+    #   **新建一个 Adam** ⇒ `m`/`v` 归零 ⇒ 周期重启会反复丢动量
+    #   （实测：更新前优化器里已有 **90 份**参数状态，存档加载后优化器不存在）。
+    opts = blob.get("opts") or {}
+    n_opt = 0
+    for i, net in nets.items():
+        if i not in opts:
+            continue
+        opt = _adam_for(net, float((opts[i].get("param_groups") or [{}])[0].get("lr", 0.0)))
+        try:
+            opt.load_state_dict(opts[i])
+            n_opt += 1
+        except (ValueError, KeyError) as exc:
+            log(f"★ ⚠ 第 {i} 份的优化器状态读不回来（{exc}）⇒ 这一份的动量从头开始")
+    # ★★★ **"学过但还没冻结"的那批快照**（review P1-6）：从主档灌回池子。
+    if league is not None:
+        n_hot = league.restore_hot(blob.get("league_hot") or {})
+        if n_hot:
+            log(f"★ 灌回 **{n_hot}** 份『学过但还没冻结』的快照权重"
+                f"（否则重启后它们**静默回到旧指纹**）")
     it0 = int(meta.get("iters", 0))
-    log(f"★ 从 {path} 续跑：灌回 {hit}/{len(nets)} 份权重，已完成 **{it0}** 个 iter，"
+    if meta_out is not None:
+        meta_out.update(meta)
+    log(f"★ 从 {path} 续跑：灌回 {hit}/{len(nets)} 份权重"
+        + (f" + {n_opt} 份优化器状态" if n_opt else "（**没有优化器状态**）")
+        + f"，已完成 **{it0}** 个 iter，"
         f"t_max={meta.get('t_max')} size={meta.get('size')}")
     return it0
 
 
-def _save_ckpt(path: str, nets: dict, iters: int, *, meta: dict) -> None:
-    """把池子里**每一份**权重连同形状元数据写盘（原子写：先临时文件再 rename）。"""
+def _save_ckpt(path: str, nets: dict, iters: int, *, meta: dict,
+               league=None) -> None:
+    """把池子里**每一份**权重连同形状元数据写盘（原子写：先临时文件再 rename）。
+
+    ★★★ 2026-10-23 修（review P1-5 / P1-6）：存档里现在**多带两样东西**：
+      · `opts` = **Adam 的动量**（`state_dict`）—— 不带 ⇒ 续训等于重开 Adam
+        （周期重启会反复丢动量）。
+      · `league_hot` = **"学过但还没冻结"的那批快照**的当前权重 —— 不带 ⇒
+        重启后它们**静默回到旧指纹**（学习白学）。
+    """
     import os
     from pathlib import Path
     p = Path(path)
@@ -1746,8 +1842,22 @@ def _save_ckpt(path: str, nets: dict, iters: int, *, meta: dict) -> None:
     meta = dict(meta or {})
     meta["iters"] = int(iters)
     tmp = p.with_suffix(p.suffix + ".tmp")
-    torch.save({"nets": {int(i): n.state_dict() for i, n in nets.items()},
-                "meta": meta}, tmp)
+    blob = {"nets": {int(i): n.state_dict() for i, n in nets.items()},
+            "meta": meta}
+    # ★ **优化器状态**（挂在网对象上 —— 与 `_adam_for` 同一处，不另建表）。
+    opts = {}
+    for i, n in nets.items():
+        opt = getattr(n, "_ppo_opt", None)
+        if opt is not None:
+            opts[int(i)] = opt.state_dict()
+    if opts:
+        blob["opts"] = opts
+    # ★ **热快照的权重**（`mark_hot` 那批：盘上还是旧版，内存里才是新的）。
+    if league is not None:
+        hot = league.hot_weights()
+        if hot:
+            blob["league_hot"] = hot
+    torch.save(blob, tmp)
     os.replace(tmp, p)                       # ★ 原子：别让"写了一半"被 pull 走
 
 

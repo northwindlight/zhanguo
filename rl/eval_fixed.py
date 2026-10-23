@@ -51,6 +51,13 @@ def load_pool(path: str | None, n_slots: int, *, log=print) -> dict:
       **这条线唯一的裁判（`eval_fixed`）根本评不了记忆臂**，而它正是用来判
       A/B 胜率的那把尺子（`--memory` 那两臂就靠它比）。
       指纹检查也顺带**比全**了（原来只手写了两项，`mem_slots` 不在内）。
+
+    ★★★ **绝不拿随机网凑数**（2026-10-23 修，review P2-9）：
+      原来 `nets = {i: build_model(...) for i in range(n_slots)}` 之后
+      **只把存档里有的槽灌进去** ⇒ **缺的槽保持随机初始化** ⇒
+      一份 2 份网子的存档按默认 `--pool 5` 加载 ⇒ **3 份随机网直接进了评测池**
+      ⇒ 评测分数里掺着"没训过的策略" ⇒ **测不出训练效果**（而且日志不吭声）。
+      ⇒ 现在：存档有几份就用几份，**并把这件事说清楚**。
     """
     if not path:
         log(f"★ 基线臂：**未训练**的 {n_slots} 份网（全新初始化）")
@@ -67,14 +74,38 @@ def load_pool(path: str | None, n_slots: int, *, log=print) -> dict:
         raise SystemExit(
             f"★ ckpt 的形状指纹对不上：{bad}（存的是旧值，现在的是新值）"
             f" ⇒ 这个 ckpt 是**旧代码**训的，必须重炼（别硬加载）")
-    nets = {i: build_model(mem_slots=mem) for i in range(n_slots)}
     got = blob["nets"]
-    for i in range(n_slots):
-        if i in got:
-            nets[i].load_state_dict(got[i])
-    log(f"★ 从 {path} 读回 {len(got)} 份权重（iter={meta.get('iters')}，"
-        f"记忆 {mem} 槽，指纹 {fp}）")
+    if not got:
+        raise SystemExit(f"★ {path} 里**一份权重都没有** ⇒ 没法评测")
+    slots = sorted(int(i) for i in got)
+    if len(slots) < n_slots:
+        log(f"★ ⚠ ckpt 里只有 **{len(slots)}** 份权重（要 {n_slots} 份）"
+            f" ⇒ **只用存档里有的那几份**，**不拿随机网凑数**"
+            f"（随机网混进评测池 ⇒ 分数里掺了没训过的策略 ⇒ 量不到训练效果）")
+    n_slots = min(n_slots, len(slots))
+    nets = {i: build_model(mem_slots=mem) for i in range(n_slots)}
+    for j, i in enumerate(slots[:n_slots]):
+        nets[j].load_state_dict(got[i])
+    log(f"★ 从 {path} 读回 {len(slots)} 份权重（iter={meta.get('iters')}，"
+        f"记忆 {mem} 槽，指纹 {fp}）"
+        + ("" if len(slots) >= n_slots else f" ⇒ **评测池按 {n_slots} 份走**"))
     return nets
+
+
+def action_order(p: np.ndarray, rng: np.random.Generator, greedy: bool) -> list[int]:
+    """★ 取动作的**顺序**（**在 `rl/sampling.py`** —— 纯 numpy，不依赖 torch）。
+
+    ★★ 2026-10-23 修（review P1-1）：原来采样臂是 `rng.permutation(len(p))`
+      —— **均匀随机**，**完全不看策略概率** ⇒ 把策略从"强烈偏好 hold"换成
+      "强烈偏好 attack"，同种子的 21 步行动**一模一样** ⇒
+      **`--sample` 臂（用户定的**唯一**判据）根本测不出训练效果**。
+      ⇒ 现在：按 `p` 抽（`rng.choice(..., p=…)`）；被引擎拒了就**在剩下的里重抽**
+        （按**剩下的概率重新归一化**，不是退化成均匀）。
+    ★ 顺序是**整条**排好的（和原来的贪心排序同一形状）⇒ "首选被拒 → 退到次优"
+      的计数口径不变。
+    """
+    from .sampling import action_order as _order
+    return _order(p, rng, greedy)
 
 
 @torch.no_grad()
@@ -105,6 +136,12 @@ def play(nets: dict, sb: Sandbox, *, greedy: bool,
     step_cap = int(sb.t_max) * 200 + 500          # 每回合 ~24 步 ⇒ 200 倍是宽裕的上限
     refused = 0          # 被引擎拒收的次数
     fallback = 0         # 首选被拒、退到次优的次数
+    # ★★★ 2026-10-23 修（review P1-3）：**逐国保存并传递潜槽**。
+    #   原来每步都是 `net(collate([obs]))` ⇒ `forward` 走的是"**初值槽**"
+    #   ⇒ **潜槽反复用初值**（= 记忆等于没带），而且**不报错**
+    #   （探针记录：普通前向 10 次、`forward_state` 调用 **0 次**）。
+    #   ⇒ 记忆臂的评测必须走 `forward_state` + **逐国**的 `mem_in/mem_out`。
+    mem: dict = {}
     while not sb.is_terminal():
         me = sb.current_player()
         if me is None:
@@ -118,7 +155,18 @@ def play(nets: dict, sb: Sandbox, *, greedy: bool,
         obs = encode.obs_of(sb, me, acts)
         net = (net_of[me] if net_of is not None
                else nets[sb.players.index(me) % len(nets)])
-        logits, _ = net(collate([obs]))
+        batch = collate([obs])
+        if int(getattr(net, "mem_slots", 0) or 0):
+            # ★ 与 `train.collect_episode` 同一口径：`mem_in` = 上一步的槽，
+            #   `mem_out` **出来再 clone**（`inference_mode` 的张量喂不进 autograd）。
+            if me not in mem:
+                mem[me] = net.mem_init(1, device=batch["grid"].device)
+            with torch.inference_mode():
+                logits, _value, mem_out = net.forward_state(batch, mem[me])
+            mem[me] = mem_out.detach().clone()
+        else:
+            with torch.inference_mode():
+                logits, _value = net(batch)
         p = torch.softmax(logits[0], -1).numpy()
         # ★★★ 2026-09-29：**候选集里本来就有"引擎会拒"的动作**，这是**设计**
         #   （`sandbox.legal()` 的 2026-09-24 口径：「无视野的邻格：移动与进攻两条路都给
@@ -128,7 +176,8 @@ def play(nets: dict, sb: Sandbox, *, greedy: bool,
         #   ★ 为什么必须这么做：拒绝 ⇒ **状态不变** ⇒ 贪心下 argmax 不变 ⇒
         #     **原地死循环**（实测：一个 100 回合的局挂了 50+ 分钟；`t_max` 只数回合，
         #     挡不住"同一回合内空转"，而训练靠采样+`--max-steps` 才没炸）。
-        order = np.argsort(-p) if greedy else rng.permutation(len(p))
+        #   ★★ 采样臂**按策略概率**抽（review P1-1）—— 原来这里是均匀随机。
+        order = action_order(p, rng, greedy)
         _ok = False
         for _try, aidx in enumerate(order):
             ok, msg = sb.step(acts[int(aidx)])

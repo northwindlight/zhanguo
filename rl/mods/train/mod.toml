@@ -50,7 +50,7 @@ Provides = ["rl:sandbox", "rl:truth", "rl:odds"]
                        "resolve", "snapshot_cores", "configure"]
 "native:vision" = ["visible", "tiles", "positions"]
 "native:diplomacy" = ["war_between", "allied", "at_war", "passage", "entity", "members",
-                       "alliance", "snapshot", "submit", "vote"]
+                       "alliance", "snapshot", "submit", "vote", "active_truce"]
 "native:buildings" = ["site", "effects", "count", "snapshot", "seed", "has_role",
                        "kinds_with_role", "kind_with_role", "count_role", "effect_role",
                        "resolve_site", "register_site", "transfer_site"]

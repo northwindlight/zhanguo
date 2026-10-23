@@ -335,6 +335,50 @@ class League:
         """
         self._hot.add(mid)
 
+    def hot_weights(self) -> dict:
+        """★ **"学过但还没落盘"的那几份**的当前权重（`mark_hot` 标的那批）。
+
+        ★★ 为什么要导出（2026-10-23 修，review P1-6）：
+          `mark_hot` 标的那批成员，**更新后的权重只在本进程内存里**
+          （`_nets` 缓存里那个对象）⇒ 盘上那份**还是旧版** ⇒
+          进程一重启就**丢**（学习静默消失）。
+          而主 checkpoint **只存 live 网络** ⇒ 这批"学过但还没到冻结周期"的权重
+          **既没进联赛库、也没进主档** ⇒ 重启后**静默回到旧指纹**
+          （实测：`snapshot-every=3` + `restart-after=5` 这种组合必踩）。
+        ⇒ 训练侧把它们的权重**一起存进主档**，续训时灌回去
+          （见 `rl/train.py::_save_ckpt` / `_load_ckpt`）。
+        ★ 只导出**内存里确实有**的那些（没缓存的不导出 ⇒ 不替它猜）。
+        """
+        out = {}
+        for mid in sorted(self._hot):
+            net = self._nets.get(mid)
+            if net is None:
+                continue
+            out[mid] = {k: v.detach().cpu().clone()
+                        for k, v in net.state_dict().items()}
+        return out
+
+    def restore_hot(self, weights: dict) -> int:
+        """把 `hot_weights()` 导出的那批权重**灌回**池子（续训时用）。
+
+        ★ 走 `net_of(mid)`（**懒加载 + 形状指纹校验**）⇒ 灌进去的这份
+          就是池子以后**会用到**的那份（不是另建一个对象）。
+        ★ 返回**灌回去几份**（0 ⇒ 存档里那批成员已经不在池子里了 ⇒ 不声张，
+          由调用方决定要不要报）。
+        """
+        n = 0
+        for mid, w in (weights or {}).items():
+            if mid not in self.members:
+                continue
+            try:
+                net = self.net_of(mid)
+            except (KeyError, SystemExit):
+                continue
+            net.load_state_dict(w)
+            self._hot.add(mid)
+            n += 1
+        return n
+
     def freeze_trained(self, net, parent: str, it: int) -> Member:
         """★★ **「学一个增一个」**：把**学完之后**的权重冻成**新成员**（落盘 + 入册）。
 

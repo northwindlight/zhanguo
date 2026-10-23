@@ -35,6 +35,7 @@ from . import odds as CB
 from . import hall_memory as HM
 from . import intel as IN
 from . import features as F
+from . import rules as R
 from . import scoring as S
 from . import vocab as V
 # ★ 编码层**不依赖沙盒**：`enemies_of` 转发 `evaluate.rival_nations`（唯一实现），
@@ -48,6 +49,19 @@ from . import vocab as V
 #     会**读错列且不报错**（我写测试时就踩了：读到的其实是 `A_OWNER0` 的 one-hot）。
 ARMY_TAIL0 = V.A_WIDTH_RAW + F.F_U
 ARMY_WIDTH = ARMY_TAIL0 + V.A_EXTRA
+
+# ★★ **看不见的格的中性值**（2026-10-23 修，review P1-4）。
+#   ★ 口径与 `rl/teacher/pathfind.py` 的 `_UNSEEN_COST` **同一条**：
+#     **看不见 ⇒ 按平原估**（不读真地形、也不读真城防）。
+#   ★ 修之前的症状（实测）：**只改不可见格的地形**，合法动作**完全相同**，
+#     而**网格**（防御%/移动代价）与**候选输入**（地形段）却都变了
+#     （差 0.5）⇒ 训练存在一条"**利用隐藏信息**"的通道。
+#   ★ 归属 one-hot 早就按视野挡住了（`GRID_OWNER0` 那段）——
+#     漏的只有这两处：**地形**与**城防**。
+_UNSEEN_TERRAIN = "native:plain"
+#: 看不见的格 ⇒ `(防御% ÷ 100, 骑兵移动代价 ÷ 2)`（平原的值）。
+_UNSEEN_DEFENSE = R.terrain_defense(_UNSEEN_TERRAIN) / 100.0
+_UNSEEN_MOVE = R.unit_move_cost("native:cavalry", _UNSEEN_TERRAIN) / 2.0
 
 
 # ============================================================ 谁占这一格
@@ -256,9 +270,17 @@ def encode_grid(sb, me: str, mask=None, known=None,
             t = w.tile_at((x, y))
             visible = (x, y) in mask
             # ★★ 地形**扁平化为两个军事属性**：只值"好不好守"与"走得快不快"。
-            owner_here = w.owner(x, y)
-            g[V.GRID_DEFENSE, i, j] = _defense_of(w, x, y, owner_here) / 100.0
-            g[V.GRID_MOVE, i, j] = _move_cost_of(w, x, y) / 2.0
+            if visible:
+                owner_here = w.owner(x, y)
+                g[V.GRID_DEFENSE, i, j] = _defense_of(w, x, y, owner_here) / 100.0
+                g[V.GRID_MOVE, i, j] = _move_cost_of(w, x, y) / 2.0
+            else:
+                # ★★ **看不见 ⇒ 中性值**（review P1-4）：**不读真地形、不读真城防**。
+                #   ★ 这里原来是无条件读真值的 ⇒ 迷雾里的**地形/城堡**从网格漏了出去
+                #     （实测：只改不可见格的地形 ⇒ 网格出现 0.5 的差异，
+                #      而合法动作完全相同 ⇒ 训练有"偷看"的通道）。
+                g[V.GRID_DEFENSE, i, j] = _UNSEEN_DEFENSE
+                g[V.GRID_MOVE, i, j] = _UNSEEN_MOVE
             # ★★ **归属只在"看得见"时写** —— 用户 2026-09-25 问「视野内的地块归属有记忆吗」，
             #   顺着查出来的：原来这里是**无条件**写的，而网格是**视野的外接矩形**
             #   ⇒ 框内总有一圈/若干格**看不见**（视野不是矩形），那些格的归属
@@ -1015,8 +1037,12 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
                 m[V.CAND_HALL0 + hc] = 1.0
         m[V.CAND_VISIBLE] = 1.0 if (x, y) in mask else 0.0
         m[V.CAND_DIST] = max(abs(x - hx), abs(y - hy)) / ps
+        # ★★ **目标格的地形**：看不见 ⇒ **中性值（按平原估）**，不读真地形
+        #   （review P1-4）。这里原来无条件读真值 ⇒ 只改不可见格的地形，
+        #   **候选输入**就变了（实测 0.5 的差异）⇒ 训练能"偷看"地形。
         out["cand_content"][i] = F.cand_content(
-            a.get("type", "native:infantry") if a else "native:infantry", w.terrain(x, y))
+            a.get("type", "native:infantry") if a else "native:infantry",
+            w.terrain(x, y) if (x, y) in mask else _UNSEEN_TERRAIN)
     return out
 
 
