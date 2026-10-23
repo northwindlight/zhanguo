@@ -22,13 +22,16 @@ class RuleState:
 
 class RuleClient:
     kind='rule';version='v11plus'
+    state_type=RuleState
     plan_text='经济：优先建设有资源容量、回本较快的采集与生产建筑，先补能源与材料缺口，保留征兵及数回合补给预算。军事：建立兵营后集中编组，以可见守军和合法路线选择有胜算的无主地，避免分兵和无补给扩张。情报：依据公开视野、报表和实际回执决策，不把推演当成战果。外交：尊重同盟和通行规则，非交战国不作为进攻目标；当能源、补给或敌情变化时调整扩张速度。'
-    def __init__(self,state=None,*,forecast=None):self.state=state or RuleState();self.forecast=forecast
+    def __init__(self,state=None,*,forecast=None):self.state=state or self.state_type();self.forecast=forecast
+    def run_economy(self,ledger):economy.run(ledger)
+    def reset_state(self,generation):return self.state_type(generation=generation)
     def play(self,player,*,max_actions=None,on_action=None,on_result=None):
         if hasattr(player,'action_state'):
             control=player.action_state()
             if control['generation']!=self.state.generation:
-                if control['context'].get('reset_memory'):self.state=RuleState(generation=control['generation'])
+                if control['context'].get('reset_memory'):self.state=self.reset_state(control['generation'])
                 else:self.state.generation=control['generation']
         ledger=Ledger(player,max_actions,on_action,on_result)
         obs=player.observe()
@@ -39,7 +42,7 @@ class RuleClient:
             receipt=apimap.submit(player,'explain_plan',{'text':'已收到议会的事实校核意见，下一回合将按实际回执与库存修订国策'})
             ledger.acts.append(receipt)
             if on_result:on_result('explain_plan',{},receipt)
-        economy.run(ledger);military.run(ledger,self.state,forecast=self.forecast)
+        self.run_economy(ledger);military.run(ledger,self.state,forecast=self.forecast)
         # Ending is a protocol step and is never lost to a strategy action budget.
         receipt=apimap.submit(player,'end_turn',{'summary':f'本期完成{len(ledger.acts)}项行动，按公共情报继续经营与扩张'})
         if not receipt['ok']:raise RuntimeError(receipt['message'])

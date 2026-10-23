@@ -10,6 +10,14 @@ START_RES={'native:gold':1500,'native:food':20,'native:wood':200,'native:ore':10
            'native:oil':0,'native:equipment':5,'native:supply':10}
 
 class NativeSession(NativeObserver,GridSession):
+    def _client_cfg(self,item,joined_at=0):
+        cfg=super()._client_cfg(item,joined_at)
+        if cfg.get('client')=='rule' and cfg.get('rule_seed') is None:
+            # Sample independently per nation, reproducibly across delayed
+            # arrivals and save/load, using the world's persisted map seed.
+            cfg['rule_seed']=random.Random(f'{self.grid()[1]}:{item["id"]}:rule').randrange(2**63)
+        return cfg
+
     def _finish(self,player,receipt):
         if receipt['ok']:
             rejected=self.runtime.object_call(self.world,'native:diplomacy','finish',player.actor)

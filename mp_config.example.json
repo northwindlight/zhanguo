@@ -2,7 +2,7 @@
   "map_size": 60,
   "seed": 20260905,
   "max_turns": 200,
-  "rule_ai": "v11plus",
+  "rule_ai": "v13",
   "save": "mp_save.json",
   "journal": "mp_journal.md",
   "ctx_window": 1000000,

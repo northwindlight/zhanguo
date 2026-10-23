@@ -36,6 +36,11 @@ class EconomyAPI:
     def market(self, actor):
         return self.queries.market()
 
+    def trade_quote(self, actor, resource, quantity, side):
+        """Read-only account quote, including depth, prior volume and coin carry."""
+        return self.world.runtime.object_call(self.world, 'native:market', 'quote',
+                                              resource, quantity, side, actor)
+
     def _trade(self, actor, resource, quantity, side):
         trade = self.world.runtime.object_call(self.world, 'native:market', side, actor, resource, quantity)
         stocks = self.world.runtime.object_call(self.world, 'native:resource-inspection', 'snapshot', actor)

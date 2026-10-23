@@ -15,8 +15,11 @@ def create_client(cfg,record,entry,services):
         return getattr(import_module(module),name)(cfg,record=record,services=services)
     if cfg['client']=='rule':
         import ruleai
-        if record and record['version']!='v11plus':raise SaveFormatError('Retired rule client state')
-        return ruleai.create(cfg.get('rule_ai'),record['state'] if record else None)
+        version=cfg.get('rule_ai') or (record['version'] if record else ruleai.DEFAULT_RULE_AI)
+        if record and (record['version'] not in ruleai.versions() or record['version']!=version):
+            raise SaveFormatError('Rule client version mismatch')
+        return ruleai.create(version,record['state'] if record else None,
+                             profile=cfg.get('rule_strategy','random'),seed=cfg.get('rule_seed'))
     if cfg['client']=='llm':
         from clients.llm import LLMClient,LLMState
         if record and record['version']!=LLMClient.version:raise SaveFormatError('Unsupported LLM client state')

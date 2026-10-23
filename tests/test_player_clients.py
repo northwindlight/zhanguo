@@ -12,6 +12,7 @@ from unittest.mock import patch
 from tests import test_world_domains as fixtures
 from clients.llm import LLMClient,LLMState,assert_paired
 from ruleai.v11plus import RuleClient,RuleState
+from ruleai.v13 import RuleClient as V13Client, RuleState as V13State
 from ruleai.v11plus.ledger import Ledger
 from host import GameHost,SaveFormatError,ROOT
 import ruleai as rule_ai
@@ -42,10 +43,11 @@ class TestPlayerClients(unittest.TestCase):
     def cfg(self):return {'map_size':12,'seed':73,'nations':[{'name':'秦','id':Q},{'name':'楚','id':C}]}
 
     def test_registry_has_only_active_version_and_rejects_all_retired_names(self):
-        self.assertEqual(rule_ai.versions(),('v11plus',));self.assertEqual(rule_ai.resolve()[0],'v11plus')
+        self.assertEqual(rule_ai.versions(),('v13','v11plus'));self.assertEqual(rule_ai.resolve()[0],'v13')
         for version in ('ai','v4','v5','v6','v7','v8','v9','v10','v11','v12'):
             with self.assertRaises(ValueError):rule_ai.resolve(version)
-        self.assertIsInstance(rule_ai.create(),RuleClient)
+        self.assertIsInstance(rule_ai.create(),V13Client)
+        self.assertIsInstance(rule_ai.create('v11plus'),RuleClient)
 
     def test_llm_and_rule_ledger_have_identical_actions_receipts_and_game_effects(self):
         w=self.world();other=w.runtime.world_class()();w.runtime.load_mod_state(other,w.runtime.save_mod_state(w))
@@ -159,15 +161,14 @@ class TestPlayerClients(unittest.TestCase):
         cfg={'map_size':12,'seed':73,'nations':[{'name':'秦','id':Q}]};host=GameHost.new(cfg)
         for _ in range(7):host.cycle()
         self.assertTrue(host.audit)
-        self.assertEqual(RuleState.from_save(host.clients[Q].state.to_save()).targets,host.clients[Q].state.targets)
+        self.assertEqual(V13State.from_save(host.clients[Q].state.to_save()).targets,host.clients[Q].state.targets)
         fresh=GameHost.new(cfg);self.assertEqual(fresh.clients[Q].state.targets,{})
-        # 规则客户端的经济节奏没有为库存市场重新调参（ruleai 不随引擎同步维护），
-        # 所以这里只核对它在行动、目标状态可续、且没有跨局记忆，不绑定出兵周期。
+        # Military timing depends on actual market and production conditions.
         self.assertTrue(any(row['receipt'].get('action')=='plan' for row in host.audit))
 
     def test_rules_and_llm_import_only_api_and_client_dependencies(self):
         import ast
-        for base in (ROOT/'ruleai/v11plus',ROOT/'clients'):
+        for base in (ROOT/'ruleai/v11plus',ROOT/'ruleai/v13',ROOT/'clients'):
             for path in base.glob('*.py'):
                 tree=ast.parse(path.read_text(encoding='utf-8'))
                 for node in ast.walk(tree):

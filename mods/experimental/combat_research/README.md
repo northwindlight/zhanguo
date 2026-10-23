@@ -1,6 +1,6 @@
 # 战斗概率推演：供规则 AI 研究
 
-experimental 默认为 `client=rule` 启用。此能力通过发行版的规则 AI 工厂私有注入，不注册玩家工具；LLM、议长、Python 脚本拿不到概率接口。native 继续使用原简化估算与 v11plus 行为。
+experimental 默认为 `client=rule` 启用。此能力通过发行版的规则 AI 工厂私有注入，不注册玩家工具；LLM、议长、Python 脚本拿不到概率接口。native 使用原简化战斗估算；两个发行版均按配置选择 v13 或 v11plus 的经济策略。
 
 ## 运行与 C 加速
 

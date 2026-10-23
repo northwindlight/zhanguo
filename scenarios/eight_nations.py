@@ -109,9 +109,10 @@ def build_config(template=None, seed=SEED):
               'enable_turn','enable_turn_max','start_cavalry','start_gold','start_supply',
               'extra_prompt','extra_prompt_file','extra_summary','extra_summary_file'}
     client={k:v for k,v in nat_tpl.items() if k not in excluded}
-    client.setdefault('client','rule');client['rule_ai']='v11plus'
+    from ruleai import DEFAULT_RULE_AI
+    client.setdefault('client','rule');client.setdefault('rule_ai',tpl.get('rule_ai',DEFAULT_RULE_AI))
     cfg={k:v for k,v in tpl.items() if k not in ('nations','world_bank')}
-    cfg.update(map_size=SIZE,seed=seed,rule_ai='v11plus',save=names(seed)['save'],journal=names(seed)['journal'],
+    cfg.update(map_size=SIZE,seed=seed,rule_ai=tpl.get('rule_ai',DEFAULT_RULE_AI),save=names(seed)['save'],journal=names(seed)['journal'],
                scenario="eight_nations")
     cfg['nations']=[dict(client,id=IDS[name],name=name,position=list(STARTS[name]),appearance='initial') for name in NATIONS]
     return cfg

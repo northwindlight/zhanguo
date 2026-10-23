@@ -1,0 +1,105 @@
+[
+  {
+    "version": "v13",
+    "seed": 20261023,
+    "turns": 12,
+    "economy_only": false,
+    "experimental": true,
+    "seconds": 101.95,
+    "profiles": {
+      "scenario:n0": "merchant",
+      "scenario:n1": "liquid",
+      "scenario:n2": "buffer",
+      "scenario:n3": "balanced",
+      "scenario:n4": "integrated",
+      "scenario:n5": "liquid",
+      "scenario:n6": "liquid",
+      "scenario:n7": "liquid"
+    },
+    "errors": [],
+    "history": [
+      {
+        "turn": 10,
+        "gold": 2954,
+        "buildings": 162,
+        "kinds": {
+          "native:town-hall": 8,
+          "native:oil-power-plant": 8,
+          "native:oil-well": 9,
+          "native:mine": 26,
+          "native:lumber-camp": 61,
+          "native:farm": 31,
+          "native:barracks": 8,
+          "native:supply-factory": 6,
+          "native:equipment-factory": 2,
+          "native:gold-mine": 3
+        },
+        "army": 15,
+        "starving_nations": 0,
+        "production_statuses": {
+          "energy-shortage": 8,
+          "under-construction": 154,
+          "running": 1140,
+          "idle": 56
+        },
+        "inventory": {
+          "native:food": 1955,
+          "native:wood": 860,
+          "native:ore": 1478,
+          "native:oil": 926,
+          "native:equipment": 589,
+          "native:supply": 995
+        },
+        "prices": {
+          "native:food": 1.4660538418284192,
+          "native:wood": 3.6676623718122285,
+          "native:ore": 2.044499431974655,
+          "native:oil": 6.269156157347684,
+          "native:equipment": 8.820735636604262,
+          "native:supply": 5.730296952705625
+        }
+      },
+      {
+        "turn": 12,
+        "gold": 3267,
+        "buildings": 165,
+        "kinds": {
+          "native:town-hall": 8,
+          "native:oil-power-plant": 8,
+          "native:oil-well": 9,
+          "native:mine": 26,
+          "native:lumber-camp": 61,
+          "native:farm": 34,
+          "native:barracks": 8,
+          "native:supply-factory": 6,
+          "native:equipment-factory": 2,
+          "native:gold-mine": 3
+        },
+        "army": 11,
+        "starving_nations": 0,
+        "production_statuses": {
+          "energy-shortage": 8,
+          "under-construction": 157,
+          "running": 1449,
+          "idle": 72
+        },
+        "inventory": {
+          "native:food": 1972,
+          "native:wood": 860,
+          "native:ore": 1515,
+          "native:oil": 926,
+          "native:equipment": 594,
+          "native:supply": 1000
+        },
+        "prices": {
+          "native:food": 1.4497340965475067,
+          "native:wood": 3.6676623718122285,
+          "native:ore": 1.9655232410714627,
+          "native:oil": 6.269156157347684,
+          "native:equipment": 8.738157963606717,
+          "native:supply": 5.692376880098623
+        }
+      }
+    ]
+  }
+]

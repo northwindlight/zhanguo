@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:economy-queries"
-Version = "1.9.0"
+Version = "1.10.0"
 Entry = "mods.native.economy_queries.mod:QueriesMod"
 Requires = ["native:resources", "native:buildings", "native:market", "native:economy"]
 
@@ -19,10 +19,11 @@ Provides = ["economy:queries"]
 "economy:valuation" = ["quote"]
 
 [PlayerAPI]
-Methods = ["balance", "report", "estimate", "market", "buy", "sell"]
-ReadOnly = ["balance", "estimate", "market", "report"]
+Methods = ["balance", "report", "estimate", "market", "trade_quote", "buy", "sell"]
+ReadOnly = ["balance", "estimate", "market", "report", "trade_quote"]
 
 [PlayerAPI.ContentParameters]
 buy = ["resource"]
 sell = ["resource"]
 estimate = ["kind"]
+trade_quote = ["resource"]

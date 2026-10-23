@@ -91,6 +91,8 @@ class TestCombatResearch(unittest.TestCase):
         self.assertNotIn('research:combat-probabilities',native.runtime.capabilities)
         self.assertFalse(getattr(native.clients['research:q'],'research',False))
         client=host.clients['research:q'];self.assertTrue(client.research)
+        self.assertEqual(client.version,'v13')
+        self.assertIn(client.state.profile,('balanced','integrated','merchant','buffer','liquid'))
         self.assertNotIn('combat',host.runtime.distribution['ClientFactories']['llm'].get('Services',{}))
         self.assertNotIn('combat',host.runtime.distribution['Session']['Services'])
         self.assertFalse(any('probab' in s['function']['name'] for s in host.player('research:q').actions()))

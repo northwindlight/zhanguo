@@ -20,7 +20,7 @@ Model information comes from the human player. Some saved reasoning signatures i
 
 Distributions define games; the host loads their sessions; clients act through the same actor-bound Player API; UI Mods present the resulting facts.
 
-The default `native` distribution implements economic, military, diplomatic and intelligence domains. Generic sessions do not require a map; square-grid distributions can reuse `GridSession`. LLM and v11plus rule clients share structured requests and receipts. Independent UI Mods provide prompts, language catalogs and visible text/SVG/PNG maps.
+The default `native` distribution implements economic, military, diplomatic and intelligence domains. Generic sessions do not require a map; square-grid distributions can reuse `GridSession`. LLM and rule clients share structured requests and receipts. New rule games default to [v13](ruleai/v13/README.md), with five randomly selected, persistent market preferences and fuel-aware operating budgets; v11plus remains available for comparison. Independent UI Mods provide prompts, language catalogs and visible text/SVG/PNG maps.
 
 The optional [experimental distribution](mods/experimental/README.md), currently `0.9.0`, adds two-phase council review and monarch replacement, finite-inventory market feedback, and saved Python routines with deterministic work budgets and one execution opportunity per nation per turn. Scripts use the standard API, and successful actions survive a later script error. It also enables [research combat probabilities](mods/experimental/combat_research/README.md) exclusively for rule clients, with optional C acceleration; no probability tools are exposed to LLM clients.
 

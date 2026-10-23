@@ -317,7 +317,7 @@ class TestEconomicSystem(unittest.TestCase):
         before=self.save(w)
         with self.assertRaisesRegex(ValueError,'未知内容键值'):self.call(w,'building_economics',kind='不存在')
         self.assertEqual(self.save(w),before)
-        self.assertEqual(len(w.runtime.schemas()),9)
+        self.assertEqual(len(w.runtime.schemas()),10)
 
     def test_replacement_modules_load_from_real_distribution_members(self):
         source=(ROOT/'mods/economic_system/mod.toml').read_text(encoding='utf-8')
