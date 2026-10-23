@@ -1,0 +1,37 @@
+[
+  {
+    "file": "grass.png",
+    "source": "Ground/Grass.png",
+    "sha256": "741b421dba48a116ce6acaf2db534ce7bbb6854cfe907116660e72ad0fa16938"
+  },
+  {
+    "file": "trees.png",
+    "source": "Nature/Trees.png",
+    "sha256": "5b2839ec295c72575c5fd1df373b75ba4d3464478edab8e1489ec683dcecf634"
+  },
+  {
+    "file": "wheat.png",
+    "source": "Nature/Wheatfield.png",
+    "sha256": "e7868d240da663e9a61a8424a84fe61495ada17a8df2a56c0a91e5b07f24640f"
+  },
+  {
+    "file": "houses.png",
+    "source": "Buildings/Wood/Houses.png",
+    "sha256": "c5a50e1712c9d47d021523fc226452fd7f26806ab75ba96177da647888c91402"
+  },
+  {
+    "file": "barracks.png",
+    "source": "Buildings/Wood/Barracks.png",
+    "sha256": "c08ada0541510d58279624966b149c4592096e165eb73de5db42d3bc90eb80c4"
+  },
+  {
+    "file": "knight.png",
+    "source": "Characters/Soldiers/Mounted/CyanKnight.png",
+    "sha256": "89dd17d0cd49e1c0d12976ac519e9bcae87e1abcbebff629b750e0baf8b36531"
+  },
+  {
+    "file": "swordsman.png",
+    "source": "Characters/Soldiers/Melee/CyanMelee/SwordsmanCyan.png",
+    "sha256": "57dd749fd0397445570a40840d400c4a704fc11c740e3ad4e2cb0b9ef3a7832a"
+  }
+]

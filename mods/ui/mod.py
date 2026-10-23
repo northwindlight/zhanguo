@@ -15,6 +15,12 @@ class UILayer:
         self.console=ConsoleUI(cfg,tool_layer=self.tool_layer)
     def translator(self,language='zh-CN',catalog=None):return Translator(language,catalog)
     def observer_map(self,state):return observer_map(state,self.text)
+    def desktop_frame(self,state):
+        from .desktop_facts import frame
+        return frame(self,state)
+    def desktop_project(self):
+        from pathlib import Path
+        return Path(__file__).with_name('desktop')
     def map_text(self,observation):return player_map(observation,self.text)
     def map_snapshot(self,observation):return snapshot(observation)
     def map_image(self,observation):return render_snapshot(snapshot(observation),max_px=self.cfg.get('map_max_px',1440))
