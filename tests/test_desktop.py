@@ -14,7 +14,6 @@ class TestDesktop(unittest.TestCase):
     def host(self):
         cfg = build_config({'rule_ai': 'v13', 'nations': [{'client': 'rule', 'rule_ai': 'v13'}]}, 20261023)
         host = build(seed=20261023, config=cfg)
-        for actor in host.actors():host.subsidize(actor, {}, cavalry=2)
         return host
 
     def test_detached_exact_projection(self):
@@ -23,12 +22,14 @@ class TestDesktop(unittest.TestCase):
         frame = h.ui.desktop_frame(snapshot)
         self.assertEqual(len(frame['tiles']), 576)
         self.assertEqual(len(frame['nations']), 8)
-        self.assertEqual(len(frame['armies']), 16)
+        self.assertEqual(len(frame['armies']), 0)
+        self.assertEqual(len(frame['scene']['guards']),292)
+        self.assertEqual(len(h.world.units.guard_once),0)
         self.assertEqual(frame['map_seed'],20261023)
         self.assertEqual(sum(len(t['buildings']) for t in frame['tiles']),len(h.world.buildings.snapshot().instances))
         for nation in frame['nations']:
             self.assertEqual(nation['land'], 5)
-            self.assertEqual(sum(nation['units'].values()), 2)
+            self.assertEqual(sum(nation['units'].values()), 0)
             self.assertTrue(all('native:' not in s['name'] for s in nation['stocks']))
         json.dumps(frame, allow_nan=False)
         frame['tiles'].clear()

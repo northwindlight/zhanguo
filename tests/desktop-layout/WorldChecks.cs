@@ -8,6 +8,10 @@ static class WorldChecks
     private static void Require(bool ok,string message) { if(!ok)throw new Exception(message); }
     public static void Run()
     {
+        Require(DesktopScene.NationOpacity(.12f)>.6f&&DesktopScene.NationOpacity(.95f)<.15f,"political colors did not fade with zoom");
+        Require(DesktopScene.SquadFigures(1)>=8&&DesktopScene.SquadFigures(100)<=48,"army icons were not replaced with bounded squads");
+        Require(DesktopScene.PriceText(.000001)!="0.00"&&double.Parse(DesktopScene.PriceText(.000001),System.Globalization.CultureInfo.InvariantCulture)>0,"positive tiny quote rendered as zero");
+        Require(DesktopScene.PriceText(null)=="无货","sold-out quote indistinguishable from a low price");
         var tiles=new JsonArray();
         for(int y=0;y<5;y++)for(int x=0;x<5;x++)
         {
@@ -46,6 +50,28 @@ static class WorldChecks
         for(int i=0;i<300;i++)town["buildings"]!.AsArray().Add(new JsonArray("native:lumber-camp",1));
         var dense=new RegionLayout(WorldLayoutProjection.FromFrame(frame),changed);
         Require(dense.Regions.Sum(r=>r.Structures.Sum(s=>s.Count))==304,"dense region lost facility counts");
+        var live=frame.DeepClone().AsObject();
+        live["nations"]=JsonNode.Parse("[{\"id\":\"scenario:qin\",\"stocks\":[],\"units\":{}}]");
+        live["scene"]=JsonNode.Parse("""
+            {"buildings":[{"id":7,"kind":"native:farm","label":"农场","level":1,"remaining":1,"x":2,"y":2,"owner":"scenario:qin"}],
+             "ownership":[{"x":2,"y":2,"owner":"scenario:qin"}],"armies":[{"id":1,"owner":"scenario:qin","kind":"native:infantry","hp":100,"x":2,"y":2}],
+             "guards":[],"accounts":[{"id":"scenario:qin","stocks":[{"id":"native:gold","name":"金","amount":123}]}],"market":[]}
+            """);
+        DesktopScene.Synchronize(live);
+        var site=live["tiles"]!.AsArray().Single(t=>t!["name"]!.ToString()=="r2-2")!;
+        Require(site["building_instances"]!.AsArray().Count==1&&site["owner"]!.ToString()=="scenario:qin","initial scene facts were not projected atomically");
+        Require(live["nations"]![0]!["stocks"]![0]!["amount"]!.GetValue<int>()==123,"receipt inventory delta did not reach the panel");
+        var scaffold=new RegionLayout(WorldLayoutProjection.FromFrame(live));
+        Require(scaffold.Regions.Sum(r=>r.People.Count)>0&&scaffold.Regions.SelectMany(r=>r.Structures).Single().Remaining==1,"residents or construction state missing");
+        var delta=JsonNode.Parse("""
+            {"buildings":{"remove":[],"upsert":[{"id":7,"kind":"native:farm","label":"农场","level":1,"remaining":0,"x":2,"y":2,"owner":"scenario:qin"}]}}
+            """)!.AsObject();
+        DesktopScene.Apply(live,delta);
+        var completed=new RegionLayout(WorldLayoutProjection.FromFrame(live),scaffold);
+        Require(completed.Regions.SelectMany(r=>r.Structures).Single().Remaining==0,"completion delta left a scaffold");
+        Require(completed.Regions.SelectMany(r=>r.Structures).Single().Bounds==scaffold.Regions.SelectMany(r=>r.Structures).Single().Bounds,"building jumped at completion");
+        Require(completed.GeometryKey==scaffold.GeometryKey,"construction animation invalidated terrain");
+        Console.WriteLine("DESKTOP_SCENE_OK: political zoom, squads, tiny prices, atomic deltas, residents and stable construction");
         Console.WriteLine("LIVE_WORLD_LAYOUT_OK: observer projection, barriers, facility counts, local updates and surface keys");
     }
 }

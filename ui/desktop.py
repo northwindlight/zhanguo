@@ -21,7 +21,7 @@ PROTOCOL = 'zhanguo.desktop/1'
 
 
 class Controller:
-    def __init__(self, host, save, output, *, delay=0.8, max_turns=300):
+    def __init__(self, host, save, output, *, delay=0.8, max_turns=300, playback=False):
         self.host, self.save, self.output = host, Path(save), output
         self.delay, self.max_turns = delay, max_turns
         self.commands = Queue()
@@ -31,6 +31,7 @@ class Controller:
         self.generation = uuid.uuid4().hex
         self.revision = 0
         self.saved_period = None
+        self.playback=playback;self.waiting=None;self.timeline_sequence=0
 
     def send(self, kind, **data):
         self.revision += 1
@@ -42,7 +43,10 @@ class Controller:
                   saved_period=self.saved_period, save=str(self.save), **extra)
 
     def snapshot(self):
-        self.send('snapshot', frame=self.host.ui.desktop_frame(self.host.observer_snapshot()))
+        frame=self.host.ui.desktop_frame(self.host.observer_snapshot())
+        frame['clients']=[{'actor':actor,'kind':client.kind,'version':client.version,
+                           'strategy':getattr(getattr(client,'state',None),'profile',None)} for actor,client in self.host.clients.items()]
+        self.send('snapshot', frame=frame)
 
     def persist(self):
         self.host.save(self.save)
@@ -59,12 +63,17 @@ class Controller:
                 raise ValueError('本回合执行失败，保留最近完整存档；请关闭后重新启动')
             if self.host.finished() or self.host.clock() >= self.max_turns:
                 raise ValueError('对局已结束或达到回合上限')
+            if op=='step' and self.waiting is not None:raise ValueError('本期演出尚未完成，请先继续或快进')
             self.running = op == 'resume'
             if op == 'step':self.advance()
             else:self.status('running')
         elif op == 'save':
             self.persist();self.status('running' if self.running else 'paused')
         elif op == 'snapshot':self.snapshot()
+        elif op == 'playback_ack':
+            if row.get('generation')==self.generation and row.get('sequence')==self.waiting:
+                self.waiting=None
+                self.status('running' if self.running else 'paused')
         elif op == 'stop':
             self.running = False
             if not self.failed:self.persist()
@@ -73,13 +82,28 @@ class Controller:
         else:raise ValueError(f'未知桌面命令：{op}')
 
     def advance(self):
+        if self.waiting is not None:raise ValueError('等待本期演出确认后才能推进下一期')
         self.status('advancing')
         try:
-            with redirect_stdout(sys.stderr):self.host.cycle()
+            capture=None
+            if self.playback:
+                from mods.ui.desktop_activity import TimelineCapture
+                try:capture=TimelineCapture(self.host)
+                except Exception as exc:self.send('notice',message=f'演出初始化失败，使用完整快照：{exc}')
+            with redirect_stdout(sys.stderr):
+                if capture:self.host.cycle(on_result=capture.capture)
+                else:self.host.cycle()
         except Exception:
             self.running = False;self.failed = True
             raise
-        self.persist();self.snapshot()
+        self.persist()
+        if capture:
+            beats=capture.finish()
+            if capture.warning:self.send('notice',message=capture.warning)
+            if beats:
+                self.timeline_sequence+=1;self.waiting=self.timeline_sequence
+                self.send('timeline',sequence=self.waiting,period=capture.period,beats=beats)
+        self.snapshot()
         if self.host.finished() or self.host.clock() >= self.max_turns:self.running = False
         self.status('running' if self.running else 'paused')
 
@@ -88,7 +112,7 @@ class Controller:
         deadline = time.monotonic()
         while not self.stopping:
             try:
-                row = self.commands.get(timeout=max(0, deadline-time.monotonic()) if self.running else None)
+                row = self.commands.get(timeout=max(0, deadline-time.monotonic()) if self.running and self.waiting is None else None)
                 self.command(row)
             except Empty:
                 try:self.advance()
@@ -118,9 +142,6 @@ def main(argv=None):
         cfg = build_config({'rule_ai': 'v13', 'nations': [{'client': 'rule', 'rule_ai': 'v13'}]}, args.seed)
         if os.environ.get('ZHANGUO_UI_MODS'):cfg['ui_mods'] = os.environ['ZHANGUO_UI_MODS']
         with redirect_stdout(sys.stderr):host = build(seed=args.seed, config=cfg)
-        # The ordinary scenario starts without troops. Give this isolated visual
-        # sample two real cavalry units per country through the observer API.
-        for actor in host.actors():host.subsidize(actor, {}, cavalry=2)
     write_json(args.output/'config.json', cfg)
     if not callable(getattr(host.ui, 'desktop_frame', None)):
         raise ValueError('当前 UI Mod 未提供 desktop_frame')
@@ -128,7 +149,7 @@ def main(argv=None):
     def output(row):
         protocol_out.write(json.dumps(row, ensure_ascii=False, allow_nan=False)+'\n')
         protocol_out.flush()
-    control = Controller(host, args.output/'session.json', output, delay=max(0.05, args.delay))
+    control = Controller(host, args.output/'session.json', output, delay=max(0.05, args.delay),playback=True)
     def read():
         for line in sys.stdin:
             try:

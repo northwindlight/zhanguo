@@ -18,6 +18,9 @@ class UILayer:
     def desktop_frame(self,state):
         from .desktop_facts import frame
         return frame(self,state)
+    def desktop_scene(self,state):
+        from .desktop_facts import scene
+        return scene(self,state)
     def desktop_project(self):
         from pathlib import Path
         return Path(__file__).with_name('desktop')

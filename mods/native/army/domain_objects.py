@@ -37,8 +37,9 @@ class Military:
     def _write(self):
         if active_unit.get() not in (None,self._domain):raise ModError('Use army interface')
     def _name(self,owner):return owner if owner=='野人' else self._call('native:nation-inspection','get',owner).name
-    def _event(self,kind,text,position=None,parties=()):
-        self._events.append({'kind':kind,'text':text,'position':position,'parties':tuple(parties),'snapshot_only':True})
+    def _event(self,kind,text,position=None,parties=(),details=None):
+        self._events.append({'kind':kind,'text':text,'position':position,'parties':tuple(parties),'snapshot_only':True,
+                             'details':details or {}})
     def _period(self):return self._call('native:government','period')
     def _living(self, owner):
         if owner not in self._call('native:nation-inspection','ids'):raise ValueError('Nation is not alive')
@@ -181,10 +182,10 @@ class Military:
         if not passable(target):return False
         x,y=start;tx,ty=target
         return x==tx or y==ty or (passable((x,ty)) and passable((tx,y)))
-    def reachable(self, owner, aid, attack=False, *, visible_only=False):
+    def reachable(self, owner, aid, attack=False, *, visible_only=False, _origin=None, _parents=None):
         unit=self._own_unit(owner,aid);size,_=self._call('native:territory','dimensions')
         speed=self._parameter(owner,'unit.speed.'+unit.kind,unit.definition['speed'])
-        start=(unit.x,unit.y);best={start:0};queue=[(0,start)]
+        start=_origin or (unit.x,unit.y);best={start:0};queue=[(0,start)]
         visible={t.position for t in self._call('native:vision','tiles',owner)} if visible_only else None
         terrain_cost={}
         def cost(x,y):
@@ -209,6 +210,7 @@ class Military:
                 target_ok=territory_owner is None or territory_owner==owner or self._call('native:diplomacy','allied',owner,territory_owner) or self._call('native:diplomacy','war_between',owner,territory_owner)
                 if not movable and not (attack and target_ok):continue
                 best[target]=next_distance
+                if _parents is not None:_parents[target]=point
                 if movable:heapq.heappush(queue,(next_distance,target))
         return tuple(sorted(best.items()))
 
@@ -471,6 +473,7 @@ class Military:
         reports=[]
         for owner in self._call('native:nation-inspection','ids'):
             units,eaters,need,used=self._feeding(owner);short=need-used
+            before=[dict(id=u.id,owner=u.owner,kind=u.kind,hp=u.hp,x=u.x,y=u.y,engaged=u.engaged) for u in units]
             costs={};operations=[]
             if used:costs['native:supply']=used
             if short:
@@ -482,6 +485,11 @@ class Military:
             costs={key:value for key,value in costs.items() if value}
             if costs:self._call('native:resource-exchange','exchange',owner,costs,{})
             for u,amount in healed:u.heal(amount)
+            if units:
+                self._event('maintenance',f'{self._name(owner)} 军需结算：补给实耗{used}/{need}，装备实耗{equipment}，恢复{sum(amount for _,amount in healed)}HP。',
+                            parties=(owner,),details={'owner':owner,'need':need,'used':used,'costs':costs,
+                            'before':before,'after':[dict(id=u.id,owner=u.owner,kind=u.kind,hp=u.hp,x=u.x,y=u.y,engaged=u.engaged) for u in units if u.alive],
+                            'healing':[{'id':u.id,'hp':amount} for u,amount in healed]})
             if healed:self._event('healing',f'{self._name(owner)} {len(healed)}支军队各恢复至多{ARMY_HEAL_PER_TURN}HP，消耗装备{costs.get("native:equipment",0)}。',parties=(owner,))
             if costs:facts.append({'id':f'native:military/{owner.split(":",1)[1]}/{period}', 'owner':owner,'period':period,'category':'military','inputs':tuple(costs.items())})
             reports.append((owner,need,used,short,len(healed)))
@@ -496,6 +504,9 @@ class Military:
         for x,y in positions:
             seen=tuple(n for n in self._call('native:nation-inspection','ids') if self._call('native:vision','visible',n,x,y))
             troops=[u for u in self._units.at(x,y) if u.alive];groups={}
+            def observed(units):
+                return [dict(id=u.id,owner=u.owner,kind=u.kind,hp=u.hp,x=u.x,y=u.y,engaged=u.engaged) for u in units]
+            before=observed(troops)
             for u in troops:groups.setdefault(u.owner,[]).append(u)
             active={u.owner for u in troops if u.engaged and u.owner!='野人'}
             enemies={owner:[other for other in groups if other!=owner and ((owner=='野人' and other in active) or (other=='野人' and owner in active) or owner!='野人' and other!='野人' and self._hostile(owner,other))] for owner in groups}
@@ -526,7 +537,9 @@ class Military:
                     for u in units:u.disengage()
             reports.append((x,y,tuple(sorted(damage.items()))))
             detail='；'.join(f'{self._name(owner)}：骰{dice.get(owner,"未参战")}，承伤{damage[owner]}，剩余{sum(u.alive for u in units)}支/{sum(u.hp for u in units)}HP' for owner,units in groups.items())
-            self._event('battle',f'({x},{y})战报，地形减伤{terrain.defense}%，城堡减伤{castle}%；{detail}。'+('战斗结束。' if not any(u.engaged for u in troops if u.alive) else '交战继续，占领未定。'),(x,y),seen)
+            self._event('battle',f'({x},{y})战报，地形减伤{terrain.defense}%，城堡减伤{castle}%；{detail}。'+('战斗结束。' if not any(u.engaged for u in troops if u.alive) else '交战继续，占领未定。'),(x,y),seen,
+                        {'battle_id':f'{self._period()}:{x}:{y}','before':before,'after':observed(u for u in troops if u.alive),
+                         'damage':damage,'enemies':enemies,'previous_owner':tile.owner,'owner':self._call('native:territory','owner',x,y)})
         return tuple(reports)
     def battle_estimate(self, owner, ids, x, y):
         self._living(owner);self._call('native:territory','check',x,y)

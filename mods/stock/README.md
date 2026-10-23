@@ -140,6 +140,9 @@ PAMS 的软件出处与许可证见 [第三方说明](THIRD_PARTY.md)。
 ```bash
 .venv/bin/python -m unittest discover -s tests -p test_stock_game.py -v
 .venv/bin/python probe_review.py
+.venv/bin/python probe_review.py --causal-controls
 ```
 
-本游戏提供可观察的因果信号，但尚未进行真实 LLM 间的统计评测，不把单局盈利当成模型能力排名。
+公开消息对照在种子 1～6 各跑一个完整交易日：同场顺向、反向和持币策略，在第二次消息公布后分别交易每只股票 50 股。
+顺向策略 6/6 胜过反向，扣费后收盘净值变化均值分别约 +135.20、−228.72，持币为 0。
+这是基本信号及策略差异的验收；尚未进行真实 LLM 间的统计评测，不把单局盈利当成模型能力排名。

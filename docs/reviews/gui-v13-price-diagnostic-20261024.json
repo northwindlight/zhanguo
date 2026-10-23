@@ -1,0 +1,147 @@
+{
+  "seed": 20261023,
+  "runs": [
+    {
+      "initial_extra_cavalry_per_nation": 0,
+      "clients": {
+        "scenario:qin": "v13",
+        "scenario:wei": "v13",
+        "scenario:han": "v13",
+        "scenario:zhao": "v13",
+        "scenario:yan": "v13",
+        "scenario:qi": "v13",
+        "scenario:chu": "v13",
+        "scenario:zhou": "v13"
+      },
+      "samples": [
+        {
+          "period": 0,
+          "equipment_price": 7.999999999999998,
+          "rounded_zero": false,
+          "inventory": 640,
+          "reference": 640.0,
+          "armies": 0
+        },
+        {
+          "period": 1,
+          "equipment_price": 7.434387050449644,
+          "rounded_zero": false,
+          "inventory": 677,
+          "reference": 630.75,
+          "armies": 0
+        },
+        {
+          "period": 5,
+          "equipment_price": 7.999999999999998,
+          "rounded_zero": false,
+          "inventory": 640,
+          "reference": 640.0,
+          "armies": 10
+        },
+        {
+          "period": 10,
+          "equipment_price": 8.853895561561398,
+          "rounded_zero": false,
+          "inventory": 587,
+          "reference": 653.25,
+          "armies": 11
+        },
+        {
+          "period": 20,
+          "equipment_price": 9.584665074786027,
+          "rounded_zero": false,
+          "inventory": 544,
+          "reference": 664.0,
+          "armies": 8
+        },
+        {
+          "period": 30,
+          "equipment_price": 10.34956324724101,
+          "rounded_zero": false,
+          "inventory": 501,
+          "reference": 674.75,
+          "armies": 9
+        },
+        {
+          "period": 40,
+          "equipment_price": 11.167613279965748,
+          "rounded_zero": false,
+          "inventory": 457,
+          "reference": 685.75,
+          "armies": 7
+        }
+      ]
+    },
+    {
+      "initial_extra_cavalry_per_nation": 2,
+      "clients": {
+        "scenario:qin": "v13",
+        "scenario:wei": "v13",
+        "scenario:han": "v13",
+        "scenario:zhao": "v13",
+        "scenario:yan": "v13",
+        "scenario:qi": "v13",
+        "scenario:chu": "v13",
+        "scenario:zhou": "v13"
+      },
+      "samples": [
+        {
+          "period": 0,
+          "equipment_price": 7.999999999999998,
+          "rounded_zero": false,
+          "inventory": 640,
+          "reference": 640.0,
+          "armies": 16
+        },
+        {
+          "period": 1,
+          "equipment_price": 7.434387050449644,
+          "rounded_zero": false,
+          "inventory": 677,
+          "reference": 630.75,
+          "armies": 22
+        },
+        {
+          "period": 5,
+          "equipment_price": 7.539478416754873,
+          "rounded_zero": false,
+          "inventory": 670,
+          "reference": 632.5,
+          "armies": 6
+        },
+        {
+          "period": 10,
+          "equipment_price": 6.296424048899416,
+          "rounded_zero": false,
+          "inventory": 757,
+          "reference": 610.75,
+          "armies": 2
+        },
+        {
+          "period": 20,
+          "equipment_price": 4.623307581460271,
+          "rounded_zero": false,
+          "inventory": 893,
+          "reference": 576.75,
+          "armies": 2
+        },
+        {
+          "period": 30,
+          "equipment_price": 3.690912277426849,
+          "rounded_zero": false,
+          "inventory": 983,
+          "reference": 554.25,
+          "armies": 2
+        },
+        {
+          "period": 40,
+          "equipment_price": 3.023776068103762,
+          "rounded_zero": false,
+          "inventory": 1057,
+          "reference": 535.75,
+          "armies": 3
+        }
+      ]
+    }
+  ]
+}

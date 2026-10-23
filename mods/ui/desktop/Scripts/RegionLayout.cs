@@ -47,6 +47,7 @@ public sealed class BuildingInput
 {
     public string Id { get; set; } = "";
     public string Kind { get; set; } = "house";
+    public int Remaining { get; set; }
 }
 
 public readonly record struct Point(float X, float Y);
@@ -58,7 +59,7 @@ public readonly record struct Footprint(float X, float Y, float Width, float Hei
     public bool Contains(Point p, float margin = 0) =>
         p.X >= X - margin && p.X <= X + Width + margin && p.Y >= Y - margin && p.Y <= Y + Height + margin;
 }
-public sealed record Structure(string Id, string Kind, Footprint Bounds, int Count = 1);
+public sealed record Structure(string Id, string Kind, Footprint Bounds, int Count = 1, int Remaining = 0);
 public sealed record Tree(Point Foot, int Variant, string Sheet);
 public sealed class RegionPlan
 {
@@ -95,8 +96,8 @@ public sealed class RegionLayout
         Regions = input.Regions.OrderBy(r => r.Y).ThenBy(r => r.X).Select(r =>
         {
             if(reusable.TryGetValue((r.X,r.Y),out var old) && old.Input.Name==r.Name && old.Input.People==r.People &&
-                old.Input.Buildings.Select(b=>(b.Id,b.Kind)).SequenceEqual(r.Buildings.Select(b=>(b.Id,b.Kind))))return old;
-            return Build(r);
+                old.Input.Buildings.Select(b=>(b.Id,b.Kind,b.Remaining)).SequenceEqual(r.Buildings.Select(b=>(b.Id,b.Kind,b.Remaining))))return old;
+            return Build(r,old);
         }).ToArray();
     }
 
@@ -219,7 +220,7 @@ public sealed class RegionLayout
         return true;
     }
 
-    private RegionPlan Build(RegionInput r)
+    private RegionPlan Build(RegionInput r,RegionPlan? previous=null)
     {
         var plan = new RegionPlan { Input = r };
         if(!r.Passable)return plan;
@@ -235,9 +236,11 @@ public sealed class RegionLayout
         {
             float w = b.Kind == "farm" ? 24 : b.Kind == "mine" ? 22 : 16;
             float h = b.Kind == "farm" ? 18 : 16;
-            Footprint? found = null;
+            Footprint? found = previous?.Structures.FirstOrDefault(s=>s.Id==b.Id)?.Bounds;
+            if(found is Footprint oldBounds && (!CanBuild(r,oldBounds)||plan.Structures.Any(s=>s.Bounds.Overlaps(oldBounds,7))))found=null;
             foreach (var p in candidates)
             {
+                if(found!=null)break;
                 var f = new Footprint(p.X, p.Y, w, h);
                 if (CanBuild(r, f) && !plan.Structures.Any(s => s.Bounds.Overlaps(f, 7))) { found = f; break; }
             }
@@ -249,7 +252,7 @@ public sealed class RegionLayout
                 continue;
             }
             if (found == null) throw new InvalidDataException($"样板 {r.Name} 缺少设施平地：{b.Id}");
-            plan.Structures.Add(new Structure(b.Id, b.Kind, found.Value));
+            plan.Structures.Add(new Structure(b.Id, b.Kind, found.Value,Remaining:b.Remaining));
         }
         for (int cy = 0; cy < 16; cy++)
             for (int cx = 0; cx < 16; cx++)
@@ -301,7 +304,7 @@ public sealed class RegionLayout
                 !plan.Trees.Any(t => new Footprint(t.Foot.X - 8, t.Foot.Y - 16, 16, 16).Overlaps(body, 2)) &&
                 !plan.Rocks.Any(p => new Footprint(p.X - 8, p.Y - 16, 16, 16).Overlaps(body, 2))) plan.People.Add(p);
         }
-        if (plan.People.Count != r.People) throw new InvalidDataException($"样板 {r.Name} 缺少人物空地");
+        if (plan.People.Count != r.People && !Input.LiveWorld) throw new InvalidDataException($"样板 {r.Name} 缺少人物空地");
         return plan;
     }
 }

@@ -12,6 +12,45 @@ from pathlib import Path
 from host import GameHost
 
 
+def causal_controls():
+    """Paired strategies trade only after both news events have been published."""
+    source = """def on_tick():
+    if state.get('done'):
+        return
+    rows = api.call('stock:market', 'quotes')
+    if len(rows[0]['news']) < 2:
+        return
+    state['done'] = True
+    for row in rows:
+        sign = row['news'][-1]['cashflow_change_pct'] * DIRECTION
+        if sign > 0:
+            api.call('stock:market', 'buy', symbol=row['symbol'], quantity=50)
+        else:
+            api.call('stock:market', 'short', symbol=row['symbol'], quantity=50)
+"""
+    results = []
+    for seed in range(1, 7):
+        roster = [dict(id='stock:'+kind, name=kind, client='replay',
+                       scripts={'1': source.replace('DIRECTION', str(direction))})
+                  for kind, direction in (('aligned', 1), ('inverted', -1))]
+        roster.append(dict(id='stock:cash', name='cash', client='replay'))
+        h = GameHost.new(dict(mods='mods.stock.toml', seed=seed, nations=roster))
+        h.cycle()
+        result = dict(seed=seed, ticks=h.world.clock.session_ticks)
+        for actor in ('aligned', 'inverted', 'cash'):
+            result[actor] = round(h.world.portfolio.holdings('stock:'+actor)['wealth']-100000, 2)
+            if actor != 'cash':
+                status = h.world.scripts.status('stock:'+actor)['result']
+                assert status['status'] == 'effective', status
+        results.append(result)
+    return dict(external_model_calls=0, results=results,
+                description='Same-market public-news sign controls; 50 shares per symbol '
+                            'after the second released news. Closing marked equity includes fees.',
+                aligned_wins=sum(r['aligned'] > r['inverted'] for r in results),
+                mean_aligned=sum(r['aligned'] for r in results)/len(results),
+                mean_inverted=sum(r['inverted'] for r in results)/len(results))
+
+
 def run(ticks=20000):
     cfg = dict(mods='mods.stock.toml', seed=99, nations=[
         dict(id='stock:alpha', name='量化甲', client='replay'),
@@ -64,6 +103,9 @@ def run(ticks=20000):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ticks', type=int, default=20000)
+    parser.add_argument('--causal-controls', action='store_true',
+                        help='run six paired full-day public-news controls instead')
     args = parser.parse_args()
     if args.ticks < 3: parser.error('--ticks must be at least 3')
-    print(json.dumps(run(args.ticks), ensure_ascii=False, indent=2))
+    print(json.dumps(causal_controls() if args.causal_controls else run(args.ticks),
+                     ensure_ascii=False, indent=2))

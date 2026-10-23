@@ -14,7 +14,6 @@ public partial class WorldMap : Control
     public bool Units = true;
     public Vector2I Selected = new(-1, -1);
     private const int Cell = RegionLayout.RegionSize;
-    private readonly Dictionary<string, Texture2D> _textures = new();
     private readonly Dictionary<Vector2I, JsonObject> _tiles = new();
     private readonly Dictionary<string, Color> _colors = new();
     private RegionArtwork _artwork = null!;
@@ -51,7 +50,10 @@ public partial class WorldMap : Control
 
     public void SetFrame(JsonObject frame)
     {
+        DesktopScene.Synchronize(frame);
         var nextLayout=new RegionLayout(WorldLayoutProjection.FromFrame(frame),_layout);
+        if(_layout?.GeometryKey!=nextLayout.GeometryKey)_guardAnchors.Clear();
+        var live=nextLayout.Regions.ToHashSet();foreach(var stale in _walks.Keys.Where(k=>!live.Contains(k)).ToArray())_walks.Remove(stale);
         Frame = frame;
         _tiles.Clear();
         foreach (var item in frame["tiles"]!.AsArray())
@@ -71,6 +73,7 @@ public partial class WorldMap : Control
 
     public void Fit()
     {
+        _cameraTarget=null;
         _fit = true;
         _scale = Math.Clamp(Math.Min((Size.X-80)/(_size*Cell), (Size.Y-110)/(_size*Cell)), .01f, 4f);
         _offset = (Size - Vector2.One * (_size*Cell*_scale))/2;
@@ -79,6 +82,7 @@ public partial class WorldMap : Control
 
     public void FocusNation(string actor)
     {
+        _cameraTarget=null;
         var land = _tiles.Where(p => S(p.Value["owner"]) == actor).Select(p => p.Key).ToArray();
         if (land.Length == 0) return;
         _fit = false;
@@ -92,29 +96,28 @@ public partial class WorldMap : Control
         if(_artwork==null)return;
         _artwork.Position=_offset;_artwork.Scale=Vector2.One*_scale;
         _artwork.SetDetailLevel(_scale<.22f?0:_scale<.55f?1:2);
+        _artwork.SetWorldView(new Rect2(-_offset/_scale,Size/_scale));
         QueueRedraw();
     }
     public Color NationColor(string owner) => _colors.GetValueOrDefault(owner, new Color("8e9985"));
     public Vector2 CellCenter(Vector2I cell) => _offset+(new Vector2(cell.X,cell.Y)+Vector2.One*.5f)*Cell*_scale;
-    private Texture2D Tex(string name)
-    {
-        if (!_textures.TryGetValue(name, out var value))
-            _textures[name] = value = GD.Load<Texture2D>("res://assets/"+name+".png");
-        return value;
-    }
-    private void Sprite(string name, Vector2 at, int x=0, int y=0, int w=16, int h=16, float size=1)
-        => DrawTextureRectRegion(Tex(name), new Rect2(at, new Vector2(w,h)*size), new Rect2(x,y,w,h));
-
     public override void _Process(double delta)
     {
         _time += delta;
-        if ((int)(_time*12) != (int)((_time-delta)*12)) QueueRedraw();
+        if(_cameraTarget is Vector2 target)
+        {
+            _offset=_offset.Lerp(target,1-MathF.Exp(-(float)delta*5));
+            if(_offset.DistanceTo(target)<.5f){_offset=target;_cameraTarget=null;}
+            UpdateView();
+        }
+        if ((int)(_time*24) != (int)((_time-delta)*24)) QueueRedraw();
     }
 
     public override void _GuiInput(InputEvent input)
     {
         if (input is InputEventMouseButton b)
         {
+            if(b.Pressed)_cameraTarget=null;
             if (b.ButtonIndex is MouseButton.Middle or MouseButton.Right) _drag = b.Pressed;
             if (b.ButtonIndex == MouseButton.Left)
             {
@@ -136,6 +139,7 @@ public partial class WorldMap : Control
         }
         if (input is InputEventMouseMotion motion && _drag)
         {
+            _cameraTarget=null;
             _fit = false;_offset += motion.Relative;UpdateView();
         }
     }
@@ -149,6 +153,7 @@ public partial class WorldMap : Control
             {
                 string owner=S(t["owner"]);if(owner=="")continue;
                 var at=new Vector2(p.X,p.Y)*Cell;
+                DrawRect(new Rect2(at,Vector2.One*Cell),new Color(NationColor(owner),PoliticalOpacity));
                 Vector2I[] dirs={new(0,-1),new(1,0),new(0,1),new(-1,0)};
                 Vector2[] corners={at,at+new Vector2(Cell,0),at+new Vector2(Cell,Cell),at+new Vector2(0,Cell)};
                 for(int i=0;i<4;i++)
@@ -157,17 +162,7 @@ public partial class WorldMap : Control
             }
         if(_tiles.ContainsKey(Selected))DrawRect(new Rect2(new Vector2(Selected.X,Selected.Y)*Cell,Vector2.One*Cell),new Color("fff1bb"),false,2/_scale);
         DrawSetTransform(Vector2.Zero);
-        if(Units)
-            foreach(var group in Frame["armies"]!.AsArray().Where(a=>F(a!["hp"])>0).GroupBy(a=>(I(a!["x"]),I(a["y"]),S(a["owner"]))))
-            {
-                var at=CellCenter(new Vector2I(group.Key.Item1,group.Key.Item2))-new Vector2(10,12);
-                if(at.X < -40 || at.Y < -40 || at.X > Size.X+40 || at.Y > Size.Y+40)continue;
-                var unit=group.First()!;bool mounted=S(unit["kind"]).EndsWith("cavalry");int tick=(int)(_time*5)%4;
-                Sprite(mounted?"knight":"swordsman",at,mounted?tick*32:0,0,mounted?32:16,mounted?32:16,mounted?.65f:1.25f);
-                DrawRect(new Rect2(at+new Vector2(1,-3),new Vector2(9,5)),NationColor(group.Key.Item3));
-                DrawString(_font,at+new Vector2(17,20),group.Count().ToString(),fontSize:11,modulate:new Color("ffffff"));
-                if(unit["engaged"]?.GetValue<bool>()==true)DrawArc(at+new Vector2(10,10),13,0,Mathf.Tau,24,new Color("ee8e64"),1.5f);
-            }
+        DrawResidents();DrawTroops();DrawBeatEffects();
         if(Borders && _scale<.55f)
             foreach(var country in Frame["names"]!.AsObject())
             {

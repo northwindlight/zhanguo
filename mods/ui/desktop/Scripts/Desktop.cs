@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -13,6 +14,7 @@ using static WorldMap;
 public partial class Desktop : Control
 {
     private Process? _host;
+    private Task? _stderrPump;
     private readonly Channel<string> _inbox = Channel.CreateBounded<string>(64);
     private WorldMap _map = null!;
     private Label _status = null!;
@@ -36,6 +38,10 @@ public partial class Desktop : Control
     private string _savePath = "";
     private string _hostState = "";
     private bool _smokeStarted;
+    private Label _aiInfo=null!;
+    private int _initialArmies=-1;
+    private int _captureAfterPeriod=3;
+    private bool _normalOpening;
 
     private MapDrawer _countries = null!, _details = null!, _shop = null!, _chronicle = null!;
     private Button _countriesButton = null!, _detailsButton = null!, _shopButton = null!, _chronicleButton = null!;
@@ -70,7 +76,9 @@ public partial class Desktop : Control
         borders.Toggled+=v=>{_map.Borders=v;_map.QueueRedraw();};
         var units=new CheckButton { Text="军队",ButtonPressed=true };_countries.Body.AddChild(units);
         units.Toggled+=v=>{_map.Units=v;_map.QueueRedraw();};
-        _countries.Body.AddChild(new Label { Text="离线八国 · v13\n独立演示局 · 上限300回合",Modulate=new Color("a4b09c") });
+        var guards=new CheckButton { Text="野人守军",ButtonPressed=true };_countries.Body.AddChild(guards);
+        guards.Toggled+=v=>{_map.ShowGuards=v;_map.QueueRedraw();};
+        _aiInfo=new Label { Text="正在核对实际客户端…",Modulate=new Color("a4b09c") };_countries.Body.AddChild(_aiInfo);
         _detail=TextBox(_details.Body);_detail.SizeFlagsVertical=SizeFlags.ExpandFill;
         _market=TextBox(_shop.Body);_market.SizeFlagsVertical=SizeFlags.ExpandFill;
         _events=TextBox(_chronicle.Body);_events.SizeFlagsVertical=SizeFlags.ExpandFill;_events.ScrollFollowing=true;
@@ -82,9 +90,11 @@ public partial class Desktop : Control
         title.AddThemeFontSizeOverride("font_size",24);title.AddThemeColorOverride("font_color",new Color("e4d8ae"));top.AddChild(title);
         top.AddChild(new Control { SizeFlagsHorizontal=SizeFlags.ExpandFill,MouseFilter=MouseFilterEnum.Ignore });
         _status=new Label { Text="正在创建离线八国世界…",MouseFilter=MouseFilterEnum.Ignore };top.AddChild(_status);
-        _play=Button(top,"继续",()=>Send(_running?"pause":"resume"));
-        _step=Button(top,"下一回合",()=>Send("step"));
+        BuildPlaybackControls(top);
+        _play=Button(top,"继续",TogglePlayback);
+        _step=Button(top,"下一回合",StepPlayback);
         _save=Button(top,"保存",()=>Send("save"));
+        _save.TooltipText="保存已完成的规则回合；正在播放的演出可能尚未到达该结算边界";
         var dock=new HBoxContainer { MouseFilter=MouseFilterEnum.Ignore,ZIndex=5 };
         dock.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomLeft);dock.OffsetLeft=16;dock.OffsetTop=-58;dock.OffsetBottom=-14;
         dock.AddThemeConstantOverride("separation",8);AddChild(dock);
@@ -97,7 +107,7 @@ public partial class Desktop : Control
         hint.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight);hint.OffsetLeft=-660;hint.OffsetRight=-18;hint.OffsetTop=-44;hint.OffsetBottom=-18;AddChild(hint);
         Resized+=LayoutDrawers;LayoutDrawers();
         var args=OS.GetCmdlineUserArgs();
-        for(int i=0;i<args.Length-1;i++)if(args[i]=="--smoke-output")_smoke=args[i+1];
+        for(int i=0;i<args.Length-1;i++)if(args[i]=="--smoke-output"){_smoke=args[i+1];_playbackSpeed=96;}
         try { StartHost(); } catch(Exception e) { Error(e.Message); }
     }
 
@@ -145,8 +155,8 @@ public partial class Desktop : Control
         foreach(string arg in new[]{"-u","-m","ui.desktop","--output",output})info.ArgumentList.Add(arg);
         _host=Process.Start(info) ?? throw new Exception("无法启动 Python 宿主");
         _host.StandardInput.AutoFlush=true;
+        _stderrPump=Task.Run(async()=>{while(await _host.StandardError.ReadLineAsync() is string line)GD.PrintErr(line);});
         _=ReadOutput();
-        _=Task.Run(async()=>{while(await _host.StandardError.ReadLineAsync() is string line)GD.PrintErr(line);});
     }
 
     private async Task ReadOutput()
@@ -155,6 +165,7 @@ public partial class Desktop : Control
         {
             while(await _host!.StandardOutput.ReadLineAsync() is string line)await _inbox.Writer.WriteAsync(line);
             await _host.WaitForExitAsync();
+            if(_stderrPump!=null)await _stderrPump;
             await _inbox.Writer.WriteAsync(JsonSerializer.Serialize(new {type="exit",code=_host.ExitCode}));
         }
         catch(Exception e){await _inbox.Writer.WriteAsync(JsonSerializer.Serialize(new {type="error",message=e.Message}));}
@@ -163,9 +174,15 @@ public partial class Desktop : Control
     private void Send(string command)
     {
         if(_stopped||_host==null)return;
+        if(_closing&&command!="stop")return;
         try
         {
             _host.StandardInput.WriteLine(JsonSerializer.Serialize(new {command}));
+            if(command=="stop")
+            {
+                _playbackPaused=true;_beats.Clear();_playingBeat=null;_map.EndBeat();
+                _save.Disabled=true;_host.StandardInput.Close();
+            }
             if(command is "pause" or "stop" or "save")_status.Text=command=="pause"?"暂停请求已排队 · 等待回合保存":command=="stop"?"正在完成回合并保存…":"等待回合边界保存…";
             _play.Disabled=true;_step.Disabled=true;
         }
@@ -193,7 +210,8 @@ public partial class Desktop : Control
                 if(_smoke!=null){_closing=true;Send("stop");GetTree().Quit(3);return;}
             }
         }
-        if(_smoke!=null && _elapsed>60){GD.PrintErr("DESKTOP_SMOKE_TIMEOUT");GetTree().Quit(2);}
+        ProcessPlayback(delta);
+        if(_smoke!=null && _elapsed>180){GD.PrintErr("DESKTOP_SMOKE_TIMEOUT");GetTree().Quit(2);}
     }
 
     private void Receive(JsonObject row)
@@ -201,6 +219,7 @@ public partial class Desktop : Control
         string type=S(row["type"]);
         if(type=="exit")
         {
+            if(_smoke!=null)GD.Print("DESKTOP_HOST_EXIT "+row["code"]);
             _stopped=true;
             if(_closing && I(row["code"])==0)GetTree().Quit();
             else Error("Python 宿主退出，代码 "+row["code"]);
@@ -212,15 +231,22 @@ public partial class Desktop : Control
         if(_generation==null)_generation=generation;
         if(generation!=_generation||revision<=_revision)return;
         _revision=revision;
+        if(_closing&&(type is "timeline" or "snapshot"))return;
+        if(type=="notice")
+        {
+            _bannerTitle.Text="演出同步";_bannerText.Text=S(row["message"]);GD.PrintErr(_bannerText.Text);return;
+        }
+        if(type=="timeline"){ReceiveTimeline(row);return;}
         if(type=="snapshot")
         {
-            var frame=row["frame"]!.AsObject();_period=I(frame["period"]);_map.SetFrame(frame);
-            UpdatePanels(frame);
-            if(_smoke!=null && _period>=3 && !_capturing){_capturing=true;_=Capture();}
+            var frame=row["frame"]!.AsObject();
+            if(HasTimeline){_pendingFrame=frame;if(_awaitingFrame)FinishPlayback();}
+            else ApplyFrame(frame);
         }
         if(type=="status")
         {
             string state=S(row["state"]);_hostState=state;_running=state is "running" or "advancing";
+            if(_smoke!=null&&state=="stopped")GD.Print("DESKTOP_HOST_STOPPED");
             _savePath=S(row["save"]);
             string status=state switch {"running"=>"推演中","advancing"=>"列国行动中","paused"=>"已暂停","stopped"=>"已保存并停止",_=>state};
             _status.Text=$"第 {I(row["period"])} 回合 · {status} · 已存 {row["saved_period"]}";
@@ -229,7 +255,8 @@ public partial class Desktop : Control
             _play.Disabled=_closing;
             _step.Disabled=_closing||_running;
             _save.Disabled=_closing;
-            if(_smoke!=null && !_smokeStarted && state=="paused") {_smokeStarted=true;Send("resume");}
+            if(_smoke!=null && !_smokeStarted && state=="paused") {_smokeStarted=true;_playbackPaused=false;Send("resume");}
+            RefreshPlaybackControls();
         }
     }
 
@@ -242,10 +269,16 @@ public partial class Desktop : Control
             var button=Button(_nations,$"{n["name"]}    {n["land"]} 地",()=>{_selectedNation=id;_map.FocusNation(id);ShowTile(null);OpenDrawer(_details);});
             button.Modulate=_map.NationColor(id);
         }
-        _market.Text=string.Join("\n",frame["market"]!.AsArray().Select(p=>$"{p!["name"],-6}   {F(p["price"]):0.00}"))+
+        _market.Text=string.Join("\n\n",frame["market"]!.AsArray().Select(p=>$"{p!["name"]}   参考价 {Zhanguo.Desktop.Layout.DesktopScene.PriceText(F(p["price"]))}\n库存 {p["inventory"]?.ToString()??"—"}  买 {Zhanguo.Desktop.Layout.DesktopScene.PriceText(p["buy"]==null?null:F(p["buy"]))} / 卖 {Zhanguo.Desktop.Layout.DesktopScene.PriceText(p["sell"]==null?null:F(p["sell"]))}"))+
             $"\n\n储蓄利率 {F(frame["bank"]!["rate"]):P1} · 贷款 {F(frame["bank"]!["loan_rate"]):P1}";
         _events.Text=string.Join("\n",frame["events"]!.AsArray().Select(e=>S(e!["text"])));
         ShowTile(_selectedNation!=""?null:_map.SelectedTile);
+        if(frame["clients"] is JsonArray clients)
+        {
+            string versions=string.Join(" / ",clients.Select(c=>S(c!["version"])).Distinct());
+            _aiInfo.Text=$"离线八国 · {versions}\n正常开局 · 上限300回合";
+            _aiInfo.TooltipText=string.Join("\n",clients.Select(c=>$"{frame["names"]![S(c!["actor"])]}: {c["version"]} · {c["strategy"]}"));
+        }
     }
 
     private void ShowTile(JsonObject? tile)
@@ -261,15 +294,17 @@ public partial class Desktop : Control
                 return;
             }
             var units=_map.Frame["armies"]!.AsArray().Where(a=>I(a!["x"])==I(p[0])&&I(a["y"])==I(p[1])).ToArray();
+            bool potential=_map.Frame["scene"]?["guards"]?.AsArray().Any(u=>I(u!["x"])==I(p[0])&&I(u["y"])==I(p[1]))==true;
             _detail.Text=$"{tile["name"]}  ({p[0]}, {p[1]})\n{tile["terrain_name"]} · {(_map.Frame["names"]![owner]?.ToString()??"无主之地")}\n\n建筑\n"+
                 (tile["building_labels"]!.AsArray().Count==0?"尚无建筑":string.Join("\n",tile["building_labels"]!.AsArray().Select(S)))+
-                "\n\n军队\n"+(units.Length==0?"无已物化军队":string.Join("\n",units.Select(a=>$"{a!["label"]} #{a["id"]}  HP {a["hp"]}")))+
+                "\n\n军队\n"+(potential?"野人守军 · 1支 · 未遭遇\n":"")+(units.Length==0?(potential?"":"无驻军"):string.Join("\n",units.Select(a=>$"{a!["label"]??a["kind"]} #{a["id"]}  HP {a["hp"]}")))+
                 "\n\n图标使用通用中世纪素材，\n建筑类型以此处文字为准。";
             return;
         }
         var nation=_map.Frame["nations"]!.AsArray().FirstOrDefault(n=>S(n!["id"])==_selectedNation);
         if(nation==null){_detail.Text="俯瞰山河，静观列国兴衰。\n\n点击地块查看地形、建筑和驻军。\n点击左侧国名查看国力。\n\n国界颜色表示当前归属；\n军旗数字表示本格真实军队数。\n无主守军按规则在遭遇时物化。\n\n本版采用 Mini World 像素素材。";return;}
-        _detail.Text=$"{nation["name"]}国 · 第 {_period} 回合\n国土 {nation["land"]} 格\n总资产 {F(nation["assets"]):0.0}\n\n"+
+        var client=_map.Frame["clients"]?.AsArray().FirstOrDefault(c=>S(c!["actor"])==_selectedNation);
+        _detail.Text=$"{nation["name"]}国 · 第 {_period+1} 回合\n{client?["version"]} · {client?["strategy"]}\n国土 {nation["land"]} 格\n上期结算资产 {F(nation["assets"]):0.0}\n\n"+
             string.Join("\n",nation["stocks"]!.AsArray().Select(s=>$"{s!["name"]}    {s["amount"]}"))+"\n\n军队\n"+
             (nation["units"]!.AsObject().Count==0?"暂无军队":string.Join("  ",nation["units"]!.AsObject().Select(u=>$"{u.Key} {u.Value}")));
     }
@@ -335,9 +370,13 @@ public partial class Desktop : Control
             await Screenshot(stem+"-close.png");
             int expected=_map.Frame["tiles"]!.AsArray().Sum(t=>t!["buildings"]!.AsArray().Count);
             if(_map.StructureCount!=expected || _map.TerrainBuilds!=1)throw new Exception("实时设施投影或地表缓存异常");
+            if((_normalOpening&&_initialArmies!=0)||_map.Residents==0||_map.Guards==0||_playedPhases.GetValueOrDefault("actor")<8||_playedPhases.GetValueOrDefault("build")==0||_playedPhases.GetValueOrDefault("production")==0||_map.RegionNodes!=_map.TileCount)
+                throw new Exception("正常开局、居民野人、逐国动作或地区绘制缓存验收失败");
             File.WriteAllText(path+".json",JsonSerializer.Serialize(new { period=_period,tiles=_map.TileCount,armies=_map.ArmyCount,
                 save=_savePath,artwork=_map.ArtworkMode,terrain_builds=_map.TerrainBuilds,static_draws=_map.ArtworkPasses,
                 surfaces=_map.SurfaceCount,structures=_map.StructureCount,source_buildings=expected,
+                initial_armies=_initialArmies,residents=_map.Residents,potential_guards=_map.Guards,region_nodes=_map.RegionNodes,
+                played_phases=_playedPhases,actor_banners=_actorBanners,political_alpha_near=_map.PoliticalOpacity,
                 map_fills_window=true,map_width=_map.Size.X,map_height=_map.Size.Y,viewport_width=Size.X,viewport_height=Size.Y,
                 drawers_start_closed=true,drawer_pointer_checked=true,drawers_preserve_map_rect=true,drawers_within_viewport=true,drawer_close_checked=true,selection_checked=true,
                 platform=OS.GetName(),renderer=RenderingServer.GetVideoAdapterName() },new JsonSerializerOptions{WriteIndented=true}));
@@ -352,7 +391,7 @@ public partial class Desktop : Control
         if(input is not InputEventKey key||!key.Pressed||key.Echo)return;
         if(key.Keycode==Key.F){_map.Fit();CloseDrawers();}
         if(key.Keycode==Key.Escape)CloseDrawers();
-        if(key.Keycode==Key.Space && !_closing)Send(_running?"pause":"resume");
+        if(key.Keycode==Key.Space && !_closing)TogglePlayback();
     }
     public override void _Notification(int what)
     {
