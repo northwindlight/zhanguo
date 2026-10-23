@@ -92,11 +92,11 @@ Commands are processed between model calls. `Ctrl-C` interrupts immediately and 
 
 ### Desktop view
 
-![Desktop observer](docs/design/gui-world-fullscreen-20261023.png)
+![Desktop observer](docs/design/gui-live-actor-20261024.png)
 
-The desktop prototype provides a full-window map, zooming, panning, tile inspection, nation and market drawers, turn controls and saving. Run `python3 desktop.py` after installing Godot .NET, the .NET SDK and Python; see the [desktop guide](mods/ui/desktop/README.md) for exact requirements.
+The desktop prototype provides a full-window map, political colors that fade on zoom, busy residents, dense troop groups and overlay drawers. Country banners, camera follow and five playback speeds show individual actions, followed by end-of-round marching, production, upkeep and each battle. Run `python3 desktop.py` after installing Godot .NET, the .NET SDK and Python; see the [desktop guide](mods/ui/desktop/README.md) for exact requirements.
 
-It currently runs a separate offline rule-player demonstration. Connecting existing LLM games, battle animation and standalone installers remain in development.
+It starts a normal offline v13 game without gifted opening troops. Existing LLM sessions and standalone installers remain pending. See the [32-second window recording](docs/design/gui-live-battle-tour-20261024.mp4) and [implementation review](docs/reviews/GUI逐动作与聚落军团-20261024.md).
 
 ## Optional experiments
 

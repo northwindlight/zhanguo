@@ -11,6 +11,43 @@ class NativeObserver:
     def management(self):
         return (*super().management(),'observer_snapshot','set_rate','subsidize')
 
+    def observer_scene(self):
+        """Small, detached visual facts; no player observation, materialization or RNG."""
+        with self.lock, self.runtime.read_scope(self.world):
+            snap=self.world.buildings.snapshot();sites={s.id:s for s in snap.sites}
+            buildings=[{**wire(b),'x':sites[b.site].position[0],'y':sites[b.site].position[1],
+                        'owner':sites[b.site].owner} for b in snap.instances]
+            size,_=self.grid();guards=[]
+            for y in range(size):
+                for x in range(size):
+                    if (x,y) in self.world.units.guard_once:continue
+                    cell=self.world.territory.cell(x,y)
+                    if cell.tile.id or not self.world.territory.terrain(x,y).claimable:continue
+                    guards.append({'id':x*size+y+1,'owner':'野人','kind':'native:infantry',
+                                   'hp':self.world.units.definition('native:infantry')['hp'],
+                                   'x':x,'y':y,'engaged':False,'potential':True})
+            market=wire(self.world.market.summary());stock=dict(market['inventory']);reference=dict(market['reference'])
+            return {'buildings':buildings,'armies':wire(self.world.military.snapshot()),'guards':guards,
+                    'production':[wire(r.fact) for r in self.world.economy.facts(self.world.economy.next_period-1)
+                                  if r.fact.category=='production'] if self.world.economy.next_period else [],
+                    'accounts':[{'id':a,'stocks':wire(self.runtime.object_call(self.world,'native:resource-exchange','snapshot',a))} for a in self.actors()],
+                    'market':[{'id':kind,'price':price,'inventory':stock[kind],'reference':reference[kind],
+                               'buy':self.world.market.unit_price(kind,'buy') if stock[kind]>0 else None,
+                               'sell':self.world.market.unit_price(kind,'sell')} for kind,price in market['prices']],
+                    'ownership':[{'x':t.tile.position[0],'y':t.tile.position[1],'owner':t.owner}
+                                 for t in self.world.territory.snapshot()]}
+
+    def observer_route(self,actor,aid,start,target,attack=False):
+        """One verified legal display route, not an additional movement or a saved path."""
+        with self.lock, self.runtime.read_scope(self.world):
+            parents={}
+            reachable=dict(self.world.military.reachable(actor,aid,attack,_origin=tuple(start),_parents=parents))
+            point=tuple(target);route=[point]
+            if point not in reachable:return []
+            while point!=tuple(start):
+                point=parents[point];route.append(point)
+            return [list(p) for p in reversed(route)]
+
     def record(self,player,action,arguments,receipt,error=None):
         super().record(player,action,arguments,receipt,error)
         tool=self.runtime.tools.get(action) if isinstance(action,str) else None
@@ -58,7 +95,7 @@ class NativeObserver:
                     for key,value in self.runtime.content.definitions()}
             glyphs={key:glyph for key,glyph in glyphs.items() if glyph}
             roles={role:list(ids) for role,ids in self.runtime.content.roles().items()}
-            return {'period':self.clock(),'names':names,'nations':nations,
+            return {'period':self.clock(),'names':names,'nations':nations,'scene':self.observer_scene(),
                 'resource_flows':{'period':flow_period,'owners':{owner:{resource:amount for resource,amount in values.items() if amount}
                     for owner,values in flows.items()}},
                 'dead':[a for a in self.roster if a not in self.actors()],

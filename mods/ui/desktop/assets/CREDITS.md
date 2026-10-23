@@ -19,6 +19,12 @@ the inspector lists every actual kind and level, including unknown content IDs.
 The troop count is the actual number of surviving rule units in a tile, not
 the number of illustrated soldiers or their combined HP.
 
+2026-10-24 live observer update: the single idle troop icon has been replaced
+by original code-drawn miniature residents, infantry and mounted squads.
+Walking, construction, contact, confirmed casualties and resource icons are
+procedural presentation art, not newly imported animation rows from these sheets.
+Squad figures are representative and capped; flag labels retain actual rule-unit counts.
+
 The initial `--sample terrain` batch reused the unmodified tree and house
 sheets. Its 6x8 scale figures, farmland, mineral outcrops and terrain shading
 were drawn in project code. These

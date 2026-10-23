@@ -105,11 +105,11 @@ python3 settlement.py --save mp_save.json --table
 
 ### 桌面上帝视角
 
-![桌面上帝视角](docs/design/gui-world-fullscreen-20261023.png)
+![桌面上帝视角](docs/design/gui-live-actor-20261024.png)
 
-桌面版已能展示真实离线八国对局：全窗地图、缩放拖动、地块点选，以及列国、山河、市集、纪事抽屉；可以逐回合播放、暂停和保存。
+桌面版采用正常v13离线八国开局：全窗地图、远景国色与近景地貌、居民与密集小队，以及列国、山河、市集、纪事抽屉。按国横幅、自动聚焦和五档速度逐项展示行动，回合末播放行军、生产/军需与逐场战斗，支持暂停和保存。
 
-安装 Godot .NET、.NET SDK 和 Python 后运行 `python3 desktop.py`。具体版本和安装方法见[桌面版说明](mods/ui/desktop/README.md)。目前启动的是独立的规则 AI 演示局，尚未接入现役 LLM 对局，战斗演出与独立安装包仍在开发中。
+安装 Godot .NET、.NET SDK 和 Python 后运行 `python3 desktop.py`。具体版本和安装方法见[桌面版说明](mods/ui/desktop/README.md)。目前启动的是独立的规则 AI 对局，尚未接入现役 LLM 对局或独立安装包。[32秒实际窗口录像](docs/design/gui-live-battle-tour-20261024.mp4)与[实现范围](docs/reviews/GUI逐动作与聚落军团-20261024.md)。
 
 ## 可选玩法与实验
 

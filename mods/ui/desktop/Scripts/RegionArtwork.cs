@@ -17,7 +17,17 @@ public partial class RegionArtwork : Node2D
     public int SurfaceCount => _surfaces.Count;
     public int FrontFaceCount { get; private set; }
     private ImageTexture _ground = null!;
-    private readonly Dictionary<string, Texture2D> _textures = new();
+    private Dictionary<string, Texture2D> _textures = new();
+    private readonly Dictionary<(int,int),RegionArtwork> _regionNodes=new();
+    private RegionPlan? _onlyRegion;
+    private Rect2? _worldView;
+    private string _occlusionKey="";
+    public int RegionNodeCount=>_regionNodes.Count;
+    public void SetWorldView(Rect2 bounds)
+    {
+        _worldView=bounds.Grow(40);
+        foreach(var (at,node) in _regionNodes)node.Visible=_worldView.Value.Intersects(new Rect2(at.Item1*256,at.Item2*256,256,256));
+    }
     private IReadOnlyList<CliffSegment> _cliffs = Array.Empty<CliffSegment>();
     private sealed record Surface(ImageTexture Ground, IReadOnlyList<CliffSegment> Cliffs);
     private readonly Dictionary<string, Surface> _surfaces = new();
@@ -26,14 +36,30 @@ public partial class RegionArtwork : Node2D
     {
         if(_detailLevel==level)return;
         _detailLevel=level;QueueRedraw();
+        foreach(var child in _regionNodes.Values)child.SetDetailLevel(level);
     }
 
     public void SetLayout(RegionLayout layout)
     {
         Layout = layout;
+        string boundsKey=layout.GeometryKey+string.Join(";",layout.Regions.SelectMany(r=>r.Structures.Select(s=>$"{r.Input.X},{r.Input.Y},{s.Bounds}")));
+        bool redrawGround=_occlusionKey!=boundsKey;_occlusionKey=boundsKey;
+        if(layout.Input.LiveWorld)
+            foreach(var r in layout.Regions)
+            {
+                var key=(r.Input.X,r.Input.Y);
+                if(!_regionNodes.TryGetValue(key,out var node))
+                {
+                    node=new RegionArtwork { _textures=_textures,LabelFont=LabelFont,_detailLevel=_detailLevel };
+                    _regionNodes[key]=node;AddChild(node);
+                }
+                node.Layout=layout;
+                if(!ReferenceEquals(node._onlyRegion,r)){node._onlyRegion=r;node.QueueRedraw();}
+                node.Visible=_worldView==null||_worldView.Value.Intersects(new Rect2(key.Item1*256,key.Item2*256,256,256));
+            }
         if (_surfaces.TryGetValue(layout.GeometryKey, out var cached))
         {
-            _ground = cached.Ground; _cliffs = cached.Cliffs; QueueRedraw(); return;
+            _ground = cached.Ground; _cliffs = cached.Cliffs;if(redrawGround)QueueRedraw();return;
         }
         TerrainBuilds++;
         int samples=layout.Input.LiveWorld?48:128;
@@ -108,10 +134,14 @@ public partial class RegionArtwork : Node2D
     {
         if (Layout == null) return;
         DrawPasses++;
-        DrawTextureRect(_ground, new Rect2(0, 0, Layout.Width * 256, Layout.Height * 256), false);
-        DrawCliffs();
+        if(_onlyRegion==null)
+        {
+            DrawTextureRect(_ground, new Rect2(0, 0, Layout.Width * 256, Layout.Height * 256), false);
+            DrawCliffs();
+            if(Layout.Input.LiveWorld)return;
+        }
         var objects = new List<(float Y, Action Draw)>();
-        foreach (var r in Layout.Regions)
+        foreach (var r in _onlyRegion==null?Layout.Regions:new[]{_onlyRegion})
         {
             var origin = new Vector2(r.Input.X * 256, r.Input.Y * 256);
             // Local footpaths join already accepted flat facility anchors.
@@ -163,7 +193,7 @@ public partial class RegionArtwork : Node2D
                     Sprite(t.Sheet, (p - new Vector2(8, 16)).Floor(), t.Variant);
                 }));
             }
-            foreach (var person in r.People)
+            foreach (var person in r.People.Where(_=>!Layout.Input.LiveWorld))
             {
                 var p = origin + new Vector2(person.X, person.Y);
                 objects.Add((p.Y, () => DrawPerson(p)));
@@ -215,6 +245,14 @@ public partial class RegionArtwork : Node2D
             // and draw a local prepared terrace, without flattening every region
             // into a circular crater or rebuilding the entire height field.
             DrawRect(new Rect2(p-new Vector2(2,1),new Vector2(s.Bounds.Width+4,s.Bounds.Height+3)),new Color("a39e70"));
+        }
+        if(s.Remaining>0)
+        {
+            var size=new Vector2(s.Bounds.Width,s.Bounds.Height);
+            DrawRect(new Rect2(p,size),new Color("766a49"));
+            DrawRect(new Rect2(p+new Vector2(2,4),size-new Vector2(4,5)),new Color("c3b07b"),false,2);
+            for(int x=0;x<=s.Bounds.Width;x+=7)DrawLine(p+new Vector2(x,0),p+new Vector2(x,s.Bounds.Height),new Color("725737"),2);
+            DrawLine(p,p+size,new Color("d6bc7b"),1);return;
         }
         if (s.Kind == "farm")
         {
