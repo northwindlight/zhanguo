@@ -1,0 +1,15 @@
+{
+  "seed": 20261023,
+  "layout_version": 2,
+  "regions": [
+    {"x":0,"y":0,"name":"山接平原","terrain":"mountain","wood":15,"gold":0,"people":2,"buildings":[{"id":"home-1","kind":"house"}]},
+    {"x":1,"y":0,"name":"平原林缘","terrain":"plain","wood":0,"gold":0,"people":1,"buildings":[{"id":"farm-1","kind":"farm"}]},
+    {"x":2,"y":0,"name":"林缘接山","terrain":"forest","wood":100,"gold":0,"people":0,"buildings":[]},
+    {"x":0,"y":1,"name":"丘陵矿地","terrain":"hill","wood":15,"gold":50,"people":1,"buildings":[{"id":"mine-1","kind":"mine"}]},
+    {"x":1,"y":1,"name":"林间聚落","terrain":"forest","wood":55,"gold":0,"people":1,"buildings":[{"id":"home-1","kind":"house"}]},
+    {"x":2,"y":1,"name":"山接林地","terrain":"mountain","wood":10,"gold":0,"people":2,"buildings":[{"id":"home-1","kind":"house"}]},
+    {"x":0,"y":2,"name":"平原接丘陵","terrain":"plain","wood":5,"gold":0,"people":1,"buildings":[{"id":"farm-1","kind":"farm"},{"id":"farm-2","kind":"farm"}]},
+    {"x":1,"y":2,"name":"丘陵接森林","terrain":"hill","wood":15,"gold":50,"people":1,"buildings":[{"id":"mine-1","kind":"mine"}]},
+    {"x":2,"y":2,"name":"贫木林边","terrain":"forest","wood":25,"gold":0,"people":1,"buildings":[{"id":"home-1","kind":"house"}]}
+  ]
+}

@@ -6,5 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../mods/ui/desktop/Scripts/RegionLayout.cs" Link="RegionLayout.cs" />
+    <Compile Include="../../mods/ui/desktop/Scripts/TerrainContours.cs" Link="TerrainContours.cs" />
   </ItemGroup>
 </Project>

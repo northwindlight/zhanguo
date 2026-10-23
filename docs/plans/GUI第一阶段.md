@@ -67,6 +67,16 @@ Mini World 原图；尚未达到精细人物和地貌美术的最终标准。
 当前画面与首批对照见[第二批验收记录](../reviews/GUI阶段A第二批-20261023.md)。
 本批仍属于阶段 A；山脊拼块、多轮廓素材、更多邻接场景和持续性能/录像验收继续保留。
 
+## 第三批：岩壁连接与持续观看
+
+2026-10-23 已增加连续岩壁轮廓和交错地形的邻接样板，主样板布局输入仍为 v2。
+静态绘制与镜头控制分开，地表缓存限两份，地图自身的矩形边界负责裁切树木、岩石和阴影。
+顶部可切换主/邻接样板，并开关岩壁。
+
+已留下 33 秒实际窗口录像、32 秒持续巡览数据和外缘像素检查；
+软渲染录制仍慢，实际 GPU 和更多地貌组合继续验收。
+产物、测量范围与复现方法见[第三批记录](../reviews/GUI阶段A第三批-20261023.md)。
+
 ## 验证入口
 
 ```bash
@@ -74,11 +84,13 @@ dotnet run --project tests/desktop-layout/Checks.csproj -- mods/ui/desktop/Sampl
 python3 -m unittest tests.test_desktop_launcher tests.test_desktop tests.test_ui_mod -q
 python3 desktop.py --sample terrain --build-only
 xvfb-run -a -s '-screen 0 1440x900x24' python3 desktop.py --sample terrain --smoke-output /tmp/terrain.png
+python3 scripts/record_terrain_sample.py --output archive/previews/terrain-recording-new
 ```
 
 C# 检查直接运行实际布局代码，核对固定输入/种子重现、输入顺序无关、设施和人物数量、
 建筑不压山/树/其他建筑、森林丰度递增、含金与无金区别，以及共享边缘高度连续。
-窗口验收检查点选，输出全景 `terrain.png`、山谷 `terrain-close.png`、森林 `terrain-forest.png`、矿区 `terrain-gold.png` 与 `terrain.png.json`。
-JSON 记录输入哈希、实际对象数、平台及短时帧时间/内存；短截图过程不代替持续运行性能验收。
+窗口验收检查点选和外缘像素，输出全景、山谷、森林、矿区与邻接样板截图及 `terrain.png.json`。
+录制脚本在约5秒预热后执行32秒巡览，JSON记录墙上时钟帧间隔、节点/缓存/内存数据；
+短截图模式不再把启动过程当作性能测量。
 
-后续第一件事：补不同山岩轮廓与正确连接的岩壁拼块，继续核对谷地构图与地貌邻接组合。
+后续第一件事：打磨岩壁石面的自然度，补地貌组合，并核对实际 GPU；再根据阶段 A 退出条件评审。

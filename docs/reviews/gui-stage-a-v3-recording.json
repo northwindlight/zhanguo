@@ -1,0 +1,21 @@
+{
+  "capture": "Xvfb real window, ffmpeg x11grab",
+  "capture_fps": 15,
+  "encoder": "libx264 ultrafast crf28",
+  "probe": {
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "width": 1440,
+        "height": 900,
+        "r_frame_rate": "15/1",
+        "nb_frames": "496"
+      }
+    ],
+    "format": {
+      "duration": "33.066667"
+    }
+  },
+  "performance_measured_while_recording": true
+}

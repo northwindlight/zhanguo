@@ -9,6 +9,12 @@ from desktop import main, require_dotnet_godot
 
 
 class TestDesktopLauncher(unittest.TestCase):
+    def test_tour_rejects_missing_sample_or_output_before_start(self):
+        for args in [['--sample-tour'], ['--sample', 'terrain', '--sample-tour']]:
+            with self.subTest(args=args), patch('desktop.subprocess.run') as run, patch('sys.stderr'), self.assertRaises(SystemExit):
+                main(args)
+            run.assert_not_called()
+
     def test_sample_rejects_resume_before_any_process_starts(self):
         with patch('desktop.subprocess.run') as run, patch('sys.stderr'), self.assertRaises(SystemExit):
             main(['--sample', 'terrain', '--resume', '/tmp/unopened-session.json'])

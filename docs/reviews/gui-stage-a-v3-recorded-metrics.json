@@ -1,0 +1,328 @@
+{
+  "sample": "terrain-v2",
+  "fixture_sha256": {
+    "terrain-v2": "a7a14a709a791e20abce453b97a2e7f1a73572796a8efa176a70677ecd15f361",
+    "terrain-neighbors-v2": "fb0756014f08ae0f3cac2d6a46c0728e69f1c78cd3b8003cb553e16f1ab1e2c8"
+  },
+  "layout_version": 2,
+  "seed": 20261023,
+  "region_pixels": 256,
+  "visual_cells": 16,
+  "figure_pixels": [
+    6,
+    8
+  ],
+  "showcase": {
+    "structures": 19,
+    "trees": 286,
+    "people": 19,
+    "rocks": 80,
+    "mountain_outcrops": 6,
+    "regions": [
+      {
+        "Name": "\u7A7A\u5C71\u4E0E\u8C37\u5730",
+        "X": 0,
+        "Y": 0,
+        "Wood": 0,
+        "Gold": 0,
+        "structures": 0,
+        "trees": 0,
+        "people": 0,
+        "gold_outcrops": 0
+      },
+      {
+        "Name": "\u5C71\u8C37\u805A\u843D",
+        "X": 1,
+        "Y": 0,
+        "Wood": 15,
+        "Gold": 0,
+        "structures": 4,
+        "trees": 2,
+        "people": 5,
+        "gold_outcrops": 0
+      },
+      {
+        "Name": "\u5C71\u95F4\u519C\u7530",
+        "X": 2,
+        "Y": 0,
+        "Wood": 10,
+        "Gold": 0,
+        "structures": 4,
+        "trees": 3,
+        "people": 3,
+        "gold_outcrops": 0
+      },
+      {
+        "Name": "\u96F6\u6728\u68EE\u6797",
+        "X": 0,
+        "Y": 1,
+        "Wood": 0,
+        "Gold": 0,
+        "structures": 0,
+        "trees": 0,
+        "people": 0,
+        "gold_outcrops": 0
+      },
+      {
+        "Name": "\u8D2B\u6728\u68EE\u6797",
+        "X": 1,
+        "Y": 1,
+        "Wood": 25,
+        "Gold": 0,
+        "structures": 0,
+        "trees": 45,
+        "people": 0,
+        "gold_outcrops": 0
+      },
+      {
+        "Name": "\u5BCC\u6728\u68EE\u6797",
+        "X": 2,
+        "Y": 1,
+        "Wood": 100,
+        "Gold": 0,
+        "structures": 0,
+        "trees": 139,
+        "people": 0,
+        "gold_outcrops": 0
+      },
+      {
+        "Name": "\u4E2D\u7B49\u6728\u91CF",
+        "X": 0,
+        "Y": 2,
+        "Wood": 55,
+        "Gold": 0,
+        "structures": 1,
+        "trees": 78,
+        "people": 2,
+        "gold_outcrops": 0
+      },
+      {
+        "Name": "\u542B\u91D1\u4E18\u9675",
+        "X": 1,
+        "Y": 2,
+        "Wood": 10,
+        "Gold": 80,
+        "structures": 2,
+        "trees": 11,
+        "people": 3,
+        "gold_outcrops": 7
+      },
+      {
+        "Name": "\u5E73\u539F\u519C\u7530",
+        "X": 2,
+        "Y": 2,
+        "Wood": 5,
+        "Gold": 0,
+        "structures": 8,
+        "trees": 8,
+        "people": 6,
+        "gold_outcrops": 0
+      }
+    ]
+  },
+  "neighbors": {
+    "structures": 9,
+    "trees": 259,
+    "people": 10,
+    "rocks": 67,
+    "mountain_outcrops": 5,
+    "regions": [
+      {
+        "Name": "\u5C71\u63A5\u5E73\u539F",
+        "X": 0,
+        "Y": 0,
+        "Wood": 15,
+        "Gold": 0,
+        "structures": 1,
+        "trees": 2,
+        "people": 2,
+        "gold_outcrops": 0
+      },
+      {
+        "Name": "\u5E73\u539F\u6797\u7F18",
+        "X": 1,
+        "Y": 0,
+        "Wood": 0,
+        "Gold": 0,
+        "structures": 1,
+        "trees": 0,
+        "people": 1,
+        "gold_outcrops": 0
+      },
+      {
+        "Name": "\u6797\u7F18\u63A5\u5C71",
+        "X": 2,
+        "Y": 0,
+        "Wood": 100,
+        "Gold": 0,
+        "structures": 0,
+        "trees": 132,
+        "people": 0,
+        "gold_outcrops": 0
+      },
+      {
+        "Name": "\u4E18\u9675\u77FF\u5730",
+        "X": 0,
+        "Y": 1,
+        "Wood": 15,
+        "Gold": 50,
+        "structures": 1,
+        "trees": 3,
+        "people": 1,
+        "gold_outcrops": 4
+      },
+      {
+        "Name": "\u6797\u95F4\u805A\u843D",
+        "X": 1,
+        "Y": 1,
+        "Wood": 55,
+        "Gold": 0,
+        "structures": 1,
+        "trees": 57,
+        "people": 1,
+        "gold_outcrops": 0
+      },
+      {
+        "Name": "\u5C71\u63A5\u6797\u5730",
+        "X": 2,
+        "Y": 1,
+        "Wood": 10,
+        "Gold": 0,
+        "structures": 1,
+        "trees": 2,
+        "people": 2,
+        "gold_outcrops": 0
+      },
+      {
+        "Name": "\u5E73\u539F\u63A5\u4E18\u9675",
+        "X": 0,
+        "Y": 2,
+        "Wood": 5,
+        "Gold": 0,
+        "structures": 2,
+        "trees": 6,
+        "people": 1,
+        "gold_outcrops": 0
+      },
+      {
+        "Name": "\u4E18\u9675\u63A5\u68EE\u6797",
+        "X": 1,
+        "Y": 2,
+        "Wood": 15,
+        "Gold": 50,
+        "structures": 1,
+        "trees": 13,
+        "people": 1,
+        "gold_outcrops": 6
+      },
+      {
+        "Name": "\u8D2B\u6728\u6797\u8FB9",
+        "X": 2,
+        "Y": 2,
+        "Wood": 25,
+        "Gold": 0,
+        "structures": 1,
+        "trees": 44,
+        "people": 1,
+        "gold_outcrops": 0
+      }
+    ]
+  },
+  "active_fixture": "terrain-neighbors-v2",
+  "platform": "Linux",
+  "renderer": "llvmpipe (LLVM 19.1.7, 128 bits)",
+  "tour": true,
+  "warmup_seconds": 4.96293,
+  "measured_seconds": 32.072320500000004,
+  "frame_clock": "Stopwatch wall clock between process frames; captures excluded from tour window",
+  "frames": 349,
+  "frame_ms_median": 90.905021,
+  "frame_ms_p95": 122.490024,
+  "frame_ms_max": 173.192156,
+  "startup_working_set_bytes": 379797504,
+  "final_working_set_bytes": 506888192,
+  "baseline_nodes": 19,
+  "final_nodes": 19,
+  "terrain_builds": 2,
+  "surface_cache_count": 2,
+  "texture_cache_count": 7,
+  "tour_artwork_passes": 2,
+  "cliff_edges": 701,
+  "front_cliff_faces": 377,
+  "memory_samples": [
+    {
+      "seconds": 0.010133400000000847,
+      "working_set_bytes": 502808576,
+      "managed_bytes": 1963216,
+      "nodes": 19,
+      "textures": 7,
+      "surfaces": 2,
+      "terrain_builds": 2,
+      "artwork_passes": 3
+    },
+    {
+      "seconds": 5.0496506,
+      "working_set_bytes": 504102912,
+      "managed_bytes": 2315608,
+      "nodes": 19,
+      "textures": 7,
+      "surfaces": 2,
+      "terrain_builds": 2,
+      "artwork_passes": 4
+    },
+    {
+      "seconds": 10.0892139,
+      "working_set_bytes": 506265600,
+      "managed_bytes": 2389624,
+      "nodes": 19,
+      "textures": 7,
+      "surfaces": 2,
+      "terrain_builds": 2,
+      "artwork_passes": 4
+    },
+    {
+      "seconds": 15.0984357,
+      "working_set_bytes": 506658816,
+      "managed_bytes": 1559832,
+      "nodes": 19,
+      "textures": 7,
+      "surfaces": 2,
+      "terrain_builds": 2,
+      "artwork_passes": 4
+    },
+    {
+      "seconds": 20.0690454,
+      "working_set_bytes": 506707968,
+      "managed_bytes": 1617400,
+      "nodes": 19,
+      "textures": 7,
+      "surfaces": 2,
+      "terrain_builds": 2,
+      "artwork_passes": 4
+    },
+    {
+      "seconds": 25.0663149,
+      "working_set_bytes": 506822656,
+      "managed_bytes": 1905256,
+      "nodes": 19,
+      "textures": 7,
+      "surfaces": 2,
+      "terrain_builds": 2,
+      "artwork_passes": 5
+    },
+    {
+      "seconds": 30.011374399999998,
+      "working_set_bytes": 506855424,
+      "managed_bytes": 1962824,
+      "nodes": 19,
+      "textures": 7,
+      "surfaces": 2,
+      "terrain_builds": 2,
+      "artwork_passes": 5
+    }
+  ],
+  "selection_checked": true,
+  "world_clipping_checked": true,
+  "world_clip_pixel_samples": 880,
+  "game_host_started": false
+}

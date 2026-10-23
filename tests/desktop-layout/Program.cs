@@ -104,6 +104,7 @@ static class Program
                 Require(MathF.Abs(mixed.Elevation(b - .001f, p) - mixed.Elevation(b + .001f, p)) < .001f, "mixed vertical terrain seam");
                 Require(MathF.Abs(mixed.Elevation(p, b - .001f) - mixed.Elevation(p, b + .001f)) < .001f, "mixed horizontal terrain seam");
             }
+        ContourChecks.Run(args.Length > 1 ? args[1] : Path.Combine(Path.GetDirectoryName(args[0])!, "terrain-neighbors-v2.json"), layout);
         Console.WriteLine("DESKTOP_LAYOUT_OK: deterministic placement, input counts, safe footprints, resource bands, shared edges");
         foreach (var r in layout.Regions)
             Console.WriteLine($"{r.Input.Name}: facilities={r.Structures.Count} trees={r.Trees.Count} people={r.People.Count} gold={r.Gold.Count} rocks={r.Rocks.Count} mountains={r.Outcrops.Count}");
