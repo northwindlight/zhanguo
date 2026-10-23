@@ -40,8 +40,8 @@ python3 mp_run.py --config mp_config.stock.offline.example.json
 
 | 工具 | 说明 |
 |---|---|
-| `script` | 伞工具：`write` 保存源码 / `patch` 精确改一处 / `check` 免费查语法 / `status` 查状态 / `run` 执行 |
-| `script_status` | 只读事实：上回合脚本的打印输出、报错类型与行列、本回合还能不能跑 |
+| `script` | 伞工具：`write` 保存源码 / `patch` 精确改一处 / `check` 免费查语法 / `status` 查状态 |
+| `script_status` | 只读事实：上回合脚本的打印输出、报错类型与行列 |
 | `portfolio` | 只读事实：现金、负债、每只持仓的成本与浮盈亏、总财富、授信、追保线、净值曲线、强平记录 |
 | `market` | 只读事实：现价、昨收、涨跌、`ma5/ma10/ma20`、动量、已实现波动率、冲击成本与手续费参数 |
 | `round` | 只读事实：回合号、开市还是休市、离下次开盘几回合、当前窗口与额度 |

@@ -14,7 +14,14 @@ Needs = ["stock:clock"]
 Provides = ["sandbox:programs"]
 
 [Interfaces]
-"stock:clock" = ["period", "charge", "mark_open"]
+"stock:clock" = ["period", "charge", "mark_open", "close_session", "work_expired"]
+
+[Parameters]
+# 脚本并发方式：
+#   timeslice —— 时间片轮转，轮流执行模拟真并发（默认，结果完全确定）
+#   threads   —— 每个脚本一个线程，GIL 自己切碎字节码
+# 两者给出相同的对局结果：同一份行情快照、同一本挂单簿、回合末统一撮合。
+Concurrency = "timeslice"
 
 [Limits]
 # 行情载荷比原版大（每只股票带均线、动量、波动率与成本参数），
@@ -32,5 +39,7 @@ depth = 48
 integer_bits = 256
 
 [PlayerAPI]
-Methods = ["write", "patch", "check", "status", "claim"]
+# claim 不在这里：脚本的领取与执行由结算阶段的并发执行器直接调
+# sandbox:programs 接口，模型侧不暴露「运行脚本」动作。
+Methods = ["write", "patch", "check", "status"]
 ReadOnly = ["check", "status"]

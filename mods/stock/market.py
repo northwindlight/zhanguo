@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import math
 import random
+import threading
 
 from engine.runtime import GameMod, ModError, RuleSection, Stage
 
@@ -69,6 +70,8 @@ class Market:
         self.orders = {}
         self.seq = 0
         self.last_fills = []
+        # 线程模式下并发挂单要串行化取号与入簿，其余读取不受影响。
+        self._lock = threading.Lock()
         self._world = None
         self._key = None
 
@@ -217,7 +220,7 @@ class Market:
             if quantity > held:
                 raise ValueError(f'持仓不足：{symbol} 只持有 {held} 股，想卖 {quantity} 股。')
         order = {
-            'id': self.seq,
+            'id': 0,
             'actor': actor,
             'side': side,
             'symbol': symbol,
@@ -232,8 +235,10 @@ class Market:
             'placed_round': round_number,
             'placed_tick': self._tick(),
         }
-        self.seq += 1
-        self.orders.setdefault(actor, []).append(order)
+        with self._lock:
+            order['id'] = self.seq
+            self.seq += 1
+            self.orders.setdefault(actor, []).append(order)
         return dict(order)
 
     def cancel(self, world, actor, order_id):
@@ -302,10 +307,10 @@ class Market:
         return fills
 
     def _close_round(self, round_number, flow, trading_day):
-        """收盘：当前时间片的价格就是收盘价；再按订单流推出下一回合的开盘与日内路径。"""
-        tick = self._tick()
+        """收盘：收盘价落在最后一片上（谁都没见过它）；再按订单流推出下一回合的开盘与日内路径。"""
+        closing_tick = self._slices()
         for symbol in self.stocks:
-            close = self.price_of(symbol, tick)
+            close = self.price_of(symbol, closing_tick)
             self.close[symbol] = close
             self.history[symbol].append(close)
         for symbol in self.stocks:
@@ -443,7 +448,8 @@ class MarketMod(GameMod):
         return MarketAPI(world)
 
     def stages(self):
-        return (Stage('stock.market.settle', self._settle, hook='market.settlement'),)
+        return (Stage('stock.market.settle', self._settle, hook='market.settlement',
+                       after=('stock.python.run',)),)
 
     def _settle(self, world, changes):
         runtime = self.runtime

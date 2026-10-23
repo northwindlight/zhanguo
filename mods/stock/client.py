@@ -33,7 +33,10 @@ class StockView(ModelView):
                          f'已用 {view.get("window_used")}，本回合已过去 {view.get("elapsed_minutes")} 分钟。'
                          f'盘口时间片 {view.get("tick")}/{view.get("slices")}：'
                          f'每进一个行动者市场走一片，价格是分段走出来的，不是回合末一次跳完。'
-                         + ('本回合的脚本已经跑过。' if view.get('opened') else '本回合还没跑过脚本。'))
+                         f'脚本不在你的回合里跑：等所有玩家都结束行动，脚本在回合末那个节点一起执行'
+                         f'（时间片轮转模拟真并发：同一份行情、同一本挂单簿），'
+                         f'回合末统一工作时限 {view.get("work_window_minutes")} 分钟，'
+                         f'执行结果在下一回合开局给你。')
 
         account = facts.get('portfolio') or {}
         if account:
@@ -82,7 +85,7 @@ class StockView(ModelView):
             if result.get('output'):
                 lines.append('打印输出：\n' + result['output'])
         else:
-            lines.append('上回合还没跑过脚本。' if status.get('available') else '本回合已经用过脚本机会。')
+            lines.append('上回合还没跑过脚本：脚本在回合末由引擎统一执行，结果下回合开局给你。')
 
         return '\n'.join(lines)
 
@@ -132,7 +135,7 @@ class ReplayClient:
     """回放客户端：按配置里的脚本表逐回合提交指定脚本。
 
     用途是演示与验收：把每回合要跑的 Python 脚本写进玩家配置的 ``scripts``
-    （键是回合号），客户端就会在对应回合保存并执行它，跑完结束回合。
+    （键是回合号），客户端就会在对应回合保存它；脚本在回合末由引擎统一执行。
     """
 
     kind = 'replay'
@@ -149,7 +152,6 @@ class ReplayClient:
         receipts = []
         if source is not None:
             receipts.append(player.submit('script', {'action': 'write', 'source': source}))
-            receipts.append(player.submit('script', {'action': 'run'}))
         receipts.append(player.submit('end_turn', {'summary': '回放回合结束。'}))
         return receipts
 
@@ -172,8 +174,7 @@ class SimClient:
         if not self.state.get('written'):
             receipts.append(player.submit('script', {'action': 'write', 'source': STRATEGY}))
             self.state['written'] = True
-        receipts.append(player.submit('script', {'action': 'run'}))
-        receipts.append(player.submit('end_turn', {'summary': '按均线策略执行了一轮买卖。'}))
+        receipts.append(player.submit('end_turn', {'summary': '按均线策略准备了一轮买卖。'}))
         return receipts
 
     def to_save(self):

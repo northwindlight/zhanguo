@@ -4,7 +4,7 @@
 
 ============  ==========================================================
 script        伞工具：write 保存源码 / patch 精确改一处 / check 免费查语法
-              / status 查状态 / run 执行脚本
+              / status 查状态（脚本在回合末由引擎统一执行，模型侧不手动跑）
 script_status 只读事实：上回合脚本的执行结果（打印输出与报错）
 portfolio     只读事实：自己的持仓、现金、负债与财富
 market        只读事实：行情快照（现价、均线、动量、波动率、交易成本）
@@ -91,12 +91,9 @@ def build(runtime):
         def script_status(world, actor, include_source: bool = False):
             return runtime.player_api(world, 'sandbox:programs').status(actor, include_source)
 
-        def script_run(world, actor, inputs: dict | None = None):
-            return runtime.player_api(world, 'sandbox:programs').claim(actor, inputs)
-
         script_specs = (
             Action('script_write', script_write, owner='sandbox:programs', api=('write',),
-                   description='保存本国 Python 量化脚本，不执行。脚本在沙盒里跑，可用 '
+                   description='保存本国 Python 量化脚本。脚本在沙盒里跑，可用 '
                               'api.call(capability, method, ...) 调行情与下单、api.observe() 看自己的持仓、'
                               'inputs 取本回合参数、print 打印结果。源码跨回合复用，改用 patch 精确替换一处。'
                               '例：q=api.call("stock:market","quotes"); s=[r for r in q if r["ma5"] and r["ma5"]>r["price"]];'
@@ -106,36 +103,33 @@ def build(runtime):
             Action('script_check', script_check, owner='sandbox:programs', api=('check',), read_only=True,
                    description='免费检查 Python 语法与安全规则，不执行、不消耗窗口额度；保存后先检查再跑'),
             Tool('script_status', script_status, owner='sandbox:programs', api=('status',), read_only=True, fact=True,
-                 description='本国脚本状态：上回合执行结果（打印输出、报错类型与行列）、本回合是否还能执行、'
-                            '源码版本与预算；include_source=true 查看源码'),
-            Action('script_run', script_run, owner='sandbox:programs', api=('claim',),
-                   description='执行已保存的 Python 脚本，inputs 为本回合 JSON 参数。每回合只能跑一次，'
-                              '失败也用掉这次机会，下回合才能再跑。脚本里的下单会在回合末统一撮合。'
-                              '返回打印输出、执行统计与报错位置。'),
+                 description='本国脚本状态：上回合执行结果（打印输出、报错类型与行列）、源码版本与预算；'
+                            'include_source=true 查看源码'),
         )
         umbrella = command_layer.action_tool(
             runtime, 'script',
-            '本国量化脚本：action=write 保存源码、patch 精确改一处、check 免费查语法、status 查状态、run 执行。'
+            '本国量化脚本：action=write 保存源码、patch 精确改一处、check 免费查语法、status 查状态。'
+            '脚本不在你的回合里跑：等所有玩家都结束行动，脚本在回合末那个节点一起执行，'
+            '看到同一时刻的同一份行情，下单进同一本挂单簿、回合末统一撮合；'
+            '执行结果（打印输出与报错）在下一回合开局给你。'
             '买卖只能通过脚本下单：api.call("stock:market","buy",symbol=...,quantity=...)；'
-            '行情用 api.call("stock:market","quotes")，历史用 api.call("stock:market","history",symbol=...,limit=...)。'
-            '每回合一次执行机会。',
+            '行情用 api.call("stock:market","quotes")，历史用 api.call("stock:market","history",symbol=...,limit=...)。',
             (('write', script_specs[0]), ('patch', script_specs[1]), ('check', script_specs[2]),
-             ('status', script_specs[3]), ('run', script_specs[4])))
+             ('status', script_specs[3])))
         tools.append(umbrella)
         tools.extend(spec for spec in script_specs if isinstance(spec, Tool) and not isinstance(spec, Action))
         actions.extend(spec for spec in script_specs if isinstance(spec, Action))
         commands['script'] = {'write': 'script_write', 'patch': 'script_patch',
-                               'check': 'script_check', 'status': 'script_status', 'run': 'script_run'}
+                               'check': 'script_check', 'status': 'script_status'}
         receipts.update({
             'script_write': _write_receipt,
             'script_patch': _patch_receipt,
             'script_check': _check_receipt,
             'script_status': _status_receipt,
-            'script_run': _run_receipt,
         })
         captions.update({name: (lambda args, actor, receipt, ctx, name=name: _CAPTIONS[name])
                          for name in ('script_write', 'script_patch', 'script_check',
-                                      'script_status', 'script_run')})
+                                      'script_status')})
 
     # ── 只读事实 ────────────────────────────────────────────────────
     if 'stock:portfolio' in runtime.capabilities:
@@ -225,7 +219,6 @@ _CAPTIONS = {
     'script_patch': '修订脚本',
     'script_check': '脚本检查',
     'script_status': '脚本状态',
-    'script_run': '执行脚本',
 }
 
 
@@ -258,8 +251,7 @@ def _status_receipt(args, receipt, actor, ctx):
     data = receipt.get('data') or {}
     result = data.get('result')
     if not result:
-        return ('脚本还没跑过。' if data.get('available') else
-                '本回合已经跑过脚本，下次机会在下一回合。')
+        return '脚本还没跑过：脚本在回合末由引擎统一执行，结果下回合开局给你。'
     lines = [f'上回合脚本：{result.get("status")}，步数 {result.get("steps")}，'
              f'API 调用 {result.get("calls")}，动作 {result.get("actions")}。']
     error = result.get('error')
@@ -268,21 +260,6 @@ def _status_receipt(args, receipt, actor, ctx):
         lines.append(f'报错 {error.get("type")}：{where}{error.get("message")}')
     if result.get('output'):
         lines.append('打印输出：\n' + result['output'])
-    return '\n'.join(lines)
-
-
-def _run_receipt(args, receipt, actor, ctx):
-    data = receipt.get('data')
-    if not isinstance(data, dict) or 'steps' not in data:
-        return None
-    lines = [f'脚本{("成功" if data.get("status") == "effective" else "失败")}：'
-             f'步数 {data.get("steps")}，API 调用 {data.get("calls")}，动作 {data.get("actions")}。']
-    error = data.get('error')
-    if error:
-        where = f'第 {error.get("line")} 行第 {error.get("column")} 列：' if error.get('line') else ''
-        lines.append(f'报错 {error.get("type")}：{where}{error.get("message")}')
-    if data.get('output'):
-        lines.append('打印输出：\n' + data['output'])
     return '\n'.join(lines)
 
 

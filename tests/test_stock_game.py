@@ -60,10 +60,9 @@ class FakeBackend:
         if self.responses:
             message = self.responses.pop(0)
         else:
-            message = {'content': '先看自己的持仓，再按均线策略下单。',
+            message = {'content': '先看自己的持仓，再按均线策略准备这回合的脚本。',
                        'tool_calls': [tool_call('1', 'script', action='write', source=BUY_SCRIPT),
-                                      tool_call('2', 'script', action='run'),
-                                      tool_call('3', 'end_turn', summary='按均线策略执行一轮买卖。')]}
+                                      tool_call('2', 'end_turn', summary='脚本写好了，等回合末统一执行。')]}
         return message, {'hit': 10, 'miss': 2}
 
     def complete_text(self, messages, cfg, tools=None, **kwargs):
@@ -100,8 +99,44 @@ class StockGameTest(unittest.TestCase):
         player = host.session.player('stock:player0')
         receipt = player.submit('script', {'action': 'write', 'source': BUY_SCRIPT})
         self.assertTrue(receipt['ok'], receipt.get('message'))
-        receipt = player.submit('script', {'action': 'run'})
-        self.assertTrue(receipt['ok'], receipt.get('message'))
+        player.submit('end_turn', {'summary': '脚本写好了。'})
+        host.cycle()
+        status = host.world.scripts.status('stock:player0')
+        self.assertEqual(status['result']['status'], 'effective', status['result'])
+        self.assertIn('已挂单', status['result']['output'])
+
+    def test_script_is_not_executed_inside_the_turn(self):
+        """脚本不在行动阶段跑：回合末那个节点才执行。"""
+        host = self.host()
+        player = host.session.player('stock:player0')
+        player.submit('script', {'action': 'write', 'source': BUY_SCRIPT})
+        self.assertIsNone(host.world.scripts.status('stock:player0')['result'],
+                          '回合内脚本还不该有执行结果')
+        self.assertEqual(host.world.market.pending_orders('stock:player0'), [])
+
+    def test_threaded_concurrency_gives_the_same_result(self):
+        """时间片轮转与真线程给出相同的对局结果（同一份行情、同一本挂单簿）。"""
+        def run(mode):
+            host = self.host(rounds={1: BUY_SCRIPT}, actors=3, seed=99)
+            host.runtime.units['stock:python'].mod.concurrency = mode
+            host.cycle()
+            return [host.world.portfolio.holdings(actor) for actor in host.actors()]
+
+        sliced = run('timeslice')
+        threaded = run('threads')
+        self.assertEqual(sliced, threaded)
+
+    def test_scripts_run_together_at_the_round_end(self):
+        """所有玩家都结束行动后，脚本在回合末一起执行、下单统一撮合。"""
+        host = self.host(rounds={1: BUY_SCRIPT}, actors=2)
+        host.cycle()
+        for actor in ('stock:player0', 'stock:player1'):
+            status = host.world.scripts.status(actor)
+            self.assertIsNotNone(status['result'], f'{actor} 的脚本应当在回合末执行过')
+            self.assertEqual(status['result']['status'], 'effective')
+        fills = host.world.market.fills()
+        self.assertEqual(len(fills), 2, '两个玩家的订单应当在同一次撮合里成交')
+        self.assertEqual({fill['symbol'] for fill in fills}, {'shanhai'})
 
     # ── 交易日历 ──────────────────────────────────────────────────
     def test_five_trading_days_then_two_rest_days(self):
@@ -126,33 +161,46 @@ class StockGameTest(unittest.TestCase):
 
     # ── 盘中价格：不是瞬间跳的 ────────────────────────────────────
     def _spy_prices(self, host, symbol='shanhai'):
-        """记录每个行动者进场时看到的价格。"""
+        """记录每个行动者进场时看到的价格与时间片。"""
         market = host.world.market
         seen = []
+        ticks = []
         original = host.session.player
 
         def spy(actor):
             player = original(actor)
             seen.append(market.price_of(symbol))
+            ticks.append(host.world.clock.tick_index())
             return player
 
         host.session.player = spy
-        return seen
+        return seen, ticks
 
     def test_price_moves_during_the_round(self):
         host = self.host(actors=3)
-        seen = self._spy_prices(host)
+        seen, ticks = self._spy_prices(host)
         host.cycle()
         self.assertEqual(len(seen), 3)
         self.assertGreater(len(set(seen)), 1, '同一回合里不同行动者应当看到不同的价格')
 
-    def test_settlement_does_not_teleport_the_price(self):
+    def test_no_player_sees_the_closing_price(self):
+        """收盘价落在最后一片上，没有哪个行动者能提前知道本回合怎么收。"""
         host = self.host(actors=3)
-        seen = self._spy_prices(host)
+        seen, ticks = self._spy_prices(host)
         host.cycle()
         close = host.world.market.close['shanhai']
-        self.assertAlmostEqual(seen[-1], close, places=2,
-                               msg='收盘价应当就是最后行动者看到的价格，结算不该再跳一次')
+        for price in seen:
+            self.assertNotAlmostEqual(price, close, places=2,
+                                       msg='行动者不该看到收盘价，否则等于提前知道结局')
+        self.assertLess(abs(seen[-1] - close), abs(seen[0] - seen[-1]) + 0.5,
+                        '收盘离最后一片应当只有一步之遥')
+
+    def test_tick_advances_once_per_actor(self):
+        host = self.host(actors=3)
+        seen, ticks = self._spy_prices(host)
+        host.cycle()
+        self.assertEqual(len(seen), 3)
+        self.assertEqual(ticks, [1, 2, 3], '每个行动者应当各推进一个时间片')
 
     def test_order_flow_pushes_the_next_open(self):
         host = self.host(rounds={1: "api.call('stock:market','buy',symbol='shanhai',quantity=1000)\n"})
@@ -165,7 +213,7 @@ class StockGameTest(unittest.TestCase):
         host = self.host(actors=3)
         market = host.world.market
         opening = market.opening['shanhai']
-        seen = self._spy_prices(host)
+        seen, ticks = self._spy_prices(host)
         host.cycle()
         close = market.close['shanhai']
         total = abs(close / opening - 1)
@@ -198,6 +246,26 @@ class StockGameTest(unittest.TestCase):
         status = host.world.scripts.status('stock:player0')
         self.assertEqual(status['result']['status'], 'failed')
         self.assertIn('持仓不足', status['result']['error']['message'])
+
+    def test_all_scripts_see_the_same_market_snapshot(self):
+        """并发模拟：先跑的脚本不能影响后跑的脚本看到的行情。"""
+        host = self.host(rounds={1: BUY_SCRIPT}, actors=2)
+        seen = []
+
+        original = host.session.player
+
+        def spy(actor):
+            player = original(actor)
+            seen.append(actor)
+            return player
+
+        host.session.player = spy
+        host.cycle()
+        self.assertEqual(len(seen), 2)
+        # 两个玩家拿到的成交价必须一致（同一时刻的同一份行情）
+        fills = host.world.market.fills()
+        prices = {fill['price'] for fill in fills}
+        self.assertEqual(len(prices), 1, '并发执行时所有玩家应当按同一价格成交')
 
     # ── 回合开局简报 ──────────────────────────────────────────────
     def test_briefing_shows_previous_output_and_error(self):
@@ -270,7 +338,7 @@ class StockGameTest(unittest.TestCase):
         self.assertTrue(book['liquidations'], '应该有强平记录')
         record = book['liquidations'][-1]
         self.assertEqual(record['symbol'], 'shanhai')
-        self.assertEqual(record['quantity'], 100)
+        self.assertEqual(record['quantity'], 200, '两个玩家各持 100 股，强平一起砍')
 
     def test_negative_net_worth_retires_the_player(self):
         host = self.host()
@@ -315,18 +383,27 @@ class StockGameTest(unittest.TestCase):
         self.assertFalse(receipt['data']['valid'])
         self.assertIn('line', receipt['data']['error'])
 
-    def test_script_run_costs_one_action_and_marks_the_market_open(self):
+    def test_writing_a_script_costs_one_action(self):
         host = self.host()
         player = host.session.player('stock:player0')
         player.submit('script', {'action': 'write', 'source': BUY_SCRIPT})
         self.assertEqual(host.world.clock.used_of('stock:player0')['market'], 1)
-        player.submit('script', {'action': 'run'})
-        counts = host.world.clock.used_of('stock:player0')
-        self.assertEqual(counts['market'], 2)
-        self.assertEqual(counts['work'], 0)
-        self.assertEqual(host.world.clock.window_of('stock:player0'), 'work')
-        player.submit('script', {'action': 'patch', 'old': 'quantity=100', 'new': 'quantity=50'})
-        self.assertEqual(host.world.clock.used_of('stock:player0')['work'], 1)
+        self.assertEqual(host.world.clock.window_of('stock:player0'), 'market')
+
+    def test_round_end_work_window_is_reported(self):
+        host = self.host(BUY_SCRIPT)
+        host.cycle()
+        view = host.world.clock.view('stock:player0')
+        self.assertEqual(view['window'], 'market')
+        self.assertEqual(view['work_window_minutes'], 20)
+        self.assertGreaterEqual(view['work_elapsed_minutes'], 0.0)
+
+    def test_work_window_is_enforced(self):
+        host = self.host()
+        clock = host.world.clock
+        self.assertFalse(clock.work_expired())
+        clock.work_started_at = clock.started_at - 21 * 60
+        self.assertTrue(clock.work_expired())
 
     # ── 存档与可复现 ──────────────────────────────────────────────
     def test_save_and_restore_roundtrip(self):
@@ -381,12 +458,14 @@ class StockGameTest(unittest.TestCase):
         for forbidden in ('buy', 'sell', 'market_buy', 'market_sell'):
             self.assertNotIn(forbidden, names)
         self.assertIn('script', names)
-        pending = host.world.market.pending_orders('stock:player0')
-        self.assertEqual(len(pending), 1, '模型应当通过脚本挂出订单')
-        self.assertEqual(pending[0]['symbol'], 'shanhai')
-        self.assertEqual(pending[0]['quantity'], 100)
         book = host.world.portfolio.holdings('stock:player0')
-        self.assertEqual(book['positions'], [], '成交要等回合末统一撮合')
+        self.assertEqual(book['positions'], [], '回合内还没成交：脚本在回合末才执行')
+        host.cycle()
+        fills = host.world.market.fills()
+        mine = [fill for fill in fills if fill['actor'] == 'stock:player0']
+        self.assertEqual(len(mine), 1, '模型应当通过脚本挂出订单并成交')
+        self.assertEqual(mine[0]['symbol'], 'shanhai')
+        self.assertEqual(mine[0]['quantity'], 100)
 
     # ── 沙盒预算 ──────────────────────────────────────────────────
     def test_sandbox_budget_is_raised(self):
@@ -400,9 +479,10 @@ class StockGameTest(unittest.TestCase):
         player = host.session.player('stock:player0')
         receipt = player.submit('script', {'action': 'write', 'source': BUY_SCRIPT})
         self.assertTrue(receipt['ok'], receipt.get('message'))
-        receipt = player.submit('script', {'action': 'run'})
-        self.assertTrue(receipt['ok'], receipt.get('message'))
-        self.assertLessEqual(receipt['data']['calls'], 2000)
+        host.cycle()
+        result = host.world.scripts.status('stock:player0')['result']
+        self.assertEqual(result['status'], 'effective')
+        self.assertLessEqual(result['calls'], 2000)
 
     # ── 规则与结算表 ──────────────────────────────────────────────
     def test_rules_mention_the_calendar_and_the_sandbox(self):

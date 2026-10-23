@@ -1,16 +1,27 @@
-"""股市版 Python 沙盒。
+"""股市版 Python 沙盒：回合末节点，所有玩家的脚本一起执行。
 
 沿用原版 ``experimental:python`` 的沙盒本体：同一套受限 Python（无导入、无文件、
 无网络、无随机、无动态执行）、同一套回执形状（打印输出、报错类型与行列、
-步数与 API 调用次数）。这里只改两处：
+步数与 API 调用次数）。这里改了两处：
 
-1. 时钟换成本回合历 ``stock:clock.period``，每回合一次执行额度不变；
-2. 写脚本、改脚本、跑脚本各算一次「窗口额度」消耗；
-   ``check`` / ``status`` 是只读检查，不占额度。
+1. **执行时机**：脚本不在行动阶段跑，而在回合末那个节点跑——所有玩家都结束行动
+   之后，所有脚本同时开始执行（见 :class:`ConcurrentRunner`）。
+2. **时钟**：换成本回合历（``stock:clock.period``）。
+
+**为什么是时间片轮转而不是真并发**：Python 的 GIL 让沙盒没法真正并行，
+所以这里一个接一个地跑。但它们看到的是**同一份市场快照**（同一时刻的收盘价），
+下单一律进同一本挂单簿、回合末统一撮合——所以效果与真并发一致：
+谁也影响不了谁的报价与决策。
 
 脚本一旦跑起来就算「开过盘」，本回合剩下的动作转入回合末统一工作窗口。
 """
-from engine.runtime import RuleSection
+import inspect
+import threading
+
+from engine.player import wire
+from engine.runtime import RuleSection, Stage, ToolArgumentError
+from engine.scripting import Machine
+from engine.state import unit_context
 from mods.experimental.scripting import Programs, ScriptingMod
 from mods.experimental.scripting_api import ScriptingAPI
 
@@ -24,6 +35,150 @@ class StockScriptingAPI(ScriptingAPI):
         return claim
 
 
+class ConcurrentRunner:
+    """回合末节点：所有玩家的脚本轮流执行，模拟真并发。
+
+    轮流只是因为 GIL 跑不出真并行；关键是它们看到同一份市场快照，
+    且下单一律进同一本挂单簿。
+    """
+
+    def __init__(self, module, world):
+        self.module = module
+        self.world = world
+        self.concurrency = getattr(module, 'concurrency', 'timeslice')
+
+    def run_all(self):
+        """按名册顺序把每个行动者的脚本跑一遍；没有脚本或本回合已用过的跳过。
+
+        回合末统一工作有时限：用满了就停，剩下的人这回合不执行。
+        """
+        runtime = self.module.runtime
+        actors = tuple(getattr(self.world, 'nation_actors', ()) or ())
+        if self.concurrency == 'threads':
+            return self._run_threads(actors)
+        results = {}
+        for actor in actors:
+            if runtime.object_call(self.world, 'stock:clock', 'work_expired'):
+                break
+            result = self.run_one(actor)
+            if result is not None:
+                results[actor] = result
+        return results
+
+    def _run_threads(self, actors):
+        """真并发：每个脚本一个线程，GIL 自己把字节码切碎。
+
+        线程之间共享的只有挂单簿（取号与入簿有锁），行情快照在批次开始前就定住了，
+        所以谁也影响不了谁，看到的是同一份市场状态。
+        """
+        results = {}
+
+        def worker(actor):
+            result = self.run_one(actor)
+            if result is not None:
+                results[actor] = result
+
+        threads = [threading.Thread(target=worker, args=(actor,), daemon=True) for actor in actors]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        return results
+
+    def run_one(self, actor):
+        world = self.world
+        runtime = self.module.runtime
+        try:
+            claim = runtime.object_call(world, 'sandbox:programs', 'claim', actor)
+        except Exception:
+            return None
+        machine = Machine(claim['source'], self._invoker(actor), claim['limits'])
+        machine.env[0]['inputs'] = {}
+        result = machine.run()
+        actions = result.pop('receipts')
+        result.update(message=result['error']['message'] if result['error'] else '',
+                      actions=len(actions),
+                      failed_action=next((r for r in reversed(actions) if not r['ok']), None),
+                      revision=claim['revision'], period=claim['period'])
+        runtime.object_call(world, 'sandbox:programs', 'finish', actor, result)
+        runtime.object_call(world, 'stock:clock', 'mark_open', actor)
+        return result
+
+    # ── 沙盒的宿主接口 ──────────────────────────────────────────
+    def _invoker(self, actor):
+        def invoke(name, args, kwargs):
+            if name == 'call':
+                capability = args[0] if args else kwargs.get('capability')
+                method = args[1] if len(args) > 1 else kwargs.get('method')
+                arguments = {key: value for key, value in kwargs.items()
+                             if key not in ('capability', 'method')}
+                return wire(self._api_call(actor, capability, method, arguments))
+            if name == 'observe':
+                return wire(self._observe(actor))
+            if name == 'rules':
+                return wire(self._rules(actor, *(args or ())))
+            if name == 'events':
+                return wire({'cursor': 0, 'items': []})
+            if name == 'action_state':
+                return wire({'active': True, 'can_act': False, 'ended': True})
+            raise ValueError(f'脚本不能调用宿主接口：{name}')
+        return invoke
+
+    def _api_call(self, actor, capability, method, arguments):
+        """回合末的 API 调用：走模块声明的接口，但不受行动阶段与行动门限制。
+
+        此刻所有玩家都已经结束行动，行动门本来就会拒绝写入；
+        这里直接调模块接口，保留能力/方法声明与参数绑定校验。
+        """
+        world = self.world
+        runtime = self.module.runtime
+        unit_id = runtime.capabilities.get(capability)
+        if unit_id is None:
+            raise ValueError(f'未知 API 能力：{capability}')
+        unit = runtime.units[unit_id]
+        declaration = unit.mod.declaration.get('PlayerAPI', {})
+        if method not in declaration.get('Methods', ()):
+            raise ValueError(f'{capability} 未声明方法：{method}')
+        if method.startswith('_'):
+            raise ValueError('API 方法不能以下划线开头')
+        arguments = dict(arguments or {})
+        if 'actor' in arguments:
+            raise ValueError('API 参数不能覆盖行动者')
+        with unit_context(unit_id):
+            api = runtime.player_api(world, capability)
+            handler = getattr(api, method)
+            try:
+                bound = inspect.signature(handler).bind(actor, **arguments)
+            except (ValueError, TypeError) as exc:
+                raise ToolArgumentError(str(exc)) from exc
+            result = handler(*bound.args, **bound.kwargs)
+        if method in declaration.get('ReadOnly', ()):
+            return result
+        return {'ok': True, 'status': 'effective', 'code': None, 'message': '',
+                'data': wire(result)}
+
+    def _observe(self, actor):
+        runtime = self.module.runtime
+        facts = {}
+        for name in runtime.player_facts():
+            facts[name] = runtime.call(self.world, actor, name, {})
+        return facts
+
+    def _rules(self, actor, topic=''):
+        runtime = self.module.runtime
+        sections = runtime.rule_sections(self.world, player=True, actor=actor)
+        selected = runtime.select_rules(sections, topic)
+        if not selected:
+            return [{'title': '规则目录',
+                     'body': '\n'.join(section.title + ('：' + section.summary if section.summary else '')
+                                       for section in sections) + '\n传 topic 查看对应主题；all 查看全部。'}]
+        return [{'title': section.title, 'body': section.body, 'system': section.system}
+                for section in selected]
+
+    def _action_state(self):
+        return {'active': True, 'can_act': False, 'ended': True}
+
+
 class StockPythonMod(ScriptingMod):
     def initialize_world(self, world):
         world.scripts = Programs(
@@ -35,13 +190,29 @@ class StockPythonMod(ScriptingMod):
         return StockScriptingAPI(world)
 
     def before_tool(self, world, actor, name, arguments):
-        """写脚本与跑脚本都记一次窗口额度；只读检查不记。"""
+        """写脚本算一次窗口额度；只读检查不记。"""
         if name != 'script':
             return
         action = arguments.get('action') if isinstance(arguments, dict) else None
         if action in ('check', 'status'):
             return
         self.runtime.object_call(world, 'stock:clock', 'charge', actor)
+
+    def configure(self, declaration, path):
+        super().configure(declaration, path)
+        mode = str(declaration.get('Parameters', {}).get('Concurrency', 'timeslice')).strip().lower()
+        if mode not in ('timeslice', 'threads'):
+            raise ValueError('Concurrency 只能是 timeslice 或 threads')
+        self.concurrency = mode
+
+    def stages(self):
+        return (Stage('stock.python.run', self._run_scripts, hook='market.settlement'),)
+
+    def _run_scripts(self, world, changes):
+        """回合末节点：所有玩家的脚本一起执行（时间片轮转模拟真并发）。"""
+        self.runtime.object_call(world, 'stock:clock', 'close_session')
+        runner = ConcurrentRunner(self, world)
+        changes.update(scripts=runner.run_all())
 
     def rule_sections(self, world=None):
         limits = self.limits
@@ -55,8 +226,10 @@ class StockPythonMod(ScriptingMod):
             'api.call("stock:portfolio","borrow",amount=...) 借钱。'
             'api.call 被拒绝会终止脚本并把回执原样带回来，脚本自己要用 if 判断。'
             'print 的内容会出现在下回合开局简报里。'
+            '脚本不在你的回合里跑：等所有玩家都结束行动，脚本在回合末那个节点一起执行，'
+            '看到的是同一时刻的同一份行情，下单进同一本挂单簿、回合末统一撮合。'
+            '（实现上按时间片轮转或线程并发都一样：GIL 之下两者给出相同的对局结果。）'
             f'总预算 {limits["steps"]} 计算单位、{limits["calls"]} 次 API 调用；'
             '禁止导入、安装库、文件、网络、反射、随机与动态执行，没有 try/except。',
-            ('脚本', '沙盒', 'python', 'sandbox', '量化', '下单'),
-            '脚本怎么写、怎么在脚本里下单',
-            system=True),)
+            ('脚本', '沙盒', 'python', 'sandbox', '量化', '下单', '并发'),
+            '脚本怎么写、怎么在脚本里下单、什么时候执行'),)

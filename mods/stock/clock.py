@@ -37,8 +37,9 @@ class Clock:
         self.summaries = {}
         self.started_at = time.monotonic()
         self.tick = 0
-        self.turn_actor = None
+        self.acted = set()
         self.slice_total = 0
+        self.work_started_at = 0.0
         self._world = None
         self._key = None
 
@@ -72,12 +73,16 @@ class Clock:
         return actor not in self.ended
 
     def slices(self):
-        """本回合切成几个时间片：一个行动者一片。"""
+        """本回合切成几个时间片。
+
+        行动者一人一片，最后再留一片给收盘：收盘价落在最后一片上，
+        谁都看不到它，所以没有人能提前知道本回合的收盘价。
+        """
         if self.slice_total:
             return self.slice_total
         world = self._world
         actors = tuple(getattr(world, 'nation_actors', ()) or ()) if world is not None else ()
-        return max(1, len(actors))
+        return max(1, len(actors)) + 1
 
     def tick_index(self):
         """已经走过的时间片数。"""
@@ -86,17 +91,18 @@ class Clock:
     def begin_turn(self, actor):
         """新行动者进场：市场往前走一个时间片，股价因此在盘中连续跳动。
 
-        同一行动者重复进场不再推进（回合循环里 player() 可能被多次调用）。
+        一个行动者一回合只推进一次：回合循环里 player() 会被反复调用，
+        结算后的回调也会再调一遍，都不再推进。
         """
         world = self._world
         if world is None or getattr(world, 'phase', '行动') != '行动':
             return self.tick
-        if actor == self.turn_actor:
+        if actor in self.acted:
             return self.tick
         if actor not in tuple(getattr(world, 'nation_actors', ()) or ()):
             return self.tick
-        self.turn_actor = actor
-        self.tick = min(self.tick + 1, self.slices())
+        self.acted.add(actor)
+        self.tick = min(self.tick + 1, self.slices() - 1)
         return self.tick
 
     def window_of(self, actor):
@@ -119,6 +125,23 @@ class Clock:
             raise ValueError(f'{name}窗口已用满 {limit} 分钟，本回合不能再调用动作。')
         counts[window] += 1
         return counts[window]
+
+    def close_session(self):
+        """收盘：走到最后一片，所有脚本在这里一起执行、看到同一份快照。"""
+        self.tick = self.slices()
+        self.work_started_at = time.monotonic()
+        return self.tick
+
+    def work_expired(self):
+        """回合末统一工作是否用满了时限（墙钟）。"""
+        if not self.work_started_at:
+            return False
+        return (time.monotonic() - self.work_started_at) > self.work_window * 60.0
+
+    def work_elapsed(self):
+        if not self.work_started_at:
+            return 0.0
+        return round((time.monotonic() - self.work_started_at) / 60.0, 2)
 
     def mark_open(self, actor):
         """脚本已执行：开盘窗口用掉，转入回合末统一工作窗口。"""
@@ -148,6 +171,8 @@ class Clock:
             'rest_days': self.rest_days,
             'window': window,
             'window_name': '回合末统一工作' if window == WORK_WINDOW else '开盘',
+            'work_window_minutes': self.work_window,
+            'work_elapsed_minutes': self.work_elapsed(),
             'tick': self.tick,
             'slices': self.slices(),
             'window_limit': self.limit_of(window),
@@ -155,7 +180,6 @@ class Clock:
             'market_used': counts[MARKET_WINDOW],
             'work_used': counts[WORK_WINDOW],
             'market_window_minutes': self.market_window,
-            'work_window_minutes': self.work_window,
             'opened': actor in self.opened,
             'elapsed_minutes': round(elapsed / 60.0, 2),
         }
@@ -168,7 +192,7 @@ class Clock:
         self.used = {}
         self.summaries = {}
         self.tick = 0
-        self.turn_actor = None
+        self.acted = set()
         self.started_at = time.monotonic()
         return self.round
 
@@ -181,11 +205,13 @@ class Clock:
             'used': {actor: dict(counts) for actor, counts in self.used.items()},
             'summaries': dict(self.summaries),
             'tick': self.tick,
+            'acted': sorted(self.acted),
         }
 
     def restore(self, state):
         self.round = state['round']
         self.tick = state.get('tick', 0)
+        self.acted = set(state.get('acted', ()))
         self.ended = set(state.get('ended', ()))
         self.opened = set(state.get('opened', ()))
         self.used = {actor: dict(counts) for actor, counts in state.get('used', {}).items()}
