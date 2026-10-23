@@ -16,6 +16,27 @@ python3 desktop.py --godot /path/to/godot-mono --dotnet /path/to/dotnet
 工具已在 PATH 中时直接 `python3 desktop.py`。本开发机亦自动发现
 `~/tools/zhanguo-desktop/` 内的工具。Windows 使用 `python desktop.py`，
 并通过参数指定 `Godot_v4.7.2-stable_mono_win64.exe` 和 `dotnet.exe`。
+
+Windows 使用 WinGet 安装时，包名必须是 **GodotEngine.GodotEngine.Mono**。
+`GodotEngine.GodotEngine` 是不支持 C# 的标准版，即使 `dotnet build` 成功，
+也会在载入场景时报告 `No loader found for resource: ...Desktop.cs`。
+两个包都使用 `godot` / `godot_console` 命令别名，建议先卸载误装的标准版：
+
+```powershell
+winget uninstall --id GodotEngine.GodotEngine --exact
+winget install --id GodotEngine.GodotEngine.Mono --exact --version 4.7.2
+```
+
+重新打开 PowerShell，然后在仓库目录运行：
+
+```powershell
+godot_console --headless --version
+python desktop.py
+```
+
+版本字符串应包含 `.mono.`。启动器会在编译前检查这一点。
+若保留两个版本，请使用 `--godot` 明确指定 Mono 包内的可执行文件。
+
 也可用 Godot .NET 编辑器打开 `project.godot`，构建后运行；宿主默认使用
 `python3`（Windows 为 `python`），`ZHANGUO_PYTHON` 可指定解释器。
 
