@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""地图生成：**蓝噪声 + 密度图调制**（2026-09-15 换掉逐格 i.i.d.）。
+"""地图生成：蓝噪声与密度图，加连续高山、海洋构成的自然边界。
 
 ## 为什么换
 
@@ -20,10 +20,10 @@
 1. **确定性**：只由 `(seed, size)` 决定，同参数两次生成**逐格相同**；
    不许遍历裸 `set`/`dict`（跨 `PYTHONHASHSEED` 会分叉，`test_determinism` 会红）；
    不许用内置 `hash()`（它就是按 PYTHONHASHSEED 加盐的）——统一走 `_hash_int`（blake2b）。
-2. **全局分布 = 权重表**：地形各类**全局占比**按 `TERRAIN_WEIGHTS` 配额精确落位
-   （`_quotas` + "稀有类型先挑"，挑满即停，总数恰好 = size²），资源的**每格边缘分布**
+2. **可用陆地分布 = 权重表**：自然屏障先封闭整圈外缘、清除孤立陆地；
+   余下五类地形按 `TERRAIN_WEIGHTS` 配额精确落位（`_quotas` + 稀有类型先挑）。资源的每格边缘分布
    按 `TERRAINS[terrain]` 逐字保持（抖动阈值法，见 `_dither`）
-   ⇒ `docs/design/地图生成与资源分布.md` 的期望/档位数字仍然成立。
+   ⇒ 原五类地形的条件资源档位保持；高山、海洋资源为零。
 3. **契约**：地图现在是 `(seed, size)` 的函数（**不再是 `seed:x:y` 的逐格纯函数**）——
    同 seed 换 size 会是另一张图。`World.tile_terrain` / `World.tile_resources` 的
    签名与返回值都没变，调用点不用改。
@@ -38,6 +38,11 @@ import math
 from .names import name_grid
 from .parameters import (
     MAPGEN_BLUE_RADIUS,
+    MAPGEN_HIGH_MOUNTAIN,
+    MAPGEN_BOUNDARY_SCALE,
+    MAPGEN_BOUNDARY_WIDTH,
+    MAPGEN_COAST_DEPTH,
+    MAPGEN_BLOCKED_SHARE,
     MAPGEN_DRY,
     MAPGEN_FADE,
     MAPGEN_HILL,
@@ -251,7 +256,9 @@ class MapGen:
         #      核心区（分高）成片、配额内的外围由 rank 抖散到边界上。
         #      配额由构造保证：挑满即停，剩下的全给平原。
         assign = [[None] * size for _ in range(size)]      # type: ignore
-        quota = _quotas(TERRAIN_WEIGHTS, size * size)
+        barriers = self._boundaries(elev)
+        for (x,y),kind in barriers.items():assign[y][x] = kind
+        quota = _quotas(TERRAIN_WEIGHTS, size * size - len(barriers))
         types = list(TERRAIN_WEIGHTS)
         cells = [(x, y) for y in range(size) for x in range(size)]
         for t in sorted(types, key=lambda t: TERRAIN_WEIGHTS[t]):     # 最稀的先挑
@@ -281,6 +288,65 @@ class MapGen:
                 self._res[y][x] = {r: _dither(self._rmask[r][y][x], TERRAINS[ter][r])
                                    for r in RESOURCES}
 
+    def _boundaries(self, elevation):
+        """Seal every outer cell with sea or high peaks; keep one landmass.
+
+        Low-frequency coast fields vary the inner edge, rather than decorating
+        an otherwise walkable rectangle. Seas must connect to an outer coast.
+        Four-connected land also guarantees routes without diagonal squeezing.
+        """
+        size = self.size
+        sea, peak = 'native:ocean', 'native:high-mountain'
+        field = [[_value_noise(self.seed, 'coast', x*MAPGEN_BOUNDARY_SCALE,
+                              y*MAPGEN_BOUNDARY_SCALE) for x in range(size)] for y in range(size)]
+        waves = _norm([[_value_noise(self.seed, 'rim', x*.19,y*.19) for x in range(size)] for y in range(size)])
+        rim = sorted(field[y][x] for y in range(size) for x in range(size)
+                     if min(x,y,size-1-x,size-1-y)==0)
+        level = rim[len(rim)//2]
+        result = {};strength={}
+        for y in range(size):
+            for x in range(size):
+                edge = min(x,y,size-1-x,size-1-y)
+                wave = waves[y][x]
+                width = max(1.0, size*MAPGEN_BOUNDARY_WIDTH*(.5+wave))
+                low = field[y][x] <= level
+                coast = size*MAPGEN_COAST_DEPTH*max(0, (level-field[y][x])/max(level,1e-9))
+                if edge < max(width,coast) and (low or edge < width):
+                    result[x,y] = sea if low else peak
+                    strength[x,y] = (max(width,coast)-edge)/max(width,coast)
+                elif size >= 12 and elevation[y][x] >= MAPGEN_HIGH_MOUNTAIN:
+                    result[x,y] = peak
+                    strength[x,y] = .2+3*(elevation[y][x]-MAPGEN_HIGH_MOUNTAIN)
+
+        rim_points={p for p in result if min(*p,size-1-p[0],size-1-p[1])==0}
+        budget=max(len(rim_points),int(size*size*MAPGEN_BLOCKED_SHARE))
+        extra=sorted((p for p in result if p not in rim_points),key=lambda p:(-strength[p],p))
+        for p in extra[max(0,budget-len(rim_points)):]:del result[p]
+
+        def component(start, candidates):
+            found={start};queue=[start]
+            for x,y in queue:
+                for p in ((x-1,y),(x+1,y),(x,y-1),(x,y+1)):
+                    if p in candidates and p not in found:found.add(p);queue.append(p)
+            return found
+
+        water={p for p,kind in result.items() if kind==sea}
+        while water:
+            group=component(min(water),water);water.difference_update(group)
+            if not any(min(x,y,size-1-x,size-1-y)==0 for x,y in group):
+                for p in sorted(group):del result[p]
+        land={(x,y) for y in range(size) for x in range(size) if (x,y) not in result}
+        groups=[]
+        while land:
+            group=component(min(land),land);land.difference_update(group);groups.append(group)
+        # Remove isolated unusable pockets; never punch a hole in the outer rim.
+        if groups:
+            largest=max(groups,key=lambda group:(len(group),tuple(sorted(group))))
+            for group in groups:
+                if group is not largest:
+                    for p in sorted(group):result[p]=peak
+        return result
+
 
 def _norm(field: list[list[float]]) -> list[list[float]]:
     """把一整个场线性拉到 [0,1]（按本图 min/max；图是有限的，故确定性）。"""
@@ -302,6 +368,6 @@ if __name__ == "__main__":      # 生成一图 + 计时（`python -m mods.native
         for y in range(sz):
             for x in range(sz):
                 cnt[g.terrain(x, y)] = cnt.get(g.terrain(x, y), 0) + 1
-        share = "  ".join(f"{t}{100 * cnt[t] / (sz * sz):.1f}%" for t in TERRAIN_WEIGHTS)
+        share = "  ".join(f"{t}{100 * cnt.get(t,0) / (sz * sz):.1f}%" for t in TERRAINS)
         print(f"{sz}×{sz}：{dt:.2f}s   {share}")
 __all__ = [n for n in globals() if not n.startswith("__")]

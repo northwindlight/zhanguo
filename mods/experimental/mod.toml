@@ -1,6 +1,6 @@
 [Distribution]
 Id = "experimental"
-Version = "0.16.0"
+Version = "0.17.0"
 Members = ["combat_research/mod.toml", "../ui/mod.toml", "../native/resources/mod.toml", "../native/buildings/mod.toml", "../native/market_pricing/mod.toml", "../native/market/mod.toml", "../native/economy_valuation/mod.toml", "../native/economy_reports/mod.toml", "../native/bank/mod.toml", "../native/economy_queries/mod.toml", "../native/nations/mod.toml", "government.toml", "scripting.toml", "../native/map_generation/mod.toml", "../native/territory/mod.toml", "../native/diplomacy/mod.toml", "../native/vision/mod.toml", "../native/army/mod.toml", "../native/succession/mod.toml", "../native/intelligence/mod.toml", "../native/query/mod.toml", "../native/manuals/mod.toml", "../native/polities/huns/mod.toml", "../scenarios/eight_nations/mod.toml"]
 RequiredState = ["resources", "buildings", "market", "economy", "bank", "nations", "government", "territory", "diplomacy", "units", "military", "succession", "intelligence", "scripts"]
 ActorCollection = "nation_actors"

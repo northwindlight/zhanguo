@@ -44,6 +44,11 @@ class NativeSession(NativeObserver,GridSession):
         self.world.territory.configure(self.cfg.get('map_size',60),seed)
     def grid(self):return self.world.territory.dimensions()
     def occupied(self):return [tile.tile.position for tile in self.world.territory.snapshot()]
+    def valid_position(self, position):
+        x,y=position;size,_=self.grid()
+        if not (1<x<size-2 and 1<y<size-2):return False
+        return all(self.world.territory.terrain(tx,ty).passable and not self.world.territory.cell(tx,ty).tile.id
+                   for tx,ty in ((x,y),(x-1,y),(x+1,y),(x,y-1),(x,y+1)))
     def validate_boundary(self):
         if any(wire(self.world.government.snapshot(a))['ended'] for a in self.actors()):
             raise SaveFormatError('Cannot save a partially played cycle')
@@ -67,6 +72,13 @@ class NativeSession(NativeObserver,GridSession):
         x,y=position;self.world.territory.check(x,y)
         points=[(x+dx,y+dy) for dx,dy in ((0,0),(1,0),(-1,0),(0,1),(0,-1)) if 0<=x+dx<size and 0<=y+dy<size]
         if any(self.world.territory.cell(*point).tile.id for point in points):raise ValueError('Start overlaps existing territory')
+        if not self.valid_position((x,y)):
+            choices=sorted(((tx,ty) for tx in range(2,size-2) for ty in range(2,size-2)),
+                           key=lambda p:(max(abs(p[0]-x),abs(p[1]-y)),(p[0]-x)**2+(p[1]-y)**2,p))
+            safe=next((p for p in choices if self.valid_position(p)),None)
+            if safe is None:raise ValueError('没有足够的连通陆地安置完整五格开局；请增大地图或更换种子')
+            x,y=safe
+            points=[(x+dx,y+dy) for dx,dy in ((0,0),(1,0),(-1,0),(0,1),(0,-1))]
         polity=item.get('polity')
         if polity and self.runtime.find_policy(polity) is None:raise ValueError('Polity module missing')
         period=self.clock()

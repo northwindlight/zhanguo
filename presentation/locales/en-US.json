@@ -14,7 +14,7 @@
   "llm.thinking": "💭 {actor} {text}",
   "map.empty": "No visible map",
   "map.fallback": "Text map:",
-  "map.legend": "Map coordinates start at 0. Read: fill = owner ({owners}); p/f/h/m/d = plain/forest/hill/mountain/desert; T town hall, C castle. White badges = units: I infantry, C cavalry, M militia, number = count (I2 = 2 infantry). Outline green self, blue ally, red enemy, gray neutral; gray '野N' on unowned tiles = barbarian guards (defensive only).",
+  "map.legend": "Map coordinates start at 0. Read: fill = owner ({owners}); p/f/h/m/d = plain/forest/hill/mountain/desert; ^ high mountains and ~ ocean are impassable and unclaimable; T town hall, C castle. White badges = units: I infantry, C cavalry, M militia, number = count (I2 = 2 infantry). Outline green self, blue ally, red enemy, gray neutral; gray '野N' on unowned tiles = barbarian guards (defensive only).",
   "console.action": "[{period}·action] {actor} ◇ {action} {arguments} → {status} {message}",
   "console.action_line": "[{period}·action] {actor} ◇ {caption} → {result}",
   "console.action_line_bare": "[{period}·action] {actor} ◇ {result}",
@@ -134,7 +134,7 @@
   "console.pact": "  Pact: {details}",
   "console.dead": "Eliminated: {names}",
   "console.world_map": "World map · Turn {period}",
-  "console.world_legend": "Legend: {owners} | p plains, f forest, h hills, m mountains, d desert; capitals mark owned land; coordinates start at 0",
+  "console.world_legend": "Legend: {owners} | p plains, f forest, h hills, m mountains, d desert, ^ high mountains, ~ ocean (impassable); capitals mark owned land; coordinates start at 0",
   "console.watch": "Watching: save {save}, journal {journal}; saves after each completed turn.",
   "console.period": "—— Turn {period} ——",
   "console.stop_pending": "Stop requested; finishing and saving the current turn.",
@@ -441,7 +441,7 @@
   "query.trend_head": "Economic report trend: {count} periods, latest first; one row per period.",
   "query.trend_row": "Turns {start}–{end} | GDP {gdp} (growth {growth}) | Military {military} | Assets {assets} | Investment {investment}",
   "query.map_head": "Turn {period}: visible player map (zero-based)",
-  "query.map_legend": "{owners}; - unowned, ? fog; P plain/F forest/H hill/M mountain/D desert. Buildings and units are listed below.",
+  "query.map_legend": "{owners}; - unowned, ? fog; P plain/F forest/H hill/M mountain/D desert; ^ high mountains/~ ocean are impassable and unclaimable. Buildings and units are listed below.",
   "query.territory_change": "Territory changed: {place} | {previous} → {owner} gained it",
   "query.town_halls": "Town halls ×{count} (national survival)",
   "experimental.review_round": "Review round [{count}/{total}], stage {phase}/2. Both stages share these 10 rounds; finish checking and use the appropriate stage or verdict tool promptly.",
@@ -474,5 +474,9 @@
   "content.mini:gold-mine": "Gold Mine",
   "content.mini:barracks": "Barracks",
   "brief.information_head": "[Ways to acquire intelligence]",
-  "experimental.review_autorejected_status": "🧠 {actor} review incomplete at the round limit; plan rejected pending substantiation"
+  "experimental.review_autorejected_status": "🧠 {actor} review incomplete at the round limit; plan rejected pending substantiation",
+  "content.native:high-mountain": "High mountains",
+  "content.native:ocean": "Ocean",
+  "atlas.terrain.native:high-mountain": "high mountains (impassable)",
+  "atlas.terrain.native:ocean": "ocean (impassable)"
 }

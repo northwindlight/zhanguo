@@ -12,10 +12,12 @@ def relations(observation):
 
 def candidates(observation):
     allies,enemies=relations(observation);facts=observation['facts'];result=[]
+    terrains={t['id']:t for t in facts.get('terrain_catalog') or ()}
     engaged={}
     for u in facts['army']:
         if u['engaged'] and u['owner'] not in allies:engaged.setdefault((u['x'],u['y']),[]).append(u)
     for tile in facts['view']:
+        if not terrains.get(tile['terrain'],{}).get('claimable',True):continue
         position=tuple(tile['position']);owner=tile['owner']
         if owner is not None and owner not in enemies:continue
         busy=engaged.get(position,())

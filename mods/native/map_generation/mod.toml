@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:map-generation"
-Version = "1.2.2"
+Version = "2.0.0"
 Entry = "mods.native.map_generation.mod:MapGenerationMod"
 Requires = []
 [Capabilities]

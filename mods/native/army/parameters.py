@@ -51,6 +51,8 @@ MOVE_COST = {
     'native:militia': {"native:plain": 1, "native:desert": 1, "native:hill": 1, "native:forest": 1, "native:mountain": 1},
     'native:cavalry': {"native:plain": 1, "native:desert": 1, "native:hill": 1, "native:forest": 2, "native:mountain": 2},
 }
+for _costs in MOVE_COST.values():
+    _costs.update({'native:high-mountain': None, 'native:ocean': None})
 
 RETREAT_DEF_COVER = 50   # 防御方撤退：回合末战斗结算中只受 50% 伤害（进攻方撤退全额；★这个值是「承受比例」：50＝只承受一半、100＝全额承伤、0＝免伤）
 

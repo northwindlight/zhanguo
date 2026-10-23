@@ -56,6 +56,17 @@ TERRAINS = {
 
 TERRAIN_WEIGHTS = {"native:plain": 30, "native:forest": 25, "native:hill": 20, "native:mountain": 15, "native:desert": 10}
 
+# Natural barriers carry no exploitable resource capacity. The five existing
+# terrain weights describe usable land, after the boundary mask is removed.
+for _terrain in ('native:high-mountain', 'native:ocean'):
+    TERRAINS[_terrain] = {resource: [100] for resource in RESOURCES}
+
+MAPGEN_HIGH_MOUNTAIN = 0.86
+MAPGEN_BOUNDARY_SCALE = 0.07
+MAPGEN_BOUNDARY_WIDTH = 0.055
+MAPGEN_COAST_DEPTH = 0.10
+MAPGEN_BLOCKED_SHARE = 0.20
+
 MAPGEN_SCALE = 0.22
 
 MAPGEN_OCT_E = 4

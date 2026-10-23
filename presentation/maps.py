@@ -21,6 +21,11 @@ def owner_color(owner):
     return '#'+''.join(f'{round(c*255):02x}' for c in rgb)
 
 
+def terrain_color(tile):
+    if tile['owner']:return owner_color(tile['owner'])
+    return {'native:ocean':'#244b60','native:high-mountain':'#a2a9b4'}.get(tile['terrain'],'#455044')
+
+
 def snapshot(observation):
     facts=flatten(observation['facts']);tiles=deepcopy(facts.get('view',[]))
     visible={tuple(t['position']) for t in tiles}
@@ -72,7 +77,7 @@ def render_snapshot(state, *, max_px=1440):
         if army['hp']>0:armies.setdefault((army['x'],army['y']),[]).append(army)
     for (x,y),tile in sorted(points.items()):
         left,top=24+(x-xlo)*cell,24+(y-ylo)*cell
-        color=owner_color(tile['owner']) if tile['owner'] else '#455044'
+        color=terrain_color(tile)
         draw.rectangle((left,top,left+cell-1,top+cell-1),fill=color,outline='#222b33')
         buildings=dict(tile['buildings']);label=symbols.get(tile['owner'],'-')+' '+glyphs.get(tile['terrain'],'?')
         if any(buildings.get(kind) for kind in capitals):label+=' T'
@@ -128,7 +133,7 @@ def render_svg(state):
         return f'<text x="{x}" y="{y}" fill="{color}" font-family="monospace" font-size="12">{html.escape(str(value))}</text>'
     for (x,y),tile in sorted(points.items()):
         left,top=24+(x-xlo)*cell,24+(y-ylo)*cell
-        color=owner_color(tile['owner']) if tile['owner'] else '#455044'
+        color=terrain_color(tile)
         label=html.escape(f'{x},{y} {tile["owner"] or ""}',quote=True)
         parts.append(f'<rect x="{left}" y="{top}" width="{cell}" height="{cell}" fill="{color}" stroke="#222b33"><title>{label}</title></rect>')
         buildings=dict(tile['buildings']);marks=glyphs.get(tile['terrain'],'?')

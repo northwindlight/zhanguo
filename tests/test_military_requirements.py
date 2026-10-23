@@ -1,5 +1,6 @@
 """逐军军需和批量回执：只使用合成世界，逐项核对实际副作用。"""
 from copy import deepcopy
+from unittest.mock import patch
 from clients.model_view import model_view_for
 import unittest
 
@@ -133,13 +134,17 @@ class TestMilitaryRequirements(unittest.TestCase):
         self.assertEqual(len(ctx.exception.details['items']),2);self.assertEqual(w.units.to_save(),before)
 
     def test_blind_failure_burns_each_action_and_receipt_says_so(self):
-        fixture=domains.TestWorldDomains();w=selection.TestArmySelection().world();fixture.site(w,'scenario:far',C,7,7)
-        receipt=w.call_tool(Q,'move',{'ids':[1,2],'x':7,'y':7})
+        fixture=domains.TestWorldDomains();w=selection.TestArmySelection().world();fixture.site(w,'scenario:hidden',C,3,2)
+        # Hide an in-range target. Out-of-range requests must be rejected
+        # without burning an action, even if their target is unseen.
+        from mods.native.vision.mod import Vision
+        with patch.object(Vision,'visible',return_value=False):
+            receipt=w.call_tool(Q,'move',{'ids':[1,2],'x':3,'y':2})
         self.assertEqual(receipt.status,'failed')
         self.assertEqual([r['consumed_action'] for r in receipt.items],[True,True])
         self.assertTrue(all(u.moved_turn==w.government.period() for u in w.units.of(Q)))
         h=hosts.TestDiplomacyFinish().host();data=wire(receipt)
-        text=h.ui.console.receipt_body('move',{'ids':[1,2],'x':7,'y':7},{'ok':False,'data':data},Q)
+        text=h.ui.console.receipt_body('move',{'ids':[1,2],'x':3,'y':2},{'ok':False,'data':data},Q)
         self.assertIn('#1',text);self.assertIn('#2',text);self.assertIn('额度已消耗',text)
 
     def test_founder_batch_reports_all_invitees_and_does_not_charge_on_rejection(self):

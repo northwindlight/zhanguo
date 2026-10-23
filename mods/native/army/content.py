@@ -28,7 +28,7 @@ def unit_definitions(content):
             if type(amount) is not int or amount <= 0:
                 raise ValueError(f'Invalid recruitment cost for unit {key}')
         movement = definition.get('move_cost')
-        if not isinstance(movement, Mapping) or not movement or any(type(v) is not int or v < 1 for v in movement.values()):
+        if not isinstance(movement, Mapping) or not movement or any(v is not None and (type(v) is not int or v < 1) for v in movement.values()):
             raise ValueError(f'Unit {key} must declare movement costs')
         result[key] = definition
     return result

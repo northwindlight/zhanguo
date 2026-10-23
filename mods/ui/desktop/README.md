@@ -30,6 +30,11 @@ Linux 实际窗口录制：`python3 scripts/record_terrain_sample.py --output ar
 需要 Xvfb、ffmpeg、ffprobe，输出目录不能已存在。录制也会占用 CPU；软渲染数据与实际 GPU 性能分别验收。
 现有离线八国演示继续使用下文的默认入口。
 
+默认离线八国地图现已接入自然边界：海洋和高山覆盖整个最外圈，显示海岸与雪峰，
+点选会说明其不可通行、占领或建造；原山地继续可通行。运行 `python desktop.py` 查看新开局。
+`--sample terrain` 仍为固定3×3比例样板；新生成地图的规则与显示验收见
+[自然边界记录](../../../docs/reviews/自然边界与高山海洋-20261023.md)。
+
 ## 启动
 
 安装 Godot **4.7.2 .NET**、.NET **8 SDK**、Python **3.11+**，在仓库根目录执行：

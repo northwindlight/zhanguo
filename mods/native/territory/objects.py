@@ -12,8 +12,10 @@ class Terrain:
     id: str
     defense: int
     build_penalty: int
-    cavalry_cost: int
+    cavalry_cost: int | None
     glyph: str = '?'
+    passable: bool = True
+    claimable: bool = True
 
 
 @dataclass(frozen=True)
@@ -100,6 +102,7 @@ class Territory:
         if core is not None:self._call('native:nation-inspection','get',core)
         if terrain is not None and terrain not in self._types:raise ValueError('Unknown terrain')
         cell = self._call('map:generation','cell',self._seed,self._size,x,y,terrain)
+        if not self._types[cell.terrain].claimable:raise ValueError('高山或海洋不可占领、建造或设立站点')
         # 地名是地图的属性（见 map_generation/names.py），不随地块存档走。
         tile = Tile(tile_id,(x,y),cell.terrain,core,cell.name)
         self._call('native:buildings','register_site',tile_id,owner,cell.position,
@@ -159,6 +162,7 @@ class Territory:
             if not isinstance(row['position'],list) or len(row['position'])!=2:raise ValueError('Invalid tile position')
             pos = tuple(integer(v) for v in row['position'])
             if any(v>=size for v in pos) or row['id'] in tiles or pos in positions or row['terrain'] not in self._types:raise ValueError('Invalid tile identity/terrain')
+            if not self._types[row['terrain']].claimable:raise ValueError('Unclaimable terrain cannot contain a site')
             if row['core'] is not None:self._call('native:nation-inspection','get',row['core'])
             site = self._call('native:buildings','site',row['id'])
             if site.position!=pos or site.penalty!=self._types[row['terrain']].build_penalty:raise ValueError('Tile/site facts disagree')

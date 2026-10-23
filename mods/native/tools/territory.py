@@ -76,7 +76,8 @@ def _land(data, args, actor, ctx):
 
 
 def _terrain(data, args, actor, ctx):
-    return '\n'.join(ctx.text('tool.terrain.row', name=ctx.label('content', row['id']), defense=row['defense'],
+    return '\n'.join(ctx.text('tool.terrain.blocked',name=ctx.label('content',row['id'])) if not row.get('passable',True) else
+                    ctx.text('tool.terrain.row', name=ctx.label('content', row['id']), defense=row['defense'],
                               penalty=row['build_penalty'], cost=row['cavalry_cost']) for row in data)
 
 

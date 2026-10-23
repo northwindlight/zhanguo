@@ -214,6 +214,11 @@ public partial class Desktop : Control
         {
             _selectedNation="";
             var p=tile["position"]!;string owner=S(tile["owner"]);
+            if(tile["passable"]?.GetValue<bool>()==false)
+            {
+                _detail.Text=$"{tile["terrain_name"]}  ({p[0]}, {p[1]})\n\n自然屏障\n不可通行、占领或建造\n无资源与野人守军\n\n请沿可通行陆地寻找绕行路线。";
+                return;
+            }
             var units=_map.Frame["armies"]!.AsArray().Where(a=>I(a!["x"])==I(p[0])&&I(a["y"])==I(p[1])).ToArray();
             _detail.Text=$"{tile["name"]}  ({p[0]}, {p[1]})\n{tile["terrain_name"]} · {(_map.Frame["names"]![owner]?.ToString()??"无主之地")}\n\n建筑\n"+
                 (tile["building_labels"]!.AsArray().Count==0?"尚无建筑":string.Join("\n",tile["building_labels"]!.AsArray().Select(S)))+

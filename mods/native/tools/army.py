@@ -280,7 +280,7 @@ def _unit_catalog(data, args, actor, ctx):
         ctx.text('tool.unit_catalog.row', name=ctx.label('content', key), recruit=ctx.resources(value['recruit']),
                  hp=value['hp'], atk=value['atk'], speed=value['speed'], supply=value['supply']) +
         ('｜' + ctx.text('tool.army.healing_militia' if value['healing']['equipment_per_30hp']==0 else 'tool.army.healing_regular',hp=value['healing']['hp_per_turn']) if value.get('healing') else '') +
-        ('｜' + ctx.text('tool.move_costs', values='、'.join(ctx.label('content', terrain) + ' ' + _num(cost) for terrain, cost in value['move_cost'].items())) if value.get('move_cost') else '')
+        ('｜' + ctx.text('tool.move_costs', values='、'.join(ctx.label('content', terrain) + ' ' + (ctx.text('tool.move_impassable') if cost is None else _num(cost)) for terrain, cost in value['move_cost'].items())) if value.get('move_cost') else '')
         for key, value in data.items())
 
 

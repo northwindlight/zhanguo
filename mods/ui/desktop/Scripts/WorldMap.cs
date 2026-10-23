@@ -130,15 +130,26 @@ public partial class WorldMap : Control
 
     public override void _Draw()
     {
-        DrawRect(new Rect2(Vector2.Zero, Size), new Color("182323"));
+        DrawRect(new Rect2(Vector2.Zero, Size), new Color("244b60"));
         if (Frame == null) return;
         DrawSetTransform(_offset, 0, Vector2.One*_scale);
-        DrawRect(new Rect2(-5,-5,_size*32+10,_size*32+10), new Color("6e765c"));
         foreach (var (p,t) in _tiles)
         {
             var at = new Vector2(p.X,p.Y)*32;
             var terrain = S(t["terrain"]);
             int hash = (p.X*71+p.Y*133)%17;
+            if (terrain.EndsWith("ocean"))
+            {
+                DrawRect(new Rect2(at,Vector2.One*32),new Color("244b60"));
+                DrawLine(at+new Vector2(5,10+hash/3),at+new Vector2(18,10+hash/3),new Color("3b687b"),1);
+                DrawLine(at+new Vector2(17,24),at+new Vector2(27,24),new Color("3b687b"),1);
+                Vector2I[] directions={new(0,-1),new(1,0),new(0,1),new(-1,0)};
+                Vector2[] ends={at,at+new Vector2(32,0),at+new Vector2(32,32),at+new Vector2(0,32)};
+                for(int i=0;i<4;i++)
+                    if(_tiles.TryGetValue(p+directions[i],out var neighbor)&&!S(neighbor["terrain"]).EndsWith("ocean"))
+                        DrawLine(ends[i],ends[(i+1)%4],new Color("b9bd9a"),2);
+                continue;
+            }
             int ground = terrain.EndsWith("desert") ? 4 : terrain.EndsWith("mountain") ? 1 : 2;
             Sprite("grass",at,ground*16,0,16,16,2);
             DrawRect(new Rect2(at,Vector2.One*32),new Color(0,0,0,hash*.002f));
@@ -149,10 +160,12 @@ public partial class WorldMap : Control
             }
             else if (terrain.EndsWith("mountain") || terrain.EndsWith("hill"))
             {
-                float h = terrain.EndsWith("mountain") ? 24 : 13;
+                bool high=terrain.EndsWith("high-mountain");
+                float h = high ? 24+hash*.43f : terrain.EndsWith("mountain") ? 24 : 13;
+                if(high)DrawRect(new Rect2(at,Vector2.One*32),new Color("697780"));
                 DrawColoredPolygon(new[] {at+new Vector2(1,29),at+new Vector2(16,29-h),at+new Vector2(31,29)},new Color("7e8977"));
                 DrawColoredPolygon(new[] {at+new Vector2(16,29-h),at+new Vector2(19,29),at+new Vector2(31,29)},new Color("626f66"));
-                if(h>20) DrawColoredPolygon(new[] {at+new Vector2(12,11),at+new Vector2(16,5),at+new Vector2(20,12)},new Color("c5c7ad"));
+                if(h>20) DrawColoredPolygon(new[] {at+new Vector2(high?9:12,29-h+8),at+new Vector2(16,29-h),at+new Vector2(high?23:20,29-h+9)},new Color(high?"e3e9e5":"c5c7ad"));
             }
             else if(hash%3==0) Sprite("trees",at+new Vector2(18,15),16,0,16,16,.7f);
             var owner=S(t["owner"]);

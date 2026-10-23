@@ -102,12 +102,14 @@ class Military:
         for cell in tiles:
             x,y=cell.position
             if (x,y) in self._units.guard_once or self._call('native:territory','cell',x,y).tile.id:continue
+            if not self._call('native:territory','terrain',x,y).claimable:continue
             aid=x*size+y+1
             result.append(Unit('native:infantry',self._units.definition('native:infantry')['hp'],x,y,'野人',aid,aid,f'野人{aid}',_definitions=self._units.definitions))
         return tuple(result)
     def seed(self, owner, kind, x, y, count=1):
         self._write();self._living(owner);integer(count,1);self._sync()
         self._call('native:territory','check',x,y)
+        if not self._call('native:territory','terrain',x,y).passable:raise ValueError('高山或海洋不能部署军队')
         if kind not in self._units.type_ids:raise ValueError(f'未知兵种：{kind}。可用兵种与短键见 unit_catalog')
         if self._units.next_army_seq.get(owner,0)+count>=ARMY_GID_BASE:raise ValueError('本国军队编号已用尽，无法再新增军队')
         return tuple(deepcopy(self._units.spawn(owner,kind,x,y)) for _ in range(count))
@@ -168,10 +170,17 @@ class Military:
     def _hostile(self, a, b):
         return a!=b and (a=='野人' or b=='野人' or self._call('native:diplomacy','war_between',a,b))
     def _pass(self, owner, x, y):
+        if not self._call('native:territory','terrain',x,y).passable:return False
         tile_owner=self._call('native:territory','owner',x,y)
         if tile_owner==owner or tile_owner is not None and self._call('native:diplomacy','allied',owner,tile_owner):return True
         if tile_owner is not None and tile_owner!=owner and not self._call('native:diplomacy','allied',owner,tile_owner):return False
         return not any(u.owner!='野人' and u.alive and self._hostile(owner,u.owner) for u in self._units.at(x,y))
+    def _step(self, start, target, passable=None):
+        """Natural obstacles also block diagonal corner cutting."""
+        if passable is None:passable=lambda p:self._call('native:territory','terrain',*p).passable
+        if not passable(target):return False
+        x,y=start;tx,ty=target
+        return x==tx or y==ty or (passable((x,ty)) and passable((tx,y)))
     def reachable(self, owner, aid, attack=False, *, visible_only=False):
         unit=self._own_unit(owner,aid);size,_=self._call('native:territory','dimensions')
         speed=self._parameter(owner,'unit.speed.'+unit.kind,unit.definition['speed'])
@@ -181,13 +190,18 @@ class Military:
         def cost(x,y):
             if (x,y) not in terrain_cost:
                 terrain=self._call('native:territory','terrain',x,y)
-                terrain_cost[x,y]=unit.definition['move_cost'][terrain.id]
+                terrain_cost[x,y]=unit.definition['move_cost'].get(terrain.id) if terrain.passable else None
             return terrain_cost[x,y]
         while queue:
             distance,point=heapq.heappop(queue)
             if distance!=best[point]:continue
             for target in self._call('native:territory','neighbors',*point):
                 if visible is not None and target not in visible:continue
+                # Public reachability must not read unseen corner cells.
+                if visible is not None and point[0]!=target[0] and point[1]!=target[1] and (
+                    (point[0],target[1]) not in visible or (target[0],point[1]) not in visible):continue
+                if not self._step(point,target,lambda p:cost(*p) is not None):continue
+                if cost(*point) is None:continue
                 next_distance=distance+max(cost(*point),cost(*target))
                 if next_distance>speed or next_distance>=best.get(target,speed+1):continue
                 movable=self._pass(owner,*target)
@@ -212,7 +226,11 @@ class Military:
         self._action(owner);self._call('native:territory','check',x,y)
         units,items=self._selection(owner,ids);period=self._period()
         for u,row in zip(units,items):
-            if u is not None:row['reason']=self.action_reason(owner,u,attack,(x,y))
+            if u is not None:
+                row['reason']=self.action_reason(owner,u,attack,(x,y))
+                speed=self._parameter(owner,'unit.speed.'+u.kind,u.definition['speed'])
+                if not row['reason'] and max(abs(u.x-x),abs(u.y-y))>speed:
+                    row['reason']='目标超出移动范围或兵种移动力；先查 reachable'
         paths={}
         for u in units:
             if u is None:continue
@@ -222,6 +240,8 @@ class Military:
         reason=''
         target_blocked=not self._pass(owner,x,y) if not attack else False
         if target_blocked:reason='移动目标不合法：只能是野地、自家或盟国格；敌国领土要用 attack'
+        if not self._call('native:territory','terrain',x,y).passable:
+            target_blocked=True;reason='高山或海洋不可通行、进攻或占领；请沿可通行陆地绕行'
         tile_owner=self._call('native:territory','owner',x,y)
         if attack and tile_owner is not None and (tile_owner==owner or self._call('native:diplomacy','allied',owner,tile_owner)):
             target_blocked=True;reason='那是你自己（或盟国）的地块：不能进攻自家领土，占地请选无主地或敌国领土'
@@ -256,12 +276,14 @@ class Military:
         return MilitaryReceipt('effective',tuple(ids),changed,True,items=items)
     def _guard(self, x, y):
         fact=self._call('native:territory','cell',x,y)
+        if not self._call('native:territory','terrain',x,y).claimable:return
         if fact.tile.id or (x,y) in self._units.guard_once:return
         aid=x*self._units.size+y+1
         unit=Unit('native:infantry',self._units.definition('native:infantry')['hp'],x,y,'野人',aid,aid,f'野人{aid}',_definitions=self._units.definitions)
         self._units.assign_code('野人');self._units.append(unit);self._units.guard_once.add((x,y))
     def _claim(self, owner, x, y):
         fact=self._call('native:territory','cell',x,y)
+        if not self._call('native:territory','terrain',x,y).claimable:raise ValueError('高山或海洋不可占领')
         halls=self._call('native:buildings','count_role',fact.tile.id,'capital') if fact.tile.id else 0
         seen=tuple(n for n in self._call('native:nation-inspection','ids') if self._call('native:vision','visible',n,x,y) or n in (owner,fact.owner))
         by=owner
@@ -304,7 +326,7 @@ class Military:
             if unit.born_turn==period:row['reason']='新兵本回合不能撤退'
             elif unit.moved_turn==period:row['reason']='本回合已移动或已提交撤退'
             elif not (unit.engaged or attacked):row['reason']='未交战、未受进攻，无需撤退；请用 move 调动'
-            elif (x,y) not in self._call('native:territory','neighbors',unit.x,unit.y) or not self._pass(owner,x,y):row['reason']='撤退目标非法：只能退到相邻的野地、自家或盟国格'
+            elif (x,y) not in self._call('native:territory','neighbors',unit.x,unit.y) or not self._pass(owner,x,y) or not self._step((unit.x,unit.y),(x,y)):row['reason']='撤退目标非法：只能沿可通行陆地退到相邻的野地、自家或盟国格'
             defender=not any(v.alive and v.engaged and v.owner==owner for v in self._units.at(unit.x,unit.y)) or self._call('native:territory','owner',unit.x,unit.y)==owner
             plans.append((unit,defender))
         self._reject_batch(items)
@@ -578,8 +600,8 @@ class Military:
         for unit in tuple(self._units):
             if unit.retreat_to is None:continue
             start=(unit.x,unit.y);target=unit.retreat_to;requested=target
-            if not self._pass(unit.owner,*target):
-                target=next((p for p in self._call('native:territory','neighbors',unit.x,unit.y) if self._pass(unit.owner,*p)),None)
+            if not self._pass(unit.owner,*target) or not self._step(start,target):
+                target=next((p for p in self._call('native:territory','neighbors',unit.x,unit.y) if self._pass(unit.owner,*p) and self._step(start,p)),None)
             if target is not None:
                 unit.update(x=target[0],y=target[1],engaged=False)
                 reports.append((unit.owner,unit.id,target))
@@ -599,7 +621,10 @@ class Military:
                 winner=min(eligible,key=lambda u:(u.engage_seq,u.owner));self._claim(winner.owner,x,y);reports.append((fact.tile.id,winner.owner))
         return tuple(reports)
     def repatriate(self):
-        self._write();reports=[];homes={}
+        self._write();reports=[];homes={};fields={};terrain_cache={}
+        def terrain(p):
+            if p not in terrain_cache:terrain_cache[p]=self._call('native:territory','terrain',*p)
+            return terrain_cache[p]
         for unit in self._units.troops:
             owner=self._call('native:territory','owner',unit.x,unit.y)
             if unit.engaged or owner is None or owner==unit.owner or self._call('native:diplomacy','passage',unit.owner,owner):continue
@@ -608,11 +633,28 @@ class Military:
             home=homes[unit.owner]
             if not home:continue
             start=(unit.x,unit.y)
-            goal=min(home,key=lambda p:(max(abs(p[0]-unit.x),abs(p[1]-unit.y)),p))
+            def cost(p):
+                t=terrain(p)
+                return unit.definition['move_cost'].get(t.id) if t.passable else None
+            key=(unit.owner,unit.kind)
+            if key not in fields:
+                best={p:0 for p in home if cost(p) is not None};queue=[(0,p) for p in best];heapq.heapify(queue);toward={}
+                while queue:
+                    distance,p=heapq.heappop(queue)
+                    if distance!=best[p]:continue
+                    for q in self._call('native:territory','neighbors',*p):
+                        if not self._step(p,q,lambda point:cost(point) is not None):continue
+                        step=max(cost(p),cost(q));total=distance+step
+                        if total<best.get(q,float('inf')):
+                            best[q]=total;toward[q]=p;heapq.heappush(queue,(total,q))
+                fields[key]=toward
+            toward=fields[key]
             point=start
-            for _ in range(self._parameter(unit.owner,'unit.speed.'+unit.kind,unit.definition['speed'])):
-                if point==goal:break
-                point=(point[0]+(goal[0]>point[0])-(goal[0]<point[0]),point[1]+(goal[1]>point[1])-(goal[1]<point[1]))
+            budget=self._parameter(unit.owner,'unit.speed.'+unit.kind,unit.definition['speed'])
+            while point in toward:
+                target=toward[point];step=max(cost(point),cost(target))
+                if step>budget:break
+                budget-=step;point=target
             if point!=start:
                 unit.update(x=point[0],y=point[1]);reports.append((unit.owner,unit.id,point))
                 self._event('repatriation',f'{self._name(unit.owner)} #{unit.id} 从{start}自动遣返至{point}。',parties=(unit.owner,))

@@ -25,6 +25,7 @@ class VassalageTests(unittest.TestCase):
         return h
 
     def act(self,h,actor,action,ok=True,**args):
+        if action=='declare_war':args.setdefault('confirm',True)
         r=h.player(actor).submit('relations',{'action':action,**args})
         self.assertEqual(r['ok'],ok,r)
         return r

@@ -14,13 +14,19 @@ def distance(knowledge, unit, start, goal):
         while queue:
             cost,point=heapq.heappop(queue)
             if cost!=best[point] or point not in tiles:continue
+            here=costs.get(tiles[point]['terrain'])
+            if here is None:continue
             if point!=goal and tiles[point]['owner'] is not None and tiles[point]['owner'] not in knowledge['allies']:continue
             for dx in (-1,0,1):
                 for dy in (-1,0,1):
                     if not (dx or dy):continue
                     target=(point[0]+dx,point[1]+dy)
                     if target not in tiles:continue
-                    step=max(costs[tiles[point]['terrain']],costs[tiles[target]['terrain']])
+                    there=costs.get(tiles[target]['terrain'])
+                    if there is None:continue
+                    if dx and dy and any(p not in tiles or costs.get(tiles[p]['terrain']) is None
+                                         for p in ((point[0],target[1]),(target[0],point[1]))):continue
+                    step=max(here,there)
                     total=cost+step
                     if total<best.get(target,float('inf')):best[target]=total;heapq.heappush(queue,(total,target))
         cache[key]=best

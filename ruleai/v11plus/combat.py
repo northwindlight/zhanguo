@@ -34,6 +34,7 @@ def forecaster(player, observation):
     def forecast(_player, cell, army):
         tile=tiles.get(tuple(cell))
         if tile is None:return {'known':False,'winnable':None,'rounds':None,'losses':None}
+        if not terrains[tile['terrain']].get('claimable',True):return {'known':True,'winnable':False,'rounds':None,'losses':None,'reason':'impassable'}
         attackers=deepcopy(army)
         defenders=deepcopy([u for u in facts['army'] if (u['x'],u['y'])==tuple(cell) and u['hp']>0 and (u['owner']=='野人' or u['owner'] in enemies)])
         initial=sum(u['hp'] for u in attackers)

@@ -75,7 +75,7 @@ class ArmyAPI:
         call = world.runtime.object_call
         tiles = call(world, 'native:vision', 'tiles', actor)
         visible = {t.position for t in tiles}
-        unowned = {t.position for t in tiles if t.owner is None}
+        unowned = {t.position for t in tiles if t.owner is None and call(world,'native:territory','terrain',*t.position).claimable}
         period = call(world, 'native:government', 'period')
         paths = {}
         reachable = set()

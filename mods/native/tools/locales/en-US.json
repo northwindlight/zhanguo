@@ -374,5 +374,7 @@
   "llm.continue": "Continue using tools; this turn requires a valid plan and end_turn.",
   "llm.compact": "Do not call tools. Merge this history into the previous long-term memory, preserving plans, treaties, tasks and lessons. Return the new memory.\nPrevious memory: {memory}\nHistory: {history}",
   "atlas.footer": "{own} owned tiles · {seen} visible ({other} foreign). Foreign tiles and units are visible subsets; national totals are unknown. Not observed does not mean absent.",
-  "brief.army_head": "[Armies: all own units / currently visible foreign units]"
+  "brief.army_head": "[Armies: all own units / currently visible foreign units]",
+  "tool.terrain.blocked": "{name}: impassable, unclaimable, no buildings, resources or guards",
+  "tool.move_impassable": "impassable"
 }

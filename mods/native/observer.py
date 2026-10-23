@@ -47,7 +47,9 @@ class NativeObserver:
             for y in range(size):
                 for x in range(size):
                     cell=wire(self.world.territory.cell(x,y))
+                    terrain=self.world.territory.terrain(x,y)
                     tiles.append({'position':[x,y],'name':cell['tile']['name'],'terrain':cell['tile']['terrain'],
+                        'passable':terrain.passable,'claimable':terrain.claimable,
                         'owner':cell['owner'],'resources':cell['resources'],
                         'buildings':buildings[cell['tile']['id']]})
             diplomacy=wire(self.world.diplomacy.to_save())

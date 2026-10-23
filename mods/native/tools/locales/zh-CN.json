@@ -366,5 +366,7 @@
   "llm.continue": "请继续使用工具；本轮需要有效国策和 end_turn 才能结束。",
   "llm.compact": "不要调用工具。以旧长期记忆为基础合并下面的历史，保留国策、盟约、待办和教训，返回新的长期记忆。\n旧记忆：{memory}\n历史：{history}",
   "atlas.footer": "国土 {own} 块 · 视野内 {seen} 格（非自家 {other}）；他国地块与军队只是可见子集，全国总量未知，未见不等于没有。",
-  "brief.army_head": "【军队】本国全量／他国仅当前可见"
+  "brief.army_head": "【军队】本国全量／他国仅当前可见",
+  "tool.terrain.blocked": "{name}：不可通行、占领或建造，无资源、无野人",
+  "tool.move_impassable": "不可通行"
 }

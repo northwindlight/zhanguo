@@ -1,0 +1,101 @@
+{
+  "scenario_seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23
+  ],
+  "scenario_placement_passed": true,
+  "maps": [
+    {
+      "size": 8,
+      "seed": 20261023,
+      "terrain_counts": {
+        "native:high-mountain": 13,
+        "native:hill": 7,
+        "native:desert": 4,
+        "native:mountain": 5,
+        "native:forest": 9,
+        "native:plain": 11,
+        "native:ocean": 15
+      },
+      "usable_land": 36
+    },
+    {
+      "size": 12,
+      "seed": 20261023,
+      "terrain_counts": {
+        "native:high-mountain": 21,
+        "native:hill": 20,
+        "native:plain": 30,
+        "native:forest": 25,
+        "native:desert": 10,
+        "native:mountain": 15,
+        "native:ocean": 23
+      },
+      "usable_land": 100
+    },
+    {
+      "size": 24,
+      "seed": 20261023,
+      "terrain_counts": {
+        "native:high-mountain": 53,
+        "native:hill": 92,
+        "native:desert": 46,
+        "native:plain": 139,
+        "native:forest": 115,
+        "native:mountain": 69,
+        "native:ocean": 62
+      },
+      "usable_land": 461
+    },
+    {
+      "size": 60,
+      "seed": 20261023,
+      "terrain_counts": {
+        "native:high-mountain": 341,
+        "native:ocean": 378,
+        "native:hill": 576,
+        "native:mountain": 432,
+        "native:plain": 865,
+        "native:forest": 720,
+        "native:desert": 288
+      },
+      "usable_land": 2881
+    },
+    {
+      "size": 100,
+      "seed": 20261023,
+      "terrain_counts": {
+        "native:high-mountain": 973,
+        "native:ocean": 1027,
+        "native:plain": 2400,
+        "native:forest": 2000,
+        "native:mountain": 1200,
+        "native:hill": 1600,
+        "native:desert": 800
+      },
+      "usable_land": 8000
+    }
+  ]
+}

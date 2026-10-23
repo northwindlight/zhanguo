@@ -87,6 +87,10 @@ Mini World 原图；尚未达到精细人物和地貌美术的最终标准。
 
 ## 验证入口
 
+2026-10-23 按用户新增要求补齐地图规则前置：高山、海洋封闭原地图外缘，出生与路径绕障，
+默认八国GUI已接入海岸/雪峰和自然屏障说明；固定3×3样板保持原输入。
+范围、截图与完整验证见[自然边界记录](../reviews/自然边界与高山海洋-20261023.md)。
+
 ```bash
 dotnet run --project tests/desktop-layout/Checks.csproj -- mods/ui/desktop/Samples/terrain-v2.json
 python3 -m unittest tests.test_desktop_launcher tests.test_desktop tests.test_ui_mod -q

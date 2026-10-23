@@ -63,7 +63,7 @@ class ScenarioInitialization(TestCase):
         for target in ('燕','周'):
             with self.subTest(target=target):
                 h=self.quiet(GameHost.new(self.config()))
-                result=h.player(IDS['赵']).submit('relations',{'action':'declare_war','target':IDS[target]})
+                result=h.player(IDS['赵']).submit('relations',{'action':'declare_war','target':IDS[target],'confirm':True})
                 self.assertTrue(result['ok'],result);h.cycle()
                 war=h.world.diplomacy.snapshot(IDS['赵']).wars[0]
                 self.assertEqual(set(war.attackers),{IDS['赵']})

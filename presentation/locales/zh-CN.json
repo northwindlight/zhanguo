@@ -14,7 +14,7 @@
   "llm.thinking": "💭 {actor} {text}",
   "map.empty": "暂无可见地图",
   "map.fallback": "【文本地图】",
-  "map.legend": "坐标从 0 开始。读法：底色=归属（{owners}）；p/f/h/m/d=平原/森林/丘陵/山地/沙漠；T=市政厅 C=城堡。白色兵牌=军队：I步兵 C骑兵 M民兵，数字=支数（I2=2支步兵）。边框绿=本国 蓝=同盟 红=交战 灰=中立；无主地的灰色“野N”=野人守军（不会主动进攻，但会驻守）。",
+  "map.legend": "坐标从 0 开始。读法：底色=归属（{owners}）；p/f/h/m/d=平原/森林/丘陵/山地/沙漠；^高山、~海洋均不可通行、占领；T=市政厅 C=城堡。白色兵牌=军队：I步兵 C骑兵 M民兵，数字=支数（I2=2支步兵）。边框绿=本国 蓝=同盟 红=交战 灰=中立；无主地的灰色“野N”=野人守军（不会主动进攻，但会驻守）。",
   "console.action": "[{period}·行动] {actor} ◇ {action} {arguments} → {message}{status}",
   "console.action_line": "[{period}·行动] {actor} ◇ {caption} → {result}",
   "console.action_line_bare": "[{period}·行动] {actor} ◇ {result}",
@@ -134,7 +134,7 @@
   "console.pact": "  条约：{details}",
   "console.dead": "亡国：{names}",
   "console.world_map": "全景地图 · 第 {period} 回合",
-  "console.world_legend": "图例：{owners} | p平原 f森林 h丘陵 m山地 d沙漠；大写为国土，坐标从0开始",
+  "console.world_legend": "图例：{owners} | p平原 f森林 h丘陵 m山地 d沙漠 ^高山 ~海洋（不可通行）；大写为国土，坐标从0开始",
   "console.watch": "开始看海：存档 {save}，日志 {journal}；每回合结算后自动保存。",
   "console.period": "—— 第 {period} 回合 ——",
   "console.stop_pending": "已请求退出；完成当前回合并保存后停止。",
@@ -462,7 +462,7 @@
   "query.trend_head": "【经济报表趋势】共{count}期，最新优先；每行一期。",
   "query.trend_row": "第{start}—{end}期｜GDP {gdp}（增长{growth}）｜军需折价{military}｜总资产{assets}｜投资{investment}",
   "query.map_head": "第{period}回合·单国可见地图（0-based）",
-  "query.map_legend": "{owners}；-无主，?迷雾；P平原/F森林/H丘陵/M山地/D沙漠。建筑与军队见下方坐标明细。",
+  "query.map_legend": "{owners}；-无主，?迷雾；P平原/F森林/H丘陵/M山地/D沙漠；^高山/~海洋不可通行、占领。建筑与军队见下方坐标明细。",
   "query.territory_change": "领土变更：{place}｜{previous} → {owner}得地",
   "query.town_halls": "市政厅×{count}（国祚）",
   "experimental.review_round": "当前审查 [{count}/{total}] 轮，阶段 {phase}/2。两阶段共用这 10 轮，请及时完成核对并调用对应的阶段或裁决按钮。",
@@ -495,5 +495,9 @@
   "content.mini:gold-mine": "黄金矿场",
   "content.mini:barracks": "兵营",
   "brief.information_head": "【情报获取途径】",
-  "experimental.review_autorejected_status": "🧠 {actor} 议会未在轮次上限内完成审核，国策保守打回"
+  "experimental.review_autorejected_status": "🧠 {actor} 议会未在轮次上限内完成审核，国策保守打回",
+  "content.native:high-mountain": "高山",
+  "content.native:ocean": "海洋",
+  "atlas.terrain.native:high-mountain": "高山（不可逾越）",
+  "atlas.terrain.native:ocean": "海洋（不可穿越）"
 }

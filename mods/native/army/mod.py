@@ -30,6 +30,10 @@ class ArmyMod(GameMod):
         if type(sequence) is not int or sequence<candidate.engage_seq:raise ValueError('Invalid engagement sequence')
         owners=self.runtime.object_call(world,'native:nation-inspection','ids')
         if any(u.owner!='野人' and u.owner not in owners for u in candidate):raise ValueError('Unit owner is not a living nation')
+        for u in candidate:
+            for point in ((u.x,u.y),) + ((u.retreat_to,) if u.retreat_to is not None else ()):
+                if not self.runtime.object_call(world,'native:territory','terrain',*point).passable:
+                    raise ValueError('Army or retreat position is on impassable terrain')
         world.military.restore(state['military']);world.units.size=size;world.units.restore(state['units']);world.units.engage_seq=sequence
     def stages(self):
         return (Stage('native:army.supply',self._supply,hook='military.supply',needs=('relations.applied','buildings.produced'),provides=('military.supplied',)),
@@ -61,6 +65,7 @@ class ArmyMod(GameMod):
         body='\n\n'.join((
             '行动：所有坐标统一 0-based。移动、异地进攻、撤退共用每支军队每期一次行动额度；新兵当期不能行动，原地进攻不消耗位移额度。'
             'move 只调动、不占地；attack 才会占领或进入交战。reachable 给出可见合法路线和代价，路程不能超过兵种移动力。'
+            '高山和海洋不可通行、进攻或占领，也不能从障碍侧面的斜角挤过；原有山地仍可通行。unit_catalog 的移动代价 null 表示不可通行。'
             '本国和盟国领土可通行；攻击他国必须已处于战争，外交 submitted 不代表战争已生效。',
             '征兵：正规军只能在自有已落成兵营征召，停电时不能征召；民兵只能在自有已落成军屯征召。'
             '同格兵营的每期额度相加；民兵还受全国军屯编制上限限制。编制上限和每期征召额度是两个不同数值，查 building_catalog 的效果。'

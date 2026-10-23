@@ -15,6 +15,8 @@ class Forecast:
         if any(i not in owned for i in ids):raise ValueError('Own living units required')
         if not self.call('native:vision','visible',actor,x,y):
             return {'research':True,'known':False,'winnable':None,'probabilities':None}
+        if not self.call('native:territory','terrain',x,y).claimable:
+            return {'research':True,'known':True,'winnable':False,'probabilities':None,'reason':'impassable'}
         selected=[deepcopy(owned[i]) for i in ids]
         troops=[u for u in visible if (u.x,u.y)==(x,y) and u.alive and not (u.owner==actor and u.id in ids)]
         for u in selected:u.engaged=True

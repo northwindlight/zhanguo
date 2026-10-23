@@ -14,6 +14,10 @@ class GridSession(Session):
         """Return occupied (x, y) cells."""
         raise ModError('方格场景须实现 occupied()')
 
+    def valid_position(self, position):
+        """Optional distribution placement policy; no terrain rules here."""
+        return True
+
     def _positions(self,count):
         size,_=self.grid()
         if size<3 and count>1:raise ValueError("地图太小，无法安置多个身份")
@@ -32,7 +36,7 @@ class GridSession(Session):
             positions=[(x,y) for x in range(1,size-1) for y in range(1,size-1)]
             random.Random(f'{seed}:{item["id"]}').shuffle(positions)
             occupied=tuple(self.occupied())
-            position=next((p for p in positions if all(max(abs(p[0]-x),abs(p[1]-y))>=getattr(self,'arrival_distance',3) for x,y in occupied)),None)
+            position=next((p for p in positions if self.valid_position(p) and all(max(abs(p[0]-x),abs(p[1]-y))>=getattr(self,'arrival_distance',3) for x,y in occupied)),None)
         if position is None:raise ValueError('没有足够空间安置新身份')
         return self.join(item,position)
 

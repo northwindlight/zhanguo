@@ -110,7 +110,7 @@ class TestDecisionUI(unittest.TestCase):
         self.assertNotIn('resources',foreign);self.assertNotIn('capacity',foreign)
         self.assertEqual({b['kind'] for b in foreign['buildings']},{'native:castle'})
         with self.assertRaisesRegex(ValueError,'迷雾'):p.query('tile',{'x':6,'y':6})
-        p.submit('relations', {'action': 'declare_war', 'target':C});w.resolve_turn();w.phase='行动'
+        p.submit('relations', {'action': 'declare_war', 'target':C, 'confirm':True});w.resolve_turn();w.phase='行动'
         obs=p.observe();own=[u for u in obs['facts']['army'] if u['owner']==Q]
         before=w.runtime.save_mod_state(w);forecast=combat.forecaster(p,obs)
         for n in (1,2,3):

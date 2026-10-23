@@ -90,7 +90,7 @@ class ToolcallParity(unittest.TestCase):
         before=w.runtime.save_mod_state(w)
         self.assertFalse(p.submit('military', {'action': 'disband', 'ids':[ids[0],999999]})['ok'])
         self.assertEqual(w.runtime.save_mod_state(w),before)
-        self.assertTrue(p.submit('relations', {'action': 'declare_war', 'target':C})['ok']);w.resolve_turn();w.phase='行动'
+        self.assertTrue(p.submit('relations', {'action': 'declare_war', 'target':C, 'confirm':True})['ok']);w.resolve_turn();w.phase='行动'
         country=next(n for n in p.call_api('native:intelligence','countries') if n['id']==C)
         self.assertEqual((country['relation'],country['war_representative']),('war',C))
         self.assertTrue(p.submit('military', {'action': 'attack', 'ids':[ids[0]],'x':2,'y':1})['ok'])
@@ -100,10 +100,10 @@ class ToolcallParity(unittest.TestCase):
         self.assertFalse(battle['blind']);self.assertEqual(w.runtime.save_mod_state(w),before)
         self.assertTrue(p.submit('military', {'action': 'disband', 'ids':ids[1:]})['ok'])
         # An owned engaged force beyond building vision reveals only itself.
-        w.military.seed(Q,'native:infantry',7,7)
-        remote=next(u for u in w.units if u.owner==Q and (u.x,u.y)==(7,7));remote.engaged=True
-        w.military.seed(C,'native:cavalry',7,7)
-        blind=next(row for row in p.query('battle') if row['position']==[7,7])
+        w.military.seed(Q,'native:infantry',6,6)
+        remote=next(u for u in w.units if u.owner==Q and (u.x,u.y)==(6,6));remote.engaged=True
+        w.military.seed(C,'native:cavalry',6,6)
+        blind=next(row for row in p.query('battle') if row['position']==[6,6])
         self.assertTrue(blind['blind']);self.assertIsNone(blind['terrain'])
         self.assertEqual([s['owner'] for s in blind['sides']],[Q])
         self.assertIsNone(blind['sides'][0]['combined_reduction'])
@@ -115,7 +115,7 @@ class ToolcallParity(unittest.TestCase):
         self.assertEqual(p.query('land',{'terrain':'mountain'}),[])
         self.assertEqual(p.query('intel',{'kind':'letter'}),[])
         self.assertFalse(p.submit('intel',{'kind':'hidden'})['ok'])
-        p.submit('relations', {'action': 'declare_war', 'target':C});w.resolve_turn();w.phase='行动'
+        p.submit('relations', {'action': 'declare_war', 'target':C, 'confirm':True});w.resolve_turn();w.phase='行动'
         self.assertTrue(p.submit('relations', {'action': 'offer_peace', 'target':C,'kind':'white','note':'停战建设，互不侵犯。'})['ok'])
         w.resolve_turn();w.phase='行动'
         offer=p.call_api('native:diplomacy','snapshot')['offers'][0]
