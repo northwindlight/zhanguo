@@ -68,4 +68,4 @@ jobs:
       - name: 编译桌面工程
         run: dotnet build mods/ui/desktop/Zhanguo.Desktop.csproj
       - name: 核对地貌样板布局
-        run: dotnet run --project tests/desktop-layout/Checks.csproj -- mods/ui/desktop/Samples/terrain-v1.json
+        run: dotnet run --project tests/desktop-layout/Checks.csproj -- mods/ui/desktop/Samples/terrain-v2.json

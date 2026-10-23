@@ -1,0 +1,4 @@
+Use case: background-extraction
+Asset type: transparent PNG terrain sprite for a 2D game.
+Input image: edit target, the attached pixel-art gray-green mossy mountain rock cluster on a PAINTED gray checkerboard.
+Primary request: Remove ONLY the painted gray checkerboard background outside the mountain and replace it with genuine full alpha transparency. Keep the entire mountain formation, its silhouette, all peaks, all internal gray-green stone pixels, moss shapes, black outlines, chunky pixel grid, exact colors, orientation, scale, framing and padding as unchanged as possible. Do not interpret the checkerboard as part of the object. Preserve all stone highlights inside the silhouette. No redrawing or restyling; do not add ground, shadows, scenery, snow, gold, text, new peaks, or outlines. Output one isolated object on truly transparent background, no painted checkerboard and no solid backdrop.

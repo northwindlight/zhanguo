@@ -1,0 +1,33 @@
+{
+  "provider": "local Antigravity gateway",
+  "requested_model_from_route_source": "gemini-3.1-flash-image",
+  "attempts": 1,
+  "returned_images": 1,
+  "elapsed_seconds": 92.031707,
+  "source_image": {
+    "file": "agy-mountain-source-v1.jpg",
+    "format": "JPEG",
+    "size": [
+      1200,
+      896
+    ],
+    "mode": "RGB",
+    "alpha_range": null,
+    "sha256": "8b8cfe3472f50b15795ebd51016e3860c590192165e526139cad66dc7c42eff7"
+  },
+  "transparent_derivative": {
+    "file": "agy-mountain-cutout-v1.png",
+    "format": "PNG",
+    "size": [
+      1451,
+      1084
+    ],
+    "mode": "RGBA",
+    "alpha_range": [
+      0,
+      255
+    ],
+    "tool": "built-in image_gen background extraction",
+    "sha256": "82b9cac6228c797cfdbfb7b5b1f463811f4af78eebb0e10ea2ca9e40b1909209"
+  }
+}

@@ -1,0 +1,37 @@
+[
+  {
+    "file": "mountain-outcrop-v1.png",
+    "sha256": "751f95295488ddec0d1de962cb74367af79a6a714f85fd8f5a9add4462cd3387",
+    "tool": "built-in image_gen",
+    "prompt_file": "mountain-outcrop-v1.prompt.txt",
+    "transparent_background": true,
+    "pixel_dimensions": [
+      1448,
+      1086
+    ],
+    "prototype_display_pixels": [
+      64,
+      48
+    ],
+    "status": "prototype; separate from the Mini World CC0 assets"
+  },
+  {
+    "file": "agy-mountain-cutout-v1.png",
+    "sha256": "82b9cac6228c797cfdbfb7b5b1f463811f4af78eebb0e10ea2ca9e40b1909209",
+    "tool": "local Antigravity gateway, followed by built-in image_gen background extraction",
+    "prompt_file": "agy-mountain-cutout-v1.prompt.txt",
+    "source_file": "agy-mountain-source-v1.jpg",
+    "source_sha256": "8b8cfe3472f50b15795ebd51016e3860c590192165e526139cad66dc7c42eff7",
+    "source_prompt_file": "agy-mountain-source-v1.prompt.txt",
+    "transparent_background": true,
+    "pixel_dimensions": [
+      1451,
+      1084
+    ],
+    "prototype_display_pixels": [
+      64,
+      48
+    ],
+    "status": "prototype; separate from the Mini World CC0 assets"
+  }
+]

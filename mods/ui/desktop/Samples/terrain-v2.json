@@ -1,0 +1,15 @@
+{
+  "seed": 20261023,
+  "layout_version": 2,
+  "regions": [
+    {"x":0,"y":0,"name":"空山与谷地","terrain":"mountain","wood":0,"gold":0,"people":0,"buildings":[]},
+    {"x":1,"y":0,"name":"山谷聚落","terrain":"mountain","wood":15,"gold":0,"people":5,"buildings":[{"id":"home-1","kind":"house"},{"id":"home-2","kind":"house"},{"id":"home-3","kind":"house"},{"id":"home-4","kind":"house"}]},
+    {"x":2,"y":0,"name":"山间农田","terrain":"mountain","wood":10,"gold":0,"people":3,"buildings":[{"id":"farm-1","kind":"farm"},{"id":"farm-2","kind":"farm"},{"id":"farm-3","kind":"farm"},{"id":"home-1","kind":"house"}]},
+    {"x":0,"y":1,"name":"零木森林","terrain":"forest","wood":0,"gold":0,"people":0,"buildings":[]},
+    {"x":1,"y":1,"name":"贫木森林","terrain":"forest","wood":25,"gold":0,"people":0,"buildings":[]},
+    {"x":2,"y":1,"name":"富木森林","terrain":"forest","wood":100,"gold":0,"people":0,"buildings":[]},
+    {"x":0,"y":2,"name":"中等木量","terrain":"forest","wood":55,"gold":0,"people":2,"buildings":[{"id":"home-1","kind":"house"}]},
+    {"x":1,"y":2,"name":"含金丘陵","terrain":"hill","wood":10,"gold":80,"people":3,"buildings":[{"id":"mine-1","kind":"mine"},{"id":"mine-2","kind":"mine"}]},
+    {"x":2,"y":2,"name":"平原农田","terrain":"plain","wood":5,"gold":0,"people":6,"buildings":[{"id":"farm-1","kind":"farm"},{"id":"farm-2","kind":"farm"},{"id":"farm-3","kind":"farm"},{"id":"farm-4","kind":"farm"},{"id":"farm-5","kind":"farm"},{"id":"farm-6","kind":"farm"},{"id":"home-1","kind":"house"},{"id":"home-2","kind":"house"}]}
+  ]
+}

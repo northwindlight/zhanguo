@@ -19,7 +19,7 @@ public sealed class SampleInput
         var input = JsonSerializer.Deserialize<SampleInput>(json,
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
             ?? throw new InvalidDataException("样板输入为空");
-        if (input.LayoutVersion != 1 || input.Regions.Count == 0 ||
+        if (input.LayoutVersion != 2 || input.Regions.Count == 0 ||
             input.Regions.Any(r => r.X < 0 || r.Y < 0 || r.Wood < 0 || r.Wood > 100 || r.Gold < 0 || r.Gold > 100 || r.People < 0) ||
             input.Regions.Select(r => (r.X, r.Y)).Distinct().Count() != input.Regions.Count)
             throw new InvalidDataException("样板版本、坐标或资源范围无效");
@@ -56,7 +56,7 @@ public readonly record struct Footprint(float X, float Y, float Width, float Hei
         p.X >= X - margin && p.X <= X + Width + margin && p.Y >= Y - margin && p.Y <= Y + Height + margin;
 }
 public sealed record Structure(string Id, string Kind, Footprint Bounds);
-public sealed record Tree(Point Foot, int Variant);
+public sealed record Tree(Point Foot, int Variant, string Sheet);
 public sealed class RegionPlan
 {
     public RegionInput Input { get; init; } = new();
@@ -64,6 +64,8 @@ public sealed class RegionPlan
     public List<Tree> Trees { get; } = new();
     public List<Point> People { get; } = new();
     public List<Point> Gold { get; } = new();
+    public List<Point> Rocks { get; } = new();
+    public List<Footprint> Outcrops { get; } = new();
 }
 
 public sealed class RegionLayout
@@ -98,27 +100,73 @@ public sealed class RegionLayout
     }
     private float Noise(int x, int y, int salt) => (Hash(x, y, salt) & 65535) / 65535f;
 
+    public float ValueNoise(float x, float y, int salt)
+    {
+        int ix = (int)MathF.Floor(x), iy = (int)MathF.Floor(y);
+        float fx = Smooth(x - ix), fy = Smooth(y - iy);
+        return Lerp(Lerp(Noise(ix, iy, salt), Noise(ix + 1, iy, salt), fx),
+            Lerp(Noise(ix, iy + 1, salt), Noise(ix + 1, iy + 1, salt), fx), fy);
+    }
+
     // Evaluate in global coordinates: both sides of every shared edge sample
     // the same field, including different neighboring terrain types.
     public float Elevation(float x, float y)
     {
-        float sx = x / RegionSize - .5f, sy = y / RegionSize - .5f;
-        int ix = (int)MathF.Floor(sx), iy = (int)MathF.Floor(sy);
-        float fx = Smooth(sx - ix), fy = Smooth(sy - iy);
-        float strength = Lerp(Lerp(Strength(ix, iy), Strength(ix + 1, iy), fx),
-            Lerp(Strength(ix, iy + 1), Strength(ix + 1, iy + 1), fx), fy);
-        // A valley band in each region row; ridges are already saturated near
-        // the row boundary, so the change of band does not create a seam.
-        float valley = MathF.Floor(y / RegionSize) * RegionSize + 142 + MathF.Sin(x * .008f + (Input.Seed % 97) * .03f) * 18;
-        float ridge = Math.Clamp((MathF.Abs(y - valley) - 32) / 54, 0, 1);
-        float ripple = MathF.Sin(x * .038f + y * .015f) * .055f + MathF.Sin(x * .019f - y * .03f) * .04f;
-        return Math.Clamp((ridge + ripple * ridge) * strength, 0, 1);
+        float strength = Interpolate(x, y, static r => r.Terrain == "mountain" ? 1 : r.Terrain == "hill" ? .45f : 0);
+        // Warp valleys in two dimensions, then vary the peaks independently.
+        // The periodic distance is saturated at its wrap, leaving shared edges continuous.
+        float warpedY = y + (ValueNoise(x / 220, y / 220, 21) - .5f) * 108
+            + (ValueNoise(x / 75, y / 75, 22) - .5f) * 24;
+        float phase = warpedY / RegionSize - .55f;
+        float distance = MathF.Abs(phase - MathF.Floor(phase + .5f)) * RegionSize;
+        float width = 24 + ValueNoise(x / 170, y / 170, 26) * 15;
+        float ridge = Smooth(Math.Clamp((distance - width) / 30, 0, 1));
+        float peaks = .30f + .70f * ValueNoise(x / 83, y / 83, 24) + .22f * ValueNoise(x / 37, y / 37, 25);
+        return Math.Clamp(peaks * ridge * strength, 0, 1);
     }
 
-    private float Strength(int x, int y)
+    private RegionInput? RegionAt(int x, int y) => _regions.GetValueOrDefault((Math.Clamp(x, 0, Width - 1), Math.Clamp(y, 0, Height - 1)));
+
+    private float Interpolate(float x, float y, Func<RegionInput, float> read)
     {
-        if (!_regions.TryGetValue((Math.Clamp(x, 0, Width - 1), Math.Clamp(y, 0, Height - 1)), out var r)) return 0;
-        return r.Terrain == "mountain" ? 1 : r.Terrain == "hill" ? .45f : 0;
+        float sx = x / RegionSize - .5f, sy = y / RegionSize - .5f;
+        int ix = (int)MathF.Floor(sx), iy = (int)MathF.Floor(sy);
+        float Read(int cx, int cy) => RegionAt(cx, cy) is { } r ? read(r) : 0;
+        return Lerp(Lerp(Read(ix, iy), Read(ix + 1, iy), Smooth(sx - ix)),
+            Lerp(Read(ix, iy + 1), Read(ix + 1, iy + 1), Smooth(sx - ix)), Smooth(sy - iy));
+    }
+
+    public float WoodDensity(float x, float y)
+    {
+        int cx = (int)MathF.Floor(x / RegionSize), cy = (int)MathF.Floor(y / RegionSize);
+        var own = RegionAt(cx, cy);
+        if (own == null || own.Wood == 0) return 0;
+        float density = Interpolate(x, y, static r => r.Wood) / 100;
+        // Positive-resource neighbors blend. Near a zero-resource region, taper
+        // inside the resource-bearing side rather than invent trees across it.
+        float lx = x - cx * RegionSize, ly = y - cy * RegionSize;
+        if (RegionAt(cx - 1, cy)?.Wood == 0) density *= Smooth(Math.Clamp(lx / 42, 0, 1));
+        if (RegionAt(cx + 1, cy)?.Wood == 0) density *= Smooth(Math.Clamp((256 - lx) / 42, 0, 1));
+        if (RegionAt(cx, cy - 1)?.Wood == 0) density *= Smooth(Math.Clamp(ly / 42, 0, 1));
+        if (RegionAt(cx, cy + 1)?.Wood == 0) density *= Smooth(Math.Clamp((256 - ly) / 42, 0, 1));
+        return density;
+    }
+
+    private Point TreeCandidate(int x, int y) => new((x + Noise(x, y, 50)) * 12, (y + Noise(x, y, 51)) * 12);
+
+    private bool SpacedCandidate(int x, int y, Point p)
+    {
+        uint priority = Hash(x, y, 52);
+        for (int ny = y - 1; ny <= y + 1; ny++)
+            for (int nx = x - 1; nx <= x + 1; nx++)
+            {
+                if (nx == x && ny == y) continue;
+                uint other = Hash(nx, ny, 52);
+                if (other > priority || (other == priority && (ny > y || (ny == y && nx > x)))) continue;
+                var q = TreeCandidate(nx, ny);
+                if ((p.X - q.X) * (p.X - q.X) + (p.Y - q.Y) * (p.Y - q.Y) < 81) return false;
+            }
+        return true;
     }
     private static float Smooth(float v) => v * v * (3 - 2 * v);
     private static float Lerp(float a, float b, float t) => a + (b - a) * t;
@@ -159,14 +207,42 @@ public sealed class RegionLayout
             for (int cx = 0; cx < 16; cx++)
             {
                 int gx = r.X * 16 + cx, gy = r.Y * 16 + cy;
-                var foot = new Point(cx * 16 + 6 + Noise(gx, gy, 1) * 5, cy * 16 + 11 + Noise(gx, gy, 2) * 5);
-                float density = r.Wood / 100f * (r.Terrain == "forest" ? .76f : .38f);
-                if (Noise(gx, gy, 3) < density && Elevation(r.X * 256 + foot.X, r.Y * 256 + foot.Y) < .25f &&
-                    !plan.Structures.Any(s => s.Bounds.Overlaps(new Footprint(foot.X - 8, foot.Y - 15, 16, 16), 3)))
-                    plan.Trees.Add(new Tree(foot, (int)(Hash(gx, gy, 4) % 3)));
+                var foot = new Point(cx * 16 + Noise(gx, gy, 1) * 16, cy * 16 + Noise(gx, gy, 2) * 16);
+                float elevation = Elevation(r.X * 256 + foot.X, r.Y * 256 + foot.Y);
                 if (r.Gold > 0 && Noise(gx, gy, 6) < r.Gold / 100f * .13f &&
-                    Elevation(r.X * 256 + foot.X, r.Y * 256 + foot.Y) > .2f)
+                    elevation > .2f)
                     plan.Gold.Add(foot);
+                if (elevation > .25f && Noise(gx, gy, 8) < .12f &&
+                    !plan.Structures.Any(s => s.Bounds.Overlaps(new Footprint(foot.X - 8, foot.Y - 16, 16, 16), 3))) plan.Rocks.Add(foot);
+            }
+        // Globally jittered, spaced candidates; acceptance depends on resource
+        // density, but candidate positions/priorities never depend on abundance.
+        for (int gy = (int)MathF.Floor(r.Y * 256 / 12f); gy < (int)MathF.Ceiling((r.Y + 1) * 256 / 12f); gy++)
+            for (int gx = (int)MathF.Floor(r.X * 256 / 12f); gx < (int)MathF.Ceiling((r.X + 1) * 256 / 12f); gx++)
+            {
+                var world = TreeCandidate(gx, gy);
+                var foot = new Point(world.X - r.X * 256, world.Y - r.Y * 256);
+                if (foot.X < 0 || foot.X >= 256 || foot.Y < 0 || foot.Y >= 256 || !SpacedCandidate(gx, gy, world)) continue;
+                float clump = .22f + .95f * ValueNoise(world.X / 64, world.Y / 64, 53);
+                float density = WoodDensity(world.X, world.Y) * (r.Terrain == "forest" ? .90f : .38f) * clump;
+                if (Noise(gx, gy, 54) < density && Elevation(world.X, world.Y) < .25f &&
+                    !plan.Structures.Any(s => s.Bounds.Overlaps(new Footprint(foot.X - 8, foot.Y - 15, 16, 16), 3)))
+                {
+                    bool pine = Hash(gx, gy, 55) % 3 == 0;
+                    // Pine sheet: column 0 is a stump, 1 is green, 2 is snow.
+                    plan.Trees.Add(new Tree(foot, pine ? 1 : (int)(Hash(gx, gy, 4) % 3) + 1, pine ? "pine-trees" : "trees"));
+                }
+            }
+        for (int y = 0; y < 4; y++)
+            for (int x = 0; x < 4; x++)
+            {
+                var f = new Footprint(8 + x * 48 + Noise(r.X * 4 + x, r.Y * 4 + y, 72) * 18,
+                    8 + y * 52 + Noise(r.X * 4 + x, r.Y * 4 + y, 73) * 20, 64, 48);
+                bool rock = true;
+                for (float py = f.Y; py <= f.Y + f.Height; py += 4)
+                    for (float px = f.X; px <= f.X + f.Width; px += 4)
+                        if (Elevation(r.X * 256 + px, r.Y * 256 + py) < .30f) rock = false;
+                if (rock && plan.Outcrops.Count < 3 && !plan.Outcrops.Any(other => other.Overlaps(f, 8))) plan.Outcrops.Add(f);
             }
         var peopleCandidates = candidates.OrderBy(p => Hash((int)p.X + r.X * 256, (int)p.Y + r.Y * 256, 7));
         foreach (var p in peopleCandidates)
@@ -174,7 +250,8 @@ public sealed class RegionLayout
             if (plan.People.Count >= r.People) break;
             var body = new Footprint(p.X - 3, p.Y - 8, 6, 8);
             if (CanBuild(r, body) && !plan.Structures.Any(s => s.Bounds.Overlaps(body, 4)) &&
-                !plan.Trees.Any(t => new Footprint(t.Foot.X - 8, t.Foot.Y - 16, 16, 16).Overlaps(body, 2))) plan.People.Add(p);
+                !plan.Trees.Any(t => new Footprint(t.Foot.X - 8, t.Foot.Y - 16, 16, 16).Overlaps(body, 2)) &&
+                !plan.Rocks.Any(p => new Footprint(p.X - 8, p.Y - 16, 16, 16).Overlaps(body, 2))) plan.People.Add(p);
         }
         if (plan.People.Count != r.People) throw new InvalidDataException($"样板 {r.Name} 缺少人物空地");
         return plan;

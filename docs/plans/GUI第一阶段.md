@@ -26,7 +26,7 @@ python3 desktop.py --sample terrain
 ```
 
 样板场景与输入由 UI Mod 自己提供，不创建 Python 对局，也不读写对局存档。
-固定输入在 [terrain-v1.json](../../mods/ui/desktop/Samples/terrain-v1.json)。
+首批固定输入在 [terrain-v1.json](../../mods/ui/desktop/Samples/terrain-v1.json)。
 资源值 0–100 是合成样板的归一化参数，不是给规则引擎新增的资源上限。
 
 | 地区 | 本批比较对象 |
@@ -53,10 +53,24 @@ Mini World 原图；尚未达到精细人物和地貌美术的最终标准。
 更换镜头不重新生成布局。C# 编译为零警告零错误，布局检查通过。
 性能数据的实际范围与剩余问题见[首批验收记录](../reviews/GUI阶段A首批-20261023.md)。
 
+## 第二批：地貌、林缘与素材
+
+2026-10-23 继续推进。入口仍为 `python3 desktop.py --sample terrain`，当前读取
+[terrain-v2.json](../../mods/ui/desktop/Samples/terrain-v2.json)：与首批保持相同坐标、资源、设施、人物数和种子，
+布局版本升为 2。v1 输入与截图保留为首批证据，当前布局检查使用 v2。
+
+山体改用二维扰动谷地与独立峰面，增加坡面光影和小块地表变化。
+树林采用全局打散、带最小间距的候选点与成簇密度，相邻含木地区混合，靠近零木地区向内部渐疏。
+增加同包的绿色松树、灰色岩石和矿洞，并实际试用 GPT 山岩与本机 Antigravity 生成后去底的第二种山岩。
+素材、授权核对与 Gemini 可复用提示词见[素材补充与生图规格](../design/素材补充与生图规格.md)。
+
+当前画面与首批对照见[第二批验收记录](../reviews/GUI阶段A第二批-20261023.md)。
+本批仍属于阶段 A；山脊拼块、多轮廓素材、更多邻接场景和持续性能/录像验收继续保留。
+
 ## 验证入口
 
 ```bash
-dotnet run --project tests/desktop-layout/Checks.csproj -- mods/ui/desktop/Samples/terrain-v1.json
+dotnet run --project tests/desktop-layout/Checks.csproj -- mods/ui/desktop/Samples/terrain-v2.json
 python3 -m unittest tests.test_desktop_launcher tests.test_desktop tests.test_ui_mod -q
 python3 desktop.py --sample terrain --build-only
 xvfb-run -a -s '-screen 0 1440x900x24' python3 desktop.py --sample terrain --smoke-output /tmp/terrain.png
@@ -64,7 +78,7 @@ xvfb-run -a -s '-screen 0 1440x900x24' python3 desktop.py --sample terrain --smo
 
 C# 检查直接运行实际布局代码，核对固定输入/种子重现、输入顺序无关、设施和人物数量、
 建筑不压山/树/其他建筑、森林丰度递增、含金与无金区别，以及共享边缘高度连续。
-窗口验收检查点选，输出全景 `terrain.png`、近景 `terrain-close.png` 与 `terrain.png.json`。
+窗口验收检查点选，输出全景 `terrain.png`、山谷 `terrain-close.png`、森林 `terrain-forest.png`、矿区 `terrain-gold.png` 与 `terrain.png.json`。
 JSON 记录输入哈希、实际对象数、平台及短时帧时间/内存；短截图过程不代替持续运行性能验收。
 
-后续第一件事：依据这批全景和近景，调整山谷轮廓、谷地地表与聚落构图，再补地貌邻接组合。
+后续第一件事：补不同山岩轮廓与正确连接的岩壁拼块，继续核对谷地构图与地貌邻接组合。

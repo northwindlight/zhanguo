@@ -33,5 +33,29 @@
     "file": "swordsman.png",
     "source": "Characters/Soldiers/Melee/CyanMelee/SwordsmanCyan.png",
     "sha256": "57dd749fd0397445570a40840d400c4a704fc11c740e3ad4e2cb0b9ef3a7832a"
+  },
+  {
+    "file": "pine-trees.png",
+    "source": "Nature/PineTrees.png",
+    "sha256": "5ab0bde8cb1904ba8c54cb93415c0257cf3f13ce6b470834dee840789dfe60bd",
+    "used_regions": [
+      {
+        "x": 16,
+        "y": 0,
+        "width": 16,
+        "height": 16,
+        "meaning": "green pine; exclude stump and snow cells"
+      }
+    ]
+  },
+  {
+    "file": "rocks.png",
+    "source": "Nature/Rocks.png",
+    "sha256": "aca2db4406062190fa5d8f1622451e17cf3c9e9178d82db4b22df72c3e54efe4"
+  },
+  {
+    "file": "mineshafts.png",
+    "source": "Buildings/Wood/CaveV2.png",
+    "sha256": "45036d94390cc942811ba2a88b0c1d3aab048510df3c8a1aafa33e3ff21db3d0"
   }
 ]

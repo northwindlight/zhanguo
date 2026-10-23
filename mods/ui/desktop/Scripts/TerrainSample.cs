@@ -58,7 +58,7 @@ public partial class TerrainSample : Control
         var hint = new Label { Text = "滚轮缩放 · 右键 / 中键拖动 · F 全景   |   第一阶段比例草样 · 房舍与人物为合成展示，无对局推进" };
         hint.AddThemeColorOverride("font_color", new Color("a7b698")); footer.AddChild(hint);
         _map.SelectionChanged = ShowRegion;
-        string json = Godot.FileAccess.GetFileAsString("res://Samples/terrain-v1.json");
+        string json = Godot.FileAccess.GetFileAsString("res://Samples/terrain-v2.json");
         _fixtureHash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
         _layout = new RegionLayout(SampleInput.Parse(json));
         _map.SetLayout(_layout);
@@ -106,15 +106,21 @@ public partial class TerrainSample : Control
             if (_map.Selected?.Input.Name != "山谷聚落" || !_detail.Text.Contains("山谷聚落")) throw new Exception("样板地块点选失败");
             _map.Focus(1, 0);
             await Screenshot(Path.ChangeExtension(path, null) + "-close.png");
+            _map.Focus(1, 1);
+            await Screenshot(Path.ChangeExtension(path, null) + "-forest.png");
+            _map.Focus(1, 2);
+            await Screenshot(Path.ChangeExtension(path, null) + "-gold.png");
             var times = _frameTimes.OrderBy(t => t).ToArray();
             File.WriteAllText(path + ".json", JsonSerializer.Serialize(new
             {
-                sample = "terrain-v1", fixture_sha256 = _fixtureHash, seed = _layout.Input.Seed,
+                sample = "terrain-v2", fixture_sha256 = _fixtureHash, seed = _layout.Input.Seed,
                 layout_version = _layout.Input.LayoutVersion, region_pixels = 256, visual_cells = 16,
                 figure_pixels = new[] { 6, 8 }, structures = _layout.Regions.Sum(r => r.Structures.Count),
                 trees = _layout.Regions.Sum(r => r.Trees.Count), people = _layout.Regions.Sum(r => r.People.Count),
+                rocks = _layout.Regions.Sum(r => r.Rocks.Count), mountain_outcrops = _layout.Regions.Sum(r => r.Outcrops.Count),
                 regions = _layout.Regions.Select(r => new { r.Input.Name, r.Input.X, r.Input.Y, r.Input.Wood, r.Input.Gold,
-                    structures = r.Structures.Count, trees = r.Trees.Count, people = r.People.Count, gold_outcrops = r.Gold.Count }),
+                    structures = r.Structures.Count, trees = r.Trees.Count, people = r.People.Count, gold_outcrops = r.Gold.Count,
+                    rocks = r.Rocks.Count, mountain_outcrops = r.Outcrops.Count }),
                 platform = OS.GetName(), renderer = RenderingServer.GetVideoAdapterName(),
                 measured_seconds = _elapsed, frames = times.Length, frame_ms_median = times[times.Length / 2],
                 frame_ms_p95 = times[(int)((times.Length - 1) * .95)], startup_working_set_bytes = _startupMemory,

@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Zhanguo.Desktop.Layout;
-using LayoutPoint = Zhanguo.Desktop.Layout.Point;
 
 // First-stage visual sample only. WorldMap remains the ordinary game viewer.
 public partial class RegionMap : Control
@@ -43,12 +42,23 @@ public partial class RegionMap : Control
                 float h = layout.Elevation(wx, wy);
                 Color color = h switch
                 {
-                    > .83f => new("a6aa96"), > .67f => new("939c88"),
-                    > .48f => new("7c8b77"), > .33f => new("687b68"),
-                    > .18f => new("5c725c"), > .09f => new("789258"), _ => new("8ca761")
+                    > .83f => new("b1b19b"), > .67f => new("9da28b"),
+                    > .48f => new("89957a"), > .33f => new("74866b"),
+                    > .18f => new("697f60"), > .09f => new("829a5c"), _ => new("92ab66")
                 };
-                if (h > .18f && layout.Elevation(wx - 3, wy - 3) < h - .04f) color = color.Lightened(.14f);
-                if (h < .18f && layout.Elevation(wx - 10, wy - 8) > .22f) color = color.Darkened(.12f);
+                if (h > .12f)
+                {
+                    float dx = layout.Elevation(wx + 3, wy) - layout.Elevation(wx - 3, wy);
+                    float dy = layout.Elevation(wx, wy + 3) - layout.Elevation(wx, wy - 3);
+                    float shade = Math.Clamp((dx + dy) * 2.0f, -.24f, .20f);
+                    color = shade > 0 ? color.Lightened(shade) : color.Darkened(-shade);
+                }
+                else
+                {
+                    float patch = layout.ValueNoise(wx / 44, wy / 44, 61);
+                    color = color.Lerp(new Color("82955d"), patch * .35f);
+                    color = color.Darkened(layout.WoodDensity(wx, wy) * .09f);
+                }
                 // Fine grain is world-anchored, never resampled on camera moves.
                 float grain = ((int)(layout.Hash(x / 2, y / 2, 13) % 9) - 4) * .008f;
                 image.SetPixel(x, y, grain > 0 ? color.Lightened(grain) : color.Darkened(-grain));
@@ -118,8 +128,8 @@ public partial class RegionMap : Control
         return texture;
     }
 
-    private void Sprite(string name, Vector2 at, int column = 0, int row = 0)
-        => DrawTextureRectRegion(Texture(name), new Rect2(at, new Vector2(16, 16)), new Rect2(column * 16, row * 16, 16, 16));
+    private void Sprite(string name, Vector2 at, int column = 0, int row = 0, Color? tint = null)
+        => DrawTextureRectRegion(Texture(name), new Rect2(at, new Vector2(16, 16)), new Rect2(column * 16, row * 16, 16, 16), tint);
 
     public override void _Draw()
     {
@@ -148,6 +158,13 @@ public partial class RegionMap : Control
                     if (Layout.Elevation(p.X, p.Y) < .18f) DrawRect(new Rect2(p.Floor(), new Vector2(3, 2)), new Color("b0a575"));
                 }
             }
+            foreach (var rock in r.Rocks)
+                Sprite("rocks", origin + new Vector2(rock.X - 8, rock.Y - 16),
+                    (int)(Layout.Hash((int)rock.X, (int)rock.Y, 71) % 3), tint: new Color(.80f, .86f, .72f));
+            int outcropIndex = 0;
+            foreach (var rock in r.Outcrops)
+                DrawTextureRect(Texture(outcropIndex++ % 2 == 0 ? "generated/mountain-outcrop-v1" : "generated/agy-mountain-cutout-v1"),
+                    new Rect2(origin + new Vector2(rock.X, rock.Y), new Vector2(rock.Width, rock.Height)), false);
             foreach (var gold in r.Gold)
             {
                 var p = origin + new Vector2(gold.X, gold.Y);
@@ -167,7 +184,7 @@ public partial class RegionMap : Control
                 objects.Add((p.Y, () =>
                 {
                     DrawEllipse(p + new Vector2(-2, 0), new Vector2(7, 2), new Color(0, 0, 0, .12f));
-                    Sprite("trees", (p - new Vector2(8, 16)).Floor(), t.Variant + 1);
+                    Sprite(t.Sheet, (p - new Vector2(8, 16)).Floor(), t.Variant);
                 }));
             }
             foreach (var person in r.People)
@@ -213,7 +230,7 @@ public partial class RegionMap : Control
         else if (s.Kind == "mine")
         {
             DrawRect(new Rect2(p, new Vector2(22, 16)), new Color("8e8968"));
-            Sprite("houses", p, 2, 1);
+            Sprite("mineshafts", p);
             DrawRect(new Rect2(p + new Vector2(16, 10), new Vector2(5, 4)), new Color("b9a477"));
         }
         else Sprite("houses", p, (int)(Layout.Hash((int)p.X, (int)p.Y, 9) % 3), 2);

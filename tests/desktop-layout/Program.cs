@@ -14,7 +14,7 @@ static class Program
 
     private static string Projection(RegionLayout layout) => JsonSerializer.Serialize(layout.Regions.Select(r => new
     {
-        r.Input.X, r.Input.Y, r.Structures, r.Trees, r.People, r.Gold
+        r.Input.X, r.Input.Y, r.Structures, r.Trees, r.People, r.Gold, r.Rocks, r.Outcrops
     }));
 
     public static void Main(string[] args)
@@ -42,6 +42,13 @@ static class Program
             }
             foreach (var p in r.People)
                 Require(!r.Structures.Any(s => s.Bounds.Overlaps(new Footprint(p.X - 3, p.Y - 8, 6, 8))), "figure inside building");
+            foreach (var rock in r.Outcrops)
+            {
+                Require(!r.Structures.Any(s => s.Bounds.Overlaps(rock)), "mountain sprite covers a building");
+                for (float y = rock.Y; y <= rock.Y + rock.Height; y += 2)
+                    for (float x = rock.X; x <= rock.X + rock.Width; x += 2)
+                        Require(layout.Elevation(r.Input.X * 256 + x, r.Input.Y * 256 + y) > .18f, "mountain sprite covers flat valley");
+            }
         }
 
         // Same coordinates and seed: enrichment adds trees without moving existing trees.
@@ -61,6 +68,20 @@ static class Program
         }
         Require(layout.Regions.Single(r => r.Input.Gold > 0).Gold.Count > 0, "gold-bearing hills must expose gold");
         Require(layout.Regions.Where(r => r.Input.Gold == 0).All(r => r.Gold.Count == 0), "no invented gold deposits");
+        Require(layout.Regions.Sum(r => r.Outcrops.Count) > 0, "generated mountain asset must appear in the sample");
+        Require(layout.Regions.SelectMany(r => r.Trees).Any(t => t.Sheet == "pine-trees"), "new pine asset must appear in the sample");
+        Require(layout.Regions.SelectMany(r => r.Trees).Where(t => t.Sheet == "pine-trees").All(t => t.Variant == 1), "pine atlas must use the green tree, excluding stump and snow cells");
+
+        var forestTrees = layout.Regions.SelectMany(r => r.Trees.Select(t => new Point(r.Input.X * 256 + t.Foot.X, r.Input.Y * 256 + t.Foot.Y))).ToArray();
+        for (int i = 0; i < forestTrees.Length; i++)
+            for (int j = i + 1; j < forestTrees.Length; j++)
+            {
+                var a = forestTrees[i]; var b = forestTrees[j];
+                Require((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y) >= 80.99f, "tree candidates overlap even across region borders");
+            }
+        Require(forestTrees.Min(t => t.Y % 12) < 2 && forestTrees.Max(t => t.Y % 12) > 10, "tree rows must not collapse to aligned scanlines");
+        Require(layout.WoodDensity(256.001f, 380) < .0001f, "forest must taper toward a zero-wood neighbor");
+        Require(MathF.Abs(layout.WoodDensity(511.999f, 380) - layout.WoodDensity(512.001f, 380)) < .001f, "positive-resource forest edge must blend");
 
         for (int boundary = 256; boundary <= 512; boundary += 256)
             for (int offset = 0; offset <= 768; offset += 8)
@@ -68,8 +89,23 @@ static class Program
                 Require(MathF.Abs(layout.Elevation(boundary - .001f, offset) - layout.Elevation(boundary + .001f, offset)) < .001f, "vertical terrain seam");
                 Require(MathF.Abs(layout.Elevation(offset, boundary - .001f) - layout.Elevation(offset, boundary + .001f)) < .001f, "horizontal terrain seam");
             }
+        // Mixed terrain directions and a different seed, beyond the showcase's mountain row.
+        var neighbors = SampleInput.Parse(json);
+        string[] terrains = { "mountain", "plain", "hill", "forest", "mountain", "plain", "hill", "forest", "mountain" };
+        neighbors.Seed += 701;
+        for (int i = 0; i < neighbors.Regions.Count; i++)
+        {
+            neighbors.Regions[i].Terrain = terrains[i]; neighbors.Regions[i].Buildings.Clear(); neighbors.Regions[i].People = 0;
+        }
+        var mixed = new RegionLayout(neighbors);
+        for (int b = 256; b <= 512; b += 256)
+            for (int p = 0; p <= 768; p += 8)
+            {
+                Require(MathF.Abs(mixed.Elevation(b - .001f, p) - mixed.Elevation(b + .001f, p)) < .001f, "mixed vertical terrain seam");
+                Require(MathF.Abs(mixed.Elevation(p, b - .001f) - mixed.Elevation(p, b + .001f)) < .001f, "mixed horizontal terrain seam");
+            }
         Console.WriteLine("DESKTOP_LAYOUT_OK: deterministic placement, input counts, safe footprints, resource bands, shared edges");
         foreach (var r in layout.Regions)
-            Console.WriteLine($"{r.Input.Name}: facilities={r.Structures.Count} trees={r.Trees.Count} people={r.People.Count} gold={r.Gold.Count}");
+            Console.WriteLine($"{r.Input.Name}: facilities={r.Structures.Count} trees={r.Trees.Count} people={r.People.Count} gold={r.Gold.Count} rocks={r.Rocks.Count} mountains={r.Outcrops.Count}");
     }
 }
