@@ -81,6 +81,7 @@
   "brief.plan_head": "[Plan]",
   "brief.map_head": "[Land and sight]",
   "brief.army_head": "[Armies]",
+  "brief.tip": "💡 {tip}",
   "brief.guards": "Barbarian guards: {count} | positions: {places} (tile before attack)",
   "brief.market_head": "[World market]",
   "brief.bank_head": "[Central bank]",

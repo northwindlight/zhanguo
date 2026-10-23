@@ -69,6 +69,24 @@ def tools(runtime):
 def _econ(data, args, actor, ctx):
     lines=[ctx.text('tool.econ.head'),ctx.text('tool.econ.stocks',values=ctx.resources({r['id']:r['amount'] for r in data['stocks']},gold_short=False)),
            ctx.text('tool.econ.assets',inventory=ctx.money(data['inventory']),buildings=ctx.money(data['buildings']),total=ctx.money(data['gross_assets']))]
+    industry=data.get('industry') or {}
+    if industry:
+        secondary=industry.get('secondary') or {}
+        lines += [
+            ctx.text('tool.econ.industry_head'),
+            ctx.text('tool.econ.industry_primary',
+                     outputs=ctx.resources(industry.get('primary') or {},gold_short=False),
+                     sell=ctx.money(industry.get('primary_value'))),
+            ctx.text('tool.econ.industry_secondary',
+                     supply=ctx.resources({'native:supply':secondary.get('native:supply',0)},gold_short=False),
+                     supply_value=ctx.money(industry.get('supply_value')),
+                     equipment=ctx.resources({'native:equipment':secondary.get('native:equipment',0)},gold_short=False),
+                     equipment_value=ctx.money(industry.get('equipment_value')),
+                     total=ctx.money(industry.get('secondary_value'))),
+            ctx.text('tool.econ.industry_cost',buy=ctx.money(industry.get('input_value'))),
+            ctx.text('tool.econ.industry_margin',value=ctx.money(industry.get('margin'))),
+            ctx.text('tool.econ.industry_note'),
+        ]
     tribute=data.get('preview',{}).get('tribute')
     if tribute:lines.append(_tribute(tribute,{},actor,ctx))
     receivables=data.get('preview',{}).get('tribute_receivables')

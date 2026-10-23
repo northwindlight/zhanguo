@@ -285,6 +285,8 @@ class ModelView:
         if trimmed:text+='\n'+self.text('brief.news_trimmed')
         if dropped:
             text+='\n\n'+'；'.join(self.text('brief.omitted',tool=FALLBACK.get(key,key)) for key in dropped)
+        from presentation.tips import random_tip
+        text+='\n\n'+self.text('brief.tip',tip=random_tip())
         return text
 
     def state(self,observation,events):

@@ -7,6 +7,8 @@ from mods.native.contracts.economy import Money, TurnReport, PeriodReport, integ
 
 # 旧版市场行给的是「卖50≈79金 买50≈89金」——固定 50 单位的大单试算。
 MARKET_TRIAL_UNITS = 50
+PRIMARY_RESOURCES = ('native:food', 'native:wood', 'native:ore', 'native:oil', 'native:gold')
+SECONDARY_RESOURCES = ('native:supply', 'native:equipment')
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,7 @@ class BalanceSheet:
     latest_flows: dict = field(default_factory=dict)
     preview: dict = field(default_factory=dict)
     latest_report: PeriodReport | None = None
+    industry: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -93,6 +96,20 @@ class EconomicQueries:
         turns = self._call('native:economy','turns',owner)
         flows = self._call('native:economy','production',owner)
         preview = dict(self._call('native:buildings', 'demand_preview', owner))
+        # 本期产业按当前建筑与市价的满负荷预演；latest_flows 仍是上一期实际。
+        outputs = dict(preview.get('outputs') or ())
+        production_inputs = dict(preview.get('inputs') or ())
+        primary = {key: outputs[key] for key in PRIMARY_RESOURCES if outputs.get(key)}
+        secondary = {key: outputs[key] for key in SECONDARY_RESOURCES if outputs.get(key)}
+        primary_value = self._value(primary, 'sell')
+        secondary_value = self._value(secondary, 'sell')
+        supply_value = self._value({'native:supply': secondary['native:supply']}, 'sell') if secondary.get('native:supply') else Money()
+        equipment_value = self._value({'native:equipment': secondary['native:equipment']}, 'sell') if secondary.get('native:equipment') else Money()
+        input_value = self._value(production_inputs, 'buy')
+        industry = {'basis': 'current_preview', 'primary': primary, 'secondary': secondary,
+                    'primary_value': primary_value, 'secondary_value': secondary_value,
+                    'supply_value': supply_value, 'equipment_value': equipment_value,
+                    'input_value': input_value, 'margin': secondary_value.plus(input_value, -1)}
         if 'native:diplomacy' in self._runtime.capabilities:
             relations=self._call('native:diplomacy','snapshot',owner).vassals
             relation=next((s for s in relations if s.subject==owner),None)
@@ -114,7 +131,7 @@ class EconomicQueries:
         reports = self.report(owner)
         return BalanceSheet(owner,inventory,buildings,inventory.plus(buildings),stocks,
                             turns[-1] if turns else None,flows,preview,
-                            reports[-1] if reports else None)
+                            reports[-1] if reports else None,industry)
 
     def report(self, owner):
         self._call('native:resource-inspection','snapshot',owner)

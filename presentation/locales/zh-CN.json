@@ -81,6 +81,7 @@
   "brief.plan_head": "【国策规划】",
   "brief.map_head": "【国土/视野】",
   "brief.army_head": "【军队】",
+  "brief.tip": "💡 {tip}",
   "brief.guards": "野人守军：{count}支｜位置：{places}（进攻前用 tile 复核守军）",
   "brief.market_head": "【世界市场】",
   "brief.bank_head": "【央行】",
