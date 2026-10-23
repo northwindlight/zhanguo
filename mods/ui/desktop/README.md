@@ -19,7 +19,7 @@ python3 desktop.py --godot /path/to/godot-mono --dotnet /path/to/dotnet
 也可用 Godot .NET 编辑器打开 `project.godot`，构建后运行；宿主默认使用
 `python3`（Windows 为 `python`），`ZHANGUO_PYTHON` 可指定解释器。
 
-默认创建**暂停的离线八国演示局**，不读取 `mp_config.json`、不调用 LLM。
+默认创建**暂停的离线八国 v13 规则 AI 演示局**，不读取 `mp_config.json`、不调用 LLM。
 为了展示真实单位，使用观察者补助接口给每国两支骑兵，其余规则沿用原剧本。
 上限为第 300 回合。每次启动保存到独立目录：
 

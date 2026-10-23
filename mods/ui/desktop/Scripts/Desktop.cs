@@ -71,7 +71,7 @@ public partial class Desktop : Control
         var all = Button(left,"总览天下",()=>{_selectedNation="";_map.Fit();ShowTile(null);});all.TooltipText="F：回到全图";
         var borders = new CheckButton {Text="国界",ButtonPressed=true};left.AddChild(borders);borders.Toggled += v=>{_map.Borders=v;_map.QueueRedraw();};
         var units = new CheckButton {Text="军队",ButtonPressed=true};left.AddChild(units);units.Toggled += v=>{_map.Units=v;_map.QueueRedraw();};
-        left.AddChild(new Label {Text="离线八国 · 规则 AI\n独立演示局\n上限 300 回合",Modulate=new Color("a4b09c")});
+        left.AddChild(new Label {Text="离线八国 · v13\n独立演示局\n上限 300 回合",Modulate=new Color("a4b09c")});
         _map = new WorldMap {SizeFlagsHorizontal=SizeFlags.ExpandFill,SizeFlagsVertical=SizeFlags.ExpandFill};body.AddChild(_map);_map.SelectionChanged=ShowTile;
         var right = new VBoxContainer {CustomMinimumSize=new(310,0)};body.AddChild(right);
         right.AddChild(Heading("山河与国势"));

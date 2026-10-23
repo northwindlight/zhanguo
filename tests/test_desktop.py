@@ -12,13 +12,14 @@ from ui.desktop import Controller
 
 class TestDesktop(unittest.TestCase):
     def host(self):
-        cfg = build_config({'nations': [{'client': 'rule'}]}, 20261023)
+        cfg = build_config({'rule_ai': 'v13', 'nations': [{'client': 'rule', 'rule_ai': 'v13'}]}, 20261023)
         host = build(seed=20261023, config=cfg)
         for actor in host.actors():host.subsidize(actor, {}, cavalry=2)
         return host
 
     def test_detached_exact_projection(self):
         h = self.host(); snapshot = h.observer_snapshot(); before = h.to_save()
+        self.assertTrue(all(client.version == 'v13' for client in h.clients.values()))
         frame = h.ui.desktop_frame(snapshot)
         self.assertEqual(len(frame['tiles']), 576)
         self.assertEqual(len(frame['nations']), 8)

@@ -115,7 +115,7 @@ def main(argv=None):
         if os.environ.get('ZHANGUO_UI_MODS'):cfg['ui_mods'] = os.environ['ZHANGUO_UI_MODS']
         with redirect_stdout(sys.stderr):host = GameHost.load(resume, cfg)
     else:
-        cfg = build_config({'nations': [{'client': 'rule'}]}, args.seed)
+        cfg = build_config({'rule_ai': 'v13', 'nations': [{'client': 'rule', 'rule_ai': 'v13'}]}, args.seed)
         if os.environ.get('ZHANGUO_UI_MODS'):cfg['ui_mods'] = os.environ['ZHANGUO_UI_MODS']
         with redirect_stdout(sys.stderr):host = build(seed=args.seed, config=cfg)
         # The ordinary scenario starts without troops. Give this isolated visual
