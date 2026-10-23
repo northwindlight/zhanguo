@@ -1,0 +1,23 @@
+[Mod]
+Id = "stock:clock"
+Version = "1.0.0"
+Entry = "mods.stock.clock:ClockMod"
+
+[State]
+Owns = ["clock"]
+
+[Capabilities]
+Provides = ["stock:clock"]
+
+[Parameters]
+# 每 5 个交易日休市 2 天：一个 7 回合的日历循环。
+TradingDays = 5
+RestDays = 2
+# 两个窗口的动作额度：开盘 20 分钟、回合末统一工作 20 分钟。
+# 额度按模型侧工具调用计数，是墙钟之外的确定性口径。
+MarketWindow = 20
+WorkWindow = 20
+
+[PlayerAPI]
+Methods = ["end_turn", "snapshot"]
+ReadOnly = ["snapshot"]

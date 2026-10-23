@@ -24,6 +24,8 @@ The default `native` distribution implements economic, military, diplomatic and 
 
 The optional [experimental distribution](mods/experimental/README.md), currently `0.9.0`, adds two-phase council review and monarch replacement, finite-inventory market feedback, and saved Python routines with deterministic work budgets and one execution opportunity per nation per turn. Scripts use the standard API, and successful actions survive a later script error. It also enables [research combat probabilities](mods/experimental/combat_research/README.md) exclusively for rule clients, with optional C acceleration; no probability tools are exposed to LLM clients.
 
+The [stock distribution](mods/stock/README.md) simulates a stock market: players trade only through Python scripts, so buying and selling are never exposed as model tools. Each turn has a market-open window and a round-end work window, two rest days follow every five trading days, and every turn opens with the previous script run's printed output and error message plus the player's own positions and net worth.
+
 ## Run
 
 ```bash

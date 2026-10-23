@@ -1,0 +1,24 @@
+{
+  "mods": "mods.stock.toml",
+  "seed": 20261023,
+  "max_turns": 30,
+  "save": "stock_save.json",
+  "journal": "stock_journal.md",
+  "nations": [
+    {
+      "id": "stock:alpha",
+      "name": "量化甲",
+      "client": "sim"
+    },
+    {
+      "id": "stock:beta",
+      "name": "量化乙",
+      "client": "sim"
+    },
+    {
+      "id": "stock:gamma",
+      "name": "量化丙",
+      "client": "sim"
+    }
+  ]
+}

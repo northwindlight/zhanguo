@@ -1,0 +1,34 @@
+[Mod]
+Id = "stock:market"
+Version = "1.0.0"
+Entry = "mods.stock.market:MarketMod"
+Requires = ["stock:clock"]
+
+[State]
+Owns = ["market"]
+
+[Capabilities]
+Needs = ["stock:clock", "stock:portfolio"]
+Provides = ["stock:market"]
+
+[Interfaces]
+"stock:clock" = ["period", "trading_day"]
+"stock:portfolio" = ["position_of"]
+
+[Parameters]
+# 每只股票的流通盘：冲击成本按「本次下单量 / 流通盘」计。
+FloatShares = 20000
+# 冲击成本：打满流通盘时价格被推开 5%，封顶也是 5%。
+ImpactRate = 0.05
+ImpactCap = 0.05
+# 手续费：单边 0.1%。
+Commission = 0.001
+# 订单流对价格的推动：全市场净买入打满流通盘时价格推升 3%。
+FlowImpact = 0.03
+# 动量与均值回归权重。
+Momentum = 0.35
+Reversion = 0.05
+
+[PlayerAPI]
+Methods = ["quotes", "history", "catalog", "buy", "sell", "cancel"]
+ReadOnly = ["quotes", "history", "catalog"]
