@@ -19,8 +19,9 @@ Provides = ["sandbox:programs"]
 [Limits]
 # 行情载荷比原版大（每只股票带均线、动量、波动率与成本参数），
 # 预算相应放宽；沙盒的结构性上限（depth/source/nodes/integer_bits）不动。
-steps = 40000
-calls = 32
+# 一次 API 调用计 100 步：2000 次调用至少吃掉 200000 步，800000 步留出计算余量。
+steps = 800000
+calls = 2000
 source = 16384
 nodes = 2048
 items = 4096

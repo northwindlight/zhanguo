@@ -338,6 +338,22 @@ class StockGameTest(unittest.TestCase):
         book = host.world.portfolio.holdings('stock:player0')
         self.assertEqual(book['positions'], [], '成交要等回合末统一撮合')
 
+    # ── 沙盒预算 ──────────────────────────────────────────────────
+    def test_sandbox_budget_is_raised(self):
+        host = self.host()
+        limits = host.world.scripts.limits
+        self.assertEqual(limits['steps'], 800000)
+        self.assertEqual(limits['calls'], 2000)
+
+    def test_script_can_spend_the_raised_budget(self):
+        host = self.host()
+        player = host.session.player('stock:player0')
+        receipt = player.submit('script', {'action': 'write', 'source': BUY_SCRIPT})
+        self.assertTrue(receipt['ok'], receipt.get('message'))
+        receipt = player.submit('script', {'action': 'run'})
+        self.assertTrue(receipt['ok'], receipt.get('message'))
+        self.assertLessEqual(receipt['data']['calls'], 2000)
+
     # ── 规则与结算表 ──────────────────────────────────────────────
     def test_rules_mention_the_calendar_and_the_sandbox(self):
         host = self.host()

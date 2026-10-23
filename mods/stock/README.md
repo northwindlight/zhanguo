@@ -54,6 +54,7 @@ python3 mp_run.py --config mp_config.stock.offline.example.json
 ## 脚本里能做什么
 
 脚本运行在沙盒里，没有导入、文件、网络、随机与动态执行，也没有 `try/except`。
+预算：单次运行 **800000 计算单位、2000 次 API 调用**（一次 API 调用计 100 步）。
 可用能力：
 
 ```python
