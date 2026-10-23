@@ -15,8 +15,9 @@
        · **增援**（引擎能力只算"手上的兵"；增援够不够得着是**寻路**，属 RL 侧决策），
        · **撤退生还率**（引擎能力是"打赢这一格"，不含"撤了能不能活"）。
 
-  ★ 引擎能力**不覆盖**的格子（该格对所有参战方都不可见）⇒ 按**保守估**
-    （"一支满血野人"）—— 与 `rl/teacher/combat.py` 的未知目标同一条口径。
+  ★ 引擎能力**不覆盖**的格子（该格对所有参战方都不可见）⇒ **推不出来**
+    ⇒ 如实标成"**未知**"（`Odds.derivable=False`），**不编假分布**
+    （2026-10-23 修，review P1-6）。
 """
 from __future__ import annotations
 
@@ -43,9 +44,27 @@ class Odds:
     p_rounds: list = field(default_factory=list)   # ★ P(打满 k 轮才定局)，下标 = 轮数
     n_states: int = 0
     truncated: float = 0.0                         # 未收敛的质量
+    # ★★ **推不推得出来**（2026-10-23 修，review P1-6）。
+    #   引擎的能力要求"**提问方看得见目标格**"⇒ 迷雾里的野战**推不出来**。
+    #   旧实现给它编了一个"空胜负表 + 平局 0 + 一轮结束"的**假分布**
+    #   （既不是合法分布，也没说"不知道"）⇒ 编码层照抄 ⇒ **模型以为那几列是 0 概率**
+    #   （读成"必败"）。
+    #   ⇒ 现在**显式标成推不出来**（`derivable=False`）：编码层写"未知"那一列，
+    #     其余概率列**全 0 且不当成 0 概率读**。
+    derivable: bool = True
 
     def round_bins(self, edges: tuple | None = None) -> list[float]:
-        """★ P(轮数 ≤ edge) 的**累积**分档 —— "多久打完"喂网络用这个（定长、单调）。"""
+        """★ P(轮数 ≤ edge) 的**累积**分档 —— "多久打完"喂网络用这个（定长、单调）。
+
+        ★ `p_rounds[k]` = P(**恰好**打满 k 轮才定局)（k=0 = 不用打就定了）⇒
+          边界 `e` 那一档 = `sum(p_rounds[0..e])`。
+        ★★ **边界必须真的用上**（2026-10-23 修，review P2-8）：
+          原实现把**整个分布**累加进**每一档**（`while idx < len(p_rounds)` 与
+          边界 `e` 无关）⇒ 无论边界是几都返回同一个值 —— 输入
+          `[0,.1,.2,.3,.4]`、边界 `(1,2,3,4)` 本该是 `[.1,.3,.6,1]`，
+          实际是 `[1,1,1,1]` ⇒ 那一组特征**恒为 1** ⇒ 模型学不到"这仗要多久"，
+          而且**单调性测试抓不到**（[1,1,1,1] 也是单调不减的）。
+        """
         if edges is None:
             from . import scoring as S
             edges = S.ROUND_BIN_EDGES
@@ -53,7 +72,7 @@ class Odds:
         running = 0.0
         idx = 0
         for e in edges:
-            while idx < len(self.p_rounds):
+            while idx <= e and idx < len(self.p_rounds):
                 running += self.p_rounds[idx]
                 idx += 1
             cum.append(running)
@@ -127,10 +146,24 @@ def _odds_from_native(result: dict, factions) -> Odds:
 
 
 def _conservative(factions) -> Odds:
-    """看不见的一格 ⇒ **保守估**（"一支满血野人"，同 `teacher/combat.py` 的未知目标）。"""
-    g_hp, g_atk = rules.unit_max_hp({"type": "native:infantry"}), rules.unit_atk({"type": "native:infantry"})
+    """★ **推不出来**的一格 ⇒ 如实标成"推不出来"（`derivable=False`）。
+
+    ★★ 2026-10-23 修（review P1-6）：旧实现返回的是
+      「空胜负表 + 平局 0 + 未决质量 0 **+ `p_rounds=[0,1]`**」
+      —— 那个 `p_rounds` 等于说"**一轮就打完**"，可它跟"打不完"是一回事吗？
+      **不是**：那是个**假分布**（既不归一，也没有任何信息）⇒ 编码层照抄之后
+      「期望轮数 = 1」「各档轮数 = 1」⇒ **模型读到的是"这仗一秒就完"**，
+      而真实含义是"**我不知道**"。
+
+    ⇒ 现在：**不编数字**。概率列全空、轮数分布为空、`derivable=False`
+      ⇒ 编码层写"**未知**"那一列（`GRID_CB_UNKNOWN` / `A_CB_UNKNOWN`），
+      其余列保持 0（**由"未知"列说明那是 0 概率而不是概率**）。
+    ★ 引擎的能力要求"提问方**看得见**目标格" ⇒ 迷雾里的野战**本来就推不出来**；
+      RL 侧**不自己算**（那是复刻引擎的 DP，review §2.4 已经删过一次）。
+    """
     return Odds(p_win={}, p_lose={}, p_draw=0.0, p_hold={},
-                e_rounds=1.0, e_loss={}, p_rounds=[0.0, 1.0], n_states=0, truncated=0.0)
+                e_rounds=0.0, e_loss={}, p_rounds=[], n_states=0, truncated=0.0,
+                derivable=False)
 
 
 # ---------------------------------------------------------------- 交战格
@@ -168,20 +201,24 @@ def _actor_of(env, cell, factions) -> str | None:
 
 
 # ---------------------------------------------------------------- 增援
-def _reinforcements(env, cell, owner: str, allow) -> list:
-    """这一方**够得着**这一格的增援（引擎的可达集 + 视野过滤）。
+def _reinforcements(env, cell, owner: str) -> list:
+    """这一方**够得着**这一格的增援（引擎的可达集）。
 
     ★ 这是**寻路**（RL 侧的决策），不是引擎规则 ⇒ 走 `env.reachable`（引擎的可达集）。
-    ★ 增援**只算看得见的**（`allow` ＝ 视野）：看不见的敌军增援不算
-      （否则就是隔雾点名）。
+    ★★ **自家部队不按视野过滤**（2026-10-23 修，review P1-5）：
+      原来的 `allow`（= 视野）把**我自己**的预备队也滤掉了 ——
+      甲的增援站在野地（不在甲的视野框里）就数不着 ⇒
+      「增援胜率」那列**恒等于基础胜率**（本机实测：42.1% ⇒ 42.1%，
+      而正确的答案是 100%；审查里同一形状的例是 24.3%）。
+      ★ 我自己的军队在哪儿我当然知道（观测窗口里也有）⇒ **自家不过滤**。
+      视野过滤**只该**管**敌军**增援（看不见就别点名）—— 而本函数只算**提问方
+      自己**的增援（敌军的增援是未知量，不该猜）⇒ 这条路本来就不该有视野过滤。
     """
     out = []
     for unit in env.armies():
         if not unit.alive or env.owner_of(unit) != owner:
             continue
         if (unit.x, unit.y) == cell:
-            continue
-        if allow is not None and (unit.x, unit.y) not in allow:
             continue
         reach = env.reachable(owner, unit, for_attack=True)
         if cell in reach:
@@ -297,8 +334,15 @@ def frame_odds(env, me: str, mask, *, with_reinf: bool = True,
     """★ **观测路径的唯一入口** —— 这一帧的全部战斗概率。
 
     `mask` 是**必填的第三个位置参数**（不是关键字、更不给默认值）：
-    这个函数要按**视野**过滤增援 ⇒ 给个默认值就等于留一条
+    这个函数要按**视野**判断"那一格我看得见吗" ⇒ 给个默认值就等于留一条
     "忘了传 ⇒ 静默偷看"的路（本线最忌）。忘传直接 `TypeError`，这是有意的。
+
+    ★★ **增援按 `me`（观测方）算**（2026-10-23 修，review P1-5）：
+      旧实现拿"国家名排序后的第一个提问方"当增援方 ⇒ 观测是**甲**的，
+      增援却是按**别人**算的 ⇒ 「增援胜率」那一列**回答的不是甲的问题**
+      （本机实测：甲的预备队在野地时，那一列 42.1% ⇒ 42.1%，正确的答案是 100%；
+      审查里同一形状的例是 24.3%）。
+      ⇒ 现在问引擎时**用 `me` 的身份**（引擎能力要求"提问者自己的部队"）。
     """
     out = FrameOdds()
     for cell in engaged_cells(env):
@@ -306,23 +350,26 @@ def frame_odds(env, me: str, mask, *, with_reinf: bool = True,
         if o is None:
             continue
         out.cells[cell] = o
+        # ★★ `factions` **无条件**算（2026-10-23 修，review P2-10）：
+        #   原来它只在 `if with_reinf:` 里赋值 ⇒ `with_reinf=False` 时
+        #   下面的撤退那段直接 `UnboundLocalError`（一遇交战就崩）。
+        factions = _factions_at(env, cell)
         if with_reinf:
-            # ★ 增援：把"够得着这一格"的自家部队**并进提问方的部队**再问一次
+            # ★ 增援：把"够得着这一格"的**我方**部队**并进我的部队**再问一次
             #   （引擎能力只算"手上的兵"；增援够不够得着是**寻路**，属 RL 侧决策）。
-            factions = _factions_at(env, cell)
-            actor = _actor_of(env, cell, factions)
-            if actor is not None:
-                extra = _reinforcements(env, cell, actor, mask)
-                if extra:
-                    ids = [u.id for u in factions[actor]] + [u.id for u in extra]
-                    try:
-                        result = env.assess(actor, ids, cell[0], cell[1])
-                    except Exception:                # noqa: BLE001
-                        result = None
-                    out.reinf[cell] = (o if result is None or not result.get("known")
-                                       else _odds_from_native(result, factions))
-                else:
-                    out.reinf[cell] = o
+            #   ★ 提问方 = `me`（观测方）；`me` 不在这一格 ⇒ 没有"我的增援"这回事
+            #     ⇒ 退回基础概率（`o`）。
+            #   ★ 那一格**不在我的视野里** ⇒ 我连那儿在打什么都不知道
+            #     ⇒ 也不给增援估计（退回 `o`）。这就是 `mask` 现在唯一的用处。
+            extra = _reinforcements(env, cell, me) if factions.get(me) else []
+            if extra and (cell in mask):
+                ids = [u.id for u in factions[me]] + [u.id for u in extra]
+                try:
+                    result = env.assess(me, ids, cell[0], cell[1])
+                except Exception:                # noqa: BLE001
+                    result = None
+                out.reinf[cell] = (o if result is None or not result.get("known")
+                                   else _odds_from_native(result, factions))
             else:
                 out.reinf[cell] = o
         if retreat:

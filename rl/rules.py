@@ -95,7 +95,20 @@ def unit_supply(kind: str = "native:infantry") -> int:
 
 
 def unit_move_cost(kind: str, terrain: str) -> int:
-    """走进 `terrain` 这一格要花几点移动力（表里没写的地形按 1 = 不受阻）。"""
+    """走进 `terrain` 这一格要花几点移动力（表里没写的地形按 1 = 不受阻）。
+
+    ★★ **两个入参都归一化**（2026-10-23 修，review P1-4）：
+      · `kind` 可以是内容 ID / 旧口径 dict（`{"type": …}`）/ 引擎 `Unit`
+        —— 原来只认内容 ID ⇒ 传 dict 时 `MOVE_COST.get(dict, {})` **恒空**
+        ⇒ **代价恒为 1**（"骑兵上山地只要 1 点"，引擎的真值是 2）。
+      · `terrain` 可以是内容 ID / 引擎的 `Terrain` 对象
+        —— 原来只认内容 ID ⇒ 传对象时 `.get(对象, 1)` **恒 1**
+        ⇒ **所有地形的移动代价都是 1**（地形形同不存在）。
+      ★ 这两种都是"**错起来不报错**"的（`.get` 取不到就给默认值）⇒
+        必须在**入口**归一，不能指望调用方记得传对。
+    """
+    kind = unit_kind(kind)
+    terrain = terrain_id(terrain)
     return int(_army.MOVE_COST.get(kind, {}).get(terrain, 1))
 
 
@@ -106,17 +119,42 @@ def move_cost_table(kind: str) -> dict:
       "是不是所有地形都 1" 的快路判断。代价可忽略（5 项）；
       换来的是**键名统一**（都是内容 ID）。
     """
+    kind = unit_kind(kind)
     table = _army.MOVE_COST.get(kind, {})
     return {terrain: int(cost) for terrain, cost in table.items()}
 
 
 # ---------------------------------------------------------------- 地形
+def terrain_id(terrain) -> str:
+    """地形 → **内容 ID**（`native:plain` 这样的字符串）。
+
+    ★★ **类型边界**（2026-10-23 修，review P1-4）：RL 线里"地形"有两种表示 ——
+      引擎的 `Terrain` 对象（读模型，含 defense/resources…）和**内容 ID**（表的键）。
+      规则表（`MOVE_COST` / `TERRAINS`）**只认内容 ID** ⇒ 混用时
+      `.get(对象, 默认值)` **悄悄给默认值**：
+      山地的减伤读成 0、骑兵上山的代价读成 1（真值是 50 和 2）——
+      **而且一行都不报错**。
+      ⇒ 统一在**这一层**归一：对象取 `.id`，字符串原样过。
+      不认识的**字符串** ⇒ **响亮报错**（本文件的纪律：不许悄悄用默认值）。
+    """
+    if isinstance(terrain, str):
+        return terrain
+    ident = getattr(terrain, "id", None)
+    if isinstance(ident, str):
+        return ident
+    raise TypeError(f"地形参数类型不对：{terrain!r}（要内容 ID 或引擎的 Terrain 对象）")
+
+
 def terrain_defense(terrain: str) -> int:
-    """地形的减伤%（`native:plain` 0 … `native:mountain` 50）。"""
+    """地形的减伤%（`native:plain` 0 … `native:mountain` 50）。
+
+    ★ 入参吃**内容 ID 或引擎的 `Terrain` 对象**（`terrain_id` 归一）。
+    """
+    terrain = terrain_id(terrain)
     for entry in _territory_mod.TERRAINS:
         if entry.id == terrain:
             return int(entry.defense)
-    return 0
+    raise KeyError(f"不认识的地形 {terrain!r} —— 引擎的地形表是 {sorted(terrain_names())}")
 
 
 def terrain_names() -> tuple:

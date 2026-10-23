@@ -101,7 +101,13 @@ git checkout rl/mods/train/mod.toml
 | 战斗概率 | `research:combat-probabilities.assess` |
 | 伤害分摊 / 减伤 | `native:army.spread_damage` / `defense_pct` / `faction_power` |
 | 野人 | `native:army.visible_units`（引擎**现场合成**） |
-| 亡国 | `native:succession`（市政厅尽失者亡国） |
+| 亡国 | `native:succession`（**登记**在 `enroll`、**裁决**在结算阶段） |
+
+> ★ **亡国现在真的走引擎**（2026-10-23 修）：摆局时每个国家都被
+> `native:succession.enroll` **登记**一次（登记发生在**市政厅落成之后** ——
+> 没首都就登记 = 下一个结算点立刻判死）⇒ 结算时引擎自己判"国祚断绝"，
+> 自己迁移站点、`diplomacy.eliminate`、`army.remove_nation`、`nations.extinguish`
+> ⇒ **引擎状态与 RL 的判断不再分叉**（`Sandbox.alive` 只是**读**引擎的状态）。
 
 ### 归 RL（训练环境的先验，不是引擎规则）
 
@@ -123,8 +129,26 @@ git checkout rl/mods/train/mod.toml
    （开局摆兵走 native 的 `seed` ＝ 初始化/导入，那是**另一条** native 路径）。
 2. **无主格可以打** —— native 允许（引擎会在那儿**放一支真野人**，打它才能占格）。
    沙盒的"能不能打"一律由 `native:army.reachable(..., attack=True)` 回答。
+   ★ 进攻候选 = `reachable(attack=True)` **减去自家/盟国**（那两格引擎会拒）。
+     **野地也在里面** —— 因为引擎里 **`move` 不占地、`attack` 才占地**
+     （`native:army.attack` 走 `_claim` 改归属）⇒ 不给野地的 `attack` 候选
+     ⇒ **模型永远学不会主动占地**（2026-10-23 修，review P1-1）。
 3. **平局时已亡国的一方按 −1（输）** —— 亡国就是输；两处口径不一致会让
    "早死比输划算"⇒ 模型会学出"主动送死"。
+
+### 战斗概率的三条口径（2026-10-23 修）
+
+1. **只转发引擎能力** —— `research:combat-probabilities.assess`。
+   引擎能力要求"**提问方看得见目标格**"⇒ **迷雾里的野战推不出来**。
+   ⇒ RL 侧**不编假分布**（旧口径写"一轮结束"，模型会把"不知道"读成"0 概率"），
+     观测里**显式标"未知"**（`vocab.GRID_CB_UNKNOWN` / `vocab.A_CB_UNKNOWN`），
+     其余概率列保持 0（**由"未知"列说明那是 0 概率而不是概率**）。
+2. **增援按观测方算** —— 「增援胜率」那一列回答的是"**我**的增援到齐后我赢多少"
+   ⇒ 问引擎时用**观测方**的身份（引擎能力要求"提问者自己的部队"），
+   且**自家部队不按视野过滤**（我自己的军队在哪儿我当然知道 ——
+   旧口径按视野过滤 ⇒ 预备队在野地就数不着 ⇒ 那一列恒等于基础胜率）。
+3. **轮数分档用真边界** —— `Odds.round_bins` 的每一档是 `sum(p_rounds[0..边])`
+   （旧口径把整个分布累加进每一档 ⇒ 无论边界是几都返回同一个值）。
 
 ---
 
@@ -139,11 +163,12 @@ git checkout rl/mods/train/mod.toml
 | `tests/test_rl_train_truncation.py` | 截断**不产生伪终局**；终局口径单一；亡国方在平局按 −1 |
 | `tests/test_rl_stats_weighting.py` | 权重单一出处；击杀账本按 `gid` 记（不同国的同号军不撞车） |
 | `tests/test_rl_battle_odds.py` | 战斗概率**逐位等于**引擎能力；看不见的目标不编数；RL 侧不再有 DP 实现 |
+| `tests/test_rl_review_fixes.py` | **复审十条**（2026-10-23）：野地进攻候选 / 亡国落引擎 / 迷雾战斗不崩 / 地形类型边界 / 增援按观测方 / 推不出来标"未知" / 老师的未知守军 / 轮数分档 / MCTS 可导入 / `with_reinf=False` 不崩 |
 
 ```bash
 .venv/bin/python -m unittest \
   tests.test_rl_sandbox tests.test_rl_obs_engine_truth tests.test_rl_train_truncation \
-  tests.test_rl_stats_weighting tests.test_rl_battle_odds -q
+  tests.test_rl_stats_weighting tests.test_rl_battle_odds tests.test_rl_review_fixes -q
 ```
 
 ### CI 口径（`python -m unittest discover -s tests -q`）
@@ -219,6 +244,24 @@ ls rl/PLAN.md rl/REPAIR-2026-10-22.md 2>&1 | grep -q "No such" && echo "旧文�
 - **战斗概率的两块仍由 RL 侧算**：**增援**够不够得着（寻路，属 RL 决策）
   与**撤退生还率**（引擎能力不含）—— 引擎那部分（胜负、轮数、掉血）**只转发**，
   `tests/test_rl_battle_odds.py` 逐位对拍钉住。
+  ★ 增援这一块现在只算**观测方自己**的预备队（"我到齐了能赢多少"）；
+    **敌军的增援是未知量**（看不见就别点名）⇒ 不猜。
+- ★★ **迷雾里的野战"推不出来"**（2026-10-23）：引擎的推演能力要求"提问方
+  **看得见**目标格"⇒ 双方都看不见时**没有概率**。RL 侧**不自己算**
+  （那是复刻引擎的 DP）⇒ 观测里**显式标"未知"**
+  （`vocab.GRID_CB_UNKNOWN` / `vocab.A_CB_UNKNOWN`）。
+  ⇒ **代价**：大地图上"接触战"的概率通道多半是"未知"（8×8 的交战格可见率
+  27%~66%，16×16 只有 0%~7%）⇒ 想让它有内容，只能等引擎那边给出
+  **不要求视野**的推演口（那是主线的能力，不是 RL 线该自己造的）。
+- ★★ **观测宽度变了**（2026-10-23）：网格 **27 → 28** 列（多了"推不出来"标记）、
+  军队 token 尾部 **14 → 15** 列 ⇒ **旧 ckpt 一律作废**（宽度对不上）。
+- ★ **网格里"看不见的格"仍会写防御%与移动代价**（2026-10-23 实测：
+  8×8 三国局里框内有 2 格看不见，却写出了 `defense=25%`（= 山地）与骑兵代价）
+  ⇒ **地形/城堡信息从迷雾里漏了一点**。归属 one-hot 是严格按视野的（没漏），
+  漏的只有这两列。
+  **为什么没直接改**：看不见的格该写"未知"（0）还是"中性先验"（按平原算）
+  是个**建模口径**，两者的训练含义不同 ⇒ 留给口径裁定，没顺手改掉。
+  （**不在本次复审的十条之内**。）
 
 ### 目录
 

@@ -22,7 +22,7 @@ Provides = ["rl:scenario"]
 
 [Interfaces]
 "rl:sandbox" = ["reset", "place_nation", "seed_building", "spawn",
-                "owner_of", "owned_cells", "claim"]
+                "owner_of", "owned_cells", "claim", "enroll_succession"]
 
 # ★ 剧本参数（可调先验，**不是**引擎常数）。
 [Scenario]

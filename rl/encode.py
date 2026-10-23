@@ -63,12 +63,20 @@ def _defense_of(env, x: int, y: int, owner) -> int:
 
 
 def _move_cost_of(env, x: int, y: int) -> int:
-    """骑兵进这一格的**移动代价**（用户点名的"移动属性（对应骑兵）"）。"""
+    """骑兵进这一格的**移动代价**（用户点名的"移动属性（对应骑兵）"）。
+
+    ★★ **两处都得对**（2026-10-23 修，review P1-4）：
+      · 兵种：**内容 ID**（`native:cavalry`）—— 原来传的是 `{"type": …}` 那种
+        旧口径 dict ⇒ `MOVE_COST.get(dict, {})` **恒空** ⇒ 代价**恒为 1**
+        （骑兵上山也是 1 点；引擎的真值是 2）。
+      · 地形：**内容 ID** —— `env.terrain` 现在只给 ID（见 `Env.terrain` 的注释）；
+        原来给的是引擎的 `Terrain` 对象 ⇒ 同样 `.get(对象, 1)` **恒 1**
+        ⇒ **所有地形的移动代价都是 1**（地形形同不存在）。
+      ★ 原来那个 `except Exception: return 1` 把这类错**全兜住了** ⇒ 错起来
+        不报错。⇒ 现在**不兜**（表里取不到就该炸出来）。
+    """
     from .rules import unit_move_cost
-    try:
-        return int(unit_move_cost({"type": "native:cavalry"}, env.terrain(x, y)))
-    except Exception:                              # noqa: BLE001
-        return 1
+    return int(unit_move_cost("native:cavalry", env.terrain(x, y)))
 
 
 def _owner_class(env, name: str, x: int, y: int, by_cell: dict | None = None,
@@ -136,11 +144,15 @@ def combat_of(sb, me: str, mask, armies=None) -> CB.FrameOdds:
     return CB.frame_odds(sb.env, me, mask, with_reinf=True, retreat=True)
 
 
-def _mine_engaged_here(by_cell, me: str, x: int, y: int) -> bool:
+def _mine_engaged_here(env, by_cell, me: str, x: int, y: int) -> bool:
     """这一格上有没有**我的**军（= "仗打在我身上"）。
 
     ★ 这是"**接触即看见**"判据（`scoring.CB_CONTACT_VISION`）的**唯一**依据 ——
       它**不扩视野本身**，只决定"这一格能不能写概率"。见 `scoring.py` 那段实测。
+    ★★ `env` **必须显式传进来**（2026-10-23 修，review P1-3）：
+      原来这里写的是 `env.owner_of(a)`，而 `env` 在这个函数里**根本没有定义**
+      ⇒ 三国局里"不可见的战斗落在观测框内"时直接 `NameError`
+      ⇒ **训练/评估当场中断**（而且只在那种局面才炸 ⇒ 平时看不出来）。
     """
     return any(env.owner_of(a) == me for a in by_cell.get((x, y), ()))
 
@@ -163,6 +175,12 @@ def _combat_tail(frame: CB.FrameOdds | None, cell, side: str,
     if o is None:
         return row
     row[V.A_CB_ACTIVE] = 1.0
+    if not o.derivable:
+        # ★★ **推不出来**（review P1-6）：引擎的能力要求"提问方看得见目标格"
+        #   ⇒ 迷雾里的野战没有概率。**不写假分布**（旧实现写"一轮结束"），
+        #   只标"未知" ⇒ 其余列的 0 **不会被读成 0 概率**。
+        row[V.A_CB_UNKNOWN] = 1.0
+        return row
     row[V.A_CB_PWIN] = o.p_win.get(side, 0.0)
     row[V.A_CB_PLOSE] = o.p_lose.get(side, 0.0)
     row[V.A_CB_PDRAW] = o.p_draw
@@ -270,19 +288,24 @@ def encode_grid(sb, me: str, mask=None, known=None,
             if frame is not None:
                 oc = frame.cells.get((x, y))
                 if oc is not None and (visible or (
-                        S.CB_CONTACT_VISION and _mine_engaged_here(by_cell, me, x, y))):
+                        S.CB_CONTACT_VISION and _mine_engaged_here(w, by_cell, me, x, y))):
                     g[V.GRID_CB_ACTIVE, i, j] = 1.0
-                    g[V.GRID_CB_PWIN, i, j] = oc.p_win.get(me, 0.0)
-                    g[V.GRID_CB_PLOSE, i, j] = oc.p_lose.get(me, 0.0)
-                    g[V.GRID_CB_PDRAW, i, j] = oc.p_draw
-                    g[V.GRID_CB_PHOLD, i, j] = oc.p_hold.get(me, 0.0)
-                    for k, v in enumerate(oc.round_bins()):
-                        g[V.GRID_CB_R0 + k, i, j] = v
-                    ro = frame.reinf.get((x, y)) or oc
-                    g[V.GRID_CB_PWIN_REINF, i, j] = ro.p_win.get(me, 0.0)
-                    g[V.GRID_CB_EROUNDS, i, j] = oc.e_rounds / S.PROB_ROUND_SCALE
-                    g[V.GRID_CB_ELOSS, i, j] = (
-                        oc.e_loss.get(me, 0.0) / S.PROB_LOSS_SCALE)   # ★ 不夹，见 `_combat_tail`
+                    if oc.derivable:
+                        g[V.GRID_CB_PWIN, i, j] = oc.p_win.get(me, 0.0)
+                        g[V.GRID_CB_PLOSE, i, j] = oc.p_lose.get(me, 0.0)
+                        g[V.GRID_CB_PDRAW, i, j] = oc.p_draw
+                        g[V.GRID_CB_PHOLD, i, j] = oc.p_hold.get(me, 0.0)
+                        for k, v in enumerate(oc.round_bins()):
+                            g[V.GRID_CB_R0 + k, i, j] = v
+                        ro = frame.reinf.get((x, y)) or oc
+                        g[V.GRID_CB_PWIN_REINF, i, j] = ro.p_win.get(me, 0.0)
+                        g[V.GRID_CB_EROUNDS, i, j] = oc.e_rounds / S.PROB_ROUND_SCALE
+                        g[V.GRID_CB_ELOSS, i, j] = (
+                            oc.e_loss.get(me, 0.0) / S.PROB_LOSS_SCALE)   # ★ 不夹，见 `_combat_tail`
+                    else:
+                        # ★ 推不出来 ⇒ **只标"未知"**，不写假概率（review P1-6）。
+                        #   （不能用 `continue` —— 下面还有"市政厅"那段要跑。）
+                        g[V.GRID_CB_UNKNOWN, i, j] = 1.0
             # ★★ **市政厅要走"已知"（视野 ∪ 永久记忆），因此必须在 `if not visible` 之前**
             #   —— 用户 2026-09-24：「**发现厅了就应该永久标记，因为厅是拆不掉也不能
             #   移动的**」（含**盟友的厅**：「盟友发现厅应该也纳入标记」）。
@@ -742,7 +765,7 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
       ★ 规则表常量要进**价值头**那条路（价值走窗口池化）—— 引擎改了数值，
       "同一局面值多少"本来就该跟着变。
     `win["a"]`（n 条）= 军队 token：`vocab` 的 10 列 ⊕ `features.unit_vector(kind)` 4 列
-      ⊕ **`vocab.A_EXTRA` 13 列**（★ 这支军身处的那场仗，从它自己那一方看 ——
+      ⊕ **`vocab.A_EXTRA` 15 列**（★ 这支军身处的那场仗，从它自己那一方看 ——
       见 `vocab` 的 5' 段；**与视野无关**，大地图上也是活的）
       ★ 中间那 4 列就是用户要的「**各个单位的血量和各个单位的战斗力**」，且是**现算**的。
 

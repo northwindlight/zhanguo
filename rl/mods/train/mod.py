@@ -112,6 +112,24 @@ class SandboxService:
         """在一处站点上种下建筑（**native 的初始化口**，不是玩家建造流程）。"""
         self.call('native:buildings', 'seed', site_id, kind, count=int(count))
 
+    def enroll_succession(self, owner: str) -> None:
+        """把该国**登记进 native 的继承序列**（`native:succession.enroll`）。
+
+        ★★ 2026-10-23 修（review P1-2）：**亡国必须走引擎的正规流程**。
+          引擎的 `native:succession` 才是"国祚断绝 ⇒ 亡国"的**唯一**出处：
+          它在结算时检查"在册国还有没有**带首都角色**的站点"，
+          没有 ⇒ 迁移站点、`diplomacy.eliminate`、`army.remove_nation`、
+          `nations.extinguish`（**引擎自己动手**，不是 RL 侧改状态）。
+          ★ 以前 RL 线**从来没登记过**（存档里的 `enrolled` 恒为空）⇒
+            引擎那一整套亡国逻辑**整段没跑过** ⇒
+            "夺走最后一座市政厅"之后**引擎那边还是老样子**
+            （国家仍在册、军队还在、战争关系还在），
+            而 RL 侧的 `alive()` 早说它死了 ⇒ **两边分叉**。
+          ⇒ 现在：摆局时给每个国家登记一次（**有首都之后**再登记 ——
+            `enroll` 的语义是"从此开始按国祚判生死"，没首都就登记 = 立刻判死）。
+        """
+        self.call('native:succession', 'enroll', owner)
+
     def owner_of(self, x: int, y: int):
         """这一格归谁（`None` = 无主）。**转调 native**，不自己查表。"""
         return self.call('native:territory', 'owner', int(x), int(y))

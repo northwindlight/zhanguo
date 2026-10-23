@@ -26,7 +26,6 @@ import math
 import random
 
 from . import evaluate
-from .sandbox import END, PLAYERS
 
 
 class Node:
@@ -120,7 +119,12 @@ class MCTS:
     # ---------------------------------------------------------- 评估
     def _evaluate(self, sb, root_player: str, depth: int) -> float:
         """叶子评估：**终局 ⇒ ±1**；否则打分器压到 `tanh(score/σ)`，再按需 rollout。"""
-        enemy = next((n for n in PLAYERS if n != root_player), None)
+        # ★ 参战名单**问沙盒**（2026-10-23 修，review P2-9）：
+        #   原来从 `rl.sandbox` import 一个模块级 `PLAYERS` 常量 ——
+        #   新沙盒没有这个常量（对手是**这一局**的人，不是全局名单）⇒
+        #   `ImportError` ⇒ **整个模块导不进来**。
+        # ⇒ 现在用 `sb.players`（沙盒自己的名单）。
+        enemy = next((n for n in sb.players if n != root_player), None)
         w = sb.env
         t = evaluate.terminal(w, root_player, enemy)
         if t is not None:
@@ -177,6 +181,13 @@ def policy(sb, *, n_sim: int = 120, temperature: float = 1.0, rng=None,
 
 
 def best_action(sb, *, n_sim: int = 120, rng=None, **kw):
-    """搜索 → 访问最多的那个动作（贪心，评估/对照用）。"""
+    """搜索 → 访问最多的那个动作（贪心，评估/对照用）。
+
+    ★ 没有候选动作时返回 `None`（2026-10-23 修，review P2-9）：
+      原来返回的是旧沙盒的 `END` 哨兵（`"end"`，一个**已经不存在的动作**）
+      —— 调用方会拿它去 `step()` ⇒ 报一个看不懂的错。
+      新沙盒的动作是 `(aid, kind, x, y)` 元组，没有"收手"这个动作
+      （"不动"是每支军各自的 `hold`）⇒ 没有候选就是**没有动作**。
+    """
     p = policy(sb, n_sim=n_sim, temperature=0.0, rng=rng, **kw)
-    return next(iter(p)) if p else (END, None, None, None)
+    return next(iter(p)) if p else None

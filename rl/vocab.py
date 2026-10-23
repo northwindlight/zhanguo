@@ -220,8 +220,15 @@ HALL_WIDTH = HALL_ENT + 1                             # = 3 + 6 + 1 + 1 + 1 = 12
 #   而**分布**已经由下面这几条概率通道表达（概率本身就是对骰子分布积分的结果）。
 #   ⇒ 骰子这一项到此为止，**没有"上一回合骰面"这条路**，别再找。
 GRID_CB_ACTIVE = GRID_HALL_RIVAL + 1                  # 1：本格在交战（1/0）
+# ★★ **"推不出来"标记**（2026-10-23 修，review P1-6）：
+#   引擎的推演能力要求"提问方**看得见**目标格"⇒ **迷雾里的野战推不出来**。
+#   旧实现给它编了个假分布（"一轮结束"）⇒ 编码层照抄 ⇒ 模型把"不知道"
+#   读成了"0 概率"（= 必败）。
+# ⇒ 现在**显式标出来**：这一格在打（`GRID_CB_ACTIVE=1`）但**推不出来**
+#   （`GRID_CB_UNKNOWN=1`）⇒ 其余概率列的 0 **不再被读成 0 概率**。
+GRID_CB_UNKNOWN = GRID_CB_ACTIVE + 1                 # 1：★ 这一仗**推不出来**（引擎能力要看得见）
 CB_ROUND_BINS = len(_S.ROUND_BIN_EDGES)               # 轮数分布占几档（= 先验表的档数）
-GRID_CB_PWIN = GRID_CB_ACTIVE + 1                     # 1：P(我活、敌全灭)
+GRID_CB_PWIN = GRID_CB_UNKNOWN + 1                    # 1：P(我活、敌全灭)
 GRID_CB_PLOSE = GRID_CB_PWIN + 1                      # 1：P(我全灭)
 GRID_CB_PDRAW = GRID_CB_PLOSE + 1                     # 1：P(同归于尽)
 GRID_CB_PHOLD = GRID_CB_PDRAW + 1                     # 1：P(我是**唯一**幸存者 ⇒ 占地)
@@ -240,7 +247,7 @@ GRID_CB_ELOSS = GRID_CB_EROUNDS + 1                   # 1：期望掉血 ÷ PROB
 GRID_MEM_ENEMY = GRID_CB_ELOSS + 1                    # 1：**上次看见**这格有敌军（按 age 衰减）
 GRID_MEM_AGE = GRID_MEM_ENEMY + 1                     # 1：这格的情报有多旧（1=刚看过, 0=没看过/很旧）
 GRID_CHANNELS = GRID_MEM_AGE + 1
-#   = 2 + 6 + 1 + 1 + 1 + 3 = 14（局面部） + 1+4+5+1+1+1 = 13（战斗概率部） = 27
+#   = 2 + 6 + 1 + 1 + 1 + 3 = 14（局面部） + 1+1+4+5+1+1+1 = 14（战斗概率部） = 28
 
 # ===========================================================================
 # 4. 全局标量（`glob` 段，冻结顺序）
@@ -532,8 +539,12 @@ A_WIDTH_RAW = A_WIDTH
 #
 #   ★ 没在交战（或看不见那场仗）⇒ 整段全 0，**只有撤退那一列是 1.0**
 #     （没在打，撤了当然活）。`A_CB_ACTIVE` 用来区分"没在打"与"概率恰好是 0"。
+#   ★★ **"推不出来"**（2026-10-23 修，review P1-6）：迷雾里的野战**引擎推不出来**
+#     （能力要求"提问方看得见目标格"）⇒ `A_CB_ACTIVE=1` + `A_CB_UNKNOWN=1`，
+#     其余概率列的 0 **不代表 0 概率**（那是被显式标出来的"不知道"）。
 A_CB_ACTIVE = 0                                   # 1：这支军在某场交战里（1/0）
-A_CB_PWIN = A_CB_ACTIVE + 1                       # 1：P(它那一方活、敌全灭)
+A_CB_UNKNOWN = A_CB_ACTIVE + 1                      # 1：★ 这一仗**推不出来**（别把 0 当概率读）
+A_CB_PWIN = A_CB_UNKNOWN + 1                        # 1：P(它那一方活、敌全灭)
 A_CB_PLOSE = A_CB_PWIN + 1                        # 1：P(它那一方全灭)
 A_CB_PDRAW = A_CB_PLOSE + 1                       # 1：P(同归于尽)
 A_CB_PHOLD = A_CB_PDRAW + 1                       # 1：P(它那一方是唯一幸存者 ⇒ 占地)
@@ -543,8 +554,8 @@ A_CB_EROUNDS = A_CB_PWIN_REINF + 1                # 1：期望轮数 ÷ PROB_ROU
 A_CB_ELOSS = A_CB_EROUNDS + 1                     # 1：期望掉血 ÷ PROB_LOSS_SCALE
 A_RETREAT = A_CB_ELOSS + 1                        # 1：撤退后活下来的概率（没在打 ⇒ 1.0）
 A_EXTRA = A_RETREAT + 1
-#   = 1(ACTIVE) + 4(赢/输/同归/占地) + CB_ROUND_BINS(轮数档) + 1(增援) + 2(期望)
-#     + 1(撤退) = 9 + CB_ROUND_BINS（当前 **14**）
+#   = 1(ACTIVE) + 1(推不出来) + 4(赢/输/同归/占地) + CB_ROUND_BINS(轮数档) + 1(增援)
+#     + 2(期望) + 1(撤退) = 10 + CB_ROUND_BINS（当前 **15**）
 
 # ===========================================================================
 # 5''. ★★ `"k"` 组：**记忆中的敌军**（每支一个 token，按**番号**）

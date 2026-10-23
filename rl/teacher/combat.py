@@ -35,6 +35,7 @@ from typing import NamedTuple
 
 from .. import rules
 from ..rules import unit_atk, unit_max_hp
+from ..tokens import BARBARIAN
 
 # 一格（一个目标）的难度评估结果。**NamedTuple**：可断言、可排序、可打印。
 Difficulty = NamedTuple("Difficulty", [
@@ -79,6 +80,32 @@ def _guardian_profile() -> tuple[int, int]:
       （引擎里 `visible_units` 造野人用的就是 `native:infantry` 的 hp）✔
     """
     return unit_max_hp({"type": "native:infantry"}), unit_atk({"type": "native:infantry"})
+
+
+# ★ 野人守军的**占位编号**：这支野人**不进任何集合**（只是给模拟器算账用），
+#   所以编号只要合法（引擎的 `Unit.validate` 要求 id ≥ 1、gid ≥ 0）即可。
+_GUARDIAN_ID = 9_000_001
+_GUARDIAN_GID = 9_000_001
+
+
+def _guardian_unit(x: int, y: int):
+    """**一支满血野人**（引擎的 `Unit` 对象）—— 看不见的守军用它来算账。
+
+    ★★ 2026-10-23 修（review P1-7）：旧实现只把野人的 `(hp, atk)` 记在
+      `def_pairs` 里，**真正喂给模拟器的 `def_units` 是空的** ⇒
+      模拟器第一轮就判"守方已清空" ⇒ 返回
+      **`need=1, rounds=0, losses=0, winnable=True`** ——
+      **未知目标被评成"零成本必胜"**（老师于是毫无代价地往未知格上撞）。
+    ⇒ 现在**造一支真的野人**（用引擎自己的 `Unit` 类，不自己仿一个）
+      ⇒ 模拟器看到的是"有一支满血野人" ⇒ 这个目标**有代价了**。
+    ★ 用引擎的类（不是手搓的鸭子类型）⇒ `faction_power` / `spread_damage`
+      读它的 `atk()` / `retreat_cover` / `take_damage()` 全是引擎自己的口径。
+    """
+    from mods.native.army.objects import Unit as _EngineUnit
+    g_hp, _g_atk = _guardian_profile()
+    return _EngineUnit(kind="native:infantry", hp=g_hp, x=int(x), y=int(y),
+                       owner=BARBARIAN, id=_GUARDIAN_ID, gid=_GUARDIAN_GID,
+                       name="野人(估)")
 
 
 def simulate(env, attackers, defenders, def_pct: int, *, rounds_cap: int) -> tuple[bool, int, int]:
@@ -148,7 +175,11 @@ def assess(env, name: str, cell: tuple[int, int], units: list, *,
     else:
         g_hp, g_atk = _guardian_profile()
         def_pairs = [(g_hp, g_atk)]                        # 看不见 ⇒ 按一支满血野人**保守**估
-        def_units = []
+        # ★★ 关键修复（review P1-7）：**真的要把它交给模拟器**。
+        #   原来这里写 `def_units = []` ⇒ 模拟器第一轮就判"守方已清空"
+        #   ⇒ `need=1, rounds=0, losses=0, winnable=True`
+        #   ⇒ **未知目标被当成零成本必胜**（老师会白撞未知格）。
+        def_units = [_guardian_unit(x, y)]
     def_hp = sum(h for h, _ in def_pairs)
 
     pool = sorted(units, key=lambda a: (-unit_atk(a), -a.hp, a.id))

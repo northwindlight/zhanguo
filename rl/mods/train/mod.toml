@@ -21,6 +21,7 @@ Version = "1.0.0"
 Entry = "rl.mods.train.mod:TrainMod"
 Requires = ["native:army", "native:territory", "native:vision", "native:diplomacy",
             "native:buildings", "native:government", "native:nations",
+            "native:succession",
             "experimental:combat-research"]
 After = ["native:army", "native:territory", "native:buildings", "native:government"]
 
@@ -33,7 +34,8 @@ Requests = ["phase"]
 [Capabilities]
 Needs = ["native:army", "native:territory", "native:vision", "native:diplomacy",
          "native:buildings", "native:government", "native:nations",
-         "native:nation-inspection", "research:combat-probabilities",
+         "native:nation-inspection", "native:succession",
+         "research:combat-probabilities",
          "rl:sandbox", "rl:truth", "rl:odds", "rl:scenario"]
 Provides = ["rl:sandbox", "rl:truth", "rl:odds"]
 
@@ -55,6 +57,11 @@ Provides = ["rl:sandbox", "rl:truth", "rl:odds"]
 "native:government" = ["period", "advance", "end_turn", "can_act", "snapshot"]
 "native:nations" = ["create", "ids", "get", "overview", "snapshot", "extinguish", "rename"]
 "native:nation-inspection" = ["ids", "get", "overview", "snapshot"]
+# ★★ **亡国走引擎的正规流程**（2026-10-23 修，review P1-2）：
+#   `native:succession.enroll` ＝ 把国家登记进"按国祚判生死"的名单；
+#   不登记 ⇒ 引擎的亡国那一整套（迁移站点 / eliminate / remove_nation /
+#   extinguish）**整段不跑** ⇒ 引擎状态与 RL 的判断分叉。
+"native:succession" = ["enroll", "to_save"]
 "research:combat-probabilities" = ["assess"]
 
 # ★★ RL 自己提供的三个能力，**也列进调用清单**。
@@ -64,7 +71,7 @@ Provides = ["rl:sandbox", "rl:truth", "rl:odds"]
 #   ⇒ "不静默"是**结构性的**，不靠自觉。
 "rl:sandbox" = ["reset", "place_nation", "seed_building", "spawn", "recruit",
                 "recruit_quote", "purge_armies", "declare_war", "declare_wars", "set_alliance",
-                "owner_of", "owned_cells", "claim"]
+                "owner_of", "owned_cells", "claim", "enroll_succession"]
 "rl:truth" = ["defense_pct", "defenders"]
 "rl:odds" = ["assess"]
 "rl:scenario" = ["setup"]

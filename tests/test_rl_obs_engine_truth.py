@@ -84,7 +84,9 @@ class TestDefenseTruth(unittest.TestCase):
             for row in sb.env.tiles():
                 if row.owner != name:
                     continue
-                terrain = sb.env.terrain(*row.position)
+                # ★ `env.terrain` 给的是**内容 ID**（类型边界统一，review P1-4）
+                #   ⇒ 要读地形**对象**的字段就走 `env.terrain_obj`。
+                terrain = sb.env.terrain_obj(*row.position)
                 castle = 0
                 if row.tile_id:
                     castle = (sb.env.call("native:buildings", "count", row.tile_id, "native:castle")
@@ -93,6 +95,8 @@ class TestDefenseTruth(unittest.TestCase):
                 expect = sb.env.call("native:army", "defense_pct", terrain.defense, castle)
                 self.assertEqual(sb.env.defense_pct(row.position[0], row.position[1], name),
                                  expect, f"{row.position} 的防御%与引擎对不上")
+                # ★ 内容 ID 那一侧也对得上（RL 侧读表用的是 ID，不是对象）。
+                self.assertEqual(sb.env.terrain(*row.position), terrain.id)
 
 
 class TestBarbarianTruth(unittest.TestCase):

@@ -514,9 +514,20 @@ class Sandbox:
 
         ★ 合法性**全部来自引擎**：
           · `move` 的目标取 `native:army.reachable(..., attack=False)`（引擎的可达集）；
-          · `attack` 的目标取 `reachable(..., attack=True)` **减去** move 集
-            （"走不通、但够得着"的格）。
-          ⇒ 结构上不会撞墙，也**不重算**引擎的可达性。
+          · `attack` 的目标取 `reachable(..., attack=True)` 里**不是自家/盟国**的格。
+        ⇒ 结构上不会撞墙，也**不重算**引擎的可达性。
+
+        ★★ **野地也在进攻候选里**（2026-10-23 修，review P1-1）：
+          旧实现是"**攻击集 − 移动集**"⇒ 野地（无主格）**同时在两个集里**
+          ⇒ 被减掉 ⇒ **候选里一个 `attack` 都没有**（实测 8×8 开局：move 40 个、
+          attack **0 个**；新口径 attack 5 个）⇒ **模型永远学不会"主动打野占地"**。
+          为什么这是真bug：引擎里 **`move` 不占地、`attack` 才占地**
+          （`native:army.move` 只挪位置；`attack` 走 `_claim` 改归属）
+          ⇒ 不给 `attack` 候选 ⇒ **领土永远长不大**。
+          ⇒ 现在：攻击候选 = `reachable(attack=True)` **减去自家/盟国**
+            （那两格引擎会拒："那是你自己（或盟国）的地块"）。
+            ★ 敌国领土**仍然给**（引擎会按"有没有生效的战争"当场回话，
+              那是**教学式报错**，不是结构性非法）。
         """
         name = self.current_player()
         if name is None or not self.alive(name):
@@ -536,8 +547,12 @@ class Sandbox:
                 if cell != here:
                     out.append((unit.id, "move", cell[0], cell[1]))
             for cell in sorted(self.env.reachable(name, unit, for_attack=True)):
-                if cell not in walk:
-                    out.append((unit.id, "attack", cell[0], cell[1]))
+                if cell == here:
+                    continue                   # ★ 打自己脚下：引擎会拒
+                holder = self.env.owner(*cell)
+                if holder == name or (holder is not None and self.env.allied(name, holder)):
+                    continue                   # ★ 自家/盟国：引擎会拒（"不能进攻自家领土"）
+                out.append((unit.id, "attack", cell[0], cell[1]))
             # ★ **无视野的邻格：移动与进攻两条路都给**（用户 2026-09-24）——
             #   看不见的时候模型无从知道那一格是什么 ⇒ 两条都给，让引擎当场判，
             #   并把它那句教学式错误消息当成**侦察的情报来源**。

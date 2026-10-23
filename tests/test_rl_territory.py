@@ -324,8 +324,10 @@ class TestClaimedTilesAreComplete(unittest.TestCase):
                         sb.env.call("native:buildings", "count", t.tile_id, kind),
                         f"{c} 的 {kind} 数量与引擎对不上")
                 self.assertTrue(t.name, f"{c} 没有地名")
-                self.assertIn(t.terrain.id, ("native:plain", "native:forest", "native:hill",
-                                             "native:mountain", "native:desert"))
+                # ★ `TileRow.terrain` 现在是**内容 ID**（不是引擎的 `Terrain` 对象）——
+                #   类型边界统一（review P1-4）：规则表只认 ID。
+                self.assertIn(t.terrain, ("native:plain", "native:forest", "native:hill",
+                                          "native:mountain", "native:desert"))
 
     def test_hall_still_stands_and_is_the_only_one(self):
         """长国土**不许**多出市政厅（那是国祚，不是普通地块）。

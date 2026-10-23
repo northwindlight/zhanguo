@@ -228,6 +228,13 @@ class ScenarioService:
             core_site = sorted(sites)[0]
         self.call('rl:sandbox', 'place_nation', ident, name, sites, core_site, "native:plain")
         self.call('rl:sandbox', 'seed_building', core_site, TOWN_HALL, 1)
+        # ★★ **登记进 native 的继承序列**（2026-10-23 修，review P1-2）：
+        #   引擎的亡国判据是"在册国还有没有**带首都角色**的站点"
+        #   （`native:succession` 的结算阶段）⇒ **不登记就永远不判亡国**
+        #   ⇒ 引擎那边"国家仍在册、军队还在、战争还在"，RL 侧却早判它死了 ⇒ 分叉。
+        #   ★ 必须在**市政厅落成之后**登记（`enroll` 的语义是"从此按国祚判生死"，
+        #     还没首都就登记 = 下一个结算点立刻判死）。
+        self.call('rl:sandbox', 'enroll_succession', ident)
         self.call('rl:sandbox', 'seed_building', core_site, CASTLE, int(self.settings['Castle']))
         self.call('rl:sandbox', 'seed_building', core_site, BARRACKS, int(self.settings['Barracks']))
         # ★ 军屯（民兵的征召口）：没有它，`recruit('native:militia')` 会被引擎拒。

@@ -59,7 +59,12 @@ class TileRow:
 
     position: tuple
     owner: str | None
-    terrain: object            # 引擎的 `Terrain`（.id / .defense / .build_penalty / …）
+    # ★★ 地形 = **内容 ID**（`native:plain` 这样的字符串），不是引擎的 `Terrain` 对象
+    #   （2026-10-23 修，review P1-4）：规则表（`MOVE_COST` / `TERRAINS`）**只认 ID**，
+    #   混用时 `.get(对象, 默认值)` **悄悄给默认值**（山地减伤读成 0、
+    #   骑兵上山读成 1 点）—— **而且不报错**。
+    #   ⇒ RL 线这边**一律用内容 ID**；真要读对象的字段，走 `Env.terrain_obj()`。
+    terrain: str
     core: str | None
     tile_id: str
     name: str = ""             # 引擎的 `Tile.name`（地名）
@@ -166,6 +171,16 @@ class Env:
         """**在册**国家（活着的，短名）。亡国的由 `native:succession` 裁决后移出。"""
         return tuple(self.name_of(i) for i in self.call("native:nation-inspection", "ids"))
 
+    def enrolled(self) -> tuple:
+        """**已登记进继承序列**的国家（短名）—— 亡国判据只对它们生效。
+
+        ★ 引擎的 `native:succession` 只判**登记过的**国家 ⇒
+          这一列就是"引擎会不会判它亡国"的**唯一**口径。
+          （`to_save` 是引擎自己的存档口，读它 ⇒ 不碰私有字段。）
+        """
+        data = self.call("native:succession", "to_save") or {}
+        return tuple(self.name_of(i) for i in (data.get("enrolled") or ()))
+
     def nation(self, name: str):
         """国家对象（引擎的 `Nation`：`.id` / `.name` / `.alive` / …）。"""
         return self.call("native:nation-inspection", "get", self.id_of(name))
@@ -244,7 +259,7 @@ class Env:
         return TileRow(
             position=(int(x), int(y)),
             owner=self.name_of(fact.owner) if fact.owner else None,
-            terrain=self.call("native:territory", "terrain", int(x), int(y)),
+            terrain=self.terrain(int(x), int(y)),
             core=self.name_of(fact.tile.core) if fact.tile.core else None,
             tile_id=fact.tile.id,
             name=fact.tile.name or "",
@@ -268,7 +283,7 @@ class Env:
                 out.append(TileRow(
                     position=(x, y),
                     owner=self.name_of(fact.owner) if fact.owner else None,
-                    terrain=self.call("native:territory", "terrain", x, y),
+                    terrain=self.terrain(x, y),
                     core=self.name_of(fact.tile.core) if fact.tile.core else None,
                     tile_id=site,
                     name=fact.tile.name or "",
@@ -292,8 +307,20 @@ class Env:
         ident = self.call("native:territory", "owner", int(x), int(y))
         return self.name_of(ident) if ident else None
 
-    def terrain(self, x: int, y: int):
-        """这一格的地形（引擎的 `Terrain`）。"""
+    def terrain(self, x: int, y: int) -> str:
+        """这一格的地形 —— **内容 ID**（`native:plain` 这样的字符串）。
+
+        ★★ **类型边界**（2026-10-23 修，review P1-4）：RL 线的规则表
+          （`MOVE_COST` / `TERRAINS`）**只认内容 ID** ⇒ 这里**只给 ID**。
+          原来给的是引擎的 `Terrain` 对象 ⇒ 调用方直接喂给表 ⇒
+          `.get(对象, 默认值)` **悄悄给默认值**（山地减伤 0、骑兵上山 1 点），
+          **而且一行都不报错**。
+          ★ 真要读对象的字段（`defense` / `build_penalty` / …）⇒ `terrain_obj()`。
+        """
+        return self.terrain_obj(int(x), int(y)).id
+
+    def terrain_obj(self, x: int, y: int):
+        """这一格的地形 —— **引擎的 `Terrain` 对象**（要它的字段时才用）。"""
         return self.call("native:territory", "terrain", int(x), int(y))
 
     def neighbors(self, x: int, y: int) -> tuple:
