@@ -12,7 +12,7 @@ Needs = ["stock:clock", "stock:portfolio"]
 Provides = ["stock:market"]
 
 [Interfaces]
-"stock:clock" = ["period", "trading_day"]
+"stock:clock" = ["period", "trading_day", "tick_index", "slices"]
 "stock:portfolio" = ["position_of"]
 
 [Parameters]

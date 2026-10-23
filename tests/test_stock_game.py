@@ -124,6 +124,56 @@ class StockGameTest(unittest.TestCase):
         self.assertEqual(status['result']['status'], 'failed')
         self.assertIn('休市', status['result']['error']['message'])
 
+    # ── 盘中价格：不是瞬间跳的 ────────────────────────────────────
+    def _spy_prices(self, host, symbol='shanhai'):
+        """记录每个行动者进场时看到的价格。"""
+        market = host.world.market
+        seen = []
+        original = host.session.player
+
+        def spy(actor):
+            player = original(actor)
+            seen.append(market.price_of(symbol))
+            return player
+
+        host.session.player = spy
+        return seen
+
+    def test_price_moves_during_the_round(self):
+        host = self.host(actors=3)
+        seen = self._spy_prices(host)
+        host.cycle()
+        self.assertEqual(len(seen), 3)
+        self.assertGreater(len(set(seen)), 1, '同一回合里不同行动者应当看到不同的价格')
+
+    def test_settlement_does_not_teleport_the_price(self):
+        host = self.host(actors=3)
+        seen = self._spy_prices(host)
+        host.cycle()
+        close = host.world.market.close['shanhai']
+        self.assertAlmostEqual(seen[-1], close, places=2,
+                               msg='收盘价应当就是最后行动者看到的价格，结算不该再跳一次')
+
+    def test_order_flow_pushes_the_next_open(self):
+        host = self.host(rounds={1: "api.call('stock:market','buy',symbol='shanhai',quantity=1000)\n"})
+        host.cycle()
+        market = host.world.market
+        self.assertGreater(market.opening['shanhai'], market.close['shanhai'],
+                           '净买入应当把下一回合的开盘价推高')
+
+    def test_round_move_is_spread_over_the_round(self):
+        host = self.host(actors=3)
+        market = host.world.market
+        opening = market.opening['shanhai']
+        seen = self._spy_prices(host)
+        host.cycle()
+        close = market.close['shanhai']
+        total = abs(close / opening - 1)
+        first_slice = abs(seen[0] / opening - 1)
+        self.assertGreater(total, 0)
+        self.assertLess(first_slice, total,
+                        '第一片应当只是整段走势的一部分，价格是逐步走出来的')
+
     # ── 下单与结算 ────────────────────────────────────────────────
     def test_script_order_settles_at_round_end(self):
         host = self.host(BUY_SCRIPT)

@@ -31,6 +31,8 @@ class StockView(ModelView):
                              f'不能买卖，但可以改脚本、规划、借贷。')
             lines.append(f'当前窗口：{view.get("window_name")}，额度 {view.get("window_limit")} 分钟，'
                          f'已用 {view.get("window_used")}，本回合已过去 {view.get("elapsed_minutes")} 分钟。'
+                         f'盘口时间片 {view.get("tick")}/{view.get("slices")}：'
+                         f'每进一个行动者市场走一片，价格是分段走出来的，不是回合末一次跳完。'
                          + ('本回合的脚本已经跑过。' if view.get('opened') else '本回合还没跑过脚本。'))
 
         account = facts.get('portfolio') or {}

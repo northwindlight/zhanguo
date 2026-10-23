@@ -1,19 +1,26 @@
 """股市行情与撮合。
 
 价格引擎借鉴开源 **TraderSim**（Sad-Sun678/TraderSim）的分层做法：均值回归、
-动量、波动率、订单流冲击、板块情绪与大盘情绪叠加成下一回合的价格。
+动量、波动率、订单流冲击、板块情绪与大盘情绪叠加成下一回合的日内涨跌。
 滑点用固定比例的冲击成本近似（参考 tliesnham/quant 的 SlippageModel 思路），
 手续费按单边比例收取。
 
+**价格不是瞬间跳的**：每个回合的行情是一整条日内路径，本回合切成若干时间片
+（一个行动者一片），行动者进场时市场往前挪一片，股价随之变化。
+所以同��个回合里，先行动的人看到开盘价附近，后行动的人看到更靠后的价格；
+本回合的收盘价就是最后一个时间片的价格，结算后不再有额外跳空，
+只有玩家自己的订单流会把下一回合的开盘价推开一点。
+
 撮合口径：
 
-* 下单时按「现价 ± 冲击成本」锁定成交价，脚本拿到的回执就是这个价；
+* 下单时按「当前时间片的价格 ± 冲击成本」锁定成交价，脚本拿到的回执就是这个价；
 * 回合末所有玩家的挂单一起按各自锁定价撮合，先进先出；
 * 现金不够、持仓不够的挂单在撮合时拒单，原因写进回执；
-* 本回合的净买卖量作为订单流，推动下一回合的价格。
+* 本回合的净买卖量作为订单流，推动下一回合的开盘价。
 """
 from __future__ import annotations
 
+import math
 import random
 
 from engine.runtime import GameMod, ModError, RuleSection, Stage
@@ -51,10 +58,14 @@ class Market:
         for symbol, name, sector, price, anchor, volatility, beta, gamma, drift in STOCKS:
             self.stocks[symbol] = {
                 'symbol': symbol, 'name': name, 'sector': sector,
-                'price': price, 'prev_close': price, 'anchor': anchor,
-                'volatility': volatility, 'beta': beta, 'gamma': gamma, 'drift': drift,
+                'anchor': anchor, 'volatility': volatility,
+                'beta': beta, 'gamma': gamma, 'drift': drift,
             }
             self.history[symbol] = [price]
+        self.opening = {symbol: price for symbol, price in
+                        ((row['symbol'], row['anchor']) for row in self.stocks.values())}
+        self.daily = {symbol: 0.0 for symbol in self.stocks}
+        self.close = {symbol: row['anchor'] for symbol, row in self.stocks.items()}
         self.orders = {}
         self.seq = 0
         self.last_fills = []
@@ -69,7 +80,31 @@ class Market:
         self._key = key
         return self
 
-    # ── 只读行情 ────────────────────────────────────────────────
+    # ── 时钟接口 ────────────────────────────────────────────────
+    def _tick(self):
+        world = self._world
+        if world is None:
+            return 0
+        return world.runtime.object_call(world, 'stock:clock', 'tick_index')
+
+    def _slices(self):
+        world = self._world
+        if world is None:
+            return 1
+        return max(1, world.runtime.object_call(world, 'stock:clock', 'slices'))
+
+    # ── 价格 ────────────────────────────────────────────────────
+    def price_of(self, symbol, tick=None):
+        """当前时间片的价格：开盘价沿本回合的日内路径走到 tick/slices 处。"""
+        stock = self.stocks.get(symbol)
+        if stock is None:
+            raise ValueError(f'没有这只股票：{symbol}')
+        if tick is None:
+            tick = self._tick()
+        slices = self._slices()
+        ratio = self.daily.get(symbol, 0.0) * (tick / slices)
+        return round(self.opening.get(symbol, stock['anchor']) * math.exp(ratio), 2)
+
     def catalog(self):
         return [{'symbol': s['symbol'], 'name': s['name'], 'sector': s['sector']}
                 for s in self.stocks.values()]
@@ -77,12 +112,6 @@ class Market:
     def name_of(self, symbol):
         stock = self.stocks.get(symbol)
         return stock['name'] if stock else symbol
-
-    def price_of(self, symbol):
-        stock = self.stocks.get(symbol)
-        if stock is None:
-            raise ValueError(f'没有这只股票：{symbol}')
-        return stock['price']
 
     def history_of(self, symbol, limit=30):
         if symbol not in self.stocks:
@@ -108,19 +137,21 @@ class Market:
         return round(variance ** 0.5, 6)
 
     def quotes(self):
-        """行情快照：现价、涨跌、均线、动量、波动率与交易成本参数。"""
+        """行情快照：当前时间片的价格、相对上一片的涨跌、均线、动量与交易成本。"""
+        tick = self._tick()
         result = []
         for symbol, stock in self.stocks.items():
             series = self.history[symbol]
-            prev = stock['prev_close']
+            price = self.price_of(symbol, tick)
+            previous = self.price_of(symbol, tick - 1) if tick > 0 else self.close.get(symbol, price)
             momentum = round(series[-1] / series[-2] - 1, 6) if len(series) >= 2 else 0.0
             result.append({
                 'symbol': symbol,
                 'name': stock['name'],
                 'sector': stock['sector'],
-                'price': stock['price'],
-                'prev_close': prev,
-                'change_pct': round(stock['price'] / prev - 1, 6) if prev else 0.0,
+                'price': price,
+                'prev_close': self.close.get(symbol, price),
+                'change_pct': round(price / previous - 1, 6) if previous else 0.0,
                 'ma5': self._moving_average(series, 5),
                 'ma10': self._moving_average(series, 10),
                 'ma20': self._moving_average(series, 20),
@@ -145,7 +176,7 @@ class Market:
         return min(self.impact_cap, self.impact_rate * abs(quantity) / self.float_shares)
 
     def execution_price(self, symbol, side, quantity):
-        """按现价与冲击成本算出成交价（买入更贵、卖出更便宜）。"""
+        """按当前时间片的价格与冲击成本算出成交价（买入更贵、卖出更便宜）。"""
         price = self.price_of(symbol)
         impact = self.impact_of(quantity)
         factor = (1 + impact) if side == 'buy' else (1 - impact)
@@ -170,10 +201,11 @@ class Market:
             raise ValueError(f'没有这只股票：{symbol}')
         if type(quantity) is not int or quantity <= 0:
             raise ValueError('数量必须是正整数')
-        round_number = self._runtime(world).object_call(world, 'stock:clock', 'period')
-        if not self._runtime(world).object_call(world, 'stock:clock', 'trading_day'):
+        runtime = self._runtime(world)
+        round_number = runtime.object_call(world, 'stock:clock', 'period')
+        if not runtime.object_call(world, 'stock:clock', 'trading_day'):
             raise ValueError('今天是休市日，交易所不开盘，不能买卖。')
-        position = self._runtime(world).object_call(world, 'stock:portfolio', 'position_of', actor)
+        position = runtime.object_call(world, 'stock:portfolio', 'position_of', actor)
         price = self.execution_price(symbol, side, quantity)
         amount = round(price * quantity, 2)
         fee = self.fee_of(amount)
@@ -198,6 +230,7 @@ class Market:
             'status': 'pending',
             'reason': '',
             'placed_round': round_number,
+            'placed_tick': self._tick(),
         }
         self.seq += 1
         self.orders.setdefault(actor, []).append(order)
@@ -225,7 +258,7 @@ class Market:
 
     # ── 撮合与结算 ──────────────────────────────────────────────
     def settle(self, world, round_number, trading_day=True):
-        """回合末统一撮合：所有玩家的挂单一起按锁定价成交，再滚动下一回合价格。"""
+        """回合末统一撮合；然后收盘、记账、推出下一回合的日内路径。"""
         runtime = self._runtime(world)
         cash = {}
         shares = {}
@@ -265,12 +298,27 @@ class Market:
                 flow[symbol] = flow.get(symbol, 0) + (quantity if order['side'] == 'buy' else -quantity)
         self.last_fills = fills
         self.orders = {}
-        if trading_day:
-            self._roll(round_number, flow)
+        self._close_round(round_number, flow, trading_day)
         return fills
 
-    def _roll(self, round_number, flow):
-        """滚动下一回合价格：大盘情绪 + 板块情绪 + 个股波动 + 动量 + 均值回归 + 订单流。"""
+    def _close_round(self, round_number, flow, trading_day):
+        """收盘：当前时间片的价格就是收盘价；再按订单流推出下一回合的开盘与日内路径。"""
+        tick = self._tick()
+        for symbol in self.stocks:
+            close = self.price_of(symbol, tick)
+            self.close[symbol] = close
+            self.history[symbol].append(close)
+        for symbol in self.stocks:
+            flow_ratio = flow.get(symbol, 0) / self.float_shares
+            self.opening[symbol] = round(self.close[symbol] * (1 + self.flow_impact * flow_ratio), 2)
+        if trading_day:
+            self._daily_return(round_number + 1)
+        else:
+            for symbol in self.stocks:
+                self.daily[symbol] = 0.0
+
+    def _daily_return(self, round_number):
+        """算下一回合的日内涨跌：大盘情绪 + 板块情绪 + 个股波动 + 动量 + 均值回归。"""
         seed = self.seed
         market_ret = random.Random(f'{seed}|mkt|{round_number}').gauss(0, 0.012)
         sectors = sorted({stock['sector'] for stock in self.stocks.values()})
@@ -284,17 +332,12 @@ class Market:
                 if len(series) >= 4:
                     momentum = 0.6 * momentum + 0.4 * (series[-1] / series[-4] - 1)
             idio = random.Random(f'{seed}|{symbol}|{round_number}').gauss(0, stock['volatility'])
-            flow_ratio = flow.get(symbol, 0) / self.float_shares
-            ret = (stock['beta'] * market_ret
-                   + stock['gamma'] * sector_ret[stock['sector']]
-                   + stock['drift']
-                   + self.momentum_weight * momentum
-                   + self.reversion_weight * (stock['anchor'] / stock['price'] - 1)
-                   + self.flow_impact * flow_ratio)
-            price = max(0.5, round(stock['price'] * (1 + ret), 2))
-            stock['prev_close'] = stock['price']
-            stock['price'] = price
-            series.append(price)
+            opening = self.opening[symbol]
+            self.daily[symbol] = (stock['beta'] * market_ret
+                                   + stock['gamma'] * sector_ret[stock['sector']]
+                                   + stock['drift']
+                                   + self.momentum_weight * momentum
+                                   + self.reversion_weight * (stock['anchor'] / opening - 1))
 
     # ── 存档 ────────────────────────────────────────────────────
     def reseed(self, seed):
@@ -312,14 +355,18 @@ class Market:
                 shock = rng.gauss(0, stock['volatility'] * 0.5)
                 price = max(0.5, round(price * (1 + shock), 2))
                 series.append(price)
-            stock['price'] = price
-            stock['prev_close'] = series[-2]
+            self.opening[symbol] = price
+            self.close[symbol] = series[-2]
             self.history[symbol] = series
+        self._daily_return(1)
 
     def to_save(self):
         return {
             'stocks': {symbol: dict(stock) for symbol, stock in self.stocks.items()},
             'history': {symbol: list(series) for symbol, series in self.history.items()},
+            'opening': dict(self.opening),
+            'daily': dict(self.daily),
+            'close': dict(self.close),
             'orders': {actor: [dict(order) for order in orders] for actor, orders in self.orders.items()},
             'seq': self.seq,
             'fills': [dict(fill) for fill in self.last_fills],
@@ -328,6 +375,9 @@ class Market:
     def restore(self, state):
         self.stocks = {symbol: dict(stock) for symbol, stock in state['stocks'].items()}
         self.history = {symbol: list(series) for symbol, series in state['history'].items()}
+        self.opening = dict(state.get('opening', {}))
+        self.daily = dict(state.get('daily', {}))
+        self.close = dict(state.get('close', {}))
         self.orders = {actor: [dict(order) for order in orders] for actor, orders in state.get('orders', {}).items()}
         self.seq = state.get('seq', 0)
         self.last_fills = [dict(fill) for fill in state.get('fills', ())]
@@ -406,11 +456,13 @@ class MarketMod(GameMod):
         cfg = self.declaration['Parameters']
         return (RuleSection(
             '行情与交易成本',
+            f'每个回合的行情是一条日内路径，回合切成若干时间片（一个行动者一片）：'
+            f'行动者进场时市场往前挪一片，股价随之变化——所以同一回合里，'
+            f'后行动的人看到的价格已经比先行动的人走了一段。'
             f'每只股票有现价、昨收、均线、动量与已实现波动，都是公开信息。'
             f'下单按现价加冲击成本锁价：单量占流通盘的比例越高，成交价越吃亏，'
             f'冲击成本最高 {cfg["ImpactCap"] * 100:.0f}%；手续费单边 {cfg["Commission"] * 100:.2f}%。'
             f'回合末所有玩家的挂单一起撮合，先进先出；现金或持仓不够就拒单，原因写进回执。'
-            f'本回合的净买卖会推动下一回合的价格。',
-            ('行情', '报价', '下单', '买入', '卖出', '冲击成本', '手续费', '撮合'),
-            '行情口径、冲击成本与撮合规则',
-            system=True),)
+            f'本回合的净买卖会推动下一回合的开盘价。',
+            ('行情', '报价', '下单', '买入', '卖出', '冲击成本', '手续费', '撮合', '时间片'),
+            '行情口径、盘中时间片、冲击成本与撮合规则'),)

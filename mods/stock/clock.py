@@ -36,6 +36,9 @@ class Clock:
         self.used = {}
         self.summaries = {}
         self.started_at = time.monotonic()
+        self.tick = 0
+        self.turn_actor = None
+        self.slice_total = 0
         self._world = None
         self._key = None
 
@@ -67,6 +70,34 @@ class Clock:
 
     def can_act(self, actor):
         return actor not in self.ended
+
+    def slices(self):
+        """本回合切成几个时间片：一个行动者一片。"""
+        if self.slice_total:
+            return self.slice_total
+        world = self._world
+        actors = tuple(getattr(world, 'nation_actors', ()) or ()) if world is not None else ()
+        return max(1, len(actors))
+
+    def tick_index(self):
+        """已经走过的时间片数。"""
+        return self.tick
+
+    def begin_turn(self, actor):
+        """新行动者进场：市场往前走一个时间片，股价因此在盘中连续跳动。
+
+        同一行动者重复进场不再推进（回合循环里 player() 可能被多次调用）。
+        """
+        world = self._world
+        if world is None or getattr(world, 'phase', '行动') != '行动':
+            return self.tick
+        if actor == self.turn_actor:
+            return self.tick
+        if actor not in tuple(getattr(world, 'nation_actors', ()) or ()):
+            return self.tick
+        self.turn_actor = actor
+        self.tick = min(self.tick + 1, self.slices())
+        return self.tick
 
     def window_of(self, actor):
         """玩家当前所在的窗口：跑过脚本就转入回合末工作窗口。"""
@@ -117,6 +148,8 @@ class Clock:
             'rest_days': self.rest_days,
             'window': window,
             'window_name': '回合末统一工作' if window == WORK_WINDOW else '开盘',
+            'tick': self.tick,
+            'slices': self.slices(),
             'window_limit': self.limit_of(window),
             'window_used': counts[window],
             'market_used': counts[MARKET_WINDOW],
@@ -128,12 +161,14 @@ class Clock:
         }
 
     def advance(self):
-        """回合结束：回合号 +1，清空本回合的窗口额度与结束标记。"""
+        """回合结束：回合号 +1，清空本回合的窗口额度、结束标记与时间片。"""
         self.round += 1
         self.ended = set()
         self.opened = set()
         self.used = {}
         self.summaries = {}
+        self.tick = 0
+        self.turn_actor = None
         self.started_at = time.monotonic()
         return self.round
 
@@ -145,10 +180,12 @@ class Clock:
             'opened': sorted(self.opened),
             'used': {actor: dict(counts) for actor, counts in self.used.items()},
             'summaries': dict(self.summaries),
+            'tick': self.tick,
         }
 
     def restore(self, state):
         self.round = state['round']
+        self.tick = state.get('tick', 0)
         self.ended = set(state.get('ended', ()))
         self.opened = set(state.get('opened', ()))
         self.used = {actor: dict(counts) for actor, counts in state.get('used', {}).items()}
