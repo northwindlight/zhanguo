@@ -17,8 +17,7 @@ from pathlib import Path
 from unittest import mock
 
 import numpy as np
-from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
-
+from tests.rl_deps import has_torch, torch, torch_or_skip
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 if has_torch():
@@ -116,7 +115,13 @@ class TestTemperatureContract(unittest.TestCase):
                                        rng=np.random.default_rng(0))
         net = nets[sb.players[0]]
         before = [p.detach().clone() for p in net.parameters()]
-        st = ppo_update(net, steps, epochs=1, lr=0.0, temperature=temp)
+        # ★★ `ppo_update` 的契约是"**只喂这一方的步**"（见它的 docstring）——
+        #   把两家的步一起喂进去，KL 拿的是"这一家的网"在"另一家的观测"上的 logp
+        #   ⇒ 那个数**本来就没有意义**（不是更新坏了，是喂错了）。
+        #   ⇒ 这里按契约只喂本方的步，KL 才有"更新前应为 0"这个含义。
+        mine = [s for s in steps if s.player == sb.players[0]]
+        self.assertTrue(mine, "用例前提：本方得有步")
+        st = ppo_update(net, mine, epochs=1, lr=0.0, temperature=temp)
         self.assertIn("kl", st)
         self.assertAlmostEqual(float(st["kl"]), 0.0, places=4,
                                msg="更新前（lr=0）KL 应为 0 ⇒ 两边口径一致")

@@ -21,8 +21,8 @@ import unittest
 from pathlib import Path
 
 import numpy as np
-from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
-
+from tests.rl_deps import has_torch, torch, torch_or_skip
+from tests.rl_deps import set_owner
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 if has_torch():
@@ -84,7 +84,9 @@ class TestTerminalOutcomeReachesTheSamples(unittest.TestCase):
         """
         sb = Sandbox(seed=0, size=8, n_nations=2, t_max=20).reset(random_starts=False)
         # ★ 拔掉甲的厅 ⇒ 只剩乙一个实体 ⇒ 乙赢
-        sb.world.tiles[sb.core_of("甲")]["buildings"]["native:town-hall"] = 0
+        # ★ 拔掉甲的厅 ⇒ 只剩乙一个实体 ⇒ 乙赢
+        #   （引擎里"厅没了"＝**站点转走**；旧写法是改门面自记的表，引擎那边不知道）
+        set_owner(sb.env, sb.core_of("甲"), None)
         self.assertTrue(sb.is_terminal(), "用例前提：该是终局")
         steps = [_mkstep("甲"), _mkstep("乙")]
         _settle_episode(sb, steps)
@@ -96,7 +98,9 @@ class TestTerminalOutcomeReachesTheSamples(unittest.TestCase):
     def test_outcome_is_counted_exactly_once(self):
         """★ **不重复加奖**：一位玩家的奖励总和**恰好等于**他的结果。"""
         sb = Sandbox(seed=0, size=8, n_nations=2, t_max=20).reset(random_starts=False)
-        sb.world.tiles[sb.core_of("甲")]["buildings"]["native:town-hall"] = 0
+        # ★ 拔掉甲的厅 ⇒ 只剩乙一个实体 ⇒ 乙赢
+        #   （引擎里"厅没了"＝**站点转走**；旧写法是改门面自记的表，引擎那边不知道）
+        set_owner(sb.env, sb.core_of("甲"), None)
         steps = [_mkstep("甲"), _mkstep("乙")]
         settled = _settle_episode(sb, steps)
         for p in sb.players:
@@ -119,7 +123,7 @@ class TestTerminalOutcomeReachesTheSamples(unittest.TestCase):
         sb.set_alliance(("北方同盟", ["甲", "乙"]))
         # ★ 拔掉**丙**的厅 ⇒ 只剩一个实体（甲乙的同盟）⇒ 它赢
         core_c = sb.core_of("丙")
-        sb.world.tiles[core_c]["buildings"]["native:town-hall"] = 0
+        set_owner(sb.env, core_c, None)      # ★ 引擎里"厅没了"＝站点转走
         self.assertIsNotNone(sb.winner())
         self.assertIn("甲", sb.winner_members())
         self.assertIn("乙", sb.winner_members())

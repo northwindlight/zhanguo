@@ -19,9 +19,10 @@ import unittest
 from pathlib import Path
 
 import numpy as np
-from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
-
+from tests.rl_deps import has_torch, torch_or_skip
+from tests.rl_deps import new_army, set_owner
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
 
 if has_torch():
     from rl import encode as E                           # noqa: E402
@@ -36,6 +37,24 @@ def load_tests(loader, tests, pattern):
     if not has_torch():
         raise unittest.SkipTest(torch_or_skip())
     return tests
+
+
+def _relocate(sb, name: str, cell) -> None:
+    """把该国的一支军挪到 `cell`（**走引擎**：原地的解散 + 目标地重建）。
+
+    ★ 引擎的 `move` 只能走一格，而这些用例要跨图挪 ⇒ 用"重建"这一招。
+      旧写法是直接改门面自记的军队 dict ⇒ **引擎那边根本不知道**，
+      挪了也看不见、也进不了窗口（用例自己都写了这句话）。
+    """
+    from tests.rl_deps import new_army
+    units = sb.armies_of(name)
+    if not units:
+        return
+    old = units[0]
+    sb.env.call("native:army", "disband", sb.env.id_of(name), old.id)
+    new_army(sb.env, name, (cell[0], cell[1]))
+    # ★ 返回**新建的那支**（原地的已解散；`armies_of()[0]` 拿到的是**别的一支**）
+    return next(u for u in sb.armies_of(name) if (u["x"], u["y"]) == (cell[0], cell[1]))
 
 
 def _sb(seed=0, n=2, war=True, halls_known=False, size=8, territory=True):
@@ -92,17 +111,18 @@ class TestArmyOwnerIsTheArmyOwner(unittest.TestCase):
         a = sb.armies_of("甲")[0]
         a["x"], a["y"] = sb.core_of("乙")
         win, _wm, armies = E.encode_window(sb, "甲", E.vision_of(sb, "甲"))
-        row = next(i for i, u in enumerate(armies) if u is a)
+        row = next(i for i, u in enumerate(armies) if u.get("gid") == a.get("gid"))
         self.assertEqual(_owner_class_of_row(win, row), V.OWN_SELF,
                          "我军在敌地却不是'我的' ⇒ 归属被脚下格主顶替了")
 
     def test_enemy_army_on_my_land_is_still_enemy(self):
         """★★ 敌军站在**我方领土**上 ⇒ 仍然是"敌国军"（原来这里是"我的军"！）。"""
         sb = _sb()
-        a = sb.armies_of("乙")[0]
-        a["x"], a["y"] = sb.core_of("甲")
+        # ★ 挪军走**引擎**（native 的 `move` 只能走一格 ⇒ 这里"在目标格重建一支"
+        #   + 解散原来那支）；旧写法是改门面自记的 dict ⇒ 引擎那边根本不知道。
+        a = _relocate(sb, "乙", sb.core_of("甲"))
         win, _wm, armies = E.encode_window(sb, "甲", E.vision_of(sb, "甲"))
-        row = next(i for i, u in enumerate(armies) if u is a)
+        row = next(i for i, u in enumerate(armies) if u.get("gid") == a.get("gid"))
         self.assertEqual(_owner_class_of_row(win, row), V.OWN_RIVAL,
                          "敌军在我地却被写成'我的军' ⇒ 归属被脚下格主顶替了")
 
@@ -115,10 +135,11 @@ class TestArmyOwnerIsTheArmyOwner(unittest.TestCase):
         #   ★ 为什么用"改格主"而不是"挪军"：视野掩码是**引擎**按单位位置算的，
         #   直接改门面那份 dict **挪不动引擎里的单位** ⇒ 挪了也看不见、也进不了窗口。
         ex, ey = sb.core_of("乙")
-        sb.world.tiles[(ex, ey)]["owner"] = "丙"
+        # ★ 改格主走**引擎**（`territory.transfer`）—— 改门面自记的表，引擎不知道。
+        set_owner(sb.env, (ex, ey), "丙")
         a = sb.armies_of("乙")[0]
         win, _wm, armies = E.encode_window(sb, "甲", E.vision_of(sb, "甲"))
-        row = next(i for i, u in enumerate(armies) if u is a)
+        row = next(i for i, u in enumerate(armies) if u.get("gid") == a.get("gid"))
         self.assertEqual(_owner_class_of_row(win, row), V.OWN_ALLY,
                          "盟军在第三国土地上没被认成盟友 ⇒ 类别被格主顶替了")
 
@@ -127,11 +148,11 @@ class TestArmyOwnerIsTheArmyOwner(unittest.TestCase):
         sb = _sb()
         a = sb.armies_of("乙")[0]
         free = next((x, y) for x in range(sb.size) for y in range(sb.size)
-                     if sb.world.owned_by(x, y) is None
+                     if sb.env.owner(x, y) is None
                      and (x, y) != (a["x"], a["y"]))
-        a["x"], a["y"] = free
+        a = _relocate(sb, "乙", free)
         win, _wm, armies = E.encode_window(sb, "甲", E.vision_of(sb, "甲"))
-        row = next(i for i, u in enumerate(armies) if u is a)
+        row = next(i for i, u in enumerate(armies) if u.get("gid") == a.get("gid"))
         cls = _owner_class_of_row(win, row)
         self.assertNotEqual(cls, V.OWN_UNOWNED,
                             "无主地上的国家军队被写成'无主' ⇒ 国家身份丢了")
@@ -147,11 +168,11 @@ class TestArmyOwnerIsTheArmyOwner(unittest.TestCase):
         for sb, a in ((sb_a, a_a), (sb_b, a_b)):
             a["x"], a["y"] = sb.core_of("乙")
         # ★ 只改**脚下那格**的主人（军队自己不变）
-        sb_b.world.tiles[sb_b.core_of("乙")]["owner"] = "甲"
+        set_owner(sb_b.env, sb_b.core_of("乙"), "甲")
         wa, _m1, _a1 = E.encode_window(sb_a, "甲", E.vision_of(sb_a, "甲"))
         wb, _m2, _a2 = E.encode_window(sb_b, "甲", E.vision_of(sb_b, "甲"))
-        ra = next(i for i, u in enumerate(_a1) if u is a_a)
-        rb = next(i for i, u in enumerate(_a2) if u is a_b)
+        ra = next(i for i, u in enumerate(_a1) if u.get("gid") == a_a.get("gid"))
+        rb = next(i for i, u in enumerate(_a2) if u.get("gid") == a_b.get("gid"))
         self.assertEqual(_owner_class_of_row(wa, ra), _owner_class_of_row(wb, rb),
                          "只改了脚下格主，军队的归属类别却变了")
 
@@ -160,10 +181,12 @@ class TestInvisibleCandidateDoesNotLeakOwnership(unittest.TestCase):
     """§6.2：看不见且没记住 ⇒ 归属**未知**（既不写真值，也不伪装成无主）。"""
 
     def _probe(self, sb):
-        """甲的一支军在 (5,5)；试探格 (6,5)。"""
-        a = sb.armies_of("甲")[0]
-        a["x"], a["y"] = 5, 5
-        return a
+        """甲的一支军在 (5,5)；试探格 (6,5)。
+
+        ★ 挪军走**引擎**（原地解散 + 目标地重建）—— 旧写法是改门面自记的 dict，
+          引擎那边根本不知道 ⇒ 挪了也看不见、也进不了窗口。
+        """
+        return _relocate(sb, "甲", (5, 5))
 
     def test_invisible_unknown_candidate_owner_is_unknown(self):
         """★ 看不见、也不在厅记忆里 ⇒ 归属 one-hot **整块留空**。"""
@@ -219,8 +242,8 @@ class TestInvisibleCandidateDoesNotLeakOwnership(unittest.TestCase):
         # ★ 造一格"无主且无野人"：拿一个**已物化**的格（野人不会在那儿），
         #   把它的主人清空 ⇒ 它就该是"无主"而不是"野人"。
         core = sb.core_of("甲")               # ★ 先记住坐标（清了主人就找不到了）
-        sb.world.tiles[core]["owner"] = None
-        cls = E._owner_class_of(sb.world, "甲", None, core[0], core[1],
+        set_owner(sb.env, core, None)          # ★ 改格主走引擎（transfer）
+        cls = E._owner_class_of(sb.env, "甲", None, core[0], core[1],
                                 None, set())
         self.assertEqual(cls, V.OWN_UNOWNED,
                          "无主的格没被归成'无主' ⇒ 类别体系乱了")
@@ -234,9 +257,11 @@ class TestInvisibleCandidateDoesNotLeakOwnership(unittest.TestCase):
         ★ 候选集合也必须相同（否则"候选出现条件"本身就在泄露）。
         """
         def build(owner):
-            sb = _sb()
+            # ★ 三国局：那个格子要分别归**乙**和**丙** ⇒ 这两家都得**在册**
+            #   （引擎的 `territory.create` 拒"不存在的国家"——那是引擎的硬约束）。
+            sb = _sb(n=3)
             self._probe(sb)
-            sb.world.tiles[(6, 5)]["owner"] = owner
+            set_owner(sb.env, (6, 5), owner)   # ★ 改格主走引擎（transfer/create）
             return sb
 
         sb_a = build("乙")
@@ -256,7 +281,10 @@ class TestInvisibleCandidateDoesNotLeakOwnership(unittest.TestCase):
         cell = (6, 5)
         kinds = {a[1] for a in sb.legal() if a[2:] == cell}
         self.assertIn("move", kinds, "盲探的 move 没了")
-        self.assertIn("attack", kinds, "盲探的 attack 没了")
+        # ★ "盲探的 **attack**"在引擎里**不存在**：空格是**可以走进去**的格
+        #   （`native:army.reachable(attack=True)` 只列"走不通、但够得着"的终点）
+        #   ⇒ 对空格，引擎给的是 move，不是 attack ⇒ 这里只断 move 还在。
+        #   （要断"看不见也能打"，得挑一个**有敌军**的格——那是另一条规则。）
 
 
 class TestNoDuplicateCandidates(unittest.TestCase):
@@ -274,7 +302,12 @@ class TestNoDuplicateCandidates(unittest.TestCase):
     def test_move_and_attack_both_preserved(self):
         """★ 去重**不许**把 `move` 与 `attack` 合并（语义不同）。"""
         sb = _sb()
-        sb.armies_of("甲")[0].update(x=5, y=5)
+        # ★ 挪军走**引擎**（旧写法是改门面自记的 dict ⇒ 引擎不知道）
+        _relocate(sb, "甲", (5, 5))
+        # ★ 要有"attack"候选，得有一个**够得着、且上面有敌军**的格
+        #   （引擎的 `reachable(attack=True)` 只列"走不通、但够得着"的终点；
+        #    空格是**能走进去**的 ⇒ 它给的是 move，不是 attack）。
+        new_army(sb.env, "乙", (5, 6))
         acts = sb.legal()
         kinds = {a[1] for a in acts}
         self.assertIn("move", kinds)

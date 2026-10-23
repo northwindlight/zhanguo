@@ -53,12 +53,12 @@ class TestCloneIsCompleteAndIsolated(unittest.TestCase):
         # ★ 快照要取**会被 step 改到**的量：回合/待动队列/日志/军队数/击杀账本
         #   （`halls_known` 是个**布尔标志**不是字典 —— 我第一版拿它当字典，TypeError）
         snap = (sb.turn, list(sb.pending), len(sb.log),
-                len(sb.world.armies), len(sb.kills.snapshot()[0]))
+                len(sb.env.armies()), len(sb.kills.snapshot()[0]))
         c = sb.clone()
         for a in c.legal()[:20]:
             c.step(a)
         self.assertEqual((sb.turn, list(sb.pending), len(sb.log),
-                          len(sb.world.armies), len(sb.kills.snapshot()[0])), snap,
+                          len(sb.env.armies()), len(sb.kills.snapshot()[0])), snap,
                          "在副本上跑动作**改到了真身** —— 克隆没隔离")
 
     def test_ledgers_are_independent(self):
@@ -68,7 +68,7 @@ class TestCloneIsCompleteAndIsolated(unittest.TestCase):
         self.assertIsNot(c.halls, sb.halls)
         self.assertIsNot(c.kills, sb.kills)
         self.assertIsNot(c.intel, sb.intel)
-        self.assertIsNot(c.world, sb.world)
+        self.assertIsNot(c.env, sb.env)
 
 
 if __name__ == "__main__":

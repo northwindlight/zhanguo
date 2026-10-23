@@ -50,7 +50,7 @@ from __future__ import annotations
 HALL = "native:town-hall"
 
 
-def owner_seen(world, cell, mask, known) -> str | None:
+def owner_seen(env, cell, mask, known) -> str | None:
     """★★ 那格那座厅、**我认知里的主人** —— 用户 2026-09-25：「**厅的归属会变的**」。
 
     · **看得见** ⇒ 当前真值（而且 `HallMemory.observe` 顺手就把记忆刷新了）；
@@ -72,11 +72,14 @@ def owner_seen(world, cell, mask, known) -> str | None:
     """
     if known is not None and cell not in mask and cell in known:
         return known[cell]
-    t = world.tiles.get(cell)
-    return None if t is None else t["owner"]
+    # ★ 地块是**现算**的读模型（`env.tiles()`）—— 不是一张自记的表。
+    for row in env.tiles():
+        if row.position == tuple(cell):
+            return row.owner
+    return None
 
 
-def cells_of_seen(world, name: str | None, mask, known) -> list:
+def cells_of_seen(env, name: str | None, mask, known) -> list:
     """`name` 名下的厅格（**按我认知里的主人**，口径见 `owner_seen`）—— 排序稳定。
 
     ★★ **唯一实现**：`encode._hall_cells_of`（观测）与 `evaluate.hall_cells`（打分器）
@@ -86,14 +89,15 @@ def cells_of_seen(world, name: str | None, mask, known) -> list:
     if not name:
         return []
     out = []
-    for cell, t in sorted(world.tiles.items()):
-        if t["buildings"].get("native:town-hall", 0) <= 0:
+    for row in sorted(env.tiles(), key=lambda r: r.position):
+        cell = row.position
+        if row.buildings.get("native:town-hall", 0) <= 0:
             continue
         # ★ 记忆只放行"哪一格有厅"；`mask=None`（自家/盟友，全知）⇒ 一律放行
         if mask is not None and cell not in mask \
                 and (known is None or known.get(cell) != name):
             continue
-        if owner_seen(world, cell, mask if mask is not None else (), known) != name:
+        if owner_seen(env, cell, mask if mask is not None else (), known) != name:
             continue
         out.append(cell)
     return out
@@ -108,7 +112,7 @@ class HallMemory:
         self._by: dict[str, dict] = {}
 
     # ---------------------------------------------------------------- 记
-    def observe(self, world, name: str | None, mask) -> int:
+    def observe(self, env, name: str | None, mask) -> int:
         """把 `name` **此刻看得见**的厅并进它的记忆（返回新增座数）。
 
         ★ 只并**看得见的**（`mask`）—— 记忆是"**我见过**"，不是"全图"。
@@ -119,9 +123,9 @@ class HallMemory:
             return 0
         got = self._by.setdefault(name, {})
         n0 = len(got)
-        for cell, t in world.tiles.items():
-            if t["buildings"].get(HALL, 0) > 0 and cell in mask:
-                got[cell] = t["owner"]
+        for row in env.tiles():
+            if row.buildings.get(HALL, 0) > 0 and row.position in mask:
+                got[row.position] = row.owner
         return len(got) - n0
 
     # ---------------------------------------------------------------- 读
@@ -140,7 +144,7 @@ class HallMemory:
         ★ `all_known=True` 那种"开局全知"其实就是**这个口子的一个特例**
           （把"全部厅"一次性注入）—— 两条路合成一条，少一套机制。
         ★★ **合法性由调用方负责，而且这是唯一的要求**：注进去的必须是
-          "**这个玩家合法拥有的情报**"。把引擎真值（`world.tiles[...]["owner"]`）
+          "**这个玩家合法拥有的情报**"。把引擎真值（`env.tiles()[...]["owner"]`）
           **自动**倒进来就变成了偷看 —— 那是本线最忌的事。
           ⇒ 所以这个口子**只开在沙盒层**（`sandbox.tell_halls`），
             **`encode` 里不许调它**：观测只读记忆，不写记忆（除了"看见就覆盖"）。
@@ -157,16 +161,16 @@ class HallMemory:
             n += 1
         return n
 
-    def known(self, world, name: str | None) -> dict:
+    def known(self, env, name: str | None) -> dict:
         """该国**已知**的厅 `{格: 主人}`（记忆的**副本** —— 别让调用方改到账本）。"""
         if self.all_known:
-            return {c: t["owner"] for c, t in world.tiles.items()
-                    if t["buildings"].get(HALL, 0) > 0}
+            return {r.position: r.owner for r in env.tiles()
+                    if r.buildings.get(HALL, 0) > 0}
         return dict(self._by.get(name) or {})
 
-    def cells_of(self, world, name: str | None, owner: str) -> frozenset:
+    def cells_of(self, env, name: str | None, owner: str) -> frozenset:
         """该国记忆里、**最后看见时属于 `owner`** 的厅格（"我知道对手的哪些厅在哪"）。"""
-        return frozenset(c for c, o in self.known(world, name).items() if o == owner)
+        return frozenset(c for c, o in self.known(env, name).items() if o == owner)
 
     def __len__(self) -> int:
         return sum(len(v) for v in self._by.values())

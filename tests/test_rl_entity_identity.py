@@ -24,9 +24,9 @@ from pathlib import Path
 from unittest import mock
 
 import numpy as np
-from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
-
+from tests.rl_deps import has_torch, torch_or_skip, new_army
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
 
 if has_torch():
     from rl import encode as E                           # noqa: E402
@@ -44,7 +44,7 @@ def load_tests(loader, tests, pattern):
 
 
 def _units(w):
-    return {u.name: u for u in w._world.units}
+    return {u.name: u for u in w.world.units}
 
 
 def _scenario(same_country: bool):
@@ -58,21 +58,21 @@ def _scenario(same_country: bool):
     """
     sb = Sandbox(seed=0, size=8, n_nations=3, t_max=20, war=True).reset(
         random_starts=False)
-    w = sb.world
-    units = _units(w)
-    keep = []
-    for a in w.armies:
-        if a["owner"] == "甲":
-            keep.append(a)
+    w = sb.env
+    # ★★ 敌军**真删**再**真造**在**同一格**（native 的 `disband` + `seed`）——
+    #   旧做法是改门面自记的军队表（改 x/y、再把整个列表换掉），
+    #   引擎那边根本不知道 ⇒ 观测里读到的位置与引擎的真值能分叉。
+    for a in list(w.armies()):
+        if w.owner_of(a) == "甲":
             continue
-        if same_country and a["owner"] == "丙":
+        if same_country and w.owner_of(a) == "丙":
             continue                      # ★ 这一支整个不存在 ⇒ 只剩**同一个敌国**
-        u = units[a["name"]]
-        u.x, u.y = 2, 1                   # ★ 全部挪到**同一格**（同位置/兵种/hp）
-        keep.append(a)
-    if same_country:
-        keep = [a for a in keep if a["owner"] != "丙"]
-    w.armies = keep                      # ★ 引擎真的删掉其余军队
+        w.call("native:army", "disband", a.owner, a.id)
+    for nation in ("乙", "丙"):
+        if same_country and nation == "丙":
+            continue
+        for _ in range(2):
+            new_army(w, nation, (2, 1))  # ★ 全部摆在**同一格**（同位置/兵种/hp）
     return sb
 
 
@@ -162,21 +162,25 @@ class TestEntityReferenceIsLabelFree(unittest.TestCase):
                 self.owner_ent = owner_ent
                 self.members = members
 
-            def entity_of(self, name):
+            def entity(self, name):
                 return self.owner_ent[name]
 
             def entity_members(self, ent):
                 return self.members[ent]
 
-            def allied_between(self, a, b):
+            def allied(self, a, b):
                 return False
 
             def war_between(self, a, b):
                 return True
 
+            def nations(self):
+                return tuple(self.entities)
+
         class _StubSb:
             def __init__(self, w):
-                self.world = w
+                # ★ 编码层拿的是**能力客户端**（`sb.env`），不是旧门面的 `sb.env`
+                self.env = w
 
             def core_of(self, name):
                 return (0, 0)

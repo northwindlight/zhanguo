@@ -20,7 +20,7 @@
 
     ★★ 两条纪律（错了不报错、只在训练里慢慢烂掉）
     ────────────────────────────────────────────
-    1. **迷雾**：只编码**看得见**的（`world.visible_to`）—— 那是 v9 当年堵掉的越权之一。
+    1. **迷雾**：只编码**看得见**的（`env.visible`）—— 那是 v9 当年堵掉的越权之一。
     2. ★ **市政厅是公开的例外**（`_public_buildings`）：视野内的他国地**只公开城堡与市政厅**
        （"看不见就打不着"）⇒ **厅进了视野就能看到、不需要 `spy`/换图**。
 
@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from . import combat_probs as CB
+from . import odds as CB
 from . import hall_memory as HM
 from . import intel as IN
 from . import features as F
@@ -51,27 +51,27 @@ ARMY_WIDTH = ARMY_TAIL0 + V.A_EXTRA
 
 
 # ============================================================ 谁占这一格
-def _defense_of(world, x: int, y: int, owner) -> int:
+def _defense_of(env, x: int, y: int, owner) -> int:
     """本格**总减伤%** = 引擎的 `_defense_pct`（地形 × 城堡**已合并**在引擎里）。
 
     ★ 城堡不单列（用户：「**也不应该看城堡**」）—— 它本来就是防御的一部分。
     """
     try:
-        return int(world._defense_pct(x, y, owner or "野人"))
+        return int(env.defense_pct(x, y, owner or "野人"))
     except Exception:                              # noqa: BLE001  地图边界等
         return 0
 
 
-def _move_cost_of(world, x: int, y: int) -> int:
+def _move_cost_of(env, x: int, y: int) -> int:
     """骑兵进这一格的**移动代价**（用户点名的"移动属性（对应骑兵）"）。"""
     from .rules import unit_move_cost
     try:
-        return int(unit_move_cost({"type": "native:cavalry"}, world.tile_terrain(x, y)))
+        return int(unit_move_cost({"type": "native:cavalry"}, env.terrain(x, y)))
     except Exception:                              # noqa: BLE001
         return 1
 
 
-def _owner_class(world, name: str, x: int, y: int, by_cell: dict | None = None,
+def _owner_class(env, name: str, x: int, y: int, by_cell: dict | None = None,
                   barb: set | None = None) -> int:
     """归属类别下标（`vocab.OWN_*`，**六类**）—— 逐条对齐引擎 `_mv_wall` / `_atk_target_ok`：
 
@@ -88,10 +88,10 @@ def _owner_class(world, name: str, x: int, y: int, by_cell: dict | None = None,
       并进了 `RIVAL`（只判"不是我的、不是盟友的"），而这两类的**可行动作完全不同**：
       敌国能打，中立国**既不能走也不能打**（得先宣战/结盟）。混成一类就分不出。
     """
-    return _owner_class_of(world, name, world.owned_by(x, y), x, y, by_cell, barb)
+    return _owner_class_of(env, name, env.owner(x, y), x, y, by_cell, barb)
 
 
-def _owner_class_of(world, name: str, o: str | None, x: int, y: int,
+def _owner_class_of(env, name: str, o: str | None, x: int, y: int,
                     by_cell: dict | None = None, barb: set | None = None) -> int:
     """★ **显式给主人**的那一版 —— `o` = "我**认知里**的主人"（见 `hall_memory.owner_seen`）。
 
@@ -104,19 +104,19 @@ def _owner_class_of(world, name: str, o: str | None, x: int, y: int,
         return V.OWN_SELF
     if o is not None:
         try:
-            if world.allied_between(name, o):
+            if env.allied(name, o):
                 return V.OWN_ALLY
-            if world.war_between(name, o):
+            if env.war_between(name, o):
                 return V.OWN_RIVAL
         except Exception:                      # noqa: BLE001
             return V.OWN_RIVAL                 # 查不动就保守当敌国（宁可不敢走）
         return V.OWN_NEUTRAL_NATION            # ★ 有主但非盟非敌：mv/atk 都不行
-    # ★★ "有野人驻守"：**不能只看 `world.armies`** —— 新引擎的野人是
+    # ★★ "有野人驻守"：**不能只看 `env.armies()`** —— 新引擎的野人是
     #   **虚拟合成**的（`Military.visible_units` 对"没物化、没驻过军"的格
     #   现场合成一支）⇒ 引擎里根本没有真野人军队可查。
     #   ⇒ 用门面的 `barbarian_cells()`（★ 一次算好传进来，别每格重算）。
     if barb is None:
-        barb = world.barbarian_cells()
+        barb = env.barbarian_cells()
     if (x, y) in barb:
         return V.OWN_BARBARIAN
     return V.OWN_UNOWNED                       # 无主、无驻军
@@ -124,7 +124,7 @@ def _owner_class_of(world, name: str, o: str | None, x: int, y: int,
 
 # ============================================================ ★★ 战斗明细的取数口
 def combat_of(sb, me: str, mask, armies=None) -> CB.FrameOdds:
-    """★ **一帧算一次**的战斗明细（`combat_probs.frame_odds` 的薄包装）。
+    """★ **一帧算一次**的战斗明细（`odds.frame_odds` 的薄包装（战斗概率现在**只**来自引擎能力））。
 
     ★ 只在 `obs_of` 里调**一次**，返回值往下传（网格与军队 token 共用那一份）——
       别在每个编码函数里各算一遍：那是**每帧重算**（正确），但是白算几遍（`assess`
@@ -133,7 +133,7 @@ def combat_of(sb, me: str, mask, armies=None) -> CB.FrameOdds:
     ★ `mask` 是**引擎视野**（`vision_mask`），必传（见 `frame_odds` 的注释：
       它是增援过滤的**唯一**依据，给默认值就等于留一条静默偷看的路）。
     """
-    return CB.frame_odds(sb.world, me, mask, with_reinf=True, retreat=True)
+    return CB.frame_odds(sb.env, me, mask, with_reinf=True, retreat=True)
 
 
 def _mine_engaged_here(by_cell, me: str, x: int, y: int) -> bool:
@@ -142,7 +142,7 @@ def _mine_engaged_here(by_cell, me: str, x: int, y: int) -> bool:
     ★ 这是"**接触即看见**"判据（`scoring.CB_CONTACT_VISION`）的**唯一**依据 ——
       它**不扩视野本身**，只决定"这一格能不能写概率"。见 `scoring.py` 那段实测。
     """
-    return any(a["owner"] == me for a in by_cell.get((x, y), ()))
+    return any(env.owner_of(a) == me for a in by_cell.get((x, y), ()))
 
 
 def _combat_tail(frame: CB.FrameOdds | None, cell, side: str,
@@ -188,7 +188,7 @@ def frame_of(sb, me: str, mask=None) -> tuple[int, int, int, int]:
     ⇒ **没有固定半径**：框跟着视野走（这也是为什么大地图上模型只看自己周围那一圈）。
     极端情况（一支军都没有、视野空）⇒ 退回核心周围 1 格，保证框非空。
     """
-    mask = _vision(sb.world, me) if mask is None else mask
+    mask = _vision(sb.env, me) if mask is None else mask
     if not mask:
         hx, hy = _home_cell(sb, me)
         return hx, hy, 1, 1
@@ -208,7 +208,7 @@ def encode_grid(sb, me: str, mask=None, known=None,
       （`_combat_tail`，与视野无关）。网格这份是"**看得见的那几场仗**"，
       给候选直接 gather 用（候选要去的那格正好是战场时，一眼读到）。
     """
-    w = sb.world
+    w = sb.env
     mask = _vision(w, me) if mask is None else mask
     # ★ 已知的厅 = **视野 ∪ 永久记忆**（`known`）。间谍模式只是**记忆的初值不同**
     #   （开局就装满），所以这里**不再分模式**。
@@ -224,7 +224,7 @@ def encode_grid(sb, me: str, mask=None, known=None,
     # ★★ **先建"格 → 军队"索引**（一次 O(军) 遍历），别在网格循环里扫全表：
     #   16×16 上有 256 个野人（每格一个）⇒ 一格扫 256 次（实测 2 局 600s 跑不完）。
     by_cell: dict = {}
-    for a in w.armies:
+    for a in w.armies():
         if a.get("hp", 0) > 0:
             by_cell.setdefault((a["x"], a["y"]), []).append(a)
     # ★★ "有野人驻守"的格（**含引擎的虚拟野人**）—— 一次算好，逐格查
@@ -235,10 +235,10 @@ def encode_grid(sb, me: str, mask=None, known=None,
             x, y = x0 + j, y0 + i
             if not (0 <= x < sb.size and 0 <= y < sb.size):
                 continue                                  # 框超出地图 ⇒ 保持全 0
-            t = w.tiles.get((x, y))
+            t = w.tile_at((x, y))
             visible = (x, y) in mask
             # ★★ 地形**扁平化为两个军事属性**：只值"好不好守"与"走得快不快"。
-            owner_here = w.owned_by(x, y)
+            owner_here = w.owner(x, y)
             g[V.GRID_DEFENSE, i, j] = _defense_of(w, x, y, owner_here) / 100.0
             g[V.GRID_MOVE, i, j] = _move_cost_of(w, x, y) / 2.0
             # ★★ **归属只在"看得见"时写** —— 用户 2026-09-25 问「视野内的地块归属有记忆吗」，
@@ -265,7 +265,7 @@ def encode_grid(sb, me: str, mask=None, known=None,
             # ★★ 战斗明细 —— **每帧重算**（`frame` 由 `obs_of` 现算传下来，不是缓存）。
             #    取数条件：这一格在打，**且**（看得见 **或** 仗打在我身上）。
             #    后者 = "**接触即看见**"（`scoring.CB_CONTACT_VISION` + 实测理由）。
-            #    ⚠ 看不见又没我的军 ⇒ **一格都不写**（概率是从 `world.armies` 真值算的，
+            #    ⚠ 看不见又没我的军 ⇒ **一格都不写**（概率是从 `env.armies()` 真值算的，
             #      写下去就是把迷雾里的兵力透给模型 —— 本线最忌的偷看）。
             if frame is not None:
                 oc = frame.cells.get((x, y))
@@ -296,12 +296,12 @@ def encode_grid(sb, me: str, mask=None, known=None,
             #
             #   ★ 只抬**厅**这一段：军队/hp 仍然死守 `mask`（"知道厅在哪" ≠ "看得见守军"，
             #     两件情报 —— 见 `hall_memory.py` 的文件头）。
-            #   ★ 归属仍以**当前** `t["owner"]` 为准（记忆只放宽**可见性**，取保守那侧）。
-            if (t is not None and t["buildings"].get("native:town-hall", 0) > 0
+            #   ★ 归属仍以**当前** `t.owner` 为准（记忆只放宽**可见性**，取保守那侧）。
+            if (t is not None and t.buildings.get("native:town-hall", 0) > 0
                     and (visible or (x, y) in known)):
                 # ★★ **归属取"我认知里的主人"**（用户 2026-09-25：「厅的归属会变的」）：
                 #   看得见 ⇒ 当前真值；看不见 ⇒ 记忆里"最后看见时的"。
-                #   ⚠ 原来这里用的是 `t["owner"]`（当前真值）⇒ 一座**看不见的**记得的厅
+                #   ⚠ 原来这里用的是 `t.owner`（当前真值）⇒ 一座**看不见的**记得的厅
                 #     若在我不知情时易主，这几列会**静默跟着变** —— 模型白得一条情报。
                 #     （★ 实测：30 个 seed 没抓到这种格 —— 敌厅一般落在我视野框**外**，
                 #      所以这不是"正在流血"，而是"差一个 if"；但口径必须对。）
@@ -320,9 +320,9 @@ def encode_grid(sb, me: str, mask=None, known=None,
                 continue                     # ★ 看不清的格：军队与 hp 一概不写
             mine = foehp = 0.0
             for a in by_cell.get((x, y), ()):        # ★ 查索引，不扫全表
-                if a["owner"] == me:
+                if w.owner_of(a) == me:
                     mine += a["hp"]
-                elif a["owner"] in w.nations:
+                elif w.owner_of(a) in w.nations():
                     # ★ 别人的军（原来写死 `== foe`）：多玩家下"敌人"是集合
                     #   ⇒ 只认一个会把另一个对手的兵力**静默漏掉**。
                     #   ⚠ 野人（`野人 ∉ w.nations`）**维持现状不计入**（与 token 同口径）。
@@ -335,7 +335,7 @@ def encode_grid(sb, me: str, mask=None, known=None,
 # ============================================================ 全局标量
 def encode_glob(sb, me: str, mask=None, known=None) -> np.ndarray:
     """局面 → `(GLOB_SIZE,)` 标量（归一到 0~1）。**不含任何绝对坐标。**"""
-    w = sb.world
+    w = sb.env
     # ★★ **对手是一个集合**（用户 2026-09-25：多玩家 3 人起步）——
     #   `foe_*` 那几个标量一律是**所有对手之和**，"还有没有对手活着"用 `any`。
     #   ⚠ 原来的 `_other(me)` 只取"另一个" ⇒ 三国局里**第二个对手整个不进观测**
@@ -375,7 +375,7 @@ def encode_glob(sb, me: str, mask=None, known=None) -> np.ndarray:
         #   国祚存亡是**公开事件**（引擎 `_eliminate_if_dead`）⇒ 不算偷看。
         "foe_hall": 1.0 if any(sb.alive(f) for f in foes) else 0.0,
         "my_hp_frac": _hp_frac(mine, S.HP_REF_ARMIES),
-        "my_moved": sum(1 for a in mine if a.get("moved_turn") != w.turn) / 8.0,
+        "my_moved": sum(1 for a in mine if a.get("moved_turn") != w.period()) / 8.0,
         "last_ok": 1.0 if sb.last_ok else 0.0,
         # ★★ 我**累计**的战果（见 `vocab.GLOB` 那两段；单调、与视野无关）。
         #   ⚠ **只数"敌国"**（`victims=foes`）：打野人/打盟友不算 —— 口径与打分器一致，
@@ -423,10 +423,10 @@ def _intel_vals(sb, me: str) -> dict:
         return out
     buckets: dict = {t: [] for t in IN.INTEL_CLASSES}
     for src, rec in got.items():
-        if src == me or src not in sb.world.nations:
+        if src == me or src not in sb.env.nations():
             continue                                 # 自己不用探；野人不是国家
         # ★ 复用同一套六类判定（`o` 给了 ⇒ 只可能落到 ALLY/RIVAL/NEUTRAL）
-        cls = _owner_class_of(sb.world, me, src, 0, 0)
+        cls = _owner_class_of(sb.env, me, src, 0, 0)
         tag = ("ally" if cls == V.OWN_ALLY else
                "rival" if cls == V.OWN_RIVAL else "neutral")
         buckets[tag].append((int(rec["turn"]), src, rec))
@@ -449,23 +449,33 @@ def window_armies(sb, me: str, mask=None) -> list[dict]:
     ★ 单拎出来是为了让调用方能**先拿到军单**、再算战斗明细（`combat_of` 要按军取
       撤退概率）—— 否则 `obs_of` 得把选军那段抄两遍（抄两遍就会**慢慢不一致**）。
     """
-    w = sb.world
+    w = sb.env
     mask = _vision(w, me) if mask is None else mask
     out = []
     # 顺序：我方在前、按 id 升序（**稳定** —— 候选的 `army_idx` 按下标引用它）
-    for a in sorted(w.armies, key=lambda a: (a["owner"] != me, a["id"])):
+    for a in sorted(w.armies(), key=lambda a: (w.owner_of(a) != me, a["id"])):
         if a.get("hp", 0) <= 0:
             continue
-        if a["owner"] != me:
+        owner = w.owner_of(a)
+        if owner != me:
             # ★★ 别人的军：**看得见才进**。★ 原来写的是 `owner not in (me, foe)`
             #    —— "那一个敌人"的假设 ⇒ 三国局里**另一个对手的军静默消失**
             #    （明明在视野里，却进不了 token，而**不报错**）。
             #    ⇒ 现在收**任何国家**的军（盟友/敌国/中立国），归属由六类 one-hot 区分。
-            if a["owner"] not in w.nations:
+            if owner not in w.nations():
                 continue                      # 野人：**不进 token**（维持现状，见下）
             if (a["x"], a["y"]) not in mask:
                 continue
-        out.append(a)
+        # ★★ **行是"RL 侧的一行"**：归属写**短名**（`甲/乙/丙`）。
+        #   引擎的 `Unit.owner` 是**内容 ID**（`rl:n0`）⇒ 直接把原对象传出去，
+        #   消费方拿 `row["owner"] == "甲"` 去比就**永远为假**，而且**不报错**
+        #   （与 `rl/odds.py` 那次同一个病）。⇒ 这里统一成短名。
+        out.append({
+            "id": a["id"], "gid": a.get("gid"), "name": a.get("name"),
+            "type": a.get("type", "native:infantry"), "hp": a.get("hp", 0),
+            "x": a["x"], "y": a["y"], "owner": owner,
+            "moved_turn": a.get("moved_turn"), "engaged": a.get("engaged"),
+        })
     return out
 
 
@@ -487,7 +497,7 @@ def _entity_relation(w, me: str, ent: str) -> int:
         return V.OWN_SELF
     for m in members:
         try:
-            if w.allied_between(me, m):
+            if w.allied(me, m):
                 return V.OWN_ALLY
         except Exception:                          # noqa: BLE001
             continue
@@ -521,13 +531,13 @@ def _entity_slots(sb, me: str, armies: list[dict]) -> tuple[dict, dict]:
         未知国家再多也**不越界**。
       · **同实体同槽** —— 同一外交实体的军队拿同一个槽。
     """
-    w = sb.world
+    w = sb.env
     hx, hy = _home_cell(sb, me)
     by_ent: dict[str, list[dict]] = {}
     ent_of: dict[int, str] = {}
     for a in armies:
         try:
-            ent = w.entity_of(a["owner"])
+            ent = w.entity(w.owner_of(a))
         except Exception:                          # noqa: BLE001
             ent = a.get("owner") or ""
         if not ent:
@@ -583,7 +593,7 @@ def spatial_summary(sb, me: str, grid, mask=None) -> np.ndarray:
     ★ **格子是按世界坐标切的**（不是按视野框）⇒ 同一格**永远是同一片地方**
       ⇒ 模型能学到"我家东北那一格是山"；而且**尺度固定** ⇒ 语义跨地图大小可比。
     """
-    w = sb.world
+    w = sb.env
     n = sb.size
     mask = _vision(w, me) if mask is None else mask
     vis = np.zeros((n, n), np.float32)
@@ -659,7 +669,7 @@ def important_places(sb, me: str, mask=None, known=None) -> tuple[np.ndarray, in
         → 离我家核心的距离**」排序，取前 `V.HALL_SLOTS` 个；
         **被截掉几个**由 `dropped` 返回（调用方可以上报）⇒ 截断**不静默**。
     """
-    w = sb.world
+    w = sb.env
     mask = _vision(w, me) if mask is None else mask
     known = sb.known_halls(me, mask) if known is None else known
     hx, hy = _home_cell(sb, me)
@@ -686,7 +696,7 @@ def important_places(sb, me: str, mask=None, known=None) -> tuple[np.ndarray, in
     ent_of: dict[str, str] = {}
     for _tag, n, _cell in kept:
         try:
-            ent_of[n] = w.entity_of(n)
+            ent_of[n] = w.entity(n)
         except Exception:                          # noqa: BLE001
             ent_of[n] = n
     by_ent: dict[str, list] = {}
@@ -739,7 +749,7 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
     `frame` = `combat_of` 算好的那一帧（**同一帧只算一次**）；不传 ⇒ 自己算一次
     （单测里方便，正式路径由 `obs_of` 传下来）。
     """
-    w = sb.world
+    w = sb.env
     mask = _vision(w, me) if mask is None else mask
     ps = float(sb.size)                       # ★ 归一尺度 = 地图边长（参数化，不写死）
     hx, hy = _home_cell(sb, me)
@@ -768,13 +778,13 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
         #     跟它站在哪上面无关（验收：「改变脚下格主，不应改变军队所属方」）。
         #   ⇒ `_owner_class_of`（**显式给主人**那一版）：按军队自己的主人判，
         #     再按**公开的外交关系**映射成 self/ally/rival/neutral。
-        row[V.A_OWNER0 + _owner_class_of(w, me, a["owner"], a["x"], a["y"],
+        row[V.A_OWNER0 + _owner_class_of(w, me, w.owner_of(a), a["x"], a["y"],
                                          by_cell_w, barb_w)] = 1.0
         # ★★ **实体引用**（报告 §8.4）：这一支属于**哪个外交实体**、那个实体在
         #   **同一关系类别**里**是第几个**。
         #   ★ 归属 one-hot 只说"是敌国" ⇒ **说不清两支敌军来自同一敌国、
         #     还是两个互相交战的敌国** —— 这两列就是补这个缺口的。
-        _rel = _owner_class_of(w, me, a["owner"], a["x"], a["y"], by_cell_w, barb_w)
+        _rel = _owner_class_of(w, me, w.owner_of(a), a["x"], a["y"], by_cell_w, barb_w)
         row[V.A_ENT_N] = min(1.0, ent_n.get(_rel, 0) / float(V.ENT_SLOTS))
         row[V.A_ENT_SLOT] = min(1.0, ent_slot.get(a.get("gid", id(a)), V.ENT_SLOTS)
                             / float(V.ENT_SLOTS))
@@ -785,22 +795,25 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
         row[V.A_X] = (a["x"] - hx) / ps
         row[V.A_Y] = (a["y"] - hy) / ps
         row[V.A_HP] = a.get("hp", 0) / 100.0
-        row[V.A_MOVED] = 1.0 if a.get("moved_turn") == w.turn else 0.0
+        row[V.A_MOVED] = 1.0 if a.get("moved_turn") == w.period() else 0.0
         row[V.A_ENGAGED] = 1.0 if a.get("engaged") else 0.0
         row[V.A_WIDTH_RAW:ARMY_TAIL0] = F.unit_vector(kind)        # ★ 兵种数值（现算）
         # ★★ 战斗明细：**按这支军自己那一方**填（甲看到的"甲的概率"就是乙看到的
         #    "乙的概率" ⇒ 两国共用一套编码，自对弈不失衡）。
         #    ★ 取数条件与网格**同一条**：看得见这一格，**或**"仗打在我身上"
         #      （接触；`scoring.CB_CONTACT_VISION`）。
-        #      · 我的军：`a["owner"] == me` ⇒ 走接触档（我军恒在 token 里，与视野无关）
+        #      · 我的军：`env.owner_of(a) == me` ⇒ 走接触档（我军恒在 token 里，与视野无关）
         #      · 敌的军：进 token 的前提就是 `(x,y) in mask`（`window_armies`）
         #        ⇒ 它天然是"看得见"那一档
         #      ⇒ 关掉 `CB_CONTACT_VISION` 时**两边一起关**，这个开关才是真的口径开关。
         cell = (a["x"], a["y"])
-        allowed = (cell in mask) or (S.CB_CONTACT_VISION and a["owner"] == me)
+        allowed = (cell in mask) or (S.CB_CONTACT_VISION and w.owner_of(a) == me)
         row[ARMY_TAIL0:] = _combat_tail(
-            frame, cell, a["owner"],
-            frame.retreat.get(id(a), 1.0) if allowed else None)
+            frame, cell, w.owner_of(a),
+            # ★ 按 **`gid`** 查（`frame.retreat` 的键就是 gid）——
+            #   旧写法用 `id(a)`（Python 对象地址）⇒ 窗口行是**另一批对象**
+            #   ⇒ 永远查不到 ⇒ 那一列**恒为 1.0**（"撤退必活"）——**而且不报错**。
+            frame.retreat.get(a.get("gid"), 1.0) if allowed else None)
         rows.append(row)
 
     g_row = np.concatenate([encode_glob(sb, me, mask, known), F.glob_rule_vector()])
@@ -882,7 +895,7 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
       · `cand_content [K,F_CAND]`  规则表：执行军兵种数值 ⊕ 目标格地形数值
       · `cand_marks [K,CAND_MARKS]` 归属/厅/可见/距离（见 `vocab.CAND_*`）
     """
-    w = sb.world
+    w = sb.env
     hx, hy = _home_cell(sb, me)
     ps = float(sb.size)
     mask = ((_vision(w, me) if mask is None else mask) if me else set())
@@ -899,14 +912,18 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
         raise ValueError(f"候选动作重复（{len(dup)} 个）：{dup[:6]}")
     if by_cell is None:                     # ★ 格→军索引（`_owner_class` 查它，不扫全表）
         by_cell = {}
-        for _a in w.armies:
+        for _a in w.armies():
             if _a.get("hp", 0) > 0:
                 by_cell.setdefault((_a["x"], _a["y"]), []).append(_a)
     barb = w.barbarian_cells()              # ★ 一次算好（"有野人驻守"，含虚拟野人）
     if armies is None:
         armies = encode_window(sb, me, mask)[2]
-    row_of = {a["id"]: i for i, a in enumerate(armies)}
-    by_id = {a["id"]: a for a in armies}
+    # ★★ 候选里带的是**本国序号**（`aid`）⇒ 索引**只能建在"我自己的军"上**。
+    #   旧写法把**整个窗口**（含敌军的军）按 `a["id"]` 建索引 ⇒
+    #   甲的第 1 支与乙的第 1 支**撞成同一个 key** ⇒ 候选会指到别人的军，
+    #   **而且不报错**（review P0-3）。
+    row_of = {a["id"]: i for i, a in enumerate(armies) if a["owner"] == me}
+    by_id = {a["id"]: a for a in armies if a["owner"] == me}
 
     x0, y0, fh, fw = frame_of(sb, me, mask)      # ★ 框算**一次**（原来每候选建一次视野）
     n = len(acts)
@@ -953,10 +970,10 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
         # ★ 归属 one-hot **六类**（与网格同一套 `vocab.OWN_*`）—— 未知时**不写任何一类**。
         # ★ 市政厅归属 one-hot（同一套六类）—— 单列一组，让"这格的厅是谁的"直接可读：
         #   打谁能亡国、谁亡了我就危险，是国祚层的核心判断，不指望它从两个 one-hot 里凑。
-        t = w.tiles.get((x, y))
+        t = w.tile_at((x, y))
         # ★ 陷阱候选也要走 `known`："我知道那格是敌厅"，哪怕它此刻不在视野里
         #   —— 这正是"记忆/间谍"要买到的东西（厅拆不掉 ⇒ 见过就永远算数）。
-        if t is not None and t["buildings"].get("native:town-hall", 0) > 0 \
+        if t is not None and t.buildings.get("native:town-hall", 0) > 0 \
                 and (visible or (x, y) in known):
             # ★★ **厅的主人按来源取**（2026-10-22）：
             #   · 看得见 ⇒ 当前真值；
@@ -976,7 +993,7 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
         m[V.CAND_VISIBLE] = 1.0 if (x, y) in mask else 0.0
         m[V.CAND_DIST] = max(abs(x - hx), abs(y - hy)) / ps
         out["cand_content"][i] = F.cand_content(
-            a.get("type", "native:infantry") if a else "native:infantry", w.tile_terrain(x, y))
+            a.get("type", "native:infantry") if a else "native:infantry", w.terrain(x, y))
     return out
 
 
@@ -1016,7 +1033,7 @@ def vision_of(sb, me: str):
     ★ 为什么单拎出来：`vision_mask` 是 O(地块数) 的，而各编码函数原先各自重建一遍
       （`candidate_xy` 甚至**每候选**一遍）—— 实测一局 vision_mask 被调上万次。
     """
-    return _vision(sb.world, me)
+    return _vision(sb.env, me)
 
 
 def _other(name: str | None) -> str:
@@ -1025,12 +1042,12 @@ def _other(name: str | None) -> str:
     留着它只为让"谁还在按两国假设取敌人"立刻炸出来（现在没有调用方）。
     """
     raise AssertionError(
-        "「_other」是两国假设的残骸：多玩家必须用 enemies_of(world, me)（集合），"
+        "「_other」是两国假设的残骸：多玩家必须用 enemies_of(env, me)（集合），"
         "别再取「某一个」敌人 —— 那会静默漏掉另外几个对手")
 
 
-def enemies_of(world, me: str | None) -> list:
-    """★ **敌国集合**（除我**与我的盟友**之外的现存国家，顺序 = `world.order`）。
+def enemies_of(env, me: str | None) -> list:
+    """★ **敌国集合**（除我**与我的盟友**之外的现存国家，顺序 = `env.nations()`）。
 
     用户 2026-09-25：多玩家（3 人起步）⇒「敌人」不再是一个人。
     ★ 用它替换原来的 `_other(me)`：那个只取"另一个"，三国局里会**静默漏掉一个对手**
@@ -1044,54 +1061,49 @@ def enemies_of(world, me: str | None) -> list:
     if not me:
         return []
     from .evaluate import rival_nations
-    try:
-        return rival_nations(world, me)
-    except Exception:                          # noqa: BLE001
-        return [n for n in getattr(world, "order", ())
-                if n in world.nations and n != me]
+    # ★ **不兜底**：读不到就当没有（review §8 禁"降级"）——
+    #   真出错时让它**炸出来**，而不是悄悄换一份口径。
+    return rival_nations(env, me)
 
 
-def _by_cell(world) -> dict:
+def _by_cell(env) -> dict:
     """格 → 该格上的军（`_owner_class` 查野人用它；一次 O(军) 建好）。"""
     out: dict = {}
-    for a in world.armies:
+    for a in env.armies():
         if a.get("hp", 0) > 0:
             out.setdefault((a["x"], a["y"]), []).append(a)
     return out
 
 
-def _vision(world, name: str) -> set:
+def _vision(env, name: str) -> set:
     from .teacher import pathfind
-    return pathfind.vision_mask(world, name)
+    return pathfind.vision_mask(env, name)
 
 
-def _hall_cells_of(world, name: str | None, mask, known) -> list:
+def _hall_cells_of(env, name: str | None, mask, known) -> list:
     """该国**已落成**的厅格 —— **视野 ∪ 永久记忆**（见 `vocab.GLOB` 的注释）。
 
     ★ `known` = `sandbox.known_halls(...)`，`{格: 最后看见时的主人}`。
       用户 2026-09-24：「**发现厅了就应该永久标记，因为厅是拆不掉也不能移动的**」
       ⇒ 不能再拿"当前视野"回答"厅在哪"（那会让已知的厅在观测里**闪断**）。
-    ★ 归属以**当前** `t["owner"]` 为准（记忆只放宽可见性）—— 取保守那一侧。
+    ★ 归属以**当前** `t.owner` 为准（记忆只放宽可见性）—— 取保守那一侧。
     """
     # ★★ **转发 `hall_memory.cells_of_seen`**（唯一实现）—— 原来这里和
     #   `evaluate.hall_cells` **各写了一遍同样的谓词**，而两份都拿**当前真值**
     #   判归属 ⇒ 「厅永久标记」被看不见的易主无声推翻（实测见 `owner_seen` 的注释）。
     #   ★ 现在两处共用一份口径 ⇒ 不会再漂开。
-    return HM.cells_of_seen(world, name, mask, known)
+    return HM.cells_of_seen(env, name, mask, known)
 
 
 def _allies_of(sb, me: str | None) -> tuple:
     if not me:
         return ()
-    try:
-        return tuple(n for n in sb.world.nations
-                     if n != me and sb.world.allied_between(me, n))
-    except Exception:                              # noqa: BLE001
-        return ()
+    return tuple(n for n in sb.env.nations()
+                 if n != me and sb.env.allied(me, n))
 
 
-def _armies(world, name: str) -> list[dict]:
-    return [a for a in world.armies if a["owner"] == name and a.get("hp", 0) > 0]
+def _armies(env, name: str) -> list[dict]:
+    return [a for a in env.armies() if env.owner_of(a) == name and a.get("hp", 0) > 0]
 
 
 def _home_cell(sb, name: str | None) -> tuple[int, int]:

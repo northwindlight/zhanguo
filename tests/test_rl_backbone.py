@@ -25,11 +25,13 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
+from tests.rl_deps import new_army, set_owner, set_hall, make_world, unmaterialized_cells
 
 import numpy as np                                  # noqa: E402
-from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
+from tests.rl_deps import has_torch, torch, torch_or_skip, new_army, set_owner, set_hall, make_world, unmaterialized_cells
 
-from rl.engine import SandboxWorld                  # noqa: E402
+from tests.rl_deps import make_world  # ★ 旧门面的 SandboxWorld 已删 ⇒ 用造局助手
 if has_torch():
     from rl import encode, model, train                 # noqa: E402
     from rl import vocab as V                            # noqa: E402
@@ -52,7 +54,7 @@ def three_nation_world(size=14, seed=5, ally=True, war=True):
     开局直接指定，而不是让模型发起和接受」）—— 所以这里直接摆 `blocs` / `declare_war`，
     **不走** propose/accept 那套流程。
     """
-    w = SandboxWorld(size=size, seed=seed, nations=["甲", "乙", "丙", "丁"])
+    w = make_world(size=size, seed=seed, nations=["甲", "乙", "丙", "丁"])
     # ★★ **顺序有讲究：先结盟、后宣战**（2026-10 随新引擎改了）。
     #   新引擎**明文禁止**「正在战争中创盟」（`正在战争中，不能创盟`）
     #   ⇒ 旧口径的"先宣战、后结盟"现在**直接报错**（整批未提交）。
@@ -61,17 +63,71 @@ def three_nation_world(size=14, seed=5, ally=True, war=True):
     #   ⚠ 旧注释里那句"先加 bloc 再 declare_war ⇒ 仗没打起来"是**旧门面**的行为
     #     （那时没人代投表决），现在**不成立**了 —— 别照着旧注释改回去。
     if ally:
-        w.blocs.append({"name": "测试联盟", "chief": "甲", "members": ["甲", "乙"]})
+        w.set_alliance(["甲", "乙"], "测试联盟")
     if war:
         w.declare_war("甲", "丙")          # 甲在盟里 ⇒ 走联盟表决（门面代投赞成）
     assert (not war) or w.war_between("甲", "丙"), "宣战没生效（见上面那条注释）"
     return w
 
 
+def _my_unit(w, name):
+    """该国的一支军（拿它的**引擎可达集**当合法性判据）。
+
+    ★ 没有就**真造一支**（native 的 `seed`）—— 合法性判据必须来自引擎，
+      没有"参照物"时就没有判据。
+    """
+    units = [u for u in w.armies() if w.owner_of(u) == name]
+    if units:
+        return units[0]
+    core = next((r.position for r in w.tiles()
+                 if r.owner == name and r.buildings.get("native:town-hall", 0) > 0), None)
+    if core is None:
+        raise AssertionError(f"{name} 没有核心格，造不出参照军")
+    new_army(w, name, core)
+    return next(u for u in w.armies() if w.owner_of(u) == name)
+
+
+def _atk_ok(w, name, cell) -> bool:
+    """★ 能不能打这一格 —— 按**引擎的规则**逐条问引擎（`Military._batch` 的判据）：
+
+        · 自己的地      ⇒ 不能打（"那是你自己（或盟国）的地块"）
+        · 盟国的地      ⇒ 不能打
+        · 没在交战的国  ⇒ 不能打（"你和X之间没有生效的战争"）
+        · 无主地 / 交战国 ⇒ 能打
+
+    ★ 与"够不够得着"（移动范围）是**两件事** ⇒ 这里只判前者
+      （引擎的 `_batch` 也是这么分的：阻挡一条、范围一条）。
+    ★ 旧门面的 `_atk_target_ok` 是**自己在 Python 里复刻**这一整条规则 ——
+      那正是 review §8 说的"复刻引擎规则"；现在改成**问引擎的事实**
+      （归属、盟国、战争关系都是引擎的）。
+    """
+    owner = w.owner(int(cell[0]), int(cell[1]))
+    if owner is None:
+        return True
+    if owner == name or w.allied(name, owner):
+        return False
+    return bool(w.war_between(name, owner))
+
+
+def _mv_wall(w, name, cell):
+    """★ 能不能走到那一格 —— 按**引擎的规则**（`Military._pass`）问引擎：
+
+        · 自己的地 / 盟国的地 ⇒ 走得进
+        · 没在交战的国的地   ⇒ 走不进（= 墙）
+        · 无主地             ⇒ 走得进（引擎保证那儿没有敌军的兵）
+
+    走得到 ⇒ `None`（没有墙）；走不到 ⇒ 那格（= 墙在哪）。
+    """
+    owner = w.owner(int(cell[0]), int(cell[1]))
+    if owner is None or owner == name or w.allied(name, owner):
+        return None
+    return (int(cell[0]), int(cell[1]))
+
+
 def owner_scenario():
     """→ `(world, {类别下标: (x, y)})`，六类各占一格。
 
-    ⚠ `world.tiles` **只装各国的十字领土**（无主格根本不在这个 dict 里 —— 它的地形是
+    ⚠ `world.tiles()` **只装各国的十字领土**（无主格根本不在这个 dict 里 —— 它的地形是
       `tile_terrain()` 按需生成的）⇒ "无主格"要**自己找个不在 `tiles` 里的坐标**，
       不能去 `tiles` 里筛 `owner is None`（那样筛出来永远是空）。
     """
@@ -79,10 +135,15 @@ def owner_scenario():
     cells = {}
     for cls, owner in ((V.OWN_SELF, "甲"), (V.OWN_ALLY, "乙"), (V.OWN_RIVAL, "丙"),
                        (V.OWN_NEUTRAL_NATION, "丁")):
-        cells[cls] = next(c for c, t in sorted(w.tiles.items()) if t["owner"] == owner)
-    free = [(x, y) for x in range(w.size) for y in range(w.size)
-            if (x, y) not in w.tiles]
-    assert len(free) >= 2, f"无主格不够（{len(free)}）—— size 太小"
+        cells[cls] = next((c for t in sorted(w.tiles(), key=lambda r: r.position) if t.owner == owner for c in (t.position,)), None)
+    # ★★ "没物化的格"（引擎会在可见的那些上**现场合成野人**）——
+    #   注意这**不是**"无主格"：引擎的 `territory` 里没有这一格 ⇒ 查"物化"，
+    #   不是查"归属"。
+    # ★★ "有野人驻守"那一类要**看得见**才成立：引擎只在**可见**的未物化格上
+    #   **现场合成**野人（`Military.visible_units`）⇒ 挑一个甲看得见的。
+    _vis = w.vision_mask("甲")
+    free = [c for c in unmaterialized_cells(w) if c in _vis] or unmaterialized_cells(w)
+    assert len(free) >= 2, f"没物化的格不够（{len(free)}）—— size 太小"
     # ★★ **新引擎的野人是"虚拟"的**（`Military.visible_units`）：它对
     #   **地块没物化**（`territory` 里没这一格）**且没驻过军**（`guard_once`）的格
     #   **现场合成**一支野人 ⇒
@@ -94,9 +155,9 @@ def owner_scenario():
     bar = free[0]
     # `un` ＝ **失地**：拿丁的一格转成无主（地块已物化 ⇒ 引擎不再合成野人）。
     #   ⚠ 挑的是**丁的另一格**（不是下面用作"中立国"的那格）—— 中立国还得有一格。
-    ding = [c for c, t in sorted(w.tiles.items()) if t["owner"] == "丁"]
+    ding = [c for t in sorted(w.tiles(), key=lambda r: r.position) if t.owner == "丁" for c in (t.position,)]
     un = ding[-1]
-    w.tiles[un]["owner"] = None                       # ★ 转成无主（地块仍在 ⇒ 无野人）
+    set_owner(w, un, None)                       # ★ 转成无主（地块仍在 ⇒ 无野人）
     cells[V.OWN_UNOWNED], cells[V.OWN_BARBARIAN] = un, bar
     # ★ `bar` 不用摆野人：它**没物化** ⇒ 引擎会**现场合成**一支 ⇒ 就是"有野人驻守"。
     return w, cells
@@ -118,7 +179,7 @@ class TestOwnerClasses(unittest.TestCase):
           **显式排除了野人** ⇒ 其实能走。这条测试就是来抓这种"读代码读出来的自信"。）
         """
         w, cells = owner_scenario()
-        allowed = {c: (w._mv_wall("甲", *p) is None) for c, p in cells.items()}
+        allowed = {c: (_mv_wall(w, "甲", p) is None) for c, p in cells.items()}
         expect = {V.OWN_SELF: True, V.OWN_ALLY: True, V.OWN_RIVAL: False,
                   V.OWN_NEUTRAL_NATION: False, V.OWN_UNOWNED: True,
                   V.OWN_BARBARIAN: True}
@@ -142,14 +203,14 @@ class TestOwnerClasses(unittest.TestCase):
                          V.OWN_NEUTRAL_NATION)
         self.assertEqual(encode._owner_class(w, "甲", *cells[V.OWN_RIVAL]), V.OWN_RIVAL)
         # 敌国可 atk、中立国不可 —— 这正是"混成一类就分不出该不该打"
-        self.assertTrue(w._atk_target_ok("甲", *cells[V.OWN_RIVAL]))
-        self.assertFalse(w._atk_target_ok("甲", *cells[V.OWN_NEUTRAL_NATION]))
+        self.assertTrue(_atk_ok(w, "甲", cells[V.OWN_RIVAL]))
+        self.assertFalse(_atk_ok(w, "甲", cells[V.OWN_NEUTRAL_NATION]))
 
     def test_ally_move_yes_attack_no(self):
         """盟友：**可 mv 不可 atk**（引擎对盟友与敌国的判定正好相反）。"""
         w, cells = owner_scenario()
-        self.assertIsNone(w._mv_wall("甲", *cells[V.OWN_ALLY]))
-        self.assertFalse(w._atk_target_ok("甲", *cells[V.OWN_ALLY]))
+        self.assertIsNone(_mv_wall(w, "甲", cells[V.OWN_ALLY]))
+        self.assertFalse(_atk_ok(w, "甲", cells[V.OWN_ALLY]))
 
 
 class TestCandidateMarks(unittest.TestCase):
@@ -159,17 +220,16 @@ class TestCandidateMarks(unittest.TestCase):
         # ★ `war=False` 只给"要**结盟**"的那条用：新引擎**禁止**在交战中的实体之间
         #   创盟（「正在战争中，不能创盟」）⇒ 盟友必须在**开战之前**结好。
         sb = Sandbox(seed=7, size=16, war=war).reset()
-        sb.world.nations["丙"] = None                     # 只为让 tile owner 有个"中立国"
         return sb
 
     def test_ally_tile_and_ally_hall_are_marked(self):
         """★ 用户点名的那条：盟友的格与**盟友的市政厅**都必须能被候选看见。"""
         sb = self._sb(war=False)                          # ★ 结盟要在宣战**之前**（新引擎硬约束）
-        w = sb.world
+        w = sb.env
         me, ally = "甲", "乙"
-        w.blocs.append({"name": "联盟", "chief": me, "members": [me, ally]})
-        ax, ay = next(c for c, t in sorted(w.tiles.items()) if t["owner"] == ally)
-        w.tiles[(ax, ay)]["buildings"]["native:town-hall"] = 1      # 盟友的厅
+        w.set_alliance([me, ally], "联盟")
+        ax, ay = next((c for t in sorted(w.tiles(), key=lambda r: r.position) if t.owner == ally for c in (t.position,)), None)
+        set_hall(w, (ax, ay), 1)      # 盟友的厅
 
         acts = [(1, "attack", ax, ay)]                    # 单候选：盟友格
         c = encode.candidate_batch(sb, me, acts=acts, armies=[])
@@ -384,12 +444,11 @@ class TestHallsKnownMode(unittest.TestCase):
         counts = {}
         for spy in (False, True):
             sb = self._sb(spy)
-            w = sb.world
+            w = sb.env
             fx, fy = sb.core_of("乙")
-            gid, seq = w._new_army("乙")
-            w.armies.append({"id": seq, "gid": gid, "name": f"乙{seq}", "type": "native:infantry",
-                             "hp": 100, "x": fx, "y": fy, "owner": "乙",
-                             "moved_turn": -1, "engaged": False})
+            # ★ 守军**真在**那格（native 的 `seed`）—— 旧写法是往门面自记的
+            #   军队表里 append 一条 dict，引擎那边根本不知道。
+            new_army(w, "乙", (fx, fy))
             mask = encode.vision_of(sb, "甲")
             self.assertNotIn((fx, fy), mask, "前提：该格本来在视野外")
             win, _, _ = encode.encode_window(sb, "甲", mask)
@@ -410,8 +469,8 @@ class TestHallsKnownMode(unittest.TestCase):
         spy, blind = self._sb(True), self._sb(False)
         m_spy = encode.vision_of(spy, "甲")
         self.assertNotEqual(
-            E.score(spy.world, "甲", "乙", mask=m_spy, known=spy.known_halls("甲", m_spy)),
-            E.score(blind.world, "甲", "乙", mask=mask, known=blind.known_halls("甲", mask)),
+            E.score(spy.env, "甲", "乙", mask=m_spy, known=spy.known_halls("甲", m_spy)),
+            E.score(blind.env, "甲", "乙", mask=mask, known=blind.known_halls("甲", mask)),
             "★ 间谍模式对打分毫无影响 ⇒ 没透进去")
 
     def test_grid_frame_cannot_hold_out_of_view_halls(self):

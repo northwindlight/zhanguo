@@ -61,7 +61,8 @@ class TestOnlyTwoVersusTwo(unittest.TestCase):
     def test_off_switch(self):
         sb = _sb(mode="none")
         self.assertEqual(sb.alliance_pairs, ())
-        self.assertEqual([bl for bl in sb.world.blocs], [], "关掉了还有 bloc")
+        self.assertEqual([n for n in sb.env.nations() if sb.env.alliance_of(n)], [],
+                         "关掉了还有 bloc")
 
 
 class TestDeterminismAndNoPerturbation(unittest.TestCase):
@@ -82,8 +83,8 @@ class TestDeterminismAndNoPerturbation(unittest.TestCase):
             self.assertEqual(on.turn_offset, off.turn_offset, "回合偏移被挪动了")
             self.assertEqual(on.territory_target, off.territory_target, "国土目标被挪动了")
             self.assertEqual(
-                {c: on.world.tiles[c]["owner"] for c in on.world.tiles},
-                {c: off.world.tiles[c]["owner"] for c in off.world.tiles},
+                {r.position: r.owner for r in on.env.tiles()},
+                {r.position: r.owner for r in off.env.tiles()},
                 "地块归属被挪动了")
 
 
@@ -94,13 +95,13 @@ class TestEngineActuallySeesTheAlliance(unittest.TestCase):
         for seed in range(8):
             sb = _sb(seed=seed)
             a, b = sb.alliance_pairs
-            w = sb.world
-            self.assertTrue(w.allied_between(a[0], a[1]), f"seed={seed}：{a} 盟内没结上")
-            self.assertTrue(w.allied_between(b[0], b[1]), f"seed={seed}：{b} 盟内没结上")
-            self.assertFalse(w.allied_between(a[0], b[0]),
+            w = sb.env
+            self.assertTrue(w.allied(a[0], a[1]), f"seed={seed}：{a} 盟内没结上")
+            self.assertTrue(w.allied(b[0], b[1]), f"seed={seed}：{b} 盟内没结上")
+            self.assertFalse(w.allied(a[0], b[0]),
                              f"seed={seed}：跨盟居然也算盟友 ⇒ 谁都不打谁")
             # ★ 我方的地**走得进**（盟国地放行）、但**打不了**（`_atk_target_ok` 要非盟）
-            self.assertTrue(w.allied_between(a[0], a[1]))
+            self.assertTrue(w.allied(a[0], a[1]))
 
     def test_winner_can_be_a_whole_alliance(self):
         """★ 实体胜利：灭掉对面那一家 ⇒ **整个同盟都算赢**（`winner_members` 给出两人）。
@@ -112,11 +113,15 @@ class TestEngineActuallySeesTheAlliance(unittest.TestCase):
         a, b = sb.alliance_pairs
         # 手动把 b 那两家灭掉（拔掉它们的厅）—— 不跑完整局，直接验口径
         for name in b:
-            for cell, t in list(sb.world.tiles.items()):
-                if t["owner"] == name:
-                    t["buildings"]["native:town-hall"] = 0
-            if name in sb.world.nations:
-                sb.world.nations.pop(name)          # 模拟被灭国
+            # ★★ 灭国走**引擎的正规路径**（不是往门面自记的表里 pop）：
+            #   ① 站点转走（厅是站点上的实例 ⇒ 跟着走 ⇒ 该国再无国祚）；
+            #   ② `nations.extinguish` 登记灭亡（native 的 `native:succession`
+            #      判亡国用的也是这条）。
+            for r in list(sb.env.tiles()):
+                if r.owner == name and r.tile_id:
+                    sb.env.call("native:territory", "transfer", r.tile_id,
+                                sb.env.id_of(a[0]))
+            sb.env.call("native:nations", "extinguish", sb.env.id_of(name), "测试：模拟被灭国")
         ent = sb.winning_entity()
         self.assertIsNotNone(ent, "对面全灭之后居然还没定局")
         mem = set(sb.winner_members())
@@ -133,7 +138,8 @@ class TestNoStaleAlliance(unittest.TestCase):
         sb.alliances = "none"
         sb.reset()
         self.assertEqual(sb.alliance_pairs, (), "换了模式还留着上一局的盟")
-        self.assertEqual(sb.world.blocs, [], "换模式后 world 里还有旧 bloc")
+        self.assertEqual([n for n in sb.env.nations() if sb.env.alliance_of(n)], [],
+                         "换模式后 world 里还有旧 bloc")
 
 
 if __name__ == "__main__":

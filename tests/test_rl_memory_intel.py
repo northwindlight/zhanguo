@@ -37,6 +37,7 @@ from rl import scoring as S                           # noqa: E402
 from rl import evaluate as EV                         # noqa: E402
 from rl import vocab as V                             # noqa: E402
 from rl.sandbox import Sandbox                        # noqa: E402
+from tests.rl_deps import set_owner
 
 NC = len(V.OWNER_CHANNELS)
 
@@ -52,8 +53,8 @@ def _intel(glob_row) -> dict:
 
 
 def _an_enemy_hall(sb, me):
-    return next(c for c, t in sorted(sb.world.tiles.items())
-                if t["owner"] != me and t["buildings"].get("native:town-hall", 0) > 0)
+    return next(r.position for r in sorted(sb.env.tiles(), key=lambda r: r.position)
+                if r.owner != me and r.buildings.get("native:town-hall", 0) > 0)
 
 
 class TestOwnershipIsOnlyWrittenWhenVisible(unittest.TestCase):
@@ -65,7 +66,7 @@ class TestOwnershipIsOnlyWrittenWhenVisible(unittest.TestCase):
             for size, n in ((8, 2), (12, 3), (16, 3)):
                 sb = _sb(size, n, seed, halls_known=True)
                 for me in sb.players:
-                    mask = E._vision(sb.world, me)
+                    mask = E._vision(sb.env, me)
                     g = E.encode_grid(sb, me, mask)
                     x0, y0, h, w = E.frame_of(sb, me, mask)
                     for i in range(h):
@@ -86,11 +87,10 @@ class TestOwnershipIsOnlyWrittenWhenVisible(unittest.TestCase):
         for seed in range(12):
             sb = _sb(12, 3, seed)
             for me in sb.players:
-                mask = E._vision(sb.world, me)
+                mask = E._vision(sb.env, me)
                 g = E.encode_grid(sb, me, mask)
                 x0, y0, h, w = E.frame_of(sb, me, mask)
-                mine = {(x, y) for (x, y), t in sb.world.tiles.items()
-                        if t["owner"] == me}
+                mine = {r.position for r in sb.env.tiles() if r.owner == me}
                 self.assertTrue(mine <= mask, "自家地块竟然不在视野里")
                 n_self = 0
                 for i in range(h):
@@ -111,12 +111,12 @@ class TestHallOwnershipFollowsMemoryWhenUnseen(unittest.TestCase):
         hx, hy = E._home_cell(sb, me)
         sb.known_halls(me, frozenset({cell}))            # ① 我看见它（乙的厅）
         tiny = frozenset({(hx, hy)})                     # ② 之后一直看不见那格
-        sb.world.tiles[cell]["owner"] = third            # ★ 我看不见时它易主给丙
+        set_owner(sb.env, cell, third)            # ★ 我看不见时它易主给丙
         known = sb.known_halls(me, tiny)
         self.assertEqual(known.get(cell), other, "记忆不许因为一次没看见的易主就改口")
-        self.assertIn(cell, EV.foe_hall_cells(sb.world, [other], tiny, known),
+        self.assertIn(cell, EV.foe_hall_cells(sb.env, [other], tiny, known),
                       "★ 记忆里明明有乙的厅，消费端却把它丢了 ⇒「永久标记」被无声推翻")
-        self.assertIn(cell, E._hall_cells_of(sb.world, other, tiny, known),
+        self.assertIn(cell, E._hall_cells_of(sb.env, other, tiny, known),
                       "★ 观测侧与打分器侧必须同口径（原来两处各写了一遍谓词）")
 
     def test_an_unseen_conquest_is_not_learned(self):
@@ -127,9 +127,9 @@ class TestHallOwnershipFollowsMemoryWhenUnseen(unittest.TestCase):
         hx, hy = E._home_cell(sb, me)
         sb.known_halls(me, frozenset({cell}))
         tiny = frozenset({(hx, hy)})
-        sb.world.tiles[cell]["owner"] = third
+        set_owner(sb.env, cell, third)
         known = sb.known_halls(me, tiny)
-        self.assertEqual(EV.foe_hall_cells(sb.world, [third], tiny, known), [],
+        self.assertEqual(EV.foe_hall_cells(sb.env, [third], tiny, known), [],
                          "★ 没看见的易主却让丙'得到'了一座厅 ⇒ 白得情报")
 
     def test_visible_truth_wins_over_memory(self):
@@ -138,11 +138,11 @@ class TestHallOwnershipFollowsMemoryWhenUnseen(unittest.TestCase):
         me, other, third = sb.players[0], sb.players[1], sb.players[2]
         cell = _an_enemy_hall(sb, me)
         sb.known_halls(me, frozenset({cell}))
-        sb.world.tiles[cell]["owner"] = third
+        set_owner(sb.env, cell, third)
         seen = frozenset({cell})                         # 我**看得见**这格
         known = sb.known_halls(me, seen)
         self.assertEqual(known.get(cell), third, "看得见就该刷新记忆")
-        self.assertIn(cell, EV.foe_hall_cells(sb.world, [third], seen, known))
+        self.assertIn(cell, EV.foe_hall_cells(sb.env, [third], seen, known))
 
 
 class TestIntelInjection(unittest.TestCase):
@@ -158,11 +158,11 @@ class TestIntelInjection(unittest.TestCase):
         tiny = frozenset({(hx, hy)})
         for _ in range(3):                               # 反复"看不见"地观测
             sb.known_halls(me, tiny)
-        self.assertEqual(sb.halls.known(sb.world, me).get(cell), other,
+        self.assertEqual(sb.halls.known(sb.env, me).get(cell), other,
                          "注入的情报被后续的视野观测擦掉了（那就不叫记忆）")
         sb.known_halls(me, frozenset({cell}))            # ★ 看得见 ⇒ 覆盖
-        self.assertEqual(sb.halls.known(sb.world, me).get(cell),
-                         sb.world.tiles[cell]["owner"], "看得见时真值必须覆盖情报")
+        self.assertEqual(sb.halls.known(sb.env, me).get(cell),
+                         sb.env.tile_at(cell).owner, "看得见时真值必须覆盖情报")
 
     def test_injection_is_per_nation(self):
         """④ 给甲的情报不许出现在乙的观测里。"""
@@ -170,15 +170,15 @@ class TestIntelInjection(unittest.TestCase):
         me, other = sb.players[0], sb.players[1]
         cell = _an_enemy_hall(sb, me)
         sb.tell_halls(me, {cell: other})
-        self.assertIn(cell, sb.halls.known(sb.world, me))
-        self.assertNotIn(cell, sb.halls.known(sb.world, other),
+        self.assertIn(cell, sb.halls.known(sb.env, me))
+        self.assertNotIn(cell, sb.halls.known(sb.env, other),
                          "★ 给甲的情报漏到了乙的记忆里")
 
     def test_army_intel_lands_in_the_right_class(self):
         """★ 军情按**六类归属**落到对应那一档（对手/盟友/中立各一份）。"""
         sb = _sb()
         me, other = sb.players[0], sb.players[1]
-        self.assertTrue(sb.world.war_between(me, other), "这一对应当是敌对（缺省全对宣战）")
+        self.assertTrue(sb.env.war_between(me, other), "这一对应当是敌对（缺省全对宣战）")
         sb.tell_armies(me, {other: {"native:infantry": 3, "native:cavalry": 1, "native:militia": 4}}, turn=sb.turn)
         v = _intel(E.encode_glob(sb, me))
         self.assertGreater(v["intel_rival_native:infantry"], 0.0, "军情没进「对手」那一档")

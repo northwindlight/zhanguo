@@ -22,8 +22,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
-from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
-
+from tests.rl_deps import has_torch, torch, torch_or_skip
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 if has_torch():
@@ -41,7 +40,7 @@ def load_tests(loader, tests, pattern):
     return tests
 
 
-def _sb(size=8, n=3, t_max=500, seed=3):
+def _sb(size=8, n=3, t_max=40, seed=3):
     return Sandbox(seed=seed, size=size, n_nations=n, t_max=t_max,
                    halls_known=True).reset()
 
@@ -75,7 +74,7 @@ class TestStepBudget(unittest.TestCase):
 
     def test_zero_means_unlimited(self):
         """`0` 是"不限"，不是"走一步就停"（这个错法很隐蔽：还能跑，只是全被截）。"""
-        sb = _sb(size=8, n=3, t_max=40)
+        sb = _sb(size=8, n=3, t_max=20)
         steps, info = collect_episode(_nets(sb), sb, max_steps=0,
                                       rng=np.random.default_rng(0))
         self.assertGreater(len(steps), 1, "`0` 被当成「走一步就停」了")

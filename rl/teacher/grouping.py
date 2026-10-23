@@ -68,7 +68,7 @@ class Group(NamedTuple):
 
 
 # ---------------------------------------------------------------- 距离与代价
-def _army_cost(world, name: str, army: dict, cell: tuple, mask, cache,
+def _army_cost(env, name: str, army: dict, cell: tuple, mask, cache,
                memo: dict | None = None) -> int:
     """这一军**还需要多少移动力**才到得了 `cell`（多回合，逐格地形代价）。
 
@@ -86,7 +86,7 @@ def _army_cost(world, name: str, army: dict, cell: tuple, mask, cache,
         got = memo.get(key)
         if got is not None:
             return got
-    fld = cost_field(world, name, {cell}, unit_kind(army), mask,
+    fld = cost_field(env, name, {cell}, unit_kind(army), mask,
                      max_cost=V11_FIELD_MAX_COST, cache=cache)
     got = fld.get((army["x"], army["y"]))
     out = got if got is not None else chebyshev((army["x"], army["y"]), cell)
@@ -133,7 +133,7 @@ class Candidate(NamedTuple):
     field_cache_key: tuple
 
 
-def candidates(world, name: str, mask, armies: list[dict], *, radius: int,
+def candidates(env, name: str, mask, armies: list[dict], *, radius: int,
                need_cap: int, rounds_cap: int, cache: dict) -> list[Candidate]:
     """可攻的目标池（**全局**：视野内全部，不是军队旁边那一圈）。
 
@@ -149,16 +149,16 @@ def candidates(world, name: str, mask, armies: list[dict], *, radius: int,
     """
     from . import targeting
     out = []
-    for cell in targeting.candidates(world, name, mask, radius=radius,
+    for cell in targeting.candidates(env, name, mask, radius=radius,
                                     limit=V11_MAX_CANDIDATES):
-        d = assess(world, name, cell, armies, visible=cell in mask,
+        d = assess(env, name, cell, armies, visible=cell in mask,
                    need_cap=need_cap, rounds_cap=rounds_cap)
         out.append(Candidate(cell, d.need, d.rounds, d.empty, d.winnable,
-                             world.tile_terrain(*cell) if cell in mask else None, ()))
+                             env.terrain(*cell) if cell in mask else None, ()))
     return out
 
 
-def _atom_cost(world, name, members: list[dict], cand: Candidate, mask, cache,
+def _atom_cost(env, name, members: list[dict], cand: Candidate, mask, cache,
                penalty: float, committed: int = 0, ac_memo=None, sp_memo=None) -> float:
     """一个候选组的代价 = `spread + reach + 罚×缺员`。
 
@@ -167,7 +167,7 @@ def _atom_cost(world, name, members: list[dict], cand: Candidate, mask, cache,
     否则求解器会到处派"打不动的小队"来省路。罚得比任何路程都大
     （`V11_SHORTFALL_PENALTY`）⇒ **能打下来永远优先于省路**。
     """
-    reach = max(_army_cost(world, name, a, cand.cell, mask, cache, ac_memo)
+    reach = max(_army_cost(env, name, a, cand.cell, mask, cache, ac_memo)
                 for a in members)
     # ★ `committed` = **已经有编组在打这一格**的兵力（状态里查得到）：它们也在往那儿走，
     #   所以要算进"够不够 n_j"，否则新兵会以为这格还差 2 支、跑去另开一块。
@@ -176,7 +176,7 @@ def _atom_cost(world, name, members: list[dict], cand: Candidate, mask, cache,
 
 
 # ---------------------------------------------------------------- 全局求解
-def _solve(world, name: str, cands: list, armies: list[dict], mask, cache,
+def _solve(env, name: str, cands: list, armies: list[dict], mask, cache,
            node_cap: int, near_targets: int, committed: dict | None = None) -> tuple[dict, bool]:
     """**全局最优指派**：每支军认领一个目标，`min Σ 组代价`。
 
@@ -210,16 +210,16 @@ def _solve(world, name: str, cands: list, armies: list[dict], mask, cache,
         """给军 `i` 的候选方案：`(成员元组, 目标格, 代价)` —— 必然包含 `i`。"""
         me = by_id[i]
         rest = [x for x in unassigned if x != i]
-        near = sorted(cands, key=lambda c: (_army_cost(world, name, me, c.cell, mask,
+        near = sorted(cands, key=lambda c: (_army_cost(env, name, me, c.cell, mask,
                                                        cache, ac_memo), c.cell))[:near_targets]
         for c in near:
-            rest.sort(key=lambda aid: (_army_cost(world, name, by_id[aid], c.cell, mask,
+            rest.sort(key=lambda aid: (_army_cost(env, name, by_id[aid], c.cell, mask,
                                                   cache, ac_memo), aid))
             top = min(len(unassigned), V11_MAX_GROUP)
             for k in range(1, top + 1):
                 mem = tuple(sorted((i,) + tuple(rest[:k - 1])))
                 mems = [by_id[x] for x in mem]
-                yield mem, c.cell, _atom_cost(world, name, mems, c, mask, cache,
+                yield mem, c.cell, _atom_cost(env, name, mems, c, mask, cache,
                                               V11_SHORTFALL_PENALTY,
                                               committed.get(c.cell, 0), ac_memo, sp_memo)
 
@@ -274,7 +274,7 @@ class _Budget(Exception):
 
 
 # ---------------------------------------------------------------- 状态机
-def refresh(world, name: str, mask, armies: list[dict]) -> list[int]:
+def refresh(env, name: str, mask, armies: list[dict]) -> list[int]:
     """状态机转移：**目标消失** ⇒ 那一组解散，成员变"无目标"。
 
     目标算"已消失"的三种情形：
@@ -294,36 +294,36 @@ def refresh(world, name: str, mask, armies: list[dict]) -> list[int]:
         cell = st.get(aid)
         if cell is None:
             continue
-        owner = world.owned_by(*cell)
-        if owner == name or (owner is not None and world.allied_between(name, owner)):
+        owner = env.owner(*cell)
+        if owner == name or (owner is not None and env.allied(name, owner)):
             st.pop(aid, None)
             freed.append(aid)
             continue
-        if not _attackable(world, name, cell, mask):
+        if not _attackable(env, name, cell, mask):
             st.pop(aid, None)
             freed.append(aid)
     return freed
 
 
-def _attackable(world, name: str, cell: tuple, mask) -> bool:
+def _attackable(env, name: str, cell: tuple, mask) -> bool:
     """这一格现在还能不能打（与引擎 `attack` 的墙判定同口径）。"""
     if cell not in mask:
         return False
-    if world.tile_terrain(*cell) is None:       # 防御性：拿不到地形就当不可攻
+    if env.terrain(*cell) is None:       # 防御性：拿不到地形就当不可攻
         return False
-    owner = world.owned_by(*cell)
+    owner = env.owner(*cell)
     if owner is not None:
-        return owner != name and not world.allied_between(name, owner) \
-            and world.war_between(name, owner)
-    busy = [a for a in world.armies
+        return owner != name and not env.allied(name, owner) \
+            and env.war_between(name, owner)
+    busy = [a for a in env.armies()
             if (a["x"], a["y"]) == cell and a.get("engaged")]
     if not busy:
         return True
-    return any(world.war_between(name, a["owner"]) or world.allied_between(name, a["owner"])
+    return any(env.war_between(name, env.owner_of(a)) or env.allied(name, env.owner_of(a))
                for a in busy)
 
 
-def regroup(world, name: str, mask, armies: list[dict], *, radius: int,
+def regroup(env, name: str, mask, armies: list[dict], *, radius: int,
             need_cap: int, rounds_cap: int, cache: dict,
             node_cap: int | None = None) -> tuple[list[Group], bool]:
     """**无目标的军**一起做一次全局编组 → 写进状态，返回 `(编好的组, 是否全局最优)`。
@@ -338,7 +338,7 @@ def regroup(world, name: str, mask, armies: list[dict], *, radius: int,
     by_id = {a["id"]: a for a in armies}
     pool = [by_id[i] for i in aim]
 
-    cands = candidates(world, name, mask, armies, radius=radius,
+    cands = candidates(env, name, mask, armies, radius=radius,
                        need_cap=need_cap, rounds_cap=rounds_cap, cache=cache)
     if not cands:
         return [], True                         # 一个可攻格都没有（边境为空 ⇒ 无事可做）
@@ -348,7 +348,7 @@ def regroup(world, name: str, mask, armies: list[dict], *, radius: int,
     for aid, cell in st.items():
         if aid in by_id:
             committed[cell] = committed.get(cell, 0) + 1
-    picked, exact = _solve(world, name, cands, pool, mask, cache,
+    picked, exact = _solve(env, name, cands, pool, mask, cache,
                            node_cap or V11_SOLVER_NODE_CAP, V11_NEAR_TARGETS, committed)
     if not picked:
         return [], exact                        # 超预算：这一回合没编成，下回合重编

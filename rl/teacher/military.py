@@ -2,7 +2,7 @@
 """v11plus 的**军事层**：编组 → 评估难度 → 寻路 → 出手。
 
 ★ **它不该知道经济层的存在**（用户 2026-09-15：经济层与军事层分离）：
-  只共享**一本动作账**（`ruleai.Ledger`）与 `world`。产兵是经济层的事
+  只共享**一本动作账**（`ruleai.Ledger`）与 `env`。产兵是经济层的事
   （用户：「产兵由经济引擎决定」），本层只管**已经存在的兵**怎么用。
 
 模型见 `docs/v11编组模型.md`。三条口径（用户 2026-09-15）：
@@ -12,7 +12,7 @@
   · **人数由判定式算**（`combat.assess`），不是常数 ⇒ 没有 `MIN_SQUAD`。
 
 执行守引擎的两条硬规矩：
-  · 落点一律从 `world._reachable`（引擎合法集）里选 ⇒ 结构上不可能撞墙烧额度；
+  · 落点一律从 `env._reachable`（引擎合法集）里选 ⇒ 结构上不可能撞墙烧额度；
   · 引擎的 `attack` 是**原子**的（任一支到不了就整通全废）⇒ 出手前逐支复核。
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ from ..rules import unit_kind, unit_max_hp
 from . import grouping, pathfind
 
 
-def run(ledger, world, name: str) -> None:
+def run(ledger, env, name: str) -> None:
     """把一个回合的军事动作追加进 `ledger`（经济层已经花掉它那份额度）。"""
 
     # ============================================================ 8. 扩张（★ v11：全局编组）
@@ -34,22 +34,22 @@ def run(ledger, world, name: str) -> None:
     #   · **只在目标消失时重编**，且只重编"无目标的那些军"（状态在 `grouping` 模块内存里）；
     #   · **任何军队一定有目标** ⇒ 没有"待命"这个状态。
     # 执行仍然守引擎的两条硬规矩：
-    #   · 落点一律从 `world._reachable`（引擎合法集）里选 ⇒ 结构上不可能撞墙烧额度；
+    #   · 落点一律从 `env._reachable`（引擎合法集）里选 ⇒ 结构上不可能撞墙烧额度；
     #   · 引擎的 `attack` 是**原子**的（任一支到不了就整通全废）⇒ 出手前逐支复核。
     acts = ledger.acts
     do = ledger.do
     max_actions = ledger.max_actions
-    armies = [a for a in world.troops if a["owner"] == name and a["hp"] > 0]
+    armies = [a for a in env.armies() if env.owner_of(a) == name and a.hp > 0]
     pool = sorted((a for a in armies
-                   if not a.get("engaged") and a.get("moved_turn") != world.turn),
+                   if not a.engaged and a.moved_turn != env.period()),
                   key=lambda a: a["id"])
-    mask = pathfind.vision_mask(world, name)
+    mask = pathfind.vision_mask(env, name)
 
     # ---- 8a. 状态机：目标消失 ⇒ 那一组解散；然后**只给无目标的军**做一次全局编组 ----
-    grouping.refresh(world, name, mask, armies)
+    grouping.refresh(env, name, mask, armies)
     field_cache: dict = {}
     if pool:
-        grouping.regroup(world, name, mask, armies,
+        grouping.regroup(env, name, mask, armies,
                          radius=V11_SCAN_RADIUS, need_cap=V11_NEED_CAP,
                          rounds_cap=V11_ROUNDS_CAP, cache=field_cache)
     state = grouping.targets_of(name)
@@ -69,14 +69,14 @@ def run(ledger, world, name: str) -> None:
         ★ 必须查：编组是回合开头定的，而打仗/结盟在回合内会改变归属；
           对中立地 `atk` 撞墙会**烧掉整队的移动额度**（`_blind_cost`），白亏一回合。
         """
-        owner = world.owned_by(*cell)
-        return owner is not None and (owner == name or world.allied_between(name, owner)
-                                      or not world.war_between(name, owner))
+        owner = env.owner(*cell)
+        return owner is not None and (owner == name or env.allied(name, owner)
+                                      or not env.war_between(name, owner))
 
     def reach_of(a, *, for_attack: bool):
         key = (a["id"], for_attack)
         if key not in reach:
-            reach[key] = world._reachable(name, a, for_attack=for_attack)
+            reach[key] = env.reachable(name, a, for_attack=for_attack)
         return reach[key]
 
     # ---- 8b. 出手：够得着就打（满血才上），够不着就按地形代价寻路推进 ----
@@ -87,7 +87,7 @@ def run(ledger, world, name: str) -> None:
         members = [by_id[i] for i in ids if i in by_id and i not in engaged_or_used]
         able = [a for a in members
                 if a["hp"] >= unit_max_hp(a)                 # 满血才冲阵（带伤的跟着走、养好再上）
-                and pathfind.marchable(world, name, a, cell,
+                and pathfind.marchable(env, name, a, cell,
                                        reach=reach_of(a, for_attack=True))]
         # ★ 打不打**不问常数、只问判定式**：把"够得着的满血那几支"喂给 `combat.assess`，
         #   它说赢得下来就打 —— 这就是"最小编组由军队需要算出来"，没有 `MIN_SQUAD`。
@@ -104,12 +104,12 @@ def run(ledger, world, name: str) -> None:
         #   `balance.V11_MAX_ATTACKS` / `V11_MIL_RESERVE` **都留着** ——
         #   冻结版 v11 与 v12 还在 import 它们，别当它们没主。
         fit = (able and len(acts) < max_actions and not taken(cell)
-               and assess(world, name, cell, able, visible=cell in mask,
+               and assess(env, name, cell, able, visible=cell in mask,
                           need_cap=V11_NEED_CAP, rounds_cap=V11_ROUNDS_CAP).winnable)
         if fit:
             if do("attack", {"army_ids": [a["id"] for a in able],
                              "x": cell[0] + 1, "y": cell[1] + 1},
-                  world.attack, name, [a["id"] for a in able], cell[0], cell[1]):
+                  env.attack, name, [a["id"] for a in able], cell[0], cell[1]):
                 engaged_or_used.update(a["id"] for a in able)
                 continue
         if taken(cell):
@@ -117,12 +117,12 @@ def run(ledger, world, name: str) -> None:
         for a in members:                                    # 打不了 ⇒ 朝目标推进（每人一格）
             if len(acts) >= max_actions:
                 break
-            fld = pathfind.cost_field(world, name, {cell}, unit_kind(a), mask,
+            fld = pathfind.cost_field(env, name, {cell}, unit_kind(a), mask,
                                       max_cost=V11_FIELD_MAX_COST, cache=field_cache)
-            nxt = pathfind.best_step(world, name, a, fld,
+            nxt = pathfind.best_step(env, name, a, fld,
                                      reach=reach_of(a, for_attack=False), goal=cell)
             if nxt is None:
                 continue                                     # 没有严格更近的一步 ⇒ 本回合不动
             do("move", {"army_id": a["id"], "x": nxt[0] + 1, "y": nxt[1] + 1},
-               world.move, name, a["id"], nxt[0], nxt[1])
+               env.move, name, a["id"], nxt[0], nxt[1])
     return acts

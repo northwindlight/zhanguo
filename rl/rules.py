@@ -25,14 +25,17 @@ from .tokens import BARBARIAN, CASTLE, TOWN_HALL, WATCHTOWER
 def unit_entry(kind: str) -> dict:
     """兵种**内容 ID** → 引擎的兵种定义条目（**活对象**，别缓存）。
 
-    ★ 入参是**内容 ID**（`native:infantry`）—— RL 线直接用引擎的标准命名空间。
+    ★ 入参可以是：
+      · **内容 ID**（`native:infantry`）—— RL 线直接用引擎的标准命名空间；
+      · **旧口径 dict**（`{"type": …}`）；
+      · ★ **引擎的 `Unit` 对象**（2026-10-22 起 RL 线直接用原生单位对象）⇒ 取 `.kind`。
     ★ 野人没有内容 ID（它是虚拟单位）⇒ 按步兵兜底（旧引擎逐字如此：
       野人只有 hp、没有兵种键 ⇒ `game.unit_kind` 按步兵兜底）。
     ★ 其余**不认识**的兵种 ⇒ **响亮地炸**：引擎将来加了新兵种而 RL 线没跟上时，
       这里必须立刻暴露，而不是"悄悄按步兵算"⇒ 模型在学一条不存在的规则。
     """
-    if isinstance(kind, dict):
-        kind = kind.get("type", "native:infantry")
+    if not isinstance(kind, str):
+        kind = unit_kind(kind)
     entry = _army.UNIT_TYPES.get(kind)
     if entry is None:
         if kind == BARBARIAN:
@@ -44,31 +47,50 @@ def unit_entry(kind: str) -> dict:
     return entry
 
 
-def unit_kind(a: dict) -> str:
-    """军队 dict → 兵种**内容 ID**。
+def unit_kind(a) -> str:
+    """军队 → 兵种**内容 ID**（旧口径 dict、引擎 `Unit` 都吃）。
 
     ⚠ 野人没有兵种键 ⇒ 按步兵兜底（与旧引擎逐字一致）。
     """
-    return a.get("type", "native:infantry")
+    if isinstance(a, str):
+        return a
+    if isinstance(a, dict):
+        return a.get("type", "native:infantry")
+    return getattr(a, "kind", None) or "native:infantry"
 
 
 def unit_max_hp(kind: str = "native:infantry") -> int:
-    """该兵种的满血上限。"""
+    """该兵种的满血上限。
+
+    ★ 传引擎的 `Unit` ⇒ 直接读它自己的定义（`unit.definition['hp']`），
+      避免"RL 抄一份数值表"那种会悄悄漂的做法。
+    """
+    if not isinstance(kind, str) and getattr(kind, "definition", None) is not None:
+        return int(kind.definition.get("hp", _army.ARMY_MAX_HP))
     return int(unit_entry(kind).get("hp", _army.ARMY_MAX_HP))
 
 
 def unit_atk(kind: str = "native:infantry") -> int:
-    """该兵种的每战斗回合基础伤害。"""
+    """该兵种的每战斗回合基础伤害。
+
+    ★ 传引擎的 `Unit` ⇒ 用**它自己的** `atk()`（引擎那份，已含撤退惩罚口径）。
+    """
+    if not isinstance(kind, str) and hasattr(kind, "atk"):
+        return int(kind.atk())
     return int(unit_entry(kind).get("atk", _army.ARMY_ATTACK_DAMAGE))
 
 
 def unit_speed(kind: str = "native:infantry") -> int:
     """该兵种每回合的移动力。"""
+    if not isinstance(kind, str) and getattr(kind, "definition", None) is not None:
+        return int(kind.definition.get("speed", 1))
     return int(unit_entry(kind).get("speed", 1))
 
 
 def unit_supply(kind: str = "native:infantry") -> int:
     """该兵种每回合的补给消耗。"""
+    if not isinstance(kind, str) and getattr(kind, "definition", None) is not None:
+        return int(kind.definition.get("supply", 1))
     return int(unit_entry(kind).get("supply", 1))
 
 

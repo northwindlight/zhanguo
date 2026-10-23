@@ -89,12 +89,12 @@ class ScorerGreedy(Opponent):
         from .train import _score
 
         k = max(1, min(self.k, len(acts)))
-        order = np.argsort(-np.asarray(probs, dtype=float))[:k]
-        best_i = int(order[0])
+        order = np.argsort(-np.asarray(probs, dtype=np.float64))[:k]
         # ★ `hold` 不改局面 ⇒ 它的"动作后绝对评分" = **现在的分**。
         #   ★ 懒算：短名单里若一个 `hold` 都没有，就不必算（省一次 `_score`）。
         #   ★ 其余候选各克隆一次算"走完之后打多少分"。
         best_v = None
+        best_i = None
         base = None
         for i in order:
             i = int(i)
@@ -110,6 +110,16 @@ class ScorerGreedy(Opponent):
                 v = float(_score(trial, me))
             if best_v is None or v > best_v:
                 best_v, best_i = v, i
+        # ★★ P1-3（review）：**所有候选都被引擎拒了 ⇒ 退回"不动"**。
+        #   旧写法把 `best_i` 预置成 `order[0]` ⇒ 哪怕那个候选**刚被引擎拒过**，
+        #   也会被交给模型（等于教模型"选一个必然被拒的废动作"，
+        #   而引擎的拒绝**不报错**地吃掉了一次行动额度）。
+        #   ⇒ 只有真的挑出一个**没被拒**的候选才用它；全被拒 ⇒ 找"不动"。
+        if best_i is None:
+            for i, act in enumerate(acts):
+                if act[1] == "hold":
+                    return i
+            return int(order[0]) if len(order) else 0
         return best_i
 
 

@@ -121,7 +121,7 @@ class MCTS:
     def _evaluate(self, sb, root_player: str, depth: int) -> float:
         """叶子评估：**终局 ⇒ ±1**；否则打分器压到 `tanh(score/σ)`，再按需 rollout。"""
         enemy = next((n for n in PLAYERS if n != root_player), None)
-        w = sb.world
+        w = sb.env
         t = evaluate.terminal(w, root_player, enemy)
         if t is not None:
             return 1.0 if t > 0 else (-1.0 if t < 0 else 0.0)
@@ -136,10 +136,10 @@ class MCTS:
                 break
             acts = sim.legal()
             sim.step(self.rng.choice(acts))
-        t = evaluate.terminal(sim.world, root_player, enemy)
+        t = evaluate.terminal(sim.env, root_player, enemy)
         if t is not None:
             return 1.0 if t > 0 else (-1.0 if t < 0 else 0.0)
-        return self._shaped(sim.world, root_player, enemy)
+        return self._shaped(sim.env, root_player, enemy)
 
     def _shaped(self, w, root_player: str, enemy: str) -> float:
         return math.tanh(evaluate.score(w, root_player, enemy) / self.sigma)

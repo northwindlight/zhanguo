@@ -21,10 +21,9 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+from tests.rl_deps import has_torch, torch, torch_or_skip
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
 
 if has_torch():
     from rl import train as T                             # noqa: E402
@@ -41,9 +40,15 @@ def load_tests(loader, tests, pattern):
     return tests
 
 
-def _net_and_steps(seed=21, size=10):
+def _net_and_steps(seed=21, size=8):
+    """★ 规模**按需**:这条只验"优化器跨 iter 常驻",不需要大局面。
+
+    ★ 2026-10-22:沙盒改成**真引擎**之后,一局的代价涨了约一个量级
+      ⇒ 用例规模必须跟着缩(否则本地全量回归跑不完)。
+      这里只要求"步数 > 8"(下面那条断言就是它),8×8 / 6 回合足够。
+    """
     torch.manual_seed(seed)
-    sb = Sandbox(seed=seed, size=size, t_max=20, n_nations=2, halls_known=True,
+    sb = Sandbox(seed=seed, size=size, t_max=6, n_nations=2, halls_known=True,
                  territory=True, alliances="random2v2").reset()
     nets = {p: build_model(mem_slots=8) for p in sb.players}
     for m in nets.values():

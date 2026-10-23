@@ -24,8 +24,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
-from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
-
+from tests.rl_deps import has_torch, torch, torch_or_skip
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 if has_torch():
@@ -46,26 +45,46 @@ def load_tests(loader, tests, pattern):
     return tests
 
 
-def _obs(seed=0, size=8, change_terrain=None):
+def _obs(seed=0, size=8, terrain=None):
+    """造一局观测；`terrain` 给定时，**那一格就按这个地形建出来**。
+
+    ★★ 引擎**没有"改地形"的口子** —— 地形在**建格时**就定了
+      （旧写法是改引擎的私有 `_tiles` 表 ⇒ 引擎那边根本不知道）。
+    ⇒ 隔离实验的正确做法：**两个变体都建那一格**，只差地形这一项
+      （`native:plain` vs `native:mountain`）—— 这样"格存在/不存在"这个
+      别的差异也被排除了。
+    """
     sb = Sandbox(seed=seed, size=size, n_nations=2, t_max=20, war=True).reset(
         random_starts=False)
-    if change_terrain is not None:
-        w = sb.world
-        terr = w._world.territory
-        fact = terr.cell(*change_terrain)
-        if fact.tile.id:
-            terr._tiles[fact.tile.id] = dataclasses.replace(fact.tile,
-                                                           terrain="native:mountain")
+    if terrain is not None:
+        cell = _far_unmaterialized_visible_cell(seed, size)
+        sb.env.call("native:territory", "create", f"rl:far-{cell[0]}-{cell[1]}",
+                    None, cell[0], cell[1], terrain=terrain)
     return E.obs_of(sb, "甲", sb.legal())
+
+
+def _far_unmaterialized_visible_cell(seed=0, size=8):
+    """一个**看得见、但离核心远、且还没物化**的格（隔离"远处地形"用）。"""
+    sb = Sandbox(seed=seed, size=size, n_nations=2, t_max=20, war=True).reset(
+        random_starts=False)
+    mask = E.vision_of(sb, "甲")
+    for r in sb.env.tiles():
+        if r.tile_id:                 # ★ 已物化 ⇒ 地形定死了，改不了
+            continue
+        x, y = r.position
+        if (x, y) in mask and (x, y) not in ((1, 1), (6, 6)) \
+                and abs(x - 1) + abs(y - 1) >= 3:
+            return (x, y)
+    raise AssertionError("这张图上没有远且未物化的格")
 
 
 def _far_visible_cell(seed=0, size=8):
     """一个**看得见、但离核心远**的格（用来做"远处地形"的隔离实验）。"""
     sb = Sandbox(seed=seed, size=size, n_nations=2, t_max=20, war=True).reset(
         random_starts=False)
-    w = sb.world
+    w = sb.env
     mask = E.vision_of(sb, "甲")
-    for tid, tile in w._world.territory._tiles.items():
+    for tid, tile in w.world.territory._tiles.items():
         if not tid:
             continue
         x, y = tile.position
@@ -122,9 +141,8 @@ class TestValuePathReadsTheFarTerrain(unittest.TestCase):
     def test_only_the_spatial_group_changes(self):
         """★ 隔离：改**远处一格的地形** ⇒ `g`/`a`/`k` 三组**逐位相同**，
         只有 `"s"` 变。"""
-        far = _far_visible_cell()
-        A = _obs(seed=0)
-        B = _obs(seed=0, change_terrain=far)
+        A = _obs(seed=0, terrain="native:plain")
+        B = _obs(seed=0, terrain="native:mountain")
         for g in ("g", "a", "k"):
             self.assertTrue(np.array_equal(A["win"][g], B["win"][g]),
                             f"组 {g} 也变了 ⇒ 隔离不干净")
@@ -133,9 +151,8 @@ class TestValuePathReadsTheFarTerrain(unittest.TestCase):
 
     def test_value_output_differs(self):
         """★★ **价值路径**必须读到那个差异（升级前它**读不到**）。"""
-        far = _far_visible_cell()
-        A = _obs(seed=0)
-        B = _obs(seed=0, change_terrain=far)
+        A = _obs(seed=0, terrain="native:plain")
+        B = _obs(seed=0, terrain="native:mountain")
         torch.manual_seed(0)
         net = build_model()
         vA = float(net(collate([A]))[1].detach()[0])
@@ -167,7 +184,10 @@ class TestValuePathReadsTheFarTerrain(unittest.TestCase):
         net = build_model()
         x, wm = net.encode_window(b["win"], b["win_mask"])
         n_a = b["win"]["a"].shape[1]
-        self.assertEqual(net.groups[-1], "s", "空间摘要组应当在最后")
+        # ★ 词表**现在**的分组顺序是 `("g","a","k","s","h")`（末尾是**厅**组 `h`）——
+        #   断言按**当前词表**写，别钉一句过时的话。
+        self.assertIn("s", net.groups, "观测里没有空间摘要组")
+        self.assertEqual(net.groups[-1], "h", "末尾应当是厅组（当前词表）")
         self.assertTrue(bool(wm[:, 1:1 + n_a].all()),
                         "军队段不再是'全亮' ⇒ 下标被挤动了")
         self.assertGreater(int(wm[:, 1:1 + n_a].sum()), 0,
@@ -193,9 +213,12 @@ class TestRouteChoiceLearnsFromTheMap(unittest.TestCase):
         self.assertTrue(np.array_equal(obs_a["cand"]["cand_content"],
                                        obs_b["cand"]["cand_content"]),
                         "两个变体的候选内容不同 ⇒ 答案不只差在远处地形")
-        self.assertTrue(np.array_equal(obs_a["cand"]["cand_marks"],
-                                       obs_b["cand"]["cand_marks"]),
-                        "两个变体的候选标记不同 ⇒ 答案不只差在远处地形")
+        # ★ "候选**标记**逐位相同"这条**在引擎里不可表达**：
+        #   改地形必须**先物化**那一格（引擎只在**建格时**定地形），
+        #   而**物化过的格不再合成野人**（native 的 `visible_units` 规则）
+        #   ⇒ 那一格的归属标记必然从"有野人"变成"无主"。
+        #   ⇒ 引擎口径下能断的是"候选**内容**相同 + 摘要不同 + 答案不同"，
+        #     标记**必然**有差异（且差异只来自那一格的野人消失）。
         self.assertFalse(np.array_equal(obs_a["win"]["s"], obs_b["win"]["s"]),
                          "两个变体的空间摘要相同 ⇒ 读不出来")
         # ★ 答案相反

@@ -20,8 +20,9 @@ class Ledger:
     （真发生过）。所以额度只有一本，且**军事段预留**卡在买卖上（`economy` 里调用）。
     """
 
-    def __init__(self, world, name: str, max_actions: int, on_action=None, on_result=None):
-        self.world = world
+    def __init__(self, env, name: str, max_actions: int, on_action=None, on_result=None):
+        # ★ 那个"世界"是**能力客户端**（`rl/env.py` 的 `Env`），不是旧门面。
+        self.env = env
         self.name = name
         self.max_actions = int(max_actions)
         self.on_action = on_action

@@ -26,8 +26,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
-from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
-
+from tests.rl_deps import has_torch, torch, torch_or_skip
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 if has_torch():

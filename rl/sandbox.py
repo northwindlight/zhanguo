@@ -1,103 +1,89 @@
 # -*- coding: utf-8 -*-
-"""8×8 沙盒：**攻取国祚**（两国）。★ **军事动作全部嫁接 `v11plus` 的军事层**。
+"""RL 沙盒：一局 8×8 攻取国祚。
 
-    用户 2026-09-24 的设计
-    ──────────────────────
-    · 地图 8×8，两国（甲 / 乙），**核心放对角**（`starts`）
-    · 开局各 **5 个步兵**，摆在自己核心格（市政厅所在格）
-    · **补员**：上限 `BASE_CAP + 国土数 // TILES_PER_CAP`；**每 5 回合触发一次**，
-      补**足到上限**（不是每次 +1，不无限加兵）
-    · **终局**：一方拿到对手的市政厅 ⇒ 立即结束；兜底 `T_MAX`
-    · **奖励**：赢 ⇒ `1 − turns / T_MAX`（时间越短越高）；输 ⇒ −1；平 ⇒ 0
+★ 本文件是 2026-10-22 审查（`review-feat-rl-tactics-20261022.md`）后的**重写版**。
+  旧版有一层 `rl/engine.py` 门面（1648 行），把新引擎包成旧 `world.*`，
+  自己记回合号/地块表/军队表/建筑表，还自己复刻了野人、摊分、亡国、新兵等**引擎规则**
+  ⇒ 引擎改了规则，RL 侧不跟着改，**而且不报错**。那份门面**已删除**。
 
-    ★★ 军事层在哪（用户 2026-09-24 的口径：「我让你抄的是 v11plus 的**目标评估**、
-    **编组逻辑**，谁让你一个字都不写了，直接拿一个半成品用?」）
-    ──────────────────────────────────────────────────────────────
-    ⇒ 军事动作走 **`rl/military.py`**：**抄** v11plus 的部件
-      （`combat.assess` 目标评估 / `grouping._solve` 编组求解 / `pathfind` 寻路），
-      **自己写**决策层（目标池 / 守家 / 侦察 / 出手时机）——
-      那几样正是 v11plus 明确留空的（底稿 §十「守土/驻防/撤退」）。
-    **不调** `ruleai.v11plus.military.run`（那是"整套拿一个半成品"，它只会平推：
-    编组→能打就打→打不了朝目标走一格，既不会守也不会侦察）；
-    但它留着当**对照线**：`ai_turn(name, teacher="v11plus")`。
+  现在的形状：
 
-    引擎口径（实测 2026-09-24，详见 `rl/PLAN.md` §3.2）
-    ────────────────────────────────────────────────
-    · `World(size=8, nations=[…], starts={…})` 生效；核心十字各 **5 格**（(1,1)/(6,6) 对角最远）
-    · ★ **野人必须保留**：引擎的"可攻"判定 `_atk_target_ok` 要求**格上有驻军**，
-      无主空格**不算**可攻 ⇒ 清掉野人 = **军队出不了自家十字**（实测过）。
-      野人在本沙盒里就是**扩张成本**：8×8 上 54 个，每格一支。
-    · 动作接口 **0-based**：`world.move/attack(name, …, x, y)`；而 `ledger.acts` 里
-      的 `args` 是**给 LLM 看的 1-based**（`cell[0] + 1`）—— 两边别混。
-    · ★ **开局必须宣战**：v11plus 候选池的源③ 是"**交战**敌国领土"，
-      不宣战 ⇒ 对手领土一格都不进候选池 ⇒ 它根本不会朝对手走。
+      rl/release.toml          发行版清单（不硬编码在代码里）
+        ├── ../mods/experimental   主线原生 mod + `research:combat-probabilities`
+        ├── rl/mods/train         `rl:sandbox` / `rl:truth` / `rl:odds`
+        └── rl/mods/scenario      `rl:scenario`（摆局的**唯一出处**）
+      rl/env.py               能力客户端：只**转发** + **现算**投影，**不缓存**
+      rl/sandbox.py           ← 本文件：RL 侧状态（回合序、待办、记忆账本）
+
+★ 三条红线（review §8）
+  ────────────────────
+  ① 不复刻引擎规则：合法性、野人、伤害、亡国、新兵 —— 一律问 native；
+  ② 不记影子状态：回合号读 `native:government.period`，地块问 `native:territory`；
+  ③ 不吞引擎拒绝：引擎拒了就拿到**它自己的**回执（`status` / `message`）。
+
+★ 身份
+  ────
+  · 国家：RL 侧说**中文短名**（甲/乙），引擎说**内容 ID**（`rl:n0`）——
+    换词在 `rl/nations.py`（**纯函数**，不是状态）。
+  · 军队：跨实体只认 **`Unit.gid`**（全局唯一）；`Unit.id` 是**本国序号**，
+    甲的第 1 支与乙的第 1 支都是 `id=1` ⇒ 用它当身份会**撞车**（review P0-3）。
 """
 from __future__ import annotations
 
-from .rules import unit_max_hp
+import random
 
-from . import vocab as V
+from . import evaluate
+from . import nations as N
+from . import scoring as S
+from .env import Env
 from .hall_memory import HallMemory
 from .intel import Intel
+from .vocab import PLAYER_NAMES
 from .war_memory import WarMemory
 
-# ---------------------------------------------------------------- 规格常量
-# ★★ **国家名池**（**上限 6**，天干序）—— 唯一出处是 `vocab.PLAYER_NAMES`，
-#   这里只是转发（两处各写一份必然漂移，而漂移的后果是"某个国名对不上"）。
-from .vocab import PLAYER_NAMES  # noqa: E402
-
-# ⚠ **遗留的"两国"常量**：只有 `rl/mcts.py`（**早已作废、用户明说别动**）还在引它。
-#   沙盒本身**不再用它** —— 一切走 `self.players`。
+# ★ 国家名池（**上限 6**，天干序）—— 唯一出处是 `vocab.PLAYER_NAMES`。
+#   本文件里的"国家名"一律是**短名**；内容 ID 由 `rl/nations.py` 推。
 PLAYERS = PLAYER_NAMES[:2]
-# 固定开局（`random_starts=False` 时的对照用）。多国时由 `_fallback_starts` 兜底。
-STARTS = {"甲": (1, 1), "乙": (6, 6)}   # ★ 对角、最远；十字各 5 格完整（(0,0) 会缺两臂）
-T_MAX = 200           # 兜底上限（只防僵局）
-BASE_CAP = 5          # 补员上限基础值（= 开局兵数，自洽）
-TILES_PER_CAP = 10    # 每控制这么多格国土，补员上限 +1
-RESUPPLY_EVERY = 5    # 每几回合触发一次补员
-# ★★ **民兵编制上限 = 步兵 × 这个数**（用户 2026-09-25：「以前民兵是无上限增长的，
-#   改成上限是步兵2倍」）。★ 这条是**训练环境**的规则，**不是引擎的** ——
-#   引擎里民兵另有一套（只能在军屯征召、总数 ≤ 军屯数），沙盒为了不让模型被经济层
-#   卡住而绕过了它（见 `resupply` 的注释），所以"编制上限"这件事只能在这里定。
-MILITIA_PER_FOOT = 2
-UNLIMITED = 10 ** 9   # 动作额度（引擎早已删掉"看海 12 个"那条上限）
-END = "end"           # 「本方收手」的哨兵动作（换人 / 结算回合）
 
-# --------------------------------------------------------------- ★ 几个国家
-# 用户 2026-09-24：「多玩家（**3 人起步**）+ ≥3 轮流手 + `n_nations = f(size)`」。
-# ★ 为什么要多玩家：8×8 两国已到天花板 —— `min_margin(8,2)=5`、步兵 1 格/回合
-#   ⇒ **先手 5 回合直达、回防不可能**，先手优势是**结构性**的（实测闸门连响）。
-#   多一个对手，"抽空家里去偷家"就得付代价 ⇒ 这才有真正的攻守取舍。
-#
-# ★ 下面三个数是**可调先验**（不是硬编码的物理常数），按"每国摊到多少格"来估：
-N_NATIONS_MIN = 3     # ★ 用户：「3 人起步」—— 小图也至少 3 个（否则等于没做这件事）
-N_NATIONS_MAX = 5     # ★ 用户 2026-09-25：「**3-5 个国家**」⇒ 上限 5
-# ★★ **每国摊多少格**（可调先验，不是物理常数）。
-#   2026-09-25 从 150 调到 **60**：用户把起炉地图从 12-30 改成 **12-20**
-#   （治"换家流"、让一局装得进步数预算），**而 150 在 12-20 上只会算出 3 国**
-#   （12²/150=0.96、20²/150=2.67 ⇒ 都夹到下限 3）⇒ 用户要的"**玩家 3-5 个**"就没了。
-#   60 ⇒ 12⇒3、16⇒4、20⇒5，两个口径同时满足。
-#   ★ 副作用要认：地**更挤**了（每国 48~80 格，原来按 150 估是"每国 12×12=144 格"）。
-#     挤了就更接近"贴脸"，而贴脸正是"换家流"的温床 —— 所以这里跟 `min_margin`
-#     是**同一个几何的两个方向**，将来觉得太挤就一起调。
+# ------------------------------------------------------------------ 常量
+T_MAX = 200                 # ★ 兜底上限（只防僵局）
+BASE_CAP = 5                # ★ 补员基础上限（"上限 = 5 + 国土数 // 10"）
+TILES_PER_CAP = 10          # ★ 每多少格国土涨 1 个补员名额
+RESUPPLY_EVERY = 5          # ★ 每 5 回合补员一次
+# ★ 旧公式"民兵上限 = 步兵 × 2"**已删**：那是 RL 侧自造的**第二份上限口径**
+#   （引擎的真上限是"每座军屯 2 支"）⇒ 复刻引擎规则，review §8 禁。
+#   这里只留名字给外部引用；实际口径见 `resupply()`（**问引擎**）。
+MILITIA_PER_FOOT = 2
+# ★ 国家数 = 地图面积 / 60（用户 2026-09-25 定的：起炉范围 12-20 要能出 3-5 国）
 TILES_PER_NATION = 60
+# ★ 下限 3 是**目的**（解僵局），不是几何 ⇒ 它**优先于**面积估计。
+N_NATIONS_MIN = 3
+N_NATIONS_MAX = 5
+
+# ★ 抽"回合偏移"的盐（与开局位置、国土各走各的随机流）。
+TURN_OFFSET_SALT = 0x7A17
+
+# ★ 抽结盟的盐（与地图、开局位置、回合偏移、国土**各走各的**）。
+ALLIANCE_SALT = 0x2A11
+
+# ★ 建筑内容 ID。
+TOWN_HALL = "native:town-hall"
+CASTLE = "native:castle"
+BARRACKS = "native:barracks"
+
+# ★ 引擎的"野人"归属标记。
+BARBARIAN = "野人"
+
+# ★ 摆局的几何口径**归剧本管**（`rl/mods/scenario/mod.py`）——
+#   这里只做**转发**，免得两处各算一套（那必然漂）。
+from .mods.scenario.mod import min_margin, territory_range  # noqa: E402,F401
 
 
 def n_nations_for(size: int) -> int:
-    """★ **`n_nations = f(size)`** —— 地图越大、放得下的国家越多。
+    """地图大小 → 国家数。
 
-        8×8  (64 格) ⇒ 3   ← 用户的"3 人起步"兜住（面积算出来只有 1）
-        12×12(144)   ⇒ 3   ← 起炉范围的**下端**
-        16×16(256)   ⇒ 4
-        20×20(400)   ⇒ 5   ← 起炉范围的**上端**
-        40×40(1600)  ⇒ 5   （封顶）
-
-    ★ 上限 6 有两条独立的理由：① 名字池 6 个；② **每个国家一份网络**
-      （`train.py`）⇒ 份数就是显存/内存与收敛速度。
-    ★ 下限 3 是**目的**（解僵局），不是几何 —— 所以它**优先于**面积估计。
-    ⚠ **这一版是我拍的**（用户逐条问准过的口径里没这一条）：真跑起来觉得
-      16×16 该放 4 个、或者太挤，改 `TILES_PER_NATION` 即可（一处生效）。
-      ★ 2026-09-25 已按"起炉范围 12-20 必须能出 3-5 国"调到 **60**（见常量的注释）。
+    ★ 口径（用户 2026-09-24：「3 人起步 + `n_nations = f(size)`」）：
+      面积 / 64 起步 ⇒ 8×8 给 1 ⇒ 夹到 **[2, 5]**。
     ★ 与 `min_margin(size, n)` 的配合：`n` 定下来之后，开局最小间距就是
       `min_margin` 给的 `size/√n` —— 两者是同一个几何的两个方向，别各调各的。
     """
@@ -111,55 +97,32 @@ class KillLedger:
         「会不会太复杂了，**只计算我军杀掉的敌军来加分**就行了」
         「`W_HP × (我的血 − **看得见的**敌方血)` **也要改，和击杀一样**」
 
-    它替换掉打分器原来那**两**项「看得见的敌国军队数 / 看得见的敌方血量」——
-    两项是**同一个病**（与厅那条一模一样）：
-
-      ① **迷雾悖论**：只数看得见的 ⇒ **侦察到敌军反而当场扣分**（势函数取差分），
-         而"丢视野"反而涨分 —— 恰好把"该去侦察"教成负收益；
-      ② **闪断**：同一件事实一帧读得到、一帧读成 0 ⇒ 差分变噪声。
-
-    ⇒ 两项都改成**单调事件计数**：打了就加，**只增不减、与视野无关**
-      （同 `HallMemory` 的道理）。
-
-    **归因怎么做的**（引擎不记账，而 `mp.py` 与本线必须逐字一致 ⇒ 不许改引擎）：
-    结算**之前**拍一张 `{军id: (主人, 格, 血)}`，`resolve_turn()` 之后：
-      · **没了的** ⇒ 战死（击杀 +1，血量按**结算前**的血算）
-      · **还在但血少了** ⇒ 挨了打（血量按差额算）
-    挨打/战死发生在哪一格，**那一格上（结算前）还有别的国家的军队** ⇒ 那些国家就是凶手。
-      · 互殴同归于尽**照样算**（用结算**前**的快照 ⇒ 死者也能当凶手）
-      · 多国同格 ⇒ **每国都记一笔**（这是塑造用的先验，不是逐笔对账的账本）
-      · 饿死/撤退/无人同格 ⇒ **没人记账**（沙盒里补给管够，这条路基本不会走）
-
-    ★★ **按 `(凶手, 受害者)` 成对记账** —— 不是为了好看：打分器要的是"打**敌国**"，
-      而"打野人 / 打盟友"**不该**算进那一项（原来数 `foe_armies` 时野人本来就不在内）。
-      成对记之后，**口径由打分器按当时的敌我关系去筛**，账本自己不猜关系
-      （关系是会变的：今天的中立国明天就宣战了）。
-
-    ⚠ 它**不记**"哪支军打的、打了几轮"：用户要的是"只算杀掉/打掉的量"，
-      别把它做成战斗日志。
+    ★★ **按 `gid` 记身份**（review P0-3）：旧版用 `a["id"]`（**本国序号**）当 key，
+      甲的第 1 支与乙的第 1 支**撞成同一个 key** ⇒ 账目互相覆盖，
+      **而且不报错**。现在用引擎的 `Unit.gid`（全局唯一）✔
     """
 
     def __init__(self):
         self._kills: dict = {}      # (凶手, 受害者) → 累计击杀支数
         self._dmg: dict = {}        # (凶手, 受害者) → 累计打掉的血
 
-    def observe(self, world, before: dict) -> None:
-        """结算后调一次。`before` = 结算前的 `{军id: (主人, x, y, 血)}`。"""
-        now = {a["id"]: a for a in world.armies}
+    def observe(self, env, before: dict) -> None:
+        """结算后调一次。`before` = 结算前的 `{gid: (主人, x, y, 血)}`。"""
+        now = {u.gid: u for u in env.armies()}
         # 每格上（结算前）有哪些国家在场 —— 结算一跑位置就变了，只能用快照判
         at: dict = {}
-        for o, x, y, _hp in before.values():
-            at.setdefault((x, y), set()).add(o)
-        for aid, (victim, x, y, hp0) in before.items():
-            a = now.get(aid)
-            if a is None:
+        for owner, x, y, _hp in before.values():
+            at.setdefault((x, y), set()).add(owner)
+        for gid, (victim, x, y, hp0) in before.items():
+            unit = now.get(gid)
+            if unit is None:
                 loss, killed = int(hp0), True        # 战死：整条血都算打掉的
             else:
-                loss, killed = int(hp0) - int(a.get("hp", 0)), False
+                loss, killed = int(hp0) - int(unit.hp), False
             if loss <= 0:
                 continue                             # 没掉血（可能还回了血）⇒ 无事
             for killer in at.get((x, y), ()):
-                if killer == victim or killer == "野人":
+                if killer == victim or killer == BARBARIAN:
                     continue
                 key = (killer, victim)
                 self._dmg[key] = self._dmg.get(key, 0) + loss
@@ -182,10 +145,7 @@ class KillLedger:
         return self._sum(self._dmg, name, victims)
 
     def snapshot(self):
-        """`(击杀表, 血量表)` 的**副本**，都是 `{(凶手, 受害者): 累计}`。
-
-        ★ 打分器/编码层要的就是这份**纯数据**（它们不该认识沙盒类）。
-        """
+        """`(击杀表, 血量表)` 的**副本**，都是 `{(凶手, 受害者): 累计}`。"""
         return dict(self._kills), dict(self._dmg)
 
     def clone(self) -> "KillLedger":
@@ -194,170 +154,62 @@ class KillLedger:
         return k
 
 
-def min_margin(size: int, n_nations: int) -> int:
-    """随机开局时两国核心的**最小距离**。
-
-    用户 2026-09-24：「必须至少有足够距离，这个距离是**对于国家总量和地图大小**的函数」。
-
-    取"平均铺开间距"的几何估计：`N` 国在 `size × size` 上铺开 ⇒ 理想间距 ≈ `size / √N`，
-    再夹一个下限 2（小于 2 就是贴脸，没有对抗空间可言）。
-
-        8×8、2 国  ⇒ 8/1.414 ≈ 5.66 ⇒ **5**   ← 正好等于原来那个固定开局 (1,1)-(6,6) 的距离
-        40×40、2 国 ⇒ 28；40×40、5 国 ⇒ 17
-
-    ★ 引擎自己也有同类口径可参照：中途加国用
-      `max(balance.ARRIVE_MARGIN_MIN, size // balance.ARRIVE_MARGIN_DIV)` ——
-      但它**只跟 size 走、不看国家数**，所以这里不直接用它。
-    """
-    import math
-    return max(2, int(size / max(1.0, math.sqrt(max(1, n_nations)))))
-
-
-# ------------------------------------------------- ★ 开局国土（随机大小，各国严格同数）
-# 用户 2026-09-25：「初始国土**随机大小**（但是**各国国土数量严格相同**），生成方式是
-#   **以市政厅为中心，随机选择接壤合法国土**，直到满足国土需求，**国土大小和地图和
-#   国家数量正相关**，**每局自动设置范围**（**国土要记得移除野人**）」
-#
-# ★ 口径怎么落的（三条，都是有意的）：
-#   ① **"每国摊到的格数" = `size² / n`** —— 国土大小按**份额的比例**取，不按绝对格数。
-#      于是：地图越大 ⇒ 份额越大 ⇒ 国土越大（12²/3=48 → 20²/5=80）；
-#      而在本项目的 `n = f(size)`（`n_nations_for`）下，**国家数与地图是同一个方向**的
-#      ⇒ "和地图、国家数量正相关"这条在**实际会跑到的 (size, n) 组合上**成立。
-#      ⚠ **同一张图上多加国家 ⇒ 每国份额变小 ⇒ 国土变小** —— 这是几何，不是 bug：
-#        `n` 个国家要装在一张固定大小的图上，还要留出野地（扩张成本）与彼此间距，
-#        不可能"国家越多每国反而越大"（那要求总面积 ∝ n²）。
-#   ② 下界是**十字那 5 格**（已经在名下的地不可能比这更少）。
-#   ③ ★★ **国土可以贴上**（用户 2026-09-25 当场定的：「**国土可以贴上**」）——
-#      ⇒ **不加"几何闸"去保证两国国土之间留空当**。我一开始自己加了一条
-#      （按 `min_margin` 限制国土半径，理由是"贴脸 ⇒ 先手直达"），
-#      实测那条**既不成立也不必要**：随机长出来的国土有细长触手，
-#      按球估的半径上限挡不住（12×12 三国仍有 42% 的局贴上），
-#      而真正防"先手直达"的是**厅到厅**的 `min_margin`（那条没动）。
-#      ⇒ 贴上是**有意接受**的形态（开局就能接触 = 一种开局分布），**别再"修"它**。
-TERRITORY_FRAC_LO = 0.15      # 占"每国摊到的格数"的比例（下限）
-# ★★ **随机结盟（只限 2v2）** —— 用户 2026-09-26：「考虑加入随机结盟(只限 2v2 对局)」。
-#   只在 **4 国局**（`len(players) == 4`）做：把 4 国随机配成**两个两人实体**；
-#   3 国/5 国**不做**（凑不出 2v2）。抽签走独立流（盐 `ALLIANCE_SALT`），
-#   与地图/开局位置/回合偏移/国土**各走各的** ⇒ 加这个特性不会挪动同一 seed 的其它东西。
-#
-# ★ 为什么这件事顺带解了"大图打不出胜负"：胜者口径是**场上只剩一个实体**
-#   （`winning_entity`）。5 国局要灭 4 家；而 2v2 下**两个实体**，灭掉对面那一家就赢
-#   ⇒ 大图重新变得**可赢**。这也是"允许大图、最高 5 国"能一起成立的原因。
-ALLIANCE_SALT = 0x2A11
-TERRITORY_FRAC_HI = 0.35      # 上限 —— ★ 两个数都是**可调先验**，不是物理常数
-# ★★★ **1v1 专用加码**（用户 2026-09-27：「你在 **1v1 地图上增加国土规模**就行」）。
-#   三条理由，前两条是用户给的、第三条是顺带的：
-#   ① 「**小地图后手吃亏更严重**」—— 两人局厅到厅只有 `min_margin = size/√2`
-#      （size 10 ⇒ 7.1 格），先手 5 回合就能直达对方厅；**国土大 ⇒ 纵深大**
-#      ⇒ 先手直达不成立（项目里记过「先手优势是**结构性**的、闸门连响」）。
-#   ② 「随机国土给了**更大纵深**，换家敏感性更高」⇒ 加大它正好顺着这条设计走。
-#   ③ ★ 顺带解掉一条老问题：**野地变少 = 免费午餐变少** —— 而
-#      「免费午餐吃不完 ⇒ 攻城永远次优」正是 8 国局摆烂尸检（[[zhanguo_8n_stalemate_autopsy]]）
-#      查出来的平局成因。
-#   ⚠ **只对 `n <= 2` 生效**：3-5 国那套比例**一个字不动**（用户只说了 1v1 地图）。
-TERRITORY_FRAC_2P = (0.35, 0.60)
-TERRITORY_SALT = 0x7E77       # 抽国土用的**独立随机流**盐（见 `reset()` 的三条口径）
-
-
-def territory_range(size: int, n_nations: int) -> tuple[int, int]:
-    """本局国土格数的**范围** `[lo, hi]`（含端点）—— **每局自动算**，不是命令行常数。
-
-    份额 = `size² / n`（每国摊到的格数）⇒ `lo = frac_lo × 份额`、`hi = frac_hi × 份额`，
-    再夹一个下界 ②（十字 5 格）。**没有上界闸** —— 见 ③。
-
-        12×12、3 国 ⇒ 份额 48 ⇒ **[7, 17]**   ← 起炉范围下端
-        16×16、4 国 ⇒ 份额 64 ⇒ **[10, 22]**
-        20×20、5 国 ⇒ 份额 80 ⇒ **[12, 28]**  ← 上端
-         8×8、3 国 ⇒ 份额 21 ⇒ **[5,  7]**
-
-    ★ 两个比例是**份额**的比例 ⇒ 全国加起来最多占地图的 `frac_hi = 35%`，
-      其余 65% 还是野地（= 扩张成本，那是这条线的既有口径）。
-    """
-    from .tokens import CROSS
-    floor = len(CROSS)                                  # ② 十字那 5 格
-    share = (size * size) / max(1, n_nations)           # ① 每国摊到的格数
-    # ★ 1v1（`n<=2`）走**加码**的比例，见 `TERRITORY_FRAC_2P` 那段
-    flo, fhi = (TERRITORY_FRAC_2P if n_nations <= 2
-                else (TERRITORY_FRAC_LO, TERRITORY_FRAC_HI))
-    lo = max(floor, int(round(flo * share)))
-    hi = max(lo, int(round(fhi * share)))
-    return lo, hi
-
-
 class Sandbox:
-    """一局 8×8 攻取国祚。**规则归沙盒、动作归 v11plus**。"""
+    """一局 8×8 攻取国祚。**规则归引擎、动作归 v11plus**。"""
 
     def __init__(self, seed: int = 0, size: int = 8, t_max: int = T_MAX,
                  war: bool = True, first: str | None = None,
                  halls_known: bool = False, n_nations: int | None = None,
                  wars: list[tuple[str, str]] | None = None,
-                 territory: bool = True, alliances: str = "none"):
+                 territory: bool = True, alliances: str = "none",
+                 starts: dict | None = None, env: Env | None = None):
         self.seed = seed
         self.size = size
         self.t_max = t_max
         self.war = war                    # 开局是否宣战（★不宣战 v11plus 不会进攻）
-        # ★★ **开局国土随机**（用户 2026-09-25，口径见 `territory_range` 上的那段）。
-        #   `False` ⇒ 只留十字那 5 格（**老行为**，做版间对照用）——
-        #   不然"加了随机国土"这件事就没法 A/B，而它改的是**开局的形状分布**。
+        # ★★ **开局国土随机**（用户 2026-09-25）：`False` ⇒ 只留十字那 5 格（老行为，版间对照用）。
         self.territory = bool(territory)
-        # 本局抽到的**国土目标格数**（含十字；`reset()` 里抽，测试/报表要看）
+        # 本局**实际达成**的每国国土格数（测试/报表要看）
         self.territory_target = 0
-        # ★★ **随机结盟**（见 `ALLIANCE_SALT` 上面那段）：`"none"`（缺省）或 `"random2v2"`。
-        #   只对 **4 国局**生效。
+        # ★★ **随机结盟**：`"none"`（缺省）或 `"random2v2"`。只对 **4 国局**生效。
         self.alliances = str(alliances)
-        # 本局抽到的**两个同盟**（`((甲,丙),(乙,丁))`；没结盟 ⇒ `()`）—— 测试/报表要看
+        # 本局抽到的**两个同盟**（没结盟 ⇒ `()`）—— 测试/报表要看
         self.alliance_pairs: tuple = ()
-        # ★★ **对账计数器**（2026-10-22，报告 §7.3）：训练日志要能回答
-        #   "重复候选有几个""动作被引擎拒了几个" ⇒ 这两个数**在产生它们的地方**记，
-        #   不在别处**另算一遍**（另算的口径迟早对不上）。
+        # ★★ **对账计数器**（报告 §7.3）：在**产生它们的地方**记，不在别处另算一遍。
         self.n_dup_candidates = 0        # ★ `legal()` 去重时**丢掉**的重复动作数
         self.n_rejected = 0              # ★ 引擎**拒收**的动作数
-        # ★ 显式战争对：给了就**只**宣这些（用来造**中立国**/局部战争场景）。
-        #   没给 ⇒ `war=True` 时**全对宣战**（多玩家的缺省：默认全体敌对）。
+        # ★ 显式战争对：给了就**只**宣这些（造中立国/局部战争场景）。
         self.wars = wars
+        # ★ **显式指定**各国核心格（剧本参数；不给就按 seed 抽）。
+        self.starts = dict(starts) if starts else None
         self.first = first                # ★ 谁先手（`None` ⇒ `self.players[0]`）
-        # ★★ **几个国家**（用户 2026-09-24：「3 人起步 + `n_nations = f(size)`」）。
-        #   `None` ⇒ 按地图大小算（`n_nations_for`）；显式给数则用它（测试/对照用）。
         self.n_nations = int(n_nations if n_nations else n_nations_for(size))
         if not (2 <= self.n_nations <= len(PLAYER_NAMES)):
             raise ValueError(
                 f"n_nations 必须在 2..{len(PLAYER_NAMES)}（名字池上限），"
                 f"给了 {self.n_nations}")
         self.players = tuple(PLAYER_NAMES[:self.n_nations])
-        # ★★ **他国市政厅是否已知** —— 用户 2026-09-24：
-        #   「对手的厅应该是**明知**的，有**两种模式**，一个是 llm **已经派了间谍**、
-        #    明知对手厅了，一个是没有、**rl 模型自己找厅**」。
-        #   · `False`（缺省，"自己找厅"）：沿用引擎 `_public_buildings` 的口径 ——
-        #     厅**进了视野就公开**（"看不见就打不着"）。
-        #   · `True`（"已派间谍"）：他国的厅**位置直接已知**，不必先侦察。
-        #
-        #   ⚠ 它**只影响"厅在哪"这一件事，不影响"厅上有什么"** ——
-        #     知道一座厅的位置**不等于**看得见驻守它的军队（那是两件情报）。
-        #     ⇒ 实现上是一个**独立的开关**，**不能**靠"把这些格塞进 `vision_mask`"
-        #       （那会连守军、地形一起暴露，是偷看）。见 `rl/encode.py` 的 `halls_known`。
+        # ★★ **他国市政厅是否已知**（"已派间谍" vs "自己找厅"）
         self.halls_known = halls_known
-        # ★★ **已知市政厅的账本**（用户 2026-09-24：「**发现厅了就应该永久标记，
-        #   因为厅是拆不掉也不能移动的**」）—— 两种模式是**同一个机制的两种初值**：
-        #     · 间谍模式（`halls_known=True`）⇒ 账本 `all_known`（开局全知）
-        #     · 自己找厅（`False`）⇒ 账本从空开始，靠 `known_halls()` 累积
-        #   ⇒ 调用方（`encode`/`evaluate`）**不用分情况**，一律问 `known_halls`。
+        # ★★ **已知市政厅的账本**（厅拆不掉、不能动 ⇒ 只增不减）
         self.halls = HallMemory(all_known=halls_known)
-        # ★★ 敌军**番号账本**（用户 2026-09-25：「模型要识别的出，这次击退了 a 兵团，
-        #   下次露头的是 a 军团的**残余**，还是一支没见过的、满编的 b 军团」）
-        #   ★ 与 `halls` 的差别：厅拆不掉、不能动 ⇒ 只增不减；
-        #     军队**会动会死** ⇒ 必须带**时间戳**、必须**会过期**。两件事不能共用一套。
         self.war_mem = WarMemory()
-        # ★★ **可写观测层**：外部告知的情报（对应引擎玩家的**间谍内容**，见 `rl/intel.py`）
         self.intel = Intel()
-        # ★ 累计击杀账本（用户 2026-09-25：「只计算我军杀掉的敌军来加分」）
+        # ★ 累计击杀账本
         self.kills = KillLedger()
-        self.world = None
+        # ★★ **引擎世界**：只有 `Env`（能力客户端），**没有门面**。
+        self.env = env
         self.turn = 0
-        # ★★ **本局的回合偏移**（`my_turn` 那一列要用，见 `vocab.GLOB` 的三条口径）：
-        #   观测里给的是 `(turn + turn_offset) / TURN_SCALE` ⇒ **逐局随机**，
-        #   于是「第 50 回合就该这么打」这种死记无处落脚，而局内的增量完整保留。
-        #   ★ `reset()` 里按 seed 抽 ⇒ 同一 seed 仍然**可复现**（确定性没丢）。
+        # ★ 引擎期号的**建局基线**（"摆局"推进的期号不算玩家走的一步）
+        self.turn_base = 0
+        # ★★ **本局的回合偏移**（观测里给的是 `(turn + turn_offset) / TURN_SCALE` ⇒ 逐局随机）
         self.turn_offset = 0
+        # ★★ **"原地不动"用掉的军**（本回合内）。
+        #   ★ 引擎**没有**"不动"这个动作（它的 `Unit.can_act` 只认 `born_turn`/`moved_turn`），
+        #     而沙盒的动作空间里有"原地不动"（用户 2026-09-24 的要求）⇒
+        #     这份"本回合谁已经用过行动"是**沙盒自己的状态**，不是引擎状态的影子：
+        #     它记的是**引擎里根本没有的那个动作**。
+        self.held: set = set()
         self.log: list[str] = []
 
     # ============================================================ 建局
@@ -365,137 +217,79 @@ class Sandbox:
         """★ `random_starts=True`（缺省）⇒ **随机开局**，但两国核心至少隔 `min_margin`。
 
         用户 2026-09-24：「训练改成**随机开局**，但是必须至少有足够距离，这个距离是
-        **对于国家总量和地图大小**的函数」。固定 (1,1)/(6,6) 会让模型过拟合那个布局；
-        随机 + 足够距离才逼它学"相对位置"而不是"记住坐标"。
-        `random_starts=False` ⇒ 退回固定的 `STARTS`（对照/复现用）。
+        **对于国家总量和地图大小**的函数」。固定 (1,1)/(6,6) 会让模型过拟合那个布局。
         """
-        from .engine import SandboxWorld
         from .teacher import grouping
-        starts = self._random_starts() if random_starts else self._fixed_starts()
-        w = SandboxWorld(size=self.size, seed=self.seed,
-                         nations=list(self.players), starts=starts)
-        w.max_turns = self.t_max
-        self.world = w
-        self.turn = 0
-        # ★★ **开局国土**（用户 2026-09-25，口径见 `territory_range` 上的那段）。
-        #   放在这里（建完世界、还没宣战/摆兵）是因为它**改的是地图本身**：
-        #   先把地长出来，后面"摆兵/宣战/哨兵"看到的才是这一局的真实开局。
-        #   ★ 抽签走**独立的随机流**（盐 `TERRITORY_SALT`）：与 `_random_starts()` 的
-        #     `Random(self.seed)`、与 `World` 内部的建图流、与 `turn_offset` 的流
-        #     **各走各的** ⇒ 加了这个特性**不会挪动**同一 seed 的地图与开局位置
-        #     （否则 version 间 A/B 全废，而且没有任何东西会报错 —— 同 `my_turn` 那条教训）。
-        import random as _random
-        self.territory_target = self._grow_territory(
-            _random.Random(self.seed ^ TERRITORY_SALT))
-        # ★★ **每局重抽偏移**（用户 2026-09-25：「**每次开局传入一个随机偏移就行**」）。
-        #   ★ 用 `self.seed` 派生 + **一个异或盐**：与 `_random_starts()` 的
-        #     `random.Random(self.seed)` **各走各的流** ⇒ 抽偏移**不会扰动开局位置**
-        #     （否则就是「加了个时间戳、顺带把地图换了」——那种耦合极难查）。
-        #   ★ 逐局不同：训练在 `train` 里给每局**新的随机 seed** ⇒ 偏移自然逐局不同。
-        self.turn_offset = _random.Random(
-            self.seed ^ 0x7A17).randrange(V.TURN_OFFSET_SPAN)
+        # ★ 每次 `reset()` 都是**一个全新的世界**（native 的地图**不能重铺**
+        #   ——`territory.configure` 遇到已物化的格会直接拒绝）。
+        #   ⇒ 运行时复用（`Env.load` 内部缓存），**世界**每次新建。
+        self.env = Env.load()
+        # ★ 摆局**整个**交给剧本（`rl:scenario`）—— 十字、强制平原核心、
+        #   扩地口径、兵营/城堡/市政厅**全在剧本里**，这里不再自己造一遍。
+        plan = self.env.setup(
+            size=self.size, seed=self.seed, nations=self.players,
+            territory_target=0 if self.territory else 5,
+            armies=0, kind="native:infantry", random_starts=random_starts,
+            starts=self.starts)
+        self.territory_target = int(plan["territory_actual"])
+        # ★ 摆局**计划**（纯数据）：核心格、扩地口径、开局兵 —— 报表与测试要用。
+        self.plan = plan
+        # ★★ **每局重抽偏移**（用户 2026-09-25：「每次开局传入一个随机偏移就行」）。
+        #   用**独立的随机流**（盐 `TURN_OFFSET_SALT`）⇒ 抽偏移**不会扰动**地图与开局位置。
+        self.turn_offset = random.Random(self.seed ^ TURN_OFFSET_SALT).randrange(64)
         self.log = []
         self.halls = HallMemory(all_known=self.halls_known)   # ★ 每局重开账本
-        self.war_mem = WarMemory()                            # ★ 每局重开**敌军番号账本**
-        self.intel = Intel()                                  # ★ 每局重开**情报账本**
-        #   ★★ **必须每局重置**：上一局的"敌军在某处"对新的一局是**纯噪声**，
-        #     而它不会自己消失（`age` 只在同一局的时间轴上算）⇒ 忘了重置 =
-        #     模型带着上一局的幽灵开局，而且**不报错**。
+        self.war_mem = WarMemory()                            # ★ 每局重开敌军番号账本
+        self.intel = Intel()                                  # ★ 每局重开情报账本
         self.kills = KillLedger()                             # ★ 每局重开击杀账本
-        # ★★ **顺序变了：先结盟，再宣战**（2026-10 适配新引擎）。
-        #   旧引擎的"联盟"只是往 `world.blocs` 里塞一条记录（**没有校验**），
-        #   所以旧线可以"先全对宣战、再结盟"。
-        #   新引擎的联盟是**真实体**（`diplomacy` 域），且**明文禁止**
-        #   「**正在战争中，不能创盟**」⇒ 顺序反了就会建盟失败。
-        # ⇒ 这里的顺序与**语义**都保持一致：结盟后，盟友之间"可 mv 不可 atk"
-        #   （`allied_between` 优先判定），非盟友之间照旧交战。
-        #
-        # ★★ **随机结盟（只限 2v2）** —— 用户 2026-09-26。
-        #   放在宣战**之前**（新引擎的硬约束，见上面那段）。
-        self._make_alliances(w)
+        self.held = set()
+        # ★★ **顺序变了：先结盟，再宣战**（新引擎的联盟是真实体，且明文禁止
+        #   「正在战争中，不能创盟」⇒ 顺序反了就会建盟失败）。
+        self._make_alliances()
         if self.wars is not None:
-            # ★ 显式给了战争对 ⇒ **只**宣这些（其余国家互为中立国：mv/atk 都不行）
-            for a, b in self.wars:
-                if a in self.players and b in self.players:
-                    w.declare_war(a, b)
+            self.env.declare_wars([(a, b) for a, b in self.wars
+                                   if a in self.players and b in self.players])
         elif self.war:
-            # ★★ **全对宣战**（多玩家）—— 用户 2026-09-24：「是否中立和联盟和模型
-            #   无关，开局直接指定」⇒ 没被 `set_alliance` 写进任何联盟的国家**默认敌对**。
-            #   ⚠ 原来只宣战 `(甲, 乙)` 一对 ⇒ 三国局里第三个国家**谁都不打**，
-            #     而 `_owner_class` 会把它当 `OWN_NEUTRAL_NATION`（mv/atk **都不行**）
-            #     ⇒ 它一步也走不出去、也不挨打，成一块"冻住的石头"。
-            #   ★ 与联盟并存是**安全**的：判定是"**联盟优先**"
-            #     （`_atk_target_ok` 要 `not allied_between` **且** `war_between`；
-            #      `_mv_wall` 也放行盟国地）⇒ 盟友之间照样"可 mv 不可 atk"。
-            #     所以**造中立国要用 `wars=[...]`**，不能靠"不结盟"
-            #     （缺省已经是全体交战了）。
-            #   ★ **跳过同盟对**：盟友之间本来就不该宣战（新引擎也会拒：同实体
-            #     不能互相宣战），逐对宣战时把它们滤掉。
-            for i, a in enumerate(self.players):
-                for b in self.players[i + 1:]:
-                    if w.allied_between(a, b):
-                        continue
-                    w.declare_war(a, b)
-        for name in self.players:
-            # ★ 沙盒**不管经济** ⇒ 补给必须管够：引擎每回合收军粮（步1/骑2），
-            #   断粮则**每军扣 HP**、扣到 0 饿毙。资源给 0 的话军队是**饿死**的不是战死的
-            #   （实测踩过：无人交战却每回合稳定掉 35 hp，全灭后靠补员复活 ⇒ 死循环）。
-            w.nations[name].res["补给"] = 10 ** 6
-            self.spawn(name, BASE_CAP)
-        # ★ 主城默认 **L2 城堡**（用户 2026-09-24：「顺便 rl 线给主城加一个默认 l2 的城堡」）：
-        #   引擎里 `t["buildings"]["native:castle"]` 的**计数就是等级**（`_defense_pct` 按它算减伤）
-        #   ⇒ 主城更难打、防守更站得住，攻守才有真正的取舍。
+            self.env.declare_wars([(a, b) for i, a in enumerate(self.players)
+                                   for b in self.players[i + 1:]
+                                   if not self.env.allied(a, b)])
+        # ★ 开局摆兵（native 的 `seed` ＝ 初始化/导入 ⇒ **本回合可以动**）。
+        #   ★ 与**回合内补员**（`recruit` ＝ 征召 ⇒ 本回合**不能动**）是两回事，
+        #     引擎自己分得很清，RL 侧不再有第三种"造兵方式"。
         for name in self.players:
             core = self.core_of(name)
             if core is not None:
-                w.tiles[core]["buildings"]["native:castle"] = 2
-        # ★ 编组状态是**模块内存**：每局开始必须清，否则上一局的编组漏进来
-        #   （`ruleai/v11plus/__init__.py` 明文要求）
+                self.env.spawn(name, "native:infantry", core[0], core[1], BASE_CAP)
+        # ★ 编组状态是**模块内存**：每局开始必须清，否则上一局的编组漏进来。
         grouping.clear()
-        # ★ **先手可换**（用户 2026-09-24：「每 8 局换先后手」）—— 固定先手会把
-        #   "先手优势"永远记在同一个网络的头上；轮换后每个网络都当过得利/吃亏的那一方。
-        #   ★ 多玩家下 `first` 是 `self.players` 里的**任意一个**（≥3 轮流手）。
+        # ★ **先手可换**（用户 2026-09-24：「每 8 局换先后手」）
         order = list(self.players)
         if self.first in order:
             order.remove(self.first)
             order.insert(0, self.first)
-        self.pending = [n for n in order if self.alive(n)]   # 本回合还轮到谁行动
-        self.last_ok = True                                    # 上一步是否被引擎接受（进观测）
+        self.pending = [n for n in order if self.alive(n)]
+        self.last_ok = True
+        # ★★ 回合号 = **引擎的期号减去建局期的基线**。
+        #   · 基线取在**建局全部做完之后**：建局里的 native 外交流程
+        #     （提交 → 结算 → 代投 → 再结算）会**推进 2 个期号**，
+        #     那些是"摆局"的一部分，**不是玩家走的一步** ⇒ 不该占 `t_max`。
+        #   · 源头上仍然是**引擎的 `period()`**（不自己数 ⇒ 不会漂），
+        #     这里只是给它一个**基线偏移**（`turn_base` 是一次性取的常量，不是会漂的影子状态）。
+        self.turn_base = self.env.period()
+        self.turn = self.env.period() - self.turn_base
         return self
 
+    # ------------------------------------------------------------ 行动顺序
     def _turn_order(self) -> list[str]:
         """本回合的**行动顺序**。★ **≥3 人每回合轮换先手；两人局不轮换。**
 
-        ★★★ 为什么要有它（用户 2026-09-27：「**改了，双人局不轮流，三人局以上
-          必须轮换**」）—— 真游戏就是这么做的：`mp_run.py` 的
-          「顺序回合制（**公平：轮流先手，无人被永久排最后**）」：
-              start = (world.turn - 1) % len(alive)
-          而**沙盒原来没有这条**：`pending` 每回合都按固定的 `self.players` 重建
-          ⇒ **整局都是同一个人先落子**。
-        ★ 后果不是"不公平"这么轻：后手能看到先手**已落子**的世界状态再应对
-          （`legal()` 是按已落子的状态算的，不是排队结算）⇒ 先手每回合都得先亮牌、
-          后手每回合都能针对 ⇒ **两边都推不动** —— 这很可能正是"打满即平局"
-          的一条成因（跨局的 `first` 抵得掉平均偏差，抵不掉**局内**的动力学）。
-        ★ **两人局不轮换**（用户明确定的口径）：两人时 `(turn-1)%2` 就是每回合
-          来回换，会把局面变成纯"你一手我一手"的应对循环；用户要的是两人局
-          **保持固定顺序**，先手优势由**跨局**轮换（`first`，见建局那段）来摊平。
-
-        ★★★ **2026-09-28 修的 bug：上面这条"由跨局轮换 `first` 摊平"原来是空的。**
-          两人局这里写的是 `return alive` —— 直接返回固定的 `self.players` 顺序，
-          **把 `self.first` 丢了**。而 `first` 只在 `reset()` 里建过 `pending`（turn 0），
-          回合边界重建全靠本函数 ⇒ **一局里只有第 1 个回合认先手**。
-          实测（`size=12`、`first='乙'` 的一整局 60 回合）：**乙先动 1 次、甲先动 59 次**
-          ⇒ 补偿 ≈ 失效，且**每回合都是同一个座位先亮牌**（后手每回合都能看着
-          已落子的局面应对）。席位胜率实测 甲 44.1% vs 乙 55.9%（487 局，z=−2.58）。
-          ★ 更坏的连带：`info["first"] = sb.first` ⇒ 日志的 `先手胜` 和
-          `_streak`（"先手连赢就炸"）闸门**都在看一个不控制胜负的变量**，
-          结构上抓不到它本来要抓的东西。详见 `PLAN.md` §12.24 与
-          `tests/test_rl_first_rotation.py`。**别再改回 `return alive`。**
+        ★★★ 两人局这里**必须**用 `self.first` 排头（用户 2026-09-27 口径）：
+          局内**固定顺序**，先手优势由**跨局**轮换 `first` 来摊平。
+          旧写法 `return alive` 把 `self.first` 丢了 ⇒ **一局里只有第 1 个回合认先手**
+          （实测 60 回合里乙先动 1 次、甲先动 59 次 ⇒ 补偿失效）。
         """
         alive = [n for n in self.players if self.alive(n)]
         if len(alive) < 3:
-            # ★ 两人局：局内**固定顺序**（用户口径不变），但那个"固定"必须是
-            #   `self.first` —— 由**跨局**轮换 `first` 来摊平先手优势。
             order = list(alive)
             if self.first in order:
                 order.remove(self.first)
@@ -504,250 +298,80 @@ class Sandbox:
         start = (self.turn - 1) % len(alive)   # ★ 与 `mp_run.py` 同一个公式
         return [alive[(start + i) % len(alive)] for i in range(len(alive))]
 
-    def _random_starts(self) -> dict:
-        """随机开局：N 国核心随机、但**两两切比雪夫距离 ≥ `min_margin(size, 国数)`**。
-
-        十字开局要 3×3 的空间 ⇒ 核心落在 `[1, size-2]`（贴边会让十字缺臂）。
-        200 次抽不到就退回 `_fallback_starts()`（确定性铺开）。
-        """
-        import random
-        rng = random.Random(self.seed)
-        lo, hi = 1, max(1, self.size - 2)
-        need = min_margin(self.size, len(self.players))
-        for _ in range(200):
-            pts = [(rng.randint(lo, hi), rng.randint(lo, hi))
-                   for _ in self.players]
-            ok = all(max(abs(pts[i][0] - pts[j][0]), abs(pts[i][1] - pts[j][1])) >= need
-                     for i in range(len(pts)) for j in range(i + 1, len(pts)))
-            if ok:
-                return dict(zip(self.players, pts))
-        return self._fallback_starts()
-
-    def _fallback_starts(self) -> dict:
-        """★ **确定性兜底开局**（随机 200 次抽不到时）。
-
-        ⚠ 原来退回的是写死的 `STARTS`（**两个**坐标）—— 多国时会
-          `zip(self.players, STARTS)` 出长度不符，或者更糟：**两个国家同一个核心**
-          （`_place_crosses` 里 `(x,y) not in self.tiles` 会静默跳过第二家 ⇒ 那一家
-          **开局就没有厅 ⇒ 一出场就是死的**，而**不报错**）。
-        ⇒ 现在改成**贪心最远点**：从一角起，每次挑"离已选点最远"的格。
-          确定性、总给出 N 个互不相同的核心，且只要格子够就自动最大化间距。
-        """
-        lo, hi = 1, max(1, self.size - 2)
-        grid = [(x, y) for x in range(lo, hi + 1) for y in range(lo, hi + 1)]
-        if len(grid) < len(self.players):          # 图太小：退回边界内的前 N 格（仍互不相同）
-            grid = [(x, y) for x in range(self.size) for y in range(self.size)]
-        chosen = [grid[0]]
-        while len(chosen) < len(self.players):
-            best = max((p for p in grid if p not in chosen),
-                       key=lambda p: min(max(abs(p[0] - q[0]), abs(p[1] - q[1]))
-                                         for q in chosen))
-            chosen.append(best)
-        return dict(zip(self.players, chosen))
-
-    def _fixed_starts(self) -> dict:
-        """`random_starts=False` 的固定开局（对照/复现用）。
-
-        两国 ⇒ 老的 `STARTS`（对角最远，**逐位不变**，老测试与老结论都还成立）；
-        多国 ⇒ 用确定性兜底（`STARTS` 只有两个坐标，`zip` 到 3 国就出错了）。
-        """
-        if len(self.players) == len(STARTS):
-            return dict(STARTS)
-        return self._fallback_starts()
-
-    # ---------------------------------------------- 开局国土（随机大小，各国严格同数）
-    def _grow_territory(self, rng) -> int:
-        """把各国的开局国土从**十字 5 格**长到本局抽到的目标（**各国严格同数**）。
-
-        用户 2026-09-25 的口径，逐条对应：
-
-          · 「**以市政厅为中心**」 —— 起点就是十字（中心格 = 市政厅所在格）；
-          · 「**随机选择接壤合法国土**」 —— 每国在**自己的边界**上随机挑一格
-            （4 邻域，与引擎 `CROSS` / "接壤"口径一致）；
-          · 「**各国国土数量严格相同**」 —— 走**同步轮次**：每轮**每国各吃一格**，
-            谁都不许多吃；某国一旦无格可吃，**整轮不落子**、全体一起停
-            ⇒ 相等是**构造出来的**，不是"长完再补齐"（那种写法在被围住时会静默不等）；
-          · 「**直到满足国土需求**」 —— 吃到目标格数，或吃到吃不动为止；
-          · 「**国土要记得移除野人**」 —— 每占一格就撤守卫，见 `_claim`。
-
-        ★ **合法** = 图内 + **无主**（`owned_by is None`）。别国的地/别国的厅都不是无主
-          ⇒ 结构上抢不到；地形里没有水（`balance.TERRAINS` 只有平原/森林/丘陵/山地/沙漠）
-          ⇒ 没有"不能占的地形"要额外排除。
-
-        ★★ 为什么必须是**同步轮次**：换成"每国各自长到目标"，一旦某国被自己的边界/
-          别国/墙角挡住，它就会**少长几格而没人报错** —— 那正是用户点名要避免的
-          （「严格相同」）。同步轮次把它变成结构性质，事后不需要再查一遍。
-
-        返回**实际达成**的格数（可能 < 目标：被挡死了 —— 但各国仍是同一个数）。
-        """
-        from .tokens import CROSS
-        w = self.world
-        cross = len(CROSS)                                  # 十字自带 5 格
-        if not self.territory:
-            return cross                                    # ★ 老行为（版间对照用）
-        lo, hi = territory_range(self.size, len(self.players))
-        target = int(rng.randint(lo, hi))
-        own = {n: set(w.own_tiles(n)) for n in self.players}
-        while True:
-            todo = [n for n in self.players if len(own[n]) < target]
-            if not todo:
-                break
-            rng.shuffle(todo)               # ★ 每轮洗牌：谁先挑不固定（先挑的会挡住后挑的）
-            picks: dict[str, tuple[int, int]] = {}
-            used: set[tuple[int, int]] = set()
-            blocked = False
-            for n in todo:
-                cand = self._frontier(own[n], used)
-                if not cand:
-                    blocked = True
-                    break
-                picks[n] = cand[rng.randrange(len(cand))]
-                used.add(picks[n])
-            if blocked:
-                break                       # ★ 整轮不落子 ⇒ 各国仍严格同数（见 docstring）
-            for n, c in picks.items():      # 一轮的落子**全部**放这里，别混进上面的循环
-                self._claim(c, n)
-                own[n].add(c)
-        return min(len(s) for s in own.values())
-
-    def _frontier(self, own: set, used: set) -> list:
-        """`own` 的**合法接壤格**（图内 + 无主 + 不在 `own` + 本轮没被别人挑走）。
-
-        ★ 返回**排序后的列表**：抽签是 `rng.randrange(len(cand))` ⇒ 顺序变了
-          就等于换了随机流（同一 seed 复现不出来），所以这里不许依赖 set 的迭代序。
-        """
-        w = self.world
-        out = []
-        for (x, y) in own:
-            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                c = (x + dx, y + dy)
-                if not (0 <= c[0] < self.size and 0 <= c[1] < self.size):
-                    continue
-                if c in own or c in used or w.owned_by(*c) is not None:
-                    continue
-                out.append(c)
-        return sorted(set(out))
-
-    def _claim(self, cell: tuple[int, int], name: str) -> None:
-        """占一格当**开局国土**：撤走野人 + 物化地块（`owner=name`，`core=name`）。
-
-        ★ 两件事**必须一起做**，而且顺序与引擎自己的开局 `_place_crosses` 逐条相同：
-          · 引擎里**野人只守无主格**（`guardians` 那张表的口径、`_defeat_at` 也按此查）
-            ⇒ 占下来的地上还留着一支野人 = "有主 + 有野人"的矛盾格；
-          · `_ensure_guardians` **只给没物化的格补野人** ⇒ 先物化就不会再长出来
-            （读档时同理：它跳过 `(x, y) in self.tiles` 的格）。
-        ★ **不动 mp.py**（引擎与 main 必须逐字一致）⇒ 占地只能从沙盒这边做；
-          用的两个内部函数 `_drop_guardians` / `_new_tile` 正是引擎开局自己那对
-          （`_place_crosses` 里同款），语义不会漂。
-        """
-        x, y = cell
-        self.world._drop_guardians(x, y)
-        self.world.tiles[cell] = self.world._new_tile(x, y, name)
-
-    def _make_alliances(self, w) -> None:
+    # ------------------------------------------------------------ 结盟
+    def _make_alliances(self) -> None:
         """抽本局的同盟（**只限 2v2**：4 国随机配成两个两人实体；3 国/5 国不结盟）。
 
         用户 2026-09-26：「考虑加入随机结盟(**只限 2v2 对局**)」。
 
-        ★ 为什么"只限 2v2"是**对**的：胜者口径是**场上只剩一个实体**
+        ★ 为什么"只限 2v2"是**对**的：胜者口径是"场上只剩一个实体"
           （`winning_entity`）—— 2v2 下只剩两个实体、灭掉对面那一家就赢
-          ⇒ 大图重新变得**可赢**（5 国局要灭 4 家，基本打不出来）。
-          这也是"允许大图、最高 5 国"能一起成立的原因。
+          ⇒ 大图重新变得**可赢**。
         ★ 抽签走**独立流**（盐 `ALLIANCE_SALT`）：与地图/开局位置/回合偏移/国土
-          **各走各的** ⇒ 加这个特性**不会挪动**同一 seed 的其它东西
-          （那条纪律在 `my_turn` 与国土那两处都踩过）。
-        ★ 幂等/干净：每局先清空 `alliance_pairs`（上一局的盟不能漏进来 —— 那种错
-          **不报错**，只是这一局的开局关系悄悄变成了上一局的）。
+          **各走各的** ⇒ 加这个特性不会挪动同一 seed 的其它东西。
         """
         self.alliance_pairs = ()
-        if self.alliances not in ("random2v2", "2v2"):
+        if self.alliances != "random2v2" or len(self.players) != 4:
             return
-        if len(self.players) != 4:              # ★ 只限 2v2：3 国/5 国凑不出来
-            return
-        import random as _random
+        rng = random.Random(self.seed ^ ALLIANCE_SALT)
         order = list(self.players)
-        _random.Random(self.seed ^ ALLIANCE_SALT).shuffle(order)
-        a, b = tuple(order[:2]), tuple(order[2:])
-        self.set_alliance((f"同盟{a[0]}{a[1]}", list(a)),
-                          (f"同盟{b[0]}{b[1]}", list(b)))
-        self.alliance_pairs = (a, b)
+        rng.shuffle(order)
+        pairs = ((order[0], order[1]), (order[2], order[3]))
+        self.alliance_pairs = pairs
+        for members in pairs:
+            self.set_alliance(members)
 
-    def set_alliance(self, *blocs: tuple[str, list[str]]) -> None:
-        """★★ **开局直接指定**联盟 —— 外交关系是**场景条件**，不是模型的动作。
+    def set_alliance(self, *blocs) -> None:
+        """结盟（**转调 `rl:sandbox`**，走 native 的 `bloc_found` + `accept_proposal`）。
 
-        用户 2026-09-24：「**是否中立和联盟和模型无关，开局直接指定，而不是让模型
-        发起和接受**」。⇒ 沙盒的动作空间只有 `hold/move/attack`（`vocab.KIND`），
-        **没有** propose/accept 那一套；联盟/中立由这里（或调用方）在开局摆好。
-
-        用法：`sb.set_alliance(("北方同盟", ["甲", "丙"]))` ⇒ 甲丙互为盟友（`allied_between`
-        为真、可 mv 不可 atk）；**没被写进任何联盟的国家就是中立国** —— 它的地
-        `mv` 走不进、`atk` 也打不了（引擎："先结盟或先宣战"），观测里是
-        `vocab.OWN_NEUTRAL_NATION`，与"敌国"分得清清楚楚。
-
-        ★ 引擎侧的实现就是往 `world.blocs` 放一条 `{name, chief, members}`
-          （`allied_between` = `entity_of` 相等）—— 这里不做 propose/accept 的流程，
-          因为那套流程的产出**等价于**直接给这条记录，而流程本身是给 LLM 玩家用的。
+        ★ 接受两种写法（旧的调用点两种都有）：
+          · `set_alliance(("北方同盟", ["甲", "乙"]))` —— `(名字, 成员)`；
+          · `set_alliance(["甲", "乙"])` —— 纯成员名单（名字自动生成）。
+        ★ 结算后**回读校验**（review P1-4）："accept 就成功"是假的。
         """
-        for name, members in blocs:
-            living = [m for m in members if m in self.world.nations]
+        for bloc in blocs:
+            if (isinstance(bloc, (tuple, list)) and len(bloc) == 2
+                    and isinstance(bloc[0], str) and isinstance(bloc[1], (list, tuple))):
+                name, members = bloc[0], list(bloc[1])
+            else:
+                name, members = None, list(bloc)
+            living = [m for m in members if m in self.players]
             if len(living) < 2:
                 continue
-            self.world.blocs.append({"name": name, "chief": living[0],
-                                     "members": living})
-
-    def count_of(self, name: str, kind: str) -> int:
-        """该国某兵种的支数（`民` = 民兵）。"""
-        return sum(1 for a in self.armies_of(name) if a.get("type", "native:infantry") == kind)
-
-    def spawn(self, name: str, n: int, kind: str = "native:infantry") -> None:
-        """在**核心格**摆 `n` 支步兵。
-
-        ★ 别用 `own_tiles[0]` —— 那是字典序第一格（实测 (3,2) 之类），**不是核心**。
-        """
-        core = self.core_of(name)
-        if core is None:
-            return
-        x, y = core
-        for _ in range(n):
-            # ★ 兵种要**在造的时候就定**（新引擎不许改已登记军队的兵种：
-            #   "已登记部队的编号、归属与兵种不能直接改写"）⇒ 传给 `_new_army`。
-            #   旧引擎的 `_new_army` 也不管兵种（军队 dict 后面才填），
-            #   但旧线靠"往列表里塞 dict"覆盖了它 ⇒ 口径上以新引擎为准。
-            gid, seq = self.world._new_army(name, kind=kind, x=x, y=y)
-            self.world.armies.append({
-                "id": seq, "gid": gid, "name": f"{name}{seq}", "type": kind,
-                "hp": unit_max_hp({"type": kind}), "x": x, "y": y,
-                "owner": name, "moved_turn": -1, "engaged": False,
-            })
+            self.env.set_alliance(living, name or f"盟{'-'.join(living)}")
 
     # ============================================================ 查询
     def core_of(self, name: str) -> tuple[int, int] | None:
         """该国的**市政厅格**（= 核心 = 国祚）。`None` ⇒ 已亡。"""
-        for cell, t in sorted(self.world.tiles.items()):
-            if t["owner"] == name and t["buildings"].get("native:town-hall", 0) > 0:
-                return cell
-        return None
+        return self.env.core_of(name)
 
-    def armies_of(self, name: str) -> list[dict]:
-        return [a for a in self.world.armies if a["owner"] == name and a.get("hp", 0) > 0]
+    def armies_of(self, name: str) -> list:
+        """该国**活着的**军队（引擎的 `Unit` 对象）。"""
+        return [u for u in self.env.armies() if self.env.owns(u, name) and u.alive]
 
     def tiles_of(self, name: str, mask=None) -> int:
-        """国土格数。★ 数**对手**时必须传 `mask`（视野外看不见谁占了哪）。
-
-        ★ 为什么给 mask 而不是让调用方自己数：补员上限那条公式
-          （`BASE_CAP + 国土 // TILES_PER_CAP`）**只能有一处** ——
-          调用方自己数一遍就会和 `cap_of` 漂移，而那种错不报错、只是观测慢慢说谎。
-        """
-        return sum(1 for cell, t in self.world.tiles.items()
-                   if t["owner"] == name and (mask is None or cell in mask))
+        """国土格数。★ 数**对手**时必须传 `mask`（视野外看不见谁占了哪）。"""
+        return sum(1 for row in self.env.tiles()
+                   if row.owner == name and (mask is None or row.position in mask))
 
     def cap_of(self, name: str, mask=None) -> int:
         """补员上限 = `BASE_CAP + 国土数 // TILES_PER_CAP`（★ 对手要过 `mask`）。"""
         return BASE_CAP + self.tiles_of(name, mask) // TILES_PER_CAP
 
-    def alive(self, name: str) -> bool:
-        return name in self.world.nations and self.world.has_townhall(name)
+    def count_of(self, name: str, kind: str) -> int:
+        """该国某兵种的支数（`民` = 民兵）。"""
+        return sum(1 for u in self.armies_of(name) if u.kind == kind)
 
+    def alive(self, name: str) -> bool:
+        """该国还在不在（在册 **且** 还有市政厅）。"""
+        return name in self.env.nations() and self.env.has_townhall(name)
+
+    def halls_of(self, name: str) -> int:
+        """该国**已落成**的市政厅数（= 国祚，也是补员的"产能"）。"""
+        return sum(row.buildings.get(TOWN_HALL, 0) for row in self.env.tiles()
+                   if row.owner == name)
+
+    # ============================================================ 胜负
     def done(self) -> bool:
         if self.winning_entity() is not None:
             return True
@@ -756,226 +380,174 @@ class Sandbox:
     def winning_entity(self) -> str | None:
         """★★ 胜者 = 场上**唯一剩下的外交实体**（`None` = 还没定局）。
 
-        用户 2026-09-24：「**应该是联盟胜利或者单国胜利**」。⇒ 判据不是"某一个国家
-        还在不在"，而是"还剩几个**实体**"：
-          · 只剩 1 个实体 ⇒ 它赢（**单国**= 它没盟友；**联盟**= 它的盟赢）
-          · 一个不剩       ⇒ 同归于尽/平局 ⇒ `None`
-        这也把"多国时灭掉一家不算结束"**结构性地**表达出来了 —— 不再依赖"两国"这个假设。
+        用户 2026-09-24：「应该是联盟胜利或者单国胜利」⇒ 判据不是"某一个国家还在不在"，
+        而是"还剩几个**实体**"：只剩 1 个 ⇒ 它赢；一个不剩 ⇒ 同归于尽/平局 ⇒ `None`。
         """
-        alive = [n for n in self.world.order
-                 if n in self.world.nations and self.alive(n)]
+        alive = [n for n in self.players if self.alive(n)]
         if not alive:
             return None
-        ents = {self.world.entity_of(n) for n in alive}
+        ents = {self.env.entity(n) for n in alive}
         return ents.pop() if len(ents) == 1 else None
 
     def winner_members(self) -> tuple[str, ...]:
         """胜方实体里的国家名单（单国胜利 ⇒ 只有一个）。没定局 ⇒ `()`。"""
         e = self.winning_entity()
-        return tuple(self.world.entity_members(e)) if e else ()
+        return tuple(self.env.entity_members(e)) if e else ()
 
     def winner(self) -> str | None:
-        """胜方的**实体标签**（`国:甲` / `盟:X`）；`None` = 平局 / 超时 / 未定局。
-
-        ★ 返回的是**实体**不是国名 —— 调用方要判断"某一国赢没赢"，用
-          `name in winner_members()`，别拿国名跟它比字符串。
-        """
+        """胜方的**实体标签**；`None` = 平局 / 超时 / 未定局。"""
         return self.winning_entity()
 
     def reward(self, for_player: str) -> float:
         """★ 赢 ⇒ `1 − turns / T_MAX`（时间越短越高）；输 ⇒ −1；平 ⇒ 0。
 
-        ★ **赢 = 我的实体赢**（联盟胜利或单国胜利）⇒ 查 `winner_members()`，
-          **不是**拿国名跟实体标签比字符串（改实体口径时这里最容易漏）。
+        ★★ **平局时已亡国的一方按 −1**（review §9 第 1 条，2026-10-22 裁定）：
+          亡国**就是输**（native 的 `native:succession` 已经这么判了），
+          而旧版两个分支口径不一致（一个 −0.5 一个 0）⇒
+          "早死比输划算" ⇒ 模型会学出"主动送死"这种荒谬策略。
+          ⇒ **两条分支统一成 −1**：亡国方 = 输。
         """
-        # ★ 2026-09-29：口径搬进 `scoring`（**单一出处**，横幅会打出来）。
-        #   原来这里硬编码 `1 − 回合/400`，而 `train._reward` 里**另有一份终局口径**
-        #   —— 两处独立实现是"静默不一致"的温床，守卫 `tests/test_rl_reward_spec.py` 钉住。
         from . import scoring as S
         if self.winner() is None:
-            return S.REWARD_DRAW
+            # ★ 平局：还活着 ⇒ 0（互有胜负则各 −1）；**已亡国 ⇒ −1**（亡国就是输）。
+            if for_player in self.env.nations() and self.alive(for_player):
+                return S.REWARD_DRAW
+            return S.REWARD_LOSS
         if for_player not in self.winner_members():
             return S.REWARD_LOSS
+        # ★ 赢的价：**口径在 `scoring` 里**（单一出处）；要不要带时间奖励
+        #   由 `WIN_TIME_BONUS` 决定（当前是关的 ⇒ 赢就是 1.0）。
         if S.WIN_TIME_BONUS:
-            return S.REWARD_WIN * (1.0 - self.turn / self.t_max)
+            return S.REWARD_WIN * (1.0 - self.turn / float(self.t_max))
         return S.REWARD_WIN
 
-    # ============================================================ 环境接口（给 MCTS / RL）
-    def known_halls(self, name: str, mask=None) -> dict:
-        """该国**已知**的市政厅 `{格: 最后看见时的主人}` —— **记忆 ∪ 本帧视野**。
+    def outcome_for(self, p: str, *, global_terminal: bool = True):
+        """该玩家本局的**最终结果**（+1 / −1 / 平 / `None`＝还没定）。
 
-        ★ 顺手把**本帧看得见的**并进记忆（lazy latch）：调用点（`encode`/`evaluate`）
-          手里正好攥着 `mask`，不必再算一遍视野。★ 只有被问到的那个国会被记账，
-          而"问谁"恰好就是"谁在观测/被评分" ⇒ 账本永远是齐的。
-        ★ `mask=None` ⇒ 自己现算一遍视野（方便、但比传进来贵一次 `vision_mask`）。
+        ★ 放在**沙盒**这边（不依赖 torch）—— 它只算**终局口径**，
+          跟训练没关系；`rl/train.py` 那边是**转发**（同一份实现）。
+        ★ `global_terminal=False`（被步数预算截断）时**不伪造结果**：
+          只有"我的外交实体已经出局"这一种情况是**已定**的（输），其余一律 `None`
+          —— `t_max` 判平**只在真终局时**给。
         """
-        w = self.world
-        if w is None:
+        if global_terminal:
+            return self.reward(p)                 # ★ 全局口径（`winner_members` ⇒ 联盟友好）
+        t = evaluate.terminal(self.env, p)        # 未完局 ⇒ 只有"实体出局"才是已定的结果
+        if t is None:
+            return None
+        if t > 0:
+            return S.REWARD_WIN
+        if t < 0:
+            return S.REWARD_LOSS
+        return S.REWARD_DRAW
+
+    # ============================================================ 观测记忆
+    def known_halls(self, name: str, mask=None) -> dict:
+        """该国**已知**的市政厅 `{格: 最后看见时的主人}` —— **记忆 ∪ 本帧视野**。"""
+        env = self.env
+        if env is None:
             return {}
         if mask is None:
-            from .teacher import pathfind
-            mask = pathfind.vision_mask(w, name)
-        self.halls.observe(w, name, mask)
-        return self.halls.known(w, name)
+            mask = env.vision_mask(name)
+        self.halls.observe(env, name, mask)
+        return self.halls.known(env, name)
 
     def known_enemies(self, me: str, mask=None, armies=None) -> list[dict]:
-        """记忆里**此刻不可见**的敌军（按番号，附 `age`）—— **顺手把本帧看得见的记下来**。
-
-        ★ 与 `known_halls` 同一个套路（lazy latch）：调用方手里正好攥着 `mask`/`armies`，
-          不必再算一遍。★ 只有被问到的那个国会被记账，而"问谁"就是"谁在观测"⇒ 账本永远是齐的。
-        ★ `armies` = `window_armies` 的结果：用它来算"哪些已经进 token 了"，
-          **与军队 token 的口径逐字一致**（连"野人不进"这条也一致）⇒ 不会重复发、也不会漏发。
-        """
-        w = self.world
-        if w is None:
+        """记忆里**此刻不可见**的敌军（按番号，附 `age`）。"""
+        env = self.env
+        if env is None:
             return []
         if mask is None:
-            from .teacher import pathfind
-            mask = pathfind.vision_mask(w, me)
-        self.war_mem.observe(w, me, mask, self.turn)
+            mask = env.vision_mask(me)
+        self.war_mem.observe(env, me, mask, self.turn)
         if armies is None:
             from .encode import window_armies
             armies = window_armies(self, me, mask)
         vis = {a["gid"] for a in armies if a["owner"] != me}
         return self.war_mem.known(me, self.turn, vis)
 
-    # ============================================================ ★★ 情报注入（唯一口子）
     def tell_halls(self, name: str, items: dict) -> int:
-        """**外部注入厅的情报** `{格: 主人}` —— 见 `hall_memory.HallMemory.tell`。
-
-        ★★ 用户 2026-09-25：「**任何记忆都允许合法外部修改，或者有办法传入新的，
-          这是配合情报的设计**」—— 记忆是**可写的**，因为这套东西最终要跟
-          **LLM 玩家**配合，而玩家的情报来源不止自己那点视野（间谍/盟友/战报/推理）。
-        ★★ **口子只开在这里**（沙盒层）。`encode` **不许**调 `tell`：
-          观测只**读**记忆，写记忆只有两条合法路径 ——
-          ① "**看见就覆盖**"（`observe`，来自视野）；② **这里**（来自情报）。
-          把引擎真值**自动**倒进来 = 偷看（本线最忌），所以注入**必须**是
-          显式的、由调用方（将来的 LLM 面板/间谍系统）按合法性决定内容。
-        ★ `all_known=True`（间谍模式）就是本口子的一个特例（构造时一次性全注）。
-        """
+        """**外部注入厅的情报** `{格: 主人}`（记忆是**可写**的，配情报系统用）。"""
         return self.halls.tell(name, items)
 
     def tell_armies(self, name: str, items: dict, turn: int | None = None) -> int:
-        """**外部告知某国的军情** `{来源国: {"native:infantry": n, "native:cavalry": n, "native:militia": n}}`（见 `rl/intel.py`）。
-
-        ★★ 口径**照抄引擎的间谍**（`mp.World._econ_snapshot` 的注释）：
-          「粗略军情：**只有各兵种数量 —— 位置/血量/番号不外泄**」
-          ⇒ 这里**只有数量**。
-        ★ 我一度写过"逐军注入位置 + 番号"的 `tell_enemies` —— **那正是引擎禁止
-          间谍给的东西**，已删。**位置/番号只能来自自己看见**（`war_memory`）。
-        `turn`（缺省当前回合）= 这份情报**是什么时候的**（间谍 3 回合才回报 ⇒ 常常更旧）。
-        ★ 合法性由调用方负责；**口子只在这里**（同 `tell_halls`）。
-        """
+        """**外部告知某国的军情** `{来源国: {兵种: n}}`（只有数量，位置/番号不外泄）。"""
         t = self.turn if turn is None else int(turn)
-        # ★★ **未来回合的情报 ⇒ 当场报错**（不许静默丢）：`age = 现在 − 情报的回合`
-        #   一旦为负，读取侧会把它整条丢掉 —— 那是"注了但看不见、也不报错"，
-        #   正是本线最忌讳的形状（注入口尤其不能这样）。调用方给错 turn 就该炸。
         if t > self.turn:
             raise ValueError(
-                f"情报的回合 {t} 晚于当前回合 {self.turn} —— 情报不可能来自未来"
-                f"（要么是调用方给错了 turn，要么是想「预告」还没发生的事）")
+                f"情报的回合 {t} 晚于当前回合 {self.turn} —— 情报不可能来自未来")
         return self.intel.tell_armies(name, items, t)
 
     def visible_enemies(self, me: str, mask=None) -> dict:
-        """本帧**看得见**的敌军快照 `{gid: {x,y,kind,hp,no,owner}}`。
-
-        ★ 唯一的用处是给潜槽的**辅助目标**算"下一帧哪些会离开视野"
-          （`rl/mem_aux.py`）。★ 口径与番号账本**同一份**（`war_memory.visible_foes`）——
-          两处抄两遍就会慢慢漂开，而漂开的后果是**在教模型错的东西**且不报错。
-        """
-        w = self.world
-        if w is None:
+        """本帧**看得见**的敌军快照 `{gid: {...}}`。"""
+        env = self.env
+        if env is None:
             return {}
         if mask is None:
-            from .teacher import pathfind
-            mask = pathfind.vision_mask(w, me)
+            mask = env.vision_mask(me)
         from .war_memory import visible_foes
-        return visible_foes(w, me, mask)
+        return visible_foes(env, me, mask)
 
+    # ============================================================ 试演
     def clone(self) -> "Sandbox":
-        """试演副本。★ 8×8 上 `deepcopy` 实测 **~1.8 ms** ⇒ MCTS 可以**真实试演**
-        （不用搞"记录动作再重放"那套）。"""
-        import copy
+        """试演副本。★ 引擎状态用**引擎自己的存档机制**复制，不是 `deepcopy(world)`。"""
         sb = Sandbox.__new__(Sandbox)
-        # ★★★ 2026-09-29 修：**原来是"手列属性"的 —— 而它漏了 `players`**
-        #   ⇒ 在副本上 `step()` 会崩：`_turn_order` → `self.players` ⇒ `AttributeError`。
-        #   ★ 手列清单**必然漏**（加一个属性就漏一个，而且**不报错**直到某条路径用到它）。
-        #     ⇒ 改成**全量浅拷**，**再**把该独立的深拷/克隆替换掉。
-        #   ★ 这条不是"顺手修的"：`rl/opponents.py` 的贪心稻草人**每一步都要 clone**，
-        #     第一次跑就撞上了（守卫 `tests/test_rl_sandbox_clone.py`）。
-        sb.__dict__.update(self.__dict__)         # ★ 一个都不漏
-        # ---- 以下必须**独立**（试演不能改到真身、也不能凭空多知道）----
-        sb.world = copy.deepcopy(self.world)
+        # ★ 全量浅拷（手列属性**必然漏**：加一个属性就漏一个，而且不报错）
+        sb.__dict__.update(self.__dict__)
+        sb.env = self.env.clone()          # ★ 引擎状态：mod 存档复制
         sb.log = list(self.log)
         sb.pending = list(self.pending)
-        sb.halls = self.halls.clone()            # 记忆要跟着副本走
-        sb.kills = self.kills.clone()            # 击杀账本
-        sb.war_mem = self.war_mem.clone()        # 敌军番号账本
-        sb.intel = self.intel.clone()            # 情报账本
+        sb.held = set(self.held)
+        sb.halls = self.halls.clone()       # 记忆要跟着副本走
+        sb.kills = self.kills.clone()       # 击杀账本
+        sb.war_mem = self.war_mem.clone()   # 敌军番号账本
+        sb.intel = self.intel.clone()       # 情报账本
         return sb
 
+    # ============================================================ 行动
     def current_player(self) -> str | None:
         """该谁动（`None` = 本局已结束）。"""
         return self.pending[0] if self.pending else None
 
     def legal(self) -> list[tuple]:
-        """当前玩家的**合法动作**：`(aid, kind, x, y)` + 收手 `(END, None, None, None)`。
+        """当前玩家的**合法动作**：`(aid, kind, x, y)`。
 
-        **合法集在这里预先过滤干净**，别指望引擎报错：
-        · `move` 的目标从 `world._reachable`（引擎合法集）里拿 ⇒ **结构上不会撞墙**
-          （撞墙会 `_blind_cost` 烧掉整队移动额度 —— 那是"废动作"，不该进模型的选择集）
-        · `attack` 只收"走不通、但够得着"的格（`_reachable(for_attack=True)` 里、不在 move 集里的）
-        · 交战中的军 / 本回合已动过的军，直接不给动作
+        ★ 合法性**全部来自引擎**：
+          · `move` 的目标取 `native:army.reachable(..., attack=False)`（引擎的可达集）；
+          · `attack` 的目标取 `reachable(..., attack=True)` **减去** move 集
+            （"走不通、但够得着"的格）。
+          ⇒ 结构上不会撞墙，也**不重算**引擎的可达性。
         """
         name = self.current_player()
         if name is None or not self.alive(name):
             return []
         out: list[tuple] = []
-        # ★★ **视野整次 `legal()` 只算一遍**（2026-09-27 实测出来的）。
-        #   原来 `_probe_cells` 里**每支军队**各算一次 `vision_mask(self.world, name)`,
-        #   而 `name` 在整个循环里**恒定**、world 在 `legal()` 期间**不变**
-        #   ⇒ 那是**纯重复计算**。实测：`vision_mask` 每决策点被调 **10.9 次**、
-        #   cumtime 占整个采集回路 **21%**（`rl/` 里最贵的一项 Python 开销）。
-        #   ★ 懒算：真有军队要处理时才算（没有军队时一次都不算，比原来还省）。
+        period = self.env.period()
+        # ★★ **视野整次 `legal()` 只算一遍**（原来每支军队各算一次，纯重复计算）。
         mask = None
-        for a in self.armies_of(name):
-            if a.get("engaged") or a.get("moved_turn") == self.world.turn:
+        for unit in self.armies_of(name):
+            if unit.engaged or unit.moved_turn == period or unit.gid in self.held:
                 continue                       # ★ 已用过的军 / 交战中的军：整支屏蔽
-            here = (a["x"], a["y"])
-            # ★★ **"原地不动"**（用户 2026-09-24：「不应该回合结束，改成一个给军队的
-            #   特殊动作，**原地不动**，使用后 **mask 这个军队**，当全部军队 mask 后，
-            #   **自动结束**，而不是手动结束」）
-            #   ⇒ 取代了原来的**全局** `end_turn` 动作。这样每个候选都挂在某支军队上
-            #   （动作空间同质），模型必须**为每支军各自决定**，不能一按 END 跳过全部。
-            out.append((a["id"], "hold", here[0], here[1]))
-            walk = self.world._reachable(name, a, for_attack=False)
+            here = (unit.x, unit.y)
+            # ★★ **"原地不动"**（用户 2026-09-24）：给军队的特殊动作，用后 mask 这支军。
+            out.append((unit.id, "hold", here[0], here[1]))
+            walk = self.env.reachable(name, unit, for_attack=False)
             for cell in sorted(walk):
                 if cell != here:
-                    out.append((a["id"], "move", cell[0], cell[1]))
-            for cell in sorted(self.world._reachable(name, a, for_attack=True)):
+                    out.append((unit.id, "move", cell[0], cell[1]))
+            for cell in sorted(self.env.reachable(name, unit, for_attack=True)):
                 if cell not in walk:
-                    out.append((a["id"], "attack", cell[0], cell[1]))
-            # ★ **无视野的邻格：移动与进攻两条路都给**（用户 2026-09-24）
-            #   引擎的规矩是「**敌国领土不能 mv，但允许 atk**」（`_mv_wall` 拒 mv / `attack` 收），
-            #   而看不见的时候模型**无从知道那一格是什么** ⇒ 两条都给，让引擎当场判，
-            #   并把它那句教学式错误消息（实测原话：「(5,5) 有敌军驻守，不能 mv 过去；
-            #   **进攻请用 atk（会交战）**」）当成**侦察的情报来源**。
+                    out.append((unit.id, "attack", cell[0], cell[1]))
+            # ★ **无视野的邻格：移动与进攻两条路都给**（用户 2026-09-24）——
+            #   看不见的时候模型无从知道那一格是什么 ⇒ 两条都给，让引擎当场判，
+            #   并把它那句教学式错误消息当成**侦察的情报来源**。
             if mask is None:
-                # ★ 局部 import（本模块各处都这么写，见 `known_halls` 等）
-                from .teacher import pathfind
-                mask = pathfind.vision_mask(self.world, name)   # ★ 整次 legal() 只此一次
-            for (x, y) in self._probe_cells(a, walk, mask):
-                out.append((a["id"], "move", x, y))
-                out.append((a["id"], "attack", x, y))
-        # ★★★ **按完整动作元组稳定去重**（2026-10-22，报告 §6.3）。
-        #   ★ 重复从哪来：`attack` 那条路（`_reachable(for_attack=True)`）与
-        #     `_probe_cells` 那条路**可能给出同一个格子** —— 既是"够得着但走不通"，
-        #     又是"视野外的试探格" ⇒ `(军, 'attack', 格)` 被加了**两次**。
-        #     实测（8×8、探 `(6,5)`）：`legal()` 返回 `attack、move、attack`。
-        #   ★ 后果不是"显示重复"：模型是**对候选行采样**的 ⇒
-        #     同一个引擎动作**多拿一份概率质量** ⇒ 候选分布被偏置，**且不报错**。
-        #   ⇒ **按完整元组**去重（`move` 与 `attack` 是不同动作，**都留着**），
-        #     保序（**首次出现**的次序不变）⇒ **合法动作的集合不变**。
+                mask = self.env.vision_mask(name)
+            for (x, y) in self._probe_cells(unit, walk, mask):
+                out.append((unit.id, "move", x, y))
+                out.append((unit.id, "attack", x, y))
+        # ★★★ **按完整动作元组稳定去重**（报告 §6.3）：
+        #   同一个引擎动作多拿一份概率质量 ⇒ 候选分布被偏置，**且不报错**。
         seen: set = set()
         uniq: list[tuple] = []
         for act in out:
@@ -986,22 +558,14 @@ class Sandbox:
             uniq.append(act)
         return uniq
 
-    def _probe_cells(self, a: dict, walk, mask) -> list[tuple]:
+    def _probe_cells(self, unit, walk, mask) -> list[tuple]:
         """★ **允许撞墙的试探格**：该军周围（1 格移动力）里**视野外**的格（边界除外）。
 
         用户 2026-09-24：「**特殊撞墙 mv 允许存在**，在**无视野**的情况下，全部候选集允许
         （边界除外），**按现有的引擎设计返回错误消息**，为模型那里存在敌国领土」。
 
-        ⇒ 看不见的地方**必须让模型摸得到**：摸了，引擎照报错、**额度照烧**
-          （`mp.py` 的 `_blind_cost` 原话：「视野外撞墙 → 报错照给、额度照烧，**侦察要付钱**」），
-          模型就**从那条错误消息里**学到"那儿走不进去 / 那儿是敌国领土"。
-        ★ 把候选卡死在 `_reachable` 上等于**把侦察这条路由封死** —— 模型永远发现不了
-          视野外的敌国领土（那正是它要去拔的厅所在的地方）。
-
-        ★★ `mask` **由调用方传进来**（2026-09-27）：它只取决于 `(world, 玩家)`，
-          与是哪支军**无关**，而 `legal()` 里 `name` 恒定、world 不变
-          ⇒ 原来在这里每支军各算一次是**纯重复**（实测 10.9 次/决策点、
-          `vision_mask` cumtime 占整条回路 **21%**）。
+        ⇒ 看不见的地方**必须让模型摸得到**：摸了，引擎照报错、额度照烧，
+          模型就从那条错误消息里学到"那儿走不进去 / 那儿是敌国领土"。
         """
         n = self.size
         out = []
@@ -1009,7 +573,7 @@ class Sandbox:
             for dy in (-1, 0, 1):
                 if dx == 0 and dy == 0:
                     continue
-                x, y = a["x"] + dx, a["y"] + dy
+                x, y = unit.x + dx, unit.y + dy
                 if not (0 <= x < n and 0 <= y < n):
                     continue                   # ★ 边界除外
                 if (x, y) in walk or (x, y) in mask:
@@ -1018,22 +582,24 @@ class Sandbox:
         return sorted(out)
 
     def step(self, action: tuple) -> tuple[bool, str]:
-        """执行一个动作。`END` = 本方收手 ⇒ 换人；双方都收手 ⇒ 结算 + 开下一回合。"""
+        """执行一个动作。`(aid, 'hold'|'move'|'attack', x, y)`。"""
         name = self.current_player()
         if name is None:
             return False, "本局已结束"
         aid, kind, x, y = action
         if kind == "hold":
-            a = self.world._army(name, aid)
-            if a is not None:
-                a["moved_turn"] = self.world.turn     # ★ mask 这支军（本回合不再有动作）
+            # ★ "原地不动"是**沙盒自己的动作**（引擎没有）⇒ 记在沙盒自己的
+            #   `held` 集合里，**不改引擎的 `moved_turn`**（那不是我们的字段）。
+            unit = self.env.unit(name, aid)
+            if unit is not None:
+                self.held.add(unit.gid)
             self.last_ok = True
             self._auto_advance()
             return True, "hold"
         if kind == "move":
-            ok, msg = self.world.move(name, aid, x, y)
+            ok, msg = self.env.move(name, aid, x, y)
         elif kind == "attack":
-            ok, msg = self.world.attack(name, [aid], x, y)
+            ok, msg = self.env.attack(name, [aid], x, y)
         else:
             ok, msg = False, f"未知动作 {action!r}"
         self.last_ok = bool(ok)
@@ -1043,44 +609,24 @@ class Sandbox:
         return ok, msg
 
     def can_act(self, name: str) -> bool:
-        """该国**还有能动的军**吗（都 mask 过 / 交战中 ⇒ 没有）。
+        """该国**还有能动的军**吗（都用过了 / 交战中 ⇒ 没有）。
 
-        ★ `_auto_advance` 的判据 —— "全部军队 mask 后自动结束"落在这条上。
-
-        ★★★ **2026-10-21 修的真 bug：亡国但残兵还在的国也算"能动"。**
-          `alive(name)` 判的是**还有没有市政厅**（`world.has_townhall`）⇒
-          **厅没了但军还在场上**是常态（军不会跟着厅一起消失）。
-          原来这里**只看兵、不看死活** ⇒ 一个**已亡国、但残兵还在动**的国家，
-          `can_act` 照样返回 True ⇒ `_auto_advance` 以为"它还能动"就**停在它身上**
-          ⇒ `current_player()` 指着这个死人 ⇒ `legal()` 空
-          （`legal()` 里 `not self.alive(name)` 直接返回 `[]`）
-          ⇒ 采集循环只能 `break` 出去 ⇒ **这一局既不终局、也没胜方**，
-          `truncated=True`，而且**全程不报错**。
-          实测（`tests/test_rl_rollout_budget.py::test_untruncated_episode_finishes`）：
-          3 国 8×8 第 6 回合，乙的厅被拔但还剩 5 支军 ⇒ **死锁**。
-          ★ 这条本来就写在 `tests/test_rl_auto_advance.py` 的契约里
-          （「沙盒任何可达状态都不许卡」）—— 那个用例只是没走到这条路径。
-          ⇒ **判据要加一条"这个国家还活着"**：亡国的国家不占行动位，
-          `_auto_advance` 会把它从队列里跳过（`pending.pop(0)`）继续往下走。
+        ★★★ 判据**必须同时看"国家还在不在"**：亡国但残兵还在的国也算"能动"，
+          ⇒ `_auto_advance` 停在它身上 ⇒ `legal()` 空 ⇒ 这一局既不终局、也没胜方，
+          **而且全程不报错**（实测：3 国 8×8 第 6 回合的死锁）。
         """
         if not self.alive(name):
             return False
-        return any(not a.get("engaged") and a.get("moved_turn") != self.world.turn
-                   for a in self.armies_of(name))
+        period = self.env.period()
+        return any(not u.engaged and u.moved_turn != period and u.gid not in self.held
+                   for u in self.armies_of(name))
 
     def _auto_advance(self) -> None:
-        """★ **全部军队都被 mask 后自动推进**（用户 2026-09-24：「当全部军队 mask 后，
-        **自动结束**，而不是手动结束」）。
+        """★ **全部军队都被 mask 后自动推进**。
 
-        判据是 `can_act()`（还有没有能动的军）。没有 ⇒ 本方收手；全员收手 ⇒ 结算 + 开下一回合。
-
-        ★★ **必须是循环**（2026-09-25 修的真 bug）：原来只推进**一步**，
-          于是"结算后新一轮的第一个国家就不能动"就**卡在中途退出** ——
-          `legal()` 空、`is_terminal()` 假、**没有胜方**，而**不报错**。
-          ⇒ 那一局既拿不到终局的 ±1、也不进"先手连赢"闸门，**静默地白打**。
-        ★ 为什么"活着却不能动"是正常的：沙盒**没有征兵动作**（只有补员），
-          **兵全打光了的国家**要等下一次补员（每 `RESUPPLY_EVERY` 回合）才有事可做。
-          ⇒ 卡住的是这种国家，而且它**每一步都可能是当前玩家**。
+        ★★ **必须是循环**：原来只推进**一步**，于是"结算后新一轮的第一个国家就不能动"
+          就**卡在中途退出** —— `legal()` 空、`is_terminal()` 假、**没有胜方**，
+          **而且不报错** ⇒ 那一局既拿不到终局的 ±1、也不进闸门，**静默地白打**。
         """
         while True:
             if self.done():
@@ -1102,49 +648,29 @@ class Sandbox:
 
     # ============================================================ ★ 嫁接点
     def ai_turn(self, name: str, *, teacher: str = "mine", verbose: bool = False) -> list:
-        """跑一方的军事回合，返回动作表 `[(tool, args, ok, msg), …]`（`args` 是 **1-based**）。
-
-        `teacher="mine"` ⇒ **`rl/military.py`**（抄 v11plus 的评估/编组/寻路，
-        **自己写**目标池与守家/侦察决策）—— 默认。
-        `teacher="v11plus"` ⇒ 直接调 `ruleai.v11plus.military.run`，当**对照线**
-        （它只会平推：不会守、不侦察）。
-        """
+        """跑一方的军事回合，返回动作表 `[(tool, args, ok, msg), …]`。"""
         if not self.alive(name):
             return []
-        # ★ 对照线老师（`rl/military.py`）只吃**一个** `enemy` ⇒ 多玩家下取
-        #   **最近的那个对手**（按双方核心的切比雪夫距离）。
-        #   ⚠ 这是**近似**：真正的多玩家目标池它还没写。它只是**对照线**
-        #     （RL 训练走 `train.py` 的自对弈，不经过这里）⇒ 先能跑、够用即可，
-        #     别拿它的成绩当多玩家的基准。
         enemy = self._nearest_rival(name)
         if teacher == "v11plus":
             from .teacher import military as v11
             from .teacher.ledger import Ledger
-            ledger = Ledger(self.world, name, UNLIMITED)
-            v11.run(ledger, self.world, name)
+            ledger = Ledger(self.env, name, UNLIMITED)
+            v11.run(ledger, self.env, name)
             return ledger.acts
         from . import military as mine
-        return mine.run(self.world, name, enemy=enemy, verbose=verbose)
+        return mine.run(self.env, name, enemy=enemy, verbose=verbose)
 
-    # ---- 查询：厅数（= 补员产能）----
     def _nearest_rival(self, name: str) -> str | None:
-        """离我核心**最近**的对手（按切比雪夫距离；没有 ⇒ `None`）。
-
-        ★ 只给**对照线老师**用（它只吃一个 `enemy`）—— 见 `ai_turn` 的注释。
-        """
+        """离我核心**最近**的对手（按切比雪夫距离；没有 ⇒ `None`）。"""
         from .evaluate import rival_nations
         mine = self.core_of(name) or (0, 0)
-        foes = rival_nations(self.world, name)
+        foes = rival_nations(self.env, name)
         if not foes:
             return None
         return min(foes, key=lambda f: (max(abs((self.core_of(f) or (0, 0))[0] - mine[0]),
                                             abs((self.core_of(f) or (0, 0))[1] - mine[1])),
-                                        f))     # ★ 末尾带 `f` ⇒ 同距时**确定性**（不靠字典序）
-
-    def halls_of(self, name: str) -> int:
-        """该国**已落成**的市政厅数（= 国祚，也是补员的"产能"）。"""
-        return sum(t["buildings"].get("native:town-hall", 0) for t in self.world.tiles.values()
-                   if t["owner"] == name)
+                                        f))     # ★ 末尾带 `f` ⇒ 同距时**确定性**
 
     # ============================================================ 回合推进
     def resupply(self) -> list[str]:
@@ -1152,17 +678,14 @@ class Sandbox:
 
         ★ 规则（用户 2026-09-24）：「补员**不是一次补满**，而是 **5 回合一支兵**，
         **每有一个市政厅多补一支**，每个市政厅每次补员出一支，**不能补员超上限**」
+        ⇒ 补员量 = 1（基础） + 市政厅数，总数**不超过 `cap_of`**。
 
-        ⇒ **补员量 = 1（基础） + 市政厅数**，总数**不超过 `cap_of`**（= 5 + 国土//10）。
-
-        ★ **不缺员时改出民兵**（见下），而民兵的编制上限 = **步兵 × `MILITIA_PER_FOOT`**
-          （用户 2026-09-25：「以前民兵是**无上限增长**的，改成**上限是步兵 2 倍**」）。
-          ⇒ 两个分支都是**有限**的：缺员补步兵（到 `cap_of`）、不缺员补民兵（到步兵×2）。
-          满编时**本回合什么都不出**（不再"白送"）。
-
-        ★ 效果：开局 5 支已经等于上限 ⇒ **只有战损后才补得进来**，兵成了稀缺资源；
-          而"多一座厅多一支"⇒ **疆域里的厅数决定补员速度**（厅只有核心白送那一座，
-          再想多要得自己建 —— 门槛 `min_slots≥6`、且贵）。
+        ★★ **走 native 的 `recruit`（征召）**：所以**新兵本回合不能动**
+          （`Units.spawn(..., turn=period, newborn=True)` ⇒ `born_turn = 当前期`
+          ⇒ `Unit.can_act(period)` 为假）。这是 native 自己的规则，
+          旧门面用 `military.seed` 绕过它（"造完就能动"）—— 那条影子实现**已删**。
+        ★ 引擎的征召额度是**每期每兵营 1 支**（`recruit_cap` 按兵营数给）
+          ⇒ 兵营不够就**补不满**，这是 native 的硬约束，**不绕过**。
         """
         notes = []
         if self.turn == 0 or self.turn % RESUPPLY_EVERY != 0:
@@ -1173,65 +696,94 @@ class Sandbox:
             hall = self.halls_of(name)
             quota = 1 + hall                     # ★ 基础 1 + 每座厅 1
             cap = self.cap_of(name)
-            foot = self.count_of(name, "native:infantry")     # ★ 只数**步兵** —— 上限是给步兵设的
+            foot = self.count_of(name, "native:infantry")
             gap = cap - foot
             if gap > 0:
                 n = min(quota, gap)              # ★ 不能超上限
-                self.spawn(name, n, kind="native:infantry")
-                notes.append(f"{name} **缺员** ⇒ 补步兵 +{n}"
-                             f"（厅×{hall} 配额{quota}，步兵 {foot}/{cap}）")
+                got, why = self._recruit(name, "native:infantry", n)
+                if got:
+                    notes.append(f"{name} **缺员** ⇒ 补步兵 +{n}"
+                                 f"（厅×{hall} 配额{quota}，步兵 {foot}/{cap}）")
+                else:
+                    notes.append(f"{name} **缺员** 但补不进：{why}")
             else:
-                # ★★ **不缺员 ⇒ 出民兵**（用户 2026-09-24：「如果军队不缺员，市政厅每 5 个
-                #   回合的增援改成**一支民兵**，缺员就改为补步兵」）。
-                #   民兵在引擎里是**廉价驻守兵**（80hp / 攻 20 = 步骑的四成）⇒ 它天生是
-                #   守家用：守方增援可 `mv` 进自家地（见 `legal()` 与墙规则），正好补上防守。
-                #   ⚠ 引擎原本的民兵有"只能军屯征召、总数 ≤ 军屯数"的限制，这里按用户
-                #     的要求**绕过它**（沙盒不走经济层）。
-                # ★★ **但编制要有上限**（用户 2026-09-25：「以前民兵是**无上限增长**的，
-                #   改成**上限是步兵 2 倍**」）—— 原先这里照抄"无上限"，于是"不缺员"这个
-                #   分支每 5 回合白送 `厅×1` 支、**永远收支为正** ⇒ 只要不打仗，民兵就能
-                #   一路堆到几十支。那不是"守家增益"，是**一台不需要对手配合的印钞机**：
-                #   势函数里 `W_ARMY` 那一项会一路涨，模型学到的将是"别打仗、苟着刷民兵"。
+                # ★★ **不缺员 ⇒ 出民兵**（用户 2026-09-24）。
                 mil = self.count_of(name, "native:militia")
-                mcap = MILITIA_PER_FOOT * foot    # ★ 上限 = 步兵 × 2（现役步兵数，非上限）
-                room = mcap - mil
+                # ★★ **上限归引擎**：民兵的编制上限是"**每座军屯 2 支**"（native 的
+                #   `militia_cap`），不是 RL 自己算的"步兵 × 2"（review §8：
+                #   **不复刻引擎规则**）⇒ RL 只问额度，让引擎裁。
+                #   旧公式 `MILITIA_PER_FOOT × 步兵` 是个**比引擎宽**的上限，
+                #   永远轮不到它生效 ⇒ 删掉（留着就是第二份口径）。
+                room = 1 if mil < 2 * max(1, self.halls_of(name)) else 0
                 if room > 0:
                     n = min(quota, room)
-                    self.spawn(name, n, kind="native:militia")
-                    notes.append(f"{name} **不缺员** ⇒ 民兵 +{n}"
-                                 f"（厅×{hall} 配额{quota}，民兵 {mil}/{mcap}=步兵×2）")
+                    got, why = self._recruit(name, "native:militia", n)
+                    if got:
+                        notes.append(f"{name} **不缺员** ⇒ 民兵 +{n}"
+                                     f"（厅×{hall} 配额{quota}，民兵 {mil}）")
+                    else:
+                        notes.append(f"{name} **不缺员**，但民兵征召被引擎挡下：{why}")
                 else:
                     notes.append(f"{name} **不缺员**，但民兵已满编 "
-                                 f"（{mil}/{mcap}=步兵×2，本回合不出）")
+                                 f"（现有 {mil} 支，本回合不出）")
         return notes
+
+    def _recruit(self, name: str, kind: str, n: int) -> tuple[bool, str]:
+        """在**核心站点**征召 `n` 支（走 native 的 `recruit`）。
+
+        ★ **先问额度再征**（`recruit_quote`）：征召额度是**引擎的硬约束**
+          （每兵营每期 1 支；民兵还有**全国编制**上限）⇒ RL 侧不自己算上限、
+          更不让引擎拒了当没发生。
+        ★ 引擎拒了 ⇒ **把原因记进日志**（不静默）：那是"这期补不满"的**事实**，
+          不是被吞掉的错误。
+        """
+        core = self.core_of(name)
+        if core is None or n <= 0:
+            return False, ""
+        site = self._site_of(name, core)
+        if site is None:
+            return False, ""
+        try:
+            # ★ 用 count=1 问额度：`recruit_quote(count>1)` 在超出额度时**直接抛**，
+            #   而我们要的是"还能征几支"这个数 ⇒ 问 1 支拿 quota，再自己取 min。
+            quote = self.env.recruit_quote(name, site, kind, 1)
+        except Exception as exc:                    # noqa: BLE001 引擎拒了 ⇒ 记下来
+            return False, str(exc)
+        quota = int(quote.get("quota", 0) or 0)
+        if quota <= 0:
+            return False, f"引擎额度已满（{kind}）"
+        take = min(n, quota)
+        try:
+            self.env.recruit(name, site, kind, take)
+        except Exception as exc:                    # noqa: BLE001
+            return False, str(exc)
+        return True, "" if take == n else f"引擎额度只给 {take}/{n} 支"
+
+    def _site_of(self, name: str, cell) -> str | None:
+        """某一格对应的**站点 id**（`rl:n0/land-3-6` 这样的内容 ID）。"""
+        row = self.env.tile(cell[0], cell[1])
+        return row.tile_id or None
 
     def end_turn(self) -> None:
         """双方都行动完 ⇒ 引擎结算 → **开下一回合** → 补员。
 
-        ★ **`begin_turn()` 不能漏**：`world.turn += 1` 在 `begin_turn`（`mp.py:2597`）里，
-          **不在 `resolve_turn`** 里。漏了它 ⇒ `world.turn` 永远是 0 ⇒ 每支军的
-          `moved_turn == world.turn` 恒成立 ⇒ `military.run` 认为"本回合都动过了"
-          ⇒ **全军一步不走**（实测踩过：30 回合原地不动，无任何动作）。
-          引擎的回合模型是 `begin_turn → 各国行动 → resolve_turn`。
+        ★ **回合号是引擎的**（`native:government.period()`）——
+          结算时引擎自己在 `cycle.end` 推进期号（`government.advance`），
+          所以这里**不需要**（也**不应该**）自己 `turn += 1`。
         """
-        # ★★ 结算**前**拍快照（击杀归因靠它）—— `resolve_turn` 一跑，战死的军
-        #   就从 `world.armies` 里没了，事后无法复原"它死在那一格"。
-        before = {a["id"]: (a["owner"], a["x"], a["y"], a.get("hp", 0))
-                  for a in self.world.armies}
-        self.world.resolve_turn()
-        self.kills.observe(self.world, before)
-        self.world.begin_turn()
-        self.turn = self.world.turn          # ★ 与引擎同步，别自己数（免得漂）
+        # ★★ 结算**前**拍快照（击杀归因靠它）—— 结算一跑，战死的军就没了。
+        before = {u.gid: (N.name(u.owner), u.x, u.y, u.hp) for u in self.env.armies()}
+        self.env.resolve()
+        self.kills.observe(self.env, before)
+        # ★ 与引擎同步（别自己数，免得漂）；减去建局基线 ⇒ 走的是"玩家回合数"
+        self.turn = self.env.period() - self.turn_base
+        self.held = set()                  # ★ 新回合 ⇒ "不动"的 mask 清空
         for note in self.resupply():
             self.log.append(f"[T{self.turn}] {note}")
 
     # ============================================================ 整局
     def rollout(self, verbose: bool = False) -> dict:
-        """**双方都由 v11plus 军事层驱动**打完整局。
-
-        这一个函数干两件事：① 验证沙盒能跑通并正确判定胜负；
-        ② 生成 BC 数据 —— 每回合每方的 `ledger.acts` 就是标签。
-        """
+        """**双方都由军事层驱动**打完整局（既验沙盒，也产 BC 标签）。"""
         turns = []
         while not self.done():
             for name in self.players:
@@ -1249,11 +801,7 @@ class Sandbox:
 
     # ============================================================ BC 数据
     def bc_rows(self, acts: list) -> list[dict]:
-        """把 `ledger.acts` 转成 BC 样本行（**这里先只落"动作 + 成功与否"**）。
-
-        ⚠ 观测还没接（那是任务 2/分词器的事）—— 现在先把"标签"定型：
-        `args` 是 **1-based**（给 LLM 的写法），落库时统一转 **0-based** 免得下游踩。
-        """
+        """把动作表转成 BC 样本行（`args` 是 1-based，落库时统一转 0-based）。"""
         rows = []
         for tool, args, ok, msg in acts:
             if not ok:
@@ -1270,35 +818,5 @@ class Sandbox:
         return rows
 
 
-# ================================================================ 自测
-def _playout(seed: int = 0, verbose: bool = True) -> dict:
-    sb = Sandbox(seed=seed).reset()
-    if verbose:
-        cores = {n: sb.core_of(n) for n in sb.players}
-        wars = [(a, b) for i, a in enumerate(sb.players)
-                for b in sb.players[i + 1:] if sb.world.war_between(a, b)]
-        print(f"建局：{sb.n_nations} 国 {cores}"
-              f"  tiles={len(sb.world.tiles)}"
-              f"  野人={sum(1 for a in sb.world.armies if a['owner'] == '野人')}"
-              f"  步兵={[len(sb.armies_of(n)) for n in sb.players]}"
-              f"  交战对={wars}")
-    out = sb.rollout(verbose=verbose)
-    if verbose:
-        print(f"结果：{out['turns']} 回合  winner={out['winner']}"
-              f"  （实体口径：{out.get('winner_members', sb.winner_members())}）")
-        for n in sb.players:
-            print(f"  {n}: 国土 {sb.tiles_of(n)}  军队 {len(sb.armies_of(n))}"
-                  f"  上限 {sb.cap_of(n)}  国祚 {sb.alive(n)}  核心 {sb.core_of(n)}")
-        n_acts = sum(len(a) for _, _, a in out["actions"])
-        print(f"  动作总数 {n_acts}")
-        for line in out["log"][-6:]:
-            print("   ", line)
-    return out
-
-
-if __name__ == "__main__":
-    import sys
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 2
-    for s in range(n):
-        print(f"─── 种子 {s} ───")
-        _playout(seed=s)
+# ★ 老师/对照线的动作额度上限。
+UNLIMITED = 10 ** 6

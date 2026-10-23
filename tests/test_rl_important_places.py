@@ -19,9 +19,9 @@ import unittest
 from pathlib import Path
 
 import numpy as np
-from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
-
+from tests.rl_deps import has_torch, torch_or_skip
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
 
 if has_torch():
     from rl import encode as E                           # noqa: E402
@@ -48,12 +48,13 @@ def _game(size=12, n=3, seed=0):
 
 def _foe_halls(sb, me="甲"):
     """敌国的**已落成**厅格（真值，只是用来**造 fixture**）。"""
-    w = sb.world
+    w = sb.env
     foes = E.enemies_of(w, me)
     out = []
     for f in foes:
-        for cell, t in w.tiles.items():
-            if t["owner"] == f and t["buildings"].get("native:town-hall", 0) > 0:
+        for r in w.tiles():
+            cell, t = r.position, r
+            if t.owner == f and t.buildings.get("native:town-hall", 0) > 0:
                 out.append(cell)
     return sorted(out)
 
@@ -104,9 +105,10 @@ class TestImportantPlacesAreComplete(unittest.TestCase):
         mask = E.vision_of(sb, "甲")
         # ★ 注入**多到超预算**的厅（用**合法**的情报注入口）
         cells = []
-        w = sb.world
-        for cell, t in w.tiles.items():
-            if t["buildings"].get("native:town-hall", 0) > 0:
+        w = sb.env
+        for r in w.tiles():
+            cell, t = r.position, r
+            if t.buildings.get("native:town-hall", 0) > 0:
                 cells.append(cell)
         self.assertTrue(cells)
         sb.halls.tell("甲", {c: "乙" for c in cells})

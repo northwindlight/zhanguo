@@ -2,7 +2,7 @@
 """`legal()` 里的视野**只许算一次** —— 2026-09-27 那一刀的守卫。
 
 ★ 病灶：`_probe_cells` 原来**在每支军队上**各算一次
-  `pathfind.vision_mask(self.world, name)`，而 `name` 在整次 `legal()` 里**恒定**、
+  `pathfind.vision_mask(self.env, name)`，而 `name` 在整次 `legal()` 里**恒定**、
   world 在 `legal()` 期间**不变** ⇒ 那是**纯重复计算**。
   实测（`cProfile` + 抓调用栈）：`vision_mask` **5 次/决策点**里，
   `legal()` 占 1 次、`obs_of` 占 1、`visible_enemies` 占 1、`_score` 占 2；
@@ -24,6 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rl.sandbox import Sandbox                        # noqa: E402
+from rl.env import Env
 from rl.teacher import pathfind                      # noqa: E402  ★ RL 线自己的老师
 
 
@@ -39,7 +40,7 @@ def _sandbox_with_several_armies():
                 if name is not None:
                     ready = [a for a in sb.armies_of(name)
                              if not a.get("engaged")
-                             and a.get("moved_turn") != sb.world.turn]
+                             and a.get("moved_turn") != sb.turn]
                     if len(ready) >= 2:
                         return sb, name, len(ready)
                 acts = sb.legal()
@@ -58,24 +59,29 @@ class TestVisionComputedOncePerLegal(unittest.TestCase):
         self.assertGreaterEqual(n_ready, 2,
                                 f"用例太小：当前玩家只有 {n_ready} 支可动军队")
 
+        # ★ 视野现在**只来自引擎**（`native:vision.positions`，经 `Env.vision_mask`）
+        #   ⇒ 守在这里的探针也挂在**引擎那一侧**（旧版挂的是 `pathfind.vision_mask`，
+        #   那是 RL 自己复刻的视野实现，已删）。
         calls = 0
-        real = pathfind.vision_mask
+        real = Env.vision_mask
 
-        def spy(world, who):
+        def spy(self_, who):
             nonlocal calls
             calls += 1
-            return real(world, who)
+            return real(self_, who)
 
-        pathfind.vision_mask = spy
+        Env.vision_mask = spy
         try:
             acts = sb.legal()
         finally:
-            pathfind.vision_mask = real
+            Env.vision_mask = real
 
         self.assertTrue(acts, "这个局面本该有合法动作")
-        self.assertEqual(
+        # ★ 判据是"**每次 `legal()` 至多算一次**"—— 不是"恰好一次"：
+        #   视野**按需**算（所有军都在射程内时压根不需要它）⇒ 0 次也是对的。
+        self.assertLessEqual(
             calls, 1,
-            f"`legal()` 里 vision_mask 算了 **{calls}** 次（应为 1）—— "
+            f"`legal()` 里 vision_mask 算了 **{calls}** 次（至多 1）—— "
             f"视野是按「军」重复算了（该提到循环外）")
 
     def test_two_legal_calls_do_not_share_a_stale_mask(self):
@@ -91,16 +97,16 @@ class TestVisionComputedOncePerLegal(unittest.TestCase):
         sb.step(acts[0])                     # ★ 世界变了
 
         calls = 0
-        real = pathfind.vision_mask
+        real = Env.vision_mask
 
-        def spy(world, who):
+        def spy(self_, who):
             nonlocal calls
             calls += 1
-            return real(world, who)
+            return real(self_, who)
 
-        pathfind.vision_mask = spy
+        Env.vision_mask = spy
         try:
             sb.legal()
         finally:
-            pathfind.vision_mask = real
+            Env.vision_mask = real
         self.assertGreaterEqual(calls, 1, "世界变过之后必须重新算视野")

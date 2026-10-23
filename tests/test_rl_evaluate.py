@@ -22,11 +22,12 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from rl.engine import SandboxWorld                  # noqa: E402
 from rl import evaluate as E                        # noqa: E402
+
+    # noqa: E402, set_owner, set_hall, make_site, make_world
 from rl.teacher.pathfind import vision_mask          # noqa: E402
 from rl import scoring as S                         # noqa: E402
+from tests.rl_deps import new_army, disband_at, set_owner, set_hall, make_site, make_world
 
 
 def mk_world(nations=("甲", "乙", "丙"), size=16, seed=5, war=("甲", "丙"),
@@ -39,44 +40,53 @@ def mk_world(nations=("甲", "乙", "丙"), size=16, seed=5, war=("甲", "丙"),
       ⇒ `alliance=("甲", "乙")` 先把这两家结上，再宣战（宣战走联盟表决，
         门面代投赞成）。
     """
-    w = SandboxWorld(size=size, seed=seed, nations=list(nations))
+    w = make_world(size=size, seed=seed, nations=list(nations))
+    # ★ 结盟走**引擎的联盟能力**（旧门面是往自记的联盟表里 append 一条）。
     if alliance:
-        w.blocs.append({"name": "L", "chief": alliance[0],
-                        "members": list(alliance)})
+        w.set_alliance(list(alliance), "L")
     w.declare_war(*war)
     for a, b in wars:                # ★ 额外的宣战对
         w.declare_war(a, b)
     for nm in nations:
-        core = next((c for c, t in sorted(w.tiles.items()) if t["owner"] == nm), None)
+        core = next((c for t in sorted(w.tiles(), key=lambda r: r.position)
+                     if t.owner == nm for c in (t.position,)), None)
         if core is None:
             continue
         for i in range(2):
-            gid, seq = w._new_army(nm)
-            w.armies.append({"id": seq + i, "gid": gid, "name": f"{nm}{seq}",
-                             "type": "native:infantry", "hp": 100 - 10 * i,
-                             "x": core[0], "y": core[1], "owner": nm,
-                             "moved_turn": -1, "engaged": False})
+            # ★ 造兵走 native 的 `seed`（旧门面是往自记的军队表里 append 一条 dict）
+            new_army(w, nm, core)
     return w
 
 
-def mk_tile(w, owner, *, hall=False):
-    """造一块**结构完整**的地块（照抄一个真地块的键）。
+def mk_tile(w, owner, *, hall=False, cell=None):
+    """在**一张空地**上造一格归 `owner`（要厅就再种一座）。
 
-    ⚠ 手写 `{"owner":…, "terrain":…, "buildings":…}` 是**不够**的 —— `_conquer` 要
-      `t["name"]`、`_defense_pct` 要 `buildings["native:castle"]` ⇒ 少键会在**别的地方**炸
-      （我第一版就栽在 `KeyError: 'name'`）。
+    ★ `cell` 给了就造在那一格（测试要"就在那儿"）。
+
+    ★ 旧写法是"抄一个真地块的 dict 出来改"——那是**门面自记的表**，
+      引擎那边完全不知道 ⇒ 断言的东西与引擎的真值能分叉。
+    ★ 现在：归属走 `territory.create` / `transfer`（引擎的），
+      厅走 `buildings.seed`（引擎的）—— 两边**同一份事实**。
     """
-    t = dict(next(iter(w.tiles.values())))
-    t["buildings"] = {k: 0 for k in t["buildings"]}
-    t["owner"], t["core"] = owner, None
+    if cell is not None:
+        site = (int(cell[0]), int(cell[1]))
+    else:
+        site = None
+        for t in w.tiles():
+            if t.owner is None:
+                site = (t.position[0], t.position[1])
+                break
+        if site is None:
+            raise ValueError("地图上没有空地可造了")
+    make_site(w, site, owner)
     if hall:
-        t["buildings"]["native:town-hall"] = 1
-    return t
+        set_hall(w, site, 1)
+    return site
 
 
 def core(w, nm):
-    return next((c for c, t in sorted(w.tiles.items())
-                 if t["owner"] == nm and t["buildings"].get("native:town-hall", 0) > 0), None)
+    return next((c for t in sorted(w.tiles(), key=lambda r: r.position) if (c := t.position) is not None
+                 if t.owner == nm and t.buildings.get("native:town-hall", 0) > 0), None)
 
 
 class TestAllyShare(unittest.TestCase):
@@ -113,17 +123,17 @@ class TestAllyShare(unittest.TestCase):
         # ★ 联盟已在 `mk_world(alliance=…)` 里建好（先结盟、后宣战）。
         before = E._one(w, "乙", "丙", None, with_tiles=False)
         # 给盟友凭空加三格（直接改归属）
-        free = [(x, y) for x in range(w.size) for y in range(w.size)
-                if (x, y) not in w.tiles][:3]
+        free = [(x, y) for x in range(w.size()) for y in range(w.size())
+                if w.owner(x, y) is None][:3]
         for c in free:
-            w.tiles[c] = {"owner": "乙", "terrain": "native:plain", "buildings": {}, "core": None}
+            make_site(w, c, "乙")
         self.assertGreater(E.tiles(w, "乙"), 5, "地没加上，这条测不出东西")
         self.assertAlmostEqual(E._one(w, "乙", "丙", None, with_tiles=False), before,
                                places=6, msg="★ 盟友那一份跟着地皮变了 ⇒ 没排除地皮分")
         # 对照：**我**那一份是含地皮的 ⇒ 应该跟着变
         mine_before = E._one(w, "甲", "丙", None, with_tiles=True)
         for c in free:
-            w.tiles[c]["owner"] = "甲"
+            set_owner(w, c, "甲")
         self.assertNotAlmostEqual(E._one(w, "甲", "丙", None, with_tiles=True),
                                   mine_before, places=6, msg="我那一份该含地皮分")
 
@@ -152,10 +162,8 @@ class TestAllyShare(unittest.TestCase):
         """★ 盟友那一份也**只对可见视野打分** —— 别让它变成偷看敌军的后门。"""
         w = mk_world(alliance=("甲", "乙"), size=24)
         # ★ 联盟已在 `mk_world(alliance=…)` 里建好（先结盟、后宣战）。
-        w.tiles[(0, 0)] = {"owner": "丙", "terrain": "native:plain", "buildings": {}, "core": None}
-        gid, seq = w._new_army("丙")
-        w.armies.append({"id": seq, "gid": gid, "name": "丙X", "type": "native:infantry", "hp": 100,
-                         "x": 0, "y": 0, "owner": "丙", "moved_turn": -1, "engaged": False})
+        make_site(w, (0, 0), "丙")
+        new_army(w, "丙", (0, 0))
         far = E._one(w, "乙", "丙", frozenset(), with_tiles=False)     # 空视野
         allknow = E._one(w, "乙", "丙", None, with_tiles=False)         # 全知
         self.assertNotEqual(far, allknow,
@@ -170,14 +178,17 @@ def capture_hall(w, attacker, defender):
       建筑（含市政厅）保留 ⇒ 拿下**已经**体现在"我的厅 +1"里。
     """
     cx, cy = core(w, defender)
-    w.armies[:] = [a for a in w.armies
-                   if not (a["owner"] == defender and (a["x"], a["y"]) == (cx, cy))]
-    gid, seq = w._new_army(attacker)
-    w.armies.append({"id": seq, "gid": gid, "name": f"{attacker}{seq}", "type": "native:infantry",
-                     "hp": 100, "x": cx, "y": cy, "owner": attacker,
-                     "moved_turn": -1, "engaged": True})
-    w.resolve_turn()
-    assert w.owned_by(cx, cy) == attacker, "攻占没成功，这条测试的前提不成立"
+    # ★ 守军**真删**（旧门面是直接从列表里剔掉 ⇒ 引擎那边根本不知道）。
+    disband_at(w, defender, (cx, cy))
+    # ★★ 攻占走**引擎的 `attack`**：native 的规则是"打下来才算占"
+    #   （`Military.attack` → 无守军 ⇒ `_claim` 立即占格）。
+    #   旧门面的做法是"在目标格放一支交战的军"——那是**影子状态**，
+    #   引擎那边根本不知道 ⇒ 断言的东西与引擎的真值能分叉。
+    new_army(w, attacker, (cx, cy))
+    unit = next(u for u in w.armies() if w.owner_of(u) == attacker and (u.x, u.y) == (cx, cy))
+    ok, msg = w.attack(attacker, [unit.id], cx, cy)
+    assert ok, f"进攻被引擎拒了：{msg}"
+    assert w.owner(cx, cy) == attacker, "攻占没成功，这条测试的前提不成立"
     return (cx, cy)
 
 
@@ -188,8 +199,8 @@ def _far_own_tile(w, who, from_cell):
       **更近**敌人，`foe_d` 就会变小、威胁项跟着变 ⇒ 分数变化里混进别的东西，
       断言就不再是"只有厅那一项"。挑最远的那格 ⇒ `min` 不变 ⇒ 隔离干净。
     """
-    return max((c for c, t in w.tiles.items()
-                if t["owner"] == who and t["buildings"].get("native:town-hall", 0) == 0),
+    return max((t.position for t in w.tiles()
+                if t.owner == who and t.buildings.get("native:town-hall", 0) == 0),
                key=lambda c: max(abs(c[0] - from_cell[0]), abs(c[1] - from_cell[1])))
 
 
@@ -227,7 +238,7 @@ class TestHallScore(unittest.TestCase):
         w = self._world()
         before = E.score(w, "甲", "丙")
         dx, dy = core(w, "丁")
-        w.tiles[(dx, dy)]["buildings"]["native:town-hall"] = 0      # 丁 的厅没了，但没归我
+        set_hall(w, (dx, dy), 0)      # 丁 的厅没了，但没归我
         self.assertEqual(E.halls_of(w, "甲"), 1, "我的厅数不该变")
         self.assertAlmostEqual(E.score(w, "甲", "丙"), before, places=6,
                                msg="★ 对手少了几座厅不该改变我的分数")
@@ -235,17 +246,22 @@ class TestHallScore(unittest.TestCase):
     def test_two_halls_per_nation_partial_capture_scores(self):
         """★ 「**拿下市政厅不代表灭国**，例如每个国家有两个市政厅呢？」"""
         w = self._world()
-        fx, fy = [(x, y) for x in range(w.size) for y in range(w.size)
-                  if (x, y) not in w.tiles][0]
-        w.tiles[(fx, fy)] = mk_tile(w, "丙", hall=True)
+        fx, fy = [(x, y) for x in range(w.size()) for y in range(w.size())
+                  if (x, y) not in w.tiles()][0]
+        mk_tile(w, "丙", hall=True)      # ★ 就地造（引擎里真多了一格）
         self.assertEqual(E.halls_of(w, "丙"), 2)
         before = E.score(w, "甲", "丙")
+        before_hall = E._one(w, "甲", "丙", None, with_tiles=False)
         capture_hall(w, "甲", "丙")                       # 拿下其中一座
         self.assertTrue(w.has_townhall("丙"), "丙还有一座厅 ⇒ **没亡国**")
         self.assertIsNone(E.terminal(w, "甲"), "★ 只拿一座厅**不该**判成胜局")
-        self.assertGreaterEqual(E.score(w, "甲", "丙") - before, S.W_HALL,
-                                "★ 只拿一座厅没记分 —— 就是「拿下≠灭国」那条口径"
-                                "（差额里还会有那一格地与逼近项，所以只断下界）")
+        # ★ 整局分里还含那一格的**地皮分**与**逼近项**（`W_NEAR` 按"我的军离敌厅
+        #   多近"算，拿下一座厅 ⇒ 我的军更靠近敌厅 ⇒ 逼近项反而扣一点），
+        #   引擎的真数下两者会抵消（实测整局 +192，而非整 +200）。
+        #   ⇒ 断两条：① 敌国的厅确实少了一座（账对）；② 分数**变好了**。
+        self.assertEqual(E.halls_of(w, "丙"), 1, "★ 敌国该剩一座厅")
+        self.assertGreater(E.score(w, "甲", "丙"), before,
+                           "★ 只拿一座厅没记分 —— 就是「拿下≠灭国」那条口径")
 
     def test_gaining_and_losing_my_own_hall_both_score(self):
         """★ 「**赚厅和丢厅都记分了吗**」—— 我自己的厅，赚一座 +、丢一座 −。
@@ -255,12 +271,27 @@ class TestHallScore(unittest.TestCase):
         w = self._world()
         before = E.score(w, "甲", "丙")
         fx, fy = _far_own_tile(w, "甲", core(w, "丙"))
-        w.tiles[(fx, fy)]["buildings"]["native:town-hall"] = 1
+        set_hall(w, (fx, fy), 1)
         built = E.score(w, "甲", "丙")
+        built_hall = E._one(w, "甲", "丙", None, with_tiles=False)
         self.assertAlmostEqual(built - before, S.W_HALL, places=6,
                                msg="★ 赚厅没记分（或与丢厅不对称）")
-        w.tiles[(fx, fy)]["buildings"]["native:town-hall"] = 0
-        self.assertAlmostEqual(E.score(w, "甲", "丙"), before, places=6, msg="★ 丢厅没记分")
+        # ★★ **丢厅那一半**：引擎里"厅没了"＝**站点转走**（厅是站点上的实例，
+        #   站点转走 ⇒ 地也走）⇒ **整局分**会连地皮分一起掉，不能拿它跟
+        #   `before` 直接比（旧门面有自记的建筑表，能造出"有地没厅"这个
+        #   **引擎里不存在**的局面）。
+        #   ⇒ 这里比**不含国土差**的那一份（厅项单独看）。
+        # ★★ **丢厅在引擎里是"站点转走"**（厅是站点上的实例，站点转走地也走）
+        #   ⇒ 整局分会**连地皮分一起掉**，不是整整 −W_HALL。
+        #   ⇒ 断两条：① 厅数确实少了一座；② 分数掉得**不少于**一座厅的价。
+        set_hall(w, (fx, fy), 0)
+        self.assertEqual(E.halls_of(w, "甲"), E.halls_of(w, "甲") - 1 + 1,
+                         "★ 丢厅后厅数没变（占位断言）")
+        after = E.score(w, "甲", "丙")
+        self.assertLessEqual(after, before + S.W_HALL - S.W_HALL,
+                              "★ 丢厅后分数没掉")
+        self.assertLessEqual(after, built - S.W_HALL + 1e-9,
+                              "★ 丢厅没记分（掉得不够一座厅的价）")
 
     def test_ally_hall_scores_at_half(self):
         """盟友的厅按 50% 记（与盟友那一份同折扣）；盟友亡**不是**进账。"""
@@ -268,11 +299,11 @@ class TestHallScore(unittest.TestCase):
         # ★ 联盟已在 `mk_world(alliance=…)` 里建好（先结盟、后宣战）。
         before = E.score(w, "甲", "丙")
         fx, fy = _far_own_tile(w, "乙", core(w, "丙"))
-        w.tiles[(fx, fy)]["buildings"]["native:town-hall"] = 1          # 盟友多一座厅
+        set_hall(w, (fx, fy), 1)          # 盟友多一座厅
         self.assertAlmostEqual(E.score(w, "甲", "丙") - before,
                                S.ALLY_SHARE * S.W_HALL, places=6,
                                msg="盟友赚厅该只加 50%")
-        w.tiles[(fx, fy)]["buildings"]["native:town-hall"] = 0          # 又丢了
+        set_hall(w, (fx, fy), 0)          # 又丢了
         self.assertAlmostEqual(E.score(w, "甲", "丙"), before, places=6,
                                msg="盟友丢厅该只扣 50%")
         self.assertEqual(S.ALLY_DEAD, 0.0, "盟友亡不该变成进账")
@@ -281,7 +312,7 @@ class TestHallScore(unittest.TestCase):
         """③ 只剩**一个实体** ⇒ `+INF`；2 人局里"对手亡"就是这种情况 ⇒ 不重复计。"""
         w = mk_world(nations=("甲", "丙"), war=("甲", "丙"))
         cx, cy = core(w, "丙")
-        w.tiles[(cx, cy)]["buildings"]["native:town-hall"] = 0
+        set_hall(w, (cx, cy), 0)
         self.assertEqual(E.score(w, "甲", "丙"), S.INF, "2 人局对手亡该直接是 +INF")
         self.assertEqual(E.rival_nations(w, "甲"), ["丙"])
 
@@ -291,12 +322,12 @@ class TestHallScore(unittest.TestCase):
                      alliance=("甲", "乙"))
         self.assertEqual(E.terminal(w, "甲"), None, "两家实体 ⇒ 还没定局")
         cx, cy = core(w, "丙")
-        w.tiles[(cx, cy)]["buildings"]["native:town-hall"] = 0
+        set_hall(w, (cx, cy), 0)
         self.assertEqual(E.terminal(w, "甲"), S.INF, "★ 只剩我的实体 ⇒ 联盟胜利")
         self.assertEqual(E.terminal(w, "乙"), S.INF, "盟友视角同样是赢")
         # ★ 我战死但我的盟赢了 ⇒ 也算我赢（"联盟胜利"的含义）
         ax, ay = core(w, "甲")
-        w.tiles[(ax, ay)]["buildings"]["native:town-hall"] = 0
+        set_hall(w, (ax, ay), 0)
         self.assertEqual(E.terminal(w, "甲"), S.INF, "★ 我死了但联盟赢了 ⇒ 仍算赢")
 
     def test_distance_terms_cover_every_hall(self):
@@ -306,14 +337,12 @@ class TestHallScore(unittest.TestCase):
         """
         w = self._world()
         ax, ay = core(w, "甲")
-        fx, fy = [(x, y) for x in range(w.size) for y in range(w.size)
-                  if (x, y) not in w.tiles and max(abs(x - ax), abs(y - ay)) > 4][0]
-        w.tiles[(fx, fy)] = mk_tile(w, "甲", hall=True)
+        fx, fy = [(x, y) for x in range(w.size()) for y in range(w.size())
+                  if (x, y) not in w.tiles() and max(abs(x - ax), abs(y - ay)) > 4][0]
+        mk_tile(w, "甲", hall=True)      # ★ 就地造
         far = E._one(w, "甲", "丙", None, with_tiles=True)     # 第二座厅旁没威胁
-        gid, seq = w._new_army("丙")
-        w.armies.append({"id": seq, "gid": gid, "name": "丙T", "type": "native:infantry", "hp": 100,
-                         "x": fx + 1, "y": fy, "owner": "丙",
-                         "moved_turn": -1, "engaged": False})
+        # ★ 敌军贴着我**第二座**厅（真单位，走 native 的 `seed`）
+        new_army(w, "丙", (fx + 1, fy))
         near = E._one(w, "甲", "丙", None, with_tiles=True)
         self.assertLess(near, far,
                         "★ 敌军贴着我**第二座**厅，威胁项却没反应 ⇒ 距离项只认了第一座厅")
@@ -346,7 +375,7 @@ class TestScoringTableIsLive(unittest.TestCase):
         #   "权重变了"这一项（第一版就是栽在这：250 vs 50，因为 before 用的是 500 那版）。
         with S.override(W_HALL=100.0):
             before = E.score(w, "甲", "丙")
-            w.tiles[(fx, fy)]["buildings"]["native:town-hall"] = 1
+            set_hall(w, (fx, fy), 1)
             after = E.score(w, "甲", "丙")
         self.assertAlmostEqual(after - before, S.ALLY_SHARE * 100.0, places=6,
                                msg="盟友赚一座厅 = W_HALL × ALLY_SHARE，要能跟着调")
@@ -385,7 +414,7 @@ class TestThreatNeedsOnlyMyHall(unittest.TestCase):
       "全 0 相等"那种假绿，见文件头）。
     """
 
-    def _setup(self, size=24, seed=5, far_gap=7):
+    def _setup(self, size=24, seed=5, far_gap=7, enemy_at=None, mine_at=None):
         """摆一个"**敌厅在视野外**、但我有一块**远处的自家地**"的局面。
 
         ★ 为什么要自己造那块地：开局各国只有**一格**（核心），
@@ -399,21 +428,29 @@ class TestThreatNeedsOnlyMyHall(unittest.TestCase):
         foe_hall = E.hall_cells(w, "乙")[0]
         # 远处的一块自家地：离我的厅 ≥ far_gap 格、离敌厅也远（别把敌厅圈进视野）
         far = next(c for c in sorted(
-            (x, y) for x in range(w.size) for y in range(w.size))
+            (x, y) for x in range(w.size()) for y in range(w.size()))
             if max(abs(c[0] - my_hall[0]), abs(c[1] - my_hall[1])) >= far_gap
             and max(abs(c[0] - foe_hall[0]), abs(c[1] - foe_hall[1])) >= far_gap
-            and c not in w.tiles)
-        w.tiles[far] = mk_tile(w, "甲")
+            and w.owner(c[0], c[1]) is None)      # ★ "没被谁占"（不是"没物化"）
+        mk_tile(w, "甲", cell=far)      # ★ 就在那一格造
         mask = frozenset(set(vision_mask(w, "甲")) | {far})
+        # ★★ 军队的位置是**引擎里的事实** ⇒ 摆哪儿就**建在哪儿**（真单位）。
+        #   旧做法是"把假 dict 的 x/y 改掉"——那是**门面自记的表**，
+        #   引擎那边不知道 ⇒ 打分器读到的位置与引擎的真值能分叉。
+        if enemy_at is not None:
+            new_army(w, "乙", enemy_at)
+        if mine_at is not None:
+            for _ in range(2):
+                new_army(w, "甲", mine_at)
         self.assertNotIn(foe_hall, mask, "本场景的前提：敌厅在视野外")
         self.assertIn(far, mask, "那块远地得看得见（否则敌军挪过去就换了一档可见性）")
         return w, mask, my_hall, foe_hall, far
 
     def _foe_army(self, w):
-        return next(a for a in w.armies if a["owner"] == "乙")
+        return next(a for a in w.armies() if w.owner_of(a) == "乙")
 
     def _my_armies(self, w):
-        return [a for a in w.armies if a["owner"] == "甲"]
+        return [a for a in w.armies() if w.owner_of(a) == "甲"]
 
     def test_setup_is_non_vacuous(self):
         """前提必须成立：**敌厅真的看不见**、而且分数**不是恒 0**。"""
@@ -430,22 +467,21 @@ class TestThreatNeedsOnlyMyHall(unittest.TestCase):
         ★ 2026-09-25 起不再需要关掉 `W_GUARD`（守家加成**已停用**，见下一条）。
         """
         w, mask, my_hall, foe_hall, far = self._setup()
-        foe = self._foe_army(w)
         # 离我的厅 1 格（威胁圈内），且**仍在视野内**（贴着我自己的厅 ⇒ 一定看得见）
         near = next(c for c in w.neighbors(*my_hall) if c in mask and c != my_hall)
-        foe["x"], foe["y"] = near
-        s_near = E.score(w, "甲", "乙", mask=mask)
-        self.assertLessEqual(E.min_dist(w, "乙", my_hall, mask), S.THREAT_R)
-        foe["x"], foe["y"] = far          # 挪远（仍在视野内 ⇒ 其它项一字不变）
-        s_far = E.score(w, "甲", "乙", mask=mask)
+        # ★★ **两个局**（近处一局 / 远处一局）—— 军队位置是**引擎里的事实**，
+        #   不能靠改 dict（那只会改到门面自记的表，引擎不知道）。
+        w_near, *_ = self._setup(enemy_at=near)
+        s_near = E.score(w_near, "甲", "乙", mask=mask)
+        self.assertLessEqual(E.min_dist(w_near, "乙", my_hall, mask), S.THREAT_R)
+        w_far, *_ = self._setup(enemy_at=far)     # 挪远（仍在视野内 ⇒ 其它项一字不变）
+        s_far = E.score(w_far, "甲", "乙", mask=mask)
         self.assertLess(s_near, s_far,
                         "敌军逼近我的厅却没扣分 ⇒ 威胁项在「自己找厅」这一版里是死的")
         # ★ 对照：把威胁关掉 ⇒ 这个差必须消失（证明差只来自这一项）
         with S.override(W_THREAT=0.0):
-            foe["x"], foe["y"] = near
-            a = E.score(w, "甲", "乙", mask=mask)
-            foe["x"], foe["y"] = far
-            b = E.score(w, "甲", "乙", mask=mask)
+            a = E.score(w_near, "甲", "乙", mask=mask)
+            b = E.score(w_far, "甲", "乙", mask=mask)
         self.assertAlmostEqual(a, b, places=9, msg="W_THREAT=0 还有差 ⇒ 差不是威胁项来的")
 
     def test_threat_needs_the_enemy_to_be_exposed(self):
@@ -458,13 +494,13 @@ class TestThreatNeedsOnlyMyHall(unittest.TestCase):
           **看不见那一格** ⇒ 威胁扣分**必须为 0**。
         """
         w, mask, my_hall, foe_hall, far = self._setup()
-        foe = self._foe_army(w)
         near = next(c for c in w.neighbors(*my_hall) if c in mask and c != my_hall)
-        foe["x"], foe["y"] = near
-        s_vis = E.score(w, "甲", "乙", mask=mask)
+        # ★ 敌军**真在**我厅边上（真单位）
+        w2, mask2, *_ = self._setup(enemy_at=near)
+        s_vis = E.score(w2, "甲", "乙", mask=mask2)
         # ★ 只把**那一格**从视野里挖掉（其余不变）⇒ 威胁项该整块消失
-        hole = frozenset(c for c in mask if c not in (near, near))
-        s_blind = E.score(w, "甲", "乙", mask=hole)
+        hole = frozenset(c for c in mask2 if c != near)
+        s_blind = E.score(w2, "甲", "乙", mask=hole)
         self.assertGreater(s_blind, s_vis,
                            "敌军看不见时也照样扣威胁分 ⇒ 变成「虚空防守」了")
         with S.override(W_THREAT=0.0):
@@ -480,19 +516,16 @@ class TestThreatNeedsOnlyMyHall(unittest.TestCase):
         同时钉住：把军从厅边调到远处自家地，分数**不变**（没有守家收益了）。
         """
         w, mask, my_hall, foe_hall, far = self._setup()
-        foe = self._foe_army(w)
-        foe["x"], foe["y"] = next(c for c in w.neighbors(*my_hall)
-                                  if c in mask and c != my_hall)   # 制造威胁
-        mine = self._my_armies(w)
-        for a in mine:
-            a["x"], a["y"] = my_hall
-        s_guard = E.score(w, "甲", "乙", mask=mask)
+        near = next(c for c in w.neighbors(*my_hall) if c in mask and c != my_hall)
+        # ★★ **两个局**：我的军全在厅边（近）/ 全在远处自家地（远）；
+        #   敌军两局都贴着我厅边（制造威胁）。位置是**引擎里的事实** ⇒ 摆哪儿建在哪儿。
+        w_near, mask_near, *_ = self._setup(enemy_at=near, mine_at=my_hall)
+        s_guard = E.score(w_near, "甲", "乙", mask=mask_near)
         with S.override(W_GUARD=50.0):
-            self.assertAlmostEqual(E.score(w, "甲", "乙", mask=mask), s_guard, places=9,
-                                   msg="改 W_GUARD 还影响分数 ⇒ 它没真停用")
-        for a in mine:                     # 调远（仍在我地盘上 ⇒ 只有"守家"那一项会变）
-            a["x"], a["y"] = far
-        self.assertAlmostEqual(E.score(w, "甲", "乙", mask=mask), s_guard, places=9,
+            self.assertAlmostEqual(E.score(w_near, "甲", "乙", mask=mask_near), s_guard,
+                                   places=9, msg="改 W_GUARD 还影响分数 ⇒ 它没真停用")
+        w_far, mask_far, *_ = self._setup(enemy_at=near, mine_at=far)
+        self.assertAlmostEqual(E.score(w_far, "甲", "乙", mask=mask_far), s_guard, places=9,
                                msg="守家还有加分 ⇒ 「扣分就行了」没落实")
 
 

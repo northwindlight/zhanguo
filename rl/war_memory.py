@@ -34,7 +34,7 @@
      ★ 顺带这条把"**它挪走了**"也分开了：挪走的军**还在世上** ⇒ 不会被误删
        （不会把"绕后的敌军"当成"已歼灭"）。
   ③ ★ **不用全图真值去"发现"任何事**。真值只用来回答一个**我在盯着看的问题**：
-     "我正看着的那一格，那支军还在不在"。★ 绝不拿"gid 不在 `world.armies` 里了"
+     "我正看着的那一格，那支军还在不在"。★ 绝不拿"gid 不在 `env.armies()` 里了"
      去**扫一遍全账本** —— 那会让模型在**视野外**白得一条情报（"它没了"），
      而真玩家**不该知道**。**这是用户总口径「除威胁系统外不许读对手当前状态」
      在记忆上的直接推论。**
@@ -76,7 +76,7 @@ def decay(age: int) -> float:
     return 0.5 ** (max(0, int(age)) / HALF_LIFE)
 
 
-def visible_foes(world, name: str | None, mask) -> dict:
+def visible_foes(env, name: str | None, mask) -> dict:
     """本帧**看得见**的敌军：`{gid: {x, y, kind, hp, no, owner}}`（**不含**见到的回合）。
 
     ★★ **唯一出处** —— `WarMemory.observe`（记进账本）和"即将离开视野"那条**辅助目标**
@@ -90,16 +90,23 @@ def visible_foes(world, name: str | None, mask) -> dict:
     if not name:
         return {}
     out = {}
-    for a in world.armies:
-        if a.get("owner") == name or a.get("owner") not in world.nations:
+    nations = env.nations()
+    for a in env.armies():
+        # ★ 归属判断统一走 `env.owns`（原生 `Unit.owner` 是内容 ID，RL 侧说短名）。
+        if env.owns(a, name):
             continue
-        if a.get("hp", 0) <= 0:
+        owner = env.name_of(a.owner)
+        if owner not in nations:
+            continue                            # ★ 野人不记（它不是"情报"）
+        if a.hp <= 0:
             continue
-        if (a["x"], a["y"]) not in mask:
+        if (a.x, a.y) not in mask:
             continue
-        out[a["gid"]] = {"x": int(a["x"]), "y": int(a["y"]),
-                         "kind": a.get("type", "native:infantry"), "hp": int(a.get("hp", 0)),
-                         "no": int(a.get("id", 0)), "owner": a["owner"]}
+        # ★ 血量**保留小数**（引擎的伤害是**期望值** ⇒ hp 可以是 93.2）——
+        #   截成 int 会让"残血"看起来比实际多/少，**而且不报错**。
+        out[a.gid] = {"x": int(a.x), "y": int(a.y),
+                      "kind": a.kind, "hp": float(a.hp),
+                      "no": int(a.id), "owner": owner}
     return out
 
 
@@ -112,13 +119,13 @@ class WarMemory:
         self._by: dict[str, dict] = {}
 
     # ---------------------------------------------------------------- 记
-    def observe(self, world, name: str | None, mask, turn: int,
+    def observe(self, env, name: str | None, mask, turn: int,
                 visible: bool = True) -> int:
         """把 `name` **此刻看得见**的敌军并进账本（返回更新条数）。
 
         ★ **只并看得见的**（`mask`）—— 记忆是"**我见过**"，不是"全图"。
         ★ 看见就**覆盖**（位置/血量会变，这正是要追的）；看不见**一个字都不动**。
-        ★ **野人不记**（`owner not in world.nations`）—— 军队 token 也不给它们
+        ★ **野人不记**（`owner not in env.nations()`）—— 军队 token 也不给它们
           （见 `encode.window_armies`），两边保持一致。
         """
         if not name:
@@ -128,12 +135,12 @@ class WarMemory:
         #   而它已不在世上 ⇒ 我确实看着它没了 ⇒ **永久移除**（用户原话）。
         #   ★ 判据里"仍在视野"这一条是关键 —— 剔掉它就变成"扫全账本"，
         #     模型会在视野外白得一条情报（见文件头的 ③）。
-        alive = {a["gid"] for a in world.armies}
+        alive = {a.gid for a in env.armies()}
         for gid in [g for g, r in got.items()
                     if (r["x"], r["y"]) in mask and g not in alive]:
             del got[gid]
         # ★ 口径走 `visible_foes`（**唯一出处**，见它的 docstring）—— 别在这里再抄一遍。
-        seen = visible_foes(world, name, mask)
+        seen = visible_foes(env, name, mask)
         for gid, rec in seen.items():
             got[gid] = {"turn": int(turn), **rec}   # ★ 看见就**覆盖**（位置/血量会变）
         return len(seen)

@@ -35,6 +35,8 @@ from rl import encode, evaluate as E, scoring as S   # noqa: E402
 from rl import vocab as V                            # noqa: E402
 from rl.hall_memory import HallMemory                # noqa: E402
 from rl.sandbox import Sandbox                       # noqa: E402
+from tests.rl_deps import new_army, make_world
+from tests.rl_deps import set_hall, make_site
 
 FOE_HALL_D = V.GLOB.index("foe_hall_d")
 FOE_HALL_DX = V.GLOB.index("foe_hall_dx")
@@ -46,7 +48,7 @@ def sb_of(seed=3, size=24, spy=False):
 
 def hall_of(sb, name):
     """该国的厅格（**不过滤** ⇒ `mask=None`）。"""
-    return E.hall_cells(sb.world, name)[0]
+    return E.hall_cells(sb.env, name)[0]
 
 
 def world3(seed=1, size=16):
@@ -56,11 +58,11 @@ def world3(seed=1, size=16):
       「盟友的厅也纳入标记」那几条在沙盒上**测不了**（写了也是空测试）。
       引擎侧多国本来就是现成的（`World(nations=[…])`）。
     """
-    from rl.engine import SandboxWorld
-    w = SandboxWorld(size=size, seed=seed, nations=["甲", "乙", "丙"],
-                    starts={"甲": (1, 1), "乙": (13, 13), "丙": (1, 13)})
-    # 联盟 = 场景条件（`sandbox.set_alliance` 就是往这里放一条记录）
-    w.blocs.append({"name": "同盟", "chief": "甲", "members": ["甲", "乙"]})
+    # ★ 摆局走**剧本能力**（旧门面的 `SandboxWorld` 已删）
+    w = make_world(size=size, seed=seed, nations=["甲", "乙", "丙"],
+                   starts={"甲": (1, 1), "乙": (13, 13), "丙": (1, 13)})
+    # 联盟 = 场景条件（走**引擎的联盟能力**，不是往自记的联盟表里放一条）
+    w.set_alliance(["甲", "乙"], "同盟")
     return w
 
 
@@ -76,7 +78,7 @@ class TestPermanence(unittest.TestCase):
     def test_seen_once_known_forever(self):
         sb = sb_of()
         foe_hall = hall_of(sb, "乙")
-        everything = frozenset(sb.world.tiles)          # 曾经"全看见"
+        everything = frozenset(r.position for r in sb.env.tiles())          # 曾经"全看见"
         k1 = sb.known_halls("甲", everything)
         self.assertIn(foe_hall, k1, "看见过却没记下来 ⇒ 账本没接上")
         k2 = sb.known_halls("甲", blind())              # ★ 这一帧什么都看不见
@@ -88,7 +90,7 @@ class TestPermanence(unittest.TestCase):
         """② 没看见的**不许**进账本（别把"记忆"做成"全知"）。"""
         sb = sb_of()
         foe_hall = hall_of(sb, "乙")
-        mine = frozenset(E.hall_cells(sb.world, "甲"))
+        mine = frozenset(E.hall_cells(sb.env, "甲"))
         k = sb.known_halls("甲", mine)
         self.assertNotIn(foe_hall, k, "只看见自家的厅，却把敌厅也记进来了 ⇒ 偷看")
         self.assertEqual(set(k), set(mine))
@@ -114,7 +116,7 @@ class TestPermanence(unittest.TestCase):
                 break
             n = len(sb.known_halls(me))
             self.assertGreaterEqual(n, 0)
-            prev = max(prev, len(sb.halls.known(sb.world, me)))
+            prev = max(prev, len(sb.halls.known(sb.env, me)))
             sb.step(acts[0])
             steps += 1
         self.assertGreater(prev, 0, "整局下来一本账都没记 ⇒ 没接上")
@@ -128,11 +130,9 @@ class TestNoGarrisonLeak(unittest.TestCase):
         sb = sb_of()
         foe_hall = hall_of(sb, "乙")
         # 在敌厅上摆一支敌军（若不摆，"看不见守军"就是空的：本来就没守军）
-        gid, seq = sb.world._new_army("乙")
-        sb.world.armies.append({"id": seq, "gid": gid, "name": "乙守", "type": "native:infantry",
-                                "hp": 100, "x": foe_hall[0], "y": foe_hall[1],
-                                "owner": "乙", "moved_turn": -1, "engaged": False})
-        sb.known_halls("甲", frozenset(sb.world.tiles))     # 曾经全看见（含那支军）
+        # ★ 真造一支军（native 的 `seed`）—— 旧写法是往门面自记的军队表里 append
+        new_army(sb.env, "乙", (foe_hall[0], foe_hall[1]))
+        sb.known_halls("甲", frozenset(r.position for r in sb.env.tiles()))     # 曾经全看见（含那支军）
         k = sb.known_halls("甲", blind())                   # 现在什么都看不见
         self.assertIn(foe_hall, k)
         win, _, armies = encode.encode_window(sb, "甲", blind(), known=k)
@@ -140,7 +140,7 @@ class TestNoGarrisonLeak(unittest.TestCase):
                          "★ 记忆把厅上的守军也带出来了 ⇒ 偷看（两件情报要分开）")
         # 反向对照：真看见的时候**必须**能看见那支军（否则上面那条是空的）
         win2, _, armies2 = encode.encode_window(
-            sb, "甲", frozenset(sb.world.tiles), known=k)
+            sb, "甲", frozenset(r.position for r in sb.env.tiles()), known=k)
         self.assertTrue([a for a in armies2 if a["owner"] == "乙"],
                         "看得见的时候也看不到守军 ⇒ 这条测试是空的")
 
@@ -158,7 +158,7 @@ class TestNoFlicker(unittest.TestCase):
                                 known=fresh.known_halls("甲", blind()))
         self.assertEqual(float(g0[FOE_HALL_D]), 0.0, "没见过的敌厅不该有位置（前提）")
         # 见过一次 ⇒ 永久
-        sb.known_halls("甲", frozenset(sb.world.tiles))
+        sb.known_halls("甲", frozenset(r.position for r in sb.env.tiles()))
         k = sb.known_halls("甲", blind())
         g = encode.encode_glob(sb, "甲", blind(), known=k)
         self.assertGreater(float(g[FOE_HALL_D]), 0.0,
@@ -166,8 +166,8 @@ class TestNoFlicker(unittest.TestCase):
         # ★★ 真正的不变量：**"全看见"与"看不见"两帧的读数必须逐位相同**
         #   （原来这里断言 `dx != 0` —— 那是**依赖地图布局**的假性质：
         #    `size=24` 现在默认 4 国，最近的对手厅可能**正好与我同列** ⇒ dx=0 合法）。
-        g_see = encode.encode_glob(sb, "甲", frozenset(sb.world.tiles),
-                                   known=sb.known_halls("甲", frozenset(sb.world.tiles)))
+        g_see = encode.encode_glob(sb, "甲", frozenset(r.position for r in sb.env.tiles()),
+                                   known=sb.known_halls("甲", frozenset(r.position for r in sb.env.tiles())))
         for i in (FOE_HALL_D, FOE_HALL_DX):
             self.assertEqual(float(g[i]), float(g_see[i]),
                              "看得见与看不见两帧的敌厅读数不同 ⇒ 闪断（这才是要钉的）")
@@ -179,16 +179,16 @@ class TestNoFlicker(unittest.TestCase):
         sb = sb_of()
         foe_hall = hall_of(sb, "乙")
         mask = blind()
-        s_blind = E.score(sb.world, "甲", "乙", mask=mask,
+        s_blind = E.score(sb.env, "甲", "乙", mask=mask,
                           known=sb.known_halls("甲", mask))
-        sb.known_halls("甲", frozenset(sb.world.tiles))     # 见过
+        sb.known_halls("甲", frozenset(r.position for r in sb.env.tiles()))     # 见过
         k = sb.known_halls("甲", mask)
-        s_mem = E.score(sb.world, "甲", "乙", mask=mask, known=k)
+        s_mem = E.score(sb.env, "甲", "乙", mask=mask, known=k)
         self.assertNotEqual(s_blind, s_mem,
                             "★ 记忆对打分毫无影响 ⇒ 势函数差分在厅离开视野时会变成噪声")
         # ★ 差值必须来自**逼近项**（关掉 W_NEAR 就该消失）
         with S.override(W_NEAR=0.0):
-            s2 = E.score(sb.world, "甲", "乙", mask=mask, known=k)
+            s2 = E.score(sb.env, "甲", "乙", mask=mask, known=k)
         self.assertAlmostEqual(s2, s_blind, places=9,
                                msg="W_NEAR=0 还有差 ⇒ 差不是逼近项来的")
 
@@ -199,29 +199,29 @@ class TestClone(unittest.TestCase):
 
     def test_clone_carries_memory(self):
         sb = sb_of()
-        sb.known_halls("甲", frozenset(sb.world.tiles))
-        n = len(sb.halls.known(sb.world, "甲"))
+        sb.known_halls("甲", frozenset(r.position for r in sb.env.tiles()))
+        n = len(sb.halls.known(sb.env, "甲"))
         c = sb.clone()
-        self.assertEqual(len(c.halls.known(c.world, "甲")), n,
+        self.assertEqual(len(c.halls.known(c.env, "甲")), n,
                          "副本把记忆丢了 ⇒ 试演时会「重新发现」、与真局不一致")
 
     def test_clone_memory_is_independent(self):
         sb = sb_of()
         c = sb.clone()
-        c.known_halls("甲", frozenset(c.world.tiles))     # 副本里"看见"了
-        self.assertGreater(len(c.halls.known(c.world, "甲")),
-                           len(sb.halls.known(sb.world, "甲")),
+        c.known_halls("甲", frozenset(r.position for r in c.env.tiles()))     # 副本里"看见"了
+        self.assertGreater(len(c.halls.known(c.env, "甲")),
+                           len(sb.halls.known(sb.env, "甲")),
                            "副本看见的东西倒灌回原局了 ⇒ 账本是共享的")
-        self.assertEqual(len(sb.halls.known(sb.world, "甲")), 0,
+        self.assertEqual(len(sb.halls.known(sb.env, "甲")), 0,
                          "原局一次都没观察过 ⇒ 账本该是**空的**（记忆只由观察产生；"
                          "自家厅反正每帧都在视野里，不需要预置）")
 
     def test_memory_is_per_nation(self):
         """账本是**逐国**的：甲看见的不等于乙看见的。"""
         sb = sb_of()
-        sb.known_halls("甲", frozenset(sb.world.tiles))
-        self.assertIn(hall_of(sb, "乙"), sb.halls.known(sb.world, "甲"))
-        self.assertEqual(len(sb.halls.known(sb.world, "乙")), 0,
+        sb.known_halls("甲", frozenset(r.position for r in sb.env.tiles()))
+        self.assertIn(hall_of(sb, "乙"), sb.halls.known(sb.env, "甲"))
+        self.assertEqual(len(sb.halls.known(sb.env, "乙")), 0,
                          "甲的记忆漏给了乙 ⇒ 两国共用一本账")
 
 
@@ -241,7 +241,7 @@ class TestAllyHallsAreMarked(unittest.TestCase):
         w = world3()
         ally_hall = E.hall_cells(w, "乙")[0]
         m = HallMemory()
-        m.observe(w, "甲", frozenset(w.tiles))          # 曾经全看见
+        m.observe(w, "甲", frozenset(r.position for r in w.tiles()))          # 曾经全看见
         k = m.known(w, "甲")
         self.assertIn(ally_hall, k, "盟友的厅没进账本 ⇒ 「也纳入标记」没做到")
         self.assertEqual(k[ally_hall], "乙", "进册了，但得记住**是谁的**")
@@ -286,21 +286,19 @@ class TestGridHallDoesNotFlicker(unittest.TestCase):
 
     def test_remembered_hall_inside_bbox_is_still_drawn(self):
         sb = sb_of(seed=5, size=16)
-        w = sb.world
+        w = sb.env
         mask = encode.vision_of(sb, "甲")
         x0, y0, h, ww = encode.frame_of(sb, "甲", mask)
         hole = [(x, y) for y in range(y0, y0 + h) for x in range(x0, x0 + ww)
                 if 0 <= x < sb.size and 0 <= y < sb.size
-                and (x, y) not in mask and (x, y) not in w.tiles]
+                and (x, y) not in mask and (x, y) not in w.tiles()]
         self.assertTrue(hole, "这幅图上没有「框内但看不见」的格 ⇒ 换个种子，否则是空测试")
         cell = hole[0]
-        # 在那儿造一块**敌国带厅**的地块（键照抄真地块，少键会在别处炸）
-        t = dict(next(iter(w.tiles.values())))
-        t["buildings"] = {k: 0 for k in t["buildings"]}
-        t["owner"], t["core"] = "乙", None
-        t["buildings"]["native:town-hall"] = 1
-        w.tiles[cell] = t
-        sb.known_halls("甲", frozenset(w.tiles))       # 曾经全看见
+        # ★ 在那儿造一块**敌国带厅**的地块 —— 走**引擎**（`territory.create` +
+        #   `buildings.seed`），不是改门面自记的表（旧写法在引擎里是"不存在"的局面）
+        make_site(w, cell, "乙")
+        set_hall(w, cell, 1)
+        sb.known_halls("甲", frozenset(r.position for r in w.tiles()))   # 曾经全看见
         known = sb.known_halls("甲", frozenset())      # 这一帧什么都看不见
         self.assertIn(cell, known, "前提：账本记得它")
         fi, fj = cell[1] - y0, cell[0] - x0

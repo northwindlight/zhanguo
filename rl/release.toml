@@ -1,0 +1,17 @@
+# RL 线的**发行版清单** —— 声明式加载，不在代码里硬编码。
+#
+# ★ 为什么有它（review §2.1）
+#   ────────────────────────
+#   旧 `rl/engine.py` 把发行版清单硬编码成 `_MODS_TOML = ROOT / "mods.toml"`，
+#   加载时机、加载哪些 mod 都是**代码里的字符串** ⇒ 改清单要改代码，
+#   而且"这个 mod 到底声明了哪些能力"没人查得到。
+#
+#   引擎支持**任意清单**（`engine/runtime.py:709-715`）：包路径相对清单文件所在目录。
+#
+# ★ 三段分别是什么
+#   ../mods/experimental  主线原生 mod + `experimental:combat-research`
+#                         （战斗概率能力 `research:combat-probabilities` 的**唯一出处**）
+#   mods/train            RL 训练能力（`rl:sandbox` / `rl:truth` / `rl:odds`）
+#   mods/scenario         RL 沙盒剧本（`ScenarioMod.on_start` 摆局）
+[Load]
+Packages = ["../mods/experimental", "mods/train", "mods/scenario"]

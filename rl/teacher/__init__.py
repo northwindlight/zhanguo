@@ -10,8 +10,8 @@
     **看不见未探索的地形、也拿不到引擎的可达集真值**。
 
     而 RL 沙盒要的是**另一回事**：
-      · 老师要在**世界真值**上做评估（`world._defense_pct`、`world._defs_at`、
-        `world._reachable`）—— 那是**训练信号**，不是玩家视角；
+      · 老师要在**世界真值**上做评估（`env.defense_pct`、`env.defenders`、
+        `env.reachable（引擎的可达集）`）—— 那是**训练信号**，不是玩家视角；
       · 沙盒**自己**驱动世界（没有 `PlayerSession`、没有 `Session`），
         所以主线那套客户端**根本接不上**。
 

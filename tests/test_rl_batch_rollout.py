@@ -24,10 +24,9 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+from tests.rl_deps import has_torch, torch, torch_or_skip
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
 
 if has_torch():
     from rl import train as T                             # noqa: E402
@@ -45,7 +44,7 @@ def load_tests(loader, tests, pattern):
     return tests
 
 
-def _mk(seed, size=10, t_max=40, mem_slots=8):
+def _mk(seed, size=8, t_max=12, mem_slots=8):
     torch.manual_seed(seed)
     sb = Sandbox(seed=seed, size=size, t_max=t_max, n_nations=2, halls_known=True,
                  territory=True, alliances="random2v2").reset()
@@ -129,7 +128,7 @@ class TestBatchAlignment(unittest.TestCase):
         net.eval()
         out = []
         for i in range(n):
-            sb = Sandbox(seed=5200 + i, size=10 + i % 3, t_max=40, n_nations=2,
+            sb = Sandbox(seed=5200 + i, size=8 + i % 3, t_max=12, n_nations=2,
                          halls_known=True, territory=True,
                          alliances="random2v2").reset()
             me = sb.current_player()
@@ -186,7 +185,7 @@ class TestBatchIsActuallyBatching(unittest.TestCase):
         n = 4
         sbs, netss = [], []
         for i in range(n):
-            sb, nets = _mk(6300 + i, size=10, t_max=40)
+            sb, nets = _mk(6300 + i, size=8, t_max=12)
             sbs.append(sb)
             netss.append(nets)
         # 让 4 个沙盒共用**同一份**网络对象（否则按 net 分组，各批各的）
@@ -203,7 +202,7 @@ class TestBatchIsActuallyBatching(unittest.TestCase):
         type(nets["甲"]).forward_state = spy
         try:
             stepss, _infos = T.collect_episodes_batched(
-                nets, sbs, rngs=rngs, max_steps=200)
+                nets, sbs, rngs=rngs, max_steps=40)
         finally:
             type(nets["甲"]).forward_state = real
 

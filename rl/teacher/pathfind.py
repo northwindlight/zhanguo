@@ -11,7 +11,7 @@ v10 的这一件是**单步贪心**：`min(邻居, key=切比雪夫距离)`。�
 
 本模块给两样东西（**分工是关键**）：
 
-  · **本回合落点**用 `world._reachable`（引擎自己算的合法集：逐格代价、墙、预算全对）。
+  · **本回合落点**用 `env._reachable`（引擎自己算的合法集：逐格代价、墙、预算全对）。
     这与 LLM 玩家的面板同源（`mp_ai.py:230` 的「本回合可及 N 格」、
     `mp_ai.py:259-273` 野地清单里的「可及」），所以**在玩家信息集之内**。
   · **多回合方向感**用自建的 `cost_field`：以目标为源、按移动力代价铺满全图
@@ -19,7 +19,7 @@ v10 的这一件是**单步贪心**：`min(邻居, key=切比雪夫距离)`。�
     玩家手上没有这张图，所以它**只能**用看得见的信息算 —— 这是硬纪律，不是优化取舍。
 
 ★ 迷雾纪律（`expand_rule_v9.py` 记着四处历史越权，别再犯）：
-  非视野格的**地形**一次都不许读（`world.tile_terrain` 对迷雾格是纯函数真值 = 偷看），
+  非视野格的**地形**一次都不许读（`env.tile_terrain` 对迷雾格是纯函数真值 = 偷看），
   一律按 `_UNSEEN_COST` 估；墙也只在视野内才认（视野外当可通行 —— 乐观假设，
   撞上了下回合重规划，代价是那一步白烧，比"隔着迷雾开图"划算得多）。
 
@@ -36,86 +36,55 @@ _INF = 1 << 30
 _UNSEEN_COST = 1        # 视野外一律按平原估（用户 2026-09-15 口径）
 
 
-def _watchtower_radius(world) -> int:
-    """瞭望塔的视野半径（**现取**，不缓存）。
-
-    ⚠ **口径**：旧引擎是 `building_effect("native:watchtower", "vision_radius")`（读建筑效果表），
-    新引擎把效果挂在**内容定义**上（`mods/native/buildings/types.py` 的
-    `native:watchtower.EFFECTS`）。⇒ 这里从内容定义取，效果改了立刻跟着改。
-    """
-    from mods.native.buildings.types import Watchtower
-    return int(Watchtower.EFFECTS.get("vision_radius", 0))
-
+# ★ 2026-10-22：瞭望塔视野半径**不再在这里取** —— 视野整块交给 native 的
+#   `native:vision.positions`（引擎自己按 `native:watchtower` 的效果算），
+#   RL 侧再取一遍就是"复刻引擎规则"（review §8）。
 
 # ---------------------------------------------------------------- 几何
 def chebyshev(a: tuple[int, int], b: tuple[int, int]) -> int:
     """棋盘距离（八邻一步 = 1）。**只用于排序粗估**，不用来判可达性——
-    可达性一律问 `world._reachable`（那里才有地形代价与墙）。"""
+    可达性一律问 `env._reachable`（那里才有地形代价与墙）。"""
     return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
 
 
 # ---------------------------------------------------------------- 视野
-def vision_mask(world, name: str) -> frozenset:
-    """`name` 这一回合**看得见**的全部格子（一次建好，别逐格问 `visible_to`）。
+def vision_mask(env, name: str) -> frozenset:
+    """`name` 这一回合**看得见**的全部格子。
 
-    口径与 `World.visible_to`（`mp.py:489`）**逐条对齐**：
-      ① 自家 + 联盟成员的地块本身，以及它们的八邻；
-      ② 自家/盟方的瞭望塔半径（`effects.vision_radius`，欧氏）圆内。
-
-    ★ 为什么要自己铺一遍：`visible_to` 在答"看不见"时会**遍历全图 tiles**（找瞭望塔），
-    逐格问就是 O(格数 × 地块数)。这里一趟 O(地块数) 建好，等价性由
-    `tests/test_pathfind.py::TestVisionMask` 抽样对照 `visible_to` 钉住。
+    ★★ 2026-10-22 重写：**直接问 native**（`native:vision.positions`）。
+      旧版在这里**自己铺了一遍**引擎的视野规则（自家/盟方地块 + 八邻 + 瞭望塔半径），
+      那正是 review §8 点名的"复刻引擎规则"—— 引擎改了瞭望塔半径，RL 侧不跟着改，
+      **而且不报错**。⇒ 现在只有一份实现（引擎那份）。
     """
-    bloc = world.bloc_of(name)
-    members = set(bloc["members"]) if bloc else set()
-    out: set = set()
-    towers: list = []
-    for (x, y), t in world.tiles.items():
-        o = t["owner"]
-        if o != name and o not in members:
-            continue
-        out.add((x, y))
-        for nb in world.neighbors(x, y):
-            out.add(nb)
-        if t["buildings"].get("native:watchtower"):
-            towers.append((x, y))
-    radius = _watchtower_radius(world)
-    if radius and towers:
-        r2 = radius * radius
-        for tx, ty in sorted(towers):
-            for x in range(max(0, tx - radius), min(world.size - 1, tx + radius) + 1):
-                for y in range(max(0, ty - radius), min(world.size - 1, ty + radius) + 1):
-                    if (tx - x) ** 2 + (ty - y) ** 2 <= r2:
-                        out.add((x, y))
-    return frozenset(out)
+    return env.vision_mask(name)
 
 
 # ---------------------------------------------------------------- 代价场
-def cell_cost(world, kind: str, cell: tuple[int, int], vision) -> int:
+def cell_cost(env, kind: str, cell: tuple[int, int], vision) -> int:
     """一格的地形代价（移动力点数）——**看不见就按平原估，绝不读真地形**。"""
     if cell not in vision:
         return _UNSEEN_COST
-    return rules.unit_move_cost(kind, world.tile_terrain(*cell))
+    return rules.unit_move_cost(kind, env.terrain(*cell))
 
 
-def enemy_cells(world, name: str) -> frozenset:
+def enemy_cells(env, name: str) -> frozenset:
     """**有与我交战的他国驻军**的格（一趟 O(国家军队数)，一回合算一次）。
 
-    ★ 为什么要预先算：引擎 `_mv_wall` 里那一条是 `any(... for d in world.armies)` ——
+    ★ 为什么要预先算：引擎 `_mv_wall` 里那一条是 `any(... for d in env.armies)` ——
       而野人守卫把**全图**铺满了（40×40 就有 ~1500 支），所以逐格问一次就是 O(1500)。
       代价场每回合要问几十万次，这一项一度占了 79% 的运行时。
       口径与引擎逐字一致：只看**他国**且**与我交战**的（野人驻军不是墙 —— 行军不打野人）。
 
-    ★ 2026-09-16：改成扫 `world.troops`（**非野人名单**，引擎里那张惰性自失效的表）。
+    ★ 2026-09-16：改成扫 `env.troops`（**非野人名单**，引擎里那张惰性自失效的表）。
       `"野人"` 那一条本就写着 `d["owner"] != "野人"`，所以**逐条等价**；而 1500 支野人
       从此不再被走过 —— 实测（40x40、第 60 回合、1583 支军队）本函数 128μs → 0.7μs，
       而一回合要问 ~9 张场。名单本身的维护见 `mp.World.troops` 的文档。
     """
-    return frozenset((d["x"], d["y"]) for d in world.troops
-                     if d["owner"] != name and world.war_between(name, d["owner"]))
+    return frozenset((d.x, d.y) for d in env.armies()
+                     if env.owner_of(d) != name and env.war_between(name, env.owner_of(d)))
 
 
-def is_wall(world, name: str, cell: tuple[int, int], vision, blocked=None) -> bool:
+def is_wall(env, name: str, cell: tuple[int, int], vision, blocked=None) -> bool:
     """这一步**走不进去**吗（与引擎 `_mv_wall` 同口径，但只在视野内才认）。
 
     视野内：他国/中立领土是墙（要进占只能 atk）；野地上有与我交战的他国驻军也是墙
@@ -127,11 +96,11 @@ def is_wall(world, name: str, cell: tuple[int, int], vision, blocked=None) -> bo
     if cell not in vision:
         return False
     x, y = cell
-    owner = world.owned_by(x, y)
-    if owner is not None and owner != name and not world.allied_between(name, owner):
+    owner = env.owner(x, y)
+    if owner is not None and owner != name and not env.allied(name, owner):
         return True
     if blocked is None:
-        blocked = enemy_cells(world, name)
+        blocked = enemy_cells(env, name)
     return cell in blocked
 
 
@@ -159,7 +128,7 @@ def _adj_of(size: int) -> tuple[tuple[int, ...], ...]:
     return got
 
 
-def _dijkstra(world, name: str, gl: list, kind: str, vision, max_cost: int) -> dict:
+def _dijkstra(env, name: str, gl: list, kind: str, vision, max_cost: int) -> dict:
     """代价场的**快实现**：与 `cost_field` 原先那版（元组 + 字典 + `World.neighbors`）
     **逐值等价**，只是把内层降到"整数下标 + 定长数组"。
 
@@ -177,7 +146,7 @@ def _dijkstra(world, name: str, gl: list, kind: str, vision, max_cost: int) -> d
       从堆里换成数组下标；只有代价为 0 的边才会往**当前**桶里追加，`while b` 那个内层
       循环正好兜住（本局地形最小代价是 1，这条是防将来加"道路 0 代价"）。
     """
-    size = world.size
+    size = env.size()
     n = size * size
     adj = _adj_of(size)
 
@@ -187,9 +156,9 @@ def _dijkstra(world, name: str, gl: list, kind: str, vision, max_cost: int) -> d
     lo_y, hi_y = max(0, min(ys) - max_cost), min(size - 1, max(ys) + max_cost)
 
     move = rules.move_cost_table(kind)
-    by_owner = world.owned_by
-    allied = world.allied_between
-    blocked = enemy_cells(world, name)      # ★ 一趟算好，别在几十万次松弛里各扫一遍全图
+    by_owner = env.owner
+    allied = env.allied
+    blocked = enemy_cells(env, name)      # ★ 一趟算好，别在几十万次松弛里各扫一遍全图
     wall_of = bytearray(n)                  # 视野内"走不进去"的格（与 `is_wall` 同口径）
     uniform = not move or all(v == 1 for v in move.values())
     cost_of = None if uniform else [_UNSEEN_COST] * n
@@ -200,7 +169,7 @@ def _dijkstra(world, name: str, gl: list, kind: str, vision, max_cost: int) -> d
                 continue                    # 视野外：地形一次都不读、墙一律不认
             i = base + y
             if cost_of is not None:
-                cost_of[i] = move.get(world.tile_terrain(x, y), 1)
+                cost_of[i] = move.get(env.terrain(x, y), 1)
             owner = by_owner(x, y)
             if owner is not None and owner != name and not allied(name, owner):
                 wall_of[i] = 1
@@ -284,7 +253,7 @@ def _bucket_ball(gl: list, size: int, adj, cost_of: list, wall_of: bytearray,
     return best
 
 
-def cost_field(world, name: str, goals, kind: str, vision, *, max_cost: int,
+def cost_field(env, name: str, goals, kind: str, vision, *, max_cost: int,
                cache: dict | None = None) -> dict:
     """以 `goals` 为源的**代价场**：`{格子: 走到最近那个目标还要几点移动力}`。
 
@@ -306,15 +275,15 @@ def cost_field(world, name: str, goals, kind: str, vision, *, max_cost: int,
     if cache is not None and key in cache:
         return cache[key]
     gl = [g for g in sorted(goals)
-          if 0 <= g[0] < world.size and 0 <= g[1] < world.size]
-    best = _dijkstra(world, name, gl, kind, vision, max_cost) if gl else {}
+          if 0 <= g[0] < env.size() and 0 <= g[1] < env.size()]
+    best = _dijkstra(env, name, gl, kind, vision, max_cost) if gl else {}
     if cache is not None:
         cache[key] = best
     return best
 
 
 # ---------------------------------------------------------------- 本回合怎么走
-def marchable(world, name: str, army: dict, target: tuple[int, int], *, reach=None) -> bool:
+def marchable(env, name: str, army: dict, target: tuple[int, int], *, reach=None) -> bool:
     """这一军**本回合够不够得着** `target`（atk 口径：终点可以是敌国格/驻军格）。
 
     这就是"原子攻击"的前置条件——引擎 `attack` 里任何一支到不了就**整通调用全废**，
@@ -323,15 +292,15 @@ def marchable(world, name: str, army: dict, target: tuple[int, int], *, reach=No
     if (army["x"], army["y"]) == target:
         return True
     if reach is None:
-        reach = world._reachable(name, army, for_attack=True)
+        reach = env.reachable(name, army, for_attack=True)
     return target in reach
 
 
-def best_step(world, name: str, army: dict, field: dict, *, reach=None,
+def best_step(env, name: str, army: dict, field: dict, *, reach=None,
               goal: tuple[int, int] | None = None) -> tuple[int, int] | None:
     """本回合往目标走的**那一格**；没有值得走的一步 → `None`。
 
-    候选 = `world._reachable(name, army)`（引擎的合法集：地形代价、墙、预算全对，
+    候选 = `env.reachable(name, army)`（引擎的合法集：地形代价、墙、预算全对，
     与玩家面板同源）。在这堆**走得进去**的格里挑"走完之后离目标最近"的那一格：
 
         选 `field` 值最小的格；平手比 (本回合花的代价, 坐标) —— 全确定。
@@ -350,7 +319,7 @@ def best_step(world, name: str, army: dict, field: dict, *, reach=None,
     """
     cur = (army["x"], army["y"])
     if reach is None:
-        reach = world._reachable(name, army)
+        reach = env.reachable(name, army)
     here_rem = field.get(cur)
     pick = None
     for cell in sorted(reach.keys()):          # 排序遍历 ⇒ 与 hash 序无关

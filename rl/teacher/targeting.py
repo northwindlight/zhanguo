@@ -11,14 +11,14 @@
 
 三源（v10 只有第一源的一部分）：
 
-  ① `world.frontier_of(name)` —— 自家地块外那一圈**未物化**的格（天生可见、必然无主）；
+  ① `env.frontier_of(name)` —— 自家地块外那一圈**未物化**的格（天生可见、必然无主）；
   ② 看得见的**野人驻军**格（有东西要打，得先打赢）；
   ③ 看得见的、**与我在交战**的国家领土 —— 战役层，v10 完全没有这一源。
 
 ★ 两个坑：
   · **中立国的领土一格都不收**：引擎里对中立地 `atk` 会撞墙，而撞墙会**烧掉整队的
     移动额度**（`_blind_cost`），白亏一回合。要打先宣战。
-  · 候选**不能**用 `world._atk_target_ok` 过滤 —— 那个谓词问的是"这格有没有东西可打"，
+  · 候选**不能**用 `env._atk_target_ok` 过滤 —— 那个谓词问的是"这格有没有东西可打"，
     而**空野地是合法的 atk 目标**（进驻占领），用它会把最该占的空地全筛掉。
 
 ★ 迷雾纪律：本模块**一格资源都不读**（排序已经不估值了，也不需要读）。
@@ -30,17 +30,18 @@ from __future__ import annotations
 from .pathfind import chebyshev
 
 
-def candidates(world, name: str, mask, *, radius: int, limit: int) -> list[tuple]:
+def candidates(env, name: str, mask, *, radius: int, limit: int) -> list[tuple]:
     """候选格（**有界、便宜、只看可见**），按坐标排序返回。
 
     排序是**确定**的（哨兵：`frontier_of` 是裸 set，必须先 `sorted`），
     因为下游的编组求解器按坐标顺序枚举候选 —— 顺序不稳就是结果不稳。
     """
-    bloc = world.bloc_of(name)
-    members = set(bloc["members"]) if bloc else set()
-    anchors = [(x, y) for (x, y), t in sorted(world.tiles.items())
-               if t["owner"] == name or t["owner"] in members]
-    anchors += [(a["x"], a["y"]) for a in world.nation_armies(name)]
+    # ★ 锚点 = 自家/盟方地块 + 自家军队所在格。
+    #   盟方成员走 native 的外交实体（`env.entity_members`）—— 不自己记联盟表。
+    members = set(env.entity_members(env.entity(name))) - {name}
+    anchors = [(row.position[0], row.position[1]) for row in sorted(env.tiles(), key=lambda r: r.position)
+               if row.owner == name or row.owner in members]
+    anchors += [(a.x, a.y) for a in env.armies() if env.owner_of(a) == name]
 
     def near(cell: tuple) -> int:
         """到最近锚点的切比雪夫距离 —— **只算 `radius` 以内的锚点**。
@@ -73,19 +74,19 @@ def candidates(world, name: str, mask, *, radius: int, limit: int) -> list[tuple
         return best if anchors else 0            # 锚点为空时 `min(..., default=0)` 的原样
 
     out: set = set()
-    for cell in sorted(world.frontier_of(name)):          # ★ frontier 是裸 set ⇒ 必须排序
+    for cell in sorted(env.frontier_of(name)):          # ★ frontier 是裸 set ⇒ 必须排序
         if cell in mask:
             out.add(cell)
     # ★★ "看得见的**野人驻军**格" = **引擎会合成野人的那些格** ∩ 视野
     #   （新引擎的野人是**虚拟**的：没有真野人军队可扫 ⇒ 只能问门面
     #    `barbarian_cells()`，它照引擎 `Military.visible_units` 的原条件算）。
-    #   ⇒ 旧写法"扫 `world.armies` 找 owner=='野人'"在��引擎上**永远扫不到**
+    #   ⇒ 旧写法"扫 `env.armies` 找 owner=='野人'"在��引擎上**永远扫不到**
     #   （引擎里没有真野人）⇒ 守卫格**从不出现在候选里** ⇒ 模型学不会打它们。
-    for cell in sorted(world.barbarian_cells() & mask):
+    for cell in sorted(env.barbarian_cells(name) & mask):
         out.add(cell)
-    for cell, t in sorted(world.tiles.items()):
-        if cell in mask and world.war_between(name, t["owner"]):
-            out.add(cell)
+    for row in sorted(env.tiles(), key=lambda r: r.position):
+        if row.position in mask and row.owner and env.war_between(name, row.owner):
+            out.add(row.position)
 
     # 半径粗筛 + 按 (距离, 坐标) 排序 —— **每格只算一次 near**（原先算两遍）
     scored = sorted((near(c), c) for c in sorted(out))

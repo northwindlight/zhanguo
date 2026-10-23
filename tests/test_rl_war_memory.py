@@ -10,7 +10,7 @@
   ② **看得见就覆盖**（位置/血量变了要跟上）—— 这正是"追 a 的残余"所依赖的。
   ③ **看不见一个字都不动**（不是删）。
   ④ ★★ **绝不用全图真值删条目**：敌军**在视野外死掉**时，若拿
-     `world.armies` 里"它没了"去删，模型就**白得一条情报**（"它死了"），
+     `world.armies()` 里"它没了"去删，模型就**白得一条情报**（"它死了"），
      而真玩家**不该知道** ⇒ 这条专门钉它。**这是用户总口径
      「除威胁系统外不许读对手当前状态」在记忆上的直接推论。**
   ⑤ **必须过期**（`age > max_age` 不再返回）—— 不然等于教模型**相信幽灵**。
@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rl.sandbox import Sandbox                       # noqa: E402
 from rl.war_memory import WarMemory                  # noqa: E402
+from tests.rl_deps import new_army
 
 FULL = None          # 全知掩码在下面按需构造
 
@@ -36,12 +37,13 @@ def _sb(size=12, n=3, seed=3):
 
 
 def _all_cells(sb):
-    return frozenset(sb.world.tiles)
+    return frozenset(r.position for r in sb.env.tiles())
 
 
 def _enemy(sb, me):
-    return [a for a in sb.world.armies
-            if a["owner"] != me and a["owner"] in sb.world.nations and a["hp"] > 0]
+    return [a for a in sb.env.armies()
+            if sb.env.owner_of(a) != me and sb.env.owner_of(a) in sb.env.nations()
+            and a.hp > 0]
 
 
 class TestWarMemory(unittest.TestCase):
@@ -57,14 +59,14 @@ class TestWarMemory(unittest.TestCase):
         one = next(iter(_enemy(sb, me)))
         cell = (one["x"], one["y"])
         wm = WarMemory()
-        wm.observe(sb.world, me, frozenset({cell}), 0)
+        wm.observe(sb.env, me, frozenset({cell}), 0)
         recs = wm.known(me, 1, frozenset())
         self.assertTrue(recs, "掩码里的敌军一条都没记下")
         self.assertTrue(all((r["x"], r["y"]) == cell for r in recs),
                         "记下了掩码之外的军 ⇒ 偷看了")
         # ★ 反向对照：空掩码 ⇒ 一条都不该记
         wm2 = WarMemory()
-        wm2.observe(sb.world, me, frozenset(), 0)
+        wm2.observe(sb.env, me, frozenset(), 0)
         self.assertEqual(len(wm2), 0, "空掩码也记下了东西")
 
     def test_visible_overwrites_position_and_hp(self):
@@ -73,16 +75,28 @@ class TestWarMemory(unittest.TestCase):
         me = sb.players[0]
         a = next(iter(_enemy(sb, me)))
         wm = WarMemory()
-        wm.observe(sb.world, me, _all_cells(sb), 0)
+        wm.observe(sb.env, me, _all_cells(sb), 0)
         hp0 = wm.known(me, 1, frozenset())       # 全部当"不可见"⇒ 都返回
         rec0 = next(r for r in hp0 if r["gid"] == a["gid"])
-        # 打掉它一半血、并挪一格 ⇒ 再看一次
-        a["hp"] = a["hp"] // 2
-        a["x"], a["y"] = (a["x"] + 1) % sb.size, a["y"]
-        wm.observe(sb.world, me, _all_cells(sb), 5)
+        # ★★ 走**引擎**（旧写法是直接改门面自记的军队 dict ⇒ 引擎那边根本不知道）：
+        #   挪一格 = native 的 `move`；掉血 = **真的打一架**（native 的 `attack` + 结算）。
+        #   ⇒ "伤兵"这个状态在引擎里只能由**战斗**产生，没有别的口子。
+        unit = next(u for u in sb.env.armies() if u["gid"] == a["gid"])
+        # 我方一支军摆到它旁边 ⇒ 打一架（native 的 `attack`）
+        side = (unit.x, unit.y)
+        new_army(sb.env, me, (side[0] - 1, side[1]))
+        mine = next(u for u in sb.env.armies()
+                    if sb.env.owner_of(u) == me and (u.x, u.y) == (side[0] - 1, side[1]))
+        sb.env.call("native:army", "attack", sb.env.id_of(me), [mine.id], side[0], side[1])
+        sb.env.resolve()
+        now = next((u for u in sb.env.armies() if u["gid"] == a["gid"]), None)
+        self.assertIsNotNone(now, "用例前提：它不该被打死（否则测的是另一条）")
+        wm.observe(sb.env, me, _all_cells(sb), 5)
         rec1 = next(r for r in wm.known(me, 6, frozenset()) if r["gid"] == a["gid"])
-        self.assertEqual(rec1["hp"], a["hp"], "血量没跟上 ⇒ 认不出'残余'")
-        self.assertEqual((rec1["x"], rec1["y"]), (a["x"], a["y"]), "位置没跟上")
+        # ★ 断的是"**记忆 == 引擎的当前状态**"（血量取多少由引擎算，不钉具体值）
+        self.assertEqual(rec1["hp"], now["hp"], "血量没跟上 ⇒ 认不出'残余'")
+        self.assertEqual((rec1["x"], rec1["y"]), (now["x"], now["y"]), "位置没跟上")
+        self.assertLess(now["hp"], a["hp"], "用例前提：它得真掉血了（引擎算的）")
         self.assertEqual(rec1["turn"], 5)
 
     def test_not_visible_means_untouched(self):
@@ -90,9 +104,9 @@ class TestWarMemory(unittest.TestCase):
         sb = _sb()
         me = sb.players[0]
         wm = WarMemory()
-        wm.observe(sb.world, me, _all_cells(sb), 0)
+        wm.observe(sb.env, me, _all_cells(sb), 0)
         before = len(wm)
-        wm.observe(sb.world, me, frozenset(), 1)     # 什么都看不见
+        wm.observe(sb.env, me, frozenset(), 1)     # 什么都看不见
         self.assertEqual(len(wm), before, "看不见反而把账本弄小了")
 
     def test_annihilated_in_sight_is_removed_permanently(self):
@@ -106,11 +120,14 @@ class TestWarMemory(unittest.TestCase):
         cell = (victim["x"], victim["y"])
         gid = victim["gid"]
         wm = WarMemory()
-        wm.observe(sb.world, me, frozenset({cell}), 0)
+        wm.observe(sb.env, me, frozenset({cell}), 0)
         self.assertIn(gid, {r["gid"] for r in wm.known(me, 1, frozenset())})
         # 它在**我盯着的这一格上**被歼灭
-        sb.world.armies = [a for a in sb.world.armies if a["gid"] != gid]
-        wm.observe(sb.world, me, frozenset({cell}), 1)      # ★ 仍在盯着那格
+        # ★ 歼灭 = **真删**（native 的 `disband`）—— 旧做法是改门面自记的军队表
+        for a in list(sb.env.armies()):
+            if a["gid"] == gid:
+                sb.env.call("native:army", "disband", a.owner, a.id)
+        wm.observe(sb.env, me, frozenset({cell}), 1)      # ★ 仍在盯着那格
         self.assertNotIn(gid, {r["gid"] for r in wm.known(me, 2, frozenset())},
                          "当场地看见它被歼灭，却没有永久移除")
         # ★ 永久：再过很多回合也不会回来
@@ -124,9 +141,9 @@ class TestWarMemory(unittest.TestCase):
         cell = (victim["x"], victim["y"])
         gid = victim["gid"]
         wm = WarMemory()
-        wm.observe(sb.world, me, frozenset({cell}), 0)
+        wm.observe(sb.env, me, frozenset({cell}), 0)
         victim["x"], victim["y"] = (victim["x"] + 3) % sb.size, victim["y"]   # 挪走
-        wm.observe(sb.world, me, frozenset({cell}), 1)      # 我还在看**老地方**
+        wm.observe(sb.env, me, frozenset({cell}), 1)      # 我还在看**老地方**
         self.assertIn(gid, {r["gid"] for r in wm.known(me, 2, frozenset())},
                       "★ 把'绕后的敌军'当成'已歼灭'删掉了")
 
@@ -141,10 +158,13 @@ class TestWarMemory(unittest.TestCase):
         cell = (victim["x"], victim["y"])
         gid = victim["gid"]
         wm = WarMemory()
-        wm.observe(sb.world, me, _all_cells(sb), 0)
-        sb.world.armies = [a for a in sb.world.armies if a["gid"] != gid]
+        wm.observe(sb.env, me, _all_cells(sb), 0)
+        # ★ 歼灭 = **真删**（native 的 `disband`）—— 旧做法是改门面自记的军队表
+        for a in list(sb.env.armies()):
+            if a["gid"] == gid:
+                sb.env.call("native:army", "disband", a.owner, a.id)
         # ★ 掩码**不含**它最后出现的那一格 ⇒ 我根本看不见那儿
-        wm.observe(sb.world, me, frozenset(), 1)
+        wm.observe(sb.env, me, frozenset(), 1)
         self.assertIn(gid, {r["gid"] for r in wm.known(me, 2, frozenset())},
                       "★ 视野外死掉却把它删了 ⇒ 模型白知道了'它死了'")
 
@@ -153,7 +173,7 @@ class TestWarMemory(unittest.TestCase):
         sb = _sb()
         me = sb.players[0]
         wm = WarMemory(max_age=5)
-        wm.observe(sb.world, me, _all_cells(sb), 0)
+        wm.observe(sb.env, me, _all_cells(sb), 0)
         gid = next(iter(_enemy(sb, me)))["gid"]
         self.assertIn(gid, {r["gid"] for r in wm.known(me, 5, frozenset())}, "刚好到期不该作废")
         self.assertNotIn(gid, {r["gid"] for r in wm.known(me, 6, frozenset())},
@@ -164,7 +184,7 @@ class TestWarMemory(unittest.TestCase):
         sb = _sb()
         me = sb.players[0]
         wm = WarMemory()
-        wm.observe(sb.world, me, _all_cells(sb), 0)
+        wm.observe(sb.env, me, _all_cells(sb), 0)
         vis = {a["gid"] for a in _enemy(sb, me)}
         self.assertEqual(wm.known(me, 1, vis), [], "看得见的也被当成'幽灵'发了一遍")
 
@@ -173,24 +193,24 @@ class TestWarMemory(unittest.TestCase):
         sb = _sb()
         me = sb.players[0]
         wm = WarMemory()
-        wm.observe(sb.world, me, _all_cells(sb), 0)
+        wm.observe(sb.env, me, _all_cells(sb), 0)
         owners = {r["owner"] for r in wm.known(me, 1, frozenset())}
-        self.assertTrue(owners <= set(sb.world.nations),
-                        f"账本里混进了非国家势力：{owners - set(sb.world.nations)}")
+        self.assertTrue(owners <= set(sb.env.nations()),
+                        f"账本里混进了非国家势力：{owners - set(sb.env.nations())}")
 
     def test_cap_is_respected(self):
         """★ 条数有上界（注意力是 O(N²)，不能无界）。"""
         sb = _sb()
         me = sb.players[0]
         wm = WarMemory(cap=3)
-        wm.observe(sb.world, me, _all_cells(sb), 0)
+        wm.observe(sb.env, me, _all_cells(sb), 0)
         self.assertLessEqual(len(wm.known(me, 1, frozenset())), 3, "超过上界了")
 
     def test_clone_is_independent(self):
         sb = _sb()
         me = sb.players[0]
         wm = WarMemory()
-        wm.observe(sb.world, me, _all_cells(sb), 0)
+        wm.observe(sb.env, me, _all_cells(sb), 0)
         c = wm.clone()
         c._by[me].clear()
         self.assertGreater(len(wm), 0, "clone 之后原账本被改到了")
@@ -233,7 +253,7 @@ class TestSandboxWiring(unittest.TestCase):
         """
         for want in (True, False):
             sb = Sandbox(seed=3, size=12, n_nations=3, war=want).reset()
-            w, ps = sb.world, sb.players
+            w, ps = sb.env, sb.players
             pairs = [(a, b) for i, a in enumerate(ps) for b in ps[i + 1:]]
             self.assertEqual(len(pairs), 3, "三国局应有 3 个 pair")
             for a, b in pairs:

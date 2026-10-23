@@ -1,0 +1,77 @@
+# RL 训练能力 `rl:train` 的**声明**。
+#
+# ★ 这个文件是"能力写进 mod.toml"的**唯一出处**（review §2.1）。
+#   旧 `rl/engine.py` 把发行版清单硬编码在代码里（`_MODS_TOML = ROOT / "mods.toml"`），
+#   能力清单更是**只存在于门面里**（哪个方法被调、对应引擎哪个能力，代码里散着看），
+#   ⇒ 引擎改了方法名，RL 侧**运行时才崩或静默算错**。
+#
+# ★ `[Interfaces]` 是**调用清单**，加载时逐个校验方法存在
+#   （`engine/runtime.py:683-707`，缺一个直接 `ModError`）。
+#   加载期报错 = "不静默"。
+#
+# ★ 方法名以**能力对象上的真实方法**为准
+#   （`objects()` 返回的就是 `world.army` / `world.territory` / …）。
+#   ⚠ 注意：`native:army` 的**能力对象**（`Military`）上**没有** `frontier` ——
+#     `frontier` 在它的 PlayerAPI 上（`mods/native/army/api.py:73`），
+#     那是**玩家面**的口子，不是能力面。
+#     RL 要的"某国外缘格"用 `native:territory` 的 `owned` + `neighbors` + `owner` 现算。
+[Mod]
+Id = "rl:train"
+Version = "1.0.0"
+Entry = "rl.mods.train.mod:TrainMod"
+Requires = ["native:army", "native:territory", "native:vision", "native:diplomacy",
+            "native:buildings", "native:government", "native:nations",
+            "experimental:combat-research"]
+After = ["native:army", "native:territory", "native:buildings", "native:government"]
+
+[State]
+Owns = ["rl_sandbox"]
+# ★ 结算后要把世界的阶段拨回"行动"（`native:diplomacy.submit` 只在行动阶段受理）
+#   ⇒ 需要**请求**写 `$engine` 的 `phase`。显式声明 ⇒ 不是偷偷改别人的状态。
+Requests = ["phase"]
+
+[Capabilities]
+Needs = ["native:army", "native:territory", "native:vision", "native:diplomacy",
+         "native:buildings", "native:government", "native:nations",
+         "native:nation-inspection", "research:combat-probabilities",
+         "rl:sandbox", "rl:truth", "rl:odds", "rl:scenario"]
+Provides = ["rl:sandbox", "rl:truth", "rl:odds"]
+
+[Interfaces]
+"native:army" = ["visible_units", "snapshot", "move", "attack", "retreat", "retreat_many",
+                 "disband", "disband_many", "reachable", "reachable_many",
+                 "recruit", "recruit_quote", "seed", "battle",
+                 "defense_pct", "faction_power", "spread_damage",
+                 "remove_nation", "claims"]
+"native:territory" = ["dimensions", "check", "neighbors", "terrain", "cell", "owner",
+                       "owned", "snapshot", "create", "create_claim", "transfer", "claim",
+                       "resolve", "snapshot_cores", "configure"]
+"native:vision" = ["visible", "tiles", "positions"]
+"native:diplomacy" = ["war_between", "allied", "at_war", "passage", "entity", "members",
+                       "alliance", "snapshot", "submit", "vote"]
+"native:buildings" = ["site", "effects", "count", "snapshot", "seed", "has_role",
+                       "kinds_with_role", "kind_with_role", "count_role", "effect_role",
+                       "resolve_site", "register_site", "transfer_site"]
+"native:government" = ["period", "advance", "end_turn", "can_act", "snapshot"]
+"native:nations" = ["create", "ids", "get", "overview", "snapshot", "extinguish", "rename"]
+"native:nation-inspection" = ["ids", "get", "overview", "snapshot"]
+"research:combat-probabilities" = ["assess"]
+
+# ★★ RL 自己提供的三个能力，**也列进调用清单**。
+#   为什么连自产能力也声明：`Env` 的每次调用都跑在 `unit_context('rl:train')` 里，
+#   `runtime.object_call` 会检查"调用方声明过这个能力与方法吗"。
+#   ⇒ **RL 调任何东西（包括自己产的）都必须先声明**，漏声明 ⇒ 当场 `ModError`。
+#   ⇒ "不静默"是**结构性的**，不靠自觉。
+"rl:sandbox" = ["reset", "place_nation", "seed_building", "spawn", "recruit",
+                "recruit_quote", "purge_armies", "declare_war", "declare_wars", "set_alliance",
+                "owner_of", "owned_cells", "claim"]
+"rl:truth" = ["defense_pct", "defenders"]
+"rl:odds" = ["assess"]
+"rl:scenario" = ["setup"]
+
+# ★ 沙盒**参数**（不是引擎规则）—— 声明在这里，便于"改参数不改代码"。
+[Sandbox]
+# 沙盒不管经济（补员自己算），但引擎的补给阶段每回合收军粮；
+# 断粮 ⇒ 每军扣 HP ⇒ 军队是"饿死"的不是战死的（实测踩过：无人交战却每回合稳定掉血）。
+Stock = 100000
+Supply = 1000000

@@ -56,7 +56,7 @@ class Plan:
 
 
 # ============================================================ ① 目标池（自己写的）
-def targets(world, name: str, mask, *, enemy: str | None,
+def targets(env, name: str, mask, *, enemy: str | None,
             defend: bool = True, scout: bool = True,
             scout_push: int = 2) -> list[tuple]:
     """候选目标格。**这一层 v11plus 完全没有** —— 它的池子只有"可攻格"。
@@ -73,51 +73,53 @@ def targets(world, name: str, mask, *, enemy: str | None,
     """
     out: set = set()
 
-    for cell, t in sorted(world.tiles.items()):
-        if enemy and t["owner"] == enemy and t["buildings"].get("native:town-hall", 0) > 0:
+    for row in sorted(env.tiles(), key=lambda r: r.position):
+        cell = row.position
+        if enemy and row.owner == enemy and row.buildings.get("native:town-hall", 0) > 0:
             out.add(cell)                              # ★ 国祚：公开，不看视野
-    for cell, t in sorted(world.tiles.items()):
-        if cell in mask and t["owner"] not in (name, None) \
-                and world.war_between(name, t["owner"]):
+    for row in sorted(env.tiles(), key=lambda r: r.position):
+        cell = row.position
+        if cell in mask and row.owner not in (name, None) \
+                and env.war_between(name, row.owner):
             out.add(cell)                              # 交战敌国领土（要视野）
-    for cell in sorted(world.frontier_of(name)):
+    for cell in sorted(env.frontier_of(name)):
         if cell in mask:
             out.add(cell)                              # 可占野地
 
     if defend:
-        for cell, t in sorted(world.tiles.items()):
-            if t["owner"] == name and t["buildings"].get("native:town-hall", 0) > 0:
-                out.add(cell)                          # ★ 守家目标
+        for row in sorted(env.tiles(), key=lambda r: r.position):
+            if row.owner == name and row.buildings.get("native:town-hall", 0) > 0:
+                out.add(row.position)                  # ★ 守家目标
 
     if scout:
-        out |= _scout_cells(world, name, mask, enemy, push=scout_push)
+        out |= _scout_cells(env, name, mask, enemy, push=scout_push)
 
     return sorted(out)[:V11_MAX_CANDIDATES]
 
 
-def _scout_cells(world, name: str, mask, enemy: str | None, *, push: int) -> set:
+def _scout_cells(env, name: str, mask, enemy: str | None, *, push: int) -> set:
     """★ 侦察前沿：自家地块中**朝敌那一侧**的、视野罩不到的格，往外推 `push` 格。
 
     口径保守：只在"自家已有地的邻域"里挑（不凭空指远方），所以军队是**一步步**把
     视野推出去的，不会为了侦察跑断腿。没有敌人（或敌人已亡）⇒ 不侦察。
     """
-    if not enemy or enemy not in world.nations:
+    if not enemy or enemy not in env.nations():
         return set()
     ecore = None
-    for cell, t in sorted(world.tiles.items()):
-        if t["owner"] == enemy and t["buildings"].get("native:town-hall", 0) > 0:
-            ecore = cell
+    for row in sorted(env.tiles(), key=lambda r: r.position):
+        if row.owner == enemy and row.buildings.get("native:town-hall", 0) > 0:
+            ecore = row.position
             break
     if ecore is None:
         return set()
     ex, ey = ecore
     out: set = set()
-    frontier = world.frontier_of(name)
+    frontier = env.frontier_of(name)
     for (x, y) in sorted(frontier):
         if (x, y) in mask:
             continue                                   # 已经看得见 ⇒ 不用派侦察
         # 只收"朝敌方向"的那一片：到敌方核心的切比雪夫距离比我家核心更近
-        home = _home_of(world, name)
+        home = _home_of(env, name)
         if home is None:
             continue
         d_me = max(abs(x - home[0]), abs(y - home[1]))
@@ -127,25 +129,25 @@ def _scout_cells(world, name: str, mask, enemy: str | None, *, push: int) -> set
     return out
 
 
-def _home_of(world, name: str) -> tuple[int, int] | None:
-    for cell, t in sorted(world.tiles.items()):
-        if t["owner"] == name and t["buildings"].get("native:town-hall", 0) > 0:
-            return cell
+def _home_of(env, name: str) -> tuple[int, int] | None:
+    for row in sorted(env.tiles(), key=lambda r: r.position):
+        if row.owner == name and row.buildings.get("native:town-hall", 0) > 0:
+            return row.position
     return None
 
 
 # ============================================================ ② 威胁评估（自己写的）
-def threat_at_home(world, name: str, mask, *, enemy: str | None) -> int:
+def threat_at_home(env, name: str, mask, *, enemy: str | None) -> int:
     """★ 家里有多危险：**看得见**的敌军里，离我家核心最近的有多近（切比雪夫）。
 
     返回 `99` = 视野内没有威胁。这个数用来决定"守家目标抬多少价"。
     """
-    home = _home_of(world, name)
+    home = _home_of(env, name)
     if home is None or not enemy:
         return 99
     best = 99
-    for a in world.armies:
-        if a["owner"] != enemy or a.get("hp", 0) <= 0:
+    for a in env.armies():
+        if env.owner_of(a) != enemy or a.hp <= 0:
             continue
         if (a["x"], a["y"]) not in mask:               # ★ 看不见的敌人不算（迷雾纪律）
             continue
@@ -155,7 +157,7 @@ def threat_at_home(world, name: str, mask, *, enemy: str | None) -> int:
 
 
 # ============================================================ ③ 一个回合（自己写的编排）
-def run(world, name: str, *, enemy: str | None, max_actions: int = 10 ** 9,
+def run(env, name: str, *, enemy: str | None, max_actions: int = 10 ** 9,
         defend: bool = True, scout: bool = True, verbose: bool = False) -> list:
     """跑一个回合的军事动作，返回 `[(tool, args0based, ok, msg), …]`。
 
@@ -166,10 +168,11 @@ def run(world, name: str, *, enemy: str | None, max_actions: int = 10 ** 9,
       3. **编组**：`grouping._solve`（★抄）在候选上做全局指派 → `{军id: 目标格}`
       4. **出手 / 推进**：够得着且满血就打，否则用 `pathfind` 朝目标走一格（★抄）
     """
-    mask = pathfind.vision_mask(world, name)
-    armies = [a for a in world.troops if a["owner"] == name and a.get("hp", 0) > 0]
+    mask = pathfind.vision_mask(env, name)
+    armies = [a for a in env.armies() if env.owner_of(a) == name and a.hp > 0]
+    period = env.period()
     pool = [a for a in armies
-            if not a.get("engaged") and a.get("moved_turn") != world.turn]
+            if not a.engaged and a.moved_turn != period]
     acts: list = []
     if not pool:
         return acts
@@ -184,15 +187,15 @@ def run(world, name: str, *, enemy: str | None, max_actions: int = 10 ** 9,
     #     ② "家里告急 ⇒ 收缩池子"那段只筛了 `cells`，而 `_solve` 用的是**筛之前**
     #        建好的 `cands` ⇒ **收缩是空操作**（守家特性从来没生效过）。
     #   ⇒ 现在：威胁先行 → 只**真有威胁**时才把自家核心当目标 → 用**最终**池子建候选。
-    near = threat_at_home(world, name, mask, enemy=enemy)
+    near = threat_at_home(env, name, mask, enemy=enemy)
     urgent = bool(defend) and near <= DEFEND_R
-    cells = targets(world, name, mask, enemy=enemy, defend=urgent, scout=scout)
+    cells = targets(env, name, mask, enemy=enemy, defend=urgent, scout=scout)
     if urgent:
         # ★ 家里告急：把池子**收缩**到「守家 + 侦察前沿」⇒ 求解器只能派兵往回走。
         #   为什么不用"加成"：`grouping._solve` 的目标函数是固定的（`Σ(spread+reach+λ·缺员)`），
         #   它**不收**外部权重 ⇒ 表达优先级只能靠「给它什么候选」，这也顺带不用改 v11plus 的代码。
-        home = _home_of(world, name)
-        keep = _scout_cells(world, name, mask, enemy, push=1)
+        home = _home_of(env, name)
+        keep = _scout_cells(env, name, mask, enemy, push=1)
         cells = [c for c in cells if c == home or c in keep]
         if not cells and home is not None:
             cells = [home]
@@ -202,17 +205,17 @@ def run(world, name: str, *, enemy: str | None, max_actions: int = 10 ** 9,
     # ---- 2. 目标评估（★抄 v11plus 的 assess）----
     cands = []
     for cell in cells:
-        d = assess(world, name, cell, armies, visible=cell in mask,
+        d = assess(env, name, cell, armies, visible=cell in mask,
                    need_cap=V11_NEED_CAP, rounds_cap=V11_ROUNDS_CAP)
         cands.append(grouping.Candidate(cell, d.need, d.rounds, d.empty, d.winnable,
-                                        world.tile_terrain(*cell) if cell in mask else None,
+                                        env.terrain(*cell) if cell in mask else None,
                                         ()))
     diff_of = {c.cell: c for c in cands}
 
     # ---- 3. 编组（★抄 v11plus 的全局指派求解器）----
     cache: dict = {}
     picked, exact = grouping._solve(
-        world, name, cands, pool, mask, cache,
+        env, name, cands, pool, mask, cache,
         V11_SOLVER_NODE_CAP, V11_NEAR_TARGETS, {})
     if not picked:
         return acts
@@ -231,10 +234,10 @@ def run(world, name: str, *, enemy: str | None, max_actions: int = 10 ** 9,
     def reach_of(a, *, for_attack: bool):
         key = (a["id"], for_attack)
         if key not in reach:
-            reach[key] = world._reachable(name, a, for_attack=for_attack)
+            reach[key] = env.reachable(name, a, for_attack=for_attack)
         return reach[key]
 
-    home = _home_of(world, name)
+    home = _home_of(env, name)
 
     # ---- 4. 出手 / 推进（★抄 pathfind，取舍自己写）----
     for cell in sorted(groups):
@@ -247,34 +250,34 @@ def run(world, name: str, *, enemy: str | None, max_actions: int = 10 ** 9,
         able = [] if is_home else [
             a for a in members
             if a["hp"] >= unit_max_hp(a)
-            and pathfind.marchable(world, name, a, cell, reach=reach_of(a, for_attack=True))]
+            and pathfind.marchable(env, name, a, cell, reach=reach_of(a, for_attack=True))]
         d = diff_of.get(cell)
-        if able and d is not None and d.winnable and cell in mask and not _taken(world, name, cell):
-            ok, msg = world.attack(name, [a["id"] for a in able], cell[0], cell[1])
+        if able and d is not None and d.winnable and cell in mask and not _taken(env, name, cell):
+            ok, msg = env.attack(name, [a["id"] for a in able], cell[0], cell[1])
             acts.append(("attack", {"army_ids": [a["id"] for a in able],
                                     "x": cell[0] + 1, "y": cell[1] + 1}, ok, msg))
             if ok:
                 used.update(a["id"] for a in able)
                 continue
-        if _taken(world, name, cell):
+        if _taken(env, name, cell):
             continue
         for a in members:
             if a["id"] in used:
                 continue
-            fld = pathfind.cost_field(world, name, {cell}, unit_kind(a), mask,
+            fld = pathfind.cost_field(env, name, {cell}, unit_kind(a), mask,
                                       max_cost=V11_FIELD_MAX_COST, cache=cache)
-            nxt = pathfind.best_step(world, name, a, fld,
+            nxt = pathfind.best_step(env, name, a, fld,
                                      reach=reach_of(a, for_attack=False), goal=cell)
             if nxt is None:
                 continue
-            ok, msg = world.move(name, a["id"], nxt[0], nxt[1])
+            ok, msg = env.move(name, a["id"], nxt[0], nxt[1])
             acts.append(("move", {"army_id": a["id"], "x": nxt[0] + 1, "y": nxt[1] + 1},
                          ok, msg))
     return acts
 
 
-def _taken(world, name: str, cell) -> bool:
+def _taken(env, name: str, cell) -> bool:
     """这一格已经不是能打的了（变成自己的/盟国的）。"""
-    owner = world.owned_by(*cell)
-    return owner is not None and (owner == name or world.allied_between(name, owner)
-                                  or not world.war_between(name, owner))
+    owner = env.owner(*cell)
+    return owner is not None and (owner == name or env.allied(name, owner)
+                                  or not env.war_between(name, owner))

@@ -50,25 +50,64 @@ def _fill_foot(sb, me):
     return foot
 
 
+def _next_period(sb) -> None:
+    """推进**引擎的期号**（native 的征召额度是**每期每地**的 ⇒ 不推进就补不了第二支）。
+
+    ★ 旧门面没有额度这回事 ⇒ 那个测试连着调 20 次 `resupply` 就能补满；
+      引擎上**必须**一期一次（这正是"额度归引擎"的意思）。
+    """
+    sb.env.resolve()
+    sb.turn = sb.env.period()
+
+
+def _militia_cap(sb, me) -> int:
+    """该国的**民兵编制上限**（native 的口径：每座**军屯** 2 支）。
+
+    ★ 引擎的 `militia_cap` 挂在**站点**上（`native:militia-camp` 的效果），
+      编制是全国口径 ⇒ 各国军屯数 × 2。
+    """
+    total = 0
+    for r in sb.env.tiles():
+        if r.owner != me or not r.tile_id:
+            continue
+        n = sb.env.call("native:buildings", "count", r.tile_id, "native:militia-camp")
+        total += n * sb.env.call("native:buildings", "effects", r.tile_id,
+                                 "native:militia-camp").get("militia_cap", 0)
+    return total
+
+
 def _kill_foot(sb, me, n):
     """打掉 `n` 支步兵（直接改 `world`，形状等价于战损）—— 用来造"缺员"。"""
-    ids = [id(a) for a in sb.world.armies
-           if a["owner"] == me and a.get("type", "native:infantry") == "native:infantry"][:n]
-    sb.world.armies = [a for a in sb.world.armies if id(a) not in set(ids)]
+    # ★ 走**引擎**（native 的 `disband`＝真删）—— 旧做法是改门面自记的军队表，
+    #   引擎那边根本不知道 ⇒ 补员看到的是"没掉兵"的假局面。
+    for a in list(sb.env.armies()):
+        if sb.env.owner_of(a) == me and a.get("type", "native:infantry") == "native:infantry":
+            sb.env.call("native:army", "disband", a.owner, a.id)
+            n -= 1
+            if n <= 0:
+                break
 
 
 class TestMilitiaCap(unittest.TestCase):
-    def test_capped_at_2x_foot(self):
+    def test_capped_at_the_engine_limit(self):
+        """★★ 民兵上限 = **引擎的编制**（每座军屯 2 支），不是 RL 自己算的"步兵×2"。
+
+        ★ 旧口径"民兵 = 步兵 × 2"是 RL 侧自造的**第二份上限**（引擎里没有这条规则），
+          而引擎的真上限是**每座军屯 2 支** ⇒ 按 native 断。
+        ★ 征召额度是**每期每地 1 支** ⇒ 补不满要**推进期号**（`_next_period`）。
+        """
         sb = _sb()
         me = sb.players[0]
-        foot = _fill_foot(sb, me)
+        _fill_foot(sb, me)
+        cap = _militia_cap(sb, me)
         over = 0
-        for _ in range(20):                       # 每轮 厅×1=2 支，20 轮足够撞上限
+        for _ in range(20):                       # 每轮**推进一期**（额度是每期的）
+            _next_period(sb)
             sb.resupply()
-            over += max(0, sb.count_of(me, "native:militia") - SB.MILITIA_PER_FOOT * foot)
+            over += max(0, sb.count_of(me, "native:militia") - cap)
         self.assertEqual(over, 0, "中途越过上限了")
-        self.assertEqual(sb.count_of(me, "native:militia"), SB.MILITIA_PER_FOOT * foot,
-                         "跑够多轮后应当**恰好**停在 步兵×2 上")
+        self.assertEqual(sb.count_of(me, "native:militia"), cap,
+                         "跑够多轮后应当**恰好**停在**引擎的编制上限**上")
 
     def test_constant_is_what_binds(self):
         """★ **反向对照**：把常量调大 ⇒ 它就该出更多。
@@ -77,19 +116,23 @@ class TestMilitiaCap(unittest.TestCase):
         """
         sb = _sb()
         me = sb.players[0]
-        foot = _fill_foot(sb, me)
-        with mock.patch.object(SB, "MILITIA_PER_FOOT", 5):
-            for _ in range(20):
-                sb.resupply()
-        self.assertEqual(sb.count_of(me, "native:militia"), 5 * foot,
-                         "常量调大后上限**必须**跟着动 —— 否则被别的东西卡住了")
+        _fill_foot(sb, me)
+        for _ in range(20):                       # ★ 每轮**推进一期**（额度是每期的）
+            _next_period(sb)
+            sb.resupply()
+        # ★★ 上限**归引擎**（native：每座**军屯**驻 2 支）—— 旧口径"民兵 = 步兵 × 2"
+        #   是 RL 自己算的第二份上限（引擎里没有这条规则）⇒ 按 native 断。
+        self.assertEqual(sb.count_of(me, "native:militia"), _militia_cap(sb, me),
+                         "民兵的编制上限应当是**引擎的**（每座军屯 2 支）")
 
     def test_full_roster_spawns_nothing(self):
         """满编后是**停**，不是"慢慢出"。"""
         sb = _sb()
         me = sb.players[0]
-        foot = _fill_foot(sb, me)
-        for _ in range(20):
+        _fill_foot(sb, me)
+        for _ in range(20):                       # ★ 每轮**推进一期**（额度是每期的）
+            _next_period(sb)
+            sb.turn = SB.RESUPPLY_EVERY         # ★ 落在补员触发点上
             sb.resupply()
         n_at_cap = sb.count_of(me, "native:militia")
         mine_before = len(sb.armies_of(me))
@@ -97,7 +140,10 @@ class TestMilitiaCap(unittest.TestCase):
         self.assertEqual(sb.count_of(me, "native:militia"), n_at_cap, "满编后还在出民兵")
         self.assertEqual(len(sb.armies_of(me)), mine_before, "满编后我这国的军队还在涨")
         mine = [t for t in notes if t.startswith(me)]
-        self.assertTrue(any("满编" in t for t in mine),
+        # ★ 判据是"**说清楚了为什么没出**"，**不钉具体措辞** ——
+        #   挡下来的原因由**引擎**给（额度/编制），RL 侧照抄它的话 ⇒
+        #   措辞随引擎变，钉字就会变成"引擎改一句话就红"。
+        self.assertTrue(any(("满编" in t) or ("挡下" in t) or ("额度" in t) for t in mine),
                         f"满编时该说清楚为什么没出（拿到的是 {mine}）")
 
     def test_attrition_lowers_the_cap_but_does_not_cull(self):

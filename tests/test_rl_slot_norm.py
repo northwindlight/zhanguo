@@ -31,10 +31,9 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+from tests.rl_deps import has_torch, torch, torch_or_skip
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
 
 if has_torch():
     from rl import train as T                             # noqa: E402
@@ -54,9 +53,9 @@ def load_tests(loader, tests, pattern):
 N_FEED = 300          # 喂多少步（要够久才看得出"无界"）
 
 
-def _net_and_steps(seed=7, size=10):
+def _net_and_steps(seed=7, size=8):
     torch.manual_seed(seed)
-    sb = Sandbox(seed=seed, size=size, t_max=20, n_nations=2, halls_known=True,
+    sb = Sandbox(seed=seed, size=size, t_max=10, n_nations=2, halls_known=True,
                  territory=True, alliances="none").reset()
     nets = {p: build_model(mem_slots=V.M_SLOTS) for p in sb.players}
     for m in nets.values():

@@ -1,0 +1,44 @@
+# RL 沙盒剧本 `scenario:rl-sandbox` 的**声明**。
+#
+# ★ 摆局的**口径**归剧本管（review §2.3）：
+#   "这样'环状/十字/强制平原/野人标记'全部变成**剧本数据 + 明示能力调用**"
+#   ⇒ 这里只有**参数**与**声明**，没有"在代码里硬编码的发行版清单"，
+#     也没有"门面自己模拟旧开局"。
+#
+# ★ 能力分工：
+#   `rl:scenario`  ← 本 mod 提供：**摆局的参数与几何**（十字、扩地、开局兵）。
+#   `rl:sandbox`   ← `rl:train` 提供：**摆局的机械动作**（只调 native 已声明的方法）。
+#   本 mod **不直接调 native** ⇒ 它不重复声明 native 的接口，也不复刻引擎规则。
+[Mod]
+Id = "scenario:rl-sandbox"
+Version = "1.0.0"
+Entry = "rl.mods.scenario.mod:RLSandboxMod"
+Requires = ["rl:train"]
+After = ["rl:train"]
+
+[Capabilities]
+Needs = ["rl:sandbox"]
+Provides = ["rl:scenario"]
+
+[Interfaces]
+"rl:sandbox" = ["reset", "place_nation", "seed_building", "spawn",
+                "owner_of", "owned_cells", "claim"]
+
+# ★ 剧本参数（可调先验，**不是**引擎常数）。
+[Scenario]
+# 核心格上的建筑：市政厅 1（国祚）、城堡 2（防御）、兵营 N（征召额度）。
+Castle = 2
+# 军屯（民兵的征召口）：每座驻 2 支、每期征 1 支。**没有它就没有民兵**。
+MilitiaCamp = 1
+# 兵营数 = 每期的征召额度（native 的 `recruit_cap` 是**按兵营数**给的）。
+# ★ **2 座就够**：RL 的补员配额是 `1 + 厅 = 2` 支/期，而 native 的额度是
+#   **每期每兵营 1 支** ⇒ 2 座兵营正好吃得下（native 的硬约束，**不绕过**）。
+#   ★ 摆 8 座是浪费：建局时每座都是一次能力调用，白白拖慢每一局。
+Barracks = 2
+# 开局每国几支步兵。
+Army = 5
+# 开局国土占"每国摊到的格数"的比例区间（**各国严格同数**）。
+TerritoryFracLo = 0.15
+TerritoryFracHi = 0.35
+# 1v1（`n <= 2`）走加码比例（用户 2026-09-27 定的口径）。
+TerritoryFrac2P = [0.35, 0.60]

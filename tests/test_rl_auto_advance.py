@@ -25,6 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rl.sandbox import Sandbox                      # noqa: E402
+from tests.rl_deps import set_owner
 
 
 def _sb(seed=3, size=8, n=3, t_max=20):
@@ -34,7 +35,10 @@ def _sb(seed=3, size=8, n=3, t_max=20):
 
 def _disarm(sb, name):
     """把某一国的兵全部抹掉（等价于"打光了"，但不改它的厅 ⇒ 它**还活着**）。"""
-    sb.world.armies[:] = [a for a in sb.world.armies if a["owner"] != name]
+    # ★ 解散走**引擎**（native 的 `disarm`）—— 旧做法是改门面自记的军队表
+    for a in list(sb.env.armies()):
+        if sb.env.owner_of(a) == name:
+            sb.env.call("native:army", "disband", a.owner, a.id)
 
 
 class TestNoStall(unittest.TestCase):
@@ -111,9 +115,10 @@ class TestDeadNationDoesNotBlockTheTurnQueue(unittest.TestCase):
         #   之后才死的，`pending` 没被重建 ⇒ 死国留在队首。
         sb.pending = [dead] + [p for p in sb.players if p != dead]
         # ★ 拔掉它的厅 ⇒ 亡国；但**兵留着**（军不会跟着厅一起消失）。
-        core = next(c for c, t in sorted(sb.world.tiles.items())
-                    if t["owner"] == dead and t["buildings"].get("native:town-hall", 0) > 0)
-        sb.world.tiles[core]["buildings"]["native:town-hall"] = 0
+        core = next(c for c, t in sorted(((r.position, r) for r in sb.env.tiles()), key=lambda p: p[0])
+                    if t.owner == dead and t.buildings.get("native:town-hall", 0) > 0)
+        # ★ 拔掉它的厅 ⇒ 亡国（引擎里"厅没了"＝**站点转走**；兵不会跟着消失）
+        set_owner(sb.env, core, None)
         self.assertFalse(sb.alive(dead), "用例前提：它已经亡国")
         self.assertTrue(sb.armies_of(dead), "用例前提：它还有残兵（这才是那个坑的前提）")
         self.assertTrue(sb.can_act(dead) is False,

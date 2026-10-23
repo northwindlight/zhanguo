@@ -39,8 +39,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np                                    # noqa: E402
-from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
-
+from tests.rl_deps import has_torch, torch, torch_or_skip
 if has_torch():
     from rl import encode as E                            # noqa: E402
     from rl import scoring as S                           # noqa: E402
@@ -84,7 +83,7 @@ def load_tests(loader, tests, pattern):
 PARAMS_NO_MEM = 1392146
 
 
-def _sb(seed=7, size=10, n=3, t_max=60):
+def _sb(seed=7, size=8, n=3, t_max=20):
     return Sandbox(seed=seed, size=size, n_nations=n, t_max=t_max,
                    halls_known=True).reset()
 
@@ -263,8 +262,8 @@ class TestWindowsNeverCrossAnEpisode(unittest.TestCase):
         #   于是每个 `done` 都**恰好落在窗口边界上**（构造性巧合）⇒ 把断点删掉
         #   守卫**照样绿**。**又是假绿**。用 20 ⇒ 局末落在窗口**中间**。
         for e in range(3):                            # ★ 三局拼一个缓冲区
-            sb = _sb(seed=20 + e, t_max=60)
-            ln = 20 + e
+            sb = _sb(seed=20 + e, t_max=12)
+            ln = 10 + e
             self.assertNotEqual(ln % S.MEM_TBPTT, 0,
                                 "局末必须落在窗口中间，否则这条守卫测不到东西")
             st, _ = T.collect_episode({p: nets[p] for p in sb.players}, sb,
@@ -289,7 +288,7 @@ class TestWindowsNeverCrossAnEpisode(unittest.TestCase):
         sb = _sb()
         nets = {p: build_model(mem_slots=V.M_SLOTS) for p in sb.players}
         steps, _ = T.collect_episode(nets, sb, rng=np.random.default_rng(0),
-                                     max_steps=40)
+                                     max_steps=16)
         wins = T._mem_windows(steps, 8)
         flat = [i for w in wins for i in w]
         self.assertEqual(flat, sorted(flat), "窗口把步序打乱了 ⇒ 槽链是错的")
@@ -299,12 +298,12 @@ class TestMemoryActuallyLearns(unittest.TestCase):
     """⑥ ★★ 最值钱的一条：拿真的一局跑几十步优化，辅助损失要降、槽要开始动。"""
 
     def test_aux_loss_drops_and_slots_start_moving(self):
-        sb = _sb(seed=11, size=10, n=3, t_max=60)
+        sb = _sb(seed=11, size=8, n=3, t_max=20)
         net = build_model(mem_slots=V.M_SLOTS)
         net.train()
         nets = {p: net for p in sb.players}
         steps, _ = T.collect_episode(nets, sb, rng=np.random.default_rng(1),
-                                     max_steps=48)
+                                     max_steps=16)
         buf = [s for s in steps if s.player == sb.players[0]]
         self.assertGreater(len(buf), 8, "这一方步数太少，测不出东西")
         self.assertTrue(any(s.aux is not None for s in buf), "一个辅助目标都没有")

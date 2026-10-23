@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rl import encode, evaluate as E, vocab as V    # noqa: E402
 from rl.sandbox import Sandbox, n_nations_for       # noqa: E402
 from rl_deps import has_torch, torch_or_skip        # noqa: E402
+from tests.rl_deps import has_torch, torch_or_skip
 
 BLIND = frozenset()
 
@@ -89,17 +90,17 @@ class TestSandboxMultiNation(unittest.TestCase):
         ps = sb.players
         for i, a in enumerate(ps):
             for b in ps[i + 1:]:
-                self.assertTrue(sb.world.war_between(a, b), f"{a}-{b} 没宣战")
+                self.assertTrue(sb.env.war_between(a, b), f"{a}-{b} 没宣战")
 
     def test_explicit_wars_make_neutrals(self):
         """④ 反过来：要中立国得**显式**给 `wars=`（结盟不够 —— 缺省已全体交战）。"""
         sb = sb_of(size=12, wars=[("甲", "乙")])
-        self.assertTrue(sb.world.war_between("甲", "乙"))
-        self.assertFalse(sb.world.war_between("甲", "丙"), "丙该是中立国")
+        self.assertTrue(sb.env.war_between("甲", "乙"))
+        self.assertFalse(sb.env.war_between("甲", "丙"), "丙该是中立国")
         # 中立国那格在观测里必须是 `OWN_NEUTRAL_NATION`（不是 `RIVAL`）——
         #   两类在引擎里的可行动作**相反**，混成一类网络就分不出该不该打。
         cell = sb.core_of("丙")
-        self.assertEqual(encode._owner_class(sb.world, "甲", *cell),
+        self.assertEqual(encode._owner_class(sb.env, "甲", *cell),
                          V.OWN_NEUTRAL_NATION)
 
     def test_first_rotates_over_all_k(self):
@@ -140,10 +141,10 @@ class TestEnemiesAreASet(unittest.TestCase):
 
     def test_enemies_of_returns_all_rivals(self):
         sb = sb_of(size=12)
-        self.assertEqual(set(encode.enemies_of(sb.world, "甲")), {"乙", "丙"})
+        self.assertEqual(set(encode.enemies_of(sb.env, "甲")), {"乙", "丙"})
         # ★ 与打分器**同一口径**（两份实现必然漂移 ⇒ 只允许一份）
-        self.assertEqual(sorted(encode.enemies_of(sb.world, "甲")),
-                         sorted(E.rival_nations(sb.world, "甲")))
+        self.assertEqual(sorted(encode.enemies_of(sb.env, "甲")),
+                         sorted(E.rival_nations(sb.env, "甲")))
 
     def test_passing_mask_as_enemy_is_rejected(self):
         """★★ **把 `mask` 传进 `enemy` 位置 ⇒ 当场 `TypeError`**（防偷看的结构闸）。
@@ -157,13 +158,13 @@ class TestEnemiesAreASet(unittest.TestCase):
         """
         sb = sb_of(size=12)
         with self.assertRaises(TypeError):
-            E.score(sb.world, "甲", BLIND)              # 本意是 mask，会被当成 enemy
+            E.score(sb.env, "甲", BLIND)              # 本意是 mask，会被当成 enemy
         with self.assertRaises(TypeError):
-            E.score(sb.world, "甲", frozenset({"乙"}))   # 集合也不行（名字要用 list）
+            E.score(sb.env, "甲", frozenset({"乙"}))   # 集合也不行（名字要用 list）
         # ★ 反向对照：**正确的**写法必须照常可用（别把闸门做成"什么都不能传"）
-        self.assertIsInstance(E.score(sb.world, "甲", mask=BLIND), float)
-        self.assertIsInstance(E.score(sb.world, "甲", "乙", mask=BLIND), float)
-        self.assertIsInstance(E.score(sb.world, "甲", ["乙", "丙"], mask=BLIND), float)
+        self.assertIsInstance(E.score(sb.env, "甲", mask=BLIND), float)
+        self.assertIsInstance(E.score(sb.env, "甲", "乙", mask=BLIND), float)
+        self.assertIsInstance(E.score(sb.env, "甲", ["乙", "丙"], mask=BLIND), float)
 
     def test_no_foe_scalars_and_no_rule_derived_caps(self):
         """★★ 那五个"对手标量"**必须不在观测里**（用户 2026-09-25：「**全都不要了**」）。
@@ -195,8 +196,8 @@ class TestEnemiesAreASet(unittest.TestCase):
     def test_visible_rival_armies_all_enter_tokens(self):
         """两个对手的军，**只要看得见都该进 token**（原来只收"那一个敌人"的）。"""
         sb = sb_of(size=12)
-        w = sb.world
-        mask = frozenset(w.tiles)                  # 全看见
+        w = sb.env
+        mask = frozenset(r.position for r in w.tiles())                  # 全看见
         armies = encode.window_armies(sb, "甲", mask)
         owners = {a["owner"] for a in armies}
         self.assertEqual(owners, {"甲", "乙", "丙"},
@@ -210,10 +211,10 @@ class TestEnemiesAreASet(unittest.TestCase):
         """
         from rl import scoring as S
         sb = sb_of(size=12)
-        base = E.score(sb.world, "甲", mask=BLIND, known={})
+        base = E.score(sb.env, "甲", mask=BLIND, known={})
 
         def with_kills(k):
-            return E.score(sb.world, "甲", mask=BLIND, known={}, kills=k) - base
+            return E.score(sb.env, "甲", mask=BLIND, known={}, kills=k) - base
 
         self.assertAlmostEqual(with_kills({("甲", "乙"): 1}), S.W_KILL, places=6,
                                msg="打乙没计 ⇒ 那个对手被静默漏掉")
@@ -236,33 +237,33 @@ class TestEnemiesAreASet(unittest.TestCase):
         """
         from rl import scoring as S
         sb = sb_of(size=12)
-        base = E.score(sb.world, "甲", mask=BLIND, known={})
+        base = E.score(sb.env, "甲", mask=BLIND, known={})
         for n in (1, 3):
             self.assertAlmostEqual(
-                E.score(sb.world, "甲", mask=BLIND, known={},
+                E.score(sb.env, "甲", mask=BLIND, known={},
                         kills={("甲", "乙"): n}) - base,
                 S.W_KILL * n, places=6, msg=f"击杀 {n} 支该加 {S.W_KILL * n} 分")
         for hp in (40, 250):
             self.assertAlmostEqual(
-                E.score(sb.world, "甲", mask=BLIND, known={},
+                E.score(sb.env, "甲", mask=BLIND, known={},
                         dmg={("甲", "丙"): hp}) - base,
                 S.W_HP * hp, places=6, msg=f"打掉 {hp} 点血该加 {S.W_HP * hp} 分")
         # ★★ 两项战果**完全不吃视野** —— 正确的比法是"**隔离出战果的贡献**"：
         #   同一个 mask 下取"带战果 − 不带战果"，两个 mask 的这个差必须**一模一样**。
         #   （直接比两个 mask 的总分是错的：总分里还有 `W_TILE` 那一项，它**仍然吃视野**。）
-        seen = frozenset(sb_of(size=12).world.tiles)
+        seen = frozenset(r.position for r in sb_of(size=12).env.tiles())
         for k, d in (({("甲", "乙"): 2}, None), (None, {("甲", "丙"): 300})):
             def contrib(mask):
-                return (E.score(sb.world, "甲", mask=mask, known={}, kills=k, dmg=d)
-                        - E.score(sb.world, "甲", mask=mask, known={}))
+                return (E.score(sb.env, "甲", mask=mask, known={}, kills=k, dmg=d)
+                        - E.score(sb.env, "甲", mask=mask, known={}))
             self.assertAlmostEqual(contrib(BLIND), contrib(seen), places=6,
                                    msg="战果的贡献随视野变了 ⇒ 又回到「看得见才数」了")
         # ★★ **领土那半也去掉了**（2026-09-25 用户：「每个打分器只对自己国家负责…
         #   完全不需要什么视野地图」）⇒ 把**读敌人**的项关掉之后，分数**与 mask 无关**。
         with S.override(W_NEAR=0.0, W_THREAT=0.0):
             self.assertAlmostEqual(
-                E.score(sb.world, "甲", mask=seen, known={}),
-                E.score(sb.world, "甲", mask=BLIND, known={}), places=6,
+                E.score(sb.env, "甲", mask=seen, known={}),
+                E.score(sb.env, "甲", mask=BLIND, known={}), places=6,
                 msg="除威胁系统之外还有项在吃视野 ⇒ 那条口径没落实")
 
 
@@ -284,10 +285,10 @@ class TestNoFogDependence(unittest.TestCase):
         from rl.sandbox import Sandbox
         for spy in (True, False):
             sb = Sandbox(seed=1, size=12, halls_known=spy).reset()
-            w, me = sb.world, "甲"
+            w, me = sb.env, "甲"
             if not spy:                        # 自己找厅：先让它"看见过"
-                sb.known_halls(me, frozenset(w.tiles))
-            emp, full = frozenset(), frozenset(w.tiles)
+                sb.known_halls(me, frozenset(r.position for r in w.tiles()))
+            emp, full = frozenset(), frozenset(r.position for r in w.tiles())
             # ★★ **必须先把威胁项置零再比** —— 威胁是**唯一被允许**吃视野的项
             #   （用户：「暴露出的敌人越多防御越有价值，**没暴露的也无法虚空防守**」）。
             #   ★ 不置零的话，这条用例的绿是**靠运气**：只有当"没有敌军落在
@@ -303,20 +304,27 @@ class TestNoFogDependence(unittest.TestCase):
         # ★ 反向对照：把敌军摆到我厅边上、**且看得见** ⇒ 威胁项必须让两者分开
         #   （否则上面那条"相等"可能只是因为威胁项整个是死的）
         sb = sb_of(size=12)
-        w, me = sb.world, "甲"
+        w, me = sb.env, "甲"
         hall = E.hall_cells(w, me)[0]
         foe = next(f for f in sb.players if f != me)
-        army = [x for x in w.armies if x["owner"] == foe][0]
+        army = [x for x in w.armies() if w.owner_of(x) == foe][0]
         army["x"], army["y"] = hall           # 贴到我的厅上 ⇒ 必在视野内
-        self.assertLess(E.score(w, me, mask=frozenset(w.tiles),
-                                known=sb.known_halls(me, frozenset(w.tiles))), 1e9)
+        self.assertLess(E.score(w, me, mask=frozenset(r.position for r in w.tiles()),
+                                known=sb.known_halls(me, frozenset(r.position for r in w.tiles()))), 1e9)
         with S.override(W_THREAT=0.0):
             emp2 = frozenset()
             x1 = E.score(w, me, mask=emp2, known=sb.known_halls(me, emp2))
-            x2 = E.score(w, me, mask=frozenset(w.tiles),
-                         known=sb.known_halls(me, frozenset(w.tiles)))
+            x2 = E.score(w, me, mask=frozenset(r.position for r in w.tiles()),
+                         known=sb.known_halls(me, frozenset(r.position for r in w.tiles())))
             self.assertAlmostEqual(x1, x2, places=9,
                                    msg="W_THREAT=0 后两者还不等 ⇒ 差不是威胁项来的")
+
+
+class _Unit:
+    """★ 结算后的军：**引擎的 `Unit` 形状**（有 `gid`）—— 账本按 `gid` 记身份。"""
+
+    def __init__(self, gid, owner, hp):
+        self.gid, self.owner, self.hp = gid, owner, hp
 
 
 class TestKillLedger(unittest.TestCase):
@@ -326,8 +334,13 @@ class TestKillLedger(unittest.TestCase):
     """
 
     class _W:
+        """★ 替身环境：`armies()` 是**方法**（与 `rl/env.py` 的 `Env` 同形）。"""
+
         def __init__(self, armies):
-            self.armies = armies
+            self._armies = armies
+
+        def armies(self):
+            return list(self._armies)
 
     def _led(self, before, after):
         from rl.sandbox import KillLedger
@@ -337,7 +350,7 @@ class TestKillLedger(unittest.TestCase):
 
     def test_attributes_to_co_located_owners(self):
         led = self._led({1: ("甲", 3, 3, 100), 2: ("乙", 3, 3, 100), 3: ("丙", 7, 7, 100)},
-                        [{"id": 1, "owner": "甲", "hp": 100}])     # 乙那支（id 2）死了
+                        [_Unit(1, "甲", 100)])     # 乙那支（id 2）死了
         self.assertEqual(led.kills_by("甲"), 1, "同格的甲该记一笔")
         self.assertEqual(led.kills_by("丙"), 0, "丙不在那一格，不该记")
         self.assertEqual(led.dmg_by("甲"), 100, "战死 ⇒ 整条血都算打掉的")
@@ -345,8 +358,7 @@ class TestKillLedger(unittest.TestCase):
     def test_damage_without_death_counts(self):
         """★ **打伤不打死的血也要记**（用户：「`W_HP …` 也要改，和击杀一样」）。"""
         led = self._led({1: ("甲", 3, 3, 100), 2: ("乙", 3, 3, 100)},
-                        [{"id": 1, "owner": "甲", "hp": 100},
-                         {"id": 2, "owner": "乙", "hp": 60}])
+                        [_Unit(1, "甲", 100), _Unit(2, "乙", 60)])
         self.assertEqual(led.dmg_by("甲"), 40, "该记差额 40")
         self.assertEqual(led.kills_by("甲"), 0, "没死就不算击杀")
         self.assertEqual(led.dmg_by("乙"), 0, "乙没打人")
@@ -367,13 +379,13 @@ class TestKillLedger(unittest.TestCase):
     def test_barbarians_are_never_credited(self):
         """★ 打**野人**不算"破敌"（原来数 `foe_armies` 时野人本来就不在内）。"""
         led = self._led({1: ("野人", 3, 3, 100), 2: ("乙", 3, 3, 100)},
-                        [{"id": 1, "owner": "野人", "hp": 100}])
+                        [_Unit(1, "野人", 100)])
         self.assertEqual(led.snapshot(), ({}, {}), "野人当凶手不该记账")
 
     def test_victim_filter_separates_rivals_from_barbarians(self):
         """★★ **成对记账**换来的能力：**只数"打敌国"**（打野人/盟友要能筛掉）。"""
         led = self._led({1: ("甲", 3, 3, 100), 2: ("乙", 3, 3, 100)},
-                        [{"id": 1, "owner": "甲", "hp": 100}])
+                        [_Unit(1, "甲", 100)])
         self.assertEqual(led.kills_by("甲", victims={"乙"}), 1)
         self.assertEqual(led.kills_by("甲", victims={"丙"}), 0)
         self.assertEqual(led.kills_by("甲", victims={"野人"}), 0)
@@ -383,7 +395,7 @@ class TestKillLedger(unittest.TestCase):
         led = KillLedger()
         led.observe(self._W([]), {1: ("乙", 1, 1, 100), 2: ("甲", 1, 1, 100)})
         self.assertEqual(led.kills_by("甲"), 1)
-        led.observe(self._W([{"id": 9, "owner": "甲", "hp": 100}]), {})   # 没死人
+        led.observe(self._W([_Unit(9, "甲", 100)]), {})   # 没死人
         self.assertEqual(led.kills_by("甲"), 1, "没死人还涨 ⇒ 不是计数是乱加")
         self.assertEqual(led.dmg_by("甲"), 100, "空快照不该记血（血数该停在战死那 100）")
 

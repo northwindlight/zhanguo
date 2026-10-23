@@ -604,7 +604,7 @@ def _score(sb: Sandbox, me: str) -> float:
     那是作弊，模型会照着它学出"朝看不见的敌人去"的策略。
     """
     from .teacher import pathfind
-    mask = pathfind.vision_mask(sb.world, me)
+    mask = pathfind.vision_mask(sb.env, me)
     # ★ 已知的厅 = **视野 ∪ 永久记忆**（`known_halls` 顺手把本帧看见的记下来）。
     #   用户 2026-09-24：「**发现厅了就应该永久标记，因为厅是拆不掉也不能移动的**」
     #   ⇒ 不能再拿"当前视野"回答"厅在哪"：敌厅一离开视野，逼近/守家那几项**当帧塌 0**，
@@ -614,7 +614,7 @@ def _score(sb: Sandbox, me: str) -> float:
     # ★★ 不传 `enemy` ⇒ 打分器自动用**全部对手**（`rival_nations`）。
     #   多玩家下"某一个敌人"是错的：漏掉的那个对手，它的军队/国土/厅**一概不进分数**
     #   而**不报错**（用户 2026-09-25：3 人起步）。见 `evaluate.score` 的 docstring。
-    return evaluate.score(sb.world, me, mask=mask,
+    return evaluate.score(sb.env, me, mask=mask,
                           known=sb.known_halls(me, mask),
                           **dict(zip(("kills", "dmg"), sb.kills.snapshot())))
     # ★★ `kills`/`dmg` = **累计战果账本**的 (击杀表, 血量表)（单调、不进迷雾）——
@@ -640,6 +640,11 @@ def _reward(sb: Sandbox, me: str, prev: float, done: bool) -> float:
 
 # ================================================================ ★ 逐玩家收尾
 def _outcome_for(sb: Sandbox, p: str, *, global_terminal: bool) -> float | None:
+    """★ **转发** `Sandbox.outcome_for`（单一出处）。
+
+    ★ 为什么转到沙盒那边：终局口径**与训练无关**（它只算"谁赢谁输"），
+      放在沙盒侧就**不依赖 torch** ⇒ CI（没装 torch）也能跑这条守卫。
+    """
     """该玩家本局的**最终结果**（+1 / −1 / −0.5）；`None` = **还没定**。
 
     ★ **联盟口径**（单一出处 = `Sandbox.reward`）：成员**本国已亡但联盟仍可能赢**时，
@@ -651,7 +656,7 @@ def _outcome_for(sb: Sandbox, p: str, *, global_terminal: bool) -> float | None:
     """
     if global_terminal:
         return sb.reward(p)                   # ★ 全局口径（`winner_members` ⇒ 联盟友好）
-    t = evaluate.terminal(sb.world, p)        # 未完局 ⇒ 只有"实体出局"才是已定的结果
+    t = evaluate.terminal(sb.env, p)        # 未完局 ⇒ 只有"实体出局"才是已定的结果
     if t is None:
         return None
     if t > 0:

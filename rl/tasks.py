@@ -56,27 +56,23 @@ def defense_fixture(seed: int = 0, size: int = 8):
 
     → `(sb, me, enemy_cell)`
     """
-    sb = Sandbox(seed=seed, size=size, n_nations=2, t_max=20, war=True).reset(
-        random_starts=False)
-    w = sb.world
-    units = {u.name: u for u in w._world.units}
+    sb = Sandbox(seed=seed, size=size, n_nations=2, t_max=20, war=True,
+                 territory=False,
+                 starts={"甲": (1, 1), "乙": (3, 1)}).reset(random_starts=False)
+    env = sb.env
     enemy_cell = (2, 1)
     # ★ (2,1) 归乙 ⇒ 敌占格 ⇒ 不可走、只可攻（`legal()` 的口径）。
-    w.tiles[enemy_cell]["owner"] = "乙"
-    mine = [a for a in w.armies if a["owner"] == "甲"]
-    foes = [a for a in w.armies if a["owner"] == "乙"]
-    keep = []
-    for a in mine:
-        u = units[a["name"]]
-        u.x, u.y = 2, 2                   # ★ 我的一支军，够得着 (2,1)
-        keep.append(a)
-        break                             # ★ 只留一支 ⇒ 候选集小、答案唯一
-    for a in foes:
-        u = units[a["name"]]
-        u.x, u.y = enemy_cell             # ★ 敌军贴着我的核心
-        keep.append(a)
-        break                             # ★ 只留一支 ⇒ 威胁唯一
-    w.armies = keep
+    #   ★ 走 native 的**公开**能力 `territory.transfer`（旧写法是改门面自记的
+    #     地块表 ⇒ 与引擎分叉，**且不报错**）。
+    site = env.tile(*enemy_cell).tile_id
+    env.call("native:territory", "transfer", site, env.id_of("乙"))
+    # ★ 只留一支我的军（放在 (2,2)，够得着 (2,1)），敌国也只留一支（贴在 (2,1)）。
+    #   ★ 用 native 的 `disband`（真删）+ `seed`（初始化/导入 ⇒ 本回合可动），
+    #     **不动**引擎的私有字段，也不改"谁的行动额度"（`seed` 不消耗额度）。
+    for unit in list(env.armies()):
+        env.call("native:army", "disband", unit.owner, unit.id)
+    env.call("native:army", "seed", env.id_of("甲"), "native:infantry", 2, 2, 1)
+    env.call("native:army", "seed", env.id_of("乙"), "native:infantry", 2, 1, 1)
     return sb, "甲", enemy_cell
 
 
@@ -118,35 +114,34 @@ def route_fixture(variant: str = "east_blocked", seed: int = 0, size: int = 8):
 
     → `(sb, me, correct_aidx)`
     """
-    sb = Sandbox(seed=seed, size=size, n_nations=2, t_max=20, war=True).reset(
-        random_starts=False)
-    w = sb.world
-    units = {u.name: u for u in w._world.units}
-    # ★ 我的军挪到 (2,2)（只剩一支 ⇒ 候选集小）
-    mine = [a for a in w.armies if a["owner"] == "甲"]
-    for a in mine:
-        units[a["name"]].x, units[a["name"]].y = 2, 2
-    keep = [a for a in mine[:1]]
-    # ★ 敌国的军挪到**远处**（不打扰）
-    for a in w.armies:
-        if a["owner"] == "乙":
-            units[a["name"]].x, units[a["name"]].y = 6, 6
-            keep.append(a)
-            break
-    w.armies = keep
-    # ★ 山墙（**远处**、非候选落点）
+    sb = Sandbox(seed=seed, size=size, n_nations=2, t_max=20, war=True,
+                 territory=False,
+                 starts={"甲": (1, 1), "乙": (6, 6)}).reset(random_starts=False)
+    env = sb.env
+    # ★ 只留一支我的军（放在 (2,2) ⇒ 它有两个方向可走：+x 与 +y），
+    #   敌国留一支在**远处**（它的核心 (6,6)，不打扰）。
+    #   ★ 全程用 native 的**公开**能力（`disband` 真删、`seed` 初始化）。
+    for unit in list(env.armies()):
+        env.call("native:army", "disband", unit.owner, unit.id)
+    env.call("native:army", "seed", env.id_of("甲"), "native:infantry", 2, 2, 1)
+    env.call("native:army", "seed", env.id_of("乙"), "native:infantry", 6, 6, 1)
+    # ★ 山墙（**远处**、非候选落点）—— 用 native 的 `territory.create` 建**无主**山地
+    #   （旧写法是改引擎的私有 `_tiles` 表 ⇒ 与引擎分叉，**且不报错**）。
+    # ★★ 墙必须建在**看得见**的格上 —— 引擎的视野只有"自家地块 + 八邻"
+    #   （`native:vision.positions`）⇒ 远处的墙**摘要读不到**
+    #   （摘要只对**看得见**的格取均值）⇒ 那样两个变体的摘要一模一样，
+    #   这道题就**测不到"读地图"**。
+    #   ⇒ 墙就贴在视野边缘：**看得见**（摘要读得到），
+    #   但**不在候选落点上**（候选特征不受影响）。
     if variant == "east_blocked":
-        cells = [(4, 1), (4, 2), (4, 3)]
+        cells = [(3, 0), (3, 1), (3, 3)]
     elif variant == "north_blocked":
-        cells = [(1, 4), (2, 4), (3, 4)]
+        cells = [(0, 3), (1, 3), (3, 3)]
     else:
         raise ValueError(f"未知变体 {variant!r}")
-    terr = w._world.territory
-    for c in cells:
-        fact = terr.cell(*c)
-        if not fact.tile.id:
-            continue
-        terr._tiles[fact.tile.id] = dataclasses.replace(fact.tile, terrain="native:mountain")
+    for x, y in cells:
+        env.call("native:territory", "create", f"rl:wall-{x}-{y}", None, x, y,
+                 terrain="native:mountain")
     return sb, "甲", (3, 2), (2, 3)
 
 

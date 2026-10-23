@@ -38,6 +38,10 @@ from rl.sandbox import Sandbox                        # noqa: E402
 # ★ seed=11 的开局核心（**抽偏移顺序的黄金值**，见 ⑥）。
 #   ⚠ 它**不是**"随机开局算法"的规格 —— 以后算法有意改了，它就是要跟着改。
 #     它存在的唯一目的是：**"多加了一次随机 draw" 这种改动会让它响**。
+# ★★ 2026-10-22：**开局几何搬到了剧本**（`rl/mods/scenario/mod.py`）——
+#   旧门面的 `_random_starts` 已删 ⇒ 同一个 seed 的**核心格一字未变**
+#   （剧本沿用了同一套取数），黄金值**照旧成立** ✔
+#   （这条守卫钉的是"随机开局算法不许悄悄改"—— 有意改了就一并更新这里）。
 GOLDEN_STARTS_SEED11 = {"甲": (1, 8), "乙": (10, 1), "丙": (10, 7)}
 
 
@@ -140,16 +144,20 @@ class TestTurnClock(unittest.TestCase):
           它真正钉的是：**随机开局算法本身（或它的取种方式）不许悄悄改**
           —— 有意改了就一并更新黄金值。
         """
-        sb = Sandbox(seed=11, size=12, n_nations=3, halls_known=True)
-        self.assertEqual(sb._random_starts(), GOLDEN_STARTS_SEED11,
+        sb = Sandbox(seed=11, size=12, n_nations=3, halls_known=True).reset()
+        self.assertEqual({sb.env.name_of(k): v for k, v in sb.plan["starts"].items()},
+                         GOLDEN_STARTS_SEED11,
                          "seed=11 的开局核心变了 ⇒ 随机开局的取数被改了 "
                          "（有意改的话请一并更新黄金值；无意改的话，版间对比全废）")
         # ★ 反向对照：手动把偏移改成一个**完全不同的值**，开局核心必须一个格子都不动。
         sb.turn_offset = 0
-        s0 = sb._random_starts()
+        s0 = {sb.env.name_of(k): v for k, v in sb.plan["starts"].items()}
         sb.turn_offset = V.TURN_OFFSET_SPAN - 1
-        self.assertEqual(sb._random_starts(), s0, "开局核心跟着 `turn_offset` 变了")
-        self.assertEqual(_sb(11)._random_starts(), s0, "`reset()` 的开局核心与直接抽的不一致")
+        self.assertEqual({sb.env.name_of(k): v for k, v in sb.plan["starts"].items()},
+                         s0, "开局核心跟着 `turn_offset` 变了")
+        other = _sb(11)
+        self.assertEqual({other.env.name_of(k): v for k, v in other.plan["starts"].items()},
+                         s0, "`reset()` 的开局核心与直接抽的不一致")
 
     def test_reset_does_not_touch_the_global_rng(self):
         """⑥' ★ 抽偏移**必须走"按 seed 派生"的流**，不许碰**全局**随机流。

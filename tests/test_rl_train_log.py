@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tests.rl_deps import has_torch, torch, torch_or_skip  # ★ 没装 torch 时是 None
+from tests.rl_deps import has_torch, torch, torch_or_skip
 if has_torch():
     from rl.train import _fmt                      # noqa: E402
 else:

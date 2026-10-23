@@ -53,7 +53,7 @@ def _sb(seed: int, size: int, territory: bool = True) -> Sandbox:
 
 
 def _own(sb, name):
-    return {c for c, t in sb.world.tiles.items() if t["owner"] == name}
+    return {r.position for r in sb.env.tiles() if r.owner == name}
 
 
 class TestEveryoneGetsExactlyTheSame(unittest.TestCase):
@@ -77,9 +77,11 @@ class TestEveryoneGetsExactlyTheSame(unittest.TestCase):
           这里把目标顶到 30（8×8 三国要 90 格，放不下）⇒ 必然有人先被围死
           ⇒ 只有"**整轮不落子**"的实现才守得住同数。
         """
-        import rl.sandbox as SB
-        real = SB.territory_range
-        SB.territory_range = lambda size, n: (30, 30)     # ★ 刻意够不着
+        # ★ 区间口径的**唯一入口**现在在**剧本模块**（`rl/mods/scenario/mod.py`）——
+        #   沙盒只做转发 ⇒ 探针也要挂在剧本这一侧（挂错地方 = 探针空跑）。
+        import rl.mods.scenario.mod as SM
+        real = SM.territory_range
+        SM.territory_range = lambda size, n, **kw: (30, 30)     # ★ 刻意够不着
         try:
             for seed in range(4):
                 sb = _sb(seed, 8)
@@ -91,7 +93,7 @@ class TestEveryoneGetsExactlyTheSame(unittest.TestCase):
                 self.assertLess(min(counts.values()), 30,
                                 "居然长到 30 了 —— 8×8 三国放不下 90 格，说明没被挡")
         finally:
-            SB.territory_range = real
+            SM.territory_range = real
 
     def test_target_is_reached_in_the_training_range(self):
         """目标**够得着**（没被挡在半路）—— 12~20 这个起炉范围上必须每次都长到目标。
@@ -115,7 +117,7 @@ class TestBarbariansAreRemoved(unittest.TestCase):
         for size in SIZES:
             for seed in range(6):
                 sb = _sb(seed * 13 + size, size)
-                guards = {(a["x"], a["y"]) for a in sb.world.armies
+                guards = {(a["x"], a["y"]) for a in sb.env.armies()
                           if a["owner"] == "野人"}
                 for n in sb.players:
                     bad = _own(sb, n) & guards
@@ -127,15 +129,15 @@ class TestBarbariansAreRemoved(unittest.TestCase):
         """引擎认为"这个国家看得见的野人"在哪些格（**虚拟野人**的落点）。
 
         ★★ **口径变了（2026-10 适配新引擎）**：旧引擎的野人是**真军队**
-          （开局在**全图**每个无主格放一支 ⇒ `world.armies` 里能直接看到它们）。
+          （开局在**全图**每个无主格放一支 ⇒ `world.armies()` 里能直接看到它们）。
           新引擎的野人是**按需合成的虚拟单位**（`military.visible_units` 对
-          **无主格**现场造一个）⇒ `world.armies` 里**看不到野人**了。
+          **无主格**现场造一个）⇒ `world.armies()` 里**看不到野人**了。
         ⇒ 守卫的**判据**从"列表里有没有野人"改成**引擎自己的那条规则**：
           「**野人只守无主格**」—— 直接问引擎"它给我看的那批野人在哪些格"，
           再断言那些格**没有主人**。守的仍是**同一条不变量**。
         """
-        ident = sb.world._id(nation)
-        units = sb.world.native.military.visible_units(ident)
+        # ★ 直接问**引擎**（`native:army.visible_units`）—— 野人是引擎**现场合成**的
+        units = sb.env.call("native:army", "visible_units", sb.env.id_of(nation))
         return {(u.x, u.y) for u in units if u.owner == "野人"}
 
     def test_exactly_the_claimed_tiles_lost_their_guardian(self):
@@ -183,9 +185,9 @@ class TestTheMapIsNotPerturbed(unittest.TestCase):
                                  f"{size}×{size} seed={seed}：厅的位置被国土抽签挪动了")
                 self.assertEqual(on.turn_offset, off.turn_offset, "回合偏移被挪动了")
                 self.assertEqual(
-                    {(x, y): on.world.tile_terrain(x, y) for x in range(size)
+                    {(x, y): on.env.terrain(x, y) for x in range(size)
                      for y in range(size)},
-                    {(x, y): off.world.tile_terrain(x, y) for x in range(size)
+                    {(x, y): off.env.terrain(x, y) for x in range(size)
                      for y in range(size)}, "地形被挪动了")
 
     def test_reset_does_not_touch_the_global_rng(self):
@@ -299,16 +301,31 @@ class TestClaimedTilesAreComplete(unittest.TestCase):
         BUILDINGS = tuple(v.TYPE_ID for v in _btypes.values()
                           if isinstance(v, type) and getattr(v, "TYPE_ID", None))
         sb = _sb(4242, 16)
+        # ★ 引擎的 `core`（"这块地归谁的核心"）由 **`snapshot_cores`** 刷新
+        #   （native 自己在战斗结算/战争结束时也调它）⇒ 要断"战后核心领土自动归还"，
+        #   就得**先让它刷一次**（这正是引擎的口子，不是 RL 自己造的动作）。
+        for n in sb.players:
+            sb.env.call("native:territory", "snapshot_cores", [sb.env.id_of(n)])
         for n in sb.players:
             for c in _own(sb, n):
-                t = sb.world.tiles[c]
-                self.assertEqual(t["owner"], n)
-                self.assertEqual(t.get("core"), n,
+                t = sb.env.tile_at(c)
+                self.assertEqual(t.owner, n)
+                # ★ 引擎的 `core`（"这块地归谁的核心"）是**结算时**按地主刷新的
+                #   （`Territory.snapshot_cores`，由战争结束/战斗结算调用）⇒
+                #   要断"战后核心领土自动归还"，得**先结算一回合**。
+                self.assertEqual(t.core, n,
                                  f"{c} 的 `core` 不是 {n} ⇒ 战后「核心领土自动归还」会漏掉它")
-                self.assertEqual(set(t["buildings"]), set(BUILDINGS),
-                                 f"{c} 的 buildings 不全 ⇒ 不是 `_new_tile` 造的")
-                self.assertTrue(t.get("name"), f"{c} 没有地名")
-                self.assertIn(t.get("terrain"), ("native:plain", "native:forest", "native:hill", "native:mountain", "native:desert"))
+                # ★ 建筑读数**逐个种类**与引擎对齐（`buildings.count`）——
+                #   引擎的读模型只列**在场**的建筑（不在场的键根本没有），
+                #   旧门面那张表是"全部种类 + 0 计数" ⇒ 形状不同，**但值必须一致**。
+                for kind in BUILDINGS:
+                    self.assertEqual(
+                        t.buildings.get(kind, 0),
+                        sb.env.call("native:buildings", "count", t.tile_id, kind),
+                        f"{c} 的 {kind} 数量与引擎对不上")
+                self.assertTrue(t.name, f"{c} 没有地名")
+                self.assertIn(t.terrain.id, ("native:plain", "native:forest", "native:hill",
+                                             "native:mountain", "native:desert"))
 
     def test_hall_still_stands_and_is_the_only_one(self):
         """长国土**不许**多出市政厅（那是国祚，不是普通地块）。
@@ -324,8 +341,8 @@ class TestClaimedTilesAreComplete(unittest.TestCase):
                              f"{size}×{size}：已知的厅有 {len(known)} 座，"
                              f"该正好 {len(sb.players)} 座（每家一座）")
             for n in sb.players:
-                halls = [c for c, t in sb.world.tiles.items()
-                         if t["owner"] == n and t["buildings"].get("native:town-hall", 0) > 0]
+                halls = [c for c, t in [(r.position, r) for r in sb.env.tiles()]
+                         if t.owner == n and t.buildings.get("native:town-hall", 0) > 0]
                 self.assertEqual(len(halls), 1, f"{n} 有 {len(halls)} 座厅")
 
 
