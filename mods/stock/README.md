@@ -110,6 +110,9 @@ print('已挂单：' + order['data']['symbol'])
 | `RestDays` | 2 | 休市 2 天 |
 | `MarketWindow` | 20 | 开盘窗口分钟数（= 动作额度） |
 | `WorkWindow` | 20 | 回合末统一工作窗口分钟数（= 动作额度） |
+| `SessionTicks` | 20000 | 开盘窗口切成多少个 tick（20 分钟 = 20000 tick = 8 小时交易时间） |
+| `SessionStart` | `09:30` | 开盘时刻 |
+| `SessionHours` | 8 | 这 20 分钟对应多少小时交易时间 |
 
 ## 目录
 

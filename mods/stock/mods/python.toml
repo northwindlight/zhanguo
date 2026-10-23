@@ -14,7 +14,7 @@ Needs = ["stock:clock", "stock:market"]
 Provides = ["sandbox:programs"]
 
 [Interfaces]
-"stock:clock" = ["period", "charge", "mark_open", "set_tick", "slices", "work_expired"]
+"stock:clock" = ["period", "charge", "mark_open", "set_progress", "slices", "work_expired"]
 "stock:market" = ["open_session"]
 
 [Parameters]

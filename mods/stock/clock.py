@@ -25,11 +25,15 @@ WORK_WINDOW = 'work'
 class Clock:
     """回合时钟的领域对象：世界的 `world.clock`。"""
 
-    def __init__(self, trading_days=5, rest_days=2, market_window=20, work_window=20):
+    def __init__(self, trading_days=5, rest_days=2, market_window=20, work_window=20,
+                 session_ticks=20000, session_start='09:30', session_hours=8):
         self.trading_days = trading_days
         self.rest_days = rest_days
         self.market_window = market_window
         self.work_window = work_window
+        self.session_ticks = session_ticks
+        self.session_start = session_start
+        self.session_hours = session_hours
         self.round = 1
         self.ended = set()
         self.opened = set()
@@ -38,7 +42,7 @@ class Clock:
         self.started_at = time.monotonic()
         self.tick = 0
         self.ticks = {}
-        self.session_ticks = 4
+        self.progress = {}
         self.work_started_at = 0.0
         self._world = None
         self._key = None
@@ -83,14 +87,47 @@ class Clock:
     def tick_for(self, actor):
         """某个行动者当前走到的时间片。
 
-        脚本执行时按各自消耗的计算量推进，所以每个脚本都完整经历了
-        20 分钟的开盘窗口，而同一进度的脚本看到的是同一个价格。
-        """
-        return self.ticks.get(actor, 0)
+        两条路都能推进：干活的计算量按换算式推进（``progress``），
+        或者脚本显式按时间片休眠（``ticks``）。取两者里靠后的那个。
 
-    def set_tick(self, actor, tick):
-        self.ticks[actor] = max(0, min(int(tick), self.session_ticks))
-        return self.ticks[actor]
+        换算式：steps_per_tick = 沙盒步数预算 / 本回合 tick 数，
+        默认 800000 步 / 20000 tick = 每 tick 40 步——
+        沙盒的计算额度就是这 20 分钟的时间额度。
+        """
+        return max(self.ticks.get(actor, 0), self.progress.get(actor, 0))
+
+    def market_time(self, tick=None):
+        """把时间片换算成交易时刻（20 分钟的窗口覆盖 8 小时交易时间）。"""
+        if tick is None:
+            tick = self.tick
+        hours, minutes = (str(self.session_start).split(':') + ['0'])[:2]
+        start = int(hours) * 60 + int(minutes)
+        span = max(1, self.session_hours) * 60
+        total = start + int(span * min(max(tick, 0), self.session_ticks) / self.session_ticks)
+        return f'{total // 60:02d}:{total % 60:02d}'
+
+    def set_progress(self, actor, tick):
+        """按计算量换算出来的时间片。"""
+        self.progress[actor] = max(0, min(int(tick), self.session_ticks))
+        return self.progress[actor]
+
+    def sleep(self, actor, ticks=1):
+        """按时间片休眠：脚本主动等市场往前走几片。
+
+        休眠不消耗计算量额度，只是把自己的观察点推到后面的盘口上；
+        最多走到收盘那一片，窗口不会因此被拉长。
+        """
+        try:
+            count = int(ticks)
+        except (TypeError, ValueError):
+            count = 1
+        count = max(1, count)
+        current = self.tick_for(actor)
+        target = min(self.session_ticks, current + count)
+        self.ticks[actor] = target
+        return {'tick': target, 'ticks': self.session_ticks, 'waited': target - current}
+
+
 
     def open_session(self):
         """开盘：脚本在这里一起执行，看到的是今天的开盘价。"""
@@ -157,6 +194,7 @@ class Clock:
     def view(self, actor):
         """回合开局给模型看的时钟视图。"""
         window = self.window_of(actor)
+        tick = self.tick_for(actor)
         counts = self.used_of(actor)
         elapsed = max(0.0, time.monotonic() - self.started_at)
         return {
@@ -170,8 +208,11 @@ class Clock:
             'window_name': '回合末统一工作' if window == WORK_WINDOW else '开盘',
             'work_window_minutes': self.work_window,
             'work_elapsed_minutes': self.work_elapsed(),
-            'tick': self.tick,
+            'tick': tick,
             'slices': self.slices(),
+            'market_time': self.market_time(tick),
+            'session_start': self.session_start,
+            'session_hours': self.session_hours,
             'window_limit': self.limit_of(window),
             'window_used': counts[window],
             'market_used': counts[MARKET_WINDOW],
@@ -190,6 +231,7 @@ class Clock:
         self.summaries = {}
         self.tick = 0
         self.ticks = {}
+        self.progress = {}
         self.started_at = time.monotonic()
         return self.round
 
@@ -203,12 +245,14 @@ class Clock:
             'summaries': dict(self.summaries),
             'tick': self.tick,
             'ticks': dict(self.ticks),
+            'progress': dict(self.progress),
         }
 
     def restore(self, state):
         self.round = state['round']
         self.tick = state.get('tick', 0)
         self.ticks = dict(state.get('ticks', {}))
+        self.progress = dict(state.get('progress', {}))
         self.ended = set(state.get('ended', ()))
         self.opened = set(state.get('opened', ()))
         self.used = {actor: dict(counts) for actor, counts in state.get('used', {}).items()}
@@ -227,14 +271,13 @@ class ClockAPI:
     def snapshot(self, actor):
         return self.world.clock.view(actor)
 
+    def sleep(self, actor, ticks=1):
+        return self.world.clock.sleep(actor, ticks)
+
 
 class ClockMod(GameMod):
     def mixins(self):
         return ()
-
-    def configure(self, declaration, path):
-        super().configure(declaration, path)
-        self.session_ticks = int(declaration['Parameters']['SessionTicks'])
 
     def numbers(self):
         cfg = self.declaration['Parameters']
@@ -243,7 +286,9 @@ class ClockMod(GameMod):
     def initialize_world(self, world):
         cfg = self.declaration['Parameters']
         world.clock = Clock(cfg['TradingDays'], cfg['RestDays'],
-                            cfg['MarketWindow'], cfg['WorkWindow'])
+                            cfg['MarketWindow'], cfg['WorkWindow'],
+                            cfg['SessionTicks'], cfg.get('SessionStart', '09:30'),
+                            float(cfg.get('SessionHours', 8)))
 
     def objects(self, world):
         return {'stock:clock': world.clock}

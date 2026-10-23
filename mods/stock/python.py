@@ -109,19 +109,38 @@ class ConcurrentRunner:
 
     # ── 沙盒的宿主接口 ──────────────────────────────────────────
     def _advance(self, actor, holder):
-        """脚本消耗的计算量就是它走过的开盘时间。
+        """计算量与时间片的换算：脚本干了多少活，就走过多少时间。
 
-        进度按比例映射到时间片，所以脚本永远不会「提前结束」——
-        它最多走到自己预算用尽的那一片，窗口剩下的时间照走，闭市才结算。
+        steps_per_tick = 沙盒步数预算 / 本回合 tick 数；
+        默认 800000 步 / 20000 tick = 每 tick 40 步。
         """
         machine = holder.get('machine')
         if machine is None:
             return
         runtime = self.module.runtime
-        slices = runtime.object_call(self.world, 'stock:clock', 'slices')
+        ticks = runtime.object_call(self.world, 'stock:clock', 'slices')
         budget = max(1, machine.limits.get('steps', 1))
-        tick = int(machine.steps * slices / budget)
-        runtime.object_call(self.world, 'stock:clock', 'set_tick', actor, tick)
+        tick = int(machine.steps * ticks / budget)
+        runtime.object_call(self.world, 'stock:clock', 'set_progress', actor, tick)
+
+    def _sleep_cost(self, holder, ticks):
+        """计算量与时间片的换算式：每 tick 值多少步。
+
+        steps_per_tick = 沙盒步数预算 / 本回合 tick 数；
+        默认 800000 步 / 20000 tick = 每 tick 40 步。
+        换句话说：沙盒的计算额度就是这 20 分钟的时间额度，
+        想睡满整个窗口，别的活就得省着干。
+        """
+        machine = holder.get('machine')
+        if machine is None:
+            return 0
+        budget = max(1, machine.limits.get('steps', 1))
+        ticks_total = max(1, self.module.runtime.object_call(self.world, 'stock:clock', 'slices'))
+        wanted = max(1, int(ticks)) * (budget // ticks_total)
+        remaining = max(0, budget - machine.steps)
+        # 留一点余量给循环脚本的收尾调用（最后一次读行情、打印），别让它在最后一步死掉。
+        reserve = max(1, budget // 100)
+        return min(wanted, max(0, remaining - reserve))
 
     def _invoker(self, actor, holder):
         def invoke(name, args, kwargs):
@@ -131,6 +150,10 @@ class ConcurrentRunner:
                 method = args[1] if len(args) > 1 else kwargs.get('method')
                 arguments = {key: value for key, value in kwargs.items()
                              if key not in ('capability', 'method')}
+                if capability == 'stock:clock' and method == 'sleep':
+                    machine = holder.get('machine')
+                    if machine is not None:
+                        machine.charge(self._sleep_cost(holder, arguments.get('ticks', 1)))
                 return wire(self._api_call(actor, capability, method, arguments))
             if name == 'observe':
                 return wire(self._observe(actor))
@@ -244,8 +267,16 @@ class StockPythonMod(ScriptingMod):
             'api.call("stock:portfolio","borrow",amount=...) 借钱。'
             'api.call 被拒绝会终止脚本并把回执原样带回来，脚本自己要用 if 判断。'
             'print 的内容会出现在下回合开局简报里。'
-            '脚本不在你的回合里跑：等所有玩家都结束行动，脚本在回合末那个节点一起执行，'
-            '看到的是同一时刻的同一份行情，下单进同一本挂单簿、回合末统一撮合。'
+            '脚本不在你的回合里跑：等所有玩家都结束行动，市场开盘，脚本一起执行，'
+            '下单进同一本挂单簿、闭市统一撮合。'
+            '脚本是循环脚本：每轮读行情与持仓、判断要不要下单，'
+            '然后 api.call("stock:clock","sleep",ticks=N) 等市场往前走 N 个时间片，'
+            '循环到 tick 到达收盘（slices）就收工。'
+            f'开盘窗口 20 分钟切成 {limits["steps"] and ""}20000 个时间片（1 tick = 1.44 秒交易时间，'
+            '09:30 开盘、17:30 收盘）。'
+            '换算式：每 tick 值 沙盒步数预算 / 20000 步 = 40 步——'
+            '也就是说计算额度就是这 20 分钟的时间额度：想睡满整个窗口，别的活就得省着干。'
+            'api.call("stock:clock","snapshot") 拿得到 tick、slices 与 market_time（当前交易时刻）。'
             '（实现上按时间片轮转或线程并发都一样：GIL 之下两者给出相同的对局结果。）'
             f'总预算 {limits["steps"]} 计算单位、{limits["calls"]} 次 API 调用；'
             '禁止导入、安装库、文件、网络、反射、随机与动态执行，没有 try/except。',

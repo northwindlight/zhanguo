@@ -183,7 +183,7 @@ class StockGameTest(unittest.TestCase):
         opening = market.opening['shanhai']
         host.cycle()
         path = market.last_path['shanhai']
-        self.assertEqual(len(path), 5, '4 片时间片就是 5 个价格点')
+        self.assertGreaterEqual(len(path), 5, '路径至少要有几个采样点')
         self.assertGreater(len(set(path)), 1, '窗口里的价格应当连续变动')
         self.assertEqual(path[0], opening, '路径起点是开盘价')
         self.assertEqual(path[-1], market.close['shanhai'], '路径终点是收盘价')
@@ -484,6 +484,59 @@ class StockGameTest(unittest.TestCase):
         self.assertEqual(len(mine), 1, '模型应当通过脚本挂出订单并成交')
         self.assertEqual(mine[0]['symbol'], 'shanhai')
         self.assertEqual(mine[0]['quantity'], 100)
+
+    # ── 休眠与循环脚本 ────────────────────────────────────────────
+    def test_script_can_sleep_by_ticks(self):
+        """脚本按 tick 休眠：睡完看到的是后面的盘口价。"""
+        source = ("""
+before = api.call('stock:market', 'quotes')
+api.call('stock:clock', 'sleep', ticks=10000)
+after = api.call('stock:market', 'quotes')
+print(str(before[0]['price']) + ' ' + str(after[0]['price']))
+""")
+        host = self.host(rounds={1: source}, actors=1)
+        opening = host.world.market.opening['shanhai']
+        host.cycle()
+        result = host.world.scripts.status('stock:player0')['result']
+        self.assertEqual(result['status'], 'effective', result.get('error'))
+        before, after = (float(value) for value in result['output'].split())
+        self.assertAlmostEqual(before, opening, places=2, msg='开睡前是开盘价')
+        self.assertNotAlmostEqual(after, before, places=2, msg='睡过之后盘口价应当变了')
+
+    def test_sleep_costs_compute_by_the_conversion(self):
+        """换算式：每 tick 值 沙盒步数预算 / 20000 = 40 步。"""
+        source = ("""
+api.call('stock:clock', 'sleep', ticks=1000)
+""")
+        host = self.host(rounds={1: source}, actors=1)
+        host.cycle()
+        result = host.world.scripts.status('stock:player0')['result']
+        self.assertEqual(result['status'], 'effective', result.get('error'))
+        self.assertGreaterEqual(result['steps'], 1000 * 40)
+
+    def test_loop_script_runs_to_the_close(self):
+        """循环脚本：一路睡到收盘，中途还能下单。"""
+        source = ("""
+cal = api.call('stock:clock', 'snapshot')
+quotes = api.call('stock:market', 'quotes')
+bought = 0
+while cal['tick'] < cal['slices']:
+    row = quotes[0]
+    if row['ma5'] and row['price'] < row['ma5'] and bought == 0:
+        api.call('stock:market', 'buy', symbol=row['symbol'], quantity=200)
+        bought = 1
+    api.call('stock:clock', 'sleep', ticks=2500)
+    cal = api.call('stock:clock', 'snapshot')
+    quotes = api.call('stock:market', 'quotes')
+print('tick=' + str(cal['tick']) + ' ' + cal['market_time'])
+""")
+        host = self.host(rounds={1: source}, actors=1)
+        host.cycle()
+        result = host.world.scripts.status('stock:player0')['result']
+        self.assertEqual(result['status'], 'effective', result.get('error'))
+        self.assertIn('tick=20000', result['output'])
+        self.assertIn('17:30', result['output'], '20000 个 tick 走完就是 8 小时后的收盘')
+        self.assertTrue(host.world.market.fills(), '循环途中应当下过单')
 
     # ── 沙盒预算 ──────────────────────────────────────────────────
     def test_sandbox_budget_is_raised(self):

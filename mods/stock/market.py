@@ -140,15 +140,18 @@ class Market:
         ratio = self.daily.get(symbol, 0.0) * (tick / slices)
         return round(self.opening.get(symbol, stock['anchor']) * math.exp(ratio), 2)
 
-    def session_path(self, symbol):
-        """本次开盘窗口的价格路径（从开盘到收盘）。"""
+    def session_path(self, symbol, samples=21):
+        """本次开盘窗口的价格路径（从开盘到收盘），对外给采样点。"""
         stock = self.stocks.get(symbol)
         if stock is None:
             raise ValueError(f'没有这只股票：{symbol}')
         slices = self._slices()
         base = self.opening.get(symbol, stock['anchor'])
         daily = self.daily.get(symbol, 0.0)
-        return [round(base * math.exp(daily * index / slices), 2) for index in range(slices + 1)]
+        count = max(2, min(int(samples), slices + 1))
+        step = slices / (count - 1)
+        return [round(base * math.exp(daily * (index * step) / slices), 2)
+                for index in range(count)]
 
     def visible_path(self, symbol):
         """当前看得见的那条路径：盘前是上一次的，开盘后是今天的。"""

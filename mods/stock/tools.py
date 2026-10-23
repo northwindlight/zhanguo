@@ -199,6 +199,16 @@ def build(runtime):
         receipts.update({'bank_borrow': _borrow_receipt, 'bank_repay': _repay_receipt})
         captions.update({'bank_borrow': '银行放款', 'bank_repay': '银行还款'})
 
+    # ── 时钟休眠：只给脚本用 ────────────────────────────────────────
+    if 'stock:clock' in runtime.capabilities:
+        def clock_sleep(world, actor, ticks: int = 1):
+            raise ValueError('休眠是脚本里的事：让脚本调 '
+                             'api.call("stock:clock","sleep",ticks=1) 等市场往前走几片。')
+
+        tools.append(Tool('clock_sleep', clock_sleep, owner='stock:clock', api=('sleep',),
+                          hidden=True,
+                          description='时钟休眠封堵：按时间片等待只能写在脚本里。'))
+
     # ── 结束回合 ────────────────────────────────────────────────────
     if 'stock:clock' in runtime.capabilities:
         def end_turn(world, actor, summary: str = ''):
