@@ -9,7 +9,7 @@ ARGUMENTS = {
     'accept_proposal': {'offer': int}, 'reject_proposal': {'offer': int},
     'bloc_found': {'bloc': str, 'name': str, 'tos': list[str]}, 'bloc_join': {'bloc': str},
     'bloc_leave': {}, 'bloc_dissolve': {}, 'bloc_transfer': {'target': str}, 'bloc_rename': {'name': str},
-    'declare_war': {'target': str}, 'offer_peace': {'target': str, 'kind': str, 'gold': int, 'truce': int, 'note': str},
+    'declare_war': {'target': str, 'confirm': bool}, 'offer_peace': {'target': str, 'kind': str, 'gold': int, 'truce': int, 'note': str},
     'accept_peace': {'offer': int}, 'reject_peace': {'offer': int},
     'propose_vassalage': {'target': str}, 'release_vassal': {'target': str}, 'independence_war': {},
     'submit_vassalage': {'target': str},
@@ -32,7 +32,7 @@ DESCRIPTIONS = {
     'bloc_dissolve': '盟主解散和平时期的联盟；战时不能解散。',
     'bloc_transfer': '盟主把领导权转交给现有其他成员，target 使用成员的国家键；剧本锁定特殊宗主盟主权时不可移交。',
     'bloc_rename': '盟主修改联盟显示名；不能有空白或与其他联盟重名。',
-    'declare_war': '向另一外交实体宣战；休战期间不能宣战，本方联盟先表决。攻击联盟任一成员即与全盟交战，防守全盟无需另投票；原防守实体的直接保障/共同防御再传导一跳，不递归。保障不协助主动进攻；宣战一刻战线冻结，此后对同一战线的 attack 不重复触发条约、也不追加参战方，只有新的合法宣战可增援既有战线。',
+    'declare_war': '向另一外交实体宣战。第一次调用（不带 confirm）只返回战前自检与警告，不提交；阅读自检、补足情报并确认后，带 confirm=true 再调用才真正提交。休战期间不能宣战，本方联盟先表决。攻击联盟任一成员即与全盟交战，防守全盟无需另投票；原防守实体的直接保障/共同防御再传导一跳，不递归。保障不协助主动进攻；宣战一刻战线冻结，此后对同一战线的 attack 不重复触发条约、也不追加参战方，只有新的合法宣战可增援既有战线。',
     'offer_peace': '向敌方战争主导实体代表求和，双方主导者都可发起；普通跟随方不能代谈。kind=white 白和、pay 本方赔款、demand 对方赔款；赔款须 gold>0。kind=submit 本国称臣、subjugate 要求对方称臣，须 gold=0，附庸接受持续上贡和权力限制，其他战线须已结束，不能成环；联盟依正常表决，称臣代表在和平生效后退出原联盟，其他盟友不随之成为附庸。truce 为休战周期数。联盟先表决，接受后整条战线停战；剧本可将指定宗主的附庸自动转为特殊附庸联盟。',
     'accept_peace': '仅 foreign 邀约中 can_accept=true 的战争代表可接受，普通联盟成员应查 vote_ids 后使用 vote 表态。由收到提议的战争代表接受 query(panel=foreign) 待回应提议中的和平提议，offer 为整数编号；联盟可能先表决。',
     'reject_peace': '仅 foreign 邀约中 can_reject=true 的战争代表可拒绝，普通联盟成员应查 vote_ids 后使用 vote 表态。由收到提议的战争代表拒绝和平提议，offer 为 query(panel=foreign) 待回应提议中的整数编号，战争继续；普通跟随方不能代拒。',
@@ -81,8 +81,11 @@ def tools(runtime):
     result = []
     for action, arguments in ARGUMENTS.items():
         def submit(world, actor, _action=action, **args):
+            if _action == 'declare_war' and not args.pop('confirm', False):
+                return _war_warning(runtime, world, actor, args.get('target'))
             return runtime.player_api(world, 'native:diplomacy').submit(actor, _action, **args)
-        properties = {key: ({'type': 'array', 'items': {'type': 'string'}, 'minItems':1, 'uniqueItems':True} if value == list[str] else {'type': 'integer' if value is int else 'string'})
+        properties = {key: ({'type': 'array', 'items': {'type': 'string'}, 'minItems':1, 'uniqueItems':True} if value == list[str]
+                            else {'type': 'boolean' if value is bool else 'integer' if value is int else 'string'})
                       for key, value in arguments.items()}
         for key, prop in properties.items():
             if key in ('offer',):
@@ -92,12 +95,14 @@ def tools(runtime):
                                        if action in ENTITY_TARGET_ACTIONS else '具体国家键，不能传联盟键或外交实体键')
             elif key == 'bloc':
                 prop['description'] = '联盟键：加入时用现有联盟 id；创建时自定唯一命名空间键'
+            elif key == 'confirm':
+                prop['description'] = '第一次宣战查询留空；确认宣战时传 true，才会真正提交'
             elif key in ('gold', 'truce'):
                 prop['minimum'] = 0
         if action == 'offer_peace':
             properties['kind'].update(enum=['white', 'pay', 'demand','submit','subjugate'])
             properties['note']['description'] = '可选和平提议正文，不改变赔款或休战规则'
-        required = [key for key in arguments if not (action == 'offer_peace' and key in ('gold', 'truce', 'note'))]
+        required = [key for key in arguments if not (action == 'offer_peace' and key in ('gold', 'truce', 'note')) and not (action == 'declare_war' and key == 'confirm')]
         description = DESCRIPTIONS[action]
         if action in ENTITY_TARGET_ACTIONS:description+=' target 可用国家键、联盟 id 或 bloc/联盟键、nation/国家键；由系统定位外交实体当前代表。'
         if action=='accept_proposal':description+=' 若接受创始邀约，另适用下列联盟权责；附庸邀约按其普通或剧本特殊附庸条款：'
@@ -183,7 +188,50 @@ def _diplomacy(data, args, actor, ctx):
     return '\n'.join(lines)
 
 
+def _war_warning(runtime, world, actor, target):
+    """宣战第一次提交：只返回自检与警告，不改变外交状态。"""
+    lines = [
+        '【宣战自检 · 尚未提交】',
+        f'目标：{target}',
+        '这次调用只做宣战查询，没有提交宣战。确认要打，请在同一回合再次调用 relations(action=declare_war, target=..., confirm=true)。',
+        '',
+        '先自己查这些面板，把数字算出来：query(panel=army) 看总兵力与可见敌军；query(panel=land) 看本国土地与建筑；query(panel=bank) 看现金、信用与负债；query(panel=foreign) 看条约、联盟、休战；query(panel=war, target=...) 看宣战推演。',
+        '视野内看不到的军队和市政厅不计入，不等于没有；经济报表也只覆盖已公布的过去十期。',
+    ]
+    try:
+        preview = runtime.player_api(world, 'native:diplomacy').war_preview(actor, target)
+    except (ValueError, KeyError, TypeError) as exc:
+        preview = {'legal': False, 'reason': str(exc)}
+    if preview.get('legal', True):
+        lines.append(f'- 宣战推演：攻方 {preview.get("attackers", [])}；守方 {preview.get("defenders", [])}。')
+        joined = [row.get('label', row) for row in preview.get('joined', ())]
+        if joined:
+            lines.append(f'- 因直接条约参战：{joined}。')
+    else:
+        lines.append(f'- 宣战推演：当前不可宣战（{preview.get("reason", "blocked")}）。')
+    lines += [
+        '',
+        '开打前先回答（答不上来就先补情报，或把目标改成有界机会战）：',
+        '1. 你完全了解敌方有多少军队和经济实力吗？不确定时，你给出的全国上界是多少？',
+        '2. 如果迷雾里还藏着大量军队（可见的两倍或更多），你的计划还成立吗？最坏损失和退路是什么？',
+        '3. 你完全了解对手有多少市政厅吗？有没有可能少算一座？如果还有一座没看到，灭国目标还成立吗？',
+        '4. 你的后方安全吗？你的市政厅有多少守军？主力出战后，首都能否挡住一支偏师？',
+        '5. 你的总兵力是多少，投入进攻的是多少？差距里的军队为什么没有参战，是距离、行动额度，还是懒惰？',
+        '6. 这是一场本可打赢的战争吗？如果是，闲置的军队是否会让胜利变慢或变成失败？',
+        '7. 进攻队伍里有预备队吗？先头受挫或敌军增援时，靠哪几支接应、几期能到？',
+        '8. 敌方有哪些保障、共同防御、联盟或休战？宣战会召来谁？',
+        '9. 你要拿什么、打几期、什么条件撤退或求和？',
+        '',
+        '未回答不等于不能打；但国策必须写明未知、上界与最坏情形的应对，不能把未知当零。',
+    ]
+    message = '\n'.join(lines)
+    return {'ok': True, 'status': 'confirmation_required', 'code': None, 'message': message,
+            'data': {'target': target, 'warning': True, 'legal': preview.get('legal', True)}}
+
+
 def _action_receipt(action, args, receipt, actor, ctx):
+    if action == 'declare_war' and receipt.get('status') == 'confirmation_required':
+        return receipt.get('message') or ''
     data = receipt.get('data')
     if not isinstance(data, dict):
         return None

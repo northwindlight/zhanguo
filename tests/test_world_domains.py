@@ -36,11 +36,13 @@ class TestWorldDomains(unittest.TestCase):
         if hall:w.buildings.seed(ident,'native:town-hall')
         return ident
     def save(self,w):return json.loads(json.dumps(w.runtime.save_mod_state(w),allow_nan=False))
-    def call(self,w,actor,tool,**args):return w.call_tool(actor,tool,args)
+    def call(self,w,actor,tool,**args):
+        if tool=='declare_war':args.setdefault('confirm',True)
+        return w.call_tool(actor,tool,args)
     def cycle(self,w):
         result=w.resolve_turn();w.phase='行动';return result
     def declare(self,w,a=Q,b=C):
-        c=self.call(w,a,'declare_war',target=b);self.cycle(w)
+        c=self.call(w,a,'declare_war',target=b,confirm=True);self.cycle(w)
         self.assertTrue(w.diplomacy.war_between(a,b));return c
     def found(self,w,members=(Q,Z)):
         self.call(w,members[0],'bloc_found',bloc=B,name='合纵',tos=list(members[1:]));self.cycle(w)

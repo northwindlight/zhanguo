@@ -124,7 +124,11 @@ class TestToolSurface(unittest.TestCase):
         self.assertEqual(branches, set(relations))
         self.assertEqual(schemas['intelligence']['action']['enum'], ['send_letter', 'spy'])
         self.assertFalse(player.submit('relations', {'action': 'guarantee', 'target': C})['ok'])
-        self.assertTrue(player.submit('relations', {'action': 'declare_war', 'target': C})['ok'])
+        warning = player.submit('relations', {'action': 'declare_war', 'target': C})
+        self.assertTrue(warning['ok'])
+        self.assertEqual(warning['status'], 'confirmation_required')
+        self.assertIn('宣战自检', warning['message'])
+        self.assertTrue(player.submit('relations', {'action': 'declare_war', 'target': C, 'confirm': True})['ok'])
         # 组展开同时覆盖模块自己的能力键（accept.treaties 等）。
         self.assertFalse(world.runtime.permits(world, Q, 'accept.treaties'))
         self.assertFalse(world.runtime.permits(world, Q, 'communication.gift'))

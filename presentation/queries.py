@@ -32,7 +32,9 @@ class QueryPresentation:
         own=sorted((u for u in rows if u['owner']==actor),key=lambda u:u['id'])
         foreign=sorted((u for u in rows if u['owner'] not in (actor,'野人')),key=lambda u:(u['owner'],u['id']))
         guards=[u for u in rows if u['owner']=='野人']
-        lines=[self.text('query.army_head',own=len(own),foreign=len(foreign),guards=len(guards))]
+        period=self._period
+        ready=sum(1 for u in own if u.get('born_turn')!=period and not u.get('engaged') and u.get('moved_turn')!=period)
+        lines=[self.text('query.army_head',own=len(own),ready=ready,foreign=len(foreign),guards=len(guards))]
         lines.extend(self.army_line(u) for u in own)
         lines.extend(self.army_line(u) for u in foreign)
         if guards:

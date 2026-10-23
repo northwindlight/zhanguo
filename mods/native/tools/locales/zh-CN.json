@@ -66,7 +66,7 @@
   "tool.army.speed": "移动力{speed}",
   "tool.army.reach": "本回合可及{count}格",
   "tool.army.retreat_to": "待撤至{place}｜撤退承伤比例{cover}%",
-  "tool.army.head": "本国军队{own}支｜可见他国军{foreign}支｜野人守军{guards}支",
+  "tool.army.head": "本国军队{own}支（可调度{ready}支）｜可见他国军{foreign}支｜野人守军{guards}支",
   "tool.army.guard_hint": "另有野人守军{count}支；位置：{places}；逐格HP用 tile 查询。",
   "tool.army.empty": "暂无可见军队。",
   "tool.recruit.done": "征召完成；新兵下回合可以行动。",

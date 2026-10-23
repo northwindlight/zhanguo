@@ -190,8 +190,9 @@ def _map(ui, observation, key, vision):
     if not rows:return None
     if vision:
         own = sum(1 for row in rows if row.get('owner') == observation['actor'])
-        return ui.text('brief.map_head') + '\n' + ui.text('atlas.footer', own=own,
-                                                          seen=len(rows), other=len(rows) - own)
+        # 图片保留地形与归属，但文字地图仍要给出：坐标、地名和建筑计数是模型核对时距与目标格的依据。
+        return (ui.text('brief.map_head') + '\n' + ui.text('atlas.footer', own=own, seen=len(rows), other=len(rows) - own)
+                + '\n' + player_atlas(observation, ui.text, key))
     return ui.text('brief.map_head') + '\n' + player_atlas(observation, ui.text, key)
 
 
