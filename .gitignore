@@ -86,3 +86,8 @@ docs/archive/*
 /mods/ui/desktop/obj/
 /tests/desktop-layout/bin/
 /tests/desktop-layout/obj/
+
+# stock 2.0 has separate save/journal paths; preserve stock 1.0 artifacts.
+stock_v2_*.json
+stock_v2_*.json.audit/
+stock_v2_*.md

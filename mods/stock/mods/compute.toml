@@ -1,0 +1,25 @@
+[Mod]
+Id = "stock:compute"
+Version = "2.0.0"
+Entry = "mods.stock.compute:ComputeMod"
+Requires = ["stock:clock", "stock:portfolio"]
+[State]
+Owns = ["compute"]
+[Capabilities]
+Needs = ["stock:portfolio", "stock:clock"]
+Provides = ["stock:compute"]
+[Interfaces]
+"stock:portfolio" = ["spend"]
+"stock:clock" = ["charge"]
+[Parameters]
+StepsPerPool = 4000000
+CallsPerPool = 4000
+MaxPools = 4
+MaxSlots = 4
+PoolDailyFee = 100
+SlotDailyFee = 50
+ResearchUnlockFee = 500
+ResearchDailyFee = 50
+[PlayerAPI]
+Methods = ["status", "buy", "release"]
+ReadOnly = ["status"]

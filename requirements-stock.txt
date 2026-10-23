@@ -1,0 +1,2 @@
+# Optional stock distribution: actual PAMS matching, no network or LLM at runtime.
+pams==0.3.0

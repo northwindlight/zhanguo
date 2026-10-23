@@ -1,30 +1,18 @@
 [Mod]
 Id = "stock:clock"
-Version = "1.0.0"
+Version = "2.0.0"
 Entry = "mods.stock.clock:ClockMod"
-
 [State]
 Owns = ["clock"]
-
 [Capabilities]
 Provides = ["stock:clock"]
-
 [Parameters]
-# 每 5 个交易日休市 2 天：一个 7 回合的日历循环。
 TradingDays = 5
 RestDays = 2
-# 两个窗口的动作额度：开盘 20 分钟、回合末统一工作 20 分钟。
-# 额度按模型侧工具调用计数，是墙钟之外的确定性口径。
-MarketWindow = 20
-WorkWindow = 20
-# 开盘窗口里的行情切成多少个时间片：20 分钟 = 20000 tick（1 tick = 60 毫秒游戏时间）。
-# 换算式：脚本的计算额度就是这段时间的时间额度，
-# steps_per_tick = 沙盒步数预算 / SessionTicks（默认 800000 / 20000 = 每 tick 40 步）。
+PlanningActions = 40
 SessionTicks = 20000
-# 这 20000 个 tick 覆盖 8 小时交易时间：开盘 09:30，每 tick 1.44 秒交易时间。
 SessionStart = "09:30"
 SessionHours = 8
-
 [PlayerAPI]
 Methods = ["end_turn", "snapshot", "sleep"]
 ReadOnly = ["snapshot"]

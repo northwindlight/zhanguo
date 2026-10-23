@@ -1,34 +1,26 @@
 [Mod]
 Id = "stock:market"
-Version = "1.0.0"
+Version = "2.0.0"
 Entry = "mods.stock.market:MarketMod"
 Requires = ["stock:clock"]
-
 [State]
 Owns = ["market"]
-
 [Capabilities]
 Needs = ["stock:clock", "stock:portfolio"]
 Provides = ["stock:market"]
-
 [Interfaces]
-"stock:clock" = ["period", "trading_day", "tick_index", "tick_for", "slices", "close_session"]
-"stock:portfolio" = ["position_of"]
-
+"stock:clock" = ["period", "trading_day", "slices", "set_tick", "close_session"]
+"stock:portfolio" = ["open_account", "begin_day", "position_of", "reserve", "release", "execute", "short_used", "risk_check"]
 [Parameters]
-# 每只股票的流通盘：冲击成本按「本次下单量 / 流通盘」计。
 FloatShares = 20000
-# 冲击成本：打满流通盘时价格被推开 5%，封顶也是 5%。
-ImpactRate = 0.05
-ImpactCap = 0.05
-# 手续费：单边 0.1%。
+BorrowShares = 5000
 Commission = 0.001
-# 订单流对价格的推动：全市场净买入打满流通盘时价格推升 3%。
-FlowImpact = 0.03
-# 动量与均值回归权重。
-Momentum = 0.35
-Reversion = 0.05
-
+Spread = 0.002
+DepthShares = 100
+QuoteInterval = 100
+FlowInterval = 200
+FlowShares = 5
+NewsEnabled = true
 [PlayerAPI]
-Methods = ["quotes", "history", "catalog", "buy", "sell", "cancel"]
-ReadOnly = ["quotes", "history", "catalog"]
+Methods = ["quotes", "history", "catalog", "orders", "fills", "buy", "sell", "short", "cover", "cancel"]
+ReadOnly = ["quotes", "history", "catalog", "orders", "fills"]

@@ -5,11 +5,33 @@ from engine.session import SaveFormatError, Session
 class StockSession(Session):
     """没有地图的回合制会话：名单固定，先手每回合轮换一格。"""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from .backend import PamsBook
+        PamsBook.require()  # Before model construction or paid requests, also on load.
+        self.after_spawn()  # Also bind audit hooks on the restore path.
+
     def entries(self):
         return self.cfg['nations']
 
     def identities(self):
         return tuple(item['id'] for item in self.entries() if item.get('enabled', True))
+
+    def finished(self):
+        return not self.actors()
+
+    def after_spawn(self):
+        self.world.scripts.recorder = self.record_script
+        self.world.market.recorder = self.record_script
+
+    def record_script(self, actor, action, arguments, result):
+        from types import SimpleNamespace
+        from engine.player import API_VERSION
+        player = SimpleNamespace(actor=actor, generation=self.generations[actor])
+        receipt = result if 'ok' in result else dict(api=API_VERSION, actor=actor,
+            period=self.clock(), action=action, ok=True, status='effective',
+            code=None, message='', data=result)
+        self.record(player, action, arguments, receipt)
 
     def configure(self):
         """按配置播种：同一 seed 的行情路径完全可复现。"""
@@ -31,6 +53,7 @@ class StockSession(Session):
     def spawn(self, item, position):
         actor = item['id']
         self.world.portfolio.open_account(actor, item['name'])
+        self.world.compute.open_account(actor)
         return actor
 
     def validate_boundary(self):
@@ -65,10 +88,13 @@ class StockSession(Session):
     def board_rows(self):
         """控制台面板：每个玩家一行。"""
         rows = []
-        for actor in self.actors():
+        for actor in self.roster:
             account = self.world.portfolio.holdings(actor)
             rows.append({'name': account['name'], 'wealth': account['wealth'],
                          'cash': account['cash'], 'debt': account['debt'],
                          'positions': len(account['positions']),
-                         'return_pct': account['return_pct']})
+                         'return_pct': account['return_pct'], 'alive': account['alive'],
+                         '算力池': self.world.compute.status(actor)['pool'],
+                         '交易槽': self.world.compute.status(actor)['slots'],
+                         '研究槽': self.world.compute.status(actor)['research']})
         return rows

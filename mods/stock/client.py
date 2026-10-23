@@ -29,14 +29,18 @@ class StockView(ModelView):
             else:
                 lines.append(f'第 {view.get("round")} 回合，今日休市（还有 {view.get("days_to_next_open")} 回合开市）：'
                              f'不能买卖，但可以改脚本、规划、借贷。')
-            lines.append(f'当前窗口：{view.get("window_name")}，额度 {view.get("window_limit")} 分钟，'
-                         f'已用 {view.get("window_used")}，本回合已过去 {view.get("elapsed_minutes")} 分钟。'
-                         f'盘口时间片 {view.get("tick")}/{view.get("slices")}：'
-                         f'每进一个行动者市场走一片，价格是分段走出来的，不是回合末一次跳完。'
-                         f'脚本不在你的回合里跑：等所有玩家都结束行动，脚本在回合末那个节点一起执行'
-                         f'（时间片轮转模拟真并发：同一份行情、同一本挂单簿），'
-                         f'回合末统一工作时限 {view.get("work_window_minutes")} 分钟，'
-                         f'执行结果在下一回合开局给你。')
+            lines.append(f'盘前规划动作 {view.get("window_used")}/{view.get("window_limit")}；'
+                         f'市场共同时间线 {view.get("tick")}/{view.get("slices")} tick。'
+                         '全体结束行动后自动运行交易槽；on_tick回调默认每100tick唤醒，state跨日保留。'
+                         '研究槽需先解锁，只能在自己行动时手动只读运行。')
+        compute = facts.get('compute_status') or {}
+        if compute:
+            lines.append(f'算力池 {compute["pool"]} 档、交易槽 {compute["slots"]} 个、研究槽 '
+                         f'{"已启用" if compute["research"] else "未启用"}；'
+                         f'本日剩余 {compute["steps_remaining"]} 单位 / {compute["calls_remaining"]} 次API。'
+                         f'每日续租 {compute["daily_fee"]}，累计计算资源费用 {compute["fees_paid"]}。')
+            if compute.get('notice'): lines.append(compute['notice'])
+
 
         account = facts.get('portfolio') or {}
         if account:
@@ -46,6 +50,8 @@ class StockView(ModelView):
                          f'持仓市值 {account.get("holdings_value")}，'
                          f'总财富 {account.get("wealth")}（{account.get("return_pct")}%）。'
                          f'授信上限 {account.get("credit_limit")}，追保线 {account.get("margin_limit")}。')
+            if account.get('risk_frozen'):
+                lines.append('风控冻结，仅能减仓还款：' + account.get('risk_notice', ''))
             positions = account.get('positions') or []
             if positions:
                 lines.append('持仓：' + '；'.join(
@@ -87,6 +93,21 @@ class StockView(ModelView):
         else:
             lines.append('上回合还没跑过脚本：脚本在回合末由引擎统一执行，结果下回合开局给你。')
 
+        for other in status.get('other_slots', []):
+            r = other.get('result')
+            if r:
+                lines.append(f'槽 {other["slot"]}：{r["status"]}，计算 {r["steps"]}，API {r["calls"]}。')
+                if r.get('error'): lines.append('错误：' + r['error']['message'])
+                if r.get('output'): lines.append('输出：\n' + r['output'])
+        intel = facts.get('intel_status') or {}
+        if intel:
+            lines.append(f'商业谍报单价 {intel["price"]}，已购报告 {len(intel["reports"])} 份。')
+            for report in intel['reports']:
+                snap = report['snapshot']
+                lines.append(f'第{report["round"]}期/tick{report["tick"]} {snap["name"]}：'
+                             f'现金{snap["cash"]}，贷款{snap["debt"]}，'
+                             f'多头{snap["long_value"]}，空头{snap["short_value"]}（获取时快照）。')
+
         return '\n'.join(lines)
 
 
@@ -98,37 +119,34 @@ class StockClient(LLMClient):
         self.ui = StockView(self.cfg, presentation=self.presentation)
 
 
-STRATEGY = '''quotes = api.call('stock:market', 'quotes')
-book = api.call('stock:portfolio', 'holdings')
-calendar = api.call('stock:clock', 'snapshot')
-if not calendar['trading_day']:
-    print('休市日：本日不交易，继续打磨脚本。')
-else:
+STRATEGY = '''def on_tick():
+    calendar = api.call('stock:clock', 'snapshot')
+    if not calendar['trading_day']:
+        return
+    quotes = api.call('stock:market', 'quotes')
+    book = api.call('stock:portfolio', 'holdings')
     held = {}
     for row in book['positions']:
-        held[row['symbol']] = row['quantity']
-    cash = book['cash']
-    picked = []
+        held[row['symbol']] = row['available_quantity']
+    cash = book['available_cash']
     for row in quotes:
-        symbol = row['symbol']
-        if not row['ma5']:
+        if not row['news']:
             continue
-        if symbol in held:
-            if row['price'] > row['ma5']:
-                api.call('stock:market', 'sell', symbol=symbol, quantity=held[symbol])
-        else:
-            if row['price'] < row['ma5']:
-                picked.append(symbol)
-    budget = cash * 0.3
-    for symbol in picked[:3]:
-        for row in quotes:
-            if row['symbol'] == symbol:
-                qty = int(budget / row['price'])
-                if qty > 0:
-                    api.call('stock:market', 'buy', symbol=symbol, quantity=qty)
-                break
-    print('sim：候选买入 ' + str(len(picked[:3])) + ' 只。')
+        event = row['news'][-1]
+        key = row['symbol']
+        seen = str(event['round']) + ':' + str(event['tick'])
+        if state.get(key) == seen:
+            continue
+        state[key] = seen
+        if event['cashflow_change_pct'] < 0 and held.get(key, 0) > 0:
+            api.call('stock:market', 'sell', symbol=key, quantity=held[key])
+        elif event['cashflow_change_pct'] > 0 and not held.get(key, 0):
+            quantity = min(50, int(cash * 0.03 / (row['price'] * 1.03)))
+            if quantity > 0:
+                api.call('stock:market', 'buy', symbol=key, quantity=quantity)
+    api.call('stock:clock', 'sleep', ticks=100)
 '''
+
 
 
 class ReplayClient:

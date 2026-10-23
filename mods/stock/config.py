@@ -40,6 +40,8 @@ def normalize(cfg, *, runtime, overrides):
             raise ConfigError(f'{path}.id: invalid content id') from None
         if item['id'] in ids or item['name'] in names:
             raise ConfigError(f'{path}: duplicate stock player')
+        if item['id'] in ('stock:market-maker', 'stock:value-trader', 'stock:clearing-bank'):
+            raise ConfigError(f'{path}.id: reserved stock system identity')
         ids.add(item['id'])
         names.add(item['name'])
         item.setdefault('client', 'llm')

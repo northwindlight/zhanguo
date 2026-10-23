@@ -55,6 +55,8 @@ class StockToolLayer:
         render = self._captions.get(self._render_name(action, args))
         if render is None:
             return None
+        if isinstance(render, str):
+            return render
         try:
             return render(args or {}, actor, receipt or {}, ctx)
         except (KeyError, TypeError, ValueError, AttributeError, IndexError):
@@ -79,17 +81,20 @@ def build(runtime):
 
     # ── Python 脚本伞：写、改、查、跑 ────────────────────────────────
     if 'sandbox:programs' in runtime.capabilities:
-        def script_write(world, actor, source: str):
-            return runtime.player_api(world, 'sandbox:programs').write(actor, source)
+        def script_write(world, actor, source: str, slot: str = "1"):
+            return runtime.player_api(world, 'sandbox:programs').write(actor, source, slot)
 
-        def script_patch(world, actor, old: str, new: str):
-            return runtime.player_api(world, 'sandbox:programs').patch(actor, old, new)
+        def script_patch(world, actor, old: str, new: str, slot: str = "1"):
+            return runtime.player_api(world, 'sandbox:programs').patch(actor, old, new, slot)
 
-        def script_check(world, actor, source: str | None = None):
-            return runtime.player_api(world, 'sandbox:programs').check(actor, source)
+        def script_check(world, actor, source: str | None = None, slot: str = "1"):
+            return runtime.player_api(world, 'sandbox:programs').check(actor, source, slot)
 
-        def script_status(world, actor, include_source: bool = False):
-            return runtime.player_api(world, 'sandbox:programs').status(actor, include_source)
+        def script_status(world, actor, include_source: bool = False, slot: str = "1"):
+            return runtime.player_api(world, 'sandbox:programs').status(actor, include_source, slot)
+
+        def script_run(world, actor, slot: str = "research", inputs: dict | None = None):
+            return runtime.player_api(world, 'sandbox:programs').run(actor, slot, inputs)
 
         script_specs = (
             Action('script_write', script_write, owner='sandbox:programs', api=('write',),
@@ -106,21 +111,22 @@ def build(runtime):
                  description='本国脚本状态：上回合执行结果（打印输出、报错类型与行列）、源码版本与预算；'
                             'include_source=true 查看源码'),
         )
+        script_specs = (*script_specs, Action('script_run', script_run, owner='sandbox:programs', api=('run',),
+            description='行动时手动运行已解锁的research研究槽，只读；inputs为JSON参数。不能下单或推进行情，共享账户每日算力。'))
         umbrella = command_layer.action_tool(
             runtime, 'script',
-            '本国量化脚本：action=write 保存源码、patch 精确改一处、check 免费查语法、status 查状态。'
-            '脚本不在你的回合里跑：等所有玩家都结束行动，脚本在回合末那个节点一起执行，'
-            '看到同一时刻的同一份行情，下单进同一本挂单簿、回合末统一撮合；'
-            '执行结果（打印输出与报错）在下一回合开局给你。'
-            '买卖只能通过脚本下单：api.call("stock:market","buy",symbol=...,quantity=...)；'
-            '行情用 api.call("stock:market","quotes")，历史用 api.call("stock:market","history",symbol=...,limit=...)。',
+            '计算槽：write保存、patch修订、check免费语法检查、status查结果；slot为1～4或research。'
+            '自动交易槽普通源码每日一次；定义def on_tick():则默认每100tick回调，state是独立持久JSON字典。'
+            'api.call("stock:clock","sleep",ticks=N)只安排下次回调，回调应返回，不写while等待。'
+            'run仅手动运行已解锁的research槽，用于分析和回测，只读不下单。'
+            '交易日全体结束后沿20000共同tick自动运行，委托最早下一tick生效，成交立即可见。',
             (('write', script_specs[0]), ('patch', script_specs[1]), ('check', script_specs[2]),
-             ('status', script_specs[3])))
+             ('status', script_specs[3]), ('run', script_specs[4])))
         tools.append(umbrella)
         tools.extend(spec for spec in script_specs if isinstance(spec, Tool) and not isinstance(spec, Action))
         actions.extend(spec for spec in script_specs if isinstance(spec, Action))
         commands['script'] = {'write': 'script_write', 'patch': 'script_patch',
-                               'check': 'script_check', 'status': 'script_status'}
+                               'check': 'script_check', 'status': 'script_status', 'run': 'script_run'}
         receipts.update({
             'script_write': _write_receipt,
             'script_patch': _patch_receipt,
@@ -147,7 +153,7 @@ def build(runtime):
             return runtime.player_api(world, 'stock:market').quotes(actor)
 
         tools.append(Tool('market', market, owner='stock:market', api=('quotes',),
-                          covers=(('stock:market', 'history'), ('stock:market', 'catalog')),
+                          covers=(('stock:market', 'history'), ('stock:market', 'catalog'), ('stock:market', 'orders'), ('stock:market', 'fills')),
                           read_only=True, fact=True,
                           description='当前行情：每只股票的现价、昨收、涨跌、ma5/ma10/ma20 均线、动量、'
                                      '已实现波动率，以及流通盘与冲击成本、手续费参数。'))
@@ -160,7 +166,7 @@ def build(runtime):
         # 但模型工具表里不能出现买卖工具：这里放一个不出现在工具表里的封堵工具，
         # 真被按名字调用就直接回执拒绝，并说明正确路径。
         tools.append(Tool('stock_trade', stock_trade, owner='stock:market', api=('buy',),
-                          covers=(('stock:market', 'sell'), ('stock:market', 'cancel')),
+                          covers=(('stock:market', 'sell'), ('stock:market', 'short'), ('stock:market', 'cover'), ('stock:market', 'cancel')),
                           hidden=True,
                           description='买卖封堵：买卖只能通过 Python 脚本下单，不作为模型工具暴露。'))
 
@@ -171,7 +177,7 @@ def build(runtime):
         tools.append(Tool('round', round_view, owner='stock:clock', api=('snapshot',),
                           read_only=True, fact=True,
                           description='回合日历与窗口额度：第几个回合、今天开市还是休市、离下次开盘还有几回合、'
-                                     '当前处在哪个窗口、额度用掉多少、已经过去多少分钟。'))
+                                     '共同tick、交易时刻与盘前规划动作的已用额度。'))
 
     # ── 银行：借贷 ──────────────────────────────────────────────────
     if 'stock:portfolio' in runtime.capabilities:
@@ -208,6 +214,42 @@ def build(runtime):
         tools.append(Tool('clock_sleep', clock_sleep, owner='stock:clock', api=('sleep',),
                           hidden=True,
                           description='时钟休眠封堵：按时间片等待只能写在脚本里。'))
+
+    if 'stock:compute' in runtime.capabilities:
+        def compute_status(world, actor):
+            return runtime.player_api(world, 'stock:compute').status(actor)
+        def compute_buy(world, actor, kind: str):
+            return runtime.player_api(world, 'stock:compute').buy(actor, kind)
+        def compute_release(world, actor, kind: str):
+            return runtime.player_api(world, 'stock:compute').release(actor, kind)
+        specs = (
+            Action('compute_buy', compute_buy, owner='stock:compute', api=('buy',),
+                description='购买游戏计算资源，kind=pool增购共享算力池、slot增购自动交易槽、research解锁行动内研究槽；立即扣游戏现金，后续每日续租。'),
+            Action('compute_release', compute_release, owner='stock:compute', api=('release',),
+                description='退租一档pool或slot，或停用research；当日不退款、不重置用量，源码保留。'))
+        tools.append(Tool('compute_status', compute_status, owner='stock:compute', api=('status',),
+                          read_only=True, fact=True,
+                          description='本账户算力池、槽位、研究槽、每日共享总量/用量/剩余额度、购买价和续租费用。'))
+        tools.append(command_layer.action_tool(runtime, 'compute',
+            '用游戏现金租计算资源：action=buy/release，kind=pool/slot/research。所有槽共享每日预算；研究槽仅行动中手动只读运行。',
+            (('buy', specs[0]), ('release', specs[1]))))
+        actions.extend(specs)
+        commands['compute'] = {'buy': 'compute_buy', 'release': 'compute_release'}
+
+    if 'stock:intelligence' in runtime.capabilities:
+        def intel_status(world, actor):
+            return runtime.player_api(world, 'stock:intelligence').status(actor)
+        def intel_steal(world, actor, target: str):
+            return runtime.player_api(world, 'stock:intelligence').steal(actor, target)
+        spec = Action('intel_steal', intel_steal, owner='stock:intelligence', api=('steal',),
+                      description='支付游戏费用，取得其他玩家的现金、银行贷款及各股票持仓规模快照；target为公开玩家id。报告不会自动刷新。')
+        tools.append(Tool('intel_status', intel_status, owner='stock:intelligence', api=('status',),
+                          read_only=True, fact=True, description='公开玩家名单、商业谍报价格及自己已购买的报告，含获取时间。'))
+        tools.append(command_layer.action_tool(runtime, 'intel',
+                     '商业谍报：action=steal，target=其他玩家id；按公布价格付费获取现金、贷款、持仓规模快照。',
+                     (('steal', spec),)))
+        actions.append(spec)
+        commands['intel'] = {'steal': 'intel_steal'}
 
     # ── 结束回合 ────────────────────────────────────────────────────
     if 'stock:clock' in runtime.capabilities:

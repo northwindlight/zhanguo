@@ -64,3 +64,5 @@ The root entry points are `host.py` (distribution assembly), `mp_run.py` (CLI), 
 The [game manual](mods/native/docs/游戏说明书.md) and the four strategy handbooks are hand-maintained under `mods/native/docs/`; they are not generated from code and are not assembled at runtime.
 
 Source release ZIPs exclude real-game records. Published records remain available in the [repository research directory](https://github.com/northwindlight/zhanguo/tree/main/research/game-records).
+
+Stock 2.0 is an optional PAMS-backed interactive market with a shared tick clock, paid compute pools, trading slots, a manual read-only research slot, and paid competitor snapshots. Install `requirements-stock.txt`; see [stock documentation](mods/stock/README.md).

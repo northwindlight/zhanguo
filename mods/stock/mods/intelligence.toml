@@ -1,0 +1,18 @@
+[Mod]
+Id = "stock:intelligence"
+Version = "2.0.0"
+Entry = "mods.stock.intelligence:IntelligenceMod"
+Requires = ["stock:clock", "stock:portfolio"]
+[State]
+Owns = ["intelligence"]
+[Capabilities]
+Needs = ["stock:portfolio", "stock:clock"]
+Provides = ["stock:intelligence"]
+[Interfaces]
+"stock:portfolio" = ["spend", "participants", "intelligence_snapshot"]
+"stock:clock" = ["charge"]
+[Parameters]
+ReportPrice = 1000
+[PlayerAPI]
+Methods = ["status", "steal"]
+ReadOnly = ["status"]

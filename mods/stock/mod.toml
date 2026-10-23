@@ -1,18 +1,14 @@
 [Distribution]
 Id = "stock:exchange"
-Version = "1.0.0"
-# 模拟炒股发行版：四个模块，一套规则。
-#   stock:clock     回合号、交易日历（每 5 个交易日休市 2 天）、两个窗口的动作额度
-#   stock:market    股票池、分层价格引擎、挂单簿与撮合
-#   stock:portfolio 现金、持仓、借贷、净值曲线、银行强制平仓
-#   stock:python    沿用原版 Python 沙盒（experimental:python 的股市版）
-Members = ["mods/clock.toml", "mods/market.toml", "mods/portfolio.toml", "mods/python.toml"]
-RequiredState = ["clock", "market", "portfolio", "scripts"]
+Version = "2.0.0"
+# PAMS交互市场、券商、共同tick、计算槽、算力租赁与商业谍报。
+Members = ["mods/clock.toml", "mods/market.toml", "mods/portfolio.toml", "mods/python.toml", "mods/compute.toml", "mods/intelligence.toml"]
+RequiredState = ["clock", "market", "portfolio", "scripts", "compute", "intelligence"]
 ActorCollection = "nation_actors"
 ActionGate = {Capability = "stock:clock", Method = "can_act"}
 PlayerClock = {Capability = "stock:clock", Method = "period"}
 # 回合开局自动给模型的事实：持仓与财富、行情、上回合脚本结果、回合日历与额度。
-PlayerState = ["portfolio", "market", "script_status", "round"]
+PlayerState = ["portfolio", "market", "script_status", "round", "compute_status", "intel_status"]
 
 [Distribution.Tools]
 Entry = "mods.stock.tools:build"
@@ -35,19 +31,12 @@ Entry = "mods.stock.session:StockSession"
 [Distribution.Configuration]
 Entry = "mods.stock.config:normalize"
 
-# 脚本执行服务沿用原版：脚本跑在沙盒里，回执由服务补齐。
-[Distribution.Session.Services.scripts]
-Entry = "mods.experimental.scripting:ScriptService"
-[Distribution.Session.Services.scripts.Services.programs]
-Capability = "sandbox:programs"
-Methods = ["finish"]
-
 [[Hooks]]
 Id = "market.settlement"
 Name = "撮合与结算"
-Description = "按本回合收盘价撮合全部挂单（含冲击成本），按订单流滚动下一回合行情，并结算利息、追保与银行强制平仓。"
+Description = "PAMS共同时间线：盘中撮合并立即记账，收盘结算费用和风险。"
 
 [[Hooks]]
 Id = "cycle.end"
 Name = "回合推进"
-Description = "结束本回合，重置两个窗口的动作额度，进入下一回合。"
+Description = "推进日历，重置规划及共享计算预算，续租资源。"

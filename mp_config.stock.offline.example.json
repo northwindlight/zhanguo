@@ -2,8 +2,8 @@
   "mods": "mods.stock.toml",
   "seed": 20261023,
   "max_turns": 30,
-  "save": "stock_save.json",
-  "journal": "stock_journal.md",
+  "save": "stock_v2_save.json",
+  "journal": "stock_v2_journal.md",
   "nations": [
     {
       "id": "stock:alpha",

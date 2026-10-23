@@ -17,8 +17,15 @@ foreach ($c in @("python", "py")) {
 if (-not $py) { Write-Host "[错误] 未找到 Python（需 3.10+），请先安装" -ForegroundColor Red; Read-Host "回车退出"; exit 1 }
 if ($py -eq "py") { $py = @("py", "-3") }
 
+$ConfigPath = "mp_config.json"
+for ($index = 0; $index -lt $args.Count; $index++) {
+    if ($args[$index] -eq "--config" -and $index + 1 -lt $args.Count) { $ConfigPath = $args[$index + 1] }
+    elseif ($args[$index] -like "--config=*") { $ConfigPath = $args[$index].Substring(9) }
+}
+
 # ---- 配置：没有 mp_config.json 就从模板生成并提示填写 ----
-if (-not (Test-Path "mp_config.json")) {
+if (-not (Test-Path $ConfigPath)) {
+    if ($ConfigPath -ne "mp_config.json") { throw "找不到配置 $ConfigPath" }
     Copy-Item mp_config.example.json mp_config.json
     Write-Host "[初始化] 已从模板生成 mp_config.json —— 请先填好每国的 base_url / api_key / model 再运行（provider 可选，只有 openai / anthropic 两种，缺省 openai）。" -ForegroundColor Yellow
     Read-Host "回车退出"
@@ -40,6 +47,16 @@ if ($LASTEXITCODE -ne 0) {
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[提示] 清华镜像拉取失败（网络/分流原因），改用官方源重试…"
         & $venvPy -m pip install --timeout 60 -r requirements.txt
+    }
+}
+
+$StockConfig = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json
+if ([System.IO.Path]::GetFileName([string]$StockConfig.mods) -eq "mods.stock.toml") {
+    & $venvPy -c "from importlib.metadata import version; import pams; assert version('pams') == '0.3.0'"
+    if ($LASTEXITCODE -ne 0) {
+        & $venvPy -m pip install -i $PipMirror --timeout 60 -r requirements-stock.txt
+        if ($LASTEXITCODE -ne 0) { & $venvPy -m pip install --timeout 60 -r requirements-stock.txt }
+        if ($LASTEXITCODE -ne 0) { throw "无法安装股票后端依赖" }
     }
 }
 

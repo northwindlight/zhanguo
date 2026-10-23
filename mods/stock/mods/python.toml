@@ -1,35 +1,26 @@
 [Mod]
-# 沿用原版 experimental:python 的沙盒：同一套受限 Python、同一套回执形状，
-# 只是把时钟换成本回合历、把每次工具调用记进窗口额度。
 Id = "stock:python"
-Version = "1.0.0"
+Version = "2.0.0"
 Entry = "mods.stock.python:StockPythonMod"
-Requires = ["stock:clock"]
-
+Requires = ["stock:clock", "stock:compute"]
 [State]
 Owns = ["scripts"]
-
 [Capabilities]
-Needs = ["stock:clock", "stock:market"]
+Needs = ["stock:clock", "stock:market", "stock:compute"]
 Provides = ["sandbox:programs"]
-
 [Interfaces]
-"stock:clock" = ["period", "charge", "mark_open", "set_progress", "slices", "work_expired"]
-"stock:market" = ["open_session"]
-
+"stock:clock" = ["charge"]
+"stock:market" = ["open_session", "advance", "freeze_public"]
+"stock:compute" = ["status", "consume"]
 [Parameters]
-# 脚本并发方式：
-#   timeslice —— 时间片轮转，轮流执行模拟真并发（默认，结果完全确定）
-#   threads   —— 每个脚本一个线程，GIL 自己切碎字节码
-# 两者给出相同的对局结果：同一份行情快照、同一本挂单簿、回合末统一撮合。
-Concurrency = "timeslice"
-
+WakeInterval = 100
+BurstSteps = 50000
+BurstCalls = 200
+ResearchSteps = 1000000
+ResearchCalls = 1000
 [Limits]
-# 行情载荷比原版大（每只股票带均线、动量、波动率与成本参数），
-# 预算相应放宽；沙盒的结构性上限（depth/source/nodes/integer_bits）不动。
-# 一次 API 调用计 100 步：2000 次调用至少吃掉 200000 步，800000 步留出计算余量。
-steps = 800000
-calls = 2000
+steps = 4000000
+calls = 4000
 source = 16384
 nodes = 2048
 items = 4096
@@ -38,9 +29,6 @@ value_bytes = 1048576
 output = 4096
 depth = 48
 integer_bits = 256
-
 [PlayerAPI]
-# claim 不在这里：脚本的领取与执行由结算阶段的并发执行器直接调
-# sandbox:programs 接口，模型侧不暴露「运行脚本」动作。
-Methods = ["write", "patch", "check", "status"]
+Methods = ["write", "patch", "check", "status", "run"]
 ReadOnly = ["check", "status"]
