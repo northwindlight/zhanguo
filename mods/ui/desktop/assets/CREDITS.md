@@ -18,3 +18,8 @@ Mountains and hills are drawn in code. Building icons are generic visual proxies
 the inspector lists every actual kind and level, including unknown content IDs.
 The troop count is the actual number of surviving rule units in a tile, not
 the number of illustrated soldiers or their combined HP.
+
+The separate `--sample terrain` scene reuses the unmodified tree and house
+sheets. Its 6x8 scale figures, farmland, mineral outcrops and terrain shading
+are drawn in project code; no additional external art is introduced. These
+are provisional synthetic visuals, not a claim of complete character art.

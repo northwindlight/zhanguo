@@ -1,0 +1,126 @@
+{
+  "sample": "terrain-v1",
+  "fixture_sha256": "057c14e46e730cae9773ab67a4291d87be141c70adb4b27f7ab95d9486188877",
+  "seed": 20261023,
+  "layout_version": 1,
+  "region_pixels": 256,
+  "visual_cells": 16,
+  "figure_pixels": [
+    6,
+    8
+  ],
+  "structures": 19,
+  "trees": 306,
+  "people": 19,
+  "regions": [
+    {
+      "Name": "\u7A7A\u5C71\u4E0E\u8C37\u5730",
+      "X": 0,
+      "Y": 0,
+      "Wood": 0,
+      "Gold": 0,
+      "structures": 0,
+      "trees": 0,
+      "people": 0,
+      "gold_outcrops": 0
+    },
+    {
+      "Name": "\u5C71\u8C37\u805A\u843D",
+      "X": 1,
+      "Y": 0,
+      "Wood": 15,
+      "Gold": 0,
+      "structures": 4,
+      "trees": 4,
+      "people": 5,
+      "gold_outcrops": 0
+    },
+    {
+      "Name": "\u5C71\u95F4\u519C\u7530",
+      "X": 2,
+      "Y": 0,
+      "Wood": 10,
+      "Gold": 0,
+      "structures": 4,
+      "trees": 2,
+      "people": 3,
+      "gold_outcrops": 0
+    },
+    {
+      "Name": "\u96F6\u6728\u68EE\u6797",
+      "X": 0,
+      "Y": 1,
+      "Wood": 0,
+      "Gold": 0,
+      "structures": 0,
+      "trees": 0,
+      "people": 0,
+      "gold_outcrops": 0
+    },
+    {
+      "Name": "\u8D2B\u6728\u68EE\u6797",
+      "X": 1,
+      "Y": 1,
+      "Wood": 25,
+      "Gold": 0,
+      "structures": 0,
+      "trees": 30,
+      "people": 0,
+      "gold_outcrops": 0
+    },
+    {
+      "Name": "\u5BCC\u6728\u68EE\u6797",
+      "X": 2,
+      "Y": 1,
+      "Wood": 100,
+      "Gold": 0,
+      "structures": 0,
+      "trees": 162,
+      "people": 0,
+      "gold_outcrops": 0
+    },
+    {
+      "Name": "\u4E2D\u7B49\u6728\u91CF",
+      "X": 0,
+      "Y": 2,
+      "Wood": 55,
+      "Gold": 0,
+      "structures": 1,
+      "trees": 100,
+      "people": 2,
+      "gold_outcrops": 0
+    },
+    {
+      "Name": "\u542B\u91D1\u4E18\u9675",
+      "X": 1,
+      "Y": 2,
+      "Wood": 10,
+      "Gold": 80,
+      "structures": 2,
+      "trees": 5,
+      "people": 3,
+      "gold_outcrops": 14
+    },
+    {
+      "Name": "\u5E73\u539F\u519C\u7530",
+      "X": 2,
+      "Y": 2,
+      "Wood": 5,
+      "Gold": 0,
+      "structures": 8,
+      "trees": 3,
+      "people": 6,
+      "gold_outcrops": 0
+    }
+  ],
+  "platform": "Linux",
+  "renderer": "llvmpipe (LLVM 19.1.7, 128 bits)",
+  "measured_seconds": 1.1666666666666665,
+  "frames": 17,
+  "frame_ms_median": 54.16666666666667,
+  "frame_ms_p95": 144.76999999999984,
+  "startup_working_set_bytes": 380502016,
+  "final_working_set_bytes": 459161600,
+  "selection_checked": true,
+  "game_host_started": false
+}

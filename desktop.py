@@ -36,11 +36,15 @@ def main(argv=None):
     parser.add_argument('--build-only', action='store_true')
     parser.add_argument('--smoke-output', type=Path)
     parser.add_argument('--resume', type=Path, help='从旧演示局 session.json 复制续看；旧档保留')
+    parser.add_argument('--sample', choices=['terrain'], help='打开独立合成地貌样板，不启动 Python 对局')
     args = parser.parse_args(argv)
+    if args.sample and args.resume:parser.error('--sample 与 --resume 不能同时使用')
     ui = load_ui({'ui_mods': args.ui_mods})
     project = getattr(ui, 'desktop_project', None)
     if not callable(project):parser.error('当前 UI Mod 未提供桌面入口 desktop_project')
     project = project()
+    scene = project/'Samples'/'Terrain.tscn' if args.sample else None
+    if scene and not scene.is_file():parser.error('当前 UI Mod 未提供地貌样板 Samples/Terrain.tscn')
     local = Path.home()/'tools'/'zhanguo-desktop'
     godot = args.godot or shutil.which('godot_console') or shutil.which('godot') or shutil.which('godot4')
     if not godot:
@@ -62,6 +66,7 @@ def main(argv=None):
     subprocess.run([godot, '--headless', '--editor', '--path', str(project), '--import'], check=True, env=env)
     if args.build_only:return
     command = [godot, '--path', str(project)]
+    if scene:command.append('res://Samples/Terrain.tscn')
     if args.smoke_output:command += ['--', '--smoke-output', str(args.smoke_output.resolve())]
     raise SystemExit(subprocess.call(command, env=env))
 

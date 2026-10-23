@@ -78,3 +78,5 @@ docs/archive/*
 .godot/
 /mods/ui/desktop/bin/
 /mods/ui/desktop/obj/
+/tests/desktop-layout/bin/
+/tests/desktop-layout/obj/

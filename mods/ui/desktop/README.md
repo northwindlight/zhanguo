@@ -5,6 +5,23 @@ Godot 4.7.2 .NET / C# 原生桌面首版，Compatibility 渲染器，Mini World
 
 ![Godot 首版真实窗口预览](../../../docs/design/godot-preview.png)
 
+## 第一阶段地貌样板
+
+按[四周留余量的排期](../../../docs/plans/GUI第一阶段.md)分批推进阶段 A。
+第一批可运行：
+
+```bash
+python3 desktop.py --sample terrain
+```
+
+这是独立的 3×3 合成比例草样，展示 256×256 像素大地区、连续山谷、谷地房舍、
+四档木资源森林、含金岩层和农田。人物暂为 6×8 像素草图。全景/专题按钮、
+鼠标缩放/拖动/点选及 F 全图可用；不创建 Python 对局。布局固定种子可重现。
+阶段 A 仍在进行，地貌美术、持续性能和录像在后续批次完善。
+
+`--sample terrain --smoke-output /tmp/terrain.png` 输出实际窗口的全景/近景与输入核对 JSON。
+现有离线八国演示继续使用下文的默认入口。
+
 ## 启动
 
 安装 Godot **4.7.2 .NET**、.NET **8 SDK**、Python **3.11+**，在仓库根目录执行：
