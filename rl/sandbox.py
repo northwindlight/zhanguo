@@ -183,6 +183,9 @@ class Sandbox:
         # ★ **显式指定**各国核心格（剧本参数；不给就按 seed 抽）。
         self.starts = dict(starts) if starts else None
         self.first = first                # ★ 谁先手（`None` ⇒ `self.players[0]`）
+        # ★★ **建局时的队伍身份**（2026-10-23 修，review P1-4）：`{国家: 实体}`，
+        #   在 `reset()` 里（结盟之后）填好 ⇒ 亡国之后也查得到"我原来属于谁"。
+        self.team_of: dict = {}
         self.n_nations = int(n_nations if n_nations else n_nations_for(size))
         if not (2 <= self.n_nations <= len(PLAYER_NAMES)):
             raise ValueError(
@@ -246,6 +249,20 @@ class Sandbox:
         # ★★ **顺序变了：先结盟，再宣战**（新引擎的联盟是真实体，且明文禁止
         #   「正在战争中，不能创盟」⇒ 顺序反了就会建盟失败）。
         self._make_alliances()
+        # ★★★ **训练队伍身份**（2026-10-23 修，review P1-4）：
+        #   "**这局开打时，谁跟谁一队**" —— 记下来，之后**不变**（**亡国不改**）。
+        #   ★ 为什么必须记：引擎的 `Diplomacy.eliminate`（国家亡国）会把死者
+        #     从联盟名单里**删掉**，人不够两个就把联盟**整个删掉**
+        #     ⇒ 事后 `diplomacy.entity(死者)` 直接报错 ⇒ **队伍身份丢失**。
+        #   ⇒ 于是"我战死但我的联盟赢了"被当成"我输了"
+        #     （实测：乙、丁同队 ⇒ 乙先亡、丁最终获胜 ⇒ 两人拿到 −1 / +1）——
+        #     这把"**有利于团队、但本国先亡**"的策略标成失败。
+        #   ★ 这是**训练口径**（一局的分队），不是引擎状态 ⇒ 记在沙盒这边
+        #     （RL 状态本来就归沙盒，见 `rl/env.py` 的"状态归属"那段）。
+        #   ★ 建局**之后**才结的盟，`set_alliance` 会把成员的身份刷成联盟实体
+        #     （引擎"正在战争不能建盟"那条规矩逼着调用方先 `war=False` 建局再结盟
+        #       ⇒ 这条路是**正路**，不是边角）。
+        self.team_of = {n: self.env.entity(n) for n in self.players}
         if self.wars is not None:
             self.env.declare_wars([(a, b) for a, b in self.wars
                                    if a in self.players and b in self.players])
@@ -339,6 +356,20 @@ class Sandbox:
             if len(living) < 2:
                 continue
             self.env.set_alliance(living, name or f"盟{'-'.join(living)}")
+            # ★★★ **队伍身份跟着结盟走**（2026-10-23 修，review P1-4 的回归）：
+            #   队伍身份**不是**只在 `reset()` 里记一次 —— 联盟**可以是建局之后才结的**
+            #   （`set_alliance` 是公开用法；引擎那条"正在战争不能建盟"还逼着调用方
+            #   **先 `war=False` 建局、再结盟** ⇒ 这条路**不是边角**，是正路）。
+            #   ⇒ 原来只在 `reset()` 记 ⇒ 这种局里甲乙拿到的还是"各自为政"的旧标签
+            #     ⇒ 胜方判据看到**两个队伍** ⇒ `winner()` 返回 `None`
+            #     （实测：`tests/test_rl_terminal_outcome.py` 那条"成员亡国但联盟赢了"
+            #       ⇒ 联盟明明赢了，`winner()` 却是 `None`）。
+            #   ⇒ 现在：**每次结盟都把成员的身份刷成新的联盟实体**。
+            #   ★ 亡国**不会**改这张表（那才是这条修复的要点）：
+            #     引擎 `Diplomacy.eliminate` 把死者从名单里删掉、人不够两个就解散联盟
+            #     ⇒ 引擎认不出死者原来属于谁 ⇒ 我们这张表记得。
+            for m in living:
+                self.team_of[m] = self.env.entity(m)
 
     # ============================================================ 查询
     def core_of(self, name: str) -> tuple[int, int] | None:
@@ -378,21 +409,43 @@ class Sandbox:
         return self.turn >= self.t_max
 
     def winning_entity(self) -> str | None:
-        """★★ 胜者 = 场上**唯一剩下的外交实体**（`None` = 还没定局）。
+        """★★ 胜者 = 场上**唯一还活着的队伍**（`None` = 还没定局）。
 
         用户 2026-09-24：「应该是联盟胜利或者单国胜利」⇒ 判据不是"某一个国家还在不在"，
-        而是"还剩几个**实体**"：只剩 1 个 ⇒ 它赢；一个不剩 ⇒ 同归于尽/平局 ⇒ `None`。
+        而是"还剩几个**队伍**"：只剩 1 个 ⇒ 它赢；一个不剩 ⇒ 同归于尽/平局 ⇒ `None`。
+
+        ★★★ 2026-10-23 修（review P1-4）：队伍按**建局时记下的身份**算
+          （`self.team_of`），**不是**按引擎"现在还认不认这个实体"。
+          原因：引擎的 `Diplomacy.eliminate`（亡国）会把死者从联盟里删掉，
+          **人不够两个就把联盟整个解散** ⇒ 活下来那位变成"单国" ⇒
+          ① 事后查不到死者原来属于谁（队伍身份丢失）；
+          ② 连**活着**那位的标签都变了（`bloc/…` → `nation/…`）⇒
+          "我战死但我的队赢了"被算成"我输了"（实测：乙、丁同队 ⇒
+          乙先亡、丁最终获胜 ⇒ 两人拿到 −1 / +1）。
+          ⇒ 现在：**队伍在建局/结盟时定下，之后不变**（**亡国不改**）；
+          最后剩下的那个队伍赢，**它的全部成员（活着的、亡国的）都算赢**。
         """
         alive = [n for n in self.players if self.alive(n)]
         if not alive:
             return None
-        ents = {self.env.entity(n) for n in alive}
-        return ents.pop() if len(ents) == 1 else None
+        teams = {self.team_of.get(n) or self.env.entity(n) for n in alive}
+        return teams.pop() if len(teams) == 1 else None
 
     def winner_members(self) -> tuple[str, ...]:
-        """胜方实体里的国家名单（单国胜利 ⇒ 只有一个）。没定局 ⇒ `()`。"""
+        """胜方实体里的国家名单（单国胜利 ⇒ 只有一个）。没定局 ⇒ `()`。
+
+        ★★ 2026-10-23 修（review P1-4）：按**建局时记下的队伍身份**算，
+          **不是**按"引擎现在还认不认这个实体"——
+          亡国者的名字会被引擎从联盟里删掉 ⇒ 事后查不到 ⇒
+          "**我战死但我的联盟赢了**"会被算成"我输了"
+          （实测：乙、丁同队 ⇒ 乙先亡 ⇒ 乙拿到 −1、丁拿到 +1）。
+          ⇒ 现在用 `self.team_of` ⇒ 胜方队伍里的**所有人**（含已亡国的）都算赢。
+        """
         e = self.winning_entity()
-        return tuple(self.env.entity_members(e)) if e else ()
+        if not e:
+            return ()
+        members = tuple(n for n in self.players if self.team_of.get(n) == e)
+        return members or tuple(self.env.entity_members(e))
 
     def winner(self) -> str | None:
         """胜方的**实体标签**；`None` = 平局 / 超时 / 未定局。"""
@@ -432,7 +485,10 @@ class Sandbox:
         """
         if global_terminal:
             return self.reward(p)                 # ★ 全局口径（`winner_members` ⇒ 联盟友好）
-        t = evaluate.terminal(self.env, p)        # 未完局 ⇒ 只有"实体出局"才是已定的结果
+        # ★ 未完局 ⇒ 只有"实体出局"才是已定的结果。
+        #   ★★ **带上建局时的队伍身份**（review P1-4）：亡国后引擎认不出实体了
+        #   ⇒ "我战死但我的盟还活着"会被算成"我出局了"（输）⇒ 口径不统一。
+        t = evaluate.terminal(self.env, p, teams=self.team_of)
         if t is None:
             return None
         if t > 0:
@@ -502,6 +558,7 @@ class Sandbox:
         sb.kills = self.kills.clone()       # 击杀账本
         sb.war_mem = self.war_mem.clone()   # 敌军番号账本
         sb.intel = self.intel.clone()       # 情报账本
+        sb.team_of = dict(getattr(self, "team_of", {}) or {})   # ★ 队伍身份跟着副本走
         return sb
 
     # ============================================================ 行动
@@ -606,8 +663,18 @@ class Sandbox:
             # ★ "原地不动"是**沙盒自己的动作**（引擎没有）⇒ 记在沙盒自己的
             #   `held` 集合里，**不改引擎的 `moved_turn`**（那不是我们的字段）。
             unit = self.env.unit(name, aid)
-            if unit is not None:
-                self.held.add(unit.gid)
+            if unit is None:
+                # ★★★ 2026-10-23 修（review P1-1 的收口）：**没有这支军 ⇒ 拒收**。
+                #   旧写法：找不到也返回 `ok=True`（"hold" 空转，什么都没发生）
+                #   ⇒ 上一位玩家的**旧候选**（`aid` 是**本国序号**，跨国会撞车）
+                #   落到下一位玩家头上时，**被当成合法动作执行了** ⇒
+                #   "替下一位玩家落子"**还不报错**（动作额度照烧）。
+                #   ⇒ 现在：**拿不到军就明说拒收**（`n_rejected` 照记）。
+                self.n_rejected += 1
+                self.last_ok = False
+                self._auto_advance()
+                return False, f"本国没有编号 {aid} 的军（hold 无从下手）"
+            self.held.add(unit.gid)
             self.last_ok = True
             self._auto_advance()
             return True, "hold"

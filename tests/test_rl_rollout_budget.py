@@ -68,9 +68,22 @@ class TestStepBudget(unittest.TestCase):
         steps, _ = collect_episode(_nets(sb), sb, max_steps=9,
                                    rng=np.random.default_rng(0))
         self.assertTrue(steps[-1].done, "截断处不是 GAE 边界 ⇒ 会去借下一局的价值")
-        # ★ 反向对照：边界**只该有一处**（前面那些步不许被顺手标成 done）
-        self.assertFalse(any(s.done for s in steps[:-1]),
-                         "把中间的步也标成 done 了 ⇒ 优势估计被切碎")
+        # ★★ 反向对照：**边界只该落在"每一段轨迹的最后一步"**上
+        #   （★★ 口径：`done` 是**逐玩家**标的 —— 多玩家局里**每个玩家自己的
+        #     最后一步**才是他的边界，见 `rl/train.py::_mem_windows` 的那段说明：
+        #     "**`done` 标志只在每个玩家自己的最后一步上**"）。
+        #   ⇒ 旧断言按"整局最后一步"写（`not any(s.done for s in steps[:-1])`）
+        #     ⇒ **多玩家局必红** ⇒ 而这条用例**在本地从没跑到过终点**
+        #     （180 s 超时被排除在批量回归外）⇒ 这条红一直没人看见
+        #     （2026-10-23 傍晚才第一次跑完 ⇒ 顺手改对）。
+        last_of: dict = {}
+        for i, s in enumerate(steps):
+            last_of[s.player] = i
+        boundary = set(last_of.values())
+        for i, s in enumerate(steps):
+            self.assertEqual(bool(s.done), i in boundary,
+                             f"第 {i} 步（player={s.player}）的 done 标记"
+                             f"与'段边界'对不上 ⇒ 优势估计被切碎（或该断的没断）")
 
     def test_zero_means_unlimited(self):
         """`0` 是"不限"，不是"走一步就停"（这个错法很隐蔽：还能跑，只是全被截）。"""

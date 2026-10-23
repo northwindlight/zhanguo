@@ -336,9 +336,9 @@ class League:
         self._hot.add(mid)
 
     def hot_weights(self) -> dict:
-        """★ **"学过但还没落盘"的那几份**的当前权重（`mark_hot` 标的那批）。
+        """★ **"学过但还没落盘"的那几份**的当前权重**与优化器状态**。
 
-        ★★ 为什么要导出（2026-10-23 修，review P1-6）：
+        ★★ 为什么要导出（2026-10-23 修，review P1-6 / P1-3）：
           `mark_hot` 标的那批成员，**更新后的权重只在本进程内存里**
           （`_nets` 缓存里那个对象）⇒ 盘上那份**还是旧版** ⇒
           进程一重启就**丢**（学习静默消失）。
@@ -347,6 +347,9 @@ class League:
           （实测：`snapshot-every=3` + `restart-after=5` 这种组合必踩）。
         ⇒ 训练侧把它们的权重**一起存进主档**，续训时灌回去
           （见 `rl/train.py::_save_ckpt` / `_load_ckpt`）。
+        ★★★ **优化器状态也要带**（review P1-3）：只带权重 ⇒ 续训时这批快照
+          **重开 Adam** ⇒ `m`/`v` 归零 ⇒ 归档间隔 > 1 时这部分续训
+          **等于每轮从零学**（主网络那份有动量、这批没有 ⇒ 两边口径还不一样）。
         ★ 只导出**内存里确实有**的那些（没缓存的不导出 ⇒ 不替它猜）。
         """
         out = {}
@@ -354,28 +357,63 @@ class League:
             net = self._nets.get(mid)
             if net is None:
                 continue
-            out[mid] = {k: v.detach().cpu().clone()
-                        for k, v in net.state_dict().items()}
+            item = {"weights": {k: v.detach().cpu().clone()
+                                for k, v in net.state_dict().items()}}
+            opt = getattr(net, "_ppo_opt", None)
+            if opt is not None:
+                item["opt"] = opt.state_dict()
+            out[mid] = item
         return out
 
     def restore_hot(self, weights: dict) -> int:
-        """把 `hot_weights()` 导出的那批权重**灌回**池子（续训时用）。
+        """把 `hot_weights()` 导出的那批**权重（+ 优化器状态）**灌回池子（续训时用）。
 
         ★ 走 `net_of(mid)`（**懒加载 + 形状指纹校验**）⇒ 灌进去的这份
           就是池子以后**会用到**的那份（不是另建一个对象）。
         ★ 返回**灌回去几份**（0 ⇒ 存档里那批成员已经不在池子里了 ⇒ 不声张，
           由调用方决定要不要报）。
+
+        ★★★ 2026-10-23 修（review P1-2）：**先钉住（`_hot`）再加载**。
+          原来顺序反了：先 `net_of(mid)`（**这一步自己会触发逐出** `_evict`）、
+          后 `self._hot.add(mid)` ⇒ 缓存上限一紧（`net_cap=1`），
+          **刚灌进去的那份当场被逐出** ⇒ 下次再取就是**盘上的旧权重**
+          ⇒ "恢复成功"是**假的**（实测：恢复 3 份、缓存上限 1 ⇒ 报告 3 份成功，
+          另外两份再读时是旧权重）。
+          ⇒ 现在**先 `_hot.add`**（`_evict` 会跳开 hot 成员 ⇒ 加载期间不被逐出）
+          ⇒ 再加载、灌权重、灌优化器状态。
         """
         n = 0
-        for mid, w in (weights or {}).items():
+        for mid, item in (weights or {}).items():
             if mid not in self.members:
                 continue
+            # ★★ **先钉住**（review P1-2）：`_evict` 跳开 `_hot` 里的成员
+            #   ⇒ 加载期间（`net_of` 自己会调 `_evict`）不会被逐出去。
+            self._hot.add(mid)
             try:
                 net = self.net_of(mid)
             except (KeyError, SystemExit):
+                # ★ 没恢复成 ⇒ **别把它钉住**（钉住 = 逐不出去 = 缓存只涨不落）。
+                self._hot.discard(mid)
+                continue
+            # ★ 兼容两种形状：新版 `{mid: {"weights":…, "opt":…}}`、
+            #   旧版 `{mid: {张量名: 张量}}`（只有权重）。
+            w = item.get("weights") if isinstance(item, dict) and "weights" in item \
+                else item
+            if not isinstance(w, dict):
+                self._hot.discard(mid)
                 continue
             net.load_state_dict(w)
-            self._hot.add(mid)
+            # ★ **优化器状态也灌回去**（review P1-3）：挂在网对象上
+            #   （与 `_adam_for` 同一处）⇒ 下次更新直接复用（动量不丢）。
+            opt_state = item.get("opt") if isinstance(item, dict) else None
+            if opt_state:
+                from .train import _adam_for
+                lr = float((opt_state.get("param_groups") or [{}])[0].get("lr", 0.0))
+                try:
+                    opt = _adam_for(net, lr)
+                    opt.load_state_dict(opt_state)
+                except (ValueError, KeyError):
+                    pass
             n += 1
         return n
 

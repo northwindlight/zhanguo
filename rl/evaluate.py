@@ -278,28 +278,37 @@ def dead_rivals(env, me: str, allies=None) -> list[str]:
     return [n for n in rival_nations(env, me, allies) if not env.has_townhall(n)]
 
 
-def terminal(env, me: str, enemy: str | None = None) -> float | None:
-    """终局分（**只剩一个外交实体**）。没结束 ⇒ `None`。
+def terminal(env, me: str, enemy: str | None = None,
+            teams: dict | None = None) -> float | None:
+    """终局分（**只剩一个队伍**）。没结束 ⇒ `None`。
 
-    ★★ 胜者是**实体**，不是单个国家 —— 用户 2026-09-24：「**应该是联盟胜利或者
-      单国胜利**」。⇒ 判据是"场上还剩几个**外交实体**（`entity_of`）"，不是"某一国的
-      厅还在不在"：
-        · 还剩 ≥2 个实体 ⇒ 未定局
-        · 还剩 1 个     ⇒ 它赢；**我的实体**是它 ⇒ `+INF`，否则 `-INF`
+    ★★ 胜者是**队伍**（联盟或单国），不是单个国家 —— 用户 2026-09-24：「**应该是联盟胜利
+      或者单国胜利**」。⇒ 判据是"场上还剩几个**队伍**"，不是"某一国的厅还在不在"：
+        · 还剩 ≥2 个队伍 ⇒ 未定局
+        · 还剩 1 个     ⇒ 它赢；**我的队伍**是它 ⇒ `+INF`，否则 `-INF`
         · 一个都不剩     ⇒ 同归于尽 ⇒ `0.0`
-      ★ 我**战死但我的联盟赢了** ⇒ 也算我赢（`+S.INF`）—— 那正是"联盟胜利"的含义。
+      ★ 我**战死但我的队伍赢了** ⇒ 也算我赢（`+S.INF`）—— 那正是"联盟胜利"的含义。
 
     **亡国是公开事件，不需要视野**（`has_townhall` 是公开的）。
     `enemy` 参数保留只为向后兼容，**不再参与判定**（多国时"某个对手"不是判据）。
+
+    ★★★ `teams` = **建局时的队伍身份表** `{国家: 队伍}`（2026-10-23 修，review P1-4）：
+      亡国之后引擎**认不出**这个国家的队伍了（`Diplomacy.eliminate` 把死者从联盟
+      名单里删掉、人不够两个就把联盟整个解散 ⇒ 活下来那位连标签都变了）
+      ⇒ 事后查不到 ⇒ "我战死但我的队赢了"被算成"我输了"。
+      ⇒ 调用方（`Sandbox`）把 `team_of` 整张表传进来 ⇒ 口径与结算侧**统一** ✓。
+      不给 ⇒ 退回"现查引擎实体"（老行为）。
     """
     alive = [n for n in env.nations() if env.has_townhall(n)]
     if not alive:
         return 0.0                                   # 同归于尽
-    ents = {env.entity(n) for n in alive}
-    if len(ents) == 1:                               # ★ 只剩一个实体 ⇒ 它赢了
-        return +S.INF if _my_entity(env, me) in ents else -S.INF
-    if env.has_townhall(me) or _my_entity(env, me) in ents:
-        return None                                  # 我还有戏（我活着，或我的盟还活着）
+    teams = teams or {}
+    ents = {teams.get(n) or env.entity(n) for n in alive}
+    my = teams.get(me) or _my_entity(env, me)
+    if len(ents) == 1:                               # ★ 只剩一个队伍 ⇒ 它赢了
+        return +S.INF if my in ents else -S.INF
+    if env.has_townhall(me) or (my is not None and my in ents):
+        return None                                  # 我还有戏（我活着，或我的队还活着）
     return -S.INF
 
 

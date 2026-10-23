@@ -331,8 +331,14 @@ class TestHotSnapshotResume(unittest.TestCase):
             wkey = next(iter(held.state_dict()))
             hot = lg.hot_weights()
             self.assertIn(mid, hot, "热快照没被导出 ⇒ 重启会丢")
-            self.assertFalse(torch.equal(hot[mid][wkey], net.state_dict()[wkey]),
-                             "导出的还是旧权重 ⇒ 学到的东西没带走")
+            # ★★★ 2026-10-23（review P1-3）：热快照的形状从"**纯权重**"改成
+            #   `{mid: {"weights": …, "opt": …}}`（**优化器状态也跟着走**）。
+            #   ⇒ 这里按**新形状**断言；`restore_hot` 仍**兼容旧形状**
+            #   （老存档能直接读）。
+            self.assertIn("weights", hot[mid], "热快照里没有权重")
+            self.assertFalse(
+                torch.equal(hot[mid]["weights"][wkey], net.state_dict()[wkey]),
+                "导出的还是旧权重 ⇒ 学到的东西没带走")
             ck = Path(d) / "ck.pt"
             T._save_ckpt(str(ck), {0: net}, 1,
                          meta=T._ckpt_meta(8, 8, True, None, 1, 60, mem_slots=0),

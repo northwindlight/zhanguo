@@ -126,7 +126,10 @@ class MCTS:
         # ⇒ 现在用 `sb.players`（沙盒自己的名单）。
         enemy = next((n for n in sb.players if n != root_player), None)
         w = sb.env
-        t = evaluate.terminal(w, root_player, enemy)
+        # ★ 带上**建局时的队伍身份**（review P1-4）：亡国后引擎认不出实体了
+        #   ⇒ "我战死但我的盟赢了"会被算成输 ⇒ 口径与训练侧不统一。
+        teams = getattr(sb, "team_of", {}) or {}
+        t = evaluate.terminal(w, root_player, enemy, teams=teams)
         if t is not None:
             return 1.0 if t > 0 else (-1.0 if t < 0 else 0.0)
         if depth >= self.max_depth:
@@ -140,7 +143,7 @@ class MCTS:
                 break
             acts = sim.legal()
             sim.step(self.rng.choice(acts))
-        t = evaluate.terminal(sim.env, root_player, enemy)
+        t = evaluate.terminal(sim.env, root_player, enemy, teams=teams)
         if t is not None:
             return 1.0 if t > 0 else (-1.0 if t < 0 else 0.0)
         return self._shaped(sim.env, root_player, enemy)
