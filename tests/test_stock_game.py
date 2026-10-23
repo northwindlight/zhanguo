@@ -176,31 +176,49 @@ class StockGameTest(unittest.TestCase):
         host.session.player = spy
         return seen, ticks
 
-    def test_price_moves_during_the_round(self):
+    def test_price_moves_during_the_session(self):
+        """开盘窗口 20 分钟里行情连续变动：路径不是一根直线。"""
         host = self.host(actors=3)
-        seen, ticks = self._spy_prices(host)
+        market = host.world.market
+        opening = market.opening['shanhai']
         host.cycle()
-        self.assertEqual(len(seen), 3)
-        self.assertGreater(len(set(seen)), 1, '同一回合里不同行动者应当看到不同的价格')
+        path = market.last_path['shanhai']
+        self.assertEqual(len(path), 5, '4 片时间片就是 5 个价格点')
+        self.assertGreater(len(set(path)), 1, '窗口里的价格应当连续变动')
+        self.assertEqual(path[0], opening, '路径起点是开盘价')
+        self.assertEqual(path[-1], market.close['shanhai'], '路径终点是收盘价')
 
-    def test_no_player_sees_the_closing_price(self):
-        """收盘价落在最后一片上，没有哪个行动者能提前知道本回合怎么收。"""
+    def test_scripts_trade_at_the_open_not_the_close(self):
+        """脚本在开盘执行：成交价按开盘价，不是收盘价（收盘价此刻还没人知道）。"""
+        host = self.host(rounds={1: BUY_SCRIPT}, actors=1)
+        opening = host.world.market.opening['shanhai']
+        host.cycle()
+        market = host.world.market
+        fills = market.fills()
+        self.assertEqual(len(fills), 1)
+        self.assertAlmostEqual(fills[0]['price'] / opening, 1.0, places=2,
+                               msg='成交价应当贴着开盘价（只差冲击成本）')
+        self.assertNotAlmostEqual(fills[0]['price'], market.close['shanhai'], places=2)
+
+    def test_accounts_are_valued_at_the_close(self):
+        host = self.host(rounds={1: BUY_SCRIPT}, actors=1)
+        host.cycle()
+        market = host.world.market
+        book = host.world.portfolio.holdings('stock:player0')
+        position = book['positions'][0]
+        self.assertEqual(position['price'], market.close['shanhai'],
+                         '闭市后账户按收盘价估值')
+
+    def test_pre_market_players_only_see_yesterdays_close(self):
+        """盘前：今天还没开盘，玩家只看得到昨收。"""
         host = self.host(actors=3)
         seen, ticks = self._spy_prices(host)
-        host.cycle()
         close = host.world.market.close['shanhai']
-        for price in seen:
-            self.assertNotAlmostEqual(price, close, places=2,
-                                       msg='行动者不该看到收盘价，否则等于提前知道结局')
-        self.assertLess(abs(seen[-1] - close), abs(seen[0] - seen[-1]) + 0.5,
-                        '收盘离最后一片应当只有一步之遥')
-
-    def test_tick_advances_once_per_actor(self):
-        host = self.host(actors=3)
-        seen, ticks = self._spy_prices(host)
         host.cycle()
         self.assertEqual(len(seen), 3)
-        self.assertEqual(ticks, [1, 2, 3], '每个行动者应当各推进一个时间片')
+        for price in seen:
+            self.assertEqual(price, close, '盘前不能看到今天的价格')
+        self.assertEqual(ticks, [0, 0, 0], '盘前行情没有时间片可走')
 
     def test_order_flow_pushes_the_next_open(self):
         host = self.host(rounds={1: "api.call('stock:market','buy',symbol='shanhai',quantity=1000)\n"})

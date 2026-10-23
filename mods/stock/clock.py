@@ -37,8 +37,8 @@ class Clock:
         self.summaries = {}
         self.started_at = time.monotonic()
         self.tick = 0
-        self.acted = set()
-        self.slice_total = 0
+        self.ticks = {}
+        self.session_ticks = 4
         self.work_started_at = 0.0
         self._world = None
         self._key = None
@@ -73,36 +73,33 @@ class Clock:
         return actor not in self.ended
 
     def slices(self):
-        """本回合切成几个时间片。
-
-        行动者一人一片，最后再留一片给收盘：收盘价落在最后一片上，
-        谁都看不到它，所以没有人能提前知道本回合的收盘价。
-        """
-        if self.slice_total:
-            return self.slice_total
-        world = self._world
-        actors = tuple(getattr(world, 'nation_actors', ()) or ()) if world is not None else ()
-        return max(1, len(actors)) + 1
+        """本回合的行情切成几个时间片：20 分钟开盘窗口里的连续变动。"""
+        return self.session_ticks
 
     def tick_index(self):
-        """已经走过的时间片数。"""
+        """收盘用的全局时间片。"""
         return self.tick
 
-    def begin_turn(self, actor):
-        """新行动者进场：市场往前走一个时间片，股价因此在盘中连续跳动。
+    def tick_for(self, actor):
+        """某个行动者当前走到的时间片。
 
-        一个行动者一回合只推进一次：回合循环里 player() 会被反复调用，
-        结算后的回调也会再调一遍，都不再推进。
+        脚本执行时按各自消耗的计算量推进，所以每个脚本都完整经历了
+        20 分钟的开盘窗口，而同一进度的脚本看到的是同一个价格。
         """
-        world = self._world
-        if world is None or getattr(world, 'phase', '行动') != '行动':
-            return self.tick
-        if actor in self.acted:
-            return self.tick
-        if actor not in tuple(getattr(world, 'nation_actors', ()) or ()):
-            return self.tick
-        self.acted.add(actor)
-        self.tick = min(self.tick + 1, self.slices() - 1)
+        return self.ticks.get(actor, 0)
+
+    def set_tick(self, actor, tick):
+        self.ticks[actor] = max(0, min(int(tick), self.session_ticks))
+        return self.ticks[actor]
+
+    def open_session(self):
+        """开盘：脚本在这里一起执行，看到的是今天的开盘价。"""
+        self.tick = 0
+        return self.tick
+
+    def close_session(self):
+        """闭市：20 分钟走完，收盘价定下来，账户按收盘价估值。"""
+        self.tick = self.slices()
         return self.tick
 
     def window_of(self, actor):
@@ -192,7 +189,7 @@ class Clock:
         self.used = {}
         self.summaries = {}
         self.tick = 0
-        self.acted = set()
+        self.ticks = {}
         self.started_at = time.monotonic()
         return self.round
 
@@ -205,13 +202,13 @@ class Clock:
             'used': {actor: dict(counts) for actor, counts in self.used.items()},
             'summaries': dict(self.summaries),
             'tick': self.tick,
-            'acted': sorted(self.acted),
+            'ticks': dict(self.ticks),
         }
 
     def restore(self, state):
         self.round = state['round']
         self.tick = state.get('tick', 0)
-        self.acted = set(state.get('acted', ()))
+        self.ticks = dict(state.get('ticks', {}))
         self.ended = set(state.get('ended', ()))
         self.opened = set(state.get('opened', ()))
         self.used = {actor: dict(counts) for actor, counts in state.get('used', {}).items()}
@@ -234,6 +231,10 @@ class ClockAPI:
 class ClockMod(GameMod):
     def mixins(self):
         return ()
+
+    def configure(self, declaration, path):
+        super().configure(declaration, path)
+        self.session_ticks = int(declaration['Parameters']['SessionTicks'])
 
     def numbers(self):
         cfg = self.declaration['Parameters']

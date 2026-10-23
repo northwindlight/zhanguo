@@ -17,6 +17,8 @@ RestDays = 2
 # 额度按模型侧工具调用计数，是墙钟之外的确定性口径。
 MarketWindow = 20
 WorkWindow = 20
+# 开盘窗口里的行情切成几个时间片：20 分钟连续变动，4 片就是每片 5 分钟。
+SessionTicks = 4
 
 [PlayerAPI]
 Methods = ["end_turn", "snapshot"]

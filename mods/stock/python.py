@@ -53,6 +53,7 @@ class ConcurrentRunner:
         回合末统一工作有时限：用满了就停，剩下的人这回合不执行。
         """
         runtime = self.module.runtime
+        runtime.object_call(self.world, 'stock:market', 'open_session')
         actors = tuple(getattr(self.world, 'nation_actors', ()) or ())
         if self.concurrency == 'threads':
             return self._run_threads(actors)
@@ -92,7 +93,9 @@ class ConcurrentRunner:
             claim = runtime.object_call(world, 'sandbox:programs', 'claim', actor)
         except Exception:
             return None
-        machine = Machine(claim['source'], self._invoker(actor), claim['limits'])
+        holder = {}
+        machine = Machine(claim['source'], self._invoker(actor, holder), claim['limits'])
+        holder['machine'] = machine
         machine.env[0]['inputs'] = {}
         result = machine.run()
         actions = result.pop('receipts')
@@ -105,8 +108,24 @@ class ConcurrentRunner:
         return result
 
     # ── 沙盒的宿主接口 ──────────────────────────────────────────
-    def _invoker(self, actor):
+    def _advance(self, actor, holder):
+        """脚本消耗的计算量就是它走过的开盘时间。
+
+        进度按比例映射到时间片，所以脚本永远不会「提前结束」——
+        它最多走到自己预算用尽的那一片，窗口剩下的时间照走，闭市才结算。
+        """
+        machine = holder.get('machine')
+        if machine is None:
+            return
+        runtime = self.module.runtime
+        slices = runtime.object_call(self.world, 'stock:clock', 'slices')
+        budget = max(1, machine.limits.get('steps', 1))
+        tick = int(machine.steps * slices / budget)
+        runtime.object_call(self.world, 'stock:clock', 'set_tick', actor, tick)
+
+    def _invoker(self, actor, holder):
         def invoke(name, args, kwargs):
+            self._advance(actor, holder)
             if name == 'call':
                 capability = args[0] if args else kwargs.get('capability')
                 method = args[1] if len(args) > 1 else kwargs.get('method')
@@ -209,8 +228,7 @@ class StockPythonMod(ScriptingMod):
         return (Stage('stock.python.run', self._run_scripts, hook='market.settlement'),)
 
     def _run_scripts(self, world, changes):
-        """回合末节点：所有玩家的脚本一起执行（时间片轮转模拟真并发）。"""
-        self.runtime.object_call(world, 'stock:clock', 'close_session')
+        """开盘：所有玩家的脚本一起执行（时间片轮转模拟真并发）。"""
         runner = ConcurrentRunner(self, world)
         changes.update(scripts=runner.run_all())
 

@@ -24,12 +24,6 @@ class StockSession(Session):
         self.world.portfolio.open_account(actor, item['name'])
         return actor
 
-    def player(self, actor):
-        """新行动者进场：市场往前走一个时间片，股价因此在盘中连续跳动。"""
-        player = super().player(actor)
-        self.world.clock.begin_turn(actor)
-        return player
-
     def validate_boundary(self):
         """有人已经结束行动但回合还没结算时，存档会丢掉未提交的挂单。"""
         if any(not self.world.clock.can_act(actor) for actor in self.actors()):

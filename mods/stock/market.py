@@ -42,7 +42,19 @@ STOCKS = (
 
 
 class Market:
-    """行情与撮合的领域对象：世界的 `world.market`。"""
+    """行情与撮合的领域对象：世界的 `world.market`。
+
+    一个回合的行情走三段：
+
+    * **盘前**（玩家行动阶段）：今天还没开盘，玩家只看得到昨收与均线指标；
+    * **开盘窗口**（20 分钟）：脚本在这里一起执行，行情按时间片连续变动，
+      脚本能看到盘口随自己的进度往前挪；
+    * **闭市**：窗口走完，收盘价定下来，账户按收盘价估值。
+    """
+
+    PRE = 'pre'
+    SESSION = 'session'
+    CLOSED = 'closed'
 
     def __init__(self, seed=0, *, float_shares=20000, impact_rate=0.05, impact_cap=0.05,
                  commission=0.001, flow_impact=0.03, momentum=0.35, reversion=0.05):
@@ -67,6 +79,9 @@ class Market:
                         ((row['symbol'], row['anchor']) for row in self.stocks.values())}
         self.daily = {symbol: 0.0 for symbol in self.stocks}
         self.close = {symbol: row['anchor'] for symbol, row in self.stocks.items()}
+        self.last_path = {symbol: [] for symbol in self.stocks}
+        self.last_open = {symbol: row['anchor'] for symbol, row in self.stocks.items()}
+        self.state = self.PRE
         self.orders = {}
         self.seq = 0
         self.last_fills = []
@@ -84,11 +99,13 @@ class Market:
         return self
 
     # ── 时钟接口 ────────────────────────────────────────────────
-    def _tick(self):
+    def _tick(self, actor=None):
         world = self._world
         if world is None:
             return 0
-        return world.runtime.object_call(world, 'stock:clock', 'tick_index')
+        if actor is None:
+            return world.runtime.object_call(world, 'stock:clock', 'tick_index')
+        return world.runtime.object_call(world, 'stock:clock', 'tick_for', actor)
 
     def _slices(self):
         world = self._world
@@ -96,17 +113,48 @@ class Market:
             return 1
         return max(1, world.runtime.object_call(world, 'stock:clock', 'slices'))
 
+    def open_session(self):
+        """开盘：今天的价格开始连续变动，脚本在窗口里执行。"""
+        self.state = self.SESSION
+        return self.state
+
+    def reopen(self):
+        """下一回合的盘前：回到只看昨收的状态。"""
+        self.state = self.PRE
+        return self.state
+
     # ── 价格 ────────────────────────────────────────────────────
-    def price_of(self, symbol, tick=None):
-        """当前时间片的价格：开盘价沿本回合的日内路径走到 tick/slices 处。"""
+    def price_of(self, symbol, actor=None, tick=None):
+        """某个时间片上的价格。
+
+        盘前只看得到昨收（今天还没开盘）；开盘后按时间片连续变动。
+        """
         stock = self.stocks.get(symbol)
         if stock is None:
             raise ValueError(f'没有这只股票：{symbol}')
+        if self.state == self.PRE:
+            return self.close[symbol]
         if tick is None:
-            tick = self._tick()
+            tick = self._tick(actor)
         slices = self._slices()
         ratio = self.daily.get(symbol, 0.0) * (tick / slices)
         return round(self.opening.get(symbol, stock['anchor']) * math.exp(ratio), 2)
+
+    def session_path(self, symbol):
+        """本次开盘窗口的价格路径（从开盘到收盘）。"""
+        stock = self.stocks.get(symbol)
+        if stock is None:
+            raise ValueError(f'没有这只股票：{symbol}')
+        slices = self._slices()
+        base = self.opening.get(symbol, stock['anchor'])
+        daily = self.daily.get(symbol, 0.0)
+        return [round(base * math.exp(daily * index / slices), 2) for index in range(slices + 1)]
+
+    def visible_path(self, symbol):
+        """当前看得见的那条路径：盘前是上一次的，开盘后是今天的。"""
+        if self.state == self.SESSION:
+            return self.session_path(symbol)
+        return list(self.last_path.get(symbol, ()))
 
     def catalog(self):
         return [{'symbol': s['symbol'], 'name': s['name'], 'sector': s['sector']}
@@ -139,14 +187,14 @@ class Market:
         variance = sum((r - mean) ** 2 for r in returns) / len(returns)
         return round(variance ** 0.5, 6)
 
-    def quotes(self):
-        """行情快照：当前时间片的价格、相对上一片的涨跌、均线、动量与交易成本。"""
-        tick = self._tick()
+    def quotes(self, actor=None):
+        """行情快照：当前价格、相对上一片的涨跌、均线、动量与交易成本。"""
+        tick = self._tick(actor)
         result = []
         for symbol, stock in self.stocks.items():
             series = self.history[symbol]
-            price = self.price_of(symbol, tick)
-            previous = self.price_of(symbol, tick - 1) if tick > 0 else self.close.get(symbol, price)
+            price = self.price_of(symbol, actor, tick)
+            previous = self.price_of(symbol, actor, tick - 1) if tick > 0 else self.close.get(symbol, price)
             momentum = round(series[-1] / series[-2] - 1, 6) if len(series) >= 2 else 0.0
             result.append({
                 'symbol': symbol,
@@ -155,6 +203,9 @@ class Market:
                 'price': price,
                 'prev_close': self.close.get(symbol, price),
                 'change_pct': round(price / previous - 1, 6) if previous else 0.0,
+                'open': self.opening.get(symbol, price) if self.state == self.SESSION
+                        else self.last_open.get(symbol, price),
+                'path': self.visible_path(symbol),
                 'ma5': self._moving_average(series, 5),
                 'ma10': self._moving_average(series, 10),
                 'ma20': self._moving_average(series, 20),
@@ -178,9 +229,9 @@ class Market:
         """冲击成本比例：本次下单量占流通盘的比例。"""
         return min(self.impact_cap, self.impact_rate * abs(quantity) / self.float_shares)
 
-    def execution_price(self, symbol, side, quantity):
+    def execution_price(self, symbol, side, quantity, actor=None):
         """按当前时间片的价格与冲击成本算出成交价（买入更贵、卖出更便宜）。"""
-        price = self.price_of(symbol)
+        price = self.price_of(symbol, actor)
         impact = self.impact_of(quantity)
         factor = (1 + impact) if side == 'buy' else (1 - impact)
         return round(price * factor, 4)
@@ -188,9 +239,9 @@ class Market:
     def fee_of(self, amount):
         return round(amount * self.commission, 2)
 
-    def sell_quote(self, symbol, quantity):
+    def sell_quote(self, symbol, quantity, actor=None):
         """卖出报价：给银行强制平仓用，含冲击成本与手续费。"""
-        price = self.execution_price(symbol, 'sell', quantity)
+        price = self.execution_price(symbol, 'sell', quantity, actor)
         amount = round(price * quantity, 2)
         return {'symbol': symbol, 'name': self.name_of(symbol), 'quantity': quantity,
                 'price': price, 'amount': amount, 'fee': self.fee_of(amount)}
@@ -209,7 +260,7 @@ class Market:
         if not runtime.object_call(world, 'stock:clock', 'trading_day'):
             raise ValueError('今天是休市日，交易所不开盘，不能买卖。')
         position = runtime.object_call(world, 'stock:portfolio', 'position_of', actor)
-        price = self.execution_price(symbol, side, quantity)
+        price = self.execution_price(symbol, side, quantity, actor)
         amount = round(price * quantity, 2)
         fee = self.fee_of(amount)
         if side == 'buy':
@@ -233,7 +284,7 @@ class Market:
             'status': 'pending',
             'reason': '',
             'placed_round': round_number,
-            'placed_tick': self._tick(),
+            'placed_tick': self._tick(actor),
         }
         with self._lock:
             order['id'] = self.seq
@@ -303,16 +354,19 @@ class Market:
                 flow[symbol] = flow.get(symbol, 0) + (quantity if order['side'] == 'buy' else -quantity)
         self.last_fills = fills
         self.orders = {}
-        self._close_round(round_number, flow, trading_day)
+        self._close_round(world, round_number, flow, trading_day)
         return fills
 
-    def _close_round(self, round_number, flow, trading_day):
-        """收盘：收盘价落在最后一片上（谁都没见过它）；再按订单流推出下一回合的开盘与日内路径。"""
+    def _close_round(self, world, round_number, flow, trading_day):
+        """闭市：窗口走完，收盘价定下来；再按订单流推出下一回合的开盘与日内路径。"""
+        world.runtime.object_call(world, 'stock:clock', 'close_session')
         closing_tick = self._slices()
         for symbol in self.stocks:
-            close = self.price_of(symbol, closing_tick)
+            close = self.price_of(symbol, None, closing_tick)
             self.close[symbol] = close
             self.history[symbol].append(close)
+            self.last_path[symbol] = self.session_path(symbol)
+            self.last_open[symbol] = self.opening.get(symbol, close)
         for symbol in self.stocks:
             flow_ratio = flow.get(symbol, 0) / self.float_shares
             self.opening[symbol] = round(self.close[symbol] * (1 + self.flow_impact * flow_ratio), 2)
@@ -321,6 +375,7 @@ class Market:
         else:
             for symbol in self.stocks:
                 self.daily[symbol] = 0.0
+        self.state = self.CLOSED
 
     def _daily_return(self, round_number):
         """算下一回合的日内涨跌：大盘情绪 + 板块情绪 + 个股波动 + 动量 + 均值回归。"""
@@ -372,6 +427,9 @@ class Market:
             'opening': dict(self.opening),
             'daily': dict(self.daily),
             'close': dict(self.close),
+            'last_path': {symbol: list(path) for symbol, path in self.last_path.items()},
+            'last_open': dict(self.last_open),
+            'state': self.state,
             'orders': {actor: [dict(order) for order in orders] for actor, orders in self.orders.items()},
             'seq': self.seq,
             'fills': [dict(fill) for fill in self.last_fills],
@@ -383,6 +441,9 @@ class Market:
         self.opening = dict(state.get('opening', {}))
         self.daily = dict(state.get('daily', {}))
         self.close = dict(state.get('close', {}))
+        self.last_path = {symbol: list(path) for symbol, path in state.get('last_path', {}).items()}
+        self.last_open = dict(state.get('last_open', {}))
+        self.state = state.get('state', self.PRE)
         self.orders = {actor: [dict(order) for order in orders] for actor, orders in state.get('orders', {}).items()}
         self.seq = state.get('seq', 0)
         self.last_fills = [dict(fill) for fill in state.get('fills', ())]
@@ -398,7 +459,7 @@ class MarketAPI:
         self.world = world
 
     def quotes(self, actor):
-        return self.world.market.quotes()
+        return self.world.market.quotes(actor)
 
     def history(self, actor, symbol, limit=30):
         return self.world.market.history_of(symbol, limit)
@@ -449,7 +510,12 @@ class MarketMod(GameMod):
 
     def stages(self):
         return (Stage('stock.market.settle', self._settle, hook='market.settlement',
-                       after=('stock.python.run',)),)
+                       after=('stock.python.run',)),
+                Stage('stock.market.reopen', self._reopen, hook='cycle.end'),)
+
+    def _reopen(self, world, changes):
+        """下一回合的盘前：回到只看昨收的状态。"""
+        world.market.reopen()
 
     def _settle(self, world, changes):
         runtime = self.runtime

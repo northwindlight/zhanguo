@@ -10,11 +10,12 @@ Requires = ["stock:clock"]
 Owns = ["scripts"]
 
 [Capabilities]
-Needs = ["stock:clock"]
+Needs = ["stock:clock", "stock:market"]
 Provides = ["sandbox:programs"]
 
 [Interfaces]
-"stock:clock" = ["period", "charge", "mark_open", "close_session", "work_expired"]
+"stock:clock" = ["period", "charge", "mark_open", "set_tick", "slices", "work_expired"]
+"stock:market" = ["open_session"]
 
 [Parameters]
 # 脚本并发方式：
