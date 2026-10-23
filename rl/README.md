@@ -183,16 +183,16 @@ git checkout rl/mods/train/mod.toml
    （打看不见的目标）**失败时也会消耗行动** ⇒ `_auto_advance` 把回合**交给下一位玩家**
    ⇒ 剩下那几个候选**是上一位玩家的** ⇒ 继续执行就等于**替下一位玩家落子**
    （实测：甲前向一次、乙前向零次，评估器却替乙执行了一个 hold）。
-   ⇒ 现在：**一旦当前玩家变了，这批候选立刻作废**，回到外层**重新取观测与候选**
-   （判据用 `current_player()` —— 引擎/沙盒的**事实**，不猜）。
-   ★ 配套：`Sandbox.step` 的"原地不动"（`hold`）**拿不到那支军就明说拒收**
-   （旧口径：找不到也返回"成功"⇒ 上一位玩家的旧候选落到下一位玩家头上时
-   **被当成合法动作执行了**，还不报错）⇒ "动作属于执行者"从此是**结构保证**。
+   ⇒ 现在：**换人、换回合或本方军队状态变化，这批候选立即作废**，重新观测并前向。
+   判据用 `Sandbox.decision_key()`，从引擎现读本方状态，不读取敌方隐藏信息。
+   只有状态未变的拒收才继续尝试剩余候选。即使盲推后仍是同一玩家，也须重新决策。
+   ★ 配套：`hold` 拒收不存在、阵亡、交战中、已消耗行动、已 hold 或位置过期的军队。
 2. **热快照恢复要"先钉住、再加载"**（`rl/league.py`）—— 旧口径先 `net_of(mid)`
    （这一步**自己会触发逐出**）、后 `mark_hot` ⇒ 缓存上限一紧（`net_cap=1`），
    **刚灌进去的那份当场被逐出** ⇒ 下次再取就是**盘上的旧权重** ⇒ "恢复成功"是**假的**
    （实测：恢复 3 份、缓存上限 1 ⇒ 报告 3 份成功，另外两份再读时是旧权重）。
-   ⇒ 现在**先 `_hot.add`**（逐出会跳开热成员）⇒ 再加载。
+   ⇒ 恢复与正常训练均**先保护热成员，再加载**。训练后尚未到冻结轮时，
+   更新对象留在缓存中，权重和 Adam 随主档保存。
 3. **热快照的优化器状态也要跟存档走**（`rl/league.py`）—— `opts` 只覆盖**主网络**，
    `league_hot` 仍只有权重 ⇒ 归档间隔 > 1 时，**这批快照的续训等于每轮重开 Adam**
    （主网络那份有动量、这批没有 ⇒ 两边口径还不一样）。
@@ -206,6 +206,8 @@ git checkout rl/mods/train/mod.toml
    ⇒ 这把"**有利于团队、但本国先亡**"的策略标成失败。
    ⇒ 现在：**队伍在建局时定下，之后不变**；最后剩下的那个队伍赢，
    **它的全部成员（活着的、亡国的）都算赢**（`reward` 与 `outcome_for` 统一口径）。
+   训练的 `_outcome_for` 直接转发 `Sandbox.outcome_for`；预算截断时，队友仍存活的
+   亡国成员结果未定，保留价值自举，不提前写入失败奖励。
    ★ 队伍身份**跟着结盟走**（`set_alliance` 时刷新）—— 因为引擎那条
      "**正在战争不能建盟**"逼着调用方**先 `war=False` 建局、再结盟** ⇒ 这条路
      是**正路**（只记在 `reset()` 里 ⇒ 那种局里甲乙还是"各自为政"的旧标签
@@ -228,12 +230,14 @@ git checkout rl/mods/train/mod.toml
 | `tests/test_rl_review_fixes.py` | **复审十条**（2026-10-23 上午）：野地进攻候选 / 亡国落引擎 / 迷雾战斗不崩 / 地形类型边界 / 增援按观测方 / 推不出来标"未知" / 老师的未知守军 / 轮数分档 / MCTS 可导入 / `with_reinf=False` 不崩 |
 | `tests/test_rl_review2_fixes.py` | **复审十一条**（2026-10-23 下午）：采样臂按策略概率 / 亡国后战争能恢复 / 评估带记忆 / 迷雾不漏地形城防 / 续训恢复 Adam / 热快照随存档走 / 学习者轮转不饿死人 / 截断自举用新价值 / 评测池不混随机网 / 跨臂先手生效 / 对手网同设备 |
 | `tests/test_rl_review3_fixes.py` | **复审四条**（2026-10-23 傍晚）：失败后不替下一位玩家落子 / 热快照恢复不被缓存逐出 / 热快照带 Adam 状态 / 2v2 按联盟口径结算 |
+| `tests/test_rl_review4_fixes.py` | 训练截断的联盟奖励 / 真实训练入口与磁盘紧缓存 / 权重和 Adam 续训一致 / 同一玩家盲推失败后重新决策 / hold 校验 |
 
 ```bash
 .venv/bin/python -m unittest \
   tests.test_rl_sandbox tests.test_rl_obs_engine_truth tests.test_rl_train_truncation \
   tests.test_rl_stats_weighting tests.test_rl_battle_odds \
-  tests.test_rl_review_fixes tests.test_rl_review2_fixes tests.test_rl_review3_fixes -q
+  tests.test_rl_review_fixes tests.test_rl_review2_fixes tests.test_rl_review3_fixes \
+  tests.test_rl_review4_fixes -q
 ```
 
 ### CI 口径（`python -m unittest discover -s tests -q`）

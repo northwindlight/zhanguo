@@ -179,23 +179,14 @@ def play(nets: dict, sb: Sandbox, *, greedy: bool,
         #     挡不住"同一回合内空转"，而训练靠采样+`--max-steps` 才没炸）。
         #   ★★ 采样臂**按策略概率**抽（review P1-1）—— 原来这里是均匀随机。
         order = action_order(p, rng, greedy)
-        # ★★★★ 2026-10-23 修（review P1-1）：**失败后必须检查状态变了没有**。
-        #   引擎的"**盲推**"（打看不见的目标）**失败时也会消耗行动**
-        #   —— 于是 `_auto_advance` 把回合**交给下一位玩家** ⇒
-        #   剩下那几个候选**是上一位玩家的** ⇒ 继续执行就等于
-        #   **替下一位玩家落子**（实测：甲前向一次、乙前向零次，
-        #   评估器却替乙执行了一个 hold ⇒ 乙的回合被**别人替他走了**）。
-        #   ⇒ `execute_order`（**纯 numpy，不依赖 torch** ⇒ CI 也测得到）
-        #     一旦发现**当前玩家变了**，就**立刻作废这批候选**并回报
-        #     `switched=True` ⇒ 下面回到外层**重新取观测与候选**
-        #     （下一位玩家自己的决策点）。
-        _ok, _pos, _switched, _refused = execute_order(
-            acts, order, sb.step, sb.current_player)
+        # 失败可能已消耗行动；换人、换回合或本方军队状态变化后重新决策。
+        _ok, _pos, _invalidated, _refused = execute_order(
+            acts, order, sb.step, sb.current_player, decision_state=sb.decision_key)
         refused += _refused
         if _ok:
             if _pos:                      # 首选被拒、退到了次优 —— 计数、别静默
                 fallback += 1
-        elif not _switched:
+        elif not _invalidated:
             break                         # 一个都不成 ⇒ 这局没法继续（不该发生）
         ents.append(float(-(p * np.log(np.maximum(p, 1e-12))).sum()))
         logks.append(float(np.log(len(p))))

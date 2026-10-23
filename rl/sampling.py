@@ -41,35 +41,32 @@ def action_order(p: np.ndarray, rng: np.random.Generator, greedy: bool) -> list[
     return order
 
 
-def execute_order(acts, order, step, current_player) -> tuple[bool, int | None,
-                                                                bool, int]:
+def execute_order(acts, order, step, current_player, *,
+                  decision_state=None) -> tuple[bool, int | None, bool, int]:
     """★ 按 `order` 依次尝试动作 —— **失败后必须检查状态变了没有**。
 
-    返回 `(ok, used_pos, switched, refused)`：
+    返回 `(ok, used_pos, invalidated, refused)`：
       · `ok`       —— 有一个动作真的执行了；
       · `used_pos` —— 用的是 `order` 里的第几个（`0` = 首选就成）；
-      · `switched` —— ★★ **失败把回合交给了下一位玩家**（⇒ 这批候选**作废**）；
+      · `invalidated` —— 失败后决策状态变化，这批候选作废；
       · `refused`  —— 被引擎拒收的次数。
 
-    ★★★★ 2026-10-23 修（review P1-1）：**"失败"不等于"状态没变"**。
-      引擎的"**盲推**"（打看不见的目标）**失败时也会消耗行动**
-      ⇒ `_auto_advance` 把回合**交给下一位玩家**
-      ⇒ 剩下那几个候选**是上一位玩家的** ⇒ 继续执行就等于**替下一位玩家落子**
-      （实测：甲前向一次、乙前向零次，评估器却替乙执行了一个 hold）。
-      ⇒ 现在：**一旦当前玩家变了，这批候选立刻作废**（返回 `switched=True`），
-        由调用方**重新取观测与候选**（下一位玩家自己的决策点）。
-      ★ 判据用 `current_player()`（**引擎/沙盒的事实**），不猜。
+    `decision_state` 返回不可变的决策状态键（沙盒用 `decision_key`）。
+    盲推失败消耗行动，即使玩家未变也须重新观测。仅状态未变的拒收可回退。
+    不提供状态键时仍检查换人，兼容只有回合接口的调用方。
 
     ★ 为什么放在这个模块：这里**不依赖 torch** ⇒ CI（不装 torch）**也测得到**
       （`rl/eval_fixed.py` 顶部 import torch ⇒ 那边测不到）。
     """
     me = current_player()
+    initial_state = decision_state() if decision_state is not None else None
     refused = 0
     for pos, aidx in enumerate(order):
         ok, _msg = step(acts[int(aidx)])
         if ok:
             return True, pos, False, refused
         refused += 1
-        if current_player() != me:
+        if (current_player() != me or
+                (decision_state is not None and decision_state() != initial_state)):
             return False, None, True, refused
     return False, None, False, refused

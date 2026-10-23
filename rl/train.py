@@ -645,25 +645,7 @@ def _outcome_for(sb: Sandbox, p: str, *, global_terminal: bool) -> float | None:
     ★ 为什么转到沙盒那边：终局口径**与训练无关**（它只算"谁赢谁输"），
       放在沙盒侧就**不依赖 torch** ⇒ CI（没装 torch）也能跑这条守卫。
     """
-    """该玩家本局的**最终结果**（+1 / −1 / −0.5）；`None` = **还没定**。
-
-    ★ **联盟口径**（单一出处 = `Sandbox.reward`）：成员**本国已亡但联盟仍可能赢**时，
-      不能仅凭"本国没厅了"就提前封成负 —— 只有**我的外交实体**出局了才算输。
-      这正是 `evaluate.terminal` 的口径（它按**实体**判，不按国名）。
-    ★ `global_terminal=False`（被步数预算截断）时**全局结果还不存在** ⇒
-      只有"我的实体已经出局"这一种情况是**已定**的（输），其余一律 `None`
-      —— **不伪造 outcome**（`t_max` 判平 −0.5 只在真终局时给）。
-    """
-    if global_terminal:
-        return sb.reward(p)                   # ★ 全局口径（`winner_members` ⇒ 联盟友好）
-    t = evaluate.terminal(sb.env, p)        # 未完局 ⇒ 只有"实体出局"才是已定的结果
-    if t is None:
-        return None
-    if t > 0:
-        return S.REWARD_WIN
-    if t < 0:
-        return S.REWARD_LOSS
-    return S.REWARD_DRAW                       # 同归于尽
+    return sb.outcome_for(p, global_terminal=global_terminal)
 
 
 def _value_at(sb: Sandbox, p: str, nets: dict, mem: dict | None,
@@ -1517,6 +1499,8 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         for mi, ss in list(buf.items()):
             if not ss:
                 continue
+            # net_of 会逐出缓存；必须先保护，避免训练缓存外的临时对象。
+            lg.mark_hot(mi)
             net_obj = lg.net_of(mi)
             live = mi in live_set
             if not live:
@@ -1527,7 +1511,6 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                 net_obj.train()
                 for q in net_obj.parameters():
                     q.requires_grad_(True)
-            lg.mark_hot(mi)                  # ★ 学之前就钉住：冻之前不许被逐出
             st[mi] = ppo_update(net_obj, ss, lr=lr, device=device,
                                 minibatch=mb, temperature=temperature, **pk)
             if league_snapshot_every and it % league_snapshot_every == 0:

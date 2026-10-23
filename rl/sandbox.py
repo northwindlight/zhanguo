@@ -566,6 +566,18 @@ class Sandbox:
         """该谁动（`None` = 本局已结束）。"""
         return self.pending[0] if self.pending else None
 
+    def decision_key(self) -> tuple:
+        """当前行动者的回合与军队状态，用于判断失败后候选是否已过期。
+
+        盲推失败也会消耗行动；还有其他军队时玩家不变，不能只检查换人。
+        每次从引擎读事实，不缓存，也不读取敌方隐藏信息。
+        """
+        me = self.current_player()
+        units = self.armies_of(me) if me is not None else ()
+        return (self.turn, me, tuple(sorted(
+            (u.gid, u.x, u.y, u.hp, u.moved_turn, u.engaged, u.gid in self.held)
+            for u in units)))
+
     def legal(self) -> list[tuple]:
         """当前玩家的**合法动作**：`(aid, kind, x, y)`。
 
@@ -674,6 +686,12 @@ class Sandbox:
                 self.last_ok = False
                 self._auto_advance()
                 return False, f"本国没有编号 {aid} 的军（hold 无从下手）"
+            if (not unit.alive or unit.engaged or unit.moved_turn == self.env.period()
+                    or unit.gid in self.held or (unit.x, unit.y) != (x, y)):
+                self.n_rejected += 1
+                self.last_ok = False
+                self._auto_advance()
+                return False, f"军队 {aid} 当前不能在 ({x}, {y}) hold"
             self.held.add(unit.gid)
             self.last_ok = True
             self._auto_advance()
