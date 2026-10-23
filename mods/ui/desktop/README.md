@@ -62,6 +62,26 @@ python desktop.py
 版本字符串应包含 `.mono.`。启动器会在编译前检查这一点。
 若保留两个版本，请使用 `--godot` 明确指定 Mono 包内的可执行文件。
 
+Windows 的 Vulkan 地貌巡览也统一通过启动器运行：
+
+```powershell
+python desktop.py --sample terrain --rendering-method mobile --rendering-driver vulkan --sample-tour --smoke-output windows-vulkan.png --log-file windows-vulkan.log
+```
+
+启动器会编译、导入，随后打开实际窗口，预热后自动巡览32秒并退出。
+输出 `windows-vulkan.png` 等六张截图、`windows-vulkan.png.json` 指标和 `windows-vulkan.log` 日志。
+请保持窗口可见，并以日志中的图形 API 和显卡名称确认实际后端。
+OpenGL 对照使用 `--rendering-method gl_compatibility --rendering-driver opengl3`，并换一组输出文件名。
+这些选项只作用于本次窗口运行，不修改 `project.godot`。
+
+若直接运行 `godot_console` 报 `.NET: Assemblies not found`，尤其崩溃路径位于
+`Microsoft\WinGet\Links`，优先使用上面的 Python 入口：它先将命令别名解析成真实路径，
+让 Godot 从实际安装目录寻找随包的 `GodotSharp/Api`，并沿用编译时的 .NET 环境。
+启动器会输出解析后的 Godot 路径。若仍失败，检查该路径旁是否完整保留了 `GodotSharp`；
+使用 `--godot` 指定完整解压的 .NET 版可执行文件，不能只拷贝一个 exe。
+该报错发生在[Godot 自身 API 程序集目录检查](https://github.com/godotengine/godot/blob/4.7.2-stable/modules/mono/mono_gd/gd_mono.cpp#L645-L651)，
+与项目 DLL 是否编译成功分别检查。
+
 也可用 Godot .NET 编辑器打开 `project.godot`，构建后运行；宿主默认使用
 `python3`（Windows 为 `python`），`ZHANGUO_PYTHON` 可指定解释器。
 

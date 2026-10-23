@@ -34,6 +34,10 @@ def main(argv=None):
     parser.add_argument('--dotnet', default=os.environ.get('DOTNET'))
     parser.add_argument('--ui-mods', default=str(ROOT/'ui.toml'))
     parser.add_argument('--build-only', action='store_true')
+    parser.add_argument('--rendering-method', choices=['gl_compatibility', 'mobile', 'forward_plus'],
+                        help='临时指定 Godot 渲染器；不修改项目默认配置')
+    parser.add_argument('--rendering-driver', help='临时指定 Godot 图形驱动，如 vulkan 或 opengl3')
+    parser.add_argument('--log-file', type=Path, help='将 Godot 运行日志保存到指定文件')
     parser.add_argument('--smoke-output', type=Path)
     parser.add_argument('--resume', type=Path, help='从旧演示局 session.json 复制续看；旧档保留')
     parser.add_argument('--sample', choices=['terrain'], help='打开独立合成地貌样板，不启动 Python 对局')
@@ -56,6 +60,7 @@ def main(argv=None):
     if not dotnet and (local/'dotnet'/'dotnet').is_file():dotnet = str(local/'dotnet'/'dotnet')
     if not godot or not dotnet:parser.error('需要 Godot 4.7.2 .NET 与 .NET 8 SDK；可用 --godot / --dotnet 指定路径')
     godot = str(Path(godot).resolve()); dotnet = str(Path(dotnet).resolve())
+    print(f'Godot：{godot}', flush=True)
     env = dict(os.environ, DOTNET_ROOT=str(Path(dotnet).parent), ZHANGUO_ROOT=str(ROOT), ZHANGUO_PYTHON=sys.executable,
                ZHANGUO_UI_MODS=str(Path(args.ui_mods).resolve()))
     env['PATH'] = str(Path(dotnet).parent)+os.pathsep+env.get('PATH', '')
@@ -69,6 +74,9 @@ def main(argv=None):
     subprocess.run([godot, '--headless', '--editor', '--path', str(project), '--import'], check=True, env=env)
     if args.build_only:return
     command = [godot, '--path', str(project)]
+    if args.rendering_method:command += ['--rendering-method', args.rendering_method]
+    if args.rendering_driver:command += ['--rendering-driver', args.rendering_driver]
+    if args.log_file:command += ['--log-file', str(args.log_file.resolve())]
     if scene:command.append('res://Samples/Terrain.tscn')
     if args.smoke_output:command += ['--', '--smoke-output', str(args.smoke_output.resolve())]
     if args.sample_tour:command.append('--sample-tour')
