@@ -1,66 +1,129 @@
 # Zhanguo
 
-Current release: **0.4.1**.
-Zhanguo is a turn-based grand strategy game built around LLM decision-making. Nations manage their economies, armies and diplomacy in a shared world. Human observers can follow long games and study decisions, failures and memory changes.
+> Let models govern. Sit back and watch history unfold.
 
-The current `main` is the modular implementation, formerly the `正规化` branch. The previous monolithic implementation is preserved on [legacy](https://github.com/northwindlight/zhanguo/tree/legacy). [中文](README.md)
+Zhanguo is a turn-based grand strategy game played by AI nations. Starting with a handful of tiles, each nation builds an economy, raises armies, exchanges letters, forms alliances and wages war. Humans watch plans meet reality: shortages, defeats, broken promises and unexpected recoveries.
 
-## Real gameplay records
+You can put different models in the same world, mix them with built-in rule players, or run an entirely offline game.
 
-The [research collection](research/game-records/README.md) contains complete supplied saves and unabridged original journals:
+[中文](README.md) · [Game manual, Chinese](mods/native/docs/游戏说明书.md) · [Real games](research/game-records/README.md) · [Developer documentation](docs/README.md)
 
-| Game | Saved turn | Models |
-| --- | --- | --- |
-| Eight nations, completed, seed 20260921 | 258 | `qwen3.8flash` and DeepSeek |
-| Eight nations, snapshot, seed 20261009 | 158 | `qwen3.8flash` |
+## What happens in a game
 
-Model information comes from the human player. Some saved reasoning signatures in the completed game identify `deepseek-flash[1m]`; no complete per-turn model-switching timeline is inferred. Both branches contain the same collection, with SHA-256 checksums and a manifest. These saves belong to the legacy engine and cannot be loaded by current main.
+- **An economy that must support its ambitions.** Factories consume food, ore, oil and electricity to produce supplies and equipment. Power plants need fuel; armies need upkeep and repairs.
+- **Expansion takes time and coordination.** Land provides room to build, but national army totals do not tell you how many units can reach a particular front.
+- **War under fog of war.** Players rely on their own vision, watchtowers, published reports, spies and correspondence. The human observer's full map is not given to the players.
+- **Diplomacy changes who fights.** Guarantees, mutual defense and alliances can bring other nations into a war. Alliance membership also means voting, losing personal treaties and being unable to leave during wartime.
+- **A history you can follow.** National plans, action results, economic reports and searchable records show how decisions affect later turns.
 
-## Modular implementation
+Nations take turns acting, then the world settles one complete round. Battles with defenders, diplomacy and construction have pending stages. A nation falls when it has no completed town hall left, even if it still owns other land.
 
-Distributions define games; the host loads their sessions; clients act through the same actor-bound Player API; UI Mods present the resulting facts.
+## Watch an offline game first
 
-The default `native` distribution implements economic, military, diplomatic and intelligence domains. Generic sessions do not require a map; square-grid distributions can reuse `GridSession`. LLM and rule clients share structured requests and receipts. New rule games default to [v13](ruleai/v13/README.md), with five randomly selected, persistent market preferences and fuel-aware operating budgets; v11plus remains available for comparison. Independent UI Mods provide prompts, language catalogs and visible text/SVG/PNG maps.
+The terminal game requires **Python 3.11 or newer**. Create `mp_config.json` in the repository root:
 
-The optional [experimental distribution](mods/experimental/README.md), currently `0.9.0`, adds two-phase council review and monarch replacement, finite-inventory market feedback, and saved Python routines with deterministic work budgets and one execution opportunity per nation per turn. Scripts use the standard API, and successful actions survive a later script error. It also enables [research combat probabilities](mods/experimental/combat_research/README.md) exclusively for rule clients, with optional C acceleration; no probability tools are exposed to LLM clients.
-
-The [stock distribution](mods/stock/README.md) simulates a stock market: players trade only through Python scripts, so buying and selling are never exposed as model tools. Each turn has a market-open window and a round-end work window, two rest days follow every five trading days, and every turn opens with the previous script run's printed output and error message plus the player's own positions and net worth.
-
-## Run
+```json
+{
+  "map_size": 24,
+  "seed": 20261024,
+  "max_turns": 300,
+  "save": "mp_save.json",
+  "journal": "mp_journal.md",
+  "nations": [
+    {"id": "scenario:qin", "name": "Qin", "client": "rule"},
+    {"id": "scenario:chu", "name": "Chu", "client": "rule"}
+  ]
+}
+```
 
 ```bash
-cp mp_config.example.json mp_config.json
-# Configure nations, clients and model access.
+python3 mp_run.py --config mp_config.json --check-config
+python3 mp_run.py --config mp_config.json --new --turns 10
+python3 mp_run.py --config mp_config.json --turns 30
+```
+
+On Windows, use `python` instead of `python3`. `--turns` is the target round number: the third command continues the same game to round 30. **`--new` overwrites the selected save.** Give each new game separate save and journal paths.
+
+Rule players default to [v13](ruleai/v13/README.md), which gives nations persistent market preferences. They require no external model access. Set `"rule_ai": "v11plus"` to select the older strategy. The separate `./start.sh --offline` shortcut runs a small developer example rather than the full strategy game.
+
+## Put models in charge
+
+Copy the [configuration template](mp_config.example.json) for a new game. Set each model-controlled nation to `"client": "llm"` and fill in its `provider`, `base_url`, `api_key` and `model`. Keep other nations as `client=rule` if desired. OpenAI-compatible and Anthropic protocols are supported.
+
+On Linux or macOS:
+
+```bash
+./start.sh --config mp_config.json --check
 ./start.sh --config mp_config.json --new
-./start.sh --config mp_config.json
 ```
 
-Windows users can use `start.ps1`. The launchers create a local virtual environment and install dependencies. Configure stable nation IDs and explicit `client` values: `rule` for offline native games, or `llm` for model access. OpenAI-compatible and Anthropic protocols are supported. For experimental, use its [configuration template](mp_config.experimental.example.json) and configure council model access too.
+The shell launcher prepares a local virtual environment and dependencies when LLM players are present. Windows users can use `.\start.ps1 --config mp_config.json --new`, or run `mp_run.py` in a prepared Python environment. Missing LLM credentials cause a configuration error. Credentials stay in the local configuration and are not written into game saves.
 
-Use separate save and journal paths for separate games. `--new` overwrites the selected save; `--turns` specifies the target cycle. Saves use `zhanguo.session/4` and require a complete cycle boundary. Before 1.0, old-save compatibility and automatic migration are not provided; mismatched module dependencies are rejected.
+### The eight-nation scenario
 
-Back up the adjacent `<save>.audit/` directory together with a session file to preserve archived history. Coordinates remain zero-based. Use `python settlement.py --save synthetic.json --table` for an offline final scoreboard.
-
-Generate the eight-nation scenario with `python -m scenarios.eight_nations --seed 20260921`. Observer commands include `add`, `send`, `say`, `board`, `map` and `quit`. See the [Chinese README](README.md) for detailed usage.
-
-This release mounts scenario programs under `Distribution.Scenarios`; config selects `"scenario": "eight_nations"`. After a full cycle, Zhou wins if it leads a bloc named 周天下 covering all living nations, with at least five members including Zhou; the other members receive secondary victories. A sole surviving nation wins by conquest. Programs inspect `world` and submit arbitrary events through the engine's single `trigger_victory(event)` hook. The saved event stops further play and remains visible in the finale report.
-
-## Development
-
-See the [documentation index](docs/README.md) for current contracts, design notes, reviews, research and historical documents.
-
-Start with the [Mod guide](docs/Mod开发指南.md), [Session contract](docs/发行版Session.md), [Player API](docs/客户端接线.md), [native modules](mods/native/README.md), [UI Mod](mods/ui/README.md), [sandbox](mods/experimental/SCRIPTING.md), and [roadmap](docs/plans/PLAN.md).
+Generate Qin, Wei, Han, Zhao, Yan, Qi, Chu and Zhou on a 24×24 map, using your own configuration as a template:
 
 ```bash
-.venv/bin/python -m unittest discover -s tests -q
+python3 -m scenarios.eight_nations --seed 20261024 --template mp_config.json
+python3 mp_run.py --config mp_config.8国.20261024.json --check-config
+python3 mp_run.py --config mp_config.8国.20261024.json
 ```
 
-Implementation audit results and offline checks are recorded in [the repair report](docs/reviews/错误实现-修复验收.md). The published real-game records are kept separate from automated test inputs.
+The generator creates a configuration and initial save, refusing to overwrite existing files. It uses the first LLM nation's client settings, or the first nation's settings when no LLM is present. Edit the generated roster to choose a different model for each nation. The final command continues the generated initial save.
 
-## Code entry points
+The seven powers initially guarantee Zhou's independence. A sole surviving nation wins by conquest. Zhou also wins if Zhou and its special subjects cover all surviving nations, with at least five nations including Zhou. Those other members receive **preservation as subjects, neither victory nor defeat**. Joining Zhou does not immediately end the game. See the [scenario rules](mods/native/docs/游戏说明书.md#八国剧本).
 
-The root entry points are `host.py` (distribution assembly), `mp_run.py` (CLI), and `settlement.py` (read-only finale). Context and model transports live in `clients/`, rule clients in `ruleai/`, terminal transport in `ui/terminal.py`, presentation and maps in `mods/ui/`, and map generation in `mods/native/map_generation/`. Retired implementations and experiments are available in Git history and the legacy branch.
+## The observer's seat
 
-The [game manual](mods/native/docs/游戏说明书.md) and the four strategy handbooks are hand-maintained under `mods/native/docs/`; they are not generated from code and are not assembled at runtime.
+The terminal shows national strength, maps, statements and action results. Reasoning is collapsed by default and retained in the journal. Enter `help` for the complete command list.
 
-Source release ZIPs exclude real-game records. Published records remain available in the [repository research directory](https://github.com/northwindlight/zhanguo/tree/main/research/game-records).
+| Command | Purpose |
+| --- | --- |
+| `board` | World overview |
+| `map` / `map Qin` | Full map / one nation's vision |
+| `map world.svg` | Export a map; text and PNG are also supported |
+| `thoughts` / `thoughts on` / `thoughts off` | Read recent reasoning / expand / collapse |
+| `say Message` | Broadcast an observer announcement |
+| `send Qin Message` | Send an observer letter to one nation |
+| `pause` / `resume` | Pause after a complete round is saved / continue |
+| `quit` | Finish the current round, save and exit |
+
+Commands are processed between model calls. `Ctrl-C` interrupts immediately and keeps the latest complete save; unfinished actions may appear only in the journal. Back up the adjacent `<save>.audit/` directory with the save to retain archived history. For an offline scoreboard, run `python3 settlement.py --save mp_save.json --table`.
+
+### Desktop view
+
+![Desktop observer](docs/design/gui-world-fullscreen-20261023.png)
+
+The desktop prototype provides a full-window map, zooming, panning, tile inspection, nation and market drawers, turn controls and saving. Run `python3 desktop.py` after installing Godot .NET, the .NET SDK and Python; see the [desktop guide](mods/ui/desktop/README.md) for exact requirements.
+
+It currently runs a separate offline rule-player demonstration. Connecting existing LLM games, battle animation and standalone installers remain in development.
+
+## Optional experiments
+
+The default **native** game includes national plans, manuals and the finite-inventory market. It runs **without a council**. Briefing tips and prewar checks provide reminders while leaving decisions to the players.
+
+The optional [experimental distribution](mods/experimental/README.md) retains council review. Initial plans take effect directly; revisions are reviewed against prior plans and actions. Rejection in three consecutive rounds triggers monarch replacement. It also provides saved Python routines and research combat probabilities available only to rule clients. Use its [configuration template](mp_config.experimental.example.json) and a separate save.
+
+A separate [stock-market experiment](mods/stock/README.md) lets models trade through Python scripts. It has its own rules and current limitations.
+
+## Observing models
+
+The [real-game collection](research/game-records/README.md) and [research articles](research/papers/README.md) document planning, execution, memory, diplomacy and failure. Results depend on prompts, tool descriptions, memory, reasoning budgets and opponents. Identical prompts do not ensure equal suitability for every model; a single game's outcome or subjective score is not a general capability ranking.
+
+Each published game documents its source and version. Historical saves require matching code and module dependencies; current development builds do not automatically migrate them. The older monolithic implementation remains on [legacy](https://github.com/northwindlight/zhanguo/tree/legacy).
+
+## Read more and contribute
+
+Start with the [game manual](mods/native/docs/游戏说明书.md), [basic guide](mods/native/docs/基础指南.md), [economics](mods/native/docs/经济学手册.md), [warfare](mods/native/docs/战争手册.md) and [strategy](mods/native/docs/战略手册.md) handbooks. These documents are in Chinese and can also be requested inside the game.
+
+For development, see the [documentation site](https://northwindlight.github.io/zhanguo/), [Mod guide](docs/Mod开发指南.md), [documentation index](docs/README.md) and [changelog](CHANGELOG.md). Rules live in `mods/native/`, model clients in `clients/`, rule players in `ruleai/`, and presentation in `mods/ui/` and `presentation/`. The terminal entry point is `mp_run.py`; the desktop entry point is `desktop.py`.
+
+```bash
+python3 -m unittest discover -s tests -q
+python3 scripts/api_doc.py --check
+python3 docs/site/build.py
+```
+
+The manual and strategy handbooks are maintained by hand; API reference pages are generated from code. Source release archives exclude the separate real-game collection.
+
+[MPL-2.0](LICENSE)

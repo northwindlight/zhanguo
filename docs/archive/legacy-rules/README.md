@@ -2,7 +2,7 @@
 
 这里归档原先散在 native 领域目录中的旧说明书、四篇讲义及 `manual-*.md` 规则片段。它们已经不被运行代码读取；原文中的旧命令、同步器和数值用于历史对照，不代表现行规则。
 
-当前规则见[生成说明书](../../游戏说明书.md)，当前四篇策略指南由 [native:handbooks](../../../mods/native/handbooks/mod.toml) 装配。旧领域声明保留在[相邻归档](../legacy-domain-declarations/)。
+当前玩法见[游戏说明书](../../../mods/native/docs/游戏说明书.md)，四篇策略指南在同目录，由 [native:manuals](../../../mods/native/manuals/mod.toml) 提供按需阅读。旧领域声明保留在[相邻归档](../legacy-domain-declarations/)。
 
 - [旧规则纲要](规则纲要.md)
 - [旧基础指南](基础指南.md)、[旧经济学手册](经济学手册.md)、[旧战争手册](战争手册.md)、[旧战略手册](战略手册.md)
