@@ -40,7 +40,7 @@ class NativeObserver:
                     for resource,amount in fact.outputs:
                         if fact.category in ('production','tribute'):flows[fact.owner][resource]+=amount
                     for resource,amount in fact.inputs:flows[fact.owner][resource]-=amount
-            size,_=self.grid();buildings=defaultdict(list)
+            size,seed=self.grid();buildings=defaultdict(list)
             for instance in wire(self.world.buildings.snapshot())['instances']:
                 buildings[instance['site']].append((instance['kind'],instance['level']))
             tiles=[]
@@ -64,7 +64,7 @@ class NativeObserver:
                 'dead':[a for a in self.roster if a not in self.actors()],
                 'market':wire(self.world.market.summary()),'bank':self.bank_status(),
                 'records':self.records(),
-                'map':{'actor':'observer','period':self.clock(),'glyphs':glyphs,'role_kinds':roles,
+                'map':{'actor':'observer','period':self.clock(),'seed':seed,'glyphs':glyphs,'role_kinds':roles,
                     'facts':{'view':tiles,'army':wire(self.world.military.snapshot()),'diplomacy':diplomacy}}}
 
     def bank_status(self):

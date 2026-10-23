@@ -1,0 +1,533 @@
+{
+  "map_generation": "2.1.0",
+  "seeds": [
+    {
+      "seed": 0,
+      "size": 24,
+      "counts": {
+        "native:desert": 33,
+        "native:forest": 82,
+        "native:high-mountain": 69,
+        "native:hill": 66,
+        "native:mountain": 49,
+        "native:ocean": 179,
+        "native:plain": 98
+      },
+      "usable_land": 328,
+      "north_depth_range": [
+        2,
+        10
+      ],
+      "distinct_north_depths": 8,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 1,
+      "size": 24,
+      "counts": {
+        "native:desert": 33,
+        "native:forest": 84,
+        "native:high-mountain": 72,
+        "native:hill": 67,
+        "native:mountain": 50,
+        "native:ocean": 170,
+        "native:plain": 100
+      },
+      "usable_land": 334,
+      "north_depth_range": [
+        2,
+        8
+      ],
+      "distinct_north_depths": 6,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 2,
+      "size": 24,
+      "counts": {
+        "native:desert": 35,
+        "native:forest": 89,
+        "native:high-mountain": 67,
+        "native:hill": 71,
+        "native:mountain": 53,
+        "native:ocean": 155,
+        "native:plain": 106
+      },
+      "usable_land": 354,
+      "north_depth_range": [
+        1,
+        7
+      ],
+      "distinct_north_depths": 6,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 3,
+      "size": 24,
+      "counts": {
+        "native:desert": 31,
+        "native:forest": 78,
+        "native:high-mountain": 46,
+        "native:hill": 63,
+        "native:mountain": 47,
+        "native:ocean": 217,
+        "native:plain": 94
+      },
+      "usable_land": 313,
+      "north_depth_range": [
+        2,
+        10
+      ],
+      "distinct_north_depths": 9,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 4,
+      "size": 24,
+      "counts": {
+        "native:desert": 33,
+        "native:forest": 83,
+        "native:high-mountain": 79,
+        "native:hill": 66,
+        "native:mountain": 50,
+        "native:ocean": 166,
+        "native:plain": 99
+      },
+      "usable_land": 331,
+      "north_depth_range": [
+        2,
+        9
+      ],
+      "distinct_north_depths": 7,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 5,
+      "size": 24,
+      "counts": {
+        "native:desert": 33,
+        "native:forest": 83,
+        "native:high-mountain": 43,
+        "native:hill": 66,
+        "native:mountain": 50,
+        "native:ocean": 201,
+        "native:plain": 100
+      },
+      "usable_land": 332,
+      "north_depth_range": [
+        1,
+        10
+      ],
+      "distinct_north_depths": 9,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 6,
+      "size": 24,
+      "counts": {
+        "native:desert": 33,
+        "native:forest": 81,
+        "native:high-mountain": 44,
+        "native:hill": 65,
+        "native:mountain": 49,
+        "native:ocean": 206,
+        "native:plain": 98
+      },
+      "usable_land": 326,
+      "north_depth_range": [
+        2,
+        9
+      ],
+      "distinct_north_depths": 8,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 7,
+      "size": 24,
+      "counts": {
+        "native:desert": 35,
+        "native:forest": 86,
+        "native:high-mountain": 58,
+        "native:hill": 69,
+        "native:mountain": 52,
+        "native:ocean": 172,
+        "native:plain": 104
+      },
+      "usable_land": 346,
+      "north_depth_range": [
+        1,
+        10
+      ],
+      "distinct_north_depths": 10,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 8,
+      "size": 24,
+      "counts": {
+        "native:desert": 35,
+        "native:forest": 86,
+        "native:high-mountain": 65,
+        "native:hill": 69,
+        "native:mountain": 52,
+        "native:ocean": 165,
+        "native:plain": 104
+      },
+      "usable_land": 346,
+      "north_depth_range": [
+        1,
+        9
+      ],
+      "distinct_north_depths": 8,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 9,
+      "size": 24,
+      "counts": {
+        "native:desert": 36,
+        "native:forest": 89,
+        "native:high-mountain": 58,
+        "native:hill": 71,
+        "native:mountain": 54,
+        "native:ocean": 161,
+        "native:plain": 107
+      },
+      "usable_land": 357,
+      "north_depth_range": [
+        1,
+        8
+      ],
+      "distinct_north_depths": 7,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 10,
+      "size": 24,
+      "counts": {
+        "native:desert": 31,
+        "native:forest": 76,
+        "native:high-mountain": 66,
+        "native:hill": 61,
+        "native:mountain": 46,
+        "native:ocean": 205,
+        "native:plain": 91
+      },
+      "usable_land": 305,
+      "north_depth_range": [
+        1,
+        10
+      ],
+      "distinct_north_depths": 9,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 11,
+      "size": 24,
+      "counts": {
+        "native:desert": 35,
+        "native:forest": 88,
+        "native:high-mountain": 45,
+        "native:hill": 71,
+        "native:mountain": 53,
+        "native:ocean": 178,
+        "native:plain": 106
+      },
+      "usable_land": 353,
+      "north_depth_range": [
+        1,
+        9
+      ],
+      "distinct_north_depths": 9,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 12,
+      "size": 24,
+      "counts": {
+        "native:desert": 30,
+        "native:forest": 75,
+        "native:high-mountain": 68,
+        "native:hill": 60,
+        "native:mountain": 45,
+        "native:ocean": 207,
+        "native:plain": 91
+      },
+      "usable_land": 301,
+      "north_depth_range": [
+        2,
+        11
+      ],
+      "distinct_north_depths": 6,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 13,
+      "size": 24,
+      "counts": {
+        "native:desert": 33,
+        "native:forest": 82,
+        "native:high-mountain": 63,
+        "native:hill": 66,
+        "native:mountain": 49,
+        "native:ocean": 184,
+        "native:plain": 99
+      },
+      "usable_land": 329,
+      "north_depth_range": [
+        2,
+        9
+      ],
+      "distinct_north_depths": 7,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 14,
+      "size": 24,
+      "counts": {
+        "native:desert": 36,
+        "native:forest": 90,
+        "native:high-mountain": 47,
+        "native:hill": 72,
+        "native:mountain": 54,
+        "native:ocean": 169,
+        "native:plain": 108
+      },
+      "usable_land": 360,
+      "north_depth_range": [
+        1,
+        9
+      ],
+      "distinct_north_depths": 9,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 15,
+      "size": 24,
+      "counts": {
+        "native:desert": 33,
+        "native:forest": 81,
+        "native:high-mountain": 54,
+        "native:hill": 65,
+        "native:mountain": 49,
+        "native:ocean": 197,
+        "native:plain": 97
+      },
+      "usable_land": 325,
+      "north_depth_range": [
+        2,
+        11
+      ],
+      "distinct_north_depths": 7,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 16,
+      "size": 24,
+      "counts": {
+        "native:desert": 33,
+        "native:forest": 84,
+        "native:high-mountain": 53,
+        "native:hill": 67,
+        "native:mountain": 50,
+        "native:ocean": 189,
+        "native:plain": 100
+      },
+      "usable_land": 334,
+      "north_depth_range": [
+        2,
+        6
+      ],
+      "distinct_north_depths": 5,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 17,
+      "size": 24,
+      "counts": {
+        "native:desert": 30,
+        "native:forest": 74,
+        "native:high-mountain": 65,
+        "native:hill": 59,
+        "native:mountain": 44,
+        "native:ocean": 215,
+        "native:plain": 89
+      },
+      "usable_land": 296,
+      "north_depth_range": [
+        2,
+        9
+      ],
+      "distinct_north_depths": 7,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 18,
+      "size": 24,
+      "counts": {
+        "native:desert": 34,
+        "native:forest": 84,
+        "native:high-mountain": 56,
+        "native:hill": 68,
+        "native:mountain": 51,
+        "native:ocean": 182,
+        "native:plain": 101
+      },
+      "usable_land": 338,
+      "north_depth_range": [
+        2,
+        8
+      ],
+      "distinct_north_depths": 6,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 19,
+      "size": 24,
+      "counts": {
+        "native:desert": 33,
+        "native:forest": 81,
+        "native:high-mountain": 54,
+        "native:hill": 65,
+        "native:mountain": 49,
+        "native:ocean": 197,
+        "native:plain": 97
+      },
+      "usable_land": 325,
+      "north_depth_range": [
+        2,
+        10
+      ],
+      "distinct_north_depths": 9,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 73,
+      "size": 24,
+      "counts": {
+        "native:desert": 35,
+        "native:forest": 87,
+        "native:high-mountain": 49,
+        "native:hill": 70,
+        "native:mountain": 52,
+        "native:ocean": 179,
+        "native:plain": 104
+      },
+      "usable_land": 348,
+      "north_depth_range": [
+        2,
+        10
+      ],
+      "distinct_north_depths": 8,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 20260921,
+      "size": 24,
+      "counts": {
+        "native:desert": 35,
+        "native:forest": 86,
+        "native:high-mountain": 65,
+        "native:hill": 69,
+        "native:mountain": 52,
+        "native:ocean": 165,
+        "native:plain": 104
+      },
+      "usable_land": 346,
+      "north_depth_range": [
+        1,
+        8
+      ],
+      "distinct_north_depths": 8,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 20261014,
+      "size": 24,
+      "counts": {
+        "native:desert": 36,
+        "native:forest": 90,
+        "native:high-mountain": 70,
+        "native:hill": 72,
+        "native:mountain": 54,
+        "native:ocean": 145,
+        "native:plain": 109
+      },
+      "usable_land": 361,
+      "north_depth_range": [
+        2,
+        11
+      ],
+      "distinct_north_depths": 8,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    },
+    {
+      "seed": 20261023,
+      "size": 24,
+      "counts": {
+        "native:desert": 33,
+        "native:forest": 83,
+        "native:high-mountain": 44,
+        "native:hill": 66,
+        "native:mountain": 50,
+        "native:ocean": 200,
+        "native:plain": 100
+      },
+      "usable_land": 332,
+      "north_depth_range": [
+        2,
+        10
+      ],
+      "distinct_north_depths": 8,
+      "initial_nations": 8,
+      "valid_five_cell_starts": true,
+      "outer_ring_ocean": true
+    }
+  ]
+}

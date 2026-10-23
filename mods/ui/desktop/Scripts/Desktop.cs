@@ -34,7 +34,12 @@ public partial class Desktop : Control
     private bool _capturing;
     private double _elapsed;
     private string _savePath = "";
+    private string _hostState = "";
     private bool _smokeStarted;
+
+    private MapDrawer _countries = null!, _details = null!, _shop = null!, _chronicle = null!;
+    private Button _countriesButton = null!, _detailsButton = null!, _shopButton = null!, _chronicleButton = null!;
+    private MapDrawer[] Drawers => new[] { _countries,_details,_shop,_chronicle };
 
     public override void _Ready()
     {
@@ -50,45 +55,75 @@ public partial class Desktop : Control
             style.SetBorderWidthAll(1);
             theme.SetStylebox(type=="Button"?"normal":"panel", type, style);
         }
-        var bg = new ColorRect { Color = new Color("101b1d"), MouseFilter = MouseFilterEnum.Ignore };
-        bg.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);AddChild(bg);
-        var margin = new MarginContainer();margin.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        foreach(var side in new[]{"left","right","top","bottom"}) margin.AddThemeConstantOverride("margin_"+side,16);
-        AddChild(margin);
-        var page = new VBoxContainer();page.AddThemeConstantOverride("separation",12);margin.AddChild(page);
-        var top = new HBoxContainer();top.AddThemeConstantOverride("separation",12);page.AddChild(top);
-        var title = new Label { Text="战 国", CustomMinimumSize=new(100,0) };title.AddThemeFontSizeOverride("font_size",30);title.AddThemeColorOverride("font_color",new Color("e4d8ae"));top.AddChild(title);
-        top.AddChild(new Label {Text="观天下  /  上帝视角", SizeFlagsHorizontal=SizeFlags.ExpandFill});
-        _status = new Label { Text="正在创建离线八国世界…" };top.AddChild(_status);
-        _play = Button(top,"继续",()=>Send(_running?"pause":"resume"));
-        _step = Button(top,"下一回合",()=>Send("step"));
-        _save = Button(top,"保存",()=>Send("save"));
-        var body = new HBoxContainer { SizeFlagsVertical=SizeFlags.ExpandFill };body.AddThemeConstantOverride("separation",12);page.AddChild(body);
-        var left = new VBoxContainer { CustomMinimumSize=new(174,0) };body.AddChild(left);
-        left.AddChild(Heading("列国"));
-        var scroller = new ScrollContainer { SizeFlagsVertical=SizeFlags.ExpandFill, HorizontalScrollMode=ScrollContainer.ScrollMode.Disabled };
-        left.AddChild(scroller);_nations = new VBoxContainer {SizeFlagsHorizontal=SizeFlags.ExpandFill};scroller.AddChild(_nations);
-        var all = Button(left,"总览天下",()=>{_selectedNation="";_map.Fit();ShowTile(null);});all.TooltipText="F：回到全图";
-        var borders = new CheckButton {Text="国界",ButtonPressed=true};left.AddChild(borders);borders.Toggled += v=>{_map.Borders=v;_map.QueueRedraw();};
-        var units = new CheckButton {Text="军队",ButtonPressed=true};left.AddChild(units);units.Toggled += v=>{_map.Units=v;_map.QueueRedraw();};
-        left.AddChild(new Label {Text="离线八国 · v13\n独立演示局\n上限 300 回合",Modulate=new Color("a4b09c")});
-        _map = new WorldMap {SizeFlagsHorizontal=SizeFlags.ExpandFill,SizeFlagsVertical=SizeFlags.ExpandFill};body.AddChild(_map);_map.SelectionChanged=ShowTile;
-        var right = new VBoxContainer {CustomMinimumSize=new(310,0)};body.AddChild(right);
-        right.AddChild(Heading("山河与国势"));
-        _detail=TextBox(right);_detail.CustomMinimumSize=new(310,260);_detail.SizeFlagsVertical=SizeFlags.ExpandFill;
-        right.AddChild(Heading("天下市集"));_market=TextBox(right);_market.CustomMinimumSize=new(310,190);
-        var eventsHeader = new HBoxContainer();page.AddChild(eventsHeader);eventsHeader.AddChild(Heading("天下纪事"));eventsHeader.AddChild(new Label {Text="  结算事实 · 最近 160 条",Modulate=new Color("9aaa9e")});
-        _events=TextBox(page);_events.CustomMinimumSize=new(0,145);_events.ScrollFollowing=true;
-        page.AddChild(new Label {Text="空格：暂停 / 继续     F：全图     点击国名：聚焦     关闭窗口：完成本回合并保存",Modulate=new Color("93a398")});
+        _map=new WorldMap();_map.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);AddChild(_map);
+        _map.SelectionChanged=tile=>{ShowTile(tile);if(tile!=null)OpenDrawer(_details);};
+
+        _countries=Drawer("列国",MapDrawer.Side.Left);
+        _details=Drawer("山河与国势",MapDrawer.Side.Right);
+        _shop=Drawer("天下市集",MapDrawer.Side.Right);
+        _chronicle=Drawer("天下纪事",MapDrawer.Side.Bottom);
+        var scroller=new ScrollContainer { SizeFlagsVertical=SizeFlags.ExpandFill,HorizontalScrollMode=ScrollContainer.ScrollMode.Disabled };
+        _countries.Body.AddChild(scroller);
+        _nations=new VBoxContainer { SizeFlagsHorizontal=SizeFlags.ExpandFill };scroller.AddChild(_nations);
+        Button(_countries.Body,"总览天下 · F",()=>{_selectedNation="";_map.Fit();ShowTile(null);CloseDrawers();});
+        var borders=new CheckButton { Text="国界",ButtonPressed=true };_countries.Body.AddChild(borders);
+        borders.Toggled+=v=>{_map.Borders=v;_map.QueueRedraw();};
+        var units=new CheckButton { Text="军队",ButtonPressed=true };_countries.Body.AddChild(units);
+        units.Toggled+=v=>{_map.Units=v;_map.QueueRedraw();};
+        _countries.Body.AddChild(new Label { Text="离线八国 · v13\n独立演示局 · 上限300回合",Modulate=new Color("a4b09c") });
+        _detail=TextBox(_details.Body);_detail.SizeFlagsVertical=SizeFlags.ExpandFill;
+        _market=TextBox(_shop.Body);_market.SizeFlagsVertical=SizeFlags.ExpandFill;
+        _events=TextBox(_chronicle.Body);_events.SizeFlagsVertical=SizeFlags.ExpandFill;_events.ScrollFollowing=true;
+
+        var top=new HBoxContainer { MouseFilter=MouseFilterEnum.Ignore,ZIndex=5 };
+        top.SetAnchorsAndOffsetsPreset(LayoutPreset.TopWide);top.OffsetLeft=16;top.OffsetRight=-16;top.OffsetTop=14;top.OffsetBottom=58;
+        top.AddThemeConstantOverride("separation",12);AddChild(top);
+        var title=new Label { Text="战国 · 观天下",MouseFilter=MouseFilterEnum.Ignore };
+        title.AddThemeFontSizeOverride("font_size",24);title.AddThemeColorOverride("font_color",new Color("e4d8ae"));top.AddChild(title);
+        top.AddChild(new Control { SizeFlagsHorizontal=SizeFlags.ExpandFill,MouseFilter=MouseFilterEnum.Ignore });
+        _status=new Label { Text="正在创建离线八国世界…",MouseFilter=MouseFilterEnum.Ignore };top.AddChild(_status);
+        _play=Button(top,"继续",()=>Send(_running?"pause":"resume"));
+        _step=Button(top,"下一回合",()=>Send("step"));
+        _save=Button(top,"保存",()=>Send("save"));
+        var dock=new HBoxContainer { MouseFilter=MouseFilterEnum.Ignore,ZIndex=5 };
+        dock.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomLeft);dock.OffsetLeft=16;dock.OffsetTop=-58;dock.OffsetBottom=-14;
+        dock.AddThemeConstantOverride("separation",8);AddChild(dock);
+        _countriesButton=Button(dock,"列国",()=>ToggleDrawer(_countries));
+        _detailsButton=Button(dock,"山河",()=>ToggleDrawer(_details));
+        _shopButton=Button(dock,"市集",()=>ToggleDrawer(_shop));
+        _chronicleButton=Button(dock,"纪事",()=>ToggleDrawer(_chronicle));
+        var hint=new Label { Text="F 总览 · 空格 暂停/继续 · Esc 收起 · 滚轮缩放 / 右键拖动",MouseFilter=MouseFilterEnum.Ignore,ZIndex=5,
+            HorizontalAlignment=HorizontalAlignment.Right,Modulate=new Color("c0c9b2") };
+        hint.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight);hint.OffsetLeft=-660;hint.OffsetRight=-18;hint.OffsetTop=-44;hint.OffsetBottom=-18;AddChild(hint);
+        Resized+=LayoutDrawers;LayoutDrawers();
         var args=OS.GetCmdlineUserArgs();
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--smoke-output")_smoke=args[i+1];
         try { StartHost(); } catch(Exception e) { Error(e.Message); }
     }
 
-    private static Label Heading(string text)
+    private MapDrawer Drawer(string title,MapDrawer.Side side)
     {
-        var label=new Label {Text=text};label.AddThemeColorOverride("font_color",new Color("ddcf9d"));label.AddThemeFontSizeOverride("font_size",18);return label;
+        var drawer=new MapDrawer();drawer.Setup(title,side);AddChild(drawer);return drawer;
     }
+    private void LayoutDrawers()
+    {
+        float left=Math.Min(290,Size.X-28),right=Math.Min(390,Size.X-28);
+        float height=Math.Max(160,Size.Y-146),bottom=Math.Min(280,Size.Y*.42f);
+        _countries.SetBounds(new Rect2(14,70,left,height));
+        _details.SetBounds(new Rect2(Size.X-right-14,70,right,height));
+        _shop.SetBounds(new Rect2(Size.X-right-14,70,right,height));
+        _chronicle.SetBounds(new Rect2(14,Size.Y-bottom-76,Size.X-28,bottom));
+    }
+    private void CloseDrawers(bool animate=true) { foreach(var drawer in Drawers)drawer.SetOpen(false,animate); }
+    private void OpenDrawer(MapDrawer drawer,bool animate=true)
+    {
+        foreach(var other in Drawers)other.SetOpen(other==drawer,animate);
+    }
+    private void ToggleDrawer(MapDrawer drawer)
+    {
+        if(drawer.IsOpen)drawer.SetOpen(false);else OpenDrawer(drawer);
+    }
+
     private static Button Button(BoxContainer box,string text,Action action)
     {
         var b=new Button{Text=text,FocusMode=FocusModeEnum.None};b.Pressed+=action;box.AddChild(b);return b;
@@ -140,6 +175,7 @@ public partial class Desktop : Control
     private void Error(string message)
     {
         _status.Text="宿主错误";_events.Text+="\n"+message;
+        try { if(_host!=null&&!_host.HasExited)_host.StandardInput.WriteLine("{\"command\":\"pause\"}"); } catch(InvalidOperationException) { }
         _closing=false;
         _running=false;_play.Disabled=false;_step.Disabled=false;
         GD.PrintErr(message);
@@ -150,7 +186,12 @@ public partial class Desktop : Control
         _elapsed+=delta;
         for(int i=0;i<16 && _inbox.Reader.TryRead(out var line);i++)
         {
-            try{Receive(JsonNode.Parse(line)!.AsObject());}catch(Exception e){Error("协议解析失败："+e.Message);}
+            try{Receive(JsonNode.Parse(line)!.AsObject());}
+            catch(Exception e)
+            {
+                Error("协议解析失败："+e.Message);
+                if(_smoke!=null){_closing=true;Send("stop");GetTree().Quit(3);return;}
+            }
         }
         if(_smoke!=null && _elapsed>60){GD.PrintErr("DESKTOP_SMOKE_TIMEOUT");GetTree().Quit(2);}
     }
@@ -179,7 +220,7 @@ public partial class Desktop : Control
         }
         if(type=="status")
         {
-            string state=S(row["state"]);_running=state is "running" or "advancing";
+            string state=S(row["state"]);_hostState=state;_running=state is "running" or "advancing";
             _savePath=S(row["save"]);
             string status=state switch {"running"=>"推演中","advancing"=>"列国行动中","paused"=>"已暂停","stopped"=>"已保存并停止",_=>state};
             _status.Text=$"第 {I(row["period"])} 回合 · {status} · 已存 {row["saved_period"]}";
@@ -198,13 +239,13 @@ public partial class Desktop : Control
         foreach(var n in frame["nations"]!.AsArray())
         {
             string id=S(n!["id"]);
-            var button=Button(_nations,$"{n["name"]}    {n["land"]} 地",()=>{_selectedNation=id;_map.FocusNation(id);ShowTile(null);});
+            var button=Button(_nations,$"{n["name"]}    {n["land"]} 地",()=>{_selectedNation=id;_map.FocusNation(id);ShowTile(null);OpenDrawer(_details);});
             button.Modulate=_map.NationColor(id);
         }
         _market.Text=string.Join("\n",frame["market"]!.AsArray().Select(p=>$"{p!["name"],-6}   {F(p["price"]):0.00}"))+
             $"\n\n储蓄利率 {F(frame["bank"]!["rate"]):P1} · 贷款 {F(frame["bank"]!["loan_rate"]):P1}";
         _events.Text=string.Join("\n",frame["events"]!.AsArray().Select(e=>S(e!["text"])));
-        if(_map.Selected.X<0 || _selectedNation!="")ShowTile(null);
+        ShowTile(_selectedNation!=""?null:_map.SelectedTile);
     }
 
     private void ShowTile(JsonObject? tile)
@@ -233,34 +274,84 @@ public partial class Desktop : Control
             (nation["units"]!.AsObject().Count==0?"暂无军队":string.Join("  ",nation["units"]!.AsObject().Select(u=>$"{u.Key} {u.Value}")));
     }
 
+    private async Task Screenshot(string path)
+    {
+        await ToSignal(RenderingServer.Singleton,RenderingServer.SignalName.FramePostDraw);
+        using var image=GetViewport().GetTexture().GetImage();
+        if(image.SavePng(path)!=Godot.Error.Ok)throw new IOException("截图保存失败");
+    }
+    private async Task PointerClick(Control button) => await PointerClickAt(button.GetGlobalRect().GetCenter());
+    private async Task WaitFor(Func<bool> ready,string description)
+    {
+        var clock=Stopwatch.StartNew();
+        while(!ready())
+        {
+            if(clock.Elapsed.TotalSeconds>30)throw new TimeoutException(description);
+            await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+        }
+    }
+    private async Task PointerClickAt(Vector2 p)
+    {
+        Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex=MouseButton.Left,Pressed=true,Position=p,GlobalPosition=p });
+        await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+        Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex=MouseButton.Left,Pressed=false,Position=p,GlobalPosition=p });
+        await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+        await WaitFor(()=>Drawers.All(d=>d.IsSettled),"抽屉动画未完成");
+    }
     private async Task Capture()
     {
-        Send("pause");
-        await ToSignal(GetTree().CreateTimer(1.2),SceneTreeTimer.SignalName.Timeout);
-        var first=_map.Frame!["tiles"]!.AsArray().First(t=>S(t!["owner"])=="scenario:qin")!;
-        _map.FocusNation("scenario:qin");
-        var cell=new Vector2I(I(first["position"]![0]),I(first["position"]![1]));
-        var click=_map.CellCenter(cell);
-        _map._GuiInput(new InputEventMouseButton {ButtonIndex=MouseButton.Left,Pressed=true,Position=click});
-        _map._GuiInput(new InputEventMouseButton {ButtonIndex=MouseButton.Left,Pressed=false,Position=click});
-        if(_map.Selected!=cell || !_detail.Text.Contains(S(first["name"])))
+        try
         {
-            GD.PrintErr("DESKTOP_SMOKE_SELECTION_FAILED");GetTree().Quit(3);return;
+            Send("pause");
+            await WaitFor(()=>_hostState=="paused","暂停未在完整回合边界完成");
+            if(Drawers.Any(d=>d.IsOpen))throw new Exception("抽屉默认未收起");
+            if(_map.Position!=Vector2.Zero || _map.Size.DistanceTo(Size)>.5f)throw new Exception("地图未铺满窗口");
+            string path=_smoke!,stem=Path.ChangeExtension(path,null);
+            _map.Fit();await Screenshot(path);
+            Vector2 mapSize=_map.Size;float zoom=_map.Zoom;
+            foreach(var (button,drawer,suffix) in new[] {
+                (_countriesButton,_countries,"nations"),(_shopButton,_shop,"market"),(_chronicleButton,_chronicle,"events") })
+            {
+                await PointerClick(button);
+                if(!drawer.IsOpen || Drawers.Count(d=>d.IsOpen)!=1)throw new Exception("抽屉按钮未响应真实指针事件："+suffix);
+                if(_map.Size!=mapSize || _map.Zoom!=zoom)throw new Exception("抽屉挤压或缩放了地图");
+                if(!new Rect2(Vector2.Zero,Size).Encloses(drawer.GetGlobalRect()))throw new Exception("抽屉超出窗口："+suffix);
+                await Screenshot(stem+"-"+suffix+".png");
+            }
+            CloseDrawers(false);
+            var first=_map.Frame!["tiles"]!.AsArray().First(t=>S(t!["owner"])=="scenario:qin" &&
+                t["buildings"]!.AsArray().Any(b=>S(b![0])=="native:town-hall"))!;
+            _map.FocusNation("scenario:qin");
+            var cell=new Vector2I(I(first["position"]![0]),I(first["position"]![1]));
+            var click=_map.CellCenter(cell);
+            if(!new Rect2(Vector2.Zero,Size).HasPoint(click))throw new Exception("聚焦后的首都不在视口内");
+            await PointerClickAt(click);
+            if(_map.Selected!=cell || !_detail.Text.Contains(S(first["name"])) || !_details.IsOpen)
+                throw new Exception("地块点选或详情抽屉失败");
+            if(!new Rect2(Vector2.Zero,Size).Encloses(_details.GetGlobalRect()))throw new Exception("详情抽屉超出窗口");
+            await Screenshot(stem+"-detail.png");
+            await PointerClick(_details.CloseButton);
+            if(Drawers.Any(d=>d.IsOpen))throw new Exception("抽屉收起按钮失效");
+            await Screenshot(stem+"-close.png");
+            int expected=_map.Frame["tiles"]!.AsArray().Sum(t=>t!["buildings"]!.AsArray().Count);
+            if(_map.StructureCount!=expected || _map.TerrainBuilds!=1)throw new Exception("实时设施投影或地表缓存异常");
+            File.WriteAllText(path+".json",JsonSerializer.Serialize(new { period=_period,tiles=_map.TileCount,armies=_map.ArmyCount,
+                save=_savePath,artwork=_map.ArtworkMode,terrain_builds=_map.TerrainBuilds,static_draws=_map.ArtworkPasses,
+                surfaces=_map.SurfaceCount,structures=_map.StructureCount,source_buildings=expected,
+                map_fills_window=true,map_width=_map.Size.X,map_height=_map.Size.Y,viewport_width=Size.X,viewport_height=Size.Y,
+                drawers_start_closed=true,drawer_pointer_checked=true,drawers_preserve_map_rect=true,drawers_within_viewport=true,drawer_close_checked=true,selection_checked=true,
+                platform=OS.GetName(),renderer=RenderingServer.GetVideoAdapterName() },new JsonSerializerOptions{WriteIndented=true}));
+            GD.Print($"DESKTOP_SMOKE_OK period={_period} tiles={_map.TileCount} armies={_map.ArmyCount}");
+            _closing=true;Send("stop");
         }
-        _map.Selected=new Vector2I(-1,-1);ShowTile(null);
-        _map.Fit();
-        await ToSignal(RenderingServer.Singleton,RenderingServer.SignalName.FramePostDraw);
-        string path=_smoke!;
-        GetViewport().GetTexture().GetImage().SavePng(path);
-        File.WriteAllText(path+".json",JsonSerializer.Serialize(new {period=_period,tiles=_map.TileCount,armies=_map.ArmyCount,save=_savePath}));
-        GD.Print($"DESKTOP_SMOKE_OK period={_period} tiles={_map.TileCount} armies={_map.ArmyCount}");
-        _closing=true;Send("stop");
+        catch(Exception e){GD.PrintErr(e);_closing=true;Send("stop");GetTree().Quit(3);}
     }
 
     public override void _UnhandledKeyInput(InputEvent input)
     {
         if(input is not InputEventKey key||!key.Pressed||key.Echo)return;
-        if(key.Keycode==Key.F)_map.Fit();
+        if(key.Keycode==Key.F){_map.Fit();CloseDrawers();}
+        if(key.Keycode==Key.Escape)CloseDrawers();
         if(key.Keycode==Key.Space && !_closing)Send(_running?"pause":"resume");
     }
     public override void _Notification(int what)

@@ -1,9 +1,15 @@
 # 战国 · 观天下
 
-Godot 4.7.2 .NET / C# 原生桌面首版，Compatibility 渲染器，Mini World
-像素素材。上帝视角观察者专用，Python 继续持有世界、规则、AI 和存档。
+Godot 4.7.2 .NET / C# 原生桌面，默认 Compatibility 渲染器，可通过启动参数使用 Vulkan。
+上帝视角观察者专用，Python 继续持有世界、规则、AI 和存档。
 
-![Godot 首版真实窗口预览](../../../docs/design/godot-preview.png)
+![全窗地图与实际地貌](../../../docs/design/gui-world-fullscreen-20261023.png)
+
+默认 `python desktop.py` 已接入与地貌样板共用的连续山体、林地、农田、海岸和雪峰绘制。
+输入来自当前八国演示局的真实观察者快照，含种子、地形、资源和建筑；不使用固定3×3地图替代。
+地图占满整个窗口，列国、山河详情、市集、纪事为覆盖地图的抽屉，默认全部收起。
+打开抽屉不会改变地图尺寸或镜头；播放、单回合与保存按钮悬浮在右上角。
+外缘曲线、真实指针操作与缓存检查见[本批记录](../../../docs/reviews/GUI全窗地图与抽屉-20261023.md)。
 
 ## 第一阶段地貌样板
 
@@ -30,7 +36,7 @@ Linux 实际窗口录制：`python3 scripts/record_terrain_sample.py --output ar
 需要 Xvfb、ffmpeg、ffprobe，输出目录不能已存在。录制也会占用 CPU；软渲染数据与实际 GPU 性能分别验收。
 现有离线八国演示继续使用下文的默认入口。
 
-默认离线八国地图现已接入自然边界：海洋和高山覆盖整个最外圈，显示海岸与雪峰，
+默认离线八国地图现已接入自然边界：海洋覆盖最外圈，高山沿大陆内缘起伏，显示海岸与雪峰，
 点选会说明其不可通行、占领或建造；原山地继续可通行。运行 `python desktop.py` 查看新开局。
 `--sample terrain` 仍为固定3×3比例样板；新生成地图的规则与显示验收见
 [自然边界记录](../../../docs/reviews/自然边界与高山海洋-20261023.md)。
@@ -79,6 +85,15 @@ python desktop.py --sample terrain --rendering-method mobile --rendering-driver 
 OpenGL 对照使用 `--rendering-method gl_compatibility --rendering-driver opengl3`，并换一组输出文件名。
 这些选项只作用于本次窗口运行，不修改 `project.godot`。
 
+查看本批更新的全窗八国地图，使用默认场景：
+
+```powershell
+python desktop.py --rendering-method mobile --rendering-driver vulkan
+```
+
+加 `--smoke-output windows-world.png --log-file windows-world.log` 可自动核对抽屉和点选，截图保存后退出。
+`--sample terrain` 仍用于固定地貌样板，`--sample-tour` 也只适用于样板。
+
 若直接运行 `godot_console` 报 `.NET: Assemblies not found`，尤其崩溃路径位于
 `Microsoft\WinGet\Links`，优先使用上面的 Python 入口：它先将命令别名解析成真实路径，
 让 Godot 从实际安装目录寻找随包的 `GodotSharp/Api`，并沿用编译时的 .NET 环境。
@@ -112,9 +127,10 @@ python3 desktop.py --resume archive/desktop/<旧目录>/session.json
 
 ## 操作
 
-- 左键地块：地形、归属、完整建筑类型/等级、驻军编号与 HP。
+- 左下角列国 / 山河 / 市集 / 纪事：打开对应抽屉，再点同一按钮或“收起 ×”关闭；Esc 收起全部。
+- 左键地块：打开山河抽屉，查看地形、归属、完整建筑类型/等级、驻军编号与 HP。
 - 滚轮：以鼠标为中心缩放；右键 / 中键：拖动。
-- 左侧国名：聚焦并查看库存、资产、国土、兵种数量。
+- 列国抽屉中的国名：聚焦并查看库存、资产、国土、兵种数量。
 - F / 总览天下：适应全图；国界和军队可单独隐藏。
 - 继续 / 暂停 / 空格：按完整回合边界暂停并保存。
 - 下一回合：推进一次完整周期并保存；保存按钮保存合法边界。
@@ -136,13 +152,14 @@ stderr。消息携带 generation 与单调 revision，桌面拒绝旧代或旧 r
 本版控制器尚未与终端入口合并，后续接 LLM 前应先共用安全运行控制。
 
 离线八国场景只绘制当前快照，消息通道上限 64、纪事上限 160，不累积历史场景节点。
-环境绘制 12 Hz，镜头输入与界面按渲染帧更新。每支军队均来自观察者事实；
+军队/国界覆盖层绘制 12 Hz，静态地貌复用缓存，镜头输入与界面按渲染帧更新。每支军队均来自观察者事实；
 未物化的无主守军不凭空生成。国力按真实兵种数量统计，HP 只在驻军详情列出。
 缩小时按国家标名，近看显示逐格归属。
 
 美术使用包内原图，文件与哈希见 [manifest.json](assets/manifest.json)，
 来源及许可见 [CREDITS.md](assets/CREDITS.md)。当前建筑为通用视觉代用图标，
 种类以地块详情为准；骑兵仅播放待机帧，步兵为静态待机帧。
+房舍、树木和矿点使用 Mini World 原图，地表与岩壁按实际地图生成；密集设施在空间不足时合并为计数标记，详情保留完整列表。
 **尚未实现**行军路径、攻击/受击/阵亡、建筑施工动画、事件回放及声音。
 不从“单位已移动”推断权威行军路径，也不在战斗结算前绘制确定伤亡。
 
@@ -159,10 +176,11 @@ Linux 无桌面验收可使用 Xvfb：
 xvfb-run -a -s '-screen 0 1440x900x24' python3 desktop.py --smoke-output /tmp/zhanguo.png
 ```
 
-窗口验收会推进三回合、请求暂停、验证按国聚焦及鼠标选中地块、截取真正的
-渲染画面，并保存退出。截图旁 `.json` 记录回合、地块数、军队数与存档路径。
+窗口验收会推进三回合、等待完整边界暂停，验证地图铺满视口、抽屉按钮和收起按钮的真实指针事件、
+开关时镜头与地图尺寸不变、按国聚焦及鼠标选中地块，截取全景、四个抽屉和近景，并保存退出。
+截图旁 `.json` 记录回合、地块/设施/军队数、地表缓存、操作检查结果与存档路径。
 单测核对 576 地块、八国、16 支初始真实军队、脱离世界与玩家权限、慢回合
 期间的暂停排队、完整周期保存读回及异常不覆盖旧档。
 
-2026-10-23 已在树莓派 Linux ARM64 / Xvfb / Mesa llvmpipe 验证；
-Windows、macOS 与实际 GPU 性能仍待各平台验收。
+2026-10-23 本批全窗活地图已在 Linux ARM64 / Xvfb / Mesa llvmpipe 验证。
+此前固定3×3样板已有 Windows / Iris Xe / Vulkan 短测，不能代替本批24×24活地图的实际 GPU 性能验收；macOS 待验。

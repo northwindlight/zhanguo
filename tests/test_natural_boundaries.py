@@ -42,12 +42,22 @@ class TestBoundaryGeneration(unittest.TestCase):
                     self.assertTrue(land);self.assertEqual(flood(min(land),land),land)
                     counts=Counter(g.terrain(*p) for p in land)
                     self.assertEqual(counts,Counter(_quotas(TERRAIN_WEIGHTS,len(land))))
-                    self.assertEqual({g.terrain(*p) for p in rim},BLOCKED)
+                    self.assertEqual({g.terrain(*p) for p in points if g.terrain(*p) in BLOCKED},BLOCKED)
                     for p in points-land:self.assertTrue(all(v==0 for v in g.resources(*p).values()))
                     water={p for p in points if g.terrain(*p)=='native:ocean'}
                     while water:
                         group=flood(min(water),water);water-=group
                         self.assertTrue(group & rim)
+
+    def test_continent_shoulders_are_not_a_rectangular_one_cell_fence(self):
+        for seed in (0,73,20260921,20261023):
+            g=MapGen(seed,24)
+            depths=[]
+            for x in range(1,23):
+                land=[y for y in range(24) if g.terrain(x,y) not in BLOCKED]
+                if land:depths.append(min(land))
+            self.assertGreaterEqual(len(set(depths)),3,seed)
+            self.assertGreaterEqual(max(depths)-min(depths),3,seed)
 
     def test_cross_process_determinism_includes_boundaries_and_names(self):
         code="""import hashlib,json

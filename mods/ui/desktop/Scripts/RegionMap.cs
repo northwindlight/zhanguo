@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Zhanguo.Desktop.Layout;
 
-// First-stage visual sample only. WorldMap remains the ordinary game viewer.
+// Standalone proportion sample. WorldMap shares its RegionLayout and RegionArtwork.
 public partial class RegionMap : Control
 {
     public RegionLayout Layout { get; private set; } = null!;

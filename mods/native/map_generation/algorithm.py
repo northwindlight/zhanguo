@@ -43,6 +43,9 @@ from .parameters import (
     MAPGEN_BOUNDARY_WIDTH,
     MAPGEN_COAST_DEPTH,
     MAPGEN_BLOCKED_SHARE,
+    MAPGEN_LAND_ROUNDNESS,
+    MAPGEN_LAND_WARP,
+    MAPGEN_LAND_RADIUS,
     MAPGEN_DRY,
     MAPGEN_FADE,
     MAPGEN_HILL,
@@ -303,7 +306,7 @@ class MapGen:
         rim = sorted(field[y][x] for y in range(size) for x in range(size)
                      if min(x,y,size-1-x,size-1-y)==0)
         level = rim[len(rim)//2]
-        result = {};strength={}
+        result = {};strength={};outer=set()
         for y in range(size):
             for x in range(size):
                 edge = min(x,y,size-1-x,size-1-y)
@@ -311,8 +314,18 @@ class MapGen:
                 width = max(1.0, size*MAPGEN_BOUNDARY_WIDTH*(.5+wave))
                 low = field[y][x] <= level
                 coast = size*MAPGEN_COAST_DEPTH*max(0, (level-field[y][x])/max(level,1e-9))
-                if edge < max(width,coast) and (low or edge < width):
+                if size >= 16:
+                    half=(size-1)/2
+                    nx=(x-half)/half+(_value_noise(self.seed,'land-x',x*.08,y*.08)-.5)*MAPGEN_LAND_WARP
+                    ny=(y-half)/half+(_value_noise(self.seed,'land-y',x*.08,y*.08)-.5)*MAPGEN_LAND_WARP
+                    radius=(abs(nx)**MAPGEN_LAND_ROUNDNESS+abs(ny)**MAPGEN_LAND_ROUNDNESS)**(1/MAPGEN_LAND_ROUNDNESS)
+                    limit=MAPGEN_LAND_RADIUS+(wave-.5)*.16
+                    border=edge==0 or radius>=limit
+                else:
+                    border=edge < max(width,coast) and (low or edge < width)
+                if border:
                     result[x,y] = sea if low else peak
+                    outer.add((x,y))
                     strength[x,y] = (max(width,coast)-edge)/max(width,coast)
                 elif size >= 12 and elevation[y][x] >= MAPGEN_HIGH_MOUNTAIN:
                     result[x,y] = peak
@@ -321,7 +334,22 @@ class MapGen:
         rim_points={p for p in result if min(*p,size-1-p[0],size-1-p[1])==0}
         budget=max(len(rim_points),int(size*size*MAPGEN_BLOCKED_SHARE))
         extra=sorted((p for p in result if p not in rim_points),key=lambda p:(-strength[p],p))
-        for p in extra[max(0,budget-len(rim_points)):]:del result[p]
+        # A fixed 20% cap squeezed ordinary maps back into a rectangular fence.
+        # Small boards retain the compact rim; larger boards keep their warped
+        # continent silhouette, including bays and rounded mountain shoulders.
+        if size < 16:
+            for p in extra[max(0,budget-len(rim_points)):]:del result[p]
+        else:
+            # Mountains form a ridge along the continent, not a solid block
+            # extending into the rectangular corners of the map sheet.
+            distances={(x,y):0 for y in range(size) for x in range(size) if (x,y) not in result}
+            queue=sorted(distances)
+            for x,y in queue:
+                for p in ((x-1,y),(x+1,y),(x,y-1),(x,y+1)):
+                    if 0<=p[0]<size and 0<=p[1]<size and p not in distances:
+                        distances[p]=distances[x,y]+1;queue.append(p)
+            for p in sorted(outer):
+                if min(*p,size-1-p[0],size-1-p[1])==0 or (result[p]==peak and distances.get(p,size)>2):result[p]=sea
 
         def component(start, candidates):
             found={start};queue=[start]

@@ -12,6 +12,7 @@ public sealed class SampleInput
 {
     public int Seed { get; set; }
     [JsonPropertyName("layout_version")] public int LayoutVersion { get; set; }
+    [JsonPropertyName("live_world")] public bool LiveWorld { get; set; }
     public List<RegionInput> Regions { get; set; } = new();
 
     public static SampleInput Parse(string json)
@@ -33,7 +34,9 @@ public sealed class RegionInput
     public int Y { get; set; }
     public string Name { get; set; } = "";
     public string Terrain { get; set; } = "plain";
-    // Synthetic, fixed 0..100 visual abundance; these are not game rule limits.
+    public bool Passable { get; set; } = true;
+    // Fixed 0..100 visual abundance, synthetic or normalized from observer facts.
+    // These are not game rule limits.
     public int Wood { get; set; }
     public int Gold { get; set; }
     public int People { get; set; }
@@ -55,7 +58,7 @@ public readonly record struct Footprint(float X, float Y, float Width, float Hei
     public bool Contains(Point p, float margin = 0) =>
         p.X >= X - margin && p.X <= X + Width + margin && p.Y >= Y - margin && p.Y <= Y + Height + margin;
 }
-public sealed record Structure(string Id, string Kind, Footprint Bounds);
+public sealed record Structure(string Id, string Kind, Footprint Bounds, int Count = 1);
 public sealed record Tree(Point Foot, int Variant, string Sheet);
 public sealed class RegionPlan
 {
@@ -77,14 +80,24 @@ public sealed class RegionLayout
     private readonly Dictionary<(int, int), RegionInput> _regions;
     public int Width { get; }
     public int Height { get; }
+    public string GeometryKey { get; }
 
-    public RegionLayout(SampleInput input)
+    public RegionLayout(SampleInput input, RegionLayout? previous = null)
     {
         Input = input;
         _regions = input.Regions.ToDictionary(r => (r.X, r.Y));
         Width = input.Regions.Max(r => r.X) + 1;
         Height = input.Regions.Max(r => r.Y) + 1;
-        Regions = input.Regions.OrderBy(r => r.Y).ThenBy(r => r.X).Select(Build).ToArray();
+        GeometryKey = $"{input.Seed}/{input.LayoutVersion}/{input.LiveWorld}/" + string.Join(";",
+            input.Regions.OrderBy(r=>r.Y).ThenBy(r=>r.X).Select(r=>$"{r.X},{r.Y},{r.Terrain},{r.Passable},{r.Wood},{r.Gold}"));
+        var reusable = previous?.GeometryKey == GeometryKey
+            ? previous.Regions.ToDictionary(r=>(r.Input.X,r.Input.Y)) : new Dictionary<(int,int),RegionPlan>();
+        Regions = input.Regions.OrderBy(r => r.Y).ThenBy(r => r.X).Select(r =>
+        {
+            if(reusable.TryGetValue((r.X,r.Y),out var old) && old.Input.Name==r.Name && old.Input.People==r.People &&
+                old.Input.Buildings.Select(b=>(b.Id,b.Kind)).SequenceEqual(r.Buildings.Select(b=>(b.Id,b.Kind))))return old;
+            return Build(r);
+        }).ToArray();
     }
 
     // Fixed integer hash instead of runtime-randomized string hashes or Random.
@@ -122,8 +135,32 @@ public sealed class RegionLayout
         float width = 24 + ValueNoise(x / 170, y / 170, 26) * 15;
         float ridge = Smooth(Math.Clamp((distance - width) / 30, 0, 1));
         float peaks = .30f + .70f * ValueNoise(x / 83, y / 83, 24) + .22f * ValueNoise(x / 37, y / 37, 25);
-        return Math.Clamp(peaks * ridge * strength, 0, 1);
+        float height = peaks * ridge * strength;
+        if(Input.LiveWorld)
+        {
+            float wx=x+(ValueNoise(x/470,y/470,85)-.5f)*150;
+            float wy=y+(ValueNoise(x/470,y/470,86)-.5f)*150;
+            float ridgeField=MathF.Abs(2*ValueNoise(wx/220,wy/220,87)-1);
+            height=strength*MathF.Pow(ridgeField,.8f)*(.4f+.7f*ValueNoise(x/120,y/120,89));
+            float high = Interpolate(x,y,static r=>r.Terrain=="high-mountain"?1:0);
+            height += high*(.42f+.62f*ValueNoise(x/180,y/180,88));
+            height *= 1-Water(x,y);
+        }
+        return Math.Clamp(height, 0, 1);
     }
+
+    public float Water(float x,float y)
+    {
+        if(!Input.LiveWorld)return 0;
+        float water=Interpolate(x,y,static r=>r.Terrain=="ocean"?1:0);
+        water += (ValueNoise(x/90,y/90,91)-.5f)*.3f*water*(1-water)*4;
+        float edge=Math.Min(Math.Min(x,y),Math.Min(Width*256-x,Height*256-y));
+        // The sealed rim ends in offshore shallows instead of a cut rectangle.
+        float fringe=80+ValueNoise(x/260,y/260,92)*120;
+        water=Math.Max(water,1-Math.Clamp(edge/fringe,0,1));
+        return Smooth(Math.Clamp((water-.3f)/.4f,0,1));
+    }
+    public float Sand(float x,float y)=>Interpolate(x,y,static r=>r.Terrain=="desert"?1:0);
 
     private RegionInput? RegionAt(int x, int y) => _regions.GetValueOrDefault((Math.Clamp(x, 0, Width - 1), Math.Clamp(y, 0, Height - 1)));
 
@@ -173,23 +210,27 @@ public sealed class RegionLayout
 
     public bool CanBuild(RegionInput region, Footprint bounds)
     {
+        if(!region.Passable)return false;
         if (bounds.X < 8 || bounds.Y < 8 || bounds.X + bounds.Width > RegionSize - 8 || bounds.Y + bounds.Height > RegionSize - 8) return false;
         for (float y = bounds.Y - 3; y <= bounds.Y + bounds.Height + 3; y += 2)
             for (float x = bounds.X - 3; x <= bounds.X + bounds.Width + 3; x += 2)
-                if (Elevation(region.X * RegionSize + x, region.Y * RegionSize + y) > .18f) return false;
+                if ((!Input.LiveWorld && Elevation(region.X * RegionSize + x, region.Y * RegionSize + y) > .18f) ||
+                    Water(region.X*RegionSize+x,region.Y*RegionSize+y)>.15f) return false;
         return true;
     }
 
     private RegionPlan Build(RegionInput r)
     {
         var plan = new RegionPlan { Input = r };
+        if(!r.Passable)return plan;
         if (r.Buildings.Select(b => b.Id).Distinct().Count() != r.Buildings.Count)
             throw new InvalidDataException("样板设施 ID 重复");
         // Stable candidates, independent of resource abundance and camera.
         var candidates = (from y in Enumerable.Range(0, 15)
                           from x in Enumerable.Range(0, 14)
                           select new Point(16 + x * 16, 16 + y * 15))
-            .OrderBy(p => MathF.Abs(p.X - 125) + MathF.Abs(p.Y - 135) + Noise((int)p.X + r.X * 256, (int)p.Y + r.Y * 256, 5) * 45).ToArray();
+            .OrderBy(p => MathF.Abs(p.X - 125) + MathF.Abs(p.Y - 135) + Noise((int)p.X + r.X * 256, (int)p.Y + r.Y * 256, 5) * 45 +
+                (Input.LiveWorld?Elevation(r.X*256+p.X,r.Y*256+p.Y)*600:0)).ToArray();
         foreach (var b in r.Buildings.OrderBy(b => b.Id, StringComparer.Ordinal))
         {
             float w = b.Kind == "farm" ? 24 : b.Kind == "mine" ? 22 : 16;
@@ -199,6 +240,13 @@ public sealed class RegionLayout
             {
                 var f = new Footprint(p.X, p.Y, w, h);
                 if (CanBuild(r, f) && !plan.Structures.Any(s => s.Bounds.Overlaps(f, 7))) { found = f; break; }
+            }
+            if(found==null && Input.LiveWorld && plan.Structures.Count>0)
+            {
+                int stack=plan.Structures.FindIndex(s=>s.Kind==b.Kind);
+                if(stack<0)stack=0;
+                plan.Structures[stack]=plan.Structures[stack] with { Count=plan.Structures[stack].Count+1 };
+                continue;
             }
             if (found == null) throw new InvalidDataException($"样板 {r.Name} 缺少设施平地：{b.Id}");
             plan.Structures.Add(new Structure(b.Id, b.Kind, found.Value));
@@ -225,7 +273,7 @@ public sealed class RegionLayout
                 if (foot.X < 0 || foot.X >= 256 || foot.Y < 0 || foot.Y >= 256 || !SpacedCandidate(gx, gy, world)) continue;
                 float clump = .22f + .95f * ValueNoise(world.X / 64, world.Y / 64, 53);
                 float density = WoodDensity(world.X, world.Y) * (r.Terrain == "forest" ? .90f : .38f) * clump;
-                if (Noise(gx, gy, 54) < density && Elevation(world.X, world.Y) < .25f &&
+                if (Noise(gx, gy, 54) < density && Elevation(world.X, world.Y) < .25f && Water(world.X,world.Y)<.15f &&
                     !plan.Structures.Any(s => s.Bounds.Overlaps(new Footprint(foot.X - 8, foot.Y - 15, 16, 16), 3)))
                 {
                     bool pine = Hash(gx, gy, 55) % 3 == 0;

@@ -24,6 +24,8 @@ class TestDesktop(unittest.TestCase):
         self.assertEqual(len(frame['tiles']), 576)
         self.assertEqual(len(frame['nations']), 8)
         self.assertEqual(len(frame['armies']), 16)
+        self.assertEqual(frame['map_seed'],20261023)
+        self.assertEqual(sum(len(t['buildings']) for t in frame['tiles']),len(h.world.buildings.snapshot().instances))
         for nation in frame['nations']:
             self.assertEqual(nation['land'], 5)
             self.assertEqual(sum(nation['units'].values()), 2)

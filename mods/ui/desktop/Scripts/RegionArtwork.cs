@@ -9,6 +9,7 @@ public partial class RegionArtwork : Node2D
 {
     public RegionLayout Layout { get; private set; } = null!;
     public bool ShowCliffs = true;
+    public Font? LabelFont;
     public int DrawPasses { get; private set; }
     public int TerrainBuilds { get; private set; }
     public int TextureCount => _textures.Count;
@@ -19,21 +20,29 @@ public partial class RegionArtwork : Node2D
     private readonly Dictionary<string, Texture2D> _textures = new();
     private IReadOnlyList<CliffSegment> _cliffs = Array.Empty<CliffSegment>();
     private sealed record Surface(ImageTexture Ground, IReadOnlyList<CliffSegment> Cliffs);
-    private readonly Dictionary<RegionLayout, Surface> _surfaces = new();
+    private readonly Dictionary<string, Surface> _surfaces = new();
+    private int _detailLevel=2;
+    public void SetDetailLevel(int level)
+    {
+        if(_detailLevel==level)return;
+        _detailLevel=level;QueueRedraw();
+    }
 
     public void SetLayout(RegionLayout layout)
     {
         Layout = layout;
-        if (_surfaces.TryGetValue(layout, out var cached))
+        if (_surfaces.TryGetValue(layout.GeometryKey, out var cached))
         {
             _ground = cached.Ground; _cliffs = cached.Cliffs; QueueRedraw(); return;
         }
         TerrainBuilds++;
-        var image = Image.CreateEmpty(layout.Width * 128, layout.Height * 128, false, Image.Format.Rgb8);
+        int samples=layout.Input.LiveWorld?48:128;
+        float pixel=256f/samples;
+        var image = Image.CreateEmpty(layout.Width * samples, layout.Height * samples, false, Image.Format.Rgb8);
         for (int y = 0; y < image.GetHeight(); y++)
             for (int x = 0; x < image.GetWidth(); x++)
             {
-                float wx = x * 2, wy = y * 2;
+                float wx = x * pixel, wy = y * pixel;
                 float h = layout.Elevation(wx, wy);
                 Color color = h switch
                 {
@@ -54,20 +63,35 @@ public partial class RegionArtwork : Node2D
                     color = color.Lerp(new Color("82955d"), patch * .35f);
                     color = color.Darkened(layout.WoodDensity(wx, wy) * .09f);
                 }
+                if(layout.Input.LiveWorld)
+                {
+                    color=color.Lerp(new Color("b9ab77"),layout.Sand(wx,wy)*(1-h)*.85f);
+                    color=color.Darkened(layout.WoodDensity(wx,wy)*.18f);
+                    if(h>.72f)color=color.Lerp(new Color("d5d9ce"),Math.Clamp((h-.72f)*2.8f,0,1));
+                    float water=layout.Water(wx,wy);
+                    if(water>0)
+                    {
+                        var sea=new Color("234f5a").Lerp(new Color("4c7d77"),1-water);
+                        if(water<.5f)color=color.Lerp(new Color("b9b98c"),water*1.5f);
+                        color=color.Lerp(sea,water);
+                    }
+                }
                 // Fine grain is world-anchored, never resampled on camera moves.
-                float grain = ((int)(layout.Hash(x / 2, y / 2, 13) % 9) - 4) * .008f;
+                float grain = layout.Input.LiveWorld
+                    ? ((int)(layout.Hash(x,y,13)%9)-4)*.003f*(1-layout.Water(wx,wy)*.9f)
+                    : ((int)(layout.Hash(x / 2, y / 2, 13) % 9) - 4) * .008f;
                 image.SetPixel(x, y, grain > 0 ? color.Lightened(grain) : color.Darkened(-grain));
             }
         _ground = ImageTexture.CreateFromImage(image);
         image.Dispose();
-        _cliffs = TerrainContours.Build(layout.Width * 256, layout.Height * 256, 8,
+        _cliffs = TerrainContours.Build(layout.Width * 256, layout.Height * 256, layout.Input.LiveWorld?16:8,
             new[] { .28f, .52f }, layout.Elevation);
         if (_surfaces.Count >= 2)
         {
             var oldest = _surfaces.Keys.First();
             _surfaces[oldest].Ground.Dispose(); _surfaces.Remove(oldest);
         }
-        _surfaces[layout] = new Surface(_ground, _cliffs);
+        _surfaces[layout.GeometryKey] = new Surface(_ground, _cliffs);
         QueueRedraw();
     }
 
@@ -106,7 +130,7 @@ public partial class RegionArtwork : Node2D
                     if (Layout.Elevation(p.X, p.Y) < .18f) DrawRect(new Rect2(p.Floor(), new Vector2(3, 2)), new Color("b0a575"));
                 }
             }
-            foreach (var rock in r.Rocks)
+            foreach (var rock in r.Rocks.Where((_,i)=>!Layout.Input.LiveWorld||_detailLevel>0||i%3==0))
                 Sprite("rocks", origin + new Vector2(rock.X - 8, rock.Y - 16),
                     (int)(Layout.Hash((int)rock.X, (int)rock.Y, 71) % 3), tint: new Color(.80f, .86f, .72f));
             int outcropIndex = 0;
@@ -123,9 +147,13 @@ public partial class RegionArtwork : Node2D
             foreach (var building in r.Structures)
             {
                 var b = building;
-                objects.Add((origin.Y + b.Bounds.Y + b.Bounds.Height, () => DrawStructure(b, origin)));
+                objects.Add((origin.Y + b.Bounds.Y + b.Bounds.Height, () =>
+                {
+                    DrawStructure(b,origin);
+                    if(b.Count>1 && LabelFont!=null)DrawString(LabelFont,origin+new Vector2(b.Bounds.X,b.Bounds.Y-3),$"×{b.Count}",fontSize:10,modulate:new Color("f4e3ac"));
+                }));
             }
-            foreach (var tree in r.Trees)
+            foreach (var tree in r.Trees.Where((_,i)=>!Layout.Input.LiveWorld||i%(_detailLevel==0?6:_detailLevel==1?2:1)==0))
             {
                 var t = tree;
                 var p = origin + new Vector2(t.Foot.X, t.Foot.Y);
@@ -154,6 +182,9 @@ public partial class RegionArtwork : Node2D
         {
             if (cliff.Depth == 0) continue;
             var a = new Vector2(cliff.A.X, cliff.A.Y); var b = new Vector2(cliff.B.X, cliff.B.Y);
+            // Near-vertical projected faces have zero area at world-scale
+            // float precision; the rasterizer must not triangulate those quads.
+            if(Math.Abs(a.X-b.X)<.25f)continue;
             var bounds = new Footprint(Math.Min(a.X, b.X), Math.Min(a.Y, b.Y),
                 Math.Abs(a.X - b.X) + 1, Math.Abs(a.Y - b.Y) + cliff.Depth);
             if (buildings.Any(f => f.Overlaps(bounds, 2))) continue;
@@ -178,6 +209,13 @@ public partial class RegionArtwork : Node2D
     private void DrawStructure(Structure s, Vector2 origin)
     {
         var p = (origin + new Vector2(s.Bounds.X, s.Bounds.Y)).Floor();
+        if(Layout.Input.LiveWorld)
+        {
+            // Regular mountain terrain permits construction. Prefer low spots
+            // and draw a local prepared terrace, without flattening every region
+            // into a circular crater or rebuilding the entire height field.
+            DrawRect(new Rect2(p-new Vector2(2,1),new Vector2(s.Bounds.Width+4,s.Bounds.Height+3)),new Color("a39e70"));
+        }
         if (s.Kind == "farm")
         {
             DrawRect(new Rect2(p, new Vector2(24, 18)), new Color("786940"));

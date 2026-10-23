@@ -19,6 +19,7 @@ static class Program
 
     public static void Main(string[] args)
     {
+        WorldChecks.Run();
         string json = File.ReadAllText(args[0]);
         var layout = new RegionLayout(SampleInput.Parse(json));
         Require(layout.Width == 3 && layout.Height == 3 && layout.Regions.Count == 9, "3×3 input coverage");

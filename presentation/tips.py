@@ -1,5 +1,6 @@
 """每回合随机提示：从手册先验和常见失误里抽一句，放在战情末尾。"""
 import random
+import hashlib
 
 TIPS = (
     '随时随地读读战略手册总是没错的。',
@@ -54,5 +55,9 @@ TIPS = (
 )
 
 
-def random_tip():
-    return random.choice(TIPS)
+def random_tip(key=None):
+    if key is None:return random.choice(TIPS)
+    # Briefings are persisted in model memory. The same turn and facts must
+    # replay the same cosmetic tip after loading, without consuming game RNG.
+    value=int.from_bytes(hashlib.sha256(str(key).encode('utf-8')).digest()[:8],'big')
+    return TIPS[value % len(TIPS)]

@@ -25,6 +25,6 @@ def frame(ui, snapshot):
             'energy': econ.get('preview', {}).get('energy', {})})
     market = [{'name': label(kind, 'resource'), 'price': price}
               for kind, price in snapshot['market']['prices']]
-    return {'period': snapshot['period'], 'names': names, 'tiles': tiles, 'armies': armies,
+    return {'period': snapshot['period'], 'map_seed': snapshot['map'].get('seed',0), 'names': names, 'tiles': tiles, 'armies': armies,
         'nations': nations, 'market': market, 'bank': snapshot['bank'],
         'diplomacy': facts['diplomacy'], 'events': snapshot['records']['events'][-160:]}
