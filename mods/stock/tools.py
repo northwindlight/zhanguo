@@ -31,6 +31,7 @@ class StockToolLayer:
         self._receipts = dict(receipts)
         self._captions = dict(captions)
         self._commands = dict(commands)
+        self._calls = {}
 
     def tools(self):
         return self._tools
@@ -73,6 +74,20 @@ class StockToolLayer:
 
     def panel(self, panel, data, args, actor, ctx):
         return None
+
+    def notice(self, actor, period=None):
+        """每次模型收到回执计数一次；超过 20 次就提醒它收尾，别把调用次数烧在查资料上。"""
+        if not actor:
+            return None
+        state = self._calls.get(actor)
+        if state is None or state.get('period') != period:
+            state = self._calls[actor] = {'period': period, 'count': 0}
+        state['count'] += 1
+        count = state['count']
+        if count <= 20:
+            return None
+        return (f'⚠️ 本回合已调用 {count} 次工具，接近单回合调用上限：'
+                '先停手查资料，把计划写进策略脚本、保存并 end_turn；需要的信息留到下回合再查。')
 
 
 def build(runtime):

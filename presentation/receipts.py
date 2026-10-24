@@ -126,6 +126,19 @@ class ReceiptPresentation(QueryPresentation):
         return title+(' '+' '.join(parts) if parts else '')
 
     def receipt_body(self,action,args,receipt,actor):
+        """工具回执的统一出口：正文之外，发行版可以追加一条随调用次数变化的口头提醒。
+
+        只有真正的动作回执才计数（带 code 的那些）；简报等复用回执渲染的地方不计数。
+        """
+        text=self._receipt_body(action,args,receipt,actor) or ''
+        layer=getattr(self,'tool_layer',None)
+        notice=getattr(layer,'notice',None)
+        if notice is not None and isinstance(receipt,dict) and 'code' in receipt:
+            hint=notice(actor,getattr(self,'_period',None))
+            if hint:return text+'\n'+hint
+        return text
+
+    def _receipt_body(self,action,args,receipt,actor):
         """回执：工具层持有全部动作成文；这里只保留协议与兜底。
 
         工具层拿不到上下文时返回 None，才落到通用失败/数据倾倒格式——
@@ -134,7 +147,7 @@ class ReceiptPresentation(QueryPresentation):
         # 只读面板统一走 query：正文交给面板渲染器。
         if action=='query' and isinstance((args or {}).get('panel'),str):
             target='view' if args['panel']=='map' else args['panel']
-            if target!='query':return self.receipt_body(target,args,receipt,actor)
+            if target!='query':return self._receipt_body(target,args,receipt,actor)
         data=receipt.get('data');message=self.label('receipt',receipt.get('message',''))
         layer=getattr(self,'tool_layer',None)
         if not receipt['ok']:
