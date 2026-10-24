@@ -26,6 +26,22 @@ class TestArmySelection(unittest.TestCase):
                     if action=='reachable':self.assertIn(((2,2),0),result)
                     else:self.assertEqual(result.units,(1,))
 
+    def test_id_synonym_and_shape_tolerance(self):
+        """id 与 aid/ids 同义，单值/数组写法互换也接受；互相冲突才拒绝。"""
+        for action in ('move','attack','retreat','disband','reachable'):
+            for selector in ({'id':1},{'id':[1]},{'aid':[1]},{'ids':1}):
+                with self.subTest(action=action,selector=selector):
+                    w=self.world();args=deepcopy(selector)
+                    if action in ('move','attack','retreat'):args.update(x=3,y=2)
+                    if action=='retreat':w.units.by_id(1,Q).update(engaged=True)
+                    result=w.call_tool(Q,action,args)
+                    if action=='reachable':self.assertIn(((2,2),0),result)
+                    else:self.assertEqual(result.units,(1,))
+        for selector in ({'id':1,'aid':2},{'id':1,'ids':[2]},{'aid':[1],'ids':[2]}):
+            with self.subTest(selector=selector):
+                w=self.world()
+                with self.assertRaises(ValueError):w.call_tool(Q,'move',{**selector,'x':3,'y':2})
+
     def test_invalid_selectors_leave_units_unchanged_for_every_tool(self):
         for action in ('move','attack','retreat','disband','reachable'):
             for selector in ({},{'ids':[]},{'ids':[1,1]},{'aid':1,'ids':[2]},

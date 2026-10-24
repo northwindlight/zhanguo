@@ -19,6 +19,37 @@ def _api(runtime, world):
     return runtime.player_api(world, 'native:army')
 
 
+def _unit_arguments(world, actor, arguments):
+    """军队编号宽容匹配：id 是 aid（单支）或 ids（多支）的同义写法，冲突才报错。
+
+    和 site/place 一样在 adapter 里归一化，schema 只教一种写法；模型写 id、
+    把 aid 写成数组、把 ids 写成单个数，都按同一含义接受，不因措辞浪费一轮。
+    """
+    args = dict(arguments)
+    if 'id' in args:
+        value = args.pop('id')
+        if isinstance(value, list):
+            if 'ids' in args and args['ids'] != value:
+                raise ValueError('id 与 ids 指向不同军队，请只保留一处')
+            args.setdefault('ids', value)
+        else:
+            if 'aid' in args and args['aid'] != value:
+                raise ValueError('id 与 aid 指向不同军队，请只保留一处')
+            args.setdefault('aid', value)
+    if isinstance(args.get('aid'), list):
+        value = args.pop('aid')
+        if 'ids' in args and args['ids'] != value:
+            raise ValueError('aid 与 ids 指向不同军队，请只保留一处')
+        args.setdefault('ids', value)
+    if isinstance(args.get('ids'), int):
+        args['ids'] = [args['ids']]
+    return args
+
+
+def _movement_arguments(world, actor, arguments):
+    return _unit_arguments(world, actor, place_arguments(world, actor, dict(arguments)))
+
+
 def _movement(tool, description):
     params = location_parameters(tool.schema()['function']['parameters'])
     params['properties'].update(aid={'type': 'integer', 'minimum': 1},
@@ -26,8 +57,8 @@ def _movement(tool, description):
                                      'minItems': 1, 'uniqueItems': True})
     params['required'] = [key for key in params.get('required', []) if key not in ('aid', 'ids')]
     params['anyOf'] = [{'required': ['aid']}, {'required': ['ids']}]
-    return replace(tool, parameters=params, adapter=place_arguments,
-                   description=description + ' 军队选择统一为 aid 单个正整数或 ids 非空、不重复的正整数数组；双填仅允许 ids=[aid]。批量行动先校验整批，批量可达查询按 aid 分组返回。')
+    return replace(tool, parameters=params, adapter=_movement_arguments,
+                   description=description + ' 军队选择统一为 aid 单个正整数或 ids 非空、不重复的正整数数组；id 与 aid 同义，ids 也接受单个整数。双填仅允许 ids=[aid]。批量行动先校验整批，批量可达查询按 aid 分组返回。')
 
 
 def tools(runtime):
@@ -105,7 +136,8 @@ def tools(runtime):
                             'aid': {'type': 'integer', 'minimum': 1},
                             'ids': {'type': 'array', 'items': {'type': 'integer', 'minimum': 1}, 'minItems': 1, 'uniqueItems': True}},
                             'required': [], 'anyOf': [{'required': ['aid']}, {'required': ['ids']}], 'additionalProperties': False},
-                        description='免费遣散本国军队，aid 单支或 ids 数组批量；交战中不可遣散。立即停止维持并释放编制，不返还粮食、装备或金币。 军队选择统一为 aid 单个正整数或 ids 非空、不重复的正整数数组；双填仅允许 ids=[aid]。批量行动先校验整批，批量可达查询按 aid 分组返回。')
+                        adapter=_unit_arguments,
+                        description='免费遣散本国军队，aid 单支或 ids 数组批量；交战中不可遣散。立即停止维持并释放编制，不返还粮食、装备或金币。 军队选择统一为 aid 单个正整数或 ids 非空、不重复的正整数数组；id 与 aid 同义，ids 也接受单个整数。双填仅允许 ids=[aid]。批量行动先校验整批，批量可达查询按 aid 分组返回。')
     reachable_tool = Tool('reachable', reachable, owner='native:army', api=('reachable',), read_only=True, panel=True,
                           description='按本国军队 aid 列出可见移动路线和路径代价；attack=true 列攻击路线。路线按地形与速度计算，不代表本回合尚有行动额度；批量逐军队给出行动状态。只接军队编号，无需目标坐标，不透露迷雾路径。')
     params = reachable_tool.schema()['function']['parameters']
@@ -113,8 +145,8 @@ def tools(runtime):
                                 ids={'type': 'array', 'items': {'type': 'integer', 'minimum': 1}, 'minItems': 1, 'uniqueItems': True})
     params['required'] = [key for key in params.get('required', []) if key not in ('aid', 'ids')]
     params['anyOf'] = [{'required': ['aid']}, {'required': ['ids']}]
-    reachable_tool = replace(reachable_tool, parameters=params,
-                             description=reachable_tool.description + ' 军队选择统一为 aid 单个正整数或 ids 非空、不重复的正整数数组；双填仅允许 ids=[aid]。批量行动先校验整批，批量可达查询按 aid 分组返回。')
+    reachable_tool = replace(reachable_tool, parameters=params, adapter=_unit_arguments,
+                             description=reachable_tool.description + ' 军队选择统一为 aid 单个正整数或 ids 非空、不重复的正整数数组；id 与 aid 同义，ids 也接受单个整数。双填仅允许 ids=[aid]。批量行动先校验整批，批量可达查询按 aid 分组返回。')
 
     tile_tool = Tool('tile', tile, owner='native:army', api=('tile',), read_only=True, panel=True,
                      description='唯一按单格查询的工具：place 给地名或 "x y"，或两个整数 x、y；返回可见单格详情（有主地块显示地名，无主只显示坐标）。本国及物化无主遗址显示资源、容量、施工与建筑；他国仅显示地形、归属、公开城堡和市政厅及可见军队。迷雾不可查。')
