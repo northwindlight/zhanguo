@@ -1,0 +1,21 @@
+{
+  "_readme": "预留的 AI 生成素材位。PNG 缺失时游戏自动使用代码绘制小人/贴图；把生成好的 PNG 放到本目录并保持文件名一致即可自动生效，无需改代码。行列布局见 README.md。",
+  "sheets": {
+    "resident-walk":  { "cell": [16, 16], "frames": 6, "rows": 4 },
+    "soldier-infantry": { "cell": [16, 16], "frames": 6, "rows": 4 },
+    "soldier-cavalry": { "cell": [24, 18], "frames": 6, "rows": 4 },
+    "worker":         { "cell": [16, 16], "frames": 4, "rows": 2 }
+  },
+  "structures": {
+    "townhall": "24x24 市政厅",
+    "farm": "24x18 农田",
+    "mine": "24x16 矿场",
+    "oilwell": "24x24 油井",
+    "factory": "24x24 工厂",
+    "barracks": "24x20 兵营"
+  },
+  "nature": {
+    "tree-round": "16x16 阔叶树，可整图为单帧",
+    "tree-pine": "16x16 松树，可整图为单帧"
+  }
+}

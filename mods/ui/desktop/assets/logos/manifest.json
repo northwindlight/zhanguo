@@ -1,0 +1,4 @@
+{
+  "_readme": "预留的模型立绘位。文件名 = 模型关键字小写。PNG 缺失时右下角立绘显示代码绘制的徽章；放入同名 PNG 自动替换。建议 128×128 真透明 PNG。",
+  "slots": ["deepseek", "glm", "gemini", "gpt", "qwen", "kimi", "claude", "grok", "llama", "hunyuan", "doubao", "minimax", "generic"]
+}

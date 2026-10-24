@@ -39,8 +39,8 @@ class TestDesktop(unittest.TestCase):
     def test_pause_queued_during_slow_cycle_saves_boundary(self):
         h = self.host(); original = h.cycle
         entered = threading.Event(); release = threading.Event(); rows = []
-        def slow():
-            entered.set();self.assertTrue(release.wait(10));return original()
+        def slow(**kwargs):
+            entered.set();self.assertTrue(release.wait(10));return original(**kwargs)
         h.cycle = slow
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/'session.json'
@@ -63,7 +63,7 @@ class TestDesktop(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/'session.json';control = Controller(h,path,rows.append)
             control.persist();before = path.read_bytes()
-            def fail():
+            def fail(**kwargs):
                 h.session._boundary = False
                 raise RuntimeError('synthetic failure')
             h.cycle = fail
@@ -71,6 +71,42 @@ class TestDesktop(unittest.TestCase):
             control.command({'command':'stop'})
             self.assertEqual(path.read_bytes(),before)
             self.assertTrue(control.failed)
+
+    def test_model_line_forwards_thinking_and_speech_streams(self):
+        """emit 行按真实本地化模板拆回 actor/类型/文本并转发为 stream 消息。"""
+        h = self.host(); rows = []
+        with tempfile.TemporaryDirectory() as directory:
+            control = Controller(h, Path(directory)/'session.json', rows.append)
+            for key, kind in (('llm.thinking','thinking'),('llm.speech','body')):
+                line = h.ui.text(key, actor='scenario:qin', text='先屯粮，再看邻国')
+                control.model_line(line)
+                self.assertEqual(rows[-1]['type'], 'stream')
+                self.assertEqual(rows[-1]['actor'], 'scenario:qin')
+                self.assertEqual(rows[-1]['kind'], kind)
+                self.assertEqual(rows[-1]['text'], '先屯粮，再看邻国')
+            # 等待模型转为 activity（非 stream）；无关行与畸形行不产生消息。
+            streams = [r for r in rows if r['type'] == 'stream']
+            control.model_line(h.ui.text('llm.request', actor='scenario:qin', count=2))
+            self.assertEqual(rows[-1]['type'], 'activity')
+            control.model_line('完全无关的一行')
+            control.model_line(None)
+            self.assertEqual([r for r in rows if r['type'] == 'stream'], streams)
+
+    def test_model_line_reports_waiting_and_retry_activity(self):
+        """等待模型与重试行转为 activity 消息，供地图徽标显示。"""
+        h = self.host(); rows = []
+        with tempfile.TemporaryDirectory() as directory:
+            control = Controller(h, Path(directory)/'session.json', rows.append)
+            control.model_line(h.ui.text('llm.request', actor='scenario:qin', count=2))
+            self.assertEqual(rows[-1]['type'], 'activity')
+            self.assertEqual(rows[-1]['actor'], 'scenario:qin')
+            self.assertIn('正在思考', rows[-1]['text'])
+            self.assertIn('2', rows[-1]['text'])
+            control.model_line(h.ui.text('llm.retry', actor='scenario:qin', attempt=3, total=10, error='timeout', wait=5))
+            self.assertEqual(rows[-1]['type'], 'activity')
+            self.assertIn('重试', rows[-1]['text'])
+            self.assertIn('3', rows[-1]['text'])
+            self.assertIn('API', rows[-1]['text'])
 
 
 if __name__ == '__main__':unittest.main()

@@ -29,14 +29,14 @@ public static class WorldLayoutProjection
                 foreach(var b in instances)
                 {
                     string kind=b!["kind"]!.ToString();
-                    r.Buildings.Add(new BuildingInput { Id=$"b/{b["id"]!.GetValue<int>():D10}",Kind=kind.EndsWith("farm")?"farm":kind.Contains("mine")?"mine":"house",Remaining=b["remaining"]!.GetValue<int>() });
+                    r.Buildings.Add(new BuildingInput { Id=$"b/{b["id"]!.GetValue<int>():D10}",Kind=kind.EndsWith("farm")?"farm":kind.Contains("mine")?"mine":"house",Remaining=b["remaining"]!.GetValue<int>(),Art=kind });
                 }
                 r.People=r.Passable&&tile["owner"]!=null?Math.Clamp(8+instances.Count*4,8,36):0;
             }
             else foreach(var b in tile["buildings"]!.AsArray().OrderBy(b=>b![0]!.ToString(),StringComparer.Ordinal))
             {
                 string kind=b![0]!.ToString();int index=counts.GetValueOrDefault(kind);counts[kind]=index+1;
-                r.Buildings.Add(new BuildingInput { Id=$"{kind}/{index}",Kind=kind.EndsWith("farm")?"farm":kind.Contains("mine")?"mine":"house" });
+                r.Buildings.Add(new BuildingInput { Id=$"{kind}/{index}",Kind=kind.EndsWith("farm")?"farm":kind.Contains("mine")?"mine":"house",Art=kind });
             }
             input.Regions.Add(r);
         }

@@ -46,13 +46,31 @@ public partial class Desktop : Control
     private MapDrawer _countries = null!, _details = null!, _shop = null!, _chronicle = null!;
     private Button _countriesButton = null!, _detailsButton = null!, _shopButton = null!, _chronicleButton = null!;
     private MapDrawer[] Drawers => new[] { _countries,_details,_shop,_chronicle };
+    private SpeechBubbles _bubbles = null!;
+    private readonly Dictionary<string,string> _models = new();
+    private int _activitySeen;
+    private MainMenu _menu = null!;
+    private string _rootPath = "";
 
     public override void _Ready()
     {
         GetTree().AutoAcceptQuit = false;
-        var theme = new Theme { DefaultFontSize = 15 };
-        var font = new SystemFont { FontNames = new[] { "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", "sans-serif" } };
-        theme.DefaultFont = font;
+        var theme = new Theme { DefaultFontSize = 20 };
+        var fallback = new SystemFont { FontNames = new[] { "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", "sans-serif" } };
+        theme.DefaultFont = fallback;
+        // Fusion Pixel 10px is drawn on a 10px grid; at 20px UI text every
+        // glyph is an exact 2x scale with AA off, so edges stay square.
+        if (ResourceLoader.Exists("res://assets/fonts/fusion-pixel-10px-monospaced-zh_hans.ttf"))
+        {
+            if (GD.Load("res://assets/fonts/fusion-pixel-10px-monospaced-zh_hans.ttf") is FontFile pixel)
+            {
+                pixel.Antialiasing = TextServer.FontAntialiasing.None;
+                pixel.Hinting = TextServer.Hinting.None;
+                pixel.SubpixelPositioning = TextServer.SubpixelPositioning.Disabled;
+                pixel.Fallbacks = new Godot.Collections.Array<Font> { fallback };
+                theme.DefaultFont = pixel;
+            }
+        }
         Theme = theme;
         foreach (string type in new[] { "Button", "PanelContainer", "TabContainer" })
         {
@@ -63,6 +81,7 @@ public partial class Desktop : Control
         }
         _map=new WorldMap();_map.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);AddChild(_map);
         _map.SelectionChanged=tile=>{ShowTile(tile);if(tile!=null)OpenDrawer(_details);};
+        _bubbles=new SpeechBubbles();_bubbles.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);_bubbles.ZIndex=8;AddChild(_bubbles);
 
         _countries=Drawer("列国",MapDrawer.Side.Left);
         _details=Drawer("山河与国势",MapDrawer.Side.Right);
@@ -78,6 +97,8 @@ public partial class Desktop : Control
         units.Toggled+=v=>{_map.Units=v;_map.QueueRedraw();};
         var guards=new CheckButton { Text="野人守军",ButtonPressed=true };_countries.Body.AddChild(guards);
         guards.Toggled+=v=>{_map.ShowGuards=v;_map.QueueRedraw();};
+        var bubbleToggle=new CheckButton { Text="模型气泡",ButtonPressed=true };_countries.Body.AddChild(bubbleToggle);
+        bubbleToggle.Toggled+=v=>_bubbles.Visible=v;
         _aiInfo=new Label { Text="正在核对实际客户端…",Modulate=new Color("a4b09c") };_countries.Body.AddChild(_aiInfo);
         _detail=TextBox(_details.Body);_detail.SizeFlagsVertical=SizeFlags.ExpandFill;
         _market=TextBox(_shop.Body);_market.SizeFlagsVertical=SizeFlags.ExpandFill;
@@ -108,7 +129,60 @@ public partial class Desktop : Control
         Resized+=LayoutDrawers;LayoutDrawers();
         var args=OS.GetCmdlineUserArgs();
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--smoke-output"){_smoke=args[i+1];_playbackSpeed=96;}
-        try { StartHost(); } catch(Exception e) { Error(e.Message); }
+        _rootPath=OS.GetEnvironment("ZHANGUO_ROOT");
+        if(_rootPath=="")_rootPath=Path.GetFullPath(Path.Combine(ProjectSettings.GlobalizePath("res://"),"../../.."));
+        string? menuTest=null;
+        for(int i=0;i<args.Length-1;i++)if(args[i]=="--menu-output")menuTest=args[i+1];
+        if(_smoke==null)
+        {
+            // Start screen: new game / load save / settings; smoke runs skip it.
+            _menu=new MainMenu(_rootPath,MenuBegin);
+            _menu.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);_menu.ZIndex=30;AddChild(_menu);
+            _status.Text="主菜单";
+            if(menuTest!=null)_=MenuSelfTest(menuTest);
+        }
+        else
+        {
+            _status.Text="正在创建离线八国世界…";
+            try { StartHost(null,null); } catch(Exception e) { Error(e.Message); }
+        }
+    }
+
+    private void MenuBegin(string? config,string? resume)
+    {
+        _menu.Visible=false;
+        _status.Text="正在创建世界…";
+        try { StartHost(config,resume); }
+        catch(Exception e) { _menu.Visible=true;_status.Text="主菜单";Error(e.Message); }
+    }
+
+    private async System.Threading.Tasks.Task MenuSelfTest(string path)
+    {
+        try
+        {
+            await ToSignal(RenderingServer.Singleton,RenderingServer.SignalName.FramePostDraw);
+            await Screenshot(path);
+            _menu.SeedField.Text="20261024";
+            _menu.OpenNewGame();
+            await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+            string stem=Path.ChangeExtension(path,null);
+            await Screenshot(stem+"-newgame.png");
+            var config=_menu.BuildConfig(out var error,out string? written);
+            if(config==null||written==null)throw new Exception("菜单配置生成失败："+error);
+            var json=JsonNode.Parse(await File.ReadAllTextAsync(written));
+            if(json?["nations"]?.AsArray().Count!=8||json?["seed"]?.GetValue<int>()!=20261024
+                ||json?["map_size"]?.GetValue<int>()!=24||json?["max_turns"]?.GetValue<int>()!=300)
+                throw new Exception("菜单配置内容与表单不符");
+            _menu.OpenSettings();
+            await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+            await Screenshot(stem+"-settings.png");
+            _menu.OpenLoad();
+            await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+            await Screenshot(stem+"-load.png");
+            GD.Print("MENU_SMOKE_OK "+path);
+            GetTree().Quit();
+        }
+        catch(Exception e){GD.PrintErr(e);GetTree().Quit(3);}
     }
 
     private MapDrawer Drawer(string title,MapDrawer.Side side)
@@ -143,15 +217,18 @@ public partial class Desktop : Control
         var text=new RichTextLabel {BbcodeEnabled=false,SelectionEnabled=true,SizeFlagsHorizontal=SizeFlags.ExpandFill};parent.AddChild(text);return text;
     }
 
-    private void StartHost()
+    private void StartHost(string? configPath=null,string? resumePath=null)
     {
-        string root=OS.GetEnvironment("ZHANGUO_ROOT");
+        string root=_rootPath!=""?_rootPath:OS.GetEnvironment("ZHANGUO_ROOT");
         if(root=="")root=Path.GetFullPath(Path.Combine(ProjectSettings.GlobalizePath("res://"),"../../.."));
+        _rootPath=root;
         string python=OS.GetEnvironment("ZHANGUO_PYTHON");if(python=="")python=OS.GetName()=="Windows"?"python":"python3";
         string output=Path.Combine(root,"archive","desktop",DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N")[..6]);
         var info=new ProcessStartInfo(python) {WorkingDirectory=root,UseShellExecute=false,RedirectStandardInput=true,
             RedirectStandardOutput=true,RedirectStandardError=true,CreateNoWindow=true,StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8};
         info.Environment["PYTHONIOENCODING"]="utf-8";
+        if(configPath!=null)info.Environment["ZHANGUO_DESKTOP_CONFIG"]=configPath;
+        if(resumePath!=null)info.Environment["ZHANGUO_RESUME"]=resumePath;
         foreach(string arg in new[]{"-u","-m","ui.desktop","--output",output})info.ArgumentList.Add(arg);
         _host=Process.Start(info) ?? throw new Exception("无法启动 Python 宿主");
         _host.StandardInput.AutoFlush=true;
@@ -189,10 +266,21 @@ public partial class Desktop : Control
         catch(Exception e){Error(e.Message);}
     }
 
-    private void Error(string message)
+    private void Error(string message,string? actor=null)
     {
-        _status.Text="宿主错误";_events.Text+="\n"+message;
-        try { if(_host!=null&&!_host.HasExited)_host.StandardInput.WriteLine("{\"command\":\"pause\"}"); } catch(InvalidOperationException) { }
+        // API/rule failures auto-pause: playback freezes, the banner explains,
+        // and the failing nation keeps a chip at its territory.
+        _playbackPaused=true;
+        _status.Text="API 异常 · 已自动暂停";
+        _events.Text+="\n"+message;
+        if(actor is {Length:>0} who)
+        {
+            _map.ShowActivity(who,"模型异常 · 已暂停");
+            _bannerTitle.Text=$"{_map.NationName(who)} · 模型异常";
+        }
+        else _bannerTitle.Text="宿主错误 · 已自动暂停";
+        _bannerText.Text=message;
+        try { if(_host!=null&&!_host.HasExited)_host.StandardInput.WriteLine("{\"command\":\"pause\"}"); } catch (InvalidOperationException) { }
         _closing=false;
         _running=false;_play.Disabled=false;_step.Disabled=false;
         GD.PrintErr(message);
@@ -225,13 +313,27 @@ public partial class Desktop : Control
             else Error("Python 宿主退出，代码 "+row["code"]);
             return;
         }
-        if(type=="error"){Error(S(row["message"]));_play.Disabled=false;return;}
+        if(type=="error"){Error(S(row["message"]),row["actor"]?.ToString());_play.Disabled=false;return;}
         if(S(row["protocol"])!="zhanguo.desktop/1")throw new Exception("不支持的协议版本");
         string generation=S(row["generation"]);int revision=I(row["revision"]);
         if(_generation==null)_generation=generation;
         if(generation!=_generation||revision<=_revision)return;
         _revision=revision;
         if(_closing&&(type is "timeline" or "snapshot"))return;
+        if(type=="stream")
+        {
+            _bubbles.Stream(S(row["actor"]),S(row["kind"]),S(row["text"]));
+            UpdateStreamSpeaker(S(row["actor"]));
+            return;
+        }
+        if(type=="activity")
+        {
+            _activitySeen++;
+            string actor=S(row["actor"]),text=S(row["text"]);
+            _map.ShowActivity(actor,text);
+            if(!HasTimeline)_status.Text=$"第 {_period+1} 回合 · {_map.NationName(actor)}{text}";
+            return;
+        }
         if(type=="notice")
         {
             _bannerTitle.Text="演出同步";_bannerText.Text=S(row["message"]);GD.PrintErr(_bannerText.Text);return;
@@ -256,8 +358,17 @@ public partial class Desktop : Control
             _step.Disabled=_closing||_running;
             _save.Disabled=_closing;
             if(_smoke!=null && !_smokeStarted && state=="paused") {_smokeStarted=true;_playbackPaused=false;Send("resume");}
+            if(state=="paused")_map.ClearActivity();
             RefreshPlaybackControls();
         }
+    }
+
+    private void UpdateStreamSpeaker(string actor)
+    {
+        if(actor==""||_map.Frame==null)return;
+        var names=_map.Frame["names"]!.AsObject();
+        if(!names.ContainsKey(actor))return;
+        _bubbles.SetSpeaker(actor,names[actor]!.ToString(),_models.GetValueOrDefault(actor,""),_map.NationColor(actor));
     }
 
     private void UpdatePanels(JsonObject frame)
@@ -273,11 +384,13 @@ public partial class Desktop : Control
             $"\n\n储蓄利率 {F(frame["bank"]!["rate"]):P1} · 贷款 {F(frame["bank"]!["loan_rate"]):P1}";
         _events.Text=string.Join("\n",frame["events"]!.AsArray().Select(e=>S(e!["text"])));
         ShowTile(_selectedNation!=""?null:_map.SelectedTile);
+        _models.Clear();
         if(frame["clients"] is JsonArray clients)
         {
             string versions=string.Join(" / ",clients.Select(c=>S(c!["version"])).Distinct());
             _aiInfo.Text=$"离线八国 · {versions}\n正常开局 · 上限300回合";
             _aiInfo.TooltipText=string.Join("\n",clients.Select(c=>$"{frame["names"]![S(c!["actor"])]}: {c["version"]} · {c["strategy"]}"));
+            foreach(var c in clients)_models[S(c!["actor"])]=S(c["version"]);
         }
     }
 
@@ -368,14 +481,26 @@ public partial class Desktop : Control
             await PointerClick(_details.CloseButton);
             if(Drawers.Any(d=>d.IsOpen))throw new Exception("抽屉收起按钮失效");
             await Screenshot(stem+"-close.png");
+            // Render check for the live activity chip with synthetic content;
+            // real activity messages are counted separately below.
+            _map.ShowActivity("scenario:qin","正在写信（渲染检查）");
+            await Screenshot(stem+"-activity.png");
+            _map.ClearActivity();
+            if(_activitySeen==0)throw new Exception("宿主活动消息（思考/处理政务等）未到达");
             int expected=_map.Frame["tiles"]!.AsArray().Sum(t=>t!["buildings"]!.AsArray().Count);
             if(_map.StructureCount!=expected || _map.TerrainBuilds!=1)throw new Exception("实时设施投影或地表缓存异常");
             if((_normalOpening&&_initialArmies!=0)||_map.Residents==0||_map.Guards==0||_playedPhases.GetValueOrDefault("actor")<8||_playedPhases.GetValueOrDefault("build")==0||_playedPhases.GetValueOrDefault("production")==0||_map.RegionNodes!=_map.TileCount)
                 throw new Exception("正常开局、居民野人、逐国动作或地区绘制缓存验收失败");
+            if(_bubbles.SegmentsShown<_playedPhases.GetValueOrDefault("actor"))
+                throw new Exception("模型气泡未跟随逐国演出");
+            if(!_bubbles.EverShown)
+                throw new Exception("模型气泡从未实际显示（渲染可见性验收失败）");
             File.WriteAllText(path+".json",JsonSerializer.Serialize(new { period=_period,tiles=_map.TileCount,armies=_map.ArmyCount,
                 save=_savePath,artwork=_map.ArtworkMode,terrain_builds=_map.TerrainBuilds,static_draws=_map.ArtworkPasses,
                 surfaces=_map.SurfaceCount,structures=_map.StructureCount,source_buildings=expected,
                 initial_armies=_initialArmies,residents=_map.Residents,potential_guards=_map.Guards,region_nodes=_map.RegionNodes,
+                bubble_segments=_bubbles.SegmentsShown,pixel_font=Theme?.DefaultFont is FontFile,
+                activity_events=_activitySeen,
                 played_phases=_playedPhases,actor_banners=_actorBanners,political_alpha_near=_map.PoliticalOpacity,
                 map_fills_window=true,map_width=_map.Size.X,map_height=_map.Size.Y,viewport_width=Size.X,viewport_height=Size.Y,
                 drawers_start_closed=true,drawer_pointer_checked=true,drawers_preserve_map_rect=true,drawers_within_viewport=true,drawer_close_checked=true,selection_checked=true,

@@ -3,6 +3,7 @@
 Capture runs on the session thread. The renderer never drives a rule action;
 only the next complete cycle waits for its acknowledgement.
 """
+import time
 from copy import deepcopy
 
 
@@ -10,6 +11,26 @@ def key(collection, row):
     if collection in ('armies','guards'):return f'{row["owner"]}/{row["id"]}'
     if collection=='ownership':return f'{row["x"]},{row["y"]}'
     return str(row['id'])
+
+
+# Live per-action labels for the map chip; anything unmapped is 处理政务.
+ACTION_LABELS={
+    'plan':'正在制定国策',
+    'send_letter':'正在写信','gift':'正在写信','guarantee':'正在写信',
+    'propose_defense':'正在写信','propose_vassalage':'正在写信','submit_vassalage':'正在写信',
+    'declare_war':'正在写信','offer_peace':'正在写信','accept_peace':'正在写信',
+    'reject_peace':'正在写信','accept_proposal':'正在写信','reject_proposal':'正在写信',
+    'break_defense':'正在写信','cancel_guarantee':'正在写信','share_map':'正在写信',
+    'release_vassal':'正在写信','vote':'正在写信','independence_war':'正在写信',
+    'build':'正在施工','recruit':'正在整军','army':'正在整军','disband':'正在整军',
+    'move':'正在调兵','attack':'正在调兵','retreat':'正在调兵',
+    'buy':'正在交易','sell':'正在交易','bank':'正在交易','borrow':'正在交易',
+    'spy':'正在打探情报','intel':'正在打探情报','buy_report':'正在打探情报',
+    'end_turn':'本期政务告一段落',
+}
+
+def activity_label(action):
+    return ACTION_LABELS.get(action,'在处理政务')
 
 
 def difference(before, after):
@@ -25,13 +46,36 @@ def difference(before, after):
 
 class TimelineCapture:
     LIMIT=2048
-    def __init__(self,host):
+    def __init__(self,host,contexts=None,activity=None):
         self.host=host;self.period=host.clock();self.beats=[];self.warning=None;self.actor=None
+        self.contexts=contexts if contexts is not None else {}
+        self.activity=activity
+        self.turn_started=None;self.turn_tokens=None
+        self.turn_started=None;self.turn_tokens=None
         self.previous=self.scene()
         self.actual=deepcopy(self.previous)
         self.marches=[];self.held_units={};self.held_guards={};self.held_owners={}
         self.event_cursor=max((e['id'] for e in host.records()['events']),default=0)
         self.names={a:host.roster[a]['name'] for a in host.roster}
+
+    def _token_total(self,actor):
+        """LLM 客户端累计 token 用量；规则 AI 无模型调用，计 0。"""
+        state=getattr(self.host.clients.get(actor),'state',None)
+        usage=getattr(state,'usage',None)
+        if not isinstance(usage,dict):return 0
+        return sum(value for key,value in usage.items() if 'token' in key and isinstance(value,(int,float)))
+
+    def _turn_meta(self,actor,closing=False):
+        """上下文/用时/token 概览：上下文来自宿主缓存的模型 emit，用时为实测。"""
+        seconds=None
+        if self.turn_started is not None:
+            seconds=round(time.monotonic()-self.turn_started,2)
+        tokens=None
+        if self.turn_tokens is not None:
+            tokens=max(0,self._token_total(actor)-self.turn_tokens)
+        elif closing:
+            tokens=0
+        return {'context':self.contexts.get(actor) or None,'turn_seconds':seconds,'tokens':tokens}
 
     def scene(self):return self.host.ui.desktop_scene(self.host.observer_scene())
 
@@ -88,6 +132,9 @@ class TimelineCapture:
     def capture(self,actor,action,arguments,receipt):
         # Session.record treats callback exceptions as rule faults. Presentation
         # errors must instead fall back to the already valid cycle boundary.
+        if self.activity is not None:
+            try:self.activity(actor,activity_label(action))
+            except Exception:pass
         if self.warning:return
         try:self._capture(actor,action,arguments,receipt)
         except Exception as exc:self.warning=f'演出采集退回完整快照：{exc}';self.beats.clear()
@@ -105,8 +152,9 @@ class TimelineCapture:
         name=self.names.get(actor,actor)
         if actor!=self.actor:
             self.actor=actor
+            self.turn_started=time.monotonic();self.turn_tokens=self._token_total(actor)
             version=getattr(self.host.clients[actor],'version','rule')
-            self.add('actor',f'{name}开始行动',f'规则 AI {version} · 逐项展示本期行动',self.home(actor),source=source,duration=2.2)
+            self.add('actor',f'{name}开始行动',f'规则 AI {version} · 逐项展示本期行动',self.home(actor),source=source,duration=2.2,**self._turn_meta(actor))
         if not receipt.get('ok'):
             self.add('rejected',f'{name} · 行动未执行',text,position,source=source,duration=1.4)
             return
@@ -149,7 +197,8 @@ class TimelineCapture:
             new_buildings=[b for b in after['buildings'] if b['id'] not in {v['id'] for v in self.previous['buildings']}]
             if new_buildings:position=[new_buildings[0]['x'],new_buildings[0]['y']]
             self.add(phase,f'{name} · {captions.get(action,"行动")}',text,position,after=self.planning_scene(after),source=source,
-                     duration=2 if phase=='build' else 1.4)
+                     duration=2 if phase=='build' else 1.4,
+                     **(self._turn_meta(actor,closing=True) if phase=='turn-end' else {}))
 
     def finish(self):
         if self.warning:return []

@@ -32,11 +32,65 @@ class Controller:
         self.revision = 0
         self.saved_period = None
         self.playback=playback;self.waiting=None;self.timeline_sequence=0
+        self._probes=None
+        self.contexts={}
+        self._error_actor=None
 
-    def send(self, kind, **data):
+    def activity(self,actor,text):
+        """当前国家的实时活动（思考/写信/处理政务…），供地图徽标显示。"""
+        self.send('activity',actor=actor,text=text)    # The engine forwards client emit lines through cycle(emit=...); localized
+    # templates are probed once with sentinel markers so parsing survives
+    # template changes in either locale. First two fields of each shape are
+    # the parse sentinels; later fields are filler so str.format succeeds.
+    def _probe(self):
+        if self._probes is None:
+            probes={}
+            text=getattr(self.host.ui,'text',None)
+            shapes=(('llm.thinking','stream','thinking',{'actor':'\ue000','text':'\ue001'}),
+                    ('llm.speech','stream','body',{'actor':'\ue000','text':'\ue001'}),
+                    ('llm.context','stream','context',{'actor':'\ue000','plan':'\ue001'}),
+                    ('llm.request','activity','request',{'actor':'\ue000','count':'\ue001'}),
+                    ('llm.retry','activity','retry',{'actor':'\ue000','attempt':'\ue001','total':'T','error':'E','wait':'0'}),
+                    ('llm.compacting','activity','compacting',{'actor':'\ue000','attempt':'\ue001','limit':'L'}))
+            if callable(text):
+                for key,mode,kind,fields in shapes:
+                    try:
+                        first,second=list(fields.values())[:2]
+                        shaped=text(key,**fields)
+                        prefix,rest=shaped.split(first,1)
+                        middle,suffix=rest.split(second,1)
+                        probes[key]=(mode,kind,prefix,middle,suffix)
+                    except (ValueError,TypeError):pass
+            self._probes=probes
+        return self._probes
+
+    def model_line(self,line):
+        """模型回合的上下文/思考/正文流与等待/重试活动行，实时转发给桌面。"""
+        if not isinstance(line,str):return
+        try:
+            for mode,kind,prefix,middle,suffix in self._probe().values():
+                if not line.startswith(prefix):continue
+                rest=line[len(prefix):]
+                if suffix and rest.endswith(suffix):rest=rest[:-len(suffix)]
+                if middle not in rest:break
+                actor,remainder=rest.split(middle,1)
+                if mode=='stream':
+                    if kind=='context':self.contexts[actor]=remainder
+                    self.send('stream',actor=actor,kind=kind,text=remainder)
+                else:
+                    token=remainder.strip().split('/')[0]
+                    number=''.join(ch for ch in token if ch.isdigit())
+                    label={'request':f'正在思考（第{number}次调用）' if number else '正在思考',
+                           'retry':f'模型API异常，自动重试中（第{number}次）' if number else '模型API异常，自动重试中',
+                           'compacting':'正在整理长期记忆'}[kind]
+                    self.send('activity',actor=actor,text=label)
+                break
+        except Exception:pass
+
+    def send(self, message_type, **data):
         self.revision += 1
         self.output({'protocol': PROTOCOL, 'generation': self.generation,
-                     'revision': self.revision, 'type': kind, **data})
+                     'revision': self.revision, 'type': message_type, **data})
 
     def status(self, state, **extra):
         self.send('status', state=state, period=self.host.clock(),
@@ -88,13 +142,14 @@ class Controller:
             capture=None
             if self.playback:
                 from mods.ui.desktop_activity import TimelineCapture
-                try:capture=TimelineCapture(self.host)
+                try:capture=TimelineCapture(self.host,contexts=self.contexts,activity=self.activity)
                 except Exception as exc:self.send('notice',message=f'演出初始化失败，使用完整快照：{exc}')
             with redirect_stdout(sys.stderr):
-                if capture:self.host.cycle(on_result=capture.capture)
-                else:self.host.cycle()
+                if capture:self.host.cycle(on_result=capture.capture,emit=self.model_line)
+                else:self.host.cycle(emit=self.model_line)
         except Exception:
-            self.running = False;self.failed = True
+            self.running = False; self.failed = True
+            self._error_actor=getattr(capture,'actor',None) if capture else None
             raise
         self.persist()
         if capture:
@@ -116,11 +171,14 @@ class Controller:
                 self.command(row)
             except Empty:
                 try:self.advance()
-                except Exception as exc:self.send('error', message=str(exc))
+                except Exception as exc:
+                    self.send('error', message=str(exc), actor=self._error_actor)
+                    self._error_actor=None
                 deadline = time.monotonic()+self.delay
             except Exception as exc:
                 self.running = False
-                self.send('error', message=str(exc))
+                self.send('error', message=str(exc), actor=self._error_actor)
+                self._error_actor=None
 
 
 def main(argv=None):
@@ -132,16 +190,27 @@ def main(argv=None):
     args = p.parse_args(argv)
     args.output.mkdir(parents=True, exist_ok=False)
     resume = args.resume or (Path(os.environ['ZHANGUO_RESUME']) if os.environ.get('ZHANGUO_RESUME') else None)
-    if resume:
+    config_path = os.environ.get('ZHANGUO_DESKTOP_CONFIG')
+    if config_path:
+        # External game (may include LLM nations): the config must be the one
+        # the session was created with; saves stay in this launch's own output.
+        cfg = json.loads(Path(config_path).read_text(encoding='utf-8'))
+        if os.environ.get('ZHANGUO_UI_MODS'):cfg['ui_mods'] = os.environ['ZHANGUO_UI_MODS']
+        with redirect_stdout(sys.stderr):
+            host = GameHost.load(resume, cfg) if resume else GameHost.new(cfg)
+        max_turns = int(cfg.get('max_turns') or 300)
+    elif resume:
         cfg = json.loads(resume.with_name('config.json').read_text(encoding='utf-8'))
         if not cfg.get('nations') or any(n.get('client') != 'rule' for n in cfg['nations']):
-            raise ValueError('桌面首版只支持离线规则 AI 演示档')
+            raise ValueError('桌面首版只支持离线规则 AI 演示档；LLM 对局请通过 --config 提供 mp_config')
         if os.environ.get('ZHANGUO_UI_MODS'):cfg['ui_mods'] = os.environ['ZHANGUO_UI_MODS']
         with redirect_stdout(sys.stderr):host = GameHost.load(resume, cfg)
+        max_turns = 300
     else:
         cfg = build_config({'rule_ai': 'v13', 'nations': [{'client': 'rule', 'rule_ai': 'v13'}]}, args.seed)
         if os.environ.get('ZHANGUO_UI_MODS'):cfg['ui_mods'] = os.environ['ZHANGUO_UI_MODS']
         with redirect_stdout(sys.stderr):host = build(seed=args.seed, config=cfg)
+        max_turns = 300
     write_json(args.output/'config.json', cfg)
     if not callable(getattr(host.ui, 'desktop_frame', None)):
         raise ValueError('当前 UI Mod 未提供 desktop_frame')
@@ -149,7 +218,7 @@ def main(argv=None):
     def output(row):
         protocol_out.write(json.dumps(row, ensure_ascii=False, allow_nan=False)+'\n')
         protocol_out.flush()
-    control = Controller(host, args.output/'session.json', output, delay=max(0.05, args.delay),playback=True)
+    control = Controller(host, args.output/'session.json', output, delay=max(0.05, args.delay),playback=True,max_turns=max_turns)
     def read():
         for line in sys.stdin:
             try:

@@ -59,15 +59,17 @@ public partial class Desktop
     {
         if(HasTimeline)throw new Exception("上一期演出尚未确认，拒绝覆盖播放状态");
         _timelineSequence=I(row["sequence"]);_timelinePeriod=I(row["period"]);_beatNumber=0;
+        _map.ClearActivity();
         foreach(var beat in row["beats"]!.AsArray())_beats.Enqueue(beat!.AsObject());
         _beatTotal=_beats.Count;StartNextBeat();
     }
     private void StartNextBeat()
     {
-        if(_beats.Count==0){FinishPlayback();return;}
+        if (_beats.Count == 0){FinishPlayback();return;}
         _playingBeat=_beats.Dequeue();_beatElapsed=0;_beatNumber++;
         _map.BeginBeat(_playingBeat,_autoFollow);
         string phase=S(_playingBeat["phase"]);
+        DriveBubbles(_playingBeat,phase);
         _playedPhases[phase]=_playedPhases.GetValueOrDefault(phase)+1;
         _bannerTitle.Text=S(_playingBeat["turn_title"]);
         _bannerText.Text=$"{_playingBeat["title"]} · 动作 {_beatNumber}/{_beatTotal}\n{_playingBeat["text"]}";
@@ -87,14 +89,100 @@ public partial class Desktop
         if(_smoke!=null)_speedControl.Text=_playbackSpeed==1?"慢速 1×":"快进 96×";
         RefreshPlaybackControls();
     }
+    // Nation turns speak through the bubble layer: each enacted action is one
+    // streamed body bubble, the turn close is a distinct summary bubble, and
+    // settlement narration dims the layer instead of replacing the speaker.
+    // Rule-AI demo nations get preset streamed "thinking" and a frame-derived
+    // context line; LLM nations keep their real streamed thinking and context.
+    private void DriveBubbles(JsonObject beat,string phase)
+    {
+        string actor=S(beat["actor"]),text=S(beat["text"]);
+        string Context()=>beat["context"]?.ToString() is {Length:>0} found?found:null;
+        switch(phase)
+        {
+            case "actor":
+            {
+                string nation=_map.Frame?["names"]?[actor]?.ToString()??actor;
+                string version=_models.GetValueOrDefault(actor,"");
+                _bubbles.SetSpeaker(actor,nation,version,_map.NationColor(actor));
+                bool preset=SpeechBubbles.IsRuleVersion(version);
+                _bubbles.SetStats(preset?FrameContext():Context(),null,null);
+                if(preset)
+                {
+                    _bubbles.Begin("thinking");
+                    _bubbles.Append("thinking",PresetThinking(actor,nation));
+                }
+                _bubbles.Begin("body");
+                _bubbles.Append("body",text);
+                break;
+            }
+            case "plan" or "trade" or "build" or "recruit" or "order" or "rejected" or "action" or "arrival" or "retreat":
+                _bubbles.Begin("body");
+                _bubbles.Append("body",text);
+                break;
+            case "turn-end":
+                _bubbles.SetStats(Context(),
+                    beat["tokens"] is JsonNode tokens?(int?)I(tokens):null,
+                    beat["turn_seconds"] is JsonNode seconds?(double?)F(seconds):null);
+                _bubbles.Begin("turn_end");
+                _bubbles.Append("turn_end",text);
+                break;
+            default:
+                _bubbles.Park();
+                break;
+        }
+    }
+
+    // Preset rule-AI "thinking" for the streaming demo; numbers are real frame
+    // facts, phrasing is canned flavor so the offline demo plays like an LLM.
+    private string PresetThinking(string actor,string nation)
+    {
+        var frame=_map.Frame;
+        var row=frame?["nations"]?.AsArray().FirstOrDefault(n=>S(n!["id"])==actor);
+        int land=I(row?["land"]);
+        double food=0,wood=0,gold=0;
+        foreach(var s in row?["stocks"]?.AsArray()??new JsonArray())
+        {
+            string name=S(s!["name"]);
+            if(name.Contains('粮'))food=F(s["amount"]);
+            else if(name.Contains('木'))wood=F(s["amount"]);
+            else if(name.Contains('金')&&!name.Contains("金矿"))gold=F(s["amount"]);
+        }
+        int seed=actor.Aggregate(0,(hash,c)=>hash*31+c)^(_period*7919);
+        seed&=int.MaxValue;
+        string[] openers=
+        {
+            $"{nation}第{_period+1}期盘点：国土{land}格，粮{food:0}、木{wood:0}、金{gold:0}。先把粮仓补满，再看邻国动向。",
+            $"开局推演：{land}格国土，存粮{food:0}。粮道是根本，扩产要趁早；兵力可缓，民兵足以守土。",
+            $"环视列国，{nation}以{land}格立身。金{gold:0}尚可支撑数期，宜先固根本、再图进取。",
+        };
+        string[] closers=
+        {
+            "综合判断：稳步扩产，保持边境警戒，不轻启战端。",
+            "先看市集行情，再定采购与施工的先后次序。",
+            "若邻国有异动，立即转入防御并征召民兵。",
+        };
+        return openers[seed%openers.Length]+"\n"+closers[(seed/3)%closers.Length];
+    }
+
+    private string FrameContext()
+    {
+        var frame=_map.Frame;
+        int events=frame?["events"]?.AsArray().Count??0;
+        int market=frame?["market"]?.AsArray().Count??0;
+        int nations=frame?["nations"]?.AsArray().Count??0;
+        return $"八国{nations}家 · 本期事件{events}条 · 市集{market}种（规则AI演示）";
+    }
+
     private void ProcessPlayback(double delta)
     {
         if(_closing||_playingBeat==null||_playbackPaused||_phaseCaptureBusy)return;
         _beatElapsed+=delta*_playbackSpeed;
+        _bubbles.SetSpeed(_playbackSpeed);
         double duration=F(_playingBeat["duration"]);
         string phase=S(_playingBeat["phase"]);
         string shot=phase=="maintenance"&&_playingBeat["pops"]?.AsArray().Any(p=>S(p!["resource"])=="hp")==true?"healing":phase;
-        if(_smoke!=null&&_beatElapsed>=duration*.3&&new[]{"actor","build","march","engage","production","maintenance","healing","battle","casualties","occupation","complete"}.Contains(shot)&&_phaseShots.Add(shot))
+        if(_smoke!=null&&_beatElapsed>=duration*.3&&new[]{"actor","build","recruit","march","engage","production","maintenance","healing","battle","casualties","occupation","complete"}.Contains(shot)&&_phaseShots.Add(shot))
         {
             _beatElapsed=duration*.45;_map.BeatProgress(.45f);_phaseCaptureBusy=true;_=CapturePhase(shot);return;
         }
@@ -125,7 +213,7 @@ public partial class Desktop
     private void FinishPlayback()
     {
         if(_closing)return;
-        _playingBeat=null;_map.EndBeat();
+        _playingBeat=null;_map.EndBeat();_bubbles.HideSoon();
         if(_pendingFrame==null){_awaitingFrame=true;return;}
         ApplyFrame(_pendingFrame);_pendingFrame=null;_awaitingFrame=false;
         _bannerTitle.Text=$"第 {_timelinePeriod+1} 回合 · 全部结算完成";

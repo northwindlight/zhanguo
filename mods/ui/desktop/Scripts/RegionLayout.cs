@@ -48,6 +48,8 @@ public sealed class BuildingInput
     public string Id { get; set; } = "";
     public string Kind { get; set; } = "house";
     public int Remaining { get; set; }
+    // Original observer kind for art selection only; never affects layout math.
+    public string Art { get; set; } = "";
 }
 
 public readonly record struct Point(float X, float Y);
@@ -59,7 +61,7 @@ public readonly record struct Footprint(float X, float Y, float Width, float Hei
     public bool Contains(Point p, float margin = 0) =>
         p.X >= X - margin && p.X <= X + Width + margin && p.Y >= Y - margin && p.Y <= Y + Height + margin;
 }
-public sealed record Structure(string Id, string Kind, Footprint Bounds, int Count = 1, int Remaining = 0);
+public sealed record Structure(string Id, string Kind, Footprint Bounds, int Count = 1, int Remaining = 0, string Art = "");
 public sealed record Tree(Point Foot, int Variant, string Sheet);
 public sealed class RegionPlan
 {
@@ -252,7 +254,7 @@ public sealed class RegionLayout
                 continue;
             }
             if (found == null) throw new InvalidDataException($"样板 {r.Name} 缺少设施平地：{b.Id}");
-            plan.Structures.Add(new Structure(b.Id, b.Kind, found.Value,Remaining:b.Remaining));
+            plan.Structures.Add(new Structure(b.Id, b.Kind, found.Value,Remaining:b.Remaining,Art:b.Art));
         }
         for (int cy = 0; cy < 16; cy++)
             for (int cx = 0; cx < 16; cx++)
