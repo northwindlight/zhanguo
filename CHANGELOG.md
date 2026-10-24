@@ -7,6 +7,15 @@
 - 新增 `provider="responses"`：OpenAI Responses API 原生接入——system→`instructions`、工具拆平、`function_call`/`function_call_output` 回放、reasoning summary 取思考、usage 含 cached/reasoning 真数、`incomplete/max_output_tokens` 走 message tailing 续写（与 Anthropic 共用）。
 - Anthropic 路复检：续写与重试逻辑抽成三路共用（`_retry_stream`/`_tailing_continue`，行为不变）；修复压缩调用在 thinking 强制 disabled 时仍可能带着 `output_config.effort` 发出的问题。
 
+## 未发布 — 半身图、军团状态与城镇油区
+
+- 接入用户提供的七张透明人物图，保留原图和哈希，通过显示区域呈现上半身；多窗口检查人物与气泡排版。
+- 居民与士兵接原包多方向动作帧，增加发型、衣色和携带物；步骑兵密集编队，脚下显示真实数量，上方显示合计血条和实际地块防御。
+- 战斗分接敌、多次交锋、受击和确认伤亡，血条逐段抵达实际结果；移除无依据的近战箭雨。
+- 快进仅作用于规则 AI 与回合结算，LLM 自动1×，之后恢复所选档位。
+- 市政厅加大加高，周围增加广场、道路、住宅、摊位和居民；装饰不增加规则设施或收益。
+- 油区按真实丰度显示地表沥青；修复黄金与岩石重叠，资源飘字及军队血条按屏幕空间避让。
+
 ## 未发布 — 真实流式正文、半身图与界面排版
 
 - 思考/发言接到提供方实际流片段，重试清残片、结束校准全文；工具参数不进入气泡，移除规则 AI 模拟思考。

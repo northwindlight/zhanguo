@@ -24,6 +24,7 @@ public partial class SpeechBubbles : Control
     public Rect2 DialogueBounds => _panel.GetGlobalRect();
     public Rect2 PortraitBounds => _portraitFrame.GetGlobalRect();
     public bool HasPortrait => _portrait.Texture != null;
+    public Texture2D? PortraitTexture => _portrait.Texture;
     public string BodyText => _body.Text;
     public string ThoughtText => _thinking.Text;
     public string Speaker => _actor;
@@ -180,7 +181,7 @@ public partial class SpeechBubbles : Control
     private void Layout()
     {
         if (_panel == null || Size.X < 100) return;
-        float width = Math.Min(960, Size.X - 32), portraitW = Size.X < 1100 ? 120 : 168;
+        float width = Math.Min(960, Size.X - 32), portraitW = Size.X < 1100 ? 160 : 216;
         float available = Math.Max(160, Size.Y - 300);
         bool compact=Size.Y<800;
         float bodyH = _prose.Length > 0 || Streaming ? (compact?88:108) : 48;
@@ -199,8 +200,9 @@ public partial class SpeechBubbles : Control
         _panel.Position = new Vector2(Size.X - width - 16, bottom - height);
         _panel.Size = new Vector2(width - portraitW - 12, height);
         // Minimum-size changes propagate through containers on the next frame.
-        _portraitFrame.Position = new Vector2(Size.X - portraitW - 16, bottom - Math.Min(260, height));
-        _portraitFrame.Size = new Vector2(portraitW, Math.Min(260, height));
+        float portraitH=HasPortrait?260:Math.Min(260,height);
+        _portraitFrame.Position = new Vector2(Size.X - portraitW - 16, bottom - portraitH);
+        _portraitFrame.Size = new Vector2(portraitW, portraitH);
         _restore.Position = new Vector2(Size.X - 170, bottom - 42); _restore.Size = new Vector2(154, 38);
     }
     public override void _Process(double delta)
@@ -229,12 +231,41 @@ public partial class SpeechBubbles : Control
         foreach (var (key, name) in Models) if (lower.Contains(key)) return name.ToLowerInvariant();
         return "generic";
     }
+    private static readonly System.Collections.Generic.Dictionary<string,Texture2D> PortraitCache=new();
+    private static JsonObject? _portraitManifest;
     private static Texture2D? LoadPortrait(string version)
     {
         string key = LogoKey(version);
         foreach (var path in new[] { $"res://assets/portraits/{key}.png", $"res://assets/logos/{key}.png",
                      "res://assets/portraits/generic.png", "res://assets/logos/generic.png" }.Distinct())
-            if (ResourceLoader.Exists(path)) return GD.Load<Texture2D>(path);
+        {
+            if(!ResourceLoader.Exists(path))continue;
+            if(PortraitCache.TryGetValue(path,out var cached))return cached;
+            Texture2D texture=GD.Load<Texture2D>(path);
+            if(path.StartsWith("res://assets/portraits/",StringComparison.Ordinal))
+            {
+                _portraitManifest??=ReadPortraitManifest();
+                string name=System.IO.Path.GetFileNameWithoutExtension(path);
+                if(_portraitManifest["portraits"]?[name]?["display_region"] is JsonArray region&&region.Count==4)
+                {
+                    float x=region[0]!.GetValue<float>(),y=region[1]!.GetValue<float>();
+                    float w=region[2]!.GetValue<float>(),h=region[3]!.GetValue<float>();
+                    if(x>=0&&y>=0&&w>0&&h>0&&x+w<=texture.GetWidth()&&y+h<=texture.GetHeight())
+                        texture=new AtlasTexture { Atlas=texture,Region=new Rect2(x,y,w,h),FilterClip=true };
+                }
+            }
+            PortraitCache[path]=texture;return texture;
+        }
         return null;
+    }
+    private static JsonObject ReadPortraitManifest()
+    {
+        const string path="res://assets/portraits/manifest.json";
+        try
+        {
+            if(Godot.FileAccess.FileExists(path))return JsonNode.Parse(Godot.FileAccess.GetFileAsString(path))?.AsObject()??new JsonObject();
+        }
+        catch(Exception e){GD.PrintErr("半身图清单读取失败，显示原图："+e.Message);}
+        return new JsonObject();
     }
 }

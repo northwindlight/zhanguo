@@ -7,23 +7,24 @@ published 2022-12-24, downloaded 2026-10-23. The author page's Asset license fie
 was verified as **Creative Commons Zero v1.0 Universal** on that date.
 https://creativecommons.org/publicdomain/zero/1.0/
 
-Only the generic asset sheets in `manifest.json` are redistributed here,
+Only the generic asset sheets in `manifest.json` and `actors/mini-world-characters.json` are redistributed here,
 unmodified. The manifest records original paths and SHA-256 hashes. No named
 fictional character assets, customization pack or third-party expansions are used.
 
-Grass and nature use 16×16 source regions. Swordsman uses a static 16×16 idle
-frame; knight uses the four 32×32 frames in row 0 for idle only. No walking,
-attack, injury or death animation is claimed by this first implementation.
+Grass and nature use 16×16 source regions. The initial implementation used
+idle troop frames only. The 2026-10-24 squad revision now uses the original
+directional idle, walking and attack rows for swordsmen, spearmen, axemen,
+knights and farmers; their frame metadata is in `actors/manifest.json`.
 Mountains and hills are drawn in code. Building icons are generic visual proxies;
 the inspector lists every actual kind and level, including unknown content IDs.
 The troop count is the actual number of surviving rule units in a tile, not
 the number of illustrated soldiers or their combined HP.
 
-2026-10-24 live observer update: the single idle troop icon has been replaced
-by original code-drawn miniature residents, infantry and mounted squads.
-Walking, construction, contact, confirmed casualties and resource icons are
-procedural presentation art, not newly imported animation rows from these sheets.
-Squad figures are representative and capped; flag labels retain actual rule-unit counts.
+Residents combine those unmodified source sheets with code-drawn clothing,
+hair and carried tools. Construction, contact effects, confirmed casualty
+rotation/fade, resource icons, town scenery and surface bitumen are procedural
+presentation art. Squad figures are representative and capped; foot labels
+retain actual rule-unit counts and HP cards use actual rule HP and maxima.
 
 The initial `--sample terrain` batch reused the unmodified tree and house
 sheets. Its 6x8 scale figures, farmland, mineral outcrops and terrain shading
@@ -60,5 +61,9 @@ The unmodified RGBA sources, exact per-file prompts, dimensions and SHA-256
 hashes are recorded beside the files in `generated-buildings.json`.
 Godot imports them at a 128-pixel size limit; drawing preserves aspect ratio.
 They are separate from Mini World and are not claimed under its CC0 license.
-User-provided model portraits have their own provenance; this change includes
-no downloaded model fan art or brand mascot illustrations.
+Seven transparent model portraits were supplied by the user in `立绘.zip`
+on 2026-10-24. The original bytes are preserved under `portraits/`; dimensions,
+SHA-256 and non-destructive upper-body display regions are recorded in
+`portraits/manifest.json`. No author, original URL or license accompanied the
+archive, so those fields remain unspecified. They are separate from Mini World
+and are not claimed under its CC0 license.

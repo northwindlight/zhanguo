@@ -17,17 +17,21 @@ class NativeObserver:
             snap=self.world.buildings.snapshot();sites={s.id:s for s in snap.sites}
             buildings=[{**wire(b),'x':sites[b.site].position[0],'y':sites[b.site].position[1],
                         'owner':sites[b.site].owner} for b in snap.instances]
-            size,_=self.grid();guards=[]
+            size,_=self.grid();guards=[];defenses=[]
             for y in range(size):
                 for x in range(size):
-                    if (x,y) in self.world.units.guard_once:continue
                     cell=self.world.territory.cell(x,y)
-                    if cell.tile.id or not self.world.territory.terrain(x,y).claimable:continue
+                    terrain=self.world.territory.terrain(x,y)
+                    castle=self.runtime.object_call(self.world,'native:buildings','effect_role',cell.tile.id,'castle','defense_per_level') if cell.tile.id else 0
+                    defenses.append({'id':f'{x},{y}','x':x,'y':y,'terrain':terrain.defense,'castle':castle})
+                    if (x,y) in self.world.units.guard_once or cell.tile.id or not terrain.claimable:continue
                     guards.append({'id':x*size+y+1,'owner':'野人','kind':'native:infantry',
                                    'hp':self.world.units.definition('native:infantry')['hp'],
                                    'x':x,'y':y,'engaged':False,'potential':True})
             market=wire(self.world.market.summary());stock=dict(market['inventory']);reference=dict(market['reference'])
             return {'buildings':buildings,'armies':wire(self.world.military.snapshot()),'guards':guards,
+                    'unit_types':[{'id':kind,'max_hp':self.world.units.definition(kind)['hp']} for kind in self.world.units.type_ids],
+                    'tile_defenses':defenses,
                     'production':[wire(r.fact) for r in self.world.economy.facts(self.world.economy.next_period-1)
                                   if r.fact.category=='production'] if self.world.economy.next_period else [],
                     'accounts':[{'id':a,'stocks':wire(self.runtime.object_call(self.world,'native:resource-exchange','snapshot',a))} for a in self.actors()],

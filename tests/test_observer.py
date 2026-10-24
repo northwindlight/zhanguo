@@ -414,7 +414,10 @@ class TestObserver(unittest.TestCase):
             self.assertEqual(len(rows),16);self.assertEqual(h.to_save(),before)
             farm=next(r for r in rows if r['id']=='native:farm')
             denied=p.submit('build',{**args,'kind':'barracks'})
-            self.assertFalse(denied['ok']);self.assertIn('slots',denied['message'])
+            self.assertFalse(denied['ok'])
+            self.assertEqual(denied['data']['reason'],'building_slots')
+            self.assertEqual(denied['data']['block'],'min_existing')
+            self.assertLess(denied['data']['occupied'],denied['data']['min_slots'])
             farm['costs']={'native:gold':20*(100+site['penalty'])//100,'native:wood':15}
             args['kind']='farm';gold=h.world.resources.balance('s:q','native:gold')
             wood=h.world.resources.balance('s:q','native:wood');receipt=p.submit('build',args)

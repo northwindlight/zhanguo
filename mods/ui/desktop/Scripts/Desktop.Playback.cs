@@ -6,6 +6,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using static WorldMap;
+using Zhanguo.Desktop.Layout;
 
 public partial class Desktop
 {
@@ -24,6 +25,19 @@ public partial class Desktop
     private bool _phaseCaptureBusy,_demoRecordingStarted;
     private int _recordedBattlePhases,_recordedMarchPhases;
     private bool HasTimeline=>_playingBeat!=null||_beats.Count>0||_awaitingFrame;
+    private string ActiveClientKind=>_playingBeat!=null?S(_playingBeat["client_kind"]) is {Length:>0} found?found:_clientKinds.GetValueOrDefault(S(_playingBeat["actor"]),""):_clientKinds.GetValueOrDefault(_liveActor,"");
+    private string PlaybackScope=>_playingBeat!=null?S(_playingBeat["playback_scope"]) is {Length:>0} scope?scope:S(_playingBeat["actor"])==""?"settlement":"actor":"actor";
+    private float EffectivePlaybackSpeed=>PlaybackPolicy.Speed(_playbackSpeed,ActiveClientKind,PlaybackScope);
+
+    private void RefreshSpeedDisplay()
+    {
+        if(_speedControl==null)return;
+        _bubbles?.SetSpeed(EffectivePlaybackSpeed);
+        bool normal=ActiveClientKind!="rule"&&PlaybackScope!="settlement"&&ActiveClientKind!="";
+        _speedControl.Text=normal?(ActiveClientKind=="llm"?"LLM 1×":"行动 1×"):
+            _playbackSpeed==96?"快进 96×":_speedControl.GetItemText(_speedControl.Selected);
+        _speedControl.TooltipText=normal?$"当前行动固定 1×；所选 {_playbackSpeed}× 将在规则 AI 或回合结算时恢复":"速度仅作用于规则 AI 行动与回合结算";
+    }
 
     private void BuildPlaybackControls(HBoxContainer top)
     {
@@ -32,7 +46,7 @@ public partial class Desktop
         var speed=new OptionButton { FocusMode=FocusModeEnum.None };_speedControl=speed;
         string[] names={"细看 0.5×","慢速 1×","常速 2×","快速 4×","快进 16×"};
         foreach(var name in names)speed.AddItem(name);
-        speed.Selected=1;speed.ItemSelected+=index=>_playbackSpeed=new[]{.5f,1,2,4,16}[(int)index];top.AddChild(speed);
+        speed.Selected=1;speed.ItemSelected+=index=>{_playbackSpeed=new[]{.5f,1,2,4,16}[(int)index];RefreshSpeedDisplay();};top.AddChild(speed);
         _banner=new PanelContainer { MouseFilter=MouseFilterEnum.Ignore,ZIndex=10 };
         var style=new StyleBoxFlat { BgColor=new Color(.055f,.10f,.11f,.94f),BorderColor=new Color("8d9471"),
             ContentMarginLeft=20,ContentMarginRight=20,ContentMarginTop=10,ContentMarginBottom=12 };
@@ -83,10 +97,13 @@ public partial class Desktop
             if(phase is "production" or "maintenance")slow=!_phaseShots.Contains(phase);
             _playbackSpeed=slow?1:96;
             if(slow&&battlePhase)_recordedBattlePhases++;
+            if(slow&&phase=="battle"&&_recordedBattlePhases==1)GD.Print("DESKTOP_BATTLE_DEMO_START");
             if(slow&&marchPhase)_recordedMarchPhases++;
             if(slow&&!_demoRecordingStarted){_demoRecordingStarted=true;GD.Print("DESKTOP_PHASE_DEMO_START");}
         }
-        if(_smoke!=null)_speedControl.Text=_playbackSpeed==1?"慢速 1×":"快进 96×";
+        RefreshSpeedDisplay();
+        if(_smoke!=null&&(_beatNumber%50==0||phase is "actor" or "battle"))
+            GD.Print($"DESKTOP_PHASE period={_timelinePeriod} beat={_beatNumber}/{_beatTotal} phase={phase} speed={EffectivePlaybackSpeed}");
         RefreshPlaybackControls();
     }
     private void DriveBubbles(JsonObject beat,string phase)
@@ -103,8 +120,8 @@ public partial class Desktop
     private void ProcessPlayback(double delta)
     {
         if(_closing||_playingBeat==null||_playbackPaused||_phaseCaptureBusy)return;
-        _beatElapsed+=delta*_playbackSpeed;
-        _bubbles.SetSpeed(_playbackSpeed);
+        _beatElapsed+=delta*EffectivePlaybackSpeed;
+        _bubbles.SetSpeed(EffectivePlaybackSpeed);
         double duration=F(_playingBeat["duration"]);
         string phase=S(_playingBeat["phase"]);
         string shot=phase=="maintenance"&&_playingBeat["pops"]?.AsArray().Any(p=>S(p!["resource"])=="hp")==true?"healing":phase;
@@ -140,6 +157,7 @@ public partial class Desktop
     {
         if(_closing)return;
         _playingBeat=null;_map.EndBeat();_bubbles.HideSoon();
+        _liveActor="";RefreshSpeedDisplay();
         if(_pendingFrame==null){_awaitingFrame=true;return;}
         ApplyFrame(_pendingFrame);_pendingFrame=null;_awaitingFrame=false;
         _bannerTitle.Text=$"第 {_timelinePeriod+1} 回合 · 全部结算完成";

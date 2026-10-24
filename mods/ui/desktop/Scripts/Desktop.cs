@@ -48,6 +48,8 @@ public partial class Desktop : Control
     private MapDrawer[] Drawers => new[] { _countries,_details,_shop,_chronicle };
     private SpeechBubbles _bubbles = null!;
     private readonly Dictionary<string,string> _models = new();
+    private readonly Dictionary<string,string> _clientKinds = new();
+    private string _liveActor="";
     private int _activitySeen;
     private MainMenu _menu = null!;
     private string _rootPath = "";
@@ -135,6 +137,7 @@ public partial class Desktop : Control
         string? menuTest=null;
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--menu-output")menuTest=args[i+1];
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--ui-review-output"){_=ReviewDialogue(args[i+1]);return;}
+        for(int i=0;i<args.Length-1;i++)if(args[i]=="--actor-review-output"){_=ReviewActors(args[i+1]);return;}
         if(_smoke==null)
         {
             // Start screen: new game / load save / settings; smoke runs skip it.
@@ -339,6 +342,7 @@ public partial class Desktop : Control
         if(_closing&&(type is "timeline" or "snapshot"))return;
         if(type=="stream")
         {
+            _liveActor=S(row["actor"]);RefreshSpeedDisplay();
             UpdateStreamSpeaker(S(row["actor"]));
             _bubbles.HandleStream(row);
             return;
@@ -347,6 +351,7 @@ public partial class Desktop : Control
         {
             _activitySeen++;
             string actor=S(row["actor"]),text=S(row["text"]);
+            _liveActor=actor;RefreshSpeedDisplay();
             _map.ShowActivity(actor,text);
             if(!HasTimeline)
             {
@@ -407,12 +412,17 @@ public partial class Desktop : Control
         _events.Text=string.Join("\n",frame["events"]!.AsArray().Select(e=>S(e!["text"])));
         ShowTile(_selectedNation!=""?null:_map.SelectedTile);
         _models.Clear();
+        _clientKinds.Clear();
         if(frame["clients"] is JsonArray clients)
         {
             string versions=string.Join(" / ",clients.Select(c=>S(c!["version"])).Distinct());
             _aiInfo.Text=clients.Any(c=>S(c!["kind"])=="llm")?"模型对局 · 实时思考与发言":$"规则对局 · {versions}";
             _aiInfo.TooltipText=string.Join("\n",clients.Select(c=>$"{frame["names"]![S(c!["actor"])]}: {c["version"]} · {c["strategy"]}"));
-            foreach(var c in clients)_models[S(c!["actor"])]=S(c["kind"])=="llm"?S(c["model"]):S(c["version"]);
+            foreach(var c in clients)
+            {
+                string actor=S(c!["actor"]),kind=S(c["kind"]);
+                _models[actor]=kind=="llm"?S(c["model"]):S(c["version"]);_clientKinds[actor]=kind;
+            }
         }
     }
 
@@ -433,11 +443,11 @@ public partial class Desktop : Control
             _detail.Text=$"{tile["name"]}  ({p[0]}, {p[1]})\n{tile["terrain_name"]} · {(_map.Frame["names"]![owner]?.ToString()??"无主之地")}\n\n建筑\n"+
                 (tile["building_labels"]!.AsArray().Count==0?"尚无建筑":string.Join("\n",tile["building_labels"]!.AsArray().Select(S)))+
                 "\n\n军队\n"+(potential?"野人守军 · 1支 · 未遭遇\n":"")+(units.Length==0?(potential?"":"无驻军"):string.Join("\n",units.Select(a=>$"{a!["label"]??a["kind"]} #{a["id"]}  HP {a["hp"]}")))+
-                "\n\n图标使用通用中世纪素材，\n建筑类型以此处文字为准。";
+                "\n\n建筑清单为实际设施，住宅与摊位为聚落装饰。";
             return;
         }
         var nation=_map.Frame["nations"]!.AsArray().FirstOrDefault(n=>S(n!["id"])==_selectedNation);
-        if(nation==null){_detail.Text="俯瞰山河，静观列国兴衰。\n\n点击地块查看地形、建筑和驻军。\n点击左侧国名查看国力。\n\n国界颜色表示当前归属；\n军旗数字表示本格真实军队数。\n无主守军按规则在遭遇时物化。\n\n本版采用 Mini World 像素素材。";return;}
+        if(nation==null){_detail.Text="俯瞰山河，静观列国兴衰。\n\n点击地块查看地形、建筑和驻军。\n点击左侧国名查看国力。\n\n国界颜色表示当前归属；\n士兵脚下标注真实兵种数量，上方为HP和地块减伤。\n无主守军按规则在遭遇时物化。\n\n本版采用 Mini World 像素素材。";return;}
         var client=_map.Frame["clients"]?.AsArray().FirstOrDefault(c=>S(c!["actor"])==_selectedNation);
         _detail.Text=$"{nation["name"]}国 · 第 {_period+1} 回合\n{client?["version"]} · {client?["strategy"]}\n国土 {nation["land"]} 格\n上期结算资产 {F(nation["assets"]):0.0}\n\n"+
             string.Join("\n",nation["stocks"]!.AsArray().Select(s=>$"{s!["name"]}    {s["amount"]}"))+"\n\n军队\n"+

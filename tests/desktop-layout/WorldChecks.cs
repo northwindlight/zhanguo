@@ -21,12 +21,29 @@ static class WorldChecks
                 foreach(var kind in new[]{"native:town-hall","native:farm","native:gold-mine"})buildings.Add(new JsonArray(kind,1));
             tiles.Add(new JsonObject { ["position"]=new JsonArray(x,y),["name"]=$"r{x}-{y}",["terrain"]="native:"+terrain,
                 ["passable"]=terrain is not "ocean" and not "high-mountain",["buildings"]=buildings,
-                ["resources"]=new JsonArray(new JsonArray("native:wood",terrain=="forest"?5:0),new JsonArray("native:gold",terrain=="mountain"?2:0)) });
+                ["resources"]=new JsonArray(new JsonArray("native:wood",terrain=="forest"?5:0),new JsonArray("native:gold",terrain=="mountain"?2:0),new JsonArray("native:oil",x==2&&y==2?.4:0)) });
         }
         var frame=new JsonObject { ["map_seed"]=20261023,["tiles"]=tiles };
         var input=WorldLayoutProjection.FromFrame(frame);var layout=new RegionLayout(input);
         Require(input.LiveWorld&&input.Seed==20261023&&layout.Regions.Count==25,"live observer map was not projected");
         Require(layout.Regions.Sum(r=>r.Structures.Count)==3,"observer facilities were dropped or invented");
+        var capital=layout.Regions.Single(r=>r.Structures.Any(s=>s.Art=="native:town-hall"));
+        var civic=capital.Structures.Single(s=>s.Art=="native:town-hall");
+        Require(civic.Bounds.Width>=48&&RegionLayout.StructureVisualBounds(civic).Height>=60,"civic hall did not become larger and taller");
+        Require(capital.TownLots.Count>=4&&capital.Plaza!=null,"capital has no town scenery or civic square");
+        Require(capital.Input.Oil>0&&capital.OilPatches.Count>0,"real oil abundance has no surface bitumen");
+        Require(layout.Regions.Where(r=>r.Input.Oil==0).All(r=>r.OilPatches.Count==0),"bitumen invented on a zero-oil tile");
+        foreach(var patch in capital.OilPatches)
+        {
+            Require(layout.CanBuild(capital.Input,patch)&&!capital.Structures.Any(s=>s.Bounds.Overlaps(patch,2)),"oil patch covers a building or barrier");
+            Require(!capital.TownLots.Any(l=>l.Bounds.Overlaps(patch,2))&&!capital.Gold.Any(g=>RegionLayout.GoldBounds(g).Overlaps(patch,2)),"oil patch covers town scenery or gold");
+        }
+        foreach(var lot in capital.TownLots)
+        {
+            Require(!capital.Structures.Any(s=>s.Bounds.Overlaps(lot.Bounds,3)),"town scenery hides a rule building");
+            Require(!capital.TownLots.Any(other=>other!=lot&&other.Bounds.Overlaps(lot.Bounds,3)),"town houses overlap");
+            Require(layout.CanBuild(capital.Input,lot.Bounds),"town scenery crosses a natural barrier");
+        }
         Require(input.Regions.Single(r=>r.Terrain=="forest").Wood==100,"real wood capacity was not normalized");
         foreach(var r in layout.Regions)
         {

@@ -23,8 +23,8 @@ def inside(out):
             stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
         recorder=None
         try:
-            deadline=time.monotonic()+120
-            while 'DESKTOP_PHASE_DEMO_START' not in (out/'launcher.log').read_text():
+            deadline=time.monotonic()+180
+            while 'DESKTOP_BATTLE_DEMO_START' not in (out/'launcher.log').read_text():
                 if proc.poll() is not None:raise RuntimeError('窗口在进入演出前退出；检查launcher.log')
                 if time.monotonic()>deadline:raise TimeoutError('等待首次演出超时')
                 time.sleep(.1)
@@ -34,11 +34,12 @@ def inside(out):
                     '-i',os.environ['DISPLAY'],'-t','32','-c:v','libx264','-preset','ultrafast','-crf','26',
                     '-pix_fmt','yuv420p',str(out/'tour.mp4')],stdout=capture_log,stderr=subprocess.STDOUT,start_new_session=True)
                 recorder.wait(timeout=55)
-            code=proc.wait(timeout=180)
+            code=proc.wait(timeout=360)
             if code:raise RuntimeError(f'窗口验收失败：{code}')
             probe=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_entries',
                 'format=duration:stream=width,height,nb_frames','-of','json',str(out/'tour.mp4')],text=True))
             if float(probe['format']['duration'])<15:raise RuntimeError('录制不足15秒')
+            probe['capture_trigger']='first_natural_battle'
             (out/'recording.json').write_text(json.dumps(probe,indent=2)+'\n')
             print('DESKTOP_RECORD_OK',probe['format']['duration'],out)
         finally:

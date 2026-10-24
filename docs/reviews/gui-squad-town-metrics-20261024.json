@@ -1,0 +1,17 @@
+{
+  "camp_labels": [
+    "\u79E6 \u2665 200/200\n\u76FE -10% \u5730\u5757\u9632\u5FA1\n\u9A91\u5175\u00D72",
+    "\u79E6 \u2665 200/200\n\u76FE -10% \u5730\u5757\u9632\u5FA1\n\u6B65\u00D72"
+  ],
+  "resource_labels": 4,
+  "resource_overlap": false,
+  "rule_speed": 16,
+  "llm_speed": 1,
+  "settlement_speed": 16,
+  "actual_battle_hp": true,
+  "figures": 48,
+  "bars": 2,
+  "town_halls": 8,
+  "town_scenery": 64,
+  "oil_patches": 246
+}

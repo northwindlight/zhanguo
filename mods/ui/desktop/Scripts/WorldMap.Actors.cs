@@ -16,6 +16,7 @@ public partial class WorldMap
     private Vector2 _jitter;
     private float _shakeAmp;
     private int _battleStep=-1;
+    private float _particleProgress;
     private HashSet<string>? _knownSites;
     private readonly Dictionary<RegionPlan,(Vector2 A, Vector2 B)[]> _walks=new();
     private readonly Dictionary<(int,int),Vector2> _guardAnchors=new();
@@ -36,7 +37,7 @@ public partial class WorldMap
 
     public void BeginBeat(JsonObject beat,bool follow)
     {
-        _beat=beat;_beatProgress=0;_battleStep=-1;
+        _beat=beat;_beatProgress=0;_battleStep=0;_particleProgress=0;
         DesktopScene.Apply(Frame!,beat["delta"]!.AsObject());SetFrame(Frame!);
         string phase=S(beat["phase"]);
         if(phase=="battle")_shakeAmp=1;
@@ -83,7 +84,7 @@ public partial class WorldMap
     private bool WalkSafe(RegionPlan r,Vector2 p)
     {
         var body=new Footprint(p.X-3,p.Y-8,6,8);
-        return _layout!.CanBuild(r.Input,body)&&!r.Structures.Any(b=>b.Bounds.Overlaps(body,3))&&
+        return _layout!.CanBuild(r.Input,body)&&!r.Structures.Any(b=>RegionLayout.StructureVisualBounds(b).Overlaps(body,3))&&!r.TownLots.Any(l=>l.Bounds.Overlaps(body,3))&&!r.OilPatches.Any(p=>p.Overlaps(body,2))&&
             !r.Trees.Any(t=>new Footprint(t.Foot.X-7,t.Foot.Y-15,14,15).Overlaps(body,1))&&
             !r.Rocks.Any(t=>new Footprint(t.X-7,t.Y-12,14,12).Overlaps(body,1));
     }
@@ -105,6 +106,11 @@ public partial class WorldMap
     // If a matching sheet exists under assets/actors it wins over this drawing.
     private static readonly string[] Skins={"e8c39a","d9a878","c68e5f","b57c4e"};
     private static readonly string[] Hairs={"3a2e24","54432f","777770","2c2c31"};
+    private static string SpritePalette(Color color)
+    {
+        var palette=new[]{("cyan",new Color("70b4b4")),("red",new Color("c67c79")),("lime",new Color("9bae73")),("purple",new Color("af8dc8"))};
+        return palette.MinBy(p=>MathF.Pow(p.Item2.R-color.R,2)+MathF.Pow(p.Item2.G-color.G,2)+MathF.Pow(p.Item2.B-color.B,2)).Item1;
+    }
     private void MiniPerson(Vector2 foot,Color cloth,float size,double clock,bool moving=false,bool soldier=false,bool horse=false,bool working=false,float alpha=1,bool fighting=false,bool wild=false,bool facingRight=true,int seed=0)
     {
         float s=size;
@@ -118,15 +124,61 @@ public partial class WorldMap
             =>DrawLine(foot+new Vector2(X(x1),y1-bob)*s,foot+new Vector2(X(x2),y2-bob)*s,c,Math.Max(.8f,width*s));
         var sheet = horse?ActorSheets.Load("soldier-cavalry"):soldier?ActorSheets.Load("soldier-infantry")
             :working?ActorSheets.Load("worker"):ActorSheets.Load("resident-walk");
+        if(sheet==null&&!wild)
+        {
+            string palette=SpritePalette(cloth);
+            string role=horse?"knight":seed%3==0?"spearman":seed%3==1?"swordsman":"axeman";
+            sheet=ActorSheets.Load(soldier?$"mini-{role}-{palette}":"mini-resident");
+        }
         if(sheet!=null)
         {
             DrawCircle(foot+new Vector2(0,1)*s,(horse?4.6f:3.4f)*s,new Color(0,0,0,.16f*alpha));
-            int frame=(moving||fighting)?(int)(clock*sheet.Frames)%sheet.Frames:0;
-            var row=ActorSheets.Row(facingRight,fighting,sheet.Rows);
-            var tint=new Color(1,1,1,alpha).Lerp(new Color(cloth,alpha),.42f);
-            var at=foot+new Vector2(-sheet.CellW*.5f,-sheet.CellH+1)*s;
-            DrawTextureRectRegion(sheet.Texture,new Rect2(at,new Vector2(sheet.CellW,sheet.CellH)*s),
-                new Rect2(frame*sheet.CellW,row*sheet.CellH,sheet.CellW,sheet.CellH),tint);
+            int frames=fighting||working?sheet.AttackFrames:moving?sheet.WalkFrames:sheet.IdleFrames;
+            int frame=(int)(Math.Max(0,clock)*(fighting?9:moving?7:working?6:2))%frames;
+            if(fighting&&S(_beat?["phase"])=="battle")frame=Math.Clamp((int)(SquadView.AttackPhase(_beatProgress+(seed%3-1)*.006f)*frames),0,frames-1);
+            int direction=facingRight?1:3;
+            if(!soldier&&!moving&&!working)direction=(seed>>3)%4;
+            var mapping=fighting||working?sheet.AttackRows:moving?sheet.WalkRows:sheet.IdleRows;
+            var row=sheet.MiniWorld&&mapping is {Length:4}?mapping[direction]:ActorSheets.Row(facingRight,fighting,sheet.Rows);
+            row=Math.Clamp(row,0,sheet.Rows-1);
+            var tint=new Color(1,1,1,alpha).Lerp(new Color(cloth,alpha),soldier?.12f:.30f);
+            float spriteScale=s*(horse&&sheet.CellW==32?.75f:1);
+            var at=foot+new Vector2(-sheet.CellW*.5f,-sheet.CellH+1)*spriteScale;
+            bool customHead=!soldier&&seed%4!=0&&sheet.MiniWorld;
+            int cut=customHead?7:0;
+            DrawTextureRectRegion(sheet.Texture,new Rect2(at+new Vector2(0,cut)*spriteScale,new Vector2(sheet.CellW,sheet.CellH-cut)*spriteScale),
+                new Rect2(frame*sheet.CellW,row*sheet.CellH+cut,sheet.CellW,sheet.CellH-cut),tint);
+            if(fighting&&sheet.ProceduralAttack)
+            {
+                // The original spearman attack block uses irregular cells.
+                // Keep the intact body and choreograph a visible spear thrust.
+                float reach=9+SquadView.Strike(_beatProgress)*7;
+                var tip=foot+new Vector2(facingRight?reach:-reach,-9)*s;
+                DrawLine(foot+new Vector2(0,-9)*s,tip,new Color("9d7f55"),Math.Max(1,s));
+                DrawLine(tip,tip+new Vector2(facingRight?3:-3,0)*s,new Color("e3ddbb"),Math.Max(1,1.6f*s));
+            }
+            if(customHead)
+            {
+                var head=foot+new Vector2(-2,-13)*s;
+                DrawRect(new Rect2(head,new Vector2(4,4)*s),new Color(Skins[seed&3]));
+                DrawRect(new Rect2(foot+new Vector2(-1,-9)*s,new Vector2(2,2)*s),new Color(Skins[seed&3]));
+                DrawRect(new Rect2(head-new Vector2(0,s),new Vector2(4,1.4f)*s),new Color(Hairs[(seed>>2)&3]));
+                if(seed%4==1)DrawRect(new Rect2(head+new Vector2(-.5f,-1.5f)*s,new Vector2(5,1.6f)*s),new Color(cloth.Darkened(.25f)));
+                else if(seed%4==2)DrawCircle(head+new Vector2(2,-1)*s,1.3f*s,new Color(Hairs[(seed>>2)&3]));
+                DrawRect(new Rect2(head+new Vector2(facingRight?3:0,1.5f)*s,Vector2.One*.65f*s),new Color("3e352b"));
+            }
+            if(!soldier&&moving)
+            {
+                // Carriers, lumber hands and market errands vary by stable
+                // resident seed; all remain representative ambient actors.
+                var item=foot+new Vector2(facingRight?4:-6,-7)*s;
+                if(seed%3==0)DrawRect(new Rect2(item,new Vector2(3,3)*s),new Color("ba9c66"));
+                else if(seed%3==1)
+                {
+                    DrawLine(item+new Vector2(-2,1)*s,item+new Vector2(4,1)*s,new Color("805e3e"),Math.Max(1,2*s));
+                    DrawCircle(item+new Vector2(4,1)*s,Math.Max(.7f,s),new Color("c9ad76"));
+                }
+            }
             return;
         }
         string skin=Skins[seed&3],hair=Hairs[(seed>>2)&3];
@@ -225,7 +277,9 @@ public partial class WorldMap
                 float travel=t<.4f?t/.4f:t<.55f?1:t<.95f?1-(t-.55f)/.4f:0;
                 var p=Screen(origin+walks[i].A.Lerp(walks[i].B,travel));if(!OnScreen(p))continue;
                 bool moving=walks[i].A!=walks[i].B&&(t<.4f||t is >.55f and <.95f);
-                MiniPerson(p,new Color(i%3==0?"b59a67":i%3==1?"728c8a":"9b7765"),Math.Max(.32f,_scale),_time+i,moving,seed:i);VisibleResidents++;
+                int role=i+r.Input.X*17+r.Input.Y*29;
+                string[] clothes={"c4ac79","8ca7a0","b58f7c","9793b4","b8b888","ccae95"};
+                MiniPerson(p,new Color(clothes[Math.Abs(role)%clothes.Length]),Math.Max(.32f,_scale),_time+i,moving,working:!moving&&role%6==0,seed:role);VisibleResidents++;
             }
             foreach(var b in r.Structures.Where(b=>b.Remaining>0))
                 for(int i=0;i<3;i++)
@@ -269,81 +323,6 @@ public partial class WorldMap
         var b=new Vector2(I(points[i+1]![0]),I(points[i+1]![1]));
         return (a.Lerp(b,Math.Clamp(t-i,0,1))+Vector2.One*.5f)*256;
     }
-    private void DrawTroops()
-    {
-        VisibleSoldiers=0;if(Frame==null||_layout==null)return;
-        if(ShowGuards&&Frame["scene"]?["guards"] is JsonArray guards)
-            foreach(var u in guards)
-            {
-                var world=GuardAnchor(u!);var at=Screen(world);if(!OnScreen(at))continue;
-                if(_scale<.3f)
-                {
-                    DrawRect(new Rect2(at-new Vector2(3,2),new Vector2(6,4)),new Color("896f4a"));
-                    DrawLine(at+new Vector2(-3,-2),at+new Vector2(0,-5),new Color("c2aa7c"),1);continue;
-                }
-                float size=Math.Max(.38f,_scale);
-                DrawCircle(at+new Vector2(0,9)*size,5*size,new Color("795d42"));
-                for(int i=0;i<6;i++)
-                {
-                    var p=at+new Vector2(i%3*7-7,i/3*10-7)*size;
-                    p+=new Vector2((float)Math.Sin(_time*.6+i)*3,(float)Math.Cos(_time*.5+i)*2)*_scale;
-                    MiniPerson(p,new Color("977553"),size,_time+i,moving:_scale>.3f,soldier:true,wild:true,seed:i+3);
-                }
-            }
-        if(!Units&&!ShowGuards)return;
-        string Route(JsonNode u)=>_beat?["motions"]?.AsArray().FirstOrDefault(m=>m!["unit"]!.ToString()==DesktopScene.Key("armies",u))?["points"]?.ToJsonString()??"";
-        var groups=Frame["armies"]!.AsArray().Where(u=>F(u!["hp"])>0).GroupBy(u=>(I(u!["x"]),I(u["y"]),S(u["owner"]),S(u["kind"]),Route(u)));
-        foreach(var group in groups)
-        {
-            var first=group.First()!;var at=Screen(TroopPosition(first));
-            if(!OnScreen(at,80))continue;
-            bool wild=group.Key.Item3=="野人";if(wild&&!ShowGuards)continue;
-            if(!wild&&!Units)continue;
-            var color=wild?new Color("ac8b63"):NationColor(group.Key.Item3);
-            float size=Math.Clamp(_scale,.40f,1.3f);
-            bool engaged=first["engaged"]?.GetValue<bool>()==true;
-            var owners=Frame["armies"]!.AsArray().Where(u=>I(u!["x"])==group.Key.Item1&&I(u["y"])==group.Key.Item2).Select(u=>S(u!["owner"])).Distinct().OrderBy(s=>s,StringComparer.Ordinal).ToArray();
-            int ownerIndex=Array.IndexOf(owners,group.Key.Item3);float side=ownerIndex%2==0?-1:1;
-            int count=DesktopScene.SquadFigures(group.Count()),columns=count<=16?4:count<=32?6:8;
-            if(_scale<.3f)count=Math.Min(count,8);
-            bool moving=_beat?["phase"]?.ToString()=="march"&&_beat["motions"]!.AsArray().Any(m=>m!["unit"]!.ToString()==DesktopScene.Key("armies",first));
-            double clock=moving?_beatProgress*5:_time;
-            bool fighting=_beat?["phase"]?.ToString()=="battle"&&_beat["position"] is JsonArray battleAt&&I(battleAt[0])==group.Key.Item1&&I(battleAt[1])==group.Key.Item2&&
-                (_beat["combat"]?["enemies"]?[group.Key.Item3] is JsonArray enemies?enemies.Count>0:_beat["combat"]?["damage"]?[group.Key.Item3]!=null);
-            if(fighting)clock=_beatProgress*5;
-            if(owners.Length>1)
-            {
-                // Engaged sides close in over the beat and keep clashing.
-                float close= fighting? Math.Clamp(_beatProgress*1.7f,0,1):0;
-                float gap=34+(12-34)*close+(fighting?MathF.Sin(_beatProgress*22)*3:0);
-                at+=new Vector2(side*gap,ownerIndex/2*32)*size;
-            }
-            // Recruit beats muster: figures walk from the settlement to rank.
-            var rpos=_beat?["position"] as JsonArray;
-            bool mustering=!fighting&&!moving&&S(_beat?["phase"])=="recruit"&&rpos!=null&&I(rpos[0])==group.Key.Item1&&I(rpos[1])==group.Key.Item2;
-            var musterOrigin=Vector2.Zero;float musterT=0;
-            if(mustering)
-            {
-                musterOrigin=Screen((new Vector2(I(rpos![0]),I(rpos[1]))+Vector2.One*.5f)*256);
-                musterT=Math.Clamp(_beatProgress*1.5f,0,1);musterT=musterT*musterT*(3-2*musterT);
-            }
-            for(int i=0;i<count;i++)
-            {
-                var spot=at+new Vector2((i%columns-(columns-1)*.5f)*8,(i/columns)*10-12)*size;
-                if(fighting)spot.X-=(float)Math.Sin(_beatProgress*24+i)*2*side*size;
-                var p=mustering?musterOrigin.Lerp(spot,musterT):spot;
-                bool stepping=moving||mustering;
-                bool face=mustering?spot.X>=musterOrigin.X:(owners.Length<2||side<0);
-                MiniPerson(p,color,size,clock+i*.1,stepping,soldier:true,horse:group.Key.Item4.EndsWith("cavalry"),fighting:fighting,wild:wild,facingRight:face,seed:i);VisibleSoldiers++;
-            }
-            var pole=at+new Vector2(-5,-21)*size;
-            DrawLine(pole,pole+new Vector2(0,15)*size,new Color("d4cab1"),Math.Max(1,size));
-            DrawCircle(pole,Math.Max(.8f,size*.8f),new Color("e8dcb0"));
-            float w1=MathF.Sin((float)_time*7+at.X*.13f)*1.1f*size,w2=MathF.Sin((float)_time*7+at.X*.13f+1.4f)*1.6f*size;
-            DrawColoredPolygon(new[]{pole,pole+new Vector2(13*size,w1),pole+new Vector2(13*size,7*size+w2),pole+new Vector2(0,7*size)},color);
-            DrawString(_font,at+new Vector2(13,-12)*size,group.Count()+"支",fontSize:12,modulate:new Color("fff3c8"));
-        }
-    }
     private Vector2 BuildingAnchor(int id)
     {
         string wanted=$"b/{id:D10}";
@@ -367,6 +346,7 @@ public partial class WorldMap
         switch(resource)
         {
             case "native:gold":DrawCircle(p,5,C("d9bd66"));DrawCircle(p,3,C("f1d999"));break;
+            case "native:ore":DrawColoredPolygon(new[]{p+new Vector2(-5,3),p+new Vector2(-3,-4),p+new Vector2(3,-5),p+new Vector2(6,1),p+new Vector2(2,5)},C("9faeaa"));DrawLine(p+new Vector2(-2,-2),p+new Vector2(2,2),C("d4dcd0"),1);break;
             case "native:wood":for(int i=0;i<3;i++)DrawLine(p+new Vector2(-5,i*3-3),p+new Vector2(5,i*3-3),C("bc9464"),2);break;
             case "native:equipment":DrawLine(p+new Vector2(-4,-5),p+new Vector2(4,5),C("d4dfdb"),2);DrawLine(p+new Vector2(4,-5),p+new Vector2(-4,5),C("bcc9c7"),2);break;
             case "native:supply":DrawRect(new Rect2(p-new Vector2(5,5),new Vector2(10,10)),C("b89461"));DrawLine(p-new Vector2(4,4),p+new Vector2(4,4),C("e5cca0"),1);break;
@@ -377,19 +357,28 @@ public partial class WorldMap
     }
     private void DrawBeatEffects()
     {
+        _resourcePopBounds.Clear();
         if(_beat==null)return;
+        var popupBounds=new List<Footprint>(_squadLabelBounds);
         if(_beat["pops"] is JsonArray pops)
             for(int i=0;i<pops.Count;i++)
             {
                 var pop=pops[i]!;Vector2 anchor;
                 if(pop["building"]!=null)anchor=BuildingAnchor(I(pop["building"]));
                 else {var p=pop["position"]!;anchor=(new Vector2(I(p[0]),I(p[1]))+Vector2.One*.5f)*256;}
-                var at=Screen(anchor)+new Vector2((i%3-1)*45,-18-i/3*22-_beatProgress*35);
                 float alpha=Math.Min(1,(1-_beatProgress)*4);double amount=F(pop["amount"]);
                 string resource=S(pop["resource"]),number=pop["amount"]==null?"":$"{(amount>0?"+":"")}{amount:G4}";
+                string text=ResourceName(resource)+number;
+                float width=_font.GetStringSize(text,fontSize:15).X+26;
+                var baseAt=Screen(anchor)+new Vector2(-width*.5f,-35);
+                var rect=ResourceOverlayLayout.Place(new Footprint(baseAt.X,baseAt.Y,width,23),popupBounds,Size.X,Size.Y,265);
+                popupBounds.Add(rect);
+                _resourcePopBounds.Add(rect with { Y=rect.Y-_beatProgress*35 });
+                var at=new Vector2(rect.X+18,rect.Y+17-_beatProgress*35);
                 var color=new Color(new Color(amount<0?"efbc80":"c9efa3"),alpha);
+                DrawRect(new Rect2(new Vector2(rect.X,rect.Y-_beatProgress*35),new Vector2(rect.Width,rect.Height)),new Color(.045f,.075f,.08f,.80f*alpha));
                 ResourceIcon(at-new Vector2(10,5),resource,alpha);
-                DrawString(_font,at,ResourceName(resource)+number,fontSize:15,modulate:color);
+                DrawString(_font,at,text,fontSize:15,modulate:color);
             }
         string phase=S(_beat["phase"]);
         if(phase is "battle" or "casualties" && _beat["position"] is JsonArray cell)
@@ -398,9 +387,10 @@ public partial class WorldMap
             if(phase=="battle")
                 for(int i=0;i<4;i++)
                 {
-                    float t=(_beatProgress*5+i*.23f)%1;
+                    float t=SquadView.Strike(_beatProgress);
+                    if(t<.55f)continue;
                     var p=at+new Vector2((float)Math.Sin(i*3)*17,(float)Math.Cos(i*3)*12);
-                    DrawLine(p+new Vector2(-7,-8)*t,p+new Vector2(7,8)*t,new Color(1,.9f,.64f,1-t),2);
+                    DrawLine(p+new Vector2(-5,-6)*t,p+new Vector2(5,6)*t,new Color(1,.9f,.64f,(t-.55f)*1.6f),2);
                 }
             else if(_beat["combat"] is JsonObject combat)
             {
@@ -418,8 +408,11 @@ public partial class WorldMap
                     var p=at+new Vector2(i%8*7-28,i/8*6+12);
                     float fade=1-_beatProgress;
                     DrawCircle(p+new Vector2(2,1),2.2f,new Color(new Color("6e3f35"),fade*.5f));
-                    DrawRect(new Rect2(p+new Vector2(0,-2),new Vector2(6,2)),new Color(new Color("8b7968"),fade));
-                    DrawCircle(p+new Vector2(6,-2),1.4f,new Color(new Color("c4b095"),fade));
+                    var unit=fallen[i/8];
+                    var color=S(unit!["owner"])=="野人"?new Color("977553"):NationColor(S(unit["owner"]));
+                    DrawSetTransform(p,Mathf.Pi*.5f,new Vector2(.7f,.7f));
+                    MiniPerson(Vector2.Zero,color,1,0,soldier:true,horse:S(unit["kind"]).EndsWith("cavalry"),alpha:fade,wild:S(unit["owner"])=="野人",seed:i);
+                    DrawSetTransform(Vector2.Zero);
                 }
             }
         }
@@ -491,6 +484,12 @@ public partial class WorldMap
     private void AmbientTick()
     {
         float dt=1f/24f;
+        bool combatClock=S(_beat?["phase"]) is "battle" or "casualties";
+        if(combatClock)
+        {
+            dt=Math.Max(0,_beatProgress-_particleProgress)*(float)F(_beat!["duration"]);
+            _particleProgress=_beatProgress;
+        }
         for(int i=_particles.Count-1;i>=0;i--)
         {
             var p=_particles[i];
@@ -540,26 +539,18 @@ public partial class WorldMap
         if(_beat["position"] is JsonArray cell)
         {
             var center=(new Vector2(I(cell[0]),I(cell[1]))+Vector2.One*.5f)*256;
-            if(phase=="battle"&&_beatProgress<.9f)
+            if(phase=="battle"&&_beatProgress<.96f)
             {
-                int step=(int)(_beatProgress*4);
+                int step=(int)Math.Floor(SquadView.DamageProgress(_beatProgress)*3+.001f);
                 if(step!=_battleStep)
                 {
                     _battleStep=step;
-                    Spawn(new Particle{Pos=center,Vel=Vector2.Zero,Life=.6f,Max=.6f,Size=2,Tint=new Color("f2e2b0"),Kind=KindRipple});
-                    for(int i=0;i<3;i++)Spawn(new Particle{Pos=center+new Vector2(i*9-9,(i*7%5)-2),Vel=new Vector2((i%3-1)*6,-8),Life=.5f,Max=.5f,Size=1.4f+_scale*.4f,Tint=new Color("b0a488"),Kind=KindDust});
-                }
-                _spawnSalt++;
-                if(_spawnSalt%2==0)
-                {
-                    float side=_spawnSalt%4<2?1:-1;
-                    float arc=3+_spawnSalt*37%7;
-                    Spawn(new Particle{Pos=center+new Vector2(-side*80,-4-arc),Vel=new Vector2(side*110,-55),Life=1.0f,Max=1.0f,Size=1,Tint=default,Kind=KindArrow});
-                }
-                if(_spawnSalt%3==0)
-                {
-                    var at=center+new Vector2(_spawnSalt*29%40-20,_spawnSalt*53%26-13);
-                    Spawn(new Particle{Pos=at,Vel=new Vector2(_spawnSalt%5-2,-14),Life=.35f,Max=.35f,Size=1,Tint=new Color("ffe9a0"),Kind=KindSpark});
+                    for(int i=0;i<18;i++)
+                    {
+                        var at=center+new Vector2((i%3-1)*4,(i/3)*7-22);
+                        Spawn(new Particle{Pos=at,Vel=new Vector2((i%5-2)*17,-20-i%4*7),Life=.25f,Max=.25f,Size=1.2f,Tint=new Color("ffe9a0"),Kind=KindSpark});
+                    }
+                    for(int i=0;i<6;i++)Spawn(new Particle{Pos=center+new Vector2(i*7-17,(i*7%5)-2),Vel=new Vector2((i%3-1)*10,-8),Life=.45f,Max=.45f,Size=1.8f,Tint=new Color("b0a488"),Kind=KindDust});
                 }
             }
             if(phase=="recruit"&&_beatProgress<.7f)

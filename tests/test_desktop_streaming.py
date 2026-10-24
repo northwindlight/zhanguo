@@ -90,3 +90,6 @@ class TestLiveDialogue(unittest.TestCase):
         self.assertEqual(next(r['text'] for r in streams if r.get('event')=='summary'),'完成休整。')
         self.assertEqual(rows[-2]['frame']['clients'][0]['model'],'DeepSeek-Offline')
         self.assertEqual(host.clock(),1)
+        beats=next(r for r in rows if r['type']=='timeline')['beats']
+        self.assertTrue(all(b['client_kind']=='llm' and b['playback_scope']=='actor' for b in beats if b['actor']))
+        self.assertTrue(all(b['playback_scope']=='settlement' for b in beats if not b['actor']))

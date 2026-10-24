@@ -20,6 +20,7 @@ static class Program
     public static void Main(string[] args)
     {
         WorldChecks.Run();
+        SquadChecks.Run();
         string json = File.ReadAllText(args[0]);
         var layout = new RegionLayout(SampleInput.Parse(json));
         Require(layout.Width == 3 && layout.Height == 3 && layout.Regions.Count == 9, "3×3 input coverage");
@@ -69,6 +70,14 @@ static class Program
         }
         Require(layout.Regions.Single(r => r.Input.Gold > 0).Gold.Count > 0, "gold-bearing hills must expose gold");
         Require(layout.Regions.Where(r => r.Input.Gold == 0).All(r => r.Gold.Count == 0), "no invented gold deposits");
+        foreach(var region in layout.Regions)
+            foreach(var gold in region.Gold)
+            {
+                var box=RegionLayout.GoldBounds(gold);
+                Require(!region.Rocks.Any(r=>RegionLayout.RockBounds(r).Overlaps(box,2)),"gold and stone deposits overlap");
+                Require(!region.Outcrops.Any(r=>r.Overlaps(box,2)),"mountain decoration hides gold deposit");
+                Require(!region.Structures.Any(r=>r.Bounds.Overlaps(box,2)),"building hides gold deposit");
+            }
         Require(layout.Regions.Sum(r => r.Outcrops.Count) > 0, "generated mountain asset must appear in the sample");
         Require(layout.Regions.SelectMany(r => r.Trees).Any(t => t.Sheet == "pine-trees"), "new pine asset must appear in the sample");
         Require(layout.Regions.SelectMany(r => r.Trees).Where(t => t.Sheet == "pine-trees").All(t => t.Variant == 1), "pine atlas must use the green tree, excluding stump and snow cells");

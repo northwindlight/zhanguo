@@ -1,0 +1,17 @@
+{
+  "programs": [],
+  "stream_groups": [],
+  "streams": [
+    {
+      "width": 1440,
+      "height": 900,
+      "nb_frames": "640"
+    }
+  ],
+  "format": {
+    "duration": "32.000000"
+  },
+  "capture_trigger": "first_natural_battle",
+  "published_file": "docs/design/gui-squads-tour-20261024.mp4",
+  "published_sha256": "475888e6dfc55b64b25d0b755e2dfdf5379a417af5a63ce96af69fd8743caecf"
+}

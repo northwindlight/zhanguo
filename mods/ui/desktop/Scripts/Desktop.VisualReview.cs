@@ -29,10 +29,14 @@ public partial class Desktop
                 _bubbles.SetSpeaker("scenario:qin","秦","DeepSeek-Offline",new Color("9eb5cf"));
                 // A deliberately tall texture proves no square crop or stretch;
                 // this is a geometric test fixture, not shipped portrait art.
-                var img=Image.CreateEmpty(80,180,false,Image.Format.Rgba8);img.Fill(new Color("648c9a"));
-                img.FillRect(new Rect2I(0,0,80,12),new Color("e9ca86"));
-                img.FillRect(new Rect2I(0,168,80,12),new Color("9cc79a"));
-                _bubbles.SetPortrait(ImageTexture.CreateFromImage(img));
+                bool realPortrait=_bubbles.HasPortrait;
+                if(!realPortrait)
+                {
+                    var img=Image.CreateEmpty(80,180,false,Image.Format.Rgba8);img.Fill(new Color("648c9a"));
+                    img.FillRect(new Rect2I(0,0,80,12),new Color("e9ca86"));
+                    img.FillRect(new Rect2I(0,168,80,12),new Color("9cc79a"));
+                    _bubbles.SetPortrait(ImageTexture.CreateFromImage(img));
+                }
                 _bubbles.HandleStream(new JsonObject { ["event"]="begin",["call"]=1 });
                 string thought=string.Concat(Enumerable.Repeat("先核实粮仓与前线补给，再决定是否扩产。长思考可以展开、滚动查看。",18));
                 string prose="诸位，本期优先补充粮食，并修复前线设施。\n外交承诺需明确条件和期限。\n这里只显示发言正文，建设、买卖和调兵另在地图演出。";
@@ -65,7 +69,37 @@ public partial class Desktop
                 _bubbles.HandleStream(new JsonObject { ["event"]="reset" });
                 _bubbles.HandleStream(new JsonObject { ["event"]="complete",["thinking"]="",["body"]="重试后的完整声明。" });
                 if(_bubbles.BodyText!="重试后的完整声明。")throw new Exception("重试混入残片");
-                checks.Add(new { width=size.X,height=size.Y,inside=true,portrait_aspect_preserved=true,delta_immediate=true,speaker_reset=true,retry_reset=true });
+                checks.Add(new { width=size.X,height=size.Y,inside=true,portrait_aspect_preserved=true,real_portrait=realPortrait,delta_immediate=true,speaker_reset=true,retry_reset=true });
+            }
+            var portraitManifest="res://assets/portraits/manifest.json";
+            if(Godot.FileAccess.FileExists(portraitManifest))
+            {
+                var entries=JsonNode.Parse(Godot.FileAccess.GetFileAsString(portraitManifest))!["portraits"]!.AsObject();
+                foreach(var size in new[]{new Vector2I(1440,900),new Vector2I(1280,720),new Vector2I(1024,768)})
+                {
+                    GetWindow().ContentScaleSize=size;GetWindow().Size=size;
+                    foreach(var (key,entry) in entries)
+                    {
+                        // Exercise case-insensitive aliases through the real
+                        // loader, rather than injecting a texture in the test.
+                        string version=key switch { "qwen"=>"QWEN-Offline","kimi"=>"moonshot-offline","gpt"=>"openai-gpt-offline",_=>key+"-offline" };
+                        _bubbles.SetSpeaker("preview:"+key,"半身图预览",version,new Color("9eb5cf"));
+                        if(_bubbles.PortraitTexture is not AtlasTexture atlas||!atlas.Atlas.ResourcePath.EndsWith("/"+key+".png",StringComparison.Ordinal))
+                            throw new Exception("模型未对应预期半身图："+key);
+                        var region=entry!["display_region"]!.AsArray();
+                        if(atlas.Region.Position!=new Vector2(region[0]!.GetValue<float>(),region[1]!.GetValue<float>())||
+                           atlas.Region.Size!=new Vector2(region[2]!.GetValue<float>(),region[3]!.GetValue<float>()))
+                            throw new Exception("半身显示区域不符："+key);
+                        _bubbles.HandleStream(new JsonObject { ["event"]="begin",["call"]=1 });
+                        _bubbles.HandleStream(new JsonObject { ["event"]="complete",["thinking"]="",["body"]="这是本地立绘预览，未调用模型。透明背景与上半身显示区域已接入；切换模型时更换对应图片。" });
+                        await ToSignal(GetTree().CreateTimer(.2),SceneTreeTimer.SignalName.Timeout);
+                        var viewport=new Rect2(Vector2.Zero,Size);
+                        if(!viewport.Encloses(_bubbles.PortraitBounds)||!viewport.Encloses(_bubbles.DialogueBounds)||
+                           _bubbles.PortraitBounds.Intersects(_bubbles.DialogueBounds))throw new Exception("立绘与气泡越界或重叠："+key+size);
+                        if(size.X==1440)await Screenshot(stem+"-"+key+".png");
+                        checks.Add(new { model=key,width=size.X,height=size.Y,real_portrait=true,half_body=true,inside=true,correct_asset=true });
+                    }
+                }
             }
             File.WriteAllText(path+".json",JsonSerializer.Serialize(checks,new JsonSerializerOptions { WriteIndented=true }));
             GD.Print("UI_REVIEW_OK "+path);GetTree().Quit();

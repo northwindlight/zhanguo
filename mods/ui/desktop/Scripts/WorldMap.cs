@@ -37,6 +37,9 @@ public partial class WorldMap : Control
     public int StructureCount => _layout?.Regions.Sum(r=>r.Structures.Sum(s=>s.Count)) ?? 0;
     public string ArtworkMode => "regional-landscape";
     public float Zoom => _scale;
+    public int TownSceneryCount=>_layout?.Regions.Sum(r=>r.TownLots.Count)??0;
+    public int TownHallCount=>_layout?.Regions.SelectMany(r=>r.Structures).Count(s=>s.Art.EndsWith("town-hall",StringComparison.Ordinal))??0;
+    public int OilPatchCount=>_layout?.Regions.Sum(r=>r.OilPatches.Count)??0;
     public JsonObject? SelectedTile => _tiles.GetValueOrDefault(Selected);
 
     public override void _Ready()
@@ -65,7 +68,7 @@ public partial class WorldMap : Control
             _tiles[new(I(t["position"]![0]), I(t["position"]![1]))] = t;
         }
         _size = _tiles.Keys.Max(p => Math.Max(p.X, p.Y)) + 1;
-        string[] palette = { "9eb5cf", "e5a47c", "c69ddd", "91bd98", "e8cc83", "76bdbb", "d68c95", "ddd9af" };
+        var palette=DesktopScene.NationPalette;
         int index = 0;
         foreach (var nation in frame["names"]!.AsObject())
         {
@@ -249,5 +252,5 @@ public partial class WorldMap : Control
     }
     public static string S(JsonNode? node) => node?.ToString() ?? "";
     public static int I(JsonNode? node) => node?.GetValue<int>() ?? 0;
-    public static double F(JsonNode? node) => node?.GetValue<double>() ?? 0;
+    public static double F(JsonNode? node) => double.TryParse(node?.ToString(),System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out double value)?value:0;
 }

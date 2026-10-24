@@ -1,13 +1,555 @@
 {
   "_readme": "六种建筑 PNG 已提供；人物表与树图可按此规格添加。建筑来源和哈希另见 generated-buildings.json，人物帧配置在 sheets。",
   "sheets": {
-    "resident-walk":  { "cell": [16, 16], "frames": 6, "rows": 4 },
-    "soldier-infantry": { "cell": [16, 16], "frames": 6, "rows": 4 },
-    "soldier-cavalry": { "cell": [24, 18], "frames": 6, "rows": 4 },
-    "worker":         { "cell": [16, 16], "frames": 4, "rows": 2 }
+    "resident-walk": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 6,
+      "rows": 4
+    },
+    "soldier-infantry": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 6,
+      "rows": 4
+    },
+    "soldier-cavalry": {
+      "cell": [
+        24,
+        18
+      ],
+      "frames": 6,
+      "rows": 4
+    },
+    "worker": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 4,
+      "rows": 2
+    },
+    "mini-swordsman-cyan": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 5,
+      "rows": 12,
+      "idle_frames": 5,
+      "layout": "mini-world",
+      "idle_rows": [
+        8,
+        10,
+        9,
+        11
+      ],
+      "walk_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "attack_rows": [
+        4,
+        6,
+        5,
+        7
+      ],
+      "walk_frames": 5,
+      "attack_frames": 4
+    },
+    "mini-swordsman-lime": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 5,
+      "rows": 12,
+      "idle_frames": 5,
+      "layout": "mini-world",
+      "idle_rows": [
+        8,
+        10,
+        9,
+        11
+      ],
+      "walk_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "attack_rows": [
+        4,
+        6,
+        5,
+        7
+      ],
+      "walk_frames": 5,
+      "attack_frames": 4
+    },
+    "mini-swordsman-purple": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 5,
+      "rows": 12,
+      "idle_frames": 5,
+      "layout": "mini-world",
+      "idle_rows": [
+        8,
+        10,
+        9,
+        11
+      ],
+      "walk_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "attack_rows": [
+        4,
+        6,
+        5,
+        7
+      ],
+      "walk_frames": 5,
+      "attack_frames": 4
+    },
+    "mini-swordsman-red": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 5,
+      "rows": 12,
+      "idle_frames": 5,
+      "layout": "mini-world",
+      "idle_rows": [
+        8,
+        10,
+        9,
+        11
+      ],
+      "walk_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "attack_rows": [
+        4,
+        6,
+        5,
+        7
+      ],
+      "walk_frames": 5,
+      "attack_frames": 4
+    },
+    "mini-spearman-cyan": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 5,
+      "rows": 14,
+      "idle_frames": 5,
+      "layout": "mini-world",
+      "idle_rows": [
+        10,
+        12,
+        11,
+        13
+      ],
+      "walk_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "attack_rows": [
+        10,
+        12,
+        11,
+        13
+      ],
+      "walk_frames": 5,
+      "attack_frames": 5,
+      "procedural_attack": true
+    },
+    "mini-spearman-lime": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 5,
+      "rows": 14,
+      "idle_frames": 5,
+      "layout": "mini-world",
+      "idle_rows": [
+        10,
+        12,
+        11,
+        13
+      ],
+      "walk_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "attack_rows": [
+        10,
+        12,
+        11,
+        13
+      ],
+      "walk_frames": 5,
+      "attack_frames": 5,
+      "procedural_attack": true
+    },
+    "mini-spearman-purple": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 5,
+      "rows": 14,
+      "idle_frames": 5,
+      "layout": "mini-world",
+      "idle_rows": [
+        10,
+        12,
+        11,
+        13
+      ],
+      "walk_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "attack_rows": [
+        10,
+        12,
+        11,
+        13
+      ],
+      "walk_frames": 5,
+      "attack_frames": 5,
+      "procedural_attack": true
+    },
+    "mini-spearman-red": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 5,
+      "rows": 14,
+      "idle_frames": 5,
+      "layout": "mini-world",
+      "idle_rows": [
+        10,
+        12,
+        11,
+        13
+      ],
+      "walk_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "attack_rows": [
+        10,
+        12,
+        11,
+        13
+      ],
+      "walk_frames": 5,
+      "attack_frames": 5,
+      "procedural_attack": true
+    },
+    "mini-axeman-cyan": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 6,
+      "rows": 6,
+      "idle_frames": 5,
+      "layout": "mini-world",
+      "idle_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "walk_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "attack_rows": [
+        4,
+        4,
+        5,
+        5
+      ],
+      "walk_frames": 5,
+      "attack_frames": 6
+    },
+    "mini-axeman-lime": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 6,
+      "rows": 6,
+      "idle_frames": 5,
+      "layout": "mini-world",
+      "idle_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "walk_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "attack_rows": [
+        4,
+        4,
+        5,
+        5
+      ],
+      "walk_frames": 5,
+      "attack_frames": 6
+    },
+    "mini-axeman-purple": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 6,
+      "rows": 6,
+      "idle_frames": 5,
+      "layout": "mini-world",
+      "idle_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "walk_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "attack_rows": [
+        4,
+        4,
+        5,
+        5
+      ],
+      "walk_frames": 5,
+      "attack_frames": 6
+    },
+    "mini-axeman-red": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 6,
+      "rows": 6,
+      "idle_frames": 5,
+      "layout": "mini-world",
+      "idle_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "walk_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "attack_rows": [
+        4,
+        4,
+        5,
+        5
+      ],
+      "walk_frames": 5,
+      "attack_frames": 6
+    },
+    "mini-knight-cyan": {
+      "cell": [
+        32,
+        32
+      ],
+      "frames": 4,
+      "rows": 12,
+      "idle_frames": 4,
+      "layout": "mini-world",
+      "idle_rows": [
+        0,
+        3,
+        9,
+        6
+      ],
+      "walk_rows": [
+        1,
+        4,
+        10,
+        7
+      ],
+      "attack_rows": [
+        2,
+        5,
+        11,
+        8
+      ],
+      "walk_frames": 4,
+      "attack_frames": 4
+    },
+    "mini-knight-lime": {
+      "cell": [
+        32,
+        32
+      ],
+      "frames": 4,
+      "rows": 12,
+      "idle_frames": 4,
+      "layout": "mini-world",
+      "idle_rows": [
+        0,
+        3,
+        9,
+        6
+      ],
+      "walk_rows": [
+        1,
+        4,
+        10,
+        7
+      ],
+      "attack_rows": [
+        2,
+        5,
+        11,
+        8
+      ],
+      "walk_frames": 4,
+      "attack_frames": 4
+    },
+    "mini-knight-purple": {
+      "cell": [
+        32,
+        32
+      ],
+      "frames": 4,
+      "rows": 12,
+      "idle_frames": 4,
+      "layout": "mini-world",
+      "idle_rows": [
+        0,
+        3,
+        9,
+        6
+      ],
+      "walk_rows": [
+        1,
+        4,
+        10,
+        7
+      ],
+      "attack_rows": [
+        2,
+        5,
+        11,
+        8
+      ],
+      "walk_frames": 4,
+      "attack_frames": 4
+    },
+    "mini-knight-red": {
+      "cell": [
+        32,
+        32
+      ],
+      "frames": 4,
+      "rows": 12,
+      "idle_frames": 4,
+      "layout": "mini-world",
+      "idle_rows": [
+        0,
+        3,
+        9,
+        6
+      ],
+      "walk_rows": [
+        1,
+        4,
+        10,
+        7
+      ],
+      "attack_rows": [
+        2,
+        5,
+        11,
+        8
+      ],
+      "walk_frames": 4,
+      "attack_frames": 4
+    },
+    "mini-resident": {
+      "cell": [
+        16,
+        16
+      ],
+      "frames": 5,
+      "rows": 12,
+      "idle_frames": 5,
+      "layout": "mini-world",
+      "idle_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "walk_rows": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "attack_rows": [
+        8,
+        10,
+        9,
+        11
+      ],
+      "walk_frames": 5,
+      "attack_frames": 3
+    }
   },
   "structures": {
-    "townhall": "24x24 市政厅",
+    "townhall": "64x64 市政厅，地面脚印56x40",
     "farm": "24x18 农田",
     "mine": "24x16 矿场",
     "oilwell": "24x24 油井",

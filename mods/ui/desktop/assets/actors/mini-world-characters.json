@@ -1,0 +1,87 @@
+[
+  {
+    "file": "mini-swordsman-cyan.png",
+    "source": "Characters/Soldiers/Melee/CyanMelee/SwordsmanCyan.png",
+    "sha256": "57dd749fd0397445570a40840d400c4a704fc11c740e3ad4e2cb0b9ef3a7832a"
+  },
+  {
+    "file": "mini-swordsman-lime.png",
+    "source": "Characters/Soldiers/Melee/LimeMelee/SwordsmanLime.png",
+    "sha256": "3b3b30ac058069dc3f6b68a039f101bb2987bd6c842a5b33fb7c635a7aa39487"
+  },
+  {
+    "file": "mini-swordsman-purple.png",
+    "source": "Characters/Soldiers/Melee/PurpleMelee/SwordsmanPurple.png",
+    "sha256": "30a10e042cc2825450f85949a6f2bde3a27c82680f650455f6dd2d9861ae73f8"
+  },
+  {
+    "file": "mini-swordsman-red.png",
+    "source": "Characters/Soldiers/Melee/RedMelee/SwordsmanRed.png",
+    "sha256": "eb3abb7b11000cb7ebb8d6e1bd4ef3b64ff40cbce7cf5712623d7449232265e2"
+  },
+  {
+    "file": "mini-spearman-cyan.png",
+    "source": "Characters/Soldiers/Melee/CyanMelee/SpearmanCyan.png",
+    "sha256": "f4821568cee6f99f49a7081d5b0fe503b8a11a0a83282903c97a8ca3e9344cd0"
+  },
+  {
+    "file": "mini-spearman-lime.png",
+    "source": "Characters/Soldiers/Melee/LimeMelee/SpearmanLime.png",
+    "sha256": "737d7fcedf5c1f7f231314f20083add5104924b773ea86d08483ed17291c72bc"
+  },
+  {
+    "file": "mini-spearman-purple.png",
+    "source": "Characters/Soldiers/Melee/PurpleMelee/SpearmanPurple.png",
+    "sha256": "79ac6dbde2ac249127f3549b519dd51189b2ed5a8da0e3773907a0c36ccc1e83"
+  },
+  {
+    "file": "mini-spearman-red.png",
+    "source": "Characters/Soldiers/Melee/RedMelee/SpearmanRed.png",
+    "sha256": "c7ef7910f40760369bb95456c9722b7ba3510d3802e832d3a3eafd28d882eaa8"
+  },
+  {
+    "file": "mini-axeman-cyan.png",
+    "source": "Characters/Soldiers/Melee/CyanMelee/AxemanCyan.png",
+    "sha256": "9ed1ff0a96add435812ca52a857c9dc0f5279dd51416589d0f7d879d2b7f472a"
+  },
+  {
+    "file": "mini-axeman-lime.png",
+    "source": "Characters/Soldiers/Melee/LimeMelee/AxemanLime.png",
+    "sha256": "9d6745b4c06f7ae803e69d6c17d698fadc2dd3b1b53741b9a519ab336a9d9e98"
+  },
+  {
+    "file": "mini-axeman-purple.png",
+    "source": "Characters/Soldiers/Melee/PurpleMelee/AxemanPurple.png",
+    "sha256": "77491cd9eb2ba3414b597c310e3169d46df861db182f4777624ae01dc5c1f1de"
+  },
+  {
+    "file": "mini-axeman-red.png",
+    "source": "Characters/Soldiers/Melee/RedMelee/AxemanRed.png",
+    "sha256": "3eba169635fdde96f664b40efc4d1e86e44971074541429762ef48125dd6e5fa"
+  },
+  {
+    "file": "mini-knight-cyan.png",
+    "source": "Characters/Soldiers/Mounted/CyanKnight.png",
+    "sha256": "89dd17d0cd49e1c0d12976ac519e9bcae87e1abcbebff629b750e0baf8b36531"
+  },
+  {
+    "file": "mini-knight-lime.png",
+    "source": "Characters/Soldiers/Mounted/LimeKnight.png",
+    "sha256": "86f7634a6d44a08c67100b004543a975500f43c14923c43a1f69b4eb0ae6d13d"
+  },
+  {
+    "file": "mini-knight-purple.png",
+    "source": "Characters/Soldiers/Mounted/PurpleKnight.png",
+    "sha256": "21408b30f7b1db4337a6aae595d7660416591ccdf41365a6c17000c40096a4af"
+  },
+  {
+    "file": "mini-knight-red.png",
+    "source": "Characters/Soldiers/Mounted/RedKnight.png",
+    "sha256": "7721f19992532912d9372b2830fa3e62118c341dc423079cd10ac7f1ce4e672f"
+  },
+  {
+    "file": "mini-resident.png",
+    "source": "Characters/Workers/FarmerTemplate.png",
+    "sha256": "79298d1b8a06070e7219972b55f9eb2c84fd3dde7468bbc6c09858d0f5c76f54"
+  }
+]

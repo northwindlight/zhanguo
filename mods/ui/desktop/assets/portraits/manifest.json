@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "source": {
+    "provided_by": "user",
+    "archive": "立绘.zip",
+    "received": "2026-10-24",
+    "author": null,
+    "url": null,
+    "license": null
+  },
+  "display_note": "保留原始 PNG；display_region 仅控制 Godot 显示的上半身区域，不裁写源文件。",
+  "portraits": {
+    "deepseek": {
+      "file": "deepseek.png",
+      "sha256": "ab86ef514721b9f11a901bcc3541b858b6904008db0538e075c8eb6f3a23aa97",
+      "width": 900,
+      "height": 1600,
+      "alpha": [
+        0,
+        255
+      ],
+      "transparent_ratio": 0.493903,
+      "display_region": [
+        0,
+        0,
+        900,
+        820
+      ]
+    },
+    "qwen": {
+      "file": "qwen.png",
+      "sha256": "9bc199cce3e9fbb9aca07c06b693a447c3b4001b2dfcd54fce586c4d190aab46",
+      "width": 893,
+      "height": 1600,
+      "alpha": [
+        0,
+        255
+      ],
+      "transparent_ratio": 0.476072,
+      "display_region": [
+        0,
+        0,
+        893,
+        820
+      ]
+    },
+    "kimi": {
+      "file": "kimi.png",
+      "sha256": "c2f9f138f8c88b415360f3fa32d9ca1b039df4247181066d6af442e551c7111b",
+      "width": 900,
+      "height": 1600,
+      "alpha": [
+        0,
+        255
+      ],
+      "transparent_ratio": 0.491957,
+      "display_region": [
+        0,
+        0,
+        900,
+        850
+      ]
+    },
+    "gemini": {
+      "file": "gemini.png",
+      "sha256": "758e21933c9270b9acfa1a82946125f4f85d2611fa0310fe2971a6189e91308a",
+      "width": 893,
+      "height": 1600,
+      "alpha": [
+        0,
+        255
+      ],
+      "transparent_ratio": 0.560106,
+      "display_region": [
+        0,
+        0,
+        893,
+        810
+      ]
+    },
+    "gpt": {
+      "file": "gpt.png",
+      "sha256": "d915c1dc3a60ae3a53a361681f5abc68b25071f7509b7320df29824aa55cb072",
+      "width": 893,
+      "height": 1600,
+      "alpha": [
+        0,
+        255
+      ],
+      "transparent_ratio": 0.415331,
+      "display_region": [
+        0,
+        0,
+        893,
+        830
+      ]
+    },
+    "claude": {
+      "file": "claude.png",
+      "sha256": "aa784bb66104c505f28925510fe15f1aacca822d972ecafd0758d4742959227c",
+      "width": 893,
+      "height": 1600,
+      "alpha": [
+        0,
+        255
+      ],
+      "transparent_ratio": 0.440929,
+      "display_region": [
+        0,
+        0,
+        893,
+        850
+      ]
+    },
+    "grok": {
+      "file": "grok.png",
+      "sha256": "1ebfb6b076fc41dcb06028f0e58392fad7049ed2db080d42d65d22bddd7b5972",
+      "width": 893,
+      "height": 1600,
+      "alpha": [
+        0,
+        255
+      ],
+      "transparent_ratio": 0.438042,
+      "display_region": [
+        0,
+        0,
+        893,
+        900
+      ]
+    }
+  }
+}

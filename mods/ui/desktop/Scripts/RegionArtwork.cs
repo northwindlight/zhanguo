@@ -149,7 +149,7 @@ void fragment() {
     {
         Layout = layout;
         EnsureLayers();
-        string boundsKey=layout.GeometryKey+string.Join(";",layout.Regions.SelectMany(r=>r.Structures.Select(s=>$"{r.Input.X},{r.Input.Y},{s.Bounds}")));
+        string boundsKey=layout.GeometryKey+string.Join(";",layout.Regions.Select(r=>$"{r.Input.X},{r.Input.Y}:{r.CivicArea}:"+string.Join(',',r.TownLots.Select(l=>l.Bounds))+string.Join(',',r.Structures.Select(s=>s.Bounds))));
         bool redrawGround=_occlusionKey!=boundsKey;_occlusionKey=boundsKey;
         if(layout.Input.LiveWorld)
             foreach(var r in layout.Regions)
@@ -359,6 +359,8 @@ void fragment() {
         foreach (var r in only==null?Layout!.Regions:new[]{only})
         {
             var origin = new Vector2(r.Input.X * 256, r.Input.Y * 256);
+            DrawTownGround(layer,r,origin);
+            DrawOilPatches(layer,r,origin);
             // Local footpaths join already accepted flat facility anchors.
             // They have no inter-region or rule movement meaning.
             for (int i = 1; i < r.Structures.Count; i++)
@@ -398,6 +400,12 @@ void fragment() {
                     if(b.Count>1 && LabelFont!=null)layer.DrawString(LabelFont,origin+new Vector2(b.Bounds.X,b.Bounds.Y-3),$"×{b.Count}",fontSize:10,modulate:new Color("f4e3ac"));
                 }));
             }
+            if(_detailLevel>0||!Layout.Input.LiveWorld)
+                foreach(var lot in r.TownLots)
+                {
+                    var decoration=lot;
+                    objects.Add((origin.Y+lot.Bounds.Y+lot.Bounds.Height,()=>DrawTownLot(layer,decoration,origin)));
+                }
             foreach (var tree in r.Trees.Where((_,i)=>!Layout.Input.LiveWorld||i%(_detailLevel==0?6:_detailLevel==1?2:1)==0))
             {
                 var t = tree;
@@ -427,7 +435,9 @@ void fragment() {
         if (Layout == null || !ShowCliffs) return;
         DrawPasses++;
         var buildings = Layout.Regions.SelectMany(r => r.Structures.Select(s => new Footprint(
-            r.Input.X * 256 + s.Bounds.X, r.Input.Y * 256 + s.Bounds.Y, s.Bounds.Width, s.Bounds.Height))).ToArray();
+            r.Input.X * 256 + s.Bounds.X, r.Input.Y * 256 + s.Bounds.Y, s.Bounds.Width, s.Bounds.Height))
+            .Concat(r.TownLots.Select(l=>new Footprint(r.Input.X*256+l.Bounds.X,r.Input.Y*256+l.Bounds.Y,l.Bounds.Width,l.Bounds.Height)))
+            .Concat(r.CivicArea is Footprint f?new[]{new Footprint(r.Input.X*256+f.X,r.Input.Y*256+f.Y,f.Width,f.Height)}:Array.Empty<Footprint>())).ToArray();
         foreach (var cliff in _cliffs)
         {
             if (cliff.Depth == 0) continue;
@@ -532,8 +542,16 @@ void fragment() {
         if (art != null)
         {
             var pixels=art.GetSize();
-            var fitted=pixels*Math.Min(size.X/pixels.X,size.Y/pixels.Y);
+            bool hall=s.Art.EndsWith("town-hall",StringComparison.Ordinal)&&size.X>16;
+            var extent=hall?new Vector2(64,64):size;
+            var fitted=pixels*Math.Min(extent.X/pixels.X,extent.Y/pixels.Y);
+            if(hall)
+            {
+                DrawEllipse(layer,p+new Vector2(size.X*.5f,size.Y),new Vector2(34,7),new Color(0,0,0,.2f));
+                layer.DrawRect(new Rect2(p+new Vector2(-3,size.Y-8),new Vector2(size.X+6,10)),new Color("aaa795"));
+            }
             layer.DrawTextureRect(art,new Rect2(p+new Vector2((size.X-fitted.X)*.5f,size.Y-fitted.Y),fitted),false);
+            if(hall)DrawTownHallDetails(layer,s,p,size);
             return;
         }
         if (s.Kind == "farm")

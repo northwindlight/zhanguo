@@ -84,6 +84,8 @@ class TimelineCapture:
         delta=difference(self.previous,after) if after is not None else {}
         turn_title=f'{self.names.get(self.actor,self.actor)} · 第 {self.period+1} 回合' if self.actor else f'第 {self.period+1} 回合 · 结算'
         self.beats.append({'phase':phase,'title':title,'turn_title':turn_title,'actor':self.actor,'text':text[:180],'position':position,
+                           'client_kind':getattr(self.host.clients.get(self.actor),'kind',None) if self.actor else None,
+                           'playback_scope':'actor' if self.actor else 'settlement',
                            'duration':duration,'source':source,'delta':delta,**extra})
         if after is not None:self.previous=deepcopy(after)
 
@@ -246,7 +248,7 @@ class TimelineCapture:
                 stage=deepcopy(self.previous)
                 stage['armies']=[u for u in stage['armies'] if (u['x'],u['y'])!=(x,y)]+deepcopy(detail['before'])
                 self.add('battle','交锋 · 本期战斗结算','双方接战；伤亡以本次结算为准',position,after=stage,
-                         source=source,duration=2.4,combat=detail)
+                         source=source,duration=4.6,combat=detail)
                 stage['armies']=[u for u in stage['armies'] if (u['x'],u['y'])!=(x,y)]+deepcopy(detail['after'])
                 self.add('casualties','战果 · 伤亡确认',event['text'],position,after=stage,
                          source=source,duration=2,combat=detail)

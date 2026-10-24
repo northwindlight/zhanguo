@@ -9,6 +9,7 @@ namespace Zhanguo.Desktop.Layout;
 // together. No renderer or game rule is needed to replay these deltas.
 public static class DesktopScene
 {
+    public static readonly string[] NationPalette={"9eb5cf","e5a47c","c69ddd","91bd98","e8cc83","76bdbb","d68c95","ddd9af"};
     public static string Key(string collection,JsonNode row) => collection switch {
         "armies" or "guards"=>$"{row["owner"]}/{row["id"]}",
         "ownership"=>$"{row["x"]},{row["y"]}",_=>row["id"]!.ToString() };

@@ -24,6 +24,12 @@ class TestDesktop(unittest.TestCase):
         self.assertEqual(len(frame['nations']), 8)
         self.assertEqual(len(frame['armies']), 0)
         self.assertEqual(len(frame['scene']['guards']),292)
+        definitions={row['id']:row['max_hp'] for row in frame['scene']['unit_types']}
+        self.assertEqual(definitions['native:infantry'],100)
+        self.assertEqual(definitions['native:militia'],80)
+        self.assertEqual(len(frame['scene']['tile_defenses']),576)
+        for row in frame['scene']['tile_defenses']:
+            self.assertEqual(row['terrain'],h.world.territory.terrain(row['x'],row['y']).defense)
         self.assertEqual(len(h.world.units.guard_once),0)
         self.assertEqual(frame['map_seed'],20261023)
         self.assertEqual(sum(len(t['buildings']) for t in frame['tiles']),len(h.world.buildings.snapshot().instances))
