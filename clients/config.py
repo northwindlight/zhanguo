@@ -5,7 +5,7 @@ from clients.context import CTX_KEYS
 TRANSPORT_FIELDS={key:Field((str,)) for key in (
     'base_url','api_key','model','reasoning_effort','anthropic_version')}
 TRANSPORT_FIELDS.update({
-    'provider':Field((str,),choices=('openai','anthropic')),
+    'provider':Field((str,),choices=('openai','responses','anthropic')),
     'thinking':Field((str,),choices=('enabled','disabled','adaptive')),
     'temperature':Field((int,float),minimum=0,maximum=2,nullable=True),
     'max_tokens':Field((int,),minimum=1), 'api_retries':Field((int,),minimum=0),
@@ -40,7 +40,7 @@ normalize.fields=LLM_SCHEMA.fields
 # 少填就在开局前说清楚，别等第一次请求时抛一个 KeyError。
 MODEL_FIELDS=('base_url','api_key','model')
 MODEL_FIELD_HELP={
-    'base_url':'OpenAI 兼容端点地址（provider 缺省即 openai，也可写 anthropic）',
+    'base_url':'API 端点地址（provider 可选 openai/responses/anthropic，缺省 openai）',
     'api_key':'该端点的密钥',
     'model':'模型名（如 deepseek-v4-flash）',
 }

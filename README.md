@@ -62,7 +62,7 @@ Linux / macOS 可用启动脚本检查并运行：
 ./start.sh --config mp_config.json --new
 ```
 
-有 LLM 玩家时，脚本会准备本地虚拟环境并安装所需依赖；纯规则对局可直接使用系统 Python。Windows 可运行 `.\start.ps1 --config mp_config.json --new`，或准备好 Python 环境后直接调用 `mp_run.py`。支持 OpenAI 兼容与 Anthropic 两种接入协议。
+有 LLM 玩家时，脚本会准备本地虚拟环境并安装所需依赖；纯规则对局可直接使用系统 Python。Windows 可运行 `.\start.ps1 --config mp_config.json --new`，或准备好 Python 环境后直接调用 `mp_run.py`。支持 OpenAI 兼容、OpenAI Responses 与 Anthropic 三种接入协议，全部原生实现（标准库，无官方 SDK 依赖）。
 
 配置中的 API key 留在本地，整局存档不包含接入凭据。详细字段、上下文窗口和模型预算见[配置与启动](https://northwindlight.github.io/zhanguo/开始/03-配置与启动.html)。
 

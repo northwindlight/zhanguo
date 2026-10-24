@@ -1,5 +1,12 @@
 # 更新记录
 
+## 未发布 — LLM 接入原生化与 Responses API
+
+- openai SDK 依赖彻底移除：OpenAI 兼容那路改为标准库原生实现（urllib + 手写 SSE，与 Anthropic 路同一套传输层）；requirements.txt 不再有第三方运行时依赖。
+- 重试/错误分类收敛为三路共用：`EndpointError.status_code` + `is_fatal`（429 也重试、4xx 直接抛、认不出一律重试），SDK 时代「网关 HTML 错误页不重试」那类绕过通道不再可能；Windows 上 socket 级超时兜底对流内停滞同样生效。
+- 新增 `provider="responses"`：OpenAI Responses API 原生接入——system→`instructions`、工具拆平、`function_call`/`function_call_output` 回放、reasoning summary 取思考、usage 含 cached/reasoning 真数、`incomplete/max_output_tokens` 走 message tailing 续写（与 Anthropic 共用）。
+- Anthropic 路复检：续写与重试逻辑抽成三路共用（`_retry_stream`/`_tailing_continue`，行为不变）；修复压缩调用在 thinking 强制 disabled 时仍可能带着 `output_config.effort` 发出的问题。
+
 ## 未发布 — stock 2.0：PAMS与计算资源经营
 
 - 独立股市发行版接入固定PAMS 0.3.0订单簿，共同20000逻辑tick，下一tick委托、盘中立即记账和公开现金流消息。

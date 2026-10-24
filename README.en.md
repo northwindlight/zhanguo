@@ -48,7 +48,7 @@ Rule players default to [v13](ruleai/v13/README.md), which gives nations persist
 
 ## Put models in charge
 
-Copy the [configuration template](mp_config.example.json) for a new game. Set each model-controlled nation to `"client": "llm"` and fill in its `provider`, `base_url`, `api_key` and `model`. Keep other nations as `client=rule` if desired. OpenAI-compatible and Anthropic protocols are supported.
+Copy the [configuration template](mp_config.example.json) for a new game. Set each model-controlled nation to `"client": "llm"` and fill in its `provider`, `base_url`, `api_key` and `model`. Keep other nations as `client=rule` if desired. OpenAI-compatible, OpenAI Responses and Anthropic protocols are supported, all implemented natively on the standard library (no vendor SDK).
 
 On Linux or macOS:
 

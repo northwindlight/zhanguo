@@ -28,7 +28,7 @@
    同 seed 换 size 会是另一张图。`World.tile_terrain` / `World.tile_resources` 的
    签名与返回值都没变，调用点不用改。
 
-依赖：只用标准库（`hashlib` + `math`）。**不引 opensimplex / numpy**——本仓只依赖 openai。
+依赖：只用标准库（`hashlib` + `math`）。**不引 opensimplex / numpy**——本仓运行时零第三方依赖。
 """
 from __future__ import annotations
 

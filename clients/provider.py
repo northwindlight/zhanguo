@@ -25,13 +25,22 @@
 turn_memory 存档、tests 的 mock 断言都以此为契约；换提供方时只改"调用瞬间"的
 双向翻译，循环与记忆层无感。
 
-**提供方只有两种**（用户 2026-09-19）：`openai`（OpenAI 兼容，缺省）与 `anthropic`
-（Anthropic Messages 协议，2026-10-01 接线完成）。不再按厂家分名字（deepseek / ark /
-vLLM 一律写 `openai`），
+**提供方共三种**（2026-10-24 起）：`openai`（OpenAI 兼容 chat/completions，缺省）、
+`responses`（OpenAI Responses API，2026-10-24 接线）与 `anthropic`（Anthropic Messages
+协议，2026-10-01 接线完成；此前只有前两种里的两种，用户 2026-09-19）。不再按厂家
+分名字（deepseek / ark / vLLM 一律写 `openai`），
 **OpenAI 兼容这一路的行为一律按 DeepSeek 处理**——thinking / reasoning_effort /
 reasoning_content / prompt_cache_* 这套 DeepSeek 语义就是本层的默认行为，扩展字段
 不按端点能力分化、一律发（2026-09-13 的 F1「未声明就不发」保护据此撤销；代价是
 严格端点（纯 OpenAI / vLLM）收到未知字段可能 400，用户已知并接受）。
+
+**openai SDK 依赖已彻底移除**（2026-10-24）：三条提供方全部只用标准库
+（urllib + 手写 SSE 解析，Anthropic 路 2026-10-01 起就是这么做的，这次把另外两条
+拉齐）。`openai` / `responses` 两路的 URL 就是 `base_url + "/chat/completions"` 与
+`base_url + "/responses"`（与 openai SDK 当时的拼法逐字一致——base 里带不带 `/v1`
+依配置，本层不擅自补）；重试分类不再依赖 SDK 的异常体系（APIConnectionError /
+APITimeoutError / RateLimitError / 裸 APIError），统一走 `EndpointError.status_code`
++ `is_fatal`（429 也重试、4xx 直接抛、认不出一律重试——语义与 SDK 时代逐条对齐）。
 
 **超时按"流式/非流式"分成两套**（用户 2026-09-20 口径：「首字3分钟，sse内60秒，
 非流式900」）——量的是**等待**，不是总时长：
@@ -49,8 +58,9 @@ reasoning_content / prompt_cache_* 这套 DeepSeek 语义就是本层的默认�
 两套都走 SIGALRM：它能**打断阻塞中的读**（"流卡住了"正是要抓这个）。
 Windows 没有 SIGALRM——旧代码在函数入口裸用 `signal.SIGALRM`，本机一进 LLM 回合
 就 AttributeError 炸掉整局（2026-09-12 修）；现在按 console.py 的 os.name 分支惯例降级：
-`stream_timeout` 空转、`hard_timeout` 空转，**只靠 SDK 自带 timeout + 提供方重试**
-（流式那边传的是 `timeout=ttft`：首字对得上，流内停滞会宽到 180s 才判死，已知差异）。
+`stream_timeout` 空转、`hard_timeout` 空转，**只靠 urlopen 的 socket 级 timeout
++ 提供方重试**（流式那边传的是 `timeout=ttft`：它管连接、响应头与**每一次读**，
+首字对得上，流内停滞会宽到 180s 才判死，已知差异；三条提供方在这点上行为一致）。
 
 Anthropic 那一路（`provider="anthropic"`，2026-10-01 接线）
 ---------------------------------------------------------
@@ -90,6 +100,32 @@ Anthropic 那一路（`provider="anthropic"`，2026-10-01 接线）
     + 紧随其后的"最新状态"那条，游戏循环里就是长这样）；
   · 前缀缓存：同一前缀隔 3s 再来一次，`cache_read=4992/5211`（95.8%）——这条路做前缀缓存。
 
+Responses 那一路（`provider="responses"`，2026-10-24 接线）
+---------------------------------------------------------
+OpenAI Responses API（`POST {base_url}/responses`），同样只用标准库（与另两条路
+共用 `_post_json` 传输层、`_retry_stream` 重试窗口、`_tailing_continue` 续写）。要点：
+
+  · 存储形态照旧是 OpenAI chat 形态，只在调用瞬间翻译：system → 顶层 `instructions`；
+    user → `input_text` / `input_image` 块；assistant → `output_text` 块 + 每个工具
+    调用一条 `function_call` 项；`role="tool"` → `function_call_output` 项（**不用**
+    像 Anthropic 那样合成进 user——Responses 的 input 本来就按项排列）；
+  · tools 拆平成 `{type:"function", name, description, parameters}`（不是 chat 那层
+    function 壳）；`tool_choice` 照发 "auto"；
+  · 思考：`reasoning:{effort, summary}`——thinking 缺省 enabled（effort 缺省 medium，
+    配了 `reasoning_effort` 就用它），disabled **显式**发 `{"effort":"none"}`（与
+    Anthropic 路「不发 ≠ 关掉」同一条教训）；思考正文（reasoning_content）取
+    reasoning summary 的流式文本；
+  · 用量：`input_tokens` / `output_tokens` / `input_tokens_details.cached_tokens`
+    （=hit；miss 自己减）/ `output_tokens_details.reasoning_tokens`（该路**真报**
+    思考 token，不用像 Anthropic 路那样本地估算打 ≈）；
+  · 截断：`status="incomplete"` + `incomplete_details.reason="max_output_tokens"` →
+    stop_reason="max_tokens" ⇒ 走与 Anthropic 同一套 message tailing 续写（配置项
+    也是同一个 `anthropic_tail_max`，缺省 2）；
+  · `store:false`（本层不用 previous_response_id，回放全靠重发 input；ZDR 端点还
+    强制要求它）；回放**不重发 reasoning 项**——思考项要连加密内容才可跨请求回放，
+    本层存的是纯文本思考，重发必被拒；缺了只是少一段思考（与 Anthropic 缺签名
+    降级同一条纪律：宁少一段思考，不冒一个 400 终止整局）。
+
 **消息里多了个提供方私有键**：`reasoning_signature`（=`REPLAY_KEY`，值形如
 `{"model": …, "signature": …}`）。它在 OpenAI 形态的消息上"挂"着走存档，OpenAI 那一路
 发请求前由 `_public_messages()` 摘掉（否则兼容端点可能对未知字段 400）；Anthropic 那一路
@@ -103,7 +139,6 @@ import os
 import re
 import signal
 import time
-import sys
 import urllib.error
 import urllib.request
 
@@ -114,11 +149,13 @@ from clients.context import REPLAY_KEY, est_tokens   # 估算（存档校准过�
 def status_code_of(e: Exception) -> int | None:
     """尽最大努力取 HTTP 状态码。
 
-    SDK **认得出结构**的错误（JSON 错误体）是 `APIStatusError`，带 `status_code`；
-    但**网关/负载均衡回的 HTML 错误页**（2026-09-20 实测：`HTTP 504 …<center>alb</center>`）
-    解析不出 JSON，SDK 只能抛**基类 `APIError`**——**没有** `status_code`。
-    那时从消息里捞一把 "HTTP 504"（代理与 SDK 都把状态行带在 message 里）。
-    本层的 `AnthropicError` 也走这条：它有 `status_code`，没状态码的（连不上/超时）
+    本层的 `EndpointError`（三条提供方共用）带 `status_code`；但有一类失败**没有**
+    状态码——连不上、读超时、SSE 中途报错。openai SDK 时代还有著名的一例
+    （2026-09-20 实测）：**网关/负载均衡回的 HTML 错误页** `HTTP 504 …<center>alb
+    </center>`，SDK 解析不出 JSON 只能抛**没有** `status_code` 的基类 `APIError`，
+    一次都没重试就整局终止（197 回合的档停在半路）。原生化后这类由 urlopen 的
+    HTTPError 兜住、天然带码，但"从消息里捞一把 HTTP 状态行"这条纪律留着兜底
+    （SSE error 事件里的 message 就可能嵌着状态行）。
     捞不到 ⇒ 返回 None ⇒ **按可重试处理**。
     """
     code = getattr(e, "status_code", None)
@@ -299,23 +336,25 @@ def _cached_tokens(usage) -> int:
     DeepSeek 系走 `prompt_cache_hit_tokens`，标准 OpenAI / 一部分网关只有这个字段。
     两个都读一遍、谁有数用谁（2026-10-02）：只认 DeepSeek 那一个的话，遇到只报标准
     字段的网关会把**真命中报成 0**——命中率凭空变 0，看起来像缓存整段失效，比不报还坑。
+    （2026-10-24 原生化后 usage 一律是 dict，不再有 SDK 对象。）
     """
-    det = getattr(usage, "prompt_tokens_details", None)
-    return int(getattr(det, "cached_tokens", 0) or 0) if det is not None else 0
+    det = usage.get("prompt_tokens_details") if isinstance(usage, dict) else None
+    return int((det or {}).get("cached_tokens") or 0)
 
 
 def _nonstream_stats(usage, text: str, wall: float) -> dict:
-    """非流式响应的 usage → 与 `chat_turn` **同键**的 stats（OpenAI 拼法）。
+    """非流式响应的 usage（dict）→ 与 `chat_turn` **同键**的 stats（OpenAI 拼法）。
 
     `hit`/`miss` 的算法照抄 `_stream_once` 那一套：认不出、或全 0，一律按"提供方没报"
     处理（`estimated=True`，`out_tokens` 用本地估算）——**绝不把没报当 0**，否则 📊 上
     会显示一个"0% 命中"的假数，和真的缓存失效分不开。
     """
-    out_n = int(getattr(usage, "completion_tokens", 0) or 0) if usage is not None else 0
-    in_n = int(getattr(usage, "prompt_tokens", 0) or 0) if usage is not None else 0
-    hit = int(getattr(usage, "prompt_cache_hit_tokens", 0) or 0) if usage is not None else 0
-    miss = int(getattr(usage, "prompt_cache_miss_tokens", 0) or 0) if usage is not None else 0
-    if usage is not None and not hit:
+    usage = usage if isinstance(usage, dict) else {}
+    out_n = int(usage.get("completion_tokens") or 0)
+    in_n = int(usage.get("prompt_tokens") or 0)
+    hit = int(usage.get("prompt_cache_hit_tokens") or 0)
+    miss = int(usage.get("prompt_cache_miss_tokens") or 0)
+    if not hit:
         hit = _cached_tokens(usage)
     if not miss and in_n:
         miss = max(0, in_n - hit)
@@ -328,147 +367,318 @@ def _nonstream_stats(usage, text: str, wall: float) -> dict:
     return stats
 
 
+# ---------------------------------------------------------------------------
+# 三条提供方共用的原生传输层（标准库；2026-10-24 起 openai SDK 不再参与）
+# ---------------------------------------------------------------------------
+class EndpointError(Exception):
+    """一次端点调用失败（三条提供方共用）。
+
+    带 HTTP 状态码的（4xx/5xx）`status_code` 有值；连不上、读超时、SSE 中途报错
+    没有状态码 ⇒ None ⇒ `is_fatal` 判为**可重试**（与 openai SDK 时代同一条纪律：
+    "认不出"必须可重试，否则就是一条静默绕过重试的后门——2026-09-20 那次 197 回合
+    的档停在半路就是这么栽的）。
+    """
+
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+AnthropicError = EndpointError
+"""旧名保留：Anthropic 那一路原先有自己的错误类，2026-10-24 三路共用传输层后它就是
+`EndpointError` 的别名（既有测试与引用照旧可用）。"""
+
+
+def _post_json(url: str, headers: dict, body: dict, timeout: float):
+    """POST 一次 JSON，返回响应对象（**只做错误分类与编码**，三条提供方共用）。
+
+    `timeout` 是 socket 级的：连接、响应头、**每一次读**都按它计时——所以它天然就是
+    "流内间隔"的看门狗。Windows 上没有 SIGALRM，`stream_timeout` 空转，这条是那边
+    唯一能抓住"流卡住"的东西（openai SDK 时代那边做不到这件事，原生化反而拉齐了）。
+    """
+    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        # 错误体可能是 JSON（{"error":{…}}），也可能是网关的 HTML/纯文本
+        detail = e.read().decode("utf-8", "replace")[:600]
+        raise EndpointError(f"HTTP {e.code} {detail}", status_code=e.code) from None
+    except urllib.error.URLError as e:
+        if isinstance(e.reason, TimeoutError):
+            raise TimeoutError(f"连接/首字等待超过 {timeout:g}s 没等到响应头") from None
+        raise EndpointError(f"连接失败：{e.reason}") from None
+
+
+def _retry_stream(stream_once, messages, tools, cfg, on_retry=None):
+    """带重试窗口的流式调用（三条提供方同一套分类与退避）。
+
+    ★ 429（配额耗尽）**也走重试**：用户 2026-09-20「重试到本回合必须跳过时，再退出，
+      而不是马上退——不然玩家要是当场续费呢」。重试窗口内续费成功 ⇒ 无缝继续；
+      窗口耗尽 ⇒ 抛给上层终止本局（存档停在上一回合结算后）。
+      窗口长度 = api_retries × api_retry_wait（配置项，想给"续费"留更长时间就调它）。
+    ★ 4xx（鉴权/模型名/参数，429 除外）直接抛——重试没意义，抛出去由上层终止本局
+      （2026-09-20「任何错误都应该直接终止游戏」那条口径，三条提供方一致）。
+    ★ 连不上 / 读超时 / SSE 读到一半断（TimeoutError / OSError / HTTPException）
+      一律可重试——openai SDK 时代那类**网关回的 HTML 错误页**（裸 APIError、没有
+      status_code，2026-09-20 实测 `HTTP 504 …<center>alb</center>`，一次都没重试
+      就整局终止）原生化后由 HTTPError 兜住、天然带码走 5xx 重试；万一再冒出
+      没码的，`is_fatal` 对"认不出"也判可重试——**静默绕过重试的后门一个不留**。
+    """
+    retries = max(1, int(cfg.get("api_retries", 3)))
+    backoff = float(cfg.get("api_retry_wait", 2.0))
+    last: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            return stream_once(messages, tools, cfg)
+        except EndpointError as e:
+            if is_fatal(e):
+                raise
+            last = e
+        except (TimeoutError, OSError, http.client.HTTPException) as e:
+            last = e          # 连不上 / 读超时 / SSE 读到一半断：都可重试
+        if attempt < retries:
+            if on_retry:
+                on_retry(attempt, retry_tag(last), backoff * attempt, retries)
+            time.sleep(backoff * attempt)
+    assert last is not None
+    raise last
+
+
+_CONTINUE_NUDGE = ("（上一段输出被 max_tokens 截断）请**接着断点继续**："
+                   "直接往下写/往下调用，不要重复已经写过的内容，也不要重头再来。")
+
+
+def _tailing_continue(stream_once, messages, tools, cfg, msg, stats):
+    """`stop_reason="max_tokens"` 的**续写**（message tailing，Anthropic / Responses 共用）。
+
+    只在两种情况续：**没吐工具调用**（工具调用被截断时参数 JSON 只写了一半，续写反而
+    更乱——那种残批交给循环"没调工具就催它继续"那条路更稳）且还有次数（
+    `anthropic_tail_max`，缺省 2——Anthropic 路起的名字，Responses 路也用它，缺省值
+    一样）。每次把已吐出的正文当 assistant 消息发回去、再跟一条"接着断点写"的
+    user 消息，把新吐的字并回同一条 msg。
+
+    **续写失败一律吞掉**：宁可少半段正文，也不能因为一次补救把整局终止
+    （2026-09-20 那条"任何错误终止整局"针对的是主调用，不是这种补救）。
+    续写请求里**不带 reasoning_content**：被截断的思考没有签名/加密内容，带着它去
+    撞 400 不值得（开思考时 prefill 也是官方明令不许的）。
+    """
+    left = int(cfg.get("anthropic_tail_max", 2))
+    while (left > 0 and stats.get("stop_reason") == "max_tokens"
+           and not msg.get("tool_calls")):
+        left -= 1
+        partial = dict(msg)
+        partial.pop("reasoning_content", None)
+        partial.pop(REPLAY_KEY, None)
+        partial.setdefault("role", "assistant")
+        try:
+            more, st2 = stream_once(
+                list(messages) + [partial, {"role": "user", "content": _CONTINUE_NUDGE}],
+                tools, cfg)
+        except Exception:      # noqa: BLE001 —— 补救失败就当没续过
+            break
+        msg["content"] = (msg.get("content") or "") + (more.get("content") or "")
+        if more.get("reasoning_content"):
+            msg["reasoning_content"] = ((msg.get("reasoning_content") or "")
+                                        + more["reasoning_content"])
+        if more.get(REPLAY_KEY):
+            msg[REPLAY_KEY] = more[REPLAY_KEY]      # 签名取最新那份（旧的已被截断作废）
+        if more.get("tool_calls"):
+            msg["tool_calls"] = more["tool_calls"]
+        stats["stop_reason"] = st2.get("stop_reason")
+        # 用量按"两次调用之和"记（这次续写也是真花了钱的）；first 保持首调用那次的
+        # 语义，maxgap 取两者较大——它们是"看数"用的，不该被求和成假数。
+        stats["wall"] = (stats.get("wall") or 0) + (st2.get("wall") or 0)
+        stats["stream"] = (stats.get("stream") or 0) + (st2.get("stream") or 0)
+        stats["maxgap"] = max(stats.get("maxgap") or 0, st2.get("maxgap") or 0)
+        for k in ("out_tokens", "reason_tokens", "hit", "miss"):
+            stats[k] = (stats.get(k) or 0) + (st2.get(k) or 0)
+        if st2.get("estimated"):
+            stats["estimated"] = True
+            stats["reason_estimated"] = True
+    return msg, stats
+
+
+def _iter_sse(resp):
+    """把 SSE 响应体拆成 `(事件名, data 文本)` 逐条产出（三条提供方共用）。
+
+    Anthropic / Responses 的事件流带 `event:` 行（chat/completions 不带，事件名
+    返回 None、由调用方看 data 内容）；只认 `data:` 的网关（少数）由调用方退回
+    `payload["type"]`。注释行（`:` 开头，含 `ping` 的心跳）、未知字段按 SSE 规矩忽略。
+    """
+    event: str | None = None
+    buf: list[str] = []
+    for raw in resp:
+        line = raw.decode("utf-8", "replace").rstrip("\r\n")
+        if not line:
+            if buf:
+                yield event, "\n".join(buf)
+                event, buf = None, []
+            continue
+        if line.startswith(":"):
+            continue
+        field, _, value = line.partition(":")
+        if value.startswith(" "):
+            value = value[1:]
+        if field == "event":
+            event = value
+        elif field == "data":
+            buf.append(value)
+    if buf:
+        yield event, "\n".join(buf)
+
+
+def openai_chat_url(base_url: str) -> str:
+    """`base_url` → chat/completions 端点（与 openai SDK 时代的拼法**逐字一致**）。
+
+    SDK 当年就是 `base_url + "/chat/completions"`——base 里带不带 `/v1` 依配置
+    （DeepSeek 等端点两种都收），本层不擅自补，存量配置一个都不用改。
+    """
+    return str(base_url or "").rstrip("/") + "/chat/completions"
+
+
+def _bearer_headers(cfg: dict) -> dict:
+    """请求头（openai / responses 两路共用）：Bearer 鉴权 + JSON。"""
+    key = str(cfg.get("api_key") or "")
+    if not key:
+        raise ValueError("provider=openai/responses 需要 api_key")
+    return {"content-type": "application/json", "accept": "application/json",
+            "authorization": "Bearer " + key}
+
+
 class OpenAICompat:
     """任意 OpenAI 兼容端点（DeepSeek / 火山方舟 / vLLM / ...）。
 
     **行为按 DeepSeek 处理**（用户 2026-09-19）：本类不再区分端点脾气，DeepSeek 系
     语义即默认行为——`reasoning_content` 照收，`thinking` / `reasoning_effort` 照发、
-    不因 cfg 没声明就省（见 `_stream_once` / `complete_text` 内注释）。"""
+    不因 cfg 没声明就省（见 `_stream_once` / `complete_text` 内注释）。
+
+    2026-10-24 原生化：不再 import openai SDK，改走 `_post_json`（urllib）+ `_iter_sse`
+    （手写 SSE 解析）——与 Anthropic 路同一套传输层。SDK 那套异常分类
+    （APIConnectionError / APITimeoutError / RateLimitError / 裸 APIError）收敛为
+    `EndpointError` + `is_fatal`，语义逐条对齐（见 `_retry_stream` 的注）。"""
 
     def __init__(self, cfg: dict):
-        from openai import OpenAI          # 运行时取属性：测试 patch openai.OpenAI 即生效
-        # 客户端级 timeout 只是**兜底**：两条路各自在请求上显式传（流式传首字数、
-        # 非流式传总时长），见 `_stream_once` / `complete_text`。
-        self.client = OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"],
-                             timeout=float(cfg.get("api_timeout", 900)))
+        # 不建客户端对象：标准库那套没有会话状态，URL/头每次现算（cfg 逐国覆盖也天然生效）
+        self.cfg = cfg
 
     def chat_turn(self, messages, tools, cfg, on_retry=None):
-        from openai import (APIError, APIConnectionError,
-                            APITimeoutError, RateLimitError)
-        retries = max(1,int(cfg.get("api_retries", 3)))
-        backoff = float(cfg.get("api_retry_wait", 2.0))
-        last: Exception | None = None
-        for attempt in range(1, retries + 1):
-            try:
-                return self._stream_once(messages, tools, cfg)
-            except (APIConnectionError, APITimeoutError, RateLimitError, TimeoutError) as e:
-                # ★ 配额耗尽（429 insufficient_quota）**也走重试**，不特判、不立刻抛：
-                #   用户 2026-09-20：「重试到本回合必须跳过时，再退出，而不是马上退——
-                #   不然玩家要是当场续费呢」。重试窗口内续费成功 ⇒ 无缝继续；
-                #   窗口耗尽 ⇒ 抛给上层终止本局（存档停在上一回合结算后）。
-                #   窗口长度 = api_retries × api_retry_wait（配置项，想给"续费"留更长时间就调它）。
-                last = e
-            except APIError as e:
-                # ★ 这里接的是**基类**（`APIStatusError`/`APIResponseValidationError` 都是它）：
-                #   只接 `APIStatusError` 会漏掉一整类——**网关回的 HTML 错误页**。
-                #   2026-09-20 实测：`openai.APIError: HTTP 504 …<center>alb</center>`
-                #   （端点前面的负载均衡超时），SDK 解析不出 JSON ⇒ 抛**裸 APIError**、
-                #   **没有 `status_code`** ⇒ 旧代码不接它 ⇒ 一次都没重试就冒出循环、
-                #   整局终止（197 回合的档停在半路，用户：「压根没有重试就崩了」）。
-                #   现在的口径：**4xx（鉴权/参数）直接抛，其余（5xx / 认不出状态码）一律重试**
-                #   ——"认不出"必须是**可重试**，否则又是一条静默绕过重试的后门。
-                #   （判定收在 `is_fatal` 里：两条提供方共用同一口径。）
-                if is_fatal(e):
-                    raise
-                last = e
-            if attempt < retries and last is not None:
-                if on_retry:
-                    on_retry(attempt, retry_tag(last), backoff * attempt, retries)
-                time.sleep(backoff * attempt)
-        assert last is not None
-        raise last
+        return _retry_stream(self._stream_once, messages, tools, cfg, on_retry)
 
     def _stream_once(self, messages, tools, cfg):
         """一次流式调用 + 聚合：返回 (msg, stats)。
 
         **超时按流式的语义走**（用户 2026-09-20：「首字3分钟，sse内60秒」）：
         `stream_timeout` 两段看门狗管首字与流内间隔，**没有总时长上限**。
-        `timeout=ttft` 那个参数是给**没有 SIGALRM 的平台**（Windows）用的 SDK 兜底。"""
+        `_post_json` 的 `timeout=ttft` 是给**没有 SIGALRM 的平台**（Windows）的兜底
+        ——socket 级超时管连接、响应头与每一次读（原生化后 Windows 也能抓住流内
+        停滞了，只是宽到 ttft 才判死，已知差异）。"""
         # deepseek-v4：thinking 开关 + reasoning_effort（low/medium/high）。
         # 一律发（用户 2026-09-19「行为按 deepseek 处理」）：cfg 没写 thinking 就按
         # enabled 走，不再有「没声明推理模型就省掉」的分叉（原 F1 保护已撤销）。
-        extra = {"thinking": {"type": cfg.get("thinking") or "enabled"}}
+        # （SDK 时代它们走 extra_body 合并进顶层；原生化后直接并进 body，逐字段等价。）
+        body: dict = {"model": cfg["model"],
+                      # 摘掉提供方私有键（`reasoning_signature` 是 Anthropic 那一路的东西，
+                      # 严格端点收到不认识的 message 字段会 400；本路发的是 OpenAI 形态）。
+                      "messages": _public_messages(messages, vision=cfg.get("vision", False),
+                                                   renderer=cfg.get("_ui_expand_message")),
+                      "tools": list(tools or []), "tool_choice": "auto",
+                      "temperature": cfg.get("temperature", 0.3),
+                      # 默认输出上限 16k（2026-09-20 用户口径：「默认改大一点 16k」）。
+                      # 原默认 4000 太小：长回合一说话就被截断 ⇒ 模型提前收尾（实测：配置里
+                      # 漏写 max_tokens 时，一口气做十几个动作的国家会被 4000 砍在半路）。
+                      "max_tokens": cfg.get("max_tokens", 16384),
+                      "thinking": {"type": cfg.get("thinking") or "enabled"},
+                      "stream": True, "stream_options": {"include_usage": True}}
         if cfg.get("reasoning_effort"):
-            extra["reasoning_effort"] = cfg["reasoning_effort"]
+            body["reasoning_effort"] = cfg["reasoning_effort"]
         # 首字 180s（3 分钟）/ 流内 60s：**都是"等待"，不是总时长**（用户 2026-09-20）。
         ttft = float(cfg.get("api_ttft_timeout", 180))
         gap = float(cfg.get("api_chunk_timeout", 60))
         stream_stats: dict = {}
+        c_s, r_s, tool_acc = "", "", {}
         wall0 = time.time()
         with stream_timeout(ttft, gap) as clock:
-            stream = self.client.chat.completions.create(
-                # 摘掉提供方私有键（`reasoning_signature` 是 Anthropic 那一路的东西，
-                # 严格端点收到不认识的 message 字段会 400；本路发的是 OpenAI 形态）。
-                model=cfg["model"], messages=_public_messages(messages, vision=cfg.get("vision", False), renderer=cfg.get("_ui_expand_message")),
-                tools=tools, tool_choice="auto",
-                temperature=cfg.get("temperature", 0.3),
-                # 默认输出上限 16k（2026-09-20 用户口径：「默认改大一点 16k」）。
-                # 原默认 4000 太小：长回合一说话就被截断 ⇒ 模型提前收尾（实测：配置里漏写
-                # max_tokens 时，一口气做十几个动作的国家会被 4000 砍在半路）。
-                max_tokens=cfg.get("max_tokens", 16384),
-                extra_body=extra or None,
-                # SDK 自己的 timeout 只在**没有 SIGALRM 的平台**（Windows）才说了算：
-                # 那里首字 180s 对得上，流内停滞则要等到 180s 才判死（宽于 60s，已知）。
-                timeout=ttft,
-                stream=True, stream_options={"include_usage": True})
-            c_s, r_s, tool_acc = "", "", {}
+            resp = _post_json(openai_chat_url(cfg["base_url"]),
+                              _bearer_headers(cfg), body, ttft)
             first_t = None
             last_t = time.time()
-            for chunk in stream:
-                clock.kick()               # 收到块 ⇒ 重新上弦（首字那一段到此结束）
-                now = time.time()
-                if first_t is None and chunk.choices:
-                    d0 = chunk.choices[0].delta
-                    if (getattr(d0, "content", None) or getattr(d0, "reasoning_content", None)
-                            or getattr(d0, "tool_calls", None)):
-                        first_t = now
-                stream_stats["maxgap"] = max(stream_stats.get("maxgap", 0.0), now - last_t)
-                last_t = now
-                if getattr(chunk, "usage", None):
-                    u = chunk.usage
-                    out_n = getattr(u, "completion_tokens", 0) or 0
-                    in_n = getattr(u, "prompt_tokens", 0) or 0
-                    miss_n = getattr(u, "prompt_cache_miss_tokens", 0) or 0
-                    hit_n = getattr(u, "prompt_cache_hit_tokens", 0) or 0
-                    # ★ 2026-10-02：只认 DeepSeek 的 `prompt_cache_hit_tokens` 是不够的——
-                    #   一部分网关（标准 OpenAI 拼法）只给 `prompt_tokens_details.cached_tokens`，
-                    #   那时命中会被报成 0（看着像缓存整段失效，比不报还坑）。两个都读。
-                    if not hit_n:
-                        hit_n = _cached_tokens(u)
-                    if not miss_n and in_n:
-                        miss_n = max(0, in_n - hit_n)
-                    # ★ "usage 对象在不在" **不足以**判断有没有真数：本机 qoder-flash 网关**原先**
-                    #   会回一个**全 0 的 usage 对象**——只看"在不在"就会把它当成"报了真数"，
-                    #   于是估算分支不触发、显示照旧 `输出0.0tok`（2026-09-20 实测栽过）。
-                    #   真调用不可能 prompt/completion 同时为 0 ⇒ **全 0 一律按"没报"处理**。
-                    #   （2026-10-02：网关已修成透出上游真数；这条纪律对任何网关都成立，留着。）
-                    stream_stats["usage_reported"] = bool(out_n or in_n or miss_n or hit_n)
-                    stream_stats["out_tokens"] = out_n
-                    det = getattr(u, "completion_tokens_details", None)
-                    stream_stats["reason_tokens"] = getattr(det, "reasoning_tokens", 0) if det else 0
-                    stream_stats["hit"] = hit_n
-                    stream_stats["miss"] = miss_n
-                if not chunk.choices:
-                    continue
-                d = chunk.choices[0].delta
-                rd = getattr(d, "reasoning_content", None)
-                if rd:
-                    r_s += rd
-                cd = getattr(d, "content", None)
-                if cd:
-                    c_s += cd
-                for tc in (getattr(d, "tool_calls", None) or []):
-                    slot = tool_acc.setdefault(tc.index, {"id": None, "type": "function",
-                                                          "function": {"name": "", "arguments": ""}})
-                    if tc.id:
-                        slot["id"] = tc.id
-                    if tc.type:
-                        slot["type"] = tc.type
-                    if tc.function:
-                        if tc.function.name:
-                            slot["function"]["name"] += tc.function.name
-                        if tc.function.arguments:
-                            slot["function"]["arguments"] += tc.function.arguments
+            try:
+                for _name, data in _iter_sse(resp):
+                    clock.kick()               # 收到块 ⇒ 重新上弦（首字那一段到此结束）
+                    if data == "[DONE]":       # chat 流的收尾哨兵（Responses 流没有它）
+                        break
+                    now = time.time()
+                    try:
+                        payload = json.loads(data)
+                    except ValueError:
+                        continue          # 认不出的行：跳过（不为一行脏数据终止整局）
+                    if not isinstance(payload, dict):
+                        continue
+                    if first_t is None and payload.get("choices"):
+                        d0 = payload["choices"][0].get("delta") or {}
+                        if (d0.get("content") or d0.get("reasoning_content")
+                                or d0.get("tool_calls")):
+                            first_t = now
+                    stream_stats["maxgap"] = max(stream_stats.get("maxgap", 0.0), now - last_t)
+                    last_t = now
+                    u = payload.get("usage")
+                    if u:
+                        out_n = int(u.get("completion_tokens") or 0)
+                        in_n = int(u.get("prompt_tokens") or 0)
+                        miss_n = int(u.get("prompt_cache_miss_tokens") or 0)
+                        hit_n = int(u.get("prompt_cache_hit_tokens") or 0)
+                        # ★ 2026-10-02：只认 DeepSeek 的 `prompt_cache_hit_tokens` 是不够的——
+                        #   一部分网关（标准 OpenAI 拼法）只给 `prompt_tokens_details.cached_tokens`，
+                        #   那时命中会被报成 0（看着像缓存整段失效，比不报还坑）。两个都读。
+                        if not hit_n:
+                            hit_n = _cached_tokens(u)
+                        if not miss_n and in_n:
+                            miss_n = max(0, in_n - hit_n)
+                        # ★ "usage 在不在" **不足以**判断有没有真数：本机 qoder-flash 网关**原先**
+                        #   会回一个**全 0 的 usage 对象**——只看"在不在"就会把它当成"报了真数"，
+                        #   于是估算分支不触发、显示照旧 `输出0.0tok`（2026-09-20 实测栽过）。
+                        #   真调用不可能 prompt/completion 同时为 0 ⇒ **全 0 一律按"没报"处理**。
+                        stream_stats["usage_reported"] = bool(out_n or in_n or miss_n or hit_n)
+                        stream_stats["out_tokens"] = out_n
+                        det = u.get("completion_tokens_details")
+                        stream_stats["reason_tokens"] = int((det or {}).get("reasoning_tokens") or 0)
+                        stream_stats["hit"] = hit_n
+                        stream_stats["miss"] = miss_n
+                    choices = payload.get("choices") or []
+                    if not choices:
+                        continue
+                    d = (choices[0] or {}).get("delta") or {}
+                    rd = d.get("reasoning_content")
+                    if rd:
+                        r_s += rd
+                    cd = d.get("content")
+                    if cd:
+                        c_s += cd
+                    for i, tc in enumerate(d.get("tool_calls") or []):
+                        # index 缺失的网关按出现位次排（int 化防字符串下标混进排序）
+                        try:
+                            slot_key = int(tc.get("index", i))
+                        except (TypeError, ValueError):
+                            slot_key = i
+                        slot = tool_acc.setdefault(slot_key, {"id": None, "type": "function",
+                                                              "function": {"name": "", "arguments": ""}})
+                        if tc.get("id"):
+                            slot["id"] = tc["id"]
+                        if tc.get("type"):
+                            slot["type"] = tc["type"]
+                        fn = tc.get("function") or {}
+                        if fn.get("name"):
+                            slot["function"]["name"] += fn["name"]
+                        if fn.get("arguments"):
+                            slot["function"]["arguments"] += fn["arguments"]
+            except TimeoutError:
+                raise TimeoutError(
+                    ("首字" if first_t is None else "流内")
+                    + f"等待超过 {(ttft if first_t is None else gap):g}s"
+                      f"（一直没等到新的输出块）") from None
+            finally:
+                resp.close()
         stream_stats["wall"] = time.time() - wall0
         if first_t:
             stream_stats["first"] = first_t - wall0
@@ -515,24 +725,377 @@ class OpenAICompat:
         """
         # 压缩不需要思考：一律发 thinking:disabled（用户 2026-09-19「行为按 deepseek
         #   处理」——和 chat_turn 同源，扩展字段不再按端点能力分化）。
-        extra = {"thinking": {"type": "disabled"}}
-        limit = float(cfg.get("api_timeout", 900))
-        kw: dict = {"model": cfg["model"], "messages": _public_messages(messages, vision=cfg.get("vision", False), renderer=cfg.get("_ui_expand_message")),
-                    "max_tokens": int(max_tokens if max_tokens is not None
-                                       else cfg.get("ctx_compact_tokens", 1500)),
-                    "temperature": 0.3,
-                    "extra_body": extra or None,
-                    "timeout": limit}
+        body: dict = {"model": cfg["model"],
+                      "messages": _public_messages(messages, vision=cfg.get("vision", False),
+                                                   renderer=cfg.get("_ui_expand_message")),
+                      "max_tokens": int(max_tokens if max_tokens is not None
+                                        else cfg.get("ctx_compact_tokens", 1500)),
+                      "temperature": 0.3,
+                      "thinking": {"type": "disabled"}}
         if tools:
-            kw["tools"] = list(tools)
-            kw["tool_choice"] = "auto"       # 与 chat_turn 同值：前缀必须逐字节一致
+            body["tools"] = list(tools)
+            body["tool_choice"] = "auto"       # 与 chat_turn 同值：前缀必须逐字节一致
+        limit = float(cfg.get("api_timeout", 900))
         wall0 = time.time()
         with hard_timeout(limit, "非流式调用超时"):
-            resp = self.client.chat.completions.create(**kw)
-        text = (resp.choices[0].message.content or "").strip()
-        stats = _nonstream_stats(getattr(resp, "usage", None), text,
-                                 time.time() - wall0)
-        stats['stop_reason'] = getattr(resp.choices[0], 'finish_reason', None)
+            resp = _post_json(openai_chat_url(cfg["base_url"]),
+                              _bearer_headers(cfg), body, limit)
+            with resp:
+                payload = json.loads(resp.read().decode("utf-8", "replace"))
+        choice = (payload.get("choices") or [{}])[0] or {}
+        text = str((choice.get("message") or {}).get("content") or "").strip()
+        stats = _nonstream_stats(payload.get("usage"), text, time.time() - wall0)
+        stats["stop_reason"] = choice.get("finish_reason")
+        return text, stats
+
+
+# ---------------------------------------------------------------------------
+# OpenAI Responses API（provider="responses"，2026-10-24 接线）
+# ---------------------------------------------------------------------------
+def responses_url(base_url: str) -> str:
+    """`base_url` → responses 端点（`base_url + "/responses"`，与 openai SDK
+    `client.responses` 的拼法一致；base 里带不带 `/v1` 依配置，本层不擅自补——
+    与 `openai_chat_url` 同一条规矩）。"""
+    return str(base_url or "").rstrip("/") + "/responses"
+
+
+def _responses_tool(t: dict) -> dict:
+    """OpenAI 工具 schema → Responses：`function.{name,description,parameters}`
+    拆平到顶层（Responses 的函数工具没有 chat 那层 function 壳）。"""
+    fn = t.get("function") or {}
+    out = {"type": "function", "name": str(fn.get("name") or ""),
+           "parameters": fn.get("parameters") or {"type": "object", "properties": {}}}
+    if fn.get("description"):
+        out["description"] = str(fn["description"])
+    return out
+
+
+def _responses_input_blocks(content) -> list[dict]:
+    """user 内容 → Responses 输入块（`input_text` / `input_image`）。
+
+    Responses 的图片输入就是 `image_url` **字符串**（不是 chat 那层
+    `{"url": …}` 嵌套对象），data URL 与 http(s) URL 都照发。"""
+    if not isinstance(content, list):
+        return [{"type": "input_text", "text": str(content or "")}]
+    blocks: list[dict] = []
+    for block in content:
+        if block.get("type") == "text":
+            blocks.append({"type": "input_text", "text": str(block.get("text") or "")})
+        elif block.get("type") == "image_url":
+            blocks.append({"type": "input_image",
+                           "image_url": block["image_url"]["url"]})
+        else:
+            raise ValueError("不支持的多模态用户块")
+    return blocks
+
+
+def _responses_messages(messages: list[dict], cfg: dict) -> list[dict]:
+    """OpenAI 形态 messages → Responses `input` 项（**只读不写**调用方那些 dict）。
+
+    · `role="system"` 提到顶层 `instructions`（`_responses_body` 管），这里跳过；
+    · assistant → `output_text` 块 + 每个工具调用一条 `function_call` 项
+      （`arguments` 原样发字符串——Responses 本来就是字符串，被截断的 JSON 也照发，
+      引擎执行时自己会拒）；
+    · `role="tool"` → `function_call_output` 项（与 Anthropic 不同：**不用**合成进
+      user 消息，Responses 的 input 本来就按项排列）；
+    · **不回放 reasoning**：思考项要连加密内容（encrypted_content）才可跨请求回放，
+      本层存的是纯文本思考、没有那玩意——重发必被拒；缺了只是少一段思考（与
+      Anthropic 缺签名降级同一条纪律：宁少一段思考，不冒一个 400 终止整局）。
+    """
+    out: list[dict] = []
+    for stored in messages:
+        m = _map_message(stored, vision=cfg.get("vision", False),
+                         renderer=cfg.get("_ui_expand_message"))
+        role = m.get("role")
+        if role == "system":
+            continue
+        if role == "tool":
+            out.append({"type": "function_call_output",
+                        "call_id": str(m.get("tool_call_id") or ""),
+                        "output": str(m.get("content") or "")})
+            continue
+        if role == "assistant":
+            if m.get("content"):
+                out.append({"role": "assistant",
+                            "content": [{"type": "output_text", "text": str(m["content"])}]})
+            for i, tc in enumerate(m.get("tool_calls") or []):
+                fn = tc.get("function") or {}
+                out.append({"type": "function_call",
+                            "call_id": str(tc.get("id") or f"call_{i}"),
+                            "name": str(fn.get("name") or ""),
+                            "arguments": str(fn.get("arguments") or "{}")})
+            continue
+        # user（含 role 认不出的）：内容照发，别丢
+        out.append({"role": "user", "content": _responses_input_blocks(m.get("content"))})
+    return out
+
+
+def _responses_reasoning(cfg: dict) -> dict:
+    """`reasoning` 参数：Responses 路 thinking 开关的对应物。
+
+    enabled（缺省）⇒ `{"effort": reasoning_effort 或 medium, "summary": "auto"}`——
+    summary 必须开着：思考正文（reasoning_content）就是从 reasoning summary 的
+    流式文本里取的，关了就什么都看不到；
+    disabled ⇒ **显式**发 `{"effort": "none"}`（与 Anthropic 路 2026-10-01 那条教训
+    同源：「不发」不等于「关掉」——显式关，别赌端点默认）。
+    """
+    mode = str(cfg.get("thinking") or "enabled").strip().lower()
+    if mode in ("disabled", "off", "false", "0", "none", "no"):
+        return {"effort": "none"}
+    return {"effort": str(cfg.get("reasoning_effort") or "medium"), "summary": "auto"}
+
+
+def _responses_body(messages: list[dict], tools, cfg: dict, stream: bool) -> dict:
+    """拼请求体（默认值都收在这里）。
+
+    `max_output_tokens` 缺省 16384 = 另两条路同一个数（好让 clients/context.py 的
+    `ctx_reserve_out` 对三条路都成立）；`store:false`——本层不用
+    previous_response_id、回放全靠重发 input，不在服务端留状态（ZDR 端点还强制
+    要求它）。`tools` 空就不发这个字段（与另两条路同口径，不发更干净）。
+    """
+    body: dict = {"model": cfg["model"],
+                  "input": _responses_messages(messages, cfg),
+                  "max_output_tokens": int(cfg.get("max_tokens", 16384)),
+                  "reasoning": _responses_reasoning(cfg),
+                  "store": False}
+    parts = [str(m.get("content") or "") for m in messages if m.get("role") == "system"]
+    text = "\n\n".join(p for p in parts if p)
+    if text:
+        body["instructions"] = text
+    tlist = [_responses_tool(t) for t in (tools or [])]
+    if tlist:
+        body["tools"] = tlist
+        body["tool_choice"] = "auto"
+    if cfg.get("temperature") is not None:
+        body["temperature"] = float(cfg.get("temperature", 0.3))
+    if stream:
+        body["stream"] = True
+    return body
+
+
+def _responses_usage_stats(usage: dict, stats: dict) -> None:
+    """Responses 的 usage（dict）并进 stats：cached_tokens→hit，input-hit→miss，
+    output→out_tokens，reasoning_tokens→reason_tokens（该路**真报**思考 token，
+    不用像 Anthropic 路那样本地估算打 ≈）。"""
+    det = usage.get("input_tokens_details") or {}
+    hit = int(det.get("cached_tokens") or 0)
+    in_n = int(usage.get("input_tokens") or 0)
+    odet = usage.get("output_tokens_details") or {}
+    stats["hit"] = hit
+    stats["miss"] = max(0, in_n - hit)
+    stats["out_tokens"] = int(usage.get("output_tokens") or 0)
+    stats["reason_tokens"] = int(odet.get("reasoning_tokens") or 0)
+    stats["usage_reported"] = bool(in_n or stats["out_tokens"] or hit or stats["miss"])
+
+
+def _responses_stop(status, incomplete_details) -> str | None:
+    """Responses 的收尾状态 → 另两条路同义的 stop_reason。
+
+    `incomplete` + `max_output_tokens` → "max_tokens"（与 Anthropic 路同词，续写
+    `_tailing_continue` 就靠它触发；`clients.llm.LLMClient._compact` 认 length/
+    max_tokens 两个词，也覆盖）。"""
+    if status == "completed":
+        return "stop"
+    if status == "incomplete":
+        reason = str((incomplete_details or {}).get("reason") or "")
+        return "max_tokens" if reason == "max_output_tokens" else (reason or "incomplete")
+    return None            # 没走到收尾事件（流中途断）：stats 照样拼，用量走估算
+
+
+class ResponsesCompat:
+    """OpenAI Responses API（`provider="responses"`）。2026-10-24 接线，原生实现
+    （`_post_json` 传输 + `_iter_sse` 解析），与另两条路共用 `_retry_stream` 重试
+    窗口与 `_tailing_continue` 续写。映射配方：
+
+    ① tools：`{function:{name,description,parameters}}` → 拆平的
+       `{type:"function",name,description,parameters}`；`tool_choice` 一律 "auto"；
+    ② system 消息 → 顶层 `instructions`（前缀布局：instructions → tools → input）；
+    ③ `assistant.tool_calls` → 每个调用一条 `function_call` 项；`role="tool"` →
+       `function_call_output` 项（一对一，不用合成 user）；
+    ④ `reasoning_content` ↔ reasoning summary 文本：**只收不回放**（思考项要连
+       encrypted_content 才可回放，本层没有——宁少一段思考，不冒 400）；
+    ⑤ 重试分类与另两条路同一口径（`is_fatal`，429 也算可重试=给"当场续费"留窗口）；
+       `incomplete/max_output_tokens` 用 message tailing 续写（只在**没吐工具调用**时续）；
+    ⑥ 用量映射：cached_tokens→hit，input-hit→miss，output→out_tokens，
+       reasoning_tokens→reason_tokens（真报，不打 ≈）。
+    """
+
+    def __init__(self, cfg: dict):
+        self.cfg = cfg
+
+    def chat_turn(self, messages, tools, cfg, on_retry=None):
+        msg, stats = _retry_stream(self._stream_once, messages, tools, cfg, on_retry)
+        return _tailing_continue(self._stream_once, messages, tools, cfg, msg, stats)
+
+    def _stream_once(self, messages, tools, cfg):
+        """一次流式调用 + 聚合：返回 (msg, stats)，字段与另两条路**完全同名同义**
+        （wall/stream/first/maxgap/out_tokens/reason_tokens/hit/miss/
+        usage_reported/estimated），回合循环、看海台与 ctx.record_hit 一行不用改。
+
+        事件流是 Responses 形态（`event: response.xxx`）：
+        output_item.added/done、output_text.delta/done、
+        reasoning_summary_text.delta、function_call_arguments.delta/done、
+        response.completed / incomplete / failed、error。
+        聚合按"到达顺序"拍平成 content+reasoning_content 两个字符串（与 Anthropic 路
+        同一个简化：多 message 块本就分不回去了）。"""
+        url = responses_url(cfg["base_url"])
+        body = _responses_body(messages, tools, cfg, stream=True)
+        ttft = float(cfg.get("api_ttft_timeout", 180))
+        gap = float(cfg.get("api_chunk_timeout", 60))
+        usage: dict = {}
+        status: str | None = None
+        incomplete_details: dict = {}
+        c_s, r_s = "", ""
+        calls: dict[str, dict] = {}       # item_id → {call_id,name,arguments}（按到达排序）
+        stats: dict = {}
+        wall0 = time.time()
+        first_t = None
+        last_t = wall0
+
+        def call_slot(payload: dict, item: dict | None = None) -> dict:
+            """按 item_id 取/建 function_call 槽位（added/delta/done 三处都要能补）。"""
+            iid = str((item or {}).get("id") or payload.get("item_id") or "")
+            slot = calls.setdefault(iid, {"call_id": "", "name": "", "arguments": ""})
+            if item:
+                if item.get("call_id"):
+                    slot["call_id"] = str(item["call_id"])
+                if item.get("name"):
+                    slot["name"] = str(item["name"])
+            return slot
+
+        with stream_timeout(ttft, gap) as clock:
+            resp = _post_json(url, _bearer_headers(cfg), body, ttft)
+            try:
+                for name, data in _iter_sse(resp):
+                    clock.kick()          # 有字节进来就重新上弦
+                    now = time.time()
+                    stats["maxgap"] = max(stats.get("maxgap", 0.0), now - last_t)
+                    last_t = now
+                    try:
+                        payload = json.loads(data)
+                    except ValueError:
+                        continue          # 认不出的行：跳过（不为一行脏数据终止整局）
+                    kind = name or payload.get("type")
+                    if kind == "error":
+                        err = payload.get("error") or {}   # 官方 error 事件 {code,message,param}
+                        raise EndpointError(f"{err.get('code') or 'error'}: "
+                                            f"{str(err.get('message'))[:300]}")
+                    if kind in ("response.completed", "response.incomplete",
+                                "response.failed"):
+                        r = payload.get("response") or {}
+                        usage.update(r.get("usage") or {})
+                        status = r.get("status") or status
+                        if kind == "response.failed":
+                            err = r.get("error") or {}
+                            raise EndpointError(f"response.failed: "
+                                                f"{str(err.get('message'))[:300]}")
+                        if kind == "response.incomplete":
+                            incomplete_details = r.get("incomplete_details") or {}
+                        continue
+                    item = payload.get("item") or {}
+                    if kind == "response.output_item.added":
+                        if item.get("type") == "function_call":
+                            call_slot(payload, item)
+                    elif kind == "response.output_item.done":
+                        if item.get("type") == "function_call":
+                            slot = call_slot(payload, item)
+                            if item.get("arguments") and not slot["arguments"]:
+                                slot["arguments"] = str(item["arguments"])
+                        elif item.get("type") == "message" and not c_s:
+                            # 只发 done 不发 delta 的网关：整条 message 在 done 里
+                            parts = "".join(
+                                str(p.get("text") or "") for p in (item.get("content") or [])
+                                if p.get("type") == "output_text")
+                            c_s = c_s or parts
+                        elif item.get("type") == "reasoning" and not r_s:
+                            r_s = r_s or "".join(
+                                str(p.get("text") or "") for p in (item.get("summary") or [])
+                                if p.get("type") == "summary_text")
+                    elif kind == "response.output_text.delta":
+                        if first_t is None:
+                            first_t = now        # "首字"= 第一个真吐字的事件
+                        c_s += str(payload.get("delta") or "")
+                    elif kind == "response.output_text.done":
+                        if not c_s:
+                            c_s = str(payload.get("text") or "")
+                    elif kind in ("response.reasoning_summary_text.delta",
+                                  "response.reasoning_text.delta"):
+                        if first_t is None:
+                            first_t = now
+                        r_s += str(payload.get("delta") or "")
+                    elif kind == "response.function_call_arguments.delta":
+                        if first_t is None:
+                            first_t = now
+                        call_slot(payload)["arguments"] += str(payload.get("delta") or "")
+                    elif kind == "response.function_call_arguments.done":
+                        slot = call_slot(payload)
+                        if not slot["arguments"]:
+                            slot["arguments"] = str(payload.get("arguments") or "")
+            except TimeoutError:
+                raise TimeoutError(
+                    ("首字" if first_t is None else "流内")
+                    + f"等待超过 {(ttft if first_t is None else gap):g}s"
+                      f"（一直没等到新的输出块）") from None
+            finally:
+                resp.close()
+
+        msg: dict = {"content": c_s, "reasoning_content": r_s}
+        tool_calls = []
+        for iid, slot in calls.items():
+            if not slot["name"]:
+                continue         # 连名字都没有的项：认不出是什么工具，别造必败的调用
+            tool_calls.append({"id": str(slot["call_id"] or iid or f"call_{len(tool_calls)}"),
+                               "type": "function",
+                               "function": {"name": slot["name"],
+                                            "arguments": slot["arguments"] or "{}"}})
+        if tool_calls:
+            msg["tool_calls"] = tool_calls
+
+        _responses_usage_stats(usage, stats)
+        stats["stop_reason"] = _responses_stop(status, incomplete_details)
+        stats["wall"] = time.time() - wall0
+        if first_t:
+            stats["first"] = first_t - wall0
+            stats["stream"] = max(0.0, last_t - first_t)
+        if not stats["usage_reported"]:
+            # 与另两条路同一条纪律：没报就当"没报"（本地估算 + 打 ≈），绝不把没报当 0
+            stats["estimated"] = True
+            stats["out_tokens"] = (est_tokens(c_s) + est_tokens(r_s)
+                                   + sum(est_tokens(c["function"]["arguments"])
+                                         for c in tool_calls))
+            stats["reason_tokens"] = est_tokens(r_s)
+        return msg, stats
+
+    def complete_text(self, messages, cfg, max_tokens=None, tools=None):
+        """普通**非流式**调用（记忆压缩用）：**总时长**上限（默认 900s）。
+
+        与另两条路同一口径：思考**显式关**（`reasoning.effort="none"`，不发 summary）；
+        `tools` 只为前缀缓存照发（`tool_choice` 保持 auto——别改 none，那条实测
+        教训见 `OpenAICompat.complete_text` 的注）。返回 (text, stats)，usage
+        口径与 `chat_turn` 相同。**不重试**：压缩失败由 mp_ai 兜住。"""
+        body = _responses_body(messages, tools, cfg, stream=False)
+        body["reasoning"] = {"effort": "none"}
+        body["max_output_tokens"] = int(max_tokens if max_tokens is not None
+                                        else cfg.get("ctx_compact_tokens", 1500))
+        limit = float(cfg.get("api_timeout", 900))
+        wall0 = time.time()
+        with hard_timeout(limit, "非流式调用超时"):
+            resp = _post_json(responses_url(cfg["base_url"]),
+                              _bearer_headers(cfg), body, limit)
+            with resp:
+                payload = json.loads(resp.read().decode("utf-8", "replace"))
+        r = payload.get("response") or payload
+        text = "".join(str(p.get("text") or "")
+                       for item in (r.get("output") or []) if item.get("type") == "message"
+                       for p in (item.get("content") or [])
+                       if p.get("type") == "output_text").strip()
+        stats: dict = {"wall": time.time() - wall0}
+        _responses_usage_stats(r.get("usage") or {}, stats)
+        if not stats["usage_reported"]:
+            stats["estimated"] = True               # 同 chat_turn：没报就当没报，别装成 0
+            stats["out_tokens"] = est_tokens(text)
+        stats["stop_reason"] = _responses_stop(r.get("status"),
+                                               r.get("incomplete_details") or {})
         return text, stats
 
 
@@ -540,21 +1103,10 @@ class OpenAICompat:
 # Anthropic Messages 协议（provider="anthropic"，2026-10-01 接线）
 # ---------------------------------------------------------------------------
 ANTHROPIC_VERSION = "2023-06-01"
-_CONTINUE_NUDGE = ("（上一段输出被 max_tokens 截断）请**接着断点继续**："
-                   "直接往下写/往下调用，不要重复已经写过的内容，也不要重头再来。")
 
 
-class AnthropicError(Exception):
-    """Anthropic 端点的一次失败。
-
-    带 HTTP 状态码的（4xx/5xx）`status_code` 有值；连不上、读超时、SSE 中途报错
-    没有状态码 ⇒ None ⇒ `is_fatal` 判为**可重试**（与 OpenAI 那路同一条纪律：
-    "认不出"必须可重试，否则就是一条静默绕过重试的后门）。
-    """
-
-    def __init__(self, message: str, status_code: int | None = None):
-        super().__init__(message)
-        self.status_code = status_code
+# `AnthropicError` 已上移为共用层 `EndpointError` 的别名（三条提供方一套错误分类），
+# 定义见文件前部 `AnthropicError = EndpointError`。
 
 
 def anthropic_messages_url(base_url: str) -> str:
@@ -751,35 +1303,6 @@ def _anthropic_body(messages: list[dict], tools, cfg: dict, stream: bool) -> dic
     return body
 
 
-def _iter_sse(resp):
-    """把 SSE 响应体拆成 `(事件名, data 文本)` 逐条产出。
-
-    实测这条网关每个事件都同时给 `event:` 行与 data 里的 `type`（两者一致）；
-    只认 `data:` 的网关（少数）由调用方退回 `payload["type"]`。
-    注释行（`:` 开头，含 `ping` 的心跳）、未知字段按 SSE 规矩忽略。
-    """
-    event: str | None = None
-    buf: list[str] = []
-    for raw in resp:
-        line = raw.decode("utf-8", "replace").rstrip("\r\n")
-        if not line:
-            if buf:
-                yield event, "\n".join(buf)
-                event, buf = None, []
-            continue
-        if line.startswith(":"):
-            continue
-        field, _, value = line.partition(":")
-        if value.startswith(" "):
-            value = value[1:]
-        if field == "event":
-            event = value
-        elif field == "data":
-            buf.append(value)
-    if buf:
-        yield event, "\n".join(buf)
-
-
 def _block_index(payload: dict) -> int:
     """content block 的下标归一成 int（认不出就 0）。
 
@@ -817,25 +1340,13 @@ def _absorb_delta(blocks: dict, payload: dict) -> None:
         b["partial_json"] = (b.get("partial_json") or "") + (delta.get("partial_json") or "")
 
 
-def _anthropic_open(url: str, headers: dict, body: dict, timeout: float):
-    """POST 一次，返回响应对象（**只做错误分类与编码**）。
-
-    `timeout` 是 socket 级的：连接、响应头、**每一次读**都按它计时——所以它天然就是
-    "流内间隔"的看门狗。Windows 上没有 SIGALRM，`stream_timeout` 空转，这条是那边
-    唯一能抓住"流卡住"的东西（openai SDK 那路在 Windows 上做不到，见模块 docstring）。
-    """
-    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    try:
-        return urllib.request.urlopen(req, timeout=timeout)
-    except urllib.error.HTTPError as e:
-        # 错误体可能是 JSON（{"type":"error","error":{…}}），也可能是网关的 HTML/纯文本
-        detail = e.read().decode("utf-8", "replace")[:600]
-        raise AnthropicError(f"HTTP {e.code} {detail}", status_code=e.code) from None
-    except urllib.error.URLError as e:
-        if isinstance(e.reason, TimeoutError):
-            raise TimeoutError(f"连接/首字等待超过 {timeout:g}s 没等到响应头") from None
-        raise AnthropicError(f"连接失败：{e.reason}") from None
+_anthropic_open = _post_json
+"""Anthropic 那一路的传输入口。2026-10-24 起就是共用层 `_post_json` 本身（三条
+提供方一套错误分类/超时语义）；保留这个名字是因为测试在此打桩（把
+`llm_provider._anthropic_open` 换成假传输层就能把整条路跑完）。
+`timeout` 是 socket 级的：连接、响应头、**每一次读**都按它计时——所以它天然就是
+"流内间隔"的看门狗。Windows 上没有 SIGALRM，`stream_timeout` 空转，这条是那边
+唯一能抓住"流卡住"的东西。"""
 
 
 class AnthropicCompat:
@@ -867,79 +1378,19 @@ class AnthropicCompat:
         return self._tail(messages, tools, cfg, msg, stats)
 
     def _call(self, messages, tools, cfg, on_retry=None):
-        """带重试窗口的流式调用（分类与退避口径与 `OpenAICompat.chat_turn` 一致）。
+        """带重试窗口的流式调用——2026-10-24 起三条提供方同一套实现（`_retry_stream`）。
 
         ★ 429（配额耗尽）**也走重试**：用户 2026-09-20「重试到本回合必须跳过时，再退出，
           而不是马上退——不然玩家要是当场续费呢」。窗口 = api_retries × api_retry_wait。
         ★ 4xx（鉴权/模型名/参数）直接抛——重试没意义，而抛出去由上层终止本局
-          （这是"任何错误都应该直接终止游戏"那条口径，两条提供方一致）。
+          （这是"任何错误都应该直接终止游戏"那条口径，三条提供方一致）。
         """
-        retries = max(1,int(cfg.get("api_retries", 3)))
-        backoff = float(cfg.get("api_retry_wait", 2.0))
-        last: Exception | None = None
-        for attempt in range(1, retries + 1):
-            try:
-                return self._stream_once(messages, tools, cfg)
-            except AnthropicError as e:
-                if is_fatal(e):
-                    raise
-                last = e
-            except (TimeoutError, OSError, http.client.HTTPException) as e:
-                last = e          # 连不上 / 读超时 / SSE 读到一半断：都可重试
-            if attempt < retries:
-                if on_retry:
-                    on_retry(attempt, retry_tag(last), backoff * attempt, retries)
-                time.sleep(backoff * attempt)
-        assert last is not None
-        raise last
+        return _retry_stream(self._stream_once, messages, tools, cfg, on_retry)
 
     def _tail(self, messages, tools, cfg, msg, stats):
-        """`stop_reason="max_tokens"` 的**续写**（message tailing）。
-
-        只在两种情况续：**没吐 tool_use**（工具调用被截断时参数 JSON 只写了一半，续写反而
-        更乱——那种残批交给循环"没调工具就催它继续"那条路更稳）且还有次数（
-        `anthropic_tail_max`，缺省 2）。每次把已吐出的正文当 assistant 消息发回去、
-        再跟一条"接着断点写"的 user 消息，把新吐的字并回同一条 msg。
-
-        **续写失败一律吞掉**：宁可少半段正文，也不能因为一次补救把整局终止
-        （2026-09-20 那条"任何错误终止整局"针对的是主调用，不是这种补救）。
-        续写请求里**不带 reasoning_content**：被截断的思考没有签名，带着它去撞 400 不值得
-        （开思考时 prefill 也是官方明令不许的）。
-        """
-        left = int(cfg.get("anthropic_tail_max", 2))
-        while (left > 0 and stats.get("stop_reason") == "max_tokens"
-               and not msg.get("tool_calls")):
-            left -= 1
-            partial = dict(msg)
-            partial.pop("reasoning_content", None)
-            partial.pop(REPLAY_KEY, None)
-            partial.setdefault("role", "assistant")
-            try:
-                more, st2 = self._stream_once(
-                    list(messages) + [partial, {"role": "user", "content": _CONTINUE_NUDGE}],
-                    tools, cfg)
-            except Exception:      # noqa: BLE001 —— 补救失败就当没续过
-                break
-            msg["content"] = (msg.get("content") or "") + (more.get("content") or "")
-            if more.get("reasoning_content"):
-                msg["reasoning_content"] = ((msg.get("reasoning_content") or "")
-                                            + more["reasoning_content"])
-            if more.get(REPLAY_KEY):
-                msg[REPLAY_KEY] = more[REPLAY_KEY]      # 签名取最新那份（旧的已被截断作废）
-            if more.get("tool_calls"):
-                msg["tool_calls"] = more["tool_calls"]
-            stats["stop_reason"] = st2.get("stop_reason")
-            # 用量按"两次调用之和"记（这次续写也是真花了钱的）；first 保持首调用那次的
-            # 语义，maxgap 取两者较大——它们是"看数"用的，不该被求和成假数。
-            stats["wall"] = (stats.get("wall") or 0) + (st2.get("wall") or 0)
-            stats["stream"] = (stats.get("stream") or 0) + (st2.get("stream") or 0)
-            stats["maxgap"] = max(stats.get("maxgap") or 0, st2.get("maxgap") or 0)
-            for k in ("out_tokens", "reason_tokens", "hit", "miss"):
-                stats[k] = (stats.get(k) or 0) + (st2.get(k) or 0)
-            if st2.get("estimated"):
-                stats["estimated"] = True
-                stats["reason_estimated"] = True
-        return msg, stats
+        """`stop_reason="max_tokens"` 的**续写**（message tailing）——2026-10-24 起
+        与 Responses 路共用同一套实现（`_tailing_continue`），口径见其 docstring。"""
+        return _tailing_continue(self._stream_once, messages, tools, cfg, msg, stats)
 
     def _stream_once(self, messages, tools, cfg):
         """一次流式调用 + 聚合：返回 `(msg, stats)`。
@@ -1074,6 +1525,10 @@ class AnthropicCompat:
         headers = _anthropic_headers(cfg)
         body = _anthropic_body(messages, tools, cfg, stream=False)
         body["thinking"] = {"type": "disabled"}
+        # thinking 已被强制 disabled ⇒ effort 透传那个键不该再跟着发
+        # （`_anthropic_body` 是按"开思考"分支塞的 output_config，这里整段关掉，
+        # 留着它就是给一个不思考的请求塞思考配置——实测网关不挑，但没必要带）。
+        body.pop("output_config", None)
         body["max_tokens"] = int(max_tokens if max_tokens is not None
                                  else cfg.get("ctx_compact_tokens", 1500))
         limit = float(cfg.get("api_timeout", 900))
@@ -1103,15 +1558,18 @@ def make_backend(cfg: dict):
     """按配置里的 provider 字段选提供方，**不按 base_url 猜**（2026-09-13：猜 URL 会
     踩代理/网关地址）。
       openai    -> OpenAICompat（任意 OpenAI 兼容端点，**行为按 DeepSeek 处理**）
+      responses -> ResponsesCompat（OpenAI Responses API，2026-10-24 接线完成）
       anthropic -> AnthropicCompat（Anthropic Messages 协议，2026-10-01 接线完成）
-    **只有这两种**（用户 2026-09-19）；**provider 缺省即 openai**（不再强制显式声明），
-    deepseek / ark / vLLM / openai-compat / claude 这些厂家名一律不再接受——它们本就是
-    「OpenAI 兼容」，写 `openai` 即可。其它值 -> ValueError。"""
+    **provider 缺省即 openai**（不再强制显式声明），deepseek / ark / vLLM /
+    openai-compat / claude 这些厂家名一律不再接受——它们本就是「OpenAI 兼容」，
+    写 `openai` 即可。其它值 -> ValueError。"""
     prov = str(cfg.get("provider") or "openai").strip().lower()
     if prov == "openai":
         return OpenAICompat(cfg)
+    if prov == "responses":
+        return ResponsesCompat(cfg)
     if prov == "anthropic":
         return AnthropicCompat(cfg)
-    raise ValueError(f"未知 provider：{prov!r}（只有两种：openai / anthropic；"
+    raise ValueError(f"未知 provider：{prov!r}（只有三种：openai / responses / anthropic；"
                      f"deepseek、ark、vLLM 等 OpenAI 兼容端点一律写 openai）")
 
