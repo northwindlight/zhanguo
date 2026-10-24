@@ -38,7 +38,7 @@ import torch
 from . import encode, scoring as S
 from . import vocab as V
 from .model import build_model
-from .sampling import execute_order          # ★ 纯 numpy（CI 不装 torch 也能测）
+from .sampling import concentration, execute_order   # ★ 纯 numpy（CI 不装 torch 也能测）
 from .sandbox import Sandbox, n_nations_for
 from .train import _shape_fingerprint, collate
 
@@ -191,11 +191,18 @@ def play(nets: dict, sb: Sandbox, *, greedy: bool,
         ents.append(float(-(p * np.log(np.maximum(p, 1e-12))).sum()))
         logks.append(float(np.log(len(p))))
         n += 1
+    # ★★ 2026-10-24 修（跑评测时崩的）：**候选只剩 1 个**时 `logK = log(1) = 0`
+    #   ⇒ `ent / logK` **除零** ⇒ 抛 `ZeroDivisionError` ⇒ **整个评测跑不完**
+    #   （实测：某一方只剩一支军、只能"原地不动"时崩在这里）。
+    #   ★ 这行从本文件创建（2026-09-25）起就没设防；**训练侧早有同样的守卫**
+    #     （`rl/train.py` 里是 `logk > 0` 才做除法）⇒ **两边口径本来就不一样**。
+    #   ⇒ 口径挪到 `rl/sampling.py::concentration`（**纯 numpy，不依赖 torch**
+    #     ⇒ CI 也测得到）：**只有真的有得选**（`logK > 0`）的步进这个比值 ——
+    #     只有一个动作的步**不携带任何策略信息**（熵恒 0）⇒ 跳过是口径，不是遮掩。
     return {"turns": sb.turn, "winner_members": tuple(sb.winner_members()),
             "ent": float(np.mean(ents)) if ents else 0.0,
             "logk": float(np.mean(logks)) if logks else 0.0,
-            "ratio": (float(np.mean([e / k for e, k in zip(ents, logks)]))
-                      if ents else 0.0),
+            "ratio": concentration(ents, logks),
             "n": n, "players": tuple(sb.players),
             # ★ 被引擎拒收的动作数；**负数 = 步数闸先炸的**（见上面那段）。
             #   两者都该是 0 —— 不是 0 就说明 `legal()` 与 `step` 又不一致了。

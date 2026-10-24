@@ -66,6 +66,25 @@ class _FakeTurn:
 class TestRetryPolicy(unittest.TestCase):
     """★★ **不依赖 torch** ⇒ CI（不装 torch）也跑得到。"""
 
+    def test_a_single_candidate_does_not_break_the_concentration_metric(self):
+        """★ **候选只剩 1 个** ⇒ `logK = log(1) = 0` ⇒ 旧的 `ent/logK` **除零崩掉**。
+
+        ★★ 2026-10-24 修（跑评测时崩的）：`rl/eval_fixed.py` 那行除法从文件创建
+          （2026-09-25）起就没设防 ⇒ 某一方只剩一支军、只能"原地不动"时
+          ⇒ `ZeroDivisionError` ⇒ **整个评测跑不完**（训练侧早有同样的守卫）。
+        ⇒ 现在口径在 `rl/sampling.py::concentration`（**纯 numpy ⇒ CI 也测得到**）：
+          **只有真的有得选**（`logK > 0`）的步进这个比值。
+        """
+        from rl.sampling import concentration
+        # ★ 全是"只有一个候选"的步 ⇒ **不崩**，且给 `nan`（"看不出来"，
+        #   而不是假装 0 —— 0 会被读成"策略最集中"）。
+        v = concentration([0.0, 0.0], [0.0, 0.0])
+        self.assertNotEqual(v, v, "全是退化步时该给 nan，而不是 0")
+        # ★ 正常步照常算；退化步被排除（不影响均值）。
+        self.assertAlmostEqual(concentration([2.0, 0.0], [2.0, 0.0]), 1.0, places=6)
+        self.assertAlmostEqual(concentration([1.0, 2.0], [2.0, 0.0]), 0.5, places=6)
+        self.assertAlmostEqual(concentration([2.0], [2.0]), 1.0, places=6)
+
     def test_a_failed_action_that_switches_players_discards_the_candidates(self):
         """★ 失败**换人** ⇒ 旧候选**立刻作废**（不许替下一位玩家落子）。"""
         from rl.sampling import execute_order
@@ -232,6 +251,28 @@ class TestEvalStaleCandidates(unittest.TestCase):
         self.assertTrue(sb.team_of, "沙盒没记下队伍身份")
         t = evaluate.terminal(sb.env, sb.players[0], teams=sb.team_of)
         self.assertIn(t, (None, 0.0, evaluate.S.INF, -evaluate.S.INF))
+
+    def test_the_eval_survives_a_single_candidate_turn(self):
+        """★★ 端到端：某一方**只剩一个候选**时，评测**不许崩**。
+
+        ★ 旧口径：`ent / logK`，`logK = log(1) = 0` ⇒ `ZeroDivisionError`
+          ⇒ **整个评测跑不完**（跑训练时实测崩在这）。
+        """
+        _need_torch()
+        from rl.eval_fixed import play
+        sb = _sandbox(n_nations=2, war=True, t_max=8)
+        me = sb.current_player()
+        unit = sb.armies_of(me)[0]
+        real_legal = sb.legal
+
+        def one_candidate():
+            # ★ 只留一个"原地不动" ⇒ 策略分布退化成一点质量 ⇒ `logK = 0`
+            return [(unit.id, "hold", unit.x, unit.y)]
+
+        sb.legal = one_candidate
+        res = play({0: _StubNet(0)}, sb, greedy=True, rng=np.random.default_rng(0))
+        self.assertIn("ratio", res)
+        self.assertGreater(res["n"], 0, "一局都没走")
 
 
 # ======================================================================

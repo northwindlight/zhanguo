@@ -41,6 +41,23 @@ def action_order(p: np.ndarray, rng: np.random.Generator, greedy: bool) -> list[
     return order
 
 
+def concentration(ents, logks) -> float:
+    """★ **策略集中度** = 各步 `ent / logK` 的均值（**只算"真的有得选"的步**）。
+
+    ★★ 2026-10-24 修（跑评测时崩的）：`logK = log(候选数)` ⇒ **候选只剩 1 个**时
+      `logK = log(1) = 0` ⇒ `ent / logK` **除零** ⇒ 抛 `ZeroDivisionError`
+      ⇒ **整个评测跑不完**（实测：某一方只剩一支军、只能"原地不动"时崩在这里）。
+      ★ 这行从 `rl/eval_fixed.py` 创建（2026-09-25）起就没设防；
+        **训练侧早有同样的守卫**（`rl/train.py` 里是 `logk > 0` 才做除法）
+        ⇒ **两边口径本来就不一样**。
+    ⇒ 现在：**只有一个动作的步不携带任何策略信息**（熵恒 0）⇒ 不进这个比值；
+      全都是这种步时返回 `nan`（"看不出来"，而不是假装 0）。
+    ★ 放在这个模块：这里**不依赖 torch** ⇒ CI（不装 torch）也测得到。
+    """
+    ratios = [e / k for e, k in zip(ents, logks) if k > 0]
+    return float(np.mean(ratios)) if ratios else float("nan")
+
+
 def execute_order(acts, order, step, current_player, *,
                   decision_state=None) -> tuple[bool, int | None, bool, int]:
     """★ 按 `order` 依次尝试动作 —— **失败后必须检查状态变了没有**。
