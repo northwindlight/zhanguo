@@ -1,5 +1,11 @@
 # stock 2.0：交互式量化市场
 
+> **分支规约（2026-10-24 起）**：stock 在 `stock` 分支上独立演进，**不得进入 main**、
+> **不得修改 `mods/native/`（及 engine/clients）的任何文件**。只读引用（import）允许；
+> 需要改 native 的行为时，把要改的部分**复制 fork 到 `mods/stock/` 名下**再改，
+> native 保持与 main 完全一致。当前对 native 的唯一依赖是
+> `mods/stock/tools.py` 里 `from mods.native.tools import commands`（只读）。
+
 玩家用受限 Python 编写策略，在 **PAMS 0.3.0 的真实订单簿**里共同交易。
 默认没有随机价格扰动；有限资金和库存的做市者、只根据已公布消息交易的基本面代理、玩家订单共同影响报价与成交。
 每交易日 **20000 个逻辑 tick**，宿主尽快计算，无需等待现实 20 分钟。
