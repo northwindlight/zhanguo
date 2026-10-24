@@ -60,7 +60,9 @@ class Brokerage:
                 positions=deepcopy(shares or {}), reservations={}, equity=[],
                 realized_pnl=0.0, interest_paid=0.0, borrow_fees=0.0,
                 compute_expenses=0.0, intelligence_expenses=0.0, liquidations=[], alive=True,
-                retired_round=None, background=background, risk_frozen=False, risk_notice='')
+                retired_round=None, background=background, risk_frozen=False, risk_notice='',
+                final_cash=None, final_round=None, final_rank=None,
+                final_liquidations=[], final_repaid=0.0)
         return self.accounts[actor]
 
     def active_actors(self):
@@ -130,6 +132,8 @@ class Brokerage:
             realized_pnl=account['realized_pnl'], compute_expenses=account['compute_expenses'],
             intelligence_expenses=account['intelligence_expenses'],
             risk_frozen=account['risk_frozen'], risk_notice=account['risk_notice'],
+            final_cash=account.get('final_cash'), final_round=account.get('final_round'),
+            final_rank=account.get('final_rank'), final_repaid=account.get('final_repaid', 0.0),
             liquidations=deepcopy(account['liquidations'][-5:]), alive=account['alive'],
             retired_round=account['retired_round'], equity_curve=deepcopy(account['equity'][-12:]))
 
@@ -326,6 +330,35 @@ class Brokerage:
                                 fee=fill['fee'], repaid=repaid))
         account['liquidations'].extend(records)
         return records
+
+    def finalize(self, actor, round_number):
+        """最终回合清算：撤单 → 按最后价平掉全部仓位（照收佣金）→ 用现金尽量还贷。
+
+        结算现金 = 现金 − 仍未还清的贷款；这就是排名口径。
+        """
+        self._write()
+        account = self._account(actor)
+        self._market('cancel_actor', actor)
+        records = []
+        for symbol, position in list(account['positions'].items()):
+            quantity = abs(position['quantity'])
+            if not quantity:
+                continue
+            side = 'sell' if position['quantity'] > 0 else 'cover'
+            fill = self._market('final_close', actor, side, symbol, quantity)
+            records.append(dict(symbol=symbol, side=side, quantity=quantity,
+                                price=fill['price'], amount=fill['amount'], fee=fill['fee']))
+            account['liquidations'].append(dict(round=round_number, symbol=symbol,
+                quantity=quantity, side=side, price=fill['price'], amount=fill['amount'],
+                fee=fill['fee'], repaid=0.0))
+        repaid = 0.0
+        if account['debt'] > 0 and self.free_cash(account) > 0:
+            repaid = self.repay(actor, min(account['debt'], self.free_cash(account)))['repaid']
+        final_cash = round(account['cash'] - account['debt'], 2)
+        account.update(final_cash=final_cash, final_round=round_number,
+                       final_liquidations=records, final_repaid=repaid)
+        return dict(cash=round(account['cash'], 2), debt=round(account['debt'], 2),
+                    final_cash=final_cash, repaid=repaid, liquidations=records)
 
     def settle(self, world, round_number, fills):
         self._write()

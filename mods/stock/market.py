@@ -344,6 +344,22 @@ class Market:
         if self.recorder: self.recorder(actor, 'stock_liquidation', {}, fill)
         return fill
 
+    def final_close(self, actor, side, symbol, quantity):
+        """最终清算专用：不经过订单簿和清算银行，按最后价平仓并照收佣金。
+
+        终局必须有确定的成交口径，不能因为盘口没量或清算银行没货而让成绩悬空。
+        """
+        price = self.execution_price(symbol, side, quantity)
+        amount = round(price * quantity, 2)
+        fee = self.fee_of(amount)
+        ident = f'{self.round}:final:{self.trade_seq}'
+        self.trade_seq += 1
+        fill = dict(execution_id=ident, actor=actor, side=side, symbol=symbol,
+                    quantity=quantity, price=price, amount=amount, fee=fee)
+        self._port('execute', fill, 0)
+        if self.recorder: self.recorder(actor, 'stock_final_close', {}, fill)
+        return fill
+
     def settle(self, world, round_number, trading_day=True):
         self._public_cache = None
         if self.state == self.SESSION:
@@ -425,6 +441,11 @@ class MarketMod(GameMod):
             '同tick公共快照一致，委托和撤单最早下一tick生效；市价单有2%价格保护，未成交量到期。'
             'price参数可指定限价，Day限价单可部分成交，收盘撤销；orders/fills只返回自己的委托和成交。'
             '价格由有限资金与库存的背景做市者、玩家委托及公开现金流消息共同形成，默认无随机价格扰动。'
-            'quotes含盘口、已发生路径和已公布消息，不含种子、未来消息或未来价格。'
+            'quotes() 每只股票返回：symbol 代码、name 名称、sector 行业、price 最新价、prev_close 昨收、'
+            'change_pct 涨跌幅、open 今开、path 今天已走过的价格序列（每个 tick 一个点）、tick 当前 tick、'
+            'ma5/ma10/ma20 均线、momentum_5 近5点动量、volatility 近10点波动率、commission_rate 佣金率、'
+            'float_shares 流通股、depth 盘口 {bids/asks 各档价位与数量}、borrow_available 可借券数、news 该股最近消息。'
+            'catalog() 只给代码/名称/行业，没有财报；history(symbol, limit=30，最多256) 取历史收盘价；'
+            'orders()/fills() 只返回自己的委托与成交。quotes 不含种子、未来消息或未来价格。'
             '可用buy/sell开平多头，short/cover开平空头；做空受借券、保证金和借券费约束。',
             ('行情', 'PAMS', '交易', '做空', 'tick', '订单'), '交互撮合、消息与可见性', system=True),)

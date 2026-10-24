@@ -612,4 +612,31 @@ class StockGameTest(unittest.TestCase):
             self.assertIn('stock_fill', actions)
 
 
+    def test_round_tool_reports_final_round_and_rounds_left(self):
+        cfg = config(); cfg['max_turns'] = 3
+        h = GameHost.new(cfg)
+        data = self.submit(h, 'round')['data']
+        self.assertEqual(data['final_round'], 3)
+        self.assertEqual(data['rounds_left'], 2)
+        self.assertFalse(data['is_final_round'])
+
+    def test_final_round_liquidates_positions_repays_loans_and_ranks_by_cash(self):
+        cfg = config(actors=2); cfg['max_turns'] = 3
+        h = GameHost.new(cfg)
+        self.submit(h, 'script', action='write', source=BUY, slot='1')
+        self.submit(h, 'bank', action='borrow', amount=10000)
+        h.cycle(); h.cycle()          # 第 3 回合到点：清算，不再行动
+        self.assertTrue(h.finished())
+        for actor in h.actors():
+            account = h.world.portfolio.accounts[actor]
+            self.assertIsNotNone(account['final_cash'])
+            self.assertIsNotNone(account['final_rank'])
+            self.assertEqual(h.world.portfolio.holdings(actor)['positions'], [])
+        self.assertEqual(h.world.portfolio.accounts[ACTOR]['debt'], 0)
+        ranks = sorted(h.world.portfolio.accounts[a]['final_rank'] for a in h.actors())
+        self.assertEqual(ranks, [1, 2])
+        first = max(h.actors(), key=lambda a: h.world.portfolio.accounts[a]['final_cash'])
+        self.assertEqual(h.world.portfolio.accounts[first]['final_rank'], 1)
+
+
 if __name__ == '__main__': unittest.main()
