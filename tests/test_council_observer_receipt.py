@@ -44,7 +44,10 @@ class CouncilObserverReceiptTests(unittest.TestCase):
                 self.assertIn('第 1/10 次调用',seen[0])
                 self.assertIn('韩 议会审查 2/2：审查新版国策',seen[1])
                 self.assertIn('第 2/10 次调用',seen[1])
-                self.assertTrue(all(status in journal for status in seen))
+                # 看海面板的“正在等待模型”进度行不再写进日志（只保留在面板），
+                # 议事审查的状态行仍然入日志。
+                self.assertIn('韩 议会审查 1/2', journal)
+                self.assertIn('韩 议会审查 2/2', journal)
                 self.assertIn('议会审查结束：国策已通过' if approved else '议会审查结束：国策被打回',
                               '\n'.join(panel.notes))
                 if not approved:
