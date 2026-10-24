@@ -67,3 +67,10 @@ SHA-256 and non-destructive upper-body display regions are recorded in
 `portraits/manifest.json`. No author, original URL or license accompanied the
 archive, so those fields remain unspecified. They are separate from Mini World
 and are not claimed under its CC0 license.
+
+## 当前统一图集
+
+`unified-v1/` 为战国原创 SVG 组件及确定性 PNG 导出，沿用仓库 MPL-2.0。
+规格、逐文件哈希和 SVG 母版见该目录的 README 与 manifest；运行时只读取共享 atlas。
+Fusion Pixel 中文字体继续遵循本目录 fonts/FUSION-PIXEL-OFL.txt。
+旧 Mini World、生成建筑与用户半身图各自的来源记录保持独立。

@@ -64,17 +64,8 @@ public partial class RegionArtwork
     }
     private void DrawTownLot(CanvasItem layer,TownLot lot,Vector2 origin)
     {
-        var p=origin+new Vector2(lot.Bounds.X,lot.Bounds.Y);
-        if(lot.Kind=="stall")
-        {
-            layer.DrawRect(new Rect2(p+new Vector2(1,8),new Vector2(14,7)),new Color("85643e"));
-            layer.DrawRect(new Rect2(p+new Vector2(0,4),new Vector2(16,6)),new Color(lot.Variant==0?"b78765":"9fa377"));
-            for(int x=0;x<16;x+=5)layer.DrawRect(new Rect2(p+new Vector2(x,4),new Vector2(2,6)),new Color("d6c599"));
-            layer.DrawCircle(p+new Vector2(4,12),1.5f,new Color("d7b867"));
-            layer.DrawCircle(p+new Vector2(9,12),1.5f,new Color("94a06c"));return;
-        }
-        Sprite(layer,_textures,"houses",p,lot.Variant,2);
-        layer.DrawRect(new Rect2(p+new Vector2(1,16),new Vector2(12,2)),new Color("a69a75"));
+        var foot=origin+new Vector2(lot.Bounds.X+lot.Bounds.Width*.5f,lot.Bounds.Y+lot.Bounds.Height);
+        UnifiedArt.Draw(layer,lot.Kind=="stall"?"lumberyard":"house-"+lot.Variant%2,foot);
     }
     private void DrawTownHallDetails(CanvasItem layer,Structure hall,Vector2 p,Vector2 size)
     {
@@ -88,9 +79,9 @@ public partial class RegionArtwork
         layer.DrawRect(new Rect2(p+new Vector2(size.X*.5f-12,size.Y-2),new Vector2(24,4)),new Color("c2b99b"));
         if(_detailLevel>0&&LabelFont!=null)
         {
-            var at=p+new Vector2(size.X*.5f-17,size.Y+14);
-            layer.DrawRect(new Rect2(at-new Vector2(3,10),new Vector2(40,13)),new Color(.07f,.10f,.09f,.85f));
-            layer.DrawString(LabelFont,at,"市政厅",fontSize:10,modulate:new Color("f1dfad"));
+            var at=p+new Vector2(size.X*.5f-18,size.Y+14);
+            layer.DrawRect(new Rect2(at-new Vector2(3,10),new Vector2(42,16)),new Color(.07f,.10f,.09f,.85f));
+            layer.DrawString(LabelFont,at,"市政厅",fontSize:12,modulate:new Color("f1dfad"));
         }
     }
 }

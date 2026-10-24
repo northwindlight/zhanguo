@@ -23,6 +23,7 @@ static class Program
         SquadChecks.Run();
         string json = File.ReadAllText(args[0]);
         var layout = new RegionLayout(SampleInput.Parse(json));
+        PixelTerrainChecks.Run(layout);
         Require(layout.Width == 3 && layout.Height == 3 && layout.Regions.Count == 9, "3×3 input coverage");
         Require(Projection(layout) == Projection(new RegionLayout(SampleInput.Parse(json))), "identical input must reproduce every placement");
         var reordered = SampleInput.Parse(json);
@@ -75,6 +76,7 @@ static class Program
             {
                 var box=RegionLayout.GoldBounds(gold);
                 Require(!region.Rocks.Any(r=>RegionLayout.RockBounds(r).Overlaps(box,2)),"gold and stone deposits overlap");
+                Require(!region.Rocks.Any(r=>layout.ResourceVisualBounds(region.Input,r).Overlaps(layout.ResourceVisualBounds(region.Input,gold),2)),"projected cliff deposits overlap on screen");
                 Require(!region.Outcrops.Any(r=>r.Overlaps(box,2)),"mountain decoration hides gold deposit");
                 Require(!region.Structures.Any(r=>r.Bounds.Overlaps(box,2)),"building hides gold deposit");
             }

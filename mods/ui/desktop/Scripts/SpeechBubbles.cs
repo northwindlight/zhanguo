@@ -98,7 +98,7 @@ public partial class SpeechBubbles : Control
     {
         var style = new StyleBoxFlat { BgColor = background, BorderColor = border,
             ContentMarginLeft = margin, ContentMarginRight = margin, ContentMarginTop = 10, ContentMarginBottom = 10 };
-        style.SetBorderWidthAll(1); style.SetCornerRadiusAll(8); return style;
+        style.SetBorderWidthAll(1); style.SetCornerRadiusAll(0); return style;
     }
     public void SetSpeaker(string actor, string nationName, string model, Color color)
     {

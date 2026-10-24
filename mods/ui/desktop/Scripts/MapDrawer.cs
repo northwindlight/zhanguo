@@ -18,7 +18,7 @@ public partial class MapDrawer : PanelContainer
         _side=side;ZIndex=20;MouseFilter=MouseFilterEnum.Stop;
         var style=new StyleBoxFlat { BgColor=new Color(.055f,.10f,.11f,.96f),BorderColor=new Color("566354"),
             ContentMarginLeft=18,ContentMarginRight=18,ContentMarginTop=12,ContentMarginBottom=16 };
-        style.SetBorderWidthAll(1);style.SetCornerRadiusAll(8);AddThemeStyleboxOverride("panel",style);
+        style.SetBorderWidthAll(1);style.SetCornerRadiusAll(0);AddThemeStyleboxOverride("panel",style);
         var column=new VBoxContainer();column.AddThemeConstantOverride("separation",12);AddChild(column);
         var header=new HBoxContainer();column.AddChild(header);
         var label=new Label { Text=title,SizeFlagsHorizontal=SizeFlags.ExpandFill };

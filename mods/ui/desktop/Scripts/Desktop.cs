@@ -57,17 +57,14 @@ public partial class Desktop : Control
     public override void _Ready()
     {
         GetTree().AutoAcceptQuit = false;
-        var theme = new Theme { DefaultFontSize = 18 };
-        // Long prose needs smooth glyphs and clear punctuation. Pixel artwork
-        // keeps nearest filtering independently of the UI font.
-        theme.DefaultFont = new SystemFont { FontNames = new[] { "Microsoft YaHei", "Noto Sans CJK SC", "PingFang SC", "sans-serif" } };
+        var theme=PixelTheme.Create();
         Theme = theme;
         foreach (string type in new[] { "Button", "OptionButton", "LineEdit", "PanelContainer", "TabContainer" })
         {
             var style = new StyleBoxFlat { BgColor = new Color("243332"), BorderColor = new Color("4d5c4c"),
                 ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 8, ContentMarginBottom = 8 };
-            style.SetBorderWidthAll(1);
-            style.SetCornerRadiusAll(5);
+            style.SetBorderWidthAll(2);
+            style.SetCornerRadiusAll(0);
             bool field=type is "Button" or "OptionButton" or "LineEdit";
             theme.SetStylebox(field?"normal":"panel", type, style);
             if(field)
@@ -531,7 +528,7 @@ public partial class Desktop : Control
                 save=_savePath,artwork=_map.ArtworkMode,terrain_builds=_map.TerrainBuilds,static_draws=_map.ArtworkPasses,
                 surfaces=_map.SurfaceCount,structures=_map.StructureCount,source_buildings=expected,
                 initial_armies=_initialArmies,residents=_map.Residents,potential_guards=_map.Guards,region_nodes=_map.RegionNodes,
-                bubble_segments=_bubbles.SegmentsShown,readable_font=Theme?.DefaultFont is SystemFont,
+                bubble_segments=_bubbles.SegmentsShown,readable_font=Theme?.DefaultFont is FontFile,pixel_font=PixelTheme.FontPath,
                 activity_events=_activitySeen,
                 played_phases=_playedPhases,actor_banners=_actorBanners,political_alpha_near=_map.PoliticalOpacity,
                 map_fills_window=true,map_width=_map.Size.X,map_height=_map.Size.Y,viewport_width=Size.X,viewport_height=Size.Y,

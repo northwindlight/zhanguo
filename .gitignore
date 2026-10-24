@@ -91,3 +91,7 @@ docs/archive/*
 stock_v2_*.json
 stock_v2_*.json.audit/
 stock_v2_*.md
+
+# Runtime uses the single unified atlas; individual SVG/PNG imports are generated.
+/mods/ui/desktop/assets/unified-v1/png/*.import
+/mods/ui/desktop/assets/unified-v1/svg/*.import

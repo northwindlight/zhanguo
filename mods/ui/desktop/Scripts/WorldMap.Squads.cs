@@ -31,7 +31,7 @@ public partial class WorldMap
                     DrawRect(new Rect2(at-new Vector2(3,2),new Vector2(6,4)),new Color("896f4a"));
                     DrawLine(at+new Vector2(-3,-2),at+new Vector2(0,-5),new Color("c2aa7c"),1);continue;
                 }
-                float size=Math.Clamp(_scale,.38f,1.3f);
+                float size=_scale;
                 DrawCircle(at+new Vector2(0,10)*size,5*size,new Color("795d42"));
                 for(int i=0;i<6;i++)
                 {
@@ -57,7 +57,7 @@ public partial class WorldMap
             if(wild&&!ShowGuards||!wild&&!Units)continue;
             var at=Screen(TroopPosition(first));if(!OnScreen(at,160))continue;
             var color=wild?new Color("ac8b63"):NationColor(group.Key.Owner);
-            float size=Math.Clamp(_scale,.42f,1.3f);
+            float size=_scale;
             bool horse=group.Key.Kind.EndsWith("cavalry",StringComparison.Ordinal);
             var owners=groups.Where(g=>g.Key.X==group.Key.X&&g.Key.Y==group.Key.Y).Select(g=>g.Key.Owner).Distinct().OrderBy(s=>s,StringComparer.Ordinal).ToArray();
             int ownerIndex=Array.IndexOf(owners,group.Key.Owner);float side=ownerIndex%2==0?-1:1;
@@ -103,7 +103,7 @@ public partial class WorldMap
                 var p=mustering?musterOrigin.Lerp(spot,muster):spot;
                 bool stepping=moving||mustering&&muster<.999f||fighting&&_beatProgress<.20f;
                 bool face=mustering?spot.X>=musterOrigin.X:owners.Length>1?side<0:i%7!=0;
-                MiniPerson(p,color,size,clock+i*.071,stepping,soldier:true,horse:horse,fighting:fighting&&strike>.12f,wild:wild,facingRight:face,seed:i);
+                MiniPerson(p,color,size,clock+i*.071,stepping,soldier:true,horse:horse,fighting:fighting&&strike>.12f,wild:wild,facingRight:face,seed:i,directionOverride:moving?MarchDirection(first):-1);
                 if(fighting&&front&&strike>.55f)
                 {
                     var blade=p+new Vector2((side<0?1:-1)*(horse?12:7),-9)*size;

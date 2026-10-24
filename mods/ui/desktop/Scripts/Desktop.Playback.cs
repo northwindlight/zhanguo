@@ -50,7 +50,7 @@ public partial class Desktop
         _banner=new PanelContainer { MouseFilter=MouseFilterEnum.Ignore,ZIndex=10 };
         var style=new StyleBoxFlat { BgColor=new Color(.055f,.10f,.11f,.94f),BorderColor=new Color("8d9471"),
             ContentMarginLeft=20,ContentMarginRight=20,ContentMarginTop=10,ContentMarginBottom=12 };
-        style.SetBorderWidthAll(1);style.SetCornerRadiusAll(6);_banner.AddThemeStyleboxOverride("panel",style);
+        style.SetBorderWidthAll(1);style.SetCornerRadiusAll(0);_banner.AddThemeStyleboxOverride("panel",style);
         _banner.SetAnchorsAndOffsetsPreset(LayoutPreset.CenterTop);_banner.OffsetLeft=-340;_banner.OffsetRight=340;
         _banner.OffsetTop=78;_banner.OffsetBottom=204;AddChild(_banner);
         var box=new VBoxContainer { MouseFilter=MouseFilterEnum.Ignore };_banner.AddChild(box);

@@ -84,8 +84,10 @@ public partial class WorldMap
     private bool WalkSafe(RegionPlan r,Vector2 p)
     {
         var body=new Footprint(p.X-3,p.Y-8,6,8);
-        return _layout!.CanBuild(r.Input,body)&&!r.Structures.Any(b=>RegionLayout.StructureVisualBounds(b).Overlaps(body,3))&&!r.TownLots.Any(l=>l.Bounds.Overlaps(body,3))&&!r.OilPatches.Any(p=>p.Overlaps(body,2))&&
-            !r.Trees.Any(t=>new Footprint(t.Foot.X-7,t.Foot.Y-15,14,15).Overlaps(body,1))&&
+        return _layout!.CanBuild(r.Input,body)&&!r.Structures.Any(b=>RegionLayout.StructureVisualBounds(b).Overlaps(body,3))&&!r.TownLots.Any(l=>RegionLayout.TownVisualBounds(l).Overlaps(body,3))&&!r.OilPatches.Any(p=>p.Overlaps(body,2))&&
+            !r.Gold.Any(g=>RegionLayout.GoldBounds(g).Overlaps(body,2))&&!r.Iron.Any(g=>RegionLayout.RockBounds(g).Overlaps(body,2))&&
+            !r.Gold.Concat(r.Iron).Any(g=>_layout.ResourceVisualBounds(r.Input,g).Overlaps(body,2))&&
+            !r.Trees.Any(t=>RegionLayout.TreeBounds(t.Foot).Overlaps(body,1))&&
             !r.Rocks.Any(t=>new Footprint(t.X-7,t.Y-12,14,12).Overlaps(body,1));
     }
     private (Vector2 A, Vector2 B)[] Walks(RegionPlan r)
@@ -101,17 +103,11 @@ public partial class WorldMap
         _walks[r]=paths;return paths;
     }
 
-    // Detailed code-drawn figure, ~13 units tall (16 with horse) at size 1.
-    // Coordinates face right; X() mirrors every part for left-facing figures.
-    // If a matching sheet exists under assets/actors it wins over this drawing.
+    // Unified actors use source anchors, action rows and exact cloth slots.
+    // Wild guards retain a small procedural figure until their sheet is drawn.
     private static readonly string[] Skins={"e8c39a","d9a878","c68e5f","b57c4e"};
     private static readonly string[] Hairs={"3a2e24","54432f","777770","2c2c31"};
-    private static string SpritePalette(Color color)
-    {
-        var palette=new[]{("cyan",new Color("70b4b4")),("red",new Color("c67c79")),("lime",new Color("9bae73")),("purple",new Color("af8dc8"))};
-        return palette.MinBy(p=>MathF.Pow(p.Item2.R-color.R,2)+MathF.Pow(p.Item2.G-color.G,2)+MathF.Pow(p.Item2.B-color.B,2)).Item1;
-    }
-    private void MiniPerson(Vector2 foot,Color cloth,float size,double clock,bool moving=false,bool soldier=false,bool horse=false,bool working=false,float alpha=1,bool fighting=false,bool wild=false,bool facingRight=true,int seed=0)
+    private void MiniPerson(Vector2 foot,Color cloth,float size,double clock,bool moving=false,bool soldier=false,bool horse=false,bool working=false,float alpha=1,bool fighting=false,bool wild=false,bool facingRight=true,int seed=0,int directionOverride=-1)
     {
         float s=size;
         float phase=(float)(clock*7);
@@ -122,62 +118,24 @@ public partial class WorldMap
         void Box(float x,float y,float w,float h,Color c)=>DrawRect(new Rect2(foot+new Vector2(X(x),y-bob)*s,new Vector2(w,h)*s),c);
         void Line(float x1,float y1,float x2,float y2,Color c,float width=1)
             =>DrawLine(foot+new Vector2(X(x1),y1-bob)*s,foot+new Vector2(X(x2),y2-bob)*s,c,Math.Max(.8f,width*s));
-        var sheet = horse?ActorSheets.Load("soldier-cavalry"):soldier?ActorSheets.Load("soldier-infantry")
-            :working?ActorSheets.Load("worker"):ActorSheets.Load("resident-walk");
-        if(sheet==null&&!wild)
+        if(!wild)
         {
-            string palette=SpritePalette(cloth);
-            string role=horse?"knight":seed%3==0?"spearman":seed%3==1?"swordsman":"axeman";
-            sheet=ActorSheets.Load(soldier?$"mini-{role}-{palette}":"mini-resident");
-        }
-        if(sheet!=null)
-        {
-            DrawCircle(foot+new Vector2(0,1)*s,(horse?4.6f:3.4f)*s,new Color(0,0,0,.16f*alpha));
-            int frames=fighting||working?sheet.AttackFrames:moving?sheet.WalkFrames:sheet.IdleFrames;
-            int frame=(int)(Math.Max(0,clock)*(fighting?9:moving?7:working?6:2))%frames;
+            string role=horse?"cavalry":soldier?seed%3==0?"spear":seed%3==1?"sword":"axe":working?"worker":"resident";
+            var e=UnifiedArt.Get("actor-"+role);
+            bool act=fighting||working;
+            int frames=act?e.Act:moving?e.Walk:e.Idle;
+            int frame=(int)(Math.Max(0,clock)*(act?7:moving?8:2))%frames;
             if(fighting&&S(_beat?["phase"])=="battle")frame=Math.Clamp((int)(SquadView.AttackPhase(_beatProgress+(seed%3-1)*.006f)*frames),0,frames-1);
-            int direction=facingRight?1:3;
-            if(!soldier&&!moving&&!working)direction=(seed>>3)%4;
-            var mapping=fighting||working?sheet.AttackRows:moving?sheet.WalkRows:sheet.IdleRows;
-            var row=sheet.MiniWorld&&mapping is {Length:4}?mapping[direction]:ActorSheets.Row(facingRight,fighting,sheet.Rows);
-            row=Math.Clamp(row,0,sheet.Rows-1);
-            var tint=new Color(1,1,1,alpha).Lerp(new Color(cloth,alpha),soldier?.12f:.30f);
-            float spriteScale=s*(horse&&sheet.CellW==32?.75f:1);
-            var at=foot+new Vector2(-sheet.CellW*.5f,-sheet.CellH+1)*spriteScale;
-            bool customHead=!soldier&&seed%4!=0&&sheet.MiniWorld;
-            int cut=customHead?7:0;
-            DrawTextureRectRegion(sheet.Texture,new Rect2(at+new Vector2(0,cut)*spriteScale,new Vector2(sheet.CellW,sheet.CellH-cut)*spriteScale),
-                new Rect2(frame*sheet.CellW,row*sheet.CellH+cut,sheet.CellW,sheet.CellH-cut),tint);
-            if(fighting&&sheet.ProceduralAttack)
+            int direction=directionOverride>=0?directionOverride:facingRight?1:3;
+            if(directionOverride<0&&!soldier&&!moving&&!working)direction=(seed>>3)%4;
+            int row=(act?8:moving?4:0)+direction;
+            var at=(foot-e.Anchor*s).Round();
+            DrawTextureRectRegion(UnifiedArt.Actor(role,cloth),new Rect2(at,(Vector2)e.Cell*s),
+                new Rect2(new Vector2(frame*e.Cell.X,row*e.Cell.Y),e.Cell),new Color(1,1,1,alpha));
+            if(!soldier&&moving&&seed%3<2)
             {
-                // The original spearman attack block uses irregular cells.
-                // Keep the intact body and choreograph a visible spear thrust.
-                float reach=9+SquadView.Strike(_beatProgress)*7;
-                var tip=foot+new Vector2(facingRight?reach:-reach,-9)*s;
-                DrawLine(foot+new Vector2(0,-9)*s,tip,new Color("9d7f55"),Math.Max(1,s));
-                DrawLine(tip,tip+new Vector2(facingRight?3:-3,0)*s,new Color("e3ddbb"),Math.Max(1,1.6f*s));
-            }
-            if(customHead)
-            {
-                var head=foot+new Vector2(-2,-13)*s;
-                DrawRect(new Rect2(head,new Vector2(4,4)*s),new Color(Skins[seed&3]));
-                DrawRect(new Rect2(foot+new Vector2(-1,-9)*s,new Vector2(2,2)*s),new Color(Skins[seed&3]));
-                DrawRect(new Rect2(head-new Vector2(0,s),new Vector2(4,1.4f)*s),new Color(Hairs[(seed>>2)&3]));
-                if(seed%4==1)DrawRect(new Rect2(head+new Vector2(-.5f,-1.5f)*s,new Vector2(5,1.6f)*s),new Color(cloth.Darkened(.25f)));
-                else if(seed%4==2)DrawCircle(head+new Vector2(2,-1)*s,1.3f*s,new Color(Hairs[(seed>>2)&3]));
-                DrawRect(new Rect2(head+new Vector2(facingRight?3:0,1.5f)*s,Vector2.One*.65f*s),new Color("3e352b"));
-            }
-            if(!soldier&&moving)
-            {
-                // Carriers, lumber hands and market errands vary by stable
-                // resident seed; all remain representative ambient actors.
-                var item=foot+new Vector2(facingRight?4:-6,-7)*s;
-                if(seed%3==0)DrawRect(new Rect2(item,new Vector2(3,3)*s),new Color("ba9c66"));
-                else if(seed%3==1)
-                {
-                    DrawLine(item+new Vector2(-2,1)*s,item+new Vector2(4,1)*s,new Color("805e3e"),Math.Max(1,2*s));
-                    DrawCircle(item+new Vector2(4,1)*s,Math.Max(.7f,s),new Color("c9ad76"));
-                }
+                var item=(foot+new Vector2(facingRight?3:-6,-6)*s).Round();
+                DrawRect(new Rect2(item,new Vector2(3,3)*s),new Color(seed%3==0?"ae8757":"d3b965"));
             }
             return;
         }
@@ -279,7 +237,7 @@ public partial class WorldMap
                 bool moving=walks[i].A!=walks[i].B&&(t<.4f||t is >.55f and <.95f);
                 int role=i+r.Input.X*17+r.Input.Y*29;
                 string[] clothes={"c4ac79","8ca7a0","b58f7c","9793b4","b8b888","ccae95"};
-                MiniPerson(p,new Color(clothes[Math.Abs(role)%clothes.Length]),Math.Max(.32f,_scale),_time+i,moving,working:!moving&&role%6==0,seed:role);VisibleResidents++;
+                MiniPerson(p,new Color(clothes[Math.Abs(role)%clothes.Length]),_scale,_time+i,moving,working:!moving&&role%6==0,seed:role,directionOverride:moving?Direction((walks[i].B-walks[i].A)*(t<.55f?1:-1)):-1);VisibleResidents++;
             }
             foreach(var b in r.Structures.Where(b=>b.Remaining>0))
                 for(int i=0;i<3;i++)
@@ -315,6 +273,14 @@ public partial class WorldMap
         }
         return (new Vector2(I(unit["x"]),I(unit["y"]))+Vector2.One*.5f)*256;
     }
+    private static int Direction(Vector2 delta)=>Math.Abs(delta.Y)>Math.Abs(delta.X)?delta.Y>0?0:2:delta.X>=0?1:3;
+    private int MarchDirection(JsonNode unit)
+    {
+        var motion=_beat?["motions"]?.AsArray().FirstOrDefault(m=>S(m!["unit"])==DesktopScene.Key("armies",unit));
+        if(motion?["points"] is not JsonArray points||points.Count<2)return -1;
+        int index=Math.Min((int)(_beatProgress*(points.Count-1)),points.Count-2);
+        return Direction(new Vector2(I(points[index+1]![0])-I(points[index]![0]),I(points[index+1]![1])-I(points[index]![1])));
+    }
     private Vector2 MotionWorld(JsonNode motion)
     {
         var points=motion["points"]!.AsArray();
@@ -323,21 +289,29 @@ public partial class WorldMap
         var b=new Vector2(I(points[i+1]![0]),I(points[i+1]![1]));
         return (a.Lerp(b,Math.Clamp(t-i,0,1))+Vector2.One*.5f)*256;
     }
-    private Vector2 BuildingAnchor(int id)
+    private (RegionPlan Region,Structure Building)? FindBuilding(int id)
     {
         string wanted=$"b/{id:D10}";
         foreach(var r in _layout!.Regions)
-            foreach(var b in r.Structures)
-                if(b.Id==wanted)return new Vector2(r.Input.X*256+b.Bounds.X+b.Bounds.Width*.5f,r.Input.Y*256+b.Bounds.Y);
-        return Vector2.Zero;
+            foreach(var b in r.Structures)if(b.Id==wanted)return (r,b);
+        // Dense regions aggregate visual buildings. Pops still use each real
+        // building id, so route them to the matching retained cluster.
+        var actual=Frame?["scene"]?["buildings"]?.AsArray().FirstOrDefault(b=>I(b!["id"])==id);
+        if(actual==null)return null;
+        var region=_layout.Regions.FirstOrDefault(r=>r.Input.X==I(actual["x"])&&r.Input.Y==I(actual["y"]));
+        var group=region?.Structures.FirstOrDefault(s=>s.Art==S(actual["kind"]))??region?.Structures.FirstOrDefault(s=>s.Count>1);
+        return region!=null&&group!=null?(region,group):null;
+    }
+    private Vector2 BuildingAnchor(int id)
+    {
+        var rect=BuildingRect(id);
+        return rect.Size==Vector2.Zero?Vector2.Zero:rect.Position+new Vector2(rect.Size.X*.5f,-16);
     }
     private Rect2 BuildingRect(int id)
     {
-        string wanted=$"b/{id:D10}";
-        foreach(var r in _layout!.Regions)
-            foreach(var b in r.Structures)
-                if(b.Id==wanted)return new Rect2(new Vector2(r.Input.X*256+b.Bounds.X,r.Input.Y*256+b.Bounds.Y),new Vector2(b.Bounds.Width,b.Bounds.Height));
-        return new Rect2();
+        if(FindBuilding(id) is not {} found)return new Rect2();
+        var r=found.Region;var b=found.Building;
+        return new Rect2(new Vector2(r.Input.X*256+b.Bounds.X,r.Input.Y*256+b.Bounds.Y),new Vector2(b.Bounds.Width,b.Bounds.Height));
     }
     private string ResourceName(string id)=>id switch {"native:gold"=>"金","native:food"=>"粮","native:wood"=>"木","native:ore"=>"矿","native:oil"=>"油","native:equipment"=>"装备","native:supply"=>"补给","hp"=>"HP",_=>id};
     private void ResourceIcon(Vector2 p,string resource,float alpha)
@@ -522,12 +496,6 @@ public partial class WorldMap
                     if((tick+hash)%2!=0)continue;
                     Spawn(new Particle{Pos=anchor+new Vector2(hash%5-2,2),Vel=new Vector2(2,-3),Life=.7f,Max=.7f,Size=1.6f+_scale,Tint=new Color("b8a884"),Kind=KindDust});
                 }
-                else
-                {
-                    int period=2+hash%3;
-                    if((tick/period+hash)%3!=0)continue;
-                    Spawn(new Particle{Pos=anchor,Vel=new Vector2(3,-6),Life=2.6f,Max=2.6f,Size=1.4f+_scale*.8f,Tint=new Color("cfd4cd"),Kind=KindSmoke});
-                }
                 if(--budget<=0)return;
             }
         }
@@ -580,26 +548,6 @@ public partial class WorldMap
             }
         }
     }
-    private void DrawWindowLights()
-    {
-        if(_scale<.45f||_layout==null)return;
-        int drawn=0;
-        foreach(var r in _layout.Regions)
-        {
-            if(!RegionOnScreen(r))continue;
-            var origin=new Vector2(r.Input.X*256,r.Input.Y*256);
-            foreach(var b in r.Structures)
-            {
-                if(b.Remaining>0)continue;
-                var at=Screen(origin+new Vector2(b.Bounds.X+b.Bounds.Width*.5f,b.Bounds.Y+6));
-                if(!OnScreen(at))continue;
-                int hash=(int)_layout.Hash(r.Input.X*256+(int)b.Bounds.X,r.Input.Y*256+(int)b.Bounds.Y,131);
-                float tw=.30f+.30f*MathF.Sin((float)_time*2.3f+hash);
-                DrawRect(new Rect2(at-new Vector2(1.1f,1.1f)*_scale,new Vector2(2.2f,2.2f)*_scale),new Color(1,.80f,.42f,tw));
-                if(++drawn>=160)return;
-            }
-        }
-    }
     private void DrawBirds()
     {
         if(_scale>.9f)return;
@@ -629,13 +577,13 @@ public partial class WorldMap
             switch(p.Kind)
             {
                 case KindDust:
-                    DrawCircle(at,p.Size*(0.6f+t*1.4f)*Math.Max(.6f,_scale),new Color(p.Tint,(1-t)*.34f));
+                    DrawRect(new Rect2(at.Round(),Vector2.One*Math.Max(1,MathF.Round(p.Size*(.6f+t*1.4f)*_scale))),new Color(p.Tint,(1-t)*.34f));
                     break;
                 case KindSmoke:
                 {
                     float r=p.Size*(1+t*3.2f)*Math.Max(.6f,_scale);
-                    DrawCircle(at,r,new Color(p.Tint,(1-t)*.30f));
-                    DrawCircle(at+new Vector2(r*.3f,-r*.25f),r*.62f,new Color(p.Tint,(1-t)*.22f));
+                    DrawRect(new Rect2(at.Round(),Vector2.One*Math.Max(1,MathF.Round(r))),new Color(p.Tint,(1-t)*.30f));
+                    DrawRect(new Rect2((at+new Vector2(r*.3f,-r*.25f)).Round(),Vector2.One*Math.Max(1,MathF.Round(r*.62f))),new Color(p.Tint,(1-t)*.22f));
                     break;
                 }
                 case KindSpark:
@@ -671,7 +619,6 @@ public partial class WorldMap
     }
     private void DrawAmbient()
     {
-        DrawWindowLights();
         DrawParticles();
         DrawBirds();
     }

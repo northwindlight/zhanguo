@@ -35,8 +35,10 @@ public partial class WorldMap : Control
     public int ArtworkPasses => _artwork.DrawPasses;
     public int SurfaceCount => _artwork.SurfaceCount;
     public int StructureCount => _layout?.Regions.Sum(r=>r.Structures.Sum(s=>s.Count)) ?? 0;
-    public string ArtworkMode => "regional-landscape";
+    public string ArtworkMode => "unified-pixel-world";
     public float Zoom => _scale;
+    public int MountainCells=>_artwork.PixelMountainCells;
+    public int WaterCells=>_artwork.PixelWaterCells;
     public int TownSceneryCount=>_layout?.Regions.Sum(r=>r.TownLots.Count)??0;
     public int TownHallCount=>_layout?.Regions.SelectMany(r=>r.Structures).Count(s=>s.Art.EndsWith("town-hall",StringComparison.Ordinal))??0;
     public int OilPatchCount=>_layout?.Regions.Sum(r=>r.OilPatches.Count)??0;
@@ -48,7 +50,7 @@ public partial class WorldMap : Control
         MouseFilter = MouseFilterEnum.Stop;
         TextureFilter = TextureFilterEnum.Nearest;
         _font = GetThemeFont("font", "Label");
-        var background=new ColorRect { Color=new Color("234f5a"),ZIndex=-2,MouseFilter=MouseFilterEnum.Ignore };
+        var background=new ColorRect { Color=new Color("365b80"),ZIndex=-2,MouseFilter=MouseFilterEnum.Ignore };
         background.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);AddChild(background);
         _artwork=new RegionArtwork { ZIndex=-1,LabelFont=_font };AddChild(_artwork);
         Resized += () => { if (_fit) Fit(); };

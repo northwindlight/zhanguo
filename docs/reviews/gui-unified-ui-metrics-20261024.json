@@ -1,0 +1,221 @@
+[
+  {
+    "width": 1440,
+    "height": 900,
+    "inside": true,
+    "portrait_aspect_preserved": true,
+    "real_portrait": true,
+    "delta_immediate": true,
+    "speaker_reset": true,
+    "retry_reset": true
+  },
+  {
+    "width": 1280,
+    "height": 720,
+    "inside": true,
+    "portrait_aspect_preserved": true,
+    "real_portrait": true,
+    "delta_immediate": true,
+    "speaker_reset": true,
+    "retry_reset": true
+  },
+  {
+    "width": 1024,
+    "height": 768,
+    "inside": true,
+    "portrait_aspect_preserved": true,
+    "real_portrait": true,
+    "delta_immediate": true,
+    "speaker_reset": true,
+    "retry_reset": true
+  },
+  {
+    "model": "deepseek",
+    "width": 1440,
+    "height": 900,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "qwen",
+    "width": 1440,
+    "height": 900,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "kimi",
+    "width": 1440,
+    "height": 900,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "gemini",
+    "width": 1440,
+    "height": 900,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "gpt",
+    "width": 1440,
+    "height": 900,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "claude",
+    "width": 1440,
+    "height": 900,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "grok",
+    "width": 1440,
+    "height": 900,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "deepseek",
+    "width": 1280,
+    "height": 720,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "qwen",
+    "width": 1280,
+    "height": 720,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "kimi",
+    "width": 1280,
+    "height": 720,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "gemini",
+    "width": 1280,
+    "height": 720,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "gpt",
+    "width": 1280,
+    "height": 720,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "claude",
+    "width": 1280,
+    "height": 720,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "grok",
+    "width": 1280,
+    "height": 720,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "deepseek",
+    "width": 1024,
+    "height": 768,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "qwen",
+    "width": 1024,
+    "height": 768,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "kimi",
+    "width": 1024,
+    "height": 768,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "gemini",
+    "width": 1024,
+    "height": 768,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "gpt",
+    "width": 1024,
+    "height": 768,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "claude",
+    "width": 1024,
+    "height": 768,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  },
+  {
+    "model": "grok",
+    "width": 1024,
+    "height": 768,
+    "real_portrait": true,
+    "half_body": true,
+    "inside": true,
+    "correct_asset": true
+  }
+]

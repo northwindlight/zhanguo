@@ -21,7 +21,7 @@ static class WorldChecks
                 foreach(var kind in new[]{"native:town-hall","native:farm","native:gold-mine"})buildings.Add(new JsonArray(kind,1));
             tiles.Add(new JsonObject { ["position"]=new JsonArray(x,y),["name"]=$"r{x}-{y}",["terrain"]="native:"+terrain,
                 ["passable"]=terrain is not "ocean" and not "high-mountain",["buildings"]=buildings,
-                ["resources"]=new JsonArray(new JsonArray("native:wood",terrain=="forest"?5:0),new JsonArray("native:gold",terrain=="mountain"?2:0),new JsonArray("native:oil",x==2&&y==2?.4:0)) });
+                ["resources"]=new JsonArray(new JsonArray("native:wood",terrain=="forest"?5:0),new JsonArray("native:gold",terrain=="mountain"?2:0),new JsonArray("native:ore",x==2&&y==2?.7:0),new JsonArray("native:oil",x==2&&y==2?.4:0)) });
         }
         var frame=new JsonObject { ["map_seed"]=20261023,["tiles"]=tiles };
         var input=WorldLayoutProjection.FromFrame(frame);var layout=new RegionLayout(input);
@@ -32,6 +32,15 @@ static class WorldChecks
         Require(civic.Bounds.Width>=48&&RegionLayout.StructureVisualBounds(civic).Height>=60,"civic hall did not become larger and taller");
         Require(capital.TownLots.Count>=4&&capital.Plaza!=null,"capital has no town scenery or civic square");
         Require(capital.Input.Oil>0&&capital.OilPatches.Count>0,"real oil abundance has no surface bitumen");
+        Require(capital.Input.Ore>0&&capital.Iron.Count>0,"real ore abundance has no iron deposit markers");
+        Require(layout.Regions.Where(r=>r.Input.Ore==0).All(r=>r.Iron.Count==0),"iron invented on a zero-ore tile");
+        foreach(var iron in capital.Iron)
+        {
+            var bounds=RegionLayout.RockBounds(iron);
+            Require(!capital.Gold.Any(g=>RegionLayout.GoldBounds(g).Overlaps(bounds,2))&&!capital.Rocks.Any(g=>RegionLayout.RockBounds(g).Overlaps(bounds,2)),"iron marker covers gold or stone");
+            Require(!capital.Structures.Any(s=>s.Bounds.Overlaps(bounds,2))&&!capital.OilPatches.Any(p=>p.Overlaps(bounds,2)),"iron marker covers buildings or bitumen");
+            Require(!capital.People.Any(p=>new Footprint(p.X-3,p.Y-8,6,8).Overlaps(bounds,2)),"resident spawned inside iron deposit");
+        }
         Require(layout.Regions.Where(r=>r.Input.Oil==0).All(r=>r.OilPatches.Count==0),"bitumen invented on a zero-oil tile");
         foreach(var patch in capital.OilPatches)
         {

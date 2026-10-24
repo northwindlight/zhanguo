@@ -1,6 +1,6 @@
 {
   "format": "zhanguo.art-study/1",
-  "status": "study-not-connected",
+  "status": "connected-desktop",
   "license": "MPL-2.0",
   "authoring": "Original SVG components authored for Zhanguo; no extracted or copied game art",
   "renderer": "librsvg / Cairo",
@@ -3804,5 +3804,15 @@
       "common_body_height": 10,
       "national_color": "red_dark / red / red_light"
     }
-  ]
+  ],
+  "runtime": {
+    "atlas": "atlas.png",
+    "renderer": "Godot RegionArtwork / WorldMap",
+    "world_pixel_scale": 1,
+    "pixel_font": "fusion-pixel-12px-monospaced-zh_hans.ttf",
+    "water_fps": 4,
+    "oak_fps": 6,
+    "actor_actions": "idle / walk / act",
+    "palette": "civilian cloth slots; soldier shield / saddle slots"
+  }
 }

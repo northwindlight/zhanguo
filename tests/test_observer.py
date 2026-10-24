@@ -344,12 +344,14 @@ class TestObserver(unittest.TestCase):
             self.assertEqual(ui.preview(full,action=action),full)
         self.assertIn('完整内容见日志',ui.preview(full,action='player_rules'))
         with tempfile.TemporaryDirectory() as d,contextlib.redirect_stdout(io.StringIO()) as out:
-            # 默认摘要模式：终端只留思考第一行，全文仍然进日志。
+            # 默认摘要模式：终端只留第一行，完整思考进入独立文件。
             obs=Observer(h,Path(d)/'journal.md');obs.model_output('💭 s:q 静默保留思考\n第二行细节')
             self.assertIn('静默保留思考',out.getvalue())
             self.assertNotIn('第二行细节',out.getvalue())
             obs.pending={'s:q':[('player_rules',{},receipt)]};obs.flush('s:q')
-            log=obs.path.read_text(encoding='utf-8');self.assertIn(full,log);self.assertIn('静默保留思考',log)
+            log=obs.path.read_text(encoding='utf-8');self.assertIn(full,log);self.assertNotIn('静默保留思考',log)
+            thoughts=obs.thoughts.read_text(encoding='utf-8')
+            self.assertIn('静默保留思考',thoughts);self.assertIn('第二行细节',thoughts)
             self.assertLess(out.getvalue().count('回执全文'),500)
 
     def test_complete_building_returns_have_no_site_parameter_or_construction_eligibility(self):

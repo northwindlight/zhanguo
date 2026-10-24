@@ -1073,8 +1073,11 @@ def atlas_and_manifest(renderer):
                             sha256={"svg":hashlib.sha256(svg.read_bytes()).hexdigest(),"png":hashlib.sha256(png.read_bytes()).hexdigest()},**a.meta))
         x+=image.width+4;row_height=max(row_height,image.height)
     atlas.save(ART/"atlas.png",optimize=True)
-    manifest=dict(format="zhanguo.art-study/1",status="study-not-connected",license="MPL-2.0",
+    manifest=dict(format="zhanguo.art-study/1",status="connected-desktop",license="MPL-2.0",
                   authoring="Original SVG components authored for Zhanguo; no extracted or copied game art",
+                  runtime={"atlas":"atlas.png","renderer":"Godot RegionArtwork / WorldMap","world_pixel_scale":1,
+                           "pixel_font":"fusion-pixel-12px-monospaced-zh_hans.ttf","water_fps":4,"oak_fps":6,
+                           "actor_actions":"idle / walk / act","palette":"civilian cloth slots; soldier shield / saddle slots"},
                   renderer=renderer.backend,tile_size=16,height_step=8,filter="nearest",light="upper-left",
                   palette=P,atlas={"file":"atlas.png","size":[1024,1024],"padding":2},assets=records)
     (ART/"manifest.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")

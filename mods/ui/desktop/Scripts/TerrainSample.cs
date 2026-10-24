@@ -60,11 +60,7 @@ public partial class TerrainSample : Control
 
     private void Setup()
     {
-        Theme = new Theme
-        {
-            DefaultFontSize = 15,
-            DefaultFont = new SystemFont { FontNames = new[] { "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", "sans-serif" } }
-        };
+        Theme=PixelTheme.Create(18);
         _map = new RegionMap();
         _map.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         _map.OffsetTop = 62; _map.OffsetBottom = -58;
@@ -233,7 +229,7 @@ public partial class TerrainSample : Control
         File.WriteAllText(_capture + ".json", JsonSerializer.Serialize(new
         {
             sample = "terrain-v2", fixture_sha256 = _fixtureHashes, layout_version = _showcase.Input.LayoutVersion,
-            seed = _showcase.Input.Seed, region_pixels = 256, visual_cells = 16, figure_pixels = new[] { 6, 8 },
+            seed = _showcase.Input.Seed, region_pixels = 256, visual_cells = 16, figure_cell_pixels = new[] { 16, 16 }, body_height_pixels = 10,
             showcase = LayoutSummary(_showcase), neighbors = LayoutSummary(_neighbors),
             active_fixture = ReferenceEquals(_layout, _neighbors) ? "terrain-neighbors-v2" : "terrain-v2",
             platform = OS.GetName(), renderer = RenderingServer.GetVideoAdapterName(),

@@ -40,6 +40,7 @@ public sealed class RegionInput
     public int Wood { get; set; }
     public int Gold { get; set; }
     public int Oil { get; set; }
+    public int Ore { get; set; }
     public int People { get; set; }
     public string OwnerColor { get; set; }="";
     public List<BuildingInput> Buildings { get; set; } = new();
@@ -73,6 +74,7 @@ public sealed class RegionPlan
     public List<Tree> Trees { get; } = new();
     public List<Point> People { get; } = new();
     public List<Point> Gold { get; } = new();
+    public List<Point> Iron { get; } = new();
     public List<Point> Rocks { get; } = new();
     public List<Footprint> Outcrops { get; } = new();
     public Footprint? CivicArea { get; set; }
@@ -99,7 +101,7 @@ public sealed class RegionLayout
         Width = input.Regions.Max(r => r.X) + 1;
         Height = input.Regions.Max(r => r.Y) + 1;
         GeometryKey = $"{input.Seed}/{input.LayoutVersion}/{input.LiveWorld}/" + string.Join(";",
-            input.Regions.OrderBy(r=>r.Y).ThenBy(r=>r.X).Select(r=>$"{r.X},{r.Y},{r.Terrain},{r.Passable},{r.Wood},{r.Gold},{r.Oil}"));
+            input.Regions.OrderBy(r=>r.Y).ThenBy(r=>r.X).Select(r=>$"{r.X},{r.Y},{r.Terrain},{r.Passable},{r.Wood},{r.Gold},{r.Oil},{r.Ore}"));
         var reusable = previous?.GeometryKey == GeometryKey
             ? previous.Regions.ToDictionary(r=>(r.Input.X,r.Input.Y)) : new Dictionary<(int,int),RegionPlan>();
         Regions = input.Regions.OrderBy(r => r.Y).ThenBy(r => r.X).Select(r =>
@@ -199,7 +201,7 @@ public sealed class RegionLayout
         return density;
     }
 
-    private Point TreeCandidate(int x, int y) => new((x + Noise(x, y, 50)) * 12, (y + Noise(x, y, 51)) * 12);
+    private Point TreeCandidate(int x, int y) => new((x + Noise(x, y, 50)) * 16, (y + Noise(x, y, 51)) * 16);
 
     private bool SpacedCandidate(int x, int y, Point p)
     {
@@ -211,7 +213,7 @@ public sealed class RegionLayout
                 uint other = Hash(nx, ny, 52);
                 if (other > priority || (other == priority && (ny > y || (ny == y && nx > x)))) continue;
                 var q = TreeCandidate(nx, ny);
-                if ((p.X - q.X) * (p.X - q.X) + (p.Y - q.Y) * (p.Y - q.Y) < 81) return false;
+                if ((p.X - q.X) * (p.X - q.X) + (p.Y - q.Y) * (p.Y - q.Y) < 256) return false;
             }
         return true;
     }
@@ -245,8 +247,8 @@ public sealed class RegionLayout
         foreach (var b in r.Buildings.OrderBy(b=>Hall(b)?0:1).ThenBy(b => b.Id, StringComparer.Ordinal))
         {
             bool hall=Hall(b);
-            float w = hall?56:b.Kind == "farm" ? 24 : b.Kind == "mine" ? 22 : 16;
-            float h = hall?40:b.Kind == "farm" ? 18 : 16;
+            float w = hall?64:b.Art.Contains("factory")||b.Art.Contains("power-plant")?48:32;
+            float h = hall?48:32;
             Footprint? found = previous?.Structures.FirstOrDefault(s=>s.Id==b.Id)?.Bounds;
             if(found is Footprint oldBounds && (oldBounds.Width!=w||oldBounds.Height!=h||!CanBuild(r,oldBounds)||plan.Structures.Any(s=>s.Bounds.Overlaps(oldBounds,7))||!hall&&plan.CivicArea?.Overlaps(oldBounds,4)==true))found=null;
             foreach (var p in candidates)
@@ -282,7 +284,7 @@ public sealed class RegionLayout
             foreach(var point in lots)
             {
                 if(plan.TownLots.Count>=8)break;
-                var f=new Footprint(point.X,point.Y,16,18);
+                var f=new Footprint(point.X,point.Y,32,32);
                 if(CanBuild(r,f)&&plan.CivicArea?.Overlaps(f,5)!=true&&!plan.Structures.Any(s=>s.Bounds.Overlaps(f,5))&&!plan.TownLots.Any(l=>l.Bounds.Overlaps(f,8)))
                     plan.TownLots.Add(new TownLot(f,(int)(Hash((int)point.X+r.X*256,(int)point.Y+r.Y*256,96)%3),plan.TownLots.Count%4==0?"stall":"house"));
             }
@@ -297,19 +299,29 @@ public sealed class RegionLayout
                 var goldBox=GoldBounds(foot);
                 if (r.Gold > 0 && Noise(gx, gy, 6) < r.Gold / 100f * .13f && elevation > .2f &&
                     goldBox.X>=2&&goldBox.Y>=2&&goldBox.X+goldBox.Width<=254&&goldBox.Y+goldBox.Height<=254&&
-                    !Occupied(goldBox)&&!plan.Gold.Any(g=>GoldBounds(g).Overlaps(goldBox,2)))
+                    !Occupied(goldBox)&&!Occupied(ResourceVisualBounds(r,foot))&&!plan.Gold.Any(g=>GoldBounds(g).Overlaps(goldBox,2)||ResourceVisualBounds(r,g).Overlaps(ResourceVisualBounds(r,foot),2)))
                     plan.Gold.Add(foot);
                 var rockBox=RockBounds(foot);
                 if (elevation > .25f && Noise(gx, gy, 8) < .12f &&rockBox.X>=2&&rockBox.Y>=2&&rockBox.X+rockBox.Width<=254&&rockBox.Y+rockBox.Height<=254&&
-                    !Occupied(RockBounds(foot))) plan.Rocks.Add(foot);
+                    !Occupied(RockBounds(foot))&&!Occupied(ResourceVisualBounds(r,foot))) plan.Rocks.Add(foot);
             }
         // Gold-bearing outcrops are distinct deposits. Decorative stones may
         // share the same candidate point, but must never cover their glyphs.
-        plan.Rocks.RemoveAll(p=>plan.Gold.Any(g=>GoldBounds(g).Overlaps(RockBounds(p),3)));
+        plan.Rocks.RemoveAll(p=>plan.Gold.Any(g=>(GoldBounds(g).Overlaps(RockBounds(p),3)||ResourceVisualBounds(r,g).Overlaps(ResourceVisualBounds(r,p),3))));
+        foreach(var p in candidates.OrderBy(p=>Hash((int)p.X+r.X*256,(int)p.Y+r.Y*256,305)))
+        {
+            if(plan.Iron.Count>=(r.Ore>0?1+r.Ore/30:0))break;
+            var f=RockBounds(p);
+            if(!CanBuild(r,f)||Occupied(ResourceVisualBounds(r,p)))continue;
+            if(Water(r.X*256+p.X,r.Y*256+p.Y)>.15f||Occupied(f)||plan.Gold.Any(g=>GoldBounds(g).Overlaps(f,3))||
+                plan.Rocks.Any(g=>RockBounds(g).Overlaps(f,3))||
+                plan.Gold.Concat(plan.Rocks).Concat(plan.Iron).Any(g=>ResourceVisualBounds(r,g).Overlaps(ResourceVisualBounds(r,p),3))||plan.Iron.Any(g=>RockBounds(g).Overlaps(f,12)))continue;
+            plan.Iron.Add(p);
+        }
         // Globally jittered, spaced candidates; acceptance depends on resource
         // density, but candidate positions/priorities never depend on abundance.
-        for (int gy = (int)MathF.Floor(r.Y * 256 / 12f); gy < (int)MathF.Ceiling((r.Y + 1) * 256 / 12f); gy++)
-            for (int gx = (int)MathF.Floor(r.X * 256 / 12f); gx < (int)MathF.Ceiling((r.X + 1) * 256 / 12f); gx++)
+        for (int gy = (int)MathF.Floor(r.Y * 256 / 16f); gy < (int)MathF.Ceiling((r.Y + 1) * 256 / 16f); gy++)
+            for (int gx = (int)MathF.Floor(r.X * 256 / 16f); gx < (int)MathF.Ceiling((r.X + 1) * 256 / 16f); gx++)
             {
                 var world = TreeCandidate(gx, gy);
                 var foot = new Point(world.X - r.X * 256, world.Y - r.Y * 256);
@@ -317,8 +329,9 @@ public sealed class RegionLayout
                 float clump = .22f + .95f * ValueNoise(world.X / 64, world.Y / 64, 53);
                 float density = WoodDensity(world.X, world.Y) * (r.Terrain == "forest" ? .90f : .38f) * clump;
                 if (Noise(gx, gy, 54) < density && Elevation(world.X, world.Y) < .25f && Water(world.X,world.Y)<.15f &&
-                    !Occupied(new Footprint(foot.X - 8, foot.Y - 15,16,16))&&
-                    !plan.Gold.Any(g=>GoldBounds(g).Overlaps(new Footprint(foot.X-8,foot.Y-15,16,16),2)))
+                    !Occupied(TreeBounds(foot))&&
+                    !plan.Gold.Any(g=>GoldBounds(g).Overlaps(TreeBounds(foot),2))&&!plan.Iron.Any(g=>RockBounds(g).Overlaps(TreeBounds(foot),2))&&
+                    !plan.Gold.Concat(plan.Iron).Any(g=>ResourceVisualBounds(r,g).Overlaps(TreeBounds(foot),2)))
                 {
                     bool pine = Hash(gx, gy, 55) % 3 == 0;
                     // Pine sheet: column 0 is a stump, 1 is green, 2 is snow.
@@ -335,7 +348,7 @@ public sealed class RegionLayout
                     for (float px = f.X; px <= f.X + f.Width; px += 4)
                         if (Elevation(r.X * 256 + px, r.Y * 256 + py) < .30f) rock = false;
                 if (rock && plan.Outcrops.Count < 3 && !Occupied(f)&&!plan.Outcrops.Any(other => other.Overlaps(f, 8))&&
-                    !plan.Gold.Any(g=>GoldBounds(g).Overlaps(f,3))) plan.Outcrops.Add(f);
+                    !plan.Gold.Any(g=>GoldBounds(g).Overlaps(f,3))&&!plan.Iron.Any(g=>RockBounds(g).Overlaps(f,3))) plan.Outcrops.Add(f);
             }
         if(r.Oil>0)
             foreach(var point in candidates.OrderBy(p=>Hash((int)p.X+r.X*256,(int)p.Y+r.Y*256,98)))
@@ -343,8 +356,9 @@ public sealed class RegionLayout
                 if(plan.OilPatches.Count>=1+r.Oil/25)break;
                 var f=new Footprint(point.X,point.Y,16+r.Oil/10f,11+r.Oil/16f);
                 if(CanBuild(r,f)&&!Occupied(f,4)&&!plan.Gold.Any(g=>GoldBounds(g).Overlaps(f,4))&&
+                    !plan.Iron.Any(g=>RockBounds(g).Overlaps(f,3))&&!plan.Gold.Concat(plan.Iron).Any(g=>ResourceVisualBounds(r,g).Overlaps(f,3))&&
                     !plan.Rocks.Any(p=>RockBounds(p).Overlaps(f,3))&&!plan.Outcrops.Any(p=>p.Overlaps(f,3))&&
-                    !plan.Trees.Any(t=>new Footprint(t.Foot.X-8,t.Foot.Y-16,16,16).Overlaps(f,3))&&!plan.OilPatches.Any(p=>p.Overlaps(f,12)))
+                    !plan.Trees.Any(t=>TreeBounds(t.Foot).Overlaps(f,3))&&!plan.OilPatches.Any(p=>p.Overlaps(f,12)))
                     plan.OilPatches.Add(f);
             }
         var peopleCandidates = civicHall==null?candidates.OrderBy(p => (double)Hash((int)p.X + r.X * 256, (int)p.Y + r.Y * 256, 7)):
@@ -353,15 +367,30 @@ public sealed class RegionLayout
         {
             if (plan.People.Count >= r.People) break;
             var body = new Footprint(p.X - 3, p.Y - 8, 6, 8);
-            if (CanBuild(r, body) && !plan.Structures.Any(s => StructureVisualBounds(s).Overlaps(body, 4))&& !plan.TownLots.Any(l=>l.Bounds.Overlaps(body,3))&&!plan.OilPatches.Any(p=>p.Overlaps(body,3)) &&
-                !plan.Trees.Any(t => new Footprint(t.Foot.X - 8, t.Foot.Y - 16, 16, 16).Overlaps(body, 2)) &&
+            if (CanBuild(r, body) && !plan.Structures.Any(s => StructureVisualBounds(s).Overlaps(body, 4))&& !plan.TownLots.Any(l=>TownVisualBounds(l).Overlaps(body,3))&&!plan.OilPatches.Any(p=>p.Overlaps(body,3)) &&
+                !plan.Gold.Any(g=>GoldBounds(g).Overlaps(body,2))&&!plan.Iron.Any(g=>RockBounds(g).Overlaps(body,2))&&
+                !plan.Gold.Concat(plan.Iron).Any(g=>ResourceVisualBounds(r,g).Overlaps(body,2))&&
+                !plan.Trees.Any(t => TreeBounds(t.Foot).Overlaps(body, 2)) &&
                 !plan.Rocks.Any(p => new Footprint(p.X - 8, p.Y - 16, 16, 16).Overlaps(body, 2))) plan.People.Add(p);
         }
         if (plan.People.Count != r.People && !Input.LiveWorld) throw new InvalidDataException($"样板 {r.Name} 缺少人物空地");
         return plan;
     }
-    public static Footprint GoldBounds(Point p)=>new(p.X-7,p.Y-8,14,10);
-    public static Footprint RockBounds(Point p)=>new(p.X-8,p.Y-16,16,16);
-    public static Footprint StructureVisualBounds(Structure s)=>s.Art.EndsWith("town-hall",StringComparison.Ordinal)&&s.Bounds.Width>16?
-        new Footprint(s.Bounds.X-4,s.Bounds.Y-24,64,64):s.Bounds;
+    public Point DepositPoint(Point world)
+    {
+        float x=MathF.Floor(world.X/16)*16+8,y=MathF.Floor(world.Y/16)*16+8;
+        int level=PixelTerrain.HeightTier(Elevation(x,y),Water(x,y)>.15f?1:0);
+        return new Point(world.X,world.Y-level*8);
+    }
+    public Footprint ResourceVisualBounds(RegionInput region,Point local)
+    {
+        var projected=DepositPoint(new Point(region.X*256+local.X,region.Y*256+local.Y));
+        return RockBounds(new Point(projected.X-region.X*256,projected.Y-region.Y*256));
+    }
+    public static Footprint GoldBounds(Point p)=>new(p.X-8,p.Y-14,16,16);
+    public static Footprint RockBounds(Point p)=>new(p.X-8,p.Y-14,16,16);
+    public static Footprint TreeBounds(Point p)=>new(p.X-16,p.Y-46,32,48);
+    public static Footprint TownVisualBounds(TownLot l)=>new(l.Bounds.X-8,l.Bounds.Y-16,l.Bounds.Width+16,l.Bounds.Height+24);
+    public static Footprint StructureVisualBounds(Structure s)=>s.Bounds.Width>=32?
+        new Footprint(s.Bounds.X-8,s.Bounds.Y-(s.Art.EndsWith("town-hall",StringComparison.Ordinal)?24:16),s.Bounds.Width+16,s.Bounds.Height+(s.Art.EndsWith("town-hall",StringComparison.Ordinal)?32:24)):s.Bounds;
 }

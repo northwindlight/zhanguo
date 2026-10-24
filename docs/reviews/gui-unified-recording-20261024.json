@@ -1,0 +1,17 @@
+{
+  "programs": [],
+  "stream_groups": [],
+  "streams": [
+    {
+      "width": 1440,
+      "height": 900,
+      "nb_frames": "640"
+    }
+  ],
+  "format": {
+    "duration": "32.000000"
+  },
+  "capture_trigger": "first_natural_battle",
+  "sha256": "566d7386851db770ce23109cf0a33c8a618ce5cf92188aa3f48e1275c779065f",
+  "file_bytes": 7425057
+}

@@ -16,6 +16,7 @@ public partial class Desktop
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var input=OS.GetEnvironment("ZHANGUO_ACTOR_REVIEW_INPUT");
             var data=JsonNode.Parse(File.ReadAllText(input))!.AsObject();
+            VerifyUnifiedArt();
             string stem=Path.ChangeExtension(path,null);
             _bubbles.HideAll();_status.Text="独立离线士兵样例 · 非默认开局";
             _map.SetFrame(data["camp"]!.DeepClone().AsObject());
@@ -39,6 +40,8 @@ public partial class Desktop
             await ToSignal(GetTree().CreateTimer(1.4),SceneTreeTimer.SignalName.Timeout);
             if(_map.TownSceneryCount==0||_map.TownHallCount==0)throw new Exception("市政厅城镇装饰未显示");
             await Screenshot(stem+"-town.png");
+            await ToSignal(GetTree().CreateTimer(.55),SceneTreeTimer.SignalName.Timeout);
+            await Screenshot(stem+"-town-motion.png");
             var oil=_map.Frame!["tiles"]!.AsArray().First(t=>t!["passable"]?.GetValue<bool>()==true&&t["resources"]!.AsArray().Any(r=>r![0]!.ToString()=="native:oil"&&WorldMap.F(r[1])>0));
             _bannerTitle.Text="油区地表 · 沥青渗出";_bannerText.Text="深色渗油斑来自当前地块的实际石油资源丰度。";
             _map.BeginBeat(new JsonObject { ["phase"]="production",["position"]=oil!["position"]!.DeepClone(),["duration"]=1,["delta"]=new JsonObject() },true);
@@ -90,9 +93,36 @@ public partial class Desktop
             _map.BeginBeat(data["casualties"]!.DeepClone().AsObject(),true);_map.BeatProgress(.35f);
             await ToSignal(GetTree().CreateTimer(.6),SceneTreeTimer.SignalName.Timeout);
             await Screenshot(stem+"-casualties.png");
-            File.WriteAllText(path+".json",JsonSerializer.Serialize(new { camp_labels=campLabels,resource_labels=boxes.Length,resource_overlap=false,rule_speed=16,llm_speed=1,settlement_speed=16,actual_battle_hp=true,figures=_map.VisibleSoldiers,bars=_map.VisibleSquadBars,town_halls=_map.TownHallCount,town_scenery=_map.TownSceneryCount,oil_patches=_map.OilPatchCount },new JsonSerializerOptions { WriteIndented=true }));
+            File.WriteAllText(path+".json",JsonSerializer.Serialize(new { artwork=_map.ArtworkMode,pixel_font=PixelTheme.FontPath,precise_palette=true,animated_oak=true,animated_water=true,actor_roles=6,actor_palettes=UnifiedArt.ActorCacheCount,mountain_cells=_map.MountainCells,water_cells=_map.WaterCells,camp_labels=campLabels,resource_labels=boxes.Length,resource_overlap=false,rule_speed=16,llm_speed=1,settlement_speed=16,actual_battle_hp=true,figures=_map.VisibleSoldiers,bars=_map.VisibleSquadBars,town_halls=_map.TownHallCount,town_scenery=_map.TownSceneryCount,oil_patches=_map.OilPatchCount },new JsonSerializerOptions { WriteIndented=true }));
             GD.Print("ACTOR_REVIEW_OK "+path);GetTree().Quit();
         }
         catch(Exception e){_playingBeat=null;_playbackPaused=true;GD.PrintErr(e);GetTree().Quit(3);}
+    }
+
+    private void VerifyUnifiedArt()
+    {
+        if(Theme.DefaultFont is not FontFile font||font.Antialiasing!=TextServer.FontAntialiasing.None)
+            throw new Exception("像素字体未实际加载");
+        using var atlas=UnifiedArt.Atlas.GetImage();
+        var source=UnifiedArt.Get("actor-sword");
+        using var recolored=UnifiedArt.Actor("sword",new Color("5acdeb")).GetImage();
+        int cloth=0,skin=0;
+        for(int y=0;y<recolored.GetHeight();y++)for(int x=0;x<recolored.GetWidth();x++)
+        {
+            var before=atlas.GetPixel(source.Rect.Position.X+x,source.Rect.Position.Y+y);
+            var after=recolored.GetPixel(x,y);
+            if(before.IsEqualApprox(new Color("824d43")))
+            {
+                cloth++;var expected=new Color("5acdeb").Darkened(.28f);
+                if(Math.Max(Math.Max(Math.Abs(after.R-expected.R),Math.Abs(after.G-expected.G)),Math.Abs(after.B-expected.B))>1.01f/255)
+                    throw new Exception($"国色色槽错误：{after.ToHtml()} / {expected.ToHtml()}");
+            }
+            else if(before.IsEqualApprox(new Color("d0a579")))
+            {
+                skin++;if(!before.IsEqualApprox(after))throw new Exception("国色污染了人物肤色");
+            }
+        }
+        if(cloth==0||skin==0)throw new Exception("人物替色检查未覆盖实际衣服和皮肤");
+        GD.Print("UNIFIED_ART_OK: imported pixel font, source atlas, precise cloth palette and unchanged skin");
     }
 }

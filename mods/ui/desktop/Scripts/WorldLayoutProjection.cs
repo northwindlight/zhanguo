@@ -24,6 +24,7 @@ public static class WorldLayoutProjection
                 Passable=tile["passable"]?.GetValue<bool>()??(terrain is not "ocean" and not "high-mountain"),
                 Wood=(int)Math.Clamp(resources.GetValueOrDefault("native:wood")*20,0,100),
                 Gold=(int)Math.Clamp(resources.GetValueOrDefault("native:gold")*50,0,100),
+                Ore=resources.GetValueOrDefault("native:ore")>0?(int)Math.Clamp(Math.Ceiling(resources["native:ore"]*50),1,100):0,
                 Oil=resources.GetValueOrDefault("native:oil")>0?(int)Math.Clamp(Math.Ceiling(resources["native:oil"]*50),1,100):0,
                 OwnerColor=colors.GetValueOrDefault(tile["owner"]?.ToString()??"","") };
             var counts=new Dictionary<string,int>();

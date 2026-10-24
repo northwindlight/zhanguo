@@ -201,7 +201,7 @@ public partial class MainMenu : Control
         _nations.Add(draft);
         var card=new PanelContainer();
         var cardStyle=new StyleBoxFlat { BgColor=new Color("1b2b2c"),ContentMarginLeft=12,ContentMarginRight=12,ContentMarginTop=10,ContentMarginBottom=10 };
-        cardStyle.SetCornerRadiusAll(6);card.AddThemeStyleboxOverride("panel",cardStyle);
+        cardStyle.SetCornerRadiusAll(0);card.AddThemeStyleboxOverride("panel",cardStyle);
         var stack=new VBoxContainer();stack.AddThemeConstantOverride("separation",8);card.AddChild(stack);
         var row = new HBoxContainer(); stack.AddChild(row);
         row.AddThemeConstantOverride("separation", 8);

@@ -1,0 +1,36 @@
+{
+  "artwork": "unified-pixel-world",
+  "pixel_font": "res://assets/fonts/fusion-pixel-12px-monospaced-zh_hans.ttf",
+  "precise_palette": true,
+  "animated_oak": true,
+  "animated_water": true,
+  "actor_roles": 6,
+  "actor_palettes": 12,
+  "mountain_cells": 19359,
+  "water_cells": 52502,
+  "camp_labels": [
+    "秦 ♥ 200/200\n盾 -10% 地块防御\n骑兵×2",
+    "秦 ♥ 200/200\n盾 -10% 地块防御\n步×2"
+  ],
+  "resource_labels": 4,
+  "resource_overlap": false,
+  "rule_speed": 16,
+  "llm_speed": 1,
+  "settlement_speed": 16,
+  "actual_battle_hp": true,
+  "figures": 48,
+  "bars": 2,
+  "town_halls": 8,
+  "town_scenery": 64,
+  "oil_patches": 246,
+  "runtime_motion_comparison": {
+    "water_crop": [
+      12,
+      260,
+      120,
+      800
+    ],
+    "changed_pixels": 1856,
+    "nominal_delay_seconds": 0.55
+  }
+}

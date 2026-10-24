@@ -13,7 +13,7 @@ dest_files=["res://.godot/imported/fusion-pixel-10px-monospaced-zh_hans.ttf-1d78
 [params]
 
 Rendering=null
-antialiasing=1
+antialiasing=0
 generate_mipmaps=false
 disable_embedded_bitmaps=true
 multichannel_signed_distance_field=false
@@ -23,9 +23,9 @@ allow_system_fallback=true
 force_autohinter=false
 modulate_color_glyphs=false
 hinting=3
-subpixel_positioning=4
+subpixel_positioning=0
 keep_rounding_remainders=true
-oversampling=0.0
+oversampling=1.0
 Fallbacks=null
 fallbacks=[]
 Compress=null
