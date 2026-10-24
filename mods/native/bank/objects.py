@@ -151,7 +151,7 @@ class Bank:
         if owner in self._loans:raise ValueError('你已有一笔贷款未还清：还清前不能再向央行借款')
         cash = self._cash(owner)
         if fee and cash < fee:raise ValueError(
-            f'现金不足以支付借款手续费：需 {fee} 金，现有 {cash} 金；先卖资源使现金≥{fee}，'
+            f'现金不足以支付借款手续费：需 {fee} 金，现有 {cash} 金，还差 {fee-cash} 金；先卖资源使现金≥{fee}，'
             f'或用 query(panel=quote, action=borrow) 先看')
         principal = self.credit_limit(owner)
         if principal is None:raise ValueError('最近一期报表的 GDP 未能全额估值，授信额度算不出来：先补齐缺项（见 report 与 econ）再借')
@@ -185,7 +185,7 @@ class Bank:
                     f'你已买过 {target} 第 {report.end} 期报表；报表每 10 期发布一期，'
                     f'同一期重复购买拿到的仍是同一份报表，等下一期发布后再买')
         fee = self.policy.report_fee
-        if fee and cash < fee:raise ValueError(f'现金不足以购买报表：需 {fee} 金，现有 {cash} 金')
+        if fee and cash < fee:raise ValueError(f'现金不足以购买报表：需 {fee} 金，现有 {cash} 金，还差 {fee-cash} 金；先卖资源或等下期收入')
         receipt = ReportPurchase(buyer,self.next_period,fee,reports[-1])
         self._call('native:bank-cash','adjust',self.policy.currency,{buyer:-fee})
         # Each buyer keeps a bounded purchase history; same-report repeats are rejected above.

@@ -171,7 +171,7 @@ class ArmyAPI:
         x, y = self.where(place, x, y)
         call(world, 'native:territory', 'check', x, y)
         if not call(world, 'native:vision', 'visible', actor, x, y):
-            raise ValueError('该格在迷雾中，无法查询')
+            raise ValueError('该格在迷雾中，无法查询；要看得见可建瞭望塔（60 金 30 木，视野半径 4 格）或推进视野后再查')
         fact = call(world, 'native:territory', 'cell', x, y)
         snap = call(world, 'native:buildings', 'snapshot')
         full = fact.owner == actor or fact.owner is None and any(b.site == fact.tile.id for b in snap.instances)
