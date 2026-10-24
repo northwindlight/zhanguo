@@ -6,7 +6,8 @@ Members = ["mods/clock.toml", "mods/market.toml", "mods/portfolio.toml", "mods/p
 RequiredState = ["clock", "market", "portfolio", "scripts", "compute", "intelligence"]
 ActorCollection = "nation_actors"
 ActionGate = {Capability = "stock:clock", Method = "can_act"}
-PlayerClock = {Capability = "stock:clock", Method = "period"}
+# stock 回合号从 1 起算；FirstPeriod 让先手轮换扣掉起点，第一回合按名单原序出手。
+PlayerClock = {Capability = "stock:clock", Method = "period", FirstPeriod = 1}
 # 回合开局自动给模型的事实：持仓与财富、行情、上回合脚本结果、回合日历与额度。
 PlayerState = ["portfolio", "market", "script_status", "round", "compute_status", "intel_status"]
 

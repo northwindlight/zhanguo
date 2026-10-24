@@ -3,7 +3,6 @@ from copy import deepcopy
 import math
 
 from engine.runtime import GameMod, RuleSection, Stage
-from mods.stock.calls import CALLS
 
 
 def integer(value, name, minimum=0):
@@ -175,7 +174,6 @@ class ComputeMod(GameMod):
     def objects(self, world): return {'stock:compute': world.compute}
     def player_api(self, world): return ComputeAPI(world)
     def before_tool(self, world, actor, name, arguments):
-        CALLS.note(actor, world.clock.period())
         if name == 'compute':
             self.runtime.object_call(world, 'stock:clock', 'charge', actor)
     def save_state(self, world): return world.compute.to_save()

@@ -4,7 +4,6 @@ import math
 import random
 
 from engine.runtime import GameMod, ModError, RuleSection, Stage
-from mods.stock.calls import CALLS
 from .backend import PamsBook
 from .stocks import STOCKS
 
@@ -414,8 +413,6 @@ class MarketMod(GameMod):
     def save_state(self, world): return world.market.to_save()
     def load_state(self, world, state): world.market.restore(state)
     def player_api(self, world): return MarketAPI(world)
-    def before_tool(self, world, actor, name, arguments):
-        CALLS.note(actor, world.clock.period())
     def stages(self):
         return (Stage('stock.market.settle', self._settle, hook='market.settlement', after=('stock.python.run',)),
                 Stage('stock.market.prepare', self._prepare, hook='market.settlement', after=('stock.portfolio.settle',)))

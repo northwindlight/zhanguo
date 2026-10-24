@@ -2,7 +2,6 @@
 from copy import deepcopy
 
 from engine.runtime import GameMod, RuleSection
-from mods.stock.calls import CALLS
 
 
 class Intelligence:
@@ -49,7 +48,6 @@ class IntelligenceMod(GameMod):
     def objects(self, world): return {'stock:intelligence': world.intelligence}
     def player_api(self, world): return IntelligenceAPI(world)
     def before_tool(self, world, actor, name, arguments):
-        CALLS.note(actor, world.clock.period())
         if name == 'intel':
             self.runtime.object_call(world, 'stock:clock', 'charge', actor)
     def save_state(self, world): return world.intelligence.to_save()

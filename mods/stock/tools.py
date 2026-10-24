@@ -19,7 +19,6 @@ end_turn      结束本回合，提交一句小结
 """
 from engine.runtime import Action, Tool
 from mods.native.tools import commands as command_layer
-from mods.stock.calls import CALLS
 
 
 class StockToolLayer:
@@ -74,16 +73,6 @@ class StockToolLayer:
 
     def panel(self, panel, data, args, actor, ctx):
         return None
-
-    def notice(self, actor, period=None):
-        """读本回合的工具调用次数；超过 20 次就提醒模型收尾，别把调用烧在查资料上。"""
-        if not actor:
-            return None
-        count = CALLS.count(actor, period)
-        if count <= 20:
-            return None
-        return (f'⚠️ 本回合已调用 {count} 次工具，接近单回合调用上限：'
-                '先停手查资料，把计划写进策略脚本、保存并 end_turn；需要的信息留到下回合再查。')
 
 
 def build(runtime):

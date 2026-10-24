@@ -8,7 +8,6 @@ from engine.player import wire, API_VERSION
 from engine.runtime import GameMod, RuleSection, Stage, ToolArgumentError
 from engine.scripting import Machine, check, error_info, DEFAULT_LIMITS
 from engine.state import unit_context
-from mods.stock.calls import CALLS
 
 
 def slot_key(slot):
@@ -368,7 +367,6 @@ class StockPythonMod(GameMod):
     def save_state(self, world): return world.scripts.to_save()
     def load_state(self, world, state): world.scripts.restore(state)
     def before_tool(self, world, actor, name, arguments):
-        CALLS.note(actor, world.clock.period())
         if name == 'script' and arguments.get('action') not in ('check', 'status'):
             self.runtime.object_call(world, 'stock:clock', 'charge', actor)
     def stages(self):
