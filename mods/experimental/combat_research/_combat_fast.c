@@ -62,13 +62,91 @@ static void arena_free(Arena *a) {
 }
 
 /* ------------------------------------------------------------------ 数据结构 */
+/* ★★ `hp` 是 **double**（2026-10-24 改）：引擎的 `spread_damage` 用的是
+ *   `equal_allocation` 的**水位填充**（water-filling）⇒ 份额是**分数**
+ *   ⇒ 血量会变成**小数** ⇒ C 这边必须也是 double，否则与 Python **对不上**
+ *   （而"对不上"的后果是：战斗概率**静默不同** ⇒ 观测特征变了却不报错）。
+ *   ⇒ 状态键也必须能**逐位**区分 double ⇒ 编码 8 字节原始位型。 */
 typedef struct {
-    int kind, hp, retreat, soak;
+    int kind;
+    double hp;
+    int retreat;      /* 行里的常量 `False`（只进 `damage` 的签名，不参与摊分） */
+    int soak;         /* ★ **撤退掩护百分比**（100 = 无掩护）—— 摊分比例 = soak/100 */
 } Unit;
 typedef struct {
     Unit *units;
     int n;
 } Side;
+
+/* ------------------------------------------------------------------ 摊分 */
+/* ★★★ 与 `Military.equal_allocation` + `Military.spread_damage` **逐位一致**
+ *   （2026-10-24 改）：引擎的摊分是**水位填充**（water-filling）——
+ *   份额在**活着的成员**之间**均分**，谁先**封顶**（cap = hp/比例）谁就退出、
+ *   它那份**让给**剩下的（Python：`active.remove(i)` ⇒ 剩下的人**重新均分**）。
+ *   ⇒ 份额是**分数** ⇒ 血量变**小数**。
+ *   ★ 以前这里走的是"**整数**均分 + 余数按序号给"（`per = d/cnt, rem = d%cnt`）
+ *     —— 那是**另一套规则**：多方分摊时与 Python **对不上**（差在"封顶后重分"）
+ *     ⇒ C 路径当时只敢对"每方 1 支军"开放（`supported` 里那条
+ *     `all(len(row)<=1 ...)`）⇒ **RL 的真实战斗（每方多支）根本用不上 C**。
+ *   ★ 逐位一致的关键：运算**顺序**照抄 Python（`remaining/len(active)`、
+ *     `min(share, max(0, cap-alloc))`、`remaining=max(0, remaining-spent)`、
+ *     `alloc[i]+=amount`），容差也是 Python 的那个 `1e-12`。
+ *     ⇒ 编译必须 `-ffp-contract=off`（build 脚本里已有），
+ *       否则 aarch64 会把两次乘除并成一次（位型就变了）。
+ */
+static void spread_units(Unit *units, int cnt, double damage) {
+    double ratios[8], caps[8], alloc[8];
+    int active[8], nact = 0;
+    unsigned char capped[8];
+    for (int k = 0; k < cnt; ++k) {
+        ratios[k] = (double)units[k].soak / 100.0;   /* ★ 撤退掩护/100 */
+        alloc[k] = 0.0;
+        capped[k] = 0;
+        caps[k] = (ratios[k] == 0.0) ? HUGE_VAL : units[k].hp / ratios[k];
+        if (caps[k] > 0.0) active[nact++] = k;   /* ★ Python：`limit>0` 才算活着 */
+    }
+    double remaining = damage > 0.0 ? damage : 0.0;
+    while (nact > 0 && remaining > 1e-12) {
+        double share = remaining / (double)nact;
+        int ncapped = 0;
+        for (int a = 0; a < nact; ++a) {
+            int i = active[a];
+            if (caps[i] - alloc[i] <= share + 1e-12) { capped[i] = 1; ++ncapped; }
+            else capped[i] = 0;
+        }
+        if (!ncapped) {
+            for (int a = 0; a < nact; ++a) alloc[active[a]] += share;
+            break;
+        }
+        double spent = 0.0;
+        /* ★★ **单趟**处理封顶的成员（每个只处理一次）。
+         *   ★ 踩过的坑：这里原来写成"外层遍历 ncapped 次、内层再找第一个封顶的"
+         *   ⇒ **同一个成员被加了 ncapped 次** ⇒ 另一个成员一口没吃
+         *   ⇒ 第 2 轮开始就和 Python 对不上（实测：2v2 的损失 163.5 vs 190.3，
+         *     战斗轮数 5~6 vs 2~3）⇒ **战斗概率静默不同**（观测特征变了却不报错）。 */
+        int w = 0;
+        for (int a = 0; a < nact; ++a) {
+            int i = active[a];
+            if (capped[i]) {
+                double room = caps[i] - alloc[i];
+                if (room < 0.0) room = 0.0;
+                double amount = share < room ? share : room;  /* min(share, max(0, room)) */
+                alloc[i] += amount;
+                spent += amount;
+            } else {
+                active[w++] = i;    /* ★ Python：`active.remove(i)` ⇒ 没封顶的留下 */
+            }
+        }
+        nact = w;
+        remaining = remaining - spent;
+        if (remaining < 0.0) remaining = 0.0;
+    }
+    for (int k = 0; k < cnt; ++k) {
+        double hp = units[k].hp - alloc[k] * ratios[k];   /* `take_damage(share*ratio)` */
+        units[k].hp = hp > 0.0 ? hp : 0.0;                 /* `max(0, hp-amount)` */
+    }
+}
+
 
 /* 一个状态的 DP 结果。★ 两个分布都是**稀疏 + 保序**的。 */
 typedef struct Res {
@@ -87,7 +165,7 @@ typedef struct Res {
 /* 按深度分层的临时缓冲（见文件头"必须小心的坑"） */
 typedef struct {
     Side *nxt;      /* n 个 */
-    int *lost_all;  /* n 个 */
+    double *lost_all;  /* n 个（★ 2026-10-24：血量是分数 ⇒ 损失也是分数） */
     Unit *unitbuf;  /* n * maxunits */
 } Scratch;
 
@@ -159,18 +237,20 @@ typedef struct {
     Res *trunc;       /* 截断分支的返回（Python 那版**不记忆**它） */
 } Ctx;
 
+/* 状态键：每支兵 = 兵种(1) + **血量(8，原样位型)** + 撤退掩护(1) + 减伤(2) = 12 字节。
+ * ★ 血量是 double ⇒ 必须按**位型**编码（不能压成 int：那会把 3.5 和 3.0 看成同一个状态
+ *   ⇒ memo 命中一个**不同**的局面 ⇒ 结果错且不报错）。 */
 static int encode_state(const Side *st, int n, char *out) {
     int k = 0;
     for (int i = 0; i < n; ++i) {
         out[k++] = (char)st[i].n;
         for (int u = 0; u < st[i].n; ++u) {
-            int v;
             out[k++] = (char)st[i].units[u].kind;
-            v = st[i].units[u].hp;
-            out[k++] = (char)(v & 0xFF);
-            out[k++] = (char)((v >> 8) & 0xFF);
+            double hp = st[i].units[u].hp;
+            memcpy(out + k, &hp, sizeof(hp));      /* ★ 8 字节原样位型 */
+            k += (int)sizeof(hp);
             out[k++] = (char)st[i].units[u].retreat;
-            v = st[i].units[u].soak;
+            int v = st[i].units[u].soak;
             out[k++] = (char)(v & 0xFF);
             out[k++] = (char)((v >> 8) & 0xFF);
         }
@@ -602,7 +682,7 @@ done:
 }
 
 static Res *rec(Ctx *c, const Side *st, int depth) {
-    char key[8 * 8 * 7 + 8 + 2];
+    char key[8 * 8 * 12 + 8 + 2];   /* ★ 12 字节/支：兵种1+血量8+掩护1+减伤2 */
     int klen = encode_state(st, c->n, key);
     key[klen++] = (char)(depth & 0xFF);
     key[klen++] = (char)((depth >> 8) & 0xFF);
@@ -621,17 +701,6 @@ static Res *rec(Ctx *c, const Side *st, int depth) {
 
     Res *r = new_res(c);
     Scratch *sc = &c->scratch[depth]; /* ★ 按深度分层，子层不会踩父层 */
-
-    unsigned char flat[9];
-    for (int i = 0; i < c->n; ++i) {
-        int f = 1;
-        for (int u = 0; u < st[i].n; ++u)
-            if (st[i].units[u].soak != 100) {
-                f = 0;
-                break;
-            }
-        flat[i] = (unsigned char)f;
-    }
 
     PyObject *sig = build_sig(c, st);
     if (!sig) return NULL;
@@ -673,42 +742,30 @@ static Res *rec(Ctx *c, const Side *st, int depth) {
                 continue;
             }
             int cnt = units->n;
-            int lost = 0, kn = 0;
+            int kn = 0;
             Unit *keep = sc->unitbuf + (size_t)i * (size_t)c->maxunits;
-            int hp[8];
+            /* ★★★ 摊分走**水位填充**（`spread_units`）—— 与 Python 逐位一致。
+             *   旧实现是"整数均分 + 余数按序号"（两套规则，多方分摊时对不上）
+             *   ⇒ 那条路只敢对"每方 1 支军"开放 ⇒ RL 的真实战斗用不上 C。 */
+            double hp[8];
             for (int k = 0; k < cnt; ++k) hp[k] = units->units[k].hp;
-            if (flat[i]) {
-                long left = d;
-                while (left > 0) {
-                    int live = 0;
-                    for (int k = 0; k < cnt; ++k) if (hp[k] > 0) ++live;
-                    if (!live) break;
-                    long per = left / live, rem = left % live;
-                    int index = 0;
-                    for (int k = 0; k < cnt; ++k) if (hp[k] > 0) {
-                        long take = per + (index++ < rem);
-                        if (take > hp[k]) take = hp[k];
-                        hp[k] -= (int)take;
-                        left -= take;
-                    }
-                }
-            } else {
-                long per = d / cnt, rem = d % cnt;
-                for (int k = 0; k < cnt; ++k) {
-                    long take = (per + (k < rem)) * units->units[k].soak / 100;
-                    hp[k] = take >= hp[k] ? 0 : hp[k] - (int)take;
-                }
-            }
+            Unit work[8];
+            for (int k = 0; k < cnt; ++k) work[k] = units->units[k];
+            spread_units(work, cnt, (double)d);
+            /* ★ 损失照抄 Python 的写法：`sum(旧血量) - sum(幸存者血量)`
+             *   （**先各自求和再相减** ⇒ 求和次序与 Python 的 `sum()` 一致 ⇒ 逐位相同） */
+            double old_sum = 0.0, new_sum = 0.0;
+            for (int k = 0; k < cnt; ++k) old_sum += units->units[k].hp;
             for (int k = 0; k < cnt; ++k) {
-                lost += units->units[k].hp - hp[k];
-                if (hp[k] > 0) {
+                if (work[k].hp > 0.0) {
                     keep[kn] = units->units[k];
-                    keep[kn++].hp = hp[k];
+                    keep[kn++].hp = work[k].hp;
+                    new_sum += work[k].hp;
                 }
             }
             sc->nxt[i].units = keep;
             sc->nxt[i].n = kn;
-            sc->lost_all[i] = lost;
+            sc->lost_all[i] = old_sum - new_sum;
             (void)ub;
         }
 
@@ -803,13 +860,23 @@ static PyObject *fast_assess(PyObject *self, PyObject *args) {
         if (!row) { free(init); goto fail; }
         Py_ssize_t m = PySequence_Size(row);
         if ((int)m > c.maxunits) c.maxunits = (int)m;
+        if (m > 8) {
+            /* ★ 每方最多 **8 支**：状态键缓冲与各处临时数组都按 8 写的
+             *   （超了就**必须报错**，不能默默写坏栈）。 */
+            Py_DECREF(row);
+            PyErr_SetString(PyExc_ValueError, "_combat_fast: 每方最多 8 支军");
+            free(init);
+            goto fail;
+        }
         init[i].n = (int)m;
         init[i].units = (Unit *)xcalloc((size_t)(m ? m : 1), sizeof(Unit));
         for (Py_ssize_t j = 0; j < m; ++j) {
             PyObject *t = PySequence_GetItem(row, j);
             if (!t) { Py_DECREF(row); free(init); goto fail; }
             init[i].units[j].kind = (int)PyLong_AsLong(PyTuple_GetItem(t, 0));
-            init[i].units[j].hp = (int)PyLong_AsLong(PyTuple_GetItem(t, 1));
+            init[i].units[j].hp = PyFloat_AsDouble(PyTuple_GetItem(t, 1));
+            /* ★ `retreat` 是行里的常量 `False`（只进 `damage` 的签名）⇒ 保持布尔；
+             *   ★ **撤退掩护**在 `soak`（行的第 4 项）⇒ 摊分比例取它。 */
             init[i].units[j].retreat = PyObject_IsTrue(PyTuple_GetItem(t, 2));
             init[i].units[j].soak = (int)PyLong_AsLong(PyTuple_GetItem(t, 3));
             Py_DECREF(t);
@@ -820,7 +887,7 @@ static PyObject *fast_assess(PyObject *self, PyObject *args) {
     c.scratch = (Scratch *)xcalloc((size_t)(max_rounds + 2), sizeof(Scratch));
     for (int d = 0; d < max_rounds + 2; ++d) {
         c.scratch[d].nxt = (Side *)xcalloc((size_t)n, sizeof(Side));
-        c.scratch[d].lost_all = (int *)xcalloc((size_t)n, sizeof(int));
+        c.scratch[d].lost_all = (double *)xcalloc((size_t)n, sizeof(double));
         c.scratch[d].unitbuf =
             (Unit *)xcalloc((size_t)n * (size_t)c.maxunits, sizeof(Unit));
     }

@@ -31,6 +31,15 @@ jobs:
           # 装全量（含地图 PNG 用的 Pillow）：地图渲染测试在 CI 里要真跑，
           # 不靠"没装 Pillow 就跳过"蒙过去。核心回归本身不依赖 Pillow。
           python -m pip install -r requirements-vision.txt
+      - name: 编译战斗 DP 的 C 扩展（可选，但**必须真编**）
+        run: |
+          # ★ 这条扩展是**可选**的（没编就退回纯 Python ⇒ 慢 ~16 倍，
+          #   战斗概率一样对，只是慢）。但 CI 里**必须编**：
+          #   `tests/test_combat_research.py` 的 C↔Python **逐位一致**那两条
+          #   在没编扩展时是**跳过**的 ⇒ 不编就等于**这两条闸门在 CI 上从没跑过**。
+          #   （2026-10-24：多支军/分数血量曾把扩展挡在外面 ⇒ 一局里 24 次走
+          #   Python、只有 4 次走 C ⇒ 扩展等于没接上；修好之后一局 28/28 走 C。）
+          python3 mods/experimental/combat_research/build.py
       - name: 全量离线回归
         run: python -m unittest discover -s tests -q
       - name: 示例巡礼（离线冒烟）

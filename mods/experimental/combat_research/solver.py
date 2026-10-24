@@ -43,12 +43,25 @@ def solve(order,enemies,initial,power,spread,*,max_states=4000,max_rounds=64,use
     # per faction for this static battle; hp and individual retreat cover vary.
     state0=tuple(tuple(unit[:4] for unit in row) for row in initial)
     backend='python';fallback=FAST_ERROR if use_fast else None
-    numeric=all(type(u[1]) is int and 0<u[1]<=65535 for row in state0 for u in row)
+    # ★★ 2026-10-24：**"整数血量"这条前提已经过时** ——
+    #   ① C 那边把**摊分**换成**逐位复刻** `Military.equal_allocation`（水位填充），
+    #      血量改成 **double**，状态键按 **double 位型**编码 ⇒ 分数血量照样能走；
+    #   ② 引擎的 `take_damage` 收的是 **float** ⇒ **打过一仗之后 HP 就是小数**
+    #      ⇒ 以前那条 `numeric`（要求整数血量）把**绝大多数真实战斗**挡在 C 外面
+    #      （实测：一局里 24 次走 Python、只有 4 次走 C ⇒ C 扩展等于没接上）。
+    # ⇒ 现在只要求"血量是有限正数"（C 按 double 收）。
+    numeric=all(type(u[1]) in (int,float) and 0<u[1]<=1e9 for row in state0 for u in row)
     # The C state table stores integer HP and distributes remainder by index;
     # equal fractional shares can arise with multiple units or retreat cover.
     # Keep acceleration only where every hit remains an exact integer.
-    supported=(len(order)<=8 and all(len(row)<=1 for row in state0) and numeric and
-               all(unit[3] in (None,100) for row in state0 for unit in row))
+    # ★★ 2026-10-24：那条限制**解开了** —— C 那边的摊分已改成**逐位复刻**
+    #   `Military.equal_allocation`（水位填充 + 撤退掩护比例）且血量改 double，
+    #   ⇒ **多支军 / 分数掩护**也能走 C 了（以前这两类只能退回 Python，
+    #   而 RL 的真实战斗**恰恰是多支军** ⇒ C 扩展对训练根本没用上）。
+    #   ⇒ 现在只保留**结构性**上限：≤8 方、每方 ≤8 支、掩护是 0..100 的整数。
+    supported=(len(order)<=8 and all(len(row)<=8 for row in state0) and numeric and
+               all(unit[3] is None or (type(unit[3]) is int and 0<=unit[3]<=100)
+                   for row in state0 for unit in row))
     accelerate=use_fast and FAST is not None and supported
     if use_fast and FAST is not None and supported:
         kinds=[];indexes={};rows=[]
@@ -65,7 +78,7 @@ def solve(order,enemies,initial,power,spread,*,max_states=4000,max_rounds=64,use
         except Exception as exc:
             fallback=f'{type(exc).__name__}: {exc}'
             accelerate=False
-    elif use_fast and FAST is not None:fallback='C requires integer-only one-unit factions; equal multi-unit shares use Python'
+    elif use_fast and FAST is not None:fallback='C requires <=8 factions, <=8 units per faction, positive numeric HP and integer retreat cover'
     if backend!='c':
         memo={};n_states=0
         def visit(state,depth):
