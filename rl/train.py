@@ -1255,6 +1255,22 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     log(f"★★ 型号 = **{V.MODEL_NAME}**（多用途战争；各特化——打野/占地形/防御/斩首/"
         f"消耗战/混战/情报/探索——的**基座兼基线**）")
     _log_params(nets[0], log)
+    # ★★ **战斗 DP 的 C 扩展编了没有**（2026-10-24 加）——
+    #   这是"**训练成立**"的那块：观测路径每步都要问"这一格打起来我赢面多大"
+    #   （引擎的精确 DP）⇒ 扩展没编 ⇒ 走纯 Python ⇒ **实测慢 ~16 倍**
+    #   （一局 51.8 s vs 18.5 s；战斗 DP 占 63% ⇒ 修完只占 9.4%）。
+    #   ★ 以前横幅里**一个字都没有** ⇒ 跑的人根本不知道自己在慢档上
+    #   （2026-10-24 实测：一局 24 次走 Python、只有 4 次走 C ⇒ 等于没接上）。
+    try:
+        from mods.experimental.combat_research import solver as _sv
+        if _sv.FAST is not None:
+            log("★★ 战斗 DP：**C 扩展已编**（快档）")
+        else:
+            log("★★ 战斗 DP：★ **C 扩展没编** ⇒ 走纯 Python ⇒ **慢 ~16 倍** "
+                "⇒ 先跑 `python3 mods/experimental/combat_research/build.py`")
+    except Exception:                                   # noqa: BLE001
+        log("★★ 战斗 DP：★ **C 扩展不可用** ⇒ 走纯 Python ⇒ 慢；"
+            "先跑 `python3 mods/experimental/combat_research/build.py`")
     # ★★ **联赛池**（用户 2026-09-25 定的口径，逐条见 `rl/league.py` 的 docstring）
     #   摘要：从最新快照开始分化 / 只增不删 / 随机抽 pt / 胜率永久化到 json /
     #        可有 2 个固定主 pt / 打 10 局以上胜率 <20% 的不再启用。
