@@ -504,6 +504,47 @@ class TestAllianceOutcome(unittest.TestCase):
         for n in winners:
             self.assertEqual(sb.reward(n), 1.0, f"{n} 赢了却拿到 −1")
 
+    def test_a_truncated_episode_does_not_settle_a_living_team(self):
+        """★★ **被截断**的那一局：亡国但队伍还活着的玩家，**结果还没定**。
+
+        ★★ 2026-10-24 修（跑训练时发现的）：`rl/train.py::_outcome_for` 原来
+          **自己抄了一份**沙盒的截断分支，却**漏了 `teams`**
+          ⇒ `evaluate.terminal(env, p)`（不带队伍表）⇒ 亡国的那个玩家
+          "**我的实体查不到了**" ⇒ 判成"**出局（输）**"
+          ⇒ 在**被步数预算截断**的一局里，队友明明还活着，它却被提前封成负。
+          ⇒ 现在训练侧**真转发**沙盒那份（带 teams）⇒ 口径统一。
+        """
+        from tests.rl_deps import give_site
+        got = self._two_teams()
+        if got is None:
+            self.skipTest("这一局没抽到 2v2")
+        sb, pair = got
+        env = sb.env
+        victim, mate = pair[0], pair[1]
+        # ★ 只杀一个成员 ⇒ **它的队友还活着** ⇒ 这一局**没结束**
+        #   （两个队伍都还在 ⇒ 不是终局）。
+        give_site(env, sb.core_of(victim), None)
+        env.resolve()
+        self.assertNotIn(victim, env.nations(), "亡国没生效")
+        self.assertIn(mate, env.nations(), "队友不该跟着亡")
+        self.assertFalse(sb.is_terminal(), "这一局还没结束 ⇒ 属于'截断'这条路")
+        # ★ 沙盒侧（**单一出处**）：结果**还没定** ⇒ `None`。
+        self.assertIsNone(sb.outcome_for(victim, global_terminal=False),
+                          "亡国但队伍还活着的玩家被提前判成出局 ⇒ 联盟口径分叉")
+        # ★ 旧口径（**不带队伍表**）会给 −INF ⇒ 这就是"漏传 teams"的后果。
+        self.assertEqual(evaluate.terminal(env, victim), -evaluate.S.INF,
+                         "旧口径的结论变了？⇒ 这条闸门的对照失效了")
+        # ★ 训练侧必须跟沙盒侧**一致**（它现在只是转发）。
+        _need_torch()
+        from rl import train as T
+        for p in sb.players:
+            self.assertEqual(T._outcome_for(sb, p, global_terminal=False),
+                             sb.outcome_for(p, global_terminal=False),
+                             f"训练侧与沙盒侧在 {p} 上算出两个结果 ⇒ 口径分叉")
+            self.assertEqual(T._outcome_for(sb, p, global_terminal=True),
+                             sb.outcome_for(p, global_terminal=True),
+                             f"训练侧与沙盒侧在 {p} 上算出两个结果 ⇒ 口径分叉")
+
 
 if __name__ == "__main__":
     unittest.main()

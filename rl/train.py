@@ -640,10 +640,18 @@ def _reward(sb: Sandbox, me: str, prev: float, done: bool) -> float:
 
 # ================================================================ ★ 逐玩家收尾
 def _outcome_for(sb: Sandbox, p: str, *, global_terminal: bool) -> float | None:
-    """★ **转发** `Sandbox.outcome_for`（单一出处）。
+    """★ **转发** `Sandbox.outcome_for`（**单一出处**）。
 
     ★ 为什么转到沙盒那边：终局口径**与训练无关**（它只算"谁赢谁输"），
       放在沙盒侧就**不依赖 torch** ⇒ CI（没装 torch）也能跑这条守卫。
+    ★★ **2026-10-24 修**（跑训练时发现的）：这里原来**自己抄了一份**
+      `Sandbox.outcome_for` 的**截断分支**，却**漏了 `teams`**
+      （写的是 `evaluate.terminal(sb.env, p)`）⇒ **2v2 里"本国已亡、但队伍还在"**
+      的玩家，在**被步数预算截断**的那一局会被提前判成"**实体出局（输）**"
+      ⇒ 与已声明的**联盟口径**不一致（**沙盒那份带 teams、训练这份不带**
+      ⇒ 两处口径分叉 ⇒ 同一局在结算侧和训练侧能算出两个结果）。
+      ⇒ 现在**真的转发**（文档说的"转发"以前只是说说）：队伍口径由沙盒那边
+        **统一**提供（`Sandbox.outcome_for` ⇒ `evaluate.terminal(..., teams=…)`）。
     """
     return sb.outcome_for(p, global_terminal=global_terminal)
 
