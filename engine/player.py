@@ -52,11 +52,27 @@ class PlayerSession:
         self.__on_write=on_write
         self.__on_fault=on_fault
         self.__memory_query=memory_query
+        self.__steps=None
         self._validate()
 
     @property
     def actor(self):
         return self.__actor
+
+    def note_step(self, used, limit):
+        """客户端每发起一次模型请求上报一次；回执里的调用进度就靠它。
+
+        计数单位是「模型往返次数」（clients/llm.py 的 step），不是工具调用条数：
+        一次往返可以并行发多个工具调用。
+        """
+        self.__steps = {'used': int(used), 'limit': int(limit)}
+
+    def step_state(self):
+        return dict(self.__steps) if self.__steps else None
+
+    def _stamp(self, receipt):
+        if self.__steps: receipt['steps'] = dict(self.__steps)
+        return receipt
 
     def _validate(self):
         collection = getattr(self.__world, self.__runtime.distribution.get('ActorCollection', 'actors'), ())
@@ -133,7 +149,7 @@ class PlayerSession:
                     code='unknown_action';raise ValueError('动作名必须是字符串')
                 if action in BUILTINS:
                     data=self.query(action,arguments)
-                    return {**base,'ok':True,'status':'effective','code':None,'message':'','data':data}
+                    return self._stamp({**base,'ok':True,'status':'effective','code':None,'message':'','data':data})
                 if action not in self.__runtime.tools:
                     code = 'unknown_action'
                     raise ValueError(f'未知动作：{action}；动作名以当前工具表为准')
@@ -153,7 +169,7 @@ class PlayerSession:
                 # 引擎自己的 bug，把它说成「参数错」会替 bug 打掩护。
                 from .runtime import ToolArgumentError
                 if isinstance(exc,ToolArgumentError):code='invalid_arguments'
-                return {**base, 'ok': False, 'status': 'rejected', 'code': code, 'message': str(exc), 'data': wire(getattr(exc,'details',None))}
+                return self._stamp({**base, 'ok': False, 'status': 'rejected', 'code': code, 'message': str(exc), 'data': wire(getattr(exc,'details',None))})
             except Exception as exc:
                 # 模块内部的 bug（OverflowError、AttributeError、TypeError…）只作废
                 # 这一次动作。0.1 的分工是「模型动作不合法 → 回执里说清楚；锦上添花
@@ -219,9 +235,9 @@ class PlayerSession:
             # 否则调用者可能把同一笔买卖重做一次，再付一次钱。
             return self._fault(base, exc, applied=True)
         status = data.get('status', 'effective') if isinstance(data, dict) else 'effective'
-        return {**base, 'ok': status not in ('failed', 'cancelled'), 'status': status,
+        return self._stamp({**base, 'ok': status not in ('failed', 'cancelled'), 'status': status,
                 'code': 'action_failed' if status in ('failed', 'cancelled') else None,
-                'message': data.get('message', '') if isinstance(data, dict) else '', 'data': data}
+                'message': data.get('message', '') if isinstance(data, dict) else '', 'data': data})
 
     def _fault(self, base, exc, applied=False):
         """模块内部异常 → 该动作作废、游戏继续；细节交给宿主的故障日志。"""
@@ -231,9 +247,9 @@ class PlayerSession:
                 self.__on_fault(base['action'], exc, detail)
             except Exception:
                 pass
-        return {**base, 'ok': False, 'status': 'failed', 'code': 'internal_fault',
+        return self._stamp({**base, 'ok': False, 'status': 'failed', 'code': 'internal_fault',
                 'message': f'模块内部错误（{type(exc).__name__}）：'+('动作已执行，但结果无法编码；不要重复执行。' if applied else '本次执行中断，请先查询状态确认已生效部分。')+'游戏继续，详情已记故障日志。',
-                'data': None}
+                'data': None})
 
     def events(self, cursor=0):
         if type(cursor) is not int or cursor < 0:
