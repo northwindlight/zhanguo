@@ -12,8 +12,8 @@
 #   ./start.sh --offline            # 换到零依赖的 minigame 开发模式（不需要任何 API key）
 #   其余参数原样透传给 mp_run.py（如 --save 自定存档）
 #
-# 依赖策略：只有配置里出现 "client": "llm" 的国家才需要装 openai 库；
-# native/minigame 的纯规则客户端可零依赖；stock 无论是否接模型都需要 PAMS。
+# 依赖策略：LLM 接入为标准库原生实现（2026-10-24 起，无 openai SDK），
+# requirements.txt 目前零第三方依赖；纯规则客户端可零依赖直接系统 python3。
 set -e
 cd "$(dirname "$0")"
 
@@ -75,16 +75,13 @@ needs_llm() {
 NEED_LLM=0
 if needs_llm "$CONFIG_PATH"; then NEED_LLM=1; fi
 
-NEED_STOCK=0
-if python3 -c 'import json,sys; from pathlib import Path; sys.exit(0 if Path(json.load(open(sys.argv[1])).get("mods", "")).name == "mods.stock.toml" else 1)' "$CONFIG_PATH"; then NEED_STOCK=1; fi
-
-if [ "$NEED_LLM" = "1" ] || [ "$NEED_STOCK" = "1" ]; then
+if [ "$NEED_LLM" = "1" ]; then
     if [ ! -x ".venv/bin/python" ]; then
         echo "[初始化] 创建虚拟环境 .venv（仅首次）…"
         python3 -m venv .venv
     fi
     PY=.venv/bin/python
-    if [ "$NEED_LLM" = "1" ] && ! "$PY" -c "import openai" >/dev/null 2>&1; then
+    if [ "$NEED_LLM" = "1" ]; then
         echo "[初始化] 安装依赖（清华镜像，版本由 requirements.txt 控制）…"
         if ! "$PY" -m pip install -i "$PIP_MIRROR" --timeout 60 -r requirements.txt; then
             echo "[提示] 清华镜像拉取失败（网络/分流原因），改用官方源重试…"
@@ -96,13 +93,6 @@ elif [ -x ".venv/bin/python" ]; then
 else
     # 纯标准库发行版：不必装任何东西
     PY=python3
-fi
-
-if [ "$NEED_STOCK" = "1" ] && ! "$PY" -c 'from importlib.metadata import version; import pams; assert version("pams") == "0.3.0"' >/dev/null 2>&1; then
-    echo "[初始化] 安装模拟股市后端（requirements-stock.txt）…"
-    if ! "$PY" -m pip install -i "$PIP_MIRROR" --timeout 60 -r requirements-stock.txt; then
-        "$PY" -m pip install --timeout 60 -r requirements-stock.txt
-    fi
 fi
 
 echo "[启动] 战国·多国 AI 对战（看海模式：终端实时流 + mp_journal.md）…"

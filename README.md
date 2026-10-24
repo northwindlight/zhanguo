@@ -117,8 +117,6 @@ python3 settlement.py --save mp_save.json --table
 
 [experimental](mods/experimental/README.md) 保留议会实验：第一次国策直接生效，从修订起由议长检查旧国策的执行与新版方案；连续三个相邻回合未通过会触发君主更替。它还提供保存并运行 Python 短脚本的能力，以及仅供规则 AI 使用的战斗概率研究。启用需使用[专用配置](mp_config.experimental.example.json)和独立存档。
 
-[模拟股市 stock 2.0](mods/stock/README.md) 使用 PAMS 订单簿，让模型在共同的 20000 tick 中交易，支持多空、算力池与交易槽租赁、行动内研究和商业谍报。先安装 `requirements-stock.txt`；它使用独立配置与存档。
-
 ## 从对局中观察模型
 
 战国适合观察长期规划、执行、外交、纠错和记忆，也保留了[真实存档与原始日志](research/game-records/README.md)、[研究文章与行为野榜](research/papers/README.md)。其中包含胜利，也包含停滞、错误、人工干预和未完成的实验。

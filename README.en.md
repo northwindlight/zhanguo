@@ -104,8 +104,6 @@ The default **native** game includes national plans, manuals and the finite-inve
 
 The optional [experimental distribution](mods/experimental/README.md) retains council review. Initial plans take effect directly; revisions are reviewed against prior plans and actions. Rejection in three consecutive rounds triggers monarch replacement. It also provides saved Python routines and research combat probabilities available only to rule clients. Use its [configuration template](mp_config.experimental.example.json) and a separate save.
 
-The separate [stock market 2.0](mods/stock/README.md) uses a PAMS order book with 20,000 shared ticks, long and short positions, rented compute pools and trading slots, manual research, and paid competitor snapshots. Install `requirements-stock.txt` and use its separate configuration and save.
-
 ## Observing models
 
 The [real-game collection](research/game-records/README.md) and [research articles](research/papers/README.md) document planning, execution, memory, diplomacy and failure. Results depend on prompts, tool descriptions, memory, reasoning budgets and opponents. Identical prompts do not ensure equal suitability for every model; a single game's outcome or subjective score is not a general capability ranking.

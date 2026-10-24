@@ -29,7 +29,6 @@ DISTRIBUTIONS = [
     ('mods.toml', 'native', 'native 发行版'),
     ('mods.experimental.toml', 'experimental', 'experimental 发行版'),
     ('mods.minigame.toml', 'minigame', 'minigame 开发模式'),
-    ('mods.stock.toml', 'stock', 'stock 发行版（模拟炒股）'),
 ]
 
 # 顶层目录名 → 模块目录（发行版清单在 mods/ 下，成员目录各不相同）。
@@ -37,7 +36,6 @@ DISTRIBUTION_MEMBERS = {
     'native': 'mods/native',
     'experimental': 'mods/experimental',
     'minigame': 'mods/examples/minigame',
-    'stock': 'mods/stock',
 }
 
 
