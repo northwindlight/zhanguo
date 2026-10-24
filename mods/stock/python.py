@@ -408,5 +408,11 @@ class StockPythonMod(GameMod):
             '同一行动阶段可反复运行，受账户当日共享预算约束，用尽即停。'
             '研究单次最多100万步、1000次API，所有槽共享账户每日预算；改源码和重跑不重置额度。'
             'print 每槽每天合计上限4096字节，只打印摘要（len、前几条、关键字段），不要打印整个dict。'
+            '沙盒是 Python 子集：可写赋值、if/elif/else、for/while、break/continue/pass、def（无装饰器/注解/可变参数）、'
+            'return、列表与字典推导；没有 try/except/finally、class、import、with、lambda、raise、assert、global、'
+            'f-string、集合字面量、set/generator 推导。内置函数仅限 '
+            'abs all any bool dict enumerate float int len list max min print range reversed round sorted str sum tuple zip；'
+            '对象方法仅限 get items keys values append extend pop copy count index sort reverse lower upper strip split '
+            'join startswith endswith replace；属性不能赋值，双下划线名字禁用。'
             'print、错误行与各槽用量会出现在状态和下回合简报。禁止导入、文件、网络、随机和动态执行。',
             ('脚本', 'Python', '研究槽', 'on_tick', 'state'), '自动交易回调、持久状态及手动研究', system=True),)

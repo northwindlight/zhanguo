@@ -119,7 +119,9 @@ def build(runtime):
             '自动交易槽普通源码每日一次；定义def on_tick():则默认每100tick回调，state是独立持久JSON字典。'
             'api.call("stock:clock","sleep",ticks=N)只安排下次回调，回调应返回，不写while等待。'
             'run仅手动运行已解锁的research槽，用于分析和回测，只读不下单。'
-            '交易日全体结束后沿20000共同tick自动运行，委托最早下一tick生效，成交立即可见。',
+            '交易日全体结束后沿20000共同tick自动运行，委托最早下一tick生效，成交立即可见。'
+            '沙盒是Python子集：无try/except、class、import、with、lambda、f-string；'
+            '内置函数与方法清单见规则「Python 策略与研究槽」，写之前先核对。',
             (('write', script_specs[0]), ('patch', script_specs[1]), ('check', script_specs[2]),
              ('status', script_specs[3]), ('run', script_specs[4])))
         tools.append(umbrella)
