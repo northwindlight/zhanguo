@@ -45,6 +45,36 @@ jobs:
       - name: 示例巡礼（离线冒烟）
         run: python -m unittest tests.test_examples_tour -v
 
+  rl:
+    name: RL 线回归（带 torch）
+    # ★★ 为什么要**单独一个 job**：CI 的主 job **不装 torch** ⇒
+    #   `tests/rl_deps.py` 的 `has_torch()` 为假 ⇒ **RL 线的测试整份跳过**
+    #   ⇒ 这条线（能力声明 + 真引擎）**在 CI 上从来没有被验过**：
+    #   几轮复审加的闸门（review1~4）**全是 skip**。
+    #   ⇒ 这里补一个**带 torch** 的 job，把 RL 线真的跑起来。
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: 装依赖（含 torch）
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-vision.txt
+          python -m pip install torch
+      - name: 编译战斗 DP 的 C 扩展
+        # ★ 这条扩展是**可选**的（没编就退回纯 Python ⇒ 慢，但概率一样对）。
+        #   ★ 但**奇偶一致**那两条闸门在没编扩展时是 **skip** ⇒ 必须编。
+        run: python3 mods/experimental/combat_research/build.py
+      - name: RL 线全量回归
+        run: |
+          python -m unittest \
+            $(ls tests/test_rl_*.py | sed 's#/#.#; s#\.py##') -q
+      - name: 战斗 DP 的 C↔Python 逐位一致
+        run: python -m unittest tests.test_combat_research -v
+
   docs:
     name: 文档与代码同步
     runs-on: ubuntu-latest

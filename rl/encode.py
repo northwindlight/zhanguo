@@ -231,7 +231,8 @@ def frame_of(sb, me: str, mask=None) -> tuple[int, int, int, int]:
 
 
 def encode_grid(sb, me: str, mask=None, known=None,
-                frame: CB.FrameOdds | None = None) -> np.ndarray:
+                frame: CB.FrameOdds | None = None,
+                barb: set | None = None) -> np.ndarray:
     """局面 → `(GRID_CHANNELS, H, W)`，**H/W 逐帧可变**（= 视野外接框，见 `frame_of`）。
 
     `frame` = `combat_of` 算好的那一帧战斗明细（**同一帧只算一次**，`obs_of` 传下来）。
@@ -261,7 +262,12 @@ def encode_grid(sb, me: str, mask=None, known=None,
             by_cell.setdefault((a["x"], a["y"]), []).append(a)
     # ★★ "有野人驻守"的格（**含引擎的虚拟野人**）—— 一次算好，逐格查
     #   （别每格重算：那是 O(格数²)）。
-    barb = w.barbarian_cells()
+    # ★★ 2026-10-24：**一次算好，层层传下去**（`obs_of` 算一次）——
+    #   以前这里、窗口、候选三处**各算一遍同一个集合** ⇒ 每帧 3 次 × 4.4 ms
+    #   ⇒ 实测占全局 **12.6%**（1293 次调用 / 431 步 = 3.0 次每步）。
+    #   ⇒ 现在没传就自己算（**旧调用点不受影响**），传了就用传的。
+    if barb is None:
+        barb = w.barbarian_cells()
     for i in range(h):
         for j in range(ww):
             x, y = x0 + j, y0 + i
@@ -780,7 +786,8 @@ def important_places(sb, me: str, mask=None, known=None) -> tuple[np.ndarray, in
 
 def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
                   armies: list[dict] | None = None,
-                  known=None, grid=None) -> tuple[dict, dict, list[dict]]:
+                  known=None, grid=None,
+                  barb: set | None = None) -> tuple[dict, dict, list[dict]]:
     """→ `(win, win_mask, armies)`：窗口 token 组 + 掩码 + 军队清单（候选要按行号引用）。
 
     `win["g"]`（1 条，恒亮）= `encode_glob`(14) ⊕ `features.glob_rule_vector()`(11)
@@ -808,7 +815,10 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
 
     rows = []
     by_cell_w = _by_cell(w)
-    barb_w = w.barbarian_cells()          # ★ 一次算好（"有野人驻守"，含虚拟野人）
+    if barb is None:                      # ★ 一次算好（`obs_of` 传下来；含虚拟野人）
+        barb_w = w.barbarian_cells()
+    else:
+        barb_w = barb
     # ★★ **实体引用**（报告 §8.4）：算一次，全窗口共用。
     ent_slot, ent_n = _entity_slots(sb, me, armies)
     for a in armies:
@@ -923,7 +933,7 @@ def encode_window(sb, me: str, mask=None, *, frame: CB.FrameOdds | None = None,
 
 # ============================================================ ★ 下标形态候选
 def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
-                    armies=None, known=None) -> dict:
+                    armies=None, known=None, barb: set | None = None) -> dict:
     """候选动作 → **下标形态**（`model.PolicyNet` 的那几个字段）。
 
     ★ 这里**不再平铺成一行标量**（旧版 12 列）。理由（§11）：平铺标量下
@@ -960,7 +970,8 @@ def candidate_batch(sb, me: str, acts=None, mask=None, by_cell=None,
         for _a in w.armies():
             if _a.get("hp", 0) > 0:
                 by_cell.setdefault((_a["x"], _a["y"]), []).append(_a)
-    barb = w.barbarian_cells()              # ★ 一次算好（"有野人驻守"，含虚拟野人）
+    if barb is None:                        # ★ 一次算好（`obs_of` 传下来；含虚拟野人）
+        barb = w.barbarian_cells()
     if armies is None:
         armies = encode_window(sb, me, mask)[2]
     # ★★ 候选里带的是**本国序号**（`aid`）⇒ 索引**只能建在"我自己的军"上**。
@@ -1061,15 +1072,20 @@ def obs_of(sb, me: str, acts=None) -> dict:
     known = sb.known_halls(me, mask)          # ★ 顺带把本帧看见的厅并进记忆（一次）
     armies = window_armies(sb, me, mask)
     frame = combat_of(sb, me, mask, armies)
+    # ★★ 2026-10-24：**"有野人驻守"这个集合也只算一次**（以前网格/窗口/候选
+    #   **各算一遍同一个集合** ⇒ 每帧 3 次 × 4.4 ms ⇒ 实测占全局 **12.6%**）。
+    #   ⇒ 这里是**同一帧**（世界在这一帧里不变）⇒ 传下去**逐位相同**。
+    barb = sb.env.barbarian_cells()
     # ★ 网格**先算**（空间摘要要从它摊回整张地图 —— 见 `spatial_summary`）
-    grid = encode_grid(sb, me, mask, known=known, frame=frame)
+    grid = encode_grid(sb, me, mask, known=known, frame=frame, barb=barb)
     win, win_mask, _ = encode_window(sb, me, mask, frame=frame, armies=armies,
-                                     known=known, grid=grid)
+                                     known=known, grid=grid, barb=barb)
     return {
         "grid": grid,
         "win": win,
         "win_mask": win_mask,
-        "cand": candidate_batch(sb, me, acts, mask, armies=armies, known=known),
+        "cand": candidate_batch(sb, me, acts, mask, armies=armies, known=known,
+                                barb=barb),
         "mask": np.ones(len(acts), bool),
         "n_armies": len(armies),                 # 供 collate 记录（不做张量）
     }
