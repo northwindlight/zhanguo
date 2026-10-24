@@ -1,309 +1,240 @@
 using Godot;
 using System;
-using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Nodes;
 
-// Model dialogue overlay: thinking / speech / turn-summary bubbles with a
-// portrait in the bottom-right corner. Text arrives either as live host
-// "stream" messages (LLM turns) or as synthesized beat playback; both go
-// through the same typewriter queue. Pure presentation, no rule meaning.
+// Only model-authored text enters this overlay. Action receipts belong to the
+// playback banner. Provider deltas are already streamed; never type them twice.
 public partial class SpeechBubbles : Control
 {
-    private PanelContainer _panel = null!;
-    private Label _tag = null!, _title = null!, _portraitName = null!, _stats = null!;
-    private RichTextLabel _thinking = null!, _body = null!;
-    private PanelContainer _thinkingPanel = null!, _bodyPanel = null!;
-    private Control _portrait = null!;
-    private PanelContainer _logoFrame = null!;
-    private TextureRect? _logo;
-    private Label _badge = null!;
-    private VBoxContainer _badgeBox = null!;
-    private readonly Dictionary<string, (string Pending, int Shown)> _queues = new();
-    private string _kind = "body", _actor = "";
-    private string? _contextText;
-    private int? _tokenCount;
-    private double? _turnSeconds;
-    private float _speed = 1;
-    private double _holdClock = double.PositiveInfinity;
-    private StyleBoxFlat _bodyStyle = null!, _summaryStyle = null!, _thinkingStyle = null!;
+    private PanelContainer _panel = null!, _portraitFrame = null!, _thinkingPanel = null!;
+    private VBoxContainer _column = null!;
+    private Label _tag = null!, _title = null!, _stats = null!, _portraitName = null!, _badge = null!;
+    private RichTextLabel _thinking = null!, _body = null!, _summary = null!;
+    private Button _fold = null!, _restore = null!;
+    private TextureRect _portrait = null!;
+    private StyleBoxFlat _portraitStyle = null!;
+    private string _actor = "", _model = "", _context = "";
+    private string _thought = "", _prose = "";
+    private bool _expanded, _collapsed, _hasText;
+    private double _hideAfter = double.PositiveInfinity;
     public int SegmentsShown { get; private set; }
     public bool EverShown { get; private set; }
-    public bool Streaming => _queues.TryGetValue(_kind, out var q) && q.Shown < q.Pending.Length;
+    public bool Streaming { get; private set; }
+    public Rect2 DialogueBounds => _panel.GetGlobalRect();
+    public Rect2 PortraitBounds => _portraitFrame.GetGlobalRect();
+    public bool HasPortrait => _portrait.Texture != null;
+    public string BodyText => _body.Text;
+    public string ThoughtText => _thinking.Text;
+    public string Speaker => _actor;
 
     public override void _Ready()
     {
         MouseFilter = MouseFilterEnum.Ignore;
-        ClipContents = false;
-        _panel = new PanelContainer { MouseFilter = MouseFilterEnum.Ignore };
-        _panel.SetAnchorsAndOffsetsPreset(LayoutPreset.CenterBottom);
-        _panel.OffsetLeft = -390; _panel.OffsetRight = 390; _panel.OffsetTop = -212; _panel.OffsetBottom = -18;
-        var frame = new StyleBoxFlat { BgColor = new Color(.06f, .10f, .11f, .93f), BorderColor = new Color("5a6a58"),
-            ContentMarginLeft = 14, ContentMarginRight = 14, ContentMarginTop = 8, ContentMarginBottom = 10 };
-        frame.SetBorderWidthAll(1); frame.SetCornerRadiusAll(8);
-        _panel.AddThemeStyleboxOverride("panel", frame);
+        _panel = new PanelContainer { MouseFilter = MouseFilterEnum.Stop };
+        _panel.AddThemeStyleboxOverride("panel", Frame(new Color("132222"), new Color("647369"), 16));
         AddChild(_panel);
-
-        var box = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
-        box.AddThemeConstantOverride("separation", 6);
-        _panel.AddChild(box);
-
-        var header = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
-        _tag = new Label { Text = "…", MouseFilter = MouseFilterEnum.Ignore };
-        _tag.AddThemeFontSizeOverride("font_size", 18);
-        _tag.AddThemeColorOverride("font_color", new Color("cfc7a2"));
-        header.AddChild(_tag);
-        _title = new Label { Text = "等待列国行动", MouseFilter = MouseFilterEnum.Ignore, SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        _title.AddThemeFontSizeOverride("font_size", 22);
-        _title.AddThemeColorOverride("font_color", new Color("efe2b0"));
+        _column = new VBoxContainer(); _column.AddThemeConstantOverride("separation", 8); _panel.AddChild(_column);
+        var header = new HBoxContainer(); _column.AddChild(header);
+        _tag = Label("模型发言", 14, "a6b9ae"); header.AddChild(_tag);
+        _title = Label("", 20, "f0e0b4");
+        _title.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        _title.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
         header.AddChild(_title);
-        var close = new Button { Text = "收起 ×", FocusMode = FocusModeEnum.None };
-        close.Pressed += () => Visible = false;
+        var close = new Button { Text = "收起", FocusMode = FocusModeEnum.None };
+        close.AddThemeFontSizeOverride("font_size", 14);
+        close.Pressed += () => { _collapsed = true; Refresh(); };
         header.AddChild(close);
-        box.AddChild(header);
+        _stats = Label("", 14, "a6b9ae");
+        _stats.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+        _column.AddChild(_stats);
+        _fold = new Button { Text = "思考过程 ▸", Alignment = HorizontalAlignment.Left, FocusMode = FocusModeEnum.None };
+        _fold.AddThemeFontSizeOverride("font_size", 14);
+        _fold.Pressed += () => { _expanded = !_expanded; Refresh(); };
+        _column.AddChild(_fold);
+        _thinkingPanel = new PanelContainer();
+        _thinkingPanel.AddThemeStyleboxOverride("panel", Frame(new Color("1b2932"), new Color("374951"), 10));
+        _thinking = Text("b4c7d3", 16); _thinkingPanel.AddChild(_thinking); _column.AddChild(_thinkingPanel);
+        _body = Text("efe5ca", 19); _column.AddChild(_body);
+        _summary = Text("b8ceac", 16); _column.AddChild(_summary);
 
-        // Per-turn meta line: live context plan, measured turn time, tokens.
-        _stats = new Label { Text = "🧠 上下文 — · ⏱ — · 🔢 —", MouseFilter = MouseFilterEnum.Ignore };
-        _stats.AddThemeFontSizeOverride("font_size", 17);
-        _stats.AddThemeColorOverride("font_color", new Color("a8b6a0"));
-        box.AddChild(_stats);
-
-        _thinkingStyle = new StyleBoxFlat { BgColor = new Color(.10f, .13f, .19f, .82f), BorderColor = new Color("4b586e"),
-            ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 6, ContentMarginBottom = 6 };
-        _thinkingStyle.SetBorderWidthAll(1); _thinkingStyle.SetCornerRadiusAll(6);
-        _thinkingStyle.SetBorderWidthAll(1);
-        _thinkingPanel = new PanelContainer { MouseFilter = MouseFilterEnum.Ignore };
-        _thinkingPanel.AddThemeStyleboxOverride("panel", _thinkingStyle);
-        _thinking = MakeText(new Color("9fb2c8"));
-        _thinkingPanel.AddChild(_thinking);
-        box.AddChild(_thinkingPanel);
-
-        _bodyStyle = new StyleBoxFlat { BgColor = new Color(.97f, .93f, .80f, .95f), BorderColor = new Color("8a7a52"),
-            ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 6, ContentMarginBottom = 6 };
-        _bodyStyle.SetBorderWidthAll(1); _bodyStyle.SetCornerRadiusAll(6);
-        _summaryStyle = new StyleBoxFlat { BgColor = new Color(.90f, .94f, .80f, .95f), BorderColor = new Color("7d8a54"),
-            ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 6, ContentMarginBottom = 6 };
-        _summaryStyle.SetBorderWidthAll(1); _summaryStyle.SetCornerRadiusAll(6);
-        _bodyPanel = new PanelContainer { MouseFilter = MouseFilterEnum.Ignore };
-        _bodyPanel.AddThemeStyleboxOverride("panel", _bodyStyle);
-        _body = MakeText(new Color("2d2a20"));
-        _bodyPanel.AddChild(_body);
-        box.AddChild(_bodyPanel);
-
-        // Portrait: model logo as the speaker standee at the panel's corner,
-        // with the model name right above it (reserved logo art or a badge).
-        _portrait = new Control { MouseFilter = MouseFilterEnum.Ignore, CustomMinimumSize = new Vector2(96, 112) };
-        var portraitBox = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
-        portraitBox.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        _portraitName = new Label { Text = "", HorizontalAlignment = HorizontalAlignment.Center,
-            MouseFilter = MouseFilterEnum.Ignore };
-        _portraitName.AddThemeFontSizeOverride("font_size", 18);
-        _portraitName.AddThemeColorOverride("font_color", new Color("efe2b0"));
+        _portraitFrame = new PanelContainer { MouseFilter = MouseFilterEnum.Ignore };
+        _portraitStyle = Frame(new Color(.055f, .09f, .10f, .9f), new Color("8b9b82"), 8);
+        _portraitFrame.AddThemeStyleboxOverride("panel", _portraitStyle); AddChild(_portraitFrame);
+        var portraitBox = new VBoxContainer(); _portraitFrame.AddChild(portraitBox);
+        _portraitName = Label("", 15, "efe5ca");
+        _portraitName.HorizontalAlignment = HorizontalAlignment.Center;
+        _portraitName.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
         portraitBox.AddChild(_portraitName);
-        var logoFrame = new PanelContainer { MouseFilter = MouseFilterEnum.Ignore, CustomMinimumSize = new Vector2(84, 84) };
-        var logoStyle = new StyleBoxFlat { BgColor = new Color(.10f, .13f, .12f, .96f), BorderColor = new Color("efe2b0"),
-            ContentMarginLeft = 4, ContentMarginRight = 4, ContentMarginTop = 4, ContentMarginBottom = 4 };
-        logoStyle.SetBorderWidthAll(2); logoStyle.SetCornerRadiusAll(6);
-        logoFrame.AddThemeStyleboxOverride("panel", logoStyle);
-        _logoFrame = logoFrame;
-        _logoStyle = logoStyle;
-        _badgeBox = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
-        _badgeBox.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        _badge = new Label { Text = "?", HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
-            MouseFilter = MouseFilterEnum.Ignore, SizeFlagsVertical = SizeFlags.ExpandFill };
-        _badge.AddThemeFontSizeOverride("font_size", 22);
-        _badge.AddThemeColorOverride("font_color", new Color("efe2b0"));
-        _badgeBox.AddChild(_badge);
-        logoFrame.AddChild(_badgeBox);
-        portraitBox.AddChild(logoFrame);
-        _portrait.AddChild(portraitBox);
-        AddChild(_portrait);
-        _queues["thinking"] = ("", 0);
-        _queues["body"] = ("", 0);
-        HideAll();
+        _portrait = new TextureRect { Name="PortraitArt", ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            SizeFlagsVertical = SizeFlags.ExpandFill, TextureFilter = TextureFilterEnum.Linear };
+        portraitBox.AddChild(_portrait);
+        _badge = Label("AI", 24, "d9c99b"); _badge.HorizontalAlignment = HorizontalAlignment.Center;
+        _badge.VerticalAlignment = VerticalAlignment.Center; _badge.SizeFlagsVertical = SizeFlags.ExpandFill;
+        portraitBox.AddChild(_badge);
+        _fold.Name="ThoughtToggle";
+        close.Name="CollapseDialogue";
+        _restore = new Button { Name="RestoreDialogue",Text = "模型发言 ▴", FocusMode = FocusModeEnum.None };
+        _restore.Pressed += () => { _collapsed = false; Refresh(); }; AddChild(_restore);
+        Resized += Layout; HideAll();
     }
-    private StyleBoxFlat _logoStyle = null!;
-    private static RichTextLabel MakeText(Color color)
+    private static Label Label(string text, int size, string color)
     {
-        var text = new RichTextLabel { BbcodeEnabled = false, SelectionEnabled = true, ScrollActive = true,
-            ScrollFollowing = true, MouseFilter = MouseFilterEnum.Ignore, SizeFlagsVertical = SizeFlags.ExpandFill };
-        text.AddThemeFontSizeOverride("normal_font_size", 20);
-        text.AddThemeColorOverride("default_color", color);
-        text.CustomMinimumSize = new Vector2(0, 42);
-        return text;
+        var label = new Label { Text = text, MouseFilter = MouseFilterEnum.Ignore };
+        label.AddThemeFontSizeOverride("font_size", size); label.AddThemeColorOverride("font_color", new Color(color)); return label;
     }
-
-    public void SetSpeed(float speed) => _speed = Math.Max(.1f, speed);
-
-    // Meta line: LLM turns carry all three; rule AI demo fills context from
-    // frame facts and shows measured seconds with 0 tokens.
-    public void SetStats(string? context, int? tokens, double? seconds)
+    private static RichTextLabel Text(string color, int size)
     {
-        if (context != null) _contextText = context;
-        if (tokens != null) _tokenCount = tokens;
-        if (seconds != null) _turnSeconds = seconds;
-        RefreshStats();
+        var text = new RichTextLabel { BbcodeEnabled = false, SelectionEnabled = true,
+            ScrollActive = true, ScrollFollowing = true, MouseFilter = MouseFilterEnum.Stop,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        text.AddThemeFontSizeOverride("normal_font_size", size);
+        text.AddThemeColorOverride("default_color", new Color(color));
+        text.AddThemeConstantOverride("line_separation", 4); return text;
     }
-
-    private void RefreshStats()
+    private static StyleBoxFlat Frame(Color background, Color border, int margin)
     {
-        string context = _contextText ?? "—";
-        if (context.Length > 46) context = context[..46] + "…";
-        string time = _turnSeconds is double seconds ? $"{seconds:0.##}s" : "—";
-        string tokens = _tokenCount is int count ? count >= 10000 ? $"{count / 1000f:0.#}k" : count.ToString() : "—";
-        _stats.Text = $"🧠 上下文 {context} · ⏱ {time} · 🔢 {tokens} token";
+        var style = new StyleBoxFlat { BgColor = background, BorderColor = border,
+            ContentMarginLeft = margin, ContentMarginRight = margin, ContentMarginTop = 10, ContentMarginBottom = 10 };
+        style.SetBorderWidthAll(1); style.SetCornerRadiusAll(8); return style;
     }
-
-    public void SetSpeaker(string actor, string nationName, string modelVersion, Color nationColor)
+    public void SetSpeaker(string actor, string nationName, string model, Color color)
     {
-        _actor = actor;
-        _contextText = null; _tokenCount = null; _turnSeconds = null;
-        RefreshStats();
-        string model = ModelDisplay(modelVersion);
-        _title.Text = $"{model} 扮演 {nationName}";
-        _portraitName.Text = ModelShort(modelVersion);
-        _logoStyle.BorderColor = nationColor;
-        _badge.Text = ModelShort(modelVersion);
-        var logo = LoadLogo(modelVersion);
-        if (logo != null)
+        if (_actor == actor && _model == model) return;
+        _actor = actor; _model = model; _context = "";
+        _thought = _prose = ""; _thinking.Text = _body.Text = _summary.Text = _stats.Text = "";
+        _title.Text = $"{nationName} · {(IsRuleVersion(model) ? "规则 AI " + model : model == "" ? "模型" : model)}";
+        _title.TooltipText = _title.Text;
+        _portraitName.Text = ModelShort(model); _portraitStyle.BorderColor = color;
+        _badge.Text = ModelShort(model);
+        SetPortrait(LoadPortrait(model));
+        _hasText = false; Streaming = false; Refresh();
+    }
+    public void SetPortrait(Texture2D? texture)
+    {
+        _portrait.Texture=texture;_portrait.Visible=texture!=null;_badge.Visible=texture==null;
+    }
+    public void ShowRuleTurn()
+    {
+        Streaming = false; _thought = _prose = ""; _thinking.Text = ""; _summary.Text = ""; _stats.Text = "";
+        _tag.Text = "规则对局";
+        _body.Text = "本国的建设、交易和军令正在上方横幅逐项展示。";
+        _hasText = true; SegmentsShown++; _hideAfter = double.PositiveInfinity; Refresh();
+    }
+    public void HandleStream(JsonObject row)
+    {
+        string Value(string key) => row[key]?.ToString() ?? "";
+        string op = Value("event"), kind = Value("kind");
+        _hideAfter = double.PositiveInfinity;
+        switch (op)
         {
-            if (_logo == null)
-            {
-                logo.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-                logo.ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize;
-                logo.StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered;
-                _logoFrame.AddChild(logo);
-                _logo = logo;
-            }
-            else _logo.Texture = GD.Load<Texture2D>($"res://assets/logos/{LogoKey(modelVersion)}.png");
+            case "context":
+                _context = Value("text"); _stats.TooltipText = _context; return;
+            case "begin":
+                _thought = _prose = ""; _thinking.Text = ""; _summary.Text = "";
+                _body.Text = "等待模型响应…"; _tag.Text = "等待响应"; _stats.Text = $"第 {Value("call")} 次调用";
+                Streaming = true; _hasText = true; SegmentsShown++; break;
+            case "reset":
+                _thought = _prose = ""; _thinking.Text = ""; _body.Text = "等待模型响应…"; break;
+            case "delta":
+                if (kind == "thinking") { _thought = Bounded(_thought + Value("text")); _thinking.Text = _thought; if(_prose.Length==0)_body.Text="正在生成发言…"; }
+                if (kind == "body") { _prose = Bounded(_prose + Value("text")); _body.Text = _prose; }
+                _tag.Text = kind == "thinking" ? "思考中" : "正在发言";
+                _hasText = true; Streaming = true; break;
+            case "complete":
+                _thought = Bounded(Value("thinking")); _prose = Bounded(Value("body"));
+                _thinking.Text = _thought; _body.Text = _prose.Length > 0 ? _prose : "本次响应未附发言正文。";
+                _tag.Text = "模型发言"; Streaming = false;
+                string tokens = row["tokens"] == null ? "用量未报告" : $"{(row["estimated"]?.GetValue<bool>() == true ? "约 " : "")}{Value("tokens")} 输出 token";
+                _stats.Text = tokens + (row["seconds"] == null ? "" : $" · {row["seconds"]!.GetValue<double>():0.0} 秒"); break;
+            case "summary":
+                _summary.Text = "回合小结  " + Bounded(Value("text")); _tag.Text = "行动结束"; Streaming = false; break;
+            case "failed":
+                _tag.Text = "响应中断 · 未完成"; Streaming = false; break;
+            case "message":
+                if (kind == "thinking") { _thought = Bounded(Value("text")); _thinking.Text = _thought; }
+                else { _prose = Bounded(Value("text")); _body.Text = _prose; }
+                _hasText = true; SegmentsShown++; break;
+            default: return;
         }
-        else if (_logo != null)
+        Refresh();
+    }
+    private static string Bounded(string text) => text.Length <= 40000 ? text : "…（前文见纪事）\n" + text[^39000..];
+    public void SetSpeed(float speed) { } // Actual provider arrival controls streaming.
+    public void Park() { }
+    public void HideSoon() => _hideAfter = 8;
+    public void HideAll() { _hasText = false; _panel.Visible = _portraitFrame.Visible = _restore.Visible = false; }
+    private void Refresh()
+    {
+        _fold.Visible = _thought.Length > 0;
+        _fold.Text = _expanded ? "思考过程 ▾  收起详情" : "思考过程 ▸  展开详情";
+        _thinkingPanel.Visible = _thought.Length > 0;
+        _summary.Visible = _summary.Text.Length > 0;
+        _stats.Visible = _stats.Text.Length > 0;
+        _panel.Visible = _portraitFrame.Visible = _hasText && !_collapsed;
+        _restore.Visible = _hasText && _collapsed;
+        if (_panel.Visible) EverShown = true;
+        Layout();
+    }
+    private void Layout()
+    {
+        if (_panel == null || Size.X < 100) return;
+        float width = Math.Min(960, Size.X - 32), portraitW = Size.X < 1100 ? 120 : 168;
+        float available = Math.Max(160, Size.Y - 300);
+        bool compact=Size.Y<800;
+        float bodyH = _prose.Length > 0 || Streaming ? (compact?88:108) : 48;
+        float thinkingH = _thought.Length > 0 ? (_expanded ? (compact?72:146) : (compact?32:48)) : 0;
+        _body.CustomMinimumSize = new Vector2(0, bodyH);
+        _thinking.CustomMinimumSize = new Vector2(0, thinkingH);
+        _summary.CustomMinimumSize = new Vector2(0, _summary.Visible ? (compact?32:54) : 0);
+        float height = 42 + bodyH + (thinkingH > 0 ? thinkingH + 62 : 0) + (_stats.Visible ? 26 : 0) + (_summary.Visible ? 62 : 0);
+        if (height > available)
         {
-            _logoFrame.RemoveChild(_logo);
-            _logo.QueueFree();
-            _logo = null;
+            _thinking.CustomMinimumSize = new Vector2(0, Math.Max(32, thinkingH - (height - available)));
+            height = available;
         }
-        _badgeBox.Visible = _logo == null;
+        height=Math.Max(height,_panel.GetCombinedMinimumSize().Y);
+        float bottom = Size.Y - 78;
+        _panel.Position = new Vector2(Size.X - width - 16, bottom - height);
+        _panel.Size = new Vector2(width - portraitW - 12, height);
+        // Minimum-size changes propagate through containers on the next frame.
+        _portraitFrame.Position = new Vector2(Size.X - portraitW - 16, bottom - Math.Min(260, height));
+        _portraitFrame.Size = new Vector2(portraitW, Math.Min(260, height));
+        _restore.Position = new Vector2(Size.X - 170, bottom - 42); _restore.Size = new Vector2(154, 38);
     }
-
-    public void Begin(string kind)
-    {
-        _kind = kind;
-        _queues[kind] = ("", 0);
-        Target(kind).Text = "";
-        _bodyPanel.AddThemeStyleboxOverride("panel", kind == "turn_end" ? _summaryStyle : _bodyStyle);
-        _thinkingPanel.Visible = _queues["thinking"].Pending.Length > 0 || kind == "thinking";
-        _tag.Text = kind switch { "thinking" => "💭 思考中…", "turn_end" => "🏁 回合小结", _ => "🗣 发言" };
-        _holdClock = double.PositiveInfinity;
-        SegmentsShown++;
-        Wake();
-    }
-
-    public void Append(string kind, string text)
-    {
-        if(!_queues.TryGetValue(kind,out var q))q=("",0);
-        _queues[kind] = (q.Pending + text, q.Shown);
-        _kind = kind;
-        _holdClock = double.PositiveInfinity;
-    }
-
-    // Live host stream delta: appends without clearing the current bubble.
-    public void Stream(string actor, string kind, string text)
-    {
-        if (kind == "context") { SetStats(text, null, null); return; }
-        if(!_queues.TryGetValue(kind,out var q))q=("",0);
-        string separator = q.Pending.Length == 0 || q.Pending.EndsWith('\n') ? "" : "\n";
-        _queues[kind] = (q.Pending + separator + text, q.Shown);
-        _kind = kind;
-        _thinkingPanel.Visible = _queues["thinking"].Pending.Length > 0;
-        _holdClock = double.PositiveInfinity;
-        SegmentsShown++;
-    }
-
-    public void Park()
-    {
-        Modulate = new Color(1, 1, 1, .45f);
-        _tag.Text = "— 演出中 —";
-    }
-    public void Wake()
-    {
-        Modulate = Colors.White;
-        _tag.Text = _kind == "thinking" ? "💭 思考中…" : _kind == "turn_end" ? "🏁 回合小结" : "🗣 发言";
-    }
-    public void HideSoon() => _holdClock = 1.6;
-    public void HideAll()
-    {
-        _panel.Visible = false; _portrait.Visible = false;
-    }
-    private void ShowPanels()
-    {
-        _panel.Visible = true; _portrait.Visible = true; EverShown = true; Wake();
-    }
-
-    private RichTextLabel Target(string kind) => kind == "thinking" ? _thinking : _body;
-
     public override void _Process(double delta)
     {
-        // The standee tracks the dialogue frame even while everything is hidden.
-        _portrait.Position = _panel.GlobalPosition - GlobalPosition + new Vector2(_panel.Size.X - 44, _panel.Size.Y - 78);
-        // The reveal loop must run while hidden too: it is what brings the
-        // panel back after HideAll(). Only the outer toggle can stop it.
-        if (!IsVisibleInTree()) return;
-        bool streaming = false;
-        foreach (var kind in _queues.Keys)
+        Layout();
+        if (!Streaming && !double.IsPositiveInfinity(_hideAfter))
         {
-            var q = _queues[kind];
-            if (q.Shown >= q.Pending.Length) continue;
-            // Only the active bubble and the thinking log advance their reveal.
-            if (kind != _kind && kind != "thinking") continue;
-            float rate = (kind == "thinking" ? 260 : 90) * _speed;
-            int next = Math.Min(q.Pending.Length, q.Shown + Math.Max(1, (int)(rate * delta)));
-            Target(kind).Text = q.Pending[..next] + (next == q.Pending.Length ? "" : "▌");
-            _queues[kind] = (q.Pending, next);
-            streaming = true;
-        }
-        _thinkingPanel.Visible = _queues["thinking"].Pending.Length > 0;
-        if (streaming) { ShowPanels(); _tag.Text = _kind == "thinking" ? "💭 思考中…" : "🗣 发言"; }
-        else if (_holdClock != double.PositiveInfinity)
-        {
-            _holdClock -= delta;
-            if (_holdClock <= 0) { HideAll(); _holdClock = double.PositiveInfinity; }
+            _hideAfter -= delta; if (_hideAfter <= 0) HideAll();
         }
     }
-
-    private static string ModelDisplay(string version) => version switch
-    {
-        "" => "未知模型",
-        var v when IsRuleVersion(v) => $"规则AI {v}",
-        _ => version
-    };
-    // v13-style short tags mark rule clients; they get the preset demo stream.
-    public static bool IsRuleVersion(string version) =>
-        version.Length is >= 2 and <= 4 && version[0] == 'v' && version[1..].All(char.IsDigit);
+    public static bool IsRuleVersion(string version) => version.StartsWith("v", StringComparison.OrdinalIgnoreCase) && version[1..].All(char.IsDigit);
+    private static readonly (string Key, string Name)[] Models = {
+        ("deepseek", "DeepSeek"), ("qwen", "Qwen"), ("qwq", "Qwen"), ("glm", "GLM"), ("zhipu", "GLM"),
+        ("gemini", "Gemini"), ("gpt", "GPT"), ("openai", "GPT"), ("kimi", "Kimi"), ("moonshot", "Kimi"),
+        ("claude", "Claude"), ("grok", "Grok"), ("llama", "Llama"), ("hunyuan", "Hunyuan"),
+        ("doubao", "Doubao"), ("minimax", "MiniMax"), ("abab", "MiniMax") };
     internal static string ModelShort(string version)
     {
-        foreach (var (keyword, name) in ModelKeywords)
-            if (version.Contains(keyword)) return name;
-        var v = version.Trim();
-        return v.Length <= 6 ? (v == "" ? "AI" : v) : v[..6];
+        string lower = version.ToLowerInvariant();
+        foreach (var (key, name) in Models) if (lower.Contains(key)) return name;
+        return IsRuleVersion(version) ? "规则 AI" : version.Length > 12 ? version[..12] + "…" : version.Length == 0 ? "AI" : version;
     }
-    private static readonly (string Keyword, string Name)[] ModelKeywords =
-    {
-        ("deepseek", "DeepSeek"), ("glm", "GLM"), ("zhipu", "GLM"), ("gemini", "Gemini"),
-        ("openai", "GPT"), ("gpt", "GPT"), ("o1", "GPT"), ("o3", "GPT"), ("o4", "GPT"),
-        ("qwen", "Qwen"), ("qwq", "Qwen"), ("kimi", "Kimi"), ("moonshot", "Kimi"),
-        ("claude", "Claude"), ("grok", "Grok"), ("llama", "Llama"), ("hunyuan", "混元"),
-        ("doubao", "豆包"), ("minimax", "MiniMax"), ("abab", "MiniMax"), ("rule", "规则AI"),
-    };
     internal static string LogoKey(string version)
     {
-        foreach (var (keyword, name) in ModelKeywords)
-            if (version.Contains(keyword)) return name.ToLowerInvariant();
+        string lower = version.ToLowerInvariant();
+        foreach (var (key, name) in Models) if (lower.Contains(key)) return name.ToLowerInvariant();
         return "generic";
     }
-    private static TextureRect? LoadLogo(string version)
+    private static Texture2D? LoadPortrait(string version)
     {
-        string path = $"res://assets/logos/{LogoKey(version)}.png";
-        if (!ResourceLoader.Exists(path)) return null;
-        return new TextureRect { Texture = GD.Load<Texture2D>(path) };
+        string key = LogoKey(version);
+        foreach (var path in new[] { $"res://assets/portraits/{key}.png", $"res://assets/logos/{key}.png",
+                     "res://assets/portraits/generic.png", "res://assets/logos/generic.png" }.Distinct())
+            if (ResourceLoader.Exists(path)) return GD.Load<Texture2D>(path);
+        return null;
     }
 }

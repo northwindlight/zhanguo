@@ -113,7 +113,7 @@ class TestBarrierRules(unittest.TestCase):
         before=deepcopy(w.runtime.save_mod_state(w))
         for point in ((3,2),(1,0)):
             for action in ('move','attack'):
-                with self.assertRaises(ValueError):w.call_tool(Q,action,{'aid':unit.id,'x':point[0],'y':point[1]})
+                with self.assertRaises(ValueError):w.call_tool(Q,action,{'id':unit.id,'x':point[0],'y':point[1]})
             with self.assertRaises(ValueError):w.territory.create_claim('scenario:illegal',Q,*point)
             with self.assertRaises(ValueError):w.military.seed(Q,'native:infantry',*point)
         self.assertEqual(w.runtime.save_mod_state(w),before)

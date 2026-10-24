@@ -90,7 +90,7 @@ class TestToolSurface(unittest.TestCase):
         branches = {b['properties']['action']['enum'][0]: b for b in military['oneOf']}
         self.assertEqual(set(branches), {'recruit', 'move', 'attack', 'retreat', 'disband'})
         self.assertEqual(branches['disband']['required'], ['action'])
-        self.assertIn({'required': ['aid']}, branches['disband']['anyOf'])
+        self.assertIn({'required': ['id']}, branches['disband']['anyOf'])
         # 地点写法约束随动作分支带出：recruit 分支仍要求 site/place/x,y 三选一。
         self.assertTrue(any('site' in branch.get('required', ()) for branch in branches['recruit']['oneOf']))
         relations = {b['properties']['action']['enum'][0]: b for b in schemas['relations']['oneOf']}

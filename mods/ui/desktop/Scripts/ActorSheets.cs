@@ -32,7 +32,9 @@ public static class ActorSheets
         {
             var texture = GD.Load<Texture2D>(path);
             int cellW = 16, cellH = 16, frames = 6, rows = 2;
-            if (Manifest().TryGetProperty(name, out var meta))
+            var sheets=Manifest();
+            if(sheets.TryGetProperty("sheets",out var nested))sheets=nested;
+            if (sheets.TryGetProperty(name, out var meta))
             {
                 if (meta.TryGetProperty("cell", out var cell) && cell.GetArrayLength() == 2)
                 { cellW = cell[0].GetInt32(); cellH = cell[1].GetInt32(); }

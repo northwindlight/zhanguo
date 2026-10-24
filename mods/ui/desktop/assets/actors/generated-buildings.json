@@ -1,0 +1,80 @@
+[
+  {
+    "file": "townhall.png",
+    "source": "Built-in image_gen",
+    "sha256": "56f4838c193fd45a4dc7f6b5c29fe8ca3a7528699f76ccdc0f14289b6ccab9ed",
+    "size": [
+      1254,
+      1254
+    ],
+    "alpha": [
+      0,
+      255
+    ]
+  },
+  {
+    "file": "farm.png",
+    "source": "Built-in image_gen",
+    "sha256": "b0c625dc81678cc92c1035aee0018ac0f30c57bba6b41cafe315cf62aabeaf14",
+    "size": [
+      1254,
+      1254
+    ],
+    "alpha": [
+      0,
+      255
+    ]
+  },
+  {
+    "file": "mine.png",
+    "source": "Built-in image_gen",
+    "sha256": "96034f1699a4962084e7c549a18bcf7fd596437bbd5645a7830f374c00d3866e",
+    "size": [
+      1254,
+      1254
+    ],
+    "alpha": [
+      0,
+      255
+    ]
+  },
+  {
+    "file": "oilwell.png",
+    "source": "Built-in image_gen",
+    "sha256": "ecb4451dc84c4726d76fcbc4da9c4adeab42ee1586b11091c0a020b6cd2d3c2c",
+    "size": [
+      1254,
+      1254
+    ],
+    "alpha": [
+      0,
+      255
+    ]
+  },
+  {
+    "file": "factory.png",
+    "source": "Built-in image_gen",
+    "sha256": "d64504a07839d59f107e875fbc9477117f30f50626a907e3385019aa32a22752",
+    "size": [
+      1254,
+      1254
+    ],
+    "alpha": [
+      0,
+      255
+    ]
+  },
+  {
+    "file": "barracks.png",
+    "source": "Built-in image_gen",
+    "sha256": "710d5c3c3659bc9731b892baf6c9e705fea371364fe37da6f176ea70ada37fc0",
+    "size": [
+      1254,
+      1254
+    ],
+    "alpha": [
+      0,
+      255
+    ]
+  }
+]

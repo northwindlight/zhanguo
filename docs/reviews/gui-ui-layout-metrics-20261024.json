@@ -1,0 +1,29 @@
+[
+  {
+    "width": 1440,
+    "height": 900,
+    "inside": true,
+    "portrait_aspect_preserved": true,
+    "delta_immediate": true,
+    "speaker_reset": true,
+    "retry_reset": true
+  },
+  {
+    "width": 1280,
+    "height": 720,
+    "inside": true,
+    "portrait_aspect_preserved": true,
+    "delta_immediate": true,
+    "speaker_reset": true,
+    "retry_reset": true
+  },
+  {
+    "width": 1024,
+    "height": 768,
+    "inside": true,
+    "portrait_aspect_preserved": true,
+    "delta_immediate": true,
+    "speaker_reset": true,
+    "retry_reset": true
+  }
+]

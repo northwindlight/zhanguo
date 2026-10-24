@@ -3,11 +3,14 @@
 
 回合循环（clients.llm.LLMClient.play）需要的全部原语：
 
-    backend.chat_turn(messages, tools, cfg, on_retry=None) -> (msg, stats)
+    backend.chat_turn(messages, tools, cfg, on_retry=None, on_delta=None) -> (msg, stats)
         msg   : OpenAI 形态的 assistant 消息 dict
                 {content, reasoning_content, tool_calls:[{id,type,function:{name,arguments}}]}
         stats : 用量统计 {"wall","stream","first","maxgap","out_tokens","reason_tokens",
                 "hit","miss"}（缺项按 0 计）
+        on_delta(kind, text)：**只读的流式展示回调**（桌面端真实模型流，2026-10-24
+                上游接入）——kind ∈ {"reset","thinking","body"}；重试前发 reset 清残片，
+                思考/正文逐片段发；回调抛异常一律吞掉（展示层绝不允许打断请求）。
         重试全部在提供方内部做完（**配额耗尽这类 429 也照样重试**——重试窗口正是留给"当场续费"的）；
         **耗尽后原样抛出 ⇒ 上层（`clients.llm.LLMClient.play` → `mp_run`）直接终止本局**
         （2026-09-20 用户口径：「任何错误都应该直接终止游戏」；旧行为是吞成一条 user
@@ -144,6 +147,13 @@ import urllib.request
 
 from clients.context import REPLAY_KEY, est_tokens   # 估算（存档校准过的那套，只在"提供方没报用量"时兜底）
                                          # + 提供方私有回填键（定义在 ctx：消息形态的契约归它）
+
+
+def _stream_notify(callback, kind, text):
+    """Read-only presentation must never interrupt a provider request."""
+    if callback is not None and (text or kind == 'reset'):
+        try:callback(kind, text)
+        except Exception:pass
 
 
 def status_code_of(e: Exception) -> int | None:
@@ -410,7 +420,7 @@ def _post_json(url: str, headers: dict, body: dict, timeout: float):
         raise EndpointError(f"连接失败：{e.reason}") from None
 
 
-def _retry_stream(stream_once, messages, tools, cfg, on_retry=None):
+def _retry_stream(stream_once, messages, tools, cfg, on_retry=None, on_delta=None):
     """带重试窗口的流式调用（三条提供方同一套分类与退避）。
 
     ★ 429（配额耗尽）**也走重试**：用户 2026-09-20「重试到本回合必须跳过时，再退出，
@@ -424,13 +434,16 @@ def _retry_stream(stream_once, messages, tools, cfg, on_retry=None):
       status_code，2026-09-20 实测 `HTTP 504 …<center>alb</center>`，一次都没重试
       就整局终止）原生化后由 HTTPError 兜住、天然带码走 5xx 重试；万一再冒出
       没码的，`is_fatal` 对"认不出"也判可重试——**静默绕过重试的后门一个不留**。
+    ★ 每次尝试前给 `on_delta` 发一条 reset（展示层把上一把的残片清掉再接新的）。
     """
     retries = max(1, int(cfg.get("api_retries", 3)))
     backoff = float(cfg.get("api_retry_wait", 2.0))
     last: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
-            return stream_once(messages, tools, cfg)
+            _stream_notify(on_delta, 'reset', '')
+            return stream_once(messages, tools, cfg,
+                               **({'on_delta': on_delta} if on_delta else {}))
         except EndpointError as e:
             if is_fatal(e):
                 raise
@@ -449,7 +462,7 @@ _CONTINUE_NUDGE = ("（上一段输出被 max_tokens 截断）请**接着断点�
                    "直接往下写/往下调用，不要重复已经写过的内容，也不要重头再来。")
 
 
-def _tailing_continue(stream_once, messages, tools, cfg, msg, stats):
+def _tailing_continue(stream_once, messages, tools, cfg, msg, stats, on_delta=None):
     """`stop_reason="max_tokens"` 的**续写**（message tailing，Anthropic / Responses 共用）。
 
     只在两种情况续：**没吐工具调用**（工具调用被截断时参数 JSON 只写了一半，续写反而
@@ -474,7 +487,7 @@ def _tailing_continue(stream_once, messages, tools, cfg, msg, stats):
         try:
             more, st2 = stream_once(
                 list(messages) + [partial, {"role": "user", "content": _CONTINUE_NUDGE}],
-                tools, cfg)
+                tools, cfg, **({'on_delta': on_delta} if on_delta else {}))
         except Exception:      # noqa: BLE001 —— 补救失败就当没续过
             break
         msg["content"] = (msg.get("content") or "") + (more.get("content") or "")
@@ -562,10 +575,10 @@ class OpenAICompat:
         # 不建客户端对象：标准库那套没有会话状态，URL/头每次现算（cfg 逐国覆盖也天然生效）
         self.cfg = cfg
 
-    def chat_turn(self, messages, tools, cfg, on_retry=None):
-        return _retry_stream(self._stream_once, messages, tools, cfg, on_retry)
+    def chat_turn(self, messages, tools, cfg, on_retry=None, on_delta=None):
+        return _retry_stream(self._stream_once, messages, tools, cfg, on_retry, on_delta)
 
-    def _stream_once(self, messages, tools, cfg):
+    def _stream_once(self, messages, tools, cfg, on_delta=None):
         """一次流式调用 + 聚合：返回 (msg, stats)。
 
         **超时按流式的语义走**（用户 2026-09-20：「首字3分钟，sse内60秒」）：
@@ -652,9 +665,11 @@ class OpenAICompat:
                     rd = d.get("reasoning_content")
                     if rd:
                         r_s += rd
+                        _stream_notify(on_delta, 'thinking', rd)
                     cd = d.get("content")
                     if cd:
                         c_s += cd
+                        _stream_notify(on_delta, 'body', cd)
                     for i, tc in enumerate(d.get("tool_calls") or []):
                         # index 缺失的网关按出现位次排（int 化防字符串下标混进排序）
                         try:
@@ -923,11 +938,13 @@ class ResponsesCompat:
     def __init__(self, cfg: dict):
         self.cfg = cfg
 
-    def chat_turn(self, messages, tools, cfg, on_retry=None):
-        msg, stats = _retry_stream(self._stream_once, messages, tools, cfg, on_retry)
-        return _tailing_continue(self._stream_once, messages, tools, cfg, msg, stats)
+    def chat_turn(self, messages, tools, cfg, on_retry=None, on_delta=None):
+        msg, stats = _retry_stream(self._stream_once, messages, tools, cfg,
+                                   on_retry, on_delta)
+        return _tailing_continue(self._stream_once, messages, tools, cfg,
+                                 msg, stats, on_delta)
 
-    def _stream_once(self, messages, tools, cfg):
+    def _stream_once(self, messages, tools, cfg, on_delta=None):
         """一次流式调用 + 聚合：返回 (msg, stats)，字段与另两条路**完全同名同义**
         （wall/stream/first/maxgap/out_tokens/reason_tokens/hit/miss/
         usage_reported/estimated），回合循环、看海台与 ctx.record_hit 一行不用改。
@@ -1007,22 +1024,30 @@ class ResponsesCompat:
                                 str(p.get("text") or "") for p in (item.get("content") or [])
                                 if p.get("type") == "output_text")
                             c_s = c_s or parts
+                            if c_s:
+                                _stream_notify(on_delta, 'body', c_s)
                         elif item.get("type") == "reasoning" and not r_s:
                             r_s = r_s or "".join(
                                 str(p.get("text") or "") for p in (item.get("summary") or [])
                                 if p.get("type") == "summary_text")
+                            if r_s:
+                                _stream_notify(on_delta, 'thinking', r_s)
                     elif kind == "response.output_text.delta":
                         if first_t is None:
                             first_t = now        # "首字"= 第一个真吐字的事件
                         c_s += str(payload.get("delta") or "")
+                        _stream_notify(on_delta, 'body', str(payload.get("delta") or ""))
                     elif kind == "response.output_text.done":
                         if not c_s:
                             c_s = str(payload.get("text") or "")
+                            _stream_notify(on_delta, 'body', c_s)
                     elif kind in ("response.reasoning_summary_text.delta",
                                   "response.reasoning_text.delta"):
                         if first_t is None:
                             first_t = now
-                        r_s += str(payload.get("delta") or "")
+                        piece = str(payload.get("delta") or "")
+                        r_s += piece
+                        _stream_notify(on_delta, 'thinking', piece)
                     elif kind == "response.function_call_arguments.delta":
                         if first_t is None:
                             first_t = now
@@ -1373,11 +1398,11 @@ class AnthropicCompat:
         # 不建客户端对象：标准库那套没有会话状态，URL/头每次现算（cfg 逐国覆盖也天然生效）
         self.cfg = cfg
 
-    def chat_turn(self, messages, tools, cfg, on_retry=None):
-        msg, stats = self._call(messages, tools, cfg, on_retry)
-        return self._tail(messages, tools, cfg, msg, stats)
+    def chat_turn(self, messages, tools, cfg, on_retry=None, on_delta=None):
+        msg, stats = self._call(messages, tools, cfg, on_retry, on_delta)
+        return self._tail(messages, tools, cfg, msg, stats, on_delta)
 
-    def _call(self, messages, tools, cfg, on_retry=None):
+    def _call(self, messages, tools, cfg, on_retry=None, on_delta=None):
         """带重试窗口的流式调用——2026-10-24 起三条提供方同一套实现（`_retry_stream`）。
 
         ★ 429（配额耗尽）**也走重试**：用户 2026-09-20「重试到本回合必须跳过时，再退出，
@@ -1385,14 +1410,15 @@ class AnthropicCompat:
         ★ 4xx（鉴权/模型名/参数）直接抛——重试没意义，而抛出去由上层终止本局
           （这是"任何错误都应该直接终止游戏"那条口径，三条提供方一致）。
         """
-        return _retry_stream(self._stream_once, messages, tools, cfg, on_retry)
+        return _retry_stream(self._stream_once, messages, tools, cfg, on_retry, on_delta)
 
-    def _tail(self, messages, tools, cfg, msg, stats):
+    def _tail(self, messages, tools, cfg, msg, stats, on_delta=None):
         """`stop_reason="max_tokens"` 的**续写**（message tailing）——2026-10-24 起
         与 Responses 路共用同一套实现（`_tailing_continue`），口径见其 docstring。"""
-        return _tailing_continue(self._stream_once, messages, tools, cfg, msg, stats)
+        return _tailing_continue(self._stream_once, messages, tools, cfg,
+                                 msg, stats, on_delta)
 
-    def _stream_once(self, messages, tools, cfg):
+    def _stream_once(self, messages, tools, cfg, on_delta=None):
         """一次流式调用 + 聚合：返回 `(msg, stats)`。
 
         字段与 `OpenAICompat._stream_once` **完全同名同义**（wall/stream/first/maxgap/
@@ -1435,11 +1461,22 @@ class AnthropicCompat:
                     if kind == "message_start":
                         usage.update(((payload.get("message") or {}).get("usage") or {}))
                     elif kind == "content_block_start":
-                        blocks[_block_index(payload)] = dict(payload.get("content_block") or {})
+                        block = dict(payload.get("content_block") or {})
+                        blocks[_block_index(payload)] = block
+                        # 有网关把整段文本直接放在 start 里（delta 一条不发）：照发一条
+                        if block.get('type') == 'text':
+                            _stream_notify(on_delta, 'body', block.get('text') or '')
+                        elif block.get('type') == 'thinking':
+                            _stream_notify(on_delta, 'thinking', block.get('thinking') or '')
                     elif kind == "content_block_delta":
                         if first_t is None:
                             first_t = now        # "首字"= 第一个真吐字的块，不是响应头
                         _absorb_delta(blocks, payload)
+                        fragment = payload.get('delta') or {}
+                        if fragment.get('type') == 'text_delta':
+                            _stream_notify(on_delta, 'body', fragment.get('text') or '')
+                        elif fragment.get('type') == 'thinking_delta':
+                            _stream_notify(on_delta, 'thinking', fragment.get('thinking') or '')
                     elif kind == "message_delta":
                         stop = (payload.get("delta") or {}).get("stop_reason") or stop
                         usage.update(payload.get("usage") or {})   # ★ 累计用量在这条上

@@ -153,8 +153,10 @@ class TimelineCapture:
         if actor!=self.actor:
             self.actor=actor
             self.turn_started=time.monotonic();self.turn_tokens=self._token_total(actor)
-            version=getattr(self.host.clients[actor],'version','rule')
-            self.add('actor',f'{name}开始行动',f'规则 AI {version} · 逐项展示本期行动',self.home(actor),source=source,duration=2.2,**self._turn_meta(actor))
+            client=self.host.clients[actor]
+            version=getattr(client,'version','rule')
+            label='规则 AI '+version if client.kind=='rule' else getattr(client,'cfg',{}).get('model','模型')
+            self.add('actor',f'{name}开始行动',f'{label} · 逐项展示本期行动',self.home(actor),source=source,duration=2.2,**self._turn_meta(actor))
         if not receipt.get('ok'):
             self.add('rejected',f'{name} · 行动未执行',text,position,source=source,duration=1.4)
             return

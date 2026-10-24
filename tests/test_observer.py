@@ -200,12 +200,12 @@ class TestObserver(unittest.TestCase):
         tile=observation['facts']['land'][0]['tile'];x,y=tile['position'];name=tile['name']
         receipt={'ok':True,'status':'effective','message':'','data':{'units':[1]}}
         for place in (f'{x} {y}',f'{x},{y}',f'({x},{y})'):
-            text=ui.action(0,'s:q','move',{'aid':1,'place':place},receipt,{'s:q':'秦'})
+            text=ui.action(0,'s:q','move',{'id':1,'place':place},receipt,{'s:q':'秦'})
             self.assertIn(f'→ {name}({x}, {y})',text)
             self.assertIn(f'已移动至{name}({x}, {y})',text)
             self.assertNotIn('所选地块',text)
         # 认不出来的引用照原样给回去，不拿「所选地块」冒充地块。
-        text=ui.action(0,'s:q','move',{'aid':1,'place':'没这个地方'},receipt,{'s:q':'秦'})
+        text=ui.action(0,'s:q','move',{'id':1,'place':'没这个地方'},receipt,{'s:q':'秦'})
         self.assertIn('→ 没这个地方',text)
 
     def test_building_sites_use_known_names_without_duplicate_labels(self):
@@ -483,7 +483,7 @@ class TestShortKeys(unittest.TestCase):
         self.assertFalse(p.submit('build',{'kind':'farm','site':site['id'],'x':x,'y':y})['ok'])
         h.subsidize('s:q',{},1);units=p.query('army');own=next(u for u in units if u['owner']=='s:q')
         self.assertIsInstance(own['id'],int);self.assertNotIn('gid',own);self.assertNotIn('name',own)
-        self.assertTrue(p.submit('military', {'action': 'disband', 'aid':own['id']})['ok'])
+        self.assertTrue(p.submit('military', {'action': 'disband', 'id':own['id']})['ok'])
         schema=next(s for s in p.actions() if s['function']['name']=='build')
         self.assertIn('farm',schema['function']['parameters']['properties']['kind']['enum'])
 

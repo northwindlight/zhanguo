@@ -162,12 +162,15 @@ class TestEconomicSystem(unittest.TestCase):
         with self.assertRaises(ValueError):w.bank.buy_report('Qin','Chu')
         self.assertEqual(self.save(w),before)
 
-    def test_repeat_purchases_charge_and_bound_each_owners_history(self):
+    def test_repurchasing_same_report_is_rejected_without_charge(self):
         w=self.world(bank_policy={'purchase_limit':2});w.resolve_turn()
-        for _ in range(3):w.bank.buy_report('Qin','Chu')
-        self.assertEqual(w.resources.balance('Qin','native:gold'),940)
-        self.assertEqual(len(w.bank.position('Qin').purchases),2)
-        self.assertEqual(len([e for e in w.bank.snapshot().entries if e.kind=='report-fee']),3)
+        first=w.bank.buy_report('Qin','Chu')
+        before=self.save(w)
+        for turn in (None,first.report.end):
+            with self.assertRaises(ValueError):w.bank.buy_report('Qin','Chu',turn=turn)
+            self.assertEqual(self.save(w),before)
+        self.assertEqual(w.resources.balance('Qin','native:gold'),980)
+        self.assertEqual(w.bank.position('Qin').purchases,(first,))
 
     def test_signed_cash_is_narrow_and_atomic(self):
         w=self.world();before=self.save(w)

@@ -109,7 +109,7 @@ python3 settlement.py --save mp_save.json --table
 
 桌面版采用正常v13离线八国开局：全窗地图、远景国色与近景地貌、居民与密集小队，以及列国、山河、市集、纪事抽屉。按国横幅、自动聚焦和五档速度逐项展示行动，回合末播放行军、生产/军需与逐场战斗，支持暂停和保存。
 
-安装 Godot .NET、.NET SDK 和 Python 后运行 `python3 desktop.py`。具体版本和安装方法见[桌面版说明](mods/ui/desktop/README.md)。目前启动的是独立的规则 AI 对局，尚未接入现役 LLM 对局或独立安装包。[32秒实际窗口录像](docs/design/gui-live-battle-tour-20261024.mp4)与[实现范围](docs/reviews/GUI逐动作与聚落军团-20261024.md)。
+安装 Godot .NET、.NET SDK 和 Python 后运行 `python3 desktop.py`。具体版本和安装方法见[桌面版说明](mods/ui/desktop/README.md)。启动后可在主菜单配置规则 AI 或 LLM 对局。模型思考和发言按真实返回片段显示，支持半身图；默认规则 AI 无需 API。尚未接管运行中的终端会话或制作独立安装包。[32秒实际窗口录像](docs/design/gui-live-battle-tour-20261024.mp4)与[实现范围](docs/reviews/GUI逐动作与聚落军团-20261024.md)。
 
 ## 可选玩法与实验
 

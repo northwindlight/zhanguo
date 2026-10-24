@@ -52,8 +52,8 @@ public partial class RegionArtwork : Node2D
         var k when k.Contains("town-hall") => "actors/townhall",
         var k when k.Contains("farm") => "actors/farm",
         var k when k.Contains("mine") => "actors/mine",
-        var k when k.Contains("oil") => "actors/oilwell",
-        var k when k.Contains("factory") => "actors/factory",
+        var k when k.Contains("oil-well") => "actors/oilwell",
+        var k when k.Contains("factory") || k.Contains("power-plant") => "actors/factory",
         var k when k.Contains("barracks") => "actors/barracks",
         _ => ""
     };
@@ -336,8 +336,13 @@ void fragment() {
     }
 
     private static void Sprite(CanvasItem layer, Dictionary<string, Texture2D> textures, string name, Vector2 at, int column = 0, int row = 0, Color? tint = null)
-        => layer.DrawTextureRectRegion(textures.TryGetValue(name, out var texture) ? texture : GD.Load<Texture2D>("res://assets/" + name + ".png"),
-            new Rect2(at, new Vector2(16, 16)), new Rect2(column * 16, row * 16, 16, 16), tint);
+    {
+        // Retain one managed/native resource pair across draws. Re-loading a
+        // transient wrapper per tree races finalization under sustained play.
+        if(!textures.TryGetValue(name,out var texture))
+            textures[name]=texture=GD.Load<Texture2D>("res://assets/"+name+".png");
+        layer.DrawTextureRectRegion(texture,new Rect2(at,new Vector2(16,16)),new Rect2(column*16,row*16,16,16),tint);
+    }
 
     private void DrawSampleObjects(CanvasItem layer)
     {
@@ -526,7 +531,9 @@ void fragment() {
         var art = sheet == "" ? null : OptionalTexture(sheet);
         if (art != null)
         {
-            layer.DrawTextureRect(art, new Rect2(p, size), false);
+            var pixels=art.GetSize();
+            var fitted=pixels*Math.Min(size.X/pixels.X,size.Y/pixels.Y);
+            layer.DrawTextureRect(art,new Rect2(p+new Vector2((size.X-fitted.X)*.5f,size.Y-fitted.Y),fitted),false);
             return;
         }
         if (s.Kind == "farm")

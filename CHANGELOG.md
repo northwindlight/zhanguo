@@ -7,6 +7,14 @@
 - 新增 `provider="responses"`：OpenAI Responses API 原生接入——system→`instructions`、工具拆平、`function_call`/`function_call_output` 回放、reasoning summary 取思考、usage 含 cached/reasoning 真数、`incomplete/max_output_tokens` 走 message tailing 续写（与 Anthropic 共用）。
 - Anthropic 路复检：续写与重试逻辑抽成三路共用（`_retry_stream`/`_tailing_continue`，行为不变）；修复压缩调用在 thinking 强制 disabled 时仍可能带着 `output_config.effort` 发出的问题。
 
+## 未发布 — 真实流式正文、半身图与界面排版
+
+- 思考/发言接到提供方实际流片段，重试清残片、结束校准全文；工具参数不进入气泡，移除规则 AI 模拟思考。
+- 按真实模型名显示说话者，修复跨国文字残留；半身 PNG 保持比例并限制在窗口内，兼容原 logos 路径。
+- 改用可读中文字体；长思考折叠/滚动，正文和小结分区，修正小窗口横幅重叠。新局国家配置改分行卡片，底部固定开始/返回，修复存档列表目录与 API 档案选项刷新。
+- 补齐六种透明建筑原型图，保留精确提示词、alpha、哈希及独立来源记录；修复人物表读取嵌套清单。
+- 追加离线模型流与多尺寸真实窗口验收；未发起真实 LLM 对局调用，未操作现役对局。
+
 ## 未发布 — stock 2.0：PAMS与计算资源经营
 
 - 独立股市发行版接入固定PAMS 0.3.0订单簿，共同20000逻辑tick，下一tick委托、盘中立即记账和公开现金流消息。

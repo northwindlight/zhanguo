@@ -53,3 +53,12 @@ second mountain silhouette. This is a generated derivative, not a byte-exact
 pixel extraction. Both prompts, original JPEG, transparent derivative and
 their provenance/hashes are kept under `generated/`. It is also separate
 from the Mini World author's assets and license statement.
+
+Six building sprites under `actors/` (townhall, farm, mine, oilwell, factory,
+barracks) were generated with the built-in image_gen tool on 2026-10-24.
+The unmodified RGBA sources, exact per-file prompts, dimensions and SHA-256
+hashes are recorded beside the files in `generated-buildings.json`.
+Godot imports them at a 128-pixel size limit; drawing preserves aspect ratio.
+They are separate from Mini World and are not claimed under its CC0 license.
+User-provided model portraits have their own provenance; this change includes
+no downloaded model fan art or brand mascot illustrations.

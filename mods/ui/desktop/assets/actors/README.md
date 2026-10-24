@@ -1,9 +1,12 @@
-# 预留素材位（AI 生成用）
+# 地图人物与建筑素材
 
-本目录是**预留位**：游戏启动时按文件名查找 PNG，找不到就继续用代码绘制的
-小人与现有 Mini World 贴图。把 Gemini 生成并去好底的 PNG 放进来，文件名一致
-即可自动生效；启动器（`python desktop.py`）每次运行都会先执行 Godot 导入，
-无需手动生成 .import。
+已接入六张真实透明建筑 PNG：`townhall`、`farm`、`mine`、`oilwell`、`factory`、`barracks`。
+由本次内置 image_gen 生成，原图保留；Godot 导入尺寸上限 128px，地图内按建筑脚印等比缩放。
+每张完整提示词在同名 `.prompt.txt`，来源、尺寸、alpha 和 SHA-256 在 `generated-buildings.json`。
+这些图是游戏原型美术，不属于 Mini World 作者的原始贴图。
+
+人物表与两种树图仍可按下列规格添加；缺少文件时使用现有原包贴图和代码人物。
+启动器会先执行导入；人物帧格由 `manifest.json` 的 `sheets` 定义。
 
 ## 统一规格（所有素材）
 

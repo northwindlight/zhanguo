@@ -55,29 +55,30 @@ public partial class Desktop : Control
     public override void _Ready()
     {
         GetTree().AutoAcceptQuit = false;
-        var theme = new Theme { DefaultFontSize = 20 };
-        var fallback = new SystemFont { FontNames = new[] { "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", "sans-serif" } };
-        theme.DefaultFont = fallback;
-        // Fusion Pixel 10px is drawn on a 10px grid; at 20px UI text every
-        // glyph is an exact 2x scale with AA off, so edges stay square.
-        if (ResourceLoader.Exists("res://assets/fonts/fusion-pixel-10px-monospaced-zh_hans.ttf"))
-        {
-            if (GD.Load("res://assets/fonts/fusion-pixel-10px-monospaced-zh_hans.ttf") is FontFile pixel)
-            {
-                pixel.Antialiasing = TextServer.FontAntialiasing.None;
-                pixel.Hinting = TextServer.Hinting.None;
-                pixel.SubpixelPositioning = TextServer.SubpixelPositioning.Disabled;
-                pixel.Fallbacks = new Godot.Collections.Array<Font> { fallback };
-                theme.DefaultFont = pixel;
-            }
-        }
+        var theme = new Theme { DefaultFontSize = 18 };
+        // Long prose needs smooth glyphs and clear punctuation. Pixel artwork
+        // keeps nearest filtering independently of the UI font.
+        theme.DefaultFont = new SystemFont { FontNames = new[] { "Microsoft YaHei", "Noto Sans CJK SC", "PingFang SC", "sans-serif" } };
         Theme = theme;
-        foreach (string type in new[] { "Button", "PanelContainer", "TabContainer" })
+        foreach (string type in new[] { "Button", "OptionButton", "LineEdit", "PanelContainer", "TabContainer" })
         {
             var style = new StyleBoxFlat { BgColor = new Color("243332"), BorderColor = new Color("4d5c4c"),
                 ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 8, ContentMarginBottom = 8 };
             style.SetBorderWidthAll(1);
-            theme.SetStylebox(type=="Button"?"normal":"panel", type, style);
+            style.SetCornerRadiusAll(5);
+            bool field=type is "Button" or "OptionButton" or "LineEdit";
+            theme.SetStylebox(field?"normal":"panel", type, style);
+            if(field)
+            {
+                var hover=(StyleBoxFlat)style.Duplicate();hover.BgColor=new Color("354b46");hover.BorderColor=new Color("a5ac85");
+                theme.SetStylebox("hover",type,hover);
+                var pressed=(StyleBoxFlat)style.Duplicate();pressed.BgColor=new Color("162723");pressed.BorderColor=new Color("b6c597");
+                theme.SetStylebox("pressed",type,pressed);
+                var disabled=(StyleBoxFlat)style.Duplicate();disabled.BgColor=new Color("1c2927");
+                theme.SetStylebox("disabled",type,disabled);
+                theme.SetColor("font_color",type,new Color("e5e5d2"));
+                theme.SetColor("font_disabled_color",type,new Color("78837b"));
+            }
         }
         _map=new WorldMap();_map.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);AddChild(_map);
         _map.SelectionChanged=tile=>{ShowTile(tile);if(tile!=null)OpenDrawer(_details);};
@@ -99,7 +100,7 @@ public partial class Desktop : Control
         guards.Toggled+=v=>{_map.ShowGuards=v;_map.QueueRedraw();};
         var bubbleToggle=new CheckButton { Text="模型气泡",ButtonPressed=true };_countries.Body.AddChild(bubbleToggle);
         bubbleToggle.Toggled+=v=>_bubbles.Visible=v;
-        _aiInfo=new Label { Text="正在核对实际客户端…",Modulate=new Color("a4b09c") };_countries.Body.AddChild(_aiInfo);
+        _aiInfo=new Label { Text="正在核对实际客户端…",Modulate=new Color("a4b09c"),AutowrapMode=TextServer.AutowrapMode.WordSmart };_countries.Body.AddChild(_aiInfo);
         _detail=TextBox(_details.Body);_detail.SizeFlagsVertical=SizeFlags.ExpandFill;
         _market=TextBox(_shop.Body);_market.SizeFlagsVertical=SizeFlags.ExpandFill;
         _events=TextBox(_chronicle.Body);_events.SizeFlagsVertical=SizeFlags.ExpandFill;_events.ScrollFollowing=true;
@@ -109,8 +110,8 @@ public partial class Desktop : Control
         top.AddThemeConstantOverride("separation",12);AddChild(top);
         var title=new Label { Text="战国 · 观天下",MouseFilter=MouseFilterEnum.Ignore };
         title.AddThemeFontSizeOverride("font_size",24);title.AddThemeColorOverride("font_color",new Color("e4d8ae"));top.AddChild(title);
-        top.AddChild(new Control { SizeFlagsHorizontal=SizeFlags.ExpandFill,MouseFilter=MouseFilterEnum.Ignore });
-        _status=new Label { Text="正在创建离线八国世界…",MouseFilter=MouseFilterEnum.Ignore };top.AddChild(_status);
+
+        _status=new Label { Text="正在创建离线八国世界…",MouseFilter=MouseFilterEnum.Ignore,SizeFlagsHorizontal=SizeFlags.ExpandFill,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis };top.AddChild(_status);
         BuildPlaybackControls(top);
         _play=Button(top,"继续",TogglePlayback);
         _step=Button(top,"下一回合",StepPlayback);
@@ -125,7 +126,7 @@ public partial class Desktop : Control
         _chronicleButton=Button(dock,"纪事",()=>ToggleDrawer(_chronicle));
         var hint=new Label { Text="F 总览 · 空格 暂停/继续 · Esc 收起 · 滚轮缩放 / 右键拖动",MouseFilter=MouseFilterEnum.Ignore,ZIndex=5,
             HorizontalAlignment=HorizontalAlignment.Right,Modulate=new Color("c0c9b2") };
-        hint.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight);hint.OffsetLeft=-660;hint.OffsetRight=-18;hint.OffsetTop=-44;hint.OffsetBottom=-18;AddChild(hint);
+        hint.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight);hint.OffsetLeft=-660;hint.AddThemeFontSizeOverride("font_size",14);hint.OffsetRight=-18;hint.OffsetTop=-44;hint.OffsetBottom=-18;AddChild(hint);
         Resized+=LayoutDrawers;LayoutDrawers();
         var args=OS.GetCmdlineUserArgs();
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--smoke-output"){_smoke=args[i+1];_playbackSpeed=96;}
@@ -133,6 +134,7 @@ public partial class Desktop : Control
         if(_rootPath=="")_rootPath=Path.GetFullPath(Path.Combine(ProjectSettings.GlobalizePath("res://"),"../../.."));
         string? menuTest=null;
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--menu-output")menuTest=args[i+1];
+        for(int i=0;i<args.Length-1;i++)if(args[i]=="--ui-review-output"){_=ReviewDialogue(args[i+1]);return;}
         if(_smoke==null)
         {
             // Start screen: new game / load save / settings; smoke runs skip it.
@@ -164,7 +166,8 @@ public partial class Desktop : Control
             await Screenshot(path);
             _menu.SeedField.Text="20261024";
             _menu.OpenNewGame();
-            await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+            await ToSignal(GetTree().CreateTimer(.3),SceneTreeTimer.SignalName.Timeout);
+            _menu.ValidateVisibleLayout();
             string stem=Path.ChangeExtension(path,null);
             await Screenshot(stem+"-newgame.png");
             var config=_menu.BuildConfig(out var error,out string? written);
@@ -173,8 +176,17 @@ public partial class Desktop : Control
             if(json?["nations"]?.AsArray().Count!=8||json?["seed"]?.GetValue<int>()!=20261024
                 ||json?["map_size"]?.GetValue<int>()!=24||json?["max_turns"]?.GetValue<int>()!=300)
                 throw new Exception("菜单配置内容与表单不符");
+            _menu.ReviewLlmCard();
+            await ToSignal(GetTree().CreateTimer(.3),SceneTreeTimer.SignalName.Timeout);
+            _menu.ValidateVisibleLayout();
+            await Screenshot(stem+"-llm.png");
+            GetWindow().ContentScaleSize=new Vector2I(1024,768);GetWindow().Size=new Vector2I(1024,768);
+            await ToSignal(GetTree().CreateTimer(.3),SceneTreeTimer.SignalName.Timeout);
+            _menu.ValidateVisibleLayout();
+            await Screenshot(stem+"-llm-1024.png");
             _menu.OpenSettings();
-            await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+            await ToSignal(GetTree().CreateTimer(.3),SceneTreeTimer.SignalName.Timeout);
+            _menu.ValidateVisibleLayout();
             await Screenshot(stem+"-settings.png");
             _menu.OpenLoad();
             await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
@@ -197,6 +209,11 @@ public partial class Desktop : Control
         _details.SetBounds(new Rect2(Size.X-right-14,70,right,height));
         _shop.SetBounds(new Rect2(Size.X-right-14,70,right,height));
         _chronicle.SetBounds(new Rect2(14,Size.Y-bottom-76,Size.X-28,bottom));
+        if(_banner!=null)
+        {
+            float bannerW=Math.Min(700,Size.X-48);
+            _banner.OffsetLeft=-bannerW/2;_banner.OffsetRight=bannerW/2;
+        }
     }
     private void CloseDrawers(bool animate=true) { foreach(var drawer in Drawers)drawer.SetOpen(false,animate); }
     private void OpenDrawer(MapDrawer drawer,bool animate=true)
@@ -214,7 +231,7 @@ public partial class Desktop : Control
     }
     private static RichTextLabel TextBox(BoxContainer parent)
     {
-        var text=new RichTextLabel {BbcodeEnabled=false,SelectionEnabled=true,SizeFlagsHorizontal=SizeFlags.ExpandFill};parent.AddChild(text);return text;
+        var text=new RichTextLabel {BbcodeEnabled=false,SelectionEnabled=true,AutowrapMode=TextServer.AutowrapMode.WordSmart,SizeFlagsHorizontal=SizeFlags.ExpandFill};parent.AddChild(text);return text;
     }
 
     private void StartHost(string? configPath=null,string? resumePath=null)
@@ -322,8 +339,8 @@ public partial class Desktop : Control
         if(_closing&&(type is "timeline" or "snapshot"))return;
         if(type=="stream")
         {
-            _bubbles.Stream(S(row["actor"]),S(row["kind"]),S(row["text"]));
             UpdateStreamSpeaker(S(row["actor"]));
+            _bubbles.HandleStream(row);
             return;
         }
         if(type=="activity")
@@ -331,6 +348,11 @@ public partial class Desktop : Control
             _activitySeen++;
             string actor=S(row["actor"]),text=S(row["text"]);
             _map.ShowActivity(actor,text);
+            if(!HasTimeline)
+            {
+                _bannerTitle.Text=$"{_map.NationName(actor)} · 第 {_period+1} 回合";
+                _bannerText.Text=text;
+            }
             if(!HasTimeline)_status.Text=$"第 {_period+1} 回合 · {_map.NationName(actor)}{text}";
             return;
         }
@@ -388,9 +410,9 @@ public partial class Desktop : Control
         if(frame["clients"] is JsonArray clients)
         {
             string versions=string.Join(" / ",clients.Select(c=>S(c!["version"])).Distinct());
-            _aiInfo.Text=$"离线八国 · {versions}\n正常开局 · 上限300回合";
+            _aiInfo.Text=clients.Any(c=>S(c!["kind"])=="llm")?"模型对局 · 实时思考与发言":$"规则对局 · {versions}";
             _aiInfo.TooltipText=string.Join("\n",clients.Select(c=>$"{frame["names"]![S(c!["actor"])]}: {c["version"]} · {c["strategy"]}"));
-            foreach(var c in clients)_models[S(c!["actor"])]=S(c["version"]);
+            foreach(var c in clients)_models[S(c!["actor"])]=S(c["kind"])=="llm"?S(c["model"]):S(c["version"]);
         }
     }
 
@@ -491,7 +513,7 @@ public partial class Desktop : Control
             if(_map.StructureCount!=expected || _map.TerrainBuilds!=1)throw new Exception("实时设施投影或地表缓存异常");
             if((_normalOpening&&_initialArmies!=0)||_map.Residents==0||_map.Guards==0||_playedPhases.GetValueOrDefault("actor")<8||_playedPhases.GetValueOrDefault("build")==0||_playedPhases.GetValueOrDefault("production")==0||_map.RegionNodes!=_map.TileCount)
                 throw new Exception("正常开局、居民野人、逐国动作或地区绘制缓存验收失败");
-            if(_bubbles.SegmentsShown<_playedPhases.GetValueOrDefault("actor"))
+            if(_normalOpening&&_bubbles.SegmentsShown<_playedPhases.GetValueOrDefault("actor"))
                 throw new Exception("模型气泡未跟随逐国演出");
             if(!_bubbles.EverShown)
                 throw new Exception("模型气泡从未实际显示（渲染可见性验收失败）");
@@ -499,7 +521,7 @@ public partial class Desktop : Control
                 save=_savePath,artwork=_map.ArtworkMode,terrain_builds=_map.TerrainBuilds,static_draws=_map.ArtworkPasses,
                 surfaces=_map.SurfaceCount,structures=_map.StructureCount,source_buildings=expected,
                 initial_armies=_initialArmies,residents=_map.Residents,potential_guards=_map.Guards,region_nodes=_map.RegionNodes,
-                bubble_segments=_bubbles.SegmentsShown,pixel_font=Theme?.DefaultFont is FontFile,
+                bubble_segments=_bubbles.SegmentsShown,readable_font=Theme?.DefaultFont is SystemFont,
                 activity_events=_activitySeen,
                 played_phases=_playedPhases,actor_banners=_actorBanners,political_alpha_near=_map.PoliticalOpacity,
                 map_fills_window=true,map_width=_map.Size.X,map_height=_map.Size.Y,viewport_width=Size.X,viewport_height=Size.Y,

@@ -324,7 +324,7 @@ class TestWorldDomains(unittest.TestCase):
         before=self.save(w)
         with self.assertRaises(ValueError):self.call(w,Q,'attack',ids=[a.id,999],x=2,y=1)
         self.assertEqual(self.save(w),before)
-        receipt=self.call(w,Q,'move',aid=a.id,x=2,y=1)
+        receipt=self.call(w,Q,'move',id=a.id,x=2,y=1)
         self.assertTrue(receipt.position_changed);self.assertFalse(receipt.occupied)
         self.assertIsNone(w.territory.owner(2,1))
         with self.assertRaises(ValueError):self.call(w,Q,'attack',ids=[a.id],x=3,y=1)
@@ -349,12 +349,12 @@ class TestWorldDomains(unittest.TestCase):
         self.assertEqual(w.resources.balance(Q,'native:food'),food-10)
         self.assertEqual(w.resources.balance(Q,'native:equipment'),equip-5)
         before=self.save(w)
-        with self.assertRaises(ValueError):self.call(w,Q,'move',aid=recruits[0].id,x=2,y=1)
+        with self.assertRaises(ValueError):self.call(w,Q,'move',id=recruits[0].id,x=2,y=1)
         with self.assertRaises(ValueError):self.call(w,Q,'recruit',site='scenario:qc')
         self.assertEqual(self.save(w),before)
         self.cycle(w)
         self.assertGreater(w.economy.turns(Q)[0].recruitment.total,0)
-        self.call(w,Q,'move',aid=recruits[0].id,x=2,y=1)
+        self.call(w,Q,'move',id=recruits[0].id,x=2,y=1)
         with self.assertRaises(ValueError):self.call(w,Q,'recruit',site='scenario:qc')
 
     def test_supply_shortage_and_healing_expenses(self):
@@ -372,7 +372,7 @@ class TestWorldDomains(unittest.TestCase):
         a=w.military.seed(Q,'native:infantry',2,1)[0];b=w.military.seed(C,'native:infantry',2,1)[0]
         self.declare(w)
         self.call(w,Q,'attack',ids=[a.id],x=2,y=1)
-        receipt=self.call(w,Q,'retreat',aid=a.id,x=1,y=1)
+        receipt=self.call(w,Q,'retreat',id=a.id,x=1,y=1)
         self.assertEqual(receipt.status,'submitted');self.assertTrue(w.units.by_id(a.id,Q).engaged)
         self.assertEqual((w.units.by_id(a.id,Q).x,w.units.by_id(a.id,Q).y),(2,1))
         self.cycle(w)
@@ -396,9 +396,9 @@ class TestWorldDomains(unittest.TestCase):
         a=w.military.seed(Q,'native:infantry',2,1)[0];b=w.military.seed(C,'native:infantry',2,1)[0]
         self.declare(w);self.call(w,Q,'attack',ids=[a.id],x=2,y=1)
         before=self.save(w)
-        with self.assertRaises(ValueError):self.call(w,C,'move',aid=b.id,x=3,y=1)
+        with self.assertRaises(ValueError):self.call(w,C,'move',id=b.id,x=3,y=1)
         self.assertEqual(self.save(w),before)
-        self.call(w,C,'retreat',aid=b.id,x=3,y=1)
+        self.call(w,C,'retreat',id=b.id,x=3,y=1)
         self.assertEqual(w.units.by_id(b.id,C).retreat_cover,50)
         self.cycle(w);defender=w.units.by_id(b.id,C)
         self.assertLess(defender.hp,100);self.assertGreater(defender.hp,60)
@@ -431,13 +431,13 @@ class TestWorldDomains(unittest.TestCase):
         w=self.world();self.site(w,'scenario:qc',Q,1,1);self.site(w,'scenario:cc',C,2,1)
         a=w.military.seed(Q,'native:infantry',2,1)[0];b=w.military.seed(C,'native:infantry',2,1)[0]
         self.declare(w);self.call(w,Q,'attack',ids=[a.id],x=2,y=1)
-        self.call(w,Q,'retreat',aid=a.id,x=1,y=1)
+        self.call(w,Q,'retreat',id=a.id,x=1,y=1)
         w.units.by_id(b.id,C).take_damage(99)
         with patch.object(random.Random,'randint',return_value=3):self.cycle(w)
         self.assertEqual(w.territory.owner(2,1),C)
         self.assertEqual((w.units.by_id(a.id,Q).x,w.units.by_id(a.id,Q).y),(1,1))
         before=self.save(w)
-        with self.assertRaises(ValueError):self.call(w,Q,'move',aid=a.id,x=7,y=7)
+        with self.assertRaises(ValueError):self.call(w,Q,'move',id=a.id,x=7,y=7)
         self.assertEqual(self.save(w),before)
 
     def test_extinction_releases_ruins_forces_world_peace_and_never_uses_pending_hall(self):

@@ -74,7 +74,7 @@ class TestArmyResources(unittest.TestCase):
         self.assertEqual(w.units.by_id(infantry.id, Q).hp, 65)
         self.assertEqual(w.units.by_id(militia.id, Q).hp, 50)
         # Exempt militia avoid starvation; national shortage still stops healing.
-        w.call_tool(Q, 'disband', {'aid': infantry.id})
+        w.call_tool(Q, 'disband', {'id': infantry.id})
         equipment = w.resources.balance(Q, 'native:equipment')
         self.fixture.cycle(w)
         self.assertEqual(w.units.by_id(militia.id, Q).hp, 80)

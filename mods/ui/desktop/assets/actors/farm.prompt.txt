@@ -1,0 +1,3 @@
+Use case: stylized-concept. Asset type: isolated building sprite for tiny Zhanguo 2D strategy map.
+Subject: a small farm: six tidy rows of golden wheat, green seedlings, corner straw roof shelter, wicker grain basket. Compact irregular outline without a rectangular soil tile.
+Crisp chunky pixel art designed on a 48x48 logical pixel grid, limited muted sage / ochre / brown / slate palette. Orthographic overhead view looking down at 60 degrees, slightly see front walls. Single centered complete object fills 85% of square canvas. Match tiny village strategy-game houses, readable at24 pixels. True transparent background, no background scenery, no ground rectangle, no shadow, no people, no text, no labels, no checkerboard, no UI.

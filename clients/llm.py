@@ -207,7 +207,7 @@ class LLMClient:
         self.state.summaries=self.state.summaries[-240:]
         if emit:emit(self.ui.text('llm.archived',actor=player.actor,count=len(dropped)))
 
-    def play(self,player,*,max_steps=None,emit=None,head=None,on_call=None,on_result=None):
+    def play(self,player,*,max_steps=None,emit=None,head=None,on_call=None,on_result=None,on_stream=None):
         self._prepare(player)
         rules=getattr(self.ui,'rules',None)
         if callable(rules):rules(player.rules('all'))
@@ -228,7 +228,23 @@ class LLMClient:
         if limit<1:raise ValueError('max_steps must be positive')
         for step in range(limit):
             if emit:emit(self.ui.text('llm.request',actor=player.actor,count=step+1))
-            msg,stats=self._provider().chat_turn(messages,tools,self._request_config(),on_retry=(lambda attempt,error,wait,total:emit(self.ui.text('llm.retry',actor=player.actor,attempt=attempt,total=total,error=error,wait=wait))) if emit else None)
+            def stream(event, **fields):
+                if on_stream:
+                    try:on_stream(player.actor, {'event':event,'call':step+1,'period':obs['period'],**fields})
+                    except Exception:pass
+            stream('begin')
+            def delta(kind, text):
+                stream('reset' if kind=='reset' else 'delta',kind=kind,text=text)
+            try:
+                msg,stats=self._provider().chat_turn(messages,tools,self._request_config(),
+                    on_retry=(lambda attempt,error,wait,total:emit(self.ui.text('llm.retry',actor=player.actor,attempt=attempt,total=total,error=error,wait=wait))) if emit else None,
+                    **({'on_delta':delta} if on_stream else {}))
+            except Exception:
+                stream('failed')
+                raise
+            # Authoritative reconciliation also removes any aborted continuation.
+            stream('complete',thinking=msg.get('reasoning_content') or '',body=msg.get('content') or '',
+                   tokens=stats.get('out_tokens'),estimated=bool(stats.get('estimated')),seconds=stats.get('wall'))
             self._usage(stats)
             ctx.record_hit(player.actor,stats.get('hit',0),stats.get('miss',0))
             calls=msg.get('tool_calls') or []
@@ -258,6 +274,7 @@ class LLMClient:
                 if on_result:on_result(action,fn.get('arguments'),receipt)
                 if action=='end_turn' and receipt['ok']:
                     ended=True
+                    stream('summary',text=receipt['data']['text'])
                     self.state.summaries.append({'turn':obs['period'],'text':receipt['data']['text']})
             memory.record(self.state.history,obs['period'],memory.action_text(assistant,calls,batch_receipts,batch_contents))
             if on_call:on_call(step,receipts)
