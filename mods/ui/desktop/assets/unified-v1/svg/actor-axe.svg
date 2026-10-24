@@ -1,0 +1,2701 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="192" viewBox="0 0 96 192" shape-rendering="crispEdges">
+<g id="idle-south-0" transform="translate(0 0)"><g id="idle-south-0-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-south-0-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-south-0-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-south-0-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-south-0-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-south-1" transform="translate(16 0)"><g id="idle-south-1-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-south-1-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-south-1-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-south-1-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-south-1-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-south-2" transform="translate(32 0)"><g id="idle-south-2-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-south-2-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-south-2-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-south-2-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-south-2-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-south-3" transform="translate(48 0)"><g id="idle-south-3-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-south-3-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-south-3-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-south-3-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-south-3-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-south-4" transform="translate(64 0)"><g id="idle-south-4-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-south-4-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-south-4-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-south-4-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-south-4-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-south-5" transform="translate(80 0)"><g id="idle-south-5-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-south-5-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-south-5-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-south-5-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-south-5-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-east-0" transform="translate(0 16)"><g id="idle-east-0-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-east-0-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-east-0-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-east-0-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-east-0-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-east-1" transform="translate(16 16)"><g id="idle-east-1-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-east-1-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-east-1-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-east-1-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-east-1-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-east-2" transform="translate(32 16)"><g id="idle-east-2-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-east-2-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-east-2-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-east-2-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-east-2-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-east-3" transform="translate(48 16)"><g id="idle-east-3-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-east-3-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-east-3-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-east-3-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-east-3-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-east-4" transform="translate(64 16)"><g id="idle-east-4-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-east-4-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-east-4-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-east-4-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-east-4-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-east-5" transform="translate(80 16)"><g id="idle-east-5-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-east-5-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-east-5-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-east-5-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-east-5-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-north-0" transform="translate(0 32)"><g id="idle-north-0-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-north-0-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-north-0-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="idle-north-0-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-north-0-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-north-1" transform="translate(16 32)"><g id="idle-north-1-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-north-1-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-north-1-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="idle-north-1-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-north-1-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-north-2" transform="translate(32 32)"><g id="idle-north-2-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-north-2-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-north-2-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="idle-north-2-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-north-2-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-north-3" transform="translate(48 32)"><g id="idle-north-3-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-north-3-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-north-3-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="idle-north-3-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-north-3-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-north-4" transform="translate(64 32)"><g id="idle-north-4-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-north-4-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-north-4-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="idle-north-4-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-north-4-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-north-5" transform="translate(80 32)"><g id="idle-north-5-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-north-5-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-north-5-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="idle-north-5-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-north-5-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-west-0" transform="translate(0 48)"><g id="idle-west-0-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-west-0-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-west-0-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="7" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-west-0-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-west-0-equipment">
+<rect x="4" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-west-1" transform="translate(16 48)"><g id="idle-west-1-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-west-1-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-west-1-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-west-1-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-west-1-equipment">
+<rect x="4" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-west-2" transform="translate(32 48)"><g id="idle-west-2-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-west-2-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-west-2-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="7" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-west-2-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-west-2-equipment">
+<rect x="4" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-west-3" transform="translate(48 48)"><g id="idle-west-3-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-west-3-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-west-3-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-west-3-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-west-3-equipment">
+<rect x="4" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-west-4" transform="translate(64 48)"><g id="idle-west-4-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-west-4-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-west-4-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="7" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-west-4-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-west-4-equipment">
+<rect x="4" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="idle-west-5" transform="translate(80 48)"><g id="idle-west-5-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="idle-west-5-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="idle-west-5-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="idle-west-5-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="idle-west-5-equipment">
+<rect x="4" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-south-0" transform="translate(0 64)"><g id="walk-south-0-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-south-0-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-south-0-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-south-0-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-south-0-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-south-1" transform="translate(16 64)"><g id="walk-south-1-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="13" width="2" height="1" fill="#303d3b"/>
+<rect x="6" y="13" width="1" height="1" fill="#ae8757"/>
+</g>
+<g id="walk-south-1-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-south-1-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-south-1-arms">
+<rect x="5" y="8" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-south-1-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-south-2" transform="translate(32 64)"><g id="walk-south-2-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-south-2-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-south-2-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-south-2-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-south-2-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-south-3" transform="translate(48 64)"><g id="walk-south-3-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-south-3-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-south-3-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-south-3-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-south-3-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-south-4" transform="translate(64 64)"><g id="walk-south-4-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="15" width="2" height="1" fill="#303d3b"/>
+<rect x="6" y="13" width="1" height="1" fill="#ae8757"/>
+</g>
+<g id="walk-south-4-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-south-4-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-south-4-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="9" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-south-4-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-south-5" transform="translate(80 64)"><g id="walk-south-5-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-south-5-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-south-5-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-south-5-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-south-5-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-east-0" transform="translate(0 80)"><g id="walk-east-0-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-east-0-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-east-0-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-east-0-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-east-0-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-east-1" transform="translate(16 80)"><g id="walk-east-1-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="13" width="2" height="1" fill="#303d3b"/>
+<rect x="6" y="13" width="1" height="1" fill="#ae8757"/>
+</g>
+<g id="walk-east-1-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-east-1-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-east-1-arms">
+<rect x="5" y="8" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-east-1-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-east-2" transform="translate(32 80)"><g id="walk-east-2-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-east-2-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-east-2-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-east-2-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-east-2-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-east-3" transform="translate(48 80)"><g id="walk-east-3-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-east-3-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-east-3-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-east-3-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-east-3-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-east-4" transform="translate(64 80)"><g id="walk-east-4-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="15" width="2" height="1" fill="#303d3b"/>
+<rect x="6" y="13" width="1" height="1" fill="#ae8757"/>
+</g>
+<g id="walk-east-4-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-east-4-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-east-4-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="9" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-east-4-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-east-5" transform="translate(80 80)"><g id="walk-east-5-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-east-5-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-east-5-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-east-5-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-east-5-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-north-0" transform="translate(0 96)"><g id="walk-north-0-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-north-0-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-north-0-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="walk-north-0-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-north-0-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-north-1" transform="translate(16 96)"><g id="walk-north-1-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="13" width="2" height="1" fill="#303d3b"/>
+<rect x="6" y="13" width="1" height="1" fill="#ae8757"/>
+</g>
+<g id="walk-north-1-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-north-1-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="walk-north-1-arms">
+<rect x="5" y="8" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-north-1-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-north-2" transform="translate(32 96)"><g id="walk-north-2-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-north-2-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-north-2-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="walk-north-2-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-north-2-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-north-3" transform="translate(48 96)"><g id="walk-north-3-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-north-3-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-north-3-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="walk-north-3-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-north-3-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-north-4" transform="translate(64 96)"><g id="walk-north-4-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="15" width="2" height="1" fill="#303d3b"/>
+<rect x="6" y="13" width="1" height="1" fill="#ae8757"/>
+</g>
+<g id="walk-north-4-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-north-4-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="walk-north-4-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="9" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-north-4-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-north-5" transform="translate(80 96)"><g id="walk-north-5-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-north-5-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-north-5-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="walk-north-5-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-north-5-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-west-0" transform="translate(0 112)"><g id="walk-west-0-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-west-0-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-west-0-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="7" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-west-0-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-west-0-equipment">
+<rect x="4" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-west-1" transform="translate(16 112)"><g id="walk-west-1-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="13" width="2" height="1" fill="#303d3b"/>
+<rect x="6" y="13" width="1" height="1" fill="#ae8757"/>
+</g>
+<g id="walk-west-1-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-west-1-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="7" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-west-1-arms">
+<rect x="5" y="8" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-west-1-equipment">
+<rect x="4" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-west-2" transform="translate(32 112)"><g id="walk-west-2-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-west-2-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-west-2-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="7" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-west-2-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-west-2-equipment">
+<rect x="4" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-west-3" transform="translate(48 112)"><g id="walk-west-3-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-west-3-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-west-3-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="7" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-west-3-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-west-3-equipment">
+<rect x="4" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-west-4" transform="translate(64 112)"><g id="walk-west-4-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="15" width="2" height="1" fill="#303d3b"/>
+<rect x="6" y="13" width="1" height="1" fill="#ae8757"/>
+</g>
+<g id="walk-west-4-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-west-4-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="7" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-west-4-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="9" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-west-4-equipment">
+<rect x="4" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="walk-west-5" transform="translate(80 112)"><g id="walk-west-5-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="walk-west-5-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="walk-west-5-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="7" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="walk-west-5-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="walk-west-5-equipment">
+<rect x="4" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-south-0" transform="translate(0 128)"><g id="act-south-0-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-south-0-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-south-0-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-south-0-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-south-0-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-south-1" transform="translate(16 128)"><g id="act-south-1-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-south-1-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-south-1-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-south-1-arms">
+<rect x="5" y="8" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-south-1-equipment">
+<rect x="12" y="4" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="3" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="3" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-south-2" transform="translate(32 128)"><g id="act-south-2-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-south-2-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-south-2-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-south-2-arms">
+<rect x="5" y="9" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-south-2-equipment">
+<rect x="12" y="3" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="2" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="2" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-south-3" transform="translate(48 128)"><g id="act-south-3-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-south-3-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-south-3-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-south-3-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-south-3-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-south-4" transform="translate(64 128)"><g id="act-south-4-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-south-4-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-south-4-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-south-4-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-south-4-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-south-5" transform="translate(80 128)"><g id="act-south-5-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-south-5-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-south-5-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-south-5-arms">
+<rect x="5" y="8" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-south-5-equipment">
+<rect x="12" y="4" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="3" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="3" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-east-0" transform="translate(0 144)"><g id="act-east-0-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-east-0-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-east-0-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-east-0-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-east-0-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-east-1" transform="translate(16 144)"><g id="act-east-1-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-east-1-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-east-1-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-east-1-arms">
+<rect x="5" y="8" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-east-1-equipment">
+<rect x="12" y="4" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="3" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="3" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-east-2" transform="translate(32 144)"><g id="act-east-2-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-east-2-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-east-2-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-east-2-arms">
+<rect x="5" y="9" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-east-2-equipment">
+<rect x="12" y="3" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="2" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="2" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-east-3" transform="translate(48 144)"><g id="act-east-3-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-east-3-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-east-3-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-east-3-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-east-3-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-east-4" transform="translate(64 144)"><g id="act-east-4-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-east-4-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-east-4-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-east-4-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-east-4-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-east-5" transform="translate(80 144)"><g id="act-east-5-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-east-5-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-east-5-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="9" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-east-5-arms">
+<rect x="5" y="8" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-east-5-equipment">
+<rect x="12" y="4" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="3" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="3" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-north-0" transform="translate(0 160)"><g id="act-north-0-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-north-0-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-north-0-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="act-north-0-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-north-0-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-north-1" transform="translate(16 160)"><g id="act-north-1-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-north-1-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-north-1-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="act-north-1-arms">
+<rect x="5" y="8" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-north-1-equipment">
+<rect x="12" y="4" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="3" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="3" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-north-2" transform="translate(32 160)"><g id="act-north-2-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-north-2-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-north-2-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="act-north-2-arms">
+<rect x="5" y="9" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-north-2-equipment">
+<rect x="12" y="3" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="2" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="2" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-north-3" transform="translate(48 160)"><g id="act-north-3-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-north-3-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-north-3-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="act-north-3-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-north-3-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-north-4" transform="translate(64 160)"><g id="act-north-4-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-north-4-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-north-4-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="act-north-4-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-north-4-equipment">
+<rect x="12" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-north-5" transform="translate(80 160)"><g id="act-north-5-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-north-5-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-north-5-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="6" y="4" width="4" height="4" fill="#59483b"/>
+<rect x="7" y="4" width="2" height="1" fill="#886444"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+<rect x="6" y="6" width="4" height="1" fill="#4b6971"/>
+</g>
+<g id="act-north-5-arms">
+<rect x="5" y="8" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-north-5-equipment">
+<rect x="12" y="4" width="1" height="9" fill="#ae8757"/>
+<rect x="11" y="3" width="3" height="3" fill="#a6b2a4"/>
+<rect x="11" y="3" width="2" height="1" fill="#d5d9bd"/>
+<rect x="4" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="4" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="5" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-west-0" transform="translate(0 176)"><g id="act-west-0-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-west-0-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-west-0-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="7" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-west-0-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-west-0-equipment">
+<rect x="4" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-west-1" transform="translate(16 176)"><g id="act-west-1-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-west-1-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-west-1-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="7" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-west-1-arms">
+<rect x="5" y="8" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-west-1-equipment">
+<rect x="4" y="4" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="3" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="3" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-west-2" transform="translate(32 176)"><g id="act-west-2-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-west-2-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-west-2-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="7" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-west-2-arms">
+<rect x="5" y="9" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-west-2-equipment">
+<rect x="4" y="3" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="2" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="2" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-west-3" transform="translate(48 176)"><g id="act-west-3-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-west-3-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-west-3-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="7" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-west-3-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-west-3-equipment">
+<rect x="4" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-west-4" transform="translate(64 176)"><g id="act-west-4-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-west-4-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-west-4-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="7" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-west-4-arms">
+<rect x="5" y="7" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="8" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-west-4-equipment">
+<rect x="4" y="5" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="4" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="4" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+<g id="act-west-5" transform="translate(80 176)"><g id="act-west-5-legs">
+<rect x="6" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="9" y="11" width="1" height="3" fill="#303d3b"/>
+<rect x="6" y="14" width="2" height="1" fill="#303d3b"/>
+<rect x="9" y="14" width="2" height="1" fill="#303d3b"/>
+</g>
+<g id="act-west-5-body">
+<rect x="5" y="7" width="6" height="5" fill="#334d55"/>
+<rect x="6" y="7" width="4" height="4" fill="#4b6971"/>
+<rect x="6" y="7" width="2" height="2" fill="#66848b"/>
+<rect x="6" y="11" width="4" height="1" fill="#59483b"/>
+<rect x="6" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="9" y="8" width="1" height="2" fill="#a6b2a4"/>
+<rect x="7" y="10" width="2" height="1" fill="#a6b2a4"/>
+<rect x="6" y="11" width="1" height="1" fill="#d3b965"/>
+</g>
+<g id="act-west-5-head">
+<rect x="6" y="4" width="4" height="3" fill="#59483b"/>
+<rect x="7" y="5" width="3" height="3" fill="#d0a579"/>
+<rect x="7" y="5" width="2" height="1" fill="#e5c399"/>
+<rect x="7" y="6" width="1" height="1" fill="#303d3b"/>
+<rect x="6" y="3" width="4" height="2" fill="#334d55"/>
+<rect x="7" y="3" width="2" height="1" fill="#a6b2a4"/>
+<rect x="5" y="5" width="6" height="1" fill="#334d55"/>
+</g>
+<g id="act-west-5-arms">
+<rect x="5" y="8" width="1" height="3" fill="#aa7855"/>
+<rect x="10" y="7" width="1" height="3" fill="#d0a579"/>
+</g>
+<g id="act-west-5-equipment">
+<rect x="4" y="4" width="1" height="9" fill="#ae8757"/>
+<rect x="3" y="3" width="3" height="3" fill="#a6b2a4"/>
+<rect x="3" y="3" width="2" height="1" fill="#d5d9bd"/>
+<rect x="10" y="8" width="3" height="5" fill="#59483b"/>
+<rect x="10" y="8" width="2" height="4" fill="#824d43"/>
+<rect x="11" y="9" width="1" height="2" fill="#d3b965"/>
+</g></g>
+</svg>

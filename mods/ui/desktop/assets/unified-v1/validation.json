@@ -1,0 +1,28 @@
+{
+  "status": "passed",
+  "assets": 107,
+  "actor_cells": 432,
+  "checks": [
+    "All SVGs parse with unique component IDs; raster sizes match; pixels use the shared palette and binary alpha",
+    "32 mountain connection variants share their cap interior; front walls appear only on exposed south edges",
+    "All eight tree frames keep the lower trunk fixed; at least three canopy poses differ",
+    "432 actor cells are nonempty; each role has distinct walking poses",
+    "Every ordinary building has a 32×32 ground footprint (2×2 tiles)",
+    "Every atlas rectangle exactly reproduces its individual PNG",
+    "Assembled scene SVG renders pixel-for-pixel identically to PNG texture composition"
+  ],
+  "counts": {
+    "actor": 6,
+    "animation": 1,
+    "building": 12,
+    "cliff": 3,
+    "coast": 16,
+    "component": 4,
+    "ground": 15,
+    "mountain": 32,
+    "resource": 8,
+    "tree": 4,
+    "water": 3,
+    "water-base": 3
+  }
+}

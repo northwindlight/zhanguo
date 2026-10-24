@@ -1,0 +1,3808 @@
+{
+  "format": "zhanguo.art-study/1",
+  "status": "study-not-connected",
+  "license": "MPL-2.0",
+  "authoring": "Original SVG components authored for Zhanguo; no extracted or copied game art",
+  "renderer": "librsvg / Cairo",
+  "tile_size": 16,
+  "height_step": 8,
+  "filter": "nearest",
+  "light": "upper-left",
+  "palette": {
+    "ink": "303d3b",
+    "ink_soft": "47514a",
+    "wood_dark": "59483b",
+    "wood": "886444",
+    "wood_mid": "ae8757",
+    "wood_light": "d1ae71",
+    "wall_dark": "8d9078",
+    "wall": "c4c2a0",
+    "wall_light": "e1d5ac",
+    "roof_dark": "334d55",
+    "roof": "4b6971",
+    "roof_mid": "66848b",
+    "roof_light": "90a4a1",
+    "clay_dark": "895644",
+    "clay": "b77854",
+    "clay_light": "d39969",
+    "stone_dark": "414c4d",
+    "stone": "64716c",
+    "stone_mid": "7d8980",
+    "stone_light": "9ca495",
+    "stone_top": "707b73",
+    "grass_dark": "54724b",
+    "grass": "739357",
+    "grass_light": "86a365",
+    "grass_high": "9caf70",
+    "leaf_dark": "355b46",
+    "leaf": "507b49",
+    "leaf_mid": "71964e",
+    "leaf_light": "97ad61",
+    "pine_dark": "304f48",
+    "pine": "416d59",
+    "pine_mid": "59866b",
+    "pine_light": "81a181",
+    "dirt_dark": "8f805d",
+    "dirt": "b4a075",
+    "dirt_light": "c7b58b",
+    "sand_dark": "b2ae7d",
+    "sand": "d6c997",
+    "sand_light": "e7daab",
+    "sea_deep": "365b80",
+    "sea_mid": "47799b",
+    "sea_shallow": "70a2b0",
+    "sea_light": "85b0b5",
+    "snow_dark": "b0c3bc",
+    "snow": "d7e1d2",
+    "snow_light": "eff0db",
+    "skin_dark": "aa7855",
+    "skin": "d0a579",
+    "skin_light": "e5c399",
+    "cloth_dark": "3e5c60",
+    "cloth": "63868a",
+    "cloth_light": "8da6a1",
+    "gold_dark": "a38345",
+    "gold": "d3b965",
+    "gold_light": "ead68b",
+    "red_dark": "824d43",
+    "red": "b46e53",
+    "red_light": "d19064",
+    "metal": "a6b2a4",
+    "metal_light": "d5d9bd"
+  },
+  "atlas": {
+    "file": "atlas.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "padding": 2
+  },
+  "assets": [
+    {
+      "id": "ground-grass-0",
+      "title": "grass 地表 1",
+      "category": "ground",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/ground-grass-0.svg",
+      "png": "png/ground-grass-0.png",
+      "atlas_rect": [
+        2,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "9cb39e8979d163690e535fadae892d587ce84cc9348b1b1fd708a20ff19986a6",
+        "png": "a461d5fa61698a747a06e51a816175b9d9825947e460276441d4271466095b88"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "ground-grass-1",
+      "title": "grass 地表 2",
+      "category": "ground",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/ground-grass-1.svg",
+      "png": "png/ground-grass-1.png",
+      "atlas_rect": [
+        22,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "c4858a83496c6612b97c4c863b50c5cff942d171c4d8a7bb7323e6580e7de02b",
+        "png": "798ed572dbe7d36de8d5f96c9d1225b110cd5265ffbc4de636b7b1f761d7dbc3"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "ground-grass-2",
+      "title": "grass 地表 3",
+      "category": "ground",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/ground-grass-2.svg",
+      "png": "png/ground-grass-2.png",
+      "atlas_rect": [
+        42,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "cbd11db8099ca657e19dbbb2fef94a1a74ffc1dca51d2ce212e0ec56f40c60d0",
+        "png": "b8a66a60b4d4156a57c3cf3944033be83268ad515d077996b21ba25cac42a763"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "ground-dirt-0",
+      "title": "dirt 地表 1",
+      "category": "ground",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/ground-dirt-0.svg",
+      "png": "png/ground-dirt-0.png",
+      "atlas_rect": [
+        62,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "c5729202e851a944cd30e87eba203fc7b28965405c9b361054dbd6a0487bf904",
+        "png": "8d00bd47fc6b6f2b882be56979014b9273c855e437f83b7e91856ac9ce1f3e90"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "ground-dirt-1",
+      "title": "dirt 地表 2",
+      "category": "ground",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/ground-dirt-1.svg",
+      "png": "png/ground-dirt-1.png",
+      "atlas_rect": [
+        82,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "faef5f9febace821e6d183991ed95af0497bbdf4f8cf87ab2dbe56d990c0eca6",
+        "png": "7ac497c23053703ddfbcc738a71e86c5b08ddf98d81e4760c97f736aa37ebe50"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "ground-dirt-2",
+      "title": "dirt 地表 3",
+      "category": "ground",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/ground-dirt-2.svg",
+      "png": "png/ground-dirt-2.png",
+      "atlas_rect": [
+        102,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "cdd3342769fad910e9ab51d0c8bb5dba38d37361b6a986b8c27dccffb03283e4",
+        "png": "b44f0e477ea062d6fc6e8c334869107e902176c8c64734c2b67ff47bf237660b"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "ground-rock-0",
+      "title": "rock 地表 1",
+      "category": "ground",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/ground-rock-0.svg",
+      "png": "png/ground-rock-0.png",
+      "atlas_rect": [
+        122,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "c473aeaee1da447c77357fecac071e39727402e48f9c95ecbdadcf3e013c900e",
+        "png": "b19e6002b3ac9f725576719b8db6f4af7153c00c73209ea2bd539edf1345c9ae"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "ground-rock-1",
+      "title": "rock 地表 2",
+      "category": "ground",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/ground-rock-1.svg",
+      "png": "png/ground-rock-1.png",
+      "atlas_rect": [
+        142,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "c16492d9b3a69f7c94a19cedebbcdd1cbebada7a99a07368b2c149f99ae580d1",
+        "png": "96f90dce0dafe96cce60ecaff78d0c1d74b140b591a69ff769b4c13013b85739"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "ground-rock-2",
+      "title": "rock 地表 3",
+      "category": "ground",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/ground-rock-2.svg",
+      "png": "png/ground-rock-2.png",
+      "atlas_rect": [
+        162,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "6d54281140d34b3f57dccb974fb51c1dadaeca71e9c9689f3198e4531b465f49",
+        "png": "a9f63d3e51692c22dd17d8e9017f1ea8eac3ac0f95f7ff0fc64ac581a5042ee9"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "ground-sand-0",
+      "title": "sand 地表 1",
+      "category": "ground",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/ground-sand-0.svg",
+      "png": "png/ground-sand-0.png",
+      "atlas_rect": [
+        182,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "e9ec52374ffe7ecf7eff0d304b4acaecb05718d329125b52e0bb688746e1f5d3",
+        "png": "85d3c52049a6369f1739e36f5d58c16ad3cb6334573d3baa4e0fb88850c598b7"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "ground-sand-1",
+      "title": "sand 地表 2",
+      "category": "ground",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/ground-sand-1.svg",
+      "png": "png/ground-sand-1.png",
+      "atlas_rect": [
+        202,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "92015b4f593f9e7abf403a7c13849968ff319cc2691566dac58e873898615290",
+        "png": "99e8aaa84ed557caf430a5669b0e547b3139af9105eff4f25d90d73b0f74fd95"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "ground-sand-2",
+      "title": "sand 地表 3",
+      "category": "ground",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/ground-sand-2.svg",
+      "png": "png/ground-sand-2.png",
+      "atlas_rect": [
+        222,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "dabc4e6d10c27dd466988f8f7ca34e4135dd916c0cf6b3edc07ca5f1d29b46ab",
+        "png": "f37ad24acc335b5cdc386b256fc3e74ec2cc2cc2710885db8f5e42218541d589"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "ground-snow-0",
+      "title": "snow 地表 1",
+      "category": "ground",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/ground-snow-0.svg",
+      "png": "png/ground-snow-0.png",
+      "atlas_rect": [
+        242,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "cbb31352be22f4ffada6a912e9a20f959465173f295126907d2c776c282d5c26",
+        "png": "ec789bd408adfcf7a1a83624e83304d46ba21639ddb5a423c0dec81f475d2259"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "ground-snow-1",
+      "title": "snow 地表 2",
+      "category": "ground",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/ground-snow-1.svg",
+      "png": "png/ground-snow-1.png",
+      "atlas_rect": [
+        262,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "b940fccd0cab98aa91da85e26f9a8f131b8bb0f7a1ebb83d8f1caacab726d26d",
+        "png": "55d2692a9006796b0c723d7d4dc887863452019df5f2106b013794e94ec21bdc"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "ground-snow-2",
+      "title": "snow 地表 3",
+      "category": "ground",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/ground-snow-2.svg",
+      "png": "png/ground-snow-2.png",
+      "atlas_rect": [
+        282,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "eebd8084c3b2f97bd43baa17f38896534a5878db80b90efd37fd2ebd589892cf",
+        "png": "fa88ba8d70bd714b6551efb30837a50e21f10194501bdd33ab3fcdd2e3573d44"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "water-deep-still",
+      "title": "静水底色 · deep",
+      "category": "water-base",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/water-deep-still.svg",
+      "png": "png/water-deep-still.png",
+      "atlas_rect": [
+        302,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "352acf22c2941c401f04c73451d001193669438d24b3d4210a07de1536b336c4",
+        "png": "8ec58371a10cf93dc8de6a1ab239c6a08a3bf0aed675108ca42baa9bd9b47a44"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "water-deep",
+      "title": "深水",
+      "category": "water",
+      "size": [
+        96,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/water-deep.svg",
+      "png": "png/water-deep.png",
+      "atlas_rect": [
+        322,
+        2,
+        96,
+        16
+      ],
+      "sha256": {
+        "svg": "a56a1419beb39ce17fbd0f2085a88c918b2b9f892ca1dca88443d51ee35ce406",
+        "png": "736376015bc7ac798aa7606ec39169cb67aab0fef8f5060d4feb25c5fe593aa1"
+      },
+      "cell": [
+        16,
+        16
+      ],
+      "columns": 6,
+      "rows": 1,
+      "fps": 4,
+      "loop": true
+    },
+    {
+      "id": "water-mid-still",
+      "title": "静水底色 · mid",
+      "category": "water-base",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/water-mid-still.svg",
+      "png": "png/water-mid-still.png",
+      "atlas_rect": [
+        422,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "218a41d9dd69fed3d81b3ace616a1674f90e8c29bf8a5a0af5753fdf7c35f1e5",
+        "png": "a4741f5e29f1d555e825ce7fea060d0a3c6205ff8a498c6ff2e4f691ebe6ec8e"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "water-mid",
+      "title": "中水",
+      "category": "water",
+      "size": [
+        96,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/water-mid.svg",
+      "png": "png/water-mid.png",
+      "atlas_rect": [
+        442,
+        2,
+        96,
+        16
+      ],
+      "sha256": {
+        "svg": "d887f31056c45339cc776d52dcb80e262f85a7e1b950c095f35b34ce760b1327",
+        "png": "0832e36da1c2c1ffe4f55657d25bfd011c447f570d065fd452d1563d45b06fcb"
+      },
+      "cell": [
+        16,
+        16
+      ],
+      "columns": 6,
+      "rows": 1,
+      "fps": 4,
+      "loop": true
+    },
+    {
+      "id": "water-shallow-still",
+      "title": "静水底色 · shallow",
+      "category": "water-base",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/water-shallow-still.svg",
+      "png": "png/water-shallow-still.png",
+      "atlas_rect": [
+        542,
+        2,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "b70b73ac868d2865d3d6dc0aa8ecaf18597460196db1bdafed14a536b8aa4abc",
+        "png": "7dff31d65732a12a863e9fb7e0bd95e9eef4099d03779cfd76e68e0d17d543f5"
+      },
+      "tile": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "water-shallow",
+      "title": "浅水",
+      "category": "water",
+      "size": [
+        96,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/water-shallow.svg",
+      "png": "png/water-shallow.png",
+      "atlas_rect": [
+        562,
+        2,
+        96,
+        16
+      ],
+      "sha256": {
+        "svg": "5ef761fb20c2639d568a4d6dc026c0c07bf42ccbf5ee432764cfe7b0b1da0ac2",
+        "png": "cc841b91bb7f27439c8bc4a49c5c20898d4366ae03bde85faff0d5768e7d7882"
+      },
+      "cell": [
+        16,
+        16
+      ],
+      "columns": 6,
+      "rows": 1,
+      "fps": 4,
+      "loop": true
+    },
+    {
+      "id": "mountain-rock-00",
+      "title": "裸岩连接块 0000",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-00.svg",
+      "png": "png/mountain-rock-00.png",
+      "atlas_rect": [
+        662,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "a97f6c3f9d1c39dbf49d46ef20331dfc6c651d1b9a59106cb26435c37ab204c4",
+        "png": "7143f306fd7023abba01070489fd727da6513ce70a2a86020f3b42b711f79f8e"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 0,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-rock-01",
+      "title": "裸岩连接块 0001",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-01.svg",
+      "png": "png/mountain-rock-01.png",
+      "atlas_rect": [
+        682,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "eb68fdd27d486e29345991615be4e5faf9db2791ec0ad94bed4af78954c9337b",
+        "png": "20af1618035fe9d3d7f0fb9d1a3565479fa57d9b1aab192770411fbe63a91009"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 1,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-rock-02",
+      "title": "裸岩连接块 0010",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-02.svg",
+      "png": "png/mountain-rock-02.png",
+      "atlas_rect": [
+        702,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "c18772158f8fc794af424b19c0a3772d7a4481324ab87a0734bace26ad448039",
+        "png": "f87c29b1f1e42bb25be77aa5b391048714d4e5216dddbc80dd8757eecf38a5e1"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 2,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-rock-03",
+      "title": "裸岩连接块 0011",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-03.svg",
+      "png": "png/mountain-rock-03.png",
+      "atlas_rect": [
+        722,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "21111e82c175678e83958a683d8c55705e29219338c730044391fee4b7f4d204",
+        "png": "4cbdf21411c8aa6b204ca86499fce4f1e412dfc15eae5e8c01eb53dbed19d5c7"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 3,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-rock-04",
+      "title": "裸岩连接块 0100",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-04.svg",
+      "png": "png/mountain-rock-04.png",
+      "atlas_rect": [
+        742,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "2284f937678c0ec11a2ffbd18eb038f469e7d6168b49fa2d3b2127b36392d0ba",
+        "png": "2279062eb419e5c0f50d76a08cc4446e1921a6ef81f05cec51086e1372b8035d"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 4,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-rock-05",
+      "title": "裸岩连接块 0101",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-05.svg",
+      "png": "png/mountain-rock-05.png",
+      "atlas_rect": [
+        762,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "78e496d32220cdf2314091e27c81d5110f62a7596a21ad8c28a15b403ead1cb4",
+        "png": "03309e714572f3f28fc6865d2e2f2ad60be5295d5b4b7185f25cef81bab53e66"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 5,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-rock-06",
+      "title": "裸岩连接块 0110",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-06.svg",
+      "png": "png/mountain-rock-06.png",
+      "atlas_rect": [
+        782,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "c084282533256925e94e53e306411af1e86cdde311e55a46d395b351799d32ea",
+        "png": "cd0c17f19725c16aa1c0113e595316960d139d794cd779688cee8e31c96903a4"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 6,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-rock-07",
+      "title": "裸岩连接块 0111",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-07.svg",
+      "png": "png/mountain-rock-07.png",
+      "atlas_rect": [
+        802,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "b66382fa31f42774fafa14083dba4ee4cb20c6d24870fc04dfbb6a52d647435d",
+        "png": "3a8e37936f15b16d7fdcc67378160bb81209f5af891db4ec2426c3f5455bf204"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 7,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-rock-08",
+      "title": "裸岩连接块 1000",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-08.svg",
+      "png": "png/mountain-rock-08.png",
+      "atlas_rect": [
+        822,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "c08f1a895fa8b2d4de3a5af176a6637cc1ad992eed746535e8edda61723a5036",
+        "png": "d2321653ce3cedde0beb3d7c7000e13ef9c03b88a0d2f9e63b464eba2186ab1e"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 8,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-rock-09",
+      "title": "裸岩连接块 1001",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-09.svg",
+      "png": "png/mountain-rock-09.png",
+      "atlas_rect": [
+        842,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "4b1a98163467a7f0cffd414d2e4486ecad38cd2509507962c102920d9d9a0260",
+        "png": "4022acecc028ec68c36f69b99fff10b2506eb547c7d7067c8e0bd47175dbf4ef"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 9,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-rock-10",
+      "title": "裸岩连接块 1010",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-10.svg",
+      "png": "png/mountain-rock-10.png",
+      "atlas_rect": [
+        862,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "a1f7d215184f8fbf9b7a463c5bc5f74e6dd04efb27a5acf8ae2581281a6ec85d",
+        "png": "9858a83742775e48b56520b998fa50b67e0db7714ed40a624accdbfabb9252cf"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 10,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-rock-11",
+      "title": "裸岩连接块 1011",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-11.svg",
+      "png": "png/mountain-rock-11.png",
+      "atlas_rect": [
+        882,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "5f746229b1f72a84e1f21ddf215415188af82eb6bc5a5bd22c84594ec37422c4",
+        "png": "adc8341050f2a177412dd11705d80ef35eebd999c831de32f0d3d852ccd15298"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 11,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-rock-12",
+      "title": "裸岩连接块 1100",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-12.svg",
+      "png": "png/mountain-rock-12.png",
+      "atlas_rect": [
+        902,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "fe2a04f1fffa86366eee71b5e54943b02ab8d4367b1f0fab66a7f06eb5e2ff31",
+        "png": "6c5c685b3f8ab2f1897b0ee19b50e3122f01661ebbc46ea0dac267595484733b"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 12,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-rock-13",
+      "title": "裸岩连接块 1101",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-13.svg",
+      "png": "png/mountain-rock-13.png",
+      "atlas_rect": [
+        922,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "356bc206e79a79f520f8198192571706b0ecd9159ae602ea18dbc2921c7b87dc",
+        "png": "8bd0221b24226956f607f72ce48c9c7bff1ff0ee8b8cf72a5a1eddbe288aa22b"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 13,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-rock-14",
+      "title": "裸岩连接块 1110",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-14.svg",
+      "png": "png/mountain-rock-14.png",
+      "atlas_rect": [
+        942,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "47196222bf09b87285194cb41db7daf79c2d7606d575122ca13b810e010c461e",
+        "png": "d2d862c61f31d4d177791c94e90c5613c496ae0022b69521e33e802ad233e7b6"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 14,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-rock-15",
+      "title": "裸岩连接块 1111",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-rock-15.svg",
+      "png": "png/mountain-rock-15.png",
+      "atlas_rect": [
+        962,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "33bb2bdee9f54de5c47c5e5dd61dd050f26d51aa5be8411c1ccef939735cd22b",
+        "png": "18ce47d4cfd1f783303e51a93525a5ecf5c570983c5727f40e5f485090d41c88"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 15,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-00",
+      "title": "覆雪连接块 0000",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-00.svg",
+      "png": "png/mountain-snow-00.png",
+      "atlas_rect": [
+        982,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "4cc260926b13e2a29c763810c5c3685a1b32491f2a4ebc77c55a1d9c08aad938",
+        "png": "2b0c323ead2a9db863094507e836c2cc7fc9a164f9669ac21121d9f898cf3041"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 0,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-01",
+      "title": "覆雪连接块 0001",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-01.svg",
+      "png": "png/mountain-snow-01.png",
+      "atlas_rect": [
+        1002,
+        2,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "520e0528440df14fdc875a4a75850efbb3ccbbf530efbd72b5934057f7353511",
+        "png": "07ad2608f6bf669cd12f29a15f62c8c380777003dc902b7390a8ef29e2c581db"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 1,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-02",
+      "title": "覆雪连接块 0010",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-02.svg",
+      "png": "png/mountain-snow-02.png",
+      "atlas_rect": [
+        2,
+        30,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "0eebbf63a4bd1dab3b4fa0927eda8939ab90c2e8821a67690327f57f9fd51189",
+        "png": "90c6e1394abb262680bc164e4b9f0a3366dda824cb9886d21cfb2ca3bada361a"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 2,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-03",
+      "title": "覆雪连接块 0011",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-03.svg",
+      "png": "png/mountain-snow-03.png",
+      "atlas_rect": [
+        22,
+        30,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "d34a23f04ab4e71c80ac7382e1f6c31adbd51d898faedf7285c67b7a9ebf772c",
+        "png": "23b2c1fe00d1ca42027879cb4b06adc2f44512cf0be746f1a3b494c70d48435e"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 3,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-04",
+      "title": "覆雪连接块 0100",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-04.svg",
+      "png": "png/mountain-snow-04.png",
+      "atlas_rect": [
+        42,
+        30,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "d0868d5e93c5f8a65474b7cbc2dadffbd602aaa8c670bf6ad9a2bddd5440a9b9",
+        "png": "cfcab993e79929d1371aabfb09b8a3e7f5698fa52e8e2bca2c4e80a05ddc3edb"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 4,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-05",
+      "title": "覆雪连接块 0101",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-05.svg",
+      "png": "png/mountain-snow-05.png",
+      "atlas_rect": [
+        62,
+        30,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "f2e1e5f65ff26c11419cb9dd6ec7131c1a480ef6c6db856611cfd689d68952ae",
+        "png": "e2e5214018dd82f200b65b1141331e64db29e6d43f20e09bb630d6eea01756c6"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 5,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-06",
+      "title": "覆雪连接块 0110",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-06.svg",
+      "png": "png/mountain-snow-06.png",
+      "atlas_rect": [
+        82,
+        30,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "de2825cf006c21be6948390e836108e9d611420ee85362096460613861700d2f",
+        "png": "4898c073ed1766aed368151d43b7c8745db6e71faa14952ec1425cea181e0a76"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 6,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-07",
+      "title": "覆雪连接块 0111",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-07.svg",
+      "png": "png/mountain-snow-07.png",
+      "atlas_rect": [
+        102,
+        30,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "bf9517569183a577bdab5bc72a7cb1a7974ef619b2b0ca535d3087626560aa1c",
+        "png": "7cf1996d7e4053aeca9edf39bb4dad8453e5496cf3d774675734ceeb90e0784e"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 7,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-08",
+      "title": "覆雪连接块 1000",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-08.svg",
+      "png": "png/mountain-snow-08.png",
+      "atlas_rect": [
+        122,
+        30,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "f1e1ae29efa289f3cc1a271775164cb147c4d79f5667df3a30592bd9a10e072f",
+        "png": "963754897e8487190594d03e2930404d069c5e1b3703cb4d9d99068734bca1c7"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 8,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-09",
+      "title": "覆雪连接块 1001",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-09.svg",
+      "png": "png/mountain-snow-09.png",
+      "atlas_rect": [
+        142,
+        30,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "5aff738425a1e09875e911d71096ef504e87cc96959c8402c2d2f5603fa6d44a",
+        "png": "5bb18428257b528856df7f38098ae5ab181e87ad021aba5c6e7b47572b06bb0e"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 9,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-10",
+      "title": "覆雪连接块 1010",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-10.svg",
+      "png": "png/mountain-snow-10.png",
+      "atlas_rect": [
+        162,
+        30,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "4245ff6e85173462616cc2c2c1141e92254fbc3aabcc9ed3d7c4d0a00ae5ea0d",
+        "png": "ba873d8b1711cd622604d5bba8db8df1c849e07d93bb6c50b670f3918e89c013"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 10,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-11",
+      "title": "覆雪连接块 1011",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-11.svg",
+      "png": "png/mountain-snow-11.png",
+      "atlas_rect": [
+        182,
+        30,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "3c4ab06645d08771310d8fd909fcabaaeffd136bdca82f3cb1c71111e9698263",
+        "png": "4fdbd32e14a5a44c793ebb96d461f265a4ad695c040ade6da14b9e7282ccc2b8"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 11,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-12",
+      "title": "覆雪连接块 1100",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-12.svg",
+      "png": "png/mountain-snow-12.png",
+      "atlas_rect": [
+        202,
+        30,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "02c4202c4f7b062a5fd78961db1ccd0c905c104ae73bac917d0a050be2026b00",
+        "png": "77af2b260e0152e5d68a376ee0f9fed3f3bebd20a37c5aac786f0e35b91c2f5e"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 12,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-13",
+      "title": "覆雪连接块 1101",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-13.svg",
+      "png": "png/mountain-snow-13.png",
+      "atlas_rect": [
+        222,
+        30,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "98ccce53fed041669f02d0511d1129630982c517a92414d2a583fcbfe3b0e446",
+        "png": "48885efa8b86bff06167459e1272d40c9d36cf7a7352ab1ae27b7669b92db2a0"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 13,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-14",
+      "title": "覆雪连接块 1110",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-14.svg",
+      "png": "png/mountain-snow-14.png",
+      "atlas_rect": [
+        242,
+        30,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "6f78e8b4214c400fbcdd1f5ce9422dc0143960b32a0642222b46c6f1082bbb7b",
+        "png": "07a14ac53e7b3d617ec38c6ca0b7f6e519f4b63a1d84ed17af6a8eece82d1055"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 14,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "mountain-snow-15",
+      "title": "覆雪连接块 1111",
+      "category": "mountain",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/mountain-snow-15.svg",
+      "png": "png/mountain-snow-15.png",
+      "atlas_rect": [
+        262,
+        30,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "ef40db32c64af2922dbd8e9b7cba0b61c4e7a7aa1885c4c997b2236600c9a13a",
+        "png": "442f1e0dc56848d51c61904c52d976e66245bd9daa6487117b6b5c4cd425917a"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "overflow": [
+        0,
+        8
+      ],
+      "lower_neighbor_mask": 15,
+      "mask_bits": {
+        "north": 1,
+        "east": 2,
+        "south": 4,
+        "west": 8
+      }
+    },
+    {
+      "id": "cliff-face-0",
+      "title": "岩壁立面 1",
+      "category": "cliff",
+      "size": [
+        16,
+        8
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/cliff-face-0.svg",
+      "png": "png/cliff-face-0.png",
+      "atlas_rect": [
+        282,
+        30,
+        16,
+        8
+      ],
+      "sha256": {
+        "svg": "bb2f3075ee6b3e5b9ece70e69facf21134fdab1e5fe55bfcd31cf9b915fe821b",
+        "png": "28b7110c9b8bbe9ace37c0638aea2d1991a3ecf3566819f4528936a2fe5460c7"
+      },
+      "tile": [
+        16,
+        8
+      ]
+    },
+    {
+      "id": "cliff-face-1",
+      "title": "岩壁立面 2",
+      "category": "cliff",
+      "size": [
+        16,
+        8
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/cliff-face-1.svg",
+      "png": "png/cliff-face-1.png",
+      "atlas_rect": [
+        302,
+        30,
+        16,
+        8
+      ],
+      "sha256": {
+        "svg": "c19fd93055b72472876b5632b5eb2124921e8a7ba98016fb9002b62c0574ab92",
+        "png": "31b7da3ebead8c0d1391df352846fa098920600d5f5c6d41f9bc4bd858101df5"
+      },
+      "tile": [
+        16,
+        8
+      ]
+    },
+    {
+      "id": "cliff-face-2",
+      "title": "岩壁立面 3",
+      "category": "cliff",
+      "size": [
+        16,
+        8
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/cliff-face-2.svg",
+      "png": "png/cliff-face-2.png",
+      "atlas_rect": [
+        322,
+        30,
+        16,
+        8
+      ],
+      "sha256": {
+        "svg": "92a0f91aae247015d5756028dc74cbabbdb7255c8ea133f224b9fa5de7681494",
+        "png": "f755867cba2cccae010b4b45e79c1e03fff7f8f02769dc554889248e7651148c"
+      },
+      "tile": [
+        16,
+        8
+      ]
+    },
+    {
+      "id": "coast-00",
+      "title": "岸线连接块 0000",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-00.svg",
+      "png": "png/coast-00.png",
+      "atlas_rect": [
+        342,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "ffba1ec40f7b36431a5f848338298a514a1a2b89524fe54282d9bc84ab1a0ff9",
+        "png": "72cd46ff96d310fb224c24e90e53573833c48dd9f4fdae946182bc40638cdbf8"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 0
+    },
+    {
+      "id": "coast-01",
+      "title": "岸线连接块 0001",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-01.svg",
+      "png": "png/coast-01.png",
+      "atlas_rect": [
+        362,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "62d4bb8ba1b969dc8f673b0f22fc539f08f99118b6764f1cffeb88eb12a22350",
+        "png": "74d4b5dbc997e428bce752f9487ed59d88d7ac680e5ed26c0837f816cfa11c95"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 1
+    },
+    {
+      "id": "coast-02",
+      "title": "岸线连接块 0010",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-02.svg",
+      "png": "png/coast-02.png",
+      "atlas_rect": [
+        382,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "cded5a922ac8501e32caaa6a538ce64dab6301514f921925c8ce5d1c79c8f025",
+        "png": "d7607aeb9382235a8e3f07cba159cd9ee4e72a69796f7b8862774c6b20cb4f21"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 2
+    },
+    {
+      "id": "coast-03",
+      "title": "岸线连接块 0011",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-03.svg",
+      "png": "png/coast-03.png",
+      "atlas_rect": [
+        402,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "9674ea8b5473206df9a368d00267051fddcba944ebb00546928c337d77af6554",
+        "png": "0825eca9e91adc8b800237c194f4bee7b7845cb2dceb12ae5492ff4b5fc18f3a"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 3
+    },
+    {
+      "id": "coast-04",
+      "title": "岸线连接块 0100",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-04.svg",
+      "png": "png/coast-04.png",
+      "atlas_rect": [
+        422,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "7220928f9f0be1463bb111e914d3ffaf03f375dba250db9182e137ecdba32768",
+        "png": "eef37be151fd1aa13b6d9a1c2025545eb8b9654a26e3662682defca8afb9dbd7"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 4
+    },
+    {
+      "id": "coast-05",
+      "title": "岸线连接块 0101",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-05.svg",
+      "png": "png/coast-05.png",
+      "atlas_rect": [
+        442,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "c4f26ba191fb6606b53f46893c7068ecaf7d674c43e674011bc01db2f17461e6",
+        "png": "4f1df2e8aa87711e70915d7e8df7caffcf3ccb7cc4d60a7f05be31cdc255b967"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 5
+    },
+    {
+      "id": "coast-06",
+      "title": "岸线连接块 0110",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-06.svg",
+      "png": "png/coast-06.png",
+      "atlas_rect": [
+        462,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "3783d391f1dce8dab2731bf41a90567adb3c816e4823d328f225e39687998c7a",
+        "png": "f727610edb35ab45da207187ce48cbaea9a0f24c34db09192ba8ab0ff772a6ca"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 6
+    },
+    {
+      "id": "coast-07",
+      "title": "岸线连接块 0111",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-07.svg",
+      "png": "png/coast-07.png",
+      "atlas_rect": [
+        482,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "557e1d1701e1f9ca76ed065bfd1d1ec99ddbe55eb8a18feb1a702ac5606a1d07",
+        "png": "2ed4385d8f589141148ae360cd4017e58babfa90cb713a58cce1d91a6226ad74"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 7
+    },
+    {
+      "id": "coast-08",
+      "title": "岸线连接块 1000",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-08.svg",
+      "png": "png/coast-08.png",
+      "atlas_rect": [
+        502,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "8c1c5619e650c2877ca1e89340dd0a6f6fab64d912a458dcdeaa95c228e074ed",
+        "png": "ebe9ccc92fb508eef1f6d54a3fbbf82086e30f47aacf7157ea3f4271c3287927"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 8
+    },
+    {
+      "id": "coast-09",
+      "title": "岸线连接块 1001",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-09.svg",
+      "png": "png/coast-09.png",
+      "atlas_rect": [
+        522,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "002137ba50c1f72585c0e7f8caf813a220316bea14291023ab894fec4e593c81",
+        "png": "806743620bf5e1b37d509289bf612581fb6747e96c706cc85efd97f01fed9ff9"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 9
+    },
+    {
+      "id": "coast-10",
+      "title": "岸线连接块 1010",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-10.svg",
+      "png": "png/coast-10.png",
+      "atlas_rect": [
+        542,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "f55742d24fa747a8b309dca36200cea0d36f4f28e42f0a399fb1883410a4c962",
+        "png": "50c1806c1a67715aa5d2677dc0a736975ba711a954f727392ee0256049d087ff"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 10
+    },
+    {
+      "id": "coast-11",
+      "title": "岸线连接块 1011",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-11.svg",
+      "png": "png/coast-11.png",
+      "atlas_rect": [
+        562,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "8a8468d1ef8823f8ee2dcabcc530641533c7289d104f6ab1273c2079a513d43a",
+        "png": "8f45d51f7443ef91a6e9cce146f1589e5a9936456ada65847681d10e0fc6fb81"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 11
+    },
+    {
+      "id": "coast-12",
+      "title": "岸线连接块 1100",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-12.svg",
+      "png": "png/coast-12.png",
+      "atlas_rect": [
+        582,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "d33219ac094ead45d1bee84bfcc8b43de8fadf723f6d825f7e5cede916def90f",
+        "png": "60e349e4a702b9552f2bc3a2494b424cd84ec56fbba009186d1708725dc59ff8"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 12
+    },
+    {
+      "id": "coast-13",
+      "title": "岸线连接块 1101",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-13.svg",
+      "png": "png/coast-13.png",
+      "atlas_rect": [
+        602,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "db45259327c78fff9d04d759c583becdefd99586000b44b25d472c698a31e997",
+        "png": "251f460b6fecb6abc4b829371b6f16ab8bc37558669981adba88f20d436aa752"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 13
+    },
+    {
+      "id": "coast-14",
+      "title": "岸线连接块 1110",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-14.svg",
+      "png": "png/coast-14.png",
+      "atlas_rect": [
+        622,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "79350a04d2c963315ad1c38017cd8f068c22c5338aad0ed95607904b8f7ad3fb",
+        "png": "03f6a7d014bb39c6380954825321c669efe2038739a593c9545a258a70808aa6"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 14
+    },
+    {
+      "id": "coast-15",
+      "title": "岸线连接块 1111",
+      "category": "coast",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        0,
+        0
+      ],
+      "svg": "svg/coast-15.svg",
+      "png": "png/coast-15.png",
+      "atlas_rect": [
+        642,
+        30,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "1e45d1d04357c5f24e601718aa7d13a8433a451f8c7d04a069e42816d6e7fae6",
+        "png": "ffdf321cd98a88513ab57196ea029e783d0e267c2478bde36e62daff6d91cc60"
+      },
+      "tile": [
+        16,
+        16
+      ],
+      "land_neighbor_mask": 15
+    },
+    {
+      "id": "tree-oak-0",
+      "title": "阔叶树 1",
+      "category": "tree",
+      "size": [
+        32,
+        40
+      ],
+      "anchor": [
+        16,
+        38
+      ],
+      "svg": "svg/tree-oak-0.svg",
+      "png": "png/tree-oak-0.png",
+      "atlas_rect": [
+        662,
+        30,
+        32,
+        40
+      ],
+      "sha256": {
+        "svg": "08a7926fb38ad9c0ae852735f385ab3d141ec54053926b96161f779ae94bd4e3",
+        "png": "98862f32cd7d1665400070a12a4073259e2cf032ca5a34f57f3fbcbd6fc52a95"
+      },
+      "layers": [
+        "trunk",
+        "canopy-back",
+        "canopy-left",
+        "canopy-right"
+      ]
+    },
+    {
+      "id": "oak-part-trunk",
+      "title": "阔叶树组件 · trunk",
+      "category": "component",
+      "size": [
+        32,
+        40
+      ],
+      "anchor": [
+        16,
+        38
+      ],
+      "svg": "svg/oak-part-trunk.svg",
+      "png": "png/oak-part-trunk.png",
+      "atlas_rect": [
+        698,
+        30,
+        32,
+        40
+      ],
+      "sha256": {
+        "svg": "cb7b964c01a314bfa59b45e9f44a0f74c58c9600644465a0a1fa905534f56a95",
+        "png": "63082c54685214eb7afe97ecc0f2d313f50f92a437107718ad0f87b759987378"
+      }
+    },
+    {
+      "id": "oak-part-canopy-back",
+      "title": "阔叶树组件 · canopy-back",
+      "category": "component",
+      "size": [
+        32,
+        40
+      ],
+      "anchor": [
+        16,
+        38
+      ],
+      "svg": "svg/oak-part-canopy-back.svg",
+      "png": "png/oak-part-canopy-back.png",
+      "atlas_rect": [
+        734,
+        30,
+        32,
+        40
+      ],
+      "sha256": {
+        "svg": "7cff14ccd113f1ae5893bcbd04edf62538fc802e900c9130fbfb360b7916715a",
+        "png": "c4f2dfca6fc84a0752b1000f535f42066ac6c8ce81ca8a01b3e0c89170677278"
+      }
+    },
+    {
+      "id": "oak-part-canopy-left",
+      "title": "阔叶树组件 · canopy-left",
+      "category": "component",
+      "size": [
+        32,
+        40
+      ],
+      "anchor": [
+        16,
+        38
+      ],
+      "svg": "svg/oak-part-canopy-left.svg",
+      "png": "png/oak-part-canopy-left.png",
+      "atlas_rect": [
+        770,
+        30,
+        32,
+        40
+      ],
+      "sha256": {
+        "svg": "c73b831c637a2eae8aafc1dae7304e93754de8e763ef5360a21aaa9079ea3966",
+        "png": "b6efec355e31ea177447fc7fc1f8c71956833b89d1fd35b4e374cc4e1eac09da"
+      }
+    },
+    {
+      "id": "oak-part-canopy-right",
+      "title": "阔叶树组件 · canopy-right",
+      "category": "component",
+      "size": [
+        32,
+        40
+      ],
+      "anchor": [
+        16,
+        38
+      ],
+      "svg": "svg/oak-part-canopy-right.svg",
+      "png": "png/oak-part-canopy-right.png",
+      "atlas_rect": [
+        806,
+        30,
+        32,
+        40
+      ],
+      "sha256": {
+        "svg": "83e3422365b4ad0cff1948b57816925c1b80be329b6883aa083c52a136fabeba",
+        "png": "ebfbfb630365a6078a3fbe6edfb2656d1c06f2a5bd827af6041deac9ad359368"
+      }
+    },
+    {
+      "id": "tree-oak-sway",
+      "title": "叶簇轻摆 / 树干固定",
+      "category": "animation",
+      "size": [
+        256,
+        40
+      ],
+      "anchor": [
+        16,
+        38
+      ],
+      "svg": "svg/tree-oak-sway.svg",
+      "png": "png/tree-oak-sway.png",
+      "atlas_rect": [
+        2,
+        74,
+        256,
+        40
+      ],
+      "sha256": {
+        "svg": "0e368195d3ae063e4fb5437a26c4f7c3c2effe02f6eee529fc9ed6530d9db0ba",
+        "png": "17d731ce60a209864b45d6f118f54ab46ac2b589f1a0f18f57a40b1b1703be4a"
+      },
+      "cell": [
+        32,
+        40
+      ],
+      "columns": 8,
+      "rows": 1,
+      "fps": 6,
+      "loop": true,
+      "fixed_trunk_box": [
+        10,
+        29,
+        12,
+        10
+      ]
+    },
+    {
+      "id": "tree-oak-1",
+      "title": "阔叶树 2",
+      "category": "tree",
+      "size": [
+        32,
+        40
+      ],
+      "anchor": [
+        16,
+        38
+      ],
+      "svg": "svg/tree-oak-1.svg",
+      "png": "png/tree-oak-1.png",
+      "atlas_rect": [
+        262,
+        74,
+        32,
+        40
+      ],
+      "sha256": {
+        "svg": "8ed236fc41fad71ae1605985929c70c5e57bfc315a8a16884ca89dc463345922",
+        "png": "acccc2f71f4cf6b36333fbf456029cbf0eb779cacc9b7b67a6ab9e7f2e52a6e1"
+      },
+      "layers": [
+        "trunk",
+        "canopy-back",
+        "canopy-left",
+        "canopy-right"
+      ]
+    },
+    {
+      "id": "tree-pine",
+      "title": "松树",
+      "category": "tree",
+      "size": [
+        32,
+        48
+      ],
+      "anchor": [
+        16,
+        46
+      ],
+      "svg": "svg/tree-pine.svg",
+      "png": "png/tree-pine.png",
+      "atlas_rect": [
+        298,
+        74,
+        32,
+        48
+      ],
+      "sha256": {
+        "svg": "8d1c11f5f4a2a0076c09c33fd51ebda95c8204f15ca22690372daec7ad2e5904",
+        "png": "a97e439dbc4c777d2172a82689f906487eedb22bc2f125d27067ebde4b7ab6ef"
+      }
+    },
+    {
+      "id": "tree-young",
+      "title": "幼树",
+      "category": "tree",
+      "size": [
+        16,
+        24
+      ],
+      "anchor": [
+        8,
+        23
+      ],
+      "svg": "svg/tree-young.svg",
+      "png": "png/tree-young.png",
+      "atlas_rect": [
+        334,
+        74,
+        16,
+        24
+      ],
+      "sha256": {
+        "svg": "7142f614d4f044d9ea6748231413cc8d102c76a7fa87fc100f1830cede06b149",
+        "png": "4a787770238cc0e45343749ab5065d6db358b3225e04f40b55ad68100e42dd5b"
+      }
+    },
+    {
+      "id": "boulder-0",
+      "title": "岩石1",
+      "category": "resource",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        8,
+        14
+      ],
+      "svg": "svg/boulder-0.svg",
+      "png": "png/boulder-0.png",
+      "atlas_rect": [
+        354,
+        74,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "3cfbb885c32f17af39145922aed9cc80b7997cf95c2c87e4398ccd344b08838b",
+        "png": "f63ce6bec56852559f4146bfd9a83739bd6fdeb91b5604066041dd34e0c3bd2c"
+      }
+    },
+    {
+      "id": "boulder-1",
+      "title": "岩石2",
+      "category": "resource",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        8,
+        14
+      ],
+      "svg": "svg/boulder-1.svg",
+      "png": "png/boulder-1.png",
+      "atlas_rect": [
+        374,
+        74,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "3cfbb885c32f17af39145922aed9cc80b7997cf95c2c87e4398ccd344b08838b",
+        "png": "f63ce6bec56852559f4146bfd9a83739bd6fdeb91b5604066041dd34e0c3bd2c"
+      }
+    },
+    {
+      "id": "ore-iron-0",
+      "title": "铁矿1",
+      "category": "resource",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        8,
+        14
+      ],
+      "svg": "svg/ore-iron-0.svg",
+      "png": "png/ore-iron-0.png",
+      "atlas_rect": [
+        394,
+        74,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "b9f363066b64c64a782eb16412ef750327d90a330c3bdfbad92b1be4828e338c",
+        "png": "4fa12b50cbe2a04bb122c622df939183c8f5a0e6a2ddfc6e1eed766aed5ca625"
+      }
+    },
+    {
+      "id": "ore-iron-1",
+      "title": "铁矿2",
+      "category": "resource",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        8,
+        14
+      ],
+      "svg": "svg/ore-iron-1.svg",
+      "png": "png/ore-iron-1.png",
+      "atlas_rect": [
+        414,
+        74,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "7b55fc17b2fdc12888cc6ecb6e8a28189cb1376f3a331b6462f7090806a5f4f4",
+        "png": "0fe55a9b902f7bd0b4be7d25fdecceebeec3ce4d46dee5024ed0cfcd99c7465e"
+      }
+    },
+    {
+      "id": "ore-gold-0",
+      "title": "金矿1",
+      "category": "resource",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        8,
+        14
+      ],
+      "svg": "svg/ore-gold-0.svg",
+      "png": "png/ore-gold-0.png",
+      "atlas_rect": [
+        434,
+        74,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "5cc463f1b8b7cf4354bdd6d19d5bb68057c37fd034a6aabdd0515ba486ddcce3",
+        "png": "7f0d928203ecad03ec58e9a76e7bb9ad9a1612519a71541652cac98158f34a56"
+      }
+    },
+    {
+      "id": "ore-gold-1",
+      "title": "金矿2",
+      "category": "resource",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        8,
+        14
+      ],
+      "svg": "svg/ore-gold-1.svg",
+      "png": "png/ore-gold-1.png",
+      "atlas_rect": [
+        454,
+        74,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "69a69da542ae0e8ae3d7c4281aa43f2f96b2613377b64745d65155a2a578b182",
+        "png": "616a453acf30017f37f94d6467120aada42e4b3bc58faf4e11b1ce09439205de"
+      }
+    },
+    {
+      "id": "wheat-young",
+      "title": "青苗",
+      "category": "resource",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        8,
+        14
+      ],
+      "svg": "svg/wheat-young.svg",
+      "png": "png/wheat-young.png",
+      "atlas_rect": [
+        474,
+        74,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "69e50cc111b95bf7391c3daeeec1aa48515f46190d72a169c8c56640e4b960d5",
+        "png": "acbc18a03144225c4181978b5af90a16e1a75117f79fea7b0bf8ed62ab2556e1"
+      }
+    },
+    {
+      "id": "wheat-ripe",
+      "title": "成熟麦丛",
+      "category": "resource",
+      "size": [
+        16,
+        16
+      ],
+      "anchor": [
+        8,
+        14
+      ],
+      "svg": "svg/wheat-ripe.svg",
+      "png": "png/wheat-ripe.png",
+      "atlas_rect": [
+        494,
+        74,
+        16,
+        16
+      ],
+      "sha256": {
+        "svg": "9d656c6452201cf59428a237a3d9c98c2a206406a3e751448fe089f7b3a4f505",
+        "png": "53e8e6c0eb22da4a8da771280b7c0817dfbe661a27194025b218310ed9fe6bc9"
+      }
+    },
+    {
+      "id": "house-0",
+      "title": "灰瓦民居",
+      "category": "building",
+      "size": [
+        48,
+        56
+      ],
+      "anchor": [
+        24,
+        48
+      ],
+      "svg": "svg/house-0.svg",
+      "png": "png/house-0.png",
+      "atlas_rect": [
+        514,
+        74,
+        48,
+        56
+      ],
+      "sha256": {
+        "svg": "f506b3125d1f239cab6313c042aade45b5d250402464c6ddd54b19a46002099c",
+        "png": "8028a2e01d52fcc6615bfead9b0794b373c05afc49ba3a50104d1709ad1411ec"
+      },
+      "footprint": [
+        8,
+        16,
+        32,
+        32
+      ]
+    },
+    {
+      "id": "house-1",
+      "title": "陶瓦民居",
+      "category": "building",
+      "size": [
+        48,
+        56
+      ],
+      "anchor": [
+        24,
+        48
+      ],
+      "svg": "svg/house-1.svg",
+      "png": "png/house-1.png",
+      "atlas_rect": [
+        566,
+        74,
+        48,
+        56
+      ],
+      "sha256": {
+        "svg": "7e8c5fdedc3e2c27f13b5ee017a8955e5b01c7b32d7c0b65bbe0a836eb554d01",
+        "png": "d7baab553012a986bf9874cb7d7b41b9f420fccfc0ccdde3d07f5fa74cd50fb9"
+      },
+      "footprint": [
+        8,
+        16,
+        32,
+        32
+      ]
+    },
+    {
+      "id": "farm",
+      "title": "麦田与草棚",
+      "category": "building",
+      "size": [
+        48,
+        56
+      ],
+      "anchor": [
+        24,
+        48
+      ],
+      "svg": "svg/farm.svg",
+      "png": "png/farm.png",
+      "atlas_rect": [
+        618,
+        74,
+        48,
+        56
+      ],
+      "sha256": {
+        "svg": "7d75cb6179be6e80e393973725a43ff4669a7874360f09d39f4f955805181148",
+        "png": "d9f0f14d58daaef2d163b5c9a862d47a35cb0c7dbb867e4e3d371afcaf8282a3"
+      },
+      "footprint": [
+        8,
+        16,
+        32,
+        32
+      ]
+    },
+    {
+      "id": "mine",
+      "title": "矿场",
+      "category": "building",
+      "size": [
+        48,
+        56
+      ],
+      "anchor": [
+        24,
+        48
+      ],
+      "svg": "svg/mine.svg",
+      "png": "png/mine.png",
+      "atlas_rect": [
+        670,
+        74,
+        48,
+        56
+      ],
+      "sha256": {
+        "svg": "537354b730c583a66f70748bbc0a269b95ab188c72c3378de4528f3daf747b89",
+        "png": "5ff4457b4459b501044d5b24d41b048615726f1d9a7b918aec32f2868d9bd26e"
+      },
+      "footprint": [
+        8,
+        16,
+        32,
+        32
+      ]
+    },
+    {
+      "id": "granary",
+      "title": "粮仓",
+      "category": "building",
+      "size": [
+        48,
+        56
+      ],
+      "anchor": [
+        24,
+        48
+      ],
+      "svg": "svg/granary.svg",
+      "png": "png/granary.png",
+      "atlas_rect": [
+        722,
+        74,
+        48,
+        56
+      ],
+      "sha256": {
+        "svg": "97d58e950e5f63166865b7ccde1389fa1ed1f3c866471f7ec1908a6f9dc8c51c",
+        "png": "2634c25cbe2f4ce81340f2b07bd145de42e5cb2b97d4832035d252fb135fdb06"
+      },
+      "footprint": [
+        8,
+        16,
+        32,
+        32
+      ]
+    },
+    {
+      "id": "barracks",
+      "title": "兵营",
+      "category": "building",
+      "size": [
+        48,
+        56
+      ],
+      "anchor": [
+        24,
+        48
+      ],
+      "svg": "svg/barracks.svg",
+      "png": "png/barracks.png",
+      "atlas_rect": [
+        774,
+        74,
+        48,
+        56
+      ],
+      "sha256": {
+        "svg": "e9d8547649909750afee1fb7777143108d98a604a8fc12007064d2141d66907d",
+        "png": "91b92da2c890e0cd1a13a65f1059b0693662a17a78447bc2c3e518ea126d49d4"
+      },
+      "footprint": [
+        8,
+        16,
+        32,
+        32
+      ]
+    },
+    {
+      "id": "workshop",
+      "title": "工坊",
+      "category": "building",
+      "size": [
+        48,
+        56
+      ],
+      "anchor": [
+        24,
+        48
+      ],
+      "svg": "svg/workshop.svg",
+      "png": "png/workshop.png",
+      "atlas_rect": [
+        826,
+        74,
+        48,
+        56
+      ],
+      "sha256": {
+        "svg": "9b0bd15855939a3cdddc7faeaa8774ed93e54dfc2d73588c972cebe055e7b556",
+        "png": "d9c86a6f6cf8b700d21d9329c6f7c37d8331f92e10a678b21c9a7926824c6813"
+      },
+      "footprint": [
+        8,
+        16,
+        32,
+        32
+      ],
+      "effect_anchor": [
+        32,
+        2
+      ]
+    },
+    {
+      "id": "lumberyard",
+      "title": "林场",
+      "category": "building",
+      "size": [
+        48,
+        56
+      ],
+      "anchor": [
+        24,
+        48
+      ],
+      "svg": "svg/lumberyard.svg",
+      "png": "png/lumberyard.png",
+      "atlas_rect": [
+        878,
+        74,
+        48,
+        56
+      ],
+      "sha256": {
+        "svg": "230caaaed03e48fda1317f44089e1f2b5a73e2e8ad697d47dc8776010f8ed38f",
+        "png": "6193a30116b7949ada7fe0a664cb36d6cc065b3a8ce789e7dd4cce99257fedb2"
+      },
+      "footprint": [
+        8,
+        16,
+        32,
+        32
+      ]
+    },
+    {
+      "id": "oilwell",
+      "title": "油井",
+      "category": "building",
+      "size": [
+        48,
+        56
+      ],
+      "anchor": [
+        24,
+        48
+      ],
+      "svg": "svg/oilwell.svg",
+      "png": "png/oilwell.png",
+      "atlas_rect": [
+        930,
+        74,
+        48,
+        56
+      ],
+      "sha256": {
+        "svg": "7a2dc07ad297453373c28b421ecbe49f91d01996f0be33ef24466186791313ad",
+        "png": "f29d35c3fcf6dbb1692ef68d8c450f8df1ab48fafee93ff0af70fa40609575f5"
+      },
+      "footprint": [
+        8,
+        16,
+        32,
+        32
+      ]
+    },
+    {
+      "id": "factory",
+      "title": "工厂",
+      "category": "building",
+      "size": [
+        64,
+        64
+      ],
+      "anchor": [
+        32,
+        56
+      ],
+      "svg": "svg/factory.svg",
+      "png": "png/factory.png",
+      "atlas_rect": [
+        2,
+        134,
+        64,
+        64
+      ],
+      "sha256": {
+        "svg": "ca81269d46756ace99485972077195268b95472b9b5fe6d2c7aac27d7e028b48",
+        "png": "b44a317a4b9ab71626bec98e34f8688fc4bc62e375591fcd7d8898a6e480bb3f"
+      },
+      "footprint": [
+        8,
+        24,
+        48,
+        32
+      ],
+      "effect_anchor": [
+        50,
+        4
+      ]
+    },
+    {
+      "id": "townhall",
+      "title": "市政厅",
+      "category": "building",
+      "size": [
+        80,
+        80
+      ],
+      "anchor": [
+        40,
+        72
+      ],
+      "svg": "svg/townhall.svg",
+      "png": "png/townhall.png",
+      "atlas_rect": [
+        70,
+        134,
+        80,
+        80
+      ],
+      "sha256": {
+        "svg": "1b199b802dea84f2b15c8a7e004312e14194f1abdb480e0dda35284fc9dbad56",
+        "png": "895b9c1aa30b5fd5bac91a7d82eda4b59983aa31177de07f7d2b31b6f3f0e696"
+      },
+      "footprint": [
+        8,
+        24,
+        64,
+        48
+      ]
+    },
+    {
+      "id": "construction",
+      "title": "施工脚手架",
+      "category": "building",
+      "size": [
+        48,
+        56
+      ],
+      "anchor": [
+        24,
+        48
+      ],
+      "svg": "svg/construction.svg",
+      "png": "png/construction.png",
+      "atlas_rect": [
+        154,
+        134,
+        48,
+        56
+      ],
+      "sha256": {
+        "svg": "94de7e08788b1ebf7ecccbcf023bf420c0cadae6548ff7bf953e35ca22ef9373",
+        "png": "1088ed17cf32a7f40d20ab9de5ba407d40bdbe6f13ab012cb5c583b6f644590c"
+      },
+      "footprint": [
+        8,
+        16,
+        32,
+        32
+      ]
+    },
+    {
+      "id": "actor-resident",
+      "title": "居民",
+      "category": "actor",
+      "size": [
+        96,
+        192
+      ],
+      "anchor": [
+        8,
+        14
+      ],
+      "svg": "svg/actor-resident.svg",
+      "png": "png/actor-resident.png",
+      "atlas_rect": [
+        206,
+        134,
+        96,
+        192
+      ],
+      "sha256": {
+        "svg": "b4c9905248660a6cc1695023f81a187c2d348a1babacab95eec9a4d56331b03b",
+        "png": "ebfdb0a3a8fa0aecb5cd1f32711e29abbc89571b942c95244a82a7245e56b114"
+      },
+      "cell": [
+        16,
+        16
+      ],
+      "columns": 6,
+      "rows": 12,
+      "directions": [
+        "south",
+        "east",
+        "north",
+        "west"
+      ],
+      "actions": {
+        "idle": {
+          "rows": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "frames": 2,
+          "fps": 2
+        },
+        "walk": {
+          "rows": [
+            4,
+            5,
+            6,
+            7
+          ],
+          "frames": 6,
+          "fps": 8
+        },
+        "act": {
+          "rows": [
+            8,
+            9,
+            10,
+            11
+          ],
+          "frames": 4,
+          "fps": 7
+        }
+      },
+      "common_body_height": 10,
+      "national_color": "red_dark / red / red_light"
+    },
+    {
+      "id": "actor-worker",
+      "title": "工人",
+      "category": "actor",
+      "size": [
+        96,
+        192
+      ],
+      "anchor": [
+        8,
+        14
+      ],
+      "svg": "svg/actor-worker.svg",
+      "png": "png/actor-worker.png",
+      "atlas_rect": [
+        306,
+        134,
+        96,
+        192
+      ],
+      "sha256": {
+        "svg": "95f9c3909990dd262bfa6a64b90db93986a1927b96f0c14d68e33500a271415a",
+        "png": "c96fba6a908b61ca9d3ef27444cff0c2a9073fa8c81dcf06c1b8b6c7252bcd55"
+      },
+      "cell": [
+        16,
+        16
+      ],
+      "columns": 6,
+      "rows": 12,
+      "directions": [
+        "south",
+        "east",
+        "north",
+        "west"
+      ],
+      "actions": {
+        "idle": {
+          "rows": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "frames": 2,
+          "fps": 2
+        },
+        "walk": {
+          "rows": [
+            4,
+            5,
+            6,
+            7
+          ],
+          "frames": 6,
+          "fps": 8
+        },
+        "act": {
+          "rows": [
+            8,
+            9,
+            10,
+            11
+          ],
+          "frames": 4,
+          "fps": 7
+        }
+      },
+      "common_body_height": 10,
+      "national_color": "red_dark / red / red_light"
+    },
+    {
+      "id": "actor-sword",
+      "title": "剑兵",
+      "category": "actor",
+      "size": [
+        96,
+        192
+      ],
+      "anchor": [
+        8,
+        14
+      ],
+      "svg": "svg/actor-sword.svg",
+      "png": "png/actor-sword.png",
+      "atlas_rect": [
+        406,
+        134,
+        96,
+        192
+      ],
+      "sha256": {
+        "svg": "c82cd079b4c71aff2a03022d45627edf6e2015f4ed175d9fbeb6bf43b17e6d42",
+        "png": "6ce21aec6f450221dea8b8c4aec91438dd6a4ed1ba55f40856ebe0c6ab53fe79"
+      },
+      "cell": [
+        16,
+        16
+      ],
+      "columns": 6,
+      "rows": 12,
+      "directions": [
+        "south",
+        "east",
+        "north",
+        "west"
+      ],
+      "actions": {
+        "idle": {
+          "rows": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "frames": 2,
+          "fps": 2
+        },
+        "walk": {
+          "rows": [
+            4,
+            5,
+            6,
+            7
+          ],
+          "frames": 6,
+          "fps": 8
+        },
+        "act": {
+          "rows": [
+            8,
+            9,
+            10,
+            11
+          ],
+          "frames": 4,
+          "fps": 7
+        }
+      },
+      "common_body_height": 10,
+      "national_color": "red_dark / red / red_light"
+    },
+    {
+      "id": "actor-spear",
+      "title": "矛兵",
+      "category": "actor",
+      "size": [
+        96,
+        192
+      ],
+      "anchor": [
+        8,
+        14
+      ],
+      "svg": "svg/actor-spear.svg",
+      "png": "png/actor-spear.png",
+      "atlas_rect": [
+        506,
+        134,
+        96,
+        192
+      ],
+      "sha256": {
+        "svg": "1a3c83774fbf547c7fdbc99e3d6a4be0264486137b98a2c6d16c017a801b2420",
+        "png": "696e1fa5e91cf60042e4ad084fa7153688761b418fb88a7f466f16943a750bd1"
+      },
+      "cell": [
+        16,
+        16
+      ],
+      "columns": 6,
+      "rows": 12,
+      "directions": [
+        "south",
+        "east",
+        "north",
+        "west"
+      ],
+      "actions": {
+        "idle": {
+          "rows": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "frames": 2,
+          "fps": 2
+        },
+        "walk": {
+          "rows": [
+            4,
+            5,
+            6,
+            7
+          ],
+          "frames": 6,
+          "fps": 8
+        },
+        "act": {
+          "rows": [
+            8,
+            9,
+            10,
+            11
+          ],
+          "frames": 4,
+          "fps": 7
+        }
+      },
+      "common_body_height": 10,
+      "national_color": "red_dark / red / red_light"
+    },
+    {
+      "id": "actor-axe",
+      "title": "斧兵",
+      "category": "actor",
+      "size": [
+        96,
+        192
+      ],
+      "anchor": [
+        8,
+        14
+      ],
+      "svg": "svg/actor-axe.svg",
+      "png": "png/actor-axe.png",
+      "atlas_rect": [
+        606,
+        134,
+        96,
+        192
+      ],
+      "sha256": {
+        "svg": "bab231b1c3d903c96b96fc615906c35ee602a1da71f83c13e00da7a50cb7ba75",
+        "png": "930fb8ec4c6fb4a48a5118076095499dc86ee35df2d7636a60c336742a64c5c9"
+      },
+      "cell": [
+        16,
+        16
+      ],
+      "columns": 6,
+      "rows": 12,
+      "directions": [
+        "south",
+        "east",
+        "north",
+        "west"
+      ],
+      "actions": {
+        "idle": {
+          "rows": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "frames": 2,
+          "fps": 2
+        },
+        "walk": {
+          "rows": [
+            4,
+            5,
+            6,
+            7
+          ],
+          "frames": 6,
+          "fps": 8
+        },
+        "act": {
+          "rows": [
+            8,
+            9,
+            10,
+            11
+          ],
+          "frames": 4,
+          "fps": 7
+        }
+      },
+      "common_body_height": 10,
+      "national_color": "red_dark / red / red_light"
+    },
+    {
+      "id": "actor-cavalry",
+      "title": "骑兵",
+      "category": "actor",
+      "size": [
+        144,
+        288
+      ],
+      "anchor": [
+        12,
+        22
+      ],
+      "svg": "svg/actor-cavalry.svg",
+      "png": "png/actor-cavalry.png",
+      "atlas_rect": [
+        706,
+        134,
+        144,
+        288
+      ],
+      "sha256": {
+        "svg": "dcc0ec6a2bff717368601911153208a8144872e8313ab76a6b5e480a02ae73e1",
+        "png": "83da4714ac7bf1506df8ac6909ea122eba4abde76057e7bc7c01061b8dbda19b"
+      },
+      "cell": [
+        24,
+        24
+      ],
+      "columns": 6,
+      "rows": 12,
+      "directions": [
+        "south",
+        "east",
+        "north",
+        "west"
+      ],
+      "actions": {
+        "idle": {
+          "rows": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "frames": 2,
+          "fps": 2
+        },
+        "walk": {
+          "rows": [
+            4,
+            5,
+            6,
+            7
+          ],
+          "frames": 6,
+          "fps": 8
+        },
+        "act": {
+          "rows": [
+            8,
+            9,
+            10,
+            11
+          ],
+          "frames": 4,
+          "fps": 7
+        }
+      },
+      "common_body_height": 10,
+      "national_color": "red_dark / red / red_light"
+    }
+  ]
+}

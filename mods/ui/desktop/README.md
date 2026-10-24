@@ -66,6 +66,10 @@ PNG 放入即自动替换代码绘制版本，见[素材规格](../../../docs/de
 完整提示词及哈希见 `assets/actors/*.prompt.txt` 和 `generated-buildings.json`。
 它们与原 Mini World 贴图分别记录来源，不借用原包许可声明。
 
+另有[原创 SVG 素材第一批](assets/unified-v1/README.md)：格状山体与岩壁、2×2 普通建筑、
+分层树木和统一人物动作，附[组合场景与素材预览](../../../docs/design/unified-v1/index.html)。
+这批目前是独立美术样板，尚未替换上述游戏内素材。
+
 离线检查多种窗口尺寸、长正文和半身图比例（不会调用模型）：
 
 ```bash
