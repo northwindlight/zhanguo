@@ -19,6 +19,7 @@ end_turn      结束本回合，提交一句小结
 """
 from engine.runtime import Action, Tool
 from mods.native.tools import commands as command_layer
+from mods.stock.calls import CALLS
 
 
 class StockToolLayer:
@@ -31,7 +32,6 @@ class StockToolLayer:
         self._receipts = dict(receipts)
         self._captions = dict(captions)
         self._commands = dict(commands)
-        self._calls = {}
 
     def tools(self):
         return self._tools
@@ -76,14 +76,10 @@ class StockToolLayer:
         return None
 
     def notice(self, actor, period=None):
-        """每次模型收到回执计数一次；超过 20 次就提醒它收尾，别把调用次数烧在查资料上。"""
+        """读本回合的工具调用次数；超过 20 次就提醒模型收尾，别把调用烧在查资料上。"""
         if not actor:
             return None
-        state = self._calls.get(actor)
-        if state is None or state.get('period') != period:
-            state = self._calls[actor] = {'period': period, 'count': 0}
-        state['count'] += 1
-        count = state['count']
+        count = CALLS.count(actor, period)
         if count <= 20:
             return None
         return (f'⚠️ 本回合已调用 {count} 次工具，接近单回合调用上限：'

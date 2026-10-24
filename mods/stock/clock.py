@@ -2,6 +2,7 @@
 from copy import deepcopy
 
 from engine.runtime import GameMod, RuleSection, Stage
+from mods.stock.calls import CALLS
 
 
 class Clock:
@@ -86,8 +87,11 @@ class ClockMod(GameMod):
     def mixins(self): return ()
     def initialize_world(self, world):
         p = self.declaration['Parameters']
+        CALLS.clear()
         world.clock = Clock(p['TradingDays'], p['RestDays'], p['SessionTicks'],
                             p['SessionStart'], p['SessionHours'], p['PlanningActions'])
+    def before_tool(self, world, actor, name, arguments):
+        CALLS.note(actor, world.clock.period())
     def objects(self, world): return {'stock:clock': world.clock}
     def player_api(self, world): return ClockAPI(world)
     def save_state(self, world): return world.clock.to_save()

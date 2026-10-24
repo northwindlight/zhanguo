@@ -4,6 +4,7 @@ import math
 
 from engine.runtime import GameMod, ModError, RuleSection, Stage
 from engine.state import active_unit
+from mods.stock.calls import CALLS
 
 
 def money(value):
@@ -394,6 +395,7 @@ class PortfolioMod(GameMod):
     def load_state(self, world, state): world.portfolio.restore(state)
     def player_api(self, world): return PortfolioAPI(world)
     def before_tool(self, world, actor, name, arguments):
+        CALLS.note(actor, world.clock.period())
         if name == 'bank':
             self.runtime.object_call(world, 'stock:clock', 'charge', actor)
     def stages(self):
