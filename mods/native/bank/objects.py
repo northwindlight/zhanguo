@@ -171,7 +171,13 @@ class Bank:
         reports = self._call('native:economy','reports',target)
         if turn is not None:
             integer(turn);reports=tuple(r for r in reports if r.end==turn)
-        if not reports:raise ValueError('指定国家或周期没有已公布报表')
+        if not reports:
+            published = sorted({row.end for row in self._call('native:economy','reports',target)})
+            ends = '、'.join(str(value) for value in published[-5:]) or '无'
+            asked = f'第 {turn} 期' if turn is not None else '任何'
+            raise ValueError(
+                f'{target} 没有{asked}已公布报表；报表每 10 期发布一期，'
+                f'目前已发布到：{ends}（未到发布期就买不到，等下一期再买）')
         report = reports[-1]
         for row in reversed(self._purchases):
             if row.buyer == buyer and row.report.owner == report.owner and row.report.end == report.end:
@@ -182,7 +188,7 @@ class Bank:
         if fee and cash < fee:raise ValueError(f'现金不足以购买报表：需 {fee} 金，现有 {cash} 金')
         receipt = ReportPurchase(buyer,self.next_period,fee,reports[-1])
         self._call('native:bank-cash','adjust',self.policy.currency,{buyer:-fee})
-        # Each buyer has its own bounded history; repeated purchases still cost money.
+        # Each buyer keeps a bounded purchase history; same-report repeats are rejected above.
         own = [row for row in self._purchases if row.buyer==buyer] + [receipt]
         self._purchases = [row for row in self._purchases if row.buyer!=buyer] + own[-self.policy.purchase_limit:]
         self._entries.append(FinanceEntry(buyer,self.next_period,'report-fee',-fee))
