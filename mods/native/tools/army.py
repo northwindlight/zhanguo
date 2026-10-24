@@ -20,29 +20,21 @@ def _api(runtime, world):
 
 
 def _unit_arguments(world, actor, arguments):
-    """军队编号宽容匹配：id 是 aid（单支）或 ids（多支）的同义写法，冲突才报错。
+    """军队编号宽容匹配：id 与 ids 可以互换写法，冲突才报错。
 
-    和 site/place 一样在 adapter 里归一化，schema 只教一种写法；模型写 id、
-    把 aid 写成数组、把 ids 写成单个数，都按同一含义接受，不因措辞浪费一轮。
+    id 是单支（也接受数组），ids 是多支（也接受单个整数）；
+    和 site/place 一样在 adapter 里归一化，模型换个写法不必浪费一轮。
     """
     args = dict(arguments)
-    if 'id' in args:
+    if isinstance(args.get('id'), list):
         value = args.pop('id')
-        if isinstance(value, list):
-            if 'ids' in args and args['ids'] != value:
-                raise ValueError('id 与 ids 指向不同军队，请只保留一处')
-            args.setdefault('ids', value)
-        else:
-            if 'aid' in args and args['aid'] != value:
-                raise ValueError('id 与 aid 指向不同军队，请只保留一处')
-            args.setdefault('aid', value)
-    if isinstance(args.get('aid'), list):
-        value = args.pop('aid')
         if 'ids' in args and args['ids'] != value:
-            raise ValueError('aid 与 ids 指向不同军队，请只保留一处')
-        args.setdefault('ids', value)
+            raise ValueError('id 与 ids 指向不同军队，请只保留一处')
+        args['ids'] = value
     if isinstance(args.get('ids'), int):
         args['ids'] = [args['ids']]
+    if 'id' in args and 'ids' in args and [args['id']] != args['ids']:
+        raise ValueError('id 与 ids 指向不同军队，请只保留一处')
     return args
 
 
@@ -52,13 +44,13 @@ def _movement_arguments(world, actor, arguments):
 
 def _movement(tool, description):
     params = location_parameters(tool.schema()['function']['parameters'])
-    params['properties'].update(aid={'type': 'integer', 'minimum': 1},
+    params['properties'].update(id={'type': 'integer', 'minimum': 1},
                                 ids={'type': 'array', 'items': {'type': 'integer', 'minimum': 1},
                                      'minItems': 1, 'uniqueItems': True})
-    params['required'] = [key for key in params.get('required', []) if key not in ('aid', 'ids')]
-    params['anyOf'] = [{'required': ['aid']}, {'required': ['ids']}]
+    params['required'] = [key for key in params.get('required', []) if key not in ('id', 'ids')]
+    params['anyOf'] = [{'required': ['id']}, {'required': ['ids']}]
     return replace(tool, parameters=params, adapter=_movement_arguments,
-                   description=description + ' 军队选择统一为 aid 单个正整数或 ids 非空、不重复的正整数数组；id 与 aid 同义，ids 也接受单个整数。双填仅允许 ids=[aid]。批量行动先校验整批，批量可达查询按 aid 分组返回。')
+                   description=description + ' 军队选择统一为 id 单个正整数或 ids 非空、不重复的正整数数组；id 也可写数组、ids 也可写单值，两者指向不同军队时才报错。批量行动先校验整批，批量可达查询按军队编号分组返回。')
 
 
 def tools(runtime):
@@ -66,26 +58,26 @@ def tools(runtime):
                 count: int = 1, x: int | None = None, y: int | None = None):
         return _api(runtime, world).recruit(actor, site=site, kind=kind, count=count, x=x, y=y)
 
-    def move(world, actor, aid: int | None = None, x: int | None = None, y: int | None = None,
+    def move(world, actor, id: int | None = None, x: int | None = None, y: int | None = None,
              place: str | None = None, ids: list[int] | None = None):
-        return _api(runtime, world).move(actor, aid=aid, ids=ids, x=x, y=y, place=place)
+        return _api(runtime, world).move(actor, aid=id, ids=ids, x=x, y=y, place=place)
 
-    def attack(world, actor, aid: int | None = None, x: int | None = None, y: int | None = None,
+    def attack(world, actor, id: int | None = None, x: int | None = None, y: int | None = None,
                place: str | None = None, ids: list[int] | None = None):
-        return _api(runtime, world).attack(actor, aid=aid, ids=ids, x=x, y=y, place=place)
+        return _api(runtime, world).attack(actor, aid=id, ids=ids, x=x, y=y, place=place)
 
-    def retreat(world, actor, aid: int | None = None, x: int | None = None, y: int | None = None,
+    def retreat(world, actor, id: int | None = None, x: int | None = None, y: int | None = None,
                 place: str | None = None, ids: list[int] | None = None):
-        return _api(runtime, world).retreat(actor, aid=aid, ids=ids, x=x, y=y, place=place)
+        return _api(runtime, world).retreat(actor, aid=id, ids=ids, x=x, y=y, place=place)
 
-    def disband(world, actor, aid: int | None = None, ids: list[int] | None = None):
-        return _api(runtime, world).disband(actor, aid=aid, ids=ids)
+    def disband(world, actor, id: int | None = None, ids: list[int] | None = None):
+        return _api(runtime, world).disband(actor, aid=id, ids=ids)
 
     def army(world, actor):
         return _api(runtime, world).view(actor)
 
-    def reachable(world, actor, aid: int | None = None, attack: bool = False, ids: list[int] | None = None):
-        return _api(runtime, world).reachable(actor, aid=aid, attack=attack, ids=ids)
+    def reachable(world, actor, id: int | None = None, attack: bool = False, ids: list[int] | None = None):
+        return _api(runtime, world).reachable(actor, aid=id, attack=attack, ids=ids)
 
     def frontier(world, actor):
         return _api(runtime, world).frontier(actor)
@@ -133,20 +125,20 @@ def tools(runtime):
                              '交战部队 aid 退往相邻合法格（place 给地名或 "x y"，或两个整数 x、y），与移动共用额度。提交后仍在原地参加本期战斗，结算后才撤离；撤退降低输出，防守撤退有承伤减免。')
     disband_tool = Action('disband', disband, owner='native:army', api=('disband',),
                         parameters={'type': 'object', 'properties': {
-                            'aid': {'type': 'integer', 'minimum': 1},
+                            'id': {'type': 'integer', 'minimum': 1},
                             'ids': {'type': 'array', 'items': {'type': 'integer', 'minimum': 1}, 'minItems': 1, 'uniqueItems': True}},
-                            'required': [], 'anyOf': [{'required': ['aid']}, {'required': ['ids']}], 'additionalProperties': False},
+                            'required': [], 'anyOf': [{'required': ['id']}, {'required': ['ids']}], 'additionalProperties': False},
                         adapter=_unit_arguments,
-                        description='免费遣散本国军队，aid 单支或 ids 数组批量；交战中不可遣散。立即停止维持并释放编制，不返还粮食、装备或金币。 军队选择统一为 aid 单个正整数或 ids 非空、不重复的正整数数组；id 与 aid 同义，ids 也接受单个整数。双填仅允许 ids=[aid]。批量行动先校验整批，批量可达查询按 aid 分组返回。')
+                        description='免费遣散本国军队，id 单支或 ids 数组批量；交战中不可遣散。立即停止维持并释放编制，不返还粮食、装备或金币。 军队选择统一为 id 单个正整数或 ids 非空、不重复的正整数数组；id 也可写数组、ids 也可写单值，两者指向不同军队时才报错。批量行动先校验整批，批量可达查询按军队编号分组返回。')
     reachable_tool = Tool('reachable', reachable, owner='native:army', api=('reachable',), read_only=True, panel=True,
                           description='按本国军队 aid 列出可见移动路线和路径代价；attack=true 列攻击路线。路线按地形与速度计算，不代表本回合尚有行动额度；批量逐军队给出行动状态。只接军队编号，无需目标坐标，不透露迷雾路径。')
     params = reachable_tool.schema()['function']['parameters']
-    params['properties'].update(aid={'type': 'integer', 'minimum': 1},
+    params['properties'].update(id={'type': 'integer', 'minimum': 1},
                                 ids={'type': 'array', 'items': {'type': 'integer', 'minimum': 1}, 'minItems': 1, 'uniqueItems': True})
-    params['required'] = [key for key in params.get('required', []) if key not in ('aid', 'ids')]
-    params['anyOf'] = [{'required': ['aid']}, {'required': ['ids']}]
+    params['required'] = [key for key in params.get('required', []) if key not in ('id', 'ids')]
+    params['anyOf'] = [{'required': ['id']}, {'required': ['ids']}]
     reachable_tool = replace(reachable_tool, parameters=params, adapter=_unit_arguments,
-                             description=reachable_tool.description + ' 军队选择统一为 aid 单个正整数或 ids 非空、不重复的正整数数组；id 与 aid 同义，ids 也接受单个整数。双填仅允许 ids=[aid]。批量行动先校验整批，批量可达查询按 aid 分组返回。')
+                             description=reachable_tool.description + ' 军队选择统一为 id 单个正整数或 ids 非空、不重复的正整数数组；id 也可写数组、ids 也可写单值，两者指向不同军队时才报错。批量行动先校验整批，批量可达查询按军队编号分组返回。')
 
     tile_tool = Tool('tile', tile, owner='native:army', api=('tile',), read_only=True, panel=True,
                      description='唯一按单格查询的工具：place 给地名或 "x y"，或两个整数 x、y；返回可见单格详情（有主地块显示地名，无主只显示坐标）。本国及物化无主遗址显示资源、容量、施工与建筑；他国仅显示地形、归属、公开城堡和市政厅及可见军队。迷雾不可查。')
@@ -383,7 +375,7 @@ RECEIPTS = {
 def _caption(action):
     def render(args, actor, receipt, ctx):
         if action == 'reachable':
-            ids = args.get('ids', [args.get('aid', '?')])
+            ids = args.get('ids', [args.get('id', '?')])
             return ctx.text('tool.reachable.caption', title=ctx.text('tool.caption.reachable'),
                             unit='、'.join(ctx.unit_ref(aid, actor) for aid in ids),
                             mode=ctx.text('tool.reachable.attack' if args.get('attack', False) else 'tool.reachable.move'))
@@ -400,10 +392,10 @@ def _caption(action):
                 parts.append(location)
             return ' '.join(part for part in parts if part)
         if action in ('move', 'retreat', 'attack'):
-            units = '、'.join(ctx.unit_ref(n, actor) for n in args['ids']) if 'ids' in args else ctx.unit_ref(args.get('aid', '?'), actor)
+            units = '、'.join(ctx.unit_ref(n, actor) for n in args['ids']) if 'ids' in args else ctx.unit_ref(args.get('id', '?'), actor)
             return ctx.text('tool.caption.' + action, units=units, place=ctx.pos(args=args, actor=actor))
         if action == 'disband':
-            units = '、'.join(ctx.unit_ref(n, actor) for n in args['ids']) if 'ids' in args else ctx.unit_ref(args.get('aid', '?'), actor)
+            units = '、'.join(ctx.unit_ref(n, actor) for n in args['ids']) if 'ids' in args else ctx.unit_ref(args.get('id', '?'), actor)
             return ctx.text('tool.caption.disband', units=units)
         return ctx.text('tool.caption.' + action)
     return render

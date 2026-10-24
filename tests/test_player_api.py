@@ -88,7 +88,7 @@ class TestPlayerAPI(unittest.TestCase):
         w=self.world();a=w.military.seed(Q,'native:infantry',1,1)[0];p=w.runtime.player(w,Q)
         saved=w.runtime.save_mod_state(w)
         with self.assertRaisesRegex(ValueError,'迷雾'):p.query('tile',{'x':6,'y':6})
-        self.assertNotIn([6,6],[point for point,_ in p.query('reachable',{'aid':a.id,'attack':True})])
+        self.assertNotIn([6,6],[point for point,_ in p.query('reachable',{'id':a.id,'attack':True})])
         self.assertEqual(w.runtime.save_mod_state(w),saved)
 
     def test_internal_runtime_faults_void_the_action_without_faking_a_rejection(self):

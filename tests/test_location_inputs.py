@@ -48,8 +48,8 @@ class LocationInputs(TestCase):
                         w.military.seed(C,'native:infantry',2,1);args['ids']=[unit.id]
                     elif action=='retreat':
                         foe=w.military.seed(C,'native:infantry',2,1)[0]
-                        f.call(w,C,'attack',ids=[foe.id],x=1,y=1);args['aid']=unit.id
-                    elif action=='move':args['aid']=unit.id
+                        f.call(w,C,'attack',ids=[foe.id],x=1,y=1);args['id']=unit.id
+                    elif action=='move':args['id']=unit.id
                     receipt=self.submit(p,action,args);self.assertTrue(receipt['ok'],receipt)
                     if action=='tile':self.assertEqual(receipt['data']['position'],[1,2])
 
@@ -68,7 +68,7 @@ class LocationInputs(TestCase):
     def test_conflicting_or_mixed_coordinates_reject_without_side_effects(self):
         f,w,p=self.world();unit=w.military.seed(Q,'native:infantry',1,1)[0]
         for action in ('build','recruit','move','attack','retreat','tile'):
-            base={'kind':'castle'} if action=='build' else {'kind':'militia'} if action=='recruit' else {'aid':unit.id} if action in ('move','retreat') else {'ids':[unit.id]} if action=='attack' else {}
+            base={'kind':'castle'} if action=='build' else {'kind':'militia'} if action=='recruit' else {'id':unit.id} if action in ('move','retreat') else {'ids':[unit.id]} if action=='attack' else {}
             for location in ({'site':'1 1','place':'1 2'},{'place':'1 1','x':1,'y':1},{'site':'1 1','place':'1 1','x':1,'y':1}):
                 before=f.save(w);receipt=self.submit(p,action,{**base,**location})
                 self.assertFalse(receipt['ok']);self.assertEqual(receipt['code'],'invalid_arguments')
@@ -80,7 +80,7 @@ class LocationInputs(TestCase):
         self.assertIn('oneOf',schemas['build'])
         # 征召/移动/进攻/撤退并入 military；地点写法两种都要认。
         props=schemas['military']['properties']
-        for key in ('site','place','x','y','aid','ids'):self.assertIn(key,props)
+        for key in ('site','place','x','y','id','ids'):self.assertIn(key,props)
         for action in ('build',):self.assertIn('site',schemas[action]['properties'])
         # 单格查询并入 query(panel=tile)：两种地点写法都要认。
         props=schemas['query']['properties']

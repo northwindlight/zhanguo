@@ -15,9 +15,9 @@ class TestArmySelection(unittest.TestCase):
         w.military.seed(Q,'native:infantry',2,2,2)
         return w
 
-    def test_every_tool_accepts_single_aid_ids_or_matching_both(self):
+    def test_every_tool_accepts_single_id_ids_or_matching_both(self):
         for action in ('move','attack','retreat','disband','reachable'):
-            for selector in ({'aid':1},{'ids':[1]},{'aid':1,'ids':[1]}):
+            for selector in ({'id':1},{'ids':[1]},{'id':1,'ids':[1]}):
                 with self.subTest(action=action,selector=selector):
                     w=self.world();args=deepcopy(selector)
                     if action in ('move','attack','retreat'):args.update(x=3,y=2)
@@ -26,10 +26,10 @@ class TestArmySelection(unittest.TestCase):
                     if action=='reachable':self.assertIn(((2,2),0),result)
                     else:self.assertEqual(result.units,(1,))
 
-    def test_id_synonym_and_shape_tolerance(self):
-        """id 与 aid/ids 同义，单值/数组写法互换也接受；互相冲突才拒绝。"""
+    def test_id_shape_tolerance(self):
+        """id 与 ids 可以互换写法：单值/数组都接受，指向不同军队才拒绝。"""
         for action in ('move','attack','retreat','disband','reachable'):
-            for selector in ({'id':1},{'id':[1]},{'aid':[1]},{'ids':1}):
+            for selector in ({'id':1},{'id':[1]},{'ids':1},{'ids':[1]}):
                 with self.subTest(action=action,selector=selector):
                     w=self.world();args=deepcopy(selector)
                     if action in ('move','attack','retreat'):args.update(x=3,y=2)
@@ -37,15 +37,15 @@ class TestArmySelection(unittest.TestCase):
                     result=w.call_tool(Q,action,args)
                     if action=='reachable':self.assertIn(((2,2),0),result)
                     else:self.assertEqual(result.units,(1,))
-        for selector in ({'id':1,'aid':2},{'id':1,'ids':[2]},{'aid':[1],'ids':[2]}):
+        for selector in ({'id':1,'ids':[2]},{'id':[1],'ids':[2]}):
             with self.subTest(selector=selector):
                 w=self.world()
                 with self.assertRaises(ValueError):w.call_tool(Q,'move',{**selector,'x':3,'y':2})
 
     def test_invalid_selectors_leave_units_unchanged_for_every_tool(self):
         for action in ('move','attack','retreat','disband','reachable'):
-            for selector in ({},{'ids':[]},{'ids':[1,1]},{'aid':1,'ids':[2]},
-                             {'aid':True},{'ids':[True]},{'aid':0},{'ids':[-1]}, {'ids':[1,999]}):
+            for selector in ({},{'ids':[]},{'ids':[1,1]},{'id':1,'ids':[2]},
+                             {'id':True},{'ids':[True]},{'id':0},{'ids':[-1]}, {'ids':[1,999]}):
                 with self.subTest(action=action,selector=selector):
                     w=self.world();before=deepcopy(w.units.to_save());args=deepcopy(selector)
                     if action in ('move','attack','retreat'):args.update(x=3,y=2)
@@ -90,9 +90,9 @@ class TestArmySelection(unittest.TestCase):
         for schema in p.actions():
             if schema['function']['name'] not in ('move','attack','retreat','disband','reachable'):continue
             params=schema['function']['parameters']
-            self.assertTrue({'aid','ids'}<=params['properties'].keys())
-            self.assertFalse({'aid','ids'}&set(params['required']))
-            self.assertEqual(params['anyOf'],[{'required':['aid']},{'required':['ids']}])
+            self.assertTrue({'id','ids'}<=params['properties'].keys())
+            self.assertFalse({'id','ids'}&set(params['required']))
+            self.assertEqual(params['anyOf'],[{'required':['id']},{'required':['ids']}])
         with TemporaryDirectory() as directory:
             path=Path(directory)/'synthetic.json';h.save(path)
             self.assertEqual(GameHost.load(path,cfg).to_save(),h.to_save())

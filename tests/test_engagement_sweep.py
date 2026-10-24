@@ -31,13 +31,13 @@ class TestEngagementSweep(unittest.TestCase):
         t.cycle(w)                                        # 新兵当期不能行动
         t.declare(w)                                      # 秦楚交战
         self.assertEqual(t.call(w, Q, 'attack', ids=[atk], x=2, y=1).status, 'effective')
-        self.assertEqual(t.call(w, C, 'retreat', aid=dfn, x=3, y=1).status, 'submitted')
+        self.assertEqual(t.call(w, C, 'retreat', id=dfn, x=3, y=1).status, 'submitted')
         result = t.cycle(w)
         self.assertEqual(w.territory.owner(2, 1), Q)      # 守军尽撤，城归攻方
         self.assertIn('disengaged', result)               # 清扫真的跑过
         self.assert_no_phantom_engagement(w)
         # 占领军这一回合已经交代完，下回合必须能继续行动，而不是白挂一个回合。
-        self.assertEqual(t.call(w, Q, 'move', aid=atk, x=2, y=2).status, 'effective')
+        self.assertEqual(t.call(w, Q, 'move', id=atk, x=2, y=2).status, 'effective')
 
     def test_sweep_releases_a_unit_whose_only_foe_left_the_tile(self):
         """清扫覆盖的另一半：格上已无活敌军的 engaged 军队就地解除交战。"""

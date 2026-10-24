@@ -49,7 +49,7 @@ class AuditRepairs(unittest.TestCase):
         other=w.military.seed(C,'native:infantry',2,1)[0]
         f.call(w,Q,'attack',ids=[attacker.id],x=2,y=1)
         before=f.save(w)
-        for args in ({'aid':defender.id},{'ids':[other.id,defender.id]}):
+        for args in ({'id':defender.id},{'ids':[other.id,defender.id]}):
             with self.assertRaises(ValueError):f.call(w,C,'disband',**args)
         self.assertEqual(f.save(w),before)
 
