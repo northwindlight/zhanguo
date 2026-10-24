@@ -172,6 +172,12 @@ class Bank:
         if turn is not None:
             integer(turn);reports=tuple(r for r in reports if r.end==turn)
         if not reports:raise ValueError('指定国家或周期没有已公布报表')
+        report = reports[-1]
+        for row in reversed(self._purchases):
+            if row.buyer == buyer and row.report.owner == report.owner and row.report.end == report.end:
+                raise ValueError(
+                    f'你已买过 {target} 第 {report.end} 期报表；报表每 10 期发布一期，'
+                    f'同一期重复购买拿到的仍是同一份报表，等下一期发布后再买')
         fee = self.policy.report_fee
         if fee and cash < fee:raise ValueError(f'现金不足以购买报表：需 {fee} 金，现有 {cash} 金')
         receipt = ReportPurchase(buyer,self.next_period,fee,reports[-1])
