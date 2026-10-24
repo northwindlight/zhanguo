@@ -21,12 +21,6 @@ def bounded_output(text, limit):
     return text.encode('utf-8')[:limit].decode('utf-8', errors='ignore')
 
 
-def research_fee(prices, steps, calls):
-    """研究槽按实际算力计费：每千计算单位 + 每次 API 调用，向上取整到千步。"""
-    return (((int(steps) + 999) // 1000) * prices['research_step_cash_per_1k']
-            + int(calls) * prices['research_call_cash'])
-
-
 def api_signature(api, method):
     """绑定方法渲染成 history(symbol, limit=30)：报错时直接把调用方式告诉模型。"""
     try:
@@ -227,19 +221,14 @@ class ConcurrentRunner:
         actor, slot = task['actor'], task['slot']
         pool = self._object('stock:compute', 'status', actor)
         params = self.module.declaration['Parameters']
-        cap = params['ResearchSteps'] if research else params['BurstSteps']
-        limits = dict(self.module.limits, steps=min(cap, pool['steps_remaining']),
-                      calls=min(params['ResearchCalls'] if research else params['BurstCalls'], pool['calls_remaining']))
+        if research:
+            # 研究槽按次收费，不占共享算力池，只有单次上限。
+            limits = dict(self.module.limits, steps=params['ResearchSteps'], calls=params['ResearchCalls'])
+        else:
+            limits = dict(self.module.limits, steps=min(params['BurstSteps'], pool['steps_remaining']),
+                          calls=min(params['BurstCalls'], pool['calls_remaining']))
         if limits['steps'] < 1:
             return self._exhausted(task)
-        if research:
-            # 研究槽单独计费：按实际算力从现金扣，开跑前要求足以覆盖本次上限。
-            cap_fee = research_fee(pool['prices'], limits['steps'], limits['calls'])
-            available = self._object('stock:portfolio', 'holdings', actor)['available_cash']
-            if cap_fee > available:
-                raise ValueError(f'研究槽按算力计费：本次上限 {limits["steps"]} 步、{limits["calls"]} 次调用'
-                                 f'需预留 {cap_fee:.2f} 现金，当前可用 {available:.2f}；'
-                                 '可减少研究代码的预算或先补足现金')
         source = task['source']
         callback = False
         try:
@@ -299,12 +288,8 @@ class ConcurrentRunner:
         else:
             if result['error']: state = None
         spent = min(result['steps'], limits['steps'])
-        self._object('stock:compute', 'consume', actor, spent, result['calls'])
-        if research:
-            fee = research_fee(pool['prices'], spent, result['calls'])
-            if fee:
-                self._object('stock:portfolio', 'spend', actor, fee, 'compute')
-                result['fee'] = fee
+        if not research:
+            self._object('stock:compute', 'consume', actor, spent, result['calls'])
         receipts = result.pop('receipts')
         result.update(status='failed' if result['error'] else 'effective',
                       steps=spent, message=result['error']['message'] if result['error'] else '',
@@ -365,10 +350,14 @@ class StockScriptingAPI:
         if inputs is not None and type(inputs) is not dict: raise ValueError('inputs 必须是JSON对象')
         if len(json.dumps(wire(inputs or {}), ensure_ascii=False).encode()) > 65536:
             raise ValueError('研究参数最多64KB')
-        task = self.world.scripts.claim(actor, 'research')
-        if task is None: raise ValueError('研究槽尚未启用或没有保存源码')
         module = self.world.runtime.units['stock:python'].mod
-        return ConcurrentRunner(module, self.world).execute(task, research=True, inputs=inputs)
+        task = self.world.scripts.claim(actor, 'research')
+        if task is None:
+            raise ValueError('研究槽还没有保存源码：先 script(action=write, slot="research", source=...)')
+        charge = self.world.compute.begin_research(actor)
+        result = ConcurrentRunner(module, self.world).execute(task, research=True, inputs=inputs)
+        result.update(billed=charge['paid'], runs_left=charge['runs_left'])
+        return result
 
 
 class StockPythonMod(GameMod):
@@ -425,9 +414,9 @@ class StockPythonMod(GameMod):
             '        elif held.get(symbol) and row["ma5"] < row["ma20"]:\n'
             '            api.call("stock:market", "sell", symbol=symbol, quantity=held[symbol])\n'
             '    api.call("stock:clock", "sleep", ticks=100)\n'
-            '研究槽解锁后可在行动时 script(action=run,slot="research",inputs={...}) 运行，只读，不下单、不推进行情（交易槽 1～4 不能手动 run，只在交易日结束时自动执行），'
-            '同一行动阶段可反复运行，受账户当日共享预算约束，用尽即停。'
-            '研究单次最多100万步、1000次API，所有槽共享账户每日预算；改源码和重跑不重置额度。'
+            '研究槽在行动时手动运行 script(action=run,slot="research",inputs={...})：每次固定 1000 现金、每回合最多 3 次，'
+            '只读、不下单、不推进行情，也不占共享算力池（交易槽 1～4 不能手动 run，只在交易日结束时自动执行）。'
+            '研究单次上限 100 万步、1000 次 API。'
             'print 每槽每天合计上限4096字节，只打印摘要（len、前几条、关键字段），不要打印整个dict。'
             '沙盒是 Python 子集：可写赋值、if/elif/else、for/while、break/continue/pass、def（无装饰器/注解/可变参数）、'
             'return、列表与字典推导；没有 try/except/finally、class、import、with、lambda、raise、assert、global、'

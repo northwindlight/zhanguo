@@ -47,8 +47,6 @@ class StockGameTest(unittest.TestCase):
         self.assertTrue(r['ok'], r)
 
     def research(self, h, source, inputs=None):
-        if not h.world.compute.status(ACTOR)['research']:
-            self.buy_resource(h, 'research')
         self.write(h, source, 'research')
         return self.submit(h, 'script', action='run', slot='research', inputs=inputs or {})
 
@@ -300,11 +298,11 @@ class StockGameTest(unittest.TestCase):
     def test_default_compute_pool(self):
         h = self.host(); s = h.world.compute.status(ACTOR)
         self.assertEqual((s['steps_limit'], s['calls_limit'], s['slots']), (4000000, 4000, 1))
-        self.assertFalse(s['research'])
+        self.assertEqual(s['research_runs_left'], 3)
 
     def test_buy_pool_debits_game_cash_and_increases_shared_quota(self):
         h = self.host(); s = self.buy_resource(h, 'pool')
-        fee = h.world.compute.parameters['PoolDailyFee']
+        fee = h.world.compute.parameters['PoolFeeTier2']
         self.assertEqual(s['paid'], fee)
         self.assertEqual(s['steps_limit'], 8000000)
         self.assertEqual(h.world.portfolio.holdings(ACTOR)['wealth'], 100000 - fee)
@@ -337,21 +335,27 @@ class StockGameTest(unittest.TestCase):
         total = sum(h.world.scripts.rows[ACTOR][s]['result']['steps'] for s in ('1','2'))
         self.assertGreater(total, 0)
 
-    def test_research_runs_now_and_does_not_advance_market(self):
-        h = self.host()
+    def test_research_runs_now_and_charges_per_run(self):
+        h = self.host(); cash = h.world.portfolio.holdings(ACTOR)['cash']
         r = self.research(h, "print(inputs['x'] * 7)\nprint(api.call('stock:clock','snapshot')['tick'])", {'x': 3})
         self.assertTrue(r['ok'], r)
         self.assertEqual(r['data']['output'], '21\n0\n')
         self.assertEqual(h.world.clock.tick, 0)
         self.assertEqual(h.world.market.state, h.world.market.PRE)
-        self.assertGreater(h.world.compute.status(ACTOR)['steps_used'], 0)
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], cash - 1000)
+        self.assertEqual(h.world.compute.status(ACTOR)['research_runs_left'], 2)
+        # 研究不占共享算力池
+        self.assertEqual(h.world.compute.status(ACTOR)['steps_used'], 0)
 
-    def test_research_can_repeat_but_uses_same_pool(self):
+    def test_research_repeats_with_fee_and_per_round_cap(self):
         h = self.host(); self.research(h, "state['runs']=state.get('runs',0)+1\nprint(state['runs'])")
-        before = h.world.compute.status(ACTOR)['steps_used']
+        cash = h.world.portfolio.holdings(ACTOR)['cash']
         r = self.submit(h, 'script', action='run', slot='research')
         self.assertTrue(r['ok']); self.assertEqual(r['data']['output'], '2\n')
-        self.assertGreater(h.world.compute.status(ACTOR)['steps_used'], before)
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], cash - 1000)
+        self.assertTrue(self.submit(h, 'script', action='run', slot='research')['ok'])
+        self.assertFalse(self.submit(h, 'script', action='run', slot='research')['ok'])
+        self.assertEqual(h.world.compute.status(ACTOR)['research_runs_left'], 0)
 
     def test_research_write_apis_are_forbidden(self):
         for cap, method, args in [('stock:market','buy',"symbol='shanhai',quantity=1"),
@@ -366,20 +370,21 @@ class StockGameTest(unittest.TestCase):
                 self.assertFalse(h.world.market.pending_orders())
                 self.assertEqual(h.world.portfolio.accounts[ACTOR]['debt'], 0)
 
-    def test_budget_exhaustion_survives_rewrite_and_slot_changes(self):
-        h = self.host(); self.buy_resource(h, 'research'); self.buy_resource(h, 'slot')
+    def test_pool_exhaustion_survives_rewrite_and_slot_changes(self):
+        h = self.host(); self.buy_resource(h, 'slot')
         h.world.compute.consume(ACTOR, 4000000, 0)
-        self.write(h, 'print(1)', 'research')
-        self.assertFalse(self.submit(h, 'script', action='run', slot='research')['ok'])
-        self.write(h, 'print(2)', 'research')
-        self.assertFalse(self.submit(h, 'script', action='run', slot='research')['ok'])
-        self.assertEqual(h.world.compute.status(ACTOR)['steps_remaining'], 0)
+        self.write(h, 'print(1)', '1')
+        h.cycle()
+        result = self.result(h, '1')
+        self.assertEqual(result['status'], 'failed')
+        self.assertIn('共享算力池', result['error']['message'])
 
     def test_failed_script_consumes_computation(self):
-        h = self.host(); r = self.research(h, "print('before')\nprint(missing)")
-        self.assertFalse(r['ok']); self.assertIn('before', r['data']['output'])
-        self.assertEqual(r['data']['error']['type'], 'NameError')
-        self.assertGreater(h.world.compute.status(ACTOR)['steps_used'], 0)
+        h = self.host("print('before')\nprint(missing)")
+        h.cycle(); r = self.result(h)
+        self.assertEqual(r['status'], 'failed')
+        self.assertIn('before', r['output'])
+        self.assertGreater(r['steps'], 0)   # 用量每回合重置，结果行里保留本回合消耗
 
     def test_checks_are_free_and_do_not_run_code(self):
         h = self.host()
@@ -401,18 +406,17 @@ class StockGameTest(unittest.TestCase):
         self.assertEqual(before, h.world.compute.accounts[ACTOR])
         self.assertEqual(h.world.portfolio.accounts[ACTOR]['cash'], 1)
 
-    def test_failed_renewal_downgrades_but_keeps_unlock_and_sources(self):
-        h = self.host(); self.buy_resource(h, 'research'); self.buy_resource(h, 'slot'); self.buy_resource(h, 'pool')
+    def test_new_round_resets_paid_tiers_and_keeps_sources(self):
+        h = self.host(); self.buy_resource(h, 'slot'); self.buy_resource(h, 'pool')
         self.write(h, 'print(1)', 'research')
-        h.world.portfolio.accounts[ACTOR]['cash'] = 1
         h.cycle()
         s = h.world.compute.status(ACTOR)
-        self.assertEqual((s['pool'], s['slots'], s['research']), (1, 1, False))
-        self.assertTrue(s['research_unlocked'])
+        self.assertEqual((s['pool'], s['slots']), (1, 1))
+        self.assertEqual(s['research_runs_left'], 3)
         self.assertEqual(h.world.scripts.rows[ACTOR]['research']['source'], 'print(1)')
 
-    def test_resource_usage_and_unlock_survive_save(self):
-        h = self.host(); self.buy_resource(h, 'research'); h.cycle()
+    def test_resource_usage_survives_save(self):
+        h = self.host(); self.buy_resource(h, 'pool'); h.cycle()
         h.world.compute.consume(ACTOR, 1234, 5)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)/'s.json'; h.save(path)
@@ -508,14 +512,13 @@ class StockGameTest(unittest.TestCase):
             loaded = GameHost.load(path, config(actors=2))
             self.assertEqual(h.world.intelligence.status(ACTOR), loaded.world.intelligence.status(ACTOR))
 
-    def test_release_and_reenable_research_does_not_charge_unlock_twice(self):
+    def test_research_charges_only_when_it_actually_runs(self):
         h = self.host()
-        p = h.world.compute.parameters
-        first = p['ResearchUnlockFee'] + p['ResearchDailyFee']
-        self.assertEqual(self.buy_resource(h, 'research')['paid'], first)
-        self.submit(h, 'compute', action='release', kind='research')
-        self.assertEqual(self.buy_resource(h, 'research')['paid'], 0)
-        self.assertEqual(h.world.compute.status(ACTOR)['fees_paid'], first)
+        self.assertFalse(self.submit(h, 'script', action='run', slot='research')['ok'])
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], 100000)
+        self.write(h, 'print(1)', 'research')
+        self.assertTrue(self.submit(h, 'script', action='run', slot='research')['ok'])
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], 99000)
 
     def test_failed_state_is_not_committed_but_valid_previous_state_remains(self):
         h = self.host()

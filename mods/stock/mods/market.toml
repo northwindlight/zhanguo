@@ -22,5 +22,5 @@ FlowInterval = 200
 FlowShares = 5
 NewsEnabled = true
 [PlayerAPI]
-Methods = ["quotes", "history", "catalog", "orders", "fills", "buy", "sell", "short", "cover", "cancel"]
-ReadOnly = ["quotes", "history", "catalog", "orders", "fills"]
+Methods = ["quotes", "history", "ticks", "catalog", "orders", "fills", "buy", "sell", "short", "cover", "cancel"]
+ReadOnly = ["quotes", "history", "ticks", "catalog", "orders", "fills"]

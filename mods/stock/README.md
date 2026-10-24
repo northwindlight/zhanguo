@@ -26,7 +26,7 @@ Windows 用 `start.ps1 --config mp_config.stock.offline.example.json`，也可�
 
 ## 一个回合
 
-盘前模型读取上期报告、改脚本、租用计算资源、借贷、购买商业谍报，并可使用已解锁研究槽。
+盘前模型读取上期报告、改脚本、租用本回合算力与交易槽、借贷、购买商业谍报，并按次付费运行研究槽。
 所有玩家 `end_turn` 后锁定策略，沿共同时间线运行；收盘计费、风险检查、推进日历及续租。
 每 5 个交易日后休市 2 天，休市仍可研究和规划，每日租金照常结算。
 
@@ -57,14 +57,14 @@ def on_tick():
 沙盒沿用通用 Machine，按运算、容器规模与载荷计费，一次 API 基础计 100 单位。
 禁止导入、文件、网络、反射、随机和动态执行。每日额度是上限，只运行实际需要的计算。
 
-研究槽解锁后，在自己的行动阶段手动运行：
+研究槽按次付费，在自己的行动阶段手动运行：
 
 ```json
 {"action":"write","slot":"research","source":"print(inputs['x'] * 7)"}
 {"action":"run","slot":"research","inputs":{"x":3}}
 ```
 
-研究槽可反复运行，每次最多 100 万单位、1000 次 API，全部计入账户共享预算。
+研究槽每次 1000 现金、每回合最多 3 次；单次最多 100 万单位、1000 次 API，不占共享算力池。
 它只能读取已知行情、自己的账户及已购报告；不能下单、借贷、购买资源、发动谍报、嵌套运行脚本或推进行情。
 源码、结果、错误位置、每槽用量及私人 state 随完整回合存档。
 
@@ -72,20 +72,21 @@ def on_tick():
 
 ## 算力池与计算槽
 
-免费额度是 **每账户每天 400 万计算单位、4000 次 API、1 个自动交易槽**。
-所有交易槽和研究槽共享总额，不能通过改代码、换槽、重跑、退租再购买重置已用量。
+免费额度是 **每账户每回合 400 万计算单位、4000 次 API、1 个自动交易槽**。
+算力池与交易槽**只在当回合有效，新回合归零**，要用就重新买（明码标价）：
 
-| `compute(action=buy,kind=...)` | 内容 | 价格 |
+| `compute(action=buy,kind=...)` | 内容 | 价格（每回合） |
 | --- | --- | --- |
-| `pool` | 增购一档 400 万单位 / 4000 次 API，最多 4 档 | 额外档位每日依次 100 / 200 / 400 |
-| `slot` | 增购一个自动交易槽，最多 4 个 | 每额外槽每日 50 |
-| `research` | 解锁一个行动内只读研究槽 | 首次解锁 500，启用期间每日 50 |
+| `pool` | 增购一档 400 万单位 / 4000 次 API，最多 4 档 | 第 2/3/4 档 600 / 1200 / 2400 |
+| `slot` | 增购一个自动交易槽，最多 4 个 | 第 2/3/4 个 400 / 800 / 1600 |
 
-购买立即生效，当日按整日租金补差额。`compute(action=release,kind=...)` 退租，不退当日费用，源码及研究解锁资格保留。
-每日边界重置预算并预扣新一天租金；可用现金不足或处于风控冻结时退回免费池与免费槽、停用研究槽。
-租金从真实游戏现金扣，不能动用委托冻结或空头抵押资金，费用进入净值和 `compute_expenses`。
-前一日收盘净值曲线记录在新日续租扣款之前，新日账户会另反映该笔续租费用。
-`compute_status` 返回档位、费用、剩余额度和停租通知。
+购买立即生效、按整回合计费；`compute(action=release,kind=...)` 退租不退钱，资源用到收盘。
+回合边界把档位归零、用量清零，源码与已存 state 保留。
+
+**研究槽按次计费**，不需要购买：每次 `script(action=run,slot="research")` 固定 **1000 现金**，
+每回合最多 **3 次**；研究不占共享算力池，单次上限 100 万步 / 1000 次 API。
+研究只能读行情、账户与已购报告，不能下单、借贷或推进行情。
+费用从真实游戏现金扣，进入 `compute_expenses`；`compute_status` 返回档位、用量、剩余研究次数与各档价格。
 
 ## 行情与订单 API
 
@@ -93,7 +94,9 @@ def on_tick():
 
 ```python
 api.call('stock:market', 'quotes')
-api.call('stock:market', 'history', symbol='shanhai', limit=60)
+api.call('stock:market', 'history', symbol='shanhai', limit=60)   # 每日收盘价，整局保留
+api.call('stock:market', 'ticks', symbol='shanhai', limit=200)    # 盘中采样 {round,tick,price}，整局保留
+api.call('stock:market', 'ticks', symbol='shanhai', limit=100, round=3)  # 只看第 3 回合
 api.call('stock:market', 'orders')  # 本账户最近100笔委托
 api.call('stock:market', 'fills')   # 有界近期成交，仅本账户
 api.call('stock:market', 'buy', symbol='shanhai', quantity=10)           # 开多

@@ -11,7 +11,7 @@ Provides = ["sandbox:programs"]
 [Interfaces]
 "stock:clock" = ["charge"]
 "stock:market" = ["open_session", "advance", "freeze_public"]
-"stock:compute" = ["status", "consume"]
+"stock:compute" = ["status", "consume", "begin_research"]
 "stock:portfolio" = ["holdings", "spend"]
 [Parameters]
 WakeInterval = 100

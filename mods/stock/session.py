@@ -152,7 +152,7 @@ class StockSession(Session):
                          'return_pct': account['return_pct'], 'alive': account['alive'],
                          '算力池': self.world.compute.status(actor)['pool'],
                          '交易槽': self.world.compute.status(actor)['slots'],
-                         '研究槽': self.world.compute.status(actor)['research']}
+                         '研究次数': self.world.compute.status(actor)['research_runs_left']}
             if account.get('final_cash') is not None:
                 row.update({'最终现金': account['final_cash'], '名次': account.get('final_rank')})
             rows.append(row)

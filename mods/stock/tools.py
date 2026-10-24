@@ -112,7 +112,7 @@ def build(runtime):
                             'include_source=true 查看源码'),
         )
         script_specs = (*script_specs, Action('script_run', script_run, owner='sandbox:programs', api=('run',),
-            description='行动时手动运行已解锁的research研究槽，只读；inputs为JSON参数。不能下单或推进行情，共享账户每日算力。'))
+            description='行动时手动运行 research 研究槽（只读）。每次固定 1000 现金、每回合最多 3 次，不占共享算力池；不能下单或推进行情。'))
         umbrella = command_layer.action_tool(
             runtime, 'script',
             '计算槽：write保存、patch修订、check免费语法检查、status查结果；slot为1～4或research。'
@@ -157,7 +157,7 @@ def build(runtime):
             return runtime.player_api(world, 'stock:market').quotes(actor)
 
         tools.append(Tool('market', market, owner='stock:market', api=('quotes',),
-                          covers=(('stock:market', 'history'), ('stock:market', 'catalog'), ('stock:market', 'orders'), ('stock:market', 'fills')),
+                          covers=(('stock:market', 'history'), ('stock:market', 'ticks'), ('stock:market', 'catalog'), ('stock:market', 'orders'), ('stock:market', 'fills')),
                           read_only=True, fact=True,
                           description='当前行情：每只股票的现价、昨收、涨跌、ma5/ma10/ma20 均线、动量、'
                                      '已实现波动率，以及流通盘与冲击成本、手续费参数。'))
@@ -228,14 +228,14 @@ def build(runtime):
             return runtime.player_api(world, 'stock:compute').release(actor, kind)
         specs = (
             Action('compute_buy', compute_buy, owner='stock:compute', api=('buy',),
-                description='购买游戏计算资源，kind=pool增购共享算力池、slot增购自动交易槽、research解锁行动内研究槽；立即扣游戏现金，后续每日续租。'),
+                description='按回合租计算资源：kind=pool 增购算力池、kind=slot 增购交易槽；立即扣现金，只在本回合有效，下回合要重买。研究槽按次收费，不用购买。'),
             Action('compute_release', compute_release, owner='stock:compute', api=('release',),
                 description='退租一档pool或slot，或停用research；当日不退款、不重置用量，源码保留。'))
         tools.append(Tool('compute_status', compute_status, owner='stock:compute', api=('status',),
                           read_only=True, fact=True,
-                          description='本账户算力池、槽位、研究槽、每日共享总量/用量/剩余额度、购买价和续租费用。'))
+                          description='本账户算力池、交易槽、共享额度用量、研究次数与剩余次数，以及各档价格。'))
         tools.append(command_layer.action_tool(runtime, 'compute',
-            '用游戏现金租计算资源：action=buy/release，kind=pool/slot/research。所有槽共享每日预算；研究槽仅行动中手动只读运行。',
+            '用游戏现金租计算资源：action=buy/release，kind=pool/slot。只在本回合有效，下回合归零重买；研究槽按次收费，不用购买。',
             (('buy', specs[0]), ('release', specs[1]))))
         actions.extend(specs)
         commands['compute'] = {'buy': 'compute_buy', 'release': 'compute_release'}

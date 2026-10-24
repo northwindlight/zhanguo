@@ -28,6 +28,8 @@ class Market:
         self.history = {s: [p] * 20 for s, p in self.close.items()}
         self.last_path = {s: [] for s in self.stocks}
         self.path = {s: [] for s in self.stocks}
+        # 整局保留的盘中采样：每 ~200 tick 一个点，研究槽和普通脚本都能查。
+        self.samples = {s: [] for s in self.stocks}
         self.last_open = dict(self.close)
         self.last_depth = {s: dict(bids=[], asks=[]) for s in self.stocks}
         self.news = []
@@ -75,6 +77,23 @@ class Market:
 
     def catalog(self):
         return [dict(symbol=s, name=r['name'], sector=r['sector']) for s, r in self.stocks.items()]
+
+    def sample_interval(self):
+        """盘中采样间隔：每天 100 个点，够看走势又不会把存档撑爆。"""
+        return max(1, self._clock('slices') // 100)
+
+    def ticks_of(self, symbol, limit=200, round_number=None):
+        """逐笔采样历史（整局保留）；可按回合过滤，limit 上限 2000。"""
+        rows = self.samples.get(symbol)
+        if rows is None:
+            raise ValueError('股票不存在')
+        if type(limit) is not int or not 1 <= limit <= 2000:
+            raise ValueError('limit 必须是 1～2000 的整数')
+        if round_number is not None:
+            if type(round_number) is not int or not 1 <= round_number <= self.round:
+                raise ValueError('round 必须是 1～当前回合的整数')
+            rows = [row for row in rows if row['round'] == round_number]
+        return deepcopy(rows[-limit:])
 
     def history_of(self, symbol, limit=30):
         if symbol not in self.history or type(limit) is not int or not 1 <= limit <= 256:
@@ -129,6 +148,7 @@ class Market:
         self.backend = PamsBook(self.stocks, self.close, f'{self.seed}|{self.round}')
         self.opening = dict(self.close)
         self.path = {s: [p] for s, p in self.close.items()}
+        self.samples = {s: [] for s in self.stocks}
         self.state = self.SESSION
         self._quote_maker()
 
@@ -208,6 +228,10 @@ class Market:
         if tick % max(1, total//20) == 0:
             for symbol in self.stocks:
                 self.path[symbol].append(self.price_of(symbol))
+        if tick % self.sample_interval() == 0:
+            for symbol in self.stocks:
+                self.samples[symbol].append(dict(round=self.round, tick=tick,
+                                                 price=self.price_of(symbol)))
         if changed:
             self._port('risk_check', self.round)
 
@@ -387,7 +411,8 @@ class Market:
             raise ValueError('市场只允许在完整交易日边界保存')
         return dict(engine=PamsBook.version, seed=self.seed, close=dict(self.close),
                     opening=dict(self.opening), fundamental=dict(self.fundamental),
-                    history=deepcopy(self.history), last_path=deepcopy(self.last_path),
+                    history=deepcopy(self.history), samples=deepcopy(self.samples),
+                    last_path=deepcopy(self.last_path),
                     last_open=dict(self.last_open), last_depth=deepcopy(self.last_depth),
                     news=deepcopy(self.news), orders=deepcopy(list(self.orders.values())),
                     fills=deepcopy(self.last_fills[-2000:]), seq=self.seq, trade_seq=self.trade_seq,
@@ -397,7 +422,8 @@ class Market:
         if state.get('engine') != PamsBook.version or state.get('state') == self.SESSION:
             raise ValueError('不支持的市场后端或非边界存档')
         self.seed = state['seed']
-        for key in ('close', 'opening', 'fundamental', 'history', 'last_path', 'last_open', 'last_depth', 'news'):
+        for key in ('close', 'opening', 'fundamental', 'history', 'samples',
+                    'last_path', 'last_open', 'last_depth', 'news'):
             setattr(self, key, deepcopy(state[key]))
         self.orders = {o['id']: deepcopy(o) for o in state['orders']}
         self.live = {}
@@ -412,6 +438,7 @@ class MarketAPI:
     def __init__(self, world): self.world = world
     def quotes(self, actor): return self.world.market.quotes(actor)
     def history(self, actor, symbol, limit=30): return self.world.market.history_of(symbol, limit)
+    def ticks(self, actor, symbol, limit=200, round=None): return self.world.market.ticks_of(symbol, limit, round)
     def catalog(self, actor): return self.world.market.catalog()
     def orders(self, actor): return self.world.market.order_history(actor)
     def fills(self, actor): return self.world.market.fills(actor)
@@ -442,10 +469,12 @@ class MarketMod(GameMod):
             'price参数可指定限价，Day限价单可部分成交，收盘撤销；orders/fills只返回自己的委托和成交。'
             '价格由有限资金与库存的背景做市者、玩家委托及公开现金流消息共同形成，默认无随机价格扰动。'
             'quotes() 每只股票返回：symbol 代码、name 名称、sector 行业、price 最新价、prev_close 昨收、'
-            'change_pct 涨跌幅、open 今开、path 今天已走过的价格序列（每个 tick 一个点）、tick 当前 tick、'
+            'change_pct 涨跌幅、open 今开、path 今天已走过的价格序列（每 1000 tick 一个点，约 20 点）、tick 当前 tick、'
             'ma5/ma10/ma20 均线、momentum_5 近5点动量、volatility 近10点波动率、commission_rate 佣金率、'
             'float_shares 流通股、depth 盘口 {bids/asks 各档价位与数量}、borrow_available 可借券数、news 该股最近消息。'
-            'catalog() 只给代码/名称/行业，没有财报；history(symbol, limit=30，最多256) 取历史收盘价；'
-            'orders()/fills() 只返回自己的委托与成交。quotes 不含种子、未来消息或未来价格。'
+            'catalog() 只给代码/名称/行业，没有财报。历史全部保留、随时可查：'
+            'history(symbol, limit=30，最多256) 返回每天收盘价，从旧到新；'
+            'ticks(symbol, limit=200，最多2000，round=可选回合号) 返回盘中采样（每 200 tick 一点、每天约 100 点，整局保留），'
+            '每点 {round, tick, price}。orders()/fills() 只返回自己的委托与成交。quotes 不含种子、未来消息或未来价格。'
             '可用buy/sell开平多头，short/cover开平空头；做空受借券、保证金和借券费约束。',
             ('行情', 'PAMS', '交易', '做空', 'tick', '订单'), '交互撮合、消息与可见性', system=True),)
