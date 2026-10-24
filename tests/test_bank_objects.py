@@ -171,6 +171,9 @@ class TestEconomicSystem(unittest.TestCase):
             self.assertEqual(self.save(w),before)
         self.assertEqual(w.resources.balance('Qin','native:gold'),980)
         self.assertEqual(w.bank.position('Qin').purchases,(first,))
+        with self.assertRaises(ValueError) as caught:w.bank.buy_report('Qin','Chu',turn=5)
+        self.assertIn('报表每 10 期发布一期',str(caught.exception))
+        self.assertIn('已发布到',str(caught.exception))
 
     def test_signed_cash_is_narrow_and_atomic(self):
         w=self.world();before=self.save(w)

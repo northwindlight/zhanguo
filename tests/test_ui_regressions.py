@@ -321,4 +321,19 @@ class TestUIRegressions(unittest.TestCase):
             self.assertEqual(h.player(Q).query('frontier'),restored.player(Q).query('frontier'))
 
 
+    def test_rejections_show_shortfall_and_site_facts(self):
+        """买不起要写差多少；地块造不了要给建筑位、已有建筑和查地块的入口。"""
+        ui=ConsoleUI({})
+        resource=ui.receipt_body('build',{'kind':'farm'},{'ok':False,'data':{
+            'reason':'insufficient_resource','resource':'native:wood','required':15,'available':5}},Q)
+        self.assertIn('需要 15',resource);self.assertIn('现有 5',resource);self.assertIn('还差 10',resource)
+        market=ui.receipt_body('buy',{'resource':'native:food','quantity':50},{'ok':False,'data':{
+            'reason':'market_inventory','resource':'native:food','requested':50,'available':12}},Q)
+        self.assertIn('想买 50',market);self.assertIn('还差 38',market)
+        site=ui.receipt_body('build',{'kind':'farm'},{'ok':False,'data':{
+            'reason':'building_slots','block':'slots','position':[3,4],'kind':'native:farm',
+            'occupied':20,'capacity':20,'existing':['native:farm','native:barracks']}},Q)
+        self.assertIn('20/20',site);self.assertIn('query(panel=tile',site);self.assertIn('3 4',site)
+
+
 if __name__=='__main__':unittest.main()

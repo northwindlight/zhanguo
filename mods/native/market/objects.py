@@ -13,7 +13,7 @@ import math
 from types import MappingProxyType
 
 from engine.identifiers import content_id
-from engine.runtime import ModError
+from engine.runtime import DomainRejection, ModError
 from engine.state import active_unit
 from .contracts import BufferPolicy, PricePath, PriceSettlement, integer, number
 
@@ -190,7 +190,8 @@ class Market:
         if side not in ('buy', 'sell'):
             raise ValueError('Invalid trade side')
         if side == 'buy' and quantity > self._inventory[resource]:
-            raise ValueError(f'Market inventory insufficient: {resource}; available={self._inventory[resource]}')
+            raise DomainRejection('市场库存不足', {'reason': 'market_inventory', 'resource': resource,
+                                                   'requested': quantity, 'available': self._inventory[resource]})
         if owner is not None:self._owner(owner)
         # The period's quote is the same for everyone; only the size of this
         # order moves its own average price.
