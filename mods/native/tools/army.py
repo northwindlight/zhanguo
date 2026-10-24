@@ -131,7 +131,7 @@ def tools(runtime):
                         adapter=_unit_arguments,
                         description='免费遣散本国军队，id 单支或 ids 数组批量；交战中不可遣散。立即停止维持并释放编制，不返还粮食、装备或金币。 军队选择统一为 id 单个正整数或 ids 非空、不重复的正整数数组；id 也可写数组、ids 也可写单值，两者指向不同军队时才报错。批量行动先校验整批，批量可达查询按军队编号分组返回。')
     reachable_tool = Tool('reachable', reachable, owner='native:army', api=('reachable',), read_only=True, panel=True,
-                          description='按本国军队 aid 列出可见移动路线和路径代价；attack=true 列攻击路线。路线按地形与速度计算，不代表本回合尚有行动额度；批量逐军队给出行动状态。只接军队编号，无需目标坐标，不透露迷雾路径。')
+                          description='按本国军队 id 列出可见移动路线和路径代价；attack=true 列攻击路线。路线按地形与速度计算，不代表本回合尚有行动额度；批量逐军队给出行动状态。只接军队编号，无需目标坐标，不透露迷雾路径。')
     params = reachable_tool.schema()['function']['parameters']
     params['properties'].update(id={'type': 'integer', 'minimum': 1},
                                 ids={'type': 'array', 'items': {'type': 'integer', 'minimum': 1}, 'minItems': 1, 'uniqueItems': True})
