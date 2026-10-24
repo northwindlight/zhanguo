@@ -476,8 +476,10 @@ class Runtime:
                           if key == tool.name and tool.panel}
         self.panel_owners = {name: self.tool_owners[name] for name in self.panel_map}
         clock=self.distribution.get('PlayerClock')
-        if clock and (not isinstance(clock,dict) or set(clock)!={'Capability','Method'} or clock['Capability'] not in self.capabilities or not isinstance(clock['Method'],str) or not clock['Method'] or clock['Method'].startswith('_')):
-            raise ModError('玩家时钟必须引用公共能力和方法')
+        if clock and (not isinstance(clock,dict) or not {'Capability','Method'}<=set(clock) or set(clock)-{'Capability','Method','FirstPeriod'}
+                      or not isinstance(clock.get('FirstPeriod',0),int)
+                      or clock['Capability'] not in self.capabilities or not isinstance(clock['Method'],str) or not clock['Method'] or clock['Method'].startswith('_')):
+            raise ModError('玩家时钟必须引用公共能力和方法（可选 FirstPeriod 声明回合号起点）')
         player_state=self.distribution.get('PlayerState',())
         if not isinstance(player_state,(list,tuple)) or any(not isinstance(name,str) or name not in self.tools or not self.tools[name].read_only for name in player_state) or len(set(player_state))!=len(player_state):
             raise ModError('玩家状态必须声明唯一的只读工具')

@@ -56,7 +56,10 @@ class TestPlayerClients(unittest.TestCase):
         llm=LLMClient({},backend=backend);left=llm.play(w.runtime.player(w,Q))
         ledger=Ledger(other.runtime.player(other,Q))
         for name,args in commands:self.assertTrue(ledger.do(name,**args))
-        self.assertEqual(left,ledger.acts)
+        # steps 是模型客户端的调用进度（clients/llm.py 上报），不是游戏效果：
+        # 规则客户端没有这个字段，比对回执时按传输层元数据剔除。
+        plain=lambda rows:[{k:v for k,v in row.items() if k!='steps'} for row in rows]
+        self.assertEqual(plain(left),plain(ledger.acts))
         self.assertEqual(w.runtime.save_mod_state(w),other.runtime.save_mod_state(other))
         self.assertFalse(hasattr(w,'turn_memory'))
 
