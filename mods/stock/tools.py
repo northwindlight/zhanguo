@@ -138,7 +138,8 @@ def build(runtime):
         })
         captions.update({name: (lambda args, actor, receipt, ctx, name=name: _CAPTIONS[name])
                          for name in ('script_write', 'script_patch', 'script_check',
-                                      'script_status', 'script_run')})
+                                      'script_status')})
+        captions['script_run'] = _run_caption
 
     # ── 只读事实 ────────────────────────────────────────────────────
     if 'stock:portfolio' in runtime.capabilities:
@@ -274,7 +275,6 @@ _CAPTIONS = {
     'script_patch': '修订脚本',
     'script_check': '脚本检查',
     'script_status': '脚本状态',
-    'script_run': '运行研究槽',
 }
 
 
@@ -317,6 +317,12 @@ def _status_receipt(args, receipt, actor, ctx):
     if result.get('output'):
         lines.append('打印输出：\n' + result['output'])
     return '\n'.join(lines)
+
+
+def _run_caption(args, actor, receipt, ctx):
+    """抬头写清跑的是哪个槽：run 只允许 research，传了交易槽要一眼看出。"""
+    slot = str((args or {}).get('slot') or 'research')
+    return '运行研究槽' if slot == 'research' else f'运行计算槽 {slot}'
 
 
 def _run_receipt(args, receipt, actor, ctx):

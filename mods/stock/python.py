@@ -357,7 +357,10 @@ class StockScriptingAPI:
     def check(self, actor, source=None, slot='1'): return self.world.scripts.check(actor, source, slot)
     def status(self, actor, include_source=False, slot='1'): return self.world.scripts.status(actor, include_source, slot)
     def run(self, actor, slot='research', inputs=None):
-        if slot_key(slot) != 'research': raise ValueError('行动时只能手动运行 research 槽')
+        if slot_key(slot) != 'research':
+            raise ValueError(f'行动时只能手动运行 research 槽（收到 slot={slot}）；'
+                             '交易槽 1～4 的源码只在交易日结束时自动执行，不能手动 run；'
+                             '要试跑请把代码写到 research 槽再 run')
         if not self.world.clock.can_act(actor): raise ValueError('已经结束行动')
         if inputs is not None and type(inputs) is not dict: raise ValueError('inputs 必须是JSON对象')
         if len(json.dumps(wire(inputs or {}), ensure_ascii=False).encode()) > 65536:
@@ -404,7 +407,7 @@ class StockPythonMod(GameMod):
             '"stock:clock"：snapshot()、sleep(ticks=100)；"stock:compute"：status()；"stock:intelligence"：status()。'
             'symbol 取 quotes() 返回的 symbol 字段；参数写错时回执会给出该方法的完整签名和本能力可用方法。'
             '每个tick所有回调读同一公共时间截面，订单下一tick生效。'
-            '研究槽解锁后可在行动时 script(action=run,slot="research",inputs={...}) 运行，只读，不下单、不推进行情，'
+            '研究槽解锁后可在行动时 script(action=run,slot="research",inputs={...}) 运行，只读，不下单、不推进行情（交易槽 1～4 不能手动 run，只在交易日结束时自动执行），'
             '同一行动阶段可反复运行，受账户当日共享预算约束，用尽即停。'
             '研究单次最多100万步、1000次API，所有槽共享账户每日预算；改源码和重跑不重置额度。'
             'print 每槽每天合计上限4096字节，只打印摘要（len、前几条、关键字段），不要打印整个dict。'
