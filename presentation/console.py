@@ -54,7 +54,8 @@ class ConsoleUI(ReceiptPresentation):
             return '\n'.join(indent+'· '+self.format(row,names,depth+1).lstrip() for row in value)
         if value is None:return '—'
         if isinstance(value,bool):return self.text('console.yes' if value else 'console.no')
-        if isinstance(value,(int,float)):return f'{value:g}'
+        if isinstance(value,int):return str(value)   # 4000000 别写成 4e+06
+        if isinstance(value,float):return f'{value:g}'
         return str(self.name(self.label('content',value),names or {}))
     KEEP_ACTIONS=('plan','end_turn','explain_plan')
     """终端整段照打的回执：国策、回合小结与议会解释——都是模型自己写的正文，
