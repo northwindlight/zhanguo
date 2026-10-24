@@ -40,11 +40,14 @@ def main(argv=None):
     parser.add_argument('--log-file', type=Path, help='将 Godot 运行日志保存到指定文件')
     parser.add_argument('--smoke-output', type=Path)
     parser.add_argument('--menu-output', type=Path, help='打开主菜单自检：截取各面板并核对生成的配置后退出')
+    parser.add_argument('--ui-review-output', type=Path, help='离线界面样例：检查长文本、半身图和多个窗口尺寸，不调用模型')
     parser.add_argument('--resume', type=Path, help='从旧演示局 session.json 复制续看；旧档保留')
     parser.add_argument('--config', type=Path, help='mp_config.json 路径；提供后桌面运行该对局（可含 LLM 国家，思考与正文在气泡流式显示）')
     parser.add_argument('--sample', choices=['terrain'], help='打开独立合成地貌样板，不启动 Python 对局')
     parser.add_argument('--sample-tour', action='store_true', help='地貌样板预热后执行32秒镜头巡览并记录性能')
     args = parser.parse_args(argv)
+    if sum(bool(x) for x in (args.menu_output,args.ui_review_output,args.smoke_output))>1:
+        parser.error('--menu-output、--ui-review-output 与 --smoke-output 只能选一个')
     if args.sample and args.resume:parser.error('--sample 与 --resume 不能同时使用')
     if args.config and not Path(args.config).is_file():parser.error(f'--config 文件不存在：{args.config}')
     if args.sample_tour and (not args.sample or not args.smoke_output):
@@ -84,6 +87,7 @@ def main(argv=None):
     if scene:command.append('res://Samples/Terrain.tscn')
     if args.smoke_output:command += ['--', '--smoke-output', str(args.smoke_output.resolve())]
     if args.menu_output:command += ['--', '--menu-output', str(args.menu_output.resolve())]
+    if args.ui_review_output:command += ['--', '--ui-review-output', str(args.ui_review_output.resolve())]
     if args.sample_tour:command.append('--sample-tour')
     raise SystemExit(subprocess.call(command, env=env))
 

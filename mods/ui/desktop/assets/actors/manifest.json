@@ -1,5 +1,5 @@
 {
-  "_readme": "预留的 AI 生成素材位。PNG 缺失时游戏自动使用代码绘制小人/贴图；把生成好的 PNG 放到本目录并保持文件名一致即可自动生效，无需改代码。行列布局见 README.md。",
+  "_readme": "六种建筑 PNG 已提供；人物表与树图可按此规格添加。建筑来源和哈希另见 generated-buildings.json，人物帧配置在 sheets。",
   "sheets": {
     "resident-walk":  { "cell": [16, 16], "frames": 6, "rows": 4 },
     "soldier-infantry": { "cell": [16, 16], "frames": 6, "rows": 4 },

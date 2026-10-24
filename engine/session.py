@@ -376,7 +376,7 @@ class Session:
             handler=getattr(service,'record_dialogue',None)
             if handler:handler(player,wire(messages))
 
-    def cycle(self,*,on_result=None,emit=None,head=None,on_call=None):
+    def cycle(self,*,on_result=None,emit=None,head=None,on_call=None,on_stream=None):
         if self.victory_event is not None:raise ValueError('Game has ended with a victory event')
         self.scheduled();receipts=[];self._boundary=False;self._callbacks=on_result;self._emit=emit
         try:
@@ -390,7 +390,8 @@ class Session:
                         receipts.extend(client.play(player,max_actions=cfg.get('max_actions')))
                     else:
                         callback_call=(lambda step,result,a=actor:on_call(a,step,result)) if on_call else None
-                        receipts.extend(client.play(player,emit=emit,head=head,on_call=callback_call))
+                        receipts.extend(client.play(player,emit=emit,head=head,on_call=callback_call,
+                            **({'on_stream':on_stream} if on_stream and client.kind=='llm' else {})))
                     if self.generations[actor]==generation:break
                     transitions+=1
                     if transitions>8:raise RuntimeError('Too many actor control transitions in one cycle')

@@ -38,12 +38,12 @@ public partial class Desktop
             ContentMarginLeft=20,ContentMarginRight=20,ContentMarginTop=10,ContentMarginBottom=12 };
         style.SetBorderWidthAll(1);style.SetCornerRadiusAll(6);_banner.AddThemeStyleboxOverride("panel",style);
         _banner.SetAnchorsAndOffsetsPreset(LayoutPreset.CenterTop);_banner.OffsetLeft=-340;_banner.OffsetRight=340;
-        _banner.OffsetTop=72;_banner.OffsetBottom=169;AddChild(_banner);
+        _banner.OffsetTop=78;_banner.OffsetBottom=204;AddChild(_banner);
         var box=new VBoxContainer { MouseFilter=MouseFilterEnum.Ignore };_banner.AddChild(box);
         _bannerTitle=new Label { Text="观天下 · 等待开局",MouseFilter=MouseFilterEnum.Ignore,HorizontalAlignment=HorizontalAlignment.Center };
         _bannerTitle.AddThemeFontSizeOverride("font_size",23);_bannerTitle.AddThemeColorOverride("font_color",new Color("ead9a7"));box.AddChild(_bannerTitle);
         _bannerText=new Label { Text="点击继续，按国家和动作慢速观看",AutowrapMode=TextServer.AutowrapMode.WordSmart,
-            HorizontalAlignment=HorizontalAlignment.Center,MouseFilter=MouseFilterEnum.Ignore,CustomMinimumSize=new Vector2(640,44) };box.AddChild(_bannerText);
+            HorizontalAlignment=HorizontalAlignment.Center,MouseFilter=MouseFilterEnum.Ignore,CustomMinimumSize=new Vector2(0,64),MaxLinesVisible=3,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis };box.AddChild(_bannerText);
     }
     private void TogglePlayback()
     {
@@ -72,8 +72,8 @@ public partial class Desktop
         DriveBubbles(_playingBeat,phase);
         _playedPhases[phase]=_playedPhases.GetValueOrDefault(phase)+1;
         _bannerTitle.Text=S(_playingBeat["turn_title"]);
-        _bannerText.Text=$"{_playingBeat["title"]} · 动作 {_beatNumber}/{_beatTotal}\n{_playingBeat["text"]}";
-        _banner.TooltipText=S(_playingBeat["source"]);
+        _bannerText.Text=$"{_playingBeat["title"]} · {_beatNumber}/{_beatTotal}\n{_playingBeat["text"]}";
+        _banner.TooltipText=S(_playingBeat["text"])+"\n"+S(_playingBeat["source"]);
         if(phase=="actor"&&_smoke!=null)_actorBanners.Add(_bannerTitle.Text);
         if(_smoke!=null&&OS.GetEnvironment("ZHANGUO_DESKTOP_SMOKE_TOUR")=="1")
         {
@@ -89,89 +89,15 @@ public partial class Desktop
         if(_smoke!=null)_speedControl.Text=_playbackSpeed==1?"慢速 1×":"快进 96×";
         RefreshPlaybackControls();
     }
-    // Nation turns speak through the bubble layer: each enacted action is one
-    // streamed body bubble, the turn close is a distinct summary bubble, and
-    // settlement narration dims the layer instead of replacing the speaker.
-    // Rule-AI demo nations get preset streamed "thinking" and a frame-derived
-    // context line; LLM nations keep their real streamed thinking and context.
     private void DriveBubbles(JsonObject beat,string phase)
     {
-        string actor=S(beat["actor"]),text=S(beat["text"]);
-        string Context()=>beat["context"]?.ToString() is {Length:>0} found?found:null;
-        switch(phase)
-        {
-            case "actor":
-            {
-                string nation=_map.Frame?["names"]?[actor]?.ToString()??actor;
-                string version=_models.GetValueOrDefault(actor,"");
-                _bubbles.SetSpeaker(actor,nation,version,_map.NationColor(actor));
-                bool preset=SpeechBubbles.IsRuleVersion(version);
-                _bubbles.SetStats(preset?FrameContext():Context(),null,null);
-                if(preset)
-                {
-                    _bubbles.Begin("thinking");
-                    _bubbles.Append("thinking",PresetThinking(actor,nation));
-                }
-                _bubbles.Begin("body");
-                _bubbles.Append("body",text);
-                break;
-            }
-            case "plan" or "trade" or "build" or "recruit" or "order" or "rejected" or "action" or "arrival" or "retreat":
-                _bubbles.Begin("body");
-                _bubbles.Append("body",text);
-                break;
-            case "turn-end":
-                _bubbles.SetStats(Context(),
-                    beat["tokens"] is JsonNode tokens?(int?)I(tokens):null,
-                    beat["turn_seconds"] is JsonNode seconds?(double?)F(seconds):null);
-                _bubbles.Begin("turn_end");
-                _bubbles.Append("turn_end",text);
-                break;
-            default:
-                _bubbles.Park();
-                break;
-        }
-    }
-
-    // Preset rule-AI "thinking" for the streaming demo; numbers are real frame
-    // facts, phrasing is canned flavor so the offline demo plays like an LLM.
-    private string PresetThinking(string actor,string nation)
-    {
-        var frame=_map.Frame;
-        var row=frame?["nations"]?.AsArray().FirstOrDefault(n=>S(n!["id"])==actor);
-        int land=I(row?["land"]);
-        double food=0,wood=0,gold=0;
-        foreach(var s in row?["stocks"]?.AsArray()??new JsonArray())
-        {
-            string name=S(s!["name"]);
-            if(name.Contains('粮'))food=F(s["amount"]);
-            else if(name.Contains('木'))wood=F(s["amount"]);
-            else if(name.Contains('金')&&!name.Contains("金矿"))gold=F(s["amount"]);
-        }
-        int seed=actor.Aggregate(0,(hash,c)=>hash*31+c)^(_period*7919);
-        seed&=int.MaxValue;
-        string[] openers=
-        {
-            $"{nation}第{_period+1}期盘点：国土{land}格，粮{food:0}、木{wood:0}、金{gold:0}。先把粮仓补满，再看邻国动向。",
-            $"开局推演：{land}格国土，存粮{food:0}。粮道是根本，扩产要趁早；兵力可缓，民兵足以守土。",
-            $"环视列国，{nation}以{land}格立身。金{gold:0}尚可支撑数期，宜先固根本、再图进取。",
-        };
-        string[] closers=
-        {
-            "综合判断：稳步扩产，保持边境警戒，不轻启战端。",
-            "先看市集行情，再定采购与施工的先后次序。",
-            "若邻国有异动，立即转入防御并征召民兵。",
-        };
-        return openers[seed%openers.Length]+"\n"+closers[(seed/3)%closers.Length];
-    }
-
-    private string FrameContext()
-    {
-        var frame=_map.Frame;
-        int events=frame?["events"]?.AsArray().Count??0;
-        int market=frame?["market"]?.AsArray().Count??0;
-        int nations=frame?["nations"]?.AsArray().Count??0;
-        return $"八国{nations}家 · 本期事件{events}条 · 市集{market}种（规则AI演示）";
+        if(phase!="actor")return;
+        string actor=S(beat["actor"]),version=_models.GetValueOrDefault(actor,"");
+        // LLM dialogue arrived live; replaying action receipts here would
+        // overwrite it and assign the final speaker's text to another nation.
+        if(!SpeechBubbles.IsRuleVersion(version))return;
+        _bubbles.SetSpeaker(actor,_map.NationName(actor),version,_map.NationColor(actor));
+        _bubbles.ShowRuleTurn();
     }
 
     private void ProcessPlayback(double delta)

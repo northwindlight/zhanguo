@@ -35,6 +35,27 @@ class Controller:
         self._probes=None
         self.contexts={}
         self._error_actor=None
+        self._streamed_actors=set()
+        self._stream_buffer=None
+        self._stream_sent=0
+
+    def flush_stream(self):
+        if self._stream_buffer:
+            self.send('stream',**self._stream_buffer)
+            self._stream_buffer=None;self._stream_sent=time.monotonic()
+
+    def model_stream(self, actor, event):
+        """Actual provider deltas only; coalesce small packets without reordering."""
+        self._streamed_actors.add(actor)
+        row={'actor':actor,**event}
+        if event['event']=='delta':
+            if self._stream_buffer and any(self._stream_buffer.get(k)!=row.get(k) for k in ('actor','call','period','kind')):
+                self.flush_stream()
+            if self._stream_buffer:self._stream_buffer['text']+=row['text']
+            else:self._stream_buffer=row
+            if time.monotonic()-self._stream_sent>=.04 or len(self._stream_buffer['text'])>=512:self.flush_stream()
+        else:
+            self.flush_stream();self.send('stream',**row)
 
     def activity(self,actor,text):
         """当前国家的实时活动（思考/写信/处理政务…），供地图徽标显示。"""
@@ -75,8 +96,9 @@ class Controller:
                 if middle not in rest:break
                 actor,remainder=rest.split(middle,1)
                 if mode=='stream':
+                    if kind in ('body','thinking') and actor in self._streamed_actors:return
                     if kind=='context':self.contexts[actor]=remainder
-                    self.send('stream',actor=actor,kind=kind,text=remainder)
+                    self.send('stream',actor=actor,event='context' if kind=='context' else 'message',kind=kind,text=remainder)
                 else:
                     token=remainder.strip().split('/')[0]
                     number=''.join(ch for ch in token if ch.isdigit())
@@ -99,6 +121,7 @@ class Controller:
     def snapshot(self):
         frame=self.host.ui.desktop_frame(self.host.observer_snapshot())
         frame['clients']=[{'actor':actor,'kind':client.kind,'version':client.version,
+                           'model':getattr(client,'cfg',{}).get('model') if client.kind=='llm' else None,
                            'strategy':getattr(getattr(client,'state',None),'profile',None)} for actor,client in self.host.clients.items()]
         self.send('snapshot', frame=frame)
 
@@ -138,6 +161,7 @@ class Controller:
     def advance(self):
         if self.waiting is not None:raise ValueError('等待本期演出确认后才能推进下一期')
         self.status('advancing')
+        self._streamed_actors.clear()
         try:
             capture=None
             if self.playback:
@@ -145,12 +169,14 @@ class Controller:
                 try:capture=TimelineCapture(self.host,contexts=self.contexts,activity=self.activity)
                 except Exception as exc:self.send('notice',message=f'演出初始化失败，使用完整快照：{exc}')
             with redirect_stdout(sys.stderr):
-                if capture:self.host.cycle(on_result=capture.capture,emit=self.model_line)
-                else:self.host.cycle(emit=self.model_line)
+                if capture:self.host.cycle(on_result=capture.capture,emit=self.model_line,on_stream=self.model_stream)
+                else:self.host.cycle(emit=self.model_line,on_stream=self.model_stream)
         except Exception:
+            self.flush_stream()
             self.running = False; self.failed = True
             self._error_actor=getattr(capture,'actor',None) if capture else None
             raise
+        self.flush_stream()
         self.persist()
         if capture:
             beats=capture.finish()

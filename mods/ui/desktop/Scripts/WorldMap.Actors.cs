@@ -508,7 +508,7 @@ public partial class WorldMap
     }
     private void SpawnStructureLife()
     {
-        if(_scale<.32f||_particles.Count>190)return;
+        if(_layout==null||_scale<.32f||_particles.Count>190)return;
         int budget=8;int tick=(int)_time;
         foreach(var r in _layout.Regions)
         {

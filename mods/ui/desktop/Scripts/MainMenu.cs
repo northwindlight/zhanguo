@@ -51,6 +51,7 @@ public partial class MainMenu : Control
     private readonly List<ApiProfile> _profiles = new();
     private readonly List<NationDraft> _nations = new();
     private readonly List<(Control Row, NationDraft Draft)> _rows = new();
+    private readonly List<(OptionButton Box,NationDraft Draft)> _profilePickers = new();
     private Label _hint = null!;
     private Control _home = null!, _newGame = null!, _load = null!, _settings = null!;
     private LineEdit _seed = null!, _globalExtra = null!;
@@ -72,19 +73,20 @@ public partial class MainMenu : Control
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         var back = new ColorRect { Color = new Color(.043f, .075f, .08f) };
         back.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect); AddChild(back);
-        var center = new VBoxContainer();
-        center.SetAnchorsAndOffsetsPreset(LayoutPreset.Center);
-        center.OffsetLeft = -430; center.OffsetRight = 430; center.OffsetTop = -280; center.OffsetBottom = 280;
-        center.AddThemeConstantOverride("separation", 14); AddChild(center);
+        var center = new Control();
+        center.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        center.OffsetLeft = 32; center.OffsetRight = -32; center.OffsetTop = 24; center.OffsetBottom = -24; AddChild(center);
         var title = new Label { Text = "战 国", HorizontalAlignment = HorizontalAlignment.Center };
-        title.AddThemeFontSizeOverride("font_size", 64);
+        title.SetAnchorsAndOffsetsPreset(LayoutPreset.TopWide); title.OffsetBottom=58;
+        title.AddThemeFontSizeOverride("font_size", 42);
         title.AddThemeColorOverride("font_color", new Color("e8d9a8"));
         center.AddChild(title);
         var subtitle = new Label { Text = "观天下 · 上帝视角", HorizontalAlignment = HorizontalAlignment.Center,
             Modulate = new Color("a4b09c") };
-        subtitle.AddThemeFontSizeOverride("font_size", 22); center.AddChild(subtitle);
+        subtitle.SetAnchorsAndOffsetsPreset(LayoutPreset.TopWide); subtitle.OffsetTop=60; subtitle.OffsetBottom=88;
+        subtitle.AddThemeFontSizeOverride("font_size", 18); center.AddChild(subtitle);
         string[] palette = { "9eb5cf", "e5a47c", "c69ddd", "91bd98", "e8cc83", "76bdbb", "d68c95", "ddd9af" };
-        var strip = new HBoxContainer(); strip.AddThemeConstantOverride("separation", 4);
+        var strip = new HBoxContainer(); strip.SetAnchorsAndOffsetsPreset(LayoutPreset.TopWide); strip.OffsetTop=98; strip.OffsetBottom=104; strip.AddThemeConstantOverride("separation", 4);
         for (int i = 0; i < 8; i++)
         {
             var cell = new ColorRect { Color = new Color(palette[i]), CustomMinimumSize = new Vector2(64, 6), SizeFlagsHorizontal = SizeFlags.ExpandFill };
@@ -92,9 +94,12 @@ public partial class MainMenu : Control
         }
         center.AddChild(strip);
         _hint = new Label { Text = "", HorizontalAlignment = HorizontalAlignment.Center, Modulate = new Color("e0a980") };
-        _hint.AddThemeFontSizeOverride("font_size", 18); center.AddChild(_hint);
+        _hint.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomWide); _hint.OffsetTop=-36; _hint.OffsetBottom=0;
+        _hint.AutowrapMode=TextServer.AutowrapMode.WordSmart; _hint.AddThemeFontSizeOverride("font_size", 16); center.AddChild(_hint);
 
         _home = Section(center);
+        _home.SetAnchorsAndOffsetsPreset(LayoutPreset.Center);
+        _home.OffsetLeft=-220; _home.OffsetRight=220; _home.OffsetTop=-76; _home.OffsetBottom=180;
         BigButton(_home, "新的对局", () => OpenPanel(_newGame, () => { if (_nations.Count == 0) DefaultEightNations(); }));
         BigButton(_home, "加载存档", () => { OpenPanel(_load, RefreshSaves); });
         BigButton(_home, "设置 · API 档案", () => { OpenPanel(_settings, RefreshProfiles); });
@@ -110,20 +115,21 @@ public partial class MainMenu : Control
     {
         var box = new VBoxContainer { Visible = false };
         box.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        box.OffsetLeft = 40; box.OffsetRight = -40; box.OffsetTop = 200; box.OffsetBottom = -16;
+        box.OffsetLeft = 8; box.OffsetRight = -8; box.OffsetTop = 124; box.OffsetBottom = -46;
         box.AddThemeConstantOverride("separation", 10);
         parent.AddChild(box); return box;
     }
     private static Button BigButton(Control parent, string text, Action pressed)
     {
         var button = new Button { Text = text, CustomMinimumSize = new Vector2(0, 46), FocusMode = FocusModeEnum.None };
-        button.AddThemeFontSizeOverride("font_size", 24);
+        button.AddThemeFontSizeOverride("font_size", 20);
         button.Pressed += pressed; parent.AddChild(button); return button;
     }
     private void OpenPanel(Control panel, Action? after = null)
     {
         foreach (var section in new[] { _home, _newGame, _load, _settings }) section.Visible = section == panel;
         _hint.Text = "";
+        if(panel==_newGame)foreach(var (box,draft) in _profilePickers)RefreshProfileOptions(box,draft);
         after?.Invoke();
     }
     public void OpenNewGame() => OpenPanel(_newGame, () => { if (_nations.Count == 0) DefaultEightNations(); });
@@ -134,26 +140,25 @@ public partial class MainMenu : Control
     private Control BuildNewGame(Control parent)
     {
         var panel = Section(parent);
-        var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill };
+        var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
         panel.AddChild(scroll);
         var box = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         box.AddThemeConstantOverride("separation", 8); scroll.AddChild(box);
-        var basics = new HBoxContainer();
-        basics.AddChild(FieldLabel("种子"));
-        _seed = new LineEdit { Text = "20261023", CustomMinimumSize = new Vector2(130, 0) };
-        basics.AddChild(_seed);
-        basics.AddChild(new Button { Text = "随机", FocusMode = FocusModeEnum.None });
-        ((Button)basics.GetChild(basics.GetChildCount() - 1)).Pressed += () =>
-            _seed.Text = (Random.Shared.Next(1, 2_000_000_000)).ToString();
-        basics.AddChild(FieldLabel("  地图边长"));
-        _mapSize = new SpinBox { MinValue = 12, MaxValue = 96, Value = 24, Step = 1, CustomMinimumSize = new Vector2(90, 0) };
-        basics.AddChild(_mapSize);
-        basics.AddChild(FieldLabel("  回合上限"));
-        _maxTurns = new SpinBox { MinValue = 10, MaxValue = 3000, Value = 300, Step = 10, CustomMinimumSize = new Vector2(100, 0) };
-        basics.AddChild(_maxTurns);
-        basics.AddChild(FieldLabel("  上下文窗口"));
-        _ctxWindow = new SpinBox { MinValue = 8000, MaxValue = 4_000_000, Value = 128000, Step = 8000, CustomMinimumSize = new Vector2(120, 0) };
-        basics.AddChild(_ctxWindow);
+        var basics = new HFlowContainer(); basics.AddThemeConstantOverride("h_separation", 12); basics.AddThemeConstantOverride("v_separation", 8);
+        HBoxContainer Setting(string name)
+        {
+            var group=new HBoxContainer();group.AddChild(FieldLabel(name));basics.AddChild(group);return group;
+        }
+        var seedGroup=Setting("种子");
+        _seed = new LineEdit { Text="20261023",CustomMinimumSize=new Vector2(134,0) }; seedGroup.AddChild(_seed);
+        var random=new Button { Text="随机",FocusMode=FocusModeEnum.None }; seedGroup.AddChild(random);
+        random.Pressed+=()=>_seed.Text=Random.Shared.Next(1,2_000_000_000).ToString();
+        _mapSize=new SpinBox { MinValue=12,MaxValue=96,Value=24,Step=1,CustomMinimumSize=new Vector2(100,0) };
+        Setting("地图边长").AddChild(_mapSize);
+        _maxTurns=new SpinBox { MinValue=10,MaxValue=3000,Value=300,Step=10,CustomMinimumSize=new Vector2(116,0) };
+        Setting("回合上限").AddChild(_maxTurns);
+        _ctxWindow=new SpinBox { MinValue=8000,MaxValue=4_000_000,Value=128000,Step=8000,CustomMinimumSize=new Vector2(140,0) };
+        Setting("上下文窗口").AddChild(_ctxWindow);
         box.AddChild(basics);
         var header = new HBoxContainer();
         header.AddChild(FieldLabel("参战国家（2–10，行序即行动顺序）"));
@@ -161,11 +166,11 @@ public partial class MainMenu : Control
         var add = new Button { Text = "+ 添加国家", FocusMode = FocusModeEnum.None };
         add.Pressed += () => { if (_nations.Count < 10) AddNationRow(new NationDraft { Preset = FirstFreePreset(), Name = Presets[FirstFreePreset()].Name }); };
         header.AddChild(add); box.AddChild(header);
-        var listScroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, CustomMinimumSize = new Vector2(0, 200) };
-        box.AddChild(listScroll);
+
         _nationList = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        _nationList.AddThemeConstantOverride("separation", 6); listScroll.AddChild(_nationList);
+        _nationList.AddThemeConstantOverride("separation", 12); box.AddChild(_nationList);
         var extraLabel = FieldLabel("全局附加 JSON（合并进配置顶层，可写 ctx_fill/rule_ai/mods 等任意字段）");
+        extraLabel.AutowrapMode=TextServer.AutowrapMode.WordSmart;
         box.AddChild(extraLabel);
         _globalExtra = new LineEdit { PlaceholderText = "{ }" }; box.AddChild(_globalExtra);
         var start = new Button { Text = "开始对局", CustomMinimumSize = new Vector2(0, 44), FocusMode = FocusModeEnum.None };
@@ -176,7 +181,8 @@ public partial class MainMenu : Control
             if (config == null) { _hint.Text = error; return; }
             StartRequested?.Invoke(path, null);
         };
-        box.AddChild(start);
+        var footer=new HBoxContainer();start.SizeFlagsHorizontal=SizeFlags.ExpandFill;
+        footer.AddChild(start);footer.AddChild(BackButton());panel.AddChild(footer);
         return panel;
     }
 
@@ -193,17 +199,21 @@ public partial class MainMenu : Control
     private void AddNationRow(NationDraft draft)
     {
         _nations.Add(draft);
-        var row = new HBoxContainer();
-        row.AddThemeConstantOverride("separation", 6);
+        var card=new PanelContainer();
+        var cardStyle=new StyleBoxFlat { BgColor=new Color("1b2b2c"),ContentMarginLeft=12,ContentMarginRight=12,ContentMarginTop=10,ContentMarginBottom=10 };
+        cardStyle.SetCornerRadiusAll(6);card.AddThemeStyleboxOverride("panel",cardStyle);
+        var stack=new VBoxContainer();stack.AddThemeConstantOverride("separation",8);card.AddChild(stack);
+        var row = new HBoxContainer(); stack.AddChild(row);
+        row.AddThemeConstantOverride("separation", 8);
         var preset = new OptionButton { FocusMode = FocusModeEnum.None };
         foreach (var p in Presets) preset.AddItem(p.Name);
         preset.Selected = draft.Preset;
-        preset.ItemSelected += index => { draft.Preset = (int)index; draft.Name = Presets[draft.Preset].Name; };
         row.AddChild(preset);
         var name = new LineEdit { Text = draft.Name, CustomMinimumSize = new Vector2(90, 0) };
+        preset.ItemSelected += index => { draft.Preset=(int)index; name.Text=Presets[draft.Preset].Name; };
         name.TextChanged += value => draft.Name = value;
         row.AddChild(name);
-        var client = new OptionButton { FocusMode = FocusModeEnum.None };
+        var client = new OptionButton { Name="NationClient",FocusMode = FocusModeEnum.None };
         foreach (var c in Clients) client.AddItem(c);
         client.Selected = draft.Client;
         var rule = new HBoxContainer();
@@ -216,15 +226,17 @@ public partial class MainMenu : Control
             rule.Visible = draft.Client == 0; llm.Visible = draft.Client == 2;
         };
         rule.Visible = draft.Client == 0; llm.Visible = draft.Client == 2;
-        row.AddChild(client); row.AddChild(rule); row.AddChild(llm);
+        row.AddChild(client);
+        row.AddChild(new Control { SizeFlagsHorizontal=SizeFlags.ExpandFill });
+        stack.AddChild(rule); stack.AddChild(llm);
         var extra = new LineEdit { Text = draft.ExtraJson, PlaceholderText = "附加JSON", CustomMinimumSize = new Vector2(150, 0) };
         extra.TextChanged += value => draft.ExtraJson = value;
-        row.AddChild(extra);
+        stack.AddChild(extra);
         var remove = new Button { Text = "−", FocusMode = FocusModeEnum.None };
-        remove.Pressed += () => { if (_nations.Count > 2) { _nations.Remove(draft); _rows.RemoveAll(r => r.Draft == draft); row.QueueFree(); } };
+        remove.Pressed += () => { if (_nations.Count > 2) { _nations.Remove(draft); _rows.RemoveAll(r => r.Draft == draft); _profilePickers.RemoveAll(p=>p.Draft==draft);card.QueueFree(); } };
         row.AddChild(remove);
-        _nationList.AddChild(row);
-        _rows.Add((row, draft));
+        _nationList.AddChild(card);
+        _rows.Add((card, draft));
     }
     private void BuildRuleFields(HBoxContainer rule, NationDraft draft)
     {
@@ -245,6 +257,10 @@ public partial class MainMenu : Control
         llm.AddChild(FieldLabel("档案"));
         var profile = new OptionButton { FocusMode = FocusModeEnum.None };
         RefreshProfileOptions(profile, draft);
+        profile.ItemSelected += i => draft.Profile = (int)i;
+        _profilePickers.Add((profile,draft));
+        profile.SizeFlagsHorizontal=SizeFlags.ExpandFill;
+        profile.CustomMinimumSize=new Vector2(160,0);profile.ClipText=true;
         llm.AddChild(profile);
         llm.AddChild(FieldLabel("模型"));
         var model = new LineEdit { Text = draft.Model, CustomMinimumSize = new Vector2(150, 0) };
@@ -261,7 +277,6 @@ public partial class MainMenu : Control
         else foreach (var p in _profiles) box.AddItem(p.Name);
         draft.Profile = Math.Clamp(draft.Profile, 0, Math.Max(0, _profiles.Count - 1));
         box.Selected = _profiles.Count == 0 ? 0 : draft.Profile;
-        box.ItemSelected += i => draft.Profile = (int)i;
     }
 
     /// 写出等价 mp_config；返回 null 时 error 说明原因。
@@ -328,7 +343,7 @@ public partial class MainMenu : Control
     private Control BuildLoad(Control parent)
     {
         var panel = Section(parent);
-        var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill };
+        var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
         panel.AddChild(scroll);
         _saveList = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         _saveList.AddThemeConstantOverride("separation", 6); scroll.AddChild(_saveList);
@@ -339,8 +354,8 @@ public partial class MainMenu : Control
     private void RefreshSaves()
     {
         foreach (Node child in _saveList.GetChildren()) { _saveList.RemoveChild(child); child.QueueFree(); }
-        var directory = Path.GetDirectoryName(_settingsPath)!;
-        var saves = Directory.GetDirectories(directory)
+        var directory = Path.Combine(Path.GetDirectoryName(_settingsPath)!,"desktop");
+        var saves = (Directory.Exists(directory)?Directory.GetDirectories(directory):Array.Empty<string>())
             .Select(dir => (dir, session: Path.Combine(dir, "session.json"), config: Path.Combine(dir, "config.json")))
             .Where(entry => File.Exists(entry.session) && File.Exists(entry.config))
             .OrderByDescending(entry => File.GetLastWriteTime(entry.session)).Take(30).ToList();
@@ -357,7 +372,7 @@ public partial class MainMenu : Control
             catch (IOException) { }
             catch (JsonException) { }
             var row = new HBoxContainer();
-            var label = new Label { Text = caption, SizeFlagsHorizontal = SizeFlags.ExpandFill };
+            var label = new Label { Text = caption,TooltipText=caption,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis, SizeFlagsHorizontal = SizeFlags.ExpandFill };
             label.AddThemeFontSizeOverride("font_size", 18); row.AddChild(label);
             var resume = new Button { Text = "续看", FocusMode = FocusModeEnum.None };
             string session = entry.session, config = entry.config;
@@ -374,7 +389,7 @@ public partial class MainMenu : Control
         var intro = new Label { Text = "API 档案：名称 + 接入参数保存在 archive/desktop-settings.json（不入库的本地文件），新对局里给大模型国家选用。" };
         intro.AddThemeFontSizeOverride("font_size", 18); intro.Modulate = new Color("a4b09c");
         intro.AutowrapMode = TextServer.AutowrapMode.WordSmart; panel.AddChild(intro);
-        var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill };
+        var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
         panel.AddChild(scroll);
         _profileList = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         _profileList.AddThemeConstantOverride("separation", 8); scroll.AddChild(_profileList);
@@ -392,27 +407,27 @@ public partial class MainMenu : Control
         foreach (Node child in _profileList.GetChildren()) { _profileList.RemoveChild(child); child.QueueFree(); }
         foreach (var profile in _profiles)
         {
-            var grid = new GridContainer { Columns = 2 };
+            var grid = new GridContainer { Columns = 2,SizeFlagsHorizontal=SizeFlags.ExpandFill };
             grid.AddThemeConstantOverride("h_separation", 8); grid.AddThemeConstantOverride("v_separation", 4);
             grid.AddChild(FieldLabel("名称"));
-            var nameEdit = new LineEdit { Text = profile.Name };
+            var nameEdit = new LineEdit { SizeFlagsHorizontal=SizeFlags.ExpandFill, Text = profile.Name };
             nameEdit.TextChanged += v => profile.Name = v; grid.AddChild(nameEdit);
             grid.AddChild(FieldLabel("provider"));
             var provider = new OptionButton { FocusMode = FocusModeEnum.None };
-            foreach (var p in new[] { "openai", "anthropic", "google" }) provider.AddItem(p);
-            provider.Selected = Math.Max(0, new[] { "openai", "anthropic", "google" }.ToList().IndexOf(profile.Provider));
-            provider.ItemSelected += i => profile.Provider = new[] { "openai", "anthropic", "google" }[(int)i];
+            foreach (var p in new[] { "openai", "anthropic" }) provider.AddItem(p);
+            provider.Selected = Math.Max(0, new[] { "openai", "anthropic" }.ToList().IndexOf(profile.Provider));
+            provider.ItemSelected += i => profile.Provider = new[] { "openai", "anthropic" }[(int)i];
             grid.AddChild(provider);
             grid.AddChild(FieldLabel("base_url"));
-            var url = new LineEdit { Text = profile.BaseUrl }; url.TextChanged += v => profile.BaseUrl = v; grid.AddChild(url);
+            var url = new LineEdit { SizeFlagsHorizontal=SizeFlags.ExpandFill, Text = profile.BaseUrl }; url.TextChanged += v => profile.BaseUrl = v; grid.AddChild(url);
             grid.AddChild(FieldLabel("api_key"));
-            var key = new LineEdit { Text = profile.ApiKey, Secret = true }; key.TextChanged += v => profile.ApiKey = v; grid.AddChild(key);
+            var key = new LineEdit { SizeFlagsHorizontal=SizeFlags.ExpandFill, Text = profile.ApiKey, Secret = true }; key.TextChanged += v => profile.ApiKey = v; grid.AddChild(key);
             grid.AddChild(FieldLabel("默认模型"));
-            var model = new LineEdit { Text = profile.Model }; model.TextChanged += v => profile.Model = v; grid.AddChild(model);
+            var model = new LineEdit { SizeFlagsHorizontal=SizeFlags.ExpandFill, Text = profile.Model }; model.TextChanged += v => profile.Model = v; grid.AddChild(model);
             grid.AddChild(FieldLabel("附加 JSON"));
-            var extra = new LineEdit { Text = profile.ExtraJson, PlaceholderText = "如 {\"timeout\":120}" };
+            var extra = new LineEdit { SizeFlagsHorizontal=SizeFlags.ExpandFill, Text = profile.ExtraJson, PlaceholderText = "如 {\"timeout\":120}" };
             extra.TextChanged += v => profile.ExtraJson = v; grid.AddChild(extra);
-            var row = new HBoxContainer();
+            var row = new HBoxContainer { SizeFlagsHorizontal=SizeFlags.ExpandFill };
             row.AddChild(grid);
             var remove = new Button { Text = "−", FocusMode = FocusModeEnum.None };
             remove.Pressed += () => { _profiles.Remove(profile); RefreshProfiles(); };
@@ -443,6 +458,25 @@ public partial class MainMenu : Control
         }
         catch (IOException) { }
         catch (JsonException) { }
+    }
+    public void ReviewLlmCard()
+    {
+        _profiles.Clear();_profiles.Add(new ApiProfile { Name="离线界面样例",Model="DeepSeek-Offline",BaseUrl="http://offline.invalid",ApiKey="unused" });
+        foreach(var (box,draft) in _profilePickers)RefreshProfileOptions(box,draft);
+        var select=_rows[0].Row.FindChild("NationClient",true,false) as OptionButton;
+        select!.Select(2);select.EmitSignal(OptionButton.SignalName.ItemSelected,2L);
+    }
+    public void ValidateVisibleLayout()
+    {
+        void Check(Node node)
+        {
+            if(node is Label label&&label.IsVisibleInTree()&&label.GetParent() is HBoxContainer&&label.Size.Y>72)
+                throw new Exception("横行文字被挤成竖排："+label.Text);
+            if(node is ScrollContainer scroll&&scroll.IsVisibleInTree()&&scroll.GetHScrollBar().MaxValue>scroll.GetHScrollBar().Page+1)
+                throw new Exception("菜单内容出现横向溢出");
+            foreach(var child in node.GetChildren())Check(child);
+        }
+        Check(this);
     }
     public string SaveSettings()
     {
