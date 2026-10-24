@@ -132,10 +132,11 @@ def build(runtime):
             'script_patch': _patch_receipt,
             'script_check': _check_receipt,
             'script_status': _status_receipt,
+            'script_run': _run_receipt,
         })
         captions.update({name: (lambda args, actor, receipt, ctx, name=name: _CAPTIONS[name])
                          for name in ('script_write', 'script_patch', 'script_check',
-                                      'script_status')})
+                                      'script_status', 'script_run')})
 
     # ── 只读事实 ────────────────────────────────────────────────────
     if 'stock:portfolio' in runtime.capabilities:
@@ -271,6 +272,7 @@ _CAPTIONS = {
     'script_patch': '修订脚本',
     'script_check': '脚本检查',
     'script_status': '脚本状态',
+    'script_run': '运行研究槽',
 }
 
 
@@ -312,6 +314,26 @@ def _status_receipt(args, receipt, actor, ctx):
         lines.append(f'报错 {error.get("type")}：{where}{error.get("message")}')
     if result.get('output'):
         lines.append('打印输出：\n' + result['output'])
+    return '\n'.join(lines)
+
+
+def _run_receipt(args, receipt, actor, ctx):
+    """研究槽运行回执：报错时也要把报错前的 print 交还给模型，别让它以为输出没产生。"""
+    data = receipt.get('data') or {}
+    if not isinstance(data, dict) or 'status' not in data:
+        return None
+    lines = [f'研究槽：{data.get("status")}，步数 {data.get("steps")}，'
+             f'API 调用 {data.get("calls")} 次。']
+    error = data.get('error')
+    if error:
+        where = f'第 {error.get("line")} 行第 {error.get("column")} 列：' if error.get('line') else ''
+        lines.append(f'报错 {error.get("type")}：{where}{error.get("message")}')
+        if error.get('source'):
+            lines.append(f'出错行：{error["source"]}')
+    if data.get('output'):
+        lines.append(('报错前的打印输出（已保留）：\n' if error else '脚本输出：\n') + data['output'])
+    elif error:
+        lines.append('报错前没有任何 print 输出。')
     return '\n'.join(lines)
 
 

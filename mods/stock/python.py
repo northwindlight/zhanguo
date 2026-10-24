@@ -21,6 +21,43 @@ def bounded_output(text, limit):
     return text.encode('utf-8')[:limit].decode('utf-8', errors='ignore')
 
 
+def api_signature(api, method):
+    """绑定方法渲染成 history(symbol, limit=30)：报错时直接把调用方式告诉模型。"""
+    try:
+        params = list(inspect.signature(getattr(api, method)).parameters.values())[1:]
+    except (AttributeError, TypeError, ValueError):
+        return f'{method}(...)'
+    parts = []
+    for param in params:
+        if param.default is param.empty:
+            parts.append(param.name)
+        else:
+            parts.append(f'{param.name}={param.default!r}')
+    return f'{method}(' + ', '.join(parts) + ')'
+
+
+_LIMIT_HINTS = {
+    'Output size limit exceeded': ('print 输出超过上限（每槽每天 {output} 字节）；'
+                                   '先打印摘要（len()、前几条、关键字段），不要打印整个 dict'),
+    'Computation budget exceeded': '计算量超过本次回调额度（{steps} 单位）',
+    'API call budget exceeded': 'API 调用超过本次回调额度（{calls} 次）',
+    'String size limit exceeded': '单个字符串超过 {string} 字符',
+    'Container size limit exceeded': '单个列表/字典超过 {items} 个元素',
+    'Value size limit exceeded': '单个值超过 {value_bytes} 字节',
+    'Value nesting limit exceeded': '嵌套深度超过 {depth} 层',
+}
+
+
+def limit_message(message, limits):
+    hint = _LIMIT_HINTS.get(message)
+    if hint is None:
+        return None
+    try:
+        return hint.format(**limits)
+    except (KeyError, IndexError):
+        return hint
+
+
 class SlotPrograms:
     def __init__(self, world, limits):
         self.world, self.limits = world, dict(limits)
@@ -151,7 +188,9 @@ class ConcurrentRunner:
         unit = runtime.units[unit_id]
         if not runtime.in_scope(world, actor, unit.mod): raise ValueError('API 超出账户作用域')
         declaration = unit.mod.declaration['PlayerAPI']
-        if method not in declaration['Methods']: raise ValueError('未声明该方法')
+        if method not in declaration['Methods']:
+            raise ValueError(f'{capability} 没有方法 {method}；可用方法：'
+                             + '、'.join(declaration['Methods']))
         write = method not in declaration.get('ReadOnly', ())
         if method == 'end_turn' or capability in ('stock:compute', 'stock:intelligence') and write:
             raise ValueError('脚本不能结束回合、购买资源或发动谍报，请用模型工具')
@@ -162,7 +201,12 @@ class ConcurrentRunner:
             with unit_context(unit_id):
                 api = runtime.player_api(world, capability)
                 try: bound = inspect.signature(getattr(api, method)).bind(actor, **arguments)
-                except TypeError as exc: raise ToolArgumentError(str(exc)) from exc
+                except TypeError as exc:
+                    methods = '、'.join(api_signature(api, name) for name in declaration['Methods'])
+                    given = '、'.join(sorted(arguments)) or '无'
+                    raise ToolArgumentError(
+                        f'{capability}.{api_signature(api, method)} 参数不匹配：{exc}；'
+                        f'本次传入：{given}；本能力可用方法：{methods}') from exc
                 result = getattr(api, method)(*bound.args, **bound.kwargs)
             if not write: return wire(result)
             receipt = dict(base, ok=True, status='effective', code=None, message='', data=wire(result))
@@ -226,6 +270,11 @@ class ConcurrentRunner:
         machine = Machine(source, invoke, limits)
         machine.env[0].update(inputs=wire(inputs or {}), state=deepcopy(task['state']))
         result = machine.run()
+        error = result.get('error')
+        if error:
+            raw = error.get('message', '')
+            hint = limit_message(raw, limits)
+            if hint: error['message'] = f'{hint}（{raw}）'
         try:
             state = wire(machine.env[0].get('state'))
             if type(state) is not dict or len(json.dumps(state, ensure_ascii=False).encode()) > 65536:
@@ -329,9 +378,16 @@ class StockPythonMod(GameMod):
             'api.call("stock:clock","sleep",ticks=N)设置下一次回调间隔，不暂停、不推进行情、不按等待扣步数。'
             '回调必须返回，不能用while+sleep等待；每回调最多50000计算单位、200次API。'
             'state是每槽独立、跨回调和跨日保存的64KB JSON字典；成功回调提交state，失败不撤销已受理动作。'
-            'api.call("stock:market","buy"/"sell"/"short"/"cover",symbol=...,quantity=...,price=可选限价)下单，'
-            'quotes/history/orders/fills读取已知行情和本账户回报。每个tick所有回调读同一公共时间截面，订单下一tick生效。'
-            '研究槽解锁后可在行动时 script(action=run,slot="research",inputs={...}) 运行，只读，不下单、不推进行情。'
+            '行情与账户一律用 api.call(能力, 方法, ...)，签名如下：'
+            '"stock:market"：quotes()、history(symbol, limit=30)、catalog()、orders()、fills()、'
+            'buy(symbol, quantity, price=可选限价)、sell(...)、short(...)、cover(...)、cancel(order_id)；'
+            '"stock:portfolio"：holdings()、equity_curve()、borrow(amount)、repay(amount)；'
+            '"stock:clock"：snapshot()、sleep(ticks=100)；"stock:compute"：status()；"stock:intelligence"：status()。'
+            'symbol 取 quotes() 返回的 symbol 字段；参数写错时回执会给出该方法的完整签名和本能力可用方法。'
+            '每个tick所有回调读同一公共时间截面，订单下一tick生效。'
+            '研究槽解锁后可在行动时 script(action=run,slot="research",inputs={...}) 运行，只读，不下单、不推进行情，'
+            '同一行动阶段可反复运行，受账户当日共享预算约束，用尽即停。'
             '研究单次最多100万步、1000次API，所有槽共享账户每日预算；改源码和重跑不重置额度。'
+            'print 每槽每天合计上限4096字节，只打印摘要（len、前几条、关键字段），不要打印整个dict。'
             'print、错误行与各槽用量会出现在状态和下回合简报。禁止导入、文件、网络、随机和动态执行。',
             ('脚本', 'Python', '研究槽', 'on_tick', 'state'), '自动交易回调、持久状态及手动研究', system=True),)
