@@ -889,12 +889,25 @@ class CouncilService:
                         item_id=existing['id'] if existing else None,due=period+1)
 
     def _briefing(self,player,messages):
-        # Each input character is consumed. Oversized history is summarized in
-        # consecutive chunks, then merged; no old evidence is silently dropped.
-        rows=[encode({'actor':player.actor,'context':messages}),
-              *[encode(row) for row in self.council['archive']],
-              *[encode(row) for row in self.council['transcript']],
-              encode({'council_dialogue':self.council['dialogue']})]
+        # 交接摘要以最近一次 succession 为基线，只总结其后的新增材料；
+        # 没有基线时只取最近 24 个回合，旧史仍在 archive 里可按需查，不整档重读。
+        from .council_records import period_of
+        baseline=None;start=0;start_period=0
+        for index,row in enumerate(self.council['archive']):
+            if row.get('kind')=='succession' and isinstance(row.get('summary'),str) and row['summary'].strip():
+                baseline=row['summary'];start=index+1;start_period=period_of(row) or 0
+        archive_rows=self.council['archive'][start:]
+        transcript_rows=[row for row in self.council['transcript'] if (row.get('period') or 0)>=start_period]
+        if baseline is None:
+            periods=sorted({period_of(row) for row in archive_rows if period_of(row) is not None})
+            cutoff=periods[-24] if len(periods)>24 else (periods[0] if periods else 0)
+            archive_rows=[row for row in archive_rows if (period_of(row) or 0)>=cutoff]
+            transcript_rows=[row for row in transcript_rows if (row.get('period') or 0)>=cutoff]
+        rows=[encode({'actor':player.actor,'context':messages})]
+        if baseline:rows.append(encode({'previous_handover':baseline}))
+        rows.extend(encode(row) for row in archive_rows)
+        rows.extend(encode(row) for row in transcript_rows)
+        rows.append(encode({'council_dialogue':self.council['dialogue']}))
         window=self.review_cfg.get('ctx_window',1000000)
         if type(window) is not int or window<4096:raise ValueError('Reviewer ctx_window must be at least 4096')
         budget=max(512,int(window*.65)-int(self.review_cfg.get('max_tokens') or 4096))
