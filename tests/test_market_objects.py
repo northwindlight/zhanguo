@@ -190,10 +190,10 @@ class TestMarket(unittest.TestCase):
         self.assertGreater(world.market.quote('native:food',1,'buy','Qin').carry_before,0)
         world.market.buy('Qin','native:food',FOOD_DEPTH-6)
         before = world.runtime.save_mod_state(world)
-        with self.assertRaisesRegex(ValueError,'insufficient'):
+        with self.assertRaisesRegex(ValueError,'库存不足'):
             world.market.buy('Chu','native:food',6)
         self.assert_unchanged(world,before)
-        with self.assertRaisesRegex(ValueError,'insufficient'):
+        with self.assertRaisesRegex(ValueError,'库存不足'):
             world.market.quote('native:food',6,'buy','Chu')
         self.assertEqual(world.market.buy('Chu','native:food',5).quantity,5)
         self.assertEqual(dict(world.market.snapshot().inventory)['native:food'],0)

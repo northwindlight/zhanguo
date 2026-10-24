@@ -817,7 +817,9 @@ class Diplomacy(Vassalage):
                     if effect[0]=='transfer':
                         _,source,target,amount=effect
                         cash={s.id:s.amount for s in self._call('native:resource-inspection','snapshot',source)}.get(self._currency(),0)
-                        if cash<amount:raise ValueError('Cannot afford peace payment')
+                        if cash<amount:
+                            raise DomainRejection('赔款不足', {'reason': 'insufficient_resource',
+                                'resource': self._currency(), 'required': amount, 'available': cash})
                         operations.extend(({'owner':source,'debits':{self._currency():amount},'credits':{}},
                                            {'owner':target,'debits':{},'credits':{self._currency():amount}}))
                 if operations:self._call('native:resource-exchange','exchange_batch',operations)

@@ -8,7 +8,7 @@ from engine.building import BuildingCycle, integer, recipe
 from engine.coordinates import coordinates
 from engine.identifiers import content_id
 from engine.resource import Resource
-from engine.runtime import ModError
+from engine.runtime import DomainRejection, ModError
 from engine.state import active_unit
 
 # Building slots per site; the only source for this limit.
@@ -230,10 +230,19 @@ class Buildings:
     def _check_slots(self, site, cls, count=1):
         existing = list(self._index().get(site.id, ()))
         same = sum(item.kind==cls.TYPE_ID for item in existing)
-        if len(existing)+count>site.capacity:raise ValueError('Building slots full')
-        if cls.MAX_PER_SITE is not None and same+count>cls.MAX_PER_SITE:raise ValueError('Per-site building limit')
+        context = {'reason': 'building_slots', 'site': site.id, 'position': list(site.position),
+                   'kind': cls.TYPE_ID, 'count': count, 'occupied': len(existing),
+                   'capacity': site.capacity, 'same': same, 'max_per_site': cls.MAX_PER_SITE,
+                   'site_resource': cls.SITE_RESOURCE,
+                   'resource_capacity': dict(site.resources).get(cls.SITE_RESOURCE, 0) if cls.SITE_RESOURCE else None,
+                   'resources': dict(site.resources),
+                   'existing': [item.kind for item in existing]}
+        if len(existing)+count>site.capacity:
+            raise DomainRejection('本格建筑位不足', {**context, 'block': 'slots'})
+        if cls.MAX_PER_SITE is not None and same+count>cls.MAX_PER_SITE:
+            raise DomainRejection('同类建筑已达上限', {**context, 'block': 'per_site'})
         if cls.SITE_RESOURCE is not None and same+count>dict(site.resources).get(cls.SITE_RESOURCE,0):
-            raise ValueError('Insufficient local building resource capacity')
+            raise DomainRejection('本地资源容量不足', {**context, 'block': 'resource'})
         return existing,same
 
     def seed(self, site_id, kind, count=1, *, completed=True):
@@ -257,7 +266,12 @@ class Buildings:
         if site.owner!=owner:raise ValueError('Site does not belong to actor')
         if self._orders[site_id]==self.period:raise ValueError('One construction order per site per period')
         existing,same = self._check_slots(site,cls)
-        if len(existing)<cls.MIN_SLOTS:raise ValueError('Insufficient existing building slots')
+        if len(existing)<cls.MIN_SLOTS:
+            raise DomainRejection('现有建筑数量不足', {'reason': 'building_slots', 'block': 'min_existing',
+                'site': site.id, 'position': list(site.position), 'kind': kind,
+                'occupied': len(existing), 'capacity': site.capacity, 'same': same,
+                'min_slots': cls.MIN_SLOTS, 'resources': dict(site.resources),
+                'existing': [item.kind for item in existing]})
         built = self._self_built.get((owner,kind),0)
         if cls.SELF_BUILD_LIMIT is not None and built>=cls.SELF_BUILD_LIMIT:
             raise ValueError('Owner self-build limit reached')

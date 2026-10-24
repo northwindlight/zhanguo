@@ -139,7 +139,19 @@ class ReceiptPresentation(QueryPresentation):
         layer=getattr(self,'tool_layer',None)
         if not receipt['ok']:
             if isinstance(data,dict) and data.get('reason')=='insufficient_resource':
-                return f'❌ {self.label("content",data["resource"])}不足：需要{num(data["required"])}，现有{num(data["available"])}；请先补足资源或缩小数量。'
+                required=data.get('required') or 0;available=data.get('available') or 0
+                resource=self.label('content',data.get('resource',''))
+                hint=('先卖库存换金' if data.get('resource')=='native:gold'
+                      else '可在市场买入，或等本期产出')
+                return (f'❌ {resource}不足：需要 {num(required)}，现有 {num(available)}，'
+                        f'还差 {num(max(0,required-available))}；{hint}，或缩小数量。')
+            if isinstance(data,dict) and data.get('reason')=='market_inventory':
+                resource=self.label('content',data.get('resource',''))
+                requested=data.get('requested') or 0;available=data.get('available') or 0
+                return (f'❌ 市场 {resource} 库存不足：想买 {num(requested)}，可卖 {num(available)}，'
+                        f'还差 {num(max(0,requested-available))}；减少数量或等补货。')
+            if isinstance(data,dict) and data.get('reason')=='building_slots':
+                return self.building_slots(data)
             if action=='plan' and isinstance(data,dict) and 'reason' in data:
                 return '❌ 议会未批准国策：'+data['reason']+'\n'+args.get('text','')
             if layer is not None:
@@ -164,6 +176,34 @@ class ReceiptPresentation(QueryPresentation):
             return '已提交，等待外交结算；预留'+num(data.get('fee',0))+'金。'+('\n'+self.label('receipt',data['message']) if data.get('message') else '')
         # Unknown mods retain all their public data in readable compact form.
         return message+('\n' if message and data is not None else '')+(self.format(data,self._names) if data is not None else '') or '已完成。'
+    def building_slots(self,data):
+        """地块建造失败：把建筑位、同类上限、本地资源容量和已有建筑一次说清。"""
+        position=data.get('position') or (0,0);pos=self.pos(position)
+        kind=self.label('content',data.get('kind',''))
+        occupied=data.get('occupied') or 0;capacity=data.get('capacity')
+        block=data.get('block')
+        if block=='slots':
+            reason=f'本格建筑位已满：{num(occupied)}/{num(capacity)}'
+        elif block=='per_site':
+            reason=f'同类建筑已达上限：{kind} 已有 {num(data.get("same"))}，上限 {num(data.get("max_per_site"))}'
+        elif block=='resource':
+            need=(data.get('same') or 0)+(data.get('count') or 1)
+            reason=(f'本格 {self.label("content",data.get("site_resource") or "")} 容量不足：'
+                    f'需要 {num(need)}，本格容量 {num(data.get("resource_capacity"))}')
+        elif block=='min_existing':
+            reason=f'现有建筑数量不足：本格已有 {num(occupied)}，至少需 {num(data.get("min_slots"))}'
+        else:
+            reason='本格无法建造'
+        built='、'.join(self.label('content',item) for item in (data.get('existing') or ())) or '无'
+        resources=data.get('resources') or {}
+        capacity_text='、'.join(f'{self.label("content",key)} {num(value)}'
+                                for key,value in sorted(resources.items())) or '无'
+        x,y=position[0],position[1]
+        return (f'❌ 无法在 {pos} 建造{kind}：{reason}。\n'
+                f'本格已有建筑：{built}（{num(occupied)}/{num(capacity)} 位）。\n'
+                f'本格资源容量：{capacity_text}。\n'
+                f'地块详情：query(panel=tile, place="{x} {y}")。')
+
     @staticmethod
     def relation(value):return {'war':'交战','ally':'同盟','neutral':'中立'}.get(value,value)
 
