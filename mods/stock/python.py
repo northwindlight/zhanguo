@@ -21,6 +21,12 @@ def bounded_output(text, limit):
     return text.encode('utf-8')[:limit].decode('utf-8', errors='ignore')
 
 
+def research_fee(prices, steps, calls):
+    """研究槽按实际算力计费：每千计算单位 + 每次 API 调用，向上取整到千步。"""
+    return (((int(steps) + 999) // 1000) * prices['research_step_cash_per_1k']
+            + int(calls) * prices['research_call_cash'])
+
+
 def api_signature(api, method):
     """绑定方法渲染成 history(symbol, limit=30)：报错时直接把调用方式告诉模型。"""
     try:
@@ -226,6 +232,14 @@ class ConcurrentRunner:
                       calls=min(params['ResearchCalls'] if research else params['BurstCalls'], pool['calls_remaining']))
         if limits['steps'] < 1:
             return self._exhausted(task)
+        if research:
+            # 研究槽单独计费：按实际算力从现金扣，开跑前要求足以覆盖本次上限。
+            cap_fee = research_fee(pool['prices'], limits['steps'], limits['calls'])
+            available = self._object('stock:portfolio', 'holdings', actor)['available_cash']
+            if cap_fee > available:
+                raise ValueError(f'研究槽按算力计费：本次上限 {limits["steps"]} 步、{limits["calls"]} 次调用'
+                                 f'需预留 {cap_fee:.2f} 现金，当前可用 {available:.2f}；'
+                                 '可减少研究代码的预算或先补足现金')
         source = task['source']
         callback = False
         try:
@@ -286,6 +300,11 @@ class ConcurrentRunner:
             if result['error']: state = None
         spent = min(result['steps'], limits['steps'])
         self._object('stock:compute', 'consume', actor, spent, result['calls'])
+        if research:
+            fee = research_fee(pool['prices'], spent, result['calls'])
+            if fee:
+                self._object('stock:portfolio', 'spend', actor, fee, 'compute')
+                result['fee'] = fee
         receipts = result.pop('receipts')
         result.update(status='failed' if result['error'] else 'effective',
                       steps=spent, message=result['error']['message'] if result['error'] else '',

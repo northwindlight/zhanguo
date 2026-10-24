@@ -304,9 +304,10 @@ class StockGameTest(unittest.TestCase):
 
     def test_buy_pool_debits_game_cash_and_increases_shared_quota(self):
         h = self.host(); s = self.buy_resource(h, 'pool')
-        self.assertEqual(s['paid'], 100)
+        fee = h.world.compute.parameters['PoolDailyFee']
+        self.assertEqual(s['paid'], fee)
         self.assertEqual(s['steps_limit'], 8000000)
-        self.assertEqual(h.world.portfolio.holdings(ACTOR)['wealth'], 99900)
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['wealth'], 100000 - fee)
 
     def test_buy_pool_cannot_reset_usage(self):
         h = self.host(); h.world.compute.consume(ACTOR, 1000, 2)
@@ -509,10 +510,12 @@ class StockGameTest(unittest.TestCase):
 
     def test_release_and_reenable_research_does_not_charge_unlock_twice(self):
         h = self.host()
-        self.assertEqual(self.buy_resource(h, 'research')['paid'], 550)
+        p = h.world.compute.parameters
+        first = p['ResearchUnlockFee'] + p['ResearchDailyFee']
+        self.assertEqual(self.buy_resource(h, 'research')['paid'], first)
         self.submit(h, 'compute', action='release', kind='research')
         self.assertEqual(self.buy_resource(h, 'research')['paid'], 0)
-        self.assertEqual(h.world.compute.status(ACTOR)['fees_paid'], 550)
+        self.assertEqual(h.world.compute.status(ACTOR)['fees_paid'], first)
 
     def test_failed_state_is_not_committed_but_valid_previous_state_remains(self):
         h = self.host()

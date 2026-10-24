@@ -324,6 +324,8 @@ def _run_receipt(args, receipt, actor, ctx):
         return None
     lines = [f'研究槽：{data.get("status")}，步数 {data.get("steps")}，'
              f'API 调用 {data.get("calls")} 次。']
+    if data.get('fee'):
+        lines.append(f'本次按算力计费 {data["fee"]:.2f} 现金。')
     error = data.get('error')
     if error:
         where = f'第 {error.get("line")} 行第 {error.get("column")} 列：' if error.get('line') else ''

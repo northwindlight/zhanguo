@@ -16,10 +16,12 @@ StepsPerPool = 4000000
 CallsPerPool = 4000
 MaxPools = 4
 MaxSlots = 4
-PoolDailyFee = 100
-SlotDailyFee = 50
-ResearchUnlockFee = 500
-ResearchDailyFee = 50
+PoolDailyFee = 500
+SlotDailyFee = 300
+ResearchUnlockFee = 50000
+ResearchDailyFee = 0
+ResearchStepCashPer1K = 1
+ResearchCallCash = 1
 [PlayerAPI]
 Methods = ["status", "buy", "release"]
 ReadOnly = ["status"]

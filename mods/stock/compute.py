@@ -101,7 +101,9 @@ class ComputePools:
                     notice=row['notice'], max_pools=p['MaxPools'], max_slots=p['MaxSlots'],
                     prices=dict(next_pool=p['PoolDailyFee'] * 2 ** (row['pool'] - 1),
                                 slot_daily=p['SlotDailyFee'], research_daily=p['ResearchDailyFee'],
-                                research_unlock=0 if row['research_unlocked'] else p['ResearchUnlockFee']))
+                                research_unlock=0 if row['research_unlocked'] else p['ResearchUnlockFee'],
+                                research_step_cash_per_1k=p['ResearchStepCashPer1K'],
+                                research_call_cash=p['ResearchCallCash']))
 
     def consume(self, actor, steps, calls):
         integer(steps, 'steps'); integer(calls, 'calls')
@@ -188,7 +190,9 @@ class ComputeMod(GameMod):
             f'compute(action=buy,kind=pool) 增购一档，每档同量，最多 {p["MaxPools"]} 档；'
             f'额外池每日费用依次 {p["PoolDailyFee"]}、{p["PoolDailyFee"]*2}、{p["PoolDailyFee"]*4}。'
             f'kind=slot 增加交易槽，最多 {p["MaxSlots"]} 槽，每额外槽每日 {p["SlotDailyFee"]}。'
-            f'kind=research 解锁行动内只读研究槽，首次 {p["ResearchUnlockFee"]}，每日 {p["ResearchDailyFee"]}。'
+            f'kind=research 解锁行动内只读研究槽，首次 {p["ResearchUnlockFee"]}，之后不收日租，'
+            f'每次运行按实际算力从现金扣费：每千计算单位 {p["ResearchStepCashPer1K"]}、每次 API {p["ResearchCallCash"]}；'
+            '开跑前要求可用现金足够覆盖本次上限，跑完按实际用量结算。'
             '购买立即生效，当日按整日计费；以后每日自动续租，现金不足降回免费档。'
             'compute(action=release,kind=...) 退租，当日不退款；源码和研究解锁资格保留。'
             '所有交易槽与研究槽共享每日总预算，换槽、改代码、重跑均不重置用量。'
