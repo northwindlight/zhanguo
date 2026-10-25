@@ -186,6 +186,7 @@ class ComputeMod(GameMod):
             f'  交易槽第 2/3/4 个：{p["SlotFeeTier2"]} / {p["SlotFeeTier3"]} / {p["SlotFeeTier4"]} 现金每回合，'
             '每多一个槽就多一份可并行的策略。\n'
             'compute(action=buy,kind=pool|slot) 是当回合购买，compute(action=release,...) 退租不退钱。'
+            '算力池档数同时决定单次回调上限：第 N 档 = 50000 步 / 200 次 API 的 N 倍。'
             f'【研究槽】不需要购买，按次收费：每次 script(action=run,slot="research") 固定 '
             f'{p["ResearchRunFee"]} 现金，每回合最多 {p["ResearchRunsPerRound"]} 次；'
             '研究不占共享算力池，单次上限见规则「Python 策略与研究槽」。'

@@ -271,8 +271,11 @@ class ConcurrentRunner:
             # 研究槽按次收费，不占共享算力池，只有单次上限。
             limits = dict(self.module.limits, steps=params['ResearchSteps'], calls=params['ResearchCalls'])
         else:
-            limits = dict(self.module.limits, steps=min(params['BurstSteps'], pool['steps_remaining']),
-                          calls=min(params['BurstCalls'], pool['calls_remaining']))
+            # 单次回调上限随算力池档数线性提高：免费 1 档 = 5 万步/200 次，第 N 档 = N 倍。
+            tier = max(1, int(pool.get('pool', 1)))
+            limits = dict(self.module.limits,
+                          steps=min(params['BurstSteps'] * tier, pool['steps_remaining']),
+                          calls=min(params['BurstCalls'] * tier, pool['calls_remaining']))
         if limits['steps'] < 1:
             return self._exhausted(task)
         source = task['source']
@@ -324,7 +327,14 @@ class ConcurrentRunner:
             error = with_hint(error)               # 常见沙盒拒绝附一句改法
             raw = error.get('message', '')
             hint = limit_message(raw, limits)      # 超长报错先给摘要，全文在括号里
-            if hint: error['message'] = f'{hint}（{raw}）'
+            if hint:
+                if '本次回调' in hint:
+                    # 撞到单次回调上限时给出可行出路：买池提高上限，或拆到多个交易槽。
+                    tier = max(1, int(pool.get('pool', 1)))
+                    hint += (f'；compute(action=buy,kind=pool) 可把单次上限提到 '
+                             f'{params["BurstSteps"]*(tier+1)} 步（当前 {tier} 档），'
+                             '或者把工作拆到多个交易槽并行')
+                error['message'] = f'{hint}（{raw}）'
         try:
             state = wire(machine.env[0].get('state'))
             if type(state) is not dict or len(json.dumps(state, ensure_ascii=False).encode()) > 65536:
@@ -473,7 +483,7 @@ class StockPythonMod(GameMod):
             'script(action=write/patch/check/status,slot="1"..."4"或"research")管理各槽源码；'
             '普通源码每天自动执行一次；定义无参数 def on_tick(): 会每100tick重新回调，可用'
             'api.call("stock:clock","sleep",ticks=N)设置下一次回调间隔，不暂停、不推进行情、不按等待扣步数。'
-            '回调必须返回，不能用while+sleep等待；每回调最多50000计算单位、200次API。'
+            '回调必须返回，不能用while+sleep等待；单次回调上限 = 50000计算单位、200次API × 算力池档数（撞上限时买池或拆到多个交易槽）。'
             'state是每槽独立、跨回调和跨日保存的64KB JSON字典；成功回调提交state，失败不撤销已受理动作。'
             '行情与账户一律用 api.call(能力, 方法, ...)，签名如下：'
             '"stock:market"：quotes()、history(symbol, limit=30)、ticks(symbol)、catalog()、pool()、'

@@ -393,6 +393,14 @@ class StockGameTest(unittest.TestCase):
         self.assertTrue(r['data']['valid'])
         self.assertEqual(h.world.compute.status(ACTOR)['steps_used'], 0)
 
+    def test_pool_tier_raises_per_callback_budget_and_hints(self):
+        h = self.host("def on_tick():\n    while True:\n        pass")
+        self.buy_resource(h, 'pool')
+        h.cycle()
+        error = self.result(h)['error']['message']
+        self.assertIn('100000', error)        # 第 2 档：单次回调 5 万 × 2
+        self.assertIn('kind=pool', error)     # 撞上限时提示买池或多槽
+
     def test_burst_limit_stops_non_yielding_strategy(self):
         h = self.host("def on_tick():\n    while True:\n        pass")
         h.cycle(); r = self.result(h)
