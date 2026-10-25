@@ -20,6 +20,7 @@ static class Program
     public static void Main(string[] args)
     {
         WorldChecks.Run();
+        RuntimeChecks.Run();
         SquadChecks.Run();
         string json = File.ReadAllText(args[0]);
         var layout = new RegionLayout(SampleInput.Parse(json));

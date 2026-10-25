@@ -81,6 +81,17 @@ Linux 实际窗口录制：`python3 scripts/record_terrain_sample.py --output ar
 
 ## 启动
 
+### Windows 便携体验包
+
+Windows 构建流程会导出 `Zhanguo.exe`，并带上 .NET 运行库、官方嵌入式 Python 与游戏宿主。
+完整解压后双击即可，不需要安装开发工具。默认兼容性渲染，另附 Vulkan 启动脚本。
+存档与设置写到包内 `userdata`，移动目录后继续从新位置找运行环境。
+包内还有操作说明、音乐与美术评审说明、原创素材母版/图录及32秒演出参考。
+
+构建步骤和产物下载见[Windows 便携打包说明](../../../docs/Windows便携包.md)。
+
+### 源码启动
+
 安装 Godot **4.7.2 .NET**、.NET **8 SDK**、Python **3.11+**，在仓库根目录执行：
 
 ```bash
@@ -161,8 +172,8 @@ archive/desktop/<时间>-<随机后缀>/
 python3 desktop.py --resume archive/desktop/<旧目录>/session.json
 ```
 
-现役 LLM 对局的接管、远程连接与三平台独立安装包尚未接入。
-首版依赖完整源码仓库与 Python；不是已完成的 Steam 发布包。
+现役 LLM 对局的接管、远程连接与其他平台独立安装包尚未接入。
+源码启动依赖完整仓库与 Python；Windows 另有上述便携构建，Steam 发布尚未进行。
 
 ## 操作
 

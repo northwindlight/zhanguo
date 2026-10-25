@@ -1,0 +1,55 @@
+name: Windows 便携包
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, codex/windows-portable]
+    paths:
+      - '.github/workflows/windows-portable.yml'
+      - 'scripts/package_windows.py'
+      - 'scripts/verify_windows_package.ps1'
+      - 'packaging/windows/**'
+      - 'mods/ui/desktop/**'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: 构建无需安装环境的 Windows ZIP
+        shell: pwsh
+        run: python scripts/package_windows.py --output "$env:RUNNER_TEMP/zhanguo-package" --cache "$env:RUNNER_TEMP/zhanguo-tools"
+      - name: 移动到中文路径并验证内置运行环境和实际窗口
+        shell: pwsh
+        run: |
+          $taskZip = (Get-ChildItem "$env:RUNNER_TEMP/zhanguo-package/*.zip").FullName
+          ./scripts/verify_windows_package.ps1 -Package $taskZip -Output "$env:RUNNER_TEMP/zhanguo-verification"
+      - name: 上传便携包
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zhanguo-Windows-x64
+          path: |
+            ${{ runner.temp }}/zhanguo-package/*.zip
+            ${{ runner.temp }}/zhanguo-package/*.sha256
+          compression-level: 0
+          retention-days: 30
+      - name: 保存验收日志与截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-portable-verification
+          path: |
+            ${{ runner.temp }}/zhanguo-verification/*.json
+            ${{ runner.temp }}/zhanguo-verification/*.txt
+            ${{ runner.temp }}/zhanguo-verification/*.png
+          retention-days: 30

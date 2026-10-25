@@ -4,6 +4,8 @@
 
 ## 当前使用与开发
 
+- [Windows 便携体验包](Windows便携包.md)：自带运行环境、解压双击启动，附音乐与美术评审材料。
+
 - **[Mod 开发文档站](https://northwindlight.github.io/zhanguo/)**：按开发流程组织，带可搜索的 API 参考（API 参考页由 `scripts/api_doc.py` 从源码生成）。本地预览：`python3 docs/site/build.py --serve`。
 - [游戏说明书](../mods/native/docs/游戏说明书.md)：面向人类读者的玩法说明，包含国土存亡、回合流程、生产、市场、战争、外交、八国剧本与观察者操作；游戏内也可按需读取。
 - [Mod 开发指南](Mod开发指南.md)：示例、模块声明与开发接口。

@@ -52,11 +52,21 @@ public partial class Desktop : Control
     private string _liveActor="";
     private int _activitySeen;
     private MainMenu _menu = null!;
-    private string _rootPath = "";
+    private Zhanguo.Desktop.Layout.DesktopRuntime _runtime=null!;
+    private bool _portableCheck;
 
     public override void _Ready()
     {
         GetTree().AutoAcceptQuit = false;
+        var args=OS.GetCmdlineUserArgs();
+        try
+        {
+            _runtime=Zhanguo.Desktop.Layout.DesktopRuntime.Resolve(OS.GetExecutablePath(),ProjectSettings.GlobalizePath("res://"),
+                !OS.HasFeature("editor"),OS.GetEnvironment("ZHANGUO_ROOT"),OS.GetEnvironment("ZHANGUO_PYTHON"),OS.GetName()=="Windows");
+        }
+        catch(Exception e){GD.PrintErr(e.Message);GetTree().Quit(3);return;}
+        for(int i=0;i<args.Length-1;i++)if(args[i]=="--portable-check")
+        { _portableCheck=true;_=PortableCheck(args[i+1]);return; }
         var theme=PixelTheme.Create();
         Theme = theme;
         foreach (string type in new[] { "Button", "OptionButton", "LineEdit", "PanelContainer", "TabContainer" })
@@ -127,10 +137,7 @@ public partial class Desktop : Control
             HorizontalAlignment=HorizontalAlignment.Right,Modulate=new Color("c0c9b2") };
         hint.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight);hint.OffsetLeft=-660;hint.AddThemeFontSizeOverride("font_size",14);hint.OffsetRight=-18;hint.OffsetTop=-44;hint.OffsetBottom=-18;AddChild(hint);
         Resized+=LayoutDrawers;LayoutDrawers();
-        var args=OS.GetCmdlineUserArgs();
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--smoke-output"){_smoke=args[i+1];_playbackSpeed=96;}
-        _rootPath=OS.GetEnvironment("ZHANGUO_ROOT");
-        if(_rootPath=="")_rootPath=Path.GetFullPath(Path.Combine(ProjectSettings.GlobalizePath("res://"),"../../.."));
         string? menuTest=null;
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--menu-output")menuTest=args[i+1];
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--ui-review-output"){_=ReviewDialogue(args[i+1]);return;}
@@ -138,7 +145,7 @@ public partial class Desktop : Control
         if(_smoke==null)
         {
             // Start screen: new game / load save / settings; smoke runs skip it.
-            _menu=new MainMenu(_rootPath,MenuBegin);
+            _menu=new MainMenu(_runtime.DataRoot,MenuBegin);
             _menu.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);_menu.ZIndex=30;AddChild(_menu);
             _status.Text="主菜单";
             if(menuTest!=null)_=MenuSelfTest(menuTest);
@@ -236,17 +243,8 @@ public partial class Desktop : Control
 
     private void StartHost(string? configPath=null,string? resumePath=null)
     {
-        string root=_rootPath!=""?_rootPath:OS.GetEnvironment("ZHANGUO_ROOT");
-        if(root=="")root=Path.GetFullPath(Path.Combine(ProjectSettings.GlobalizePath("res://"),"../../.."));
-        _rootPath=root;
-        string python=OS.GetEnvironment("ZHANGUO_PYTHON");if(python=="")python=OS.GetName()=="Windows"?"python":"python3";
-        string output=Path.Combine(root,"archive","desktop",DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N")[..6]);
-        var info=new ProcessStartInfo(python) {WorkingDirectory=root,UseShellExecute=false,RedirectStandardInput=true,
-            RedirectStandardOutput=true,RedirectStandardError=true,CreateNoWindow=true,StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8};
-        info.Environment["PYTHONIOENCODING"]="utf-8";
-        if(configPath!=null)info.Environment["ZHANGUO_DESKTOP_CONFIG"]=configPath;
-        if(resumePath!=null)info.Environment["ZHANGUO_RESUME"]=resumePath;
-        foreach(string arg in new[]{"-u","-m","ui.desktop","--output",output})info.ArgumentList.Add(arg);
+        string output=Path.Combine(_runtime.DataRoot,"archive","desktop",DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N")[..6]);
+        var info=_runtime.Host(output,configPath,resumePath);
         _host=Process.Start(info) ?? throw new Exception("无法启动 Python 宿主");
         _host.StandardInput.AutoFlush=true;
         _stderrPump=Task.Run(async()=>{while(await _host.StandardError.ReadLineAsync() is string line)GD.PrintErr(line);});
@@ -305,6 +303,7 @@ public partial class Desktop : Control
 
     public override void _Process(double delta)
     {
+        if(_portableCheck)return;
         _elapsed+=delta;
         for(int i=0;i<16 && _inbox.Reader.TryRead(out var line);i++)
         {
@@ -453,6 +452,7 @@ public partial class Desktop : Control
 
     private async Task Screenshot(string path)
     {
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
         await ToSignal(RenderingServer.Singleton,RenderingServer.SignalName.FramePostDraw);
         using var image=GetViewport().GetTexture().GetImage();
         if(image.SavePng(path)!=Godot.Error.Ok)throw new IOException("截图保存失败");
