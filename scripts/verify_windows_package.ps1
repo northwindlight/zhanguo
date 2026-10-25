@@ -19,7 +19,7 @@ $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
 function Run-GameCheck([string]$Name, [string[]]$GameArguments, [int]$Timeout = 180000) {
     $taskStdout = Join-Path $taskOutput "$Name.stdout.txt"
     $taskStderr = Join-Path $taskOutput "$Name.stderr.txt"
-    $taskQuoted = ($GameArguments | ForEach-Object { '"' + $_.Replace('"', '\"') + '"' }) -join ' '
+    $taskQuoted = (@('--audio-driver', 'Dummy') + $GameArguments | ForEach-Object { '"' + $_.Replace('"', '\"') + '"' }) -join ' '
     $taskProc = Start-Process -FilePath $taskExe -ArgumentList $taskQuoted -WorkingDirectory $env:SystemRoot -PassThru `
         -RedirectStandardOutput $taskStdout -RedirectStandardError $taskStderr
     if (-not $taskProc.WaitForExit($Timeout)) { $taskProc.Kill($true); throw "$Name timed out" }

@@ -469,9 +469,9 @@ public partial class Desktop : Control
     }
     private async Task PointerClickAt(Vector2 p)
     {
-        Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex=MouseButton.Left,Pressed=true,Position=p,GlobalPosition=p });
+        GetViewport().PushInput(new InputEventMouseButton { ButtonIndex=MouseButton.Left,Pressed=true,Position=p,GlobalPosition=p },true);
         await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
-        Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex=MouseButton.Left,Pressed=false,Position=p,GlobalPosition=p });
+        GetViewport().PushInput(new InputEventMouseButton { ButtonIndex=MouseButton.Left,Pressed=false,Position=p,GlobalPosition=p },true);
         await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
         await WaitFor(()=>Drawers.All(d=>d.IsSettled),"抽屉动画未完成");
     }
