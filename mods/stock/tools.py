@@ -98,15 +98,22 @@ def build(runtime):
 
         script_specs = (
             Action('script_write', script_write, owner='sandbox:programs', api=('write',),
-                   description='保存本国 Python 量化脚本。脚本在沙盒里跑，可用 '
-                              'api.call(capability, method, ...) 调行情与下单、api.observe() 看自己的持仓、'
-                              'inputs 取本回合参数、print 打印结果。源码跨回合复用，改用 patch 精确替换一处。'
-                              '例：q=api.call("stock:market","quotes"); s=[r for r in q if r["ma5"] and r["ma5"]>r["price"]];'
-                              'print(s)'),
+                   description='保存本国 Python 量化脚本。沙盒是Python子集：支持 def/for/while/if、'
+                              '列表与字典推导、切片、三元，以及"先def具名函数再作 sorted/min/max 的 key="；'
+                              '不支持 f-string（用+拼接或%格式化）、lambda、set、try/class/import。'
+                              '脚本里 api.call(capability, method, ...) 调行情与下单，inputs 取本回合参数，'
+                              'print 打印结果；源码跨回合复用，改用 patch 精确替换一处。'
+                              '可运行例：\\ndef on_tick():\\n'
+                              '    rows = api.call("stock:market", "quotes")\\n'
+                              '    def chg(r): return r["change_pct"]\\n'
+                              '    top = sorted(rows, key=chg, reverse=True)[0]\\n'
+                              '    print("最强 " + top["symbol"] + " " + str(top["price"]))\\n'
+                              '    api.call("stock:clock", "sleep", ticks=200)'),
             Action('script_patch', script_patch, owner='sandbox:programs', api=('patch',),
                    description='精确替换已保存源码中的一处内容（old 必须在源码里恰好出现一次），不执行'),
             Action('script_check', script_check, owner='sandbox:programs', api=('check',), read_only=True,
-                   description='免费检查 Python 语法与安全规则，不执行、不消耗窗口额度；保存后先检查再跑'),
+                   description='免费检查 Python 语法与沙盒规则，不执行、不消耗窗口额度；'
+                              '被拒写法会附一句改法提示，保存后先检查再结束回合'),
             Tool('script_status', script_status, owner='sandbox:programs', api=('status',), read_only=True, fact=True,
                  description='本国脚本状态：上回合执行结果（打印输出、报错类型与行列）、源码版本与预算；'
                             'include_source=true 查看源码'),
@@ -115,8 +122,9 @@ def build(runtime):
             description='行动时手动运行已解锁的research研究槽，只读；inputs为JSON参数。不能下单或推进行情，共享账户每日算力。'))
         umbrella = command_layer.action_tool(
             runtime, 'script',
-            '计算槽：write保存、patch修订、check免费语法检查、status查结果；slot为1～4或research。'
-            '自动交易槽普通源码每日一次；定义def on_tick():则默认每100tick回调，state是独立持久JSON字典。'
+            '计算槽：write保存、patch修订、check免费语法检查（会附改法提示）、status查结果；slot为1～4或research。'
+            '自动交易槽普通源码每日一次；定义def on_tick():则按sleep间隔回调，state是独立持久JSON字典。'
+            '沙盒Python子集：无f-string/lambda/set/try/class/import；排序用 def 具名函数作 key=，字符串用+拼接。'
             'api.call("stock:clock","sleep",ticks=N)只安排下次回调，回调应返回，不写while等待。'
             'run仅手动运行已解锁的research槽，用于分析和回测，只读不下单。'
             '交易日全体结束后沿20000共同tick自动运行，委托最早下一tick生效，成交立即可见。',
@@ -152,11 +160,20 @@ def build(runtime):
         def market(world, actor):
             return runtime.player_api(world, 'stock:market').quotes(actor)
 
+        def day_report(world, actor):
+            return runtime.player_api(world, 'stock:market').day_summary(actor)
+
         tools.append(Tool('market', market, owner='stock:market', api=('quotes',),
                           covers=(('stock:market', 'history'), ('stock:market', 'catalog'), ('stock:market', 'orders'), ('stock:market', 'fills')),
                           read_only=True, fact=True,
                           description='当前行情：每只股票的现价、昨收、涨跌、ma5/ma10/ma20 均线、动量、'
-                                     '已实现波动率，以及流通盘与冲击成本、手续费参数。'))
+                                     '已实现波动率、盘口深度十档、可借券余额，以及每只股票已公布的'
+                                     '消息（市场快讯/公司快讯/财报，含现金流变化百分比）和公开财报日程'
+                                     '（next_report_round 与当日 report_tick）；流通盘与手续费参数也在其中。'))
+        tools.append(Tool('day_report', day_report, owner='stock:market', api=('day_summary',),
+                          read_only=True, fact=True,
+                          description='上一交易日的执行回执：自己委托各状态笔数（成交/部分成交后到期/'
+                                     '撤单）、成交笔数、买入卖出股数与金额、手续费。用来核对策略是否按预期执行。'))
 
         def stock_trade(world, actor, symbol=None, quantity=None):
             raise ValueError('买卖只能通过 Python 脚本下单：把下单写进脚本，用 '

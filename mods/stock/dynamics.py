@@ -68,8 +68,10 @@ class Dynamics:
         offset = self.market.stocks[symbol]['report_offset']
         return seq is not None and seq % REPORT_CYCLE == offset % REPORT_CYCLE
 
-    def next_report(self, symbol):
-        for candidate in range(self.market.round, self.market.round + 3 * self.calendar['cycle'] + 1):
+    def next_report(self, symbol, from_round=None):
+        """Next reporting round counted from from_round (defaults to last session)."""
+        start = self.market.round if from_round is None else from_round
+        for candidate in range(start, start + 3 * self.calendar['cycle'] + 1):
             if self.reports_on(symbol, candidate):
                 return candidate
         return None

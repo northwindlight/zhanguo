@@ -23,5 +23,5 @@ FlowShares = 5
 NoiseEnabled = true
 NoiseInterval = 40
 [PlayerAPI]
-Methods = ["quotes", "history", "catalog", "orders", "fills", "buy", "sell", "short", "cover", "cancel"]
-ReadOnly = ["quotes", "history", "catalog", "orders", "fills"]
+Methods = ["quotes", "history", "catalog", "orders", "fills", "day_summary", "buy", "sell", "short", "cover", "cancel"]
+ReadOnly = ["quotes", "history", "catalog", "orders", "fills", "day_summary"]

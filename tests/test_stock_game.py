@@ -609,6 +609,60 @@ class StockGameTest(unittest.TestCase):
             self.assertIn('buy', actions)
             self.assertIn('stock_fill', actions)
 
+    def test_check_hints_explain_sandbox_workarounds(self):
+        h = self.host()
+        for source, needle in (
+            ('x = f"{1+1}"\n', '+ 拼接'),
+            ('best = sorted([], key=lambda r: r)\n', 'key='),
+            ('s = {i for i in range(3)}\n', '列表推导'),
+            ('s = set()\ns.add(1)\n', 'list'),
+        ):
+            with self.subTest(needle=needle):
+                r = self.submit(h, 'script', action='check', source=source)
+                self.assertTrue(r['ok'])
+                error = r['data'].get('error') or {}
+                self.assertIn('改法', error.get('message', ''))
+                self.assertIn(needle, error['message'])
+
+    def test_execution_error_also_carries_hint(self):
+        h = self.host()
+        r = self.research(h, 'x = f"{api}"\n')
+        self.assertFalse(r['ok'])
+        self.assertIn('改法', r['data']['error']['message'])
+
+    def test_advertised_key_pattern_actually_runs(self):
+        source = ("def on_tick():\n"
+                  "    rows = api.call('stock:market', 'quotes')\n"
+                  "    def chg(r): return r['change_pct']\n"
+                  "    top = sorted(rows, key=chg, reverse=True)[0]\n"
+                  "    print('top ' + top['symbol'] + ' ' + str(top['price']))\n"
+                  "    api.call('stock:clock', 'sleep', ticks=200)\n")
+        h = self.host(source)
+        h.cycle()
+        self.assertEqual(self.result(h)['status'], 'effective')
+        self.assertTrue(self.result(h)['output'].startswith('top '))
+
+    def test_day_report_fact_and_briefing_show_last_session(self):
+        h = self.host(BUY)
+        h.cycle()
+        report = h.player(ACTOR).observe()['facts']['day_report']
+        self.assertEqual((report['orders'], report['fills'], report['bought_quantity']), (1, 1, 10))
+        self.assertGreater(report['bought_amount'], 0)
+        self.assertEqual(report['statuses'].get('filled'), 1)
+        h.clients[ACTOR].scripts['2'] = BUY
+        h.cycle()
+        text = StockView({'language': 'zh-CN'}).stock_briefing(h.player(ACTOR).observe())
+        self.assertIn('执行回执', text)
+        self.assertIn('买入10股', text)
+        self.assertIn('最新消息', text)
+        # Morning after two sessions: the calendar must point at upcoming reports.
+        quotes = {row['symbol']: row for row in h.world.market.quotes(ACTOR)}
+        self.assertEqual(quotes['shanhai']['next_report_round'], 8)    # offset 1 reports again at seq 6
+        self.assertEqual(quotes['qingzhou']['next_report_round'], 9)   # offset 2 already reported round 2
+        self.assertEqual(quotes['yundu']['next_report_round'], 3)      # offset 3 reports today
+        self.assertEqual(quotes['yundu']['report_tick'], round(200*.2))
+        self.assertIsNone(quotes['shanhai']['report_tick'])
+
     def test_old_market_save_without_dynamics_is_rejected(self):
         h = self.host(); h.cycle()
         legacy = h.world.market.to_save()

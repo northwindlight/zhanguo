@@ -7,8 +7,8 @@ RequiredState = ["clock", "market", "portfolio", "scripts", "compute", "intellig
 ActorCollection = "nation_actors"
 ActionGate = {Capability = "stock:clock", Method = "can_act"}
 PlayerClock = {Capability = "stock:clock", Method = "period"}
-# 回合开局自动给模型的事实：持仓与财富、行情、上回合脚本结果、回合日历与额度。
-PlayerState = ["portfolio", "market", "script_status", "round", "compute_status", "intel_status"]
+# 回合开局自动给模型的事实：持仓与财富、行情、昨日执行回执、上回合脚本结果、回合日历与额度。
+PlayerState = ["portfolio", "market", "day_report", "script_status", "round", "compute_status", "intel_status"]
 
 [Distribution.Tools]
 Entry = "mods.stock.tools:build"

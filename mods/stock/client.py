@@ -71,15 +71,31 @@ class StockView(ModelView):
 
         quotes = facts.get('market') or []
         if quotes:
-            lines.append('行情（代码 名称 现价 涨跌 ma5 ma10 波动率 财报日程）：')
+            lines.append('行情（代码 名称 现价 涨跌 ma5 ma10 波动率 财报日程 最新消息）：')
             for row in quotes:
                 report = row.get('next_report_round')
                 when = f'第{report}回合' if report else '未定'
                 if row.get('report_tick'):
                     when += f'今日tick{row["report_tick"]}'
+                news = row.get('news') or []
+                latest = ''
+                if news:
+                    event = news[-1]
+                    kind = {'market': '市场快讯', 'wire': '公司快讯', 'earnings': '财报'}.get(event.get('kind'), '消息')
+                    latest = f' {kind}{event.get("cashflow_change_pct", 0):+.2f}%@tick{event.get("tick")}'
                 lines.append(f'  {row["symbol"]} {row["name"]} {row["price"]} '
                              f'{row["change_pct"] * 100:+.2f}% ma5={row["ma5"]} ma10={row["ma10"]} '
-                             f'vol={row["volatility"]} 财报{when}')
+                             f'vol={row["volatility"]} 财报{when}{latest}')
+
+        report = facts.get('day_report') or {}
+        if report.get('orders') or report.get('fills'):
+            statuses = report.get('statuses') or {}
+            status_text = '，'.join(f'{k}{v}笔' for k, v in sorted(statuses.items()))
+            lines.append(f'上一交易日（第{report.get("round")}回合）执行回执：委托{report.get("orders")}笔'
+                         f'（{status_text}），成交{report.get("fills")}笔，'
+                         f'买入{report.get("bought_quantity")}股/{report.get("bought_amount")}元，'
+                         f'卖出{report.get("sold_quantity")}股/{report.get("sold_amount")}元，'
+                         f'手续费{report.get("fees")}元。部分成交后到期=没吃满，expired=收盘撤销。')
 
         status = facts.get('script_status') or {}
         result = status.get('result')

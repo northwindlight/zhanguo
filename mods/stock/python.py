@@ -17,6 +17,49 @@ def slot_key(slot):
     return key
 
 
+# 沙盒只实现 Python 子集；这里把最常见的拒绝翻译成模型能直接照做的改法。
+SANDBOX_HINTS = (
+    ('JoinedStr', 'f-string 不可用：用 + 拼接或 % 格式化，例：print("价 " + str(row["price"]))'),
+    ('Lambda', 'lambda 不可用：先 def 具名函数再作 key=，例：def chg(r): return r["change_pct"]；'
+               'sorted(rows, key=chg, reverse=True)'),
+    ('SetComp', '集合推导不可用：改用列表推导，成员判断用 in'),
+    ('GeneratorExp', '生成器表达式不可用：改用列表推导 [...] 或 for 循环累计'),
+    ('TryExcept', 'try/except 不可用：用 if 预判，例：if "key" in d: 或 d.get("key", 0)'),
+    ('ClassDef', 'class 不可用：用 dict 存数据、def 写逻辑'),
+    ('Import', 'import 不可用：可用内建 abs/all/any/bool/dict/enumerate/float/int/len/list/'
+               'max/min/print/range/reversed/round/sorted/str/sum/tuple/zip'),
+    ('Starred', '*解包不可用：逐个写出元素或用循环展开'),
+    ('NamedExpr', '海象运算符不可用：先单独赋值再判断'),
+    ('Attribute assignment', '不能给属性赋值：把对象放进 dict，改 dict 的键'),
+)
+_METHODS_LINE = ('可用方法：get/items/keys/values/append/extend/pop/copy/count/index/sort/'
+                 'reverse/lower/upper/strip/split/join/startswith/endswith/replace')
+_BUILTINS_LINE = ('可用内建：abs/all/any/bool/dict/enumerate/float/int/len/list/max/min/print/'
+                  'range/reversed/round/sorted/str/sum/tuple/zip')
+
+
+def with_hint(error):
+    """把沙盒拒绝信息补上一句可操作的改法；错误字典结构保持不变。"""
+    if not isinstance(error, dict):
+        return error
+    message = error.get('message') or ''
+    for needle, hint in SANDBOX_HINTS:
+        if needle in message:
+            error['message'] = f'{message}。改法：{hint}'
+            return error
+    if message.startswith('Unsupported attribute:'):
+        name = message.split(':', 1)[1].strip()
+        extra = {'add': ' set 不可用：用 list 存成员，用 in 判断',
+                 'format': ' .format 不可用：用 + 拼接或 % 格式化',
+                 'update': ' 用 for 逐键赋值',
+                 'setdefault': ' 用 if k not in d: d[k] = v'}.get(name, '')
+        error['message'] = f'{message}。改法：{extra.strip()}；{_METHODS_LINE}' if extra \
+            else f'{message}。{_METHODS_LINE}'
+    elif message == 'Unsupported builtin':
+        error['message'] = f'{message}。{_BUILTINS_LINE}'
+    return error
+
+
 def bounded_output(text, limit):
     return text.encode('utf-8')[:limit].decode('utf-8', errors='ignore')
 
@@ -55,7 +98,10 @@ class SlotPrograms:
         return self.write(actor, row['source'].replace(old, new, 1), slot)
     def check(self, actor, source=None, slot='1'):
         row = self._row(actor, slot)
-        return check(row['source'] if source is None else source, self.limits)
+        verdict = check(row['source'] if source is None else source, self.limits)
+        if verdict.get('error'):
+            verdict['error'] = with_hint(verdict['error'])
+        return verdict
     def status(self, actor, include_source=False, slot='1'):
         slot = slot_key(slot)
         row = self._row(actor, slot)
@@ -226,6 +272,8 @@ class ConcurrentRunner:
         machine = Machine(source, invoke, limits)
         machine.env[0].update(inputs=wire(inputs or {}), state=deepcopy(task['state']))
         result = machine.run()
+        if result['error']:
+            result['error'] = with_hint(result['error'])
         try:
             state = wire(machine.env[0].get('state'))
             if type(state) is not dict or len(json.dumps(state, ensure_ascii=False).encode()) > 65536:
@@ -333,5 +381,11 @@ class StockPythonMod(GameMod):
             'quotes/history/orders/fills读取已知行情和本账户回报。每个tick所有回调读同一公共时间截面，订单下一tick生效。'
             '研究槽解锁后可在行动时 script(action=run,slot="research",inputs={...}) 运行，只读，不下单、不推进行情。'
             '研究单次最多100万步、1000次API，所有槽共享账户每日预算；改源码和重跑不重置额度。'
-            'print、错误行与各槽用量会出现在状态和下回合简报。禁止导入、文件、网络、随机和动态执行。',
+            'print、错误行与各槽用量会出现在状态和下回合简报。'
+            '沙盒是Python子集：支持 def/for/while/if、列表与字典推导、切片、三元表达式、'
+            '具名函数作 sorted/min/max 的 key=；不支持 f-string（用+拼接或%格式化）、lambda、'
+            'set、try/class/import/全局语句；方法仅限 get/items/keys/values/append/extend/pop/'
+            'copy/count/index/sort/reverse/字符串处理，内建仅限 abs/all/any/bool/dict/enumerate/'
+            'float/int/len/list/max/min/print/range/reversed/round/sorted/str/sum/tuple/zip。'
+            '被拒的写法会在报错信息里附一句改法；script(action=check) 免费预检。',
             ('脚本', 'Python', '研究槽', 'on_tick', 'state'), '自动交易回调、持久状态及手动研究', system=True),)

@@ -70,6 +70,33 @@ def on_tick():
 它只能读取已知行情、自己的账户及已购报告；不能下单、借贷、购买资源、发动谍报、嵌套运行脚本或推进行情。
 源码、结果、错误位置、每槽用量及私人 state 随完整回合存档。
 
+### 沙盒 Python 子集（写策略前先看）
+
+支持：`def`/`for`/`while`/`if`、列表与字典推导、切片、三元表达式、增强赋值；
+`sorted/min/max` 接受 **def 出来的具名函数作 `key=`**（这是按字段排序的正道）。
+
+不支持（会被即时拒绝并在报错里附一句改法）：f-string（用 `+` 拼接或 `%` 格式化）、
+lambda、set 与集合推导、生成器表达式、try/except、class、import、解包与海象运算符；
+方法仅限 get/items/keys/values/append/extend/pop/copy/count/index/sort/reverse 与字符串处理；
+内建仅限 abs/all/any/bool/dict/enumerate/float/int/len/list/max/min/print/range/reversed/
+round/sorted/str/sum/tuple/zip。`script(action=check)` 免费预检，被拒写法会得到改法提示。
+
+```python
+def on_tick():
+    rows = api.call('stock:market', 'quotes')
+    def chg(r): return r['change_pct']          # 具名函数代替 lambda
+    top = sorted(rows, key=chg, reverse=True)[0]
+    print('最强 ' + top['symbol'] + ' ' + str(top['price']))   # 用 + 而不是 f-string
+    api.call('stock:clock', 'sleep', ticks=200)
+```
+
+### 模型每回合看到什么
+
+盘前简报自动附带：回合与日历、账户与持仓、行情（含每只股票的已公布消息和财报日程）、
+**上一交易日的执行回执**（委托各状态笔数、成交笔数、买卖股数与金额、手续费——
+用来核对策略是否按预期执行）、上回合脚本输出与报错、算力与谍报状态。
+脚本报错带行号和改法提示；脚本里也可 `api.call('stock:market','day_summary')` 查询执行回执。
+
 可运行示例：[公开消息策略](examples/news_strategy.py)、[只读研究](examples/research.py)、[策略动物园](examples/strategy_zoo.py)。
 
 ## 算力池与计算槽
