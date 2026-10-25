@@ -33,6 +33,8 @@ class Market:
         self.history = {s: [p] * 20 for s, p in self.close.items()}
         self.last_path = {s: [] for s in self.stocks}
         self.path = {s: [] for s in self.stocks}
+        # 整局保留的盘中采样：每 ~200 tick 一个点，研究槽和普通脚本都能查。
+        self.samples = {s: [] for s in self.stocks}
         self.last_open = dict(self.close)
         self.last_depth = {s: dict(bids=[], asks=[]) for s in self.stocks}
         self.news = []
@@ -91,6 +93,23 @@ class Market:
         return [dict(symbol=s, name=r['name'], sector=r['sector'],
                      report_cycle_days=REPORT_CYCLE, next_report_round=report(s, upcoming))
                 for s, r in self.stocks.items()]
+
+    def sample_interval(self):
+        """盘中采样间隔：每天 100 个点，够看走势又不会把存档撑爆。"""
+        return max(1, self._clock('slices') // 100)
+
+    def ticks_of(self, symbol, limit=200, round_number=None):
+        """逐笔采样历史（整局保留）；可按回合过滤，limit 上限 2000。"""
+        rows = self.samples.get(symbol)
+        if rows is None:
+            raise ValueError('股票不存在')
+        if type(limit) is not int or not 1 <= limit <= 2000:
+            raise ValueError('limit 必须是 1～2000 的整数')
+        if round_number is not None:
+            if type(round_number) is not int or not 1 <= round_number <= self.round:
+                raise ValueError('round 必须是 1～当前回合的整数')
+            rows = [row for row in rows if row['round'] == round_number]
+        return deepcopy(rows[-limit:])
 
     def history_of(self, symbol, limit=30):
         if symbol not in self.history or type(limit) is not int or not 1 <= limit <= 256:
@@ -153,6 +172,7 @@ class Market:
         self.backend = PamsBook(self.stocks, self.close, f'{self.seed}|{self.round}')
         self.opening = dict(self.close)
         self.path = {s: [p] for s, p in self.close.items()}
+        self.samples = {s: [] for s in self.stocks}
         self.state = self.SESSION
         self.dynamics.open_session()
         self._quote_maker()
@@ -271,6 +291,10 @@ class Market:
         if tick % max(1, total//20) == 0:
             for symbol in self.stocks:
                 self.path[symbol].append(self.price_of(symbol))
+        if tick % self.sample_interval() == 0:
+            for symbol in self.stocks:
+                self.samples[symbol].append(dict(round=self.round, tick=tick,
+                                                 price=self.price_of(symbol)))
         if changed:
             self._port('risk_check', self.round)
 
@@ -439,6 +463,22 @@ class Market:
         if self.recorder: self.recorder(actor, 'stock_liquidation', {}, fill)
         return fill
 
+    def final_close(self, actor, side, symbol, quantity):
+        """最终清算专用：不经过订单簿和清算银行，按最后价平仓并照收佣金。
+
+        终局必须有确定的成交口径，不能因为盘口没量或清算银行没货而让成绩悬空。
+        """
+        price = self.execution_price(symbol, side, quantity)
+        amount = round(price * quantity, 2)
+        fee = self.fee_of(amount)
+        ident = f'{self.round}:final:{self.trade_seq}'
+        self.trade_seq += 1
+        fill = dict(execution_id=ident, actor=actor, side=side, symbol=symbol,
+                    quantity=quantity, price=price, amount=amount, fee=fee)
+        self._port('execute', fill, 0)
+        if self.recorder: self.recorder(actor, 'stock_final_close', {}, fill)
+        return fill
+
     def settle(self, world, round_number, trading_day=True):
         self._public_cache = None
         if self.state == self.SESSION:
@@ -547,7 +587,8 @@ class Market:
         return dict(engine=PamsBook.version, dynamics=2, seed=self.seed, close=dict(self.close),
                     opening=dict(self.opening), fundamental=dict(self.fundamental),
                     stocks=deepcopy(self.stocks), pool=deepcopy(self.pool),
-                    history=deepcopy(self.history), last_path=deepcopy(self.last_path),
+                    history=deepcopy(self.history), samples=deepcopy(self.samples),
+                    last_path=deepcopy(self.last_path),
                     last_open=dict(self.last_open), last_depth=deepcopy(self.last_depth),
                     news=deepcopy(self.news), orders=deepcopy(list(self.orders.values())),
                     fills=deepcopy(self.last_fills[-2000:]),
@@ -562,7 +603,8 @@ class Market:
             raise ValueError('不支持的市场后端、动力学版本或非边界存档')
         self.seed = state['seed']
         self.dynamics = Dynamics(self)
-        for key in ('close', 'opening', 'fundamental', 'history', 'last_path', 'last_open', 'last_depth', 'news'):
+        for key in ('close', 'opening', 'fundamental', 'history', 'samples',
+                    'last_path', 'last_open', 'last_depth', 'news'):
             setattr(self, key, deepcopy(state[key]))
         self.stocks = {symbol: dict(row) for symbol, row in state['stocks'].items()}
         self.transient = {s: 0.0 for s in self.stocks}
@@ -581,6 +623,7 @@ class MarketAPI:
     def __init__(self, world): self.world = world
     def quotes(self, actor): return self.world.market.quotes(actor)
     def history(self, actor, symbol, limit=30): return self.world.market.history_of(symbol, limit)
+    def ticks(self, actor, symbol, limit=200, round=None): return self.world.market.ticks_of(symbol, limit, round)
     def catalog(self, actor): return self.world.market.catalog()
     def pool(self, actor): return self.world.market.pool_view()
     def orders(self, actor): return self.world.market.order_history(actor)
@@ -614,17 +657,25 @@ class MarketMod(GameMod):
             '价格由有限资金与库存的背景做市者、基本面代理、噪声流及玩家委托共同形成。'
             '基本面受市场与行业因子驱动，波动有平静和风暴状态；每只股票的波动、贝塔、消息敏感度、'
             '价格吸收速度和盘口流动性都不同（见quotes的volatility与depth）。'
-            '公开消息五类：市场快讯（宏观，全行业按贝塔传导）、公司快讯（盘中错峰发布）、'
+            '公开消息六类：市场快讯（宏观，全行业按贝塔传导）、公司快讯（盘中错峰发布）、'
             '定期财报（每5个交易日一轮，日程公开见next_report_round，内容事先未知）、'
             '公司事件（监管/突破/事故/做市/政策，会永久改变该股的波动率、贝塔、流动性等个性，'
-            '变化随新闻公开）与池子公告（上市/退市）。'
+            '变化随新闻公开）与上市/退市公告。'
             '股票池是动态的：新股按种子排定的日程陆续挂牌（pool()公布下一只的名称、行业、发行价'
             '与回合，首只在第7个交易日，之后每6个交易日一只，初始10只+候选4只）；'
             '退市规则公开可算：收盘价连续5个交易日低于发行锚价（见quotes的anchor）的35%发风险警示，'
-            '再5个交易日复核，'
-            '仍低于则按收盘价5%折价（空头溢价）场外强制回购后摘牌；股票池下限8只。'
+            '再5个交易日复核，仍低于则按收盘价5%折价（空头溢价）场外强制回购后摘牌；股票池下限8只。'
             '退市股票从行情消失，脚本引用会报"没有这只股票"，请用pool()或quotes核对最新名单。'
-            'quotes含盘口、已发生路径、财报日程、退市复核日和已公布消息，不含种子、因子状态或未来价格。'
+            'quotes() 每只股票返回：symbol 代码、name 名称、sector 行业、anchor 发行锚价、price 最新价、'
+            'prev_close 昨收、change_pct 涨跌幅、open 今开、path 今天已走过的价格序列（约 20 点）、tick 当前 tick、'
+            'ma5/ma10/ma20 均线、momentum_5 近5点动量、volatility 近10点波动率、commission_rate 佣金率、'
+            'float_shares 流通股、depth 盘口 {bids/asks 各档价位与数量}、borrow_available 可借券数、'
+            'report_cycle_days/next_report_round/report_tick 财报日程、delist_review_round 退市复核、'
+            'news 该股最近消息。catalog() 只给代码/名称/行业。历史全部保留、随时可查：'
+            'history(symbol, limit=30，最多256) 返回每天收盘价，从旧到新；'
+            'ticks(symbol, limit=200，最多2000，round=可选回合号) 返回盘中采样（每 200 tick 一点、每天约 100 点，整局保留），'
+            '每点 {round, tick, price}。orders()/fills()/day_summary() 只返回自己的委托、成交与昨日回执。'
+            'quotes 不含种子、未来消息或未来价格。'
             '可用buy/sell开平多头，short/cover开平空头；做空受借券、保证金和借券费约束。',
             ('行情', 'PAMS', '交易', '做空', '财报', '上市', '退市', '股票池', '订单'),
             '交互撮合、因子动力学与动态股票池', system=True),)

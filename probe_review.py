@@ -64,7 +64,7 @@ def run(ticks=20000):
         r = player.submit(tool, arguments)
         assert r['ok'], r
         return r['data']
-    for kind in ('pool', 'slot', 'research'):
+    for kind in ('pool', 'slot'):
         submit('compute', action='buy', kind=kind)
     submit('script', action='write', slot='research', source="print(inputs['x']*7)")
     result = submit('script', action='run', slot='research', inputs={'x': 3})

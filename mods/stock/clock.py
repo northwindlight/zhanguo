@@ -12,6 +12,7 @@ class Clock:
         self.session_start, self.session_hours = session_start, session_hours
         self.planning_actions = planning_actions
         self.round, self.tick = 1, 0
+        self.final_round = None   # 由会话按 max_turns 注入；最后一回合只做清算
         self.ended, self.used, self.summaries = set(), {}, {}
 
     def bind_state(self, world, key): return self
@@ -54,13 +55,17 @@ class Clock:
         self.summaries[actor] = summary.strip()
         return dict(actor=actor, summary=summary.strip(), text=summary.strip(), round=self.round)
     def view(self, actor):
+        final = self.final_round
+        left = max(0, final - self.round) if isinstance(final, int) else None
         return dict(round=self.round, trading_day=self.trading_day(),
                     days_to_next_open=self.days_to_next_open(), cycle=self.cycle,
                     trading_days=self.trading_days, rest_days=self.rest_days,
                     tick=self.tick, slices=self.session_ticks, market_time=self.market_time(),
                     session_start=self.session_start, session_hours=self.session_hours,
                     window='planning', window_name='盘前规划',
-                    window_limit=self.planning_actions, window_used=self.used.get(actor, 0))
+                    window_limit=self.planning_actions, window_used=self.used.get(actor, 0),
+                    final_round=final, rounds_left=left,
+                    is_final_round=isinstance(final, int) and self.round >= final)
     def advance(self):
         self.round += 1
         self.tick = 0
@@ -99,10 +104,21 @@ class ClockMod(GameMod):
         return (Stage('stock.clock.advance', lambda w, c: c.update(round=w.clock.advance()), hook='cycle.end'),)
     def rule_sections(self, world=None):
         p = self.declaration['Parameters']
-        return (RuleSection('回合与共同时间线',
-            f'每{p["TradingDays"]}个交易日后休市{p["RestDays"]}天。每天固定{p["SessionTicks"]}逻辑tick。'
-            f'盘前每账户有{p["PlanningActions"]}次规划动作，可改策略、租算力、使用已解锁研究槽、借贷。'
-            'end_turn提交小结。全体结束后锁定策略，沿共同tick运行，成交最早下一tick生效。'
-            'sleep只安排下次回调，不等待现实时间、不按等待tick扣计算量。'
-            '休市日不撮合，仍可规划、研究和租用资源。下回合收到每槽输出、错误、用量及账户反馈。',
-            ('回合', 'tick', '休市', '窗口'), '回合节奏与规划动作额度', system=True),)
+        final = getattr(getattr(world, 'clock', None), 'final_round', None)
+        total = f'本局共 {final} 回合' if isinstance(final, int) else '本局回合数见 round 工具的 final_round'
+        return (RuleSection('游戏目标与回合',
+            '【怎么赢】最终回合开始时，现金最多的人赢。股票、空头、未还贷款都不直接算分：'
+            '最后一回合系统会撤掉所有未成交委托、按最后成交价平掉全部多头和空头（照收佣金）、'
+            '再用现金尽量归还贷款；结算现金 = 现金 − 仍未还清的贷款，按结算现金排名。'
+            '所以越接近终局，越应该把仓位换成现金，别把风险留到最后一刻。'
+            f'【回合】{total}；第 N 回合不行动，只做清算。随时用 round 工具看 round（当前第几回合）、'
+            'final_round（最终回合）、rounds_left（还剩几回合）。'
+            f'每 {p["TradingDays"]} 个交易日后休市 {p["RestDays"]} 天，休市日不撮合，但仍可规划、研究和租用资源。'
+            '【一回合怎么过】① 盘前规划：查行情、写/改策略脚本、买算力或情报、借贷，'
+            f'每账户最多 {p["PlanningActions"]} 次规划动作；② end_turn 提交一句小结；'
+            f'③ 全体结束后锁定策略，行情沿每天 {p["SessionTicks"]} 个逻辑 tick 推进，脚本自动执行，委托最早下一 tick 生效；'
+            '④ 收盘结算费用、利息与风险，进入下一回合，简报会给你脚本输出与成交结果。'
+            '【第一回合做什么】先看 round（还剩几回合）、portfolio（现金与持仓）、market（行情与盘口）、'
+            'compute_status（算力预算）；写一份保守的小仓位策略到槽 1（先用研究槽验证字段更稳），再 end_turn。'
+            '【重要】模型工具里没有买卖按钮，所有交易都必须写成脚本；sleep 只安排下次回调，不推进行情。',
+            ('目标', '回合', '怎么玩', '清算', 'end_turn'), '胜负条件、回合流程与最终清算', system=True),)

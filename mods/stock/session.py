@@ -15,6 +15,24 @@ class StockSession(Session):
         from .backend import PamsBook
         PamsBook.require()  # Before model construction or paid requests, also on load.
         self.after_spawn()  # Also bind audit hooks on the restore path.
+        self._settled = False
+        self.final_ranking = []
+        self._settlement_events = []
+        self._bind_final_round()
+
+    def _bind_final_round(self):
+        """把配置里的总回合数告诉时钟：第 N 回合只做清算，玩家不再行动。"""
+        total = self.cfg.get('max_turns')
+        if isinstance(total, int) and total > 0:
+            self.world.clock.final_round = total
+
+    def restore(self, data):
+        super().restore(data)
+        self._bind_final_round()
+        self._settled = any(row.get('final_cash') is not None
+                            for row in self.world.portfolio.accounts.values())
+        self._settlement_events = self._settlement_report() if self._settled else []
+        self.final_ranking = []
 
     def entries(self):
         return self.cfg['nations']
@@ -23,7 +41,45 @@ class StockSession(Session):
         return tuple(item['id'] for item in self.entries() if item.get('enabled', True))
 
     def finished(self):
-        return not self.actors()
+        return self._settled or not self.actors()
+
+    def cycle(self, **kwargs):
+        receipts = super().cycle(**kwargs)
+        final = self.world.clock.final_round
+        if not self._settled and isinstance(final, int) and self.clock() >= final:
+            self.final_settlement()
+        return receipts
+
+    def final_settlement(self):
+        """最终回合：撤单、按最后价平仓、用现金还贷，按结算现金排名。"""
+        round_number = self.clock()
+        rows = []
+        for actor in self.actors():
+            result = self.world.portfolio.finalize(actor, round_number)
+            rows.append(dict(actor=actor, name=self.roster[actor]['name'],
+                             round=round_number, **result))
+        ranking = sorted(rows, key=lambda row: row['final_cash'], reverse=True)
+        for place, row in enumerate(ranking, 1):
+            self.world.portfolio.accounts[row['actor']]['final_rank'] = place
+        self.final_ranking = ranking
+        self._settled = True
+        self._settlement_events = self._settlement_report()
+        return ranking
+
+    def _settlement_report(self):
+        """把清算结果写成事件，看海控制台和日志都能看到名次（新局与读档共用）。"""
+        rows = [(account.get('final_rank') or 999, account) for account in
+                self.world.portfolio.accounts.values() if account.get('final_cash') is not None]
+        rows.sort(key=lambda item: item[0])
+        events = []
+        for place, account in enumerate([row for _, row in rows], 1):
+            text = (f'【最终清算】第 {place} 名 {account["name"]}：结算现金 {account["final_cash"]:.2f}'
+                    f'（现金 {account["cash"]:.2f}，未还贷款 {account["debt"]:.2f}，'
+                    f'已还 {account.get("final_repaid", 0.0):.2f}，'
+                    f'平仓 {len(account.get("final_liquidations") or [])} 笔）')
+            events.append(dict(id=place, period=account.get('final_round') or 0,
+                               kind='settlement', text=text, details=None))
+        return events
 
     def after_spawn(self):
         self.world.scripts.recorder = self.record_script
@@ -90,7 +146,7 @@ class StockSession(Session):
         }
 
     def records(self):
-        return {'events': [], 'messages': []}
+        return {'events': list(self._settlement_events), 'messages': []}
 
     def announce(self, text):
         return None
@@ -103,11 +159,14 @@ class StockSession(Session):
         rows = []
         for actor in self.roster:
             account = self.world.portfolio.holdings(actor)
-            rows.append({'name': account['name'], 'wealth': account['wealth'],
+            row = {'name': account['name'], 'wealth': account['wealth'],
                          'cash': account['cash'], 'debt': account['debt'],
                          'positions': len(account['positions']),
                          'return_pct': account['return_pct'], 'alive': account['alive'],
                          '算力池': self.world.compute.status(actor)['pool'],
                          '交易槽': self.world.compute.status(actor)['slots'],
-                         '研究槽': self.world.compute.status(actor)['research']})
+                         '研究次数': self.world.compute.status(actor)['research_runs_left']}
+            if account.get('final_cash') is not None:
+                row.update({'最终现金': account['final_cash'], '名次': account.get('final_rank')})
+            rows.append(row)
         return rows

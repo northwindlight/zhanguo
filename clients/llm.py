@@ -226,7 +226,10 @@ class LLMClient:
         start=len(messages)-1;receipts=[];ended=False
         limit=int(max_steps if max_steps is not None else self.cfg.get('max_steps',28))
         if limit<1:raise ValueError('max_steps must be positive')
+        note_step=getattr(player,'note_step',None)
+        if callable(note_step):note_step(0,limit)
         for step in range(limit):
+            if callable(note_step):note_step(step+1,limit)
             if emit:emit(self.ui.text('llm.request',actor=player.actor,count=step+1))
             def stream(event, **fields):
                 if on_stream:

@@ -126,10 +126,13 @@ class Session:
 
         固定名单顺序会让同一个国家每个回合都先动手（买货、抢地、拿无主遗址都占先），
         所以按回合数把行动顺序转一个身位；国家名单、席位与其它按名单的遍历不受影响。
+        发行版的回合号起点不同（native 从 0、stock 从 1），所以按 PlayerClock
+        声明的 FirstPeriod（缺省 0）扣掉起点：第一回合不转，之后每回合转一格。
         """
         order=list(self.actors())
         if not order:return ()
-        shift=self.clock()%len(order)
+        first=(self.runtime.distribution.get('PlayerClock') or {}).get('FirstPeriod',0)
+        shift=(self.clock()-first)%len(order)
         return tuple(order[shift:]+order[:shift])
 
     @api_entry

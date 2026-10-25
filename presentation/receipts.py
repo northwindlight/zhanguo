@@ -19,6 +19,22 @@ DIPLOMACY_ACTIONS=frozenset(('guarantee','cancel_guarantee','propose_defense','b
     'bloc_found','bloc_join','bloc_leave','bloc_dissolve','bloc_rename','bloc_transfer','vote'))
 
 
+def step_notice(receipt):
+    """调用进度提醒：模型往返超过 20 次、或只剩 5 次时，催玩家收尾。
+
+    单位是模型往返（clients/llm.py 的 step），不是工具调用条数——
+    一次往返可以并行发多个工具调用。回执上没有 steps 字段时什么也不做。
+    """
+    steps=receipt.get('steps') if isinstance(receipt,dict) else None
+    if not isinstance(steps,dict):return None
+    used,limit=steps.get('used'),steps.get('limit')
+    if type(used) is not int or type(limit) is not int or limit<1:return None
+    remaining=limit-used
+    if used<=20 and remaining>5:return None
+    return (f'⚠️ 本回合已用 {used}/{limit} 次模型调用（还剩 {remaining} 次）：'
+            '先停手查资料，把计划写进策略脚本并保存，尽快 end_turn；没查完的留到下回合。')
+
+
 class ReceiptPresentation(QueryPresentation):
     def remember(self,observation):
         facts=flatten(observation.get('facts',observation))
@@ -126,6 +142,16 @@ class ReceiptPresentation(QueryPresentation):
         return title+(' '+' '.join(parts) if parts else '')
 
     def receipt_body(self,action,args,receipt,actor):
+        """所有工具回执的统一出口：正文之外附一条标准的调用进度提醒。
+
+        进度由 engine/player.py 的 note_step 盖在回执上，单位是模型往返次数，
+        与发行版无关；没有该字段（规则客户端、非模型调用）时行为不变。
+        """
+        text=self._receipt_body(action,args,receipt,actor) or ''
+        notice=step_notice(receipt)
+        return text+('\n'+notice if notice else '')
+
+    def _receipt_body(self,action,args,receipt,actor):
         """回执：工具层持有全部动作成文；这里只保留协议与兜底。
 
         工具层拿不到上下文时返回 None，才落到通用失败/数据倾倒格式——
@@ -134,7 +160,7 @@ class ReceiptPresentation(QueryPresentation):
         # 只读面板统一走 query：正文交给面板渲染器。
         if action=='query' and isinstance((args or {}).get('panel'),str):
             target='view' if args['panel']=='map' else args['panel']
-            if target!='query':return self.receipt_body(target,args,receipt,actor)
+            if target!='query':return self._receipt_body(target,args,receipt,actor)
         data=receipt.get('data');message=self.label('receipt',receipt.get('message',''))
         layer=getattr(self,'tool_layer',None)
         if not receipt['ok']:

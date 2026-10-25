@@ -2,16 +2,17 @@
 Id = "stock:python"
 Version = "2.0.0"
 Entry = "mods.stock.python:StockPythonMod"
-Requires = ["stock:clock", "stock:compute"]
+Requires = ["stock:clock", "stock:compute", "stock:portfolio"]
 [State]
 Owns = ["scripts"]
 [Capabilities]
-Needs = ["stock:clock", "stock:market", "stock:compute"]
+Needs = ["stock:clock", "stock:market", "stock:compute", "stock:portfolio"]
 Provides = ["sandbox:programs"]
 [Interfaces]
 "stock:clock" = ["charge"]
 "stock:market" = ["open_session", "advance", "freeze_public"]
-"stock:compute" = ["status", "consume"]
+"stock:compute" = ["status", "consume", "begin_research"]
+"stock:portfolio" = ["holdings", "spend"]
 [Parameters]
 WakeInterval = 100
 BurstSteps = 50000

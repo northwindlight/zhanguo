@@ -24,21 +24,23 @@ class StockView(ModelView):
 
         view = facts.get('round') or {}
         if view:
+            final = view.get('final_round'); left = view.get('rounds_left')
+            total = f'/{final}' if isinstance(final, int) else ''
+            tail = f'，还剩 {left} 回合（最终回合自动清算）' if isinstance(left, int) else ''
             if view.get('trading_day'):
-                lines.append(f'第 {view.get("round")} 回合，今日开市。')
+                lines.append(f'第 {view.get("round")}{total} 回合，今日开市{tail}。')
             else:
-                lines.append(f'第 {view.get("round")} 回合，今日休市（还有 {view.get("days_to_next_open")} 回合开市）：'
+                lines.append(f'第 {view.get("round")}{total} 回合，今日休市（还有 {view.get("days_to_next_open")} 回合开市）{tail}：'
                              f'不能买卖，但可以改脚本、规划、借贷。')
             lines.append(f'盘前规划动作 {view.get("window_used")}/{view.get("window_limit")}；'
                          f'市场共同时间线 {view.get("tick")}/{view.get("slices")} tick。'
                          '全体结束行动后自动运行交易槽；on_tick回调默认每100tick唤醒，state跨日保留。'
-                         '研究槽需先解锁，只能在自己行动时手动只读运行。')
+                         '研究槽按次收费：每次 1000 现金，只能在自己行动时手动只读运行。')
         compute = facts.get('compute_status') or {}
         if compute:
-            lines.append(f'算力池 {compute["pool"]} 档、交易槽 {compute["slots"]} 个、研究槽 '
-                         f'{"已启用" if compute["research"] else "未启用"}；'
-                         f'本日剩余 {compute["steps_remaining"]} 单位 / {compute["calls_remaining"]} 次API。'
-                         f'每日续租 {compute["daily_fee"]}，累计计算资源费用 {compute["fees_paid"]}。')
+            lines.append(f'算力池 {compute["pool"]} 档、交易槽 {compute["slots"]} 个（每回合重置，需要请重买）；'
+                         f'本回合剩余 {compute["steps_remaining"]} 单位 / {compute["calls_remaining"]} 次API；'
+                         f'研究次数剩 {compute["research_runs_left"]} 次，累计计算资源费用 {compute["fees_paid"]}。')
             if compute.get('notice'): lines.append(compute['notice'])
 
 

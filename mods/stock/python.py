@@ -64,6 +64,43 @@ def bounded_output(text, limit):
     return text.encode('utf-8')[:limit].decode('utf-8', errors='ignore')
 
 
+def api_signature(api, method):
+    """绑定方法渲染成 history(symbol, limit=30)：报错时直接把调用方式告诉模型。"""
+    try:
+        params = list(inspect.signature(getattr(api, method)).parameters.values())[1:]
+    except (AttributeError, TypeError, ValueError):
+        return f'{method}(...)'
+    parts = []
+    for param in params:
+        if param.default is param.empty:
+            parts.append(param.name)
+        else:
+            parts.append(f'{param.name}={param.default!r}')
+    return f'{method}(' + ', '.join(parts) + ')'
+
+
+_LIMIT_HINTS = {
+    'Output size limit exceeded': ('print 输出超过上限（每槽每天 {output} 字节）；'
+                                   '先打印摘要（len()、前几条、关键字段），不要打印整个 dict'),
+    'Computation budget exceeded': '计算量超过本次回调额度（{steps} 单位）',
+    'API call budget exceeded': 'API 调用超过本次回调额度（{calls} 次）',
+    'String size limit exceeded': '单个字符串超过 {string} 字符',
+    'Container size limit exceeded': '单个列表/字典超过 {items} 个元素',
+    'Value size limit exceeded': '单个值超过 {value_bytes} 字节',
+    'Value nesting limit exceeded': '嵌套深度超过 {depth} 层',
+}
+
+
+def limit_message(message, limits):
+    hint = _LIMIT_HINTS.get(message)
+    if hint is None:
+        return None
+    try:
+        return hint.format(**limits)
+    except (KeyError, IndexError):
+        return hint
+
+
 class SlotPrograms:
     def __init__(self, world, limits):
         self.world, self.limits = world, dict(limits)
@@ -197,7 +234,9 @@ class ConcurrentRunner:
         unit = runtime.units[unit_id]
         if not runtime.in_scope(world, actor, unit.mod): raise ValueError('API 超出账户作用域')
         declaration = unit.mod.declaration['PlayerAPI']
-        if method not in declaration['Methods']: raise ValueError('未声明该方法')
+        if method not in declaration['Methods']:
+            raise ValueError(f'{capability} 没有方法 {method}；可用方法：'
+                             + '、'.join(declaration['Methods']))
         write = method not in declaration.get('ReadOnly', ())
         if method == 'end_turn' or capability in ('stock:compute', 'stock:intelligence') and write:
             raise ValueError('脚本不能结束回合、购买资源或发动谍报，请用模型工具')
@@ -208,7 +247,12 @@ class ConcurrentRunner:
             with unit_context(unit_id):
                 api = runtime.player_api(world, capability)
                 try: bound = inspect.signature(getattr(api, method)).bind(actor, **arguments)
-                except TypeError as exc: raise ToolArgumentError(str(exc)) from exc
+                except TypeError as exc:
+                    methods = '、'.join(api_signature(api, name) for name in declaration['Methods'])
+                    given = '、'.join(sorted(arguments)) or '无'
+                    raise ToolArgumentError(
+                        f'{capability}.{api_signature(api, method)} 参数不匹配：{exc}；'
+                        f'本次传入：{given}；本能力可用方法：{methods}') from exc
                 result = getattr(api, method)(*bound.args, **bound.kwargs)
             if not write: return wire(result)
             receipt = dict(base, ok=True, status='effective', code=None, message='', data=wire(result))
@@ -223,9 +267,12 @@ class ConcurrentRunner:
         actor, slot = task['actor'], task['slot']
         pool = self._object('stock:compute', 'status', actor)
         params = self.module.declaration['Parameters']
-        cap = params['ResearchSteps'] if research else params['BurstSteps']
-        limits = dict(self.module.limits, steps=min(cap, pool['steps_remaining']),
-                      calls=min(params['ResearchCalls'] if research else params['BurstCalls'], pool['calls_remaining']))
+        if research:
+            # 研究槽按次收费，不占共享算力池，只有单次上限。
+            limits = dict(self.module.limits, steps=params['ResearchSteps'], calls=params['ResearchCalls'])
+        else:
+            limits = dict(self.module.limits, steps=min(params['BurstSteps'], pool['steps_remaining']),
+                          calls=min(params['BurstCalls'], pool['calls_remaining']))
         if limits['steps'] < 1:
             return self._exhausted(task)
         source = task['source']
@@ -272,8 +319,12 @@ class ConcurrentRunner:
         machine = Machine(source, invoke, limits)
         machine.env[0].update(inputs=wire(inputs or {}), state=deepcopy(task['state']))
         result = machine.run()
-        if result['error']:
-            result['error'] = with_hint(result['error'])
+        error = result.get('error')
+        if error:
+            error = with_hint(error)               # 常见沙盒拒绝附一句改法
+            raw = error.get('message', '')
+            hint = limit_message(raw, limits)      # 超长报错先给摘要，全文在括号里
+            if hint: error['message'] = f'{hint}（{raw}）'
         try:
             state = wire(machine.env[0].get('state'))
             if type(state) is not dict or len(json.dumps(state, ensure_ascii=False).encode()) > 65536:
@@ -284,7 +335,8 @@ class ConcurrentRunner:
         else:
             if result['error']: state = None
         spent = min(result['steps'], limits['steps'])
-        self._object('stock:compute', 'consume', actor, spent, result['calls'])
+        if not research:
+            self._object('stock:compute', 'consume', actor, spent, result['calls'])
         receipts = result.pop('receipts')
         result.update(status='failed' if result['error'] else 'effective',
                       steps=spent, message=result['error']['message'] if result['error'] else '',
@@ -376,15 +428,22 @@ class StockScriptingAPI:
     def check(self, actor, source=None, slot='1'): return self.world.scripts.check(actor, source, slot)
     def status(self, actor, include_source=False, slot='1'): return self.world.scripts.status(actor, include_source, slot)
     def run(self, actor, slot='research', inputs=None):
-        if slot_key(slot) != 'research': raise ValueError('行动时只能手动运行 research 槽')
+        if slot_key(slot) != 'research':
+            raise ValueError(f'行动时只能手动运行 research 槽（收到 slot={slot}）；'
+                             '交易槽 1～4 的源码只在交易日结束时自动执行，不能手动 run；'
+                             '要试跑请把代码写到 research 槽再 run')
         if not self.world.clock.can_act(actor): raise ValueError('已经结束行动')
         if inputs is not None and type(inputs) is not dict: raise ValueError('inputs 必须是JSON对象')
         if len(json.dumps(wire(inputs or {}), ensure_ascii=False).encode()) > 65536:
             raise ValueError('研究参数最多64KB')
-        task = self.world.scripts.claim(actor, 'research')
-        if task is None: raise ValueError('研究槽尚未启用或没有保存源码')
         module = self.world.runtime.units['stock:python'].mod
-        return ConcurrentRunner(module, self.world).execute(task, research=True, inputs=inputs)
+        task = self.world.scripts.claim(actor, 'research')
+        if task is None:
+            raise ValueError('研究槽还没有保存源码：先 script(action=write, slot="research", source=...)')
+        charge = self.world.compute.begin_research(actor)
+        result = ConcurrentRunner(module, self.world).execute(task, research=True, inputs=inputs)
+        result.update(billed=charge['paid'], runs_left=charge['runs_left'])
+        return result
 
 
 class StockPythonMod(GameMod):
@@ -416,15 +475,44 @@ class StockPythonMod(GameMod):
             'api.call("stock:clock","sleep",ticks=N)设置下一次回调间隔，不暂停、不推进行情、不按等待扣步数。'
             '回调必须返回，不能用while+sleep等待；每回调最多50000计算单位、200次API。'
             'state是每槽独立、跨回调和跨日保存的64KB JSON字典；成功回调提交state，失败不撤销已受理动作。'
-            'api.call("stock:market","buy"/"sell"/"short"/"cover",symbol=...,quantity=...,price=可选限价)下单，'
-            'quotes/history/orders/fills读取已知行情和本账户回报。每个tick所有回调读同一公共时间截面，订单下一tick生效。'
-            '研究槽解锁后可在行动时 script(action=run,slot="research",inputs={...}) 运行，只读，不下单、不推进行情。'
-            '研究单次最多100万步、1000次API，所有槽共享账户每日预算；改源码和重跑不重置额度。'
-            'print、错误行与各槽用量会出现在状态和下回合简报。'
-            '沙盒是Python子集：支持 def/for/while/if、列表与字典推导、切片、三元表达式、'
-            '具名函数作 sorted/min/max 的 key=；不支持 f-string（用+拼接或%格式化）、lambda、'
-            'set、try/class/import/全局语句；方法仅限 get/items/keys/values/append/extend/pop/'
-            'copy/count/index/sort/reverse/字符串处理，内建仅限 abs/all/any/bool/dict/enumerate/'
-            'float/int/len/list/max/min/print/range/reversed/round/sorted/str/sum/tuple/zip。'
-            '被拒的写法会在报错信息里附一句改法；script(action=check) 免费预检。',
+            '行情与账户一律用 api.call(能力, 方法, ...)，签名如下：'
+            '"stock:market"：quotes()、history(symbol, limit=30)、ticks(symbol)、catalog()、pool()、'
+            'orders()、fills()、day_summary()、'
+            'buy(symbol, quantity, price=可选限价)、sell(...)、short(...)、cover(...)、cancel(order_id)；'
+            '"stock:portfolio"：holdings()、equity_curve()、borrow(amount)、repay(amount)；'
+            '"stock:clock"：snapshot()、sleep(ticks=100)；"stock:compute"：status()；"stock:intelligence"：status()。'
+            'symbol 取 quotes() 返回的 symbol 字段；参数写错时回执会给出该方法的完整签名和本能力可用方法。'
+            '股票池是动态的：新股按公开日程挂牌、崩坏的股票会被警示后退市，写策略前先 pool() 核对名单。'
+            '普通源码（没有 on_tick）在开盘 tick 0 执行一次，适合开盘建仓；定义 on_tick 则默认每 100 tick 回调，'
+            '可用 sleep(ticks=N) 改间隔。每个tick所有回调读同一公共时间截面，订单下一tick生效。'
+            '最小可用示例（槽1，均线趋势）：\n'
+            'def on_tick():\n'
+            '    quotes = api.call("stock:market", "quotes")\n'
+            '    book = api.call("stock:portfolio", "holdings")\n'
+            '    held = {}\n'
+            '    for row in book["positions"]:\n'
+            '        held[row["symbol"]] = row["quantity"]\n'
+            '    for row in quotes:\n'
+            '        symbol = row["symbol"]\n'
+            '        if row["ma5"] is None or row["ma20"] is None:\n'
+            '            continue\n'
+            '        if row["ma5"] > row["ma20"] and not held.get(symbol):\n'
+            '            if book["available_cash"] > 20000:\n'
+            '                api.call("stock:market", "buy", symbol=symbol, quantity=100)\n'
+            '        elif held.get(symbol) and row["ma5"] < row["ma20"]:\n'
+            '            api.call("stock:market", "sell", symbol=symbol, quantity=held[symbol])\n'
+            '    api.call("stock:clock", "sleep", ticks=100)\n'
+            '研究槽在行动时手动运行 script(action=run,slot="research",inputs={...})：每次固定 1000 现金、每回合最多 3 次，'
+            '只读、不下单、不推进行情，也不占共享算力池（交易槽 1～4 不能手动 run，只在交易日结束时自动执行）。'
+            '研究单次上限 100 万步、1000 次 API。'
+            'print 每槽每天合计上限4096字节，只打印摘要（len、前几条、关键字段），不要打印整个dict。'
+            '沙盒是 Python 子集：可写赋值、if/elif/else、for/while、break/continue/pass、def（无装饰器/注解/可变参数）、'
+            'return、列表与字典推导；没有 try/except/finally、class、import、with、lambda、raise、assert、global、'
+            'f-string、集合字面量、set/generator 推导。排序用 def 具名函数作 sorted/min/max 的 key=；'
+            '字符串用 + 拼接或 % 格式化。内置函数仅限 '
+            'abs all any bool dict enumerate float int len list max min print range reversed round sorted str sum tuple zip；'
+            '对象方法仅限 get items keys values append extend pop copy count index sort reverse lower upper strip split '
+            'join startswith endswith replace；属性不能赋值，双下划线名字禁用。'
+            '被拒的写法会在报错信息里附一句改法；script(action=check) 免费预检。'
+            'print、错误行与各槽用量会出现在状态和下回合简报。禁止导入、文件、网络、随机和动态执行。',
             ('脚本', 'Python', '研究槽', 'on_tick', 'state'), '自动交易回调、持久状态及手动研究', system=True),)

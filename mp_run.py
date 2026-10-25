@@ -75,6 +75,8 @@ class Observer:
         # 看海时最常问的两件事：现在是谁在行动、他为什么这么做。
         # (period,actor) 作键：同一国跨回合连续行动时也要重新打抬头。
         self.current_actor=None;self.started_at=0;self.show_thinking='brief';self.last_thinking=''
+        # 完整思考另存一份：日志只保留结论和回执，免得一局几千行全是内心戏。
+        self.thoughts=Path(journal_path).with_suffix('.thoughts.md')
     def names(self):return {a:r['name'] for a,r in self.host.roster.items()}
     def snapshot(self):
         method=getattr(self.host,'observer_snapshot',None)
@@ -100,17 +102,23 @@ class Observer:
                 text=text.replace(icon+' '+actor+' ',icon+' '+name+' ',1)
         if text.startswith('💭'):
             self.last_thinking=text
+            to_journal(self.thoughts,text)   # 全文另存，主日志保持可读
             if self.show_thinking=='off':
-                to_journal(self.path,text)
                 return
             if self.show_thinking!='full':
-                # 摘要模式：终端只留思考的第一行，全文照旧进日志。
-                to_journal(self.path,text)
+                # 摘要模式：终端只留思考的第一行。
                 first=next((row for row in text.splitlines() if row.strip()),'')
                 if len(first)>160:first=first[:160]+'…'
                 # 进滚动区（不是状态面板）：看海时要能往回翻“当时为什么这么做”。
                 echo_line(first)
                 return
+            echo_line(text)
+            return
+        if text.startswith('⏳') and '正在等待模型' in text:
+            # 每次模型往返一行，纯进度噪声：只进状态面板，不进日志。
+            if CONSOLE is not None and CONSOLE.panel_on:CONSOLE.set_panel(note=text)
+            else:echo_line(text)
+            return
         if text.startswith(('⚠','🧠','⏳')):panel_note(self.path,text)
         else:self.line(text)
     def actor_start(self,actor):
@@ -119,7 +127,7 @@ class Observer:
         self.current_actor=key;self.started_at=time.monotonic()
         clear=getattr(CONSOLE,'clear_panel',None)
         if callable(clear):clear()
-        self.line(self.ui.text('console.actor_start',actor=self.names().get(actor,actor),period=self.host.clock()))
+        self.line('\n'+self.ui.text('console.actor_start',actor=self.names().get(actor,actor),period=self.host.clock()))
     def actor_finish(self,actor):
         if not self.current_actor or self.current_actor[1]!=actor:return
         self.line(self.ui.text('console.actor_finish',actor=self.names().get(actor,actor),seconds=time.monotonic()-self.started_at))
@@ -129,7 +137,10 @@ class Observer:
             if text.startswith('🧠 '+actor+' '):self.actor_start(actor)
             text=text.replace('🧠 '+actor+' ','🧠 '+name+' ',1)
         panel_note(self.path,text,head=True)
-    def line(self,text):to_journal(self.path,text);echo_line(text)
+    def line(self,text):
+        # 规则全量、行情全量这类长回执在日志里只留开头，完整内容仍在回执与审计里。
+        clipped=text if len(text)<=2000 else text[:2000]+f'\n…（回执共 {len(text)} 字，已截断）'
+        to_journal(self.path,clipped);echo_line(text)
     def notice(self,text,head=False):panel_note(self.path,text,head)
     def result(self,actor,action,arguments,receipt):
         self.actor_start(actor)

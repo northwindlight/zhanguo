@@ -12,6 +12,8 @@ def integer(value, name, minimum=0):
 
 
 class ComputePools:
+    """每回合重买的算力与交易槽；研究槽按次收费，不占共享算力池。"""
+
     def __init__(self, parameters):
         self.parameters = dict(parameters)
         self.accounts = {}
@@ -21,52 +23,40 @@ class ComputePools:
         return self
 
     def open_account(self, actor):
-        self.accounts.setdefault(actor, dict(pool=1, slots=1, research_unlocked=False,
-                                             research=False, steps=0, calls=0,
-                                             fees_paid=0.0, paid_today=0.0, notice=''))
+        self.accounts.setdefault(actor, dict(pool=1, slots=1, steps=0, calls=0,
+                                             fees_paid=0.0, research_runs=0, notice=''))
 
     def _row(self, actor):
         if actor not in self.accounts:
             raise ValueError('没有该账户的算力池')
         return self.accounts[actor]
 
-    def _price(self, row):
-        p = self.parameters
-        return (p['PoolDailyFee'] * (2 ** (row['pool'] - 1) - 1)
-                + p['SlotDailyFee'] * (row['slots'] - 1)
-                + p['ResearchDailyFee'] * int(row['research']))
-
     def _pay(self, actor, amount):
         if amount:
             self.world.runtime.object_call(self.world, 'stock:portfolio', 'spend',
                                            actor, amount, 'compute')
 
+    def _tier_price(self, kind, tier):
+        prefix = 'Pool' if kind == 'pool' else 'Slot'
+        return int(self.parameters[f'{prefix}FeeTier{tier}'])
+
     def buy(self, actor, kind):
         row = self._row(actor)
-        candidate = deepcopy(row)
-        extra = 0
         if kind == 'pool':
             if row['pool'] >= self.parameters['MaxPools']:
-                raise ValueError('算力池已达上限')
-            candidate['pool'] += 1
+                raise ValueError(f'算力池已达上限 {self.parameters["MaxPools"]} 档')
+            tier = row['pool'] + 1
         elif kind == 'slot':
             if row['slots'] >= self.parameters['MaxSlots']:
-                raise ValueError('交易计算槽已达上限')
-            candidate['slots'] += 1
-        elif kind == 'research':
-            if row['research']:
-                raise ValueError('行动内研究槽已经启用')
-            if not row['research_unlocked']:
-                extra = self.parameters['ResearchUnlockFee']
-            candidate.update(research=True, research_unlocked=True)
+                raise ValueError(f'交易槽已达上限 {self.parameters["MaxSlots"]} 个')
+            tier = row['slots'] + 1
         else:
-            raise ValueError('kind 只能是 pool、slot 或 research')
-        fee = max(0, self._price(candidate) - row['paid_today']) + extra
-        self._pay(actor, fee)  # Validate/pay before committing the resource change.
-        candidate['fees_paid'] += fee
-        candidate['paid_today'] = max(row['paid_today'], self._price(candidate))
-        candidate['notice'] = '已立即生效；所有槽共享本日已用额度，不重置用量。'
-        self.accounts[actor] = candidate
+            raise ValueError('kind 只能是 pool 或 slot；研究槽按次计费，不用购买')
+        fee = self._tier_price(kind, tier)
+        self._pay(actor, fee)  # 先付钱再改资源
+        row['pool' if kind == 'pool' else 'slots'] += 1
+        row['fees_paid'] += fee
+        row['notice'] = f'已购买第 {tier} 档；只在本回合有效，下回合归零需重买。'
         return dict(paid=fee, **self.status(actor))
 
     def release(self, actor, kind):
@@ -75,33 +65,48 @@ class ComputePools:
             row['pool'] -= 1
         elif kind == 'slot' and row['slots'] > 1:
             row['slots'] -= 1
-        elif kind == 'research' and row['research']:
-            row['research'] = False
         else:
-            raise ValueError('没有可退租的该类资源（免费池和免费槽保留）')
-        row['notice'] = '已退租；当日费用不退，已用预算不重置，源码保留。'
+            raise ValueError('没有可退的该类资源（免费池和免费槽保留）')
+        row['notice'] = '已退租；本回合费用不退，资源用到收盘。'
         return self.status(actor)
+
+    def begin_research(self, actor):
+        """研究槽按次收费：每次固定 1000 现金，每回合有次数上限，不占共享算力池。"""
+        row = self._row(actor)
+        cap = self.parameters['ResearchRunsPerRound']
+        if row['research_runs'] >= cap:
+            raise ValueError(f'本回合研究次数已用完（每回合 {cap} 次），下回合再来')
+        fee = self.parameters['ResearchRunFee']
+        self._pay(actor, fee)
+        row['research_runs'] += 1
+        row['fees_paid'] += fee
+        return dict(paid=fee, runs_left=cap - row['research_runs'])
 
     def allowed(self, actor, slot):
         row = self._row(actor)
         if slot == 'research':
-            return row['research']
+            return True
         return str(slot) in tuple(str(i) for i in range(1, row['slots'] + 1))
 
     def status(self, actor):
         row = self._row(actor)
         p = self.parameters
         steps, calls = row['pool'] * p['StepsPerPool'], row['pool'] * p['CallsPerPool']
-        return dict(pool=row['pool'], slots=row['slots'], research=row['research'],
-                    research_unlocked=row['research_unlocked'], steps_limit=steps,
-                    calls_limit=calls, steps_used=row['steps'], calls_used=row['calls'],
+        return dict(pool=row['pool'], slots=row['slots'],
+                    steps_limit=steps, calls_limit=calls,
+                    steps_used=row['steps'], calls_used=row['calls'],
                     steps_remaining=max(0, steps - row['steps']),
                     calls_remaining=max(0, calls - row['calls']),
-                    daily_fee=self._price(row), fees_paid=row['fees_paid'],
-                    notice=row['notice'], max_pools=p['MaxPools'], max_slots=p['MaxSlots'],
-                    prices=dict(next_pool=p['PoolDailyFee'] * 2 ** (row['pool'] - 1),
-                                slot_daily=p['SlotDailyFee'], research_daily=p['ResearchDailyFee'],
-                                research_unlock=0 if row['research_unlocked'] else p['ResearchUnlockFee']))
+                    research_runs=row['research_runs'],
+                    research_runs_left=max(0, p['ResearchRunsPerRound'] - row['research_runs']),
+                    fees_paid=row['fees_paid'], notice=row['notice'],
+                    max_pools=p['MaxPools'], max_slots=p['MaxSlots'],
+                    prices=dict(pool_tiers={str(t): self._tier_price('pool', t)
+                                            for t in range(2, p['MaxPools'] + 1)},
+                                slot_tiers={str(t): self._tier_price('slot', t)
+                                            for t in range(2, p['MaxSlots'] + 1)},
+                                research_run=p['ResearchRunFee'],
+                                research_runs_per_round=p['ResearchRunsPerRound']))
 
     def consume(self, actor, steps, calls):
         integer(steps, 'steps'); integer(calls, 'calls')
@@ -113,18 +118,11 @@ class ComputePools:
         row['calls'] += calls
 
     def reset(self):
+        """新回合：付费档位全部归零（要重买），用量与研究次数重置。"""
         for actor in self.world.nation_actors:
             row = self._row(actor)
-            row.update(steps=0, calls=0, paid_today=0.0, notice='')
-            fee = self._price(row)
-            try:
-                self._pay(actor, fee)
-            except ValueError:
-                row.update(pool=1, slots=1, research=False,
-                           notice='资金不足或风控冻结，已降为免费池和免费槽；研究槽解锁资格及源码保留。')
-            else:
-                row['fees_paid'] += fee
-                row['paid_today'] = fee
+            row.update(pool=1, slots=1, steps=0, calls=0, research_runs=0,
+                       notice='新回合：算力池和交易槽已归零为免费档，需要请重买；研究次数已重置。')
 
     def to_save(self):
         return deepcopy(self.accounts)
@@ -133,20 +131,17 @@ class ComputePools:
         if not isinstance(state, dict):
             raise ValueError('无效的算力池存档')
         for row in state.values():
-            if (type(row) is not dict or type(row.get('pool')) is not int
+            if (type(row) is not dict
+                    or type(row.get('pool')) is not int
                     or not 1 <= row['pool'] <= self.parameters['MaxPools']
                     or type(row.get('slots')) is not int
-                    or not 1 <= row['slots'] <= self.parameters['MaxSlots']
-                    or type(row.get('research')) is not bool
-                    or type(row.get('research_unlocked')) is not bool
-                    or row['research'] and not row['research_unlocked']):
+                    or not 1 <= row['slots'] <= self.parameters['MaxSlots']):
                 raise ValueError('无效的算力池档位')
-            for field in ('steps', 'calls'):
+            for field in ('steps', 'calls', 'research_runs'):
                 integer(row.get(field), field)
-            for field in ('fees_paid', 'paid_today'):
-                value = row.get(field)
-                if type(value) not in (float, int) or not math.isfinite(value) or value < 0:
-                    raise ValueError('无效的计算资源费用')
+            value = row.get('fees_paid')
+            if type(value) not in (float, int) or not math.isfinite(value) or value < 0:
+                raise ValueError('无效的计算资源费用')
             if (row['steps'] > self.parameters['StepsPerPool'] * self.parameters['MaxPools']
                     or row['calls'] > self.parameters['CallsPerPool'] * self.parameters['MaxPools']):
                 raise ValueError('无效的已用计算量')
@@ -184,14 +179,15 @@ class ComputeMod(GameMod):
     def rule_sections(self, world=None):
         p = self.declaration['Parameters']
         return (RuleSection('算力池与计算槽',
-            f'每账户每天免费 {p["StepsPerPool"]} 计算单位、{p["CallsPerPool"]} 次 API、1 个自动交易槽。'
-            f'compute(action=buy,kind=pool) 增购一档，每档同量，最多 {p["MaxPools"]} 档；'
-            f'额外池每日费用依次 {p["PoolDailyFee"]}、{p["PoolDailyFee"]*2}、{p["PoolDailyFee"]*4}。'
-            f'kind=slot 增加交易槽，最多 {p["MaxSlots"]} 槽，每额外槽每日 {p["SlotDailyFee"]}。'
-            f'kind=research 解锁行动内只读研究槽，首次 {p["ResearchUnlockFee"]}，每日 {p["ResearchDailyFee"]}。'
-            '购买立即生效，当日按整日计费；以后每日自动续租，现金不足降回免费档。'
-            'compute(action=release,kind=...) 退租，当日不退款；源码和研究解锁资格保留。'
-            '所有交易槽与研究槽共享每日总预算，换槽、改代码、重跑均不重置用量。'
-            '研究槽 script(action=run,slot=research,inputs={...}) 仅在自己行动时手动运行，'
-            '只能读已知数据和输出，不能下单、借贷、修改脚本或推进行情。费用从游戏现金扣除。',
-            ('算力', '计算槽', '研究', 'compute'), '购买、续租、共享额度与研究槽', system=True),)
+            f'【免费档】每回合免费 {p["StepsPerPool"]} 计算单位、{p["CallsPerPool"]} 次 API、1 个自动交易槽。'
+            f'【每回合重买】算力池和交易槽只在本回合有效，新回合自动归零，需要重新购买：\n'
+            f'  算力池第 2/3/4 档：{p["PoolFeeTier2"]} / {p["PoolFeeTier3"]} / {p["PoolFeeTier4"]} 现金每回合，'
+            f'每档 +{p["StepsPerPool"]} 计算单位、+{p["CallsPerPool"]} 次 API；\n'
+            f'  交易槽第 2/3/4 个：{p["SlotFeeTier2"]} / {p["SlotFeeTier3"]} / {p["SlotFeeTier4"]} 现金每回合，'
+            '每多一个槽就多一份可并行的策略。\n'
+            'compute(action=buy,kind=pool|slot) 是当回合购买，compute(action=release,...) 退租不退钱。'
+            f'【研究槽】不需要购买，按次收费：每次 script(action=run,slot="research") 固定 '
+            f'{p["ResearchRunFee"]} 现金，每回合最多 {p["ResearchRunsPerRound"]} 次；'
+            '研究不占共享算力池，单次上限见规则「Python 策略与研究槽」。'
+            '研究槽只能读行情、账户和已买报告，不能下单、借贷或推进行情。',
+            ('算力', '计算槽', '研究', 'compute'), '购买、每回合重买、共享额度与研究槽', system=True),)

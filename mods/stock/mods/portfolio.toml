@@ -9,7 +9,7 @@ Owns = ["portfolio"]
 Needs = ["stock:market", "stock:clock"]
 Provides = ["stock:portfolio"]
 [Interfaces]
-"stock:market" = ["price_of", "name_of", "borrow_limit", "cancel_actor", "liquidate"]
+"stock:market" = ["price_of", "name_of", "borrow_limit", "cancel_actor", "liquidate", "final_close"]
 "stock:clock" = ["charge"]
 [Parameters]
 InitialCash = 100000

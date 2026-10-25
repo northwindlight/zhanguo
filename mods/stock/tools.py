@@ -119,7 +119,7 @@ def build(runtime):
                             'include_source=true 查看源码'),
         )
         script_specs = (*script_specs, Action('script_run', script_run, owner='sandbox:programs', api=('run',),
-            description='行动时手动运行已解锁的research研究槽，只读；inputs为JSON参数。不能下单或推进行情，共享账户每日算力。'))
+            description='行动时手动运行 research 研究槽（只读）。每次固定 1000 现金、每回合最多 3 次，不占共享算力池；不能下单或推进行情。'))
         umbrella = command_layer.action_tool(
             runtime, 'script',
             '计算槽：write保存、patch修订、check免费语法检查（会附改法提示）、status查结果；slot为1～4或research。'
@@ -127,7 +127,9 @@ def build(runtime):
             '沙盒Python子集：无f-string/lambda/set/try/class/import；排序用 def 具名函数作 key=，字符串用+拼接。'
             'api.call("stock:clock","sleep",ticks=N)只安排下次回调，回调应返回，不写while等待。'
             'run仅手动运行已解锁的research槽，用于分析和回测，只读不下单。'
-            '交易日全体结束后沿20000共同tick自动运行，委托最早下一tick生效，成交立即可见。',
+            '交易日全体结束后沿20000共同tick自动运行，委托最早下一tick生效，成交立即可见。'
+            '沙盒是Python子集：无try/except、class、import、with、lambda、f-string；'
+            '内置函数与方法清单见规则「Python 策略与研究槽」，写之前先核对。',
             (('write', script_specs[0]), ('patch', script_specs[1]), ('check', script_specs[2]),
              ('status', script_specs[3]), ('run', script_specs[4])))
         tools.append(umbrella)
@@ -140,10 +142,12 @@ def build(runtime):
             'script_patch': _patch_receipt,
             'script_check': _check_receipt,
             'script_status': _status_receipt,
+            'script_run': _run_receipt,
         })
         captions.update({name: (lambda args, actor, receipt, ctx, name=name: _CAPTIONS[name])
                          for name in ('script_write', 'script_patch', 'script_check',
                                       'script_status')})
+        captions['script_run'] = _run_caption
 
     # ── 只读事实 ────────────────────────────────────────────────────
     if 'stock:portfolio' in runtime.capabilities:
@@ -172,7 +176,7 @@ def build(runtime):
                                      '与退市警示名单（股票及复核回合）。新股挂牌和退市摘牌都会先公开公告。'))
 
         tools.append(Tool('market', market, owner='stock:market', api=('quotes',),
-                          covers=(('stock:market', 'history'), ('stock:market', 'catalog'), ('stock:market', 'pool'), ('stock:market', 'orders'), ('stock:market', 'fills')),
+                          covers=(('stock:market', 'history'), ('stock:market', 'ticks'), ('stock:market', 'catalog'), ('stock:market', 'pool'), ('stock:market', 'orders'), ('stock:market', 'fills')),
                           read_only=True, fact=True,
                           description='当前行情：每只股票的现价、昨收、涨跌、ma5/ma10/ma20 均线、动量、'
                                      '已实现波动率、盘口深度十档、可借券余额、退市复核日，以及每只股票'
@@ -251,14 +255,14 @@ def build(runtime):
             return runtime.player_api(world, 'stock:compute').release(actor, kind)
         specs = (
             Action('compute_buy', compute_buy, owner='stock:compute', api=('buy',),
-                description='购买游戏计算资源，kind=pool增购共享算力池、slot增购自动交易槽、research解锁行动内研究槽；立即扣游戏现金，后续每日续租。'),
+                description='按回合租计算资源：kind=pool 增购算力池、kind=slot 增购交易槽；立即扣现金，只在本回合有效，下回合要重买。研究槽按次收费，不用购买。'),
             Action('compute_release', compute_release, owner='stock:compute', api=('release',),
                 description='退租一档pool或slot，或停用research；当日不退款、不重置用量，源码保留。'))
         tools.append(Tool('compute_status', compute_status, owner='stock:compute', api=('status',),
                           read_only=True, fact=True,
-                          description='本账户算力池、槽位、研究槽、每日共享总量/用量/剩余额度、购买价和续租费用。'))
+                          description='本账户算力池、交易槽、共享额度用量、研究次数与剩余次数，以及各档价格。'))
         tools.append(command_layer.action_tool(runtime, 'compute',
-            '用游戏现金租计算资源：action=buy/release，kind=pool/slot/research。所有槽共享每日预算；研究槽仅行动中手动只读运行。',
+            '用游戏现金租计算资源：action=buy/release，kind=pool/slot。只在本回合有效，下回合归零重买；研究槽按次收费，不用购买。',
             (('buy', specs[0]), ('release', specs[1]))))
         actions.extend(specs)
         commands['compute'] = {'buy': 'compute_buy', 'release': 'compute_release'}
@@ -339,6 +343,34 @@ def _status_receipt(args, receipt, actor, ctx):
         lines.append(f'报错 {error.get("type")}：{where}{error.get("message")}')
     if result.get('output'):
         lines.append('打印输出：\n' + result['output'])
+    return '\n'.join(lines)
+
+
+def _run_caption(args, actor, receipt, ctx):
+    """抬头写清跑的是哪个槽：run 只允许 research，传了交易槽要一眼看出。"""
+    slot = str((args or {}).get('slot') or 'research')
+    return '运行研究槽' if slot == 'research' else f'运行计算槽 {slot}'
+
+
+def _run_receipt(args, receipt, actor, ctx):
+    """研究槽运行回执：报错时也要把报错前的 print 交还给模型，别让它以为输出没产生。"""
+    data = receipt.get('data') or {}
+    if not isinstance(data, dict) or 'status' not in data:
+        return None
+    lines = [f'研究槽：{data.get("status")}，步数 {data.get("steps")}，'
+             f'API 调用 {data.get("calls")} 次。']
+    if data.get('fee'):
+        lines.append(f'本次按算力计费 {data["fee"]:.2f} 现金。')
+    error = data.get('error')
+    if error:
+        where = f'第 {error.get("line")} 行第 {error.get("column")} 列：' if error.get('line') else ''
+        lines.append(f'报错 {error.get("type")}：{where}{error.get("message")}')
+        if error.get('source'):
+            lines.append(f'出错行：{error["source"]}')
+    if data.get('output'):
+        lines.append(('报错前的打印输出（已保留）：\n' if error else '脚本输出：\n') + data['output'])
+    elif error:
+        lines.append('报错前没有任何 print 输出。')
     return '\n'.join(lines)
 
 
