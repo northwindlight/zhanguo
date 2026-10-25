@@ -1,16 +1,19 @@
-"""Interactive PAMS exchange, causal public news and next-tick orders."""
+"""Interactive PAMS exchange, factor fundamentals and next-tick orders."""
 from copy import deepcopy
 import math
 import random
 
 from engine.runtime import GameMod, ModError, RuleSection, Stage
 from .backend import PamsBook
+from .dynamics import Dynamics, REPORT_CYCLE
 from .stocks import STOCKS
 
 OPEN = ('accepted', 'partially_filled')
 MAKER = 'stock:market-maker'
 CLEARING = 'stock:clearing-bank'
 FLOW = 'stock:value-trader'
+NOISE = 'stock:noise-flow'
+BACKGROUND = (MAKER, FLOW, NOISE, CLEARING)
 
 
 class Market:
@@ -21,10 +24,11 @@ class Market:
         self.commission = parameters['Commission']
         self.float_shares = parameters['FloatShares']
         self.seed = 0
-        self.stocks = {r[0]: dict(symbol=r[0], name=r[1], sector=r[2], anchor=r[4]) for r in STOCKS}
+        self.stocks = {r['symbol']: dict(r) for r in STOCKS}
         self.close = {s: r['anchor'] for s, r in self.stocks.items()}
         self.opening = dict(self.close)
         self.fundamental = dict(self.close)
+        self.transient = {s: 0.0 for s in self.stocks}
         self.history = {s: [p] * 20 for s, p in self.close.items()}
         self.last_path = {s: [] for s in self.stocks}
         self.path = {s: [] for s in self.stocks}
@@ -35,10 +39,12 @@ class Market:
         self.live = {}
         self.pending = {}
         self.last_fills = []
+        self.actor_fills = {}
         self.seq = 1
         self.trade_seq = 1
         self.state = self.PRE
         self.backend = None
+        self.dynamics = None
         self.tick = 0
         self.round = 1
         self.recorder = None
@@ -59,8 +65,10 @@ class Market:
 
     def reseed(self, seed):
         self.seed = seed
-        for index, actor in enumerate((MAKER, FLOW, CLEARING)):
-            quantity = self.float_shares//3 + (self.float_shares % 3 if index == 2 else 0)
+        self.dynamics = Dynamics(self)
+        base = self.float_shares // len(BACKGROUND)
+        for index, actor in enumerate(BACKGROUND):
+            quantity = base + (self.float_shares - base * len(BACKGROUND) if actor == CLEARING else 0)
             shares = {s: dict(quantity=quantity, cost=p * quantity) for s, p in self.close.items()}
             self._port('open_account', actor, actor, True, 100000000.0, shares)
 
@@ -74,7 +82,10 @@ class Market:
         return self.close[symbol]
 
     def catalog(self):
-        return [dict(symbol=s, name=r['name'], sector=r['sector']) for s, r in self.stocks.items()]
+        report = self.dynamics.next_report if self.dynamics else (lambda s: None)
+        return [dict(symbol=s, name=r['name'], sector=r['sector'],
+                     report_cycle_days=REPORT_CYCLE, next_report_round=report(s))
+                for s, r in self.stocks.items()]
 
     def history_of(self, symbol, limit=30):
         if symbol not in self.history or type(limit) is not int or not 1 <= limit <= 256:
@@ -100,6 +111,7 @@ class Market:
             returns = [history[i]/history[i-1]-1 for i in range(max(1, len(history)-10), len(history))]
             mean = sum(returns)/len(returns) if returns else 0
             volatility = (sum((r-mean)**2 for r in returns)/len(returns))**.5 if returns else 0
+            next_report = self.dynamics.next_report(symbol) if self.dynamics else None
             result.append(dict(symbol=symbol, name=stock['name'], sector=stock['sector'],
                 price=price, prev_close=self.close[symbol], change_pct=price/self.close[symbol]-1,
                 open=self.opening[symbol] if self.state == self.SESSION else self.last_open[symbol],
@@ -107,8 +119,10 @@ class Market:
                 tick=self.tick if self.state == self.SESSION else 0, **ma,
                 momentum_5=history[-1]/history[-5]-1, volatility=round(volatility, 6),
                 commission_rate=self.commission, float_shares=self.float_shares,
+                report_cycle_days=REPORT_CYCLE, next_report_round=next_report,
+                report_tick=self.dynamics.report_tick if next_report == self.round else None,
                 depth=depth, borrow_available=max(0, self.borrow_limit(symbol)-self._port('short_used', symbol)),
-                news=deepcopy([n for n in self.news[-20:] if n['symbol'] == symbol])))
+                news=deepcopy([n for n in self.news if n['symbol'] == symbol][-20:])))
         return result
 
     def fee_of(self, amount): return round(amount * self.commission, 2)
@@ -130,20 +144,23 @@ class Market:
         self.opening = dict(self.close)
         self.path = {s: [p] for s, p in self.close.items()}
         self.state = self.SESSION
+        self.dynamics.open_session()
         self._quote_maker()
 
     def _quote_maker(self):
         self.cancel_actor(MAKER)
         positions = self._port('position_of', MAKER)
-        depth = self.parameters['DepthShares']
-        spread = self.parameters['Spread']
-        for symbol in self.stocks:
+        spread_mult = self.dynamics.spread_mult()
+        base = self.float_shares // len(BACKGROUND)
+        for symbol, meta in self.stocks.items():
             current = self.price_of(symbol)
             inventory = positions['shares'].get(symbol, 0)
-            baseline = self.float_shares//3
-            bias = max(-.015, min(.015, (baseline-inventory)/max(1, baseline) * .04))
-            centre = .7 * current + .3 * self.fundamental[symbol]
+            bias = max(-.015, min(.015, (base-inventory)/max(1, base) * .04))
+            weight = .30 * meta['converge']
+            centre = (1-weight) * current + weight * self.dynamics.effective(symbol)
             centre *= 1+bias
+            depth = max(10, round(self.parameters['DepthShares'] * meta['liq']))
+            spread = self.parameters['Spread'] * meta['spread'] * spread_mult
             for level in range(1, 4):
                 for side, sign in (('buy', -1), ('sell', 1)):
                     price = round(max(.05, centre * (1 + sign * spread * level)), 2)
@@ -156,13 +173,39 @@ class Market:
     def _value_flow(self):
         # This agent reacts only to the same already-public news. Its trades
         # turn gradual quote discovery into real, finite-cash executions.
-        for symbol in self.stocks:
+        for symbol, meta in self.stocks.items():
             price = self.price_of(symbol)
-            gap = self.fundamental[symbol]/price-1
+            gap = self.dynamics.effective(symbol)/price-1
             if abs(gap) < .004: continue
             side = 'buy' if gap > 0 else 'sell'
+            quantity = max(1, round(self.parameters['FlowShares'] * meta['liq']))
             try:
-                order = self._place(FLOW, side, symbol, self.parameters['FlowShares'], background=True)
+                order = self._place(FLOW, side, symbol, quantity, background=True)
+                self._deliver(order)
+            except ValueError:
+                continue
+
+    def _noise_flow(self):
+        # Deterministic liquidity/momentum flow: chases recent moves or takes
+        # the other side at random, through real orders with real impact.
+        rng = random.Random(f'{self.seed}|noise|{self.round}|{self.tick}')
+        picks = rng.sample(sorted(self.stocks), rng.randint(1, 3))
+        positions = self._port('position_of', NOISE)
+        base = self.float_shares // len(BACKGROUND)
+        for symbol in picks:
+            meta = self.stocks[symbol]
+            path = self.path[symbol]
+            if len(path) >= 3 and rng.random() < .45:
+                side = 'buy' if path[-1] > path[-3] else 'sell'
+            else:
+                side = rng.choice(('buy', 'sell'))
+            held = positions['shares'].get(symbol, 0)
+            if held > base * 1.4: side = 'sell'
+            elif held < base * .6: side = 'buy'
+            quantity = max(1, round(rng.randint(25, 85) * meta['liq']))
+            if rng.random() < .2: quantity = round(quantity * 2.2)
+            try:
+                order = self._place(NOISE, side, symbol, quantity, background=True)
                 self._deliver(order)
             except ValueError:
                 continue
@@ -174,25 +217,17 @@ class Market:
         self._public_cache = None
         self._clock('set_tick', tick)
         total = self._clock('slices')
-        changed = False
-        if self.parameters['NewsEnabled'] and tick in (max(1, total//3), max(2, total*2//3)):
-            index = 0 if tick == max(1, total//3) else 1
-            rng = random.Random(f'{self.seed}|news|{self.round}|{index}')
-            for symbol in self.stocks:
-                change = rng.choice((-.04, -.02, .02, .04))
-                self.fundamental[symbol] = round(max(.5, self.fundamental[symbol]*(1+change)), 2)
-                self.news.append(dict(round=self.round, tick=tick, symbol=symbol,
-                                      headline='公司更新公开现金流展望', cashflow_change_pct=change*100))
-            self.news = self.news[-40:]
-            changed = True
-        self.backend.advance(self.fundamental)
+        changed = self.dynamics.step(tick, total)
+        self.backend.advance({s: self.dynamics.effective(s) for s in self.stocks})
+        if self.parameters['NoiseEnabled'] and tick % self.parameters['NoiseInterval'] == 0:
+            self._noise_flow()
         if tick % self.parameters['QuoteInterval'] == 0 or changed:
             self._quote_maker()
             changed = True
-        if (tick % self.parameters['FlowInterval'] == 0
-                or changed and self.news and self.news[-1]['tick'] == tick):
+        if tick % self.parameters['FlowInterval'] == 0 or changed:
             self._value_flow()
             changed = True
+        self.news = self.news[-160:]
         batch = self.pending.pop(tick, [])
         for kind, item in batch:
             if kind == 'cancel': self._cancel_now(item)
@@ -286,6 +321,9 @@ class Market:
                 self._port('execute', fill, target['remaining'])
                 self.last_fills.append(fill)
                 if len(self.last_fills) > 4096: del self.last_fills[:1024]
+                book = self.actor_fills.setdefault(target['actor'], [])
+                book.append(fill)
+                if len(book) > 2000: del book[:500]
                 if self.recorder and not target['background']:
                     self.recorder(target['actor'], 'stock_fill', {}, fill)
         if order['kind'] == 'market' and order['status'] in OPEN:
@@ -322,7 +360,9 @@ class Market:
         return [deepcopy(o) for o in self.orders.values() if o['actor'] == actor][-100:]
 
     def fills(self, actor=None):
-        return [deepcopy(f) for f in self.last_fills if actor is None or f['actor'] == actor]
+        if actor is None:
+            return [deepcopy(f) for f in self.last_fills]
+        return [deepcopy(f) for f in self.actor_fills.get(actor, ())]
 
     def liquidate(self, actor, side, symbol, quantity):
         price = self.execution_price(symbol, side, quantity)
@@ -369,23 +409,29 @@ class Market:
     def to_save(self):
         if self.state == self.SESSION or self.pending:
             raise ValueError('市场只允许在完整交易日边界保存')
-        return dict(engine=PamsBook.version, seed=self.seed, close=dict(self.close),
+        return dict(engine=PamsBook.version, dynamics=1, seed=self.seed, close=dict(self.close),
                     opening=dict(self.opening), fundamental=dict(self.fundamental),
                     history=deepcopy(self.history), last_path=deepcopy(self.last_path),
                     last_open=dict(self.last_open), last_depth=deepcopy(self.last_depth),
                     news=deepcopy(self.news), orders=deepcopy(list(self.orders.values())),
-                    fills=deepcopy(self.last_fills[-2000:]), seq=self.seq, trade_seq=self.trade_seq,
+                    fills=deepcopy(self.last_fills[-2000:]),
+                    actor_fills=deepcopy({a: f[-500:] for a, f in self.actor_fills.items()
+                                          if a not in BACKGROUND}),
+                    seq=self.seq, trade_seq=self.trade_seq,
                     state=self.state, round=self.round)
 
     def restore(self, state):
-        if state.get('engine') != PamsBook.version or state.get('state') == self.SESSION:
-            raise ValueError('不支持的市场后端或非边界存档')
+        if (state.get('engine') != PamsBook.version or state.get('dynamics') != 1
+                or state.get('state') == self.SESSION):
+            raise ValueError('不支持的市场后端、动力学版本或非边界存档')
         self.seed = state['seed']
+        self.dynamics = Dynamics(self)
         for key in ('close', 'opening', 'fundamental', 'history', 'last_path', 'last_open', 'last_depth', 'news'):
             setattr(self, key, deepcopy(state[key]))
         self.orders = {o['id']: deepcopy(o) for o in state['orders']}
         self.live = {}
         self.last_fills = deepcopy(state['fills'])
+        self.actor_fills = deepcopy(state['actor_fills'])
         self.seq, self.trade_seq, self.state, self.round = state['seq'], state['trade_seq'], state['state'], state['round']
         self.path = {s: [] for s in self.stocks}
         self.pending, self.backend = {}, None
@@ -424,7 +470,11 @@ class MarketMod(GameMod):
             '每个交易日20000逻辑tick，计算机尽快运行，不等待现实20分钟。'
             '同tick公共快照一致，委托和撤单最早下一tick生效；市价单有2%价格保护，未成交量到期。'
             'price参数可指定限价，Day限价单可部分成交，收盘撤销；orders/fills只返回自己的委托和成交。'
-            '价格由有限资金与库存的背景做市者、玩家委托及公开现金流消息共同形成，默认无随机价格扰动。'
-            'quotes含盘口、已发生路径和已公布消息，不含种子、未来消息或未来价格。'
+            '价格由有限资金与库存的背景做市者、基本面代理、噪声流及玩家委托共同形成。'
+            '基本面受市场与行业因子驱动，波动有平静和风暴状态；每只股票的波动、贝塔、消息敏感度、'
+            '价格吸收速度和盘口流动性都不同（见quotes的volatility与depth）。'
+            '公开消息分三类：市场快讯（宏观，全行业按贝塔传导）、公司快讯（盘中错峰发布）和'
+            '定期财报（每5个交易日一轮，日程公开见next_report_round，内容事先未知）。'
+            'quotes含盘口、已发生路径、财报日程和已公布消息，不含种子、因子状态或未来价格。'
             '可用buy/sell开平多头，short/cover开平空头；做空受借券、保证金和借券费约束。',
-            ('行情', 'PAMS', '交易', '做空', 'tick', '订单'), '交互撮合、消息与可见性', system=True),)
+            ('行情', 'PAMS', '交易', '做空', '财报', '订单'), '交互撮合、因子动力学与可见性', system=True),)

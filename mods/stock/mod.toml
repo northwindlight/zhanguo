@@ -1,6 +1,6 @@
 [Distribution]
 Id = "stock:exchange"
-Version = "2.0.0"
+Version = "2.1.0"
 # PAMS交互市场、券商、共同tick、计算槽、算力租赁与商业谍报。
 Members = ["mods/clock.toml", "mods/market.toml", "mods/portfolio.toml", "mods/python.toml", "mods/compute.toml", "mods/intelligence.toml"]
 RequiredState = ["clock", "market", "portfolio", "scripts", "compute", "intelligence"]

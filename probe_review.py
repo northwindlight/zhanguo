@@ -13,20 +13,19 @@ from host import GameHost
 
 
 def causal_controls():
-    """Paired strategies trade only after both news events have been published."""
+    """Paired strategies trade each symbol after its own second published news."""
     source = """def on_tick():
-    if state.get('done'):
-        return
     rows = api.call('stock:market', 'quotes')
-    if len(rows[0]['news']) < 2:
-        return
-    state['done'] = True
     for row in rows:
+        key = row['symbol']
+        if len(row['news']) < 2 or state.get(key):
+            continue
+        state[key] = True
         sign = row['news'][-1]['cashflow_change_pct'] * DIRECTION
         if sign > 0:
-            api.call('stock:market', 'buy', symbol=row['symbol'], quantity=50)
+            api.call('stock:market', 'buy', symbol=key, quantity=50)
         else:
-            api.call('stock:market', 'short', symbol=row['symbol'], quantity=50)
+            api.call('stock:market', 'short', symbol=key, quantity=50)
 """
     results = []
     for seed in range(1, 7):
@@ -45,7 +44,8 @@ def causal_controls():
         results.append(result)
     return dict(external_model_calls=0, results=results,
                 description='Same-market public-news sign controls; 50 shares per symbol '
-                            'after the second released news. Closing marked equity includes fees.',
+                            'after that symbol has two published news items. Closing marked '
+                            'equity includes fees.',
                 aligned_wins=sum(r['aligned'] > r['inverted'] for r in results),
                 mean_aligned=sum(r['aligned'] for r in results)/len(results),
                 mean_inverted=sum(r['inverted'] for r in results)/len(results))

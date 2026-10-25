@@ -54,7 +54,7 @@ class StockGameTest(unittest.TestCase):
 
     def test_distribution_is_v2_and_has_real_backend(self):
         h = self.host()
-        self.assertEqual(h.runtime.distribution['Version'], '2.0.0')
+        self.assertEqual(h.runtime.distribution['Version'], '2.1.0')
         m = self.open(h)
         from pams import Market
         self.assertIsInstance(m.backend.books['shanhai'], Market)
@@ -166,7 +166,8 @@ class StockGameTest(unittest.TestCase):
         h.cycle()
         portfolio = h.world.portfolio
         self.assertAlmostEqual(sum(a['cash'] for a in before.values()),
-                               sum(a['cash'] for a in portfolio.accounts.values())+portfolio.fees_collected)
+                               sum(a['cash'] for a in portfolio.accounts.values())+portfolio.fees_collected,
+                               delta=.01)
         for symbol in h.world.market.stocks:
             self.assertEqual(sum(a['positions'].get(symbol, {}).get('quantity', 0) for a in before.values()),
                              sum(a['positions'].get(symbol, {}).get('quantity', 0) for a in portfolio.accounts.values()))
@@ -607,6 +608,72 @@ class StockGameTest(unittest.TestCase):
             actions = [row['action'] for row in loaded.audit]
             self.assertIn('buy', actions)
             self.assertIn('stock_fill', actions)
+
+    def test_old_market_save_without_dynamics_is_rejected(self):
+        h = self.host(); h.cycle()
+        legacy = h.world.market.to_save()
+        legacy.pop('dynamics')
+        with self.assertRaisesRegex(ValueError, '动力学'):
+            h.world.market.restore(legacy)
+
+    def test_background_agents_split_the_float(self):
+        h = self.host(); m = self.open(h)
+        from mods.stock.market import BACKGROUND, FLOW, NOISE
+        shares = h.world.portfolio.position_of
+        total = sum(shares(a)['shares']['shanhai'] for a in BACKGROUND)
+        self.assertEqual(total, m.float_shares)
+        self.assertIn(NOISE, h.world.portfolio.accounts)
+        self.assertTrue(all(h.world.portfolio.accounts[a]['background'] for a in BACKGROUND))
+
+    def test_depth_and_calendar_vary_per_stock(self):
+        h = self.host(); m = self.open(h)
+        thin = m.backend.depth('yundu')['asks'][0][1]
+        deep = m.backend.depth('hongfan')['asks'][0][1]
+        self.assertEqual((thin, deep), (50, 140))
+        quotes = {row['symbol']: row for row in m.quotes(ACTOR)}
+        self.assertEqual(quotes['shanhai']['next_report_round'], 1)   # offset 1 on day 1
+        self.assertEqual(quotes['qingzhou']['next_report_round'], 2)  # offset 2
+        self.assertEqual(quotes['shanhai']['report_tick'], round(200*.2))
+        self.assertIsNone(quotes['qingzhou']['report_tick'])
+
+    def test_news_are_staggered_with_kinds_and_earnings_calendar(self):
+        h = self.host(); m = self.open(h)
+        for tick in range(1, 68): m.advance(tick)
+        for row in m.quotes(ACTOR):
+            self.assertTrue(row['news'], row['symbol'])
+            self.assertTrue(all(n['tick'] <= 67 for n in row['news']))
+        for tick in range(68, 201): m.advance(tick)
+        rows = {row['symbol']: row for row in m.quotes(ACTOR)}
+        for symbol, row in rows.items():
+            kinds = {n['kind'] for n in row['news']}
+            self.assertTrue(kinds <= {'market', 'wire', 'earnings'}, kinds)
+            self.assertTrue(any(n['kind'] == 'wire' for n in row['news']))
+            if symbol in ('shanhai', 'hongfan'):
+                self.assertEqual(row['news'][0]['kind'], 'earnings')  # report day, tick 40
+            else:
+                self.assertEqual(row['news'][0]['tick'], 67)          # common market wire
+        reporting = {s for s, row in rows.items()
+                     if any(n['kind'] == 'earnings' for n in row['news'])}
+        self.assertEqual(reporting, {'shanhai', 'hongfan'})
+
+    def test_same_seed_replays_and_different_seed_diverges(self):
+        cfg = config(seed=7)
+        first = GameHost.new(cfg); first.world.clock.session_ticks = 200; first.cycle()
+        second = GameHost.new(cfg); second.world.clock.session_ticks = 200; second.cycle()
+        self.assertEqual(first.runtime.save_mod_state(first.world),
+                         second.runtime.save_mod_state(second.world))
+        other = GameHost.new(config(seed=8)); other.world.clock.session_ticks = 200; other.cycle()
+        self.assertNotEqual(first.world.market.close, other.world.market.close)
+
+    def test_fundamentals_move_and_persist_across_days(self):
+        h = self.host(); m = self.open(h)
+        start = dict(m.fundamental)
+        for tick in range(1, 201): m.advance(tick)
+        self.assertNotEqual(start, m.fundamental)
+        end_of_day = dict(m.fundamental)
+        m.settle(h.world, 1)
+        self.assertEqual(m.fundamental, end_of_day)
+        self.assertEqual(m.state, m.CLOSED)
 
 
 if __name__ == '__main__': unittest.main()

@@ -24,6 +24,9 @@ class Clock:
         return 0 if i < self.trading_days else self.cycle-i
     def can_act(self, actor): return actor not in self.ended
     def slices(self): return self.session_ticks
+    def cycle_info(self):
+        return dict(trading_days=self.trading_days, rest_days=self.rest_days,
+                    cycle=self.cycle)
     def tick_index(self): return self.tick
     def tick_for(self, actor): return self.tick
     def set_tick(self, tick):

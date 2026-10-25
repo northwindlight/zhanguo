@@ -71,11 +71,15 @@ class StockView(ModelView):
 
         quotes = facts.get('market') or []
         if quotes:
-            lines.append('行情（代码 名称 现价 涨跌 ma5 ma10 波动率）：')
+            lines.append('行情（代码 名称 现价 涨跌 ma5 ma10 波动率 财报日程）：')
             for row in quotes:
+                report = row.get('next_report_round')
+                when = f'第{report}回合' if report else '未定'
+                if row.get('report_tick'):
+                    when += f'今日tick{row["report_tick"]}'
                 lines.append(f'  {row["symbol"]} {row["name"]} {row["price"]} '
                              f'{row["change_pct"] * 100:+.2f}% ma5={row["ma5"]} ma10={row["ma10"]} '
-                             f'vol={row["volatility"]}')
+                             f'vol={row["volatility"]} 财报{when}')
 
         status = facts.get('script_status') or {}
         result = status.get('result')
