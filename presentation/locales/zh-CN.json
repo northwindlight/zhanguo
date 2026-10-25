@@ -54,6 +54,7 @@
   "console.interrupt": "🛑 已中断；保留最近完整结算存档",
   "console.failure": "🛑 第 {period} 回合运行失败 {kind}: {error}\n   存档已保留在 {path}，修好后重跑同一条命令即可续局（不加 --new）。",
   "console.failure_detail": "### 🛑 第 {period} 回合失败：{kind}: {error}\n```\n{detail}\n```",
+  "console.failure_hold": "（已停在控制台：board 看面板、thoughts 看思考、quit 退出；存档停在上一回合边界）",
   "console.module_fault": "⚠️ 第 {period} 回合 {action} 撞到模块内部错误（{kind}）：本动作作废、游戏继续；{error}",
   "console.prompt": "❯ ",
   "archive.head": "【历史归档 · 已滑出完整记录的旧回合（一行=该回合小结，「阶段总结」=多回合压缩）】",
