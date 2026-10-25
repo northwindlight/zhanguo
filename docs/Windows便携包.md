@@ -1,5 +1,7 @@
 # Windows 便携体验包
 
+[v0.5.0 发布页](https://github.com/northwindlight/zhanguo/releases/tag/v0.5.0) · [Windows x64 下载](https://github.com/northwindlight/zhanguo/releases/download/v0.5.0/zhanguo-0.5.0-windows-x64.zip)
+
 用于让朋友直接体验地图、界面与演出，并给音乐、美术提建议。
 目标为 Windows 10/11、x64。完整解压后双击 `Zhanguo.exe`，无需安装 Godot、Python 或 .NET SDK。
 默认新的对局是暂停的 v13 规则 AI 八国局；点开始和继续即可离线观看。

@@ -105,6 +105,8 @@ python3 settlement.py --save mp_save.json --table
 
 ### 桌面上帝视角
 
+[下载 v0.5.0 Windows x64 便携版](https://github.com/northwindlight/zhanguo/releases/download/v0.5.0/zhanguo-0.5.0-windows-x64.zip)：完整解压后双击 `Zhanguo.exe`，无需安装开发工具。
+
 ![桌面上帝视角](docs/design/gui-unified-town-20261024.png)
 
 桌面版采用正常v13离线八国开局：全窗地图、远景国色与近景地貌、居民与密集小队，以及列国、山河、市集、纪事抽屉。按国横幅、自动聚焦和五档速度逐项展示行动，回合末播放行军、生产/军需与逐场战斗，支持暂停和保存。
