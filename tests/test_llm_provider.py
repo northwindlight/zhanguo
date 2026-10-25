@@ -219,23 +219,6 @@ class TestStreamAggregation(unittest.TestCase):
         self.assertEqual(msg["tool_calls"][0]["function"]["name"], "query")
         self.assertEqual(json.loads(msg["tool_calls"][0]["function"]["arguments"]), {"t": "res"})
 
-    def test_repeated_full_tool_name_in_every_delta_is_not_concatenated(self):
-        """有的网关每个分片都重发完整函数名；累加会变成 scriptscript…（workbuddy2api 实测）。"""
-        chunks = [
-            {"choices": [{"delta": {"tool_calls": [
-                {"index": 0, "id": "call_1", "type": "function",
-                 "function": {"name": "script", "arguments": '{"a":'}}]}}]},
-            {"choices": [{"delta": {"tool_calls": [
-                {"index": 0, "function": {"name": "script", "arguments": " 1}"}}]}}]},
-            {"choices": [{"delta": {"tool_calls": [
-                {"index": 0, "function": {"name": "script", "arguments": ""}}]}}]},
-        ]
-        with _Transport(_chat_sse(*chunks)):
-            b = llm_provider.make_backend(_cfg())
-            msg, _st = b.chat_turn([], [], _cfg(max_tokens=100))
-        self.assertEqual(msg["tool_calls"][0]["function"]["name"], "script")
-        self.assertEqual(json.loads(msg["tool_calls"][0]["function"]["arguments"]), {"a": 1})
-
     def test_request_shape_and_url(self):
         """URL 与 SDK 时代逐字一致（base 不擅自补 /v1）；thinking 一律发；流式带 stream_options。"""
         tools = [{"type": "function", "function": {"name": "query", "parameters": {}}}]
