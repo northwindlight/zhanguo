@@ -473,6 +473,51 @@ class StockGameTest(unittest.TestCase):
         self.assertEqual(mine[0]['snapshot']['debt'], 0)
         self.assertFalse(h.player(other).observe()['facts']['intel_status']['reports'])
 
+    def test_intel_source_steals_deterministic_fragment(self):
+        h = self.host(actors=2)
+        other = 'stock:player1'
+        source = ''.join(f'value_{i} = {i}\n' for i in range(30))
+        h.world.scripts.write(other, source, '1')
+        r = self.submit(h, 'intel', action='source', target=other)
+        self.assertTrue(r['ok'], r)
+        report = r['data']; frag = report['fragment']
+        self.assertEqual(report['kind'], 'source')
+        self.assertEqual((frag['slot'], frag['revision'], frag['total_lines']), ('1', 1, 30))
+        lines = source.splitlines()
+        self.assertEqual(frag['code'].splitlines(),
+                         lines[frag['start_line'] - 1: frag['start_line'] - 1 + 6])
+        book = h.world.portfolio.holdings(ACTOR)
+        self.assertEqual((book['wealth'], book['intelligence_expenses']), (97500, 2500))
+        # 同种子同行动顺序：片段逐字一致。
+        replay = GameHost.new(config(actors=2))
+        replay.world.scripts.write(other, source, '1')
+        r2 = replay.player(ACTOR).submit('intel', {'action': 'source', 'target': other})
+        self.assertTrue(r2['ok'])
+        self.assertEqual(r2['data']['fragment'], frag)
+        # 重复偷取推进序号并再次扣费。
+        second = self.submit(h, 'intel', action='source', target=other)
+        self.assertTrue(second['ok'])
+        self.assertEqual(second['data']['id'], report['id'] + 1)
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['intelligence_expenses'], 5000)
+
+    def test_intel_source_rejects_empty_background_and_script_launch(self):
+        h = self.host(actors=2)
+        self.assertFalse(self.submit(h, 'intel', action='source', target='stock:player1')['ok'])
+        self.assertEqual(h.world.portfolio.accounts[ACTOR]['cash'], 100000)  # 无码可偷不扣费
+        for target in (ACTOR, MAKER, CLEARING):
+            with self.subTest(target=target):
+                self.assertFalse(self.submit(h, 'intel', action='source', target=target)['ok'])
+        r = self.research(h, "api.call('stock:intelligence','source',target='stock:player1')")
+        self.assertFalse(r['ok'])
+        h.world.scripts.write('stock:player1', 'x = 1\n', '1')
+        self.assertTrue(self.submit(h, 'intel', action='source', target='stock:player1')['ok'])
+        r = self.research(h, "print(api.call('stock:intelligence','status')['reports'][-1]['kind'])")
+        self.assertTrue(r['ok'], r)
+        self.assertEqual(r['data']['output'], 'source\n')
+        text = StockView({'language': 'zh-CN'}).stock_briefing(h.player(ACTOR).observe())
+        self.assertIn('偷到', text)
+        self.assertIn('x = 1', text)
+
     def test_intelligence_cannot_target_self_background_or_unknown(self):
         h = self.host()
         for target in (ACTOR, MAKER, CLEARING, 'stock:unknown'):

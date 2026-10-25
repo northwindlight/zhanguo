@@ -272,15 +272,24 @@ def build(runtime):
             return runtime.player_api(world, 'stock:intelligence').status(actor)
         def intel_steal(world, actor, target: str):
             return runtime.player_api(world, 'stock:intelligence').steal(actor, target)
+        def intel_source(world, actor, target: str):
+            return runtime.player_api(world, 'stock:intelligence').source(actor, target)
         spec = Action('intel_steal', intel_steal, owner='stock:intelligence', api=('steal',),
                       description='支付游戏费用，取得其他玩家的现金、银行贷款及各股票持仓规模快照；target为公开玩家id。报告不会自动刷新。')
+        code_spec = Action('intel_source', intel_source, owner='stock:intelligence', api=('source',),
+                           description='支付更高费用，随机偷取其他玩家一段策略源码（从其已保存的槽位中随机挑一个，'
+                                       '再随机截取连续至多6行，注明槽位/版本/行号范围）；同一目标可重复偷取不同片段。')
         tools.append(Tool('intel_status', intel_status, owner='stock:intelligence', api=('status',),
-                          read_only=True, fact=True, description='公开玩家名单、商业谍报价格及自己已购买的报告，含获取时间。'))
+                          read_only=True, fact=True, description='公开玩家名单、快照与源码偷取价格及自己已购买的报告，含获取时间。'))
         tools.append(command_layer.action_tool(runtime, 'intel',
-                     '商业谍报：action=steal，target=其他玩家id；按公布价格付费获取现金、贷款、持仓规模快照。',
-                     (('steal', spec),)))
+                     '商业谍报：action=steal 获取对方现金/贷款/持仓快照，action=source 随机偷取对方策略源码片段；'
+                     'target=其他玩家id，各自按公布价格付费。',
+                     (('steal', spec), ('source', code_spec))))
         actions.append(spec)
-        commands['intel'] = {'steal': 'intel_steal'}
+        actions.append(code_spec)
+        commands['intel'] = {'steal': 'intel_steal', 'source': 'intel_source'}
+        receipts['intel_source'] = _source_receipt
+        captions['intel_source'] = '偷取源码'
 
     # ── 结束回合 ────────────────────────────────────────────────────
     if 'stock:clock' in runtime.capabilities:
@@ -389,3 +398,15 @@ def _repay_receipt(args, receipt, actor, ctx):
 def _end_turn_receipt(args, receipt, actor, ctx):
     data = receipt.get('data') or {}
     return f'第 {data.get("round", "?")} 回合行动结束。{data.get("summary", "")}'
+
+
+def _source_receipt(args, receipt, actor, ctx):
+    data = receipt.get('data') or {}
+    frag = data.get('fragment') or {}
+    code = frag.get('code') or ''
+    last = frag.get('start_line', 1) + max(0, len(code.splitlines()) - 1)
+    lines = [f'第{data.get("round", "?")}回合 偷到 {args.get("target", "?")} 槽{frag.get("slot", "?")}'
+             f'（第{frag.get("revision", "?")}版）第{frag.get("start_line", "?")}～{last}行'
+             f'/共{frag.get("total_lines", "?")}行：']
+    lines.extend('  ' + row for row in code.splitlines())
+    return '\n'.join(lines)

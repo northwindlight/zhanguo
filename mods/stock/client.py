@@ -138,12 +138,22 @@ class StockView(ModelView):
                 if r.get('output'): lines.append('输出：\n' + r['output'])
         intel = facts.get('intel_status') or {}
         if intel:
-            lines.append(f'商业谍报单价 {intel["price"]}，已购报告 {len(intel["reports"])} 份。')
+            lines.append(f'快照单价 {intel["price"]}，源码片段单价 {intel.get("code_price", "—")}，'
+                         f'已购报告 {len(intel["reports"])} 份。')
             for report in intel['reports']:
-                snap = report['snapshot']
-                lines.append(f'第{report["round"]}期/tick{report["tick"]} {snap["name"]}：'
-                             f'现金{snap["cash"]}，贷款{snap["debt"]}，'
-                             f'多头{snap["long_value"]}，空头{snap["short_value"]}（获取时快照）。')
+                if report.get('kind') == 'source':
+                    frag = report.get('fragment') or {}
+                    code = frag.get('code') or ''
+                    last = frag.get('start_line', 1) + max(0, len(code.splitlines()) - 1)
+                    lines.append(f'第{report["round"]}期/tick{report["tick"]} 偷到 {report["target"]} '
+                                 f'槽{frag.get("slot")}（第{frag.get("revision")}版）'
+                                 f'第{frag.get("start_line")}～{last}行/共{frag.get("total_lines")}行：')
+                    lines.extend('  ' + row for row in code.splitlines())
+                    continue
+                snap = report.get('snapshot') or {}
+                lines.append(f'第{report["round"]}期/tick{report["tick"]} {snap.get("name", report.get("target"))}：'
+                             f'现金{snap.get("cash")}，贷款{snap.get("debt")}，'
+                             f'多头{snap.get("long_value")}，空头{snap.get("short_value")}（获取时快照）。')
 
         return '\n'.join(lines)
 

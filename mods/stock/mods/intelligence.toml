@@ -1,6 +1,6 @@
 [Mod]
 Id = "stock:intelligence"
-Version = "2.0.0"
+Version = "2.1.0"
 Entry = "mods.stock.intelligence:IntelligenceMod"
 Requires = ["stock:clock", "stock:portfolio"]
 [State]
@@ -13,6 +13,7 @@ Provides = ["stock:intelligence"]
 "stock:clock" = ["charge"]
 [Parameters]
 ReportPrice = 1000
+CodePrice = 2500
 [PlayerAPI]
-Methods = ["status", "steal"]
+Methods = ["status", "steal", "source"]
 ReadOnly = ["status"]
