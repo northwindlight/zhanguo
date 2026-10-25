@@ -105,7 +105,7 @@ python3 settlement.py --save mp_save.json --table
 
 ### 桌面上帝视角
 
-[下载 v0.5.0 Windows x64 便携版](https://github.com/northwindlight/zhanguo/releases/download/v0.5.0/zhanguo-0.5.0-windows-x64.zip)：完整解压后双击 `Zhanguo.exe`，无需安装开发工具。
+[下载 v0.5.1 Windows x64 便携版](https://github.com/northwindlight/zhanguo/releases/download/v0.5.1/zhanguo-0.5.1-windows-x64.zip)：完整解压后双击 `Zhanguo.exe`，无需安装开发工具。
 
 ![桌面上帝视角](docs/design/gui-unified-town-20261024.png)
 
