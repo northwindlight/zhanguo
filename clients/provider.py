@@ -684,7 +684,14 @@ class OpenAICompat:
                             slot["type"] = tc["type"]
                         fn = tc.get("function") or {}
                         if fn.get("name"):
-                            slot["function"]["name"] += fn["name"]
+                            frag = str(fn["name"])
+                            current = slot["function"]["name"]
+                            # 有的网关（实测 workbuddy2api）在每个分片里重发**完整**函数名，
+                            # 按 OpenAI 规范直接累加会得到 scriptscript…。只在确实是新片段时拼接。
+                            if frag != current:
+                                slot["function"]["name"] = (
+                                    frag if current and frag.startswith(current) and len(frag) > len(current)
+                                    else current + frag)
                         if fn.get("arguments"):
                             slot["function"]["arguments"] += fn["arguments"]
             except TimeoutError:
