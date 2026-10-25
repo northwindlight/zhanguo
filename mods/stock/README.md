@@ -5,6 +5,9 @@
 > 需要改 native 的行为时，把要改的部分**复制 fork 到 `mods/stock/` 名下**再改，
 > native 保持与 main 完全一致。当前对 native 的唯一依赖是
 > `mods/stock/tools.py` 里 `from mods.native.tools import commands`（只读）。
+> 例外（2026-10-25）：`clients/provider.py` 的 SIGALRM 看门狗加了"非主线程空转"
+> 判断——并发规划把 LLM 调用放进工作线程，signal 只允许主线程安装，最小修复
+> 直接落在 provider（两个看门狗的 6 个调用点全在其内部，fork 整个 provider 不成比例）。
 
 玩家用受限 Python 编写策略，在 **PAMS 0.3.0 的真实订单簿**里共同交易。
 基本面由种子确定的多因子动力学驱动：市场与行业因子、平静/风暴波动状态、

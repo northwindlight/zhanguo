@@ -802,6 +802,29 @@ class StockGameTest(unittest.TestCase):
             self.assertEqual(loaded.world.market.stocks['shanhai'], h.world.market.stocks['shanhai'])
             self.assertEqual(loaded.world.market.pool['ipo_index'], h.world.market.pool['ipo_index'])
 
+    def test_stream_watchdogs_skip_alarm_in_worker_threads(self):
+        """并发规划把 LLM 调用放进工作线程：SIGALRM 看门狗必须静默降级，不能炸。"""
+        import threading
+        import types
+        from clients import provider
+        calls = []
+        fake = types.SimpleNamespace(
+            SIGALRM=14, ITIMER_REAL=0,
+            signal=lambda *a: calls.append('signal'),
+            setitimer=lambda *a: calls.append('setitimer'))
+        def run_both():
+            with provider.stream_timeout(.5, .2) as clock:
+                clock.kick()
+            with provider.hard_timeout(.5, 'x'):
+                pass
+        with patch.object(provider.os, 'name', 'posix'),                 patch.object(provider, 'signal', fake):
+            run_both()                           # 主线程：照常上弦
+            self.assertIn('signal', calls)
+            calls.clear()
+            worker = threading.Thread(target=run_both)
+            worker.start(); worker.join()
+        self.assertEqual(calls, [])              # 工作线程：空转，不装 signal
+
     def test_concurrent_planning_overlaps_client_waiting(self):
         import time
         from mods.stock import client as stock_client
