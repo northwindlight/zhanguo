@@ -13,6 +13,9 @@ public partial class Desktop
     private readonly Queue<JsonObject> _beats=new();
     private JsonObject? _playingBeat,_pendingFrame;
     private int _timelineSequence,_timelinePeriod,_beatNumber,_beatTotal;
+    private string _timelineStage="settlement";
+    private int _actionBatches,_settlementBatches;
+    private int _actionMarches,_settlementMarches;
     private bool _playbackPaused=true,_autoFollow=true,_awaitingFrame;
     private double _beatElapsed;
     private float _playbackSpeed=1;
@@ -71,8 +74,10 @@ public partial class Desktop
     private void StepPlayback() { _playbackPaused=false;Send("step"); }
     private void ReceiveTimeline(JsonObject row)
     {
-        if(HasTimeline)throw new Exception("上一期演出尚未确认，拒绝覆盖播放状态");
+        if(HasTimeline)throw new Exception("上一批演出尚未确认，拒绝覆盖播放状态");
         _timelineSequence=I(row["sequence"]);_timelinePeriod=I(row["period"]);_beatNumber=0;
+        _timelineStage=S(row["stage"]);
+        if(_timelineStage=="action")_actionBatches++;else _settlementBatches++;
         _map.ClearActivity();
         foreach(var beat in row["beats"]!.AsArray())_beats.Enqueue(beat!.AsObject());
         _beatTotal=_beats.Count;StartNextBeat();
@@ -83,6 +88,10 @@ public partial class Desktop
         _playingBeat=_beats.Dequeue();_beatElapsed=0;_beatNumber++;
         _map.BeginBeat(_playingBeat,_autoFollow);
         string phase=S(_playingBeat["phase"]);
+        if(phase=="march")
+        {
+            if(_timelineStage=="action")_actionMarches++;else _settlementMarches++;
+        }
         DriveBubbles(_playingBeat,phase);
         _playedPhases[phase]=_playedPhases.GetValueOrDefault(phase)+1;
         _bannerTitle.Text=S(_playingBeat["turn_title"]);
@@ -105,6 +114,10 @@ public partial class Desktop
         if(_smoke!=null&&(_beatNumber%50==0||phase is "actor" or "battle"))
             GD.Print($"DESKTOP_PHASE period={_timelinePeriod} beat={_beatNumber}/{_beatTotal} phase={phase} speed={EffectivePlaybackSpeed}");
         RefreshPlaybackControls();
+        if(_smoke!=null&&_timelineStage=="action"&&!_pauseMenuReviewStarted)
+        {
+            _pauseMenuReviewStarted=true;_=ReviewPauseMenu();
+        }
     }
     private void DriveBubbles(JsonObject beat,string phase)
     {
@@ -156,15 +169,23 @@ public partial class Desktop
     private void FinishPlayback()
     {
         if(_closing)return;
-        _playingBeat=null;_map.EndBeat();_bubbles.HideSoon();
-        _liveActor="";RefreshSpeedDisplay();
+        _playingBeat=null;_map.EndBeat();
         if(_pendingFrame==null){_awaitingFrame=true;return;}
         ApplyFrame(_pendingFrame);_pendingFrame=null;_awaitingFrame=false;
-        _bannerTitle.Text=$"第 {_timelinePeriod+1} 回合 · 全部结算完成";
-        _bannerText.Text="所有战斗、生产、补给与落成已展示";
+        if(_timelineStage=="action")
+        {
+            _bannerText.Text="本次调用的操作已展示 · 继续处理下一批行动";
+        }
+        else
+        {
+            _bubbles.HideSoon();_liveActor="";
+            _bannerTitle.Text=$"第 {_timelinePeriod+1} 回合 · 全部结算完成";
+            _bannerText.Text="所有战斗、生产、补给与落成已展示";
+        }
+        RefreshSpeedDisplay();
         try {_host!.StandardInput.WriteLine(JsonSerializer.Serialize(new {command="playback_ack",generation=_generation,sequence=_timelineSequence}));}
         catch(Exception e){Error(e.Message);}
-        if(!_running)_playbackPaused=true;
+        if(!_running&&_timelineStage!="action")_playbackPaused=true;
         RefreshPlaybackControls();
     }
     private void RefreshPlaybackControls()

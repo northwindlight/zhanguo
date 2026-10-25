@@ -41,4 +41,5 @@ if (-not (Test-Path (Join-Path $taskOutput 'menu.png'))) { throw 'Exported menu 
 Run-GameCheck 'world' @('--rendering-method', 'gl_compatibility', '--rendering-driver', 'opengl3_angle', '--', '--smoke-output', (Join-Path $taskOutput 'world.png')) 300000
 $taskWorld = Get-Content -Raw (Join-Path $taskOutput 'world.png.json') | ConvertFrom-Json
 if ($taskWorld.period -lt 3 -or $taskWorld.artwork -ne 'unified-pixel-world' -or -not $taskWorld.readable_font) { throw 'Exported game did not load the current artwork/font/host' }
+if (-not $taskWorld.pause_menu_checked -or $taskWorld.action_batches -lt 24 -or $taskWorld.settlement_batches -lt 3 -or $taskWorld.settlement_marches -ne 0) { throw 'Call playback or pause menu verification failed' }
 Write-Output 'WINDOWS_PORTABLE_VERIFIED'

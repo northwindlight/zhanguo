@@ -49,7 +49,11 @@ class TestDesktopActivity(unittest.TestCase):
     def test_cycle_waits_for_exact_ack_and_pause_saves_complete_boundary(self):
         h=build(seed=73);rows=[]
         with tempfile.TemporaryDirectory() as d:
-            control=Controller(h,Path(d)/'session.json',rows.append,playback=True)
+            def output(row):
+                rows.append(row)
+                if row['type']=='timeline' and row['stage']=='action':
+                    control.commands.put({'command':'playback_ack','generation':row['generation'],'sequence':row['sequence']})
+            control=Controller(h,Path(d)/'session.json',output,playback=True)
             control.persist();control.command({'command':'resume'});control.advance()
             self.assertEqual(h.clock(),1);self.assertEqual(control.saved_period,1)
             seq=control.waiting;self.assertIsNotNone(seq)
@@ -76,14 +80,19 @@ class TestDesktopActivity(unittest.TestCase):
         self.assertIsNone(c.warning);phases=Counter(b['phase'] for b in beats)
         self.assertGreater(phases['march'],0);self.assertGreater(phases['battle'],0);self.assertGreater(phases['maintenance'],0)
         self.assertEqual(phases['battle'],phases['casualties'])
-        last_turn=max(i for i,b in enumerate(beats) if b['phase']=='turn-end')
-        first_march=min(i for i,b in enumerate(beats) if b['phase']=='march')
         last_march=max(i for i,b in enumerate(beats) if b['phase']=='march')
         first_battle=min(i for i,b in enumerate(beats) if b['phase']=='battle')
-        self.assertLess(last_turn,first_march);self.assertLess(last_march,first_battle)
-        camps=replay(initial,beats[:first_march]);old={key('armies',u):(u['x'],u['y']) for u in initial['armies']}
-        self.assertTrue(all((u['x'],u['y'])==old[key('armies',u)] for u in camps['armies'] if key('armies',u) in old))
+        self.assertLess(last_march,first_battle)
         for i,b in enumerate(beats):
+            if b['phase']=='march':
+                self.assertEqual(beats[i-1]['phase'],'order')
+                self.assertIn(beats[i+1]['phase'],('arrival','engage'))
+                self.assertEqual(b['playback_scope'],'actor')
+                turn_end=next(j for j in range(i+1,len(beats)) if beats[j]['phase']=='turn-end' and beats[j]['actor']==b['actor'])
+                self.assertLess(i,turn_end)
+                arrived=replay(initial,beats[:i+2])
+                positions={key('armies',u):[u['x'],u['y']] for u in arrived['armies']}
+                for motion in b['motions']:self.assertEqual(positions[motion['unit']],motion['points'][-1])
             if b['phase']=='battle':
                 self.assertEqual(beats[i+1]['phase'],'casualties');self.assertEqual(beats[i+1]['source'],b['source'])
             for motion in b.get('motions',[]):

@@ -79,7 +79,11 @@ class TestLiveDialogue(unittest.TestCase):
                     {'id':'end','type':'function','function':{'name':'end_turn','arguments':json.dumps({'summary':'完成休整。'})}}]}, {'out_tokens':12,'wall':.1}
         host.clients['scenario:qin']._backend=Backend()
         with tempfile.TemporaryDirectory() as d:
-            control=Controller(host,Path(d)/'session.json',rows.append,playback=True)
+            def output(row):
+                rows.append(row)
+                if row['type']=='timeline' and row['stage']=='action':
+                    control.commands.put({'command':'playback_ack','generation':row['generation'],'sequence':row['sequence']})
+            control=Controller(host,Path(d)/'session.json',output,playback=True)
             control.advance()
         streams=[r for r in rows if r['type']=='stream']
         self.assertEqual(sum(r.get('event')=='complete' for r in streams),1)
@@ -90,6 +94,6 @@ class TestLiveDialogue(unittest.TestCase):
         self.assertEqual(next(r['text'] for r in streams if r.get('event')=='summary'),'完成休整。')
         self.assertEqual(rows[-2]['frame']['clients'][0]['model'],'DeepSeek-Offline')
         self.assertEqual(host.clock(),1)
-        beats=next(r for r in rows if r['type']=='timeline')['beats']
+        beats=[b for r in rows if r['type']=='timeline' for b in r['beats']]
         self.assertTrue(all(b['client_kind']=='llm' and b['playback_scope']=='actor' for b in beats if b['actor']))
         self.assertTrue(all(b['playback_scope']=='settlement' for b in beats if not b['actor']))

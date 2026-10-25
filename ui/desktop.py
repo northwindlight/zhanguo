@@ -32,6 +32,8 @@ class Controller:
         self.revision = 0
         self.saved_period = None
         self.playback=playback;self.waiting=None;self.timeline_sequence=0
+        self._in_cycle=False;self._cycle_paused=False;self._stop_after_cycle=False
+        self._capture=None
         self._probes=None
         self.contexts={}
         self._error_actor=None
@@ -116,14 +118,17 @@ class Controller:
 
     def status(self, state, **extra):
         self.send('status', state=state, period=self.host.clock(),
-                  saved_period=self.saved_period, save=str(self.save), **extra)
+                  saved_period=self.saved_period, save=str(self.save),
+                  cycle_active=self._in_cycle,playback_paused=self._cycle_paused,auto_running=self.running,**extra)
 
-    def snapshot(self):
+    def frame(self):
         frame=self.host.ui.desktop_frame(self.host.observer_snapshot())
         frame['clients']=[{'actor':actor,'kind':client.kind,'version':client.version,
                            'model':getattr(client,'cfg',{}).get('model') if client.kind=='llm' else None,
                            'strategy':getattr(getattr(client,'state',None),'profile',None)} for actor,client in self.host.clients.items()]
-        self.send('snapshot', frame=frame)
+        return frame
+
+    def snapshot(self):self.send('snapshot',frame=self.frame())
 
     def persist(self):
         self.host.save(self.save)
@@ -131,6 +136,19 @@ class Controller:
 
     def command(self, row):
         op = row.get('command')
+        if self._in_cycle and op in ('pause','resume','save','stop','step'):
+            # There is no legal save in the middle of a cycle. Pause stays at
+            # this batch; closing drains the cycle without further visual waits.
+            if op=='step':raise ValueError('本回合尚未完成，请先继续演出')
+            if op=='pause':
+                self.running=False;self._cycle_paused=True;self.status('playback-paused')
+            elif op=='resume':
+                self.running=not row.get('cycle_only',False);self._cycle_paused=False;self.status('presenting')
+            elif op=='save':self.status('save-queued')
+            else:
+                self.running=False;self._stop_after_cycle=True;self._cycle_paused=False
+                self.waiting=None;self.status('stopping')
+            return
         if op == 'pause':
             self.running = False
             self.persist()
@@ -141,16 +159,16 @@ class Controller:
             if self.host.finished() or self.host.clock() >= self.max_turns:
                 raise ValueError('对局已结束或达到回合上限')
             if op=='step' and self.waiting is not None:raise ValueError('本期演出尚未完成，请先继续或快进')
-            self.running = op == 'resume'
+            self.running = op == 'resume' and not row.get('cycle_only',False)
             if op == 'step':self.advance()
-            else:self.status('running')
+            else:self.status('running' if self.running else 'paused')
         elif op == 'save':
             self.persist();self.status('running' if self.running else 'paused')
         elif op == 'snapshot':self.snapshot()
         elif op == 'playback_ack':
-            if row.get('generation')==self.generation and row.get('sequence')==self.waiting:
+            if self.waiting is not None and row.get('generation')==self.generation and row.get('sequence')==self.waiting:
                 self.waiting=None
-                self.status('running' if self.running else 'paused')
+                if not self._in_cycle:self.status('running' if self.running else 'paused')
         elif op == 'stop':
             self.running = False
             if not self.failed:self.persist()
@@ -158,33 +176,71 @@ class Controller:
             self.status('stopped')
         else:raise ValueError(f'未知桌面命令：{op}')
 
+    def publish(self,beats,stage,*,actor=None,call=None,frame=None):
+        if frame is None:frame=self.frame()
+        self.flush_stream()
+        self.timeline_sequence+=1;self.waiting=self.timeline_sequence
+        self.send('timeline',sequence=self.waiting,period=self._capture.period,
+                  stage=stage,actor=actor,call=call,beats=beats)
+        # A detached frame at the same fact boundary as these beats, never the
+        # final cycle frame while an earlier call is still being watched.
+        self.send('snapshot',frame=frame)
+
+    def batch(self,actor,call):
+        capture=self._capture
+        if not capture or self._stop_after_cycle:return
+        if capture.warning:
+            self.send('notice',message=capture.warning)
+            self._capture=None
+            try:self.snapshot()
+            except Exception as exc:self.send('notice',message=f'当前画面暂不可用，回合结束后同步：{exc}')
+            return
+        beats=capture.drain()
+        if not beats:return
+        try:frame=self.frame()
+        except Exception as exc:
+            capture.warning=f'本批画面采集失败，回合结束后同步：{exc}'
+            self.send('notice',message=capture.warning);self._capture=None;return
+        self.status('presenting')
+        self.publish(beats,'action',actor=actor,call=call,frame=frame)
+        while (self.waiting is not None or self._cycle_paused) and not self._stop_after_cycle:
+            try:self.command(self.commands.get())
+            except Exception as exc:self.send('error',message=str(exc),actor=actor)
+        if not self._stop_after_cycle:self.status('advancing')
+
     def advance(self):
         if self.waiting is not None:raise ValueError('等待本期演出确认后才能推进下一期')
         self.status('advancing')
         self._streamed_actors.clear()
+        capture=None
+        self._in_cycle=True;self._cycle_paused=False;self._stop_after_cycle=False
         try:
-            capture=None
             if self.playback:
                 from mods.ui.desktop_activity import TimelineCapture
                 try:capture=TimelineCapture(self.host,contexts=self.contexts,activity=self.activity)
                 except Exception as exc:self.send('notice',message=f'演出初始化失败，使用完整快照：{exc}')
+            self._capture=capture
             with redirect_stdout(sys.stderr):
-                if capture:self.host.cycle(on_result=capture.capture,emit=self.model_line,on_stream=self.model_stream)
+                if capture:self.host.cycle(on_result=capture.capture,emit=self.model_line,on_stream=self.model_stream,on_batch=self.batch)
                 else:self.host.cycle(emit=self.model_line,on_stream=self.model_stream)
         except Exception:
             self.flush_stream()
             self.running = False; self.failed = True
             self._error_actor=getattr(capture,'actor',None) if capture else None
             raise
+        finally:self._in_cycle=False
         self.flush_stream()
         self.persist()
+        if self._stop_after_cycle:
+            self.stopping=True;self.status('stopped');return
         if capture:
             beats=capture.finish()
             if capture.warning:self.send('notice',message=capture.warning)
             if beats:
-                self.timeline_sequence+=1;self.waiting=self.timeline_sequence
-                self.send('timeline',sequence=self.waiting,period=capture.period,beats=beats)
-        self.snapshot()
+                self._capture=capture
+                self.publish(beats,'settlement')
+            else:self.snapshot()
+        else:self.snapshot()
         if self.host.finished() or self.host.clock() >= self.max_turns:self.running = False
         self.status('running' if self.running else 'paused')
 

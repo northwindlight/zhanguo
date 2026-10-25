@@ -124,8 +124,9 @@ public partial class Desktop : Control
         BuildPlaybackControls(top);
         _play=Button(top,"继续",TogglePlayback);
         _step=Button(top,"下一回合",StepPlayback);
-        _save=Button(top,"保存",()=>Send("save"));
-        _save.TooltipText="保存已完成的规则回合；正在播放的演出可能尚未到达该结算边界";
+        _save=Button(top,"菜单 · Esc",OpenPauseMenu);
+        _save.TooltipText="自动暂停演出，打开继续、保存与退出菜单";
+        BuildPauseMenu();
         var dock=new HBoxContainer { MouseFilter=MouseFilterEnum.Ignore,ZIndex=5 };
         dock.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomLeft);dock.OffsetLeft=16;dock.OffsetTop=-58;dock.OffsetBottom=-14;
         dock.AddThemeConstantOverride("separation",8);AddChild(dock);
@@ -133,7 +134,7 @@ public partial class Desktop : Control
         _detailsButton=Button(dock,"山河",()=>ToggleDrawer(_details));
         _shopButton=Button(dock,"市集",()=>ToggleDrawer(_shop));
         _chronicleButton=Button(dock,"纪事",()=>ToggleDrawer(_chronicle));
-        var hint=new Label { Text="F 总览 · 空格 暂停/继续 · Esc 收起 · 滚轮缩放 / 右键拖动",MouseFilter=MouseFilterEnum.Ignore,ZIndex=5,
+        var hint=new Label { Text="F 总览 · 空格 暂停/继续 · Esc 菜单 · 滚轮缩放 / 右键拖动",MouseFilter=MouseFilterEnum.Ignore,ZIndex=5,
             HorizontalAlignment=HorizontalAlignment.Right,Modulate=new Color("c0c9b2") };
         hint.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight);hint.OffsetLeft=-660;hint.AddThemeFontSizeOverride("font_size",14);hint.OffsetRight=-18;hint.OffsetTop=-44;hint.OffsetBottom=-18;AddChild(hint);
         Resized+=LayoutDrawers;LayoutDrawers();
@@ -370,10 +371,15 @@ public partial class Desktop : Control
         }
         if(type=="status")
         {
-            string state=S(row["state"]);_hostState=state;_running=state is "running" or "advancing";
+            string state=S(row["state"]);_hostState=state;
+            _autoRunning=row["auto_running"]?.GetValue<bool>()==true;
+            _running=state is "running" or "advancing" or "presenting" ||
+                row["cycle_active"]?.GetValue<bool>()==true && row["playback_paused"]?.GetValue<bool>()!=true && state!="stopping";
             if(_smoke!=null&&state=="stopped")GD.Print("DESKTOP_HOST_STOPPED");
             _savePath=S(row["save"]);
-            string status=state switch {"running"=>"推演中","advancing"=>"列国行动中","paused"=>"已暂停","stopped"=>"已保存并停止",_=>state};
+            string status=state switch {"running"=>"推演中","advancing"=>"列国行动中","presenting"=>"展示本次调用",
+                "playback-paused"=>"本批演出已暂停","save-queued"=>"保存已排队，等待完整回合",
+                "stopping"=>"正在完成回合并保存","paused"=>"已暂停","stopped"=>"已保存并停止",_=>state};
             _status.Text=$"第 {I(row["period"])} 回合 · {status} · 已存 {row["saved_period"]}";
             _status.TooltipText=_savePath;
             _play.Text=_running?"暂停":"继续";
@@ -382,6 +388,7 @@ public partial class Desktop : Control
             _save.Disabled=_closing;
             if(_smoke!=null && !_smokeStarted && state=="paused") {_smokeStarted=true;_playbackPaused=false;Send("resume");}
             if(state=="paused")_map.ClearActivity();
+            RefreshPauseMenu(state);
             RefreshPlaybackControls();
         }
     }
@@ -530,6 +537,8 @@ public partial class Desktop : Control
                 initial_armies=_initialArmies,residents=_map.Residents,potential_guards=_map.Guards,region_nodes=_map.RegionNodes,
                 bubble_segments=_bubbles.SegmentsShown,readable_font=Theme?.DefaultFont is FontFile,pixel_font=PixelTheme.FontPath,
                 activity_events=_activitySeen,
+                action_batches=_actionBatches,settlement_batches=_settlementBatches,pause_menu_checked=_pauseMenuChecked,
+                action_marches=_actionMarches,settlement_marches=_settlementMarches,
                 played_phases=_playedPhases,actor_banners=_actorBanners,political_alpha_near=_map.PoliticalOpacity,
                 map_fills_window=true,map_width=_map.Size.X,map_height=_map.Size.Y,viewport_width=Size.X,viewport_height=Size.Y,
                 drawers_start_closed=true,drawer_pointer_checked=true,drawers_preserve_map_rect=true,drawers_within_viewport=true,drawer_close_checked=true,selection_checked=true,
@@ -540,20 +549,26 @@ public partial class Desktop : Control
         catch(Exception e){GD.PrintErr(e);_closing=true;Send("stop");GetTree().Quit(3);}
     }
 
+    public override void _Input(InputEvent input)
+    {
+        if(input is InputEventKey {Pressed:true,Echo:false,Keycode:Key.Escape} && _host!=null && !_closing)
+        {
+            if(_pauseMenu.Visible)ClosePauseMenu();else OpenPauseMenu();
+            GetViewport().SetInputAsHandled();
+        }
+    }
     public override void _UnhandledKeyInput(InputEvent input)
     {
         if(input is not InputEventKey key||!key.Pressed||key.Echo)return;
+        if(_pauseMenu.Visible)return;
         if(key.Keycode==Key.F){_map.Fit();CloseDrawers();}
-        if(key.Keycode==Key.Escape)CloseDrawers();
         if(key.Keycode==Key.Space && !_closing)TogglePlayback();
     }
     public override void _Notification(int what)
     {
         if(what==NotificationWMCloseRequest)
         {
-            if(_stopped||_host==null){GetTree().Quit();return;}
-            if(_closing)return;
-            _closing=true;Send("stop");
+            QuitGame();
         }
     }
     public override void _ExitTree()

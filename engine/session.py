@@ -379,9 +379,13 @@ class Session:
             handler=getattr(service,'record_dialogue',None)
             if handler:handler(player,wire(messages))
 
-    def cycle(self,*,on_result=None,emit=None,head=None,on_call=None,on_stream=None):
+    def cycle(self,*,on_result=None,emit=None,head=None,on_call=None,on_stream=None,on_batch=None):
         if self.victory_event is not None:raise ValueError('Game has ended with a victory event')
-        self.scheduled();receipts=[];self._boundary=False;self._callbacks=on_result;self._emit=emit
+        def call(actor,step,receipts):
+            if on_call:on_call(actor,step,receipts)
+            if on_batch:on_batch(actor,step+1)
+        self.scheduled();receipts=[];self._boundary=False
+        self._callbacks=on_result;self._emit=emit
         try:
             for actor in self.turn_order():
                 client=self.clients[actor];transitions=0
@@ -392,9 +396,14 @@ class Session:
                         cfg=next(n for n in self.entries() if n['id']==actor)
                         receipts.extend(client.play(player,max_actions=cfg.get('max_actions')))
                     else:
-                        callback_call=(lambda step,result,a=actor:on_call(a,step,result)) if on_call else None
+                        callback_call=(lambda step,result,a=actor:call(a,step,result)) if on_call or on_batch else None
                         receipts.extend(client.play(player,emit=emit,head=head,on_call=callback_call,
                             **({'on_stream':on_stream} if on_stream and client.kind=='llm' else {})))
+                    # Rule turns are a single batch, with individual receipts
+                    # still available to the presenter. Also flush automatic
+                    # end_turn / clients without call callbacks before changing
+                    # actor or entering settlement.
+                    if on_batch:on_batch(actor,None)
                     if self.generations[actor]==generation:break
                     transitions+=1
                     if transitions>8:raise RuntimeError('Too many actor control transitions in one cycle')

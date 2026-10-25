@@ -31,7 +31,13 @@ public partial class Desktop
             {
                 var row=JsonNode.Parse(line)!.AsObject();string type=S(row["type"]);
                 if(type=="error")throw new Exception(S(row["message"]));
-                if(type=="timeline")phases+=row["beats"]!.AsArray().Count;
+                if(type=="timeline")
+                {
+                    phases+=row["beats"]!.AsArray().Count;
+                    await child.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new {
+                        command="playback_ack",generation=S(row["generation"]),sequence=I(row["sequence"]) }));
+                    await child.StandardInput.FlushAsync();
+                }
                 if(type=="snapshot")
                 {
                     var frame=row["frame"]!;

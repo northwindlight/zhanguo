@@ -1,7 +1,7 @@
 """Observer-only, bounded presentation of real action receipts and settlement.
 
-Capture runs on the session thread. The renderer never drives a rule action;
-only the next complete cycle waits for its acknowledgement.
+Capture runs on the session thread. Batches are drained after all tools in a
+model response have executed; the renderer never drives a rule action.
 """
 import time
 from copy import deepcopy
@@ -51,10 +51,9 @@ class TimelineCapture:
         self.contexts=contexts if contexts is not None else {}
         self.activity=activity
         self.turn_started=None;self.turn_tokens=None
-        self.turn_started=None;self.turn_tokens=None
+        self.count=0
         self.previous=self.scene()
         self.actual=deepcopy(self.previous)
-        self.marches=[];self.held_units={};self.held_guards={};self.held_owners={}
         self.event_cursor=max((e['id'] for e in host.records()['events']),default=0)
         self.names={a:host.roster[a]['name'] for a in host.roster}
 
@@ -80,7 +79,8 @@ class TimelineCapture:
     def scene(self):return self.host.ui.desktop_scene(self.host.observer_scene())
 
     def add(self,phase,title,text,position=None,*,after=None,source='',duration=1.5,**extra):
-        if len(self.beats)>=self.LIMIT:raise ValueError('本期演出超过2048片段，改用完整快照同步')
+        if self.count>=self.LIMIT:raise ValueError('本期演出超过2048片段，改用完整快照同步')
+        self.count+=1
         delta=difference(self.previous,after) if after is not None else {}
         turn_title=f'{self.names.get(self.actor,self.actor)} · 第 {self.period+1} 回合' if self.actor else f'第 {self.period+1} 回合 · 结算'
         self.beats.append({'phase':phase,'title':title,'turn_title':turn_title,'actor':self.actor,'text':text[:180],'position':position,
@@ -93,47 +93,16 @@ class TimelineCapture:
         b=next((b for b in self.previous['buildings'] if b['owner']==actor and b['kind']=='native:town-hall'),None)
         return [b['x'],b['y']] if b else None
 
-    def planning_scene(self,after):
-        """Keep issued movements at their camps until the end-of-turn parade."""
-        shown=deepcopy(after)
-        shown['armies']=[deepcopy(self.held_units.get(key('armies',u),u)) for u in shown['armies']
-                         if key('armies',u) not in self.held_guards]
-        shown['guards']=[g for g in shown['guards'] if key('guards',g) not in self.held_guards]+deepcopy(list(self.held_guards.values()))
-        shown['ownership']=[r for r in shown['ownership'] if (r['x'],r['y']) not in self.held_owners]
-        shown['ownership'].extend(deepcopy(r) for r in self.held_owners.values() if r is not None)
-        return shown
-
-    def play_marches(self):
-        living={key('armies',u) for u in self.actual['armies']}
-        for order in self.marches:
-            stage=deepcopy(self.previous)
-            rows=[u for u in order['units'] if key('armies',u) in living]
-            keys={key('armies',u) for u in rows}
-            if not keys:continue
-            def apply_units(records):
-                stage['armies']=[u for u in stage['armies'] if key('armies',u) not in keys]+deepcopy(records)
-            arrival=deepcopy(rows)
-            if order['action']=='attack':
-                for u in arrival:
-                    if u['owner']==order['actor']:u['engaged']=False
-            apply_units(arrival)
-            stage['guards']=[g for g in stage['guards'] if key('guards',g) not in keys]
-            motions=[m for m in order['motions'] if m['unit'] in keys]
-            if motions:
-                self.add('march',order['name']+' · 行军',f'{len(motions)}支军队沿合法路线行进',order['position'],
-                         after=stage,source=order['source'],duration=2.4,motions=motions)
-            apply_units(rows)
-            if order['owner'] is not None:
-                at=tuple(order['position']);stage['ownership']=[r for r in stage['ownership'] if (r['x'],r['y'])!=at]
-                stage['ownership'].append(deepcopy(order['owner']))
-            self.add('engage' if order['action']=='attack' else 'arrival',order['name']+(' · 接敌' if order['action']=='attack' else ' · 抵达'),
-                     order['result'],order['position'],after=stage,source=order['source'],duration=1.8)
-        if self.marches:
-            self.add('mobilized','各军调动完成','军队已到达各自位置，进入本期生产、军需与战斗结算',after=self.actual,duration=1)
+    def drain(self):
+        """Keep the replay cursor; release only this completed call's beats."""
+        beats,self.beats=self.beats,[]
+        return beats
 
     def capture(self,actor,action,arguments,receipt):
         # Session.record treats callback exceptions as rule faults. Presentation
         # errors must instead fall back to the already valid cycle boundary.
+        resolve=getattr(self.host.runtime.tool_layer,'action_name',None)
+        if resolve and isinstance(action,str):action=resolve(action,arguments if isinstance(arguments,dict) else {})
         if self.activity is not None:
             try:self.activity(actor,activity_label(action))
             except Exception:pass
@@ -180,27 +149,25 @@ class TimelineCapture:
         if action in ('move','attack'):
             data=receipt.get('data') or {};ids=set(data.get('units',args.get('ids') or [args.get('aid')]))
             selected=[u for u in after['armies'] if u['owner']==actor and u['id'] in ids]
-            for u in selected:
-                k=key('armies',u)
-                if k not in self.held_units:self.held_units[k]=deepcopy(old_units[k])
-            old_guards={key('guards',g):g for g in before['guards']}
-            defenders=[u for u in after['armies'] if key('armies',u) in old_guards and [u['x'],u['y']]==position]
-            for u in defenders:self.held_guards[key('armies',u)]=deepcopy(old_guards[key('armies',u)])
-            at=tuple(position)
-            if at not in self.held_owners:self.held_owners[at]=next((deepcopy(r) for r in before['ownership'] if (r['x'],r['y'])==at),None)
-            owner=next((r for r in after['ownership'] if (r['x'],r['y'])==at),None)
-            self.marches.append({'action':action,'actor':actor,'name':name,'units':deepcopy(selected+defenders),'motions':motions,
-                                 'position':position,'owner':deepcopy(owner),'source':source,'result':text})
+            if selected:position=[selected[0]['x'],selected[0]['y']]
             self.add('order',name+(' · 进攻军令' if action=='attack' else ' · 调动军令'),
-                     f'{len(selected)}支军队指向 ({position[0]},{position[1]})；回合末展示行军与抵达',position,
-                     after=self.planning_scene(after),source=source,duration=1.5)
+                     f'{len(selected)}支军队指向 ({position[0]},{position[1]})',position,source=source,duration=1)
+            if motions:
+                stage=deepcopy(after)
+                stage['ownership']=deepcopy(before['ownership'])
+                for u in stage['armies']:
+                    if u['owner']==actor and u['id'] in ids:u['engaged']=False
+                self.add('march',name+' · 行军',f'{len(motions)}支军队沿合法路线行进',position,
+                         after=stage,source=source,duration=2.4,motions=motions)
+            self.add('engage' if action=='attack' else 'arrival',name+(' · 接敌' if action=='attack' else ' · 抵达'),
+                     text,position,after=after,source=source,duration=1.8)
         else:
             phase={'build':'build','recruit':'recruit','move':'arrival','retreat':'retreat',
                    'buy':'trade','sell':'trade','plan':'plan','end_turn':'turn-end'}.get(action,'action')
             captions={'build':'动工','recruit':'征召','move':'抵达','retreat':'提交撤退','buy':'采购','sell':'出售','plan':'本期国策','end_turn':'行动结束'}
             new_buildings=[b for b in after['buildings'] if b['id'] not in {v['id'] for v in self.previous['buildings']}]
             if new_buildings:position=[new_buildings[0]['x'],new_buildings[0]['y']]
-            self.add(phase,f'{name} · {captions.get(action,"行动")}',text,position,after=self.planning_scene(after),source=source,
+            self.add(phase,f'{name} · {captions.get(action,"行动")}',text,position,after=after,source=source,
                      duration=2 if phase=='build' else 1.4,
                      **(self._turn_meta(actor,closing=True) if phase=='turn-end' else {}))
 
@@ -208,7 +175,6 @@ class TimelineCapture:
         if self.warning:return []
         try:
             self.actor=None
-            self.play_marches()
             final=self.scene()
             facilities={b['id']:b for b in self.previous['buildings']}
             grouped={}

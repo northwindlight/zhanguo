@@ -84,15 +84,15 @@ class ToolLayer:
         tool = self.runtime.tools.get(action) if isinstance(action, str) else None
         return tool.name if tool is not None else action
 
-    def _render_name(self, action, args):
-        """Umbrella tools render the receipt/caption of the chosen inner action."""
+    def action_name(self, action, args):
+        """Resolve the chosen umbrella action for presentation consumers."""
         canonical = self._canonical(action)
         inner = (args or {}).get('action') if canonical in self._commands else None
         target = self._commands.get(canonical, {}).get(inner) if isinstance(inner, str) else None
         return self._canonical(target) if target else canonical
 
     def caption(self, action, args, actor, receipt, ctx):
-        render = self._captions.get(self._render_name(action, args))
+        render = self._captions.get(self.action_name(action, args))
         if render is None:
             return None
         try:
@@ -101,7 +101,7 @@ class ToolLayer:
             return None
 
     def receipt(self, action, args, receipt, actor, ctx):
-        render = self._receipts.get(self._render_name(action, args))
+        render = self._receipts.get(self.action_name(action, args))
         if render is None:
             return None
         try:
