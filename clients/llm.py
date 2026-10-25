@@ -129,9 +129,12 @@ class LLMClient:
 
     def _submit(self,player,action,arguments):
         if self._allowed_actions is not None and (not isinstance(action,str) or action not in self._allowed_actions):
+            # 把收到的名字原样回给模型：名字畸形（重复、带空格、拼错）时它才能自己纠正，
+            # 否则只会看到一句“该工具未开放”，反复盲试。
+            got = action if isinstance(action, str) else repr(action)
             return {'api':player.api_version,'actor':player.actor,'action':action,'period':self._observed_period,
                     'ok':False,'status':'rejected','code':'tool_not_exposed',
-                    'message':self.ui.text('llm.tool_not_exposed'),'data':None}
+                    'message':self.ui.text('llm.tool_not_exposed')+f'（收到的名字：{got!r}）','data':None}
         if action!='memory_search' or hasattr(player,'action_state'):return player.submit(action,self._arguments(arguments))
         base={'api':player.api_version,'actor':player.actor,'action':action,'period':player.observe()['period']}
         try:
