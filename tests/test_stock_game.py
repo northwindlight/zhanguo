@@ -54,7 +54,7 @@ class StockGameTest(unittest.TestCase):
 
     def test_distribution_is_v2_and_has_real_backend(self):
         h = self.host()
-        self.assertEqual(h.runtime.distribution['Version'], '2.1.0')
+        self.assertEqual(h.runtime.distribution['Version'], '2.2.0')
         m = self.open(h)
         from pams import Market
         self.assertIsInstance(m.backend.books['shanhai'], Market)
@@ -693,6 +693,64 @@ class StockGameTest(unittest.TestCase):
         self.assertIn('财富', text)
         self.assertNotIn('委托', text)
 
+    def test_ipo_lists_new_stock_on_published_schedule(self):
+        h = self.host(); h.world.clock.round = 9   # trading day 7
+        m = self.open(h)
+        expected = m.dynamics.ipo_order()[0]['symbol']
+        self.assertEqual(len(m.stocks), 11)
+        m.place(h.world, ACTOR, 'buy', expected, 10); m.advance(1)
+        row = next(r for r in m.quotes(ACTOR) if r['symbol'] == expected)
+        self.assertEqual(row['borrow_available'], 5000)
+        self.assertTrue(any(n['kind'] == 'ipo' for n in row['news']))
+        self.assertEqual(h.world.portfolio.position_of(ACTOR)['shares'][expected], 10)
+        pool = h.player(ACTOR).observe()['facts']['pool']
+        self.assertIn(expected, pool['universe'])
+        self.assertEqual(len(pool['universe']), 11)
+        self.assertTrue(pool['next_listings'])       # 3 candidates still queued
+
+    def test_collapsed_stock_gets_warning_then_delisted_with_buyback(self):
+        h = self.host(); m = self.open(h)
+        symbol = 'yundu'
+        m.place(h.world, ACTOR, 'buy', symbol, 100); m.advance(1)
+        m.settle(h.world, 1)
+        crash = round(m.close[symbol] * .2, 2)
+        m.close[symbol] = crash                      # overnight collapse
+        # Collapse on trading days 2-5 → warning at round 8; review is 5 trading
+        # days later = round 15 (13 and 14 are rest days); still collapsed → delist.
+        for round_number in range(2, 16):
+            h.world.clock.round = round_number
+            m.round = round_number
+            m.settle(h.world, round_number)
+        self.assertNotIn(symbol, m.stocks)
+        self.assertNotIn(symbol, h.world.portfolio.position_of(ACTOR)['shares'])
+        book = h.world.portfolio.holdings(ACTOR)
+        self.assertLess(book['realized_pnl'], 0)     # bought high, bought back at a discount
+        proceeds = [f for f in m.fills(ACTOR) if f['execution_id'].startswith('15:delist')]
+        self.assertEqual(sum(f['quantity'] for f in proceeds), 100)
+        self.assertLess(proceeds[0]['price'], crash + 1e-9)  # at or below the crashed close
+        self.assertEqual(m.pool['notices'][-1]['kind'], 'delist')
+        h.world.clock.round = 15 + 3; m.round = 15 + 3   # next trading day after the rest days
+        h.runtime.object_call(h.world, 'stock:market', 'open_session')
+        m.advance(1)                                      # notices publish at tick 1
+        self.assertTrue(any(n['kind'] == 'delist' and n['symbol'] == symbol for n in m.news))
+        self.assertNotIn(symbol, {r['symbol'] for r in m.quotes(ACTOR)})
+
+    def test_company_shock_changes_personality_and_survives_save(self):
+        h = self.host(); m = self.open(h)
+        before = dict(m.stocks['shanhai'])
+        m.dynamics._shock('shanhai', 120)
+        after = m.stocks['shanhai']
+        self.assertNotEqual(before, after)
+        event = next(n for n in m.news if n['kind'] == 'shock')
+        self.assertEqual(event['symbol'], 'shanhai')
+        self.assertTrue(event['effect'])
+        h.cycle()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'s.json'; h.save(path)
+            loaded = GameHost.load(path, config())
+            self.assertEqual(loaded.world.market.stocks['shanhai'], h.world.market.stocks['shanhai'])
+            self.assertEqual(loaded.world.market.pool['ipo_index'], h.world.market.pool['ipo_index'])
+
     def test_old_market_save_without_dynamics_is_rejected(self):
         h = self.host(); h.cycle()
         legacy = h.world.market.to_save()
@@ -730,12 +788,13 @@ class StockGameTest(unittest.TestCase):
         rows = {row['symbol']: row for row in m.quotes(ACTOR)}
         for symbol, row in rows.items():
             kinds = {n['kind'] for n in row['news']}
-            self.assertTrue(kinds <= {'market', 'wire', 'earnings'}, kinds)
+            self.assertTrue(kinds <= {'market', 'wire', 'earnings', 'shock'}, kinds)
             self.assertTrue(any(n['kind'] == 'wire' for n in row['news']))
             if symbol in ('shanhai', 'hongfan'):
                 self.assertEqual(row['news'][0]['kind'], 'earnings')  # report day, tick 40
             else:
-                self.assertEqual(row['news'][0]['tick'], 67)          # common market wire
+                self.assertTrue(any(n['kind'] == 'market' for n in row['news']))  # wire at 67
+                self.assertLessEqual(row['news'][0]['tick'], 67)      # a shock may land earlier
         reporting = {s for s, row in rows.items()
                      if any(n['kind'] == 'earnings' for n in row['news'])}
         self.assertEqual(reporting, {'shanhai', 'hongfan'})

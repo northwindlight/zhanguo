@@ -1,14 +1,14 @@
 [Distribution]
 Id = "stock:exchange"
-Version = "2.1.0"
+Version = "2.2.0"
 # PAMS交互市场、券商、共同tick、计算槽、算力租赁与商业谍报。
 Members = ["mods/clock.toml", "mods/market.toml", "mods/portfolio.toml", "mods/python.toml", "mods/compute.toml", "mods/intelligence.toml"]
 RequiredState = ["clock", "market", "portfolio", "scripts", "compute", "intelligence"]
 ActorCollection = "nation_actors"
 ActionGate = {Capability = "stock:clock", Method = "can_act"}
 PlayerClock = {Capability = "stock:clock", Method = "period"}
-# 回合开局自动给模型的事实：持仓与财富、行情、昨日执行回执、上回合脚本结果、回合日历与额度。
-PlayerState = ["portfolio", "market", "day_report", "script_status", "round", "compute_status", "intel_status"]
+# 回合开局自动给模型的事实：持仓与财富、行情、股票池、昨日执行回执、上回合脚本结果、回合日历与额度。
+PlayerState = ["portfolio", "market", "pool", "day_report", "script_status", "round", "compute_status", "intel_status"]
 
 [Distribution.Tools]
 Entry = "mods.stock.tools:build"

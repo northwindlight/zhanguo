@@ -160,16 +160,26 @@ def build(runtime):
         def market(world, actor):
             return runtime.player_api(world, 'stock:market').quotes(actor)
 
+        def pool(world, actor):
+            return runtime.player_api(world, 'stock:market').pool(actor)
+
         def day_report(world, actor):
             return runtime.player_api(world, 'stock:market').day_summary(actor)
 
+        tools.append(Tool('pool', pool, owner='stock:market', api=('pool',),
+                          read_only=True, fact=True,
+                          description='动态股票池：当前交易名单、下一只新股（名称/行业/发行价/挂牌回合）'
+                                     '与退市警示名单（股票及复核回合）。新股挂牌和退市摘牌都会先公开公告。'))
+
         tools.append(Tool('market', market, owner='stock:market', api=('quotes',),
-                          covers=(('stock:market', 'history'), ('stock:market', 'catalog'), ('stock:market', 'orders'), ('stock:market', 'fills')),
+                          covers=(('stock:market', 'history'), ('stock:market', 'catalog'), ('stock:market', 'pool'), ('stock:market', 'orders'), ('stock:market', 'fills')),
                           read_only=True, fact=True,
                           description='当前行情：每只股票的现价、昨收、涨跌、ma5/ma10/ma20 均线、动量、'
-                                     '已实现波动率、盘口深度十档、可借券余额，以及每只股票已公布的'
-                                     '消息（市场快讯/公司快讯/财报，含现金流变化百分比）和公开财报日程'
-                                     '（next_report_round 与当日 report_tick）；流通盘与手续费参数也在其中。'))
+                                     '已实现波动率、盘口深度十档、可借券余额、退市复核日，以及每只股票'
+                                     '已公布的消息（市场快讯/公司快讯/财报/公司事件，含现金流变化百分比'
+                                     '与个性变化）和公开财报日程（next_report_round 与当日 report_tick）。'
+                                     '股票池是动态的：api.call("stock:market","pool") 查询当前名单、'
+                                     '下一只新股（名称/行业/发行价/挂牌回合）和退市警示名单。'))
         tools.append(Tool('day_report', day_report, owner='stock:market', api=('day_summary',),
                           read_only=True, fact=True,
                           description='上一交易日的执行回执：自己委托各状态笔数（成交/部分成交后到期/'

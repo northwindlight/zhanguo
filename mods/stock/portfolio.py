@@ -194,6 +194,27 @@ class Brokerage:
                          if r['symbol'] == symbol and r['side'] == 'short')
                    for a in self.accounts.values())
 
+    def list_shares(self, actor, symbol, quantity, price):
+        """Grant listing inventory to a background account (IPO injection)."""
+        self._write()
+        if type(quantity) is not int or quantity <= 0 or type(price) not in (int, float):
+            raise ValueError('上市注入的数量与价格无效')
+        account = self._account(actor)
+        position = account['positions'].get(symbol, dict(quantity=0, cost=0.0))
+        position['quantity'] = position.get('quantity', 0) + quantity
+        position['cost'] = round(position.get('cost', 0.0) + price * quantity, 2)
+        account['positions'][symbol] = position
+        return dict(symbol=symbol, quantity=position['quantity'])
+
+    def holders(self, symbol):
+        """Every account still holding the symbol: [(actor, signed quantity)]."""
+        rows = []
+        for actor, account in self.accounts.items():
+            quantity = account['positions'].get(symbol, {}).get('quantity', 0)
+            if quantity:
+                rows.append((actor, quantity))
+        return rows
+
     def reserve(self, actor, order, commission):
         self._write()
         account = self._account(actor)

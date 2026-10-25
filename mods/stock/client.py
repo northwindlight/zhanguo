@@ -81,11 +81,26 @@ class StockView(ModelView):
                 latest = ''
                 if news:
                     event = news[-1]
-                    kind = {'market': '市场快讯', 'wire': '公司快讯', 'earnings': '财报'}.get(event.get('kind'), '消息')
+                    kind = {'market': '市场快讯', 'wire': '公司快讯', 'earnings': '财报',
+                            'shock': '公司事件', 'ipo': '挂牌上市'}.get(event.get('kind'), '消息')
                     latest = f' {kind}{event.get("cashflow_change_pct", 0):+.2f}%@tick{event.get("tick")}'
+                    if event.get('effect'):
+                        latest += f'（{event["effect"]}）'
+                review = f' 退市复核第{row["delist_review_round"]}回合' if row.get('delist_review_round') else ''
                 lines.append(f'  {row["symbol"]} {row["name"]} {row["price"]} '
                              f'{row["change_pct"] * 100:+.2f}% ma5={row["ma5"]} ma10={row["ma10"]} '
-                             f'vol={row["volatility"]} 财报{when}{latest}')
+                             f'vol={row["volatility"]} 财报{when}{latest}{review}')
+
+        pool = facts.get('pool') or {}
+        if pool:
+            notes = []
+            for listing in pool.get('next_listings') or []:
+                notes.append(f"新股{listing['name']}({listing['symbol']},{listing['sector']})"
+                             f"第{listing['round']}回合挂牌，发行价{listing['anchor']}")
+            for warning in pool.get('delist_warnings') or []:
+                notes.append(f"{warning['symbol']}处于退市警示，第{warning['review_round']}回合复核")
+            if notes:
+                lines.append('股票池：' + '；'.join(notes) + '。')
 
         report = facts.get('day_report') or {}
         if report.get('orders') or report.get('fills'):

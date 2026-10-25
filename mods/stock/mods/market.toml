@@ -1,6 +1,6 @@
 [Mod]
 Id = "stock:market"
-Version = "2.1.0"
+Version = "2.2.0"
 Entry = "mods.stock.market:MarketMod"
 Requires = ["stock:clock"]
 [State]
@@ -10,7 +10,7 @@ Needs = ["stock:clock", "stock:portfolio"]
 Provides = ["stock:market"]
 [Interfaces]
 "stock:clock" = ["period", "trading_day", "slices", "set_tick", "close_session", "cycle_info"]
-"stock:portfolio" = ["open_account", "begin_day", "position_of", "reserve", "release", "execute", "short_used", "risk_check"]
+"stock:portfolio" = ["open_account", "begin_day", "position_of", "reserve", "release", "execute", "short_used", "list_shares", "holders", "risk_check"]
 [Parameters]
 FloatShares = 20000
 BorrowShares = 5000
@@ -23,5 +23,5 @@ FlowShares = 5
 NoiseEnabled = true
 NoiseInterval = 40
 [PlayerAPI]
-Methods = ["quotes", "history", "catalog", "orders", "fills", "day_summary", "buy", "sell", "short", "cover", "cancel"]
-ReadOnly = ["quotes", "history", "catalog", "orders", "fills", "day_summary"]
+Methods = ["quotes", "history", "catalog", "pool", "orders", "fills", "day_summary", "buy", "sell", "short", "cover", "cancel"]
+ReadOnly = ["quotes", "history", "catalog", "pool", "orders", "fills", "day_summary"]

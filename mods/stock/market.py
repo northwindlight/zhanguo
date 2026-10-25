@@ -5,7 +5,8 @@ import random
 
 from engine.runtime import GameMod, ModError, RuleSection, Stage
 from .backend import PamsBook
-from .dynamics import Dynamics, REPORT_CYCLE
+from .dynamics import (Dynamics, REPORT_CYCLE, DELIST_COLLAPSE,
+                       DELIST_TRIGGER_DAYS, DELIST_REVIEW_DAYS, DELIST_DISCOUNT, POOL_FLOOR)
 from .stocks import STOCKS
 
 OPEN = ('accepted', 'partially_filled')
@@ -45,6 +46,8 @@ class Market:
         self.state = self.PRE
         self.backend = None
         self.dynamics = None
+        # 股票池状态：新股池进度、退市监视与公告队列；随存档持久。
+        self.pool = dict(ipo_index=0, risk={}, warnings={}, notices=[])
         self.tick = 0
         self.round = 1
         self.recorder = None
@@ -66,6 +69,7 @@ class Market:
     def reseed(self, seed):
         self.seed = seed
         self.dynamics = Dynamics(self)
+        self.pool = dict(ipo_index=0, risk={}, warnings={}, notices=[])
         base = self.float_shares // len(BACKGROUND)
         for index, actor in enumerate(BACKGROUND):
             quantity = base + (self.float_shares - base * len(BACKGROUND) if actor == CLEARING else 0)
@@ -121,8 +125,9 @@ class Market:
                 tick=self.tick if self.state == self.SESSION else 0, **ma,
                 momentum_5=history[-1]/history[-5]-1, volatility=round(volatility, 6),
                 commission_rate=self.commission, float_shares=self.float_shares,
-                report_cycle_days=REPORT_CYCLE, next_report_round=next_report,
+                anchor=stock['anchor'], report_cycle_days=REPORT_CYCLE, next_report_round=next_report,
                 report_tick=self.dynamics.report_tick if next_report == upcoming else None,
+                delist_review_round=self.pool['warnings'].get(symbol),
                 depth=depth, borrow_available=max(0, self.borrow_limit(symbol)-self._port('short_used', symbol)),
                 news=deepcopy([n for n in self.news if n['symbol'] == symbol][-20:])))
         return result
@@ -142,12 +147,33 @@ class Market:
         self.orders, self.pending, self.last_fills = {}, {}, []
         self.live = {}
         self._public_cache = None
+        listing = self.dynamics.today_listing()
+        if listing is not None:
+            self._list_stock(listing)
         self.backend = PamsBook(self.stocks, self.close, f'{self.seed}|{self.round}')
         self.opening = dict(self.close)
         self.path = {s: [p] for s, p in self.close.items()}
         self.state = self.SESSION
         self.dynamics.open_session()
         self._quote_maker()
+
+    def _list_stock(self, candidate):
+        """Inject a new listing before the order book is built for the day."""
+        symbol = candidate['symbol']
+        self.stocks[symbol] = dict(candidate)
+        anchor = candidate['anchor']
+        self.close[symbol] = self.opening[symbol] = self.fundamental[symbol] = anchor
+        self.transient[symbol] = 0.0
+        self.history[symbol] = [anchor] * 20
+        self.path[symbol] = [anchor]
+        self.last_path[symbol] = []
+        self.last_open[symbol] = anchor
+        self.last_depth[symbol] = dict(bids=[], asks=[])
+        base = self.float_shares // len(BACKGROUND)
+        for actor in BACKGROUND:
+            self._port('list_shares', actor, symbol, base, anchor)
+        self.pool['ipo_index'] += 1
+        self.pool['listing_today'] = symbol
 
     def _quote_maker(self):
         self.cancel_actor(MAKER)
@@ -427,8 +453,88 @@ class Market:
             self.last_open[symbol] = self.opening[symbol]
         self.pending = {}
         self.state = self.CLOSED
+        if self._clock('trading_day'):
+            self._pool_surveillance()
         self._clock('close_session')
         return self.fills()
+
+    # -- 股票池：公开规则的退市监视（收盘价对比发行价锚，全部输入公开） --------
+    def _pool_surveillance(self):
+        for symbol in list(self.stocks):
+            collapsed = self.close[symbol] < self.stocks[symbol]['anchor'] * DELIST_COLLAPSE
+            if collapsed:
+                self.pool['risk'][symbol] = self.pool['risk'].get(symbol, 0) + 1
+            else:
+                self.pool['risk'].pop(symbol, None)
+            review = self.pool['warnings'].get(symbol)
+            if review is not None:
+                if self.round >= review:
+                    self._pool_review(symbol, collapsed)
+                continue
+            if (self.pool['risk'].get(symbol, 0) == DELIST_TRIGGER_DAYS
+                    and len(self.stocks) > POOL_FLOOR):
+                due = self.dynamics.trading_round_after(self.round, DELIST_REVIEW_DAYS)
+                self.pool['warnings'][symbol] = due
+                self._notice(symbol, 'delist-risk',
+                             f'退市风险警示：连续{DELIST_TRIGGER_DAYS}个交易日收盘低于发行锚价的'
+                             f'{DELIST_COLLAPSE:.0%}，第{due}回合复核，届时仍低于则退市')
+
+    def _pool_review(self, symbol, collapsed):
+        self.pool['warnings'].pop(symbol, None)
+        self.pool['risk'].pop(symbol, None)
+        if not collapsed:
+            self._notice(symbol, 'risk-clear', '摘牌解除：复核日收复发行锚价阈值，退市风险消除')
+            return
+        if len(self.stocks) <= POOL_FLOOR:
+            due = self.dynamics.trading_round_after(self.round, DELIST_REVIEW_DAYS)
+            self.pool['warnings'][symbol] = due
+            self._notice(symbol, 'defer', f'退市暂缓：股票池已到下限{POOL_FLOOR}只，第{due}回合再次复核')
+            return
+        self._delist(symbol)
+
+    def _notice(self, symbol, kind, headline):
+        self.pool['notices'].append(dict(round=self.round + 1, symbol=symbol,
+                                         kind=kind, headline=headline))
+
+    def _delist(self, symbol):
+        price = self.close[symbol]
+        for actor, quantity in self._port('holders', symbol):
+            side = 'sell' if quantity > 0 else 'cover'
+            rate = 1 - DELIST_DISCOUNT if quantity > 0 else 1 + DELIST_DISCOUNT
+            deal = round(price * rate, 2)
+            ident = f'{self.round}:delist:{self.trade_seq}'
+            self.trade_seq += 1
+            fill = dict(execution_id=ident, actor=actor, side=side, symbol=symbol,
+                        quantity=abs(quantity), price=deal,
+                        amount=round(deal * abs(quantity), 2), fee=0.0)
+            self._port('execute', fill, 0)
+            opposite = 'buy' if side == 'sell' else 'sell'
+            self._port('execute', dict(fill, execution_id=ident + ':bank', actor=CLEARING,
+                                       side=opposite, fee=0.0), 0)
+            self.last_fills.append(fill)
+            book = self.actor_fills.setdefault(actor, [])
+            book.append(fill)
+            if len(book) > 2000: del book[:500]
+        for store in (self.stocks, self.close, self.opening, self.fundamental, self.transient,
+                      self.history, self.path, self.last_path, self.last_open, self.last_depth):
+            store.pop(symbol, None)
+        self.pool['risk'].pop(symbol, None)
+        self._notice(symbol, 'delist',
+                     f'退市摘牌：按收盘价{DELIST_DISCOUNT:.0%}折价（空头溢价）场外回购全部持仓，'
+                     '该股即日起不再交易')
+
+    def pool_view(self):
+        """Public pool digest: universe, upcoming listings, active warnings."""
+        upcoming = self.dynamics.next_listing() if self.dynamics else None
+        listings = []
+        if upcoming:
+            candidate, round_no = upcoming
+            listings.append(dict(symbol=candidate['symbol'], name=candidate['name'],
+                                 sector=candidate['sector'], anchor=candidate['anchor'],
+                                 round=round_no))
+        return dict(universe=sorted(self.stocks), next_listings=listings,
+                    delist_warnings=[dict(symbol=s, review_round=r)
+                                     for s, r in sorted(self.pool['warnings'].items())])
 
     def prepare_next_day(self, world, round_number, flow=None, trading_day=True):
         self.state = self.PRE
@@ -438,8 +544,9 @@ class Market:
     def to_save(self):
         if self.state == self.SESSION or self.pending:
             raise ValueError('市场只允许在完整交易日边界保存')
-        return dict(engine=PamsBook.version, dynamics=1, seed=self.seed, close=dict(self.close),
+        return dict(engine=PamsBook.version, dynamics=2, seed=self.seed, close=dict(self.close),
                     opening=dict(self.opening), fundamental=dict(self.fundamental),
+                    stocks=deepcopy(self.stocks), pool=deepcopy(self.pool),
                     history=deepcopy(self.history), last_path=deepcopy(self.last_path),
                     last_open=dict(self.last_open), last_depth=deepcopy(self.last_depth),
                     news=deepcopy(self.news), orders=deepcopy(list(self.orders.values())),
@@ -450,13 +557,16 @@ class Market:
                     state=self.state, round=self.round)
 
     def restore(self, state):
-        if (state.get('engine') != PamsBook.version or state.get('dynamics') != 1
+        if (state.get('engine') != PamsBook.version or state.get('dynamics') != 2
                 or state.get('state') == self.SESSION):
             raise ValueError('不支持的市场后端、动力学版本或非边界存档')
         self.seed = state['seed']
         self.dynamics = Dynamics(self)
         for key in ('close', 'opening', 'fundamental', 'history', 'last_path', 'last_open', 'last_depth', 'news'):
             setattr(self, key, deepcopy(state[key]))
+        self.stocks = {symbol: dict(row) for symbol, row in state['stocks'].items()}
+        self.transient = {s: 0.0 for s in self.stocks}
+        self.pool = deepcopy(state['pool'])
         self.orders = {o['id']: deepcopy(o) for o in state['orders']}
         self.live = {}
         self.last_fills = deepcopy(state['fills'])
@@ -472,6 +582,7 @@ class MarketAPI:
     def quotes(self, actor): return self.world.market.quotes(actor)
     def history(self, actor, symbol, limit=30): return self.world.market.history_of(symbol, limit)
     def catalog(self, actor): return self.world.market.catalog()
+    def pool(self, actor): return self.world.market.pool_view()
     def orders(self, actor): return self.world.market.order_history(actor)
     def fills(self, actor): return self.world.market.fills(actor)
     def day_summary(self, actor): return self.world.market.day_summary(actor)
@@ -503,8 +614,17 @@ class MarketMod(GameMod):
             '价格由有限资金与库存的背景做市者、基本面代理、噪声流及玩家委托共同形成。'
             '基本面受市场与行业因子驱动，波动有平静和风暴状态；每只股票的波动、贝塔、消息敏感度、'
             '价格吸收速度和盘口流动性都不同（见quotes的volatility与depth）。'
-            '公开消息分三类：市场快讯（宏观，全行业按贝塔传导）、公司快讯（盘中错峰发布）和'
-            '定期财报（每5个交易日一轮，日程公开见next_report_round，内容事先未知）。'
-            'quotes含盘口、已发生路径、财报日程和已公布消息，不含种子、因子状态或未来价格。'
+            '公开消息五类：市场快讯（宏观，全行业按贝塔传导）、公司快讯（盘中错峰发布）、'
+            '定期财报（每5个交易日一轮，日程公开见next_report_round，内容事先未知）、'
+            '公司事件（监管/突破/事故/做市/政策，会永久改变该股的波动率、贝塔、流动性等个性，'
+            '变化随新闻公开）与池子公告（上市/退市）。'
+            '股票池是动态的：新股按种子排定的日程陆续挂牌（pool()公布下一只的名称、行业、发行价'
+            '与回合，首只在第7个交易日，之后每6个交易日一只，初始10只+候选4只）；'
+            '退市规则公开可算：收盘价连续5个交易日低于发行锚价（见quotes的anchor）的35%发风险警示，'
+            '再5个交易日复核，'
+            '仍低于则按收盘价5%折价（空头溢价）场外强制回购后摘牌；股票池下限8只。'
+            '退市股票从行情消失，脚本引用会报"没有这只股票"，请用pool()或quotes核对最新名单。'
+            'quotes含盘口、已发生路径、财报日程、退市复核日和已公布消息，不含种子、因子状态或未来价格。'
             '可用buy/sell开平多头，short/cover开平空头；做空受借券、保证金和借券费约束。',
-            ('行情', 'PAMS', '交易', '做空', '财报', '订单'), '交互撮合、因子动力学与可见性', system=True),)
+            ('行情', 'PAMS', '交易', '做空', '财报', '上市', '退市', '股票池', '订单'),
+            '交互撮合、因子动力学与动态股票池', system=True),)

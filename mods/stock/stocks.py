@@ -6,6 +6,9 @@ fundamental changes (higher means faster), drift a slow daily trend, sens the
 news/earnings sensitivity, liq the liquidity scale for depth and flow sizes,
 spread the quoted-spread multiplier, report_offset the weekly earnings slot
 (1..5 counted in trading days).
+
+STOCKS is the opening lineup; IPO_CANDIDATES wait in the new-issue pool and
+list one by one on the published schedule (order is seeded per game).
 """
 STOCKS = (
     dict(symbol='shanhai', name='山海智造', sector='科技', anchor=42.0,
@@ -28,4 +31,16 @@ STOCKS = (
          vol=.034, beta=.50, converge=.8, drift=.0008, sens=.6, liq=.9, spread=1.1, report_offset=4),
     dict(symbol='taiping', name='太平保险', sector='金融', anchor=12.3,
          vol=.020, beta=.95, converge=1.1, drift=.0002, sens=.8, liq=1.1, spread=.9, report_offset=5),
+)
+
+# 新股池：挂牌顺序由游戏种子决定；发行价即 anchor，日程公开见 catalog。
+IPO_CANDIDATES = (
+    dict(symbol='xinghai', name='星海航天', sector='军工', anchor=38.0,
+         vol=.038, beta=1.40, converge=.6, drift=.0009, sens=1.3, liq=.6, spread=1.3, report_offset=1),
+    dict(symbol='tianhe', name='天河半导体', sector='科技', anchor=88.0,
+         vol=.036, beta=1.25, converge=.7, drift=.0010, sens=1.15, liq=.8, spread=1.25, report_offset=2),
+    dict(symbol='moli', name='茉澜餐饮', sector='消费', anchor=12.6,
+         vol=.022, beta=.70, converge=1.0, drift=.0004, sens=.85, liq=.9, spread=1.0, report_offset=3),
+    dict(symbol='baiyun', name='白云文旅', sector='传媒', anchor=19.5,
+         vol=.030, beta=1.10, converge=.85, drift=.0003, sens=1.0, liq=.7, spread=1.15, report_offset=4),
 )
