@@ -65,7 +65,11 @@ class GameHost:
             return cfg
         cfg=RUN_SCHEMA.normalize(cfg,overrides=overrides)
         runtime=runtime or Runtime.load(ROOT/cfg.get('mods','mods.toml'))
-        return prepare_config(cfg,runtime=runtime,overrides=overrides)
+        prepared=prepare_config(cfg,runtime=runtime,overrides=overrides)
+        # 顶层的 ctx_* 是「所有玩家默认值」，但客户端只拿到自己那条国家配置；
+        # 不在这里下沉，顶层 ctx_window 等参数会被静默忽略（--ctx-window 同理）。
+        from clients.context import apply_defaults
+        return PreparedConfig(prepared.runtime,apply_defaults(prepared.data))
 
     @classmethod
     def new(cls,cfg,*,runtime=None):
