@@ -317,17 +317,56 @@ class ConcurrentRunner:
             for index in range(1, world.compute.status(actor)['slots']+1):
                 task = world.scripts.claim(actor, str(index))
                 if task: tasks.append(task)
+        results = {}
         if not world.clock.trading_day():
             for task in tasks:
                 self.execute(task)
-            return
-        self._object('stock:market', 'open_session')
-        for tick in range(world.clock.slices()+1):
-            if tick: self._object('stock:market', 'advance', tick)
-            if tick == world.clock.slices(): break
-            due = [task for task in tasks if task['wake'] == tick and task['actor'] in world.nation_actors]
-            if due: self._object('stock:market', 'freeze_public')
-            for task in due: self.execute(task)
+                results.setdefault(task['actor'], {})[task['slot']] = world.scripts.status(task['actor'], slot=task['slot'])['result']
+        else:
+            self._object('stock:market', 'open_session')
+            for tick in range(world.clock.slices()+1):
+                if tick: self._object('stock:market', 'advance', tick)
+                if tick == world.clock.slices(): break
+                due = [task for task in tasks if task['wake'] == tick and task['actor'] in world.nation_actors]
+                if due: self._object('stock:market', 'freeze_public')
+                for task in due:
+                    self.execute(task)
+                    # 执行结果按槽累计步数/调用量，读回即全天汇总；失败的槽停在后一次结果。
+                    results.setdefault(task['actor'], {})[task['slot']] = world.scripts.status(task['actor'], slot=task['slot'])['result']
+        # 看海摘要：脚本执行的逐笔回执已静默进审计，这里每个玩家补一行结果。
+        if world.scripts.recorder:
+            for actor in sorted(results):
+                world.scripts.recorder(actor, 'settlement', {},
+                                       self._settlement_line(actor, results[actor]))
+
+    STATUS_LABELS = (('filled', '成交'), ('partially_filled', '部分成交'), ('rejected', '拒单'),
+                     ('cancelled', '撤单'), ('expired', '到期'), ('accepted', '未成交'))
+
+    def _settlement_line(self, actor, slots):
+        world = self.world
+        parts = []
+        for slot in sorted(slots):
+            outcome = slots[slot]
+            tag = f"槽{slot} {outcome['status']}，{outcome['steps']}步/{outcome['calls']}次API"
+            error = outcome.get('error') or {}
+            if error.get('message'):
+                tag += f"（{str(error['message']).splitlines()[0][:80]}）"
+            parts.append(tag)
+        text = '；'.join(parts) or '无交易槽运行'
+        runtime = self.module.runtime
+        if world.clock.trading_day():
+            summary = runtime.call(world, actor, 'day_report', {})
+            states = '，'.join(label for key, label in self.STATUS_LABELS
+                               for count in [summary['statuses'].get(key)] if count)
+            head = f"委托{summary['orders']}笔（{states}）" if states else f"委托{summary['orders']}笔"
+            text += f"；{head}，成交{summary['fills']}笔，买{summary['bought_quantity']}股/卖{summary['sold_quantity']}股，手续费{summary['fees']}"
+        book = runtime.call(world, actor, 'portfolio', {})
+        text += f"；财富 {book['wealth']:g}（{book['return_pct']:+g}%）"
+        return dict(round=world.clock.period(), text=text, detail=dict(
+            slots=[dict(slot=slot, status=slots[slot]['status'], steps=slots[slot]['steps'],
+                        calls=slots[slot]['calls'], actions=slots[slot]['actions'])
+                   for slot in sorted(slots)],
+            wealth=book['wealth'], return_pct=book['return_pct']))
 
 
 class StockScriptingAPI:

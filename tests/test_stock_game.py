@@ -663,6 +663,36 @@ class StockGameTest(unittest.TestCase):
         self.assertEqual(quotes['yundu']['report_tick'], round(200*.2))
         self.assertIsNone(quotes['shanhai']['report_tick'])
 
+    def test_settlement_is_quiet_for_observer_but_full_in_audit(self):
+        h = self.host(BUY)
+        seen = []
+        h.cycle(on_result=lambda actor, action, args, receipt: seen.append(action))
+        self.assertNotIn('buy', seen)
+        self.assertNotIn('stock_fill', seen)
+        self.assertEqual(seen.count('settlement'), 1)
+        actions = [row['action'] for row in h.audit]
+        self.assertIn('buy', actions)
+        self.assertIn('stock_fill', actions)
+        row = next(r for r in h.audit if r['action'] == 'settlement')
+        text = row['receipt']['data']['text']
+        self.assertIn('槽1 effective', text)
+        self.assertIn('委托1笔（成交）', text)
+        self.assertIn('成交1笔，买10股/卖0股', text)
+        self.assertIn('财富', text)
+
+    def test_rest_day_settlement_digest_has_no_market_noise(self):
+        h = self.host()
+        h.world.clock.round = 6
+        h.clients[ACTOR].scripts['6'] = "print('规划中')\n"
+        seen = []
+        h.cycle(on_result=lambda actor, action, args, receipt: seen.append(action))
+        self.assertIn('settlement', seen)
+        row = next(r for r in h.audit if r['action'] == 'settlement')
+        text = row['receipt']['data']['text']
+        self.assertIn('槽1 effective', text)
+        self.assertIn('财富', text)
+        self.assertNotIn('委托', text)
+
     def test_old_market_save_without_dynamics_is_rejected(self):
         h = self.host(); h.cycle()
         legacy = h.world.market.to_save()

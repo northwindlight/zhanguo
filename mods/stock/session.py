@@ -5,6 +5,11 @@ from engine.session import SaveFormatError, Session
 class StockSession(Session):
     """没有地图的回合制会话：名单固定，先手每回合轮换一格。"""
 
+    # 脚本执行期的逐笔回执（下单受理、成交、清算、脚本内借贷）只进审计，
+    # 不再逐条刷给看海人；run_all 结束时每个玩家发一条 settlement 摘要代替。
+    SCRIPT_QUIET = frozenset(('buy', 'sell', 'short', 'cover', 'cancel',
+                              'stock_fill', 'stock_liquidation', 'borrow', 'repay'))
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         from .backend import PamsBook
@@ -31,6 +36,14 @@ class StockSession(Session):
         receipt = result if 'ok' in result else dict(api=API_VERSION, actor=actor,
             period=self.clock(), action=action, ok=True, status='effective',
             code=None, message='', data=result)
+        if action in self.SCRIPT_QUIET:
+            # 审计照记（完整可追溯），观战回调静默一整个交易日。
+            callbacks, self._callbacks = self._callbacks, None
+            try:
+                self.record(player, action, arguments, receipt)
+            finally:
+                self._callbacks = callbacks
+            return
         self.record(player, action, arguments, receipt)
 
     def configure(self):

@@ -248,6 +248,33 @@ class Market:
         if changed:
             self._port('risk_check', self.round)
 
+    def day_summary(self, actor):
+        """Compact feedback for the last settled session: own fills and orders."""
+        period = self.round
+        prefix = f'{period}:'
+        bought = sold = fills_count = 0
+        bought_amount = sold_amount = fees = 0.0
+        for f in self.fills(actor):
+            if not f['execution_id'].startswith(prefix):
+                continue
+            fills_count += 1
+            fees += f['fee']
+            if f['side'] in ('buy', 'cover'):
+                bought += f['quantity']; bought_amount += f['amount']
+            else:
+                sold += f['quantity']; sold_amount += f['amount']
+        statuses = {}
+        day_orders = 0
+        for order in self.order_history(actor):
+            if order['placed_round'] != period:
+                continue
+            day_orders += 1
+            statuses[order['status']] = statuses.get(order['status'], 0) + 1
+        return dict(round=period, orders=day_orders, statuses=statuses, fills=fills_count,
+                    bought_quantity=bought, sold_quantity=sold,
+                    bought_amount=round(bought_amount, 2), sold_amount=round(sold_amount, 2),
+                    fees=round(fees, 2))
+
     def _place(self, actor, side, symbol, quantity, price=None, background=False):
         if self.state != self.SESSION or not self._clock('trading_day'):
             raise ValueError('当前未开盘或今天休市，不能买卖')
@@ -447,33 +474,7 @@ class MarketAPI:
     def catalog(self, actor): return self.world.market.catalog()
     def orders(self, actor): return self.world.market.order_history(actor)
     def fills(self, actor): return self.world.market.fills(actor)
-    def day_summary(self, actor):
-        """Compact feedback for the last settled session: own fills and orders."""
-        market = self.world.market
-        period = market.round
-        prefix = f'{period}:'
-        bought = sold = fills_count = 0
-        bought_amount = sold_amount = fees = 0.0
-        for f in market.fills(actor):
-            if not f['execution_id'].startswith(prefix):
-                continue
-            fills_count += 1
-            fees += f['fee']
-            if f['side'] in ('buy', 'cover'):
-                bought += f['quantity']; bought_amount += f['amount']
-            else:
-                sold += f['quantity']; sold_amount += f['amount']
-        statuses = {}
-        day_orders = 0
-        for order in market.order_history(actor):
-            if order['placed_round'] != period:
-                continue
-            day_orders += 1
-            statuses[order['status']] = statuses.get(order['status'], 0) + 1
-        return dict(round=period, orders=day_orders, statuses=statuses, fills=fills_count,
-                    bought_quantity=bought, sold_quantity=sold,
-                    bought_amount=round(bought_amount, 2), sold_amount=round(sold_amount, 2),
-                    fees=round(fees, 2))
+    def day_summary(self, actor): return self.world.market.day_summary(actor)
     def buy(self, actor, symbol, quantity, price=None): return self.world.market.place(self.world, actor, 'buy', symbol, quantity, price)
     def sell(self, actor, symbol, quantity, price=None): return self.world.market.place(self.world, actor, 'sell', symbol, quantity, price)
     def short(self, actor, symbol, quantity, price=None): return self.world.market.place(self.world, actor, 'short', symbol, quantity, price)
