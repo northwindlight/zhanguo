@@ -54,6 +54,7 @@
   "console.interrupt": "🛑 Interrupted; last settled save retained",
   "console.failure": "🛑 Period {period} failed: {kind}: {error}\n   Save kept at {path}; rerun the same command (without --new) to resume.",
   "console.failure_detail": "### 🛑 Period {period} failed: {kind}: {error}\n```\n{detail}\n```",
+  "console.failure_hold": "(Held at console: board / thoughts / quit; the save is at the last round boundary.)",
   "console.module_fault": "⚠️ Period {period} {action} hit an internal module fault ({kind}): action voided, game continues; {error}",
   "console.prompt": "❯ ",
   "archive.head": "Historical archive: older turns outside full replay; one line per summary, blocks cover multiple turns.",

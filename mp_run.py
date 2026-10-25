@@ -469,9 +469,18 @@ def run(argv=None):
         # 停机是最后手段：留下回合号、完整 traceback 和续局办法，别只留一行被擦掉的字。
         to_journal(journal_path,ui.text('console.failure_detail',kind=type(exc).__name__,error=exc,
                                         period=host.clock(),detail=traceback.format_exc()))
-        if CONSOLE is not None:CONSOLE.close();CONSOLE=None
         observer.line(ui.text('console.failure',kind=type(exc).__name__,error=exc,
-                                period=host.clock(),path=save_path));return 1
+                                period=host.clock(),path=save_path))
+        if CONSOLE is None:return 1
+        # 失败后不退出：留在控制台，面板与命令照旧可用（board / thoughts / quit），
+        # 否则 tmux 里只剩一行字，日志和现场全被带走。
+        observer.line(ui.text('console.failure_hold'))
+        try:
+            while _commands(host,observer):
+                time.sleep(.2)
+        except KeyboardInterrupt:
+            pass
+        return 1
     finally:
         if CONSOLE is not None:CONSOLE.close();CONSOLE=None
 
