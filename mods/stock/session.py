@@ -1,9 +1,17 @@
 """股市发行版的会话：开局、账户与回合记录。"""
+from concurrent.futures import ThreadPoolExecutor
+
 from engine.session import SaveFormatError, Session
 
 
 class StockSession(Session):
-    """没有地图的回合制会话：名单固定，先手每回合轮换一格。"""
+    """没有地图的回合制会话：名单固定，先手每回合轮换一格。
+
+    规划阶段各量化员互相独立（各自的账户、脚本、谍报），模型等待不需要
+    互相排队：cycle 默认用线程池并发跑各玩家的 client.play，世界变更仍
+    经 BoundPlayer 的会话锁串行入账，观战回调经同一把锁串行输出。
+    配置 planning_workers=1 可退回严格串行。
+    """
 
     # 脚本执行期的逐笔回执（下单受理、成交、清算、脚本内借贷）只进审计，
     # 不再逐条刷给看海人；run_all 结束时每个玩家发一条 settlement 摘要代替。
@@ -43,8 +51,87 @@ class StockSession(Session):
     def finished(self):
         return self._settled or not self.actors()
 
+    def _guard(self, callback):
+        """观战回调经会话锁串行：不同量化员的输出行不交织，也不会与入账互锁。"""
+        if callback is None:
+            return None
+        def invoke(*args, **kwargs):
+            with self.lock:
+                return callback(*args, **kwargs)
+        return invoke
+
+    def _plan_one(self, actor, emit, head, on_call, on_stream):
+        """跑完一个量化员的整个规划循环（含控制转移），返回其回执。"""
+        client = self.clients[actor]
+        receipts = []
+        transitions = 0
+        while True:
+            player = self.player(actor)
+            generation = player.generation
+            if not player.action_state()['can_act']:
+                break
+            if client.kind == 'rule':
+                cfg = next(n for n in self.entries() if n['id'] == actor)
+                receipts.extend(client.play(player, max_actions=cfg.get('max_actions')))
+            else:
+                callback_call = (lambda step, result, a=actor: self._guard(on_call)(a, step, result)) if on_call else None
+                receipts.extend(client.play(player, emit=self._guard(emit), head=self._guard(head),
+                                            on_call=callback_call,
+                                            **({'on_stream': self._guard(on_stream)} if on_stream and client.kind == 'llm' else {})))
+            if self.generations[actor] == generation:
+                break
+            transitions += 1
+            if transitions > 8:
+                raise RuntimeError('Too many actor control transitions in one cycle')
+        return receipts
+
+    def _cycle_parallel(self, *, on_result=None, emit=None, head=None, on_call=None, on_stream=None, workers=2):
+        """并发规划：与引擎串行 cycle 同一套语义，只是各玩家的等待不再排队。
+
+        世界变更全部经 BoundPlayer 的会话锁串行入账（submit/observe/events），
+        因此并发只重叠模型的网络等待，不重叠任何世界变更；回执按先手轮换
+        顺序归并，last_results 与串行一致。
+        """
+        if self.victory_event is not None:
+            raise ValueError('Game has ended with a victory event')
+        self.scheduled()
+        receipts = []
+        self._boundary = False
+        self._callbacks = on_result
+        self._emit = emit
+        try:
+            actors = [actor for actor in self.turn_order() if self.world.clock.can_act(actor)]
+            with ThreadPoolExecutor(max_workers=min(len(actors), workers)) as pool:
+                futures = {actor: pool.submit(self._plan_one, actor, emit, head, on_call, on_stream)
+                           for actor in actors}
+                for actor in actors:  # deterministic merge order
+                    receipts.extend(futures[actor].result())
+            self.world.resolve_turn()
+            self.world.phase = '行动'
+            for actor in self.actors():
+                for service in self.services[actor].values():
+                    settled = getattr(service, 'on_settlement', None)
+                    if settled:
+                        settled(self.player(actor))
+                settled = getattr(self.clients[actor], 'on_settlement', None)
+                if settled:
+                    settled(self.player(actor))
+            self.last_results = receipts
+            self._boundary = True
+            return receipts
+        finally:
+            self._callbacks = None
+            self._emit = None
+
     def cycle(self, **kwargs):
-        receipts = super().cycle(**kwargs)
+        workers = self.cfg.get('planning_workers')
+        actors = [actor for actor in self.actors() if self.world.clock.can_act(actor)]
+        parallel = (not isinstance(workers, int) or workers >= 2) and len(actors) > 1
+        if parallel:
+            receipts = self._cycle_parallel(workers=workers if isinstance(workers, int) else len(actors),
+                                            **kwargs)
+        else:
+            receipts = super().cycle(**kwargs)
         final = self.world.clock.final_round
         if not self._settled and isinstance(final, int) and self.clock() >= final:
             self.final_settlement()

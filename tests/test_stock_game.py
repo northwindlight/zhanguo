@@ -802,6 +802,39 @@ class StockGameTest(unittest.TestCase):
             self.assertEqual(loaded.world.market.stocks['shanhai'], h.world.market.stocks['shanhai'])
             self.assertEqual(loaded.world.market.pool['ipo_index'], h.world.market.pool['ipo_index'])
 
+    def test_concurrent_planning_overlaps_client_waiting(self):
+        import time
+        from mods.stock import client as stock_client
+        original = stock_client.ReplayClient.play
+        def slow(self, player, **kwargs):
+            time.sleep(.3)
+            return original(self, player, **kwargs)
+        with patch.object(stock_client.ReplayClient, 'play', slow):
+            h = GameHost.new(config(actors=3, seed=5))
+            h.world.clock.session_ticks = 200
+            started = time.perf_counter()
+            h.cycle()
+            elapsed = time.perf_counter() - started
+        self.assertLess(elapsed, .85)          # serial would need >= .9s
+        self.assertEqual(len([r for r in h.audit if r['action'] == 'end_turn']), 3)
+
+    def test_concurrent_planning_keeps_world_deterministic(self):
+        cfg = config(actors=3, seed=5)
+        first = GameHost.new(cfg)
+        second = GameHost.new(cfg)
+        first.cycle()
+        second.cycle()
+        self.assertEqual(first.runtime.save_mod_state(first.world),
+                         second.runtime.save_mod_state(second.world))
+
+    def test_planning_workers_one_restores_serial_cycle(self):
+        cfg = config(actors=2, seed=5)
+        cfg['planning_workers'] = 1
+        h = GameHost.new(cfg)
+        h.cycle()
+        self.assertEqual(len([r for r in h.audit if r['action'] == 'end_turn']), 2)
+        self.assertTrue(h._boundary)
+
     def test_old_market_save_without_dynamics_is_rejected(self):
         h = self.host(); h.cycle()
         legacy = h.world.market.to_save()
