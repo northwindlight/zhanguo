@@ -503,12 +503,12 @@ public partial class Desktop : Control
         {at+=window.Position;viewport=window.GetParent().GetViewport();}
         await PointerClickAt(at,viewport);
     }
-    private async Task WaitFor(Func<bool> ready,string description)
+    private async Task WaitFor(Func<bool> ready,string description,double timeout=30)
     {
         var clock=Stopwatch.StartNew();
         while(!ready())
         {
-            if(clock.Elapsed.TotalSeconds>30)throw new TimeoutException(description);
+            if(clock.Elapsed.TotalSeconds>timeout)throw new TimeoutException(description);
             await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
         }
     }

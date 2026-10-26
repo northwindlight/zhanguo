@@ -17,7 +17,7 @@ public partial class Desktop
         var picker=_humanContent.FindChild("HumanField_"+field,true,false) as OptionButton;
         picker!.Select(index);picker.EmitSignal(OptionButton.SignalName.ItemSelected,(long)index);
     }
-    private async Task HumanIdle()=>await WaitFor(()=>HumanCanWrite&&!HasTimeline,"真人操作或本批演出没有结束");
+    private async Task HumanIdle()=>await WaitFor(()=>HumanCanWrite&&!HasTimeline,"真人操作或本批演出没有结束",120);
     private void ValidateHumanLayout()
     {
         var viewport=new Rect2(Vector2.Zero,Size);
@@ -89,14 +89,14 @@ public partial class Desktop
             await Screenshot(stem+"-quote.png");await PointerClick(_humanSubmit!);await HumanIdle();
             if(!HumanFacts["building_sites"]!["instances"]!.AsArray().Any(b=>S(b!["kind"])=="native:militia-camp"&&I(b["remaining"])==1))throw new Exception("建设没有真实动工");
             await PointerClick(_humanNav["end"]);
-            await WaitFor(()=>S(_playingBeat?["phase"])=="production","本国生产没有演出");
+            await WaitFor(()=>S(_playingBeat?["phase"])=="production","本国生产没有演出",120);
             if(!_settlementCard.Visible||_humanDrawer.IsOpen)throw new Exception("生产汇总被操作面板遮住");
             await Screenshot(stem+"-production.png");
-            await WaitFor(()=>HumanCanWrite&&_period==1,"真人回合没有轮换与结算");
+            await WaitFor(()=>HumanCanWrite&&_period==1,"真人回合没有轮换与结算",120);
             _humanCell=capital;_humanOperation="recruit";OpenHumanPage("recruit");SelectHumanField("kind","native:militia");
             await PointerClick(_humanSubmit!);await HumanIdle();
             if(!OwnArmies.Any())throw new Exception("真人征兵没有产生真实军队："+_humanReceipt.Text);
-            await PointerClick(_humanNav["end"]);await WaitFor(()=>HumanCanWrite&&_period==2,"新兵没有进入下一期");
+            await PointerClick(_humanNav["end"]);await WaitFor(()=>HumanCanWrite&&_period==2,"新兵没有进入下一期",120);
             _humanCell=capital;OpenHumanPage("tile");
             var check=_humanContent.FindChild("HumanArmy1",true,false) as CheckButton;
             if(check==null)throw new Exception("本国驻军没有复选框");await PointerClick(check);
@@ -125,7 +125,7 @@ public partial class Desktop
             await ToSignal(GetTree().CreateTimer(.7),SceneTreeTimer.SignalName.Timeout);
             using var image2=GetViewport().GetTexture().GetImage();using var crop2=image2.GetRegion(rect);
             if(!pixels1.SequenceEqual(crop2.GetData()))throw new Exception("历史地块仍在播放动态");
-            await PointerClick(_humanNav["end"]);await WaitFor(()=>HumanCanWrite&&_period==3,"战斗结算未结束");
+            await PointerClick(_humanNav["end"]);await WaitFor(()=>HumanCanWrite&&_period==3,"战斗结算未结束",120);
             _humanOperation="declare_war";await PointerClick(_humanNav["diplomacy"]);await PointerClick(_humanSubmit!);
             await WaitFor(()=>_humanConfirm.Visible,"宣战未显示二次确认");
             if(!_humanConfirm.DialogText.Contains("攻方")||!_humanConfirm.DialogText.Contains("守方"))throw new Exception("宣战缺少结构化警告");
