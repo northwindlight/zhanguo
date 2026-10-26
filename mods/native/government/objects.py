@@ -33,6 +33,7 @@ class Government:
         self._nation = nation_call
         self._span, self._minimum = integer(plan_span,1), integer(summary_min,1)
         self._period, self._plans, self._summaries, self._ended = 0, {}, [], set()
+        self._humans = set()
         self._world, self._domain = None, None
 
     def bind_state(self, world, key):
@@ -44,6 +45,12 @@ class Government:
         if active_unit.get() not in (None,self._domain):raise ModError('Use government interface')
 
     def period(self):return self._period
+
+    def set_human(self, owner):
+        """Trusted session binding; never a player-selected exemption."""
+        self._write();self._actor(owner);self._humans.add(owner)
+
+    def human_actors(self):return frozenset(self._humans)
 
     def _actor(self, owner):
         if owner not in self._nation('ids'):raise ValueError('Nation is not alive')
@@ -64,6 +71,9 @@ class Government:
     def end_turn(self, owner, text):
         self._write();self._actor(owner)
         if owner in self._ended:raise ValueError('Nation already ended its action')
+        if owner in self._humans:
+            self._ended.add(owner)
+            return {'owner':owner,'period':self._period,'ended':True,'control':'human'}
         plan = self._plans.get(owner)
         if plan is None or plan.valid_until<self._period:raise ValueError('Update the national plan first')
         if not isinstance(text,str) or len(text.strip())<self._minimum:raise ValueError('Summary is too short')
@@ -86,13 +96,18 @@ class Government:
         return {'period':self._period,
                 'plans':[{'owner':p.owner,'text':p.text,'period':p.period,'valid_until':p.valid_until} for p in self._plans.values()],
                 'summaries':[{'owner':s.owner,'period':s.period,'text':s.text} for s in self._summaries],
-                'ended':sorted(self._ended)}
+                'ended':sorted(self._ended),'humans':sorted(self._humans)}
 
     def restore(self, data):
         self._write()
-        if not isinstance(data,dict) or set(data)!={'period','plans','summaries','ended'}:raise ValueError('Invalid government save')
+        if not isinstance(data,dict) or set(data)!={'period','plans','summaries','ended','humans'}:raise ValueError('Invalid government save')
         period = integer(data['period'])
-        if any(not isinstance(data[k],list) for k in ('plans','summaries','ended')):raise ValueError('Invalid government lists')
+        if any(not isinstance(data[k],list) for k in ('plans','summaries','ended','humans')):raise ValueError('Invalid government lists')
+        humans=set()
+        for owner in data['humans']:
+            self._nation('get',owner)
+            if owner in humans:raise ValueError('Duplicate human actor')
+            humans.add(owner)
         plans,summaries,ended = {},[],set()
         for row in data['plans']:
             if not isinstance(row,dict) or set(row)!={'owner','text','period','valid_until'}:raise ValueError('Invalid plan')
@@ -107,8 +122,9 @@ class Government:
             seen.add((s.owner,s.period));summaries.append(s)
         for owner in data['ended']:
             self._nation('get',owner)
-            if owner in ended or (owner,period) not in seen:raise ValueError('Invalid ended actors')
+            if owner in ended or owner not in humans and (owner,period) not in seen:raise ValueError('Invalid ended actors')
             ended.add(owner)
         self._period,self._plans,self._summaries,self._ended = period,plans,summaries,ended
+        self._humans=humans
 
     def __deepcopy__(self,memo):return self.to_save()

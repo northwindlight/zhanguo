@@ -1,0 +1,20 @@
+{
+  "period": 3,
+  "human_turns": [
+    0,
+    1,
+    2
+  ],
+  "actual_human_writes": 6,
+  "deduplicated_requests": 3,
+  "action_batches": 6,
+  "settlement_batches": 3,
+  "player_scoped_snapshots": 13,
+  "ai_versions": [
+    "v13"
+  ],
+  "human_plan_or_summary_created": false,
+  "exact_save_reload": true,
+  "stderr_empty": true,
+  "save_sha256": "234234387c36c1f028a0f61d530e28dac07827deb74d95567324f269a8b22b6f"
+}

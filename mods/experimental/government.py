@@ -19,6 +19,7 @@ class ParliamentGovernment(Government):
 
     def enroll(self,owner):
         self._write();self._actor(owner)
+        if owner in self.human_actors():raise ValueError('真人不参加议会审核')
         self._reviews.setdefault(owner,{'submitted':None,'draft':None,'approved':None,
             'reason':'','explanation':'','streak':0,'last_rejection':None,'due':None,
             'reign':1,'transition':None})
@@ -110,6 +111,7 @@ class ParliamentGovernment(Government):
         fields={'submitted','draft','approved','reason','explanation','streak','last_rejection','due','reign','transition'}
         for owner,row in data['reviews'].items():
             self._nation('get',owner)
+            if owner in self.human_actors():raise ValueError('Human seat cannot have council reviews')
             if not isinstance(row,dict) or set(row)!=fields:raise ValueError('Invalid review record')
             if type(row['streak']) is not int or not 0<=row['streak']<=3 or type(row['reign']) is not int or row['reign']<1:raise ValueError('Invalid council counters')
             for key in ('submitted','last_rejection','due','transition'):
@@ -129,4 +131,4 @@ class ParliamentGovernmentMod(GovernmentMod):
 
     def rule_sections(self,world=None):
         return (*super().rule_sections(world),RuleSection('议会国策审核',
-            '每国每回合只能提交一次国策。第一版直接生效，只告知君主存在议会；从第一次修订起，议会按旧国策及实际行为审核，再审新版。未通过必须 explain_plan 解释，下回合重提。连续三个回合未通过罢免君主。续档或接任不恢复第一版豁免，接任不重置本回合提交次数。'))
+            '每个 AI 国家每回合只能提交一次国策。第一版直接生效，只告知君主存在议会；从第一次修订起，议会按旧国策及实际行为审核，再审新版。未通过必须 explain_plan 解释，下回合重提。连续三个回合未通过罢免君主。续档或接任不恢复第一版豁免，接任不重置本回合提交次数。真人不参加国策审核。'))

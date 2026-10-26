@@ -18,7 +18,7 @@ from .player import wire
 from .api import BoundPlayer, api_entry
 from .runtime import ModError
 
-SAVE_FORMAT='zhanguo.session/4'
+SAVE_FORMAT='zhanguo.session/5'
 AUDIT_LIMIT=2048
 class SaveFormatError(ValueError):pass
 
@@ -255,7 +255,8 @@ class Session:
         return grants
 
     def _services(self,item,records=None):
-        specs=self.runtime.distribution.get('Session',{}).get('Services',{})
+        specs={name:spec for name,spec in self.runtime.distribution.get('Session',{}).get('Services',{}).items()
+               if 'Clients' not in spec or item['client'] in spec['Clients']}
         restoring=records is not None
         records={} if records is None else records
         if restoring and (not isinstance(records,dict) or set(records)!=set(specs)):raise SaveFormatError('Session service identities disagree')
@@ -379,7 +380,7 @@ class Session:
             handler=getattr(service,'record_dialogue',None)
             if handler:handler(player,wire(messages))
 
-    def cycle(self,*,on_result=None,emit=None,head=None,on_call=None,on_stream=None,on_batch=None):
+    def cycle(self,*,on_result=None,emit=None,head=None,on_call=None,on_stream=None,on_batch=None,on_human=None):
         if self.victory_event is not None:raise ValueError('Game has ended with a victory event')
         def call(actor,step,receipts):
             if on_call:on_call(actor,step,receipts)
@@ -392,7 +393,9 @@ class Session:
                 while True:
                     player=self.player(actor);generation=player.generation
                     if not player.action_state()['can_act']:break
-                    if client.kind=='rule':
+                    if client.kind=='human':
+                        receipts.extend(client.play(player,request=on_human))
+                    elif client.kind=='rule':
                         cfg=next(n for n in self.entries() if n['id']==actor)
                         receipts.extend(client.play(player,max_actions=cfg.get('max_actions')))
                     else:

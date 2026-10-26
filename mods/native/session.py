@@ -1,6 +1,6 @@
 """Native distribution scenario and administrative APIs. No host game rules."""
 import random
-from engine.player import wire
+from engine.player import wire, BUILTINS
 from engine.session import SaveFormatError
 from engine.scenario import GridSession
 from .observer import NativeObserver
@@ -50,8 +50,27 @@ class NativeSession(NativeObserver,GridSession):
         return all(self.world.territory.terrain(tx,ty).passable and not self.world.territory.cell(tx,ty).tile.id
                    for tx,ty in ((x,y),(x-1,y),(x+1,y),(x,y-1),(x,y+1)))
     def validate_boundary(self):
+        expected={n['id'] for n in self.entries() if n['client']=='human' and n['id'] in self.roster}
+        if self.world.government.human_actors()!=expected:
+            raise SaveFormatError('Human seats differ from saved government control')
         if any(wire(self.world.government.snapshot(a))['ended'] for a in self.actors()):
             raise SaveFormatError('Cannot save a partially played cycle')
+
+    def after_spawn(self):
+        self.world.intelligence.capture_maps(self.world.government.human_actors())
+        self.world.intelligence.publish_maps()
+
+    def cycle(self,**callbacks):
+        receipts=super().cycle(**callbacks)
+        # Knowledge is sampled after the unchanged domain stage sequence.
+        self.world.intelligence.capture_maps();self.world.intelligence.publish_maps()
+        return receipts
+
+    def record(self,player,action,arguments,receipt,error=None):
+        tool=self.runtime.tools.get(action)
+        if receipt and receipt.get('ok') and action not in BUILTINS and (tool is None or not tool.read_only):
+            self.world.intelligence.capture_maps()
+        return super().record(player,action,arguments,receipt,error)
 
     def finished(self):
         future=any(n.get('enabled',True) and n['id'] not in self.roster and n.get('appearance')=='scheduled' for n in self.entries())
@@ -83,6 +102,7 @@ class NativeSession(NativeObserver,GridSession):
         if polity and self.runtime.find_policy(polity) is None:raise ValueError('Polity module missing')
         period=self.clock()
         self.world.nations.create(actor,item['name'],{**START_RES,**item.get('resources',{})})
+        if item['client']=='human':self.world.government.set_human(actor)
         for tx,ty in points:
             site=f'{actor}/land-{tx}-{ty}'
             self.world.territory.create(site,actor,tx,ty,terrain='native:plain' if (tx,ty)==(x,y) else None,core=actor)

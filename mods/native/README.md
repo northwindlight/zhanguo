@@ -2,7 +2,7 @@
 
 2026-10-16：`native` 4.4.1 已完成领域模块装配与统一玩家接口接线，入口是仓库 `mods.toml`。`mp_run` 使用 GameHost，LLM 与 v11plus 通过 PlayerSession 行动，详见 [客户端接线](../../docs/客户端接线.md)。
 
-发行版在 `Distribution.Scenarios` 下挂载剧本程序；当前八国程序位于 [scenarios/eight_nations.py](scenarios/eight_nations.py)，experimental 显式复用。程序访问 `world`，通过唯一 `trigger_victory(event)` 提交胜利事件，条件不写入引擎。
+发行版在 `Distribution.Scenarios` 下挂载剧本程序；当前八国程序位于 [scenarios/eight_nations.py](../../scenarios/eight_nations.py)，experimental 显式复用。程序访问 `world`，通过唯一 `trigger_victory(event)` 提交胜利事件，条件不写入引擎。
 
 ## 模块与边界
 
@@ -71,7 +71,7 @@ world.phase = '行动'  # 宿主开启下一行动期；周期由 government 自
 
 公共查询新增建筑站点、建筑目录、建筑报价、兵种目录、征召报价、可见战斗预估。报价与动作共用成本逻辑；预估与实际战斗共用数值计算，预估仅采用当前可见信息。剧本可用 diplomacy.seed_pact 初始化独立国家条约，此方法不注册为玩家工具。
 
-完整整局由 GameHost 保存为 zhanguo.session/4；上面的模块状态接口用于宿主底层装配，不替代整局客户端状态。
+完整整局由 GameHost 保存为 zhanguo.session/5；上面的模块状态接口用于宿主底层装配，不替代整局客户端状态。
 
 ## 代码与手册入口
 

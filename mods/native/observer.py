@@ -88,7 +88,7 @@ class NativeObserver:
                 except ValueError:pass
         text=self.presentation.console.action(self.clock(),player.actor,action,arguments,receipt,{a:r['name'] for a,r in self.roster.items()})
         self.world.intelligence.emit('action',text,position=position,parties=(player.actor,),
-                                     details={'source':'action_receipt'})
+                                     details={'source':'action_receipt','actor':player.actor})
 
     def observer_snapshot(self):
         with self.lock, self.runtime.read_scope(self.world):

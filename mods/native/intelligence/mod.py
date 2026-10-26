@@ -1,4 +1,4 @@
-from engine.runtime import GameMod, Stage
+from engine.runtime import GameMod, Stage, RuleSection
 from .api import IntelligenceAPI
 from .objects import Intelligence
 
@@ -16,6 +16,13 @@ class IntelligenceMod(GameMod):
     def archive_committed(self,world):world.intelligence.archive_committed()
     def restore_archive(self,world,rows):world.intelligence.restore_archive(rows)
     def player_api(self, world):return IntelligenceAPI(world)
+    def rule_sections(self,world=None):
+        rules=self.declaration['Intelligence']
+        return (RuleSection('历史地图与购图',
+            f'query(panel=map_offers) 查询各国地图商在开局及最近完整回合边界发布的全国测绘：本国土地及邻接无主地，含采样时地形、资源、归属、建筑与在建数量，不含军队分布。'
+            f'intelligence(action=buy_map,target=国家) 购买指定版本，费用{rules["MapBase"]}金加每格{rules["MapPerTile"]}金，记行政消费；同一买方同一版本只买一次。'
+            '成功后立即取得历史地图，不获得实时视野。共享图和间谍图只在真正送达时合入知识。query(panel=map_knowledge) 保留逐字段日期与来源；旧报告不覆盖新观察，未提供的字段不表示拆除。',
+            keywords=('map','地图','knowledge','情报','buy_map')),)
     def stages(self):return (Stage('native:intelligence.deliver',lambda w,c:c.update(deliveries=w.intelligence.deliver()),hook='cycle.end',before=('native:government.advance',)),
         Stage('native:intelligence.dispatch',self._dispatch,hook='relations',needs=('relations.applied',),provides=('dispatches.started',)),
         Stage('native:intelligence.events',self._events,hook='cycle.end',needs=('actors.eliminated',),before=('native:government.advance',)))

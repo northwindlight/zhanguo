@@ -5,6 +5,10 @@ class IntelligenceAPI:
     def __init__(self, world):
         self.world = world
 
+    def knowledge(self,actor):return self.world.intelligence.knowledge(actor)
+    def map_offers(self,actor):return self.world.intelligence.map_offers(actor)
+    def buy_map(self,actor,target):return self.world.intelligence.buy_map(actor,target)
+
     def letter(self, actor, target, text):
         return self.world.intelligence.submit(actor, target, 'letter', text=text)
 

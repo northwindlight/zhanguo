@@ -8,6 +8,7 @@ from engine.identifiers import content_id
 from engine.player import wire
 from engine.runtime import ModError, DomainRejection
 from engine.state import active_unit, freeze
+from .knowledge import MapKnowledge
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,8 @@ class Intelligence:
         self._pending,self._transit,self._messages,self._results,self._events=[],[],[],[],[]
         self._next_dispatch,self._next_event=1,1
         self._maps={};self._archive=[];self._pruned_at=-1
+        self._knowledge=MapKnowledge()
+        self._surveys={};self._purchases=set();self._map_fees=[]
         self._world,self._domain=None,None
     def bind_state(self, world, key):
         if self._world is not None and self._world is not world:raise ModError('Intelligence already bound')
@@ -59,6 +62,66 @@ class Intelligence:
     def _write(self):
         if active_unit.get() not in (None,self._domain):raise ModError('Use intelligence interface')
     def _ids(self):return self._call('native:nation-inspection','ids')
+
+    def capture_maps(self,owners=None):
+        """Trusted write boundary, never called by a read-only player query."""
+        self._write()
+        owners=tuple(self._knowledge.cells) if owners is None else tuple(owners)
+        if not owners:return
+        snap=self._call('native:buildings','snapshot')
+        kinds=set(self._call('native:buildings','kinds_with_role','capital')) | set(self._call('native:buildings','kinds_with_role','castle'))
+        for owner in owners:
+            if owner not in self._ids():continue
+            order=self._knowledge.order()
+            for tile in self._call('native:vision','tiles',owner):
+                row={'position':list(tile.position),'terrain':tile.terrain,'owner':tile.owner,
+                     'name':tile.name,'buildings':dict(tile.buildings)}
+                full=tile.owner==owner
+                if full:
+                    row['resources']=dict(tile.resources)
+                    site=next((s.id for s in snap.sites if s.owner==owner and s.position==tile.position),None)
+                    row['construction']={}
+                    for b in snap.instances:
+                        if b.site==site and b.remaining:row['construction'][b.kind]=row['construction'].get(b.kind,0)+1
+                self._knowledge.merge(owner,[row],sampled=self._period(),order=order,
+                    source='vision',acquired=self._period(),building_kinds=() if full else kinds,complete=full)
+
+    def knowledge(self,owner):
+        self._call('native:nation-inspection','get',owner)
+        return self._knowledge.snapshot(owner)
+
+    def publish_maps(self):
+        """A dated national survey, frozen at a complete turn boundary."""
+        self._write()
+        for owner in self._ids():
+            self._surveys[owner]={'sampled':self._period(),'order':self._knowledge.order(),'tiles':self._map(owner)}
+
+    def map_offers(self,owner):
+        self._call('native:nation-inspection','get',owner)
+        return [{'target':target,'sampled':survey['sampled'],'tiles':len(survey['tiles']),
+                 'price':self._rules['MapBase']+self._rules['MapPerTile']*len(survey['tiles']),
+                 'purchased':(owner,target,survey['order']) in self._purchases,
+                 'source':'national-survey'}
+                for target,survey in self._surveys.items() if target!=owner and target in self._ids()]
+
+    def buy_map(self,owner,target):
+        self._write()
+        if self._world is not None and self._world.phase!='行动':raise ValueError('Buy only during action phase')
+        offer=next((row for row in self.map_offers(owner) if row['target']==target),None)
+        if offer is None:raise ValueError('没有可购买的已发布地图')
+        if offer['purchased']:raise ValueError('已经购买这份地图，等待新的测绘版本')
+        if not self._permits(owner,'communication.map'):raise ValueError('当前政体不能购买地图')
+        survey=self._surveys[target]
+        self._call('native:resource-exchange','exchange',owner,{self._currency():offer['price']},{})
+        message=Message(self._next_dispatch,target,owner,'map',survey['sampled'],
+                        {'tiles':deepcopy(survey['tiles']),'sampled_order':survey['order'],
+                         'source':'national-survey','price':offer['price']})
+        self._next_dispatch+=1;self._purchases.add((owner,target,survey['order']))
+        self._map_fees.append({'id':f'native:map-purchase/{message.id}','owner':owner,'period':self._period(),
+                              'category':'administration','inputs':((self._currency(),offer['price']),)})
+        self._remember(message)
+        return {'target':target,'sampled':survey['sampled'],'price':offer['price'],
+                'tiles':offer['tiles'],'message':message.id,'status':'delivered'}
     def _targets(self):
         rows=(self._call('native:nation-inspection','get',ident) for ident in self._ids())
         return '、'.join(f'{row.name}={row.id}' for row in rows)
@@ -131,7 +194,7 @@ class Intelligence:
         if d.kind=='gift':credits[d.resource]=credits.get(d.resource,0)+d.quantity
         if credits:self._call('native:resource-exchange','exchange',d.owner,{},credits)
     def resolve(self):
-        self._write();facts=[];results=[]
+        self._write();facts=list(self._map_fees);self._map_fees=[];results=[]
         for d in sorted(self._pending,key=lambda d:(d.kind,d.owner,d.id)):
             if (d.owner not in self._ids() or d.target not in self._ids() or not self._permits(d.owner,'communication.'+d.kind)
                 or not self._call('native:diplomacy','diplomatic_authority',d.owner)
@@ -139,7 +202,7 @@ class Intelligence:
                 self._refund(d);result=replace(d,status='cancelled')
             else:
                 delay=self._rules['SpyDelay'] if d.kind=='spy' else 1
-                if d.kind=='map':self._maps[d.id]={'sampled':self._period(),'tiles':self._map(d.owner)}
+                if d.kind=='map':self._maps[d.id]={'sampled':self._period(),'order':self._knowledge.order(),'tiles':self._map(d.owner)}
                 result=replace(d,status='in-transit');self._transit.append(result)
                 if d.fee:facts.append({'id':f'native:communication-fee/{d.id}', 'owner':d.owner,'period':self._period(),'category':'administration','inputs':((self._currency(),d.fee),)})
             self._results.append(result);results.append(result)
@@ -157,7 +220,7 @@ class Intelligence:
             elif d.kind=='gift':
                 self._call('native:resource-exchange','exchange',d.target,{}, {d.resource:d.quantity})
                 payload={'resource':d.resource,'quantity':d.quantity}
-            elif d.kind=='map':payload={'tiles':deepcopy(map_snapshot['tiles'])}
+            elif d.kind=='map':payload={'tiles':deepcopy(map_snapshot['tiles']),'sampled_order':map_snapshot['order']}
             else:
                 stocks=self._call('native:resource-inspection','snapshot',d.target)
                 units=self._call('native:army','snapshot',d.target);counts={}
@@ -177,6 +240,10 @@ class Intelligence:
             arrived.append(freeze(message));self._results.append(replace(d,status='delivered'))
         return tuple(arrived)
     def _remember(self,message):
+        if message.kind in ('map','spy') and isinstance(message.payload.get('tiles'),list):
+            order=message.payload.get('sampled_order') or self._knowledge.order()
+            self._knowledge.merge(message.target,message.payload['tiles'],sampled=message.sampled,order=order,
+                source=f'{message.kind}/{message.source}/{message.id}',acquired=max(self._period(),message.sampled),complete=True)
         self._messages.append(message)
         limit=3 if message.kind=='map' else 2 if message.kind=='spy' else 50
         same=[m.id for m in self._messages if m.target==message.target and m.kind==message.kind]
@@ -255,12 +322,14 @@ class Intelligence:
                 'maps':[{'id':ident,**deepcopy(value)} for ident,value in self._maps.items()],
                 'messages':[{'id':m.id,'source':m.source,'target':m.target,'kind':m.kind,'sampled':m.sampled,'payload':deepcopy(m.payload)} for m in self._messages],
                 'events':[{'id':e.id,'period':e.period,'kind':e.kind,'text':e.text,'position':None if e.position is None else list(e.position),'recipients':list(e.recipients),'details':deepcopy(e.details)} for e in self._events],
-                'next_dispatch':self._next_dispatch,'next_event':self._next_event}
+                'next_dispatch':self._next_dispatch,'next_event':self._next_event,
+                'knowledge':self._knowledge.to_save(),'surveys':deepcopy(self._surveys),
+                'purchases':[list(row) for row in sorted(self._purchases)],'map_fees':deepcopy(self._map_fees)}
     def restore(self, data):
         self._write()
-        expected={'pending','transit','results','maps','messages','events','next_dispatch','next_event'}
+        expected={'pending','transit','results','maps','messages','events','next_dispatch','next_event','knowledge','surveys','purchases','map_fees'}
         if not isinstance(data,dict) or set(data)!=expected:raise ValueError('Invalid intelligence save')
-        for key in expected-{'next_dispatch','next_event'}:
+        for key in expected-{'next_dispatch','next_event','knowledge','surveys'}:
             if not isinstance(data[key],list):raise ValueError('Invalid intelligence list')
         candidate={}
         for key in ('pending','transit','results'):
@@ -282,7 +351,7 @@ class Intelligence:
         if len({d.id for d in active})!=len(active):raise ValueError('Duplicate active dispatch')
         maps={}
         for row in data['maps']:
-            if not isinstance(row,dict) or set(row)!={'id','sampled','tiles'}:raise ValueError('Invalid map snapshot')
+            if not isinstance(row,dict) or set(row)!={'id','sampled','order','tiles'}:raise ValueError('Invalid map snapshot')
             integer(row['id'],1);integer(row['sampled'])
             if row['id'] in maps or not isinstance(row['tiles'],list):raise ValueError('Invalid map snapshot')
             for tile in row['tiles']:
@@ -294,7 +363,8 @@ class Intelligence:
                 for key in ('buildings','resources','construction'):
                     if not isinstance(tile[key],dict):raise ValueError('Invalid shared contents')
                     for ident,amount in tile[key].items():content_id(ident);integer(amount)
-            maps[row['id']]={'sampled':row['sampled'],'tiles':deepcopy(row['tiles'])}
+            integer(row['order'],1)
+            maps[row['id']]={'sampled':row['sampled'],'order':row['order'],'tiles':deepcopy(row['tiles'])}
         if set(maps)!={d.id for d in candidate['transit'] if d.kind=='map'}:raise ValueError('Missing or orphaned map snapshot')
         messages=[]
         for row in data['messages']:
@@ -327,4 +397,39 @@ class Intelligence:
         self._maps=maps
         self._messages,self._events=messages,events;self._next_dispatch,self._next_event=data['next_dispatch'],data['next_event']
         self._archive=[];self._pruned_at=-1
+        knowledge=MapKnowledge()
+        size,_=self._call('native:territory','dimensions')
+        knowledge.restore(data['knowledge'],lambda owner:self._call('native:nation-inspection','get',owner),size,self._period())
+        if not isinstance(data['surveys'],dict):raise ValueError('Invalid survey catalogue')
+        for owner,row in data['surveys'].items():
+            self._call('native:nation-inspection','get',owner)
+            if not isinstance(row,dict) or set(row)!={'sampled','order','tiles'}:raise ValueError('Invalid survey')
+            integer(row['sampled']);integer(row['order'],1)
+            if row['sampled']>self._period():raise ValueError('Future survey')
+            if row['order']>=knowledge.next_order or not isinstance(row['tiles'],list):raise ValueError('Invalid survey order')
+            check=MapKnowledge()
+            check.next_order=knowledge.next_order
+            check.merge(owner,row['tiles'],sampled=row['sampled'],order=row['order'],source='survey',acquired=row['sampled'],complete=True)
+            check.restore(check.to_save(),lambda actor:self._call('native:nation-inspection','get',actor),size)
+        purchases=set()
+        for row in data['purchases']:
+            if not isinstance(row,list) or len(row)!=3:raise ValueError('Invalid map purchase')
+            owner,target,order=row
+            self._call('native:nation-inspection','get',owner);self._call('native:nation-inspection','get',target)
+            integer(order,1)
+            if owner==target or order>=knowledge.next_order or tuple(row) in purchases:raise ValueError('Invalid map purchase')
+            purchases.add(tuple(row))
+        self._knowledge=knowledge;self._surveys=deepcopy(data['surveys']);self._purchases=purchases
+        fees=[];fee_ids=set()
+        for row in data['map_fees']:
+            if not isinstance(row,dict) or set(row)!={'id','owner','period','category','inputs'}:raise ValueError('Invalid map fee')
+            self._call('native:nation-inspection','get',row['owner']);integer(row['period'])
+            if row['category']!='administration' or not isinstance(row['id'],str) or not row['id'].startswith('native:map-purchase/'):
+                raise ValueError('Invalid map fee')
+            if not isinstance(row['inputs'],(list,tuple)) or len(row['inputs'])!=1:raise ValueError('Invalid map fee input')
+            resource,amount=row['inputs'][0];content_id(resource);integer(amount,1)
+            if row['id'] in fee_ids or row['period']!=self._period() or resource!=self._currency():raise ValueError('Invalid map fee identity')
+            fee_ids.add(row['id'])
+            fees.append({**deepcopy(row),'inputs':((resource,amount),)})
+        self._map_fees=fees
     def __deepcopy__(self,memo):return self.to_save()

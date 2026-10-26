@@ -11,7 +11,7 @@
   "tool.caption.nation": "国家信息",
   "tool.caption.foreign": "对外关系",
   "tools.plan.description": "提交持久国策：写未来多回合的经济、军事、情报与外交战略，明确目标、优先级、资源约束和调整条件，依据事实而非编造。不是本回合流水账。到期或战略变化时修订，已有有效国策无需反复提交。",
-  "tools.end_turn.description": "结束本国行动。summary 只用一两句概括本回合实际执行的结果与关键待结算事项；详细行动已有回执，不重复国策、逐格清单或下回合战略。必须先有有效国策。结束成功后，未回应的已收到外交提议提交自动拒绝、回合末生效，开放的联盟投票未表态则自动反对。",
+  "tools.end_turn.description": "结束本国行动。AI 小结用一两句记录实际结果与待结算事项，且须有有效国策；正式绑定的真人可省略小结和国策。结束后未回应的提议自动拒绝，本期开放而未表态的联盟投票自动反对。",
   "tools.government.description": "查看本国有效国策、到期周期、结束状态与回合小结；无需参数。",
   "tool.government.head": "第{period}回合｜{status}",
   "tool.government.ended": "本国行动已结束",

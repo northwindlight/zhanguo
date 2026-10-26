@@ -118,6 +118,8 @@ python3 settlement.py --save mp_save.json --table
 
 ## 可选玩法与实验
 
+单机真人模式先完成了[玩家侧接口](docs/真人玩家接口.md)：一位真人与 AI 混合轮流行动，带本国视野、历史地图和操作请求校验。Godot 的真人按钮与地图遮罩属于下一步，目前菜单仍用于配置 AI 对局。
+
 默认的 **native** 就是完整的战国玩法，包含库存市场、国策和手册，**不加载议会**。简报中的 tips 与宣战前自检为玩家提供提醒，怎样行动仍由玩家决定。
 
 [experimental](mods/experimental/README.md) 保留议会实验：第一次国策直接生效，从修订起由议长检查旧国策的执行与新版方案；连续三个相邻回合未通过会触发君主更替。它还提供保存并运行 Python 短脚本的能力，以及仅供规则 AI 使用的战斗概率研究。启用需使用[专用配置](mp_config.experimental.example.json)和独立存档。

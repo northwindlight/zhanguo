@@ -36,4 +36,8 @@ def normalize(cfg,*,runtime,overrides):
         if item.get('polity') and policy is None:raise ConfigError(f'{path}.polity: scope module not loaded')
         item.setdefault('appearance',policy.declaration.get('Policy',{}).get('Appearance','scheduled') if policy else 'initial')
         entries[index]=item
+    humans=[n for n in entries if n['client']=='human' and n.get('enabled',True)]
+    if len(humans)>1:raise ConfigError('config.nations: 当前只支持单机一位真人')
+    if humans and humans[0].get('appearance')!='initial':
+        raise ConfigError('config.nations: 真人须在开局登场')
     return configure_components(cfg,entries,runtime=runtime,overrides=overrides,path='config.nations',fields=SCENARIO.fields)

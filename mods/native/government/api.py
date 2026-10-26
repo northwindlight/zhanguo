@@ -8,7 +8,7 @@ class GovernmentAPI:
     def plan(self, actor, text):
         return self.world.government.plan(actor, text)
 
-    def end_turn(self, actor, summary):
+    def end_turn(self, actor, summary=''):
         return self.world.government.end_turn(actor, summary)
 
     def snapshot(self, actor):

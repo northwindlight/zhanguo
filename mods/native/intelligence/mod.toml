@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:intelligence"
-Version = "1.5.0"
+Version = "1.6.0"
 Entry = "mods.native.intelligence.mod:IntelligenceMod"
 Requires = ["native:nations", "native:government", "native:resources", "native:buildings", "native:diplomacy", "native:vision", "native:army"]
 After = ["native:nations", "native:government", "native:army"]
@@ -16,11 +16,11 @@ Provides = ["native:intelligence"]
 "native:government" = ["period"]
 "native:resource-exchange" = ["exchange", "exchange_batch"]
 "native:resource-inspection" = ["snapshot", "role_ids"]
-"native:buildings" = ["snapshot"]
+"native:buildings" = ["snapshot", "kinds_with_role"]
 "native:diplomacy" = ["allied", "snapshot", "entity", "representative", "diplomatic_authority"]
 "native:vision" = ["visible", "tiles"]
 "native:army" = ["snapshot"]
-"native:territory" = ["neighbors", "owner", "cell"]
+"native:territory" = ["neighbors", "owner", "cell", "dimensions"]
 [Intelligence]
 Fee = 10
 LetterBase = 20
@@ -31,10 +31,12 @@ FreeCharacters = 20
 CharactersPerGold = 10
 SpyFee = 100
 SpyDelay = 3
+MapBase = 20
+MapPerTile = 2
 
 [PlayerAPI]
-Methods = ["letter", "gift", "map", "spy", "intel", "news", "dispatches", "countries"]
-ReadOnly = ["countries", "dispatches", "intel", "news"]
+Methods = ["letter", "gift", "map", "spy", "intel", "news", "dispatches", "countries", "knowledge", "map_offers", "buy_map"]
+ReadOnly = ["countries", "dispatches", "intel", "news", "knowledge", "map_offers"]
 
 [PlayerAPI.ContentParameters]
 gift = ["resource"]

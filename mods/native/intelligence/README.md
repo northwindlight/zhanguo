@@ -1,6 +1,8 @@
 # 情报与通信模块
 
-`native:intelligence` 1.0.0 按 [正式发行版模板](../README.md) 装配。`Intelligence` 拥有 `Dispatch / Message / Event`、待发队列、在途运输、货物预留、地图快照、历史收件箱和结果编号。
+1.6.0 新增逐字段持久地图知识和公开定期测绘购图。真人侧接口、来源、采样与价格见[单机真人接口](../../../docs/真人玩家接口.md)。地图记忆不依赖有限收件箱，旧报告不覆盖新观察，缺省建筑字段不当作拆除；购买只提供历史知识，不扩大实时视野。`map_offers / buy_map / knowledge` 对真人和 AI 共用。
+
+`native:intelligence` 1.6.0 按 [正式发行版模板](../README.md) 装配。`Intelligence` 拥有 `Dispatch / Message / Event`、待发队列、在途运输、货物预留、地图快照、历史收件箱和结果编号。
 
 工具 `send_letter / gift / share_map / spy / intel / news / dispatches`，面板 `intel / news`。提交预留手续费和货物，外交阶段重验发出；正常通信下一周期到达，间谍延迟三周期。发出前失败退款，到达前国家灭亡退还礼物货物；已花通信费用不退。同一未发指令去重，礼物只入账一次。
 

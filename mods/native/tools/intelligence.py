@@ -37,7 +37,17 @@ def tools(runtime):
     def dispatches(world, actor):
         return runtime.player_api(world, 'native:intelligence').dispatches(actor)
 
+    def knowledge(world,actor):return runtime.player_api(world,'native:intelligence').knowledge(actor)
+    def map_offers(world,actor):return runtime.player_api(world,'native:intelligence').map_offers(actor)
+    def buy_map(world,actor,target:str):return runtime.player_api(world,'native:intelligence').buy_map(actor,target)
+
     return (
+        Tool('map_knowledge',knowledge,owner='native:intelligence',api=('knowledge',),read_only=True,panel=True,
+             description='本国已获得的历史地图，逐字段保留来源、采样期与观察顺序；视野外不是当前事实。'),
+        Tool('map_offers',map_offers,owner='native:intelligence',api=('map_offers',),read_only=True,panel=True,
+             description=f'各存活国家地图商已公开的最近完整边界测绘，范围为该国土地及邻接无主地；价格{cfg["MapBase"]}金加每格{cfg["MapPerTile"]}金。列采样期、覆盖数、价格及是否已买；不公开未购买内容。'),
+        Action('buy_map',buy_map,owner='native:intelligence',api=('buy_map',),groups=('communication.map',),
+               description='购买 map_offers 中的指定国家已发布地图，立即扣款、交付并合入历史知识；同一版本只能购买一次，不扩大实时视野。'),
         Action('send_letter', send_letter, owner='native:intelligence', api=('letter',), groups=('communication.letter',),
              description=f'向 query(panel=foreign) 中的别国发送正文；提交时扣费，结算派发，下一周期送达 intel。起步价非盟友{cfg["LetterBase"]}金、盟友{cfg["LetterAlly"]}金，外交中心可减免；前{cfg["FreeCharacters"]}字免费，超出每{cfg["CharactersPerGold"]}字加1金，下限{cfg["LetterMinimum"]}金，实际费用看回执。'),
         Action('gift', gift, owner='native:intelligence', api=('gift',), content_parameters=('resource',), groups=('communication.gift',),

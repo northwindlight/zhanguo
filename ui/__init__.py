@@ -65,6 +65,7 @@ def configure_components(cfg,entries,*,runtime,overrides,path='config.actors',fi
             supported.update(getattr(entrypoint(spec['Configuration']),'fields',()))
         item=component(item,spec,defaults=root,overrides=overrides,path=location,runtime=runtime)
         for service in runtime.distribution.get('Session',{}).get('Services',{}).values():
+            if 'Clients' in service and item['client'] not in service['Clients']:continue
             if service.get('Configuration'):
                 supported.update(getattr(entrypoint(service['Configuration']),'fields',()))
             item=component(item,service,defaults=root,overrides=overrides,path=location,runtime=runtime)
