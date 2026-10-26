@@ -158,6 +158,7 @@ public partial class Desktop
         catch(Exception e)
         {
             GD.PrintErr(e);
+            try{await Screenshot(Path.ChangeExtension(path,null)+"-failed.png");}catch{}
             if(_host!=null){SendHumanRow(new JsonObject { ["command"]="disconnect" });_closing=true;}
             GetTree().Quit(3);
         }

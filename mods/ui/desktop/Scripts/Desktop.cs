@@ -493,6 +493,7 @@ public partial class Desktop : Control
     }
     private async Task PointerClick(Control button)
     {
+        await WaitFor(()=>Drawers.All(d=>d.IsSettled),"点击前抽屉尚未展开完成");
         await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
         for(Node? parent=button.GetParent();parent!=null;parent=parent.GetParent())
             if(parent is ScrollContainer scroll)scroll.EnsureControlVisible(button);
