@@ -25,6 +25,8 @@ ZIP 中有：
 
 2026-10-26 的单国收支、街道、集市与新字体开发包已通过[Windows 实际窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40268362667)，在该次 Actions 的 `Zhanguo-Windows-x64` 工件中下载。它采用运行提交 `9cfdaa7`，尚未替换已发布的 v0.5.1；[本轮截图与检查范围](reviews/GUI单国收支与街道演出-20261026.md)。
 
+2026-10-26 的真人单机开发包已通过[Windows 真人窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40317006180)，运行代码 `19fec89`，在该次 Actions 的 `Zhanguo-Windows-x64` 工件下载。新建对局为一个国家选“真人”、填写昵称，即可从底部入口办理建设、军令、市场、外交与情报；[截图与验收](reviews/真人GUI第二步-20261026.md)。这批功能属于 main 开发包，v0.5.1 原发布包保持原样。
+
 ## 构建与验证
 
 [Windows便携包工作流](../.github/workflows/windows-portable.yml)在 Windows 构建机上执行。
@@ -52,6 +54,7 @@ $zip = (Get-ChildItem archive/windows-build-new/*.zip).FullName
 
 4. 在正常 v13 世界生成的样例中，检查市场收付款、生产、补给、进攻箭头、实际送达信件和三档缩放的飞鸟。
 5. 用四种逻辑窗口尺寸、两档账目字号与 1.25／1.5 倍内容渲染缩放验证 12 组排版；此项不等同于修改 Windows 系统 DPI。
+6. 正常真人开局实际购买、写信、建设征兵、移动及攻击、买图，运行三期，检查迷雾、静态历史、四尺寸、宣战警告、排队保存与放弃后退出。
 
 窗口检查使用构建机的图形后端，不能代替朋友电脑上 Vulkan 或实际显卡的性能测试。
 
