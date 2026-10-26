@@ -35,17 +35,6 @@ public partial class RegionArtwork
             layer.DrawLine(new Vector2(x,square.Position.Y+2),new Vector2(x,square.End.Y-2),new Color("939681"),.7f);
         for(float y=square.Position.Y+8;y<square.End.Y;y+=8)
             layer.DrawLine(new Vector2(square.Position.X+2,y),new Vector2(square.End.X-2,y),new Color("939681"),.7f);
-        var center=square.GetCenter();
-        foreach(var lot in region.TownLots)
-        {
-            var end=origin+new Vector2(lot.Bounds.X+8,lot.Bounds.Y+lot.Bounds.Height);
-            int steps=Math.Max(1,(int)center.DistanceTo(end));
-            for(int i=0;i<=steps;i+=2)
-            {
-                var p=center.Lerp(end,i/(float)steps);
-                if(Layout.Water(p.X,p.Y)<.15f)layer.DrawRect(new Rect2(p.Floor(),new Vector2(4,3)),new Color("b7ad88"));
-            }
-        }
         // Civic scenery carries no production or defense bonuses.
         var well=square.Position+new Vector2(10,plaza.Height*.5f);
         DrawEllipse(layer,well,new Vector2(4,3),new Color("747f7c"));
@@ -65,7 +54,16 @@ public partial class RegionArtwork
     private void DrawTownLot(CanvasItem layer,TownLot lot,Vector2 origin)
     {
         var foot=origin+new Vector2(lot.Bounds.X+lot.Bounds.Width*.5f,lot.Bounds.Y+lot.Bounds.Height);
-        UnifiedArt.Draw(layer,lot.Kind=="stall"?"lumberyard":"house-"+lot.Variant%2,foot);
+        if(lot.Kind=="market")UiArt.Draw(layer,"market",foot-new Vector2(32,44),new Vector2(64,48));
+    }
+    private void DrawRoads(CanvasItem layer,RegionPlan region,Vector2 origin)
+    {
+        foreach(var p in Layout.Roads.For(region))
+        {
+            var at=origin+new Vector2(p.X,p.Y);
+            int height=PixelTerrain.HeightTier(Layout.Elevation(at.X,at.Y));
+            UiArt.Draw(layer,"road",at-new Vector2(4,4+height*8),new Vector2(8,8));
+        }
     }
     private void DrawTownHallDetails(CanvasItem layer,Structure hall,Vector2 p,Vector2 size)
     {
@@ -79,9 +77,9 @@ public partial class RegionArtwork
         layer.DrawRect(new Rect2(p+new Vector2(size.X*.5f-12,size.Y-2),new Vector2(24,4)),new Color("c2b99b"));
         if(_detailLevel>0&&LabelFont!=null)
         {
-            var at=p+new Vector2(size.X*.5f-18,size.Y+14);
-            layer.DrawRect(new Rect2(at-new Vector2(3,10),new Vector2(42,16)),new Color(.07f,.10f,.09f,.85f));
-            layer.DrawString(LabelFont,at,"市政厅",fontSize:12,modulate:new Color("f1dfad"));
+            var at=p+new Vector2(size.X*.5f-24,size.Y+18);
+            layer.DrawRect(new Rect2(at-new Vector2(3,15),new Vector2(54,22)),new Color(.07f,.10f,.09f,.85f));
+            layer.DrawString(LabelFont,at,"市政厅",fontSize:16,modulate:new Color("f1dfad"));
         }
     }
 }

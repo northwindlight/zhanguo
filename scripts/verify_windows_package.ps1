@@ -42,4 +42,13 @@ Run-GameCheck 'world' @('--rendering-method', 'gl_compatibility', '--rendering-d
 $taskWorld = Get-Content -Raw (Join-Path $taskOutput 'world.png.json') | ConvertFrom-Json
 if ($taskWorld.period -lt 3 -or $taskWorld.artwork -ne 'unified-pixel-world' -or -not $taskWorld.readable_font) { throw 'Exported game did not load the current artwork/font/host' }
 if (-not $taskWorld.pause_menu_checked -or $taskWorld.action_batches -lt 24 -or $taskWorld.settlement_batches -lt 3 -or $taskWorld.settlement_marches -ne 0) { throw 'Call playback or pause menu verification failed' }
+if ($taskWorld.played_phases.production -ne 24 -or -not $taskWorld.ledger_within_viewport -or $taskWorld.ledger_rows -ne 7) { throw 'National production or single-nation ledger verification failed' }
+if ($taskWorld.markets -lt 8 -or $taskWorld.road_tiles -lt 1 -or -not $taskWorld.national_cloth_checked) { throw 'Markets, roads or national clothing verification failed' }
+Run-GameCheck 'effects' @('--rendering-method', 'gl_compatibility', '--rendering-driver', 'opengl3_angle', '--', '--effects-review-output', (Join-Path $taskOutput 'effects.png')) 300000
+$taskEffects = Get-Content -Raw (Join-Path $taskOutput 'effects.png.json') | ConvertFrom-Json
+if (-not $taskEffects.offline -or -not $taskEffects.national_colors_checked -or $taskEffects.checks.Count -lt 9) { throw 'Trade, letter, battle arrow or bird verification failed' }
+$env:ZHANGUO_LEDGER_REVIEW = (Get-ChildItem (Join-Path $taskOutput 'effects-fixture-*.json') | Select-Object -First 1).FullName
+Run-GameCheck 'ledger' @('--rendering-method', 'gl_compatibility', '--rendering-driver', 'opengl3_angle', '--', '--ledger-review-output', (Join-Path $taskOutput 'ledger.png')) 300000
+$taskLedger = Get-Content -Raw (Join-Path $taskOutput 'ledger.png.json') | ConvertFrom-Json
+if ($taskLedger.Count -ne 12 -or ($taskLedger | Where-Object { -not $_.ledger_within_viewport -or $_.overlap })) { throw 'Single-country ledger font/scale/layout verification failed' }
 Write-Output 'WINDOWS_PORTABLE_VERIFIED'

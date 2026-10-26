@@ -107,10 +107,12 @@ python3 settlement.py --save mp_save.json --table
 
 [下载 v0.5.1 Windows x64 便携版](https://github.com/northwindlight/zhanguo/releases/download/v0.5.1/zhanguo-0.5.1-windows-x64.zip)：完整解压后双击 `Zhanguo.exe`，无需安装开发工具。
 
+下面介绍当前 main 的界面；本轮收支、街道与字体等改进尚未进入已发布的 v0.5.1 附件。
+
 ![桌面上帝视角](docs/design/gui-unified-town-20261024.png)
 
 桌面版采用正常v13离线八国开局：全窗地图、远景国色与近景地貌、居民与密集小队，以及列国、山河、市集、纪事抽屉。每次模型响应的工具全部执行后，统一播放这一批操作，播完才继续调用；行军随对应调用展示，回合末播放生产/军需与逐场战斗。按 Esc 或右上角菜单自动暂停，可继续、保存或退出。
-军团显示真实血条、防御与步骑兵数量；市政厅周围有城镇街区，油区可见地表沥青。快进仅作用于规则AI和结算，LLM自动1×。现已换上统一原创像素素材与中文像素字体，接入树叶、水面和人物动画。见[新画面与录像](docs/reviews/GUI统一像素世界与动画-20261024.md)。
+军团显示真实血条、防御与步骑兵数量；市政厅旁的集市展示买卖，街道绕开建筑，油区可见地表沥青。左上角显示当前国家的资源及上期红绿变化，生产与补给各阶段按国汇总，原有结算顺序保留。快进仅作用于规则AI和结算，LLM自动1×。默认 Z 工坊中文像素字体，菜单可切回旧字体或调整账目字号；开局可选正式八国或自由列国。见[桌面版说明](mods/ui/desktop/README.md)。
 
 安装 Godot .NET、.NET SDK 和 Python 后运行 `python3 desktop.py`。具体版本和安装方法见[桌面版说明](mods/ui/desktop/README.md)。启动后可在主菜单配置规则 AI 或 LLM 对局。模型思考和发言按真实返回片段显示，支持半身图；默认规则 AI 无需 API。Windows可用[便携构建](docs/Windows便携包.md)，解压后双击启动；附音乐与美术评审资料。尚未接管运行中的终端会话。[32秒实际窗口录像](docs/design/gui-live-battle-tour-20261024.mp4)与[实现范围](docs/reviews/GUI逐动作与聚落军团-20261024.md)。
 

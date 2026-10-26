@@ -56,6 +56,9 @@ class TimelineCapture:
         self.actual=deepcopy(self.previous)
         self.event_cursor=max((e['id'] for e in host.records()['events']),default=0)
         self.names={a:host.roster[a]['name'] for a in host.roster}
+        self.message_ids={m['id'] for m in host.records()['messages']}
+        self.initial_homes={a:self.home(a) for a in host.actors()}
+        self.attack_sources={}
 
     def _token_total(self,actor):
         """LLM 客户端累计 token 用量；规则 AI 无模型调用，计 0。"""
@@ -90,8 +93,66 @@ class TimelineCapture:
         if after is not None:self.previous=deepcopy(after)
 
     def home(self,actor):
-        b=next((b for b in self.previous['buildings'] if b['owner']==actor and b['kind']=='native:town-hall'),None)
-        return [b['x'],b['y']] if b else None
+        halls=sorted((b for b in self.previous['buildings'] if b['owner']==actor and
+                     b['kind']=='native:town-hall' and b['remaining']==0),key=lambda b:b['id'])
+        if halls:return [halls[0]['x'],halls[0]['y']]
+        land=next((t for t in self.previous['ownership'] if t['owner']==actor),None)
+        if land:return [land['x'],land['y']]
+        unit=next((u for u in self.previous['armies'] if u['owner']==actor),None)
+        return [unit['x'],unit['y']] if unit else None
+
+    def national_settlements(self,final,events,phase):
+        """Aggregate within each existing stage, never reorder the stages.
+
+        Apply only the recorded production/military/tribute stock movements;
+        banking, deliveries and other later changes still arrive at the final
+        boundary. Maintenance uses its real before/after units, before battle.
+        """
+        flows={r['id']:r for r in final.get('resource_flows',[]) if r['period']==self.period}
+        maintenance={}
+        for event in events:
+            if event['kind']=='maintenance':maintenance.setdefault(event['details']['owner'],[]).append(event)
+        for account in list(self.previous['accounts']):
+            owner=account['id'];flow=flows.get(owner)
+            if flow is None:continue
+            self.actor=owner;stage=deepcopy(self.previous)
+            records=maintenance.get(owner,[]) if phase=='maintenance' else []
+            if phase=='maintenance' and not records:continue
+            flow=deepcopy(flow)
+            for category in ('production_in','production_out','military_out','tribute_in','tribute_out'):
+                if (category=='military_out')!=(phase=='maintenance'):flow[category]=[]
+            changes={}
+            for category in ('production_in','production_out','military_out','tribute_in','tribute_out'):
+                sign=1 if category.endswith('_in') else -1
+                for resource,amount in flow[category]:changes[resource]=changes.get(resource,0)+sign*amount
+            flow['net']=[[r,a] for r,a in changes.items() if a]
+            need=used=healed=starvation=0
+            for event in records:
+                d=event['details'];ids={key('armies',u) for u in d['before']}
+                stage['armies']=[u for u in stage['armies'] if key('armies',u) not in ids]+deepcopy(d['after'])
+                need+=d['need'];used+=d['used'];healed+=sum(h['hp'] for h in d['healing'])
+                hp_after=sum(u['hp'] for u in d['after'])
+                starvation+=max(0,sum(u['hp'] for u in d['before'])+sum(h['hp'] for h in d['healing'])-hp_after)
+            updated=next(a for a in stage['accounts'] if a['id']==owner)
+            for stock in updated['stocks']:stock['amount']+=changes.get(stock['id'],0)
+            # The left panel keeps the last *complete* period's CLI flow until
+            # the final boundary. The card shows this stage's actual movements.
+            facts=[f for f in final.get('production',[]) if f['period']==self.period and f['owner']==owner] if phase=='production' else []
+            ledger={**deepcopy(flow),'facilities':len(facts),'supply_need':need,'supply_used':used,
+                    'healed_hp':healed,'starvation_hp':starvation,'units':sum(len(e['details']['before']) for e in records),'stage':phase}
+            source=[f['id'] for f in facts]+[f'event/{e["id"]}' for e in records]
+            text=f'{len(facts)}处设施的实际投入与产出' if phase=='production' else f'全国军队补给 {used}/{need}'
+            if need>used:text+=f' · 缺补给 {need-used}'
+            if healed:text+=f' · 恢复 {healed:g}HP'
+            if starvation:text+=f' · 断粮损失 {starvation:g}HP'
+            title='采集与生产' if phase=='production' else '补给与恢复'
+            self.add(phase,f'{self.names.get(owner,owner)} · {title}',text,self.home(owner),
+                     after=stage,source=','.join(source) or f'period/{self.period}/{owner}',duration=4 if facts or records else 1.6,
+                     anchor_building=next((b['id'] for b in sorted(self.previous['buildings'],key=lambda b:b['id'])
+                         if b['owner']==owner and b['kind']=='native:town-hall' and b['remaining']==0),None),
+                     ledger=ledger,playback_scope='settlement',
+                     turn_title=f'{self.names.get(owner,owner)} · 第 {self.period+1} 回合结算')
+        self.actor=None
 
     def drain(self):
         """Keep the replay cursor; release only this completed call's beats."""
@@ -129,7 +190,8 @@ class TimelineCapture:
             label='规则 AI '+version if client.kind=='rule' else getattr(client,'cfg',{}).get('model','模型')
             self.add('actor',f'{name}开始行动',f'{label} · 逐项展示本期行动',self.home(actor),source=source,duration=2.2,**self._turn_meta(actor))
         if not receipt.get('ok'):
-            self.add('rejected',f'{name} · 行动未执行',text,position,source=source,duration=1.4)
+            self.add('rejected',f'{name} · 行动未执行',text,position,source=source,duration=1.4,
+                     market_actor=actor if action in ('buy','sell') else None)
             return
         old_units={key('armies',u):u for u in before['armies']}
         new_units=[u for u in after['armies'] if key('armies',u) not in old_units and u['owner']==actor]
@@ -150,8 +212,17 @@ class TimelineCapture:
             data=receipt.get('data') or {};ids=set(data.get('units',args.get('ids') or [args.get('aid')]))
             selected=[u for u in after['armies'] if u['owner']==actor and u['id'] in ids]
             if selected:position=[selected[0]['x'],selected[0]['y']]
+            approaches=[]
+            if action=='attack':
+                for u in selected:
+                    old=old_units.get(key('armies',u))
+                    if old:
+                        direction={'actor':actor,'from':[old['x'],old['y']],'to':[u['x'],u['y']]}
+                        if direction not in approaches:approaches.append(direction)
+                        entries=self.attack_sources.setdefault((u['x'],u['y']),[])
+                        if direction not in entries:entries.append(direction)
             self.add('order',name+(' · 进攻军令' if action=='attack' else ' · 调动军令'),
-                     f'{len(selected)}支军队指向 ({position[0]},{position[1]})',position,source=source,duration=1)
+                     f'{len(selected)}支军队指向 ({position[0]},{position[1]})',position,source=source,duration=1,approaches=approaches)
             if motions:
                 stage=deepcopy(after)
                 stage['ownership']=deepcopy(before['ownership'])
@@ -167,8 +238,15 @@ class TimelineCapture:
             captions={'build':'动工','recruit':'征召','move':'抵达','retreat':'提交撤退','buy':'采购','sell':'出售','plan':'本期国策','end_turn':'行动结束'}
             new_buildings=[b for b in after['buildings'] if b['id'] not in {v['id'] for v in self.previous['buildings']}]
             if new_buildings:position=[new_buildings[0]['x'],new_buildings[0]['y']]
+            trade=None
+            if action in ('buy','sell'):
+                def stocks(scene):return {r['id']:r['amount'] for a in scene['accounts'] if a['id']==actor for r in a['stocks']}
+                prior=stocks(before);current=stocks(after)
+                goods=[{'resource':r,'amount':amount-prior.get(r,0)} for r,amount in current.items() if r!='native:gold' and amount!=prior.get(r,0)]
+                trade={'side':action,'goods':goods,'gold':current.get('native:gold',0)-prior.get('native:gold',0)}
             self.add(phase,f'{name} · {captions.get(action,"行动")}',text,position,after=after,source=source,
                      duration=2 if phase=='build' else 1.4,
+                     market_actor=actor if phase=='trade' else None,trade=trade,
                      **(self._turn_meta(actor,closing=True) if phase=='turn-end' else {}))
 
     def finish(self):
@@ -176,41 +254,15 @@ class TimelineCapture:
         try:
             self.actor=None
             final=self.scene()
-            facilities={b['id']:b for b in self.previous['buildings']}
-            grouped={}
-            for fact in final.get('production',[]):
-                if fact['period']!=self.period or not fact['id'].startswith('native:building-production/'):continue
-                b=facilities.get(int(fact['id'].rsplit('/',1)[-1]))
-                if not b:continue
-                grouped.setdefault((b['x'],b['y']),[]).append((b,fact))
-            for position,rows in grouped.items():
-                pops=[]
-                for b,fact in rows:
-                    for resource,amount in fact['inputs']:pops.append({'building':b['id'],'resource':resource,'amount':-amount})
-                    for resource,amount in fact['outputs']:pops.append({'building':b['id'],'resource':resource,'amount':amount})
-                self.add('production','采集与生产',f'{len(rows)}处设施完成本期实际投入与产出',list(position),
-                         source=','.join(f['id'] for _,f in rows),duration=2.2,pops=pops)
             events=[e for e in self.host.records()['events'] if e['id']>self.event_cursor]
-            for event in events:
-                if event['kind']!='maintenance':continue
-                d=event.get('details',{});positions={}
-                for u in d.get('before',[]):positions.setdefault((u['x'],u['y']),[]).append(u)
-                for index,(position,units) in enumerate(positions.items()):
-                    stage=deepcopy(self.previous);ids={key('armies',u) for u in units}
-                    updates=[u for u in d['after'] if key('armies',u) in ids]
-                    stage['armies']=[u for u in stage['armies'] if key('armies',u) not in ids]+updates
-                    pops=[]
-                    if index==0:
-                        pops.extend({'position':list(position),'resource':r,'amount':-amount} for r,amount in d['costs'].items())
-                    elif d['used']:pops.append({'position':list(position),'resource':'native:supply','amount':None})
-                    for heal in d['healing']:
-                        if any(u['id']==heal['id'] for u in units):pops.append({'position':list(position),'resource':'hp','amount':heal['hp']})
-                    self.add('maintenance','补给与恢复',event['text'],list(position),after=stage,source=f'event/{event["id"]}',duration=2,pops=pops)
+            self.national_settlements(final,events,'production')
+            self.national_settlements(final,events,'maintenance')
             for event in events:
                 if event['id']<=self.event_cursor or event['kind']!='battle':continue
-                detail=event.get('details',{})
+                detail=deepcopy(event.get('details',{}))
                 if not {'before','after'}<=detail.keys():continue
                 position=event['position'];x,y=position;source=f'event/{event["id"]}'
+                detail['approaches']=deepcopy(self.attack_sources.get((x,y),[]))
                 stage=deepcopy(self.previous)
                 stage['armies']=[u for u in stage['armies'] if (u['x'],u['y'])!=(x,y)]+deepcopy(detail['before'])
                 self.add('battle','交锋 · 本期战斗结算','双方接战；伤亡以本次结算为准',position,after=stage,
@@ -222,14 +274,23 @@ class TimelineCapture:
                     stage['ownership']=[r for r in stage['ownership'] if (r['x'],r['y'])!=(x,y)]
                     stage['ownership'].append({'x':x,'y':y,'owner':detail['owner']})
                     self.add('occupation','易帜 · 归属变更',f'{self.names.get(detail["owner"],detail["owner"])}取得 ({x},{y})',
-                             position,after=stage,source=source,duration=1.6)
+                             position,after=stage,source=source,duration=1.6,actor=detail['owner'],playback_scope='settlement')
             pending={b['id']:b for b in self.previous['buildings'] if b['remaining']>0}
             for b in final['buildings']:
                 if b['id'] not in pending or b['remaining']>0:continue
                 stage=deepcopy(self.previous)
                 stage['buildings']=[deepcopy(b) if old['id']==b['id'] else old for old in stage['buildings']]
                 self.add('complete',f'{self.names.get(b["owner"],b["owner"])} · 落成',f'{b["label"]}竣工，下期起按规则运营',
-                         [b['x'],b['y']],after=stage,source=f'building/{b["id"]}',duration=1.4)
+                         [b['x'],b['y']],after=stage,source=f'building/{b["id"]}',duration=1.4,actor=b['owner'],playback_scope='settlement')
+            for message in self.host.records()['messages']:
+                if message['id'] in self.message_ids or message['kind']!='letter':continue
+                sender=message['source'];target=message['target'];self.actor=sender
+                origin=self.home(sender) or self.initial_homes.get(sender)
+                destination=self.home(target)
+                self.add('letter',f'{self.names.get(sender,sender)} → {self.names.get(target,target)} · 信件送达',
+                         message['payload']['text'],destination,source=f'message/{message["id"]}',duration=3,
+                         playback_scope='settlement',letter={'id':message['id'],'source':sender,'target':target,'from':origin,'to':destination})
+            self.actor=None
             self.add('settlement','本期结算完成','生产、补给、撤离与市场数据同步至完整保存边界',
                      after=final,source=f'period/{self.host.clock()}',duration=1.4)
             return self.beats

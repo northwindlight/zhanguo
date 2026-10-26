@@ -43,6 +43,7 @@ public sealed class RegionInput
     public int Ore { get; set; }
     public int People { get; set; }
     public string OwnerColor { get; set; }="";
+    public string Owner { get; set; }="";
     public List<BuildingInput> Buildings { get; set; } = new();
 }
 
@@ -93,6 +94,7 @@ public sealed class RegionLayout
     public int Width { get; }
     public int Height { get; }
     public string GeometryKey { get; }
+    public RoadNetwork Roads { get; }
 
     public RegionLayout(SampleInput input, RegionLayout? previous = null)
     {
@@ -106,10 +108,11 @@ public sealed class RegionLayout
             ? previous.Regions.ToDictionary(r=>(r.Input.X,r.Input.Y)) : new Dictionary<(int,int),RegionPlan>();
         Regions = input.Regions.OrderBy(r => r.Y).ThenBy(r => r.X).Select(r =>
         {
-            if(reusable.TryGetValue((r.X,r.Y),out var old) && old.Input.Name==r.Name && old.Input.People==r.People&&old.Input.OwnerColor==r.OwnerColor &&
+            if(reusable.TryGetValue((r.X,r.Y),out var old) && old.Input.Name==r.Name && old.Input.People==r.People&&old.Input.OwnerColor==r.OwnerColor&&old.Input.Owner==r.Owner &&
                 old.Input.Buildings.Select(b=>(b.Id,b.Kind,b.Art,b.Remaining)).SequenceEqual(r.Buildings.Select(b=>(b.Id,b.Kind,b.Art,b.Remaining))))return old;
             return Build(r,old);
         }).ToArray();
+        Roads=new RoadNetwork(this,previous?.Roads);
     }
 
     // Fixed integer hash instead of runtime-randomized string hashes or Random.
@@ -250,14 +253,14 @@ public sealed class RegionLayout
             float w = hall?64:b.Art.Contains("factory")||b.Art.Contains("power-plant")?48:32;
             float h = hall?48:32;
             Footprint? found = previous?.Structures.FirstOrDefault(s=>s.Id==b.Id)?.Bounds;
-            if(found is Footprint oldBounds && (oldBounds.Width!=w||oldBounds.Height!=h||!CanBuild(r,oldBounds)||plan.Structures.Any(s=>s.Bounds.Overlaps(oldBounds,7))||!hall&&plan.CivicArea?.Overlaps(oldBounds,4)==true))found=null;
+            if(found is Footprint oldBounds && (oldBounds.Width!=w||oldBounds.Height!=h||!CanBuild(r,oldBounds)||plan.Structures.Any(s=>s.Bounds.Overlaps(oldBounds,7))||plan.TownLots.Any(l=>TownVisualBounds(l).Overlaps(oldBounds,4))||!hall&&plan.CivicArea?.Overlaps(oldBounds,4)==true))found=null;
             foreach (var p in candidates)
             {
                 if(found!=null)break;
                 var f = new Footprint(p.X, p.Y, w, h);
                 var civic=hall?new Footprint(f.X-12,f.Y-26,f.Width+24,f.Height+58):f;
                 if (CanBuild(r, civic) && !plan.Structures.Any(s => s.Bounds.Overlaps(f, 7))&&
-                    (hall||plan.CivicArea?.Overlaps(f,4)!=true)) { found = f; break; }
+                    !plan.TownLots.Any(l=>TownVisualBounds(l).Overlaps(f,4))&&(hall||plan.CivicArea?.Overlaps(f,4)!=true)) { found = f; break; }
             }
             if(found==null && Input.LiveWorld && plan.Structures.Count>0)
             {
@@ -273,23 +276,21 @@ public sealed class RegionLayout
             {
                 var f=found.Value;plan.CivicArea=new Footprint(f.X-12,f.Y-26,f.Width+24,f.Height+58);
                 plan.Plaza=new Footprint(f.X-12,f.Y+f.Height+2,f.Width+24,28);
+                if(b.Remaining==0&&plan.TownLots.Count==0)
+                {
+                    var markets=new[]{new Footprint(f.X+f.Width+20,f.Y+f.Height-12,48,24),
+                        new Footprint(f.X-68,f.Y+f.Height-12,48,24),new Footprint(f.X+8,f.Y+f.Height+40,48,24)};
+                    foreach(var market in markets)
+                    {
+                        var lot=new TownLot(market,0,"market");
+                        if(!CanBuild(r,market)||plan.Structures.Any(s=>StructureVisualBounds(s).Overlaps(TownVisualBounds(lot),2)))continue;
+                        plan.TownLots.Add(lot);break;
+                    }
+                }
             }
         }
         var civicHall=plan.Structures.FirstOrDefault(s=>s.Art.EndsWith("town-hall",StringComparison.Ordinal)&&s.Remaining==0);
-        if(Input.LiveWorld&&civicHall!=null)
-        {
-            var hall=civicHall.Bounds;
-            var center=new Point(hall.X+hall.Width*.5f,hall.Y+hall.Height*.5f+14);
-            var lots=candidates.OrderBy(p=>MathF.Abs(MathF.Sqrt((p.X-center.X)*(p.X-center.X)+(p.Y-center.Y)*(p.Y-center.Y))-84)+Noise((int)p.X,(int)p.Y,95)*24);
-            foreach(var point in lots)
-            {
-                if(plan.TownLots.Count>=8)break;
-                var f=new Footprint(point.X,point.Y,32,32);
-                if(CanBuild(r,f)&&plan.CivicArea?.Overlaps(f,5)!=true&&!plan.Structures.Any(s=>s.Bounds.Overlaps(f,5))&&!plan.TownLots.Any(l=>l.Bounds.Overlaps(f,8)))
-                    plan.TownLots.Add(new TownLot(f,(int)(Hash((int)point.X+r.X*256,(int)point.Y+r.Y*256,96)%3),plan.TownLots.Count%4==0?"stall":"house"));
-            }
-        }
-        bool Occupied(Footprint f,float margin=3)=>plan.Structures.Any(s=>s.Bounds.Overlaps(f,margin))||plan.CivicArea?.Overlaps(f,margin)==true||plan.TownLots.Any(l=>l.Bounds.Overlaps(f,margin));
+        bool Occupied(Footprint f,float margin=3)=>plan.Structures.Any(s=>s.Bounds.Overlaps(f,margin))||plan.CivicArea?.Overlaps(f,margin)==true||plan.TownLots.Any(l=>TownVisualBounds(l).Overlaps(f,margin));
         for (int cy = 0; cy < 16; cy++)
             for (int cx = 0; cx < 16; cx++)
             {
@@ -390,7 +391,7 @@ public sealed class RegionLayout
     public static Footprint GoldBounds(Point p)=>new(p.X-8,p.Y-14,16,16);
     public static Footprint RockBounds(Point p)=>new(p.X-8,p.Y-14,16,16);
     public static Footprint TreeBounds(Point p)=>new(p.X-16,p.Y-46,32,48);
-    public static Footprint TownVisualBounds(TownLot l)=>new(l.Bounds.X-8,l.Bounds.Y-16,l.Bounds.Width+16,l.Bounds.Height+24);
+    public static Footprint TownVisualBounds(TownLot l)=>new(l.Bounds.X-8,l.Bounds.Y-(l.Kind=="market"?24:16),l.Bounds.Width+16,l.Bounds.Height+(l.Kind=="market"?32:24));
     public static Footprint StructureVisualBounds(Structure s)=>s.Bounds.Width>=32?
         new Footprint(s.Bounds.X-8,s.Bounds.Y-(s.Art.EndsWith("town-hall",StringComparison.Ordinal)?24:16),s.Bounds.Width+16,s.Bounds.Height+(s.Art.EndsWith("town-hall",StringComparison.Ordinal)?32:24)):s.Bounds;
 }

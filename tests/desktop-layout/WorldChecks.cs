@@ -30,7 +30,7 @@ static class WorldChecks
         var capital=layout.Regions.Single(r=>r.Structures.Any(s=>s.Art=="native:town-hall"));
         var civic=capital.Structures.Single(s=>s.Art=="native:town-hall");
         Require(civic.Bounds.Width>=48&&RegionLayout.StructureVisualBounds(civic).Height>=60,"civic hall did not become larger and taller");
-        Require(capital.TownLots.Count>=4&&capital.Plaza!=null,"capital has no town scenery or civic square");
+        Require(capital.TownLots.Count==1&&capital.TownLots[0].Kind=="market"&&capital.Plaza!=null,"capital needs one market and no decorative housing");
         Require(capital.Input.Oil>0&&capital.OilPatches.Count>0,"real oil abundance has no surface bitumen");
         Require(capital.Input.Ore>0&&capital.Iron.Count>0,"real ore abundance has no iron deposit markers");
         Require(layout.Regions.Where(r=>r.Input.Ore==0).All(r=>r.Iron.Count==0),"iron invented on a zero-ore tile");

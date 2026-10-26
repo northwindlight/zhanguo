@@ -116,6 +116,8 @@ def stage_sources(bundle, root=ROOT):
     shutil.copytree(root / "docs/design/unified-v1", review)
     shutil.copytree(root / "mods/ui/desktop/assets/unified-v1", review / "素材",
                     ignore=shutil.ignore_patterns("*.import"))
+    shutil.copytree(root / "mods/ui/desktop/assets/ui-v2", review / "补绘SVG",
+                    ignore=shutil.ignore_patterns("*.import"))
     code = review / "CSharp"
     code.mkdir()
     for relative in tracked_files(root):
@@ -128,6 +130,7 @@ def stage_sources(bundle, root=ROOT):
     licenses.mkdir()
     shutil.copy2(root / "LICENSE", licenses / "MPL-2.0.txt")
     for relative, name in [("assets/CREDITS.md", "素材来源.md"), ("assets/fonts/FUSION-PIXEL-OFL.txt", "Fusion-Pixel-OFL.txt"),
+                           ("assets/fonts/ZLABS-ROUNDPIX-OFL.txt", "ZLabs-RoundPix-OFL.txt"),
                            ("assets/portraits/manifest.json", "用户图片来源.json")]:
         shutil.copy2(root / "mods/ui/desktop" / relative, licenses / name)
 

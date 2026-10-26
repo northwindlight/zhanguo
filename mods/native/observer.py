@@ -11,6 +11,27 @@ class NativeObserver:
     def management(self):
         return (*super().management(),'observer_snapshot','set_rate','subsidize')
 
+    def _observer_resource_flows(self):
+        """Last actual settlement, shared by CLI and desktop; never forecasts."""
+        period=self.world.economy.next_period-1
+        groups={owner:{name:defaultdict(float) for name in
+                ('production_in','production_out','military_out','tribute_in','tribute_out','net')}
+                for owner in self.roster}
+        if period>=0:
+            for valued in self.world.economy.facts(period):
+                fact=valued.fact
+                if fact.period!=period or fact.category not in ('production','military','tribute'):continue
+                row=groups[fact.owner]
+                for resource,amount in fact.inputs:
+                    row[fact.category+'_out'][resource]+=amount
+                    row['net'][resource]-=amount
+                if fact.category in ('production','tribute'):
+                    for resource,amount in fact.outputs:
+                        row[fact.category+'_in'][resource]+=amount
+                        row['net'][resource]+=amount
+        return [{'id':owner,'period':period,**{name:[[r,a] for r,a in amounts.items() if a]
+                for name,amounts in row.items()}} for owner,row in groups.items()]
+
     def observer_scene(self):
         """Small, detached visual facts; no player observation, materialization or RNG."""
         with self.lock, self.runtime.read_scope(self.world):
@@ -34,6 +55,7 @@ class NativeObserver:
                     'tile_defenses':defenses,
                     'production':[wire(r.fact) for r in self.world.economy.facts(self.world.economy.next_period-1)
                                   if r.fact.category=='production'] if self.world.economy.next_period else [],
+                    'resource_flows':self._observer_resource_flows(),
                     'accounts':[{'id':a,'stocks':wire(self.runtime.object_call(self.world,'native:resource-exchange','snapshot',a))} for a in self.actors()],
                     'market':[{'id':kind,'price':price,'inventory':stock[kind],'reference':reference[kind],
                                'buy':self.world.market.unit_price(kind,'buy') if stock[kind]>0 else None,
@@ -73,14 +95,7 @@ class NativeObserver:
             names={a:r['name'] for a,r in self.roster.items()}
             nations=[self.player(a).observe() for a in self.actors()]
             flow_period=self.world.economy.next_period-1
-            flows=defaultdict(lambda:defaultdict(float))
-            if flow_period>=0:
-                for valued in self.world.economy.facts(flow_period):
-                    fact=valued.fact
-                    if fact.period!=flow_period or fact.category not in ('production','military','tribute'):continue
-                    for resource,amount in fact.outputs:
-                        if fact.category in ('production','tribute'):flows[fact.owner][resource]+=amount
-                    for resource,amount in fact.inputs:flows[fact.owner][resource]-=amount
+            flows=self._observer_resource_flows()
             size,seed=self.grid();buildings=defaultdict(list)
             for instance in wire(self.world.buildings.snapshot())['instances']:
                 buildings[instance['site']].append((instance['kind'],instance['level']))
@@ -100,8 +115,7 @@ class NativeObserver:
             glyphs={key:glyph for key,glyph in glyphs.items() if glyph}
             roles={role:list(ids) for role,ids in self.runtime.content.roles().items()}
             return {'period':self.clock(),'names':names,'nations':nations,'scene':self.observer_scene(),
-                'resource_flows':{'period':flow_period,'owners':{owner:{resource:amount for resource,amount in values.items() if amount}
-                    for owner,values in flows.items()}},
+                'resource_flows':{'period':flow_period,'owners':{row['id']:dict(row['net']) for row in flows if row['net']}},
                 'dead':[a for a in self.roster if a not in self.actors()],
                 'market':wire(self.world.market.summary()),'bank':self.bank_status(),
                 'records':self.records(),

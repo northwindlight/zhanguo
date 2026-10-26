@@ -9,7 +9,7 @@ namespace Zhanguo.Desktop.Layout;
 // together. No renderer or game rule is needed to replay these deltas.
 public static class DesktopScene
 {
-    public static readonly string[] NationPalette={"9eb5cf","e5a47c","c69ddd","91bd98","e8cc83","76bdbb","d68c95","ddd9af"};
+    public static readonly string[] NationPalette={"9eb5cf","e5a47c","c69ddd","91bd98","e8cc83","76bdbb","d68c95","ddd9af","c7b29e","a8a7d9"};
     public static string Key(string collection,JsonNode row) => collection switch {
         "armies" or "guards"=>$"{row["owner"]}/{row["id"]}",
         "ownership"=>$"{row["x"]},{row["y"]}",_=>row["id"]!.ToString() };
@@ -44,10 +44,12 @@ public static class DesktopScene
         }
         frame["armies"]=scene["armies"]!.DeepClone();
         var accounts=scene["accounts"]?.AsArray().ToDictionary(a=>a!["id"]!.ToString());
+        var flows=scene["resource_flows"]?.AsArray().ToDictionary(a=>a!["id"]!.ToString());
         foreach(var n in frame["nations"]?.AsArray()??new JsonArray())
         {
             string id=n!["id"]!.ToString();
             if(accounts?.TryGetValue(id,out var account)==true)n["stocks"]=account!["stocks"]!.DeepClone();
+            if(flows?.TryGetValue(id,out var flow)==true)n["resource_flow"]=flow!.DeepClone();
             n["land"]=owners.Values.Count(v=>v?.ToString()==id);
             var units=scene["armies"]!.AsArray().Where(u=>u!["owner"]!.ToString()==id&&F(u["hp"])>0);
             var counts=new JsonObject();foreach(var g in units.GroupBy(u=>UnitName(u!["kind"]!.ToString())))counts[g.Key]=g.Count();

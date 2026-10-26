@@ -47,18 +47,29 @@ public partial class WorldMap
             _fit=false;
             _cameraScale=phase switch{
                 "battle" or "casualties"=>1.55f,
-                "build" or "complete" or "recruit" or "production" or "maintenance" or "occupation"=>1.45f,
+                "build" or "complete" or "recruit" or "production" or "maintenance" or "occupation" or "trade"=>1.45f,
                 "march"=>1.0f,
                 "engage" or "arrival"=>1.25f,
                 _=>1.15f};
             _cameraAnchor=FocusAnchor(phase,beat,I(p[0]),I(p[1]));
             UpdateView();
         }
+        if(follow&&beat["letter"] is JsonObject letter&&LetterAnchor(letter,false) is Vector2 from&&LetterAnchor(letter,true) is Vector2 to)
+        {
+            _fit=false;_cameraAnchor=(from+to)*.5f;
+            _cameraScale=Math.Clamp(Math.Min((Size.X-340)/(MathF.Abs(from.X-to.X)+256),(Size.Y-320)/(MathF.Abs(from.Y-to.Y)+256)),.04f,1.2f);
+        }
         BeatBurst();
     }
     // Building actions frame the site itself, not just the tile center.
     private Vector2 FocusAnchor(string phase,JsonObject beat,int x,int y)
     {
+        if(S(beat["market_actor"]) is {Length:>0} trader&&MarketAnchor(trader) is Vector2 market)return market;
+        if(beat["ledger"]!=null&&int.TryParse(S(beat["anchor_building"]),out var hall))
+        {
+            var rect=BuildingRect(hall);
+            if(rect.Size!=Vector2.Zero)return rect.GetCenter();
+        }
         if(phase=="complete"&&int.TryParse(S(beat["source"]).Split('/').Last(),out var id))
         {
             var rect=BuildingRect(id);
@@ -72,7 +83,7 @@ public partial class WorldMap
         return (new Vector2(x,y)+Vector2.One*.5f)*256;
     }
     public void BeatProgress(float progress) { _beatProgress=progress;QueueRedraw(); }
-    public void EndBeat() { _beat=null;_beatProgress=0;QueueRedraw(); }
+    public void EndBeat() { _beat=null;_beatProgress=0;VisibleWarArrows=VisibleLetters=0;QueueRedraw(); }
     private Vector2 Screen(Vector2 world)=>_offset+_jitter+world*_scale;
     private bool OnScreen(Vector2 p,float margin=40)=>p.X>=-margin&&p.Y>=-margin&&p.X<=Size.X+margin&&p.Y<=Size.Y+margin;
     private bool RegionOnScreen(RegionPlan r)
@@ -333,6 +344,7 @@ public partial class WorldMap
     {
         _resourcePopBounds.Clear();
         if(_beat==null)return;
+        DrawWarArrows();DrawTrade();DrawLetter();
         var popupBounds=new List<Footprint>(_squadLabelBounds);
         if(_beat["pops"] is JsonArray pops)
             for(int i=0;i<pops.Count;i++)
@@ -343,7 +355,7 @@ public partial class WorldMap
                 float alpha=Math.Min(1,(1-_beatProgress)*4);double amount=F(pop["amount"]);
                 string resource=S(pop["resource"]),number=pop["amount"]==null?"":$"{(amount>0?"+":"")}{amount:G4}";
                 string text=ResourceName(resource)+number;
-                float width=_font.GetStringSize(text,fontSize:15).X+26;
+                float width=_font.GetStringSize(text,fontSize:16).X+26;
                 var baseAt=Screen(anchor)+new Vector2(-width*.5f,-35);
                 var rect=ResourceOverlayLayout.Place(new Footprint(baseAt.X,baseAt.Y,width,23),popupBounds,Size.X,Size.Y,265);
                 popupBounds.Add(rect);
@@ -352,7 +364,7 @@ public partial class WorldMap
                 var color=new Color(new Color(amount<0?"efbc80":"c9efa3"),alpha);
                 DrawRect(new Rect2(new Vector2(rect.X,rect.Y-_beatProgress*35),new Vector2(rect.Width,rect.Height)),new Color(.045f,.075f,.08f,.80f*alpha));
                 ResourceIcon(at-new Vector2(10,5),resource,alpha);
-                DrawString(_font,at,text,fontSize:15,modulate:color);
+                DrawString(_font,at,text,fontSize:16,modulate:color);
             }
         string phase=S(_beat["phase"]);
         if(phase is "battle" or "casualties" && _beat["position"] is JsonArray cell)
@@ -550,7 +562,7 @@ public partial class WorldMap
     }
     private void DrawBirds()
     {
-        if(_scale>.9f)return;
+        VisibleBirds=0;
         float span=_size*256;
         for(int flock=0;flock<2;flock++)
         {
@@ -558,12 +570,12 @@ public partial class WorldMap
             var head=new Vector2((t*span*1.3f+flock*900)%(span+600)-300,(t*span*.7f+flock*2000)%(span+400)-200);
             for(int i=0;i<6;i++)
             {
-                var at=Screen(head+new Vector2(-i*10-(i/3)*6,(i%3)*4));
+                var at=Screen(head+new Vector2(-i*18-(i/3)*8,(i%3)*9));
                 if(!OnScreen(at))continue;
-                float flap=MathF.Sin((float)_time*9+i*1.7f+flock)*2.2f;
-                var c=new Color("3d4a48");
-                DrawLine(at+new Vector2(-3,flap*.6f),at,c,1);
-                DrawLine(at,at+new Vector2(3,flap*.6f),c,1);
+                bool up=MathF.Sin((float)_time*9+i*1.7f+flock)>0;
+                float width=Math.Clamp(6+_scale*8,6,24);
+                UiArt.Draw(this,up?"bird-up":"bird-down",at-new Vector2(width*.5f,width*.25f),new Vector2(width,width*.5f));
+                VisibleBirds++;
             }
         }
     }

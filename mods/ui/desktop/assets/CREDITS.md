@@ -74,3 +74,16 @@ and are not claimed under its CC0 license.
 规格、逐文件哈希和 SVG 母版见该目录的 README 与 manifest；运行时只读取共享 atlas。
 Fusion Pixel 中文字体继续遵循本目录 fonts/FUSION-PIXEL-OFL.txt。
 旧 Mini World、生成建筑与用户半身图各自的来源记录保持独立。
+
+## 中文界面字体（2026-10-26）
+
+新增 [Z 工坊像素圆体 16px](https://github.com/Astro-2539/ZLabs-RoundPix-16px)，作者 Astro_2539。
+使用作者 `Build_20260501` 发布的原始 `ZLabsRoundPix_16px_M_CN.ttf`，未修改字体文件；
+下载地址与 SHA-256 见 `fonts/zlabs-roundpix.json`，完整 OFL-1.1、作者署名与保留名称见
+`fonts/ZLABS-ROUNDPIX-OFL.txt`。字体嵌入游戏，Windows 包外另附许可；不需要系统安装。
+界面可在 Esc 菜单切回 Fusion Pixel；账目提供 16px 与 20px 两档，默认 20px。
+
+## 街道、集市与演出 SVG（2026-10-26）
+
+`ui-v2/` 中的道路、集市、信封、鸟群扑翼和战争箭头由本项目补绘，保留 SVG 原文件，使用仓库 MPL-2.0。
+原始尺寸、锚点及用途见该目录 README；Godot 直接导入，Windows 美术预览目录也附 SVG 母版。

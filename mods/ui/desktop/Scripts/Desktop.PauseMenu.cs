@@ -31,6 +31,7 @@ public partial class Desktop
             HorizontalAlignment=HorizontalAlignment.Center };box.AddChild(_pauseInfo);
         _menuContinue=Button(box,"继续观看 · Esc",ClosePauseMenu);
         _menuSave=Button(box,"保存",()=>{Send("save");_pauseInfo.Text="保存请求已提交；未完成的回合会在继续观看后保存。";});
+        BuildDisplayControls(box);
         _menuQuit=Button(box,"保存并退出游戏",QuitGame);
     }
 

@@ -61,12 +61,12 @@ public static class UnifiedArt
         _source??=Atlas.GetImage();using var image=_source.GetRegion(e.Rect);
         bool civilian=role is "resident" or "worker";
         Color[] source=civilian?new Color[]{new("3e5c60"),new("63868a"),new("8da6a1")}:
-            new Color[]{new("824d43"),new("b46e53"),new("d19064")};
+            new Color[]{new("334d55"),new("4b6971"),new("66848b"),new("824d43"),new("b46e53"),new("d19064")};
         Color[] target={color.Darkened(.28f),color,color.Lightened(.23f)};
         for(int y=0;y<image.GetHeight();y++)for(int x=0;x<image.GetWidth();x++)
         {
             var p=image.GetPixel(x,y);if(p.A<.5f)continue;
-            for(int i=0;i<source.Length;i++)if(p.IsEqualApprox(source[i])){image.SetPixel(x,y,target[i]);break;}
+            for(int i=0;i<source.Length;i++)if(p.IsEqualApprox(source[i])){image.SetPixel(x,y,target[i%3]);break;}
         }
         return Actors[key]=ImageTexture.CreateFromImage(image);
     }

@@ -128,6 +128,10 @@ public partial class WorldMap : Control
     }
     public Color NationColor(string owner) => _colors.GetValueOrDefault(owner, new Color("8e9985"));
     public string NationName(string actor) => _namesByActor.GetValueOrDefault(actor, actor);
+    public void SetDisplayFont(Font font)
+    {
+        _font=font;_artwork.SetLabelFont(font);QueueRedraw();
+    }
 
     // Live activity chip floating above the acting nation's territory.
     public void ShowActivity(string actor, string text)
@@ -182,9 +186,14 @@ public partial class WorldMap : Control
         else if(_jitter!=Vector2.Zero){_jitter=Vector2.Zero;UpdateView();}
         if(_cameraAnchor is Vector2 anchor)
         {
+            float previousScale=_scale;
             _scale+=(_cameraScale-_scale)*(1-MathF.Exp(-(float)delta*4));
-            var target=Size*.5f-anchor*_scale;
-            _offset=_offset.Lerp(target,1-MathF.Exp(-(float)delta*5));
+            var focus=_beat?["ledger"]!=null?new Vector2(Math.Max(340,Size.X*.5f-160),Size.Y*.53f):Size*.5f;
+            if(_beat?["letter"]!=null)focus.X+=120;
+            var center=(focus-_offset)/Math.Max(.01f,previousScale);
+            center=center.Lerp(anchor,1-MathF.Exp(-(float)delta*5));
+            var target=focus-anchor*_scale;
+            _offset=focus-center*_scale;
             if(_offset.DistanceTo(target)<.5f&&MathF.Abs(_scale-_cameraScale)<.005f)
             {_offset=target;_scale=_cameraScale;_cameraAnchor=null;}
             UpdateView();

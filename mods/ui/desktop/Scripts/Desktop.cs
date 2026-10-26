@@ -90,7 +90,7 @@ public partial class Desktop : Control
             }
         }
         _map=new WorldMap();_map.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);AddChild(_map);
-        _map.SelectionChanged=tile=>{ShowTile(tile);if(tile!=null)OpenDrawer(_details);};
+        _map.SelectionChanged=tile=>{ShowTile(tile);if(tile!=null){if(S(tile["owner"])!="")RefreshNationLedger(S(tile["owner"]));OpenDrawer(_details);}};
         _bubbles=new SpeechBubbles();_bubbles.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);_bubbles.ZIndex=8;AddChild(_bubbles);
 
         _countries=Drawer("列国",MapDrawer.Side.Left);
@@ -127,6 +127,7 @@ public partial class Desktop : Control
         _save=Button(top,"菜单 · Esc",OpenPauseMenu);
         _save.TooltipText="自动暂停演出，打开继续、保存与退出菜单";
         BuildPauseMenu();
+        BuildNationLedger();
         var dock=new HBoxContainer { MouseFilter=MouseFilterEnum.Ignore,ZIndex=5 };
         dock.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomLeft);dock.OffsetLeft=16;dock.OffsetTop=-58;dock.OffsetBottom=-14;
         dock.AddThemeConstantOverride("separation",8);AddChild(dock);
@@ -143,6 +144,9 @@ public partial class Desktop : Control
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--menu-output")menuTest=args[i+1];
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--ui-review-output"){_=ReviewDialogue(args[i+1]);return;}
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--actor-review-output"){_=ReviewActors(args[i+1]);return;}
+        for(int i=0;i<args.Length-1;i++)if(args[i]=="--font-review-output"){_=ReviewFonts(args[i+1]);return;}
+        for(int i=0;i<args.Length-1;i++)if(args[i]=="--ledger-review-output"){_=ReviewLedger(args[i+1]);return;}
+        for(int i=0;i<args.Length-1;i++)if(args[i]=="--effects-review-output"){_=ReviewEffects(args[i+1]);return;}
         if(_smoke==null)
         {
             // Start screen: new game / load save / settings; smoke runs skip it.
@@ -182,8 +186,13 @@ public partial class Desktop : Control
             if(config==null||written==null)throw new Exception("菜单配置生成失败："+error);
             var json=JsonNode.Parse(await File.ReadAllTextAsync(written));
             if(json?["nations"]?.AsArray().Count!=8||json?["seed"]?.GetValue<int>()!=20261024
-                ||json?["map_size"]?.GetValue<int>()!=24||json?["max_turns"]?.GetValue<int>()!=300)
+                ||json?["map_size"]?.GetValue<int>()!=24||json?["max_turns"]?.GetValue<int>()!=300||S(json?["scenario"])!="eight_nations")
                 throw new Exception("菜单配置内容与表单不符");
+            _menu.SelectScenario(1);
+            var free=_menu.BuildConfig(out error,out written);
+            if(free?["scenario"]!=null||free?["nations"]?.AsArray().Count!=2||free["nations"]!.AsArray().Any(n=>n!["position"]!=null))
+                throw new Exception("自由开局沿用了八国剧本或固定落位");
+            await Screenshot(stem+"-freegame.png");_menu.SelectScenario(0);
             _menu.ReviewLlmCard();
             await ToSignal(GetTree().CreateTimer(.3),SceneTreeTimer.SignalName.Timeout);
             _menu.ValidateVisibleLayout();
@@ -217,11 +226,7 @@ public partial class Desktop : Control
         _details.SetBounds(new Rect2(Size.X-right-14,70,right,height));
         _shop.SetBounds(new Rect2(Size.X-right-14,70,right,height));
         _chronicle.SetBounds(new Rect2(14,Size.Y-bottom-76,Size.X-28,bottom));
-        if(_banner!=null)
-        {
-            float bannerW=Math.Min(700,Size.X-48);
-            _banner.OffsetLeft=-bannerW/2;_banner.OffsetRight=bannerW/2;
-        }
+        LayoutLedger();
     }
     private void CloseDrawers(bool animate=true) { foreach(var drawer in Drawers)drawer.SetOpen(false,animate); }
     private void OpenDrawer(MapDrawer drawer,bool animate=true)
@@ -340,6 +345,7 @@ public partial class Desktop : Control
         if(type=="stream")
         {
             _liveActor=S(row["actor"]);RefreshSpeedDisplay();
+            if(_ledgerActor!=_liveActor)RefreshNationLedger(_liveActor);
             UpdateStreamSpeaker(S(row["actor"]));
             _bubbles.HandleStream(row);
             return;
@@ -349,6 +355,7 @@ public partial class Desktop : Control
             _activitySeen++;
             string actor=S(row["actor"]),text=S(row["text"]);
             _liveActor=actor;RefreshSpeedDisplay();
+            if(_ledgerActor!=actor)RefreshNationLedger(actor);
             _map.ShowActivity(actor,text);
             if(!HasTimeline)
             {
@@ -407,13 +414,14 @@ public partial class Desktop : Control
         foreach(var n in frame["nations"]!.AsArray())
         {
             string id=S(n!["id"]);
-            var button=Button(_nations,$"{n["name"]}    {n["land"]} 地",()=>{_selectedNation=id;_map.FocusNation(id);ShowTile(null);OpenDrawer(_details);});
+            var button=Button(_nations,$"{n["name"]}    {n["land"]} 地",()=>{_selectedNation=id;_map.FocusNation(id);RefreshNationLedger(id);ShowTile(null);OpenDrawer(_details);});
             button.Modulate=_map.NationColor(id);
         }
         _market.Text=string.Join("\n\n",frame["market"]!.AsArray().Select(p=>$"{p!["name"]}   参考价 {Zhanguo.Desktop.Layout.DesktopScene.PriceText(F(p["price"]))}\n库存 {p["inventory"]?.ToString()??"—"}  买 {Zhanguo.Desktop.Layout.DesktopScene.PriceText(p["buy"]==null?null:F(p["buy"]))} / 卖 {Zhanguo.Desktop.Layout.DesktopScene.PriceText(p["sell"]==null?null:F(p["sell"]))}"))+
             $"\n\n储蓄利率 {F(frame["bank"]!["rate"]):P1} · 贷款 {F(frame["bank"]!["loan_rate"]):P1}";
         _events.Text=string.Join("\n",frame["events"]!.AsArray().Select(e=>S(e!["text"])));
         ShowTile(_selectedNation!=""?null:_map.SelectedTile);
+        RefreshNationLedger();
         _models.Clear();
         _clientKinds.Clear();
         if(frame["clients"] is JsonArray clients)
@@ -446,11 +454,11 @@ public partial class Desktop : Control
             _detail.Text=$"{tile["name"]}  ({p[0]}, {p[1]})\n{tile["terrain_name"]} · {(_map.Frame["names"]![owner]?.ToString()??"无主之地")}\n\n建筑\n"+
                 (tile["building_labels"]!.AsArray().Count==0?"尚无建筑":string.Join("\n",tile["building_labels"]!.AsArray().Select(S)))+
                 "\n\n军队\n"+(potential?"野人守军 · 1支 · 未遭遇\n":"")+(units.Length==0?(potential?"":"无驻军"):string.Join("\n",units.Select(a=>$"{a!["label"]??a["kind"]} #{a["id"]}  HP {a["hp"]}")))+
-                "\n\n建筑清单为实际设施，住宅与摊位为聚落装饰。";
+                "\n\n生产设施按实际清单显示；市政厅旁集市用于展示买卖。";
             return;
         }
         var nation=_map.Frame["nations"]!.AsArray().FirstOrDefault(n=>S(n!["id"])==_selectedNation);
-        if(nation==null){_detail.Text="俯瞰山河，静观列国兴衰。\n\n点击地块查看地形、建筑和驻军。\n点击左侧国名查看国力。\n\n国界颜色表示当前归属；\n士兵脚下标注真实兵种数量，上方为HP和地块减伤。\n无主守军按规则在遭遇时物化。\n\n本版采用 Mini World 像素素材。";return;}
+        if(nation==null){_detail.Text="俯瞰山河，静观列国兴衰。\n\n点击地块查看地形、建筑和驻军。\n点击左侧国名查看国力。\n\n国界颜色表示当前归属；\n士兵脚下标注真实兵种数量，上方为HP和地块减伤。\n无主守军按规则在遭遇时物化。\n\n市政厅旁的集市展示交易，生产设施以清单为准。";return;}
         var client=_map.Frame["clients"]?.AsArray().FirstOrDefault(c=>S(c!["actor"])==_selectedNation);
         _detail.Text=$"{nation["name"]}国 · 第 {_period+1} 回合\n{client?["version"]} · {client?["strategy"]}\n国土 {nation["land"]} 格\n上期结算资产 {F(nation["assets"]):0.0}\n\n"+
             string.Join("\n",nation["stocks"]!.AsArray().Select(s=>$"{s!["name"]}    {s["amount"]}"))+"\n\n军队\n"+
@@ -525,8 +533,12 @@ public partial class Desktop : Control
             if(_activitySeen==0)throw new Exception("宿主活动消息（思考/处理政务等）未到达");
             int expected=_map.Frame["tiles"]!.AsArray().Sum(t=>t!["buildings"]!.AsArray().Count);
             if(_map.StructureCount!=expected || _map.TerrainBuilds!=1)throw new Exception("实时设施投影或地表缓存异常");
-            if((_normalOpening&&_initialArmies!=0)||_map.Residents==0||_map.Guards==0||_playedPhases.GetValueOrDefault("actor")<8||_playedPhases.GetValueOrDefault("build")==0||_playedPhases.GetValueOrDefault("production")==0||_map.RegionNodes!=_map.TileCount)
+            if((_normalOpening&&_initialArmies!=0)||_map.Residents==0||_map.Guards==0||_playedPhases.GetValueOrDefault("actor")<8||_playedPhases.GetValueOrDefault("build")==0||_nationalSettlements<8||_map.RegionNodes!=_map.TileCount)
                 throw new Exception("正常开局、居民野人、逐国动作或地区绘制缓存验收失败");
+            ValidateLedgerLayout();
+            VerifyUnifiedArt();
+            if(_playedPhases.GetValueOrDefault("production")!=_settlementBatches*8)
+                throw new Exception("正常八国的生产阶段没有按国汇总");
             if(_normalOpening&&_bubbles.SegmentsShown<_playedPhases.GetValueOrDefault("actor"))
                 throw new Exception("模型气泡未跟随逐国演出");
             if(!_bubbles.EverShown)
@@ -539,6 +551,9 @@ public partial class Desktop : Control
                 activity_events=_activitySeen,
                 action_batches=_actionBatches,settlement_batches=_settlementBatches,pause_menu_checked=_pauseMenuChecked,
                 action_marches=_actionMarches,settlement_marches=_settlementMarches,
+                national_settlements=_nationalSettlements,ledger_actor=_ledgerActor,ledger_switches=_ledgerSwitches,
+                markets=_map.MarketCount,road_tiles=_map.RoadTiles,national_cloth_checked=true,
+                ledger_within_viewport=true,ledger_rows=_ledgerStocks.GetChildCount()/3,
                 played_phases=_playedPhases,actor_banners=_actorBanners,political_alpha_near=_map.PoliticalOpacity,
                 map_fills_window=true,map_width=_map.Size.X,map_height=_map.Size.Y,viewport_width=Size.X,viewport_height=Size.Y,
                 drawers_start_closed=true,drawer_pointer_checked=true,drawers_preserve_map_rect=true,drawers_within_viewport=true,drawer_close_checked=true,selection_checked=true,

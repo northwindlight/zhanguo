@@ -1,0 +1,11 @@
+{
+  "font": "ZLabsRoundPix_16px_M_CN.ttf",
+  "family": "Z Labs RoundPix 16px",
+  "variant": "CN, pixel grid 16, square dots",
+  "source": "https://github.com/Astro-2539/ZLabs-RoundPix-16px",
+  "release": "Build_20260501",
+  "url": "https://github.com/Astro-2539/ZLabs-RoundPix-16px/releases/download/Build_20260501/ZLabsRoundPix_16px_M_CN.ttf",
+  "sha256": "55420aa3f8fc78b933c64af9071feb47e8b1442e9fb65e3da3e4dc5a743b205f",
+  "license": "ZLABS-ROUNDPIX-OFL.txt",
+  "modified": false
+}

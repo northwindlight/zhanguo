@@ -37,6 +37,8 @@ class TestDesktop(unittest.TestCase):
             self.assertEqual(nation['land'], 5)
             self.assertEqual(sum(nation['units'].values()), 0)
             self.assertTrue(all('native:' not in s['name'] for s in nation['stocks']))
+            self.assertEqual(nation['resource_flow']['period'],-1)
+            self.assertEqual(nation['resource_flow']['net'],[])
         json.dumps(frame, allow_nan=False)
         frame['tiles'].clear()
         self.assertEqual(before, h.to_save())

@@ -20,6 +20,11 @@ public partial class RegionArtwork : Node2D
         set { _showCliffs = value; _waterMaterial?.SetShaderParameter("show_cliffs",value); _groundLayer?.QueueRedraw(); }
     }
     public Font? LabelFont;
+    public void SetLabelFont(Font font)
+    {
+        LabelFont=font;QueueRedraw();
+        foreach(var node in _regionNodes.Values){node.LabelFont=font;node.QueueRedraw();}
+    }
     public int DrawPasses { get; private set; }
     public int TerrainBuilds { get; private set; }
     public int TextureCount => 1; // shared original atlas; no per-tree textures
@@ -105,6 +110,7 @@ void fragment() {
     private sealed record Surface(ImageTexture Ground, Texture2D Water, IReadOnlyList<CliffSegment> Cliffs,int Mountains,int Waters,int Faces);
     private readonly Dictionary<string, Surface> _surfaces = new();
     private int _detailLevel=2;
+    private IReadOnlyList<Point>? _roads;
     public void SetDetailLevel(int level)
     {
         if(_detailLevel==level)return;
@@ -127,7 +133,9 @@ void fragment() {
                     _regionNodes[key]=node;AddChild(node);
                 }
                 node.Layout=layout;
-                if(!ReferenceEquals(node._onlyRegion,r)){node._onlyRegion=r;node.QueueRedraw();}
+                var roads=layout.Roads.For(r);
+                if(!ReferenceEquals(node._onlyRegion,r)||!ReferenceEquals(node._roads,roads))
+                {node._onlyRegion=r;node._roads=roads;node.QueueRedraw();}
                 node.Visible=_worldView==null||_worldView.Value.Intersects(new Rect2(key.Item1*256,key.Item2*256,256,256));
             }
         if (_surfaces.TryGetValue(layout.GeometryKey, out var cached))
@@ -231,24 +239,9 @@ void fragment() {
         foreach (var r in only==null?Layout!.Regions:new[]{only})
         {
             var origin = new Vector2(r.Input.X * 256, r.Input.Y * 256);
+            DrawRoads(layer,r,origin);
             DrawTownGround(layer,r,origin);
             DrawOilPatches(layer,r,origin);
-            // Local footpaths join already accepted flat facility anchors.
-            // They have no inter-region or rule movement meaning.
-            for (int i = 1; i < r.Structures.Count; i++)
-            {
-                var a = r.Structures[i - 1].Bounds;
-                var b = r.Structures[i].Bounds;
-                var start = new Vector2(a.X + a.Width / 2, a.Y + a.Height);
-                var end = new Vector2(b.X + b.Width / 2, b.Y + b.Height);
-                // Clip paths against the same flat mask; never cut a road over a ridge.
-                int steps = Math.Max(1, (int)start.DistanceTo(end));
-                for (int s = 0; s <= steps; s++)
-                {
-                    var p = origin + start.Lerp(end, s / (float)steps);
-                    if (Layout.Elevation(p.X, p.Y) < .18f) layer.DrawRect(new Rect2(p.Floor(), new Vector2(3, 2)), new Color("b0a575"));
-                }
-            }
             foreach(var rock in r.Rocks.Where((_,i)=>!Layout.Input.LiveWorld||_detailLevel>0||i%3==0))
                 UnifiedArt.Draw(layer,"boulder-"+(Layout.Hash((int)rock.X,(int)rock.Y,71)%2),DepositFoot(origin,rock));
             // Mountain mass is formed from connected 16px terrain cells.
@@ -263,7 +256,7 @@ void fragment() {
                 objects.Add((origin.Y + b.Bounds.Y + b.Bounds.Height, () =>
                 {
                     DrawStructure(layer,b,origin);
-                    if(b.Count>1 && LabelFont!=null)layer.DrawString(LabelFont,origin+new Vector2(b.Bounds.X,b.Bounds.Y-3),$"×{b.Count}",fontSize:10,modulate:new Color("f4e3ac"));
+                    if(b.Count>1 && LabelFont!=null)layer.DrawString(LabelFont,origin+new Vector2(b.Bounds.X,b.Bounds.Y-3),$"×{b.Count}",fontSize:16,modulate:new Color("f4e3ac"));
                 }));
             }
             if(_detailLevel>0||!Layout.Input.LiveWorld)

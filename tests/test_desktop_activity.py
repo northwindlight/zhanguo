@@ -78,7 +78,15 @@ class TestDesktopActivity(unittest.TestCase):
         for a in h.actors():h.subsidize(a,{},cavalry=2)
         c=TimelineCapture(h);initial=deepcopy(c.previous);h.cycle(on_result=c.capture);beats=c.finish()
         self.assertIsNone(c.warning);phases=Counter(b['phase'] for b in beats)
-        self.assertGreater(phases['march'],0);self.assertGreater(phases['battle'],0);self.assertGreater(phases['maintenance'],0)
+        self.assertGreater(phases['march'],0);self.assertGreater(phases['battle'],0);self.assertEqual(phases['production'],8)
+        last_production=max(i for i,b in enumerate(beats) if b['phase']=='production')
+        first_supply=min(i for i,b in enumerate(beats) if b['phase']=='maintenance')
+        last_supply=max(i for i,b in enumerate(beats) if b['phase']=='maintenance')
+        self.assertLess(last_production,first_supply)
+        self.assertLess(last_supply,min(i for i,b in enumerate(beats) if b['phase']=='battle'))
+        for phase in ('production','maintenance'):
+            countries=[b['actor'] for b in beats if b['phase']==phase]
+            self.assertEqual(len(countries),len(set(countries)))
         self.assertEqual(phases['battle'],phases['casualties'])
         last_march=max(i for i,b in enumerate(beats) if b['phase']=='march')
         first_battle=min(i for i,b in enumerate(beats) if b['phase']=='battle')
@@ -101,29 +109,79 @@ class TestDesktopActivity(unittest.TestCase):
                     self.assertTrue(h.world.military._step(tuple(p),tuple(q)))
         self.assertFalse(difference(replay(initial,beats),c.scene()))
 
-    def test_production_pops_equal_actual_facility_outputs(self):
+    def test_national_production_ledgers_equal_actual_facility_inputs_and_outputs(self):
         h=build(seed=20261023);h.cycle()
         c=TimelineCapture(h);h.cycle(on_result=c.capture);beats=c.finish()
-        pops=[p for b in beats if b['phase']=='production' for p in b['pops'] if p['amount']>0]
-        expected=Counter()
+        expected_in=Counter();expected_out=Counter()
         for valued in h.world.economy.facts(1):
             f=valued.fact
             if f.category=='production':
-                for resource,amount in f.outputs:expected[(int(f.id.rsplit('/',1)[-1]),resource)]+=amount
-        actual=Counter()
-        for p in pops:actual[(p['building'],p['resource'])]+=p['amount']
-        self.assertTrue(actual);self.assertEqual(actual,expected)
+                for resource,amount in f.outputs:expected_in[(f.owner,resource)]+=amount
+                for resource,amount in f.inputs:expected_out[(f.owner,resource)]+=amount
+        actual_in=Counter();actual_out=Counter()
+        ledgers=[b for b in beats if b['phase']=='production']
+        self.assertEqual(len(ledgers),8);self.assertEqual(len({b['actor'] for b in ledgers}),8)
+        self.assertFalse(any(b.get('pops') for b in beats))
+        self.assertTrue(all('ledger' in b for b in beats if b['phase'] in ('production','maintenance')))
+        for b in ledgers:
+            for r,amount in b['ledger']['production_in']:actual_in[(b['actor'],r)]+=amount
+            for r,amount in b['ledger']['production_out']:actual_out[(b['actor'],r)]+=amount
+            self.assertEqual(b['playback_scope'],'settlement')
+            hall=next(v for v in c.previous['buildings'] if v['id']==b['anchor_building'])
+            self.assertEqual(b['position'],[hall['x'],hall['y']]);self.assertEqual(hall['owner'],b['actor'])
+        self.assertTrue(actual_in);self.assertEqual(actual_in,expected_in);self.assertEqual(actual_out,expected_out)
 
-    def test_healing_and_resource_pops_use_real_maintenance_costs(self):
+    def test_healing_and_resource_ledgers_use_real_maintenance_costs(self):
         h=build(seed=73);actor=h.actors()[0];tile=h.world.territory.owned(actor)[0]
         unit=h.world.military.seed(actor,'native:infantry',*tile.tile.position)[0]
         h.world.units.by_id(unit.id,actor).update(hp=40)
         c=TimelineCapture(h);h.world.resolve_turn();beats=c.finish()
         self.assertIsNone(c.warning)
-        maintenance=[b for b in beats if b['phase']=='maintenance'];self.assertEqual(len(maintenance),1)
-        pops={p['resource']:p['amount'] for p in maintenance[0]['pops']}
-        self.assertEqual(pops['hp'],30);self.assertEqual(pops['native:equipment'],-1)
-        self.assertLess(pops['native:supply'],0);self.assertEqual(h.world.units.by_id(unit.id,actor).hp,70)
+        ledger=next(b['ledger'] for b in beats if b['phase']=='maintenance' and b['actor']==actor)
+        costs=dict(ledger['military_out'])
+        self.assertEqual(ledger['healed_hp'],30);self.assertEqual(costs['native:equipment'],1)
+        self.assertGreater(costs['native:supply'],0);self.assertEqual(h.world.units.by_id(unit.id,actor).hp,70)
+
+    def test_distant_garrisons_share_one_summary_and_starvation_is_actual(self):
+        h=build(seed=73);actor=h.actors()[0];land=h.world.territory.owned(actor)
+        for tile in land[:3]:h.world.military.seed(actor,'native:infantry',*tile.tile.position)
+        supply=next(s.amount for s in h.world.resources.snapshot(actor) if s.id=='native:supply')
+        h.world.resources.exchange(actor,{'native:supply':supply},{})
+        c=TimelineCapture(h);initial=deepcopy(c.previous);h.world.resolve_turn();beats=c.finish()
+        self.assertIsNone(c.warning)
+        summaries=[b for b in beats if b['phase']=='maintenance' and b['actor']==actor]
+        self.assertEqual(len(summaries),1)
+        ledger=summaries[0]['ledger'];self.assertEqual(ledger['units'],3)
+        self.assertGreater(ledger['supply_need'],ledger['supply_used']);self.assertEqual(ledger['healed_hp'],0)
+        before=sum(u['hp'] for u in initial['armies'] if u['owner']==actor)
+        after=sum(u['hp'] for u in c.scene()['armies'] if u['owner']==actor)
+        self.assertEqual(ledger['starvation_hp'],before-after)
+        self.assertFalse(difference(replay(initial,beats),c.scene()))
+
+    def test_single_nation_balances_replay_actual_flows_and_keep_banking_at_boundary(self):
+        h=build(seed=20261023);h.cycle()
+        c=TimelineCapture(h);initial=deepcopy(c.previous);h.world.resolve_turn();beats=c.finish()
+        self.assertIsNone(c.warning)
+        cli=h.observer_snapshot()['resource_flows'];before={a['id']:a for a in initial['accounts']}
+        accumulated={}
+        for index,beat in enumerate(beats):
+            if 'ledger' not in beat:continue
+            owner=beat['actor'];ledger=beat['ledger'];self.assertEqual(ledger['period'],cli['period'])
+            changes=accumulated.setdefault(owner,Counter());changes.update(dict(ledger['net']))
+            shown=replay(initial,beats[:index+1]);account=next(a for a in shown['accounts'] if a['id']==owner)
+            prior={s['id']:s['amount'] for s in before[owner]['stocks']}
+            for stock in account['stocks']:self.assertEqual(stock['amount'],prior[stock['id']]+changes.get(stock['id'],0))
+            shown_flow=next(row for row in shown['resource_flows'] if row['id']==owner)
+            self.assertEqual(shown_flow['period'],cli['period']-1)
+        for owner,changes in accumulated.items():self.assertEqual({r:a for r,a in changes.items() if a},cli['owners'].get(owner,{}))
+        self.assertFalse(difference(replay(initial,beats),c.scene()))
+
+    def test_national_camera_falls_back_when_no_completed_townhall(self):
+        h=build(seed=73);c=TimelineCapture(h);actor=h.actors()[0]
+        for building in c.previous['buildings']:
+            if building['owner']==actor:building['remaining']=1
+        position=c.home(actor)
+        self.assertIn(position,[[r['x'],r['y']] for r in c.previous['ownership'] if r['owner']==actor])
 
 
 if __name__=='__main__':unittest.main()

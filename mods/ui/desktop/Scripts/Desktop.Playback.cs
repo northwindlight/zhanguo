@@ -87,6 +87,7 @@ public partial class Desktop
         if (_beats.Count == 0){FinishPlayback();return;}
         _playingBeat=_beats.Dequeue();_beatElapsed=0;_beatNumber++;
         _map.BeginBeat(_playingBeat,_autoFollow);
+        ShowNationalSettlement(_playingBeat);
         string phase=S(_playingBeat["phase"]);
         if(phase=="march")
         {
@@ -137,8 +138,8 @@ public partial class Desktop
         _bubbles.SetSpeed(EffectivePlaybackSpeed);
         double duration=F(_playingBeat["duration"]);
         string phase=S(_playingBeat["phase"]);
-        string shot=phase=="maintenance"&&_playingBeat["pops"]?.AsArray().Any(p=>S(p!["resource"])=="hp")==true?"healing":phase;
-        if(_smoke!=null&&_beatElapsed>=duration*.3&&new[]{"actor","build","recruit","march","engage","production","maintenance","healing","battle","casualties","occupation","complete"}.Contains(shot)&&_phaseShots.Add(shot))
+        string shot=phase=="maintenance"&&F(_playingBeat["ledger"]?["healed_hp"])>0?"healing":phase;
+        if(_smoke!=null&&_beatElapsed>=duration*.3&&new[]{"actor","trade","build","recruit","march","engage","production","maintenance","healing","battle","casualties","occupation","complete","letter"}.Contains(shot)&&_phaseShots.Add(shot))
         {
             _beatElapsed=duration*.45;_map.BeatProgress(.45f);_phaseCaptureBusy=true;_=CapturePhase(shot);return;
         }
@@ -170,6 +171,7 @@ public partial class Desktop
     {
         if(_closing)return;
         _playingBeat=null;_map.EndBeat();
+        _settlementCard.Visible=false;
         if(_pendingFrame==null){_awaitingFrame=true;return;}
         ApplyFrame(_pendingFrame);_pendingFrame=null;_awaitingFrame=false;
         if(_timelineStage=="action")

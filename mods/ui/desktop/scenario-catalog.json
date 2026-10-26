@@ -1,0 +1,95 @@
+{
+  "format": "zhanguo.gui-scenarios/1",
+  "scenarios": [
+    {
+      "id": "eight_nations",
+      "name": "战国七雄与周王室",
+      "map_size": 24,
+      "fixed_roster": true,
+      "description": "24×24 固定八国格局；七雄开局各自保障周。兼并天下，或由周达成周天下尊王结局。",
+      "nations": [
+        {
+          "id": "scenario:qin",
+          "name": "秦",
+          "position": [
+            3,
+            11
+          ]
+        },
+        {
+          "id": "scenario:wei",
+          "name": "魏",
+          "position": [
+            8,
+            9
+          ]
+        },
+        {
+          "id": "scenario:han",
+          "name": "韩",
+          "position": [
+            12,
+            13
+          ]
+        },
+        {
+          "id": "scenario:zhao",
+          "name": "赵",
+          "position": [
+            11,
+            4
+          ]
+        },
+        {
+          "id": "scenario:yan",
+          "name": "燕",
+          "position": [
+            17,
+            3
+          ]
+        },
+        {
+          "id": "scenario:qi",
+          "name": "齐",
+          "position": [
+            20,
+            9
+          ]
+        },
+        {
+          "id": "scenario:chu",
+          "name": "楚",
+          "position": [
+            11,
+            19
+          ]
+        },
+        {
+          "id": "scenario:zhou",
+          "name": "周",
+          "position": [
+            15,
+            10
+          ]
+        }
+      ]
+    },
+    {
+      "id": "",
+      "name": "自由列国（无专属剧本）",
+      "map_size": 24,
+      "fixed_roster": false,
+      "description": "自选 2–10 国和地图大小，随机落位；没有八国初始保障及周天下专属胜利规则。",
+      "nations": [
+        {
+          "id": "scenario:qin",
+          "name": "秦"
+        },
+        {
+          "id": "scenario:chu",
+          "name": "楚"
+        }
+      ]
+    }
+  ]
+}

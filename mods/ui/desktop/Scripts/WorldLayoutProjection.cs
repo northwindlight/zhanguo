@@ -26,7 +26,7 @@ public static class WorldLayoutProjection
                 Gold=(int)Math.Clamp(resources.GetValueOrDefault("native:gold")*50,0,100),
                 Ore=resources.GetValueOrDefault("native:ore")>0?(int)Math.Clamp(Math.Ceiling(resources["native:ore"]*50),1,100):0,
                 Oil=resources.GetValueOrDefault("native:oil")>0?(int)Math.Clamp(Math.Ceiling(resources["native:oil"]*50),1,100):0,
-                OwnerColor=colors.GetValueOrDefault(tile["owner"]?.ToString()??"","") };
+                OwnerColor=colors.GetValueOrDefault(tile["owner"]?.ToString()??"",""),Owner=tile["owner"]?.ToString()??"" };
             var counts=new Dictionary<string,int>();
             if(tile["building_instances"] is JsonArray instances)
             {

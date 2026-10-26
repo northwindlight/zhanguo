@@ -95,5 +95,8 @@ class TestLiveDialogue(unittest.TestCase):
         self.assertEqual(rows[-2]['frame']['clients'][0]['model'],'DeepSeek-Offline')
         self.assertEqual(host.clock(),1)
         beats=[b for r in rows if r['type']=='timeline' for b in r['beats']]
-        self.assertTrue(all(b['client_kind']=='llm' and b['playback_scope']=='actor' for b in beats if b['actor']))
-        self.assertTrue(all(b['playback_scope']=='settlement' for b in beats if not b['actor']))
+        self.assertTrue(all(b['client_kind']=='llm' and b['playback_scope']=='actor'
+                            for r in rows if r['type']=='timeline' and r['stage']=='action' for b in r['beats']))
+        self.assertTrue(all(b['playback_scope']=='settlement'
+                            for r in rows if r['type']=='timeline' and r['stage']=='settlement' for b in r['beats']))
+        self.assertTrue(any(b['actor']=='scenario:qin' and b['phase']=='production' and 'ledger' in b for b in beats))

@@ -25,10 +25,12 @@ def frame(ui, snapshot):
             'building_labels': [f'{label(kind, "building")} Lv.{level}' for kind, level in tile['buildings']]})
     armies = [{**unit, 'label': label(unit['kind'], 'unit')} for unit in facts['army']]
     nations = []
+    flows={row['id']:row for row in snapshot.get('scene',{}).get('resource_flows',[])}
     for observation in snapshot['nations']:
         actor = observation['actor']; data = observation['facts']; econ = data['econ']
         own = [u for u in armies if u['owner'] == actor and u['hp'] > 0]
         nations.append({'id': actor, 'name': names[actor], 'land': len(data['land']),
+            'resource_flow':deepcopy(flows.get(actor,{'id':actor,'period':-1,'net':[]})),
             'stocks': [{'id':s['id'],'name': label(s['id'], 'resource'), 'amount': s['amount']} for s in econ['stocks']],
             'units': dict(Counter(u['label'] for u in own)),
             'assets': econ['gross_assets']['total'],

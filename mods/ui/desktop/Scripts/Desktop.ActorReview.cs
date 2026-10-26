@@ -33,7 +33,7 @@ public partial class Desktop
             var campLabels=_map.LastSquadLabels.ToArray();
 
             var hall=_map.Frame!["scene"]!["buildings"]!.AsArray().First(b=>b!["kind"]!.ToString()=="native:town-hall"&&b["owner"]!.ToString()=="scenario:qin")!;
-            _bannerTitle.Text="市政厅与城镇聚落";_bannerText.Text="更大的市政厅、国旗、院落与住宅街区。住宅是场景装饰。";
+            _bannerTitle.Text="市政厅与集市";_bannerText.Text="保留市政厅和生产建筑，旁边只放一处集市，街道连接实际入口。";
             _map.BeginBeat(new JsonObject { ["phase"]="complete",["source"]="building/"+hall["id"],
                 ["position"]=new JsonArray(hall["x"]!.GetValue<int>(),hall["y"]!.GetValue<int>()),["duration"]=1,["delta"]=new JsonObject() },true);
             _map.BeatProgress(1);
@@ -104,25 +104,34 @@ public partial class Desktop
         if(Theme.DefaultFont is not FontFile font||font.Antialiasing!=TextServer.FontAntialiasing.None)
             throw new Exception("像素字体未实际加载");
         using var atlas=UnifiedArt.Atlas.GetImage();
-        var source=UnifiedArt.Get("actor-sword");
-        using var recolored=UnifiedArt.Actor("sword",new Color("5acdeb")).GetImage();
-        int cloth=0,skin=0;
+        foreach(string role in new[]{"resident","worker","sword","spear","axe","cavalry"})
+        foreach(string nationColor in new[]{"9eb5cf","e5a47c"})
+        {
+        var source=UnifiedArt.Get("actor-"+role);
+        using var recolored=UnifiedArt.Actor(role,new Color(nationColor)).GetImage();
+        bool civilian=role is "resident" or "worker";
+        var slots=(civilian?new[]{"3e5c60","63868a","8da6a1"}:new[]{"334d55","4b6971","66848b","824d43","b46e53","d19064"}).Select(s=>new Color(s)).ToArray();
+        var targets=new[]{new Color(nationColor).Darkened(.28f),new Color(nationColor),new Color(nationColor).Lightened(.23f)};
+        int cloth=0,body=0,skin=0;
         for(int y=0;y<recolored.GetHeight();y++)for(int x=0;x<recolored.GetWidth();x++)
         {
             var before=atlas.GetPixel(source.Rect.Position.X+x,source.Rect.Position.Y+y);
             var after=recolored.GetPixel(x,y);
-            if(before.IsEqualApprox(new Color("824d43")))
+            int index=Array.FindIndex(slots,s=>s.IsEqualApprox(before));
+            if(index>=0)
             {
-                cloth++;var expected=new Color("5acdeb").Darkened(.28f);
+                cloth++;if(index<3)body++;var expected=targets[index%3];
                 if(Math.Max(Math.Max(Math.Abs(after.R-expected.R),Math.Abs(after.G-expected.G)),Math.Abs(after.B-expected.B))>1.01f/255)
                     throw new Exception($"国色色槽错误：{after.ToHtml()} / {expected.ToHtml()}");
             }
-            else if(before.IsEqualApprox(new Color("d0a579")))
+            else if(before.A>.5f)
             {
-                skin++;if(!before.IsEqualApprox(after))throw new Exception("国色污染了人物肤色");
+                if(before.IsEqualApprox(new Color("d0a579")))skin++;
+                if(!before.IsEqualApprox(after))throw new Exception("国色污染了人物肤色、金属或马匹");
             }
         }
-        if(cloth==0||skin==0)throw new Exception("人物替色检查未覆盖实际衣服和皮肤");
-        GD.Print("UNIFIED_ART_OK: imported pixel font, source atlas, precise cloth palette and unchanged skin");
+        if(cloth==0||body==0||skin==0)throw new Exception("人物替色检查未覆盖实际衣服和皮肤："+role);
+        }
+        GD.Print("UNIFIED_ART_OK: six actual actor sheets, two national palettes, all body frames and unchanged materials");
     }
 }

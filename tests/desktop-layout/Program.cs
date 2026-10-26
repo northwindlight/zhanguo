@@ -21,6 +21,8 @@ static class Program
     {
         WorldChecks.Run();
         RuntimeChecks.Run();
+        LedgerChecks.Run();
+        RoadChecks.Run();
         SquadChecks.Run();
         string json = File.ReadAllText(args[0]);
         var layout = new RegionLayout(SampleInput.Parse(json));

@@ -138,9 +138,9 @@ public partial class WorldMap
         foreach(var label in _squadLabels.OrderBy(l=>l.At.Y))
         {
             var s=label.Status;bool detail=_scale>=.72f;
-            int font=detail?14:12;
+            const int font=16;
             string name=s.Name.Length>3?s.Name[..3]+"…":s.Name;
-            float width=Math.Clamp(_font.GetStringSize(name+s.Health,fontSize:font).X+42,detail?152:110,224),height=detail?57:35;
+            float width=Math.Clamp(_font.GetStringSize(name+s.Health,fontSize:font).X+42,152,240),height=detail?64:39;
             var center=label.At+new Vector2(label.Separate?label.Side*(width*.5f+30):0,-44);
             // Check collisions after viewport clamping as well: two cards near
             // the banner must not collapse onto the same upper screen edge.
@@ -159,19 +159,19 @@ public partial class WorldMap
                 var from=new Vector2(label.Side<0?box.End.X:box.Position.X,box.Position.Y+box.Size.Y*.6f);
                 DrawLine(from,label.At+new Vector2(0,-24),new Color(label.Color,.5f),1);
             }
-            var start=box.Position+new Vector2(8,17);
+            var start=box.Position+new Vector2(8,19);
             DrawString(_font,start,name,fontSize:font,modulate:label.Color.Lightened(.24f));
             float nameW=_font.GetStringSize(name,fontSize:font).X;
             ResourceIcon(start+new Vector2(nameW+11,-6),"hp",1);
             DrawString(_font,start+new Vector2(nameW+23,0),s.Health,fontSize:font,modulate:new Color("f3ead0"));
-            var bar=new Rect2(box.Position+new Vector2(8,23),new Vector2(width-16,5));
+            var bar=new Rect2(box.Position+new Vector2(8,26),new Vector2(width-16,5));
             DrawRect(bar,new Color("3f4540"));
             DrawRect(new Rect2(bar.Position,new Vector2(bar.Size.X*s.Fraction,bar.Size.Y)),s.Fraction<.3f?new Color("d68172"):s.Fraction<.65f?new Color("d1b671"):new Color("91bf87"));
             if(detail)
             {
-                var shield=box.Position+new Vector2(13,42);
+                var shield=box.Position+new Vector2(13,48);
                 DrawColoredPolygon(new[]{shield+new Vector2(-5,-5),shield+new Vector2(5,-5),shield+new Vector2(4,1),shield+new Vector2(0,5),shield+new Vector2(-4,1)},new Color("a2bac5"));
-                DrawString(_font,shield+new Vector2(12,4),$"{s.Defense}% 地块防御",fontSize:12,modulate:new Color("b8cad0"));
+                DrawString(_font,shield+new Vector2(12,4),$"{s.Defense}% 地块防御",fontSize:16,modulate:new Color("b8cad0"));
             }
             var strength=label.At+new Vector2(0,label.FigureBottom+15);
             var textSize=_font.GetStringSize(s.Strength,fontSize:font);

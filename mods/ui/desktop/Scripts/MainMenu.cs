@@ -59,6 +59,12 @@ public partial class MainMenu : Control
     private VBoxContainer _nationList = null!;
     private VBoxContainer _profileList = null!;
     private readonly string _settingsPath;
+    private readonly JsonArray _scenarioCatalog=JsonNode.Parse(Godot.FileAccess.GetFileAsString("res://scenario-catalog.json"))!["scenarios"]!.AsArray();
+    private OptionButton _scenarioPicker=null!;
+    private Label _scenarioInfo=null!;
+    private Button _addNationButton=null!;
+    private JsonObject SelectedScenario=>_scenarioCatalog[_scenarioPicker.Selected]!.AsObject();
+    private bool FixedScenario=>SelectedScenario["fixed_roster"]!.GetValue<bool>();
 
     public LineEdit SeedField => _seed;
 
@@ -144,6 +150,12 @@ public partial class MainMenu : Control
         panel.AddChild(scroll);
         var box = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         box.AddThemeConstantOverride("separation", 8); scroll.AddChild(box);
+        var scenarioRow=new HBoxContainer();scenarioRow.AddChild(FieldLabel("开局剧本"));
+        _scenarioPicker=new OptionButton { SizeFlagsHorizontal=SizeFlags.ExpandFill };
+        foreach(var scenario in _scenarioCatalog)_scenarioPicker.AddItem(scenario!["name"]!.ToString());
+        scenarioRow.AddChild(_scenarioPicker);box.AddChild(scenarioRow);
+        _scenarioInfo=new Label { AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("b7c5ad") };box.AddChild(_scenarioInfo);
+        _scenarioPicker.ItemSelected+=_=>ChangeScenario();
         var basics = new HFlowContainer(); basics.AddThemeConstantOverride("h_separation", 12); basics.AddThemeConstantOverride("v_separation", 8);
         HBoxContainer Setting(string name)
         {
@@ -164,6 +176,7 @@ public partial class MainMenu : Control
         header.AddChild(FieldLabel("参战国家（2–10，行序即行动顺序）"));
         header.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         var add = new Button { Text = "+ 添加国家", FocusMode = FocusModeEnum.None };
+        _addNationButton=add;
         add.Pressed += () => { if (_nations.Count < 10) AddNationRow(new NationDraft { Preset = FirstFreePreset(), Name = Presets[FirstFreePreset()].Name }); };
         header.AddChild(add); box.AddChild(header);
 
@@ -194,7 +207,25 @@ public partial class MainMenu : Control
     }
     private void DefaultEightNations()
     {
-        for (int i = 0; i < 8; i++) AddNationRow(new NationDraft { Preset = i, Name = Presets[i].Name });
+        ChangeScenario();
+    }
+    public void SelectScenario(int index)
+    {
+        _scenarioPicker.Selected=index;ChangeScenario();
+    }
+    private void ChangeScenario()
+    {
+        foreach(Node child in _nationList.GetChildren()){_nationList.RemoveChild(child);child.QueueFree();}
+        _nations.Clear();_rows.Clear();_profilePickers.Clear();
+        _scenarioInfo.Text=SelectedScenario["description"]!.ToString();
+        _mapSize.Value=SelectedScenario["map_size"]!.GetValue<int>();_mapSize.Editable=!FixedScenario;
+        _addNationButton.Disabled=FixedScenario;
+        foreach(var nation in SelectedScenario["nations"]!.AsArray())
+        {
+            int preset=Array.FindIndex(Presets,p=>p.Id==nation!["id"]!.ToString());
+            if(preset<0)throw new InvalidDataException("剧本国家缺少玩家预设");
+            AddNationRow(new NationDraft { Preset=preset,Name=nation!["name"]!.ToString() });
+        }
     }
     private void AddNationRow(NationDraft draft)
     {
@@ -206,6 +237,7 @@ public partial class MainMenu : Control
         var row = new HBoxContainer(); stack.AddChild(row);
         row.AddThemeConstantOverride("separation", 8);
         var preset = new OptionButton { FocusMode = FocusModeEnum.None };
+        preset.Disabled=FixedScenario;
         foreach (var p in Presets) preset.AddItem(p.Name);
         preset.Selected = draft.Preset;
         row.AddChild(preset);
@@ -233,6 +265,7 @@ public partial class MainMenu : Control
         extra.TextChanged += value => draft.ExtraJson = value;
         stack.AddChild(extra);
         var remove = new Button { Text = "−", FocusMode = FocusModeEnum.None };
+        remove.Disabled=FixedScenario;
         remove.Pressed += () => { if (_nations.Count > 2) { _nations.Remove(draft); _rows.RemoveAll(r => r.Draft == draft); _profilePickers.RemoveAll(p=>p.Draft==draft);card.QueueFree(); } };
         row.AddChild(remove);
         _nationList.AddChild(card);
@@ -292,11 +325,14 @@ public partial class MainMenu : Control
             ["map_size"] = (int)_mapSize.Value, ["seed"] = seed, ["max_turns"] = (int)_maxTurns.Value,
             ["ctx_window"] = (int)_ctxWindow.Value,
         };
+        if(SelectedScenario["id"]!.ToString()!="")config["scenario"]=SelectedScenario["id"]!.ToString();
         var nations = new JsonArray();
         foreach (var draft in _nations)
         {
             var preset = Presets[draft.Preset];
             var nation = new JsonObject { ["id"] = preset.Id, ["name"] = draft.Name, ["client"] = Clients[draft.Client] switch { "规则AI" => "rule", "简易策略" => "sim", _ => "llm" } };
+            var placement=SelectedScenario["nations"]!.AsArray().FirstOrDefault(n=>n!["id"]!.ToString()==preset.Id)?["position"];
+            if(placement!=null)nation["position"]=placement.DeepClone();
             ParseObject(preset.Extra, "剧本预设", ref error, nation);
             if (draft.Client == 0)
             {
@@ -321,6 +357,7 @@ public partial class MainMenu : Control
         }
         config["nations"] = nations;
         ParseObject(_globalExtra.Text, "全局附加", ref error, config);
+        if((config["scenario"]?.ToString()??"")!=SelectedScenario["id"]!.ToString())error="全局附加 JSON 的 scenario 与所选剧本不一致";
         if (error != "") return null;
         Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
         path = Path.Combine(Path.GetDirectoryName(_settingsPath)!, $"menu-config-{DateTime.Now:yyyyMMdd-HHmmss}.json");
@@ -366,7 +403,9 @@ public partial class MainMenu : Control
             string caption = $"{Path.GetFileName(entry.dir)}";
             try
             {
-                if (JsonNode.Parse(File.ReadAllText(entry.config))?["nations"] is JsonArray rows)
+                var saved=JsonNode.Parse(File.ReadAllText(entry.config));
+                caption+=" · "+(_scenarioCatalog.FirstOrDefault(s=>s!["id"]!.ToString()==(saved?["scenario"]?.ToString()??""))?["name"]?.ToString()??saved?["scenario"]?.ToString()??"未知剧本");
+                if (saved?["nations"] is JsonArray rows)
                     caption += $" · {rows.Count} 国 · {string.Join("、", rows.Select(r => r?["name"]?.ToString()))}";
             }
             catch (IOException) { }
