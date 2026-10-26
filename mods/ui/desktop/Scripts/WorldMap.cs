@@ -29,6 +29,7 @@ public partial class WorldMap : Control
     private Vector2 _press;
     private bool _fit = true;
     private Font _font = null!;
+    private ColorRect _backdrop=null!;
     public int TileCount => _tiles.Count;
     public int ArmyCount => Frame?["armies"]?.AsArray().Count ?? 0;
     public int TerrainBuilds => _artwork.TerrainBuilds;
@@ -51,6 +52,7 @@ public partial class WorldMap : Control
         TextureFilter = TextureFilterEnum.Nearest;
         _font = GetThemeFont("font", "Label");
         var background=new ColorRect { Color=new Color("365b80"),ZIndex=-2,MouseFilter=MouseFilterEnum.Ignore };
+        _backdrop=background;
         background.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);AddChild(background);
         _artwork=new RegionArtwork { ZIndex=-1,LabelFont=_font };AddChild(_artwork);
         Resized += () => { if (_fit) Fit(); };
@@ -63,6 +65,7 @@ public partial class WorldMap : Control
         if(_layout?.GeometryKey!=nextLayout.GeometryKey)_guardAnchors.Clear();
         var live=nextLayout.Regions.ToHashSet();foreach(var stale in _walks.Keys.Where(k=>!live.Contains(k)).ToArray())_walks.Remove(stale);
         Frame = frame;
+        _backdrop.Color=new Color(PlayerMode?"0e1c1c":"365b80");
         _tiles.Clear();
         foreach (var item in frame["tiles"]!.AsArray())
         {
@@ -89,6 +92,7 @@ public partial class WorldMap : Control
         foreach (var (actor, sum) in sums)
             _homeAnchors[actor] = new Vector2(sum.X / sum.N + .5f, sum.Y / sum.N + .5f) * Cell;
         _layout=nextLayout;
+        if(PlayerMode)_particles.Clear();
         _artwork.SetLayout(_layout);
         // Stage-reveal newly appearing construction sites (skip the first frame
         // so resumed sessions do not replay every foundation).
@@ -189,6 +193,7 @@ public partial class WorldMap : Control
             float previousScale=_scale;
             _scale+=(_cameraScale-_scale)*(1-MathF.Exp(-(float)delta*4));
             var focus=_beat?["ledger"]!=null?new Vector2(Math.Max(340,Size.X*.5f-160),Size.Y*.53f):Size*.5f;
+            if(PlayerMode&&PlayerPanelOpen)focus=new Vector2(Math.Max(340,(Size.X-540)*.5f),Size.Y*.56f);
             if(_beat?["letter"]!=null)focus.X+=120;
             var center=(focus-_offset)/Math.Max(.01f,previousScale);
             center=center.Lerp(anchor,1-MathF.Exp(-(float)delta*5));
@@ -203,6 +208,7 @@ public partial class WorldMap : Control
 
     public override void _GuiInput(InputEvent input)
     {
+        if(input is InputEventMouseMotion hover)HoverHumanTarget(hover.Position);
         if (input is InputEventMouseButton b)
         {
             if(b.Pressed)_cameraAnchor=null;
@@ -260,6 +266,7 @@ public partial class WorldMap : Control
                 DrawRect(new Rect2(at-new Vector2(12,14),new Vector2(26,27)),new Color(.08f,.14f,.15f,.85f));
                 DrawString(_font,at+new Vector2(-8,6),S(country.Value),fontSize:18,modulate:NationColor(country.Key));
             }
+        DrawHumanFog();
     }
     public static string S(JsonNode? node) => node?.ToString() ?? "";
     public static int I(JsonNode? node) => node?.GetValue<int>() ?? 0;

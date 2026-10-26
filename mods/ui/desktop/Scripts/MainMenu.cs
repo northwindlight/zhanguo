@@ -31,7 +31,8 @@ public partial class MainMenu : Control
     private sealed class NationDraft
     {
         public int Preset; public string Name = "";
-        public int Client;                      // 0 rule, 1 sim, 2 llm
+        public int Client;                      // 0 rule, 1 sim, 2 llm, 3 human
+        public string Nickname = "玩家";
         public string RuleAi = "v13"; public int Strategy; public string RuleSeed = "";
         public int Profile; public string Model = "", Thinking = "enabled", Effort = "low";
         public string Temperature = "0.3", MaxTokens = "16384", MaxSteps = "28", ExtraJson = "";
@@ -45,7 +46,7 @@ public partial class MainMenu : Control
         ("scenario:loufan", "楼烦", "{\"polity\":\"huns\",\"appearance\":\"manual\"}"),
     };
     private static readonly string[] Strategies = { "random", "economy", "military", "defense" };
-    private static readonly string[] Clients = { "规则AI", "简易策略", "大模型" };
+    private static readonly string[] Clients = { "规则AI", "简易策略", "大模型", "真人" };
 
     public Action<string?, string?>? StartRequested;   // (config path, resume session path)
     private readonly List<ApiProfile> _profiles = new();
@@ -87,7 +88,7 @@ public partial class MainMenu : Control
         title.AddThemeFontSizeOverride("font_size", 42);
         title.AddThemeColorOverride("font_color", new Color("e8d9a8"));
         center.AddChild(title);
-        var subtitle = new Label { Text = "观天下 · 上帝视角", HorizontalAlignment = HorizontalAlignment.Center,
+        var subtitle = new Label { Text = "单机执政 · 观天下", HorizontalAlignment = HorizontalAlignment.Center,
             Modulate = new Color("a4b09c") };
         subtitle.SetAnchorsAndOffsetsPreset(LayoutPreset.TopWide); subtitle.OffsetTop=60; subtitle.OffsetBottom=88;
         subtitle.AddThemeFontSizeOverride("font_size", 18); center.AddChild(subtitle);
@@ -250,17 +251,20 @@ public partial class MainMenu : Control
         client.Selected = draft.Client;
         var rule = new HBoxContainer();
         var llm = new HBoxContainer();
+        var human = new HBoxContainer();human.AddChild(FieldLabel("玩家昵称"));
+        var nickname=new LineEdit { Text=draft.Nickname,CustomMinimumSize=new Vector2(160,0),PlaceholderText="你的昵称" };
+        nickname.TextChanged+=v=>draft.Nickname=v;human.AddChild(nickname);
         BuildRuleFields(rule, draft);
         BuildLlmFields(llm, draft);
         client.ItemSelected += index =>
         {
             draft.Client = (int)index;
-            rule.Visible = draft.Client == 0; llm.Visible = draft.Client == 2;
+            rule.Visible = draft.Client == 0; llm.Visible = draft.Client == 2; human.Visible=draft.Client==3;
         };
-        rule.Visible = draft.Client == 0; llm.Visible = draft.Client == 2;
+        rule.Visible = draft.Client == 0; llm.Visible = draft.Client == 2; human.Visible=draft.Client==3;
         row.AddChild(client);
         row.AddChild(new Control { SizeFlagsHorizontal=SizeFlags.ExpandFill });
-        stack.AddChild(rule); stack.AddChild(llm);
+        stack.AddChild(rule); stack.AddChild(llm); stack.AddChild(human);
         var extra = new LineEdit { Text = draft.ExtraJson, PlaceholderText = "附加JSON", CustomMinimumSize = new Vector2(150, 0) };
         extra.TextChanged += value => draft.ExtraJson = value;
         stack.AddChild(extra);
@@ -316,6 +320,7 @@ public partial class MainMenu : Control
     public JsonObject? BuildConfig(out string error, out string? path)
     {
         error = ""; path = null;
+        if(_nations.Count(n=>n.Client==3)>1){error="单机对局只能有一位真人，请选择你要控制的国家";return null;}
         if (_nations.Count < 2) { error = "至少需要两个国家"; return null; }
         if (_nations.Select(n => Presets[n.Preset].Id).GroupBy(id => id).Any(g => g.Count() > 1))
         { error = "同一剧本国家重复出现"; return null; }
@@ -330,7 +335,7 @@ public partial class MainMenu : Control
         foreach (var draft in _nations)
         {
             var preset = Presets[draft.Preset];
-            var nation = new JsonObject { ["id"] = preset.Id, ["name"] = draft.Name, ["client"] = Clients[draft.Client] switch { "规则AI" => "rule", "简易策略" => "sim", _ => "llm" } };
+            var nation = new JsonObject { ["id"] = preset.Id, ["name"] = draft.Name, ["client"] = Clients[draft.Client] switch { "规则AI" => "rule", "简易策略" => "sim", "真人" => "human", _ => "llm" } };
             var placement=SelectedScenario["nations"]!.AsArray().FirstOrDefault(n=>n!["id"]!.ToString()==preset.Id)?["position"];
             if(placement!=null)nation["position"]=placement.DeepClone();
             ParseObject(preset.Extra, "剧本预设", ref error, nation);
@@ -339,6 +344,11 @@ public partial class MainMenu : Control
                 nation["rule_ai"] = draft.RuleAi;
                 nation["rule_strategy"] = Strategies[draft.Strategy];
                 if (int.TryParse(draft.RuleSeed.Trim(), out int rs) && rs > 0) nation["rule_seed"] = rs;
+            }
+            else if(draft.Client==3)
+            {
+                nation["nickname"]=string.IsNullOrWhiteSpace(draft.Nickname)?"玩家":draft.Nickname.Trim();
+                nation["appearance"]="initial";
             }
             else if (draft.Client == 2)
             {
@@ -413,7 +423,7 @@ public partial class MainMenu : Control
             var row = new HBoxContainer();
             var label = new Label { Text = caption,TooltipText=caption,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis, SizeFlagsHorizontal = SizeFlags.ExpandFill };
             label.AddThemeFontSizeOverride("font_size", 18); row.AddChild(label);
-            var resume = new Button { Text = "续看", FocusMode = FocusModeEnum.None };
+            var resume = new Button { Text = "继续对局", FocusMode = FocusModeEnum.None };
             string session = entry.session, config = entry.config;
             resume.Pressed += () => StartRequested?.Invoke(config, session);
             row.AddChild(resume);
@@ -504,6 +514,12 @@ public partial class MainMenu : Control
         foreach(var (box,draft) in _profilePickers)RefreshProfileOptions(box,draft);
         var select=_rows[0].Row.FindChild("NationClient",true,false) as OptionButton;
         select!.Select(2);select.EmitSignal(OptionButton.SignalName.ItemSelected,2L);
+    }
+    public void ReviewHumanCard(int index=0)
+    {
+        var select=_rows[index].Row.FindChild("NationClient",true,false) as OptionButton;
+        select!.Select(3);select.EmitSignal(OptionButton.SignalName.ItemSelected,3L);
+        _nations[index].Nickname="本地玩家";
     }
     public void ValidateVisibleLayout()
     {

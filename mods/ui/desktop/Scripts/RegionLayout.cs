@@ -30,6 +30,7 @@ public sealed class SampleInput
 
 public sealed class RegionInput
 {
+    public bool Frozen { get; set; }
     public int X { get; set; }
     public int Y { get; set; }
     public string Name { get; set; } = "";
@@ -103,7 +104,7 @@ public sealed class RegionLayout
         Width = input.Regions.Max(r => r.X) + 1;
         Height = input.Regions.Max(r => r.Y) + 1;
         GeometryKey = $"{input.Seed}/{input.LayoutVersion}/{input.LiveWorld}/" + string.Join(";",
-            input.Regions.OrderBy(r=>r.Y).ThenBy(r=>r.X).Select(r=>$"{r.X},{r.Y},{r.Terrain},{r.Passable},{r.Wood},{r.Gold},{r.Oil},{r.Ore}"));
+            input.Regions.OrderBy(r=>r.Y).ThenBy(r=>r.X).Select(r=>$"{r.X},{r.Y},{r.Terrain},{r.Passable},{r.Wood},{r.Gold},{r.Oil},{r.Ore},{r.Frozen}"));
         var reusable = previous?.GeometryKey == GeometryKey
             ? previous.Regions.ToDictionary(r=>(r.Input.X,r.Input.Y)) : new Dictionary<(int,int),RegionPlan>();
         Regions = input.Regions.OrderBy(r => r.Y).ThenBy(r => r.X).Select(r =>

@@ -10,7 +10,7 @@ public partial class RegionArtwork
         PixelMountainCells=cells.MountainCells;PixelWaterCells=cells.WaterCells;
         int width=cells.Width*16,height=cells.Height*16;
         using var image=Image.CreateEmpty(width,height,false,Image.Format.Rgba8);
-        using var mask=Image.CreateEmpty(width,height,false,Image.Format.Rg8);
+        using var mask=Image.CreateEmpty(width,height,false,Image.Format.Rgb8);
         using var atlas=UnifiedArt.Atlas.GetImage();
         void Stamp(string id,int x,int y,int cropHeight=0)
         {
@@ -57,6 +57,8 @@ public partial class RegionArtwork
                 mask.FillRect(new Rect2I(px,faceTop,16,Math.Min(height-faceTop,drop*8)),new Color(0,1,0));
             }
         }
+        foreach(var r in layout.Regions)
+            if(r.Input.Frozen)mask.FillRect(new Rect2I(r.Input.X*256,r.Input.Y*256,256,256),new Color(0,0,1));
         _ground=ImageTexture.CreateFromImage(image);
         _waterMask=ImageTexture.CreateFromImage(mask);
         _cliffs=Array.Empty<CliffSegment>();

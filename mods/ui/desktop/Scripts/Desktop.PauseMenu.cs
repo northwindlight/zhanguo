@@ -30,7 +30,7 @@ public partial class Desktop
         _pauseInfo=new Label { AutowrapMode=TextServer.AutowrapMode.WordSmart,CustomMinimumSize=new Vector2(344,80),
             HorizontalAlignment=HorizontalAlignment.Center };box.AddChild(_pauseInfo);
         _menuContinue=Button(box,"继续观看 · Esc",ClosePauseMenu);
-        _menuSave=Button(box,"保存",()=>{Send("save");_pauseInfo.Text="保存请求已提交；未完成的回合会在继续观看后保存。";});
+        _menuSave=Button(box,"保存",()=>{Send("save");_pauseInfo.Text="保存请求已提交；未完成的回合会在继续并结束回合后保存。";});
         BuildDisplayControls(box);
         _menuQuit=Button(box,"保存并退出游戏",QuitGame);
     }
@@ -41,7 +41,7 @@ public partial class Desktop
         _resumeAfterMenu=!_playbackPaused&&(HasTimeline||_running);
         _menuAutoRunning=_autoRunning;
         _playbackPaused=true;_pauseMenu.Visible=true;CloseDrawers();
-        _pauseInfo.Text="演出已暂停。当前模型调用结束后，宿主停在本批操作处。\n存档仍以完整回合为边界。";
+        _pauseInfo.Text=HumanMode?"游戏已暂停，继续后可操作或观看本批演出。\n保存以完整回合为边界；回合中保存会排队。":"演出已暂停。当前模型调用结束后，宿主停在本批操作处。\n存档仍以完整回合为边界。";
         Send("pause");RefreshPlaybackControls();
     }
 
@@ -49,6 +49,7 @@ public partial class Desktop
     {
         if(!_pauseMenu.Visible||_closing)return;
         _pauseMenu.Visible=false;
+        if(HumanMode){_humanDiscard.Visible=false;_menuQuit.Visible=true;}
         if(_resumeAfterMenu)
         {
             _playbackPaused=false;
@@ -62,6 +63,7 @@ public partial class Desktop
     private void RefreshPauseMenu(string state)
     {
         if(!_pauseMenu.Visible)return;
+        if(HumanMode&&_humanDiscard.Visible){_pauseInfo.Text=HumanExitInfo;_pauseInfo.TooltipText=_savePath;return;}
         _pauseInfo.Text=state switch {
             "save-queued"=>"保存已排队。继续观看至本回合结束后写入，当前保留上一完整回合的存档。",
             "playback-paused"=>"本批操作已暂停。继续观看后再发起后续调用。\n保存以完整回合为边界。",
@@ -76,6 +78,7 @@ public partial class Desktop
     {
         if(_stopped||_host==null){GetTree().Quit();return;}
         if(_closing)return;
+        if(HumanMode&&(_humanCycleActive||HasTimeline||_humanTurn!=null)){ShowHumanExitChoice();return;}
         _closing=true;_playbackPaused=true;
         _menuContinue.Disabled=true;_menuSave.Disabled=true;_menuQuit.Disabled=true;
         _pauseInfo.Text="正在完成当前回合并保存，完成后自动退出。";

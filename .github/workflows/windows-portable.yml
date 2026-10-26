@@ -10,6 +10,9 @@ on:
       - 'scripts/verify_windows_package.ps1'
       - 'packaging/windows/**'
       - 'mods/ui/desktop/**'
+      - 'mods/ui/desktop_player.py'
+      - 'mods/ui/desktop_human.py'
+      - 'ui/desktop.py'
 
 permissions:
   contents: read

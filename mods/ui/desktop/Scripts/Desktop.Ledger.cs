@@ -78,6 +78,7 @@ public partial class Desktop
     {
         if(_map.Frame==null)return;
         string target=actor??_ledgerActor;
+        if(HumanMode)target=HumanActor;
         var view=NationLedger.Read(_map.Frame,target);
         if(view==null)
         {
@@ -108,11 +109,12 @@ public partial class Desktop
             actor=combat["approaches"]?.AsArray().FirstOrDefault()?["actor"]?.ToString()??combat["before"]?.AsArray().FirstOrDefault(u=>S(u!["owner"])!="野人"&&S(u["owner"])!=S(combat["previous_owner"]))?["owner"]?.ToString()??"";
         if(actor!="")RefreshNationLedger(actor);else RefreshNationLedger();
         if(beat["ledger"] is not JsonObject ledger)return;
+        if(HumanMode){actor=HumanActor;CloseDrawers(false);}
         _nationalSettlements++;_bubbles.HideAll();
         bool production=S(ledger["stage"])=="production";
         _settlementHeading.Text=$"{_map.NationName(actor)} · {(production?"采集与生产":"补给与恢复")}";
         _settlementHeading.Modulate=_map.NationColor(actor);
-        _settlementInfo.Text=$"第 {_timelinePeriod+1} 期 · "+(production?$"{I(ledger["facilities"])} 处设施有实际收支":$"{I(ledger["units"])} 支军队统一供给");
+        _settlementInfo.Text=$"第 {_timelinePeriod+1} 期 · "+(production?(ledger["facilities"]==null?"本国汇总实际收支":$"{I(ledger["facilities"])} 处设施有实际收支"):$"{I(ledger["units"])} 支军队统一供给");
         ClearLedgerRows(_settlementStocks);
         _settlementStocks.Columns=production?3:2;
         foreach(var caption in production?new[]{"资源","产出","用料"}:new[]{"资源","军需耗用"})_settlementStocks.AddChild(LedgerLabel(caption,"a5b8ac",caption!="资源"));

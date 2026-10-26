@@ -97,6 +97,18 @@ static class WorldChecks
         Require(completed.Regions.SelectMany(r=>r.Structures).Single().Remaining==0,"completion delta left a scaffold");
         Require(completed.Regions.SelectMany(r=>r.Structures).Single().Bounds==scaffold.Regions.SelectMany(r=>r.Structures).Single().Bounds,"building jumped at completion");
         Require(completed.GeometryKey==scaffold.GeometryKey,"construction animation invalidated terrain");
+        var human=(JsonObject)live.DeepClone();
+        human["tiles"]!.AsArray().Add(new JsonObject { ["position"]=new JsonArray(5,5),["visibility"]="unknown" });
+        var historical=human["tiles"]!.AsArray().First(t=>t!["name"]?.ToString()=="r2-2")!;
+        historical["visibility"]="memory";historical["dynamic"]=false;
+        human["scene"]!["buildings"]![0]!["level_known"]=false;human["scene"]!["buildings"]![0]!["sampled"]=12;
+        DesktopScene.Synchronize(human);
+        var known=WorldLayoutProjection.FromFrame(human);
+        Require(known.Regions.Count==25&&!known.Regions.Any(r=>r.X==5&&r.Y==5),"unknown terrain entered the rendering layout");
+        var frozen=new RegionLayout(known).Regions.Single(r=>r.Input.X==2&&r.Input.Y==2);
+        Require(frozen.Input.Frozen&&frozen.People.Count==0,"historical residents are still dynamic");
+        Require(historical["building_labels"]![0]!.ToString().Contains("第13期")&&!historical["building_labels"]![0]!.ToString().Contains("Lv."),"history fabricated a level or lost its date");
+        Console.WriteLine("HUMAN_LAYOUT_OK: unknown excluded, history frozen and dated, no fabricated levels");
         Console.WriteLine("DESKTOP_SCENE_OK: political zoom, squads, tiny prices, atomic deltas, residents and stable construction");
         Console.WriteLine("LIVE_WORLD_LAYOUT_OK: observer projection, barriers, facility counts, local updates and surface keys");
     }

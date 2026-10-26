@@ -12,6 +12,8 @@ public static class SquadView
     public sealed record Status(string Owner,string Name,string Kind,int Count,double Hp,double Maximum,
         int Terrain,int Fortress,int Defense,bool Defending)
     {
+        public bool DefenseKnown {get;init;}=true;
+        public string DefenseText=>DefenseKnown?$"{Defense}% 地块防御":"地块防御未确认";
         public float Fraction=>Maximum<=0?0:(float)Math.Clamp(Hp/Maximum,0,1);
         public string Health=>$"{Hp:G4}/{(Maximum>0?Maximum.ToString("G4",System.Globalization.CultureInfo.InvariantCulture):"—")}";
         public string Strength=>(Kind.EndsWith("cavalry",StringComparison.Ordinal)?"骑兵":Kind.EndsWith("militia",StringComparison.Ordinal)?"民兵":Kind.EndsWith("infantry",StringComparison.Ordinal)?"步":DesktopScene.UnitName(Kind))+"×"+Count;
@@ -47,7 +49,7 @@ public static class SquadView
             hp+=Math.Max(0,current);
             double cap=F(row["max_hp"]);max+=cap>0?cap:maxima?.GetValueOrDefault(row["kind"]!.ToString())??0;
         }
-        return new Status(owner,frame["names"]?[owner]?.ToString()??owner,kind,rows.Length,hp,max,terrain,castle,cover,defending);
+        return new Status(owner,frame["names"]?[owner]?.ToString()??owner,kind,rows.Length,hp,max,terrain,castle,cover,defending) { DefenseKnown=defense?["castle_known"]?.GetValue<bool>()!=false||!defending||owner!=tile?["owner"]?.ToString() };
     }
     // One real resolution is choreographed as three exchanges. These timings
     // interpolate the known before/after HP; they do not roll extra damage.

@@ -15,6 +15,7 @@ public static class WorldLayoutProjection
         var colors=frame["names"] is JsonObject names?names.Select((n,i)=>(n.Key,Color:DesktopScene.NationPalette[i%DesktopScene.NationPalette.Length])).ToDictionary(n=>n.Key,n=>n.Color):new Dictionary<string,string>();
         foreach(var item in frame["tiles"]!.AsArray())
         {
+            if(item?["visibility"]?.ToString()=="unknown")continue;
             var tile=item!.AsObject();string terrain=tile["terrain"]!.ToString().Split(':').Last();
             var resources=new Dictionary<string,double>();
             if(tile["resources"] is JsonArray rows)
@@ -26,7 +27,8 @@ public static class WorldLayoutProjection
                 Gold=(int)Math.Clamp(resources.GetValueOrDefault("native:gold")*50,0,100),
                 Ore=resources.GetValueOrDefault("native:ore")>0?(int)Math.Clamp(Math.Ceiling(resources["native:ore"]*50),1,100):0,
                 Oil=resources.GetValueOrDefault("native:oil")>0?(int)Math.Clamp(Math.Ceiling(resources["native:oil"]*50),1,100):0,
-                OwnerColor=colors.GetValueOrDefault(tile["owner"]?.ToString()??"",""),Owner=tile["owner"]?.ToString()??"" };
+                OwnerColor=colors.GetValueOrDefault(tile["owner"]?.ToString()??"",""),Owner=tile["owner"]?.ToString()??"",
+                Frozen=tile["visibility"]?.ToString()=="memory"||tile["dynamic"]?.GetValue<bool>()==false };
             var counts=new Dictionary<string,int>();
             if(tile["building_instances"] is JsonArray instances)
             {
@@ -36,7 +38,7 @@ public static class WorldLayoutProjection
                     r.Buildings.Add(new BuildingInput { Id=$"b/{b["id"]!.GetValue<int>():D10}",Kind=kind.EndsWith("farm")?"farm":kind.Contains("mine")?"mine":"house",Remaining=b["remaining"]!.GetValue<int>(),Art=kind });
                 }
                 bool town=instances.Any(b=>b!["kind"]!.ToString().EndsWith("town-hall",StringComparison.Ordinal));
-                r.People=r.Passable&&tile["owner"]!=null?Math.Clamp((town?24:8)+instances.Count*4,8,town?64:36):0;
+                r.People=!r.Frozen&&r.Passable&&tile["owner"]!=null?Math.Clamp((town?24:8)+instances.Count*4,8,town?64:36):0;
             }
             else foreach(var b in tile["buildings"]!.AsArray().OrderBy(b=>b![0]!.ToString(),StringComparer.Ordinal))
             {

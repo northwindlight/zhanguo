@@ -136,6 +136,8 @@ class Controller:
         if self.human_api is not None:
             try:
                 frame=self.human_api.state(self.viewer)
+                from mods.ui.desktop_player import frame as player_frame
+                frame['visual']=player_frame(self.host.ui,frame)
                 self._last_player_frame=frame
                 return {'scope':'player',**frame}
             except ValueError:
@@ -305,7 +307,7 @@ class Controller:
                 if isinstance(exc,DiscardHumanCycle):raise
                 self.send('error',message=str(exc) if self.human_api is None else '演出处理异常，已暂停',
                           actor=actor if self.human_api is None else None)
-        if not self._stop_after_cycle:self.status('advancing')
+        if not self._stop_after_cycle:self.status('human-waiting' if self._human_player is not None and self._human_player.action_state()['can_act'] else 'advancing')
 
     def advance(self):
         if self.waiting is not None:raise ValueError('等待本期演出确认后才能推进下一期')

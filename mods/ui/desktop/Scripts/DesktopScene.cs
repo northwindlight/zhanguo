@@ -35,12 +35,13 @@ public static class DesktopScene
         var byTile=buildings.ToLookup(b=>(I(b!["x"]),I(b["y"])));
         foreach(var t in frame["tiles"]!.AsArray())
         {
+            if(t?["visibility"]?.ToString()=="unknown")continue;
             var at=(I(t!["position"]![0]),I(t["position"]![1]));
             t["owner"]=owners.GetValueOrDefault(at)?.DeepClone();
             var local=byTile[at].OrderBy(b=>I(b!["id"])).ToArray();
             t["building_instances"]=new JsonArray(local.Select(b=>b!.DeepClone()).ToArray());
             t["buildings"]=new JsonArray(local.Select(b=>(JsonNode)new JsonArray(b!["kind"]!.ToString(),I(b["level"]))).ToArray());
-            t["building_labels"]=new JsonArray(local.Select(b=>JsonValue.Create($"{b!["label"]??b["kind"]} Lv.{b["level"]}{(I(b["remaining"])>0?" · 施工中":"")}")).Cast<JsonNode?>().ToArray());
+            t["building_labels"]=new JsonArray(local.Select(b=>JsonValue.Create($"{b!["label"]??b["kind"]}{(b["level_known"]?.GetValue<bool>()==false?$"（示意 · 第{I(b["sampled"])+1}期）":$" Lv.{b["level"]}")}{(I(b["remaining"])>0?" · 施工中":"")}")).Cast<JsonNode?>().ToArray());
         }
         frame["armies"]=scene["armies"]!.DeepClone();
         var accounts=scene["accounts"]?.AsArray().ToDictionary(a=>a!["id"]!.ToString());

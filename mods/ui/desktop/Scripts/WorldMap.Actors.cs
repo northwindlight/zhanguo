@@ -38,7 +38,8 @@ public partial class WorldMap
     public void BeginBeat(JsonObject beat,bool follow)
     {
         _beat=beat;_beatProgress=0;_battleStep=0;_particleProgress=0;
-        DesktopScene.Apply(Frame!,beat["delta"]!.AsObject());SetFrame(Frame!);
+        if(beat["visual"] is JsonObject visual)SetFrame((JsonObject)visual.DeepClone());
+        else {DesktopScene.Apply(Frame!,beat["delta"]!.AsObject());SetFrame(Frame!);}
         string phase=S(beat["phase"]);
         if(phase=="battle")_shakeAmp=1;
         else if(phase=="casualties")_shakeAmp=.45f;
@@ -236,6 +237,7 @@ public partial class WorldMap
         if(_layout==null)return;
         foreach(var r in _layout.Regions)
         {
+            if(r.Input.Frozen)continue;
             var origin=new Vector2(r.Input.X*256,r.Input.Y*256);
             if(!RegionOnScreen(r))continue;
             var walks=Walks(r);
@@ -497,6 +499,7 @@ public partial class WorldMap
         int budget=8;int tick=(int)_time;
         foreach(var r in _layout.Regions)
         {
+            if(r.Input.Frozen)continue;
             if(!RegionOnScreen(r))continue;
             var origin=new Vector2(r.Input.X*256,r.Input.Y*256);
             foreach(var b in r.Structures)
@@ -570,7 +573,9 @@ public partial class WorldMap
             var head=new Vector2((t*span*1.3f+flock*900)%(span+600)-300,(t*span*.7f+flock*2000)%(span+400)-200);
             for(int i=0;i<6;i++)
             {
-                var at=Screen(head+new Vector2(-i*18-(i/3)*8,(i%3)*9));
+                var world=head+new Vector2(-i*18-(i/3)*8,(i%3)*9);
+                if(PlayerMode&&(!IsLivePoint(world)||!IsLivePoint(world+new Vector2(32,32)/_scale)||!IsLivePoint(world-new Vector2(32,32)/_scale)))continue;
+                var at=Screen(world);
                 if(!OnScreen(at))continue;
                 bool up=MathF.Sin((float)_time*9+i*1.7f+flock)>0;
                 float width=Math.Clamp(6+_scale*8,6,24);
@@ -583,6 +588,7 @@ public partial class WorldMap
     {
         foreach(var p in _particles)
         {
+            if(PlayerMode&&!IsLivePoint(p.Pos))continue;
             var at=Screen(p.Pos);
             if(!OnScreen(at))continue;
             float t=1-p.Life/p.Max;

@@ -38,6 +38,7 @@ public partial class RegionArtwork : Node2D
     public int PixelWaterCells { get; private set; }
     private Texture2D _waterMask = null!;
     private ShaderMaterial _waterMaterial = null!;
+    private static ShaderMaterial? _frozenMaterial;
     private LayerNode _groundLayer = null!, _cliffLayer = null!, _objectLayer = null!;
     // Structure id -> wind-clock start of its staged construction reveal;
     // shared from the root so per-region nodes animate from the same stamps.
@@ -71,6 +72,7 @@ void fragment() {
         tex = texture(art_atlas, at / vec2(1024.0));
     }
     if (!show_cliffs && texture(water_mask, UV).g > 0.5) tex = vec4(0.44, 0.48, 0.45, 1.0);
+    if (texture(water_mask, UV).b > 0.5) tex.rgb = mix(tex.rgb, vec3(dot(tex.rgb, vec3(0.299,0.587,0.114))), 0.65);
     COLOR = tex;
 }
 ";
@@ -123,6 +125,9 @@ void fragment() {
     {
         Layout = layout;
         EnsureLayers();
+        var keys=layout.Regions.Select(r=>(r.Input.X,r.Input.Y)).ToHashSet();
+        foreach(var key in _regionNodes.Keys.Where(k=>!keys.Contains(k)).ToArray())
+        {_regionNodes[key].QueueFree();_regionNodes.Remove(key);}
         if(layout.Input.LiveWorld)
             foreach(var r in layout.Regions)
             {
@@ -133,6 +138,8 @@ void fragment() {
                     _regionNodes[key]=node;AddChild(node);
                 }
                 node.Layout=layout;
+                _frozenMaterial??=new ShaderMaterial { Shader=new Shader { Code="shader_type canvas_item; void fragment(){vec4 c=texture(TEXTURE,UV)*COLOR; c.rgb=mix(c.rgb,vec3(dot(c.rgb,vec3(0.299,0.587,0.114))),0.65); COLOR=c;}" } };
+                node.Material=r.Input.Frozen?_frozenMaterial:null;
                 var roads=layout.Roads.For(r);
                 if(!ReferenceEquals(node._onlyRegion,r)||!ReferenceEquals(node._roads,roads))
                 {node._onlyRegion=r;node._roads=roads;node.QueueRedraw();}
@@ -235,7 +242,7 @@ void fragment() {
     private void DrawRegionObjects(CanvasItem layer, RegionPlan? only)
     {
         var objects = new List<(float Y, Action Draw)>();
-        bool sway = _detailLevel == 2;
+        bool sway = _detailLevel == 2 && only?.Input.Frozen!=true;
         foreach (var r in only==null?Layout!.Regions:new[]{only})
         {
             var origin = new Vector2(r.Input.X * 256, r.Input.Y * 256);
@@ -313,7 +320,7 @@ void fragment() {
         var foot=p+new Vector2(size.X*.5f,size.Y);
         if(s.Remaining>0)
         {
-            float t=_construction.TryGetValue(s.Id,out var start)?Math.Clamp((Now-start)/2.2f,0,1):1;
+            float t=_onlyRegion?.Input.Frozen==true?1:_construction.TryGetValue(s.Id,out var start)?Math.Clamp((Now-start)/2.2f,0,1):1;
             var rect=new Rect2(p,size);layer.DrawRect(rect,new Color("8f805d"));
             var c=UnifiedArt.Get("construction");
             var at=foot-c.Anchor*scale;
@@ -324,7 +331,7 @@ void fragment() {
         }
         UnifiedArt.Draw(layer,id,foot,scale:scale);
         if(id=="townhall")DrawTownHallDetails(layer,s,p,size);
-        if(_detailLevel==2&&e.Effect is Vector2 effect)
+        if(_onlyRegion?.Input.Frozen!=true&&_detailLevel==2&&e.Effect is Vector2 effect)
         {
             var chimney=foot-e.Anchor*scale+effect*scale;
             for(int i=0;i<3;i++)

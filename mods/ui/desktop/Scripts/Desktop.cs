@@ -42,10 +42,11 @@ public partial class Desktop : Control
     private int _initialArmies=-1;
     private int _captureAfterPeriod=3;
     private bool _normalOpening;
+    private Label _desktopTitle=null!;
 
     private MapDrawer _countries = null!, _details = null!, _shop = null!, _chronicle = null!;
     private Button _countriesButton = null!, _detailsButton = null!, _shopButton = null!, _chronicleButton = null!;
-    private MapDrawer[] Drawers => new[] { _countries,_details,_shop,_chronicle };
+    private MapDrawer[] Drawers => _humanDrawer==null?new[] { _countries,_details,_shop,_chronicle }:new[] { _countries,_details,_shop,_chronicle,_humanDrawer };
     private SpeechBubbles _bubbles = null!;
     private readonly Dictionary<string,string> _models = new();
     private readonly Dictionary<string,string> _clientKinds = new();
@@ -90,7 +91,7 @@ public partial class Desktop : Control
             }
         }
         _map=new WorldMap();_map.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);AddChild(_map);
-        _map.SelectionChanged=tile=>{ShowTile(tile);if(tile!=null){if(S(tile["owner"])!="")RefreshNationLedger(S(tile["owner"]));OpenDrawer(_details);}};
+        _map.SelectionChanged=tile=>{if(HumanMode){HumanTileSelected(tile);return;}ShowTile(tile);if(tile!=null){if(S(tile["owner"])!="")RefreshNationLedger(S(tile["owner"]));OpenDrawer(_details);}};
         _bubbles=new SpeechBubbles();_bubbles.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);_bubbles.ZIndex=8;AddChild(_bubbles);
 
         _countries=Drawer("列国",MapDrawer.Side.Left);
@@ -118,6 +119,7 @@ public partial class Desktop : Control
         top.SetAnchorsAndOffsetsPreset(LayoutPreset.TopWide);top.OffsetLeft=16;top.OffsetRight=-16;top.OffsetTop=14;top.OffsetBottom=58;
         top.AddThemeConstantOverride("separation",12);AddChild(top);
         var title=new Label { Text="战国 · 观天下",MouseFilter=MouseFilterEnum.Ignore };
+        _desktopTitle=title;
         title.AddThemeFontSizeOverride("font_size",24);title.AddThemeColorOverride("font_color",new Color("e4d8ae"));top.AddChild(title);
 
         _status=new Label { Text="正在创建离线八国世界…",MouseFilter=MouseFilterEnum.Ignore,SizeFlagsHorizontal=SizeFlags.ExpandFill,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis };top.AddChild(_status);
@@ -129,6 +131,7 @@ public partial class Desktop : Control
         BuildPauseMenu();
         BuildNationLedger();
         var dock=new HBoxContainer { MouseFilter=MouseFilterEnum.Ignore,ZIndex=5 };
+        _observerDock=dock;
         dock.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomLeft);dock.OffsetLeft=16;dock.OffsetTop=-58;dock.OffsetBottom=-14;
         dock.AddThemeConstantOverride("separation",8);AddChild(dock);
         _countriesButton=Button(dock,"列国",()=>ToggleDrawer(_countries));
@@ -138,6 +141,7 @@ public partial class Desktop : Control
         var hint=new Label { Text="F 总览 · 空格 暂停/继续 · Esc 菜单 · 滚轮缩放 / 右键拖动",MouseFilter=MouseFilterEnum.Ignore,ZIndex=5,
             HorizontalAlignment=HorizontalAlignment.Right,Modulate=new Color("c0c9b2") };
         hint.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight);hint.OffsetLeft=-660;hint.AddThemeFontSizeOverride("font_size",14);hint.OffsetRight=-18;hint.OffsetTop=-44;hint.OffsetBottom=-18;AddChild(hint);
+        _mapHint=hint;BuildHumanControls();
         Resized+=LayoutDrawers;LayoutDrawers();
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--smoke-output"){_smoke=args[i+1];_playbackSpeed=96;}
         string? menuTest=null;
@@ -147,6 +151,7 @@ public partial class Desktop : Control
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--font-review-output"){_=ReviewFonts(args[i+1]);return;}
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--ledger-review-output"){_=ReviewLedger(args[i+1]);return;}
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--effects-review-output"){_=ReviewEffects(args[i+1]);return;}
+        for(int i=0;i<args.Length-1;i++)if(args[i]=="--human-review-output"){_=ReviewHuman(args[i+1]);return;}
         if(_smoke==null)
         {
             // Start screen: new game / load save / settings; smoke runs skip it.
@@ -227,6 +232,7 @@ public partial class Desktop : Control
         _shop.SetBounds(new Rect2(Size.X-right-14,70,right,height));
         _chronicle.SetBounds(new Rect2(14,Size.Y-bottom-76,Size.X-28,bottom));
         LayoutLedger();
+        LayoutHuman();
     }
     private void CloseDrawers(bool animate=true) { foreach(var drawer in Drawers)drawer.SetOpen(false,animate); }
     private void OpenDrawer(MapDrawer drawer,bool animate=true)
@@ -321,6 +327,7 @@ public partial class Desktop : Control
             }
         }
         ProcessPlayback(delta);
+        if(HumanMode)_map.PlayerPanelOpen=_humanDrawer.IsOpen;
         if(_smoke!=null && _elapsed>180){GD.PrintErr("DESKTOP_SMOKE_TIMEOUT");GetTree().Quit(2);}
     }
 
@@ -341,6 +348,7 @@ public partial class Desktop : Control
         if(_generation==null)_generation=generation;
         if(generation!=_generation||revision<=_revision)return;
         _revision=revision;
+        if(ReceiveHuman(row))return;
         if(_closing&&(type is "timeline" or "snapshot"))return;
         if(type=="stream")
         {
@@ -397,6 +405,17 @@ public partial class Desktop : Control
             if(state=="paused")_map.ClearActivity();
             RefreshPauseMenu(state);
             RefreshPlaybackControls();
+            if(HumanMode)
+            {
+                _humanCycleActive=row["cycle_active"]?.GetValue<bool>()==true;
+                _humanPaused=row["playback_paused"]?.GetValue<bool>()==true;
+                _savedHumanPeriod=row["saved_period"]==null?-1:I(row["saved_period"]);
+                if(state=="human-waiting"){_humanBusy=false;_humanPaused=false;}
+                _status.Text=$"第 {I(row["period"])+1} 回合 · {(state=="human-waiting"?"轮到你了":state=="advancing"?"列国行动中":status)} · 已存 {_savedHumanPeriod} 期";
+                if(state=="exit-choice")ShowHumanExitChoice();
+                if(state=="discarded"&&_closing){_stopped=true;GetTree().Quit();}
+                RefreshHumanButtons();
+            }
         }
     }
 
@@ -472,7 +491,17 @@ public partial class Desktop : Control
         using var image=GetViewport().GetTexture().GetImage();
         if(image.SavePng(path)!=Godot.Error.Ok)throw new IOException("截图保存失败");
     }
-    private async Task PointerClick(Control button) => await PointerClickAt(button.GetGlobalRect().GetCenter());
+    private async Task PointerClick(Control button)
+    {
+        await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+        for(Node? parent=button.GetParent();parent!=null;parent=parent.GetParent())
+            if(parent is ScrollContainer scroll)scroll.EnsureControlVisible(button);
+        await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+        var at=button.GetGlobalRect().GetCenter();Viewport viewport=button.GetViewport();
+        while(viewport is Window window&&window!=GetWindow()&&window.IsEmbedded())
+        {at+=window.Position;viewport=window.GetParent().GetViewport();}
+        await PointerClickAt(at,viewport);
+    }
     private async Task WaitFor(Func<bool> ready,string description)
     {
         var clock=Stopwatch.StartNew();
@@ -482,11 +511,12 @@ public partial class Desktop : Control
             await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
         }
     }
-    private async Task PointerClickAt(Vector2 p)
+    private async Task PointerClickAt(Vector2 p,Viewport? target=null)
     {
-        GetViewport().PushInput(new InputEventMouseButton { ButtonIndex=MouseButton.Left,Pressed=true,Position=p,GlobalPosition=p },true);
+        var viewport=target??GetViewport();
+        viewport.PushInput(new InputEventMouseButton { ButtonIndex=MouseButton.Left,Pressed=true,Position=p,GlobalPosition=p },true);
         await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
-        GetViewport().PushInput(new InputEventMouseButton { ButtonIndex=MouseButton.Left,Pressed=false,Position=p,GlobalPosition=p },true);
+        viewport.PushInput(new InputEventMouseButton { ButtonIndex=MouseButton.Left,Pressed=false,Position=p,GlobalPosition=p },true);
         await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
         await WaitFor(()=>Drawers.All(d=>d.IsSettled),"抽屉动画未完成");
     }
@@ -568,6 +598,7 @@ public partial class Desktop : Control
     {
         if(input is InputEventKey {Pressed:true,Echo:false,Keycode:Key.Escape} && _host!=null && !_closing)
         {
+            if(HumanMode&&_humanTargetMode!=""){CancelHumanTarget();GetViewport().SetInputAsHandled();return;}
             if(_pauseMenu.Visible)ClosePauseMenu();else OpenPauseMenu();
             GetViewport().SetInputAsHandled();
         }

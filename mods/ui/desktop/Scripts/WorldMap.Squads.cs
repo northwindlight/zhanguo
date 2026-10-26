@@ -48,7 +48,7 @@ public partial class WorldMap
             }
         if(!Units&&!ShowGuards)return;
         string Route(JsonNode u)=>_beat?["motions"]?.AsArray().FirstOrDefault(m=>m!["unit"]!.ToString()==DesktopScene.Key("armies",u))?["points"]?.ToJsonString()??"";
-        var groups=Frame["armies"]!.AsArray().Where(u=>F(u!["hp"])>0)
+        var groups=Frame["armies"]!.AsArray().Where(u=>F(u!["hp"])>0&&(!PlayerMode||IsLive(new(I(u["x"]),I(u["y"])))))
             .GroupBy(u=>(X:I(u!["x"]),Y:I(u["y"]),Owner:S(u["owner"]),Kind:S(u["kind"]),Path:Route(u)))
             .OrderBy(g=>g.Key.Y).ThenBy(g=>g.Key.X).ThenBy(g=>g.Key.Owner,StringComparer.Ordinal).ThenBy(g=>g.Key.Kind,StringComparer.Ordinal).ToArray();
         foreach(var group in groups)
@@ -171,13 +171,13 @@ public partial class WorldMap
             {
                 var shield=box.Position+new Vector2(13,48);
                 DrawColoredPolygon(new[]{shield+new Vector2(-5,-5),shield+new Vector2(5,-5),shield+new Vector2(4,1),shield+new Vector2(0,5),shield+new Vector2(-4,1)},new Color("a2bac5"));
-                DrawString(_font,shield+new Vector2(12,4),$"{s.Defense}% 地块防御",fontSize:16,modulate:new Color("b8cad0"));
+                DrawString(_font,shield+new Vector2(12,4),s.DefenseText,fontSize:16,modulate:new Color("b8cad0"));
             }
             var strength=label.At+new Vector2(0,label.FigureBottom+15);
             var textSize=_font.GetStringSize(s.Strength,fontSize:font);
             DrawRect(new Rect2(strength-new Vector2(textSize.X*.5f+5,15),new Vector2(textSize.X+10,20)),new Color(.045f,.075f,.08f,.88f));
             DrawString(_font,strength-new Vector2(textSize.X*.5f,0),s.Strength,fontSize:font,modulate:new Color("f4e4b8"));
-            VisibleSquadBars++;_squadLabelText.Add($"{s.Name} ♥ {s.Health}\n盾 {s.Defense}% 地块防御\n{s.Strength}");
+            VisibleSquadBars++;_squadLabelText.Add($"{s.Name} ♥ {s.Health}\n盾 {s.DefenseText}\n{s.Strength}");
         }
     }
 }

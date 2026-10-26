@@ -159,6 +159,15 @@ public partial class Desktop
     }
     private void ApplyFrame(JsonObject frame)
     {
+        if(S(frame["scope"])=="player")
+        {
+            var raw=frame;
+            var content=frame["eliminated"]?.GetValue<bool>()==true?frame["last_known"]:frame;
+            if(content?["visual"] is not JsonObject visual)throw new Exception("真人快照缺少玩家画面；拒绝使用观察者全图");
+            _period=I(raw["period"]);_map.SetFrame((JsonObject)visual.DeepClone());
+            SetHumanState(raw);RefreshNationLedger(HumanActor);
+            return;
+        }
         if(_initialArmies<0)
         {
             _initialArmies=frame["armies"]!.AsArray().Count;
@@ -189,12 +198,18 @@ public partial class Desktop
         catch(Exception e){Error(e.Message);}
         if(!_running&&_timelineStage!="action")_playbackPaused=true;
         RefreshPlaybackControls();
+        if(HumanMode)
+        {
+            _humanBusy=false;RefreshHumanButtons();
+            var after=_afterHumanBatch;_afterHumanBatch=null;after?.Invoke();
+        }
     }
     private void RefreshPlaybackControls()
     {
         if(_play==null)return;
         _play.Text=HasTimeline?(_playbackPaused?"继续演出":"暂停演出"):_running?"暂停":"继续";
         _step.Disabled=_closing||_running||HasTimeline;_play.Disabled=_closing;
+        if(HumanMode){_step.Visible=false;RefreshHumanButtons();}
         if(HasTimeline)_status.Text=$"第 {_timelinePeriod+1} 回合 · {(_playbackPaused?"演出暂停":"演出中")} · {_beatNumber}/{_beatTotal}";
     }
 }
