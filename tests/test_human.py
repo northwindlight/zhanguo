@@ -185,6 +185,11 @@ class TestHumanLifecycle(unittest.TestCase):
             self.assertEqual(frame['facts']['econ']['owner'],A)
             with patch.object(control.human_api,'state',side_effect=ValueError('synthetic projection failure')):
                 with self.assertRaises(ValueError):control.frame()
+            capture.beats=[{'phase':'human-action','text':'本国合法操作'}]
+            control._capture=capture
+            with patch.object(control.human_api,'state',side_effect=ValueError('FOREIGN-PRIVATE-FAULT')):
+                control.batch(A,1)
+            self.assertNotIn('FOREIGN-PRIVATE-FAULT',json.dumps(rows))
             control.command({'command':'human_query','actor':B,'query':'state'})
             self.assertFalse(rows[-1]['ok'])
 

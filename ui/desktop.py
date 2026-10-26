@@ -286,13 +286,15 @@ class Controller:
             self.send('notice',message=capture.warning)
             self._capture=None
             try:self.snapshot()
-            except Exception as exc:self.send('notice',message=f'当前画面暂不可用，回合结束后同步：{exc}')
+            except Exception as exc:self.send('notice',message=(f'当前画面暂不可用，回合结束后同步：{exc}'
+                if self.human_api is None else '本国画面暂不可用，回合结束后重试玩家快照'))
             return
         beats=capture.drain()
         if not beats:return
         try:frame=self.frame()
         except Exception as exc:
-            capture.warning=f'本批画面采集失败，回合结束后同步：{exc}'
+            capture.warning=(f'本批画面采集失败，回合结束后同步：{exc}' if self.human_api is None
+                             else '本国画面采集失败，回合结束后重试玩家快照')
             self.send('notice',message=capture.warning);self._capture=None;return
         self.status('presenting')
         self.publish(beats,'action',actor=actor,call=call,frame=frame)
@@ -316,7 +318,8 @@ class Controller:
                 from mods.ui.desktop_activity import TimelineCapture
                 from mods.ui.desktop_human import PlayerCapture
                 try:capture=PlayerCapture(self) if self.human_api is not None else TimelineCapture(self.host,contexts=self.contexts,activity=self.activity)
-                except Exception as exc:self.send('notice',message=f'演出初始化失败，使用完整快照：{exc}')
+                except Exception as exc:self.send('notice',message=(f'演出初始化失败，使用完整快照：{exc}'
+                    if self.human_api is None else '本国演出初始化失败，仅使用玩家快照'))
             self._capture=capture
             with redirect_stdout(sys.stderr):
                 if capture:self.host.cycle(on_result=capture.capture,emit=self.model_line,on_stream=self.model_stream,on_batch=self.batch,on_human=self.human_turn)
