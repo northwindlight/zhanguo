@@ -1,0 +1,12 @@
+{
+  "file": "战国-Windows-真人单机版-20261026.zip",
+  "bytes": 104671510,
+  "sha256": "1c211110901f829e2af3f2eee1694d38b57386433c8d09706714533055b982ce",
+  "runtime_commit": "19fec893adc5f3326a598405ed473c152c92e790",
+  "workflow": "https://github.com/northwindlight/zhanguo/actions/runs/40317006180",
+  "zip_crc_ok": true,
+  "manifest_files": 946,
+  "all_manifest_sha256_ok": true,
+  "python_sources_match_after_newline_normalization": true,
+  "is_release": false
+}
