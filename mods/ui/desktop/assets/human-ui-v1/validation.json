@@ -1,0 +1,730 @@
+{
+  "renderer": "librsvg / Cairo",
+  "assets": 66,
+  "xml_valid": true,
+  "self_contained": true,
+  "binary_alpha_except_memory": true,
+  "unknown_opaque": true,
+  "memory_translucent": true,
+  "atlas_roundtrip": true,
+  "synthetic_previews": 5,
+  "preview_unique_ids": true,
+  "checks": [
+    {
+      "id": "icon-build",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-army",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-market",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-diplomacy",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-alliance",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-intelligence",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-nation",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-end-turn",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-move",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-attack",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-retreat",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-disband",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-letter",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-map",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-buy-map",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-spy",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-report",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-snapshot",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-gift",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-vote",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-live",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-unknown",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-close",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-check",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-pin",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "icon-clock",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        24,
+        24
+      ]
+    },
+    {
+      "id": "button-normal",
+      "alpha": [
+        255
+      ],
+      "size": [
+        48,
+        48
+      ]
+    },
+    {
+      "id": "button-hover",
+      "alpha": [
+        255
+      ],
+      "size": [
+        48,
+        48
+      ]
+    },
+    {
+      "id": "button-pressed",
+      "alpha": [
+        255
+      ],
+      "size": [
+        48,
+        48
+      ]
+    },
+    {
+      "id": "button-selected",
+      "alpha": [
+        255
+      ],
+      "size": [
+        48,
+        48
+      ]
+    },
+    {
+      "id": "button-disabled",
+      "alpha": [
+        255
+      ],
+      "size": [
+        48,
+        48
+      ]
+    },
+    {
+      "id": "button-danger",
+      "alpha": [
+        255
+      ],
+      "size": [
+        48,
+        48
+      ]
+    },
+    {
+      "id": "panel",
+      "alpha": [
+        255
+      ],
+      "size": [
+        48,
+        48
+      ]
+    },
+    {
+      "id": "checkbox-off",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        20,
+        20
+      ]
+    },
+    {
+      "id": "checkbox-on",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        20,
+        20
+      ]
+    },
+    {
+      "id": "checkbox-disabled",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        20,
+        20
+      ]
+    },
+    {
+      "id": "pending-badge",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "range-move-known",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        64,
+        64
+      ]
+    },
+    {
+      "id": "range-move-uncertain",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        64,
+        64
+      ]
+    },
+    {
+      "id": "range-attack-known",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        64,
+        64
+      ]
+    },
+    {
+      "id": "range-attack-uncertain",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        64,
+        64
+      ]
+    },
+    {
+      "id": "tile-selected",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        64,
+        64
+      ]
+    },
+    {
+      "id": "army-own",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        32,
+        32
+      ]
+    },
+    {
+      "id": "army-enemy",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        32,
+        32
+      ]
+    },
+    {
+      "id": "army-last-seen",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        32,
+        32
+      ]
+    },
+    {
+      "id": "prop-map",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        32,
+        32
+      ]
+    },
+    {
+      "id": "prop-letter",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        32,
+        32
+      ]
+    },
+    {
+      "id": "prop-snapshot",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        32,
+        32
+      ]
+    },
+    {
+      "id": "fog-unknown",
+      "alpha": [
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-memory",
+      "alpha": [
+        158
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-00",
+      "alpha": [
+        0
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-01",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-02",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-03",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-04",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-05",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-06",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-07",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-08",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-09",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-10",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-11",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-12",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-13",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-14",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    },
+    {
+      "id": "fog-edge-15",
+      "alpha": [
+        0,
+        255
+      ],
+      "size": [
+        16,
+        16
+      ]
+    }
+  ]
+}

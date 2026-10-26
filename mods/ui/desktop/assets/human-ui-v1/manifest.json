@@ -1,0 +1,1660 @@
+{
+  "format": "zhanguo.human-ui-art/1",
+  "status": "design-assets-not-connected",
+  "license": "MPL-2.0",
+  "authored": "Original SVG shapes; previews reuse repository unified-v1 SVGs",
+  "filter": "nearest",
+  "palette": {
+    "bg": "#111f20",
+    "panel": "#1d302e",
+    "raised": "#293e37",
+    "line": "#61735a",
+    "gold": "#d3b965",
+    "paper": "#e5dfbd",
+    "muted": "#a7b39b",
+    "shade": "#0d1b1d",
+    "blue": "#7bbdd4",
+    "blue_dark": "#38697f",
+    "red": "#e09b80",
+    "red_dark": "#914e43",
+    "green": "#a8c889",
+    "ink": "#303d3b",
+    "wood": "#ae8757"
+  },
+  "atlas": {
+    "file": "atlas.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "padding": 2,
+    "sha256": "16ee55413cacddef9be4af95ddd865b9576602a4f87def12ef8e5daee12424d6"
+  },
+  "fog_mask_bits": {
+    "north": 1,
+    "east": 2,
+    "south": 4,
+    "west": 8
+  },
+  "assets": [
+    {
+      "id": "icon-build",
+      "title": "建设",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-build.svg",
+      "png": "png/icon-build.png",
+      "atlas_rect": [
+        2,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "b98d1a347b9fa3173f325614bd1003b5f7f1354e02d9681623b5e74de81bf64f",
+      "png_sha256": "3e0b7716588f8509bd28683972d8b14a19b1b45f77b5fcb130f317c8e609fc52"
+    },
+    {
+      "id": "icon-army",
+      "title": "军队",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-army.svg",
+      "png": "png/icon-army.png",
+      "atlas_rect": [
+        30,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "e6157e3518e66109e4a29341e19827da5f04925e473156cd546ac3f7bce80643",
+      "png_sha256": "88e1d6210c0a85d987bf725b6da5c37e5e23e12c16d1027bc188be7a0c290a9c"
+    },
+    {
+      "id": "icon-market",
+      "title": "市场",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-market.svg",
+      "png": "png/icon-market.png",
+      "atlas_rect": [
+        58,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "e5ed99307a0c5f1c61a71382ca20b6890a0af1e926e91ee0a3a1fa04894ee7c6",
+      "png_sha256": "0d6204e013d26641d52140d47da0a729085771aa12f22afdc89e2abf4754ae7d"
+    },
+    {
+      "id": "icon-diplomacy",
+      "title": "外交",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-diplomacy.svg",
+      "png": "png/icon-diplomacy.png",
+      "atlas_rect": [
+        86,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "c164674b49b68c1bb2add6dc837d90f48ba553b2b2bd26431c99c4b1a03a9847",
+      "png_sha256": "50e7932b6e33e5e4916ea9b4cd0e6b80622b4ee8c2237f77463f29664a5a10c8"
+    },
+    {
+      "id": "icon-alliance",
+      "title": "联盟",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-alliance.svg",
+      "png": "png/icon-alliance.png",
+      "atlas_rect": [
+        114,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "3503efdf84b2a182299f90661f6ba831a1a2fdb77e19d667f9928fb12dccd183",
+      "png_sha256": "1041665a69d7d9bdc32286b48be28fb2f6b9d59f2b8200ca33bf9563d8251e8b"
+    },
+    {
+      "id": "icon-intelligence",
+      "title": "情报",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-intelligence.svg",
+      "png": "png/icon-intelligence.png",
+      "atlas_rect": [
+        142,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "dd70a13dae2809307d3f738f9efc53802b1930c38263a86e445d55720c274cb8",
+      "png_sha256": "7445cdbac358576c911cdd8f268e1fcf25092a06b723a0894dea412988009ea4"
+    },
+    {
+      "id": "icon-nation",
+      "title": "国家",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-nation.svg",
+      "png": "png/icon-nation.png",
+      "atlas_rect": [
+        170,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "5ec9ed00ef6c0869e274c8395d5a2279c6e936316bddaa24fe4a71842629916b",
+      "png_sha256": "05e3240b6348fcdf4f66ed53ed17f99c894543cd7f77dc13b238cb3f981365ea"
+    },
+    {
+      "id": "icon-end-turn",
+      "title": "结束回合",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-end-turn.svg",
+      "png": "png/icon-end-turn.png",
+      "atlas_rect": [
+        198,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "779e392251b1cedecb54de780b20db83083a81b138923f5a6f853a9a8190839b",
+      "png_sha256": "d31873ed5c3cc12dd991c1b0d8865e7d60fbf2618e0ee43de7d37e7cd8f7832b"
+    },
+    {
+      "id": "icon-move",
+      "title": "移动",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-move.svg",
+      "png": "png/icon-move.png",
+      "atlas_rect": [
+        226,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "cb3336ce4f93c64d7e9eb4b748546d688f1ee03f64a7c142ce09c50382040e47",
+      "png_sha256": "a63c55bee074ce11fcf3be849632f6190203edb8f98cee4bda57639817c5df34"
+    },
+    {
+      "id": "icon-attack",
+      "title": "攻击",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-attack.svg",
+      "png": "png/icon-attack.png",
+      "atlas_rect": [
+        254,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "66f1b261868b7971657744df382ef825daa1bedc3bdf36842f48ab24e9e2041c",
+      "png_sha256": "580cd015df82725ba71ee09a3a7d2bdd535d1a8b3c3318f5e4f92016f0ae6bb4"
+    },
+    {
+      "id": "icon-retreat",
+      "title": "撤退",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-retreat.svg",
+      "png": "png/icon-retreat.png",
+      "atlas_rect": [
+        282,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "212115effc17e05f1304fdd86ced162516a78df48f175bb7dd7de030c4ef1841",
+      "png_sha256": "15b30ac38cb10710c154d5304bf24319d02fb4d941efd6852528d2649bb3e83c"
+    },
+    {
+      "id": "icon-disband",
+      "title": "遣散",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-disband.svg",
+      "png": "png/icon-disband.png",
+      "atlas_rect": [
+        310,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "3c8423095bb5cd6e7fe6d1748cf6617aac1aeb636b409da0dbc78d7b03cd0731",
+      "png_sha256": "d66e833e619a63431d31d67e0c751291d0033ed0e673fc8e59987b334157bc89"
+    },
+    {
+      "id": "icon-letter",
+      "title": "信件",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-letter.svg",
+      "png": "png/icon-letter.png",
+      "atlas_rect": [
+        338,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "0f10403bf81779a84a1711b975ecbf952929eabec821eb6a56c1ae82f4a6f75c",
+      "png_sha256": "91b8893006b769ba88e2e092736b5a7be7317a68c2dd7a5ab14e528f5d0b6940"
+    },
+    {
+      "id": "icon-map",
+      "title": "共享地图",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-map.svg",
+      "png": "png/icon-map.png",
+      "atlas_rect": [
+        366,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "3d6c94789772b551fa571195d664edd8dc9e297e55f14ad489e5c2abd45fdcb6",
+      "png_sha256": "7483fb0817c81fc3be3fa15e67da701f374c23829e063869df614dc33ed1c8e5"
+    },
+    {
+      "id": "icon-buy-map",
+      "title": "购买地图",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-buy-map.svg",
+      "png": "png/icon-buy-map.png",
+      "atlas_rect": [
+        394,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "8d6d3a6df686c0a3a2a86be2997ce59396ca2d9f07aebab9d8c2f65dcf993ae1",
+      "png_sha256": "d448f253919c43de41a22860760a9cfa2b118253b2cde4b953dac640a58894f5"
+    },
+    {
+      "id": "icon-spy",
+      "title": "派遣间谍",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-spy.svg",
+      "png": "png/icon-spy.png",
+      "atlas_rect": [
+        422,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "5a78382d05b95b940c94d80f1b44813393f02abda56b05f8998e721ef4371765",
+      "png_sha256": "17c946bb91869a9d832c641f8fe99da9fd6eb3ea903c52d14f6bb42b28b0be5b"
+    },
+    {
+      "id": "icon-report",
+      "title": "经济报表",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-report.svg",
+      "png": "png/icon-report.png",
+      "atlas_rect": [
+        450,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "7a2a780ecec4f228f7ccacece7b4a188d104bdc9691adba723f3e0af0cd86216",
+      "png_sha256": "8ae6ba3cb1504cf70f5c588d65741c2e046392c234481dc85bd93c74898276ac"
+    },
+    {
+      "id": "icon-snapshot",
+      "title": "历史快照",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-snapshot.svg",
+      "png": "png/icon-snapshot.png",
+      "atlas_rect": [
+        478,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "d54e93efac7fc21e137cea6015c8d9b0ab30f1b57de4f88f3215adaa3376ad95",
+      "png_sha256": "921c55bddf05962a5894fd768f759457c128387fe46e15465c474a27eea54a9a"
+    },
+    {
+      "id": "icon-gift",
+      "title": "赠礼",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-gift.svg",
+      "png": "png/icon-gift.png",
+      "atlas_rect": [
+        506,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "aca6726b29fdce97ea88fdc75565630bcb3fae47915c034f8462fda95f1ef7b2",
+      "png_sha256": "94b881d01dcce20efc4d8c8ea9d01c59cee4a67da9a062c9b8b13649a3dafa08"
+    },
+    {
+      "id": "icon-vote",
+      "title": "联盟投票",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-vote.svg",
+      "png": "png/icon-vote.png",
+      "atlas_rect": [
+        534,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "b43b7fdce8f1d270391845f92569170c936b20dd9a20dd8fcb801f4c2d900912",
+      "png_sha256": "92b9440c1af125b9eafd2afe9285896eb830fda795ed089eb1663080ca2645b9"
+    },
+    {
+      "id": "icon-live",
+      "title": "实时视野",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-live.svg",
+      "png": "png/icon-live.png",
+      "atlas_rect": [
+        562,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "a7fd2bccb7a323cc7e413a78e894353f3584caee22c10911b81a5672f03b50f6",
+      "png_sha256": "99b88226a2e3d5981308c4d4a2ee9a59bf110fa08004c545682078406711ad23"
+    },
+    {
+      "id": "icon-unknown",
+      "title": "未知",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-unknown.svg",
+      "png": "png/icon-unknown.png",
+      "atlas_rect": [
+        590,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "6bcb696e40584c99db1b6ec8de711c2a366f645110bf12c37a1c6bd3dd78cdb7",
+      "png_sha256": "0aa75480f4dc7c6cb8d6f1ecddb764b19bc55c5d17194a2473850723a35034bb"
+    },
+    {
+      "id": "icon-close",
+      "title": "关闭",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-close.svg",
+      "png": "png/icon-close.png",
+      "atlas_rect": [
+        618,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "1be757d84ae7a3494a6aefcacbd588082e455ee8494f4c6c72319739c26bf176",
+      "png_sha256": "9e3965a31f540c2866b895dc3b9da21837b0c017f560f2130e4461f33b339584"
+    },
+    {
+      "id": "icon-check",
+      "title": "确认",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-check.svg",
+      "png": "png/icon-check.png",
+      "atlas_rect": [
+        646,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "0c75969697f3dd0b335ab593e7329c78edb7f02dbf95b05ac3895ca1bf58f6f5",
+      "png_sha256": "b2002b46f7a7f061fbaeeb3dda87f8beea9438142aef6f0dc834bb525424d6a8"
+    },
+    {
+      "id": "icon-pin",
+      "title": "定位",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-pin.svg",
+      "png": "png/icon-pin.png",
+      "atlas_rect": [
+        674,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "6a25bb905b2e2766ff366fffe3c236ad629031b08aa7ed71fd1fa9841e8139e6",
+      "png_sha256": "747351794d908049cb3555a4dd1ace87ca0048e3b846f685a591698d729262ec"
+    },
+    {
+      "id": "icon-clock",
+      "title": "采样时间",
+      "size": [
+        24,
+        24
+      ],
+      "category": "icon",
+      "anchor": [
+        12,
+        12
+      ],
+      "svg": "svg/icon-clock.svg",
+      "png": "png/icon-clock.png",
+      "atlas_rect": [
+        702,
+        2,
+        24,
+        24
+      ],
+      "svg_sha256": "a1ed6e01aaf54b38d91f4a2f88d94740943350270287ef2e78f4db9bf7911100",
+      "png_sha256": "355b0ddbe5cb8b1892bdf1fa3169d33a13ea8f2c340c149e1c8879d7f0af0ecb"
+    },
+    {
+      "id": "button-normal",
+      "title": "按钮 normal",
+      "size": [
+        48,
+        48
+      ],
+      "category": "chrome",
+      "anchor": [
+        24,
+        24
+      ],
+      "nine_patch": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "svg": "svg/button-normal.svg",
+      "png": "png/button-normal.png",
+      "atlas_rect": [
+        730,
+        2,
+        48,
+        48
+      ],
+      "svg_sha256": "2b376d7c09ee80770bc1cf5c37a439409dfab4098304442be700acbdcce44baa",
+      "png_sha256": "bf7ba879ec65f09d0d53929a4b9e0cfdf0bd541a1c6591ae824020cccb3e1f25"
+    },
+    {
+      "id": "button-hover",
+      "title": "按钮 hover",
+      "size": [
+        48,
+        48
+      ],
+      "category": "chrome",
+      "anchor": [
+        24,
+        24
+      ],
+      "nine_patch": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "svg": "svg/button-hover.svg",
+      "png": "png/button-hover.png",
+      "atlas_rect": [
+        782,
+        2,
+        48,
+        48
+      ],
+      "svg_sha256": "1c2903840b65caff731174bf3f774e800740198d1f8af7f59c1aaec6bcb98499",
+      "png_sha256": "9a3ada2f408f4de5b5ca9c2fa5d841ea29b7dadf1b46ade2cb2c9d600e91018b"
+    },
+    {
+      "id": "button-pressed",
+      "title": "按钮 pressed",
+      "size": [
+        48,
+        48
+      ],
+      "category": "chrome",
+      "anchor": [
+        24,
+        24
+      ],
+      "nine_patch": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "svg": "svg/button-pressed.svg",
+      "png": "png/button-pressed.png",
+      "atlas_rect": [
+        834,
+        2,
+        48,
+        48
+      ],
+      "svg_sha256": "b7a28597986c25cadfad1b3c46e4a05038fa9ce4d3df76ae88d2feb48880128c",
+      "png_sha256": "76ada29be084f2e467155a7179e4c3488dc88e01484345e2396e47d0fddb5ada"
+    },
+    {
+      "id": "button-selected",
+      "title": "按钮 selected",
+      "size": [
+        48,
+        48
+      ],
+      "category": "chrome",
+      "anchor": [
+        24,
+        24
+      ],
+      "nine_patch": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "svg": "svg/button-selected.svg",
+      "png": "png/button-selected.png",
+      "atlas_rect": [
+        886,
+        2,
+        48,
+        48
+      ],
+      "svg_sha256": "1d82c42d1df3f579505182362222489468b844dcff12add825069900403df049",
+      "png_sha256": "8230bc5e2ebf4963280cb440ea328593e4433713bc261130fd7c48620272de57"
+    },
+    {
+      "id": "button-disabled",
+      "title": "按钮 disabled",
+      "size": [
+        48,
+        48
+      ],
+      "category": "chrome",
+      "anchor": [
+        24,
+        24
+      ],
+      "nine_patch": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "svg": "svg/button-disabled.svg",
+      "png": "png/button-disabled.png",
+      "atlas_rect": [
+        938,
+        2,
+        48,
+        48
+      ],
+      "svg_sha256": "f42be64a5e72a8acf373e213ee091cb71d6ba27f9fe65c214e66e6c453179352",
+      "png_sha256": "167634ec0ecb87cf4315baf86e485df0c080310430e1c29933d494d915792c00"
+    },
+    {
+      "id": "button-danger",
+      "title": "按钮 danger",
+      "size": [
+        48,
+        48
+      ],
+      "category": "chrome",
+      "anchor": [
+        24,
+        24
+      ],
+      "nine_patch": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "svg": "svg/button-danger.svg",
+      "png": "png/button-danger.png",
+      "atlas_rect": [
+        2,
+        54,
+        48,
+        48
+      ],
+      "svg_sha256": "a4a91ad1a4eebd708d304c8f005499cfce1313c482ca17c357e6221c57ae959b",
+      "png_sha256": "5ff23d0b73cc3d373755e3a5d93ccc8a76c0ed55a341dcfd1449095dc7b05949"
+    },
+    {
+      "id": "panel",
+      "title": "面板底板",
+      "size": [
+        48,
+        48
+      ],
+      "category": "chrome",
+      "anchor": [
+        24,
+        24
+      ],
+      "nine_patch": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "svg": "svg/panel.svg",
+      "png": "png/panel.png",
+      "atlas_rect": [
+        54,
+        54,
+        48,
+        48
+      ],
+      "svg_sha256": "0aa641d836176f94d91bb3d23bae29f180cc7beacd997a092ec1c2130bd4d435",
+      "png_sha256": "bf7ba879ec65f09d0d53929a4b9e0cfdf0bd541a1c6591ae824020cccb3e1f25"
+    },
+    {
+      "id": "checkbox-off",
+      "title": "军队复选 off",
+      "size": [
+        20,
+        20
+      ],
+      "category": "control",
+      "anchor": [
+        10,
+        10
+      ],
+      "svg": "svg/checkbox-off.svg",
+      "png": "png/checkbox-off.png",
+      "atlas_rect": [
+        106,
+        54,
+        20,
+        20
+      ],
+      "svg_sha256": "d8625e4a5503149609c539801b058b87851726c637fc8bc0561b069e449d0d3e",
+      "png_sha256": "df86340cbf63783b7e66ff42bc89d3f960c069039c33a199ca4a9a990caafe8e"
+    },
+    {
+      "id": "checkbox-on",
+      "title": "军队复选 on",
+      "size": [
+        20,
+        20
+      ],
+      "category": "control",
+      "anchor": [
+        10,
+        10
+      ],
+      "svg": "svg/checkbox-on.svg",
+      "png": "png/checkbox-on.png",
+      "atlas_rect": [
+        130,
+        54,
+        20,
+        20
+      ],
+      "svg_sha256": "1f98fb0464d0a979001df52fc75fdc09c03f58cb5116dd9dc8fed51c7de1200b",
+      "png_sha256": "1bf5796244538c5aa7fec1e0f5ca93392772c9f448b5e419ee6fec12369c9f96"
+    },
+    {
+      "id": "checkbox-disabled",
+      "title": "军队复选 disabled",
+      "size": [
+        20,
+        20
+      ],
+      "category": "control",
+      "anchor": [
+        10,
+        10
+      ],
+      "svg": "svg/checkbox-disabled.svg",
+      "png": "png/checkbox-disabled.png",
+      "atlas_rect": [
+        154,
+        54,
+        20,
+        20
+      ],
+      "svg_sha256": "b06a81dc1bf74bb073457076836613681f9ea4e0ddf1f7878d11740585b1db13",
+      "png_sha256": "3630a2c19aa71dadc6175b1cda7e312d5d1690f6e9ea1686c33068d2ad98057e"
+    },
+    {
+      "id": "pending-badge",
+      "title": "待办数量底板",
+      "size": [
+        16,
+        16
+      ],
+      "category": "control",
+      "anchor": [
+        8,
+        8
+      ],
+      "text_safe": [
+        3,
+        3,
+        10,
+        10
+      ],
+      "svg": "svg/pending-badge.svg",
+      "png": "png/pending-badge.png",
+      "atlas_rect": [
+        178,
+        54,
+        16,
+        16
+      ],
+      "svg_sha256": "98ebdffd3df0596425f2c7c887eb7d583f91320e00cd2ca5bfe414e6aa28ae0b",
+      "png_sha256": "eed2a9521584c784082377b98a51b75918f3bc024b8caa368ca13d1d760f88d9"
+    },
+    {
+      "id": "range-move-known",
+      "title": "移动已知范围",
+      "size": [
+        64,
+        64
+      ],
+      "category": "range",
+      "anchor": [
+        32,
+        32
+      ],
+      "tint": "semantic; do not tint by nation",
+      "svg": "svg/range-move-known.svg",
+      "png": "png/range-move-known.png",
+      "atlas_rect": [
+        198,
+        54,
+        64,
+        64
+      ],
+      "svg_sha256": "4682bf718eb507b22d69fd9d56f77a0a1030ae524bc50bbff2680430423d6eae",
+      "png_sha256": "09aa735d53e55184fd0dc17392b2c13830feeabeae836369c0ccb99fd93020e8"
+    },
+    {
+      "id": "range-move-uncertain",
+      "title": "移动尝试范围",
+      "size": [
+        64,
+        64
+      ],
+      "category": "range",
+      "anchor": [
+        32,
+        32
+      ],
+      "tint": "semantic; do not tint by nation",
+      "svg": "svg/range-move-uncertain.svg",
+      "png": "png/range-move-uncertain.png",
+      "atlas_rect": [
+        266,
+        54,
+        64,
+        64
+      ],
+      "svg_sha256": "ff7f8f490c4b41f84eef0ed793a58dd64c38a907510ecf6bda853b9a78bfbd86",
+      "png_sha256": "ec148a7313cc2ee2e2d8a3b32a83047136ee45aa6bdfe009b8745bbb6950be54"
+    },
+    {
+      "id": "range-attack-known",
+      "title": "攻击已知范围",
+      "size": [
+        64,
+        64
+      ],
+      "category": "range",
+      "anchor": [
+        32,
+        32
+      ],
+      "tint": "semantic; do not tint by nation",
+      "svg": "svg/range-attack-known.svg",
+      "png": "png/range-attack-known.png",
+      "atlas_rect": [
+        334,
+        54,
+        64,
+        64
+      ],
+      "svg_sha256": "93f72c127a2a2f1bb171b50ffc10a82baadda8ee0d09713454a6971ba27f9f16",
+      "png_sha256": "78055673a0189a1dbc28f9051c4cf3adb3b109f88773c2639cddf0772f00cf8f"
+    },
+    {
+      "id": "range-attack-uncertain",
+      "title": "攻击尝试范围",
+      "size": [
+        64,
+        64
+      ],
+      "category": "range",
+      "anchor": [
+        32,
+        32
+      ],
+      "tint": "semantic; do not tint by nation",
+      "svg": "svg/range-attack-uncertain.svg",
+      "png": "png/range-attack-uncertain.png",
+      "atlas_rect": [
+        402,
+        54,
+        64,
+        64
+      ],
+      "svg_sha256": "9f6451ea149ca28388099ba9424ccda7456f17d98d5462f2c8a7d1f46fefe3b5",
+      "png_sha256": "29bb0d6961bf37e689271fd5323dc39750e7f3e0a060e5eee64bd7af89b10e18"
+    },
+    {
+      "id": "tile-selected",
+      "title": "点选地块框",
+      "size": [
+        64,
+        64
+      ],
+      "category": "range",
+      "anchor": [
+        32,
+        32
+      ],
+      "svg": "svg/tile-selected.svg",
+      "png": "png/tile-selected.png",
+      "atlas_rect": [
+        470,
+        54,
+        64,
+        64
+      ],
+      "svg_sha256": "2fc9c049b66f3d0db69dc40fdea523b9a4cd3fbeb1ca04477a9f08f190efaa76",
+      "png_sha256": "6433eddf71fa6ea1f030df15bb074f472c50637b537326314a7f47b8982bc9c5"
+    },
+    {
+      "id": "army-own",
+      "title": "军团标记 own",
+      "size": [
+        32,
+        32
+      ],
+      "category": "marker",
+      "anchor": [
+        16,
+        30
+      ],
+      "tint": "replace blue cloth only",
+      "svg": "svg/army-own.svg",
+      "png": "png/army-own.png",
+      "atlas_rect": [
+        538,
+        54,
+        32,
+        32
+      ],
+      "svg_sha256": "b72e5de4a79a5d6d68f73260583ba3d3ff5c2b438d899dcaecdffb624f0fc8c2",
+      "png_sha256": "88399a1a0a837f1a0f6061cd41e135aabf94fad146741f8f8636f7690a8c0d99"
+    },
+    {
+      "id": "army-enemy",
+      "title": "军团标记 enemy",
+      "size": [
+        32,
+        32
+      ],
+      "category": "marker",
+      "anchor": [
+        16,
+        30
+      ],
+      "tint": "none",
+      "svg": "svg/army-enemy.svg",
+      "png": "png/army-enemy.png",
+      "atlas_rect": [
+        574,
+        54,
+        32,
+        32
+      ],
+      "svg_sha256": "c9279e8e8226dc4331f12b0f8ed5023055787fe468cfbd528202f8e2d6e6d2d2",
+      "png_sha256": "62b282ce520b1fe0c2b5bcf3ffcfba986e1bcb44653f72e128f248f2da9ce3cc"
+    },
+    {
+      "id": "army-last-seen",
+      "title": "军团标记 last-seen",
+      "size": [
+        32,
+        32
+      ],
+      "category": "marker",
+      "anchor": [
+        16,
+        30
+      ],
+      "tint": "none",
+      "svg": "svg/army-last-seen.svg",
+      "png": "png/army-last-seen.png",
+      "atlas_rect": [
+        610,
+        54,
+        32,
+        32
+      ],
+      "svg_sha256": "61010d849ec896e3c1144ff4b47c5bbd4a5a5b6b088780ab5ed7c9d49638c3f1",
+      "png_sha256": "839612c252be9d7b67ecdc8851de43484048a7c580c3f54b909e80dbdd43f2d5"
+    },
+    {
+      "id": "prop-map",
+      "title": "地图世界贴图 map",
+      "size": [
+        32,
+        32
+      ],
+      "category": "prop",
+      "anchor": [
+        16,
+        16
+      ],
+      "svg": "svg/prop-map.svg",
+      "png": "png/prop-map.png",
+      "atlas_rect": [
+        646,
+        54,
+        32,
+        32
+      ],
+      "svg_sha256": "4f785e59317c73992f32643945fc2a281ff9f602416ff23d0e831b7a06928080",
+      "png_sha256": "1a389ebb7e6815638cd835556fac62bf38be134deb1a67dd7eecc39792a6a779"
+    },
+    {
+      "id": "prop-letter",
+      "title": "地图世界贴图 letter",
+      "size": [
+        32,
+        32
+      ],
+      "category": "prop",
+      "anchor": [
+        16,
+        16
+      ],
+      "svg": "svg/prop-letter.svg",
+      "png": "png/prop-letter.png",
+      "atlas_rect": [
+        682,
+        54,
+        32,
+        32
+      ],
+      "svg_sha256": "048be506454ca47b46fe4bcb11f338663b45ca9517f2ff4f0ce1578a822df32f",
+      "png_sha256": "bf4a1531c55d051d409c3269c229ffbb7395874c1efd838c4394653390055dbb"
+    },
+    {
+      "id": "prop-snapshot",
+      "title": "地图世界贴图 snapshot",
+      "size": [
+        32,
+        32
+      ],
+      "category": "prop",
+      "anchor": [
+        16,
+        16
+      ],
+      "svg": "svg/prop-snapshot.svg",
+      "png": "png/prop-snapshot.png",
+      "atlas_rect": [
+        718,
+        54,
+        32,
+        32
+      ],
+      "svg_sha256": "7ca9f088602318e31921cf556bbed8b79a55804f3124f5e88b46ec4f345c79f4",
+      "png_sha256": "14e29ef2de3a91b951cea84b115b628868e6abb334b32e68964693f6105cf686"
+    },
+    {
+      "id": "fog-unknown",
+      "title": "未知区域不透明底纹",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog",
+      "anchor": [
+        0,
+        0
+      ],
+      "tileable": true,
+      "svg": "svg/fog-unknown.svg",
+      "png": "png/fog-unknown.png",
+      "atlas_rect": [
+        754,
+        54,
+        16,
+        16
+      ],
+      "svg_sha256": "87f5c3698c84097fd3d6adb074b040d96fd98e05cab8e4afea64f489a8df1c4e",
+      "png_sha256": "3384ebc25eba44abb16ec3ca14a94bcb6c292d91d0b119f88343ab1abdee6399"
+    },
+    {
+      "id": "fog-memory",
+      "title": "历史区域压暗覆盖层",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog",
+      "anchor": [
+        0,
+        0
+      ],
+      "tileable": true,
+      "requires": "Desaturate source separately; render saved snapshot only",
+      "svg": "svg/fog-memory.svg",
+      "png": "png/fog-memory.png",
+      "atlas_rect": [
+        774,
+        54,
+        16,
+        16
+      ],
+      "svg_sha256": "8793309c3f71ee4d18a9abeb1a4a07a3e9099e79809f50c0ab972878643eb843",
+      "png_sha256": "6409d34f055b52ba77800115c93392345a8e35e8a6c3d9801c67c4aa0153d2e1"
+    },
+    {
+      "id": "fog-edge-00",
+      "title": "未知邻格边缘 0",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 0,
+      "svg": "svg/fog-edge-00.svg",
+      "png": "png/fog-edge-00.png",
+      "atlas_rect": [
+        794,
+        54,
+        16,
+        16
+      ],
+      "svg_sha256": "6d261e6beebbb6f3586613c75a0ccd1cbea2c89b6890f24db3a229a8c7f836ee",
+      "png_sha256": "50b068e07b4bf235705c19b77da49fdbbc7e98ddc0a46f1c6659cca98c963904"
+    },
+    {
+      "id": "fog-edge-01",
+      "title": "未知邻格边缘 1",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 1,
+      "svg": "svg/fog-edge-01.svg",
+      "png": "png/fog-edge-01.png",
+      "atlas_rect": [
+        814,
+        54,
+        16,
+        16
+      ],
+      "svg_sha256": "0a72a5c0fac2a3bf72bbc8038ada9c7150abaac55231bf2b07ec2fbc0922e9ae",
+      "png_sha256": "fe93ddde652a74b1d2babe6245822dd1d8f732e2f2325080eef6aeb4b1196bc8"
+    },
+    {
+      "id": "fog-edge-02",
+      "title": "未知邻格边缘 2",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 2,
+      "svg": "svg/fog-edge-02.svg",
+      "png": "png/fog-edge-02.png",
+      "atlas_rect": [
+        834,
+        54,
+        16,
+        16
+      ],
+      "svg_sha256": "843aa84db59910ebca502ed08559c107e81c8e0efe2a4b69a956eac98712c17a",
+      "png_sha256": "29749c24820e89b0d5af191bd02ad2d91ed86e5501f7e6811bc4fc23676dc44d"
+    },
+    {
+      "id": "fog-edge-03",
+      "title": "未知邻格边缘 3",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 3,
+      "svg": "svg/fog-edge-03.svg",
+      "png": "png/fog-edge-03.png",
+      "atlas_rect": [
+        854,
+        54,
+        16,
+        16
+      ],
+      "svg_sha256": "ee7668382fe93efdf3078518c14c68749af3f5f00e5943380e2db5d46aa6474f",
+      "png_sha256": "5719a954cde4da1524d18035a01d96716084f5be8716d27664ff71b911f042f1"
+    },
+    {
+      "id": "fog-edge-04",
+      "title": "未知邻格边缘 4",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 4,
+      "svg": "svg/fog-edge-04.svg",
+      "png": "png/fog-edge-04.png",
+      "atlas_rect": [
+        874,
+        54,
+        16,
+        16
+      ],
+      "svg_sha256": "8ddd1077a90f01ffd51cf99d1cc199204e2bc5622be549d7558ea70dfd0824d0",
+      "png_sha256": "fa2873aff09b21b1d4a11051ce9be74598199421417a5134834a500032c11277"
+    },
+    {
+      "id": "fog-edge-05",
+      "title": "未知邻格边缘 5",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 5,
+      "svg": "svg/fog-edge-05.svg",
+      "png": "png/fog-edge-05.png",
+      "atlas_rect": [
+        894,
+        54,
+        16,
+        16
+      ],
+      "svg_sha256": "112547866f96f830003f0584338348aed01476d739bffbe2cf94e994a964da59",
+      "png_sha256": "8869704beec5aa08119803f7698554922ecf686004e357f70dd83bdf6ae13306"
+    },
+    {
+      "id": "fog-edge-06",
+      "title": "未知邻格边缘 6",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 6,
+      "svg": "svg/fog-edge-06.svg",
+      "png": "png/fog-edge-06.png",
+      "atlas_rect": [
+        914,
+        54,
+        16,
+        16
+      ],
+      "svg_sha256": "b3a88aafbf7a9b17c949b0d715472f0a86e349466b85bbcb423499dc305d4e44",
+      "png_sha256": "8240f51ba38655523cbde166a12a571040c8ab7d276a9c29e3a08045df3ef97f"
+    },
+    {
+      "id": "fog-edge-07",
+      "title": "未知邻格边缘 7",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 7,
+      "svg": "svg/fog-edge-07.svg",
+      "png": "png/fog-edge-07.png",
+      "atlas_rect": [
+        934,
+        54,
+        16,
+        16
+      ],
+      "svg_sha256": "e16bba0d14ed2ddb3837e947ef2a56d89beb367499edd853a5baff0195a57944",
+      "png_sha256": "04590d22dbc9c6d96e88bfd25a75deb7c3a60ea33c3d52961f932ea9748610ba"
+    },
+    {
+      "id": "fog-edge-08",
+      "title": "未知邻格边缘 8",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 8,
+      "svg": "svg/fog-edge-08.svg",
+      "png": "png/fog-edge-08.png",
+      "atlas_rect": [
+        954,
+        54,
+        16,
+        16
+      ],
+      "svg_sha256": "7a86f905fc2120893493b3dff031ba9a64873f0f8f3cd8a7fe1a742d590951e7",
+      "png_sha256": "299b527194189a61507c06a1da0156f8009fe9092c3e163c6f6d497421e9825f"
+    },
+    {
+      "id": "fog-edge-09",
+      "title": "未知邻格边缘 9",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 9,
+      "svg": "svg/fog-edge-09.svg",
+      "png": "png/fog-edge-09.png",
+      "atlas_rect": [
+        974,
+        54,
+        16,
+        16
+      ],
+      "svg_sha256": "6c333fd49229b33ccfbcf3163773ea80cfd41131daaa993bcfd9569358605ea8",
+      "png_sha256": "eb6eb6f3ce1a4e481bdee660417f0e786a6fab85368f9190431ec79ea4822bc5"
+    },
+    {
+      "id": "fog-edge-10",
+      "title": "未知邻格边缘 10",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 10,
+      "svg": "svg/fog-edge-10.svg",
+      "png": "png/fog-edge-10.png",
+      "atlas_rect": [
+        994,
+        54,
+        16,
+        16
+      ],
+      "svg_sha256": "142e353b6f494b974f4f81e009e512ae505b8ff7f4b0a9bf97399473b7c4e438",
+      "png_sha256": "9d870341a0e9746e3048e6056846c5483d5a96665d94acbff2fa92f2b2459786"
+    },
+    {
+      "id": "fog-edge-11",
+      "title": "未知邻格边缘 11",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 11,
+      "svg": "svg/fog-edge-11.svg",
+      "png": "png/fog-edge-11.png",
+      "atlas_rect": [
+        2,
+        122,
+        16,
+        16
+      ],
+      "svg_sha256": "6b15dcfeba82bd0926b4021d359ed5700a26ab8ff67336571c7b58435b2230c6",
+      "png_sha256": "0cb79a672b2e7ebf01998af4cde378c6725d5ea664e8f1933e24642314bd1600"
+    },
+    {
+      "id": "fog-edge-12",
+      "title": "未知邻格边缘 12",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 12,
+      "svg": "svg/fog-edge-12.svg",
+      "png": "png/fog-edge-12.png",
+      "atlas_rect": [
+        22,
+        122,
+        16,
+        16
+      ],
+      "svg_sha256": "d61a28be1cd496f9d915d6b8f99fc24ee6b0fbb59ca59dd639cab0cc3e2a57b1",
+      "png_sha256": "bee3c5f469962fa54bbfde4b6a00ff178b22b404971b18f9e2eee7117145f919"
+    },
+    {
+      "id": "fog-edge-13",
+      "title": "未知邻格边缘 13",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 13,
+      "svg": "svg/fog-edge-13.svg",
+      "png": "png/fog-edge-13.png",
+      "atlas_rect": [
+        42,
+        122,
+        16,
+        16
+      ],
+      "svg_sha256": "91de83045cb23d6c8f452c657b65df092c4241c6eab0cbc1dddab47b2bb6ec6d",
+      "png_sha256": "b1128b5cd360b6c4d73f3f4f7239add5fc364c77a6bf4256928f5507ca8b5786"
+    },
+    {
+      "id": "fog-edge-14",
+      "title": "未知邻格边缘 14",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 14,
+      "svg": "svg/fog-edge-14.svg",
+      "png": "png/fog-edge-14.png",
+      "atlas_rect": [
+        62,
+        122,
+        16,
+        16
+      ],
+      "svg_sha256": "e4464b341b00b31b6e3d8854cc09edd83317aa6a880ab46e1196ee7c23598592",
+      "png_sha256": "57426094fd5a356ff28f14417bca9f5e9e88f8db973424d96fd1f2f7d41755c8"
+    },
+    {
+      "id": "fog-edge-15",
+      "title": "未知邻格边缘 15",
+      "size": [
+        16,
+        16
+      ],
+      "category": "fog-edge",
+      "anchor": [
+        0,
+        0
+      ],
+      "unknown_neighbor_mask": 15,
+      "svg": "svg/fog-edge-15.svg",
+      "png": "png/fog-edge-15.png",
+      "atlas_rect": [
+        82,
+        122,
+        16,
+        16
+      ],
+      "svg_sha256": "2244cdc255a3d514b022c1415c6d114b54bd1e3b94f0c696ef55e001b87a78f6",
+      "png_sha256": "7f5ef993ac45d9cedfe0d6aa36b720f6dd19a0a6ca7346f26f863b6a85f232aa"
+    }
+  ],
+  "preview": {
+    "military-move": {
+      "svg": "military-move.svg",
+      "png": "military-move.png",
+      "synthetic": true
+    },
+    "military-attack": {
+      "svg": "military-attack.svg",
+      "png": "military-attack.png",
+      "synthetic": true
+    },
+    "intelligence-map": {
+      "svg": "intelligence-map.svg",
+      "png": "intelligence-map.png",
+      "synthetic": true
+    },
+    "diplomacy-alliance": {
+      "svg": "diplomacy-alliance.svg",
+      "png": "diplomacy-alliance.png",
+      "synthetic": true
+    },
+    "catalog": {
+      "svg": "catalog.svg",
+      "png": "catalog.png",
+      "synthetic": true
+    }
+  }
+}
