@@ -15,13 +15,15 @@ ZIP 中有：
 | `userdata`（首次使用后创建） | 本机存档、菜单配置与 API 设置 |
 | `开始体验.txt` | 操作、暂停/快进、镜头与启动说明 |
 | `给音乐和美术的说明.md`、`music` | 场景需求、音乐交付和画面反馈入口 |
-| `美术预览/index.html`、`美术预览/素材` | 图录、合成预览、SVG母版、PNG、帧表 |
+| `美术预览/index.html`、`美术预览/素材`、`美术预览/补绘SVG` | 图录、合成预览、SVG母版、PNG、帧表 |
 | `演出参考.mp4` | 32秒实际战斗演出，方便讨论节奏 |
 | `portable.json`、`bundle-manifest.json`、`LICENSES` | 构建提交、文件哈希与各自的来源/许可 |
 
 `userdata` 里的 API 配置属于使用者自己；转发给朋友请用原始 ZIP。
 原始包从跟踪文件的白名单取运行源码，不复制已有存档、本机配置、缓存或开发环境。
 `music` 中新放的文件暂不自动播放，本版尚无正式音乐/音效；朋友可以先做小样，收到后再接入。
+
+2026-10-26 的单国收支、街道、集市与新字体开发包已通过[Windows 实际窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40268362667)，在该次 Actions 的 `Zhanguo-Windows-x64` 工件中下载。它采用运行提交 `9cfdaa7`，尚未替换已发布的 v0.5.1；[本轮截图与检查范围](reviews/GUI单国收支与街道演出-20261026.md)。
 
 ## 构建与验证
 
@@ -48,7 +50,10 @@ $zip = (Get-ChildItem archive/windows-build-new/*.zip).FullName
 2. 打开真实窗口检查主菜单、配置表单与 API 档案布局。
 3. 用 ANGLE 在构建机绘制默认活地图，逐批确认演出并推进到三期，核对像素素材、字体、抽屉、Esc 自动暂停/保存排队/恢复和保存退出。
 
-最后一项使用构建机的图形后端，不能代替朋友电脑上 Vulkan 或实际显卡的性能测试。
+4. 在正常 v13 世界生成的样例中，检查市场收付款、生产、补给、进攻箭头、实际送达信件和三档缩放的飞鸟。
+5. 用四种逻辑窗口尺寸、两档账目字号与 1.25／1.5 倍内容渲染缩放验证 12 组排版；此项不等同于修改 Windows 系统 DPI。
+
+窗口检查使用构建机的图形后端，不能代替朋友电脑上 Vulkan 或实际显卡的性能测试。
 
 官方资料：[Godot Windows 导出](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_windows.html)、
 [C# 运行与构建要求](https://docs.godotengine.org/en/stable/tutorials/scripting/c_sharp/c_sharp_basics.html)、

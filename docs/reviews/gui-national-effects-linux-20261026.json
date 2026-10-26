@@ -1,0 +1,62 @@
+{
+  "offline": true,
+  "normal_start": true,
+  "subsidies": false,
+  "national_colors_checked": true,
+  "checks": [
+    {
+      "phase": "trade",
+      "markets": 8,
+      "roads": 1431,
+      "arrows": 0,
+      "letters": 0
+    },
+    {
+      "phase": "order",
+      "markets": 8,
+      "roads": 1431,
+      "arrows": 1,
+      "letters": 0
+    },
+    {
+      "phase": "production",
+      "markets": 8,
+      "roads": 1417,
+      "arrows": 0,
+      "letters": 0
+    },
+    {
+      "phase": "maintenance",
+      "markets": 8,
+      "roads": 1417,
+      "arrows": 0,
+      "letters": 0
+    },
+    {
+      "phase": "battle",
+      "markets": 8,
+      "roads": 1417,
+      "arrows": 1,
+      "letters": 0
+    },
+    {
+      "phase": "letter",
+      "markets": 8,
+      "roads": 1417,
+      "arrows": 0,
+      "letters": 1
+    },
+    {
+      "zoom": 0.85,
+      "birds": 6
+    },
+    {
+      "zoom": 0.95,
+      "birds": 6
+    },
+    {
+      "zoom": 2,
+      "birds": 6
+    }
+  ]
+}
