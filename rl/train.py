@@ -1189,7 +1189,7 @@ def _streak(infos: list[dict], state: dict, who: str) -> int:
 
 
 def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
-          lr: float = 3e-4, temperature: float = 1.0,
+          lr: float = 3e-4, temperature: float = 1.0, ent_coef: float = 0.01,
           first_streak_limit: int = 8, size: int = 8,
           size_min: int | None = None, size_max: int | None = None,
           halls_known: bool = True, nations: int | None = None,
@@ -1512,7 +1512,13 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
                 buf.setdefault(mi, []).append(s)
         # ★ `epochs` **用上面算好的那一个**（`eff_epochs`）—— 原先在这里又
         #   `setdefault` 一遍，就是"两臂偷偷差一个因子"的来源（见它的注释）。
-        pk = {"epochs": eff_epochs}
+        # ★★ 2026-10-26：把**熵系数**透出来（原先只有 `ppo_update` 的默认值 0.01，
+        #   训练侧**够不着** ⇒ 想调只能改代码）。
+        #   ★ 为什么现在要能调：实测训练日志里 `pg≈0.005~0.03`、而 `ent≈3.1`
+        #   ⇒ 熵项 `ent_coef*ent ≈ 0.031` 与策略项**同量级** ⇒ 策略可能被
+        #   **熵项按住不动**（实测策略集中度卡在 0.999、行为与随机无异）。
+        #   ⇒ 要验证"是不是熵项压住了策略"，**得能把它调小/调零**。
+        pk = {"epochs": eff_epochs, "ent_coef": ent_coef}
         if mem_slots:
             # ★ 记忆模式：`epochs` 保守（见 `_ppo_update_mem` 的"陈旧状态"那段）
             pk["tbptt"] = int(tbptt or S.MEM_TBPTT)
@@ -1920,6 +1926,10 @@ if __name__ == "__main__":
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--temperature", type=float, default=1.0)
+    ap.add_argument("--ent-coef", dest="ent_coef", type=float, default=None,
+                    help="★ 熵项系数（PPO 的熵奖励）。缺省 0.01（不变）。"
+                         "★ 调它是为了验证'熵项是不是把策略按在均匀分布上'"
+                         "（实测训练日志 `ent≈3.1` ⇒ 熵项贡献 ≈0.031，与策略项同量级）")
     ap.add_argument("--first-streak-limit", type=int, default=8,
                     help="先手连续赢这么多局就抛断言（闸门，见 train() 的 docstring）。"
                          "★ 2026-09-28 用户从 5 改成 8：先手胜≈0.45 时 5 连是 1.8%%/局、"
@@ -2083,6 +2093,7 @@ if __name__ == "__main__":
     resume = _resume_point(a.resume, a.out)
     train(iters=seg, episodes_per_iter=a.episodes, seed=a.seed, lr=a.lr,
           temperature=a.temperature, first_streak_limit=a.first_streak_limit,
+          ent_coef=(0.01 if a.ent_coef is None else float(a.ent_coef)),
           size=a.size, size_min=a.size_min, size_max=a.size_max,
           halls_known=a.halls_known, nations=a.nations, t_max=a.t_max, max_steps=a.max_steps, mb=a.mb, epochs=a.epochs,
           pool=a.pool, out=a.out, ckpt_every=a.ckpt_every, resume=resume,
