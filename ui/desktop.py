@@ -274,6 +274,7 @@ class Controller:
     def publish(self,beats,stage,*,actor=None,call=None,frame=None):
         if frame is None:frame=self.frame()
         self.flush_stream()
+        if self.human_api is not None and actor!=self.viewer:actor=call=None
         self.timeline_sequence+=1;self.waiting=self.timeline_sequence
         self.send('timeline',sequence=self.waiting,period=self._capture.period,
                   stage=stage,actor=actor,call=call,beats=beats)

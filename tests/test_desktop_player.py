@@ -117,3 +117,14 @@ class TestDesktopPlayer(unittest.TestCase):
             self.assertTrue(letters)
             self.assertEqual(letters[0]['text'],'送达正文')
             self.assertTrue(letters[0]['letter']['schematic'])
+
+    def test_visible_foreign_changes_do_not_name_private_call_metadata(self):
+        with TemporaryDirectory() as tmp:
+            rows=[];c=Controller(self.host,Path(tmp)/'s.json',rows.append,playback=True)
+            c._capture=PlayerCapture(c)
+            c.publish([],"action",actor=B,call=17)
+            foreign=next(r for r in rows if r['type']=='timeline')
+            self.assertIsNone(foreign['actor']);self.assertIsNone(foreign['call'])
+            rows.clear();c.publish([],"action",actor=A,call=18)
+            own=next(r for r in rows if r['type']=='timeline')
+            self.assertEqual(own['actor'],A);self.assertEqual(own['call'],18)
