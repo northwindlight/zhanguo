@@ -11,7 +11,7 @@ public partial class Desktop
     private JsonObject? _humanState,_humanTurn;
     private bool HumanMode=>_humanState!=null;
     private string HumanActor=>S(_humanState?["actor"]);
-    private bool _humanBusy,_humanPaused,_humanStarted,_humanEnded,_humanNeedsFrame;
+    private bool _humanBusy,_humanPaused,_humanStarted,_humanEnded,_humanNeedsFrame,_humanResultReady;
     private string _humanSubmittedOperation="";
     private Vector2I? _humanSubmittedCell;
     private int _humanSubmittedPeriod;
@@ -178,6 +178,7 @@ public partial class Desktop
         }
         if(id!=_humanWrite)return true;
         bool processed=row["ok"]?.GetValue<bool>()==true;
+        _humanResultReady=processed;
         var receipt=row["data"] as JsonObject;
         bool ok=processed&&receipt?["ok"]?.GetValue<bool>()==true;
         MarketReceived(_humanSubmittedOperation,ok);
@@ -219,7 +220,7 @@ public partial class Desktop
         _humanSubmittedOperation=operation;_humanSubmittedPeriod=I(_humanTurn!["period"]);
         _humanSubmittedCell=arguments["x"]!=null&&arguments["y"]!=null?new Vector2I(I(arguments["x"]),I(arguments["y"])):null;
         if(operation=="demolish")_humanSubmittedCell=_humanCell;
-        _humanWrite="write/"+Guid.NewGuid().ToString("N");_humanOperation=operation;_humanBusy=true;
+        _humanWrite="write/"+Guid.NewGuid().ToString("N");_humanOperation=operation;_humanBusy=true;_humanResultReady=false;
         CancelHumanTarget();RefreshHumanButtons();
         SendHumanRow(new JsonObject { ["command"]="human_submit",["actor"]=HumanActor,["period"]=_humanTurn!["period"]!.DeepClone(),
             ["control_generation"]=_humanTurn["control_generation"]!.DeepClone(),["seat_token"]=_humanTurn["seat_token"]!.DeepClone(),

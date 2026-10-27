@@ -166,6 +166,9 @@ public partial class Desktop
             if(content?["visual"] is not JsonObject visual)throw new Exception("真人快照缺少玩家画面；拒绝使用观察者全图");
             _period=I(raw["period"]);_map.SetFrame((JsonObject)visual.DeepClone());
             SetHumanState(raw);RefreshNationLedger(HumanActor);
+            // Capture failures may fall back to a snapshot without animation.
+            // A matching receipt must precede it before the write is released.
+            if(!HasTimeline&&_humanBusy&&_humanResultReady){_humanBusy=false;_humanResultReady=false;RefreshHumanButtons();}
             return;
         }
         if(_initialArmies<0)

@@ -118,7 +118,7 @@ public partial class Desktop
             if(_humanCommands.Count!=1||!_humanQueuePanel.Visible)throw new Exception("连续买入没有进入待执行队列");
             await Screenshot(stem+"-market-queue.png");await HumanIdle();await MarketReady();
             if(F(HumanFacts["econ"]!["stocks"]!.AsArray().First(s=>S(s!["id"])=="native:food")!["amount"])!=food+2||_humanHistory.Count!=history+2)
-                throw new Exception("连续两次买入丢单或重复成交");
+                throw new Exception($"连续两次买入尚未对账：粮食 {OwnStock("food")} / {food+2}，回执 {_humanHistory.Count-history}/2，状态 {_hostState}，忙碌 {_humanBusy}，待执行 {_humanCommands.Count}");
             await PointerClick(MarketReviewButton("Market_sell_1"));await WaitFor(()=>HasTimeline&&_humanBusy,"卖出演出没有开始");
             await PointerClick(MarketReviewButton("Market_sell_10"));
             if(_humanCommands.Count!=1)throw new Exception("卖出未排队");

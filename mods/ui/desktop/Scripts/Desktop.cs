@@ -431,7 +431,10 @@ public partial class Desktop : Control
                 _humanCycleActive=row["cycle_active"]?.GetValue<bool>()==true;
                 _humanPaused=row["playback_paused"]?.GetValue<bool>()==true;
                 _savedHumanPeriod=row["saved_period"]==null?-1:I(row["saved_period"]);
-                if(state=="human-waiting"){_humanBusy=false;_humanPaused=false;}
+                // This status can acknowledge the preceding batch after the
+                // next queued write was sent. Only its own result/frame may
+                // release _humanBusy; a generic ready status cannot do so.
+                if(state=="human-waiting")_humanPaused=false;
                 _status.Text=$"第 {I(row["period"])+1} 回合 · {(state=="human-waiting"?"轮到你了":state=="advancing"?"列国行动中":status)} · 已存 {_savedHumanPeriod} 期";
                 if(state=="exit-choice")ShowHumanExitChoice();
                 if(state=="discarded"&&_closing){_stopped=true;GetTree().Quit();}
