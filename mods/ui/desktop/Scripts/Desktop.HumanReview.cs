@@ -17,6 +17,15 @@ public partial class Desktop
         var picker=_humanContent.FindChild("HumanField_"+field,true,false) as OptionButton;
         picker!.Select(index);picker.EmitSignal(OptionButton.SignalName.ItemSelected,(long)index);
     }
+    private async Task RtsReady()=>await WaitFor(()=>_rtsData!=null&&_rtsCards.Count>0,"地块图标候选未返回");
+    private async Task HoverRts(Button button)
+    {
+        await WaitFor(()=>Drawers.All(d=>d.IsSettled),"悬停前抽屉未展开");
+        for(Node? p=button.GetParent();p!=null;p=p.GetParent())if(p is ScrollContainer scroll)scroll.EnsureControlVisible(button);
+        await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+        var at=button.GetGlobalRect().GetCenter();GetViewport().PushInput(new InputEventMouseMotion { Position=at,GlobalPosition=at },true);
+        await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+    }
     private async Task HumanIdle()=>await WaitFor(()=>HumanCanWrite&&!HasTimeline,"真人操作或本批演出没有结束",120);
     private void ValidateHumanLayout()
     {
@@ -49,19 +58,26 @@ public partial class Desktop
             string reviewRoot=stem+"-data";Directory.CreateDirectory(reviewRoot);
             _runtime=_runtime with { DataRoot=reviewRoot };
             _menu=new MainMenu(reviewRoot,MenuBegin);_menu.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);_menu.ZIndex=30;AddChild(_menu);
-            _menu.OpenNewGame();_menu.SeedField.Text="20261026";_menu.ReviewHumanCard();
+            _menu.OpenPlayerGame();_menu.PlayerSeedField.Text="20261026";
+            _menu.PlayerNameField.Text="青岚";_menu.PlayerColorField.Color=new Color("66b6a7");_menu.PlayerMapSizeField.Value=32;
             await ToSignal(GetTree().CreateTimer(.3),SceneTreeTimer.SignalName.Timeout);
-            _menu.ValidateVisibleLayout();await Screenshot(stem+"-menu.png");
+            _menu.ValidateVisibleLayout();await Screenshot(stem+"-player-step1.png");
+            await PointerClick(_menu.PlayerNextButton);
+            var freeHuman=_menu.BuildConfig(out string freeError,out _);
+            if(freeHuman==null||freeHuman["scenario"]!=null||freeHuman["nations"]!.AsArray().Count(n=>S(n!["client"])=="human")!=1||I(freeHuman["map_size"])!=32)
+                throw new Exception("自由玩家两步配置错误："+freeError);
             _menu.ReviewHumanCard(1);
             if(_menu.BuildConfig(out string multiError,out _)!=null||!multiError.Contains("一位真人"))throw new Exception("菜单未阻止多真人席位");
             _menu.SelectScenario(1);_menu.ReviewHumanCard();
-            var freeHuman=_menu.BuildConfig(out string freeError,out _);
-            if(freeHuman==null||freeHuman["scenario"]!=null||freeHuman["nations"]!.AsArray().Count(n=>S(n!["client"])=="human")!=1)throw new Exception("自由剧本真人配置错误："+freeError);
-            _menu.SelectScenario(0);_menu.ReviewHumanCard();
+            await PointerClick(_menu.PlayerBackButton);
+            if(_menu.PlayerNameField.Text!="青岚"||_menu.PlayerColorField.Color.ToHtml(false)!="66b6a7")throw new Exception("返回上一步丢失本国定制");
+            _menu.SelectPlayerScenario(0);await PointerClick(_menu.PlayerNextButton);
+            _menu.ValidateVisibleLayout();await Screenshot(stem+"-menu.png");
             var config=_menu.BuildConfig(out string error,out string? configPath);
             if(config==null||configPath==null||config["nations"]!.AsArray().Count(n=>S(n!["client"])=="human")!=1)throw new Exception("真人菜单配置失败："+error);
             _menu.Visible=false;StartHost(configPath,null);
-            await HumanIdle();if(OwnArmies.Any())throw new Exception("正常真人开局不应赠兵");CloseDrawers(false);_map.Fit();await Screenshot(path);
+            await HumanIdle();if(_map.NationName(HumanActor)!="青岚"||_map.NationColor(HumanActor).ToHtml(false)!="66b6a7")throw new Exception("本国名称／颜色未进入实际地图");
+            if(OwnArmies.Any())throw new Exception("正常真人开局不应赠兵");CloseDrawers(false);_map.Fit();await Screenshot(path);
             foreach(string page in new[]{"build","army","market","diplomacy","alliance","intel","nation"})
             {
                 await PointerClick(_humanNav[page]);await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
@@ -84,17 +100,32 @@ public partial class Desktop
             var capital=new Vector2I(I(home["position"]![0]),I(home["position"]![1]));
             CloseDrawers(false);_map.SelectAndFocus(capital);await PointerClickAt(_map.CellCenter(capital));
             if(_humanPage!="tile")throw new Exception("地块点击未打开真人驻军面板");
-            OpenHumanPage("build");SelectHumanField("kind","native:militia-camp");RequestHumanPreview();
-            await WaitFor(()=>_humanPreview!.Text.Contains("实际材料"),"建设预览没有收到真实费用");
-            await Screenshot(stem+"-quote.png");await PointerClick(_humanSubmit!);await HumanIdle();
+            OpenHumanPage("build");await RtsReady();
+            if(!_rtsCards["native:barracks"].Disabled)throw new Exception("缺前置建筑的兵营未变暗");
+            await HoverRts(_rtsCards["native:barracks"]);
+            await WaitFor(()=>_rtsTooltip?.Visible==true,"变暗候选无法悬停解释条件");await Screenshot(stem+"-locked.png");
+            await HoverRts(_rtsCards["native:militia-camp"]);
+            await WaitFor(()=>_rtsTooltip?.Visible==true,"短悬停没有出现真实价格与条件");
+            await Screenshot(stem+"-price.png");
+            await WaitFor(()=>_rtsExpanded,"长悬停没有作用与收益");await Screenshot(stem+"-quote.png");
+            await PointerClick(_rtsCards["native:militia-camp"]);await HumanIdle();await RtsReady();
+            if(_rtsAvailability.Values.Any(v=>v))throw new Exception("施工额度用尽后仍有可建候选");
             if(!HumanFacts["building_sites"]!["instances"]!.AsArray().Any(b=>S(b!["kind"])=="native:militia-camp"&&I(b["remaining"])==1))throw new Exception("建设没有真实动工");
+            var other=HumanFacts["building_sites"]!["sites"]!.AsArray().First(t=>I(t!["position"]![0])!=capital.X||I(t["position"]![1])!=capital.Y)!["position"]!;
+            var otherCell=new Vector2I(I(other[0]),I(other[1]));RtsChangeCell(otherCell);await RtsReady();
+            if(_rtsCards["native:castle"].Disabled||Yes(_rtsData!["ordered"])||!_humanReceipt.Text.Contains("已切换地块"))throw new Exception("A 地块的状态残留到 B 地块");
+            await PointerClick(_rtsCards["native:castle"]);await HumanIdle();await RtsReady();
+            RtsChangeCell(capital);await RtsReady();
+            if(!Yes(_rtsData!["ordered"])||_rtsAvailability.Values.Any(v=>v))throw new Exception("返回 A 后丢失本期施工状态");
+            await Screenshot(stem+"-quota.png");
             await PointerClick(_humanNav["end"]);
             await WaitFor(()=>S(_playingBeat?["phase"])=="production","本国生产没有演出",120);
             if(!_settlementCard.Visible||_humanDrawer.IsOpen)throw new Exception("生产汇总被操作面板遮住");
             await Screenshot(stem+"-production.png");
             await WaitFor(()=>HumanCanWrite&&_period==1,"真人回合没有轮换与结算",120);
-            _humanCell=capital;_humanOperation="recruit";OpenHumanPage("recruit");SelectHumanField("kind","native:militia");
-            await PointerClick(_humanSubmit!);await HumanIdle();
+            _humanCell=capital;OpenHumanPage("recruit");await RtsReady();
+            if(_rtsCards["native:militia"].Disabled||!_rtsCards["native:infantry"].Disabled)throw new Exception("军屯与兵营候选未正确筛选");
+            await Screenshot(stem+"-recruit.png");await PointerClick(_rtsCards["native:militia"]);await HumanIdle();
             if(!OwnArmies.Any())throw new Exception("真人征兵没有产生真实军队："+_humanReceipt.Text);
             await PointerClick(_humanNav["end"]);await WaitFor(()=>HumanCanWrite&&_period==2,"新兵没有进入下一期",120);
             _humanCell=capital;OpenHumanPage("tile");
@@ -133,10 +164,23 @@ public partial class Desktop
             var layouts=new JsonArray();
             foreach(var size in new[]{new Vector2I(1920,1080),new Vector2I(1440,900),new Vector2I(1280,720),new Vector2I(1024,768)})
             {
-                GetWindow().ContentScaleSize=size;GetWindow().Size=size;OpenHumanPage("diplomacy");
+                GetWindow().ContentScaleSize=size;GetWindow().Size=size;_humanCell=capital;OpenHumanPage("build");await RtsReady();
                 await ToSignal(GetTree().CreateTimer(.2),SceneTreeTimer.SignalName.Timeout);ValidateHumanLayout();
-                await Screenshot(stem+$"-{size.X}.png");layouts.Add(new JsonObject { ["width"]=size.X,["height"]=size.Y,["within_viewport"]=true });
+                await Screenshot(stem+$"-{size.X}.png");
+                foreach(string kind in new[]{"barracks","equipment-factory","castle"})
+                {
+                    await HoverRts(_rtsCards["native:"+kind]);await WaitFor(()=>_rtsExpanded,"长悬停未展开");
+                    await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+                    if(!new Rect2(Vector2.Zero,Size).Encloses(_rtsTooltip!.GetGlobalRect()))throw new Exception("建筑悬浮信息超出窗口："+kind+" "+size);
+                }
+                await Screenshot(stem+$"-{size.X}-hover.png");
+                HideRtsTooltip();OpenHumanPage("recruit");await RtsReady();ValidateHumanLayout();
+                await HoverRts(_rtsCards["native:cavalry"]);await WaitFor(()=>_rtsExpanded,"兵种长悬停未展开");
+                await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+                if(!new Rect2(Vector2.Zero,Size).Encloses(_rtsTooltip!.GetGlobalRect()))throw new Exception("征兵悬浮信息超出窗口："+size);
+                layouts.Add(new JsonObject { ["width"]=size.X,["height"]=size.Y,["within_viewport"]=true,["rts_hover"]=true });
             }
+            HideRtsTooltip();
             // Actual menu queues a save, then exposes explicit discard.
             await PointerClick(_save);await WaitFor(()=>_humanPaused,"真人 Esc 菜单没有暂停");
             await PointerClick(_menuSave);await WaitFor(()=>_hostState=="save-queued","真人回合中保存未排队");
@@ -146,9 +190,9 @@ public partial class Desktop
             var result=new JsonObject { ["period"]=_period,["human_actor"]=HumanActor,["human_actions"]=_humanHistory.Count,
                 ["unknown_tiles"]=_map.UnknownCount,["historical_tiles"]=_map.MemoryCount,["action_batches"]=_actionBatches,
                 ["settlement_batches"]=_settlementBatches,["played_phases"]=JsonSerializer.SerializeToNode(_playedPhases),["normal_zero_army_start"]=true,["double_click_once"]=true,
-                ["build_and_quote"]=true,["letter_form"]=true,["free_human_scenario"]=true,["reject_multiple_humans"]=true,["recruit"]=true,["move_did_not_occupy"]=true,["in_place_attack"]=true,["esc_cancels_target"]=true,["war_warning"]=true,
+                ["build_and_quote"]=true,["rts_icons"]=true,["two_step_player_menu"]=true,["custom_nation_name_and_color"]=true,["tile_a_b_a"]=true,["disabled_hover"]=true,["short_hover"]=true,["long_hover"]=true,["construction_quota_disabled"]=true,["letter_form"]=true,["free_human_scenario"]=true,["reject_multiple_humans"]=true,["recruit"]=true,["move_did_not_occupy"]=true,["in_place_attack"]=true,["esc_cancels_target"]=true,["war_warning"]=true,
                 ["map_purchase"]=true,["historical_pixels_static"]=true,["single_nation_ledger"]=true,
-                ["save_queued"]=true,["exit_choice"]=true,["save"]=_savePath,["config"]=configPath,["layouts"]=layouts,
+                ["save_queued"]=true,["exit_choice"]=true,["rts_layouts"]=true,["save"]=_savePath,["config"]=configPath,["layouts"]=layouts,
                 ["platform"]=OS.GetName(),["renderer"]=RenderingServer.GetVideoAdapterName() };
             await File.WriteAllTextAsync(path+".json",result.ToJsonString(new JsonSerializerOptions { WriteIndented=true }));
             GD.Print("HUMAN_GUI_OK "+path);

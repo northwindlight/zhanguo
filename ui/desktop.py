@@ -145,6 +145,7 @@ class Controller:
                 return {'scope':'player','actor':self.viewer,'period':self.host.clock(),
                         'eliminated':True,'last_known':self._last_player_frame}
         frame=self.host.ui.desktop_frame(self.host.observer_snapshot())
+        frame['colors']={n['id']:n['color'] for n in self.host.cfg.get('nations',[]) if n.get('color') and n['id'] in frame['names']}
         frame['clients']=[{'actor':actor,'kind':client.kind,'version':client.version,
                            'model':getattr(client,'cfg',{}).get('model') if client.kind=='llm' else None,
                            'strategy':getattr(getattr(client,'state',None),'profile',None)} for actor,client in self.host.clients.items()]
@@ -228,6 +229,9 @@ class Controller:
                 elif query=='tile':data=self.human_api.tile(actor,**args)
                 elif query=='targets':data=self.human_api.targets(actor,**args)
                 elif query=='panel':data=self.human_api.panel(actor,args)
+                elif query=='site_options':
+                    from mods.ui.desktop_catalog import present
+                    data=present(self.host.ui,self.human_api.site_options(actor,**args),self.human_api.state(actor))
                 else:raise ValueError('未知真人查询')
                 self.send('human_result',request_id=request_id,ok=True,data=data);return
             player=self._human_player

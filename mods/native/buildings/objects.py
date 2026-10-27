@@ -275,13 +275,53 @@ class Buildings:
         built = self._self_built.get((owner,kind),0)
         if cls.SELF_BUILD_LIMIT is not None and built>=cls.SELF_BUILD_LIMIT:
             raise ValueError('Owner self-build limit reached')
+        return self._construction_price(owner, site, cls, existing, same, policy_pct)
+
+    def _construction_price(self, owner, site, cls, existing, same, policy_pct):
         discount = 0 if cls.BUILD_DISCOUNT else max((item.BUILD_DISCOUNT for item in existing if item.completed),default=0)
         level = same+1 if len(cls.GOLD_COSTS)>1 else 1
         costs = amounts(cls.construction_cost(level,penalty=site.penalty,discount=discount,policy_pct=policy_pct))
         # Validate account even for a free custom building.
         self._resources('snapshot',owner)
-        return {'site':site_id,'kind':kind,'level':level,'costs':dict(costs),
+        return {'site':site.id,'kind':cls.TYPE_ID,'level':level,'costs':dict(costs),
                 'other_slots':len(existing),'penalty':site.penalty,'discount':discount,'policy_pct':policy_pct}
+
+    def planning(self, owner, site_id, *, policy_pct=100):
+        """Own-site read model; quote and build retain the final authority."""
+        owner_name(owner);integer(policy_pct)
+        site=self._sites[site_id]
+        if site.owner!=owner:raise ValueError('Site does not belong to actor')
+        existing=list(self._index().get(site.id,()))
+        wallet={row.id:row.amount for row in self._resources('snapshot',owner)}
+        ordered=self._orders[site.id]==self.period
+        rows=[]
+        for kind,cls in self._types.items():
+            same=sum(b.kind==kind for b in existing)
+            def requirement(text,met):return {'text':text,'met':bool(met)}
+            requirements=[requirement('每地块每回合只能施工一次',not ordered),
+                requirement(f'建筑位 {len(existing)}/{site.capacity}',len(existing)<site.capacity)]
+            if cls.MIN_SLOTS:requirements.append(requirement(f'已有建筑 {len(existing)}/{cls.MIN_SLOTS}',len(existing)>=cls.MIN_SLOTS))
+            if cls.MAX_PER_SITE is not None:requirements.append(requirement(f'本格同类数量 {same}/{cls.MAX_PER_SITE}',same<cls.MAX_PER_SITE))
+            if cls.SITE_RESOURCE is not None:
+                cap=dict(site.resources).get(cls.SITE_RESOURCE,0)
+                requirements.append({'text':'本地资源容量','resource':cls.SITE_RESOURCE,'current':same,'required':cap,'met':same<cap})
+            built=self._self_built.get((owner,kind),0)
+            if cls.SELF_BUILD_LIMIT is not None:requirements.append(requirement(f'全国自建数量 {built}/{cls.SELF_BUILD_LIMIT}',built<cls.SELF_BUILD_LIMIT))
+            price=None
+            try:price=self._construction_price(owner,site,cls,existing,same,policy_pct)
+            except ValueError:pass # A fully upgraded castle has no next price.
+            error=None
+            try:self.quote(owner,site.id,kind,policy_pct=policy_pct)
+            except ValueError as exc:error=str(exc)
+            for key,amount in (price or {}).get('costs',{}).items():
+                requirements.append({'text':'建造材料','resource':key,'current':wallet.get(key,0),'required':amount,'met':wallet.get(key,0)>=amount})
+            rows.append({'kind':kind,'price':price,'base_costs':cls.construction_cost(min(same+1,len(cls.GOLD_COSTS))),
+                'requirements':requirements,'available':error is None and all(r['met'] for r in requirements),
+                'reason':error,'leveled':len(cls.GOLD_COSTS)>1})
+        return {'site':site.id,'position':list(site.position),'period':self.period,'ordered':ordered,
+            'occupied':len(existing),'capacity':site.capacity,
+            'construction':[b.snapshot() for b in existing if not b.completed],
+            'completed':sum(b.completed for b in existing),'buildings':rows}
 
     def build(self, owner, site_id, kind, *, policy_pct=100):
         self._action()

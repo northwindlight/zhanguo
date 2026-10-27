@@ -53,5 +53,8 @@ $taskLedger = Get-Content -Raw (Join-Path $taskOutput 'ledger.png.json') | Conve
 if ($taskLedger.Count -ne 12 -or ($taskLedger | Where-Object { -not $_.ledger_within_viewport -or $_.overlap })) { throw 'Single-country ledger font/scale/layout verification failed' }
 Run-GameCheck 'human' @('--rendering-method', 'gl_compatibility', '--rendering-driver', 'opengl3_angle', '--', '--human-review-output', (Join-Path $taskOutput 'human.png')) 600000
 $taskHuman = Get-Content -Raw (Join-Path $taskOutput 'human.png.json') | ConvertFrom-Json
+foreach ($taskCheck in @('rts_icons', 'two_step_player_menu', 'custom_nation_name_and_color', 'tile_a_b_a', 'disabled_hover', 'short_hover', 'long_hover', 'construction_quota_disabled', 'rts_layouts')) {
+    if ($taskHuman.$taskCheck -ne $true) { throw "RTS human interaction verification failed: $taskCheck" }
+}
 if ($taskHuman.period -lt 3 -or $taskHuman.layouts.Count -ne 4 -or -not $taskHuman.normal_zero_army_start -or -not $taskHuman.double_click_once -or -not $taskHuman.build_and_quote -or -not $taskHuman.recruit -or -not $taskHuman.move_did_not_occupy -or -not $taskHuman.in_place_attack -or -not $taskHuman.map_purchase -or -not $taskHuman.historical_pixels_static -or -not $taskHuman.single_nation_ledger -or -not $taskHuman.save_queued -or -not $taskHuman.exit_choice -or -not $taskHuman.esc_cancels_target -or -not $taskHuman.war_warning -or -not $taskHuman.letter_form) { throw 'Single local human verification failed' }
 Write-Output 'WINDOWS_PORTABLE_VERIFIED'

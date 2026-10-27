@@ -141,11 +141,45 @@ class Military:
         if used+count>per:raise ValueError(f'该地本回合征兵额度已用尽：每地每回合 {per} 支，本回合已用 {used} 支，本次要 {count} 支。下回合再征，或换另一座兵营')
         x,y=place.position;self._call('native:territory','check',x,y)
         if self._units.next_army_seq.get(owner,0)+count>=ARMY_GID_BASE:raise ValueError('本国军队编号已用尽，无法再新增军队')
-        overrides=self._parameter(owner,'recruit',{})
-        recipe=overrides.get(kind,self._units.definition(kind)['recruit'])
-        costs={key:integer(value,1)*count for key,value in recipe.items()}
+        costs=self.recruit_costs(owner,kind,count)
         return {'site':site,'kind':kind,'count':count,'costs':costs,'position':(x,y),
                 'quota':per-self._recruited.get(key,0),'period':period}
+
+    def recruit_costs(self, owner, kind, count=1):
+        overrides=self._parameter(owner,'recruit',{})
+        recipe=overrides.get(kind,self._units.definition(kind)['recruit'])
+        return {key:integer(value,1)*count for key,value in recipe.items()}
+
+    def planning(self, owner, site, count=1):
+        self._living(owner);integer(count,1)
+        place=self._call('native:buildings','site',site)
+        if place.owner!=owner:raise ValueError('只能预览本国征兵地块')
+        rows=[];period=self._period()
+        wallet={key:self._stock(owner,key) for key in ('native:gold','native:food','native:equipment','native:supply')}
+        short=self.grid_short(owner)
+        for kind in self._units.type_ids:
+            militia=kind=='native:militia'
+            building=self._call('native:buildings','kind_with_role','militia' if militia else 'recruiter')
+            effect=self._effect(site,building)
+            per=effect.get('militia_per_turn' if militia else 'recruit_cap',0)
+            used=self._recruited.get((period,site,militia),0)
+            costs=self.recruit_costs(owner,kind,count)
+            requirements=[{'text':'需要已落成的军屯' if militia else '需要已落成的兵营','met':per>0},
+                {'text':f'本回合剩余征兵额度 {max(0,per-used)}，本次征召 {count}','met':per-used>=count}]
+            if militia:
+                cap=sum(self._effect(s.id,building).get('militia_cap',0) for s in self._call('native:buildings','snapshot').sites if s.owner==owner)
+                have=sum(u.kind==kind and u.alive for u in self._units.of(owner))
+                requirements.append({'text':f'全国民兵编制 {have}/{cap}','met':have+count<=cap})
+            else:requirements.append({'text':'上期电网正常','met':not short})
+            for key,amount in costs.items():
+                balance=wallet[key] if key in wallet else self._stock(owner,key)
+                requirements.append({'text':'征召材料','resource':key,'current':balance,'required':amount,'met':balance>=amount})
+            error=None;quote=None
+            try:quote=self.recruit_quote(owner,site,kind,count,energy_short=short)
+            except ValueError as exc:error=str(exc)
+            rows.append({'kind':kind,'costs':costs,'count':count,'quota':max(0,per-used),'has_facility':per>0,
+                'requirements':requirements,'available':error is None and all(r['met'] for r in requirements),'reason':error,'quote':quote})
+        return rows
 
     def recruit(self, owner, site: str, kind: str, count=1, *, energy_short=False):
         self._action(owner)

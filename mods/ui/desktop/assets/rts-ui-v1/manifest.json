@@ -1,0 +1,87 @@
+{
+  "format": "zhanguo.rts-art/1",
+  "author": "Codex",
+  "license": "MPL-2.0",
+  "assets": [
+    {
+      "id": "castle",
+      "path": "castle.svg",
+      "sha256": "22fdbd411ef0415ca09d51b2ad30a1e1e9c2b4f7c5b30596111282d17fbe00cb"
+    },
+    {
+      "id": "lumberyard",
+      "path": "lumberyard.svg",
+      "sha256": "f8a1decdd01c1693ba3799e0e9df96192adae0b7a563a82140934064cf2a9309"
+    },
+    {
+      "id": "gold",
+      "path": "gold.svg",
+      "sha256": "65fa5b0eac8821c335fc1161bc65b71ed5ee7deef09e346e90d70238bfd08b36"
+    },
+    {
+      "id": "wood",
+      "path": "wood.svg",
+      "sha256": "9c7bcaff53d6be0180fbb4743ad1674e497bbec1349335d978f6bba147cce20e"
+    },
+    {
+      "id": "food",
+      "path": "food.svg",
+      "sha256": "c7711896bb4ddba918371db9d99c1cd7f4e9fd2b966e135db1c2ae5e93acde7b"
+    },
+    {
+      "id": "ore",
+      "path": "ore.svg",
+      "sha256": "2d74bd1112d832003a7c21bb8a2abcea5a33c2b4fe9445142f3a7c6da2a0a5a5"
+    },
+    {
+      "id": "oil",
+      "path": "oil.svg",
+      "sha256": "9fdee84df5cd6b60648606a8de8bdc98f30c18a6798aeab35ca936a8adb09302"
+    },
+    {
+      "id": "equipment",
+      "path": "equipment.svg",
+      "sha256": "207eeb1f8e4f7dbbe754448fbf8baa2035842d52f262472213083a171d0fcb4d"
+    },
+    {
+      "id": "supply",
+      "path": "supply.svg",
+      "sha256": "3bb6c025daa7ac066018662cd308313bd1e59b30e7585fc46416f8e5fce8e718"
+    },
+    {
+      "id": "energy",
+      "path": "energy.svg",
+      "sha256": "fa4ead6479ae142488bc0fc686f048d4b34a3e7339c12a3333e2345b625b419c"
+    },
+    {
+      "id": "farmland",
+      "path": "farmland.svg",
+      "sha256": "1ec628269cf4925d949307e122fad7ca73c842f6d412424b730d70388d6126f2"
+    },
+    {
+      "id": "resource",
+      "path": "resource.svg",
+      "sha256": "7a548a6201900bd560a679ec5420fb568cb28d23cf59e519183143b18c4a3901"
+    },
+    {
+      "id": "woodpower",
+      "path": "woodpower.svg",
+      "sha256": "219e12ba1537dffcf5e6f8a48ce58ba117cfe2bb3880b2d6e85d3d5bad419d71"
+    },
+    {
+      "id": "oilpower",
+      "path": "oilpower.svg",
+      "sha256": "2fbb1b30b6e9aeaceba352bf86603ccda1c058dd64fdcf10573f162e79017eaf"
+    },
+    {
+      "id": "supplyfactory",
+      "path": "supplyfactory.svg",
+      "sha256": "77d8b675976556ec6bc23b2da3347b0c85d4d781987c8cf7177b2913036502c7"
+    },
+    {
+      "id": "equipmentfactory",
+      "path": "equipmentfactory.svg",
+      "sha256": "a1ee430f868746a2a6359d85e8737925be7d2a7f7e565f88bacafd4e77989f91"
+    }
+  ]
+}

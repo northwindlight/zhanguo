@@ -87,3 +87,9 @@ Fusion Pixel 中文字体继续遵循本目录 fonts/FUSION-PIXEL-OFL.txt。
 
 `ui-v2/` 中的道路、集市、信封、鸟群扑翼和战争箭头由本项目补绘，保留 SVG 原文件，使用仓库 MPL-2.0。
 原始尺寸、锚点及用途见该目录 README；Godot 直接导入，Windows 美术预览目录也附 SVG 母版。
+
+## 地块操作素材（2026-10-27）
+
+`rts-ui-v1/` 为本项目补绘的城堡、林场、四种工厂／电厂和资源图标，使用仓库 MPL-2.0。
+厂区由已有原创 unified-v1 工厂 SVG 延伸，其余为新绘矢量图；不是第三方素材或网络截图。
+尺寸、地图锚点和确定性生成脚本见该目录 README，逐文件 SHA-256 见 manifest.json。

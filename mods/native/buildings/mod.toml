@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:buildings"
-Version = "2.11.0"
+Version = "2.12.0"
 Entry = "mods.native.buildings.mod:BuildingsMod"
 Requires = ["native:resources"]
 After = ["native:resources"]
@@ -32,8 +32,8 @@ Needs = ["buildings.produced"]
 Provides = ["buildings.completed"]
 
 [PlayerAPI]
-Methods = ["build", "sites", "catalog"]
-ReadOnly = ["catalog", "sites"]
+Methods = ["build", "sites", "catalog", "planning"]
+ReadOnly = ["catalog", "sites", "planning"]
 
 [PlayerAPI.ContentParameters]
 build = ["kind"]

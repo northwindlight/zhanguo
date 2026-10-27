@@ -77,7 +77,7 @@ public partial class WorldMap : Control
         int index = 0;
         foreach (var nation in frame["names"]!.AsObject())
         {
-            _colors[nation.Key] = new Color(palette[index++ % palette.Length]);
+            _colors[nation.Key] = new Color(S(frame["colors"]?[nation.Key]) is {Length:>0} chosen?chosen:palette[index % palette.Length]);index++;
             _namesByActor[nation.Key] = nation.Value!.ToString();
         }
         _homeAnchors.Clear();

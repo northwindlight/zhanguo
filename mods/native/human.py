@@ -80,6 +80,16 @@ class HumanAPI:
             return self.state(actor)['facts']['news']
         return self.player(actor).query('query',arguments)
 
+    def site_options(self, actor, x, y, count=1):
+        player=self.player(actor)
+        if type(x) is not int or type(y) is not int:raise ValueError('请选择地块')
+        planning=player.call_api('native:buildings','planning',x=x,y=y)
+        planning['units']=player.call_api('native:army','planning',x=x,y=y,count=count)
+        planning['catalog']=player.call_api('native:buildings','catalog')
+        planning['unit_catalog']=player.call_api('native:army','unit_catalog')
+        planning['estimates']=player.query('query',{'panel':'building_economics','other_slots':planning['completed']})
+        return planning
+
     def state(self, actor):
         player = self.player(actor)
         observed = player.observe();facts = observed['facts']
@@ -103,6 +113,7 @@ class HumanAPI:
                  actor not in dict(v.get('ballots',[]))]
         return {**observed, 'nickname':self.host.clients[actor].cfg.get('nickname','玩家'),
                 'operations':self.operations(actor),
+                'colors':{n['id']:n['color'] for n in self.host.cfg.get('nations',[]) if n.get('color') and n['id'] in {v['id'] for v in facts['foreign']['nations']}},
                 'map':{'size':size,'tiles':tiles},
                 'map_offers':player.call_api('native:intelligence','map_offers'),
                 'reports':player.query('query',{'panel':'report','all':True}),

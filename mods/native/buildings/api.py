@@ -29,3 +29,8 @@ class BuildingsAPI:
                  'policy_pct': world.runtime.parameter(world, actor, 'build_cost_pct', 100),
                  'costs_by_level': [cls.construction_cost(level) for level in range(1, len(cls.GOLD_COSTS) + 1)]}
                 for cls in building_types(world.runtime.content)]
+
+    def planning(self, actor, x, y):
+        site=self.world.buildings.resolve_site(actor,x=x,y=y)
+        return self.world.buildings.planning(actor,site,
+            policy_pct=self.world.runtime.parameter(self.world,actor,'build_cost_pct',100))

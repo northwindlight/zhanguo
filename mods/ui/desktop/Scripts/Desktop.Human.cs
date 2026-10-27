@@ -12,6 +12,9 @@ public partial class Desktop
     private bool HumanMode=>_humanState!=null;
     private string HumanActor=>S(_humanState?["actor"]);
     private bool _humanBusy,_humanPaused,_humanStarted,_humanEnded,_humanNeedsFrame;
+    private string _humanSubmittedOperation="";
+    private Vector2I? _humanSubmittedCell;
+    private int _humanSubmittedPeriod;
     private string _humanOperation="",_humanPage="",_humanWrite="",_humanTargetMode="";
     private Control? _observerDock,_mapHint;
     private HBoxContainer _humanDock=null!;
@@ -119,7 +122,7 @@ public partial class Desktop
     private void RefreshHumanButtons()
     {
         if(_humanNav.Count==0||!HumanMode)return;
-        _humanNav["end"].Disabled=!HumanCanWrite;
+        _humanNav["end"].Disabled=!HumanCanWrite;RefreshRtsButtons();
         foreach(var button in _humanWrites)if(IsInstanceValid(button))button.Disabled=!HumanCanWrite;
         if(_humanSubmit!=null&&IsInstanceValid(_humanSubmit))_humanSubmit.Disabled=!HumanCanWrite||!HumanFormReady();
         if(!HasTimeline&&_humanTurn!=null&&!_humanEnded)
@@ -162,8 +165,10 @@ public partial class Desktop
         bool ok=processed&&receipt?["ok"]?.GetValue<bool>()==true;
         _humanReceipt.Modulate=new Color(ok?"c6e3ad":"ffb6a4");
         string result=processed?FormatHumanReceipt(receipt!):S(row["message"]);
-        HumanMessage(result,ok);_humanHistory.Add(result);
-        if(_humanOperation=="end_turn"&&ok){_humanEnded=true;_humanTurn=null;}
+        bool changedSite=_humanSubmittedCell is Vector2I submitted&&submitted!=_humanCell;
+        HumanMessage(changedSite?$"原地块 ({_humanSubmittedCell!.Value.X}, {_humanSubmittedCell.Value.Y}) 的操作{(ok?"已受理":"未成功")}，详见操作记录。当前地块 ({_humanCell.X}, {_humanCell.Y}) 的条件已刷新。":result,ok);
+        _humanHistory.Add($"第 {_humanSubmittedPeriod+1} 期"+(_humanSubmittedCell is Vector2I at?$" · ({at.X}, {at.Y})":"")+"\n"+result);
+        if(_humanSubmittedOperation=="end_turn"&&ok){_humanEnded=true;_humanTurn=null;}
         if(receipt?["status"]?.ToString()=="confirmation_required")
         {
             _humanBusy=false;
@@ -186,6 +191,8 @@ public partial class Desktop
     {
         if(!HumanCanWrite){HumanMessage("当前不能提交：请先完成演出或继续游戏。",false);return;}
         if(operation=="declare_war")_warTarget=S(arguments["target"]);
+        _humanSubmittedOperation=operation;_humanSubmittedPeriod=I(_humanTurn!["period"]);
+        _humanSubmittedCell=arguments["x"]!=null&&arguments["y"]!=null?new Vector2I(I(arguments["x"]),I(arguments["y"])):null;
         _humanWrite="write/"+Guid.NewGuid().ToString("N");_humanOperation=operation;_humanBusy=true;
         CancelHumanTarget();RefreshHumanButtons();
         SendHumanRow(new JsonObject { ["command"]="human_submit",["actor"]=HumanActor,["period"]=_humanTurn!["period"]!.DeepClone(),
@@ -226,7 +233,9 @@ public partial class Desktop
             SubmitHuman(mode,new JsonObject { ["ids"]=new JsonArray(_selectedArmies.Order().Select(i=>(JsonNode?)JsonValue.Create(i)).ToArray()),["x"]=point.X,["y"]=point.Y });
             _humanCell=point;return;
         }
-        _humanCell=point;OpenHumanPage("tile");
+        bool changed=_humanCell!=point;_humanCell=point;
+        if(changed)HumanMessage("已切换地块；当前操作条件已刷新。");
+        OpenHumanPage(_humanPage is "build" or "recruit"&&S(tile["owner"])==HumanActor?_humanPage:"tile");
     }
     private void StartHumanTarget(string mode)
     {

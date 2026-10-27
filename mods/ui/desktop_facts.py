@@ -22,7 +22,7 @@ def frame(ui, snapshot):
     tiles = []
     for tile in facts['view']:
         tiles.append({**tile, 'terrain_name': label(tile['terrain'], 'terrain'),
-            'building_labels': [f'{label(kind, "building")} Lv.{level}' for kind, level in tile['buildings']]})
+            'building_labels': [f'{label(kind, "building")}' + (f' · {level}级' if kind=='native:castle' else '') for kind, level in tile['buildings']]})
     armies = [{**unit, 'label': label(unit['kind'], 'unit')} for unit in facts['army']]
     nations = []
     flows={row['id']:row for row in snapshot.get('scene',{}).get('resource_flows',[])}

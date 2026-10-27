@@ -120,6 +120,8 @@ def stage_sources(bundle, root=ROOT):
                     ignore=shutil.ignore_patterns("*.import"))
     shutil.copytree(root / "mods/ui/desktop/assets/human-ui-v1", review / "真人操作SVG",
                     ignore=shutil.ignore_patterns("*.import"))
+    shutil.copytree(root / "mods/ui/desktop/assets/rts-ui-v1", review / "建设征兵SVG",
+                    ignore=shutil.ignore_patterns("*.import"))
     code = review / "CSharp"
     code.mkdir()
     for relative in tracked_files(root):

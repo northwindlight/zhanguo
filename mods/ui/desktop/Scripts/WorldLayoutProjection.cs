@@ -12,7 +12,7 @@ public static class WorldLayoutProjection
     {
         long.TryParse(frame["map_seed"]?.ToString(),out var seed);
         var input=new SampleInput { Seed=unchecked((int)(seed^(seed>>32))),LayoutVersion=2,LiveWorld=true };
-        var colors=frame["names"] is JsonObject names?names.Select((n,i)=>(n.Key,Color:DesktopScene.NationPalette[i%DesktopScene.NationPalette.Length])).ToDictionary(n=>n.Key,n=>n.Color):new Dictionary<string,string>();
+        var colors=frame["names"] is JsonObject names?names.Select((n,i)=>(n.Key,Color:frame["colors"]?[n.Key]?.ToString()??DesktopScene.NationPalette[i%DesktopScene.NationPalette.Length])).ToDictionary(n=>n.Key,n=>n.Color):new Dictionary<string,string>();
         foreach(var item in frame["tiles"]!.AsArray())
         {
             if(item?["visibility"]?.ToString()=="unknown")continue;

@@ -11,6 +11,9 @@ on:
       - 'packaging/windows/**'
       - 'mods/ui/desktop/**'
       - 'mods/ui/desktop_player.py'
+      - 'mods/ui/desktop_catalog.py'
+      - 'mods/ui/config.py'
+      - 'mods/native/human.py'
       - 'mods/ui/desktop_human.py'
       - 'ui/desktop.py'
 

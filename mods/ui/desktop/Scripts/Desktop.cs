@@ -198,6 +198,16 @@ public partial class Desktop : Control
             if(free?["scenario"]!=null||free?["nations"]?.AsArray().Count!=2||free["nations"]!.AsArray().Any(n=>n!["position"]!=null))
                 throw new Exception("自由开局沿用了八国剧本或固定落位");
             await Screenshot(stem+"-freegame.png");_menu.SelectScenario(0);
+            _menu.OpenPlayerGame();_menu.SelectPlayerIdentity(6);
+            await PointerClick(_menu.PlayerNextButton);
+            var customPlayer=_menu.BuildConfig(out error,out written);
+            if(customPlayer==null||customPlayer["nations"]!.AsArray().First(n=>S(n!["client"])=="human")!["name"]!.ToString()!="楚")
+                throw new Exception("切换起始国家后名单冲突："+error);
+            _menu.OpenNewGame();var watchAgain=_menu.BuildConfig(out error,out written);
+            if(watchAgain==null||watchAgain["nations"]!.AsArray().Any(n=>S(n!["client"])=="human"))throw new Exception("看海模式残留真人席位："+error);
+            _menu.OpenPlayerGame();await PointerClick(_menu.PlayerNextButton);
+            if(_menu.BuildConfig(out error,out written)==null)throw new Exception("从看海返回丢失玩家配置："+error);
+            _menu.OpenNewGame();
             _menu.ReviewLlmCard();
             await ToSignal(GetTree().CreateTimer(.3),SceneTreeTimer.SignalName.Timeout);
             _menu.ValidateVisibleLayout();
@@ -315,6 +325,7 @@ public partial class Desktop : Control
 
     public override void _Process(double delta)
     {
+        TickRts(delta);
         if(_portableCheck)return;
         _elapsed+=delta;
         for(int i=0;i<16 && _inbox.Reader.TryRead(out var line);i++)

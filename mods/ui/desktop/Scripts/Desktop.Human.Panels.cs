@@ -18,7 +18,10 @@ public partial class Desktop
     private void OpenHumanPage(string page)
     {
         if(!HumanMode)return;
-        CancelHumanTarget();_humanPage=page;
+        CancelHumanTarget();
+        if(_humanPage!=page)
+            HumanMessage(page is "build" or "recruit"?"选择本格亮起的图标执行操作；悬停查看价格和条件。":"操作回执保留在国家面板的操作记录中。");
+        _humanPage=page;
         RenderHumanPage();OpenDrawer(_humanDrawer);
     }
     private void SaveHumanDraft()
@@ -32,11 +35,13 @@ public partial class Desktop
     private void RenderHumanPage()
     {
         if(!HumanMode)return;
-        SaveHumanDraft();ClearHumanChildren(_humanContent);_humanWrites.Clear();_humanFields.Clear();_formOperation="";
+        SaveHumanDraft();ResetRts();ClearHumanChildren(_humanContent);_humanWrites.Clear();_humanFields.Clear();_formOperation="";
+        _humanContent.AddThemeConstantOverride("separation",_humanPage is "build" or "recruit"?6:10);
         _humanExtra=new JsonObject();_humanPreview=null;_humanSubmit=null;
         switch(_humanPage)
         {
             case "tile":RenderHumanTile();break;
+            case "build":case "recruit":RenderRtsCatalog();break;
             case "army":RenderHumanArmyList();break;
             case "nation":RenderHumanNation();break;
             default:RenderHumanActions(_humanPage);break;
@@ -75,7 +80,7 @@ public partial class Desktop
         {
             HumanText($"{tile["terrain_name"]} · {(S(tile["owner"])==""?"无主之地":NationLabel(S(tile["owner"]))) }");
             if(tile["passable"]?.GetValue<bool>()==false)HumanText("自然屏障：不可通行、占领或建设。",color:"e5b389");
-            HumanText("建筑\n"+((tile["building_labels"]?.AsArray().Count??0)==0?"未记录建筑":string.Join("\n",tile["building_labels"]!.AsArray().Select(S))));
+            RenderHumanInventory(tile);
             if(state=="memory"||S(tile["owner"])!=HumanActor)
             {
                 var dates=tile["knowledge"]!.AsObject().Where(p=>p.Key.StartsWith("building/")&&I(p.Value?["value"]?["count"])+I(p.Value?["value"]?["construction"])>0);
@@ -83,9 +88,10 @@ public partial class Desktop
             }
             else if(S(tile["owner"])==HumanActor)
             {
-                HumanText("资源容量："+Resources(tile["resources"]));
+                RenderHumanCapacities(tile);
                 HumanButton("在这里建设",()=>OpenHumanPage("build"),"build");
-                HumanButton("在这里征兵",()=>{_humanOperation="recruit";OpenHumanPage("recruit");},"army");
+                if(HasRecruitFacility(tile))HumanButton("在这里征兵",()=>OpenHumanPage("recruit"),"army");
+                else HumanText("征兵需要本格已落成的兵营／军屯。",color:"a2ad9d");
             }
         }
         HumanText("驻军",true);
@@ -103,7 +109,10 @@ public partial class Desktop
                 check.TooltipText=reason==""?"移动与攻击须分别选择目标":reason+"；原地攻击等例外仍由具体军令判断";
                 check.AddThemeColorOverride("font_color",new Color(reason==""?"d6e6c7":"a4aca5"));
                 check.AddThemeIconOverride("checked",HumanArt.Texture("checkbox-on"));check.AddThemeIconOverride("unchecked",HumanArt.Texture("checkbox-off"));
-                check.Toggled+=on=>{if(on)_selectedArmies.Add(id);else _selectedArmies.Remove(id);};_humanContent.AddChild(check);
+                check.Toggled+=on=>{if(on)_selectedArmies.Add(id);else _selectedArmies.Remove(id);};
+                var soldierRow=new HBoxContainer();_humanContent.AddChild(soldierRow);
+                soldierRow.AddChild(new TextureRect { Texture=RtsArt.Unit(S(unit["kind"]),_map.NationColor(HumanActor)),CustomMinimumSize=new Vector2(28,40),ExpandMode=TextureRect.ExpandModeEnum.IgnoreSize,StretchMode=TextureRect.StretchModeEnum.KeepAspectCentered });
+                check.SizeFlagsHorizontal=SizeFlags.ExpandFill;soldierRow.AddChild(check);
             }
             foreach(var (mode,text,icon) in new[]{("move","移动 · 蓝色空心圈","move"),("attack","攻击 · 红色准星圈","attack"),("retreat","撤退 · 回合末撤出","retreat")})
             {string command=mode;HumanButton(text,()=>StartHumanTarget(command),icon,true);}
@@ -356,7 +365,7 @@ public partial class Desktop
                 operation is "buy" or "sell"?$"整单数量 {data["quantity"]} · 实付／收入 {data["gold"]??data["total"]??data["exact_total"]} 金（仅预览）":
                 operation=="borrow"?$"授信 {data["limit"]??data["credit_limit"]} · 手续费 {data["fee"]} · {data["message"]}":
                 operation=="send_letter"?$"信件 {data["length"]} 字 · 费用 {data["fee"]} 金":
-                $"{(operation=="build"?$"Lv.{data["level"]} · 本期末落成":"本期可征额度 "+S(data["quota"]))}\n实际材料：{Resources(data["costs"])}";
+                $"{(operation=="build"?$"{(S(args["kind"])=="native:castle"?$"{data["level"]}级 · ":"")}本期末落成":"本期可征额度 "+S(data["quota"]))}\n实际材料：{Resources(data["costs"])}";
         });
     }
     private void RenderHumanIntel()
@@ -387,18 +396,18 @@ public partial class Desktop
     private string FormatHumanReceipt(JsonObject r)
     {
         if(r["ok"]?.GetValue<bool>()!=true)return "操作未成功："+LocalHumanError(S(r["message"]));
-        var d=r["data"];string title=OperationLabel(_humanOperation);
+        var d=r["data"];string title=OperationLabel(_humanSubmittedOperation);
         if(d is JsonArray units)return title+"："+string.Join("、",units.Select(u=>u?["kind"]!=null?$"{HumanLabel(S(u["kind"]))} #{u["id"]}":S(u?["message"])));
         if(S(r["status"])=="confirmation_required")
         {
             return "请核对宣战窗口中的目标、参战方和条约。确认后才会真正提交宣战；返回可取消。";
         }
-        if(_humanOperation is "buy" or "sell")return $"{title} {HumanLabel(S(d?["resource"]))} ×{d?["quantity"]} · {(_humanOperation=="buy"?"支付":"收入")} {d?["gold"]} 金";
-        if(_humanOperation=="build")return $"{title} {HumanLabel(S(d?["kind"]))} · 已动工\n实际材料：{Resources(d?["costs"])}";
-        if(_humanOperation=="buy_map")return $"地图已取得：{NationLabel(S(d?["target"]))} · 第 {I(d?["sampled"])+1} 期 · {d?["tiles"]} 格 · 支付 {d?["price"]} 金";
-        if(_humanOperation is "move" or "attack" or "retreat" or "disband")return title+"："+(S(d?["message"]) is {Length:>0} text?text:"实际结果已在地图与驻军面板同步")+
+        if(_humanSubmittedOperation is "buy" or "sell")return $"{title} {HumanLabel(S(d?["resource"]))} ×{d?["quantity"]} · {(_humanSubmittedOperation=="buy"?"支付":"收入")} {d?["gold"]} 金";
+        if(_humanSubmittedOperation=="build")return $"{title} {HumanLabel(S(d?["kind"]))} · 已动工\n实际材料：{Resources(d?["costs"])}";
+        if(_humanSubmittedOperation=="buy_map")return $"地图已取得：{NationLabel(S(d?["target"]))} · 第 {I(d?["sampled"])+1} 期 · {d?["tiles"]} 格 · 支付 {d?["price"]} 金";
+        if(_humanSubmittedOperation is "move" or "attack" or "retreat" or "disband")return title+"："+(S(d?["message"]) is {Length:>0} text?text:"实际结果已在地图与驻军面板同步")+
             string.Concat((d?["items"]?.AsArray()??new JsonArray()).Select(i=>$"\n#{i!["aid"]}：{i["message"]}"));
-        if(_humanOperation=="end_turn")return "本国行动结束。等待其他国家行动与本期统一结算。";
+        if(_humanSubmittedOperation=="end_turn")return "本国行动结束。等待其他国家行动与本期统一结算。";
         return title+"："+(S(d?["message"]) is {Length:>0} message?message:S(d?["status"]) is {Length:>0} status?StatusText(status):StatusText(S(r["status"])))+
             (d?["fee"]!=null?$" · 费用 {d["fee"]} 金":"")+(d?["arrive"]!=null?$" · 预计第 {I(d["arrive"])+1} 期送达":"");
     }

@@ -33,6 +33,7 @@ public partial class MainMenu : Control
         public int Preset; public string Name = "";
         public int Client;                      // 0 rule, 1 sim, 2 llm, 3 human
         public string Nickname = "玩家";
+        public string Color = "";
         public string RuleAi = "v13"; public int Strategy; public string RuleSeed = "";
         public int Profile; public string Model = "", Thinking = "enabled", Effort = "low";
         public string Temperature = "0.3", MaxTokens = "16384", MaxSteps = "28", ExtraJson = "";
@@ -106,14 +107,16 @@ public partial class MainMenu : Control
 
         _home = Section(center);
         _home.SetAnchorsAndOffsetsPreset(LayoutPreset.Center);
-        _home.OffsetLeft=-220; _home.OffsetRight=220; _home.OffsetTop=-76; _home.OffsetBottom=180;
-        BigButton(_home, "新的对局", () => OpenPanel(_newGame, () => { if (_nations.Count == 0) DefaultEightNations(); }));
+        _home.OffsetLeft=-220; _home.OffsetRight=220; _home.OffsetTop=-120; _home.OffsetBottom=210;
+        BigButton(_home, "玩家模式 · 亲自执政", OpenPlayerGame);
+        BigButton(_home, "看海模式 · 观天下", OpenNewGame);
         BigButton(_home, "加载存档", () => { OpenPanel(_load, RefreshSaves); });
         BigButton(_home, "设置 · API 档案", () => { OpenPanel(_settings, RefreshProfiles); });
         BigButton(_home, "退出", () => GetTree().Quit());
         _newGame = BuildNewGame(center);
         _load = BuildLoad(center);
         _settings = BuildSettings(center);
+        _playerSetup=BuildPlayerSetup(center);
         OpenPanel(_home);
         LoadSettings();
     }
@@ -134,12 +137,16 @@ public partial class MainMenu : Control
     }
     private void OpenPanel(Control panel, Action? after = null)
     {
-        foreach (var section in new[] { _home, _newGame, _load, _settings }) section.Visible = section == panel;
+        foreach (var section in new[] { _home, _newGame, _load, _settings, _playerSetup }) section.Visible = section == panel;
         _hint.Text = "";
         if(panel==_newGame)foreach(var (box,draft) in _profilePickers)RefreshProfileOptions(box,draft);
         after?.Invoke();
     }
-    public void OpenNewGame() => OpenPanel(_newGame, () => { if (_nations.Count == 0) DefaultEightNations(); });
+    public void OpenNewGame()
+    {
+        if(_playerMode){_savedPlayerRoster=_nations.ToList();_savedPlayerScenario=_scenarioPicker.Selected;_playerMode=false;SelectScenario(0);}
+        if(_nations.Count==0)DefaultEightNations();SetEditorMode();OpenPanel(_newGame);
+    }
     public void OpenLoad() { OpenPanel(_load, RefreshSaves); }
     public void OpenSettings() { OpenPanel(_settings, RefreshProfiles); }
 
@@ -151,13 +158,14 @@ public partial class MainMenu : Control
         panel.AddChild(scroll);
         var box = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         box.AddThemeConstantOverride("separation", 8); scroll.AddChild(box);
-        var scenarioRow=new HBoxContainer();scenarioRow.AddChild(FieldLabel("开局剧本"));
+        _editorTitle=new Label { AutowrapMode=TextServer.AutowrapMode.WordSmart };_editorTitle.AddThemeFontSizeOverride("font_size",22);box.AddChild(_editorTitle);
+        var scenarioRow=new HBoxContainer();_editorScenario=scenarioRow;scenarioRow.AddChild(FieldLabel("开局剧本"));
         _scenarioPicker=new OptionButton { SizeFlagsHorizontal=SizeFlags.ExpandFill };
         foreach(var scenario in _scenarioCatalog)_scenarioPicker.AddItem(scenario!["name"]!.ToString());
         scenarioRow.AddChild(_scenarioPicker);box.AddChild(scenarioRow);
         _scenarioInfo=new Label { AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("b7c5ad") };box.AddChild(_scenarioInfo);
         _scenarioPicker.ItemSelected+=_=>ChangeScenario();
-        var basics = new HFlowContainer(); basics.AddThemeConstantOverride("h_separation", 12); basics.AddThemeConstantOverride("v_separation", 8);
+        var basics = new HFlowContainer();_editorBasics=basics; basics.AddThemeConstantOverride("h_separation", 12); basics.AddThemeConstantOverride("v_separation", 8);
         HBoxContainer Setting(string name)
         {
             var group=new HBoxContainer();group.AddChild(FieldLabel(name));basics.AddChild(group);return group;
@@ -184,7 +192,7 @@ public partial class MainMenu : Control
         _nationList = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         _nationList.AddThemeConstantOverride("separation", 12); box.AddChild(_nationList);
         var extraLabel = FieldLabel("全局附加 JSON（合并进配置顶层，可写 ctx_fill/rule_ai/mods 等任意字段）");
-        extraLabel.AutowrapMode=TextServer.AutowrapMode.WordSmart;
+        _editorExtraLabel=extraLabel;extraLabel.AutowrapMode=TextServer.AutowrapMode.WordSmart;
         box.AddChild(extraLabel);
         _globalExtra = new LineEdit { PlaceholderText = "{ }" }; box.AddChild(_globalExtra);
         var start = new Button { Text = "开始对局", CustomMinimumSize = new Vector2(0, 44), FocusMode = FocusModeEnum.None };
@@ -196,7 +204,7 @@ public partial class MainMenu : Control
             StartRequested?.Invoke(path, null);
         };
         var footer=new HBoxContainer();start.SizeFlagsHorizontal=SizeFlags.ExpandFill;
-        footer.AddChild(start);footer.AddChild(BackButton());panel.AddChild(footer);
+        footer.AddChild(start);_editorBack=new Button { Text="返回" };_editorBack.Pressed+=()=>{if(_playerMode)OpenPanel(_playerSetup);else OpenPanel(_home);};footer.AddChild(_editorBack);panel.AddChild(footer);
         return panel;
     }
 
@@ -246,8 +254,12 @@ public partial class MainMenu : Control
         preset.ItemSelected += index => { draft.Preset=(int)index; name.Text=Presets[draft.Preset].Name; };
         name.TextChanged += value => draft.Name = value;
         row.AddChild(name);
+        var color=new ColorPickerButton { EditAlpha=false,Color=new Color(draft.Color.Length>0?draft.Color:Zhanguo.Desktop.Layout.DesktopScene.NationPalette[draft.Preset%8]),CustomMinimumSize=new Vector2(36,30) };
+        color.ColorChanged+=v=>draft.Color=v.ToHtml(false);row.AddChild(color);
+        if(draft.Color.Length==0)draft.Color=color.Color.ToHtml(false);
+        if(_playerMode)preset.Visible=false;
         var client = new OptionButton { Name="NationClient",FocusMode = FocusModeEnum.None };
-        foreach (var c in Clients) client.AddItem(c);
+        foreach (var c in Clients.Take(3)) client.AddItem(c);
         client.Selected = draft.Client;
         var rule = new HBoxContainer();
         var llm = new HBoxContainer();
@@ -267,7 +279,7 @@ public partial class MainMenu : Control
         stack.AddChild(rule); stack.AddChild(llm); stack.AddChild(human);
         var extra = new LineEdit { Text = draft.ExtraJson, PlaceholderText = "附加JSON", CustomMinimumSize = new Vector2(150, 0) };
         extra.TextChanged += value => draft.ExtraJson = value;
-        stack.AddChild(extra);
+        extra.Visible=!_playerMode;stack.AddChild(extra);
         var remove = new Button { Text = "−", FocusMode = FocusModeEnum.None };
         remove.Disabled=FixedScenario;
         remove.Pressed += () => { if (_nations.Count > 2) { _nations.Remove(draft); _rows.RemoveAll(r => r.Draft == draft); _profilePickers.RemoveAll(p=>p.Draft==draft);card.QueueFree(); } };
@@ -282,7 +294,7 @@ public partial class MainMenu : Control
         ai.TextChanged += v => draft.RuleAi = v; rule.AddChild(ai);
         rule.AddChild(FieldLabel("风格"));
         var strategy = new OptionButton { FocusMode = FocusModeEnum.None };
-        foreach (var s in Strategies) strategy.AddItem(s);
+        foreach (var s in new[]{"随机应变","经营发展","军事扩张","防御稳守"}) strategy.AddItem(s);
         strategy.Selected = draft.Strategy;
         strategy.ItemSelected += i => draft.Strategy = (int)i; rule.AddChild(strategy);
         rule.AddChild(FieldLabel("种子"));
@@ -321,6 +333,8 @@ public partial class MainMenu : Control
     {
         error = ""; path = null;
         if(_nations.Count(n=>n.Client==3)>1){error="单机对局只能有一位真人，请选择你要控制的国家";return null;}
+        if(_nations.Any(n=>string.IsNullOrWhiteSpace(n.Name))||_nations.Select(n=>n.Name.Trim()).Distinct().Count()!=_nations.Count)
+        {error="各国名称须填写且不能重复";return null;}
         if (_nations.Count < 2) { error = "至少需要两个国家"; return null; }
         if (_nations.Select(n => Presets[n.Preset].Id).GroupBy(id => id).Any(g => g.Count() > 1))
         { error = "同一剧本国家重复出现"; return null; }
@@ -335,7 +349,8 @@ public partial class MainMenu : Control
         foreach (var draft in _nations)
         {
             var preset = Presets[draft.Preset];
-            var nation = new JsonObject { ["id"] = preset.Id, ["name"] = draft.Name, ["client"] = Clients[draft.Client] switch { "规则AI" => "rule", "简易策略" => "sim", "真人" => "human", _ => "llm" } };
+            var nation = new JsonObject { ["id"] = preset.Id, ["name"] = draft.Name.Trim(), ["client"] = Clients[draft.Client] switch { "规则AI" => "rule", "简易策略" => "sim", "真人" => "human", _ => "llm" } };
+            if(draft.Color.Length>0)nation["color"]="#"+draft.Color;
             var placement=SelectedScenario["nations"]!.AsArray().FirstOrDefault(n=>n!["id"]!.ToString()==preset.Id)?["position"];
             if(placement!=null)nation["position"]=placement.DeepClone();
             ParseObject(preset.Extra, "剧本预设", ref error, nation);
@@ -365,9 +380,11 @@ public partial class MainMenu : Control
             ParseObject(draft.ExtraJson, $"{draft.Name} 的附加字段", ref error, nation);
             nations.Add(nation);
         }
-        config["nations"] = nations;
-        ParseObject(_globalExtra.Text, "全局附加", ref error, config);
+        config["nations"] = nations;config["desktop_mode"]=_playerMode?"player":"observer";
+        if(!_playerMode)ParseObject(_globalExtra.Text, "全局附加", ref error, config);
         if((config["scenario"]?.ToString()??"")!=SelectedScenario["id"]!.ToString())error="全局附加 JSON 的 scenario 与所选剧本不一致";
+        int humanCount=(config["nations"] as JsonArray??new JsonArray()).Count(n=>n?["client"]?.ToString()=="human");
+        if((_playerMode&&humanCount!=1)||(!_playerMode&&humanCount!=0))error="玩家模式需要且只能有一个真人；看海模式全部由 AI 控制";
         if (error != "") return null;
         Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
         path = Path.Combine(Path.GetDirectoryName(_settingsPath)!, $"menu-config-{DateTime.Now:yyyyMMdd-HHmmss}.json");
@@ -414,6 +431,7 @@ public partial class MainMenu : Control
             try
             {
                 var saved=JsonNode.Parse(File.ReadAllText(entry.config));
+                caption+=" · "+(saved?["nations"]?.AsArray().FirstOrDefault(n=>n?["client"]?.ToString()=="human") is JsonNode player?$"玩家模式 · {player["name"]}":"看海模式");
                 caption+=" · "+(_scenarioCatalog.FirstOrDefault(s=>s!["id"]!.ToString()==(saved?["scenario"]?.ToString()??""))?["name"]?.ToString()??saved?["scenario"]?.ToString()??"未知剧本");
                 if (saved?["nations"] is JsonArray rows)
                     caption += $" · {rows.Count} 国 · {string.Join("、", rows.Select(r => r?["name"]?.ToString()))}";
@@ -517,9 +535,8 @@ public partial class MainMenu : Control
     }
     public void ReviewHumanCard(int index=0)
     {
-        var select=_rows[index].Row.FindChild("NationClient",true,false) as OptionButton;
-        select!.Select(3);select.EmitSignal(OptionButton.SignalName.ItemSelected,3L);
-        _nations[index].Nickname="本地玩家";
+        _playerMode=true;_nations[index].Client=3;_nations[index].Nickname="本地玩家";
+        RestoreNationEditor(_nations.ToList());SetEditorMode();
     }
     public void ValidateVisibleLayout()
     {

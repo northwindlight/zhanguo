@@ -32,11 +32,11 @@ public static class UnifiedArt
             return _atlas;
         }
     }
-    public static Entry Get(string id){_=Atlas;return Entries[id];}
+    public static Entry Get(string id){if(RtsArt.Special(id))return RtsArt.Entry(id);_=Atlas;return Entries[id];}
     public static void Draw(CanvasItem layer,string id,Vector2 foot,int frame=0,int row=0,Color? color=null,float scale=1)
     {
         var e=Get(id);var src=new Rect2(e.Rect.Position+new Vector2I(frame*e.Cell.X,row*e.Cell.Y),e.Cell);
-        layer.DrawTextureRectRegion(Atlas,new Rect2((foot-e.Anchor*scale).Round(),(Vector2)e.Cell*scale),src,color);
+        layer.DrawTextureRectRegion(RtsArt.Special(id)?RtsArt.Texture(id):Atlas,new Rect2((foot-e.Anchor*scale).Round(),(Vector2)e.Cell*scale),src,color);
     }
     public static string Building(string art,string kind)=>art switch
     {
@@ -45,7 +45,12 @@ public static class UnifiedArt
         var k when k.Contains("oil-well")=>"oilwell",
         var k when k.Contains("mine")=>"mine",
         var k when k.Contains("lumber")=>"lumberyard",
-        var k when k.Contains("barracks")||k.Contains("castle")=>"barracks",
+        var k when k.Contains("castle")=>"castle",
+        var k when k.Contains("barracks")||k.Contains("militia-camp")=>"barracks",
+        var k when k.Contains("wood-power-plant")=>"woodpower",
+        var k when k.Contains("oil-power-plant")=>"oilpower",
+        var k when k.Contains("supply-factory")=>"supplyfactory",
+        var k when k.Contains("equipment-factory")=>"equipmentfactory",
         var k when k.Contains("factory")||k.Contains("power-plant")=>"factory",
         var k when k.Contains("warehouse")||k.Contains("granary")=>"granary",
         var k when k.Contains("workshop")||k.Contains("academy")||k.Contains("tower")=>"workshop",

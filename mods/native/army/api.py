@@ -42,6 +42,10 @@ class ArmyAPI:
         site = self.world.runtime.object_call(self.world, 'native:buildings', 'resolve_site', actor, site, x, y)
         return self.military.recruit(actor, site, kind, count, energy_short=self.military.grid_short(actor))
 
+    def planning(self, actor, x, y, count=1):
+        site=self.world.runtime.object_call(self.world,'native:buildings','resolve_site',actor,None,x,y)
+        return self.military.planning(actor,site,count)
+
     def move(self, actor, aid=None, ids=None, x=None, y=None, place=None):
         ids = self.selection(aid, ids)
         x, y = self.where(place, x, y)

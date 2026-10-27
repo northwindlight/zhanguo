@@ -25,6 +25,16 @@ def _costs(costs, ctx):
 
 
 def tools(runtime):
+    def supports(capability):
+        unit=runtime.units.get(runtime.capabilities.get(capability))
+        return unit is not None and 'planning' in unit.mod.declaration.get('PlayerAPI',{}).get('ReadOnly',())
+    build_planning=supports('native:buildings');army_planning=supports('native:army')
+
+    def site_planning(world, actor, x, y, count=1):
+        data=_read(runtime.player_api(world,'native:buildings').planning,actor,x,y) if build_planning else {}
+        data['units']=_read(runtime.player_api(world,'native:army').planning,actor,x,y,count) if army_planning else []
+        return data
+
     def site_rows(world, actor):
         return [s for s in _read(world.buildings.snapshot).sites if s.owner == actor]
 
@@ -93,7 +103,12 @@ def tools(runtime):
                 return {'action': 'letter', 'target': target, 'error': str(exc)}
         return {'action': 'borrow', **_read(world.bank.borrow_quote, actor)}
 
-    return (
+    planning=(Tool('site_planning',site_planning,owner='native:buildings' if build_planning else 'native:army',api=('planning',),
+             covers=(('native:army','planning'),) if build_planning and army_planning else (),read_only=True,panel=True,hidden=True,
+             parameters={'type':'object','properties':{'x':{'type':'integer'},'y':{'type':'integer'},
+                 'count':{'type':'integer','minimum':1}},'required':['x','y'],'additionalProperties':False},
+             description='本国地块的建设与征兵候选、实际价格变化、要求、材料缺口和本期额度；只读，不扣款，不查询他国或未知地块。'),) if build_planning or army_planning else ()
+    return planning+(
         Tool('quote', quote, owner='native:buildings', read_only=True, panel=True, hidden=True,
              adapter=site_arguments, content_parameters=('kind',),
              parameters={'type': 'object', 'properties': {

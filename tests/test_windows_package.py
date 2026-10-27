@@ -39,6 +39,13 @@ sys.path.insert(0,'.')
 from scenarios.eight_nations import build
 h=build(seed=20261023)
 f=h.ui.desktop_frame(h.observer_snapshot())
+from host import GameHost
+from mods.native.human import HumanAPI
+from mods.ui.desktop_catalog import present
+p=GameHost.new({'map_size':12,'seed':73,'nations':[{'id':'scenario:human','name':'玩家','client':'human','color':'66b6a7'},{'id':'scenario:other','name':'楚'}]})
+a=HumanAPI(p);site=a.state('scenario:human')['facts']['building_sites']['sites'][0]
+cards=present(p.ui,a.site_options('scenario:human',*site['position']),a.state('scenario:human'))
+assert len(cards['buildings'])==16 and len(cards['units'])==3
 print(json.dumps({'tiles':len(f['tiles']),'armies':len(f['armies']),'clients':[c.version for c in h.clients.values()]}))
 """
             result = subprocess.run([sys.executable, "-I", "-S", "-c", code], cwd=bundle / "game",

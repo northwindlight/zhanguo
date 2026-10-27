@@ -41,7 +41,7 @@ public static class DesktopScene
             var local=byTile[at].OrderBy(b=>I(b!["id"])).ToArray();
             t["building_instances"]=new JsonArray(local.Select(b=>b!.DeepClone()).ToArray());
             t["buildings"]=new JsonArray(local.Select(b=>(JsonNode)new JsonArray(b!["kind"]!.ToString(),I(b["level"]))).ToArray());
-            t["building_labels"]=new JsonArray(local.Select(b=>JsonValue.Create($"{b!["label"]??b["kind"]}{(b["level_known"]?.GetValue<bool>()==false?$"（示意 · 第{I(b["sampled"])+1}期）":$" Lv.{b["level"]}")}{(I(b["remaining"])>0?" · 施工中":"")}")).Cast<JsonNode?>().ToArray());
+            t["building_labels"]=new JsonArray(local.Select(b=>(JsonNode?)JsonValue.Create(BuildingLabel(b!))).ToArray());
         }
         frame["armies"]=scene["armies"]!.DeepClone();
         var accounts=scene["accounts"]?.AsArray().ToDictionary(a=>a!["id"]!.ToString());
@@ -57,6 +57,14 @@ public static class DesktopScene
             n["units"]=counts;
         }
         if(scene["market"] is JsonArray market)frame["market"]=market.DeepClone();
+    }
+    public static string BuildingLabel(JsonNode b)
+    {
+        string label=b["label"]?.ToString()??b["kind"]!.ToString();
+        if(b["level_known"]?.GetValue<bool>()==false)label+=$"（示意 · 第{I(b["sampled"])+1}期）";
+        else if(b["kind"]?.ToString()=="native:castle")label+=$" · {I(b["level"])}级";
+        if(I(b["remaining"])>0)label+=" · 施工中";
+        return label;
     }
     public static float NationOpacity(float zoom)
     {

@@ -1,6 +1,7 @@
 """Render only the detached human application state; never inspect a world."""
 from collections import Counter, defaultdict
 from copy import deepcopy
+from mods.native.tools.buildings import _behavior
 
 
 def flow(state):
@@ -65,12 +66,12 @@ def frame(ui,state):
             claimable=terrain[tid]['claimable'],sampled=sampled,
             dynamic=visibility=='live' and owner==actor,
             building_instances=local,buildings=[[b['kind'],b['level']] for b in local],
-            building_labels=[f'{b["label"]}'+(f' Lv.{b["level"]}' if b['level_known'] else f'（示意 · 第{b["sampled"]+1}期）')+
+            building_labels=[f'{b["label"]}'+((f' · {b["level"]}级' if b['kind']=='native:castle' else '') if b['level_known'] else f'（示意 · 第{b["sampled"]+1}期）')+
                 (' · 在建' if b['remaining'] else '') for b in local])
         tiles.append(t);buildings.extend(local);ownership.append({'x':p[0],'y':p[1],'owner':owner})
         defenses.append({'id':f'{p[0]},{p[1]}','x':p[0],'y':p[1],'terrain':terrain[tid]['defense'],
             'castle_known':owner==actor or not any(b['kind']=='native:castle' for b in local),
-            'castle':sum(b['level']*10 for b in local if b['kind']=='native:castle' and not b['remaining'] and b['level_known'])})
+            'castle':sum(next((c['effects'].get('defense_per_level',0) for c in facts['building_catalog'] if c['id']==b['kind']),0) for b in local if b['kind']=='native:castle' and not b['remaining'] and b['level_known'])})
     units=[{**deepcopy(u),'label':label(u['kind'])} for u in facts['army']]
     guards=[{**u,'potential':True} for u in units if u['owner']=='野人']
     armies=[u for u in units if u['owner']!='野人']
@@ -83,9 +84,10 @@ def frame(ui,state):
         'resource_flow':resource_flow,'units':dict(Counter(u['label'] for u in armies if u['owner']==actor)),
         'assets':facts['econ']['gross_assets']['total'],'energy':facts['econ']['preview'].get('energy',{})}
     return {'period':period,'map_seed':0,'map_size':state['map']['size'],'player_actor':actor,
-        'names':names,'tiles':tiles,'armies':armies,'nations':[nation],'market':prices,
+        'names':names,'colors':deepcopy(state.get('colors',{})),'tiles':tiles,'armies':armies,'nations':[nation],'market':prices,
         'bank':{'rate':facts['bank']['savings_rate'],'loan_rate':facts['bank']['loan_rate']},
         'events':deepcopy(facts['news']), 'diplomacy':deepcopy(facts['foreign']['diplomacy']),
+        'building_help':{b['id']:_behavior(b,ui.console) for b in facts['building_catalog']},
         'labels':{key:label(key) for key in set(kinds)|set(terrain)|set(s['id'] for s in stocks)|set(facts['unit_catalog'])|{k for t in tiles for k,_ in t.get('resources',[])}},
         'clients':[{'actor':actor,'kind':'human','version':'human/1','model':None,'strategy':None}],
         'scene':{'buildings':buildings,'armies':armies,'guards':guards,'tile_defenses':defenses,
