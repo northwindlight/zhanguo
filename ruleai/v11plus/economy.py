@@ -49,7 +49,7 @@ def _cost(kind, level, site, existing, catalog):
     return base
 
 
-def _legal(site, kind, row, existing, facts):
+def _legal(site, kind, row, existing, facts, catalog):
     count = len(existing)
     same = sum(b['kind'] == kind for b in existing)
     if len(row['costs_by_level']) > 1 and same >= len(row['costs_by_level']):
@@ -59,7 +59,8 @@ def _legal(site, kind, row, existing, facts):
     if row['max_per_site'] is not None and same >= row['max_per_site']:
         return False
     resource = row['site_resource']
-    if resource and same >= dict(site['resources']).get(resource, 0):
+    used = sum(catalog[b['kind']]['site_resource']==resource for b in existing) if resource else 0
+    if resource and used >= dict(site['resources']).get(resource, 0):
         return False
     if row['self_build_limit'] is not None and facts['self_built'].get(kind, 0) >= row['self_build_limit']:
         return False
@@ -186,7 +187,7 @@ def run(ledger):
         if any(b['site'] == site['id'] for b in site_data['construction']):
             continue
         for kind, row in catalog.items():
-            if kind in SKIP_BUILDINGS or not _legal(site, kind, row, existing, site_data):
+            if kind in SKIP_BUILDINGS or not _legal(site, kind, row, existing, site_data, catalog):
                 continue
             same = sum(b['kind'] == kind for b in existing)
             level = same + 1 if len(row['costs_by_level']) > 1 else 1
@@ -301,7 +302,7 @@ def run(ledger):
         if kind == 'native:town-hall' and not any(
                 b['kind'] == 'native:academy' and b['remaining'] == 0 for b in existing):
             academy = catalog.get('native:academy')
-            if academy and _legal(site, 'native:academy', academy, existing, site_data):
+            if academy and _legal(site, 'native:academy', academy, existing, site_data, catalog):
                 academy_cost = _cost('native:academy', 1, site, existing, catalog)
                 if _ensure(ledger, academy_cost) and ledger.do('build', site=site['id'], kind='native:academy'):
                     built_this_turn.add(site['id'])

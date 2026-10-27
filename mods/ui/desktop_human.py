@@ -145,7 +145,7 @@ class PlayerCapture:
                             if [row['x'],row['y']]==position:row['owner']=details.get('owner')
                         self.add('occupation','归属变更','战斗结束后按实际结果易帜',stage,position,source=f'event/{event["id"]}')
                     continue
-            if event['kind'] not in ('action','maintenance','healing'):
+            if event['kind'] not in ('action','maintenance','healing','production-detail'):
                 self.add('player-event','本国可见消息',event['text'],self.previous,source=f'event/{event["id"]}')
         pending={b['id'] for b in self.previous['scene']['buildings'] if b['owner']==owner and b['remaining']>0}
         for building in final['scene']['buildings']:

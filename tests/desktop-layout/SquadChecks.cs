@@ -45,6 +45,7 @@ static class SquadChecks
         var between=ResourceOverlayLayout.Place(new Footprint(100,286,176,64),panels,1024,768,230,72);
         Require(!panels.Any(p=>p.Overlaps(between,3)),"army HP bar hid behind the country ledger or drawer in a narrow viewport");
         Require(PlaybackPolicy.Speed(16,"rule","actor")==16&&PlaybackPolicy.Speed(16,"llm","settlement")==16,"rule or settlement lost fast-forward");
+        Require(PlaybackPolicy.Speed(16,"human","actor")==16&&PlaybackPolicy.Speed(.5f,"human","actor")==.5f,"human operations jumped to 1x instead of the selected speed");
         Require(PlaybackPolicy.Speed(16,"llm","actor")==1&&PlaybackPolicy.Speed(4,"sim","actor")==1&&PlaybackPolicy.Speed(96,null,"actor")==1,"non-rule actor was fast-forwarded");
         var popups=new System.Collections.Generic.List<Footprint>();
         foreach(float width in new[]{72f,114,85,130,60,100})

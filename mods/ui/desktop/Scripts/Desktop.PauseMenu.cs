@@ -50,7 +50,7 @@ public partial class Desktop
         if(!_pauseMenu.Visible||_closing)return;
         _pauseMenu.Visible=false;
         if(HumanMode){_humanDiscard.Visible=false;_menuQuit.Visible=true;}
-        if(_resumeAfterMenu)
+        if(_resumeAfterMenu||HumanMode)
         {
             _playbackPaused=false;
             try {_host!.StandardInput.WriteLine(JsonSerializer.Serialize(new { command="resume",cycle_only=!_menuAutoRunning }));}

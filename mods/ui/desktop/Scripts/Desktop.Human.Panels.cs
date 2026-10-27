@@ -18,12 +18,13 @@ public partial class Desktop
     private void OpenHumanPage(string page)
     {
         if(!HumanMode)return;
+        if(page=="army"){_humanPage=page;OpenHumanOutliner(true);return;}
         CancelHumanTarget();
         if(_humanPage!=page)
             HumanMessage(page is "build" or "recruit"?"选择本格亮起的图标执行操作；悬停查看价格和条件。":"操作回执保留在国家面板的操作记录中。");
         _humanPage=page;
         _humanScroll.ScrollVertical=0;
-        RenderHumanPage();OpenDrawer(_humanDrawer);
+        RenderHumanPage();OpenDrawer(_humanDrawer);LayoutHuman();
     }
     private void SaveHumanDraft()
     {
@@ -46,6 +47,11 @@ public partial class Desktop
             case "demolish":RenderHumanDemolition();break;
             case "market":RenderHumanMarket();break;
             case "army":RenderHumanArmyList();break;
+            case "army-unit":
+                HumanText(HumanCellName(_humanCell),true);
+                var tile=_map.Frame!["tiles"]!.AsArray().First(t=>I(t!["position"]![0])==_humanCell.X&&I(t["position"]![1])==_humanCell.Y)!.AsObject();
+                RenderHumanGarrison(tile);
+                HumanButton("全国军队总览",()=>OpenHumanOutliner(true),"army");break;
             case "nation":RenderHumanNation();break;
             default:RenderHumanActions(_humanPage);break;
         }
@@ -102,6 +108,7 @@ public partial class Desktop
     }
     private void RenderHumanGarrison(JsonObject tile)
     {
+        SetHumanSelectionCell(_humanCell);
         string state=S(tile["visibility"]);
         var local=SquadView.Units(_map.Frame!).Where(u=>I(u["x"])==_humanCell.X&&I(u["y"])==_humanCell.Y).ToArray();
         var own=local.Where(u=>S(u["owner"])==HumanActor).ToArray();
@@ -118,9 +125,22 @@ public partial class Desktop
             }
             var disband=Button(orderRow,"",()=>ConfirmHuman("遣散军队","选中的本国军队将被遣散，材料不退还；交战限制以实际回执为准。",()=>SubmitHuman("disband",new JsonObject { ["ids"]=new JsonArray(_selectedArmies.Order().Select(i=>(JsonNode?)JsonValue.Create(i)).ToArray()) })));
             HumanArt.Style(disband,"disband");disband.TooltipText="遣散选中军队，材料不返还";orders.Add(disband);
-            void SelectionChanged(){foreach(var b in orders)_rtsAvailability[b]=_selectedArmies.Count>0;RefreshHumanButtons();}
+            disband.Name="HumanOrder_disband";
+            void SelectionChanged()
+            {
+                var chosen=own.Where(u=>_selectedArmies.Contains(I(u["id"]))).ToArray();
+                bool born(JsonNode u)=>u["born_turn"]!=null&&I(u["born_turn"])==_period;
+                bool moved(JsonNode u)=>u["moved_turn"]!=null&&I(u["moved_turn"])==_period;
+                bool enemyHere=local.Any(u=>S(u["owner"])!=HumanActor),attacked=local.Any(u=>S(u["owner"])!=HumanActor&&Yes(u["engaged"]));
+                foreach(var b in orders)_rtsAvailability[b]=b.Name.ToString() switch {
+                    "HumanOrder_move"=>chosen.Any(u=>!born(u)&&!moved(u)&&!Yes(u["engaged"])),
+                    "HumanOrder_attack"=>chosen.Any(u=>!born(u)&&(!moved(u)||enemyHere)),
+                    "HumanOrder_retreat"=>chosen.Any(u=>!born(u)&&!moved(u)&&(Yes(u["engaged"])||attacked)),
+                    _=>chosen.Length>0&&chosen.All(u=>!Yes(u["engaged"]))&&!attacked };
+                RefreshHumanButtons();
+            }
             var all=new CheckButton { Text="全选本国驻军",ButtonPressed=own.All(u=>_selectedArmies.Contains(I(u!["id"]))) };
-            _humanContent.AddChild(all);all.Toggled+=on=>{foreach(var u in own)if(on)_selectedArmies.Add(I(u!["id"]));else _selectedArmies.Remove(I(u!["id"]));RenderHumanPage();};
+            _humanContent.AddChild(all);all.Toggled+=on=>{CancelHumanTarget();foreach(var u in own)if(on)_selectedArmies.Add(I(u!["id"]));else _selectedArmies.Remove(I(u!["id"]));RenderHumanPage();};
             foreach(var unit in own)
             {
                 int id=I(unit!["id"]);string reason=UnitReason(unit);
@@ -129,7 +149,7 @@ public partial class Desktop
                 check.TooltipText=reason==""?"移动与攻击须分别选择目标":reason+"；原地攻击等例外仍由具体军令判断";
                 check.AddThemeColorOverride("font_color",new Color(reason==""?"d6e6c7":"a4aca5"));
                 check.AddThemeIconOverride("checked",HumanArt.Texture("checkbox-on"));check.AddThemeIconOverride("unchecked",HumanArt.Texture("checkbox-off"));
-                check.Toggled+=on=>{if(on)_selectedArmies.Add(id);else _selectedArmies.Remove(id);SelectionChanged();};
+                check.Toggled+=on=>{CancelHumanTarget();if(on)_selectedArmies.Add(id);else _selectedArmies.Remove(id);SelectionChanged();};
                 check.AddThemeFontSizeOverride("font_size",16);
                 var soldierRow=new HBoxContainer();_humanContent.AddChild(soldierRow);
                 soldierRow.AddChild(new TextureRect { Texture=RtsArt.Unit(S(unit["kind"]),_map.NationColor(HumanActor)),CustomMinimumSize=new Vector2(28,40),ExpandMode=TextureRect.ExpandModeEnum.IgnoreSize,StretchMode=TextureRect.StretchModeEnum.KeepAspectCentered });
@@ -262,7 +282,7 @@ public partial class Desktop
             if(type=="integer")
             {
                 double initial=key=="truce"?5:1;
-                var number=new SpinBox { Name="HumanField_"+key,MinValue=key=="gold"?0:1,MaxValue=1_000_000,Value=draft?[key]!=null?F(draft[key]):initial,Step=1 };
+                var number=new SpinBox { UpdateOnTextChanged=true,SelectAllOnFocus=true,Name="HumanField_"+key,MinValue=key=="gold"?0:1,MaxValue=1_000_000,Value=draft?[key]!=null?F(draft[key]):initial,Step=1 };
                 _humanContent.AddChild(number);_humanFields[key]=()=>JsonValue.Create((int)number.Value);
                 number.ValueChanged+=_=>UpdateHumanPreview();continue;
             }

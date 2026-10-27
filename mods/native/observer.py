@@ -29,8 +29,12 @@ class NativeObserver:
                     for resource,amount in fact.outputs:
                         row[fact.category+'_in'][resource]+=amount
                         row['net'][resource]+=amount
-        return [{'id':owner,'period':period,**{name:[[r,a] for r,a in amounts.items() if a]
-                for name,amounts in row.items()}} for owner,row in groups.items()]
+        result=[]
+        for owner,row in groups.items():
+            detail=next((e.details for e in reversed(self.world.intelligence.events(owner)) if e.kind=='production-detail' and e.period==period),None)
+            result.append({'id':owner,'period':period,'sources':deepcopy(detail['sources']) if detail is not None else None,
+                **{name:[[r,a] for r,a in amounts.items() if a] for name,amounts in row.items()}})
+        return result
 
     def observer_scene(self):
         """Small, detached visual facts; no player observation, materialization or RNG."""

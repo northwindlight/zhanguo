@@ -36,10 +36,10 @@ public partial class Desktop
     {
         if(_speedControl==null)return;
         _bubbles?.SetSpeed(EffectivePlaybackSpeed);
-        bool normal=ActiveClientKind!="rule"&&PlaybackScope!="settlement"&&ActiveClientKind!="";
+        bool normal=ActiveClientKind is not ("rule" or "human" or "")&&PlaybackScope!="settlement";
         _speedControl.Text=normal?(ActiveClientKind=="llm"?"LLM 1×":"行动 1×"):
             _playbackSpeed==96?"快进 96×":_speedControl.GetItemText(_speedControl.Selected);
-        _speedControl.TooltipText=normal?$"当前行动固定 1×；所选 {_playbackSpeed}× 将在规则 AI 或回合结算时恢复":"速度仅作用于规则 AI 行动与回合结算";
+        _speedControl.TooltipText=normal?$"LLM 行动固定 1×；所选 {_playbackSpeed}× 将在真人、规则 AI 或结算时恢复":"真人操作、规则 AI 与结算沿用同一倍速；LLM 行动固定 1×";
     }
 
     private void BuildPlaybackControls(HBoxContainer top)
@@ -47,7 +47,7 @@ public partial class Desktop
         var follow=new CheckButton { Text="跟随",ButtonPressed=true,FocusMode=FocusModeEnum.None };
         follow.Toggled+=value=>_autoFollow=value;top.AddChild(follow);
         var speed=new OptionButton { FocusMode=FocusModeEnum.None };_speedControl=speed;
-        string[] names={"细看 0.5×","慢速 1×","常速 2×","快速 4×","快进 16×"};
+        string[] names={"细看 0.5×","常速 1×","快速 2×","加速 4×","快进 16×"};
         foreach(var name in names)speed.AddItem(name);
         speed.Selected=1;speed.ItemSelected+=index=>{_playbackSpeed=new[]{.5f,1,2,4,16}[(int)index];RefreshSpeedDisplay();};top.AddChild(speed);
         _banner=new PanelContainer { MouseFilter=MouseFilterEnum.Ignore,ZIndex=10 };
@@ -57,7 +57,7 @@ public partial class Desktop
         _banner.SetAnchorsAndOffsetsPreset(LayoutPreset.CenterTop);_banner.OffsetLeft=-340;_banner.OffsetRight=340;
         _banner.OffsetTop=78;_banner.OffsetBottom=204;AddChild(_banner);
         var box=new VBoxContainer { MouseFilter=MouseFilterEnum.Ignore };_banner.AddChild(box);
-        _bannerTitle=new Label { Text="观天下 · 等待开局",MouseFilter=MouseFilterEnum.Ignore,HorizontalAlignment=HorizontalAlignment.Center };
+        _bannerTitle=new Label { Text="观天下 · 等待开局",MouseFilter=MouseFilterEnum.Ignore,HorizontalAlignment=HorizontalAlignment.Center,AutowrapMode=TextServer.AutowrapMode.WordSmart,MaxLinesVisible=2,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis };
         _bannerTitle.AddThemeFontSizeOverride("font_size",23);_bannerTitle.AddThemeColorOverride("font_color",new Color("ead9a7"));box.AddChild(_bannerTitle);
         _bannerText=new Label { Text="点击继续，按国家和动作慢速观看",AutowrapMode=TextServer.AutowrapMode.WordSmart,
             HorizontalAlignment=HorizontalAlignment.Center,MouseFilter=MouseFilterEnum.Ignore,CustomMinimumSize=new Vector2(0,64),MaxLinesVisible=3,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis };box.AddChild(_bannerText);

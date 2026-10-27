@@ -11,6 +11,10 @@ public partial class Desktop
     private int _rtsEpoch,_rtsCount=1;
     private double _rtsHoverTime;
     private bool _rtsExpanded;
+    private bool _rtsCountPending;
+    private int _rtsCountEdit;
+    private int _rtsRestoreFocusEpoch=-1,_rtsRestoreCaret;
+    private Label? _rtsPendingHint;
     private PanelContainer? _rtsTooltip;
     private VBoxContainer? _rtsTooltipBody;
     private readonly Dictionary<string,Button> _rtsCards=new();
@@ -20,7 +24,7 @@ public partial class Desktop
 
     private void ResetRts()
     {
-        _rtsEpoch++;_rtsData=null;_rtsCards.Clear();_rtsAvailability.Clear();HideRtsTooltip();
+        _rtsEpoch++;_rtsData=null;_rtsCountPending=false;_rtsPendingHint=null;_rtsCards.Clear();_rtsAvailability.Clear();HideRtsTooltip();
     }
     private bool EnsureRtsCell()
     {
@@ -39,10 +43,16 @@ public partial class Desktop
         {
             if(epoch!=_rtsEpoch||page!=_humanPage||point!=_humanCell)return;
             _rtsData=row["data"]!.AsObject();ClearHumanChildren(_humanContent);FillRtsCatalog(_rtsData,page=="recruit");
+            if(epoch==_rtsRestoreFocusEpoch&&_humanContent.FindChild("RtsRecruitCount",true,false) is SpinBox replacement)
+            {
+                _rtsRestoreFocusEpoch=-1;
+                Callable.From(()=>{if(IsInstanceValid(replacement)){replacement.GetLineEdit().GrabFocus();replacement.GetLineEdit().Deselect();replacement.GetLineEdit().CaretColumn=_rtsRestoreCaret;}}).CallDeferred();
+            }
         });
     }
     private void RtsChangeCell(Vector2I at)
     {
+        SetHumanSelectionCell(at);
         _humanCell=at;HumanMessage("已切换地块，以下为当前地块的条件。");
         _map.SelectAndFocus(at);RenderHumanPage();
     }
@@ -77,12 +87,23 @@ public partial class Desktop
         if(recruit)
         {
             var amount=new HBoxContainer();_humanContent.AddChild(amount);amount.AddChild(new Label { Text="每次征召" });
-            var count=new SpinBox { Name="RtsRecruitCount",MinValue=1,MaxValue=20,Step=1,Value=_rtsCount,CustomMinimumSize=new Vector2(100,0) };amount.AddChild(count);
-            count.ValueChanged+=value=>{_rtsCount=(int)value;RenderHumanPage();};
+            var count=new SpinBox { Name="RtsRecruitCount",UpdateOnTextChanged=true,SelectAllOnFocus=true,MinValue=1,MaxValue=20,Step=1,Value=_rtsCount,CustomMinimumSize=new Vector2(100,0) };amount.AddChild(count);
+            count.ValueChanged+=async value=>
+            {
+                _rtsCount=(int)value;_rtsCountPending=true;RefreshRtsButtons();
+                int edit=++_rtsCountEdit,epoch=_rtsEpoch;var cell=_humanCell;
+                await ToSignal(GetTree().CreateTimer(.35),SceneTreeTimer.SignalName.Timeout);
+                if(edit!=_rtsCountEdit||epoch!=_rtsEpoch||_humanPage!="recruit"||cell!=_humanCell)return;
+                bool editing=IsInstanceValid(count)&&count.GetLineEdit().HasFocus();
+                int caret=editing?count.GetLineEdit().CaretColumn:0;
+                RenderHumanPage();
+                if(editing){_rtsRestoreFocusEpoch=_rtsEpoch;_rtsRestoreCaret=caret;}
+            };
             if(!data["units"]!.AsArray().Any(u=>Yes(u!["has_facility"])))HumanText("本格缺少已落成的兵营／军屯。先建造所需设施。",color:"e0b49b");
         }
         var hint=HumanText(recruit?"可用优先 · 悬停看费用，停留看属性与维持消耗":"每格每回合施工一次 · 悬停看价格，停留看收益",color:"a3b7ad");
         hint.AddThemeFontSizeOverride("font_size",14);
+        _rtsPendingHint=HumanText("本格已有指令正在执行或待执行，不重复排队。",color:"e1c48b");_rtsPendingHint.AddThemeFontSizeOverride("font_size",14);
         var grid=new GridContainer { Name="RtsCatalog",Columns=3,SizeFlagsHorizontal=SizeFlags.ExpandFill };
         grid.AddThemeConstantOverride("h_separation",8);grid.AddThemeConstantOverride("v_separation",8);_humanContent.AddChild(grid);
         foreach(var item in data[recruit?"units":"buildings"]!.AsArray())
@@ -109,7 +130,7 @@ public partial class Desktop
             card.MouseExited+=HideRtsTooltip;card.FocusEntered+=()=>ShowRtsTooltip(row,card.GetGlobalRect().Position);card.FocusExited+=HideRtsTooltip;
             card.Pressed+=()=>
             {
-                if(!available||!HumanCanWrite)return;
+                if(!available||!HumanCanQueue||_rtsCountPending)return;
                 HideRtsTooltip();_humanOperation=recruit?"recruit":"build";
                 var args=new JsonObject { ["kind"]=kind,["x"]=_humanCell.X,["y"]=_humanCell.Y };
                 if(recruit)args["count"]=_rtsCount;
@@ -119,7 +140,12 @@ public partial class Desktop
         RefreshRtsButtons();
     }
     private void RefreshRtsButtons()
-    {foreach(var (button,available) in _rtsAvailability)if(IsInstanceValid(button))button.Disabled=!available||!HumanCanWrite;}
+    {
+        bool catalog=_humanPage is "build" or "recruit";
+        bool pending=catalog&&PendingHumanSite(_humanPage=="build"?"build":"recruit",_humanCell);
+        if(_rtsPendingHint!=null&&IsInstanceValid(_rtsPendingHint))_rtsPendingHint.Visible=pending;
+        foreach(var (button,available) in _rtsAvailability)if(IsInstanceValid(button))button.Disabled=!available||!(catalog?HumanCanQueue:HumanCanWrite)||_rtsCountPending||pending;
+    }
     private void RtsCosts(BoxContainer parent,JsonNode? costs,bool compact=false,bool dim=false)
     {
         if(costs==null){parent.AddChild(new Label { Text="无下一档报价",MouseFilter=MouseFilterEnum.Ignore });return;}

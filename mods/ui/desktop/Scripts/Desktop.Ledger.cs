@@ -50,7 +50,7 @@ public partial class Desktop
         _ledgerStocks=new GridContainer { Columns=3 };_ledgerStocks.AddThemeConstantOverride("h_separation",10);
         _ledgerStocks.AddThemeConstantOverride("v_separation",4);box.AddChild(_ledgerStocks);
         var note=LedgerLabel("生产／军耗／贡赋净变化","a5b8ac");box.AddChild(note);
-        _ledgerPanel.TooltipText="当前库存来自已展示的实际行动。变化为标注期的生产、军队消耗和贡赋净值；不含交易与赠礼。绿色增加，红色减少。";
+        note.TooltipText="变化为标注期的生产、军队消耗和贡赋净值；不含交易与赠礼。悬停资源行查看实际来源。";
 
         _settlementCard=LedgerCard(this,9);
         var scroll=new ScrollContainer { HorizontalScrollMode=ScrollContainer.ScrollMode.Disabled,SizeFlagsVertical=SizeFlags.ExpandFill };
@@ -76,7 +76,7 @@ public partial class Desktop
         if(_banner!=null)
         {
             // Leave the whole country panel clear, including at 1024px.
-            float left=312,right=Size.X-16;
+            float left=312,right=HumanMode?Size.X-(Size.X<1200?246:280)-28:Size.X-16;
             _banner.SetAnchorsAndOffsetsPreset(LayoutPreset.TopLeft);
             _banner.Position=new Vector2(left,78);_banner.Size=new Vector2(Math.Min(700,right-left),126);
         }
@@ -93,6 +93,7 @@ public partial class Desktop
             view=NationLedger.Read(_map.Frame,target);
         }
         if(view==null){_ledgerPanel.Visible=false;return;}
+        HideResourceTooltip();_resourceHoverRows.Clear();
         if(target!=_ledgerActor){_ledgerActor=target;if(_smoke!=null)_ledgerSwitches.Add(target);}
         _ledgerHeading.Text=$"{view.Name}国 · 第 {view.Period+1} 回合";
         _ledgerHeading.Modulate=_map.NationColor(target);
@@ -113,11 +114,11 @@ public partial class Desktop
         ClearLedgerRows(_ledgerStocks);
         foreach(var row in view.Stocks)
         {
-            _ledgerStocks.AddChild(LedgerLabel(row.Name));
-            var amount=LedgerLabel(NationLedger.Quantity(row.Amount),right:true);amount.TooltipText=row.Amount.ToString("G17");
-            amount.TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis;_ledgerStocks.AddChild(amount);
+            var name=LedgerLabel(row.Name);_ledgerStocks.AddChild(name);BindResourceHover(name,view,row);
+            var amount=LedgerLabel(NationLedger.Quantity(row.Amount),right:true);
+            amount.TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis;_ledgerStocks.AddChild(amount);BindResourceHover(amount,view,row);
             var change=LedgerLabel(view.FlowPeriod<0?"—":NationLedger.Signed(row.Change),DeltaColor(row.Change),true);
-            change.TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis;change.TooltipText=row.Change.ToString("G17");_ledgerStocks.AddChild(change);
+            change.TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis;_ledgerStocks.AddChild(change);BindResourceHover(change,view,row);
         }
         _ledgerPanel.Visible=true;LayoutLedger();
     }

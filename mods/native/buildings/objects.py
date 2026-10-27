@@ -239,13 +239,15 @@ class Buildings:
             total+=(self._type(kind).EFFECTS.get(key,0) or 0)*self.count(site_id,kind)
         return total if total else default
 
-    def _check_slots(self, site, cls, count=1):
+    def _check_slots(self, site, cls, count=1, *, shared_resources=True):
         existing = list(self._index().get(site.id, ()))
         same = sum(item.kind==cls.TYPE_ID for item in existing)
+        resource_used = self._resource_occupancy(existing, cls.SITE_RESOURCE) if shared_resources else same
         context = {'reason': 'building_slots', 'site': site.id, 'position': list(site.position),
                    'kind': cls.TYPE_ID, 'count': count, 'occupied': len(existing),
                    'capacity': site.capacity, 'same': same, 'max_per_site': cls.MAX_PER_SITE,
                    'site_resource': cls.SITE_RESOURCE,
+                   'resource_used': resource_used,
                    'resource_capacity': dict(site.resources).get(cls.SITE_RESOURCE, 0) if cls.SITE_RESOURCE else None,
                    'resources': dict(site.resources),
                    'existing': [item.kind for item in existing]}
@@ -253,9 +255,14 @@ class Buildings:
             raise DomainRejection('本格建筑位不足', {**context, 'block': 'slots'})
         if cls.MAX_PER_SITE is not None and same+count>cls.MAX_PER_SITE:
             raise DomainRejection('同类建筑已达上限', {**context, 'block': 'per_site'})
-        if cls.SITE_RESOURCE is not None and same+count>dict(site.resources).get(cls.SITE_RESOURCE,0):
+        if cls.SITE_RESOURCE is not None and resource_used+count>dict(site.resources).get(cls.SITE_RESOURCE,0):
             raise DomainRejection('本地资源容量不足', {**context, 'block': 'resource'})
         return existing,same
+
+    def _resource_occupancy(self, existing, resource):
+        # Construction reserves capacity too. Different building kinds cannot
+        # each spend the same farmland (e.g. a farm and a militia camp).
+        return sum(self._type(item.kind).SITE_RESOURCE==resource for item in existing) if resource else 0
 
     def seed(self, site_id, kind, count=1, *, completed=True):
         """Explicit initialization/import; does not count as player construction."""
@@ -316,7 +323,8 @@ class Buildings:
             if cls.MAX_PER_SITE is not None:requirements.append(requirement(f'本格同类数量 {same}/{cls.MAX_PER_SITE}',same<cls.MAX_PER_SITE))
             if cls.SITE_RESOURCE is not None:
                 cap=dict(site.resources).get(cls.SITE_RESOURCE,0)
-                requirements.append({'text':'本地资源容量','resource':cls.SITE_RESOURCE,'current':same,'required':cap,'met':same<cap})
+                used=self._resource_occupancy(existing,cls.SITE_RESOURCE)
+                requirements.append({'text':'本地资源容量','resource':cls.SITE_RESOURCE,'current':used,'required':cap,'met':used<cap})
             built=self._self_built.get((owner,kind),0)
             if cls.SELF_BUILD_LIMIT is not None:requirements.append(requirement(f'全国自建数量 {built}/{cls.SELF_BUILD_LIMIT}',built<cls.SELF_BUILD_LIMIT))
             price=None
@@ -662,7 +670,10 @@ class Buildings:
                 raise ValueError('Invalid building sequence/progress')
             site = candidate._sites.get(item.site)
             if site is None:raise ValueError('Building site missing')
-            candidate._check_slots(site,type(item))
+            # Older saves allowed one farm and one camp to spend the same
+            # farmland. Preserve their buildings, but every new order/seed
+            # must pass the shared-capacity rule above.
+            candidate._check_slots(site,type(item),shared_resources=False)
             expected_level = candidate.count(item.site,item.kind,completed_only=False)+1 if len(item.GOLD_COSTS)>1 else 1
             if item.level!=expected_level:raise ValueError('Invalid building level')
             item._domain = self._domain

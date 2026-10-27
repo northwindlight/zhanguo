@@ -28,7 +28,7 @@ public partial class Desktop
         var at=button.GetGlobalRect().GetCenter();GetViewport().PushInput(new InputEventMouseMotion { Position=at,GlobalPosition=at },true);
         await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
     }
-    private async Task HumanIdle()=>await WaitFor(()=>HumanCanWrite&&!HasTimeline,"真人操作或本批演出没有结束",120);
+    private async Task HumanIdle()=>await WaitFor(()=>HumanCanWrite&&!HasTimeline&&_humanCommands.Count==0,"真人操作或本批演出没有结束",120);
     private async Task CheckGarrisonFirst()
     {
         await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
@@ -80,7 +80,7 @@ public partial class Desktop
             _runtime=_runtime with { DataRoot=reviewRoot };
             _menu=new MainMenu(reviewRoot,MenuBegin);_menu.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);_menu.ZIndex=30;AddChild(_menu);
             _menu.OpenPlayerGame();_menu.PlayerSeedField.Text="20261026";
-            _menu.PlayerNameField.Text="青岚";_menu.PlayerColorField.Color=new Color("66b6a7");_menu.PlayerMapSizeField.Value=32;
+            _menu.PlayerNameField.Text="青岚";_menu.PlayerColorField.Color=new Color("66b6a7");await TypeNumber(_menu.PlayerMapSizeField,"32");
             await ToSignal(GetTree().CreateTimer(.3),SceneTreeTimer.SignalName.Timeout);
             _menu.ValidateVisibleLayout();await Screenshot(stem+"-player-step1.png");
             await PointerClick(_menu.PlayerNextButton);
@@ -106,12 +106,26 @@ public partial class Desktop
                 if(page=="market")await MarketReady();
                 ValidateHumanLayout();await Screenshot(stem+"-"+page+".png");
             }
-            // A real double pointer click must buy one unit once.
+            // Repeated clicks are distinct queued orders; no wait for each animation.
             await PointerClick(_humanNav["market"]);await MarketReady();double food=F(HumanFacts["econ"]!["stocks"]!.AsArray().First(s=>S(s!["id"])=="native:food")!["amount"]);
-            int history=_humanHistory.Count;
-            var once=_humanSubmit!;await PointerClick(once);await PointerClick(once);await HumanIdle();await MarketReady();
-            if(F(HumanFacts["econ"]!["stocks"]!.AsArray().First(s=>S(s!["id"])=="native:food")!["amount"])!=food+1||_humanHistory.Count!=history+1)
-                throw new Exception("市场双击重复执行或成交未同步");
+            int history=_humanHistory.Count;float priorSpeed=_playbackSpeed;int priorIndex=_speedControl.Selected;
+            _speedControl.Select(0);_speedControl.EmitSignal(OptionButton.SignalName.ItemSelected,0L);
+            var once=_humanSubmit!;await PointerClick(once);
+            await WaitFor(()=>HasTimeline&&_humanBusy,"首笔买入没有开始演出");
+            if(EffectivePlaybackSpeed!=.5f||_speedControl.Text=="行动 1×")throw new Exception("真人操作仍强制跳回1倍速");
+            await WaitFor(()=>(_humanContent.FindChild("MarketOwnStock",true,false) as Label)?.Text==Quantity(System.Text.Json.Nodes.JsonValue.Create(food+1)),"演出期间市场本国库存仍旧，未随成交更新");
+            await PointerClick(once);
+            if(_humanCommands.Count!=1||!_humanQueuePanel.Visible)throw new Exception("连续买入没有进入待执行队列");
+            await Screenshot(stem+"-market-queue.png");await HumanIdle();await MarketReady();
+            if(F(HumanFacts["econ"]!["stocks"]!.AsArray().First(s=>S(s!["id"])=="native:food")!["amount"])!=food+2||_humanHistory.Count!=history+2)
+                throw new Exception("连续两次买入丢单或重复成交");
+            await PointerClick(MarketReviewButton("Market_sell_1"));await WaitFor(()=>HasTimeline&&_humanBusy,"卖出演出没有开始");
+            await PointerClick(MarketReviewButton("Market_sell_10"));
+            if(_humanCommands.Count!=1)throw new Exception("卖出未排队");
+            await PointerClick((Button)_humanDrawer.Body.FindChild("CancelQueuedHuman",true,false)!);
+            await HumanIdle();await MarketReady();
+            if(OwnStock("food")!=food+1||_humanHistory.Count!=history+3||_humanCommands.Count!=0)throw new Exception("取消待执行指令后仍成交，或撤销了已执行交易");
+            _playbackSpeed=priorSpeed;_speedControl.Select(priorIndex);RefreshSpeedDisplay();
             // Real diplomacy form: recipient list and body, no tool IDs or JSON.
             _humanOperation="send_letter";await PointerClick(_humanNav["diplomacy"]);
             var letterBody=_humanContent.FindChild("HumanField_text",true,false) as TextEdit;
@@ -154,6 +168,11 @@ public partial class Desktop
             await ReviewCompletedDemolition(stem,otherCell);
             _humanCell=capital;OpenHumanPage("recruit");await RtsReady();
             if(_rtsCards["native:militia"].Disabled||!_rtsCards["native:infantry"].Disabled)throw new Exception("军屯与兵营候选未正确筛选");
+            await TypeNumber((SpinBox)_humanContent.FindChild("RtsRecruitCount",true,false)!,"2");
+            await WaitFor(()=>!_rtsCountPending&&_rtsData!=null,"征召数量没有刷新报价");await RtsReady();
+            if(!_rtsCards["native:militia"].Disabled)throw new Exception("输入2支却仍采用旧的1支征召条件");
+            await TypeNumber((SpinBox)_humanContent.FindChild("RtsRecruitCount",true,false)!,"1");
+            await WaitFor(()=>!_rtsCountPending&&_rtsData!=null,"征召数量改回后没有刷新");await RtsReady();
             await Screenshot(stem+"-recruit.png");await PointerClick(_rtsCards["native:militia"]);await HumanIdle();
             if(!OwnArmies.Any())throw new Exception("真人征兵没有产生真实军队："+_humanReceipt.Text);
             await PointerClick(_humanNav["end"]);await WaitFor(()=>HumanCanWrite&&_period==2,"新兵没有进入下一期",120);
@@ -206,6 +225,8 @@ public partial class Desktop
             if(!_humanConfirm.DialogText.Contains("攻方")||!_humanConfirm.DialogText.Contains("守方"))throw new Exception("宣战缺少结构化警告");
             await Screenshot(stem+"-war-warning.png");await PointerClick(_humanConfirm.GetCancelButton());await HumanIdle();
             var layouts=new JsonArray();
+            await ReviewHumanOutliner(stem,capital,destination);
+            await ReviewResourceTooltip();await Screenshot(stem+"-resource-breakdown.png");
             foreach(var size in new[]{new Vector2I(1920,1080),new Vector2I(1440,900),new Vector2I(1280,720),new Vector2I(1024,768)})
             {
                 GetWindow().ContentScaleSize=size;GetWindow().Size=size;_humanCell=capital;OpenHumanPage("build");await RtsReady();
@@ -224,7 +245,9 @@ public partial class Desktop
                 if(!new Rect2(Vector2.Zero,Size).Encloses(_rtsTooltip!.GetGlobalRect()))throw new Exception("征兵悬浮信息超出窗口："+size);
                 HideRtsTooltip();_marketAutomatic=false;OpenHumanPage("market");await MarketReady();await ToSignal(GetTree().CreateTimer(.2),SceneTreeTimer.SignalName.Timeout);ValidateHumanLayout();await Screenshot(stem+$"-market-{size.X}.png");
                 await PointerClick((Button)_humanContent.FindChild("MarketAutoTab",true,false));ValidateHumanLayout();await Screenshot(stem+$"-auto-{size.X}.png");
-                _humanCell=destination;OpenHumanPage("tile");await CheckGarrisonFirst();await Screenshot(stem+$"-garrison-{size.X}.png");
+                _humanCell=destination;OpenHumanPage("tile");await CheckGarrisonFirst();CheckOutlinerLayout();await Screenshot(stem+$"-garrison-{size.X}.png");
+                OpenHumanOutliner(true);await WaitFor(()=>Drawers.All(d=>d.IsSettled),"总览打开时抽屉未收起");CheckOutlinerLayout();await Screenshot(stem+$"-outliner-{size.X}.png");
+                await ReviewResourceTooltip();await Screenshot(stem+$"-resource-breakdown-{size.X}.png");
                 layouts.Add(new JsonObject { ["width"]=size.X,["height"]=size.Y,["within_viewport"]=true,["rts_hover"]=true });
             }
             HideRtsTooltip();
@@ -236,12 +259,12 @@ public partial class Desktop
             await Screenshot(stem+"-exit.png");
             var result=new JsonObject { ["period"]=_period,["human_actor"]=HumanActor,["human_actions"]=_humanHistory.Count,
                 ["unknown_tiles"]=_map.UnknownCount,["historical_tiles"]=_map.MemoryCount,["action_batches"]=_actionBatches,
-                ["settlement_batches"]=_settlementBatches,["played_phases"]=JsonSerializer.SerializeToNode(_playedPhases),["normal_zero_army_start"]=true,["double_click_once"]=true,
+                ["settlement_batches"]=_settlementBatches,["played_phases"]=JsonSerializer.SerializeToNode(_playedPhases),["normal_zero_army_start"]=true,["repeated_market_clicks"]=true,["queued_order_cancel"]=true,["human_selected_speed"]=true,
                 ["build_and_quote"]=true,["rts_icons"]=true,["two_step_player_menu"]=true,["custom_nation_name_and_color"]=true,["tile_a_b_a"]=true,["disabled_hover"]=true,["short_hover"]=true,["long_hover"]=true,["construction_quota_disabled"]=true,["letter_form"]=true,["free_human_scenario"]=true,["reject_multiple_humans"]=true,["recruit"]=true,["move_did_not_occupy"]=true,["in_place_attack"]=true,["esc_cancels_target"]=true,["war_warning"]=true,
                 ["map_purchase"]=true,["historical_pixels_static"]=true,["single_nation_ledger"]=true,
                 ["market_quantity_buttons"]=true,["market_exact_quotes"]=true,["auto_trade_buy_and_sell"]=true,["auto_trade_validation"]=true,["cancel_half_refund"]=true,["cancel_keeps_quota"]=true,["demolish_zero_refund"]=true,["market_layouts"]=true,
                 ["garrison_visible_without_scroll"]=true,["wild_garrison_continuity"]=true,["wild_guard_id"]=wildId,["wild_formation_figures"]=wildFigures,
-                ["power_visible"]=true,["power_ignores_unfinished"]=true,["power_previous_actual"]=true,
+                ["resource_breakdown_hover"]=true,["outliner_tabs"]=true,["outliner_filters"]=true,["selection_one_site"]=true,["numbers_without_enter"]=true,["market_reference_visible"]=true,["power_visible"]=true,["power_ignores_unfinished"]=true,["power_previous_actual"]=true,
                 ["save_queued"]=true,["exit_choice"]=true,["rts_layouts"]=true,["save"]=_savePath,["config"]=configPath,["layouts"]=layouts,
                 ["platform"]=OS.GetName(),["renderer"]=RenderingServer.GetVideoAdapterName() };
             await File.WriteAllTextAsync(path+".json",result.ToJsonString(new JsonSerializerOptions { WriteIndented=true }));

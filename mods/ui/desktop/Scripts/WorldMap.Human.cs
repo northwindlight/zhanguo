@@ -9,6 +9,7 @@ public partial class WorldMap
     public bool PlayerMode=>Frame?["player_actor"]!=null;
     public string PlayerActor=>S(Frame?["player_actor"]);
     public bool PlayerPanelOpen;
+    public float PlayerRightInset=552;
     private readonly Dictionary<Vector2I,JsonObject> _humanTargets=new();
     private string _humanTargetMode="";
     public Action<JsonObject?>? HumanTargetHovered;
@@ -27,8 +28,8 @@ public partial class WorldMap
     public JsonObject? HumanTarget(Vector2I at)=>_humanTargets.GetValueOrDefault(at);
     public void SelectAndFocus(Vector2I at)
     {
-        Selected=at;_fit=false;_scale=Math.Clamp(Math.Min((Size.X-560)/256f,(Size.Y-300)/256f),.45f,1.5f);
-        var focus=new Vector2(Math.Max(340,(Size.X-540)*.5f),Size.Y*.55f);
+        Selected=at;_fit=false;_scale=Math.Clamp(Math.Min((Size.X-PlayerRightInset)/256f,(Size.Y-300)/256f),.45f,1.5f);
+        var focus=new Vector2(Math.Max(340,(Size.X-PlayerRightInset)*.5f),Size.Y*.55f);
         _offset=focus-(new Vector2(at.X,at.Y)+Vector2.One*.5f)*Cell*_scale;_cameraAnchor=null;UpdateView();
     }
     public void FocusHumanTargets()
@@ -36,7 +37,7 @@ public partial class WorldMap
         if(_humanTargets.Count==0)return;
         var points=_humanTargets.Keys.ToArray();
         float left=points.Min(p=>p.X),right=points.Max(p=>p.X)+1,top=points.Min(p=>p.Y),bottom=points.Max(p=>p.Y)+1;
-        var free=new Rect2(312,216,Math.Max(160,Size.X-312-(PlayerPanelOpen?552:16)),Math.Max(180,Size.Y-300));
+        var free=new Rect2(312,216,Math.Max(160,Size.X-312-PlayerRightInset),Math.Max(180,Size.Y-300));
         _scale=Math.Clamp(Math.Min(free.Size.X/((right-left)*256),free.Size.Y/((bottom-top)*256)),.04f,1.5f);
         _offset=free.GetCenter()-new Vector2((left+right)*128,(top+bottom)*128)*_scale;_fit=false;_cameraAnchor=null;UpdateView();
     }

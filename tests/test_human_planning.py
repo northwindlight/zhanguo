@@ -49,6 +49,16 @@ class TestHumanPlanning(unittest.TestCase):
         self.assertTrue(all(not r['has_facility'] for r in data['units']))
         self.assertTrue(self.item(data,'castle')['available'])
 
+    def test_occupied_farmland_disables_camp_and_rejects_actual_human_action(self):
+        w=self.h.world;w.buildings._sites[self.site.id]=replace(self.site,resources=(('native:farmland',1),))
+        w.buildings.seed(self.site.id,'native:farm',completed=False)
+        before=w.runtime.save_mod_state(w)
+        data=present(self.h.ui,self.read(),self.api.state(A))
+        camp=self.item(data,'militia-camp');self.assertFalse(camp['available'])
+        self.assertTrue(any('耕地占用 1/1' in r for r in camp['reasons']))
+        result=self.api.submit(A,'build',{'kind':'native:militia-camp','x':self.site.position[0],'y':self.site.position[1]})
+        self.assertFalse(result['ok']);self.assertEqual(before,w.runtime.save_mod_state(w))
+
     def test_spent_construction_order_is_local_to_selected_tile(self):
         other=self.second_site();site=self.h.world.buildings.site(other.tile.id)
         result=self.api.submit(A,'build',{'kind':'native:castle','x':self.site.position[0],'y':self.site.position[1]})

@@ -19,6 +19,13 @@ class TestDesktopPlayer(unittest.TestCase):
 
     def render(self):return frame(self.host.ui,self.api.state(A))
 
+    def test_market_projection_keeps_public_reference_separate_from_inventory(self):
+        state=self.api.state(A);reference=dict(state['facts']['market']['reference'])
+        inventory=dict(state['facts']['market']['inventory'])
+        for row in frame(self.host.ui,state)['market']:
+            self.assertEqual(row['reference'],reference[row['id']])
+            self.assertEqual(row['inventory'],inventory[row['id']])
+
     def test_battle_replay_removes_the_idle_guard_instead_of_duplicating_or_reviving_it(self):
         w=self.host.world
         point=next(tuple(t['position']) for t in self.api.state(A)['map']['tiles'] if t['visibility']=='live' and

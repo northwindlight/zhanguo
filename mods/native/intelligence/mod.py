@@ -31,6 +31,20 @@ class IntelligenceMod(GameMod):
         results,facts=world.intelligence.resolve();context['dispatch_results']=results;context.setdefault('economic_records',[]).extend(facts)
     @staticmethod
     def _events(world, context):
+        # Keep last-turn provenance with existing private events, so demolition
+        # or a capture next turn cannot rewrite the buildings that produced it.
+        production=context.get('building_production')
+        sources={r.owner:{} for r in production.energy} if production else {}
+        for record in getattr(production,'records',()):
+            if record.owner is None or not (record.inputs or record.outputs):continue
+            group=sources.setdefault(record.owner,{}).setdefault(record.kind,{'kind':record.kind,'count':0,'inputs':{},'outputs':{}})
+            group['count']+=1
+            for name in ('inputs','outputs'):
+                for resource,amount in getattr(record,name):group[name][resource]=group[name].get(resource,0)+amount
+        for owner,groups in sources.items():
+            rows=[{**row,'inputs':[[k,v] for k,v in row['inputs'].items()],'outputs':[[k,v] for k,v in row['outputs'].items()]} for row in groups.values()]
+            world.intelligence.emit('production-detail','本期建筑实际产出与用料已结算。',parties=(owner,),
+                details={'owner':owner,'period':production.period,'sources':rows})
         tribute={}
         for source,target,resource,amount in getattr(context.get('building_production'),'transfers',()):
             tribute.setdefault((source,target),{})[resource]=amount

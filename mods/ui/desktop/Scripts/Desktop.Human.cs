@@ -72,6 +72,7 @@ public partial class Desktop
         _humanContent=new VBoxContainer { SizeFlagsHorizontal=SizeFlags.ExpandFill };
         _humanContent.AddThemeConstantOverride("separation",10);scroll.AddChild(_humanContent);
         _marketFooter=new HBoxContainer { Visible=false };_marketFooter.AddThemeConstantOverride("separation",6);_humanDrawer.Body.AddChild(_marketFooter);
+        BuildHumanQueue();
         _humanReceipt=new Label { Text="点地块查看驻军与建设；操作后在这里显示实际回执。",AutowrapMode=TextServer.AutowrapMode.WordSmart,
             MaxLinesVisible=5,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,Modulate=new Color("c6d4b4") };
         _humanDrawer.Body.AddChild(_humanReceipt);
@@ -79,6 +80,8 @@ public partial class Desktop
         AddChild(_humanConfirm);_humanConfirm.Confirmed+=RunHumanConfirmation;
         _humanConfirm.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));
         HumanArt.Style(_humanConfirm.GetOkButton(),"check");HumanArt.Style(_humanConfirm.GetCancelButton());
+        BuildHumanOutliner();
+        _humanDrawer.CloseButton.Pressed+=()=>LayoutHuman();
         BuildHumanExit();
         _map.HumanTargetHovered=target=>
         {
@@ -94,7 +97,10 @@ public partial class Desktop
     {
         if(_humanDrawer==null)return;
         float width=Math.Min(_humanPage=="market"?568:520,Size.X-328),height=Math.Max(180,Size.Y-300);
-        _humanDrawer.SetBounds(_humanPage=="market"?new Rect2(Size.X-width-16,80,width,Size.Y-164):new Rect2(Size.X-width-16,216,width,height));
+        float reserve=HumanMode&&Size.X>=1500&&!_outlinerCollapsed?296:0;
+        _humanDrawer.SetBounds(_humanPage=="market"?new Rect2(Size.X-width-16-reserve,124,width,Size.Y-208):new Rect2(Size.X-width-16-reserve,216,width,height));
+        LayoutHumanOutliner();
+        _map.PlayerRightInset=_humanDrawer.IsOpen?width+32+reserve:_outlinerCollapsed?32:Size.X<1200?278:312;
         if(_humanConfirm!=null)_humanConfirm.MaxSize=new Vector2I((int)Math.Max(400,Size.X-48),(int)Math.Max(180,Size.Y-48));
     }
     private void SetHumanState(JsonObject state)
@@ -113,13 +119,18 @@ public partial class Desktop
         _humanNav["diplomacy"].Text="外交"+Badge(state["pending_end"]?["offers"]?.AsArray().Count??0);
         _humanNav["alliance"].Text="联盟"+Badge(state["pending_end"]?["votes"]?.AsArray().Count??0);
         _humanNav["intel"].Text="情报"+Badge(HumanFacts["intel"]?.AsArray().Count(m=>!_readIntel.Contains(I(m!["id"])))??0);
-        _selectedArmies.RemoveWhere(id=>!OwnArmies.Any(u=>I(u!["id"])==id));
+        var selected=OwnArmies.Where(u=>_selectedArmies.Contains(I(u["id"]))).ToArray();
+        var places=selected.Select(u=>new Vector2I(I(u["x"]),I(u["y"]))).Distinct().ToArray();
+        if(places.Length==1)_selectionCell=places[0]; // Follow this squad after its own move.
+        else if(places.Length>1){_selectedArmies.Clear();_targetEpoch++;}
+        SetHumanSelectionCell(_selectionCell);
         if(!_humanStarted)
         {
             _humanStarted=true;_playbackPaused=false;Send("resume");
             _map.FocusNation(HumanActor);
         }
         if(_humanDrawer.IsOpen&&_humanTargetMode=="")RenderHumanPage();
+        RenderHumanOutliner();
         RefreshHumanButtons();
     }
     private static string Badge(int count)=>count>0?$" ({count})":"";
@@ -127,7 +138,7 @@ public partial class Desktop
     private void RefreshHumanButtons()
     {
         if(_humanNav.Count==0||!HumanMode)return;
-        _humanNav["end"].Disabled=!HumanCanWrite;RefreshRtsButtons();RefreshMarketButtons();
+        _humanNav["end"].Disabled=!HumanCanWrite||_humanCommands.Count>0;RefreshRtsButtons();RefreshMarketButtons();
         foreach(var button in _humanWrites)if(IsInstanceValid(button))button.Disabled=!HumanCanWrite;
         if(_humanPage!="market"&&_humanSubmit!=null&&IsInstanceValid(_humanSubmit))_humanSubmit.Disabled=!HumanCanWrite||!HumanFormReady();
         if(!HasTimeline&&_humanTurn!=null&&!_humanEnded)
@@ -152,6 +163,7 @@ public partial class Desktop
         string type=S(row["type"]);
         if(type=="human_turn")
         {
+            _humanCommands.Clear();RefreshHumanQueue();
             _humanTurn=(JsonObject)row.DeepClone();_humanEnded=false;_humanPaused=false;_humanBusy=false;
             _humanNeedsFrame=true;
             CancelHumanTarget();RefreshHumanButtons();return true;
@@ -169,6 +181,7 @@ public partial class Desktop
         var receipt=row["data"] as JsonObject;
         bool ok=processed&&receipt?["ok"]?.GetValue<bool>()==true;
         MarketReceived(_humanSubmittedOperation,ok);
+        if(ok&&_humanSubmittedOperation is "buy" or "sell")RefreshLiveMarket();
         _humanReceipt.Modulate=new Color(ok?"c6e3ad":"ffb6a4");
         string result=processed?FormatHumanReceipt(receipt!):S(row["message"]);
         bool changedSite=_humanSubmittedCell is Vector2I submitted&&submitted!=_humanCell;
@@ -188,14 +201,20 @@ public partial class Desktop
                 _humanConfirm.GetOkButton().Disabled=!legal;
             });
         }
-        else if(!processed){_humanBusy=false;RefreshHumanButtons();}
+        else if(!processed){_humanBusy=false;_humanCommands.Clear();RefreshHumanQueue();RefreshHumanButtons();}
         return true;
     }
     private string _warTarget="";
     private Action? _afterHumanBatch;
     private void SubmitHuman(string operation,JsonObject arguments)
     {
+        if(QueueableHuman(operation)){QueueHumanCommand(operation,arguments);return;}
         if(!HumanCanWrite){HumanMessage("当前不能提交：请先完成演出或继续游戏。",false);return;}
+        if(_humanCommands.Count>0){HumanMessage("请先完成或取消待执行指令。",false);return;}
+        SendHumanCommand(operation,arguments);
+    }
+    private void SendHumanCommand(string operation,JsonObject arguments)
+    {
         if(operation=="declare_war")_warTarget=S(arguments["target"]);
         _humanSubmittedOperation=operation;_humanSubmittedPeriod=I(_humanTurn!["period"]);
         _humanSubmittedCell=arguments["x"]!=null&&arguments["y"]!=null?new Vector2I(I(arguments["x"]),I(arguments["y"])):null;
@@ -228,7 +247,7 @@ public partial class Desktop
         _humanReceipt.Modulate=new Color(success?"c6e3ad":"ffb6a4");
     }
     private void CancelHumanTarget()
-    { _humanTargetMode="";_map.SetHumanTargets("",null);_targetSummary.Visible=false;_map.TooltipText=""; }
+    { _targetEpoch++;_humanTargetMode="";_map.SetHumanTargets("",null);_targetSummary.Visible=false;_map.TooltipText=""; }
     private void HumanTileSelected(JsonObject? tile)
     {
         if(tile==null)return;
@@ -241,17 +260,20 @@ public partial class Desktop
             _humanCell=point;return;
         }
         bool changed=_humanCell!=point;_humanCell=point;
+        SetHumanSelectionCell(point);
         if(changed)HumanMessage("已切换地块；当前操作条件已刷新。");
         OpenHumanPage(_humanPage is "build" or "recruit"&&S(tile["owner"])==HumanActor?_humanPage:"tile");
     }
     private void StartHumanTarget(string mode)
     {
-        if(!HumanCanWrite||_selectedArmies.Count==0){HumanMessage("先在地块驻军面板勾选本国军队。",false);return;}
+        SetHumanSelectionCell(_selectionCell);
+        if(!HumanCanWrite||_selectedArmies.Count==0){HumanMessage("先在右侧军队总览选择一处驻军。",false);return;}
         _humanTargetMode=mode;
+        int epoch=++_targetEpoch;
         var ids=new JsonArray(_selectedArmies.Order().Select(i=>(JsonNode?)JsonValue.Create(i)).ToArray());
         HumanQuery("targets",new JsonObject { ["ids"]=ids,["mode"]=mode },row=>
         {
-            if(_humanTargetMode!=mode)return;
+            if(_humanTargetMode!=mode||epoch!=_targetEpoch)return;
             var data=row["data"]!;_map.SetHumanTargets(mode,data["targets"]!.AsArray());
             _map.FocusHumanTargets();
             _targetSummary.Visible=true;

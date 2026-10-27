@@ -17,7 +17,7 @@ public partial class Desktop
             var line=new HBoxContainer();line.AddThemeConstantOverride("separation",14);panel.AddChild(line);
             line.AddChild(new TextureRect { Texture=RtsArt.Resource(S(row!["id"])),CustomMinimumSize=new Vector2(42,42),ExpandMode=TextureRect.ExpandModeEnum.IgnoreSize,StretchMode=TextureRect.StretchModeEnum.KeepAspectCentered });
             var info=new VBoxContainer { SizeFlagsHorizontal=SizeFlags.ExpandFill };line.AddChild(info);
-            var name=new Label { Text=$"{row["name"]} · 库存 {Quantity(row["inventory"])}",Modulate=new Color("e6d9ac") };name.AddThemeFontSizeOverride("font_size",18);info.AddChild(name);
+            var name=new Label { Text=$"{row["name"]}\n市场库存 {Quantity(row["inventory"])} / 期望 {Quantity(row["reference"])}",AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("e6d9ac") };name.AddThemeFontSizeOverride("font_size",18);info.AddChild(name);
             var price=new Label { Text=$"买 {DesktopScene.PriceText(row["buy"]==null?null:F(row["buy"]))}   卖 {DesktopScene.PriceText(row["sell"]==null?null:F(row["sell"]))}",AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("b8cdb3") };price.AddThemeFontSizeOverride("font_size",16);info.AddChild(price);
         }
         _market.AddChild(new Label { Text=$"储蓄 {F(frame["bank"]!["rate"]):P1} · 贷款 {F(frame["bank"]!["loan_rate"]):P1}\n边际单价仅供参考，大单均价随数量变化。",AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("b2bca5") });
@@ -51,7 +51,40 @@ public partial class Desktop
     private void RefreshMarketButtons()
     {
         foreach(var (button,available) in _marketAvailability)
-            if(IsInstanceValid(button))button.Disabled=!HumanCanWrite||!available;
+            if(IsInstanceValid(button))button.Disabled=!(button.Name.ToString().StartsWith("Market_buy_")||button.Name.ToString().StartsWith("Market_sell_")?HumanCanQueue:HumanCanWrite)||!available;
+    }
+    private void RefreshLiveMarket()
+    {
+        if(_humanPage!="market"||_marketData==null)return;
+        int epoch=_marketEpoch;string resource=_marketResource;
+        HumanQuery("market_options",new JsonObject { ["resource"]=resource },result=>
+        {
+            if(epoch!=_marketEpoch||resource!=_marketResource||_humanPage!="market")return;
+            var data=result["data"]!.AsObject();_marketData=data;
+            var stocks=data["stocks"]!;var market=data["market"]!;
+            void Set(string name,string value){if(_humanContent.FindChild(name,true,false) is Label label)label.Text=value;}
+            Set("MarketCash","金币 "+Quantity(stocks[S(market["currency"])]));
+            foreach(var row in market["prices"]!.AsArray())
+            {
+                string key=S(row![0]);Set("MarketAmount_"+key.Split(':')[^1],Quantity(stocks[key]));
+                if(_humanContent.FindChild("MarketResource_"+key.Split(':')[^1],true,false) is Button resourceButton)
+                    resourceButton.TooltipText=HumanLabel(key)+"\n本国库存 "+Quantity(stocks[key])+"\n市场库存 "+
+                        Quantity(market["inventory"]!.AsArray().First(p=>S(p![0])==key)![1])+" / 期望库存 "+
+                        Quantity(market["reference"]!.AsArray().First(p=>S(p![0])==key)![1]);
+            }
+            Set("MarketOwnStock",Quantity(stocks[resource]));
+            Set("MarketInventory",Quantity(market["inventory"]!.AsArray().First(p=>S(p![0])==resource)![1]));
+            Set("MarketReference",Quantity(market["reference"]!.AsArray().First(p=>S(p![0])==resource)![1]));
+            foreach(var quote in data["quotes"]!.AsArray())
+                if(_humanContent.FindChild($"Market_{S(quote!["side"])}_{I(quote["quantity"])}",true,false) is Button button)
+                {
+                    bool available=Yes(quote["available"]);_marketAvailability[button]=available;
+                    button.Text=(S(quote["side"])=="buy"?"+":"−")+I(quote["quantity"])+"\n"+(quote["quote"]==null?"缺货":Quantity(quote["quote"]!["gold"])+"金");
+                    button.TooltipText=MarketQuoteText(quote);button.Modulate=new Color(available?"ffffff":"969d92");
+                    if(_marketQuote!=null&&button.GetGlobalRect().HasPoint(GetGlobalMousePosition()))_marketQuote.Text=button.TooltipText;
+                }
+            RefreshMarketButtons();
+        });
     }
     private void RenderHumanMarket()
     {
@@ -72,11 +105,12 @@ public partial class Desktop
         SaveMarketDraft();ClearHumanChildren(_humanContent);ClearHumanChildren(_marketFooter);_marketFooter.Hide();_marketAvailability.Clear();_humanWrites.Clear();_humanSubmit=null;
         var data=_marketData;var market=data["market"]!;var stocks=data["stocks"]!;
         var inventory=market["inventory"]!.AsArray().ToDictionary(p=>S(p![0]),p=>p![1]);
+        var reference=market["reference"]!.AsArray().ToDictionary(p=>S(p![0]),p=>p![1]);
         var automatic=market["automatic"]!;
         var heading=new HBoxContainer();_humanContent.AddChild(heading);
         heading.AddChild(new TextureRect { Texture=HumanArt.Texture("icon-market"),CustomMinimumSize=new Vector2(32,32),ExpandMode=TextureRect.ExpandModeEnum.IgnoreSize,StretchMode=TextureRect.StretchModeEnum.KeepAspectCentered });
         var title=new Label { Text="国家市集",SizeFlagsHorizontal=SizeFlags.ExpandFill };title.AddThemeFontSizeOverride("font_size",22);heading.AddChild(title);
-        heading.AddChild(new Label { Text="金币 "+Quantity(stocks[S(market["currency"]) ]),Modulate=new Color("ead69b") });
+        heading.AddChild(new Label { Name="MarketCash",Text="金币 "+Quantity(stocks[S(market["currency"]) ]),Modulate=new Color("ead69b") });
         var grid=new GridContainer { Name="MarketResources",Columns=6,SizeFlagsHorizontal=SizeFlags.ExpandFill };
         grid.AddThemeConstantOverride("h_separation",6);grid.AddThemeConstantOverride("v_separation",6);_humanContent.AddChild(grid);
         foreach(var row in market["prices"]!.AsArray())
@@ -85,13 +119,13 @@ public partial class Desktop
             var rule=automatic["rules"]!.AsArray().FirstOrDefault(r=>S(r!["resource"])==key);
             var button=new Button { Name="MarketResource_"+key.Split(':')[^1],ToggleMode=true,ButtonPressed=selected,
                 CustomMinimumSize=new Vector2(78,88),SizeFlagsHorizontal=SizeFlags.ExpandFill,
-                TooltipText=HumanLabel(key)+$"\n本国 {Quantity(stocks[key])} · 市场 {Quantity(inventory[key])}"+(rule==null?"":Yes(rule["enabled"])?"\n已启用自动交易":"\n自动交易已暂停") };
+                TooltipText=HumanLabel(key)+$"\n本国库存 {Quantity(stocks[key])}\n市场库存 {Quantity(inventory[key])} / 期望库存 {Quantity(reference[key])}"+(rule==null?"":Yes(rule["enabled"])?"\n已启用自动交易":"\n自动交易已暂停") };
             HumanArt.Style(button);grid.AddChild(button);
             var body=new VBoxContainer { MouseFilter=MouseFilterEnum.Ignore };body.AddThemeConstantOverride("separation",1);body.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);body.OffsetLeft=5;body.OffsetTop=5;body.OffsetRight=-5;body.OffsetBottom=-5;button.AddChild(body);
             body.AddChild(new TextureRect { Texture=RtsArt.Resource(key),CustomMinimumSize=new Vector2(26,26),ExpandMode=TextureRect.ExpandModeEnum.IgnoreSize,StretchMode=TextureRect.StretchModeEnum.KeepAspectCentered,MouseFilter=MouseFilterEnum.Ignore });
             var text=new VBoxContainer { MouseFilter=MouseFilterEnum.Ignore,SizeFlagsHorizontal=SizeFlags.ExpandFill };body.AddChild(text);
             var label=new Label { Text=HumanLabel(key)+(rule!=null&&Yes(rule["enabled"])?"·":""),HorizontalAlignment=HorizontalAlignment.Center,MouseFilter=MouseFilterEnum.Ignore,Modulate=new Color(selected?"efda93":"cddbc5") };label.AddThemeFontSizeOverride("font_size",16);text.AddChild(label);
-            var amount=new Label { Text=Quantity(stocks[key]),HorizontalAlignment=HorizontalAlignment.Center,MouseFilter=MouseFilterEnum.Ignore,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis };amount.AddThemeFontSizeOverride("font_size",15);text.AddChild(amount);
+            var amount=new Label { Name="MarketAmount_"+key.Split(':')[^1],Text=Quantity(stocks[key]),HorizontalAlignment=HorizontalAlignment.Center,MouseFilter=MouseFilterEnum.Ignore,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis };amount.AddThemeFontSizeOverride("font_size",15);text.AddChild(amount);
             button.Pressed+=()=>{SaveMarketDraft();_marketResource=key;RenderHumanPage();};
         }
         var tabs=new HBoxContainer();_humanContent.AddChild(tabs);
@@ -101,7 +135,18 @@ public partial class Desktop
             tab.Name=mode?"MarketAutoTab":"MarketManualTab";
             HumanArt.Style(tab,"market");tab.SizeFlagsHorizontal=SizeFlags.ExpandFill;tab.Disabled=mode==_marketAutomatic;
         }
-        HumanText(HumanLabel(_marketResource)+$" · 本国 {Quantity(stocks[_marketResource])} · 市场余量 {Quantity(inventory[_marketResource])}",true);
+        HumanText(HumanLabel(_marketResource),true);
+        var balances=new HBoxContainer { Name="MarketStocks" };_humanContent.AddChild(balances);
+        foreach(var (name,text,value) in new[]{("MarketOwnStock","本国库存",stocks[_marketResource]),("MarketInventory","市场库存",inventory[_marketResource]),("MarketReference","市场期望库存",reference[_marketResource])})
+        {
+            var box=new VBoxContainer { SizeFlagsHorizontal=SizeFlags.ExpandFill };balances.AddChild(box);
+            var label=new Label { Text=text,Modulate=new Color("afc0a7") };label.AddThemeFontSizeOverride("font_size",14);box.AddChild(label);
+            var amount=new Label { Name=name,Text=Quantity(value) };amount.AddThemeFontSizeOverride("font_size",18);box.AddChild(amount);
+        }
+        balances.TooltipText="市场期望库存是定价参考；本国自动交易目标在下方单独设置。";
+        var ownRule=automatic["rules"]!.AsArray().FirstOrDefault(r=>S(r!["resource"])==_marketResource);
+        if(ownRule!=null)HumanText("本国自动目标："+(ownRule["buy_below"]==null?"不自动买入":"低于 "+Quantity(ownRule["buy_below"])+" 补货")+" · "+
+            (ownRule["sell_above"]==null?"不自动卖出":"高于 "+Quantity(ownRule["sell_above"])+" 出售")+(Yes(ownRule["enabled"])?"":"（已暂停）"),color:"b9cda9").Name="MarketOwnTargets";
         if(_marketAutomatic)FillAutoTrade(automatic);
         else FillManualMarket(data["quotes"]!.AsArray());
         RefreshHumanButtons();
@@ -121,13 +166,14 @@ public partial class Desktop
                 HumanArt.Style(button);button.AddThemeFontSizeOverride("font_size",16);row.AddChild(button);_marketAvailability[button]=available;
                 button.Modulate=new Color(available?"ffffff":"969d92");
                 string message=MarketQuoteText(item);button.TooltipText=message;
-                button.MouseEntered+=()=>{if(_marketQuote!=null)_marketQuote.Text=message;};
-                button.FocusEntered+=()=>{if(_marketQuote!=null)_marketQuote.Text=message;};
-                button.Pressed+=()=>{if(available)SubmitHuman(command,new JsonObject { ["resource"]=_marketResource,["quantity"]=quantity });};
+                string CurrentQuote()=>MarketQuoteText(_marketData?["quotes"]?.AsArray().FirstOrDefault(q=>S(q!["side"])==command&&I(q["quantity"])==quantity)??item);
+                button.MouseEntered+=()=>{if(_marketQuote!=null)_marketQuote.Text=CurrentQuote();};
+                button.FocusEntered+=()=>{if(_marketQuote!=null)_marketQuote.Text=CurrentQuote();};
+                button.Pressed+=()=>{if(_marketAvailability.GetValueOrDefault(button))SubmitHuman(command,new JsonObject { ["resource"]=_marketResource,["quantity"]=quantity });};
                 if(side=="buy"&&quantity==1)_humanSubmit=button;
             }
         }
-        _marketQuote=HumanText("按钮下方为整单金币，已计入价差、滑点与取整。\n悬停查看均价与限制；点击直接成交。",color:"afc2ac");
+        _marketQuote=HumanText("按钮下方为当前整单报价，已计入价差、滑点与取整。\n演出中可连续点击排队；每笔按执行时的价格和库存核算。",color:"afc2ac");
         _marketQuote.AddThemeFontSizeOverride("font_size",14);
     }
     private string MarketQuoteText(JsonNode row)
@@ -205,6 +251,6 @@ public partial class Desktop
     {
         var row=new HBoxContainer();(parent??_humanContent).AddChild(row);
         var title=new Label { Text=label,SizeFlagsHorizontal=SizeFlags.ExpandFill };title.AddThemeFontSizeOverride("font_size",16);row.AddChild(title);
-        var field=new SpinBox { Name=name,MinValue=min,MaxValue=1000000000,Step=step,Value=value,CustomMinimumSize=new Vector2(148,0) };row.AddChild(field);return field;
+        var field=new SpinBox { UpdateOnTextChanged=true,SelectAllOnFocus=true,Name=name,MinValue=min,MaxValue=1000000000,Step=step,Value=value,CustomMinimumSize=new Vector2(148,0) };row.AddChild(field);return field;
     }
 }

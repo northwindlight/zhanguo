@@ -106,6 +106,40 @@ class TestBuildings(unittest.TestCase):
         world.buildings.build('Qin','example:qin','native:barracks')
         self.assertEqual(world.buildings.count('example:qin','native:barracks',completed_only=False),1)
 
+    def test_farms_and_militia_camps_share_farmland_including_construction(self):
+        for first,second in (('native:farm','native:militia-camp'),('native:militia-camp','native:farm')):
+            for completed in (True,False):
+                with self.subTest(first=first,completed=completed):
+                    w=self.world();w.buildings.register_site('example:field','Qin',(3,0),resources={'native:farmland':1})
+                    w.buildings.seed('example:field',first,completed=completed)
+                    before=self.state(w)
+                    row=next(r for r in w.buildings.planning('Qin','example:field')['buildings'] if r['kind']==second)
+                    self.assertFalse(row['available'])
+                    resource=next(r for r in row['requirements'] if r.get('resource')=='native:farmland')
+                    self.assertEqual((resource['current'],resource['required'],resource['met']),(1,1,False))
+                    with self.assertRaises(ValueError):w.buildings.build('Qin','example:field',second)
+                    self.assertEqual(before,self.state(w))
+
+    def test_shared_capacity_released_by_demolition_and_zero_farmland_rejected(self):
+        w=self.world();w.buildings.register_site('example:field','Qin',(3,0),resources={'native:farmland':1})
+        row=w.buildings.seed('example:field','native:farm')[0]
+        w.buildings.demolish('Qin',row.id)
+        self.assertTrue(w.buildings.quote('Qin','example:field','native:militia-camp'))
+        w.buildings.register_site('example:barren','Qin',(4,0),resources={})
+        with self.assertRaises(ValueError):w.buildings.build('Qin','example:barren','native:militia-camp')
+
+    def test_old_shared_farmland_overlap_loads_without_destroying_existing_buildings(self):
+        w=self.world();w.buildings.register_site('example:field','Qin',(3,0),resources={'native:farmland':2})
+        w.buildings.seed('example:field','native:farm');w.buildings.seed('example:field','native:militia-camp')
+        data=w.buildings.to_save()
+        next(s for s in data['sites'] if s['id']=='example:field')['resources']['native:farmland']=1
+        other=self.world();other.buildings.restore(data)
+        self.assertEqual(other.buildings.to_save(),data)
+        with self.assertRaises(ValueError):other.buildings.quote('Qin','example:field','native:farm')
+        invalid=deepcopy(data)
+        next(s for s in invalid['sites'] if s['id']=='example:field')['resources']['native:farmland']=0
+        with self.assertRaises(ValueError):other.buildings.restore(invalid)
+
     def test_terrain_completed_academy_and_policy_discounts_keep_rounding_order(self):
         world = self.world()
         world.buildings.register_site('example:hill','Qin',(2,0),penalty=30,resources={'native:farmland':20})

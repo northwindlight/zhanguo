@@ -8,6 +8,8 @@ def scene(ui, facts):
     for account in facts.get('accounts',[]):
         for stock in account['stocks']:stock['name']=ui.console.label('content',stock['id'])
     for row in facts.get('market',[]):row['name']=ui.console.label('content',row['id'])
+    for flow in facts.get('resource_flows',[]):
+        for source in flow.get('sources') or []:source['label']=ui.console.label('content',source['kind'])
     for b in facts.get('buildings',[]):b['label']=ui.console.label('content',b['kind'])
     for u in facts.get('armies',[])+facts.get('guards',[]):u['label']=ui.console.label('content',u['kind'])
     return facts

@@ -168,7 +168,7 @@ class Planner:
             existing = [b for b in buildings if b['site']==site['id']]
             wood = max((_cost(kind,1,site,existing,self.catalog).get(WOOD,0)
                         for kind,row in self.catalog.items()
-                        if _legal(site,kind,row,existing,self.sites)),default=0)
+                        if _legal(site,kind,row,existing,self.sites,self.catalog)),default=0)
             sell_targets[WOOD] = sell_targets.get(WOOD,0)+wood
         units = apimap.query(self.player,'unit_catalog')
         infantry = units.get('native:infantry',{})
@@ -198,7 +198,7 @@ class Planner:
         for site in self.sites['sites']:
             existing = by_site[site['id']]
             for kind, row in self.catalog.items():
-                if not _legal(site,kind,row,existing,self.sites):
+                if not _legal(site,kind,row,existing,self.sites,self.catalog):
                     continue
                 if not (row['outputs'] or row['energy_output'] or 'gold_base' in row['effects']):
                     continue
@@ -325,7 +325,7 @@ class Planner:
             demand = sum(self.catalog[b['kind']]['energy_use'] for b in buildings)
             for site in self.sites['sites']:
                 existing = [b for b in buildings if b['site']==site['id']]
-                if power>=demand+row['energy_use'] and _legal(site,'native:barracks',row,existing,self.sites):
+                if power>=demand+row['energy_use'] and _legal(site,'native:barracks',row,existing,self.sites,self.catalog):
                     costs = _cost('native:barracks',1,site,existing,self.catalog)
                     targets = operating_targets(self.catalog,buildings,self.military,self.prices,self.profile.reserve)
                     recipe = dict(costs)

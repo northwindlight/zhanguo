@@ -34,6 +34,8 @@ public partial class Desktop
         await PointerClick(_rtsCards["native:wood-power-plant"]);await HumanIdle();await RtsReady();
         if(NationLedger.Read(_map.Frame!,HumanActor)?.Power?.Generated!=0)throw new Exception("未完工电厂提前计入供电");
         _marketAutomatic=false;OpenHumanPage("market");await MarketReady();
+        var reference=_marketData!["market"]!["reference"]!.AsArray().First(r=>S(r![0])==_marketResource)![1];
+        if((_humanContent.FindChild("MarketReference",true,false) as Label)?.Text!=Quantity(reference))throw new Exception("市场期望库存缺失或与市场库存混淆");
         if(_marketData!["quotes"]!.AsArray().Count!=10)throw new Exception("不是十档正负交易按钮");
         foreach(var side in new[]{"buy","sell"})foreach(int n in new[]{1,10,50,100,500})
             if(_humanContent.FindChild($"Market_{side}_{n}",true,false)==null)throw new Exception("缺少交易数量档位");
@@ -45,10 +47,10 @@ public partial class Desktop
         if(OwnStock("food")!=oldFood||OwnStock("gold")!=cash)throw new Exception("悬停报价改变了实际库存");
         await Screenshot(stem+"-market-quote.png");
         await PointerClick(MarketReviewButton("MarketAutoTab"));
-        await PointerClick(MarketReviewCheck("AutoTradeBuy"));MarketReviewNumber("AutoBuyTarget").Value=30;MarketReviewNumber("AutoBuyLimit").Value=10;
-        await PointerClick(MarketReviewCheck("AutoTradeSell"));MarketReviewNumber("AutoSellTarget").Value=20;
+        await PointerClick(MarketReviewCheck("AutoTradeBuy"));await TypeNumber(MarketReviewNumber("AutoBuyTarget"),"30");await TypeNumber(MarketReviewNumber("AutoBuyLimit"),"10");
+        await PointerClick(MarketReviewCheck("AutoTradeSell"));await TypeNumber(MarketReviewNumber("AutoSellTarget"),"20");
         if(!MarketReviewButton("AutoTradeSave").Disabled)throw new Exception("买卖目标倒挂没有阻止保存");
-        MarketReviewNumber("AutoSellTarget").Value=50;
+        await TypeNumber(MarketReviewNumber("AutoSellTarget"),"50");
         // A resource roundtrip must preserve an unsaved, account-owned draft.
         await PointerClick(MarketReviewButton("MarketResource_wood"));await MarketReady();
         await PointerClick(MarketReviewButton("MarketResource_food"));await MarketReady();
@@ -57,7 +59,7 @@ public partial class Desktop
         if(!HumanFacts["market"]!["automatic"]!["rules"]!.AsArray().Any(r=>S(r!["resource"])=="native:food"&&I(r["buy_below"])==30))throw new Exception("自动购买设置没有进入本国规则");
         await Screenshot(stem+"-auto-buy.png");
         await PointerClick(MarketReviewButton("MarketResource_wood"));await MarketReady();
-        await PointerClick(MarketReviewCheck("AutoTradeSell"));MarketReviewNumber("AutoSellTarget").Value=100;MarketReviewNumber("AutoSellLimit").Value=10;
+        await PointerClick(MarketReviewCheck("AutoTradeSell"));await TypeNumber(MarketReviewNumber("AutoSellTarget"),"100");await TypeNumber(MarketReviewNumber("AutoSellLimit"),"10");
         await PointerClick(MarketReviewButton("AutoTradeSave"));await HumanIdle();await MarketReady();
         if(!HumanFacts["market"]!["automatic"]!["rules"]!.AsArray().Any(r=>S(r!["resource"])=="native:wood"&&I(r["sell_above"])==100))throw new Exception("自动出售设置没有保存");
         await Screenshot(stem+"-auto-sell.png");

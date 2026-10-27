@@ -328,6 +328,7 @@ public partial class Desktop : Control
     {
         if(_portableCheck)return;
         TickRts(delta);
+        if(_pauseMenu.Visible)HideResourceTooltip();
         _elapsed+=delta;
         for(int i=0;i<16 && _inbox.Reader.TryRead(out var line);i++)
         {
@@ -340,8 +341,9 @@ public partial class Desktop : Control
         }
         ProcessPlayback(delta);
         if(HumanMode)_map.PlayerPanelOpen=_humanDrawer.IsOpen;
+        if(HumanMode){LayoutHumanOutliner();DispatchHumanQueue();}
         _map.HudObstacles.Clear();
-        foreach(var control in new Control[]{_ledgerPanel,_banner,_settlementCard}.Concat(Drawers))
+        foreach(var control in new Control[]{_ledgerPanel,_banner,_settlementCard,_outliner}.Concat(Drawers))
             if(control.IsVisibleInTree())
             {
                 var rect=control.GetGlobalRect();var at=rect.Position-_map.GlobalPosition;

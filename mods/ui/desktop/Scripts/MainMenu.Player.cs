@@ -55,7 +55,7 @@ public partial class MainMenu
         _playerScenario=new OptionButton { SizeFlagsHorizontal=SizeFlags.ExpandFill };foreach(var s in _scenarioCatalog)_playerScenario.AddItem(s!["name"]!.ToString());scenarioRow.AddChild(_playerScenario);
         var settings=new HFlowContainer();settings.AddThemeConstantOverride("h_separation",18);settings.AddThemeConstantOverride("v_separation",12);world.AddChild(settings);
         var sizeRow=new HBoxContainer();sizeRow.AddChild(FieldLabel("地图边长"));settings.AddChild(sizeRow);
-        _playerMapSize=new SpinBox { MinValue=12,MaxValue=96,Value=24,Step=1,CustomMinimumSize=new Vector2(116,0) };sizeRow.AddChild(_playerMapSize);
+        _playerMapSize=new SpinBox { UpdateOnTextChanged=true,SelectAllOnFocus=true,MinValue=12,MaxValue=96,Value=24,Step=1,CustomMinimumSize=new Vector2(116,0) };sizeRow.AddChild(_playerMapSize);
         var seedRow=new HBoxContainer();seedRow.AddChild(FieldLabel("种子"));settings.AddChild(seedRow);
         _playerSeed=new LineEdit { Text="20261027",CustomMinimumSize=new Vector2(145,0) };seedRow.AddChild(_playerSeed);
         var random=new Button { Text="随机" };random.Pressed+=()=>_playerSeed.Text=Random.Shared.Next(1,2_000_000_000).ToString();seedRow.AddChild(random);

@@ -13,6 +13,8 @@ def flow(state):
         'production_out':deepcopy(actual.get('inputs',[])),
         'tribute_in':deepcopy(actual.get('tribute_received',[])),
         'tribute_out':deepcopy(actual.get('tribute_paid',[])),'military_out':[]}
+    detail=next((e['details'] for e in reversed(facts['news']) if e['kind']=='production-detail' and e['period']==period and (e.get('details') or {}).get('owner')==state['actor']),None)
+    result['sources']=deepcopy(detail['sources']) if detail is not None else None
     costs=defaultdict(float)
     for event in facts['news']:
         d=event.get('details') or {}
@@ -76,10 +78,11 @@ def frame(ui,state):
     guards=[u for u in units if u['owner']=='野人']
     armies=[u for u in units if u['owner']!='野人']
     stocks=[{**deepcopy(s),'name':label(s['id'])} for s in facts['econ']['stocks']]
-    market=facts['market'];inv=dict(market['inventory']);buys=dict(market['buy_prices']);sells=dict(market['sell_prices'])
-    prices=[{'id':k,'name':label(k),'price':v,'inventory':inv[k],'buy':buys[k] if inv[k]>0 else None,'sell':sells[k]}
+    market=facts['market'];inv=dict(market['inventory']);ref=dict(market['reference']);buys=dict(market['buy_prices']);sells=dict(market['sell_prices'])
+    prices=[{'id':k,'name':label(k),'price':v,'inventory':inv[k],'reference':ref[k],'buy':buys[k] if inv[k]>0 else None,'sell':sells[k]}
             for k,v in market['prices']]
     resource_flow=flow(state)
+    for source in resource_flow['sources'] or []:source['label']=label(source['kind'])
     nation={'id':actor,'name':names[actor],'land':len(facts['land']),'stocks':stocks,
         'resource_flow':resource_flow,'units':dict(Counter(u['label'] for u in armies if u['owner']==actor)),
         'assets':facts['econ']['gross_assets']['total'],'energy':facts['econ']['preview'].get('energy',{})}

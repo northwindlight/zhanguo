@@ -30,6 +30,12 @@ static class LedgerChecks
         DesktopScene.Apply(frame,grid);q=NationLedger.Read(frame,"q")!;
         Require(q.Power is {Capacity:4,Generated:2,Demand:3,PreviousShort:true,FuelShortPlants:1},"ledger confused rated capacity, current fuel-limited supply and prior actual grid");
         Require(NationLedger.Read(frame,"c")!.Power==null,"another country's power leaked into this country's ledger");
+        var breakdown=JsonNode.Parse("""{"accounts":{"remove":[],"upsert":[{"id":"q","stocks":[{"id":"native:food","name":"粮食","amount":30}]}]},"resource_flows":{"remove":[],"upsert":[{"id":"q","period":4,"net":[["native:food",2]],"sources":[{"kind":"native:farm","label":"农场","count":4,"inputs":[],"outputs":[["native:food",4]]},{"kind":"native:supply-factory","label":"补给厂","count":1,"inputs":[["native:food",2]],"outputs":[["native:supply",2]]}]}]}}""")!.AsObject();
+        DesktopScene.Apply(frame,breakdown);var food=NationLedger.Read(frame,"q")!.Stocks.Single();
+        Require(food.Change==2&&food.Contributions.Sum(r=>r.Amount)==2,"resource breakdown did not reconcile to the actual net");
+        Require(food.Contributions.Any(r=>r.Kind=="native:farm"&&r.Count==4&&r.Amount==4)&&food.Contributions.Any(r=>r.Kind=="native:supply-factory"&&r.Count==1&&r.Amount==-2),"building count or gross production/use was replaced by a forecast");
+        frame["scene"]!["buildings"]!.AsArray().Clear();DesktopScene.Synchronize(frame);
+        Require(NationLedger.Read(frame,"q")!.Stocks.Single().Contributions.Count==2,"current buildings rewrote the dated resource breakdown");
         Console.WriteLine("NATION_LEDGER_OK: one country, actual action-time holdings, dated flows, zero reset and detached projection");
     }
 }

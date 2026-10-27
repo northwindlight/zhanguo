@@ -174,11 +174,11 @@ public partial class MainMenu : Control
         _seed = new LineEdit { Text="20261023",CustomMinimumSize=new Vector2(134,0) }; seedGroup.AddChild(_seed);
         var random=new Button { Text="随机",FocusMode=FocusModeEnum.None }; seedGroup.AddChild(random);
         random.Pressed+=()=>_seed.Text=Random.Shared.Next(1,2_000_000_000).ToString();
-        _mapSize=new SpinBox { MinValue=12,MaxValue=96,Value=24,Step=1,CustomMinimumSize=new Vector2(100,0) };
+        _mapSize=new SpinBox { UpdateOnTextChanged=true,SelectAllOnFocus=true,MinValue=12,MaxValue=96,Value=24,Step=1,CustomMinimumSize=new Vector2(100,0) };
         Setting("地图边长").AddChild(_mapSize);
-        _maxTurns=new SpinBox { MinValue=10,MaxValue=3000,Value=300,Step=10,CustomMinimumSize=new Vector2(116,0) };
+        _maxTurns=new SpinBox { UpdateOnTextChanged=true,SelectAllOnFocus=true,MinValue=10,MaxValue=3000,Value=300,Step=1,CustomArrowStep=10,CustomMinimumSize=new Vector2(116,0) };
         Setting("回合上限").AddChild(_maxTurns);
-        _ctxWindow=new SpinBox { MinValue=8000,MaxValue=4_000_000,Value=128000,Step=8000,CustomMinimumSize=new Vector2(140,0) };
+        _ctxWindow=new SpinBox { UpdateOnTextChanged=true,SelectAllOnFocus=true,MinValue=8000,MaxValue=4_000_000,Value=128000,Step=1,CustomArrowStep=8000,CustomMinimumSize=new Vector2(140,0) };
         Setting("上下文窗口").AddChild(_ctxWindow);
         box.AddChild(basics);
         var header = new HBoxContainer();
