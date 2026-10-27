@@ -59,5 +59,8 @@ foreach ($taskCheck in @('rts_icons', 'two_step_player_menu', 'custom_nation_nam
 foreach ($taskCheck in @('market_quantity_buttons', 'market_exact_quotes', 'auto_trade_buy_and_sell', 'auto_trade_validation', 'cancel_half_refund', 'cancel_keeps_quota', 'demolish_zero_refund', 'market_layouts', 'garrison_visible_without_scroll', 'wild_garrison_continuity')) {
     if ($taskHuman.$taskCheck -ne $true) { throw "Market/demolition verification failed: $taskCheck" }
 }
+foreach ($taskCheck in @('power_visible', 'power_ignores_unfinished', 'power_previous_actual')) {
+    if ($taskHuman.$taskCheck -ne $true) { throw "Power display verification failed: $taskCheck" }
+}
 if ($taskHuman.period -lt 3 -or $taskHuman.layouts.Count -ne 4 -or -not $taskHuman.normal_zero_army_start -or -not $taskHuman.double_click_once -or -not $taskHuman.build_and_quote -or -not $taskHuman.recruit -or -not $taskHuman.move_did_not_occupy -or -not $taskHuman.in_place_attack -or -not $taskHuman.map_purchase -or -not $taskHuman.historical_pixels_static -or -not $taskHuman.single_nation_ledger -or -not $taskHuman.save_queued -or -not $taskHuman.exit_choice -or -not $taskHuman.esc_cancels_target -or -not $taskHuman.war_warning -or -not $taskHuman.letter_form) { throw 'Single local human verification failed' }
 Write-Output 'WINDOWS_PORTABLE_VERIFIED'

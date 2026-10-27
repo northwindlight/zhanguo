@@ -91,6 +91,7 @@ def frame(ui,state):
         'labels':{key:label(key) for key in set(kinds)|set(terrain)|set(s['id'] for s in stocks)|set(facts['unit_catalog'])|{k for t in tiles for k,_ in t.get('resources',[])}},
         'clients':[{'actor':actor,'kind':'human','version':'human/1','model':None,'strategy':None}],
         'scene':{'buildings':buildings,'armies':armies,'guards':guards,'tile_defenses':defenses,
+            'power':[{'id':actor,**deepcopy(facts['econ']['preview']['energy'])}],
             'ownership':ownership,'accounts':[{'id':actor,'stocks':stocks}],
             'resource_flows':[resource_flow],'production':[],'market':prices,
             'unit_types':[{'id':k,'max_hp':v['hp']} for k,v in facts['unit_catalog'].items()]}}

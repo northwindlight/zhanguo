@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using static WorldMap;
+using Zhanguo.Desktop.Layout;
 
 public partial class Desktop
 {
@@ -28,6 +29,10 @@ public partial class Desktop
         OpenHumanPage("build");await RtsReady();
         if(!Yes(_rtsData!["ordered"])||_rtsAvailability.Values.Any(v=>v))throw new Exception("撤销恢复了本格当期施工额度");
         await Screenshot(stem+"-cancelled.png");
+        var powerCell=HumanFacts["building_sites"]!["sites"]!.AsArray().Select(s=>new Vector2I(I(s!["position"]![0]),I(s["position"]![1]))).First(p=>p!=capital&&p!=other&&p!=third);
+        _humanCell=powerCell;OpenHumanPage("build");await RtsReady();
+        await PointerClick(_rtsCards["native:wood-power-plant"]);await HumanIdle();await RtsReady();
+        if(NationLedger.Read(_map.Frame!,HumanActor)?.Power?.Generated!=0)throw new Exception("未完工电厂提前计入供电");
         _marketAutomatic=false;OpenHumanPage("market");await MarketReady();
         if(_marketData!["quotes"]!.AsArray().Count!=10)throw new Exception("不是十档正负交易按钮");
         foreach(var side in new[]{"buy","sell"})foreach(int n in new[]{1,10,50,100,500})

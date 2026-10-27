@@ -50,7 +50,8 @@ class NativeObserver:
                                    'hp':self.world.units.definition('native:infantry')['hp'],
                                    'x':x,'y':y,'engaged':False,'potential':True})
             market=wire(self.world.market.summary());stock=dict(market['inventory']);reference=dict(market['reference'])
-            return {'buildings':buildings,'armies':wire(self.world.military.snapshot()),'guards':guards,
+            power=[{'id':a,**self.runtime.object_call(self.world,'economy:queries','balance',a).preview['energy']} for a in self.actors()]
+            return {'buildings':buildings,'armies':wire(self.world.military.snapshot()),'guards':guards,'power':power,
                     'unit_types':[{'id':kind,'max_hp':self.world.units.definition(kind)['hp']} for kind in self.world.units.type_ids],
                     'tile_defenses':defenses,
                     'production':[wire(r.fact) for r in self.world.economy.facts(self.world.economy.next_period-1)

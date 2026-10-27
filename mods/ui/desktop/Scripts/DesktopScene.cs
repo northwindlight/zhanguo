@@ -46,11 +46,13 @@ public static class DesktopScene
         frame["armies"]=scene["armies"]!.DeepClone();
         var accounts=scene["accounts"]?.AsArray().ToDictionary(a=>a!["id"]!.ToString());
         var flows=scene["resource_flows"]?.AsArray().ToDictionary(a=>a!["id"]!.ToString());
+        var power=scene["power"]?.AsArray().ToDictionary(a=>a!["id"]!.ToString());
         foreach(var n in frame["nations"]?.AsArray()??new JsonArray())
         {
             string id=n!["id"]!.ToString();
             if(accounts?.TryGetValue(id,out var account)==true)n["stocks"]=account!["stocks"]!.DeepClone();
             if(flows?.TryGetValue(id,out var flow)==true)n["resource_flow"]=flow!.DeepClone();
+            if(power?.TryGetValue(id,out var grid)==true)n["energy"]=grid!.DeepClone();
             n["land"]=owners.Values.Count(v=>v?.ToString()==id);
             var units=scene["armies"]!.AsArray().Where(u=>u!["owner"]!.ToString()==id&&F(u["hp"])>0);
             var counts=new JsonObject();foreach(var g in units.GroupBy(u=>UnitName(u!["kind"]!.ToString())))counts[g.Key]=g.Count();

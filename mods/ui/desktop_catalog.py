@@ -39,7 +39,7 @@ def present(ui, planning, state):
         net=row['expected_net'];row['payback']=value/net if valued and net is not None and net>0 else None
         row['estimate_note']='按当前价格及满负荷估算，原料、电力、贡赋和市场变化会影响实际收益。'
         energy=state['facts']['econ']['preview']['energy']
-        if b['energy_use'] and energy['capacity']-energy['demand']<b['energy_use']:
+        if b['energy_use'] and energy.get('generated',energy['capacity'])-energy['demand']<b['energy_use']:
             row['warning']='当前电力不足，落成后可能停工；仍允许按规则建设。'
         describe_requirements(row)
     for index,row in enumerate(data['units']):

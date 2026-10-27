@@ -53,6 +53,7 @@ public partial class WorldMap
         string money=$"金币 {gold:+0.##;-0.##;0}";
         float width=Math.Max(184,Math.Max(_font.GetStringSize(title+"  "+amounts,fontSize:16).X,_font.GetStringSize(money,fontSize:16).X)+28);
         var obstacles=new List<Footprint>(_squadLabelBounds) { new(16,78,280,300),new(at.X-40,at.Y-52,80,66) };
+        obstacles.AddRange(HudObstacles);
         var placement=ResourceOverlayLayout.Place(new Footprint(at.X-width*.5f,at.Y-146,width,78),obstacles,Size.X,Size.Y,218,78);
         var rect=new Rect2(placement.X,placement.Y,placement.Width,placement.Height);
         DrawRect(rect,new Color(.045f,.08f,.08f,.95f));DrawRect(rect,new Color("a3a67d"),false,1);

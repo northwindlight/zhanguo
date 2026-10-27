@@ -7,7 +7,9 @@ using System.Text.Json.Nodes;
 namespace Zhanguo.Desktop.Layout;
 
 public sealed record LedgerStock(string Id,string Name,double Amount,double Change);
-public sealed record NationLedgerView(string Actor,string Name,int Period,int FlowPeriod,IReadOnlyList<LedgerStock> Stocks);
+public sealed record LedgerPower(double Capacity,double? Generated,double Demand,bool? PreviousShort,int FuelShortPlants);
+public sealed record NationLedgerView(string Actor,string Name,int Period,int FlowPeriod,IReadOnlyList<LedgerStock> Stocks)
+{ public LedgerPower? Power {get;init;} }
 
 // Reads the replayed frame, including action-time account deltas; never reads
 // the pending end-of-batch frame or guesses income from inventory differences.
@@ -22,7 +24,11 @@ public static class NationLedger
         var stocks=(nation["stocks"]?.AsArray()??new JsonArray()).Select(s=>new LedgerStock(
             s!["id"]!.ToString(),s["name"]?.ToString()??s["id"]!.ToString(),Number(s["amount"]),
             changes.GetValueOrDefault(s["id"]!.ToString()))).ToArray();
-        return new(actor,nation["name"]!.ToString(),frame["period"]!.GetValue<int>(),flow?["period"]?.GetValue<int>()??-1,stocks);
+        var energy=nation["energy"];
+        return new(actor,nation["name"]!.ToString(),frame["period"]!.GetValue<int>(),flow?["period"]?.GetValue<int>()??-1,stocks) {
+            Power=energy?["capacity"]!=null&&energy["demand"]!=null?new LedgerPower(Number(energy["capacity"]),
+                energy["generated"]==null?null:Number(energy["generated"]),Number(energy["demand"]),
+                energy["previous_short"]?.GetValue<bool>(),(int)Number(energy["fuel_short_plants"])):null };
     }
     public static Dictionary<string,double> Amounts(JsonNode? pairs)=>(pairs?.AsArray()??new JsonArray())
         .ToDictionary(p=>p![0]!.ToString(),p=>Number(p![1]));

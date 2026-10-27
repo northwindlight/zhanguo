@@ -455,6 +455,7 @@ class Military:
         equipment=sum(row['equipment_used'] for row in rows)
         charge=ceil(equipment-1e-12)
         return {'period':self._period(),'need':need,'available':self._stock(owner,'native:supply'),
+                'last_grid_short':self._grid_short.get(owner),
                 'used':used,'shortfall':short,'starvation_damage_per_unit':loss,
                 'starving_units':[u.id for u in eaters] if short else [],
                 'exempt_count':len(units)-len(eaters),

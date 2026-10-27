@@ -166,7 +166,7 @@ public partial class Desktop
         HumanText($"{NationLabel(HumanActor)} · 国务",true);
         HumanText("当前库存\n"+string.Join("\n",HumanFacts["econ"]!["stocks"]!.AsArray().Select(s=>$"{HumanLabel(S(s!["id"]))}  {Quantity(s["amount"])}")));
         var e=HumanFacts["econ"]!["preview"]!;
-        HumanText($"能源预演：产能 {e["energy"]?["capacity"]} / 需求 {e["energy"]?["demand"]}\n生产与军需预演（非实收）：\n{Resources(e["outputs"])}\n需求：{Resources(e["inputs"])}");
+        HumanText($"电力预计 {e["energy"]?["generated"]} / 需求 {e["energy"]?["demand"]} · 额定 {e["energy"]?["capacity"]}\n生产与军需预演（非实收）：\n{Resources(e["outputs"])}\n需求：{Resources(e["inputs"])}");
         var bank=HumanFacts["bank"]!;
         HumanText($"贷款额度 {bank["credit_limit"]} 金 · 当前债务 {bank["liabilities"]} 金\n存款利率 {F(bank["savings_rate"]):P1} · 贷款利率 {F(bank["loan_rate"]):P1}");
         HumanButton("贷款与只读授信预览",()=>{_humanOperation="borrow";OpenHumanPage("finance");},"market");

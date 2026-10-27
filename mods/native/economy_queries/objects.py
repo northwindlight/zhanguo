@@ -96,7 +96,10 @@ class EconomicQueries:
         buildings = self._value(self._call('native:buildings','replacement_costs',owner))
         turns = self._call('native:economy','turns',owner)
         flows = self._call('native:economy','production',owner)
-        preview = dict(self._call('native:buildings', 'demand_preview', owner))
+        relations=self._call('native:diplomacy','snapshot',owner).vassals if 'native:diplomacy' in self._runtime.capabilities else ()
+        relation=next((s for s in relations if s.subject==owner),None)
+        share={'recipient':relation.overlord,'percent':relation.tribute_percent} if relation else None
+        preview = dict(self._call('native:buildings', 'demand_preview', owner,share))
         # 本期产业按当前建筑与市价的满负荷预演；latest_flows 仍是上一期实际。
         outputs = dict(preview.get('outputs') or ())
         production_inputs = dict(preview.get('inputs') or ())
@@ -112,8 +115,6 @@ class EconomicQueries:
                     'supply_value': supply_value, 'equipment_value': equipment_value,
                     'input_value': input_value, 'margin': secondary_value.plus(input_value, -1)}
         if 'native:diplomacy' in self._runtime.capabilities:
-            relations=self._call('native:diplomacy','snapshot',owner).vassals
-            relation=next((s for s in relations if s.subject==owner),None)
             if relation:
                 preview['tribute']=self._call('native:buildings','tribute_preview',owner,relation.overlord,relation.tribute_percent)
             receivables=[{'subject':s.subject,'percent':s.tribute_percent,
@@ -126,6 +127,7 @@ class EconomicQueries:
         if military:
             inputs['native:supply'] = inputs.get('native:supply', 0) + military['need']
             inputs['native:equipment'] = inputs.get('native:equipment', 0) + military['equipment_need']
+        preview['energy']['previous_short']=military.get('last_grid_short')
         balances = {row.id: row.amount for row in stocks}
         preview.update(inputs=inputs, military=military,
                        shortfalls={key:amount-balances.get(key,0) for key,amount in inputs.items() if amount>balances.get(key,0)})

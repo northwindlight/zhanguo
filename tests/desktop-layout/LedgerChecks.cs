@@ -26,6 +26,10 @@ static class LedgerChecks
         DesktopScene.Apply(frame,settled);q=NationLedger.Read(frame,"q")!;
         Require(q.FlowPeriod==4&&q.Stocks.Single().Change==0&&NationLedger.Read(frame,"c")!.FlowPeriod==3,"zero flow remained stale or another country's settlement advanced early");
         Require(NationLedger.Signed(-8)=="-8"&&NationLedger.Signed(12)=="+12"&&NationLedger.Signed(0)=="—","signed resource labels lost their sign");
+        var grid=JsonNode.Parse("""{"power":{"remove":[],"upsert":[{"id":"q","capacity":4,"generated":2,"demand":3,"previous_short":true,"fuel_short_plants":1}]}}""")!.AsObject();
+        DesktopScene.Apply(frame,grid);q=NationLedger.Read(frame,"q")!;
+        Require(q.Power is {Capacity:4,Generated:2,Demand:3,PreviousShort:true,FuelShortPlants:1},"ledger confused rated capacity, current fuel-limited supply and prior actual grid");
+        Require(NationLedger.Read(frame,"c")!.Power==null,"another country's power leaked into this country's ledger");
         Console.WriteLine("NATION_LEDGER_OK: one country, actual action-time holdings, dated flows, zero reset and detached projection");
     }
 }

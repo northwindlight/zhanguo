@@ -412,8 +412,8 @@ class Buildings:
             for key,amount in cycle.inputs:need[key] = need.get(key,0)+amount
         return MappingProxyType(need)
 
-    def demand_preview(self, owner):
-        """已落成建筑按真实 cycle 配方汇总的满负荷需求，不执行生产。"""
+    def demand_preview(self, owner, production_share=None):
+        """满负荷投入产出，以及按当前库存/采集/燃料预测的电网；不扣资源。"""
         owner_name(owner)
         inputs, outputs, capacity, demand = {}, {}, 0, 0
         for item in self._instances.values():
@@ -423,8 +423,34 @@ class Buildings:
             for key, amount in cycle.outputs:outputs[key] = outputs.get(key, 0) + amount
             capacity += cycle.energy
             demand += item.ENERGY_USE
+        power=self._energy_preview(owner,production_share)
         return {'inputs': inputs, 'outputs': outputs,
-                'energy': {'capacity': capacity, 'demand': demand, 'capacity_gap': max(0, demand-capacity)}}
+                'energy': {'capacity': capacity, 'demand': demand, 'capacity_gap': max(0, demand-capacity),
+                           **power}}
+
+    def _energy_preview(self, owner, production_share):
+        """Run the real production algorithm on detached own buildings/balances.
+
+        No resource exchanges reach the world. This preserves gather-before-
+        fuel, plant order and tribute rounding without duplicating their rules.
+        """
+        stocks=tuple(self._resources('snapshot',owner))
+        def resources(method,*args):
+            if method=='snapshot':
+                return stocks if args[0]==owner else tuple(replace(s,owner=args[0],amount=0) for s in stocks)
+            if method=='exchange_batch':return ()
+            raise ModError('Unexpected energy preview resource operation')
+        candidate=Buildings(tuple(self._types.values()),resources)
+        candidate._period=self.period
+        candidate._sites={key:site for key,site in self._sites.items() if site.owner==owner}
+        candidate._instances={key:type(item).from_save(item.to_save()) for key,item in self._instances.items() if item.site in candidate._sites}
+        candidate._tribute_remainders={key:value for key,value in self._tribute_remainders.items() if key[0]==owner}
+        report=candidate.produce(production_shares={owner:production_share} if production_share else None)
+        row=next((r for r in report.energy if r.owner==owner),EnergyReport(owner,0,0,0,False))
+        blocked=sum(r.status=='missing-input' and candidate._type(r.kind).PHASE=='power' for r in report.records)
+        return {'generated':row.generated,'shortfall':max(0,row.demand-row.generated-row.external),
+                'short':row.short,'fuel_short_plants':blocked,
+                'basis':'按当前完工建筑、库存及采集／发电顺序预估；后续行动与交易可能改变结果，不扣资源。'}
 
     def _other_slots(self, item):
         return sum(other.completed and other.site==item.site and other.kind!=item.kind

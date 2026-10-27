@@ -99,6 +99,7 @@ public partial class Desktop
             _menu.Visible=false;StartHost(configPath,null);
             await HumanIdle();if(_map.NationName(HumanActor)!="青岚"||_map.NationColor(HumanActor).ToHtml(false)!="66b6a7")throw new Exception("本国名称／颜色未进入实际地图");
             if(OwnArmies.Any())throw new Exception("正常真人开局不应赠兵");CloseDrawers(false);_map.Fit();await Screenshot(path);
+            if(!_ledgerPowerBox.Visible||!_ledgerPower.Text.Contains("0/1")||!_ledgerPowerLast.Text.Contains("尚未结算"))throw new Exception("开局未显示当前电力缺口与首次结算状态");
             foreach(string page in new[]{"build","army","market","diplomacy","alliance","intel","nation"})
             {
                 await PointerClick(_humanNav[page]);await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
@@ -148,6 +149,8 @@ public partial class Desktop
             await WaitFor(()=>HumanCanWrite&&_period==1,"真人回合没有轮换与结算",120);
             var autoOrders=HumanFacts["market"]!["automatic"]!["last"]!["orders"]!.AsArray();
             if(!autoOrders.Any(o=>S(o!["side"])=="buy"&&I(o["quantity"])>0)||!autoOrders.Any(o=>S(o!["side"])=="sell"&&I(o["quantity"])>0))throw new Exception("自动买卖没有在结束行动时真实成交");
+            if(NationLedger.Read(_map.Frame!,HumanActor)?.Power is not {Capacity:2,Generated:2,Demand:1,PreviousShort:true}||!_ledgerPowerLast.Text.Contains("不足"))throw new Exception("电厂落成后的供电预估与上期实际电网没有区分");
+            await Screenshot(stem+"-power.png");
             await ReviewCompletedDemolition(stem,otherCell);
             _humanCell=capital;OpenHumanPage("recruit");await RtsReady();
             if(_rtsCards["native:militia"].Disabled||!_rtsCards["native:infantry"].Disabled)throw new Exception("军屯与兵营候选未正确筛选");
@@ -238,6 +241,7 @@ public partial class Desktop
                 ["map_purchase"]=true,["historical_pixels_static"]=true,["single_nation_ledger"]=true,
                 ["market_quantity_buttons"]=true,["market_exact_quotes"]=true,["auto_trade_buy_and_sell"]=true,["auto_trade_validation"]=true,["cancel_half_refund"]=true,["cancel_keeps_quota"]=true,["demolish_zero_refund"]=true,["market_layouts"]=true,
                 ["garrison_visible_without_scroll"]=true,["wild_garrison_continuity"]=true,["wild_guard_id"]=wildId,["wild_formation_figures"]=wildFigures,
+                ["power_visible"]=true,["power_ignores_unfinished"]=true,["power_previous_actual"]=true,
                 ["save_queued"]=true,["exit_choice"]=true,["rts_layouts"]=true,["save"]=_savePath,["config"]=configPath,["layouts"]=layouts,
                 ["platform"]=OS.GetName(),["renderer"]=RenderingServer.GetVideoAdapterName() };
             await File.WriteAllTextAsync(path+".json",result.ToJsonString(new JsonSerializerOptions { WriteIndented=true }));

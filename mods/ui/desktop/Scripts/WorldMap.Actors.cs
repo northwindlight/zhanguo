@@ -348,6 +348,7 @@ public partial class WorldMap
         if(_beat==null)return;
         DrawWarArrows();DrawTrade();DrawLetter();
         var popupBounds=new List<Footprint>(_squadLabelBounds);
+        popupBounds.AddRange(HudObstacles.Select(p=>p with { Height=p.Height+35 }));
         if(_beat["pops"] is JsonArray pops)
             for(int i=0;i<pops.Count;i++)
             {
