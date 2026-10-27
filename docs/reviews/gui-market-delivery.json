@@ -1,0 +1,17 @@
+{
+  "version": "v0.6.1",
+  "runtime_commit": "b2c51b7d845f556ed1bda7ebeee4c70624deb545",
+  "windows_workflow": 40477510475,
+  "runtime_source_files": 300,
+  "runtime_sources_lf_match": true,
+  "zip_crc_ok": true,
+  "manifest_files": 972,
+  "manifest_sha256_ok": true,
+  "no_private_files": true,
+  "no_engine_errors": true,
+  "filename": "zhanguo-0.6.1-windows-x64.zip",
+  "bytes": 104772703,
+  "sha256": "966ec074886f7458af68ae4efa73c15506a33a57c7f1f2a7609e4cca112d21c4",
+  "platform": "Windows",
+  "renderer": "ANGLE (Microsoft, Microsoft Basic Render Driver (0x0000008C) Direct3D11 vs_5_0 ps_5_0, D3D11-10.0.26100.33648)"
+}

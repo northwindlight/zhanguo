@@ -1,0 +1,710 @@
+[
+  {
+    "width": 1920,
+    "height": 1080,
+    "physical_width": 1920,
+    "physical_height": 1080,
+    "render_scale": 1,
+    "os_dpi_changed": false,
+    "font_size": 16,
+    "actor": "scenario:qin",
+    "period": 4,
+    "flow_period": 3,
+    "stocks": [
+      {
+        "Id": "native:gold",
+        "Name": "黄金",
+        "Amount": 148,
+        "Change": 8
+      },
+      {
+        "Id": "native:food",
+        "Name": "粮食",
+        "Amount": 14,
+        "Change": -1
+      },
+      {
+        "Id": "native:wood",
+        "Name": "木头",
+        "Amount": 7,
+        "Change": 6
+      },
+      {
+        "Id": "native:ore",
+        "Name": "矿石",
+        "Amount": 4,
+        "Change": -2
+      },
+      {
+        "Id": "native:oil",
+        "Name": "石油",
+        "Amount": 4,
+        "Change": 1
+      },
+      {
+        "Id": "native:equipment",
+        "Name": "装备",
+        "Amount": 0,
+        "Change": 0
+      },
+      {
+        "Id": "native:supply",
+        "Name": "补给",
+        "Amount": 7,
+        "Change": 3
+      }
+    ],
+    "ledger_within_viewport": true,
+    "settlement_within_viewport": true,
+    "overlap": false
+  },
+  {
+    "width": 1920,
+    "height": 1080,
+    "physical_width": 1920,
+    "physical_height": 1080,
+    "render_scale": 1,
+    "os_dpi_changed": false,
+    "font_size": 20,
+    "actor": "scenario:qin",
+    "period": 4,
+    "flow_period": 3,
+    "stocks": [
+      {
+        "Id": "native:gold",
+        "Name": "黄金",
+        "Amount": 148,
+        "Change": 8
+      },
+      {
+        "Id": "native:food",
+        "Name": "粮食",
+        "Amount": 14,
+        "Change": -1
+      },
+      {
+        "Id": "native:wood",
+        "Name": "木头",
+        "Amount": 7,
+        "Change": 6
+      },
+      {
+        "Id": "native:ore",
+        "Name": "矿石",
+        "Amount": 4,
+        "Change": -2
+      },
+      {
+        "Id": "native:oil",
+        "Name": "石油",
+        "Amount": 4,
+        "Change": 1
+      },
+      {
+        "Id": "native:equipment",
+        "Name": "装备",
+        "Amount": 0,
+        "Change": 0
+      },
+      {
+        "Id": "native:supply",
+        "Name": "补给",
+        "Amount": 7,
+        "Change": 3
+      }
+    ],
+    "ledger_within_viewport": true,
+    "settlement_within_viewport": true,
+    "overlap": false
+  },
+  {
+    "width": 1440,
+    "height": 900,
+    "physical_width": 1440,
+    "physical_height": 900,
+    "render_scale": 1,
+    "os_dpi_changed": false,
+    "font_size": 16,
+    "actor": "scenario:qin",
+    "period": 4,
+    "flow_period": 3,
+    "stocks": [
+      {
+        "Id": "native:gold",
+        "Name": "黄金",
+        "Amount": 148,
+        "Change": 8
+      },
+      {
+        "Id": "native:food",
+        "Name": "粮食",
+        "Amount": 14,
+        "Change": -1
+      },
+      {
+        "Id": "native:wood",
+        "Name": "木头",
+        "Amount": 7,
+        "Change": 6
+      },
+      {
+        "Id": "native:ore",
+        "Name": "矿石",
+        "Amount": 4,
+        "Change": -2
+      },
+      {
+        "Id": "native:oil",
+        "Name": "石油",
+        "Amount": 4,
+        "Change": 1
+      },
+      {
+        "Id": "native:equipment",
+        "Name": "装备",
+        "Amount": 0,
+        "Change": 0
+      },
+      {
+        "Id": "native:supply",
+        "Name": "补给",
+        "Amount": 7,
+        "Change": 3
+      }
+    ],
+    "ledger_within_viewport": true,
+    "settlement_within_viewport": true,
+    "overlap": false
+  },
+  {
+    "width": 1440,
+    "height": 900,
+    "physical_width": 1440,
+    "physical_height": 900,
+    "render_scale": 1,
+    "os_dpi_changed": false,
+    "font_size": 20,
+    "actor": "scenario:qin",
+    "period": 4,
+    "flow_period": 3,
+    "stocks": [
+      {
+        "Id": "native:gold",
+        "Name": "黄金",
+        "Amount": 148,
+        "Change": 8
+      },
+      {
+        "Id": "native:food",
+        "Name": "粮食",
+        "Amount": 14,
+        "Change": -1
+      },
+      {
+        "Id": "native:wood",
+        "Name": "木头",
+        "Amount": 7,
+        "Change": 6
+      },
+      {
+        "Id": "native:ore",
+        "Name": "矿石",
+        "Amount": 4,
+        "Change": -2
+      },
+      {
+        "Id": "native:oil",
+        "Name": "石油",
+        "Amount": 4,
+        "Change": 1
+      },
+      {
+        "Id": "native:equipment",
+        "Name": "装备",
+        "Amount": 0,
+        "Change": 0
+      },
+      {
+        "Id": "native:supply",
+        "Name": "补给",
+        "Amount": 7,
+        "Change": 3
+      }
+    ],
+    "ledger_within_viewport": true,
+    "settlement_within_viewport": true,
+    "overlap": false
+  },
+  {
+    "width": 1280,
+    "height": 720,
+    "physical_width": 1280,
+    "physical_height": 720,
+    "render_scale": 1,
+    "os_dpi_changed": false,
+    "font_size": 16,
+    "actor": "scenario:qin",
+    "period": 4,
+    "flow_period": 3,
+    "stocks": [
+      {
+        "Id": "native:gold",
+        "Name": "黄金",
+        "Amount": 148,
+        "Change": 8
+      },
+      {
+        "Id": "native:food",
+        "Name": "粮食",
+        "Amount": 14,
+        "Change": -1
+      },
+      {
+        "Id": "native:wood",
+        "Name": "木头",
+        "Amount": 7,
+        "Change": 6
+      },
+      {
+        "Id": "native:ore",
+        "Name": "矿石",
+        "Amount": 4,
+        "Change": -2
+      },
+      {
+        "Id": "native:oil",
+        "Name": "石油",
+        "Amount": 4,
+        "Change": 1
+      },
+      {
+        "Id": "native:equipment",
+        "Name": "装备",
+        "Amount": 0,
+        "Change": 0
+      },
+      {
+        "Id": "native:supply",
+        "Name": "补给",
+        "Amount": 7,
+        "Change": 3
+      }
+    ],
+    "ledger_within_viewport": true,
+    "settlement_within_viewport": true,
+    "overlap": false
+  },
+  {
+    "width": 1280,
+    "height": 720,
+    "physical_width": 1280,
+    "physical_height": 720,
+    "render_scale": 1,
+    "os_dpi_changed": false,
+    "font_size": 20,
+    "actor": "scenario:qin",
+    "period": 4,
+    "flow_period": 3,
+    "stocks": [
+      {
+        "Id": "native:gold",
+        "Name": "黄金",
+        "Amount": 148,
+        "Change": 8
+      },
+      {
+        "Id": "native:food",
+        "Name": "粮食",
+        "Amount": 14,
+        "Change": -1
+      },
+      {
+        "Id": "native:wood",
+        "Name": "木头",
+        "Amount": 7,
+        "Change": 6
+      },
+      {
+        "Id": "native:ore",
+        "Name": "矿石",
+        "Amount": 4,
+        "Change": -2
+      },
+      {
+        "Id": "native:oil",
+        "Name": "石油",
+        "Amount": 4,
+        "Change": 1
+      },
+      {
+        "Id": "native:equipment",
+        "Name": "装备",
+        "Amount": 0,
+        "Change": 0
+      },
+      {
+        "Id": "native:supply",
+        "Name": "补给",
+        "Amount": 7,
+        "Change": 3
+      }
+    ],
+    "ledger_within_viewport": true,
+    "settlement_within_viewport": true,
+    "overlap": false
+  },
+  {
+    "width": 1024,
+    "height": 768,
+    "physical_width": 1024,
+    "physical_height": 768,
+    "render_scale": 1,
+    "os_dpi_changed": false,
+    "font_size": 16,
+    "actor": "scenario:qin",
+    "period": 4,
+    "flow_period": 3,
+    "stocks": [
+      {
+        "Id": "native:gold",
+        "Name": "黄金",
+        "Amount": 148,
+        "Change": 8
+      },
+      {
+        "Id": "native:food",
+        "Name": "粮食",
+        "Amount": 14,
+        "Change": -1
+      },
+      {
+        "Id": "native:wood",
+        "Name": "木头",
+        "Amount": 7,
+        "Change": 6
+      },
+      {
+        "Id": "native:ore",
+        "Name": "矿石",
+        "Amount": 4,
+        "Change": -2
+      },
+      {
+        "Id": "native:oil",
+        "Name": "石油",
+        "Amount": 4,
+        "Change": 1
+      },
+      {
+        "Id": "native:equipment",
+        "Name": "装备",
+        "Amount": 0,
+        "Change": 0
+      },
+      {
+        "Id": "native:supply",
+        "Name": "补给",
+        "Amount": 7,
+        "Change": 3
+      }
+    ],
+    "ledger_within_viewport": true,
+    "settlement_within_viewport": true,
+    "overlap": false
+  },
+  {
+    "width": 1024,
+    "height": 768,
+    "physical_width": 1024,
+    "physical_height": 768,
+    "render_scale": 1,
+    "os_dpi_changed": false,
+    "font_size": 20,
+    "actor": "scenario:qin",
+    "period": 4,
+    "flow_period": 3,
+    "stocks": [
+      {
+        "Id": "native:gold",
+        "Name": "黄金",
+        "Amount": 148,
+        "Change": 8
+      },
+      {
+        "Id": "native:food",
+        "Name": "粮食",
+        "Amount": 14,
+        "Change": -1
+      },
+      {
+        "Id": "native:wood",
+        "Name": "木头",
+        "Amount": 7,
+        "Change": 6
+      },
+      {
+        "Id": "native:ore",
+        "Name": "矿石",
+        "Amount": 4,
+        "Change": -2
+      },
+      {
+        "Id": "native:oil",
+        "Name": "石油",
+        "Amount": 4,
+        "Change": 1
+      },
+      {
+        "Id": "native:equipment",
+        "Name": "装备",
+        "Amount": 0,
+        "Change": 0
+      },
+      {
+        "Id": "native:supply",
+        "Name": "补给",
+        "Amount": 7,
+        "Change": 3
+      }
+    ],
+    "ledger_within_viewport": true,
+    "settlement_within_viewport": true,
+    "overlap": false
+  },
+  {
+    "width": 1280,
+    "height": 720,
+    "physical_width": 1600,
+    "physical_height": 900,
+    "render_scale": 1.25,
+    "os_dpi_changed": false,
+    "font_size": 16,
+    "actor": "scenario:qin",
+    "period": 4,
+    "flow_period": 3,
+    "stocks": [
+      {
+        "Id": "native:gold",
+        "Name": "黄金",
+        "Amount": 148,
+        "Change": 8
+      },
+      {
+        "Id": "native:food",
+        "Name": "粮食",
+        "Amount": 14,
+        "Change": -1
+      },
+      {
+        "Id": "native:wood",
+        "Name": "木头",
+        "Amount": 7,
+        "Change": 6
+      },
+      {
+        "Id": "native:ore",
+        "Name": "矿石",
+        "Amount": 4,
+        "Change": -2
+      },
+      {
+        "Id": "native:oil",
+        "Name": "石油",
+        "Amount": 4,
+        "Change": 1
+      },
+      {
+        "Id": "native:equipment",
+        "Name": "装备",
+        "Amount": 0,
+        "Change": 0
+      },
+      {
+        "Id": "native:supply",
+        "Name": "补给",
+        "Amount": 7,
+        "Change": 3
+      }
+    ],
+    "ledger_within_viewport": true,
+    "settlement_within_viewport": true,
+    "overlap": false
+  },
+  {
+    "width": 1280,
+    "height": 720,
+    "physical_width": 1600,
+    "physical_height": 900,
+    "render_scale": 1.25,
+    "os_dpi_changed": false,
+    "font_size": 20,
+    "actor": "scenario:qin",
+    "period": 4,
+    "flow_period": 3,
+    "stocks": [
+      {
+        "Id": "native:gold",
+        "Name": "黄金",
+        "Amount": 148,
+        "Change": 8
+      },
+      {
+        "Id": "native:food",
+        "Name": "粮食",
+        "Amount": 14,
+        "Change": -1
+      },
+      {
+        "Id": "native:wood",
+        "Name": "木头",
+        "Amount": 7,
+        "Change": 6
+      },
+      {
+        "Id": "native:ore",
+        "Name": "矿石",
+        "Amount": 4,
+        "Change": -2
+      },
+      {
+        "Id": "native:oil",
+        "Name": "石油",
+        "Amount": 4,
+        "Change": 1
+      },
+      {
+        "Id": "native:equipment",
+        "Name": "装备",
+        "Amount": 0,
+        "Change": 0
+      },
+      {
+        "Id": "native:supply",
+        "Name": "补给",
+        "Amount": 7,
+        "Change": 3
+      }
+    ],
+    "ledger_within_viewport": true,
+    "settlement_within_viewport": true,
+    "overlap": false
+  },
+  {
+    "width": 1280,
+    "height": 720,
+    "physical_width": 1920,
+    "physical_height": 1080,
+    "render_scale": 1.5,
+    "os_dpi_changed": false,
+    "font_size": 16,
+    "actor": "scenario:qin",
+    "period": 4,
+    "flow_period": 3,
+    "stocks": [
+      {
+        "Id": "native:gold",
+        "Name": "黄金",
+        "Amount": 148,
+        "Change": 8
+      },
+      {
+        "Id": "native:food",
+        "Name": "粮食",
+        "Amount": 14,
+        "Change": -1
+      },
+      {
+        "Id": "native:wood",
+        "Name": "木头",
+        "Amount": 7,
+        "Change": 6
+      },
+      {
+        "Id": "native:ore",
+        "Name": "矿石",
+        "Amount": 4,
+        "Change": -2
+      },
+      {
+        "Id": "native:oil",
+        "Name": "石油",
+        "Amount": 4,
+        "Change": 1
+      },
+      {
+        "Id": "native:equipment",
+        "Name": "装备",
+        "Amount": 0,
+        "Change": 0
+      },
+      {
+        "Id": "native:supply",
+        "Name": "补给",
+        "Amount": 7,
+        "Change": 3
+      }
+    ],
+    "ledger_within_viewport": true,
+    "settlement_within_viewport": true,
+    "overlap": false
+  },
+  {
+    "width": 1280,
+    "height": 720,
+    "physical_width": 1920,
+    "physical_height": 1080,
+    "render_scale": 1.5,
+    "os_dpi_changed": false,
+    "font_size": 20,
+    "actor": "scenario:qin",
+    "period": 4,
+    "flow_period": 3,
+    "stocks": [
+      {
+        "Id": "native:gold",
+        "Name": "黄金",
+        "Amount": 148,
+        "Change": 8
+      },
+      {
+        "Id": "native:food",
+        "Name": "粮食",
+        "Amount": 14,
+        "Change": -1
+      },
+      {
+        "Id": "native:wood",
+        "Name": "木头",
+        "Amount": 7,
+        "Change": 6
+      },
+      {
+        "Id": "native:ore",
+        "Name": "矿石",
+        "Amount": 4,
+        "Change": -2
+      },
+      {
+        "Id": "native:oil",
+        "Name": "石油",
+        "Amount": 4,
+        "Change": 1
+      },
+      {
+        "Id": "native:equipment",
+        "Name": "装备",
+        "Amount": 0,
+        "Change": 0
+      },
+      {
+        "Id": "native:supply",
+        "Name": "补给",
+        "Amount": 7,
+        "Change": 3
+      }
+    ],
+    "ledger_within_viewport": true,
+    "settlement_within_viewport": true,
+    "overlap": false
+  }
+]

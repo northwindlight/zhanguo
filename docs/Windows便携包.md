@@ -1,6 +1,6 @@
 # Windows 便携体验包
 
-[v0.6.0 预发布页](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.0) · [Windows x64 下载](https://github.com/northwindlight/zhanguo/releases/download/v0.6.0/zhanguo-0.6.0-windows-x64.zip) · [SHA-256 校验值](https://github.com/northwindlight/zhanguo/releases/download/v0.6.0/SHA256SUMS)
+[v0.6.1 预发布页](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.1) · [Windows x64 下载](https://github.com/northwindlight/zhanguo/releases/download/v0.6.1/zhanguo-0.6.1-windows-x64.zip) · [SHA-256 校验值](https://github.com/northwindlight/zhanguo/releases/download/v0.6.1/SHA256SUMS)
 
 上一正式版为 [v0.5.1](https://github.com/northwindlight/zhanguo/releases/tag/v0.5.1)。新版本默认先供试玩，确认满意后再转为正式 Release。
 
@@ -32,6 +32,9 @@ ZIP 中有：
 2026-10-27 的图标操作开发包已通过[Windows 实际窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40442608814)，运行提交 `1f83661`，现作为 [v0.6.0 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.0) 发布，Windows 附件与验收工件字节相同。
 主菜单现在明确区分玩家／看海；玩家先定制本国与地图，再设置 AI 对手。点本国地块使用建设／征兵图标格，短悬停看费用与要求、长悬停看作用和预计收益；缺条件变暗，每格本期施工次数独立显示。
 独立城堡、林场、四种厂区及资源 SVG 附在 `美术预览/建设征兵SVG`；[截图与验收](reviews/真人GUI图标与交互-20261027.md)。
+
+2026-10-27 的市场与驻军打磨版发布为 [v0.6.1 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.1)：市场增加十档买卖按钮和自动交易，施工可半额撤销，完工后可零返还拆除；驻军与军令移到地块面板顶部，野人待战／交锋使用同一编队与血量。左上角常驻显示燃料约束下的电力预计供电／需求，以及上期实际电网状态。
+运行提交 `b2c51b7`；[Windows 便携包与实际窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40477510475)、[本轮截图与范围](reviews/市场与建筑拆除及驻军-20261027.md)。本版请新开局，旧档继续用原发布包。
 
 ## 发布顺序
 
