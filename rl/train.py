@@ -1190,6 +1190,8 @@ def _streak(infos: list[dict], state: dict, who: str) -> int:
 
 def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
           lr: float = 3e-4, temperature: float = 1.0, ent_coef: float = 0.01,
+          vf_coef: float = 0.5, shaping: bool | None = None,
+          shaping_scale: float | None = None,
           first_streak_limit: int = 8, size: int = 8,
           size_min: int | None = None, size_max: int | None = None,
           halls_known: bool = True, nations: int | None = None,
@@ -1247,6 +1249,18 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
     #   A/B 看着只差 `--memory`，实际差了两个因子。这类"第二个因子"是
     #   静默的：两边 loss 都在降、曲线都好看，只有结论是错的。
     #   ⇒ 只算一次、横幅里打出来，让**日志自己能证明**两臂的配置。
+    # ★★ **把初始权重钉住**（2026-10-27）：原先 `train()` **不 seed torch**
+    #   ⇒ 网怎么初始化取决于进程里之前跑过什么 ⇒ **同一个 `--seed` 两次训练出来的
+    #   起点不一样** ⇒ "这次训练到底把策略推动了没有"**根本没法量**
+    #   （我为此只能拿"固定基线"当参照，混进了初始化的差异）。
+    #   ⇒ 现在：`--seed` 同时管**开局随机性**与**初始权重** ⇒ 可复现、可对照。
+    torch.manual_seed(int(seed) & 0x7FFFFFFF)
+    # ★★ 塑形开关（2026-10-27）：`S.SHAPING` 是**模块常量**，训练侧原先够不着
+    #   ⇒ 现在命令行能开/关/改尺度（缺省 = 沿用 `scoring` 里的原值，行为不变）。
+    if shaping is not None:
+        S.SHAPING = bool(shaping)
+    if shaping_scale is not None:
+        S.REWARD_TANH_SCALE = float(shaping_scale)
     eff_epochs = int(epochs) if epochs is not None else (2 if mem_slots else 4)
     nets = {i: build_model(mem_slots=mem_slots) for i in range(n_slots)}
     if device and device != "cpu":           # ★ 建完就上设备，**在 resume/播种之前**
@@ -1518,7 +1532,7 @@ def train(*, iters: int = 100, episodes_per_iter: int = 8, seed: int = 0,
         #   ⇒ 熵项 `ent_coef*ent ≈ 0.031` 与策略项**同量级** ⇒ 策略可能被
         #   **熵项按住不动**（实测策略集中度卡在 0.999、行为与随机无异）。
         #   ⇒ 要验证"是不是熵项压住了策略"，**得能把它调小/调零**。
-        pk = {"epochs": eff_epochs, "ent_coef": ent_coef}
+        pk = {"epochs": eff_epochs, "ent_coef": ent_coef, "vf_coef": vf_coef}
         if mem_slots:
             # ★ 记忆模式：`epochs` 保守（见 `_ppo_update_mem` 的"陈旧状态"那段）
             pk["tbptt"] = int(tbptt or S.MEM_TBPTT)
@@ -1926,6 +1940,18 @@ if __name__ == "__main__":
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--temperature", type=float, default=1.0)
+    ap.add_argument("--shaping", dest="shaping", action="store_true", default=None,
+                    help="★ 打开**势函数塑形**（每步都给稠密奖励）。缺省 = 关（沿用用户 2026-09-29 的决定）。"
+                         "★ 实测（2026-10-27）：关着时**非零奖励只有终局那一下** ⇒ 整局每步的"
+                         "优势要么被 critic 吃掉（γ=1）、要么被折扣碾碎（γ<1）⇒ 策略纹丝不动")
+    ap.add_argument("--shaping-scale", dest="shaping_scale", type=float, default=None,
+                    help="★ 塑形的 tanh 尺度（`S.REWARD_TANH_SCALE`，缺省 200）。"
+                         "★ 实测：尺度 200 时每步塑形 ≈±0.01，**比终局 ±1 小两个量级** ⇒ 仍被终局主导 ⇒ 策略不动；"
+                         "调小它（例如 20）⇒ 每步信号与终局同量级 ⇒ 信号才归因得到动作上")
+    ap.add_argument("--vf-coef", dest="vf_coef", type=float, default=None,
+                    help="★ 价值项系数（critic 在**共享主干**上的权重）。缺省 0.5（不变）。"
+                         "★ 实测（2026-10-27）：价值项梯度是策略项的 **2.2 倍** ⇒ 主干被 critic"
+                         "主导 ⇒ 策略 logits 几乎不动（熵卡 3.0、行为与随机无异）⇒ 调小它")
     ap.add_argument("--ent-coef", dest="ent_coef", type=float, default=None,
                     help="★ 熵项系数（PPO 的熵奖励）。缺省 0.01（不变）。"
                          "★ 调它是为了验证'熵项是不是把策略按在均匀分布上'"
@@ -2094,6 +2120,9 @@ if __name__ == "__main__":
     train(iters=seg, episodes_per_iter=a.episodes, seed=a.seed, lr=a.lr,
           temperature=a.temperature, first_streak_limit=a.first_streak_limit,
           ent_coef=(0.01 if a.ent_coef is None else float(a.ent_coef)),
+          shaping=(S.SHAPING if a.shaping is None else bool(a.shaping)),
+          shaping_scale=(None if a.shaping_scale is None else float(a.shaping_scale)),
+          vf_coef=(0.5 if a.vf_coef is None else float(a.vf_coef)),
           size=a.size, size_min=a.size_min, size_max=a.size_max,
           halls_known=a.halls_known, nations=a.nations, t_max=a.t_max, max_steps=a.max_steps, mb=a.mb, epochs=a.epochs,
           pool=a.pool, out=a.out, ckpt_every=a.ckpt_every, resume=resume,
