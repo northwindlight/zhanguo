@@ -2,7 +2,7 @@
   "format": "zhanguo.windows.delivery/1",
   "runtime_commit": "1f8366179fc133e81d907b48a58c9ae067f0cb8c",
   "workflow": "https://github.com/northwindlight/zhanguo/actions/runs/40442608814",
-  "zip": "战国-Windows-图标操作版-20261027.zip",
+  "zip": "zhanguo-0.6.0-windows-x64.zip",
   "bytes": 104728282,
   "sha256": "0dbf557fcbfb497ee78c50028cb31828da4121cfd42aad85c14dcd56acf41352",
   "zip_crc_ok": true,
@@ -35,5 +35,33 @@
     "supplyfactory",
     "equipmentfactory"
   ],
-  "rts_svg_byte_exact": []
+  "rts_svg_byte_exact": [],
+  "former_home_zip": "战国-Windows-图标操作版-20261027.zip",
+  "release": "https://github.com/northwindlight/zhanguo/releases/tag/v0.6.0",
+  "download": "https://github.com/northwindlight/zhanguo/releases/download/v0.6.0/zhanguo-0.6.0-windows-x64.zip",
+  "prerelease": true,
+  "tag_commit": "ff673408747f47d8b760276eb988b970a6276a3a",
+  "release_id": 425103260,
+  "published_at": "2026-10-27T06:40:19Z",
+  "release_assets": [
+    {
+      "name": "SHA256SUMS",
+      "size": 187,
+      "digest": "sha256:9e89cbf8813785142347b95e4849e5a7659ca858f26afb3d754fb0228e6ad90a",
+      "browser_download_url": "https://github.com/northwindlight/zhanguo/releases/download/v0.6.0/SHA256SUMS"
+    },
+    {
+      "name": "zhanguo-0.6.0-source.zip",
+      "size": 71569497,
+      "digest": "sha256:53de37782ef861c370516d0f2ed9755e175c78b7eb83eca96b60eb2301ab3ba9",
+      "browser_download_url": "https://github.com/northwindlight/zhanguo/releases/download/v0.6.0/zhanguo-0.6.0-source.zip"
+    },
+    {
+      "name": "zhanguo-0.6.0-windows-x64.zip",
+      "size": 104728282,
+      "digest": "sha256:0dbf557fcbfb497ee78c50028cb31828da4121cfd42aad85c14dcd56acf41352",
+      "browser_download_url": "https://github.com/northwindlight/zhanguo/releases/download/v0.6.0/zhanguo-0.6.0-windows-x64.zip"
+    }
+  ],
+  "home_delivery_copies": "已移入项目 archive/releases/home-deliveries-20261027/，以后从发布页下载"
 }

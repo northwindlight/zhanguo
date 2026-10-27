@@ -1,10 +1,12 @@
 # Windows 便携体验包
 
-[v0.5.1 发布页](https://github.com/northwindlight/zhanguo/releases/tag/v0.5.1) · [Windows x64 下载](https://github.com/northwindlight/zhanguo/releases/download/v0.5.1/zhanguo-0.5.1-windows-x64.zip)
+[v0.6.0 预发布页](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.0) · [Windows x64 下载](https://github.com/northwindlight/zhanguo/releases/download/v0.6.0/zhanguo-0.6.0-windows-x64.zip) · [SHA-256 校验值](https://github.com/northwindlight/zhanguo/releases/download/v0.6.0/SHA256SUMS)
+
+上一正式版为 [v0.5.1](https://github.com/northwindlight/zhanguo/releases/tag/v0.5.1)。新版本默认先供试玩，确认满意后再转为正式 Release。
 
 用于让朋友直接体验地图、界面与演出，并给音乐、美术提建议。
 目标为 Windows 10/11、x64。完整解压后双击 `Zhanguo.exe`，无需安装 Godot、Python 或 .NET SDK。
-默认新的对局是暂停的 v13 规则 AI 八国局；点开始和继续即可离线观看。
+主菜单可选玩家模式或看海模式。玩家先定制本国和地图，再设置 AI 对手；看海可选 v13 规则 AI 八国局，点开始和继续即可离线观看。
 
 ZIP 中有：
 
@@ -27,9 +29,17 @@ ZIP 中有：
 
 2026-10-26 的真人单机开发包已通过[Windows 真人窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40317006180)，运行代码 `19fec89`，在该次 Actions 的 `Zhanguo-Windows-x64` 工件下载。新建对局为一个国家选“真人”、填写昵称，即可从底部入口办理建设、军令、市场、外交与情报；[截图与验收](reviews/真人GUI第二步-20261026.md)。这批功能属于 main 开发包，v0.5.1 原发布包保持原样。
 
-2026-10-27 的图标操作开发包已通过[Windows 实际窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40442608814)，运行提交 `1f83661`，在该次 Actions 的 `Zhanguo-Windows-x64` 工件下载。
+2026-10-27 的图标操作开发包已通过[Windows 实际窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40442608814)，运行提交 `1f83661`，现作为 [v0.6.0 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.0) 发布，Windows 附件与验收工件字节相同。
 主菜单现在明确区分玩家／看海；玩家先定制本国与地图，再设置 AI 对手。点本国地块使用建设／征兵图标格，短悬停看费用与要求、长悬停看作用和预计收益；缺条件变暗，每格本期施工次数独立显示。
 独立城堡、林场、四种厂区及资源 SVG 附在 `美术预览/建设征兵SVG`；[截图与验收](reviews/真人GUI图标与交互-20261027.md)。
+
+## 发布顺序
+
+完成一批可试玩版本后，默认先发布 GitHub **Pre-release**。CI、对应运行代码的 Windows 实际窗口及包校验通过后，上传 Windows ZIP、源码 ZIP 和 `SHA256SUMS`，核对远端附件大小与摘要，再公开预发布。
+
+用户试玩确认后，将同一条 GitHub Release 取消 Pre-release 标记、更新标题并设为正式最新版，同步 README 下载说明；仅转换发布状态时保留原标签、运行包和校验值。需要改代码则另发新版本的预发布，并重新构建和验证。
+
+构建与上传材料保存在仓库忽略目录 `archive/releases/<版本>/`，不再把交付包放到主目录。主目录中的旧交付副本清理后，通过发布页下载。
 
 ## 构建与验证
 

@@ -105,9 +105,9 @@ python3 settlement.py --save mp_save.json --table
 
 ### 桌面上帝视角
 
-[下载 v0.5.1 Windows x64 便携版](https://github.com/northwindlight/zhanguo/releases/download/v0.5.1/zhanguo-0.5.1-windows-x64.zip)：完整解压后双击 `Zhanguo.exe`，无需安装开发工具。
+[下载 v0.6.0 预发布 Windows x64 便携版](https://github.com/northwindlight/zhanguo/releases/download/v0.6.0/zhanguo-0.6.0-windows-x64.zip)：完整解压后双击 `Zhanguo.exe`，无需安装开发工具。
 
-下面介绍当前 main 的界面；本轮收支、街道与字体等改进尚未进入已发布的 v0.5.1 附件。
+本轮真人模式、地块图标操作、收支与街道改进已包含在 [v0.6.0 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.0)，供试玩反馈后转正式版。上一正式版为 [v0.5.1](https://github.com/northwindlight/zhanguo/releases/tag/v0.5.1)。
 
 ![桌面上帝视角](docs/design/gui-national-production-20261026.png)
 
