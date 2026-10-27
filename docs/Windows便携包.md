@@ -27,6 +27,10 @@ ZIP 中有：
 
 2026-10-26 的真人单机开发包已通过[Windows 真人窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40317006180)，运行代码 `19fec89`，在该次 Actions 的 `Zhanguo-Windows-x64` 工件下载。新建对局为一个国家选“真人”、填写昵称，即可从底部入口办理建设、军令、市场、外交与情报；[截图与验收](reviews/真人GUI第二步-20261026.md)。这批功能属于 main 开发包，v0.5.1 原发布包保持原样。
 
+2026-10-27 的图标操作开发包已通过[Windows 实际窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40442608814)，运行提交 `1f83661`，在该次 Actions 的 `Zhanguo-Windows-x64` 工件下载。
+主菜单现在明确区分玩家／看海；玩家先定制本国与地图，再设置 AI 对手。点本国地块使用建设／征兵图标格，短悬停看费用与要求、长悬停看作用和预计收益；缺条件变暗，每格本期施工次数独立显示。
+独立城堡、林场、四种厂区及资源 SVG 附在 `美术预览/建设征兵SVG`；[截图与验收](reviews/真人GUI图标与交互-20261027.md)。
+
 ## 构建与验证
 
 [Windows便携包工作流](../.github/workflows/windows-portable.yml)在 Windows 构建机上执行。

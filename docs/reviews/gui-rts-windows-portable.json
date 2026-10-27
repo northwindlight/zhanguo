@@ -1,0 +1,13 @@
+{
+  "packaged": true,
+  "platform": "Windows",
+  "bundled_python": "D:\\a\\_temp\\zhanguo-verification\\移动后的中文目录 portable test\\Zhanguo-Windows-x64\\runtime\\python\\python.exe",
+  "period": 1,
+  "nations": 8,
+  "tiles": 576,
+  "rule_ai": "v13",
+  "initial_armies": 0,
+  "timeline_beats": 161,
+  "saved": true,
+  "host_exit": 0
+}

@@ -1,0 +1,80 @@
+{
+  "period": 3,
+  "human_actor": "scenario:qin",
+  "human_actions": 12,
+  "unknown_tiles": 534,
+  "historical_tiles": 21,
+  "action_batches": 12,
+  "settlement_batches": 3,
+  "played_phases": {
+    "trade": 1,
+    "order": 1,
+    "build": 2,
+    "human-action": 4,
+    "production": 3,
+    "complete": 2,
+    "settlement": 3,
+    "recruit": 1,
+    "maintenance": 2,
+    "march": 1,
+    "engage": 1,
+    "map": 1,
+    "battle": 1,
+    "casualties": 1
+  },
+  "normal_zero_army_start": true,
+  "double_click_once": true,
+  "build_and_quote": true,
+  "rts_icons": true,
+  "two_step_player_menu": true,
+  "custom_nation_name_and_color": true,
+  "tile_a_b_a": true,
+  "disabled_hover": true,
+  "short_hover": true,
+  "long_hover": true,
+  "construction_quota_disabled": true,
+  "letter_form": true,
+  "free_human_scenario": true,
+  "reject_multiple_humans": true,
+  "recruit": true,
+  "move_did_not_occupy": true,
+  "in_place_attack": true,
+  "esc_cancels_target": true,
+  "war_warning": true,
+  "map_purchase": true,
+  "historical_pixels_static": true,
+  "single_nation_ledger": true,
+  "save_queued": true,
+  "exit_choice": true,
+  "rts_layouts": true,
+  "save": "D:\\a\\_temp\\zhanguo-verification\\human-data\\archive\\desktop\\20261027-031420-f93147\\session.json",
+  "config": "D:\\a\\_temp\\zhanguo-verification\\human-data\\archive\\menu-config-20261027-031420.json",
+  "layouts": [
+    {
+      "width": 1920,
+      "height": 1080,
+      "within_viewport": true,
+      "rts_hover": true
+    },
+    {
+      "width": 1440,
+      "height": 900,
+      "within_viewport": true,
+      "rts_hover": true
+    },
+    {
+      "width": 1280,
+      "height": 720,
+      "within_viewport": true,
+      "rts_hover": true
+    },
+    {
+      "width": 1024,
+      "height": 768,
+      "within_viewport": true,
+      "rts_hover": true
+    }
+  ],
+  "platform": "Windows",
+  "renderer": "ANGLE (Microsoft, Microsoft Basic Render Driver (0x0000008C) Direct3D11 vs_5_0 ps_5_0, D3D11-10.0.26100.33648)"
+}

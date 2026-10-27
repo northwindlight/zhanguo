@@ -1,0 +1,39 @@
+{
+  "format": "zhanguo.windows.delivery/1",
+  "runtime_commit": "1f8366179fc133e81d907b48a58c9ae067f0cb8c",
+  "workflow": "https://github.com/northwindlight/zhanguo/actions/runs/40442608814",
+  "zip": "战国-Windows-图标操作版-20261027.zip",
+  "bytes": 104728282,
+  "sha256": "0dbf557fcbfb497ee78c50028cb31828da4121cfd42aad85c14dcd56acf41352",
+  "zip_crc_ok": true,
+  "verified_manifest_files": 969,
+  "critical_runtime_sources_checked": [
+    "mods/native/human.py",
+    "mods/native/buildings/objects.py",
+    "mods/native/army/domain_objects.py",
+    "mods/native/tools/quote.py",
+    "mods/ui/config.py",
+    "mods/ui/desktop_catalog.py",
+    "mods/ui/desktop_player.py",
+    "ui/desktop.py"
+  ],
+  "rts_svg_canonical_lf_checked": [
+    "castle",
+    "lumberyard",
+    "gold",
+    "wood",
+    "food",
+    "ore",
+    "oil",
+    "equipment",
+    "supply",
+    "energy",
+    "farmland",
+    "resource",
+    "woodpower",
+    "oilpower",
+    "supplyfactory",
+    "equipmentfactory"
+  ],
+  "rts_svg_byte_exact": []
+}
