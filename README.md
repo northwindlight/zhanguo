@@ -105,11 +105,11 @@ python3 settlement.py --save mp_save.json --table
 
 ### 桌面上帝视角
 
-[下载 v0.6.1 预发布 Windows x64 便携版](https://github.com/northwindlight/zhanguo/releases/download/v0.6.1/zhanguo-0.6.1-windows-x64.zip)：完整解压后双击 `Zhanguo.exe`，无需安装开发工具。
+[下载 v0.6.2 预发布 Windows x64 便携版](https://github.com/northwindlight/zhanguo/releases/download/v0.6.2/zhanguo-0.6.2-windows-x64.zip)：完整解压后双击 `Zhanguo.exe`，无需安装开发工具。
 
-本轮市场图标与自动买卖、建筑撤销／拆除、驻军优先与常驻电力已包含在 [v0.6.1 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.1)，供试玩反馈后转正式版。[截图与验收](docs/reviews/市场与建筑拆除及驻军-20261027.md)。上一正式版为 [v0.5.1](https://github.com/northwindlight/zhanguo/releases/tag/v0.5.1)。
+本轮右侧军队／地块总览、筛选、资源悬浮明细、连续操作与军屯修正已包含在 [v0.6.2 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.2)，供试玩反馈后转正式版。[截图与验收](docs/reviews/军队总览与地块筛选-20261027.md)。上一正式版为 [v0.5.1](https://github.com/northwindlight/zhanguo/releases/tag/v0.5.1)。
 
-本版请新开局；旧存档请保留原版本和原目录继续读取。
+本版可继续读取 v0.6.1 存档；更早版本仍受原有严格依赖检查约束，可保留原发布包读取。
 
 ![桌面上帝视角](docs/design/gui-national-production-20261026.png)
 

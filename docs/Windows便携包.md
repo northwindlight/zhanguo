@@ -1,6 +1,6 @@
 # Windows 便携体验包
 
-[v0.6.1 预发布页](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.1) · [Windows x64 下载](https://github.com/northwindlight/zhanguo/releases/download/v0.6.1/zhanguo-0.6.1-windows-x64.zip) · [SHA-256 校验值](https://github.com/northwindlight/zhanguo/releases/download/v0.6.1/SHA256SUMS)
+[v0.6.2 预发布页](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.2) · [Windows x64 下载](https://github.com/northwindlight/zhanguo/releases/download/v0.6.2/zhanguo-0.6.2-windows-x64.zip) · [SHA-256 校验值](https://github.com/northwindlight/zhanguo/releases/download/v0.6.2/SHA256SUMS)
 
 上一正式版为 [v0.5.1](https://github.com/northwindlight/zhanguo/releases/tag/v0.5.1)。新版本默认先供试玩，确认满意后再转为正式 Release。
 
@@ -35,6 +35,9 @@ ZIP 中有：
 
 2026-10-27 的市场与驻军打磨版发布为 [v0.6.1 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.1)：市场增加十档买卖按钮和自动交易，施工可半额撤销，完工后可零返还拆除；驻军与军令移到地块面板顶部，野人待战／交锋使用同一编队与血量。左上角常驻显示燃料约束下的电力预计供电／需求，以及上期实际电网状态。
 运行提交 `b2c51b7`；[Windows 便携包与实际窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40477510475)、[本轮截图与范围](reviews/市场与建筑拆除及驻军-20261027.md)。本版请新开局，旧档继续用原发布包。
+
+本轮 [v0.6.2 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.2) 增加右侧地块／军队总览和筛选、资源悬浮产消明细，并修复军屯耕地占用、数字框需回车、市场期望库存与真人倍速切换。买卖、建设和征兵可在动画期间连续排队，支持取消尚未提交的指令；每笔按执行时条件核算。
+运行代码 `3f57e07`；[Windows构建与实际窗口](https://github.com/northwindlight/zhanguo/actions/runs/40494984758)，[本轮截图与范围](reviews/军队总览与地块筛选-20261027.md)。可读v0.6.1存档，保留旧档既有建筑，不自动拆除；更早版本原有严格检查保持。
 
 ## 发布顺序
 
