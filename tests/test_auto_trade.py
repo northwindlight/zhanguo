@@ -105,6 +105,16 @@ class TestAutoTrading(unittest.TestCase):
         order=m.run_auto_trades('Qin')['orders'][0]
         self.assertEqual((order['quantity'],order['gold']),(100,150))
 
+    def test_replacement_tea_market_declares_its_account_inspection_for_auto_orders(self):
+        from engine.runtime import Runtime
+        root=Path(__file__).resolve().parents[1]
+        runtime=Runtime.load(root/'mods/examples/tea_dist');w=runtime.world_class()()
+        w.resources.open('Qin',{'native:gold':100,'example:tea':20})
+        w.market.set_auto_trade('Qin','example:tea',sell_above=10,sell_limit=5)
+        result=w.market.run_auto_trades('Qin')['orders'][0]
+        self.assertEqual((result['resource'],result['quantity']),('example:tea',5))
+        self.assertEqual(w.resources.balance('Qin','example:tea'),15)
+
     def test_host_human_and_ai_api_run_on_successful_end_turn_without_stage_changes(self):
         for mods in ('mods.toml','mods.experimental.toml'):
             with self.subTest(mods=mods):

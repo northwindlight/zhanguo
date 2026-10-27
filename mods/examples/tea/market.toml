@@ -52,7 +52,7 @@ InitialInventory = 100
 # ★ Id 与能力名都保持 native：换成别的名字，Requires / Needs 认人的地方就断了。
 Id = "native:market"
 # 版本与 native 不同，用来演示「改声明要升版本」：旧存档的依赖清单对不上会被拒载。
-Version = "2.0.0-tea"
+Version = "2.2.0-tea"
 Entry = "mods.examples.tea.market:TeaMarketMod"
 Requires = ["native:resources"]
 After = ["native:resources"]
@@ -66,7 +66,7 @@ Needs = ["native:resource-exchange", "market:pricing"]
 Provides = ["native:market"]
 
 [Interfaces]
-"native:resource-exchange" = ["exchange"]
+"native:resource-exchange" = ["exchange", "snapshot"]
 "market:pricing" = ["walk", "level"]
 
 [[Stages]]
