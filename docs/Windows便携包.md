@@ -49,6 +49,8 @@ ZIP 中有：
 
 ## 构建与验证
 
+下一轮按用户要求接入 CI 验收通过后直接公开 Pre-release，并上传该次构建的 Windows ZIP、源码和校验文件，省去本机下载复核与人工中转；本次先记录到[下一轮计划](plans/GUI下一轮试玩改进-20261027.md)，自动发布工作流尚未实现。
+
 [Windows便携包工作流](../.github/workflows/windows-portable.yml)在 Windows 构建机上执行。
 它使用官方 Godot 4.7.2 .NET 的导出模板、.NET 8 SDK和 Python 3.13.17嵌入式发行版；
 下载的工具均锁定版本和 SHA-256。SDK与编辑器仅用于构建，不要求接收者安装。
