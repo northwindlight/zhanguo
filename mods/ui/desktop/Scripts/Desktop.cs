@@ -326,8 +326,8 @@ public partial class Desktop : Control
 
     public override void _Process(double delta)
     {
-        TickRts(delta);
         if(_portableCheck)return;
+        TickRts(delta);
         _elapsed+=delta;
         for(int i=0;i<16 && _inbox.Reader.TryRead(out var line);i++)
         {

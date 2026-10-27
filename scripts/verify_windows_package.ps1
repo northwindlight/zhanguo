@@ -27,6 +27,10 @@ function Run-GameCheck([string]$Name, [string[]]$GameArguments, [int]$Timeout = 
         Get-Content $taskStdout; Get-Content $taskStderr
         throw "$Name failed: $($taskProc.ExitCode)"
     }
+    if ([regex]::IsMatch([IO.File]::ReadAllText($taskStderr), '(?m)^ERROR:')) {
+        Get-Content $taskStderr
+        throw "$Name logged an engine/runtime error despite exiting successfully"
+    }
 }
 
 $taskCheck = Join-Path $taskOutput 'portable-check.json'
