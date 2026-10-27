@@ -60,16 +60,24 @@ class PlayerCapture:
         position=[args['x'],args['y']] if type(args.get('x')) is int and type(args.get('y')) is int else self.home(after)
         live={tuple(t['position']) for t in after['tiles'] if t['visibility']=='live'}
         if position is not None and tuple(position) not in live:position=None
-        phase={'buy':'trade','sell':'trade','build':'build','recruit':'recruit','move':'march','attack':'engage','retreat':'order','buy_map':'map','send_letter':'order'}.get(canonical,'human-action')
+        phase={'buy':'trade','sell':'trade','build':'build','demolish':'demolish','recruit':'recruit','move':'march','attack':'engage','retreat':'order','buy_map':'map','send_letter':'order'}.get(canonical,'human-action')
         effective=receipt.get('ok') and receipt.get('status') not in ('confirmation_required','rejected','failed')
         if not effective:phase='human-action'
         if receipt.get('status')=='confirmation_required':text='请查看宣战警告，核对参战方与条约后确认。'
         extra={}
-        if canonical in ('buy','sell') and effective:
+        automatic=(receipt.get('data') or {}).get('auto_trades',{}) if canonical=='end_turn' else {}
+        auto_fills=[o for o in automatic.get('orders',[]) if o['quantity']>0]
+        if canonical=='demolish' and effective:
+            removed=next((b for b in before['scene']['buildings'] if b['id']==args.get('id') and b['owner']==actor),None)
+            if removed:position=[removed['x'],removed['y']]
+        if (canonical in ('buy','sell') or auto_fills) and effective:
             old={s['id']:s['amount'] for s in before['scene']['accounts'][0]['stocks']}
             changes=[{'id':s['id'],'name':s['name'],'amount':s['amount']-old.get(s['id'],0)} for s in after['scene']['accounts'][0]['stocks'] if s['amount']!=old.get(s['id'],0)]
-            extra={'market_actor':actor,'trade':{'side':canonical,'goods':[{'resource':s['id'],'amount':s['amount']} for s in changes if s['id']!='native:gold'],
+            extra={'market_actor':actor,'trade':{'side':'auto' if auto_fills else canonical,'goods':[{'resource':s['id'],'amount':s['amount']} for s in changes if s['id']!='native:gold'],
                 'gold':next((s['amount'] for s in changes if s['id']=='native:gold'),0)}}
+            if auto_fills:
+                self.add('trade','本国自动交易',f'按库存与价格限制实际成交 {len(auto_fills)} 笔，详情见市场',after,self.home(after),source=source,actor=actor,**extra)
+                extra={}
         if canonical in ('move','attack') and effective:
             previous={u['id']:u for u in before['armies'] if u['owner']==actor}
             motions=[]
@@ -120,6 +128,7 @@ class PlayerCapture:
                 position=event['position'];details=deepcopy(event.get('details') or {})
                 if {'before','after'}<=details.keys() and any(t['position']==position and t['visibility']=='live' for t in self.previous['tiles']):
                     stage=deepcopy(self.previous)
+                    stage['scene']['guards']=[u for u in stage['scene']['guards'] if [u['x'],u['y']]!=position]
                     stage['scene']['armies']=[u for u in stage['scene']['armies'] if [u['x'],u['y']]!=position]+deepcopy(details['before'])
                     stage['armies']=deepcopy(stage['scene']['armies'])
                     self.add('battle','视野内交战','按本次实际战斗结果演出',stage,position,source=f'event/{event["id"]}',combat=details)

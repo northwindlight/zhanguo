@@ -22,7 +22,7 @@ ACTION_LABELS={
     'reject_peace':'正在写信','accept_proposal':'正在写信','reject_proposal':'正在写信',
     'break_defense':'正在写信','cancel_guarantee':'正在写信','share_map':'正在写信',
     'release_vassal':'正在写信','vote':'正在写信','independence_war':'正在写信',
-    'build':'正在施工','recruit':'正在整军','army':'正在整军','disband':'正在整军',
+    'build':'正在施工','demolish':'正在拆除建筑','recruit':'正在整军','army':'正在整军','disband':'正在整军',
     'move':'正在调兵','attack':'正在调兵','retreat':'正在调兵',
     'buy':'正在交易','sell':'正在交易','bank':'正在交易','borrow':'正在交易',
     'spy':'正在打探情报','intel':'正在打探情报','buy_report':'正在打探情报',
@@ -233,17 +233,26 @@ class TimelineCapture:
             self.add('engage' if action=='attack' else 'arrival',name+(' · 接敌' if action=='attack' else ' · 抵达'),
                      text,position,after=after,source=source,duration=1.8)
         else:
-            phase={'build':'build','recruit':'recruit','move':'arrival','retreat':'retreat',
+            phase={'build':'build','demolish':'demolish','recruit':'recruit','move':'arrival','retreat':'retreat',
                    'buy':'trade','sell':'trade','plan':'plan','end_turn':'turn-end'}.get(action,'action')
-            captions={'build':'动工','recruit':'征召','move':'抵达','retreat':'提交撤退','buy':'采购','sell':'出售','plan':'本期国策','end_turn':'行动结束'}
+            captions={'build':'动工','demolish':'拆除建筑','recruit':'征召','move':'抵达','retreat':'提交撤退','buy':'采购','sell':'出售','plan':'本期国策','end_turn':'行动结束'}
             new_buildings=[b for b in after['buildings'] if b['id'] not in {v['id'] for v in self.previous['buildings']}]
             if new_buildings:position=[new_buildings[0]['x'],new_buildings[0]['y']]
+            if action=='demolish':
+                removed=next((b for b in before['buildings'] if b['id']==args.get('id') and b['owner']==actor),None)
+                if removed:position=[removed['x'],removed['y']]
             trade=None
-            if action in ('buy','sell'):
+            automatic=(receipt.get('data') or {}).get('auto_trades',{}) if action=='end_turn' else {}
+            auto_fills=[o for o in automatic.get('orders',[]) if o['quantity']>0]
+            if action in ('buy','sell') or auto_fills:
                 def stocks(scene):return {r['id']:r['amount'] for a in scene['accounts'] if a['id']==actor for r in a['stocks']}
                 prior=stocks(before);current=stocks(after)
                 goods=[{'resource':r,'amount':amount-prior.get(r,0)} for r,amount in current.items() if r!='native:gold' and amount!=prior.get(r,0)]
-                trade={'side':action,'goods':goods,'gold':current.get('native:gold',0)-prior.get('native:gold',0)}
+                trade={'side':'auto' if auto_fills else action,'goods':goods,'gold':current.get('native:gold',0)-prior.get('native:gold',0)}
+            if auto_fills:
+                self.add('trade',name+' · 自动交易',f'按库存与价格限制实际成交 {len(auto_fills)} 笔',self.home(actor),after=after,source=source,
+                         market_actor=actor,trade=trade)
+                trade=None
             self.add(phase,f'{name} · {captions.get(action,"行动")}',text,position,after=after,source=source,
                      duration=2 if phase=='build' else 1.4,
                      market_actor=actor if phase=='trade' else None,trade=trade,

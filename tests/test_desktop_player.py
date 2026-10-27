@@ -19,6 +19,35 @@ class TestDesktopPlayer(unittest.TestCase):
 
     def render(self):return frame(self.host.ui,self.api.state(A))
 
+    def test_battle_replay_removes_the_idle_guard_instead_of_duplicating_or_reviving_it(self):
+        w=self.host.world
+        point=next(tuple(t['position']) for t in self.api.state(A)['map']['tiles'] if t['visibility']=='live' and
+                   t['current'].get('owner') is None and w.territory.terrain(*t['position']).claimable)
+        w.military.seed(A,'native:infantry',*point,count=8)
+        ids=[u.id for u in w.military.snapshot(A) if (u.x,u.y)==point]
+        with TemporaryDirectory() as tmp:
+            c=Controller(self.host,Path(tmp)/'s.json',lambda row:None,playback=True)
+            capture=PlayerCapture(c)
+            before=capture.previous
+            guard=next(u for u in before['scene']['guards'] if (u['x'],u['y'])==point)
+            def action(player):
+                result=self.api.submit(A,'attack',{'ids':ids,'x':point[0],'y':point[1]})
+                self.assertTrue(result['ok'])
+                return [self.api.submit(A,'end_turn',{})]
+            self.host.cycle(on_human=action)
+            beats=capture.finish();self.assertIsNone(capture.warning)
+            stages=[b for b in beats if b['phase'] in ('battle','casualties')]
+            self.assertTrue(stages)
+            for beat in stages:
+                visual=beat['visual']['scene']
+                self.assertFalse(any((u['x'],u['y'])==point for u in visual['guards']))
+                rows=[u for u in visual['armies'] if (u['x'],u['y'])==point and u['owner']=='野人']
+                self.assertLessEqual(len(rows),1)
+                if rows:self.assertEqual(rows[0]['id'],guard['id'])
+                expected=beat['combat']['before' if beat['phase']=='battle' else 'after']
+                self.assertEqual([(u['id'],u['hp']) for u in rows],[(u['id'],u['hp']) for u in expected if u['owner']=='野人'])
+                if beat['phase']=='casualties':self.assertFalse(rows,'dead guard reappeared after casualties')
+
     def test_projection_has_no_observer_or_foreign_account_and_is_detached(self):
         state=self.api.state(A);before=deepcopy(state)
         with patch.object(self.host,'observer_snapshot',side_effect=AssertionError('observer')), \

@@ -56,7 +56,7 @@ class ToolcallParity(unittest.TestCase):
             self.assertNotIn('market_quote',schemas)
             self.assertEqual(schemas['query']['parameters']['required'],['panel'])
             economy=schemas['economy']['parameters']
-            self.assertEqual(economy['properties']['action']['enum'],['buy','sell','borrow','buy_report'])
+            self.assertEqual(economy['properties']['action']['enum'],['buy','sell','auto_trade','remove_auto_trade','borrow','buy_report'])
             self.assertEqual({'resource','quantity','target','turn'}<=set(economy['properties']),True)
             # 外交与情报的散装动作不再暴露给模型；按名调用由其余用例覆盖。
             for name in ('recruit','declare_war','send_letter','buy'):

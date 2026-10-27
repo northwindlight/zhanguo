@@ -20,6 +20,16 @@ public static class ResourceOverlayLayout
             var candidate=new Footprint(Math.Clamp(desired.X+offset,8,Math.Max(8,width-w-8)),y-row*(h+5),w,h);
             if(!used.Any(p=>p.Overlaps(candidate,3)))return candidate;
         }
+        // A narrow map area between drawers can fall between fixed columns.
+        // Fit against actual obstacle edges before falling back to a corner.
+        float maxY=Math.Max(top,height-bottom-h);
+        var xs=used.SelectMany(p=>new[]{p.X+p.Width+4,p.X-w-4}).Append(desired.X).Append(8).Append(width-w-8)
+            .Select(x=>Math.Clamp(x,8,Math.Max(8,width-w-8))).Distinct().ToArray();
+        var ys=used.SelectMany(p=>new[]{p.Y+p.Height+4,p.Y-h-4}).Append(y).Append(top).Append(maxY)
+            .Select(v=>Math.Clamp(v,top,maxY)).Distinct().ToArray();
+        foreach(var candidate in xs.SelectMany(x=>ys.Select(v=>new Footprint(x,v,w,h)))
+            .OrderBy(p=>(p.X-desired.X)*(p.X-desired.X)+(p.Y-y)*(p.Y-y)))
+            if(!used.Any(p=>p.Overlaps(candidate,3)))return candidate;
         return new Footprint(8,top,w,h);
     }
 }

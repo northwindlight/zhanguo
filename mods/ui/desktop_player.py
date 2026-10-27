@@ -73,7 +73,7 @@ def frame(ui,state):
             'castle_known':owner==actor or not any(b['kind']=='native:castle' for b in local),
             'castle':sum(next((c['effects'].get('defense_per_level',0) for c in facts['building_catalog'] if c['id']==b['kind']),0) for b in local if b['kind']=='native:castle' and not b['remaining'] and b['level_known'])})
     units=[{**deepcopy(u),'label':label(u['kind'])} for u in facts['army']]
-    guards=[{**u,'potential':True} for u in units if u['owner']=='野人']
+    guards=[u for u in units if u['owner']=='野人']
     armies=[u for u in units if u['owner']!='野人']
     stocks=[{**deepcopy(s),'name':label(s['id'])} for s in facts['econ']['stocks']]
     market=facts['market'];inv=dict(market['inventory']);buys=dict(market['buy_prices']);sells=dict(market['sell_prices'])

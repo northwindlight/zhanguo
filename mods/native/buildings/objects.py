@@ -51,6 +51,17 @@ class BuildReceipt:
 
 
 @dataclass(frozen=True)
+class DemolitionReceipt:
+    id: int
+    owner: str
+    site: str
+    kind: str
+    period: int
+    completed: bool
+    refunds: tuple
+
+
+@dataclass(frozen=True)
 class ProductionRecord:
     id: int
     owner: str | None
@@ -99,6 +110,7 @@ class Buildings:
         self._resources, self._place = resource_call, place_call
         self._sites, self._instances, self._orders, self._self_built = {}, {}, {}, {}
         self._construction = []
+        self._cancelled = []
         self._tribute_remainders = {}
         self._by_site = None
         self._period, self._next_id, self._produced = 0, 1, False
@@ -321,6 +333,7 @@ class Buildings:
         return {'site':site.id,'position':list(site.position),'period':self.period,'ordered':ordered,
             'occupied':len(existing),'capacity':site.capacity,
             'construction':[b.snapshot() for b in existing if not b.completed],
+            'demolitions':[self.demolition_quote(owner,b.id) for b in existing],
             'completed':sum(b.completed for b in existing),'buildings':rows}
 
     def build(self, owner, site_id, kind, *, policy_pct=100):
@@ -339,6 +352,40 @@ class Buildings:
         self._self_built[(owner,kind)] = built+1
         self._construction.append(receipt)
         return receipt
+
+    def demolition_quote(self, owner, identity):
+        owner_name(owner);integer(identity,1)
+        item=self._instances.get(identity)
+        if item is None or self._sites[item.site].owner!=owner:raise ValueError('未找到可拆除的本国建筑')
+        site=self._sites[item.site]
+        higher=any(b.kind==item.kind and b.level>item.level for b in self._index().get(site.id,())) if len(item.GOLD_COSTS)>1 else False
+        receipt=next((r for r in self._construction if r.id==identity),None)
+        costs=dict(receipt.costs) if receipt is not None and not item.completed else {}
+        refunds={key:value/2 for key,value in costs.items() if value}
+        return {'id':item.id,'site':site.id,'position':list(site.position),'kind':item.kind,
+            'level':item.level,'completed':item.completed,'refunds':refunds,
+            'available':not higher,'reason':'城堡须从最高一级开始拆除' if higher else None}
+
+    def demolish(self, owner, identity):
+        self._action()
+        quote=self.demolition_quote(owner,identity)
+        if not quote['available']:raise ValueError(quote['reason'])
+        item=self._instances[identity]
+        pending=next((r for r in self._construction if r.id==identity),None)
+        refunds=quote['refunds']
+        # Credit first: failed resource validation must leave the building,
+        # paid receipt, counters and per-site construction quota intact.
+        if refunds:self._resources('exchange',owner,{},refunds)
+        del self._instances[identity];self._by_site=None
+        if pending is not None:
+            self._construction.remove(pending)
+            loss=tuple((key,value-refunds.get(key,0)) for key,value in pending.costs if value-refunds.get(key,0))
+            self._cancelled.append(replace(pending,costs=loss))
+            key=(pending.owner,pending.kind)
+            self._self_built[key]-=1
+            if not self._self_built[key]:del self._self_built[key]
+        # Demolition does not renew this site's once-per-period build order.
+        return DemolitionReceipt(identity,owner,item.site,item.kind,self.period,item.completed,tuple(refunds.items()))
 
     def replacement_costs(self, owner):
         """Completed building replacement materials, without local discounts.
@@ -501,7 +548,7 @@ class Buildings:
                 if item.completed and item.id in cycles and item.PHASE==phase:
                     run(item,not (item.ENERGY_USE and short[self._sites[item.site].owner]))
         consumed,produced = {},{}
-        for receipt in self._construction:
+        for receipt in (*self._construction,*self._cancelled):
             for key,value in receipt.costs:consumed[key] = consumed.get(key,0)+value
         ordered = tuple(records[item.id] for item in self._instances.values())
         for row in ordered:
@@ -511,7 +558,7 @@ class Buildings:
         # production: tribute cannot itself produce output or be taxed again.
         for (_,recipient,key),amount in sorted(transfers.items()):
             operations.append({'owner':recipient,'debits':{},'credits':{key:amount}})
-        report = ProductionReport(self.period,ordered,reports,tuple(consumed.items()),tuple(produced.items()),tuple(self._construction),
+        report = ProductionReport(self.period,ordered,reports,tuple(consumed.items()),tuple(produced.items()),tuple((*self._construction,*self._cancelled)),
                                   tuple((source,target,key,amount) for (source,target,key),amount in sorted(transfers.items())))
         if operations:self._resources('exchange_batch',operations)
         # 资源批次成功才提交小数账；失败不能消耗或重复增加累计额。
@@ -525,6 +572,7 @@ class Buildings:
         pending = [item for item in self._instances.values() if not item.completed]
         for item in pending:item.complete()
         self._construction = []
+        self._cancelled = []
         self._period += 1
         self._produced = False
         return tuple(item.snapshot() for item in pending)
@@ -547,16 +595,18 @@ class Buildings:
                 'self_built':[{'owner':owner,'kind':kind,'count':count} for (owner,kind),count in self._self_built.items()],
                 'tribute_remainders':[{'source':source,'recipient':recipient,'resource':key,'remainder':str(value)}
                                       for (source,recipient,key),value in sorted(self._tribute_remainders.items())],
+                'cancelled':[{'id':row.id,'owner':row.owner,'site':row.site,'kind':row.kind,
+                             'period':row.period,'costs':dict(row.costs)} for row in self._cancelled],
                 'construction':[{'id':row.id,'owner':row.owner,'site':row.site,'kind':row.kind,
                                  'period':row.period,'costs':dict(row.costs)} for row in self._construction]}
 
     def restore(self, data):
         self._write()
-        expected = {'period','produced','next_id','sites','instances','self_built','construction','tribute_remainders'}
+        expected = {'period','produced','next_id','sites','instances','self_built','construction','cancelled','tribute_remainders'}
         if not isinstance(data,dict) or set(data)!=expected:raise ValueError('Invalid buildings save')
         if type(data['produced']) is not bool:raise ValueError('Invalid production marker')
         period,next_id = integer(data['period']),integer(data['next_id'],1)
-        for field in ('sites','instances','self_built','construction','tribute_remainders'):
+        for field in ('sites','instances','self_built','construction','cancelled','tribute_remainders'):
             if not isinstance(data[field],list):raise ValueError('Invalid building records')
         candidate = Buildings(tuple(self._types.values()),self._resources)
         for row in data['tribute_remainders']:
@@ -612,8 +662,18 @@ class Buildings:
             costs = amounts(row['costs'])
             seen.add(item.id)
             candidate._construction.append(BuildReceipt(item.id,row['owner'],item.site,item.kind,period,tuple(costs.items())))
+        for row in data['cancelled']:
+            if not isinstance(row,dict) or set(row)!={'id','owner','site','kind','period','costs'}:
+                raise ValueError('Invalid cancelled construction receipt')
+            identity=integer(row['id'],1);owner_name(row['owner']);candidate._type(row['kind'])
+            if identity in seen or identity in candidate._instances or identity>=next_id or row['period']!=period or type(row['period']) is not int:
+                raise ValueError('Invalid cancelled construction sequence')
+            if row['site'] not in candidate._sites:raise ValueError('Cancelled construction site missing')
+            seen.add(identity)
+            candidate._cancelled.append(BuildReceipt(identity,row['owner'],row['site'],row['kind'],period,tuple(amounts(row['costs']).items())))
         self._sites,self._instances,self._orders,self._self_built = candidate._sites,candidate._instances,candidate._orders,candidate._self_built
         self._by_site = None
         self._construction = candidate._construction
+        self._cancelled = candidate._cancelled
         self._tribute_remainders = candidate._tribute_remainders
         self._period,self._next_id,self._produced = period,next_id,data['produced']

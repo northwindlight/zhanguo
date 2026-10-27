@@ -34,7 +34,16 @@ class EconomyAPI:
         return self.queries.estimate(kind, level, other_slots, policy_pct=policy,tribute_pct=relation.tribute_percent if relation else 0)
 
     def market(self, actor):
-        return self.queries.market()
+        return replace(self.queries.market(),automatic=self.world.runtime.object_call(self.world,'native:market','auto_trades',actor))
+
+    def auto_trade(self, actor, resource, enabled=True, buy_below=None, sell_above=None,
+                   buy_limit=50, sell_limit=50, reserve_gold=0, max_buy_price=None, min_sell_price=None):
+        return self.world.runtime.object_call(self.world,'native:market','set_auto_trade',actor,resource,
+            enabled=enabled,buy_below=buy_below,sell_above=sell_above,buy_limit=buy_limit,sell_limit=sell_limit,
+            reserve_gold=reserve_gold,max_buy_price=max_buy_price,min_sell_price=min_sell_price)
+
+    def remove_auto_trade(self, actor, resource):
+        return self.world.runtime.object_call(self.world,'native:market','remove_auto_trade',actor,resource)
 
     def trade_quote(self, actor, resource, quantity, side):
         """Read-only account quote, including depth, prior volume and coin carry."""

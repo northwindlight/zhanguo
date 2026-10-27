@@ -16,7 +16,7 @@ COMMANDS = (
     ('military', '军队行动',
      ('recruit', 'move', 'attack', 'retreat', 'disband')),
     ('economy', '经济行动',
-     ('buy', 'sell', 'borrow', 'buy_report')),
+     ('buy', 'sell', 'auto_trade', 'remove_auto_trade', 'borrow', 'buy_report')),
     ('relations', '外交行动',
      ('guarantee', 'cancel_guarantee', 'propose_defense', 'break_defense',
       'accept_proposal', 'reject_proposal', 'bloc_found', 'bloc_join', 'bloc_leave',

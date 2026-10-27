@@ -43,7 +43,7 @@ InitialInventory = 960
 
 [Mod]
 Id = "native:market"
-Version = "2.1.0"
+Version = "2.2.0"
 Entry = "mods.native.market.mod:MarketMod"
 Requires = ["native:resources"]
 After = ["native:resources"]
@@ -57,7 +57,7 @@ Needs = ["native:resource-exchange", "market:pricing"]
 Provides = ["native:market"]
 
 [Interfaces]
-"native:resource-exchange" = ["exchange"]
+"native:resource-exchange" = ["exchange", "snapshot"]
 "market:pricing" = ["walk", "level"]
 
 [[Stages]]

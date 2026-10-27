@@ -60,6 +60,10 @@ def _end_turn(args, receipt, actor, ctx):
     for kind in ('offers', 'votes'):
         if rejected.get(kind):
             result += '\n' + ctx.text(f'tool.end_turn.auto_{kind}', ids='、'.join('#' + str(i) for i in rejected[kind]))
+    automatic=data.get('auto_trades',{}) if isinstance(data,dict) else {}
+    for order in automatic.get('orders',[]):
+        result+='\n自动交易 '+ctx.label('content',order['resource'])+' '+('买入' if order['side']=='buy' else '卖出')+f' {order["quantity"]}/{order["requested"]}'
+        result+=f'；实际金币 {order["gold"]}' if order['quantity'] else '；'+order.get('reason','未成交')
     return result
 
 

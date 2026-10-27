@@ -16,6 +16,7 @@ from engine.identifiers import content_id
 from engine.runtime import DomainRejection, ModError
 from engine.state import active_unit
 from .contracts import BufferPolicy, PricePath, PriceSettlement, integer, number
+from .automation import AutomaticTrading
 
 
 @dataclass(frozen=True)
@@ -74,8 +75,8 @@ class TradeReceipt(Trade):
     remaining: int = 0
 
 
-class Market:
-    def __init__(self, listings, currency, policy, pricing_call, exchange_call):
+class Market(AutomaticTrading):
+    def __init__(self, listings, currency, policy, pricing_call, exchange_call, inspect_call=None):
         self._listings = MappingProxyType({item.resource: item for item in listings})
         if len(self._listings) != len(listings):
             raise ValueError('Duplicate market listing')
@@ -91,6 +92,7 @@ class Market:
         self._carry, self._trades, self._volume = {}, [], {}
         self._period = 0
         self._world, self._domain = None, None
+        self._init_automation(inspect_call)
         self._prices = self._levels()
 
     def bind_state(self, world, key):
@@ -310,15 +312,17 @@ class Market:
     def to_save(self):
         return {'currency': self.currency, 'period': self.period, 'reference': dict(self._reference),
                 'inventory': dict(self._inventory), 'prices': dict(self._prices),
-                'carry': dict(self._carry), 'trades': [asdict(row) for row in self._trades]}
+                'carry': dict(self._carry), 'trades': [asdict(row) for row in self._trades],
+                'automation':self._automation_save()}
 
     def restore(self, data):
         self._write()
-        if not isinstance(data, dict) or set(data) != {'currency','period','reference','inventory','prices','carry','trades'}:
+        if not isinstance(data, dict) or set(data) != {'currency','period','reference','inventory','prices','carry','trades','automation'}:
             raise ValueError('Invalid market save')
         if data['currency'] != self.currency:
             raise ValueError('Market currency mismatch')
         period = integer(data['period'])
+        auto_rules,auto_runs=self._automation_restore(data['automation'],period)
         if not isinstance(data['reference'],dict) or set(data['reference']) != set(self.ids):
             raise ValueError('Market save does not match listings')
         reference = {key:number(data['reference'][key], positive=True) for key in self.ids}
@@ -358,6 +362,7 @@ class Market:
         self._prices, self._inventory, self._reference = prices, inventory, reference
         self._carry, self._trades = carry, trades
         self._period = period
+        self._auto_rules,self._auto_runs=auto_rules,auto_runs
         # Volume is derived state: rebuild it from the open period's trades.
         self._volume = {}
         for row in trades:

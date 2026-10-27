@@ -24,6 +24,7 @@ class PublicMarket:
     equilibrium: tuple = ()
     trials: tuple = ()
     trial_units: int = 50
+    automatic: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

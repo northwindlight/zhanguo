@@ -42,7 +42,8 @@ class MarketMod(GameMod):
                 raise ModError(f'Resource is not tradeable: {key}')
         world.market = Market(self.listings, self.currency, self.policy,
                               lambda method, *args: self.runtime.object_call(world, 'market:pricing', method, *args),
-                              lambda *args: self.runtime.object_call(world, 'native:resource-exchange', 'exchange', *args))
+                              lambda *args: self.runtime.object_call(world, 'native:resource-exchange', 'exchange', *args),
+                              lambda owner: self.runtime.object_call(world, 'native:resource-exchange', 'snapshot', owner))
 
     def objects(self, world):return {'native:market': world.market}
     def save_state(self, world):return world.market.to_save()
@@ -69,7 +70,17 @@ class MarketMod(GameMod):
             f'买卖分别在报价加减 {self.policy.spread/2:.0%} 价差，金币零头逐账户累积。'
             f'绝对数值边界为 {self.policy.low} 到 {self.policy.high}。'
             '金币结算沿用外部市场流动性，不设市场金币储备；商品交付严格受库存限制。',
-            ('市场','价格','库存','基准库存','交易','market','depth'), '库存与流量共同定价'),)
+            ('市场','价格','库存','基准库存','交易','market','depth'), '库存与流量共同定价'),
+            RuleSection('自动交易',
+                '通过 economy(action=auto_trade,resource=...,...) 或 economy:queries.auto_trade 设置本国某资源的常设交易条件。'
+                'buy_below 为补货目标，sell_above 为出售保留量，null关闭该方向，买入目标不得高于出售保留量。'
+                '每国成功结束行动后、统一世界结算之前执行一次，先卖盈余再买短缺；不增加或重排原有结算阶段。'
+                'buy_limit/sell_limit 限制每期数量，默认50；reserve_gold 保留金币；'
+                'max_buy_price/min_sell_price 限制含价差和滑点的整单均价，null不限。'
+                '商品、资金或均价不满足时只成交满足条件的整数数量，不借贷、不凭空补货。'
+                '设置本身不立即成交；enabled=false暂停，remove_auto_trade删除，已有成交不撤销。'
+                'query(panel=market)只展示本国设置和最近结果，设置及执行标记随存档保存。',
+                ('自动交易','自动购买','自动卖出','auto_trade','trade'), '按库存区间补货与出售盈余'))
 
     def stages(self):
         return tuple(Stage(row['Id'], self._settle, hook=row['Hook'],

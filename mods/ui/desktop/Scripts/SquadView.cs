@@ -20,6 +20,11 @@ public static class SquadView
     }
     private static int I(JsonNode? node)=>int.TryParse(node?.ToString(),out int value)?value:0;
     private static double F(JsonNode? node)=>double.TryParse(node?.ToString(),System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out double value)?value:0;
+    // A lazy wild garrison and its materialized battle unit retain the same
+    // owner/id. Prefer the staged army record; never draw both representations.
+    public static IEnumerable<JsonNode> Units(JsonObject frame)=>(frame["armies"]?.AsArray()??new JsonArray())
+        .Concat(frame["scene"]?["guards"]?.AsArray()??new JsonArray()).Where(u=>u!=null)
+        .GroupBy(u=>DesktopScene.Key("armies",u!)).Select(g=>g.First()!).Where(u=>F(u["hp"])>0);
     public static Status Summarize(JsonObject frame,IEnumerable<JsonNode> units,JsonObject? combat=null,float progress=0)
     {
         var rows=units.ToArray();var first=rows.First();

@@ -44,6 +44,7 @@ public partial class WorldMap : Control
     public int TownHallCount=>_layout?.Regions.SelectMany(r=>r.Structures).Count(s=>s.Art.EndsWith("town-hall",StringComparison.Ordinal))??0;
     public int OilPatchCount=>_layout?.Regions.Sum(r=>r.OilPatches.Count)??0;
     public JsonObject? SelectedTile => _tiles.GetValueOrDefault(Selected);
+    public readonly List<Footprint> HudObstacles=new();
 
     public override void _Ready()
     {

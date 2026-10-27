@@ -42,7 +42,28 @@ def tools(runtime):
     def sell(world, actor, resource: str, quantity: int):
         return runtime.player_api(world, 'economy:queries').sell(actor, resource, quantity)
 
+    def auto_trade(world, actor, resource: str, enabled: bool=True, buy_below: int | None=None,
+                   sell_above: int | None=None, buy_limit: int=50, sell_limit: int=50,
+                   reserve_gold: int=0, max_buy_price: float | None=None, min_sell_price: float | None=None):
+        return runtime.player_api(world,'economy:queries').auto_trade(actor,resource,enabled,buy_below,sell_above,
+            buy_limit,sell_limit,reserve_gold,max_buy_price,min_sell_price)
+
+    def remove_auto_trade(world, actor, resource: str):
+        return runtime.player_api(world,'economy:queries').remove_auto_trade(actor,resource)
+
     return (
+        Action('auto_trade',auto_trade,owner='economy:queries',api=('auto_trade',),content_parameters=('resource',),
+            parameters={'type':'object','properties':{'resource':{'type':'string'},'enabled':{'type':'boolean'},
+                'buy_below':{'anyOf':[{'type':'integer','minimum':0},{'type':'null'}]},
+                'sell_above':{'anyOf':[{'type':'integer','minimum':0},{'type':'null'}]},
+                'buy_limit':{'type':'integer','minimum':1},'sell_limit':{'type':'integer','minimum':1},
+                'reserve_gold':{'type':'integer','minimum':0},
+                'max_buy_price':{'anyOf':[{'type':'number','minimum':0},{'type':'null'}]},
+                'min_sell_price':{'anyOf':[{'type':'number','minimum':0},{'type':'null'}]}},
+                'required':['resource'],'additionalProperties':False},
+            description='设置本国一种资源的自动交易（完整替换该资源旧设置），本国成功 end_turn 后、世界结算前执行一次，先卖后买。buy_below 为补货目标，sell_above 为出售保留量，null 关闭该方向；buy_below 不能大于 sell_above。每期数量上限 buy_limit/sell_limit 默认50；reserve_gold 保留金币；max_buy_price/min_sell_price 限制含价差滑点的整单均价，null 不限。资金/市场库存不足时尽量成交合法数量；不借贷，不凭空补货。enabled=false 暂停。设置与上期结果在 query(panel=market)。'),
+        Action('remove_auto_trade',remove_auto_trade,owner='economy:queries',api=('remove_auto_trade',),content_parameters=('resource',),
+            description='删除本国指定资源的自动交易设置，之后不再自动买卖；已有实际成交不撤销。'),
         Tool('econ', econ, owner='economy:queries', api=('balance',), read_only=True, fact=True, panel=True,
              description='本国库存、库存折金、建筑重置值和总资产；附庸还显示贡赋小数累计余额、下一次满负荷生产预计上贡/自留及结转额。不是本期现金收入，预演不保证实际产出。'),
         Tool('report', report, owner='economy:queries', api=('report',), read_only=True, panel=True,
@@ -51,7 +72,7 @@ def tools(runtime):
              parameters=estimate_parameters, content_parameters=('kind',),
              description='优先不带参数查询：一次返回全部建筑的造价、产销、能源、效果、门槛与按当前市价算的净收益和回本，不必逐个查询。无需坐标，kind 可选筛选。收益口径写在报告首行（采集按卖价、工厂按买价替代、电耗按木电燃料）；满负荷口径，不代表本回合实收，也不判定建造资格。'),
         Tool('market', market, owner='economy:queries', api=('market',), read_only=True, fact=True, panel=True,
-             description='世界市场的现价与买卖单价、周期；无需参数。本期单价对任何数量和任何国家都一样，买入的实际支出与取整以 buy 回执为准。'),
+             description='世界市场现价、买卖边际单价、库存与周期，以及本国自动交易设置和最近执行结果；无需参数。本期基础报价各国相同，大单含滑点；实际支出与取整以成交回执为准。'),
         Tool('trade_quote', trade_quote, owner='economy:queries', api=('trade_quote',), read_only=True, panel=True,
              content_parameters=('resource',),
              parameters={'type':'object','properties':{
@@ -142,6 +163,15 @@ def _market(data, args, actor, ctx):
         if key in inventory:
             line += ctx.text('tool.market.inventory', inventory=_num(inventory[key]), reference=_num(reference.get(key)))
         lines.append(line)
+    automatic=data.get('automatic',{})
+    for rule in automatic.get('rules',[]):
+        lines.append(f'自动交易 {ctx.label("content",rule["resource"])} · '+('启用' if rule['enabled'] else '暂停')+
+                     f'；低于 {rule["buy_below"]} 买至目标（每期≤{rule["buy_limit"]}），高于 {rule["sell_above"]} 卖至保留量（每期≤{rule["sell_limit"]}），保留金币 {rule["reserve_gold"]}；买价上限 {rule["max_buy_price"]} / 卖价下限 {rule["min_sell_price"]}（null为关闭/不限）')
+    if automatic.get('last'):
+        lines.append(f'最近自动交易：第 {automatic["last"]["period"]+1} 期')
+        for order in automatic['last']['orders']:
+            lines.append('  '+ctx.label('content',order['resource'])+' '+('买' if order['side']=='buy' else '卖')+
+                f' {order["quantity"]}/{order["requested"]}；'+(f'{order["gold"]} 金' if order['quantity'] else order.get('reason','未成交')))
     return '\n'.join(lines)
 
 

@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:economy-queries"
-Version = "1.10.0"
+Version = "1.11.0"
 Entry = "mods.native.economy_queries.mod:QueriesMod"
 Requires = ["native:resources", "native:buildings", "native:market", "native:economy"]
 
@@ -15,11 +15,11 @@ Provides = ["economy:queries"]
 "native:army" = ["supply_preview"]
 "native:diplomacy" = ["snapshot"]
 "native:economy" = ["reports", "turns", "production"]
-"native:market" = ["summary", "quote", "buy", "sell", "equilibrium", "trials"]
+"native:market" = ["summary", "quote", "buy", "sell", "equilibrium", "trials", "set_auto_trade", "remove_auto_trade", "auto_trades"]
 "economy:valuation" = ["quote"]
 
 [PlayerAPI]
-Methods = ["balance", "report", "estimate", "market", "trade_quote", "buy", "sell"]
+Methods = ["balance", "report", "estimate", "market", "trade_quote", "buy", "sell", "auto_trade", "remove_auto_trade"]
 ReadOnly = ["balance", "estimate", "market", "report", "trade_quote"]
 
 [PlayerAPI.ContentParameters]
@@ -27,3 +27,5 @@ buy = ["resource"]
 sell = ["resource"]
 estimate = ["kind"]
 trade_quote = ["resource"]
+auto_trade = ["resource"]
+remove_auto_trade = ["resource"]

@@ -47,7 +47,7 @@ public partial class WorldMap
         if(_beat?["trade"] is not JsonObject trade)return;
         if(MarketAnchor(S(_beat["market_actor"])) is not Vector2 market)return;
         var at=Screen(market);var goods=trade["goods"]!.AsArray();
-        string title=S(trade["side"])=="buy"?"买入":"卖出";
+        string title=S(trade["side"]) switch { "buy"=>"买入","auto"=>"自动交易",_=>"卖出" };
         string amounts=string.Join("  ",goods.Select(g=>$"{ResourceName(S(g!["resource"]))} {F(g["amount"]):+0.##;-0.##;0}"));
         double gold=F(trade["gold"]);
         string money=$"金币 {gold:+0.##;-0.##;0}";

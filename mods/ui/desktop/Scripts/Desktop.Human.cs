@@ -20,6 +20,7 @@ public partial class Desktop
     private HBoxContainer _humanDock=null!;
     private MapDrawer _humanDrawer=null!;
     private VBoxContainer _humanContent=null!;
+    private ScrollContainer _humanScroll=null!;
     private Label _humanReceipt=null!,_targetSummary=null!;
     private readonly Dictionary<string,Button> _humanNav=new();
     private readonly List<Button> _humanWrites=new();
@@ -66,14 +67,18 @@ public partial class Desktop
         _targetSummary=new Label { Visible=false,AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("a9cddd") };
         _humanDrawer.Body.AddChild(_targetSummary);
         var scroll=new ScrollContainer { SizeFlagsVertical=SizeFlags.ExpandFill,HorizontalScrollMode=ScrollContainer.ScrollMode.Disabled };
+        _humanScroll=scroll;
         _humanDrawer.Body.AddChild(scroll);
         _humanContent=new VBoxContainer { SizeFlagsHorizontal=SizeFlags.ExpandFill };
         _humanContent.AddThemeConstantOverride("separation",10);scroll.AddChild(_humanContent);
+        _marketFooter=new HBoxContainer { Visible=false };_marketFooter.AddThemeConstantOverride("separation",6);_humanDrawer.Body.AddChild(_marketFooter);
         _humanReceipt=new Label { Text="点地块查看驻军与建设；操作后在这里显示实际回执。",AutowrapMode=TextServer.AutowrapMode.WordSmart,
             MaxLinesVisible=5,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,Modulate=new Color("c6d4b4") };
         _humanDrawer.Body.AddChild(_humanReceipt);
         _humanConfirm=new ConfirmationDialog { Title="确认操作",DialogText="",MinSize=new Vector2I(460,180),OkButtonText="确认",CancelButtonText="返回",Theme=Theme,DialogAutowrap=true };
         AddChild(_humanConfirm);_humanConfirm.Confirmed+=RunHumanConfirmation;
+        _humanConfirm.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));
+        HumanArt.Style(_humanConfirm.GetOkButton(),"check");HumanArt.Style(_humanConfirm.GetCancelButton());
         BuildHumanExit();
         _map.HumanTargetHovered=target=>
         {
@@ -88,8 +93,8 @@ public partial class Desktop
     private void LayoutHuman()
     {
         if(_humanDrawer==null)return;
-        float width=Math.Min(520,Size.X-328),height=Math.Max(180,Size.Y-300);
-        _humanDrawer.SetBounds(new Rect2(Size.X-width-16,216,width,height));
+        float width=Math.Min(_humanPage=="market"?568:520,Size.X-328),height=Math.Max(180,Size.Y-300);
+        _humanDrawer.SetBounds(_humanPage=="market"?new Rect2(Size.X-width-16,80,width,Size.Y-164):new Rect2(Size.X-width-16,216,width,height));
         if(_humanConfirm!=null)_humanConfirm.MaxSize=new Vector2I((int)Math.Max(400,Size.X-48),(int)Math.Max(180,Size.Y-48));
     }
     private void SetHumanState(JsonObject state)
@@ -122,9 +127,9 @@ public partial class Desktop
     private void RefreshHumanButtons()
     {
         if(_humanNav.Count==0||!HumanMode)return;
-        _humanNav["end"].Disabled=!HumanCanWrite;RefreshRtsButtons();
+        _humanNav["end"].Disabled=!HumanCanWrite;RefreshRtsButtons();RefreshMarketButtons();
         foreach(var button in _humanWrites)if(IsInstanceValid(button))button.Disabled=!HumanCanWrite;
-        if(_humanSubmit!=null&&IsInstanceValid(_humanSubmit))_humanSubmit.Disabled=!HumanCanWrite||!HumanFormReady();
+        if(_humanPage!="market"&&_humanSubmit!=null&&IsInstanceValid(_humanSubmit))_humanSubmit.Disabled=!HumanCanWrite||!HumanFormReady();
         if(!HasTimeline&&_humanTurn!=null&&!_humanEnded)
         {
             _bannerTitle.Text=$"{NationLabel(HumanActor)} · 第 {I(_humanState!["period"])+1} 回合 · {S(_humanState["nickname"])}";
@@ -163,6 +168,7 @@ public partial class Desktop
         bool processed=row["ok"]?.GetValue<bool>()==true;
         var receipt=row["data"] as JsonObject;
         bool ok=processed&&receipt?["ok"]?.GetValue<bool>()==true;
+        MarketReceived(_humanSubmittedOperation,ok);
         _humanReceipt.Modulate=new Color(ok?"c6e3ad":"ffb6a4");
         string result=processed?FormatHumanReceipt(receipt!):S(row["message"]);
         bool changedSite=_humanSubmittedCell is Vector2I submitted&&submitted!=_humanCell;
@@ -193,6 +199,7 @@ public partial class Desktop
         if(operation=="declare_war")_warTarget=S(arguments["target"]);
         _humanSubmittedOperation=operation;_humanSubmittedPeriod=I(_humanTurn!["period"]);
         _humanSubmittedCell=arguments["x"]!=null&&arguments["y"]!=null?new Vector2I(I(arguments["x"]),I(arguments["y"])):null;
+        if(operation=="demolish")_humanSubmittedCell=_humanCell;
         _humanWrite="write/"+Guid.NewGuid().ToString("N");_humanOperation=operation;_humanBusy=true;
         CancelHumanTarget();RefreshHumanButtons();
         SendHumanRow(new JsonObject { ["command"]="human_submit",["actor"]=HumanActor,["period"]=_humanTurn!["period"]!.DeepClone(),

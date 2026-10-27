@@ -20,7 +20,7 @@ public partial class Desktop : Control
     private Label _status = null!;
     private RichTextLabel _detail = null!;
     private RichTextLabel _events = null!;
-    private RichTextLabel _market = null!;
+    private VBoxContainer _market = null!;
     private VBoxContainer _nations = null!;
     private Button _play = null!;
     private Button _step = null!;
@@ -112,7 +112,8 @@ public partial class Desktop : Control
         bubbleToggle.Toggled+=v=>_bubbles.Visible=v;
         _aiInfo=new Label { Text="正在核对实际客户端…",Modulate=new Color("a4b09c"),AutowrapMode=TextServer.AutowrapMode.WordSmart };_countries.Body.AddChild(_aiInfo);
         _detail=TextBox(_details.Body);_detail.SizeFlagsVertical=SizeFlags.ExpandFill;
-        _market=TextBox(_shop.Body);_market.SizeFlagsVertical=SizeFlags.ExpandFill;
+        var marketScroll=new ScrollContainer { SizeFlagsVertical=SizeFlags.ExpandFill,HorizontalScrollMode=ScrollContainer.ScrollMode.Disabled };_shop.Body.AddChild(marketScroll);
+        _market=new VBoxContainer { SizeFlagsHorizontal=SizeFlags.ExpandFill };_market.AddThemeConstantOverride("separation",10);marketScroll.AddChild(_market);
         _events=TextBox(_chronicle.Body);_events.SizeFlagsVertical=SizeFlags.ExpandFill;_events.ScrollFollowing=true;
 
         var top=new HBoxContainer { MouseFilter=MouseFilterEnum.Ignore,ZIndex=5 };
@@ -339,6 +340,13 @@ public partial class Desktop : Control
         }
         ProcessPlayback(delta);
         if(HumanMode)_map.PlayerPanelOpen=_humanDrawer.IsOpen;
+        _map.HudObstacles.Clear();
+        foreach(var control in new Control[]{_ledgerPanel,_banner,_settlementCard}.Concat(Drawers))
+            if(control.IsVisibleInTree())
+            {
+                var rect=control.GetGlobalRect();var at=rect.Position-_map.GlobalPosition;
+                _map.HudObstacles.Add(new(at.X,at.Y,rect.Size.X,rect.Size.Y));
+            }
         if(_smoke!=null && _elapsed>180){GD.PrintErr("DESKTOP_SMOKE_TIMEOUT");GetTree().Quit(2);}
     }
 
@@ -447,8 +455,7 @@ public partial class Desktop : Control
             var button=Button(_nations,$"{n["name"]}    {n["land"]} 地",()=>{_selectedNation=id;_map.FocusNation(id);RefreshNationLedger(id);ShowTile(null);OpenDrawer(_details);});
             button.Modulate=_map.NationColor(id);
         }
-        _market.Text=string.Join("\n\n",frame["market"]!.AsArray().Select(p=>$"{p!["name"]}   参考价 {Zhanguo.Desktop.Layout.DesktopScene.PriceText(F(p["price"]))}\n库存 {p["inventory"]?.ToString()??"—"}  买 {Zhanguo.Desktop.Layout.DesktopScene.PriceText(p["buy"]==null?null:F(p["buy"]))} / 卖 {Zhanguo.Desktop.Layout.DesktopScene.PriceText(p["sell"]==null?null:F(p["sell"]))}"))+
-            $"\n\n储蓄利率 {F(frame["bank"]!["rate"]):P1} · 贷款 {F(frame["bank"]!["loan_rate"]):P1}";
+        RenderMarketOverview(frame);
         _events.Text=string.Join("\n",frame["events"]!.AsArray().Select(e=>S(e!["text"])));
         ShowTile(_selectedNation!=""?null:_map.SelectedTile);
         RefreshNationLedger();

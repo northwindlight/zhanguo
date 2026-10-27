@@ -20,6 +20,9 @@ class NativeSession(NativeObserver,GridSession):
 
     def _finish(self,player,receipt):
         if receipt['ok']:
+            automatic=self.runtime.object_call(self.world,'native:market','run_auto_trades',player.actor)
+            if automatic['orders']:
+                receipt={**receipt,'data':{**receipt['data'],'auto_trades':wire(automatic)}}
             rejected=self.runtime.object_call(self.world,'native:diplomacy','finish',player.actor)
             if rejected['offers'] or rejected['votes']:
                 receipt={**receipt,'data':{**receipt['data'],'auto_rejected':rejected}}

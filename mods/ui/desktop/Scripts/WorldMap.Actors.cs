@@ -48,7 +48,7 @@ public partial class WorldMap
             _fit=false;
             _cameraScale=phase switch{
                 "battle" or "casualties"=>1.55f,
-                "build" or "complete" or "recruit" or "production" or "maintenance" or "occupation" or "trade"=>1.45f,
+                "build" or "demolish" or "complete" or "recruit" or "production" or "maintenance" or "occupation" or "trade"=>1.45f,
                 "march"=>1.0f,
                 "engage" or "arrival"=>1.25f,
                 _=>1.15f};
@@ -466,6 +466,10 @@ public partial class WorldMap
                 break;
             case "build":
                 for(int i=0;i<5;i++)Spawn(new Particle{Pos=at+new Vector2(i*6-12,2),Vel=new Vector2(i%3-1,-5),Life=.8f,Max=.8f,Size=1.6f,Tint=new Color("b8a884"),Kind=KindDust});
+                break;
+            case "demolish":
+                for(int i=0;i<12;i++)Spawn(new Particle{Pos=at+new Vector2(i*5-28,(i*7%11)-3),Vel=new Vector2((i%3-1)*12,-8-i%4),Life=1.1f,Max=1.1f,Size=2.2f,Tint=new Color("b8aa8a"),Kind=KindDust});
+                for(int i=0;i<6;i++)Spawn(new Particle{Pos=at+new Vector2(i*8-20,1),Vel=new Vector2((i%3-1)*16,-20),Life=.65f,Max=.65f,Size=1.5f,Tint=new Color("8d8166"),Kind=KindDebris});
                 break;
         }
     }

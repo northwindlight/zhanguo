@@ -11,6 +11,9 @@ class BuildingsAPI:
         return self.world.buildings.build(actor, site, kind,
                                           policy_pct=self.world.runtime.parameter(self.world, actor, 'build_cost_pct', 100))
 
+    def demolish(self, actor, id):
+        return self.world.buildings.demolish(actor,id)
+
     def sites(self, actor):
         snap = self.world.buildings.snapshot()
         sites = [s for s in snap.sites if s.owner == actor]

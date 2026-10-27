@@ -63,12 +63,17 @@ public partial class Desktop
             }
         }
         var tabs=new HBoxContainer();_humanContent.AddChild(tabs);
-        foreach(var (page,text,icon) in new[]{("build","建造","build"),("recruit","征兵","army"),("tile","驻军与详情","map")})
+        foreach(var (page,text,icon) in new[]{("build","建造","build"),("recruit","征兵","army"),("demolish","管理","disband"),("tile","地块","map")})
         {string selected=page;var b=Button(tabs,text,()=>OpenHumanPage(selected));b.SizeFlagsHorizontal=SizeFlags.ExpandFill;HumanArt.Style(b,icon);b.Disabled=page==_humanPage;}
         bool ordered=Yes(data["ordered"]);var construction=data["construction"]!.AsArray();
         string pending=string.Join("、",construction.Select(b=>HumanLabel(S(b!["kind"]))));
         HumanText((construction.Count>0?$"施工中：{pending} · ":"尚未施工 · ")+
             (ordered?"本期剩余 0/1":"本期可建 1/1")+$" · 建筑位 {data["occupied"]}/{data["capacity"]}",color:ordered?"dfbc75":"a7d5aa");
+        if(!recruit)foreach(var item in data["demolitions"]!.AsArray().Where(b=>!Yes(b!["completed"])))
+        {
+            var row=item!.AsObject();string name=HumanLabel(S(row["kind"]));
+            HumanButton("撤销 "+name+" · 返还50%",()=>ConfirmDemolition(row),"disband",true);
+        }
         if(recruit)
         {
             var amount=new HBoxContainer();_humanContent.AddChild(amount);amount.AddChild(new Label { Text="每次征召" });

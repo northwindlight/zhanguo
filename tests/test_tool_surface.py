@@ -7,7 +7,7 @@ from tests import test_world_domains as fixtures
 Q, C = fixtures.Q, fixtures.C
 
 BUILTINS = {'player_state', 'player_rules', 'player_events', 'memory_search'}
-NATIVE = {'build', 'economy', 'end_turn', 'intelligence', 'military', 'plan', 'query', 'relations'}
+NATIVE = {'build', 'demolish', 'economy', 'end_turn', 'intelligence', 'military', 'plan', 'query', 'relations'}
 
 
 class TestToolSurface(unittest.TestCase):
@@ -23,7 +23,7 @@ class TestToolSurface(unittest.TestCase):
         ui._names = {Q: '秦', C: '楚'}
         return ui
 
-    def test_native_model_surface_is_eight_commands_plus_builtins(self):
+    def test_native_model_surface_is_nine_commands_plus_builtins(self):
         world = self.world()
         player = world.runtime.player(world, Q)
         self.assertEqual({s['function']['name'] for s in player.actions()}, BUILTINS | NATIVE)

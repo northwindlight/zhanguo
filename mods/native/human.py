@@ -8,8 +8,8 @@ from .army.candidates import candidates
 from .tools.commands import COMMANDS
 
 LABELS = {
-    'build':'建设','recruit':'征兵','move':'移动','attack':'攻击','retreat':'撤退','disband':'遣散',
-    'buy':'买入','sell':'卖出','borrow':'贷款','buy_report':'购买经济报表','buy_map':'购买地图',
+    'build':'建设','demolish':'拆除建筑','recruit':'征兵','move':'移动','attack':'攻击','retreat':'撤退','disband':'遣散',
+    'buy':'买入','sell':'卖出','auto_trade':'自动交易','remove_auto_trade':'删除自动交易','borrow':'贷款','buy_report':'购买经济报表','buy_map':'购买地图',
     'send_letter':'写信','gift':'赠礼','share_map':'共享地图','spy':'派谍',
     'guarantee':'保障','cancel_guarantee':'取消保障','propose_defense':'共同防御','break_defense':'解除共防',
     'accept_proposal':'接受提议','reject_proposal':'拒绝提议','declare_war':'宣战','offer_peace':'求和',
@@ -89,6 +89,26 @@ class HumanAPI:
         planning['unit_catalog']=player.call_api('native:army','unit_catalog')
         planning['estimates']=player.query('query',{'panel':'building_economics','other_slots':planning['completed']})
         return planning
+
+    def market_options(self, actor, resource):
+        player=self.player(actor)
+        market=player.query('query',{'panel':'market'})
+        inventory=dict(market['inventory'])
+        if resource not in inventory:raise ValueError('请选择已上市的资源')
+        stocks={s['id']:s['amount'] for s in player.query('query',{'panel':'econ'})['stocks']}
+        quotes=[]
+        for side in ('buy','sell'):
+            for quantity in (1,10,50,100,500):
+                row={'side':side,'quantity':quantity,'available':False}
+                try:
+                    quote=player.query('query',{'panel':'trade_quote','resource':resource,'quantity':quantity,'side':side})
+                    row['quote']=quote
+                    row['reason']=('本国金币不足' if stocks[market['currency']]<quote['gold'] else None) if side=='buy' else ('本国库存不足' if stocks[resource]<quantity else None)
+                    row['available']=row['reason'] is None
+                except ValueError as exc:
+                    row['reason']=str(exc)
+                quotes.append(row)
+        return {'period':market['period'],'resource':resource,'market':market,'stocks':stocks,'quotes':quotes}
 
     def state(self, actor):
         player = self.player(actor)

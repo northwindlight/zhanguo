@@ -17,59 +17,47 @@ public partial class WorldMap
     public IReadOnlyList<Footprint> SquadLabelBounds=>_squadLabelBounds;
     private readonly List<Footprint> _resourcePopBounds=new();
     public IReadOnlyList<Footprint> ResourcePopBounds=>_resourcePopBounds;
+    private readonly Dictionary<string,int> _wildFigureCounts=new();
+    public IReadOnlyDictionary<string,int> WildFigureCounts=>_wildFigureCounts;
 
     private void DrawTroops()
     {
-        VisibleSoldiers=VisibleSquadBars=0;_squadLabels.Clear();_squadLabelText.Clear();_squadLabelBounds.Clear();
+        VisibleSoldiers=VisibleSquadBars=0;_squadLabels.Clear();_squadLabelText.Clear();_squadLabelBounds.Clear();_wildFigureCounts.Clear();
         if(Frame==null||_layout==null)return;
-        if(ShowGuards&&Frame["scene"]?["guards"] is JsonArray guards)
-            foreach(var u in guards)
-            {
-                var at=Screen(GuardAnchor(u!));if(!OnScreen(at,110))continue;
-                if(_scale<.3f)
-                {
-                    DrawRect(new Rect2(at-new Vector2(3,2),new Vector2(6,4)),new Color("896f4a"));
-                    DrawLine(at+new Vector2(-3,-2),at+new Vector2(0,-5),new Color("c2aa7c"),1);continue;
-                }
-                float size=_scale;
-                DrawCircle(at+new Vector2(0,10)*size,5*size,new Color("795d42"));
-                for(int i=0;i<6;i++)
-                {
-                    double clock=_time+i*.31;
-                    float patrol=(float)((clock/7)%1);
-                    bool moving=patrol<.34f;
-                    var p=at+new Vector2(i%3*9-9,i/3*12-6)*size;
-                    if(moving)p+=new Vector2(MathF.Sin((float)clock)*3,MathF.Cos((float)clock)*2)*size;
-                    MiniPerson(p,new Color(i%2==0?"977553":"82785b"),size,clock,moving,soldier:true,wild:true,facingRight:i%2==0,seed:i+3);
-                }
-                bool focus=at.DistanceTo(Size*.5f)<110*Math.Max(.8f,_scale)||Selected==new Vector2I(I(u!["x"]),I(u["y"]));
-                if(_scale>=.72f&&focus)
-                    _squadLabels.Add(new(SquadView.Summarize(Frame,new[]{u!}),at,new Color("ac8b63"),22*size,0,false));
-            }
         if(!Units&&!ShowGuards)return;
         string Route(JsonNode u)=>_beat?["motions"]?.AsArray().FirstOrDefault(m=>m!["unit"]!.ToString()==DesktopScene.Key("armies",u))?["points"]?.ToJsonString()??"";
-        var groups=Frame["armies"]!.AsArray().Where(u=>F(u!["hp"])>0&&(!PlayerMode||IsLive(new(I(u["x"]),I(u["y"])))))
+        var groups=SquadView.Units(Frame).Where(u=>!PlayerMode||IsLive(new(I(u["x"]),I(u["y"]))))
             .GroupBy(u=>(X:I(u!["x"]),Y:I(u["y"]),Owner:S(u["owner"]),Kind:S(u["kind"]),Path:Route(u)))
             .OrderBy(g=>g.Key.Y).ThenBy(g=>g.Key.X).ThenBy(g=>g.Key.Owner,StringComparer.Ordinal).ThenBy(g=>g.Key.Kind,StringComparer.Ordinal).ToArray();
+        var cells=groups.GroupBy(g=>(g.Key.X,g.Key.Y)).ToDictionary(g=>g.Key,g=>g.ToArray());
         foreach(var group in groups)
         {
             var first=group.First()!;bool wild=group.Key.Owner=="野人";
             if(wild&&!ShowGuards||!wild&&!Units)continue;
-            var at=Screen(TroopPosition(first));if(!OnScreen(at,160))continue;
+            var local=cells[(group.Key.X,group.Key.Y)];
+            bool moving=S(_beat?["phase"])=="march"&&_beat?["motions"]?.AsArray().Any(m=>m!["unit"]!.ToString()==DesktopScene.Key("armies",first))==true;
+            var guard=local.FirstOrDefault(g=>g.Key.Owner=="野人")?.First();
+            var anchor=guard!=null&&!moving?GuardAnchor(guard):TroopPosition(first);
+            var at=Screen(anchor);if(!OnScreen(at,160))continue;
             var color=wild?new Color("ac8b63"):NationColor(group.Key.Owner);
             float size=_scale;
+            if(wild&&size<.3f)
+            {
+                DrawRect(new Rect2(at-new Vector2(3,2),new Vector2(6,4)),new Color("896f4a"));
+                DrawLine(at+new Vector2(-3,-2),at+new Vector2(0,-5),new Color("c2aa7c"),1);continue;
+            }
             bool horse=group.Key.Kind.EndsWith("cavalry",StringComparison.Ordinal);
-            var owners=groups.Where(g=>g.Key.X==group.Key.X&&g.Key.Y==group.Key.Y).Select(g=>g.Key.Owner).Distinct().OrderBy(s=>s,StringComparer.Ordinal).ToArray();
+            var owners=local.Select(g=>g.Key.Owner).Distinct().OrderBy(s=>s,StringComparer.Ordinal).ToArray();
             int ownerIndex=Array.IndexOf(owners,group.Key.Owner);float side=ownerIndex%2==0?-1:1;
-            var same=groups.Where(g=>g.Key.X==group.Key.X&&g.Key.Y==group.Key.Y&&g.Key.Owner==group.Key.Owner).ToArray();
+            var same=local.Where(g=>g.Key.Owner==group.Key.Owner).ToArray();
             int slot=Array.IndexOf(same,group);
             int count=DesktopScene.SquadFigures(group.Count()),columns=count<=16?4:count<=32?6:8;
             if(_scale<.3f)count=Math.Min(count,8);
+            if(wild)foreach(var u in group)_wildFigureCounts[DesktopScene.Key("armies",u)]=count;
             float spacingX=horse?14:9,spacingY=horse?17:12;
             float rows=MathF.Ceiling(count/(float)columns),formationWidth=(columns-1)*spacingX;
             float lane=(slot-(same.Length-1)*.5f)*(rows*spacingY+78)*size;
             at.Y+=lane+ownerIndex/2*100*size;
-            bool moving=S(_beat?["phase"])=="march"&&_beat?["motions"]?.AsArray().Any(m=>m!["unit"]!.ToString()==DesktopScene.Key("armies",first))==true;
             bool atBattle=_beat?["position"] is JsonArray bp&&I(bp[0])==group.Key.X&&I(bp[1])==group.Key.Y;
             bool fighting=S(_beat?["phase"])=="battle"&&atBattle&&
                 (_beat?["combat"]?["enemies"]?[group.Key.Owner] is JsonArray enemies&&enemies.Count>0);
@@ -102,6 +90,8 @@ public partial class WorldMap
                 if(fighting&&front)spot.X-=side*strike*(horse?4:2)*size;
                 var p=mustering?musterOrigin.Lerp(spot,muster):spot;
                 bool stepping=moving||mustering&&muster<.999f||fighting&&_beatProgress<.20f;
+                if(wild&&owners.Length==1&&((clock+i*.31)/7)%1<.34)
+                {stepping=true;p+=new Vector2(MathF.Sin((float)clock+i)*2,MathF.Cos((float)clock+i)*1.5f)*size;}
                 bool face=mustering?spot.X>=musterOrigin.X:owners.Length>1?side<0:i%7!=0;
                 MiniPerson(p,color,size,clock+i*.071,stepping,soldier:true,horse:horse,fighting:fighting&&strike>.12f,wild:wild,facingRight:face,seed:i,directionOverride:moving?MarchDirection(first):-1);
                 if(fighting&&front&&strike>.55f)
@@ -113,8 +103,9 @@ public partial class WorldMap
                     DrawCircle(p+new Vector2(-6,3)*size,2*size,new Color(.65f,.58f,.42f,.25f));
                 VisibleSoldiers++;
             }
-            DrawSquadFlag(at+new Vector2(-formationWidth*.5f-5,-22)*size,color,size);
-            if(_scale>=.48f&&OnScreen(at,20))
+            if(!wild)DrawSquadFlag(at+new Vector2(-formationWidth*.5f-5,-22)*size,color,size);
+            bool focus=at.DistanceTo(Size*.5f)<110*Math.Max(.8f,_scale)||Selected==new Vector2I(group.Key.X,group.Key.Y);
+            if(_scale>=.48f&&OnScreen(at,20)&&(!wild||fighting||owners.Length>1||focus&&_scale>=.72f))
             {
                 var status=SquadView.Summarize(Frame,group.Select(u=>u!),fighting?_beat?["combat"] as JsonObject:null,_beatProgress);
                 bool separate=owners.Length>1||same.Length>1;
@@ -135,6 +126,7 @@ public partial class WorldMap
     {
         var occupied=_squadLabels.Select(l=>new Footprint(l.At.X-42,l.At.Y+l.FigureBottom,84,25)).ToList();
         occupied.AddRange(_squadLabels.Select(l=>new Footprint(l.At.X-l.FigureWidth*.5f,l.At.Y+l.FigureTop,l.FigureWidth,l.FigureBottom-l.FigureTop)));
+        occupied.AddRange(HudObstacles);
         foreach(var label in _squadLabels.OrderBy(l=>l.At.Y))
         {
             var s=label.Status;bool detail=_scale>=.72f;
@@ -145,6 +137,7 @@ public partial class WorldMap
             // Check collisions after viewport clamping as well: two cards near
             // the banner must not collapse onto the same upper screen edge.
             var placed=ResourceOverlayLayout.Place(new Footprint(center.X-width*.5f,center.Y-height,width,height),occupied,Size.X,Size.Y,230,72);
+            if(HudObstacles.Any(p=>p.Overlaps(placed,1)))continue;
             var box=new Rect2(placed.X,placed.Y,placed.Width,placed.Height);
             occupied.Add(placed);
             _squadLabelBounds.Add(new Footprint(box.Position.X,box.Position.Y,box.Size.X,box.Size.Y+35));

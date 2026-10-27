@@ -228,6 +228,7 @@ class Controller:
                 if query=='state':data=self.human_api.state(actor)
                 elif query=='tile':data=self.human_api.tile(actor,**args)
                 elif query=='targets':data=self.human_api.targets(actor,**args)
+                elif query=='market_options':data=self.human_api.market_options(actor,**args)
                 elif query=='panel':data=self.human_api.panel(actor,args)
                 elif query=='site_options':
                     from mods.ui.desktop_catalog import present

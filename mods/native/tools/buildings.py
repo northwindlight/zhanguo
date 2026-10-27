@@ -24,6 +24,9 @@ def tools(runtime):
     def sites(world, actor):
         return runtime.player_api(world, 'native:buildings').sites(actor)
 
+    def demolish(world, actor, id: int):
+        return runtime.player_api(world,'native:buildings').demolish(actor,id)
+
     def catalog(world, actor, kind: str | None = None):
         rows = runtime.player_api(world, 'native:buildings').catalog(actor)
         return [row for row in rows if kind is None or row['id'] == kind]
@@ -36,7 +39,14 @@ def tools(runtime):
         'oneOf': [{'required': ['site'], 'not': {'anyOf': [{'required': ['x']}, {'required': ['y']}]}},
                   {'required': ['x', 'y'], 'not': {'required': ['site']}}]}
     parameters = location_parameters(parameters)
-    return (
+    provider=runtime.units.get(runtime.capabilities.get('native:buildings'))
+    demolition=(
+        Tool('demolish',demolish,owner='native:buildings',api=('demolish',),
+             parameters={'type':'object','properties':{'id':{'type':'integer','minimum':1,'description':'building_sites 中的本国建筑实例编号'}},
+                         'required':['id'],'additionalProperties':False},
+             description='按建筑实例 id 拆除本国建筑，真人与模型规则相同：未完工退回实际支付材料的50%（可含半单位），完工后零返还。撤销不恢复本格当期施工额度。城堡从最高一级拆起；拆除最后市政厅可能导致亡国。编号查 building_sites。'),
+    ) if provider is not None and 'demolish' in provider.mod.declaration.get('PlayerAPI',{}).get('Methods',()) else ()
+    return demolition+(
         Tool('build', build, owner='native:buildings', api=('build',), parameters=parameters,
              adapter=site_arguments, content_parameters=('kind',),
              description='在本国地块动工：site 传地名或 "x y" 坐标串，或直接传两个整数 x、y。直接返回实际扣款和施工回执；参数或材料不符时返回原因。每格每回合一次，结算落成。造价、门槛查 building_catalog，全部收益查 building_economics。'),
@@ -134,13 +144,28 @@ def _build_caption(args, actor, receipt, ctx):
 
 def _sites(data, args, actor, ctx):
     ctx.remember({'building_sites': data})
-    return _land_panel([{'tile': s, 'resources': s['resources']} for s in data['sites']], {}, actor, ctx)
+    lines=[_land_panel([{'tile': s, 'resources': s['resources']} for s in data['sites']], {}, actor, ctx)]
+    pending={r['id']:r for r in data['construction']}
+    for row in data['instances']:
+        site=next(s for s in data['sites'] if s['id']==row['site'])
+        label=ctx.label('content',row['kind'])+(f' {row["level"]}级' if row['kind']=='native:castle' else '')
+        refunds={k:v/2 for k,v in pending.get(row['id'],{}).get('costs',[])}
+        lines.append(f'#{row["id"]} {label} {ctx.pos(site["position"])} · '+
+                     ('施工中；撤销返还 '+ctx.resources(refunds) if row['remaining'] else '已落成；拆除零返还'))
+    return '\n'.join(lines)
+
+
+def _demolish(args, receipt, actor, ctx):
+    data=receipt.get('data')
+    if not isinstance(data,dict) or 'refunds' not in data:return None
+    return ('拆除' if data['completed'] else '撤销施工')+' '+ctx.label('content',data['kind'])+f' #{data["id"]}；返还 '+ctx.resources(data['refunds'])
 
 
 PANELS = {'building_catalog': _catalog, 'building_sites': _sites}
-RECEIPTS = {'build': _build_receipt}
+RECEIPTS = {'build': _build_receipt,'demolish':_demolish}
 CAPTIONS = {
     'build': _build_caption,
+    'demolish': lambda args,actor,receipt,ctx:'拆除建筑 #'+str(args.get('id','')),
     'building_sites': lambda args, actor, receipt, ctx: ctx.text('tool.caption.building_sites'),
     'building_catalog': lambda args, actor, receipt, ctx: ctx.text('tool.caption.building_catalog'),
 }
