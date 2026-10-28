@@ -9,10 +9,16 @@ from unittest.mock import patch
 import zipfile
 
 from scripts.ci_release_scope import scope
-from scripts.release_portable import prepare, publish
+from scripts.release_portable import find_release, prepare, publish
 
 
 class TestPortableRelease(unittest.TestCase):
+    def test_drafts_are_found_without_a_published_tag(self):
+        draft={'id':123,'tag_name':'v0.6.3','draft':True}
+        with patch('scripts.release_portable.gh',side_effect=[None,[{'tag_name':'v0.6.2'}]*100,[draft]]) as remote:
+            self.assertEqual(find_release('fixture/repo','v0.6.3'),draft)
+            self.assertTrue(remote.call_args.args[1].endswith('&page=2'))
+
     def checkout(self, tmp):
         root=Path(tmp)/'checkout';root.mkdir()
         (root/'VERSION').write_text('0.6.3\n')
@@ -56,13 +62,15 @@ class TestPortableRelease(unittest.TestCase):
         for corrupt in (True,False):
             with self.subTest(corrupt=corrupt),TemporaryDirectory() as tmp:
                 root,commit,artifact,out=self.checkout(tmp)
-                reads=0;calls=[]
+                calls=[];created=False
                 def remote(*args,**kwargs):
-                    nonlocal reads
+                    nonlocal created
                     calls.append(args)
-                    if args[0]=='api' and '/releases/tags/' in args[1]:
-                        reads+=1
-                        if reads==1:return None
+                    if args[:2]==('release','create'):created=True
+                    if args[0]=='api' and '/releases/tags/' in args[1]:return None
+                    if args[0]=='api' and '/releases?per_page=' in args[1]:
+                        return [{'id':123,'tag_name':'v0.6.3','draft':True}] if created else []
+                    if args[:2]==('api','repos/fixture/repo/releases/123'):
                         return {'html_url':'https://example.invalid/release','assets':[
                             {'name':p.name,'size':p.stat().st_size,'state':'uploaded',
                              'digest':'sha256:'+('0'*64 if corrupt else hashlib.sha256(p.read_bytes()).hexdigest())}

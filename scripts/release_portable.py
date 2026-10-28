@@ -31,6 +31,19 @@ def gh(*args, allow_missing=False):
     return (json.loads(result.stdout) if args[0]=='api' else result.stdout.strip()) if result.stdout.strip() else None
 
 
+def find_release(repo, tag):
+    published=gh('api',f'repos/{repo}/releases/tags/{tag}',allow_missing=True)
+    if published:return published
+    # Drafts have no published tag and the by-tag endpoint returns 404, even
+    # after their assets have uploaded. Authenticated listing includes drafts.
+    page=1
+    while True:
+        rows=gh('api',f'repos/{repo}/releases?per_page=100&page={page}')
+        found=next((r for r in rows if r['tag_name']==tag),None)
+        if found or len(rows)<100:return found
+        page+=1
+
+
 def prepare(artifact, output, commit, root=ROOT):
     v=version(root);output.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(artifact) as archive:
@@ -50,8 +63,7 @@ def prepare(artifact, output, commit, root=ROOT):
 def publish(artifact, output, repo, root=ROOT):
     v=version(root);tag='v'+v
     commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
-    endpoint=f'repos/{repo}/releases/tags/{tag}'
-    existing=gh('api',endpoint,allow_missing=True)
+    existing=find_release(repo,tag)
     expected={f'zhanguo-{v}-windows-x64.zip',f'zhanguo-{v}-source.zip','SHA256SUMS'}
     if existing:
         if existing['target_commitish']!=commit:raise ValueError('Version already belongs to another commit; bump VERSION')
@@ -70,9 +82,11 @@ def publish(artifact, output, repo, root=ROOT):
     if not existing:
         gh('release','create',tag,'--repo',repo,'--target',commit,'--title',f'战国 {v} 试玩版',
             '--notes-file',str(notes),'--draft','--prerelease','--latest=false')
+        existing=find_release(repo,tag)
+        if not existing:raise RuntimeError('Created draft is not visible; retry this CI job')
     # Only drafts may be retried/replaced after an interrupted upload.
     gh('release','upload',tag,*map(str,files),'--repo',repo,'--clobber')
-    uploaded=gh('api',endpoint)
+    uploaded=gh('api',f'repos/{repo}/releases/{existing["id"]}')
     actual={a['name']:a for a in uploaded['assets']}
     if set(actual)!=expected:raise ValueError('Unexpected release attachments')
     for path in files:
