@@ -86,7 +86,7 @@ public partial class Desktop
         string state=S(tile["visibility"]);
         HumanText($"{(state=="unknown"?"未探明地块":S(tile["name"]) is {Length:>0} n?n:S(tile["terrain_name"]))}  ({_humanCell.X}, {_humanCell.Y})",true);
         HumanText(VisibilityText(tile),color:"a2b8ac");
-        if(state!="unknown")HumanText($"{tile["terrain_name"]} · {(S(tile["owner"])==""?"无主之地":NationLabel(S(tile["owner"]))) }");
+        if(state!="unknown")HumanText($"{tile["terrain_name"]} · {DesktopScene.OwnershipLabel(_map.Frame!,tile)}").Name="HumanOwnership";
         RenderHumanGarrison(tile);
         if(state!="unknown")
         {

@@ -36,7 +36,7 @@ class TestDesktopPlayer(unittest.TestCase):
             motion=capture.drain()[0]['motions'][0]
             self.assertEqual(motion['points'],target['routes'][0]['points']);self.assertFalse(motion['schematic'])
 
-    def test_foreign_extinction_refreshes_live_ownership_without_rewriting_history(self):
+    def test_foreign_extinction_invalidates_old_color_and_preserves_historical_facts(self):
         w=self.host.world
         self.assertTrue(self.api.submit(A,'buy_map',{'target':B})['ok'])
         history=next(t for t in self.render()['tiles'] if t['visibility']=='memory' and t['owner']==B)
@@ -51,7 +51,57 @@ class TestDesktopPlayer(unittest.TestCase):
         self.assertNotIn(B,self.host.actors())
         after=self.render()
         self.assertIsNone(next(t for t in after['tiles'] if t['position']==list(point))['owner'])
-        self.assertEqual(next(t for t in after['tiles'] if t['position']==history['position']),history)
+        old=next(t for t in after['tiles'] if t['position']==history['position'])
+        self.assertIsNone(old['owner']);self.assertEqual(old['historical_owner'],B)
+        self.assertEqual(old['ownership_status'],'outdated')
+        self.assertEqual(old['knowledge'],history['knowledge'])
+        self.assertEqual(old['terrain'],history['terrain'])
+        self.assertEqual(old['sampled'],history['sampled'])
+        self.assertEqual(old['building_labels'],history['building_labels'])
+        self.assertFalse(any(b['owner']==B for b in old['building_instances']))
+
+    def test_a_defeats_b_with_old_b_map_and_no_hidden_new_owner_is_revealed(self):
+        for secret_owner in (None,'scenario:third'):
+            with self.subTest(secret_owner=secret_owner):
+                cfg=config();cfg['nations'].append({'id':'scenario:third','name':'赵','client':'rule'})
+                host=GameHost.new(cfg);api=HumanAPI(host);w=host.world
+                live={tuple(t['position']) for t in api.state(A)['map']['tiles'] if t['visibility']=='live'}
+                sites={s.id:s for s in w.buildings.snapshot().sites}
+                hall=next(b for b in w.buildings.snapshot().instances if b.kind=='native:town-hall' and sites[b.site].owner==B)
+                capital=sites[hall.site].position
+                point=next((x,y) for x in range(1,11) for y in range(1,11) if (x,y) not in live and
+                    w.territory.owner(x,y) is None and w.territory.terrain(x,y).claimable and
+                    max(abs(x-capital[0]),abs(y-capital[1]))>3)
+                site='scenario:b-remote';w.territory.create(site,B,*point,terrain='native:plain')
+                w.buildings.seed(site,'native:castle');w.intelligence.publish_maps()
+                self.assertTrue(api.submit(A,'buy_map',{'target':B})['ok'])
+                old=next(t for t in frame(host.ui,api.state(A))['tiles'] if t['position']==list(point))
+                self.assertEqual(old['owner'],B);self.assertEqual(old['visibility'],'memory')
+                self.assertTrue(api.submit(A,'declare_war',{'target':B,'confirm':True})['ok'])
+                host.cycle(on_human=lambda p:[api.submit(A,'end_turn',{})])
+                unit=w.military.seed(A,'native:infantry',*capital)[0]
+                if secret_owner:w.territory.transfer(site,secret_owner)
+                def take_capital(player):
+                    result=api.submit(A,'attack',{'ids':[unit.id],'x':capital[0],'y':capital[1]})
+                    self.assertTrue(result['ok']);self.assertTrue(result['data']['occupied'])
+                    return [result,api.submit(A,'end_turn',{})]
+                host.cycle(on_human=take_capital)
+                self.assertNotIn(B,host.actors());self.assertEqual(w.territory.owner(*point),secret_owner)
+                with patch.object(host,'observer_snapshot',side_effect=AssertionError('observer leak')), \
+                     patch.object(host,'observer_scene',side_effect=AssertionError('observer leak')):
+                    result=frame(host.ui,api.state(A))
+                cell=next(t for t in result['tiles'] if t['position']==list(point))
+                self.assertEqual(cell['visibility'],'memory');self.assertIsNone(cell['owner'])
+                self.assertEqual((cell['ownership_status'],cell['historical_owner']),('outdated',B))
+                self.assertEqual(cell['knowledge'],old['knowledge'])
+                self.assertEqual(cell['building_labels'],old['building_labels'])
+                current=next(t for t in result['tiles'] if t['position']==list(capital))
+                self.assertEqual((current['visibility'],current['owner']),('live',A))
+                self.assertNotIn('ownership_status',current)
+                with TemporaryDirectory() as tmp:
+                    path=Path(tmp)/'old-b-map.json';host.save(path);loaded=GameHost.load(path,cfg)
+                    restored=frame(loaded.ui,HumanAPI(loaded).state(A))
+                self.assertEqual(next(t for t in restored['tiles'] if t['position']==list(point)),cell)
 
     def test_market_projection_keeps_public_reference_separate_from_inventory(self):
         state=self.api.state(A);reference=dict(state['facts']['market']['reference'])

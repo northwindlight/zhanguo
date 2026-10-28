@@ -32,6 +32,7 @@ def frame(ui,state):
     facts=state['facts'];actor=state['actor'];period=state['period']
     label=lambda ident:ui.console.label('content',ident)
     names={n['id']:n['name'] for n in facts['foreign']['nations']}
+    extinct={n['id'] for n in facts['foreign']['nations'] if n.get('alive') is False}
     terrain={t['id']:t for t in facts['terrain_catalog']}
     kinds=sorted(b['id'] for b in facts['building_catalog'])
     sites={s['id']:tuple(s['position']) for s in facts['building_sites']['sites']}
@@ -47,6 +48,11 @@ def frame(ui,state):
         tid=current.get('terrain',value('terrain'))
         if tid is None:tiles.append({'position':deepcopy(p),'visibility':'unknown'});continue
         owner=current.get('owner',value('owner'));name=current.get('name',value('name',''))
+        if visibility=='memory' and owner in extinct:
+            # Public extinction invalidates the old claim. It says nothing
+            # about who now controls a tile outside this player's live view.
+            t.update(ownership_status='outdated',historical_owner=owner)
+            owner=None
         resources=value('resources',{})
         if visibility=='live' and owner==actor:resources=dict(current.get('resources',[]))
         local=[];sampled=max((v['sampled'] for v in fields.values()),default=period)

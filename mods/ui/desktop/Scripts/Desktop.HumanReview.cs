@@ -11,6 +11,47 @@ using Zhanguo.Desktop.Layout;
 
 public partial class Desktop
 {
+    private async Task ReviewExtinctionMemory(string path)
+    {
+        try
+        {
+            _status.Text="旧地图归属失效 · 离线验收";
+            var input=JsonNode.Parse(File.ReadAllText(OS.GetEnvironment("ZHANGUO_EXTINCTION_REVIEW")))!.AsObject();
+            var point=new Vector2I(I(input["position"]![0]),I(input["position"]![1]));
+            string oldOwner=S(input["old_owner"]),stem=Path.ChangeExtension(path,null);
+            _humanStarted=true;_humanPage="tile";_humanCell=point;
+            var checks=new JsonArray();
+            foreach(var stage in input["frames"]!.AsArray())
+            {
+                string name=S(stage!["name"]);
+                if(name=="restored"){GetWindow().ContentScaleSize=new Vector2I(1024,768);GetWindow().Size=new Vector2I(1024,768);}
+                ApplyFrame(stage["frame"]!.DeepClone().AsObject());
+                RenderHumanPage();
+                OpenDrawer(_humanDrawer);_map.SelectAndFocus(point);
+                _bannerTitle.Text=name=="before"?"灭国前 · A持有B的旧地图":"灭国后 · 旧地图归属失效";
+                _bannerText.Text="秦攻占楚最后的市政厅；此处在秦的实时视野外。";
+                await ToSignal(GetTree().CreateTimer(.6),SceneTreeTimer.SignalName.Timeout);
+                _map.SelectAndFocus(point);
+                var tile=_map.SelectedTile!;
+                var region=WorldLayoutProjection.FromFrame(_map.Frame!).Regions.Single(r=>r.X==point.X&&r.Y==point.Y);
+                var caption=(Label)_humanContent.FindChild("HumanOwnership",true,false)!;
+                if(!new Rect2(Vector2.Zero,Size).Encloses(caption.GetGlobalRect()))throw new Exception("历史归属说明超出窗口");
+                if(S(tile["visibility"])!="memory")throw new Exception("样例失去历史地图权限条件");
+                if(name=="before")
+                {
+                    if(S(tile["owner"])!=oldOwner||region.OwnerColor=="")throw new Exception("旧地图未显示B旧归属");
+                }
+                else if(S(tile["owner"])!=""||region.OwnerColor!=""||!caption.Text.Contains("现归属待确认"))
+                    throw new Exception("灭国旧地图仍有B国色或冒充已知无主地");
+                await Screenshot(stem+"-"+name+".png");
+                checks.Add(new JsonObject { ["stage"]=name,["owner"]=tile["owner"]?.DeepClone(),["color"]=region.OwnerColor,["caption"]=caption.Text,["width"]=(int)Size.X,["height"]=(int)Size.Y });
+            }
+            File.WriteAllText(path+".json",checks.ToJsonString(new JsonSerializerOptions { WriteIndented=true }));
+            GD.Print("EXTINCTION_MEMORY_GUI_OK "+path);GetTree().Quit();
+        }
+        catch(Exception e){GD.PrintErr(e);GetTree().Quit(3);}
+    }
+
     private void SelectHumanField(string field,string value)
     {
         var options=HumanFieldOptions(field)!;int index=options.FindIndex(o=>S(o.Value)==value);

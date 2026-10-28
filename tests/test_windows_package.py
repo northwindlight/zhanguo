@@ -46,6 +46,13 @@ p=GameHost.new({'map_size':12,'seed':73,'nations':[{'id':'scenario:human','name'
 a=HumanAPI(p);site=a.state('scenario:human')['facts']['building_sites']['sites'][0]
 cards=present(p.ui,a.site_options('scenario:human',*site['position']),a.state('scenario:human'))
 assert len(cards['buildings'])==16 and len(cards['units'])==3
+from mods.ui.desktop_review import build_extinction_fixture
+e=build_extinction_fixture()
+old=next(t for t in e['frames'][0]['frame']['visual']['tiles'] if t['position']==e['position'])
+assert old['owner']==e['old_owner']
+for step in e['frames'][1:]:
+    tile=next(t for t in step['frame']['visual']['tiles'] if t['position']==e['position'])
+    assert tile['owner'] is None and tile['ownership_status']=='outdated'
 print(json.dumps({'tiles':len(f['tiles']),'armies':len(f['armies']),'clients':[c.version for c in h.clients.values()]}))
 """
             result = subprocess.run([sys.executable, "-I", "-S", "-c", code], cwd=bundle / "game",

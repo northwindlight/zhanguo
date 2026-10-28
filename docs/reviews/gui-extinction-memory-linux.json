@@ -1,0 +1,26 @@
+[
+  {
+    "stage": "before",
+    "owner": "scenario:other",
+    "color": "#ce7765",
+    "caption": "平原 · 楚",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "stage": "after",
+    "owner": null,
+    "color": "",
+    "caption": "平原 · 原属楚（已灭国）· 现归属待确认",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "stage": "restored",
+    "owner": null,
+    "color": "",
+    "caption": "平原 · 原属楚（已灭国）· 现归属待确认",
+    "width": 1024,
+    "height": 768
+  }
+]

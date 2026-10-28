@@ -153,6 +153,7 @@ public partial class Desktop : Control
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--ledger-review-output"){_=ReviewLedger(args[i+1]);return;}
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--effects-review-output"){_=ReviewEffects(args[i+1]);return;}
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--human-review-output"){_=ReviewHuman(args[i+1]);return;}
+        for(int i=0;i<args.Length-1;i++)if(args[i]=="--extinction-review-output"){_=ReviewExtinctionMemory(args[i+1]);return;}
         if(_smoke==null)
         {
             // Start screen: new game / load save / settings; smoke runs skip it.

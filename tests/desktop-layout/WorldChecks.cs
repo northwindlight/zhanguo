@@ -108,6 +108,15 @@ static class WorldChecks
         var frozen=new RegionLayout(known).Regions.Single(r=>r.Input.X==2&&r.Input.Y==2);
         Require(frozen.Input.Frozen&&frozen.People.Count==0,"historical residents are still dynamic");
         Require(historical["building_labels"]![0]!.ToString().Contains("第13期")&&!historical["building_labels"]![0]!.ToString().Contains("Lv."),"history fabricated a level or lost its date");
+        human["names"]=new JsonObject { ["scenario:qin"]="秦" };
+        historical["ownership_status"]="outdated";historical["historical_owner"]="scenario:qin";
+        human["scene"]!["ownership"]![0]!["owner"]=null;
+        foreach(var b in human["scene"]!["buildings"]!.AsArray())b!["owner"]=null;
+        DesktopScene.Synchronize(human);
+        var extinct=new RegionLayout(WorldLayoutProjection.FromFrame(human)).Regions.Single(r=>r.Input.X==2&&r.Input.Y==2);
+        Require(extinct.Input.Owner==""&&extinct.Input.OwnerColor==""&&extinct.Input.Frozen,"extinct historical owner still colored the remembered territory");
+        Require(DesktopScene.OwnershipLabel(human,historical.AsObject()).Contains("秦（已灭国）")&&DesktopScene.OwnershipLabel(human,historical.AsObject()).Contains("现归属待确认"),"invalidated ownership was mislabeled as confirmed wilderness");
+        Require(historical["building_labels"]![0]!.ToString().Contains("第13期"),"ownership invalidation erased building history");
         Console.WriteLine("HUMAN_LAYOUT_OK: unknown excluded, history frozen and dated, no fabricated levels");
         Console.WriteLine("DESKTOP_SCENE_OK: political zoom, squads, tiny prices, atomic deltas, residents and stable construction");
         Console.WriteLine("LIVE_WORLD_LAYOUT_OK: observer projection, barriers, facility counts, local updates and surface keys");

@@ -68,6 +68,14 @@ public static class DesktopScene
         if(I(b["remaining"])>0)label+=" · 施工中";
         return label;
     }
+    public static string OwnershipLabel(JsonObject frame,JsonObject tile)
+    {
+        string Name(string owner)=>frame["names"]?[owner]?.ToString()??owner;
+        if(tile["ownership_status"]?.ToString()=="outdated")
+            return $"原属{Name(tile["historical_owner"]!.ToString())}（已灭国）· 现归属待确认";
+        string owner=tile["owner"]?.ToString()??"";
+        return owner==""?"无主之地":Name(owner);
+    }
     public static float NationOpacity(float zoom)
     {
         float t=Math.Clamp((zoom-.12f)/.70f,0,1);t=t*t*(3-2*t);

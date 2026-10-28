@@ -70,4 +70,17 @@ foreach ($taskCheck in @('outliner_tabs', 'outliner_filters', 'selection_one_sit
     if ($taskHuman.$taskCheck -ne $true) { throw "Outliner/input/resource verification failed: $taskCheck" }
 }
 if ($taskHuman.period -lt 3 -or $taskHuman.layouts.Count -ne 4 -or -not $taskHuman.normal_zero_army_start -or -not $taskHuman.repeated_market_clicks -or -not $taskHuman.build_and_quote -or -not $taskHuman.recruit -or -not $taskHuman.move_did_not_occupy -or -not $taskHuman.in_place_attack -or -not $taskHuman.map_purchase -or -not $taskHuman.historical_pixels_static -or -not $taskHuman.single_nation_ledger -or -not $taskHuman.save_queued -or -not $taskHuman.exit_choice -or -not $taskHuman.esc_cancels_target -or -not $taskHuman.war_warning -or -not $taskHuman.letter_form) { throw 'Single local human verification failed' }
+$taskExtinctionFixture = Join-Path $taskOutput 'extinction-fixture.json'
+$env:ZHANGUO_EXTINCTION_REVIEW = $taskExtinctionFixture
+Push-Location (Join-Path $taskBundle 'game')
+try {
+    & (Join-Path $taskBundle 'runtime/python/python.exe') -X utf8 -m mods.ui.desktop_review --extinction --output $taskExtinctionFixture
+    if ($LASTEXITCODE -ne 0) { throw 'Could not generate the offline extinction fixture' }
+} finally { Pop-Location }
+Run-GameCheck 'extinction' @('--rendering-method', 'gl_compatibility', '--rendering-driver', 'opengl3_angle', '--', '--extinction-review-output', (Join-Path $taskOutput 'extinction.png'))
+$taskExtinction = Get-Content -Raw (Join-Path $taskOutput 'extinction.png.json') | ConvertFrom-Json
+if ($taskExtinction.Count -ne 3 -or $taskExtinction[0].owner -ne 'scenario:other' -or -not $taskExtinction[0].color) { throw 'Extinction review did not begin with the old B map' }
+foreach ($taskStage in $taskExtinction | Select-Object -Skip 1) {
+    if ($taskStage.owner -or $taskStage.color -or $taskStage.caption -notlike '*现归属待确认*') { throw 'Extinct ownership was not invalidated after settlement/reload' }
+}
 Write-Output 'WINDOWS_PORTABLE_VERIFIED'
