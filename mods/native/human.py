@@ -113,7 +113,7 @@ class HumanAPI:
                 quotes.append(row)
         return {'period':market['period'],'resource':resource,'market':market,'stocks':stocks,'quotes':quotes}
 
-    def state(self, actor):
+    def state(self, actor, *, controls=True):
         player = self.player(actor)
         observed = player.observe();facts = observed['facts']
         commands=command_states(observed,self.host.grid()[0])
@@ -137,14 +137,19 @@ class HumanAPI:
         offers = [p for p in relation.get('offers',[]) if p.get('can_accept') or p.get('can_reject')]
         votes = [v for v in relation.get('votes',[]) if v['deadline']==observed['period'] and actor in v.get('voters',[]) and
                  actor not in dict(v.get('ballots',[]))]
-        return {**observed, 'nickname':self.host.clients[actor].cfg.get('nickname','玩家'),
+        result={**observed, 'nickname':self.host.clients[actor].cfg.get('nickname','玩家'),
+                'colors':{n['id']:n['color'] for n in self.host.cfg.get('nations',[]) if n.get('color') and n['id'] in {v['id'] for v in facts['foreign']['nations']}},
+                'map':{'size':size,'tiles':tiles}}
+        # Choreography uses these same facts and knowledge, but does not need
+        # to rebuild command schemas, route planning or management panels.
+        if not controls:return result
+        result.update({
                 'army_orders':player.call_api('native:army','orders'),
                 'production_queue':{'construction':player.call_api('native:buildings','orders'),
                                     'recruitment':player.call_api('native:army','recruit_orders')},
                 'operations':self.operations(actor),
-                'colors':{n['id']:n['color'] for n in self.host.cfg.get('nations',[]) if n.get('color') and n['id'] in {v['id'] for v in facts['foreign']['nations']}},
-                'map':{'size':size,'tiles':tiles},
                 'map_offers':player.call_api('native:intelligence','map_offers'),
                 'reports':player.query('query',{'panel':'report','all':True}),
                 'pending_end':{'offers':offers,'votes':votes,
-                               'consequence':'未处理外交提议将自动拒绝；未表态联盟投票将自动反对'}}
+                               'consequence':'未处理外交提议将自动拒绝；未表态联盟投票将自动反对'}})
+        return result

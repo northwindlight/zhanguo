@@ -17,7 +17,7 @@ class PlayerCapture:
         self.event_cursor=max((e['id'] for e in state['facts']['news']),default=0)
         self.message_ids={m['id'] for m in state['facts']['intel']}
 
-    def state(self):return self.control.human_api.state(self.control.viewer)
+    def state(self):return self.control.human_api.state(self.control.viewer,controls=False)
     def visual(self):return player_frame(self.control.host.ui,self.state())
     def home(self,visual=None):
         visual=visual or self.previous;actor=self.control.viewer

@@ -1,0 +1,10 @@
+{
+  "date": "2026-10-29",
+  "platform": "Linux aarch64",
+  "fixture": "tests.test_human.config(), native, 12x12, seed 73, two nations",
+  "method": "perf_counter; two alternating groups of 50 calls each; seconds per call",
+  "controls_true_seconds_per_call": [0.02403529847972095, 0.024373314540134743],
+  "controls_false_seconds_per_call": [0.008505941240000538, 0.008493293760111556],
+  "scope": "HumanAPI.state only; not total Windows playback time",
+  "equivalence": "same authorized facts, map and drawing projection; no state changes or observer access"
+}
