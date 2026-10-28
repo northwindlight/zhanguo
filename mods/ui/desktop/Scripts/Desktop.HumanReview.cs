@@ -11,6 +11,7 @@ using Zhanguo.Desktop.Layout;
 
 public partial class Desktop
 {
+    private bool _humanReviewDiagnostics;
     private async Task ReviewExtinctionMemory(string path)
     {
         try
@@ -107,6 +108,7 @@ public partial class Desktop
     }
     private async Task ReviewHuman(string path)
     {
+        _humanReviewDiagnostics=true;
         try
         {
             ConfirmHuman("窗口输入验收","返回应取消，不执行操作。",()=>throw new Exception("取消却执行确认"));

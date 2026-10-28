@@ -131,6 +131,8 @@ class Controller:
         self.send('status', state=state, period=self.host.clock(),
                   saved_period=self.saved_period, save=str(self.save),
                   cycle_active=self._in_cycle,playback_paused=self._cycle_paused,auto_running=self.running,**extra)
+        if os.environ.get('ZHANGUO_REVIEW_TRACE')=='1':
+            print(f'REVIEW_STATUS state={state} period={self.host.clock()} revision={self.revision} waiting={self.waiting} running={self.running} cycle={self._in_cycle}',file=sys.stderr,flush=True)
 
     def frame(self):
         if self.human_api is not None:
@@ -205,6 +207,8 @@ class Controller:
             self.persist();self.status('running' if self.running else 'paused')
         elif op == 'snapshot':self.snapshot()
         elif op == 'playback_ack':
+            if os.environ.get('ZHANGUO_REVIEW_TRACE')=='1':
+                print(f'REVIEW_ACK received={row.get("sequence")} expected={self.waiting} generation={row.get("generation")==self.generation}',file=sys.stderr,flush=True)
             if self.waiting is not None and row.get('generation')==self.generation and row.get('sequence')==self.waiting:
                 self.waiting=None
                 if not self._in_cycle:self.status('running' if self.running else 'paused')
@@ -385,6 +389,11 @@ def main(argv=None):
     p.add_argument('--resume', type=Path)
     args = p.parse_args(argv)
     args.output.mkdir(parents=True, exist_ok=False)
+    # Only the isolated GUI review enables timed thread dumps. Normal games
+    # retain their existing protocol and logging behavior.
+    if os.environ.get('ZHANGUO_REVIEW_TRACE')=='1':
+        import faulthandler
+        faulthandler.dump_traceback_later(45,repeat=True)
     resume = args.resume or (Path(os.environ['ZHANGUO_RESUME']) if os.environ.get('ZHANGUO_RESUME') else None)
     config_path = os.environ.get('ZHANGUO_DESKTOP_CONFIG')
     if config_path:
@@ -425,6 +434,7 @@ def main(argv=None):
         control.commands.put({'command': 'disconnect' if control.human_api is not None else 'stop'})
     Thread(target=read, daemon=True).start()
     control.run()
+    if os.environ.get('ZHANGUO_REVIEW_TRACE')=='1':faulthandler.cancel_dump_traceback_later()
 
 
 if __name__ == '__main__':main()

@@ -270,6 +270,7 @@ public partial class Desktop : Control
         _selectedArmies.Clear();_replaceNextRoute=false;_armyRangeSuspended=false;_armyRangeDirty=true;
         string output=Path.Combine(_runtime.DataRoot,"archive","desktop",DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N")[..6]);
         var info=_runtime.Host(output,configPath,resumePath);
+        if(_humanReviewDiagnostics)info.Environment["ZHANGUO_REVIEW_TRACE"]="1";
         _host=Process.Start(info) ?? throw new Exception("无法启动 Python 宿主");
         _host.StandardInput.AutoFlush=true;
         _stderrPump=Task.Run(async()=>{while(await _host.StandardError.ReadLineAsync() is string line)GD.PrintErr(line);});
@@ -533,7 +534,12 @@ public partial class Desktop : Control
         var clock=Stopwatch.StartNew();
         while(!ready())
         {
-            if(clock.Elapsed.TotalSeconds>timeout)throw new TimeoutException(description);
+            if(clock.Elapsed.TotalSeconds>timeout)throw new TimeoutException(description+"；诊断 "+JsonSerializer.Serialize(new {
+                period=_period,revision=_revision,host=_hostState,running=_running,turnPeriod=_humanTurn?["period"]?.GetValue<int>(),
+                needsFrame=_humanNeedsFrame,busy=_humanBusy,ended=_humanEnded,paused=_humanPaused,
+                timeline=HasTimeline,sequence=_timelineSequence,stage=_timelineStage,phase=S(_playingBeat?["phase"]),
+                beat=_beatNumber,total=_beatTotal,awaitingFrame=_awaitingFrame,pendingFrame=_pendingFrame!=null,
+                playbackPaused=_playbackPaused,elapsed=_beatElapsed,queries=_humanQueries.Count }));
             await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
         }
     }
