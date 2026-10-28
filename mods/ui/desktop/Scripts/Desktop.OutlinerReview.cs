@@ -133,5 +133,15 @@ public partial class Desktop
         if(itinerary["nodes"]!.AsArray().Count!=2||S(itinerary["nodes"]![1]!["mode"])!="attack"||_map.OrderNodeCount!=2)throw new Exception("两种Shift右键没有追加节点和路径线");
         OpenHumanPage("selected-armies");await WaitFor(()=>Drawers.All(d=>d.IsSettled),"路线面板未展开");ValidateHumanLayout();await Screenshot(stem+"-march-waypoints.png");
         OpenHumanOutliner(true);
+        void CheckRouteBadge()
+        {
+            var badge=_outlinerList.FindChild("OutlinerMarch_"+home[0],true,false) as PanelContainer;
+            if(badge==null||badge.GetChild<Label>(0).Text!="路线 2"||!badge.TooltipText.Contains($"({waypoint.X},{waypoint.Y})"))throw new Exception("右侧持续军令标记未显示节点和下个目标");
+            if(_outlinerList.FindChild("OutlinerMarch_"+front[0],true,false)!=null)throw new Exception("无路线军队显示了持续军令标记");
+        }
+        CheckRouteBadge();
+        _selectedArmies.Clear();ArmySelectionChanged();CheckRouteBadge();
+        foreach(int id in home)_selectedArmies.Add(id);ArmySelectionChanged();
+        await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);await Screenshot(stem+"-march-outliner.png");
     }
 }

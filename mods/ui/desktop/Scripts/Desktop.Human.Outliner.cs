@@ -143,6 +143,7 @@ public partial class Desktop
         }
         else
         {
+            var routes=(_humanState?["army_orders"] as JsonArray??new JsonArray()).ToDictionary(r=>I(r!["aid"]),r=>r!.AsObject());
             foreach(var group in OwnArmies.GroupBy(u=>(X:I(u["x"]),Y:I(u["y"]))).OrderBy(g=>g.Key.Y).ThenBy(g=>g.Key.X))
             {
                 var p=new Vector2I(group.Key.X,group.Key.Y);var units=group.ToArray();
@@ -155,7 +156,8 @@ public partial class Desktop
                 string types=string.Join(" · ",matching.GroupBy(u=>S(u["kind"])).Select(g=>HumanLabel(g.Key)+"×"+g.Count()));
                 string status=matching.Any(u=>Yes(u["engaged"]))?"交战中":matching.All(u=>u["born_turn"]!=null&&I(u["born_turn"])==_period)?"新募":matching.All(u=>UnitReason(u)!="")?"已行动":"可行动";
                 var ids=matching.Select(u=>I(u["id"])).ToArray();
-                AddOutlinerRow(p,HumanCellName(p),types+$" · 已选 {ids.Count(_selectedArmies.Contains)}/{ids.Length}\n♥ {matching.Sum(u=>F(u["hp"])):G5} · {status}",
+                int marching=ids.Count(routes.ContainsKey);
+                AddOutlinerRow(p,HumanCellName(p),types+$" · 已选 {ids.Count(_selectedArmies.Contains)}/{ids.Length}\n♥ {matching.Sum(u=>F(u["hp"])):G5} · {status}"+(marching>0?$" · 路线 {marching}支":""),
                     matching.Select(u=>S(u["kind"])).Distinct().Take(3).Select(k=>RtsArt.Unit(k,_map.NationColor(HumanActor))),()=>
                     {bool remove=ids.All(_selectedArmies.Contains);foreach(int id in ids)if(remove)_selectedArmies.Remove(id);else _selectedArmies.Add(id);ArmySelectionChanged();});
                 foreach(var unit in matching)
@@ -163,6 +165,8 @@ public partial class Desktop
                     int aid=I(unit["id"]);var line=new HBoxContainer();_outlinerList.AddChild(line);
                     var check=new CheckButton { Name="OutlinerArmy_"+aid,Text=$"#{aid} {HumanLabel(S(unit["kind"]))} ♥{Quantity(unit["hp"])}",ButtonPressed=_selectedArmies.Contains(aid),TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,ClipText=true,SizeFlagsHorizontal=SizeFlags.ExpandFill };
                     check.AddThemeFontSizeOverride("font_size",14);line.AddChild(check);check.Toggled+=on=>ToggleArmy(aid,on);
+                    check.TooltipText=check.Text;
+                    if(routes.TryGetValue(aid,out var route))AddOutlinerMarchBadge(line,route);
                     var locate=Button(line,"⌖",()=>SelectOutlinerCell(p,false));locate.TooltipText="定位驻地，不改变已选军队";HumanArt.Style(locate);
                 }
                 displayed++;
@@ -170,6 +174,19 @@ public partial class Desktop
             _outlinerCount.Text=$"本国军队 {OwnArmies.Count()} 支 · 筛选结果 {displayed} 处驻地";
         }
         if(displayed==0)_outlinerList.AddChild(new Label { Text=_outlinerArmies&&!OwnArmies.Any()?"暂无军队\n建造军屯或兵营后征召。":"没有符合条件的项目。",AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("b7c4ad") });
+    }
+    private void AddOutlinerMarchBadge(HBoxContainer line,JsonObject order)
+    {
+        var nodes=order["nodes"]!.AsArray();bool healing=Yes(order["healing"]);
+        string next=nodes.FirstOrDefault() is JsonNode node?$"{(S(node["mode"])=="attack"?"攻击":"移动")} ({node["position"]![0]},{node["position"]![1]})":"完成";
+        var tint=new Color(healing?"e8c87e":"8cddca");
+        var badge=new PanelContainer { Name="OutlinerMarch_"+I(order["aid"]),SizeFlagsVertical=SizeFlags.ShrinkCenter,
+            MouseFilter=MouseFilterEnum.Pass,TooltipText=$"持续军令 · 剩余 {nodes.Count} 个节点\n下个目标：{next}\n"+(S(order["reason"]) is {Length:>0} reason?reason:"按路线逐期执行") };
+        badge.AddThemeStyleboxOverride("panel",new StyleBoxFlat { BgColor=new Color("18352e"),BorderColor=tint,BorderWidthBottom=1,
+            ContentMarginLeft=3,ContentMarginRight=3,ContentMarginTop=2,ContentMarginBottom=2 });
+        line.AddChild(badge);
+        var text=new Label { Text=healing?"回血":"路线 "+nodes.Count,Modulate=tint,MouseFilter=MouseFilterEnum.Ignore };
+        text.AddThemeFontSizeOverride("font_size",12);badge.AddChild(text);
     }
     private void AddOutlinerRow(Vector2I p,string title,string detail,IEnumerable<Texture2D> textures,Action action)
     {

@@ -314,7 +314,7 @@ public partial class Desktop
                 ["garrison_visible_without_scroll"]=true,["wild_garrison_continuity"]=true,["wild_guard_id"]=wildId,["wild_formation_figures"]=wildFigures,
                 ["resource_breakdown_hover"]=true,["outliner_tabs"]=true,["outliner_filters"]=true,["cross_site_selection"]=true,["mouse_orders"]=true,["shift_waypoints"]=true,["selection_halos"]=true,["numbers_without_enter"]=true,["market_reference_visible"]=true,["power_visible"]=true,["power_ignores_unfinished"]=true,["power_previous_actual"]=true,
                 ["save_queued"]=true,["exit_choice"]=true,["rts_layouts"]=true,["save"]=_savePath,["config"]=configPath,["layouts"]=layouts,
-                ["production_queue"]=true,["pending_full_refund"]=true,
+                ["production_queue"]=true,["pending_full_refund"]=true,["march_order_badges"]=true,
                 ["platform"]=OS.GetName(),["renderer"]=RenderingServer.GetVideoAdapterName() };
             await File.WriteAllTextAsync(path+".json",result.ToJsonString(new JsonSerializerOptions { WriteIndented=true }));
             GD.Print("HUMAN_GUI_OK "+path);

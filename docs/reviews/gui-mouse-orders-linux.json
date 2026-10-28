@@ -105,5 +105,6 @@
   "pending_full_refund": true,
   "platform": "Linux",
   "renderer": "llvmpipe (LLVM 19.1.7, 128 bits)",
-  "partial_selection_render_fixture": true
+  "partial_selection_render_fixture": true,
+  "build_unaffected_by_auto_range": true
 }
