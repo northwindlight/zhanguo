@@ -1,0 +1,66 @@
+{
+  "period": 3,
+  "human_actions": 27,
+  "simple_terrain_map": true,
+  "terrain_preserves_fog": true,
+  "terrain_price_steps": true,
+  "free_space_filter": true,
+  "compact_land_icons": true,
+  "right_return_preferences": true,
+  "right_return_army_priority": true,
+  "right_return_last_button": true,
+  "guide_api_and_return": true,
+  "production_queue": true,
+  "march_order_badges": true,
+  "layouts": [
+    {
+      "width": 1920,
+      "height": 1080,
+      "within_viewport": true,
+      "rts_hover": true
+    },
+    {
+      "width": 1440,
+      "height": 900,
+      "within_viewport": true,
+      "rts_hover": true
+    },
+    {
+      "width": 1280,
+      "height": 720,
+      "within_viewport": true,
+      "rts_hover": true
+    },
+    {
+      "width": 1024,
+      "height": 768,
+      "within_viewport": true,
+      "rts_hover": true
+    }
+  ],
+  "rule_fixture_seed": 20261026,
+  "platform": "Windows",
+  "renderer": "ANGLE (Microsoft, Microsoft Basic Render Driver (0x0000008C) Direct3D11 vs_5_0 ps_5_0, D3D11-10.0.26100.33648)",
+  "source_commit": "7a4a996a02f357695b079264ac02133cc5753603",
+  "ci_run": 40733311350,
+  "windows_job": 122975207556,
+  "verified_at_utc": "2026-10-28T17:30:13.632Z",
+  "map_screenshot_sizes": [
+    {
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "width": 1366,
+      "height": 768
+    },
+    {
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "width": 1024,
+      "height": 768
+    }
+  ]
+}

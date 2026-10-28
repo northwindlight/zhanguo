@@ -40,6 +40,7 @@
   ],
   "platform": "Linux",
   "renderer": "llvmpipe (LLVM 19.1.7, 128 bits)",
+  "rule_fixture_seed": 20261026,
   "map_screenshot_sizes": [
     {
       "width": 1920,
