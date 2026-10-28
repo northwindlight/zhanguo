@@ -35,6 +35,7 @@ public partial class Desktop
             LayoutHuman();
         });HumanArt.Style(_outlinerFold);
         _outlinerFold.TooltipText="展开／收起总览";
+        BuildArmySelection(column);
         _outlinerBody=new VBoxContainer { SizeFlagsVertical=SizeFlags.ExpandFill };column.AddChild(_outlinerBody);
         _outlinerSearch=new LineEdit { Name="OutlinerSearch",PlaceholderText="搜索名称、坐标、建筑",ClearButtonEnabled=true };_outlinerBody.AddChild(_outlinerSearch);
         _outlinerSearch.TextChanged+=text=>{if(_outlinerArmies)_armySearch=text;else _landSearch=text;RenderOutlinerRows();};
@@ -62,22 +63,21 @@ public partial class Desktop
         float width=Size.X<1200?246:280;
         _outliner.Position=new Vector2(Size.X-width-16,70);
         _outliner.CustomMinimumSize=Vector2.Zero;
-        _outliner.Size=new Vector2(width,compact?44:Size.Y-154);
+        _outliner.Size=new Vector2(width,compact?44+(_armySelectionPanel.Visible?96:0):Size.Y-154);
     }
     private void SetHumanSelectionCell(Vector2I at)
     {
-        if(_selectionCell!=at){_selectedArmies.Clear();_selectionCell=at;_targetEpoch++;}
-        _selectedArmies.RemoveWhere(id=>!OwnArmies.Any(u=>I(u["id"])==id&&I(u["x"])==at.X&&I(u["y"])==at.Y));
+        _selectionCell=at;
+        _selectedArmies.RemoveWhere(id=>!OwnArmies.Any(u=>I(u["id"])==id));
     }
     private void SelectOutlinerCell(Vector2I at,bool army,int[]? ids=null)
     {
         CancelHumanTarget();SetHumanSelectionCell(at);_humanCell=at;
         if(army)
         {
-            _selectedArmies.Clear();
             foreach(var u in OwnArmies.Where(u=>I(u["x"])==at.X&&I(u["y"])==at.Y&&(ids==null||ids.Contains(I(u["id"])))))_selectedArmies.Add(I(u["id"]));
         }
-        _map.SelectAndFocus(at);OpenHumanPage(army?"army-unit":"tile");RenderOutlinerRows();
+        _map.SelectAndFocus(at);OpenHumanPage(army?"army-unit":"tile");RefreshArmySelection();RenderOutlinerRows();
     }
     private IEnumerable<JsonObject> OutlinerTiles=>HumanMode?(_map.Frame?["tiles"]?.AsArray()??new JsonArray())
         .Where(t=>S(t!["owner"])==HumanActor&&S(t["visibility"])=="live").Select(t=>t!.AsObject()):Enumerable.Empty<JsonObject>();
@@ -149,12 +149,23 @@ public partial class Desktop
                 var matching=units.Where(u=>(_armyKind==""||S(u["kind"])==_armyKind)&&(_armyState switch {
                     "ready"=>new[]{"move","attack","retreat"}.Any(m=>UnitCan(u,m)),"engaged"=>Yes(u["engaged"]),"new"=>u["born_turn"]!=null&&I(u["born_turn"])==_period,
                     "used"=>u["moved_turn"]!=null&&I(u["moved_turn"])==_period,_=>true })&&
+                    (!_onlySelectedArmies||_selectedArmies.Contains(I(u["id"])))&&
                     (HumanCellName(p)+" "+HumanLabel(S(u["kind"]))+" #"+I(u["id"])).Contains(_armySearch,StringComparison.OrdinalIgnoreCase)).ToArray();
                 if(matching.Length==0)continue;
                 string types=string.Join(" · ",matching.GroupBy(u=>S(u["kind"])).Select(g=>HumanLabel(g.Key)+"×"+g.Count()));
                 string status=matching.Any(u=>Yes(u["engaged"]))?"交战中":matching.All(u=>u["born_turn"]!=null&&I(u["born_turn"])==_period)?"新募":matching.All(u=>UnitReason(u)!="")?"已行动":"可行动";
-                AddOutlinerRow(p,HumanCellName(p),types+$"\n♥ {matching.Sum(u=>F(u["hp"])):G5} · {status}",
-                    matching.Select(u=>S(u["kind"])).Distinct().Take(3).Select(k=>RtsArt.Unit(k,_map.NationColor(HumanActor))),()=>SelectOutlinerCell(p,true,matching.Select(u=>I(u["id"])).ToArray()));displayed++;
+                var ids=matching.Select(u=>I(u["id"])).ToArray();
+                AddOutlinerRow(p,HumanCellName(p),types+$" · 已选 {ids.Count(_selectedArmies.Contains)}/{ids.Length}\n♥ {matching.Sum(u=>F(u["hp"])):G5} · {status}",
+                    matching.Select(u=>S(u["kind"])).Distinct().Take(3).Select(k=>RtsArt.Unit(k,_map.NationColor(HumanActor))),()=>
+                    {bool remove=ids.All(_selectedArmies.Contains);foreach(int id in ids)if(remove)_selectedArmies.Remove(id);else _selectedArmies.Add(id);ArmySelectionChanged();});
+                foreach(var unit in matching)
+                {
+                    int aid=I(unit["id"]);var line=new HBoxContainer();_outlinerList.AddChild(line);
+                    var check=new CheckButton { Name="OutlinerArmy_"+aid,Text=$"#{aid} {HumanLabel(S(unit["kind"]))} ♥{Quantity(unit["hp"])}",ButtonPressed=_selectedArmies.Contains(aid),TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,ClipText=true,SizeFlagsHorizontal=SizeFlags.ExpandFill };
+                    check.AddThemeFontSizeOverride("font_size",14);line.AddChild(check);check.Toggled+=on=>ToggleArmy(aid,on);
+                    var locate=Button(line,"⌖",()=>SelectOutlinerCell(p,false));locate.TooltipText="定位驻地，不改变已选军队";HumanArt.Style(locate);
+                }
+                displayed++;
             }
             _outlinerCount.Text=$"本国军队 {OwnArmies.Count()} 支 · 筛选结果 {displayed} 处驻地";
         }
@@ -162,7 +173,7 @@ public partial class Desktop
     }
     private void AddOutlinerRow(Vector2I p,string title,string detail,IEnumerable<Texture2D> textures,Action action)
     {
-        var button=new Button { Name=$"Outliner_{p.X}_{p.Y}",ToggleMode=true,ButtonPressed=_outlinerArmies?_selectionCell==p&&_selectedArmies.Count>0:_humanCell==p,CustomMinimumSize=new Vector2(0,94),SizeFlagsHorizontal=SizeFlags.ExpandFill,TooltipText=title+"\n"+detail+"\n点击定位并操作驻地" };
+        var button=new Button { Name=$"Outliner_{p.X}_{p.Y}",ToggleMode=true,ButtonPressed=_outlinerArmies?OwnArmies.Any(u=>I(u["x"])==p.X&&I(u["y"])==p.Y&&_selectedArmies.Contains(I(u["id"]))):_humanCell==p,CustomMinimumSize=new Vector2(0,94),SizeFlagsHorizontal=SizeFlags.ExpandFill,TooltipText=title+"\n"+detail+(_outlinerArmies?"\n点击全选／取消本组；下方可逐军勾选":"\n点击定位并操作驻地") };
         HumanArt.Style(button);_outlinerList.AddChild(button);_outlinerRows[p]=button;button.Pressed+=action;
         var margin=new MarginContainer { MouseFilter=MouseFilterEnum.Ignore };margin.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         margin.OffsetLeft=6;margin.OffsetRight=-6;margin.OffsetTop=5;margin.OffsetBottom=-5;button.AddChild(margin);

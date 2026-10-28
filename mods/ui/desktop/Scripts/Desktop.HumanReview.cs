@@ -226,10 +226,14 @@ public partial class Desktop
             GetViewport().PushInput(new InputEventKey { Keycode=Key.Escape,Pressed=true },true);
             if(_map.TargetCount!=0||_pauseMenu.Visible)throw new Exception("Esc 未优先取消军令");
             StartHumanTarget("move");await WaitFor(()=>_map.TargetCount>0,"取消后没有恢复军令范围");
+            GetViewport().PushInput(new InputEventKey { Keycode=Key.Ctrl,Pressed=true },true);
+            await WaitFor(()=>_humanTargetMode=="attack"&&_map.TargetCount>0,"Ctrl没有切换攻击候选");
+            GetViewport().PushInput(new InputEventKey { Keycode=Key.Ctrl,Pressed=false },true);
+            await WaitFor(()=>_humanTargetMode=="move"&&_map.TargetCount>0,"松开Ctrl没有恢复移动候选");
             var target=_map.Frame!["tiles"]!.AsArray().First(t=>S(t!["visibility"])=="live"&&t["owner"]==null&&
                 _map.HumanTarget(new(I(t["position"]![0]),I(t["position"]![1])))!=null)!;
             var destination=new Vector2I(I(target["position"]![0]),I(target["position"]![1]));
-            await PointerClickAt(_map.CellCenter(destination));await HumanIdle();
+            await RightOrderAt(destination);await HumanIdle();
             if(!OwnArmies.Any(u=>I(u["x"])==destination.X&&I(u["y"])==destination.Y)||S(_map.Frame["tiles"]!.AsArray().First(t=>I(t!["position"]![0])==destination.X&&I(t["position"]![1])==destination.Y)!["owner"])!="")
                 throw new Exception("移动没有执行或被错误转成占领");
             var wild=SquadView.Units(_map.Frame!).Single(u=>S(u["owner"])=="野人"&&I(u["x"])==destination.X&&I(u["y"])==destination.Y);
@@ -238,7 +242,7 @@ public partial class Desktop
             int wildFigures=_map.WildFigureCounts.GetValueOrDefault(wildKey);
             if(wildFigures<1)throw new Exception("待战野人没有统一编队");await Screenshot(stem+"-wild-idle.png");
             _humanCell=destination;OpenHumanPage("tile");StartHumanTarget("attack");await WaitFor(()=>_map.TargetCount>0,"原地攻击没有独立准星圈");
-            await Screenshot(stem+"-attack.png");await PointerClickAt(_map.CellCenter(destination));await HumanIdle();
+            await Screenshot(stem+"-attack.png");await RightOrderAt(destination,attack:true);await HumanIdle();
             if(!OwnArmies.Any(u=>u["engaged"]?.GetValue<bool>()==true))throw new Exception("进攻没有按真实规则登记交战");
             _humanOperation="buy_map";await PointerClick(_humanNav["intel"]);await PointerClick(_humanSubmit!);await HumanIdle();
             if(_map.MemoryCount==0)throw new Exception("购图没有合入历史地图");
@@ -308,7 +312,7 @@ public partial class Desktop
                 ["map_purchase"]=true,["historical_pixels_static"]=true,["single_nation_ledger"]=true,
                 ["market_quantity_buttons"]=true,["market_exact_quotes"]=true,["auto_trade_buy_and_sell"]=true,["auto_trade_validation"]=true,["cancel_half_refund"]=true,["cancel_keeps_quota"]=true,["demolish_zero_refund"]=true,["market_layouts"]=true,
                 ["garrison_visible_without_scroll"]=true,["wild_garrison_continuity"]=true,["wild_guard_id"]=wildId,["wild_formation_figures"]=wildFigures,
-                ["resource_breakdown_hover"]=true,["outliner_tabs"]=true,["outliner_filters"]=true,["selection_one_site"]=true,["numbers_without_enter"]=true,["market_reference_visible"]=true,["power_visible"]=true,["power_ignores_unfinished"]=true,["power_previous_actual"]=true,
+                ["resource_breakdown_hover"]=true,["outliner_tabs"]=true,["outliner_filters"]=true,["cross_site_selection"]=true,["mouse_orders"]=true,["shift_waypoints"]=true,["selection_halos"]=true,["numbers_without_enter"]=true,["market_reference_visible"]=true,["power_visible"]=true,["power_ignores_unfinished"]=true,["power_previous_actual"]=true,
                 ["save_queued"]=true,["exit_choice"]=true,["rts_layouts"]=true,["save"]=_savePath,["config"]=configPath,["layouts"]=layouts,
                 ["production_queue"]=true,["pending_full_refund"]=true,
                 ["platform"]=OS.GetName(),["renderer"]=RenderingServer.GetVideoAdapterName() };

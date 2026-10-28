@@ -213,6 +213,12 @@ public partial class WorldMap : Control
         if (input is InputEventMouseButton b)
         {
             if(b.Pressed)_cameraAnchor=null;
+            if(b.Pressed&&b.ButtonIndex==MouseButton.Right)
+            {
+                var point=(b.Position-_offset)/(_scale*Cell);
+                if(HumanMapOrder?.Invoke(new((int)MathF.Floor(point.X),(int)MathF.Floor(point.Y)),b.CtrlPressed,b.ShiftPressed)==true)
+                { _drag=false;AcceptEvent();return; }
+            }
             if (b.ButtonIndex is MouseButton.Middle or MouseButton.Right) _drag = b.Pressed;
             if (b.ButtonIndex == MouseButton.Left)
             {

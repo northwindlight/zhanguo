@@ -45,6 +45,7 @@ public partial class Desktop
             case "tile":RenderHumanTile();break;
             case "build":case "recruit":RenderRtsCatalog();break;
             case "production":RenderProductionQueue();break;
+            case "selected-armies":RenderSelectedArmies();break;
             case "demolish":RenderHumanDemolition();break;
             case "market":RenderHumanMarket();break;
             case "army":RenderHumanArmyList();break;
@@ -129,7 +130,7 @@ public partial class Desktop
             disband.Name="HumanOrder_disband";
             void SelectionChanged()
             {
-                var chosen=own.Where(u=>_selectedArmies.Contains(I(u["id"]))).ToArray();
+                var chosen=OwnArmies.Where(u=>_selectedArmies.Contains(I(u["id"]))).ToArray();
                 foreach(var b in orders)
                 {
                     string mode=b.Name.ToString().Replace("HumanOrder_","");
@@ -138,7 +139,7 @@ public partial class Desktop
                 RefreshHumanButtons();
             }
             var all=new CheckButton { Text="全选本国驻军",ButtonPressed=own.All(u=>_selectedArmies.Contains(I(u!["id"]))) };
-            _humanContent.AddChild(all);all.Toggled+=on=>{CancelHumanTarget();foreach(var u in own)if(on)_selectedArmies.Add(I(u!["id"]));else _selectedArmies.Remove(I(u!["id"]));RenderHumanPage();};
+            _humanContent.AddChild(all);all.Toggled+=on=>{foreach(var u in own)if(on)_selectedArmies.Add(I(u!["id"]));else _selectedArmies.Remove(I(u!["id"]));ArmySelectionChanged();RenderHumanPage();};
             foreach(var unit in own)
             {
                 int id=I(unit!["id"]);string reason=UnitReason(unit);
@@ -147,7 +148,7 @@ public partial class Desktop
                 check.TooltipText=reason==""?"移动与攻击须分别选择目标":reason+"；原地攻击等例外仍由具体军令判断";
                 check.AddThemeColorOverride("font_color",new Color(reason==""?"d6e6c7":"a4aca5"));
                 check.AddThemeIconOverride("checked",HumanArt.Texture("checkbox-on"));check.AddThemeIconOverride("unchecked",HumanArt.Texture("checkbox-off"));
-                check.Toggled+=on=>{CancelHumanTarget();if(on)_selectedArmies.Add(id);else _selectedArmies.Remove(id);SelectionChanged();};
+                check.Toggled+=on=>{ToggleArmy(id,on);SelectionChanged();};
                 check.AddThemeFontSizeOverride("font_size",16);
                 var soldierRow=new HBoxContainer();_humanContent.AddChild(soldierRow);
                 soldierRow.AddChild(new TextureRect { Texture=RtsArt.Unit(S(unit["kind"]),_map.NationColor(HumanActor)),CustomMinimumSize=new Vector2(28,40),ExpandMode=TextureRect.ExpandModeEnum.IgnoreSize,StretchMode=TextureRect.StretchModeEnum.KeepAspectCentered });
@@ -444,6 +445,8 @@ public partial class Desktop
         }
         if(_humanSubmittedOperation is "buy" or "sell")return $"{title} {HumanLabel(S(d?["resource"]))} ×{d?["quantity"]} · {(_humanSubmittedOperation=="buy"?"支付":"收入")} {d?["gold"]} 金";
         if(_humanSubmittedOperation=="build")return $"{title} {HumanLabel(S(d?["kind"]))} · 已动工\n实际材料：{Resources(d?["costs"])}";
+        if(_humanSubmittedOperation=="queue_orders")return $"已更新 {d?["units"]?.AsArray().Count??0} 支军队的路线 · 当前可执行部分已处理，其余按期继续。";
+        if(_humanSubmittedOperation=="cancel_orders")return "已取消指定后续军令；已发生的移动与战斗保留。";
         if(_humanSubmittedOperation is "queue_build" or "queue_recruit")return $"{HumanLabel(S(d?["kind"]))} #{d?["id"]} · "+
             (_humanSubmittedOperation=="queue_recruit"?$"待生成 {d?["remaining"]} 支":S(d?["status"])=="construction"?"已开工":"已排入待建队列")+"\n预付材料："+Resources(d?["paid"]);
         if(_humanSubmittedOperation is "cancel_build_order" or "cancel_recruit_order")return "已取消未开始部分 · 全额返还："+Resources(d?["refunds"]);

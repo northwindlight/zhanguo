@@ -67,6 +67,13 @@ def tools(runtime):
 
     def recruitment_queue(world, actor):return _api(runtime,world).recruit_orders(actor)
 
+    def queue_orders(world, actor, ids: list, nodes: list, append: bool=True, auto_heal: bool=True):
+        return _api(runtime,world).queue_orders(actor,ids,nodes,append,auto_heal)
+
+    def cancel_orders(world, actor, ids: list, node: int | None=None):return _api(runtime,world).cancel_orders(actor,ids,node)
+
+    def march_orders(world, actor):return _api(runtime,world).orders(actor)
+
     def move(world, actor, id: int | None = None, x: int | None = None, y: int | None = None,
              place: str | None = None, ids: list[int] | None = None):
         return _api(runtime, world).move(actor, aid=id, ids=ids, x=x, y=y, place=place)
@@ -155,6 +162,21 @@ def tools(runtime):
     tile_tool = replace(tile_tool, parameters=tile_params, adapter=place_arguments)
 
     return (
+        Action('queue_orders',queue_orders,owner='native:army',api=('queue_orders',),
+               parameters={'type':'object','properties':{
+                   'ids':{'type':'array','items':{'type':'integer','minimum':1},'minItems':1,'uniqueItems':True},
+                   'nodes':{'type':'array','maxItems':64,'items':{'type':'object','properties':{
+                       'mode':{'type':'string','enum':['move','attack']},'position':{'type':'array','items':{'type':'integer','minimum':0},'minItems':2,'maxItems':2}},
+                       'required':['mode','position'],'additionalProperties':False}},
+                   'append':{'type':'boolean','default':True},'auto_heal':{'type':'boolean','default':True}},
+                   'required':['ids','nodes'],'additionalProperties':False},
+               description='给本国军队追加跨回合移动/攻击节点，最多每军64个。nodes为mode及position数组，append=false替换剩余路线；auto_heal开启后低于30HP暂停，正常补给回满后继续。可执行部分现在开始，后续每行动期沿已知/未确认通路尝试，仍受原移动力、战争与新兵限制；不使用隐藏地图。空nodes只可修改已有路线的回血开关。'),
+        Action('cancel_orders',cancel_orders,owner='native:army',api=('cancel_orders',),
+               parameters={'type':'object','properties':{'ids':{'type':'array','items':{'type':'integer','minimum':1},'minItems':1,'uniqueItems':True},
+                   'node':{'type':'integer','minimum':1}},'required':['ids'],'additionalProperties':False},
+               description='取消选中军队的剩余军令，或用node指定删除第几个剩余节点（从1开始）；已发生的移动、交战不撤销。'),
+        Tool('march_orders',march_orders,owner='native:army',api=('orders',),read_only=True,panel=True,
+             description='全国本国军队路线、节点、等待回血/交战原因和公开路径；未知通路只有不确定标记，不返回隐藏地形。只读，不推进。'),
         Action('queue_recruit',queue_recruit,owner='native:army',api=('enqueue_recruit',),
                parameters=parameters,adapter=site_arguments,content_parameters=('kind',),schema_for_actor=schema_for_actor,
                description='加入正式征兵队列，预付全部费用，按兵营或军屯原有每期额度分批生成，新兵当期不能行动。必须已有落成设施；民兵待生成数预占编制。停电则等待。取消只全额退回尚未生成部分费用，不退已生成军队。用recruitment_queue查看进度。'),
@@ -442,3 +464,20 @@ CAPTIONS.update(queue_recruit=lambda args,actor,receipt,ctx:'加入征兵队列'
                 recruitment_queue=lambda args,actor,receipt,ctx:'全国征兵队列')
 RECEIPTS.update(queue_recruit=_queued_recruit,cancel_recruit_order=_cancel_recruit)
 PANELS['recruitment_queue']=_recruitment_queue
+
+
+def _march_orders(data, args, actor, ctx):
+    lines=[]
+    for order in data:
+        lines.append(f'#{order["aid"]} · '+('低于30生命时停下并回满再继续' if order['auto_heal'] else '不自动停下回血')+' · '+(order['reason'] or '按期推进'))
+        for node in order['nodes']:
+            lines.append(f'  {node["index"]}. '+('攻击' if node['mode']=='attack' else '移动')+' '+ctx.pos(node['position'])+
+                ('（通路未确认）' if node['uncertain'] else '')+(' · '+node['reason'] if node['reason'] else ''))
+    return '\n'.join(lines) or '暂无后续军令'
+
+
+CAPTIONS.update(queue_orders=lambda args,actor,receipt,ctx:'规划连续军令',
+                cancel_orders=lambda args,actor,receipt,ctx:'取消后续军令',march_orders=lambda args,actor,receipt,ctx:'全国军令路线')
+RECEIPTS.update(queue_orders=lambda args,receipt,actor,ctx:f'已更新 {len(receipt["data"]["units"])} 支军队的路线；当前可执行部分已处理，其余按期继续',
+                cancel_orders=lambda args,receipt,actor,ctx:receipt['data']['message'])
+PANELS['march_orders']=_march_orders

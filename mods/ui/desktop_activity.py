@@ -205,10 +205,16 @@ class TimelineCapture:
             if old and u['owner']==actor and (old['x'],old['y'])!=(u['x'],u['y']):
                 route_key=(u['kind'],old['x'],old['y'],u['x'],u['y'])
                 if route_key not in cache:
-                    cache[route_key]=self.host.observer_route(actor,u['id'],[old['x'],old['y']],[u['x'],u['y']],action=='attack')
+                    queued_attack=action=='queue_orders' and any(r['aid']==u['id'] and r['mode']=='attack' for r in receipt.get('data',{}).get('started',[]))
+                    cache[route_key]=self.host.observer_route(actor,u['id'],[old['x'],old['y']],[u['x'],u['y']],action=='attack' or queued_attack)
                 route=cache[route_key]
                 if route:motions.append({'unit':key('armies',u),'points':route})
-        if action in ('move','attack'):
+        if action=='queue_orders' and motions:
+            first=next(u for u in after['armies'] if key('armies',u)==motions[0]['unit']);position=[first['x'],first['y']]
+            stage=deepcopy(after);stage['ownership']=deepcopy(before['ownership'])
+            self.add('march',name+' · 路线行军',text,position,after=stage,source=source,duration=2.4,motions=motions)
+            self.add('arrival',name+' · 军令执行',text,position,after=after,source=source,duration=1.8)
+        elif action in ('move','attack'):
             data=receipt.get('data') or {};ids=set(data.get('units',args.get('ids') or [args.get('aid')]))
             selected=[u for u in after['armies'] if u['owner']==actor and u['id'] in ids]
             if selected:position=[selected[0]['x'],selected[0]['y']]

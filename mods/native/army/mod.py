@@ -34,7 +34,7 @@ class ArmyMod(GameMod):
             for point in ((u.x,u.y),) + ((u.retreat_to,) if u.retreat_to is not None else ()):
                 if not self.runtime.object_call(world,'native:territory','terrain',*point).passable:
                     raise ValueError('Army or retreat position is on impassable terrain')
-        world.military.restore(state['military']);world.units.size=size;world.units.restore(state['units']);world.units.engage_seq=sequence
+        world.military.restore(state['military'],units=candidate);world.units.size=size;world.units.restore(state['units']);world.units.engage_seq=sequence
     def stages(self):
         return (Stage('native:army.supply',self._supply,hook='military.supply',needs=('relations.applied','buildings.produced'),provides=('military.supplied',)),
                 Stage('native:army.battle',lambda w,c:c.update(battles=w.military.battle()),hook='military.battle',needs=('military.supplied',),provides=('battles.resolved',)),
@@ -56,6 +56,7 @@ class ArmyMod(GameMod):
         # 0.1 那条「与交战国之间的滞留是合法的」豁免，清早一步会把合法驻扎在敌国地上的
         # 军队一并送回国。放这里只差一个回合，不会误伤。
         context['disengaged']=world.military.clear_disengaged()
+        world.military.cleanup_march_orders()
         assert not world.military.engaged_without_foes(), 'Engaged units without foes after settlement'
         context.setdefault('domain_events',[]).extend(world.military.drain_events())
     def rule_sections(self, world=None):
@@ -67,6 +68,11 @@ class ArmyMod(GameMod):
             'move 只调动、不占地；attack 才会占领或进入交战。reachable 给出可见合法路线和代价，路程不能超过兵种移动力。'
             '高山和海洋不可通行、进攻或占领，也不能从障碍侧面的斜角挤过；原有山地仍可通行。unit_catalog 的移动代价 null 表示不可通行。'
             '本国和盟国领土可通行；攻击他国必须已处于战争，外交 submitted 不代表战争已生效。',
+            '连续军令：military(action=queue_orders,ids=[编号],nodes=[{mode:move或attack,position:[x,y]}])追加路线，每军最多64个节点，append=false替换剩余路线。'
+            '当前合法部分开始，之后在轮到本国的行动前按原移动力、新兵和战争规则继续；攻击路线碰到敌地先接敌、交战时等待，己方／盟方位置用移动。'
+            'auto_heal开启时，某军低于绝对30生命会独立停下，正常补给恢复满血才继续；不会额外治疗或强制撤退。'
+            'query(panel=march_orders)查看本国路线与原因，military(action=cancel_orders,ids=[编号],node=可选序号)删指定剩余节点或取消路线。'
+            '直接移动、攻击、撤退会替换该军剩余路线，取消不会撤销已发生的动作。预览只用玩家已知事实，未知段仅示意，不返回隐藏经过格。',
             '征兵：正规军只能在自有已落成兵营征召，停电时不能征召；民兵只能在自有已落成军屯征召。'
             '同格兵营的每期额度相加；民兵还受全国军屯编制上限限制。编制上限和每期征召额度是两个不同数值，查 building_catalog 的效果。'
             f'当前目录中，每座兵营每期可征{barracks.get("recruit_cap",0)}支正规军；每座军屯提供{camp.get("militia_cap",0)}支全国民兵编制、该格每期可征{camp.get("militia_per_turn",0)}支民兵。'

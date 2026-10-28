@@ -14,6 +14,7 @@ class PlayerMap:
         self.units=facts['army'];self.catalog=facts['unit_catalog']
         self.terrain={t['id']:t for t in facts['terrain_catalog']}
         self.relations={n['id']:n['relation'] for n in facts['foreign']['countries']}
+        self._planned_paths={}
 
     def relation(self, owner):
         return 'own' if owner==self.owner else 'wild' if owner is None else self.relations.get(owner,'neutral')
@@ -39,6 +40,40 @@ class PlayerMap:
         # Match the territory interface ordering for stable route ties.
         return tuple((p[0]+dx,p[1]+dy) for dx in (-1,0,1) for dy in (-1,0,1)
             if (dx or dy) and 0<=p[0]+dx<self.size and 0<=p[1]+dy<self.size)
+
+    def cost(self, unit, p, retreat=False):
+        costs=self.catalog[unit['kind']]['move_cost']
+        if p not in self.tiles:return 1 if retreat else min(c for c in costs.values() if c is not None)
+        kind=self.tiles[p]['terrain']
+        if not self.terrain[kind]['passable']:return None
+        return 1 if retreat else costs.get(kind)
+
+    def planned_route(self, unit, start, target, mode):
+        """Standing-order itinerary over public facts, never the actual hidden map.
+
+        Attack itineraries may plan beyond enemy cells. Actual steps still stop
+        at the first combat endpoint and use the normal one-turn candidates.
+        """
+        cache=(unit['kind'],start,target,mode)
+        if cache in self._planned_paths:return self._planned_paths[cache]
+        attack=mode=='attack' and not (target in self.tiles and self.relation(self.tiles[target].get('owner')) in ('own','ally'))
+        reason=self.target_reason(target,attack)
+        if reason:return [],reason
+        parents={};cost=lambda p:self.cost(unit,p)
+        maximum=max(c for c in self.catalog[unit['kind']]['move_cost'].values() if c is not None)
+        best=navigation.reachable(start,self.size*self.size*maximum,self.neighbors,cost,
+            lambda p:self.movable(p) or mode=='attack' and not self.target_reason(p,True),
+            lambda p:not self.target_reason(p,True),attack=mode=='attack',parents=parents,goal=target)
+        result=(navigation.route(start,target,parents),'') if target in best else ([], '当前已知条件下没有可规划的通路')
+        self._planned_paths[cache]=result
+        return result
+
+    def public_route(self, points):
+        cells={tuple(p) for p in points}
+        for a,b in zip(points,points[1:]):
+            if a[0]!=b[0] and a[1]!=b[1]:cells.update(((a[0],b[1]),(b[0],a[1])))
+        uncertain=not cells<=self.tiles.keys()
+        return {'uncertain':uncertain,'points':[] if uncertain else points}
 
     def commands(self, u):
         p=(u['x'],u['y']);attacked=self.attacked(p)
@@ -70,12 +105,7 @@ def candidates(observation, ids, mode, size):
         reason=navigation.retreat_reason(u,view.period,view.attacked(start)) if retreat else navigation.action_reason(u,view.period,attack=attack,attacked=view.attacked(start))
         reasons[aid]=reason
         speed=1 if retreat else definition['speed'];costs=definition['move_cost']
-        minimum=min(c for c in costs.values() if c is not None)
-        def cost(p):
-            if p not in view.tiles:return 1 if retreat else minimum
-            kind=view.tiles[p]['terrain']
-            if not view.terrain[kind]['passable']:return None
-            return 1 if retreat else costs.get(kind)
+        cost=lambda p:view.cost(u,p,retreat)
         search=dict(start=start,speed=speed,neighbors=view.neighbors,cost=cost,movable=view.movable,
             target_ok=lambda p:p not in view.tiles or view.relation(view.tiles[p].get('owner'))!='neutral',attack=attack)
         parents={};best=navigation.reachable(**search,parents=parents)

@@ -10,6 +10,7 @@ public partial class WorldMap
     private sealed record SquadLabel(SquadView.Status Status,Vector2 At,Color Color,float FigureBottom,float Side,bool Separate,float FigureWidth=60,float FigureTop=-30);
     private readonly List<SquadLabel> _squadLabels=new();
     public int VisibleSquadBars { get; private set; }
+    public int SelectedSquadUnits { get; private set; }
     public IReadOnlyList<string> LastSquadLabels=>_squadLabelText;
     private readonly List<string> _squadLabelText=new();
     private readonly Dictionary<string,StyleBoxFlat> _squadLabelStyles=new();
@@ -22,12 +23,12 @@ public partial class WorldMap
 
     private void DrawTroops()
     {
-        VisibleSoldiers=VisibleSquadBars=0;_squadLabels.Clear();_squadLabelText.Clear();_squadLabelBounds.Clear();_wildFigureCounts.Clear();
+        VisibleSoldiers=VisibleSquadBars=SelectedSquadUnits=0;_squadLabels.Clear();_squadLabelText.Clear();_squadLabelBounds.Clear();_wildFigureCounts.Clear();
         if(Frame==null||_layout==null)return;
         if(!Units&&!ShowGuards)return;
         string Route(JsonNode u)=>_beat?["motions"]?.AsArray().FirstOrDefault(m=>m!["unit"]!.ToString()==DesktopScene.Key("armies",u))?["points"]?.ToJsonString()??"";
         var groups=SquadView.Units(Frame).Where(u=>!PlayerMode||IsLive(new(I(u["x"]),I(u["y"]))))
-            .GroupBy(u=>(X:I(u!["x"]),Y:I(u["y"]),Owner:S(u["owner"]),Kind:S(u["kind"]),Path:Route(u)))
+            .GroupBy(u=>(X:I(u!["x"]),Y:I(u["y"]),Owner:S(u["owner"]),Kind:S(u["kind"]),Path:Route(u),Chosen:PlayerMode&&S(u["owner"])==PlayerActor&&_selectedArmyIds.Contains(I(u["id"]))))
             .OrderBy(g=>g.Key.Y).ThenBy(g=>g.Key.X).ThenBy(g=>g.Key.Owner,StringComparer.Ordinal).ThenBy(g=>g.Key.Kind,StringComparer.Ordinal).ToArray();
         var cells=groups.GroupBy(g=>(g.Key.X,g.Key.Y)).ToDictionary(g=>g.Key,g=>g.ToArray());
         foreach(var group in groups)
@@ -40,6 +41,7 @@ public partial class WorldMap
             var anchor=guard!=null&&!moving?GuardAnchor(guard):TroopPosition(first);
             var at=Screen(anchor);if(!OnScreen(at,160))continue;
             var color=wild?new Color("ac8b63"):NationColor(group.Key.Owner);
+            if(group.Key.Chosen)SelectedSquadUnits+=group.Count();
             float size=_scale;
             if(wild&&size<.3f)
             {
@@ -89,6 +91,12 @@ public partial class WorldMap
                 bool front=side<0?i%columns==columns-1:i%columns==0;
                 if(fighting&&front)spot.X-=side*strike*(horse?4:2)*size;
                 var p=mustering?musterOrigin.Lerp(spot,muster):spot;
+                if(group.Key.Chosen)
+                {
+                    float radius=Math.Max(3.5f,(horse?8:5)*size);
+                    DrawCircle(p+new Vector2(0,3)*size,radius,new Color(.8f,.96f,.6f,.18f));
+                    DrawArc(p+new Vector2(0,3)*size,radius,0,MathF.Tau,18,new Color("ffe29a"),Math.Max(1,size));
+                }
                 bool stepping=moving||mustering&&muster<.999f||fighting&&_beatProgress<.20f;
                 if(wild&&owners.Length==1&&((clock+i*.31)/7)%1<.34)
                 {stepping=true;p+=new Vector2(MathF.Sin((float)clock+i)*2,MathF.Cos((float)clock+i)*1.5f)*size;}
@@ -104,6 +112,11 @@ public partial class WorldMap
                 VisibleSoldiers++;
             }
             if(!wild)DrawSquadFlag(at+new Vector2(-formationWidth*.5f-5,-22)*size,color,size);
+            if(group.Key.Chosen)
+            {
+                int total=SquadView.Units(Frame).Count(u=>S(u["owner"])==group.Key.Owner&&S(u["kind"])==group.Key.Kind&&I(u["x"])==group.Key.X&&I(u["y"])==group.Key.Y);
+                DrawString(_font,at+new Vector2(-28,-40)*size,$"已选{group.Count()}/{total}",fontSize:14,modulate:new Color("ffe29a"));
+            }
             bool focus=at.DistanceTo(Size*.5f)<110*Math.Max(.8f,_scale)||Selected==new Vector2I(group.Key.X,group.Key.Y);
             if(_scale>=.48f&&OnScreen(at,20)&&(!wild||fighting||owners.Length>1||focus&&_scale>=.72f))
             {

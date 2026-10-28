@@ -6,6 +6,14 @@ using static WorldMap;
 
 public partial class Desktop
 {
+    private async Task RightOrderAt(Vector2I point,bool attack=false,bool append=false)
+    {
+        var at=_map.CellCenter(point);
+        GetViewport().PushInput(new InputEventMouseButton { ButtonIndex=MouseButton.Right,Pressed=true,Position=at,GlobalPosition=at,CtrlPressed=attack,ShiftPressed=append },true);
+        await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+        GetViewport().PushInput(new InputEventMouseButton { ButtonIndex=MouseButton.Right,Pressed=false,Position=at,GlobalPosition=at,CtrlPressed=attack,ShiftPressed=append },true);
+        await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+    }
     private async Task ReviewResourceTooltip()
     {
         HideResourceTooltip();
@@ -66,13 +74,19 @@ public partial class Desktop
         await PointerClick(_humanNav["army"]);await ToSignal(GetTree().CreateTimer(.3),SceneTreeTimer.SignalName.Timeout);
         CheckOutlinerLayout();if(_outlinerRows.Count!=2)throw new Exception("军队总览未列出两处驻军");
         await Screenshot(stem+"-outliner-armies.png");
+        _selectedArmies.Clear();ArmySelectionChanged();
         await PointerClick(_outlinerRows[destination]);
-        if(!_selectedArmies.SetEquals(front)||_humanPage!="army-unit")throw new Exception("总览未直接选择前线军队");
-        await PointerClick(_outlinerArmy);await ToSignal(GetTree().CreateTimer(.3),SceneTreeTimer.SignalName.Timeout);
+        if(!_selectedArmies.SetEquals(front))throw new Exception("总览未选择前线军队");
         await PointerClick(_outlinerRows[capital]);
-        if(!_selectedArmies.SetEquals(home)||_selectedArmies.Intersect(front).Any())throw new Exception("选择另一驻地时混入旧选择");
-        foreach(string mode in new[]{"move","attack","retreat"})
-            if(!((Button)_humanContent.FindChild("HumanOrder_"+mode,true,false)!).Disabled)throw new Exception("新募驻军仍亮起不可用军令");
+        if(!_selectedArmies.SetEquals(home.Concat(front)))throw new Exception("跨驻地选择被清空");
+        if(!_armySelectionText.Text.Contains("2 处驻地")||!_armySelectionPanel.Visible)throw new Exception("已选摘要没有固定显示");
+        GetViewport().PushInput(new InputEventKey { Keycode=Key.Ctrl,Pressed=true },true);
+        await WaitFor(()=>_humanTargetMode=="attack"&&_map.HumanTarget(destination)!=null,"跨驻地攻击没有候选");
+        var partial=_map.HumanTarget(destination)!;
+        if(partial["ids"]!.AsArray().Count!=front.Length||partial["excluded"]!.AsArray().Count!=home.Length)throw new Exception("新兵与前线部分可执行结果不一致");
+        GetViewport().PushInput(new InputEventKey { Keycode=Key.Ctrl,Pressed=false },true);
+        await PointerClick((Button)_armySelectionPanel.FindChild("ShowSelectedArmies",true,false)!);
+        ValidateHumanLayout();
         await Screenshot(stem+"-outliner-orders.png");
         await PointerClick(_outlinerLand);await ToSignal(GetTree().CreateTimer(.3),SceneTreeTimer.SignalName.Timeout);
         if(_outlinerRows.Count!=OutlinerTiles.Count())throw new Exception("本国地块总览缺项");
@@ -92,7 +106,32 @@ public partial class Desktop
         if(_outlinerRows.Count!=0)throw new Exception("搜索无匹配仍显示地块");
         _outlinerSearch.Text="";_outlinerSearch.EmitSignal(LineEdit.SignalName.TextChanged,"");
         await PointerClick(_outlinerRows[capital]);
-        if(_selectedArmies.Except(home).Any())throw new Exception("切换地块没有清理驻地选择");
+        if(!_selectedArmies.SetEquals(home.Concat(front)))throw new Exception("切换地块丢失跨驻地勾选");
         _outlinerFilters.Hide();OpenHumanOutliner(true);
+        await PointerClick((Button)_armySelectionPanel.FindChild("ClearArmySelection",true,false)!);
+        await PointerClick((CheckButton)_outlinerList.FindChild("OutlinerArmy_"+home[0],true,false)!);
+        CloseDrawers(false);_map.SelectAndFocus(capital);
+        await ToSignal(GetTree().CreateTimer(.2),SceneTreeTimer.SignalName.Timeout);
+        if(_map.SelectedSquadUnits<1)throw new Exception("选中的实际编队没有脚底光环");
+        await Screenshot(stem+"-selected-halo.png");
+        // Renderer-only fixture: an extra unselected unit at the same site.
+        // The running game and its army identities are never changed.
+        var actual=_map.Frame!.DeepClone().AsObject();var mixed=actual.DeepClone().AsObject();
+        foreach(var array in new[]{mixed["armies"]!.AsArray(),mixed["scene"]!["armies"]!.AsArray()})
+        {
+            var copy=array.First(u=>S(u!["owner"])==HumanActor&&I(u["id"])==home[0])!.DeepClone();copy["id"]=99999;array.Add(copy);
+        }
+        _map.SetFrame(mixed);await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+        if(_map.SelectedSquadUnits!=1)throw new Exception("同格未选中的军队也出现了选中光环");
+        await Screenshot(stem+"-partial-selection-halo.png");_map.SetFrame(actual);
+        var waypoint=OutlinerTiles.Select(t=>new Vector2I(I(t["position"]![0]),I(t["position"]![1]))).First(p=>p!=capital);
+        _map.SelectAndFocus(waypoint);await RightOrderAt(waypoint,append:true);await HumanIdle();
+        var wild=_map.Frame!["tiles"]!.AsArray().First(t=>S(t!["visibility"])=="live"&&t["owner"]==null&&t["terrain"]!=null&&S(t["terrain"]) is not "native:high-mountain" and not "native:ocean")!;
+        var second=new Vector2I(I(wild["position"]![0]),I(wild["position"]![1]));
+        _map.SelectAndFocus(second);await RightOrderAt(second,attack:true,append:true);await HumanIdle();
+        var itinerary=_humanState!["army_orders"]!.AsArray().Single(r=>I(r!["aid"])==home[0])!;
+        if(itinerary["nodes"]!.AsArray().Count!=2||S(itinerary["nodes"]![1]!["mode"])!="attack"||_map.OrderNodeCount!=2)throw new Exception("两种Shift右键没有追加节点和路径线");
+        OpenHumanPage("selected-armies");await WaitFor(()=>Drawers.All(d=>d.IsSettled),"路线面板未展开");ValidateHumanLayout();await Screenshot(stem+"-march-waypoints.png");
+        OpenHumanOutliner(true);
     }
 }

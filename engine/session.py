@@ -380,6 +380,10 @@ class Session:
             handler=getattr(service,'record_dialogue',None)
             if handler:handler(player,wire(messages))
 
+    def before_actor(self, player):
+        """Distribution action-start work; truthy requests a presentation flush."""
+        return False
+
     def cycle(self,*,on_result=None,emit=None,head=None,on_call=None,on_stream=None,on_batch=None,on_human=None):
         if self.victory_event is not None:raise ValueError('Game has ended with a victory event')
         def call(actor,step,receipts):
@@ -389,6 +393,8 @@ class Session:
         self._callbacks=on_result;self._emit=emit
         try:
             for actor in self.turn_order():
+                initial=self.player(actor)
+                if initial.action_state()['can_act'] and self.before_actor(initial) and on_batch:on_batch(actor,None)
                 client=self.clients[actor];transitions=0
                 while True:
                     player=self.player(actor);generation=player.generation

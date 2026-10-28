@@ -25,7 +25,7 @@ class TestKnownSaveUpgrade(unittest.TestCase):
                 expected=deepcopy(old)
                 expected['dependencies']=upgraded['dependencies']
                 expected['modules']['native:buildings']['queued']=[]
-                expected['modules']['native:army']['military'].update(recruit_queue=[],next_recruit_order=1)
+                expected['modules']['native:army']['military'].update(recruit_queue=[],next_recruit_order=1,march_orders=[])
                 self.assertEqual(upgraded,expected)
                 host=GameHost(GameHost.prepare(cfg));host.session.restore(upgraded)
                 api=HumanAPI(host);site=api.state(A)['facts']['building_sites']['sites'][0]
@@ -55,3 +55,12 @@ class TestKnownSaveUpgrade(unittest.TestCase):
             GameHost.load(target,config())
             with self.assertRaises(FileExistsError):upgrade_copy(source,target,config())
             with self.assertRaises(FileExistsError):upgrade_copy(source,source,config())
+
+    def test_production_development_saves_preserve_prepaid_work(self):
+        for edition,mods in (('native','mods.toml'),('experimental','mods.experimental.toml')):
+            data=json.loads(gzip.decompress((Path(__file__).parent/'fixtures'/f'v07-production-{edition}.json.gz').read_bytes()))
+            upgraded=prepare_upgrade(data,config(mods));expected=deepcopy(data)
+            expected['dependencies']=upgraded['dependencies'];expected['modules']['native:army']['military']['march_orders']=[]
+            self.assertEqual(upgraded,expected)
+            self.assertTrue(upgraded['modules']['native:buildings']['queued'])
+            self.assertTrue(upgraded['modules']['native:army']['military']['recruit_queue'])

@@ -14,7 +14,7 @@ from engine.runtime import Action, Tool, unit_context
 
 COMMANDS = (
     ('military', '军队行动',
-     ('recruit', 'queue_recruit', 'cancel_recruit_order', 'move', 'attack', 'retreat', 'disband')),
+     ('recruit', 'queue_recruit', 'cancel_recruit_order', 'move', 'attack', 'retreat', 'disband', 'queue_orders', 'cancel_orders')),
     ('economy', '经济行动',
      ('buy', 'sell', 'auto_trade', 'remove_auto_trade', 'borrow', 'buy_report')),
     ('relations', '外交行动',

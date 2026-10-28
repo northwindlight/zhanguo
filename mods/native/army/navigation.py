@@ -46,12 +46,13 @@ def step_allowed(start, target, passable):
     return x == tx or y == ty or (passable((x,ty)) and passable((tx,y)))
 
 
-def reachable(start, speed, neighbors, cost, movable, target_ok, *, attack=False, visible=None, parents=None):
+def reachable(start, speed, neighbors, cost, movable, target_ok, *, attack=False, visible=None, parents=None, goal=None):
     """Weighted army navigation; attack-only endpoints are never transit cells."""
     best={start:0};queue=[(0,start)]
     while queue:
         distance,point=heapq.heappop(queue)
         if distance != best[point]:continue
+        if point==goal:break
         for target in neighbors(point):
             if visible is not None and (target not in visible or
                 point[0] != target[0] and point[1] != target[1] and

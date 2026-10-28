@@ -267,6 +267,7 @@ public partial class Desktop : Control
 
     private void StartHost(string? configPath=null,string? resumePath=null)
     {
+        _selectedArmies.Clear();_replaceNextRoute=false;_armyRangeSuspended=false;_armyRangeDirty=true;
         string output=Path.Combine(_runtime.DataRoot,"archive","desktop",DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N")[..6]);
         var info=_runtime.Host(output,configPath,resumePath);
         _host=Process.Start(info) ?? throw new Exception("无法启动 Python 宿主");
@@ -342,7 +343,7 @@ public partial class Desktop : Control
         }
         ProcessPlayback(delta);
         if(HumanMode)_map.PlayerPanelOpen=_humanDrawer.IsOpen;
-        if(HumanMode){LayoutHumanOutliner();DispatchHumanQueue();}
+        if(HumanMode){LayoutHumanOutliner();DispatchHumanQueue();TickArmySelection();}
         _map.HudObstacles.Clear();
         foreach(var control in new Control[]{_ledgerPanel,_banner,_settlementCard,_outliner}.Concat(Drawers))
             if(control.IsVisibleInTree())
@@ -621,9 +622,10 @@ public partial class Desktop : Control
 
     public override void _Input(InputEvent input)
     {
+        if(input is InputEventKey control&&control.Keycode==Key.Ctrl){_armyCtrlHeld=control.Pressed;_armyRangeDirty=true;_manualArmyTarget=false;}
         if(input is InputEventKey {Pressed:true,Echo:false,Keycode:Key.Escape} && _host!=null && !_closing)
         {
-            if(HumanMode&&_humanTargetMode!=""){CancelHumanTarget();GetViewport().SetInputAsHandled();return;}
+            if(HumanMode&&(_humanTargetMode!=""||_replaceNextRoute)){_replaceNextRoute=false;CancelHumanTarget(true);GetViewport().SetInputAsHandled();return;}
             if(_pauseMenu.Visible)ClosePauseMenu();else OpenPauseMenu();
             GetViewport().SetInputAsHandled();
         }

@@ -12,6 +12,7 @@ from engine.state import active_unit
 from .objects import Unit
 from . import navigation
 from .recruit_queue import RecruitmentQueue
+from .march_orders import MarchOrders
 from .parameters import ARMY_GID_BASE, ARMY_STARVE_DAMAGE, ARMY_HEAL_PER_TURN, HEAL_EQUIP_COST, COMBAT_DIE_MOD, RETREAT_ATK_PENALTY, RETREAT_DEF_COVER
 
 
@@ -27,10 +28,11 @@ class MilitaryReceipt:
     items: tuple = ()
 
 
-class Military(RecruitmentQueue):
+class Military(RecruitmentQueue,MarchOrders):
     def __init__(self, units, call, parameter):
         self._units,self._call,self._parameter=units,call,parameter
         self._recruit_queue={};self._next_recruit_order=1
+        self._march_orders={}
         self._recruited={};self._facts=[];self._rng=None;self._seed=None;self._grid_short={};self._events=[]
         self._world,self._domain=None,None
 
@@ -363,7 +365,7 @@ class Military(RecruitmentQueue):
     def disband(self, owner, aid):
         self._action(owner);unit=self._own_unit(owner,aid)
         if not self.can_disband(owner,aid):raise ValueError('正在交战或受到进攻的军队不能遣散；请提交撤退并等待结算')
-        self._units.remove(unit);return MilitaryReceipt('effective',(aid,),False,False,message='已遣散，不退还任何粮/装备/黄金')
+        self._units.remove(unit);self.clear_march_orders(owner,[aid]);return MilitaryReceipt('effective',(aid,),False,False,message='已遣散，不退还任何粮/装备/黄金')
 
     def disengage(self, owners):
         """亡国当场的强制停战（用户 2026-10-07：「正在发生的战争必须强制停下」）。
@@ -406,6 +408,7 @@ class Military(RecruitmentQueue):
         return tuple((u.owner,u.id,u.x,u.y) for u in self._units if u.engaged and not self._engaged_foes(u))
     def remove_nation(self, owner):
         self._write()
+        self.clear_march_orders(owner,[aid for nation,aid in self._march_orders if nation==owner])
         for order in tuple(self._recruit_queue.values()):
             if order.owner==owner:self._refund_recruit_order(order)
         for unit in tuple(self._units.of(owner)):self._units.remove(unit)
@@ -689,12 +692,13 @@ class Military(RecruitmentQueue):
 
     def to_save(self):
         rng=self._rng.getstate() if self._rng else None
-        return {'recruit_queue':self._save_recruit_orders(),'next_recruit_order':self._next_recruit_order,'recruited':[{'period':p,'site':s,'militia':m,'count':n} for (p,s,m),n in self._recruited.items()],
+        return {'march_orders':self._save_march_orders(),'recruit_queue':self._save_recruit_orders(),'next_recruit_order':self._next_recruit_order,'recruited':[{'period':p,'site':s,'militia':m,'count':n} for (p,s,m),n in self._recruited.items()],
                 'facts':deepcopy(self._facts),'seed':self._seed,'grid_short':dict(self._grid_short),'events':deepcopy(self._events),
                 'rng':None if rng is None else [rng[0],list(rng[1]),rng[2]]}
-    def restore(self, data):
+    def restore(self, data, *, units=None):
         self._write()
-        if not isinstance(data,dict) or set(data) not in ({'recruited','facts','seed','rng','grid_short','events'},{'recruited','facts','seed','rng','grid_short','events','recruit_queue','next_recruit_order'}) or not isinstance(data['recruited'],list) or not isinstance(data['facts'],list) or not isinstance(data['events'],list):raise ValueError('Invalid military save')
+        expected={'recruited','facts','seed','rng','grid_short','events'}
+        if not isinstance(data,dict) or set(data) not in (expected,expected|{'recruit_queue','next_recruit_order'},expected|{'recruit_queue','next_recruit_order','march_orders'}) or not isinstance(data['recruited'],list) or not isinstance(data['facts'],list) or not isinstance(data['events'],list):raise ValueError('Invalid military save')
         if not isinstance(data['grid_short'],dict) or any(type(value) is not bool for value in data['grid_short'].values()):raise ValueError('Invalid military grid facts')
         for owner in data['grid_short']:self._call('native:nation-inspection','get',owner)
         recruited={}
@@ -732,6 +736,12 @@ class Military(RecruitmentQueue):
             if not isinstance(event['parties'],(list,tuple)) or len(set(event['parties']))!=len(event['parties']):raise ValueError('Invalid military event recipients')
             for owner in event['parties']:self._call('native:nation-inspection','get',owner)
         queued=self._restore_recruit_orders(data.get('recruit_queue',[]),data.get('next_recruit_order',1))
+        marches=self._restore_march_orders(data.get('march_orders',[]))
+        troops=self._units if units is None else units
+        for owner,aid in marches:
+            unit=troops.by_id(aid,owner)
+            if unit is None or not unit.alive:raise ValueError('March order has no living owned unit')
+        self._march_orders=marches
         self._recruit_queue=queued;self._next_recruit_order=data.get('next_recruit_order',1)
         self._recruited,self._facts,self._seed,self._rng=recruited,deepcopy(data['facts']),data['seed'],rng
         self._grid_short=dict(data['grid_short'])

@@ -64,7 +64,7 @@ public partial class Desktop
         }
         _humanDrawer=Drawer("本国政务",MapDrawer.Side.Right);
         _humanDrawer.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));
-        _targetSummary=new Label { Visible=false,AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("a9cddd") };
+        _targetSummary=new Label { Visible=false,MaxLinesVisible=4,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("a9cddd") };
         _humanDrawer.Body.AddChild(_targetSummary);
         var scroll=new ScrollContainer { SizeFlagsVertical=SizeFlags.ExpandFill,HorizontalScrollMode=ScrollContainer.ScrollMode.Disabled };
         _humanScroll=scroll;
@@ -86,10 +86,12 @@ public partial class Desktop
         _map.HumanTargetHovered=target=>
         {
             if(_humanTargetMode=="")return;
+            if(target!=null)_lastArmyTarget=target.DeepClone().AsObject();
             _targetSummary.Text=target==null?"选择地图上的目标圈；Esc 取消军令。":
                 $"本次可执行 {target["ids"]!.AsArray().Count} / 已选 {_selectedArmies.Count} 支"+
                 (target["uncertain"]?.GetValue<bool>()==true?" · 迷雾内尝试，通路尚未确认":"")+
-                string.Concat((target["excluded"]?.AsArray()??new JsonArray()).Select(e=>$"\n#{e!["aid"]}：{e["reason"]}"));
+                " · 参与 "+string.Join("、",target["ids"]!.AsArray().Take(6).Select(i=>"#"+S(i)))+
+                string.Concat((target["excluded"]?.AsArray()??new JsonArray()).Take(2).Select(e=>$"\n#{e!["aid"]}：{e["reason"]}"))+"\n完整名单与原因见「查看已选」。";
             _map.TooltipText=_targetSummary.Text;
         };
     }
@@ -112,6 +114,7 @@ public partial class Desktop
             return;
         }
         _humanState=state;
+        _lastArmyTarget=null;
         if(_humanTurn!=null&&I(_humanTurn["period"])==I(state["period"]))_humanNeedsFrame=false;
         _desktopTitle.Text="战国 · "+NationLabel(HumanActor);
         _menuQuit.Text="退出游戏…";_menuContinue.Text="继续操作 · Esc";
@@ -122,19 +125,21 @@ public partial class Desktop
         var selected=OwnArmies.Where(u=>_selectedArmies.Contains(I(u["id"]))).ToArray();
         var places=selected.Select(u=>new Vector2I(I(u["x"]),I(u["y"]))).Distinct().ToArray();
         if(places.Length==1)_selectionCell=places[0]; // Follow this squad after its own move.
-        else if(places.Length>1){_selectedArmies.Clear();_targetEpoch++;}
+        int lost=_selectedArmies.Count-selected.Length;
         SetHumanSelectionCell(_selectionCell);
+        RefreshArmySelection();_armyRangeDirty=true;
+        if(lost>0)HumanMessage($"{lost} 支选中军队已阵亡或不再属于本国；其余选择保留。");
         if(!_humanStarted)
         {
             _humanStarted=true;_playbackPaused=false;Send("resume");
             _map.FocusNation(HumanActor);
         }
-        if(_humanDrawer.IsOpen&&_humanTargetMode=="")RenderHumanPage();
+        if(_humanDrawer.IsOpen&&!_manualArmyTarget)RenderHumanPage();
         RenderHumanOutliner();
         RefreshHumanButtons();
     }
     private static string Badge(int count)=>count>0?$" ({count})":"";
-    private IEnumerable<JsonNode> OwnArmies=>(_humanState?["facts"]?["army"]?.AsArray()??new JsonArray()).Where(u=>S(u!["owner"])==HumanActor).Select(u=>u!);
+    private IEnumerable<JsonNode> OwnArmies=>(_humanState?["facts"]?["army"]?.AsArray()??new JsonArray()).Where(u=>S(u!["owner"])==HumanActor&&F(u["hp"])>0).Select(u=>u!);
     private void RefreshHumanButtons()
     {
         if(_humanNav.Count==0||!HumanMode)return;
@@ -247,13 +252,13 @@ public partial class Desktop
         _humanReceipt.Text=message;_humanReceipt.TooltipText=message;
         _humanReceipt.Modulate=new Color(success?"c6e3ad":"ffb6a4");
     }
-    private void CancelHumanTarget()
-    { _targetEpoch++;_humanTargetMode="";_map.SetHumanTargets("",null);_targetSummary.Visible=false;_map.TooltipText=""; }
+    private void CancelHumanTarget(bool suspend=false)
+    { _targetEpoch++;_humanTargetMode="";_manualArmyTarget=false;_armyRangeSuspended=suspend;_armyRangeDirty=true;_map.SetHumanTargets("",null);_targetSummary.Visible=false;_map.TooltipText=""; }
     private void HumanTileSelected(JsonObject? tile)
     {
         if(tile==null)return;
         var p=tile["position"]!;var point=new Vector2I(I(p[0]),I(p[1]));
-        if(_humanTargetMode!="")
+        if(_manualArmyTarget&&_humanTargetMode!="")
         {
             if(_map.HumanTarget(point) is not JsonObject target){HumanMessage("请选择当前军令的目标圈；Esc 可取消。",false);return;}
             string mode=_humanTargetMode;
@@ -265,20 +270,24 @@ public partial class Desktop
         if(changed)HumanMessage("已切换地块；当前操作条件已刷新。");
         OpenHumanPage(_humanPage is "build" or "recruit"&&S(tile["owner"])==HumanActor?_humanPage:"tile");
     }
-    private void StartHumanTarget(string mode)
+    private void StartHumanTarget(string mode,bool manual=true)
     {
         SetHumanSelectionCell(_selectionCell);
-        if(!HumanCanWrite||_selectedArmies.Count==0){HumanMessage("先在右侧军队总览选择一处驻军。",false);return;}
+        if(!HumanCanWrite||_selectedArmies.Count==0){if(manual)HumanMessage("先在右侧军队总览勾选军队。",false);return;}
+        _manualArmyTarget=manual;_armyRangeDirty=false;
+        if(manual)_armyRangeSuspended=false;
         _humanTargetMode=mode;
+        _map.SetHumanTargets(mode,null);
         int epoch=++_targetEpoch;
         var ids=new JsonArray(_selectedArmies.Order().Select(i=>(JsonNode?)JsonValue.Create(i)).ToArray());
         HumanQuery("targets",new JsonObject { ["ids"]=ids,["mode"]=mode },row=>
         {
             if(_humanTargetMode!=mode||epoch!=_targetEpoch)return;
             var data=row["data"]!;_map.SetHumanTargets(mode,data["targets"]!.AsArray());
-            _map.FocusHumanTargets();
+            if(manual)_map.FocusHumanTargets();
             _targetSummary.Visible=true;
-            _targetSummary.Text=$"{(mode=="attack"?"攻击":mode=="retreat"?"撤退":"移动")} · {_map.TargetCount} 个候选格\n空心蓝圈为移动，红色准星为攻击；虚线表示未确认通路。Esc 取消。";
+            _targetSummary.Text=$"{(mode=="attack"?"攻击":mode=="retreat"?"撤退":"移动")} · {_map.TargetCount} 个候选格\n"+(manual?"左键选择目标；Esc 取消。":"右键移动 · Ctrl右键攻击 · Shift追加路线；虚线表示通路未确认。");
+            if(_map.TargetCount==0)_targetSummary.Text+="\n"+string.Join("；",data["units"]!.AsArray().Select(u=>S(u!["reason"])).Where(r=>r!="").Distinct().Take(3));
         });
     }
 }

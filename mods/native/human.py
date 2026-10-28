@@ -8,6 +8,7 @@ from .army.candidates import candidates, command_states
 from .tools.commands import COMMANDS
 
 LABELS = {
+    'queue_orders':'规划路线','cancel_orders':'取消路线',
     'queue_build':'加入建设队列','cancel_build_order':'取消待建','queue_recruit':'加入征兵队列','cancel_recruit_order':'取消待征',
     'build':'建设','demolish':'拆除建筑','recruit':'征兵','move':'移动','attack':'攻击','retreat':'撤退','disband':'遣散',
     'buy':'买入','sell':'卖出','auto_trade':'自动交易','remove_auto_trade':'删除自动交易','borrow':'贷款','buy_report':'购买经济报表','buy_map':'购买地图',
@@ -137,6 +138,7 @@ class HumanAPI:
         votes = [v for v in relation.get('votes',[]) if v['deadline']==observed['period'] and actor in v.get('voters',[]) and
                  actor not in dict(v.get('ballots',[]))]
         return {**observed, 'nickname':self.host.clients[actor].cfg.get('nickname','玩家'),
+                'army_orders':player.call_api('native:army','orders'),
                 'production_queue':{'construction':player.call_api('native:buildings','orders'),
                                     'recruitment':player.call_api('native:army','recruit_orders')},
                 'operations':self.operations(actor),

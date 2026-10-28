@@ -11,7 +11,7 @@ public partial class Desktop
     private readonly Queue<HumanCommand> _humanCommands=new();
     private HBoxContainer _humanQueuePanel=null!;
     private Label _humanQueueStatus=null!;
-    private static bool QueueableHuman(string operation)=>operation is "buy" or "sell" or "build" or "recruit" or "queue_build" or "queue_recruit";
+    private static bool QueueableHuman(string operation)=>operation is "buy" or "sell" or "build" or "recruit" or "queue_build" or "queue_recruit" or "queue_orders";
     private bool HumanCanQueue=>HumanMode&&_humanTurn!=null&&!_humanNeedsFrame&&!_humanEnded&&!_humanPaused&&
         !_pauseMenu.Visible&&!_closing&&!_stopped&&_humanState?["can_act"]?.GetValue<bool>()==true&&
         (!HasTimeline||_timelineStage=="action")&&(!_humanBusy||_humanSubmittedOperation!="end_turn");

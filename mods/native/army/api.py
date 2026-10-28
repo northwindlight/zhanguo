@@ -1,5 +1,6 @@
 """Player-facing army API; tool schemas live in the distribution tool layer."""
 from .parameters import RETREAT_ATK_PENALTY
+from engine.runtime import unit_context
 
 
 class ArmyAPI:
@@ -57,17 +58,35 @@ class ArmyAPI:
     def move(self, actor, aid=None, ids=None, x=None, y=None, place=None):
         ids = self.selection(aid, ids)
         x, y = self.where(place, x, y)
-        return self.military.move_many(actor, ids, x, y)
+        result=self.military.move_many(actor, ids, x, y)
+        self.military.clear_march_orders(actor,ids)
+        return result
 
     def attack(self, actor, aid=None, ids=None, x=None, y=None, place=None):
         ids = self.selection(aid, ids)
         x, y = self.where(place, x, y)
-        return self.military.attack(actor, ids, x, y)
+        result=self.military.attack(actor, ids, x, y)
+        self.military.clear_march_orders(actor,ids)
+        return result
 
     def retreat(self, actor, aid=None, ids=None, x=None, y=None, place=None):
         ids = self.selection(aid, ids)
         x, y = self.where(place, x, y)
-        return self.military.retreat_many(actor, ids, x, y)
+        result=self.military.retreat_many(actor, ids, x, y)
+        self.military.clear_march_orders(actor,ids)
+        return result
+
+    def order_observation(self, actor):
+        # Re-enter the actor-bound read surface instead of importing foreign
+        # state or expanding the army domain's write interfaces.
+        with unit_context(None):return self.world.runtime.player(self.world,actor).observe()
+
+    def queue_orders(self, actor, ids, nodes, append=True, auto_heal=True):
+        return self.military.enqueue_orders(actor,self.selection(None,ids),nodes,self.order_observation(actor),append=append,auto_heal=auto_heal,refresh=lambda:self.order_observation(actor))
+
+    def orders(self, actor):return self.military.march_orders(actor,self.order_observation(actor))
+
+    def cancel_orders(self, actor, ids, node=None):return self.military.cancel_orders(actor,self.selection(None,ids),node)
 
     def disband(self, actor, aid=None, ids=None):
         ids = self.selection(aid, ids)

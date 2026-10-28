@@ -88,7 +88,7 @@ class TestToolSurface(unittest.TestCase):
         military = schemas['military']
         self.assertEqual(military['required'], ['action'])
         branches = {b['properties']['action']['enum'][0]: b for b in military['oneOf']}
-        self.assertEqual(set(branches), {'recruit', 'queue_recruit', 'cancel_recruit_order', 'move', 'attack', 'retreat', 'disband'})
+        self.assertEqual(set(branches), {'recruit', 'queue_recruit', 'cancel_recruit_order', 'move', 'attack', 'retreat', 'disband', 'queue_orders', 'cancel_orders'})
         self.assertEqual(branches['disband']['required'], ['action'])
         self.assertIn({'required': ['id']}, branches['disband']['anyOf'])
         # 地点写法约束随动作分支带出：recruit 分支仍要求 site/place/x,y 三选一。

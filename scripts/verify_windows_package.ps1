@@ -66,7 +66,7 @@ foreach ($taskCheck in @('market_quantity_buttons', 'market_exact_quotes', 'auto
 foreach ($taskCheck in @('power_visible', 'power_ignores_unfinished', 'power_previous_actual')) {
     if ($taskHuman.$taskCheck -ne $true) { throw "Power display verification failed: $taskCheck" }
 }
-foreach ($taskCheck in @('outliner_tabs', 'outliner_filters', 'selection_one_site', 'numbers_without_enter', 'market_reference_visible', 'resource_breakdown_hover', 'queued_order_cancel', 'human_selected_speed')) {
+foreach ($taskCheck in @('outliner_tabs', 'outliner_filters', 'cross_site_selection', 'mouse_orders', 'shift_waypoints', 'selection_halos', 'numbers_without_enter', 'market_reference_visible', 'resource_breakdown_hover', 'queued_order_cancel', 'human_selected_speed')) {
     if ($taskHuman.$taskCheck -ne $true) { throw "Outliner/input/resource verification failed: $taskCheck" }
 }
 if ($taskHuman.period -lt 3 -or $taskHuman.layouts.Count -ne 4 -or -not $taskHuman.normal_zero_army_start -or -not $taskHuman.repeated_market_clicks -or -not $taskHuman.build_and_quote -or -not $taskHuman.recruit -or -not $taskHuman.move_did_not_occupy -or -not $taskHuman.in_place_attack -or -not $taskHuman.map_purchase -or -not $taskHuman.historical_pixels_static -or -not $taskHuman.single_nation_ledger -or -not $taskHuman.save_queued -or -not $taskHuman.exit_choice -or -not $taskHuman.esc_cancels_target -or -not $taskHuman.war_warning -or -not $taskHuman.letter_form -or -not $taskHuman.production_queue -or -not $taskHuman.pending_full_refund) { throw 'Single local human verification failed' }

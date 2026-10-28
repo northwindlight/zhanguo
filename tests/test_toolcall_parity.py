@@ -45,7 +45,7 @@ class ToolcallParity(unittest.TestCase):
             military=schemas['military']['parameters']
             self.assertEqual(military['required'],['action'])
             self.assertEqual(military['properties']['action']['enum'],
-                         ['recruit','queue_recruit','cancel_recruit_order','move','attack','retreat','disband'])
+                     ['recruit','queue_recruit','cancel_recruit_order','move','attack','retreat','disband','queue_orders','cancel_orders'])
             self.assertEqual({'id','ids','site','kind','count'}<=set(military['properties']),True)
             relations=schemas['relations']['parameters']
             self.assertIn('vote',relations['properties']['action']['enum'])

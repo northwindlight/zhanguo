@@ -63,9 +63,11 @@ class NativeSession(NativeObserver,GridSession):
         self.world.intelligence.capture_maps(self.world.government.human_actors())
         self.world.intelligence.publish_maps()
 
-    def _record_production_start(self, player, action, arguments, result):
+    def _record_production_start(self, player, action, arguments, result, source='production_queue'):
+        data=wire(result);status=data.get('status','effective') if isinstance(data,dict) else 'effective'
         self.record(player,action,arguments,{'api':1,'actor':player.actor,'action':action,'period':self.clock(),
-            'ok':True,'status':'effective','code':None,'message':'','data':wire(result),'automatic':'production_queue'})
+            'ok':status not in ('failed','cancelled'),'status':status,'code':'action_failed' if status in ('failed','cancelled') else None,'message':data.get('message','') if isinstance(data,dict) else '',
+            'data':data,'automatic':source})
 
     def cycle(self,**callbacks):
         if self.victory_event is not None:raise ValueError('Game has ended with a victory event')
@@ -91,6 +93,15 @@ class NativeSession(NativeObserver,GridSession):
         # Knowledge is sampled after the unchanged domain stage sequence.
         self.world.intelligence.capture_maps();self.world.intelligence.publish_maps()
         return receipts
+
+    def before_actor(self, player):
+        actor=player.actor
+        if not self.world.military.has_march_orders(actor):return False
+        def observe():return self.player(actor).observe()
+        def record_march(row):
+            point=row['position']
+            self._record_production_start(self.player(actor),'military',{'action':row['mode'],'ids':[row['aid']],'x':point[0],'y':point[1]},row['receipt'],source='march_orders')
+        return bool(self.world.military.advance_march_orders(actor,observe(),refresh=observe,on_start=record_march))
 
     def record(self,player,action,arguments,receipt,error=None):
         tool=self.runtime.tools.get(action)

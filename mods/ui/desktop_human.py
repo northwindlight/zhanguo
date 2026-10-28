@@ -98,6 +98,24 @@ class PlayerCapture:
             if canonical=='attack' and position is not None:
                 sources={(u['x'],u['y']) for u in before['armies'] if u['owner']==actor and u['id'] in (receipt.get('data') or {}).get('units',[])}
                 extra['approaches']=[{'actor':actor,'from':list(p),'to':position} for p in sorted(sources) if p in live]
+        if canonical=='queue_orders' and effective:
+            motions=[];approaches=[]
+            position=(receipt['data']['started'][0]['position'] if receipt['data']['started'] else
+                      args['nodes'][-1]['position'] if args.get('nodes') else None)
+            previous={u['id']:u for u in before['armies'] if u['owner']==actor}
+            for event in receipt['data']['started']:
+                aid=event['aid'];old=previous.get(aid);destination=event['position']
+                if not old:continue
+                if event['mode']=='attack' and (event['receipt'].get('engaged') or event['receipt'].get('occupied')):
+                    approaches.append({'actor':actor,'from':[old['x'],old['y']],'to':destination})
+                if not event['receipt'].get('position_changed'):continue
+                preview=candidates(prior_state,[aid],event['mode'],prior_state['map']['size'])
+                target=next((t for t in preview['targets'] if t['position']==destination),None)
+                route=next((r for r in target['routes'] if r['aid']==aid),None) if target else None
+                if route and not route['uncertain']:motions.append({'unit':f'{actor}/{aid}','points':route['points'],'schematic':False})
+            if motions:extra['motions']=motions;phase='march'
+            elif approaches:phase='engage'
+            if approaches:extra['approaches']=approaches
         self.add(phase,'本国操作',text,after,position,source=source,actor=actor,receipt=deepcopy(receipt),**extra)
 
     def drain(self):
