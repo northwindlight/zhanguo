@@ -1,0 +1,27 @@
+[
+  {
+    "case": "neutral_attacker_on_enemy_owned_land",
+    "destination": [
+      3,
+      2
+    ],
+    "target_visible": true,
+    "engine_public_reachable": true,
+    "human_submit_error": "当前已知状态下没有军队可执行此目标",
+    "human_candidates_include": false,
+    "domain_status": "effective",
+    "domain_engaged": true
+  },
+  {
+    "case": "in_place_attack_after_move_on_empty_wilderness",
+    "destination": [
+      3,
+      2
+    ],
+    "csharp_predicate_recomputed_without_godot": true,
+    "csharp_button_predicate_available": false,
+    "human_candidates_include": true,
+    "domain_status": "effective",
+    "domain_occupied": true
+  }
+]
