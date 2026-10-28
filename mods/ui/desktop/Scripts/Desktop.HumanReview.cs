@@ -204,7 +204,7 @@ public partial class Desktop
             await Screenshot(stem+"-quota.png");
             await ReviewMarketDemolition(stem,capital,otherCell);
             await PointerClick(_humanNav["end"]);
-            await WaitFor(()=>S(_playingBeat?["phase"])=="production","本国生产没有演出",120);
+            await WaitFor(()=>S(_playingBeat?["phase"])=="production","本国生产没有演出",HumanRoundTimeout);
             if(!_settlementCard.Visible||_humanDrawer.IsOpen)throw new Exception("生产汇总被操作面板遮住");
             await Screenshot(stem+"-production.png");
             await WaitFor(()=>HumanCanWrite&&_period==1,"真人回合没有轮换与结算",HumanRoundTimeout);
@@ -266,7 +266,7 @@ public partial class Desktop
             using var image2=GetViewport().GetTexture().GetImage();using var crop2=image2.GetRegion(rect);
             if(!pixels1.SequenceEqual(crop2.GetData()))throw new Exception("历史地块仍在播放动态");
             await PointerClick(_humanNav["end"]);
-            await WaitFor(()=>S(_playingBeat?["phase"])=="battle","野人战斗未进入演出",120);
+            await WaitFor(()=>S(_playingBeat?["phase"])=="battle","野人战斗未进入演出",HumanRoundTimeout);
             await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
             var combatWild=SquadView.Units(_map.Frame!).Where(u=>S(u["owner"])=="野人"&&I(u["x"])==destination.X&&I(u["y"])==destination.Y).ToArray();
             if(combatWild.Length!=1||I(combatWild[0]["id"])!=wildId||_map.WildFigureCounts.GetValueOrDefault(wildKey)!=wildFigures)throw new Exception("野人从驻军到战斗更换身份、编队或重复显示");
