@@ -14,7 +14,14 @@ ACTOR=Schema({'name':Field((str,)), 'client':Field((str,)),
               'start_cavalry':Field((int,),minimum=0)})
 
 
+def require_ready(cfg,*,runtime):
+    from clients.config import require_model_fields
+    require_model_fields(cfg,clients=runtime.distribution.get('ClientFactories',{}))
+
+
 def normalize(cfg,*,runtime,overrides):
+    if 'experimental_features' in cfg or 'experimental_features' in overrides:
+        raise ConfigError('config.experimental_features: 本发行版不支持实验功能选项')
     cfg=SCENARIO.normalize(cfg,overrides=overrides)
     entries=cfg.get('nations')
     if not isinstance(entries,list) or not entries:raise ConfigError('config.nations: expected nonempty list')

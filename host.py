@@ -64,7 +64,7 @@ class GameHost:
                 raise ValueError('Prepared configuration cannot change runtime or overrides')
             return cfg
         cfg=RUN_SCHEMA.normalize(cfg,overrides=overrides)
-        runtime=runtime or Runtime.load(ROOT/cfg.get('mods','mods.toml'))
+        runtime=runtime or Runtime.load(ROOT/cfg.get('mods','mods.toml'),configuration={**cfg,**(overrides or {})})
         prepared=prepare_config(cfg,runtime=runtime,overrides=overrides)
         # 顶层的 ctx_* 是「所有玩家默认值」，但客户端只拿到自己那条国家配置；
         # 不在这里下沉，顶层 ctx_window 等参数会被静默忽略（--ctx-window 同理）。

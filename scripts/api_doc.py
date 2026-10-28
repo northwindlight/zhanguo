@@ -164,6 +164,8 @@ MANIFEST_CONTRACT = {
                      ('Tools', '选填', '工具层：`Entry` 指向工具层入口'),
                      ('Session', '必填', '会话：`Entry` 指向发行版的会话类'),
                      ('Configuration', '选填', '配置归一化：`Entry` 指向函数'),
+                     ('Assembly', '选填', '装配前按配置选择模块、服务和客户端，`Entry`指向发行版自有函数'),
+                     ('Features', '派生', '发行版装配器记录的实际功能开关；随依赖清单校验'),
                      ('ClientFactories', '选填', '客户端工厂：模型客户端、规则客户端等')],
     'Hooks': [('Id', '必填', '挂点 ID'),
               ('Name', '选填', '挂点显示名'),
@@ -176,7 +178,8 @@ MANIFEST_CONTRACT = {
     'Distribution.Session': [('Entry', '必填', '会话类：`模块:类名`'),
                              ('Services', '选填', '会话服务（议会、脚本等）'),
                              ('Observer', '选填', '观察者能力：记录、广播、送信')],
-    'Distribution.Configuration': [('Entry', '必填', '配置归一化函数')],
+    'Distribution.Configuration': [('Entry', '必填', '配置归一化函数'),('Preflight','选填','开局前只读检查，不创建Session或调用模型')],
+    'Distribution.Assembly': [('Entry','必填','接收发行版声明与原始配置，返回实际装配声明')],
 }
 
 

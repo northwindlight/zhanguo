@@ -1,0 +1,39 @@
+{
+  "period": 3,
+  "layouts": [
+    {
+      "width": 1920,
+      "height": 1080,
+      "within_viewport": true,
+      "rts_hover": true
+    },
+    {
+      "width": 1440,
+      "height": 900,
+      "within_viewport": true,
+      "rts_hover": true
+    },
+    {
+      "width": 1280,
+      "height": 720,
+      "within_viewport": true,
+      "rts_hover": true
+    },
+    {
+      "width": 1024,
+      "height": 768,
+      "within_viewport": true,
+      "rts_hover": true
+    }
+  ],
+  "two_step_player_menu": true,
+  "production_queue": true,
+  "pending_full_refund": true,
+  "mouse_orders": true,
+  "shift_waypoints": true,
+  "selection_halos": true,
+  "march_order_badges": true,
+  "market_exact_quotes": true,
+  "auto_trade_buy_and_sell": true,
+  "save_queued": true
+}

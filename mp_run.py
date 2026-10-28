@@ -14,7 +14,7 @@ import traceback
 from ui.terminal import Console
 from host import GameHost
 from ui import load_ui
-from engine.config import read_config
+from engine.config import read_config, require_ready, PreparedConfig
 from clients.config import require_model_fields, model_issues
 
 CONSOLE=None
@@ -379,6 +379,10 @@ def report_config(cfg,runtime=None):
         except ValueError as exc:
             print(str(exc))
         return 2
+    try:
+        if runtime is not None:require_ready(PreparedConfig(runtime,cfg))
+    except ValueError as exc:
+        print('\n扩展功能配置未就绪：'+str(exc));return 2
     print('\n配置就绪。')
     return 0
 
@@ -410,7 +414,12 @@ def run(argv=None):
         save_path=Path(cfg.get('save','mp_save.json'))
         journal_path=Path(cfg.get('journal','mp_journal.md'))
         ui=load_ui(cfg,runtime=prepared.runtime)
+        # A finished save can still be inspected without an unused reviewer.
+        # Check new games before construction; resumed games before any action.
+        creating=args.new or not save_path.exists()
+        if creating:require_ready(prepared)
         host,new=make_world(prepared,args.new,save_path)
+        if not creating and not host.finished() and host.clock()<cfg.get('max_turns',200):require_ready(prepared)
     except (ValueError,OSError) as exc:
         message=ui.text('console.start_failed',error=exc) if ui else f'配置 / 启动失败：{exc}'
         print(message,file=sys.stderr);return 2

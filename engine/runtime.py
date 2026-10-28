@@ -709,7 +709,7 @@ class Runtime:
             raise ModError('；'.join(problems))
 
     @classmethod
-    def load(cls, directory):
+    def load(cls, directory, *, configuration=None):
         units = []
         directory = Path(directory)
         if directory.is_file():
@@ -724,6 +724,13 @@ class Runtime:
             if 'Distribution' in data:
                 if distribution: raise ModError('同时加载多个发行版')
                 distribution = {**data['Distribution'], 'Hooks': data.get('Hooks', [])}
+                if assembly:=distribution.get('Assembly'):
+                    if not isinstance(assembly,dict) or not isinstance(assembly.get('Entry'),str) or assembly['Entry'].count(':')!=1:
+                        raise ModError('Invalid Distribution.Assembly.Entry')
+                    module,name=assembly['Entry'].split(':')
+                    distribution=getattr(import_module(module),name)(deepcopy(distribution),deepcopy(configuration or {}))
+                    if not isinstance(distribution,dict) or not isinstance(distribution.get('Members'),list):
+                        raise ModError('Distribution assembly must return a member declaration')
                 expanded.extend(path.parent / member for member in distribution['Members'])
             else:
                 expanded.append(path)

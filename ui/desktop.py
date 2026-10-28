@@ -135,23 +135,25 @@ class Controller:
             print(f'REVIEW_STATUS state={state} period={self.host.clock()} revision={self.revision} waiting={self.waiting} running={self.running} cycle={self._in_cycle}',file=sys.stderr,flush=True)
 
     def frame(self):
+        from mods.ui.desktop_setup import describe
+        distribution=describe(self.host.runtime)
         if self.human_api is not None:
             try:
                 frame=self.human_api.state(self.viewer)
                 from mods.ui.desktop_player import frame as player_frame
                 frame['visual']=player_frame(self.host.ui,frame)
                 self._last_player_frame=frame
-                return {'scope':'player',**frame}
+                return {'scope':'player',**frame,'distribution':distribution}
             except ValueError:
                 if self.viewer in self.host.actors():raise
                 return {'scope':'player','actor':self.viewer,'period':self.host.clock(),
-                        'eliminated':True,'last_known':self._last_player_frame}
+                        'eliminated':True,'last_known':self._last_player_frame,'distribution':distribution}
         frame=self.host.ui.desktop_frame(self.host.observer_snapshot())
         frame['colors']={n['id']:n['color'] for n in self.host.cfg.get('nations',[]) if n.get('color') and n['id'] in frame['names']}
         frame['clients']=[{'actor':actor,'kind':client.kind,'version':client.version,
                            'model':getattr(client,'cfg',{}).get('model') if client.kind=='llm' else None,
                            'strategy':getattr(getattr(client,'state',None),'profile',None)} for actor,client in self.host.clients.items()]
-        return frame
+        return {**frame,'distribution':distribution}
 
     def snapshot(self):self.send('snapshot',frame=self.frame())
 
@@ -409,16 +411,23 @@ def main(argv=None):
         # the session was created with; saves stay in this launch's own output.
         cfg = json.loads(Path(config_path).read_text(encoding='utf-8'))
         if os.environ.get('ZHANGUO_UI_MODS'):cfg['ui_mods'] = os.environ['ZHANGUO_UI_MODS']
+        from engine.config import require_ready
+        prepared=GameHost.prepare(cfg)
+        if not resume:require_ready(prepared)
         with redirect_stdout(sys.stderr):
-            host = GameHost.load(resume, cfg) if resume else GameHost.new(cfg)
+            host = GameHost.load(resume, prepared) if resume else GameHost.new(prepared)
         max_turns = int(cfg.get('max_turns') or 300)
+        if resume and not host.finished() and host.clock()<max_turns:require_ready(prepared)
     elif resume:
         cfg = json.loads(resume.with_name('config.json').read_text(encoding='utf-8'))
         if not cfg.get('nations') or any(n.get('client') not in ('rule','human') for n in cfg['nations']):
             raise ValueError('此入口仅自动恢复离线配置；请通过 --config 提供对局配置')
         if os.environ.get('ZHANGUO_UI_MODS'):cfg['ui_mods'] = os.environ['ZHANGUO_UI_MODS']
-        with redirect_stdout(sys.stderr):host = GameHost.load(resume, cfg)
+        from engine.config import require_ready
+        prepared=GameHost.prepare(cfg)
+        with redirect_stdout(sys.stderr):host = GameHost.load(resume, prepared)
         max_turns = 300
+        if not host.finished() and host.clock()<max_turns:require_ready(prepared)
     else:
         cfg = build_config({'rule_ai': 'v13', 'nations': [{'client': 'rule', 'rule_ai': 'v13'}]}, args.seed)
         if os.environ.get('ZHANGUO_UI_MODS'):cfg['ui_mods'] = os.environ['ZHANGUO_UI_MODS']

@@ -1,10 +1,32 @@
 # experimental 实验性发行版
 
-`experimental` 是持续更新的实验性发行版；当前为 `0.16.0`。后续实验功能在此发行版继续演进，目前包括议会审核（默认使用该君主自己的模型，检查事实、承诺与失职）、库存反馈市场、Python 沙盒，以及仅供规则 AI 研究的战斗概率推演。
+`experimental` 是持续更新的实验性发行版；当前开发版为 `0.23.0`。可独立选择议会审核、Python 沙盒，以及仅供规则 AI 使用的战斗概率推演。库存反馈市场属于共享的 native 基础玩法。
 
-在当前 main 的 native 4.15.0 领域上替换政权模块，增加独立议会服务。默认 `mods.toml` 仍装配 native；选择 `mods.experimental.toml` 才启用这些实验。旧 World v4 代码保存在 legacy；本发行版不自动迁移旧存档。
+在 native 领域上按开局选择装配实验模块与服务。默认 `mods.toml` 装配 native；选择 `mods.experimental.toml` 才支持实验功能。旧 World v4 代码保存在 legacy；本发行版不自动迁移旧存档。
 
 配置顶层填写 `"mods":"mods.experimental.toml"`，用新的 save/journal 路径开局。议会默认使用该 LLM 玩家自己的模型与接入；只有单国条目显式写 `parliament.reviewer` 才另换。顶层 `parliament.reviewer` 只作为规则客户端的兜底，不再覆盖 LLM 玩家。示例见 [独立配置模板](../../mp_config.experimental.example.json)。用 `.venv/bin/python mp_run.py --config mp_config.experimental.example.json --new` 启动前填好接入参数，示例路径只用于新局。
+
+## 开局选择实验功能
+
+桌面玩家／看海菜单都能选发行版及以下开关；命令行使用顶层配置：
+
+```json
+"experimental_features": {
+  "council": false,
+  "scripts": true,
+  "combat_research": true
+}
+```
+
+三个开关未指定时均为 `true`，保留既有 experimental 默认行为。只接受布尔值与这三个键，native 拒绝此配置。
+
+| 开关 | 实际影响 | 接入要求 |
+| --- | --- | --- |
+| `council` | 关闭后改用 native 政权模块，移除议会服务、解释工具及议会模型客户端 | 启用时逐国核对审查模型；规则AI需配置审查模型，LLM默认自身，真人免审 |
+| `scripts` | 关闭后不加载脚本模块、状态、服务与工具 | 不调用外部模型 |
+| `combat_research` | 关闭后不加载战斗研究模块，不向规则AI注入推演服务 | 仅规则AI适用，不调用外部模型 |
+
+功能组合随严格依赖清单保存，读档必须使用原组合，不能在续局时改开关。`--check-config` 和桌面开始前都检查所需模型字段，不发送模型请求；直接使用 `GameHost` 的离线开发测试仍可注入假客户端。已知旧档可显式升级为新副本，保留原文件与相邻 `.audit` 历史，不支持借升级移除原有实验组件。详见[本轮验收](../../docs/reviews/发行版开关与旧档副本-20261028.md)。
 
 ## 保存的 Python 短脚本
 

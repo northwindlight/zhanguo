@@ -18,6 +18,8 @@ def build(runtime):
                   description='议会拒绝国策后说明原因和修正打算，text 为解释正文。解释后方可结束本期；解释不替代新版国策，不会触发本期第二次审核。')]
     receipts = {'explain_plan': explain_receipt}
     captions = {'explain_plan': lambda args, actor, receipt, ctx: ctx.text('tool.caption.explain_plan')}
+    if 'explain' not in runtime.units[runtime.capabilities['native:government']].mod.declaration.get('PlayerAPI',{}).get('Methods',()):
+        tools=[];receipts={};captions={}
 
     if 'sandbox:programs' in runtime.capabilities:
         def script_write(world, actor, source: str):

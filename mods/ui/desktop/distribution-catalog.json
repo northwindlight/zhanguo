@@ -1,0 +1,128 @@
+{
+  "format": "zhanguo.gui-distributions/1",
+  "editions": [
+    {
+      "id": "native",
+      "name": "原生版",
+      "version": "4.22.0",
+      "features": {},
+      "rule_versions": [
+        "v13",
+        "v11plus"
+      ],
+      "rule_strategies": [
+        {
+          "id": "random",
+          "name": "随机经营偏好"
+        },
+        {
+          "id": "balanced",
+          "name": "均衡经营"
+        },
+        {
+          "id": "integrated",
+          "name": "自产配套"
+        },
+        {
+          "id": "merchant",
+          "name": "市场贸易"
+        },
+        {
+          "id": "buffer",
+          "name": "资源储备"
+        },
+        {
+          "id": "liquid",
+          "name": "现金储备"
+        }
+      ],
+      "clients": [
+        "llm",
+        "rule",
+        "human"
+      ],
+      "scenarios": [
+        "eight_nations"
+      ],
+      "entry": "mods.toml"
+    },
+    {
+      "id": "experimental",
+      "name": "实验版",
+      "version": "0.23.0",
+      "features": {
+        "council": {
+          "name": "议会审核",
+          "short_name": "议会",
+          "description": "模型与规则AI提交国策由议会审核；真人免审。需要配置审查模型。",
+          "default": true,
+          "clients": [
+            "llm",
+            "rule"
+          ],
+          "enabled": true
+        },
+        "scripts": {
+          "name": "Python脚本沙盒",
+          "short_name": "脚本",
+          "description": "模型与规则AI可保存、检查并手动执行受限脚本。",
+          "default": true,
+          "clients": [
+            "llm",
+            "rule"
+          ],
+          "enabled": true
+        },
+        "combat_research": {
+          "name": "规则AI战斗推演",
+          "short_name": "战斗推演",
+          "description": "规则AI通过本国情报推演战斗概率，不调用模型。",
+          "default": true,
+          "clients": [
+            "rule"
+          ],
+          "enabled": true
+        }
+      },
+      "rule_versions": [
+        "v13",
+        "v11plus"
+      ],
+      "rule_strategies": [
+        {
+          "id": "random",
+          "name": "随机经营偏好"
+        },
+        {
+          "id": "balanced",
+          "name": "均衡经营"
+        },
+        {
+          "id": "integrated",
+          "name": "自产配套"
+        },
+        {
+          "id": "merchant",
+          "name": "市场贸易"
+        },
+        {
+          "id": "buffer",
+          "name": "资源储备"
+        },
+        {
+          "id": "liquid",
+          "name": "现金储备"
+        }
+      ],
+      "clients": [
+        "llm",
+        "human",
+        "rule"
+      ],
+      "scenarios": [
+        "eight_nations"
+      ],
+      "entry": "mods.experimental.toml"
+    }
+  ]
+}

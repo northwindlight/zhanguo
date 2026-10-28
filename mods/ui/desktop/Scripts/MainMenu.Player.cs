@@ -29,6 +29,7 @@ public partial class MainMenu
         var scroll=new ScrollContainer { SizeFlagsVertical=SizeFlags.ExpandFill,HorizontalScrollMode=ScrollContainer.ScrollMode.Disabled };panel.AddChild(scroll);
         var body=new VBoxContainer { SizeFlagsHorizontal=SizeFlags.ExpandFill };body.AddThemeConstantOverride("separation",18);scroll.AddChild(body);
         var title=new Label { Text="1 · 创建你的国家" };title.AddThemeFontSizeOverride("font_size",26);body.AddChild(title);
+        BuildEditionControls(body);
         var own=new PanelContainer();own.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));body.AddChild(own);
         var row=new HBoxContainer();row.AddThemeConstantOverride("separation",20);own.AddChild(row);
         row.AddChild(new TextureRect { Texture=RtsArt.Building("native:town-hall"),CustomMinimumSize=new Vector2(104,120),

@@ -42,6 +42,13 @@ if (-not $taskReport.packaged -or $taskReport.host_exit -ne 0 -or $taskReport.pe
 # well as the headless .NET/Python check; the distributed default stays OpenGL.
 Run-GameCheck 'menu' @('--rendering-method', 'gl_compatibility', '--rendering-driver', 'opengl3_angle', '--', '--menu-output', (Join-Path $taskOutput 'menu.png'))
 if (-not (Test-Path (Join-Path $taskOutput 'menu.png'))) { throw 'Exported menu did not produce a rendered screenshot' }
+$env:ZHANGUO_STARTUP_FIXTURES = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../tests/fixtures'))
+Run-GameCheck 'startup' @('--rendering-method', 'gl_compatibility', '--rendering-driver', 'opengl3_angle', '--', '--startup-review-output', (Join-Path $taskOutput 'startup.png')) 300000
+$taskStartup = Get-Content -Raw (Join-Path $taskOutput 'startup.png.json') | ConvertFrom-Json
+foreach ($taskCheck in @('edition_selection', 'real_feature_switches', 'model_preflight', 'registered_clients', 'save_copy_upgrade', 'originals_unchanged', 'audit_preserved', 'routes_preserved', 'scripts_preserved', 'resume_uses_save_rules', 'actual_game_rules')) {
+    if ($taskStartup.$taskCheck -ne $true) { throw "Startup/rules/save verification failed: $taskCheck" }
+}
+if ($taskStartup.layouts.Count -ne 4) { throw 'Startup layout verification incomplete' }
 Run-GameCheck 'world' @('--rendering-method', 'gl_compatibility', '--rendering-driver', 'opengl3_angle', '--', '--smoke-output', (Join-Path $taskOutput 'world.png')) 300000
 $taskWorld = Get-Content -Raw (Join-Path $taskOutput 'world.png.json') | ConvertFrom-Json
 if ($taskWorld.period -lt 3 -or $taskWorld.artwork -ne 'unified-pixel-world' -or -not $taskWorld.readable_font) { throw 'Exported game did not load the current artwork/font/host' }

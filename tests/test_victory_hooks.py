@@ -104,6 +104,8 @@ class VictoryHooks(TestCase):
                     path=Path(folder)/'game.json';h.save(path)
                     restored=GameHost.load(path,h.cfg)
                     self.assertTrue(restored.finished());self.assertEqual(restored.to_save(),h.to_save())
+                    from mods.ui.desktop_setup import validate
+                    self.assertEqual(validate(h.cfg,path)['id'],h.runtime.distribution['Id'])
                     with patch('mp_run.sys.stdin',io.StringIO('')),patch('select.select',return_value=([],[],[])),patch('sys.stdout',new=io.StringIO()) as out:
                         cfg=Path(folder)/'cfg.json'
                         cfg.write_text(json.dumps({**h.cfg,'save':str(path),'journal':str(Path(folder)/'journal.md')}), encoding='utf-8')

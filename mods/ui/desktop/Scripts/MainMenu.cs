@@ -46,7 +46,7 @@ public partial class MainMenu : Control
         ("scenario:linhu", "林胡", "{\"polity\":\"huns\"}"),
         ("scenario:loufan", "楼烦", "{\"polity\":\"huns\",\"appearance\":\"manual\"}"),
     };
-    private static readonly string[] Strategies = { "random", "economy", "military", "defense" };
+    private string[] Strategies=>SelectedEdition["rule_strategies"]!.AsArray().Select(p=>p!["id"]!.ToString()).ToArray();
     private static readonly string[] Clients = { "规则AI", "简易策略", "大模型", "真人" };
 
     public Action<string?, string?>? StartRequested;   // (config path, resume session path)
@@ -140,6 +140,7 @@ public partial class MainMenu : Control
         foreach (var section in new[] { _home, _newGame, _load, _settings, _playerSetup }) section.Visible = section == panel;
         _hint.Text = "";
         if(panel==_newGame)foreach(var (box,draft) in _profilePickers)RefreshProfileOptions(box,draft);
+        if(panel==_newGame||panel==_playerSetup)RefreshEditionControls(false);
         after?.Invoke();
     }
     public void OpenNewGame()
@@ -158,6 +159,7 @@ public partial class MainMenu : Control
         panel.AddChild(scroll);
         var box = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         box.AddThemeConstantOverride("separation", 8); scroll.AddChild(box);
+        BuildEditionControls(box);
         _editorTitle=new Label { AutowrapMode=TextServer.AutowrapMode.WordSmart };_editorTitle.AddThemeFontSizeOverride("font_size",22);box.AddChild(_editorTitle);
         var scenarioRow=new HBoxContainer();_editorScenario=scenarioRow;scenarioRow.AddChild(FieldLabel("开局剧本"));
         _scenarioPicker=new OptionButton { SizeFlagsHorizontal=SizeFlags.ExpandFill };
@@ -191,17 +193,18 @@ public partial class MainMenu : Control
 
         _nationList = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         _nationList.AddThemeConstantOverride("separation", 12); box.AddChild(_nationList);
-        var extraLabel = FieldLabel("全局附加 JSON（合并进配置顶层，可写 ctx_fill/rule_ai/mods 等任意字段）");
+        var extraLabel = FieldLabel("全局附加 JSON（ctx_fill 等选项；发行版和实验功能以上方选择为准）");
         _editorExtraLabel=extraLabel;extraLabel.AutowrapMode=TextServer.AutowrapMode.WordSmart;
         box.AddChild(extraLabel);
         _globalExtra = new LineEdit { PlaceholderText = "{ }" }; box.AddChild(_globalExtra);
-        var start = new Button { Text = "开始对局", CustomMinimumSize = new Vector2(0, 44), FocusMode = FocusModeEnum.None };
+        var start = new Button { Name="StartGame",Text = "开始对局", CustomMinimumSize = new Vector2(0, 44), FocusMode = FocusModeEnum.None };
         start.AddThemeFontSizeOverride("font_size", 22);
         start.Pressed += () =>
         {
+            if(_starting)return;
             var config = BuildConfig(out var error, out var path);
             if (config == null) { _hint.Text = error; return; }
-            StartRequested?.Invoke(path, null);
+            _=StartChecked(path!);
         };
         var footer=new HBoxContainer();start.SizeFlagsHorizontal=SizeFlags.ExpandFill;
         footer.AddChild(start);_editorBack=new Button { Text="返回" };_editorBack.Pressed+=()=>{if(_playerMode)OpenPanel(_playerSetup);else OpenPanel(_home);};footer.AddChild(_editorBack);panel.AddChild(footer);
@@ -259,8 +262,8 @@ public partial class MainMenu : Control
         if(draft.Color.Length==0)draft.Color=color.Color.ToHtml(false);
         if(_playerMode)preset.Visible=false;
         var client = new OptionButton { Name="NationClient",FocusMode = FocusModeEnum.None };
-        foreach (var c in Clients.Take(3)) client.AddItem(c);
-        client.Selected = draft.Client;
+        for(int i=0;i<3;i++)if(ClientSupported(i)||i==draft.Client)client.AddItem(Clients[i]+(ClientSupported(i)?"":"（本发行版不支持）"),i);
+        client.Select(client.GetItemIndex(draft.Client));
         var rule = new HBoxContainer();
         var llm = new HBoxContainer();
         var human = new HBoxContainer();human.AddChild(FieldLabel("玩家昵称"));
@@ -270,7 +273,7 @@ public partial class MainMenu : Control
         BuildLlmFields(llm, draft);
         client.ItemSelected += index =>
         {
-            draft.Client = (int)index;
+            draft.Client = client.GetItemId((int)index);
             rule.Visible = draft.Client == 0; llm.Visible = draft.Client == 2; human.Visible=draft.Client==3;
         };
         rule.Visible = draft.Client == 0; llm.Visible = draft.Client == 2; human.Visible=draft.Client==3;
@@ -290,12 +293,15 @@ public partial class MainMenu : Control
     private void BuildRuleFields(HBoxContainer rule, NationDraft draft)
     {
         rule.AddChild(FieldLabel("版本"));
-        var ai = new LineEdit { Text = draft.RuleAi, CustomMinimumSize = new Vector2(64, 0) };
-        ai.TextChanged += v => draft.RuleAi = v; rule.AddChild(ai);
+        var ai = new OptionButton { CustomMinimumSize = new Vector2(84, 0) };
+        var versions=SelectedEdition["rule_versions"]!.AsArray().Select(v=>v!.ToString()).ToArray();
+        foreach(var version in versions)ai.AddItem(version);ai.Select(Math.Max(0,Array.IndexOf(versions,draft.RuleAi)));rule.AddChild(ai);
         rule.AddChild(FieldLabel("风格"));
         var strategy = new OptionButton { FocusMode = FocusModeEnum.None };
-        foreach (var s in new[]{"随机应变","经营发展","军事扩张","防御稳守"}) strategy.AddItem(s);
+        foreach (var s in SelectedEdition["rule_strategies"]!.AsArray()) strategy.AddItem(s!["name"]!.ToString());
         strategy.Selected = draft.Strategy;
+        strategy.Disabled=draft.RuleAi!="v13";strategy.TooltipText="v13使用经营偏好；v11plus沿用固定策略。";
+        ai.ItemSelected+=i=>{draft.RuleAi=versions[(int)i];strategy.Disabled=draft.RuleAi!="v13";};
         strategy.ItemSelected += i => draft.Strategy = (int)i; rule.AddChild(strategy);
         rule.AddChild(FieldLabel("种子"));
         var seed = new LineEdit { Text = draft.RuleSeed, CustomMinimumSize = new Vector2(80, 0) };
@@ -357,7 +363,7 @@ public partial class MainMenu : Control
             if (draft.Client == 0)
             {
                 nation["rule_ai"] = draft.RuleAi;
-                nation["rule_strategy"] = Strategies[draft.Strategy];
+                if(draft.RuleAi=="v13")nation["rule_strategy"] = Strategies[draft.Strategy];
                 if (int.TryParse(draft.RuleSeed.Trim(), out int rs) && rs > 0) nation["rule_seed"] = rs;
             }
             else if(draft.Client==3)
@@ -378,11 +384,13 @@ public partial class MainMenu : Control
                 ParseObject(profile.ExtraJson, "API 档案", ref error, nation);
             }
             ParseObject(draft.ExtraJson, $"{draft.Name} 的附加字段", ref error, nation);
+            if(nation.ContainsKey("mods")||nation.ContainsKey("experimental_features"))error="国家附加字段不能切换发行版或实验功能，请使用上方的统一选项。";
             nations.Add(nation);
         }
         config["nations"] = nations;config["desktop_mode"]=_playerMode?"player":"observer";
         if(!_playerMode)ParseObject(_globalExtra.Text, "全局附加", ref error, config);
         if((config["scenario"]?.ToString()??"")!=SelectedScenario["id"]!.ToString())error="全局附加 JSON 的 scenario 与所选剧本不一致";
+        ApplyEdition(config,ref error);
         int humanCount=(config["nations"] as JsonArray??new JsonArray()).Count(n=>n?["client"]?.ToString()=="human");
         if((_playerMode&&humanCount!=1)||(!_playerMode&&humanCount!=0))error="玩家模式需要且只能有一个真人；看海模式全部由 AI 控制";
         if (error != "") return null;
@@ -439,13 +447,19 @@ public partial class MainMenu : Control
             catch (IOException) { }
             catch (JsonException) { }
             var row = new HBoxContainer();
-            var label = new Label { Text = caption,TooltipText=caption,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis, SizeFlagsHorizontal = SizeFlags.ExpandFill };
-            label.AddThemeFontSizeOverride("font_size", 18); row.AddChild(label);
-            var resume = new Button { Text = "继续对局", FocusMode = FocusModeEnum.None };
+            var column=new VBoxContainer { SizeFlagsHorizontal=SizeFlags.ExpandFill };row.AddChild(column);
+            var label = new Label { Text = caption,TooltipText=caption,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis };
+            label.AddThemeFontSizeOverride("font_size", 18); column.AddChild(label);
+            var rules=new Label { Text="正在检查规则版本…",AutowrapMode=TextServer.AutowrapMode.WordSmart };rules.AddThemeFontSizeOverride("font_size",14);column.AddChild(rules);
+            var resume = new Button { Text = "继续对局",Disabled=true, FocusMode = FocusModeEnum.None };
             string session = entry.session, config = entry.config;
-            resume.Pressed += () => StartRequested?.Invoke(config, session);
+            resume.Pressed += () => _=StartChecked(config,session);
             row.AddChild(resume);
+            var upgrade=new Button { Text="升级为新副本",Visible=false };row.AddChild(upgrade);
+            upgrade.Name="UpgradeSave_"+Path.GetFileName(entry.dir);resume.Name="ResumeSave_"+Path.GetFileName(entry.dir);
+            upgrade.Pressed+=()=>_=UpgradeSave(session,config,upgrade);
             _saveList.AddChild(row);
+            _=CheckSave(session,config,rules,resume,upgrade);
         }
     }
 
@@ -531,7 +545,7 @@ public partial class MainMenu : Control
         _profiles.Clear();_profiles.Add(new ApiProfile { Name="离线界面样例",Model="DeepSeek-Offline",BaseUrl="http://offline.invalid",ApiKey="unused" });
         foreach(var (box,draft) in _profilePickers)RefreshProfileOptions(box,draft);
         var select=_rows[0].Row.FindChild("NationClient",true,false) as OptionButton;
-        select!.Select(2);select.EmitSignal(OptionButton.SignalName.ItemSelected,2L);
+        int index=select!.GetItemIndex(2);select.Select(index);select.EmitSignal(OptionButton.SignalName.ItemSelected,(long)index);
     }
     public void ReviewHumanCard(int index=0)
     {

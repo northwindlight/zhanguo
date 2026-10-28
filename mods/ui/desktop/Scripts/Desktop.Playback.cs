@@ -159,6 +159,7 @@ public partial class Desktop
     }
     private void ApplyFrame(JsonObject frame)
     {
+        ApplyDistribution(frame["distribution"]);
         if(S(frame["scope"])=="player")
         {
             var raw=frame;

@@ -78,6 +78,13 @@ class PreparedConfig:
     data: dict
 
 
+def require_ready(prepared):
+    """Optional distribution-owned startup checks; no session is constructed."""
+    spec=prepared.runtime.distribution.get('Configuration',{})
+    if entry:=spec.get('Preflight'):entrypoint(entry)(prepared.data,runtime=prepared.runtime)
+    return prepared
+
+
 def prepare(cfg,*,runtime,overrides=None):
     overrides=deepcopy(overrides or {})
     data=RUN_SCHEMA.normalize(cfg,overrides=overrides)

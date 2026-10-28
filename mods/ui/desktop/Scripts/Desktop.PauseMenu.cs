@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -9,6 +10,7 @@ public partial class Desktop
     private PanelContainer _pauseCard=null!;
     private Label _pauseInfo=null!;
     private Button _menuContinue=null!,_menuSave=null!,_menuQuit=null!;
+    private Label _gameRulesLabel=null!;
     private bool _resumeAfterMenu,_autoRunning,_menuAutoRunning;
     private bool _pauseMenuChecked,_pauseMenuReviewStarted;
 
@@ -27,12 +29,22 @@ public partial class Desktop
         var box=new VBoxContainer();box.AddThemeConstantOverride("separation",16);_pauseCard.AddChild(box);
         var title=new Label { Text="游戏菜单",HorizontalAlignment=HorizontalAlignment.Center };
         title.AddThemeFontSizeOverride("font_size",28);box.AddChild(title);
+        _gameRulesLabel=new Label { Name="GameDistribution",Visible=false,AutowrapMode=TextServer.AutowrapMode.WordSmart,MaxLinesVisible=3 };
+        _gameRulesLabel.AddThemeFontSizeOverride("font_size",14);box.AddChild(_gameRulesLabel);
         _pauseInfo=new Label { AutowrapMode=TextServer.AutowrapMode.WordSmart,CustomMinimumSize=new Vector2(344,80),
             HorizontalAlignment=HorizontalAlignment.Center };box.AddChild(_pauseInfo);
         _menuContinue=Button(box,"继续观看 · Esc",ClosePauseMenu);
         _menuSave=Button(box,"保存",()=>{Send("save");_pauseInfo.Text="保存请求已提交；未完成的回合会在继续并结束回合后保存。";});
         BuildDisplayControls(box);
         _menuQuit=Button(box,"保存并退出游戏",QuitGame);
+    }
+
+    private void ApplyDistribution(System.Text.Json.Nodes.JsonNode? info)
+    {
+        if(_gameRulesLabel==null)return;
+        _gameRulesLabel.Visible=info!=null;if(info==null)return;
+        string features=string.Join(" · ",info["features"]!.AsObject().Select(p=>(p.Value!["short_name"]??p.Value["name"])+(p.Value["enabled"]!.GetValue<bool>()?" 开":" 关")));
+        _gameRulesLabel.Text=$"本局规则：{info["name"]} {info["version"]}\n"+(features==""?"无实验服务":features);_gameRulesLabel.TooltipText=_gameRulesLabel.Text;
     }
 
     private void OpenPauseMenu()
