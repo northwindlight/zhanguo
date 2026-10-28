@@ -78,9 +78,9 @@ public partial class Desktop
         {string selected=page;var b=Button(tabs,text,()=>OpenHumanPage(selected));b.SizeFlagsHorizontal=SizeFlags.ExpandFill;HumanArt.Style(b,icon);b.Disabled=page==_humanPage;}
         if(data["terrain"] is JsonObject terrain)
         {
-            var ground=HumanText($"地形：{terrain["label"]} · 地形惩罚 +{data["penalty"]}% 金币",color:"dec58f");
+            var ground=HumanText($"地形：{terrain["label"]} · "+(recruit?"征兵按兵种报价":$"建设地形惩罚 +{data["penalty"]}% 金币"),color:"dec58f");
             ground.Name="RtsTerrain";ground.AddThemeFontSizeOverride("font_size",15);
-            ground.TooltipText="本格资源容量与建筑要求见各图标悬浮说明；地形、工程院和国策按正式报价分步取整。";
+            ground.TooltipText="本格资源容量与建筑要求见各图标悬浮说明；建设的地形、工程院和国策加成按正式报价分步取整，征兵读取独立兵种报价。";
         }
         var queueMode=new CheckButton { Name="ProductionQueueMode",Text="生产队列 · 预付材料，按期执行",ButtonPressed=_productionQueueMode };
         queueMode.AddThemeFontSizeOverride("font_size",14);_humanContent.AddChild(queueMode);
