@@ -389,11 +389,19 @@ def main(argv=None):
     p.add_argument('--resume', type=Path)
     args = p.parse_args(argv)
     args.output.mkdir(parents=True, exist_ok=False)
-    # Only the isolated GUI review enables timed thread dumps. Normal games
-    # retain their existing protocol and logging behavior.
+    # Only the isolated GUI review enables timed thread diagnostics. Read
+    # Python frames under the GIL; avoid an asynchronous C-level stack dump.
+    trace_stop=trace_worker=None
     if os.environ.get('ZHANGUO_REVIEW_TRACE')=='1':
-        import faulthandler
-        faulthandler.dump_traceback_later(45,repeat=True)
+        from threading import Event
+        import traceback
+        trace_stop=Event()
+        def trace_threads():
+            while not trace_stop.wait(45):
+                for ident,frame in sys._current_frames().items():
+                    print(f'REVIEW_THREAD {ident}',file=sys.stderr,flush=True)
+                    traceback.print_stack(frame,limit=40,file=sys.stderr)
+        trace_worker=Thread(target=trace_threads,daemon=True);trace_worker.start()
     resume = args.resume or (Path(os.environ['ZHANGUO_RESUME']) if os.environ.get('ZHANGUO_RESUME') else None)
     config_path = os.environ.get('ZHANGUO_DESKTOP_CONFIG')
     if config_path:
@@ -433,8 +441,9 @@ def main(argv=None):
             control.commands.put(row)
         control.commands.put({'command': 'disconnect' if control.human_api is not None else 'stop'})
     Thread(target=read, daemon=True).start()
-    control.run()
-    if os.environ.get('ZHANGUO_REVIEW_TRACE')=='1':faulthandler.cancel_dump_traceback_later()
+    try:control.run()
+    finally:
+        if trace_stop is not None:trace_stop.set();trace_worker.join()
 
 
 if __name__ == '__main__':main()
