@@ -285,7 +285,7 @@ public partial class Desktop
             if(_humanTargetMode!=mode||epoch!=_targetEpoch)return;
             var data=row["data"]!;_map.SetHumanTargets(mode,data["targets"]!.AsArray());
             if(manual)_map.FocusHumanTargets();
-            _targetSummary.Visible=true;
+            _targetSummary.Visible=_manualArmyTarget||_humanPage=="selected-armies";
             _targetSummary.Text=$"{(mode=="attack"?"攻击":mode=="retreat"?"撤退":"移动")} · {_map.TargetCount} 个候选格\n"+(manual?"左键选择目标；Esc 取消。":"右键移动 · Ctrl右键攻击 · Shift追加路线；虚线表示通路未确认。");
             if(_map.TargetCount==0)_targetSummary.Text+="\n"+string.Join("；",data["units"]!.AsArray().Select(u=>S(u!["reason"])).Where(r=>r!="").Distinct().Take(3));
         });
