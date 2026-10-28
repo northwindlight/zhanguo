@@ -1,0 +1,77 @@
+# Agent 开发接手入口
+
+适用于本仓库。先读本文件及适用的上层指令，再核对当前用户要求。用户的新指令优先；计划中的功能不代表已实现，也不代表用户本轮要求全部开工。
+
+## 先做这几件事
+
+1. 查看 `git status -sb`、`git log -5 --oneline`，确认所在分支、工作区和实际代码；保留他人修改。
+2. 阅读 [README](README.md) 与[游戏说明书](mods/native/docs/游戏说明书.md)，先理解玩法和已接受的规则，再看实现。
+3. 接手 GUI 时读[下一轮计划](docs/plans/GUI下一轮试玩改进-20261027.md)、[规则复用审计](docs/reviews/GUI规则复用审计-20261028.md)和[鼠标军令设计](docs/design/军队选择与鼠标军令.md)。其他任务从[文档索引](docs/README.md)找对应领域。
+4. 区分当前行为、目标设计和历史复核。旧报告只代表当时版本；通过源码与当前测试核实，不能拿旧待办覆盖后续定案。
+
+## 架构与查找入口
+
+| 层次 | 主要入口 | 职责 |
+| --- | --- | --- |
+| 通用引擎 | `engine/runtime.py`、`engine/player.py`、`engine/session.py`、`engine/config.py` | 模块装配、绑定玩家 API、Session、配置与状态契约 |
+| 宿主与发行版 | `host.py`、`mods.toml`、`mods.experimental.toml`、各发行版 `mod.toml`／`session.py` | 选择发行版、场景、客户端、服务与存读档 |
+| 战国规则 | `mods/native/<领域>/api.py`、领域对象及内容声明 | 建设、军令、市场、银行、外交、视野、结算等正式语义 |
+| 真人应用接口 | `mods/native/human.py`、[接口说明](docs/真人玩家接口.md) | 绑定真人身份、操作目录、查询和正式提交 |
+| 桌面宿主与投影 | `ui/desktop.py`、`mods/ui/desktop_player.py`、`desktop_human.py`、`desktop_catalog.py` | 输入协议、玩家快照、演出数据、卡片呈现 |
+| Godot GUI | `mods/ui/desktop/Scripts/`，重点 `Desktop.Human*.cs`、`WorldMap*.cs`、`MainMenu*.cs` | 选择、输入、面板、地图、动画与设置 |
+| 启动与打包 | `desktop.py`、`scripts/package_windows.py`、`scripts/verify_windows_package.ps1`、`.github/workflows/` | 源码启动、Windows 便携包及 CI |
+
+通用引擎不应添加 native 专属规则。用户说“改引擎”时，先找该规则所属领域；例如瞭望塔限建属于 `mods/native/buildings/types.py` 及建筑校验链。
+
+## 核心原则：先查引擎 API，再做增删
+
+- 优先核对领域的 `api.py`、`mod.toml` 的 API 声明、规划／报价／目录及正式回执。现有 API 语义足够就复用，GUI负责呈现与交互。
+- 可达性、地形代价、行动资格、施工额度、材料价格和攻防规则由正式规则层决定。不要在 GUI 另写一套搜索、门槛或公式，再把合法操作挡在引擎之前。
+- 现有建设／征兵走 `planning`，市场整单价走 `trade_quote`，贷款走 `quote(borrow)`，报表走 `report`。先看现有结果能否透传，再确认真实缺口。
+- `reachable` 单支与批量返回结构不同；几何可达不等于本期还有行动资格。移动、攻击、原地攻击、撤退和迷雾尝试各有语义，按实际契约处理。
+- 当前已复现两种 GUI 误拦截：候选过滤漏掉“仅无主地”的限定；按钮漏掉合法原地攻击。具体证据与重复规则清单见审计，不要只修行军直线动画就宣称寻路已修复。
+- 规则侧是单一事实来源，但玩家权限仍须保留。真人查询、地图、预览和演出使用绑定玩家信息；不要用观察者全图补足迷雾或外国私有事实。
+- 发行版根据正式清单与配置装配，GUI按实际能力显示。native与experimental共享基础模块是正常复用；不能靠隐藏按钮假装停用了实验服务。
+
+## 当前边界与待办状态
+
+- 当前支持单机一位真人与 AI 混合，保留原18阶段结算顺序。未经当前任务要求，不扩多人／联网，不改成按国家整段结算。
+- v0.6.2已有动画期间接受连续输入的界面队列，实际执行时才扣款；正式生产队列入队扣资源、跨回合军令和回血续行仍是待办。
+- 跨驻地选军、右键／Ctrl／Shift军令、脚底光环、多节点路径是目标设计，当前版本仍有同驻地选择限制。用户最新设计覆盖旧限制，实施时不要照旧报告继续强化该限制。
+- 灭国快照缺陷指“A国已灭，地图仍显示A国旧地区／国色”。核对引擎归属→发送快照→渲染缓存，不将它误解为要求真人亡国后切换全图视角。
+- 瞭望塔同格一座、启动前显式选择发行版和实验功能开关已记入计划，尚未实现。瞭望塔当前可重复建，但同格视野效果已不累加。
+- 存档有严格依赖检查，改模块／装配／状态前先评估兼容性。不要擅自迁移真实存档或删除旧建筑；旧档已有重复塔的处理须在限建实施时明确。
+- 用户若只要求记录计划，本轮仅更新文档与交接；需要实施时，以当轮要求和最新计划确定范围。
+
+## 验证与运行
+
+按改动选择相关检查；文档改动检查链接与差异即可。行为变更要用独立离线合成局验证引擎结果和 GUI 表现是否一致，不能只验证“运行成功”。本仓库现有 CI 命令是主要依据：
+
+```bash
+# 常见真人接口／GUI投影／资源明细定向检查
+python3 -m unittest tests.test_human tests.test_human_planning tests.test_desktop_player tests.test_resource_breakdown -q
+# 规则变更及交付前全量离线检查
+python3 -m unittest discover -s tests -q
+# 修改API后先生成参考，再检查；纯核对用 --check
+python3 scripts/api_doc.py --check
+python3 docs/site/build.py
+# C#与不依赖窗口的布局检查，需要.NET 8 SDK
+dotnet build mods/ui/desktop/Zhanguo.Desktop.csproj
+dotnet run --project tests/desktop-layout/Checks.csproj -- mods/ui/desktop/Samples/terrain-v2.json
+```
+
+源码桌面入口是 `python3 desktop.py`，仅构建用 `--build-only`；需要 Godot .NET 版和.NET SDK，详见[桌面说明](mods/ui/desktop/README.md)。Windows 使用 `python`。依赖装在项目虚拟环境，不修改系统 Python。
+
+GUI变更还要检查实际窗口和相关尺寸、输入与状态切换。Linux软件渲染、Windows CI窗口、实体显卡或Vulkan测试各自说明，不能相互冒充。API参考由脚本生成，不手工改生成页。
+
+## 本机、提交和发布
+
+- 中文沟通、中文提交信息；任务完成并检查后默认 commit＋push，保留他人改动。独立工作树可用于隔离实现。
+- 用专门的离线测试配置和目录。维护者本机可能运行真实 `zg`／`stock` 对局；本任务没有明确要求时，不读写其私人配置／存档、不启停服务、不调用付费模型。
+- 测试与发布产物放项目忽略目录 `archive/previews/`、`archive/releases/<版本>/`；不把交付 ZIP 放到主目录，不将真实档、API配置、缓存打入公开包。
+- 用户要求完成版本由 CI 验收成功后直接公开 **Pre-release**，附 Windows ZIP、源码 ZIP 与 `SHA256SUMS`，试玩确认后再转正式。**自动发布接线仍未实现**，当前 Windows 工作流仅构建、验收并上传工件；接手时先核实际工作流，不能声称已经自动发布。
+- Windows工作流按文件路径触发，修改规则未必自动重建；交付必须对应本次运行代码，确认触发覆盖范围，不能拿旧包证明新规则已通过。
+- 仅计划／说明文档更新不另发游戏版本。发布新实现使用新版本，不静默改已发布标签或附件；转正式须遵从用户试玩确认。
+- 发布步骤和当前下载入口见[Windows便携包](docs/Windows便携包.md)，CI定义见 [ci.yml](.github/workflows/ci.yml) 与 [windows-portable.yml](.github/workflows/windows-portable.yml)。
+
+任务结束时更新相关计划／验收记录，清楚说明实际改动、验证结果和未完成项。此文件保持接手入口规模；详细设计与历史放在链接文档中。
