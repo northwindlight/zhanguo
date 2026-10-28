@@ -104,6 +104,7 @@
   "production_queue": true,
   "pending_full_refund": true,
   "march_order_badges": true,
+  "rule_fixture_seed": 20261026,
   "platform": "Linux",
   "renderer": "llvmpipe (LLVM 19.1.7, 128 bits)",
   "partial_selection_render_fixture": true,
