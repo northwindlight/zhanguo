@@ -105,11 +105,11 @@ python3 settlement.py --save mp_save.json --table
 
 ### 桌面上帝视角
 
-[下载 v0.6.2 预发布 Windows x64 便携版](https://github.com/northwindlight/zhanguo/releases/download/v0.6.2/zhanguo-0.6.2-windows-x64.zip)：完整解压后双击 `Zhanguo.exe`，无需安装开发工具。
+[下载 v0.6.3 预发布 Windows x64 便携版](https://github.com/northwindlight/zhanguo/releases/download/v0.6.3/zhanguo-0.6.3-windows-x64.zip)：完整解压后双击 `Zhanguo.exe`，无需安装开发工具。
 
-本轮右侧军队／地块总览、筛选、资源悬浮明细、连续操作与军屯修正已包含在 [v0.6.2 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.2)，供试玩反馈后转正式版。[截图与验收](docs/reviews/军队总览与地块筛选-20261027.md)。上一正式版为 [v0.5.1](https://github.com/northwindlight/zhanguo/releases/tag/v0.5.1)。
+本轮 [v0.6.3 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.3) 修复真人军令候选与按钮的误拦截、接入已知逐格行军路线，并将瞭望塔统一限制为每格一座。保留v0.6.2的右侧总览、筛选、资源明细与连续操作。[本轮范围与验收](docs/reviews/GUI军令规则与自动预发布-20261028.md)。后续队列与鼠标军令分配到[第二版计划](docs/plans/GUI两版实施-20261028.md)，联机暂不实施。上一正式版为 [v0.5.1](https://github.com/northwindlight/zhanguo/releases/tag/v0.5.1)。
 
-本版可继续读取 v0.6.1 存档；更早版本仍受原有严格依赖检查约束，可保留原发布包读取。
+存档格式和模块版本未变，旧档原有多座瞭望塔保留，新的建造受限；更早版本仍受原有严格依赖检查约束，可保留原发布包读取。
 
 ![桌面上帝视角](docs/design/gui-national-production-20261026.png)
 

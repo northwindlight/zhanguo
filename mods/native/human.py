@@ -4,7 +4,7 @@ Every game request uses the actor-bound public API. No observer projection,
 private foreign accounts, hidden terrain, or rule mutation is used for views.
 """
 from copy import deepcopy
-from .army.candidates import candidates
+from .army.candidates import candidates, command_states
 from .tools.commands import COMMANDS
 
 LABELS = {
@@ -113,6 +113,9 @@ class HumanAPI:
     def state(self, actor):
         player = self.player(actor)
         observed = player.observe();facts = observed['facts']
+        commands=command_states(observed,self.host.grid()[0])
+        for unit in facts['army']:
+            if unit['owner']==actor:unit['commands']=commands.get(unit['id'],{})
         facts['news']=[e for e in facts['news'] if e['kind']!='action' or
                        (e.get('details') or {}).get('actor')==actor]
         memory = {tuple(c['position']):c for c in player.call_api('native:intelligence','knowledge')}

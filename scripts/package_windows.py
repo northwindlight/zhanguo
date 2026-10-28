@@ -172,6 +172,7 @@ def build(output, cache):
     subprocess.run([str(godot), "--headless", "--path", str(project), "--export-release", "Windows Portable", str(bundle / "Zhanguo.exe")], cwd=ROOT, check=True)
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     (bundle / "portable.json").write_text(json.dumps({"format": "zhanguo.portable/1", "commit": sha,
+        "version": (ROOT / "VERSION").read_text(encoding="utf-8").strip(),
         "godot": GODOT_VERSION, "python": PYTHON_VERSION, "architecture": "windows-x64",
         "source": "https://github.com/northwindlight/zhanguo/tree/" + sha}, indent=2) + "\n", encoding="utf-8")
     with urllib.request.urlopen(f"https://raw.githubusercontent.com/godotengine/godot/{GODOT_VERSION}-stable/LICENSE.txt", timeout=30) as source:

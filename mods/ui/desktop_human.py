@@ -2,6 +2,7 @@
 from copy import deepcopy
 from .desktop_player import frame as player_frame, flow
 from .desktop_activity import difference
+from mods.native.army.candidates import candidates
 
 
 class DiscardHumanCycle(Exception):
@@ -12,7 +13,7 @@ class PlayerCapture:
     def __init__(self, control):
         self.control=control;self.period=control.host.clock();self.actor=None
         self.warning=None;self.beats=[]
-        state=self.state();self.previous=player_frame(control.host.ui,state)
+        state=self.state();self.previous=player_frame(control.host.ui,state);self.previous_state=state
         self.event_cursor=max((e['id'] for e in state['facts']['news']),default=0)
         self.message_ids={m['id'] for m in state['facts']['intel']}
 
@@ -43,7 +44,8 @@ class PlayerCapture:
         if self.control.viewer is None:return
         spec=self.control.host.runtime.tools.get(action)
         if spec and spec.read_only:return
-        after=self.visual();before=self.previous
+        state=self.state();after=player_frame(self.control.host.ui,state);before=self.previous
+        prior_state=self.previous_state;self.previous_state=state
         if actor!=self.control.viewer:
             # Actual visible changes only. Private calls and public market
             # price changes never disclose a foreign action or camera target.
@@ -81,10 +83,15 @@ class PlayerCapture:
         if canonical in ('move','attack') and effective:
             previous={u['id']:u for u in before['armies'] if u['owner']==actor}
             motions=[]
+            selected=(receipt.get('data') or {}).get('units',[])
+            preview=candidates(prior_state,list(selected),canonical,prior_state['map']['size']) if selected else {'targets':[]}
             for u in after['armies']:
                 old=previous.get(u['id']) if u['owner']==actor else None
                 if old and (old['x'],old['y'])!=(u['x'],u['y']) and (old['x'],old['y']) in live and (u['x'],u['y']) in live:
-                    motions.append({'unit':f'{actor}/{u["id"]}','points':[[old['x'],old['y']],[u['x'],u['y']]],'schematic':True})
+                    target=next((t for t in preview['targets'] if t['position']==[u['x'],u['y']]),None)
+                    route=next((r for r in target['routes'] if r['aid']==u['id']),None) if target else None
+                    if route and not route['uncertain']:
+                        motions.append({'unit':f'{actor}/{u["id"]}','points':route['points'],'schematic':False})
             if motions:extra['motions']=motions;phase='march'
             if canonical=='attack' and position is not None:
                 sources={(u['x'],u['y']) for u in before['armies'] if u['owner']==actor and u['id'] in (receipt.get('data') or {}).get('units',[])}

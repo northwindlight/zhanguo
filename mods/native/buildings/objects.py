@@ -239,7 +239,7 @@ class Buildings:
             total+=(self._type(kind).EFFECTS.get(key,0) or 0)*self.count(site_id,kind)
         return total if total else default
 
-    def _check_slots(self, site, cls, count=1, *, shared_resources=True):
+    def _check_slots(self, site, cls, count=1, *, shared_resources=True, legacy_watchtowers=False):
         existing = list(self._index().get(site.id, ()))
         same = sum(item.kind==cls.TYPE_ID for item in existing)
         resource_used = self._resource_occupancy(existing, cls.SITE_RESOURCE) if shared_resources else same
@@ -253,7 +253,7 @@ class Buildings:
                    'existing': [item.kind for item in existing]}
         if len(existing)+count>site.capacity:
             raise DomainRejection('本格建筑位不足', {**context, 'block': 'slots'})
-        if cls.MAX_PER_SITE is not None and same+count>cls.MAX_PER_SITE:
+        if cls.MAX_PER_SITE is not None and same+count>cls.MAX_PER_SITE and not (legacy_watchtowers and cls.TYPE_ID=='native:watchtower'):
             raise DomainRejection('同类建筑已达上限', {**context, 'block': 'per_site'})
         if cls.SITE_RESOURCE is not None and resource_used+count>dict(site.resources).get(cls.SITE_RESOURCE,0):
             raise DomainRejection('本地资源容量不足', {**context, 'block': 'resource'})
@@ -673,7 +673,9 @@ class Buildings:
             # Older saves allowed one farm and one camp to spend the same
             # farmland. Preserve their buildings, but every new order/seed
             # must pass the shared-capacity rule above.
-            candidate._check_slots(site,type(item),shared_resources=False)
+            # Preserve pre-limit watchtowers in old saves. All new orders and
+            # seeds still obey MAX_PER_SITE, including unfinished buildings.
+            candidate._check_slots(site,type(item),shared_resources=False,legacy_watchtowers=True)
             expected_level = candidate.count(item.site,item.kind,completed_only=False)+1 if len(item.GOLD_COSTS)>1 else 1
             if item.level!=expected_level:raise ValueError('Invalid building level')
             item._domain = self._domain

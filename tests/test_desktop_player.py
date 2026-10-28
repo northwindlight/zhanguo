@@ -19,6 +19,40 @@ class TestDesktopPlayer(unittest.TestCase):
 
     def render(self):return frame(self.host.ui,self.api.state(A))
 
+    def test_human_march_uses_verified_intermediate_cells_instead_of_endpoint_line(self):
+        w=self.host.world
+        start=next(t.tile.position for t in w.territory.owned(A) if t.tile.terrain=='native:plain')
+        unit=w.military.seed(A,'native:cavalry',*start)[0]
+        target=next(t for t in self.api.targets(A,[unit.id],'move')['targets']
+                    if not t['uncertain'] and len(t['routes'][0]['points'])>2)
+        with TemporaryDirectory() as tmp:
+            control=Controller(self.host,Path(tmp)/'s.json',lambda row:None,playback=True)
+            capture=PlayerCapture(control)
+            with patch.object(self.host,'observer_route',side_effect=AssertionError('observer route leak')):
+                result=self.api.submit(A,'move',{'ids':[unit.id],'x':target['position'][0],'y':target['position'][1]})
+                self.assertTrue(result['ok'])
+                audit=self.host.audit[-1];capture.capture(A,audit['action'],audit['arguments'],result)
+            self.assertIsNone(capture.warning)
+            motion=capture.drain()[0]['motions'][0]
+            self.assertEqual(motion['points'],target['routes'][0]['points']);self.assertFalse(motion['schematic'])
+
+    def test_foreign_extinction_refreshes_live_ownership_without_rewriting_history(self):
+        w=self.host.world
+        self.assertTrue(self.api.submit(A,'buy_map',{'target':B})['ok'])
+        history=next(t for t in self.render()['tiles'] if t['visibility']=='memory' and t['owner']==B)
+        point=next(tuple(t['position']) for t in self.api.state(A)['map']['tiles'] if t['visibility']=='live' and
+                   t['current'].get('owner') is None and w.territory.terrain(*t['position']).claimable)
+        w.territory.create_claim('scenario:extinction-live',B,*point)
+        self.assertEqual(next(t for t in self.render()['tiles'] if t['position']==list(point))['owner'],B)
+        sites={s.id:s for s in w.buildings.snapshot().sites}
+        for building in w.buildings.snapshot().instances:
+            if sites[building.site].owner==B and building.kind=='native:town-hall':w.buildings.demolish(B,building.id)
+        w.resolve_turn();w.phase='行动'
+        self.assertNotIn(B,self.host.actors())
+        after=self.render()
+        self.assertIsNone(next(t for t in after['tiles'] if t['position']==list(point))['owner'])
+        self.assertEqual(next(t for t in after['tiles'] if t['position']==history['position']),history)
+
     def test_market_projection_keeps_public_reference_separate_from_inventory(self):
         state=self.api.state(A);reference=dict(state['facts']['market']['reference'])
         inventory=dict(state['facts']['market']['inventory'])

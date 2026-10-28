@@ -1,93 +1,104 @@
-"""Optimistic command candidates derived exclusively from a player's facts.
+"""Player-scoped previews using the same army rules as command execution.
 
-An uncertain route is an attempt, not a path preview. Historical obstacles are
-not used as current blockers. This module cannot access the world or session.
+Only current player facts are supplied to navigation. Unknown terrain is an
+optimistic attempt; purchased/historical maps never become current blockers.
 """
-import heapq
+from . import navigation
+
+
+class PlayerMap:
+    def __init__(self, observation, size):
+        self.owner=observation['actor'];self.period=observation['period'];self.size=size
+        facts=observation['facts']
+        self.tiles={tuple(t['position']):t for t in facts['view']}
+        self.units=facts['army'];self.catalog=facts['unit_catalog']
+        self.terrain={t['id']:t for t in facts['terrain_catalog']}
+        self.relations={n['id']:n['relation'] for n in facts['foreign']['countries']}
+
+    def relation(self, owner):
+        return 'own' if owner==self.owner else 'wild' if owner is None else self.relations.get(owner,'neutral')
+
+    def at(self, p):
+        return [u for u in self.units if (u['x'],u['y'])==p and u['hp']>0]
+
+    def attacked(self, p):
+        return any(u.get('engaged') and u['owner']!='野人' and self.relation(u['owner'])=='war' for u in self.at(p))
+
+    def movable(self, p):
+        if p not in self.tiles:return True
+        hostile=any(u['owner']!='野人' and self.relation(u['owner'])=='war' for u in self.at(p))
+        return navigation.can_pass(self.relation(self.tiles[p].get('owner')),hostile)
+
+    def target_reason(self, p, attack):
+        if p not in self.tiles:return ''
+        tile=self.tiles[p];owner=tile.get('owner')
+        busy=[self.relation(u['owner']) for u in self.at(p) if u.get('engaged') and u['owner'] not in (self.owner,'野人')]
+        return navigation.target_reason(self.relation(owner),owner,self.terrain[tile['terrain']]['passable'],self.movable(p),busy,attack)
+
+    def neighbors(self, p):
+        # Match the territory interface ordering for stable route ties.
+        return tuple((p[0]+dx,p[1]+dy) for dx in (-1,0,1) for dy in (-1,0,1)
+            if (dx or dy) and 0<=p[0]+dx<self.size and 0<=p[1]+dy<self.size)
+
+    def commands(self, u):
+        p=(u['x'],u['y']);attacked=self.attacked(p)
+        move=navigation.action_reason(u,self.period,attacked=attacked)
+        attack=navigation.action_reason(u,self.period,attack=True)
+        current=navigation.action_reason(u,self.period,attack=True,current=True) or self.target_reason(p,True)
+        retreat=navigation.retreat_reason(u,self.period,attacked)
+        disband='正在交战或受到进攻，须先撤退并等待结算' if u.get('engaged') or attacked else ''
+        return {k:{'available':not reason,'reason':reason} for k,reason in
+                (('move',move),('attack','' if not current else attack),('retreat',retreat),('disband',disband))}
+
+
+def command_states(observation, size):
+    view=PlayerMap(observation,size)
+    return {u['id']:view.commands(u) for u in view.units if u['owner']==view.owner and u['hp']>0}
 
 
 def candidates(observation, ids, mode, size):
-    if mode not in ('move', 'attack', 'retreat'):raise ValueError('未知军令模式')
-    if (not isinstance(ids, list) or not ids or any(type(i) is not int or i < 1 for i in ids)
-        or len(set(ids)) != len(ids)):raise ValueError('请选择不重复的本国军队编号')
-    owner, period, facts = observation['actor'], observation['period'], observation['facts']
-    own = {u['id']: u for u in facts['army'] if u['owner'] == owner and u['hp'] > 0}
+    if mode not in ('move','attack','retreat'):raise ValueError('未知军令模式')
+    if (not isinstance(ids,list) or not ids or any(type(i) is not int or i<1 for i in ids) or len(set(ids))!=len(ids)):
+        raise ValueError('请选择不重复的本国军队编号')
+    view=PlayerMap(observation,size)
+    own={u['id']:u for u in view.units if u['owner']==view.owner and u['hp']>0}
     if any(i not in own for i in ids):raise ValueError('选中军队已不存在或不属于本国')
-    tiles = {tuple(t['position']): t for t in facts['view']}
-    catalog = facts['unit_catalog']
-    terrain = {t['id']: t for t in facts['terrain_catalog']}
-    relations = {n['id']: n['relation'] for n in facts['foreign']['countries']}
-    units = facts['army']
-    paths, base_reasons = {}, {}
-
-    def passable(p, unit):
-        if p not in tiles:return True
-        kind = tiles[p]['terrain']
-        return terrain[kind]['passable'] and unit['move_cost'].get(kind) is not None
-
-    def relation(p):
-        target = tiles.get(p, {}).get('owner')
-        return 'own' if target == owner else 'wild' if target is None else relations.get(target, 'neutral')
-
-    def movable(p):
-        if p not in tiles:return True
-        if relation(p) not in ('own', 'ally', 'wild'):return False
-        return not any((u['x'], u['y']) == p and u['hp'] > 0 and
-                       u['owner'] not in (owner, '野人') and relations.get(u['owner']) == 'war' for u in units)
-
+    paths={};reasons={}
     for aid in ids:
-        u = own[aid];start = (u['x'], u['y']);definition = catalog[u['kind']]
-        newborn = u.get('born_turn') == period
-        used = u.get('moved_turn') == period
-        engaged = u.get('engaged', False)
-        under_attack = any((v['x'], v['y']) == start and v.get('engaged') and
-                          v['owner'] not in (owner, '野人') and relations.get(v['owner']) == 'war' for v in units)
-        reason = ('新兵本回合不能行动' if newborn else
-                  '本回合行动额度已用' if used else
-                  '正在交战，须撤退' if engaged and mode != 'retreat' else
-                  '本格受到进攻，须撤退' if under_attack and mode == 'move' else '')
-        if mode == 'retreat' and not (engaged or under_attack):reason = '本军没有需要撤出的交战'
-        base_reasons[aid] = reason
-        speed = 1 if mode == 'retreat' else definition['speed']
-        costs = definition['move_cost'];minimum = min(c for c in costs.values() if c is not None)
-        def cost(p):return costs.get(tiles[p]['terrain']) if p in tiles else minimum
-        best = {start: (0, start not in tiles)};queue = [(0, start not in tiles, start)]
-        while queue:
-            distance, uncertain, p = heapq.heappop(queue)
-            if best.get(p) != (distance, uncertain):continue
-            if p != start and not movable(p):continue
-            for dx in (-1, 0, 1):
-                for dy in (-1, 0, 1):
-                    q = (p[0] + dx, p[1] + dy)
-                    if not (dx or dy) or not (0 <= q[0] < size and 0 <= q[1] < size):continue
-                    corners = ((p[0], q[1]), (q[0], p[1])) if dx and dy else ()
-                    if not all(passable(t, definition) for t in (p, q, *corners)):continue
-                    step = 1 if mode == 'retreat' else max(cost(p), cost(q))
-                    length = distance + step
-                    if length > speed:continue
-                    if mode == 'attack':
-                        if q in tiles and relation(q) not in ('wild', 'war') and not movable(q):continue
-                        # Neutral third-party engagement on unowned land is public only in live view.
-                        if q in tiles and any((v['x'], v['y']) == q and v.get('engaged') and v['hp'] > 0 and
-                            v['owner'] not in (owner, '野人') and relations.get(v['owner']) not in ('ally', 'war') for v in units):continue
-                    elif not movable(q):continue
-                    value = (length, uncertain or any(t not in tiles for t in (q, *corners)))
-                    if value >= best.get(q, (speed + 1, True)):continue
-                    best[q] = value;heapq.heappush(queue, (*value, q))
-        # In-place attack is a domain exception even for used/engaged troops.
-        if mode == 'attack' and not newborn and (start not in tiles or relation(start) in ('wild', 'war')):
-            best[start] = (0, start not in tiles)
-        else:best.pop(start, None)
-        paths[aid] = {p: value for p, value in best.items()
-                      if (not reason or mode == 'attack' and p == start and not newborn)
-                      and (mode != 'attack' or p not in tiles or relation(p) in ('wild', 'war'))}
-
-    targets = []
+        u=own[aid];start=(u['x'],u['y']);definition=view.catalog[u['kind']]
+        attack=mode=='attack';retreat=mode=='retreat'
+        reason=navigation.retreat_reason(u,view.period,view.attacked(start)) if retreat else navigation.action_reason(u,view.period,attack=attack,attacked=view.attacked(start))
+        reasons[aid]=reason
+        speed=1 if retreat else definition['speed'];costs=definition['move_cost']
+        minimum=min(c for c in costs.values() if c is not None)
+        def cost(p):
+            if p not in view.tiles:return 1 if retreat else minimum
+            kind=view.tiles[p]['terrain']
+            if not view.terrain[kind]['passable']:return None
+            return 1 if retreat else costs.get(kind)
+        search=dict(start=start,speed=speed,neighbors=view.neighbors,cost=cost,movable=view.movable,
+            target_ok=lambda p:p not in view.tiles or view.relation(view.tiles[p].get('owner'))!='neutral',attack=attack)
+        parents={};best=navigation.reachable(**search,parents=parents)
+        known_parents={};known=navigation.reachable(**search,visible=set(view.tiles),parents=known_parents) if start in view.tiles else {}
+        paths[aid]={}
+        for point in sorted(best):
+            current=point==start
+            if current and not attack:continue
+            allowed=navigation.action_reason(u,view.period,attack=True,current=True) if attack and current else reason
+            if allowed or view.target_reason(point,attack):continue
+            points=navigation.route(start,point,known_parents if point in known else parents)
+            cells={tuple(p) for p in points}
+            for a,b in zip(points,points[1:]):
+                if a[0]!=b[0] and a[1]!=b[1]:cells.update(((a[0],b[1]),(b[0],a[1])))
+            uncertain=not cells<=view.tiles.keys()
+            # A route through unknown cells is never advertised as verified.
+            paths[aid][point]={'uncertain':uncertain,'points':[] if uncertain else points}
+    targets=[]
     for point in sorted({p for rows in paths.values() for p in rows}):
-        execute = [aid for aid in ids if point in paths[aid]]
-        targets.append({'position': list(point), 'ids': execute,
-            'uncertain': any(paths[aid][point][1] for aid in execute),
-            'excluded': [{'aid': aid, 'reason': base_reasons[aid] or '已知路径或移动力不足'}
-                         for aid in ids if aid not in execute]})
-    return {'mode': mode, 'selected': list(ids), 'targets': targets,
-            'units': [{'aid': aid, 'reason': base_reasons[aid]} for aid in ids]}
+        execute=[aid for aid in ids if point in paths[aid]]
+        targets.append({'position':list(point),'ids':execute,
+            'uncertain':any(paths[aid][point]['uncertain'] for aid in execute),
+            'routes':[{'aid':aid,**paths[aid][point]} for aid in execute],
+            'excluded':[{'aid':aid,'reason':reasons[aid] or '已知路径、目标条件或移动力不足'} for aid in ids if aid not in execute]})
+    return {'mode':mode,'selected':list(ids),'targets':targets,
+            'units':[{'aid':aid,'reason':reasons[aid],'commands':view.commands(own[aid])} for aid in ids]}

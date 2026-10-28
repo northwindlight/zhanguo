@@ -24,6 +24,21 @@ def replay(scene,beats):
 
 
 class TestDesktopActivity(unittest.TestCase):
+    def test_extinction_boundary_replay_releases_all_remaining_land(self):
+        h=GameHost.new({'map_size':12,'seed':73,'nations':[
+            {'id':'scenario:qin','name':'秦','client':'rule'},
+            {'id':'scenario:chu','name':'楚','client':'rule'}]})
+        c=TimelineCapture(h);initial=deepcopy(c.previous);owner='scenario:chu'
+        sites={s.id:s for s in h.world.buildings.snapshot().sites}
+        for b in h.world.buildings.snapshot().instances:
+            if sites[b.site].owner==owner and b.kind=='native:town-hall':h.world.buildings.demolish(owner,b.id)
+        h.world.resolve_turn();h.world.phase='行动'
+        self.assertNotIn(owner,h.actors())
+        beats=c.finish();self.assertIsNone(c.warning)
+        actual=replay(initial,beats)
+        self.assertFalse(any(t['owner']==owner for t in actual['ownership']))
+        self.assertFalse(difference(actual,c.scene()))
+
     def test_normal_opening_and_actor_banners_and_construction_lifecycle(self):
         h=build(seed=20261023);self.assertFalse(h.world.military.snapshot())
         self.assertTrue(all(c.version=='v13' for c in h.clients.values()))

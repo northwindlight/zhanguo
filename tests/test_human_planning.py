@@ -41,6 +41,35 @@ class TestHumanPlanning(unittest.TestCase):
         unknown=next(t for t in self.api.state(A)['map']['tiles'] if t['visibility']=='unknown')
         with self.assertRaises(ValueError):self.api.site_options(A,*unknown['position'])
 
+    def test_watchtower_limit_includes_construction_and_is_per_site(self):
+        w=self.h.world
+        w.buildings.seed(self.site.id,'native:watchtower',completed=False)
+        row=self.item(self.read(),'watchtower')
+        self.assertFalse(row['available']);self.assertIn('上限',row['reason'])
+        before=w.runtime.save_mod_state(w)
+        result=self.api.submit(A,'build',{'kind':'native:watchtower','x':self.site.position[0],'y':self.site.position[1]})
+        self.assertFalse(result['ok']);self.assertEqual(before,w.runtime.save_mod_state(w))
+        with self.assertRaises(ValueError):w.buildings.seed(self.site.id,'native:watchtower')
+        other=self.second_site()
+        w.buildings.seed(other.tile.id,'native:watchtower')
+        self.assertEqual(w.buildings.count(other.tile.id,'native:watchtower'),1)
+
+    def test_old_save_duplicate_watchtowers_survive_without_allowing_new_duplicates(self):
+        from unittest.mock import patch
+        from mods.native.buildings.types import Watchtower
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        # Produce an actual pre-limit state, then use the unchanged save API.
+        with patch.object(Watchtower,'MAX_PER_SITE',None):
+            self.h.world.buildings.seed(self.site.id,'native:watchtower',count=2)
+        self.h.cycle(on_human=lambda p:self.api.submit(A,'end_turn',{}))
+        with TemporaryDirectory() as tmp:
+            path=Path(tmp)/'legacy.json';self.h.save(path)
+            loaded=GameHost.load(path,config())
+        self.assertEqual(loaded.world.buildings.count(self.site.id,'native:watchtower'),2)
+        self.assertEqual(loaded.world.buildings.effects(self.site.id,'native:watchtower')['vision_radius'],4)
+        self.assertFalse(self.item(HumanAPI(loaded).site_options(A,*self.site.position),'watchtower')['available'])
+
     def test_missing_facility_and_slot_prerequisites_disable_candidates(self):
         data=self.read()
         self.assertFalse(self.item(data,'barracks')['available'])

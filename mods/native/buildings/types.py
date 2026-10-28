@@ -112,7 +112,7 @@ class TownHall(NativeBuilding):
 
 class Watchtower(NativeBuilding):
     TYPE_ID='native:watchtower';NAME_KEY='building.native:watchtower.name';ROLES=('vision',)
-    GOLD_COSTS=(60,);WOOD_COST=30;EFFECTS=MappingProxyType({'vision_radius':4})
+    GOLD_COSTS=(60,);WOOD_COST=30;MAX_PER_SITE=1;EFFECTS=MappingProxyType({'vision_radius':4})
 
 
 class DiplomacyCenter(NativeBuilding):

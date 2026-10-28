@@ -10,6 +10,7 @@ from engine.identifiers import content_id
 from engine.runtime import DomainRejection, ModError
 from engine.state import active_unit
 from .objects import Unit
+from . import navigation
 from .parameters import ARMY_GID_BASE, ARMY_STARVE_DAMAGE, ARMY_HEAL_PER_TURN, HEAL_EQUIP_COST, COMBAT_DIE_MOD, RETREAT_ATK_PENALTY, RETREAT_DEF_COVER
 
 
@@ -83,16 +84,10 @@ class Military:
         return units,items
 
     def action_reason(self, owner, unit, attack=False, target=None):
-        period=self._period()
-        if unit.born_turn==period:return '新兵本回合不能行动'
-        # 原地进攻允许已用过移动额度的部队；沿用 Unit.can_attack 的规则。
-        if attack and target==(unit.x,unit.y):
-            return ''
-        if unit.moved_turn==period:return '本回合已移动或已消耗行动额度'
-        if unit.engaged:return '正在交战，须先撤退'
-        if not attack and any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner) for v in self._units.at(unit.x,unit.y)):
-            return '本格正受进攻，须用 retreat 撤出'
-        return ''
+        attacked=any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner)
+                     for v in self._units.at(unit.x,unit.y))
+        return navigation.action_reason(unit,self._period(),attack=attack,
+            current=target==(unit.x,unit.y),attacked=attacked)
     def snapshot(self, owner=None):
         return tuple(deepcopy(u) for u in self._units if owner is None or u.owner==owner)
     def visible_units(self, owner):
@@ -204,48 +199,35 @@ class Military:
 
     def _hostile(self, a, b):
         return a!=b and (a=='野人' or b=='野人' or self._call('native:diplomacy','war_between',a,b))
+    def _relation(self, owner, other):
+        if other==owner:return 'own'
+        if other is None:return 'wild'
+        if self._call('native:diplomacy','allied',owner,other):return 'ally'
+        return 'war' if self._hostile(owner,other) else 'neutral'
     def _pass(self, owner, x, y):
         if not self._call('native:territory','terrain',x,y).passable:return False
-        tile_owner=self._call('native:territory','owner',x,y)
-        if tile_owner==owner or tile_owner is not None and self._call('native:diplomacy','allied',owner,tile_owner):return True
-        if tile_owner is not None and tile_owner!=owner and not self._call('native:diplomacy','allied',owner,tile_owner):return False
-        return not any(u.owner!='野人' and u.alive and self._hostile(owner,u.owner) for u in self._units.at(x,y))
+        relation=self._relation(owner,self._call('native:territory','owner',x,y))
+        hostile=any(u.owner!='野人' and u.alive and self._hostile(owner,u.owner) for u in self._units.at(x,y))
+        return navigation.can_pass(relation,hostile)
     def _step(self, start, target, passable=None):
-        """Natural obstacles also block diagonal corner cutting."""
         if passable is None:passable=lambda p:self._call('native:territory','terrain',*p).passable
-        if not passable(target):return False
-        x,y=start;tx,ty=target
-        return x==tx or y==ty or (passable((x,ty)) and passable((tx,y)))
+        return navigation.step_allowed(start,target,passable)
     def reachable(self, owner, aid, attack=False, *, visible_only=False, _origin=None, _parents=None):
-        unit=self._own_unit(owner,aid);size,_=self._call('native:territory','dimensions')
+        unit=self._own_unit(owner,aid)
         speed=self._parameter(owner,'unit.speed.'+unit.kind,unit.definition['speed'])
-        start=_origin or (unit.x,unit.y);best={start:0};queue=[(0,start)]
+        start=_origin or (unit.x,unit.y)
         visible={t.position for t in self._call('native:vision','tiles',owner)} if visible_only else None
         terrain_cost={}
-        def cost(x,y):
-            if (x,y) not in terrain_cost:
-                terrain=self._call('native:territory','terrain',x,y)
-                terrain_cost[x,y]=unit.definition['move_cost'].get(terrain.id) if terrain.passable else None
-            return terrain_cost[x,y]
-        while queue:
-            distance,point=heapq.heappop(queue)
-            if distance!=best[point]:continue
-            for target in self._call('native:territory','neighbors',*point):
-                if visible is not None and target not in visible:continue
-                # Public reachability must not read unseen corner cells.
-                if visible is not None and point[0]!=target[0] and point[1]!=target[1] and (
-                    (point[0],target[1]) not in visible or (target[0],point[1]) not in visible):continue
-                if not self._step(point,target,lambda p:cost(*p) is not None):continue
-                if cost(*point) is None:continue
-                next_distance=distance+max(cost(*point),cost(*target))
-                if next_distance>speed or next_distance>=best.get(target,speed+1):continue
-                movable=self._pass(owner,*target)
-                territory_owner=self._call('native:territory','owner',*target)
-                target_ok=territory_owner is None or territory_owner==owner or self._call('native:diplomacy','allied',owner,territory_owner) or self._call('native:diplomacy','war_between',owner,territory_owner)
-                if not movable and not (attack and target_ok):continue
-                best[target]=next_distance
-                if _parents is not None:_parents[target]=point
-                if movable:heapq.heappush(queue,(next_distance,target))
+        def cost(p):
+            if p not in terrain_cost:
+                terrain=self._call('native:territory','terrain',*p)
+                terrain_cost[p]=unit.definition['move_cost'].get(terrain.id) if terrain.passable else None
+            return terrain_cost[p]
+        best=navigation.reachable(start,speed,
+            lambda p:self._call('native:territory','neighbors',*p),cost,
+            lambda p:self._pass(owner,*p),
+            lambda p:self._relation(owner,self._call('native:territory','owner',*p))!='neutral',
+            attack=attack,visible=visible,parents=_parents)
         return tuple(sorted(best.items()))
 
     def reachable_many(self, owner, ids, attack=False):
@@ -272,20 +254,12 @@ class Military:
             if u is None:continue
             key=(u.x,u.y,u.kind,self._parameter(owner,'unit.speed.'+u.kind,u.definition['speed']))
             if key not in paths:paths[key]=dict(self.reachable(owner,u.id,attack))
-        # 被挡的原因各不相同，回执要说出是哪一种，否则模型只能靠猜（打了自家地却被告知「须先宣战」）。
-        reason=''
-        target_blocked=not self._pass(owner,x,y) if not attack else False
-        if target_blocked:reason='移动目标不合法：只能是野地、自家或盟国格；敌国领土要用 attack'
-        if not self._call('native:territory','terrain',x,y).passable:
-            target_blocked=True;reason='高山或海洋不可通行、进攻或占领；请沿可通行陆地绕行'
         tile_owner=self._call('native:territory','owner',x,y)
-        if attack and tile_owner is not None and (tile_owner==owner or self._call('native:diplomacy','allied',owner,tile_owner)):
-            target_blocked=True;reason='那是你自己（或盟国）的地块：不能进攻自家领土，占地请选无主地或敌国领土'
-        if attack and tile_owner not in (None,owner) and not self._call('native:diplomacy','allied',owner,tile_owner) and not self._call('native:diplomacy','war_between',owner,tile_owner):
-            target_blocked=True;reason=f'你和{tile_owner.split(":",1)[-1]}之间没有生效的战争：先 declare_war，或改打无主地/已在交战的目标'
-        busy=[u for u in self._units.at(x,y) if u.alive and u.engaged and u.owner not in ('野人',owner)]
-        if attack and tile_owner is None and busy and not any(self._hostile(owner,u.owner) or self._call('native:diplomacy','allied',owner,u.owner) for u in busy):
-            target_blocked=True;reason='该无主地上有与你非敌非盟的一方正在打野：不能抢别人的战斗（可先旁观），换一格或等它打完'
+        busy=[self._relation(owner,u.owner) for u in self._units.at(x,y)
+              if u.alive and u.engaged and u.owner not in ('野人',owner)]
+        reason=navigation.target_reason(self._relation(owner,tile_owner),tile_owner,
+            self._call('native:territory','terrain',x,y).passable,self._pass(owner,x,y),busy,attack)
+        target_blocked=bool(reason)
         # 先排除不能行动的部队，再处理盲推。盲推不得向玩家泄露真实目标阻挡原因。
         if target_blocked and not self._call('native:vision','visible',owner,x,y):
             self._reject_batch(items)
@@ -359,10 +333,9 @@ class Military:
         for unit,row in zip(units,items):
             if unit is None:continue
             attacked=any(v.alive and v.engaged and v.owner!='野人' and self._hostile(owner,v.owner) for v in self._units.at(unit.x,unit.y))
-            if unit.born_turn==period:row['reason']='新兵本回合不能撤退'
-            elif unit.moved_turn==period:row['reason']='本回合已移动或已提交撤退'
-            elif not (unit.engaged or attacked):row['reason']='未交战、未受进攻，无需撤退；请用 move 调动'
-            elif (x,y) not in self._call('native:territory','neighbors',unit.x,unit.y) or not self._pass(owner,x,y) or not self._step((unit.x,unit.y),(x,y)):row['reason']='撤退目标非法：只能沿可通行陆地退到相邻的野地、自家或盟国格'
+            row['reason']=navigation.retreat_reason(unit,period,attacked)
+            if not row['reason'] and ((x,y) not in self._call('native:territory','neighbors',unit.x,unit.y) or not self._pass(owner,x,y) or not self._step((unit.x,unit.y),(x,y))):
+                row['reason']='撤退目标非法：只能沿可通行陆地退到相邻的野地、自家或盟国格'
             defender=not any(v.alive and v.engaged and v.owner==owner for v in self._units.at(unit.x,unit.y)) or self._call('native:territory','owner',unit.x,unit.y)==owner
             plans.append((unit,defender))
         self._reject_batch(items)

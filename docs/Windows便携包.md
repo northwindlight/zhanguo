@@ -1,6 +1,6 @@
 # Windows 便携体验包
 
-[v0.6.2 预发布页](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.2) · [Windows x64 下载](https://github.com/northwindlight/zhanguo/releases/download/v0.6.2/zhanguo-0.6.2-windows-x64.zip) · [SHA-256 校验值](https://github.com/northwindlight/zhanguo/releases/download/v0.6.2/SHA256SUMS)
+[v0.6.3 预发布页](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.3) · [Windows x64 下载](https://github.com/northwindlight/zhanguo/releases/download/v0.6.3/zhanguo-0.6.3-windows-x64.zip) · [SHA-256 校验值](https://github.com/northwindlight/zhanguo/releases/download/v0.6.3/SHA256SUMS)
 
 上一正式版为 [v0.5.1](https://github.com/northwindlight/zhanguo/releases/tag/v0.5.1)。新版本默认先供试玩，确认满意后再转为正式 Release。
 
@@ -39,6 +39,8 @@ ZIP 中有：
 本轮 [v0.6.2 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.2) 增加右侧地块／军队总览和筛选、资源悬浮产消明细，并修复军屯耕地占用、数字框需回车、市场期望库存与真人倍速切换。买卖、建设和征兵可在动画期间连续排队，支持取消尚未提交的指令；每笔按执行时条件核算。
 运行代码 `3f57e07`；[Windows构建与实际窗口](https://github.com/northwindlight/zhanguo/actions/runs/40494984758)，[本轮截图与范围](reviews/军队总览与地块筛选-20261027.md)。可读v0.6.1存档，保留旧档既有建筑，不自动拆除；更早版本原有严格检查保持。
 
+本轮v0.6.3修复军令误拦截、已知逐格路线和瞭望塔限建，接通CI自动预发布；[实现范围与验收](reviews/GUI军令规则与自动预发布-20261028.md)。
+
 ## 发布顺序
 
 完成一批可试玩版本后，默认先发布 GitHub **Pre-release**。CI、对应运行代码的 Windows 实际窗口及包校验通过后，上传 Windows ZIP、源码 ZIP 和 `SHA256SUMS`，核对远端附件大小与摘要，再公开预发布。
@@ -49,7 +51,7 @@ ZIP 中有：
 
 ## 构建与验证
 
-下一轮按用户要求接入 CI 验收通过后直接公开 Pre-release，并上传该次构建的 Windows ZIP、源码和校验文件，省去本机下载复核与人工中转；本次先记录到[下一轮计划](plans/GUI下一轮试玩改进-20261027.md)，自动发布工作流尚未实现。
+自动发布已接入`ci.yml`：main上根目录`VERSION`对应尚未发布的标签时，离线回归、文档、C#与Windows实际窗口全部通过后直接发Pre-release。Windows附件来自同次成功构建，源码绑定同一提交，上传摘要核对完成再公开。重跑同提交可续传草稿，已公开附件不覆盖；后续完成版本递增`VERSION`并添加`docs/releases/v<版本>.md`。规则源码也会触发Windows构建；仅文档改动且无待发版本时不发包。
 
 [Windows便携包工作流](../.github/workflows/windows-portable.yml)在 Windows 构建机上执行。
 它使用官方 Godot 4.7.2 .NET 的导出模板、.NET 8 SDK和 Python 3.13.17嵌入式发行版；

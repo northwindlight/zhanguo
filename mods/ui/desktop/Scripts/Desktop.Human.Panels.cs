@@ -129,14 +129,11 @@ public partial class Desktop
             void SelectionChanged()
             {
                 var chosen=own.Where(u=>_selectedArmies.Contains(I(u["id"]))).ToArray();
-                bool born(JsonNode u)=>u["born_turn"]!=null&&I(u["born_turn"])==_period;
-                bool moved(JsonNode u)=>u["moved_turn"]!=null&&I(u["moved_turn"])==_period;
-                bool enemyHere=local.Any(u=>S(u["owner"])!=HumanActor),attacked=local.Any(u=>S(u["owner"])!=HumanActor&&Yes(u["engaged"]));
-                foreach(var b in orders)_rtsAvailability[b]=b.Name.ToString() switch {
-                    "HumanOrder_move"=>chosen.Any(u=>!born(u)&&!moved(u)&&!Yes(u["engaged"])),
-                    "HumanOrder_attack"=>chosen.Any(u=>!born(u)&&(!moved(u)||enemyHere)),
-                    "HumanOrder_retreat"=>chosen.Any(u=>!born(u)&&!moved(u)&&(Yes(u["engaged"])||attacked)),
-                    _=>chosen.Length>0&&chosen.All(u=>!Yes(u["engaged"]))&&!attacked };
+                foreach(var b in orders)
+                {
+                    string mode=b.Name.ToString().Replace("HumanOrder_","");
+                    _rtsAvailability[b]=mode=="disband"?chosen.Length>0&&chosen.All(u=>UnitCan(u,mode)):chosen.Any(u=>UnitCan(u,mode));
+                }
                 RefreshHumanButtons();
             }
             var all=new CheckButton { Text="全选本国驻军",ButtonPressed=own.All(u=>_selectedArmies.Contains(I(u!["id"]))) };
@@ -161,8 +158,8 @@ public partial class Desktop
             HumanText($"{(group.Key.Owner=="野人"?"野人守军":NationLabel(group.Key.Owner))} · {HumanLabel(group.Key.Kind)}×{group.Count()}  ♥ {group.Sum(u=>F(u["hp"])):G5}/{group.Sum(u=>F(HumanFacts["unit_catalog"]?[S(u["kind"])]?["hp"])):G5}",color:"d4b9a0");
         if(local.Length==0)HumanText(state=="live"?"没有可见驻军":"没有己方驻军；这里没有实时敌军情报。");
     }
-    private string UnitReason(JsonNode u)=>I(u["born_turn"])==_period&&u["born_turn"]!=null?"新募：本回合不能行动":
-        u["moved_turn"]!=null&&I(u["moved_turn"])==_period?"已用行动额度（原地攻击另判）":u["engaged"]?.GetValue<bool>()==true?"正在交战（可检查原地攻击或撤退）":"";
+    private static bool UnitCan(JsonNode u,string mode)=>Yes(u["commands"]?[mode]?["available"]);
+    private string UnitReason(JsonNode u)=>S(u["commands"]?["move"]?["reason"]);
     private string MapSource(string source)
     {
         if(source=="vision")return "合法视野采样";

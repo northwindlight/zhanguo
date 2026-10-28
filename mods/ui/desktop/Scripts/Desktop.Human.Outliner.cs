@@ -147,7 +147,7 @@ public partial class Desktop
             {
                 var p=new Vector2I(group.Key.X,group.Key.Y);var units=group.ToArray();
                 var matching=units.Where(u=>(_armyKind==""||S(u["kind"])==_armyKind)&&(_armyState switch {
-                    "ready"=>UnitReason(u)=="","engaged"=>Yes(u["engaged"]),"new"=>u["born_turn"]!=null&&I(u["born_turn"])==_period,
+                    "ready"=>new[]{"move","attack","retreat"}.Any(m=>UnitCan(u,m)),"engaged"=>Yes(u["engaged"]),"new"=>u["born_turn"]!=null&&I(u["born_turn"])==_period,
                     "used"=>u["moved_turn"]!=null&&I(u["moved_turn"])==_period,_=>true })&&
                     (HumanCellName(p)+" "+HumanLabel(S(u["kind"]))+" #"+I(u["id"])).Contains(_armySearch,StringComparison.OrdinalIgnoreCase)).ToArray();
                 if(matching.Length==0)continue;

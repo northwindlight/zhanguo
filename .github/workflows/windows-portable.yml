@@ -2,20 +2,7 @@ name: Windows 便携包
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main, codex/windows-portable]
-    paths:
-      - '.github/workflows/windows-portable.yml'
-      - 'scripts/package_windows.py'
-      - 'scripts/verify_windows_package.ps1'
-      - 'packaging/windows/**'
-      - 'mods/ui/desktop/**'
-      - 'mods/ui/desktop_player.py'
-      - 'mods/ui/desktop_catalog.py'
-      - 'mods/ui/config.py'
-      - 'mods/native/human.py'
-      - 'mods/ui/desktop_human.py'
-      - 'ui/desktop.py'
+  workflow_call:
 
 permissions:
   contents: read

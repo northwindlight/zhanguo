@@ -13,9 +13,60 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  scope:
+    name: 构建与发版范围
+    runs-on: ubuntu-latest
+    outputs:
+      portable: ${{ steps.scope.outputs.portable }}
+      release: ${{ steps.scope.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - id: scope
+        env:
+          BASE_SHA: ${{ github.event.before }}
+        run: python -m scripts.ci_release_scope
+
+  windows:
+    name: Windows 便携包
+    needs: scope
+    if: github.ref == 'refs/heads/main' && needs.scope.outputs.portable == 'true'
+    uses: ./.github/workflows/windows-portable.yml
+
+  prerelease:
+    name: 自动发布试玩版
+    needs: [scope, test, docs, desktop, windows]
+    if: github.ref == 'refs/heads/main' && needs.scope.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: portable-prerelease
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          name: Zhanguo-Windows-x64
+          path: release-input
+      - name: 发布同提交的 Windows、源码与校验值
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/release_portable.py --artifact "$(find release-input -name '*.zip' -print -quit)" --output release-output
+
   test:
     name: 离线回归
     runs-on: ubuntu-latest
