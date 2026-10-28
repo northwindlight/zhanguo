@@ -8,6 +8,7 @@ from .army.candidates import candidates, command_states
 from .tools.commands import COMMANDS
 
 LABELS = {
+    'queue_build':'加入建设队列','cancel_build_order':'取消待建','queue_recruit':'加入征兵队列','cancel_recruit_order':'取消待征',
     'build':'建设','demolish':'拆除建筑','recruit':'征兵','move':'移动','attack':'攻击','retreat':'撤退','disband':'遣散',
     'buy':'买入','sell':'卖出','auto_trade':'自动交易','remove_auto_trade':'删除自动交易','borrow':'贷款','buy_report':'购买经济报表','buy_map':'购买地图',
     'send_letter':'写信','gift':'赠礼','share_map':'共享地图','spy':'派谍',
@@ -80,11 +81,12 @@ class HumanAPI:
             return self.state(actor)['facts']['news']
         return self.player(actor).query('query',arguments)
 
-    def site_options(self, actor, x, y, count=1):
+    def site_options(self, actor, x, y, count=1, queued=False):
         player=self.player(actor)
         if type(x) is not int or type(y) is not int:raise ValueError('请选择地块')
-        planning=player.call_api('native:buildings','planning',x=x,y=y)
-        planning['units']=player.call_api('native:army','planning',x=x,y=y,count=count)
+        planning=player.call_api('native:buildings','planning',x=x,y=y,queued=queued)
+        planning['units']=player.call_api('native:army','planning',x=x,y=y,count=count,queued=queued)
+        planning['recruitment_orders']=[r for r in player.call_api('native:army','recruit_orders') if r['site']==planning['site']]
         planning['catalog']=player.call_api('native:buildings','catalog')
         planning['unit_catalog']=player.call_api('native:army','unit_catalog')
         planning['estimates']=player.query('query',{'panel':'building_economics','other_slots':planning['completed']})
@@ -135,6 +137,8 @@ class HumanAPI:
         votes = [v for v in relation.get('votes',[]) if v['deadline']==observed['period'] and actor in v.get('voters',[]) and
                  actor not in dict(v.get('ballots',[]))]
         return {**observed, 'nickname':self.host.clients[actor].cfg.get('nickname','玩家'),
+                'production_queue':{'construction':player.call_api('native:buildings','orders'),
+                                    'recruitment':player.call_api('native:army','recruit_orders')},
                 'operations':self.operations(actor),
                 'colors':{n['id']:n['color'] for n in self.host.cfg.get('nations',[]) if n.get('color') and n['id'] in {v['id'] for v in facts['foreign']['nations']}},
                 'map':{'size':size,'tiles':tiles},

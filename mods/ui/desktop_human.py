@@ -63,6 +63,8 @@ class PlayerCapture:
         live={tuple(t['position']) for t in after['tiles'] if t['visibility']=='live'}
         if position is not None and tuple(position) not in live:position=None
         phase={'buy':'trade','sell':'trade','build':'build','demolish':'demolish','recruit':'recruit','move':'march','attack':'engage','retreat':'order','buy_map':'map','send_letter':'order'}.get(canonical,'human-action')
+        if canonical in ('queue_build','queue_recruit') and receipt.get('ok') and receipt.get('data',{}).get('started'):
+            phase='build' if canonical=='queue_build' else 'recruit'
         effective=receipt.get('ok') and receipt.get('status') not in ('confirmation_required','rejected','failed')
         if not effective:phase='human-action'
         if receipt.get('status')=='confirmation_required':text='请查看宣战警告，核对参战方与条约后确认。'

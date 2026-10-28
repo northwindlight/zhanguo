@@ -42,9 +42,17 @@ class ArmyAPI:
         site = self.world.runtime.object_call(self.world, 'native:buildings', 'resolve_site', actor, site, x, y)
         return self.military.recruit(actor, site, kind, count, energy_short=self.military.grid_short(actor))
 
-    def planning(self, actor, x, y, count=1):
+    def enqueue_recruit(self, actor, site=None, kind='native:infantry', count=1, x=None, y=None):
+        site=self.world.runtime.object_call(self.world,'native:buildings','resolve_site',actor,site,x,y)
+        return self.military.enqueue_recruit(actor,site,kind,count)
+
+    def recruit_orders(self, actor):return self.military.recruit_orders(actor)
+
+    def cancel_recruit_order(self, actor, id):return self.military.cancel_recruit_order(actor,id)
+
+    def planning(self, actor, x, y, count=1, queued=False):
         site=self.world.runtime.object_call(self.world,'native:buildings','resolve_site',actor,None,x,y)
-        return self.military.planning(actor,site,count)
+        return self.military.planning(actor,site,count,queued=queued)
 
     def move(self, actor, aid=None, ids=None, x=None, y=None, place=None):
         ids = self.selection(aid, ids)

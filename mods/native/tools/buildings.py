@@ -27,6 +27,15 @@ def tools(runtime):
     def demolish(world, actor, id: int):
         return runtime.player_api(world,'native:buildings').demolish(actor,id)
 
+    def queue_build(world, actor, kind: str, site: str | None = None, x: int | None = None, y: int | None = None):
+        return runtime.player_api(world,'native:buildings').enqueue(actor,kind,site=site,x=x,y=y)
+
+    def construction_queue(world, actor):
+        return runtime.player_api(world,'native:buildings').orders(actor)
+
+    def cancel_build_order(world, actor, id: int):
+        return runtime.player_api(world,'native:buildings').cancel_order(actor,id)
+
     def catalog(world, actor, kind: str | None = None):
         rows = runtime.player_api(world, 'native:buildings').catalog(actor)
         return [row for row in rows if kind is None or row['id'] == kind]
@@ -44,9 +53,16 @@ def tools(runtime):
         Tool('demolish',demolish,owner='native:buildings',api=('demolish',),
              parameters={'type':'object','properties':{'id':{'type':'integer','minimum':1,'description':'building_sites 中的本国建筑实例编号'}},
                          'required':['id'],'additionalProperties':False},
-             description='按建筑实例 id 拆除本国建筑，真人与模型规则相同：未完工退回实际支付材料的50%（可含半单位），完工后零返还。撤销不恢复本格当期施工额度。城堡从最高一级拆起；拆除最后市政厅可能导致亡国。编号查 building_sites。'),
+             description='按id拆除本国建筑或取消待建：未开工全额退回，施工中退回实际材料50%（可含半单位），完工0%。撤销不恢复本格当期施工额度。城堡从最高一级拆起；拆除最后市政厅可能导致亡国。编号查building_sites或construction_queue。'),
     ) if provider is not None and 'demolish' in provider.mod.declaration.get('PlayerAPI',{}).get('Methods',()) else ()
     return demolition+(
+        Tool('queue_build',queue_build,owner='native:buildings',api=('enqueue',),parameters=parameters,
+             adapter=site_arguments,content_parameters=('kind',),
+             description='将建筑加入本国地块正式队列，立即按当时造价预付全部材料，空闲则马上动工，否则后续回合依次开工且不再扣款。预占建筑及资源位，每格每期仍只动工一次。未开工取消全退，已开工拆除50%，完工0%。查询construction_queue，取消用cancel_build_order。'),
+        Tool('cancel_build_order',cancel_build_order,owner='native:buildings',api=('cancel_order',),
+             description='取消construction_queue中的未开工建筑id，预付材料全额退回。已开工条目拒绝此操作，须用demolish按50%拆除；城堡从最高一级取消。'),
+        Tool('construction_queue',construction_queue,owner='native:buildings',api=('orders',),read_only=True,panel=True,
+             description='全国建设队列：待建与在建编号、位置、顺序、等待原因、已付价格和当前退款。无地块参数；只读，不推进。'),
         Tool('build', build, owner='native:buildings', api=('build',), parameters=parameters,
              adapter=site_arguments, content_parameters=('kind',),
              description='在本国地块动工：site 传地名或 "x y" 坐标串，或直接传两个整数 x、y。直接返回实际扣款和施工回执；参数或材料不符时返回原因。每格每回合一次，结算落成。造价、门槛查 building_catalog，全部收益查 building_economics。'),
@@ -161,9 +177,22 @@ def _demolish(args, receipt, actor, ctx):
     return ('拆除' if data['completed'] else '撤销施工')+' '+ctx.label('content',data['kind'])+f' #{data["id"]}；返还 '+ctx.resources(data['refunds'])
 
 
-PANELS = {'building_catalog': _catalog, 'building_sites': _sites}
-RECEIPTS = {'build': _build_receipt,'demolish':_demolish}
+def _queue_receipt(args, receipt, actor, ctx):
+    data=receipt['data']
+    return ctx.label('content',data['kind'])+f' #{data["id"]} · '+('已开工' if data['status']=='construction' else '已加入待建队列')+'；预付 '+ctx.resources(data['paid'])
+
+
+def _queue_panel(data, args, actor, ctx):
+    return '\n'.join(f'#{r["id"]} '+ctx.label('content',r['kind'])+' '+ctx.pos(r,actor=actor)+' · '+
+        ('施工中' if r['status']=='construction' else f'待建第{r["line_position"]}项')+' · '+r['reason']+'；取消返还 '+ctx.resources(r['refunds']) for r in data) or '暂无建设队列'
+
+
+PANELS = {'building_catalog': _catalog, 'building_sites': _sites,'construction_queue':_queue_panel}
+RECEIPTS = {'build': _build_receipt,'demolish':_demolish,'queue_build':_queue_receipt,'cancel_build_order':_demolish}
 CAPTIONS = {
+    'queue_build':lambda args,actor,receipt,ctx:'加入建设队列 '+ctx.label('content',args.get('kind','')),
+    'cancel_build_order':lambda args,actor,receipt,ctx:'取消待建 #'+str(args.get('id','')),
+    'construction_queue':lambda args,actor,receipt,ctx:'全国建设队列',
     'build': _build_caption,
     'demolish': lambda args,actor,receipt,ctx:'拆除建筑 #'+str(args.get('id','')),
     'building_sites': lambda args, actor, receipt, ctx: ctx.text('tool.caption.building_sites'),

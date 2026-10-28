@@ -10,6 +10,7 @@ from engine.identifiers import content_id
 from engine.resource import Resource
 from engine.runtime import DomainRejection, ModError
 from engine.state import active_unit
+from .queue import ConstructionQueue, ConstructionOrder
 
 # Building slots per site; the only source for this limit.
 SITE_CAPACITY = 20
@@ -101,15 +102,17 @@ class BuildingsSnapshot:
     instances: tuple
     construction: tuple
     self_built: tuple
+    orders: tuple = ()
 
 
-class Buildings:
+class Buildings(ConstructionQueue):
     def __init__(self, building_types, resource_call, place_call=None):
         self._types = MappingProxyType({cls.TYPE_ID:cls for cls in building_types})
         if len(self._types)!=len(building_types):raise ValueError('Duplicate building type')
         self._resources, self._place = resource_call, place_call
         self._sites, self._instances, self._orders, self._self_built = {}, {}, {}, {}
         self._construction = []
+        self._queued = {}
         self._cancelled = []
         self._tribute_remainders = {}
         self._by_site = None
@@ -158,6 +161,7 @@ class Buildings:
     def transfer_site(self, site_id, owner):
         self._write()
         if owner is not None:owner_name(owner)
+        if self._sites[site_id].owner!=owner:self._cancel_site_orders(site_id)
         self._sites[site_id] = replace(self._sites[site_id],owner=owner)
         return self._sites[site_id]
 
@@ -239,8 +243,9 @@ class Buildings:
             total+=(self._type(kind).EFFECTS.get(key,0) or 0)*self.count(site_id,kind)
         return total if total else default
 
-    def _check_slots(self, site, cls, count=1, *, shared_resources=True, legacy_watchtowers=False):
+    def _check_slots(self, site, cls, count=1, *, shared_resources=True, legacy_watchtowers=False, include_queue=True):
         existing = list(self._index().get(site.id, ()))
+        if include_queue:existing.extend(self._pending_at(site.id))
         same = sum(item.kind==cls.TYPE_ID for item in existing)
         resource_used = self._resource_occupancy(existing, cls.SITE_RESOURCE) if shared_resources else same
         context = {'reason': 'building_slots', 'site': site.id, 'position': list(site.position),
@@ -280,18 +285,22 @@ class Buildings:
         return tuple(item.snapshot() for item in candidates)
 
     def quote(self, owner, site_id, kind, *, policy_pct=100):
+        return self._quote(owner,site_id,kind,policy_pct=policy_pct)
+
+    def _quote(self, owner, site_id, kind, *, policy_pct=100, queued=False, starting=False):
         owner_name(owner);integer(policy_pct)
         site,cls = self._sites[site_id],self._type(kind)
         if site.owner!=owner:raise ValueError('Site does not belong to actor')
-        if self._orders[site_id]==self.period:raise ValueError('One construction order per site per period')
-        existing,same = self._check_slots(site,cls)
+        if not queued and self._orders[site_id]==self.period:raise ValueError('One construction order per site per period')
+        if not queued and not starting and self._pending_at(site_id):raise ValueError('本格已有待建队列，请先执行或取消前面的条目')
+        existing,same = self._check_slots(site,cls,include_queue=not starting)
         if len(existing)<cls.MIN_SLOTS:
             raise DomainRejection('现有建筑数量不足', {'reason': 'building_slots', 'block': 'min_existing',
                 'site': site.id, 'position': list(site.position), 'kind': kind,
                 'occupied': len(existing), 'capacity': site.capacity, 'same': same,
                 'min_slots': cls.MIN_SLOTS, 'resources': dict(site.resources),
                 'existing': [item.kind for item in existing]})
-        built = self._self_built.get((owner,kind),0)
+        built = self._self_built.get((owner,kind),0)+(0 if starting else self._reserved_self_built(owner,kind))
         if cls.SELF_BUILD_LIMIT is not None and built>=cls.SELF_BUILD_LIMIT:
             raise ValueError('Owner self-build limit reached')
         return self._construction_price(owner, site, cls, existing, same, policy_pct)
@@ -305,19 +314,20 @@ class Buildings:
         return {'site':site.id,'kind':cls.TYPE_ID,'level':level,'costs':dict(costs),
                 'other_slots':len(existing),'penalty':site.penalty,'discount':discount,'policy_pct':policy_pct}
 
-    def planning(self, owner, site_id, *, policy_pct=100):
+    def planning(self, owner, site_id, *, policy_pct=100, queued=False):
         """Own-site read model; quote and build retain the final authority."""
         owner_name(owner);integer(policy_pct)
         site=self._sites[site_id]
         if site.owner!=owner:raise ValueError('Site does not belong to actor')
-        existing=list(self._index().get(site.id,()))
+        actual=list(self._index().get(site.id,()))
+        existing=actual+list(self._pending_at(site.id))
         wallet={row.id:row.amount for row in self._resources('snapshot',owner)}
         ordered=self._orders[site.id]==self.period
         rows=[]
         for kind,cls in self._types.items():
             same=sum(b.kind==kind for b in existing)
             def requirement(text,met):return {'text':text,'met':bool(met)}
-            requirements=[requirement('每地块每回合只能施工一次',not ordered),
+            requirements=[requirement('每地块每回合只能施工一次；后续条目按期动工' if queued else '每地块每回合只能施工一次',queued or not ordered),
                 requirement(f'建筑位 {len(existing)}/{site.capacity}',len(existing)<site.capacity)]
             if cls.MIN_SLOTS:requirements.append(requirement(f'已有建筑 {len(existing)}/{cls.MIN_SLOTS}',len(existing)>=cls.MIN_SLOTS))
             if cls.MAX_PER_SITE is not None:requirements.append(requirement(f'本格同类数量 {same}/{cls.MAX_PER_SITE}',same<cls.MAX_PER_SITE))
@@ -325,59 +335,73 @@ class Buildings:
                 cap=dict(site.resources).get(cls.SITE_RESOURCE,0)
                 used=self._resource_occupancy(existing,cls.SITE_RESOURCE)
                 requirements.append({'text':'本地资源容量','resource':cls.SITE_RESOURCE,'current':used,'required':cap,'met':used<cap})
-            built=self._self_built.get((owner,kind),0)
+            built=self._self_built.get((owner,kind),0)+self._reserved_self_built(owner,kind)
             if cls.SELF_BUILD_LIMIT is not None:requirements.append(requirement(f'全国自建数量 {built}/{cls.SELF_BUILD_LIMIT}',built<cls.SELF_BUILD_LIMIT))
             price=None
             try:price=self._construction_price(owner,site,cls,existing,same,policy_pct)
             except ValueError:pass # A fully upgraded castle has no next price.
             error=None
-            try:self.quote(owner,site.id,kind,policy_pct=policy_pct)
+            try:self._quote(owner,site.id,kind,policy_pct=policy_pct,queued=queued)
             except ValueError as exc:error=str(exc)
             for key,amount in (price or {}).get('costs',{}).items():
                 requirements.append({'text':'建造材料','resource':key,'current':wallet.get(key,0),'required':amount,'met':wallet.get(key,0)>=amount})
             rows.append({'kind':kind,'price':price,'base_costs':cls.construction_cost(min(same+1,len(cls.GOLD_COSTS))),
                 'requirements':requirements,'available':error is None and all(r['met'] for r in requirements),
                 'reason':error,'leveled':len(cls.GOLD_COSTS)>1})
-        return {'site':site.id,'position':list(site.position),'period':self.period,'ordered':ordered,
+        return {'site':site.id,'position':list(site.position),'period':self.period,'ordered':ordered,'queued':queued,
             'occupied':len(existing),'capacity':site.capacity,
-            'construction':[b.snapshot() for b in existing if not b.completed],
-            'demolitions':[self.demolition_quote(owner,b.id) for b in existing],
-            'completed':sum(b.completed for b in existing),'buildings':rows}
+            'construction':[b.snapshot() for b in actual if not b.completed],
+            'orders':[o for o in self.construction_orders(owner) if o['site']==site.id],
+            'demolitions':[self.demolition_quote(owner,b.id) for b in actual],
+            'completed':sum(b.completed for b in actual),'buildings':rows}
 
     def build(self, owner, site_id, kind, *, policy_pct=100):
         self._action()
         quote=self.quote(owner,site_id,kind,policy_pct=policy_pct)
-        cls=self._type(kind);level=quote['level'];costs=quote['costs']
-        built=self._self_built.get((owner,kind),0)
-        candidate = cls(self._next_id,site_id,level=level,remaining=1)
-        candidate._domain = self._domain
-        receipt = BuildReceipt(candidate.id,owner,site_id,kind,self.period,tuple(costs.items()))
-        if costs:self._resources('exchange',owner,costs,{})
-        self._instances[candidate.id] = candidate
-        self._by_site = None
-        self._next_id += 1
-        self._orders[site_id] = self.period
-        self._self_built[(owner,kind)] = built+1
+        return self._construct(owner,site_id,kind,quote['level'],quote['costs'])
+
+    def _construct(self, owner, site_id, kind, level, costs, *, identity=None, prepaid=False):
+        cls=self._type(kind)
+        identity=self._next_id if identity is None else identity
+        candidate=cls(identity,site_id,level=level,remaining=1);candidate._domain=self._domain
+        receipt=BuildReceipt(identity,owner,site_id,kind,self.period,tuple(costs.items()))
+        if costs and not prepaid:self._resources('exchange',owner,costs,{})
+        self._instances[identity]=candidate;self._by_site=None
+        if identity>=self._next_id:self._next_id=identity+1
+        self._orders[site_id]=self.period
+        self._self_built[(owner,kind)]=self._self_built.get((owner,kind),0)+1
         self._construction.append(receipt)
         return receipt
 
     def demolition_quote(self, owner, identity):
         owner_name(owner);integer(identity,1)
+        queued=self._queued.get(identity)
+        if queued is not None:
+            if queued.owner!=owner:raise ValueError('未找到可取消的本国待建项')
+            higher=any(o.site==queued.site and o.kind==queued.kind and o.level>queued.level for o in self._queued.values()) if len(self._type(queued.kind).GOLD_COSTS)>1 else False
+            return {'id':identity,'site':queued.site,'position':list(self._sites[queued.site].position),'kind':queued.kind,
+                'level':queued.level,'completed':False,'started':False,'refunds':dict(queued.costs),
+                'available':not higher,'reason':'城堡待建项须从最高一级开始取消' if higher else None}
         item=self._instances.get(identity)
         if item is None or self._sites[item.site].owner!=owner:raise ValueError('未找到可拆除的本国建筑')
         site=self._sites[item.site]
-        higher=any(b.kind==item.kind and b.level>item.level for b in self._index().get(site.id,())) if len(item.GOLD_COSTS)>1 else False
+        higher=any(b.kind==item.kind and b.level>item.level for b in (*self._index().get(site.id,()),*self._pending_at(site.id))) if len(item.GOLD_COSTS)>1 else False
         receipt=next((r for r in self._construction if r.id==identity),None)
         costs=dict(receipt.costs) if receipt is not None and not item.completed else {}
         refunds={key:value/2 for key,value in costs.items() if value}
         return {'id':item.id,'site':site.id,'position':list(site.position),'kind':item.kind,
-            'level':item.level,'completed':item.completed,'refunds':refunds,
+            'level':item.level,'completed':item.completed,'started':True,'refunds':refunds,
             'available':not higher,'reason':'城堡须从最高一级开始拆除' if higher else None}
 
     def demolish(self, owner, identity):
         self._action()
         quote=self.demolition_quote(owner,identity)
         if not quote['available']:raise ValueError(quote['reason'])
+        if identity in self._queued:
+            order=self._queued[identity]
+            if quote['refunds']:self._resources('exchange',owner,{},quote['refunds'])
+            del self._queued[identity]
+            return DemolitionReceipt(identity,owner,order.site,order.kind,self.period,False,tuple(quote['refunds'].items()))
         item=self._instances[identity]
         pending=next((r for r in self._construction if r.id==identity),None)
         refunds=quote['refunds']
@@ -613,7 +637,7 @@ class Buildings:
 
     def snapshot(self):
         def calculate():return BuildingsSnapshot(self.period,self._produced,tuple(self._sites.values()),self.instances(),
-                                 tuple(self._construction),tuple((owner,kind,count) for (owner,kind),count in self._self_built.items()))
+                                 tuple(self._construction),tuple((owner,kind,count) for (owner,kind),count in self._self_built.items()),tuple(self._queued.values()))
         return self._world.runtime.derived(self._world,('buildings.snapshot',),calculate) if self._world else calculate()
 
     def __deepcopy__(self,memo):
@@ -622,6 +646,7 @@ class Buildings:
 
     def to_save(self):
         return {'period':self.period,'produced':self._produced,'next_id':self._next_id,
+                'queued':self._save_orders(),
                 'sites':[{'id':site.id,'owner':site.owner,'position':list(site.position),
                           'resources':dict(site.resources),'capacity':site.capacity,'penalty':site.penalty,
                           'last_order':self._orders[site.id]} for site in self._sites.values()],
@@ -637,7 +662,7 @@ class Buildings:
     def restore(self, data):
         self._write()
         expected = {'period','produced','next_id','sites','instances','self_built','construction','cancelled','tribute_remainders'}
-        if not isinstance(data,dict) or set(data)!=expected:raise ValueError('Invalid buildings save')
+        if not isinstance(data,dict) or set(data) not in (expected,expected|{'queued'}):raise ValueError('Invalid buildings save')
         if type(data['produced']) is not bool:raise ValueError('Invalid production marker')
         period,next_id = integer(data['period']),integer(data['next_id'],1)
         for field in ('sites','instances','self_built','construction','cancelled','tribute_remainders'):
@@ -710,6 +735,8 @@ class Buildings:
             if row['site'] not in candidate._sites:raise ValueError('Cancelled construction site missing')
             seen.add(identity)
             candidate._cancelled.append(BuildReceipt(identity,row['owner'],row['site'],row['kind'],period,tuple(amounts(row['costs']).items())))
+        candidate._restore_orders(data.get('queued',[]),period,next_id,set(candidate._instances)|seen)
+        self._queued=candidate._queued
         self._sites,self._instances,self._orders,self._self_built = candidate._sites,candidate._instances,candidate._orders,candidate._self_built
         self._by_site = None
         self._construction = candidate._construction

@@ -14,6 +14,15 @@ class BuildingsAPI:
     def demolish(self, actor, id):
         return self.world.buildings.demolish(actor,id)
 
+    def enqueue(self, actor, kind, site=None, x=None, y=None):
+        site=self.world.buildings.resolve_site(actor,site,x,y)
+        return self.world.buildings.enqueue(actor,site,kind,
+            policy_pct=self.world.runtime.parameter(self.world,actor,'build_cost_pct',100))
+
+    def orders(self, actor):return self.world.buildings.construction_orders(actor)
+
+    def cancel_order(self, actor, id):return self.world.buildings.cancel_order(actor,id)
+
     def sites(self, actor):
         snap = self.world.buildings.snapshot()
         sites = [s for s in snap.sites if s.owner == actor]
@@ -33,7 +42,7 @@ class BuildingsAPI:
                  'costs_by_level': [cls.construction_cost(level) for level in range(1, len(cls.GOLD_COSTS) + 1)]}
                 for cls in building_types(world.runtime.content)]
 
-    def planning(self, actor, x, y):
+    def planning(self, actor, x, y, queued=False):
         site=self.world.buildings.resolve_site(actor,x=x,y=y)
         return self.world.buildings.planning(actor,site,
-            policy_pct=self.world.runtime.parameter(self.world,actor,'build_cost_pct',100))
+            policy_pct=self.world.runtime.parameter(self.world,actor,'build_cost_pct',100),queued=queued)

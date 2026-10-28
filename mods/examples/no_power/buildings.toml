@@ -2,7 +2,7 @@
 # 「换实现」的标准形状：声明照抄，实现换掉，Id 与能力名一律不动。
 [Mod]
 Id = "native:buildings"
-Version = "2.13.0-no-power"
+Version = "2.14.0-no-power"
 Entry = "mods.examples.no_power.buildings:NoPowerBuildingsMod"
 Requires = ["native:resources"]
 After = ["native:resources"]
@@ -34,8 +34,9 @@ Needs = ["buildings.produced"]
 Provides = ["buildings.completed"]
 
 [PlayerAPI]
-Methods = ["build", "demolish", "sites", "catalog", "planning"]
-ReadOnly = ["catalog", "sites", "planning"]
+Methods = ["build", "demolish", "sites", "catalog", "planning", "enqueue", "orders", "cancel_order"]
+ReadOnly = ["catalog", "sites", "planning", "orders"]
 
 [PlayerAPI.ContentParameters]
 build = ["kind"]
+enqueue = ["kind"]

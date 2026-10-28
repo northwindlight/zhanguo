@@ -20,7 +20,7 @@ def present(ui, planning, state):
             key=requirement.get('resource')
             if key:
                 title=label(key)
-                if requirement['text']=='本地资源容量':requirement['text']=f'{title}占用 {requirement["current"]}/{requirement["required"]}（含在建，共享容量）'
+                if requirement['text']=='本地资源容量':requirement['text']=f'{title}占用 {requirement["current"]}/{requirement["required"]}（含在建与待建，共享容量）'
                 else:requirement['text']=f'{title}库存 {requirement["current"]:g} / 需要 {requirement["required"]:g}'
         row['reasons']=[r['text'] for r in row['requirements'] if not r['met']]
     for row in data['buildings']:

@@ -178,7 +178,7 @@ public partial class Desktop
             var capital=new Vector2I(I(home["position"]![0]),I(home["position"]![1]));
             CloseDrawers(false);_map.SelectAndFocus(capital);await PointerClickAt(_map.CellCenter(capital));
             if(_humanPage!="tile")throw new Exception("地块点击未打开真人驻军面板");
-            OpenHumanPage("build");await RtsReady();
+            _productionQueueMode=false;OpenHumanPage("build");await RtsReady();
             if(!_rtsCards["native:barracks"].Disabled)throw new Exception("缺前置建筑的兵营未变暗");
             await HoverRts(_rtsCards["native:barracks"]);
             await WaitFor(()=>_rtsTooltip?.Visible==true,"变暗候选无法悬停解释条件");await Screenshot(stem+"-locked.png");
@@ -187,14 +187,14 @@ public partial class Desktop
             await Screenshot(stem+"-price.png");
             await WaitFor(()=>_rtsExpanded,"长悬停没有作用与收益");await Screenshot(stem+"-quote.png");
             await PointerClick(_rtsCards["native:militia-camp"]);await HumanIdle();await RtsReady();
-            if(_rtsAvailability.Values.Any(v=>v))throw new Exception("施工额度用尽后仍有可建候选");
+            if(_rtsCards.Values.Any(b=>_rtsAvailability[b]))throw new Exception("施工额度用尽后仍有可建候选");
             if(!HumanFacts["building_sites"]!["instances"]!.AsArray().Any(b=>S(b!["kind"])=="native:militia-camp"&&I(b["remaining"])==1))throw new Exception("建设没有真实动工");
             var other=HumanFacts["building_sites"]!["sites"]!.AsArray().First(t=>I(t!["position"]![0])!=capital.X||I(t["position"]![1])!=capital.Y)!["position"]!;
             var otherCell=new Vector2I(I(other[0]),I(other[1]));RtsChangeCell(otherCell);await RtsReady();
             if(_rtsCards["native:castle"].Disabled||Yes(_rtsData!["ordered"])||!_humanReceipt.Text.Contains("已切换地块"))throw new Exception("A 地块的状态残留到 B 地块");
             await PointerClick(_rtsCards["native:castle"]);await HumanIdle();await RtsReady();
             RtsChangeCell(capital);await RtsReady();
-            if(!Yes(_rtsData!["ordered"])||_rtsAvailability.Values.Any(v=>v))throw new Exception("返回 A 后丢失本期施工状态");
+            if(!Yes(_rtsData!["ordered"])||_rtsCards.Values.Any(b=>_rtsAvailability[b]))throw new Exception("返回 A 后丢失本期施工状态");
             await Screenshot(stem+"-quota.png");
             await ReviewMarketDemolition(stem,capital,otherCell);
             await PointerClick(_humanNav["end"]);
@@ -268,6 +268,7 @@ public partial class Desktop
             var layouts=new JsonArray();
             await ReviewHumanOutliner(stem,capital,destination);
             await ReviewResourceTooltip();await Screenshot(stem+"-resource-breakdown.png");
+            await ReviewProductionQueue(stem,capital);
             foreach(var size in new[]{new Vector2I(1920,1080),new Vector2I(1440,900),new Vector2I(1280,720),new Vector2I(1024,768)})
             {
                 GetWindow().ContentScaleSize=size;GetWindow().Size=size;_humanCell=capital;OpenHumanPage("build");await RtsReady();
@@ -285,6 +286,8 @@ public partial class Desktop
                 await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
                 if(!new Rect2(Vector2.Zero,Size).Encloses(_rtsTooltip!.GetGlobalRect()))throw new Exception("征兵悬浮信息超出窗口："+size);
                 HideRtsTooltip();_marketAutomatic=false;OpenHumanPage("market");await MarketReady();await ToSignal(GetTree().CreateTimer(.2),SceneTreeTimer.SignalName.Timeout);ValidateHumanLayout();await Screenshot(stem+$"-market-{size.X}.png");
+                OpenHumanPage("production");await ToSignal(GetTree().CreateTimer(.2),SceneTreeTimer.SignalName.Timeout);ValidateHumanLayout();await Screenshot(stem+$"-production-queue-{size.X}.png");
+                _marketAutomatic=false;OpenHumanPage("market");await MarketReady();
                 await PointerClick((Button)_humanContent.FindChild("MarketAutoTab",true,false));ValidateHumanLayout();await Screenshot(stem+$"-auto-{size.X}.png");
                 _humanCell=destination;OpenHumanPage("tile");await CheckGarrisonFirst();CheckOutlinerLayout();await Screenshot(stem+$"-garrison-{size.X}.png");
                 OpenHumanOutliner(true);await WaitFor(()=>Drawers.All(d=>d.IsSettled),"总览打开时抽屉未收起");CheckOutlinerLayout();await Screenshot(stem+$"-outliner-{size.X}.png");
@@ -307,6 +310,7 @@ public partial class Desktop
                 ["garrison_visible_without_scroll"]=true,["wild_garrison_continuity"]=true,["wild_guard_id"]=wildId,["wild_formation_figures"]=wildFigures,
                 ["resource_breakdown_hover"]=true,["outliner_tabs"]=true,["outliner_filters"]=true,["selection_one_site"]=true,["numbers_without_enter"]=true,["market_reference_visible"]=true,["power_visible"]=true,["power_ignores_unfinished"]=true,["power_previous_actual"]=true,
                 ["save_queued"]=true,["exit_choice"]=true,["rts_layouts"]=true,["save"]=_savePath,["config"]=configPath,["layouts"]=layouts,
+                ["production_queue"]=true,["pending_full_refund"]=true,
                 ["platform"]=OS.GetName(),["renderer"]=RenderingServer.GetVideoAdapterName() };
             await File.WriteAllTextAsync(path+".json",result.ToJsonString(new JsonSerializerOptions { WriteIndented=true }));
             GD.Print("HUMAN_GUI_OK "+path);

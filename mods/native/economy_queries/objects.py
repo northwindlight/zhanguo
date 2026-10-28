@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from engine.building import Building
 from engine.resource import Resource
 from mods.native.contracts.economy import Money, TurnReport, PeriodReport, integer
+from mods.native.contracts.production import reserved_costs
 
 # 旧版市场行给的是「卖50≈79金 买50≈89金」——固定 50 单位的大单试算。
 MARKET_TRIAL_UNITS = 50
@@ -39,6 +40,8 @@ class BalanceSheet:
     preview: dict = field(default_factory=dict)
     latest_report: PeriodReport | None = None
     industry: dict = field(default_factory=dict)
+    prepaid: Money = field(default_factory=Money)
+    prepaid_stocks: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -93,6 +96,8 @@ class EconomicQueries:
     def balance(self, owner):
         stocks = self._call('native:resource-inspection','snapshot',owner)
         inventory = self._value({row.id:row.amount for row in stocks})
+        reserved=reserved_costs(self._runtime,self._call,owner)
+        prepaid=self._value(reserved)
         buildings = self._value(self._call('native:buildings','replacement_costs',owner))
         turns = self._call('native:economy','turns',owner)
         flows = self._call('native:economy','production',owner)
@@ -132,9 +137,9 @@ class EconomicQueries:
         preview.update(inputs=inputs, military=military,
                        shortfalls={key:amount-balances.get(key,0) for key,amount in inputs.items() if amount>balances.get(key,0)})
         reports = self.report(owner)
-        return BalanceSheet(owner,inventory,buildings,inventory.plus(buildings),stocks,
+        return BalanceSheet(owner,inventory,buildings,inventory.plus(buildings).plus(prepaid),stocks,
                             turns[-1] if turns else None,flows,preview,
-                            reports[-1] if reports else None,industry)
+                            reports[-1] if reports else None,industry,prepaid,tuple(reserved.items()))
 
     def report(self, owner):
         self._call('native:resource-inspection','snapshot',owner)

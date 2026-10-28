@@ -122,7 +122,12 @@ class Territory:
         self._write();self._tiles[tile_id]
         if owner is not None and owner not in self._call('native:nation-inspection','ids'):raise ValueError('Unknown living owner')
         self._call('native:buildings','transfer_site',tile_id,owner)
+        self._cleanup_production()
         return self.get(tile_id)
+
+    def _cleanup_production(self):
+        if self._world is not None and 'native:army' in self._world.runtime.capabilities:
+            self._call('native:army','cleanup_recruit_orders')
 
     def claim(self, tile_id, owner):
         """占领无主地块，并按旧规则将该地块设为新领主的核心。"""
@@ -131,6 +136,7 @@ class Territory:
         if self.get(tile_id).owner is not None:raise ValueError('Cannot claim an owned tile')
         self._call('native:buildings','transfer_site',tile_id,owner)
         self._tiles[tile_id] = replace(self._tiles[tile_id],core=owner)
+        self._cleanup_production()
         return self.get(tile_id)
 
     def snapshot(self):return tuple(self.get(key) for key in self._tiles)

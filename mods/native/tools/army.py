@@ -58,6 +58,15 @@ def tools(runtime):
                 count: int = 1, x: int | None = None, y: int | None = None):
         return _api(runtime, world).recruit(actor, site=site, kind=kind, count=count, x=x, y=y)
 
+    def queue_recruit(world, actor, site: str | None = None, kind: str = 'native:infantry',
+                      count: int = 1, x: int | None = None, y: int | None = None):
+        return _api(runtime,world).enqueue_recruit(actor,site=site,kind=kind,count=count,x=x,y=y)
+
+    def cancel_recruit_order(world, actor, id: int):
+        return _api(runtime,world).cancel_recruit_order(actor,id)
+
+    def recruitment_queue(world, actor):return _api(runtime,world).recruit_orders(actor)
+
     def move(world, actor, id: int | None = None, x: int | None = None, y: int | None = None,
              place: str | None = None, ids: list[int] | None = None):
         return _api(runtime, world).move(actor, aid=id, ids=ids, x=x, y=y, place=place)
@@ -108,7 +117,7 @@ def tools(runtime):
 
     def schema_for_actor(world, actor, schema):
         result = deepcopy(schema)
-        if result['function']['name'] == 'recruit':
+        if result['function']['name'] in ('recruit','queue_recruit'):
             result['function']['parameters']['properties']['kind']['enum'] = list(_api(runtime, world).kinds(actor))
         return result
 
@@ -146,6 +155,14 @@ def tools(runtime):
     tile_tool = replace(tile_tool, parameters=tile_params, adapter=place_arguments)
 
     return (
+        Action('queue_recruit',queue_recruit,owner='native:army',api=('enqueue_recruit',),
+               parameters=parameters,adapter=site_arguments,content_parameters=('kind',),schema_for_actor=schema_for_actor,
+               description='加入正式征兵队列，预付全部费用，按兵营或军屯原有每期额度分批生成，新兵当期不能行动。必须已有落成设施；民兵待生成数预占编制。停电则等待。取消只全额退回尚未生成部分费用，不退已生成军队。用recruitment_queue查看进度。'),
+        Action('cancel_recruit_order',cancel_recruit_order,owner='native:army',api=('cancel_recruit_order',),
+               parameters={'type':'object','properties':{'id':{'type':'integer','minimum':1}},'required':['id'],'additionalProperties':False},
+               description='按recruitment_queue中的id取消待生成部分，全额退回该部分预付材料。已生成军队不受影响也不退款。'),
+        Tool('recruitment_queue',recruitment_queue,owner='native:army',api=('recruit_orders',),read_only=True,panel=True,
+             description='全国征兵队列：编号、位置、兵种、总数、已生成/待生成数量、等待原因及剩余退款。只读，无地块参数。'),
         recruit_tool,
         move_tool,
         attack_tool,
@@ -403,3 +420,25 @@ def _caption(action):
 
 CAPTIONS = {name: _caption(name) for name in ('recruit', 'move', 'retreat', 'attack', 'disband', 'reachable',
                                               'army', 'frontier', 'logistics', 'unit_catalog', 'threats', 'battle', 'tile')}
+
+
+def _queued_recruit(args, receipt, actor, ctx):
+    row=receipt['data']
+    return ctx.label('content',row['kind'])+f' #{row["id"]} · 待生成 {row["remaining"]}/{row["count"]} 支；预付 '+ctx.resources(row['paid'])
+
+
+def _cancel_recruit(args, receipt, actor, ctx):
+    row=receipt['data']
+    return f'已取消待征 {row["cancelled"]} 支；已生成 {row["completed"]} 支不退款；返还 '+ctx.resources(row['refunds'])
+
+
+def _recruitment_queue(data, args, actor, ctx):
+    return '\n'.join(f'#{r["id"]} '+ctx.label('content',r['kind'])+' '+ctx.pos(r,actor=actor)+
+        f' · 已生成 {r["completed"]}/{r["count"]} 支 · '+r['reason']+'；取消返还 '+ctx.resources(r['refunds']) for r in data) or '暂无征兵队列'
+
+
+CAPTIONS.update(queue_recruit=lambda args,actor,receipt,ctx:'加入征兵队列',
+                cancel_recruit_order=lambda args,actor,receipt,ctx:'取消待征 #'+str(args.get('id','')),
+                recruitment_queue=lambda args,actor,receipt,ctx:'全国征兵队列')
+RECEIPTS.update(queue_recruit=_queued_recruit,cancel_recruit_order=_cancel_recruit)
+PANELS['recruitment_queue']=_recruitment_queue

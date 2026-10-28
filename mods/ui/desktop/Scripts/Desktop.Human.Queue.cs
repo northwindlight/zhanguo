@@ -11,7 +11,7 @@ public partial class Desktop
     private readonly Queue<HumanCommand> _humanCommands=new();
     private HBoxContainer _humanQueuePanel=null!;
     private Label _humanQueueStatus=null!;
-    private static bool QueueableHuman(string operation)=>operation is "buy" or "sell" or "build" or "recruit";
+    private static bool QueueableHuman(string operation)=>operation is "buy" or "sell" or "build" or "recruit" or "queue_build" or "queue_recruit";
     private bool HumanCanQueue=>HumanMode&&_humanTurn!=null&&!_humanNeedsFrame&&!_humanEnded&&!_humanPaused&&
         !_pauseMenu.Visible&&!_closing&&!_stopped&&_humanState?["can_act"]?.GetValue<bool>()==true&&
         (!HasTimeline||_timelineStage=="action")&&(!_humanBusy||_humanSubmittedOperation!="end_turn");
@@ -32,7 +32,7 @@ public partial class Desktop
     {
         if(_humanQueuePanel==null)return;
         _humanQueuePanel.Visible=_humanCommands.Count>0;
-        _humanQueueStatus.Text=$"待执行 {_humanCommands.Count} 项\n按执行时库存、价格和建设条件逐笔核算。";
+        _humanQueueStatus.Text=$"待提交 {_humanCommands.Count} 项（尚未扣款）\n生产队列在提交受理时预付，已受理条目请到生产面板取消。";
     }
     private void QueueHumanCommand(string operation,JsonObject arguments)
     {

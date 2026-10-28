@@ -90,6 +90,7 @@ def tools(runtime):
 def _econ(data, args, actor, ctx):
     lines=[ctx.text('tool.econ.head'),ctx.text('tool.econ.stocks',values=ctx.resources({r['id']:r['amount'] for r in data['stocks']},gold_short=False)),
            ctx.text('tool.econ.assets',inventory=ctx.money(data['inventory']),buildings=ctx.money(data['buildings']),total=ctx.money(data['gross_assets']))]
+    if data.get('prepaid_stocks'):lines.append('生产队列预付资产 '+ctx.money(data['prepaid'])+'（不在可用库存中）：'+ctx.resources(data['prepaid_stocks']))
     industry=data.get('industry') or {}
     if industry:
         secondary=industry.get('secondary') or {}

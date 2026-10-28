@@ -8,6 +8,7 @@ using static WorldMap;
 public partial class Desktop
 {
     private JsonObject? _rtsData,_rtsHover;
+    private bool _productionQueueMode=true;
     private int _rtsEpoch,_rtsCount=1;
     private double _rtsHoverTime;
     private bool _rtsExpanded;
@@ -39,7 +40,7 @@ public partial class Desktop
         if(!EnsureRtsCell()){HumanText("没有可操作的本国地块。",true);return;}
         var point=_humanCell;int epoch=_rtsEpoch;string page=_humanPage;
         HumanText($"({point.X}, {point.Y}) · 正在读取本格条件…",true);
-        HumanQuery("site_options",new JsonObject { ["x"]=point.X,["y"]=point.Y,["count"]=_rtsCount },row=>
+        HumanQuery("site_options",new JsonObject { ["x"]=point.X,["y"]=point.Y,["count"]=_rtsCount,["queued"]=_productionQueueMode },row=>
         {
             if(epoch!=_rtsEpoch||page!=_humanPage||point!=_humanCell)return;
             _rtsData=row["data"]!.AsObject();ClearHumanChildren(_humanContent);FillRtsCatalog(_rtsData,page=="recruit");
@@ -75,6 +76,9 @@ public partial class Desktop
         var tabs=new HBoxContainer();_humanContent.AddChild(tabs);
         foreach(var (page,text,icon) in new[]{("build","建造","build"),("recruit","征兵","army"),("demolish","管理","disband"),("tile","地块","map")})
         {string selected=page;var b=Button(tabs,text,()=>OpenHumanPage(selected));b.SizeFlagsHorizontal=SizeFlags.ExpandFill;HumanArt.Style(b,icon);b.Disabled=page==_humanPage;}
+        var queueMode=new CheckButton { Name="ProductionQueueMode",Text="生产队列 · 预付材料，按期执行",ButtonPressed=_productionQueueMode };
+        queueMode.AddThemeFontSizeOverride("font_size",14);_humanContent.AddChild(queueMode);
+        queueMode.Toggled+=value=>{_productionQueueMode=value;RenderHumanPage();};
         bool ordered=Yes(data["ordered"]);var construction=data["construction"]!.AsArray();
         string pending=string.Join("、",construction.Select(b=>HumanLabel(S(b!["kind"]))));
         HumanText((construction.Count>0?$"施工中：{pending} · ":"尚未施工 · ")+
@@ -82,8 +86,12 @@ public partial class Desktop
         if(!recruit)foreach(var item in data["demolitions"]!.AsArray().Where(b=>!Yes(b!["completed"])))
         {
             var row=item!.AsObject();string name=HumanLabel(S(row["kind"]));
-            HumanButton("撤销 "+name+" · 返还50%",()=>ConfirmDemolition(row),"disband",true);
+            var cancel=HumanButton("撤销 "+name+" · 返还50%",()=>ConfirmDemolition(row),"disband");
+            cancel.TooltipText=Yes(row["available"])?"退款："+Resources(row["refunds"]):S(row["reason"]);
+            _rtsAvailability[cancel]=Yes(row["available"]);
         }
+        RenderProductionOrders(data[recruit?"recruitment_orders":"orders"] as JsonArray??new JsonArray(),recruit,compact:true);
+        HumanButton("全国生产队列",()=>OpenHumanPage("production"),"build");
         if(recruit)
         {
             var amount=new HBoxContainer();_humanContent.AddChild(amount);amount.AddChild(new Label { Text="每次征召" });
@@ -101,7 +109,7 @@ public partial class Desktop
             };
             if(!data["units"]!.AsArray().Any(u=>Yes(u!["has_facility"])))HumanText("本格缺少已落成的兵营／军屯。先建造所需设施。",color:"e0b49b");
         }
-        var hint=HumanText(recruit?"可用优先 · 悬停看费用，停留看属性与维持消耗":"每格每回合施工一次 · 悬停看价格，停留看收益",color:"a3b7ad");
+        var hint=HumanText(_productionQueueMode?"点击入队并预付 · 未开始全退，施工中50%，完工0%":recruit?"可用优先 · 悬停看费用，停留看属性与维持消耗":"每格每回合施工一次 · 悬停看价格，停留看收益",color:"a3b7ad");
         hint.AddThemeFontSizeOverride("font_size",14);
         _rtsPendingHint=HumanText("本格已有指令正在执行或待执行，不重复排队。",color:"e1c48b");_rtsPendingHint.AddThemeFontSizeOverride("font_size",14);
         var grid=new GridContainer { Name="RtsCatalog",Columns=3,SizeFlagsHorizontal=SizeFlags.ExpandFill };
@@ -122,7 +130,7 @@ public partial class Desktop
                 TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,Modulate=new Color(available?"e8dfbc":"8a938b") };
             name.AddThemeFontSizeOverride("font_size",16);body.AddChild(name);
             RtsCosts(body,row["costs"],compact:true,dim:!available);
-            var status=new Label { Text=available?(recruit?$"可征 {row["quota"]} 支":"可建造"):S(row["reasons"]?.AsArray().FirstOrDefault()),
+            var status=new Label { Text=available?(_productionQueueMode?"加入队列":recruit?$"可征 {row["quota"]} 支":"可建造"):S(row["reasons"]?.AsArray().FirstOrDefault()),
                 TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,HorizontalAlignment=HorizontalAlignment.Center,
                 MouseFilter=MouseFilterEnum.Ignore,Modulate=new Color(available?"9bca9a":"a19a86") };
             status.AddThemeFontSizeOverride("font_size",14);body.AddChild(status);
@@ -131,7 +139,7 @@ public partial class Desktop
             card.Pressed+=()=>
             {
                 if(!available||!HumanCanQueue||_rtsCountPending)return;
-                HideRtsTooltip();_humanOperation=recruit?"recruit":"build";
+                HideRtsTooltip();_humanOperation=_productionQueueMode?(recruit?"queue_recruit":"queue_build"):(recruit?"recruit":"build");
                 var args=new JsonObject { ["kind"]=kind,["x"]=_humanCell.X,["y"]=_humanCell.Y };
                 if(recruit)args["count"]=_rtsCount;
                 SubmitHuman(_humanOperation,args);
@@ -142,9 +150,13 @@ public partial class Desktop
     private void RefreshRtsButtons()
     {
         bool catalog=_humanPage is "build" or "recruit";
-        bool pending=catalog&&PendingHumanSite(_humanPage=="build"?"build":"recruit",_humanCell);
+        bool pending=catalog&&!_productionQueueMode&&PendingHumanSite(_humanPage=="build"?"build":"recruit",_humanCell);
         if(_rtsPendingHint!=null&&IsInstanceValid(_rtsPendingHint))_rtsPendingHint.Visible=pending;
-        foreach(var (button,available) in _rtsAvailability)if(IsInstanceValid(button))button.Disabled=!available||!(catalog?HumanCanQueue:HumanCanWrite)||_rtsCountPending||pending;
+        foreach(var (button,available) in _rtsAvailability)if(IsInstanceValid(button))
+        {
+            bool card=catalog&&_rtsCards.Values.Contains(button);
+            button.Disabled=!available||!(card?HumanCanQueue:HumanCanWrite)||card&&(_rtsCountPending||pending);
+        }
     }
     private void RtsCosts(BoxContainer parent,JsonNode? costs,bool compact=false,bool dim=false)
     {

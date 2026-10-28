@@ -63,7 +63,30 @@ class NativeSession(NativeObserver,GridSession):
         self.world.intelligence.capture_maps(self.world.government.human_actors())
         self.world.intelligence.publish_maps()
 
+    def _record_production_start(self, player, action, arguments, result):
+        self.record(player,action,arguments,{'api':1,'actor':player.actor,'action':action,'period':self.clock(),
+            'ok':True,'status':'effective','code':None,'message':'','data':wire(result),'automatic':'production_queue'})
+
     def cycle(self,**callbacks):
+        if self.victory_event is not None:raise ValueError('Game has ended with a victory event')
+        # Start prepaid work in the new action period, after the previous
+        # period's accounting has closed. Settlement keeps its stage order.
+        self._boundary=False;self._callbacks=callbacks.get('on_result')
+        try:
+            for actor in self.turn_order():
+                player=self.player(actor)
+                if not player.action_state()['can_act']:continue
+                started=False
+                for receipt in self.world.buildings.advance_orders(actor):
+                    place=self.world.buildings.site(receipt.site).position
+                    self._record_production_start(player,'build',{'kind':receipt.kind,'x':place[0],'y':place[1]},receipt)
+                    started=True
+                for row in self.world.military.advance_recruit_orders(actor):
+                    place=row['position']
+                    self._record_production_start(player,'military',{'action':'recruit','kind':row['kind'],'count':row['count'],'x':place[0],'y':place[1]},row['units'])
+                    started=True
+                if started and callbacks.get('on_batch'):callbacks['on_batch'](actor,None)
+        finally:self._callbacks=None
         receipts=super().cycle(**callbacks)
         # Knowledge is sampled after the unchanged domain stage sequence.
         self.world.intelligence.capture_maps();self.world.intelligence.publish_maps()

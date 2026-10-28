@@ -7,7 +7,7 @@ from tests import test_world_domains as fixtures
 Q, C = fixtures.Q, fixtures.C
 
 BUILTINS = {'player_state', 'player_rules', 'player_events', 'memory_search'}
-NATIVE = {'build', 'demolish', 'economy', 'end_turn', 'intelligence', 'military', 'plan', 'query', 'relations'}
+NATIVE = {'build', 'demolish', 'queue_build', 'cancel_build_order', 'economy', 'end_turn', 'intelligence', 'military', 'plan', 'query', 'relations'}
 
 
 class TestToolSurface(unittest.TestCase):
@@ -23,7 +23,7 @@ class TestToolSurface(unittest.TestCase):
         ui._names = {Q: '秦', C: '楚'}
         return ui
 
-    def test_native_model_surface_is_nine_commands_plus_builtins(self):
+    def test_native_model_surface_includes_formal_queue_commands(self):
         world = self.world()
         player = world.runtime.player(world, Q)
         self.assertEqual({s['function']['name'] for s in player.actions()}, BUILTINS | NATIVE)
@@ -88,7 +88,7 @@ class TestToolSurface(unittest.TestCase):
         military = schemas['military']
         self.assertEqual(military['required'], ['action'])
         branches = {b['properties']['action']['enum'][0]: b for b in military['oneOf']}
-        self.assertEqual(set(branches), {'recruit', 'move', 'attack', 'retreat', 'disband'})
+        self.assertEqual(set(branches), {'recruit', 'queue_recruit', 'cancel_recruit_order', 'move', 'attack', 'retreat', 'disband'})
         self.assertEqual(branches['disband']['required'], ['action'])
         self.assertIn({'required': ['id']}, branches['disband']['anyOf'])
         # 地点写法约束随动作分支带出：recruit 分支仍要求 site/place/x,y 三选一。

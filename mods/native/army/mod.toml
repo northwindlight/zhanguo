@@ -1,6 +1,6 @@
 [Mod]
 Id = "native:army"
-Version = "2.14.0"
+Version = "2.15.0"
 Entry = "mods.native.army.mod:ArmyMod"
 Requires = ["native:resources", "native:government", "native:nations", "native:territory", "native:vision", "native:diplomacy", "native:buildings"]
 After = ["native:territory", "native:nations", "native:government"]
@@ -24,11 +24,12 @@ Provides = ["native:army"]
 
 [PlayerAPI]
 Methods = ["recruit", "move", "attack", "retreat", "disband", "view",
-           "reachable", "frontier", "unit_catalog", "threats", "battle", "tile", "logistics", "planning"]
-ReadOnly = ["battle", "frontier", "logistics", "reachable", "threats", "tile", "unit_catalog", "view", "planning"]
+           "reachable", "frontier", "unit_catalog", "threats", "battle", "tile", "logistics", "planning", "enqueue_recruit", "recruit_orders", "cancel_recruit_order"]
+ReadOnly = ["battle", "frontier", "logistics", "reachable", "threats", "tile", "unit_catalog", "view", "planning", "recruit_orders"]
 
 [PlayerAPI.ContentParameters]
 recruit = ["kind"]
+enqueue_recruit = ["kind"]
 
 [PlayerAPI.Actions]
 view = "army"

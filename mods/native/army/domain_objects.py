@@ -11,6 +11,7 @@ from engine.runtime import DomainRejection, ModError
 from engine.state import active_unit
 from .objects import Unit
 from . import navigation
+from .recruit_queue import RecruitmentQueue
 from .parameters import ARMY_GID_BASE, ARMY_STARVE_DAMAGE, ARMY_HEAL_PER_TURN, HEAL_EQUIP_COST, COMBAT_DIE_MOD, RETREAT_ATK_PENALTY, RETREAT_DEF_COVER
 
 
@@ -26,9 +27,10 @@ class MilitaryReceipt:
     items: tuple = ()
 
 
-class Military:
+class Military(RecruitmentQueue):
     def __init__(self, units, call, parameter):
         self._units,self._call,self._parameter=units,call,parameter
+        self._recruit_queue={};self._next_recruit_order=1
         self._recruited={};self._facts=[];self._rng=None;self._seed=None;self._grid_short={};self._events=[]
         self._world,self._domain=None,None
 
@@ -109,7 +111,7 @@ class Military:
         if kind not in self._units.type_ids:raise ValueError(f'未知兵种：{kind}。可用兵种与短键见 unit_catalog')
         if self._units.next_army_seq.get(owner,0)+count>=ARMY_GID_BASE:raise ValueError('本国军队编号已用尽，无法再新增军队')
         return tuple(deepcopy(self._units.spawn(owner,kind,x,y)) for _ in range(count))
-    def recruit_quote(self, owner, site: str, kind: str, count=1, *, energy_short=False):
+    def recruit_quote(self, owner, site: str, kind: str, count=1, *, energy_short=False, for_queue=False, starting=False):
         self._living(owner);integer(count,1)
         place=self._call('native:buildings','site',site)
         if place.owner!=owner:raise ValueError('只能在本国地块征召：该地块不属于你。用 land 查本国国土与坐标')
@@ -125,15 +127,16 @@ class Military:
             per=effect.get('militia_per_turn',0)
             cap=sum(self._effect(s.id,building).get('militia_cap',0) for s in self._call('native:buildings','snapshot').sites if s.owner==owner)
             have=sum(u.kind==kind and u.alive for u in self._units.of(owner))
-            if have+count>cap:raise ValueError(f'全国民兵编制已满：军屯每座可驻 2 支，上限 {cap} 支，现有 {have} 支，本次还要再加 {count} 支。先增建军屯，或裁撤旧民兵')
+            reserved=0 if starting else self._reserved_militia(owner)
+            if have+reserved+count>cap:raise ValueError(f'全国民兵编制已满：军屯每座可驻 2 支，上限 {cap} 支，现有 {have} 支、队列预留 {reserved} 支，本次还要再加 {count} 支。先增建军屯，或裁撤旧民兵')
         else:
             if not effect.get('recruit_cap'):raise ValueError(
                 '该地没有兵营：步兵与骑兵只能在自有已落成的兵营征召，每兵营每回合 1 支；'
                 '用 query(panel=quote, action=recruit) 查可征站点')
             per=effect.get('recruit_cap',0)
-            if energy_short:raise ValueError('上期电网不足，征兵停摆：电网不足时补给厂/装备厂/兵营/市政厅全部停摆。先补燃料与电厂，结算后再征')
+            if energy_short and not for_queue:raise ValueError('上期电网不足，征兵停摆：电网不足时补给厂/装备厂/兵营/市政厅全部停摆。先补燃料与电厂，结算后再征')
         used=self._recruited.get(key,0)
-        if used+count>per:raise ValueError(f'该地本回合征兵额度已用尽：每地每回合 {per} 支，本回合已用 {used} 支，本次要 {count} 支。下回合再征，或换另一座兵营')
+        if not for_queue and used+count>per:raise ValueError(f'该地本回合征兵额度已用尽：每地每回合 {per} 支，本回合已用 {used} 支，本次要 {count} 支。下回合再征，或换另一座兵营')
         x,y=place.position;self._call('native:territory','check',x,y)
         if self._units.next_army_seq.get(owner,0)+count>=ARMY_GID_BASE:raise ValueError('本国军队编号已用尽，无法再新增军队')
         costs=self.recruit_costs(owner,kind,count)
@@ -145,7 +148,7 @@ class Military:
         recipe=overrides.get(kind,self._units.definition(kind)['recruit'])
         return {key:integer(value,1)*count for key,value in recipe.items()}
 
-    def planning(self, owner, site, count=1):
+    def planning(self, owner, site, count=1, *, queued=False):
         self._living(owner);integer(count,1)
         place=self._call('native:buildings','site',site)
         if place.owner!=owner:raise ValueError('只能预览本国征兵地块')
@@ -160,38 +163,39 @@ class Military:
             used=self._recruited.get((period,site,militia),0)
             costs=self.recruit_costs(owner,kind,count)
             requirements=[{'text':'需要已落成的军屯' if militia else '需要已落成的兵营','met':per>0},
-                {'text':f'本回合剩余征兵额度 {max(0,per-used)}，本次征召 {count}','met':per-used>=count}]
+                {'text':f'本回合剩余征兵额度 {max(0,per-used)}，本次征召 {count}'+('；不足部分自动分期' if queued else ''),'met':queued or per-used>=count}]
             if militia:
                 cap=sum(self._effect(s.id,building).get('militia_cap',0) for s in self._call('native:buildings','snapshot').sites if s.owner==owner)
                 have=sum(u.kind==kind and u.alive for u in self._units.of(owner))
-                requirements.append({'text':f'全国民兵编制 {have}/{cap}','met':have+count<=cap})
-            else:requirements.append({'text':'上期电网正常','met':not short})
+                reserved=self._reserved_militia(owner)
+                requirements.append({'text':f'全国民兵编制 {have}，队列预留 {reserved}，上限 {cap}','met':have+reserved+count<=cap})
+            else:requirements.append({'text':'上期电网正常'+('；停电期间排队等待' if queued else ''),'met':queued or not short})
             for key,amount in costs.items():
                 balance=wallet[key] if key in wallet else self._stock(owner,key)
                 requirements.append({'text':'征召材料','resource':key,'current':balance,'required':amount,'met':balance>=amount})
             error=None;quote=None
-            try:quote=self.recruit_quote(owner,site,kind,count,energy_short=short)
+            try:quote=self.recruit_quote(owner,site,kind,count,energy_short=short,for_queue=queued)
             except ValueError as exc:error=str(exc)
             rows.append({'kind':kind,'costs':costs,'count':count,'quota':max(0,per-used),'has_facility':per>0,
                 'requirements':requirements,'available':error is None and all(r['met'] for r in requirements),'reason':error,'quote':quote})
         return rows
 
-    def recruit(self, owner, site: str, kind: str, count=1, *, energy_short=False):
+    def recruit(self, owner, site: str, kind: str, count=1, *, energy_short=False, _prepaid=None):
         self._action(owner)
         integer(count,1)
-        first=self.recruit_quote(owner,site,kind,1,energy_short=energy_short)
-        affordable=min((max(0,self._stock(owner,key))//value for key,value in first['costs'].items()),default=count)
+        first=self.recruit_quote(owner,site,kind,1,energy_short=energy_short,starting=_prepaid is not None)
+        affordable=count if _prepaid is not None else min((max(0,self._stock(owner,key))//value for key,value in first['costs'].items()),default=count)
         actual=min(count,first['quota'],int(affordable))
         if kind=='native:militia':
             cap=sum(self._effect(t.tile.id,'native:militia-camp').get('militia_cap',0) for t in self._call('native:territory','owned',owner))
-            actual=min(actual,cap-sum(u.kind==kind and u.alive for u in self._units.of(owner)))
+            actual=min(actual,cap-sum(u.kind==kind and u.alive for u in self._units.of(owner))-(self._reserved_militia(owner) if _prepaid is None else 0))
         if actual<1:raise ValueError('征召材料或本回合额度不足；请补充粮食/装备或等待下回合')
         count=actual
-        quote=self.recruit_quote(owner,site,kind,count,energy_short=energy_short)
-        costs=quote['costs'];period=quote['period'];x,y=quote['position'];key=(period,site,kind=='native:militia')
-        short={key:value-self._stock(owner,key) for key,value in costs.items() if self._stock(owner,key)<value}
+        quote=self.recruit_quote(owner,site,kind,count,energy_short=energy_short,starting=_prepaid is not None)
+        costs=quote['costs'] if _prepaid is None else {key:value*count for key,value in _prepaid.items()};period=quote['period'];x,y=quote['position'];key=(period,site,kind=='native:militia')
+        short={key:value-self._stock(owner,key) for key,value in costs.items() if _prepaid is None and self._stock(owner,key)<value}
         if short:raise ValueError('征兵材料不足：'+'、'.join(f'{key.split(":",1)[-1]} 缺 {value}' for key,value in short.items())+'。先补料、减少数量，或等下回合产出')
-        self._call('native:resource-exchange','exchange',owner,costs,{})
+        if _prepaid is None:self._call('native:resource-exchange','exchange',owner,costs,{})
         created=tuple(self._units.spawn(owner,kind,x,y,turn=period,newborn=True) for _ in range(count))
         self._recruited[key]=self._recruited.get(key,0)+count
         self._facts.append({'id':f'native:recruit/{owner.split(":",1)[1]}/{created[0].gid}', 'owner':owner,'period':period,'category':'recruit','inputs':tuple(costs.items())})
@@ -402,6 +406,8 @@ class Military:
         return tuple((u.owner,u.id,u.x,u.y) for u in self._units if u.engaged and not self._engaged_foes(u))
     def remove_nation(self, owner):
         self._write()
+        for order in tuple(self._recruit_queue.values()):
+            if order.owner==owner:self._refund_recruit_order(order)
         for unit in tuple(self._units.of(owner)):self._units.remove(unit)
     def _feeding(self,owner):
         units=[u for u in self._units.of(owner) if u.alive];exempt=set()
@@ -683,12 +689,12 @@ class Military:
 
     def to_save(self):
         rng=self._rng.getstate() if self._rng else None
-        return {'recruited':[{'period':p,'site':s,'militia':m,'count':n} for (p,s,m),n in self._recruited.items()],
+        return {'recruit_queue':self._save_recruit_orders(),'next_recruit_order':self._next_recruit_order,'recruited':[{'period':p,'site':s,'militia':m,'count':n} for (p,s,m),n in self._recruited.items()],
                 'facts':deepcopy(self._facts),'seed':self._seed,'grid_short':dict(self._grid_short),'events':deepcopy(self._events),
                 'rng':None if rng is None else [rng[0],list(rng[1]),rng[2]]}
     def restore(self, data):
         self._write()
-        if not isinstance(data,dict) or set(data)!={'recruited','facts','seed','rng','grid_short','events'} or not isinstance(data['recruited'],list) or not isinstance(data['facts'],list) or not isinstance(data['events'],list):raise ValueError('Invalid military save')
+        if not isinstance(data,dict) or set(data) not in ({'recruited','facts','seed','rng','grid_short','events'},{'recruited','facts','seed','rng','grid_short','events','recruit_queue','next_recruit_order'}) or not isinstance(data['recruited'],list) or not isinstance(data['facts'],list) or not isinstance(data['events'],list):raise ValueError('Invalid military save')
         if not isinstance(data['grid_short'],dict) or any(type(value) is not bool for value in data['grid_short'].values()):raise ValueError('Invalid military grid facts')
         for owner in data['grid_short']:self._call('native:nation-inspection','get',owner)
         recruited={}
@@ -725,6 +731,8 @@ class Military:
                 self._call('native:territory','check',*event['position'])
             if not isinstance(event['parties'],(list,tuple)) or len(set(event['parties']))!=len(event['parties']):raise ValueError('Invalid military event recipients')
             for owner in event['parties']:self._call('native:nation-inspection','get',owner)
+        queued=self._restore_recruit_orders(data.get('recruit_queue',[]),data.get('next_recruit_order',1))
+        self._recruit_queue=queued;self._next_recruit_order=data.get('next_recruit_order',1)
         self._recruited,self._facts,self._seed,self._rng=recruited,deepcopy(data['facts']),data['seed'],rng
         self._grid_short=dict(data['grid_short'])
         self._events=deepcopy(data['events'])

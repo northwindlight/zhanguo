@@ -4,7 +4,7 @@ ValuationAt = "report-stage"
 
 [Mod]
 Id = "native:economy"
-Version = "1.6.0"
+Version = "1.7.0"
 Entry = "mods.native.economy_reports.mod:EconomyMod"
 Requires = ["native:resources", "native:buildings", "native:market"]
 After = ["native:resources", "native:buildings", "native:market", "native:nations"]
@@ -15,13 +15,14 @@ Requests = []
 
 [Capabilities]
 Needs = ["native:resource-inspection", "native:buildings", "economy:valuation"]
-Optional = ["native:nation-inspection"]
+Optional = ["native:nation-inspection", "native:army"]
 Provides = ["native:economy"]
 
 [Interfaces]
 "native:nation-inspection" = ["ids"]
 "native:resource-inspection" = ["owners", "snapshot"]
-"native:buildings" = ["replacement_costs"]
+"native:buildings" = ["replacement_costs", "reserved_costs"]
+"native:army" = ["reserved_costs"]
 "economy:valuation" = ["quote"]
 
 [[Stages]]

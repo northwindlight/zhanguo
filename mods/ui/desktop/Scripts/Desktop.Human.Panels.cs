@@ -44,6 +44,7 @@ public partial class Desktop
         {
             case "tile":RenderHumanTile();break;
             case "build":case "recruit":RenderRtsCatalog();break;
+            case "production":RenderProductionQueue();break;
             case "demolish":RenderHumanDemolition();break;
             case "market":RenderHumanMarket();break;
             case "army":RenderHumanArmyList();break;
@@ -443,6 +444,9 @@ public partial class Desktop
         }
         if(_humanSubmittedOperation is "buy" or "sell")return $"{title} {HumanLabel(S(d?["resource"]))} ×{d?["quantity"]} · {(_humanSubmittedOperation=="buy"?"支付":"收入")} {d?["gold"]} 金";
         if(_humanSubmittedOperation=="build")return $"{title} {HumanLabel(S(d?["kind"]))} · 已动工\n实际材料：{Resources(d?["costs"])}";
+        if(_humanSubmittedOperation is "queue_build" or "queue_recruit")return $"{HumanLabel(S(d?["kind"]))} #{d?["id"]} · "+
+            (_humanSubmittedOperation=="queue_recruit"?$"待生成 {d?["remaining"]} 支":S(d?["status"])=="construction"?"已开工":"已排入待建队列")+"\n预付材料："+Resources(d?["paid"]);
+        if(_humanSubmittedOperation is "cancel_build_order" or "cancel_recruit_order")return "已取消未开始部分 · 全额返还："+Resources(d?["refunds"]);
         if(_humanSubmittedOperation=="demolish")return $"{(Yes(d?["completed"])?"已拆除":"已撤销施工")} {HumanLabel(S(d?["kind"]))} #{d?["id"]}\n实际返还：{Resources(d?["refunds"])}";
         if(_humanSubmittedOperation=="auto_trade")return $"{HumanLabel(S(d?["resource"]))}自动交易设置已保存；{(Yes(d?["enabled"])?"本国结束行动时按条件执行":"已暂停")}。";
         if(_humanSubmittedOperation=="remove_auto_trade")return "自动交易已删除。";

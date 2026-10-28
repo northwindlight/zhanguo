@@ -1,6 +1,7 @@
 from engine.runtime import GameMod, ModError, Stage, RuleSection
 from .contracts import EconomicFact
 from .objects import Economy
+from ..contracts.production import inventory_assets
 
 
 class EconomyMod(GameMod):
@@ -15,7 +16,7 @@ class EconomyMod(GameMod):
         world.economy = Economy(self.declaration['ReportEvery'],self.declaration['Currency'],
             lambda values:call('economy:valuation','quote',values),
             lambda:call('native:resource-inspection','owners'),
-            lambda owner:call('native:resource-inspection','snapshot',owner),
+            lambda owner:inventory_assets(self.runtime,call,owner),
             lambda owner:call('native:buildings','replacement_costs',owner),
             (lambda:call('native:nation-inspection','ids')) if 'native:nation-inspection' in self.runtime.capabilities else None)
 

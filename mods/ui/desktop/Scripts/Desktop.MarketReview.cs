@@ -27,7 +27,7 @@ public partial class Desktop
         if(OwnStock("gold")!=gold+F(pending["refunds"]!["native:gold"])||OwnStock("wood")!=wood+F(pending["refunds"]!["native:wood"]))throw new Exception("GUI 撤销返还没有按实际扣款的一半入账");
         if(HumanFacts["building_sites"]!["instances"]!.AsArray().Any(b=>I(b!["id"])==id))throw new Exception("撤销后建筑仍存在");
         OpenHumanPage("build");await RtsReady();
-        if(!Yes(_rtsData!["ordered"])||_rtsAvailability.Values.Any(v=>v))throw new Exception("撤销恢复了本格当期施工额度");
+        if(!Yes(_rtsData!["ordered"])||_rtsCards.Values.Any(b=>_rtsAvailability[b]))throw new Exception("撤销恢复了本格当期施工额度");
         await Screenshot(stem+"-cancelled.png");
         var powerCell=HumanFacts["building_sites"]!["sites"]!.AsArray().Select(s=>new Vector2I(I(s!["position"]![0]),I(s["position"]![1]))).First(p=>p!=capital&&p!=other&&p!=third);
         _humanCell=powerCell;OpenHumanPage("build");await RtsReady();
