@@ -23,8 +23,9 @@ def version(root=ROOT):
     return value
 
 
-def gh(*args, allow_missing=False):
-    result=subprocess.run(['gh',*args],capture_output=True,text=True,check=False)
+def gh(*args, allow_missing=False, payload=None):
+    result=subprocess.run(['gh',*args],capture_output=True,text=True,encoding='utf-8',check=False,
+        input=json.dumps(payload,ensure_ascii=False) if payload is not None else None)
     if result.returncode:
         if allow_missing and 'HTTP 404' in result.stderr:return None
         raise RuntimeError(result.stderr.strip() or 'GitHub request failed')
@@ -80,10 +81,11 @@ def publish(artifact, output, repo, root=ROOT):
     notes=root/'docs/releases'/f'{tag}.md'
     if not notes.is_file():raise ValueError('Missing release notes: '+str(notes))
     if not existing:
-        gh('release','create',tag,'--repo',repo,'--target',commit,'--title',f'战国 {v} 试玩版',
-            '--notes-file',str(notes),'--draft','--prerelease','--latest=false')
-        existing=find_release(repo,tag)
-        if not existing:raise RuntimeError('Created draft is not visible; retry this CI job')
+        # Use the creation response directly. An immediate list/by-tag read can
+        # lag behind creation, even though upload and reads by ID already work.
+        existing=gh('api','--method','POST',f'repos/{repo}/releases','--input','-',payload={
+            'tag_name':tag,'target_commitish':commit,'name':f'战国 {v} 试玩版',
+            'body':notes.read_text(encoding='utf-8'),'draft':True,'prerelease':True})
     # Only drafts may be retried/replaced after an interrupted upload.
     gh('release','upload',tag,*map(str,files),'--repo',repo,'--clobber')
     uploaded=gh('api',f'repos/{repo}/releases/{existing["id"]}')
@@ -95,7 +97,7 @@ def publish(artifact, output, repo, root=ROOT):
         if a['state']!='uploaded' or a['size']!=path.stat().st_size or a.get('digest')!='sha256:'+digest:
             raise ValueError('Uploaded attachment did not verify: '+path.name)
     gh('release','edit',tag,'--repo',repo,'--draft=false','--prerelease','--latest=false')
-    print('PRE_RELEASE_PUBLISHED',uploaded['html_url'])
+    print('PRE_RELEASE_PUBLISHED',f'https://github.com/{repo}/releases/tag/{tag}')
 
 
 if __name__=='__main__':

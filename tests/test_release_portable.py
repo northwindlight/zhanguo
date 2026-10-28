@@ -13,6 +13,9 @@ from scripts.release_portable import find_release, prepare, publish
 
 
 class TestPortableRelease(unittest.TestCase):
+    def setUp(self):
+        quiet=patch('builtins.print');quiet.start();self.addCleanup(quiet.stop)
+
     def test_drafts_are_found_without_a_published_tag(self):
         draft={'id':123,'tag_name':'v0.6.3','draft':True}
         with patch('scripts.release_portable.gh',side_effect=[None,[{'tag_name':'v0.6.2'}]*100,[draft]]) as remote:
@@ -62,14 +65,18 @@ class TestPortableRelease(unittest.TestCase):
         for corrupt in (True,False):
             with self.subTest(corrupt=corrupt),TemporaryDirectory() as tmp:
                 root,commit,artifact,out=self.checkout(tmp)
-                calls=[];created=False
+                calls=[];listed=False
                 def remote(*args,**kwargs):
-                    nonlocal created
+                    nonlocal listed
                     calls.append(args)
-                    if args[:2]==('release','create'):created=True
                     if args[0]=='api' and '/releases/tags/' in args[1]:return None
                     if args[0]=='api' and '/releases?per_page=' in args[1]:
-                        return [{'id':123,'tag_name':'v0.6.3','draft':True}] if created else []
+                        self.assertFalse(listed,'publisher re-read the delayed draft listing after creation')
+                        listed=True;return []
+                    if args[:4]==('api','--method','POST','repos/fixture/repo/releases'):
+                        self.assertEqual(kwargs['payload']['target_commitish'],commit)
+                        self.assertTrue(kwargs['payload']['draft'])
+                        return {'id':123,'tag_name':'v0.6.3','draft':True}
                     if args[:2]==('api','repos/fixture/repo/releases/123'):
                         return {'html_url':'https://example.invalid/release','assets':[
                             {'name':p.name,'size':p.stat().st_size,'state':'uploaded',
@@ -88,6 +95,7 @@ class TestPortableRelease(unittest.TestCase):
         for path in ('mods/native/army/navigation.py','engine/runtime.py','clients/provider.py','ruleai/v13/client.py','mods.toml','host.py'):
             self.assertEqual(scope([path],False),{'portable':True,'release':False})
         self.assertEqual(scope(['docs/plans/example.md'],False),{'portable':False,'release':False})
+        self.assertEqual(scope(['scripts/release_portable.py','scripts/ci_release_scope.py'],False),{'portable':False,'release':False})
         self.assertEqual(scope(['docs/plans/example.md'],True),{'portable':True,'release':True})
 
 

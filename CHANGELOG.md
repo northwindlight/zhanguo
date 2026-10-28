@@ -8,7 +8,7 @@
 - CI通过全套离线、C#、文档及Windows实际窗口／包验证后，自动公开同提交三附件Pre-release；根目录VERSION决定发版，公开附件不覆盖，正式Latest保持。
 - 灭国归属增加观察者重放／真人实时视野／历史地图回归，合成局均正常，原实机问题继续跟进。生产队列及新鼠标军令等留[第二版](docs/plans/GUI两版实施-20261028.md)，本次不做联机。
 
-[下载试玩版](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.3) · [实现与验证记录](docs/reviews/GUI军令规则与自动预发布-20261028.md)。
+[下载试玩版](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.3) · [实现与验证记录](docs/reviews/GUI军令规则与自动预发布-20261028.md)。最终1012项CI回归（含2跳过）、Linux及Windows实际窗口通过，已由CI公开预发布。
 
 ## 0.6.2 Pre-release — 军队总览、筛选与连续操作（2026-10-27）
 

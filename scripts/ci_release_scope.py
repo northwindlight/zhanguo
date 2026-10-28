@@ -9,7 +9,7 @@ from scripts.release_portable import version
 def scope(paths, pending):
     roots={'engine','clients','mods','presentation','ruleai','scenarios','ui','packaging'}
     runtime=any(Path(p).parts[0] in roots or len(Path(p).parts)==1 and Path(p).suffix in ('.py','.toml') or
-        p in ('VERSION','scripts/package_windows.py','scripts/verify_windows_package.ps1','scripts/release_portable.py','scripts/ci_release_scope.py',
+        p in ('VERSION','scripts/package_windows.py','scripts/verify_windows_package.ps1',
               '.github/workflows/ci.yml','.github/workflows/windows-portable.yml') for p in paths)
     return {'portable':pending or runtime,'release':pending}
 
