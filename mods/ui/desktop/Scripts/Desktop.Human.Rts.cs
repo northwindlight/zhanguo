@@ -76,6 +76,12 @@ public partial class Desktop
         var tabs=new HBoxContainer();_humanContent.AddChild(tabs);
         foreach(var (page,text,icon) in new[]{("build","建造","build"),("recruit","征兵","army"),("demolish","管理","disband"),("tile","地块","map")})
         {string selected=page;var b=Button(tabs,text,()=>OpenHumanPage(selected));b.SizeFlagsHorizontal=SizeFlags.ExpandFill;HumanArt.Style(b,icon);b.Disabled=page==_humanPage;}
+        if(data["terrain"] is JsonObject terrain)
+        {
+            var ground=HumanText($"地形：{terrain["label"]} · 地形惩罚 +{data["penalty"]}% 金币",color:"dec58f");
+            ground.Name="RtsTerrain";ground.AddThemeFontSizeOverride("font_size",15);
+            ground.TooltipText="本格资源容量与建筑要求见各图标悬浮说明；地形、工程院和国策按正式报价分步取整。";
+        }
         var queueMode=new CheckButton { Name="ProductionQueueMode",Text="生产队列 · 预付材料，按期执行",ButtonPressed=_productionQueueMode };
         queueMode.AddThemeFontSizeOverride("font_size",14);_humanContent.AddChild(queueMode);
         queueMode.Toggled+=value=>{_productionQueueMode=value;RenderHumanPage();};
@@ -139,6 +145,7 @@ public partial class Desktop
             card.Pressed+=()=>
             {
                 if(!available||!HumanCanQueue||_rtsCountPending)return;
+                _lastRtsKinds[recruit?"recruit":"build"]=kind;
                 HideRtsTooltip();_humanOperation=_productionQueueMode?(recruit?"queue_recruit":"queue_build"):(recruit?"recruit":"build");
                 var args=new JsonObject { ["kind"]=kind,["x"]=_humanCell.X,["y"]=_humanCell.Y };
                 if(recruit)args["count"]=_rtsCount;
@@ -146,6 +153,20 @@ public partial class Desktop
             };
         }
         RefreshRtsButtons();
+        var previous=_returnRtsFocus is string focus?_rtsCards.GetValueOrDefault(focus):null;
+        int? savedScroll=_restoreRtsScroll;_restoreRtsScroll=null;_returnRtsFocus=null;
+        if(previous!=null||savedScroll!=null)_=RestoreRtsPosition(previous,savedScroll,_rtsEpoch);
+    }
+    private async System.Threading.Tasks.Task RestoreRtsPosition(Button? button,int? scroll,int epoch)
+    {
+        // The quote arrives before VBox/ScrollContainer have their new extent.
+        // A deferred call in that same frame still clamps scrolling to zero.
+        await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+        await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+        if(epoch!=_rtsEpoch||!_humanDrawer.IsInsideTree())return;
+        if(scroll is int offset)_humanScroll.ScrollVertical=offset;
+        if(button!=null&&IsInstanceValid(button)&&button.IsInsideTree())
+        {_humanScroll.EnsureControlVisible(button);button.GrabFocus();}
     }
     private void RefreshRtsButtons()
     {
@@ -203,7 +224,14 @@ public partial class Desktop
         if(row["price"] is JsonObject price)
         {
             Text("基础材料："+Resources(row["base_costs"]),"adbbac");
-            Text($"地形金币 +{I(price["penalty"])}% · 工程院 −{I(price["discount"])}% · 国策金币 {(I(price["policy_pct"])-100):+0;-0;0}%\n仅金币按规则分步取整，木材不加价。","c7ba97",14);
+            if(row["cost_breakdown"] is JsonArray steps)foreach(var step in steps)
+            {
+                string id=S(step!["id"]);if(id=="base"){Text($"基础金币 {step["after"]}","c7ba97",14);continue;}
+                if(id!="terrain"&&I(step["percent"])==0)continue;
+                string name=id switch { "terrain"=>"地形惩罚","discount"=>"工程院折扣",_=>"国策调整" };
+                Text($"{name} {I(step["percent"]):+0;-0;0}%（{I(step["change"]):+0;-0;0} 金）→ {step["after"]} 金","c7ba97",14);
+            }
+            Text("木材不参与金币加成；各步取整已计入实付。","aaba9f",14);
         }
         foreach(var condition in row["requirements"]!.AsArray())
             Text((Yes(condition!["met"])?"✓ ":"× ")+S(condition["text"]),Yes(condition["met"])?"a2cb9f":"edaa90",14);

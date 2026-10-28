@@ -53,7 +53,7 @@ public partial class WorldMap
     }
     private void HoverHumanTarget(Vector2 at)
     {
-        if(_humanTargetMode=="")return;
+        if(_humanTargetMode==""){HoverTerrain(at);return;}
         var p=(at-_offset)/(_scale*Cell);
         HumanTargetHovered?.Invoke(HumanTarget(new((int)MathF.Floor(p.X),(int)MathF.Floor(p.Y))));
     }

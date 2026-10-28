@@ -249,12 +249,13 @@ public partial class WorldMap : Control
     {
         if (Frame == null) return;
         DrawSetTransform(_offset+_jitter, 0, Vector2.One*_scale);
+        if(SimpleTerrain)DrawTerrainMap();
         if(Borders)
             foreach(var (p,t) in _tiles)
             {
                 string owner=S(t["owner"]);if(owner=="")continue;
                 var at=new Vector2(p.X,p.Y)*Cell;
-                DrawRect(new Rect2(at,Vector2.One*Cell),new Color(NationColor(owner),PoliticalOpacity));
+                if(!SimpleTerrain)DrawRect(new Rect2(at,Vector2.One*Cell),new Color(NationColor(owner),PoliticalOpacity));
                 Vector2I[] dirs={new(0,-1),new(1,0),new(0,1),new(-1,0)};
                 Vector2[] corners={at,at+new Vector2(Cell,0),at+new Vector2(Cell,Cell),at+new Vector2(0,Cell)};
                 for(int i=0;i<4;i++)
@@ -263,7 +264,7 @@ public partial class WorldMap : Control
             }
         if(_tiles.ContainsKey(Selected))DrawRect(new Rect2(new Vector2(Selected.X,Selected.Y)*Cell,Vector2.One*Cell),new Color("fff1bb"),false,2/_scale);
         DrawSetTransform(Vector2.Zero);
-        DrawResidents();DrawTroops();DrawBeatEffects();DrawAmbient();DrawActivityChip();
+        if(!SimpleTerrain)DrawResidents();DrawTroops();DrawBeatEffects();if(!SimpleTerrain)DrawAmbient();DrawActivityChip();
         if(Borders && _scale<.55f)
             foreach(var country in Frame["names"]!.AsObject())
             {

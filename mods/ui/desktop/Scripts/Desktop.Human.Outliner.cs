@@ -13,7 +13,7 @@ public partial class Desktop
     private Button _outlinerLand=null!,_outlinerArmy=null!,_outlinerFold=null!;
     private LineEdit _outlinerSearch=null!;
     private Label _outlinerCount=null!;
-    private bool _outlinerArmies,_outlinerCollapsed;
+    private bool _outlinerArmies,_outlinerCollapsed,_landFree;
     private string _landSearch="",_armySearch="",_landTerrain="",_landResource="",_landBuilding="",_landState="",_armyKind="",_armyState="";
     private Vector2I _selectionCell=new(-1,-1);
     private int _targetEpoch;
@@ -48,6 +48,7 @@ public partial class Desktop
     private void OpenHumanOutliner(bool armies)
     {
         if(!HumanMode)return;
+        if(armies)_lastOperationPage="army";
         SaveHumanDraft();SaveMarketDraft();CancelHumanTarget();CloseDrawers();_humanPage=armies?"army":"land";_outlinerArmies=armies;_outlinerCollapsed=false;
         _outlinerSearch.Text=armies?_armySearch:_landSearch;_outlinerScroll.ScrollVertical=0;
         RenderHumanOutliner();
@@ -107,7 +108,10 @@ public partial class Desktop
             Pick("OutlinerTerrain","地形",HumanFacts["terrain_catalog"]!.AsArray().Select(t=>(S(t!["id"]),HumanLabel(S(t["id"])))),_landTerrain,v=>_landTerrain=v);
             Pick("OutlinerResource","资源",OutlinerTiles.SelectMany(t=>t["resources"]!.AsArray()).Select(r=>S(r![0])).Distinct().Order().Select(id=>(id,HumanLabel(id))),_landResource,v=>_landResource=v);
             Pick("OutlinerBuilding","建筑",HumanFacts["building_catalog"]!.AsArray().Select(b=>(S(b!["id"]),HumanLabel(S(b["id"])))),_landBuilding,v=>_landBuilding=v);
-            Pick("OutlinerLandState","状态",new[]{("construction","施工中"),("recruit","可征兵设施"),("garrison","有本国驻军")},_landState,v=>_landState=v);
+            Pick("OutlinerLandState","状态",new[]{("construction","施工／待建"),("recruit","可征兵设施"),("garrison","有本国驻军")},_landState,v=>_landState=v);
+            var free=new CheckButton { Name="OutlinerFreeSpace",Text="有可用空位",ButtonPressed=_landFree,
+                TooltipText="按正式建筑容量过滤，含已有、在建与待建预占。与资源条件组合时检查该资源的剩余容量；施工次数与材料不足仍单独显示。" };
+            free.AddThemeFontSizeOverride("font_size",14);_outlinerFilters.AddChild(free);free.Toggled+=on=>{_landFree=on;RenderOutlinerRows();};
         }
         else
         {
@@ -116,7 +120,7 @@ public partial class Desktop
         }
         var clear=Button(_outlinerFilters,"清除筛选",()=>
         {
-            if(_outlinerArmies){_armyKind=_armyState=_armySearch="";}else{_landTerrain=_landResource=_landBuilding=_landState=_landSearch="";}
+            if(_outlinerArmies){_armyKind=_armyState=_armySearch="";}else{_landTerrain=_landResource=_landBuilding=_landState=_landSearch="";_landFree=false;}
             _outlinerSearch.Text="";RenderHumanOutliner();
         });clear.Name="OutlinerClearFilters";HumanArt.Style(clear);
         RenderOutlinerRows();LayoutHumanOutliner();
@@ -131,13 +135,14 @@ public partial class Desktop
             {
                 var p=new Vector2I(I(tile["position"]![0]),I(tile["position"]![1]));var buildings=tile["building_instances"]!.AsArray();
                 string search=HumanCellName(p)+" "+tile["terrain_name"]+" "+string.Join(" ",buildings.Select(b=>HumanLabel(S(b!["kind"]))));
+                var space=OutlinerSpace(p);
                 if(!search.Contains(_landSearch,StringComparison.OrdinalIgnoreCase)||_landTerrain!=""&&S(tile["terrain"])!=_landTerrain||
                     _landResource!=""&&!tile["resources"]!.AsArray().Any(r=>S(r![0])==_landResource&&F(r[1])>0)||
                     _landBuilding!=""&&!buildings.Any(b=>S(b!["kind"])==_landBuilding)||
-                    _landState=="construction"&&!buildings.Any(b=>I(b!["remaining"])>0)||_landState=="recruit"&&!HasRecruitFacility(tile)||
-                    _landState=="garrison"&&!OwnArmies.Any(u=>I(u["x"])==p.X&&I(u["y"])==p.Y))continue;
-                var icons=buildings.Select(b=>S(b!["kind"])).Distinct().Take(4).Select(k=>RtsArt.Building(k));
-                AddOutlinerRow(p,HumanCellName(p),S(tile["terrain_name"])+$" · 建筑 {buildings.Count}"+(buildings.Any(b=>I(b!["remaining"])>0)?" · 施工中":""),icons,()=>SelectOutlinerCell(p,false));displayed++;
+                    _landState=="construction"&&!buildings.Any(b=>I(b!["remaining"])>0)&&(space==null||I(space["pending"])==0)||_landState=="recruit"&&!HasRecruitFacility(tile)||
+                    _landState=="garrison"&&!OwnArmies.Any(u=>I(u["x"])==p.X&&I(u["y"])==p.Y)||
+                    _landFree&&(space==null||(_landResource==""?I(space["free"])<=0:!space["resources"]!.AsArray().Any(r=>S(r!["resource"])==_landResource&&F(r["free"])>0))))continue;
+                AddLandOutlinerRow(p,tile,space);displayed++;
             }
             _outlinerCount.Text=$"本国地块 {displayed} / {OutlinerTiles.Count()}";
         }
@@ -174,6 +179,45 @@ public partial class Desktop
             _outlinerCount.Text=$"本国军队 {OwnArmies.Count()} 支 · 筛选结果 {displayed} 处驻地";
         }
         if(displayed==0)_outlinerList.AddChild(new Label { Text=_outlinerArmies&&!OwnArmies.Any()?"暂无军队\n建造军屯或兵营后征召。":"没有符合条件的项目。",AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("b7c4ad") });
+    }
+    private JsonObject? OutlinerSpace(Vector2I p)=>(HumanFacts["building_sites"]?["capacities"] as JsonArray)?.FirstOrDefault(s=>I(s!["position"]![0])==p.X&&I(s["position"]![1])==p.Y)?.AsObject();
+    private string SpaceDescription(JsonObject? space)
+    {
+        if(space==null)return "空间信息待刷新";
+        return $"建筑位可用 {space["free"]}/{space["capacity"]} · 本期施工 {space["order_remaining"]}/1\n已落成 {space["completed"]} · 施工中 {space["construction"]} · 待建 {space["pending"]}\n"+
+            string.Join(" · ",space["resources"]!.AsArray().Select(r=>$"{HumanLabel(S(r!["resource"]))}可用 {r["free"]}/{r["capacity"]}（占用 {r["used"]}）"));
+    }
+    private void AddLandOutlinerRow(Vector2I p,JsonObject tile,JsonObject? space)
+    {
+        var button=new Button { Name=$"Outliner_{p.X}_{p.Y}",ToggleMode=true,ButtonPressed=_humanCell==p,
+            CustomMinimumSize=new Vector2(0,66),SizeFlagsHorizontal=SizeFlags.ExpandFill,
+            TooltipText=HumanCellName(p)+" · "+S(tile["terrain_name"])+"\n"+SpaceDescription(space)+"\n点击定位地块" };
+        HumanArt.Style(button);_outlinerList.AddChild(button);_outlinerRows[p]=button;button.Pressed+=()=>SelectOutlinerCell(p,false);
+        var margin=new MarginContainer { MouseFilter=MouseFilterEnum.Ignore };margin.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        margin.OffsetLeft=6;margin.OffsetRight=-6;margin.OffsetTop=4;margin.OffsetBottom=-4;button.AddChild(margin);
+        var box=new VBoxContainer { MouseFilter=MouseFilterEnum.Ignore };box.AddThemeConstantOverride("separation",2);margin.AddChild(box);
+        var heading=new HBoxContainer { MouseFilter=MouseFilterEnum.Ignore };box.AddChild(heading);
+        heading.AddChild(new TextureRect { Texture=MapIcons.Texture(S(tile["terrain"])),TooltipText=S(tile["terrain_name"]),MouseFilter=MouseFilterEnum.Pass,
+            CustomMinimumSize=new Vector2(18,18),ExpandMode=TextureRect.ExpandModeEnum.IgnoreSize,StretchMode=TextureRect.StretchModeEnum.KeepAspectCentered });
+        var title=new Label { Text=HumanCellName(p),SizeFlagsHorizontal=SizeFlags.ExpandFill,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,MouseFilter=MouseFilterEnum.Ignore };
+        title.AddThemeFontSizeOverride("font_size",15);heading.AddChild(title);
+        var icons=new HBoxContainer { MouseFilter=MouseFilterEnum.Ignore };icons.AddThemeConstantOverride("separation",5);box.AddChild(icons);
+        void Status(string id,Texture2D texture,string text,bool active)
+        {
+            var icon=new TextureRect { Name="LandStatus_"+id,Texture=texture,TooltipText=text,MouseFilter=MouseFilterEnum.Pass,
+                Modulate=active?Colors.White:new Color(1,1,1,.22f),CustomMinimumSize=new Vector2(20,20),ExpandMode=TextureRect.ExpandModeEnum.IgnoreSize,StretchMode=TextureRect.StretchModeEnum.KeepAspectCentered };
+            icons.AddChild(icon);
+        }
+        var buildings=tile["building_instances"]!.AsArray();
+        int halls=buildings.Count(b=>S(b!["kind"])=="native:town-hall"),forts=buildings.Count(b=>S(b!["kind"])=="native:castle");
+        int army=OwnArmies.Count(u=>I(u["x"])==p.X&&I(u["y"])==p.Y);
+        Status("town-hall",HumanArt.Texture("icon-nation"),$"市政厅 {halls} 座（含在建）",halls>0);
+        Status("army",HumanArt.Texture("icon-army"),$"本国军队 {army} 支",army>0);
+        Status("fort",MapIcons.Texture("fort"),$"城堡 {forts} 座（含在建）",forts>0);
+        Status("construction",HumanArt.Texture("icon-build"),space==null?"施工信息待刷新":$"施工中 {space["construction"]} · 待建 {space["pending"]}",space!=null&&(I(space["construction"])+I(space["pending"])>0));
+        var free=new Label { Text=space==null?"—":_landResource==""?$"空 {space["free"]}/{space["capacity"]}":"余 "+S(space["resources"]!.AsArray().FirstOrDefault(r=>S(r!["resource"])==_landResource)?["free"]),
+            TooltipText=SpaceDescription(space),MouseFilter=MouseFilterEnum.Pass,SizeFlagsHorizontal=SizeFlags.ExpandFill,HorizontalAlignment=HorizontalAlignment.Right };
+        free.AddThemeFontSizeOverride("font_size",13);icons.AddChild(free);
     }
     private void AddOutlinerMarchBadge(HBoxContainer line,JsonObject order)
     {

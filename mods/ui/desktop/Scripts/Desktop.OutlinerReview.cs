@@ -125,12 +125,14 @@ public partial class Desktop
         if(_map.SelectedSquadUnits!=1)throw new Exception("同格未选中的军队也出现了选中光环");
         await Screenshot(stem+"-partial-selection-halo.png");_map.SetFrame(actual);
         var waypoint=OutlinerTiles.Select(t=>new Vector2I(I(t["position"]![0]),I(t["position"]![1]))).First(p=>p!=capital);
+        bool previousReturn=_rightClickReturn;_rightClickReturn=true;
         _map.SelectAndFocus(waypoint);await RightOrderAt(waypoint,append:true);await HumanIdle();
         var wild=_map.Frame!["tiles"]!.AsArray().First(t=>S(t!["visibility"])=="live"&&t["owner"]==null&&t["terrain"]!=null&&S(t["terrain"]) is not "native:high-mountain" and not "native:ocean")!;
         var second=new Vector2I(I(wild["position"]![0]),I(wild["position"]![1]));
         _map.SelectAndFocus(second);await RightOrderAt(second,attack:true,append:true);await HumanIdle();
         var itinerary=_humanState!["army_orders"]!.AsArray().Single(r=>I(r!["aid"])==home[0])!;
         if(itinerary["nodes"]!.AsArray().Count!=2||S(itinerary["nodes"]![1]!["mode"])!="attack"||_map.OrderNodeCount!=2)throw new Exception("两种Shift右键没有追加节点和路径线");
+        _rightClickReturn=previousReturn;
         OpenHumanPage("selected-armies");await WaitFor(()=>Drawers.All(d=>d.IsSettled),"路线面板未展开");ValidateHumanLayout();await Screenshot(stem+"-march-waypoints.png");
         OpenHumanOutliner(true);
         void CheckRouteBadge()

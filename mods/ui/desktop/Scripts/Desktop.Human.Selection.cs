@@ -58,7 +58,8 @@ public partial class Desktop
     }
     private bool HumanMapOrder(Vector2I at,bool attack,bool append)
     {
-        if(!HumanMode||_selectedArmies.Count==0)return false;
+        if(!HumanMode)return false;
+        if(_selectedArmies.Count==0)return ReturnToLastOperation();
         if(append)
         {
             SubmitHuman("queue_orders",new JsonObject { ["ids"]=SelectedIds(),

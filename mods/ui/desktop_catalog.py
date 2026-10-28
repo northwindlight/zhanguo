@@ -14,7 +14,9 @@ def present(ui, planning, state):
     label=lambda key:ui.console.label('content',key)
     prices=dict(state['facts']['market']['prices'])
     currency=state['facts']['market']['currency'];prices[currency]=1
-    data['name']=next((t['current'].get('name','') for t in state['map']['tiles'] if t['position']==data['position'] and t['visibility']=='live'),'')
+    current=next((t['current'] for t in state['map']['tiles'] if t['position']==data['position'] and t['visibility']=='live'),{})
+    data['name']=current.get('name','')
+    tid=current.get('terrain');data['terrain']={'id':tid,'label':label(tid)} if tid else None
     def describe_requirements(row):
         for requirement in row['requirements']:
             key=requirement.get('resource')

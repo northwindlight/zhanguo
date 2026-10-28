@@ -53,6 +53,7 @@ public partial class Desktop
         _resumeAfterMenu=!_playbackPaused&&(HasTimeline||_running);
         _menuAutoRunning=_autoRunning;
         _playbackPaused=true;_pauseMenu.Visible=true;CloseDrawers();
+        LayoutMapTools();
         _pauseInfo.Text=HumanMode?"游戏已暂停，继续后可操作或观看本批演出。\n保存以完整回合为边界；回合中保存会排队。":"演出已暂停。当前模型调用结束后，宿主停在本批操作处。\n存档仍以完整回合为边界。";
         Send("pause");RefreshPlaybackControls();
     }
@@ -61,6 +62,7 @@ public partial class Desktop
     {
         if(!_pauseMenu.Visible||_closing)return;
         _pauseMenu.Visible=false;
+        LayoutMapTools();
         if(HumanMode){_humanDiscard.Visible=false;_menuQuit.Visible=true;}
         if(_resumeAfterMenu||HumanMode)
         {

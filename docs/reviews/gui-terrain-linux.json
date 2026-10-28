@@ -1,0 +1,61 @@
+{
+  "period": 3,
+  "human_actions": 27,
+  "simple_terrain_map": true,
+  "terrain_preserves_fog": true,
+  "terrain_price_steps": true,
+  "free_space_filter": true,
+  "compact_land_icons": true,
+  "right_return_preferences": true,
+  "right_return_army_priority": true,
+  "right_return_last_button": true,
+  "guide_api_and_return": true,
+  "production_queue": true,
+  "march_order_badges": true,
+  "layouts": [
+    {
+      "width": 1920,
+      "height": 1080,
+      "within_viewport": true,
+      "rts_hover": true
+    },
+    {
+      "width": 1440,
+      "height": 900,
+      "within_viewport": true,
+      "rts_hover": true
+    },
+    {
+      "width": 1280,
+      "height": 720,
+      "within_viewport": true,
+      "rts_hover": true
+    },
+    {
+      "width": 1024,
+      "height": 768,
+      "within_viewport": true,
+      "rts_hover": true
+    }
+  ],
+  "platform": "Linux",
+  "renderer": "llvmpipe (LLVM 19.1.7, 128 bits)",
+  "map_screenshot_sizes": [
+    {
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "width": 1366,
+      "height": 768
+    },
+    {
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "width": 1024,
+      "height": 768
+    }
+  ]
+}

@@ -18,6 +18,7 @@ public partial class Desktop
     private void OpenHumanPage(string page)
     {
         if(!HumanMode)return;
+        if(page is not "tile" and not "guide")_lastOperationPage=page;
         if(page=="army"){_humanPage=page;OpenHumanOutliner(true);return;}
         CancelHumanTarget();
         if(_humanPage!=page)
@@ -40,6 +41,7 @@ public partial class Desktop
         SaveHumanDraft();ResetMarket();ResetRts();ClearHumanChildren(_humanContent);_humanWrites.Clear();_humanFields.Clear();_formOperation="";
         _humanContent.AddThemeConstantOverride("separation",_humanPage is "build" or "recruit" or "market"?6:10);
         _humanExtra=new JsonObject();_humanPreview=null;_humanSubmit=null;
+        _guideTools.Visible=_humanPage=="guide";
         switch(_humanPage)
         {
             case "tile":RenderHumanTile();break;
@@ -55,6 +57,7 @@ public partial class Desktop
                 RenderHumanGarrison(tile);
                 HumanButton("全国军队总览",()=>OpenHumanOutliner(true),"army");break;
             case "nation":RenderHumanNation();break;
+            case "guide":RenderHumanGuide();break;
             default:RenderHumanActions(_humanPage);break;
         }
         LayoutHuman();

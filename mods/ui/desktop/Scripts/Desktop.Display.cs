@@ -21,6 +21,10 @@ public partial class Desktop
         _ledgerSizePicker=new OptionButton { SizeFlagsHorizontal=SizeFlags.ExpandFill };
         _ledgerSizePicker.AddItem("标准 · 16px");_ledgerSizePicker.AddItem("大字 · 20px");sizes.AddChild(_ledgerSizePicker);parent.AddChild(sizes);
         _ledgerSizePicker.ItemSelected+=index=>{_ledgerTextSize=index==0?16:20;ApplyDisplayOptions(true);};
+        _rightReturnToggle=new CheckButton { Name="RightClickReturn",Text="右键返回上次操作" };
+        _rightReturnToggle.AddThemeFontSizeOverride("font_size",14);
+        _rightReturnToggle.TooltipText="选军时优先下达军令；无选军且不在编辑路径时，右键回到上次操作页／按钮，不自动执行。关闭时右键拖动地图。";
+        parent.AddChild(_rightReturnToggle);_rightReturnToggle.Toggled+=on=>{_rightClickReturn=on;ApplyDisplayOptions(true);};
     }
     private void LoadDisplayOptions()
     {
@@ -30,6 +34,8 @@ public partial class Desktop
             {
                 if(saved["font"]?.ToString()=="fusion")_displayFont=PixelTheme.LegacyFontPath;
                 if(saved["ledger_font_size"]?.GetValue<int>() is 16 or 20)_ledgerTextSize=saved["ledger_font_size"]!.GetValue<int>();
+                if(saved["right_click_return"] is JsonValue right)_rightClickReturn=right.GetValue<bool>();
+                _simpleTerrain=saved["map_mode"]?.ToString()=="terrain";
             }
         }
         catch(Exception e){GD.PrintErr("显示设置使用默认值："+e.Message);}
@@ -42,12 +48,14 @@ public partial class Desktop
         _map.SetDisplayFont(textTheme.DefaultFont);
         _ledgerPanel.Theme=textTheme;_settlementCard.Theme=textTheme;
         _fontPicker.Selected=_displayFont==PixelTheme.FontPath?0:1;_ledgerSizePicker.Selected=_ledgerTextSize==16?0:1;
+        ApplyMapPreferences();
         if(_map.Frame!=null)RefreshNationLedger();LayoutLedger();
         if(!save)return;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(DisplaySettings)!);
-            File.WriteAllText(DisplaySettings,JsonSerializer.Serialize(new { font=_displayFont==PixelTheme.FontPath?"zlabs":"fusion",ledger_font_size=_ledgerTextSize }));
+            File.WriteAllText(DisplaySettings,JsonSerializer.Serialize(new { font=_displayFont==PixelTheme.FontPath?"zlabs":"fusion",ledger_font_size=_ledgerTextSize,
+                right_click_return=_rightClickReturn,map_mode=_simpleTerrain?"terrain":"normal" }));
         }
         catch(Exception e){GD.PrintErr("显示设置未保存："+e.Message);}
     }

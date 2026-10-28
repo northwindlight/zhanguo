@@ -177,6 +177,9 @@ public sealed class RegionLayout
         return Smooth(Math.Clamp((water-.3f)/.4f,0,1));
     }
     public float Sand(float x,float y)=>Interpolate(x,y,static r=>r.Terrain=="desert"?1:0);
+    public float TerrainBlend(float x,float y,string terrain)=>terrain switch {
+        "forest"=>Interpolate(x,y,static r=>r.Terrain=="forest"?1:0),
+        "hill"=>Interpolate(x,y,static r=>r.Terrain=="hill"?1:0),_=>0 };
 
     private RegionInput? RegionAt(int x, int y) => _regions.GetValueOrDefault((Math.Clamp(x, 0, Width - 1), Math.Clamp(y, 0, Height - 1)));
 

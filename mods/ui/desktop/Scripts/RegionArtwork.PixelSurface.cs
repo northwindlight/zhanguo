@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using System.Collections.Generic;
 using Zhanguo.Desktop.Layout;
 
 public partial class RegionArtwork
@@ -12,6 +13,10 @@ public partial class RegionArtwork
         using var image=Image.CreateEmpty(width,height,false,Image.Format.Rgba8);
         using var mask=Image.CreateEmpty(width,height,false,Image.Format.Rgb8);
         using var atlas=UnifiedArt.Atlas.GetImage();
+        var tints=new Dictionary<(string,int),Image>();
+        foreach(var (terrain,tint) in new[]{("forest",new Color(.10f,.31f,.20f,.24f)),("hill",new Color(.59f,.40f,.18f,.20f))})
+        for(int weight=1;weight<=8;weight++)
+        {var patch=Image.CreateEmpty(16,16,false,Image.Format.Rgba8);patch.Fill(new Color(tint,tint.A*weight/8));tints[(terrain,weight)]=patch;}
         void Stamp(string id,int x,int y,int cropHeight=0)
         {
             var source=UnifiedArt.Get(id).Rect;
@@ -31,8 +36,18 @@ public partial class RegionArtwork
                     mask.FillRect(new Rect2I(px,py,16,16),new Color(c.Water/3f,0,0));
                 }
             }
-            else Stamp("ground-"+(c.Sand?"sand":"grass")+"-"+c.Variant,px,py);
+            else
+            {
+                Stamp("ground-"+(c.Sand?"sand":"grass")+"-"+c.Variant,px,py);
+                if(!c.Sand)
+                {
+                    float forest=layout.TerrainBlend(px+8,py+8,"forest"),hill=layout.TerrainBlend(px+8,py+8,"hill");
+                    int weight=(int)MathF.Round(Math.Max(forest,hill)*8);
+                    if(weight>0)image.BlendRect(tints[(forest>=hill?"forest":"hill",weight)],new Rect2I(0,0,16,16),new Vector2I(px,py));
+                }
+            }
         }
+        foreach(var tint in tints.Values)tint.Dispose();
         // Project each discrete 8px level upward, with complete 8px rock strips
         // for larger drops. The source cap's one-level front face is never stretched.
         FrontFaceCount=0;

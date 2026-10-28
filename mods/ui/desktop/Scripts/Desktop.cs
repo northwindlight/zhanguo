@@ -143,7 +143,7 @@ public partial class Desktop : Control
             HorizontalAlignment=HorizontalAlignment.Right,Modulate=new Color("c0c9b2") };
         hint.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight);hint.OffsetLeft=-660;hint.AddThemeFontSizeOverride("font_size",14);hint.OffsetRight=-18;hint.OffsetTop=-44;hint.OffsetBottom=-18;AddChild(hint);
         _mapHint=hint;BuildHumanControls();
-        Resized+=LayoutDrawers;LayoutDrawers();
+        BuildMapTools();Resized+=LayoutDrawers;LayoutDrawers();
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--smoke-output"){_smoke=args[i+1];_playbackSpeed=96;}
         string? menuTest=null;
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--menu-output")menuTest=args[i+1];

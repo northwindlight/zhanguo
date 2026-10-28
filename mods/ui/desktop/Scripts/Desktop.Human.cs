@@ -66,6 +66,7 @@ public partial class Desktop
         _humanDrawer.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));
         _targetSummary=new Label { Visible=false,MaxLinesVisible=4,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("a9cddd") };
         _humanDrawer.Body.AddChild(_targetSummary);
+        BuildGuideToolbar(_humanDrawer.Body);
         var scroll=new ScrollContainer { SizeFlagsVertical=SizeFlags.ExpandFill,HorizontalScrollMode=ScrollContainer.ScrollMode.Disabled };
         _humanScroll=scroll;
         _humanDrawer.Body.AddChild(scroll);
@@ -97,6 +98,7 @@ public partial class Desktop
     }
     private void LayoutHuman()
     {
+        LayoutMapTools();
         if(_humanDrawer==null)return;
         float width=Math.Min(_humanPage=="market"?568:520,Size.X-328),height=Math.Max(180,Size.Y-300);
         float reserve=HumanMode&&Size.X>=1500&&!_outlinerCollapsed?296:0;

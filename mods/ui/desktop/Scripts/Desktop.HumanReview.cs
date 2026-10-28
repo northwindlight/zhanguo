@@ -145,6 +145,7 @@ public partial class Desktop
             _menu.Visible=false;StartHost(configPath,null);
             await HumanIdle();if(_map.NationName(HumanActor)!="青岚"||_map.NationColor(HumanActor).ToHtml(false)!="66b6a7")throw new Exception("本国名称／颜色未进入实际地图");
             if(OwnArmies.Any())throw new Exception("正常真人开局不应赠兵");CloseDrawers(false);_map.Fit();await Screenshot(path);
+            await ReviewMapTools(stem);
             if(!_ledgerPowerBox.Visible||!_ledgerPower.Text.Contains("0/1")||!_ledgerPowerLast.Text.Contains("尚未结算"))throw new Exception("开局未显示当前电力缺口与首次结算状态");
             foreach(string page in new[]{"build","army","market","diplomacy","alliance","intel","nation"})
             {
@@ -254,6 +255,10 @@ public partial class Desktop
             var memory=_map.Frame!["tiles"]!.AsArray().First(t=>S(t!["visibility"])=="memory")!;
             var memoryCell=new Vector2I(I(memory["position"]![0]),I(memory["position"]![1]));
             CloseDrawers(false);_map.SelectAndFocus(memoryCell);await Screenshot(stem+"-memory.png");
+            var remembered=_map.Frame!.ToJsonString();int known=_map.SimpleVisibleTiles,unknown=_map.UnknownCount;
+            await PointerClick(_terrainModeButton);_map.SelectAndFocus(memoryCell);await Screenshot(stem+"-simple-memory.png");
+            if(!_map.SimpleTerrain||known!=_map.SimpleVisibleTiles||unknown!=_map.UnknownCount||remembered!=_map.Frame.ToJsonString())throw new Exception("简易地图改变了历史或未知信息");
+            await PointerClick(_terrainModeButton);
             var center=_map.CellCenter(memoryCell);int radius=(int)Math.Max(8,48*_map.Zoom);
             var rect=new Rect2I((int)center.X-radius,(int)center.Y-radius,radius*2,radius*2);
             using var image1=GetViewport().GetTexture().GetImage();using var crop1=image1.GetRegion(rect);byte[] pixels1=crop1.GetData();
@@ -278,6 +283,7 @@ public partial class Desktop
             await ReviewHumanOutliner(stem,capital,destination);
             await ReviewResourceTooltip();await Screenshot(stem+"-resource-breakdown.png");
             await ReviewProductionQueue(stem,capital);
+            await ReviewSpaceFilters(stem,capital);
             foreach(var size in new[]{new Vector2I(1920,1080),new Vector2I(1440,900),new Vector2I(1280,720),new Vector2I(1024,768)})
             {
                 GetWindow().ContentScaleSize=size;GetWindow().Size=size;_humanCell=capital;OpenHumanPage("build");await RtsReady();
@@ -320,6 +326,9 @@ public partial class Desktop
                 ["resource_breakdown_hover"]=true,["outliner_tabs"]=true,["outliner_filters"]=true,["cross_site_selection"]=true,["mouse_orders"]=true,["shift_waypoints"]=true,["selection_halos"]=true,["numbers_without_enter"]=true,["market_reference_visible"]=true,["power_visible"]=true,["power_ignores_unfinished"]=true,["power_previous_actual"]=true,
                 ["save_queued"]=true,["exit_choice"]=true,["rts_layouts"]=true,["save"]=_savePath,["config"]=configPath,["layouts"]=layouts,
                 ["production_queue"]=true,["pending_full_refund"]=true,["march_order_badges"]=true,["rule_fixture_seed"]=20261026,
+                ["simple_terrain_map"]=true,["terrain_preserves_fog"]=true,["terrain_price_steps"]=true,["free_space_filter"]=true,["compact_land_icons"]=true,["right_return_preferences"]=true,["guide_api_and_return"]=true,
+                ["right_return_army_priority"]=true,
+                ["right_return_last_button"]=true,
                 ["platform"]=OS.GetName(),["renderer"]=RenderingServer.GetVideoAdapterName() };
             await File.WriteAllTextAsync(path+".json",result.ToJsonString(new JsonSerializerOptions { WriteIndented=true }));
             GD.Print("HUMAN_GUI_OK "+path);

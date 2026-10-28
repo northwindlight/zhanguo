@@ -269,6 +269,32 @@ class Buildings(ConstructionQueue):
         # each spend the same farmland (e.g. a farm and a militia camp).
         return sum(self._type(item.kind).SITE_RESOURCE==resource for item in existing) if resource else 0
 
+    def site_capacity(self, owner, site_id):
+        """Own-site space, using the same reservations as construction validation."""
+        site=self._sites[site_id]
+        if site.owner!=owner:raise ValueError('Site does not belong to actor')
+        actual=list(self._index().get(site_id,()))
+        pending=list(self._pending_at(site_id));existing=actual+pending
+        free=max(0,site.capacity-len(existing))
+        return {'site':site_id,'position':list(site.position),'occupied':len(existing),'capacity':site.capacity,
+            'free':free,'completed':sum(b.completed for b in actual),'construction':sum(not b.completed for b in actual),
+            'pending':len(pending),'ordered':self._orders[site_id]==self.period,
+            'order_remaining':int(self._orders[site_id]!=self.period and not self._produced),'penalty':site.penalty,
+            'resources':[{'resource':resource,'capacity':capacity,'used':self._resource_occupancy(existing,resource),
+                'free':min(free,max(0,capacity-self._resource_occupancy(existing,resource)))} for resource,capacity in site.resources]}
+
+    def _price_breakdown(self, cls, price):
+        if price is None:return []
+        level=price['level'];previous=cls.construction_cost(level).get('native:gold',0)
+        result=[{'id':'base','percent':0,'before':0,'after':previous,'change':previous}]
+        for name,percent,arguments in (
+            ('terrain',price['penalty'],{'penalty':price['penalty']}),
+            ('discount',-price['discount'],{'penalty':price['penalty'],'discount':price['discount']}),
+            ('policy',price['policy_pct']-100,{'penalty':price['penalty'],'discount':price['discount'],'policy_pct':price['policy_pct']})):
+            current=cls.construction_cost(level,**arguments).get('native:gold',0)
+            result.append({'id':name,'percent':percent,'before':previous,'after':current,'change':current-previous});previous=current
+        return result
+
     def seed(self, site_id, kind, count=1, *, completed=True):
         """Explicit initialization/import; does not count as player construction."""
         self._action();integer(count,1)
@@ -345,11 +371,11 @@ class Buildings(ConstructionQueue):
             except ValueError as exc:error=str(exc)
             for key,amount in (price or {}).get('costs',{}).items():
                 requirements.append({'text':'建造材料','resource':key,'current':wallet.get(key,0),'required':amount,'met':wallet.get(key,0)>=amount})
-            rows.append({'kind':kind,'price':price,'base_costs':cls.construction_cost(min(same+1,len(cls.GOLD_COSTS))),
+            rows.append({'kind':kind,'price':price,'cost_breakdown':self._price_breakdown(cls,price),'base_costs':cls.construction_cost(min(same+1,len(cls.GOLD_COSTS))),
                 'requirements':requirements,'available':error is None and all(r['met'] for r in requirements),
                 'reason':error,'leveled':len(cls.GOLD_COSTS)>1})
         return {'site':site.id,'position':list(site.position),'period':self.period,'ordered':ordered,'queued':queued,
-            'occupied':len(existing),'capacity':site.capacity,
+            'occupied':len(existing),'capacity':site.capacity,'space':self.site_capacity(owner,site_id),'penalty':site.penalty,
             'construction':[b.snapshot() for b in actual if not b.completed],
             'orders':[o for o in self.construction_orders(owner) if o['site']==site.id],
             'demolitions':[self.demolition_quote(owner,b.id) for b in actual],

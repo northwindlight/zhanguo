@@ -28,6 +28,7 @@ class BuildingsAPI:
         sites = [s for s in snap.sites if s.owner == actor]
         ids = {s.id for s in sites}
         return {'sites': sites, 'instances': [b for b in snap.instances if b.site in ids],
+                'capacities': [self.world.buildings.site_capacity(actor,s.id) for s in sites],
                 'construction': [r for r in snap.construction if r.owner == actor],
                 'self_built': {kind: count for owner, kind, count in snap.self_built if owner == actor}}
 
