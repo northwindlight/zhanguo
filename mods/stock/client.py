@@ -8,6 +8,11 @@
   用来验证规则与结算，也方便本地试玩。
 """
 from clients.llm import LLMClient
+from clients import context as ctx
+from clients.provider import OpenAICompat
+from mods.stock.compact_provider import StockOpenAICompat
+from copy import deepcopy
+from types import SimpleNamespace
 from clients.model_view import ModelView
 
 
@@ -164,6 +169,78 @@ class StockClient(LLMClient):
     def __init__(self, cfg, state=None, backend=None, ui=None, record=None, services=None):
         super().__init__(cfg, state, backend, ui, record, services)
         self.ui = StockView(self.cfg, presentation=self.presentation)
+
+    def _provider(self):
+        backend = super()._provider()
+        if type(backend) is OpenAICompat:
+            self._backend = backend = StockOpenAICompat(self.cfg)
+        return backend
+
+    def _compact(self,player,messages,plan,tools,emit):
+        # ctx.slide operates on a client-owned memory store, never the game world.
+        memory=SimpleNamespace(turn_memory={player.actor:self.state.replay},summary_blocks={player.actor:self.state.blocks},turn=player.observe()['period'])
+        dropped=ctx.slide(memory,player.actor,plan)
+        if not dropped:return
+        summary='\n'.join(f'第{row["turn"]}期：{row["text"]}' for row in self.state.summaries if dropped[0]['turn']<=row['turn']<=dropped[-1]['turn'])
+        # 压缩成功后块里存的是「当时那份长期记忆」，会被下一次压缩整体取代；压缩失败时
+        # 存的是逐期小结，不能被取代——归档渲染据此决定要不要重播这个块。
+        snapshot=False
+        if plan.compact:
+            # Reuse the actual request prefix once, without dumping the same
+            # replay as JSON again. Compression has its own input/output budget.
+            ceiling=min(120000,int(self.cfg.get('ctx_window') or 128000))
+            compact_limit=int(self.cfg.get('ctx_compact_tokens') or 1500)
+            instruction={'role':'user','content':self.ui.text('llm.compact',memory=self.state.long_memory,history=summary)}
+            available=max(compact_limit,min(ceiling//4,ceiling-ctx.SAFETY_TOKENS-ctx.msg_tokens(instruction)))
+            max_compact_limit=min(available,max(compact_limit,int(self.cfg.get('max_tokens') or 16384)))
+            reserve=max_compact_limit+ctx.SAFETY_TOKENS
+            budget=max(0,ceiling-reserve-ctx.msg_tokens(instruction))
+            prefix=[];pending=set();used=0
+            for message in messages:
+                cost=ctx.msg_tokens(message)
+                if used+cost>budget:break
+                prefix.append(deepcopy(message));used+=cost
+                if message.get('role')=='assistant':pending.update(c['id'] for c in message.get('tool_calls',[]))
+                elif message.get('role')=='tool':pending.discard(message.get('tool_call_id'))
+            while pending and prefix:
+                last=prefix.pop()
+                if last.get('role')=='tool':pending.add(last['tool_call_id'])
+                if last.get('role')=='assistant':pending.difference_update(c['id'] for c in last.get('tool_calls',[]))
+            prompt=prefix+[instruction]
+            try:
+                if ctx.messages_tokens(prompt)+reserve>ceiling:
+                    raise ValueError('Compression instruction and output cannot fit the configured window')
+                for attempt in range(1,11):
+                    if emit:emit(self.ui.text('llm.compacting',actor=player.actor,attempt=attempt,limit=10))
+                    request_cfg={**self._request_config(),'ctx_compact_tokens':compact_limit}
+                    provider=self._provider()
+                    complete=getattr(provider,'complete_text_stream',provider.complete_text)
+                    compressed,stats=complete(prompt,request_cfg,tools=[])
+                    self._usage(stats)
+                    if (isinstance(compressed,str) and len(compressed.strip())>=20
+                        and stats.get('stop_reason') not in ('length','max_tokens','tool_calls','incomplete')):break
+                    if stats.get('stop_reason') in ('incomplete','tool_calls'):raise ValueError('Compression stream incomplete or called a tool')
+                    if stats.get('stop_reason') in ('length','max_tokens'):
+                        if compact_limit >= max_compact_limit:raise ValueError('Compression exhausted output limit')
+                        body_tokens=stats.get('body_tokens_estimate',0)
+                        total_tokens=stats.get('out_tokens',0)
+                        target=int(self.cfg.get('ctx_compact_tokens') or 1500)
+                        inferred=(target*total_tokens//body_tokens) if body_tokens and total_tokens else compact_limit*2
+                        compact_limit=min(max_compact_limit,max(compact_limit+1,compact_limit*2,inferred))
+                else:raise ValueError('Empty, too short, or truncated memory compression after 10 attempts')
+            except Exception as exc:
+                # Legacy behavior: compression is optional. Keep the previous
+                # long-term memory and archive these turns using their summaries.
+                if emit:emit(self.ui.text('llm.compact_failed',actor=player.actor,error=type(exc).__name__))
+            else:
+                summary=compressed.strip();self.state.long_memory=summary;snapshot=True
+        if plan.compact and summary:self.state.blocks.append({'from':dropped[0]['turn'],'to':dropped[-1]['turn'],'at':memory.turn,'text':summary,'memory':snapshot})
+        # Long memory subsumes older archive blocks; summaries remain available
+        # through the bounded searchable history.
+        self.state.blocks=self.state.blocks[-20:]
+        self.state.summaries=self.state.summaries[-240:]
+        if emit:emit(self.ui.text('llm.archived',actor=player.actor,count=len(dropped)))
+
 
 
 STRATEGY = '''def on_tick():
