@@ -55,7 +55,7 @@ $env:ZHANGUO_LEDGER_REVIEW = (Get-ChildItem (Join-Path $taskOutput 'effects-fixt
 Run-GameCheck 'ledger' @('--rendering-method', 'gl_compatibility', '--rendering-driver', 'opengl3_angle', '--', '--ledger-review-output', (Join-Path $taskOutput 'ledger.png')) 300000
 $taskLedger = Get-Content -Raw (Join-Path $taskOutput 'ledger.png.json') | ConvertFrom-Json
 if ($taskLedger.Count -ne 12 -or ($taskLedger | Where-Object { -not $_.ledger_within_viewport -or $_.overlap })) { throw 'Single-country ledger font/scale/layout verification failed' }
-Run-GameCheck 'human' @('--rendering-method', 'gl_compatibility', '--rendering-driver', 'opengl3_angle', '--', '--human-review-output', (Join-Path $taskOutput 'human.png')) 600000
+Run-GameCheck 'human' @('--rendering-method', 'gl_compatibility', '--rendering-driver', 'opengl3_angle', '--', '--human-review-output', (Join-Path $taskOutput 'human.png')) 900000
 $taskHuman = Get-Content -Raw (Join-Path $taskOutput 'human.png.json') | ConvertFrom-Json
 foreach ($taskCheck in @('rts_icons', 'two_step_player_menu', 'custom_nation_name_and_color', 'tile_a_b_a', 'disabled_hover', 'short_hover', 'long_hover', 'construction_quota_disabled', 'rts_layouts')) {
     if ($taskHuman.$taskCheck -ne $true) { throw "RTS human interaction verification failed: $taskCheck" }

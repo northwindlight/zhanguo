@@ -538,6 +538,11 @@ public partial class MainMenu : Control
         _playerMode=true;_nations[index].Client=3;_nations[index].Nickname="本地玩家";
         RestoreNationEditor(_nations.ToList());SetEditorMode();
     }
+    public void ReviewRuleSeeds(int seed)
+    {
+        for(int i=0;i<_nations.Count;i++)if(_nations[i].Client==0)_nations[i].RuleSeed=(seed+i).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        RestoreNationEditor(_nations.ToList());SetEditorMode();
+    }
     public void ValidateVisibleLayout()
     {
         void Check(Node node)

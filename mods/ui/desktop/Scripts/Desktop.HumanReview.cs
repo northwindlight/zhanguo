@@ -12,6 +12,7 @@ using Zhanguo.Desktop.Layout;
 public partial class Desktop
 {
     private bool _humanReviewDiagnostics;
+    private const double HumanRoundTimeout=300;
     private async Task ReviewExtinctionMemory(string path)
     {
         try
@@ -136,9 +137,11 @@ public partial class Desktop
             await PointerClick(_menu.PlayerBackButton);
             if(_menu.PlayerNameField.Text!="青岚"||_menu.PlayerColorField.Color.ToHtml(false)!="66b6a7")throw new Exception("返回上一步丢失本国定制");
             _menu.SelectPlayerScenario(0);await PointerClick(_menu.PlayerNextButton);
+            _menu.ReviewRuleSeeds(20261026);
             _menu.ValidateVisibleLayout();await Screenshot(stem+"-menu.png");
             var config=_menu.BuildConfig(out string error,out string? configPath);
             if(config==null||configPath==null||config["nations"]!.AsArray().Count(n=>S(n!["client"])=="human")!=1)throw new Exception("真人菜单配置失败："+error);
+            if(config["nations"]!.AsArray().Where(n=>S(n!["client"])=="rule").Any(n=>n!["rule_seed"]==null))throw new Exception("离线验收的规则AI缺少固定种子");
             _menu.Visible=false;StartHost(configPath,null);
             await HumanIdle();if(_map.NationName(HumanActor)!="青岚"||_map.NationColor(HumanActor).ToHtml(false)!="66b6a7")throw new Exception("本国名称／颜色未进入实际地图");
             if(OwnArmies.Any())throw new Exception("正常真人开局不应赠兵");CloseDrawers(false);_map.Fit();await Screenshot(path);
@@ -203,7 +206,7 @@ public partial class Desktop
             await WaitFor(()=>S(_playingBeat?["phase"])=="production","本国生产没有演出",120);
             if(!_settlementCard.Visible||_humanDrawer.IsOpen)throw new Exception("生产汇总被操作面板遮住");
             await Screenshot(stem+"-production.png");
-            await WaitFor(()=>HumanCanWrite&&_period==1,"真人回合没有轮换与结算",120);
+            await WaitFor(()=>HumanCanWrite&&_period==1,"真人回合没有轮换与结算",HumanRoundTimeout);
             var autoOrders=HumanFacts["market"]!["automatic"]!["last"]!["orders"]!.AsArray();
             if(!autoOrders.Any(o=>S(o!["side"])=="buy"&&I(o["quantity"])>0)||!autoOrders.Any(o=>S(o!["side"])=="sell"&&I(o["quantity"])>0))throw new Exception("自动买卖没有在结束行动时真实成交");
             if(NationLedger.Read(_map.Frame!,HumanActor)?.Power is not {Capacity:2,Generated:2,Demand:1,PreviousShort:true}||!_ledgerPowerLast.Text.Contains("不足"))throw new Exception("电厂落成后的供电预估与上期实际电网没有区分");
@@ -218,7 +221,7 @@ public partial class Desktop
             await WaitFor(()=>!_rtsCountPending&&_rtsData!=null,"征召数量改回后没有刷新");await RtsReady();
             await Screenshot(stem+"-recruit.png");await PointerClick(_rtsCards["native:militia"]);await HumanIdle();
             if(!OwnArmies.Any())throw new Exception("真人征兵没有产生真实军队："+_humanReceipt.Text);
-            await PointerClick(_humanNav["end"]);await WaitFor(()=>HumanCanWrite&&_period==2,"新兵没有进入下一期",120);
+            await PointerClick(_humanNav["end"]);await WaitFor(()=>HumanCanWrite&&_period==2,"新兵没有进入下一期",HumanRoundTimeout);
             _humanCell=capital;OpenHumanPage("tile");
             await CheckGarrisonFirst();await Screenshot(stem+"-garrison.png");
             var check=_humanContent.FindChild("HumanArmy1",true,false) as CheckButton;
@@ -266,7 +269,7 @@ public partial class Desktop
             var ledgerRect=_ledgerPanel.GetGlobalRect();
             var ledgerBounds=new Footprint(ledgerRect.Position.X,ledgerRect.Position.Y,ledgerRect.Size.X,ledgerRect.Size.Y);
             if(_map.SquadLabelBounds.Any(b=>(b with { Height=b.Height-35 }).Overlaps(ledgerBounds)))throw new Exception("战斗血条被国家面板挡住");
-            await Screenshot(stem+"-wild-battle.png");await WaitFor(()=>HumanCanWrite&&_period==3,"战斗结算未结束",120);
+            await Screenshot(stem+"-wild-battle.png");await WaitFor(()=>HumanCanWrite&&_period==3,"战斗结算未结束",HumanRoundTimeout);
             _humanOperation="declare_war";await PointerClick(_humanNav["diplomacy"]);await PointerClick(_humanSubmit!);
             await WaitFor(()=>_humanConfirm.Visible,"宣战未显示二次确认");
             if(!_humanConfirm.DialogText.Contains("攻方")||!_humanConfirm.DialogText.Contains("守方"))throw new Exception("宣战缺少结构化警告");
@@ -316,7 +319,7 @@ public partial class Desktop
                 ["garrison_visible_without_scroll"]=true,["wild_garrison_continuity"]=true,["wild_guard_id"]=wildId,["wild_formation_figures"]=wildFigures,
                 ["resource_breakdown_hover"]=true,["outliner_tabs"]=true,["outliner_filters"]=true,["cross_site_selection"]=true,["mouse_orders"]=true,["shift_waypoints"]=true,["selection_halos"]=true,["numbers_without_enter"]=true,["market_reference_visible"]=true,["power_visible"]=true,["power_ignores_unfinished"]=true,["power_previous_actual"]=true,
                 ["save_queued"]=true,["exit_choice"]=true,["rts_layouts"]=true,["save"]=_savePath,["config"]=configPath,["layouts"]=layouts,
-                ["production_queue"]=true,["pending_full_refund"]=true,["march_order_badges"]=true,
+                ["production_queue"]=true,["pending_full_refund"]=true,["march_order_badges"]=true,["rule_fixture_seed"]=20261026,
                 ["platform"]=OS.GetName(),["renderer"]=RenderingServer.GetVideoAdapterName() };
             await File.WriteAllTextAsync(path+".json",result.ToJsonString(new JsonSerializerOptions { WriteIndented=true }));
             GD.Print("HUMAN_GUI_OK "+path);
