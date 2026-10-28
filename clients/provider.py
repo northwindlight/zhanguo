@@ -603,7 +603,10 @@ class OpenAICompat:
                       "max_tokens": cfg.get("max_tokens", 16384),
                       "thinking": {"type": cfg.get("thinking") or "enabled"},
                       "stream": True, "stream_options": {"include_usage": True}}
-        if cfg.get("reasoning_effort"):
+        if cfg.get("_compact_stream") and not tools:
+            body.pop("tools", None)
+            body.pop("tool_choice", None)
+        if cfg.get("reasoning_effort") and not cfg.get("_compact_stream"):
             body["reasoning_effort"] = cfg["reasoning_effort"]
         # 首字 180s（3 分钟）/ 流内 60s：**都是"等待"，不是总时长**（用户 2026-09-20）。
         ttft = float(cfg.get("api_ttft_timeout", 180))
@@ -661,7 +664,10 @@ class OpenAICompat:
                     choices = payload.get("choices") or []
                     if not choices:
                         continue
-                    d = (choices[0] or {}).get("delta") or {}
+                    choice = choices[0] or {}
+                    if choice.get("finish_reason") is not None:
+                        stream_stats["stop_reason"] = choice["finish_reason"]
+                    d = choice.get("delta") or {}
                     rd = d.get("reasoning_content")
                     if rd:
                         r_s += rd
@@ -716,6 +722,10 @@ class OpenAICompat:
                                           + sum(est_tokens(tc["function"]["arguments"])
                                                 for tc in msg.get("tool_calls") or []))
             stream_stats["reason_tokens"] = est_tokens(r_s)
+        if cfg.get("_compact_stream") and stream_stats.get("usage_reported"):
+            total_chars = len(c_s) + len(r_s)
+            if total_chars:
+                stream_stats["body_tokens_estimate"] = round(stream_stats["out_tokens"] * len(c_s) / total_chars)
         return msg, stream_stats
 
     def complete_text(self, messages, cfg, max_tokens=None, tools=None):
@@ -762,6 +772,39 @@ class OpenAICompat:
         stats = _nonstream_stats(payload.get("usage"), text, time.time() - wall0)
         stats["stop_reason"] = choice.get("finish_reason")
         return text, stats
+
+
+    def complete_text_stream(self, messages, cfg, max_tokens=None, tools=None):
+        """普通**非流式**调用（记忆压缩用）：**总时长**上限（默认 900s，
+        用户 2026-09-20「非流式900」）。
+
+        非流式没有"块间隔"可看（整段就一个响应），只能整段计时 ⇒ 用 `hard_timeout`
+        而不是流式那套两段看门狗（`stream_timeout`）。900 是"一次压缩能跑多久"的余量，
+        跟流式那两个数不是一个量纲，别混。
+
+        `tools`（2026-10-02 加）：**只为前缀缓存**——压缩调用现在接着上一次请求的前缀
+        往下发（`clients.llm.LLMClient._compress`），工具声明也在那段前缀里，少发一份就整段不命中。
+        ★ **不许改成 `tool_choice="none"`**：真端点实测（`tools/anthropic_prefix_probe.py`，
+        冷缓存那一轮）——`none` 会让网关**整个丢掉 tools 段**（prompt 直接少 265 token），
+        前缀从 system 之后当场断掉，命中率塌到 40%（只剩 system 那点）；照发
+        `tool_choice="auto"`（与主请求逐字一致）则命中 93.6%、miss 只剩尾随指令。
+        所以这里发的就是主请求**同一份** tools + auto，靠尾随指令里那句
+        "不要调用任何工具"约束模型（DSH 的 compact 也是这么做的）。
+        `tools=None` 时请求与旧版逐字段相同。
+        返回值改成 `(text, stats)`（2026-10-02）：压缩调用的命中率此前**没有任何统计**
+        （📊 只统计 `chat_turn`），改完必须看得到——否则这次改动只能"感觉快了"。
+        """
+        # Stream so reasoning and body can be measured separately. The provider
+        # may ignore the explicit request to disable reasoning.
+        limit = int(max_tokens if max_tokens is not None else cfg.get("ctx_compact_tokens", 1500))
+        stream_cfg = {**cfg, "thinking": "disabled", "max_tokens": limit,
+                      "temperature": 0.3, "_compact_stream": True}
+        msg, stats = self._stream_once(messages, tools, stream_cfg)
+        if not stats.get("stop_reason"):
+            stats["stop_reason"] = "incomplete"
+        if msg.get("tool_calls"):
+            stats["stop_reason"] = "tool_calls"
+        return str(msg.get("content") or "").strip(), stats
 
 
 # ---------------------------------------------------------------------------
