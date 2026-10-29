@@ -15,6 +15,35 @@ $env:ZHANGUO_RESUME = 'Z:\unavailable-private-save.json'
 $env:DOTNET_ROOT = 'Z:\unavailable-dotnet'
 $env:DOTNET_ROOT_X64 = 'Z:\unavailable-dotnet'
 $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+$env:OPENBLAS_NUM_THREADS = '1'
+$env:OMP_NUM_THREADS = '1'
+
+# Validate the actual embedded numerical DLLs separately from Godot/pipe IO.
+$taskSolverProbe = Join-Path $taskOutput 'solver-probe.py'
+@'
+import json, numpy, scipy
+from ruleai.v14.linear import Model
+m=Model()
+x=m.var('x',upper=10,integer=True)
+y=m.var('y',upper=10,integer=True)
+m.limit(2*x+3*y,upper=13)
+r=m.solve(4*x+5*y,time_limit=5)
+assert r.status=='optimal' and abs(r.objective-25)<1e-6, r
+print(json.dumps({'numpy':numpy.__version__,'scipy':scipy.__version__,'objective':r.objective,'status':r.status}))
+'@ | Set-Content -LiteralPath $taskSolverProbe -Encoding utf8NoBOM
+$taskSolverStart = [Diagnostics.ProcessStartInfo]::new((Join-Path $taskBundle 'runtime/python/python.exe'))
+$taskSolverStart.UseShellExecute=$false
+$taskSolverStart.RedirectStandardOutput=$true
+$taskSolverStart.RedirectStandardError=$true
+foreach($taskArgument in @('-X','utf8',$taskSolverProbe)) { $taskSolverStart.ArgumentList.Add($taskArgument) }
+$taskSolverProcess=[Diagnostics.Process]::Start($taskSolverStart)
+$taskSolverOut=$taskSolverProcess.StandardOutput.ReadToEndAsync()
+$taskSolverErr=$taskSolverProcess.StandardError.ReadToEndAsync()
+if(-not $taskSolverProcess.WaitForExit(60000)) { $taskSolverProcess.Kill($true); throw 'Embedded solver probe timed out' }
+[IO.File]::WriteAllText((Join-Path $taskOutput 'solver-probe.json'),$taskSolverOut.GetAwaiter().GetResult())
+[IO.File]::WriteAllText((Join-Path $taskOutput 'solver-probe.stderr.txt'),$taskSolverErr.GetAwaiter().GetResult())
+if($taskSolverProcess.ExitCode -ne 0) { Get-Content (Join-Path $taskOutput 'solver-probe.stderr.txt'); throw 'Embedded solver probe failed' }
+$taskSolverProcess.Dispose()
 
 function Run-GameCheck([string]$Name, [string[]]$GameArguments, [int]$Timeout = 180000) {
     $taskStdout = Join-Path $taskOutput "$Name.stdout.txt"

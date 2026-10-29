@@ -1,6 +1,10 @@
 """Small sparse MILP builder; the optimization algorithm is HiGHS, not heuristics."""
 from dataclasses import dataclass
 import math
+import warnings
+import os
+import sys
+import time
 
 
 class Expr:
@@ -69,6 +73,9 @@ class Model:
         self.limit(expr(a)-b, 0, 0)
 
     def solve(self, objective, *, node_limit=20, gap=0, time_limit=None):
+        trace=os.environ.get('ZHANGUO_REVIEW_TRACE')=='1'
+        started=time.monotonic()
+        if trace:print(f'V14_SOLVE_BEGIN vars={len(self.names)} rows={len(self.rows)} threads=1',file=sys.stderr,flush=True)
         try:
             import numpy as np
             from scipy.optimize import Bounds, LinearConstraint, milp
@@ -84,12 +91,18 @@ class Model:
         costs = np.zeros(len(self.names))
         for key, value in objective.terms.items():
             costs[key] = -value
-        options={'node_limit':node_limit,'mip_rel_gap':gap,'presolve':True}
+        options={'node_limit':node_limit,'mip_rel_gap':gap,'presolve':True,'threads':1}
         if time_limit is not None:options['time_limit']=time_limit
-        result = milp(costs, integrality=np.array(self.integer),
-            bounds=Bounds(self.lower,self.upper),
-            constraints=LinearConstraint(matrix,self.row_lower,self.row_upper),
-            options=options)
+        # SciPy 1.15.3 explicitly forwards additional options to HiGHS.
+        # Its documented `threads` limit avoids native worker oversubscription
+        # beside Godot; suppress only the known pass-through notification.
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore',message=r"Unrecognized options detected: .*threads.*passed to HiGHS verbatim.*",category=RuntimeWarning)
+            result = milp(costs, integrality=np.array(self.integer),
+                bounds=Bounds(self.lower,self.upper),
+                constraints=LinearConstraint(matrix,self.row_lower,self.row_upper),
+                options=options)
+        if trace:print(f'V14_SOLVE_END elapsed={time.monotonic()-started:.3f} status={result.status}',file=sys.stderr,flush=True)
         values = result.x
         # Accept a bounded incumbent only after independent row/integer checks.
         if values is not None:

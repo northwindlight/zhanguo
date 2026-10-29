@@ -35,6 +35,8 @@ public sealed record DesktopRuntime(string ContentRoot,string DataRoot,string Py
             StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8};
         info.Environment["PYTHONIOENCODING"]="utf-8";
         info.Environment["PYTHONDONTWRITEBYTECODE"]="1";
+        info.Environment["OPENBLAS_NUM_THREADS"]="1";
+        info.Environment["OMP_NUM_THREADS"]="1";
         if(Portable)
         {
             foreach(var key in new[]{"PYTHONHOME","PYTHONPATH","ZHANGUO_ROOT","ZHANGUO_PYTHON","ZHANGUO_DESKTOP_CONFIG","ZHANGUO_RESUME","ZHANGUO_UI_MODS"})

@@ -22,6 +22,7 @@ public partial class Desktop
         try
         {
             if(!_runtime.Portable)throw new Exception("便携包检查须使用导出的游戏。");
+            Engine.MaxFps=30; // Headless IO validation must leave CPU to Python.
             string output=Path.Combine(_runtime.DataRoot,"checks",Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path.GetDirectoryName(output)!);
             // Exercise the candidate's actual native solver independently of
@@ -31,7 +32,9 @@ public partial class Desktop
             string[] names={"秦","魏","韩","赵","燕","齐","楚","周"};
             File.WriteAllText(config,JsonSerializer.Serialize(new {map_size=24,seed=20261023,
                 nations=ids.Select((id,index)=>new {id="scenario:"+id,name=names[index],client="rule",rule_ai="v14"})}));
-            child=Process.Start(_runtime.Host(output,config))??throw new Exception("内置 Python 无法启动");
+            var start=_runtime.Host(output,config);
+            start.Environment["ZHANGUO_REVIEW_TRACE"]="1";
+            child=Process.Start(start)??throw new Exception("内置 Python 无法启动");
             stderr=child.StandardError.ReadToEndAsync();
             // Eight candidates each have bounded multi-stage solves. This is
             // a solver integration check, independent of playback speed.

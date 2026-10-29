@@ -2,7 +2,7 @@
 
 v14作为新局可选候选，默认仍为v13；`rule_ai=v13`或`v11plus`仍可显式选择，旧档按原策略续跑。v14用SciPy／HiGHS求解跨期混合整数规划，把建设、交易、库存、电力和军需放在同一个预算模型内，不再按建筑逐项评分、买材料、遇到首个缺口就结束投资。
 
-源码环境先在项目虚拟环境中安装`requirements.txt`。Windows便携包内置NumPy／SciPy和相应许可证，不依赖系统Python；v11plus、v13和LLM协议本身仍不要求求解器。
+求解器固定单线程，桌面宿主同时限制BLAS线程，减少Windows与渲染进程争抢CPU。源码环境先在项目虚拟环境中安装`requirements.txt`。Windows便携包内置NumPy／SciPy和相应许可证，不依赖系统Python；v11plus、v13和LLM协议本身仍不要求求解器。
 
 ```json
 {"id":"scenario:qin","name":"秦","client":"rule","rule_ai":"v14","rule_strategy":"balanced","rule_seed":7301}
