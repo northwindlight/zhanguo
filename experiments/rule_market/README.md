@@ -15,3 +15,9 @@ python3 experiments/rule_market/run.py --versions v13 --seeds 20261023 --turns 1
 回执失败独立记录，不以“脚本没有崩溃”作为通过条件。库存触底次数、产出、建设速度和军力都应结合看；更多现金或更少缺料不自动等于战略更强。不同策略有不同库存和现金偏好，不把市场价格不变当作目标，也不要求价格永不下降。
 
 本轮结果见 [results](results/)，策略说明见 [v13](../../ruleai/v13/README.md)。
+
+2026-10-29当前引擎复核见[经济层对照与托管前置](../../docs/reviews/规则AI经济层对照与托管前置-20261029.md)，与2026-10-23历史结果分开记录。`inspect_current.py`用新的单国合成局检查撤销后的施工次数、队列预占、工程院候选、整单报价与回本排序口径；不修改策略：
+
+```bash
+python3 experiments/rule_market/inspect_current.py --out archive/previews/economy-audit-20261029/interface-probes.json
+```
