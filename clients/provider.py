@@ -603,7 +603,10 @@ class OpenAICompat:
                       "max_tokens": cfg.get("max_tokens", 16384),
                       "thinking": {"type": cfg.get("thinking") or "enabled"},
                       "stream": True, "stream_options": {"include_usage": True}}
-        if cfg.get("reasoning_effort"):
+        if cfg.get("_compact_stream") and not tools:
+            body.pop("tools", None)
+            body.pop("tool_choice", None)
+        if cfg.get("reasoning_effort") and not cfg.get("_compact_stream"):
             body["reasoning_effort"] = cfg["reasoning_effort"]
         # 首字 180s（3 分钟）/ 流内 60s：**都是"等待"，不是总时长**（用户 2026-09-20）。
         ttft = float(cfg.get("api_ttft_timeout", 180))
@@ -661,7 +664,10 @@ class OpenAICompat:
                     choices = payload.get("choices") or []
                     if not choices:
                         continue
-                    d = (choices[0] or {}).get("delta") or {}
+                    choice = choices[0] or {}
+                    if choice.get("finish_reason") is not None:
+                        stream_stats["stop_reason"] = choice["finish_reason"]
+                    d = choice.get("delta") or {}
                     rd = d.get("reasoning_content")
                     if rd:
                         r_s += rd
@@ -716,6 +722,10 @@ class OpenAICompat:
                                           + sum(est_tokens(tc["function"]["arguments"])
                                                 for tc in msg.get("tool_calls") or []))
             stream_stats["reason_tokens"] = est_tokens(r_s)
+        if cfg.get("_compact_stream") and stream_stats.get("usage_reported"):
+            total_chars = len(c_s) + len(r_s)
+            if total_chars:
+                stream_stats["body_tokens_estimate"] = round(stream_stats["out_tokens"] * len(c_s) / total_chars)
         return msg, stream_stats
 
     def complete_text(self, messages, cfg, max_tokens=None, tools=None):
@@ -762,6 +772,21 @@ class OpenAICompat:
         stats = _nonstream_stats(payload.get("usage"), text, time.time() - wall0)
         stats["stop_reason"] = choice.get("finish_reason")
         return text, stats
+
+
+    def complete_text_stream(self, messages, cfg, max_tokens=None, tools=None):
+        """Stream a compression request and estimate body tokens from character proportions."""
+        # Stream so reasoning and body can be measured separately. The provider
+        # may ignore the explicit request to disable reasoning.
+        limit = int(max_tokens if max_tokens is not None else cfg.get("ctx_compact_tokens", 1500))
+        stream_cfg = {**cfg, "thinking": "disabled", "max_tokens": limit,
+                      "temperature": 0.3, "_compact_stream": True}
+        msg, stats = self._stream_once(messages, tools, stream_cfg)
+        if not stats.get("stop_reason"):
+            stats["stop_reason"] = "incomplete"
+        if msg.get("tool_calls"):
+            stats["stop_reason"] = "tool_calls"
+        return str(msg.get("content") or "").strip(), stats
 
 
 # ---------------------------------------------------------------------------

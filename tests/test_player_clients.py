@@ -119,14 +119,14 @@ class TestPlayerClients(unittest.TestCase):
                 notices=[]
                 with patch.object(backend,'complete_text',side_effect=complete) as mocked:
                     for _ in range(6):client.play(w.runtime.player(w,Q),emit=notices.append);w.resolve_turn();w.phase='行动'
-                self.assertEqual(mocked.call_count,1 if failure=='provider' else 10);self.assertEqual(mocked.call_args.kwargs['tools'],[])
+                self.assertEqual(mocked.call_count,1 if failure=='provider' else 5 if failure=='truncated' else 10);self.assertEqual(mocked.call_args.kwargs['tools'],[])
                 self.assertEqual(client.state.long_memory,'原有盟约')
                 self.assertEqual(len(client.state.replay),1);self.assertEqual(len(client.state.history),6)
                 block=client.state.blocks[0]
                 self.assertEqual((block['from'],block['to']),(0,4))
                 self.assertEqual(block['text'],'\n'.join(f'第{row["turn"]}期：{row["text"]}' for row in client.state.summaries[:5]))
                 self.assertTrue(any('记忆压缩失败' in text for text in notices))
-                self.assertEqual(client.state.usage,{'hit':60 if failure=='provider' else 140,'miss':12 if failure=='provider' else 22})
+                self.assertEqual(client.state.usage,{'hit':60 if failure=='provider' else 100 if failure=='truncated' else 140,'miss':12 if failure=='provider' else 17 if failure=='truncated' else 22})
                 self.assertEqual(LLMState.from_save(client.state.to_save()).to_save(),client.state.to_save())
                 client.play(w.runtime.player(w,Q))
                 prompt=backend.requests[-1]
@@ -159,6 +159,16 @@ class TestPlayerClients(unittest.TestCase):
         self.assertEqual(mocked.call_count,2)
         self.assertEqual(client.state.long_memory,summary)
         self.assertEqual(client.state.blocks[-1]['text'],summary)
+
+    def test_truncated_compression_uses_body_fraction_to_expand_total_budget(self):
+        w=self.world();backend=FakeBackend();client=LLMClient({'ctx_full_turns':1,'ctx_compact':'llm','ctx_compact_tokens':1500,'max_tokens':6000},backend=backend)
+        summary='完整摘要：持续发展经济，保留已生效条约与长期规划。'
+        with patch.object(backend,'complete_text',side_effect=[
+            ('已有部分摘要',{'stop_reason':'length','out_tokens':1500,'body_tokens_estimate':500}),
+            (summary,{'stop_reason':'stop'})]) as mocked:
+            for _ in range(6):client.play(w.runtime.player(w,Q));w.resolve_turn();w.phase='行动'
+        self.assertEqual([c.args[1]['ctx_compact_tokens'] for c in mocked.call_args_list],[1500,4500])
+        self.assertEqual(client.state.long_memory,summary)
 
     def test_rule_runs_and_persists_target_state_without_global_cross_game_memory(self):
         cfg={'map_size':12,'seed':73,'nations':[{'name':'秦','id':Q}]};host=GameHost.new(cfg)
