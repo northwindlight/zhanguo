@@ -15,6 +15,9 @@ class Sketch:
             '<g id="house"><path d="M-22 0h44v28h-44z" fill="#c7ae81"/><path d="M-28 0 0-18 28 0z" fill="#6f9490"/><path d="M-5 11h10v17H-5z" fill="#344a43"/></g>',
             '<g id="farm"><path d="M-24-14h48v34h-48z" fill="#b28d52"/><path d="M-18-12v30m9-30v30m9-30v30m9-30v30m9-30v30" stroke="#e2ca7c" stroke-width="3"/></g>',
             '<g id="camp"><path d="m-24 20 24-40 24 40z" fill="#c3b37f"/><path d="m-10 20 10-24 10 24z" fill="#3c5650"/><path d="M0-22v-14h18v10H0" fill="#77c9b7"/></g>',
+            '<g id="castle"><path d="M-24 20v-44h10v9h9v-9H5v9h9v-9h10v44z" fill="#a4b4ac"/><path d="M-6 20V2H6v18z" fill="#344a43"/></g>',
+            '<g id="tower"><path d="M-13 22v-42h26v42z" fill="#c7ae81"/><path d="m-19-20 19-14 19 14z" fill="#6f9490"/><path d="M-5-12H5V0H-5z" fill="#344a43"/></g>',
+            '<g id="plus"><path d="M-9 0H9M0-9V9" fill="none" stroke="#8ba596" stroke-width="2"/></g>',
             '<g id="tree"><path d="M-3 8h6v18h-6z" fill="#8c7958"/><path d="m0-26 18 24H9l16 18h-50L-9-2h-9z" fill="#385e46"/><path d="m0-23 14 20H5L18 9H0z" fill="#6d9369"/></g>',
             '<g id="person"><circle cy="-9" r="4" fill="#cfb690"/><path d="M-5-4H5V8H-5z" fill="#7ed7c0"/><path d="M-3 8v7M3 8v7" stroke="#304b48" stroke-width="3"/></g>',
             '<g id="bank"><path d="m-13-5 13-8 13 8zM-12 12h24" fill="#e5ce91" stroke="#e5ce91" stroke-width="2"/><path d="M-8-2v12M0-2v12M8-2v12" stroke="#d2e1c9" stroke-width="3"/></g>',
@@ -57,7 +60,7 @@ class Sketch:
     def header(self,compact=False):
         self.rect(0,0,self.width,88 if compact else 56,'#112321')
         self.text(18,32,'青岚 · 第4回合',18)
-        stocks=[('金','900'),('粮','25'),('木','58'),('矿','10'),('油','0'),('装','5'),('补','9'),('电','2/1')]
+        stocks=[('金','900'),('粮','25'),('木','58'),('矿','10'),('油','0'),('装','5'),('补','9'),('电','2/2')]
         for i,(label,amount) in enumerate(stocks):
             x=(18 if compact else 244)+i*(82 if compact else 90)
             y=66 if compact else 32
@@ -86,36 +89,78 @@ class Sketch:
 def land():
     s=Sketch(1440,900);s.map();s.header()
     s.text(20,82,'方向原型 · 非运行截图 · 图形与数值仅示例',13,'muted')
-    s.rect(610,300,120,120,'none','#edd48e',4)
-    s.icon('house',670,347,1.2);s.text(670,401,'瀚与',17,anchor='middle')
-    x,w=1072,352;s.panel(x,72,w,756)
-    s.button(x+12,84,158,'▧ 地块',True,h=36);s.button(x+182,84,158,'⚑ 军队',h=36)
-    s.text(x+16,151,'瀚与  (3,11)',21);s.text(x+16,178,'本国 · 平原',15,'muted')
-    s.rect(x+14,194,w-28,60,'#494837',r=4)
-    s.text(x+26,218,'本期已施工',17,'gold');s.text(x+26,241,'已建2  ·  施工1  ·  待建1',15)
-    s.text(x+16,281,'本地建筑',16,'muted')
-    s.icon('house',x+38,309,.5);s.text(x+38,333,'市政厅',14,anchor='middle')
-    s.icon('camp',x+148,309,.5);s.text(x+148,333,'兵营',14,anchor='middle')
-    s.icon('farm',x+258,309,.5);s.text(x+258,333,'农场·在建',14,'gold','middle')
-    s.text(x+16,352,'耕地剩余1/2  ·  驻军1支',15,'muted')
-    s.line(x+14,367,x+w-14,367)
-    s.button(x+14,378,100,'建造',True,h=36);s.button(x+126,378,100,'征募',h=36);s.button(x+238,378,100,'管理',h=36)
-    s.text(x+16,443,'生产  /  军备  /  城市',15,'muted')
-    cards=[('农场','20金 15木','farm',True),('林场','20金 15木','tree',False),('矿场','缺矿点','house',False)]
-    for i,(label,cost,icon,selected) in enumerate(cards):
-        cx=x+14+i*112;s.rect(cx,459,100,106,'#375247' if selected else '#263e39','#e5ce91' if selected else '#486455',4)
-        s.icon(icon,cx+50,489,.55);s.text(cx+50,526,label,16,anchor='middle');s.text(cx+50,551,cost,13,'gold' if selected else 'muted','middle')
-    s.button(x+14,579,324,'建造农场 · 本期额度已用',h=42)
-    s.button(x+14,630,324,'◷ 安排后续生产…',h=36)
-    s.line(x+14,681,x+w-14,681)
-    s.text(x+16,709,'本地生产  施工1 · 等待1',17)
-    s.text(x+16,739,'农场 · 本期末完工',15);s.text(x+16,760,'撤销施工返还50%',13,'muted')
-    s.text(x+178,739,'瞭望塔 · 等待开工',15);s.text(x+178,760,'未开工取消全退',13,'muted')
-    s.text(x+16,807,'◷ 全国生产',15,'cyan')
-    s.panel(424,650,454,112)
-    s.text(444,681,'点地块先看“有什么、做过没有”',19,'gold')
-    s.text(444,710,'主操作看本期资格；后续排程有独立入口。',16)
-    s.text(444,739,'状态留在地块上，不靠回执或长悬浮寻找。',16,'muted')
+    s.rect(160,300,120,120,'none','#edd48e',4)
+    s.icon('house',220,347,1.2);s.text(220,401,'瀚与',17,anchor='middle')
+    s.text(42,478,'选中一块地',20,'gold')
+    s.text(42,508,'查看、建设、管理',18)
+    s.text(42,537,'都在它自己的面板里。',16,'muted')
+    # One object panel, not a separate global building page or stacked drawers.
+    s.panel(348,104,1068,720)
+    s.text(368,144,'瀚与  (3,11)',27)
+    s.text(368,173,'青岚领土 · 本国实时信息',15,'muted')
+    s.button(1068,124,84,'← 上一格',h=36)
+    s.button(1160,124,84,'下一格 →',h=36)
+    s.button(1252,124,84,'定位',h=36)
+    s.button(1344,124,52,'×',h=36)
+    # These are explicit full-load examples, not site-level actual production.
+    s.rect(368,192,248,104,'#263e39',r=4)
+    s.text(384,216,'森林 · 建设金币 +15%',16,'gold')
+    s.text(384,243,'地形减伤10% · 城堡10%',15)
+    s.text(384,272,'格主守军合成减伤 19%',16,'cyan')
+    s.rect(632,192,424,104,'#263e39',r=4)
+    s.text(648,216,'本地生产 · 满负荷示意',16,'muted')
+    s.text(648,248,'+8 金   +1 粮',23,'cyan')
+    s.text(888,248,'耗电 2',18,'gold')
+    s.text(648,276,'假定全国供电与原料充足；非实际入库',15,'muted')
+    s.rect(1072,192,324,104,'#494837',r=4)
+    s.text(1088,219,'本期已动工 1 / 1',19,'gold')
+    s.text(1088,246,'已落成4 · 施工1 · 待建1',16)
+    s.text(1088,275,'建筑位占用 6 / 20（含待建）',15,'muted')
+    s.button(368,310,168,'建筑与建设',True,h=36)
+    s.button(546,310,168,'产出明细',h=36)
+    s.button(724,310,168,'驻军与征募',h=36)
+    s.line(368,358,1396,358)
+    s.text(368,388,'本地建筑',19)
+    s.text(500,388,'耕地空位 1 / 3',15,'muted')
+    s.button(868,368,168,'＋ 建造…',h=34)
+    s.line(1056,376,1056,796)
+    s.text(1076,390,'施工与待建  2',19)
+    buildings=[('house','市政厅'),('camp','兵营'),('farm','农场'),('castle','城堡 I'),
+               ('farm','农场 · 在建'),('tower','瞭望塔 · 待建')]
+    for i in range(20):
+        cx=368+(i%5)*136;cy=406+(i//5)*72
+        selected=i==4;pending=i==5
+        s.rect(cx,cy,124,64,'#465040' if selected else '#233d36' if i<4 else '#1b302c',
+               '#e5ce91' if selected else '#738876' if pending else '#3e5b4d',4)
+        if i<len(buildings):
+            icon,title=buildings[i]
+            s.parts.append('<g><title>'+escape(title)+'</title>')
+            s.icon(icon,cx+62,cy+21,.52)
+            s.text(cx+62,cy+53,title,14,'gold' if selected else 'muted' if pending else '',anchor='middle')
+            if pending:s.line(cx+12,cy+60,cx+112,cy+60,'#a0b09a',dash='4 4')
+            s.parts.append('</g>')
+        else:
+            s.parts.append('<g><title>空建筑位：打开本地建造清单；施工额度与资源位以正式条件为准</title>')
+            s.icon('plus',cx+62,cy+31,.8);s.parts.append('</g>')
+    s.text(368,710,'点空位或建造图标，在本面板展开可建项目与条件。',16,'muted')
+    s.rect(368,730,668,70,'#263e39',r=4)
+    s.icon('farm',397,760,.6)
+    s.text(426,754,'农场 · 施工中',17,'gold')
+    s.text(426,779,'占耕地1 · 完工后满负荷产粮 +1 / 回合',15)
+    # Queue stays local and visible while browsing the object's sections.
+    s.rect(1072,406,324,144,'#364737','#6c8068',4)
+    s.text(1088,435,'农场 · 正在施工',18,'gold')
+    s.text(1088,465,'本回合末落成',16)
+    s.text(1088,490,'下回合开始参与生产',15,'muted')
+    s.button(1088,507,292,'撤销施工 · 返还50%',h=32)
+    s.rect(1072,564,324,144,'#263e39','#486455',4)
+    s.text(1088,593,'① 瞭望塔 · 待建',18)
+    s.text(1088,623,'等待下次施工额度',16,'muted')
+    s.text(1088,648,'已预付 69金 / 30木',15,'gold')
+    s.button(1088,665,292,'取消待建 · 全额退回',h=32)
+    s.text(1076,741,'施工农场已付 23金 / 15木',14,'muted')
+    s.text(1076,765,'撤销后本期施工额度仍已使用',14,'muted')
+    s.text(1076,793,'◷ 查看全国生产汇总',15,'cyan')
     s.finish('gui-ux-land-20261029.svg')
 
 
