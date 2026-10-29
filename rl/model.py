@@ -231,8 +231,14 @@ class PolicyNet(nn.Module):
         # ★ 打分 = 互看输出 ⊕ 候选自身编码（教训第 6 条）
         self.score = nn.Sequential(FastLinear(d_model + d_cand, d_model), nn.GELU(),
                                    FastLinear(d_model, 1))
-        # ★ 价值头走上限池化后的**窗口**（不是 glob）—— 窗口才是全局状态的唯一来源。
-        self.value = nn.Sequential(FastLinear(d_model, 128), nn.ReLU(),
+        # ★★★ **价值头：独立的一支**（2026-10-28）——**不共享主干的表示**。
+        #   输入 = 各组**原始特征**的掩码均值（见 `critic_input`）⇒
+        #   ① 局面差异**不被平均掉**（共享主干那份均值池化把它抹平了）；
+        #   ② 它的梯度**到不了主干**（原始特征不是参数）⇒ 主干不会被 critic 磨平。
+        #   ⇒ 详见模块 docstring 与 `rl/README.md` 的「为什么训练学不动」。
+        self.critic_width = int(sum(int(win_widths[g]) for g in self.groups)) \
+            + (self.d_model if self.mem_slots else 0)
+        self.value = nn.Sequential(FastLinear(self.critic_width, 128), nn.ReLU(),
                                    FastLinear(128, 1))
 
         # ---- ★★ 潜槽（`--memory`；见 `vocab.MEM_GROUP` 与模块 docstring 末段）----
@@ -354,6 +360,33 @@ class PolicyNet(nn.Module):
             toks.append(h)
             msks.append(wmask[g])
         return torch.cat(toks, dim=1), torch.cat(msks, dim=1)
+
+    def critic_input(self, win: dict, wmask: dict,
+                     mem: torch.Tensor | None = None) -> torch.Tensor:
+        """★ **critic 的输入**：各组**原始特征**的**掩码均值**（**不经过共享主干**）。
+
+        ★ 为什么不用共享主干那份（`forward_state` 里原来的均值池化）：
+          实测（2026-10-28）那份读到的局面差异**被平均掉** ⇒ V 在一段轨迹内
+          几乎是常数（段内跨度 0.012~0.056）⇒ `adv = R − V` 在段内也是常数
+          ⇒ **没有动作级归因**；而 critic 的梯度（策略项的 41 倍）又在主干上
+          ⇒ 主干被磨平（41.0% → 20% 的局面敏感度）⇒ **策略看不见棋盘**。
+          ⇒ 两条合起来是个**死循环**。
+
+        ★ 这里是**原始特征**（`win[g]` = 各组的原始列）⇒
+          · 局面差异**天然在**（`g` 那 34 个标量就是"我/敌谁占优"）；
+          · 梯度**只回到这一支自己的参数** ⇒ **碰不到共享主干**；
+          · 变长组按**掩码均值**汇总（`wmask[g]` 标出有效 token）。
+        """
+        parts = []
+        for g in self.groups:
+            x = win[g]
+            m = wmask[g].unsqueeze(-1).to(x.dtype)
+            parts.append((x * m).sum(1) / m.sum(1).clamp(min=1.0))
+        if mem is not None:
+            # ★ 槽**.detach()**：critic 可以用它，但**不许改写**它
+            #   （槽是策略的记忆，被 critic 拽着就又变成"磨平"那一类伤害）。
+            parts.append(mem.detach().mean(1))
+        return torch.cat(parts, dim=-1)
 
     def forward(self, batch: dict):
         """★ **不带记忆**的那条路（`mem_slots=0` 时它就是唯一的路）。"""
@@ -514,12 +547,28 @@ class PolicyNet(nn.Module):
             # ★ 教训第 4 条：`.to(device)` 是防御（GPU 上漏搬才炸，CPU 上看不出来）
             logits = logits.masked_fill(~batch["mask"].to(logits.device), -1e9)
 
-        # ---- 价值：窗口的**掩码均值池化** ----
-        # ★ 池化覆盖**观测 + 槽**：记忆是"局面有多少价值"的一部分（"我还有一支
-        #   看不见的敌军在旁边"本来就该影响估值）。`mem_slots=0` 时与原来逐字相同。
-        m = wm.unsqueeze(-1).to(x.dtype)
-        pooled = (x * m).sum(1) / m.sum(1).clamp(min=1.0)
-        return logits, self.value(pooled).squeeze(-1), mem_out
+        # ---- 价值：**独立的一支**（读原始特征，不碰共享主干）----
+        # ★★ 2026-10-28：原来这里读的是**窗口的掩码均值池化**（共享主干的输出）⇒
+        #   局面差异被平均掉（critic 变成常数）＋ 它的梯度把主干磨平（策略变瞎）
+        #   ⇒ **学不动**。现在改成读**原始特征**（`critic_input`）。
+        #   ⚠ **形状变了** ⇒ 形状指纹加了 `critic: raw2` ⇒ **旧档一律作废**。
+        # ★★★★★ **价值路径从共享主干上摘掉（detach）**（2026-10-28）
+        #   —— 这一行是"为什么训练学不动"的**最后一环**，全部有实测支撑：
+        #   ① 训练在**压平主干**：未训练基线的逐 token 特征在局面间波动 **41.0%**，
+        #      训 30 个 iter 后只剩 **15.7%**；`g`（全局摘要）token 从 **8.75%**
+        #      掉到 **2.54%** ⇒ **棋盘信息被磨没了** ⇒
+        #      策略只剩"候选自己的局部特征"可用 ⇒ **它看不见局面** ⇒
+        #      无论奖励口径、λ、算力怎么调都学不动（赢不赢基本靠地图）。
+        #   ② 磨平它的是**价值项**：实测价值项在主干上的梯度范数是策略项的 **41 倍**
+        #      （0.209 → 8.667）⇒ 主干被 critic 的梯度主导；
+        #      而 critic 的目标（同一段里恒为 R）**最优解是常数** ⇒
+        #      它的梯度天然把"局面特有"的那些分量按下去、只留公共分量。
+        #   ③ 摘掉之后：主干**只由策略梯度塑形** ⇒ 策略需要棋盘信息 ⇒ 主干会保住
+        #      （甚至长出）局面敏感度；critic 仍然在学（它自己的头照常更新），
+        #      只是**不再有权改写主干的表示**。
+        #   ★ **前向数值逐位不变**（`detach` 不改数值）⇒ 权重形状也没变 ⇒
+        #     **旧 ckpt 照样能读**，行为评估结果不用重算。
+        return logits, self.value(self.critic_input(win, wmask, s_in)).squeeze(-1), mem_out
 
 
 def build_model(n_grid_ch: int = V.GRID_CHANNELS, mem_slots: int = 0,

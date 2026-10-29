@@ -1726,6 +1726,11 @@ def _shape_fingerprint(mem_slots: int = 0) -> dict:
         #   ⇒ 写进指纹 ⇒ `_fp_mismatch`（**双向**比对：旧档缺这个键 ⇒ 算对不上）
         #     ⇒ 给出**可读**的拒绝理由，而不是一个形状错误。
         "token_groups": "|".join(V.TOKEN_GROUPS),
+        # ★★ 2026-10-28：**critic 走独立支路**（读原始特征、不碰共享主干）。
+        #   ★ 它**改了网络结构**（价值头的输入宽度变了）⇒ 旧档的 `value.*` 权重
+        #     **根本对不上** ⇒ 必须进指纹，让加载方**响亮地拒**，
+        #     而不是"能加载、跑的是另一个东西"。
+        "critic": "raw2",
     }
 
 
@@ -1942,16 +1947,20 @@ if __name__ == "__main__":
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--shaping", dest="shaping", action="store_true", default=None,
                     help="★ 打开**势函数塑形**（每步都给稠密奖励）。缺省 = 关（沿用用户 2026-09-29 的决定）。"
-                         "★ 实测（2026-10-27）：关着时**非零奖励只有终局那一下** ⇒ 整局每步的"
-                         "优势要么被 critic 吃掉（γ=1）、要么被折扣碾碎（γ<1）⇒ 策略纹丝不动")
+                         "★ 实测（2026-10-28）：关着时**非零奖励只有终局那一下** ⇒ "
+                         "整局的胜负只能靠**信用视界**传回去 ⇒ λ 必须≈1（见 `--lam`）。"
+                         "★ 但塑形本身**教的是「占得多、兵多」**（实测 93.5%% 的势函数差分来自"
+                         "兵力+国土，厅/击杀/守家三项贡献 0）⇒ 它**没在教「打赢」** ⇒ 开了反而"
+                         "把策略往「顶住」那条最省力的路上推 ⇒ 仍然建议关。")
     ap.add_argument("--shaping-scale", dest="shaping_scale", type=float, default=None,
                     help="★ 塑形的 tanh 尺度（`S.REWARD_TANH_SCALE`，缺省 200）。"
                          "★ 实测：尺度 200 时每步塑形 ≈±0.01，**比终局 ±1 小两个量级** ⇒ 仍被终局主导 ⇒ 策略不动；"
                          "调小它（例如 20）⇒ 每步信号与终局同量级 ⇒ 信号才归因得到动作上")
     ap.add_argument("--vf-coef", dest="vf_coef", type=float, default=None,
                     help="★ 价值项系数（critic 在**共享主干**上的权重）。缺省 0.5（不变）。"
-                         "★ 实测（2026-10-27）：价值项梯度是策略项的 **2.2 倍** ⇒ 主干被 critic"
-                         "主导 ⇒ 策略 logits 几乎不动（熵卡 3.0、行为与随机无异）⇒ 调小它")
+                         "★ 实测（2026-10-27）：价值项梯度是策略项的 **2.2 倍** ⇒ 共享主干上"
+                         "critic 的力气更大 —— 但**这不是「学不动」的主因**（主因是 λ 的信用视界，"
+                         "见 `--lam`）⇒ 只在怀疑主干被 critic 带偏时才动它。")
     ap.add_argument("--ent-coef", dest="ent_coef", type=float, default=None,
                     help="★ 熵项系数（PPO 的熵奖励）。缺省 0.01（不变）。"
                          "★ 调它是为了验证'熵项是不是把策略按在均匀分布上'"
@@ -2057,7 +2066,11 @@ if __name__ == "__main__":
                          "★ 0.99 的视野只有 ~100 步，而一局每方 ~900 步 ⇒ 前 89%% "
                          "的决策拿不到终局信号；改成 1.0 = 无折扣、全额回传")
     ap.add_argument("--lam", type=float, default=None,
-                    help="GAE-λ 平滑（缺省 = 先验表 S.GAE_LAMBDA）")
+                    help="GAE-λ 平滑（缺省 = 先验表 S.GAE_LAMBDA）"
+                         "★ **λ 决定信用视界 ≈ 1/(1−λ) 步**（终局奖励在第 t 步的权重"
+                         "是 `λ^m`，m = 到终局的步数）—— 而这一局每方中位 265 步 ⇒ "
+                         "λ=0.95 时 **92.7%% 的决策拿不到终局结果**（实测：见 "
+                         "`rl/gae_credit_probe.py`）⇒ 缺省 **1.0**（= 整局全额回传）。")
     ap.add_argument("--memory", type=str, default="none",
                     choices=("none", "latent"),
                     help="潜槽记忆：none = 马尔可夫基线（缺省）；latent = 开 %d 个槽"

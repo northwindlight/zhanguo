@@ -21,12 +21,19 @@
     而 `(1-λ)(γλ)^k` 衰减让信号只覆盖**最后 ~30-50 步**（67 回合的局里那是少数）；
   · 塑形贡献若本身极小（`std ≪ 终端`）⇒ 全程大部分步**只有噪声**。
 """
+import os
 import sys
 
 import numpy as np
 import torch
 
-sys.path.insert(0, ".")
+# ★ 探针必须能 import 到**主线的 `mods`**（`mods.native.*`）：脚本住在 `rl/` 下
+#   ⇒ `rl/mods`（一个**正规包**）会把仓库根的 `mods`（**命名空间包**）遮掉
+#   ⇒ `mods.native` import 不到（"No module named 'mods.native'"）。
+#   ⇒ 把**脚本自己所在目录**从 sys.path 里剔掉，让仓库根那份 `mods` 生效。
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_here = os.path.dirname(os.path.abspath(__file__))
+sys.path[:] = [p for p in sys.path if os.path.abspath(p or ".") != _here]
 from rl import scoring as S                        # noqa: E402
 from rl import train as T                          # noqa: E402
 from rl.model import build_model                    # noqa: E402

@@ -160,19 +160,34 @@ class TestValuePathReadsTheFarTerrain(unittest.TestCase):
         self.assertNotAlmostEqual(vA, vB, places=7,
                                   msg="远处地形变了，价值却一样 ⇒ 价值路径没读地图")
 
-    def test_gradient_reaches_the_spatial_projection(self):
-        """★★ **梯度通路**：价值的损失必须能流到空间摘要的投影上。"""
+    def test_value_loss_does_not_reshape_the_shared_trunk(self):
+        """★★ **梯度通路反过来**：价值的损失**不许**改写共享主干。
+
+        ★ 为什么判据反过来了（2026-10-28 实测）：
+          原来的判据是"价值的损失**必须**能流到空间摘要的投影上"。
+          ★ 那条其实**正是病灶**：价值项在主干上的梯度范数是策略项的 **41 倍**，
+            而 critic 的目标（同一段里恒为 R）**最优解是常数** ⇒ 它的梯度天然把
+            "局面特有"的那些分量按下去、只留公共分量 ⇒ 主干被磨平
+            （逐 token 的局面敏感度 41.0% → 20%）⇒ **策略看不见棋盘** ⇒
+            无论奖励口径、λ、算力怎么调都学不动。
+          ⇒ 现在 critic 走**独立支路**（读**原始特征**）⇒ 它的梯度**到不了主干**。
+          ⇒ "价值**读得到**远处地形"这件事仍然要保证 ⇒ 由同文件的
+            `test_value_output_differs` 守着（**数值**依赖，不是梯度依赖）。
+        """
         obs = _obs(seed=0)
         torch.manual_seed(0)
         net = build_model()
         _logits, value = net(collate([obs]))
         value.sum().backward()
-        grads = {n: p.grad for n, p in net.named_parameters() if n.startswith("proj.s")}
-        self.assertTrue(grads, "找不到空间摘要的投影参数")
-        for n, g in grads.items():
-            self.assertIsNotNone(g, f"{n} 没有梯度")
-            self.assertGreater(float(g.norm()), 0.0,
-                               f"{n} 的梯度是 0 ⇒ 梯度到不了空间摘要")
+        touched = [n for n, p in net.named_parameters()
+                   if p.grad is not None and float(p.grad.abs().sum()) > 0]
+        trunk = [n for n in touched
+                 if n.startswith(("proj.", "blocks.", "ln_out", "conv.", "cand_",
+                                  "to_q", "cross", "score", "army_mlp"))]
+        self.assertEqual(trunk, [],
+                         msg=f"价值损失不该碰共享主干，却碰了：{trunk}")
+        self.assertTrue(any(n.startswith("value.") for n in touched),
+                        msg="critic 自己的头必须还能学（否则优势就没有基线了）")
 
     def test_army_token_index_stays_stable(self):
         """★★ 军队段的**稳定下标** `x[:, 1:1+n_a]` 仍然成立（报告 §8.3 的要求）。
