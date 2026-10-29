@@ -13,7 +13,7 @@
 #   其余参数原样透传给 mp_run.py（如 --save 自定存档）
 #
 # 依赖策略：LLM 接入为标准库原生实现（2026-10-24 起，无 openai SDK），
-# requirements.txt 目前零第三方依赖；纯规则客户端可零依赖直接系统 python3。
+# v14联合规划需要NumPy/SciPy；minigame离线示例仍可零依赖运行。
 set -e
 cd "$(dirname "$0")"
 
@@ -68,25 +68,17 @@ if [ "$MODE" = "check" ]; then
     exec "$CHECK_PY" mp_run.py --config "$CONFIG_PATH" --check-config
 fi
 
-# ---- 选解释器：有模型客户端才需要虚拟环境与依赖 ----
-needs_llm() {
-    grep -qE '"client"[[:space:]]*:[[:space:]]*"llm"' "$1" 2>/dev/null
-}
-NEED_LLM=0
-if needs_llm "$CONFIG_PATH"; then NEED_LLM=1; fi
-
-if [ "$NEED_LLM" = "1" ]; then
+# ---- 项目虚拟环境包含v14候选规则AI的联合规划依赖 ----
+if [ "$OFFLINE" = "0" ]; then
     if [ ! -x ".venv/bin/python" ]; then
         echo "[初始化] 创建虚拟环境 .venv（仅首次）…"
         python3 -m venv .venv
     fi
     PY=.venv/bin/python
-    if [ "$NEED_LLM" = "1" ]; then
-        echo "[初始化] 安装依赖（清华镜像，版本由 requirements.txt 控制）…"
-        if ! "$PY" -m pip install -i "$PIP_MIRROR" --timeout 60 -r requirements.txt; then
-            echo "[提示] 清华镜像拉取失败（网络/分流原因），改用官方源重试…"
-            "$PY" -m pip install --timeout 60 -r requirements.txt
-        fi
+    echo "[初始化] 安装依赖（清华镜像，版本由 requirements.txt 控制）…"
+    if ! "$PY" -m pip install -i "$PIP_MIRROR" --timeout 60 -r requirements.txt; then
+        echo "[提示] 清华镜像拉取失败（网络/分流原因），改用官方源重试…"
+        "$PY" -m pip install --timeout 60 -r requirements.txt
     fi
 elif [ -x ".venv/bin/python" ]; then
     PY=.venv/bin/python

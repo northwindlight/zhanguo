@@ -85,6 +85,7 @@ class FinancialPosition:
     savings_rate: float = 0.0
     loan_rate: float = 0.0
     loan_term: int = 5
+    repayment_schedule: tuple = ()
 
 
 class Bank:
@@ -216,9 +217,7 @@ class Bank:
             if interest:entries.append(FinanceEntry(owner,period,'deposit-interest',interest))
             if owner in self._loans:
                 loan = self._loans[owner]
-                value = loan.due*(1+self.loan_rate)
-                Resource.finite_number(value)
-                due = max(0,int(round(value)))
+                due = self.accrued_due(loan.due)
                 entries.append(FinanceEntry(owner,period,'loan-interest',0,due-loan.due))
                 updated = replace(loan,due=due,remaining=loan.remaining-1)
                 if updated.remaining:
@@ -232,6 +231,19 @@ class Bank:
         self._next_period += 1
         return tuple(entries)
 
+    def accrued_due(self, amount):
+        value=amount*(1+self.loan_rate)
+        Resource.finite_number(value)
+        return max(0,int(round(value)))
+
+    def repayment_schedule(self, owner):
+        loan=self._loans.get(owner)
+        if loan is None:return ()
+        due=loan.due
+        for _ in range(loan.remaining):due=self.accrued_due(due)
+        return ({'period':self.next_period+loan.remaining-1,'gold':due,
+                 'basis':'按当前贷款利率预估；央行之后调整利率会改变结果'},)
+
     def position(self, owner):
         cash = self._cash(owner)
         loan = self._loans.get(owner);due = 0 if loan is None else loan.due
@@ -239,7 +251,7 @@ class Bank:
         gdp = turns[-1].gdp.known if turns else None
         return FinancialPosition(owner,self.next_period,cash,self.credit_limit(owner),loan,due,
                                  tuple(row for row in self._purchases if row.buyer==owner),
-                                 gdp,self.policy.credit_multiple,self.rate,self.loan_rate,self.policy.loan_term)
+                                 gdp,self.policy.credit_multiple,self.rate,self.loan_rate,self.policy.loan_term,self.repayment_schedule(owner))
 
     def snapshot(self):return BankSnapshot(self.next_period,self.rate,tuple(self._loans.values()),tuple(self._entries),tuple(self._purchases))
     def __deepcopy__(self,memo):

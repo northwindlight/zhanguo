@@ -34,7 +34,7 @@ class BuildingsAPI:
 
     def catalog(self, actor):
         world = self.world
-        return [{'id': cls.TYPE_ID, 'roles': list(cls.ROLES), 'min_slots': cls.MIN_SLOTS, 'max_per_site': cls.MAX_PER_SITE,
+        return [{'id': cls.TYPE_ID, 'roles': list(cls.ROLES), 'phase':cls.PHASE, 'min_slots': cls.MIN_SLOTS, 'max_per_site': cls.MAX_PER_SITE,
                  'self_build_limit': cls.SELF_BUILD_LIMIT, 'site_resource': cls.SITE_RESOURCE,
                  'energy_use': cls.ENERGY_USE, 'energy_output': cls.ENERGY_OUTPUT,
                  'inputs': dict(cls.INPUTS), 'outputs': dict(cls.OUTPUTS),

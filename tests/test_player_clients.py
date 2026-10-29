@@ -13,6 +13,7 @@ from tests import test_world_domains as fixtures
 from clients.llm import LLMClient,LLMState,assert_paired
 from ruleai.v11plus import RuleClient,RuleState
 from ruleai.v13 import RuleClient as V13Client, RuleState as V13State
+from ruleai.v14 import RuleClient as V14Client
 from ruleai.v11plus.ledger import Ledger
 from host import GameHost,SaveFormatError,ROOT
 import ruleai as rule_ai
@@ -43,10 +44,12 @@ class TestPlayerClients(unittest.TestCase):
     def cfg(self):return {'map_size':12,'seed':73,'nations':[{'name':'秦','id':Q},{'name':'楚','id':C}]}
 
     def test_registry_has_only_active_version_and_rejects_all_retired_names(self):
-        self.assertEqual(rule_ai.versions(),('v13','v11plus'));self.assertEqual(rule_ai.resolve()[0],'v13')
+        self.assertEqual(rule_ai.versions(),('v14','v13','v11plus'));self.assertEqual(rule_ai.resolve()[0],'v13')
         for version in ('ai','v4','v5','v6','v7','v8','v9','v10','v11','v12'):
             with self.assertRaises(ValueError):rule_ai.resolve(version)
         self.assertIsInstance(rule_ai.create(),V13Client)
+        self.assertIsInstance(rule_ai.create('v13'),V13Client)
+        self.assertIsInstance(rule_ai.create('v14'),V14Client)
         self.assertIsInstance(rule_ai.create('v11plus'),RuleClient)
 
     def test_llm_and_rule_ledger_have_identical_actions_receipts_and_game_effects(self):
@@ -171,7 +174,7 @@ class TestPlayerClients(unittest.TestCase):
 
     def test_rules_and_llm_import_only_api_and_client_dependencies(self):
         import ast
-        for base in (ROOT/'ruleai/v11plus',ROOT/'ruleai/v13',ROOT/'clients'):
+        for base in (ROOT/'ruleai/v11plus',ROOT/'ruleai/v13',ROOT/'ruleai/v14',ROOT/'clients'):
             for path in base.glob('*.py'):
                 tree=ast.parse(path.read_text(encoding='utf-8'))
                 for node in ast.walk(tree):

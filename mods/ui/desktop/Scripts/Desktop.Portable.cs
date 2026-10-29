@@ -22,7 +22,14 @@ public partial class Desktop
             if(!_runtime.Portable)throw new Exception("便携包检查须使用导出的游戏。");
             string output=Path.Combine(_runtime.DataRoot,"checks",Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path.GetDirectoryName(output)!);
-            child=Process.Start(_runtime.Host(output))??throw new Exception("内置 Python 无法启动");
+            // Exercise the candidate's actual native solver independently of
+            // the default strategy's promotion status.
+            string config=output+"-v14.json";
+            string[] ids={"qin","wei","han","zhao","yan","qi","chu","zhou"};
+            string[] names={"秦","魏","韩","赵","燕","齐","楚","周"};
+            File.WriteAllText(config,JsonSerializer.Serialize(new {map_size=24,seed=20261023,
+                nations=ids.Select((id,index)=>new {id="scenario:"+id,name=names[index],client="rule",rule_ai="v14"})}));
+            child=Process.Start(_runtime.Host(output,config))??throw new Exception("内置 Python 无法启动");
             var stderr=child.StandardError.ReadToEndAsync();
             using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(90));
             bool initial=false,complete=false,stopped=false;
@@ -43,8 +50,8 @@ public partial class Desktop
                     var frame=row["frame"]!;
                     if(frame["tiles"]!.AsArray().Count!=576||frame["names"]!.AsObject().Count!=8)
                         throw new Exception("便携包地图或国家数量不完整");
-                    if(frame["clients"]!.AsArray().Any(c=>S(c!["kind"])!="rule"||S(c["version"])!="v13"))
-                        throw new Exception("便携包默认局没有使用离线 v13");
+                    if(frame["clients"]!.AsArray().Any(c=>S(c!["kind"])!="rule"||S(c["version"])!="v14"))
+                        throw new Exception("便携包求解器检查没有使用离线 v14");
                     if(!initial)
                     {
                         if(frame["armies"]!.AsArray().Count!=0)throw new Exception("默认开局有额外赠兵");
@@ -61,7 +68,7 @@ public partial class Desktop
             if(child.ExitCode!=0||!initial||!complete||!stopped||phases==0||!File.Exists(Path.Combine(output,"session.json")))
                 throw new Exception("便携包完整回合、保存或退出检查失败："+errors);
             var result=new { packaged=true,platform=OS.GetName(),bundled_python=_runtime.Python,period=1,nations=8,tiles=576,
-                rule_ai="v13",initial_armies=0,timeline_beats=phases,saved=true,host_exit=child.ExitCode };
+                rule_ai="v14",initial_armies=0,timeline_beats=phases,saved=true,host_exit=child.ExitCode };
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(report))!);
             File.WriteAllText(report,JsonSerializer.Serialize(result,new JsonSerializerOptions{WriteIndented=true}));
             GD.Print("PORTABLE_CHECK_OK "+report);GetTree().Quit();

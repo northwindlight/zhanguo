@@ -118,14 +118,17 @@ Windows 构建流程会导出 `Zhanguo.exe`，并带上 .NET 运行库、官方�
 
 ### 源码启动
 
-安装 Godot **4.7.2 .NET**、.NET **8 SDK**、Python **3.11+**，在仓库根目录执行：
+安装 Godot **4.7.2 .NET**、.NET **8 SDK**、Python **3.11–3.13**，在仓库根目录执行：
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements.txt
 python3 desktop.py --godot /path/to/godot-mono --dotnet /path/to/dotnet
 ```
 
 工具已在 PATH 中时直接 `python3 desktop.py`。本开发机亦自动发现
-`~/tools/zhanguo-desktop/` 内的工具。Windows 使用 `python desktop.py`，
+`~/tools/zhanguo-desktop/` 内的工具。Windows激活虚拟环境使用`.\.venv\Scripts\Activate.ps1`，然后使用 `python desktop.py`，
 并通过参数指定 `Godot_v4.7.2-stable_mono_win64.exe` 和 `dotnet.exe`。
 
 Windows 使用 WinGet 安装时，包名必须是 **GodotEngine.GodotEngine.Mono**。

@@ -1,3 +1,3 @@
-# 运行时零第三方依赖：LLM 接入（openai / responses / anthropic 三条提供方）
-# 全部用标准库原生实现（urllib + 手写 SSE，clients/provider.py），openai SDK 已于
-# 2026-10-24 移除。本文件保留给启动脚本的 pip install -r 用（空依赖清单安装为空操作）。
+# LLM protocols remain standard-library implementations, without an OpenAI SDK.
+# The optional v14 economic planner uses a real MILP solver.
+-r requirements-ruleai.txt

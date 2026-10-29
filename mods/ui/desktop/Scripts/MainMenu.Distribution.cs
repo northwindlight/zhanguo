@@ -8,6 +8,7 @@ using Zhanguo.Desktop.Layout;
 
 public partial class MainMenu
 {
+    private bool RuleHasProfiles(string version)=>SelectedEdition["rule_strategy_versions"]!.AsArray().Any(v=>v!.ToString()==version);
     private readonly JsonArray _editions=JsonNode.Parse(Godot.FileAccess.GetFileAsString("res://distribution-catalog.json"))!["editions"]!.AsArray();
     private readonly List<OptionButton> _editionPickers=new();
     private readonly Dictionary<string,bool> _featureSelection=new();

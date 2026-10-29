@@ -349,6 +349,10 @@ class Buildings(ConstructionQueue):
         existing=actual+list(self._pending_at(site.id))
         wallet={row.id:row.amount for row in self._resources('snapshot',owner)}
         ordered=self._orders[site.id]==self.period
+        academy_types=[cls for cls in self._types.values() if 'academy' in cls.ROLES]
+        projected=list(existing)
+        if academy_types and not any(item.completed and item.BUILD_DISCOUNT for item in existing):
+            projected.append(academy_types[0](self._next_id,site.id,remaining=0))
         rows=[]
         for kind,cls in self._types.items():
             same=sum(b.kind==kind for b in existing)
@@ -371,7 +375,8 @@ class Buildings(ConstructionQueue):
             except ValueError as exc:error=str(exc)
             for key,amount in (price or {}).get('costs',{}).items():
                 requirements.append({'text':'建造材料','resource':key,'current':wallet.get(key,0),'required':amount,'met':wallet.get(key,0)>=amount})
-            rows.append({'kind':kind,'price':price,'cost_breakdown':self._price_breakdown(cls,price),'base_costs':cls.construction_cost(min(same+1,len(cls.GOLD_COSTS))),
+            academy_price=self._construction_price(owner,site,cls,projected,same,policy_pct) if price is not None else None
+            rows.append({'kind':kind,'price':price,'price_after_academy':academy_price,'cost_breakdown':self._price_breakdown(cls,price),'base_costs':cls.construction_cost(min(same+1,len(cls.GOLD_COSTS))),
                 'requirements':requirements,'available':error is None and all(r['met'] for r in requirements),
                 'reason':error,'leveled':len(cls.GOLD_COSTS)>1})
         return {'site':site.id,'position':list(site.position),'period':self.period,'ordered':ordered,'queued':queued,

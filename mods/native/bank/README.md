@@ -11,6 +11,8 @@
 - `buy_report(buyer, target, turn=None)`：20 金购买对方已发布报表，缺省最新，turn 指定期末周期，重复购买重复收费，每个买方保留最近 10 份不可变快照。未发布、自购、未知账户或现金不足时拒绝且不扣款。
 - `position(owner)`：自己的现金、授信、贷款、负债和已购买报表。`liabilities / snapshot / to_save / restore` 提供模块协作与持久化接口；跨模块必须声明实际方法。
 
+`position`另提供只读`repayment_schedule`：按当前贷款利率和正式逐期取整函数预估到期周期及扣款，供联合预算使用；之后央行调息会改变结果。查询不改变贷款，未增加存档字段或修改还款规则。
+
 贷款本金、存款利息、贷款计息、还款及手续费记录在独立 `FinanceEntry`，本金、存款利息和债务利息不计入生产 GDP 或消费；实际借款手续费记入行政消费。贷款利息更新应付债务而不提前扣现金。流水的 `cash / liability_delta` 分别记录现金与负债变化。
 
 现金扣款使用资源域独立授权的 `native:bank-cash.adjust(currency, changes)`。只接受 `Gold` 或其具体子类，不给普通资源放开负库存，也不改变市场和军队消费余额校验。

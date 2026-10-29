@@ -20,7 +20,7 @@
 
 ## 先看一场不用模型的对局
 
-终端版需要 **Python 3.11 或更新版本**。在仓库根目录新建 `mp_config.json`，填入下面这份双国配置即可离线运行，无需 API key：
+终端版推荐 **Python 3.13**（也支持3.11／3.12）。在仓库根目录新建 `mp_config.json`，填入下面这份双国配置即可离线运行，无需 API key：
 
 ```json
 {
@@ -37,11 +37,14 @@
 ```
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements.txt
 python3 mp_run.py --config mp_config.json --check-config
 python3 mp_run.py --config mp_config.json --new --turns 10
 ```
 
-Windows 将 `python3` 换成 `python`。`--turns 10` 表示运行到第 10 回合边界；想继续看到第 30 回合，省略 `--new`：
+Windows将`python3`换成`python`，虚拟环境激活使用`.\.venv\Scripts\Activate.ps1`。`--turns 10`表示运行到第10回合边界；想继续看到第30回合，省略`--new`：
 
 ```bash
 python3 mp_run.py --config mp_config.json --turns 30
@@ -49,7 +52,7 @@ python3 mp_run.py --config mp_config.json --turns 30
 
 **`--new` 会覆盖指定的目标存档。** 换一局时请为配置中的 `save` 和 `journal` 换一组文件名，避免覆盖旧档或把两局日志接在一起。
 
-新局的规则 AI 默认使用 [v13](ruleai/v13/README.md)，各国会抽取并保存不同的市场经营偏好。它们不调用外部模型；需要旧策略作对照时可配置 `"rule_ai": "v11plus"`。`./start.sh --offline` 则运行一个供开发用的小型示例游戏，与这里的战国对局不同。
+新局默认v13。[v14联合经济规划](ruleai/v14/README.md)作为候选策略提供，可在新局版本中选择，或配置`"rule_ai": "v14"`；纯经济对照已有改进，扩军与投资的综合权衡仍在验证，达标后再切换默认。v14需要NumPy／SciPy，不调用外部模型，新的Windows包内置求解环境。旧存档保留原策略，v11plus也仍可对照。`./start.sh --offline`运行独立的零依赖开发示例。
 
 ## 让模型担任君主
 
@@ -62,7 +65,7 @@ Linux / macOS 可用启动脚本检查并运行：
 ./start.sh --config mp_config.json --new
 ```
 
-有 LLM 玩家时，脚本会准备本地虚拟环境并安装所需依赖；纯规则对局可直接使用系统 Python。Windows 可运行 `.\start.ps1 --config mp_config.json --new`，或准备好 Python 环境后直接调用 `mp_run.py`。支持 OpenAI 兼容、OpenAI Responses 与 Anthropic 三种接入协议，全部原生实现（标准库，无官方 SDK 依赖）。
+脚本会准备本地虚拟环境并安装所需依赖，包含v14候选的求解器。Windows可运行`.\start.ps1 --config mp_config.json --new`，或准备好Python环境后直接调用`mp_run.py`。支持OpenAI兼容、OpenAI Responses与Anthropic三种接入协议，协议实现使用标准库，无官方SDK依赖。
 
 配置中的 API key 留在本地，整局存档不包含接入凭据。详细字段、上下文窗口和模型预算见[配置与启动](https://northwindlight.github.io/zhanguo/开始/03-配置与启动.html)。
 
@@ -105,9 +108,9 @@ python3 settlement.py --save mp_save.json --table
 
 ### 桌面上帝视角
 
-[下载 v0.7.0 预发布 Windows x64 便携版](https://github.com/northwindlight/zhanguo/releases/download/v0.7.0/zhanguo-0.7.0-windows-x64.zip)：完整解压后双击 `Zhanguo.exe`，无需安装开发工具。
+[下载 v0.7.1 预发布 Windows x64 便携版](https://github.com/northwindlight/zhanguo/releases/download/v0.7.1/zhanguo-0.7.1-windows-x64.zip)：完整解压后双击 `Zhanguo.exe`，无需安装开发工具。
 
-本轮已发布 [v0.7.0 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.7.0)：正式预付生产队列、跨驻地鼠标选军与持续路线、真实发行版开关、旧档副本升级、简易地形图与空位筛选，以及银行／报表邮箱。已由CI完成1075项离线检查和Windows九组验收，并公开Windows点击即玩包、源码与校验值。[预发布说明](docs/releases/v0.7.0.md)，[本轮验收](docs/reviews/银行邮箱与规则收尾-20261029.md)，[完整安排](docs/plans/GUI两版实施-20261028.md)。
+本轮[v0.7.1 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.7.1)加入可选的v14联合经济规划候选，保留v0.7的生产队列、鼠标军令、地图工具、银行与邮箱。由同提交CI完成离线回归和Windows实际窗口验收后自动公开点击即玩包、源码与校验值。[版本说明](docs/releases/v0.7.1.md)，[经济层验证](docs/reviews/v14联合经济规划-20261029.md)。
 
 上一试玩版为 [v0.6.3](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.3)，上一正式版为 [v0.5.1](https://github.com/northwindlight/zhanguo/releases/tag/v0.5.1)。v0.7的生产队列与持续军令改变存档依赖；已知旧档使用存档列表中的“升级为新副本”，原档与历史保留，未知依赖仍拒绝。当前仍为单机一位真人，保持原18阶段结算，联机暂不实施。
 

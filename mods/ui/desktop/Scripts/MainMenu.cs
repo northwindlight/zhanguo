@@ -34,7 +34,7 @@ public partial class MainMenu : Control
         public int Client;                      // 0 rule, 1 sim, 2 llm, 3 human
         public string Nickname = "玩家";
         public string Color = "";
-        public string RuleAi = "v13"; public int Strategy; public string RuleSeed = "";
+        public string RuleAi = ""; public int Strategy; public string RuleSeed = "";
         public int Profile; public string Model = "", Thinking = "enabled", Effort = "low";
         public string Temperature = "0.3", MaxTokens = "16384", MaxSteps = "28", ExtraJson = "";
     }
@@ -295,13 +295,14 @@ public partial class MainMenu : Control
         rule.AddChild(FieldLabel("版本"));
         var ai = new OptionButton { CustomMinimumSize = new Vector2(84, 0) };
         var versions=SelectedEdition["rule_versions"]!.AsArray().Select(v=>v!.ToString()).ToArray();
+        if(!versions.Contains(draft.RuleAi))draft.RuleAi=SelectedEdition["default_rule_ai"]!.ToString();
         foreach(var version in versions)ai.AddItem(version);ai.Select(Math.Max(0,Array.IndexOf(versions,draft.RuleAi)));rule.AddChild(ai);
         rule.AddChild(FieldLabel("风格"));
         var strategy = new OptionButton { FocusMode = FocusModeEnum.None };
         foreach (var s in SelectedEdition["rule_strategies"]!.AsArray()) strategy.AddItem(s!["name"]!.ToString());
         strategy.Selected = draft.Strategy;
-        strategy.Disabled=draft.RuleAi!="v13";strategy.TooltipText="v13使用经营偏好；v11plus沿用固定策略。";
-        ai.ItemSelected+=i=>{draft.RuleAi=versions[(int)i];strategy.Disabled=draft.RuleAi!="v13";};
+        strategy.Disabled=!RuleHasProfiles(draft.RuleAi);strategy.TooltipText="v14为联合规划候选，当前风格差异较少；v13使用完整经营偏好，v11plus固定策略。";
+        ai.ItemSelected+=i=>{draft.RuleAi=versions[(int)i];strategy.Disabled=!RuleHasProfiles(draft.RuleAi);};
         strategy.ItemSelected += i => draft.Strategy = (int)i; rule.AddChild(strategy);
         rule.AddChild(FieldLabel("种子"));
         var seed = new LineEdit { Text = draft.RuleSeed, CustomMinimumSize = new Vector2(80, 0) };
@@ -363,7 +364,7 @@ public partial class MainMenu : Control
             if (draft.Client == 0)
             {
                 nation["rule_ai"] = draft.RuleAi;
-                if(draft.RuleAi=="v13")nation["rule_strategy"] = Strategies[draft.Strategy];
+                if(RuleHasProfiles(draft.RuleAi))nation["rule_strategy"] = Strategies[draft.Strategy];
                 if (int.TryParse(draft.RuleSeed.Trim(), out int rs) && rs > 0) nation["rule_seed"] = rs;
             }
             else if(draft.Client==3)

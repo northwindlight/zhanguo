@@ -22,6 +22,14 @@ DOWNLOADS = {
     "templates": (f"Godot_v{GODOT_VERSION}-stable_mono_export_templates.tpz", "92f8681e349ef1f90891b792da95e3b2b0bd1ed610b78018c58feb2d87e15a9d"),
     "python": (f"python-{PYTHON_VERSION}-embed-amd64.zip", "9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38"),
 }
+SOLVER_WHEELS = {
+    'numpy': ('numpy-2.2.4-cp313-cp313-win_amd64.whl',
+        '207a2b8441cc8b6a2a78c9ddc64d00d20c303d79fba08c577752f080c4007ee3',
+        'https://files.pythonhosted.org/packages/52/17/d0dd10ab6d125c6d11ffb6dfa3423c3571befab8358d4f85cd4471964fcd/numpy-2.2.4-cp313-cp313-win_amd64.whl'),
+    'scipy': ('scipy-1.15.3-cp313-cp313-win_amd64.whl',
+        'b90ab29d0c37ec9bf55424c064312930ca5f4bde15ee8619ee44e69319aab163',
+        'https://files.pythonhosted.org/packages/87/2e/892ad2862ba54f084ffe8cc4a22667eaf9c2bcec6d2bff1d15713c6c0703/scipy-1.15.3-cp313-cp313-win_amd64.whl'),
+}
 RUNTIME_ROOTS = {"engine", "clients", "mods", "presentation", "ruleai", "scenarios", "ui"}
 RUNTIME_SUFFIXES = {".py", ".json", ".toml", ".md", ".txt", ".c", ".h", ".cpp"}
 
@@ -48,11 +56,11 @@ def runtime_files(root=ROOT):
 
 
 def download(kind, cache):
-    name, expected = DOWNLOADS[kind]
+    name, expected = SOLVER_WHEELS[kind][:2] if kind in SOLVER_WHEELS else DOWNLOADS[kind]
     path = cache / name
     if path.is_file() and digest(path) == expected:
         return path
-    url = (f"https://www.python.org/ftp/python/{PYTHON_VERSION}/{name}" if kind == "python" else
+    url = SOLVER_WHEELS[kind][2] if kind in SOLVER_WHEELS else (f"https://www.python.org/ftp/python/{PYTHON_VERSION}/{name}" if kind == "python" else
            f"https://github.com/godotengine/godot-builds/releases/download/{GODOT_VERSION}-stable/{name}")
     print(f"Download {kind}: {url}", flush=True)
     temporary = path.with_suffix(path.suffix + ".partial")
@@ -107,6 +115,29 @@ def stage_runtime(bundle, root=ROOT):
         shutil.copy2(root / relative, path)
 
 
+def stage_solver(bundle, cache):
+    runtime = bundle/'runtime/python'
+    wheels = [download(name,cache) for name in SOLVER_WHEELS]
+    subprocess.run([sys.executable,'-m','pip','install','--no-index','--no-deps','--no-compile',
+        '--platform','win_amd64','--implementation','cp','--python-version','3.13','--abi','cp313','--only-binary=:all:',
+        '--target',str(runtime),*[str(path) for path in wheels]],check=True)
+    # The game imports these libraries. Generated console launchers embed the
+    # build interpreter's path and are neither needed nor portable.
+    for directory in ('Scripts','bin'):
+        shutil.rmtree(runtime/directory,ignore_errors=True)
+    for name in SOLVER_WHEELS:
+        metadata = next(runtime.glob(name+'-*.dist-info'))
+        (metadata/'direct_url.json').unlink(missing_ok=True)
+        licenses = metadata/'licenses'
+        target = bundle/'LICENSES'/name
+        if licenses.is_dir():
+            shutil.copytree(licenses,target)
+        else:
+            target.mkdir(parents=True)
+            for source in metadata.glob('LICENSE*'):shutil.copy2(source,target/source.name)
+        if not any(target.rglob('*')):raise ValueError('Solver license missing: '+name)
+
+
 def stage_sources(bundle, root=ROOT):
     stage_runtime(bundle, root)
     for file in (root / "packaging/windows").iterdir():
@@ -143,7 +174,8 @@ def stage_sources(bundle, root=ROOT):
 
 def inspect(bundle):
     required = ["Zhanguo.exe", "Zhanguo.pck", "game/host.py", "game/ui/desktop.py", "game/mods.toml", "game/ui.toml",
-                "runtime/python/python.exe", "runtime/python/python313.dll", "portable.json"]
+                "runtime/python/python.exe", "runtime/python/python313.dll", "portable.json",
+                "runtime/python/numpy/__init__.py", "runtime/python/scipy/optimize/_milp.py"]
     for name in required:
         if not (bundle / name).is_file():
             raise ValueError("Incomplete bundle: " + name)
@@ -165,6 +197,7 @@ def build(output, cache):
     bundle.mkdir()
     stage_sources(bundle)
     extract(download("python", cache), bundle / "runtime/python")
+    stage_solver(bundle,cache)
     # Embedded Python ignores the registry, PATH, user site and PYTHONPATH.
     (bundle / "runtime/python/python313._pth").write_text("python313.zip\n.\n../../game\n", encoding="utf-8")
     godot = tools(cache)

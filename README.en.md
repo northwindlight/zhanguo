@@ -20,7 +20,7 @@ Nations take turns acting, then the world settles one complete round. Battles wi
 
 ## Watch an offline game first
 
-The terminal game requires **Python 3.11 or newer**. Create `mp_config.json` in the repository root:
+The terminal game recommends **Python 3.13** (3.11/3.12 also supported). Create `mp_config.json` in the repository root:
 
 ```json
 {
@@ -37,14 +37,17 @@ The terminal game requires **Python 3.11 or newer**. Create `mp_config.json` in 
 ```
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements.txt
 python3 mp_run.py --config mp_config.json --check-config
 python3 mp_run.py --config mp_config.json --new --turns 10
 python3 mp_run.py --config mp_config.json --turns 30
 ```
 
-On Windows, use `python` instead of `python3`. `--turns` is the target round number: the third command continues the same game to round 30. **`--new` overwrites the selected save.** Give each new game separate save and journal paths.
+On Windows, use `python` instead of `python3` and activate with `.\.venv\Scripts\Activate.ps1`. `--turns` is the target round number: the final command continues the same game to round 30. **`--new` overwrites the selected save.** Give each new game separate save and journal paths.
 
-Rule players default to [v13](ruleai/v13/README.md), which gives nations persistent market preferences. They require no external model access. Set `"rule_ai": "v11plus"` to select the older strategy. The separate `./start.sh --offline` shortcut runs a small developer example rather than the full strategy game.
+New games default to v13. The [v14 joint economic planner](ruleai/v14/README.md) is an opt-in candidate (`"rule_ai": "v14"`). Pure economic results improved, while the combined recruitment and investment policy still needs validation before default promotion. It requires NumPy/SciPy, included in the new Windows package, and no model access. Existing saves retain their strategy; v11plus remains available. `./start.sh --offline` runs a separate zero-dependency developer example.
 
 ## Put models in charge
 
@@ -57,7 +60,7 @@ On Linux or macOS:
 ./start.sh --config mp_config.json --new
 ```
 
-The shell launcher prepares a local virtual environment and dependencies when LLM players are present. Windows users can use `.\start.ps1 --config mp_config.json --new`, or run `mp_run.py` in a prepared Python environment. Missing LLM credentials cause a configuration error. Credentials stay in the local configuration and are not written into game saves.
+The shell launcher prepares a local virtual environment and dependencies, including the v14 candidate solver. Windows users can use `.\start.ps1 --config mp_config.json --new`, or run `mp_run.py` in a prepared Python environment. Missing LLM credentials cause a configuration error. Credentials stay in the local configuration and are not written into game saves.
 
 ### The eight-nation scenario
 

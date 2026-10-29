@@ -7,8 +7,14 @@
       "version": "4.22.0",
       "features": {},
       "rule_versions": [
+        "v14",
         "v13",
         "v11plus"
+      ],
+      "default_rule_ai": "v13",
+      "rule_strategy_versions": [
+        "v14",
+        "v13"
       ],
       "rule_strategies": [
         {
@@ -85,8 +91,14 @@
         }
       },
       "rule_versions": [
+        "v14",
         "v13",
         "v11plus"
+      ],
+      "default_rule_ai": "v13",
+      "rule_strategy_versions": [
+        "v14",
+        "v13"
       ],
       "rule_strategies": [
         {

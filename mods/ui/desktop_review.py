@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 
-from scenarios.eight_nations import build
+from scenarios.eight_nations import build, build_config
 from .desktop_activity import TimelineCapture
 
 
@@ -15,7 +15,7 @@ def build_finance_fixture(mods='mods.toml'):
     a,b='scenario:human','scenario:other'
     host=GameHost.new({'mods':mods,'map_size':12,'seed':73,'nations':[
         {'id':a,'name':'秦','client':'human','color':'66b6a7'},
-        {'id':b,'name':'楚','client':'rule','color':'ce7765'}]})
+        {'id':b,'name':'楚','client':'rule','rule_ai':'v13','color':'ce7765'}]})
     api=HumanAPI(host);world=host.world
     sites=[s for s in world.buildings.snapshot().sites if s.owner==a]
     farm=next(s for s in sites if dict(s.resources).get('native:farmland',0))
@@ -43,8 +43,8 @@ def build_extinction_fixture():
     a,b,c='scenario:human','scenario:other','scenario:third'
     cfg={'mods':'mods.toml','map_size':12,'seed':73,'nations':[
         {'id':a,'name':'秦','client':'human','color':'66b6a7'},
-        {'id':b,'name':'楚','client':'rule','color':'ce7765'},
-        {'id':c,'name':'赵','client':'rule'}]}
+        {'id':b,'name':'楚','client':'rule','rule_ai':'v13','color':'ce7765'},
+        {'id':c,'name':'赵','client':'rule','rule_ai':'v13'}]}
     host=GameHost.new(cfg);api=HumanAPI(host);world=host.world
     live={tuple(t['position']) for t in api.state(a)['map']['tiles'] if t['visibility']=='live'}
     sites={s.id:s for s in world.buildings.snapshot().sites}
@@ -78,7 +78,7 @@ def build_extinction_fixture():
 
 
 def build_fixture():
-    host=build(seed=20261023)
+    host=build(seed=20261023,config=build_config({'nations':[{'client':'rule','rule_ai':'v13'}]},20261023))
     for _ in range(4):host.cycle()
     frame=host.ui.desktop_frame(host.observer_snapshot())
     capture=TimelineCapture(host);actor='scenario:qin'

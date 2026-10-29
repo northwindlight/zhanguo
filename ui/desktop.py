@@ -430,7 +430,7 @@ def main(argv=None):
         max_turns = 300
         if not host.finished() and host.clock()<max_turns:require_ready(prepared)
     else:
-        cfg = build_config({'rule_ai': 'v13', 'nations': [{'client': 'rule', 'rule_ai': 'v13'}]}, args.seed)
+        cfg = build_config({'nations': [{'client': 'rule'}]}, args.seed)
         if os.environ.get('ZHANGUO_UI_MODS'):cfg['ui_mods'] = os.environ['ZHANGUO_UI_MODS']
         with redirect_stdout(sys.stderr):host = build(seed=args.seed, config=cfg)
         max_turns = 300

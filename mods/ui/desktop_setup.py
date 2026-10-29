@@ -20,7 +20,9 @@ def describe(runtime):
     labels={'random':'随机经营偏好','balanced':'均衡经营','integrated':'自产配套','merchant':'市场贸易','buffer':'资源储备','liquid':'现金储备'}
     return {'id':identity,'name':EDITIONS.get(identity,(identity,''))[0],'version':declaration['Version'],
             'features':{key:{**FEATURES[key],'enabled':value} for key,value in selected.items()},
-            'rule_versions':list(ruleai.versions()),'rule_strategies':[{'id':key,'name':labels.get(key,key)} for key in ('random',*ruleai.PROFILES)],
+            'rule_versions':list(ruleai.versions()),'default_rule_ai':ruleai.DEFAULT_RULE_AI,
+            'rule_strategy_versions':list(ruleai.PROFILE_VERSIONS),
+            'rule_strategies':[{'id':key,'name':labels.get(key,key)} for key in ('random',*ruleai.PROFILES)],
             'clients':list(declaration.get('ClientFactories',{})),'scenarios':list(declaration.get('Scenarios',{}))}
 
 
