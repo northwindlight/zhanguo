@@ -96,37 +96,52 @@
 <text x="771.0" y="140.0" text-anchor="middle" font-size="16" style="fill:#172e29">⚑ 军队</text>
 <rect x="854" y="116" width="142" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
 <text x="925.0" y="140.0" font-size="16" class="" text-anchor="middle">▧ 地块</text>
-<rect x="700" y="164" width="142" height="34" rx="4" fill="#d8c286" stroke="#526e60"/>
-<text x="771.0" y="187.0" text-anchor="middle" font-size="16" style="fill:#172e29">部队</text>
-<rect x="854" y="164" width="142" height="34" rx="4" fill="#29423f" stroke="#526e60"/>
-<text x="925.0" y="187.0" font-size="16" class="" text-anchor="middle">征募地点</text>
-<rect x="700" y="211" width="296" height="54" rx="4" fill="#314d43"/>
-<text x="712" y="235" font-size="17" class="cyan" text-anchor="start">已选2支 / 2处驻地</text>
-<text x="712" y="255" font-size="13" class="muted" text-anchor="start">查看全部编号   ·   清空选择</text>
-<text x="706" y="296" font-size="16" class="" text-anchor="start">#1 民兵 · 瀚与</text>
-<text x="990" y="296" font-size="14" class="muted" text-anchor="end">38/80</text>
-<rect x="706" y="308" width="284" height="6" rx="2" fill="#172725"/>
-<rect x="706" y="308" width="134.9" height="6" rx="2" fill="#8fc79a"/>
-<text x="706" y="360" font-size="16" class="" text-anchor="start">#2 步兵 · 延牧</text>
-<text x="990" y="360" font-size="14" class="muted" text-anchor="end">100/100</text>
-<rect x="706" y="372" width="284" height="6" rx="2" fill="#172725"/>
-<rect x="706" y="372" width="284" height="6" rx="2" fill="#8fc79a"/>
-<text x="704" y="431" font-size="18" class="gold" text-anchor="start">新目标  (6,5)</text>
-<text x="704" y="456" font-size="14" class="muted" text-anchor="start">收到回执后更新路线与下一步</text>
-<text x="704" y="490" font-size="16" class="" text-anchor="start">→ ①  (6,5)  移动</text>
-<text x="704" y="520" font-size="14" class="muted" text-anchor="start">＋ 按住Shift追加下一个节点</text>
-<path d="M702 537L994 537" fill="none" stroke="#425b53" stroke-width="1"/>
-<text x="704" y="566" font-size="16" class="" text-anchor="start">☑ 低于30生命暂停</text>
-<text x="704" y="589" font-size="14" class="muted" text-anchor="start">正常补给恢复满血后继续</text>
-<rect x="702" y="607" width="92" height="38" rx="4" fill="#29423f" stroke="#526e60"/>
-<text x="748.0" y="632.0" font-size="16" class="" text-anchor="middle">→ 移动</text>
-<rect x="802" y="607" width="92" height="38" rx="4" fill="#29423f" stroke="#526e60"/>
-<text x="848.0" y="632.0" font-size="16" class="" text-anchor="middle">⚔ 攻击</text>
-<rect x="902" y="607" width="92" height="38" rx="4" fill="#29423f" stroke="#526e60"/>
-<text x="948.0" y="632.0" font-size="16" class="" text-anchor="middle">■ 停止</text>
-<text x="704" y="675" font-size="13" class="muted" text-anchor="start">右键移动 · Ctrl攻击 · Shift追加</text>
+<rect x="700" y="164" width="296" height="62" rx="4" fill="#314d43"/>
+<text x="712" y="188" font-size="17" class="cyan" text-anchor="start">已选2支 / 2处驻地</text>
+<text x="712" y="211" font-size="14" class="muted" text-anchor="start">#1、#2  ·  查看全部  ·  清空</text>
+<g><title>正规军：已展开，可独立收起</title>
+<rect x="700" y="238" width="296" height="34" rx="4" fill="#3d5043" stroke="#526e60"/>
+<text x="712" y="261" font-size="16" class="gold" text-anchor="start">▾ 正规军</text>
+<text x="984" y="261" font-size="13" class="muted" text-anchor="end">1支 · 已选1</text>
+</g>
+<g><title>民兵：已展开，可独立收起</title>
+<rect x="700" y="356" width="296" height="34" rx="4" fill="#3d5043" stroke="#526e60"/>
+<text x="712" y="379" font-size="16" class="gold" text-anchor="start">▾ 民兵</text>
+<text x="984" y="379" font-size="13" class="muted" text-anchor="end">1支 · 已选1</text>
+</g>
+<rect x="700" y="280" width="296" height="66" rx="4" fill="#233d36"/>
+<text x="710" y="302" font-size="16" class="" text-anchor="start">☑ #2 步兵 · 延牧</text>
+<text x="986" y="302" font-size="14" class="muted" text-anchor="end">100/100</text>
+<rect x="710" y="312" width="276" height="5" rx="2" fill="#172725"/>
+<rect x="710" y="312" width="276" height="5" rx="2" fill="#8fc79a"/>
+<text x="710" y="336" font-size="14" class="cyan" text-anchor="start">可行动 · 路线1节点</text>
+<rect x="700" y="398" width="296" height="66" rx="4" fill="#233d36"/>
+<text x="710" y="420" font-size="16" class="" text-anchor="start">☑ #1 民兵 · 瀚与</text>
+<text x="986" y="420" font-size="14" class="muted" text-anchor="end">38/80</text>
+<rect x="710" y="430" width="276" height="5" rx="2" fill="#172725"/>
+<rect x="710" y="430" width="131.1" height="5" rx="2" fill="#8fc79a"/>
+<text x="710" y="454" font-size="14" class="cyan" text-anchor="start">可行动 · 路线1节点</text>
+<g><title>兵营（含军屯）：已收起，可独立展开</title>
+<rect x="700" y="476" width="296" height="34" rx="4" fill="#29423b" stroke="#526e60"/>
+<text x="712" y="499" font-size="16" class="" text-anchor="start">▸ 兵营（含军屯）</text>
+<text x="984" y="499" font-size="13" class="muted" text-anchor="end">3处</text>
+</g>
+<g><title>要塞和市政厅：已收起，可独立展开</title>
+<rect x="700" y="522" width="296" height="34" rx="4" fill="#29423b" stroke="#526e60"/>
+<text x="712" y="545" font-size="16" class="" text-anchor="start">▸ 要塞和市政厅</text>
+<text x="984" y="545" font-size="13" class="muted" text-anchor="end">3处</text>
+</g>
+<text x="704" y="585" font-size="16" class="gold" text-anchor="start">新目标 (6,5) · 回执后更新</text>
+<text x="704" y="610" font-size="14" class="muted" text-anchor="start">☑ 低于30生命暂停，满血继续</text>
+<rect x="702" y="623" width="92" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<text x="748.0" y="647.0" font-size="16" class="" text-anchor="middle">→ 移动</text>
+<rect x="802" y="623" width="92" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<text x="848.0" y="647.0" font-size="16" class="" text-anchor="middle">⚔ 攻击</text>
+<rect x="902" y="623" width="92" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<text x="948.0" y="647.0" font-size="16" class="" text-anchor="middle">■ 停止</text>
+<text x="704" y="681" font-size="13" class="muted" text-anchor="start">右键移动 · Ctrl攻击 · Shift追加</text>
 <rect x="40" y="613" width="598" height="76" rx="6" fill="#1c3331" stroke="#6a8773"/>
 <use href="#camp" transform="translate(72 647) scale(0.6)"/>
-<text x="102" y="641" font-size="18" class="gold" text-anchor="start">征募地点页：直接列兵营和军屯格子</text>
-<text x="102" y="668" font-size="15" class="muted" text-anchor="start">地点 → 定位与征募，不必挨个地块找设施。</text>
+<text x="102" y="641" font-size="18" class="gold" text-anchor="start">四组独立展开／收起，已选军队始终可查</text>
+<text x="102" y="668" font-size="15" class="muted" text-anchor="start">展开兵营找征募地点；展开据点找要塞和市政厅。</text>
 </svg>
