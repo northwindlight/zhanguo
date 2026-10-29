@@ -107,11 +107,9 @@ python3 settlement.py --save mp_save.json --table
 
 [下载 v0.6.3 预发布 Windows x64 便携版](https://github.com/northwindlight/zhanguo/releases/download/v0.6.3/zhanguo-0.6.3-windows-x64.zip)：完整解压后双击 `Zhanguo.exe`，无需安装开发工具。
 
-本轮 [v0.6.3 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.3) 修复真人军令候选与按钮的误拦截、接入已知逐格行军路线，并将瞭望塔统一限制为每格一座。保留v0.6.2的右侧总览、筛选、资源明细与连续操作。[本轮范围与验收](docs/reviews/GUI军令规则与自动预发布-20261028.md)。后续队列与鼠标军令分配到[第二版计划](docs/plans/GUI两版实施-20261028.md)，联机暂不实施。上一正式版为 [v0.5.1](https://github.com/northwindlight/zhanguo/releases/tag/v0.5.1)。
+本轮准备发布 **v0.7.0 Pre-release**：正式预付生产队列、跨驻地鼠标选军与持续路线、真实发行版开关、旧档副本升级、简易地形图与空位筛选，以及银行／报表邮箱。完整验收通过后由CI公开Windows点击即玩包、源码与校验值。[预发布说明](docs/releases/v0.7.0.md)，[本轮验收](docs/reviews/银行邮箱与规则收尾-20261029.md)，[完整安排](docs/plans/GUI两版实施-20261028.md)。
 
-存档格式和模块版本未变，旧档原有多座瞭望塔保留，新的建造受限；更早版本仍受原有严格依赖检查约束，可保留原发布包读取。
-
-源码v0.7开发已加入生产队列、持续军令、发行版与实验开关，以及地形图、空位筛选、紧凑地块图标、价格分项和查询指南；这些尚未进入上面的v0.6.3发布包。[地图交互验收](docs/reviews/地形地图与操作指南-20261028.md)，[完整开发安排](docs/plans/GUI两版实施-20261028.md)。
+上一试玩版为 [v0.6.3](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.3)，上一正式版为 [v0.5.1](https://github.com/northwindlight/zhanguo/releases/tag/v0.5.1)。v0.7的生产队列与持续军令改变存档依赖；已知旧档使用存档列表中的“升级为新副本”，原档与历史保留，未知依赖仍拒绝。当前仍为单机一位真人，保持原18阶段结算，联机暂不实施。
 
 ![桌面上帝视角](docs/design/gui-national-production-20261026.png)
 

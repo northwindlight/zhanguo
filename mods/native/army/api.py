@@ -1,5 +1,6 @@
 """Player-facing army API; tool schemas live in the distribution tool layer."""
 from .parameters import RETREAT_ATK_PENALTY
+from .defense import cover
 from engine.runtime import unit_context
 
 
@@ -184,8 +185,9 @@ class ArmyAPI:
             sides = []
             for owner in sorted({u.owner for u in troops}):
                 group = [u for u in troops if u.owner == owner]
-                defending = bool(fact and (owner == fact.owner or owner == '野人' or owner not in active))
-                reduction = self.military.defense_pct(terrain.defense, castle if owner == fact.owner else 0) if defending else 0 if visible else None
+                defense=cover(owner,fact.owner,active,terrain.defense,castle) if fact else None
+                defending=bool(defense and defense['defending'])
+                reduction=defense['total'] if defense else None
                 foes = [other for other in {u.owner for u in troops} if other != owner and
                         ((owner == '野人' and other in active) or (other == '野人' and owner in active) or
                          owner != '野人' and other != '野人' and call(world, 'native:diplomacy', 'war_between', owner, other))] if visible else None

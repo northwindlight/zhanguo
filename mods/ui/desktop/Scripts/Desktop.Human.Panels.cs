@@ -40,8 +40,10 @@ public partial class Desktop
         if(!HumanMode)return;
         SaveHumanDraft();ResetMarket();ResetRts();ClearHumanChildren(_humanContent);_humanWrites.Clear();_humanFields.Clear();_formOperation="";
         _humanContent.AddThemeConstantOverride("separation",_humanPage is "build" or "recruit" or "market"?6:10);
-        _humanExtra=new JsonObject();_humanPreview=null;_humanSubmit=null;
+        _humanExtra=new JsonObject();_humanPreview=null;_humanSubmit=null;_bankBorrow=null;
         _guideTools.Visible=_humanPage=="guide";
+        _mailTools.Visible=_humanPage=="intel";
+        _humanDrawer.Title=_humanPage switch { "bank" or "finance"=>"国家银行","intel"=>"国家邮箱",_=>"本国政务" };
         switch(_humanPage)
         {
             case "tile":RenderHumanTile();break;
@@ -57,6 +59,8 @@ public partial class Desktop
                 RenderHumanGarrison(tile);
                 HumanButton("全国军队总览",()=>OpenHumanOutliner(true),"army");break;
             case "nation":RenderHumanNation();break;
+            case "bank":case "finance":RenderHumanBank();break;
+            case "intel":RenderHumanMailbox();break;
             case "guide":RenderHumanGuide();break;
             default:RenderHumanActions(_humanPage);break;
         }
@@ -189,16 +193,11 @@ public partial class Desktop
         HumanText("当前库存\n"+string.Join("\n",HumanFacts["econ"]!["stocks"]!.AsArray().Select(s=>$"{HumanLabel(S(s!["id"]))}  {Quantity(s["amount"])}")));
         var e=HumanFacts["econ"]!["preview"]!;
         HumanText($"电力预计 {e["energy"]?["generated"]} / 需求 {e["energy"]?["demand"]} · 额定 {e["energy"]?["capacity"]}\n生产与军需预演（非实收）：\n{Resources(e["outputs"])}\n需求：{Resources(e["inputs"])}");
-        var bank=HumanFacts["bank"]!;
-        HumanText($"贷款额度 {bank["credit_limit"]} 金 · 当前债务 {bank["liabilities"]} 金\n存款利率 {F(bank["savings_rate"]):P1} · 贷款利率 {F(bank["loan_rate"]):P1}");
-        HumanButton("贷款与只读授信预览",()=>{_humanOperation="borrow";OpenHumanPage("finance");},"market");
-        HumanText("本国已发布报表",true);
-        var reports=_humanState!["reports"]!.AsArray();if(reports.Count==0)HumanText("尚未到报表发布期。只展示已经发布的实际报表。");
-        foreach(var r in reports)HumanText(EconomicReport(r!));
+        HumanButton("银行 · 授信与债务",()=>OpenHumanPage("bank"),"market");
+        HumanButton("邮箱 · 历期经济报表",()=>{_mailReports=true;_mailReport="";OpenHumanPage("intel");},"intelligence");
         HumanText("本次会话操作记录",true);
         HumanText(_humanHistory.Count==0?"尚无操作":string.Join("\n\n",_humanHistory.TakeLast(12)));
     }
-    private string EconomicReport(JsonNode r)=>$"{NationLabel(S(r["owner"]))} · 第 {r["start"]}—{r["end"]} 期\nGDP {Money(r["gdp"])} · 投资 {Money(r["investment"])} · 军费 {Money(r["military"])}\n总资产 {Money(r["total_assets"])} · 净资产 {Money(r["net_assets"])}";
 
     private void RenderHumanActions(string page)
     {
@@ -407,7 +406,7 @@ public partial class Desktop
             var data=row["data"]!;
             _humanPreview.Text=data["error"]!=null?"预览："+LocalHumanError(S(data["error"])):
                 operation is "buy" or "sell"?$"整单数量 {data["quantity"]} · 实付／收入 {data["gold"]??data["total"]??data["exact_total"]} 金（仅预览）":
-                operation=="borrow"?$"授信 {data["limit"]??data["credit_limit"]} · 手续费 {data["fee"]} · {data["message"]}":
+                operation=="borrow"?$"授信 {Quantity(data["credit"])} 金 · 手续费 {Quantity(data["fee"])} 金 · {(Yes(data["can_borrow"])?"可借":"当前不可借")}":
                 operation=="send_letter"?$"信件 {data["length"]} 字 · 费用 {data["fee"]} 金":
                 $"{(operation=="build"?$"{(S(args["kind"])=="native:castle"?$"{data["level"]}级 · ":"")}本期末落成":"本期可征额度 "+S(data["quota"]))}\n实际材料：{Resources(data["costs"])}";
         });
@@ -429,8 +428,7 @@ public partial class Desktop
                 if(payload["unit_counts"]!=null)HumanText("采样兵种总量："+Resources(payload["unit_counts"])+"（不代表位置）");
             }
         }
-        foreach(var purchase in HumanFacts["bank"]!["purchases"]!.AsArray())HumanText("已购经济报表\n"+EconomicReport(purchase!["report"]!));
-        _humanNav["intel"].Text="情报";
+        RefreshMailbox();
         HumanText("在途任务",true);
         foreach(var d in HumanFacts["dispatches"]!.AsArray())HumanText($"{OperationLabel(S(d!["kind"]))} → {NationLabel(S(d["target"]))} · 预计第 {I(d["arrive"])+1} 期送达");
     }
@@ -455,6 +453,7 @@ public partial class Desktop
         if(_humanSubmittedOperation is "cancel_build_order" or "cancel_recruit_order")return "已取消未开始部分 · 全额返还："+Resources(d?["refunds"]);
         if(_humanSubmittedOperation=="demolish")return $"{(Yes(d?["completed"])?"已拆除":"已撤销施工")} {HumanLabel(S(d?["kind"]))} #{d?["id"]}\n实际返还：{Resources(d?["refunds"])}";
         if(_humanSubmittedOperation=="auto_trade")return $"{HumanLabel(S(d?["resource"]))}自动交易设置已保存；{(Yes(d?["enabled"])?"本国结束行动时按条件执行":"已暂停")}。";
+        if(_humanSubmittedOperation=="borrow")return $"已借入 {Quantity(d?["principal"])} 金 · 当前应还 {Quantity(d?["due"])} 金 · 剩余 {d?["remaining"]} 回合。";
         if(_humanSubmittedOperation=="remove_auto_trade")return "自动交易已删除。";
         if(_humanSubmittedOperation=="buy_map")return $"地图已取得：{NationLabel(S(d?["target"]))} · 第 {I(d?["sampled"])+1} 期 · {d?["tiles"]} 格 · 支付 {d?["price"]} 金";
         if(_humanSubmittedOperation is "move" or "attack" or "retreat" or "disband")return title+"："+(S(d?["message"]) is {Length:>0} text?text:"实际结果已在地图与驻军面板同步")+

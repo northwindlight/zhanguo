@@ -55,18 +55,20 @@ public partial class Desktop
         _humanDock.OffsetLeft=16;_humanDock.OffsetRight=-16;_humanDock.OffsetTop=-60;_humanDock.OffsetBottom=-12;
         _humanDock.AddThemeConstantOverride("separation",5);AddChild(_humanDock);
         foreach(var (key,title,icon) in new[]{("build","建设","build"),("army","军队","army"),("market","市场","market"),
-            ("diplomacy","外交","diplomacy"),("alliance","联盟","alliance"),("intel","情报","intelligence"),("nation","国家","nation"),("end","结束回合","end-turn")})
+            ("bank","银行","market"),("diplomacy","外交","diplomacy"),("alliance","联盟","alliance"),("intel","邮箱","intelligence"),("nation","国家","nation"),("end","结束回合","end-turn")})
         {
             string page=key;
             var button=Button(_humanDock,title,()=>{if(page=="end")HumanEndTurn();else OpenHumanPage(page);});
             button.SizeFlagsHorizontal=SizeFlags.ExpandFill;button.CustomMinimumSize=new Vector2(0,44);
             HumanArt.Style(button,icon);button.AddThemeFontSizeOverride("font_size",16);_humanNav[key]=button;
+            if(key is "bank" or "intel")button.Icon=MapIcons.Texture(key=="bank"?"bank":"mail");
         }
         _humanDrawer=Drawer("本国政务",MapDrawer.Side.Right);
         _humanDrawer.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));
         _targetSummary=new Label { Visible=false,MaxLinesVisible=4,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("a9cddd") };
         _humanDrawer.Body.AddChild(_targetSummary);
         BuildGuideToolbar(_humanDrawer.Body);
+        BuildMailboxToolbar(_humanDrawer.Body);
         var scroll=new ScrollContainer { SizeFlagsVertical=SizeFlags.ExpandFill,HorizontalScrollMode=ScrollContainer.ScrollMode.Disabled };
         _humanScroll=scroll;
         _humanDrawer.Body.AddChild(scroll);
@@ -82,6 +84,7 @@ public partial class Desktop
         _humanConfirm.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));
         HumanArt.Style(_humanConfirm.GetOkButton(),"check");HumanArt.Style(_humanConfirm.GetCancelButton());
         BuildHumanOutliner();
+        BuildReportNotice();
         _humanDrawer.CloseButton.Pressed+=()=>LayoutHuman();
         BuildHumanExit();
         _map.HumanTargetHovered=target=>
@@ -123,7 +126,7 @@ public partial class Desktop
         _humanDock.Visible=true;_observerDock?.Hide();_mapHint?.Hide();_bubbles.HideAll();_step.Visible=false;
         _humanNav["diplomacy"].Text="外交"+Badge(state["pending_end"]?["offers"]?.AsArray().Count??0);
         _humanNav["alliance"].Text="联盟"+Badge(state["pending_end"]?["votes"]?.AsArray().Count??0);
-        _humanNav["intel"].Text="情报"+Badge(HumanFacts["intel"]?.AsArray().Count(m=>!_readIntel.Contains(I(m!["id"])))??0);
+        RefreshMailbox();
         var selected=OwnArmies.Where(u=>_selectedArmies.Contains(I(u["id"]))).ToArray();
         var places=selected.Select(u=>new Vector2I(I(u["x"]),I(u["y"]))).Distinct().ToArray();
         if(places.Length==1)_selectionCell=places[0]; // Follow this squad after its own move.
@@ -147,6 +150,7 @@ public partial class Desktop
         if(_humanNav.Count==0||!HumanMode)return;
         _humanNav["end"].Disabled=!HumanCanWrite||_humanCommands.Count>0;RefreshRtsButtons();RefreshMarketButtons();
         foreach(var button in _humanWrites)if(IsInstanceValid(button))button.Disabled=!HumanCanWrite;
+        if(_bankBorrow!=null&&IsInstanceValid(_bankBorrow))_bankBorrow.Disabled=!HumanCanWrite||!_bankAvailable;
         if(_humanPage!="market"&&_humanSubmit!=null&&IsInstanceValid(_humanSubmit))_humanSubmit.Disabled=!HumanCanWrite||!HumanFormReady();
         if(!HasTimeline&&_humanTurn!=null&&!_humanEnded)
         {

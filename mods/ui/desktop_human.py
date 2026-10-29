@@ -2,6 +2,7 @@
 from copy import deepcopy
 from .desktop_player import frame as player_frame, flow
 from .desktop_activity import difference
+from .desktop_defense import project
 from mods.native.army.candidates import candidates
 
 
@@ -27,6 +28,7 @@ class PlayerCapture:
         return tile['position'] if tile else None
 
     def add(self,phase,title,text,visual,position=None,*,source='',actor=None,**extra):
+        project(visual['scene'])
         owner=self.control.viewer
         self.beats.append({'phase':phase,'actor':actor,'client_kind':'human' if actor==owner else None,
             'playback_scope':'actor' if actor==owner else 'settlement','title':title,'text':text,

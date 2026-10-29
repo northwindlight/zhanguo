@@ -11,7 +11,8 @@ static class SquadChecks
         var frame=JsonNode.Parse("""
         {"names":{"qin":"秦","chu":"楚"},"tiles":[{"position":[2,3],"owner":"qin"}],
          "scene":{"unit_types":[{"id":"native:infantry","max_hp":100},{"id":"native:militia","max_hp":80}],
-                  "tile_defenses":[{"id":"2,3","x":2,"y":3,"terrain":20,"castle":10}]},
+                  "squad_defenses":[{"id":"qin/2,3","owner":"qin","x":2,"y":3,"terrain":20,"castle":10,"total":28,"defending":true},
+                                    {"id":"chu/2,3","owner":"chu","x":2,"y":3,"terrain":0,"castle":0,"total":0,"defending":false}]},
          "armies":[{"owner":"qin","id":1,"kind":"native:infantry","hp":100,"x":2,"y":3,"engaged":false},
                    {"owner":"qin","id":2,"kind":"native:infantry","hp":80,"x":2,"y":3,"engaged":false},
                    {"owner":"chu","id":1,"kind":"native:militia","hp":60,"x":2,"y":3,"engaged":true}]}
@@ -21,8 +22,10 @@ static class SquadChecks
         Require(state.Count==2&&state.Hp==180&&state.Maximum==200&&state.Health=="180/200"&&state.Strength=="步×2","squad figures leaked into rule strength or maximum HP");
         Require(state.Defense==28&&state.Terrain==20&&state.Fortress==10&&state.Defending,"land defense did not combine actual terrain and fortress reduction");
         var highFortress=frame.DeepClone().AsObject();
-        highFortress["scene"]!["tile_defenses"]![0]!["terrain"]=25;highFortress["scene"]!["tile_defenses"]![0]!["castle"]=110;
-        Require(SquadView.Summarize(highFortress,qin).Defense==108,"defense must preserve native floor division even above 100 percent");
+        highFortress["scene"]!["squad_defenses"]![0]!["total"]=108;
+        Require(SquadView.Summarize(highFortress,qin).Defense==108,"defense must display the supplied rule value even above 100 percent");
+        highFortress["scene"]!["squad_defenses"]![0]!["total"]=null;
+        Require(!SquadView.Summarize(highFortress,qin).DefenseKnown,"unknown defense was presented as confirmed zero");
         var attacker=SquadView.Summarize(frame,new[]{armies[2]!});
         Require(attacker.Maximum==80&&attacker.Defense==0&&!attacker.Defending,"militia max HP was guessed as 100, or attacker received defender terrain cover");
         var combat=new JsonObject { ["before"]=new JsonArray(qin.Select(u=>u.DeepClone()).ToArray()),["after"]=new JsonArray(new JsonObject { ["owner"]="qin",["id"]=1,["hp"]=70 }) };

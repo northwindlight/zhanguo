@@ -11,6 +11,7 @@ from engine.runtime import DomainRejection, ModError
 from engine.state import active_unit
 from .objects import Unit
 from . import navigation
+from .defense import cover, defense_pct
 from .recruit_queue import RecruitmentQueue
 from .march_orders import MarchOrders
 from .parameters import ARMY_GID_BASE, ARMY_STARVE_DAMAGE, ARMY_HEAL_PER_TURN, HEAL_EQUIP_COST, COMBAT_DIE_MOD, RETREAT_ATK_PENALTY, RETREAT_DEF_COVER
@@ -537,9 +538,8 @@ class Military(RecruitmentQueue,MarchOrders):
                 dice[owner]=self._rng.randint(min(COMBAT_DIE_MOD),max(COMBAT_DIE_MOD))
                 power=max(1,power*(100+COMBAT_DIE_MOD[dice[owner]])//100)
                 for enemy in enemies[owner]:
-                    defense=self.defense_pct(terrain.defense,castle if enemy==tile.owner else 0)
-                    cover=defense if enemy==tile.owner or enemy=='野人' or enemy not in active else 0
-                    damage[enemy]+=max(1,round(power/len(enemies[owner])*(100-cover)/100))
+                    reduction=cover(enemy,tile.owner,active,terrain.defense,castle)['total']
+                    damage[enemy]+=max(1,round(power/len(enemies[owner])*(100-reduction)/100))
             for owner,units in groups.items():
                 self.spread_damage(damage[owner],units)
             for u in troops:
@@ -593,7 +593,7 @@ class Military(RecruitmentQueue,MarchOrders):
 
     @staticmethod
     def defense_pct(terrain, castle=0):
-        return 100-((100-terrain)*(100-castle))//100
+        return defense_pct(terrain,castle)
 
     @staticmethod
     def spread_damage(damage, units):

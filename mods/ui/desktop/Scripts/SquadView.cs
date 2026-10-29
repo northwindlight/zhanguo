@@ -30,12 +30,9 @@ public static class SquadView
         var rows=units.ToArray();var first=rows.First();
         string owner=first["owner"]!.ToString(),kind=first["kind"]!.ToString();
         int x=I(first["x"]),y=I(first["y"]);
-        var tile=frame["tiles"]?.AsArray().FirstOrDefault(t=>I(t?["position"]?[0])==x&&I(t?["position"]?[1])==y);
-        var defense=frame["scene"]?["tile_defenses"]?.AsArray().FirstOrDefault(t=>I(t?["x"])==x&&I(t?["y"])==y);
-        int terrain=I(defense?["terrain"]),castle=owner==tile?["owner"]?.ToString()?I(defense?["castle"]):0;
-        bool active=frame["armies"]?.AsArray().Any(u=>u?["owner"]?.ToString()==owner&&I(u["x"])==x&&I(u["y"])==y&&u["engaged"]?.GetValue<bool>()==true)==true;
-        bool defending=owner==tile?["owner"]?.ToString()||owner=="野人"||!active;
-        int cover=defending?100-(int)Math.Floor((100.0-terrain)*(100-castle)/100):0;
+        var defense=frame["scene"]?["squad_defenses"]?.AsArray().FirstOrDefault(t=>S(t?["owner"])==owner&&I(t?["x"])==x&&I(t?["y"])==y);
+        int terrain=I(defense?["terrain"]),castle=I(defense?["castle"]),cover=I(defense?["total"]);
+        bool defending=defense?["defending"]?.GetValue<bool>()==true;
         var maxima=frame["scene"]?["unit_types"]?.AsArray().ToDictionary(t=>t!["id"]!.ToString(),t=>F(t!["max_hp"]));
         double hp=0,max=0;
         foreach(var row in rows)
@@ -54,8 +51,9 @@ public static class SquadView
             hp+=Math.Max(0,current);
             double cap=F(row["max_hp"]);max+=cap>0?cap:maxima?.GetValueOrDefault(row["kind"]!.ToString())??0;
         }
-        return new Status(owner,frame["names"]?[owner]?.ToString()??owner,kind,rows.Length,hp,max,terrain,castle,cover,defending) { DefenseKnown=defense?["castle_known"]?.GetValue<bool>()!=false||!defending||owner!=tile?["owner"]?.ToString() };
+        return new Status(owner,frame["names"]?[owner]?.ToString()??owner,kind,rows.Length,hp,max,terrain,castle,cover,defending) { DefenseKnown=defense?["total"]!=null };
     }
+    private static string S(JsonNode? node)=>node?.ToString()??"";
     // One real resolution is choreographed as three exchanges. These timings
     // interpolate the known before/after HP; they do not roll extra damage.
     public static float DamageProgress(float progress)

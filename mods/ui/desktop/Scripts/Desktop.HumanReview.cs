@@ -147,7 +147,7 @@ public partial class Desktop
             if(OwnArmies.Any())throw new Exception("正常真人开局不应赠兵");CloseDrawers(false);_map.Fit();await Screenshot(path);
             await ReviewMapTools(stem);
             if(!_ledgerPowerBox.Visible||!_ledgerPower.Text.Contains("0/1")||!_ledgerPowerLast.Text.Contains("尚未结算"))throw new Exception("开局未显示当前电力缺口与首次结算状态");
-            foreach(string page in new[]{"build","army","market","diplomacy","alliance","intel","nation"})
+            foreach(string page in new[]{"build","army","market","bank","diplomacy","alliance","intel","nation"})
             {
                 await PointerClick(_humanNav[page]);await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
                 if(page=="market")await MarketReady();
@@ -223,6 +223,7 @@ public partial class Desktop
             await Screenshot(stem+"-recruit.png");await PointerClick(_rtsCards["native:militia"]);await HumanIdle();
             if(!OwnArmies.Any())throw new Exception("真人征兵没有产生真实军队："+_humanReceipt.Text);
             await PointerClick(_humanNav["end"]);await WaitFor(()=>HumanCanWrite&&_period==2,"新兵没有进入下一期",HumanRoundTimeout);
+            await ReviewHumanBankLoan(stem);
             _humanCell=capital;OpenHumanPage("tile");
             await CheckGarrisonFirst();await Screenshot(stem+"-garrison.png");
             var check=_humanContent.FindChild("HumanArmy1",true,false) as CheckButton;
@@ -250,7 +251,7 @@ public partial class Desktop
             _humanCell=destination;OpenHumanPage("tile");StartHumanTarget("attack");await WaitFor(()=>_map.TargetCount>0,"原地攻击没有独立准星圈");
             await Screenshot(stem+"-attack.png");await RightOrderAt(destination,attack:true);await HumanIdle();
             if(!OwnArmies.Any(u=>u["engaged"]?.GetValue<bool>()==true))throw new Exception("进攻没有按真实规则登记交战");
-            _humanOperation="buy_map";await PointerClick(_humanNav["intel"]);await PointerClick(_humanSubmit!);await HumanIdle();
+            _humanOperation="buy_map";await PointerClick(_humanNav["intel"]);await PointerClick((Button)_mailTools.FindChild("MailboxActions",true,false));await PointerClick(_humanSubmit!);await HumanIdle();
             if(_map.MemoryCount==0)throw new Exception("购图没有合入历史地图");
             var memory=_map.Frame!["tiles"]!.AsArray().First(t=>S(t!["visibility"])=="memory")!;
             var memoryCell=new Vector2I(I(memory["position"]![0]),I(memory["position"]![1]));
@@ -305,6 +306,9 @@ public partial class Desktop
                 _marketAutomatic=false;OpenHumanPage("market");await MarketReady();
                 await PointerClick((Button)_humanContent.FindChild("MarketAutoTab",true,false));ValidateHumanLayout();await Screenshot(stem+$"-auto-{size.X}.png");
                 _humanCell=destination;OpenHumanPage("tile");await CheckGarrisonFirst();CheckOutlinerLayout();await Screenshot(stem+$"-garrison-{size.X}.png");
+                OpenHumanPage("bank");await WaitFor(()=>_humanContent.FindChild("BankQuote",true,false) is Label q&&!q.Text.StartsWith("正在"),"银行正式报价未返回");
+                ValidateHumanLayout();if(_bankBorrow==null||!new Rect2(Vector2.Zero,Size).Encloses(_bankBorrow.GetGlobalRect()))throw new Exception("银行贷款入口需要滚动或越界");
+                await Screenshot(stem+$"-bank-{size.X}.png");
                 OpenHumanOutliner(true);await WaitFor(()=>Drawers.All(d=>d.IsSettled),"总览打开时抽屉未收起");CheckOutlinerLayout();await Screenshot(stem+$"-outliner-{size.X}.png");
                 await ReviewResourceTooltip();await Screenshot(stem+$"-resource-breakdown-{size.X}.png");
                 layouts.Add(new JsonObject { ["width"]=size.X,["height"]=size.Y,["within_viewport"]=true,["rts_hover"]=true });
@@ -322,6 +326,7 @@ public partial class Desktop
                 ["build_and_quote"]=true,["rts_icons"]=true,["two_step_player_menu"]=true,["custom_nation_name_and_color"]=true,["tile_a_b_a"]=true,["disabled_hover"]=true,["short_hover"]=true,["long_hover"]=true,["construction_quota_disabled"]=true,["letter_form"]=true,["free_human_scenario"]=true,["reject_multiple_humans"]=true,["recruit"]=true,["move_did_not_occupy"]=true,["in_place_attack"]=true,["esc_cancels_target"]=true,["war_warning"]=true,
                 ["map_purchase"]=true,["historical_pixels_static"]=true,["single_nation_ledger"]=true,
                 ["market_quantity_buttons"]=true,["market_exact_quotes"]=true,["auto_trade_buy_and_sell"]=true,["auto_trade_validation"]=true,["cancel_half_refund"]=true,["cancel_keeps_quota"]=true,["demolish_zero_refund"]=true,["market_layouts"]=true,
+                ["bank_quotes"]=true,["bank_borrow"]=true,["auto_trade_rule_source"]=true,
                 ["garrison_visible_without_scroll"]=true,["wild_garrison_continuity"]=true,["wild_guard_id"]=wildId,["wild_formation_figures"]=wildFigures,
                 ["resource_breakdown_hover"]=true,["outliner_tabs"]=true,["outliner_filters"]=true,["cross_site_selection"]=true,["mouse_orders"]=true,["shift_waypoints"]=true,["selection_halos"]=true,["numbers_without_enter"]=true,["market_reference_visible"]=true,["power_visible"]=true,["power_ignores_unfinished"]=true,["power_previous_actual"]=true,
                 ["save_queued"]=true,["exit_choice"]=true,["rts_layouts"]=true,["save"]=_savePath,["config"]=configPath,["layouts"]=layouts,

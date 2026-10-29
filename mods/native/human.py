@@ -4,7 +4,9 @@ Every game request uses the actor-bound public API. No observer projection,
 private foreign accounts, hidden terrain, or rule mutation is used for views.
 """
 from copy import deepcopy
+from dataclasses import asdict
 from .army.candidates import candidates, command_states
+from .market.automation import validate_rule
 from .tools.commands import COMMANDS
 
 LABELS = {
@@ -81,6 +83,16 @@ class HumanAPI:
         if arguments.get('panel')=='news':
             return self.state(actor)['facts']['news']
         return self.player(actor).query('query',arguments)
+
+    def auto_trade_options(self,actor,**arguments):
+        market=self.player(actor).call_api('economy:queries','market')
+        try:
+            resource=arguments.pop('resource')
+            if resource not in dict(market['prices']):raise ValueError('该资源未在市场上市')
+            rule=validate_rule(resource,**arguments)
+        except (KeyError,TypeError,ValueError) as error:
+            return {'available':False,'reason':str(error)}
+        return {'available':True,'reason':'','rule':asdict(rule)}
 
     def site_options(self, actor, x, y, count=1, queued=False):
         player=self.player(actor)

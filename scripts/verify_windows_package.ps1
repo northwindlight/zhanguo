@@ -79,6 +79,9 @@ foreach ($taskCheck in @('outliner_tabs', 'outliner_filters', 'cross_site_select
 foreach ($taskCheck in @('simple_terrain_map', 'terrain_preserves_fog', 'terrain_price_steps', 'free_space_filter', 'compact_land_icons', 'right_return_preferences', 'right_return_army_priority', 'right_return_last_button', 'guide_api_and_return')) {
     if ($taskHuman.$taskCheck -ne $true) { throw "Terrain/filter/guide verification failed: $taskCheck" }
 }
+foreach ($taskCheck in @('bank_quotes', 'bank_borrow', 'auto_trade_rule_source')) {
+    if ($taskHuman.$taskCheck -ne $true) { throw "Bank/shared-rule verification failed: $taskCheck" }
+}
 if ($taskHuman.period -lt 3 -or $taskHuman.layouts.Count -ne 4 -or -not $taskHuman.normal_zero_army_start -or -not $taskHuman.repeated_market_clicks -or -not $taskHuman.build_and_quote -or -not $taskHuman.recruit -or -not $taskHuman.move_did_not_occupy -or -not $taskHuman.in_place_attack -or -not $taskHuman.map_purchase -or -not $taskHuman.historical_pixels_static -or -not $taskHuman.single_nation_ledger -or -not $taskHuman.save_queued -or -not $taskHuman.exit_choice -or -not $taskHuman.esc_cancels_target -or -not $taskHuman.war_warning -or -not $taskHuman.letter_form -or -not $taskHuman.production_queue -or -not $taskHuman.pending_full_refund) { throw 'Single local human verification failed' }
 $taskExtinctionFixture = Join-Path $taskOutput 'extinction-fixture.json'
 $env:ZHANGUO_EXTINCTION_REVIEW = $taskExtinctionFixture
@@ -93,4 +96,17 @@ if ($taskExtinction.Count -ne 3 -or $taskExtinction[0].owner -ne 'scenario:other
 foreach ($taskStage in $taskExtinction | Select-Object -Skip 1) {
     if ($taskStage.owner -or $taskStage.color -or $taskStage.caption -notlike '*现归属待确认*') { throw 'Extinct ownership was not invalidated after settlement/reload' }
 }
+$taskFinanceFixture = Join-Path $taskOutput 'finance-fixture.json'
+$env:ZHANGUO_FINANCE_REVIEW = $taskFinanceFixture
+Push-Location (Join-Path $taskBundle 'game')
+try {
+    & (Join-Path $taskBundle 'runtime/python/python.exe') -X utf8 -m mods.ui.desktop_review --finance --output $taskFinanceFixture
+    if ($LASTEXITCODE -ne 0) { throw 'Could not generate the offline finance fixture' }
+} finally { Pop-Location }
+Run-GameCheck 'finance' @('--rendering-method', 'gl_compatibility', '--rendering-driver', 'opengl3_angle', '--', '--finance-review-output', (Join-Path $taskOutput 'finance.png')) 300000
+$taskFinance = Get-Content -Raw (Join-Path $taskOutput 'finance.png.json') | ConvertFrom-Json
+foreach ($taskCheck in @('report_delivery', 'report_periods', 'report_history', 'report_read_persistence', 'report_game_isolation', 'report_purchase_permissions', 'report_fixed_return')) {
+    if ($taskFinance.$taskCheck -ne $true) { throw "Finance mailbox verification failed: $taskCheck" }
+}
+if ($taskFinance.layouts.Count -ne 4) { throw 'Finance layout verification incomplete' }
 Write-Output 'WINDOWS_PORTABLE_VERIFIED'

@@ -80,6 +80,7 @@ public partial class Desktop
             _banner.SetAnchorsAndOffsetsPreset(LayoutPreset.TopLeft);
             _banner.Position=new Vector2(left,78);_banner.Size=new Vector2(Math.Min(700,right-left),126);
         }
+        LayoutReportNotice();
     }
     private void RefreshNationLedger(string? actor=null)
     {

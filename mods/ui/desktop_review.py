@@ -7,6 +7,33 @@ from scenarios.eight_nations import build
 from .desktop_activity import TimelineCapture
 
 
+def build_finance_fixture(mods='mods.toml'):
+    """Real reporting boundaries; synthetic initial facilities, no AI/model play."""
+    from host import GameHost
+    from mods.native.human import HumanAPI
+    from .desktop_player import frame as player_frame
+    a,b='scenario:human','scenario:other'
+    host=GameHost.new({'mods':mods,'map_size':12,'seed':73,'nations':[
+        {'id':a,'name':'秦','client':'human','color':'66b6a7'},
+        {'id':b,'name':'楚','client':'rule','color':'ce7765'}]})
+    api=HumanAPI(host);world=host.world
+    sites=[s for s in world.buildings.snapshot().sites if s.owner==a]
+    farm=next(s for s in sites if dict(s.resources).get('native:farmland',0))
+    world.buildings.seed(farm.id,'native:farm');world.buildings.seed(farm.id,'native:wood-power-plant')
+    frames=[]
+    def snapshot(name):
+        state=api.state(a)
+        frames.append({'name':name,'frame':{'scope':'player',**state,'visual':player_frame(host.ui,state)}})
+    for period in range(20):
+        world.resolve_turn()
+        world.phase='行动'
+        if period+1 in (9,10,20):snapshot(str(period+1))
+    receipt=api.submit(a,'buy_report',{'target':b})
+    if not receipt['ok']:raise ValueError(receipt)
+    snapshot('purchased')
+    return {'offline':True,'synthetic_facilities':True,'frames':frames}
+
+
 def build_extinction_fixture():
     """A owns an old B map, captures its last hall, then reloads the save."""
     from tempfile import TemporaryDirectory
@@ -70,8 +97,9 @@ def build_fixture():
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--extinction',action='store_true')
+    parser.add_argument('--finance',action='store_true')
     args=parser.parse_args();args.output.parent.mkdir(parents=True,exist_ok=True)
-    with args.output.open('x',encoding='utf-8') as stream:json.dump(build_extinction_fixture() if args.extinction else build_fixture(),stream,ensure_ascii=False)
+    with args.output.open('x',encoding='utf-8') as stream:json.dump(build_finance_fixture() if args.finance else build_extinction_fixture() if args.extinction else build_fixture(),stream,ensure_ascii=False)
     print('OFFLINE_VISUAL_FIXTURE_OK',args.output)
 
 

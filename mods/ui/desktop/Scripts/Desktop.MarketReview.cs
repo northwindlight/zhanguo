@@ -49,17 +49,20 @@ public partial class Desktop
         await PointerClick(MarketReviewButton("MarketAutoTab"));
         await PointerClick(MarketReviewCheck("AutoTradeBuy"));await TypeNumber(MarketReviewNumber("AutoBuyTarget"),"30");await TypeNumber(MarketReviewNumber("AutoBuyLimit"),"10");
         await PointerClick(MarketReviewCheck("AutoTradeSell"));await TypeNumber(MarketReviewNumber("AutoSellTarget"),"20");
+        await WaitFor(()=>_humanContent.GetChildren().OfType<Label>().Any(l=>l.Text.Contains("自动购买目标不能高于")),"正式规则没有返回倒挂原因");
         if(!MarketReviewButton("AutoTradeSave").Disabled)throw new Exception("买卖目标倒挂没有阻止保存");
         await TypeNumber(MarketReviewNumber("AutoSellTarget"),"50");
         // A resource roundtrip must preserve an unsaved, account-owned draft.
         await PointerClick(MarketReviewButton("MarketResource_wood"));await MarketReady();
         await PointerClick(MarketReviewButton("MarketResource_food"));await MarketReady();
         if(MarketReviewNumber("AutoBuyTarget").Value!=30||!MarketReviewCheck("AutoTradeBuy").ButtonPressed)throw new Exception("切换商品丢失自动交易草稿");
+        await WaitFor(()=>!MarketReviewButton("AutoTradeSave").Disabled,"正式校验没有恢复保存按钮");
         await PointerClick(MarketReviewButton("AutoTradeSave"));await HumanIdle();await MarketReady();
         if(!HumanFacts["market"]!["automatic"]!["rules"]!.AsArray().Any(r=>S(r!["resource"])=="native:food"&&I(r["buy_below"])==30))throw new Exception("自动购买设置没有进入本国规则");
         await Screenshot(stem+"-auto-buy.png");
         await PointerClick(MarketReviewButton("MarketResource_wood"));await MarketReady();
         await PointerClick(MarketReviewCheck("AutoTradeSell"));await TypeNumber(MarketReviewNumber("AutoSellTarget"),"100");await TypeNumber(MarketReviewNumber("AutoSellLimit"),"10");
+        await WaitFor(()=>!MarketReviewButton("AutoTradeSave").Disabled,"自动出售正式校验未返回");
         await PointerClick(MarketReviewButton("AutoTradeSave"));await HumanIdle();await MarketReady();
         if(!HumanFacts["market"]!["automatic"]!["rules"]!.AsArray().Any(r=>S(r!["resource"])=="native:wood"&&I(r["sell_above"])==100))throw new Exception("自动出售设置没有保存");
         await Screenshot(stem+"-auto-sell.png");

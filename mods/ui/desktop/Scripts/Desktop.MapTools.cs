@@ -58,6 +58,7 @@ public partial class Desktop
         _terrainLegend.Visible=_simpleTerrain&&!_pauseMenu.Visible;
         _terrainLegend.Size=new Vector2(292,0);
         _terrainLegend.Position=new Vector2(16,_mapTools.Position.Y-_terrainLegend.Size.Y-8);
+        LayoutReportNotice();
     }
     private bool ReturnToLastOperation()
     {

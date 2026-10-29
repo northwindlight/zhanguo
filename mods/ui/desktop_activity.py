@@ -82,6 +82,9 @@ class TimelineCapture:
     def scene(self):return self.host.ui.desktop_scene(self.host.observer_scene())
 
     def add(self,phase,title,text,position=None,*,after=None,source='',duration=1.5,**extra):
+        if after is not None:
+            from .desktop_defense import project
+            project(after)
         if self.count>=self.LIMIT:raise ValueError('本期演出超过2048片段，改用完整快照同步')
         self.count+=1
         delta=difference(self.previous,after) if after is not None else {}

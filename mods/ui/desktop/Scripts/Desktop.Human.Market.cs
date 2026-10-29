@@ -217,14 +217,24 @@ public partial class Desktop
             if(_readMarketDraft==null)return;
             SubmitHuman("auto_trade",_readMarketDraft());
         });HumanArt.Style(save,"check");save.Name="AutoTradeSave";save.SizeFlagsHorizontal=SizeFlags.ExpandFill;
-        void Validate()
+        int validation=0;int epoch=_marketEpoch;
+        async void Validate()
         {
-            bool valid=!buy.ButtonPressed||!sell.ButtonPressed||buyTarget.Value<=sellTarget.Value;
-            warning.Text=valid?"":"购买目标须不高于出售保留量，避免自动倒手。";
-            save.TooltipText=valid?"保存当前商品的设置；本国结束行动时才执行":warning.Text;
-            _marketAvailability[save]=valid;buyTarget.Editable=buy.ButtonPressed;buyLimit.Editable=buy.ButtonPressed;
+            int request=++validation;
+            _marketAvailability[save]=false;warning.Text="正在核对交易条件…";
+            buyTarget.Editable=buy.ButtonPressed;buyLimit.Editable=buy.ButtonPressed;
             sellTarget.Editable=sell.ButtonPressed;sellLimit.Editable=sell.ButtonPressed;
             maxPrice.Editable=ceiling.ButtonPressed;minPrice.Editable=floor.ButtonPressed;RefreshMarketButtons();
+            await ToSignal(GetTree().CreateTimer(.15),SceneTreeTimer.SignalName.Timeout);
+            if(request!=validation||epoch!=_marketEpoch||_readMarketDraft==null)return;
+            HumanQuery("auto_trade_options",_readMarketDraft(),result=>
+            {
+                if(request!=validation||epoch!=_marketEpoch||!IsInstanceValid(save))return;
+                bool valid=Yes(result["data"]?["available"]);
+                warning.Text=valid?"":S(result["data"]?["reason"]);
+                save.TooltipText=valid?"保存当前商品的设置；本国结束行动时才执行":warning.Text;
+                _marketAvailability[save]=valid;RefreshMarketButtons();
+            });
         }
         foreach(var check in new[]{active,buy,sell,ceiling,floor})check.Toggled+=_=>{_marketDraftDirty=true;Validate();};
         foreach(var field in new[]{buyTarget,buyLimit,sellTarget,sellLimit,reserve,maxPrice,minPrice})field.ValueChanged+=_=>{_marketDraftDirty=true;Validate();};

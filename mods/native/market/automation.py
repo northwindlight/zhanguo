@@ -23,6 +23,21 @@ class AutoTradeRule:
     min_sell_price: float | None = None
 
 
+def validate_rule(resource, **values):
+    """Pure validation shared by submission, save restore and human preview."""
+    rule=AutoTradeRule(resource,**values)
+    if type(rule.enabled) is not bool:raise ValueError('自动交易开关须为布尔值')
+    for key in ('buy_below','sell_above'):
+        if getattr(rule,key) is not None:integer(getattr(rule,key))
+    for key in ('buy_limit','sell_limit'):integer(getattr(rule,key),1)
+    integer(rule.reserve_gold)
+    for key in ('max_buy_price','min_sell_price'):
+        if getattr(rule,key) is not None:number(getattr(rule,key))
+    if rule.buy_below is not None and rule.sell_above is not None and rule.buy_below>rule.sell_above:
+        raise ValueError('自动购买目标不能高于自动出售保留量')
+    return rule
+
+
 class AutomaticTrading:
     def _init_automation(self, inspect):
         self._inspect=inspect
@@ -31,17 +46,7 @@ class AutomaticTrading:
 
     def _validate_rule(self, resource, **values):
         self._listing(resource)
-        rule=AutoTradeRule(resource,**values)
-        if type(rule.enabled) is not bool:raise ValueError('自动交易开关须为布尔值')
-        for key in ('buy_below','sell_above'):
-            if getattr(rule,key) is not None:integer(getattr(rule,key))
-        for key in ('buy_limit','sell_limit'):integer(getattr(rule,key),1)
-        integer(rule.reserve_gold)
-        for key in ('max_buy_price','min_sell_price'):
-            if getattr(rule,key) is not None:number(getattr(rule,key))
-        if rule.buy_below is not None and rule.sell_above is not None and rule.buy_below>rule.sell_above:
-            raise ValueError('自动购买目标不能高于自动出售保留量')
-        return rule
+        return validate_rule(resource,**values)
 
     def set_auto_trade(self, owner, resource, *, enabled=True, buy_below=None, sell_above=None,
                        buy_limit=50, sell_limit=50, reserve_gold=0, max_buy_price=None, min_sell_price=None):

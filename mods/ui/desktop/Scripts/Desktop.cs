@@ -154,6 +154,7 @@ public partial class Desktop : Control
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--effects-review-output"){_=ReviewEffects(args[i+1]);return;}
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--human-review-output"){_=ReviewHuman(args[i+1]);return;}
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--extinction-review-output"){_=ReviewExtinctionMemory(args[i+1]);return;}
+        for(int i=0;i<args.Length-1;i++)if(args[i]=="--finance-review-output"){_=ReviewFinanceMailbox(args[i+1]);return;}
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--startup-review-output"){_=ReviewStartup(args[i+1]);return;}
         if(_smoke==null)
         {
@@ -417,6 +418,7 @@ public partial class Desktop : Control
                 row["cycle_active"]?.GetValue<bool>()==true && row["playback_paused"]?.GetValue<bool>()!=true && state!="stopping";
             if(_smoke!=null&&state=="stopped")GD.Print("DESKTOP_HOST_STOPPED");
             _savePath=S(row["save"]);
+            if(HumanMode)RefreshMailbox();
             string status=state switch {"running"=>"推演中","advancing"=>"列国行动中","presenting"=>"展示本次调用",
                 "playback-paused"=>"本批演出已暂停","save-queued"=>"保存已排队，等待完整回合",
                 "stopping"=>"正在完成回合并保存","paused"=>"已暂停","stopped"=>"已保存并停止",_=>state};

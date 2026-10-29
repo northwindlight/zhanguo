@@ -1,6 +1,7 @@
 """Standard UI desktop projection. Never gives observer data to players."""
 from collections import Counter
 from copy import deepcopy
+from .desktop_defense import project
 
 
 def scene(ui, facts):
@@ -12,7 +13,7 @@ def scene(ui, facts):
         for source in flow.get('sources') or []:source['label']=ui.console.label('content',source['kind'])
     for b in facts.get('buildings',[]):b['label']=ui.console.label('content',b['kind'])
     for u in facts.get('armies',[])+facts.get('guards',[]):u['label']=ui.console.label('content',u['kind'])
-    return facts
+    return project(facts)
 
 
 def frame(ui, snapshot):

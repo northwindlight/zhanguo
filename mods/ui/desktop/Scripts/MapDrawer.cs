@@ -12,6 +12,8 @@ public partial class MapDrawer : PanelContainer
     private Side _side;
     private Rect2 _bounds;
     private float _progress;
+    private Label _title=null!;
+    public string Title { get=>_title.Text;set=>_title.Text=value; }
 
     public void Setup(string title,Side side)
     {
@@ -22,6 +24,7 @@ public partial class MapDrawer : PanelContainer
         var column=new VBoxContainer();column.AddThemeConstantOverride("separation",12);AddChild(column);
         var header=new HBoxContainer();column.AddChild(header);
         var label=new Label { Text=title,SizeFlagsHorizontal=SizeFlags.ExpandFill };
+        _title=label;
         label.AddThemeFontSizeOverride("font_size",20);label.AddThemeColorOverride("font_color",new Color("ddcf9d"));header.AddChild(label);
         CloseButton=new Button { Text="收起 ×",FocusMode=FocusModeEnum.None };CloseButton.Pressed+=()=>SetOpen(false);header.AddChild(CloseButton);
         Body=new VBoxContainer { SizeFlagsVertical=SizeFlags.ExpandFill };column.AddChild(Body);
