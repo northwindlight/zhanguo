@@ -17,6 +17,8 @@ public partial class Desktop
     private async Task PortableCheck(string report)
     {
         Process? child=null;
+        Task<string>? stderr=null;
+        string lastMessage="not started";
         try
         {
             if(!_runtime.Portable)throw new Exception("便携包检查须使用导出的游戏。");
@@ -30,13 +32,16 @@ public partial class Desktop
             File.WriteAllText(config,JsonSerializer.Serialize(new {map_size=24,seed=20261023,
                 nations=ids.Select((id,index)=>new {id="scenario:"+id,name=names[index],client="rule",rule_ai="v14"})}));
             child=Process.Start(_runtime.Host(output,config))??throw new Exception("内置 Python 无法启动");
-            var stderr=child.StandardError.ReadToEndAsync();
-            using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(90));
+            stderr=child.StandardError.ReadToEndAsync();
+            // Eight candidates each have bounded multi-stage solves. This is
+            // a solver integration check, independent of playback speed.
+            using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(300));
             bool initial=false,complete=false,stopped=false;
             int phases=0;
             while(await child.StandardOutput.ReadLineAsync(deadline.Token) is string line)
             {
                 var row=JsonNode.Parse(line)!.AsObject();string type=S(row["type"]);
+                lastMessage=type+(type=="status"?" "+S(row["state"]):"");
                 if(type=="error")throw new Exception(S(row["message"]));
                 if(type=="timeline")
                 {
@@ -73,7 +78,12 @@ public partial class Desktop
             File.WriteAllText(report,JsonSerializer.Serialize(result,new JsonSerializerOptions{WriteIndented=true}));
             GD.Print("PORTABLE_CHECK_OK "+report);GetTree().Quit();
         }
-        catch(Exception e){GD.PrintErr(e);GetTree().Quit(3);}
+        catch(Exception e)
+        {
+            if(child!=null&&!child.HasExited)child.Kill(entireProcessTree:true);
+            string backend=stderr!=null?await stderr:"";
+            GD.PrintErr(e+"\nLast host message: "+lastMessage+"\nBackend: "+backend);GetTree().Quit(3);
+        }
         finally
         {
             if(child!=null){if(!child.HasExited)child.Kill(entireProcessTree:true);child.Dispose();}

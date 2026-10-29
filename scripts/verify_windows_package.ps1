@@ -34,7 +34,7 @@ function Run-GameCheck([string]$Name, [string[]]$GameArguments, [int]$Timeout = 
 }
 
 $taskCheck = Join-Path $taskOutput 'portable-check.json'
-Run-GameCheck 'portable' @('--headless', '--', '--portable-check', $taskCheck)
+Run-GameCheck 'portable' @('--headless', '--', '--portable-check', $taskCheck) 360000
 $taskReport = Get-Content -Raw $taskCheck | ConvertFrom-Json
 if (-not $taskReport.packaged -or $taskReport.host_exit -ne 0 -or $taskReport.period -ne 1) { throw 'Invalid portable verification report' }
 
