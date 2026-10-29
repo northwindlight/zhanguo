@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900">
+<title>战国 UI 体验方向草图：非游戏截图，数值仅示例</title>
+<style>text{font-family:"Noto Sans CJK SC","Microsoft YaHei",sans-serif;fill:#edf0df} .muted{fill:#b0c2b6} .gold{fill:#e5ce91} .cyan{fill:#8edcc9}</style>
+<defs><pattern id="grid" width="120" height="120" patternUnits="userSpaceOnUse"><rect width="120" height="120" fill="#537462"/><path d="M120 0H0V120" fill="none" stroke="#708b72" stroke-opacity=".35"/></pattern>
+<g id="house"><path d="M-22 0h44v28h-44z" fill="#c7ae81"/><path d="M-28 0 0-18 28 0z" fill="#6f9490"/><path d="M-5 11h10v17H-5z" fill="#344a43"/></g>
+<g id="farm"><path d="M-24-14h48v34h-48z" fill="#b28d52"/><path d="M-18-12v30m9-30v30m9-30v30m9-30v30m9-30v30" stroke="#e2ca7c" stroke-width="3"/></g>
+<g id="camp"><path d="m-24 20 24-40 24 40z" fill="#c3b37f"/><path d="m-10 20 10-24 10 24z" fill="#3c5650"/><path d="M0-22v-14h18v10H0" fill="#77c9b7"/></g>
+<g id="tree"><path d="M-3 8h6v18h-6z" fill="#8c7958"/><path d="m0-26 18 24H9l16 18h-50L-9-2h-9z" fill="#385e46"/><path d="m0-23 14 20H5L18 9H0z" fill="#6d9369"/></g>
+<g id="person"><circle cy="-9" r="4" fill="#cfb690"/><path d="M-5-4H5V8H-5z" fill="#7ed7c0"/><path d="M-3 8v7M3 8v7" stroke="#304b48" stroke-width="3"/></g>
+<g id="bank"><path d="m-13-5 13-8 13 8zM-12 12h24" fill="#e5ce91" stroke="#e5ce91" stroke-width="2"/><path d="M-8-2v12M0-2v12M8-2v12" stroke="#d2e1c9" stroke-width="3"/></g>
+<g id="speech"><path d="M-12-10h24V8H-3l-7 6V8h-2z" fill="none" stroke="#d2e1c9" stroke-width="2"/><path d="M-7-4H7M-7 2H3" stroke="#d2e1c9" stroke-width="2"/></g>
+<g id="mail"><path d="M-13-9h26V10h-26zM-13-9 0 2l13-11" fill="none" stroke="#d2e1c9" stroke-width="2"/></g>
+<g id="menu"><path d="M-11-8h22M-11 0h22M-11 8h22" stroke="#d2e1c9" stroke-width="2"/></g></defs>
+<rect x="0" y="0" width="1440" height="900" rx="0" fill="#142524"/>
+<rect x="0" y="56" width="1440" height="844" rx="0" fill="#263e39"/>
+<rect x="48" y="128" width="1340" height="672" rx="0" fill="url(#grid)"/>
+<use href="#tree" transform="translate(118 195) scale(0.9)"/>
+<use href="#tree" transform="translate(172 226) scale(0.9)"/>
+<use href="#tree" transform="translate(140 348) scale(0.9)"/>
+<use href="#tree" transform="translate(340 426) scale(0.9)"/>
+<use href="#tree" transform="translate(510 247) scale(0.9)"/>
+<use href="#tree" transform="translate(570 300) scale(0.9)"/>
+<use href="#tree" transform="translate(155 595) scale(0.9)"/>
+<use href="#tree" transform="translate(450 650) scale(0.9)"/>
+<use href="#tree" transform="translate(600 580) scale(0.9)"/>
+<use href="#house" transform="translate(280 345) scale(0.8)"/>
+<use href="#house" transform="translate(430 365) scale(0.8)"/>
+<use href="#house" transform="translate(400 530) scale(0.8)"/>
+<use href="#house" transform="translate(590 430) scale(0.8)"/>
+<use href="#camp" transform="translate(490 550) scale(0.8)"/>
+<use href="#farm" transform="translate(300 535) scale(0.9)"/>
+<use href="#person" transform="translate(298 405) scale(0.5)"/>
+<use href="#person" transform="translate(322 414) scale(0.5)"/>
+<use href="#person" transform="translate(480 420) scale(0.5)"/>
+<use href="#person" transform="translate(450 592) scale(0.5)"/>
+<use href="#person" transform="translate(291 565) scale(0.5)"/>
+<rect x="0" y="844" width="1440" height="56" rx="0" fill="#142625"/>
+<rect x="0" y="0" width="1440" height="56" rx="0" fill="#112321"/>
+<text x="18" y="32" font-size="18" class="" text-anchor="start">青岚 · 第4回合</text>
+<text x="244" y="32" font-size="14" class="muted" text-anchor="start">金</text>
+<text x="268" y="32" font-size="16" class="gold" text-anchor="start">900</text>
+<text x="334" y="32" font-size="14" class="muted" text-anchor="start">粮</text>
+<text x="358" y="32" font-size="16" class="" text-anchor="start">25</text>
+<text x="424" y="32" font-size="14" class="muted" text-anchor="start">木</text>
+<text x="448" y="32" font-size="16" class="" text-anchor="start">58</text>
+<text x="514" y="32" font-size="14" class="muted" text-anchor="start">矿</text>
+<text x="538" y="32" font-size="16" class="" text-anchor="start">10</text>
+<text x="604" y="32" font-size="14" class="muted" text-anchor="start">油</text>
+<text x="628" y="32" font-size="16" class="" text-anchor="start">0</text>
+<text x="694" y="32" font-size="14" class="muted" text-anchor="start">装</text>
+<text x="718" y="32" font-size="16" class="" text-anchor="start">5</text>
+<text x="784" y="32" font-size="14" class="muted" text-anchor="start">补</text>
+<text x="808" y="32" font-size="16" class="" text-anchor="start">9</text>
+<text x="874" y="32" font-size="14" class="muted" text-anchor="start">电</text>
+<text x="898" y="32" font-size="16" class="" text-anchor="start">2/1</text>
+<rect x="1124" y="8" width="80" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<text x="1164.0" y="32.0" font-size="16" class="" text-anchor="middle">Ⅱ 1×</text>
+<g><title>经济：市场、银行、报表</title>
+<rect x="1220" y="8" width="44" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<use href="#bank" transform="translate(1242 26) scale(0.7)"/>
+</g>
+<g><title>外交：条约、联盟、信件</title>
+<rect x="1272" y="8" width="44" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<use href="#speech" transform="translate(1294 26) scale(0.7)"/>
+</g>
+<g><title>通知与邮箱</title>
+<rect x="1324" y="8" width="44" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<use href="#mail" transform="translate(1346 26) scale(0.7)"/>
+<rect x="1355" y="9" width="12" height="14" rx="3" fill="#d8c286"/>
+<text x="1361" y="20" font-size="11" text-anchor="middle" style="fill:#172e29">1</text>
+</g>
+<g><title>菜单与设置</title>
+<rect x="1376" y="8" width="44" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<use href="#menu" transform="translate(1398 26) scale(0.7)"/>
+</g>
+<text x="18" y="880" font-size="16" class="muted" text-anchor="start">▧ 地图    ? 指南</text>
+<text x="1228" y="880" font-size="14" class="muted" text-anchor="end">轮到你行动</text>
+<rect x="1246" y="852" width="178" height="40" rx="4" fill="#d8c286" stroke="#526e60"/>
+<text x="1335.0" y="878.0" text-anchor="middle" font-size="16" style="fill:#172e29">结束本回合 →</text>
+<text x="20" y="82" font-size="13" class="muted" text-anchor="start">方向原型 · 非运行截图 · 图形与数值仅示例</text>
+<rect x="610" y="300" width="120" height="120" rx="4" fill="none" stroke="#edd48e"/>
+<use href="#house" transform="translate(670 347) scale(1.2)"/>
+<text x="670" y="401" font-size="17" class="" text-anchor="middle">瀚与</text>
+<rect x="1072" y="72" width="352" height="756" rx="6" fill="#1c3331" stroke="#6a8773"/>
+<rect x="1084" y="84" width="158" height="36" rx="4" fill="#d8c286" stroke="#526e60"/>
+<text x="1163.0" y="108.0" text-anchor="middle" font-size="16" style="fill:#172e29">▧ 地块</text>
+<rect x="1254" y="84" width="158" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<text x="1333.0" y="108.0" font-size="16" class="" text-anchor="middle">⚑ 军队</text>
+<text x="1088" y="151" font-size="21" class="" text-anchor="start">瀚与  (3,11)</text>
+<text x="1088" y="178" font-size="15" class="muted" text-anchor="start">本国 · 平原</text>
+<rect x="1086" y="194" width="324" height="60" rx="4" fill="#494837"/>
+<text x="1098" y="218" font-size="17" class="gold" text-anchor="start">本期已施工</text>
+<text x="1098" y="241" font-size="15" class="" text-anchor="start">已建2  ·  施工1  ·  待建1</text>
+<text x="1088" y="281" font-size="16" class="muted" text-anchor="start">本地建筑</text>
+<use href="#house" transform="translate(1110 309) scale(0.5)"/>
+<text x="1110" y="333" font-size="14" class="" text-anchor="middle">市政厅</text>
+<use href="#camp" transform="translate(1220 309) scale(0.5)"/>
+<text x="1220" y="333" font-size="14" class="" text-anchor="middle">兵营</text>
+<use href="#farm" transform="translate(1330 309) scale(0.5)"/>
+<text x="1330" y="333" font-size="14" class="gold" text-anchor="middle">农场·在建</text>
+<text x="1088" y="352" font-size="15" class="muted" text-anchor="start">耕地剩余1/2  ·  驻军1支</text>
+<path d="M1086 367L1410 367" fill="none" stroke="#425b53" stroke-width="1"/>
+<rect x="1086" y="378" width="100" height="36" rx="4" fill="#d8c286" stroke="#526e60"/>
+<text x="1136.0" y="402.0" text-anchor="middle" font-size="16" style="fill:#172e29">建造</text>
+<rect x="1198" y="378" width="100" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<text x="1248.0" y="402.0" font-size="16" class="" text-anchor="middle">征募</text>
+<rect x="1310" y="378" width="100" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<text x="1360.0" y="402.0" font-size="16" class="" text-anchor="middle">管理</text>
+<text x="1088" y="443" font-size="15" class="muted" text-anchor="start">生产  /  军备  /  城市</text>
+<rect x="1086" y="459" width="100" height="106" rx="4" fill="#375247" stroke="#e5ce91"/>
+<use href="#farm" transform="translate(1136 489) scale(0.55)"/>
+<text x="1136" y="526" font-size="16" class="" text-anchor="middle">农场</text>
+<text x="1136" y="551" font-size="13" class="gold" text-anchor="middle">20金 15木</text>
+<rect x="1198" y="459" width="100" height="106" rx="4" fill="#263e39" stroke="#486455"/>
+<use href="#tree" transform="translate(1248 489) scale(0.55)"/>
+<text x="1248" y="526" font-size="16" class="" text-anchor="middle">林场</text>
+<text x="1248" y="551" font-size="13" class="muted" text-anchor="middle">20金 15木</text>
+<rect x="1310" y="459" width="100" height="106" rx="4" fill="#263e39" stroke="#486455"/>
+<use href="#house" transform="translate(1360 489) scale(0.55)"/>
+<text x="1360" y="526" font-size="16" class="" text-anchor="middle">矿场</text>
+<text x="1360" y="551" font-size="13" class="muted" text-anchor="middle">缺矿点</text>
+<rect x="1086" y="579" width="324" height="42" rx="4" fill="#29423f" stroke="#526e60"/>
+<text x="1248.0" y="606.0" font-size="16" class="" text-anchor="middle">建造农场 · 本期额度已用</text>
+<rect x="1086" y="630" width="324" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<text x="1248.0" y="654.0" font-size="16" class="" text-anchor="middle">◷ 安排后续生产…</text>
+<path d="M1086 681L1410 681" fill="none" stroke="#425b53" stroke-width="1"/>
+<text x="1088" y="709" font-size="17" class="" text-anchor="start">本地生产  施工1 · 等待1</text>
+<text x="1088" y="739" font-size="15" class="" text-anchor="start">农场 · 本期末完工</text>
+<text x="1088" y="760" font-size="13" class="muted" text-anchor="start">撤销施工返还50%</text>
+<text x="1250" y="739" font-size="15" class="" text-anchor="start">瞭望塔 · 等待开工</text>
+<text x="1250" y="760" font-size="13" class="muted" text-anchor="start">未开工取消全退</text>
+<text x="1088" y="807" font-size="15" class="cyan" text-anchor="start">◷ 全国生产</text>
+<rect x="424" y="650" width="454" height="112" rx="6" fill="#1c3331" stroke="#6a8773"/>
+<text x="444" y="681" font-size="19" class="gold" text-anchor="start">点地块先看“有什么、做过没有”</text>
+<text x="444" y="710" font-size="16" class="" text-anchor="start">主操作看本期资格；后续排程有独立入口。</text>
+<text x="444" y="739" font-size="16" class="muted" text-anchor="start">状态留在地块上，不靠回执或长悬浮寻找。</text>
+</svg>

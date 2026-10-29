@@ -105,7 +105,7 @@ python3 settlement.py --save mp_save.json --table
 
 ### 桌面上帝视角
 
-[下载 v0.6.3 预发布 Windows x64 便携版](https://github.com/northwindlight/zhanguo/releases/download/v0.6.3/zhanguo-0.6.3-windows-x64.zip)：完整解压后双击 `Zhanguo.exe`，无需安装开发工具。
+[下载 v0.7.0 预发布 Windows x64 便携版](https://github.com/northwindlight/zhanguo/releases/download/v0.7.0/zhanguo-0.7.0-windows-x64.zip)：完整解压后双击 `Zhanguo.exe`，无需安装开发工具。
 
 本轮已发布 [v0.7.0 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.7.0)：正式预付生产队列、跨驻地鼠标选军与持续路线、真实发行版开关、旧档副本升级、简易地形图与空位筛选，以及银行／报表邮箱。已由CI完成1075项离线检查和Windows九组验收，并公开Windows点击即玩包、源码与校验值。[预发布说明](docs/releases/v0.7.0.md)，[本轮验收](docs/reviews/银行邮箱与规则收尾-20261029.md)，[完整安排](docs/plans/GUI两版实施-20261028.md)。
 

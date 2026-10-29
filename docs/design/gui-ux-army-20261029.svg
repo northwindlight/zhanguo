@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768" viewBox="0 0 1024 768">
+<title>战国 UI 体验方向草图：非游戏截图，数值仅示例</title>
+<style>text{font-family:"Noto Sans CJK SC","Microsoft YaHei",sans-serif;fill:#edf0df} .muted{fill:#b0c2b6} .gold{fill:#e5ce91} .cyan{fill:#8edcc9}</style>
+<defs><pattern id="grid" width="120" height="120" patternUnits="userSpaceOnUse"><rect width="120" height="120" fill="#537462"/><path d="M120 0H0V120" fill="none" stroke="#708b72" stroke-opacity=".35"/></pattern>
+<g id="house"><path d="M-22 0h44v28h-44z" fill="#c7ae81"/><path d="M-28 0 0-18 28 0z" fill="#6f9490"/><path d="M-5 11h10v17H-5z" fill="#344a43"/></g>
+<g id="farm"><path d="M-24-14h48v34h-48z" fill="#b28d52"/><path d="M-18-12v30m9-30v30m9-30v30m9-30v30m9-30v30" stroke="#e2ca7c" stroke-width="3"/></g>
+<g id="camp"><path d="m-24 20 24-40 24 40z" fill="#c3b37f"/><path d="m-10 20 10-24 10 24z" fill="#3c5650"/><path d="M0-22v-14h18v10H0" fill="#77c9b7"/></g>
+<g id="tree"><path d="M-3 8h6v18h-6z" fill="#8c7958"/><path d="m0-26 18 24H9l16 18h-50L-9-2h-9z" fill="#385e46"/><path d="m0-23 14 20H5L18 9H0z" fill="#6d9369"/></g>
+<g id="person"><circle cy="-9" r="4" fill="#cfb690"/><path d="M-5-4H5V8H-5z" fill="#7ed7c0"/><path d="M-3 8v7M3 8v7" stroke="#304b48" stroke-width="3"/></g>
+<g id="bank"><path d="m-13-5 13-8 13 8zM-12 12h24" fill="#e5ce91" stroke="#e5ce91" stroke-width="2"/><path d="M-8-2v12M0-2v12M8-2v12" stroke="#d2e1c9" stroke-width="3"/></g>
+<g id="speech"><path d="M-12-10h24V8H-3l-7 6V8h-2z" fill="none" stroke="#d2e1c9" stroke-width="2"/><path d="M-7-4H7M-7 2H3" stroke="#d2e1c9" stroke-width="2"/></g>
+<g id="mail"><path d="M-13-9h26V10h-26zM-13-9 0 2l13-11" fill="none" stroke="#d2e1c9" stroke-width="2"/></g>
+<g id="menu"><path d="M-11-8h22M-11 0h22M-11 8h22" stroke="#d2e1c9" stroke-width="2"/></g></defs>
+<rect x="0" y="0" width="1024" height="768" rx="0" fill="#142524"/>
+<rect x="0" y="88" width="1024" height="680" rx="0" fill="#263e39"/>
+<rect x="48" y="160" width="924" height="508" rx="0" fill="url(#grid)"/>
+<use href="#tree" transform="translate(118 195) scale(0.9)"/>
+<use href="#tree" transform="translate(172 226) scale(0.9)"/>
+<use href="#tree" transform="translate(140 348) scale(0.9)"/>
+<use href="#tree" transform="translate(340 426) scale(0.9)"/>
+<use href="#tree" transform="translate(510 247) scale(0.9)"/>
+<use href="#tree" transform="translate(570 300) scale(0.9)"/>
+<use href="#tree" transform="translate(155 595) scale(0.9)"/>
+<use href="#tree" transform="translate(450 650) scale(0.9)"/>
+<use href="#tree" transform="translate(600 580) scale(0.9)"/>
+<use href="#house" transform="translate(280 345) scale(0.8)"/>
+<use href="#house" transform="translate(430 365) scale(0.8)"/>
+<use href="#house" transform="translate(400 530) scale(0.8)"/>
+<use href="#house" transform="translate(590 430) scale(0.8)"/>
+<use href="#camp" transform="translate(490 550) scale(0.8)"/>
+<use href="#farm" transform="translate(300 535) scale(0.9)"/>
+<use href="#person" transform="translate(298 405) scale(0.5)"/>
+<use href="#person" transform="translate(322 414) scale(0.5)"/>
+<use href="#person" transform="translate(480 420) scale(0.5)"/>
+<use href="#person" transform="translate(450 592) scale(0.5)"/>
+<use href="#person" transform="translate(291 565) scale(0.5)"/>
+<rect x="0" y="712" width="1024" height="56" rx="0" fill="#142625"/>
+<rect x="0" y="0" width="1024" height="88" rx="0" fill="#112321"/>
+<text x="18" y="32" font-size="18" class="" text-anchor="start">青岚 · 第4回合</text>
+<text x="18" y="66" font-size="14" class="muted" text-anchor="start">金</text>
+<text x="42" y="66" font-size="16" class="gold" text-anchor="start">900</text>
+<text x="100" y="66" font-size="14" class="muted" text-anchor="start">粮</text>
+<text x="124" y="66" font-size="16" class="" text-anchor="start">25</text>
+<text x="182" y="66" font-size="14" class="muted" text-anchor="start">木</text>
+<text x="206" y="66" font-size="16" class="" text-anchor="start">58</text>
+<text x="264" y="66" font-size="14" class="muted" text-anchor="start">矿</text>
+<text x="288" y="66" font-size="16" class="" text-anchor="start">10</text>
+<text x="346" y="66" font-size="14" class="muted" text-anchor="start">油</text>
+<text x="370" y="66" font-size="16" class="" text-anchor="start">0</text>
+<text x="428" y="66" font-size="14" class="muted" text-anchor="start">装</text>
+<text x="452" y="66" font-size="16" class="" text-anchor="start">5</text>
+<text x="510" y="66" font-size="14" class="muted" text-anchor="start">补</text>
+<text x="534" y="66" font-size="16" class="" text-anchor="start">9</text>
+<text x="592" y="66" font-size="14" class="muted" text-anchor="start">电</text>
+<text x="616" y="66" font-size="16" class="" text-anchor="start">2/1</text>
+<rect x="708" y="8" width="80" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<text x="748.0" y="32.0" font-size="16" class="" text-anchor="middle">Ⅱ 1×</text>
+<g><title>经济：市场、银行、报表</title>
+<rect x="804" y="8" width="44" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<use href="#bank" transform="translate(826 26) scale(0.7)"/>
+</g>
+<g><title>外交：条约、联盟、信件</title>
+<rect x="856" y="8" width="44" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<use href="#speech" transform="translate(878 26) scale(0.7)"/>
+</g>
+<g><title>通知与邮箱</title>
+<rect x="908" y="8" width="44" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<use href="#mail" transform="translate(930 26) scale(0.7)"/>
+<rect x="939" y="9" width="12" height="14" rx="3" fill="#d8c286"/>
+<text x="945" y="20" font-size="11" text-anchor="middle" style="fill:#172e29">1</text>
+</g>
+<g><title>菜单与设置</title>
+<rect x="960" y="8" width="44" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<use href="#menu" transform="translate(982 26) scale(0.7)"/>
+</g>
+<text x="18" y="748" font-size="16" class="muted" text-anchor="start">▧ 地图    ? 指南</text>
+<text x="812" y="748" font-size="14" class="muted" text-anchor="end">轮到你行动</text>
+<rect x="830" y="720" width="178" height="40" rx="4" fill="#d8c286" stroke="#526e60"/>
+<text x="919.0" y="746.0" text-anchor="middle" font-size="16" style="fill:#172e29">结束本回合 →</text>
+<text x="18" y="111" font-size="13" class="muted" text-anchor="start">方向原型 · 非运行截图 · 数值仅示例</text>
+<path d="M300 500L500 350" fill="none" stroke="#a6d6c4" stroke-width="3"/>
+<rect x="468" y="312" width="63" height="63" rx="4" fill="none" stroke="#e7d293"/>
+<use href="#person" transform="translate(290 486) scale(0.85)"/>
+<use href="#person" transform="translate(307 495) scale(0.85)"/>
+<use href="#person" transform="translate(320 480) scale(0.85)"/>
+<text x="332" y="485" font-size="22" class="gold" text-anchor="start">①</text>
+<text x="517" y="335" font-size="16" class="gold" text-anchor="start">新目的地</text>
+<rect x="126" y="166" width="456" height="76" rx="6" fill="#1c3331" stroke="#6a8773"/>
+<text x="145" y="195" font-size="20" class="gold" text-anchor="start">重新指定目标，替换剩余路线</text>
+<text x="145" y="224" font-size="15" class="muted" text-anchor="start">普通新目标＝重设  ·  Shift＝追加（候选映射）</text>
+<rect x="688" y="104" width="320" height="592" rx="6" fill="#1c3331" stroke="#6a8773"/>
+<rect x="700" y="116" width="142" height="36" rx="4" fill="#d8c286" stroke="#526e60"/>
+<text x="771.0" y="140.0" text-anchor="middle" font-size="16" style="fill:#172e29">⚑ 军队</text>
+<rect x="854" y="116" width="142" height="36" rx="4" fill="#29423f" stroke="#526e60"/>
+<text x="925.0" y="140.0" font-size="16" class="" text-anchor="middle">▧ 地块</text>
+<rect x="700" y="164" width="142" height="34" rx="4" fill="#d8c286" stroke="#526e60"/>
+<text x="771.0" y="187.0" text-anchor="middle" font-size="16" style="fill:#172e29">部队</text>
+<rect x="854" y="164" width="142" height="34" rx="4" fill="#29423f" stroke="#526e60"/>
+<text x="925.0" y="187.0" font-size="16" class="" text-anchor="middle">征募地点</text>
+<rect x="700" y="211" width="296" height="54" rx="4" fill="#314d43"/>
+<text x="712" y="235" font-size="17" class="cyan" text-anchor="start">已选2支 / 2处驻地</text>
+<text x="712" y="255" font-size="13" class="muted" text-anchor="start">查看全部编号   ·   清空选择</text>
+<text x="706" y="296" font-size="16" class="" text-anchor="start">#1 民兵 · 瀚与</text>
+<text x="990" y="296" font-size="14" class="muted" text-anchor="end">38/80</text>
+<rect x="706" y="308" width="284" height="6" rx="2" fill="#172725"/>
+<rect x="706" y="308" width="134.9" height="6" rx="2" fill="#8fc79a"/>
+<text x="706" y="360" font-size="16" class="" text-anchor="start">#2 步兵 · 延牧</text>
+<text x="990" y="360" font-size="14" class="muted" text-anchor="end">100/100</text>
+<rect x="706" y="372" width="284" height="6" rx="2" fill="#172725"/>
+<rect x="706" y="372" width="284" height="6" rx="2" fill="#8fc79a"/>
+<text x="704" y="431" font-size="18" class="gold" text-anchor="start">新目标  (6,5)</text>
+<text x="704" y="456" font-size="14" class="muted" text-anchor="start">收到回执后更新路线与下一步</text>
+<text x="704" y="490" font-size="16" class="" text-anchor="start">→ ①  (6,5)  移动</text>
+<text x="704" y="520" font-size="14" class="muted" text-anchor="start">＋ 按住Shift追加下一个节点</text>
+<path d="M702 537L994 537" fill="none" stroke="#425b53" stroke-width="1"/>
+<text x="704" y="566" font-size="16" class="" text-anchor="start">☑ 低于30生命暂停</text>
+<text x="704" y="589" font-size="14" class="muted" text-anchor="start">正常补给恢复满血后继续</text>
+<rect x="702" y="607" width="92" height="38" rx="4" fill="#29423f" stroke="#526e60"/>
+<text x="748.0" y="632.0" font-size="16" class="" text-anchor="middle">→ 移动</text>
+<rect x="802" y="607" width="92" height="38" rx="4" fill="#29423f" stroke="#526e60"/>
+<text x="848.0" y="632.0" font-size="16" class="" text-anchor="middle">⚔ 攻击</text>
+<rect x="902" y="607" width="92" height="38" rx="4" fill="#29423f" stroke="#526e60"/>
+<text x="948.0" y="632.0" font-size="16" class="" text-anchor="middle">■ 停止</text>
+<text x="704" y="675" font-size="13" class="muted" text-anchor="start">右键移动 · Ctrl攻击 · Shift追加</text>
+<rect x="40" y="613" width="598" height="76" rx="6" fill="#1c3331" stroke="#6a8773"/>
+<use href="#camp" transform="translate(72 647) scale(0.6)"/>
+<text x="102" y="641" font-size="18" class="gold" text-anchor="start">征募地点页：直接列兵营和军屯格子</text>
+<text x="102" y="668" font-size="15" class="muted" text-anchor="start">地点 → 定位与征募，不必挨个地块找设施。</text>
+</svg>
