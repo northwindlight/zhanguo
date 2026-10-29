@@ -1,0 +1,1295 @@
+{
+  "source_commit": "76c3e9f01ccbe4b4d3252d93eddc85cd6c79dd64",
+  "seed": 73,
+  "turns": 100,
+  "method": "same v13 eight-nation fixed-land economy as run.py; no strategy changes",
+  "accounts": [
+    {
+      "actor": "scenario:n0",
+      "profile": "merchant",
+      "initial_cash": 1500,
+      "final_cash": 2311,
+      "sales": 4646,
+      "purchases": 3560,
+      "construction_gold": 1726,
+      "production_gold": 1451,
+      "unattributed_cash_delta": 0
+    },
+    {
+      "actor": "scenario:n1",
+      "profile": "liquid",
+      "initial_cash": 1500,
+      "final_cash": 4427,
+      "sales": 3352,
+      "purchases": 1289,
+      "construction_gold": 1728,
+      "production_gold": 2592,
+      "unattributed_cash_delta": 0
+    },
+    {
+      "actor": "scenario:n2",
+      "profile": "buffer",
+      "initial_cash": 1500,
+      "final_cash": 1846,
+      "sales": 2345,
+      "purchases": 3089,
+      "construction_gold": 1018,
+      "production_gold": 2108,
+      "unattributed_cash_delta": 0
+    },
+    {
+      "actor": "scenario:n3",
+      "profile": "merchant",
+      "initial_cash": 1500,
+      "final_cash": 4102,
+      "sales": 2900,
+      "purchases": 363,
+      "construction_gold": 962,
+      "production_gold": 1027,
+      "unattributed_cash_delta": 0
+    },
+    {
+      "actor": "scenario:n4",
+      "profile": "merchant",
+      "initial_cash": 1500,
+      "final_cash": 6051,
+      "sales": 4650,
+      "purchases": 615,
+      "construction_gold": 1454,
+      "production_gold": 1970,
+      "unattributed_cash_delta": 0
+    },
+    {
+      "actor": "scenario:n5",
+      "profile": "integrated",
+      "initial_cash": 1500,
+      "final_cash": 1253,
+      "sales": 1334,
+      "purchases": 1856,
+      "construction_gold": 628,
+      "production_gold": 903,
+      "unattributed_cash_delta": 0
+    },
+    {
+      "actor": "scenario:n6",
+      "profile": "integrated",
+      "initial_cash": 1500,
+      "final_cash": 2089,
+      "sales": 2497,
+      "purchases": 2317,
+      "construction_gold": 1995,
+      "production_gold": 2404,
+      "unattributed_cash_delta": 0
+    },
+    {
+      "actor": "scenario:n7",
+      "profile": "merchant",
+      "initial_cash": 1500,
+      "final_cash": 1837,
+      "sales": 1499,
+      "purchases": 1497,
+      "construction_gold": 703,
+      "production_gold": 1038,
+      "unattributed_cash_delta": 0
+    }
+  ],
+  "blackouts": [
+    {
+      "period": 0,
+      "owner": "scenario:n0",
+      "kind": "native:town-hall",
+      "site": "scenario:n0/land-12-5"
+    },
+    {
+      "period": 0,
+      "owner": "scenario:n1",
+      "kind": "native:town-hall",
+      "site": "scenario:n1/land-17-7"
+    },
+    {
+      "period": 0,
+      "owner": "scenario:n2",
+      "kind": "native:town-hall",
+      "site": "scenario:n2/land-19-13"
+    },
+    {
+      "period": 0,
+      "owner": "scenario:n3",
+      "kind": "native:town-hall",
+      "site": "scenario:n3/land-17-17"
+    },
+    {
+      "period": 0,
+      "owner": "scenario:n4",
+      "kind": "native:town-hall",
+      "site": "scenario:n4/land-12-19"
+    },
+    {
+      "period": 0,
+      "owner": "scenario:n5",
+      "kind": "native:town-hall",
+      "site": "scenario:n5/land-7-17"
+    },
+    {
+      "period": 0,
+      "owner": "scenario:n6",
+      "kind": "native:town-hall",
+      "site": "scenario:n6/land-5-12"
+    },
+    {
+      "period": 0,
+      "owner": "scenario:n7",
+      "kind": "native:town-hall",
+      "site": "scenario:n7/land-7-7"
+    }
+  ],
+  "choices": [
+    {
+      "actor": "scenario:n1",
+      "period": 49,
+      "profile": "liquid",
+      "cash": 1046,
+      "reserve": 56,
+      "power": 8,
+      "demand": 5,
+      "candidates": 20,
+      "ranked": 10,
+      "chosen": {
+        "site": "scenario:n1/land-17-7",
+        "kind": "native:supply-factory"
+      },
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n1/land-17-7"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n1/land-17-7"
+          }
+        ]
+      }
+    },
+    {
+      "actor": "scenario:n2",
+      "period": 49,
+      "profile": "buffer",
+      "cash": 877,
+      "reserve": 93,
+      "power": 8,
+      "demand": 2,
+      "candidates": 21,
+      "ranked": 11,
+      "chosen": {
+        "site": "scenario:n2/land-18-13",
+        "kind": "native:supply-factory"
+      },
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n2/land-19-13"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n2/land-19-13"
+          }
+        ]
+      }
+    },
+    {
+      "actor": "scenario:n3",
+      "period": 49,
+      "profile": "merchant",
+      "cash": 2249,
+      "reserve": 29,
+      "power": 8,
+      "demand": 3,
+      "candidates": 24,
+      "ranked": 14,
+      "chosen": {
+        "site": "scenario:n3/land-17-16",
+        "kind": "native:equipment-factory"
+      },
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n3/land-17-17"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n3/land-17-17"
+          }
+        ]
+      }
+    },
+    {
+      "actor": "scenario:n4",
+      "period": 49,
+      "profile": "merchant",
+      "cash": 3014,
+      "reserve": 29,
+      "power": 8,
+      "demand": 3,
+      "candidates": 20,
+      "ranked": 10,
+      "chosen": {
+        "site": "scenario:n4/land-13-19",
+        "kind": "native:equipment-factory"
+      },
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n4/land-12-19"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n4/land-12-19"
+          }
+        ]
+      }
+    },
+    {
+      "actor": "scenario:n5",
+      "period": 49,
+      "profile": "integrated",
+      "cash": 800,
+      "reserve": 54,
+      "power": 8,
+      "demand": 2,
+      "candidates": 22,
+      "ranked": 12,
+      "chosen": {
+        "site": "scenario:n5/land-6-17",
+        "kind": "native:supply-factory"
+      },
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n5/land-7-17"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n5/land-7-17"
+          }
+        ]
+      }
+    },
+    {
+      "actor": "scenario:n6",
+      "period": 49,
+      "profile": "integrated",
+      "cash": 379,
+      "reserve": 102,
+      "power": 10,
+      "demand": 8,
+      "candidates": 22,
+      "ranked": 0,
+      "chosen": null,
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10,
+        "margin <= 0": 10,
+        "cash_cost(self.ledger, recipe) + reserve > stocks(self.ledger).get(GOLD, 0)": 2
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n6/land-5-12"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n6/land-5-12"
+          }
+        ],
+        "margin <= 0": [
+          {
+            "kind": "native:supply-factory",
+            "costs": {
+              "native:gold": 90,
+              "native:wood": 25
+            },
+            "margin": -1.4145270612100163,
+            "normal": 45.17283924420608,
+            "crowded": 41.22062420602271,
+            "capex": 175.2699399005119,
+            "site": "scenario:n6/land-5-12"
+          },
+          {
+            "kind": "native:equipment-factory",
+            "costs": {
+              "native:gold": 105,
+              "native:wood": 25
+            },
+            "margin": -4.502809969670658,
+            "normal": 45.12202076833688,
+            "crowded": 38.13234129756207,
+            "capex": 190.2699399005119,
+            "site": "scenario:n6/land-5-12"
+          }
+        ],
+        "cash_cost(self.ledger, recipe) + reserve > stocks(self.ledger).get(GOLD, 0)": [
+          {
+            "kind": "native:town-hall",
+            "costs": {
+              "native:gold": 250,
+              "native:wood": 80
+            },
+            "margin": 12.999999999999986,
+            "normal": 55.635151267232715,
+            "crowded": 55.635151267232715,
+            "capex": 522.863807681638,
+            "recipe": {
+              "native:gold": 250,
+              "native:wood": 84,
+              "native:supply": 12,
+              "native:equipment": 0,
+              "native:oil": 8,
+              "native:food": 32,
+              "native:ore": 20
+            },
+            "site": "scenario:n6/land-6-12"
+          },
+          {
+            "kind": "native:town-hall",
+            "costs": {
+              "native:gold": 250,
+              "native:wood": 80
+            },
+            "margin": 11.999999999999972,
+            "normal": 54.6351512672327,
+            "crowded": 54.6351512672327,
+            "capex": 522.863807681638,
+            "recipe": {
+              "native:gold": 250,
+              "native:wood": 84,
+              "native:supply": 12,
+              "native:equipment": 0,
+              "native:oil": 8,
+              "native:food": 32,
+              "native:ore": 20
+            },
+            "site": "scenario:n6/land-4-12"
+          }
+        ]
+      }
+    },
+    {
+      "actor": "scenario:n7",
+      "period": 49,
+      "profile": "merchant",
+      "cash": 1190,
+      "reserve": 37,
+      "power": 8,
+      "demand": 2,
+      "candidates": 26,
+      "ranked": 16,
+      "chosen": {
+        "site": "scenario:n7/land-7-7",
+        "kind": "native:supply-factory"
+      },
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n7/land-7-7"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n7/land-7-7"
+          }
+        ]
+      }
+    },
+    {
+      "actor": "scenario:n0",
+      "period": 49,
+      "profile": "merchant",
+      "cash": 712,
+      "reserve": 68,
+      "power": 12,
+      "demand": 11,
+      "candidates": 20,
+      "ranked": 0,
+      "chosen": null,
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10,
+        "margin <= 0": 10
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n0/land-12-5"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n0/land-12-5"
+          }
+        ],
+        "margin <= 0": [
+          {
+            "kind": "native:supply-factory",
+            "costs": {
+              "native:gold": 90,
+              "native:wood": 25
+            },
+            "margin": -1.3315575443156362,
+            "normal": 42.45821333540572,
+            "crowded": 38.45455759560056,
+            "capex": 175.2699399005119,
+            "site": "scenario:n0/land-12-5"
+          },
+          {
+            "kind": "native:equipment-factory",
+            "costs": {
+              "native:gold": 105,
+              "native:wood": 25
+            },
+            "margin": -3.0077146198019946,
+            "normal": 42.84384827467428,
+            "crowded": 36.778400520114204,
+            "capex": 190.2699399005119,
+            "site": "scenario:n0/land-12-5"
+          }
+        ]
+      }
+    },
+    {
+      "actor": "scenario:n3",
+      "period": 99,
+      "profile": "merchant",
+      "cash": 4091,
+      "reserve": 27,
+      "power": 8,
+      "demand": 3,
+      "candidates": 23,
+      "ranked": 9,
+      "chosen": {
+        "site": "scenario:n3/land-17-17",
+        "kind": "native:supply-factory"
+      },
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10,
+        "margin <= 0": 4
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n3/land-17-17"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n3/land-17-17"
+          }
+        ],
+        "margin <= 0": [
+          {
+            "kind": "native:equipment-factory",
+            "costs": {
+              "native:gold": 105,
+              "native:wood": 25
+            },
+            "margin": -0.31032659796549567,
+            "normal": 31.367244460610824,
+            "crowded": 30.84124980027312,
+            "capex": 133.66830063350196,
+            "site": "scenario:n3/land-18-17"
+          },
+          {
+            "kind": "native:equipment-factory",
+            "costs": {
+              "native:gold": 131,
+              "native:wood": 25
+            },
+            "margin": -0.31032659796549567,
+            "normal": 31.367244460610824,
+            "crowded": 30.84124980027312,
+            "capex": 159.66830063350196,
+            "site": "scenario:n3/land-16-17"
+          }
+        ]
+      }
+    },
+    {
+      "actor": "scenario:n4",
+      "period": 99,
+      "profile": "merchant",
+      "cash": 6031,
+      "reserve": 27,
+      "power": 8,
+      "demand": 3,
+      "candidates": 20,
+      "ranked": 10,
+      "chosen": {
+        "site": "scenario:n4/land-12-19",
+        "kind": "native:supply-factory"
+      },
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n4/land-12-19"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n4/land-12-19"
+          }
+        ]
+      }
+    },
+    {
+      "actor": "scenario:n5",
+      "period": 99,
+      "profile": "integrated",
+      "cash": 1242,
+      "reserve": 46,
+      "power": 8,
+      "demand": 2,
+      "candidates": 21,
+      "ranked": 6,
+      "chosen": {
+        "site": "scenario:n5/land-6-17",
+        "kind": "native:supply-factory"
+      },
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10,
+        "margin <= 0": 5
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n5/land-7-17"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n5/land-7-17"
+          }
+        ],
+        "margin <= 0": [
+          {
+            "kind": "native:equipment-factory",
+            "costs": {
+              "native:gold": 105,
+              "native:wood": 25
+            },
+            "margin": -2.1897206071541664,
+            "normal": 6.876678837860641,
+            "crowded": 4.690033437786093,
+            "capex": 133.66830063350196,
+            "site": "scenario:n5/land-7-17"
+          },
+          {
+            "kind": "native:equipment-factory",
+            "costs": {
+              "native:gold": 157,
+              "native:wood": 25
+            },
+            "margin": -3.1897206071541655,
+            "normal": 5.876678837860642,
+            "crowded": 3.690033437786094,
+            "capex": 185.66830063350196,
+            "site": "scenario:n5/land-8-17"
+          }
+        ]
+      }
+    },
+    {
+      "actor": "scenario:n6",
+      "period": 99,
+      "profile": "integrated",
+      "cash": 2050,
+      "reserve": 71,
+      "power": 12,
+      "demand": 10,
+      "candidates": 20,
+      "ranked": 0,
+      "chosen": null,
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10,
+        "margin <= 0": 10
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n6/land-5-12"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n6/land-5-12"
+          }
+        ],
+        "margin <= 0": [
+          {
+            "kind": "native:supply-factory",
+            "costs": {
+              "native:gold": 90,
+              "native:wood": 25
+            },
+            "margin": -1.0421605793067954,
+            "normal": 42.82525235254517,
+            "crowded": 40.495999745454036,
+            "capex": 118.66830063350196,
+            "site": "scenario:n6/land-5-12"
+          },
+          {
+            "kind": "native:equipment-factory",
+            "costs": {
+              "native:gold": 105,
+              "native:wood": 25
+            },
+            "margin": -5.982699453016821,
+            "normal": 40.27043621940594,
+            "crowded": 35.55546087174401,
+            "capex": 133.66830063350196,
+            "site": "scenario:n6/land-5-12"
+          }
+        ]
+      }
+    },
+    {
+      "actor": "scenario:n7",
+      "period": 99,
+      "profile": "merchant",
+      "cash": 1823,
+      "reserve": 33,
+      "power": 8,
+      "demand": 2,
+      "candidates": 24,
+      "ranked": 9,
+      "chosen": {
+        "site": "scenario:n7/land-7-7",
+        "kind": "native:supply-factory"
+      },
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10,
+        "margin <= 0": 5
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n7/land-7-7"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n7/land-7-7"
+          }
+        ],
+        "margin <= 0": [
+          {
+            "kind": "native:equipment-factory",
+            "costs": {
+              "native:gold": 105,
+              "native:wood": 25
+            },
+            "margin": -0.34214912338466164,
+            "normal": 17.427555105887055,
+            "crowded": 16.36369009987417,
+            "capex": 133.66830063350196,
+            "site": "scenario:n7/land-7-7"
+          },
+          {
+            "kind": "native:equipment-factory",
+            "costs": {
+              "native:gold": 105,
+              "native:wood": 25
+            },
+            "margin": -1.342149123384667,
+            "normal": 16.42755510588706,
+            "crowded": 15.363690099874164,
+            "capex": 133.66830063350196,
+            "site": "scenario:n7/land-8-7"
+          }
+        ]
+      }
+    },
+    {
+      "actor": "scenario:n0",
+      "period": 99,
+      "profile": "merchant",
+      "cash": 2295,
+      "reserve": 49,
+      "power": 12,
+      "demand": 11,
+      "candidates": 20,
+      "ranked": 0,
+      "chosen": null,
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10,
+        "margin <= 0": 10
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n0/land-12-5"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n0/land-12-5"
+          }
+        ],
+        "margin <= 0": [
+          {
+            "kind": "native:supply-factory",
+            "costs": {
+              "native:gold": 90,
+              "native:wood": 25
+            },
+            "margin": -1.0482597096822595,
+            "normal": 21.605333955634386,
+            "crowded": 18.9309396784715,
+            "capex": 118.66830063350196,
+            "site": "scenario:n0/land-12-5"
+          },
+          {
+            "kind": "native:equipment-factory",
+            "costs": {
+              "native:gold": 105,
+              "native:wood": 25
+            },
+            "margin": -4.946590812342654,
+            "normal": 19.369482518694127,
+            "crowded": 15.032608575811105,
+            "capex": 133.66830063350196,
+            "site": "scenario:n0/land-12-5"
+          }
+        ]
+      }
+    },
+    {
+      "actor": "scenario:n1",
+      "period": 99,
+      "profile": "liquid",
+      "cash": 4392,
+      "reserve": 46,
+      "power": 8,
+      "demand": 5,
+      "candidates": 20,
+      "ranked": 5,
+      "chosen": {
+        "site": "scenario:n1/land-17-7",
+        "kind": "native:supply-factory"
+      },
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10,
+        "margin <= 0": 5
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n1/land-17-7"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n1/land-17-7"
+          }
+        ],
+        "margin <= 0": [
+          {
+            "kind": "native:equipment-factory",
+            "costs": {
+              "native:gold": 105,
+              "native:wood": 25
+            },
+            "margin": -0.4216722693133761,
+            "normal": 49.238382274077935,
+            "crowded": 48.07023031803115,
+            "capex": 133.66830063350196,
+            "site": "scenario:n1/land-17-7"
+          },
+          {
+            "kind": "native:equipment-factory",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 25
+            },
+            "margin": -0.4216722693133761,
+            "normal": 49.238382274077935,
+            "crowded": 48.07023031803115,
+            "capex": 148.66830063350196,
+            "site": "scenario:n1/land-18-7"
+          }
+        ]
+      }
+    },
+    {
+      "actor": "scenario:n2",
+      "period": 99,
+      "profile": "buffer",
+      "cash": 1824,
+      "reserve": 71,
+      "power": 8,
+      "demand": 3,
+      "candidates": 21,
+      "ranked": 6,
+      "chosen": {
+        "site": "scenario:n2/land-19-13",
+        "kind": "native:supply-factory"
+      },
+      "rejection_counts": {
+        "not shortage and row['energy_output']": 10,
+        "margin <= 0": 5
+      },
+      "examples": {
+        "not shortage and row['energy_output']": [
+          {
+            "kind": "native:wood-power-plant",
+            "costs": {
+              "native:gold": 60,
+              "native:wood": 30
+            },
+            "site": "scenario:n2/land-19-13"
+          },
+          {
+            "kind": "native:oil-power-plant",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 30
+            },
+            "site": "scenario:n2/land-19-13"
+          }
+        ],
+        "margin <= 0": [
+          {
+            "kind": "native:equipment-factory",
+            "costs": {
+              "native:gold": 105,
+              "native:wood": 25
+            },
+            "margin": -1.5943307028076745,
+            "normal": 15.773049147269244,
+            "crowded": 13.991623715059909,
+            "capex": 133.66830063350196,
+            "site": "scenario:n2/land-19-13"
+          },
+          {
+            "kind": "native:equipment-factory",
+            "costs": {
+              "native:gold": 120,
+              "native:wood": 25
+            },
+            "margin": -2.5943307028076728,
+            "normal": 14.77304914726924,
+            "crowded": 12.99162371505991,
+            "capex": 148.66830063350196,
+            "site": "scenario:n2/land-20-13"
+          }
+        ]
+      }
+    }
+  ],
+  "totals": {
+    "initial_cash": 12000,
+    "sales": 23223,
+    "production_gold": 13493,
+    "purchases": 14586,
+    "construction_gold": 10214,
+    "final_cash": 23916,
+    "unattributed_cash_delta": 0
+  },
+  "investment_funding": [
+    {
+      "actor": "scenario:n3",
+      "period": 99,
+      "caller": "invest",
+      "reserve": 27,
+      "reason": "sold.intersection(gaps)",
+      "result": false,
+      "cash": 4091,
+      "gaps": {
+        "native:ore": 2
+      },
+      "sold": [
+        "native:food",
+        "native:oil",
+        "native:ore",
+        "native:supply",
+        "native:wood"
+      ]
+    },
+    {
+      "actor": "scenario:n4",
+      "period": 99,
+      "caller": "invest",
+      "reserve": 27,
+      "reason": "sold.intersection(gaps)",
+      "result": false,
+      "cash": 6031,
+      "gaps": {
+        "native:ore": 2
+      },
+      "sold": [
+        "native:food",
+        "native:oil",
+        "native:ore",
+        "native:supply"
+      ]
+    },
+    {
+      "actor": "scenario:n5",
+      "period": 99,
+      "caller": "invest",
+      "reserve": 46,
+      "reason": "sold.intersection(gaps)",
+      "result": false,
+      "cash": 1242,
+      "gaps": {
+        "native:supply": 4,
+        "native:oil": 1,
+        "native:ore": 4
+      },
+      "sold": [
+        "native:food",
+        "native:ore",
+        "native:wood"
+      ]
+    },
+    {
+      "actor": "scenario:n7",
+      "period": 99,
+      "caller": "invest",
+      "reserve": 33,
+      "reason": "sold.intersection(gaps)",
+      "result": false,
+      "cash": 1823,
+      "gaps": {
+        "native:ore": 2
+      },
+      "sold": [
+        "native:food",
+        "native:ore",
+        "native:wood"
+      ]
+    },
+    {
+      "actor": "scenario:n1",
+      "period": 99,
+      "caller": "invest",
+      "reserve": 46,
+      "reason": "sold.intersection(gaps)",
+      "result": false,
+      "cash": 4392,
+      "gaps": {
+        "native:oil": 1,
+        "native:ore": 2
+      },
+      "sold": [
+        "native:food",
+        "native:ore",
+        "native:supply",
+        "native:wood"
+      ]
+    },
+    {
+      "actor": "scenario:n2",
+      "period": 99,
+      "caller": "invest",
+      "reserve": 71,
+      "reason": "sold.intersection(gaps)",
+      "result": false,
+      "cash": 1824,
+      "gaps": {
+        "native:ore": 5
+      },
+      "sold": [
+        "native:food",
+        "native:ore",
+        "native:wood"
+      ]
+    }
+  ],
+  "cash_timeline": [
+    {
+      "turn": 10,
+      "total": 3327,
+      "by_actor": {
+        "scenario:n0": 93,
+        "scenario:n1": 101,
+        "scenario:n2": 260,
+        "scenario:n3": 730,
+        "scenario:n4": 212,
+        "scenario:n5": 888,
+        "scenario:n6": 125,
+        "scenario:n7": 918
+      }
+    },
+    {
+      "turn": 20,
+      "total": 4755,
+      "by_actor": {
+        "scenario:n0": 118,
+        "scenario:n1": 438,
+        "scenario:n2": 199,
+        "scenario:n3": 1143,
+        "scenario:n4": 957,
+        "scenario:n5": 857,
+        "scenario:n6": 101,
+        "scenario:n7": 942
+      }
+    },
+    {
+      "turn": 30,
+      "total": 6354,
+      "by_actor": {
+        "scenario:n0": 265,
+        "scenario:n1": 784,
+        "scenario:n2": 205,
+        "scenario:n3": 1534,
+        "scenario:n4": 1676,
+        "scenario:n5": 792,
+        "scenario:n6": 220,
+        "scenario:n7": 878
+      }
+    },
+    {
+      "turn": 40,
+      "total": 7510,
+      "by_actor": {
+        "scenario:n0": 272,
+        "scenario:n1": 553,
+        "scenario:n2": 479,
+        "scenario:n3": 1906,
+        "scenario:n4": 2367,
+        "scenario:n5": 774,
+        "scenario:n6": 164,
+        "scenario:n7": 995
+      }
+    },
+    {
+      "turn": 50,
+      "total": 10401,
+      "by_actor": {
+        "scenario:n0": 728,
+        "scenario:n1": 1081,
+        "scenario:n2": 898,
+        "scenario:n3": 2259,
+        "scenario:n4": 3034,
+        "scenario:n5": 809,
+        "scenario:n6": 393,
+        "scenario:n7": 1199
+      }
+    },
+    {
+      "turn": 60,
+      "total": 12477,
+      "by_actor": {
+        "scenario:n0": 1126,
+        "scenario:n1": 1810,
+        "scenario:n2": 863,
+        "scenario:n3": 2587,
+        "scenario:n4": 3678,
+        "scenario:n5": 960,
+        "scenario:n6": 214,
+        "scenario:n7": 1239
+      }
+    },
+    {
+      "turn": 70,
+      "total": 15686,
+      "by_actor": {
+        "scenario:n0": 1481,
+        "scenario:n1": 2565,
+        "scenario:n2": 1187,
+        "scenario:n3": 2982,
+        "scenario:n4": 4300,
+        "scenario:n5": 1094,
+        "scenario:n6": 715,
+        "scenario:n7": 1362
+      }
+    },
+    {
+      "turn": 80,
+      "total": 18595,
+      "by_actor": {
+        "scenario:n0": 1793,
+        "scenario:n1": 3248,
+        "scenario:n2": 1406,
+        "scenario:n3": 3385,
+        "scenario:n4": 4903,
+        "scenario:n5": 1170,
+        "scenario:n6": 1138,
+        "scenario:n7": 1552
+      }
+    },
+    {
+      "turn": 90,
+      "total": 21359,
+      "by_actor": {
+        "scenario:n0": 2068,
+        "scenario:n1": 3866,
+        "scenario:n2": 1676,
+        "scenario:n3": 3757,
+        "scenario:n4": 5486,
+        "scenario:n5": 1222,
+        "scenario:n6": 1591,
+        "scenario:n7": 1693
+      }
+    },
+    {
+      "turn": 100,
+      "total": 23916,
+      "by_actor": {
+        "scenario:n0": 2311,
+        "scenario:n1": 4427,
+        "scenario:n2": 1846,
+        "scenario:n3": 4102,
+        "scenario:n4": 6051,
+        "scenario:n5": 1253,
+        "scenario:n6": 2089,
+        "scenario:n7": 1837
+      }
+    }
+  ],
+  "aggregation": "All totals sum eight nations; each nation starts with 1500 gold. Decision periods are zero-based."
+}

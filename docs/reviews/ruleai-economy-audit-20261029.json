@@ -13,7 +13,9 @@
     "turns": 100,
     "economy_only": "Military movement/attack suppressed; construction, recruitment and formal settlement retained.",
     "v13_profiles": "Existing runner uses rule_seed=world_seed+nation_index.",
-    "limits": "Fixed land; homogeneous strategy populations; not a win-rate, GDP or fixed-price capital-return benchmark."
+    "limits": "Fixed land; homogeneous strategy populations; not a win-rate, GDP or fixed-price capital-return benchmark.",
+    "aggregation": "Each case is the sum of eight nations; aggregate means average three case totals, not individual nations.",
+    "initial_gold_per_nation": 1500
   },
   "aggregates": {
     "v11plus": {

@@ -21,3 +21,9 @@ python3 experiments/rule_market/run.py --versions v13 --seeds 20261023 --turns 1
 ```bash
 python3 experiments/rule_market/inspect_current.py --out archive/previews/economy-audit-20261029/interface-probes.json
 ```
+
+追查现金来源、首期停电和投资未执行的实际分支，可运行`trace_cash.py`。它记录正式回执并跟踪原策略函数，不改决策；每国金币账要求实际余额与已记录流量对平：
+
+```bash
+python3 experiments/rule_market/trace_cash.py --seed 73 --turns 100 --out archive/previews/economy-audit-20261029/cash-trace-73.json
+```
