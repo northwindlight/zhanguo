@@ -46,7 +46,7 @@
 - 用户若只要求记录计划，本轮仅更新文档与交接；需要实施时，以当轮要求和最新计划确定范围。
 - v0.7地图交互组已接简易地形图／图例、普通地表辨识、正式容量空位组合筛选、紧凑地块状态图标、地形费用分项、右键返回偏好与玩家API指南。空间读取`building_sites.capacities`／`planning.space`，费用读取`cost_breakdown`；均为派生只读字段，存档依赖不变。源码7a4a996通过1069项及Windows八组，见[验收](docs/reviews/地形地图与操作指南-20261028.md)。演出采集用`HumanAPI.state(controls=False)`保留相同玩家事实与投影，跳过完整管理面板，正常状态查询不变。银行／报表邮箱和防御／自动交易规则复用已收尾，见下一条。
 
-- v0.7单机计划实现齐备，最终CI／预发布验收中。独立银行复用`quote(borrow)`的`credit / can_borrow`；邮箱只读本国已发布与正式已购报表，已读记录在存档旁`.desktop-mail.json`，不改世界。军团防御读取`squad_defenses`；自动交易读`auto_trade_options`，实际保存仍走原API。见[验收](docs/reviews/银行邮箱与规则收尾-20261029.md)。联机／动态回合仍未实现。
+- v0.7.0单机计划已完成并[预发布](https://github.com/northwindlight/zhanguo/releases/tag/v0.7.0)，源码c940304的CI40818268137通过1075项及Windows九组；发布附件与标签保持该提交，后续不覆盖。独立银行复用`quote(borrow)`的`credit / can_borrow`；邮箱只读本国已发布与正式已购报表，已读记录在存档旁`.desktop-mail.json`，不改世界。军团防御读取`squad_defenses`；自动交易读`auto_trade_options`，实际保存仍走原API。见[验收](docs/reviews/银行邮箱与规则收尾-20261029.md)。联机／动态回合仍未实现。
 
 ## 验证与运行
 

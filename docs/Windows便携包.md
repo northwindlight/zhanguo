@@ -1,12 +1,16 @@
 # Windows 便携体验包
 
-[v0.6.3 预发布页](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.3) · [Windows x64 下载](https://github.com/northwindlight/zhanguo/releases/download/v0.6.3/zhanguo-0.6.3-windows-x64.zip) · [SHA-256 校验值](https://github.com/northwindlight/zhanguo/releases/download/v0.6.3/SHA256SUMS)
+[v0.7.0 预发布页](https://github.com/northwindlight/zhanguo/releases/tag/v0.7.0) · [Windows x64 下载](https://github.com/northwindlight/zhanguo/releases/download/v0.7.0/zhanguo-0.7.0-windows-x64.zip) · [SHA-256 校验值](https://github.com/northwindlight/zhanguo/releases/download/v0.7.0/SHA256SUMS)
 
 上一正式版为 [v0.5.1](https://github.com/northwindlight/zhanguo/releases/tag/v0.5.1)。新版本默认先供试玩，确认满意后再转为正式 Release。
 
 用于让朋友直接体验地图、界面与演出，并给音乐、美术提建议。
 目标为 Windows 10/11、x64。完整解压后双击 `Zhanguo.exe`，无需安装 Godot、Python 或 .NET SDK。
 主菜单可选玩家模式或看海模式。玩家先定制本国和地图，再设置 AI 对手；看海可选 v13 规则 AI 八国局，点开始和继续即可离线观看。
+
+v0.7.0完成两版计划的第二批：正式预付生产队列、持续鼠标军令与选中光环、发行版开关、旧档副本升级、简易地图／空位筛选、银行与经济报表邮箱。运行提交`c940304`通过[1075项与Windows九组验收](https://github.com/northwindlight/zhanguo/actions/runs/40818268137)，由同一次CI公开三附件；[发布说明](releases/v0.7.0.md)、[收尾验收](reviews/银行邮箱与规则收尾-20261029.md)。仍为单机一位真人，保持原18阶段结算。
+
+生产队列与持续军令改变了旧档依赖。已知旧档在存档列表中选择“升级为新副本”，原档与历史保留；未知依赖仍拒绝，旧版包继续保留。
 
 ZIP 中有：
 
@@ -18,6 +22,7 @@ ZIP 中有：
 | `开始体验.txt` | 操作、暂停/快进、镜头与启动说明 |
 | `给音乐和美术的说明.md`、`music` | 场景需求、音乐交付和画面反馈入口 |
 | `美术预览/index.html`、`美术预览/素材`、`美术预览/补绘SVG` | 图录、合成预览、SVG母版、PNG、帧表 |
+| `美术预览/地图SVG` | 地形、城堡、指南、银行与邮箱图标母版 |
 | `演出参考.mp4` | 32秒实际战斗演出，方便讨论节奏 |
 | `portable.json`、`bundle-manifest.json`、`LICENSES` | 构建提交、文件哈希与各自的来源/许可 |
 

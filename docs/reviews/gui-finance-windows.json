@@ -1,0 +1,75 @@
+{
+  "source_commit": "c940304ae4453d256821a2fa0b39a72706126637",
+  "ci_run": 40818268137,
+  "windows_job": 123264477068,
+  "verified_at_utc": "2026-10-29T04:44:06.171Z",
+  "human": {
+    "period": 3,
+    "human_actions": 28,
+    "bank_quotes": true,
+    "bank_borrow": true,
+    "auto_trade_rule_source": true,
+    "layouts": [
+      {
+        "width": 1920,
+        "height": 1080,
+        "within_viewport": true,
+        "rts_hover": true
+      },
+      {
+        "width": 1440,
+        "height": 900,
+        "within_viewport": true,
+        "rts_hover": true
+      },
+      {
+        "width": 1280,
+        "height": 720,
+        "within_viewport": true,
+        "rts_hover": true
+      },
+      {
+        "width": 1024,
+        "height": 768,
+        "within_viewport": true,
+        "rts_hover": true
+      }
+    ],
+    "rule_fixture_seed": 20261026,
+    "platform": "Windows",
+    "renderer": "ANGLE (Microsoft, Microsoft Basic Render Driver (0x0000008C) Direct3D11 vs_5_0 ps_5_0, D3D11-10.0.26100.33648)"
+  },
+  "mailbox": {
+    "report_delivery": true,
+    "report_periods": true,
+    "report_history": true,
+    "report_read_persistence": true,
+    "report_game_isolation": true,
+    "report_purchase_permissions": true,
+    "report_fixed_return": true,
+    "layouts": [
+      {
+        "width": 1920,
+        "height": 1080,
+        "within_viewport": true
+      },
+      {
+        "width": 1440,
+        "height": 900,
+        "within_viewport": true
+      },
+      {
+        "width": 1280,
+        "height": 720,
+        "within_viewport": true
+      },
+      {
+        "width": 1024,
+        "height": 768,
+        "within_viewport": true
+      }
+    ],
+    "platform": "Windows",
+    "renderer": "ANGLE (Microsoft, Microsoft Basic Render Driver (0x0000008C) Direct3D11 vs_5_0 ps_5_0, D3D11-10.0.26100.33648)"
+  }
+}
