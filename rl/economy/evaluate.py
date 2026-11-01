@@ -13,7 +13,8 @@ from .model import load_policy
 from .scenarios import config,source_hash,snapshot
 
 
-def run(seed,turns,*,size=24,swap=False,model=None,candidate='v13plus'):
+def run(seed,turns,*,size=24,swap=False,model=None,candidate='v13plus',deadline=float('inf')):
+    from .online import operating_surplus,check_deadline
     source=source_hash()
     cfg=config(seed,size=size,swap=swap,candidate=candidate)
     host=GameHost.new(cfg);failures=defaultdict(Counter)
@@ -25,6 +26,7 @@ def run(seed,turns,*,size=24,swap=False,model=None,candidate='v13plus'):
     initial=snapshot(host,failures);history=[];production=defaultdict(Counter)
     flows=defaultdict(lambda:dict(inputs=Counter(),outputs=Counter()))
     supply=Counter();actions=defaultdict(Counter);milestones=defaultdict(dict)
+    surplus=Counter();admin=Counter();tail=defaultdict(list)
     prices=dict(host.player(host.actors()[0]).call_api('economy:queries','market')['prices'])
     prices['native:gold']=1
     original_produce,original_supply=host.world.buildings.produce,host.world.military.supply
@@ -48,8 +50,11 @@ def run(seed,turns,*,size=24,swap=False,model=None,candidate='v13plus'):
     start=time.monotonic()
     with patch.object(host.world.buildings,'produce',side_effect=produce),patch.object(host.world.military,'supply',side_effect=feed):
         for turn in range(turns):
+            check_deadline(deadline)
             host.cycle(on_result=receipt)
             for actor in initial:
+                value,admin[actor]=operating_surplus(host,actor,turn,admin[actor])
+                surplus[actor]+=value;tail[actor].append(value)
                 if len(host.world.territory.owned(actor))>initial[actor]['land']:
                     milestones[actor].setdefault('first_expansion',turn+1)
             if (turn+1)%10==0 or turn==turns-1:
@@ -59,6 +64,7 @@ def run(seed,turns,*,size=24,swap=False,model=None,candidate='v13plus'):
     return dict(seed=seed,swap=swap,turns=turns,config=cfg,source=source,initial=initial,
         history=history,seconds=time.monotonic()-start,production=dict(production),supply_shortfalls=dict(supply),
         actions=dict(actions),milestones=dict(milestones),
+        operating_surplus=dict(surplus),tail_surplus={a:sum(v[-20:])/min(20,len(v)) for a,v in tail.items()},
         net_production_at_initial_prices={actor:sum((f['outputs'][r]-f['inputs'][r])*p for r,p in prices.items()) for actor,f in flows.items()})
 
 

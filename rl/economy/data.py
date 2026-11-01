@@ -1,6 +1,7 @@
 """Compressed per-world shards; split by world seed, never by action rows."""
 import json
 from pathlib import Path
+import tempfile
 import numpy as np
 
 from .adapter import FINGERPRINT
@@ -15,6 +16,17 @@ class Writer:
         self.rows.append(row)
 
     def save(self,path,metadata):
+        path=Path(path)
+        # An interrupted collector must not leave a truncated shard that a
+        # resumed overnight job mistakes for completed replay.
+        with tempfile.NamedTemporaryFile(dir=path.parent,prefix=path.stem+'-',suffix='.tmp',delete=False) as f:
+            temporary=Path(f.name)
+        try:
+            with temporary.open('wb') as stream:self._save(stream,metadata)
+            temporary.replace(path)
+        finally:temporary.unlink(missing_ok=True)
+
+    def _save(self,path,metadata):
         rows=self.rows
         if not rows: raise ValueError('Empty demonstration world')
         offsets=lambda key:np.cumsum([0]+[len(r[key]) for r in rows],dtype=np.int64)

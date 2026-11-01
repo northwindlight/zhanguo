@@ -31,12 +31,12 @@ def collate(examples):
 
 
 class Policy(nn.Module):
-    def __init__(self,width=160,depth=2,heads=4,action_mode='atomic'):
+    def __init__(self,width=160,depth=2,heads=4,action_mode='atomic',critic=False):
         super().__init__()
         if action_mode not in ('atomic','projects'):raise ValueError(action_mode)
         self.action_mode=action_mode
         self.fingerprint=PROJECT_FINGERPRINT if action_mode=='projects' else FINGERPRINT
-        self.config=dict(width=width,depth=depth,heads=heads,action_mode=action_mode)
+        self.config=dict(width=width,depth=depth,heads=heads,action_mode=action_mode,critic=critic)
         self.context=nn.Sequential(FastLinear(WIDTH,width),nn.GELU(),FastLinear(width,width))
         self.candidate=nn.Sequential(FastLinear(WIDTH,width),nn.GELU(),FastLinear(width,width))
         self.blocks=nn.ModuleList(Block(width,heads) for _ in range(depth))
@@ -45,8 +45,11 @@ class Policy(nn.Module):
         self.score=nn.Sequential(FastLinear(2*width,width),nn.GELU(),FastLinear(width,1))
         self.quantity=nn.Sequential(FastLinear(2*width,width),nn.GELU(),FastLinear(width,1))
         if action_mode=='projects':self.exec_head=FastLinear(2*width,1)
+        self.critic=nn.Sequential(FastLinear(width,width),nn.GELU(),FastLinear(width,1)) if critic else None
+        if self.critic is not None:
+            nn.init.zeros_(self.critic[-1].weight);nn.init.zeros_(self.critic[-1].bias)
 
-    def forward(self,batch,*,return_exec=False):
+    def forward(self,batch,*,return_exec=False,return_value=False):
         x=self.context(batch['context'])
         for block in self.blocks: x=block(x,~batch['context_mask'])
         q=self.candidate(batch['candidates'])
@@ -61,6 +64,9 @@ class Policy(nn.Module):
         mask=batch['candidate_mask'] if self.action_mode=='projects' else batch['legal']
         logits=logits.masked_fill(~mask,-1e9)
         log_quantity=self.quantity(h).squeeze(-1).sigmoid()*batch['limits'].log1p()
+        if return_value:
+            value=self.critic(x[:,0]).squeeze(-1) if self.critic is not None else logits[:,0]*0
+            return logits,value,executable
         return (logits,log_quantity,executable) if return_exec else (logits,log_quantity)
 
 

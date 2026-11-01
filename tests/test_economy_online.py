@@ -1,0 +1,84 @@
+"""DAgger purity, PPO identity/credit, and measured stage/rollback gates."""
+import copy
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import unittest
+
+from tests.test_economy_bc import cfg,torch
+from host import GameHost
+from ruleai.v11plus.ledger import Ledger
+
+
+@unittest.skipIf(torch is None,'Optional training dependencies')
+class OnlineChecks(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):torch.set_num_threads(1)
+
+    def encoded(self):
+        from rl.economy.projects import InvestmentPlanner
+        h=GameHost.new(cfg());p=h.player(h.actors()[0]);l=Ledger(p)
+        l.do('plan',text='独立师生查询');planner=InvestmentPlanner(l,h.clients[p.actor].state)
+        return h,planner,planner.encode()
+
+    def test_dagger_oracle_does_not_execute_actions_or_change_memory(self):
+        from rl.economy.online import expert_index
+        h,p,e=self.encoded();before=h.runtime.save_mod_state(h.world)
+        acts=copy.deepcopy(p.ledger.acts);memory=copy.deepcopy(p.state.market);callback=p.ledger.on_result
+        index=expert_index(p,e)
+        self.assertNotEqual(e['actions'][index][0],'finish')
+        self.assertTrue(e['legal'][index])
+        self.assertEqual(h.runtime.save_mod_state(h.world),before)
+        self.assertEqual(p.ledger.acts,acts);self.assertEqual(p.state.market,memory)
+        self.assertIs(p.ledger.on_result,callback);p.finish()
+
+    def test_returns_never_mix_countries(self):
+        from rl.economy.online import monte_carlo
+        a=[dict(reward=.2),dict(reward=.3)];b=[dict(reward=5.),dict(reward=7.)]
+        result=monte_carlo([a,b])
+        self.assertEqual([s['return']for s in result],[.5,.3,12.,7.])
+
+    def test_critic_transfer_preserves_policy_and_ppo_has_actual_gradients(self):
+        from rl.economy.model import Policy,collate
+        from rl.economy.online import with_critic,ppo_update
+        from rl.economy.projects import sample
+        h,p,e=self.encoded();torch.manual_seed(1)
+        actor=Policy(action_mode='projects').eval();model=with_critic(actor)
+        row=sample(e,0);b=collate([row])
+        with torch.no_grad():
+            original=actor(b)[0];logits,value,_=model(b,return_value=True)
+            torch.testing.assert_close(logits,original)
+            self.assertEqual(float(value[0]),0.)
+            logp=float(logits.log_softmax(-1)[0,0])
+            same=model(collate([row,row]),return_value=True)[0].log_softmax(-1)[:,0]
+            torch.testing.assert_close((same-logp).exp(),torch.ones(2),atol=1e-5,rtol=1e-5)
+        streams=[[dict(row=row,action=0,logp=logp,value=0.,reward=x,period=0)]for x in (.1,.2,.3,.4)]
+        result=ppo_update(model,streams,actor,epochs=1)
+        self.assertGreater(result['updates'],0)
+        self.assertIsNotNone(model.score[-1].weight.grad)
+        self.assertGreater(float(model.critic[-1].weight.detach().abs().sum()),0.)
+        p.finish()
+
+    def test_measured_stage_selection_and_regression_rejection(self):
+        from rl.economy.overnight import choose_stage,accept
+        good=dict(early_rate=1.,failure_rate=0.,truncated=0,shortfall=0,score=100.,tail=10.,assets=1000.,land=20)
+        self.assertEqual(choose_stage(dict(good,early_rate=.75),good,1.),'bc')
+        self.assertEqual(choose_stage(good,good,.7),'dagger')
+        self.assertEqual(choose_stage(good,good,.95),'ppo')
+        self.assertTrue(accept(good,good)[0])
+        self.assertFalse(accept(dict(good,early_rate=.75),good)[0])
+        self.assertFalse(accept(dict(good,score=95.),good)[0])
+        self.assertFalse(accept(dict(good,score=99.5),good)[0])
+        self.assertFalse(accept(dict(good,failure_rate=.1),good)[0])
+
+    def test_training_deadline_checked_between_batches(self):
+        from rl.economy.online import checked_batches,Deadline
+        with self.assertRaises(Deadline):next(checked_batches([object()],0))
+
+    def test_storage_budget_reserves_room_without_deleting_evidence(self):
+        from rl.economy.overnight import storage_guard
+        from rl.economy.online import Deadline
+        with TemporaryDirectory() as directory:
+            root=Path(directory);model=root/'best.pt';model.write_bytes(b'x'*64)
+            self.assertEqual(storage_guard(root,budget=100,headroom=16,reserve=0)['run_bytes'],64)
+            with self.assertRaises(Deadline):storage_guard(root,budget=70,headroom=16,reserve=0)
+            self.assertEqual(model.read_bytes(),b'x'*64)
