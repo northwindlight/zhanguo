@@ -74,6 +74,11 @@ class OnlineChecks(unittest.TestCase):
         from rl.economy.online import checked_batches,Deadline
         with self.assertRaises(Deadline):next(checked_batches([object()],0))
 
+    def test_all_production_curriculum_worlds_have_at_least_150_turns(self):
+        from rl.economy.overnight import curriculum_turns
+        self.assertEqual([curriculum_turns(i) for i in (1,3,4,7,8,100)],[150,150,200,200,250,250])
+        self.assertTrue(all(curriculum_turns(i)>=150 for i in range(1,101)))
+
     def test_storage_budget_reserves_room_without_deleting_evidence(self):
         from rl.economy.overnight import storage_guard
         from rl.economy.online import Deadline

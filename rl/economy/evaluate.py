@@ -27,6 +27,7 @@ def run(seed,turns,*,size=24,swap=False,model=None,candidate='v13plus',deadline=
     flows=defaultdict(lambda:dict(inputs=Counter(),outputs=Counter()))
     supply=Counter();actions=defaultdict(Counter);milestones=defaultdict(dict)
     surplus=Counter();admin=Counter();tail=defaultdict(list)
+    economy_trace=defaultdict(list);late_production={};late_supply={}
     prices=dict(host.player(host.actors()[0]).call_api('economy:queries','market')['prices'])
     prices['native:gold']=1
     original_produce,original_supply=host.world.buildings.produce,host.world.military.supply
@@ -51,20 +52,44 @@ def run(seed,turns,*,size=24,swap=False,model=None,candidate='v13plus',deadline=
     with patch.object(host.world.buildings,'produce',side_effect=produce),patch.object(host.world.military,'supply',side_effect=feed):
         for turn in range(turns):
             check_deadline(deadline)
+            if turn==max(0,turns-50):
+                late_production={a:production[a].copy() for a in initial}
+                late_supply=dict(supply)
             host.cycle(on_result=receipt)
             for actor in initial:
+                previous_admin=admin[actor]
                 value,admin[actor]=operating_surplus(host,actor,turn,admin[actor])
                 surplus[actor]+=value;tail[actor].append(value)
+                rows=host.world.economy.turns(actor,period=turn)
+                economy_trace[actor].append(dict(
+                    surplus=value,gdp=sum(r.gdp.known for r in rows),military=sum(r.military.known for r in rows),
+                    administration=admin[actor]-previous_admin,
+                    cash=host.world.resources.balance(actor,'native:gold'),
+                    land=len(host.world.territory.owned(actor)),
+                    assets=rows[-1].net_assets.known if rows else 0))
                 if len(host.world.territory.owned(actor))>initial[actor]['land']:
                     milestones[actor].setdefault('first_expansion',turn+1)
             if (turn+1)%10==0 or turn==turns-1:
                 print(json.dumps(dict(seed=seed,swap=swap,candidate='bc' if model else candidate,turn=turn+1,seconds=round(time.monotonic()-start,1))),flush=True)
                 history.append(dict(turn=turn+1,countries=snapshot(host,failures)))
     if source_hash()!=source:raise RuntimeError('Source changed during evaluation; discard this world')
+    late_economy={}
+    for actor,series in economy_trace.items():
+        window=series[-50:];before=series[-51] if len(series)>50 else dict(land=initial[actor]['land'],assets=0)
+        late_economy[actor]=dict(window=len(window),start_period=turns-len(window)+1,
+            mean_surplus=sum(r['surplus']for r in window)/len(window),
+            mean_gdp=sum(r['gdp']for r in window)/len(window),
+            military=sum(r['military']for r in window),administration=sum(r['administration']for r in window),
+            mean_cash=sum(r['cash']for r in window)/len(window),final_cash=window[-1]['cash'],
+            land_gained=window[-1]['land']-before['land'],asset_change=window[-1]['assets']-before['assets'],
+            missing_inputs=production[actor]['missing-input']-late_production[actor]['missing-input'],
+            energy_shortages=production[actor]['energy-shortage']-late_production[actor]['energy-shortage'],
+            supply_shortfalls=supply[actor]-late_supply.get(actor,0))
     return dict(seed=seed,swap=swap,turns=turns,config=cfg,source=source,initial=initial,
         history=history,seconds=time.monotonic()-start,production=dict(production),supply_shortfalls=dict(supply),
         actions=dict(actions),milestones=dict(milestones),
-        operating_surplus=dict(surplus),tail_surplus={a:sum(v[-20:])/min(20,len(v)) for a,v in tail.items()},
+        operating_surplus=dict(surplus),tail_surplus={a:sum(v[-50:])/min(50,len(v)) for a,v in tail.items()},
+        tail_window=50,late_economy=late_economy,
         net_production_at_initial_prices={actor:sum((f['outputs'][r]-f['inputs'][r])*p for r,p in prices.items()) for actor,f in flows.items()})
 
 

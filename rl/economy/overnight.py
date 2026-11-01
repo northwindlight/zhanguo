@@ -30,6 +30,11 @@ from .scenarios import source_hash
 GATE_SEEDS=(7101,7102)
 
 
+def curriculum_turns(round_number,*,smoke=False):
+    if smoke:return 8
+    return 150 if round_number<=3 else 200 if round_number<=7 else 250
+
+
 def storage_guard(root,*,budget=1024**3,headroom=128*1024**2,reserve=1024**3):
     used=sum(p.stat().st_size for p in root.rglob('*') if p.is_file())
     free=shutil.disk_usage(root).free
@@ -55,6 +60,7 @@ def gate_summary(results):
                 first_recruit=m.get('first_recruit'),first_expansion=m.get('first_expansion'),
                 score=r['operating_surplus'].get(actor,0),tail=r['tail_surplus'].get(actor,0),
                 assets=c['report'].get('net_assets',{}).get('total',0) or 0,
+                late_economy=r.get('late_economy',{}).get(actor,{}),
                 land=c['land'],army=c['army'],failures=c['project_failures']+sum(c['failures'].values()),
                 truncated=c['truncated'],shortfall=r['supply_shortfalls'].get(actor,0),
                 decisions=sum(c['economic_actions'].values())+r['turns'])
@@ -156,7 +162,7 @@ def main():
             check_deadline(deadline)
             guard()
             folder=a.out/f'round-{number:04d}';folder.mkdir();completed=number
-            eval_turns=8 if a.smoke else (80 if number<=3 else 120 if number<=7 else 160)
+            eval_turns=curriculum_turns(number,smoke=a.smoke)
             state('capability',stage=stage,turns=eval_turns)
             torch.set_num_threads(1)
             teacher=gates(None,eval_turns,a.out,deadline,prefix='teacher',guard=guard)

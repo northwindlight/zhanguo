@@ -152,7 +152,7 @@ def rollout(model,seed,turns,*,mode='dagger',size=24,swap=False,deadline=math.in
         c=h.clients[actor];rows.extend(c.rows);trajectories.append(c.steps)
     report=dict(seed=seed,turns=turns,size=size,swap=swap,mode=mode,source=source,
         milestones=dict(milestones),countries={a:final[a] for a in focal},
-        surplus=dict(surplus),tail_surplus={a:sum(v[-20:])/min(20,len(v)) for a,v in tail.items()},
+        surplus=dict(surplus),tail_surplus={a:sum(v[-50:])/min(50,len(v)) for a,v in tail.items()},
         family_agreement=sum(h.clients[a].family_correct for a in focal)/max(1,sum(h.clients[a].decisions for a in focal)),
         decisions=sum(h.clients[a].decisions for a in focal),seconds=time.monotonic()-begun)
     report['virtual_invalid_penalty']=sum(h.clients[a].project_failures for a in focal)*20 if mode=='ppo' else 0
