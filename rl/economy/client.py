@@ -1,5 +1,6 @@
 """Experimental local runner; only run_economy changes, military stays v11plus."""
 from collections import Counter
+import random
 import torch
 
 from ruleai.v13.entry import RuleClient as BaseClient
@@ -73,3 +74,27 @@ class LearnedClient(BaseClient):
             else:
                 self.truncated+=1
         self.state.market=old.remember(own)
+
+
+class CorrectingTeacher(RecordingTeacher):
+    """Collect expert turns after student mistakes; evaluation has no intervention.
+
+This is BC on mixed-policy trajectories, not per-action DAgger or PPO. Only
+expert actions become labels; student turns expose the expert to off-policy
+power/material/expansion states under the real multiplayer market.
+"""
+    version='v13plus-bc-mixture'
+
+    def __init__(self,*args,model,teacher_probability=.5,seed=0,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.model=model;self.teacher_probability=teacher_probability
+        self.rng=random.Random(seed);self.max_economy_actions=96
+        self.truncated=0;self.economic_actions=Counter();self.teacher_turns=0;self.student_turns=0
+
+    def run_economy(self,ledger):
+        if self.rng.random()<self.teacher_probability:
+            self.teacher_turns+=1
+            super().run_economy(ledger)
+        else:
+            self.student_turns+=1
+            LearnedClient.run_economy(self,ledger)

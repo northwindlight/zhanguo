@@ -22,7 +22,7 @@ def run(seed,turns,*,size=24,swap=False,model=None,candidate='v13plus'):
             if client.version==candidate:host.clients[actor]=LearnedClient(state=client.state,model=model)
     initial=snapshot(host,failures);history=[];production=defaultdict(Counter)
     flows=defaultdict(lambda:dict(inputs=Counter(),outputs=Counter()))
-    supply=Counter();actions=defaultdict(Counter)
+    supply=Counter();actions=defaultdict(Counter);milestones=defaultdict(dict)
     prices=dict(host.player(host.actors()[0]).call_api('economy:queries','market')['prices'])
     prices['native:gold']=1
     original_produce,original_supply=host.world.buildings.produce,host.world.military.supply
@@ -38,18 +38,26 @@ def run(seed,turns,*,size=24,swap=False,model=None,candidate='v13plus'):
         return result
     def receipt(actor,action,args,result):
         if not result['ok']:failures[actor][action+':'+result['message']]+=1
-        else:actions[actor][action]+=1
+        else:
+            actions[actor][action]+=1
+            if action=='recruit':milestones[actor].setdefault('first_recruit',turn+1)
+            if action=='build' and args['kind']=='native:barracks':
+                milestones[actor].setdefault('first_barracks',turn+1)
     start=time.monotonic()
     with patch.object(host.world.buildings,'produce',side_effect=produce),patch.object(host.world.military,'supply',side_effect=feed):
         for turn in range(turns):
             host.cycle(on_result=receipt)
+            for actor in initial:
+                if len(host.world.territory.owned(actor))>initial[actor]['land']:
+                    milestones[actor].setdefault('first_expansion',turn+1)
             if (turn+1)%10==0 or turn==turns-1:
                 print(json.dumps(dict(seed=seed,swap=swap,candidate='bc' if model else candidate,turn=turn+1,seconds=round(time.monotonic()-start,1))),flush=True)
                 history.append(dict(turn=turn+1,countries=snapshot(host,failures)))
     if source_hash()!=source:raise RuntimeError('Source changed during evaluation; discard this world')
     return dict(seed=seed,swap=swap,turns=turns,config=cfg,source=source,initial=initial,
         history=history,seconds=time.monotonic()-start,production=dict(production),supply_shortfalls=dict(supply),
-        actions=dict(actions),net_production_at_initial_prices={actor:sum((f['outputs'][r]-f['inputs'][r])*p for r,p in prices.items()) for actor,f in flows.items()})
+        actions=dict(actions),milestones=dict(milestones),
+        net_production_at_initial_prices={actor:sum((f['outputs'][r]-f['inputs'][r])*p for r,p in prices.items()) for actor,f in flows.items()})
 
 
 def main():
@@ -58,7 +66,7 @@ def main():
     p.add_argument('--checkpoint',type=Path);p.add_argument('--out',type=Path,required=True)
     a=p.parse_args();torch.set_num_threads(1)
     model,saved=load_policy(a.checkpoint) if a.checkpoint else (None,None)
-    if saved and set(a.seeds)&set(saved['train_seeds']+saved['valid_seeds']):
+    if saved and set(a.seeds)&set(saved.get('seen_seeds',saved['train_seeds']+saved['valid_seeds'])):
         raise ValueError('Rollout holdout seeds must be independent of train/validation')
     a.out.parent.mkdir(parents=True,exist_ok=True);results=[]
     for seed in a.seeds:

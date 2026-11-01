@@ -60,7 +60,7 @@ try:
     import torch
     import numpy as np
     from rl.economy.adapter import observation,label,decode
-    from rl.economy.client import RecordingTeacher
+    from rl.economy.client import RecordingTeacher,CorrectingTeacher
     from rl.economy.data import Writer,Dataset
     from rl.economy.model import Policy,collate
 except ImportError:
@@ -98,6 +98,23 @@ class LearningChecks(unittest.TestCase):
         with self.assertRaises(ValueError):label(after,'sell',dict(resource='native:wood',quantity=1))
         # Quoted but unaffordable/structurally unavailable projects remain visible.
         self.assertTrue(any(not ok and a[0]=='build' for ok,a in zip(encoded['legal'],encoded['actions'])))
+
+    def test_corrective_collection_labels_only_teacher_turns_after_student_waits(self):
+        class WaitingPolicy(torch.nn.Module):
+            def forward(self,batch):
+                logits=torch.zeros_like(batch['limits']);logits[:,0]=1
+                return logits,torch.zeros_like(logits)
+        h=GameHost.new(cfg());rows=[];model=WaitingPolicy()
+        for actor,c in list(h.clients.items()):
+            h.clients[actor]=CorrectingTeacher(state=c.state,sink=rows.append,
+                model=model,teacher_probability=.75,seed=actor)
+        for _ in range(8):h.cycle()
+        teacher=sum(c.teacher_turns for c in h.clients.values())
+        student=sum(c.student_turns for c in h.clients.values())
+        self.assertGreater(student,0);self.assertEqual(teacher+student,32)
+        self.assertEqual(sum(r['target']==0 for r in rows),teacher)
+        self.assertTrue(all(r['legal'][r['target']] for r in rows))
+        self.assertTrue(any(r['candidates'][r['target'],7]>0 for r in rows))
 
     def test_padding_invariance_real_gradients_and_compressed_data_roundtrip(self):
         torch.manual_seed(73)
