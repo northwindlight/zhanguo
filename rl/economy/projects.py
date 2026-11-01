@@ -49,22 +49,22 @@ class InvestmentPlanner(Planner):
                 'build':{r['kind']:r for r in self.player.call_api('native:buildings','planning',query)['buildings']},
                 'recruit':{r['kind']:r for r in self.player.call_api('native:army','planning',query)}}
         packages=[None]
-        attempts=getattr(self.ledger,'project_attempts',Counter())
         for i,(action,args) in enumerate(encoded['actions'][1:],1):
             package=self.package(action,args,plans[args['site']][action][args['kind']])
             funding=self.funding(*package) if package else None
             encoded['legal'][i]=funding is not None
             features=encoded['candidates'][i]
-            features[38]=scale(funding is not None)
+            # Formal funding is an auxiliary supervision target (legal), not an
+            # observation feature; the candidate keeps its public availability.
             if package:
                 recipe,reserve=package
                 features[59:66]=[scale(recipe.get(r,0)) for r in RESOURCES]
-                features[85]=scale(reserve)
-            features[86]=scale(attempts[(action,args['site'],args['kind'])])
             packages.append(package)
-        encoded['context'][0,85:88]=[
+        # Energy totals are public catalog facts; attempts/reserve are
+        # rule/training-derived and stay out of the observation.
+        encoded['context'][0,85:87]=[
             scale(sum(self.catalog[b['kind']][k] for b in self.buildings()))
-            for k in ('energy_output','energy_use')]+[scale(sum(attempts.values()))]
+            for k in ('energy_output','energy_use')]
         encoded['packages']=packages
         return encoded
 

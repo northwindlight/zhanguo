@@ -11,6 +11,9 @@ from ruleai.v13.profiles import PROFILES
 def source_hash():
     root=Path(__file__).resolve().parents[2]
     digest=hashlib.sha256()
+    # host.py orchestrates the training world; it is part of the source contract.
+    host=root/'host.py'
+    digest.update(b'host.py');digest.update(host.read_bytes())
     for folder in ('engine','mods/native','mods/economic_system','ruleai','rl/economy'):
         for path in sorted((root/folder).rglob('*')):
             if path.suffix not in ('.py','.toml'):continue
@@ -22,10 +25,12 @@ def config(seed, *, nations=8, size=24, candidate='v13plus', swap=False):
     if nations<4:raise ValueError('Economic training requires at least four countries')
     rng=random.Random(seed)
     profiles=list(PROFILES);rng.shuffle(profiles)
-    # Half the seats compare v13/teacher; remaining seats mix v11plus and v13.
+    # Four candidate/teacher seats, three v13, one v11plus. Swap keeps four
+    # candidate seats: the whole seat set is inverted, then the v11plus seat
+    # replaces a v13 seat, never a candidate seat.
     versions=[candidate if i%2 else 'v13' for i in range(nations)]
-    versions[0]='v11plus'
-    if swap:versions=[candidate if v=='v13' else 'v13' if v==candidate else v for v in versions]
+    if swap:versions=['v13' if v==candidate else candidate if v=='v13' else v for v in versions]
+    versions[1 if swap else 0]='v11plus'
     return dict(map_size=size,seed=seed,nations=[dict(id=f'scenario:n{i}',name=f'国{i}',
         client='rule',rule_ai=v,rule_strategy=profiles[i%len(profiles)],rule_seed=seed+i)
         for i,v in enumerate(versions)])

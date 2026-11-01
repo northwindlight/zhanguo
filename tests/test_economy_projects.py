@@ -50,8 +50,9 @@ class ProjectChecks(unittest.TestCase):
         self.assertFalse(e['legal'][i]);before=h.runtime.save_mod_state(h.world)
         self.assertFalse(p.execute(e,i))
         self.assertEqual(h.runtime.save_mod_state(h.world),before)
+        action,args=e['actions'][i]
         after=p.encode();self.assertEqual(after['actions'],e['actions'])
-        self.assertGreater(after['candidates'][i,86],e['candidates'][i,86]);p.finish()
+        self.assertEqual(p.ledger.project_attempts[(action,args['site'],args['kind'])],1);p.finish()
 
     def test_finish_policy_is_not_secretly_given_troops_or_buildings(self):
         from rl.economy.projects import LearnedProjects

@@ -1,8 +1,10 @@
-"""On-policy teacher queries and PPO using the old RL stack's algorithm contracts.
+"""On-policy teacher queries and PPO using the paper's one metric S.
 
-No legality mask, immutable float32 observations/log-probabilities, per-country
-Monte Carlo returns (gamma=lambda=1), normalized advantages, clipped surrogate,
-learned execution prior shared by sampling/updating, and an opening BC anchor.
+Reward = increment of cumulative actual consumption at historical current
+prices (recruit + military + administration); construction is fixed capital
+formation and is not part of S.  gamma=1 and lambda=1: every step's return is
+the full future S increment to the episode end, so a per-turn reward is not
+myopic.  No GDP proxy, no virtual invalid-action cost.
 """
 from collections import Counter,defaultdict
 import copy
@@ -58,21 +60,27 @@ def expert_index(planner,encoded):
     return 0
 
 
-def operating_surplus(host,actor,period,previous_admin=0.):
-    """Formal current-price GDP minus recurring military/administrative inputs.
+S_CATEGORIES=('recruit','military','administration')
+S_SCALE=1000.
 
-Construction and recruitment are capital decisions, not directly rewarded
-spending. They earn credit only through later production. Reward information
-is evaluator-side and never enters an actor's observation.
-"""
-    rows=host.world.economy.turns(actor,period=period)
-    admin=host.world.economy.spending(actor)['administration']
-    if not admin.complete:raise ValueError('Unpriced administration')
-    value=-(admin.known-previous_admin)
-    for r in rows:
-        if not r.gdp.complete or not r.military.complete:raise ValueError('Unpriced operating flow')
-        value+=r.gdp.known-r.military.known
-    return value,admin.known
+
+def consumption_total(host,actor):
+    """Paper S: cumulative actual consumption at historical current prices.
+
+    The three categories are ``settlement.settle``'s consumption proxies.
+    Construction is fixed capital formation; it is reported separately and is
+    not part of S.  No observation ever receives S (see the 2026-10-19 incident).
+    """
+    spending=host.world.economy.spending(actor)
+    for key in S_CATEGORIES:
+        if key not in spending:raise ValueError(f'Missing consumption category: {key}')
+        if not spending[key].complete:raise ValueError(f'Unpriced consumption: {key}')
+    return sum(spending[key].known for key in S_CATEGORIES)
+
+
+def consumption_increment(host,actor,previous=0.):
+    total=consumption_total(host,actor)
+    return total-previous,total
 
 
 class OnlineClient(BaseClient):
@@ -113,10 +121,9 @@ class OnlineClient(BaseClient):
                 if kind=='finish':break
                 if planner.execute(encoded,action):self.economic_actions[kind]+=1
                 else:
+                    # Failure is a reliability diagnostic only; it must not
+                    # shape the paper's S reward.
                     self.project_failures+=1
-                    # Old RL's rejected-action cost is virtual training cost,
-                    # never a fake economic ledger entry or recruitment tax.
-                    if self.mode=='ppo':self.steps[-1]['reward']-=.02
             else:self.truncated+=1
         finally:planner.finish()
 
@@ -129,7 +136,7 @@ def rollout(model,seed,turns,*,mode='dagger',size=24,swap=False,deadline=math.in
     for actor,c in list(h.clients.items()):
         if c.version=='v13plus':
             h.clients[actor]=OnlineClient(state=c.state,model=model,mode=mode,deadline=deadline,budget=budget);focal.append(actor)
-    initial=snapshot(h,failures);milestones=defaultdict(dict);admin=Counter();surplus=Counter();tail=defaultdict(list)
+    initial=snapshot(h,failures);milestones=defaultdict(dict);previous=Counter();consumption=Counter();tail=defaultdict(list)
     def receipt(actor,action,args,result):
         if not result['ok']:failures[actor][action+':'+result['message']]+=1
         elif action=='recruit':milestones[actor].setdefault('first_recruit',turn+1)
@@ -138,11 +145,14 @@ def rollout(model,seed,turns,*,mode='dagger',size=24,swap=False,deadline=math.in
     for turn in range(turns):
         check_deadline(deadline);h.cycle(on_result=receipt)
         for actor in focal:
-            reward,admin[actor]=operating_surplus(h,actor,turn,admin[actor]);surplus[actor]+=reward;tail[actor].append(reward)
+            reward,consumption[actor]=consumption_increment(h,actor,previous[actor])
+            previous[actor]=consumption[actor];tail[actor].append(reward)
             c=h.clients[actor]
             # All decisions of this country share its own future outcome. Never
             # run return recursion over interleaved countries or world seeds.
-            if mode=='ppo' and c.steps:c.steps[-1]['reward']+=reward/1000.
+            # gamma=lambda=1, so this turn's S increment is credited to the
+            # country's whole future return, not discounted away.
+            if mode=='ppo' and c.steps:c.steps[-1]['reward']+=reward/S_SCALE
             if len(h.world.territory.owned(actor))>initial[actor]['land']:
                 milestones[actor].setdefault('first_expansion',turn+1)
         if (turn+1)%20==0:print(dict(seed=seed,mode=mode,turn=turn+1,seconds=round(time.monotonic()-begun,1)),flush=True)
@@ -152,10 +162,10 @@ def rollout(model,seed,turns,*,mode='dagger',size=24,swap=False,deadline=math.in
         c=h.clients[actor];rows.extend(c.rows);trajectories.append(c.steps)
     report=dict(seed=seed,turns=turns,size=size,swap=swap,mode=mode,source=source,
         milestones=dict(milestones),countries={a:final[a] for a in focal},
-        surplus=dict(surplus),tail_surplus={a:sum(v[-50:])/min(50,len(v)) for a,v in tail.items()},
+        consumption=dict(consumption),
+        tail_consumption={a:sum(v[-50:])/min(50,len(v)) for a,v in tail.items()},
         family_agreement=sum(h.clients[a].family_correct for a in focal)/max(1,sum(h.clients[a].decisions for a in focal)),
         decisions=sum(h.clients[a].decisions for a in focal),seconds=time.monotonic()-begun)
-    report['virtual_invalid_penalty']=sum(h.clients[a].project_failures for a in focal)*20 if mode=='ppo' else 0
     return rows,trajectories,report
 
 

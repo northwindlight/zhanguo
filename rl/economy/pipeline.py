@@ -11,7 +11,7 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--out',type=Path,required=True)
     p.add_argument('--seeds',type=int,nargs='+',default=[101,102,103,104,105,106,201,202])
     p.add_argument('--valid-seeds',type=int,nargs='+',default=[201,202])
-    p.add_argument('--turns',type=int,default=40);p.add_argument('--epochs',type=int,default=12)
+    p.add_argument('--turns',type=int,default=150);p.add_argument('--epochs',type=int,default=12)
     p.add_argument('--workers',type=int,default=2)
     p.add_argument('--projects',action='store_true')
     p.add_argument('--student-checkpoint',type=Path)

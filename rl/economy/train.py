@@ -23,13 +23,16 @@ def curriculum_weights(batch,opening_weight=1.,mobilization_weight=1.):
     """Prioritize learning the complete zero-army investment chain, not a rule override."""
     target=batch['target'];indices=torch.arange(len(target))
     chosen=batch['candidates'][indices,target]
-    zero_army=batch['context'][:,0,42]==0
+    zero_army=batch['context'][:,0,41]==0
     barracks=(chosen[:,6]>0)&(chosen[:,17+BUILDINGS.index('native:barracks')]>0)
     power=(chosen[:,6]>0)&((chosen[:,17+BUILDINGS.index('native:wood-power-plant')]>0)|
                           (chosen[:,17+BUILDINGS.index('native:oil-power-plant')]>0))
     recruit=chosen[:,7]>0
     facility=((batch['candidates'][:,:,7]>0)&(batch['candidates'][:,:,40]>0)).any(-1)
-    material=(chosen[:,8]>0)&((chosen[:,11]>0)|(chosen[:,15]>0))&facility&zero_army
+    # Projects mode has no buy action; the mobilization-material emphasis is
+    # the supply/equipment factory build while the opening army is still zero.
+    material=(chosen[:,6]>0)&((chosen[:,17+BUILDINGS.index('native:supply-factory')]>0)|
+                              (chosen[:,17+BUILDINGS.index('native:equipment-factory')]>0))&facility&zero_army
     mobilization=barracks|recruit|material|(power&zero_army)
     weights=torch.ones(len(target),dtype=torch.float32)
     weights*=torch.where(zero_army,opening_weight,1.)

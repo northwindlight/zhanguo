@@ -23,7 +23,7 @@ from .adapter import PROJECT_FINGERPRINT
 from .data import Dataset,Writer
 from .evaluate import run as evaluate
 from .model import load_policy
-from .online import Deadline,check_deadline,rollout,bc_update,with_critic,ppo_update
+from .online import Deadline,check_deadline,rollout,bc_update,with_critic,ppo_update,S_SCALE
 from .scenarios import source_hash
 
 
@@ -58,23 +58,45 @@ def gate_summary(results):
             early=m.get('first_recruit',math.inf)<=8 and m.get('first_expansion',math.inf)<=12
             row=dict(actor=actor,seed=r['seed'],swap=r['swap'],early=early,
                 first_recruit=m.get('first_recruit'),first_expansion=m.get('first_expansion'),
-                score=r['operating_surplus'].get(actor,0),tail=r['tail_surplus'].get(actor,0),
+                # Paper S: cumulative actual consumption (recruit+military+admin).
+                # tail_consumption is the mean per-turn S increment in the last 50.
+                consumption=r['consumption'].get(actor,0),
+                tail_consumption=r['tail_consumption'].get(actor,0),
                 assets=c['report'].get('net_assets',{}).get('total',0) or 0,
                 late_economy=r.get('late_economy',{}).get(actor,{}),
                 land=c['land'],army=c['army'],failures=c['project_failures']+sum(c['failures'].values()),
                 truncated=c['truncated'],shortfall=r['supply_shortfalls'].get(actor,0),
                 decisions=sum(c['economic_actions'].values())+r['turns'])
             rows.append(row)
-            total.update({k:v for k,v in row.items() if k in ('score','tail','assets','land','failures','truncated','shortfall','decisions')})
+            total.update({k:v for k,v in row.items() if k in ('consumption','tail_consumption','failures','truncated','shortfall','decisions')})
             total['early']+=int(early);total['n']+=1
     return dict(total,early_rate=total['early']/max(1,total['n']),failure_rate=total['failures']/max(1,total['decisions']),countries=rows)
+
+
+def _seat_key(row):return (row['actor'],row['seed'],row['swap'])
+def _seat_pairs(capability,reference):
+    """Per-seat S comparison; sorted by seat for deterministic reporting."""
+    ref={_seat_key(r):r for r in reference['countries']}
+    rows=[]
+    for r in capability['countries']:
+        other=ref.get(_seat_key(r))
+        if other is None:return None
+        rows.append((r['consumption'],other['consumption'],r['tail_consumption'],other['tail_consumption']))
+    return rows
+def _ratio(candidate,reference):
+    return candidate/reference if reference>0 else (1.0 if candidate>=reference else float('-inf'))
 
 
 def choose_stage(capability,teacher,agreement):
     if capability['early_rate']<1:return 'bc'
     reliable=(capability['failure_rate']<=.002 and capability['truncated']==0 and capability['shortfall']==0)
-    ready=(reliable and agreement>=.9 and capability['score']>=.95*teacher['score'] and
-           capability['tail']>=.9*teacher['tail'] and capability['assets']>=.9*teacher['assets'])
+    pairs=_seat_pairs(capability,teacher)
+    ratios=sorted(_ratio(c,t) for c,t,_,_ in pairs) if pairs else []
+    tail_ratios=sorted(_ratio(c,t) for _,_,c,t in pairs) if pairs else []
+    median=lambda values:values[len(values)//2] if values else float('-inf')
+    ready=(reliable and agreement>=.9 and pairs is not None and
+           median(ratios)>=.95 and _ratio(capability['consumption'],teacher['consumption'])>=.95 and
+           median(tail_ratios)>=.9)
     return 'ppo' if ready else 'dagger'
 
 
@@ -84,9 +106,13 @@ def accept(candidate,incumbent):
     if candidate['failure_rate']>max(.002,incumbent['failure_rate']):reasons.append('invalid_actions')
     if candidate['truncated']>incumbent['truncated']:reasons.append('action_cap')
     if candidate['shortfall']>incumbent['shortfall']:reasons.append('supply_regression')
-    for key,ratio in (('score',1.),('tail',.95),('assets',.9),('land',.9)):
-        threshold=incumbent[key]-abs(incumbent[key])*(1-ratio)
-        if candidate[key]<threshold:reasons.append(key+'_regression')
+    pairs=_seat_pairs(candidate,incumbent)
+    if pairs is None:reasons.append('missing_seat')
+    else:
+        for c,t,tc,tt in pairs:
+            if c<.95*t:reasons.append('seat_consumption_regression')
+            if tc<.95*tt:reasons.append('seat_tail_regression')
+    if candidate['consumption']<incumbent['consumption']:reasons.append('consumption_regression')
     return not reasons,reasons
 
 
@@ -94,8 +120,7 @@ def checkpoint(path,model,base,seen,**extra):
     saved={k:v for k,v in base.items() if k not in ('model','optimizer','rng','metrics','config')}
     saved.update(model=model.state_dict(),config=model.config,fingerprint=PROJECT_FINGERPRINT,
         source=source_hash(),seen_seeds=sorted(seen),online=extra,
-        reward=dict(name='current_price_operating_surplus_v1',scale=1000.,gamma=1.,gae_lambda=1.,
-                    invalid_action_cost=20.,capital_spending_bonus=0.))
+        reward=dict(name='paper_S_consumption_increment',scale=S_SCALE,gamma=1.,gae_lambda=1.))
     tmp=path.with_suffix('.tmp');torch.save(saved,tmp);tmp.replace(path)
 
 
@@ -139,10 +164,13 @@ def main():
     torch.set_num_threads(a.threads)
     model,base=load_policy(a.out/'current.pt' if (a.out/'current.pt').exists() else a.checkpoint)
     if model.action_mode!='projects':raise ValueError('Overnight job requires project BC')
+    if base.get('source')!=source_hash():raise ValueError('Checkpoint source does not match the current feature contract; retrain')
     anchor,_=load_policy(a.checkpoint);anchor.eval()
     seen=set(base.get('seen_seeds',base['train_seeds']+base['valid_seeds']))|set(GATE_SEEDS)
     teacher_paths=[x for x in a.teacher_data.glob('world-*.npz') if int(x.stem.split('-')[-1]) in base['train_seeds']]
     initial=Dataset(teacher_paths,fingerprint=PROJECT_FINGERPRINT)
+    if any(m['source']!=source_hash() for m in initial.metadata):
+        raise ValueError('Teacher data source does not match the current feature contract; recollect')
     # Fixed initial BC demonstrations protect the opening in later DAgger updates.
     original_rows=[initial[i] for i in range(len(initial))]
     old_state=json.loads((a.out/'state.json').read_text()) if (a.out/'state.json').exists() else {}

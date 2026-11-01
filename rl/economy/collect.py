@@ -50,7 +50,7 @@ def collect(seed,turns,path,*,nations=8,size=24,model=None,teacher_probability=.
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--seeds',type=int,nargs='+',required=True)
-    p.add_argument('--turns',type=int,default=60);p.add_argument('--nations',type=int,default=8)
+    p.add_argument('--turns',type=int,default=150);p.add_argument('--nations',type=int,default=8)
     p.add_argument('--sizes',type=int,nargs='+',default=[20,24,28]);p.add_argument('--out',type=Path,required=True)
     p.add_argument('--student-checkpoint',type=Path);p.add_argument('--teacher-probability',type=float,default=.5)
     p.add_argument('--teacher-only-seeds',type=int,nargs='*',default=[])

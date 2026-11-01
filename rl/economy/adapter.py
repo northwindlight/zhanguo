@@ -14,7 +14,7 @@ import numpy as np
 from ruleai.v13.market import MarketModel
 from ruleai.v13.profiles import PROFILES
 
-VERSION = 'economy-bc-1'
+VERSION = 'economy-bc-2'
 ACTIONS = ('finish', 'build', 'recruit', 'buy', 'sell')
 RESOURCES = tuple('native:'+r for r in ('gold','food','wood','ore','oil','equipment','supply'))
 BUILDINGS = tuple('native:'+r for r in ('castle','lumber-camp','farm','mine','oil-well',
@@ -87,7 +87,7 @@ def observation(ledger, state, *, include_trades=True):
     preview=econ['preview']; energy=preview['energy']; military=preview['military']
     own_army=[u for u in facts['army'] if u['owner']==player.actor]
     profile=PROFILES[state.profile]
-    context=[row(0,profile=state.profile,values=(obs['period'],len(ledger.acts),
+    context=[row(0,profile=state.profile,values=(len(ledger.acts),
         len(sites['sites']),len(sites['instances']),len(own_army),len(nations),
         energy['capacity'],energy['demand'],energy['generated'],energy['shortfall'],
         military['need'],military['equipment_need'],military['shortfall'],

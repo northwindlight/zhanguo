@@ -58,17 +58,29 @@ class OnlineChecks(unittest.TestCase):
         self.assertGreater(float(model.critic[-1].weight.detach().abs().sum()),0.)
         p.finish()
 
+    def gate(self,consumption=100.,tail=10.,**changes):
+        rows=[dict(actor=f'scenario:n{i}',seed=7101,swap=False,
+                   consumption=consumption/2,tail_consumption=tail/2) for i in (1,3)]
+        result=dict(early_rate=1.,failure_rate=0.,truncated=0,shortfall=0,
+                    consumption=consumption,tail_consumption=tail,countries=rows)
+        result.update(changes)
+        return result
+
     def test_measured_stage_selection_and_regression_rejection(self):
         from rl.economy.overnight import choose_stage,accept
-        good=dict(early_rate=1.,failure_rate=0.,truncated=0,shortfall=0,score=100.,tail=10.,assets=1000.,land=20)
-        self.assertEqual(choose_stage(dict(good,early_rate=.75),good,1.),'bc')
+        good=self.gate()
+        self.assertEqual(choose_stage(self.gate(early_rate=.75),good,1.),'bc')
         self.assertEqual(choose_stage(good,good,.7),'dagger')
         self.assertEqual(choose_stage(good,good,.95),'ppo')
         self.assertTrue(accept(good,good)[0])
-        self.assertFalse(accept(dict(good,early_rate=.75),good)[0])
-        self.assertFalse(accept(dict(good,score=95.),good)[0])
-        self.assertFalse(accept(dict(good,score=99.5),good)[0])
-        self.assertFalse(accept(dict(good,failure_rate=.1),good)[0])
+        self.assertFalse(accept(self.gate(early_rate=.75),good)[0])
+        self.assertFalse(accept(self.gate(consumption=95.),good)[0])
+        self.assertFalse(accept(self.gate(consumption=99.5),good)[0])
+        self.assertFalse(accept(self.gate(failure_rate=.1),good)[0])
+        collapsed=self.gate()
+        collapsed['countries']=copy.deepcopy(good['countries'])
+        collapsed['countries'][0]['consumption']=1.
+        self.assertFalse(accept(collapsed,good)[0])
 
     def test_training_deadline_checked_between_batches(self):
         from rl.economy.online import checked_batches,Deadline
