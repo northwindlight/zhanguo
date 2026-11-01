@@ -159,9 +159,9 @@ mask padding；保存实际采样的 float32 观察、旧 log probability；逐�
 
 ```bash
 python -m rl.economy.overnight \
-  --checkpoint rl/runs/economy-project-bc-20261101/model/best.pt \
-  --teacher-data rl/runs/economy-project-bc-20261101/data \
-  --out rl/runs/economy-overnight-20261101 \
+  --checkpoint rl/runs/economy-project-bc-s-20261101/model/best.pt \
+  --teacher-data rl/runs/economy-project-bc-s-20261101/data \
+  --out rl/runs/economy-overnight-s-20261101 \
   --until 2026-11-02T12:00:00+08:00
 ```
 
