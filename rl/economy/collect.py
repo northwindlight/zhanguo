@@ -49,6 +49,7 @@ def main():
     p.add_argument('--sizes',type=int,nargs='+',default=[20,24,28]);p.add_argument('--out',type=Path,required=True)
     p.add_argument('--student-checkpoint',type=Path);p.add_argument('--teacher-probability',type=float,default=.5)
     p.add_argument('--teacher-only-seeds',type=int,nargs='*',default=[])
+    p.add_argument('--skip-existing',action='store_true',help='Reuse complete compatible worlds; preserve their original source metadata')
     a=p.parse_args();a.out.mkdir(parents=True,exist_ok=True)
     if not 0<a.teacher_probability<=1:raise ValueError('Teacher probability must be in (0, 1]')
     model=student_hash=None
@@ -60,8 +61,20 @@ def main():
         student_hash=hashlib.sha256(a.student_checkpoint.read_bytes()).hexdigest()
     for i,seed in enumerate(a.seeds):
         path=a.out/f'world-{seed}.npz'
-        if path.exists():raise FileExistsError(path)
-        metadata=collect(seed,a.turns,path,nations=a.nations,size=a.sizes[seed%len(a.sizes)],
+        size=a.sizes[seed%len(a.sizes)]
+        active=model is not None and seed not in a.teacher_only_seeds
+        if path.exists():
+            if not a.skip_existing:raise FileExistsError(path)
+            import numpy as np
+            with np.load(path,allow_pickle=False) as z:old=json.loads(str(z['metadata']))
+            expected=dict(fingerprint=FINGERPRINT,seed=seed,turns=a.turns,
+                config=config(seed,nations=a.nations,size=size),
+                teacher_probability=a.teacher_probability if active else 1.,
+                student_checkpoint_sha256=student_hash if active else None)
+            if any(old.get(k)!=v for k,v in expected.items()):raise ValueError(f'Existing world configuration mismatch: {path}')
+            print(json.dumps(dict(reused=str(path),source=old['source'])),flush=True)
+            continue
+        metadata=collect(seed,a.turns,path,nations=a.nations,size=size,
             model=None if seed in a.teacher_only_seeds else model,
             teacher_probability=a.teacher_probability,student_hash=student_hash)
         path.with_suffix('.json').write_text(json.dumps(metadata,ensure_ascii=False,indent=2)+'\n')

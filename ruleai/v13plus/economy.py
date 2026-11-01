@@ -12,6 +12,14 @@ from ruleai.v13.economy import (Planner as BasePlanner, GOLD, WOOD, SUPPLY,
 
 
 class Planner(BasePlanner):
+    def can_recruit(self, site, kind):
+        rows=self.player.call_api('native:army','planning',{
+            'x':site['position'][0],'y':site['position'][1]})
+        row=next(r for r in rows if r['kind']==kind)
+        # Materials may still be financed, but last-period grid failure and
+        # spent quota cannot be repaired by buying a recruitment recipe now.
+        return all(r['met'] for r in row['requirements'] if 'resource' not in r)
+
     def recruit(self):
         super().recruit()
         # Investment must reserve the upkeep of troops just commissioned too.

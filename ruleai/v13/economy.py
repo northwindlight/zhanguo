@@ -163,6 +163,9 @@ class Planner:
     def release_surplus(self, targets):
         sell_surplus(self.ledger, targets, self.profile)
 
+    def can_recruit(self, site, kind):
+        return True
+
     def operations(self):
         buildings = self.buildings()
         immediate = [b for b in buildings if not b['remaining']]
@@ -350,6 +353,8 @@ class Planner:
         for site in self.sites['sites']:
             count = sum(b['kind']=='native:barracks' and not b['remaining'] and b['site']==site['id'] for b in buildings)
             for _ in range(count):
+                if not self.can_recruit(site,'native:infantry'):
+                    break
                 if len(army)>=cap or ledger.full() or not self.fund(recipe,reserve):
                     return
                 if ledger.do('recruit',site=site['id'],kind='native:infantry',count=1):

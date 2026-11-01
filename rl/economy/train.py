@@ -82,6 +82,7 @@ def main():
     p.add_argument('--resume',type=Path);p.add_argument('--init',type=Path)
     p.add_argument('--opening-weight',type=float,default=4.)
     p.add_argument('--mobilization-weight',type=float,default=3.)
+    p.add_argument('--allow-mixed-teachers',action='store_true',help='Explicitly combine compatible feature schemas from recorded teacher source revisions')
     a=p.parse_args()
     if a.resume and a.init:raise ValueError('Choose resume or initialization, not both')
     if min(a.opening_weight,a.mobilization_weight)<1:raise ValueError('Curriculum weights must be >= 1')
@@ -94,7 +95,7 @@ def main():
     train_seeds={x['seed'] for x in training.metadata};valid_seeds={x['seed'] for x in validation.metadata}
     if train_seeds&valid_seeds:raise ValueError('World leakage across train/validation')
     sources={x['source'] for x in training.metadata+validation.metadata}
-    if len(sources)!=1:raise ValueError('Mixed teacher source revisions; regenerate a coherent dataset')
+    if len(sources)!=1 and not a.allow_mixed_teachers:raise ValueError('Mixed teacher source revisions require --allow-mixed-teachers')
     digest=hashlib.sha256()
     for path in paths:
         digest.update(path.name.encode());digest.update(path.read_bytes())
@@ -115,7 +116,7 @@ def main():
         start=saved['epoch'];best=saved['best'];torch.set_rng_state(saved['rng'])
         ancestry.update(saved.get('seen_seeds',saved['train_seeds']+saved['valid_seeds']))
     a.out.mkdir(parents=True,exist_ok=True)
-    metadata=dict(fingerprint=FINGERPRINT,dataset=dataset_hash,teacher_source=next(iter(sources)),
+    metadata=dict(fingerprint=FINGERPRINT,dataset=dataset_hash,teacher_sources=sorted(sources),
         source=source_hash(),config=model.config,train_seeds=sorted(train_seeds),valid_seeds=sorted(valid_seeds),
         seen_seeds=sorted(ancestry|train_seeds|valid_seeds),
         parameters=sum(p.numel() for p in model.parameters()),training_rows=len(training),validation_rows=len(validation),

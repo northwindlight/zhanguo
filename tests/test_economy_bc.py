@@ -16,6 +16,33 @@ def cfg():
 
 
 class TeacherChecks(unittest.TestCase):
+    def test_missing_recruit_materials_remain_fundable(self):
+        h=GameHost.new(cfg());p=h.player(h.actors()[0]);l=Ledger(p)
+        l.do('plan',text='按完整征兵配方备料')
+        site=p.call_api('native:buildings','sites')['sites'][0]
+        h.world.buildings.seed(site['id'],'native:barracks')
+        for resource in ('native:food','native:equipment'):
+            h.world.resources._stock(p.actor,resource).set_amount(0)
+        planner=Planner(l,h.clients[p.actor].state)
+        self.assertTrue(planner.can_recruit(site,'native:infantry'))
+        planner.recruit();planner.finish()
+        self.assertTrue(all(r['ok'] for r in l.acts))
+        self.assertEqual(sum(r['action']=='recruit' for r in l.acts),1)
+
+    def test_prior_grid_failure_blocks_recruitment_before_buying_its_recipe(self):
+        h=GameHost.new(cfg());p=h.player(h.actors()[0]);l=Ledger(p)
+        l.do('plan',text='先修复供电再征兵')
+        site=p.call_api('native:buildings','sites')['sites'][0]['id']
+        h.world.buildings.seed(site,'native:barracks')
+        h.world.military._grid_short[p.actor]=True
+        planner=Planner(l,h.clients[p.actor].state)
+        self.assertFalse(planner.can_recruit(planner.sites['sites'][0],'native:infantry'))
+        planner.recruit()
+        self.assertEqual([r['action'] for r in l.acts],['plan'])
+        planner.invest();planner.finish()
+        self.assertTrue(all(r['ok'] for r in l.acts))
+        self.assertTrue(any(r['action']=='build' for r in l.acts))
+
     def test_financing_is_pure_and_complete_then_never_sells_bought_inputs(self):
         h=GameHost.new(cfg());p=h.player(h.actors()[0]);l=Ledger(p)
         l.do('plan',text='先保完整材料再投资')
