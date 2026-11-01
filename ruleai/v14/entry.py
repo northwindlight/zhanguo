@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from ruleai.v13.entry import RuleClient as BaseClient, RuleState as BaseState
 from . import economy
+from .linear import prepare_solver
 
 
 @dataclass
@@ -32,6 +33,7 @@ class RuleClient(BaseClient):
     def __init__(self,state=None,**kwargs):
         super().__init__(state,**kwargs)
         if not isinstance(self.state,RuleState):self.state=RuleState.from_save(self.state.to_save())
+        prepare_solver()
 
     def reset_state(self,generation):
         return RuleState(generation=generation,profile=self.state.profile)

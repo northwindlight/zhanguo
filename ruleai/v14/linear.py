@@ -7,6 +7,23 @@ import sys
 import time
 
 
+def prepare_solver():
+    """Load native DLLs before a host starts its background stdin reader.
+
+    NumPy's first Windows import can deadlock against a concurrent pipe read:
+    https://github.com/numpy/numpy/issues/24290
+    Keep this explicit so importing the strategy registry needs no solver;
+    constructing a v14 client initializes its own required runtime instead.
+    """
+    try:
+        import numpy as np
+        from scipy.optimize import Bounds, LinearConstraint, milp
+        from scipy.sparse import csc_matrix
+    except ImportError as error:
+        raise RuntimeError('v14联合规划需要NumPy/SciPy：请在虚拟环境安装 requirements-ruleai.txt') from error
+    return np, Bounds, LinearConstraint, milp, csc_matrix
+
+
 class Expr:
     def __init__(self, terms=None, constant=0):
         self.terms = terms or {}
@@ -76,12 +93,7 @@ class Model:
         trace=os.environ.get('ZHANGUO_REVIEW_TRACE')=='1'
         started=time.monotonic()
         if trace:print(f'V14_SOLVE_BEGIN vars={len(self.names)} rows={len(self.rows)} threads=1',file=sys.stderr,flush=True)
-        try:
-            import numpy as np
-            from scipy.optimize import Bounds, LinearConstraint, milp
-            from scipy.sparse import csc_matrix
-        except ImportError as error:
-            raise RuntimeError('v14联合规划需要NumPy/SciPy：请在虚拟环境安装 requirements-ruleai.txt') from error
+        np, Bounds, LinearConstraint, milp, csc_matrix = prepare_solver()
         indices, columns, data = [], [], []
         for row, terms in enumerate(self.rows):
             for column, value in terms.items():
