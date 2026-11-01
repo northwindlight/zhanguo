@@ -5,7 +5,7 @@ separate: unaffordable projects can inform purchases without being executable.
 """
 import torch
 from torch import nn
-from .adapter import WIDTH, FINGERPRINT
+from .adapter import WIDTH, FINGERPRINT, PROJECT_FINGERPRINT
 from .layers import FastLinear, Attn, Block
 
 
@@ -31,9 +31,12 @@ def collate(examples):
 
 
 class Policy(nn.Module):
-    def __init__(self,width=160,depth=2,heads=4):
+    def __init__(self,width=160,depth=2,heads=4,action_mode='atomic'):
         super().__init__()
-        self.config=dict(width=width,depth=depth,heads=heads)
+        if action_mode not in ('atomic','projects'):raise ValueError(action_mode)
+        self.action_mode=action_mode
+        self.fingerprint=PROJECT_FINGERPRINT if action_mode=='projects' else FINGERPRINT
+        self.config=dict(width=width,depth=depth,heads=heads,action_mode=action_mode)
         self.context=nn.Sequential(FastLinear(WIDTH,width),nn.GELU(),FastLinear(width,width))
         self.candidate=nn.Sequential(FastLinear(WIDTH,width),nn.GELU(),FastLinear(width,width))
         self.blocks=nn.ModuleList(Block(width,heads) for _ in range(depth))
@@ -41,21 +44,29 @@ class Policy(nn.Module):
         self.norm=nn.LayerNorm(width);self.norm2=nn.LayerNorm(width)
         self.score=nn.Sequential(FastLinear(2*width,width),nn.GELU(),FastLinear(width,1))
         self.quantity=nn.Sequential(FastLinear(2*width,width),nn.GELU(),FastLinear(width,1))
+        if action_mode=='projects':self.exec_head=FastLinear(2*width,1)
 
-    def forward(self,batch):
+    def forward(self,batch,*,return_exec=False):
         x=self.context(batch['context'])
         for block in self.blocks: x=block(x,~batch['context_mask'])
         q=self.candidate(batch['candidates'])
         h=self.norm(q+self.cross(q,x,~batch['context_mask']))
         h=self.norm2(h+self.cross2(h,h,~batch['candidate_mask']))
         h=torch.cat((h,q),dim=-1)
-        logits=self.score(h).squeeze(-1).masked_fill(~batch['legal'],-1e9)
+        logits=self.score(h).squeeze(-1)
+        executable=self.exec_head(h).squeeze(-1) if self.action_mode=='projects' else None
+        if executable is not None:
+            # feat/rl transformer: a learned soft prior, no formal legality mask.
+            logits=logits+.5*(executable.sigmoid()+1e-3).log()
+        mask=batch['candidate_mask'] if self.action_mode=='projects' else batch['legal']
+        logits=logits.masked_fill(~mask,-1e9)
         log_quantity=self.quantity(h).squeeze(-1).sigmoid()*batch['limits'].log1p()
-        return logits,log_quantity
+        return (logits,log_quantity,executable) if return_exec else (logits,log_quantity)
 
 
 def load_policy(path):
     saved=torch.load(path,map_location='cpu',weights_only=True)
-    if saved.get('fingerprint')!=FINGERPRINT: raise ValueError('Incompatible economic BC checkpoint')
-    model=Policy(**saved['config']);model.load_state_dict(saved['model']);model.eval()
+    model=Policy(**saved['config'])
+    if saved.get('fingerprint')!=model.fingerprint: raise ValueError('Incompatible economic BC checkpoint')
+    model.load_state_dict(saved['model']);model.eval()
     return model,saved

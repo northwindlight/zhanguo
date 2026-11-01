@@ -7,8 +7,9 @@ from .adapter import FINGERPRINT
 
 
 class Writer:
-    def __init__(self):
+    def __init__(self,fingerprint=FINGERPRINT):
         self.rows=[]
+        self.fingerprint=fingerprint
 
     def add(self,row):
         self.rows.append(row)
@@ -25,17 +26,17 @@ class Writer:
             limits=np.concatenate([r['limits'] for r in rows]),
             target=np.array([r['target'] for r in rows],dtype=np.int64),
             quantity=np.array([r['quantity'] for r in rows],dtype=np.float32),
-            metadata=json.dumps(dict(metadata,fingerprint=FINGERPRINT),ensure_ascii=False))
+            metadata=json.dumps(dict(metadata,fingerprint=self.fingerprint),ensure_ascii=False))
 
 
 class Dataset:
-    def __init__(self,paths):
+    def __init__(self,paths,*,fingerprint=FINGERPRINT):
         self.shards=[];self.index=[];self.metadata=[]
         for path in sorted(map(Path,paths)):
             with np.load(path,allow_pickle=False) as z:
                 d={k:z[k] for k in z.files}
             metadata=json.loads(str(d.pop('metadata')))
-            if metadata['fingerprint']!=FINGERPRINT:raise ValueError(f'Incompatible data: {path}')
+            if metadata['fingerprint']!=fingerprint:raise ValueError(f'Incompatible data: {path}')
             self.metadata.append(metadata)
             shard=len(self.shards);self.shards.append(d)
             self.index.extend((shard,i) for i in range(len(d['target'])))

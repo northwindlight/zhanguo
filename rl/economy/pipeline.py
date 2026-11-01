@@ -13,6 +13,7 @@ def main():
     p.add_argument('--valid-seeds',type=int,nargs='+',default=[201,202])
     p.add_argument('--turns',type=int,default=40);p.add_argument('--epochs',type=int,default=12)
     p.add_argument('--workers',type=int,default=2)
+    p.add_argument('--projects',action='store_true')
     p.add_argument('--student-checkpoint',type=Path)
     p.add_argument('--teacher-probability',type=float,default=.5)
     p.add_argument('--reuse-data',type=Path,help='Reuse complete matching worlds after a collector failure; original source hashes remain recorded')
@@ -38,7 +39,7 @@ def main():
                       '--teacher-only-seeds',*map(str,a.valid_seeds)] if a.student_checkpoint else [])
             children.append(subprocess.Popen([sys.executable,'-m','rl.economy.collect',
                 '--seeds',*map(str,seeds),'--turns',str(a.turns),'--out',str(data),*mixture,
-                *(['--skip-existing'] if a.reuse_data else [])],stdout=log,stderr=subprocess.STDOUT))
+                *(['--skip-existing'] if a.reuse_data else []),*(['--projects'] if a.projects else [])],stdout=log,stderr=subprocess.STDOUT))
         codes=[child.wait() for child in children]
         if any(codes):raise RuntimeError(f'Collectors failed: {codes}; see collect logs')
         phase('training')
@@ -46,7 +47,7 @@ def main():
             subprocess.run([sys.executable,'-m','rl.economy.train','--data',str(data),
                 '--valid-seeds',*map(str,a.valid_seeds),'--epochs',str(a.epochs),
                 '--out',str(a.out/'model'),*(['--init',str(a.student_checkpoint)] if a.student_checkpoint else []),
-                *(['--allow-mixed-teachers'] if a.reuse_data else [])],
+                *(['--allow-mixed-teachers'] if a.reuse_data else []),*(['--projects'] if a.projects else [])],
                 stdout=log,stderr=subprocess.STDOUT,check=True)
         phase('complete',checkpoint=str(a.out/'model'/'best.pt'))
     except BaseException as error:

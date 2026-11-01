@@ -28,6 +28,7 @@ WIDTH = 96
 # outputs 73:80, profile 80:85. Each token group defines its scalar attributes.
 FINGERPRINT = hashlib.sha256(json.dumps([VERSION,ACTIONS,RESOURCES,BUILDINGS,UNITS,
     PROFILES_ORDER,WIDTH],ensure_ascii=True).encode()).hexdigest()
+PROJECT_FINGERPRINT = hashlib.sha256((FINGERPRINT+':funded-projects-1').encode()).hexdigest()
 
 
 def scale(value):
@@ -64,7 +65,7 @@ def max_buy(player, resource, inventory, cash):
     return low
 
 
-def observation(ledger, state):
+def observation(ledger, state, *, include_trades=True):
     player=ledger.player
     obs=player.observe()
     facts=obs['facts']; econ=facts['econ']; sites=facts['building_sites']
@@ -142,6 +143,8 @@ def observation(ledger, state):
             actions.append(('recruit',{'site':site['id'],'kind':choice['kind'],'count':1}))
             candidates.append(features);legal.append(choice['available']);limits.append(0)
     for side,prices,opposite in (('buy',buy,sold),('sell',sell,bought)):
+        if not include_trades:
+            break
         for resource in RESOURCES[1:]:
             cap=(max_buy(player,resource,inventory.get(resource,0),stocks.get(RESOURCES[0],0))
                  if side=='buy' else int(stocks.get(resource,0)))

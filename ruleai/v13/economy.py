@@ -166,6 +166,14 @@ class Planner:
     def can_recruit(self, site, kind):
         return True
 
+    def execute_project(self, action, site, kind, recipe, reserve):
+        if not self.fund(recipe, reserve):
+            return False
+        args = dict(site=site['id'], kind=kind)
+        if action == 'recruit':
+            args['count'] = 1
+        return self.ledger.do(action, **args)
+
     def operations(self):
         buildings = self.buildings()
         immediate = [b for b in buildings if not b['remaining']]
@@ -299,9 +307,7 @@ class Planner:
             for key,value in operation.items():
                 recipe[key] = recipe.get(key,0)+value
             reserve = reserve_cash(self.catalog,self.buildings(),self.military,self.buy,self.profile)
-            if not self.fund(recipe,reserve):
-                break
-            if not self.ledger.do('build',site=site['id'],kind=kind):
+            if not self.execute_project('build',site,kind,recipe,reserve):
                 break
             # Re-score after every investment; one portfolio plan rather than
             # independently ranking every site at the same pre-investment price.
@@ -342,9 +348,8 @@ class Planner:
                     targets = operating_targets(self.catalog,buildings,self.military,self.prices,self.profile.reserve)
                     recipe = dict(costs)
                     for key,value in targets.items():recipe[key]=recipe.get(key,0)+value
-                    if self.fund(recipe,reserve):
-                        if ledger.do('build',site=site['id'],kind='native:barracks'):
-                            self.sites = apimap.query(self.player,'building_sites')
+                    if self.execute_project('build',site,'native:barracks',recipe,reserve):
+                        self.sites = apimap.query(self.player,'building_sites')
                     break
         recipe = dict(infantry['recruit'])
         target = operating_targets(self.catalog,buildings,self.military,self.prices,self.profile.reserve)
@@ -355,11 +360,13 @@ class Planner:
             for _ in range(count):
                 if not self.can_recruit(site,'native:infantry'):
                     break
-                if len(army)>=cap or ledger.full() or not self.fund(recipe,reserve):
+                if len(army)>=cap or ledger.full():
                     return
-                if ledger.do('recruit',site=site['id'],kind='native:infantry',count=1):
+                if self.execute_project('recruit',site,'native:infantry',recipe,reserve):
                     army.append({'kind':'native:infantry'})
                     recipe[SUPPLY] = recipe.get(SUPPLY,0)+infantry['supply']*self.profile.reserve
+                else:
+                    return
 
     def finish(self):
         self.state.market = self.model.remember(self.own_net)

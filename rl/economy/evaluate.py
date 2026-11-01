@@ -18,8 +18,10 @@ def run(seed,turns,*,size=24,swap=False,model=None,candidate='v13plus'):
     cfg=config(seed,size=size,swap=swap,candidate=candidate)
     host=GameHost.new(cfg);failures=defaultdict(Counter)
     if model is not None:
+        from .projects import LearnedProjects
+        learner=LearnedProjects if model.action_mode=='projects' else LearnedClient
         for actor,client in list(host.clients.items()):
-            if client.version==candidate:host.clients[actor]=LearnedClient(state=client.state,model=model)
+            if client.version==candidate:host.clients[actor]=learner(state=client.state,model=model)
     initial=snapshot(host,failures);history=[];production=defaultdict(Counter)
     flows=defaultdict(lambda:dict(inputs=Counter(),outputs=Counter()))
     supply=Counter();actions=defaultdict(Counter);milestones=defaultdict(dict)

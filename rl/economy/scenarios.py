@@ -49,5 +49,6 @@ def snapshot(host,failures):
             report=report,consumption=consumption,investment=spending['construction'].known if 'construction' in spending else 0,
             failures=dict(failures[actor]),
             truncated=getattr(client,'truncated',0),
+            project_failures=getattr(client,'project_failures',0),
             economic_actions=dict(getattr(client,'economic_actions',{})))
     return result
