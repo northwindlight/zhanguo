@@ -8,12 +8,14 @@
       "features": {},
       "rule_versions": [
         "v14",
+        "v13plus",
         "v13",
         "v11plus"
       ],
       "default_rule_ai": "v13",
       "rule_strategy_versions": [
         "v14",
+        "v13plus",
         "v13"
       ],
       "rule_strategies": [
@@ -92,12 +94,14 @@
       },
       "rule_versions": [
         "v14",
+        "v13plus",
         "v13",
         "v11plus"
       ],
       "default_rule_ai": "v13",
       "rule_strategy_versions": [
         "v14",
+        "v13plus",
         "v13"
       ],
       "rule_strategies": [

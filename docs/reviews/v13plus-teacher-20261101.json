@@ -1,0 +1,218 @@
+{
+  "turns": 40,
+  "worlds": 4,
+  "ruleai_source_sha256": "ffbec5167fe5135bc60075bc3d354075d50df249523d38bd3615a13f22f0fb9e",
+  "method": "八国混合策略，保留军事，两个种子换位；累计消费未在此次早期评估中直接记录，新 runner 已补",
+  "totals": {
+    "v11plus": {
+      "gold": 413.0,
+      "land": 50.0,
+      "buildings": 93.0,
+      "army": 11.0,
+      "countries": 4.0,
+      "net_production_at_initial_prices": 5655.5,
+      "failed": 1.0,
+      "supply_shortfall": 2.0,
+      "missing_input": 2.0,
+      "gdp": 185.30601436962496
+    },
+    "v13plus": {
+      "gold": 2415.0,
+      "land": 316.0,
+      "buildings": 441.0,
+      "army": 49.0,
+      "countries": 14.0,
+      "net_production_at_initial_prices": 34929.0,
+      "failed": 0.0,
+      "supply_shortfall": 0.0,
+      "missing_input": 0.0,
+      "gdp": 1392.504059353663
+    },
+    "v13": {
+      "gold": 8335.0,
+      "land": 146.0,
+      "buildings": 443.0,
+      "army": 16.0,
+      "countries": 14.0,
+      "net_production_at_initial_prices": 32604.5,
+      "failed": 0.0,
+      "supply_shortfall": 0.0,
+      "missing_input": 0.0,
+      "gdp": 1230.5093557988134
+    }
+  },
+  "cases": [
+    {
+      "seed": 73,
+      "swap": false,
+      "seconds": 74.96609099197667,
+      "values": {
+        "v11plus": {
+          "gold": 76.0,
+          "land": 9.0,
+          "buildings": 23.0,
+          "army": 3.0,
+          "countries": 1.0,
+          "net_production_at_initial_prices": 1357.0,
+          "failed": 0.0,
+          "supply_shortfall": 0.0,
+          "missing_input": 2.0,
+          "gdp": 39.34425393304842
+        },
+        "v13plus": {
+          "gold": 686.0,
+          "land": 79.0,
+          "buildings": 124.0,
+          "army": 19.0,
+          "countries": 4.0,
+          "net_production_at_initial_prices": 9480.0,
+          "failed": 0.0,
+          "supply_shortfall": 0.0,
+          "missing_input": 0.0,
+          "gdp": 378.2517209170983
+        },
+        "v13": {
+          "gold": 1030.0,
+          "land": 37.0,
+          "buildings": 99.0,
+          "army": 6.0,
+          "countries": 3.0,
+          "net_production_at_initial_prices": 8697.5,
+          "failed": 0.0,
+          "supply_shortfall": 0.0,
+          "missing_input": 0.0,
+          "gdp": 349.62782177983956
+        }
+      }
+    },
+    {
+      "seed": 73,
+      "swap": true,
+      "seconds": 69.15034004999325,
+      "values": {
+        "v11plus": {
+          "gold": 183.0,
+          "land": 7.0,
+          "buildings": 25.0,
+          "army": 2.0,
+          "countries": 1.0,
+          "net_production_at_initial_prices": 1519.5,
+          "failed": 0.0,
+          "supply_shortfall": 0.0,
+          "missing_input": 0.0,
+          "gdp": 65.8207318639197
+        },
+        "v13": {
+          "gold": 2499.0,
+          "land": 46.0,
+          "buildings": 82.0,
+          "army": 5.0,
+          "countries": 4.0,
+          "net_production_at_initial_prices": 6150.5,
+          "failed": 0.0,
+          "supply_shortfall": 0.0,
+          "missing_input": 0.0,
+          "gdp": 214.19852155765665
+        },
+        "v13plus": {
+          "gold": 677.0,
+          "land": 69.0,
+          "buildings": 92.0,
+          "army": 9.0,
+          "countries": 3.0,
+          "net_production_at_initial_prices": 8194.0,
+          "failed": 0.0,
+          "supply_shortfall": 0.0,
+          "missing_input": 0.0,
+          "gdp": 344.79840518536145
+        }
+      }
+    },
+    {
+      "seed": 42,
+      "swap": false,
+      "seconds": 78.09623282100074,
+      "values": {
+        "v11plus": {
+          "gold": 76.0,
+          "land": 17.0,
+          "buildings": 22.0,
+          "army": 3.0,
+          "countries": 1.0,
+          "net_production_at_initial_prices": 1348.5,
+          "failed": 0.0,
+          "supply_shortfall": 1.0,
+          "missing_input": 0.0,
+          "gdp": 38.906427947613096
+        },
+        "v13plus": {
+          "gold": 713.0,
+          "land": 98.0,
+          "buildings": 127.0,
+          "army": 13.0,
+          "countries": 4.0,
+          "net_production_at_initial_prices": 10105.5,
+          "failed": 0.0,
+          "supply_shortfall": 0.0,
+          "missing_input": 0.0,
+          "gdp": 395.7804362891806
+        },
+        "v13": {
+          "gold": 2894.0,
+          "land": 21.0,
+          "buildings": 95.0,
+          "army": 1.0,
+          "countries": 3.0,
+          "net_production_at_initial_prices": 6861.5,
+          "failed": 0.0,
+          "supply_shortfall": 0.0,
+          "missing_input": 0.0,
+          "gdp": 233.31586212231758
+        }
+      }
+    },
+    {
+      "seed": 42,
+      "swap": true,
+      "seconds": 74.61199492297601,
+      "values": {
+        "v11plus": {
+          "gold": 78.0,
+          "land": 17.0,
+          "buildings": 23.0,
+          "army": 3.0,
+          "countries": 1.0,
+          "net_production_at_initial_prices": 1430.5,
+          "failed": 1.0,
+          "supply_shortfall": 1.0,
+          "missing_input": 0.0,
+          "gdp": 41.23460062504376
+        },
+        "v13": {
+          "gold": 1912.0,
+          "land": 42.0,
+          "buildings": 167.0,
+          "army": 4.0,
+          "countries": 4.0,
+          "net_production_at_initial_prices": 10895.0,
+          "failed": 0.0,
+          "supply_shortfall": 0.0,
+          "missing_input": 0.0,
+          "gdp": 433.36715033899964
+        },
+        "v13plus": {
+          "gold": 339.0,
+          "land": 70.0,
+          "buildings": 98.0,
+          "army": 8.0,
+          "countries": 3.0,
+          "net_production_at_initial_prices": 7149.5,
+          "failed": 0.0,
+          "supply_shortfall": 0.0,
+          "missing_input": 0.0,
+          "gdp": 273.6734969620227
+        }
+      }
+    }
+  ]
+}

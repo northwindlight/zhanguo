@@ -154,6 +154,15 @@ class Planner:
     def buildings(self):
         return self.sites['instances']
 
+    def fund(self, targets, reserve=0):
+        return fund(self.ledger, targets, reserve)
+
+    def affordable(self, recipe, reserve):
+        return cash_cost(self.ledger, recipe)+reserve <= stocks(self.ledger).get(GOLD,0)
+
+    def release_surplus(self, targets):
+        sell_surplus(self.ledger, targets, self.profile)
+
     def operations(self):
         buildings = self.buildings()
         immediate = [b for b in buildings if not b['remaining']]
@@ -175,7 +184,7 @@ class Planner:
         recruiters = sum(b['kind']=='native:barracks' and not b['remaining'] for b in buildings)
         for key,value in infantry.get('recruit',{}).items():
             if key!=GOLD:sell_targets[key]=sell_targets.get(key,0)+recruiters*value
-        sell_surplus(self.ledger, sell_targets, self.profile)
+        self.release_surplus(sell_targets)
         # Profiles replenish in different sized batches instead of placing an
         # identical small order every turn. One-period needs remain protected.
         inventory = stocks(self.ledger)
@@ -184,10 +193,10 @@ class Planner:
                   if inventory.get(k,0) < v*reorder_periods/self.profile.reserve}
         # Full reserve can be unaffordable; retry a complete one-period package,
         # then military alone. Never spend the last coins chasing a partial plant recipe.
-        if not fund(self.ledger, refill):
+        if not self.fund(refill):
             minimal = operating_targets(self.catalog, immediate, self.military, self.prices, 1)
-            if not fund(self.ledger, minimal):
-                fund(self.ledger, {SUPPLY:self.military.get('need',0),
+            if not self.fund(minimal):
+                self.fund({SUPPLY:self.military.get('need',0),
                                    EQUIPMENT:self.military.get('equipment_need',0)})
         self.model.order_offset = dict(self.own_net)
 
@@ -272,7 +281,7 @@ class Planner:
             recipe = dict(costs)
             for key, value in operation.items():
                 recipe[key] = recipe.get(key,0)+value
-            if cash_cost(self.ledger, recipe)+reserve > stocks(self.ledger).get(GOLD,0):
+            if not self.affordable(recipe, reserve):
                 continue
             ranked.append((-score,_tie(self.player.actor,site['id'],kind),site,kind,costs,operation))
         return min(ranked,key=lambda r:r[:2]) if ranked else None
@@ -287,7 +296,7 @@ class Planner:
             for key,value in operation.items():
                 recipe[key] = recipe.get(key,0)+value
             reserve = reserve_cash(self.catalog,self.buildings(),self.military,self.buy,self.profile)
-            if not fund(self.ledger,recipe,reserve):
+            if not self.fund(recipe,reserve):
                 break
             if not self.ledger.do('build',site=site['id'],kind=kind):
                 break
@@ -330,7 +339,7 @@ class Planner:
                     targets = operating_targets(self.catalog,buildings,self.military,self.prices,self.profile.reserve)
                     recipe = dict(costs)
                     for key,value in targets.items():recipe[key]=recipe.get(key,0)+value
-                    if fund(ledger,recipe,reserve):
+                    if self.fund(recipe,reserve):
                         if ledger.do('build',site=site['id'],kind='native:barracks'):
                             self.sites = apimap.query(self.player,'building_sites')
                     break
@@ -341,7 +350,7 @@ class Planner:
         for site in self.sites['sites']:
             count = sum(b['kind']=='native:barracks' and not b['remaining'] and b['site']==site['id'] for b in buildings)
             for _ in range(count):
-                if len(army)>=cap or ledger.full() or not fund(ledger,recipe,reserve):
+                if len(army)>=cap or ledger.full() or not self.fund(recipe,reserve):
                     return
                 if ledger.do('recruit',site=site['id'],kind='native:infantry',count=1):
                     army.append({'kind':'native:infantry'})

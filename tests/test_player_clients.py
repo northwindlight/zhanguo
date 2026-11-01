@@ -44,7 +44,7 @@ class TestPlayerClients(unittest.TestCase):
     def cfg(self):return {'map_size':12,'seed':73,'nations':[{'name':'秦','id':Q},{'name':'楚','id':C}]}
 
     def test_registry_has_only_active_version_and_rejects_all_retired_names(self):
-        self.assertEqual(rule_ai.versions(),('v14','v13','v11plus'));self.assertEqual(rule_ai.resolve()[0],'v13')
+        self.assertEqual(rule_ai.versions(),('v14','v13plus','v13','v11plus'));self.assertEqual(rule_ai.resolve()[0],'v13')
         for version in ('ai','v4','v5','v6','v7','v8','v9','v10','v11','v12'):
             with self.assertRaises(ValueError):rule_ai.resolve(version)
         self.assertIsInstance(rule_ai.create(),V13Client)
