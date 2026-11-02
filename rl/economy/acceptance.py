@@ -132,6 +132,7 @@ def main():
     p.add_argument('--rounds',type=int,default=20);p.add_argument('--smoke',action='store_true')
     p.add_argument('--explore-ppo',action='store_true',help='Explore PPO before acceptance; never relaxes promotion criteria')
     p.add_argument('--warmup-data',type=Path,help='Completed DAgger worlds for one initial corrective BC update')
+    p.add_argument('--continue-selection',action='store_true',help='Continue a model already tuned on selection seeds; confirmation always advances to unseen seeds')
     a=p.parse_args();deadline=datetime.fromisoformat(a.until)
     if deadline.tzinfo is None:raise ValueError('Explicit timezone required')
     deadline=deadline.timestamp();check_deadline(deadline)
@@ -157,7 +158,7 @@ def main():
     model.to(a.device);anchor,_=load_policy(a.checkpoint);anchor.to(a.device)
     manifest=cases(smoke=a.smoke);confirmation=cases(confirm=True,smoke=a.smoke)
     ancestry=set(base.get('seen_seeds',base['train_seeds']+base['valid_seeds']))
-    if not resuming and ancestry&{c['seed']for c in manifest+confirmation}:raise ValueError('Acceptance seeds overlap model ancestry')
+    if not resuming and not a.continue_selection and ancestry&{c['seed']for c in manifest}:raise ValueError('Selection seeds overlap model ancestry')
     while ancestry&{c['seed']for c in confirmation}:
         confirmation=[dict(c,seed=c['seed']+100) for c in confirmation]
     seen=ancestry|{c['seed']for c in manifest}
