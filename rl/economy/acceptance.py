@@ -92,11 +92,15 @@ def suite(model,manifest,out,cache,deadline):
         result=dict(**case,complete=True,evaluated_turns=case['turns'],**compare(teacher,student));results.append(result)
         write_json(out/'summary.json',summary(results))
         print(json.dumps(dict(event='case',**result),ensure_ascii=False),flush=True)
+        # One completed long-world counterexample disproves the conjunction.
+        # Do not spend the rest of the suite before collecting corrections.
+        # Passing still requires every environment and fresh confirmation.
+        if not result['near']:break
     return summary(results)
 
 
 def regresses(new,old):
-    if len(new['results'])!=len(old['results']):return True
+    if len(new['results'])<len(old['results']):return True
     for n,o in zip(new['results'],old['results']):
         if any(n[k]!=o[k] for k in ('seed','size','turns','swap')):raise ValueError('Environment mismatch')
         if o.get('complete',True) and not n.get('complete',True):return True

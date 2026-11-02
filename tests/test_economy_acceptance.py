@@ -61,3 +61,11 @@ class AcceptanceChecks(unittest.TestCase):
         new=dict(seed=1,size=20,turns=150,swap=False,**compare(game(),game(True,(150,80))))
         self.assertTrue(regresses(summary([new]),summary([old])))
         self.assertFalse(regresses(summary([old]),summary([old])))
+
+    def test_completed_prefix_progress_can_extend_to_next_environment(self):
+        first=cases()[0];second=cases()[1]
+        old=dict(**first,complete=True,**compare(game(),game(True,(80,100))))
+        improved=dict(**first,complete=True,**compare(game(),game(True)))
+        next_case=dict(**second,complete=True,**compare(game(),game(True,(80,100))))
+        self.assertFalse(regresses(summary([improved,next_case]),summary([old])))
+        self.assertTrue(regresses(summary([improved]),summary([improved,next_case])))
