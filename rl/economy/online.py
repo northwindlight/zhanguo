@@ -120,11 +120,18 @@ class OnlineClient(BaseClient):
                         reward=0.,period=ledger.player.observe()['period']))
                 kind=encoded['actions'][action][0]
                 if kind=='finish':break
+                actions_before=len(ledger.acts)
                 if planner.execute(encoded,action):self.economic_actions[kind]+=1
                 else:
                     # Failure is a reliability diagnostic only; it must not
                     # shape the paper's S reward.
                     self.project_failures+=1
+                    # The greedy DAgger policy would repeat this same no-op
+                    # rejection on an unchanged observation 96 times. Keep its
+                    # teacher label once and advance to the next real period.
+                    # Evaluation retains the original action budget and reports
+                    # every failure; PPO sampling is never intervened on.
+                    if self.mode=='dagger' and len(ledger.acts)==actions_before:break
             else:self.truncated+=1
         finally:planner.finish()
 

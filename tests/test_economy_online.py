@@ -31,6 +31,21 @@ class OnlineChecks(unittest.TestCase):
         self.assertEqual(p.ledger.acts,acts);self.assertEqual(p.state.market,memory)
         self.assertIs(p.ledger.on_result,callback);p.finish()
 
+    def test_dagger_deduplicates_identical_noop_rejections_without_teacher_execution(self):
+        from rl.economy.online import OnlineClient
+        class Invalid(torch.nn.Module):
+            def forward(self,batch,**kwargs):
+                logits=torch.full_like(batch['limits'],-1000.)
+                index=(batch['candidates'][:,:,7]>0).float().argmax(-1)
+                logits[torch.arange(len(index)),index]=0
+                return logits,torch.zeros(len(index)),None
+        h=GameHost.new(cfg());actor=h.actors()[0];ledger=Ledger(h.player(actor))
+        ledger.do('plan',text='无副作用拒绝只记录一次')
+        c=OnlineClient(state=h.clients[actor].state,model=Invalid(),mode='dagger')
+        c.run_economy(ledger)
+        self.assertEqual(c.project_failures,1);self.assertEqual(len(c.rows),1)
+        self.assertFalse(any(r['action']in ('build','recruit') for r in ledger.acts))
+
     def test_returns_never_mix_countries(self):
         from rl.economy.online import monte_carlo
         a=[dict(reward=.2),dict(reward=.3)];b=[dict(reward=5.),dict(reward=7.)]

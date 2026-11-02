@@ -65,8 +65,8 @@ def compare(teacher,student):
 
 
 def summary(results):
-    return dict(cases=len(results),near=bool(results) and all(r['near']for r in results),
-        surpass=bool(results) and all(r['surpass']for r in results),
+    return dict(cases=len(results),expected_cases=6,near=len(results)==6 and all(r['near']for r in results),
+        surpass=len(results)==6 and all(r['surpass']for r in results),
         worst_ratio=min((r['worst_ratio']for r in results),default=0.),
         results=results)
 
@@ -77,6 +77,20 @@ def suite(model,manifest,out,cache,deadline):
         check_deadline(deadline);storage_guard(out.parent,budget=1024**3)
         key=f"{case['seed']}-{case['size']}-{case['turns']}-{int(case['swap'])}"
         teacher_path=cache/f'{key}.json'
+        # Reject an irrecoverable opening/reliability failure cheaply. A short
+        # preflight is explicitly incomplete and can never establish acceptance.
+        pre=run(**dict(case,turns=min(12,case['turns'])),model=model,deadline=deadline)
+        focal=[(actor,c) for actor,c in pre['history'][-1]['countries'].items() if c['version']=='economy-project-bc']
+        bad=any(c['project_failures'] or c['truncated'] or pre['supply_shortfalls'].get(actor,0) or
+                pre['milestones'].get(actor,{}).get('first_recruit',math.inf)>8 or
+                pre['milestones'].get(actor,{}).get('first_expansion',math.inf)>12 for actor,c in focal)
+        if bad and not case['turns']<150:
+            short_teacher=run(**dict(case,turns=12),deadline=deadline)
+            result=dict(**case,complete=False,evaluated_turns=12,**compare(short_teacher,pre))
+            write_json(out/f'{key}-preflight.json',pre);results.append(result)
+            write_json(out/'summary.json',summary(results))
+            print(json.dumps(dict(event='preflight_rejected',**result),ensure_ascii=False),flush=True)
+            continue
         write_json(out/'state.json',dict(phase='teacher',case=case,index=i,total=len(manifest)))
         if teacher_path.exists():
             teacher=json.loads(teacher_path.read_text())
@@ -86,7 +100,7 @@ def suite(model,manifest,out,cache,deadline):
         write_json(out/'state.json',dict(phase='student',case=case,index=i,total=len(manifest)))
         student=run(**case,model=model,deadline=deadline)
         write_json(out/f'{key}-student.json',student)
-        result=dict(**case,**compare(teacher,student));results.append(result)
+        result=dict(**case,complete=True,evaluated_turns=case['turns'],**compare(teacher,student));results.append(result)
         write_json(out/'summary.json',summary(results))
         print(json.dumps(dict(event='case',**result),ensure_ascii=False),flush=True)
     return summary(results)
@@ -96,6 +110,8 @@ def regresses(new,old):
     if len(new['results'])!=len(old['results']):return True
     for n,o in zip(new['results'],old['results']):
         if any(n[k]!=o[k] for k in ('seed','size','turns','swap')):raise ValueError('Environment mismatch')
+        if o.get('complete',True) and not n.get('complete',True):return True
+        if not o.get('complete',True):continue
         for a,b in zip(n['seats'],o['seats']):
             if a['actor']!=b['actor']:raise ValueError('Seat mismatch')
             if b['early'] and not a['early']:return True
