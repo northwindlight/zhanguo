@@ -38,6 +38,9 @@ def ratio(value,reference):
 
 
 def compare(teacher,student):
+    expected_ids={a for a,c in teacher['history'][-1]['countries'].items() if c['version']=='v13plus'}
+    actual_ids={a for a,c in student['history'][-1]['countries'].items() if c['version']=='economy-project-bc'}
+    if actual_ids!=expected_ids:raise ValueError('Missing or extra focal seat')
     seats=[]
     for actor,c in student['history'][-1]['countries'].items():
         if c['version']!='economy-project-bc':continue

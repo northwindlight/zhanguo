@@ -22,6 +22,10 @@ class AcceptanceChecks(unittest.TestCase):
         student=game(True,(200,200));student['turns']=8
         self.assertFalse(compare(game(),student)['near'])
 
+    def test_missing_country_cannot_disappear_from_acceptance(self):
+        student=game(True);del student['history'][-1]['countries']['b']
+        with self.assertRaises(ValueError):compare(game(),student)
+
     def test_late_failure_blocks_good_total_and_matching_teacher_passes(self):
         self.assertTrue(compare(game(),game(True))['surpass'])
         self.assertFalse(compare(game(),game(True,(110,110),(10,8)))['near'])
