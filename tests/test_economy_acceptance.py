@@ -6,7 +6,7 @@ from rl.economy.acceptance import compare,summary,cases,regresses
 
 def game(student=False,values=(100.,100.),tails=(10.,10.)):
     actors=('a','b');version='economy-project-bc'if student else 'v13plus'
-    return dict(history=[dict(countries={a:dict(version=version,profile='balanced',
+    return dict(turns=150,history=[dict(countries={a:dict(version=version,profile='balanced',
         failures={},project_failures=0,truncated=0) for a in actors})],
         consumption=dict(zip(actors,values)),tail_consumption=dict(zip(actors,tails)),
         milestones={a:dict(first_recruit=4,first_expansion=6) for a in actors},supply_shortfalls={})
@@ -17,6 +17,10 @@ class AcceptanceChecks(unittest.TestCase):
         result=compare(game(),game(True,(150,80)))
         self.assertGreater(result['total_ratio'],1.)
         self.assertFalse(result['near']);self.assertFalse(result['surpass'])
+
+    def test_short_smoke_cannot_be_accepted_even_with_strong_scores(self):
+        student=game(True,(200,200));student['turns']=8
+        self.assertFalse(compare(game(),student)['near'])
 
     def test_late_failure_blocks_good_total_and_matching_teacher_passes(self):
         self.assertTrue(compare(game(),game(True))['surpass'])

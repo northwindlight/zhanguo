@@ -58,7 +58,7 @@ def compare(teacher,student):
     stable=all(c['early'] and c['failures']==0 and c['truncated']==0 and c['shortfalls']==0 for c in seats)
     # Every seat must approach its teacher; a strong country cannot compensate
     # for a weak country. Zero teacher consumption has explicit neutral semantics.
-    near=stable and worst>=.95 and tail>=.95
+    near=student['turns']>=150 and stable and worst>=.95 and tail>=.95
     surpass=near and worst>=1. and total>=1.
     return dict(total_ratio=total,worst_ratio=worst,median_ratio=statistics.median(c['S_ratio']for c in seats),
                 worst_tail_ratio=tail,stable=stable,near=near,surpass=surpass,seats=seats)
