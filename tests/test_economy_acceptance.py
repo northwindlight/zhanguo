@@ -1,6 +1,9 @@
 """Environment/seat failures cannot be hidden by aggregate teacher scores."""
 import copy
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 from rl.economy.acceptance import compare,summary,cases,regresses
 
 
@@ -25,6 +28,22 @@ class AcceptanceChecks(unittest.TestCase):
     def test_missing_country_cannot_disappear_from_acceptance(self):
         student=game(True);del student['history'][-1]['countries']['b']
         with self.assertRaises(ValueError):compare(game(),student)
+
+    def test_formal_suite_never_replaces_long_game_with_short_failure_check(self):
+        from rl.economy.acceptance import suite
+        def simulate(**kwargs):
+            r=game(student=kwargs.get('model') is not None)
+            if kwargs.get('model') is not None:
+                r['history'][-1]['countries']['a']['project_failures']=5
+            return r
+        with TemporaryDirectory() as directory:
+            root=Path(directory);out=root/'round';out.mkdir();cache=root/'teachers';cache.mkdir()
+            with patch('rl.economy.acceptance.run',side_effect=simulate) as run:
+                result=suite(object(),[cases()[0]],out,cache,float('inf'))
+            self.assertEqual(run.call_count,2)
+            self.assertTrue(all(call.kwargs['turns']==150 for call in run.call_args_list))
+            self.assertEqual(result['results'][0]['seats'][0]['failures'],5)
+            self.assertTrue(result['results'][0]['complete'])
 
     def test_late_failure_blocks_good_total_and_matching_teacher_passes(self):
         self.assertTrue(compare(game(),game(True))['surpass'])

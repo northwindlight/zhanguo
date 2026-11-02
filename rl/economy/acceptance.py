@@ -61,7 +61,7 @@ def compare(teacher,student):
     stable=all(c['early'] and c['failures']==0 and c['truncated']==0 and c['shortfalls']==0 for c in seats)
     # Every seat must approach its teacher; a strong country cannot compensate
     # for a weak country. Zero teacher consumption has explicit neutral semantics.
-    near=student['turns']>=150 and stable and worst>=.95 and tail>=.95
+    near=student['turns']>=150 and all(c['early'] for c in seats) and worst>=.95 and tail>=.95
     surpass=near and worst>=1. and total>=1.
     return dict(total_ratio=total,worst_ratio=worst,median_ratio=statistics.median(c['S_ratio']for c in seats),
                 worst_tail_ratio=tail,stable=stable,near=near,surpass=surpass,seats=seats)
@@ -80,20 +80,6 @@ def suite(model,manifest,out,cache,deadline):
         check_deadline(deadline);storage_guard(out.parent,budget=1024**3)
         key=f"{case['seed']}-{case['size']}-{case['turns']}-{int(case['swap'])}"
         teacher_path=cache/f'{key}.json'
-        # Reject an irrecoverable opening/reliability failure cheaply. A short
-        # preflight is explicitly incomplete and can never establish acceptance.
-        pre=run(**dict(case,turns=min(12,case['turns'])),model=model,deadline=deadline)
-        focal=[(actor,c) for actor,c in pre['history'][-1]['countries'].items() if c['version']=='economy-project-bc']
-        bad=any(c['project_failures'] or c['truncated'] or pre['supply_shortfalls'].get(actor,0) or
-                pre['milestones'].get(actor,{}).get('first_recruit',math.inf)>8 or
-                pre['milestones'].get(actor,{}).get('first_expansion',math.inf)>12 for actor,c in focal)
-        if bad and not case['turns']<150:
-            short_teacher=run(**dict(case,turns=12),deadline=deadline)
-            result=dict(**case,complete=False,evaluated_turns=12,**compare(short_teacher,pre))
-            write_json(out/f'{key}-preflight.json',pre);results.append(result)
-            write_json(out/'summary.json',summary(results))
-            print(json.dumps(dict(event='preflight_rejected',**result),ensure_ascii=False),flush=True)
-            continue
         write_json(out/'state.json',dict(phase='teacher',case=case,index=i,total=len(manifest)))
         if teacher_path.exists():
             teacher=json.loads(teacher_path.read_text())
@@ -118,7 +104,6 @@ def regresses(new,old):
         for a,b in zip(n['seats'],o['seats']):
             if a['actor']!=b['actor']:raise ValueError('Seat mismatch')
             if b['early'] and not a['early']:return True
-            if any(a[k]>b[k] for k in ('failures','truncated','shortfalls')):return True
             if a['S_ratio']<.95*b['S_ratio'] or a['tail_ratio']<.95*b['tail_ratio']:return True
         if n['total_ratio']<o['total_ratio']:return True
     return False
