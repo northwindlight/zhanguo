@@ -21,7 +21,7 @@ from .scenarios import source_hash
 
 def curriculum_weights(batch,opening_weight=1.,mobilization_weight=1.):
     """Prioritize learning the complete zero-army investment chain, not a rule override."""
-    target=batch['target'];indices=torch.arange(len(target))
+    target=batch['target'];indices=torch.arange(len(target),device=target.device)
     chosen=batch['candidates'][indices,target]
     zero_army=batch['context'][:,0,41]==0
     barracks=(chosen[:,6]>0)&(chosen[:,17+BUILDINGS.index('native:barracks')]>0)
@@ -34,7 +34,7 @@ def curriculum_weights(batch,opening_weight=1.,mobilization_weight=1.):
     material=(chosen[:,6]>0)&((chosen[:,17+BUILDINGS.index('native:supply-factory')]>0)|
                               (chosen[:,17+BUILDINGS.index('native:equipment-factory')]>0))&facility&zero_army
     mobilization=barracks|recruit|material|(power&zero_army)
-    weights=torch.ones(len(target),dtype=torch.float32)
+    weights=torch.ones(len(target),dtype=torch.float32,device=target.device)
     weights*=torch.where(zero_army,opening_weight,1.)
     weights*=torch.where(mobilization,mobilization_weight,1.)
     return weights,zero_army,mobilization

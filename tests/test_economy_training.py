@@ -81,6 +81,18 @@ class DatasetChecks(unittest.TestCase):
 
 @unittest.skipIf(torch is None, 'Optional training dependencies')
 class DeviceChecks(unittest.TestCase):
+    @unittest.skipUnless(torch is not None and torch.cuda.is_available(), 'CUDA hardware required')
+    def test_cuda_curriculum_and_loss_backward_share_device(self):
+        from rl.economy.model import Policy
+        from rl.economy.train import metrics
+        model=Policy(action_mode='projects').cuda()
+        optimizer=torch.optim.AdamW(model.parameters(),lr=1e-4)
+        before=model.score[-1].weight.detach().clone()
+        result=metrics(model,[collate(rows(2,32))],optimizer,
+                       opening_weight=4.,mobilization_weight=3.)
+        self.assertTrue(np.isfinite(result['loss']))
+        self.assertFalse(torch.equal(before,model.score[-1].weight))
+
     def test_prepare_moves_every_tensor_and_keeps_other_keys(self):
         batch = collate(rows(2, 5))
         batch['meta'] = 'keep'
