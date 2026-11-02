@@ -134,6 +134,10 @@ def main():
     deadline=deadline.timestamp();check_deadline(deadline)
     signal.signal(signal.SIGTERM,lambda *_:(_ for _ in ()).throw(Deadline('Service stop requested')))
     a.out.mkdir(parents=True,exist_ok=True);cache=a.out/'teachers';cache.mkdir(exist_ok=True)
+    import resource
+    _,hard=resource.getrlimit(resource.RLIMIT_FSIZE)
+    resource.setrlimit(resource.RLIMIT_FSIZE,(min(hard,128*1024**2) if hard!=resource.RLIM_INFINITY else 128*1024**2,hard))
+    signal.signal(signal.SIGXFSZ,lambda *_:(_ for _ in ()).throw(Deadline('Single file storage limit reached')))
     import fcntl
     lock=(a.out/'run.lock').open('a');fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     resuming=(a.out/'current.pt').exists()
@@ -151,6 +155,7 @@ def main():
     data=Dataset([q for q in a.data.glob('world-*.npz') if int(q.stem.split('-')[-1]) in base['train_seeds']],fingerprint=PROJECT_FINGERPRINT)
     replay=[data[i]for i in range(len(data))];torch.set_num_threads(2)
     def save(name,m,**extra):
+        storage_guard(a.out,budget=1024**3)
         m.to('cpu');checkpoint(a.out/name,m,base,seen,**extra);m.to(a.device)
     def state(**kwargs):write_json(a.out/'state.json',dict(until=a.until,source=source_hash(),**kwargs))
     save('current.pt',model,stage='initial')
@@ -185,6 +190,7 @@ def main():
             state(phase='collection',round=number,stage=mode)
             rows=[];streams=[]
             for j in range(2):
+                storage_guard(a.out,budget=1024**3)
                 seed=200000+number*2+j;seen.add(seed)
                 random.seed(seed);np.random.seed(seed);torch.manual_seed(seed)
                 r,s,report=rollout(model,seed,150 if number<3 else 250,mode=mode,
@@ -192,6 +198,7 @@ def main():
                 rows.extend(r);streams.extend(s);write_json(folder/f'train-{seed}.json',report)
                 w=Writer(PROJECT_FINGERPRINT)
                 for item in r:w.add(item)
+                storage_guard(a.out,budget=1024**3)
                 w.save(folder/f'world-{seed}.npz',dict(seed=seed,source=source_hash(),turns=report['turns']))
             state(phase='training',round=number,stage=mode)
             if mode=='ppo':training=ppo_update(model,streams,anchor,deadline=deadline)
