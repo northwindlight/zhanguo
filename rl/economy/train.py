@@ -95,8 +95,8 @@ def main():
     p.add_argument('--mobilization-weight',type=float,default=3.)
     p.add_argument('--projects',action='store_true')
     p.add_argument('--device',default='cpu',help='cpu 或 cuda；有 CUDA 的机器上训练显著更快')
-    p.add_argument('--max-candidates',type=int,default=384,
-                   help='每行训练候选上限（教师选项必留 + 随机负样本）；0 = 不截断')
+    p.add_argument('--max-candidates',type=int,default=0,
+                   help='每行训练候选上限（教师选项必留 + 随机负样本）；默认 0 = 不截断，改变监督语义须显式开启')
     p.add_argument('--allow-mixed-teachers',action='store_true',help='Explicitly combine compatible feature schemas from recorded teacher source revisions')
     a=p.parse_args()
     if a.resume and a.init:raise ValueError('Choose resume or initialization, not both')

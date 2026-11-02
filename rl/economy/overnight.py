@@ -143,8 +143,8 @@ def main():
     p.add_argument('--until',required=True,help='ISO datetime with explicit UTC offset')
     p.add_argument('--threads',type=int,default=2);p.add_argument('--max-rounds',type=int,default=100)
     p.add_argument('--device',default='cpu',help='训练（BC/PPO 更新）所用设备；对局 rollout 始终在 CPU')
-    p.add_argument('--max-candidates',type=int,default=384,
-                   help='BC 每行候选上限（教师选项必留 + 随机负样本）；0 = 不截断')
+    p.add_argument('--max-candidates',type=int,default=0,
+                   help='BC 每行候选上限（教师选项必留 + 随机负样本）；默认 0 = 不截断，改变监督语义须显式开启')
     p.add_argument('--max-run-mb',type=int,default=1024)
     p.add_argument('--smoke',action='store_true',help='Short execution check; never promotes a model')
     a=p.parse_args();end=datetime.fromisoformat(a.until)
