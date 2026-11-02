@@ -113,6 +113,14 @@ def regresses(new,old):
     return False
 
 
+def aggregated_replay(original,root):
+    """Keep prior on-policy corrections, rather than forgetting each round."""
+    paths=sorted(root.glob('round-*/world-*.npz'))[-4:]
+    if not paths:return original,set()
+    dataset=Dataset(paths,fingerprint=PROJECT_FINGERPRINT)
+    return original+[dataset[i] for i in range(len(dataset))],{m['seed'] for m in dataset.metadata}
+
+
 def main():
     p=argparse.ArgumentParser();p.add_argument('--checkpoint',type=Path,required=True)
     p.add_argument('--data',type=Path,required=True);p.add_argument('--out',type=Path,required=True)
@@ -191,7 +199,10 @@ def main():
                 w.save(folder/f'world-{seed}.npz',dict(seed=seed,source=source_hash(),turns=report['turns']))
             state(phase='training',round=number,stage=mode)
             if mode=='ppo':training=ppo_update(model,streams,anchor,deadline=deadline)
-            else:training=bc_update(model,replay+rows,epochs=6,deadline=deadline)
+            else:
+                training_rows,replay_seeds=aggregated_replay(replay,a.out)
+                seen.update(replay_seeds)
+                training=bc_update(model,training_rows,epochs=6,deadline=deadline)
             write_json(folder/'training.json',dict(mode=mode,metrics=training));save('candidate.pt',model,stage=mode,round=number)
             for old in sorted(a.out.glob('round-*/world-*.npz'))[:-4]:old.unlink()
         state(phase='not_accepted',reason='round_limit',result=incumbent)
