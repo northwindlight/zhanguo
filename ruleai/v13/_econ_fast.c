@@ -76,6 +76,40 @@ static int dict_number_c(PyObject *map, const char *name, double *out, int *foun
     return rc;
 }
 
+/* --------------------------------------------------------------- 求和复刻 */
+/* CPython 3.12+ 的 `sum()` 复刻：先把 int 精确累加；一旦遇到 float 就切到
+ * Neumaier 补偿求和（每个后续项都做补偿，包括切换后的第二项起）。C 侧所有
+ * 对应 Python `sum(...)` 的地方都必须走这里，否则末位差 1 ulp 就可能改掉
+ * 「哪些厂要补燃料」「够不够现金」这类判断。 */
+typedef struct {
+    int acc_int;
+    double i_res, f_res, comp;
+} Sum;
+
+static void sum_init(Sum *s) {
+    s->acc_int = 1;
+    s->i_res = s->f_res = s->comp = 0.0;
+}
+
+static void sum_add(Sum *s, double product, int product_int) {
+    if (s->acc_int && product_int) {
+        s->i_res += product;          /* 整数精确累加（这里用 double 表示，值域内精确） */
+        return;
+    }
+    if (!s->acc_int && !product_int) {
+        double t = s->f_res + product;
+        if (fabs(s->f_res) >= fabs(product)) s->comp += (s->f_res - t) + product;
+        else s->comp += (product - t) + s->f_res;
+        s->f_res = t;
+        return;
+    }
+    /* 类型切换：Python 走「通用加法」一次，不做补偿。 */
+    s->f_res = (s->acc_int ? s->i_res : s->f_res) + product;
+    s->acc_int = 0;
+}
+
+static double sum_value(Sum *s) { return s->acc_int ? s->i_res : s->f_res + s->comp; }
+
 /* --------------------------------------------------------------- 有序计数表 */
 /* 复刻 `collections.Counter`：键按**首次插入顺序**保留，后插入的等值键并入
  * 第一个键；每个槽位记住自己的数值是不是 int。 */
@@ -361,7 +395,8 @@ static PyObject *py_operating_targets(PyObject *self, PyObject *args) {
         PyObject *row = row_of(catalog, rows[i].kind);
         PyObject *inputs, *outputs, *key, *value;
         Py_ssize_t pos;
-        double output = 0.0, input = 0.0, energy_output = 0.0;
+        Sum output, input;
+        double energy_output = 0.0, out_value, in_value;
         int consumed = 0, found = 0, energy_int = 1;
         if (!row) goto done;
         inputs = PyDict_GetItemString(row, "inputs");
@@ -370,16 +405,19 @@ static PyObject *py_operating_targets(PyObject *self, PyObject *args) {
             PyErr_SetString(PyExc_KeyError, "_econ_fast: catalog 行缺 inputs/outputs");
             goto done;
         }
+        sum_init(&output);
+        sum_init(&input);
         pos = 0;
         while (PyDict_Next(outputs, &pos, &key, &value)) {
             double amount, price = 0.0;
             int amount_int, have = 0, price_int = 1;
             if (number_of(value, &amount, &amount_int) < 0) goto done;
             if (is_key(key, GOLD)) {
-                output += amount;
+                /* Python 里金额项是字面量 1（int），产品保持 int。 */
+                sum_add(&output, amount, amount_int);
             } else {
                 if (dict_number(sell, key, &price, &have, &price_int) < 0) goto done;
-                output += amount * (have ? price : 0.0);
+                sum_add(&output, amount * (have ? price : 0.0), amount_int && price_int);
             }
         }
         pos = 0;
@@ -388,8 +426,11 @@ static PyObject *py_operating_targets(PyObject *self, PyObject *args) {
             int amount_int, have = 0, price_int = 1;
             if (number_of(value, &amount, &amount_int) < 0) goto done;
             if (dict_number(buy, key, &price, &have, &price_int) < 0) goto done;
-            input += amount * (have ? price : INFINITY);
+            if (!have) price = INFINITY;  /* Python 取 math.inf，产品必然是 float */
+            sum_add(&input, amount * price, have && amount_int && price_int);
         }
+        out_value = sum_value(&output);
+        in_value = sum_value(&input);
         if (dict_number_c(row, "energy_output", &energy_output, &found, &energy_int) < 0) goto done;
         if (!found) energy_output = 0.0;
         pos = 0;
@@ -398,7 +439,7 @@ static PyObject *py_operating_targets(PyObject *self, PyObject *args) {
             if (slot < 0 && PyErr_Occurred()) goto done;
             if (slot >= 0 && target.values[slot] > 0.0) { consumed = 1; break; }
         }
-        if (energy_output != 0.0 || PyDict_Size(inputs) == 0 || output >= input || consumed) {
+        if (energy_output != 0.0 || PyDict_Size(inputs) == 0 || out_value >= in_value || consumed) {
             pos = 0;
             while (PyDict_Next(inputs, &pos, &key, &value)) {
                 double amount;
@@ -460,21 +501,27 @@ static PyObject *py_reserve_cash(PyObject *self, PyObject *args) {
     }
     {
         PyObject *periods = PyObject_GetAttrString(profile, "cash_periods");
-        double cash_periods, total = 0.0;
+        double cash_periods;
+        Sum total;
         Py_ssize_t slot;
+        int periods_int = 1;
         if (!periods) goto done;
-        {
-            int is_int;
-            if (number_of(periods, &cash_periods, &is_int) < 0) { Py_DECREF(periods); goto done; }
-        }
+        if (number_of(periods, &cash_periods, &periods_int) < 0) { Py_DECREF(periods); goto done; }
         Py_DECREF(periods);
+        sum_init(&total);
         for (slot = 0; slot < needs.n; slot++) {
             double price = 0.0;
             int have = 0, price_int = 1;
             if (dict_number(buy, needs.keys[slot], &price, &have, &price_int) < 0) goto done;
-            total += needs.values[slot] * (have ? price : 0.0);
+            /* Counter 里的值是 int 时，`v*buy.get(k,0)` 也是 int（缺价按 0）。 */
+            sum_add(&total, needs.values[slot] * (have ? price : 0.0),
+                    needs.is_int[slot] && price_int);
         }
-        result = PyLong_FromDouble(ceil(20 + cash_periods * total));
+        {
+            double weight = sum_value(&total);
+            result = PyLong_FromDouble(ceil(20 + cash_periods * weight));
+            (void)periods_int;
+        }
     }
 done:
     ordered_clear(&needs);
@@ -633,10 +680,9 @@ static PyObject *py_market_value(PyObject *self, PyObject *args) {
                 buy[i] = b0[i] * factor * (inv[i] >= 1.0 ? 1.0 : 10.0);
                 sell[i] = s0[i] * factor;
             }
-            /* CPython 3.12+ 的 sum()：整数精确累加；浮点走 Neumaier 补偿。 */
             {
-                int acc_int = 1;
-                double i_res = 0.0, f_res = 0.0, comp = 0.0;
+                Sum sum;
+                sum_init(&sum);
                 for (i = 0; i < nnet; i++) {
                     double amount = amounts[i], price;
                     int price_int = 1;
@@ -644,7 +690,7 @@ static PyObject *py_market_value(PyObject *self, PyObject *args) {
                     Py_ssize_t at;
                     if (!amount) continue;
                     if (is_key(net_keys[i], GOLD)) {
-                        price = 1.0;   /* Python 侧是 int 1 */
+                        price = 1.0;   /* Python 侧是字面量 1（int） */
                     } else {
                         marker = PyDict_GetItemWithError(idx, net_keys[i]);
                         if (!marker) {
@@ -658,23 +704,9 @@ static PyObject *py_market_value(PyObject *self, PyObject *args) {
                         if (amount > 0) { price = sell[at]; price_int = sell_int[at]; }
                         else { price = buy[at]; price_int = buy_int[at]; }
                     }
-                    {
-                        double product = amount * price;
-                        int product_int = amount_int[i] && price_int;
-                        if (acc_int && product_int) {
-                            i_res += product;
-                        } else if (!acc_int && !product_int) {
-                            double t_sum = f_res + product;
-                            if (fabs(f_res) >= fabs(product)) comp += (f_res - t_sum) + product;
-                            else comp += (product - t_sum) + f_res;
-                            f_res = t_sum;
-                        } else {
-                            f_res = (acc_int ? i_res : f_res) + product;
-                            acc_int = 0;
-                        }
-                    }
+                    sum_add(&sum, amount * price, amount_int[i] && price_int);
                 }
-                value_sum = acc_int ? i_res : f_res + comp;
+                value_sum = sum_value(&sum);
             }
             if (!isfinite(value_sum)) {
                 result = PyFloat_FromDouble(-INFINITY);

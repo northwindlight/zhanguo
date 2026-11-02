@@ -194,6 +194,50 @@ class FastPathChecks(unittest.TestCase):
                                                      {}, {}, 4, 1.0), float('-inf'))
         self.assertEqual(model_._value_reference(net, {}, {}, 4), float('-inf'))
 
+    def test_random_magnitudes_keep_sums_bit_identical(self):
+        """浮点求和必须逐位一致：CPython 3.12+ 的 sum() 走 Neumaier 补偿。
+
+        量级跨越 1e-6..1e6 时，朴素累加与补偿求和会差 1 ulp；这些和直接决定
+        「哪些厂补燃料」「现金够不够」，因此随机压测比真实局势更能逼出差异。
+        """
+        import random
+        rng = random.Random(20261102)
+        resources = [f'native:r{i}' for i in range(7)] + [GOLD]
+        for _ in range(400):
+            used = rng.sample(resources, rng.randint(1, len(resources)))
+            catalog = {}
+            for name in used:
+                amount = lambda: rng.choice([rng.randint(0, 9), rng.uniform(0, 9)])
+                catalog[name] = {
+                    'inputs': {r: amount() for r in rng.sample(used, rng.randint(0, len(used)))},
+                    'outputs': {r: amount() for r in rng.sample(used, rng.randint(0, len(used)))},
+                    'effects': {'gold_base': rng.randint(0, 6)} if name.endswith('r0') else {},
+                    'energy_output': rng.choice([0, 0, 3]),
+                    'energy_use': rng.choice([0, 0, 1]),
+                    'costs_by_level': [{GOLD: 10}],
+                }
+            scale = lambda: rng.choice([1e-6, 1e-3, 1.0, 1e3, 1e6])
+            buy = {r: rng.uniform(0.1, 3) * scale() for r in used}
+            sell = {r: rng.uniform(0.1, 3) * scale() for r in used}
+            prices = {'buy': buy, 'sell': sell}
+            rows = [{'site': f's{rng.randint(0, 3)}', 'kind': name,
+                     'remaining': rng.choice([0, 1])} for name in used]
+            military = rng.choice([{}, {'need': rng.randint(0, 4),
+                                        'equipment_need': rng.uniform(0, 4)}])
+            periods = rng.randint(1, 6)
+            expected = _operating_targets(catalog, rows, military, prices, periods)
+            actual = econ_fast.FAST.operating_targets(catalog, rows, military, prices, periods)
+            self.assertEqual(list(actual), list(expected))
+            self.assertEqual(actual, expected)
+            expected_cash = _reserve_cash(catalog, rows, military, buy, PROFILES['buffer'])
+            self.assertEqual(econ_fast.FAST.reserve_cash(catalog, rows, military, buy,
+                                                         PROFILES['buffer']), expected_cash)
+            expected_net = _net_recipe(catalog, rows, military)
+            actual_net = econ_fast.FAST.net_recipe(catalog, rows, military)
+            self.assertEqual(actual_net, expected_net)
+            self.assertEqual([type(actual_net[k]) for k in expected_net],
+                             [type(expected_net[k]) for k in expected_net])
+
     def test_planner_turns_match_python_bit_for_bit(self):
         mismatches = []
         with shadow(mismatches), backend(True):
