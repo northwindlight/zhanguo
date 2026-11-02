@@ -5,6 +5,7 @@ padding is masked by the network. Formal eligibility is a feature/auxiliary
 training target, never a policy override. No teacher choice runs in the learner.
 """
 from collections import Counter
+from contextlib import contextmanager
 import random
 
 import torch
@@ -15,6 +16,32 @@ from ruleai.v13plus.economy import Planner
 from ruleai.v13.entry import RuleClient as BaseClient
 from .adapter import observation, label, RESOURCES, scale
 from .model import collate
+
+
+@contextmanager
+def memo_planning(player):
+    """同一次编码里只问一次同一地块的规划。
+
+    观测和候选打包读的是同一份公开事实：编码期间没有任何建造／征兵／交易，
+    逐次询问与复用结果完全等价（返回的是只读快照，调用方都先复制再用）。
+    教师每执行一个项目就重编一次整局候选，重复询问是纯开销。
+    """
+    original = player.call_api
+    cache = {}
+
+    def call_api(capability=None, method=None, arguments=None, *args, **kwargs):
+        if method == 'planning' and capability in ('native:buildings', 'native:army'):
+            key = (capability, tuple(sorted((arguments or {}).items())))
+            if key not in cache:
+                cache[key] = original(capability, method, arguments, *args, **kwargs)
+            return cache[key]
+        return original(capability, method, arguments, *args, **kwargs)
+
+    player.call_api = call_api
+    try:
+        yield
+    finally:
+        del player.call_api
 
 
 class InvestmentPlanner(Planner):
@@ -40,6 +67,10 @@ class InvestmentPlanner(Planner):
         return recipe,reserve
 
     def encode(self):
+        with memo_planning(self.player):
+            return self._encode()
+
+    def _encode(self):
         self.refresh()
         encoded=observation(self.ledger,self.state,include_trades=False)
         plans={}

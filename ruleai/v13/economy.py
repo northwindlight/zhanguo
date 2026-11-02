@@ -6,6 +6,7 @@ import math
 from ruleai.v11plus import apimap
 from ruleai.v11plus.economy import _cost, _legal, supply_capacity
 from ruleai.v11plus.parameters import BARRACKS_CAP, MIL_SHARE
+from . import econ_fast
 from .market import MarketModel
 from .profiles import PROFILES
 
@@ -69,7 +70,7 @@ def cash_cost(ledger, recipe):
     return cost
 
 
-def net_recipe(catalog, buildings, military=None):
+def _net_recipe(catalog, buildings, military=None):
     """Steady-state material balance, counting power-plant fuel and hall density."""
     net = Counter()
     for b in buildings:
@@ -85,7 +86,7 @@ def net_recipe(catalog, buildings, military=None):
     return dict(net)
 
 
-def operating_targets(catalog, buildings, military, prices, periods):
+def _operating_targets(catalog, buildings, military, prices, periods):
     """Full fuel first; unprofitable industrial recipes receive no speculative refill.
 
     There is no per-building on/off action. Shared inputs may still let such a
@@ -104,13 +105,26 @@ def operating_targets(catalog, buildings, military, prices, periods):
     return dict(target)
 
 
-def reserve_cash(catalog, buildings, military, buy, profile):
+def _reserve_cash(catalog, buildings, military, buy, profile):
     needs = Counter({SUPPLY:military.get('need',0), EQUIPMENT:military.get('equipment_need',0)})
     for b in buildings:
         needs.update(catalog[b['kind']]['inputs'])
     # Gold is a separate operating buffer; keeping physical inputs does not
     # guarantee tomorrow's wages/materials can be financed after construction.
     return math.ceil(20 + profile.cash_periods*sum(v*buy.get(k,0) for k,v in needs.items()))
+
+
+def net_recipe(catalog, buildings, military=None):
+    return econ_fast.net_recipe(_net_recipe, catalog, buildings, military)
+
+
+def operating_targets(catalog, buildings, military, prices, periods):
+    return econ_fast.operating_targets(_operating_targets, catalog, buildings, military,
+                                       prices, periods)
+
+
+def reserve_cash(catalog, buildings, military, buy, profile):
+    return econ_fast.reserve_cash(_reserve_cash, catalog, buildings, military, buy, profile)
 
 
 def sell_surplus(ledger, targets, profile):

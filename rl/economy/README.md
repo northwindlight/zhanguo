@@ -94,6 +94,8 @@ python -m rl.economy.evaluate --seeds 301 302 --turns 150 \
   --checkpoint rl/runs/economy-bc/model/best.pt \
   --out rl/runs/economy-bc/holdout.json
 python -m unittest tests.test_economy_bc tests.test_rule_market tests.test_player_clients -q
+# 求解器 C 快路径对账（扩展未编译时只跑回退检查）
+python -m unittest tests.test_econ_fast -q
 ```
 
 `world-*.npz` 按世界压缩存储，包含源码指纹；`world-*.json` 保留场景与结果。
@@ -123,6 +125,29 @@ python -m unittest tests.test_economy_bc tests.test_rule_market tests.test_playe
 配置、特征指纹、学生检查点和教师比例一致的完整世界，保留它们原来的源码记录。
 不同教师修订混用须显式 `--allow-mixed-teachers`（恢复 pipeline 会传入），训练
 清单列出全部源码哈希，不伪装成单一版本重新生成。失败世界重新采集。
+
+## 求解器快路径（可选 C 扩展）
+
+经济求解器的纯算术有可选的 C 快路径：`ruleai/v13/_econ_fast.c`，实现稳态物料
+平衡、运营物料目标、现金储备与市场情景估值四项。引擎调用（规划、报价、成交）
+仍在 Python 里走正式 API；扩展不读世界、不改世界、不碰随机数。
+
+```bash
+.venv/bin/python -m ruleai.v13.build
+.venv/bin/python -m unittest tests.test_econ_fast -q
+```
+
+- **逐位一致**是硬要求：扩展保留 `Counter` 的插入顺序与每个值的 int／float 类型，
+  并复刻 CPython 3.12 起 `sum()` 的两种路径（整数精确累加、浮点 Neumaier 补偿）。
+  `tests/test_econ_fast.py` 对真实教师局势逐次对账，并比较开启／关闭扩展两局
+  的完整世界状态与训练数据，必须完全相同。编译固定 `-O2 -ffp-contract=off`。
+- **失败即回退**：扩展缺失、编译产物比 `_econ_fast.c` 旧（编译时写入 SHA-256，
+  加载时校验）、或任何调用异常，都退回 Python 参考实现，行为不变；回退原因记录在
+  `ruleai.v13.econ_fast.FALLBACKS`。`ZHANGUO_ECON_FAST=0` 强制走 Python。
+- 编译产物 `.so` 不入库、不进发行包，缺失时一切照常。v13 与 v13plus 共用同一套
+  求解器算术，两者同时受益；`rl/economy/projects.py` 的投资打包同样走这条路径。
+- 编码期内同一地块的规划结果只询问一次（`memo_planning`）：一次编码期间没有建造、
+  征兵或交易，重复询问与复用等价，教师每执行一个项目重编整局时省下重复查询。
 
 ## 夜间持续训练（2026-11-01 用户授权）
 

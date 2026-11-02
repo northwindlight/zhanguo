@@ -95,3 +95,8 @@ stock_v2_*.md
 # Runtime uses the single unified atlas; individual SVG/PNG imports are generated.
 /mods/ui/desktop/assets/unified-v1/png/*.import
 /mods/ui/desktop/assets/unified-v1/svg/*.import
+
+# 可选的 C 加速扩展：本机编译，不入库、不进发行包（缺失时走 Python 参考实现）
+ruleai/v13/_econ_fast*.so
+ruleai/v13/_econ_fast*.pyd
+ruleai/v13/_econ_fast*.dylib

@@ -6,6 +6,8 @@ are stress scenarios, not assertions about another player's policy.
 """
 import math
 
+from . import econ_fast
+
 
 def finite_map(value):
     return isinstance(value, dict) and all(isinstance(k, str) and type(v) in (int, float)
@@ -94,6 +96,11 @@ class MarketModel:
             yield buy, sell
 
     def value(self, net, own_net, extra, horizon, crowd=1):
+        # Python 仍是参考实现；扩展在时走 C，失败自动回退（见 econ_fast）。
+        return econ_fast.market_value(self._value_reference, self, net, own_net,
+                                      extra, horizon, crowd)
+
+    def _value_reference(self, net, own_net, extra, horizon, crowd=1):
         total = weight = 0.0
         for turn, (buy, sell) in enumerate(self.path(own_net, extra, horizon, crowd)):
             discount = .97**turn
