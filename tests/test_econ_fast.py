@@ -126,6 +126,14 @@ class FallbackChecks(unittest.TestCase):
         self.assertEqual(got, _net_recipe(CATALOG, buildings(), military))
         self.assertTrue(any('合成故障' in row for row in econ_fast.FALLBACKS))
 
+    def test_build_must_match_source_digest(self):
+        # 改了 _econ_fast.c 却没重编译：加载时就该回退，不能跑旧二进制。
+        if econ_fast.FAST is None:
+            self.skipTest('Optional C extension not built')
+        self.assertFalse(econ_fast._stale())
+        with patch.object(econ_fast.FAST, 'DIGEST', '0' * 64):
+            self.assertTrue(econ_fast._stale())
+
     def test_disabled_switch_skips_extension(self):
         military = {'need':2,'equipment_need':1}
         with patch.object(econ_fast, 'FAST', AssertionError), patch.object(econ_fast, 'ENABLED', False):
