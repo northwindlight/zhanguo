@@ -68,3 +68,24 @@ class ProjectChecks(unittest.TestCase):
             self.assertFalse(any(u['owner']==a for u in facts['army']))
             self.assertEqual(len(facts['building_sites']['instances']),1)
             self.assertEqual(c.project_failures,0)
+
+    def test_noop_retry_folding_keeps_world_and_failure_counts_identical(self):
+        from rl.economy.projects import LearnedProjects
+        from rl.economy.model import Policy
+        outcomes=[];calls=[]
+        for fold in (False,True):
+            h=GameHost.new(cfg());actor=h.actors()[0];ledger=Ledger(h.player(actor))
+            ledger.do('plan',text='相同拒绝不反复推理')
+            model=Policy(action_mode='projects');seen=[]
+            def invalid(batch):
+                seen.append(1);logits=torch.full_like(batch['limits'],-1000.)
+                index=(batch['candidates'][:,:,7]>0).float().argmax(-1)
+                logits[torch.arange(len(index)),index]=0
+                return logits,torch.zeros_like(logits)
+            model.forward=invalid
+            client=LearnedProjects(state=h.clients[actor].state,model=model,max_economy_actions=4)
+            client.collapse_noop_retries=fold;client.run_economy(ledger)
+            outcomes.append((h.runtime.save_mod_state(h.world),client.state.market,
+                client.project_failures,client.truncated,ledger.project_attempts))
+            calls.append(len(seen))
+        self.assertEqual(outcomes[0],outcomes[1]);self.assertEqual(calls,[4,1])

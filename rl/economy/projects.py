@@ -15,7 +15,7 @@ from ruleai.v13.economy import operating_targets, reserve_cash, SUPPLY
 from ruleai.v13plus.economy import Planner
 from ruleai.v13.entry import RuleClient as BaseClient
 from .adapter import observation, label, RESOURCES, scale
-from .model import collate, device_of, prepare
+from .model import Policy, collate, device_of, prepare
 
 
 @contextmanager
@@ -166,6 +166,7 @@ class LearnedProjects(BaseClient):
         super().__init__(*args,**kwargs)
         self.model=model;self.max_economy_actions=max_economy_actions
         self.truncated=0;self.economic_actions=Counter();self.project_failures=0
+        self.collapse_noop_retries=True
 
     def run_economy(self,ledger):
         ledger.economy_market=ledger.query('market')
@@ -173,13 +174,26 @@ class LearnedProjects(BaseClient):
         try:
             planner.operations()
             with torch.inference_mode():
-                for _ in range(self.max_economy_actions):
+                for attempt in range(self.max_economy_actions):
                     if ledger.full():break
                     encoded=planner.encode()
                     logits,_=self.model(prepare(collate([encoded]),device_of(self.model)))
                     index=int(logits[0].argmax());action,_=encoded['actions'][index]
                     if action=='finish':break
+                    before=len(ledger.acts)
                     if planner.execute(encoded,index):self.economic_actions[action]+=1
-                    else:self.project_failures+=1
+                    else:
+                        self.project_failures+=1
+                        # Feed-forward greedy Policy sees the identical input
+                        # after a rejected package with no ledger mutation.
+                        # Fold its remaining identical failures, preserving
+                        # the original failure/cap counts and world outcome.
+                        if getattr(self,'collapse_noop_retries',True) and type(self.model) is Policy and len(ledger.acts)==before:
+                            remaining=self.max_economy_actions-attempt-1
+                            self.project_failures+=remaining
+                            args=encoded['actions'][index][1]
+                            ledger.project_attempts[(action,args['site'],args['kind'])]+=remaining
+                            self.truncated+=1
+                            break
                 else:self.truncated+=1
         finally:planner.finish()
