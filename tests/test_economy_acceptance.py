@@ -19,6 +19,14 @@ def game(student=False,values=(100.,100.),tails=(10.,10.)):
 
 @unittest.skipIf(torch is None,'Optional training dependencies')
 class AcceptanceChecks(unittest.TestCase):
+    def test_exploratory_ppo_changes_training_only(self):
+        from rl.economy.acceptance import training_stage
+        self.assertEqual(training_stage(False,False),'dagger')
+        self.assertEqual(training_stage(False,False,True),'ppo')
+        self.assertEqual(training_stage(True,False),'dagger')
+        self.assertEqual(training_stage(True,True),'ppo')
+        self.assertFalse(summary([compare(game(),game(True))])['near'])
+
     def test_strong_seat_does_not_hide_weak_seat(self):
         result=compare(game(),game(True,(150,80)))
         self.assertGreater(result['total_ratio'],1.)

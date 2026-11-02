@@ -85,9 +85,10 @@ def consumption_increment(host,actor,previous=0.):
 
 class OnlineClient(BaseClient):
     version='economy-online'
-    def __init__(self,*args,model,mode,deadline=math.inf,budget=None,**kwargs):
+    def __init__(self,*args,model,mode,deadline=math.inf,budget=None,reuse_noop=True,**kwargs):
         super().__init__(*args,**kwargs)
         self.model=model;self.mode=mode;self.deadline=deadline
+        self.reuse_noop=reuse_noop
         self.budget=budget if budget is not None else Counter()
         self.rows=[];self.steps=[];self.truncated=0;self.project_failures=0
         self.economic_actions=Counter();self.family_correct=0;self.decisions=0
@@ -97,15 +98,18 @@ class OnlineClient(BaseClient):
         planner=InvestmentPlanner(ledger,self.state)
         try:
             planner.operations()
+            cached=None
             for _ in range(96):
                 check_deadline(self.deadline)
-                if self.budget['rows']>=6000:raise RuntimeError('World trajectory exceeded bounded row budget')
+                if self.budget['rows']>=self.budget.get('limit',6000):raise RuntimeError('World trajectory exceeded bounded row budget')
                 if ledger.full():break
-                encoded=planner.encode();target=expert_index(planner,encoded)
                 with torch.inference_mode():
                     device=device_of(self.model)
-                    logits,value,_=self.model(prepare(collate([encoded]),device),return_value=True)
-                    distribution=torch.distributions.Categorical(logits=logits[0])
+                    if cached is None:
+                        encoded=planner.encode();target=expert_index(planner,encoded)
+                        logits,value,_=self.model(prepare(collate([encoded]),device),return_value=True)
+                        distribution=torch.distributions.Categorical(logits=logits[0])
+                    else:encoded,target,distribution,value=cached
                     selected=(int(distribution.sample()) if self.mode=='ppo' else int(logits[0].argmax()))
                     action=target if self.mode=='bc' else selected
                     old_logp=float(distribution.log_prob(torch.tensor(action,device=device)))
@@ -121,11 +125,17 @@ class OnlineClient(BaseClient):
                 kind=encoded['actions'][action][0]
                 if kind=='finish':break
                 actions_before=len(ledger.acts)
+                cached=None
                 if planner.execute(encoded,action):self.economic_actions[kind]+=1
                 else:
                     # Failure is a reliability diagnostic only; it must not
                     # shape the paper's S reward.
                     self.project_failures+=1
+                    # Exact reuse of deterministic logits on an unchanged
+                    # observation. Still draw every stochastic action, retain
+                    # every log probability/reward and count every failure.
+                    if self.mode=='ppo' and self.reuse_noop and type(self.model) is Policy and len(ledger.acts)==actions_before:
+                        cached=(encoded,target,distribution,value)
                     # The greedy DAgger policy would repeat this same no-op
                     # rejection on an unchanged observation 96 times. Keep its
                     # teacher label once and advance to the next real period.
@@ -144,6 +154,7 @@ def rollout(model,seed,turns,*,mode='dagger',size=24,swap=False,deadline=math.in
     for actor,c in list(h.clients.items()):
         if c.version=='v13plus':
             h.clients[actor]=OnlineClient(state=c.state,model=model,mode=mode,deadline=deadline,budget=budget);focal.append(actor)
+    if mode=='ppo':budget['limit']=len(focal)*turns*96+1
     initial=snapshot(h,failures);milestones=defaultdict(dict);previous=Counter();consumption=Counter();tail=defaultdict(list)
     def receipt(actor,action,args,result):
         if not result['ok']:failures[actor][action+':'+result['message']]+=1
@@ -205,7 +216,7 @@ def monte_carlo(trajectories):
     return result
 
 
-def ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr=3e-5):
+def ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr=3e-5,checkpoint_callback=None):
     steps=monte_carlo(trajectories)
     if not steps:raise ValueError('Empty PPO rollout')
     device=device_of(model)
@@ -240,6 +251,8 @@ def ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr=3e-5):
             if kl>.03:stop=True;break
             optimizer.zero_grad(set_to_none=True);loss.backward();torch.nn.utils.clip_grad_norm_(model.parameters(),.5);optimizer.step()
             stats.update(n=1,policy=float(pg.detach()),value=float(vf.detach()),entropy=float(entropy.detach()),kl=kl,anchor=float(bc_kl.detach()))
+            if checkpoint_callback is not None and stats['n']%100==0:
+                checkpoint_callback(dict(updates=stats['n'],steps=len(steps)))
         if stop:break
     model.eval()
     return dict(**{k:v/max(1,stats['n']) for k,v in stats.items() if k!='n'},updates=stats['n'],kl_stopped=stop,

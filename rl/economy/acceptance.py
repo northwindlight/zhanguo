@@ -121,11 +121,17 @@ def aggregated_replay(original,root):
     return original+[dataset[i] for i in range(len(dataset))],{m['seed'] for m in dataset.metadata}
 
 
+def training_stage(near,confirmed_near,explore_ppo=False):
+    return 'ppo' if explore_ppo or (near and confirmed_near) else 'dagger'
+
+
 def main():
     p=argparse.ArgumentParser();p.add_argument('--checkpoint',type=Path,required=True)
     p.add_argument('--data',type=Path,required=True);p.add_argument('--out',type=Path,required=True)
     p.add_argument('--device',default='cpu');p.add_argument('--until',required=True)
     p.add_argument('--rounds',type=int,default=20);p.add_argument('--smoke',action='store_true')
+    p.add_argument('--explore-ppo',action='store_true',help='Explore PPO before acceptance; never relaxes promotion criteria')
+    p.add_argument('--warmup-data',type=Path,help='Completed DAgger worlds for one initial corrective BC update')
     a=p.parse_args();deadline=datetime.fromisoformat(a.until)
     if deadline.tzinfo is None:raise ValueError('Explicit timezone required')
     deadline=deadline.timestamp();check_deadline(deadline)
@@ -142,6 +148,12 @@ def main():
         previous=json.loads((a.out/'state.json').read_text())
         if previous.get('source')!=source_hash():raise ValueError('Resume requires unchanged source')
     model,base=load_policy(a.out/'current.pt' if resuming else a.checkpoint)
+    incumbent=base.get('online',{}).get('validation') if resuming else None
+    if resuming and (a.out/'candidate.pt').exists():
+        candidate,metadata=load_policy(a.out/'candidate.pt')
+        if metadata.get('source')!=source_hash():raise ValueError('Candidate resume requires unchanged source')
+        model=candidate
+        base=dict(base,seen_seeds=sorted(set(base.get('seen_seeds',[]))|set(metadata.get('seen_seeds',[]))))
     model.to(a.device);anchor,_=load_policy(a.checkpoint);anchor.to(a.device)
     manifest=cases(smoke=a.smoke);confirmation=cases(confirm=True,smoke=a.smoke)
     ancestry=set(base.get('seen_seeds',base['train_seeds']+base['valid_seeds']))
@@ -155,8 +167,15 @@ def main():
         storage_guard(a.out,budget=1024**3)
         m.to('cpu');checkpoint(a.out/name,m,base,seen,**extra);m.to(a.device)
     def state(**kwargs):write_json(a.out/'state.json',dict(until=a.until,source=source_hash(),**kwargs))
-    save('current.pt',model,stage='initial')
-    incumbent=None
+    if a.warmup_data is not None and not resuming:
+        warmup=Dataset(list(a.warmup_data.glob('world-*.npz')),fingerprint=PROJECT_FINGERPRINT)
+        seeds={m['seed'] for m in warmup.metadata}
+        if seeds&{c['seed']for c in manifest+confirmation}:raise ValueError('Warmup contains acceptance seeds')
+        seen.update(seeds);state(phase='training',stage='dagger_warmup')
+        training=bc_update(model,replay+[warmup[i] for i in range(len(warmup))],epochs=6,deadline=deadline)
+        write_json(a.out/'warmup.json',dict(seeds=sorted(seeds),metrics=training))
+        save('warmup.pt',model,stage='dagger_warmup')
+    if not resuming:save('current.pt',model,stage='initial')
     try:
         first=1+max([int(p.name.split('-')[-1]) for p in a.out.glob('round-*') if p.is_dir()],default=-1)
         for number in range(first,a.rounds+1):
@@ -182,7 +201,7 @@ def main():
                     # Continue training, but require a fresh seed family next time.
                     confirmation=[dict(c,seed=c['seed']+100) for c in confirmation]
             if number==a.rounds or a.smoke:break
-            check_deadline(deadline);mode='ppo' if incumbent['near'] and confirmed_near else 'dagger'
+            check_deadline(deadline);mode=training_stage(incumbent['near'],confirmed_near,a.explore_ppo)
             if mode=='ppo':model=with_critic(model).to(a.device)
             state(phase='collection',round=number,stage=mode)
             rows=[];streams=[]
@@ -193,12 +212,14 @@ def main():
                 r,s,report=rollout(model,seed,150 if number<3 else 250,mode=mode,
                     size=(20,24,28)[(number+j)%3],swap=bool(j),deadline=deadline)
                 rows.extend(r);streams.extend(s);write_json(folder/f'train-{seed}.json',report)
-                w=Writer(PROJECT_FINGERPRINT)
-                for item in r:w.add(item)
-                storage_guard(a.out,budget=1024**3)
-                w.save(folder/f'world-{seed}.npz',dict(seed=seed,source=source_hash(),turns=report['turns']))
+                if mode!='ppo':
+                    w=Writer(PROJECT_FINGERPRINT)
+                    for item in r:w.add(item)
+                    storage_guard(a.out,budget=1024**3)
+                    w.save(folder/f'world-{seed}.npz',dict(seed=seed,source=source_hash(),turns=report['turns']))
             state(phase='training',round=number,stage=mode)
-            if mode=='ppo':training=ppo_update(model,streams,anchor,deadline=deadline)
+            if mode=='ppo':training=ppo_update(model,streams,anchor,deadline=deadline,
+                checkpoint_callback=lambda metrics:save('progress.pt',model,stage='ppo_partial',round=number,metrics=metrics))
             else:
                 training_rows,replay_seeds=aggregated_replay(replay,a.out)
                 seen.update(replay_seeds)

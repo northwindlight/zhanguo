@@ -52,6 +52,31 @@ class OnlineChecks(unittest.TestCase):
         result=monte_carlo([a,b])
         self.assertEqual([s['return']for s in result],[.5,.3,12.,7.])
 
+    def test_ppo_noop_reuse_preserves_every_sample_and_world(self):
+        from rl.economy.model import Policy
+        from rl.economy.online import OnlineClient,with_critic
+        torch.manual_seed(123);model=with_critic(Policy(action_mode='projects')).eval()
+        original=model.forward;calls=[]
+        def biased(batch,**kwargs):
+            calls.append(1)
+            logits,value,execution=original(batch,**kwargs)
+            logits=logits*0-1000
+            index=(batch['candidates'][:,:,7]>0).float().argmax(-1)
+            logits[torch.arange(len(index)),index]=0
+            return logits,value,execution
+        model.forward=biased
+        outcomes=[];counts=[]
+        for reuse in (False,True):
+            h=GameHost.new(cfg());actor=h.actors()[0];ledger=Ledger(h.player(actor))
+            ledger.do('plan',text='相同PPO采样')
+            c=OnlineClient(state=h.clients[actor].state,model=model,mode='ppo',reuse_noop=reuse)
+            calls.clear();torch.manual_seed(777);c.run_economy(ledger)
+            counts.append(len(calls))
+            outcomes.append((h.runtime.save_mod_state(h.world),ledger.acts,c.project_failures,c.truncated,
+                [(s['action'],s['logp'],s['value'])for s in c.steps]))
+        self.assertEqual(outcomes[0],outcomes[1]);self.assertEqual(counts,[96,1])
+        self.assertEqual(len(outcomes[1][-1]),96)
+
     def test_critic_transfer_preserves_policy_and_ppo_has_actual_gradients(self):
         from rl.economy.model import Policy,collate
         from rl.economy.online import with_critic,ppo_update
