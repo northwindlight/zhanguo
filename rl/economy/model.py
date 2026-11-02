@@ -9,6 +9,28 @@ from .adapter import WIDTH, FINGERPRINT, PROJECT_FINGERPRINT
 from .layers import FastLinear, Attn, Block
 
 
+def device_of(model):
+    """模型所在设备；没有参数时按 CPU 处理（只读推理的占位模型用得上）。"""
+    try:
+        return next(model.parameters()).device
+    except StopIteration:
+        return torch.device('cpu')
+
+
+def prepare(batch, device=None):
+    """把 batch 里的张量搬到模型设备，就地把搬好的值写回同一个 dict。
+
+    在后面还要用 ``batch['target']``／``batch['legal']`` 的损失计算里，光把模型
+    搬到 GPU 不够——索引和损失也必须在同一设备上；所以这里直接改写调用方的
+    dict，调用方不必再各自记着搬哪几个键。CPU 上 ``.to`` 是零拷贝。
+    """
+    device = torch.device('cpu') if device is None else device
+    for key, value in batch.items():
+        if torch.is_tensor(value):
+            batch[key] = value.to(device)
+    return batch
+
+
 def collate(examples):
     batch=len(examples)
     context=torch.zeros(batch,max(len(e['context']) for e in examples),WIDTH)

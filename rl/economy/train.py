@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 
 from .adapter import ACTIONS,BUILDINGS,FINGERPRINT,PROJECT_FINGERPRINT
 from .data import Dataset
-from .model import Policy,collate
+from .model import Policy,collate,device_of,prepare
 from .scenarios import source_hash
 
 
@@ -42,10 +42,12 @@ def curriculum_weights(batch,opening_weight=1.,mobilization_weight=1.):
 
 def metrics(model,loader,optimizer=None,*,opening_weight=1.,mobilization_weight=1.):
     model.train(optimizer is not None);totals=Counter();by_kind={k:Counter() for k in ACTIONS}
+    device=device_of(model)
     for batch in loader:
         with torch.set_grad_enabled(optimizer is not None):
+            batch=prepare(batch,device)
             logits,quantities,executable=model(batch,return_exec=True);target=batch['target']
-            indices=torch.arange(len(target));desired=batch['quantity']
+            indices=torch.arange(len(target),device=target.device);desired=batch['quantity']
             predicted_quantity=quantities[indices,target];trade=desired>0
             weights,opening,mobilization=curriculum_weights(batch,opening_weight,mobilization_weight)
             action_rows=F.cross_entropy(logits,target,reduction='none')
@@ -92,17 +94,24 @@ def main():
     p.add_argument('--opening-weight',type=float,default=4.)
     p.add_argument('--mobilization-weight',type=float,default=3.)
     p.add_argument('--projects',action='store_true')
+    p.add_argument('--device',default='cpu',help='cpu 或 cuda；有 CUDA 的机器上训练显著更快')
+    p.add_argument('--max-candidates',type=int,default=384,
+                   help='每行训练候选上限（教师选项必留 + 随机负样本）；0 = 不截断')
     p.add_argument('--allow-mixed-teachers',action='store_true',help='Explicitly combine compatible feature schemas from recorded teacher source revisions')
     a=p.parse_args()
     if a.resume and a.init:raise ValueError('Choose resume or initialization, not both')
     if min(a.opening_weight,a.mobilization_weight)<1:raise ValueError('Curriculum weights must be >= 1')
+    if a.max_candidates<0:raise ValueError('--max-candidates must be >= 0')
+    device=torch.device(a.device)
+    if device.type=='cuda' and not torch.cuda.is_available():raise ValueError('--device cuda requested but CUDA is unavailable')
     torch.set_num_threads(a.threads);random.seed(a.seed);np.random.seed(a.seed);torch.manual_seed(a.seed)
     paths=sorted(a.data.glob('world-*.npz'));valid=set(a.valid_seeds)
     train_paths=[x for x in paths if int(x.stem.split('-')[-1]) not in valid]
     valid_paths=[x for x in paths if int(x.stem.split('-')[-1]) in valid]
     if {int(x.stem.split('-')[-1]) for x in valid_paths}!=valid:raise ValueError('Missing validation worlds')
     fingerprint=PROJECT_FINGERPRINT if a.projects else FINGERPRINT
-    training=Dataset(train_paths,fingerprint=fingerprint);validation=Dataset(valid_paths,fingerprint=fingerprint)
+    training=Dataset(train_paths,fingerprint=fingerprint,max_candidates=a.max_candidates,seed=a.seed)
+    validation=Dataset(valid_paths,fingerprint=fingerprint,max_candidates=a.max_candidates,seed=a.seed)
     train_seeds={x['seed'] for x in training.metadata};valid_seeds={x['seed'] for x in validation.metadata}
     if train_seeds&valid_seeds:raise ValueError('World leakage across train/validation')
     sources={x['source'] for x in training.metadata+validation.metadata}
@@ -126,6 +135,11 @@ def main():
         model.load_state_dict(saved['model']);optimizer.load_state_dict(saved['optimizer'])
         start=saved['epoch'];best=saved['best'];torch.set_rng_state(saved['rng'])
         ancestry.update(saved.get('seen_seeds',saved['train_seeds']+saved['valid_seeds']))
+    model.to(device)
+    # 优化器状态在建好参数后就跟着模型走；resume 之后再搬一次以防设备不同。
+    for state in optimizer.state.values():
+        for key,value in state.items():
+            if torch.is_tensor(value):state[key]=value.to(device)
     a.out.mkdir(parents=True,exist_ok=True)
     metadata=dict(fingerprint=fingerprint,dataset=dataset_hash,teacher_sources=sorted(sources),
         source=source_hash(),config=model.config,train_seeds=sorted(train_seeds),valid_seeds=sorted(valid_seeds),
@@ -137,6 +151,7 @@ def main():
     print(json.dumps(metadata),flush=True)
     for epoch in range(start,a.epochs):
         begun=time.monotonic()
+        training.set_epoch(epoch)
         objective=dict(opening_weight=a.opening_weight,mobilization_weight=a.mobilization_weight)
         train=metrics(model,DataLoader(training,batch_size=a.batch,shuffle=True,collate_fn=collate),optimizer,**objective)
         with torch.inference_mode():

@@ -15,7 +15,7 @@ from ruleai.v13.economy import operating_targets, reserve_cash, SUPPLY
 from ruleai.v13plus.economy import Planner
 from ruleai.v13.entry import RuleClient as BaseClient
 from .adapter import observation, label, RESOURCES, scale
-from .model import collate
+from .model import collate, device_of, prepare
 
 
 @contextmanager
@@ -175,7 +175,8 @@ class LearnedProjects(BaseClient):
             with torch.inference_mode():
                 for _ in range(self.max_economy_actions):
                     if ledger.full():break
-                    encoded=planner.encode();logits,_=self.model(collate([encoded]))
+                    encoded=planner.encode()
+                    logits,_=self.model(prepare(collate([encoded]),device_of(self.model)))
                     index=int(logits[0].argmax());action,_=encoded['actions'][index]
                     if action=='finish':break
                     if planner.execute(encoded,index):self.economic_actions[action]+=1

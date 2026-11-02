@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader
 from host import GameHost
 from ruleai.v13.entry import RuleClient as BaseClient
 from .adapter import PROJECT_FINGERPRINT
-from .model import Policy,collate
+from .model import Policy,collate,device_of,prepare
 from .projects import InvestmentPlanner,sample
 from .scenarios import config,source_hash,snapshot
 from .train import metrics
@@ -103,11 +103,12 @@ class OnlineClient(BaseClient):
                 if ledger.full():break
                 encoded=planner.encode();target=expert_index(planner,encoded)
                 with torch.inference_mode():
-                    logits,value,_=self.model(collate([encoded]),return_value=True)
+                    device=device_of(self.model)
+                    logits,value,_=self.model(prepare(collate([encoded]),device),return_value=True)
                     distribution=torch.distributions.Categorical(logits=logits[0])
                     selected=(int(distribution.sample()) if self.mode=='ppo' else int(logits[0].argmax()))
                     action=target if self.mode=='bc' else selected
-                    old_logp=float(distribution.log_prob(torch.tensor(action)))
+                    old_logp=float(distribution.log_prob(torch.tensor(action,device=device)))
                 teacher=encoded['actions'][target];student=encoded['actions'][selected]
                 family=lambda a:(a[0],a[1].get('kind'))
                 self.family_correct+=int(family(teacher)==family(student));self.decisions+=1
@@ -200,7 +201,10 @@ def monte_carlo(trajectories):
 def ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr=3e-5):
     steps=monte_carlo(trajectories)
     if not steps:raise ValueError('Empty PPO rollout')
-    returns=torch.tensor([s['return'] for s in steps]);old_values=torch.tensor([s['value'] for s in steps])
+    device=device_of(model)
+    anchor.to(device)
+    returns=torch.tensor([s['return'] for s in steps],device=device)
+    old_values=torch.tensor([s['value'] for s in steps],device=device)
     advantage=returns-old_values;advantage=(advantage-advantage.mean())/advantage.std(unbiased=False).clamp_min(1e-6)
     value_scale=returns.std(unbiased=False).clamp_min(1.)
     optimizer=torch.optim.AdamW(model.parameters(),lr=lr,weight_decay=.01)
@@ -210,13 +214,14 @@ def ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr=3e-5):
         random.shuffle(order)
         for start in range(0,len(order),8):
             check_deadline(deadline);ids=order[start:start+8];chunk=[steps[i] for i in ids]
-            b=collate([s['row'] for s in chunk]);logits,values,executable=model(b,return_value=True)
-            d=torch.distributions.Categorical(logits=logits);actions=torch.tensor([s['action']for s in chunk])
-            old=torch.tensor([s['logp']for s in chunk]);logratio=d.log_prob(actions)-old;ratio=logratio.exp()
+            b=prepare(collate([s['row'] for s in chunk]),device);logits,values,executable=model(b,return_value=True)
+            d=torch.distributions.Categorical(logits=logits)
+            actions=torch.tensor([s['action']for s in chunk],device=device)
+            old=torch.tensor([s['logp']for s in chunk],device=device);logratio=d.log_prob(actions)-old;ratio=logratio.exp()
             adv=advantage[ids];pg=torch.maximum(-adv*ratio,-adv*ratio.clamp(.8,1.2)).mean()
             vf=((values-returns[ids])/value_scale).square().mean()
             execution=F.binary_cross_entropy_with_logits(executable[b['candidate_mask']],b['legal'][b['candidate_mask']].float())
-            opening=torch.tensor([s['period']<12 for s in chunk])
+            opening=torch.tensor([s['period']<12 for s in chunk],device=device)
             bc_kl=logits.sum()*0
             if opening.any():
                 with torch.no_grad():reference=anchor(b)[0].softmax(-1)

@@ -42,8 +42,18 @@ class Writer:
 
 
 class Dataset:
-    def __init__(self,paths,*,fingerprint=FINGERPRINT):
+    """每行是一次教师决策。``max_candidates`` 非零时，每次读取只保留教师选中项
+    加 ``max_candidates-1`` 个随机负样本。
+
+    候选自注意力是 O(n²)：150 回合的局每行可达 ~2000 个候选（地块数×建筑种），
+    一个 epoch 就要几十分钟，其中绝大部分算在永远不可能被选中的候选上。截断是
+    分类任务里的常规做法，**教师选中的那一项一定保留**，采样随 epoch 变化
+    （``set_epoch``），不会每轮都看同一批负样本。数据文件本身不动。
+    """
+
+    def __init__(self,paths,*,fingerprint=FINGERPRINT,max_candidates=0,seed=0):
         self.shards=[];self.index=[];self.metadata=[]
+        self.max_candidates=int(max_candidates);self.seed=int(seed);self.epoch=0
         for path in sorted(map(Path,paths)):
             with np.load(path,allow_pickle=False) as z:
                 d={k:z[k] for k in z.files}
@@ -56,9 +66,22 @@ class Dataset:
 
     def __len__(self):return len(self.index)
 
+    def set_epoch(self,epoch):
+        """换一批负样本；同一 epoch 内同一行必须稳定（DataLoader 可能重复读）。"""
+        self.epoch=int(epoch)
+
     def __getitem__(self,index):
         shard,i=self.index[index];d=self.shards[shard]
         c=slice(*d['context_offsets'][i:i+2]);a=slice(*d['candidate_offsets'][i:i+2])
-        return dict(context=d['context'][c],candidates=d['candidates'][a],
-                    legal=d['legal'][a],limits=d['limits'][a],
-                    target=d['target'][i],quantity=d['quantity'][i])
+        candidates=d['candidates'][a];legal=d['legal'][a];limits=d['limits'][a]
+        target=int(d['target'][i])
+        if self.max_candidates and len(candidates)>self.max_candidates:
+            rng=np.random.default_rng((self.seed*1000003+self.epoch,index))
+            keep=rng.choice(len(candidates),self.max_candidates,replace=False)
+            if not (keep==target).any():keep[0]=target
+            keep.sort()
+            target=int(np.searchsorted(keep,target))
+            candidates=candidates[keep];legal=legal[keep];limits=limits[keep]
+        return dict(context=d['context'][c],candidates=candidates,
+                    legal=legal,limits=limits,
+                    target=target,quantity=d['quantity'][i])

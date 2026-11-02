@@ -142,6 +142,9 @@ def main():
     p.add_argument('--teacher-data',type=Path,required=True);p.add_argument('--out',type=Path,required=True)
     p.add_argument('--until',required=True,help='ISO datetime with explicit UTC offset')
     p.add_argument('--threads',type=int,default=2);p.add_argument('--max-rounds',type=int,default=100)
+    p.add_argument('--device',default='cpu',help='训练（BC/PPO 更新）所用设备；对局 rollout 始终在 CPU')
+    p.add_argument('--max-candidates',type=int,default=384,
+                   help='BC 每行候选上限（教师选项必留 + 随机负样本）；0 = 不截断')
     p.add_argument('--max-run-mb',type=int,default=1024)
     p.add_argument('--smoke',action='store_true',help='Short execution check; never promotes a model')
     a=p.parse_args();end=datetime.fromisoformat(a.until)
@@ -162,13 +165,15 @@ def main():
     signal.signal(signal.SIGTERM,lambda *_:(_ for _ in ()).throw(Deadline('Service stop requested')))
     signal.signal(signal.SIGINT,lambda *_:(_ for _ in ()).throw(Deadline('Interrupted')))
     torch.set_num_threads(a.threads)
+    device=torch.device(a.device)
+    if device.type=='cuda' and not torch.cuda.is_available():raise ValueError('--device cuda requested but CUDA is unavailable')
     model,base=load_policy(a.out/'current.pt' if (a.out/'current.pt').exists() else a.checkpoint)
     if model.action_mode!='projects':raise ValueError('Overnight job requires project BC')
     if base.get('source')!=source_hash():raise ValueError('Checkpoint source does not match the current feature contract; retrain')
     anchor,_=load_policy(a.checkpoint);anchor.eval()
     seen=set(base.get('seen_seeds',base['train_seeds']+base['valid_seeds']))|set(GATE_SEEDS)
     teacher_paths=[x for x in a.teacher_data.glob('world-*.npz') if int(x.stem.split('-')[-1]) in base['train_seeds']]
-    initial=Dataset(teacher_paths,fingerprint=PROJECT_FINGERPRINT)
+    initial=Dataset(teacher_paths,fingerprint=PROJECT_FINGERPRINT,max_candidates=a.max_candidates)
     if any(m['source']!=source_hash() for m in initial.metadata):
         raise ValueError('Teacher data source does not match the current feature contract; recollect')
     # Fixed initial BC demonstrations protect the opening in later DAgger updates.
@@ -225,12 +230,17 @@ def main():
                     write_json(folder/f'world-{seed}.json',report)
                 agreement=sum(r['family_agreement']*r['decisions'] for r in reports)/max(1,sum(r['decisions']for r in reports))
                 state('training',stage=stage);torch.set_num_threads(a.threads)
-                if stage=='ppo':training=ppo_update(candidate,trajectories,anchor,epochs=1 if a.smoke else 2,deadline=deadline)
-                else:
-                    paths=sorted(a.out.glob('round-*/world-*.npz'))[-4:]
-                    replay=Dataset(paths,fingerprint=PROJECT_FINGERPRINT)
-                    seen.update(m['seed'] for m in replay.metadata)
-                    training=bc_update(candidate,original_rows+[replay[i]for i in range(len(replay))],epochs=1 if a.smoke else 3,deadline=deadline)
+                # 只有更新这一步上 GPU：对局 rollout 与能力门是引擎模拟，纯 CPU。
+                candidate.to(device)
+                try:
+                    if stage=='ppo':training=ppo_update(candidate,trajectories,anchor,epochs=1 if a.smoke else 2,deadline=deadline)
+                    else:
+                        paths=sorted(a.out.glob('round-*/world-*.npz'))[-4:]
+                        replay=Dataset(paths,fingerprint=PROJECT_FINGERPRINT,max_candidates=a.max_candidates)
+                        seen.update(m['seed'] for m in replay.metadata)
+                        training=bc_update(candidate,original_rows+[replay[i]for i in range(len(replay))],epochs=1 if a.smoke else 3,deadline=deadline)
+                finally:
+                    candidate.to('cpu')
                 guard();checkpoint(a.out/'candidate.pt',candidate,base,seen,stage=stage,round=number,training=training)
                 write_json(folder/'training.json',dict(stage=stage,training=training,agreement=agreement))
                 state('validation',stage=stage);torch.set_num_threads(1)
