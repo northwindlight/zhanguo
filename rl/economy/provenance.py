@@ -23,9 +23,26 @@ class WithoutDocs(ast.NodeTransformer):
         return None if isinstance(node.value,ast.Constant) and isinstance(node.value.value,str) else self.generic_visit(node)
 
 
+def stable_ast(node):
+    """Fixed semantic serialization, independent of ast.dump's Python version.
+
+    Keep the existing compact contract representation: omit empty sequence and
+    optional fields, but preserve None constants/patterns and None inside lists.
+    """
+    if isinstance(node,ast.AST):
+        fields=[]
+        for name,value in ast.iter_fields(node):
+            if isinstance(value,list) and not value:continue
+            if value is None and not (name=='value' and isinstance(node,(ast.Constant,ast.MatchSingleton))):continue
+            fields.append(f'{name}={stable_ast(value)}')
+        return f'{type(node).__name__}({", ".join(fields)})'
+    if isinstance(node,list):return '['+', '.join(stable_ast(item)for item in node)+']'
+    return repr(node)
+
+
 @lru_cache(maxsize=4096)
 def canonical(data,suffix):
-    if suffix=='.py':return ast.dump(WithoutDocs().visit(ast.parse(data)),include_attributes=False)
+    if suffix=='.py':return stable_ast(WithoutDocs().visit(ast.parse(data)))
     if suffix=='.toml':return json.dumps(tomllib.loads(data.decode()),sort_keys=True,default=str)
     return data.decode()
 
@@ -35,17 +52,17 @@ def selected(data,names,*,reward_writes=False):
     for node in tree.body:
         name=getattr(node,'name',None)
         if isinstance(node,ast.Assign):name=next((x.id for x in node.targets if isinstance(x,ast.Name)),None)
-        if name in names:nodes.append(ast.dump(node,include_attributes=False))
+        if name in names:nodes.append(stable_ast(node))
         if names==PROJECT_NODES and isinstance(node,ast.ImportFrom) and (node.module or '').startswith(('ruleai.','adapter')):
-            nodes.append(ast.dump(node,include_attributes=False))
+            nodes.append(stable_ast(node))
     if reward_writes:
         for node in ast.walk(tree):
             if isinstance(node,ast.AugAssign) and isinstance(node.target,ast.Subscript) and isinstance(node.target.slice,ast.Constant) and node.target.slice.value=='reward':
-                nodes.append(ast.dump(node,include_attributes=False))
+                nodes.append(stable_ast(node))
             if isinstance(node,ast.Dict):
                 for key,value in zip(node.keys,node.values):
-                    if isinstance(key,ast.Constant) and key.value=='reward':nodes.append('initial_reward='+ast.dump(value,include_attributes=False))
-            if isinstance(node,ast.keyword) and node.arg=='reward':nodes.append('initial_reward='+ast.dump(node.value,include_attributes=False))
+                    if isinstance(key,ast.Constant) and key.value=='reward':nodes.append('initial_reward='+stable_ast(value))
+            if isinstance(node,ast.keyword) and node.arg=='reward':nodes.append('initial_reward='+stable_ast(node.value))
     return '\n'.join(nodes)
 
 

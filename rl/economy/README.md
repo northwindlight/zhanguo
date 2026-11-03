@@ -269,6 +269,7 @@ smoke 的 BC/DAgger 更新均匀抽取最多 256 行 replay，仍使用完整候
 数据兼容性使用 `feature_contract`（世界规则、特征、项目与在线奖励）判断，
 `teacher_contract` 另追踪教师及场景，`implementation` / 原 `source` 保留完整实现溯源。
 修改训练超参数不会让数据作废；真实特征或奖励变更仍拒绝混用。
+契约使用固定序列化格式，已在真实 Python 3.12 / 3.13 上核对结果一致。
 旧数据仅接受 `legacy_contracts.json` 中由完整 Git 快照核对过的来源；未知旧来源须先审计，
 不删除或改写原文件。S2 的 8 个世界与 S3 的 4 个世界已核对可复用。
 可用 `python -m rl.economy.audit_legacy --verify-registry` 从 Git blobs 复核整个登记表；
