@@ -216,7 +216,10 @@ def monte_carlo(trajectories):
     return result
 
 
-def ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr=3e-5,checkpoint_callback=None):
+def ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr=3e-5,checkpoint_callback=None,
+        policy_coef=1.,value_coef=.5,execution_coef=.1,anchor_coef=.05,entropy_coef=.001,
+        clip_ratio=.2,target_kl=.03,anchor_periods=12,batch_size=8,max_grad_norm=.5,weight_decay=.01,
+        detach_value_encoder=False,max_updates=None,diagnostic_callback=None):
     steps=monte_carlo(trajectories)
     if not steps:raise ValueError('Empty PPO rollout')
     device=device_of(model)
@@ -225,35 +228,47 @@ def ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr=3e-5,ch
     old_values=torch.tensor([s['value'] for s in steps],device=device)
     advantage=returns-old_values;advantage=(advantage-advantage.mean())/advantage.std(unbiased=False).clamp_min(1e-6)
     value_scale=returns.std(unbiased=False).clamp_min(1.)
-    optimizer=torch.optim.AdamW(model.parameters(),lr=lr,weight_decay=.01)
-    order=list(range(len(steps)));stats=Counter();stop=False
+    optimizer=torch.optim.AdamW(model.parameters(),lr=lr,weight_decay=weight_decay)
+    order=list(range(len(steps)));stats=Counter();stop=False;kl_stopped=False
     model.train();anchor.eval()
     for _ in range(epochs):
         random.shuffle(order)
-        for start in range(0,len(order),8):
-            check_deadline(deadline);ids=order[start:start+8];chunk=[steps[i] for i in ids]
-            b=prepare(collate([s['row'] for s in chunk]),device);logits,values,executable=model(b,return_value=True)
+        for start in range(0,len(order),batch_size):
+            check_deadline(deadline);ids=order[start:start+batch_size];chunk=[steps[i] for i in ids]
+            b=prepare(collate([s['row'] for s in chunk]),device)
+            logits,values,executable=model(b,return_value=True,detach_value_encoder=detach_value_encoder)
             d=torch.distributions.Categorical(logits=logits)
             actions=torch.tensor([s['action']for s in chunk],device=device)
             old=torch.tensor([s['logp']for s in chunk],device=device);logratio=d.log_prob(actions)-old;ratio=logratio.exp()
-            adv=advantage[ids];pg=torch.maximum(-adv*ratio,-adv*ratio.clamp(.8,1.2)).mean()
+            adv=advantage[ids];pg=torch.maximum(-adv*ratio,-adv*ratio.clamp(1-clip_ratio,1+clip_ratio)).mean()
             vf=((values-returns[ids])/value_scale).square().mean()
             execution=F.binary_cross_entropy_with_logits(executable[b['candidate_mask']],b['legal'][b['candidate_mask']].float())
-            opening=torch.tensor([s['period']<12 for s in chunk],device=device)
+            opening=torch.tensor([s['period']<anchor_periods for s in chunk],device=device)
             bc_kl=logits.sum()*0
             if opening.any():
                 with torch.no_grad():reference=anchor(b)[0].softmax(-1)
                 bc_kl=F.kl_div(logits.log_softmax(-1),reference,reduction='none').sum(-1)[opening].mean()
             entropy=d.entropy().mean()
-            loss=pg+.5*vf+.1*execution+.05*bc_kl-.001*entropy
+            loss=policy_coef*pg+value_coef*vf+execution_coef*execution+anchor_coef*bc_kl-entropy_coef*entropy
             if not torch.isfinite(loss):raise RuntimeError('Non-finite PPO loss')
             kl=float(((ratio-1)-logratio).mean().detach())
-            if kl>.03:stop=True;break
-            optimizer.zero_grad(set_to_none=True);loss.backward();torch.nn.utils.clip_grad_norm_(model.parameters(),.5);optimizer.step()
+            if diagnostic_callback is not None:
+                detail=dict(updates=stats['n'],kl=kl,clip_fraction=float(((ratio-1).abs()>clip_ratio).float().mean().detach()),
+                    policy=float(pg.detach()),value=float(vf.detach()),execution=float(execution.detach()),
+                    anchor=float(bc_kl.detach()),entropy=float(entropy.detach()),loss=float(loss.detach()),kl_stop=kl>target_kl)
+                if stats['n'] in (0,1,9):
+                    from .ppo_diagnostics import component_gradients
+                    detail['gradients']=component_gradients(model,dict(policy=policy_coef*pg,value=value_coef*vf,
+                        execution=execution_coef*execution,anchor=anchor_coef*bc_kl,entropy=-entropy_coef*entropy,total=loss))
+                diagnostic_callback(detail)
+            if kl>target_kl:stop=True;kl_stopped=True;break
+            optimizer.zero_grad(set_to_none=True);loss.backward();torch.nn.utils.clip_grad_norm_(model.parameters(),max_grad_norm);optimizer.step()
             stats.update(n=1,policy=float(pg.detach()),value=float(vf.detach()),entropy=float(entropy.detach()),kl=kl,anchor=float(bc_kl.detach()))
             if checkpoint_callback is not None and stats['n']%100==0:
                 checkpoint_callback(dict(updates=stats['n'],steps=len(steps)))
+            if max_updates is not None and stats['n']>=max_updates:stop=True;break
         if stop:break
     model.eval()
-    return dict(**{k:v/max(1,stats['n']) for k,v in stats.items() if k!='n'},updates=stats['n'],kl_stopped=stop,
+    return dict(**{k:v/max(1,stats['n']) for k,v in stats.items() if k!='n'},updates=stats['n'],kl_stopped=kl_stopped,
+        update_limit_reached=max_updates is not None and stats['n']>=max_updates,
         return_mean=float(returns.mean()),return_std=float(returns.std(unbiased=False)),steps=len(steps))

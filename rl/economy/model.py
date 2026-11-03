@@ -71,7 +71,7 @@ class Policy(nn.Module):
         if self.critic is not None:
             nn.init.zeros_(self.critic[-1].weight);nn.init.zeros_(self.critic[-1].bias)
 
-    def forward(self,batch,*,return_exec=False,return_value=False):
+    def forward(self,batch,*,return_exec=False,return_value=False,detach_value_encoder=False):
         x=self.context(batch['context'])
         for block in self.blocks: x=block(x,~batch['context_mask'])
         q=self.candidate(batch['candidates'])
@@ -87,7 +87,8 @@ class Policy(nn.Module):
         logits=logits.masked_fill(~mask,-1e9)
         log_quantity=self.quantity(h).squeeze(-1).sigmoid()*batch['limits'].log1p()
         if return_value:
-            value=self.critic(x[:,0]).squeeze(-1) if self.critic is not None else logits[:,0]*0
+            value_input=x[:,0].detach() if detach_value_encoder else x[:,0]
+            value=self.critic(value_input).squeeze(-1) if self.critic is not None else logits[:,0]*0
             return logits,value,executable
         return (logits,log_quantity,executable) if return_exec else (logits,log_quantity)
 

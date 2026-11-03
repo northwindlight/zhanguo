@@ -98,6 +98,42 @@ class OnlineChecks(unittest.TestCase):
         self.assertGreater(float(model.critic[-1].weight.detach().abs().sum()),0.)
         p.finish()
 
+    def test_value_encoder_detach_keeps_actor_fixed_during_value_only_update(self):
+        from rl.economy.model import Policy,collate
+        from rl.economy.online import with_critic,ppo_update
+        from rl.economy.projects import sample
+        h,p,e=self.encoded();torch.manual_seed(31)
+        anchor=Policy(action_mode='projects').eval();model=with_critic(anchor)
+        row=sample(e,0)
+        with torch.no_grad():
+            logits,value,_=model(collate([row]),return_value=True)
+            logp=float(logits.log_softmax(-1)[0,0])
+        before={k:v.clone()for k,v in model.state_dict().items()}
+        streams=[[dict(row=row,action=0,logp=logp,value=0.,reward=x,period=20)]for x in (.1,.2,.3,.4)]
+        result=ppo_update(model,streams,anchor,epochs=2,policy_coef=0.,execution_coef=0.,anchor_coef=0.,
+            entropy_coef=0.,detach_value_encoder=True,weight_decay=0.)
+        self.assertGreater(result['updates'],0)
+        for k,v in model.state_dict().items():
+            if not k.startswith('critic.'):self.assertTrue(torch.equal(v,before[k]),k)
+        self.assertFalse(torch.equal(model.critic[-1].weight,before['critic.2.weight']))
+        p.finish()
+
+    def test_gradient_component_probe_measures_shared_encoder_without_accumulating_gradients(self):
+        from rl.economy.model import Policy,collate
+        from rl.economy.online import with_critic
+        from rl.economy.ppo_diagnostics import component_gradients
+        h,p,e=self.encoded();model=with_critic(Policy(action_mode='projects'))
+        with torch.no_grad():model.critic[-1].weight.fill_(.1)
+        b=collate([e]);logits,value,_=model(b,return_value=True)
+        report=component_gradients(model,dict(policy=logits[:,0].mean(),value=value.square().mean()))
+        self.assertGreater(report['value']['shared_encoder'],0.)
+        self.assertTrue(all(q.grad is None for q in model.parameters()))
+        logits,value,_=model(b,return_value=True,detach_value_encoder=True)
+        detached=component_gradients(model,dict(policy=logits[:,0].mean(),value=value.square().mean()))
+        self.assertEqual(detached['value']['shared_encoder'],0.)
+        self.assertGreater(detached['value']['critic'],0.)
+        p.finish()
+
     def gate(self,consumption=100.,tail=10.,**changes):
         rows=[dict(actor=f'scenario:n{i}',seed=7101,swap=False,
                    consumption=consumption/2,tail_consumption=tail/2) for i in (1,3)]
