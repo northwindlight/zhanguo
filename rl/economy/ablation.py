@@ -132,7 +132,8 @@ def main():
                 print('UPDATE',name,detail['updates'],round(detail['kl'],6),'stop',detail['kl_stop'],flush=True)
             metrics=ppo_update(m,streams,anchor,max_updates=args.max_updates,diagnostic_callback=observe,**ARMS[name])
         m.to('cpu');checkpoint(args.out/f'{name}.pt',m,base,seen,stage='ablation',arm=name,parameters=ARMS[name],metrics=metrics)
-        m.to(args.device)
+        # Evaluate the exact serialized weights with cold inference caches.
+        m,_=load_policy(args.out/f'{name}.pt');m.to(args.device)
         train_logits,new_values=forward_rows(m,train_rows,return_values=True)
         predictions={key:forward_rows(m,rows)for key,rows in probe_rows.items() if key!='train'}
         predictions['train']=train_logits

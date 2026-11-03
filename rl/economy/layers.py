@@ -40,16 +40,18 @@ class FastLinear(nn.Linear):
         # ★ 普通属性（**不是** buffer ⇒ 不进 state_dict、不参与 .to()）。
         #   所以下面判有效时要连 device/dtype 一起看 —— 模型搬到别的设备后
         #   这份副本还在原地，直接用会炸（好在是**响的**，不是静默错）。
-        self._wt = None          # (tensor, version, device, dtype)
+        # deepcopy copies the cache but resets the new Parameter's version.
+        # The same version number can recur, so also bind to Parameter identity.
+        self._wt = None          # (tensor, version, device, dtype, parameter identity)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if torch.is_grad_enabled():                 # ★★ 训练路径：原样（见上）
             return nn.functional.linear(x, self.weight, self.bias)
         w = self.weight
         c = self._wt
-        if (c is None or c[1] != w._version or c[2] != w.device
+        if (c is None or c[4] != id(w) or c[1] != w._version or c[2] != w.device
                 or c[3] != w.dtype):
-            c = (w.detach().t().contiguous(), w._version, w.device, w.dtype)
+            c = (w.detach().t().contiguous(), w._version, w.device, w.dtype,id(w))
             self._wt = c
         out = x @ c[0]
         return out if self.bias is None else out + self.bias

@@ -19,8 +19,9 @@ def component_gradients(model,terms):
         vectors[label]=torch.cat(shared)
         report[label]={k:math.sqrt(v) for k,v in norms.items()}
         report[label]['total']=math.sqrt(sum(norms.values()))
-    reference=vectors['policy']
+    reference=vectors['policy'].double()
     for label,vector in vectors.items():
+        vector=vector.double()
         denominator=reference.norm()*vector.norm()
-        report[label]['shared_cosine_to_policy']=float(reference.dot(vector)/denominator) if float(denominator)>0 else None
+        report[label]['shared_cosine_to_policy']=float((reference.dot(vector)/denominator).clamp(-1,1)) if float(denominator)>0 else None
     return report
