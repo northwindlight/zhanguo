@@ -229,7 +229,7 @@ def ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr=3e-5,ch
     advantage=returns-old_values;advantage=(advantage-advantage.mean())/advantage.std(unbiased=False).clamp_min(1e-6)
     value_scale=returns.std(unbiased=False).clamp_min(1.)
     optimizer=torch.optim.AdamW(model.parameters(),lr=lr,weight_decay=weight_decay)
-    order=list(range(len(steps)));stats=Counter();stop=False;kl_stopped=False
+    order=list(range(len(steps)));stats=Counter();stop=False;kl_stopped=False;examples_used=0
     model.train();anchor.eval()
     for _ in range(epochs):
         random.shuffle(order)
@@ -263,6 +263,7 @@ def ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr=3e-5,ch
                 diagnostic_callback(detail)
             if kl>target_kl:stop=True;kl_stopped=True;break
             optimizer.zero_grad(set_to_none=True);loss.backward();torch.nn.utils.clip_grad_norm_(model.parameters(),max_grad_norm);optimizer.step()
+            examples_used+=len(ids)
             stats.update(n=1,policy=float(pg.detach()),value=float(vf.detach()),entropy=float(entropy.detach()),kl=kl,anchor=float(bc_kl.detach()))
             if checkpoint_callback is not None and stats['n']%100==0:
                 checkpoint_callback(dict(updates=stats['n'],steps=len(steps)))
@@ -270,5 +271,6 @@ def ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr=3e-5,ch
         if stop:break
     model.eval()
     return dict(**{k:v/max(1,stats['n']) for k,v in stats.items() if k!='n'},updates=stats['n'],kl_stopped=kl_stopped,
+        examples_used=examples_used,
         update_limit_reached=max_updates is not None and stats['n']>=max_updates,
         return_mean=float(returns.mean()),return_std=float(returns.std(unbiased=False)),steps=len(steps))

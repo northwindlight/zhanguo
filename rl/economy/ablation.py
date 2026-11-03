@@ -36,6 +36,8 @@ ARMS={
     'kl_001':dict(target_kl=.01),
     'one_epoch':dict(epochs=1),
     'no_weight_decay':dict(weight_decay=0.),
+    'grad_clip_01':dict(max_grad_norm=.1),
+    'batch_32':dict(batch_size=32),
     # Separate component isolation; unlike the arms above these change several settings.
     'policy_only':dict(value_coef=0.,execution_coef=0.,anchor_coef=0.,entropy_coef=0.,weight_decay=0.),
     'value_only':dict(policy_coef=0.,execution_coef=0.,anchor_coef=0.,entropy_coef=0.,weight_decay=0.),
