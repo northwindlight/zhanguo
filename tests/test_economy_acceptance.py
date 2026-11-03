@@ -49,7 +49,7 @@ class AcceptanceChecks(unittest.TestCase):
             return r
         with TemporaryDirectory() as directory:
             root=Path(directory);out=root/'round';out.mkdir();cache=root/'teachers';cache.mkdir()
-            with patch('rl.economy.acceptance.run',side_effect=simulate) as run:
+            with patch('rl.economy.acceptance.run',side_effect=simulate) as run,patch('rl.economy.acceptance.model_digest',return_value='fixture'):
                 result=suite(object(),[cases()[0]],out,cache,float('inf'))
             self.assertEqual(run.call_count,2)
             self.assertTrue(all(call.kwargs['turns']==150 for call in run.call_args_list))

@@ -11,11 +11,12 @@ from host import GameHost
 from .client import LearnedClient
 from .model import load_policy
 from .scenarios import config,source_hash,snapshot
+from .provenance import provenance,contracts
 
 
 def run(seed,turns,*,size=24,swap=False,model=None,candidate='v13plus',deadline=float('inf')):
     from .online import consumption_increment,consumption_total,check_deadline
-    source=source_hash()
+    origin=provenance()
     cfg=config(seed,size=size,swap=swap,candidate=candidate)
     host=GameHost.new(cfg);failures=defaultdict(Counter)
     if model is not None:
@@ -74,7 +75,7 @@ def run(seed,turns,*,size=24,swap=False,model=None,candidate='v13plus',deadline=
             if (turn+1)%10==0 or turn==turns-1:
                 print(json.dumps(dict(seed=seed,swap=swap,candidate='bc' if model else candidate,turn=turn+1,seconds=round(time.monotonic()-start,1))),flush=True)
                 history.append(dict(turn=turn+1,countries=snapshot(host,failures)))
-    if source_hash()!=source:raise RuntimeError('Source changed during evaluation; discard this world')
+    if contracts()['feature_contract']!=origin['feature_contract']:raise RuntimeError('Feature/reward contract changed during evaluation')
     late_economy={}
     for actor,series in economy_trace.items():
         window=series[-50:];before=series[-51] if len(series)>50 else dict(land=initial[actor]['land'],assets=0)
@@ -88,7 +89,7 @@ def run(seed,turns,*,size=24,swap=False,model=None,candidate='v13plus',deadline=
             missing_inputs=production[actor]['missing-input']-late_production[actor]['missing-input'],
             energy_shortages=production[actor]['energy-shortage']-late_production[actor]['energy-shortage'],
             supply_shortfalls=supply[actor]-late_supply.get(actor,0))
-    return dict(seed=seed,swap=swap,turns=turns,config=cfg,source=source,initial=initial,
+    return dict(**origin,seed=seed,swap=swap,turns=turns,config=cfg,implementation_end=source_hash(),initial=initial,
         history=history,seconds=time.monotonic()-start,production=dict(production),supply_shortfalls=dict(supply),
         actions=dict(actions),milestones=dict(milestones),
         consumption=dict(consumption),tail_consumption={a:sum(v[-50:])/min(50,len(v)) for a,v in tail.items()},

@@ -20,7 +20,7 @@ from .data import Dataset
 from .model import load_policy,collate,prepare,device_of
 from .online import ppo_update,monte_carlo
 from .overnight import checkpoint,storage_guard,write_json
-from .scenarios import source_hash
+from .provenance import require_compatible,provenance
 
 
 ARMS={
@@ -29,6 +29,8 @@ ARMS={
     'no_value':dict(value_coef=0.),
     'value_encoder_detached':dict(detach_value_encoder=True),
     'no_execution':dict(execution_coef=0.),
+    'execution_03':dict(execution_coef=.3),
+    'execution_1':dict(execution_coef=1.),
     'no_anchor':dict(anchor_coef=0.),
     'anchor_all_periods':dict(anchor_periods=10000),
     'no_entropy':dict(entropy_coef=0.),
@@ -51,6 +53,7 @@ def load_streams(root):
     streams=[];manifests=[]
     for path in sorted(root.glob('world-*.pkl.gz')):
         manifest=json.loads(path.with_name(path.name.replace('.pkl.gz','-manifest.json')).read_text())
+        require_compatible(manifest)
         if not manifest['complete'] or manifest['turns']<150:raise ValueError('Require complete >=150 turn worlds')
         if hashlib.sha256(path.read_bytes()).hexdigest()!=manifest['sha256']:raise ValueError('Trajectory checksum mismatch')
         # Only this experiment's own files, checksum-verified before unpickling.
@@ -92,9 +95,13 @@ def main():
     parser.add_argument('--validation-data',type=Path,required=True);parser.add_argument('--out',type=Path,required=True)
     parser.add_argument('--device',default='cpu');parser.add_argument('--threads',type=int,default=1)
     parser.add_argument('--max-updates',type=int,default=64);parser.add_argument('--arms',nargs='+',choices=list(ARMS))
+    parser.add_argument('--kl-mode',choices=('adaptive','legacy'),default='legacy',help='Legacy reproduces the archived parameter study')
+    parser.add_argument('--update-batch-size',type=int,default=128);parser.add_argument('--kl-coef',type=float,default=.1)
+    parser.add_argument('--epochs',type=int,help='Explicit common epoch count for a new controlled experiment')
     args=parser.parse_args();args.out.mkdir(parents=True,exist_ok=True);torch.set_num_threads(args.threads)
     streams,manifests=load_streams(args.data);steps=[step for stream in streams for step in stream]
-    model,base=load_policy(args.base);model.to(args.device);anchor,_=load_policy(args.anchor);anchor.to(args.device)
+    model,base=load_policy(args.base);require_compatible(base);model.to(args.device)
+    anchor,anchor_meta=load_policy(args.anchor);require_compatible(anchor_meta);anchor.to(args.device)
     if model.critic is None:raise ValueError('Frozen base must include the same initial critic')
     train_ids=np.linspace(0,len(steps)-1,min(128,len(steps)),dtype=int)
     train_rows=[steps[i]['row']for i in train_ids]
@@ -114,9 +121,10 @@ def main():
     returns=torch.tensor([s['return']for s in steps]);old_values=torch.tensor([s['value']for s in steps])
     advantages=returns-old_values
     advantages=(advantages-advantages.mean())/advantages.std(unbiased=False).clamp_min(1e-6)
-    manifest=dict(source=source_hash(),worlds=manifests,steps=len(steps),initial_logp_max_error=max(errors),
+    manifest=dict(**provenance(),worlds=manifests,steps=len(steps),initial_logp_max_error=max(errors),
         base_sha256=hashlib.sha256(args.base.read_bytes()).hexdigest(),anchor_sha256=hashlib.sha256(args.anchor.read_bytes()).hexdigest(),
         random_seed=31002,max_updates=args.max_updates,arms={k:ARMS[k]for k in (args.arms or ARMS)},
+        kl_mode=args.kl_mode,effective_batch_size=args.update_batch_size,kl_coef=args.kl_coef,epochs=args.epochs,
         probe_rows={k:len(v)for k,v in probe_rows.items()},
         control={key:drift(rows,references[key],references[key])for key,rows in probe_rows.items()},
         caveat='Frozen-state sensitivity, not long-game acceptance. Component-only arms change several coefficients.')
@@ -130,7 +138,11 @@ def main():
             def observe(detail):
                 log.write(json.dumps(detail,ensure_ascii=False)+'\n')
                 print('UPDATE',name,detail['updates'],round(detail['kl'],6),'stop',detail['kl_stop'],flush=True)
-            metrics=ppo_update(m,streams,anchor,max_updates=args.max_updates,diagnostic_callback=observe,**ARMS[name])
+            arm_options=dict(ARMS[name])
+            if args.epochs is not None:arm_options['epochs']=args.epochs
+            metrics=ppo_update(m,streams,anchor,max_updates=args.max_updates,diagnostic_callback=observe,
+                kl_mode=args.kl_mode,update_batch_size=args.update_batch_size,
+                kl_coef=0. if name.endswith('_only') else args.kl_coef,**arm_options)
         m.to('cpu');checkpoint(args.out/f'{name}.pt',m,base,seen,stage='ablation',arm=name,parameters=ARMS[name],metrics=metrics)
         # Evaluate the exact serialized weights with cold inference caches.
         m,_=load_policy(args.out/f'{name}.pt');m.to(args.device)

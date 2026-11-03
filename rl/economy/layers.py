@@ -1,4 +1,4 @@
-"""Reused unchanged from feat/rl-tactics c650a82 rl/model.py (FastLinear/Attn/Block)."""
+"""Adapted from feat/rl-tactics c650a82; inference caches are isolated on copy."""
 import torch
 from torch import nn
 
@@ -42,16 +42,21 @@ class FastLinear(nn.Linear):
         #   这份副本还在原地，直接用会炸（好在是**响的**，不是静默错）。
         # deepcopy copies the cache but resets the new Parameter's version.
         # The same version number can recur, so also bind to Parameter identity.
-        self._wt = None          # (tensor, version, device, dtype, parameter identity)
+        self._wt = None          # (tensor, version, device, dtype, Parameter reference)
+
+    def __getstate__(self):
+        state=super().__getstate__().copy()
+        state['_wt']=None
+        return state
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if torch.is_grad_enabled():                 # ★★ 训练路径：原样（见上）
             return nn.functional.linear(x, self.weight, self.bias)
         w = self.weight
         c = self._wt
-        if (c is None or c[4] != id(w) or c[1] != w._version or c[2] != w.device
+        if (c is None or c[4] is not w or c[1] != w._version or c[2] != w.device
                 or c[3] != w.dtype):
-            c = (w.detach().t().contiguous(), w._version, w.device, w.dtype,id(w))
+            c = (w.detach().t().contiguous(), w._version, w.device, w.dtype,w)
             self._wt = c
         out = x @ c[0]
         return out if self.bias is None else out + self.bias

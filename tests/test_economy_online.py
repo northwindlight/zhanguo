@@ -111,7 +111,7 @@ class OnlineChecks(unittest.TestCase):
         before={k:v.clone()for k,v in model.state_dict().items()}
         streams=[[dict(row=row,action=0,logp=logp,value=0.,reward=x,period=20)]for x in (.1,.2,.3,.4)]
         result=ppo_update(model,streams,anchor,epochs=2,policy_coef=0.,execution_coef=0.,anchor_coef=0.,
-            entropy_coef=0.,detach_value_encoder=True,weight_decay=0.)
+            entropy_coef=0.,detach_value_encoder=True,weight_decay=0.,kl_coef=0.)
         self.assertGreater(result['updates'],0)
         for k,v in model.state_dict().items():
             if not k.startswith('critic.'):self.assertTrue(torch.equal(v,before[k]),k)
@@ -161,6 +161,15 @@ class OnlineChecks(unittest.TestCase):
     def test_training_deadline_checked_between_batches(self):
         from rl.economy.online import checked_batches,Deadline
         with self.assertRaises(Deadline):next(checked_batches([object()],0))
+
+    def test_long_trajectory_budget_is_independent_of_training_mode(self):
+        from rl.economy.online import trajectory_row_limit,OnlineClient,Deadline
+        from collections import Counter
+        self.assertEqual(trajectory_row_limit(4,250),96001)
+        h=GameHost.new(cfg());actor=h.actors()[0];ledger=Ledger(h.player(actor))
+        ledger.do('plan',text='预算边界')
+        client=OnlineClient(state=h.clients[actor].state,model=object(),mode='dagger',budget=Counter(limit=0))
+        with self.assertRaises(Deadline):client.run_economy(ledger)
 
     def test_all_production_curriculum_worlds_have_at_least_150_turns(self):
         from rl.economy.overnight import curriculum_turns

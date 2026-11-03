@@ -25,6 +25,7 @@ from .evaluate import run as evaluate
 from .model import load_policy
 from .online import Deadline,check_deadline,rollout,bc_update,with_critic,ppo_update,S_SCALE
 from .scenarios import source_hash
+from .provenance import provenance,require_compatible
 
 
 GATE_SEEDS=(7101,7102)
@@ -119,7 +120,7 @@ def accept(candidate,incumbent):
 def checkpoint(path,model,base,seen,**extra):
     saved={k:v for k,v in base.items() if k not in ('model','optimizer','rng','metrics','config')}
     saved.update(model=model.state_dict(),config=model.config,fingerprint=PROJECT_FINGERPRINT,
-        source=source_hash(),seen_seeds=sorted(seen),online=extra,
+        **provenance(),seen_seeds=sorted(seen),online=extra,
         reward=dict(name='paper_S_consumption_increment',scale=S_SCALE,gamma=1.,gae_lambda=1.))
     tmp=path.with_suffix('.tmp');torch.save(saved,tmp);tmp.replace(path)
 
@@ -169,24 +170,23 @@ def main():
     if device.type=='cuda' and not torch.cuda.is_available():raise ValueError('--device cuda requested but CUDA is unavailable')
     model,base=load_policy(a.out/'current.pt' if (a.out/'current.pt').exists() else a.checkpoint)
     if model.action_mode!='projects':raise ValueError('Overnight job requires project BC')
-    if base.get('source')!=source_hash():raise ValueError('Checkpoint source does not match the current feature contract; retrain')
+    require_compatible(base)
     anchor,_=load_policy(a.checkpoint);anchor.eval()
     seen=set(base.get('seen_seeds',base['train_seeds']+base['valid_seeds']))|set(GATE_SEEDS)
     teacher_paths=[x for x in a.teacher_data.glob('world-*.npz') if int(x.stem.split('-')[-1]) in base['train_seeds']]
     initial=Dataset(teacher_paths,fingerprint=PROJECT_FINGERPRINT,max_candidates=a.max_candidates)
-    if any(m['source']!=source_hash() for m in initial.metadata):
-        raise ValueError('Teacher data source does not match the current feature contract; recollect')
+    for metadata in initial.metadata:require_compatible(metadata)
     # Fixed initial BC demonstrations protect the opening in later DAgger updates.
     original_rows=[initial[i] for i in range(len(initial))]
     old_state=json.loads((a.out/'state.json').read_text()) if (a.out/'state.json').exists() else {}
-    if old_state and old_state.get('source')!=source_hash():raise ValueError('Resume requires the same source; use a new run directory')
+    if old_state:require_compatible(old_state)
     agreement=old_state.get('agreement',0.);stage='dagger';incumbent=None;errors=0
     completed=max([0]+[int(x.name.split('-')[-1]) for x in a.out.glob('round-*') if x.is_dir()])
     def event(kind,**values):
         entry=dict(time=datetime.now().astimezone().isoformat(),kind=kind,**values)
         with (a.out/'events.jsonl').open('a') as f:f.write(json.dumps(entry,ensure_ascii=False)+'\n')
         print(json.dumps(entry,ensure_ascii=False),flush=True)
-    def state(phase,**values):write_json(a.out/'state.json',dict(phase=phase,until=a.until,round=completed,agreement=agreement,source=source_hash(),**values))
+    def state(phase,**values):write_json(a.out/'state.json',dict(**provenance(),phase=phase,until=a.until,round=completed,agreement=agreement,**values))
     checkpoint(a.out/'current.pt',model,base,seen,stage='initial',parent=str(a.checkpoint))
     if not (a.out/'best.pt').exists():shutil.copy2(a.out/'current.pt',a.out/'best.pt')
     event('start',until=a.until,checkpoint=str(a.checkpoint),smoke=a.smoke,storage=guard())

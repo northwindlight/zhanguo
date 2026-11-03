@@ -11,10 +11,11 @@ from .adapter import ACTIONS,FINGERPRINT,PROJECT_FINGERPRINT
 from .client import RecordingTeacher,CorrectingTeacher
 from .data import Writer
 from .scenarios import config,source_hash,snapshot
+from .provenance import provenance,contracts,require_compatible
 
 
 def collect(seed,turns,path,*,nations=8,size=24,model=None,teacher_probability=.5,student_hash=None,projects=False):
-    source=source_hash()
+    origin=provenance()
     cfg=config(seed,nations=nations,size=size)
     host=GameHost.new(cfg);writer=Writer(PROJECT_FINGERPRINT if projects else FINGERPRINT);counts=Counter();failures=defaultdict(Counter)
     if projects:
@@ -37,8 +38,8 @@ def collect(seed,turns,path,*,nations=8,size=24,model=None,teacher_probability=.
         host.cycle(on_result=receipt)
         if (turn+1)%10==0:
             print(json.dumps(dict(seed=seed,turn=turn+1,rows=len(writer.rows),seconds=round(time.monotonic()-start,1))),flush=True)
-    if source_hash()!=source:raise RuntimeError('Source changed during collection; discard this world')
-    metadata=dict(seed=seed,turns=turns,config=cfg,source=source,counts=dict(counts),
+    if contracts()['feature_contract']!=origin['feature_contract']:raise RuntimeError('Feature/reward contract changed during collection')
+    metadata=dict(**origin,seed=seed,turns=turns,config=cfg,counts=dict(counts),implementation_end=source_hash(),
                   initial=initial,final=snapshot(host,failures),seconds=time.monotonic()-start,
                   student_checkpoint_sha256=student_hash if model is not None else None,
                   teacher_probability=teacher_probability if model is not None else 1.,
@@ -73,6 +74,7 @@ def main():
             if not a.skip_existing:raise FileExistsError(path)
             import numpy as np
             with np.load(path,allow_pickle=False) as z:old=json.loads(str(z['metadata']))
+            require_compatible(old)
             expected=dict(fingerprint=PROJECT_FINGERPRINT if a.projects else FINGERPRINT,seed=seed,turns=a.turns,
                 config=config(seed,nations=a.nations,size=size),
                 teacher_probability=a.teacher_probability if active else 1.,

@@ -27,6 +27,7 @@ class Writer:
         finally:temporary.unlink(missing_ok=True)
 
     def _save(self,path,metadata):
+        from .provenance import provenance
         rows=self.rows
         if not rows: raise ValueError('Empty demonstration world')
         offsets=lambda key:np.cumsum([0]+[len(r[key]) for r in rows],dtype=np.int64)
@@ -38,7 +39,7 @@ class Writer:
             limits=np.concatenate([r['limits'] for r in rows]),
             target=np.array([r['target'] for r in rows],dtype=np.int64),
             quantity=np.array([r['quantity'] for r in rows],dtype=np.float32),
-            metadata=json.dumps(dict(metadata,fingerprint=self.fingerprint),ensure_ascii=False))
+            metadata=json.dumps(dict(provenance(),**metadata,fingerprint=self.fingerprint),ensure_ascii=False))
 
 
 class Dataset:
@@ -52,6 +53,8 @@ class Dataset:
     """
 
     def __init__(self,paths,*,fingerprint=FINGERPRINT,max_candidates=0,seed=0):
+        from .provenance import contracts,require_compatible
+        expected_contract=contracts()
         self.shards=[];self.index=[];self.metadata=[]
         self.max_candidates=int(max_candidates);self.seed=int(seed);self.epoch=0
         for path in sorted(map(Path,paths)):
@@ -59,6 +62,8 @@ class Dataset:
                 d={k:z[k] for k in z.files}
             metadata=json.loads(str(d.pop('metadata')))
             if metadata['fingerprint']!=fingerprint:raise ValueError(f'Incompatible data: {path}')
+            resolved=require_compatible(metadata,expected_contract)
+            metadata=dict(metadata,verified_contract=resolved['feature_contract'])
             self.metadata.append(metadata)
             shard=len(self.shards);self.shards.append(d)
             self.index.extend((shard,i) for i in range(len(d['target'])))

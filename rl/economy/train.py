@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 from .adapter import ACTIONS,BUILDINGS,FINGERPRINT,PROJECT_FINGERPRINT
 from .data import Dataset
 from .model import Policy,collate,device_of,prepare
-from .scenarios import source_hash
+from .provenance import provenance,resolved_contracts,require_compatible
 
 
 def curriculum_weights(batch,opening_weight=1.,mobilization_weight=1.):
@@ -115,7 +115,8 @@ def main():
     train_seeds={x['seed'] for x in training.metadata};valid_seeds={x['seed'] for x in validation.metadata}
     if train_seeds&valid_seeds:raise ValueError('World leakage across train/validation')
     sources={x['source'] for x in training.metadata+validation.metadata}
-    if len(sources)!=1 and not a.allow_mixed_teachers:raise ValueError('Mixed teacher source revisions require --allow-mixed-teachers')
+    teacher_contracts={resolved_contracts(x)['teacher_contract']for x in training.metadata+validation.metadata}
+    if len(teacher_contracts)!=1 and not a.allow_mixed_teachers:raise ValueError('Mixed teacher contracts require --allow-mixed-teachers')
     digest=hashlib.sha256()
     for path in paths:
         digest.update(path.name.encode());digest.update(path.read_bytes())
@@ -125,11 +126,13 @@ def main():
     if a.init:
         initial=torch.load(a.init,map_location='cpu',weights_only=True)
         if initial['fingerprint']!=fingerprint:raise ValueError('Initialization feature mismatch')
+        require_compatible(initial)
         model.load_state_dict(initial['model'])
         ancestry.update(initial.get('seen_seeds',initial['train_seeds']+initial['valid_seeds']))
     if a.resume:
         saved=torch.load(a.resume,map_location='cpu',weights_only=True)
         if saved['fingerprint']!=fingerprint or saved['dataset']!=dataset_hash:raise ValueError('Resume data/model mismatch')
+        require_compatible(saved)
         for key in ('opening_weight','mobilization_weight'):
             if saved['args'].get(key,1.)!=getattr(a,key):raise ValueError('Use --init when changing the curriculum')
         model.load_state_dict(saved['model']);optimizer.load_state_dict(saved['optimizer'])
@@ -141,8 +144,8 @@ def main():
         for key,value in state.items():
             if torch.is_tensor(value):state[key]=value.to(device)
     a.out.mkdir(parents=True,exist_ok=True)
-    metadata=dict(fingerprint=fingerprint,dataset=dataset_hash,teacher_sources=sorted(sources),
-        source=source_hash(),config=model.config,train_seeds=sorted(train_seeds),valid_seeds=sorted(valid_seeds),
+    metadata=dict(**provenance(),fingerprint=fingerprint,dataset=dataset_hash,teacher_sources=sorted(sources),teacher_contracts=sorted(teacher_contracts),
+        config=model.config,train_seeds=sorted(train_seeds),valid_seeds=sorted(valid_seeds),
         seen_seeds=sorted(ancestry|train_seeds|valid_seeds),
         parameters=sum(p.numel() for p in model.parameters()),training_rows=len(training),validation_rows=len(validation),
         args={k:str(v) if isinstance(v,Path) else v for k,v in vars(a).items()})

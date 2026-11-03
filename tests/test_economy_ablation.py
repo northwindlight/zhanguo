@@ -10,6 +10,7 @@ from tests.test_economy_bc import torch
 if torch is not None:
     import numpy as np
     from rl.economy.ablation import load_streams,drift
+    from rl.economy.provenance import contracts
 
 
 @unittest.skipIf(torch is None,'Optional training dependencies')
@@ -21,12 +22,16 @@ class AblationChecks(unittest.TestCase):
                 path=root/f'world-{seed}.pkl.gz'
                 streams=[[dict(row=dict(context=np.array([[1.0001234]],dtype=np.float32)),logp=-.1234567890123)]]
                 with gzip.open(path,'wb') as f:pickle.dump(streams,f,protocol=5)
-                manifest=dict(complete=True,turns=150,steps=1,sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+                manifest=dict(**contracts(),complete=True,turns=150,steps=1,sha256=hashlib.sha256(path.read_bytes()).hexdigest())
                 (root/f'world-{seed}-manifest.json').write_text(json.dumps(manifest))
             loaded,_=load_streams(root)
             self.assertEqual(loaded[0][0]['row']['context'].dtype,np.float32)
             self.assertEqual(float(loaded[0][0]['row']['context'][0,0]),float(streams[0][0]['row']['context'][0,0]))
             self.assertEqual(loaded[0][0]['logp'],-.1234567890123)
+            sidecar=root/f'world-{seed}-manifest.json'
+            sidecar.write_text(json.dumps(dict(complete=True,turns=150,steps=1,source='unverified')))
+            with self.assertRaisesRegex(ValueError,'Unverified legacy'):load_streams(root)
+            sidecar.write_text(json.dumps(manifest))
             path.write_bytes(path.read_bytes()+b'corruption')
             with self.assertRaisesRegex(ValueError,'checksum'):load_streams(root)
 

@@ -1,0 +1,218 @@
+{
+  "99443776ba444f0b0bc52b872c6a310ea94aa23b7bce997210ef7507d9e44c18": {
+    "commit": "4ff04e5c2a7077a5ee3da68964a7241c112d99e1",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "2f2a60fe48411c5193999b7b0c83c3277126396c35f9c1d187a9d175519e1ec4": {
+    "commit": "4ff04e5c2a7077a5ee3da68964a7241c112d99e1",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "dea2d675591962154a35e706d2421c6f439bfea4d3ae164504f887b67d1e27ff": {
+    "commit": "f788d6ddda0e86947b2948981c7adc821ddab8f8",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "ebd4618b1f31b2735c99453520a648fa77caa76cf2e03cebf29aaa3f37e89883": {
+    "commit": "f788d6ddda0e86947b2948981c7adc821ddab8f8",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "af64d59a08062c31a62aaa0ffe3242ea21439a58b8df48c1e907e623907497bc": {
+    "commit": "5cb51ee148b759fd49ba747464531bcfadba065b",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "69e667582c9cef0e5850d0f81fe9eaead289864f682e5e5f1f9d65f566dafe9f": {
+    "commit": "5cb51ee148b759fd49ba747464531bcfadba065b",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "af611f1b988bfc31950cf496ac5a5abae6622fdc01a9eabb3258fc4c0bc07f3a": {
+    "commit": "eee1f6c7b0461a9a84ea59fc06bb513e1e0d3208",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "c308bb3d5df6c3a8b7252d1a02ba2d209c39404bbe645b49c665f00d0f4def3b": {
+    "commit": "eee1f6c7b0461a9a84ea59fc06bb513e1e0d3208",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "6e54034f29f1c773d1962233c50181d0898c2ebb4ee5f20b195519b2c3529eea": {
+    "commit": "af86ebe8d2b708acc216ae74f3db1ea96d4cb8a3",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "24b77e9f1c6617f0564ae9eb79dc7071550e026a039184484c56bdf7e441a5b3": {
+    "commit": "af86ebe8d2b708acc216ae74f3db1ea96d4cb8a3",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "db3d3a7ecdc6a30bb51a6e40f34d114ddb934992c9e43c938f957737b1f5ba2d": {
+    "commit": "a7961d433b8938d4eae86bc2efef568169da1826",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "8510db87f75906004a36dad5d6f8ea924bd9a296205560c55c525a000c6c17c4": {
+    "commit": "a7961d433b8938d4eae86bc2efef568169da1826",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "53e2f2ded7f1f84a9e2a2e03c2e39a921d19811ac73210f4a428b5720d2d1b07": {
+    "commit": "e2f91af87d81b5c6c50474a0c4d13ea248fa4f21",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "8c6674820eb004f175ac6374bffe4d9596730eb5dc7e8f2659239995631f05e5": {
+    "commit": "e2f91af87d81b5c6c50474a0c4d13ea248fa4f21",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "18f95cea55a73b75e244455610ee7001e799cbed6a837f3647de53a43a095744": {
+    "commit": "6304ad693cde2ae7eb47e086ff1d1922bbf8535e",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "a795bd2f7c296cb759306e2787dfb62fff99ca243cea97ef32ef7fbb9b4ba0fb": {
+    "commit": "6304ad693cde2ae7eb47e086ff1d1922bbf8535e",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "0344d2a183210e1d1a387d62d6ed0a2e74f0583d2da75a2db2c6767806fd5b94": {
+    "commit": "70ba4cc5597d05bc46d7bce932d6c79775c6a01e",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "56a02fb4026313c1a4e6ae4bb59a5e2a9efea3c57e340043e1f40b357580a11c": {
+    "commit": "70ba4cc5597d05bc46d7bce932d6c79775c6a01e",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "363c89f18ee3d4e38c5be43ea576e25dd9501a13cd12b9266edb9233b2ccedf5": {
+    "commit": "e7df9898c1d81e14b7efaa65cba5860de6430377",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "6101553e249c060cd47ae2013af774aad38d7c725495a6f0e931ea65adfce466": {
+    "commit": "e7df9898c1d81e14b7efaa65cba5860de6430377",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "2870f250d185df62a28402adf4f70e86343fd33d062cbcc51aeb34402c547269": {
+    "commit": "1b01fb3ae4fcd6fe272ae249f3f5de4ae8efcd5a",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "a0b2f7fad2a396875ae5f194a2d548d6825163e1a963f3b4742cd8ce706738f0": {
+    "commit": "1b01fb3ae4fcd6fe272ae249f3f5de4ae8efcd5a",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "b6be7efaa321e7c22ce0e4ffb854074b10e45c390f126472826027c95868e2cc": {
+    "commit": "76b7c5b7d77ee142d7594c1b4a0eb4ec3bb02483",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "694f93198d60845bd3e6f2fdafb745cab61c78caafba4d22ae88aede8dd1cda2": {
+    "commit": "76b7c5b7d77ee142d7594c1b4a0eb4ec3bb02483",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "545860538f80ce28df167dd7d1665c7148c0c62e6a99ffda629411de3c533b08": {
+    "commit": "27085eeb8e3bb7c98790ddd15ee0d2cc9a789216",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "8ae99ded85d0e6a725ef2d64ff6126568f207e371ebccfa14473b226cde707d4": {
+    "commit": "27085eeb8e3bb7c98790ddd15ee0d2cc9a789216",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "b19681d574ba596d1405dd010eb729069fe71b7fc3b002a597f499105f01d362": {
+    "commit": "1017061b8e5e66d26da0a78b5c304b6fcc35a635",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "0a288b31b3aca608691e553c9873dfaa6e5371e146049cbe8d72b99b25511219": {
+    "commit": "1017061b8e5e66d26da0a78b5c304b6fcc35a635",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "d9fc5be6c83fd624ba1d5dda01cdc38cfb019991629d632cde586e2f342323cc": {
+    "commit": "0ce42008c1ea08f957116dec25d9f79697406ad2",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "dd60fda3c062bca244a89c5d632dbfa55a5fb890490425af9652c9428b47448d": {
+    "commit": "0ce42008c1ea08f957116dec25d9f79697406ad2",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "f39f3569267bd569b1df43cd4f05089ee760eae90bcb7e0b193db7acf9856094": {
+    "commit": "5873219daec151d4ab81358c34a7898b089d5b70",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "ebdb349dc0ff70e36c4c31933346bf3e2295fe0cd38f9747df11473d77c1b66e": {
+    "commit": "5873219daec151d4ab81358c34a7898b089d5b70",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "817ad9b32d301fa2b79cfb65a6de32af3780ab2bb449d47d9a2b25db9ab16f01": {
+    "commit": "9d40ba5e731c98fe204e43440cdfad680ac95774",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "dc414823e29949316e73c25483cb87b17564c09c19c1dc542ef46dd309978610": {
+    "commit": "9d40ba5e731c98fe204e43440cdfad680ac95774",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "a6a8c5a5d350e84b7615c58d82b3bb2f7051f652589b270354c4d80088258a4f": {
+    "commit": "74906eddfd6bde34033206ff5476ed6b3be32551",
+    "host": true,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  },
+  "7a794dfde828a86b45de58293992e01996085ac8f5a5ae3f147c7af8fd4d8bce": {
+    "commit": "74906eddfd6bde34033206ff5476ed6b3be32551",
+    "host": false,
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "teacher_contract": "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+  }
+}
