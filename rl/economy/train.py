@@ -56,6 +56,16 @@ def metrics(model,loader,optimizer=None,*,opening_weight=1.,mobilization_weight=
             action_loss=(action_rows*weights).sum()/weights.sum()
             quantity_loss=(quantity_rows[trade]*weights[trade]).sum()/weights[trade].sum().clamp_min(1)
             loss=action_loss+quantity_loss
+            family=getattr(model,'last_family_logits',None)
+            if family is not None:
+                # 族头用教师自己的动作族监督：三分类，不会被上千个候选负样本淹没。
+                teacher_family=batch['candidates'][indices,target,5:10].argmax(-1)
+                family_loss=F.cross_entropy(family[indices,target],teacher_family)
+                loss=loss+model.config.get('family_loss_weight',.5)*family_loss
+                totals.update(family_loss=float(family_loss.detach())*len(target))
+                predicted_family=family[indices,target].argmax(-1)
+                totals.update(family_correct=int((predicted_family==teacher_family).sum()),
+                              family_n=int(len(target)))
             if executable is not None:
                 exec_loss=F.binary_cross_entropy_with_logits(executable[batch['candidate_mask']],
                     batch['legal'][batch['candidate_mask']].float())
@@ -82,6 +92,8 @@ def metrics(model,loader,optimizer=None,*,opening_weight=1.,mobilization_weight=
         mobilization_accuracy=totals['mobilization_correct']/max(1,totals['mobilization']),
         quantity_log_mae=totals['quantity_log_error']/max(1,totals['trade']),
         exec_loss=totals['exec_loss']/totals['n'],
+        family_loss=totals['family_loss']/totals['n'],
+        family_accuracy=totals['family_correct']/max(1,totals['family_n']),
         by_kind={k:dict(n=v['n'],accuracy=v['correct']/max(1,v['n'])) for k,v in by_kind.items()})
 
 
@@ -102,6 +114,10 @@ def main():
                    help='关闭按候选长度分桶组批（默认开启；只影响组批，不改监督语义）')
     p.add_argument('--bucket-width',type=int,default=32,
                    help='长度分桶的量化宽度：只有长度接近的行才同批')
+    p.add_argument('--family-aux',action='store_true',
+                   help='加动作族（finish/build/recruit）辅助头；默认关闭保持原模型')
+    p.add_argument('--family-weight',type=float,default=1.,help='推理时族对数概率并入候选分数的权重')
+    p.add_argument('--family-loss-weight',type=float,default=.5,help='族辅助损失的系数')
     p.add_argument('--allow-mixed-teachers',action='store_true',help='Explicitly combine compatible feature schemas from recorded teacher source revisions')
     a=p.parse_args()
     if a.resume and a.init:raise ValueError('Choose resume or initialization, not both')
@@ -126,7 +142,9 @@ def main():
     for path in paths:
         digest.update(path.name.encode());digest.update(path.read_bytes())
     dataset_hash=digest.hexdigest()
-    model=Policy(action_mode='projects' if a.projects else 'atomic');optimizer=torch.optim.AdamW(model.parameters(),lr=a.lr,weight_decay=.01)
+    model=Policy(action_mode='projects' if a.projects else 'atomic',family_aux=a.family_aux,
+                 family_weight=a.family_weight,family_loss_weight=a.family_loss_weight)
+    optimizer=torch.optim.AdamW(model.parameters(),lr=a.lr,weight_decay=.01)
     start=0;best=math.inf;ancestry=set()
     if a.init:
         initial=torch.load(a.init,map_location='cpu',weights_only=True)

@@ -131,3 +131,60 @@ class TrainCliChecks(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+@unittest.skipIf(torch is None, 'Optional training dependencies')
+class FamilyHeadChecks(unittest.TestCase):
+    """动作族辅助头：修「教师建设被判成征兵」这类族级混淆。"""
+
+    def batch(self, family, rows=4, candidates=12):
+        from rl.economy.adapter import WIDTH
+        examples = []
+        for _ in range(rows):
+            features = np.zeros((candidates, WIDTH), dtype=np.float32)
+            features[:, 5] = 1.
+            features[:, 5 + family] = 1.
+            examples.append(dict(context=np.zeros((5, WIDTH), dtype=np.float32),
+                                 candidates=features, legal=np.ones(candidates, dtype=bool),
+                                 limits=np.zeros(candidates, dtype=np.int64),
+                                 target=1, quantity=0.))
+        return collate(examples)
+
+    def test_family_head_changes_logits_and_trains(self):
+        from rl.economy.model import Policy
+        from rl.economy.train import metrics
+        model = Policy(action_mode='projects', family_aux=True)
+        plain = Policy(action_mode='projects')
+        batch = self.batch(1)                      # build 族
+        with torch.inference_mode():
+            plain_logits = plain(batch)[0]
+            blended = model(batch)[0]
+        self.assertFalse(torch.allclose(plain_logits, blended))
+        self.assertEqual(tuple(model.last_family_logits.shape), (4, 12, 3))
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+        before = float(model.family_head.weight.detach().abs().sum())
+        result = metrics(model, [batch], optimizer)
+        self.assertIn('family_accuracy', result)
+        self.assertTrue(np.isfinite(result['family_loss']))
+        self.assertNotEqual(before, float(model.family_head.weight.detach().abs().sum()))
+
+    def test_checkpoint_without_family_head_still_loads(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from rl.economy.model import Policy, load_policy
+        with TemporaryDirectory() as temp:
+            path = Path(temp) / 'old.pt'
+            model = Policy(action_mode='projects')
+            torch.save(dict(config=model.config, model=model.state_dict(),
+                            fingerprint=model.fingerprint, train_seeds=[1], valid_seeds=[2]),
+                       path)
+            loaded, _ = load_policy(path)
+            self.assertIsNone(loaded.family_head)
+
+    def test_family_head_survives_critic_transfer(self):
+        from rl.economy.model import Policy
+        from rl.economy.online import with_critic
+        model = Policy(action_mode='projects', family_aux=True)
+        critic = with_critic(model)
+        self.assertTrue(critic.config.get('family_aux'))
+        self.assertIsNotNone(critic.family_head)

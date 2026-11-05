@@ -53,12 +53,16 @@ def collate(examples):
 
 
 class Policy(nn.Module):
-    def __init__(self,width=160,depth=2,heads=4,action_mode='atomic',critic=False):
+    def __init__(self,width=160,depth=2,heads=4,action_mode='atomic',critic=False,
+                 family_aux=False,family_weight=1.,family_loss_weight=.5):
         super().__init__()
         if action_mode not in ('atomic','projects'):raise ValueError(action_mode)
         self.action_mode=action_mode
         self.fingerprint=PROJECT_FINGERPRINT if action_mode=='projects' else FINGERPRINT
         self.config=dict(width=width,depth=depth,heads=heads,action_mode=action_mode,critic=critic)
+        if family_aux:
+            self.config.update(family_aux=True,family_weight=float(family_weight),
+                               family_loss_weight=float(family_loss_weight))
         self.context=nn.Sequential(FastLinear(WIDTH,width),nn.GELU(),FastLinear(width,width))
         self.candidate=nn.Sequential(FastLinear(WIDTH,width),nn.GELU(),FastLinear(width,width))
         self.blocks=nn.ModuleList(Block(width,heads) for _ in range(depth))
@@ -67,6 +71,13 @@ class Policy(nn.Module):
         self.score=nn.Sequential(FastLinear(2*width,width),nn.GELU(),FastLinear(width,1))
         self.quantity=nn.Sequential(FastLinear(2*width,width),nn.GELU(),FastLinear(width,1))
         if action_mode=='projects':self.exec_head=FastLinear(2*width,1)
+        # 动作族辅助头：finish / build / recruit。候选集里 build 有「地块×建筑种」
+        # 上千个、recruit 只有每地块一个，直接对候选做交叉熵时模型很容易把
+        # 「该建设」判成「征兵」（实测：教师建设的行里 37.8% 被判成征兵）。
+        # 族头只有 3 类，信号不会被上千个负样本淹没；推理时把它的对数概率并入
+        # 候选分数，等价于 P(候选) = P(族)·P(候选|族) 的分解。
+        self.family_head=FastLinear(2*width,3) if family_aux else None
+        self.last_family_logits=None
         self.critic=nn.Sequential(FastLinear(width,width),nn.GELU(),FastLinear(width,1)) if critic else None
         if self.critic is not None:
             nn.init.zeros_(self.critic[-1].weight);nn.init.zeros_(self.critic[-1].bias)
@@ -79,6 +90,13 @@ class Policy(nn.Module):
         h=self.norm2(h+self.cross2(h,h,~batch['candidate_mask']))
         h=torch.cat((h,q),dim=-1)
         logits=self.score(h).squeeze(-1)
+        if self.family_head is not None:
+            family=self.family_head(h)
+            # 训练侧读取；推理侧只在下面并入分数。
+            self.last_family_logits=family
+            index=batch['candidates'][...,5:10].argmax(-1)
+            logits=logits+self.config['family_weight']*family.log_softmax(-1).gather(
+                -1,index.unsqueeze(-1)).squeeze(-1)
         executable=self.exec_head(h).squeeze(-1) if self.action_mode=='projects' else None
         if executable is not None:
             # feat/rl transformer: a learned soft prior, no formal legality mask.
