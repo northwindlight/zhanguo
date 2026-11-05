@@ -117,6 +117,10 @@ def main():
                    help='加动作族（finish/build/recruit）辅助头；默认关闭保持原模型')
     p.add_argument('--family-weight',type=float,default=1.,help='推理时族对数概率并入候选分数的权重')
     p.add_argument('--family-loss-weight',type=float,default=.5,help='族辅助损失的系数')
+    p.add_argument('--cand-ffn',action='store_true',
+                   help='候选侧每个 attention 后补一层 pre-LN FFN（一代教师工厂建议开）')
+    p.add_argument('--head-pool',choices=('context0','mean','attn'),default='context0',
+                   help='value/族头读 context 的方式：只取全局行、均值、或注意力池化')
     p.add_argument('--allow-mixed-teachers',action='store_true',help='Explicitly combine compatible feature schemas from recorded teacher source revisions')
     a=p.parse_args()
     if a.resume and a.init:raise ValueError('Choose resume or initialization, not both')
@@ -142,7 +146,8 @@ def main():
         digest.update(path.name.encode());digest.update(path.read_bytes())
     dataset_hash=digest.hexdigest()
     model=Policy(action_mode='projects' if a.projects else 'atomic',family_aux=a.family_aux,
-                 family_weight=a.family_weight,family_loss_weight=a.family_loss_weight)
+                 family_weight=a.family_weight,family_loss_weight=a.family_loss_weight,
+                 cand_ffn=a.cand_ffn,head_pool=a.head_pool)
     optimizer=torch.optim.AdamW(model.parameters(),lr=a.lr,weight_decay=.01)
     start=0;best=math.inf;ancestry=set()
     if a.init:

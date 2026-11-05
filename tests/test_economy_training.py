@@ -194,3 +194,36 @@ class FamilyHeadChecks(unittest.TestCase):
         from rl.economy.model import Policy
         with self.assertRaises(ValueError):
             Policy(action_mode='atomic', family_aux=True)
+
+    def test_candidate_ffn_and_pooling_variants(self):
+        from rl.economy.model import Policy
+        base = Policy(action_mode='projects', family_aux=True)
+        deep = Policy(action_mode='projects', family_aux=True, cand_ffn=True, head_pool='attn')
+        self.assertGreater(sum(p.numel() for p in deep.parameters()),
+                           sum(p.numel() for p in base.parameters()))
+        batch = self.batch(1)
+        batch['context_mask'][:, -1] = False          # 末尾补零的 context 行必须被池化忽略
+        variants = {mode: Policy(action_mode='projects', family_aux=True, head_pool=mode)
+                    for mode in ('context0', 'mean', 'attn')}
+        with torch.inference_mode():
+            logits, _ = deep(batch)
+            self.assertEqual(tuple(logits.shape), (4, 12))
+            for model in variants.values():
+                pooled = model.summary(model.context(batch['context']), batch['context_mask'])
+                self.assertEqual(tuple(pooled.shape), (4, 160))
+        masked = Policy(action_mode='projects', family_aux=True, head_pool='mean')
+        # 尾行必须是**非零**的，否则掩掉它均值不变，测不出掩码有没有生效。
+        batch['context'][:, -1, 38] = 5.
+        x = masked.context(batch['context'])
+        batch['context_mask'][:, -1] = False
+        a = masked.summary(x, batch['context_mask'])
+        batch['context_mask'][:, -1] = True
+        b = masked.summary(x, batch['context_mask'])
+        self.assertFalse(torch.allclose(a, b))        # 掩码确实参与池化
+
+    def test_pooling_defaults_keep_old_checkpoints_loadable(self):
+        from rl.economy.model import Policy
+        old = Policy(action_mode='projects')
+        self.assertIsNone(old.pool)
+        self.assertNotIn('cand_ffn', old.config)
+        self.assertEqual(old.config.get('head_pool', 'context0'), 'context0')
