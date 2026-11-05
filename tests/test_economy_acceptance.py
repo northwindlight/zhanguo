@@ -57,9 +57,17 @@ class AcceptanceChecks(unittest.TestCase):
             self.assertTrue(result['results'][0]['complete'])
 
     def test_late_failure_blocks_good_total_and_matching_teacher_passes(self):
-        self.assertTrue(compare(game(),game(True))['surpass'])
+        # 验收线是教师 150%（用户 2026-11-06）：与教师打平只算 near，不算 surpass。
+        self.assertFalse(compare(game(),game(True))['surpass'])
+        self.assertTrue(compare(game(),game(True))['near'])
         self.assertFalse(compare(game(),game(True,(110,110),(10,8)))['near'])
         self.assertTrue(compare(game(),game(True,(96,96),(9.6,9.6)))['near'])
+        self.assertTrue(compare(game(),game(True,(150,150),(15,15)))['surpass'])
+
+    def test_target_ratio_is_configurable(self):
+        self.assertTrue(compare(game(),game(True,(120,120),(12,12)),1.2)['surpass'])
+        self.assertTrue(compare(game(),game(True,(150,150),(15,15)),1.6)['near'])
+        self.assertFalse(compare(game(),game(True,(150,150),(15,15)),1.6)['surpass'])
 
     def test_every_environment_required_and_holdout_disjoint(self):
         good=compare(game(),game(True));bad=compare(game(),game(True,(80,100)))

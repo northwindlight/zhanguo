@@ -39,7 +39,12 @@ def ratio(value,reference):
     return value/reference if reference>0 else (1. if value>=reference else 0.)
 
 
-def compare(teacher,student):
+# 用户 2026-11-06 定的验收口径：**超过教师 50% 的基线**，即总 S 达到教师的 150%。
+# 只改这条门槛时用 --target-ratio 传别的值；逐席位比值仍逐条报告，不拿总分掩盖落后项。
+TARGET_RATIO=1.5
+
+
+def compare(teacher,student,target=TARGET_RATIO):
     expected_ids={a for a,c in teacher['history'][-1]['countries'].items() if c['version']=='v13plus'}
     actual_ids={a for a,c in student['history'][-1]['countries'].items() if c['version']=='economy-project-bc'}
     if actual_ids!=expected_ids:raise ValueError('Missing or extra focal seat')
@@ -61,22 +66,23 @@ def compare(teacher,student):
     total=ratio(sum(c['student_S']for c in seats),sum(c['teacher_S']for c in seats))
     worst=min(c['S_ratio']for c in seats);tail=min(c['tail_ratio']for c in seats)
     stable=all(c['early'] and c['failures']==0 and c['truncated']==0 and c['shortfalls']==0 for c in seats)
-    # Every seat must approach its teacher; a strong country cannot compensate
-    # for a weak country. Zero teacher consumption has explicit neutral semantics.
-    near=student['turns']>=150 and all(c['early'] for c in seats) and worst>=.95 and tail>=.95
-    surpass=near and worst>=1. and total>=1.
+    # near 只是「可以转 PPO 继续学」的中间门槛；真正验收是 surpass：
+    # 总 S 达到教师 `target` 倍（用户 2026-11-06：超过 50% = 150%）。
+    near=student['turns']>=150 and all(c['early'] for c in seats) and total>=.95 and worst>=.9 and tail>=.9
+    surpass=near and total>=target
     return dict(total_ratio=total,worst_ratio=worst,median_ratio=statistics.median(c['S_ratio']for c in seats),
-                worst_tail_ratio=tail,stable=stable,near=near,surpass=surpass,seats=seats)
+                worst_tail_ratio=tail,stable=stable,near=near,surpass=surpass,target_ratio=target,
+                seats=seats)
 
 
-def summary(results):
-    return dict(cases=len(results),expected_cases=6,near=len(results)==6 and all(r['near']for r in results),
-        surpass=len(results)==6 and all(r['surpass']for r in results),
+def summary(results,target=TARGET_RATIO):
+    return dict(cases=len(results),expected_cases=6,target_ratio=target,
+        near=len(results)==6 and all(r['near']for r in results),
         worst_ratio=min((r['worst_ratio']for r in results),default=0.),
         results=results)
 
 
-def suite(model,manifest,out,cache,deadline):
+def suite(model,manifest,out,cache,deadline,target=TARGET_RATIO):
     results=[]
     policy_hash=model_digest(model)
     for i,case in enumerate(manifest):
@@ -97,14 +103,14 @@ def suite(model,manifest,out,cache,deadline):
         else:
             student=run(**case,model=model,deadline=deadline)
             student['behavior_policy_sha256']=policy_hash;write_json(student_path,student)
-        result=dict(**case,complete=True,evaluated_turns=case['turns'],**compare(teacher,student));results.append(result)
-        write_json(out/'summary.json',summary(results))
+        result=dict(**case,complete=True,evaluated_turns=case['turns'],**compare(teacher,student,target));results.append(result)
+        write_json(out/'summary.json',summary(results,target))
         print(json.dumps(dict(event='case',**result),ensure_ascii=False),flush=True)
         # One completed long-world counterexample disproves the conjunction.
         # Do not spend the rest of the suite before collecting corrections.
         # Passing still requires every environment and fresh confirmation.
         if not result['near']:break
-    return summary(results)
+    return summary(results,target)
 
 
 def regresses(new,old):
@@ -138,6 +144,8 @@ def main():
     p.add_argument('--data',type=Path,required=True);p.add_argument('--out',type=Path,required=True)
     p.add_argument('--device',default='cpu');p.add_argument('--threads',type=int,default=1)
     p.add_argument('--until',required=True);p.add_argument('--rounds',type=int)
+    p.add_argument('--target-ratio',type=float,default=TARGET_RATIO,
+                   help='验收线：总 S 达到教师的多少倍（默认 1.5，用户 2026-11-06 定）')
     p.add_argument('--smoke',action='store_true',help='Real short collection/update/validation; never promotes')
     p.add_argument('--explore-ppo',action='store_true');p.add_argument('--warmup-data',type=Path)
     p.add_argument('--continue-selection',action='store_true')
@@ -212,7 +220,7 @@ def main():
             confirmed_near=False
             if not (retry_training and number==first):
                 state(phase='validation',round=number,pending_candidate=pending)
-                result=suite(model,manifest,folder,cache,deadline)
+                result=suite(model,manifest,folder,cache,deadline,a.target_ratio)
                 write_json(a.out/'summary.json',dict(status='validation',accepted=False,result=result))
                 if incumbent is not None and regresses(result,incumbent):
                     model,_=load_policy(a.out/'current.pt');model.to(a.device);last_decision='candidate_rejected'
@@ -222,7 +230,7 @@ def main():
                     last_decision='candidate_retained';event(last_decision,round=number,result=result)
                     if result['near'] and not a.smoke:
                         confirm_folder=folder/'confirmation';confirm_folder.mkdir(exist_ok=True)
-                        confirmed=suite(model,confirmation,confirm_folder,cache,deadline)
+                        confirmed=suite(model,confirmation,confirm_folder,cache,deadline,a.target_ratio)
                         seen.update(c['seed']for c in confirmation);confirmed_near=confirmed['near']
                         state(phase='confirmation',round=number,result=result,confirmation=confirmed,pending_candidate=False)
                         if confirmed['surpass']:
