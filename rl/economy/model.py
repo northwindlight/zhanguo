@@ -60,6 +60,10 @@ class Policy(nn.Module):
         self.action_mode=action_mode
         self.fingerprint=PROJECT_FINGERPRINT if action_mode=='projects' else FINGERPRINT
         self.config=dict(width=width,depth=depth,heads=heads,action_mode=action_mode,critic=critic)
+        if family_aux and action_mode!='projects':
+            # 族头只有 finish/build/recruit 三类；atomic 模式还有 buy/sell 候选，
+            # 用它去 gather 会越界，直接拒绝而不是留一个必然崩溃的组合。
+            raise ValueError('family_aux requires projects action mode')
         if family_aux:
             self.config.update(family_aux=True,family_weight=float(family_weight),
                                family_loss_weight=float(family_loss_weight))

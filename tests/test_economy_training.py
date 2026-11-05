@@ -188,3 +188,8 @@ class FamilyHeadChecks(unittest.TestCase):
         critic = with_critic(model)
         self.assertTrue(critic.config.get('family_aux'))
         self.assertIsNotNone(critic.family_head)
+
+    def test_family_head_rejects_atomic_mode(self):
+        from rl.economy.model import Policy
+        with self.assertRaises(ValueError):
+            Policy(action_mode='atomic', family_aux=True)
