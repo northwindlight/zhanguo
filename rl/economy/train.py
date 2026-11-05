@@ -14,6 +14,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
 from .adapter import ACTIONS,BUILDINGS,FINGERPRINT,PROJECT_FINGERPRINT
+from .batching import LengthBucketedSampler
 from .data import Dataset
 from .model import Policy,collate,device_of,prepare
 from .provenance import provenance,resolved_contracts,require_compatible
@@ -97,6 +98,10 @@ def main():
     p.add_argument('--device',default='cpu',help='cpu 或 cuda；有 CUDA 的机器上训练显著更快')
     p.add_argument('--max-candidates',type=int,default=0,
                    help='每行训练候选上限（教师选项必留 + 随机负样本）；默认 0 = 不截断，改变监督语义须显式开启')
+    p.add_argument('--no-length-bucketing',dest='length_bucketing',action='store_false',
+                   help='关闭按候选长度分桶组批（默认开启；只影响组批，不改监督语义）')
+    p.add_argument('--bucket-width',type=int,default=32,
+                   help='长度分桶的量化宽度：只有长度接近的行才同批')
     p.add_argument('--allow-mixed-teachers',action='store_true',help='Explicitly combine compatible feature schemas from recorded teacher source revisions')
     a=p.parse_args()
     if a.resume and a.init:raise ValueError('Choose resume or initialization, not both')
@@ -152,13 +157,26 @@ def main():
     if (a.out/'last.pt').exists() and not a.resume:raise FileExistsError('Use --resume or a new output directory')
     (a.out/'run.json').write_text(json.dumps(metadata,ensure_ascii=False,indent=2)+'\n')
     print(json.dumps(metadata),flush=True)
+    def loader(dataset,*,shuffle):
+        """按候选长度分桶：同一批只含长度相近的行，padding 接近零。
+
+        分桶不改变行、标签与损失权重，只是组批方式；``--no-length-bucketing``
+        退回随机组批（做对照时用）。
+        """
+        if not a.length_bucketing:
+            return DataLoader(dataset,batch_size=a.batch,shuffle=shuffle,collate_fn=collate)
+        sampler=LengthBucketedSampler(dataset.candidate_counts(),a.batch,seed=a.seed,width=a.bucket_width)
+        return DataLoader(dataset,batch_sampler=sampler,collate_fn=collate)
+
     for epoch in range(start,a.epochs):
         begun=time.monotonic()
         training.set_epoch(epoch)
         objective=dict(opening_weight=a.opening_weight,mobilization_weight=a.mobilization_weight)
-        train=metrics(model,DataLoader(training,batch_size=a.batch,shuffle=True,collate_fn=collate),optimizer,**objective)
+        train_loader=loader(training,shuffle=True)
+        if a.length_bucketing:train_loader.batch_sampler.set_epoch(epoch)
+        train=metrics(model,train_loader,optimizer,**objective)
         with torch.inference_mode():
-            val=metrics(model,DataLoader(validation,batch_size=a.batch,collate_fn=collate),**objective)
+            val=metrics(model,loader(validation,shuffle=False),**objective)
         result=dict(epoch=epoch+1,train=train,valid=val,seconds=time.monotonic()-begun)
         improved=val['loss']<best;best=min(best,val['loss'])
         checkpoint=dict(metadata,epoch=epoch+1,best=best,model=model.state_dict(),

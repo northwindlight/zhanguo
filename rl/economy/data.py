@@ -71,6 +71,21 @@ class Dataset:
 
     def __len__(self):return len(self.index)
 
+    def candidate_counts(self):
+        """每行的候选数，用于按长度分桶组批。
+
+        ``collate`` 把一批补到 ``max``：随机组批时一条尾段行（~2000 个候选）会把
+        同批 23 条短行一起撑到 2000，而候选自注意力是 O(n²)，padding 部分全在算。
+        按长度分桶**不改变监督语义**（行、标签、损失权重都不变），只是让每批的
+        候选数接近，把 padding 从平均 2~3 倍浪费降到接近 1。
+        启用 ``max_candidates`` 时按截断后的长度计。
+        """
+        counts=[]
+        for shard,i in self.index:
+            n=int(self.shards[shard]['candidate_offsets'][i+1]-self.shards[shard]['candidate_offsets'][i])
+            counts.append(min(n,self.max_candidates) if self.max_candidates else n)
+        return np.asarray(counts,dtype=np.int64)
+
     def set_epoch(self,epoch):
         """换一批负样本；同一 epoch 内同一行必须稳定（DataLoader 可能重复读）。"""
         self.epoch=int(epoch)
