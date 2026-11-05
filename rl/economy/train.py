@@ -60,11 +60,10 @@ def metrics(model,loader,optimizer=None,*,opening_weight=1.,mobilization_weight=
             if family is not None:
                 # 族头用教师自己的动作族监督：三分类，不会被上千个候选负样本淹没。
                 teacher_family=batch['candidates'][indices,target,5:10].argmax(-1)
-                family_loss=F.cross_entropy(family[indices,target],teacher_family)
+                family_loss=F.cross_entropy(family,teacher_family)
                 loss=loss+model.config.get('family_loss_weight',.5)*family_loss
                 totals.update(family_loss=float(family_loss.detach())*len(target))
-                predicted_family=family[indices,target].argmax(-1)
-                totals.update(family_correct=int((predicted_family==teacher_family).sum()),
+                totals.update(family_correct=int((family.argmax(-1)==teacher_family).sum()),
                               family_n=int(len(target)))
             if executable is not None:
                 exec_loss=F.binary_cross_entropy_with_logits(executable[batch['candidate_mask']],

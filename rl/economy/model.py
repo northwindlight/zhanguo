@@ -78,9 +78,10 @@ class Policy(nn.Module):
         # 动作族辅助头：finish / build / recruit。候选集里 build 有「地块×建筑种」
         # 上千个、recruit 只有每地块一个，直接对候选做交叉熵时模型很容易把
         # 「该建设」判成「征兵」（实测：教师建设的行里 37.8% 被判成征兵）。
-        # 族头只有 3 类，信号不会被上千个负样本淹没；推理时把它的对数概率并入
-        # 候选分数，等价于 P(候选) = P(族)·P(候选|族) 的分解。
-        self.family_head=FastLinear(2*width,3) if family_aux else None
+        # ★ 输入只用**全局状态** x[:,0]：候选自身带着动作族 one-hot（特征 5:10），
+        #   拿候选表示做输入会让族头退化成「读自己的 one-hot」，实测准确率立刻 1.0
+        #   却学不到任何东西。族头要回答的是 P(教师这一手选哪一族 | 当前局面)。
+        self.family_head=FastLinear(width,3) if family_aux else None
         self.last_family_logits=None
         self.critic=nn.Sequential(FastLinear(width,width),nn.GELU(),FastLinear(width,1)) if critic else None
         if self.critic is not None:
@@ -95,12 +96,12 @@ class Policy(nn.Module):
         h=torch.cat((h,q),dim=-1)
         logits=self.score(h).squeeze(-1)
         if self.family_head is not None:
-            family=self.family_head(h)
-            # 训练侧读取；推理侧只在下面并入分数。
+            family=self.family_head(x[:,0])          # (B,3)：只看局面，不看候选
+            # 训练侧读取；推理侧把族先验并入每个候选的分数。
             self.last_family_logits=family
             index=batch['candidates'][...,5:10].argmax(-1)
             logits=logits+self.config['family_weight']*family.log_softmax(-1).gather(
-                -1,index.unsqueeze(-1)).squeeze(-1)
+                -1,index)
         executable=self.exec_head(h).squeeze(-1) if self.action_mode=='projects' else None
         if executable is not None:
             # feat/rl transformer: a learned soft prior, no formal legality mask.

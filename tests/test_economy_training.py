@@ -160,7 +160,8 @@ class FamilyHeadChecks(unittest.TestCase):
             plain_logits = plain(batch)[0]
             blended = model(batch)[0]
         self.assertFalse(torch.allclose(plain_logits, blended))
-        self.assertEqual(tuple(model.last_family_logits.shape), (4, 12, 3))
+        # 族头只看局面：形状是 (batch, 3)，与候选数无关（否则会读候选自己的 one-hot）
+        self.assertEqual(tuple(model.last_family_logits.shape), (4, 3))
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
         before = float(model.family_head.weight.detach().abs().sum())
         result = metrics(model, [batch], optimizer)
