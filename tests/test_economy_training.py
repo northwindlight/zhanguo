@@ -227,3 +227,30 @@ class FamilyHeadChecks(unittest.TestCase):
         self.assertIsNone(old.pool)
         self.assertNotIn('cand_ffn', old.config)
         self.assertEqual(old.config.get('head_pool', 'context0'), 'context0')
+
+
+@unittest.skipIf(torch is None, 'Optional training dependencies')
+class PpoRoundCliChecks(unittest.TestCase):
+    """PPO 一轮的入口：参数校验与产物字段（不跑真实对局）。"""
+
+    def test_rejects_bad_shapes(self):
+        import subprocess, sys
+        root = Path(__file__).resolve().parents[1]
+        with TemporaryDirectory() as temp:
+            model = Path(temp) / 'm.pt'
+            from rl.economy.model import Policy
+            p = Policy(action_mode='projects', critic=True)
+            torch.save(dict(config=p.config, model=p.state_dict(), fingerprint=p.fingerprint,
+                            train_seeds=[1], valid_seeds=[2]), model)
+            out = subprocess.run([sys.executable, '-m', 'rl.economy.ppo_round', '--checkpoint', str(model),
+                                  '--out', str(Path(temp) / 'o.pt'), '--worlds', '0'],
+                                 cwd=root, capture_output=True, text=True)
+            self.assertNotEqual(out.returncode, 0)
+            self.assertIn('worlds/turns must be positive', out.stderr)
+
+    def test_metrics_payload_keys_match_ppo_update(self):
+        from rl.economy.online import ppo_update
+        import inspect
+        source = inspect.getsource(ppo_update)
+        for key in ('coverage', 'examples_used', 'kl_beta', 'kl_stopped'):
+            self.assertIn(key, source)
